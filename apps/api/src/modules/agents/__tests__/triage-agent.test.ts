@@ -39,8 +39,8 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => {
 });
 
 // Use dynamic import after mock setup
-const { triageService } = await import('../triage.service.js');
-const { systemHealthCheck } = await import('../monitor-system-probes.js');
+const { triageService } = await import('../triage/triage.service.js');
+const { systemHealthCheck } = await import('../monitor/monitor-system-probes.js');
 
 describe('TriageService + MonitorService', () => {
   beforeEach(() => {

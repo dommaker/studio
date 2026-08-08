@@ -51,7 +51,7 @@ import {
   resolveRealUsage,
   writeWorkunitTokenEvent,
   type StepResult,
-} from '../agent-loop';
+} from '../loop/agent-loop';
 import { WorkUnitService, type WorkUnitMetadata, type WorkUnitData } from '../../workunit/workunit.service';
 import type { ExecutionResult } from '@dommaker/studio-agent';
 

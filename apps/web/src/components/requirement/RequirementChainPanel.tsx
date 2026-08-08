@@ -38,10 +38,16 @@ export function RequirementChainPanel({ reqId, onClose }: Props) {
   const [chain, setChain] = useState<RequirementChain | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!reqId) return;
+  // reqId 切换时在渲染期同步清空旧链路（替代原 effect 顶部的同步重置）
+  const [prevReqId, setPrevReqId] = useState(reqId);
+  if (prevReqId !== reqId) {
+    setPrevReqId(reqId);
     setChain(null);
     setError(null);
+  }
+
+  useEffect(() => {
+    if (!reqId) return;
     requirementApi.getChain(reqId)
       .then(r => setChain(r.data.data))
       .catch(e => setError(e instanceof Error ? e.message : String(e)));

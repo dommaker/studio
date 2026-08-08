@@ -45,8 +45,8 @@ export interface NodeExecution {
   nodeId: string;
   nodeName?: string;
   status: 'pending' | 'running' | 'succeeded' | 'failed';
-  input?: any;
-  output?: any;
+  input?: unknown;
+  output?: unknown;
   error?: string;
   startedAt?: string;
   completedAt?: string;
@@ -95,7 +95,7 @@ export interface IntentAnalysis {
   skill: string;
   confidence: number;
   steps: { id: string; name: string; confidence?: number }[];
-  extractedParams: Record<string, any>;
+  extractedParams: Record<string, unknown>;
   reasoning?: string;
   usedLLM?: boolean;
   matchedSkill?: string;
@@ -218,7 +218,7 @@ export interface AgentMetadata {
   category?: string;
   icon?: string;
   capabilities?: string[];
-  config?: Record<string, any>;
+  config?: Record<string, unknown>;
   inputSchema?: JSONSchema;
   outputSchema?: JSONSchema;
 }
@@ -231,7 +231,7 @@ export interface JSONSchema {
   title?: string;
   description?: string;
   // Allow common schema properties
-  default?: any;
+  default?: unknown;
   enum?: string[];
   minimum?: number;
   maximum?: number;
@@ -243,7 +243,7 @@ export interface JSONSchema {
 export interface JSONSchemaProperty {
   type: string;
   description?: string;
-  default?: any;
+  default?: unknown;
   enum?: string[];
   minimum?: number;
   maximum?: number;
@@ -268,7 +268,7 @@ export interface WorkflowNode {
   id: string;
   type: string;
   position: { x: number; y: number };
-  data: Record<string, any>;
+  data: Record<string, unknown>;
 }
 
 export interface WorkflowEdge {
@@ -284,13 +284,13 @@ export interface WorkflowStep {
   name: string;
   agentId?: string;
   type?: string;
-  config?: Record<string, any>;
+  config?: Record<string, unknown>;
   timeout?: number;
 }
 
 export interface WorkflowTrigger {
   type: 'manual' | 'schedule' | 'event';
-  config?: Record<string, any>;
+  config?: Record<string, unknown>;
 }
 
 // ==================== 项目 ====================

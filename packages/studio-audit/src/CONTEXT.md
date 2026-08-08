@@ -4,13 +4,14 @@
 
 ## 职责
 
-提供审计日志的记录、查询、导出功能。通过 `AuditService` 进行持久化日志操作。
+提供审计日志的记录、查询、统计与导出功能。通过 `AuditService` 进行持久化日志操作（JSONL 存储）。
 
 ## 核心导出
 
 | 导出 | 文件 | 说明 |
 | --- | --- | --- |
 | `AuditService`, `AuditActions`, `AuditResources` | `services/audit-service.ts` | 核心审计服务，提供日志记录、查询、统计功能 |
+| `AuditLogInput`, `AuditLogQuery`, `AuditLogStats` | `services/audit-service.ts` | 审计日志输入/查询/统计类型 |
 
 ## 依赖关系
 

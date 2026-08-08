@@ -222,7 +222,7 @@ LOG_LEVEL=debug
     // agent → ['agent', 'executor']
     const agentPaths = [
       'apps/api/src/modules/agents/agent-router.ts',
-      'packages/studio-agent/src/services/agent-executor.ts',
+      'packages/studio-agent/src/services/agent-runner.ts',
       'apps/api/src/modules/agents/monitor-agent.service.ts',
     ];
 

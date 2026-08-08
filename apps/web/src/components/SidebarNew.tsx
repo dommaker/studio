@@ -1,7 +1,6 @@
 // Sidebar.tsx - 侧边栏组件（最新设计）
 // 所有 Execution 都关联 Project，移除独立任务入口
 import { Link, useLocation } from 'react-router-dom';
-import { useTranslation } from 'react-i18next';
 import '../styles/theme.css';
 
 interface SidebarProps {
@@ -10,26 +9,25 @@ interface SidebarProps {
 }
 
 export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
-  const { t } = useTranslation();
   const location = useLocation();
 
   // 导航项
   const navItems = [
-    { to: '/channels', icon: '💬', label: t('nav.channels', '频道') },
-    { to: '/pmo', icon: '📊', label: t('nav.pmo', 'PMO') },
-    { to: '/knowledge', icon: '📚', label: t('nav.knowledge', '知识库') },
-    { to: '/wiki', icon: '📖', label: t('nav.wiki', '文档') },
-    { to: '/workunits', icon: '📋', label: t('nav.workunits', 'WorkUnit') },
-    { to: '/agents', icon: '🤖', label: t('nav.agents', 'Agent') },
-    { to: '/monitoring', icon: '📈', label: t('nav.monitoring', '监控') },
-    { to: '/settings', icon: '⚙️', label: t('nav.settings', '设置') },
+    { to: '/channels', icon: '💬', label: '频道' },
+    { to: '/pmo', icon: '📊', label: 'PMO' },
+    { to: '/knowledge', icon: '📚', label: '知识库' },
+    { to: '/wiki', icon: '📖', label: '文档' },
+    { to: '/workunits', icon: '📋', label: 'WorkUnit' },
+    { to: '/agents', icon: '🤖', label: 'Agent' },
+    { to: '/monitoring', icon: '📈', label: '监控' },
+    { to: '/settings', icon: '⚙️', label: '设置' },
   ];
 
   const isActive = (path: string) => {
     return location.pathname.startsWith(path);
   };
 
-  const handleNavClick = (path: string) => {
+  const handleNavClick = () => {
     if (onClose && window.innerWidth < 640) {
       onClose();
     }
@@ -69,7 +67,7 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
           <Link
             key={item.to}
             to={item.to}
-            onClick={() => handleNavClick(item.to)}
+            onClick={() => handleNavClick()}
             className={`flex items-center gap-3 px-3 py-2 rounded-lg transition-all`}
             style={{
               background: isActive(item.to)
@@ -92,7 +90,7 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
       <div className="mt-auto p-4 text-xs" style={{ borderTop: '1px solid var(--border-subtle)' }}>
         <div className="flex items-center gap-2">
           <span className="w-2 h-2 rounded-full" style={{ background: 'var(--success)' }} />
-          <span style={{ color: 'var(--text-muted)' }}>{t('status.ready', '就绪')}</span>
+          <span style={{ color: 'var(--text-muted)' }}>就绪</span>
         </div>
       </div>
     </aside>

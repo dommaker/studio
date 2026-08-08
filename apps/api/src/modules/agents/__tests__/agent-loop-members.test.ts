@@ -27,7 +27,7 @@ vi.mock('../../knowledge/knowledge-service', () => ({
   },
 }));
 
-import { AgentLoop } from '../agent-loop';
+import { AgentLoop } from '../loop/agent-loop';
 
 const ROLE_ID = 'role-member';
 const OTHER_ROLE_ID = 'role-other';

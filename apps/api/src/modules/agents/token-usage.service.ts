@@ -25,6 +25,7 @@ import * as path from 'path';
 import { FileStore, type WorkUnitSnapshot } from '@dommaker/studio-shared';
 import { TREE_TOKEN_BUDGET } from '../workunit/delegation-gate.js';
 import { readCollab } from '../workunit/delegation-gate.js';
+import { buildAssigneeProfileResolver } from '../workunit/assignee-resolver.js';
 import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
 
 const STUDIO_EVENTS_JSONL = resolveStudioLogFile('studio-events.jsonl');
@@ -134,12 +135,16 @@ async function computeAgentTokenUsage(
   const fileStore = fileStoreOpt ?? new FileStore();
   const usage = zeroUsage(profileId);
 
-  // 实例 → profile 映射
-  const states = await fileStore.listStates().catch(() => []);
-  const instanceToProfile = new Map<string, string>();
-  for (const s of states) {
-    if (s?.id && s?.roleId) instanceToProfile.set(s.id, s.roleId);
-  }
+  // assigneeId 双语义解析（共享 helper，workunit/assignee-resolver.ts）：
+  // 实例形态经 state.roleId 反查；未认领指名形态（profile id）直通
+  const [states, profiles] = await Promise.all([
+    fileStore.listStates().catch(() => []),
+    fileStore.listProfiles().catch(() => [] as Array<{ id: string }>),
+  ]);
+  const resolveAssigneeProfile = buildAssigneeProfileResolver({
+    states,
+    profileIds: new Set(profiles.map(p => p.id)),
+  });
 
   // WU 索引：id → snapshot；树大小按全量索引统计
   const wus = await fileStore.getIndex().catch(() => []);
@@ -173,7 +178,7 @@ async function computeAgentTokenUsage(
 
     const wu = wuById.get(wuId);
     if (!wu?.assigneeId) continue;
-    if (instanceToProfile.get(wu.assigneeId) !== profileId) continue;
+    if (resolveAssigneeProfile(wu.assigneeId) !== profileId) continue;
 
     const injected = typeof payload.injectedTokens === 'number' && Number.isFinite(payload.injectedTokens) ? payload.injectedTokens : 0;
     const execution = typeof payload.executionTokens === 'number' && Number.isFinite(payload.executionTokens) ? payload.executionTokens : 0;
@@ -280,14 +285,14 @@ export async function aggregateTreeTokens(
     // 文件不存在 -> 全零
   }
 
-  // 3. 读 profiles 拿 name（assigneeId 双语义：认领后 = instance id，需经 state.roleId
-  // 反查 profile；未认领指名时本身就是 profile id，直接命中 profileNameById）
+  // 3. 读 profiles 拿 name（assigneeId 双语义解析走共享 helper：
+  // 认领后 = instance id，经 state.roleId 反查；未认领指名 = profile id 直通）
   const allStates = await fileStore.listStates().catch(() => []);
   const allProfiles = await fileStore.listProfiles().catch(() => []);
-  const instanceToProfile = new Map<string, string>();
-  for (const st of allStates) {
-    if (st?.id && st?.roleId) instanceToProfile.set(st.id, st.roleId);
-  }
+  const resolveAssigneeProfile = buildAssigneeProfileResolver({
+    states: allStates,
+    profileIds: new Set(allProfiles.map(p => p.id)),
+  });
   const profileNameById = new Map<string, string>();
   for (const p of allProfiles) {
     profileNameById.set(p.id, p.name);
@@ -298,9 +303,7 @@ export async function aggregateTreeTokens(
   let rootTotal = 0;
   for (const [wuId, snap] of treeNodes) {
     const tokens = perWuTokens.get(wuId);
-    const profileId = snap.assigneeId
-      ? (instanceToProfile.get(snap.assigneeId) ?? (profileNameById.has(snap.assigneeId) ? snap.assigneeId : undefined))
-      : undefined;
+    const profileId = resolveAssigneeProfile(snap.assigneeId) ?? undefined;
     const profileName = profileId ? profileNameById.get(profileId) ?? null : null;
     const injected = tokens?.injected ?? null;
     const execution = tokens?.execution ?? null;

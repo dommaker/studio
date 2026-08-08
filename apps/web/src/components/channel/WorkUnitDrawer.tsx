@@ -13,7 +13,8 @@ import { useWorkUnitEvents } from '../../hooks/useWorkUnitEvents';
 import { ExecutionSteps } from '../workunit/ExecutionSteps';
 import { TreeTokenDrawer } from '../workunit/TreeTokenDrawer';
 import { SelfReviewBadge } from '../workunit/SelfReviewBadge';
-import { deriveDisplayState, parseAttestations, type AttestationEntry } from '@dommaker/studio-shared/web';
+import { EvidenceLedger } from '../workunit/EvidenceLedger';
+import { deriveDisplayState, parseAttestations } from '@dommaker/studio-shared/web';
 
 export type DrawerState = { kind: 'wu'; id: string } | { kind: 'req'; id: string } | null;
 
@@ -34,7 +35,7 @@ const WU_STATUS_LABELS: Record<string, string> = {
 };
 
 /** wu 状态 → 状态 chip 修饰类（active=执行中 pulse / blocked=待确认 / done|closed=完成 / 其余=待定） */
-export function wuStatusClass(status: string): string {
+function wuStatusClass(status: string): string {
   if (status === 'active') return 'mc-status mc-status-running';
   if (status === 'blocked') return 'mc-status mc-status-need';
   if (status === 'done' || status === 'closed') return 'mc-status mc-status-done';
@@ -46,7 +47,7 @@ function deriveWuColumn(wu: { status: string; metadata?: string | null }): strin
   return deriveDisplayState({ status: wu.status, metadata: wu.metadata }).column;
 }
 
-export function formatTokens(n: number): string {
+function formatTokens(n: number): string {
   return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
 }
 
@@ -57,7 +58,16 @@ interface Props {
   onOpenReq: (id: string) => void;
 }
 
-function parseMeta(metadata: string | null): Record<string, any> {
+/** WU metadata JSON 解析产物（只声明本抽屉消费字段，其余透传） */
+interface WuMeta {
+  title?: string;
+  stepCount?: number;
+  waitingForInput?: boolean;
+  waitingQuestion?: string;
+  [key: string]: unknown;
+}
+
+function parseMeta(metadata: string | null): WuMeta {
   try { return JSON.parse(metadata || '{}'); } catch { return {}; }
 }
 
@@ -93,13 +103,20 @@ function WuDetail({ id, onOpenReq }: { id: string; onOpenReq: (reqId: string) =>
   const [eventTick, setEventTick] = useState(0);
   useWorkUnitEvents(() => setEventTick(t => t + 1));
 
-  useEffect(() => {
-    let alive = true;
+  // 渲染期按 id 重置（替代原 effect 内同步重置）：SSE eventTick 触发的重拉不再重置，
+  // 消除每次事件都闪"加载中…"的骨架闪烁——事件刷新静默进行，旧数据留到新数据到达
+  const [prevId, setPrevId] = useState(id);
+  if (prevId !== id) {
+    setPrevId(id);
     setWu(null);
     setTokens(null);
     setError('');
+  }
+
+  useEffect(() => {
+    let alive = true;
     workunitApi.get(id)
-      .then(r => { if (alive) setWu(r.data); })
+      .then(r => { if (alive) { setWu(r.data); setError(''); } })
       .catch(e => { if (alive) setError(e instanceof Error ? e.message : String(e)); });
     workunitApi.listTokenEvents()
       .then(r => { if (alive) setTokens(parseWorkunitTokenEvents(r.data.events || [], id)); })
@@ -165,29 +182,9 @@ function WuDetail({ id, onOpenReq }: { id: string; onOpenReq: (reqId: string) =>
       {wu.claimedAt && <div className="mc-kv"><span className="mc-kv-k">认领</span><span className="mc-kv-v">{formatTime(wu.claimedAt)}</span></div>}
       {wu.completedAt && <div className="mc-kv"><span className="mc-kv-k">完成</span><span className="mc-kv-v">{formatTime(wu.completedAt)}</span></div>}
 
-      {/* F6 证据台账：L1 自动验证 / L2 Agent 评审 / L3 人工验收 三层留痕 + 人工确认入口。
+      {/* F6 证据台账：L1 自动验证 / L2 Agent 评审 / L3 人工验收 三层留痕（共享 EvidenceLedger，卡片变体见 WorkUnitDetailPage）。
           语义：L2 是流程硬门（过了即推进）；L3 是人工背书台账，不阻断流程（done 缺 l3 时展示回审查列）。 */}
-      <div className="mc-block-label">证据台账</div>
-      {attestations === undefined && (
-        <div className="mc-drawer-note">存量 WU，证据模型未介入（按存储状态展示）</div>
-      )}
-      {attestations !== undefined && (['l1', 'l2', 'l3'] as const).map(level => {
-        const entry: AttestationEntry | undefined = attestations[level];
-        const label = level === 'l1' ? 'L1 自动验证' : level === 'l2' ? 'L2 Agent 评审' : 'L3 人工验收';
-        return (
-          <div className="mc-kv" key={level}>
-            <span className="mc-kv-k">{label}</span>
-            <span className="mc-kv-v">
-              {entry
-                ? `${entry.verdict === 'approved' ? '✓' : '✗'} ${entry.kind} · ${entry.by.slice(0, 8)} · ${formatTime(entry.at)}`
-                : '—'}
-            </span>
-          </div>
-        );
-      })}
-      {attestations?.l2?.summary && (
-        <div className="mc-drawer-note">评审结论：{attestations.l2.summary}</div>
-      )}
+      <EvidenceLedger attestations={attestations} variant="drawer" />
       {wu.status === 'in_review' && (
         <div style={{ margin: '4px 0 8px' }}>
           <button
@@ -308,10 +305,16 @@ function ReqChain({ id, onOpenWu }: { id: string; onOpenWu: (wuId: string) => vo
   const [chain, setChain] = useState<RequirementChain | null>(null);
   const [error, setError] = useState('');
 
-  useEffect(() => {
-    let alive = true;
+  // id 切换时在渲染期同步清空旧链路（替代原 effect 顶部的同步重置）
+  const [prevId, setPrevId] = useState(id);
+  if (prevId !== id) {
+    setPrevId(id);
     setChain(null);
     setError('');
+  }
+
+  useEffect(() => {
+    let alive = true;
     requirementApi.getChain(id)
       .then(r => { if (alive) setChain(r.data.data); })
       .catch(e => { if (alive) setError(e instanceof Error ? e.message : String(e)); });

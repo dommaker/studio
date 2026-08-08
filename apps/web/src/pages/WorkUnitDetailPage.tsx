@@ -15,6 +15,7 @@ import { DiscussionPanel } from '../components/DiscussionPanel';
 import { RequirementChainPanel } from '../components/requirement/RequirementChainPanel';
 import { SelfReviewBadge } from '../components/workunit/SelfReviewBadge';
 import { TreeTokenDrawer } from '../components/workunit/TreeTokenDrawer';
+import { EvidenceLedger } from '../components/workunit/EvidenceLedger';
 
 const statusLabels: Record<string, string> = {
   unassigned: '待分配',
@@ -51,10 +52,11 @@ function parseMeta(metadata: string | null): Record<string, unknown> {
   try { return JSON.parse(metadata || '{}') as Record<string, unknown>; } catch { return {}; }
 }
 
-/** 归属条 PMO 解析：① metadata.pmoProjectId 直查；② 否则 reqId → requirement.projectId（REQ 别名视图 projectId = PMO 自身 id） */
+/** 归属条 PMO 解析（2026-08 归因统一）：① 创建期归因戳 metadata.pmoId（‖ deprecated legacy ownershipProjectId 同级）直查；② 否则 reqId → requirement.projectId（REQ 别名视图 projectId = PMO 自身 id） */
 async function resolvePmo(wu: WorkUnit): Promise<PmoInfo | null> {
-  const metaPmoId = parseMeta(wu.metadata).pmoProjectId;
-  let projectId = typeof metaPmoId === 'string' ? metaPmoId : null;
+  const meta = parseMeta(wu.metadata);
+  const stamp = meta.pmoId ?? meta.ownershipProjectId;
+  let projectId = typeof stamp === 'string' && stamp ? stamp : null;
   if (!projectId && wu.reqId) {
     try {
       const reqRes = await requirementApi.get(wu.reqId);
@@ -81,14 +83,20 @@ export function WorkUnitDetailPage() {
   const [chainReqId, setChainReqId] = useState<string | null>(null);
   const [showTreeTokens, setShowTreeTokens] = useState(false);
 
-  useEffect(() => {
-    if (!id) return;
-    let alive = true;
+  // id 切换时在渲染期同步清空上一 WU 的全部展示数据（替代原 effect 顶部的五处同步重置）
+  const [prevId, setPrevId] = useState(id);
+  if (prevId !== id) {
+    setPrevId(id);
     setWu(null);
     setError('');
     setPmo(null);
     setChannelName(null);
     setAssignee(null);
+  }
+
+  useEffect(() => {
+    if (!id) return;
+    let alive = true;
     workunitApi.get(id)
       .then(r => {
         if (!alive) return;
@@ -156,9 +164,9 @@ export function WorkUnitDetailPage() {
               <button
                 className="btn btn-secondary"
                 onClick={() => setShowTreeTokens(true)}
-                title="树级 Token 开销"
+                title="查看整条协作树各节点的 Token 消耗与预算剩余"
               >
-                树开销
+                Token 开销
               </button>
             )}
             <button className="btn btn-secondary flex-shrink-0" onClick={handleBack}>返回</button>
@@ -238,42 +246,8 @@ export function WorkUnitDetailPage() {
                 </div>
               )}
 
-              {/* F6 证据台账：L1 自动验证 / L2 Agent 评审 / L3 人工验收（数据路径同 WorkUnitDrawer） */}
-              <div
-                className="card mt-4 p-3"
-              >
-                <div className="text-xs font-medium u-text-2 mb-2">证据台账</div>
-                {attestations === undefined ? (
-                  <div className="text-xs u-text-3">存量 WU，证据模型未介入（按存储状态展示）</div>
-                ) : (
-                  <div className="space-y-1.5">
-                    {(['l1', 'l2', 'l3'] as const).map(level => {
-                      const entry = attestations[level];
-                      const label = level === 'l1' ? 'L1 自动验证' : level === 'l2' ? 'L2 Agent 评审' : 'L3 人工验收';
-                      return (
-                        <div className="flex items-center gap-2 text-xs" key={level}>
-                          <span className="u-text-2 w-24 flex-shrink-0">{label}</span>
-                          {entry ? (
-                            <>
-                              <span className={`px-2 py-0.5 rounded ${entry.verdict === 'approved' ? 'u-ok-dim u-ok' : 'u-err-dim u-err'}`}>
-                                {entry.verdict === 'approved' ? '✓ 通过' : '✗ 拒绝'}
-                              </span>
-                              <span className="u-text-3">
-                                {entry.kind} · {entry.by.slice(0, 8)} · {formatTime(entry.at)}
-                              </span>
-                            </>
-                          ) : (
-                            <span className="u-text-3">—</span>
-                          )}
-                        </div>
-                      );
-                    })}
-                    {attestations.l2?.summary && (
-                      <div className="text-xs u-text-3">评审结论：{attestations.l2.summary}</div>
-                    )}
-                  </div>
-                )}
-              </div>
+              {/* F6 证据台账：L1 自动验证 / L2 Agent 评审 / L3 人工验收（共享 EvidenceLedger，数据路径同 WorkUnitDrawer） */}
+              <EvidenceLedger attestations={attestations} variant="card" />
 
               {/* 执行过程（思考/工具调用/用量；组件自带 REST 回放 + SSE 实时流，页面不接 SSE） */}
               <div
@@ -292,7 +266,7 @@ export function WorkUnitDetailPage() {
       {/* REQ 全链路弹窗（复用 RequirementChainPanel） */}
       {chainReqId && <RequirementChainPanel reqId={chainReqId} onClose={() => setChainReqId(null)} />}
 
-      {/* AC-5.6: 树级 Token 开销抽屉 */}
+      {/* AC-5.6: 协作树 Token 开销弹窗 */}
       {showTreeTokens && wu && (
         <TreeTokenDrawer workUnitId={wu.id} onClose={() => setShowTreeTokens(false)} />
       )}

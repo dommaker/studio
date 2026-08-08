@@ -2,8 +2,9 @@
  * PMO 证据台账共享口径（2026-07-30 抽取）：delivery.ts 台账与 progress-rollup.ts
  * 状态翻转共用同一份证据判定，禁止两处各自解释 attestations（铁律同 deriveDisplayState）。
  *
- * 归属口径：先按 Requirement.projectId 关联 reqId 集合过滤；为空则回退按
- * metadata.pmoId 归属（analysis 派生链的 task WU 无 reqId，仅 pmoId 溯源）。
+ * 归属口径：先按 Requirement.projectId 关联 reqId 集合过滤；为空则回退按创建期
+ * 归因戳归属（metadata.pmoId ‖ deprecated legacy ownershipProjectId 同级，pmoId 优先——
+ * analysis 派生链的 task WU 无 reqId，仅戳溯源；parser 见 requirements/wu-pmo-attribution.ts）。
  *
  * 证据口径：
  *   - l1 只对代码类 WU（task/bug/feature/refactor）要求；
@@ -14,23 +15,21 @@
  *   - l3 对所有已完成 WU 要求（验收权只在人）。
  */
 import { deriveDisplayState, type WorkUnitSnapshot } from '@dommaker/studio-shared';
+import { parseWuPmoId } from '../requirements/wu-pmo-attribution.js';
+
+/**
+ * @deprecated 兼容别名（progress-rollup 及其测试沿用旧名）：parser 已迁至
+ * requirements/wu-pmo-attribution.ts（零依赖叶子——本模块不能传递依赖
+ * pmo-branch-resolver → project.service → workunit.service，会成循环）。
+ * 2026-08 归因统一后口径放宽为 pmoId ‖ legacy ownershipProjectId 同级（pmoId 优先）。
+ */
+export const parseWuMetaPmoId = parseWuPmoId;
 
 /** 代码类 WU（与 agent-loop CODE_WORKTREE_TYPES 同集——有专属 worktree 才跑自动验证） */
 export const CODE_TYPES = new Set(['task', 'bug', 'feature', 'refactor']);
 
 /** L2 豁免集：ReviewDispatcher 不派自动评审的类型（review-dispatcher.ts:47） */
 const L2_EXEMPT_TYPES = new Set(['review', 'analysis']);
-
-/** analysis 派生 WU 的 PMO 溯源字段：metadata.pmoId（JSON 字符串，容错解析） */
-export function parseWuMetaPmoId(metadata: string | null | undefined): string | null {
-  if (!metadata) return null;
-  try {
-    const pmoId = (JSON.parse(metadata) as { pmoId?: unknown }).pmoId;
-    return typeof pmoId === 'string' && pmoId.length > 0 ? pmoId : null;
-  } catch {
-    return null;
-  }
-}
 
 /** 项目证据汇总（deliverable = 有 WU 且全部完成且三层证据齐） */
 export interface EvidenceSummary {
@@ -52,7 +51,8 @@ export interface EvidenceSummary {
 
 /**
  * 项目关联 WU 归属：先按 Requirement.projectId 关联 reqId 集合过滤；
- * 为空则回退按 metadata.pmoId 归属（analysis 派生链），口径与 progress-rollup 一致。
+ * 为空则回退按创建期归因戳（pmoId ‖ legacy ownershipProjectId）归属（analysis 派生链），
+ * 口径与 progress-rollup 一致。
  */
 export function selectProjectSnapshots(
   projectId: string,
@@ -62,8 +62,9 @@ export function selectProjectSnapshots(
   const reqIds = new Set(requirements.filter(r => r.projectId === projectId).map(r => r.id));
   let snapshots = index.filter(s => s.reqId && reqIds.has(s.reqId));
   if (snapshots.length === 0) {
-    // analysis 派生链（analysis-handoff）：task WU 无 reqId，仅 metadata.pmoId 溯源
-    snapshots = index.filter(s => parseWuMetaPmoId(s.metadata) === projectId);
+    // analysis 派生链（analysis-handoff）：task WU 无 reqId，仅创建期戳溯源
+    // （2026-08 归因统一：parseWuPmoId = pmoId ‖ legacy ownershipProjectId 同级，pmoId 优先）
+    snapshots = index.filter(s => parseWuPmoId(s.metadata) === projectId);
   }
   return snapshots;
 }

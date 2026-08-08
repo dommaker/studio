@@ -23,7 +23,7 @@ import {
   buildExecutionStreamChunks,
   emitExecutionStreamLine,
   emitExecutionStreamStepStart,
-} from '../execution-step-events.js';
+} from '../loop/execution-step-events.js';
 
 /** 造一段 claude stream-json stdout（assistant 事件 + result 事件） */
 function streamJson(lines: Array<Record<string, unknown>>): string {

@@ -37,7 +37,7 @@ vi.mock('../../knowledge/knowledge-service.js', () => ({
   knowledgeService: { recordPattern: mockRecordPattern },
 }));
 
-vi.mock('../triage.service.js', () => ({
+vi.mock('../triage/triage.service.js', () => ({
   triageService: { handleAlert: mockHandleAlert },
 }));
 
@@ -55,7 +55,7 @@ import {
   dispatchMonitorAlerts,
   escalateToTriage,
   recordAlertPatterns,
-} from '../monitor-alerts.js';
+} from '../monitor/monitor-alerts.js';
 
 function readEventLines(): any[] {
   if (!fs.existsSync(eventsFile)) return [];

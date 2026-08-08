@@ -30,7 +30,7 @@ export function ManualTaskButton({ label, onRun, costTokens, costNote, className
     try {
       const message = await onRun();
       toast.success(message);
-    } catch (err: any) {
+    } catch (err) {
       toast.error(err?.response?.data?.error?.message ?? '执行失败');
     } finally {
       setRunning(false);

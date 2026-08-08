@@ -5,22 +5,22 @@
  *
  * Priority chain:
  *   1. task.parameters.workspaceRoot (direct path)
- *   2. VPS workspace lookup (~/.studio/workspaces/*.json via FileStore)
+ *   2. VPS workspace lookup (resolveVpsWorkspace from @dommaker/studio-shared/node)
  *   3. createWorktree() fallback (calls git worktree add via execSh)
  *
- * Strategy: mock external deps (FileStore, fs, execSh), let real code run.
+ * Strategy: mock external deps (resolveVpsWorkspace seam, fs, execSh), let real code run.
+ * The VPS 'VPS'-name scan itself is tested in studio-shared (vps-workspace.test.ts).
  */
 
 import { describe, test, expect, vi, beforeEach } from 'vitest';
 
-const { mockExistsSync, mockExecSh, mockReadFileSync, mockMkdirSync, mockWriteFile, mockReaddir, mockReadJson } = vi.hoisted(() => ({
+const { mockExistsSync, mockExecSh, mockReadFileSync, mockMkdirSync, mockWriteFile, mockResolveVpsWorkspace } = vi.hoisted(() => ({
   mockExistsSync: vi.fn(),
   mockExecSh: vi.fn(),
   mockReadFileSync: vi.fn(),
   mockMkdirSync: vi.fn(),
   mockWriteFile: vi.fn().mockResolvedValue(undefined),
-  mockReaddir: vi.fn(),
-  mockReadJson: vi.fn(),
+  mockResolveVpsWorkspace: vi.fn(),
 }));
 
 vi.mock('fs', async (importOriginal) => {
@@ -38,13 +38,13 @@ vi.mock('fs/promises', async (importOriginal) => {
   return {
     ...actual,
     writeFile: mockWriteFile,
-    readdir: mockReaddir,
     rm: vi.fn().mockResolvedValue(undefined),
   };
 });
 
 vi.mock('@dommaker/studio-shared/node', () => ({
   execSh: mockExecSh,
+  resolveVpsWorkspace: mockResolveVpsWorkspace,
 }));
 
 vi.mock('@dommaker/studio-shared', async (importOriginal) => {
@@ -52,15 +52,10 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => {
   return {
     ...actual,
     logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-    // Stub the FileStore I/O edge — resolveWorkspace reads VPS workspaces
-    // from ~/.studio/workspaces/*.json; capture via mockReadJson instead.
-    FileStore: class {
-      readJson = mockReadJson;
-    },
   };
 });
 
-import { resolveWorkspace, ensureDeps, writeRequirementsMd } from '../worktree-resolver.js';
+import { resolveWorkspace, ensureDeps } from '../worktree-resolver.js';
 
 const baseOpts = {
   worktreesDir: '/worktrees',
@@ -80,9 +75,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   // Default: return true for .git checks (repoDir validation), false otherwise
   mockExistsSync.mockImplementation((p: string) => p.endsWith('/.git'));
-  // Default: no workspaces dir (priority 2 finds nothing) → priority 3 worktree
-  mockReaddir.mockRejectedValue(new Error('ENOENT: no workspace dir'));
-  mockReadJson.mockResolvedValue(null);
+  // Default: no VPS workspace (priority 2 finds nothing) → priority 3 worktree
+  mockResolveVpsWorkspace.mockResolvedValue(null);
   mockExecSh.mockResolvedValue({ stdout: '', stderr: '', exitCode: 0 });
 });
 
@@ -94,8 +88,8 @@ describe('resolveWorkspace()', () => {
     const result = await resolveWorkspace({ task, ...baseOpts });
 
     expect(result).toBe('/custom/workspace');
-    // Priority 2 (workspace dir scan) never consulted
-    expect(mockReaddir).not.toHaveBeenCalled();
+    // Priority 2 (VPS workspace lookup) never consulted
+    expect(mockResolveVpsWorkspace).not.toHaveBeenCalled();
     expect(mockExecSh).not.toHaveBeenCalled();
   });
 
@@ -108,13 +102,11 @@ describe('resolveWorkspace()', () => {
     expect(mockExecSh).toHaveBeenCalled();
   });
 
-  test('priority 2: returns VPS workspaceRoot from FileStore when path exists', async () => {
+  test('priority 2: returns VPS workspaceRoot when path exists', async () => {
     const task = makeTask();
-    mockReaddir.mockResolvedValue([{ name: 'ws-1.json', isFile: () => true }]);
-    mockReadJson.mockResolvedValue({
+    mockResolveVpsWorkspace.mockResolvedValue({
       id: 'ws-1',
       name: 'VPS',
-      tokenId: null,
       workspaceRoot: '/vps/root',
       updatedAt: '2026-01-01T00:00:00Z',
     });
@@ -123,17 +115,15 @@ describe('resolveWorkspace()', () => {
     const result = await resolveWorkspace({ task, ...baseOpts });
 
     expect(result).toBe('/vps/root');
-    expect(mockReadJson).toHaveBeenCalledWith(expect.stringContaining('ws-1.json'));
+    expect(mockResolveVpsWorkspace).toHaveBeenCalled();
     expect(mockExecSh).not.toHaveBeenCalled();
   });
 
-  test('priority 2 skipped: FileStore returns workspace but path does not exist', async () => {
+  test('priority 2 skipped: VPS workspace found but path does not exist', async () => {
     const task = makeTask();
-    mockReaddir.mockResolvedValue([{ name: 'ws-1.json', isFile: () => true }]);
-    mockReadJson.mockResolvedValue({
+    mockResolveVpsWorkspace.mockResolvedValue({
       id: 'ws-1',
       name: 'VPS',
-      tokenId: null,
       workspaceRoot: '/stale/path',
       updatedAt: '2026-01-01T00:00:00Z',
     });
@@ -145,9 +135,9 @@ describe('resolveWorkspace()', () => {
     expect(mockExecSh).toHaveBeenCalled();
   });
 
-  test('priority 2 skipped: workspace dir read fails', async () => {
+  test('priority 2 skipped: VPS workspace lookup fails', async () => {
     const task = makeTask();
-    mockReaddir.mockRejectedValue(new Error('ENOENT: no workspace dir'));
+    mockResolveVpsWorkspace.mockRejectedValue(new Error('unexpected fs failure'));
 
     await resolveWorkspace({ task, ...baseOpts });
 
@@ -191,12 +181,10 @@ describe('resolveWorkspace()', () => {
 
   test('hasWorktree=true skips priority 2 (VPS workspace) and creates worktree', async () => {
     const task = makeTask({ hasWorktree: true });
-    // VPS workspace exists in the FileStore — but should be skipped
-    mockReaddir.mockResolvedValue([{ name: 'ws-1.json', isFile: () => true }]);
-    mockReadJson.mockResolvedValue({
+    // VPS workspace exists — but should be skipped
+    mockResolveVpsWorkspace.mockResolvedValue({
       id: 'ws-1',
       name: 'VPS',
-      tokenId: null,
       workspaceRoot: '/vps/root',
       updatedAt: '2026-01-01T00:00:00Z',
     });
@@ -206,7 +194,7 @@ describe('resolveWorkspace()', () => {
 
     // Should NOT use VPS workspace
     expect(result).toBe('/worktrees/exec-1');
-    expect(mockReaddir).not.toHaveBeenCalled();
+    expect(mockResolveVpsWorkspace).not.toHaveBeenCalled();
     // Should create worktree
     expect(mockExecSh).toHaveBeenCalledWith(
       expect.stringContaining('git worktree add'),
@@ -356,80 +344,5 @@ describe('ensureDeps()', () => {
 
     await expect(ensureDeps('/worktree', '/repo'))
       .rejects.toThrow('pnpm install failed');
-  });
-});
-
-describe('writeRequirementsMd()', () => {
-  const task = makeTask();
-
-  beforeEach(() => {
-    mockWriteFile.mockClear();
-  });
-
-  function getWrittenContent(): string {
-    const call = mockWriteFile.mock.calls.find(
-      (c) => typeof c[1] === 'string' && c[1].includes('# 需求'),
-    );
-    return call ? call[1] : '';
-  }
-
-  test('with testFiles: uses vitest run with specified files, no "npm test" constraint', async () => {
-    const testFiles = ['src/foo.test.ts', 'src/bar.test.ts'];
-    const acGroup = {
-      acs: ['AC1: do thing'],
-      files: ['src/foo.ts'],
-      implementationNotes: 'use X',
-    };
-
-    await writeRequirementsMd('/worktree', task, acGroup, testFiles);
-
-    const content = getWrittenContent();
-    expect(content).toContain('npx vitest run src/foo.test.ts src/bar.test.ts');
-    expect(content).not.toContain('完成前必须运行 npm test');
-    expect(content).toContain('type check');
-    expect(content).toContain('lint');
-  });
-
-  test('without testFiles: falls back to npm test', async () => {
-    const acGroup = {
-      acs: ['AC1: do thing'],
-      files: ['src/foo.ts'],
-    };
-
-    await writeRequirementsMd('/worktree', task, acGroup);
-
-    const content = getWrittenContent();
-    expect(content).toContain('完成前必须运行 npm test');
-  });
-
-  test('with empty testFiles array: falls back to npm test', async () => {
-    const acGroup = {
-      acs: ['AC1: do thing'],
-      files: ['src/foo.ts'],
-    };
-
-    await writeRequirementsMd('/worktree', task, acGroup, []);
-
-    const content = getWrittenContent();
-    expect(content).toContain('完成前必须运行 npm test');
-  });
-
-  test('with testFiles: progress.json command uses vitest run', async () => {
-    const testFiles = ['src/foo.test.ts'];
-    const acGroup = { acs: ['AC1'], files: ['src/foo.ts'] };
-
-    await writeRequirementsMd('/worktree', task, acGroup, testFiles);
-
-    const content = getWrittenContent();
-    expect(content).toContain('command: "npx vitest run src/foo.test.ts"');
-  });
-
-  test('without testFiles: progress.json command uses npm test', async () => {
-    const acGroup = { acs: ['AC1'], files: ['src/foo.ts'] };
-
-    await writeRequirementsMd('/worktree', task, acGroup);
-
-    const content = getWrittenContent();
-    expect(content).toContain('command: "npm test"');
   });
 });

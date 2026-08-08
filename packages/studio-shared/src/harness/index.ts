@@ -169,9 +169,6 @@ export class ConstraintService {
   }
 }
 
-// 向后兼容的类型别名
-export type IronLawService = ConstraintService;
-
 // Prompt injection — 约束前置声明注入 Agent prompt
 export { formatConstraintsForPrompt } from './prompt-injection';
 export type { AgentRole } from './prompt-injection';

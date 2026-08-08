@@ -23,7 +23,7 @@ function makePkg(version = '1.2.3', withDist = false) {
   pkgDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-devops-tools-'));
   fs.writeFileSync(path.join(pkgDir, 'package.json'), JSON.stringify({ name: '@acme/pkg', version }));
   if (withDist) {
-    for (const f of ['dist/core/constraints/prompt-injection.js', 'dist/knowledge/doctor.js', 'dist/index.js']) {
+    for (const f of ['dist/core/constraints/checker.js', 'dist/knowledge/doctor.js', 'dist/index.js']) {
       fs.mkdirSync(path.dirname(path.join(pkgDir, f)), { recursive: true });
       fs.writeFileSync(path.join(pkgDir, f), '// built');
     }

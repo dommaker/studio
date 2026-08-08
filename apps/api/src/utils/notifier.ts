@@ -2,8 +2,8 @@
  * 告警通知出口（P0 观测性修复 4）。
  *
  * notifyAlert 统一入口，内部 fan-out 到两个 sink（各自 try/catch，互不影响）：
- *   1. 频道 sink — 以 authorType:'agent', agentName:'Studio' 发系统消息到告警频道
- *      （发帖方式参照 modules/workunit/waiting-input.ts）。
+ *   1. 频道 sink — 经 ChannelMessageService 以 agentName:'Studio' 发系统消息到告警频道
+ *      （eventBus + SSE 发布，频道页实时可见）。
  *      目标频道解析顺序：env STUDIO_ALERT_CHANNEL_ID → 按名字找「系统」/system 频道
  *      → 都没有则跳过并 logger.warn。
  *   2. 企业微信 sink — env WECOM_WEBHOOK_URL 存在时 POST 群机器人 markdown 消息
@@ -11,8 +11,8 @@
  *
  * utils/discord-notifier.ts 保留不动（可选渠道，后续由配置决定是否并入）。
  */
-import { randomUUID } from 'node:crypto';
-import { logger, FileStore, type ChannelMessageData } from '@dommaker/studio-shared';
+import { logger, FileStore } from '@dommaker/studio-shared';
+import { ChannelMessageService } from '../modules/channels/channel-message.service.js';
 
 export type AlertLevel = 'info' | 'warning' | 'critical';
 
@@ -47,18 +47,13 @@ async function postToAlertChannel(level: AlertLevel, title: string, body: string
     return false;
   }
 
-  const msg: ChannelMessageData = {
-    id: randomUUID(),
+  await new ChannelMessageService(fs).createAgentMessage(
     channelId,
-    authorType: 'agent',
-    agentName: 'Studio',
-    content: `${formatLevelTag(level)} **${title}**\n\n${body}`,
-    replyToId: null,
-    meta: '{}',
-    workUnitId: null,
-    createdAt: new Date().toISOString(),
-  };
-  await fs.appendMessage(channelId, msg);
+    'Studio',
+    `${formatLevelTag(level)} **${title}**\n\n${body}`,
+    // warning/critical 带 atHuman（NotificationBell 响铃）；info 只实时上屏不打扰
+    level === 'info' ? undefined : { meta: { atHuman: true } },
+  );
   return true;
 }
 

@@ -121,7 +121,7 @@ export async function studioUp(configPath?: string) {
   // ── Ops Pre-flight Guard ──
   // Replace old --accept-data-loss db push + port check with full pre-flight
   try {
-    const { createOpsService } = await import('../modules/agents/ops.service.js');
+    const { createOpsService } = await import('../modules/agents/ops/ops.service.js');
     const ops = createOpsService(port);
     const frontendDist = path.join(__dirname, '..', 'frontend', 'dist');
     const preflight = await ops.preflight(process.env.REPO_DIR, frontendDist);
@@ -185,7 +185,7 @@ export async function studioStatus() {
     console.log('  Agents:    ❌');
   }
 
-  // 5. G5: Model routing history
+  // 4. G5: Model routing history
   try {
     const r = await fetch(`${baseUrl}/metrics/routing`);
     const { data: routes } = await r.json() as { data: Array<{ time: string; classified: string; final: string; taskType: string }> };
@@ -198,7 +198,7 @@ export async function studioStatus() {
     }
   } catch { /* optional */ }
 
-  // 6. G4: Trajectory eval（D18: 统一事件文件，StudioEvent 形态）
+  // 5. G4: Trajectory eval（D18: 统一事件文件，StudioEvent 形态）
   try {
     const fs = await import('fs');
     const { resolveStudioEventsFile, parseStudioEventPayload } = await import('../utils/studio-events.js');

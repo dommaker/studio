@@ -13,7 +13,6 @@
 import {
   ChangeRecord,
   ChangeLevel,
-  SpecContent,
 } from '../types/change.types.js';
 
 import { logger } from '@dommaker/studio-shared';

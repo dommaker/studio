@@ -5,7 +5,7 @@
  */
 
 import { Router, Request, Response } from 'express';
-import { FileStore } from '@dommaker/studio-shared';
+import { FileStore, generateId } from '@dommaker/studio-shared';
 import { logger } from '../../utils/logger.js';
 import * as os from 'os';
 import * as path from 'path';
@@ -82,7 +82,7 @@ router.post('/', async (req: Request, res: Response) => {
   try {
     const { name } = req.body;
 
-    const id = `company_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+    const id = generateId('company');
     const now = new Date().toISOString();
     const company: CompanyRecord = { id, name, size: 'custom', createdAt: now, updatedAt: now };
     await ensureDir(COMPANIES_DIR);

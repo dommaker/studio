@@ -6,6 +6,7 @@
  *
  * 前端请使用主入口 '@dommaker/studio-shared'（不包含 fs/path/yaml 依赖）
  */
+export * from './vps-workspace';
 export * from './cli/index';
 export * from './config/index';
 export * from './providers';
@@ -13,7 +14,4 @@ export * from './utils/index';
 export * from './llm/index';
 export * from './harness/index';
 export * from './constants/levels';
-export * from './constants/responsibility-chain';
-export * from './constants/stage-definitions';
-export * from './types/stance';
 export type { ConstraintLevel, ConstraintContext, ConstraintResult } from '@dommaker/harness';

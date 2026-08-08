@@ -12,9 +12,10 @@
 | --- | --- | --- |
 | `default` (Router) | `monitoring.routes.ts` | Express 路由器，挂载 `/agents`、`/stats`、`/flywheel`、`/overhead`、`/overview` 五个 GET 端点 |
 | `MonitoringService` | `monitoring.service.ts` | 监控服务类，封装聚合逻辑，依赖 `KnowledgeMetricsSource` 获取度量数据 |
-| `MetricsService` | `metrics.service.ts` | D16 指标聚合服务：`getOverviewMetrics({windowDays})`，60s 内存缓存，`invalidateCache()` 测试用 |
-| `aggregateOverview` (纯函数) | `metrics.service.ts` | D16 聚合核心（快照 + WU 事件 + 统一事件 + 人类消息 → 九组指标，含 F6 evidence 组），供 service 与单测直接调用 |
-| `EvidenceMetrics` (接口) | `metrics.service.ts` | F6 证据台账指标（决策 1）：l1/l2/l3 分层达成、selfReview 率、needsHuman、derivedMismatch 双轨偏差（持续为 0 才可停止手写 in_review）、派生列分布——派生一律过 deriveDisplayState |
+| `MetricsService` | `metrics.service.ts` | D16 指标聚合服务：`getOverviewMetrics({windowDays})`，60s 内存缓存，`invalidateCache()` 测试用。工单 30 起类型区/纯函数区抽出（re-export 保持导出路径兼容，消费方 import 不变） |
+| `aggregateOverview` (纯函数) | `metrics-aggregate.ts`（经 `metrics.service.ts` re-export） | D16 聚合核心（快照 + WU 事件 + 统一事件 + 人类消息 → 九组指标，含 F6 evidence 组），供 service 与单测直接调用 |
+| `OverviewMetrics` 等 9 组指标接口 | `metrics.types.ts`（经 `metrics.service.ts` re-export） | D16 类型契约（Percentile + 9 个指标组接口 + OverviewAggregateInput 在 metrics-aggregate.ts） |
+| `EvidenceMetrics` (接口) | `metrics.types.ts`（经 `metrics.service.ts` re-export） | F6 证据台账指标（决策 1）：l1/l2/l3 分层达成、selfReview 率、needsHuman、derivedMismatch 双轨偏差（持续为 0 才可停止手写 in_review）、派生列分布——派生一律过 deriveDisplayState |
 | `INJECTED_TOKEN_BUDGET` (常量) | `monitoring.service.ts` | 知识/约束注入红线上限：2000 tokens/任务 |
 | `OVERHEAD_RATIO_BUDGET` (常量) | `monitoring.service.ts` | 封装开销比红线：0.2（对应总 token 不超过直连 CLI 的 1.2x） |
 | `KnowledgeMetricsSource` (接口) | `monitoring.service.ts` | 知识度量源接口，定义 `getFlywheelMetrics` 和 `getAuditReport` 方法 |
@@ -35,6 +36,6 @@
 - 成本红线常量 (`INJECTED_TOKEN_BUDGET`、`OVERHEAD_RATIO_BUDGET`) 与 vision §3 对齐，修改需同步文档。
 - `KnowledgeMetricsSource` 接口设计为 DI 注入，默认 lazy 获取生产单例，避免模块加载期副作用。
 - 监控数据窗口默认 30 天，由 `KnowledgeMetricsSource` 的 `windowDays` 参数控制。
-- **D16 /overview（2026-07-27）**：聚合八组指标（任务流健康/入口转化/人工干预北极星/端到端周期/角色维度/工程质量/Token/告警），数据源 = WU index.json + workunits/events.jsonl + 统一事件文件（D18）+ 频道人类消息；窗口默认 7d（query 1-90 clamp），60s 缓存；数据不足显式 0/null + `source='insufficient-data'` 不编造；每组带 `description` 大白话。
+- **D16 /overview（2026-07-27）**：聚合八组指标（任务流健康/入口转化/人工干预北极星/端到端周期/角色维度/工程质量/Token/告警），数据源 = WU index.json + workunits/events.jsonl + 统一事件文件（D18）+ 频道人类消息；窗口默认 7d（query 1-90 clamp），60s 缓存；数据不足显式 0/null + `source='insufficient-data'` 不编造；每组带 `description` 大白话。**2026-08-06 口径修复**：角色维度与 token 按角色归因改走 workunit `assignee-resolver.buildAssigneeProfileResolver`（`OverviewAggregateInput.instanceToProfile` map 入参随之换成 `resolveAssigneeProfile` 函数）——此前仅做 instance→profile map 查找，未认领指名 WU（assigneeId = profile id）静默归因为 null，与 token-usage 双形态口径不一致；修复后 profile-id 形态直通归因。
 - **鉴权（2026-07-24 收紧）**：`/api/v1/monitoring` 挂载级 `requireAuth()+requireAdmin()`（route-registry）。GET 端点此前无挂载中间件、仅靠 Lurk Wall 大门兜底。
-- **/agents 聚合（2026-07-31 PMO-flow UX §6-1）**：`getAgentSummary` 每 agent 附 `currentWorkUnit`（WU 快照，title = metadata.title ?? scope 原样）+ `pmo`（归属链复用 pmo-branch-resolver 的 `resolvePmoProjectIdForWU`：①metadata.ownershipProjectId ②reqId→Requirement.projectId（决策 4 别名镜像：REQ-\d+ 先查项目 reqAlias）③metadata.pmoProjectId）+ `channelId`。读取效率：WU index / requirements / projects 各读一次后内存 map 匹配（`loadCurrentWuContexts`），不逐 agent 串行读文件；projects 默认 lazy import projectService.list 大页，测试经 `MonitoringServiceDeps.listProjects` 注入。悬空 currentWorkUnitId（WU 已不存在）→ 三字段 null，裸 id 字段保持原样。
+- **/agents 聚合（2026-07-31 PMO-flow UX §6-1）**：`getAgentSummary` 每 agent 附 `currentWorkUnit`（WU 快照，title = metadata.title ?? scope 原样）+ `pmo`（归属链复用 pmo-branch-resolver 的 `resolvePmoProjectIdForWU`，2026-08 归因统一后两级：①创建期直读戳 metadata.pmoId（‖ deprecated legacy ownershipProjectId 同级）②reqId→Requirement.projectId（决策 4 别名镜像：REQ-\d+ 先查项目 reqAlias）；原 ③ metadata.pmoProjectId 级已移除）+ `channelId`。读取效率：WU index / requirements / projects 各读一次后内存 map 匹配（`loadCurrentWuContexts`），不逐 agent 串行读文件；projects 默认 lazy import projectService.list 大页，测试经 `MonitoringServiceDeps.listProjects` 注入。悬空 currentWorkUnitId（WU 已不存在）→ 三字段 null，裸 id 字段保持原样。

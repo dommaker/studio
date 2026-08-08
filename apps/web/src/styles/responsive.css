@@ -10,50 +10,15 @@
 /* ==================== 全局响应式 ==================== */
 
 /* 移动端基础调整 */
+/*
+  注：此处历史上曾覆写 .p-8/.px-8/.py-6/.text-xl/.text-lg/.grid-cols-3/.grid-cols-4
+  等 Tailwind 同名工具类，导致工具类在移动端行为不可预期，已删除（工单40）；
+  响应式调整请在模板中使用 Tailwind 断点变体（如 sm:p-8）。
+*/
 @media (max-width: 639px) {
-  /* 减少内边距 */
-  .p-8 {
-    padding: 1rem;
-  }
-  
-  .px-8 {
-    padding-left: 1rem;
-    padding-right: 1rem;
-  }
-  
-  .py-6 {
-    padding-top: 1rem;
-    padding-bottom: 1rem;
-  }
-  
-  /* 调整字体大小 */
-  .text-xl {
-    font-size: 1.125rem;
-  }
-  
-  .text-lg {
-    font-size: 1rem;
-  }
-  
   /* 隐藏移动端不必要的元素 */
   .hide-mobile {
     display: none !important;
-  }
-  
-  /* 调整网格 */
-  .grid-cols-3 {
-    grid-template-columns: 1fr;
-  }
-  
-  .grid-cols-4 {
-    grid-template-columns: repeat(2, 1fr);
-  }
-}
-
-/* 平板调整 */
-@media (min-width: 640px) and (max-width: 1023px) {
-  .grid-cols-4 {
-    grid-template-columns: repeat(3, 1fr);
   }
 }
 

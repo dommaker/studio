@@ -8,15 +8,15 @@ vi.mock('react', async () => {
   return { ...actual, default: actual };
 });
 
-const { mockListAllAgents, mockListChannels, mockGetAgentSummary, mockWuList, mockWuGet, mockOnEvent, mockNavigate, mockPost } = vi.hoisted(() => ({
+const { mockListAllAgents, mockListChannels, mockGetAgentSummary, mockTerminateInstance, mockWuList, mockWuGet, mockOnEvent, mockNavigate } = vi.hoisted(() => ({
   mockListAllAgents: vi.fn(),
   mockListChannels: vi.fn(),
   mockGetAgentSummary: vi.fn(),
+  mockTerminateInstance: vi.fn(),
   mockWuList: vi.fn(),
   mockWuGet: vi.fn(),
   mockOnEvent: vi.fn(),
   mockNavigate: vi.fn(),
-  mockPost: vi.fn(),
 }));
 
 vi.mock('react-router-dom', () => ({
@@ -26,7 +26,7 @@ vi.mock('react-router-dom', () => ({
 }));
 
 vi.mock('../../api/monitoring', () => ({
-  monitoringApi: { getAgentSummary: mockGetAgentSummary },
+  monitoringApi: { getAgentSummary: mockGetAgentSummary, terminateInstance: mockTerminateInstance },
 }));
 
 vi.mock('../../api/channel', () => ({
@@ -39,12 +39,8 @@ vi.mock('../../api/workunit', async () => {
 });
 
 // SSE：测试无 WebSocketProvider，onEvent 由用例接管
-vi.mock('../../api/websocket', () => ({
+vi.mock('../../api/websocketHooks', () => ({
   useWebSocketContext: () => ({ onEvent: mockOnEvent }),
-}));
-
-vi.mock('../../api/index', () => ({
-  api: { post: mockPost },
 }));
 
 import { AgentDashboardPage } from '../../pages/AgentDashboardPage';
@@ -74,7 +70,7 @@ describe('AgentDashboardPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockOnEvent.mockImplementation(() => () => {});
-    mockPost.mockResolvedValue({});
+    mockTerminateInstance.mockResolvedValue({});
     mockListAllAgents.mockResolvedValue({ data: { data: [] } });
     mockGetAgentSummary.mockResolvedValue({
       data: { agents: [], summary: { total: 0, idle: 0, active: 0, error: 0, terminated: 0 } },
@@ -156,15 +152,24 @@ describe('AgentDashboardPage', () => {
     expect(await screen.findByText('未启动')).toBeDefined();
   });
 
-  it('强制停止：新确认文案，确认后调 terminate 接口', async () => {
-    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+  it('强制停止：ConfirmDialog 二次确认，确认后调 terminate 接口', async () => {
     mockApis();
     render(<AgentDashboardPage />);
-    const btn = await screen.findByText('强制停止');
-    fireEvent.click(btn);
-    expect(confirmSpy).toHaveBeenCalledWith('强制停止会将当前任务转人工处理，确认？');
-    await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/agent-instances/i1/terminate'));
-    confirmSpy.mockRestore();
+    fireEvent.click(await screen.findByText('强制停止'));
+    // 弹窗文案；未确认前不调接口
+    expect(await screen.findByText('强制停止会将当前任务转人工处理，确认？')).toBeDefined();
+    expect(mockTerminateInstance).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: '确认停止' }));
+    await waitFor(() => expect(mockTerminateInstance).toHaveBeenCalledWith('i1'));
+  });
+
+  it('强制停止：取消则不调 terminate 接口', async () => {
+    mockApis();
+    render(<AgentDashboardPage />);
+    fireEvent.click(await screen.findByText('强制停止'));
+    fireEvent.click(await screen.findByRole('button', { name: '取消' }));
+    expect(mockTerminateInstance).not.toHaveBeenCalled();
+    expect(screen.queryByText('强制停止会将当前任务转人工处理，确认？')).toBeNull();
   });
 
   it('SSE agent.instance.status_changed：更新卡片并增量补查 WU 详情', async () => {
@@ -173,6 +178,7 @@ describe('AgentDashboardPage', () => {
     mockApis({ agents: [instance({ status: 'idle', currentWorkUnitId: null, currentWorkUnit: null, pmo: null, channelId: null })] });
     render(<AgentDashboardPage />);
     expect(await screen.findByText('空闲 · 等待派活')).toBeDefined();
+    await act(async () => {}); // 同下方 step 用例：冲刷 passive effect，避免 rolesRef 陈旧窗口
 
     act(() => {
       handler!({ event_type: 'agent.instance.status_changed', data: { profileId: 'p1', instanceId: 'i1', name: 'dev-agent', status: 'active', currentWorkUnitId: 'wu-9' } });
@@ -190,6 +196,12 @@ describe('AgentDashboardPage', () => {
     mockApis();
     render(<AgentDashboardPage />);
     expect(await screen.findByText('实现登录接口')).toBeDefined();
+
+    // 竞态加固：rolesRef 由 passive effect 镜像 roles；findByText 可经 MutationObserver
+    // 微任务在 effect flush（宏任务）前决议，此时同步推送 SSE 会读到陈旧空名册、事件被
+    // findRoleByWorkUnit 静默丢弃（负载下偶发找不到追加文本的根因）。async act 冲刷
+    // 全部挂起 effect，推送时机确定化。
+    await act(async () => {});
 
     act(() => {
       handler!({
@@ -214,6 +226,7 @@ describe('AgentDashboardPage', () => {
     mockApis();
     render(<AgentDashboardPage />);
     expect(await screen.findByText('dev-agent')).toBeDefined();
+    await act(async () => {}); // 同 step 用例：冲刷 passive effect，避免 rolesRef 陈旧窗口
     act(() => {
       handler!({
         event_type: 'workunit.execution.stream',

@@ -16,7 +16,7 @@ export function ForgotPasswordPage() {
     try {
       const { data } = await authApi.forgotPassword(email);
       if (data.message) setSent(true);
-    } catch (e: any) {
+    } catch (e) {
       setError(e.response?.data?.error || e.message || '请求失败');
     } finally {
       setLoading(false);

@@ -1,5 +1,6 @@
 // Lurk Wall: 个人网站展示页 — 不提示登录，不显示入口
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../stores/authStore';
 import { AuthModal } from './AuthModal';
 
@@ -7,16 +8,17 @@ export function LandingPage() {
   const [showAuth, setShowAuth] = useState(false);
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated());
   const init = useAuthStore((s) => s.init);
+  const navigate = useNavigate();
 
   // 尝试恢复已有 session（静默，不弹窗）
   useEffect(() => { init(); }, [init]);
 
-  // 已登录 → 重定向到频道
+  // 已登录 → 重定向到频道（SPA 导航，替代整页刷新；replace 避免回退键循环）
   useEffect(() => {
     if (isAuthenticated) {
-      window.location.href = '/channels';
+      navigate('/channels', { replace: true });
     }
-  }, [isAuthenticated]);
+  }, [isAuthenticated, navigate]);
 
   // 双击标题或按 Ctrl+Enter 触发认证
   const handleSecretGesture = () => setShowAuth(true);

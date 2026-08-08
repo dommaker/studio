@@ -9,6 +9,7 @@
 | app | src/app.ts | 注册所有 API 路由（异步，启动时调用一次） |
 | studio-cli | src/cli/studio-cli.ts | Studio CLI — 统一入口（2026-05-09: Docker/tmux 已移除） |
 | event-store | src/core/event-store.ts | EventStore — EventEmitter + 内存 Map |
+| cli-adapter | src/daemon/cli-adapter.ts | CLI Adapter — translate common agent args to provider-specific spawn args |
 | cli-scanner | src/daemon/cli-scanner.ts | CLI Scanner — auto-detect available agent CLIs on the system |
 | discover-handler | src/daemon/discover-handler.ts | Discover Handler — AS-020 P6-03: Local directory scanning |
 | path-sandbox | src/daemon/path-sandbox.ts | Path Sandbox — AS-020 P6-02: Path traversal protection |
@@ -22,16 +23,17 @@
 | request-logger | src/middleware/request-logger.ts | 请求日志中间件 |
 | docs-freshness.routes | src/modules/admin/docs-freshness.routes.ts | T-020 + T-059: CLAUDE.md + CAPABILITIES.md Freshness Check |
 | routes | src/modules/agent-configs/routes.ts | agent-configs/routes.ts — Agent Manager + Version Control (HZ-024, HZ-025) |
-| auditor.service | src/modules/agents/auditor.service.ts | Auditor Service — 跨任务审计 + 周期洞察 |
-| knowledge-curator.service | src/modules/agents/knowledge-curator.service.ts | Knowledge Curator - 知识库冷启动 + F1 每日维护 + 提取 prompt 单一来源 |
-| monitor.service | src/modules/agents/monitor.service.ts | Monitor Service - 健康监控 + NA Step 7 渐进告警 |
-| ops.service | src/modules/agents/ops.service.ts | Ops Service — 系统生命周期守护 |
-| ops-rules | src/modules/agents/ops-rules.ts | Ops Rules — 运行时数据，不在代码里 |
+| auditor.service | src/modules/agents/auditor/auditor.service.ts | Auditor Service — 跨任务审计 + 周期洞察 |
+| knowledge-curator.service | src/modules/agents/knowledge/knowledge-curator.service.ts | Knowledge Curator - 知识库冷启动 + F1 每日维护 + 提取 prompt 单一来源 |
+| monitor.service | src/modules/agents/monitor/monitor.service.ts | Monitor Service - 健康监控 + NA Step 7 渐进告警 |
+| ops.service | src/modules/agents/ops/ops.service.ts | Ops Service — 系统生命周期守护 |
+| ops-rules | src/modules/agents/ops/ops-rules.ts | Ops Rules — 运行时数据，不在代码里 |
+| requirement-gate | src/modules/agents/requirement-gate.ts | RequirementGate — RequirementsDoc 质量门 (2026-05-21) |
 | review.service | src/modules/agents/review.service.ts | Review Service - 跨分支 diff 多立场审查 (daemon async spawn) |
 | review-report | src/modules/agents/review-report.ts | 审查报告类型定义 |
 | routes | src/modules/agents/routes.ts | Agent API 路由 |
 | session-summary.service | src/modules/agents/session-summary.service.ts | SessionSummaryService — 会话级知识提取 (2026-05-25) |
-| triage.service | src/modules/agents/triage.service.ts | Triage Service — incident response: diagnose → classify → act → resolve/escalate |
+| triage.service | src/modules/agents/triage/triage.service.ts | Triage Service — incident response: diagnose → classify → act → resolve/escalate |
 | types | src/modules/agents/types.ts | Agent 团队类型定义 |
 | audit-subscriber | src/modules/audit/audit-subscriber.ts | Audit Event Subscriber — EventBus 审计事件持久化到 DB (B0-002) |
 | routes | src/modules/audit-logs/routes.ts | GET /api/audit-logs - 查询审计日志 |
@@ -42,12 +44,10 @@
 | channel-init | src/modules/channels/channel-init.ts | Seed default channels on startup (B1-001) |
 | channel-message.service | src/modules/channels/channel-message.service.ts | ChannelMessage Service — centralized message creation + event publishing |
 | channel.routes | src/modules/channels/channel.routes.ts | Channel Routes — B1-001/B1-002/B1-009/B1-011 |
-| discovery-exposure.service | src/modules/channels/discovery-exposure.service.ts | Discovery Exposure Service — G33 |
 | requirements-doc.routes | src/modules/channels/requirements-doc.routes.ts | RequirementsDoc edit routes — B2-009 |
 | routes | src/modules/dingtalk/routes.ts | 钉钉机器人交互回调 |
 | command-runner | src/modules/discord/command-runner.ts | B3-002/B3-003: Shared command runner for CLI and Discord |
 | routes | src/modules/discord/routes.ts | Discord Interactions Endpoint |
-| routes | src/modules/environments/routes.ts | environments/routes.ts — Environment Manager CRUD (HZ-023) |
 | event.routes | src/modules/events/event.routes.ts | G30: StudioEvent API Endpoints |
 | session-summary-generator | src/modules/events/session-summary-generator.ts | B9-015: SessionSummaryGenerator — server-side session aggregation |
 | sse.routes | src/modules/events/sse.routes.ts | HZ-028: Event Stream (SSE) |
@@ -81,20 +81,18 @@
 | routes | src/modules/notifications/routes.ts | 通知 API 路由 |
 | notify.service | src/modules/outbound-notify/notify.service.ts | NotifyService - 通知服务 |
 | routes | src/modules/outbound-notify/routes.ts | Notify API 路由 |
-| routes | src/modules/outputs/routes.ts | 产出文档 API - 存储和展示执行结果 |
 | okr.service | src/modules/pmo/okr.service.ts | 🆕 AS-016: 获取当前季度 |
 | project.service | src/modules/pmo/project.service.ts | Project Service - PMO 项目管理 |
 | routes | src/modules/pmo/routes.ts | GET /api/v1/pmo/project |
-| routes | src/modules/runtime-config/routes.ts | GET /api/v1/runtime-config |
 | routes | src/modules/skills/routes.ts | SkillHub API — CRUD + 生命周期 + Agent 可发现性 + 使用统计 |
 | skill-loader | src/modules/skills/skill-loader.ts | SkillLoader API Service — DB-driven skill loading with session lifecycle |
-| routes | src/modules/spec-reviews/routes.ts | Spec 审查 API 路由 |
-| spec-review.service | src/modules/spec-reviews/spec-review.service.ts | Spec 审查服务 |
 | routes | src/modules/specs/routes.ts | POST /api/v1/specs/:id/analyze-change |
 | skill-extraction.service | src/modules/skills/skill-extraction.service.ts | Skill Extraction Service — 面向新架构 GoalExecution |
 | skill-proposal-routes | src/modules/skills/skill-proposal-routes.ts | Skill Proposal API 路由 |
 | error-class | src/modules/triage/error-class.ts | Triage ErrorClass — B1-007: 八类错误标签 + 严重度三级 + 策略路由 |
 | wiki.routes | src/modules/wiki/wiki.routes.ts | GET /api/v1/wiki |
+| daemon-routes | src/modules/workspaces/daemon-routes.ts | Daemon Routes — AS-020 P5: HTTP Claim + Event Reporting |
+| discover-proxy | src/modules/workspaces/discover-proxy.ts | Discover Proxy — AS-020 P4: Proxy directory discovery through WS |
 | local-workspace | src/modules/workspaces/local-workspace.ts | Local Workspace Registration — AS-020 P2-04 |
 | token.routes | src/modules/workspaces/token.routes.ts | Workspace Token Routes — AS-020 P2-05: Token management (admin) |
 | workspace.routes | src/modules/workspaces/workspace.routes.ts | Workspace Routes — AS-020 P2: Workspace registration + heartbeat + token management |
@@ -108,11 +106,12 @@
 
 | agent-instance.routes | src/modules/agents/agent-instance.routes.ts | RuntimeInstance API 路由 (AS-026 AC-1) |
 | agent-instance.service | src/modules/agents/agent-instance.service.ts | AgentInstance Service — RuntimeInstance CRUD |
-| agent-loop | src/modules/agents/agent-loop.ts | Analyze agent log for knowledge search behavior. |
+| agent-loop | src/modules/agents/loop/agent-loop.ts | Analyze agent log for knowledge search behavior. |
 | agent-profile.routes | src/modules/agents/agent-profile.routes.ts | AgentProfile API 路由 (AS-025 Phase 2) |
 | agent-profile.service | src/modules/agents/agent-profile.service.ts | AgentProfile Service — 简化 Agent 身份 CRUD |
 | default-triggers | src/modules/agents/default-triggers.ts | Default Triggers — 6 system triggers for Agent Network |
 | eval-case-store | src/modules/knowledge/eval-case-store.ts | EvalCaseStore — File-based CRUD for eval cases |
+| signal-aggregator | src/modules/knowledge/signal-aggregator.ts | Signal Aggregator — 原始 signal 条目 → 聚合趋势摘要 |
 | monitoring.routes | src/modules/monitoring/monitoring.routes.ts | Monitoring Routes — Agent Network (MVP-2 + MVP-6) |
 | monitoring.service | src/modules/monitoring/monitoring.service.ts | Monitoring Service — Agent Network aggregation (MVP-2 + MVP-6) |
 | manifest-loader | src/modules/skills/manifest-loader.ts | manifest-loader (AS-025 3.28c-5) |

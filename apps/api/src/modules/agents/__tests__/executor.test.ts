@@ -24,8 +24,8 @@ vi.mock('../../knowledge/knowledge-service', () => ({
   },
 }));
 
-import { AgentLoop } from '../agent-loop';
-import { LocalExecutor } from '../executor.js';
+import { AgentLoop } from '../loop/agent-loop';
+import { LocalExecutor } from '../loop/executor.js';
 import type { AgentTask, ExecutionResult } from '@dommaker/studio-agent';
 
 function makeResult(overrides?: Partial<ExecutionResult>): ExecutionResult {

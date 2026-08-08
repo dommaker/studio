@@ -17,7 +17,7 @@ import { buildAgentConstraintPrompt } from '@dommaker/studio-shared/harness/hook
 import { skillLoader } from '@dommaker/studio-skill';
 import { buildSpawnArgs, type Provider, type SpawnParams } from '../cli-adapter.js';
 
-import type { ExecutorConfig, AgentTask, PrerequisiteCheck } from './session-manager.js';
+import type { ExecutorConfig, AgentTask, PrerequisiteCheck, AcGroup, AnalystContext } from './types.js';
 import type { ProgressReport } from './output-capture.js';
 
 // ─── Strategy hints (unicode-escaped to avoid linter issues) ───
@@ -167,7 +167,7 @@ export function buildPrompt(
   task: AgentTask,
   progress: ProgressReport | null,
   session: number,
-  acGroup?: Record<string, any>,
+  acGroup?: AcGroup,
   stuckCount = 0,
   knowledgeContext?: string,
   resolutionHint?: string,
@@ -207,7 +207,7 @@ export function buildPrompt(
   const skillPrompt = skillLoader.formatForPrompt(skillsToInject);
 
   if (session === 1 || !progress) {
-    const analystContext = (task.parameters?.analystContext as any) || null;
+    const analystContext = (task.parameters?.analystContext as AnalystContext | undefined) || null;
     const analystContextSection = analystContext ? [
       '## \u5df2\u6709\u5206\u6790\u4e0a\u4e0b\u6587\uff08\u6765\u81ea Analyst \u63a2\u7d22\uff09',
       '',
@@ -298,8 +298,8 @@ export function buildSessionFlag(
 /** Restrict tool access: --add-dir args derived from analystContext.verifiedFiles (when provider supports it). */
 export function buildAddDirArgs(task: AgentTask, provider: Provider): string {
   const providerDef = resolveProviderDefinition(provider);
-  const _analystCtx = (task.parameters?.analystContext as any) || null;
-  const _restrictDirs = _analystCtx?.verifiedFiles as string[] | undefined;
+  const _analystCtx = (task.parameters?.analystContext as AnalystContext | undefined) || null;
+  const _restrictDirs = _analystCtx?.verifiedFiles;
   return _restrictDirs?.length && providerDef.spawn.addDirFlag
     ? _restrictDirs.map((f: string) => {
         const dir = f.split('/').slice(0, -1).join('/');

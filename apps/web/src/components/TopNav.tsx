@@ -1,20 +1,20 @@
 // TopNav.tsx - 顶部导航栏组件（L1 核心功能）
 // MR-009: 移动端适配 - 添加汉堡菜单
 import { Link } from 'react-router-dom';
-import { useTranslation } from 'react-i18next';
 import { ThemeToggleButton } from '../contexts/ThemeContext';
-import { LanguageSwitcher } from './LanguageSwitcher';
 import { MoreDropdown } from './MoreDropdown';
 import { NotificationBell } from './NotificationBell';
+import { useWebSocketContext } from '../api/websocketHooks';
 import '../styles/theme.css';
 
 interface TopNavProps {
-  wsStatus?: 'connected' | 'disconnected';
   onMenuClick?: () => void;  // MR-009: 汉堡菜单回调
 }
 
-export function TopNav({ wsStatus = 'disconnected', onMenuClick }: TopNavProps) {
-  const { t } = useTranslation();
+export function TopNav({ onMenuClick }: TopNavProps) {
+  // 连接状态读取应用根部唯一的 SSE 连接（WebSocketProvider）
+  const { status } = useWebSocketContext();
+  const connected = status === 'connected';
 
   return (
     <header className="nav-header flex items-center px-6 shrink-0 sticky top-0 z-40">
@@ -53,15 +53,11 @@ export function TopNav({ wsStatus = 'disconnected', onMenuClick }: TopNavProps) 
 
       {/* 工具栏 */}
       <div className="ml-auto flex items-center gap-4">
-        <div className="hide-mobile">
-          <LanguageSwitcher />
-        </div>
-
-        {/* WebSocket 状态 */}
+        {/* SSE 连接状态 */}
         <div className="flex items-center gap-2 text-sm hide-mobile">
-          <span className={`status-dot ${wsStatus === 'connected' ? 'status-online' : 'status-offline'}`} />
+          <span className={`status-dot ${connected ? 'status-online' : 'status-offline'}`} />
           <span style={{ color: 'var(--text-secondary)' }}>
-            {wsStatus === 'connected' ? t('connection.connected', '已连接') : t('connection.disconnected', '未连接')}
+            {connected ? '已连接' : '未连接'}
           </span>
         </div>
 

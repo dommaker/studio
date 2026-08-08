@@ -1,30 +1,49 @@
-// PMOPage - PMO 管理主页面（项目 + OKR）
-import { useState, useEffect } from 'react';
+// PMOPage - PMO 管理主页面（项目 + OKR；三个弹窗已抽至 components/pmo/，工单 33）
+import { useState, useEffect, useCallback } from 'react';
 import { Link, useSearchParams, useNavigate } from 'react-router-dom';
-import { api, projectApi } from '../api';
-import { channelApi, type Channel, type AgentProfile, type LocalProject } from '../api/channel';
+import { projectApi } from '../api';
+import { companyApi } from '../api/company';
+import { okrApi, type OkrKeyResult } from '../api/pmo';
+import { channelApi, type Channel } from '../api/channel';
 import { requirementApi } from '../api/requirements';
 import { knowledgeApi } from '../api/knowledge';
 import { deriveDisplayState } from '@dommaker/studio-shared/web';
-import { toast } from '../utils/toast';
-import type { KR, OKR, Project } from '../components/pmo/types';
-import { getCurrentQuarter } from '../components/pmo/okrUtils';
-import { CreateOKRDialog } from '../components/pmo/CreateOKRDialog';
-import { CreatePMODialog } from '../components/pmo/CreatePMODialog';
+import { CreateOkrDialog } from '../components/pmo/CreateOkrDialog';
+import { CreateProjectDialog } from '../components/pmo/CreateProjectDialog';
 import { PublishProjectDialog } from '../components/pmo/PublishProjectDialog';
 import { ProjectCard } from '../components/pmo/ProjectCard';
-import { OKRCard } from '../components/pmo/OKRCard';
 
-/** 容错解析 id 数组 JSON（历史数据可能双重编码）；非数组/损坏 → [] */
-function parseIdArray(raw?: string | null): string[] {
-  if (!raw) return [];
-  try {
-    let v: unknown = JSON.parse(raw);
-    if (typeof v === 'string') v = JSON.parse(v);
-    return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && x.length > 0) : [];
-  } catch {
-    return [];
-  }
+interface OKRObjective {
+  id: string;
+  title: string;
+  description?: string;
+}
+
+interface OKR {
+  id: string;
+  title: string;
+  quarter: string;
+  status: string;
+  progress: number;
+  projectCount: number;
+  objectives?: OKRObjective[];
+  keyResults?: OkrKeyResult[];
+}
+
+interface Project {
+  id: string;
+  pmoNumber: string;
+  title: string;
+  description?: string;
+  status: string;
+  progress: number;
+  createdAt: string;
+  // 🆕 PMO-a: REQ 只读别名 / 交付策略 / 分支 / 杂务标记
+  reqAlias?: string | null;
+  deliveryPolicy?: string;
+  gitBranch?: string | null;
+  isChore?: boolean;
+  OKR?: { id: string; title: string };
 }
 
 interface PMOPageProps {
@@ -37,75 +56,103 @@ export function PMOPage({ companyId }: PMOPageProps) {
   const [okrs, setOKRs] = useState<OKR[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
+  // 工单 38: loadData 失败反馈（页面内错误条 + 重试，原先仅 console.error 静默）
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   // 🆕 AC-6: 卡片徽章数据（WU 完成度 / 文档计数；批量并行、失败静默不显示）
   const [wuStats, setWuStats] = useState<Record<string, { finished: number; total: number }>>({});
   const [docCounts, setDocCounts] = useState<Record<string, number>>({});
 
-  // 🆕 B8: OKR 创建弹窗 — 支持 KR 编辑
+  // 🆕 B8: OKR 创建弹窗（组件见 components/pmo/CreateOkrDialog）
   const [showOKRDialog, setShowOKRDialog] = useState(false);
-  const [newOKRTitle, setNewOKRTitle] = useState('');
-  const [newOKRQuarter, setNewOKRQuarter] = useState(getCurrentQuarter());
-  const [krs, setKRs] = useState<KR[]>([
-    { id: 'kr1', objectiveId: 'o1', title: '', target: 100, current: 0, unit: '%', metricType: '' },
-  ]);
-
-  const addKR = () => {
-    setKRs(prev => [...prev, {
-      id: `kr${Date.now()}`,
-      objectiveId: 'o1',
-      title: '',
-      target: 100,
-      current: 0,
-      unit: '%',
-      metricType: '',
-    }]);
-  };
-
-  const removeKR = (id: string) => {
-    setKRs(prev => prev.filter(kr => kr.id !== id));
-  };
-
-  const updateKR = (id: string, field: keyof KR, value: string | number) => {
-    setKRs(prev => prev.map(kr => kr.id === id ? { ...kr, [field]: value } : kr));
-  };
 
   const tabParam = searchParams.get('tab');
   const defaultTab = tabParam === 'okr' ? 'okr' : 'projects';
   const [activeTab, setActiveTab] = useState<'projects' | 'okr'>(defaultTab);
 
-  // AC-6: Publish dialog state
+  // AC-6: Publish dialog state（组件见 components/pmo/PublishProjectDialog）
   const [channels, setChannels] = useState<Channel[]>([]);
   const [showPublishDialog, setShowPublishDialog] = useState(false);
   const [publishProjectId, setPublishProjectId] = useState<string | null>(null);
-  const [selectedChannelId, setSelectedChannelId] = useState('');
-  const [publishing, setPublishing] = useState(false);
-  // 发起弹窗：所选频道可响应的 Agent 成员（谁会认领一目了然；空 → 提前警示）
-  const [channelAgents, setChannelAgents] = useState<AgentProfile[]>([]);
-  const [agentsLoading, setAgentsLoading] = useState(false);
 
-  // 🆕 PMO-a: 新建 PMO 弹窗（决策 2/4：deliveryPolicy 创建时选定，默认 branch-only）
+  // 🆕 PMO-a: 新建 PMO 弹窗（组件见 components/pmo/CreateProjectDialog）
   const [showCreateForm, setShowCreateForm] = useState(false);
-  const [newTitle, setNewTitle] = useState('');
-  const [newRequirement, setNewRequirement] = useState('');
-  const [newGitRepo, setNewGitRepo] = useState('');
-  const [newDeliveryPolicy, setNewDeliveryPolicy] = useState<'branch-only' | 'auto-merge'>('branch-only');
-  const [creating, setCreating] = useState(false);
-  // 工程下拉：打开弹窗时实时扫描（与角色 CLI 扫描同一交互模式）
-  const [discoveredProjects, setDiscoveredProjects] = useState<LocalProject[]>([]);
-  const [projectsScanning, setProjectsScanning] = useState(false);
-  const [projectsScanError, setProjectsScanError] = useState(false);
 
-  useEffect(() => {
-    loadData();
-    loadChannels();
+  // companyId 切换时在渲染期同步置回加载态并清错误（替代原 loadData 内、由 effect 触发的同步 setState）
+  const [prevCompanyId, setPrevCompanyId] = useState(companyId);
+  if (prevCompanyId !== companyId) {
+    setPrevCompanyId(companyId);
+    setLoading(true);
+    setLoadError(null);
+  }
+
+  const loadData = useCallback(async () => {
+    try {
+      let actualCompanyId = companyId;
+      if (!actualCompanyId) {
+        const companiesRes = await companyApi.list();
+        if (companiesRes.data?.data?.length > 0) {
+          actualCompanyId = companiesRes.data.data[0].id;
+        }
+      }
+
+      const [okrRes, projectsRes] = await Promise.all([
+        actualCompanyId
+          ? okrApi.list(actualCompanyId)
+          : Promise.resolve({ data: { data: [] } }),
+        actualCompanyId
+          ? projectApi.list({ companyId: actualCompanyId, limit: 20 })
+          : Promise.resolve({ data: { data: [] } }),
+      ]);
+
+      setOKRs(okrRes.data?.data || []);
+      setProjects(projectsRes.data?.data || []);
+    } catch (err) {
+      console.error('Failed to load PMO data:', err);
+      setLoadError('加载 PMO 数据失败，请重试');
+    } finally {
+      setLoading(false);
+    }
   }, [companyId]);
 
-  // 🆕 AC-6: 列表加载后对可见项目批量并行查徽章数据（每项目一次 chain + 一次 knowledge；失败静默）
+  const loadChannels = useCallback(async () => {
+    try {
+      const res = await channelApi.list();
+      setChannels(res.data?.data || []);
+    } catch {
+      // best-effort: channels may not be available
+    }
+  }, []);
+
   useEffect(() => {
-    if (projects.length === 0) {
+    // 微任务里触发加载：loadData 为多 await async 函数，编译器对 effect 内同步调用保守告警
+    void Promise.resolve().then(() => {
+      loadData();
+      loadChannels();
+    });
+  }, [loadData, loadChannels]);
+
+  // 手动刷新路径（重试按钮 / 弹窗 onCreated）：在事件处理器里同步置加载态，保持原 loadData 行为
+  const handleReload = useCallback(() => {
+    setLoading(true);
+    setLoadError(null);
+    loadData();
+  }, [loadData]);
+
+  // 🆕 AC-6: 列表加载后对可见项目批量并行查徽章数据（每项目一次 chain + 一次 knowledge；失败静默）
+  // projects 变空时在渲染期同步清空徽章（派生重置，替代原 effect 顶部的同步清空）
+  const projectsEmpty = projects.length === 0;
+  const [prevProjectsEmpty, setPrevProjectsEmpty] = useState(projectsEmpty);
+  if (prevProjectsEmpty !== projectsEmpty) {
+    setPrevProjectsEmpty(projectsEmpty);
+    if (projectsEmpty) {
       setWuStats({});
       setDocCounts({});
+    }
+  }
+
+  useEffect(() => {
+    if (projects.length === 0) {
       return;
     }
     let cancelled = false;
@@ -142,179 +189,10 @@ export function PMOPage({ companyId }: PMOPageProps) {
     return () => { cancelled = true; };
   }, [projects]);
 
-  const loadData = async () => {
-    try {
-      setLoading(true);
-
-      let actualCompanyId = companyId;
-      if (!actualCompanyId) {
-        const companiesRes = await api.get('/companies');
-        if (companiesRes.data?.data?.length > 0) {
-          actualCompanyId = companiesRes.data.data[0].id;
-        }
-      }
-
-      const [okrRes, projectsRes] = await Promise.all([
-        actualCompanyId
-          ? api.get(`/pmo/okr?companyId=${actualCompanyId}`)
-          : Promise.resolve({ data: { data: [] } }),
-        actualCompanyId
-          ? api.get(`/pmo/project?companyId=${actualCompanyId}&limit=20`)
-          : Promise.resolve({ data: { data: [] } }),
-      ]);
-
-      setOKRs(okrRes.data?.data || []);
-      setProjects(projectsRes.data?.data || []);
-    } catch (err) {
-      console.error('Failed to load PMO data:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const loadChannels = async () => {
-    try {
-      const res = await channelApi.list();
-      setChannels(res.data?.data || []);
-    } catch {
-      // best-effort: channels may not be available
-    }
-  };
-
-  // 弹窗打开/切换频道时解析「谁会响应」：与 AgentLoop.observe 同一口径 ——
-  // channel.members 非空 → 仅成员；为空（历史频道未回填）→ 回退 profile.channels（空 = 全频道可见）
-  useEffect(() => {
-    if (!showPublishDialog || !selectedChannelId) return;
-    let cancelled = false;
-    setAgentsLoading(true);
-    channelApi.listAllAgents()
-      .then(res => {
-        if (cancelled) return;
-        const active = (res.data?.data || []).filter(p => p.status === 'active' && p.name !== 'studio');
-        const ch = channels.find(c => c.id === selectedChannelId);
-        const memberIds = parseIdArray(ch?.members);
-        const responders = memberIds.length > 0
-          ? active.filter(p => memberIds.includes(p.id))
-          : active.filter(p => {
-              const chs = parseIdArray(typeof p.channels === 'string' ? p.channels : JSON.stringify(p.channels ?? []));
-              return chs.length === 0 || chs.includes(selectedChannelId);
-            });
-        setChannelAgents(responders);
-      })
-      .catch(() => { if (!cancelled) setChannelAgents([]); })
-      .finally(() => { if (!cancelled) setAgentsLoading(false); });
-    return () => { cancelled = true; };
-  }, [showPublishDialog, selectedChannelId, channels]);
-
   const handlePublishClick = (e: React.MouseEvent, projectId: string) => {
     e.stopPropagation();
     setPublishProjectId(projectId);
-    setSelectedChannelId(channels.length > 0 ? channels[0].id : '');
     setShowPublishDialog(true);
-  };
-
-  const handlePublishConfirm = async () => {
-    if (!publishProjectId || !selectedChannelId) return;
-    setPublishing(true);
-    try {
-      await projectApi.publish(publishProjectId, selectedChannelId);
-      toast.success('已发起需求讨论');
-      setShowPublishDialog(false);
-      // 闭环：发起后直达频道，可看到需求消息与 agent 的实时回复
-      navigate(`/channels/${selectedChannelId}`);
-    } catch (err) {
-      const msg = (err as Error).message || '发起失败';
-      toast.error(msg);
-    } finally {
-      setPublishing(false);
-    }
-  };
-
-  // 🆕 B8: 创建 OKR (支持 KR + metricType)
-  const handleCreateOKR = async () => {
-    if (!newOKRTitle.trim()) {
-      toast.warning('请输入 OKR 标题');
-      return;
-    }
-    // 验证 KR target > 0
-    const invalidKR = krs.find(kr => kr.target <= 0);
-    if (invalidKR) {
-      toast.warning(`KR "${invalidKR.title || '未命名'}" 的目标值必须大于 0`);
-      return;
-    }
-
-    try {
-      const actualCompanyId = companyId || localStorage.getItem('companyId');
-      if (!actualCompanyId) {
-        toast.warning('请先选择公司');
-        return;
-      }
-
-      await api.post('/pmo/okr', {
-        companyId: actualCompanyId,
-        title: newOKRTitle,
-        quarter: newOKRQuarter,
-        objectives: [{ id: 'o1', title: newOKRTitle }],
-        keyResults: krs.filter(kr => kr.title.trim() !== ''),
-      });
-
-      setShowOKRDialog(false);
-      setNewOKRTitle('');
-      setKRs([{ id: 'kr1', objectiveId: 'o1', title: '', target: 100, current: 0, unit: '%', metricType: '' }]);
-      loadData();
-    } catch (err) {
-      console.error('Failed to create OKR:', err);
-      toast.error('创建 OKR 失败');
-    }
-  };
-
-  // 工程扫描：打开新建弹窗时调 GET /projects/discover 取最新列表（服务端 60s 缓存）
-  const loadDiscoveredProjects = async () => {
-    setProjectsScanning(true);
-    setProjectsScanError(false);
-    try {
-      const res = await channelApi.discoverProjects();
-      setDiscoveredProjects(res.data?.data || []);
-    } catch {
-      setDiscoveredProjects([]);
-      setProjectsScanError(true);
-    } finally {
-      setProjectsScanning(false);
-    }
-  };
-
-  const handleOpenCreateForm = () => {
-    setShowCreateForm(true);
-    loadDiscoveredProjects();
-  };
-
-  // 🆕 PMO-a: 创建 PMO（companyId 由服务端解析；成功后刷新列表并清空表单）
-  const handleCreateProject = async () => {
-    if (!newTitle.trim()) {
-      toast.warning('请输入标题');
-      return;
-    }
-    setCreating(true);
-    try {
-      await projectApi.create({
-        title: newTitle.trim(),
-        requirement: newRequirement.trim() || undefined,
-        gitRepo: newGitRepo.trim() || undefined,
-        deliveryPolicy: newDeliveryPolicy,
-      });
-      toast.success('创建成功');
-      setShowCreateForm(false);
-      setNewTitle('');
-      setNewRequirement('');
-      setNewGitRepo('');
-      setNewDeliveryPolicy('branch-only');
-      loadData();
-    } catch (err: any) {
-      const msg = err?.response?.data?.error?.message || err?.message || '创建 PMO 失败';
-      toast.error(msg);
-    } finally {
-      setCreating(false);
-    }
   };
 
   return (
@@ -352,6 +230,13 @@ export function PMOPage({ companyId }: PMOPageProps) {
 
       {/* Content */}
       <div className="flex-1 overflow-auto px-8 pb-8">
+        {/* 工单 38: 加载失败错误条（跟随 WorkUnitDetailPage 的 u-err-dim 错误条形态）+ 重试入口 */}
+        {!loading && loadError && (
+          <div className="mb-3 p-3 rounded u-err-dim u-err text-sm flex items-center justify-between">
+            <span>{loadError}</span>
+            <button onClick={handleReload} className="btn btn-secondary btn-sm">重试</button>
+          </div>
+        )}
         {loading ? (
           <div className="text-center py-8 u-text-3">
             加载中...
@@ -360,7 +245,7 @@ export function PMOPage({ companyId }: PMOPageProps) {
           <div className="space-y-3">
             {/* 🆕 PMO-a: 新建 PMO 入口（表单为规范 modal，见页面底部） */}
             <button
-              onClick={handleOpenCreateForm}
+              onClick={() => setShowCreateForm(true)}
               className="card w-full p-3 text-left cursor-pointer u-text-2"
               style={{ borderStyle: 'dashed' }}
             >
@@ -411,63 +296,80 @@ export function PMOPage({ companyId }: PMOPageProps) {
               </div>
             ) : (
               okrs.map(okr => (
-                <OKRCard key={okr.id} okr={okr} />
+                <div
+                  key={okr.id}
+                  className="card p-3"
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <div>
+                      <div className="font-medium u-text">
+                        {okr.title}
+                      </div>
+                      <div className="text-xs u-text-3">
+                        {okr.quarter} · {okr.projectCount} 个项目
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <div className="text-right">
+                        <div style={{ fontSize: 'var(--fs-stat)' }} className="font-bold u-ok">
+                          {Math.round(okr.progress * 100)}%
+                        </div>
+                        <div className="text-xs u-text-3">
+                          进度
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  {/* 🆕 B8: KR 列表 */}
+                  {okr.keyResults && okr.keyResults.length > 0 && (
+                    <div className="space-y-1 mt-2 pt-2 border-t u-border">
+                      {okr.keyResults.map((kr: OkrKeyResult) => (
+                        <div key={kr.id} className="flex items-center justify-between text-xs">
+                          <span className="u-text-2">
+                            {kr.title}
+                            {kr.metricType && (
+                              <span className="ml-1 px-1 py-0.5 rounded u-accent-dim" style={{ fontSize: 'var(--fs-xs)' }}>
+                                auto
+                              </span>
+                            )}
+                          </span>
+                          <span className="font-mono u-text-3">
+                            {kr.current}/{kr.target}{kr.unit}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               ))
             )}
           </div>
         )}
       </div>
 
-      {showOKRDialog && (
-        <CreateOKRDialog
-          newOKRQuarter={newOKRQuarter}
-          setNewOKRQuarter={setNewOKRQuarter}
-          newOKRTitle={newOKRTitle}
-          setNewOKRTitle={setNewOKRTitle}
-          krs={krs}
-          setKRs={setKRs}
-          addKR={addKR}
-          removeKR={removeKR}
-          updateKR={updateKR}
-          setShowOKRDialog={setShowOKRDialog}
-          handleCreateOKR={handleCreateOKR}
-        />
-      )}
+      {/* 🆕 B8: 创建 OKR 弹窗 (支持 KR 编辑) */}
+      <CreateOkrDialog
+        open={showOKRDialog}
+        companyId={companyId}
+        onClose={() => setShowOKRDialog(false)}
+        onCreated={handleReload}
+      />
 
-      {showCreateForm && (
-        <CreatePMODialog
-          newTitle={newTitle}
-          setNewTitle={setNewTitle}
-          newRequirement={newRequirement}
-          setNewRequirement={setNewRequirement}
-          newGitRepo={newGitRepo}
-          setNewGitRepo={setNewGitRepo}
-          newDeliveryPolicy={newDeliveryPolicy}
-          setNewDeliveryPolicy={setNewDeliveryPolicy}
-          creating={creating}
-          discoveredProjects={discoveredProjects}
-          projectsScanning={projectsScanning}
-          projectsScanError={projectsScanError}
-          loadDiscoveredProjects={loadDiscoveredProjects}
-          setShowCreateForm={setShowCreateForm}
-          handleCreateProject={handleCreateProject}
-        />
-      )}
+      {/* 🆕 PMO-a: 新建 PMO 弹窗（style-guide §4.3 标准结构） */}
+      <CreateProjectDialog
+        open={showCreateForm}
+        onClose={() => setShowCreateForm(false)}
+        onCreated={handleReload}
+      />
 
-      {showPublishDialog && (
-        <PublishProjectDialog
-          channels={channels}
-          selectedChannelId={selectedChannelId}
-          setSelectedChannelId={setSelectedChannelId}
-          agentsLoading={agentsLoading}
-          channelAgents={channelAgents}
-          publishing={publishing}
-          setShowPublishDialog={setShowPublishDialog}
-          handlePublishConfirm={handlePublishConfirm}
-        />
-      )}
+      {/* AC-6: 发起需求讨论弹窗（选择目标频道） */}
+      <PublishProjectDialog
+        open={showPublishDialog}
+        projectId={publishProjectId}
+        channels={channels}
+        onClose={() => setShowPublishDialog(false)}
+        onPublished={(channelId) => navigate(`/channels/${channelId}`)}
+      />
     </div>
   );
 }
-
-export default PMOPage;

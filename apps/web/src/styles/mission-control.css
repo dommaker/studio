@@ -623,6 +623,36 @@
 .mc-redline-ok { color: var(--success); }
 .mc-redline-breach { color: var(--error); }
 
+/* 协作树 token 开销弹窗内容（TreeTokenDrawer，外壳走 §4.3 modal-*） */
+.tree-token-summary {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 12px;
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+}
+.tree-token-summary strong { color: var(--text-primary); }
+.tree-token-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-sm);
+}
+.tree-token-table th {
+  text-align: left;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border-default);
+  color: var(--text-secondary);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+}
+.tree-token-table td {
+  text-align: left;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+}
+.tree-token-table tbody tr:last-child td { border-bottom: none; }
+
 /* REQ 链路节点 */
 .mc-chain-node {
   display: block;

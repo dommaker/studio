@@ -11,7 +11,7 @@
  */
 
 import { Router } from 'express';
-import { logger } from '@dommaker/studio-shared';
+import { generateId, logger } from '@dommaker/studio-shared';
 import { upsertKnowledge } from './knowledge-bus.service.js';
 import type { KnowledgeSource } from './knowledge-bus.service.js';
 import { knowledgeSync } from './knowledge-sync.service.js';
@@ -89,7 +89,7 @@ internalRoutes.post('/upsert', async (req, res) => {
           await saveDoc(existing);
           docResult = { action: 'updated', docId: existing.id };
         } else {
-          const docId = `doc_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+          const docId = generateId('doc');
           const now = new Date().toISOString();
           const doc: DocRecord = {
             id: docId, projectId, companyId, type: 'design', title, content,

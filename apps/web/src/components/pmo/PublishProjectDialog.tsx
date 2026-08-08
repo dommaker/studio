@@ -1,34 +1,92 @@
-// AC-6: 发起需求讨论弹窗（选择目标频道）（从 pages/PMOPage.tsx 抽出，纯代码移动；状态仍由页面持有）
+// PublishProjectDialog - 发起需求讨论弹窗（选择目标频道；自 PMOPage 抽出，工单 33）
+import { useState, useEffect } from 'react';
+import { projectApi } from '../../api';
+import { channelApi, type Channel, type AgentProfile } from '../../api/channel';
+import { toast } from '../../utils/toast';
 import { Select } from '../ui';
-import type { AgentProfile, Channel } from '../../api/channel';
+import { parseIdArray } from './okrMetric';
 
 interface PublishProjectDialogProps {
+  open: boolean;
+  projectId: string | null;
   channels: Channel[];
-  selectedChannelId: string;
-  setSelectedChannelId: (v: string) => void;
-  agentsLoading: boolean;
-  channelAgents: AgentProfile[];
-  publishing: boolean;
-  setShowPublishDialog: (show: boolean) => void;
-  handlePublishConfirm: () => void;
+  onClose: () => void;
+  onPublished: (channelId: string) => void;
 }
 
-export function PublishProjectDialog({
-  channels,
-  selectedChannelId,
-  setSelectedChannelId,
-  agentsLoading,
-  channelAgents,
-  publishing,
-  setShowPublishDialog,
-  handlePublishConfirm,
-}: PublishProjectDialogProps) {
+export function PublishProjectDialog({ open, projectId, channels, onClose, onPublished }: PublishProjectDialogProps) {
+  // AC-6: Publish dialog state
+  const [selectedChannelId, setSelectedChannelId] = useState('');
+  const [publishing, setPublishing] = useState(false);
+  // 发起弹窗：所选频道可响应的 Agent 成员（谁会认领一目了然；空 → 提前警示）
+  const [channelAgents, setChannelAgents] = useState<AgentProfile[]>([]);
+  const [agentsLoading, setAgentsLoading] = useState(false);
+
+  // 打开弹窗时默认选中第一个频道（原 handlePublishClick 行为；prevOpen 上升沿渲染期调整：
+  // 只在打开瞬间默认，弹窗开着时父级刷新 channels 不再把用户已选重置回第一个）
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (prevOpen !== open) {
+    setPrevOpen(open);
+    if (open) setSelectedChannelId(channels.length > 0 ? channels[0].id : '');
+  }
+
+  // 弹窗打开/切换频道时在渲染期同步置解析中标志（替代原 effect 内同步 setAgentsLoading）
+  const respondersKey = open && selectedChannelId ? selectedChannelId : null;
+  const [prevRespondersKey, setPrevRespondersKey] = useState(respondersKey);
+  if (prevRespondersKey !== respondersKey) {
+    setPrevRespondersKey(respondersKey);
+    if (respondersKey) setAgentsLoading(true);
+  }
+
+  // 弹窗打开/切换频道时解析「谁会响应」：与 AgentLoop.observe 同一口径 ——
+  // channel.members 非空 → 仅成员；为空（历史频道未回填）→ 回退 profile.channels（空 = 全频道可见）
+  useEffect(() => {
+    if (!open || !selectedChannelId) return;
+    let cancelled = false;
+    channelApi.listAllAgents()
+      .then(res => {
+        if (cancelled) return;
+        const active = (res.data?.data || []).filter(p => p.status === 'active' && p.name !== 'studio');
+        const ch = channels.find(c => c.id === selectedChannelId);
+        const memberIds = parseIdArray(ch?.members);
+        const responders = memberIds.length > 0
+          ? active.filter(p => memberIds.includes(p.id))
+          : active.filter(p => {
+              const chs = parseIdArray(typeof p.channels === 'string' ? p.channels : JSON.stringify(p.channels ?? []));
+              return chs.length === 0 || chs.includes(selectedChannelId);
+            });
+        setChannelAgents(responders);
+      })
+      .catch(() => { if (!cancelled) setChannelAgents([]); })
+      .finally(() => { if (!cancelled) setAgentsLoading(false); });
+    return () => { cancelled = true; };
+  }, [open, selectedChannelId, channels]);
+
+  const handlePublishConfirm = async () => {
+    if (!projectId || !selectedChannelId) return;
+    setPublishing(true);
+    try {
+      await projectApi.publish(projectId, selectedChannelId);
+      toast.success('已发起需求讨论');
+      onClose();
+      // 闭环：发起后直达频道，可看到需求消息与 agent 的实时回复
+      onPublished(selectedChannelId);
+    } catch (err) {
+      const msg = (err as Error).message || '发起失败';
+      toast.error(msg);
+    } finally {
+      setPublishing(false);
+    }
+  };
+
+  if (!open) return null;
+
   return (
-    <div className="modal-overlay" onClick={() => setShowPublishDialog(false)}>
+    <div className="modal-overlay" onClick={onClose}>
       <div className="modal" style={{ maxWidth: 400 }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2 className="modal-title">发起需求讨论</h2>
-          <button className="modal-close" onClick={() => setShowPublishDialog(false)} aria-label="关闭">×</button>
+          <button className="modal-close" onClick={onClose} aria-label="关闭">×</button>
         </div>
         <div className="modal-body">
           {channels.length === 0 ? (
@@ -58,7 +116,7 @@ export function PublishProjectDialog({
           )}
         </div>
         <div className="modal-footer">
-          <button onClick={() => setShowPublishDialog(false)} className="btn btn-secondary">
+          <button onClick={onClose} className="btn btn-secondary">
             取消
           </button>
           <button

@@ -16,7 +16,6 @@ vi.mock('react-router-dom', async () => {
 vi.mock('../channel/RequirementsDocCard', () => ({ RequirementsDocCard: () => null }));
 vi.mock('../channel/KnowledgeConfirmCard', () => ({ KnowledgeConfirmCard: () => null }));
 vi.mock('../channel/AuditorSuggestionCard', () => ({ AuditorSuggestionCard: () => null }));
-vi.mock('../channel/DeployApprovalCard', () => ({ DeployApprovalCard: () => null }));
 vi.mock('../channel/ConvertToTaskDialog', () => ({ ConvertToTaskDialog: () => null }));
 
 import { ChannelMessageItem } from '../channel/ChannelMessageItem';

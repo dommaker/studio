@@ -30,7 +30,7 @@ const chainFixture: RequirementChain = {
 
 describe('RequirementChainPanel', () => {
   it('renders requirement info and workunit chain from getChain', async () => {
-    vi.mocked(requirementApi.getChain).mockResolvedValue({ data: { data: chainFixture } } as any);
+    vi.mocked(requirementApi.getChain).mockResolvedValue({ data: { data: chainFixture } } as unknown as Awaited<ReturnType<typeof requirementApi.getChain>>);
     render(<RequirementChainPanel reqId="REQ-0042" onClose={() => {}} />);
     await waitFor(() => screen.getByText(/忘记密码流程修复/));
     expect(requirementApi.getChain).toHaveBeenCalledWith('REQ-0042');
@@ -46,7 +46,7 @@ describe('RequirementChainPanel', () => {
   });
 
   it('calls onClose when the close control is clicked', async () => {
-    vi.mocked(requirementApi.getChain).mockResolvedValue({ data: { data: chainFixture } } as any);
+    vi.mocked(requirementApi.getChain).mockResolvedValue({ data: { data: chainFixture } } as unknown as Awaited<ReturnType<typeof requirementApi.getChain>>);
     const onClose = vi.fn();
     render(<RequirementChainPanel reqId="REQ-0042" onClose={onClose} />);
     await waitFor(() => screen.getByText(/忘记密码流程修复/));

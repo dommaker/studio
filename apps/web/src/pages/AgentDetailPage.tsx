@@ -7,8 +7,8 @@ import { Link, useParams } from 'react-router-dom';
 import { monitoringApi, type AgentInfo, type AgentCurrentWorkUnit } from '../api/monitoring';
 import { channelApi, type AgentProfile } from '../api/channel';
 import { workunitApi, type WorkUnit } from '../api/workunit';
-import { api } from '../api/index';
 import { ExecutionSteps } from '../components/workunit/ExecutionSteps';
+import { ConfirmDialog } from '../components/ui';
 import { useWorkUnitEvents } from '../hooks/useWorkUnitEvents';
 import {
   deriveAgentStatus,
@@ -28,6 +28,8 @@ export function AgentDetailPage() {
   const [channelName, setChannelName] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // 强制停止二次确认（ui/ConfirmDialog，替代原生 window.confirm）
+  const [confirmTerminate, setConfirmTerminate] = useState(false);
 
   const load = useCallback(async (silent = false) => {
     if (!profileId) return;
@@ -85,15 +87,25 @@ export function AgentDetailPage() {
     }
   }, [profileId]);
 
-  useEffect(() => { void load(); }, [load]);
+  // profileId 切换时在渲染期同步置回加载态（替代原 load(false) 内、由 effect 触发的同步 setLoading）
+  const [prevProfileId, setPrevProfileId] = useState(profileId);
+  if (prevProfileId !== profileId) {
+    setPrevProfileId(profileId);
+    setLoading(true);
+  }
+
+  useEffect(() => {
+    // 微任务里触发加载：load 为多 await async 函数，编译器对 effect 内同步调用保守告警
+    void Promise.resolve().then(() => load(true));
+  }, [load]);
   // WU 事件（SSE）：认领/状态变化/执行步时刷新当前任务与历史（防抖 400ms，与列表页同模式）
   useWorkUnitEvents(useCallback(() => { void load(true); }, [load]));
 
   const handleTerminate = async () => {
+    setConfirmTerminate(false);
     if (!instance) return;
-    if (!window.confirm('强制停止会将当前任务转人工处理，确认？')) return;
     try {
-      await api.post(`/agent-instances/${instance.id}/terminate`);
+      await monitoringApi.terminateInstance(instance.id);
       await load(true);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to terminate agent');
@@ -140,7 +152,7 @@ export function AgentDetailPage() {
             {instance && instance.status !== 'terminated' && (
               <button
                 className="text-xs px-2 py-1 rounded u-err-dim u-err u-hover-bg"
-                onClick={handleTerminate}
+                onClick={() => setConfirmTerminate(true)}
               >
                 强制停止
               </button>
@@ -247,6 +259,16 @@ export function AgentDetailPage() {
           )}
         </div>
       </div>
+
+      <ConfirmDialog
+        open={confirmTerminate}
+        title="强制停止"
+        message="强制停止会将当前任务转人工处理，确认？"
+        confirmLabel="确认停止"
+        danger
+        onConfirm={() => void handleTerminate()}
+        onCancel={() => setConfirmTerminate(false)}
+      />
     </div>
   );
 }

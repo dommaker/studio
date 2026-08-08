@@ -1,43 +1,76 @@
 /**
  * Project 详情页 - GEN-005 + FL-013
- * 
- * 显示项目详情、PMO 号、关联 OKR、任务看板、项目进展、Token 消耗、会议历史、执行历史
- * 
+ *
+ * 显示项目详情、PMO 号、关联 OKR、进度管道、知识库、交付面板（DeliveryPanel）、项目进展、项目动态
+ *
  * 合并功能：
  * - VS Code 打开 + Cloud IDE 弹窗（迁移自 ProjectDetail.tsx）
  * - 归档知识库 + 复制路径（迁移自 ProjectDetail.tsx）
- * - 任务看板 + 项目进展统计（新增）
- * 
- * 页面为组合根：头部/知识库/交付/进展/看板/执行历史/工具栏/指南弹窗区块见 components/project-detail/
+ *
+ * Card 7（2026-08）：老 Task 看板 / 执行历史 / 双轨统计已删除（WU 链路为唯一口径）；
+ * 后端 /tasks API 与数据保留（存量 16 条 legacy task 仍可从 API 访问）。
+ *
+ * 工单 35-E4（2026-08-07）：IDE 指南弹窗（components/pmo/IdeGuideDialogs，服务器地址走
+ * VITE_IDE_SSH_HOST / VITE_IDE_CLOUD_IDE_URL，原硬编码生产 IP 已消除）、知识库三列网格
+ *（components/knowledge/KnowledgeDocGrid）、项目进展卡（components/pmo/ProjectProgressCard）抽出。
  */
 
-import { useEffect, useState } from 'react';
-import { useParams } from 'react-router-dom';
-import { projectApi, api, type DeliveryStatus, type DeliveryGap } from '../api';
-import { workunitApi } from '../api/workunit';
+import React, { useCallback, useEffect, useState } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { projectApi, type DeliveryStatus } from '../api';
 import { requirementApi, type RequirementChainWorkUnit } from '../api/requirements';
 import { monitoringApi, type AgentInfo } from '../api/monitoring';
 import { knowledgeApi, type KnowledgeDoc } from '../api/knowledge';
+import { maintenanceApi } from '../api/maintenance';
+import { PmoNumberBadge } from '../components/PmoNumberBadge';
 import { ProjectPipeline } from '../components/pmo/ProjectPipeline';
 import { ProjectActivity } from '../components/pmo/ProjectActivity';
+import { DeliveryPanel } from '../components/pmo/DeliveryPanel';
+import { VscodeGuideDialog, CloudIdeGuideDialog } from '../components/pmo/IdeGuideDialogs';
+import { ProjectProgressCard } from '../components/pmo/ProjectProgressCard';
 import { buildProjectTimeline, type PipelineWorkUnit } from '../components/pmo/pipelineUtils';
+import { KnowledgeDocGrid } from '../components/knowledge/KnowledgeDocGrid';
 import { DocReaderDrawer } from '../components/knowledge/DocReaderDrawer';
-import { ProjectHeader } from '../components/project-detail/ProjectHeader';
-import { KnowledgeCard } from '../components/project-detail/KnowledgeCard';
-import { DeliveryCard } from '../components/project-detail/DeliveryCard';
-import { ProgressCard } from '../components/project-detail/ProgressCard';
-import { TaskBoard } from '../components/project-detail/TaskBoard';
-import { ExecutionHistory } from '../components/project-detail/ExecutionHistory';
-import { Toolbar } from '../components/project-detail/Toolbar';
-import { GuideModals } from '../components/project-detail/GuideModals';
+import { ManualTaskButton } from '../components/ui';
 import { toast } from '../utils/toast';
-import type { Project, Task } from '../components/project-detail/types';
+
+interface Project {
+  id: string;
+  pmoNumber: string;
+  title: string;
+  description?: string;
+  requirement?: string;
+  status: string;
+  priority: string;
+  progress: number;
+  gitBranch?: string;
+  gitRepo?: string;
+  // 🆕 PMO-a: REQ 只读别名 / 交付策略 / 杂务标记
+  reqAlias?: string | null;
+  deliveryPolicy?: string;
+  isChore?: boolean;
+  channelId?: string | null;
+  worktreePath?: string;
+  startedAt?: string;
+  completedAt?: string;
+  deliveredAt?: string | null;
+  createdAt: string;
+  OKR?: { id: string; title: string; quarter: string };
+}
+
+// 🆕 AC-5: 项目状态 stepper（讨论 → 进行中 → 待验收 → 已交付；delivered 归并到 completed）
+const PROJECT_STEPS = [
+  { key: 'pending', label: '讨论' },
+  { key: 'active', label: '进行中' },
+  { key: 'in_review', label: '待验收' },
+  { key: 'completed', label: '已交付' },
+] as const;
 
 export function ProjectDetailPage() {
   const { projectId } = useParams<{ projectId: string }>();
+  const navigate = useNavigate();
   
   const [project, setProject] = useState<Project | null>(null);
-  const [tasks, setTasks] = useState<Task[]>([]);
   const [documents, setDocuments] = useState<KnowledgeDoc[]>([]);  // 知识库文档
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -54,35 +87,25 @@ export function ProjectDetailPage() {
   const [showCloudIdeGuide, setShowCloudIdeGuide] = useState(false);
   const [archiveLoading, setArchiveLoading] = useState(false);
   const [copySuccess, setCopySuccess] = useState(false);
-  const [copiedStep, setCopiedStep] = useState<number | null>(null);
 
-  // 🆕 PMO-b: 交付台账 + 交付合并（决策 1：合并动作为 human-only 手动触发）
+  // 🆕 PMO-b: 交付台账（delivery 数据由页面持有：管道时间线 / 进展卡 / 证据警告条共用；
+  // 交互（缺口行动 / 交付合并）在 DeliveryPanel 内，经 onRefresh 回调刷新）
   const [delivery, setDelivery] = useState<DeliveryStatus | null>(null);
-  const [delivering, setDelivering] = useState(false);
-  const [deliverError, setDeliverError] = useState<{ message: string; missing?: string[]; conflictFiles?: string[] } | null>(null);
-  // 🆕 F6-c: 缺口行动按钮的独立 loading 态（key = `${wuId}:${action}`），防重复点击
-  const [gapActionPending, setGapActionPending] = useState<Record<string, boolean>>({});
 
-  useEffect(() => {
-    if (!projectId) return;
-    loadData();
-  }, [projectId]);
+  // projectId 切换时在渲染期同步置回加载态（替代原 loadData 内、由 effect 触发的同步 setLoading）
+  const [prevProjectId, setPrevProjectId] = useState(projectId);
+  if (prevProjectId !== projectId) {
+    setPrevProjectId(projectId);
+    setLoading(true);
+  }
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
-      setLoading(true);
-
       // 加载项目详情（必须成功）
       const projectRes = await projectApi.get(projectId!);
       const projectData = projectRes.data;
       setProject(projectData);
       setLoading(false);
-
-      // 加载任务列表（best-effort，不阻塞页面）
-      try {
-        const tasksRes = await api.get(`/tasks?projectId=${projectId}`);
-        setTasks(tasksRes.data || []);
-      } catch { setTasks([]); }
 
       // 加载知识库文档（best-effort，不阻塞页面）
       try {
@@ -112,18 +135,17 @@ export function ProjectDetailPage() {
           setChainLoading(false);
         }
       }
-    } catch (err: any) {
+    } catch (err) {
       setError(err.response?.data?.error?.message || 'Failed to load project');
       setLoading(false);
     }
-  };
+  }, [projectId]);
 
-  // 复制步骤
-  const copyStep = async (text: string, stepIndex: number) => {
-    await navigator.clipboard.writeText(text);
-    setCopiedStep(stepIndex);
-    setTimeout(() => setCopiedStep(null), 2000);
-  };
+  useEffect(() => {
+    if (!projectId) return;
+    // 微任务里触发加载：loadData 为多 await async 函数，编译器对 effect 内同步调用保守告警
+    void Promise.resolve().then(loadData);
+  }, [projectId, loadData]);
 
   // 复制路径
   const handleCopyPath = async () => {
@@ -143,7 +165,7 @@ export function ProjectDetailPage() {
     try {
       setArchiveLoading(true);
       const results = await Promise.allSettled(
-        archivableDocs.map(doc => api.post(`/knowledge/${doc.id}/archive`)),
+        archivableDocs.map(doc => knowledgeApi.archive(doc.id)),
       );
       const failed = results.filter(r => r.status === 'rejected').length;
       const succeeded = results.length - failed;
@@ -162,121 +184,19 @@ export function ProjectDetailPage() {
     }
   };
 
-  // 🆕 F6-c: 重新拉台账 + 全量数据（缺口行动成功后刷新）
+  // 🆕 F6-c: 重新拉台账 + 全量数据（缺口行动/交付成功后由 DeliveryPanel 回调）
   const refreshDelivery = async () => {
     if (!projectId) return;
     try {
       const deliveryRes = await projectApi.getDelivery(projectId);
       setDelivery(deliveryRes.data);
     } catch { /* best-effort */ }
+    setLoading(true);
     loadData();
   };
 
-  // 🆕 F6-c: 缺口行动——重跑 L1 验证 / 补派 L2 评审 / L3 人工确认
-  const handleGapAction = async (gap: DeliveryGap, action: 'verify' | 'dispatchReview' | 'reviewPassed') => {
-    const key = `${gap.id}:${action}`;
-    setGapActionPending(prev => ({ ...prev, [key]: true }));
-    try {
-      if (action === 'verify') {
-        const res = await workunitApi.verify(gap.id);
-        if (res.data?.verified) {
-          toast.success('验证通过，L1 已补齐');
-          await refreshDelivery();
-        } else {
-          const failedCmds = (res.data?.failed || []).map(f => f.command).join('；');
-          toast.error(`验证未通过${failedCmds ? `：${failedCmds}` : ''}`);
-        }
-      } else if (action === 'dispatchReview') {
-        await workunitApi.dispatchReview(gap.id);
-        toast.success('已创建评审 WorkUnit，待 agent 认领');
-        await refreshDelivery();
-      } else {
-        await workunitApi.reviewPassed(gap.id);
-        toast.success('已确认，L3 已补齐');
-        await refreshDelivery();
-      }
-    } catch (err: any) {
-      const status = err?.response?.status;
-      const errData = err?.response?.data?.error;
-      if (action === 'verify' && status === 422) {
-        toast.error(err?.response?.data?.hint || '未配置验证命令（verifyCommands）');
-      } else if (action === 'verify' && status === 409) {
-        toast.error(errData?.message || '无 worktree，无法重跑验证');
-      } else if (action === 'dispatchReview' && status === 409) {
-        toast.info('评审已在途或已完成');
-      } else {
-        toast.error(errData?.message || err?.message || '操作失败');
-      }
-    } finally {
-      setGapActionPending(prev => ({ ...prev, [key]: false }));
-    }
-  };
-
-  // 🆕 PMO-b: 交付合并（409 时展示缺口/冲突清单）
-  const handleDeliver = async () => {
-    if (!projectId) return;
-    setDelivering(true);
-    setDeliverError(null);
-    try {
-      const res = await projectApi.deliver(projectId);
-      toast.success(`交付成功${res.data?.deliverCommit ? ` (${String(res.data.deliverCommit).slice(0, 7)})` : ''}`);
-      // 刷新台账与项目信息（显示 deliveredAt/deliveredBy/deliverCommit）
-      try {
-        const deliveryRes = await projectApi.getDelivery(projectId);
-        setDelivery(deliveryRes.data);
-      } catch { /* best-effort */ }
-      loadData();
-    } catch (err: any) {
-      const errData = err?.response?.data?.error;
-      if (err?.response?.status === 409 && errData) {
-        setDeliverError({
-          message: errData.message || '交付被拒绝',
-          missing: errData.missing,
-          conflictFiles: errData.conflictFiles,
-        });
-      } else {
-        toast.error(errData?.message || err?.message || '交付失败');
-      }
-    } finally {
-      setDelivering(false);
-    }
-  };
-
-  // 计算项目进展
-  const getProgressStats = () => {
-    const completed = tasks.filter(t => t.status === 'completed').length;
-    const inProgress = tasks.filter(t => t.status === 'in_progress' || t.status === 'claimed').length;
-    const pending = tasks.filter(t => t.status === 'pending').length;
-    const blocked = tasks.filter(t => t.status === 'blocked').length;
-    const total = tasks.length;
-    const progress = total > 0 ? Math.round((completed / total) * 100) : (project?.progress || 0);
-    return { completed, inProgress, pending, blocked, total, progress };
-  };
-
-  // 计算 Token 消耗（delivery 存在时优先用 WU 链路台账口径；否则回退老 Execution 累加）
-  const getTokenStats = () => {
-    if (delivery) return delivery.tokens;
-    const executions = project?.Execution || [];
-    const totalTokens = executions.reduce((sum, exec) => {
-      const params = exec.parameters as any;
-      return sum + (params?.tokenUsage?.total || 0);
-    }, 0);
-    return totalTokens;
-  };
-
-  // 按状态分组任务
-  const getTasksByStatus = () => {
-    return {
-      pending: tasks.filter(t => t.status === 'pending'),
-      inProgress: tasks.filter(t => t.status === 'in_progress' || t.status === 'claimed'),
-      completed: tasks.filter(t => t.status === 'completed'),
-      blocked: tasks.filter(t => t.status === 'blocked'),
-    };
-  };
-
-  const progressStats = getProgressStats();
-  const tokenStats = getTokenStats();
-  const tasksByStatus = getTasksByStatus();
+  // 项目进展百分比（老 Task 链路已删除，统一取 project.progress）
+  const progress = project?.progress || 0;
 
   // 🆕 AC-5: 管道 WU 直接用 chain 条目（§10：type/时间戳由 chain 自带）；项目动态由 WU 时间戳 + deliveredAt 拼装
   const pipelineWus: PipelineWorkUnit[] = chainWus;
@@ -286,18 +206,6 @@ export function ProjectDetailPage() {
     deliveredAt: delivery?.deliveredAt ?? project?.deliveredAt ?? null,
     agentNameById,
   });
-
-  // 证据缺口摘要（L1/L2/L3 缺的层为 0 不显示），用于进展卡的琥珀警告条
-  const evidenceGapSummary = delivery
-    ? [
-        { label: 'L1', n: delivery.evidence.l1Missing.length },
-        { label: 'L2', n: delivery.evidence.l2Missing.length },
-        { label: 'L3', n: delivery.evidence.l3Missing.length },
-      ]
-        .filter(g => g.n > 0)
-        .map(g => `${g.label} 缺 ${g.n}`)
-        .join(' · ')
-    : '';
 
   if (loading) {
     return <div className="flex items-center justify-center h-64"><div className="u-text-2">加载中...</div></div>;
@@ -314,12 +222,101 @@ export function ProjectDetailPage() {
   return (
     <div className="p-6 max-w-5xl mx-auto">
       {/* Header */}
-      <ProjectHeader
-        project={project}
-        projectId={projectId}
-        requirementExpanded={requirementExpanded}
-        setRequirementExpanded={setRequirementExpanded}
-      />
+      <div className="mb-6">
+        <button
+          onClick={() => navigate('/pmo')}
+          className="btn btn-ghost btn-sm mb-2"
+        >
+          ← 返回
+        </button>
+        <div className="flex items-center gap-3 mb-2">
+          <PmoNumberBadge pmoNumber={project.pmoNumber} status={project.status as 'pending' | 'active' | 'in_review' | 'completed' | 'cancelled'} size="lg" />
+          <h1 className="page-title">{project.title}</h1>
+        </div>
+        <p className="u-text-2">{project.description || '无描述'}</p>
+        {project.OKR && (
+          <div className="text-sm u-text-2 mt-1">
+            OKR: {project.OKR.title} ({project.OKR.quarter})
+          </div>
+        )}
+        {/* 🆕 PMO-a: REQ 别名 / 分支 / 交付策略（有值才显示） */}
+        {(project.reqAlias || project.gitBranch || project.deliveryPolicy) && (
+          <div className="text-sm u-text-2 mt-1 flex flex-wrap gap-x-4 gap-y-1">
+            {project.reqAlias && <span>REQ 别名: {project.reqAlias}</span>}
+            {project.gitBranch && <span>分支: {project.gitBranch}</span>}
+            {project.deliveryPolicy && (
+              <span>
+                交付策略: {project.deliveryPolicy === 'auto-merge' ? '自动合并' : '分支交付'}
+              </span>
+            )}
+          </div>
+        )}
+        {/* 🆕 AC-5: 原始需求描述（可折叠，>120 字默认收起） */}
+        {project.requirement && (
+          <div className="mt-2 p-2 rounded u-surface-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs u-text-3">原始需求</span>
+              {project.requirement.length > 120 && (
+                <button
+                  onClick={() => setRequirementExpanded(v => !v)}
+                  className="text-xs u-accent"
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+                >
+                  {requirementExpanded ? '收起' : '展开'}
+                </button>
+              )}
+            </div>
+            <p className="text-sm u-text-2 mt-1 whitespace-pre-wrap">
+              {requirementExpanded || project.requirement.length <= 120
+                ? project.requirement
+                : `${project.requirement.slice(0, 120)}…`}
+            </p>
+          </div>
+        )}
+        {/* 🆕 AC-5: 项目状态 stepper（当前阶段高亮）+ 去频道 */}
+        <div className="mt-3 flex items-center gap-2 flex-wrap">
+          {PROJECT_STEPS.map((s, i) => {
+            const statusKey = project.status === 'delivered' ? 'completed' : project.status;
+            const currentIdx = PROJECT_STEPS.findIndex(x => x.key === statusKey);
+            return (
+              <React.Fragment key={s.key}>
+                <span
+                  className={`px-3 py-1 rounded-full text-xs font-medium ${
+                    i === currentIdx ? 'u-accent-bg u-on-accent' :
+                    currentIdx > i ? 'u-ok-dim u-ok' :
+                    'u-surface-2 u-text-3'
+                  }`}
+                >
+                  {s.label}
+                </span>
+                {i < PROJECT_STEPS.length - 1 && (
+                  <span className={`text-xs ${currentIdx > i ? 'u-ok' : 'u-text-3'}`}>→</span>
+                )}
+              </React.Fragment>
+            );
+          })}
+          {project.status === 'cancelled' && (
+            <span className="text-xs px-2 py-1 rounded u-err-dim u-err">已取消</span>
+          )}
+          <div className="ml-auto flex items-center gap-2">
+            {project.channelId && (
+              <button
+                onClick={() => navigate(`/channels/${project.channelId}`)}
+                className="btn btn-sm u-accent-dim u-accent u-hover-bg"
+              >
+                💬 去频道
+              </button>
+            )}
+            <ManualTaskButton
+              label="🔍 模式识别"
+              onRun={async () => {
+                const r = await maintenanceApi.runMesoEvolution(projectId!);
+                return `识别完成：发现 ${r.total} 个模式`;
+              }}
+            />
+          </div>
+        </div>
+      </div>
 
       {/* 🆕 AC-5: 进度管道（REQ 链路五泳道，WU 小卡可点 → /workunits/:id） */}
       <div className="card p-4 mb-6">
@@ -328,39 +325,18 @@ export function ProjectDetailPage() {
       </div>
 
       {/* 📚 知识库（AC-5：卡片点开抽屉阅读器） */}
-      <KnowledgeCard documents={documents} setReaderDocId={setReaderDocId} />
+      <div className="card p-4 mb-6">
+        <h3 className="text-sm font-medium u-text-2 mb-3">📚 知识库 ({documents.length})</h3>
+        <KnowledgeDocGrid documents={documents} onOpenDoc={setReaderDocId} />
+      </div>
 
-      {/* 🆕 PMO-b: 交付（台账 + human-only 合并 + F6-c 缺口行动） */}
+      {/* 🆕 PMO-b: 交付（台账 + human-only 合并 + F6-c 缺口行动）——Card 7 抽取为 DeliveryPanel */}
       {delivery && (
-        <DeliveryCard
-          delivery={delivery}
-          delivering={delivering}
-          deliverError={deliverError}
-          gapActionPending={gapActionPending}
-          handleGapAction={handleGapAction}
-          handleDeliver={handleDeliver}
-        />
+        <DeliveryPanel projectId={projectId!} delivery={delivery} onRefresh={refreshDelivery} />
       )}
 
       {/* 📈 项目进展（AS-010 增强） */}
-      <ProgressCard
-        project={project}
-        tasks={tasks}
-        delivery={delivery}
-        progressStats={progressStats}
-        tokenStats={tokenStats}
-        evidenceGapSummary={evidenceGapSummary}
-      />
-
-      {/* 📋 任务看板 */}
-      {tasks.length > 0 && (
-        <TaskBoard tasks={tasks} tasksByStatus={tasksByStatus} />
-      )}
-
-      {/* 📦 执行历史（AS-010 增强） */}
-      {project.Execution && project.Execution.length > 0 && (
-        <ExecutionHistory project={project} />
-      )}
+      <ProjectProgressCard progress={progress} delivery={delivery} projectStatus={project.status} />
 
       {/* 🆕 AC-5: 项目动态（WU 时间戳 + deliveredAt 前端拼装，倒序 ≤20 条） */}
       <div className="card p-4 mb-6">
@@ -369,28 +345,42 @@ export function ProjectDetailPage() {
       </div>
 
       {/* 🛠️ 工具栏 */}
-      <Toolbar
-        archivableDocs={archivableDocs}
-        archiveLoading={archiveLoading}
-        handleArchive={handleArchive}
-        copySuccess={copySuccess}
-        handleCopyPath={handleCopyPath}
-        setShowVscodeGuide={setShowVscodeGuide}
-        setShowCloudIdeGuide={setShowCloudIdeGuide}
-      />
+      <div className="flex flex-wrap gap-2">
+        <button
+          onClick={() => setShowVscodeGuide(true)}
+          className="btn btn-primary"
+        >
+          VS Code 打开
+        </button>
+        <button
+          onClick={() => setShowCloudIdeGuide(true)}
+          className="btn btn-primary"
+        >
+          ☁️ Cloud IDE
+        </button>
+        {archivableDocs.length > 0 && (
+          <button
+            onClick={handleArchive}
+            disabled={archiveLoading}
+            className="btn u-ok-bg u-on-accent u-hover-bg"
+          >
+            {archiveLoading ? '归档中...' : '📦 归档知识'}
+          </button>
+        )}
+        <button
+          onClick={handleCopyPath}
+          className="btn btn-secondary"
+        >
+          {copySuccess ? '✓ 已复制' : '📋 复制路径'}
+        </button>
+      </div>
 
       {/* 🆕 AC-5: 知识库文档阅读抽屉 */}
       <DocReaderDrawer documentId={readerDocId} onClose={() => setReaderDocId(null)} />
 
-      {/* VS Code + Cloud IDE 弹窗 */}
-      <GuideModals
-        showVscodeGuide={showVscodeGuide}
-        showCloudIdeGuide={showCloudIdeGuide}
-        setShowVscodeGuide={setShowVscodeGuide}
-        setShowCloudIdeGuide={setShowCloudIdeGuide}
-        copiedStep={copiedStep}
-        copyStep={copyStep}
-      />
+      {/* IDE 指南弹窗 */}
+      <VscodeGuideDialog open={showVscodeGuide} onClose={() => setShowVscodeGuide(false)} />
+      <CloudIdeGuideDialog open={showCloudIdeGuide} onClose={() => setShowCloudIdeGuide(false)} />
     </div>
   );
 }

@@ -1,6 +1,6 @@
 // WorkUnit Store — Agent Network §3.28c-1
 import { create } from 'zustand';
-import { workunitApi, type WorkUnit } from '../api/workunit';
+import { workunitApi, type PaginatedResponse, type WorkUnit } from '../api/workunit';
 
 interface WorkUnitState {
   workunits: WorkUnit[];
@@ -41,14 +41,14 @@ export const useWorkUnitStore = create<WorkUnitState>((set, get) => ({
         page: params?.page ?? page,
         limit,
       });
-      const result = data as any;
+      const result = data as PaginatedResponse<WorkUnit>;
       set({
-        workunits: result?.data ?? result ?? [],
+        workunits: result?.data ?? (result as unknown as WorkUnit[]) ?? [],
         total: result?.total ?? 0,
         page: result?.page ?? 1,
         loading: false,
       });
-    } catch (e: any) {
+    } catch (e) {
       set({ error: e?.message ?? 'Failed to load workunits', loading: false });
     }
   },
@@ -57,7 +57,7 @@ export const useWorkUnitStore = create<WorkUnitState>((set, get) => ({
     const { data: wu } = await workunitApi.create(data);
     // Refresh list
     await get().loadWorkUnits();
-    return wu as any;
+    return wu;
   },
 
   reviewPassed: async (id) => {

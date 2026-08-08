@@ -10,7 +10,7 @@
 
 | 导出 | 文件 | 说明 |
 | --- | --- | --- |
-| CapabilityService | services/capability.service.ts | 能力管理服务，负责能力的增删改查、同步与市场功能（发布/购买/评价） |
+| CapabilityService | services/capability.service.ts | 能力管理服务，负责能力的增删改查、同步与统计 |
 
 ## 依赖关系
 

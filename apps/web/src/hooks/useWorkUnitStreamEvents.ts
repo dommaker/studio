@@ -5,7 +5,7 @@
 //   - 上限 50 条（超出丢最旧）
 // 消费方：WorkUnitDrawer「执行过程」实时区块
 import { useEffect, useState } from 'react';
-import { useWebSocketContext } from '../api/websocket';
+import { useWebSocketContext } from '../api/websocketHooks';
 import { parseExecutionStreamChunk, type ExecutionStreamChunk } from '../api/workunit';
 
 const MAX_LIVE_CHUNKS = 50;
@@ -14,8 +14,14 @@ export function useWorkUnitStreamEvents(workUnitId: string | null): ExecutionStr
   const { onEvent } = useWebSocketContext();
   const [chunks, setChunks] = useState<ExecutionStreamChunk[]>([]);
 
-  useEffect(() => {
+  // workUnitId 切换时在渲染期同步清空流式残留（替代原 effect 顶部的同步重置）
+  const [prevWorkUnitId, setPrevWorkUnitId] = useState(workUnitId);
+  if (prevWorkUnitId !== workUnitId) {
+    setPrevWorkUnitId(workUnitId);
     setChunks([]);
+  }
+
+  useEffect(() => {
     if (!workUnitId) return;
     const unsub = onEvent((msg) => {
       if (msg.event_type !== 'workunit.execution.stream') return;

@@ -133,7 +133,9 @@ describe('B3a: 归属解析优先级接线', () => {
     const meta = metaOf(wu!);
     expect(meta.ownershipSource).toBe('requirement');
     expect(meta.workspaceRoot).toBe('/data/b3a-repo');
-    expect(meta.ownershipProjectId).toBe(project.id);
+    // 2026-08 归因统一：创建期 PMO 归因戳 canonical key = pmoId（legacy ownershipProjectId 不再写入）
+    expect(meta.pmoId).toBe(project.id);
+    expect(meta.ownershipProjectId).toBeUndefined();
     expect(meta.waitingForInput).toBeUndefined();
   });
 

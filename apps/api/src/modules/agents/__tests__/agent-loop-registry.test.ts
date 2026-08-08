@@ -50,6 +50,7 @@ vi.mock('../../workunit/workunit.service', () => ({
     getById: vi.fn().mockResolvedValue(null),
     update: vi.fn(),
   }; }),
+  snapshotToData: (s: unknown) => s,
 }));
 
 const { mockTriggerScheduler } = vi.hoisted(() => ({
@@ -73,7 +74,7 @@ vi.mock('../../knowledge/knowledge-service', () => ({
   },
 }));
 
-import { AgentLoopRegistry } from '../agent-loop-registry';
+import { AgentLoopRegistry } from '../loop/agent-loop-registry';
 
 function makeProfile(id: string, overrides: Partial<AgentProfileData> = {}): AgentProfileData {
   return {

@@ -7,6 +7,7 @@ import { resolvePmoProjectIdForWU } from '../requirements/pmo-branch-resolver.js
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
+import { parseWuMetadata } from '../workunit/wu-metadata.js';
 
 const STUDIO_EVENTS_JSONL = resolveStudioLogFile('studio-events.jsonl');
 
@@ -110,7 +111,7 @@ export interface AgentSummary {
     lastErrorAt: string | null;
     /** 2026-07 PMO-flow UX：当前 WU 快照（无 currentWorkUnitId 或 WU 已不存在 → null） */
     currentWorkUnit: AgentCurrentWorkUnit | null;
-    /** 2026-07 PMO-flow UX：归属 PMO（解析链 ①ownershipProjectId ②reqId→Requirement.projectId ③pmoProjectId；解析不到 → null） */
+    /** 2026-07 PMO-flow UX：归属 PMO（2026-08 归因统一后解析链 ①metadata.pmoId（‖ deprecated legacy ownershipProjectId 同级）②reqId→Requirement.projectId；解析不到 → null） */
     pmo: AgentPmoSummary | null;
     /** 2026-07 PMO-flow UX：当前 WU 所在频道（无当前 WU → null） */
     channelId: string | null;
@@ -152,13 +153,8 @@ function countByStatus(snapshots: Array<{ status: string; completedAt: string | 
 
 /** WU metadata.title 安全解析（损坏/缺失/非字符串 → null，调用方回落 scope） */
 function parseMetadataTitle(metadata: string | null): string | null {
-  if (!metadata) return null;
-  try {
-    const meta = JSON.parse(metadata) as { title?: unknown };
-    return typeof meta.title === 'string' && meta.title ? meta.title : null;
-  } catch {
-    return null;
-  }
+  const title = parseWuMetadata(metadata).title;
+  return typeof title === 'string' && title ? title : null;
 }
 
 export class MonitoringService {

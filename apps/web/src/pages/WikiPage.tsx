@@ -54,7 +54,7 @@ export function WikiPage() {
   const fetchDocs = useCallback(async (searchTerm: string) => {
     setLoading(true);
     try {
-      const params: any = {};
+      const params: { search?: string } = {};
       if (searchTerm) params.search = searchTerm;
       const res = await wikiApi.list(params);
       setDocs(res.data?.data || []);
@@ -65,13 +65,20 @@ export function WikiPage() {
     }
   }, []);
 
-  // Initial load
+  // Initial load（微任务触发：fetchDocs 首行同步置 loading，直接调用会触发
+  // set-state-in-effect；微任务推迟一拍，首屏时序与原实现等价——挂载即拉取，不防抖）
   useEffect(() => {
-    fetchDocs('');
+    void Promise.resolve().then(() => fetchDocs(''));
   }, [fetchDocs]);
 
-  // Debounced search
+  // Debounced search（跳过首次运行：初始加载已由上方 effect 立即触发，
+  // 消除原实现挂载时"立即一次 + 300ms 后一次"的双 fetch）
+  const firstSearchEffectRef = useRef(true);
   useEffect(() => {
+    if (firstSearchEffectRef.current) {
+      firstSearchEffectRef.current = false;
+      return;
+    }
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
       fetchDocs(search);
@@ -93,7 +100,7 @@ export function WikiPage() {
         const res = await wikiApi.getGraph();
         const raw = res.data?.data;
         if (raw) {
-          const nodes: KnowledgeNode[] = (raw.nodes || []).map((n: any) => ({
+          const nodes: KnowledgeNode[] = (raw.nodes || []).map((n: { id: string; name: string; status?: string }) => ({
             id: n.id,
             type: 'concept' as const,
             name: n.name,
@@ -101,7 +108,7 @@ export function WikiPage() {
             tags: [],
             complexity: 'simple' as const,
           }));
-          const edges: KnowledgeEdge[] = (raw.edges || []).map((e: any) => ({
+          const edges: KnowledgeEdge[] = (raw.edges || []).map((e: { source: string; target: string }) => ({
             source: e.source,
             target: e.target,
             type: 'related' as const,

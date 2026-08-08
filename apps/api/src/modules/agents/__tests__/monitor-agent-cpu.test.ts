@@ -59,11 +59,11 @@ vi.mock('../../knowledge/preference-observer.js', () => ({
   preferenceObserver: { record: vi.fn() },
 }));
 
-vi.mock('../triage.service.js', () => ({
+vi.mock('../triage/triage.service.js', () => ({
   triageService: { handleAlert: vi.fn() },
 }));
 
-import { systemHealthCheck } from '../monitor-system-probes.js';
+import { systemHealthCheck } from '../monitor/monitor-system-probes.js';
 
 describe('MonitorService CPU load monitoring', () => {
   beforeEach(() => {

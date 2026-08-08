@@ -7,7 +7,7 @@
  * Storage: ~/.studio/knowledge/resolution-{id}.md (frontmatter + body)
  */
 
-import { logger, FileStore } from '@dommaker/studio-shared';
+import { logger, FileStore, generateId } from '@dommaker/studio-shared';
 import { scheduleVectorDbSync } from './knowledge-bus.service.js';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
@@ -48,10 +48,6 @@ function resolutionFromDoc(id: string, meta: Record<string, any>, body: string):
     createdAt: meta.createdAt || new Date().toISOString(),
     updatedAt: meta.updatedAt || new Date().toISOString(),
   };
-}
-
-function generateId(): string {
-  return `res_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
 }
 
 /** Scan all resolution-*.md files in knowledge dir.
@@ -205,7 +201,7 @@ export class ResolutionService {
       const all = await scanResolutions();
       if (all.some((r: any) => r.pattern === input.pattern)) return null;
 
-      const id = generateId();
+      const id = generateId('res');
       await writeResolution({
         id,
         pattern: input.pattern,
@@ -324,7 +320,7 @@ export class ResolutionService {
         const hash = resolutionContentHash(seed.title, seed.fix);
         if (existingHashes.has(hash)) continue;
 
-        const id = generateId();
+        const id = generateId('res');
         await writeResolution({
           id,
           pattern: seed.pattern,

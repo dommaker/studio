@@ -42,7 +42,7 @@ vi.mock('../../knowledge/knowledge-service', () => ({
   },
 }));
 
-import { AgentLoop } from '../agent-loop';
+import { AgentLoop } from '../loop/agent-loop';
 
 const mockRole = {
   id: 'role-guard',

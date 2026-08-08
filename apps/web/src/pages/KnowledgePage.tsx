@@ -7,9 +7,18 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api } from '../api';
+import { knowledgeApi, type KnowledgeGapType, type KnowledgeSearchResult, type UnifiedEntry } from '../api/knowledge';
 import { maintenanceApi, type TriggerCosts } from '../api/maintenance';
-import { Select, ManualTaskButton } from '../components/ui';
+import { toast } from '../utils/toast';
+import { Select, ManualTaskButton, Button } from '../components/ui';
+import {
+  PreferenceCard, BusinessRuleCard, EnvSnapshotCard,
+  DecisionChainCard, InteractionPatternCard, ResolutionCard,
+} from '../components/knowledge/GapCards';
+import type {
+  PreferenceGap, BusinessRuleGap, EnvSnapshotGap,
+  DecisionChainGap, InteractionGap, ResolutionGap,
+} from '../components/knowledge/GapCards';
 
 type GapTab = 'preference' | 'business_rule' | 'environment' | 'decision_chain' | 'interaction' | 'resolution';
 
@@ -28,27 +37,32 @@ const gapIcons: Record<GapTab, string> = {
 
 type ActiveTab = GapTab | 'unified';
 
+/** Gap tab 条目：六类缺口形状各异（卡片自行解读字段），仅 id 用于列表 key */
+type GapItem = { id?: string } & Record<string, unknown>;
+
 export function KnowledgePage() {
   const navigate = useNavigate();
 
   // Tab state
   const [activeTab, setActiveTab] = useState<ActiveTab>('unified');
-  const [gapData, setGapData] = useState<any[]>([]);
+  const [gapData, setGapData] = useState<GapItem[]>([]);
   const [gapLoading, setGapLoading] = useState(false);
 
   // S11: Unified search state
   const [globalSearch, setGlobalSearch] = useState('');
-  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [searchResults, setSearchResults] = useState<KnowledgeSearchResult[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
 
   // AS-022: Unified knowledge view state
-  const [unifiedEntries, setUnifiedEntries] = useState<any[]>([]);
+  const [unifiedEntries, setUnifiedEntries] = useState<UnifiedEntry[]>([]);
   const [unifiedTotal, setUnifiedTotal] = useState(0);
   const [unifiedLoading, setUnifiedLoading] = useState(false);
   const [unifiedMode, setUnifiedMode] = useState('');
   const [unifiedOffset, setUnifiedOffset] = useState(0);
   const [showManualEntry, setShowManualEntry] = useState(false);
   const [manualForm, setManualForm] = useState({ type: 'guideline', title: '', content: '', consumptionMode: 'reference', tags: '' });
+  // 工单 38: 新建条目提交中状态——Button loading 态防连点重复提交
+  const [manualSaving, setManualSaving] = useState(false);
 
   // 手动任务成本（近 30 天 token；失败静默，不阻塞页面）
   const [costs, setCosts] = useState<TriggerCosts | null>(null);
@@ -60,11 +74,11 @@ export function KnowledgePage() {
     setGapLoading(true);
     try {
       if (type === 'resolution') {
-        const res = await api.get('/knowledge/resolutions');
-        setGapData(res.data.resolutions || []);
+        const res = await knowledgeApi.listResolutions();
+        setGapData((res.data.resolutions || []) as unknown as GapItem[]);
       } else {
-        const res = await api.get(`/knowledge/gaps/${type}`);
-        setGapData(res.data.data || []);
+        const res = await knowledgeApi.listGaps(type as KnowledgeGapType);
+        setGapData((res.data.data || []) as GapItem[]);
       }
     } catch { setGapData([]); }
     finally { setGapLoading(false); }
@@ -74,9 +88,11 @@ export function KnowledgePage() {
   const loadUnified = useCallback(async () => {
     setUnifiedLoading(true);
     try {
-      const params = new URLSearchParams({ limit: '50', offset: String(unifiedOffset) });
-      if (unifiedMode) params.set('consumptionMode', unifiedMode);
-      const res = await api.get(`/knowledge/unified?${params}`);
+      const res = await knowledgeApi.listUnified({
+        limit: 50,
+        offset: unifiedOffset,
+        consumptionMode: unifiedMode || undefined,
+      });
       setUnifiedEntries(res.data.entries || []);
       setUnifiedTotal(res.data.total || 0);
     } catch { setUnifiedEntries([]); }
@@ -84,21 +100,34 @@ export function KnowledgePage() {
   }, [unifiedMode, unifiedOffset]);
 
   useEffect(() => {
-    if (activeTab === 'unified') loadUnified();
-    else loadGapData(activeTab);
+    // 微任务触发 loader：两个 loader 首行均同步置 loading，直接在 effect 体内调用
+    // 会触发 set-state-in-effect；微任务推迟一拍，时序与原实现逐帧等价。
+    // loader 保持原样——handleManualEntry 提交后复用 loadUnified 做事件路径刷新
+    void Promise.resolve().then(() => {
+      if (activeTab === 'unified') loadUnified();
+      else loadGapData(activeTab);
+    });
   }, [activeTab, loadGapData, loadUnified]);
 
   // AS-022: Submit manual entry
   const handleManualEntry = async () => {
+    if (manualSaving) return;
+    setManualSaving(true);
     try {
-      await api.post('/knowledge/unified', {
+      await knowledgeApi.createUnifiedEntry({
         ...manualForm,
         tags: manualForm.tags ? manualForm.tags.split(',').map(t => t.trim()) : [],
       });
       setShowManualEntry(false);
       setManualForm({ type: 'guideline', title: '', content: '', consumptionMode: 'reference', tags: '' });
       loadUnified();
-    } catch (err) { console.error('Failed to create entry:', err); }
+    } catch (err) {
+      // 工单 38: 失败不再静默——toast 反馈且保留表单内容，用户可修正后重试
+      console.error('Failed to create entry:', err);
+      toast.error(err?.response?.data?.error || err?.message || '创建条目失败，请重试');
+    } finally {
+      setManualSaving(false);
+    }
   };
 
   // S11: Unified search across all types
@@ -106,7 +135,7 @@ export function KnowledgePage() {
     if (!globalSearch.trim()) { setSearchResults([]); return; }
     setSearchLoading(true);
     try {
-      const res = await api.get(`/knowledge/search?q=${encodeURIComponent(globalSearch)}`);
+      const res = await knowledgeApi.search(globalSearch);
       setSearchResults(res.data.results || []);
     } catch { setSearchResults([]); }
     finally { setSearchLoading(false); }
@@ -120,20 +149,20 @@ export function KnowledgePage() {
   ];
 
   // ── Gap type detail rendering ──
-  const renderGapItem = (item: any) => {
+  const renderGapItem = (item: GapItem) => {
     switch (activeTab as GapTab) {
       case 'preference':
-        return <PreferenceCard item={item} />;
+        return <PreferenceCard item={item as PreferenceGap} />;
       case 'business_rule':
-        return <BusinessRuleCard item={item} />;
+        return <BusinessRuleCard item={item as BusinessRuleGap} />;
       case 'environment':
-        return <EnvSnapshotCard item={item} />;
+        return <EnvSnapshotCard item={item as EnvSnapshotGap} />;
       case 'decision_chain':
-        return <DecisionChainCard item={item} />;
+        return <DecisionChainCard item={item as DecisionChainGap} />;
       case 'interaction':
-        return <InteractionPatternCard item={item} />;
+        return <InteractionPatternCard item={item as InteractionGap} />;
       case 'resolution':
-        return <ResolutionCard item={item} />;
+        return <ResolutionCard item={item as ResolutionGap} />;
       default:
         return <pre className="text-xs u-text-3">{JSON.stringify(item, null, 2)}</pre>;
     }
@@ -280,10 +309,10 @@ export function KnowledgePage() {
                     className="input w-full mb-3" />
                   <input type="text" placeholder="标签（逗号分隔）" value={manualForm.tags} onChange={e => setManualForm({ ...manualForm, tags: e.target.value })}
                     className="input w-full mb-3" />
-                  <button onClick={handleManualEntry} disabled={!manualForm.title || !manualForm.content}
-                    className="btn btn-primary">
+                  <Button onClick={handleManualEntry} disabled={!manualForm.title || !manualForm.content}
+                    loading={manualSaving} loadingLabel="保存中...">
                     保存
-                  </button>
+                  </Button>
                 </div>
               )}
               {unifiedLoading ? (
@@ -355,161 +384,6 @@ export function KnowledgePage() {
           </div>
         </div>
       </div>
-    </div>
-  );
-}
-
-// ── Gap type card components ──
-
-function PreferenceCard({ item }: { item: any }) {
-  return (
-    <div className="card p-4">
-      <div className="flex items-center gap-2 mb-2">
-        <span>👤</span>
-        <span className="font-medium u-text">用户偏好</span>
-        {item.responseStyle && <span className="text-xs px-2 py-0.5 rounded u-accent-bg">{item.responseStyle}</span>}
-        {item.preferredModel && <span className="text-xs px-2 py-0.5 rounded u-surface-2 u-text-3">{item.preferredModel}</span>}
-        <span className="text-xs ml-auto u-text-3">置信度: {Math.round((item.confidence || 0) * 100)}%</span>
-      </div>
-      <div className="grid grid-cols-3 gap-3 text-sm">
-        {item.activeHours?.length > 0 && <div><span className="u-text-3">活跃时段: </span><span className="u-text">{(item.activeHours || []).join(', ')}点</span></div>}
-        {item.avgMessageLength && <div><span className="u-text-3">平均消息长度: </span><span className="u-text">{item.avgMessageLength} 字符</span></div>}
-        {item.autoApproveThreshold !== undefined && <div><span className="u-text-3">自动审批阈值: </span><span className="u-text">{Math.round(item.autoApproveThreshold * 100)}%</span></div>}
-      </div>
-    </div>
-  );
-}
-
-function BusinessRuleCard({ item }: { item: any }) {
-  return (
-    <div className="card p-4">
-      <div className="flex items-center gap-2 mb-2">
-        <span>📏</span>
-        <span className="font-medium u-text">{item.name}</span>
-        <span className="text-xs px-2 py-0.5 rounded u-surface-2 u-text-3">{item.category}</span>
-        <span className="text-xs ml-auto u-text-3">v{item.version}</span>
-      </div>
-      <p className="text-sm mb-1 u-text">{item.description}</p>
-      <p className="text-xs u-text-3">
-        {item.condition} → {item.action}
-        {item.defaultValue && ` (默认: ${item.defaultValue})`}
-        {' · '}{item.source}
-      </p>
-    </div>
-  );
-}
-
-function EnvSnapshotCard({ item }: { item: any }) {
-  return (
-    <div className="card p-4">
-      <div className="flex items-center gap-2 mb-2">
-        <span>🖥️</span>
-        <span className="font-medium u-text">环境快照</span>
-        <span className="text-xs px-2 py-0.5 rounded u-surface-2 u-text-3">{item.nodeEnv}</span>
-      </div>
-      <div className="grid grid-cols-4 gap-2 text-sm">
-        <div><span className="u-text-3">主机: </span><span className="u-text">{item.hostname}</span></div>
-        <div><span className="u-text-3">平台: </span><span className="u-text">{item.platform}</span></div>
-        <div><span className="u-text-3">Node: </span><span className="u-text">{item.nodeVersion}</span></div>
-        <div><span className="u-text-3">端口: </span><span className="u-text">{item.apiPort}</span></div>
-      </div>
-      {(item.knownLimitations || []).length > 0 && (
-        <div className="mt-2 text-xs u-warn">
-          ⚠️ 已知限制: {(item.knownLimitations || []).map((l: any) => l.issue).join('; ')}
-        </div>
-      )}
-      {item.diffFromPrev && <div className="mt-1 text-xs u-text-2">变更: {item.diffFromPrev}</div>}
-    </div>
-  );
-}
-
-function DecisionChainCard({ item }: { item: any }) {
-  const options = typeof item.options === 'string' ? JSON.parse(item.options) : (item.options || []);
-  return (
-    <div className="card p-4">
-      <div className="flex items-center gap-2 mb-2">
-        <span>🔗</span>
-        <span className="font-medium u-text">{item.topic}</span>
-        <span className="text-xs px-2 py-0.5 rounded u-surface-2 u-text-3">{item.category}</span>
-        <span className="text-xs ml-auto u-text-3">{item.sourceType}</span>
-      </div>
-      <p className="text-sm mb-1 u-text-2">{item.context}</p>
-      <div className="text-sm">
-        <span className="u-text-3">选择: </span>
-        <span className="font-medium u-accent">{item.chosen}</span>
-        {options.length > 0 && <span className="u-text-3"> (共 {options.length} 个方案)</span>}
-      </div>
-      <p className="text-xs mt-1 u-text-3">{item.rationale}</p>
-      {item.tradeoffs && <p className="text-xs u-warn">权衡: {item.tradeoffs}</p>}
-    </div>
-  );
-}
-
-function InteractionPatternCard({ item }: { item: any }) {
-  return (
-    <div className="card p-4">
-      <div className="flex items-center gap-2 mb-2">
-        <span>📊</span>
-        <span className="font-medium u-text">{item.name}</span>
-        <span className="text-xs px-2 py-0.5 rounded u-surface-2 u-text-3">{item.category}</span>
-        <span className="text-xs ml-auto u-text-3">
-          频次: {item.frequency}/天 · 置信度: {Math.round((item.confidence || 0) * 100)}%
-        </span>
-      </div>
-      <p className="text-sm mb-1 u-text">{item.description}</p>
-      {item.insight && <p className="text-sm u-accent">💡 {item.insight}</p>}
-      {item.suggestion && <p className="text-xs u-text-2">建议: {item.suggestion}</p>}
-    </div>
-  );
-}
-
-function ResolutionCard({ item }: { item: any }) {
-  const statusClasses: Record<string, string> = {
-    pending: 'u-warn-bg',
-    verified: 'u-accent-bg',
-    canonical: 'u-ok-bg',
-    deprecated: 'u-surface-2 u-text-3',
-  };
-  const layerLabels: Record<string, string> = {
-    L3_tool_behavior: 'L3 工具行为',
-    L4_env_config: 'L4 环境配置',
-    L5_error_fix: 'L5 错误解法',
-    L6_causality: 'L6 因果关系',
-  };
-
-  let tags: string[] = [];
-  try { tags = typeof item.tags === 'string' ? JSON.parse(item.tags) : (item.tags || []); } catch { /* ignore */ }
-
-  return (
-    <div className="card p-4">
-      <div className="flex items-center gap-2 mb-2">
-        <span>🔧</span>
-        <span className="font-medium u-text">{item.title}</span>
-        <span className={`text-xs px-2 py-0.5 rounded ${statusClasses[item.status] || 'u-surface-2 u-text-3'}`}>{item.status}</span>
-        <span className="text-xs px-2 py-0.5 rounded u-surface-2 u-text-3">
-          {layerLabels[item.layer] || item.layer}
-        </span>
-        <span className="text-xs ml-auto u-text-3">
-          验证: {item.verifyCount}x
-        </span>
-      </div>
-      <p className="text-xs mb-1 u-text-3">
-        模式: <code className="px-1 rounded u-surface-2">{item.pattern}</code>
-      </p>
-      <p className="text-sm mb-2 u-text">{item.fix}</p>
-      {tags.length > 0 && (
-        <div className="flex gap-1 flex-wrap">
-          {tags.map((t: string) => (
-            <span key={t} className="text-xs px-1.5 py-0.5 rounded u-surface-2 u-text-3">{t}</span>
-          ))}
-        </div>
-      )}
-      {item.errorClass && (
-        <div className="text-xs mt-1 u-text-3">
-          错误类型: {item.errorClass}
-          {item.sourceGoalId && ` · 来源: ${item.sourceGoalId.slice(0, 8)}`}
-        </div>
-      )}
     </div>
   );
 }

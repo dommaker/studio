@@ -12,28 +12,26 @@ import type { ChildProcess } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import * as fsSync from 'fs';
-import { logger, parseStreamEvents, extractToolCalls, extractFilePath as extractFilePathShared, extractResult, extractUsage } from '@dommaker/studio-shared';
+import { logger } from '@dommaker/studio-shared';
 import { execSh, resolveSessionId, readSessionIdFile } from '@dommaker/studio-shared/node';
 import { beforeAgentExecute } from '@dommaker/studio-shared/harness/hooks';
 
 import {
   resolveWorkspace,
   propagateHarnessConfig,
-  buildCachePrefix,
-  writeRequirementsMd,
-  writeContractTests,
   ensureDeps,
 } from './worktree-resolver.js';
 import {
+  buildCachePrefix,
+  writeRequirementsMd,
+  writeContractTests,
+} from './runner-briefing.js';
+import {
   readProgress,
   collectOutputFiles,
-  recordSessionMetrics,
   emitSessionStart,
   emitSessionEnd,
-  emitToolCall,
-  emitFileChange,
   recordExecutionError,
-  getConstraintMeta,
 } from './output-capture.js';
 import {
   buildPrompt,
@@ -44,9 +42,9 @@ import {
   buildSessionCommand,
   buildSessionEnv,
 } from './runner-params.js';
-import { hasRecentActivity, queryResolutionHints } from './runner-output.js';
+import { hasRecentActivity, queryResolutionHints, processSessionOutput } from './runner-output.js';
 
-import type { ExecutorConfig, AgentTask, ExecutionResult } from './session-manager.js';
+import type { ExecutorConfig, AgentTask, ExecutionResult, AcGroup } from './types.js';
 
 /** 执行所需的实例状态（由 AgentRunner 门面传入，避免模块反向依赖类）。 */
 export interface RunnerExecutionState {
@@ -124,7 +122,7 @@ export async function executeSessionLoop(state: RunnerExecutionState, task: Agen
     const testFiles = sddTaskData.testFiles;
 
     // Write REQUIREMENTS.md (with testFiles for GREEN phase verification)
-    const acGroup = task.parameters?.acGroup as Record<string, any> | undefined;
+    const acGroup = task.parameters?.acGroup as AcGroup | undefined;
     await writeRequirementsMd(worktree, task, acGroup, testFiles);
 
     // Write contract tests (RED phase)
@@ -135,8 +133,6 @@ export async function executeSessionLoop(state: RunnerExecutionState, task: Agen
     // Session loop
     let sessionCount = 0;
     let stuckCount = 0;
-    let lastStep = '';
-    let lastCompletedCount = 0;
     let cumulativeSessionMs = 0;
     let resolutionHint = '';
     let cumulativeInputTokens = 0;
@@ -201,10 +197,7 @@ export async function executeSessionLoop(state: RunnerExecutionState, task: Agen
       // Stuck detection — baseline tracking only.
       // Actual stuck detection is done post-session (after spawn) to avoid
       // comparing stale progress data. See T2 post-session stuck check.
-      const currentStep = progress?.currentStep || '';
       const completedCount = progress?.completedSteps?.length || 0;
-      lastStep = currentStep;
-      lastCompletedCount = completedCount;
 
       // Build prompt
       const knowledgeContext = (task.parameters?.knowledgeContext as string) || '';
@@ -263,12 +256,18 @@ export async function executeSessionLoop(state: RunnerExecutionState, task: Agen
           childRef,
         });
 
-        fsSync.writeFileSync(logFile, stdout, 'utf-8');
-
-        // AC1.1 + AC1.3: Parse stream-json line by line
-        const events = parseStreamEvents(stdout);
-        const { text, isError } = extractResult(events);
-        const streamUsage = extractUsage(events);
+        const sessionMs = Date.now() - sessionStart;
+        const { text, isError, streamUsage } = await processSessionOutput(stdout, {
+          logFile,
+          sessionId,
+          executionId: task.executionId,
+          sessionCount,
+          isFirstSession,
+          sessionMs,
+          agentRole: 'executor',
+          stage: task.parameters?.stage as string,
+          promptSize: prompt.length,
+        });
 
         // Accumulate tokens across sessions for summary
         cumulativeInputTokens += streamUsage?.inputTokens || 0;
@@ -281,42 +280,13 @@ export async function executeSessionLoop(state: RunnerExecutionState, task: Agen
           outputTokens: streamUsage?.outputTokens || 0,
           cacheReadTokens: streamUsage?.cacheReadTokens || 0,
           cacheCreationTokens: streamUsage?.cacheCreationTokens || 0,
-          durationMs: Date.now() - sessionStart,
+          durationMs: sessionMs,
         });
-
-        // AC1.3: Emit tool:call and file:change events
-        const tools = extractToolCalls(events);
-        for (const tool of tools) {
-          await emitToolCall(tool.name, tool.input, sessionId, task.executionId);
-          const filePath = extractFilePathShared(tool.name, tool.input);
-          if (filePath) {
-            await emitFileChange(filePath, sessionId, task.executionId);
-          }
-        }
 
         if (isError) {
           logger.warn('[AgentRunner] Claude Code returned error', { taskId: task.id, executionId: task.executionId, session: sessionCount, text: text.slice(0, 200) });
         }
-
-        // Record session metrics
-        const sessionMs = Date.now() - sessionStart;
-        const { hash, size } = await getConstraintMeta();
-        await recordSessionMetrics({
-          stdout,
-          executionId: task.executionId,
-          agentRole: 'executor',
-          stage: task.parameters?.stage as string,
-          sessionCount,
-          isFirstSession,
-          sessionMs,
-          promptSize: prompt.length,
-          constraintHash: hash,
-          constraintSize: size,
-          streamUsage,
-        });
-
-        await emitSessionEnd(sessionId, task.executionId, sessionCount);
-      } catch (execErr: any) {
+      } catch (execErr) {
         const errMsg = execErr instanceof Error ? execErr.message : String(execErr);
         const errStack = execErr instanceof Error ? execErr.stack?.slice(0, 2000) : undefined;
         // 2>&1 重定向 stderr→stdout，stderr 为空；实际错误信息在 stdout

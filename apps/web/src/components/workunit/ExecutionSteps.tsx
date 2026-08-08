@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react';
 import {
   workunitApi,
   parseExecutionStepEvents,
+  formatExecutionStreamChunkText,
   type ExecutionStepEvent,
 } from '../../api/workunit';
 import { useWorkUnitEvents } from '../../hooks/useWorkUnitEvents';
@@ -19,9 +20,16 @@ export function ExecutionSteps({ workUnitId }: { workUnitId: string }) {
   // Layer B 步内流式：执行中的实时 chunk（内存态，步级 REST 卡片落位后自动让位）
   const liveChunks = useWorkUnitStreamEvents(workUnitId);
 
+  // 渲染期按 workUnitId 重置（替代原 effect 内同步重置）：SSE eventTick 重拉不再清空 steps，
+  // 消除每次事件都闪"加载中…"的闪烁——事件刷新静默进行，旧列表留到新数据到达
+  const [prevWorkUnitId, setPrevWorkUnitId] = useState(workUnitId);
+  if (prevWorkUnitId !== workUnitId) {
+    setPrevWorkUnitId(workUnitId);
+    setSteps(null);
+  }
+
   useEffect(() => {
     let alive = true;
-    setSteps(null);
     workunitApi.listExecutionStepEvents(workUnitId)
       .then(r => { if (alive) setSteps(parseExecutionStepEvents(r.data.events || [], workUnitId)); })
       .catch(() => { if (alive) setSteps([]); });
@@ -44,21 +52,20 @@ export function ExecutionSteps({ workUnitId }: { workUnitId: string }) {
               </span>
               <span className="mc-kv-v">第 {currentStep} 步进行中</span>
             </div>
-            {live.filter(c => c.kind !== 'step-start').map((c, i) => (
-              c.kind === 'tool' ? (
+            {live.map((c, i) => {
+              // chunk→文案映射唯一出处：api/workunit.ts formatExecutionStreamChunkText（step-start → null 不渲染）
+              const text = formatExecutionStreamChunkText(c, { maxTextLength: false, maxSummaryLength: false });
+              if (text === null) return null;
+              return c.kind === 'tool' ? (
                 <div key={i} className="mc-drawer-note" style={{ fontFamily: 'monospace', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
-                  {c.tool}{c.summary ? `  ${c.summary}` : ''}
+                  {text}
                 </div>
               ) : (
                 <div key={i} className="mc-drawer-note" style={{ whiteSpace: 'pre-wrap' }}>
-                  {c.kind === 'thinking'
-                    ? `思考：${c.text}`
-                    : c.kind === 'result'
-                      ? `${c.isError ? '✗' : '✓'} ${c.text || '回合结束'}`
-                      : c.text}
+                  {text}
                 </div>
-              )
-            ))}
+              );
+            })}
           </div>
         );
       })()}

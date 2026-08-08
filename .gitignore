@@ -56,6 +56,9 @@ test-results/
 # Spec source (ignored)
 docs/
 
+# Scratch workspace (ignored)
+.scratch/
+
 # PM2 配置（可能包含敏感信息）
 ecosystem.config.cjs
 .env.pm2

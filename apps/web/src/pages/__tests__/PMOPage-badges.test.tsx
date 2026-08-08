@@ -3,18 +3,19 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
-const { mockGet, mockPost, mockChannelList, mockListAllAgents, mockGetChain, mockListByProject } = vi.hoisted(() => ({
+const { mockGet, mockPost, mockChannelList, mockListAllAgents, mockGetChain, mockListByProject, mockProjectList } = vi.hoisted(() => ({
   mockGet: vi.fn(),
   mockPost: vi.fn(),
   mockChannelList: vi.fn(),
   mockListAllAgents: vi.fn(),
   mockGetChain: vi.fn(),
   mockListByProject: vi.fn(),
+  mockProjectList: vi.fn(),
 }));
 
 vi.mock('../../api', () => ({
   api: { get: mockGet, post: mockPost },
-  projectApi: { publish: vi.fn() },
+  projectApi: { publish: vi.fn(), list: mockProjectList },
 }));
 vi.mock('../../api/channel', () => ({
   channelApi: { list: mockChannelList, listAllAgents: mockListAllAgents },
@@ -45,10 +46,10 @@ describe('AC-6: PMO 卡片徽章', () => {
     vi.clearAllMocks();
     mockChannelList.mockResolvedValue({ data: { data: [] } });
     mockListAllAgents.mockResolvedValue({ data: { data: [] } });
+    mockProjectList.mockResolvedValue({ data: { data: mockProjects } });
     mockGet.mockImplementation((url: string) => {
       if (url.includes('/companies')) return Promise.resolve({ data: { data: [{ id: 'co-1' }] } });
       if (url.includes('/pmo/okr')) return Promise.resolve({ data: { data: [] } });
-      if (url.includes('/pmo/project')) return Promise.resolve({ data: { data: mockProjects } });
       return Promise.resolve({ data: { data: [] } });
     });
     // p1：3 个 WU，done + closed 算完成（workFinished 口径），active 不算

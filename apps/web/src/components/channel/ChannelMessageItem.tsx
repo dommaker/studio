@@ -8,7 +8,6 @@ import { RequirementsDocCard } from './RequirementsDocCard';
 import { KnowledgeConfirmCard } from './KnowledgeConfirmCard';
 import { KnowledgeProposalCard } from './KnowledgeProposalCard';
 import { AuditorSuggestionCard } from './AuditorSuggestionCard';
-import { DeployApprovalCard } from './DeployApprovalCard'; // M4a
 import { ConvertToTaskDialog } from './ConvertToTaskDialog';
 
 interface Props {
@@ -32,7 +31,7 @@ interface Props {
   onInlineReply?: (message: ChannelMessage, content: string) => void;
 }
 
-function renderCard(meta: Record<string, any>, message: ChannelMessage, onAction: Props['onAction']) {
+function renderCard(meta: CardMeta, message: ChannelMessage, onAction: Props['onAction']) {
   switch (meta.cardType) {
     case 'requirements_doc':
       return <RequirementsDocCard message={message} meta={meta} onAction={onAction} />;
@@ -43,8 +42,6 @@ function renderCard(meta: Record<string, any>, message: ChannelMessage, onAction
       return <KnowledgeProposalCard message={message} meta={meta} onAction={onAction} />;
     case 'auditor_suggestion':
       return <AuditorSuggestionCard message={message} meta={meta} onAction={onAction} />;
-    case 'deploy_approval': // M4a
-      return <DeployApprovalCard message={message} meta={meta} onAction={onAction} />;
     default:
       return null;
   }
@@ -208,7 +205,21 @@ export function ChannelMessageItem({
   );
 }
 
-function parseMeta(meta?: string): Record<string, any> {
+/** 卡片 meta：消息 meta JSON 解析产物；cardData 形状随 cardType 而异，卡片内按需断言 */
+export interface CardMeta {
+  cardType?: string;
+  status?: string;
+  cardData?: Record<string, unknown>;
+  projectPath?: string;
+  requirementsDocId?: string;
+  requirementId?: string;
+  reqId?: string;
+  pmoId?: string;
+  error?: string;
+  [key: string]: unknown;
+}
+
+function parseMeta(meta?: string): CardMeta {
   try { return JSON.parse(meta || '{}'); } catch { return {}; }
 }
 

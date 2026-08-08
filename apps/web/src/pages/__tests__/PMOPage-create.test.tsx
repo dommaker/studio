@@ -3,12 +3,13 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
-const { mockGet, mockPost, mockChannelList, mockCreate, mockDiscoverProjects } = vi.hoisted(() => ({
+const { mockGet, mockPost, mockChannelList, mockCreate, mockDiscoverProjects, mockProjectList } = vi.hoisted(() => ({
   mockGet: vi.fn(),
   mockPost: vi.fn(),
   mockChannelList: vi.fn(),
   mockCreate: vi.fn(),
   mockDiscoverProjects: vi.fn(),
+  mockProjectList: vi.fn(),
 }));
 
 vi.mock('../../api', () => ({
@@ -19,6 +20,7 @@ vi.mock('../../api', () => ({
   projectApi: {
     publish: vi.fn(),
     create: mockCreate,
+    list: mockProjectList,
   },
 }));
 
@@ -44,10 +46,10 @@ describe('PMO-a: 新建 PMO 表单', () => {
       data: { data: [{ name: 'studio', path: '/root/projects/studio', hasClaudeMd: true, language: 'typescript' }] },
     });
 
+    mockProjectList.mockResolvedValue({ data: { data: mockProjects } });
     mockGet.mockImplementation((url: string) => {
       if (url.includes('/companies')) return Promise.resolve({ data: { data: [{ id: 'co-1' }] } });
       if (url.includes('/pmo/okr')) return Promise.resolve({ data: { data: [] } });
-      if (url.includes('/pmo/project')) return Promise.resolve({ data: { data: mockProjects } });
       return Promise.resolve({ data: { data: [] } });
     });
   });
@@ -83,13 +85,8 @@ describe('PMO-a: 新建 PMO 表单', () => {
     fireEvent.click(screen.getByRole('option', { name: '自动合并（缺证据拒绝）' }));
 
     // 提交后列表返回新项目（模拟刷新）
-    mockGet.mockImplementation((url: string) => {
-      if (url.includes('/companies')) return Promise.resolve({ data: { data: [{ id: 'co-1' }] } });
-      if (url.includes('/pmo/okr')) return Promise.resolve({ data: { data: [] } });
-      if (url.includes('/pmo/project')) return Promise.resolve({
-        data: { data: [...mockProjects, { id: 'p2', pmoNumber: 'PMO-12', title: '证据链看板', status: 'pending', progress: 0, createdAt: '2026-01-02' }] },
-      });
-      return Promise.resolve({ data: { data: [] } });
+    mockProjectList.mockResolvedValue({
+      data: { data: [...mockProjects, { id: 'p2', pmoNumber: 'PMO-12', title: '证据链看板', status: 'pending', progress: 0, createdAt: '2026-01-02' }] },
     });
 
     fireEvent.click(screen.getByText('创建'));
@@ -125,6 +122,7 @@ describe('PMO-a: 新建 PMO 表单', () => {
   });
 
   it('空态文案指向新建 PMO 按钮', async () => {
+    mockProjectList.mockResolvedValue({ data: { data: [] } });
     mockGet.mockImplementation((url: string) => {
       if (url.includes('/companies')) return Promise.resolve({ data: { data: [{ id: 'co-1' }] } });
       return Promise.resolve({ data: { data: [] } });

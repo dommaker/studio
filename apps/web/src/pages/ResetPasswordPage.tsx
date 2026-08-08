@@ -25,7 +25,7 @@ export function ResetPasswordPage() {
     try {
       const { data } = await authApi.resetPassword(token, password);
       if (data.message) setSuccess(true);
-    } catch (e: any) {
+    } catch (e) {
       setError(e.response?.data?.error || e.message || '重置失败');
     } finally {
       setLoading(false);

@@ -8,18 +8,18 @@
  * - 通知中心、Triage 横幅
  */
 
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 
 const BASE = 'http://localhost:5180';
 const API = 'http://localhost:13001/api/v1';
 
-async function goToChannelList(page: any) {
+async function goToChannelList(page: Page) {
   await page.goto(`${BASE}/channels`);
   await page.waitForLoadState('domcontentloaded');
   await page.locator('text=Channels').waitFor({ timeout: 10000 }).catch(() => {});
 }
 
-async function enterRndChannel(page: any) {
+async function enterRndChannel(page: Page) {
   await goToChannelList(page);
   // 点第一个研发频道
   const btn = page.locator('button:has-text("研发")').first();
@@ -237,13 +237,13 @@ test.describe('Triage 横幅', () => {
 
 test.describe('B3-005: Auditor 建议卡片', () => {
   let sysChannelId: string;
-  let testMessageIds: string[] = [];
+  const testMessageIds: string[] = [];
 
   test.beforeAll(async ({ request }) => {
     // Find #系统 channel
     const listRes = await request.get(`${API}/channels`);
     const channels = (await listRes.json()).data;
-    const sysChannel = channels.find((c: any) => c.type === 'system');
+    const sysChannel = channels.find((c: { type?: string }) => c.type === 'system');
     if (!sysChannel) throw new Error('#系统 channel not found');
     sysChannelId = sysChannel.id;
   });

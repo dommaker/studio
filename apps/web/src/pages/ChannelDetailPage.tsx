@@ -2,7 +2,6 @@
 // 对话流逻辑与 B1-001/Phase 2 一致：日期分隔、已完成折叠、线程分组、NEED_INPUT 回复链路，零语义变更
 import { useParams } from 'react-router-dom';
 import { useEffect, useLayoutEffect, useState, useCallback, useRef } from 'react';
-import { api } from '../api';
 import { useChannelMessages } from '../hooks/useChannelEvents';
 import { ChannelMessageItem } from '../components/channel/ChannelMessageItem';
 import { ChannelInput } from '../components/channel/ChannelInput';
@@ -12,7 +11,9 @@ import { ChannelRail } from '../components/channel/ChannelRail';
 import { WorkUnitDrawer, type DrawerState } from '../components/channel/WorkUnitDrawer';
 import { workunitApi } from '../api/workunit';
 import { requirementApi, type Requirement } from '../api/requirements';
-import type { ChannelMessage } from '../api/channel';
+import type { Channel, ChannelMessage } from '../api/channel';
+import { channelApi } from '../api/channel';
+import { knowledgeApi } from '../api/knowledge';
 
 function isToday(d: Date) {
   const now = new Date();
@@ -89,7 +90,7 @@ function collapseProcessReplies(
 
 export function ChannelDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const [channel, setChannel] = useState<any>(null);
+  const [channel, setChannel] = useState<Channel | null>(null);
   const { messages, loading, sendMessage, loadMore, hasMore, refresh } = useChannelMessages(id);
   const [sending, setSending] = useState(false);
   const [showCompleted, setShowCompleted] = useState(false);
@@ -103,7 +104,7 @@ export function ChannelDetailPage() {
 
   useEffect(() => {
     if (!id) return;
-    api.get(`/channels/${id}`).then(r => setChannel(r.data.data)).catch(() => {});
+    channelApi.get(id).then(r => setChannel(r.data.data)).catch(() => {});
   }, [id]);
 
   // F5: 拉取本频道挂起中的 WorkUnit（blocked + metadata.waitingForInput）
@@ -195,15 +196,17 @@ export function ChannelDetailPage() {
         const meta = JSON.parse(typeof msg?.meta === 'string' ? msg.meta : '{}');
         const entries = meta?.cardData?.entries;
         if (Array.isArray(entries)) {
-          entryIds = entries.map((e: any) => e?.id).filter((id: any) => typeof id === 'string' && id.length > 0);
+          entryIds = entries
+            .map((e: { id?: unknown }) => e?.id)
+            .filter((id: unknown): id is string => typeof id === 'string' && id.length > 0);
         }
       } catch { entryIds = []; }
       if (entryIds.length === 0) return false;
-      const endpoint = action === 'knowledge_proposal_approve'
-        ? '/knowledge-service/promote'
-        : '/knowledge-service/demote';
+      const review = action === 'knowledge_proposal_approve'
+        ? knowledgeApi.promote
+        : knowledgeApi.demote;
       try {
-        await Promise.all(entryIds.map(entryId => api.post(endpoint, { entryId })));
+        await Promise.all(entryIds.map(entryId => review(entryId)));
         refresh();
         return true;
       } catch {
@@ -346,7 +349,6 @@ export function ChannelDetailPage() {
 
             {/* B2-002: Date separators + B2-006: collapse completed + AC-C3: threads */}
             {(() => {
-              let lastDate = '';
               const completed = messages.filter(m => {
                 try {
                   const meta = JSON.parse(typeof m.meta === 'string' ? m.meta : '{}');
@@ -359,6 +361,12 @@ export function ChannelDetailPage() {
 
               // Re-group visible messages into threads
               const items = groupIntoThreads(visibleMessages);
+
+              // 每项（线程组取 anchor）的日期串：日期分隔是否显示改为与前一项纯比较，避免渲染期重赋值
+              const itemDateStrs = items.map(item => {
+                const m = 'anchor' in item ? item.anchor : item;
+                return new Date(m.createdAt).toLocaleDateString('zh-CN', { month: 'long', day: 'numeric' });
+              });
 
               const dateSep = (d: Date, dateStr: string, key: string) => (
                 <div className="mc-date" key={key}>
@@ -378,14 +386,13 @@ export function ChannelDetailPage() {
                       收起已完成消息
                     </button>
                   )}
-                  {items.map(item => {
+                  {items.map((item, idx) => {
                     if ('anchor' in item) {
                       // ThreadGroup
                       const msg = item.anchor;
                       const d = new Date(msg.createdAt);
                       const dateStr = d.toLocaleDateString('zh-CN', { month: 'long', day: 'numeric' });
-                      const showDate = dateStr !== lastDate;
-                      lastDate = dateStr;
+                      const showDate = idx === 0 || dateStr !== itemDateStrs[idx - 1];
                       const anchorId = msg.id;
                       const expanded = expandedThreads.has(anchorId);
 
@@ -425,8 +432,7 @@ export function ChannelDetailPage() {
                       const msg = item;
                       const d = new Date(msg.createdAt);
                       const dateStr = d.toLocaleDateString('zh-CN', { month: 'long', day: 'numeric' });
-                      const showDate = dateStr !== lastDate;
-                      lastDate = dateStr;
+                      const showDate = idx === 0 || dateStr !== itemDateStrs[idx - 1];
                       return (
                         <div key={msg.id}>
                           {showDate && dateSep(d, dateStr, `date-${msg.id}`)}

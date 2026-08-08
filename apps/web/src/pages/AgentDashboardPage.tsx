@@ -1,14 +1,11 @@
 // AgentDashboard — 角色（AgentProfile）作战视图（2026-07-31 全流程串联 UX 重构 §5.2）
 // 每卡三段式：左=状态 pill/角色名/CLI badge；中=当前 WU + PMO/频道链接 + 最近动态；右=运行时长 + 强制停止
-// 实时：WebSocketProvider onEvent 订阅 agent.instance.status_changed / workunit.status_changed /
-//   workunit.execution.step|stream（按 currentWorkUnitId 反查归属 agent），30s 轮询兜底，不再手动刷新
-import { useState, useEffect, useRef, useCallback } from 'react';
+// 数据/实时全部委托 useAgentRoster（名册合并 + SSE 事件路由 + 30s 轮询），本页只做组合与渲染
+import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { monitoringApi, type AgentInfo } from '../api/monitoring';
-import { channelApi, type AgentProfile } from '../api/channel';
-import { workunitApi, parseExecutionStreamChunk, type WorkUnit } from '../api/workunit';
-import { useWebSocketContext, type WebSocketMessage } from '../api/websocket';
-import { api } from '../api/index';
+import { useAgentRoster, type RosterRole, type RosterActivityItem } from '../hooks/useAgentRoster';
+import { type WorkUnit } from '../api/workunit';
+import { ConfirmDialog } from '../components/ui';
 import {
   deriveAgentStatus,
   AGENT_STATUS_LABELS,
@@ -17,237 +14,16 @@ import {
   formatRelativeTime,
 } from '../utils/agentStatus';
 
-/** 卡片「最近动态」条目（SSE 实时追加，内存每 agent 最多保留 10 条） */
-interface ActivityItem {
-  /** 去重键：相同键的新条目替换旧条目（流式 thinking/text 逐 chunk 刷新同一行） */
-  key?: string;
-  at: string;
-  text: string;
-}
-
-const MAX_ACTIVITIES = 10;
-const POLL_INTERVAL_MS = 30000;
-
-interface MergedRole {
-  profile: AgentProfile;
-  runtime: AgentInfo | null;
-}
-
-/** agent.instance.status_changed（§6.2）的 data 契约 */
-interface AgentStatusChangedData {
-  profileId?: string;
-  instanceId?: string;
-  name?: string;
-  status?: string;
-  currentWorkUnitId?: string | null;
-}
-
-function truncate(text: string, max = 60): string {
-  return text.length > max ? `${text.slice(0, max)}…` : text;
-}
-
-/** workunit.execution.step → 动态文案（工具调用优先，其次 text/action/步号） */
-function stepActivityText(d: Record<string, unknown>): string {
-  const toolCalls = Array.isArray(d.toolCalls) ? d.toolCalls : [];
-  const first = toolCalls[0] as { tool?: unknown; summary?: unknown } | undefined;
-  if (first && typeof first.tool === 'string') {
-    return `🔧 ${first.tool}${typeof first.summary === 'string' && first.summary ? ` ${truncate(first.summary, 40)}` : ''}`;
-  }
-  if (typeof d.text === 'string' && d.text) return truncate(d.text);
-  const step = typeof d.step === 'number' ? d.step : '?';
-  if (typeof d.action === 'string' && d.action) return `第${step}步 · ${d.action}`;
-  return `第${step}步`;
-}
-
-/** 追加动态：同 key 替换尾条（流式 chunk 刷新同一行），超出上限丢最旧 */
-export function pushActivity(list: ActivityItem[], item: ActivityItem): ActivityItem[] {
-  const last = list[list.length - 1];
-  const next = last?.key && last.key === item.key ? [...list.slice(0, -1), item] : [...list, item];
-  return next.length > MAX_ACTIVITIES ? next.slice(next.length - MAX_ACTIVITIES) : next;
-}
-
 export function AgentDashboardPage() {
   const navigate = useNavigate();
-  const { onEvent } = useWebSocketContext();
-  const [roles, setRoles] = useState<MergedRole[]>([]);
-  const [activities, setActivities] = useState<Record<string, ActivityItem[]>>({});
-  const [lastDone, setLastDone] = useState<Record<string, WorkUnit | null>>({});
-  const [channelNames, setChannelNames] = useState<Record<string, string>>({});
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const rolesRef = useRef<MergedRole[]>([]);
-  rolesRef.current = roles;
+  const { roles, activities, lastDone, channelNames, loading, error, terminate } = useAgentRoster();
+  // 强制停止二次确认（ui/ConfirmDialog，替代原生 window.confirm）
+  const [terminateTarget, setTerminateTarget] = useState<string | null>(null);
 
-  /** 增量补查某 WU 详情并写回对应卡片的 currentWorkUnit（后端聚合字段暂缺/SSE 切换任务时） */
-  const fillWorkUnit = useCallback((roleId: string, workUnitId: string) => {
-    workunitApi.get(workUnitId)
-      .then((r) => {
-        const wu = r.data;
-        setRoles((prev) => prev.map((role) => {
-          if (role.profile.id !== roleId || !role.runtime) return role;
-          if (role.runtime.currentWorkUnitId !== workUnitId) return role;
-          return {
-            ...role,
-            runtime: {
-              ...role.runtime,
-              currentWorkUnit: { id: wu.id, title: wu.scope, type: wu.type, status: wu.status, claimedAt: wu.claimedAt },
-            },
-          };
-        }));
-      })
-      .catch(() => { /* best-effort：详情查不到时保留裸 ID 展示 */ });
-  }, []);
-
-  const load = useCallback(async (silent = false) => {
-    if (!silent) setLoading(true);
-    try {
-      const [profilesRes, summaryRes, channelsRes] = await Promise.all([
-        channelApi.listAllAgents(),
-        monitoringApi.getAgentSummary(),
-        channelApi.list(),
-      ]);
-      // 运行时状态按 roleId 合并（同一角色可能有多条历史 state，接口已按 startedAt 降序，取最新一条）
-      const runtimeByRole = new Map<string, AgentInfo>();
-      for (const a of summaryRes.data.agents) {
-        if (!runtimeByRole.has(a.roleId)) runtimeByRole.set(a.roleId, a);
-      }
-      const merged = profilesRes.data.data.map((p) => ({ profile: p, runtime: runtimeByRole.get(p.id) ?? null }));
-      setRoles(merged);
-      setChannelNames(Object.fromEntries((channelsRes.data.data ?? []).map((c) => [c.id, c.name])));
-      // 后端聚合字段暂缺时逐卡补查当前 WU 详情
-      for (const r of merged) {
-        if (r.runtime?.currentWorkUnitId && !r.runtime.currentWorkUnit) {
-          fillWorkUnit(r.profile.id, r.runtime.currentWorkUnitId);
-        }
-      }
-      // 空闲卡的「最近完成」：按 instance.id 查 assigneeId，取最近一条 done/completed
-      const idle = merged.filter((r): r is MergedRole & { runtime: AgentInfo } =>
-        r.runtime !== null && !r.runtime.currentWorkUnitId);
-      const doneEntries = await Promise.all(idle.map(async (r) => {
-        try {
-          const res = await workunitApi.list({ assigneeId: r.runtime.id, limit: 20 });
-          const done = res.data.data
-            .filter((w) => w.status === 'done' || w.status === 'completed')
-            .sort((a, b) => (b.completedAt ?? b.updatedAt).localeCompare(a.completedAt ?? a.updatedAt))[0] ?? null;
-          return [r.profile.id, done] as const;
-        } catch {
-          return [r.profile.id, null] as const;
-        }
-      }));
-      setLastDone(Object.fromEntries(doneEntries));
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Failed to load agents');
-    } finally {
-      setLoading(false);
-    }
-  }, [fillWorkUnit]);
-
-  useEffect(() => {
-    void load();
-    const timer = setInterval(() => void load(true), POLL_INTERVAL_MS);
-    return () => clearInterval(timer);
-  }, [load]);
-
-  // SSE 实时：状态变更 / 执行动态（参考 useWorkUnitStreamEvents 的过滤模式：按 event_type 分流、按 workUnitId 反查归属）
-  useEffect(() => {
-    const findRoleByWorkUnit = (workUnitId: string) =>
-      rolesRef.current.find((r) =>
-        r.runtime?.currentWorkUnitId === workUnitId || r.runtime?.currentWorkUnit?.id === workUnitId);
-    const appendActivity = (roleId: string, item: ActivityItem) =>
-      setActivities((prev) => ({ ...prev, [roleId]: pushActivity(prev[roleId] ?? [], item) }));
-
-    const unsub = onEvent((msg: WebSocketMessage) => {
-      if (msg.event_type === 'agent.instance.status_changed') {
-        const d = (msg.data ?? {}) as AgentStatusChangedData;
-        if (!d.profileId) return;
-        setRoles((prev) => prev.map((role) => {
-          if (role.profile.id !== d.profileId) return role;
-          const base: AgentInfo = role.runtime ?? {
-            id: d.instanceId ?? '', roleId: role.profile.id, name: d.name ?? role.profile.name,
-            status: 'idle', currentWorkUnitId: null, startedAt: new Date().toISOString(),
-          };
-          const nextWorkUnitId = d.currentWorkUnitId !== undefined ? d.currentWorkUnitId : base.currentWorkUnitId;
-          return {
-            ...role,
-            runtime: {
-              ...base,
-              id: d.instanceId ?? base.id,
-              status: d.status ?? base.status,
-              currentWorkUnitId: nextWorkUnitId,
-              // 任务切换 → 清掉旧 WU 快照，等补查写回
-              currentWorkUnit: nextWorkUnitId !== base.currentWorkUnitId ? null : base.currentWorkUnit,
-            },
-          };
-        }));
-        if (d.currentWorkUnitId) fillWorkUnit(d.profileId, d.currentWorkUnitId);
-        return;
-      }
-      if (msg.event_type === 'workunit.status_changed') {
-        const wu = (msg.data as { workunit?: Partial<WorkUnit> } | null)?.workunit;
-        if (!wu?.id) return;
-        setRoles((prev) => prev.map((role) => {
-          const cur = role.runtime?.currentWorkUnit;
-          if (!role.runtime || (cur?.id !== wu.id && role.runtime.currentWorkUnitId !== wu.id)) return role;
-          const next = cur ?? { id: wu.id, title: '', type: '', status: '', claimedAt: null };
-          return {
-            ...role,
-            runtime: {
-              ...role.runtime,
-              currentWorkUnit: {
-                id: next.id,
-                title: typeof wu.scope === 'string' ? wu.scope : next.title,
-                type: typeof wu.type === 'string' ? wu.type : next.type,
-                status: typeof wu.status === 'string' ? wu.status : next.status,
-                claimedAt: next.claimedAt,
-              },
-            },
-          };
-        }));
-        return;
-      }
-      if (msg.event_type === 'workunit.execution.step') {
-        const d = (msg.data ?? {}) as Record<string, unknown>;
-        if (typeof d.workUnitId !== 'string') return;
-        const role = findRoleByWorkUnit(d.workUnitId);
-        if (!role) return;
-        appendActivity(role.profile.id, {
-          key: `step:${typeof d.step === 'number' ? d.step : '?'}`,
-          at: typeof d.at === 'string' ? d.at : new Date().toISOString(),
-          text: stepActivityText(d),
-        });
-        return;
-      }
-      if (msg.event_type === 'workunit.execution.stream') {
-        const chunk = parseExecutionStreamChunk(msg.data);
-        if (!chunk) return;
-        const role = findRoleByWorkUnit(chunk.workUnitId);
-        if (!role) return;
-        const text = chunk.kind === 'tool' && chunk.tool
-          ? `🔧 ${chunk.tool}${chunk.summary ? ` ${truncate(chunk.summary, 40)}` : ''}`
-          : chunk.kind === 'thinking' && chunk.text
-            ? `思考：${truncate(chunk.text, 40)}`
-            : chunk.kind === 'text' && chunk.text
-              ? truncate(chunk.text)
-              : null;
-        if (!text) return;
-        appendActivity(role.profile.id, {
-          key: chunk.kind === 'tool' ? undefined : `stream:${chunk.step}:${chunk.kind}`,
-          at: chunk.at || new Date().toISOString(),
-          text,
-        });
-      }
-    });
-    return unsub;
-  }, [onEvent, fillWorkUnit]);
-
-  const handleTerminate = async (instanceId: string) => {
-    if (!window.confirm('强制停止会将当前任务转人工处理，确认？')) return;
-    try {
-      await api.post(`/agent-instances/${instanceId}/terminate`);
-      await load(true);
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Failed to terminate agent');
-    }
+  const handleConfirmTerminate = () => {
+    const id = terminateTarget;
+    setTerminateTarget(null);
+    if (id) void terminate(id);
   };
 
   const stats = {
@@ -304,20 +80,30 @@ export function AgentDashboardPage() {
                   activities={activities[r.profile.id] ?? []}
                   lastDone={lastDone[r.profile.id] ?? null}
                   channelNames={channelNames}
-                  onTerminate={handleTerminate}
+                  onTerminate={setTerminateTarget}
                 />
               ))}
             </div>
           )}
         </div>
       </div>
+
+      <ConfirmDialog
+        open={terminateTarget != null}
+        title="强制停止"
+        message="强制停止会将当前任务转人工处理，确认？"
+        confirmLabel="确认停止"
+        danger
+        onConfirm={handleConfirmTerminate}
+        onCancel={() => setTerminateTarget(null)}
+      />
     </div>
   );
 }
 
 function RoleCard({ role, activities, lastDone, channelNames, onTerminate }: {
-  role: MergedRole;
-  activities: ActivityItem[];
+  role: RosterRole;
+  activities: RosterActivityItem[];
   lastDone: WorkUnit | null;
   channelNames: Record<string, string>;
   onTerminate: (instanceId: string) => void;

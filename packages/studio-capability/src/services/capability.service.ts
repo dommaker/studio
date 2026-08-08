@@ -2,13 +2,12 @@
  * Capability Service - 能力管理服务
  *
  * 负责能力的 CRUD、同步、统计
- * AS-014: 新增市场功能（发布、购买、评价）
  *
  * AC-C4: 从 Prisma 迁移到 FileStore JSON 文件存储
  * 每个能力存储为 ~/.studio/capabilities/{name}.json
  */
 
-import { FileStore, logger } from '@dommaker/studio-shared';
+import { FileStore, logger, generateId as sharedGenerateId } from '@dommaker/studio-shared';
 import { getRegistryPath } from '@dommaker/harness';
 import * as fs from 'fs';
 import * as path from 'node:path';
@@ -77,7 +76,7 @@ export class CapabilityService {
 
   /** 生成唯一 ID */
   private generateId(): string {
-    return `cap_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+    return sharedGenerateId('cap');
   }
 
   /** 扫描 capabilities 目录，读取所有能力文件 */
@@ -351,177 +350,5 @@ export class CapabilityService {
    */
   getCostConfig(): Record<string, number> {
     return CAPABILITY_COST;
-  }
-
-  // ==================== AS-014 市场功能 ====================
-
-  /**
-   * 发布能力到市场
-   */
-  async publishToMarket(input: {
-    capabilityId: string;
-    ownerId: string;    // 角色ID
-    companyId?: string; // 公司ID（分成）
-    price: number;
-  }): Promise<CapabilityData> {
-    const capability = await this.getById(input.capabilityId);
-    if (!capability) {
-      throw new Error('Capability not found');
-    }
-
-    if (capability.ownershipType === 'market') {
-      throw new Error('Capability already published to market');
-    }
-
-    const updated: CapabilityData = {
-      ...capability,
-      ownershipType: 'market',
-      ownerId: input.ownerId,
-      price: input.price,
-      reviewStatus: 'pending',
-      autoTestStatus: 'pending',
-      userApprovalStatus: 'pending',
-      updatedAt: new Date().toISOString(),
-    };
-
-    await this.fileStore.writeJson(this.capPath(capability.name), updated);
-    return updated;
-  }
-
-  /**
-   * 获取市场能力列表
-   */
-  async listMarket(options?: {
-    type?: string;
-    minRating?: number;
-    sortBy?: 'rating' | 'usageCount' | 'price';
-    page?: number;
-    limit?: number;
-  }): Promise<{ data: CapabilityData[]; total: number }> {
-    const { type, minRating, sortBy = 'rating', page = 1, limit = 50 } = options || {};
-
-    let all = await this.scanAll();
-
-    // 过滤：market + approved
-    all = all.filter(c => c.ownershipType === 'market' && c.reviewStatus === 'approved');
-    if (type) all = all.filter(c => c.type === type);
-    if (minRating !== undefined) all = all.filter(c => c.rating >= minRating);
-
-    // 排序
-    all.sort((a, b) => {
-      switch (sortBy) {
-        case 'rating': return (b.rating ?? 0) - (a.rating ?? 0);
-        case 'usageCount': return (b.usageCount ?? 0) - (a.usageCount ?? 0);
-        case 'price': return (a.price ?? 0) - (b.price ?? 0);
-        default: return 0;
-      }
-    });
-
-    const total = all.length;
-    const skip = (page - 1) * limit;
-    const data = all.slice(skip, skip + limit);
-
-    return { data, total };
-  }
-
-  /**
-   * 购买市场能力
-   */
-  async purchase(input: {
-    capabilityId: string;
-    buyerRoleId: string;
-    buyerCompanyId?: string;
-  }): Promise<{
-    success: boolean;
-    capability: CapabilityData;
-    roleCapabilityId: string;
-  }> {
-    const capability = await this.getById(input.capabilityId);
-    if (!capability) {
-      throw new Error('Capability not found');
-    }
-
-    if (capability.ownershipType !== 'market') {
-      throw new Error('Capability not in market');
-    }
-
-    if (capability.reviewStatus !== 'approved') {
-      throw new Error('Capability not approved');
-    }
-
-    // FIXME: roleCapability (prismaAny.roleCapability) 需单独迁移
-    // 当前用 (this.fileStore as any) 暂时代替 prismaAny
-    const fileStoreAny = this.fileStore as unknown as Record<string, any>;
-    const existing = await fileStoreAny.roleCapability?.findFirst({
-      where: {
-        roleId: input.buyerRoleId,
-        capabilityId: input.capabilityId,
-      },
-    });
-
-    if (existing) {
-      return {
-        success: false,
-        capability,
-        roleCapabilityId: existing.id,
-      };
-    }
-
-    // 创建角色-能力关联
-    const roleCapability = await fileStoreAny.roleCapability?.create({
-      data: {
-        roleId: input.buyerRoleId,
-        capabilityId: input.capabilityId,
-        source: 'purchased',
-        isPrivate: false,
-      },
-    });
-
-    // 更新使用次数
-    const updated: CapabilityData = {
-      ...capability,
-      usageCount: capability.usageCount + 1,
-      updatedAt: new Date().toISOString(),
-    };
-    await this.fileStore.writeJson(this.capPath(capability.name), updated);
-
-    logger.info(`Role ${input.buyerRoleId} purchased capability ${input.capabilityId}`);
-
-    return {
-      success: true,
-      capability: updated,
-      roleCapabilityId: roleCapability?.id || '',
-    };
-  }
-
-  /**
-   * 获取市场统计
-   */
-  async getMarketStats(): Promise<{
-    totalCapabilities: number;
-    avgRating: number;
-    totalUsage: number;
-    byType: Record<string, number>;
-  }> {
-    const all = await this.scanAll();
-    const marketCapabilities = all.filter(c => c.ownershipType === 'market' && c.reviewStatus === 'approved');
-
-    const byType: Record<string, number> = {};
-
-    for (const cap of marketCapabilities) {
-      byType[cap.type] = (byType[cap.type] || 0) + 1;
-    }
-
-    const totalUsage = marketCapabilities.reduce((sum, c) => sum + c.usageCount, 0);
-    const avgRating = marketCapabilities.length > 0
-      ? marketCapabilities.reduce((sum, c) => sum + c.rating, 0) / marketCapabilities.length
-      : 0;
-
-    return {
-      totalCapabilities: marketCapabilities.length,
-      avgRating: Math.round(avgRating * 100) / 100,
-      totalUsage,
-      byType,
-    };
   }
 }

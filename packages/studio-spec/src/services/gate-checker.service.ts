@@ -20,15 +20,15 @@ import {
   HarnessCheckConfig,
 } from '../types/gate.types.js';
 
-import { ChangeLevel, ChangeRecord, SpecContent } from '../types/change.types.js';
-import { changeAnalyzerService } from './change-analyzer.service.js';
+import { ChangeLevel, ChangeRecord } from '../types/change.types.js';
 import { changeHistoryService } from './change-history.service.js';
 import { logger } from '@dommaker/studio-shared';
+import type { Checkpoint, CheckpointContext, CheckpointValidator } from '@dommaker/harness';
 
 /**
  * Harness CheckpointValidator（动态导入）
  */
-let harnessValidator: any = null;
+let harnessValidator: CheckpointValidator | null = null;
 
 async function getHarnessValidator() {
   if (!harnessValidator) {
@@ -36,7 +36,7 @@ async function getHarnessValidator() {
       // 动态导入避免循环依赖
       const harness = await import('@dommaker/harness');
       harnessValidator = harness.CheckpointValidator?.getInstance?.() || null;
-    } catch (error) {
+    } catch {
       logger.warn('[GateChecker] Harness 导入失败，跳过通用检查');
       harnessValidator = null;
     }
@@ -200,6 +200,8 @@ export class GateCheckerService {
 
     try {
       // 构建 Harness checkpoint
+      // 注：checkpoint/context 沿用既有的扁平形态（与 harness 声明类型不完全对齐，
+      // 属历史行为，仅作类型断言不改运行时结构）
       const checkpoint = {
         id: `gate-${type}`,
         checks: [this.buildHarnessCheck(type, config)],
@@ -209,15 +211,18 @@ export class GateCheckerService {
         workDir: config?.workdir || process.cwd(),
       };
 
-      const result = await validator.validate(checkpoint, context);
+      const result = await validator.validate(
+        checkpoint as unknown as Checkpoint,
+        context as unknown as CheckpointContext,
+      );
 
       return {
         type,
         passed: result.passed,
-        message: result.message,
+        message: result.message as string,
         details: { harnessResult: result },
       };
-    } catch (error: any) {
+    } catch (error) {
       return {
         type,
         passed: false,
@@ -229,7 +234,7 @@ export class GateCheckerService {
   /**
    * 构建 Harness 检查配置
    */
-  private buildHarnessCheck(type: CheckpointType, config?: HarnessCheckConfig): any {
+  private buildHarnessCheck(type: CheckpointType, config?: HarnessCheckConfig): Record<string, unknown> {
     switch (type) {
       case 'file_exists':
         return {

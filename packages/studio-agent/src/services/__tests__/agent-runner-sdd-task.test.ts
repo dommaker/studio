@@ -6,7 +6,7 @@
  */
 import { describe, test, expect, vi, beforeAll } from 'vitest';
 
-// Mock SDD functions before importing AgentRunner
+// Mock SDD functions before importing runner-params
 const mockReadSddDoc = vi.fn();
 const mockFindSddDocById = vi.fn();
 
@@ -20,7 +20,7 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => {
 });
 
 // Must import after mock setup
-const { AgentRunner } = await import('../agent-runner.js');
+const { resolveSddTaskData } = await import('../runner-params.js');
 
 function makeTask(params: Record<string, unknown> = {}) {
   return {
@@ -32,17 +32,15 @@ function makeTask(params: Record<string, unknown> = {}) {
 }
 
 describe('resolveSddTaskData', () => {
-  let runner: InstanceType<typeof AgentRunner>;
-
   beforeAll(() => {
-    runner = new AgentRunner();
+    vi.clearAllMocks();
   });
 
   test('returns DB contractTests when no slug available', async () => {
     mockFindSddDocById.mockResolvedValue(null);
     const dbTests = [{ file: '__tests__/db.test.ts', content: 'it("db", () => {})' }];
     const task = makeTask({ contractTests: dbTests });
-    const result = await (runner as any).resolveSddTaskData(task);
+    const result = await resolveSddTaskData(task);
     expect(result.contractTests).toEqual(dbTests);
     expect(result.testFiles).toEqual([]);
   });
@@ -51,7 +49,7 @@ describe('resolveSddTaskData', () => {
     mockReadSddDoc.mockResolvedValue(null);
     const dbTests = [{ file: '__tests__/db.test.ts', content: 'it("db", () => {})' }];
     const task = makeTask({ contractTests: dbTests, sddSlug: 'nonexistent-slug' });
-    const result = await (runner as any).resolveSddTaskData(task);
+    const result = await resolveSddTaskData(task);
     expect(result.contractTests).toEqual(dbTests);
     expect(result.testFiles).toEqual([]);
   });
@@ -71,7 +69,7 @@ describe('resolveSddTaskData', () => {
     });
 
     const task = makeTask({ sddSlug: 'sdd-contract-test' });
-    const result = await (runner as any).resolveSddTaskData(task);
+    const result = await resolveSddTaskData(task);
     expect(result.contractTests).toHaveLength(1);
     expect(result.contractTests[0].file).toBe('__tests__/auth.test.ts');
     expect(result.contractTests[0].content).toContain('auth test');
@@ -89,7 +87,7 @@ describe('resolveSddTaskData', () => {
     });
 
     const task = makeTask({ sddSlug: 'sdd-testfiles' });
-    const result = await (runner as any).resolveSddTaskData(task);
+    const result = await resolveSddTaskData(task);
     expect(result.testFiles).toEqual(['__tests__/auth.test.ts', '__tests__/session.test.ts']);
   });
 
@@ -112,7 +110,7 @@ describe('resolveSddTaskData', () => {
 
     const dbTests = [{ file: '__tests__/db.test.ts', content: 'it("db", () => {})' }];
     const task = makeTask({ sddSlug: 'sdd-precedence', contractTests: dbTests });
-    const result = await (runner as any).resolveSddTaskData(task);
+    const result = await resolveSddTaskData(task);
     // SDD values should win
     expect(result.contractTests).toHaveLength(1);
     expect(result.contractTests[0].file).toBe('__tests__/sdd.test.ts');
@@ -127,7 +125,7 @@ describe('resolveSddTaskData', () => {
 
     const dbTests = [{ file: '__tests__/db.test.ts', content: 'it("db", () => {})' }];
     const task = makeTask({ sddSlug: 'sdd-no-contract', contractTests: dbTests });
-    const result = await (runner as any).resolveSddTaskData(task);
+    const result = await resolveSddTaskData(task);
     expect(result.contractTests).toEqual(dbTests);
     expect(result.testFiles).toEqual([]);
   });
@@ -151,7 +149,7 @@ describe('resolveSddTaskData', () => {
     });
 
     const task = makeTask({ goalId: 'goal-abc-123' });
-    const result = await (runner as any).resolveSddTaskData(task);
+    const result = await resolveSddTaskData(task);
     expect(result.contractTests).toHaveLength(1);
     expect(result.contractTests[0].file).toBe('__tests__/goal.test.ts');
     expect(result.testFiles).toEqual(['__tests__/existing.test.ts']);
@@ -164,7 +162,7 @@ describe('resolveSddTaskData', () => {
     });
 
     const task = makeTask({ sddSlug: 'sdd-empty' });
-    const result = await (runner as any).resolveSddTaskData(task);
+    const result = await resolveSddTaskData(task);
     expect(result.contractTests).toBeUndefined();
     expect(result.testFiles).toEqual([]);
   });
@@ -173,7 +171,7 @@ describe('resolveSddTaskData', () => {
     mockReadSddDoc.mockRejectedValue(new Error('read error'));
     const dbTests = [{ file: '__tests__/db.test.ts', content: 'it("db", () => {})' }];
     const task = makeTask({ sddSlug: 'error-slug', contractTests: dbTests });
-    const result = await (runner as any).resolveSddTaskData(task);
+    const result = await resolveSddTaskData(task);
     expect(result.contractTests).toEqual(dbTests);
     expect(result.testFiles).toEqual([]);
   });

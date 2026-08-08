@@ -194,34 +194,44 @@ export class RuleScanner {
   private scanHarnessConstraints(): ScannedRule[] {
     const rules: ScannedRule[] = [];
     const harnessRoot = path.join(PROJECT_ROOT, 'node_modules', '@dommaker', 'harness');
-    const defPath = path.join(harnessRoot, 'src', 'core', 'constraints', 'definitions.ts');
 
-    if (!existsSync(defPath)) {
-      logger.debug('[RuleScanner] harness definitions.ts not found', { path: defPath });
-      return rules;
+    // definitions.ts 是薄聚合；真实定义在 definitions/{iron-laws,guidelines,tips}.ts（harness 拆分后用 id: 字段）
+    const layers: Array<{ file: string; prefix: string }> = [
+      { file: 'iron-laws.ts', prefix: 'iron_law' },
+      { file: 'guidelines.ts', prefix: 'guideline' },
+      { file: 'tips.ts', prefix: 'tip' },
+    ];
+
+    let foundAny = false;
+    for (const { file, prefix } of layers) {
+      const defPath = path.join(harnessRoot, 'src', 'core', 'constraints', 'definitions', file);
+      if (!existsSync(defPath)) continue;
+      foundAny = true;
+
+      try {
+        const content = readFileSync(defPath, 'utf-8');
+
+        // 每个约束块以 id: 'xxx' 开头，取其后最近的 description 首行
+        const blockRe = /id:\s*'(\w+)'[\s\S]*?description:\s*['`]([^'`\n]+)/g;
+        for (const m of content.matchAll(blockRe)) {
+          rules.push({
+            name: `${prefix}:${m[1]}`,
+            category: 'constraint',
+            description: m[2],
+            condition: 'always',
+            action: `enforce ${prefix}:${m[1]}`,
+            source: `@dommaker/harness/src/core/constraints/definitions/${file}`,
+            sourceType: 'harness_constraint',
+            affects: ['agent', 'reviewer'],
+          });
+        }
+      } catch (err) {
+        logger.warn('[RuleScanner] Failed to scan harness constraints', { error: String(err) });
+      }
     }
 
-    try {
-      const content = readFileSync(defPath, 'utf-8');
-
-      // 提取 iron_law 和 guideline 定义
-      const ironLawRe = /{\s*key:\s*'(\w+)'[\s\S]*?description:\s*'([^']+)'/g;
-      const guidelineRe = /{\s*key:\s*'(\w+)'[\s\S]*?description:\s*'([^']+)'/g;
-
-      for (const m of content.matchAll(ironLawRe)) {
-        rules.push({
-          name: `iron_law:${m[1]}`,
-          category: 'constraint',
-          description: m[2],
-          condition: 'always',
-          action: `enforce iron_law:${m[1]}`,
-          source: '@dommaker/harness/src/core/constraints/definitions.ts',
-          sourceType: 'harness_constraint',
-          affects: ['agent', 'reviewer'],
-        });
-      }
-    } catch (err) {
-      logger.warn('[RuleScanner] Failed to scan harness constraints', { error: String(err) });
+    if (!foundAny) {
+      logger.debug('[RuleScanner] harness definitions subfiles not found', { path: harnessRoot });
     }
 
     return rules;

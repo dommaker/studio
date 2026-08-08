@@ -6,148 +6,24 @@
  *
  * 拆分说明（纯代码移动，行为不变）：create/update/delete、claim/unclaim、
  * workunit.created/status_changed 事件发布与父状态聚合已迁至 workunit-crud.ts
- * （WorkUnitCrudService 基类）；本文件保留 metadata 契约（WorkUnitMetadata）、
- * 查询（getById/list）、状态机迁移（transitionStatus）与评审验收（reviewPassed/
- * reviewRejected/attestation 补写/recordL1Verification/markMergeConflict/
- * blockForManualRelease），并 re-export 全部迁出符号，导入面不变。
+ * （WorkUnitCrudService 基类）；头部类型/常量/转换层已抽至 workunit.types.ts /
+ * workunit.mappers.ts（工单 30）。本文件保留查询（getById/list）、状态机迁移
+ * （transitionStatus）与评审验收（reviewPassed/reviewRejected/attestation 补写/
+ * recordL1Verification/markMergeConflict/blockForManualRelease/rebindSourceChannel），
+ * 并 re-export 全部迁出符号，导入面不变。
  */
 
-import { logger, withAttestation, deriveDisplayState, type WorkUnitSnapshot, type WorkUnitEvent, type WuAttestations } from '@dommaker/studio-shared';
+import { logger, withAttestation, deriveDisplayState, type AttestationEntry, type WorkUnitSnapshot, type WorkUnitEvent } from '@dommaker/studio-shared';
 import { mergeWorktreeBranchOnReviewPass } from './merge-on-review-pass.js';
-import { WorkUnitCrudService, snapshotToData, type WorkUnitData } from './workunit-crud.js';
+import { parseWuMetadata } from './wu-metadata.js';
+import { VALID_TRANSITIONS, type WorkUnitMetadata, type ReviewAttestationSource } from './workunit.types.js';
+import { snapshotToData } from './workunit.mappers.js';
+import { WorkUnitCrudService, type WorkUnitData } from './workunit-crud.js';
 
-/** Metadata JSON schema — fields that don't warrant first-class columns */
-export interface WorkUnitMetadata {
-  files?: string[];              // 文件路径列表（文件冲突检查用）
-  priority?: 'low' | 'normal' | 'high' | 'critical';
-  createdBy?: string;
-  description?: string;       // 从 WorkUnit.description 降级
-  constraints?: string;       // 从 WorkUnit.constraints 降级
-  context?: string;           // 从 WorkUnit.context 降级
-  planVersion?: number;       // 从 WorkUnit.planVersion 降级
-  planReasoning?: string;     // 从 WorkUnit.planReasoning 降级
-  error?: string;             // 从 WorkUnit.error 降级
-  input?: string;             // 从 WorkUnit.input 降级
-  output?: string;            // 从 WorkUnit.output 降级
-  goalId?: string;            // 从 WorkUnit.goalId 降级（Phase 3 迁移）
-  title?: string;             // 从 WorkUnit.title 降级（Phase 3 迁移）
-  _consecutiveReviewRejections?: number;  // 连续 review reject 计数（3x → auto-block）
-  sourceMessageId?: string;   // createFromMessage 涌现路径来源
-  creationMode?: string;      // 创建模式：from-message / manual
-  _cumulativeTokens?: number; // 内部 token 累计追踪
-  // Agent Loop session 追踪（AS-025 Agent Loop 重写）
-  sessionId?: string;         // 当前关联的 Claude session
-  stepCount?: number;         // 已执行步骤数
-  startedAt?: string;         // 首次执行时间
-  consecutiveStuck?: number;  // 连续无进展步数
-  sessionResumes?: number;    // session 恢复次数
-  sessionCount?: number;      // B5（2026-08-03 token-burn issue）：本 WU 已建立的独立会话数（≥2 转人工，防全文重放烧钱）
-  blockReason?: string;       // B4（同上 P0-2）：最近一次转 blocked 的原因（恢复执行时清除，防事后无法诊断）
-  testWorkUnitGuard?: boolean; // B2（同上 P0-1c）：测试特征 WU 被 daemon 守卫关闭的留痕
-  lastInputTokens?: number;   // 最新一次 execution 的 input_tokens (cache 追踪)
-  // F5 双向沟通：NEED_INPUT 挂起/恢复状态
-  waitingForInput?: boolean;  // NEED_INPUT 挂起中（status=blocked，等待人类回复）
-  waitingQuestion?: string;   // agent 提出的问题
-  waitingSince?: string;      // 挂起时间 ISO 8601（超时提醒据此计算）
-  waitingReminded?: boolean;  // 本次挂起已提醒过（每次挂起只提醒一次，恢复时重置）
-  waitingReason?: string;     // 挂起原因：'ownership' = B3a 等待工程归属（缺省 = agent 提问）
-  pendingReplies?: string[];  // 恢复后待注入下一轮 prompt 的人类回复（多条拼接，消费后清除）
-  // B3a 工程归属链（决策 D2）：归属解析结果落档
-  workspaceRoot?: string;     // 直接可用的工程根路径（Requirement→PMO gitRepo / 人工回复绑定；agent-loop 优先于 workspaceId 消费）
-  ownershipSource?: string;   // 归属来源：explicit / requirement / channel-default / none / human-reply
-  ownershipProjectId?: string; // 经 Requirement 解析到的 PMO 项目 id（审计用）
-  // B3b-i 每 WU worktree 隔离（决策 D1）：代码类 WU 首个 step 创建并落档，后续 step 复用
-  worktreePath?: string;      // 专属 worktree 路径（<worktreesDir>/wu-<wuId>；执行 cwd + 提交守卫 + 自动验证的消费点）
-  worktreeBranch?: string;    // 专属分支名（task/<wuId>）
-  worktreeBaseBranch?: string; // 创建时的 base 分支（origin/HEAD→main→master 探测；PMO-b：归属 PMO 时为 PMO 分支）
-  worktreeBaseRepo?: string;  // 共享 git 仓库根（worktree 的母仓库）
-  // PMO-b（决策 3）：WU 归属的 PMO 项目与集成分支（agent-loop 首 step 落档；
-  // 非空时 merge-on-review-pass 合到 PMO 分支的集成交合 worktree，而非 baseRepo 当前分支）
-  pmoProjectId?: string;
-  pmoBranch?: string;
-  // B3b-i COMPLETE 前自动验证（决策 D3 前半，约定优先可覆盖）
-  verifyCommands?: string[];  // 覆盖验证命令（优先级高于 package.json scripts 约定；workspace 记录同名字段次之）
-  verifyReport?: {            // 最近一次全绿的验证摘要（COMPLETE 接受前写入）
-    commands: string[];
-    source: 'override' | 'convention';
-    passedAt: string;
-  };
-  verifyFailCount?: number;   // 自动验证连续失败计数（≥3 → blocked）
-  verifyFailHint?: string;    // 验证失败提示（失败命令+输出尾部，注入下一轮 prompt 后清除）
-  // B3b-ii 评审通过后自动合并（决策 D1/D3 后半，merge-on-review-pass.ts）
-  mergedAt?: string;          // task 分支合并回 base 分支完成时间 ISO 8601（防重哨兵：存在即跳过合并）
-  mergeCommit?: string;       // 合并后 baseRepo HEAD（merge commit 全哈希）
-  mergeConflict?: boolean;    // 自动合并（含 rebase 重试）仍冲突，已转人工（WU 置 blocked）
-  conflictFiles?: string[];   // 合并冲突文件清单（diff-filter=U）
-  knowledgeExtractedAt?: string; // R3: 会话知识提取已触达时间戳（去重——同一 WorkUnit 只提取一次）
-  matchedSkills?: string[];   // 决策 7: step 时域匹配命中并实际注入的 skill 名（agent-loop 落盘，度量用）
-  lastCommitHash?: string;    // §10.5: PROGRESS 无提交监视 — 上次观察到的 worktree HEAD
-  noCommitSteps?: number;     // §10.5: 连续无新提交步数（满 3 步频道提醒一次并归零）
-  commitGuardHint?: string;   // §10.5: COMPLETE 被提交守卫打回时的提示（注入下一轮 prompt 后清除）
-  // A2A 协作（2026-07-agent-to-agent-collab-design §5）
-  collab?: {                  // 协作树追踪（DELEGATE 派生的 WU 携带；根 WU 首次委派后补记）
-    rootId: string;           // 协作树根 WU id
-    depth: number;            // 根=0，每跳 +1；上限见 §4.2（P1: 1）
-    chain: string[];          // profile id 谱系（含自己），环检测输入 —— 必须用 profile id（§1.2-b）
-    delegatedBy?: { profileId: string; workUnitId: string };  // 派出方（根 WU 无）
-    delegationCount: number;  // 本 WU 已派出的子任务数（宽度上限输入）
-  };
-  childGuardHint?: string;    // §6-2 父 complete 守卫：存在未完结子 WU 被打回时的提示（注入下一轮 prompt 后清除）
-  freshnessInterrupts?: number; // §4.2 发言层新鲜度检查：结果回帖被「房间已变」连续拦截次数（≥2 后照发并归零）
-  // P0 修复（W-3 接线）：CLI 执行失败记录（agentStep success===false 显式分支写入，成功执行后清除）
-  errorType?: string;         // 最近一次执行失败类型（如 execution_failed）
-  errorDetail?: string;       // 最近一次执行失败详情（截断 500 字符）
-  errorAt?: string;           // 最近一次执行失败时间 ISO 8601
-  // P0 修复（WU 超时机制）：claim 写入 timeoutAt 列；metadata.timeoutAt 显式值优先于按 type 的默认时长
-  timeoutAt?: string;         // 显式超时刻 ISO 8601（claim 时优先于默认时长）
-  timeoutReleasedAt?: string; // 最近一次超时释放时间 ISO 8601
-  timeoutReleaseCount?: number; // 超时释放次数（≥3 → blocked，不再自动回池）
-  // 2026-07 PMO-flow UX（§4 terminate 语义修正）：AgentInstanceService.terminate 强制释放留痕
-  manualRelease?: boolean;    // 强制停止实例后 WU 被置 blocked 转人工（blockForManualRelease 写入）
-  manualReleaseReason?: string; // 强制释放原因（如 terminate instance <id>）
-  /** AC-4.5: reviewer 角色 complete 时写入，ReviewDispatcher 据此调 reviewPassed/reviewRejected */
-  reviewReport?: {
-    approved: boolean;
-    reason?: string;
-    issues?: Array<{ severity: string; message: string }>;
-  };
-  // PMO 分析接力（analysis-handoff）：analysis WU COMPLETE 时 agent-loop 解析 TASK: 行落档；
-  // 人工确认（reviewPassed → done）后由 analysis-handoff 据此建未指派 task 子 WU 派工
-  analysisTasks?: string[];       // TASK: 拆分行解析结果（≤8 条，每条 ≤300 字符）
-  analysisTasksSpawnedAt?: string; // 子 WU 已建时间戳（幂等哨兵：存在即不再重复派生）
-  traceId?: string;           // P0 修复 6: 链路追踪 id（频道消息 req → WU → agent-loop 日志；与 audit requestId 同值）
-  // F4 reviewer 解锚（2026-07-28 分析文档，决策 5）：评审 WU 未指派走 claim 涌现时的约束/标记
-  excludeAssignee?: string;   // 禁止认领的 profile id（评审排除实现者；agent-loop observe 未指派过滤据此剔除）
-  selfReview?: boolean;       // 本评审 WU 未排除实现者（频道内无其他 active 成员）→ 可能是自评，台账/提醒据此标记
-  reviewInput?: { mode: string; skill: string };  // R3: 评审输入契约落档（diff-only + code-review），审计用
-  // F6 信任证据模型（决策 1）：分层证据台账，l1 自动验证 / l2 agent 评审 / l3 人工确认。
-  // 写入方：l1=agent-loop 验证守卫；l2/l3=reviewPassed/reviewRejected（attestation 入参）。
-  // 消费铁律：展示/指标只准过 studio-shared 的 deriveDisplayState()，禁止各自解释。
-  attestations?: WuAttestations;
-  [key: string]: unknown;     // 允许扩展字段
-}
-
-/** F6: reviewPassed/reviewRejected 的证据来源——agent-review 写 l2，human-confirm 写 l3 */
-export interface ReviewAttestationSource {
-  by: string;                 // l2: 评审者 profile id；l3: 人类用户名
-  kind: 'agent-review' | 'human-confirm';
-  selfReview?: boolean;       // l2 自评兜底标记（决策 5）
-  ref?: string;               // l2: 评审子 WU id
-  summary?: string;
-}
-
-/** Valid status transitions map */
-const VALID_TRANSITIONS: Record<string, string[]> = {
-  unassigned: ['active', 'closed'],
-  active: ['in_review', 'closed', 'blocked'],
-  in_review: ['done', 'active', 'closed'],
-  done: ['closed'],
-  blocked: ['active', 'closed', 'unassigned'],
-  closed: ['unassigned'],
-};
-
-/** analysis 任务拆分上限（agent-loop 解析 TASK: 行 / analysis-handoff 派生子 WU 共用） */
-export const ANALYSIS_TASKS_MAX = 8;
+// re-export：保持既有消费方（agent-loop / routes / 测试等）从 workunit.service 导入的路径不变
+export { snapshotToData } from './workunit.mappers.js';
+export { ANALYSIS_TASKS_MAX } from './workunit.types.js';
+export type { WorkUnitMetadata, ReviewAttestationSource } from './workunit.types.js';
 
 export class WorkUnitService extends WorkUnitCrudService {
 
@@ -284,42 +160,25 @@ export class WorkUnitService extends WorkUnitCrudService {
       throw new Error(`Cannot review: current status is ${current.status}, expected in_review`);
     }
 
-    const metadata: WorkUnitMetadata = current.metadata ? JSON.parse(current.metadata) : {};
+    const metadata: WorkUnitMetadata = parseWuMetadata(current.metadata);
     delete metadata._consecutiveReviewRejections;
     if (attestation) {
       const level = attestation.kind === 'agent-review' ? 'l2' : 'l3';
-      metadata.attestations = withAttestation(metadata.attestations, level, {
+      metadata.attestations = withAttestation(metadata.attestations, level, this.buildAttestationEntry({
         verdict: 'approved',
         by: attestation.by,
-        at: new Date().toISOString(),
         kind: attestation.kind,
-        ...(attestation.summary ? { summary: attestation.summary } : {}),
-        ...(attestation.selfReview === true ? { selfReview: true } : {}),
-        ...(attestation.ref ? { ref: attestation.ref } : {}),
-      });
+        summary: attestation.summary,
+        selfReview: attestation.selfReview,
+        ref: attestation.ref,
+      }));
     }
 
-    const now = new Date();
-    const isoNow = now.toISOString();
-    const updated: WorkUnitSnapshot = {
-      ...current,
+    const updated = await this.persistSnapshot(current, metadata, {
+      eventType: 'completed',
       status: 'done',
-      metadata: JSON.stringify(metadata),
-      completedAt: isoNow,
-      updatedAt: isoNow,
-    };
-
-    const event: WorkUnitEvent = {
-      type: 'completed',
-      wuId: id,
-      timestamp: isoNow,
-      data: updated as unknown as Record<string, unknown>,
-    };
-    await this.fileStore.appendEvent(event);
-    await this.fileStore.upsertSnapshot(updated);
-
-    // Publish status-change event（REQ roll-up 等订阅消费，best-effort）
-    this.publishStatusChanged(updated);
+      markCompleted: true,
+    });
 
     // Cascade: parent aggregation (best-effort)
     this.aggregateParentStatus(id).catch(err =>
@@ -346,29 +205,16 @@ export class WorkUnitService extends WorkUnitCrudService {
     current: WorkUnitSnapshot,
     attestation: ReviewAttestationSource,
   ): Promise<WorkUnitData> {
-    const metadata: WorkUnitMetadata = current.metadata ? JSON.parse(current.metadata) : {};
-    metadata.attestations = withAttestation(metadata.attestations, 'l3', {
+    const metadata: WorkUnitMetadata = parseWuMetadata(current.metadata);
+    metadata.attestations = withAttestation(metadata.attestations, 'l3', this.buildAttestationEntry({
       verdict: 'approved',
       by: attestation.by,
-      at: new Date().toISOString(),
       kind: 'human-confirm',
-      ...(attestation.summary ? { summary: attestation.summary } : {}),
-    });
+      summary: attestation.summary,
+    }));
 
-    const updated: WorkUnitSnapshot = {
-      ...current,
-      metadata: JSON.stringify(metadata),
-      updatedAt: new Date().toISOString(),
-    };
-    const event: WorkUnitEvent = {
-      type: 'updated',
-      wuId: current.id,
-      timestamp: updated.updatedAt,
-      data: updated as unknown as Record<string, unknown>,
-    };
-    await this.fileStore.appendEvent(event);
-    await this.fileStore.upsertSnapshot(updated);
-    this.publishStatusChanged(updated); // 状态值不变也发：让 pmo rollup 即时重估交付证据
+    // 状态值不变也发 status_changed（persistSnapshot 尾部）：让 pmo rollup 即时重估交付证据
+    const updated = await this.persistSnapshot(current, metadata, { eventType: 'updated' });
     return snapshotToData(updated);
   }
 
@@ -382,31 +228,17 @@ export class WorkUnitService extends WorkUnitCrudService {
     current: WorkUnitSnapshot,
     attestation: ReviewAttestationSource,
   ): Promise<WorkUnitData> {
-    const metadata: WorkUnitMetadata = current.metadata ? JSON.parse(current.metadata) : {};
-    metadata.attestations = withAttestation(metadata.attestations, 'l2', {
+    const metadata: WorkUnitMetadata = parseWuMetadata(current.metadata);
+    metadata.attestations = withAttestation(metadata.attestations, 'l2', this.buildAttestationEntry({
       verdict: 'approved',
       by: attestation.by,
-      at: new Date().toISOString(),
       kind: 'agent-review',
-      ...(attestation.summary ? { summary: attestation.summary } : {}),
-      ...(attestation.selfReview === true ? { selfReview: true } : {}),
-      ...(attestation.ref ? { ref: attestation.ref } : {}),
-    });
+      summary: attestation.summary,
+      selfReview: attestation.selfReview,
+      ref: attestation.ref,
+    }));
 
-    const updated: WorkUnitSnapshot = {
-      ...current,
-      metadata: JSON.stringify(metadata),
-      updatedAt: new Date().toISOString(),
-    };
-    const event: WorkUnitEvent = {
-      type: 'updated',
-      wuId: current.id,
-      timestamp: updated.updatedAt,
-      data: updated as unknown as Record<string, unknown>,
-    };
-    await this.fileStore.appendEvent(event);
-    await this.fileStore.upsertSnapshot(updated);
-    this.publishStatusChanged(updated);
+    const updated = await this.persistSnapshot(current, metadata, { eventType: 'updated' });
     return snapshotToData(updated);
   }
 
@@ -427,7 +259,7 @@ export class WorkUnitService extends WorkUnitCrudService {
     if (!current) throw new Error('WorkUnit not found');
 
     const now = new Date().toISOString();
-    const metadata: WorkUnitMetadata = current.metadata ? JSON.parse(current.metadata) : {};
+    const metadata: WorkUnitMetadata = parseWuMetadata(current.metadata);
     metadata.attestations = withAttestation(metadata.attestations, 'l1', input.failure
       ? {
           verdict: 'rejected',
@@ -447,20 +279,7 @@ export class WorkUnitService extends WorkUnitCrudService {
       metadata.verifyReport = { commands: input.ran, source: input.source, passedAt: now };
     }
 
-    const updated: WorkUnitSnapshot = {
-      ...current,
-      metadata: JSON.stringify(metadata),
-      updatedAt: now,
-    };
-    const event: WorkUnitEvent = {
-      type: 'updated',
-      wuId: current.id,
-      timestamp: now,
-      data: updated as unknown as Record<string, unknown>,
-    };
-    await this.fileStore.appendEvent(event);
-    await this.fileStore.upsertSnapshot(updated);
-    this.publishStatusChanged(updated);
+    const updated = await this.persistSnapshot(current, metadata, { eventType: 'updated' });
     return snapshotToData(updated);
   }
   async markMergeConflict(id: string, conflictFiles: string[]): Promise<WorkUnitData> {
@@ -468,7 +287,7 @@ export class WorkUnitService extends WorkUnitCrudService {
     const current = snapshots.find(s => s.id === id);
     if (!current) throw new Error('WorkUnit not found');
 
-    const metadata: WorkUnitMetadata = current.metadata ? JSON.parse(current.metadata) : {};
+    const metadata: WorkUnitMetadata = parseWuMetadata(current.metadata);
     metadata.mergeConflict = true;
     metadata.conflictFiles = conflictFiles;
     // B4: blocked 原因落盘（2026-08-03 token-burn issue P0-2）
@@ -518,7 +337,7 @@ export class WorkUnitService extends WorkUnitCrudService {
       return snapshotToData(current);
     }
 
-    const metadata: WorkUnitMetadata = current.metadata ? JSON.parse(current.metadata) : {};
+    const metadata: WorkUnitMetadata = parseWuMetadata(current.metadata);
     metadata.manualRelease = true;
     metadata.manualReleaseReason = reason;
     // B4: blocked 原因落盘（2026-08-03 token-burn issue P0-2）
@@ -566,21 +385,20 @@ export class WorkUnitService extends WorkUnitCrudService {
       throw new Error(`Cannot review: current status is ${current.status}, expected in_review`);
     }
 
-    const metadata: WorkUnitMetadata = current.metadata ? JSON.parse(current.metadata) : {};
+    const metadata: WorkUnitMetadata = parseWuMetadata(current.metadata);
     const rejections = (metadata._consecutiveReviewRejections ?? 0) + 1;
     metadata._consecutiveReviewRejections = rejections;
     if (reason) metadata._lastRejectionReason = reason;
     if (attestation) {
       const level = attestation.kind === 'agent-review' ? 'l2' : 'l3';
-      metadata.attestations = withAttestation(metadata.attestations, level, {
+      metadata.attestations = withAttestation(metadata.attestations, level, this.buildAttestationEntry({
         verdict: 'rejected',
         by: attestation.by,
-        at: new Date().toISOString(),
         kind: attestation.kind,
-        ...(attestation.summary ?? reason ? { summary: attestation.summary ?? reason } : {}),
-        ...(attestation.selfReview === true ? { selfReview: true } : {}),
-        ...(attestation.ref ? { ref: attestation.ref } : {}),
-      });
+        summary: attestation.summary ?? reason,
+        selfReview: attestation.selfReview,
+        ref: attestation.ref,
+      }));
     }
 
     // 3 consecutive rejections → auto-block
@@ -590,27 +408,9 @@ export class WorkUnitService extends WorkUnitCrudService {
       metadata.blockReason = `review-rejected x${rejections}: ${reason ?? metadata._lastRejectionReason ?? '连续评审拒绝'}`.slice(0, 300);
     }
 
-    const now = new Date();
-    const isoNow = now.toISOString();
-    const updated: WorkUnitSnapshot = {
-      ...current,
-      status: newStatus,
-      metadata: JSON.stringify(metadata),
-      updatedAt: isoNow,
-    };
-
+    // in_review → active/blocked 也是状态变化：status_changed 由 persistSnapshot 尾部补发（列表实时刷新）
     const eventType: WorkUnitEvent['type'] = newStatus === 'blocked' ? 'blocked' : 'updated';
-    const event: WorkUnitEvent = {
-      type: eventType,
-      wuId: id,
-      timestamp: isoNow,
-      data: updated as unknown as Record<string, unknown>,
-    };
-    await this.fileStore.appendEvent(event);
-    await this.fileStore.upsertSnapshot(updated);
-
-    // in_review → active/blocked 也是状态变化：补发 status_changed（列表实时刷新）
-    this.publishStatusChanged(updated);
+    const updated = await this.persistSnapshot(current, metadata, { eventType, status: newStatus });
 
     if (newStatus === 'blocked') {
       logger.warn('[WorkUnit] Auto-blocked after 3 consecutive review rejections', { workUnitId: id });
@@ -619,6 +419,101 @@ export class WorkUnitService extends WorkUnitCrudService {
     return snapshotToData(updated);
   }
 
+  /**
+   * F6 台账条目构建（评审/验证写入共用的 spread 规则收敛）：
+   * summary 有值才带；selfReview 仅 === true 才带；ref 有值才带。
+   * at 在条目构建时取当前时间（与原各写入点实现一致，独立于快照 updatedAt）。
+   * recordL1Verification 不用本 helper——其 summary 恒写（含空串截断规则），属该方法的策略。
+   */
+  private buildAttestationEntry(input: {
+    verdict: 'approved' | 'rejected';
+    by: string;
+    kind: string;
+    summary?: string;
+    selfReview?: boolean;
+    ref?: string;
+  }): AttestationEntry {
+    return {
+      verdict: input.verdict,
+      by: input.by,
+      at: new Date().toISOString(),
+      kind: input.kind,
+      ...(input.summary ? { summary: input.summary } : {}),
+      ...(input.selfReview === true ? { selfReview: true } : {}),
+      ...(input.ref ? { ref: input.ref } : {}),
+    };
+  }
+
+  /**
+   * 评审/验证写入的共用落库尾部：构建 updated 快照（updatedAt=now，可选 status 覆盖 /
+   * markCompleted 置 completedAt=同一此刻）→ appendEvent + upsertSnapshot + publishStatusChanged。
+   * 各调用方只保留自身策略：守卫、metadata 变更、事件类型、后续级联（父状态聚合/合并触发）。
+   */
+  private async persistSnapshot(
+    current: WorkUnitSnapshot,
+    metadata: WorkUnitMetadata,
+    opts: { eventType: WorkUnitEvent['type']; status?: string; markCompleted?: boolean },
+  ): Promise<WorkUnitSnapshot> {
+    const isoNow = new Date().toISOString();
+    const updated: WorkUnitSnapshot = {
+      ...current,
+      ...(opts.status !== undefined ? { status: opts.status } : {}),
+      metadata: JSON.stringify(metadata),
+      ...(opts.markCompleted ? { completedAt: isoNow } : {}),
+      updatedAt: isoNow,
+    };
+    const event: WorkUnitEvent = {
+      type: opts.eventType,
+      wuId: current.id,
+      timestamp: isoNow,
+      data: updated as unknown as Record<string, unknown>,
+    };
+    await this.fileStore.appendEvent(event);
+    await this.fileStore.upsertSnapshot(updated);
+    this.publishStatusChanged(updated);
+    return updated;
+  }
+
+  /**
+   * 频道删除兜底（B2-012）：把 context.sourceChannelId === fromChannelId 的顶层 task WU
+   * 重挂到 toChannelId，返回重绑数量。
+   * 字段相等匹配（解析 metadata 后比对 context.sourceChannelId）——不做 raw JSON 子串匹配
+   * （`metadata.includes(channelId)` 会误中其它字段恰好含同 id 的 WU）。
+   * 空/损坏 metadata 跳过。metadata-only 更新沿用 update() 惯例：appendEvent('updated') +
+   * upsertSnapshot，不发 status_changed（状态与证据均未变，无需 rollup 重估）。
+   */
+  async rebindSourceChannel(fromChannelId: string, toChannelId: string): Promise<number> {
+    const snapshots = await this.fileStore.getIndex();
+    let rebound = 0;
+    for (const s of snapshots) {
+      if (s.type !== 'task' || s.parentId !== null || !s.metadata) continue;
+      // 损坏 metadata → {} → context 缺失自然不匹配（按无匹配处理）
+      const meta = parseWuMetadata(s.metadata);
+      // context 在 metadata 接口里声明为 legacy string 降级字段，但频道来源链路实际落的是对象
+      // （{ sourceChannelId }，见原 channel delete 路由口径）——按运行时形态松散取值
+      const raw = meta as Record<string, unknown>;
+      const ctx = (raw.context ?? {}) as Record<string, unknown>;
+      if (ctx.sourceChannelId !== fromChannelId) continue;
+      ctx.sourceChannelId = toChannelId;
+      raw.context = ctx;
+
+      const now = new Date().toISOString();
+      const updated: WorkUnitSnapshot = { ...s, metadata: JSON.stringify(meta), updatedAt: now };
+      const event: WorkUnitEvent = {
+        type: 'updated',
+        wuId: s.id,
+        timestamp: now,
+        data: updated as unknown as Record<string, unknown>,
+      };
+      await this.fileStore.appendEvent(event);
+      await this.fileStore.upsertSnapshot(updated);
+      rebound++;
+    }
+    if (rebound > 0) {
+      logger.info('[WorkUnit] Rebound sourceChannelId', { fromChannelId, toChannelId, count: rebound });
+    }
+    return rebound;
+  }
 }
 
 // 拆分后兼容 re-export（原导入方零改动）：以下符号已迁至 workunit-crud.ts

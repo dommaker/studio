@@ -3,9 +3,10 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { deriveDisplayState } from '@dommaker/studio-shared/web';
-import { api } from '../../api';
-import { requirementApi } from '../../api/requirements';
+import { requirementApi, requirementsDocApi } from '../../api/requirements';
+import { harnessApi, type ConstraintCheckResult } from '../../api/harness';
 import type { ChannelMessage } from '../../api/channel';
+import type { CardMeta } from './ChannelMessageItem';
 
 // M2: quality gate check before execution
 interface QualityGateResult {
@@ -18,13 +19,13 @@ let _qualityGateCache: { projectPath: string; result: QualityGateResult } | null
 
 interface Props {
   message: ChannelMessage;
-  meta: Record<string, any>;
+  meta: CardMeta;
   onAction: (messageId: string, action: string) => void;
 }
 
 async function updateRequirementsDoc(docId: string, content: string) {
   try {
-    await api.put(`/requirements-docs/${docId}`, { content });
+    await requirementsDocApi.update(docId, content);
     return true;
   } catch { return false; }
 }
@@ -79,17 +80,17 @@ export function RequirementsDocCard({ message, meta, onAction }: Props) {
       if (_qualityGateCache?.projectPath === projectPath) {
         setQualityCheck(_qualityGateCache.result);
       } else {
-        const res = await api.post('/harness/check-constraints', {
+        const res = await harnessApi.checkConstraints({
           operation: 'goal_creation',
           taskDescription: message.content.slice(0, 500),
           hasRequirement: true,
           hasRequirementReview: true,
           projectPath,
         });
-        const data = res.data.data || res.data;
+        const data = (res.data.data || res.data) as ConstraintCheckResult;
         const result: QualityGateResult = {
           passed: data.passed !== false,
-          ironLawFailures: (data.ironLaws || []).filter((r: any) => !r.satisfied).length,
+          ironLawFailures: (data.ironLaws || []).filter((r) => !r.satisfied).length,
           guidelineWarnings: data.warningCount || 0,
           totalConstraints: (data.ironLaws || []).length + (data.guidelines || []).length,
         };
@@ -118,7 +119,7 @@ export function RequirementsDocCard({ message, meta, onAction }: Props) {
 
   const handleSave = async () => {
     setSaving(true);
-    const docId = meta.requirementsDocId || meta.cardData?.requirementsDocId;
+    const docId = meta.requirementsDocId || (meta.cardData?.requirementsDocId as string | undefined);
     if (docId) {
       const ok = await updateRequirementsDoc(docId, editContent);
       if (ok) setEdited(true);

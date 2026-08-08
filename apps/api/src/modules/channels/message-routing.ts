@@ -13,7 +13,8 @@
 import { logger, FileStore, parseChannels } from '@dommaker/studio-shared';
 import { channelMessageService } from './channel-message.service.js';
 import { WorkUnitService } from '../workunit/workunit.service.js';
-import { resumeWaitingWorkUnit, postStudioSystemMessage } from '../workunit/waiting-input.js';
+import { resumeWaitingWorkUnit } from '../workunit/waiting-input.js';
+import { postWuSystemMessage } from '../workunit/wu-messenger.js';
 import { resolveReqIdForDispatch } from '../requirements/req-binding.js';
 import { OWNERSHIP_WAITING_QUESTION, resolveWorkspaceForWU } from '../requirements/ownership-resolver.js';
 import { STUDIO_ROLE_NAME } from '../agents/agent-profile.service.js';
@@ -165,7 +166,9 @@ export async function routeMessage(
         // B3a: 归属解析结果落档（来源区分供日志/审计）
         ownershipSource: ownership?.source ?? 'fallback',
         ...(ownership?.workspaceRoot ? { workspaceRoot: ownership.workspaceRoot } : {}),
-        ...(ownership?.projectId ? { ownershipProjectId: ownership.projectId } : {}),
+        // 2026-08 归因统一：创建期 PMO 归因戳 canonical key = pmoId（legacy 名 ownershipProjectId 废弃，
+        // 读取侧同级兼容，见 requirements/wu-pmo-attribution.ts）
+        ...(ownership?.projectId ? { pmoId: ownership.projectId } : {}),
         ...(parked
           ? {
               waitingForInput: true,
@@ -196,11 +199,10 @@ export async function routeMessage(
     );
     // F5: @studio 改派 → 频道发 Studio 系统消息说明（best-effort，挂在派发消息线程）
     if (reroutedFrom) {
-      await postStudioSystemMessage(
-        resolvedFs,
-        channelId,
+      await postWuSystemMessage(
+        workUnit,
         `studio 是系统角色，你的消息已转给 @${reroutedToName}`,
-        { replyToId: message.id, workUnitId: workUnit.id },
+        { replyToId: message.id, fileStore: resolvedFs },
       ).catch(err =>
         logger.warn('[MessageRouting] Post studio-reroute notice failed (non-blocking)', {
           workUnitId: workUnit.id,
@@ -210,11 +212,10 @@ export async function routeMessage(
     }
     // B3a: 无归属挂起 → 频道发 Studio 系统消息提问（挂在派发消息线程，回复即触发解析）
     if (parked) {
-      await postStudioSystemMessage(
-        resolvedFs,
-        channelId,
+      await postWuSystemMessage(
+        workUnit,
         `任务「${scope.slice(0, 50)}」正在等待你的回复：${OWNERSHIP_WAITING_QUESTION}`,
-        { replyToId: message.id, workUnitId: workUnit.id },
+        { replyToId: message.id, fileStore: resolvedFs },
       ).catch(err =>
         logger.warn('[MessageRouting] Post ownership question failed (non-blocking)', {
           workUnitId: workUnit.id,

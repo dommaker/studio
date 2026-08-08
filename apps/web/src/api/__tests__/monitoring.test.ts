@@ -21,4 +21,9 @@ describe('monitoringApi', () => {
     await monitoringApi.getStats();
     expect(api.get).toHaveBeenCalledWith('/monitoring/stats');
   });
+
+  it('terminateInstance calls POST /agent-instances/:id/terminate', async () => {
+    await monitoringApi.terminateInstance('i1');
+    expect(api.post).toHaveBeenCalledWith('/agent-instances/i1/terminate');
+  });
 });

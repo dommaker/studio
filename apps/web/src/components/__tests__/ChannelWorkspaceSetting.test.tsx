@@ -28,7 +28,7 @@ const mockWorkspaces = [
 describe('ChannelWorkspaceSetting', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    (workspaceApi.list as any).mockResolvedValue({ data: { data: mockWorkspaces } });
+    vi.mocked(workspaceApi.list).mockResolvedValue({ data: { data: mockWorkspaces } });
   });
 
   it('renders workspace options', async () => {
@@ -47,7 +47,7 @@ describe('ChannelWorkspaceSetting', () => {
   });
 
   it('updates channel workspace on change', async () => {
-    (channelApi.update as any).mockResolvedValue({});
+    vi.mocked(channelApi.update).mockResolvedValue({});
     render(<ChannelWorkspaceSetting channelId="ch-1" />);
     fireEvent.click(screen.getByTitle('默认工程'));
     fireEvent.click(await screen.findByRole('option', { name: '公司电脑' }));

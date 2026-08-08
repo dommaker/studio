@@ -9,7 +9,7 @@
  * - 统计分析（操作频率、错误率等）
  */
 
-import { FileStore, logger } from '@dommaker/studio-shared';
+import { FileStore, logger, generateId } from '@dommaker/studio-shared';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import fs from 'node:fs';
@@ -134,7 +134,7 @@ export const AuditResources = {
 // ========== 工具函数 ==========
 
 function generateAuditId(): string {
-  return `audit_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+  return generateId('audit');
 }
 
 function buildRow(input: AuditLogInput): AuditLogRow {

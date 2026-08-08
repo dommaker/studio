@@ -5,12 +5,13 @@ vi.mock('../index', () => ({
   api: {
     get: vi.fn().mockResolvedValue({ data: {} }),
     post: vi.fn().mockResolvedValue({ data: {} }),
+    put: vi.fn().mockResolvedValue({ data: {} }),
     patch: vi.fn().mockResolvedValue({ data: {} }),
     delete: vi.fn().mockResolvedValue({ data: {} }),
   },
 }));
 
-import { requirementApi } from '../requirements';
+import { requirementApi, requirementsDocApi } from '../requirements';
 import { api } from '../index';
 
 describe('requirementApi', () => {
@@ -42,5 +43,12 @@ describe('requirementApi', () => {
   it('getChain calls correct endpoint', async () => {
     await requirementApi.getChain('REQ-0042');
     expect(api.get).toHaveBeenCalledWith('/requirements/REQ-0042/chain');
+  });
+});
+
+describe('requirementsDocApi（B2-009 SDD 需求文档编辑）', () => {
+  it('update → PUT /requirements-docs/:id（RequirementsDocCard 编辑保存）', async () => {
+    await requirementsDocApi.update('doc-1', '# 新内容');
+    expect(api.put).toHaveBeenCalledWith('/requirements-docs/doc-1', { content: '# 新内容' });
   });
 });

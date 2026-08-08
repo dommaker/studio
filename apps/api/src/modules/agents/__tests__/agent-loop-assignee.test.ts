@@ -28,7 +28,7 @@ vi.mock('../../knowledge/knowledge-service', () => ({
   },
 }));
 
-import { AgentLoop, resolveTarget } from '../agent-loop';
+import { AgentLoop, resolveTarget } from '../loop/agent-loop';
 
 const SELF_ROLE_ID = 'role-self';
 const OTHER_ROLE_ID = 'role-other';

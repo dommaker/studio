@@ -10,8 +10,9 @@ import { describe, test, expect } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 
+// 工单 30：WorkUnitMetadata 接口已抽至 workunit.types.ts（service 侧 re-export），此处改指类型定义所在文件
 const workunitServiceSrc = fs.readFileSync(
-  path.resolve(__dirname, '../workunit.service.ts'),
+  path.resolve(__dirname, '../workunit.types.ts'),
   'utf-8',
 );
 

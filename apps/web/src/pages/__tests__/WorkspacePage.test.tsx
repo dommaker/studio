@@ -41,10 +41,11 @@ vi.mock('../../api/channel', () => ({
   channelApi: {
     createAgent: mockCreateAgent,
   },
-  AgentProfile: {} as any,
+  AgentProfile: {} as unknown as AgentProfile,
 }));
 
 import { WorkspacePage } from '../../pages/WorkspacePage';
+import type { AgentProfile } from '../../api/channel';
 
 describe('WorkspacePage', () => {
   beforeEach(() => {

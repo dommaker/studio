@@ -365,40 +365,14 @@ describe('FileStore', () => {
       };
     }
 
-    describe('appendEvent / getIndex / rebuildIndex', () => {
-      it('should append and rebuild index from events', async () => {
-        const wu1 = makeWuSnapshot('wu1');
-        await store.appendEvent({ type: 'created', wuId: 'wu1', timestamp: new Date().toISOString(), data: wu1 as unknown as Record<string, unknown> });
-
-        const wu2 = makeWuSnapshot('wu2');
-        await store.appendEvent({ type: 'created', wuId: 'wu2', timestamp: new Date().toISOString(), data: wu2 as unknown as Record<string, unknown> });
-
-        const index = await store.rebuildIndex();
-        expect(index).toHaveLength(2);
-      });
-
-      it('should apply events in order and update snapshot', async () => {
-        const wu1 = makeWuSnapshot('wu1');
-        await store.appendEvent({ type: 'created', wuId: 'wu1', timestamp: new Date().toISOString(), data: wu1 as unknown as Record<string, unknown> });
-        await store.appendEvent({
-          type: 'claimed',
-          wuId: 'wu1',
-          timestamp: new Date().toISOString(),
-          data: { assigneeId: 'agent1', status: 'active' } as unknown as Record<string, unknown>,
-        });
-
-        const index = await store.rebuildIndex();
-        const claimed = index.find(i => i.id === 'wu1');
-        expect(claimed?.status).toBe('active');
-        expect(claimed?.assigneeId).toBe('agent1');
-      });
-
+    describe('appendEvent / getIndex', () => {
       it('should filter index by status', async () => {
         const wu1 = makeWuSnapshot('wu1', { status: 'active' });
         const wu2 = makeWuSnapshot('wu2', { status: 'unassigned' });
         await store.appendEvent({ type: 'created', wuId: 'wu1', timestamp: new Date().toISOString(), data: wu1 as unknown as Record<string, unknown> });
         await store.appendEvent({ type: 'created', wuId: 'wu2', timestamp: new Date().toISOString(), data: wu2 as unknown as Record<string, unknown> });
-        await store.rebuildIndex();
+        await store.upsertSnapshot(wu1);
+        await store.upsertSnapshot(wu2);
 
         const active = await store.getIndex({ status: 'active' });
         expect(active).toHaveLength(1);
@@ -408,9 +382,9 @@ describe('FileStore', () => {
       it('should return snapshots from getIndex when index.json exists', async () => {
         const wu1 = makeWuSnapshot('wu1');
         await store.appendEvent({ type: 'created', wuId: 'wu1', timestamp: new Date().toISOString(), data: wu1 as unknown as Record<string, unknown> });
-        await store.rebuildIndex();
+        await store.upsertSnapshot(wu1);
 
-        // Now getIndex should read from index.json (already built by rebuildIndex)
+        // Now getIndex should read from index.json (already written by upsertSnapshot)
         const index = await store.getIndex();
         expect(index).toHaveLength(1);
         expect(index[0].id).toBe('wu1');
@@ -426,7 +400,7 @@ describe('FileStore', () => {
       it('should successfully claim an unassigned work unit', async () => {
         const wu1 = makeWuSnapshot('wu1');
         await store.appendEvent({ type: 'created', wuId: 'wu1', timestamp: new Date().toISOString(), data: wu1 as unknown as Record<string, unknown> });
-        await store.rebuildIndex();
+        await store.upsertSnapshot(wu1);
 
         const claimed = await store.claimWorkUnit('wu1', 'agent1');
         expect(claimed).toBe(true);
@@ -440,7 +414,7 @@ describe('FileStore', () => {
       it('should not claim an already claimed work unit', async () => {
         const wu1 = makeWuSnapshot('wu1');
         await store.appendEvent({ type: 'created', wuId: 'wu1', timestamp: new Date().toISOString(), data: wu1 as unknown as Record<string, unknown> });
-        await store.rebuildIndex();
+        await store.upsertSnapshot(wu1);
 
         const claim1 = await store.claimWorkUnit('wu1', 'agent1');
         expect(claim1).toBe(true);
@@ -457,7 +431,7 @@ describe('FileStore', () => {
       it('should handle concurrent claims using flock', async () => {
         const wu1 = makeWuSnapshot('wu1');
         await store.appendEvent({ type: 'created', wuId: 'wu1', timestamp: new Date().toISOString(), data: wu1 as unknown as Record<string, unknown> });
-        await store.rebuildIndex();
+        await store.upsertSnapshot(wu1);
 
         // 模拟并发 claim：2 个同时 claim，仅 1 个成功
         const results = await Promise.all([
@@ -621,23 +595,6 @@ describe('FileStore', () => {
       expect(fs.readFileSync(path.join(d, '_index.md'), 'utf-8')).toContain('pdoc.md|p1|');
     });
 
-    it('should return matching filenames for field=value query', async () => {
-      const d = path.join(tmpDir, 'kb');
-      await seedDocs(d);
-      await store.buildIndex(d, ['id', 'type', 'title', 'status']);
-      const r = await store.queryIndex(d, 'type', 'guideline');
-      expect(r).toHaveLength(2);
-      expect(r).toContain('doc-a');
-      expect(r).toContain('doc-c');
-    });
-
-    it('should return empty array when no match', async () => {
-      const d = path.join(tmpDir, 'kb');
-      await seedDocs(d);
-      await store.buildIndex(d, ['id', 'type']);
-      expect(await store.queryIndex(d, 'type', 'nope')).toEqual([]);
-    });
-
     it('should list docs from _index.md', async () => {
       const d = path.join(tmpDir, 'kb');
       await seedDocs(d);
@@ -656,20 +613,6 @@ describe('FileStore', () => {
       fs.mkdirSync(d, { recursive: true });
       expect(await store.listDocs(d)).toEqual([]);
     });
-
-    it('should return filename when field matches', async () => {
-      const d = path.join(tmpDir, 'kb');
-      await seedDocs(d);
-      await store.buildIndex(d, ['id', 'type']);
-      expect(await store.findByField(d, 'id', 'b2')).toBe('doc-b');
-    });
-
-    it('should return null when field does not match', async () => {
-      const d = path.join(tmpDir, 'kb');
-      await seedDocs(d);
-      await store.buildIndex(d, ['id']);
-      expect(await store.findByField(d, 'id', 'nope')).toBeNull();
-    });
   });
 
   describe('FileStore Version', () => {
@@ -678,27 +621,6 @@ describe('FileStore', () => {
 
     beforeEach(() => { tmpDir = createTempDir(); store = new FileStore(tmpDir); });
     afterEach(() => { if (fs.existsSync(tmpDir)) fs.rmSync(tmpDir, { recursive: true, force: true }); });
-
-    it('should increment version and write changeType/changeDesc', async () => {
-      const d = path.join(tmpDir, 'sdd');
-      await store.writeDoc(d, 'v', { version: 3, title: 'T' }, 'body');
-      await store.bumpVersion(d, 'v', 'L2', 'design updated');
-      const doc = await store.readDoc(d, 'v');
-      expect(doc!.meta.version).toBe(4);
-      expect(doc!.meta.changeType).toBe('L2');
-      expect(doc!.meta.changeDesc).toBe('design updated');
-    });
-
-    it('should init version to 1 when non-numeric', async () => {
-      const d = path.join(tmpDir, 'sdd');
-      await store.writeDoc(d, 'nv', { title: 'NV' }, 'body');
-      await store.bumpVersion(d, 'nv', 'L1', 'first');
-      expect((await store.readDoc(d, 'nv'))!.meta.version).toBe(1);
-    });
-
-    it('should throw when doc does not exist', async () => {
-      await expect(store.bumpVersion(path.join(tmpDir, 'sdd'), 'x', 'L1', 'x')).rejects.toThrow();
-    });
 
     it('should append changelog with ISO timestamp', async () => {
       const d = path.join(tmpDir, 'sdd');
@@ -1178,5 +1100,126 @@ describe('FileStore baseDir resolution (STUDIO_DATA_DIR decouples from HOME)', (
     await store.createProfile(makeProfile('p-home', 'home-agent'));
 
     expect(fs.existsSync(path.join(homedirFallback, '.studio', 'data', 'agents', 'p-home', 'profile.json'))).toBe(true);
+  });
+});
+
+// ─── A1（工单 26）：读穿缓存行为 ───
+
+describe('FileStore 读穿缓存 (A1)', () => {
+  let tmpDir: string;
+  let store: FileStore;
+
+  beforeEach(() => {
+    tmpDir = createTempDir();
+    store = new FileStore(tmpDir);
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('写后读立即可见（缓存命中后 update → 再读为新值）', async () => {
+    await store.createProfile(makeProfile('p1', 'before'));
+    const cached = await store.getProfile('p1'); // 填充缓存
+    expect(cached?.name).toBe('before');
+
+    await store.updateProfile('p1', { name: 'after' });
+    const loaded = await store.getProfile('p1');
+    expect(loaded?.name).toBe('after');
+  });
+
+  it('删后失效（get 缓存命中 → delete → get 为 null，list 也不再包含）', async () => {
+    await store.createProfile(makeProfile('p1'));
+    expect(await store.getProfile('p1')).not.toBeNull();
+    expect(await store.listProfiles()).toHaveLength(1); // 填充目录级缓存
+
+    await store.deleteProfile('p1');
+    expect(await store.getProfile('p1')).toBeNull();
+    expect(await store.listProfiles()).toHaveLength(0);
+  });
+
+  it('缓存返回值被调用方原地 mutate 不污染后续读取', async () => {
+    await store.createProfile(makeProfile('p1', 'pristine'));
+    const first = await store.getProfile('p1');
+    first!.name = 'mutated-by-caller';
+    first!.channels = '["hacked"]';
+
+    const second = await store.getProfile('p1');
+    expect(second?.name).toBe('pristine');
+    expect(second?.channels).toBe('[]');
+  });
+
+  it('list 并发读与重复读结果等价（30 个 profile）', async () => {
+    const ids = Array.from({ length: 30 }, (_, i) => `p-${i}`);
+    for (const id of ids) await store.createProfile(makeProfile(id));
+
+    const [a, b, c] = await Promise.all([
+      store.listProfiles(),
+      store.listProfiles(),
+      store.listProfiles({ status: 'active' }),
+    ]);
+    const expected = [...ids].sort();
+    expect(a.map(p => p.id).sort()).toEqual(expected);
+    expect(b.map(p => p.id).sort()).toEqual(expected);
+    expect(c.map(p => p.id).sort()).toEqual(expected);
+  });
+
+  it('rename（updateChannel 改名）后 getChannel 与 listChannels 均反映新名', async () => {
+    await store.createChannel(makeChannel('ch1', '#old'));
+    expect((await store.listChannels())[0].name).toBe('#old'); // 填充缓存
+
+    await store.updateChannel('ch1', { name: '#new' });
+    expect((await store.getChannel('ch1'))?.name).toBe('#new');
+    expect((await store.listChannels())[0].name).toBe('#new');
+  });
+
+  it('upsertSnapshot/removeSnapshot 后 getIndex 立即反映', async () => {
+    const now = new Date().toISOString();
+    const snap: WorkUnitSnapshot = {
+      id: 'wu1', parentId: null, type: 'task', scope: 's', assigneeId: null,
+      status: 'unassigned', failureType: null, retryCount: 0, timeoutAt: null,
+      channelId: null, projectPath: null, metadata: null,
+      createdAt: now, updatedAt: now, claimedAt: null, completedAt: null,
+    };
+    await store.upsertSnapshot(snap);
+    expect((await store.getIndex()).map(s => s.id)).toEqual(['wu1']);
+
+    await store.upsertSnapshot({ ...snap, status: 'active' });
+    expect((await store.getIndex())[0].status).toBe('active');
+
+    await store.removeSnapshot('wu1');
+    expect(await store.getIndex()).toEqual([]);
+  });
+
+  it('appendMessage 后 queryMessages 立即可见（JSONL 缓存失效）', async () => {
+    await store.createChannel(makeChannel('ch-m'));
+    await store.appendMessage('ch-m', makeMessage('m1', 'ch-m'));
+    expect(await store.queryMessages('ch-m')).toHaveLength(1);
+
+    await store.appendMessage('ch-m', makeMessage('m2', 'ch-m'));
+    expect(await store.queryMessages('ch-m')).toHaveLength(2);
+  });
+
+  it('外部写入（绕过 FileStore，mtime 变化）后读取不返回陈旧缓存', async () => {
+    await store.createProfile(makeProfile('p1', 'internal'));
+    expect((await store.getProfile('p1'))?.name).toBe('internal'); // 填充缓存
+
+    // 模拟另一进程直接改文件，并显式推进 mtime 避免同毫秒粒度
+    const fp = path.join(tmpDir, 'agents', 'p1', 'profile.json');
+    fs.writeFileSync(fp, JSON.stringify({ ...makeProfile('p1', 'external') }));
+    const future = new Date(Date.now() + 5000);
+    fs.utimesSync(fp, future, future);
+
+    expect((await store.getProfile('p1'))?.name).toBe('external');
+  });
+
+  it('软删除消息后 countMessages 立即反映（tombstone append 失效）', async () => {
+    await store.createChannel(makeChannel('ch-d'));
+    await store.appendMessage('ch-d', makeMessage('m1', 'ch-d'));
+    await store.appendMessage('ch-d', makeMessage('m2', 'ch-d'));
+    expect(await store.countMessages('ch-d')).toBe(2);
+
+    await store.softDeleteMessage('ch-d', 'm1');
+    expect(await store.countMessages('ch-d')).toBe(1);
   });
 });

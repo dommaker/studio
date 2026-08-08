@@ -1,6 +1,7 @@
 // 2026-07 PMO-flow UX（设计文档 §6-1）：GET /monitoring/agents 聚合扩展
-// 覆盖：currentWorkUnit / pmo / channelId 三字段、PMO 归属三链（①ownershipProjectId
-// ②reqId→Requirement.projectId（legacy 与 REQ 别名两种）③metadata.pmoProjectId）、
+// 覆盖：currentWorkUnit / pmo / channelId 三字段、PMO 归属两级链（①创建期直读戳
+// metadata.pmoId（‖ deprecated legacy ownershipProjectId 同级）②reqId→Requirement.projectId
+// （legacy 与 REQ 别名两种）；metadata.pmoProjectId 已移出解析链）、
 // 归属不到/悬空 WU → null、向后兼容（既有字段不动）。
 // 模式同 monitoring.service.test.ts：真实 FileStore（tmpdir）；projects 走 deps.listProjects stub
 // （避免碰真实 ~/.studio/projects）。
@@ -140,10 +141,10 @@ describe('MonitoringService.getAgentSummary — 2026-07 聚合扩展', () => {
     expect(agent.pmo).toEqual({ id: 'proj-alias', pmoNumber: 'PMO-0077', title: '别名项目' });
   });
 
-  it('③ metadata.pmoProjectId 链（①② 均缺失时回落）', async () => {
+  it('① metadata.pmoId 链（canonical 创建期归因戳，analysis 派生链形态：reqId=null）', async () => {
     await fileStore.upsertSnapshot(wuSnapshot({
       id: 'wu-3',
-      metadata: JSON.stringify({ title: '修复样式', pmoProjectId: 'proj-3' }),
+      metadata: JSON.stringify({ title: '修复样式', pmoId: 'proj-3' }),
     }));
     await addInstance('inst-3', 'wu-3');
 
@@ -165,11 +166,12 @@ describe('MonitoringService.getAgentSummary — 2026-07 聚合扩展', () => {
   });
 
   it('归属链全落空 / 项目不存在 → pmo 为 null；WU 悬空 → currentWorkUnit 为 null', async () => {
-    // ownershipProjectId 指向不存在的项目，reqId 无记录，pmoProjectId 不存在 → null
+    // ownershipProjectId 指向不存在的项目，reqId 无记录；pmoProjectId 即使指向存在的项目
+    // 也不再命中（2026-08 归因统一：已移出解析链）→ null
     await fileStore.upsertSnapshot(wuSnapshot({
       id: 'wu-4',
       reqId: 'REQ-9999',
-      metadata: JSON.stringify({ ownershipProjectId: 'ghost', pmoProjectId: 'ghost-2' }),
+      metadata: JSON.stringify({ ownershipProjectId: 'ghost', pmoProjectId: 'proj-3' }),
     }));
     await addInstance('inst-4', 'wu-4');
     // currentWorkUnitId 悬空（index 中无此 WU）

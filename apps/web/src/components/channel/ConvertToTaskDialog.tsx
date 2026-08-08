@@ -24,15 +24,25 @@ export function ConvertToTaskDialog({ open, onClose, messageId, channelId, messa
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
 
+  // open 上升沿（或打开状态下 channelId/messageId 切换）在渲染期同步重置表单与加载态
+  //（替代原 effect 顶部的同步重置；fetch 保留在 effect）
+  const dialogKey = open ? `${channelId}\n${messageId}` : null;
+  const [prevDialogKey, setPrevDialogKey] = useState(dialogKey);
+  if (prevDialogKey !== dialogKey) {
+    setPrevDialogKey(dialogKey);
+    if (dialogKey) {
+      setLoading(true);
+      setTitle('');
+      setDescription('');
+      setAssigneeId('');
+      setProjectPath('');
+      setError('');
+    }
+  }
+
   // Fetch agents + projects + LLM suggestion on open
   useEffect(() => {
     if (!open) return;
-    setLoading(true);
-    setTitle('');
-    setDescription('');
-    setAssigneeId('');
-    setProjectPath('');
-    setError('');
 
     Promise.all([
       channelApi.listAgents(channelId).then(r => r.data.data).catch(() => []),

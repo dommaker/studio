@@ -24,7 +24,7 @@
 
 ## 依赖关系
 
-上游：`@dommaker/harness`、`eventemitter3`、`yaml`。
+上游：`@dommaker/harness`、`yaml`。
 下游：apps/api 各模块、packages/studio-agent、apps/web（仅类型，不可引 `/node` 子路径）。
 
 ## 注意事项

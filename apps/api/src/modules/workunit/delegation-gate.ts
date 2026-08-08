@@ -19,6 +19,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { FileStore, parseChannels, type AgentProfileData } from '@dommaker/studio-shared';
 import type { WorkUnitData, WorkUnitMetadata } from './workunit.service.js';
+import { parseWuMetadata } from './wu-metadata.js';
 import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
 
 /** 协作元数据（WorkUnitMetadata.collab 的具象类型） */
@@ -37,15 +38,9 @@ export function resolveMaxDepth(env: NodeJS.ProcessEnv = process.env): number {
 
 /** 从 metadata JSON 串容错解析 collab（损坏/缺失 → null） */
 export function readCollab(metadataRaw: string | null | undefined): CollabMeta | null {
-  if (!metadataRaw) return null;
-  try {
-    const meta = JSON.parse(metadataRaw) as WorkUnitMetadata;
-    const c = meta.collab;
-    if (!c || typeof c.rootId !== 'string' || typeof c.depth !== 'number' || !Array.isArray(c.chain)) return null;
-    return c;
-  } catch {
-    return null;
-  }
+  const c = parseWuMetadata(metadataRaw).collab;
+  if (!c || typeof c.rootId !== 'string' || typeof c.depth !== 'number' || !Array.isArray(c.chain)) return null;
+  return c;
 }
 
 /**

@@ -4,7 +4,7 @@
 
 ## 职责
 
-公司（Company）记录的 CRUD REST API，FileStore 文件存储（`~/.studio/data/companies/*.json`），不依赖数据库。前端 PMO 页、Settings 页、`useCompanyId` hook 依赖本模块获取/创建默认公司，PMO 的 OKR/项目均以 companyId 作为归属维度。创建公司时会自动调用 `okrService.createDefaultOKR` 生成默认 OKR。
+公司（Company）记录的 CRUD REST API，FileStore 文件存储（`~/.studio/data/companies/*.json`），不依赖数据库。前端 PMO 页、Settings 页依赖本模块获取/创建默认公司，PMO 的 OKR/项目均以 companyId 作为归属维度。创建公司时会自动调用 `okrService.createDefaultOKR` 生成默认 OKR。
 
 ## 核心导出
 

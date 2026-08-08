@@ -10,7 +10,7 @@ vi.mock('../../api', () => ({
   api: { get: mockGet },
 }));
 
-import { useDetectedProviders, buildProviderOptions, BUILTIN_PROVIDERS } from '../useDetectedProviders';
+import { useDetectedProviders, buildProviderOptions } from '../useDetectedProviders';
 
 // ── buildProviderOptions (纯函数) ──
 
@@ -104,7 +104,7 @@ describe('useDetectedProviders', () => {
   });
 
   it('cancelled 卸载后忽略异步结果', async () => {
-    let resolve: (v: any) => void = () => {};
+    let resolve: (v: unknown) => void = () => {};
     mockGet.mockReturnValue(new Promise((r) => { resolve = r; }));
     const { result, unmount } = renderHook(() => useDetectedProviders());
     unmount();

@@ -4,16 +4,19 @@
  * 端点：
  * - POST /api/v1/notify/send - 发送通知（供内部模块调用）
  * - GET  /api/v1/notify/config/status - 用户通知渠道配置状态（Settings 页同步指示）
- * - POST /api/v1/notify/config - 保存用户通知渠道配置（进程内存，重启丢失）
+ * - POST /api/v1/notify/config - 保存用户通知渠道配置（持久化到 ~/.studio/notify-config.json）
  */
 
 import { Router, Request, Response } from 'express';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import { notifyService, NotifyMessage } from './notify.service.js';
 import { logger } from '@dommaker/studio-shared';
 
 const router = Router();
 
-// ==================== 用户通知渠道配置（进程内存） ====================
+// ==================== 用户通知渠道配置（文件持久化） ====================
 
 interface ChannelUserConfig {
   enabled?: boolean;
@@ -28,8 +31,25 @@ interface NotifyUserConfig {
   telegram?: ChannelUserConfig;
 }
 
-// 仅存进程内存：服务重启后丢失，前端 Settings 页会提示"通知配置需要重新保存"
-let userConfig: NotifyUserConfig = {};
+// 持久化到 ~/.studio/notify-config.json：服务重启后自动恢复（C5 修复，原仅存进程内存重启即丢）
+const CONFIG_FILE = path.join(os.homedir(), '.studio', 'notify-config.json');
+
+function loadUserConfig(): NotifyUserConfig {
+  try {
+    if (!fs.existsSync(CONFIG_FILE)) return {};
+    return JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8'));
+  } catch (error) {
+    logger.error('[Notify] Failed to load user config', { error: String(error) });
+    return {};
+  }
+}
+
+function persistUserConfig(config: NotifyUserConfig): void {
+  fs.mkdirSync(path.dirname(CONFIG_FILE), { recursive: true });
+  fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2), 'utf-8');
+}
+
+let userConfig: NotifyUserConfig = loadUserConfig();
 
 function hasUserConfig(c?: ChannelUserConfig): boolean {
   return !!(c && (c.webhookUrl || (c.botToken && c.chatId)));
@@ -49,12 +69,13 @@ router.get('/config/status', (_req: Request, res: Response) => {
 
 /**
  * POST /api/v1/notify/config
- * 保存用户通知渠道配置到进程内存
+ * 保存用户通知渠道配置并持久化到磁盘（重启后自动恢复）
  */
 router.post('/config', (req: Request, res: Response) => {
   try {
     const { discord, wecom, telegram } = req.body ?? {};
     userConfig = { discord, wecom, telegram };
+    persistUserConfig(userConfig);
     logger.info('[Notify] User channel config updated', {
       discord: hasUserConfig(discord),
       wecom: hasUserConfig(wecom),

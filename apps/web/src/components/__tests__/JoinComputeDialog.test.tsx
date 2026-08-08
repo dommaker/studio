@@ -32,7 +32,7 @@ describe('JoinComputeDialog', () => {
   });
 
   it('generates token and shows command', async () => {
-    (workspaceTokenApi.generate as any).mockResolvedValue({
+    vi.mocked(workspaceTokenApi.generate).mockResolvedValue({
       data: { data: { id: 'tok-1', name: 'my-pc', token: 'ws_abc123' } },
     });
 
@@ -47,7 +47,7 @@ describe('JoinComputeDialog', () => {
   });
 
   it('calls onGenerated after successful generation', async () => {
-    (workspaceTokenApi.generate as any).mockResolvedValue({
+    vi.mocked(workspaceTokenApi.generate).mockResolvedValue({
       data: { data: { id: 'tok-1', name: 'my-pc', token: 'ws_abc123' } },
     });
 

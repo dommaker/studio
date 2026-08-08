@@ -16,14 +16,14 @@ const runnerLightweightSrc = fs.readFileSync(
   'utf-8',
 );
 
-const sessionManagerSrc = fs.readFileSync(
-  path.resolve(__dirname, '../session-manager.ts'),
+const executorTypesSrc = fs.readFileSync(
+  path.resolve(__dirname, '../types.ts'),
   'utf-8',
 );
 
 describe('AgentTask interface', () => {
   test('includes optional timeoutMs field', () => {
-    expect(sessionManagerSrc).toMatch(/timeoutMs\?\s*:\s*number/);
+    expect(executorTypesSrc).toMatch(/timeoutMs\?\s*:\s*number/);
   });
 });
 

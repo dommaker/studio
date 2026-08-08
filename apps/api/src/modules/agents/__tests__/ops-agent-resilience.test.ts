@@ -7,7 +7,7 @@ import { describe, it, expect } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { createOpsService, OpsService } from '../ops.service.js';
+import { createOpsService, OpsService } from '../ops/ops.service.js';
 
 describe('OpsService proxy health (AC-2)', () => {
   // ============================================================

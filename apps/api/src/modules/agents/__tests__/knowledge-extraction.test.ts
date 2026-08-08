@@ -20,7 +20,7 @@ vi.mock('@dommaker/studio-shared', () => ({
 import {
   getExtractFromTextSystemPrompt,
   EXTRACT_FROM_TEXT_SYSTEM_PROMPT,
-} from '../knowledge-extraction.js';
+} from '../knowledge/knowledge-extraction.js';
 
 beforeEach(() => {
   vi.clearAllMocks();

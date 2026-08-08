@@ -1,5 +1,5 @@
 // MonitoringPage — Agent Network MVP-6
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { monitoringApi, type MonitoringStats, type FlywheelStats, type OverheadStats, type EvidenceStats } from '../api/monitoring';
 import { knowledgeApi, type KnowledgeEntryItem } from '../api/knowledge';
@@ -20,16 +20,18 @@ export function MonitoringPage() {
   // 手动任务成本（近 30 天 token；失败静默）
   const [costs, setCosts] = useState<TriggerCosts | null>(null);
 
-  const load = async () => {
-    setLoading(true);
-    try {
-      const res = await monitoringApi.getStats();
-      setData(res.data);
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Failed to load stats');
-    } finally {
-      setLoading(false);
-    }
+  const load = useCallback(() => {
+    // promise 链写法：setState 全部在回调里，符合 set-state-in-effect 规则的外部同步口径
+    monitoringApi.getStats()
+      .then((res) => {
+        setData(res.data);
+      })
+      .catch((e: unknown) => {
+        setError(e instanceof Error ? e.message : 'Failed to load stats');
+      })
+      .finally(() => {
+        setLoading(false);
+      });
     // M1/M2 区块独立加载，失败不影响主面板
     monitoringApi.getFlywheel().then(r => setFlywheel(r.data)).catch(() => setFlywheel(null));
     monitoringApi.getOverhead().then(r => setOverhead(r.data)).catch(() => setOverhead(null));
@@ -39,9 +41,9 @@ export function MonitoringPage() {
     knowledgeApi.listPendingReview().then(r => setProposals(r.data.entries)).catch(() => setProposals(null));
     // 手动任务成本独立加载，失败静默
     maintenanceApi.getCosts().then(r => setCosts(r)).catch(() => setCosts(null));
-  };
+  }, []);
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [load]);
 
   // 一键 approve：draft → verified（参与注入）；成功后移出列表
   const approveProposal = async (entryId: string) => {

@@ -81,7 +81,7 @@ export const useAuthStore = create<AuthState>()(
           const { data } = await authApi.forgotPassword(email);
           set({ isLoading: false });
           return data.message as string;
-        } catch (e: any) {
+        } catch (e) {
           set({ error: e.response?.data?.error || e.message || '请求失败', isLoading: false });
           throw e;
         }
@@ -93,7 +93,7 @@ export const useAuthStore = create<AuthState>()(
           const { data } = await authApi.resetPassword(token, password);
           set({ isLoading: false });
           return data.message as string;
-        } catch (e: any) {
+        } catch (e) {
           set({ error: e.response?.data?.error || e.message || '重置失败', isLoading: false });
           throw e;
         }
@@ -120,7 +120,7 @@ export const useAuthStore = create<AuthState>()(
             guestId,
             isLoading: false,
           });
-        } catch (e: any) {
+        } catch (e) {
           set({ error: e.message || '创建 Session 失败', isLoading: false });
         }
       },
@@ -139,7 +139,7 @@ export const useAuthStore = create<AuthState>()(
             set({ isLoading: false });
             await get().createGuestSession();
           }
-        } catch (e: any) {
+        } catch (e) {
           set({ error: e.message, isLoading: false });
           await get().createGuestSession();
         }
@@ -163,7 +163,7 @@ export const useAuthStore = create<AuthState>()(
             isLoading: false,
           });
           return true;
-        } catch (e: any) {
+        } catch (e) {
           set({ error: e.message || '登录失败', isLoading: false });
           return false;
         }
@@ -187,7 +187,7 @@ export const useAuthStore = create<AuthState>()(
             isLoading: false,
           });
           return true;
-        } catch (e: any) {
+        } catch (e) {
           set({ error: e.message || '注册失败', isLoading: false });
           return false;
         }

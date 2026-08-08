@@ -25,7 +25,7 @@ vi.mock('axios', () => ({
 }));
 
 import axios from 'axios';
-import { api, refreshToken } from '../index';
+import { refreshToken } from '../index';
 
 // Capture interceptor callbacks — set during module load
 let requestInterceptor: ((config: unknown) => unknown) | null = null;

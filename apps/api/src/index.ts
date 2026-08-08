@@ -11,8 +11,8 @@ import { logger } from '@dommaker/studio-shared';
 // database.ts removed (Spec 4 Phase 4) — FileStore auto-creates directories
 import { startEvolutionScheduler, stopEvolutionScheduler } from './modules/knowledge/evolution-scheduler.js';
 import { startAuditSubscriber, stopAuditSubscriber } from './modules/audit/audit-subscriber.js';
-import { monitorService } from './modules/agents/monitor.service.js';
-import { auditorService } from './modules/agents/auditor.service.js';
+import { monitorService } from './modules/agents/monitor/monitor.service.js';
+import { auditorService } from './modules/agents/auditor/auditor.service.js';
 import { spawn, type ChildProcess } from 'child_process';
 import { bootstrapHarness } from '@dommaker/studio-shared';
 import * as fs from 'fs';
@@ -92,7 +92,7 @@ async function start() {
     // G-004: 决策链提取（KK 提取时自动触发，见 knowledge-curator.service.ts）
 
     // P1b: 冷启动知识导入（异步，不阻塞启动）
-    import('./modules/agents/knowledge-curator.service.js').then(({ knowledgeCurator }) => {
+    import('./modules/agents/knowledge/knowledge-curator.service.js').then(({ knowledgeCurator }) => {
       knowledgeCurator.coldStartAll().catch(() => { /* non-blocking */ });
     });
 
@@ -134,7 +134,7 @@ async function start() {
     } catch (e) { logger.warn('[PMO] Progress rollup init failed', { error: String(e) }); }
     // ── Ops Service: runtime health loop ──
     try {
-      const { createOpsService } = await import('./modules/agents/ops.service.js');
+      const { createOpsService } = await import('./modules/agents/ops/ops.service.js');
       const opsService = createOpsService();
       opsService.start();
     } catch (e) { logger.warn('[OpsService] Failed to start', { error: String(e) }); }
@@ -144,7 +144,7 @@ async function start() {
     // ── AS-026: AgentLoop per AgentProfile ──
     try {
       const { FileStore } = await import('@dommaker/studio-shared');
-      const { agentLoopRegistry } = await import('./modules/agents/agent-loop-registry.js');
+      const { agentLoopRegistry } = await import('./modules/agents/loop/agent-loop-registry.js');
       const { registerDefaultTriggers } = await import('./modules/agents/default-triggers.js');
       const { getTriggerScheduler } = await import('./modules/triggers/trigger-registry.js');
       const { ensureStudioProfile } = await import('./modules/agents/agent-profile.service.js');
@@ -184,7 +184,7 @@ async function start() {
 
       // AC-4.1: ReviewDispatcher subscribes to workunit.status_changed
       try {
-        const { getReviewDispatcher } = await import('./modules/agents/review-dispatcher.js');
+        const { getReviewDispatcher } = await import('./modules/agents/loop/review-dispatcher.js');
         getReviewDispatcher().subscribeToEvents();
         logger.info('[ReviewDispatcher] Subscribed to workunit.status_changed');
       } catch (e) { logger.warn('[ReviewDispatcher] Failed to subscribe', { error: String(e) }); }
@@ -385,7 +385,7 @@ async function start() {
     const shutdown = async () => {
       // F1: unmount all AgentLoops
       try {
-        const { agentLoopRegistry } = await import('./modules/agents/agent-loop-registry.js');
+        const { agentLoopRegistry } = await import('./modules/agents/loop/agent-loop-registry.js');
         agentLoopRegistry.unmountAll();
       } catch {}
 

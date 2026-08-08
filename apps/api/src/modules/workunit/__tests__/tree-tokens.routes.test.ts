@@ -32,13 +32,13 @@ vi.mock('../../agents/token-usage.service.js', () => ({
   aggregateTreeTokens: mockAggregateTreeTokens,
 }));
 
-vi.mock('../../agents/wu-verification.js', () => ({
+vi.mock('../../agents/loop/wu-verification.js', () => ({
   CODE_WORKTREE_TYPES: new Set(['task', 'bug', 'feature', 'refactor']),
   resolveVerifyCommands: vi.fn(),
   runWuVerification: vi.fn(),
 }));
 
-vi.mock('../../agents/review-dispatcher.js', () => ({
+vi.mock('../../agents/loop/review-dispatcher.js', () => ({
   getReviewDispatcher: () => ({ dispatchReviewNow: vi.fn() }),
 }));
 

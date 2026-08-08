@@ -1,7 +1,8 @@
 /**
  * runner-output 单元测试
  *
- * 覆盖 hasRecentActivity（真实 tmpdir）与 queryResolutionHints（mock FileStore）。
+ * 覆盖 hasRecentActivity（真实 tmpdir）、queryResolutionHints（mock FileStore）
+ * 与 processSessionOutput（mock output-capture，真实 stream-json 解析）。
  */
 
 import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -9,9 +10,14 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
-const { mockListDocs, mockReadDoc } = vi.hoisted(() => ({
+const { mockListDocs, mockReadDoc, mockRecordSessionMetrics, mockEmitSessionEnd, mockEmitToolCall, mockEmitFileChange, mockGetConstraintMeta } = vi.hoisted(() => ({
   mockListDocs: vi.fn(),
   mockReadDoc: vi.fn(),
+  mockRecordSessionMetrics: vi.fn(),
+  mockEmitSessionEnd: vi.fn(),
+  mockEmitToolCall: vi.fn(),
+  mockEmitFileChange: vi.fn(),
+  mockGetConstraintMeta: vi.fn(),
 }));
 
 vi.mock('@dommaker/studio-shared', async (importOriginal) => {
@@ -25,7 +31,15 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => {
   };
 });
 
-import { hasRecentActivity, queryResolutionHints } from '../runner-output.js';
+vi.mock('../output-capture.js', () => ({
+  recordSessionMetrics: mockRecordSessionMetrics,
+  emitSessionEnd: mockEmitSessionEnd,
+  emitToolCall: mockEmitToolCall,
+  emitFileChange: mockEmitFileChange,
+  getConstraintMeta: mockGetConstraintMeta,
+}));
+
+import { hasRecentActivity, queryResolutionHints, processSessionOutput } from '../runner-output.js';
 
 describe('hasRecentActivity', () => {
   let tmpDir: string;
@@ -102,5 +116,113 @@ describe('queryResolutionHints', () => {
   test('查询失败（listDocs 抛错）→ 返回空串', async () => {
     mockListDocs.mockRejectedValue(new Error('fs error'));
     expect(await queryResolutionHints('a boom error happened')).toBe('');
+  });
+});
+
+describe('processSessionOutput', () => {
+  let tmpDir: string;
+  let logFile: string;
+
+  const baseCtx = () => ({
+    logFile,
+    sessionId: 'sess-1',
+    executionId: 'exec-1',
+    sessionCount: 2,
+    isFirstSession: false,
+    sessionMs: 1234,
+    agentRole: 'executor',
+    stage: 'dev',
+    promptSize: 42,
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGetConstraintMeta.mockResolvedValue({ hash: 'abc', size: 100 });
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'runner-output-pso-'));
+    logFile = path.join(tmpDir, '.agent.log');
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  test('落盘 .agent.log，解析 result/usage 并返回解析结果', async () => {
+    const stdout = [
+      JSON.stringify({ type: 'system', subtype: 'init' }),
+      'not-json line',
+      JSON.stringify({ type: 'result', result: 'all done', is_error: false, usage: { input_tokens: 10, output_tokens: 5, cache_read_input_tokens: 2, cache_creation_input_tokens: 1, model: 'claude-x' } }),
+    ].join('\n');
+
+    const out = await processSessionOutput(stdout, baseCtx());
+
+    expect(fs.readFileSync(logFile, 'utf-8')).toBe(stdout);
+    expect(out.text).toBe('all done');
+    expect(out.isError).toBe(false);
+    expect(out.streamUsage).toEqual({
+      inputTokens: 10, outputTokens: 5, cacheReadTokens: 2, cacheCreationTokens: 1, model: 'claude-x',
+    });
+    expect(out.events).toHaveLength(2);
+  });
+
+  test('tool_use 事件 → emitToolCall；Write/Edit 另发 emitFileChange', async () => {
+    const stdout = [
+      JSON.stringify({ type: 'assistant', content: [
+        { type: 'tool_use', name: 'Write', input: { file_path: '/tmp/a.ts', content: 'x' } },
+        { type: 'tool_use', name: 'Bash', input: { command: 'ls' } },
+      ] }),
+      JSON.stringify({ type: 'result', result: 'ok', is_error: false }),
+    ].join('\n');
+
+    await processSessionOutput(stdout, baseCtx());
+
+    expect(mockEmitToolCall).toHaveBeenCalledTimes(2);
+    expect(mockEmitToolCall).toHaveBeenCalledWith('Write', { file_path: '/tmp/a.ts', content: 'x' }, 'sess-1', 'exec-1');
+    expect(mockEmitToolCall).toHaveBeenCalledWith('Bash', { command: 'ls' }, 'sess-1', 'exec-1');
+    expect(mockEmitFileChange).toHaveBeenCalledTimes(1);
+    expect(mockEmitFileChange).toHaveBeenCalledWith('/tmp/a.ts', 'sess-1', 'exec-1');
+  });
+
+  test('recordSessionMetrics 收到 ctx 字段 + 约束 meta + streamUsage；emitSessionEnd 带 sessionCount', async () => {
+    const stdout = JSON.stringify({ type: 'result', result: 'ok', is_error: false, usage: { input_tokens: 7, output_tokens: 3 } });
+
+    await processSessionOutput(stdout, baseCtx());
+
+    expect(mockRecordSessionMetrics).toHaveBeenCalledTimes(1);
+    expect(mockRecordSessionMetrics).toHaveBeenCalledWith({
+      stdout,
+      executionId: 'exec-1',
+      agentRole: 'executor',
+      stage: 'dev',
+      sessionCount: 2,
+      isFirstSession: false,
+      sessionMs: 1234,
+      promptSize: 42,
+      constraintHash: 'abc',
+      constraintSize: 100,
+      streamUsage: { inputTokens: 7, outputTokens: 3, cacheReadTokens: 0, cacheCreationTokens: 0, model: '' },
+    });
+    expect(mockEmitSessionEnd).toHaveBeenCalledTimes(1);
+    expect(mockEmitSessionEnd).toHaveBeenCalledWith('sess-1', 'exec-1', 2);
+  });
+
+  test('is_error result → isError 为 true，事件/指标仍照常落盘', async () => {
+    const stdout = JSON.stringify({ type: 'result', result: 'boom', is_error: true });
+
+    const out = await processSessionOutput(stdout, baseCtx());
+
+    expect(out.isError).toBe(true);
+    expect(out.text).toBe('boom');
+    expect(mockRecordSessionMetrics).toHaveBeenCalledTimes(1);
+    expect(mockEmitSessionEnd).toHaveBeenCalledTimes(1);
+  });
+
+  test('无 usage 事件 → streamUsage 各项为 0', async () => {
+    const stdout = JSON.stringify({ type: 'result', result: 'ok', is_error: false });
+
+    const out = await processSessionOutput(stdout, baseCtx());
+
+    expect(out.streamUsage).toEqual({
+      inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, model: '',
+    });
   });
 });

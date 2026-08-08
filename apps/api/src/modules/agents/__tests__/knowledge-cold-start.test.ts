@@ -54,7 +54,7 @@ vi.mock('../../../utils/discord-notifier.js', () => ({
   discordNotifier: { sendText: mockDiscordSendText },
 }));
 
-import { coldStartAll } from '../knowledge-cold-start.js';
+import { coldStartAll } from '../knowledge/knowledge-cold-start.js';
 
 const savedRepoDir = process.env.REPO_DIR;
 

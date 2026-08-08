@@ -4,26 +4,24 @@
 
 ## 职责
 
-提供 Agent 执行引擎的核心能力，包括任务完成处理（AgentCompleter）、统一执行器（AgentRunner/AgentExecutor）与 Agent 注册中心（AgentRegistry）。负责将 provider 抽象参数转化为 CLI 参数（cli-adapter），管理 session 循环与轻量执行路径，并收集输出与指标。
+提供 Agent 执行引擎的核心能力，包括统一执行器（AgentRunner）与 Agent 注册中心（AgentRegistry）。负责将 provider 抽象参数转化为 CLI 参数（cli-adapter），管理 session 循环与轻量执行路径，并收集输出与指标。
 
 ## 核心导出
 
 | 导出 | 文件 | 说明 |
 | --- | --- | --- |
 | `AgentRegistry` | services/agent-registry.ts | Agent 注册中心，支持注册、发现、缓存、Schema 校验 |
-| `AgentExecutor`, `agentExecutor` | services/session-manager.ts | Session 循环执行器（门面，通过 agent-executor.ts 重新导出） |
-| `AgentRunner`, `agentRunner` | services/agent-runner.ts | 统一执行器，合并 AgentExecutor + TaskExecutor，支持流式 JSON 输出 |
-| `AgentCompleter`, `agentCompleter` | services/agent-completer.ts | 任务完成处理器，检测输出文件、解析验证结果、更新状态、发布事件 |
+| `AgentRunner`, `agentRunner` | services/agent-runner.ts | 统一执行器（execute / executeLightweight / stop），支持流式 JSON 输出；stop() 所有权唯一（runningProcesses 只在此注册） |
 | `buildSpawnArgs` | cli-adapter.ts | 纯函数，为指定 provider 构建 CLI spawn 参数（command + args） |
 | 类型 `Provider`, `SpawnParams`, `SpawnArgs` | cli-adapter.ts | CLI 适配相关类型 |
 | 类型 `AgentMetadata`, `JSONSchema` 等 | types.ts | Agent 元数据、JSON Schema 等类型定义 |
-| 类型 `AgentTask`, `ExecutionResult` | services/session-manager.ts | 任务与执行结果类型 |
+| 类型 `AgentTask`, `ExecutionResult`, `ExecutorConfig`, `PrerequisiteCheck` | services/types.ts | 任务、执行结果与执行器配置类型（原 session-manager.ts） |
 
 ## 依赖关系
 
 **上游（本目录依赖）**:
 - `@dommaker/studio-shared`（核心库：logger, eventBus, FileStore, parseStreamEvents, resolveProviderDefinition, buildArgsFromTemplate 等）
-- `@dommaker/studio-shared/node`（execSh, resolveSessionId, readSessionIdFile）
+- `@dommaker/studio-shared/node`（execSh, resolveSessionId, readSessionIdFile, resolveVpsWorkspace）
 - `@dommaker/studio-shared/harness`（parseSessionMetrics）
 - `@dommaker/studio-shared/harness/hooks`（beforeAgentExecute）
 - `uuid`（生成唯一标识）
@@ -34,8 +32,12 @@
 
 ## 注意事项
 
-- **零行为变更原则**：模块拆分（如 agent-runner.ts 拆分为 runner-*.ts）及文件移动必须保持原有公共 API 签名与行为不变。
-- **门面模式**：agent-executor.ts 作为门面重新导出 session-manager.ts、agent-runner.ts、worktree-resolver.ts、output-capture.ts 的公共类型与函数，外部应通过门面导入。worktree-resolver.ts 自身也是门面：scaffolding 写入（writeRequirementsMd/writeContractTests/ensureDeps，2026-08-04 拆出）位于 worktree-scaffolding.ts，经 worktree-resolver.ts re-export，消费方导入路径不变。
-- **避免循环依赖**：拆分后的子模块（runner-params、runner-output、runner-execution、runner-lightweight、prompt-builder、prerequisite-checks）不得反向依赖 agent-runner.ts 或 session-manager.ts 的类；状态通过 `RunnerExecutionState` 接口或参数传入。
+- **零行为变更原则（已完成）**：runner-* 拆分（runner-params / runner-output / runner-execution / runner-lightweight）全程保持公共 API 不变；2026-08 删除死去的 AgentExecutor 双胞胎（session-manager.ts，821 行，execute() 为 executeSessionLoop 的重复实现、无生产调用方）完成该重构。唯一行为变化：Discord `/studio stop` 之前调 `agentExecutor.stop`（独立空 map，静默 no-op），现指向 `agentRunner.stop`，停止真正生效。
+- **类型归属**：`ExecutorConfig`/`AgentTask`/`ExecutionResult`/`PrerequisiteCheck` 定义在 services/types.ts，由 agent-runner.ts 门面 re-export；外部经 `@dommaker/studio-agent` 包入口导入不变。
+- **worktree 拆分明细（2026-08-04）**：scaffolding 写入（writeRequirementsMd/writeContractTests/ensureDeps）位于 worktree-scaffolding.ts，经 worktree-resolver.ts re-export，消费方导入路径不变；prompt 构建与执行前置检查拆为 prompt-builder.ts / prerequisite-checks.ts。
+- **避免循环依赖**：拆分后的子模块（runner-params、runner-output、runner-execution、runner-lightweight、prompt-builder、prerequisite-checks）不得反向依赖 agent-runner.ts 的类；状态通过 `RunnerExecutionState` 接口传入，公共类型一律从 types.ts 导入。
 - **Session 循环与轻量路径**：AgentRunner 提供两套执行路径：多 session 循环（runner-execution.ts）和轻量单 session（runner-lightweight.ts），后者跳过 SDD 解析、REQUIREMENTS.md、contract tests、Iron Laws、依赖缓存等，适用于简单任务。
+- **runner-briefing（Wave-4 拆分）**：`buildCachePrefix`（CACHE_PREFIX.md）、`writeRequirementsMd`（REQUIREMENTS.md）、`writeContractTests`（__tests__/ 契约测试）从 worktree-resolver 移至 services/runner-briefing.ts——"agent 被告知的内容"的文件桥，与 runner-params.ts 的 buildPrompt 配套（prompt 文本直接引用 REQUIREMENTS.md）。worktree-resolver 现在只保留 git/依赖生命周期（resolveWorkspace / createWorktree / ensureWuWorktree / ensureDeps / propagateHarnessConfig）。唯一调用方是 runner-execution.ts。
+- **runner-output spawn 尾部管线（Wave-4 抽取）**：`processSessionOutput(stdout, ctx)` 收敛了 runner-execution 与 runner-lightweight 两处近乎逐字的尾部序列——写 .agent.log → stream-json 解析（extractResult/extractUsage）→ tool:call/file:change 事件 → recordSessionMetrics → session:end。两处差异经 ctx 传入（agentRole/stage/sessionCount/isFirstSession/promptSize/sessionMs）；isError 告警与分支保留在调用方（execution 告警后续接循环、lightweight 返回失败），execution 的跨 session token 累计基于返回的 streamUsage 完成。同文件另有 hasRecentActivity（stuck 延期判定）与 queryResolutionHints（RKB）。
+- **VPS workspace 解析（2026-08 seam 修复）**：worktree-resolver 的 resolveWorkspace Priority 2 不再手扫 `~/.studio/workspaces/*.json`，改调 `@dommaker/studio-shared/node` 的 `resolveVpsWorkspace()`——'VPS' 命名约定（name='VPS' 且无 tokenId）的唯一属主在 studio-shared（apps/api workspaces 模块的 local-workspace 也走它），重命名 VPS workspace 的行为变化只影响该函数。
 - **Cache 与性能**：AgentRegistry 使用外部 CacheStore（如 Redis），注意 TTL 和缓存键约定（`agent:` 前缀）。

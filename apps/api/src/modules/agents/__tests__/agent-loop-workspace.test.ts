@@ -63,7 +63,7 @@ vi.mock('../../knowledge/knowledge-service', () => ({
   },
 }));
 
-import { AgentLoop } from '../agent-loop';
+import { AgentLoop } from '../loop/agent-loop';
 import { WorkUnitService } from '../../workunit/workunit.service';
 
 const WORKSPACES_DIR = path.join(os.homedir(), '.studio', 'workspaces');

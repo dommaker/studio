@@ -13,7 +13,7 @@ describe('AuditorService supplementary edge cases', () => {
     // This test catches the bug: circuitSuggestions is used at line 183
     // but never defined as a local variable, causing ReferenceError at runtime.
     // The fix is to define it: `const circuitSuggestions = await this.analyzeKnowledgeCircuit();`
-    const { AuditorService } = await import('../auditor.service.js');
+    const { AuditorService } = await import('../auditor/auditor.service.js');
     const agent = new AuditorService() as any;
 
     // Check that the runAudit method body references circuitSuggestions
@@ -35,7 +35,7 @@ describe('AuditorService supplementary edge cases', () => {
   });
 
   it('analyzeUserModel handles missing file gracefully', async () => {
-    const { AuditorService } = await import('../auditor.service.js');
+    const { AuditorService } = await import('../auditor/auditor.service.js');
     const agent = new AuditorService() as any;
 
     // Should not throw when user model file doesn't exist
@@ -44,7 +44,7 @@ describe('AuditorService supplementary edge cases', () => {
   });
 
   it('analyzeUserModel handles malformed state file', async () => {
-    const { AuditorService } = await import('../auditor.service.js');
+    const { AuditorService } = await import('../auditor/auditor.service.js');
     const agent = new AuditorService() as any;
 
     // Should not throw when processing unexpected data shape

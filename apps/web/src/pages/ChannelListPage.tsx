@@ -5,8 +5,8 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useChannelList, type ChannelListItem } from '../hooks/useChannelList';
 import { monitoringApi, type AgentSummary } from '../api/monitoring';
-import { agentDotClass } from '../components/channel/ChannelRail';
-import { Select } from '../components/ui';
+import { agentDotClass } from '../components/channel/statusClasses';
+import { Select, ConfirmDialog, Button } from '../components/ui';
 
 const TYPE_LABELS: Record<string, string> = {
   rnd: '研发',
@@ -21,6 +21,10 @@ export function ChannelListPage() {
   const [newName, setNewName] = useState('');
   const [newType, setNewType] = useState('rnd');
   const [newAgents, setNewAgents] = useState(''); // comma-separated agent names
+  // 创建失败提示（ui/ConfirmDialog 单按钮 alert 模式，替代原生 alert）
+  const [createError, setCreateError] = useState<string | null>(null);
+  // 工单 38: 创建提交中状态——Button loading 态防连点重复提交
+  const [creating, setCreating] = useState(false);
   const navigate = useNavigate();
 
   // B2-010: 默认展开 #研发
@@ -43,7 +47,8 @@ export function ChannelListPage() {
 
   // B2-007: Create new channel (with optional initial agents)
   const handleCreate = async () => {
-    if (!newName.trim()) return;
+    if (!newName.trim() || creating) return;
+    setCreating(true);
     try {
       const agents = newAgents.split(/[,\n]/).map(s => s.trim()).filter(Boolean);
       const ch = await createChannel({ name: newName.trim(), type: newType, agents });
@@ -51,8 +56,10 @@ export function ChannelListPage() {
       setNewName('');
       setNewAgents('');
       navigate(`/channels/${ch.id}`);
-    } catch (err: any) {
-      alert(err?.response?.data?.error || 'Failed to create channel');
+    } catch (err) {
+      setCreateError(err?.response?.data?.error || 'Failed to create channel');
+    } finally {
+      setCreating(false);
     }
   };
 
@@ -94,9 +101,9 @@ export function ChannelListPage() {
                 className="input"
                 style={{ padding: '3px 6px' }}
               />
-              <button onClick={handleCreate} className="mc-btn mc-btn-primary">
+              <Button onClick={handleCreate} loading={creating} loadingLabel="创建中...">
                 创建
-              </button>
+              </Button>
               <button onClick={() => { setShowNewForm(false); setNewName(''); setNewAgents(''); }} className="mc-btn">
                 取消
               </button>
@@ -155,6 +162,16 @@ export function ChannelListPage() {
           </div>
         ))}
       </div>
+
+      <ConfirmDialog
+        open={createError != null}
+        title="创建频道失败"
+        message={createError ?? ''}
+        confirmLabel="知道了"
+        cancelLabel={null}
+        onConfirm={() => setCreateError(null)}
+        onCancel={() => setCreateError(null)}
+      />
     </div>
   );
 }

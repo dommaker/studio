@@ -8,17 +8,24 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-const { mockLogger, mockListChannels, mockAppendMessage, mockFetch } = vi.hoisted(() => ({
+const { mockLogger, mockListChannels, mockCreateAgentMessage, mockFetch } = vi.hoisted(() => ({
   mockLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
   mockListChannels: vi.fn(),
-  mockAppendMessage: vi.fn(),
+  mockCreateAgentMessage: vi.fn(),
   mockFetch: vi.fn(),
 }));
 
 vi.mock('@dommaker/studio-shared', () => ({
   logger: mockLogger,
   FileStore: vi.fn().mockImplementation(function () {
-    return { listChannels: mockListChannels, appendMessage: mockAppendMessage };
+    return { listChannels: mockListChannels };
+  }),
+}));
+
+// 频道 sink 经 ChannelMessageService（eventBus + SSE 发布），此处只验证委托
+vi.mock('../../modules/channels/channel-message.service.js', () => ({
+  ChannelMessageService: vi.fn().mockImplementation(function () {
+    return { createAgentMessage: mockCreateAgentMessage };
   }),
 }));
 
@@ -32,7 +39,7 @@ describe('notifier (P0 修复 4)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.stubGlobal('fetch', mockFetch);
-    mockAppendMessage.mockResolvedValue(undefined);
+    mockCreateAgentMessage.mockResolvedValue(undefined);
     mockListChannels.mockResolvedValue([]);
     mockFetch.mockResolvedValue({ ok: true });
     for (const k of ENV_KEYS) {
@@ -56,14 +63,15 @@ describe('notifier (P0 修复 4)', () => {
       await notifyAlert('critical', 'Test title', 'Test body');
 
       expect(mockListChannels).not.toHaveBeenCalled();
-      expect(mockAppendMessage).toHaveBeenCalledTimes(1);
-      const [channelId, msg] = mockAppendMessage.mock.calls[0];
+      expect(mockCreateAgentMessage).toHaveBeenCalledTimes(1);
+      const [channelId, agentName, content] = mockCreateAgentMessage.mock.calls[0];
       expect(channelId).toBe('ch-alert-1');
-      expect(msg.authorType).toBe('agent');
-      expect(msg.agentName).toBe('Studio');
-      expect(msg.content).toContain('[CRITICAL]');
-      expect(msg.content).toContain('Test title');
-      expect(msg.content).toContain('Test body');
+      expect(agentName).toBe('Studio');
+      expect(content).toContain('[CRITICAL]');
+      expect(content).toContain('Test title');
+      expect(content).toContain('Test body');
+      // warning/critical 带 atHuman（通知铃响）
+      expect(mockCreateAgentMessage.mock.calls[0][3]).toEqual({ meta: { atHuman: true } });
     });
 
     it.each(['#系统', '系统', 'system', '#system'])('无 env 时按名字 %s 回落', async (name) => {
@@ -74,9 +82,9 @@ describe('notifier (P0 修复 4)', () => {
 
       await notifyAlert('warning', 't', 'b');
 
-      expect(mockAppendMessage).toHaveBeenCalledTimes(1);
-      expect(mockAppendMessage.mock.calls[0][0]).toBe('ch-sys');
-      expect(mockAppendMessage.mock.calls[0][1].content).toContain('[WARNING]');
+      expect(mockCreateAgentMessage).toHaveBeenCalledTimes(1);
+      expect(mockCreateAgentMessage.mock.calls[0][0]).toBe('ch-sys');
+      expect(mockCreateAgentMessage.mock.calls[0][2]).toContain('[WARNING]');
     });
 
     it('env 与候选频道都没有 → 跳过并 logger.warn，不抛错', async () => {
@@ -84,7 +92,7 @@ describe('notifier (P0 修复 4)', () => {
 
       await expect(notifyAlert('warning', 't', 'b')).resolves.toBeUndefined();
 
-      expect(mockAppendMessage).not.toHaveBeenCalled();
+      expect(mockCreateAgentMessage).not.toHaveBeenCalled();
       expect(mockLogger.warn).toHaveBeenCalledWith(
         expect.stringContaining('No alert channel found'),
       );
@@ -109,8 +117,11 @@ describe('notifier (P0 修复 4)', () => {
     });
 
     it('未配置 WECOM_WEBHOOK_URL → 跳过，不调用 fetch', async () => {
+      process.env.STUDIO_ALERT_CHANNEL_ID = 'ch-alert-1';
       await notifyAlert('info', 't', 'b');
       expect(mockFetch).not.toHaveBeenCalled();
+      // info 级不带 atHuman（不响铃）
+      expect(mockCreateAgentMessage.mock.calls[0][3]).toBeUndefined();
     });
 
     it('webhook 返回非 2xx → warn 但不抛错', async () => {
@@ -129,7 +140,7 @@ describe('notifier (P0 修复 4)', () => {
     it('频道 sink 失败不影响企业微信 sink，notifyAlert 不抛错', async () => {
       process.env.STUDIO_ALERT_CHANNEL_ID = 'ch-alert-1';
       process.env.WECOM_WEBHOOK_URL = 'https://example.com/hook';
-      mockAppendMessage.mockRejectedValue(new Error('disk full'));
+      mockCreateAgentMessage.mockRejectedValue(new Error('disk full'));
 
       await expect(notifyAlert('critical', 't', 'b')).resolves.toBeUndefined();
 
@@ -147,7 +158,7 @@ describe('notifier (P0 修复 4)', () => {
 
       await expect(notifyAlert('critical', 't', 'b')).resolves.toBeUndefined();
 
-      expect(mockAppendMessage).toHaveBeenCalledTimes(1);
+      expect(mockCreateAgentMessage).toHaveBeenCalledTimes(1);
       expect(mockLogger.warn).toHaveBeenCalledWith(
         expect.stringContaining('WeCom sink failed'),
         expect.objectContaining({ error: expect.stringContaining('network unreachable') }),

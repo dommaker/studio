@@ -49,7 +49,7 @@ vi.mock('../../knowledge/knowledge-bus.service.js', () => ({
   sharedStore: { list: vi.fn(() => []) },
 }));
 
-vi.mock('../triage.service.js', () => ({
+vi.mock('../triage/triage.service.js', () => ({
   triageService: { handleAlert: vi.fn(() => Promise.resolve()) },
 }));
 
@@ -62,7 +62,7 @@ vi.mock('@dommaker/harness', async (importOriginal) => {
   };
 });
 
-import { evaluateTrajectory, dailyReflection } from '../monitor-reports.js';
+import { evaluateTrajectory, dailyReflection } from '../monitor/monitor-reports.js';
 
 function readEventLines(): any[] {
   if (!fs.existsSync(eventsFile)) return [];
@@ -199,7 +199,7 @@ describe('dailyReflection', () => {
       },
     }));
     vi.resetModules();
-    const { dailyReflection: dr } = await import('../monitor-reports.js');
+    const { dailyReflection: dr } = await import('../monitor/monitor-reports.js');
 
     await dr(fileStore, { lastDailyReflectionTs: 0 });
 

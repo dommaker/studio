@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { FirstRoleSetupModal, isFirstRoleSetupDismissed } from '../FirstRoleSetupModal';
+import { FirstRoleSetupModal } from '../FirstRoleSetupModal';
+import { isFirstRoleSetupDismissed } from '../dismissed';
 
 // 2026-07：provider 选项改由运行环境扫描驱动，测试中固定回退态（4 个内置 CLI 全量可选）
 vi.mock('../../../hooks/useDetectedProviders', async (importOriginal) => {

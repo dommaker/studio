@@ -28,7 +28,6 @@ vi.mock('fs', async (importOriginal) => {
 
 vi.mock('@dommaker/studio-shared', () => ({
   logger: mockLogger,
-  resolveEventsDir: () => tmpDir,
 }));
 
 vi.mock('@dommaker/studio-agent', () => ({
@@ -36,7 +35,7 @@ vi.mock('@dommaker/studio-agent', () => ({
 }));
 
 vi.mock('../../knowledge/knowledge-service.js', () => ({ knowledgeService: {} }));
-vi.mock('../triage.service.js', () => ({ triageService: { handleAlert: vi.fn(() => Promise.resolve()) } }));
+vi.mock('../triage/triage.service.js', () => ({ triageService: { handleAlert: vi.fn(() => Promise.resolve()) } }));
 
 vi.mock('../../mcp/tool-registry.js', () => ({
   toolRegistry: { getStats: mockGetStats },
@@ -49,7 +48,7 @@ import {
   autoAbandonStaleBlocked,
   checkSessionFileHealth,
   checkToolPatterns,
-} from '../monitor-probes.js';
+} from '../monitor/monitor-probes.js';
 
 function makeFileStore(overrides: Record<string, unknown> = {}): any {
   return {

@@ -14,7 +14,7 @@
 | ChangeHistoryService | services/change-history.service.ts | 变更历史服务，存储与查询变更记录 |
 | GateCheckerService | services/gate-checker.service.ts | 门禁检查服务，执行检查点验证并管理分级策略 |
 | isHarnessCheck, HARNESS_CHECK_TYPES | types/gate.types.ts | Harness 检查判断函数与类型常量 |
-| 各类 TypeScript 类型（ChangeLevel, CheckpointType 等） | types/*.ts | 变更、门禁等模块的类型定义 |
+| 各类 TypeScript 类型（ChangeLevel, CheckpointType, GatePolicy 等） | types/*.ts | 变更、门禁等模块的类型定义 |
 
 ## 依赖关系
 

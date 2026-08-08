@@ -13,31 +13,27 @@
  * 每次启动 + GET /workspaces/runtimes 时重扫，保证前端可见、新鲜。
  */
 
-import { FileStore } from '@dommaker/studio-shared';
+import { FileStore, generateId } from '@dommaker/studio-shared';
+import { resolveVpsWorkspace, resolveWorkspacesDir } from '@dommaker/studio-shared/node';
 import { logger } from '../../utils/logger.js';
 import * as path from 'node:path';
-import * as os from 'node:os';
 import * as fs from 'node:fs';
 
 const fileStore = new FileStore();
-const WORKSPACES_DIR = path.join(os.homedir(), '.studio', 'workspaces');
+const WORKSPACES_DIR = resolveWorkspacesDir();
 
 const VPS_WORKSPACE_NAME = 'VPS';
 
-/** 查找本地（token=NULL）VPS workspace 记录 */
+/**
+ * 查找本地（token=NULL）VPS workspace 记录。
+ * 'VPS' 命名约定的唯一属主是 studio-shared 的 resolveVpsWorkspace
+ * （worktree-resolver 的执行隔离回退也走它）；此处只保留启动前的 mkdir 副作用。
+ */
 async function findLocalWorkspace(): Promise<Record<string, any> | null> {
   try {
     await fs.promises.mkdir(WORKSPACES_DIR, { recursive: true });
-    const entries = await fs.promises.readdir(WORKSPACES_DIR, { withFileTypes: true });
-    for (const e of entries) {
-      if (!e.isFile() || !e.name.endsWith('.json')) continue;
-      const data = await fileStore.readJson<any>(path.join(WORKSPACES_DIR, e.name));
-      if (data && data.name === VPS_WORKSPACE_NAME && !data.tokenId) {
-        return data;
-      }
-    }
-  } catch { /* dir may not exist */ }
-  return null;
+  } catch { /* best-effort：读侧对缺失目录同样返回 null */ }
+  return resolveVpsWorkspace();
 }
 
 /**
@@ -59,7 +55,7 @@ export async function ensureLocalWorkspace(): Promise<string> {
     || process.cwd();
 
   // Create local workspace (no token) — FileStore
-  const id = `ws_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+  const id = generateId('ws');
   const now = new Date().toISOString();
   const workspace = {
     id,

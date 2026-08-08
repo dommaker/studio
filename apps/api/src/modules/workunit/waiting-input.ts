@@ -12,15 +12,13 @@
  * - scanWaitingForInputReminders: SCHEDULE trigger（workunit-input-reminder）的 handler，
  *   对挂起超过阈值的 WorkUnit 向频道发一次提醒（每次挂起只提醒一次，恢复时重置）。
  */
-import { randomUUID } from 'crypto';
-import { logger, FileStore, type ChannelMessageData } from '@dommaker/studio-shared';
+import { logger, FileStore } from '@dommaker/studio-shared';
 import { WorkUnitService, type WorkUnitData, type WorkUnitMetadata } from './workunit.service.js';
-import { findAnchorMessage } from '../agents/agent-loop.js';
+import { postWuSystemMessage } from './wu-messenger.js';
+import { parseWuMetadata } from './wu-metadata.js';
 import { ProjectDiscoveryService, type LocalProject } from '../projects/project-discovery.service.js';
 import { RequirementService } from '../requirements/requirement.service.js';
-import { resolvePmoProjectIdForWU } from '../requirements/pmo-branch-resolver.js';
 import { projectService } from '../pmo/project.service.js';
-import type { MessageMeta } from '../channels/channel-message.service.js';
 
 /** 提醒阈值（毫秒）。默认 30 分钟，可用 STUDIO_INPUT_REMINDER_MINUTES 覆盖 */
 export function getReminderThresholdMs(env: NodeJS.ProcessEnv = process.env): number {
@@ -45,7 +43,7 @@ export async function resumeWaitingWorkUnit(
   const wu = await wuService.getById(workUnitId);
   if (!wu) return false;
 
-  const metadata = (wu.metadata ? JSON.parse(wu.metadata) : {}) as WorkUnitMetadata;
+  const metadata = parseWuMetadata(wu.metadata);
 
   // 已恢复但 loop 尚未消费 pendingReplies 的窗口内，后续回复直接追加拼接
   if (wu.status === 'active' && Array.isArray(metadata.pendingReplies) && metadata.pendingReplies.length > 0) {
@@ -154,11 +152,7 @@ async function resolveOwnershipFromReply(
       : `任务「${title}」没有找到匹配「${query.slice(0, 50)}」的工程，请回复工程名或绝对路径。`;
   }
   if (wu.channelId) {
-    const anchor = await findAnchorMessage(wu.id, fileStore);
-    await postStudioSystemMessage(fileStore, wu.channelId, content, {
-      replyToId: anchor?.id ?? null,
-      workUnitId: wu.id,
-    });
+    await postWuSystemMessage(wu, content, { fileStore });
   }
   logger.info('[WaitingInput] Ownership reply unresolved, still waiting', {
     workUnitId: wu.id,
@@ -209,40 +203,6 @@ function formatProjectCandidates(projects: LocalProject[]): string {
     .join('\n');
 }
 
-/** 向频道发 Studio 系统消息（NEED_INPUT 提问/提醒统一形态） */
-export async function postStudioSystemMessage(
-  fileStore: FileStore,
-  channelId: string,
-  content: string,
-  opts?: { replyToId?: string | null; workUnitId?: string | null; meta?: MessageMeta },
-): Promise<void> {
-  const msg: ChannelMessageData = {
-    id: randomUUID(),
-    channelId,
-    authorType: 'agent',
-    agentName: 'Studio',
-    content,
-    replyToId: opts?.replyToId ?? null,
-    meta: opts?.meta ? JSON.stringify(opts.meta) : '{}',
-    workUnitId: opts?.workUnitId ?? null,
-    createdAt: new Date().toISOString(),
-  };
-  await fileStore.appendMessage(channelId, msg);
-}
-
-/**
- * 2026-07 PMO-flow UX（§10）：挂起超时提醒的里程碑 meta（pmoId 可解析时携带 + atHuman）。
- * 静态引 pmo-branch-resolver 安全：其依赖（project.service/requirement.service）本模块已静态引用，
- * 闭环保底不回环 waiting-input（message-routing 单向依赖本模块）。
- */
-async function reminderMeta(fileStore: FileStore, wu: WorkUnitData): Promise<MessageMeta> {
-  const pmoId = await resolvePmoProjectIdForWU(
-    { reqId: wu.reqId ?? null, metadata: wu.metadata },
-    fileStore,
-  ).catch(() => null); // best-effort：解析不到不带 pmoId
-  return { ...(pmoId ? { pmoId } : {}), atHuman: true };
-}
-
 /**
  * 扫描挂起超时的 WorkUnit 并向频道发提醒（每次挂起仅一条）。
  * @returns 本次发送的提醒数
@@ -257,7 +217,7 @@ export async function scanWaitingForInputReminders(fs?: FileStore, now: Date = n
 
   for (const wu of blocked.data) {
     if (!wu.channelId) continue;
-    const metadata = (wu.metadata ? JSON.parse(wu.metadata) : {}) as WorkUnitMetadata;
+    const metadata = parseWuMetadata(wu.metadata);
     if (!metadata.waitingForInput || metadata.waitingReminded) continue;
 
     const since = metadata.waitingSince ? new Date(metadata.waitingSince) : wu.updatedAt;
@@ -265,13 +225,12 @@ export async function scanWaitingForInputReminders(fs?: FileStore, now: Date = n
 
     const title = (metadata.title ?? wu.scope).slice(0, 50);
     const question = (metadata.waitingQuestion ?? '').slice(0, 100);
-    const anchor = await findAnchorMessage(wu.id, fileStore);
 
-    await postStudioSystemMessage(
-      fileStore,
-      wu.channelId,
+    // 2026-07 PMO-flow UX（§10）：挂起超时提醒按里程碑消息发送（meta 带 pmoId?/atHuman）
+    await postWuSystemMessage(
+      wu,
       `任务「${title}」正在等待你的回复：${question}`,
-      { replyToId: anchor?.id ?? null, workUnitId: wu.id, meta: await reminderMeta(fileStore, wu) },
+      { milestone: true, fileStore },
     );
     await wuService.update(wu.id, { metadata: { ...metadata, waitingReminded: true } });
     reminded++;

@@ -9,7 +9,8 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api } from '../api';
+import { projectApi } from '../api';
+import { knowledgeApi } from '../api/knowledge';
 import { toast } from '../utils/toast';
 
 interface Project {
@@ -82,7 +83,7 @@ export function KnowledgeImportPage() {
     const loadProjects = async () => {
       try {
         const companyId = localStorage.getItem('companyId') || '';
-        const { data } = await api.get('/pmo/project', { params: { companyId, limit: 100 } });
+        const { data } = await projectApi.list({ companyId, limit: 100 });
         setProjects(data.data || data || []);
       } catch (err) {
         console.error('Failed to load projects:', err);
@@ -98,7 +99,7 @@ export function KnowledgeImportPage() {
     if (!selectedProjectId) return;
     setScanning(true);
     try {
-      const { data } = await api.post('/knowledge/import/scan', {
+      const { data } = await knowledgeApi.importScan({
         projectId: selectedProjectId,
         scanPath: scanPath || undefined,
         maxDepth,
@@ -157,7 +158,7 @@ export function KnowledgeImportPage() {
         .filter(f => selectedFiles.has(f.path))
         .map(f => ({ path: f.path, type: f.inferredType, tags: f.tags }));
 
-      const { data } = await api.post('/knowledge/import/execute', {
+      const { data } = await knowledgeApi.importExecute({
         projectId: scanResult.projectId,
         files: filesToImport,
       });

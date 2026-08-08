@@ -22,7 +22,8 @@ export const ChannelMemberManager: React.FC<ChannelMemberManagerProps> = ({
   const [isOpen, setIsOpen] = useState(false);
   const [newAgentName, setNewAgentName] = useState('');
   const [newAgentDesc, setNewAgentDesc] = useState('');
-  const [newAgentProvider, setNewAgentProvider] = useState('');
+  // 用户显式选择的 CLI；空 = 未选过（或选择已失效），由下方派生值回退默认
+  const [providerOverride, setProviderOverride] = useState('');
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
@@ -32,25 +33,28 @@ export const ChannelMemberManager: React.FC<ChannelMemberManagerProps> = ({
 
   // membersJson 是异步加载的 — 初始 '[]' 只是占位，props 到达/切换频道时必须重新同步，
   // 否则刷新页面或切换频道后成员列表停留在初始空值（state 初始化器只跑一次）。
-  useEffect(() => {
+  // 渲染期调整模式：membersJson 变化时同步重解析，避免一帧旧值闪烁
+  const [prevMembersJson, setPrevMembersJson] = useState(membersJson);
+  if (prevMembersJson !== membersJson) {
+    setPrevMembersJson(membersJson);
     try { setMemberIds(JSON.parse(membersJson)); } catch { setMemberIds([]); }
-  }, [membersJson]);
+  }
 
-  // 切换频道时收起弹层与创建表单，避免把上个频道的上下文带过去
-  useEffect(() => {
+  // 切换频道时收起弹层与创建表单，避免把上个频道的上下文带过去（渲染期调整）
+  const [prevChannelId, setPrevChannelId] = useState(channelId);
+  if (prevChannelId !== channelId) {
+    setPrevChannelId(channelId);
     setIsOpen(false);
     setShowCreateForm(false);
     setCreateError(null);
-  }, [channelId]);
+  }
 
-  // 打开创建表单后默认选中第一个可用 CLI
-  useEffect(() => {
-    if (!showCreateForm) return;
-    setNewAgentProvider((prev) => {
-      if (prev && providerOptions.some((o) => o.value === prev && !o.disabled)) return prev;
-      return providerOptions.find((o) => !o.disabled)?.value ?? '';
-    });
-  }, [showCreateForm, providerOptions]);
+  // 生效的 provider 为渲染期纯派生（替代原 effect 同步回填）：用户显式选择仍有效
+  // 则用选择，否则回退第一个可用 CLI——选项异步晚到时自动回填的语义不变，
+  // 且不再依赖 buildProviderOptions 每次渲染新建的数组身份触发 effect
+  const newAgentProvider = providerOverride && providerOptions.some((o) => o.value === providerOverride && !o.disabled)
+    ? providerOverride
+    : providerOptions.find((o) => !o.disabled)?.value ?? '';
 
   // Load member profiles and all available agents
   useEffect(() => {
@@ -115,7 +119,7 @@ export const ChannelMemberManager: React.FC<ChannelMemberManagerProps> = ({
       setMemberIds((prev) => [...new Set([...prev, newAgent.id])]);
       setNewAgentName('');
       setNewAgentDesc('');
-      setNewAgentProvider('');
+      setProviderOverride('');
       setShowCreateForm(false);
     } catch (e) {
       console.error('Failed to create agent', e);
@@ -215,7 +219,7 @@ export const ChannelMemberManager: React.FC<ChannelMemberManagerProps> = ({
                 />
                 <Select
                   value={newAgentProvider}
-                  onChange={setNewAgentProvider}
+                  onChange={setProviderOverride}
                   options={providerOptions}
                   className="input"
                   title="背后的 CLI"
@@ -234,7 +238,7 @@ export const ChannelMemberManager: React.FC<ChannelMemberManagerProps> = ({
                     {creating ? '创建中…' : '创建并加入频道'}
                   </button>
                   <button
-                    onClick={() => { setShowCreateForm(false); setNewAgentName(''); setNewAgentDesc(''); setNewAgentProvider(''); setCreateError(null); }}
+                    onClick={() => { setShowCreateForm(false); setNewAgentName(''); setNewAgentDesc(''); setProviderOverride(''); setCreateError(null); }}
                     className="mc-btn"
                     style={{ flex: 1 }}
                     disabled={creating}

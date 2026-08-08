@@ -39,13 +39,17 @@ knowledge/
 │   └── unified-query.ts       # 双存储统一查询
 ├── knowledge-bus.service.ts   # 兼容层：KnowledgeBus 类 + 单例 re-export（R4）
 ├── knowledge-singletons.ts    # 共享单例/向量库同步/统一质量门（R4 收敛）
-├── knowledge-service.ts       # 统一知识能力层（核心类 KnowledgeService + 单例 + re-export 门面；模块级 helpers 拆至下列 7 个模块）
+├── knowledge-service.ts       # 统一知识能力层（KnowledgeService 编排 + 单例接线；工单 29 拆分后聚焦编排）
+├── knowledge-metrics.ts       # Measure 纯函数内核：飞轮度量/健康/审计 + 度量类型（工单 29 拆出）
+├── trend-data.ts              # trends 数据层 writeTrendData（工单 29 拆出）
+├── knowledge-form-gate.ts     # 知识形态门禁 validateKnowledgeForm（工单 29 拆出）
+├── conversation-extractor.ts  # R3 会话提取管道 + knowledge_proposal 提案卡（工单 29 拆出）
+├── knowledge-semantic-search.ts # mcp-local-rag 语义检索支撑：探测/CLI/降级映射（工单 29 拆出）
 ├── knowledge-types.ts         # KnowledgeService 类型 + ENTRY_TYPE_MAP（knowledge-service 拆出）
 ├── knowledge-data-layer.ts    # trends/resolutions 数据层 + 共享 fileStore（knowledge-service 拆出）
 ├── knowledge-forms.ts         # 知识形态门禁 validateKnowledgeForm（knowledge-service 拆出）
 ├── inject-context.ts          # injectContext 注入闸门/2K 预算/检索指引（knowledge-service 拆出）
 ├── conversation-extraction.ts # R3 会话提取 + 提案卡（knowledge-service 拆出）
-├── knowledge-metrics.ts       # 飞轮/审计事件流度量纯函数（knowledge-service 拆出）
 ├── knowledge-search-helpers.ts # 关键词/RAG 降级检索 helpers（knowledge-service 拆出）
 ├── knowledge-service.routes.ts # KnowledgeService HTTP API + SSE
 ├── knowledge-query.service.ts # 5 类缺口查询（query/getStats）

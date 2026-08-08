@@ -16,6 +16,7 @@
 
 import { eventBus, logger, type FileStore } from '@dommaker/studio-shared';
 import { WorkUnitService, ANALYSIS_TASKS_MAX, type WorkUnitData, type WorkUnitMetadata } from '../workunit/workunit.service.js';
+import { parseWuMetadata } from '../workunit/wu-metadata.js';
 import { ChannelMessageService } from '../channels/channel-message.service.js';
 
 export class AnalysisHandoff {
@@ -51,7 +52,7 @@ export class AnalysisHandoff {
   }
 
   private readMeta(wu: WorkUnitData): WorkUnitMetadata {
-    try { return wu.metadata ? JSON.parse(wu.metadata) : {}; } catch { return {}; }
+    return parseWuMetadata(wu.metadata);
   }
 
   private async post(wu: WorkUnitData, content: string): Promise<void> {

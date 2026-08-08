@@ -17,6 +17,41 @@ export interface RouteEntry {
 }
 
 /**
+ * 顺序敏感注册约束：before 条目必须先于 after 条目挂载。
+ *
+ * Express 按注册顺序匹配，同前缀挂载时先注册者优先接管请求，
+ * 顺序错了不会报错而是静默路由错/404——所以用启动断言固化，fail-fast。
+ */
+export interface RouteOrderConstraint {
+  before: { path: string; router: Router };
+  after: { path: string; router: Router };
+  /** 顺序约束的原因（注释固化，断言失败时随报错输出） */
+  reason: string;
+}
+
+/**
+ * 启动断言：校验路由表满足全部顺序约束，违反即抛错（启动失败）。
+ */
+export function assertRouteOrder(table: RouteEntry[], constraints: RouteOrderConstraint[]): void {
+  const indexOf = (path: string, router: Router) =>
+    table.findIndex(e => e.path === path && e.router === router);
+  for (const c of constraints) {
+    const beforeIdx = indexOf(c.before.path, c.before.router);
+    const afterIdx = indexOf(c.after.path, c.after.router);
+    if (beforeIdx === -1 || afterIdx === -1) {
+      throw new Error(
+        `[route-registry] 顺序断言失败：注册项缺失（${c.before.path} idx=${beforeIdx}, ${c.after.path} idx=${afterIdx}）。${c.reason}`,
+      );
+    }
+    if (beforeIdx >= afterIdx) {
+      throw new Error(
+        `[route-registry] 注册顺序错误：${c.before.path}（指定 router）必须先于 ${c.after.path} 挂载。${c.reason}`,
+      );
+    }
+  }
+}
+
+/**
  * 构建完整路由表（延迟加载，避免循环依赖）
  */
 export async function buildRouteTable(): Promise<RouteEntry[]> {
@@ -24,15 +59,12 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     agentRoutes,
     executionRoutes,
     capabilitiesRoutes,
-    outputsRoutes,
     auditLogRoutes,
-    { specReviewRoutes },
     { notificationRoutes },
     { knowledgeRoutes, knowledgeInternalRoutes },
     pmoRoutes,
     specsRoutes,
     notifyRoutes,
-    runtimeConfigRoutes,
     authRoutes,
     discordRoutes,
     larkRoutes,
@@ -42,15 +74,12 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     import('./modules/agents/routes.js').then(m => m.default),
     import('./modules/executions/routes.js').then(m => m.default),
     import('./modules/capabilities/routes.js').then(m => m.default),
-    import('./modules/outputs/routes.js').then(m => m.default),
     import('./modules/audit-logs/routes.js').then(m => m.default),
-    import('./modules/spec-reviews/routes.js') as Promise<{ specReviewRoutes: Router }>,
     import('./modules/notifications/routes.js') as Promise<{ notificationRoutes: Router }>,
     import('./modules/knowledge/routes.js') as Promise<{ knowledgeRoutes: Router; knowledgeInternalRoutes: Router }>,
     import('./modules/pmo/routes.js').then(m => m.default),
     import('./modules/specs/routes.js').then(m => m.default),
     import('./modules/outbound-notify/routes.js').then(m => m.default),
-    import('./modules/runtime-config/routes.js').then(m => m.default),
     import('./modules/auth/routes.js').then(m => m.default),
     import('./modules/discord/routes.js').then(m => m.default),
     import('./modules/lark/routes.js').then(m => m.default),
@@ -70,7 +99,7 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
   // Knowledge Import routes (冷启动导入)
   const { default: knowledgeImportRoutes } = await import('./modules/knowledge/import.routes.js') as { default: Router };
 
-  // Company routes (FileStore 存储；PMO 页 / Settings / useCompanyId 依赖)
+  // Company routes (FileStore 存储；PMO 页 / Settings 依赖)
   const { default: companyRoutes } = await import('./modules/companies/routes.js') as { default: Router };
 
   // KnowledgeService HTTP API + SSE
@@ -99,12 +128,6 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
   // CSO 验证子路由（2026-07 收紧：/api/v1/cso 只挂 validate，不再整挂 harness router——否则 /harness 的 Admin 收紧可被 /cso/* 双挂载绕过）
   const { csoRoutes } = await import('./modules/harness/cso.routes.js') as { csoRoutes: Router };
 
-  // Environment Manager routes (HZ-023)
-  const { default: environmentRoutes } = await import('./modules/environments/routes.js') as { default: Router };
-
-  // Agent Manager routes (HZ-024)
-  const { default: agentConfigRoutes } = await import('./modules/agent-configs/routes.js') as { default: Router };
-
   // Built-in Toolset routes (HZ-026)
   const { default: builtinToolRoutes } = await import('./modules/builtin-tools/routes.js') as { default: Router };
 
@@ -130,7 +153,7 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     try {
       const status = await Promise.race([
         (async () => {
-          const { createOpsService } = await import('./modules/agents/ops.service.js');
+          const { createOpsService } = await import('./modules/agents/ops/ops.service.js');
           return await createOpsService().getStatus();
         })(),
         new Promise<null>((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000)),
@@ -175,11 +198,14 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
   const admin = [requireAuth(), requireAdmin()];
   const localhost = [requireLocalhost()];
 
-  return [
+  const table: RouteEntry[] = [
     // 认证
     { path: '/api/v1/auth', router: authRoutes, comment: 'SEC-001: 认证系统' },
 
     // 核心业务
+    // 顺序约束①：tokenUsageRoutes 必须先于 legacy agentRoutes 挂载（见文件尾部 assertRouteOrder）。
+    // 原因：两者同挂 /api/v1/agents，token-usage 只处理 GET /:id/token-usage 并放行其余路径；
+    // 显式定序保证该聚合端点恒由 tokenUsageRoutes 接管，不被 legacy 路由的任何通配变更吞掉。
     { path: '/api/v1/agents', router: tokenUsageRoutes, comment: '§10.5: 角色级 token 视图（仅 /:id/token-usage，先于 legacy 注册）' },
     { path: '/api/v1/agents', router: agentRoutes },
     { path: '/api/v1/executions', router: executionRoutes },
@@ -199,6 +225,9 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
 
     // 能力与工具
     { path: '/api/v1/capabilities', router: capabilitiesRoutes },
+    // 顺序约束②：skillDemotionRoutes 必须先于 skillsRoutes 挂载（见文件尾部 assertRouteOrder）。
+    // 原因：skillsRoutes 的 GET /:id（routes.ts:80）未命中时直接 404 不 next()，
+    // 若 SkillHub 先挂载，GET /api/v1/skills/demotion-proposals 会被 :id='demotion-proposals' 吞掉，降级提案端点死路。
     { path: '/api/v1/skills/demotion-proposals', router: skillDemotionRoutes, comment: '§10.6: skill 降级提案（先于 SkillHub 注册）' },
     { path: '/api/v1/skills', router: skillsRoutes, comment: 'FL-025: SkillHub' },
     { path: '/api/v1/skills/proposals', router: skillProposalRoutes },
@@ -208,16 +237,11 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     { path: '/api/v1/events', router: sseRoutes, comment: 'HZ-028: Event Stream SSE' },
     { path: '/api/v1/events', router: eventRoutes, middleware: auth, comment: 'G30: StudioEvent CRUD' },
     { path: '/api/v1/mcp', router: mcpRoutes, comment: '§12.9: MCP Server (rate limit via tool-registry, auth via permission service)' },
-    { path: '/api/v1/outputs', router: outputsRoutes },
-    { path: '/api/v1/runtime-config', router: runtimeConfigRoutes, middleware: admin, comment: 'TaskWorker 配置' },
     { path: '/api/v1/harness', router: harnessRoutes, middleware: admin, comment: 'T-015: Harness 监控集成' },
     { path: '/api/v1/cso', router: csoRoutes, comment: 'Decision #5: CSO 验证（无需认证；仅 csoRoutes，不再整挂 harness router）' },
-    { path: '/api/v1/environments', router: environmentRoutes, middleware: admin, comment: 'HZ-023: Environment Manager' },
-    { path: '/api/v1/agent-configs', router: agentConfigRoutes, middleware: admin, comment: 'HZ-024: Agent Manager' },
     { path: '/api/v1/builtin-tools', router: builtinToolRoutes, middleware: admin, comment: 'HZ-026: Built-in Toolset' },
 
     // 文档与审查
-    { path: '/api/v1/spec-reviews', router: specReviewRoutes, middleware: auth },
     { path: '/api/v1/specs', router: specsRoutes, middleware: auth, comment: 'SP-002' },
 
     // 通知与知识
@@ -250,4 +274,21 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     // DingTalk (钉钉)
     { path: '/api/v1/dingtalk', router: dingtalkRoutes, comment: '钉钉机器人回调' },
   ];
+
+  // 启动断言（fail-fast）：两处顺序敏感注册约束，顺序被改动破坏时启动即报错，
+  // 而不是上线后静默 404 / 路由错。约束原因见上方「顺序约束①/②」注释。
+  assertRouteOrder(table, [
+    {
+      before: { path: '/api/v1/agents', router: tokenUsageRoutes },
+      after: { path: '/api/v1/agents', router: agentRoutes },
+      reason: '§10.5: token-usage 聚合端点必须先于 legacy agentRoutes 挂载，保证 /:id/token-usage 恒由 tokenUsageRoutes 接管。',
+    },
+    {
+      before: { path: '/api/v1/skills/demotion-proposals', router: skillDemotionRoutes },
+      after: { path: '/api/v1/skills', router: skillsRoutes },
+      reason: '§10.6: skillsRoutes 的 GET /:id 未命中直接 404，降级提案必须先于 SkillHub 挂载，否则端点被 :id 吞掉。',
+    },
+  ]);
+
+  return table;
 }

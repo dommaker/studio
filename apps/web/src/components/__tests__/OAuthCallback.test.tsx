@@ -101,7 +101,7 @@ describe('OAuthCallback', () => {
     });
 
     it('calls authApi.checkAuth after storing token', async () => {
-      (authApi.checkAuth as any).mockResolvedValue({
+      vi.mocked(authApi.checkAuth).mockResolvedValue({
         data: { user: { id: 'u1', email: 'a@b.com', role: 'User' } },
       });
       window.location.hash = '#token=abc';

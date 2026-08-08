@@ -58,7 +58,7 @@ vi.mock('../output-capture.js', () => ({
 
 import { executeSessionLoop, type RunnerExecutionState } from '../runner-execution.js';
 import { emitSessionStart, emitSessionEnd, recordExecutionError } from '../output-capture.js';
-import type { AgentTask } from '../session-manager.js';
+import type { AgentTask } from '../types.js';
 
 /** 最小 stream-json stdout（result 事件 → success） */
 function buildStreamStdout(): string {

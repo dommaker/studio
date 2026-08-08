@@ -131,7 +131,7 @@ describe('AuditorService B3-005', () => {
 
   describe('generateSuggestions()', () => {
     it('detects skill_weight: successRate < 0.3 + usageCount >= 5', async () => {
-      const { AuditorService } = await import('../auditor.service.js');
+      const { AuditorService } = await import('../auditor/auditor.service.js');
       const agent = new AuditorService();
 
       const agentTypeStats = new Map<string, { total: number; failed: number }>();
@@ -148,7 +148,7 @@ describe('AuditorService B3-005', () => {
     });
 
     it('detects skill_status: successRate >= 0.8 + status = draft', async () => {
-      const { AuditorService } = await import('../auditor.service.js');
+      const { AuditorService } = await import('../auditor/auditor.service.js');
       const agent = new AuditorService();
 
       const agentTypeStats = new Map<string, { total: number; failed: number }>();
@@ -164,7 +164,7 @@ describe('AuditorService B3-005', () => {
     });
 
     it('does NOT trigger skill_weight for normal successRate skills', async () => {
-      const { AuditorService } = await import('../auditor.service.js');
+      const { AuditorService } = await import('../auditor/auditor.service.js');
       const agent = new AuditorService();
 
       const agentTypeStats = new Map<string, { total: number; failed: number }>();
@@ -179,7 +179,7 @@ describe('AuditorService B3-005', () => {
     });
 
     it('detects param_tuning: agent-type timeout >= 3 + total >= 5', async () => {
-      const { AuditorService } = await import('../auditor.service.js');
+      const { AuditorService } = await import('../auditor/auditor.service.js');
       const agent = new AuditorService();
 
       const agentTypeStats = new Map<string, { total: number; failed: number }>();
@@ -201,7 +201,7 @@ describe('AuditorService B3-005', () => {
     });
 
     it('does NOT trigger param_tuning when timeout < 3', async () => {
-      const { AuditorService } = await import('../auditor.service.js');
+      const { AuditorService } = await import('../auditor/auditor.service.js');
       const agent = new AuditorService();
 
       const agentTypeStats = new Map<string, { total: number; failed: number }>();
@@ -220,7 +220,7 @@ describe('AuditorService B3-005', () => {
     });
 
     it('detects prompt_optimization: failureRate > 0.3 + llm/model dominant (>=40%)', async () => {
-      const { AuditorService } = await import('../auditor.service.js');
+      const { AuditorService } = await import('../auditor/auditor.service.js');
       const agent = new AuditorService();
 
       const agentTypeStats = new Map<string, { total: number; failed: number }>();
@@ -242,7 +242,7 @@ describe('AuditorService B3-005', () => {
     });
 
     it('does NOT trigger prompt_optimization when llm errors < 40%', async () => {
-      const { AuditorService } = await import('../auditor.service.js');
+      const { AuditorService } = await import('../auditor/auditor.service.js');
       const agent = new AuditorService();
 
       const agentTypeStats = new Map<string, { total: number; failed: number }>();
@@ -262,7 +262,7 @@ describe('AuditorService B3-005', () => {
     });
 
     it('returns empty suggestions when no issues detected', async () => {
-      const { AuditorService } = await import('../auditor.service.js');
+      const { AuditorService } = await import('../auditor/auditor.service.js');
       const agent = new AuditorService();
 
       // Only normal skills, no error data
@@ -308,7 +308,7 @@ describe('AuditorService B3-005', () => {
 
   describe('applyLowRiskSuggestions()', () => {
     it('auto-applies skill_weight: updates successRate in store', async () => {
-      const { AuditorService } = await import('../auditor.service.js');
+      const { AuditorService } = await import('../auditor/auditor.service.js');
       const agent = new AuditorService();
 
       const suggestions = [{
@@ -331,7 +331,7 @@ describe('AuditorService B3-005', () => {
     });
 
     it('auto-applies skill_status: draft -> published', async () => {
-      const { AuditorService } = await import('../auditor.service.js');
+      const { AuditorService } = await import('../auditor/auditor.service.js');
       const agent = new AuditorService();
 
       const suggestions = [{
@@ -353,7 +353,7 @@ describe('AuditorService B3-005', () => {
     });
 
     it('writes both types of suggestions when mixed', async () => {
-      const { AuditorService } = await import('../auditor.service.js');
+      const { AuditorService } = await import('../auditor/auditor.service.js');
       const agent = new AuditorService();
 
       const suggestions = [
@@ -389,7 +389,7 @@ describe('AuditorService B3-005', () => {
 
   describe('pushConfirmationCards()', () => {
     it('creates auditor_suggestion card in system channel', async () => {
-      const { AuditorService } = await import('../auditor.service.js');
+      const { AuditorService } = await import('../auditor/auditor.service.js');
       const agent = new AuditorService();
 
       const suggestions = [{

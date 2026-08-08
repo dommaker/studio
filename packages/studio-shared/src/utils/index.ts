@@ -1,5 +1,6 @@
 export { logger, createLogger } from './logger';
 export type { Logger } from './logger';
+export { generateId } from './id';
 export { parseSpecMarkdown, loadSpecFile } from './spec-parser';
 export type { SpecContent, ApiEndpoint, SchemaDefinition, AcceptanceCriterion } from './spec-parser';
 export { execSh, resolveSessionId, readSessionIdFile, readProgress, writeProgress, readPhaseBridge } from './process-io';

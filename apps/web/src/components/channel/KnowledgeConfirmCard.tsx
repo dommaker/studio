@@ -1,10 +1,11 @@
 // Knowledge confirm / retract card — B1-008/B1-010
 // 2026-07 视觉重构（方向 A Mission Control）：mc-card 视觉重绘；交互语义零变更
 import type { ChannelMessage } from '../../api/channel';
+import type { CardMeta } from './ChannelMessageItem';
 
 interface Props {
   message: ChannelMessage;
-  meta: Record<string, any>;
+  meta: CardMeta;
   onAction: (messageId: string, action: string) => void;
 }
 

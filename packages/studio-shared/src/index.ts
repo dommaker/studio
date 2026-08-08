@@ -19,8 +19,6 @@ export type { LlmProvider } from './config/index';
 
 // 导出 Constants 模块
 export * from './constants/levels';
-export * from './constants/responsibility-chain';
-export * from './constants/stage-definitions';
 
 // 导出职能域词表（决策 8：阶段导向单一词表 + legacy 归一化）
 export * from './domain-vocab';
@@ -29,10 +27,8 @@ export * from './domain-vocab';
 export * from './attestation';
 
 // 导出 Types 模块
-export * from './types/stance';
 export * from './types/goal-status';
 export * from './types/resolution';
-export * from './types/user-behavior';
 
 // 导出 Harness 类型（供下游包使用）
 export type { ConstraintLevel, ConstraintContext, ConstraintResult } from '@dommaker/harness';

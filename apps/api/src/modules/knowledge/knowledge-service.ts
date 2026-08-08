@@ -7,11 +7,18 @@
  *
  * 6 capabilities:
  *   Produce  — write knowledge (extract, record)
- *   Consume  — read knowledge (search, inject context, match resolutions)
+ *   Consume  — read knowledge (search, inject context)
  *   Track    — record consumption + outcomes (feedback loop)
  *   Lifecycle — promote, decay, merge, graduate
  *   Resolve  — known problem→fix management
  *   Measure  — flywheel metrics, health, audit, accuracy
+ *
+ * 工单 29 拆分（纯搬运，导出语义经 re-export 保持不变）：
+ *   knowledge-metrics.ts          — Measure 纯函数内核 + 度量类型
+ *   trend-data.ts                 — trends 数据层（writeTrendData）
+ *   knowledge-form-gate.ts        — 知识形态门禁（validateKnowledgeForm）
+ *   conversation-extractor.ts     — R3 会话提取管道 + 提案卡
+ *   knowledge-semantic-search.ts  — mcp-local-rag 语义检索支撑
  *
  * @see docs/specs/arch/knowledge-service.md
  */
@@ -24,75 +31,207 @@ import type {
   KnowledgeLinter,
   QueryFilter,
   MaturityLevel,
+  KnowledgeSubsystem,
 } from '@dommaker/harness';
-import { logger, estimateTokens } from '@dommaker/studio-shared';
+import { FileStore, logger, estimateTokens } from '@dommaker/studio-shared';
 import { getSystemExecutor, StudioRoleNotConfiguredError } from '../agents/system-executor.js';
-import type { CreateResolutionInput, MatchResolutionResult, Resolution } from '@dommaker/studio-shared';
+import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
+import type { CreateResolutionInput } from '@dommaker/studio-shared';
 import { scheduleVectorDbSync, ingestWithQualityGate } from './knowledge-singletons.js';
-import { execFile } from 'child_process';
-import { readFile } from 'fs/promises';
-import { join, basename } from 'path';
-import * as path from 'path';
-import { ENTRY_TYPE_MAP } from './knowledge-types.js';
-import type {
-  KnowledgeServiceDeps,
-  PatternEntry,
-  IncidentEntry,
-  TrendEntry,
-  AnalystAccuracyInput,
-  ExtractionResult,
-  ConversationExtractionCtx,
-  ExecutionOutcome,
-  InjectContextResult,
-  InjectOpts,
-  SearchOpts,
-  SemanticSearchResult,
-  SearchResult,
-  FlywheelMetrics,
-  HealthReport,
-  AuditReport,
-  AuditFinding,
-  AccuracyReport,
-} from './knowledge-types.js';
-import { fileStore, STUDIO_EVENTS_JSONL, writeTrendData, RESOLUTIONS_DIR, listResolutions } from './knowledge-data-layer.js';
 import {
-  KNOWLEDGE_QUERY_GUIDANCE,
-  INJECT_TOKEN_BUDGET,
-  isInjectableMaturity,
-  hasSourceReferences,
-  injectPriority,
-  stripFormat,
-} from './inject-context.js';
-import { buildConversationTranscript, ingestConversationEntry, postKnowledgeProposalCard } from './conversation-extraction.js';
-import { computeOutcomeMetrics, scanKnowledgeEvents } from './knowledge-metrics.js';
-import { TYPE_WEIGHT, extractKeywords, RAG_PROBE_TTL_MS, probeMcpLocalRag, keywordHitsToSemantic } from './knowledge-search-helpers.js';
+  computeOutcomeMetrics,
+  scanKnowledgeEvents,
+  computeFlywheelStoreMetrics,
+  computeHealthReport,
+  emptyHealthReport,
+  computeAuditStorePartition,
+  deriveOutcomeTrend,
+  buildAuditFindings,
+  unavailableAnalystAccuracyReport,
+} from './knowledge-metrics.js';
+import type { FlywheelMetrics, HealthReport, AuditReport, AccuracyReport } from './knowledge-metrics.js';
+// Measure 类型已抽到 knowledge-metrics.ts（工单 29），此处 re-export 保持对外导出语义不变
+export type { FlywheelMetrics, HealthReport, AuditReport, AuditFinding, AccuracyReport, AccuracyData } from './knowledge-metrics.js';
+// trends 数据层与形态门禁已抽到 trend-data.ts / knowledge-form-gate.ts（工单 29），
+// 此处 re-export 保持对外导出语义不变
+import { writeTrendData } from './trend-data.js';
+import { buildConversationTranscript, ingestConversationEntry, postKnowledgeProposalCard } from './conversation-extractor.js';
+export { writeTrendData } from './trend-data.js';
+export { validateKnowledgeForm } from './knowledge-form-gate.js';
+export type { FormValidationResult } from './knowledge-form-gate.js';
+// 语义检索/RAG 支撑已抽到 knowledge-semantic-search.ts（工单 29）
+import {
+  RAG_PROBE_TTL_MS,
+  probeMcpLocalRag,
+  execMcpLocalRagQuery,
+  resolveKnowledgeEntryId,
+  keywordHitsToSemantic,
+} from './knowledge-semantic-search.js';
 
-// ── Re-export：模块级 helpers 已抽出至邻近模块（兼容既有 import 路径） ──
-export { writeTrendData } from './knowledge-data-layer.js';
-export { validateKnowledgeForm } from './knowledge-forms.js';
-export type { FormValidationResult } from './knowledge-forms.js';
-export { KNOWLEDGE_QUERY_GUIDANCE, INJECT_TOKEN_BUDGET } from './inject-context.js';
-export type {
-  PatternEntry,
-  IncidentEntry,
-  TrendEntry,
-  AccuracyData,
-  AnalystAccuracyInput,
-  ExtractionResult,
-  ConversationExtractionCtx,
-  ExecutionOutcome,
-  InjectContextResult,
-  InjectOpts,
-  SearchOpts,
-  SemanticSearchResult,
-  SearchResult,
-  FlywheelMetrics,
-  HealthReport,
-  AuditReport,
-  AuditFinding,
-  AccuracyReport,
-  KnowledgeServiceDeps,
-} from './knowledge-types.js';
+// ── Type mapping (absorbed from KnowledgeBus) ──
+
+const ENTRY_TYPE_MAP: Record<string, KnowledgeSubsystem> = {
+  pattern: 'guideline',
+  failure: 'pitfall',
+  incident: 'pitfall',
+  pitfall: 'pitfall',
+  guideline: 'guideline',
+  trend: 'process',
+  fix: 'guideline',
+  analyst_accuracy: 'model',
+  review: 'guideline',
+  alert: 'pitfall',
+  audit: 'guideline',
+  deploy: 'guideline',
+  gap: 'guideline',
+  resolution: 'guideline',
+};
+
+// ── Data layer: trends directory ──
+
+const STUDIO_EVENTS_JSONL = resolveStudioLogFile('studio-events.jsonl');
+const fileStore = new FileStore();
+
+// ── Stop words for keyword extraction ──
+
+const STOP_WORDS = new Set([
+  'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
+  'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could',
+  'should', 'may', 'might', 'can', 'shall', 'to', 'of', 'in', 'for',
+  'on', 'with', 'at', 'by', 'from', 'as', 'into', 'through', 'during',
+  'and', 'but', 'or', 'nor', 'not', 'so', 'yet', 'both', 'either',
+  'each', 'every', 'all', 'any', 'few', 'more', 'most', 'other', 'some',
+  'such', 'only', 'own', 'same', 'than', 'too', 'very', 'just',
+  'this', 'that', 'these', 'those', 'it', 'its',
+  '需要', '实现', '增加', '修改', '支持', '添加', '使用', '一个',
+]);
+
+const TYPE_WEIGHT: Record<string, number> = {
+  pitfall: 3, pattern: 2, guideline: 2, fix: 2,
+  process: 1, analysis: 1, trend: 1,
+};
+
+// ── Studio-side types ──
+
+export interface PatternEntry {
+  type: string;
+  title: string;
+  content: string;
+  tags: string[];
+  maturity?: MaturityLevel;
+}
+
+export interface IncidentEntry {
+  title: string;
+  content: string;
+  severity: 'low' | 'medium' | 'high' | 'critical';
+  tags: string[];
+}
+
+export interface TrendEntry {
+  title: string;
+  content: string;
+  metric: string;
+  tags: string[];
+}
+
+export interface AnalystAccuracyInput {
+  docId: string;
+  goalTitle: string;
+  predictedFiles: string[];
+  actualFiles: string[];
+  predictedDeps: string[];
+  actualDeps: string[];
+  acMatchRate: number;
+  missesByType: Record<string, number>;
+  tierStats?: Record<string, { total: number; succeeded: number; failed: number; avgDurationMs: number }>;
+}
+
+export interface ExtractionResult {
+  task: string;
+  diff: string;
+  success: boolean;
+  duration: number;
+  agentType: string;
+  consumedKnowledge: string[];
+  /** 来源 execution ID，用于 AC-3.2 来源追溯 */
+  sourceExecutionId?: string;
+}
+
+/** R3: extractFromConversation 的可选上下文（来源追溯 / 事件归因） */
+export interface ConversationExtractionCtx {
+  workUnitId?: string;
+  source?: string;
+}
+
+export interface ExecutionOutcome {
+  executionId: string;
+  agentType: string;
+  consumedKnowledge: string[];
+  success: boolean;
+  details: string;
+  timestamp: string;
+  mode?: 'external_agent' | 'channel';
+}
+
+export interface InjectContextResult {
+  prompt: string;
+  injectedIds: string[];
+}
+
+export interface InjectOpts {
+  tags?: string[];
+  maxTokens?: number;
+  includeRules?: boolean;
+}
+
+/**
+ * E2 检索主动性（断点 G）：知识上下文注入时附带的「何时查知识库」指引。
+ * signal 档只注入索引，agent 需要知道何时、如何主动检索全文。
+ * 入口 = worktree `.claude/settings.json` 里注册的 local-rag MCP server
+ * （studio-agent worktree-resolver propagateHarnessConfig 写入；agent CLI 以
+ * worktree 为 cwd 启动，自动加载该配置），工具名 `mcp__local-rag__query_documents`。
+ * 体量 ~3 行（约 80 tokens），计入 2K 注入红线内的固定小额开销。
+ */
+export const KNOWLEDGE_QUERY_GUIDANCE = [
+  '## 何时查知识库',
+  '- 遇到不熟悉的报错、同一问题反复失败、涉及用户偏好、或大改/重构之前：先查知识库再动手。',
+  '- 查询入口：MCP 工具 `mcp__local-rag__query_documents`（local-rag server），query 传关键词或问题描述。',
+  '- 有现成经验就复用，不要重复踩坑；查不到再自行解决。',
+].join('\n');
+
+export interface SearchOpts {
+  limit?: number;
+  tags?: string[];
+  type?: string;
+  mode?: 'keyword' | 'semantic' | 'hybrid';
+}
+
+export interface SemanticSearchResult {
+  entryId: string;
+  filePath: string;
+  chunkIndex: number;
+  text: string;
+  score: number;
+  fileTitle: string;
+}
+
+export interface SearchResult {
+  entry: KnowledgeEntry;
+  score: number;
+  highlights: string[];
+}
+
+// ── Dependencies interface ──
+
+export interface KnowledgeServiceDeps {
+  store: KnowledgeStore;
+  lifecycle: KnowledgeLifecycle;
+  ingest: KnowledgeIngest;
+  linter: KnowledgeLinter;
+  query: any;  // UnifiedQuery
+  eventEmitter: any; // EventEmitter
+}
 
 // ── KnowledgeService ─────────────────────────────────────────
 
@@ -204,7 +343,7 @@ export class KnowledgeService {
       // 复用 KnowledgeCurator 的提取 prompt（动态 import 避免静态循环依赖：
       // knowledge-curator.service 已静态引用本模块的 validateKnowledgeForm/writeTrendData）
       // E1: 经 getter 取值以支持 prompt-override 文件覆盖（约束进化提案生效路径）
-      const { getExtractFromTextSystemPrompt } = await import('../agents/knowledge-curator.service.js');
+      const { getExtractFromTextSystemPrompt } = await import('../agents/knowledge/knowledge-curator.service.js');
 
       const startMs = Date.now();
       const execResult = await getSystemExecutor().run(transcript, {
@@ -525,45 +664,19 @@ export class KnowledgeService {
 
   /**
    * Execute mcp-local-rag query CLI and return stdout JSON.
+   * 实现已抽到 knowledge-semantic-search 模块级函数（工单 29），薄封装保持 prototype 方法面不变。
    */
   private execMcpQuery(query: string): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const args = [
-        '--db-path', join(process.env.HOME || '/root', '.cache', 'mcp-local-rag', 'lancedb'),
-        '--cache-dir', join(process.env.HOME || '/root', '.cache', 'huggingface', 'hub'),
-        '--model-name', join(process.env.HOME || '/root', '.cache', 'huggingface', 'hub', 'models--onnx-community--bge-small-zh-v1.5-ONNX', 'snapshots', 'main'),
-        'query', query,
-      ];
-      execFile('mcp-local-rag', args, { timeout: 30_000 }, (err, stdout, stderr) => {
-        if (err) {
-          // mcp-local-rag logs to stderr, stdout has JSON result even on partial error
-          if (stdout && stdout.trim().startsWith('[')) {
-            resolve(stdout);
-          } else {
-            reject(err);
-          }
-        } else {
-          resolve(stdout);
-        }
-      });
-    });
+    return execMcpLocalRagQuery(query);
   }
 
   /**
    * Resolve knowledge entry ID from a filePath.
    * Reads YAML frontmatter `id:` field; falls back to filename parsing.
+   * 实现已抽到 knowledge-semantic-search 模块级函数（工单 29），薄封装保持 prototype 方法面不变。
    */
   private async resolveEntryId(filePath: string): Promise<string> {
-    try {
-      const content = await readFile(filePath, 'utf-8');
-      const match = content.match(/^---[\s\S]*?^id:\s*(.+)$/m);
-      if (match) return match[1].trim();
-    } catch { /* file not readable */ }
-
-    // Fallback: parse filename pattern "{type}-{id}.md"
-    const name = basename(filePath, '.md');
-    const dashIdx = name.indexOf('-');
-    return dashIdx > 0 ? name.slice(dashIdx + 1) : name;
+    return resolveKnowledgeEntryId(filePath);
   }
 
   async search(query: string, opts?: SearchOpts): Promise<SearchResult[]> {
@@ -688,56 +801,6 @@ export class KnowledgeService {
     return keywordResults
       .sort((a, b) => b.score - a.score)
       .slice(0, limit);
-  }
-
-  async matchResolutions(problem: string): Promise<MatchResolutionResult> {
-    try {
-      const all = await listResolutions();
-      const candidates = all
-        .filter((r: any) => r.status === 'verified' || r.status === 'canonical')
-        .sort((a: any, b: any) => (b.verifyCount || 0) - (a.verifyCount || 0));
-
-      const matched: Resolution[] = [];
-      const lowerMsg = problem.toLowerCase();
-
-      for (const row of candidates) {
-        const pattern = row.pattern;
-        let isMatch = false;
-
-        // Try regex first
-        try {
-          const re = new RegExp(pattern, 'i');
-          if (re.test(problem)) isMatch = true;
-        } catch {
-          // Not valid regex, fall back to substring
-          if (lowerMsg.includes(pattern.toLowerCase())) isMatch = true;
-        }
-
-        if (isMatch) {
-          matched.push({
-            id: row.id,
-            pattern: row.pattern,
-            errorClass: row.errorClass || '',
-            layer: row.layer || 'L5_error_fix',
-            title: row.title || pattern,
-            fix: row.fix || '',
-            status: row.status,
-            verifyCount: row.verifyCount || 0,
-            tags: row.tags ? (typeof row.tags === 'string' ? JSON.parse(row.tags) : row.tags) : [],
-            createdAt: row.createdAt || '',
-            updatedAt: row.updatedAt || '',
-          });
-        }
-      }
-
-      const promptSnippet = matched.length > 0
-        ? matched.map(r => `[Known Fix] ${r.title}: ${r.fix}`).join('\n')
-        : '';
-
-      return { matched: matched.length > 0, resolutions: matched, promptSnippet };
-    } catch {
-      return { matched: false, resolutions: [], promptSnippet: '' };
-    }
   }
 
   async list(filter?: QueryFilter): Promise<KnowledgeEntry[]> {
@@ -898,9 +961,8 @@ export class KnowledgeService {
   // ═══════════ Resolve (known solutions) ════════════
 
   /**
-   * R3（type-repair）：写入 resolutionService 主存储（~/.studio/knowledge/resolution-*.md），
-   * 不再写 ~/.studio/data/resolutions/ 影子库（双库合并：UI/匹配只读主存储）。
-   * 按 pattern 去重由 resolutionService.createResolution 负责（语义与原影子库一致）。
+   * R3（type-repair）：写入 resolutionService 主存储（~/.studio/knowledge/resolution-*.md）。
+   * 按 pattern 去重由 resolutionService.createResolution 负责。
    * triage 调用方签名不变（Promise<void>）；失败 best-effort 吞掉。
    */
   async createResolution(input: CreateResolutionInput): Promise<void> {
@@ -919,23 +981,8 @@ export class KnowledgeService {
     const timestamp = new Date().toISOString();
     try {
       const entries = this.store.list({});
-      const total = entries.length;
-
-      let quality = 0;
-      let freshness = 0;
-      if (total > 0) {
-        // Quality: weighted maturity score (proven=3, verified=2, draft=1)
-        const maturityWeight: Record<string, number> = { proven: 3, verified: 2, active: 1.5, draft: 1, deprecated: 0, archived: 0 };
-        const qualitySum = entries.reduce((s: number, e: any) => s + (maturityWeight[e.maturity] || 0), 0);
-        quality = Math.min(100, Math.round((qualitySum / (total * 3)) * 100));
-
-        // Freshness: % referenced in last 30 days
-        const now = Date.now();
-        const recentCount = entries.filter((e: any) =>
-          e.lastReferenced && (now - new Date(e.lastReferenced).getTime()) < 30 * 86400000
-        ).length;
-        freshness = Math.round((recentCount / total) * 100);
-      }
+      // store 分区（quality/freshness）实算内核在 knowledge-metrics 模块级纯函数
+      const { quality, freshness } = computeFlywheelStoreMetrics(entries);
 
       // R1: hitRate / improvement 从 outcome 事件实算（断点 A 修复，此前硬编码 0）
       // 模块级纯函数（不依赖 this），保持 KnowledgeService 公共方法面不变
@@ -950,23 +997,9 @@ export class KnowledgeService {
   async getHealthReport(): Promise<HealthReport> {
     try {
       const entries = this.store.list({});
-      const total = entries.length;
-      const now = Date.now();
-      const staleThreshold = 30 * 86400000; // 30 days
-      const staleEntries = entries.filter((e: any) =>
-        !e.lastReferenced || (now - new Date(e.lastReferenced).getTime()) > staleThreshold
-      ).length;
-      const score = total === 0 ? 0 : Math.round(((total - staleEntries) / total) * 100);
-      return {
-        score,
-        totalEntries: total,
-        staleEntries,
-        orphanEntries: 0,
-        duplicateEntries: 0,
-        timestamp: new Date().toISOString(),
-      };
+      return computeHealthReport(entries);
     } catch {
-      return { score: 0, totalEntries: 0, staleEntries: 0, orphanEntries: 0, duplicateEntries: 0, timestamp: new Date().toISOString() };
+      return emptyHealthReport();
     }
   }
 
@@ -984,67 +1017,15 @@ export class KnowledgeService {
     let topReferenced: AuditReport['topReferenced'] = [];
     try {
       const all = this.store.list({});
-      const byMaturity: Record<string, number> = {};
-      for (const e of all) {
-        const m = (e as any).maturity ?? 'unknown';
-        byMaturity[m] = (byMaturity[m] || 0) + 1;
-      }
-      entries = { total: all.length, byMaturity, source: 'store' };
-      topReferenced = all
-        .map((e: any) => ({
-          id: e.id,
-          title: typeof e.title === 'string' ? e.title.slice(0, 80) : '',
-          references: Array.isArray(e.referencedBy) ? e.referencedBy.length : 0,
-        }))
-        .filter(t => t.references > 0)
-        .sort((a, b) => b.references - a.references)
-        .slice(0, 5);
+      ({ entries, topReferenced } = computeAuditStorePartition(all));
     } catch { /* store 读取失败 → 显式 0 */ }
 
     // ── 事件流分区 ──
     const stats = await scanKnowledgeEvents(opts);
 
-    // trend：复用 outcome 成功率前后半窗口对比（与 getFlywheelMetrics.improvement 同一定义）
-    let trend = 'insufficient-data';
-    if (stats.outcomes.length > 0) {
-      const now = Date.now();
-      const windowStart = now - windowDays * 86400000;
-      const midpoint = windowStart + (now - windowStart) / 2;
-      const firstHalf = stats.outcomes.filter(o => o.ts < midpoint);
-      const secondHalf = stats.outcomes.filter(o => o.ts >= midpoint);
-      if (firstHalf.length > 0 && secondHalf.length > 0) {
-        const sr1 = firstHalf.filter(o => o.success).length / firstHalf.length;
-        const sr2 = secondHalf.filter(o => o.success).length / secondHalf.length;
-        trend = sr2 > sr1 ? 'improving' : sr2 < sr1 ? 'declining' : 'stable';
-      } else {
-        trend = 'stable'; // 单边窗口无法比势，记 stable（有事件但趋势不可算）
-      }
-    }
-
-    // ── findings：从实算数据派生，不预造 ──
-    const findings: AuditFinding[] = [];
-    if (entries.total === 0) {
-      findings.push({ type: 'empty-store', severity: 'medium', description: '知识库无任何条目' });
-    }
-    const drafts = entries.byMaturity['draft'] ?? 0;
-    if (drafts > 0) {
-      findings.push({
-        type: 'proposals-pending-review', severity: 'low',
-        description: `${drafts} 条 proposal 待人工审核（maturity=draft，审核 promote 前不参与注入）`,
-      });
-    }
-    if (stats.eventCounts.source === 'insufficient-data') {
-      findings.push({
-        type: 'no-events', severity: 'low',
-        description: `近 ${windowDays} 天无 consumption/outcome/extraction 事件，飞轮尚无运行数据`,
-      });
-    }
-    if (stats.eventCounts.outcomeFailure > stats.eventCounts.outcomeSuccess && stats.eventCounts.outcomeFailure > 0) {
-      findings.push({
-        type: 'failures-exceed-successes', severity: 'high',
-        description: `窗口内失败 outcome (${stats.eventCounts.outcomeFailure}) 多于成功 (${stats.eventCounts.outcomeSuccess})`,
-      });
-    }
+    // trend / findings 均由 knowledge-metrics 模块级纯函数从实算数据派生，不预造
+    const trend = deriveOutcomeTrend(stats.outcomes, windowDays);
+    const findings = buildAuditFindings({ entries, stats, windowDays });
 
     return {
       findings,
@@ -1063,11 +1044,7 @@ export class KnowledgeService {
    * （仅 @deprecated KnowledgeBus 壳与测试引用）——没有可计算的输入，返回不可用标记而非假空 stub。
    */
   async getAnalystAccuracy(): Promise<AccuracyReport> {
-    return {
-      available: false,
-      reason: '系统中不存在 analyst 预测 vs 实际结果的数据源（recordAnalystAccuracy 生产无调用方，预测/结果未结构化落盘），指标不可用而非编造',
-      timestamp: new Date().toISOString(),
-    };
+    return unavailableAnalystAccuracyReport();
   }
 
   // ═══════════ Additional methods (absorbed from KnowledgeBus / ResolutionService) ════════════
@@ -1089,31 +1066,61 @@ export class KnowledgeService {
       return { total: 0 };
     }
   }
+}
 
-  /**
-   * 验证 Resolution — verifyCount++，累积 3 次 → canonical
-   * Absorbed from ResolutionService.verifyResolution()
-   */
-  async verifyResolution(id: string): Promise<void> {
-    try {
-      const row = await fileStore.readJson<any>(path.join(RESOLUTIONS_DIR, `${id}.json`));
-      if (!row) return;
+// ── Utilities (absorbed from KnowledgeBus / prompt-builder) ──
 
-      const newCount = (row.verifyCount || 0) + 1;
-      const newStatus = newCount >= 3 ? 'canonical' : (newCount >= 1 ? 'verified' : 'pending');
+// ── R3 会话提取 + 提案闸门 ──
 
-      const updated = {
-        ...row,
-        verifyCount: newCount,
-        status: newStatus,
-        lastVerifiedAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
-      await fileStore.writeJson(path.join(RESOLUTIONS_DIR, `${id}.json`), updated);
-    } catch {
-      // best-effort
-    }
-  }
+// R3 会话提取管道（transcript 构建 / 提案入库 / 提案卡）已抽到 conversation-extractor.ts（工单 29）
+
+/**
+ * R3 提案闸门：draft/archived/deprecated 不参与注入。
+ * proposal（LLM 提取产物，maturity=draft）须经人工审核 promote 后才可注入。
+ * 无 maturity 字段的条目（doc 来源 rule/preference/snapshot，恒为 approved 语义）不受限。
+ */
+const NON_INJECTABLE_MATURITIES: ReadonlySet<string> = new Set(['draft', 'archived', 'deprecated']);
+
+function isInjectableMaturity(maturity: unknown): boolean {
+  return typeof maturity !== 'string' || !NON_INJECTABLE_MATURITIES.has(maturity);
+}
+
+/** ②（wireups）：生产条目来源凭证字段是 sourceReferences（复数数组），length>0 才算有凭证。 */
+function hasSourceReferences(entry: any): boolean {
+  return Array.isArray(entry?.sourceReferences) && entry.sourceReferences.length > 0;
+}
+
+/** ③（wireups）：注入 token 预算（vision D6「注入 ≤2K tokens」红线执行点） */
+export const INJECT_TOKEN_BUDGET = 2_000;
+
+/**
+ * ③（wireups）：注入优先级 = 成熟度权重 × 10000 + 引用计数。
+ * 成熟度高的先注入；同成熟度按 referencedBy 计数（被引用越多越有价值）。
+ */
+function injectPriority(entry: any): number {
+  const maturityWeight: Record<string, number> = { proven: 3, verified: 2, active: 2, draft: 1 };
+  const w = maturityWeight[entry?.maturity] ?? 0;
+  const refs = Array.isArray(entry?.referencedBy) ? entry.referencedBy.length : 0;
+  return w * 10_000 + refs;
+}
+
+function extractKeywords(prompt: string): string[] {
+  return prompt
+    .toLowerCase()
+    .split(/[\s,，。！？、；：""''（）\(\)\[\]{}<>\/\\|@#$%^&*+=~`!\-_]+/)
+    .filter(w => w.length >= 2 && !STOP_WORDS.has(w))
+    .slice(0, 8);
+}
+
+function stripFormat(text: string): string {
+  return text
+    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/```[\s\S]*?```/g, '')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/^>\s+/gm, '')
+    .replace(/^\s*[-*+]\s+/gm, '- ')
+    .trim();
 }
 
 // ── Singleton ────────────────────────────────────────────────

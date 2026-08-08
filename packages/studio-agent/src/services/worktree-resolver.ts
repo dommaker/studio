@@ -1,25 +1,24 @@
 /**
- * Worktree Resolver — git worktree 创建/复用/清理 + harness 配置传播 + 共享缓存前缀
+ * Worktree Resolver — git worktree 创建/复用/清理 + harness 配置传播 + 依赖缓存
  *
  * P11-02: Extracted from agent-executor.ts
- * 2026-08-04: scaffolding 写入（REQUIREMENTS.md / 契约测试 / 依赖缓存）拆至
- * worktree-scaffolding.ts（纯移动），下方门面 re-export 保持导出面不变。
+ * Wave-4: prompt/文件桥内容（buildCachePrefix/writeRequirementsMd/writeContractTests）
+ * 移至 runner-briefing.ts；本模块只保留 git/依赖生命周期。
+ * （origin/master 曾将 scaffolding 写入同类抽为 worktree-scaffolding.ts；
+ *  合并后该拆分产物随 session-manager 簇一并删除，runner-briefing.ts 为文件桥唯一事实源，
+ *  ensureDeps 留在本模块。）
  */
 
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import * as fsSync from 'fs';
+import * as crypto from 'crypto';
 import * as os from 'os';
-import { FileStore, logger } from '@dommaker/studio-shared';
-import { execSh } from '@dommaker/studio-shared/node';
+import { logger } from '@dommaker/studio-shared';
+import { execSh, resolveVpsWorkspace } from '@dommaker/studio-shared/node';
 
-const fileStore = new FileStore();
-
-import type { AgentTask } from './session-manager.js';
+import type { AgentTask } from './types.js';
 import { execSync } from 'child_process';
-
-// ── 门面 re-export：scaffolding 写入（纯移动拆出）──
-export { writeRequirementsMd, writeContractTests, ensureDeps } from './worktree-scaffolding.js';
 
 /** 检测仓库默认分支名（不猜 main/master） */
 export function getDefaultBranch(cwd: string): string {
@@ -72,12 +71,12 @@ export async function createWorktree(worktree: string, baseBranch: string, repoD
       `git worktree add -b "${resolvedBranch}" "${worktree}" "${baseBranch}"`,
       { cwd: repoDir, timeoutMs: 30_000 },
     );
-  } catch (e: any) {
+  } catch (e) {
     if (e.message?.includes("already exists")) {
       try {
         await execSh(`git branch -D "${resolvedBranch}" 2>/dev/null || true`, { cwd: repoDir, timeoutMs: 5_000 });
         await execSh(`git worktree add -b "${resolvedBranch}" "${worktree}" "${baseBranch}"`, { cwd: repoDir, timeoutMs: 30_000 });
-      } catch (e2: any) { throw new Error(`Worktree creation failed after cleanup: ${e2.message}`); }
+      } catch (e2) { throw new Error(`Worktree creation failed after cleanup: ${e2.message}`); }
     } else { throw e; }
   }
   logger.info('[WorktreeResolver] Git worktree created', { worktree, branch: branchName, base: baseBranch, repo: repoDir });
@@ -113,7 +112,9 @@ async function writeGitExclude(repoDir: string): Promise<void> {
 /**
  * 3-priority workspace resolution:
  *   1. task.parameters.workspaceRoot (direct path)
- *   2. VPS workspace DB query (prisma.workspace.findFirst) — skipped when hasWorktree=true
+ *   2. VPS workspace lookup — resolveVpsWorkspace() from @dommaker/studio-shared/node
+ *      (reads ~/.studio/workspaces/*.json; 'VPS'-name convention owned there) —
+ *      skipped when hasWorktree=true
  *   3. createWorktree() fallback
  *
  * hasWorktree=true: caller explicitly wants isolated git worktree, skip VPS workspace.
@@ -132,31 +133,19 @@ export async function resolveWorkspace(opts: {
     return directRoot;
   }
 
-  // Priority 2: DB query for VPS workspace (skip when hasWorktree=true)
+  // Priority 2: VPS workspace lookup (skip when hasWorktree=true)
   const needsWorktree = task.parameters?.hasWorktree === true;
   if (needsWorktree) {
     logger.info('[WorktreeResolver] hasWorktree=true, skipping VPS workspace, creating git worktree');
   } else {
     try {
-      // Look up VPS workspace from FileStore
-      let ws: { id: string; workspaceRoot?: string; updatedAt?: string } | null = null;
-      try {
-        const wsDir = path.join(os.homedir(), '.studio', 'workspaces');
-        const entries = await fs.readdir(wsDir, { withFileTypes: true });
-        for (const e of entries) {
-          if (!e.isFile() || !e.name.endsWith('.json')) continue;
-          const data = await fileStore.readJson<any>(path.join(wsDir, e.name));
-          if (data && data.name === 'VPS' && !data.tokenId) {
-            if (!ws || new Date(data.updatedAt) > new Date(ws.updatedAt)) ws = data;
-          }
-        }
-      } catch { /* no workspace dir */ }
+      const ws = await resolveVpsWorkspace();
       if (ws?.workspaceRoot && fsSync.existsSync(ws.workspaceRoot)) {
-        logger.info('[WorktreeResolver] Using workspace from FileStore', { workspaceId: ws.id, workspaceRoot: ws.workspaceRoot });
+        logger.info('[WorktreeResolver] Using VPS workspace', { workspaceId: ws.id, workspaceRoot: ws.workspaceRoot });
         return ws.workspaceRoot;
       }
     } catch (e) {
-      logger.warn('[WorktreeResolver] DB workspace query failed, falling back to createWorktree', { error: String(e) });
+      logger.warn('[WorktreeResolver] VPS workspace lookup failed, falling back to createWorktree', { error: String(e) });
     }
   }
 
@@ -237,40 +226,153 @@ export async function propagateHarnessConfig(worktree: string, taskId: string, e
   } catch { logger.warn('[WorktreeResolver] Harness/Claude config init failed (non-blocking)', { taskId, executionId }); }
 }
 
+// ─── Dependency Cache ───
+
+/** Extract combined error output from execSh rejection (attaches stdout/stderr to Error). */
+function extractExecError(e: unknown): string {
+  if (e && typeof e === 'object') {
+    const rec = e as Record<string, unknown>;
+    const stderr = typeof rec.stderr === 'string' ? rec.stderr : '';
+    const stdout = typeof rec.stdout === 'string' ? rec.stdout : '';
+    const msg = typeof rec.message === 'string' ? rec.message : '';
+    return stderr || stdout || msg;
+  }
+  return String(e);
+}
+
+const DEPS_CACHE_DIR = path.join(os.homedir(), '.cache', 'studio-deps');
+const INSTALL_TIMEOUT_MS = 300_000; // 5min
+const COPY_TIMEOUT_MS = 60_000; // 1min
+
 /**
- * Build shared cache prefix — byte-identical across all worktrees
- * so DeepSeek's prefix cache matches across pipeline agent sessions.
+ * Compute short hash of lockfile content for cache key.
+ * Uses first 16 hex chars of sha256.
  */
-export function buildCachePrefix(repoDir: string): string {
-  // 探测包管理器
-  const pkgManager = fsSync.existsSync(path.join(repoDir, 'pnpm-lock.yaml')) ? 'pnpm'
-    : fsSync.existsSync(path.join(repoDir, 'yarn.lock')) ? 'yarn' : 'npm';
+function computeLockfileHash(lockfilePath: string): string {
+  const content = fsSync.readFileSync(lockfilePath);
+  return crypto.createHash('sha256').update(content).digest('hex').slice(0, 16);
+}
 
-  const installCmd = pkgManager === 'pnpm' ? 'pnpm install'
-    : pkgManager === 'yarn' ? 'yarn install' : 'npm install';
-  const testCmd = pkgManager === 'pnpm' ? 'pnpm test'
-    : pkgManager === 'yarn' ? 'yarn test' : 'npm test';
+/**
+ * Find lockfile in directory (pnpm-lock.yaml, package-lock.json, yarn.lock).
+ */
+function findLockfile(dir: string): string | null {
+  for (const name of ['pnpm-lock.yaml', 'package-lock.json', 'yarn.lock']) {
+    const p = path.join(dir, name);
+    if (fsSync.existsSync(p)) return p;
+  }
+  return null;
+}
 
-  const lines = [
-    '<!-- SHARED_CACHE_PREFIX — DO NOT EDIT — identical across all worktrees -->',
-    '',
-    '# Project Context (shared)',
-    '',
-    '## 环境',
-    `- 包管理器: ${pkgManager}`,
-    `- 安装依赖: \`${installCmd}\``,
-    `- 运行测试: \`${testCmd}\``,
-    '- 类型检查: `npx tsc --noEmit`',
-    '- 依赖已预装（node_modules 通过 hardlink 缓存）。',
-    '- **禁止自己跑 install**：node_modules 已存在。如果 import 报错，检查是否是自己修改了代码导致的，修复代码而非安装依赖。',
-    '',
-  ];
+/**
+ * Detect package manager from lockfile name.
+ */
+function detectPackageManager(lockfilePath: string): 'pnpm' | 'npm' | 'yarn' {
+  const base = path.basename(lockfilePath);
+  if (base.startsWith('pnpm')) return 'pnpm';
+  if (base.startsWith('yarn')) return 'yarn';
+  return 'npm';
+}
+
+/**
+ * Ensure node_modules exists in worktree, using dependency cache.
+ *
+ * Flow:
+ *   1. node_modules/.modules.yaml exists → skip (already installed)
+ *   2. Compute sha256(lockfile) as cache key
+ *   3. Cache hit: cp -al (hardlink copy, <1s for 375MB)
+ *   4. Cache miss: pnpm install --frozen-lockfile, then cache result
+ *
+ * Expected savings: 30-60s per worktree creation (install time).
+ * Disk savings: hardlinks share inodes, no extra disk for cached copies.
+ */
+export async function ensureDeps(worktree: string, repoDir: string): Promise<void> {
+  const nodeModulesPath = path.join(worktree, 'node_modules');
+  const modulesYaml = path.join(nodeModulesPath, '.modules.yaml');
+
+  // Already installed — skip
+  if (fsSync.existsSync(modulesYaml)) {
+    logger.info('[WorktreeResolver] Deps cache: node_modules exists, skipping', { worktree });
+    return;
+  }
+
+  // Find lockfile (prefer worktree, fall back to repoDir)
+  const lockfile = findLockfile(worktree) || findLockfile(repoDir);
+  if (!lockfile) {
+    logger.warn('[WorktreeResolver] Deps cache: no lockfile found, running bare install', { worktree });
+    const pkgManager = fsSync.existsSync(path.join(worktree, 'pnpm-lock.yaml')) ? 'pnpm'
+      : fsSync.existsSync(path.join(worktree, 'yarn.lock')) ? 'yarn' : 'npm';
+    await execSh(`${pkgManager} install`, { cwd: worktree, timeoutMs: INSTALL_TIMEOUT_MS });
+    return;
+  }
+
+  const hash = computeLockfileHash(lockfile);
+  const cacheDir = path.join(DEPS_CACHE_DIR, hash);
+  const cachedModules = path.join(cacheDir, 'node_modules');
+  const pkgManager = detectPackageManager(lockfile);
+  const installCmd = pkgManager === 'pnpm' ? 'pnpm install --frozen-lockfile'
+    : pkgManager === 'yarn' ? 'yarn install --frozen-lockfile'
+    : 'npm ci';
+
+  // Cache hit — hardlink copy
+  if (fsSync.existsSync(cachedModules)) {
+    const startMs = Date.now();
+    logger.info('[WorktreeResolver] Deps cache: HIT', { worktree, hash, cacheDir });
+    try {
+      // cp -al creates hardlinks: <1s for 375MB, zero extra disk
+      await execSh(`cp -al "${cachedModules}" "${nodeModulesPath}"`, {
+        cwd: worktree, timeoutMs: COPY_TIMEOUT_MS,
+      });
+      logger.info('[WorktreeResolver] Deps cache: restored from cache', {
+        worktree, hash, durationMs: Date.now() - startMs,
+      });
+      return;
+    } catch (e) {
+      // Hardlink copy failed (cross-filesystem?) — fall through to install
+      logger.warn('[WorktreeResolver] Deps cache: hardlink copy failed, falling back to install', {
+        worktree, hash, error: String(e),
+      });
+    }
+  } else {
+    logger.info('[WorktreeResolver] Deps cache: MISS', { worktree, hash });
+  }
+
+  // Cache miss — install from scratch
+  const installStart = Date.now();
+  logger.info('[WorktreeResolver] Deps cache: installing', { worktree, command: installCmd });
   try {
-    const claudeMd = fsSync.readFileSync(path.join(repoDir, 'CLAUDE.md'), 'utf-8');
-    lines.push(claudeMd);
-  } catch { /* CLAUDE.md may not exist in the repo */ }
-  lines.push('');
-  return lines.join('\n');
+    await execSh(installCmd, { cwd: worktree, timeoutMs: INSTALL_TIMEOUT_MS });
+    logger.info('[WorktreeResolver] Deps cache: install complete', {
+      worktree, durationMs: Date.now() - installStart,
+    });
+  } catch (e: unknown) {
+    // Lockfile incompatible — fallback to --force (rewrites lockfile)
+    const errMsg = extractExecError(e);
+    if (pkgManager === 'pnpm' && errMsg.includes('ERR_PNPM_LOCKFILE_BREAKING_CHANGE')) {
+      logger.warn('[WorktreeResolver] Lockfile incompatible, retrying with --force', { worktree });
+      await execSh('pnpm install --force', { cwd: worktree, timeoutMs: INSTALL_TIMEOUT_MS });
+      logger.info('[WorktreeResolver] Deps cache: --force install complete', {
+        worktree, durationMs: Date.now() - installStart,
+      });
+    } else {
+      logger.error('[WorktreeResolver] Deps cache: install failed', { worktree, error: String(e) });
+      throw e;
+    }
+  }
+
+  // Populate cache for future worktrees
+  try {
+    await fs.mkdir(cacheDir, { recursive: true });
+    await execSh(`cp -al "${nodeModulesPath}" "${cachedModules}"`, {
+      cwd: worktree, timeoutMs: COPY_TIMEOUT_MS,
+    });
+    logger.info('[WorktreeResolver] Deps cache: populated cache', { worktree, hash, cacheDir });
+  } catch (e) {
+    // Non-blocking — cache population failure doesn't break the build
+    logger.warn('[WorktreeResolver] Deps cache: failed to populate cache', {
+      worktree, hash, error: String(e),
+    });
+  }
 }
 
 // ── B3b-i: WU 专属 worktree（按 WU id 键控，跨 step 复用）──

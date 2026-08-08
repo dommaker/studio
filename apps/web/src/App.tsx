@@ -1,13 +1,11 @@
 // App.tsx - Agent Studio - 路由重构
 import { useState, useEffect, lazy, Suspense } from 'react';
 import { Routes, Route, useLocation, Navigate } from 'react-router-dom';
-import { useTranslation } from 'react-i18next';
 const ChannelListPage = lazy(() => import('./pages/ChannelListPage').then(m => ({ default: m.ChannelListPage })));
 const TriageBanner = lazy(() => import('./components/TriageBanner').then(m => ({ default: m.TriageBanner })));
 
 // 路由级代码分割 - 懒加载页面组件
 const Settings = lazy(() => import('./pages/Settings').then(m => ({ default: m.Settings })));
-const ToolsStdPage = lazy(() => import('./pages/ToolsStdPage').then(m => ({ default: m.ToolsStdPage })));
 const AuditLogsPage = lazy(() => import('./pages/AuditLogsPage').then(m => ({ default: m.AuditLogsPage })));
 const PMOPage = lazy(() => import('./pages/PMOPage').then(m => ({ default: m.PMOPage })));
 const KnowledgePage = lazy(() => import('./pages/KnowledgePage').then(m => ({ default: m.KnowledgePage })));
@@ -20,16 +18,13 @@ const OAuthCallback = lazy(() => import('./components/OAuthCallback').then(m => 
 const WorkUnitListPage = lazy(() => import('./pages/WorkUnitListPage').then(m => ({ default: m.WorkUnitListPage })));
 const WorkUnitDetailPage = lazy(() => import('./pages/WorkUnitDetailPage').then(m => ({ default: m.WorkUnitDetailPage })));
 const RolesSetup = lazy(() => import('./pages/RolesSetup').then(m => ({ default: m.RolesSetup })));
+const NotFoundPage = lazy(() => import('./pages/NotFoundPage').then(m => ({ default: m.NotFoundPage })));
 const AgentDashboardPage = lazy(() => import('./pages/AgentDashboardPage').then(m => ({ default: m.AgentDashboardPage })));
 const AgentDetailPage = lazy(() => import('./pages/AgentDetailPage').then(m => ({ default: m.AgentDetailPage })));
 const MonitoringPage = lazy(() => import('./pages/MonitoringPage').then(m => ({ default: m.MonitoringPage })));
 const WorkspacePage = lazy(() => import('./pages/WorkspacePage').then(m => ({ default: m.WorkspacePage })));
 const ForgotPasswordPage = lazy(() => import('./pages/ForgotPasswordPage').then(m => ({ default: m.ForgotPasswordPage })));
 const ResetPasswordPage = lazy(() => import('./pages/ResetPasswordPage').then(m => ({ default: m.ResetPasswordPage })));
-// Design Lab：T1 视觉方向稿原型（mock 数据，全屏三栏，不套 TopNav/Sidebar 骨架）
-const DesignLabPage = lazy(() => import('./pages/design-lab/DesignLabPage').then(m => ({ default: m.DesignLabPage })));
-const DirectionAPage = lazy(() => import('./pages/design-lab/DirectionAPage').then(m => ({ default: m.DirectionAPage })));
-const DirectionBPage = lazy(() => import('./pages/design-lab/DirectionBPage').then(m => ({ default: m.DirectionBPage })));
 
 const PageLoader = () => (
   <div className="flex items-center justify-center h-full">
@@ -40,48 +35,28 @@ const PageLoader = () => (
 import { ThemeProvider } from './contexts/ThemeContext';
 import { TopNav } from './components/TopNav';
 import { Sidebar } from './components/SidebarNew';
-import { GlobalModals } from './components/GlobalModals';
 import { useAgentStore, useRuntimeStore } from './stores';
 import { useAuthStore } from './stores/authStore';
 import { LandingPage } from './components/LandingPage';
-import { useWebSocket, WebSocketProvider } from './api/websocket';
-import { useWebSocketHandlers } from './hooks/useWebSocketHandlers';
-import { useGlobalModals } from './hooks/useGlobalModals';
+import { WebSocketProvider } from './api/websocket';
 import { channelApi } from './api/channel';
-import { StudioRoleSetupModal, isStudioRoleSetupDismissed } from './components/setup/StudioRoleSetupModal';
-import { FirstRoleSetupModal, isFirstRoleSetupDismissed } from './components/setup/FirstRoleSetupModal';
+import { StudioRoleSetupModal } from './components/setup/StudioRoleSetupModal';
+import { FirstRoleSetupModal } from './components/setup/FirstRoleSetupModal';
+import { isStudioRoleSetupDismissed, isFirstRoleSetupDismissed } from './components/setup/dismissed';
 import './styles/theme.css';
 
 export default function App() {
-  const { t } = useTranslation();
   const location = useLocation();
   const { loadAgents } = useAgentStore();
-  const { loadExecutions, runtimeExecutions } = useRuntimeStore();
+  const { loadExecutions } = useRuntimeStore();
   const isGuest = useAuthStore((s) => s.isGuest());
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated());
-
-  const {
-    currentExecution, setCurrentExecution,
-    handleWebSocketMessage,
-  } = useWebSocketHandlers(() => {});
-
-  const {
-    showResult, setShowResult,
-    selectedProject, setSelectedProject,
-    handleViewDetails,
-  } = useGlobalModals();
 
   // 本地 state
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   // AC-2.2/2.3: studio 角色 provider=null + 无用户角色 弹框提醒
   const [studioRoleSetupOpen, setStudioRoleSetupOpen] = useState(false);
   const [firstRoleSetupOpen, setFirstRoleSetupOpen] = useState(false);
-
-  // WebSocket
-  const { status: wsStatus } = useWebSocket({
-    onMessage: handleWebSocketMessage,
-    reconnect: true,
-  });
 
   // 初始化
   useEffect(() => {
@@ -141,21 +116,6 @@ export default function App() {
     );
   }
 
-  // Design Lab: fullscreen prototypes, bypass guest wall (mock 数据，无真实请求)
-  if (location.pathname.startsWith('/design-lab')) {
-    return (
-      <ThemeProvider>
-        <Suspense fallback={<PageLoader />}>
-          <Routes>
-            <Route path="/design-lab" element={<DesignLabPage />} />
-            <Route path="/design-lab/a" element={<DirectionAPage />} />
-            <Route path="/design-lab/b" element={<DirectionBPage />} />
-          </Routes>
-        </Suspense>
-      </ThemeProvider>
-    );
-  }
-
   // Lurk Wall: guest sees LandingPage, admin sees full Studio
   if (isGuest) {
     return (
@@ -171,14 +131,6 @@ export default function App() {
     <ThemeProvider>
     <WebSocketProvider>
     <div className="h-screen flex flex-col" style={{ background: 'var(--bg-primary)' }}>
-      <GlobalModals
-        showResult={showResult}
-        currentExecution={currentExecution}
-        onCloseResult={() => setShowResult(false)}
-        selectedProject={selectedProject}
-        onCloseProject={() => setSelectedProject(null)}
-      />
-
       {/* AC-2.2: studio 角色 provider=null 弹框 */}
       <StudioRoleSetupModal
         open={studioRoleSetupOpen}
@@ -201,7 +153,6 @@ export default function App() {
       />
 
       <TopNav
-        wsStatus={wsStatus === 'connected' ? 'connected' : 'disconnected'}
         onMenuClick={() => setIsSidebarOpen(true)}
       />
 
@@ -230,7 +181,6 @@ export default function App() {
             />
             <Route path="/project/:projectId" element={<Suspense fallback={<PageLoader />}><ProjectDetailPage /></Suspense>} />
             <Route path="/goals" element={<Navigate to="/workunits" replace />} />
-            <Route path="/skills" element={<Suspense fallback={<PageLoader />}><ToolsStdPage /></Suspense>} />
             <Route path="/settings" element={<Suspense fallback={<PageLoader />}><Settings /></Suspense>} />
             <Route path="/audit-logs" element={<Suspense fallback={<PageLoader />}><AuditLogsPage /></Suspense>} />
             <Route path="/channels" element={<Suspense fallback={<PageLoader />}><ChannelListPage /></Suspense>} />
@@ -248,6 +198,7 @@ export default function App() {
             <Route path="/monitoring" element={<Suspense fallback={<PageLoader />}><MonitoringPage /></Suspense>} />
             <Route path="/workspaces/:id" element={<Suspense fallback={<PageLoader />}><WorkspacePage /></Suspense>} />
             <Route path="/setup/roles" element={<Suspense fallback={<PageLoader />}><RolesSetup /></Suspense>} />
+            <Route path="*" element={<Suspense fallback={<PageLoader />}><NotFoundPage /></Suspense>} />
           </Routes>
         </div>
       </div>

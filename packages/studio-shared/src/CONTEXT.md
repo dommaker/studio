@@ -19,10 +19,9 @@
 | `formatError`, `createCliError`, `CliError`, `ERROR_CODES` | cli/error | 统一错误处理与格式化为字符串 |
 | `loadConfigEnv`, `AgentStudioConfig` | config | 系统级配置加载 (~/.studio/config.env) 及类型定义 |
 | `LEVEL_CONFIG`, `getLevelConfig`, `getLevelSalary` 等 | constants/levels | 全局统一的职级配置与辅助函数 |
-| `RESPONSIBILITY_CHAIN`, `CHANGE_TYPE_EXPERTS`, `Stage`, `Role` 等 | constants/responsibility-chain | 责任链模型类型与常量定义 |
-| `STAGE_DEFINITIONS`, `StageDefinition` | constants/stage-definitions | 开发阶段详细定义、关键词与推荐函数 |
 | `eventBus`, `StudioEventBus` | event-bus | 内存事件总线，支持通配符订阅 |
 | `AgentProfileData`, `RuntimeStateData`, `ChannelData`, `ChannelMessageData` 等 | file-store | 文件存储基础数据类型 |
+| `resolveVpsWorkspace`, `resolveWorkspacesDir` | vps-workspace（仅 /node 入口） | 'VPS' 工作区命名约定与 ~/.studio/workspaces 扫描的唯一属主（2026-08 起；worktree-resolver 与 local-workspace 均委托到此，禁止第三处手扫） |
 
 ## 依赖关系
 
@@ -38,6 +37,8 @@
 - CLI 命令注册表为全局单例，测试后需调用 `clearCommands()` 清理
 - 配置优先级：环境变量 > `~/.studio/config.env` > 默认值，且仅当环境变量未设置时才加载 config.env
 - `FileStore` 使用 `flock` 目录锁（`mkdir` 原子操作）保障 claim 原子性
+- `FileStore` 的 readJson/readJsonl/readdir 走模块级读穿缓存（stat mtime 校验 + 写/删精确失效，工单 26 A1）；缓存命中返回结构克隆，调用方 mutate 返回值不会污染缓存；`readIndexFile` 保持无缓存（锁内跨进程正确性）
+- `FileStore` 的 Requirement/Evolution 段共用泛型「序号分配型条目存储」实现（`SeqEntryStoreConfig`，工单 26 A2），新增同类存储应加配置而非复制段
 - 事件总线支持通配符（`*`）模式订阅，Handler 异常不会影响其他监听器
-- 级别与责任链常量为单一数据源，其他模块不应重复定义
+- 级别常量为单一数据源，其他模块不应重复定义
 - `constants/` 下各文件应保持无外部依赖（仅内部引用），便于前端复用

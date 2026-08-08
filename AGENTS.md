@@ -39,7 +39,7 @@ pnpm start  # 启动生产服务
 ## 知识入口
 
 - `.harness/knowledge/`：项目知识库，用 `harness knowledge` 查询
-- 各源码目录的 `CONTEXT.md` 是权威模块文档（现有 44 个），改动代码时同步更新
+- 各源码目录的 `CONTEXT.md` 是权威模块文档（现有 39 个），改动代码时同步更新
 
 <!-- PRESERVE:modules -->
 <!-- AUTO-GENERATED:modules -->
@@ -90,7 +90,7 @@ pnpm start  # 启动生产服务
 | `apps/api/src/modules/workspaces` | 远程 Workspace 注册/心跳、Token 管理、WS 网关（Daemon 通信）、目录发现代理、任务 claim/事件回报、GC 清理。 |
 | `apps/api/src/modules/workunit` | WorkUnit 核心域（AS-025 §3.28c-1, §5.16）：任务单元的 CRUD、认领（Claim）与状态机；F5 双向沟通的 NEED_INPUT 挂起/恢复与超时提醒。 |
 | `packages/studio-agent` | Sub-agent 的完整生命周期管理：创建隔离 worktree → spawn Claude Code → session loop 监控 → 完成判定。 |
-| `packages/studio-audit` | 提供审计日志的记录、查询、导出和链式完整性验证功能。支持通过 AuditService 进行持久化日志操作，通过 CLI 模块进行离线查询和导出，并通过 audit-chain 实现基于哈希链的防篡改审计记录。 |
+| `packages/studio-audit` | 提供审计日志的记录、查询与统计功能。通过 AuditService 进行持久化日志操作（JSONL 存储）。 |
 | `packages/studio-capability` | 本目录负责能力管理（CapabilityService）与公司 MCP 资源池管理（company-mcp-pool）。CapabilityService 提供能力的 CRUD、同步、统计，并基于 FileStore JSON 文件存... |
 | `packages/studio-notification` | 本目录提供 studio-notification 包的核心代码，包含通知的创建、查询、标记和 CLI 操作。CLI 部分提供模拟通知的发送、列表、标记功能，服务层基于 FileStore 实现持久化通知管理。 |
 | `packages/studio-shared` | 跨 apps/packages 的共享层：provider 注册表（agent CLI 定义与 spawn 模板）、FileStore（全部运行时数据的文件存储）、eventBus、共享类型与工具、 harness 运行时。Node-... |
@@ -111,4 +111,35 @@ pnpm start  # 启动生产服务
 - 部署日志：`/var/log/studio-deploy.log`
 - 本仓的任何分支/脏树/本地领先状态都**不影响**部署（2026-07-29 起）
 - **分批提交（用户要求，2026-08-04 起）**：长任务开发中按逻辑批次及时 `git commit`（feat/fix/chore/docs 前缀），不攒大批量未提交改动，避免工作丢失；提交落在本地 master 或 feature 分支均可。`studio-deploy-quick` 与 `studio-ship` 均由用户触发，agent 不主动执行、不主动 push。
+
+### ship 前置纪律（2026-08-08 事故固化）
+
+跑 `studio-ship` 之前必须先做分叉检查（脚本步骤 1.6 已硬门禁，此处为人工纪律）：
+
+1. `git fetch origin` 刷新远端
+2. `git rev-list --count HEAD..origin/master` 必须为 0；非 0 说明远端有新合并（可能是其他会话经 work 分支上线），先确认再决定 merge/rebase，禁止直接 ship
+3. 发现大量未推送 commit（>10）时停下来向用户报告清单，确认这些 commit 是否该随本次上线，不得默认全部带上（脚本要求 `ALLOW_MANY_COMMITS=1` 显式确认）
+
+背景：本地积压 140 个 commit 与远端 PR #44/#45 的 43 个 commit 分叉，盲目 ship 产生 30+ 文件冲突的废 PR #46（已关）。
+
+日常预防：
+
+- 每轮迭代结束即 ship 或 `studio-deploy-quick`（异步推分支备份），不积压长 commit 栈
+- 多会话并行时，开工前先 fetch；上线统一走一个会话，避免 master/work 双线各自演进
 <!-- /PRESERVE:release-flow -->
+
+<!-- PRESERVE:agent-skills -->
+## Agent skills
+
+### Issue tracker
+
+Issues 存放在本仓库的 GitHub Issues（dommaker/studio），通过 `gh` CLI 操作。见 `docs/agents/issue-tracker.md`。
+
+### Triage labels
+
+五个标准 triage 标签原名使用（needs-triage 等）。见 `docs/agents/triage-labels.md`。
+
+### Domain docs
+
+single-context：根 `CONTEXT.md` + `docs/adr/`。见 `docs/agents/domain.md`。
+<!-- /PRESERVE:agent-skills -->

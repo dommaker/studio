@@ -44,7 +44,7 @@ vi.mock('../../knowledge/knowledge-service', () => ({
   },
 }));
 
-import { AgentLoop, writeWorkunitTokenEvent, type StepResult } from '../agent-loop';
+import { AgentLoop, writeWorkunitTokenEvent, type StepResult } from '../loop/agent-loop';
 import {
   BUDGET_TRIPPED_EVENT,
   DEFAULT_DAILY_TOKEN_BUDGET,
@@ -54,7 +54,7 @@ import {
   resetDailyTokenBudgetState,
   resolveDailyTokenBudget,
   tokenBudgetGuardEnabled,
-} from '../daily-token-budget';
+} from '../loop/daily-token-budget';
 import { WorkUnitService, type WorkUnitMetadata, type WorkUnitData } from '../../workunit/workunit.service';
 
 const mockRole = {

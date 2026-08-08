@@ -7,17 +7,12 @@
  * - resolveTarget() — priority routing (pure logic)
  * - observe() — DB query structure
  * - recordResult() — monitoring + state transitions
- * - findAnchorMessage() — AC-C2: Thread anchor message lookup
+ * （anchor 线程锚点用例已随锚点查找收敛迁至 workunit/__tests__/wu-messenger.test.ts）
  */
 
-import { describe, test, expect, vi, beforeAll, beforeEach, afterAll } from 'vitest';
-import fs from 'node:fs';
-import path from 'node:path';
-import os from 'node:os';
-import { randomUUID } from 'crypto';
-import { FileStore, type ChannelMessageData } from '@dommaker/studio-shared';
+import { describe, test, expect, vi, beforeEach } from 'vitest';
+import type { ChannelMessageData } from '@dommaker/studio-shared';
 import type { WorkUnitData } from '../../workunit/workunit.service.js';
-import { WorkUnitService } from '../../workunit/workunit.service.js';
 
 // We'll import the actual functions once implemented
 // For RED phase, these imports will fail until implementation exists
@@ -32,7 +27,7 @@ let resolveTarget: (obs: {
 // Dynamic import to handle RED phase (module doesn't exist yet)
 beforeEach(async () => {
   try {
-    const mod = await import('../agent-loop.js');
+    const mod = await import('../loop/agent-loop.js');
     parseAgentOutput = mod.parseAgentOutput;
     dynamicInterval = mod.dynamicInterval;
     resolveTarget = mod.resolveTarget;
@@ -195,89 +190,3 @@ describe('resolveTarget()', () => {
   });
 });
 
-// ── AC-C2: findAnchorMessage — Thread anchor lookup ──
-
-describe('AC-C2: findAnchorMessage', () => {
-  let findAnchorMessage: (workUnitId: string, fs?: FileStore) => Promise<ChannelMessageData | null>;
-  let testChannelId: string;
-  let testWorkUnitId: string;
-  let fsDir: string;
-  let fileStore: FileStore;
-
-  beforeAll(() => {
-    fsDir = path.join(os.tmpdir(), `agent-loop-thread-${Date.now()}`);
-    fileStore = new FileStore(fsDir);
-  });
-
-  afterAll(() => {
-    fs.rmSync(fsDir, { recursive: true, force: true });
-  });
-
-  beforeEach(async () => {
-    try {
-      const mod = await import('../agent-loop.js');
-      findAnchorMessage = mod.findAnchorMessage;
-    } catch {
-      findAnchorMessage = vi.fn() as any;
-    }
-
-    // Create test fixtures in FileStore
-    testChannelId = `ch-thread-${randomUUID().slice(0, 8)}`;
-    await fileStore.createChannel({
-      id: testChannelId, name: '#test-thread', type: 'rnd',
-      defaultWorkspaceId: null, defaultPath: null,
-      discordChannelId: null, discordWebhookUrl: null, members: '[]',
-      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
-    });
-    const wuSvc = new WorkUnitService(fileStore);
-    const wu = await wuSvc.create({ scope: 'thread test', channelId: testChannelId, type: 'task' });
-    testWorkUnitId = wu.id;
-  });
-
-  test('returns the first message (no replyToId) for a WorkUnit', async () => {
-    const now = new Date().toISOString();
-    const anchor: ChannelMessageData = {
-      id: randomUUID(), channelId: testChannelId,
-      authorType: 'human', agentName: null,
-      content: 'anchor message', replyToId: null,
-      meta: '{}', workUnitId: testWorkUnitId, createdAt: now,
-    };
-    await fileStore.appendMessage(testChannelId, anchor);
-
-    const result = await findAnchorMessage(testWorkUnitId, fileStore);
-    expect(result).not.toBeNull();
-    expect(result!.id).toBe(anchor.id);
-  });
-
-  test('returns anchor when multiple messages exist (first with no replyToId)', async () => {
-    const now1 = new Date().toISOString();
-    const anchor: ChannelMessageData = {
-      id: randomUUID(), channelId: testChannelId,
-      authorType: 'human', agentName: null,
-      content: 'first message', replyToId: null,
-      meta: '{}', workUnitId: testWorkUnitId, createdAt: now1,
-    };
-    await fileStore.appendMessage(testChannelId, anchor);
-
-    const now2 = new Date().toISOString();
-    const reply: ChannelMessageData = {
-      id: randomUUID(), channelId: testChannelId,
-      authorType: 'agent', agentName: 'Bot',
-      content: 'thread reply', replyToId: anchor.id,
-      meta: '{}', workUnitId: testWorkUnitId, createdAt: now2,
-    };
-    await fileStore.appendMessage(testChannelId, reply);
-
-    const result = await findAnchorMessage(testWorkUnitId, fileStore);
-    expect(result).not.toBeNull();
-    expect(result!.id).toBe(anchor.id);
-    expect(result!.replyToId).toBeNull();
-  });
-
-  test('returns null when WorkUnit has no messages', async () => {
-    const result = await findAnchorMessage(testWorkUnitId, fileStore);
-    expect(result).toBeNull();
-  });
-
-  // Cleanup handled by afterAll rmSync on fsDir
-});

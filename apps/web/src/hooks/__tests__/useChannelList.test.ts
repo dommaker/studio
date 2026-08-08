@@ -12,11 +12,12 @@ vi.mock('../../api', () => ({
   api: { get: mockGet, post: mockPost },
 }));
 
-vi.mock('../../api/websocket', () => ({
+vi.mock('../../api/websocketHooks', () => ({
   useWebSocketContext: () => ({ onEvent: mockOnEvent }),
 }));
 
 import { useChannelList } from '../useChannelList';
+import type { ChannelListItem } from '../useChannelList';
 
 const CHANNELS = [
   { id: 'ch-1', name: 'rnd-主研发', type: 'rnd', createdAt: '2026-07-01T00:00:00Z' },
@@ -39,8 +40,8 @@ describe('useChannelList', () => {
   });
 
   it('increments unread count on SSE channel.message_sent from non-human authors', async () => {
-    let handler: ((msg: any) => void) | null = null;
-    mockOnEvent.mockImplementation((h: any) => { handler = h; return () => {}; });
+    let handler: ((msg: unknown) => void) | null = null;
+    mockOnEvent.mockImplementation((h: (msg: unknown) => void) => { handler = h; return () => {}; });
     const { result } = renderHook(() => useChannelList());
     await waitFor(() => expect(result.current.loading).toBe(false));
 
@@ -56,8 +57,8 @@ describe('useChannelList', () => {
   });
 
   it('ignores human-authored messages and other event types for unread', async () => {
-    let handler: ((msg: any) => void) | null = null;
-    mockOnEvent.mockImplementation((h: any) => { handler = h; return () => {}; });
+    let handler: ((msg: unknown) => void) | null = null;
+    mockOnEvent.mockImplementation((h: (msg: unknown) => void) => { handler = h; return () => {}; });
     const { result } = renderHook(() => useChannelList());
     await waitFor(() => expect(result.current.loading).toBe(false));
 
@@ -70,8 +71,8 @@ describe('useChannelList', () => {
   });
 
   it('clearUnread removes the counter for a channel', async () => {
-    let handler: ((msg: any) => void) | null = null;
-    mockOnEvent.mockImplementation((h: any) => { handler = h; return () => {}; });
+    let handler: ((msg: unknown) => void) | null = null;
+    mockOnEvent.mockImplementation((h: (msg: unknown) => void) => { handler = h; return () => {}; });
     const { result } = renderHook(() => useChannelList());
     await waitFor(() => expect(result.current.loading).toBe(false));
 
@@ -90,7 +91,7 @@ describe('useChannelList', () => {
     const { result } = renderHook(() => useChannelList());
     await waitFor(() => expect(result.current.loading).toBe(false));
 
-    let ch: any;
+    let ch: ChannelListItem;
     await act(async () => {
       ch = await result.current.createChannel({ name: 'ops-监控', type: 'system', agents: ['Watcher', 'Alerter'] });
     });

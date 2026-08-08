@@ -14,7 +14,7 @@
  */
 
 import { Router } from 'express';
-import { logger } from '@dommaker/studio-shared';
+import { generateId, logger } from '@dommaker/studio-shared';
 import {
   listDocs, getDoc, saveDoc, getProject, findProjectPmoNumber,
   type DocRecord,
@@ -168,7 +168,7 @@ documentsRoutes.post('/:projectId', requireAuth(), requireNotGuest(), async (req
       return;
     }
 
-    const docId = `doc_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+    const docId = generateId('doc');
     const now = new Date().toISOString();
     const document: DocRecord = {
       id: docId, projectId, companyId: project.companyId || '', type, title,

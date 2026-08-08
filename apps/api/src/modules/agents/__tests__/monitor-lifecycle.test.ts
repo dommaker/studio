@@ -40,9 +40,9 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => {
 });
 
 vi.mock('../../knowledge/knowledge-service.js', () => ({ knowledgeService: {} }));
-vi.mock('../triage.service.js', () => ({ triageService: { handleAlert: vi.fn(() => Promise.resolve()) } }));
+vi.mock('../triage/triage.service.js', () => ({ triageService: { handleAlert: vi.fn(() => Promise.resolve()) } }));
 
-import { precipitate, dataLifecycle } from '../monitor-lifecycle.js';
+import { precipitate, dataLifecycle } from '../monitor/monitor-lifecycle.js';
 
 function makeFileStore(overrides: Record<string, unknown> = {}): any {
   return {

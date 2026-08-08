@@ -4,7 +4,7 @@
 
 ## 职责
 
-本目录提供 studio-notification 包的核心代码，包含通知的创建、查询、标记。服务层基于 FileStore 实现持久化通知管理。
+本目录提供 studio-notification 包的核心代码，包含通知的创建、查询、标记，服务层基于 FileStore 实现持久化通知管理。
 
 ## 核心导出
 
@@ -16,7 +16,7 @@
 ## 依赖关系
 
 上游：依赖 `@dommaker/studio-shared`（FileStore, logger）、`node:path`、`node:os`。
-下游：被 `apps/api` 模块引用，具体文件：`apps/api/src/modules/agents/auditor-execution.ts`、`apps/api/src/modules/notifications/routes.ts`、`apps/api/src/modules/spec-reviews/spec-review.service.ts`。
+下游：被 `apps/api` 模块引用，具体文件：`apps/api/src/modules/agents/auditor-execution.ts`、`apps/api/src/modules/notifications/routes.ts`。
 
 ## 注意事项
 

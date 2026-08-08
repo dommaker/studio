@@ -129,86 +129,25 @@ api.interceptors.response.use(
   }
 );
 
-// Task API (backend route: /workunits)
-export const taskApi = {
-  create: (data: any) => api.post('/workunits', data),
-  list: (params?: any) => api.get('/workunits', { params }),
-  get: (id: string) => api.get(`/workunits/${id}`),
-  update: (id: string, data: any) => api.put(`/workunits/${id}`, data),
-  cancel: (id: string) => api.post(`/workunits/${id}/cancel`),
-};
-
-// Agent API
+// Agent API（仅 list 有调用方：stores/agentStore.ts）
 export const agentApi = {
   list: (params?: { category?: string; page?: number; limit?: number }) =>
     api.get('/agents', { params }),
-  get: (id: string, version?: string) =>
-    api.get(`/agents/${id}`, { params: { version } }),
-  create: (data: any) => api.post('/agents', data),
-  update: (id: string, version: string, data: any) =>
-    api.put(`/agents/${id}`, data, { params: { version } }),
-  delete: (id: string, version: string) =>
-    api.delete(`/agents/${id}`, { params: { version } }),
 };
 
 // Workflow Runtime API（已迁移到本地模块，Workflow CRUD 已删除）
 export const runtimeWorkflowApi = {
-  execute: (workflowId: string, inputs: Record<string, any>, options?: any) =>
+  execute: (workflowId: string, inputs: Record<string, unknown>, options?: Record<string, unknown>) =>
     api.post('/executions', { workflowId, parameters: { inputs, ...options } }),
   getStatus: (executionId: string) => api.get(`/executions/${executionId}`),
   listExecutions: (options?: { page?: number; limit?: number }) =>
     api.get('/executions', { params: options }),
   getExecution: (id: string) => api.get(`/executions/${id}`),
-  listSteps: () => api.get('/skills'),
-  listSkills: () => api.get('/skills'),
-  // 配置
-  getConfig: () => api.get('/runtime-config'),
-  updateConfig: (data: {
-    discordWebhook?: string;
-    discordEnabled?: boolean;
-    agents?: {
-      codex: { apiKey: string; endpoint?: string };
-      claude: { apiKey: string; endpoint?: string };
-    };
-    llm?: {
-      openai: { apiKey: string; enabled: boolean };
-      hunyuan: { apiKey: string; enabled: boolean };
-    };
-    defaultIntentLLM?: 'openai' | 'hunyuan';
-    contextMonitor?: {
-      enabled: boolean;
-      warningThreshold: number;
-      criticalThreshold: number;
-    };
-  }) => api.post('/runtime-config', data),
   // 项目
   listProjects: () => api.get('/pmo/project'),
   createProject: (data: { name: string; path: string; type?: string; description?: string }) =>
     api.post('/pmo/project', data),
   deleteProject: (id: string) => api.delete(`/pmo/project/${id}`),
-};
-
-// Superpowers API - 铁律、检查点（通过 agent-studio 代理到 agent-runtime）
-export const superpowersApi = {
-  // 铁律
-  listIronLaws: () => api.get('/iron-laws'),
-  getIronLaw: (id: string) => api.get(`/iron-laws/${id}`),
-  checkIronLaw: (data: {
-    operation: string;
-    workflowId?: string;
-    stepId?: string;
-    taskDescription?: string;
-    hasRootCauseInvestigation?: boolean;
-    hasVerificationEvidence?: boolean;
-    hasTest?: boolean;
-    hasFailingTest?: boolean;
-  }) => api.post('/iron-laws/check', data),
-
-  // 技能（CSO 优化后）
-  listSkills: () => api.get('/skills'),
-  
-  // CSO 验证
-  validateCSO: () => api.get('/cso/validate'),
 };
 
 // Auth API - 认证系统

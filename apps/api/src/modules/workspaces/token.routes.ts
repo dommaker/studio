@@ -9,7 +9,7 @@
 
 import { Router, Request, Response } from 'express';
 import crypto from 'crypto';
-import { FileStore } from '@dommaker/studio-shared';
+import { FileStore, generateId } from '@dommaker/studio-shared';
 import { logger } from '../../utils/logger.js';
 import { requireAuth, requireAdmin } from '../../middleware/auth.js';
 import * as path from 'node:path';
@@ -99,7 +99,7 @@ router.post('/', requireAuth(), requireAdmin(), async (req: Request, res: Respon
     const tokenHash = hashToken(plaintextToken);
 
     // Create both by-id and by-hash files for dual-lookup compatibility
-    const tokenId = `wt_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+    const tokenId = generateId('wt');
     const now = new Date().toISOString();
     const tokenData = {
       id: tokenId,

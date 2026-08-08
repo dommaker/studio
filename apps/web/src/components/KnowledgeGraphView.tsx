@@ -12,50 +12,14 @@ import {
 } from '@xyflow/react';
 import type { Edge, Node } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
+import { applySimpleLayout } from './knowledge/graphUtils';
+import type { KnowledgeGraph } from './knowledge/graphUtils';
 import { useTheme } from '../contexts/ThemeContext';
 
-/**
- * 知识图谱节点数据
- */
-export interface KnowledgeNode {
-  id: string;
-  type: 'function' | 'class' | 'module' | 'file' | 'concept' | 'config' | 'service' | 'endpoint' | 'table';
-  name: string;
-  filePath?: string;
-  lineRange?: [number, number];
-  summary: string;
-  tags: string[];
-  complexity: 'simple' | 'moderate' | 'complex';
-}
-
-/**
- * 知识图谱边数据
- */
-export interface KnowledgeEdge {
-  source: string;
-  target: string;
-  type: 'calls' | 'imports' | 'contains' | 'inherits' | 'depends_on' | 'related';
-  weight: number;
-}
-
-/**
- * 架构层级
- */
-export interface Layer {
-  id: string;
-  name: string;
-  description: string;
-  nodeIds: string[];
-}
-
-/**
- * 知识图谱数据
- */
-export interface KnowledgeGraph {
-  nodes: KnowledgeNode[];
-  edges: KnowledgeEdge[];
-  layers: Layer[];
-}
+// 图谱数据类型与纯函数（布局/diff 分析/构建）已抽至 components/knowledge/graphUtils（工单 34-E5）；
+// 此处仅保留类型 re-export 门面（既有 import 路径如 WikiPage 不受影响）；
+// buildKnowledgeGraphFromAnalysis / analyzeDiffImpact 无经本文件的 import 方，请直接从 graphUtils 导入。
+export type { KnowledgeNode, KnowledgeEdge, Layer, KnowledgeGraph } from './knowledge/graphUtils';
 
 interface KnowledgeGraphViewProps {
   graph: KnowledgeGraph;
@@ -94,7 +58,19 @@ const COMPLEXITY_COLORS: Record<string, string> = {
 /**
  * 自定义节点组件
  */
-function CustomKnowledgeNode({ data }: { data: any }) {
+interface CustomKnowledgeNodeData {
+  label: string;
+  nodeType: string;
+  summary: string;
+  complexity: string;
+  isSelected: boolean;
+  isHighlighted: boolean;
+  isDiffChanged: boolean;
+  isDiffAffected: boolean;
+  isDiffFaded: boolean;
+}
+
+function CustomKnowledgeNode({ data }: { data: CustomKnowledgeNodeData }) {
   const {
     label,
     nodeType,
@@ -173,112 +149,6 @@ const nodeTypes = {
 };
 
 /**
- * 布局算法（简化的 dagre）
- */
-function applySimpleLayout(nodes: Node[], edges: Edge[]): { nodes: Node[]; edges: Edge[] } {
-  const nodeWidth = 160;
-  const nodeHeight = 80;
-  const horizontalGap = 50;
-  const verticalGap = 30;
-
-  // 构建邻接表
-  const adjList = new Map<string, string[]>();
-  const inDegree = new Map<string, number>();
-
-  nodes.forEach((n) => {
-    adjList.set(n.id, []);
-    inDegree.set(n.id, 0);
-  });
-
-  edges.forEach((e) => {
-    adjList.get(e.source)?.push(e.target);
-    inDegree.set(e.target, (inDegree.get(e.target) || 0) + 1);
-  });
-
-  // 拓扑排序层级
-  const levels: string[][] = [];
-  const visited = new Set<string>();
-  const queue: string[] = [];
-
-  // 找到所有入度为 0 的节点
-  nodes.forEach((n) => {
-    if ((inDegree.get(n.id) || 0) === 0) {
-      queue.push(n.id);
-    }
-  });
-
-  while (queue.length > 0 || visited.size < nodes.length) {
-    const level: string[] = [];
-    const nextQueue: string[] = [];
-
-    queue.forEach((id) => {
-      if (!visited.has(id)) {
-        visited.add(id);
-        level.push(id);
-
-        adjList.get(id)?.forEach((target) => {
-          const newInDegree = (inDegree.get(target) || 1) - 1;
-          inDegree.set(target, newInDegree);
-          if (newInDegree === 0 && !visited.has(target)) {
-            nextQueue.push(target);
-          }
-        });
-      }
-    });
-
-    if (level.length > 0) {
-      levels.push(level);
-    }
-
-    queue.length = 0;
-    queue.push(...nextQueue);
-
-    // 处理孤立节点
-    if (queue.length === 0 && visited.size < nodes.length) {
-      nodes.forEach((n) => {
-        if (!visited.has(n.id)) {
-          visited.add(n.id);
-          if (levels.length === 0) {
-            levels.push([n.id]);
-          } else {
-            levels[levels.length - 1].push(n.id);
-          }
-        }
-      });
-    }
-  }
-
-  // 分配位置
-  const positionedNodes = nodes.map((node) => {
-    let levelIndex = 0;
-    let posInLevel = 0;
-
-    for (let i = 0; i < levels.length; i++) {
-      const idx = levels[i].indexOf(node.id);
-      if (idx !== -1) {
-        levelIndex = i;
-        posInLevel = idx;
-        break;
-      }
-    }
-
-    const levelSize = levels[levelIndex]?.length || 1;
-    const levelWidth = levelSize * (nodeWidth + horizontalGap);
-    const startX = -levelWidth / 2;
-
-    return {
-      ...node,
-      position: {
-        x: startX + posInLevel * (nodeWidth + horizontalGap),
-        y: levelIndex * (nodeHeight + verticalGap),
-      },
-    };
-  });
-
-  return { nodes: positionedNodes, edges };
-}
-
-/**
  * 内部视图组件
  */
 function KnowledgeGraphViewInner({
@@ -345,7 +215,7 @@ function KnowledgeGraphViewInner({
       prevEdgesJson.current = edgesJson;
       setEdges(initialEdges);
     }
-  }, [initialNodes, initialEdges]);
+  }, [initialNodes, initialEdges, setNodes, setEdges]);
 
   // 选中节点时聚焦
   useEffect(() => {
@@ -423,67 +293,4 @@ export default function KnowledgeGraphView(props: KnowledgeGraphViewProps) {
       <KnowledgeGraphViewInner {...props} />
     </ReactFlowProvider>
   );
-}
-
-/**
- * 构建知识图谱的工具函数
- */
-export function buildKnowledgeGraphFromAnalysis(analysis: {
-  nodes: KnowledgeNode[];
-  edges: KnowledgeEdge[];
-  layers?: Layer[];
-}): KnowledgeGraph {
-  return {
-    nodes: analysis.nodes,
-    edges: analysis.edges,
-    layers: analysis.layers || [],
-  };
-}
-
-/**
- * 分析 Git diff 影响范围
- */
-export function analyzeDiffImpact(
-  graph: KnowledgeGraph,
-  changedFiles: string[],
-): {
-  changedNodes: KnowledgeNode[];
-  affectedNodes: KnowledgeNode[];
-  impactedEdges: KnowledgeEdge[];
-} {
-  const changedNodeIds = new Set<string>();
-
-  // 映射变更文件到节点
-  for (const file of changedFiles) {
-    for (const node of graph.nodes) {
-      if (node.filePath === file) {
-        changedNodeIds.add(node.id);
-      }
-    }
-  }
-
-  const changedNodes = graph.nodes.filter((n) => changedNodeIds.has(n.id));
-
-  // 查找受影响节点
-  const affectedNodeIds = new Set<string>();
-  const impactedEdges: KnowledgeEdge[] = [];
-
-  for (const edge of graph.edges) {
-    const sourceChanged = changedNodeIds.has(edge.source);
-    const targetChanged = changedNodeIds.has(edge.target);
-
-    if (sourceChanged || targetChanged) {
-      impactedEdges.push(edge);
-      if (sourceChanged && !changedNodeIds.has(edge.target)) {
-        affectedNodeIds.add(edge.target);
-      }
-      if (targetChanged && !changedNodeIds.has(edge.source)) {
-        affectedNodeIds.add(edge.source);
-      }
-    }
-  }
-
-  const affectedNodes = graph.nodes.filter((n) => affectedNodeIds.has(n.id));
-
-  return { changedNodes, affectedNodes, impactedEdges };
 }

@@ -228,7 +228,7 @@ export interface ApproveChangeInput {
 }
 
 /**
- * Spec 内容类型（从 validation.types.ts 导入）
+ * Spec 内容类型（解析后）
  */
 export interface SpecContent {
   metadata: {

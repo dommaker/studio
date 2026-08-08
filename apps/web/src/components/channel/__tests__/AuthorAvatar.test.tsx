@@ -1,6 +1,6 @@
 // AuthorAvatar - 频道消息作者头像：人类=品牌色+首字/头像图，Agent=名字 hash 稳定色+首字
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render } from '@testing-library/react';
 
 const { mockUseAuthStore } = vi.hoisted(() => ({ mockUseAuthStore: vi.fn() }));
 vi.mock('../../../stores/authStore', () => ({

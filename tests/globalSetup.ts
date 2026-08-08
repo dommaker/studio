@@ -1,8 +1,12 @@
 /**
  * Vitest global setup — starts API server for E2E tests
  *
- * Spawns npx tsx apps/api/src/index.ts on port 13101,
- * waits for TCP readiness, then kills on teardown.
+ * Spawns tsx apps/api/src/index.ts on port 13001,
+ * waits for TCP readiness, then kills the process group on teardown.
+ *
+ * NOTE: 不要恢复 npx 包装层 —— npx→npm exec→sh→tsx→node 链不转发信号，
+ * teardown 的信号到不了真正的 server 进程，会导致孤儿进程持有继承的
+ * stdout/stderr 管道写端，vitest 主进程拿不到 EOF 而 close 超时。
  */
 
 import { spawn, type ChildProcess } from 'child_process';
@@ -78,8 +82,9 @@ export async function setup() {
   const isolatedRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'studio-e2e-data-'));
 
   serverProcess = spawn(
-    'npx',
-    ['tsx', 'apps/api/src/index.ts'],
+    // 方案 B：直接 spawn tsx，去掉 npx 包装层（npx→npm exec→sh 链不转发信号）
+    path.resolve(process.cwd(), 'node_modules/.bin/tsx'),
+    ['apps/api/src/index.ts'],
     {
       env: {
         ...process.env,
@@ -91,7 +96,8 @@ export async function setup() {
         STUDIO_EVENTS_DIR: path.join(isolatedRoot, 'events'),
       },
       stdio: ['ignore', 'pipe', 'pipe'],
-      detached: false,
+      // 方案 A：独立进程组，teardown 用负 pid 杀整组，信号直达真正的 server 进程
+      detached: true,
     },
   );
 
@@ -114,11 +120,32 @@ export async function setup() {
   } catch (err) {
     console.error('[globalSetup] Failed to start API server:', err);
     if (serverProcess) {
-      serverProcess.kill('SIGTERM');
+      killProcessGroup(serverProcess.pid, 'SIGKILL');
       serverProcess = null;
     }
     // Don't throw — let tests run (they'll skip/fail if no server)
   }
+}
+
+// 方案 A：向整个进程组发信号（detached: true 后子进程是组长，
+// 负 pid = 组杀），绕过任何不转发信号的中间包装层。
+function killProcessGroup(pid: number | undefined, signal: NodeJS.Signals): void {
+  if (pid === undefined) return;
+  try {
+    process.kill(-pid, signal);
+  } catch {
+    // 进程组已不存在
+  }
+}
+
+function waitForExit(child: ChildProcess, timeout: number): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(), timeout);
+    child.once('exit', () => {
+      clearTimeout(timer);
+      resolve();
+    });
+  });
 }
 
 let isTeardownCalled = false;
@@ -130,14 +157,13 @@ export async function teardown() {
 
   if (serverProcess) {
     console.log('\n[globalSetup] Stopping API server...');
-    serverProcess.kill('SIGTERM');
-    // Give it a moment to clean up
-    await new Promise((r) => setTimeout(r, 2000));
-    try {
-      serverProcess.kill('SIGKILL');
-    } catch {
-      // Already dead
-    }
+    killProcessGroup(serverProcess.pid, 'SIGTERM');
+    // server 自身有优雅关闭 + 5s 兜底，7s 内必然退出
+    await waitForExit(serverProcess, 7000);
+    killProcessGroup(serverProcess.pid, 'SIGKILL');
+    // 主动销毁继承的管道流，确保父进程读到 EOF、句柄释放
+    serverProcess.stdout?.destroy();
+    serverProcess.stderr?.destroy();
     serverProcess = null;
   }
 }

@@ -1,6 +1,6 @@
 // F5 双向沟通：waiting-input（挂起恢复 + 超时提醒）测试
 // 约定与 message-routing.test.ts 一致：真实 FileStore（tmpdir）+ 真实 WorkUnitService
-import { describe, it, expect, beforeEach, afterAll } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -12,6 +12,15 @@ import {
   scanWaitingForInputReminders,
   getReminderThresholdMs,
 } from '../waiting-input.js';
+
+const { mockPostWuSystemMessage } = vi.hoisted(() => ({ mockPostWuSystemMessage: vi.fn() }));
+
+// wu-messenger 间谍包装：真实发送保留（消息断言不受影响），另断言委托参数（milestone 等）
+vi.mock('../wu-messenger.js', async (importOriginal) => {
+  const orig = await importOriginal() as { postWuSystemMessage: (...args: unknown[]) => Promise<unknown> };
+  mockPostWuSystemMessage.mockImplementation(orig.postWuSystemMessage);
+  return { ...orig, postWuSystemMessage: mockPostWuSystemMessage };
+});
 
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'waiting-input-test-'));
 let fileStore: FileStore;
@@ -58,6 +67,7 @@ async function createParkedWorkUnit(overrides?: Partial<WorkUnitMetadata>, waiti
 }
 
 beforeEach(async () => {
+  mockPostWuSystemMessage.mockClear(); // 清调用记录（保留间谍包装的实现）
   fs.rmSync(tmpDir, { recursive: true, force: true });
   fs.mkdirSync(tmpDir, { recursive: true });
   fileStore = new FileStore(tmpDir);
@@ -141,8 +151,12 @@ describe('scanWaitingForInputReminders', () => {
     expect(reminders[0].content).toContain('使用 OAuth 还是账号密码？');
     expect(reminders[0].authorType).toBe('agent');
     expect(reminders[0].replyToId).toBe(anchor.id); // 挂在同一线程
-    // 2026-07 PMO-flow UX §10：超时提醒带里程碑 meta（无 reqId 归属 → 不携带 pmoId）
-    expect(JSON.parse(reminders[0].meta)).toEqual({ atHuman: true });
+    // 2026-07 PMO-flow UX §10：超时提醒 → 以里程碑消息委托 wu-messenger
+    expect(mockPostWuSystemMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ id: wu.id }),
+      expect.stringContaining('正在等待你的回复'),
+      expect.objectContaining({ milestone: true, fileStore }),
+    );
     expect(metaOf(await findWu(wu.id)).waitingReminded).toBe(true);
   });
 
