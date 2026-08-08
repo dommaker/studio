@@ -52,7 +52,6 @@
 | change.types | packages/studio-spec/src/types/change.types.ts | Spec 变更分级类型定义 |
 | gate.types | packages/studio-spec/src/types/gate.types.ts | 门禁类型定义 |
 | docs-freshness.routes | apps/api/src/modules/admin/docs-freshness.routes.ts | T-020 + T-059: CLAUDE.md + CAPABILITIES.md Freshness Check |
-| routes | apps/api/src/modules/agent-configs/routes.ts | agent-configs/routes.ts — Agent Manager + Version Control (HZ-024, HZ-025) |
 | auditor.service | apps/api/src/modules/agents/auditor/auditor.service.ts | Auditor Service — 跨任务审计 + 周期洞察 |
 | knowledge-curator.service | apps/api/src/modules/agents/knowledge/knowledge-curator.service.ts | Knowledge Curator - 知识库冷启动 + F1 每日维护 + 提取 prompt 单一来源 |
 | monitor.service | apps/api/src/modules/agents/monitor/monitor.service.ts | Monitor Service - 健康监控 + 渐进告警 + G31 知识沉淀闸门(precipitate→TTL) |
