@@ -116,7 +116,7 @@ function WuDetail({ id, onOpenReq }: { id: string; onOpenReq: (reqId: string) =>
   useEffect(() => {
     let alive = true;
     workunitApi.get(id)
-      .then(r => { if (alive) setWu(r.data); })
+      .then(r => { if (alive) { setWu(r.data); setError(''); } })
       .catch(e => { if (alive) setError(e instanceof Error ? e.message : String(e)); });
     workunitApi.listTokenEvents()
       .then(r => { if (alive) setTokens(parseWorkunitTokenEvents(r.data.events || [], id)); })
