@@ -75,7 +75,7 @@ export function KnowledgePage() {
     try {
       if (type === 'resolution') {
         const res = await knowledgeApi.listResolutions();
-        setGapData((res.data.resolutions || []) as GapItem[]);
+        setGapData((res.data.resolutions || []) as unknown as GapItem[]);
       } else {
         const res = await knowledgeApi.listGaps(type as KnowledgeGapType);
         setGapData((res.data.data || []) as GapItem[]);

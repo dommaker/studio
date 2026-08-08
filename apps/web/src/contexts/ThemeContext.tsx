@@ -3,6 +3,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { ThemeContext, useTheme, type Theme } from './useTheme';
 
 export type { Theme } from './useTheme';
+export { ThemeContext, useTheme } from './useTheme';
 
 const THEME_STORAGE_KEY = 'agent-studio-theme';
 
