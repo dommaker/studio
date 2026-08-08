@@ -8,12 +8,12 @@ apps/api 各模块共享的纯函数工具，不承载业务状态。
 
 ## 核心导出
 
-- `failure-classifier.ts` — Failure classifier（B1-007）：对错误消息做模式匹配，归类错误标签
+（当前无共享导出；原 `failure-classifier.ts` 已删除，错误归类由 `triage/error-class.ts` 承接）
 
 ## 依赖关系
 
 - 上游：无（纯代码）
-- 下游：apps/api 内各模块（triage、agents 等错误处理路径）
+- 下游：apps/api 内各模块
 
 ## 注意事项
 

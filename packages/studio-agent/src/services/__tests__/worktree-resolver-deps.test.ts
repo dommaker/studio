@@ -43,10 +43,6 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => {
   return { ...actual, logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } };
 });
 
-vi.mock('@dommaker/studio-prisma', () => ({
-  prisma: {},
-}));
-
 import { ensureDeps } from '../worktree-resolver.js';
 
 function makeLockfileError(msg: string): Error {

@@ -137,14 +137,12 @@ export const agentApi = {
 
 // Workflow Runtime API（已迁移到本地模块，Workflow CRUD 已删除）
 export const runtimeWorkflowApi = {
-  get: (id: string) => api.get(`/workflows/${id}`),
   execute: (workflowId: string, inputs: Record<string, unknown>, options?: Record<string, unknown>) =>
     api.post('/executions', { workflowId, parameters: { inputs, ...options } }),
   getStatus: (executionId: string) => api.get(`/executions/${executionId}`),
   listExecutions: (options?: { page?: number; limit?: number }) =>
     api.get('/executions', { params: options }),
   getExecution: (id: string) => api.get(`/executions/${id}`),
-  listWorkflows: () => api.get('/workflows'),
   // 项目
   listProjects: () => api.get('/pmo/project'),
   createProject: (data: { name: string; path: string; type?: string; description?: string }) =>
@@ -292,8 +290,6 @@ export const wikiApi = {
 export const workspaceApi = {
   list: () => api.get('/workspaces'),
   get: (id: string) => api.get(`/workspaces/${id}`),
-  discover: (id: string, path: string, timeout?: number) =>
-    api.get(`/workspaces/${id}/discover`, { params: { path, timeout } }),
 };
 
 // Workspace Token API — AS-020 P2-05/P7-03

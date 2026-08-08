@@ -1,9 +1,12 @@
 /**
- * Worktree Resolver — git worktree 创建 + harness 配置传播 + 依赖缓存
+ * Worktree Resolver — git worktree 创建/复用/清理 + harness 配置传播 + 依赖缓存
  *
  * P11-02: Extracted from agent-executor.ts
  * Wave-4: prompt/文件桥内容（buildCachePrefix/writeRequirementsMd/writeContractTests）
  * 移至 runner-briefing.ts；本模块只保留 git/依赖生命周期。
+ * （origin/master 曾将 scaffolding 写入同类抽为 worktree-scaffolding.ts；
+ *  合并后该拆分产物随 session-manager 簇一并删除，runner-briefing.ts 为文件桥唯一事实源，
+ *  ensureDeps 留在本模块。）
  */
 
 import * as path from 'path';

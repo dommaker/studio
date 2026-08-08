@@ -37,32 +37,30 @@
 | node | packages/studio-shared/src/node.ts | Node.js 专用入口 — 包含 CLI 和 Config 模块 |
 | goal-status | packages/studio-shared/src/types/goal-status.ts | Goal 状态类型 — SQLite 不支持 enum，用 TypeScript 类型守卫约束 |
 | resolution | packages/studio-shared/src/types/resolution.ts | Resolution types — RKB (Resolution Knowledge Base) |
-
+| stance | packages/studio-shared/src/types/stance.ts | 立场系统类型定义 |
 | logger | packages/studio-shared/src/utils/logger.ts | Shared Logger - 统一日志接口 |
-
 | process-io | packages/studio-shared/src/utils/process-io.ts | Process I/O utilities — spawn, session-id persistence, file bridge |
-
 | spec-parser | packages/studio-shared/src/utils/spec-parser.ts | Spec Markdown 解析器 |
 | loader | packages/studio-skill/src/loader.ts | SkillLoader — 按 trigger 加载 Skill，注入 Agent prompt |
 | types | packages/studio-skill/src/types.ts | Skill 定义类型 |
-
 | change-analyzer.service.test | packages/studio-spec/src/services/change-analyzer.service.test.ts | ChangeAnalyzerService 单元测试 |
 | change-analyzer.service | packages/studio-spec/src/services/change-analyzer.service.ts | 变更分析服务 |
 | change-history.service.test | packages/studio-spec/src/services/change-history.service.test.ts | ChangeHistoryService 单元测试 |
 | change-history.service | packages/studio-spec/src/services/change-history.service.ts | 变更历史服务 |
 | gate-checker.service.test | packages/studio-spec/src/services/gate-checker.service.test.ts | GateCheckerService 单元测试 |
 | gate-checker.service | packages/studio-spec/src/services/gate-checker.service.ts | 门禁检查服务 |
-
 | change.types | packages/studio-spec/src/types/change.types.ts | Spec 变更分级类型定义 |
 | gate.types | packages/studio-spec/src/types/gate.types.ts | 门禁类型定义 |
-
 | docs-freshness.routes | apps/api/src/modules/admin/docs-freshness.routes.ts | T-020 + T-059: CLAUDE.md + CAPABILITIES.md Freshness Check |
+| routes | apps/api/src/modules/agent-configs/routes.ts | agent-configs/routes.ts — Agent Manager + Version Control (HZ-024, HZ-025) |
 | auditor.service | apps/api/src/modules/agents/auditor/auditor.service.ts | Auditor Service — 跨任务审计 + 周期洞察 |
 | knowledge-curator.service | apps/api/src/modules/agents/knowledge/knowledge-curator.service.ts | Knowledge Curator - 知识库冷启动 + F1 每日维护 + 提取 prompt 单一来源 |
 | monitor.service | apps/api/src/modules/agents/monitor/monitor.service.ts | Monitor Service - 健康监控 + 渐进告警 + G31 知识沉淀闸门(precipitate→TTL) |
 | ops.service | apps/api/src/modules/agents/ops/ops.service.ts | Ops Service — 系统生命周期守护 |
 | ops-rules | apps/api/src/modules/agents/ops/ops-rules.ts | Ops Rules — 运行时数据，不在代码里 |
 | requirement-gate | apps/api/src/modules/agents/requirement-gate.ts | RequirementGate — RequirementsDoc 质量门 (2026-05-21) |
+| review.service | apps/api/src/modules/agents/review.service.ts | Review Service - 跨分支 diff 多立场审查（/review/diff 管理端点）+ G33 非阻断发现自动曝光 |
+| review-report | apps/api/src/modules/agents/review-report.ts | 审查报告类型定义 |
 | routes | apps/api/src/modules/agents/routes.ts | Agent API 路由 |
 | session-summary.service | apps/api/src/modules/agents/session-summary.service.ts | SessionSummaryService — 会话级知识提取 (2026-05-25) |
 | triage.service | apps/api/src/modules/agents/triage/triage.service.ts | Triage Service — incident response: diagnose → classify → act → resolve/escalate |
@@ -120,17 +118,16 @@
 | error-class | apps/api/src/modules/triage/error-class.ts | Triage ErrorClass — B1-007: 八类错误标签 + 严重度三级 + 策略路由 |
 | wiki.routes | apps/api/src/modules/wiki/wiki.routes.ts | GET /api/v1/wiki |
 | channel | apps/web/src/api/channel.ts | Channel API — list + publish 发布 |
-
 | useChannelEvents | apps/web/src/hooks/useChannelEvents.ts | Channel SSE hook — B2: EventSource 实时推送替代 3s 轮询 |
-
+| useGlobalModals | apps/web/src/hooks/useGlobalModals.ts | 全局弹窗状态 hook |
+| useWebSocketHandlers | apps/web/src/hooks/useWebSocketHandlers.ts | WebSocket 事件处理 hook |
 | agentStore | apps/web/src/stores/agentStore.ts | agentStore |
 | authStore | apps/web/src/stores/authStore.ts | 认证状态管理 - Auth Store (Zustand) |
 | runtimeStore | apps/web/src/stores/runtimeStore.ts | runtimeStore |
 | uiStore | apps/web/src/stores/uiStore.ts | uiStore |
 | setup | apps/web/src/test/setup.ts | setup |
-| canvas | apps/web/src/types/canvas.ts | 共享画布类型（xyflow 兼容，避免直接导入 xyflow 打包） |
 | types | apps/web/src/types.ts | types.ts - Agent Studio 类型定义 |
-
+| api | apps/web/src/utils/api.ts | 获取 API 基础 URL |
 | format | apps/web/src/utils/format.ts | 格式化 Token 数量 |
 | toast | apps/web/src/utils/toast.ts | Lightweight toast notification system (zero dependencies) |
 
@@ -142,21 +139,17 @@
 
 | daemon-routes | apps/api/src/modules/workspaces/daemon-routes.ts | Daemon Routes — AS-020 P5: HTTP Claim + Event Reporting |
 | local-workspace | apps/api/src/modules/workspaces/local-workspace.ts | Local Workspace Registration — AS-020 P2-04 |
-| task-routes | apps/api/src/modules/workspaces/task-routes.ts | Task Routes — AS-020 P5: UI/Server task management |
 | token.routes | apps/api/src/modules/workspaces/token.routes.ts | Workspace Token Routes — AS-020 P2-05: Token management (admin) |
 | workspace.routes | apps/api/src/modules/workspaces/workspace.routes.ts | Workspace Routes — AS-020 P2: Workspace registration + heartbeat + token management |
-| ws-gateway | apps/api/src/modules/workspaces/ws-gateway.ts | WebSocket Gateway — AS-020 P4: Daemon persistent connection |
 | agent-runner | packages/studio-agent/src/services/agent-runner.ts | Agent Runner — unified executor merging AgentExecutor + TaskExecutor |
 
 | stream-json-parser | packages/studio-shared/src/llm/stream-json-parser.ts | Stream-JSON Parser — 解析 Claude CLI --output-format stream-json 输出 |
-| failure-classifier | apps/api/src/modules/shared/failure-classifier.ts | Failure classifier — pattern matching on error messages |
 
 | unified-query | apps/api/src/modules/knowledge/engine/unified-query.ts | UnifiedQuery — dual-store unified query layer. |
 | knowledge-service.routes | apps/api/src/modules/knowledge/knowledge-service.routes.ts | KnowledgeService HTTP API + SSE |
 | knowledge-service | apps/api/src/modules/knowledge/knowledge-service.ts | KnowledgeService — Unified knowledge capability layer |
 | signal-aggregator | apps/api/src/modules/knowledge/signal-aggregator.ts | Signal Aggregator — 原始 signal 条目 → 趋势聚合摘要（≥3次/7天） |
 | external-fetcher | apps/api/src/modules/knowledge/producers/external-fetcher.ts | ExternalFetcher — fetch external docs and ingest as reference knowledge. |
-
 | sdd-utils | packages/studio-shared/src/utils/sdd-utils.ts | SDD 工具函数 — frontmatter 解析 + slug 生成 |
 
 | agent-instance.routes | apps/api/src/modules/agents/agent-instance.routes.ts | RuntimeInstance API 路由 (AS-026 AC-1) |
@@ -191,7 +184,6 @@
 | system-health | apps/api/src/modules/agents/ops/system-health.ts | 系统健康采集模块（纯代码，零 LLM） |
 | convert-to-task.service | apps/api/src/modules/channels/convert-to-task.service.ts | AC-E2: Convert to Task Service |
 | message-routing | apps/api/src/modules/channels/message-routing.ts | Message routing logic for channel messages (AC-B1-B4). |
-
 | project-discovery.service | apps/api/src/modules/projects/project-discovery.service.ts | AC-D1+D3: Project Discovery Service |
 | project.routes | apps/api/src/modules/projects/project.routes.ts | AC-D3: Project Discovery API |
 | providers | packages/studio-shared/src/providers.ts | Provider Registry — single source of truth for agent CLI providers (F4) |
@@ -338,3 +330,33 @@
 | statusClasses | apps/web/src/components/channel/statusClasses.ts | 频道/agent 状态点样式映射（从 ChannelRail.tsx 拆出，供 ChannelRail 与 ChannelListPage 共用） |
 | dismissed | apps/web/src/components/setup/dismissed.ts | 角色配置引导弹框的会话级 dismiss 标记（sessionStorage key 与检查函数； |
 | useTheme | apps/web/src/contexts/useTheme.ts | 使用主题 Hook |
+| prerequisite-checks | packages/studio-agent/src/services/prerequisite-checks.ts | Prerequisite Checks — 执行前置检查（session-manager.ts 拆分模块） |
+| prompt-builder | packages/studio-agent/src/services/prompt-builder.ts | Prompt Builder — Agent prompt 构建（session-manager.ts 拆分模块） |
+| worktree-scaffolding | packages/studio-agent/src/services/worktree-scaffolding.ts | Worktree Scaffolding — worktree 内的脚手架写入：REQUIREMENTS.md / 契约测试 / 依赖缓存安装 |
+| channels-codec | packages/studio-shared/src/channels-codec.ts | channels/members 字段编解码（F3，从 file-store.ts 抽出） |
+| file-store-base | packages/studio-shared/src/file-store-base.ts | FileStoreBase — FileStore 的底层原语层（从 file-store.ts 抽出） |
+| file-store-types | packages/studio-shared/src/file-store-types.ts | file-store 数据类型定义（从 file-store.ts 抽出） |
+| file-store-workunit | packages/studio-shared/src/file-store-workunit.ts | FileStoreWorkUnitBase — FileStore 的 WorkUnit 事件溯源层（从 file-store.ts 抽出） |
+| frontmatter | packages/studio-shared/src/frontmatter.ts | 解析 markdown 文件的 YAML frontmatter。 |
+| agent-knowledge-analysis | apps/api/src/modules/agents/agent-knowledge-analysis.ts | Analyze agent log for knowledge search behavior. |
+| agent-loop-instance-state | apps/api/src/modules/agents/agent-loop-instance-state.ts | 2026-07 PMO-flow UX（§6-2）：instance 忙闲变化发 SSE（agent.instance.status_changed）。 |
+| agent-loop-prompts | apps/api/src/modules/agents/agent-loop-prompts.ts | §10 P0: 注入总预算（skill 段 + 知识段共用的 2K 红线）。 |
+| agent-loop-record-result | apps/api/src/modules/agents/agent-loop-record-result.ts | 2026-07 PMO-flow UX（§6-3）：里程碑消息 meta 的归属 PMO 解析。 |
+| agent-loop-session | apps/api/src/modules/agents/agent-loop-session.ts | 首 step（新建会话）执行失败时重置 sessionId：CLI 会话未必已建立（可能根本没 spawn 到）， |
+| agent-loop-step-guards | apps/api/src/modules/agents/agent-loop-step-guards.ts | AgentLoop agentStep 前置守卫（B2 测试特征 WU 关闭 / C3 每日 token 预算熔断）—— |
+| agent-loop-utils | apps/api/src/modules/agents/agent-loop-utils.ts | AgentLoop 进程/git 小工具 —— 从 agent-loop.ts 原样抽出，行为不变。 |
+| agent-loop-workspace | apps/api/src/modules/agents/agent-loop-workspace.ts | B3a 归属链：执行根目录解析 — metadata.workspaceRoot 优先（Requirement→PMO gitRepo / 人工回复绑定的直接路径），否则按 wu.workspaceId 查 workspace 记录（F6 旧路径）。 |
+| agent-output-parser | apps/api/src/modules/agents/agent-output-parser.ts | P0 修复（reviewReport 回传断链）：解析 reviewer 最终输出为结构化审查结论。 |
+| agent-targeting | apps/api/src/modules/agents/agent-targeting.ts | AgentLoop 观察→目标解析（纯代码，零 LLM）—— 从 agent-loop.ts 原样抽出，行为不变。 |
+| workunit-token-events | apps/api/src/modules/agents/workunit-token-events.ts | 非缓存执行 tokens（CLI usage input+output，不含 cache）。CLI 未回报 usage 时传 null —— |
+| wu-test-guards | apps/api/src/modules/agents/wu-test-guards.ts | B2 测试特征 WU 守卫（2026-08-03 token-burn issue P0-1c）—— 从 agent-loop.ts 原样抽出，行为不变。 |
+| conversation-extraction | apps/api/src/modules/knowledge/conversation-extraction.ts | conversation-extraction — R3 会话提取 + 提案审核闭环 |
+| inject-context | apps/api/src/modules/knowledge/inject-context.ts | inject-context — injectContext 的注入闸门与 2K 预算 helpers |
+| knowledge-data-layer | apps/api/src/modules/knowledge/knowledge-data-layer.ts | knowledge-data-layer — KnowledgeService 的数据层（文件系统存取） |
+| knowledge-forms | apps/api/src/modules/knowledge/knowledge-forms.ts | knowledge-forms — 知识形态门禁（form validation gate） |
+| knowledge-metrics | apps/api/src/modules/knowledge/knowledge-metrics.ts | knowledge-metrics — 飞轮/审计的事件流度量（R1/M1） |
+| knowledge-search-helpers | apps/api/src/modules/knowledge/knowledge-search-helpers.ts | knowledge-search-helpers — 关键词检索与 RAG 降级 helpers |
+| knowledge-types | apps/api/src/modules/knowledge/knowledge-types.ts | knowledge-types — KnowledgeService 的 Studio 侧类型与类型映射 |
+| okr-metric-queries | apps/api/src/modules/pmo/okr-metric-queries.ts | OKR metric 查询基类（B8 数据源查询层） |
+| workunit-crud | apps/api/src/modules/workunit/workunit-crud.ts | WorkUnit CRUD + Claim 持久化层 —— WorkUnitService 的基类（自 workunit.service.ts 拆分，纯代码移动）。 |
+| okrUtils | apps/web/src/components/pmo/okrUtils.ts | OKR 度量工具 — 当前季度 / metricType 选项与元数据 / KR 目标校验（从 pages/PMOPage.tsx 抽出，纯代码移动） |

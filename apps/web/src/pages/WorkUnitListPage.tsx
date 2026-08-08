@@ -334,25 +334,30 @@ function WorkUnitRow({
       )}
 
       {showRejectModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowRejectModal(false)}>
-          <div className="u-surface rounded-lg p-4 w-96" onClick={e => e.stopPropagation()}>
-            <h3 className="u-text font-medium mb-3">拒绝原因</h3>
-            <textarea
-              className="w-full px-3 py-2 rounded u-surface-2 u-text border u-border-2 outline-none  text-sm"
-              rows={3}
-              placeholder="输入拒绝原因（可选）"
-              value={rejectReason}
-              onChange={e => setRejectReason(e.target.value)}
-            />
-            <div className="flex gap-2 mt-3 justify-end">
+        <div className="modal-overlay" onClick={() => setShowRejectModal(false)}>
+          <div className="modal" style={{ maxWidth: '24rem' }} onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3 className="modal-title">拒绝原因</h3>
+              <button className="modal-close" onClick={() => setShowRejectModal(false)} aria-label="关闭">×</button>
+            </div>
+            <div className="modal-body">
+              <textarea
+                className="input w-full"
+                rows={3}
+                placeholder="输入拒绝原因（可选）"
+                value={rejectReason}
+                onChange={e => setRejectReason(e.target.value)}
+              />
+            </div>
+            <div className="modal-footer">
               <button
-                className="text-xs px-3 py-1.5 rounded u-surface-2 u-text-3 u-hover-bg"
+                className="btn btn-secondary"
                 onClick={() => { setShowRejectModal(false); setRejectReason(''); }}
               >
                 取消
               </button>
               <button
-                className="text-xs px-3 py-1.5 rounded u-err-dim u-err u-hover-bg"
+                className="btn btn-danger"
                 onClick={() => { onReviewRejected(rejectReason || undefined); setShowRejectModal(false); setRejectReason(''); }}
               >
                 确认拒绝
@@ -368,7 +373,7 @@ function WorkUnitRow({
 function StatBadge({ label, value, color }: { label: string; value: number; color: string }) {
   return (
     <div className="flex items-center gap-2">
-      <span className={`text-lg font-bold ${color}`}>{value}</span>
+      <span className={`font-bold ${color}`} style={{ fontSize: 'var(--fs-stat)' }}>{value}</span>
       <span className="text-sm u-text-3">{label}</span>
     </div>
   );

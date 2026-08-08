@@ -14,6 +14,7 @@ import type { Edge, Node } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { applySimpleLayout } from './knowledge/graphUtils';
 import type { KnowledgeGraph } from './knowledge/graphUtils';
+import { useTheme } from '../contexts/ThemeContext';
 
 // 图谱数据类型与纯函数（布局/diff 分析/构建）已抽至 components/knowledge/graphUtils（工单 34-E5）；
 // 此处仅保留类型 re-export 门面（既有 import 路径如 WikiPage 不受影响）；
@@ -31,18 +32,18 @@ interface KnowledgeGraphViewProps {
 }
 
 /**
- * 节点颜色映射
+ * 节点颜色映射（分类色板 → theme.css `--chart-1…9`，深/浅主题各自取值）
  */
 const NODE_COLORS: Record<string, string> = {
-  function: '#3b82f6', // blue
-  class: '#8b5cf6',    // purple
-  module: '#10b981',   // green
-  file: '#6b7280',     // gray
-  concept: '#f59e0b',  // amber
-  config: '#ef4444',   // red
-  service: '#06b6d4',  // cyan
-  endpoint: '#ec4899', // pink
-  table: '#84cc16',    // lime
+  function: 'var(--chart-1)', // blue
+  class: 'var(--chart-2)',    // purple
+  module: 'var(--chart-3)',   // green
+  file: 'var(--chart-4)',     // gray
+  concept: 'var(--chart-5)',  // amber
+  config: 'var(--chart-6)',   // red
+  service: 'var(--chart-7)',  // cyan
+  endpoint: 'var(--chart-8)', // pink
+  table: 'var(--chart-9)',    // lime
 };
 
 /**
@@ -160,6 +161,7 @@ function KnowledgeGraphViewInner({
   affectedNodeIds = new Set(),
 }: KnowledgeGraphViewProps) {
   const { fitView } = useReactFlow();
+  const { resolvedTheme } = useTheme();
 
   // 构建节点和边
   const { nodes: initialNodes, edges: initialEdges } = useMemo(() => {
@@ -258,14 +260,13 @@ function KnowledgeGraphViewInner({
         fitViewOptions={{ minZoom: 0.01, padding: 0.1 }}
         minZoom={0.01}
         maxZoom={2}
-        colorMode="dark"
+        colorMode={resolvedTheme}
       >
-        <Background variant={BackgroundVariant.Dots} color="#333" gap={20} size={1} />
+        <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
         <Controls />
         <MiniMap
-          nodeColor="#1e293b"
-          maskColor="rgba(0, 0, 0, 0.8)"
-          className="!bg-slate-900 !border !border-slate-700"
+          maskColor={resolvedTheme === 'dark' ? 'rgba(0, 0, 0, 0.8)' : 'rgba(255, 255, 255, 0.7)'}
+          style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-default)' }}
         />
       </ReactFlow>
     </div>
@@ -281,7 +282,7 @@ function KnowledgeGraphViewInner({
 export default function KnowledgeGraphView(props: KnowledgeGraphViewProps) {
   if (!props.graph) {
     return (
-      <div className="h-full w-full flex items-center justify-center bg-slate-900 rounded-lg">
+      <div className="h-full w-full flex items-center justify-center rounded-lg" style={{ background: 'var(--bg-secondary)' }}>
         <p className="u-text-2 text-sm">No knowledge graph loaded</p>
       </div>
     );

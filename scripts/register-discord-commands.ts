@@ -20,34 +20,7 @@ const commands = [
     name: 'studio',
     description: 'Studio 服务管理',
     options: [
-      {
-        name: 'status',
-        description: '查看 daemon 和 Agent 状态',
-        type: 1, // SUB_COMMAND
-      },
-      {
-        name: 'restart',
-        description: '重启 daemon（reload session cache）',
-        type: 1, // SUB_COMMAND
-      },
-      {
-        name: 'log',
-        description: '查看最近日志（最后 20 行）',
-        type: 1, // SUB_COMMAND
-      },
-      {
-        name: 'send',
-        description: '发送 shell 命令到服务器执行',
-        type: 1, // SUB_COMMAND
-        options: [
-          {
-            name: 'command',
-            description: '要执行的命令',
-            type: 3, // STRING
-            required: true,
-          },
-        ],
-      },
+      // send 子命令已下线（2026-08）：任意 shell 执行属安全隐患，重新注册后 Discord 侧即移除
       {
         name: 'run',
         description: '提交需求到 #研发，触发 @Analyst 分析执行',

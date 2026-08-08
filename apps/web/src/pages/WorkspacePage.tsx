@@ -126,49 +126,52 @@ export function WorkspacePage() {
 
       {/* Create role dialog */}
       {selectedRuntime && (
-        <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50">
-          <div className="u-surface rounded-lg shadow-xl p-6 w-96">
-            <h3 className="text-lg font-semibold mb-4">创建角色</h3>
-
-            <div className="mb-3">
-              <label className="block text-sm u-text-2 mb-1">CLI</label>
-              <div className="text-sm font-medium u-text">{selectedRuntime.provider}</div>
+        <div className="modal-overlay">
+          <div className="modal" style={{ maxWidth: '24rem' }}>
+            <div className="modal-header">
+              <h3 className="modal-title">创建角色</h3>
+              <button className="modal-close" onClick={() => setSelectedRuntime(null)} aria-label="关闭">×</button>
             </div>
+            <div className="modal-body">
+              <div className="mb-3">
+                <label className="block text-sm u-text-2 mb-1">CLI</label>
+                <div className="text-sm font-medium u-text">{selectedRuntime.provider}</div>
+              </div>
 
-            <div className="mb-3">
-              <input
-                type="text"
-                placeholder="角色名称"
-                value={formName}
-                onChange={(e) => setFormName(e.target.value)}
-                className="w-full px-3 py-2 border u-border rounded  "
-              />
+              <div className="mb-3">
+                <input
+                  type="text"
+                  placeholder="角色名称"
+                  value={formName}
+                  onChange={(e) => setFormName(e.target.value)}
+                  className="input w-full"
+                />
+              </div>
+
+              <div className="mb-4">
+                <input
+                  type="text"
+                  placeholder="角色描述（选填）"
+                  value={formDesc}
+                  onChange={(e) => setFormDesc(e.target.value)}
+                  className="input w-full"
+                />
+              </div>
+
+              {createError && <p className="text-sm u-err mb-3">{createError}</p>}
+              {createSuccess && <p className="text-sm u-ok mb-3">角色创建成功</p>}
             </div>
-
-            <div className="mb-4">
-              <input
-                type="text"
-                placeholder="角色描述（选填）"
-                value={formDesc}
-                onChange={(e) => setFormDesc(e.target.value)}
-                className="w-full px-3 py-2 border u-border rounded  "
-              />
-            </div>
-
-            {createError && <p className="text-sm u-err mb-3">{createError}</p>}
-            {createSuccess && <p className="text-sm u-ok mb-3">角色创建成功</p>}
-
-            <div className="flex justify-end gap-2">
+            <div className="modal-footer">
               <button
                 onClick={() => setSelectedRuntime(null)}
-                className="px-4 py-2 text-sm u-surface-2 u-text-2 rounded u-hover-bg"
+                className="btn btn-secondary"
               >
                 取消
               </button>
               <button
                 onClick={handleCreateRole}
                 disabled={creating || !formName.trim()}
-                className="px-4 py-2 text-sm u-accent-bg u-on-accent rounded u-hover-bg disabled:opacity-50"
+                className="btn btn-primary"
               >
                 创建
               </button>

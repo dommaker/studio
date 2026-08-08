@@ -1,0 +1,565 @@
+/**
+ * WorkUnit CRUD + Claim 持久化层 —— WorkUnitService 的基类（自 workunit.service.ts 拆分，纯代码移动）。
+ *
+ * AS-025 §3.28c-1 Task 2-4
+ * 存储迁移: 已从 Prisma 迁移到 FileStore (Event Sourcing)
+ *
+ * 本文件：create/update/delete + claim/unclaim、workunit.created 与
+ * workunit.status_changed 事件发布、父状态聚合（aggregateParentStatus），
+ * 以及快照转换函数与输入/数据类型。状态机迁移（transitionStatus）、
+ * 查询（getById/list）与评审验收收口在 workunit.service.ts 的 WorkUnitService。
+ */
+
+import { randomUUID } from 'crypto';
+import { logger, eventBus, FileStore, type AgentProfileData, type ChannelMessageData, type WorkUnitSnapshot, type WorkUnitEvent } from '@dommaker/studio-shared';
+import type { WorkUnitMetadata } from './workunit.service.js';
+
+export interface CreateWorkUnitInput {
+  type?: string;
+  scope: string;
+  assigneeId?: string;
+  status?: string;
+  channelId?: string | null;
+  parentId?: string | null;
+  projectPath?: string | null;
+  workspaceId?: string | null;  // F6: 绑定工程（显式指定或频道默认）
+  reqId?: string | null;        // REQ 需求编号（vision §5.3：显式/#REQ-XXXX/自动新建）
+  failureType?: string;
+  retryCount?: number;
+  timeoutAt?: Date | null;
+  completedAt?: Date | null;
+  metadata?: WorkUnitMetadata;
+}
+
+export interface UpdateWorkUnitInput {
+  type?: string;
+  scope?: string;
+  assigneeId?: string | null;
+  channelId?: string | null;
+  parentId?: string | null;
+  projectPath?: string | null;
+  workspaceId?: string | null;
+  reqId?: string | null;        // REQ 需求编号
+  failureType?: string | null;
+  retryCount?: number;
+  timeoutAt?: Date | null;
+  completedAt?: Date | null;
+  metadata?: WorkUnitMetadata;
+}
+
+/**
+ * WorkUnitData — 与 Prisma WorkUnit 类型兼容的平面字段（无 relations）。
+ * 日期字段使用 Date 对象（与 Prisma 行为一致），来源是 FileStore 的字符串日期。
+ */
+export interface WorkUnitData {
+  id: string;
+  parentId: string | null;
+  type: string;
+  scope: string;
+  assigneeId: string | null;
+  status: string;
+  failureType: string | null;
+  retryCount: number;
+  timeoutAt: Date | null;
+  channelId: string | null;
+  projectPath: string | null;
+  workspaceId?: string | null;  // F6: 绑定工程（旧 WorkUnit 无此字段 → null）
+  reqId?: string | null;        // REQ 需求编号（旧 WorkUnit 无此字段 → null）
+  metadata: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+  claimedAt: Date | null;
+  completedAt: Date | null;
+}
+
+/**
+ * P0 修复（WU 超时机制）：WU 被认领进入 active 时的默认超时时长（分钟），按 type 区分。
+ * metadata.timeoutAt 显式值优先于此表；未知 type 回落 WU_DEFAULT_TIMEOUT_MINUTES。
+ */
+export const WU_TIMEOUT_MINUTES: Record<string, number> = {
+  task: 60,
+  bug: 60,
+  feature: 60,
+  review: 30,
+  analysis: 30,
+};
+export const WU_DEFAULT_TIMEOUT_MINUTES = 60;
+
+/** claim 时的 timeoutAt 决策：metadata.timeoutAt 显式值优先，否则按 WU type 给默认时长 */
+function resolveClaimTimeoutAt(wuType: string, metadataRaw: string | null): Date {
+  if (metadataRaw) {
+    try {
+      const meta = JSON.parse(metadataRaw) as WorkUnitMetadata;
+      if (typeof meta.timeoutAt === 'string') {
+        const explicit = new Date(meta.timeoutAt);
+        if (!Number.isNaN(explicit.getTime())) return explicit;
+      }
+    } catch { /* 元数据损坏按无显式值处理 */ }
+  }
+  const minutes = WU_TIMEOUT_MINUTES[wuType] ?? WU_DEFAULT_TIMEOUT_MINUTES;
+  return new Date(Date.now() + minutes * 60_000);
+}
+
+// ── 转换函数 ──
+
+export function snapshotToData(s: WorkUnitSnapshot): WorkUnitData {
+  return {
+    id: s.id,
+    parentId: s.parentId,
+    type: s.type,
+    scope: s.scope,
+    assigneeId: s.assigneeId,
+    status: s.status,
+    failureType: s.failureType,
+    retryCount: s.retryCount,
+    timeoutAt: s.timeoutAt ? new Date(s.timeoutAt) : null,
+    channelId: s.channelId,
+    projectPath: s.projectPath,
+    workspaceId: s.workspaceId ?? null,
+    reqId: s.reqId ?? null,
+    metadata: s.metadata,
+    createdAt: new Date(s.createdAt),
+    updatedAt: new Date(s.updatedAt),
+    claimedAt: s.claimedAt ? new Date(s.claimedAt) : null,
+    completedAt: s.completedAt ? new Date(s.completedAt) : null,
+  };
+}
+
+function inputToSnapshot(
+  id: string,
+  input: CreateWorkUnitInput,
+  now: Date,
+): WorkUnitSnapshot {
+  const isoNow = now.toISOString();
+  return {
+    id,
+    parentId: input.parentId ?? null,
+    type: input.type ?? 'task',
+    scope: input.scope,
+    assigneeId: input.assigneeId ?? null,
+    status: input.status ?? 'unassigned',
+    failureType: input.failureType ?? null,
+    retryCount: input.retryCount ?? 0,
+    timeoutAt: input.timeoutAt?.toISOString() ?? null,
+    channelId: input.channelId ?? null,
+    projectPath: input.projectPath ?? null,
+    workspaceId: input.workspaceId ?? null,
+    reqId: input.reqId ?? null,
+    metadata: input.metadata ? JSON.stringify(input.metadata) : null,
+    createdAt: isoNow,
+    updatedAt: isoNow,
+    claimedAt: null,
+    completedAt: input.completedAt?.toISOString() ?? null,
+  };
+}
+
+function patchSnapshot(
+  existing: WorkUnitSnapshot,
+  input: UpdateWorkUnitInput,
+  now: Date,
+): WorkUnitSnapshot {
+  const isoNow = now.toISOString();
+  return {
+    ...existing,
+    type: input.type ?? existing.type,
+    scope: input.scope ?? existing.scope,
+    assigneeId: input.assigneeId !== undefined ? input.assigneeId : existing.assigneeId,
+    channelId: input.channelId !== undefined ? input.channelId : existing.channelId,
+    parentId: input.parentId !== undefined ? input.parentId : existing.parentId,
+    projectPath: input.projectPath !== undefined ? input.projectPath : existing.projectPath,
+    workspaceId: input.workspaceId !== undefined ? input.workspaceId : existing.workspaceId ?? null,
+    reqId: input.reqId !== undefined ? input.reqId : existing.reqId ?? null,
+    failureType: input.failureType !== undefined ? input.failureType : existing.failureType,
+    retryCount: input.retryCount ?? existing.retryCount,
+    timeoutAt: input.timeoutAt !== undefined ? input.timeoutAt?.toISOString() ?? null : existing.timeoutAt,
+    completedAt: input.completedAt !== undefined ? input.completedAt?.toISOString() ?? null : existing.completedAt,
+    metadata: input.metadata !== undefined ? JSON.stringify(input.metadata) : existing.metadata,
+    updatedAt: isoNow,
+  };
+}
+
+export class WorkUnitCrudService {
+  protected fileStore: FileStore;
+
+  constructor(fileStore?: FileStore) {
+    this.fileStore = fileStore ?? new FileStore();
+  }
+
+  /**
+   * Create a new WorkUnit.
+   */
+  async create(input: CreateWorkUnitInput): Promise<WorkUnitData> {
+    const id = randomUUID();
+    const now = new Date();
+    const snapshot = inputToSnapshot(id, input, now);
+
+    // Append event
+    const event: WorkUnitEvent = {
+      type: 'created',
+      wuId: id,
+      timestamp: now.toISOString(),
+      data: snapshot as unknown as Record<string, unknown>,
+    };
+    await this.fileStore.appendEvent(event);
+
+    // Upsert index snapshot
+    await this.fileStore.upsertSnapshot(snapshot);
+
+    // Publish event for EVENT trigger consumers (AgentLoop, etc.)
+    try {
+      eventBus.publish('workunit.created', { workunit: snapshotToData(snapshot) });
+    } catch (err) {
+      logger.warn('[WorkUnit] Failed to publish workunit.created (non-blocking)', {
+        workUnitId: id,
+        error: String(err),
+      });
+    }
+
+    const parentWu = snapshotToData(snapshot);
+
+    // AC-6.3: 频道默认管线展开（D10: 只展开第一跳，后续靠 agent DELEGATE）
+    if (input.type === 'feature' && input.channelId) {
+      await this.expandDefaultPipelineHead(parentWu).catch(err =>
+        logger.warn('[WorkUnit] defaultPipeline expansion failed (non-blocking)', {
+          parentId: parentWu.id,
+          error: String(err),
+        }),
+      );
+    }
+
+    return parentWu;
+  }
+
+  /**
+   * AC-6.3 + D10: 展开频道默认管线的第一跳。
+   * 仅 type='feature' 父 WU 触发；创建 type=pipeline[0] 的链头子 WU，
+   * 后续跳由 agent DELEGATE 协议接管（不全链路代码展开）。
+   */
+  private async expandDefaultPipelineHead(parent: WorkUnitData): Promise<void> {
+    const channel = await this.fileStore.getChannel(parent.channelId!);
+    if (!channel?.defaultPipeline || channel.defaultPipeline.length === 0) return;
+
+    const firstName = channel.defaultPipeline[0];
+    const profiles = await this.fileStore.listProfiles({ status: 'active' });
+    const firstProfile: AgentProfileData | undefined = profiles.find(p => p.name === firstName);
+    if (!firstProfile) {
+      logger.warn('[WorkUnit] defaultPipeline profile not found or inactive', {
+        parentId: parent.id,
+        profileName: firstName,
+      });
+      return;
+    }
+
+    const childMeta: WorkUnitMetadata = {
+      collab: {
+        rootId: parent.id,
+        depth: 1,
+        chain: [firstProfile.id],
+        delegatedBy: { profileId: parent.assigneeId ?? '', workUnitId: parent.id },
+        delegationCount: 0,
+      },
+    };
+
+    // 递归 create：子 WU type=阶段名（profile.acceptedTypes[0]，缺省 'task'；原为角色名，决策 10 语义清理）。
+    // type 非 'feature'，不会再次触发展开
+    await this.create({
+      type: firstProfile.acceptedTypes?.[0] ?? 'task',
+      scope: parent.scope,
+      assigneeId: firstProfile.id,
+      status: 'unassigned',
+      channelId: parent.channelId,
+      parentId: parent.id,
+      workspaceId: parent.workspaceId ?? null,
+      reqId: parent.reqId ?? null,
+      metadata: childMeta,
+    });
+  }
+
+  /**
+   * Convert a ChannelMessage to a WorkUnit (emergence path).
+   * Links the source message to the new WorkUnit via workUnitId.
+   * @throws Error if message not found or already converted
+   */
+  async createFromMessage(
+    messageId: string,
+    options?: { type?: string; metadata?: WorkUnitMetadata },
+  ): Promise<WorkUnitData> {
+    const found = await this.fileStore.getMessageById(messageId);
+    if (!found) throw new Error(`Message ${messageId} not found`);
+    if (found.message.workUnitId) throw new Error(`Message already linked to WorkUnit ${found.message.workUnitId}`);
+
+    const wu = await this.create({
+      scope: found.message.content.slice(0, 500),
+      type: options?.type ?? 'task',
+      channelId: found.message.channelId,
+      metadata: {
+        ...options?.metadata,
+        sourceMessageId: messageId,
+        creationMode: 'from-message',
+      },
+    });
+
+    // Link message to WorkUnit (append updated copy to FileStore)
+    const now = new Date().toISOString();
+    const updatedMsg: ChannelMessageData = {
+      ...found.message,
+      workUnitId: wu.id,
+      createdAt: now,
+    };
+    await this.fileStore.appendMessage(found.channelId, updatedMsg);
+
+    return wu;
+  }
+
+  /**
+   * Update a WorkUnit.
+   */
+  async update(id: string, input: UpdateWorkUnitInput): Promise<WorkUnitData> {
+    const snapshots = await this.fileStore.getIndex();
+    const existing = snapshots.find(s => s.id === id);
+    if (!existing) throw new Error(`WorkUnit not found: ${id}`);
+
+    const now = new Date();
+    const updated = patchSnapshot(existing, input, now);
+
+    // Append event
+    const event: WorkUnitEvent = {
+      type: 'updated',
+      wuId: id,
+      timestamp: now.toISOString(),
+      data: updated as unknown as Record<string, unknown>,
+    };
+    await this.fileStore.appendEvent(event);
+
+    // Upsert index snapshot
+    await this.fileStore.upsertSnapshot(updated);
+
+    return snapshotToData(updated);
+  }
+
+  /**
+   * Delete a WorkUnit.
+   */
+  async delete(id: string): Promise<void> {
+    const snapshots = await this.fileStore.getIndex();
+    const existing = snapshots.find(s => s.id === id);
+    if (!existing) throw new Error(`WorkUnit not found: ${id}`);
+
+    const now = new Date();
+
+    // Append closed event
+    const event: WorkUnitEvent = {
+      type: 'closed',
+      wuId: id,
+      timestamp: now.toISOString(),
+    };
+    await this.fileStore.appendEvent(event);
+
+    // Remove from index
+    await this.fileStore.removeSnapshot(id);
+  }
+
+  /**
+   * Check if the WorkUnit's files overlap with any active WorkUnit's files.
+   * Files stored in metadata.files (string[]).
+   * @returns array of conflicting WorkUnit IDs (empty if no conflict)
+   */
+  private async checkFileConflicts(id: string, metadataRaw: string | null): Promise<string[]> {
+    if (!metadataRaw) return [];
+    let meta: WorkUnitMetadata;
+    try {
+      meta = JSON.parse(metadataRaw) as WorkUnitMetadata;
+    } catch {
+      // 元数据损坏按无显式值处理（与 resolveClaimTimeoutAt 容错口径一致），不阻断 claim
+      return [];
+    }
+    const files = meta.files;
+    if (!files || !Array.isArray(files) || files.length === 0) return [];
+
+    const fileSet = new Set(files);
+    const activeSnapshots = await this.fileStore.getIndex({
+      status: 'active',
+    });
+    const reviewSnapshots = await this.fileStore.getIndex({
+      status: 'in_review',
+    });
+    const activeWorkUnits = [...activeSnapshots, ...reviewSnapshots].filter(s => s.id !== id);
+
+    const conflicts: string[] = [];
+    for (const wu of activeWorkUnits) {
+      if (!wu.metadata) continue;
+      const wuMeta: WorkUnitMetadata = JSON.parse(wu.metadata);
+      const wuFiles = wuMeta.files;
+      if (!Array.isArray(wuFiles)) continue;
+      const hasOverlap = wuFiles.some(f => fileSet.has(f));
+      if (hasOverlap) conflicts.push(wu.id);
+    }
+    return conflicts;
+  }
+
+  /**
+   * Claim a WorkUnit（flock 悲观互斥锁，mkdir 原子目录跨进程互斥；非乐观锁——
+   * 无版本号/读后再验，冲突在锁内以 status!=='unassigned' 拒绝）。
+   * Only succeeds when status is 'unassigned' — file-store.claimWorkUnit 不校验
+   * 既有 assigneeId，认领成功会把 assigneeId 改写为认领方（loop 传入 instance.id）。
+   * mention 指名（assigneeId=profile id）的可见性由 AgentLoop.observe 的
+   * unassigned 过滤保证（仅被指名 profile 的 loop 可见），而非 claim 本身。
+   * 决策 7: skill 匹配/注入在 agent-loop step 时进行，claim 不再触发 skill 加载。
+   * @throws Error if claim fails (already claimed or invalid state)
+   */
+  async claim(id: string, agentId: string): Promise<WorkUnitData> {
+    logger.info(`[WorkUnit] Claiming WorkUnit: ${id} by agent ${agentId}`);
+
+    // Read current state
+    const snapshots = await this.fileStore.getIndex();
+    const wuToClaim = snapshots.find(s => s.id === id);
+    if (!wuToClaim) throw new Error('WorkUnit not found');
+
+    // File conflict check before claiming
+    const conflicts = await this.checkFileConflicts(id, wuToClaim.metadata);
+    if (conflicts.length > 0) {
+      throw new Error(`File conflict with WorkUnit(s): ${conflicts.join(', ')}`);
+    }
+
+    // Use flock-based claim
+    const claimed = await this.fileStore.claimWorkUnit(id, agentId);
+    if (!claimed) {
+      throw new Error('Claim failed');
+    }
+
+    // Re-read after claim
+    const afterClaim = await this.fileStore.getIndex();
+    const wu = afterClaim.find(s => s.id === id);
+    if (!wu) throw new Error('WorkUnit not found');
+
+    // 决策 7: skill 匹配已从 claim 挪到 agent-loop step 时（消竞态、吃到 skill 库最新版），
+    // claim 不再做 skill 自动加载/落盘。
+    // P0 修复（WU 超时机制）：认领进入 active 时写入 timeoutAt（workunit-timeout
+    // 扫描的判定字段）。已有列值不动；metadata.timeoutAt 显式值优先；否则按 type 给默认时长。
+    if (!wu.timeoutAt) {
+      const timeoutAt = resolveClaimTimeoutAt(wu.type, wu.metadata);
+      await this.update(id, { timeoutAt });
+      wu.timeoutAt = timeoutAt.toISOString();
+    }
+    // 认领即状态变化（unassigned → active）：补发 status_changed（WU 列表实时刷新/接力订阅消费）
+    this.publishStatusChanged(wu);
+    return snapshotToData(wu);
+  }
+
+  /**
+   * Unclaim a WorkUnit. Resets to unassigned state.
+   */
+  async unclaim(id: string): Promise<WorkUnitData> {
+    const snapshots = await this.fileStore.getIndex();
+    const existing = snapshots.find(s => s.id === id);
+    if (!existing) throw new Error(`WorkUnit not found: ${id}`);
+
+    const now = new Date();
+    const updated: WorkUnitSnapshot = {
+      ...existing,
+      assigneeId: null,
+      status: 'unassigned',
+      claimedAt: null,
+      updatedAt: now.toISOString(),
+    };
+
+    const event: WorkUnitEvent = {
+      type: 'updated',
+      wuId: id,
+      timestamp: now.toISOString(),
+      data: updated as unknown as Record<string, unknown>,
+    };
+    await this.fileStore.appendEvent(event);
+    await this.fileStore.upsertSnapshot(updated);
+
+    // 释放回池（→ unassigned）同样发 status_changed（列表实时刷新/重新派工可见）
+    this.publishStatusChanged(updated);
+
+    return snapshotToData(updated);
+  }
+
+  /**
+   * 发布 workunit.status_changed（best-effort，不阻断主流程）。
+   * REQ 需求状态汇总（vision §5.3）等订阅方消费。
+   */
+  protected publishStatusChanged(snapshot: WorkUnitSnapshot): void {
+    try {
+      eventBus.publish('workunit.status_changed', { workunit: snapshotToData(snapshot) });
+    } catch (err) {
+      logger.warn('[WorkUnit] Failed to publish workunit.status_changed (non-blocking)', {
+        workUnitId: snapshot.id,
+        error: String(err),
+      });
+    }
+  }
+
+  /**
+   * Compute aggregated parent status from children statuses.
+   * Returns null if no change needed.
+   */
+  private computeAggregatedStatus(statuses: string[]): string | null {
+    if (statuses.every(s => s === 'unassigned')) return 'unassigned';
+    if (statuses.some(s => s === 'blocked')) return 'blocked';
+    if (statuses.some(s => s === 'active')) return 'active';
+    if (statuses.every(s => s === 'done' || s === 'closed') && statuses.some(s => s === 'done')) return 'in_review';
+    if (statuses.every(s => s === 'closed')) return 'closed';
+    return null;
+  }
+
+  /**
+   * Cascade: aggregate parent WorkUnit status from children.
+   * Called after a child's status changes.
+   *
+   * Aggregation rules (ordered):
+   *  - All children unassigned → parent unassigned
+   *  - Any child blocked → parent blocked
+   *  - Any child active → parent active
+   *  - All done/closed (≥1 done) → parent in_review
+   *  - All closed → parent closed
+   *
+   * Only applies to organizational parents (children exist).
+   * Skips if parent doesn't exist.
+   */
+  async aggregateParentStatus(childId: string): Promise<void> {
+    const snapshots = await this.fileStore.getIndex();
+    const child = snapshots.find(s => s.id === childId);
+    if (!child?.parentId) return;
+
+    // Re-read children right before update to avoid stale overwrites
+    const siblings = snapshots.filter(s => s.parentId === child.parentId);
+    if (siblings.length === 0) return;
+
+    const newStatus = this.computeAggregatedStatus(siblings.map(s => s.status));
+    if (!newStatus) return;
+
+    const parent = snapshots.find(s => s.id === child.parentId);
+    if (!parent || parent.status === newStatus) return;
+
+    // State ordering guard: don't overwrite a parent that's already at a "later" state.
+    const ORDER: Record<string, number> = { unassigned: 0, active: 1, blocked: 2, in_review: 3, done: 4, closed: 5 };
+    if ((ORDER[parent.status] ?? 0) >= (ORDER[newStatus] ?? 0)) return;
+
+    const now = new Date().toISOString();
+    const updatedParent: WorkUnitSnapshot = {
+      ...parent,
+      status: newStatus,
+      updatedAt: now,
+    };
+
+    const event: WorkUnitEvent = {
+      type: 'updated',
+      wuId: child.parentId,
+      timestamp: now,
+      data: updatedParent as unknown as Record<string, unknown>,
+    };
+    await this.fileStore.appendEvent(event);
+    await this.fileStore.upsertSnapshot(updatedParent);
+
+    logger.info('[WorkUnit] Parent status aggregated', {
+      parentId: child.parentId,
+      newStatus,
+      childCount: siblings.length,
+    });
+  }
+
+}

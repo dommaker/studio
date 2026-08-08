@@ -37,21 +37,6 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => {
   };
 });
 
-vi.mock('@dommaker/studio-prisma', () => ({
-  prisma: {
-    task: { findMany: vi.fn().mockResolvedValue([]) },
-    studioEvent: {
-      findMany: vi.fn().mockResolvedValue([]),
-      create: vi.fn().mockResolvedValue({}),
-      updateMany: vi.fn().mockResolvedValue({ count: 0 }),
-      deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
-    },
-    session: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
-    $queryRaw: vi.fn().mockResolvedValue([{ 1: 1 }]),
-    $executeRawUnsafe: vi.fn().mockResolvedValue(0),
-  },
-}));
-
 // 捕获所有 shell 执行：execSync 只记录不执行（service 内为 await import('child_process')）
 const execCalls: string[] = [];
 vi.mock('child_process', () => ({

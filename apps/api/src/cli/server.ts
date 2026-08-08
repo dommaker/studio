@@ -185,19 +185,18 @@ export async function studioStatus() {
     console.log('  Agents:    ❌');
   }
 
-  // 4. Daemon status
+  // 4. G5: Model routing history
   try {
-    const { daemon } = await import('../daemon/studio-daemon.js');
-    if (daemon.isStarted()) {
-      const statuses = daemon.getStatus() as Array<{ name: string; isBusy: boolean; taskCount: number } | null>;
-      const active = statuses.filter(s => s).length;
-      console.log(`  Daemon:    ✅ (${active} sessions)`);
-    } else {
-      console.log('  Daemon:    not started');
+    const r = await fetch(`${baseUrl}/metrics/routing`);
+    const { data: routes } = await r.json() as { data: Array<{ time: string; classified: string; final: string; taskType: string }> };
+    if (routes.length > 0) {
+      console.log(`  Routing:   ${routes.length} recent decisions`);
+      for (const rt of routes.slice(-3)) {
+        const indicator = rt.classified !== rt.final ? '🔧' : '🤖';
+        console.log(`    ${indicator} ${rt.taskType}: auto→${rt.classified}, final→${rt.final}`);
+      }
     }
-  } catch (e) {
-    console.log('  Daemon:    ❌', String(e).slice(0, 80));
-  }
+  } catch { /* optional */ }
 
   // 5. G4: Trajectory eval（D18: 统一事件文件，StudioEvent 形态）
   try {

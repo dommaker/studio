@@ -125,84 +125,6 @@
   }
 }
 
-/* ==================== 任务卡片响应式 ==================== */
-
-@media (max-width: 639px) {
-  .task-card {
-    padding: 0.75rem;
-  }
-  
-  .task-card .header {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 0.5rem;
-  }
-  
-  .task-card .actions {
-    width: 100%;
-    justify-content: flex-end;
-  }
-  
-  /* 时间线简化 */
-  .timeline {
-    display: none;
-  }
-  
-  .timeline-mobile {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-  }
-}
-
-/* ==================== 会议页面响应式 ==================== */
-
-@media (max-width: 639px) {
-  /* 会议列表 */
-  .meeting-list {
-    padding: 0.5rem;
-  }
-  
-  .meeting-item {
-    padding: 0.75rem;
-    margin-bottom: 0.5rem;
-  }
-  
-  /* 会议详情 */
-  .meeting-detail {
-    flex-direction: column;
-  }
-  
-  .meeting-detail .sidebar {
-    order: 1;
-    width: 100%;
-    border-right: none;
-    border-bottom: 1px solid var(--border-subtle);
-  }
-  
-  .meeting-detail .main {
-    order: 2;
-    flex: 1;
-  }
-  
-  /* 消息气泡 */
-  .message-bubble {
-    max-width: 85%;
-    padding: 0.5rem 0.75rem;
-  }
-  
-  /* 参与者列表 */
-  .participants-list {
-    flex-direction: row;
-    flex-wrap: wrap;
-    gap: 0.5rem;
-  }
-  
-  .participant-card {
-    width: calc(50% - 0.25rem);
-  }
-}
-
 /* ==================== 办公区页面响应式 ==================== */
 
 @media (max-width: 639px) {
@@ -270,11 +192,6 @@
   
   .home-container .task-list {
     gap: 0.5rem;
-  }
-  
-  /* 隐藏思考流 */
-  .thinking-stream {
-    display: none;
   }
 }
 

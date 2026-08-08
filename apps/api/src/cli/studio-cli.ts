@@ -9,7 +9,7 @@ import { studioTest, studioBuild } from './dev.js';
 import { studioRun, studioApprove, studioReject } from './workflow.js';
 import { apiCommand, studioEnv, studioMcp, studioHarnessCli } from './data.js';
 import { studioConfig } from './config.js';
-import { studioDaemonStart, studioDaemonStatus, studioProject, studioWorkon } from './admin.js';
+import { studioDaemonStart, studioProject, studioWorkon } from './admin.js';
 
 async function main() {
   const { configPath, args } = extractConfigFlag(process.argv.slice(2));
@@ -52,12 +52,9 @@ async function main() {
     case 'daemon':
       if (args[1] === 'start') {
         await studioDaemonStart();
-      } else if (args[1] === 'status') {
-        await studioDaemonStatus();
       } else {
         console.log('Studio Daemon');
         console.log('  studio daemon start       Register workspace with server');
-        console.log('  studio daemon status      Show daemon session status');
       }
       break;
     case 'run':
@@ -122,7 +119,6 @@ async function main() {
       console.log('  数据:');
       console.log('    studio knowledge <search>  Knowledge base search');
       console.log('    studio channel <list>      Channel list');
-      console.log('    studio role <list|show>    Role management');
       console.log('    studio task <queue|run>    Task management');
       console.log('    studio agent <status>      Agent status');
       console.log('    studio env <show>          Environment snapshot');
@@ -145,7 +141,6 @@ async function main() {
       console.log('    studio project list       List registered projects');
       console.log('    studio workon <name>      Set active project');
       console.log('    studio daemon start       Register workspace with server');
-      console.log('    studio daemon status      Daemon session status');
       break;
   }
 }

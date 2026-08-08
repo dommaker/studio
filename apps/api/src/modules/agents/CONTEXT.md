@@ -33,6 +33,19 @@
   - `knowledge/knowledge-cold-start.ts` — 冷启动四源导入（P1b: docs/code/git/manual）+ Discord 通知
   - `knowledge/knowledge-maintenance.ts` — 语料分析（F1：语义去重/质量评估/过期验证/矛盾审查）
 - `default-triggers.ts` — 10 个系统默认 trigger 注册（含 `doc-semantic-review` 周级文档语义审查，2026-07 文档治理闭环 P1）
+- `agent-loop.ts` — AgentLoop 门面（observe→resolveTarget→agentStep→recordResult 决策循环，AS-025），T3 拆分后仅保留循环主流程（start/runLoop/observe/agentStep 编排 + 薄壳委托）与 re-export；对外导出 `AgentLoop` / `parseAgentOutput` / `parseReviewReport` / `parseTaskBreakdown` / `dynamicInterval` / `analyzeKnowledgeSearch` / `extractKnowledgeEntryIds` / `extractInputTokens` / `resolveRealUsage` / `writeWorkunitTokenEvent` / `resolveToolTraceFile` / `writeToolCallEvents` / `isProcessAlive` / `isGitRepoRoot` / `resolveWorktreesDir` / `findAnchorMessage` / `resolveTarget` / `testWuGuardEnabled` / `isTestLikeWorkUnit` 及类型 `StepResult` / `KnowledgeSearchAnalysis` / `RealUsage` / `WorkunitTokenEventArgs` / `Observations` / `Target` 不变。
+  - `agent-output-parser.ts` — ACTION 协议解析（parseAgentOutput）/ REVIEW_RESULT 审查结论解析 / TASK: 分析拆分行 / 动态轮询间隔（dynamicInterval）
+  - `agent-knowledge-analysis.ts` — 知识检索行为分析（stream-json 日志 → searchCalls / 知识条目 id 提取）
+  - `workunit-token-events.ts` — workunit:tokens / tool:call 事件写入（M2 成本红线 + B6 真实账单口径）+ STUDIO_EVENTS_JSONL 路径解析
+  - `agent-loop-utils.ts` — 进程存活 / git 仓库根 / worktrees 目录小工具
+  - `agent-targeting.ts` — Observations → Target 解析（认领优先级）+ 频道锚点消息
+  - `wu-test-guards.ts` — B2 测试特征 WU 判定（STUDIO_TEST_WU_GUARD 开关 + scope 模式）
+  - `agent-loop-prompts.ts` — prompt 构建（continue/reply 模板 + skills/persona/roster 注入段，共用 2K 红线）
+  - `agent-loop-workspace.ts` — 执行根目录/worktree 解析（B3a 归属链 / B3b-i 专属 worktree / 提交守卫 git 探针）
+  - `agent-loop-session.ts` — per-WU 会话簿记（续用判定 / B5 会话数上限 / token 截断重置）
+  - `agent-loop-instance-state.ts` — 运行时实例状态写入（启动失败记录 / idle 心跳 / 忙闲 SSE）
+  - `agent-loop-record-result.ts` — recordResult（提交/子任务/验证守卫 + DELEGATE + 新鲜度检查 + 状态迁移 + 里程碑回帖）
+  - `agent-loop-step-guards.ts` — agentStep 前置守卫（B2 测试特征 WU 关闭 / C3 每日 token 预算熔断）
 - `default-provider.ts` — F1 provider 默认选取工具（2026-07-28 分析文档）：`resolveDefaultProvider()` 取 `scanAllProviders()` 第一个（扫不到 → null + warn，不再隐式兜底 claude）；`backfillProfileProviders()` 启动时回填存量空 provider 的 active 角色（不含 studio，幂等）。`agent-profile.service.create` 缺省 provider 经此打戳
 - `loop/executor.ts` — §9.6 Executor 接口（AgentLoop 执行面抽象）：P0 `LocalExecutor` 原样委托 `agentRunner.executeLightweight`；P1 远程节点执行经同一接口接入
 - `loop/execution-step-events.ts` — WU 过程可视化（2026-07-30）：Layer A 步级——每个 agent step 结束把 stream-json rawOutput 提炼成 `workunit:execution_step` 事件（thinking ≤3×500 字符 / toolCalls ≤30×160 字符摘要 / skills 注入名单 / usage），落盘 studio-events.jsonl（REST 回放）+ `workunit.execution.step` SSE 信封（自动落 workunits topic）；Layer B 步内流式——execSh `onLine` 把 CLI stdout 按行透传（runner-lightweight 接线 `AgentTask.onStreamLine`），每行提炼成轻量 chunk（thinking/text/tool/result，≤500 字符、单行 ≤10 条）经 `workunit.execution.stream` SSE 直发，**只发 SSE 不落盘**（行级体量防膨胀），agent-loop 在 spawn 前合成 step-start 信号。不进频道、不写 metadata 防膨胀；fire-and-forget 绝不影响任务流程。完整 transcript 不回放这里——查 agent HOME 的 `.claude/projects/<cwd-slug>/<sessionId>.jsonl`

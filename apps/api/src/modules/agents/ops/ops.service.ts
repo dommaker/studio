@@ -62,31 +62,17 @@ export class OpsService {
       if (!c.passed && c.critical) criticalFailures.push(c.name);
     };
 
-    // 1. Check DB
+    // 1. Check storage (FileStore)
     try {
-      const dbUrl = process.env.DATABASE_URL || '';
-      const dbPath = dbUrl.replace('file:', '');
-      const dbExists = fs.existsSync(dbPath);
-
-      if (dbExists) {
-        // Try a simple query to verify schema matches
-        try {
-          // Storage health check via FileStore
-          const probeFile = path.join(os.homedir(), '.studio', 'data', '_health_probe');
-          await fs.promises.writeFile(probeFile, Date.now().toString());
-          await fs.promises.unlink(probeFile);
-          add({ name: 'storage', passed: true, message: `FileStore OK (${dbPath})`, critical: true });
-        } catch {
-          add({
-            name: 'db-schema', passed: false, critical: true,
-            message: `❌ FileStore error! Cannot write to ${dbPath}. Check disk space and permissions.`,
-          });
-        }
-      } else {
-        add({ name: 'db-exists', passed: true, message: `New DB will be created at ${dbPath}`, critical: false });
-      }
+      const probeFile = path.join(os.homedir(), '.studio', 'data', '_health_probe');
+      await fs.promises.writeFile(probeFile, Date.now().toString());
+      await fs.promises.unlink(probeFile);
+      add({ name: 'storage', passed: true, message: 'FileStore OK', critical: true });
     } catch (e: any) {
-      add({ name: 'db-schema', passed: false, critical: true, message: `❌ DB check failed: ${e.message}` });
+      add({
+        name: 'storage', passed: false, critical: true,
+        message: `❌ FileStore error! Cannot write to ~/.studio/data. Check disk space and permissions. (${e.message})`,
+      });
     }
 
     // 2. Check frontend dist
@@ -251,13 +237,9 @@ export class OpsService {
             tags: ['ops'],
           }).catch(() => { /* non-blocking */ });
         } catch { /* non-blocking */ }
-        // Don't auto-restart if daemon is running tasks — the load is likely from Claude
+        // Don't auto-restart if executor sessions are running — the load is likely from Claude
+        // （daemon 簇已随 origin/master cf3c6d50 退役，daemon-busy 检查一并移除）
         let daemonBusy = false;
-        try {
-          const { daemon } = await import('../../../daemon/studio-daemon.js');
-          const statuses = daemon.getStatus() as Array<{ name: string; isBusy: boolean } | null>;
-          daemonBusy = (statuses || []).some((s: any) => s?.isBusy);
-        } catch {}
         // Also check executor sessions (agentRunner bypasses daemon)
         if (!daemonBusy) {
           try {

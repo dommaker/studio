@@ -38,10 +38,6 @@ vi.mock('@dommaker/studio-agent', () => ({
   agentRunner: { stop: vi.fn(), execute: vi.fn() },
 }));
 
-vi.mock('@dommaker/studio-prisma', () => ({
-  prisma: { $queryRaw: vi.fn().mockResolvedValue([{ result: 1 }]) },
-}));
-
 vi.mock('../../knowledge/knowledge-bus.service.js', () => ({
   sharedStore: { list: vi.fn(() => []), save: vi.fn(), update: vi.fn(), delete: vi.fn() },
   sharedLifecycle: { recordReference: vi.fn() },

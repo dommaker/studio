@@ -9,18 +9,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const {
   mockGetIndex,
   mockUpsertSnapshot,
-  mockDaemonGetStatus,
 } = vi.hoisted(() => ({
   mockGetIndex: vi.fn(() => Promise.resolve([])),
   mockUpsertSnapshot: vi.fn(() => Promise.resolve()),
-  mockDaemonGetStatus: vi.fn(() => []),
-}));
-
-vi.mock('@dommaker/studio-prisma', () => ({
-  prisma: {
-    workUnit: { findMany: vi.fn(() => Promise.resolve([])), update: vi.fn(() => Promise.resolve({})) },
-    $queryRaw: vi.fn(() => Promise.resolve([])),
-  },
 }));
 
 vi.mock('@dommaker/studio-shared', () => ({
@@ -56,10 +47,6 @@ vi.mock('../../knowledge/knowledge-service.js', () => ({ knowledgeService: {} })
 vi.mock('../../knowledge/knowledge-sync.service.js', () => ({ knowledgeSync: {} }));
 vi.mock('../../knowledge/preference-observer.js', () => ({ preferenceObserver: { record: vi.fn() } }));
 vi.mock('../triage/triage.service.js', () => ({ triageService: { handleAlert: vi.fn() } }));
-
-vi.mock('../../daemon/studio-daemon.js', () => ({
-  daemon: { getStatus: mockDaemonGetStatus },
-}));
 
 import { monitorService } from '../monitor/monitor.service.js';
 import { agentRunner } from '@dommaker/studio-agent';

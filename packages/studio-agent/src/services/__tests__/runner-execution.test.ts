@@ -30,13 +30,6 @@ vi.mock('@dommaker/studio-shared/node', async (importOriginal) => {
   return { ...actual, execSh: mockExecSh };
 });
 
-vi.mock('@dommaker/studio-prisma', () => ({
-  prisma: {
-    studioEvent: { create: vi.fn().mockResolvedValue({}) },
-    resolution: { findMany: vi.fn().mockResolvedValue([]) },
-  },
-}));
-
 vi.mock('@dommaker/studio-skill', () => ({
   skillLoader: { load: vi.fn().mockReturnValue([]), formatForPrompt: vi.fn().mockReturnValue('') },
 }));

@@ -151,19 +151,19 @@ export const AuditLogsPage: React.FC = () => {
       {stats && (
         <div className="grid grid-cols-4 gap-4 mb-6">
           <div className="u-accent-dim rounded p-4">
-            <div className="text-2xl font-bold u-accent">{stats.totalLogs}</div>
+            <div style={{ fontSize: 'var(--fs-stat)' }} className="font-bold u-accent">{stats.totalLogs}</div>
             <div className="text-sm u-accent">{'总日志数'}</div>
           </div>
           <div className="u-ok-dim rounded p-4">
-            <div className="text-2xl font-bold u-ok">{stats.successCount}</div>
+            <div style={{ fontSize: 'var(--fs-stat)' }} className="font-bold u-ok">{stats.successCount}</div>
             <div className="text-sm u-ok">{'成功操作'}</div>
           </div>
           <div className="u-err-dim rounded p-4">
-            <div className="text-2xl font-bold u-err">{stats.failureCount}</div>
+            <div style={{ fontSize: 'var(--fs-stat)' }} className="font-bold u-err">{stats.failureCount}</div>
             <div className="text-sm u-err">{'失败操作'}</div>
           </div>
           <div className="u-accent-dim rounded p-4">
-            <div className="text-2xl font-bold u-accent">
+            <div style={{ fontSize: 'var(--fs-stat)' }} className="font-bold u-accent">
               {stats.successCount > 0 ? ((stats.successCount / stats.totalLogs) * 100).toFixed(1) : 0}%
             </div>
             <div className="text-sm u-accent">{'成功率'}</div>

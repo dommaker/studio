@@ -135,6 +135,7 @@ describe('scheduleVectorDbSync (B48-2E)', () => {
   it('失败后恢复 → info 记录 recovered（一个 episode 结束）', async () => {
     const loggerWarn = vi.fn();
     const loggerInfo = vi.fn();
+    const loggerDebug = vi.fn();
     let calls = 0;
     const execFileMock = vi.fn().mockImplementation((_c: string, _a: string[], _o: unknown, cb: (err: Error | null, stdout: string, stderr: string) => void) => {
       calls++;
@@ -145,7 +146,12 @@ describe('scheduleVectorDbSync (B48-2E)', () => {
       }
       return { pid: 123 };
     });
-    mockDeps(execFileMock, loggerWarn, undefined, undefined, loggerInfo);
+    // 注意：studio-shared 只注册这一次 mock（经 mockDeps 传入 loggerInfo）。
+    // 此前本用例在 mockDeps 之后又 vi.doMock 了第二次 studio-shared——同一模块
+    // 双重注册时 import 偶发解析到先注册的 factory（logger.info 是不可见的
+    // vi.fn()），导致 recovered/synced 断言 ~10-50% 抖动（0f7b4193 记录的
+    // flake 根因）。单一注册点后该竞态消除。
+    mockDeps(execFileMock, loggerWarn, loggerDebug, undefined, loggerInfo);
     const { scheduleVectorDbSync } = await import('../knowledge-singletons.js');
 
     scheduleVectorDbSync();

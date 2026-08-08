@@ -14,7 +14,6 @@ import { Router, Request, Response } from 'express';
 import { FileStore, generateId } from '@dommaker/studio-shared';
 import { logger } from '../../utils/logger.js';
 import { requireAuth, requireAdmin, workspaceAuth, AuthRequest } from '../../middleware/auth.js';
-import discoverProxyRouter from './discover-proxy.js';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import * as fs from 'node:fs';
@@ -22,9 +21,6 @@ import * as fs from 'node:fs';
 const fileStore = new FileStore();
 const WORKSPACES_DIR = path.join(os.homedir(), '.studio', 'workspaces');
 const router = Router();
-
-// Mount discover proxy (P4: WS-backed directory discovery)
-router.use('/', discoverProxyRouter);
 
 // ── Workspace data helpers ──
 

@@ -3,47 +3,10 @@
  * 1. 权限 default-deny 翻转
  * 2. traceId 关联 (executionId/goalId → audit log + trace)
  */
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 
 const isCI = !!process.env.CI;
 const describeIf = isCI ? describe.skip : describe;
-
-// In-memory store for MCPPermission (composite key: "roleId|toolName")
-const permStore = new Map<string, { roleId: string; toolName: string; allowed: boolean }>();
-
-vi.mock('@prisma/client', () => {
-  return {
-    PrismaClient: class {
-      $extends() { return this; }
-      mCPPermission = {
-        findUnique: async ({ where }: any) => {
-          const key = `${where.roleId_toolName.roleId}|${where.roleId_toolName.toolName}`;
-          return permStore.get(key) ?? null;
-        },
-        upsert: async ({ where, create, update }: any) => {
-          const key = `${where.roleId_toolName.roleId}|${where.roleId_toolName.toolName}`;
-          const existing = permStore.get(key);
-          if (existing) {
-            existing.allowed = update.allowed;
-            return existing;
-          }
-          const row = { roleId: create.roleId, toolName: create.toolName, allowed: create.allowed };
-          permStore.set(key, row);
-          return row;
-        },
-        findMany: async ({ where }: any) => {
-          return [...permStore.values()].filter((r) => r.roleId === where.roleId);
-        },
-      };
-      mCPAuditLog = {
-        create: async () => ({}),
-        findMany: async () => [],
-        count: async () => 0,
-        deleteMany: async () => ({ count: 0 }),
-      };
-    },
-  };
-});
 
 // ════════════════════════════════════════════
 // BP3: 权限翻转 — default-allow → default-deny

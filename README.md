@@ -50,7 +50,7 @@ Studio 不复刻 CLI 能力（@文件、diff 预览等不做），只产出任�
 
 ## 快速开始
 
-前置要求：Node.js >= 18、pnpm >= 8、git；至少安装一家 agent CLI（**claude / kimi / codex / opencode**）。
+前置要求：Node.js >= 18、pnpm >= 8、git；至少安装一家 agent CLI（**claude / kimi / codex / opencode**，provider 配置见 `packages/studio-shared/src/providers.ts`）。
 
 ```bash
 pnpm install
