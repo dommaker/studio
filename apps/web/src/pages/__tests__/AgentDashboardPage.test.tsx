@@ -178,6 +178,7 @@ describe('AgentDashboardPage', () => {
     mockApis({ agents: [instance({ status: 'idle', currentWorkUnitId: null, currentWorkUnit: null, pmo: null, channelId: null })] });
     render(<AgentDashboardPage />);
     expect(await screen.findByText('空闲 · 等待派活')).toBeDefined();
+    await act(async () => {}); // 同下方 step 用例：冲刷 passive effect，避免 rolesRef 陈旧窗口
 
     act(() => {
       handler!({ event_type: 'agent.instance.status_changed', data: { profileId: 'p1', instanceId: 'i1', name: 'dev-agent', status: 'active', currentWorkUnitId: 'wu-9' } });
@@ -195,6 +196,12 @@ describe('AgentDashboardPage', () => {
     mockApis();
     render(<AgentDashboardPage />);
     expect(await screen.findByText('实现登录接口')).toBeDefined();
+
+    // 竞态加固：rolesRef 由 passive effect 镜像 roles；findByText 可经 MutationObserver
+    // 微任务在 effect flush（宏任务）前决议，此时同步推送 SSE 会读到陈旧空名册、事件被
+    // findRoleByWorkUnit 静默丢弃（负载下偶发找不到追加文本的根因）。async act 冲刷
+    // 全部挂起 effect，推送时机确定化。
+    await act(async () => {});
 
     act(() => {
       handler!({
@@ -219,6 +226,7 @@ describe('AgentDashboardPage', () => {
     mockApis();
     render(<AgentDashboardPage />);
     expect(await screen.findByText('dev-agent')).toBeDefined();
+    await act(async () => {}); // 同 step 用例：冲刷 passive effect，避免 rolesRef 陈旧窗口
     act(() => {
       handler!({
         event_type: 'workunit.execution.stream',
