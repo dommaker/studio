@@ -109,6 +109,21 @@ pnpm start  # 启动生产服务
 - 部署状态：`studio-ship deploy-state`（state.json）或 Discord 告警频道
 - 部署日志：`/var/log/studio-deploy.log`
 - 本仓的任何分支/脏树/本地领先状态都**不影响**部署（2026-07-29 起）
+
+### ship 前置纪律（2026-08-08 事故固化）
+
+跑 `studio-ship` 之前必须先做分叉检查（脚本步骤 1.6 已硬门禁，此处为人工纪律）：
+
+1. `git fetch origin` 刷新远端
+2. `git rev-list --count HEAD..origin/master` 必须为 0；非 0 说明远端有新合并（可能是其他会话经 work 分支上线），先确认再决定 merge/rebase，禁止直接 ship
+3. 发现大量未推送 commit（>10）时停下来向用户报告清单，确认这些 commit 是否该随本次上线，不得默认全部带上（脚本要求 `ALLOW_MANY_COMMITS=1` 显式确认）
+
+背景：本地积压 140 个 commit 与远端 PR #44/#45 的 43 个 commit 分叉，盲目 ship 产生 30+ 文件冲突的废 PR #46（已关）。
+
+日常预防：
+
+- 每轮迭代结束即 ship 或 `studio-deploy-quick`（异步推分支备份），不积压长 commit 栈
+- 多会话并行时，开工前先 fetch；上线统一走一个会话，避免 master/work 双线各自演进
 <!-- /PRESERVE:release-flow -->
 
 <!-- PRESERVE:agent-skills -->
