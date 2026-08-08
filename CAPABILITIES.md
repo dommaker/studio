@@ -1,6 +1,6 @@
 # CAPABILITIES.md
 
-> 最后更新: 2026-08-07
+> 最后更新: 2026-08-08
 
 ---
 
@@ -330,3 +330,11 @@
 | graphUtils | apps/web/src/components/knowledge/graphUtils.ts | 知识图谱节点数据 |
 | okrMetric | apps/web/src/components/pmo/okrMetric.ts | okrMetric - OKR/KR 度量纯函数与常量（零依赖，自 PMOPage 抽出，工单 33） |
 | useAgentRoster | apps/web/src/hooks/useAgentRoster.ts | Agent 作战视图数据 hook — 角色名册（profile × runtime 合并）+ SSE 事件路由 + 轮询兜底 |
+| delegate-branch | apps/api/src/modules/agents/loop/delegate-branch.ts | A2A §4.1 DELEGATE 分支（2026-08 从 agent-loop.recordResult 抽出，行为一字不改）： |
+| prompt-composer | apps/api/src/modules/agents/loop/prompt-composer.ts | prompt/上下文组装（2026-08 从 agent-loop.agentStep 抽出，行为一字不改）： |
+| evolution-scheduler | apps/api/src/modules/knowledge/evolution-scheduler.ts | Knowledge Evolution Scheduler |
+| trigger-scheduler | apps/api/src/modules/triggers/trigger-scheduler.ts | Register a trigger programmatically. |
+| websocketHooks | apps/web/src/api/websocketHooks.ts | SSE 客户端 hooks — 从 websocket.tsx 拆出（类型 / useWebSocket / context / useWebSocketContext）， |
+| statusClasses | apps/web/src/components/channel/statusClasses.ts | 频道/agent 状态点样式映射（从 ChannelRail.tsx 拆出，供 ChannelRail 与 ChannelListPage 共用） |
+| dismissed | apps/web/src/components/setup/dismissed.ts | 角色配置引导弹框的会话级 dismiss 标记（sessionStorage key 与检查函数； |
+| useTheme | apps/web/src/contexts/useTheme.ts | 使用主题 Hook |
