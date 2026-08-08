@@ -20,11 +20,27 @@ const PKGS = [
 
 // ── Helpers ──
 
+// solution 风格 tsconfig（files:[] + references，如 apps/web）：
+// `tsc --noEmit -p` 对它不检查任何文件（盲转），必须用 `tsc -b` 才与
+// CI（apps/web: tsc -b && vite build）等价 —— 2026-08-08 合并产生 4 个类型错误漏检事故
+function isSolutionStyleTsconfig(pkg) {
+  try {
+    const cfg = JSON.parse(fs.readFileSync(`${pkg}/tsconfig.json`, 'utf-8'));
+    return Array.isArray(cfg.files) && cfg.files.length === 0 &&
+      Array.isArray(cfg.references) && cfg.references.length > 0;
+  } catch {
+    return false;
+  }
+}
+
 function runTsc(pkg) {
+  const solution = isSolutionStyleTsconfig(pkg);
   try {
     const out = execSync(
-      `npx tsc --noEmit --project "${pkg}/tsconfig.json" --pretty false 2>&1`,
-      { encoding: 'utf-8', stdio: 'pipe', timeout: 30000, maxBuffer: 10 * 1024 * 1024 },
+      solution
+        ? `npx tsc -b "${pkg}/tsconfig.json" --pretty false 2>&1`
+        : `npx tsc --noEmit --project "${pkg}/tsconfig.json" --pretty false 2>&1`,
+      { encoding: 'utf-8', stdio: 'pipe', timeout: solution ? 120000 : 30000, maxBuffer: 10 * 1024 * 1024 },
     );
     return out;
   } catch (e) {
@@ -78,21 +94,28 @@ if (flag('--update-baseline')) {
 // ── Check Gate ──
 
 if (flag('--check')) {
+  const strict = flag('--strict');
   const baselineFile = opt('--baseline') || '.tsc-baseline.json';
-  const packages = opt('--packages').split(',').filter(Boolean);
+  let packages = opt('--packages').split(',').filter(Boolean);
 
   if (packages.length === 0) {
-    console.log('ℹ️  No packages to check');
-    process.exit(0);
+    if (!strict) {
+      console.log('ℹ️  No packages to check');
+      process.exit(0);
+    }
+    packages = PKGS; // strict 默认全量包
   }
 
+  if (strict) {
+    console.log('   ⚡ strict 模式：忽略 baseline，所有现存错误均拦截（合并/大重构后使用）');
+  }
   console.log(`   Packages: ${packages.join(', ')}`);
 
-  // Load baseline
+  // Load baseline（strict 模式跳过：baseline 只拦新增错误，会掩盖合并引入的存量错误）
   let baseline = {};
-  if (fs.existsSync(baselineFile)) {
+  if (!strict && fs.existsSync(baselineFile)) {
     baseline = JSON.parse(fs.readFileSync(baselineFile, 'utf-8'));
-  } else {
+  } else if (!strict) {
     console.log('⚠️  No baseline file — treating ALL errors as new');
   }
 
@@ -202,5 +225,5 @@ if (flag('--check')) {
 }
 
 // Fallback: show usage
-console.log('Usage: tsc-gate.mjs --update-baseline | --check --baseline <file> --packages <pkgs>');
+console.log('Usage: tsc-gate.mjs --update-baseline | --check [--strict] --baseline <file> --packages <pkgs>');
 process.exit(1);
