@@ -1,8 +1,9 @@
 /**
  * Evolution generator 单元测试（E1 约束进化）。
  *
- * 覆盖三条生成链路（真实 autoEvolve 纯计算，无 LLM）：
- *   (a) harness 约束 traces 异常 → iron-law/guideline 提案（message / exception 映射）
+ * 覆盖生成链路：
+ *   (a) 【挂起 — harness 0.17.0 删除 autoEvolve】约束 traces 不再产生提案，
+ *       等待改吃 constraints report 候选数据（飞轮修复立项 ①）
  *   (b) 注入知识仍高失败 → prompt-template 提案（保守阈值）
  *   (c) 角色 caller 高频工具失败 → role-preset 提案
  * 以及：信号稀薄时零提案（默认安静）、去重（open-exists / duplicate）、绝不自动生效。
@@ -20,28 +21,6 @@ let fileStore: FileStore;
 let paths: EvolutionPaths;
 
 const NOW = Date.now();
-
-/** guideline 约束：6 bypass / 10 → bypassRate 0.6 > 0.3 → high_bypass_rate → add_exception */
-const BYPASSED_TRACES = Array.from({ length: 10 }, (_, i) => ({
-  constraintId: 'no_any_type',
-  level: 'guideline',
-  timestamp: NOW - 3600_000 + i * 1000,
-  result: i < 4 ? 'pass' : 'bypassed',
-  operation: 'code_implementation',
-}));
-
-/** guideline 约束：12 traces，failRate 7/12 ≈ 0.583 > 0.5，前半全 fail 后半 pass 回升 → trend rising */
-const FAILING_TRACES = [
-  ...Array.from({ length: 6 }, (_, i) => ({ result: 'fail', i })),
-  { result: 'fail', i: 6 },
-  ...Array.from({ length: 5 }, (_, i) => ({ result: 'pass', i: 7 + i })),
-].map(({ result, i }) => ({
-  constraintId: 'no_hardcoded_credentials',
-  level: 'guideline',
-  timestamp: NOW - 3600_000 + i * 1000,
-  result,
-  operation: 'code_implementation',
-}));
 
 function writeJsonl(file: string, rows: unknown[]): void {
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -109,32 +88,21 @@ describe('generateEvolutionProposals (E1)', () => {
     expect(fs.existsSync(paths.constraintsFile)).toBe(false);
   });
 
-  it('(a) maps autoEvolve proposals: high bypass → exception; rising fail rate → message', async () => {
-    writeJsonl(paths.traceFile, [...BYPASSED_TRACES, ...FAILING_TRACES]);
+  it('(a) suspended since harness 0.17.0: constraint traces alone yield no proposals', async () => {
+    // autoEvolve 已删除，(a) 链路等待改吃 constraints report 候选数据（飞轮修复立项 ①）。
+    // traces 仍被扫描计数，但不产生任何 iron-law/guideline 提案。
+    writeJsonl(paths.traceFile, Array.from({ length: 10 }, (_, i) => ({
+      constraintId: 'c-x',
+      level: 'guideline',
+      timestamp: NOW - 3600_000 + i * 1000,
+      result: 'fail',
+      operation: 'code_implementation',
+    })));
 
     const result = await generateEvolutionProposals({ fileStore, paths, windowHours: 24 });
-    expect(result.scanned.constraintTraces).toBe(22);
-
-    const byTarget = new Map(result.created.map(p => [p.targetId, p]));
-    // add_exception → EP exception 提案（extend-only shadow 路径）
-    const exception = byTarget.get('no_any_type');
-    expect(exception).toBeDefined();
-    expect(exception!.targetType).toBe('guideline');
-    expect(exception!.constraintChange).toBe('exception');
-    expect(exception!.action).toBe('add');
-    expect(exception!.status).toBe('pending');
-    expect(exception!.source).toBe('harness-autoEvolve');
-    expect(exception!.evidence.eventCounts.constraintTraces).toBe(22);
-    // modify_message → EP message 提案
-    const message = byTarget.get('no_hardcoded_credentials');
-    expect(message).toBeDefined();
-    expect(message!.constraintChange).toBe('message');
-    expect(message!.proposedText.length).toBeGreaterThan(0);
-
-    // 持久化为 pending；constraints 目标文件未被触碰（不自动生效）
-    const stored = await fileStore.listEvolutionProposals();
-    expect(stored.length).toBe(result.created.length);
-    expect(stored.every(p => p.status === 'pending')).toBe(true);
+    expect(result.scanned.constraintTraces).toBe(10);
+    expect(result.created).toEqual([]);
+    expect(await fileStore.listEvolutionProposals()).toEqual([]);
     expect(fs.existsSync(paths.constraintsFile)).toBe(false);
   });
 

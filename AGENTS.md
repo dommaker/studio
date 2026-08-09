@@ -34,7 +34,7 @@ pnpm start  # 启动生产服务
 
 ## 约束与治理
 
-- 约束清单：`CLAUDE.md` Governance Rules 块（Iron Laws 11 条、Guidelines 25 条）
+- 约束清单：`CLAUDE.md` Governance Rules 块（Iron Laws 7 条、Guidelines 6 条）
 
 ## 知识入口
 

@@ -1,41 +1,56 @@
 /**
- * constraints.routes — Harness 约束生命周期与质量门子路由（T-002 / M2）
+ * constraints.routes — Harness 约束清单与质量门子路由（T-002 / M2）
  *
- * 从 routes.ts 提取（T3 大文件拆分，零行为变更），处理器逐字迁移：
- * - GET  /constraints                 列出所有约束 + 分层状态
- * - GET  /constraints/stats           分层统计汇总（注册于 /constraints/:id 之前）
- * - GET  /constraints/:id             约束详情
- * - POST /constraints/:id/degrade     手动降级约束
- * - POST /constraints/:id/rollback    回滚约束到原始级别
- * - POST /constraints/:id/schedule    设置弃用计划
+ * 从 routes.ts 提取（T3 大文件拆分），harness 0.17.0 适配（ADR-0001 决策 8）：
+ * - GET  /constraints                 列出生效约束集（getEffectiveConstraints）
+ * - GET  /constraints/stats           生效集统计（注册于 /constraints/:id 之前）
+ * - GET  /constraints/retired         config.yml 中已退役约束的元数据（注册于 /:id 之前）
+ * - GET  /constraints/:id             约束详情（生效集内查找）
+ * - POST /constraints/:id/rollback    撤销 retire：删除 config.yml constraints.<id> 段
  * - POST /check-constraints           M2 质量门：非抛出式约束检查（RequirementsDoc UI）
+ *
+ * 0.17.0 移除：ConstraintRegistry（layer/deprecationStatus/permanent 概念随之删除）、
+ * POST /constraints/:id/degrade、POST /constraints/:id/schedule（deprecationSchedule 删除）。
+ * 响应字段说明：原 layer/deprecationStatus/permanent 不再存在；kind（check/prompt）为新增。
  */
 
 import { Router, Request, Response } from 'express';
+import fs from 'node:fs';
+import path from 'node:path';
+import yaml from 'js-yaml';
 import { logger } from '@dommaker/studio-shared';
 import { loadHarness, harnessModule } from './runtime.js';
 
 export const constraintsRoutes = Router();
 
+/** 项目根（harness 配置 .harness/ 所在目录）：与 harness CLI 一致，缺省 process.cwd() */
+function projectRoot(): string {
+  return process.cwd();
+}
+
+function configPath(): string {
+  return path.join(projectRoot(), '.harness', 'config.yml');
+}
+
 // ─── Constraint Lifecycle (T-002) ───
 
 /**
  * GET /api/v1/harness/constraints
- * 列出所有约束 + 分层状态
+ * 列出当前生效约束集（内置 → config.yml 合并 → custom 追加，带 kind）
  */
 constraintsRoutes.get('/constraints', async (_req: Request, res: Response) => {
   try {
-    await loadHarness();
-    const registry = new harnessModule!.ConstraintRegistry();
-    const constraints = registry.getAll().map(c => ({
+    const loaded = await loadHarness();
+    if (!loaded || !harnessModule) return res.status(503).json({ error: 'Harness not available' });
+
+    const constraints = harnessModule.getEffectiveConstraints(projectRoot()).map(c => ({
       id: c.id,
+      kind: c.kind,
       level: c.level,
-      layer: c.layer,
-      deprecationStatus: c.deprecationStatus,
-      permanent: c.permanent,
       trigger: c.trigger,
       rule: c.rule,
       message: c.message,
+      enforcement: c.enforcement,
     }));
     return res.json({ data: constraints, total: constraints.length });
   } catch (error) {
@@ -46,14 +61,21 @@ constraintsRoutes.get('/constraints', async (_req: Request, res: Response) => {
 
 /**
  * GET /api/v1/harness/constraints/stats
- * 分层统计汇总
+ * 生效集统计。0.17.0 语义变化：原按 layer（safety/quality）聚合 → 现按 kind/level 聚合
  */
 constraintsRoutes.get('/constraints/stats', async (_req: Request, res: Response) => {
   try {
-    await loadHarness();
-    const registry = new harnessModule!.ConstraintRegistry();
-    const stats = registry.getLayerStats();
-    return res.json({ data: stats });
+    const loaded = await loadHarness();
+    if (!loaded || !harnessModule) return res.status(503).json({ error: 'Harness not available' });
+
+    const constraints = harnessModule.getEffectiveConstraints(projectRoot());
+    const byKind: Record<string, number> = {};
+    const byLevel: Record<string, number> = {};
+    for (const c of constraints) {
+      byKind[c.kind] = (byKind[c.kind] ?? 0) + 1;
+      byLevel[c.level] = (byLevel[c.level] ?? 0) + 1;
+    }
+    return res.json({ data: { total: constraints.length, byKind, byLevel } });
   } catch (error) {
     logger.error('Failed to get constraint stats', { error: String(error) });
     return res.status(500).json({ error: 'Failed to get constraint stats' });
@@ -61,14 +83,37 @@ constraintsRoutes.get('/constraints/stats', async (_req: Request, res: Response)
 });
 
 /**
+ * GET /api/v1/harness/constraints/retired
+ * 已退役约束元数据（config.yml constraints.<id>.retired：at/reason/stats）
+ */
+constraintsRoutes.get('/constraints/retired', async (_req: Request, res: Response) => {
+  try {
+    const file = configPath();
+    if (!fs.existsSync(file)) return res.json({ data: [], total: 0 });
+
+    const raw = (yaml.load(fs.readFileSync(file, 'utf-8')) as Record<string, unknown>) ?? {};
+    const constraints = (raw.constraints ?? {}) as Record<string, Record<string, unknown>>;
+    const retired = Object.entries(constraints)
+      .filter(([, v]) => v && typeof v === 'object' && v.retired)
+      .map(([id, v]) => ({ id, enabled: v.enabled ?? false, retired: v.retired }));
+    return res.json({ data: retired, total: retired.length });
+  } catch (error) {
+    logger.error('Failed to list retired constraints', { error: String(error) });
+    return res.status(500).json({ error: 'Failed to list retired constraints' });
+  }
+});
+
+/**
  * GET /api/v1/harness/constraints/:id
- * 约束详情
+ * 约束详情（生效集内查找）
  */
 constraintsRoutes.get('/constraints/:id', async (req: Request, res: Response) => {
   try {
-    await loadHarness();
-    const registry = new harnessModule!.ConstraintRegistry();
-    const constraint = registry.get(req.params.id);
+    const loaded = await loadHarness();
+    if (!loaded || !harnessModule) return res.status(503).json({ error: 'Harness not available' });
+
+    const constraint = harnessModule.getEffectiveConstraints(projectRoot())
+      .find(c => c.id === req.params.id);
     if (!constraint) return res.status(404).json({ error: 'Constraint not found' });
     return res.json({ data: constraint });
   } catch (error) {
@@ -78,90 +123,39 @@ constraintsRoutes.get('/constraints/:id', async (req: Request, res: Response) =>
 });
 
 /**
- * POST /api/v1/harness/constraints/:id/degrade
- * 手动降级约束
- */
-constraintsRoutes.post('/constraints/:id/degrade', async (req: Request, res: Response) => {
-  try {
-    await loadHarness();
-    const registry = new harnessModule!.ConstraintRegistry();
-    const constraint = registry.get(req.params.id);
-    if (!constraint) return res.status(404).json({ error: 'Constraint not found' });
-
-    if (constraint.layer === 'safety') {
-      return res.status(400).json({ error: 'Cannot degrade safety-layer constraint' });
-    }
-
-    const success = registry.degrade(req.params.id);
-    if (!success) return res.status(400).json({ error: 'Degradation failed (no schedule or already deprecated)' });
-
-    const updated = registry.get(req.params.id);
-    return res.json({ data: updated, degraded: true });
-  } catch (error) {
-    logger.error('Failed to degrade constraint', { error: String(error) });
-    return res.status(500).json({ error: 'Failed to degrade constraint' });
-  }
-});
-
-/**
  * POST /api/v1/harness/constraints/:id/rollback
- * 回滚约束到原始级别
+ * 撤销 retire/disable：删除 .harness/config.yml 中 constraints.<id> 段（0.17.0 语义）。
+ * config.yml 不存在或无该段 → 404。js-yaml 重写不保留原文件注释（与 harness CLI 一致）。
  */
 constraintsRoutes.post('/constraints/:id/rollback', async (req: Request, res: Response) => {
   try {
-    await loadHarness();
-    const registry = new harnessModule!.ConstraintRegistry();
-    const constraint = registry.get(req.params.id);
-    if (!constraint) return res.status(404).json({ error: 'Constraint not found' });
+    const file = configPath();
+    if (!fs.existsSync(file)) {
+      return res.status(404).json({ error: 'No config.yml: constraint has no retire/disable entry to roll back' });
+    }
 
-    const { originalLevel } = req.body;
-    if (!originalLevel) return res.status(400).json({ error: 'originalLevel is required' });
+    const raw = (yaml.load(fs.readFileSync(file, 'utf-8')) as Record<string, unknown>) ?? {};
+    const constraints = (raw.constraints ?? {}) as Record<string, unknown>;
+    if (!(req.params.id in constraints)) {
+      return res.status(404).json({ error: `No config entry for constraint: ${req.params.id}` });
+    }
 
-    const success = registry.rollback(req.params.id, originalLevel);
-    if (!success) return res.status(400).json({ error: 'Rollback failed (not rollbackable)' });
+    delete constraints[req.params.id];
+    if (Object.keys(constraints).length === 0) delete raw.constraints;
+    else raw.constraints = constraints;
+    fs.writeFileSync(file, yaml.dump(raw, { lineWidth: 120 }), 'utf-8');
 
-    const updated = registry.get(req.params.id);
-    return res.json({ data: updated, rolledBack: true });
+    // 回滚后若重新进入生效集，返回其定义
+    let restored = null;
+    const loaded = await loadHarness();
+    if (loaded && harnessModule) {
+      restored = harnessModule.getEffectiveConstraints(projectRoot())
+        .find(c => c.id === req.params.id) ?? null;
+    }
+    return res.json({ data: restored, rolledBack: true });
   } catch (error) {
     logger.error('Failed to rollback constraint', { error: String(error) });
     return res.status(500).json({ error: 'Failed to rollback constraint' });
-  }
-});
-
-/**
- * POST /api/v1/harness/constraints/:id/schedule
- * 设置弃用计划
- */
-constraintsRoutes.post('/constraints/:id/schedule', async (req: Request, res: Response) => {
-  try {
-    await loadHarness();
-    const registry = new harnessModule!.ConstraintRegistry();
-    const constraint = registry.get(req.params.id);
-    if (!constraint) return res.status(404).json({ error: 'Constraint not found' });
-
-    if (constraint.layer === 'safety') {
-      return res.status(400).json({ error: 'Cannot schedule deprecation for safety-layer constraint' });
-    }
-
-    const { targetLevel, reason, interceptRateThreshold, scheduledDate, rollbackable } = req.body;
-    if (!targetLevel || !reason) {
-      return res.status(400).json({ error: 'targetLevel and reason are required' });
-    }
-
-    const success = registry.scheduleDeprecation(req.params.id, {
-      targetLevel,
-      reason,
-      interceptRateThreshold,
-      scheduledDate,
-      rollbackable: rollbackable !== false,
-    });
-    if (!success) return res.status(400).json({ error: 'Schedule failed' });
-
-    const updated = registry.get(req.params.id);
-    return res.json({ data: updated, scheduled: true });
-  } catch (error) {
-    logger.error('Failed to schedule deprecation', { error: String(error) });
-    return res.status(500).json({ error: 'Failed to schedule deprecation' });
   }
 });
 

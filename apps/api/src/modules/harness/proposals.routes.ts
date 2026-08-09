@@ -1,18 +1,20 @@
 /**
- * proposals.routes — Harness 约束进化与提案子路由（T-002）
+ * proposals.routes — Harness 约束提案子路由（T-002）
  *
- * 从 routes.ts 提取（T3 大文件拆分，零行为变更），处理器逐字迁移：
+ * 从 routes.ts 提取（T3 大文件拆分），harness 0.17.0 适配（ADR-0001 决策 8）：
  * - GET  /proposals               列出约束变更提案
- * - POST /proposals/:id/review    审核（接受/拒绝）提案，接受后自动执行
- * - POST /evolve                  自动进化：traces → 诊断 → 提案 → 审核 → 执行
- * - POST /proposals/:id/execute   手动执行已审核的提案
+ * - POST /proposals/:id/review    审核（接受/拒绝）提案，仅更新状态落盘
+ * - POST /proposals/:id/execute   410 Gone（自动执行已移除）
+ *
+ * POST /evolve 已随 harness 0.17.0 移除（autoEvolve 删除）。
+ * ConstraintLifecycleRunner 已删除：提案只是"人看的建议记录"，
+ * accepted 后由人工实施，再经 harness constraints retire/report 闭环。
  *
  * 提案持久化于 process.cwd()/.harness/proposals/ 目录（与原实现一致）。
  */
 
 import { Router, Request, Response } from 'express';
 import { logger } from '@dommaker/studio-shared';
-import { loadHarness, harnessModule, getCollector, getAnalyzer } from './runtime.js';
 
 export const proposalsRoutes = Router();
 
@@ -74,22 +76,11 @@ proposalsRoutes.post('/proposals/:id/review', async (req: Request, res: Response
       proposal.reviewComment = comment;
       proposal.reviewedAt = Date.now();
 
-      // Approved → 自动执行
-      let executionResult = null;
-      if (approved) {
-        try {
-          await loadHarness();
-          const runner = new harnessModule!.ConstraintLifecycleRunner();
-          executionResult = runner.execute(proposal);
-          proposal.status = executionResult.success ? 'implemented' : 'accepted';
-          proposal.executionResult = executionResult;
-        } catch (execError) {
-          logger.warn('Proposal execution failed, keeping accepted status', { error: String(execError), proposalId: id });
-        }
-      }
+      // harness 0.17.0 起不再有自动执行（ConstraintLifecycleRunner 删除，ADR-0001 决策 8）：
+      // 提案只是"人看的建议记录"，accepted 后由人工实施，再经 harness constraints retire/report 闭环。
 
       await writeFile(proposalFile, JSON.stringify(proposal, null, 2));
-      return res.json({ data: proposal, executionResult });
+      return res.json({ data: proposal, executionResult: null });
     } catch {
       return res.status(404).json({ error: `Proposal not found: ${id}` });
     }
@@ -100,101 +91,32 @@ proposalsRoutes.post('/proposals/:id/review', async (req: Request, res: Response
 });
 
 // ─── Constraint Evolution (T-002) ───
-
-/**
- * POST /api/v1/harness/evolve
- * 自动进化：traces → 诊断 → 提案 → 审核 → 执行
- */
-proposalsRoutes.post('/evolve', async (req: Request, res: Response) => {
-  try {
-    await loadHarness();
-    const { autoEvolve } = harnessModule!;
-
-    const { hours, autoApproveLowRisk } = req.body;
-    const h = hours || 24;
-
-    // 1. 从文件读取 traces（复用现有 TraceCollector）
-    const collector = await getCollector();
-    if (!collector) return res.status(503).json({ error: 'Harness not available' });
-
-    const analyzer = await getAnalyzer();
-    if (!analyzer) return res.status(503).json({ error: 'Harness not available' });
-
-    // 2. 分析 + 检测异常
-    const traces = collector.read({
-      timeRange: { start: Date.now() - h * 3600_000, end: Date.now() },
-    });
-    const summaries = analyzer.analyzeRecent(h);
-    const anomalies = analyzer.detectAnomalies(summaries);
-
-    if (anomalies.length === 0) {
-      return res.json({ data: { message: 'No anomalies detected', traces: traces.length, summaries: summaries.length } });
-    }
-
-    // 3. 调用 harness autoEvolve
-    const result = await autoEvolve(traces, anomalies, { autoApproveLowRisk: autoApproveLowRisk !== false });
-
-    // 4. 保存提案到文件
-    const { mkdir, writeFile } = await import('fs/promises');
-    const { join } = await import('path');
-    const proposalsDir = join(process.cwd(), '.harness', 'proposals');
-    await mkdir(proposalsDir, { recursive: true });
-
-    for (const proposal of result.proposals) {
-      const proposalFile = join(proposalsDir, `${proposal.id}.json`);
-      await writeFile(proposalFile, JSON.stringify(proposal, null, 2));
-    }
-
-    return res.json({
-      data: {
-        anomalies: anomalies.length,
-        diagnoses: result.diagnoses.length,
-        proposals: result.proposals.length,
-        autoApproved: result.autoApproved,
-        needsReview: result.needsReview,
-        executions: result.executions,
-        details: result.proposals,
-      },
-    });
-  } catch (error) {
-    logger.error('Failed to run auto evolution', { error: String(error) });
-    return res.status(500).json({ error: 'Failed to run auto evolution' });
-  }
-});
+// POST /evolve 已随 harness 0.17.0 移除：autoEvolve / ConstraintEvolver 删除
+// （ADR-0001 决策 8，约束进化链路退役）。
 
 /**
  * POST /api/v1/harness/proposals/:id/execute
- * 手动执行已审核的提案
+ * 410 Gone：提案自动执行已随 harness 0.17.0 移除（ConstraintLifecycleRunner 删除，
+ * ADR-0001 决策 8）。提案仅作人工建议记录；accepted 后请人工实施，
+ * 再经 `harness constraints retire/report` 流程闭环。
  */
 proposalsRoutes.post('/proposals/:id/execute', async (req: Request, res: Response) => {
   try {
-    const { readFile, writeFile } = await import('fs/promises');
+    const { readFile } = await import('fs/promises');
     const { join } = await import('path');
 
     const proposalsDir = join(process.cwd(), '.harness', 'proposals');
     const proposalFile = join(proposalsDir, `${req.params.id}.json`);
 
     try {
-      const content = await readFile(proposalFile, 'utf-8');
-      const proposal = JSON.parse(content);
-
-      if (proposal.status !== 'accepted' && proposal.status !== 'reviewing') {
-        return res.status(400).json({ error: `Cannot execute proposal with status: ${proposal.status}` });
-      }
-
-      await loadHarness();
-      const runner = new harnessModule!.ConstraintLifecycleRunner();
-      const executionResult = runner.execute(proposal);
-
-      proposal.status = executionResult.success ? 'implemented' : 'accepted';
-      proposal.executionResult = executionResult;
-      proposal.executedAt = Date.now();
-
-      await writeFile(proposalFile, JSON.stringify(proposal, null, 2));
-      return res.json({ data: proposal, executionResult });
+      await readFile(proposalFile, 'utf-8');
     } catch {
       return res.status(404).json({ error: `Proposal not found: ${req.params.id}` });
     }
+    return res.status(410).json({
+      error: 'Proposal auto-execution was removed in harness 0.17.0. '
+        + 'Apply the proposal manually, then close the loop via `harness constraints retire/report`.',
+    });
   } catch (error) {
     logger.error('Failed to execute proposal', { error: String(error) });
     return res.status(500).json({ error: 'Failed to execute proposal' });
