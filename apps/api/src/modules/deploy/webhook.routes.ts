@@ -5,8 +5,11 @@
 // 行为：仅接受 push 到 refs/heads/master；202 立即返回后异步触发部署脚本
 // （路径 = env DEPLOY_SCRIPT，未配置按 503 处理，同 DEPLOY_WEBHOOK_SECRET；
 // 脚本内含方向检查/flock/build/restart/health/rollback，幂等可重入）。
+// 日志：脚本 stdout/stderr 追加到 env DEPLOY_LOG（默认 /var/log/studio-deploy.log）——
+// stdio: 'ignore' 曾导致 webhook 通道部署零日志（2026-08-09 修复）。
 import { Router } from 'express';
 import crypto from 'crypto';
+import fs from 'node:fs';
 import { spawn } from 'child_process';
 import { logger } from '@dommaker/studio-shared';
 
@@ -55,7 +58,18 @@ deployWebhookRoutes.post('/webhook', (req, res) => {
 
   // 先响应再触发：部署会重启本进程，不能让请求悬着
   res.status(202).json({ accepted: true });
-  const child = spawn('bash', [deployScript], { detached: true, stdio: 'ignore' });
+  // 日志落盘：stdio ignore 会把脚本输出全部丢弃，部署排错只剩 state.json（2026-08-09 事故）
+  const logPath = process.env.DEPLOY_LOG || '/var/log/studio-deploy.log';
+  let stdio: 'ignore' | ['ignore', number, number] = 'ignore';
+  let logFd: number | undefined;
+  try {
+    logFd = fs.openSync(logPath, 'a');
+    stdio = ['ignore', logFd, logFd];
+  } catch (err) {
+    logger.warn('[DeployWebhook] DEPLOY_LOG 不可写，部署输出将丢弃', { logPath, error: String(err) });
+  }
+  const child = spawn('bash', [deployScript], { detached: true, stdio });
   child.unref();
+  if (logFd !== undefined) fs.closeSync(logFd); // fd 已在 spawn 时复制给子进程
   logger.info('[DeployWebhook] push to master accepted, deploy triggered', { script: deployScript });
 });

@@ -12,10 +12,12 @@ import type { AddressInfo } from 'node:net';
 const SECRET = 'test-deploy-secret';
 let tmpDir: string;
 let marker: string;
+let deployLog: string;
 let server: Server;
 let base: string;
 let prevSecret: string | undefined;
 let prevScript: string | undefined;
+let prevLog: string | undefined;
 
 function sign(payload: string, secret: string = SECRET): string {
   return 'sha256=' + crypto.createHmac('sha256', secret).update(payload).digest('hex');
@@ -34,13 +36,16 @@ async function post(payload: string, headers: Record<string, string> = {}): Prom
 beforeAll(async () => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'deploy-webhook-'));
   marker = path.join(tmpDir, 'triggered');
+  deployLog = path.join(tmpDir, 'deploy.log');
   const deployScript = path.join(tmpDir, 'deploy.sh');
-  fs.writeFileSync(deployScript, `#!/bin/bash\necho fired >> "${marker}"\n`, { mode: 0o755 });
+  fs.writeFileSync(deployScript, `#!/bin/bash\necho fired >> "${marker}"\necho "deploy-output-line"\n`, { mode: 0o755 });
 
   prevSecret = process.env.DEPLOY_WEBHOOK_SECRET;
   prevScript = process.env.DEPLOY_SCRIPT;
+  prevLog = process.env.DEPLOY_LOG;
   process.env.DEPLOY_WEBHOOK_SECRET = SECRET;
   process.env.DEPLOY_SCRIPT = deployScript;
+  process.env.DEPLOY_LOG = deployLog;
 
   const { deployWebhookRoutes } = await import('../webhook.routes.js');
   const app = express();
@@ -59,6 +64,8 @@ afterAll(async () => {
   else process.env.DEPLOY_WEBHOOK_SECRET = prevSecret;
   if (prevScript === undefined) delete process.env.DEPLOY_SCRIPT;
   else process.env.DEPLOY_SCRIPT = prevScript;
+  if (prevLog === undefined) delete process.env.DEPLOY_LOG;
+  else process.env.DEPLOY_LOG = prevLog;
   await new Promise(resolve => server.close(resolve));
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
@@ -79,6 +86,25 @@ describe('deploy webhook', () => {
       await new Promise(r => setTimeout(r, 100));
     }
     expect(fs.existsSync(marker)).toBe(true);
+  });
+
+  it('部署脚本 stdout/stderr 落 DEPLOY_LOG（stdio 不得为 ignore）', async () => {
+    const payload = JSON.stringify({ ref: 'refs/heads/master' });
+    const { status } = await post(payload, {
+      'x-hub-signature-256': sign(payload),
+      'x-github-event': 'push',
+    });
+    expect(status).toBe(202);
+
+    // 轮询日志文件接住脚本输出（2026-08-09 回归：stdio ignore 导致部署零日志）
+    const deadline = Date.now() + 5000;
+    let content = '';
+    while (Date.now() < deadline) {
+      content = fs.existsSync(deployLog) ? fs.readFileSync(deployLog, 'utf-8') : '';
+      if (content.includes('deploy-output-line')) break;
+      await new Promise(r => setTimeout(r, 100));
+    }
+    expect(content).toContain('deploy-output-line');
   });
 
   it('签名错误 → 401', async () => {
