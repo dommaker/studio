@@ -1,0 +1,106 @@
+# 自定义约束配置 — Studio 项目专属
+
+custom_constraints:
+
+  # 1. MemoryStore 替代 Redis，禁止引入 Redis 依赖
+  no_redis_import:
+    id: no_redis_import
+    level: iron_law
+    rule: "NO REDIS/IREDIS IMPORTS"
+    message: "禁止引入 Redis/ioredis 依赖。项目使用 MemoryStore（studio-shared）替代"
+    trigger: ["code_implementation"]
+    description: "B0-002 已完成 Redis→MemoryStore 迁移。任何新代码不得引入 redis/ioredis 包或 Redis 连接逻辑"
+    promptInjection: "禁止引入 Redis/ioredis 依赖。项目使用 MemoryStore（studio-shared）替代。任何新代码不得引入 redis/ioredis 包或 Redis 连接逻辑。"
+
+  # 2. Prisma schema 变更必须附带 migration
+  prisma_schema_needs_migration:
+    id: prisma_schema_needs_migration
+    level: iron_law
+    rule: "PRISMA SCHEMA CHANGES REQUIRE MIGRATION"
+    message: "修改 schema.prisma 必须同时创建 migration 文件（prisma migrate dev --name <desc>）"
+    trigger: ["code_implementation"]
+    description: "schema 变更不带 migration 会导致生产环境 DB 不同步"
+    promptInjection: "修改 schema.prisma 必须同时创建 migration 文件（prisma migrate dev --name <desc>）。schema 变更不带 migration 会导致生产环境 DB 不同步。"
+
+  # 3. Monorepo 包边界：apps/ 之间禁止直接导入
+  monorepo_app_boundary:
+    id: monorepo_app_boundary
+    level: guideline
+    rule: "NO CROSS-APP IMPORTS"
+    message: "apps/ 之间禁止直接导入。共享逻辑必须提取到 packages/"
+    trigger: ["code_implementation"]
+    description: "apps/api 和 apps/web 不能互相 import。公共逻辑放 packages/studio-shared 或对应 package"
+    promptInjection: "apps/ 之间禁止直接导入。共享逻辑必须提取到 packages/（公共逻辑放 packages/studio-shared 或对应 package）。"
+
+  # 4. Agent 方法必须参数化分支名（拓扑无关）
+  agent_topology_agnostic:
+    id: agent_topology_agnostic
+    level: guideline
+    rule: "AGENT METHODS MUST BE TOPOLOGY-AGNOSTIC"
+    message: "Agent 方法（reviewDiff/mergeBranches/pushBranch）必须用参数化 ref，禁止硬编码 branch 名"
+    trigger: ["code_implementation"]
+    description: "2026-05-23 解耦决策：Agent 接口不假设分支拓扑，diff/merge 用参数化 refs"
+    promptInjection: "Agent 方法（reviewDiff/mergeBranches/pushBranch）必须用参数化 ref，禁止硬编码 branch 名。Agent 接口不假设分支拓扑。"
+
+  # 5. 新增 harness hook 必须注册到 registerAllHooks
+  hook_must_be_registered:
+    id: hook_must_be_registered
+    level: guideline
+    rule: "NEW HOOKS MUST BE REGISTERED"
+    message: "新增 harness hook 函数必须在 registerAllHooks() 中注册，否则不会被管线调用"
+    trigger: ["code_implementation"]
+    description: "hook 定义不注册 = 死代码。新 hook 必须在 hooks/register.ts 的 registerAllHooks 中添加"
+    promptInjection: "新增 harness hook 函数必须在 registerAllHooks()（hooks/register.ts）中注册，否则不会被管线调用。hook 定义不注册 = 死代码。"
+
+  # ─── 收编自 harness 0.16.9 内置（0.17.0 移出内置，ADR-0001 决策 8）───
+  # custom 约束在 0.17.0 统一 kind='prompt'（无 checker，check() 短路通过），
+  # level 仅决定所在桶与严重性行为。原文语义抄自 0.16.9 definitions。
+
+  # 6. 必须两阶段审查（原内置 iron_law，0.17.0 移出内置）
+  two_stage_review_required:
+    id: two_stage_review_required
+    level: iron_law
+    rule: "REVIEW MUST COVER SPEC COMPLIANCE BEFORE CODE QUALITY"
+    message: "审查必须两阶段：先验证规范合规，再检查代码质量"
+    trigger: "code_implementation"
+    description: |
+      代码审查必须分两阶段进行：
+
+      【Stage 1: 规范合规审查】
+      - 逐条对照验收标准(AC)验证
+      - 重新运行 Executor 的测试，确认通过
+      - 审计测试质量（是否只测了 happy path）
+      - 补写边界条件测试，验证是否失败
+
+      【Stage 2: 代码质量审查】
+      - 仅在 Stage 1 全部通过后进入
+      - 安全性检查（注入、泄露、权限）
+      - 可读性检查（命名、结构、DRY）
+      - 类型安全（type check、lint）
+    promptInjection: "代码审查必须分两阶段：① 规范合规审查 — 逐条对照验收标准(AC)验证实现是否满足需求，重新运行测试，审计测试质量并补写边界用例；② 代码质量审查 — 仅在 Stage 1 全部通过后，检查安全性、可读性、类型安全。Stage 1 不通过则不得进入 Stage 2。"
+
+  # 7. 高风险改动优先使用 worktree（原内置 guideline，0.17.0 移出内置）
+  prefer_worktree:
+    id: prefer_worktree
+    level: guideline
+    rule: "USE WORKTREE FOR HIGH-RISK CHANGES"
+    message: "高风险改动应在 worktree 中进行"
+    trigger: ["code_implementation"]
+    description: |
+      高风险改动应在隔离的 worktree 中进行。
+
+      【何时需要 worktree】
+      - 新功能开发（新增模块/API）
+      - 跨模块改动（>3 文件）
+      - 基础设施变更（CI/CD、依赖）
+
+      【何时不需要】
+      - 配置文件修改
+      - 单文件 bug fix
+      - 外科手术式修复（typo、missing import）
+
+      【原因】
+      - 隔离风险：worktree 中的改动不会影响主工作区
+      - 安全回滚：删除 worktree 即可放弃改动
+      - 并行开发：多个任务可同时在不同 worktree 中进行
+    promptInjection: "高风险改动（新功能、跨模块、基础设施）应在 worktree 中进行。配置修改、单文件 fix 可直接编辑。"

@@ -21,7 +21,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import yaml from 'js-yaml';
-import { GUIDELINES, IRON_LAWS, TIPS } from '@dommaker/harness';
+import { GUIDELINES, IRON_LAWS, PROMPTS } from '@dommaker/harness';
 import {
   resolvePromptOverridesDir,
   type EvolutionProposalData,
@@ -58,9 +58,10 @@ interface BuiltinConstraintDef {
 }
 
 function findBuiltinConstraint(id: string): BuiltinConstraintDef | null {
+  // 0.17.0：TIPS 已退役（deprecated 空表），prompt 层定义为 PROMPTS
   return (IRON_LAWS as Record<string, BuiltinConstraintDef>)[id]
     ?? (GUIDELINES as Record<string, BuiltinConstraintDef>)[id]
-    ?? (TIPS as Record<string, BuiltinConstraintDef>)[id]
+    ?? (PROMPTS as Record<string, BuiltinConstraintDef>)[id]
     ?? null;
 }
 

@@ -3,7 +3,8 @@
  *
  * 三个信号源（全部文件型，tmp dir 可注入）：
  *   1. harness 约束 traces：<repoRoot>/.harness/logs/traces.log（ExecutionTrace JSONL，
- *      由 @dommaker/harness TraceCollector 写入，供 autoEvolve 使用）
+ *      由 @dommaker/harness TraceCollector 写入；原供 autoEvolve 使用，
+ *      0.17.0 起为 constraints report 数据源，E1 (a) 链路挂起期间仅扫描计数）
  *   2. 工具调用 traces：<studioEventsFile>（tool:call 事件 —— D18 后与 knowledge
  *      事件同一统一事件文件；原 <eventsDir>/studio.jsonl 已收敛）
  *   3. 执行结果事件：<studioEventsFile>（knowledge:outcome:* 事件，含 consumedKnowledge
@@ -21,7 +22,7 @@ export interface EvolutionPaths {
   repoRoot: string;
   /** harness 自定义约束文件（iron-law/guideline 提案的写入目标） */
   constraintsFile: string;
-  /** harness 约束 trace 文件（autoEvolve 输入） */
+  /** harness 约束 trace 文件（(a) 链路输入；0.17.0 挂起期间仅计数） */
   traceFile: string;
   /** 角色预设目录（role-preset 提案的写入目标：<rolesDir>/<name>.yaml） */
   rolesDir: string;

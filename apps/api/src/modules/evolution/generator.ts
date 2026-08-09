@@ -2,11 +2,12 @@
  * E1 约束进化：提案生成器（generator）。
  *
  * 信号 → 提案，三条链路（全范围，vision §6）：
- *   (a) iron-law/guideline：harness 约束 traces → TraceAnalyzer 异常检测 →
- *       autoEvolve（纯计算，autoApproveLowRisk=false —— 绝不自动生效）→
- *       映射为 EP 提案。仅映射可生效的变更种类：modify_message（改文案）、
- *       add_exception（内置约束追加例外）、new_constraint（新条目）；
- *       adjust_trigger/change_level 等结构性提案 v1 跳过（记入 skipped）。
+ *   (a) iron-law/guideline：【暂时挂起 —— harness 0.17.0】autoEvolve 已删除
+ *       （ADR-0001 决策 8）。替代数据源 buildConstraintsUsageReport /
+ *       diagnoseRetireCandidates 存在于 dist/core/constraints/usage-report，
+ *       但未从包公开导出（exports map 的 ./core 也不含）。等待改吃
+ *       constraints report 候选数据（飞轮修复立项 ①，
+ *       docs/plans/2026-08-flywheel-repair-e1.md），当前恒返回空提案。
  *   (b) prompt-template：轻量启发式 —— 窗口内任务失败率高（≥50% 且 ≥5 次）且
  *       多个失败任务已注入知识（≥3 个，R1 反馈环数据）→ 说明注入约束未被遵守，
  *       提议强化 knowledge.rules-section 区段文案。每轮最多 1 个。
@@ -21,25 +22,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import yaml from 'js-yaml';
 import {
-  autoEvolve,
-  TraceAnalyzer,
-  TraceCollector,
-  GUIDELINES,
-  IRON_LAWS,
-  TIPS,
-} from '@dommaker/harness';
-import {
   FileStore,
   formatEvolutionId,
   logger,
   type EvolutionProposalData,
   type EvolutionTargetType,
 } from '@dommaker/studio-shared';
-import { loadCustomConstraints } from './applier.js';
 import { loadWindowSignals, type EvolutionPaths, type WindowSignals } from './signals.js';
 
-/** autoEvolve 最少 trace 数 —— 低于此不做诊断（信号太薄） */
-const MIN_TRACES = 5;
 /** (b) 启发式阈值 */
 const MIN_OUTCOME_FAILURES = 5;
 const MIN_OUTCOME_FAIL_RATE = 0.5;
@@ -73,89 +63,15 @@ export interface GeneratorDeps {
   windowHours: number;
 }
 
-/** (a) harness 约束 traces → autoEvolve → EP 提案映射 */
-async function constraintProposals(
-  signals: WindowSignals,
-  deps: GeneratorDeps,
-  skipped: Record<string, number>,
-): Promise<RawProposal[]> {
-  const traces = signals.constraintTraces;
-  if (traces.length < MIN_TRACES) return [];
-
-  const analyzer = new TraceAnalyzer(new TraceCollector({ traceFile: deps.paths.traceFile }));
-  const summaries = analyzer.summarize(traces);
-  const anomalies = analyzer.detectAnomalies(summaries);
-  if (anomalies.length === 0) return [];
-
-  // autoApproveLowRisk=false：所有提案都进入人工审核（needsReview），绝不自动执行
-  const result = await autoEvolve(traces, anomalies, { autoApproveLowRisk: false });
-  const custom = loadCustomConstraints(deps.paths.constraintsFile);
-  const out: RawProposal[] = [];
-
-  for (const p of result.proposals) {
-    const id = p.constraintId;
-    const customEntry = custom[id];
-    const builtin = (IRON_LAWS as Record<string, { level?: string; message?: string }>)[id]
-      ?? (GUIDELINES as Record<string, { level?: string; message?: string }>)[id]
-      ?? (TIPS as Record<string, { level?: string; message?: string }>)[id]
-      ?? null;
-    if (!customEntry && !builtin) {
-      skipped['unknown-constraint'] = (skipped['unknown-constraint'] ?? 0) + 1;
-      continue;
-    }
-    const levelRaw = String(customEntry?.level ?? builtin?.level ?? 'guideline');
-    const targetType: EvolutionTargetType = levelRaw === 'iron_law' ? 'iron-law' : 'guideline';
-    const currentMessage = String(customEntry?.message ?? builtin?.message ?? '');
-    const proposed = typeof p.content?.proposed === 'string'
-      ? p.content.proposed
-      : JSON.stringify(p.content?.proposed ?? '');
-    const rationale = `${p.reasoning}（预期：${p.expectedOutcome}）`;
-    const evidence: EvolutionProposalData['evidence'] = {
-      windowHours: deps.windowHours,
-      eventCounts: { constraintTraces: traces.length, anomalies: anomalies.length },
-      samples: anomalies.filter(a => a.constraintId === id).map(a => a.message).slice(0, 3),
-    };
-
-    if (!proposed) {
-      skipped['no-op'] = (skipped['no-op'] ?? 0) + 1;
-      continue;
-    }
-    switch (p.type) {
-      case 'modify_message':
-        if (proposed === currentMessage) { skipped['no-op'] = (skipped['no-op'] ?? 0) + 1; continue; }
-        out.push({
-          targetType, targetId: id,
-          action: customEntry ? 'amend' : 'add', // 内置约束 → 追加 shadow 条目覆盖
-          constraintChange: 'message',
-          currentText: currentMessage, proposedText: proposed, rationale,
-          source: 'harness-autoEvolve', evidence,
-        });
-        break;
-      case 'add_exception':
-        if (customEntry) {
-          // extend-only shadow 仅对内置约束有效（loader 语义）；自定义条目的例外追加 v1 不支持
-          skipped['custom-exception-unsupported'] = (skipped['custom-exception-unsupported'] ?? 0) + 1;
-          continue;
-        }
-        out.push({
-          targetType, targetId: id, action: 'add', constraintChange: 'exception',
-          currentText: currentMessage, proposedText: proposed, rationale,
-          source: 'harness-autoEvolve', evidence,
-        });
-        break;
-      case 'new_constraint':
-        out.push({
-          targetType, targetId: id, action: 'add', constraintChange: 'new-entry',
-          currentText: '', proposedText: proposed, rationale,
-          source: 'harness-autoEvolve', evidence,
-        });
-        break;
-      default:
-        // adjust_trigger / change_level：结构性变更，v1 不自动生效（需 schema 感知编辑）
-        skipped['unsupported-type'] = (skipped['unsupported-type'] ?? 0) + 1;
-    }
-  }
-  return out;
+/**
+ * (a) harness 约束链路 —— 暂时挂起（harness 0.17.0，ADR-0001 决策 8）。
+ * autoEvolve 已删除；report 数据层（buildConstraintsUsageReport /
+ * diagnoseRetireCandidates）在 dist/core/constraints/usage-report 存在但未公开导出，
+ * 等待改吃 constraints report 候选数据（飞轮修复立项 ①）。
+ * 复活时恢复 traces → 退役候选 → modify_message/add_exception/new_constraint 映射。
+ */
+async function constraintProposals(): Promise<RawProposal[]> {
+  return [];
 }
 
 /** (b) prompt-template 启发式：注入了知识仍高失败 → 注入约束区段强调不足 */
@@ -250,10 +166,7 @@ export async function generateEvolutionProposals(deps: GeneratorDeps): Promise<G
   const skipped: Record<string, number> = {};
 
   const raw: RawProposal[] = [
-    ...(await constraintProposals(signals, deps, skipped).catch(err => {
-      logger.warn('[Evolution] constraint proposal generation failed', { error: String(err) });
-      return [] as RawProposal[];
-    })),
+    ...(await constraintProposals()),
     ...promptTemplateProposals(signals, deps),
     ...(await rolePresetProposals(signals, deps).catch(err => {
       logger.warn('[Evolution] role preset proposal generation failed', { error: String(err) });

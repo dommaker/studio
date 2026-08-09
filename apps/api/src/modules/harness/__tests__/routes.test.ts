@@ -47,18 +47,20 @@ function flattenRoutes(router: any): FlatRoute[] {
   return out;
 }
 
-/** 原单文件的全部 44 个路由（集合顺序无关，仅用于存在性校验）。 */
+/** 原单文件的全部路由（集合顺序无关，仅用于存在性校验）。
+ *  harness 0.17.0（ADR-0001 决策 8）：删 /evolve、/constraints/:id/degrade、
+ *  /constraints/:id/schedule，增 GET /constraints/retired → 42 个。 */
 const EXPECTED: Array<[string, string]> = [
   // traces.routes
   ['GET', '/traces'], ['POST', '/traces'], ['GET', '/analysis'],
   ['GET', '/analysis/anomalies'], ['POST', '/diagnose'],
   // proposals.routes
-  ['GET', '/proposals'], ['POST', '/proposals/:id/review'], ['POST', '/evolve'],
+  ['GET', '/proposals'], ['POST', '/proposals/:id/review'],
   ['POST', '/proposals/:id/execute'],
   // constraints.routes
-  ['GET', '/constraints'], ['GET', '/constraints/stats'], ['GET', '/constraints/:id'],
-  ['POST', '/constraints/:id/degrade'], ['POST', '/constraints/:id/rollback'],
-  ['POST', '/constraints/:id/schedule'], ['POST', '/check-constraints'],
+  ['GET', '/constraints'], ['GET', '/constraints/stats'], ['GET', '/constraints/retired'],
+  ['GET', '/constraints/:id'], ['POST', '/constraints/:id/rollback'],
+  ['POST', '/check-constraints'],
   // guards.routes
   ['POST', '/check-input'], ['POST', '/check-output'], ['GET', '/sandbox'],
   // knowledge.routes
@@ -117,7 +119,7 @@ describe('harness routes facade', () => {
     expect(typeof harnessRoutes.handle).toBe('function');
   });
 
-  it('all 10 sub-routers fully registered: 44 routes (set comparison)', () => {
+  it('all 10 sub-routers fully registered: 42 routes (set comparison)', () => {
     const flat = flattenRoutes(harnessRoutes);
     const actualSet = new Set(flat.map(r => `${r.method} ${r.path}`));
     const expectedSet = new Set(EXPECTED.map(r => `${r[0]} ${r[1]}`));
@@ -127,7 +129,7 @@ describe('harness routes facade', () => {
 
     expect(missing).toEqual([]);
     expect(extra).toEqual([]);
-    expect(flat).toHaveLength(44);
+    expect(flat).toHaveLength(42);
   });
 
   it('GET /constraints/stats registered before GET /constraints/:id (no shadowing)', () => {

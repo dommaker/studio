@@ -4,6 +4,9 @@
  * 注意：Trigger 解耦后，各约束用特定操作测试，避免跨约束干扰。
  */
 import { describe, it, expect } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { checkConstraints, ConstraintViolationError } from '@dommaker/harness';
 
 // 完整合规 context（所有 Iron Law 字段通过）
@@ -43,12 +46,19 @@ describe('AS-003: harness 约束检查集成', () => {
     });
 
     it('Guidelines 违规应该返回警告', async () => {
-      const result = await checkConstraints({
-        ...PASSING_CTX,
-        hasRootCauseInvestigation: false,
-      });
-      expect(result.warningCount).toBeGreaterThan(0);
-      expect(result.guidelines.filter(g => !g.satisfied).length).toBeGreaterThan(0);
+      // harness 0.17.0（ADR-0001）：no_fix_without_root_cause 等多数 guideline 转为
+      // kind='prompt'（check 短路通过，不再产生警告）。存活 check 层 guideline 仅剩
+      // no_bypass_checkpoint / no_hardcoded_credentials / capability_sync / context_doc_sync，
+      // 此处用 no_bypass_checkpoint（扫描变更文件中的 bypass 关键词）触发警告。
+      const tmp = path.join(os.tmpdir(), `bypass-trigger-${Date.now()}.ts`);
+      fs.writeFileSync(tmp, 'describe.skip("x", () => {});\n', 'utf-8');
+      try {
+        const result = await checkConstraints({ ...PASSING_CTX, changedFiles: [tmp] });
+        expect(result.warningCount).toBeGreaterThan(0);
+        expect(result.guidelines.filter(g => !g.satisfied).length).toBeGreaterThan(0);
+      } finally {
+        fs.rmSync(tmp, { force: true });
+      }
     });
 
     it('incremental_progress 合规应该通过', async () => {

@@ -63,7 +63,7 @@
   },
   "packageManager": "pnpm@11.19.0",
   "dependencies": {
-    "@dommaker/harness": "^0.16.9",
+    "@dommaker/harness": "^0.17.1",
     "tsx": "^4.22.3"
   }
 }

@@ -1,52 +1,20 @@
 /**
  * proposals.routes 路由测试（T3 拆分新增，pre-commit TDD 门禁）。
  *
- * mock @dommaker/harness（TraceCollector/TraceAnalyzer/ConstraintLifecycleRunner/
- * autoEvolve），挂载 proposalsRoutes 覆盖：GET /proposals、POST /evolve、
- * POST /proposals/:id/review、POST /proposals/:id/execute。
+ * 挂载 proposalsRoutes 覆盖：GET /proposals、POST /proposals/:id/review、
+ * POST /proposals/:id/execute（410 Gone）。
+ * 注：POST /evolve、autoEvolve/ConstraintLifecycleRunner mock 已随 harness 0.17.0
+ * 移除（ADR-0001 决策 8）——review 只更新状态，execute 恒 410。
  * 提案读写 process.cwd()/.harness/proposals —— beforeAll chdir 到临时目录隔离，
  * afterAll 恢复原 cwd；HOME 同样指向临时目录。
  */
-import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import express from 'express';
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-
-vi.mock('@dommaker/harness', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@dommaker/harness')>();
-  return {
-    ...actual,
-    TraceCollector: class {
-      read() {
-        return [{ constraintId: 'c1', result: 'fail' }];
-      }
-    },
-    TraceAnalyzer: class {
-      constructor(_collector: unknown) {}
-      analyzeRecent() {
-        return [{ constraintId: 'c1' }];
-      }
-      detectAnomalies() {
-        return [{ constraintId: 'c1', type: 'anomaly' }];
-      }
-    },
-    ConstraintLifecycleRunner: class {
-      execute(proposal: { id: string }) {
-        return { success: true, applied: [proposal.id] };
-      }
-    },
-    autoEvolve: async () => ({
-      diagnoses: [{ id: 'd1' }],
-      proposals: [{ id: 'p-evolve', status: 'pending', constraintId: 'c1' }],
-      autoApproved: 0,
-      needsReview: ['p-evolve'],
-      executions: [],
-    }),
-  };
-});
 
 let tmpHome: string;
 let prevHome: string | undefined;
@@ -100,22 +68,6 @@ describe('proposals.routes', () => {
     expect(res.json).toEqual({ data: [], total: 0 });
   });
 
-  it('POST /evolve runs pipeline and persists proposals', async () => {
-    const res = await api('POST', '/evolve', { hours: 1 });
-    expect(res.status).toBe(200);
-    expect(res.json.data.anomalies).toBe(1);
-    expect(res.json.data.diagnoses).toBe(1);
-    expect(res.json.data.proposals).toBe(1);
-    expect(res.json.data.needsReview).toEqual(['p-evolve']);
-    // 提案已写入 .harness/proposals/p-evolve.json
-    const saved = JSON.parse(fs.readFileSync(
-      path.join(tmpHome, '.harness', 'proposals', 'p-evolve.json'), 'utf-8'));
-    expect(saved.id).toBe('p-evolve');
-
-    const list = await api('GET', '/proposals');
-    expect(list.json.total).toBe(1);
-  });
-
   it('POST /proposals/:id/review 400 when approved is not boolean', async () => {
     seedProposal('p1', 'pending');
     const res = await api('POST', '/proposals/p1/review', { approved: 'yes' });
@@ -138,18 +90,12 @@ describe('proposals.routes', () => {
     expect(res.json.executionResult).toBeNull();
   });
 
-  it('POST /proposals/:id/review approve auto-executes → implemented', async () => {
+  it('POST /proposals/:id/review approve marks accepted (no auto-execution since 0.17.0)', async () => {
     seedProposal('p3', 'pending');
     const res = await api('POST', '/proposals/p3/review', { approved: true });
     expect(res.status).toBe(200);
-    expect(res.json.data.status).toBe('implemented');
-    expect(res.json.executionResult).toEqual({ success: true, applied: ['p3'] });
-  });
-
-  it('POST /proposals/:id/execute 400 for non-executable status', async () => {
-    const res = await api('POST', '/proposals/p2/execute', {});
-    expect(res.status).toBe(400);
-    expect(res.json.error).toBe('Cannot execute proposal with status: rejected');
+    expect(res.json.data.status).toBe('accepted');
+    expect(res.json.executionResult).toBeNull();
   });
 
   it('POST /proposals/:id/execute 404 for unknown proposal', async () => {
@@ -158,11 +104,10 @@ describe('proposals.routes', () => {
     expect(res.json.error).toBe('Proposal not found: nope');
   });
 
-  it('POST /proposals/:id/execute runs accepted proposal → implemented', async () => {
+  it('POST /proposals/:id/execute 410 Gone (auto-execution removed in 0.17.0)', async () => {
     seedProposal('p4', 'accepted');
     const res = await api('POST', '/proposals/p4/execute', {});
-    expect(res.status).toBe(200);
-    expect(res.json.data.status).toBe('implemented');
-    expect(res.json.executionResult).toEqual({ success: true, applied: ['p4'] });
+    expect(res.status).toBe(410);
+    expect(res.json.error).toContain('harness 0.17.0');
   });
 });

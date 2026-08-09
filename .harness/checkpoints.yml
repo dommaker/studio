@@ -1,0 +1,17 @@
+checkpoints:
+  - id: build-success
+    name: 构建成功
+    checks:
+      - id: build-command
+        type: command_success
+        config:
+          command: npm run build
+        message: 构建命令必须成功执行
+  - id: test-pass
+    name: 测试通过
+    checks:
+      - id: test-command
+        type: command_success
+        config:
+          command: npm test
+        message: 测试命令必须成功执行

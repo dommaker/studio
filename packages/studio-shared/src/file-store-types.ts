@@ -170,6 +170,8 @@ export interface EvolutionProposalData {
     samples?: string[];
   };
   status: EvolutionProposalStatus;
+  // 历史数据可能含 'harness-autoEvolve'（0.17.0 已删除 autoEvolve，ADR-0001 决策 8），
+  // 该值仅为兼容存量记录保留，新提案不再产生此 source。
   source: string;             // 'harness-autoEvolve' | 'heuristic:prompt-failure' | 'heuristic:role-failure'
   createdAt: string;          // ISO 8601
   decidedBy?: string | null;  // 'channel' | 'api:<user>' 等
