@@ -9,8 +9,8 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
 import { logger } from '@dommaker/studio-shared';
+import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import type { FileStore } from '@dommaker/studio-shared';
 import { studioEventsJsonl } from './monitor-alerts.js';
 import { getStudioEventTime } from '../../../utils/studio-events.js';
@@ -83,7 +83,7 @@ async function precipitateStudioEvents(fileStore: FileStore): Promise<boolean> {
 /** 从 .agent.log 归档提取执行失败模式 */
 async function precipitateSessionLogs(): Promise<boolean> {
   try {
-    const sessionsDir = path.join(os.homedir(), '.studio', 'sessions');
+    const sessionsDir = studioPath('sessions');
     if (!fs.existsSync(sessionsDir)) return true;
 
     const cutoff = Date.now() - 30 * 24 * 3600_000;
@@ -155,7 +155,7 @@ export async function dataLifecycle(fileStore: FileStore, state: LifecycleState)
 
     // 1b. Delete expired Session records (FileStore)
     try {
-      const sessionsDir = path.join(os.homedir(), '.studio', 'data', 'sessions');
+      const sessionsDir = studioPath('data', 'sessions');
       let deleted = 0;
       const now = new Date();
       try {
@@ -247,7 +247,7 @@ export async function dataLifecycle(fileStore: FileStore, state: LifecycleState)
     // 8. sessions 归档 log: 删除 >30d 的文件（需沉淀成功）
     if (gate.sessions !== false) {
       try {
-        const sessionsDir = path.join(os.homedir(), '.studio', 'sessions');
+        const sessionsDir = studioPath('sessions');
         if (fs.existsSync(sessionsDir)) {
           const sessionCutoff = Date.now() - 30 * 24 * 3600_000;
           const files = fs.readdirSync(sessionsDir).filter(f => f.endsWith('.log'));

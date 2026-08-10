@@ -16,6 +16,7 @@
  */
 
 import { estimateTokens, parseChannels, FileStore, type AgentProfileData } from '@dommaker/studio-shared';
+import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import { knowledgeService } from '../../knowledge/knowledge-service.js';
 import { loadManifest } from '../../skills/manifest-loader.js';
 import { selectSkillsWithDomain, parseSkillHintsFromScope } from '../../skills/skill-selector.js';
@@ -215,7 +216,7 @@ async function buildSkillSection(
     const triggerSummary = Array.isArray(entry.triggers) && entry.triggers.length > 0
       ? `｜触发：${entry.triggers.slice(0, 5).join(', ')}`
       : '';
-    const block = `### ${entry.name}\n${entry.description || '（无描述）'}${triggerSummary}\n全文：~/.studio/skills/${entry.name}/SKILL.md`;
+    const block = `### ${entry.name}\n${entry.description || '（无描述）'}${triggerSummary}\n全文：${studioPath('skills', entry.name, 'SKILL.md')}`;
     const blockTokens = estimateTokens(block.length + 2); // + \n\n 分隔符
     if (tokens + blockTokens > INJECT_TOKEN_BUDGET) {
       // 首个块即超预算：截断塞入，保证段不为空（沿用原整段截断口径）

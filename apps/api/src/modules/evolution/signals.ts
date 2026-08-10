@@ -10,10 +10,10 @@
  *   3. 执行结果事件：<studioEventsFile>（knowledge:outcome:* 事件，含 consumedKnowledge
  *      反馈数据 —— R1 断点 A 修复后有值）
  */
-import os from 'node:os';
 import path from 'node:path';
 import type { ExecutionTrace } from '@dommaker/harness';
 import { FileStore } from '@dommaker/studio-shared';
+import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
 import { parseStudioEventPayload, getStudioEventTime } from '../../utils/studio-events.js';
 
@@ -39,7 +39,7 @@ export function resolveEvolutionPaths(overrides?: Partial<EvolutionPaths>): Evol
     constraintsFile: overrides?.constraintsFile ?? path.join(repoRoot, '.harness', 'custom-constraints.yml'),
     traceFile: overrides?.traceFile ?? path.join(repoRoot, '.harness', 'logs', 'traces.log'),
     rolesDir: overrides?.rolesDir ?? path.join(repoRoot, '.agents', 'roles'),
-    eventsDir: overrides?.eventsDir ?? path.join(os.homedir(), '.studio', 'events'),
+    eventsDir: overrides?.eventsDir ?? studioPath('events'),
     studioEventsFile: overrides?.studioEventsFile ?? resolveStudioLogFile('studio-events.jsonl'),
   };
 }

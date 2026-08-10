@@ -10,7 +10,7 @@ import * as crypto from "crypto";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import * as path from "node:path";
-import * as os from "node:os";
+import { studioDir } from "@dommaker/studio-shared/studio-dir";
 
 // ─── 本地类型（替代 Prisma model 类型） ───
 
@@ -80,7 +80,7 @@ export interface AuthResult {
 // ─── FileStore 实例 ───
 
 const fileStore = new FileStore();
-const STUDIO_DIR = path.join(os.homedir(), ".studio");
+const STUDIO_DIR = studioDir();
 const USERS_FILE = path.join(STUDIO_DIR, "users.json");
 const SESSIONS_FILE = path.join(STUDIO_DIR, "sessions.json");
 

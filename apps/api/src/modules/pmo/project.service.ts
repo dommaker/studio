@@ -11,9 +11,9 @@ import { channelMessageService } from '../channels/channel-message.service.js';
 import { WorkUnitService } from '../workunit/workunit.service.js';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import * as os from 'node:os';
+import { studioPath } from '@dommaker/studio-shared/studio-dir';
 
-const PROJECTS_DIR = path.join(os.homedir(), '.studio', 'projects');
+const PROJECTS_DIR = studioPath('projects');
 
 const fileStore = new FileStore();
 
@@ -170,7 +170,7 @@ export function parsePmoSeq(pmoNumber: string | null | undefined): number | null
 }
 
 /** REQ 序号目录（决策 4：统一编号需把 REQ 序列纳入 max 扫描） */
-const REQUIREMENTS_DIR = path.join(os.homedir(), '.studio', 'data', 'requirements');
+const REQUIREMENTS_DIR = studioPath('data', 'requirements');
 
 /** 存量 REQ 最大序号（文件 + index.json nextSeq-1；目录不存在/读取失败 → 0） */
 async function scanMaxRequirementSeq(): Promise<number> {

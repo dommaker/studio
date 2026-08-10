@@ -8,8 +8,9 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { studioDir } from '@dommaker/studio-shared/studio-dir';
 
-const STUDIO_DIR = path.join(os.homedir(), '.studio');
+const STUDIO_DIR = studioDir();
 const WORKSPACE_FILE = path.join(STUDIO_DIR, 'workspace.json');
 
 export interface WorkspaceConfig {

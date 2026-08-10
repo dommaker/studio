@@ -9,9 +9,9 @@
 
 // string type removed — using string. See packages/studio-skill/src/types.ts
 import { logger, FileStore } from '@dommaker/studio-shared';
+import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
 
 // ── Types ──
 
@@ -38,7 +38,7 @@ export interface LoadSkillOptions {
 
 // ── File-based skill loading (.md with frontmatter) ──
 
-const SKILLS_DIR = process.env.SKILLS_DIR || path.join(os.homedir(), '.studio', 'skills');
+const SKILLS_DIR = process.env.SKILLS_DIR || studioPath('skills');
 
 interface SkillFrontmatter {
   name: string;
@@ -100,7 +100,7 @@ function getOrCreateSession(sessionId: string, agentType: string): SessionSkillS
   return state;
 }
 
-const STUDIO_EVENTS_JSONL = path.join(os.homedir(), '.studio', 'logs', 'studio-events.jsonl');
+const STUDIO_EVENTS_JSONL = studioPath('logs', 'studio-events.jsonl');
 const fileStore = new FileStore();
 
 // ── Service ──

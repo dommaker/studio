@@ -6,7 +6,7 @@
     "studio": "src/cli/studio-cli.ts"
   },
   "scripts": {
-    "dev": "tsx watch src/index.ts",
+    "dev": "STUDIO_HOME=${STUDIO_HOME:-$HOME/.studio-dev} tsx watch src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
     "test": "vitest run",

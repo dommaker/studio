@@ -12,6 +12,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import { logger } from '@dommaker/studio-shared';
 import type { FileStore } from '@dommaker/studio-shared';
 import { knowledgeService } from '../../knowledge/knowledge-service.js';
@@ -180,7 +181,7 @@ export async function analyzeCircuitHealth(fileStore: FileStore): Promise<Sugges
     try {
       const { okrService } = await import('../../pmo/okr.service.js');
       // Read OKR files from ~/.studio/okr/
-      const okrDir = path.join(os.homedir(), '.studio', 'okr');
+      const okrDir = studioPath('okr');
       const okrKeys = await fileStore.listDocs(okrDir);
       const okrs: any[] = [];
       for (const key of okrKeys) {
@@ -200,7 +201,7 @@ export async function analyzeCircuitHealth(fileStore: FileStore): Promise<Sugges
           // Query KR history for trend from ~/.studio/okr/kr-history.jsonl
           let allHistory: any[] = [];
           try {
-            const krHistoryPath = path.join(os.homedir(), '.studio', 'okr', 'kr-history.jsonl');
+            const krHistoryPath = studioPath('okr', 'kr-history.jsonl');
             allHistory = await fileStore.readJsonl<any>(krHistoryPath);
           } catch { /* no history yet */ }
           const history = allHistory
@@ -305,7 +306,7 @@ export async function analyzeCircuitHealth(fileStore: FileStore): Promise<Sugges
     // Circuit 8: Memory→KnowledgeStore sync health
     try {
       const memoryDir = path.join(os.homedir(), '.claude', 'projects', '-root-projects', 'memory');
-      const knowledgeDir = process.env.KNOWLEDGE_BASE_DIR || path.join(os.homedir(), '.studio', 'knowledge');
+      const knowledgeDir = process.env.KNOWLEDGE_BASE_DIR || studioPath('knowledge');
       if (fs.existsSync(memoryDir) && fs.existsSync(knowledgeDir)) {
         const batchFiles = fs.readdirSync(memoryDir)
           .filter(f => f.startsWith('project_batch_progress_') && f.endsWith('.md'))

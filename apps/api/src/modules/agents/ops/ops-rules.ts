@@ -7,8 +7,8 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
 import { logger } from '@dommaker/studio-shared';
+import { studioPath } from '@dommaker/studio-shared/studio-dir';
 
 export interface OpsRules {
   version: number;
@@ -54,7 +54,7 @@ const DEFAULT_RULES: OpsRules = {
 };
 
 export function getRulesPath(): string {
-  return process.env.OPS_RULES_PATH || path.join(os.homedir(), '.studio', 'ops-rules.json');
+  return process.env.OPS_RULES_PATH || studioPath('ops-rules.json');
 }
 
 export function loadRules(): OpsRules {

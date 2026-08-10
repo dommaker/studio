@@ -21,13 +21,14 @@ import { FileStore, logger } from '@dommaker/studio-shared';
 import { execFile, execFileSync } from 'child_process';
 import * as path from 'path';
 import * as os from 'os';
+import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
 
 const STUDIO_EVENTS_JSONL = resolveStudioLogFile('studio-events.jsonl');
 const fileStore = new FileStore();
 
 // KE-002 P0: unified absolute path for knowledge storage
-export const UNIFIED_KNOWLEDGE_DIR = path.join(os.homedir(), '.studio', 'knowledge');
+export const UNIFIED_KNOWLEDGE_DIR = studioPath('knowledge');
 
 // local-rag vector-db paths (must match MCP server config)
 const LANCE_DB_PATH = path.join(os.homedir(), '.cache', 'mcp-local-rag', 'lancedb');

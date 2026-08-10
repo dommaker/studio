@@ -1,11 +1,11 @@
 // OKR Service - PMO 模块核心服务
 import { logger, FileStore } from '@dommaker/studio-shared';
+import { studioDir } from '@dommaker/studio-shared/studio-dir';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import * as os from 'node:os';
 
 // ─── 路径常量 ───
-const STUDIO_DIR = path.join(os.homedir(), '.studio');
+const STUDIO_DIR = studioDir();
 const OKR_DIR = path.join(STUDIO_DIR, 'okr');
 const EXECUTIONS_JSONL = path.join(STUDIO_DIR, 'logs', 'executions.jsonl');
 

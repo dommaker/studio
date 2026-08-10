@@ -9,11 +9,11 @@
 import { FileStore } from '@dommaker/studio-shared';
 import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
+import { studioPath } from '@dommaker/studio-shared/studio-dir';
 
 const fileStore = new FileStore();
-const DOCUMENTS_DIR = path.join(os.homedir(), '.studio', 'data', 'documents');
-const PROJECTS_DIR = path.join(os.homedir(), '.studio', 'projects');
+const DOCUMENTS_DIR = studioPath('data', 'documents');
+const PROJECTS_DIR = studioPath('projects');
 
 export interface DocRecord {
   id: string; projectId: string; companyId: string; type: string;

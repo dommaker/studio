@@ -8,8 +8,8 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
 import { logger } from '@dommaker/studio-shared';
+import { studioPath } from '@dommaker/studio-shared/studio-dir';
 
 export interface SkillEntry {
   /** Directory name (e.g., "session-analyst") */
@@ -32,7 +32,7 @@ export interface SkillEntry {
   updatedAt?: string;
 }
 
-const SKILLS_DIR = process.env.SKILLS_DIR || path.join(os.homedir(), '.studio', 'skills');
+const SKILLS_DIR = process.env.SKILLS_DIR || studioPath('skills');
 
 /** Cache */
 let cachedEntries: SkillEntry[] | null = null;

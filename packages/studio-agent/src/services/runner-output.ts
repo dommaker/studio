@@ -14,7 +14,6 @@
 
 import * as path from 'path';
 import * as fsSync from 'fs';
-import * as os from 'os';
 import {
   FileStore,
   parseStreamEvents,
@@ -24,6 +23,7 @@ import {
   extractUsage,
 } from '@dommaker/studio-shared';
 import type { StreamEvent } from '@dommaker/studio-shared';
+import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import {
   recordSessionMetrics,
   emitSessionEnd,
@@ -206,7 +206,7 @@ interface ResolutionEntry {
 
 export async function queryResolutionHints(errMsg: string): Promise<string> {
   try {
-    const knowledgeDir = path.join(os.homedir(), '.studio', 'knowledge');
+    const knowledgeDir = studioPath('knowledge');
     const allKeys = await fileStore.listDocs(knowledgeDir);
     const resKeys = allKeys.filter((k: string) => k.startsWith('resolution-'));
     const resolutions: ResolutionEntry[] = [];

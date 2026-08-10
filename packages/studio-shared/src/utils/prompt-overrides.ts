@@ -17,12 +17,12 @@
  * 没有占位符时覆盖文本整体替换静态部分（动态内容追加其后，extract-from-text 除外）。
  */
 import { existsSync, readFileSync } from 'fs';
-import { homedir } from 'os';
 import { join } from 'path';
+import { studioPath } from '../config/studio-dir';
 
 /** 覆盖目录解析（每次调用现算，支持测试中途改 env）。 */
 export function resolvePromptOverridesDir(): string {
-  return process.env.STUDIO_PROMPT_OVERRIDES_DIR || join(homedir(), '.studio', 'prompt-overrides');
+  return process.env.STUDIO_PROMPT_OVERRIDES_DIR || studioPath('prompt-overrides');
 }
 
 /**

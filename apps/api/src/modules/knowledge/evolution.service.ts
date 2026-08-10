@@ -11,15 +11,15 @@
 
 import { logger, FileStore, generateId } from '@dommaker/studio-shared';
 import { getSystemExecutor } from '../agents/system-executor.js';
-import * as os from 'os';
 import * as path from 'path';
 import * as fs from 'node:fs';
+import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import type { MaturityLevel } from '@dommaker/harness';
 import { knowledgeBus } from './knowledge-bus.service.js';
 import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
 
-const DOCUMENTS_DIR = path.join(os.homedir(), '.studio', 'data', 'documents');
-const PROJECTS_DIR = path.join(os.homedir(), '.studio', 'projects');
+const DOCUMENTS_DIR = studioPath('data', 'documents');
+const PROJECTS_DIR = studioPath('projects');
 
 interface DocRecord {
   id: string; projectId: string; companyId: string; type: string;

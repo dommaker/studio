@@ -17,6 +17,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createServer } from 'node:net';
+import { studioDir } from '../packages/studio-shared/src/config/studio-dir';
 
 const REPO_ROOT = path.resolve(__dirname, '..');
 const TSX_BIN = path.join(REPO_ROOT, 'node_modules', '.bin', 'tsx');
@@ -109,7 +110,10 @@ async function main(): Promise<void> {
   if (USE_TEMP) {
     homeDir = mkdtempSync(path.join(tmpdir(), 'live-smoke-home-'));
     tmpDirs.push(homeDir);
-    studioConfigDir = path.join(homeDir, '.studio');
+    // 先写本进程 env：studioDir()/os.homedir() 在 POSIX 动态读 $HOME，
+    // 保证解析到隔离根（子进程经 ...process.env 继承同一 HOME）。
+    process.env.HOME = homeDir;
+    studioConfigDir = studioDir();
     mkdirSync(studioConfigDir, { recursive: true });
     log(`--temp: isolated HOME=${homeDir}`);
   } else {

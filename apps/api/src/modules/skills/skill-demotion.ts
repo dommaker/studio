@@ -21,14 +21,14 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
 import { randomUUID } from 'crypto';
 import { FileStore, logger } from '@dommaker/studio-shared';
+import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
 
 const STUDIO_EVENTS_JSONL = resolveStudioLogFile('studio-events.jsonl');
-const SKILLS_DIR = process.env.SKILLS_DIR || path.join(os.homedir(), '.studio', 'skills');
-const DEFAULT_STORE_FILE = path.join(os.homedir(), '.studio', 'data', 'skills', 'demotion-proposals.json');
+const SKILLS_DIR = process.env.SKILLS_DIR || studioPath('skills');
+const DEFAULT_STORE_FILE = studioPath('data', 'skills', 'demotion-proposals.json');
 
 /** 降级规则阈值 */
 export const ARCHIVE_AGE_DAYS = 30;

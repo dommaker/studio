@@ -8,9 +8,9 @@
 
 import { FileStore } from '@dommaker/studio-shared';
 import * as path from 'node:path';
-import * as os from 'node:os';
+import { studioPath } from '@dommaker/studio-shared/studio-dir';
 
-const WORKSPACES_DIR = path.join(os.homedir(), '.studio', 'workspaces');
+const WORKSPACES_DIR = studioPath('workspaces');
 const fileStore = new FileStore();
 
 export interface WorkspaceRecord {

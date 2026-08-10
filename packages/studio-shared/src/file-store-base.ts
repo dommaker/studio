@@ -7,8 +7,8 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import os from 'node:os';
 import { randomUUID } from 'node:crypto';
+import { studioPath } from './config/studio-dir';
 
 /** 锁超时错误 */
 export class LockTimeoutError extends Error {
@@ -34,7 +34,7 @@ export class FileStoreBase {
     // 子进程里 new FileStore() 无参构造时 os.homedir() 返回 agentHome，baseDir 漂移到
     // ~/.studio/data/agents/<profile-id>/.studio/data 产生嵌套。STUDIO_DATA_DIR env
     // 由 API server bootstrap 显式设置并经 buildSessionEnv 透传，提供绝对路径锚点。
-    this.baseDir = baseDir ?? process.env.STUDIO_DATA_DIR ?? path.join(os.homedir(), '.studio', 'data');
+    this.baseDir = baseDir ?? process.env.STUDIO_DATA_DIR ?? studioPath('data');
   }
 
   // ─── 内部工具方法 ───

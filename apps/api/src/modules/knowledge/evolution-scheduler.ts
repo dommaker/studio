@@ -9,8 +9,8 @@
 import { FileStore, logger } from '@dommaker/studio-shared';
 import { knowledgeEvolution } from './evolution.service.js';
 import * as path from 'node:path';
-import * as os from 'node:os';
 import * as fs from 'node:fs';
+import { studioPath } from '@dommaker/studio-shared/studio-dir';
 
 const fileStore = new FileStore();
 
@@ -58,7 +58,7 @@ export function startEvolutionScheduler(): void {
   // 每周执行 meso evolution（对所有活跃项目）
   mesoTimer = setInterval(async () => {
     try {
-      const projectsDir = path.join(os.homedir(), '.studio', 'projects');
+      const projectsDir = studioPath('projects');
       let activeProjects: { id: string }[] = [];
       try {
         const entries = await fs.promises.readdir(projectsDir, { withFileTypes: true });

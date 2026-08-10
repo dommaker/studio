@@ -8,8 +8,8 @@
  * Migrated from Prisma Skill/SkillProposal to file-based stores (D-005).
  */
 import { logger, recordDecision, FileStore } from '@dommaker/studio-shared';
+import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import { getSystemExecutor } from '../agents/system-executor.js';
-import * as os from 'os';
 import * as path from 'path';
 import { skillStore } from './skill-store.js';
 import { proposalStore } from './proposal-store.js';
@@ -241,7 +241,7 @@ export class SkillExtractionService {
         const os = await import('os');
         const skillName = skill?.name || p.skillId;
         const metadata = skill?.metadata ? JSON.parse(skill.metadata) : {};
-        const skillsDir = process.env.SKILLS_DIR || path.join(os.homedir(), '.studio', 'skills');
+        const skillsDir = process.env.SKILLS_DIR || studioPath('skills');
         const skillDir = path.join(skillsDir, skillName);
         const skillFile = path.join(skillDir, 'SKILL.md');
         if (fs.existsSync(skillFile)) {

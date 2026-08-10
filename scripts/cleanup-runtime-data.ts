@@ -10,7 +10,7 @@
  *   npx tsx scripts/cleanup-runtime-data.ts --apply    # 实际执行
  *   npx tsx scripts/cleanup-runtime-data.ts --root /tmp/fixture/.studio
  *
- * 数据根目录解析顺序：--root > STUDIO_CONFIG_DIR > ~/.studio
+ * 数据根目录解析顺序：--root > STUDIO_CONFIG_DIR > STUDIO_HOME > ~/.studio
  *
  * 动作：
  *   a. 归档 ~/.studio/data/agents/ 下 profile 缺失/损坏或 status != 'active' 的目录
@@ -23,9 +23,9 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { FileStore } from '../packages/studio-shared/src/index';
+import { studioDir } from '../packages/studio-shared/src/config/studio-dir';
 
 // ─── 类型 ───
 
@@ -350,7 +350,7 @@ async function main(): Promise<void> {
     ? path.resolve(args[rootIdx + 1])
     : process.env.STUDIO_CONFIG_DIR
       ? path.resolve(process.env.STUDIO_CONFIG_DIR)
-      : path.join(os.homedir(), '.studio');
+      : studioDir();
   const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
   const summary = await runCleanup({ studioRoot, repoRoot, apply });

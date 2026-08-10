@@ -13,12 +13,12 @@ import { FileStore, generateId } from '@dommaker/studio-shared';
 import { logger } from '../../utils/logger.js';
 import { requireAuth, requireAdmin } from '../../middleware/auth.js';
 import * as path from 'node:path';
-import * as os from 'node:os';
 import * as fs from 'node:fs';
+import { studioPath } from '@dommaker/studio-shared/studio-dir';
 
 const fileStore = new FileStore();
-const TOKENS_DIR = path.join(os.homedir(), '.studio', 'workspace-tokens');
-const WORKSPACES_DIR = path.join(os.homedir(), '.studio', 'workspaces');
+const TOKENS_DIR = studioPath('workspace-tokens');
+const WORKSPACES_DIR = studioPath('workspaces');
 const router = Router();
 
 async function ensureDir(): Promise<void> {

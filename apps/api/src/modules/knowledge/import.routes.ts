@@ -13,10 +13,11 @@ import { FileStore, logger, generateId } from '@dommaker/studio-shared';
 import * as fs from 'fs';
 import * as path from "path";
 import * as os from "os";
+import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import { requireAuth, requireNotGuest } from '../../middleware/auth.js';
 
-const DOCUMENTS_DIR = path.join(os.homedir(), '.studio', 'data', 'documents');
-const PROJECTS_DIR = path.join(os.homedir(), '.studio', 'projects');
+const DOCUMENTS_DIR = studioPath('data', 'documents');
+const PROJECTS_DIR = studioPath('projects');
 const fileStore = new FileStore();
 
 async function projectExists(projectId: string): Promise<{ id: string; companyId: string | null; title: string; gitRepo: string | null } | null> {

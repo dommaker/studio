@@ -10,9 +10,9 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
 import { randomUUID } from 'crypto';
 import { logger } from '@dommaker/studio-shared';
+import { studioDir, studioPath } from '@dommaker/studio-shared/studio-dir';
 import { generateManifest } from './manifest-generator.js';
 
 // ── Types ──
@@ -95,7 +95,7 @@ export interface SkillListFilter {
 
 // ── Store ──
 
-const DATA_DIR = path.join(os.homedir(), '.studio');
+const DATA_DIR = studioDir();
 const INDEX_FILE = path.join(DATA_DIR, 'skills-index.json');
 
 export class SkillStore {
@@ -319,7 +319,7 @@ export class SkillStore {
   // ── SKILL.md file management ──
 
   private getSkillDir(record: SkillRecord): string {
-    const skillsDir = process.env.SKILLS_DIR || path.join(os.homedir(), '.studio', 'skills');
+    const skillsDir = process.env.SKILLS_DIR || studioPath('skills');
     return path.join(skillsDir, record.name);
   }
 

@@ -9,6 +9,7 @@
  */
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { studioPath } from '@dommaker/studio-shared/studio-dir';
 
 /** 是否测试环境（vitest 设置 VITEST=true；CI/脚本常用 NODE_ENV=test） */
 export function isTestEnv(env: NodeJS.ProcessEnv = process.env): boolean {
@@ -23,7 +24,7 @@ export function isTestEnv(env: NodeJS.ProcessEnv = process.env): boolean {
 export function resolveStudioLogsDir(env: NodeJS.ProcessEnv = process.env): string {
   return isTestEnv(env)
     ? path.join(os.tmpdir(), 'studio-test-logs')
-    : path.join(os.homedir(), '.studio', 'logs');
+    : studioPath('logs');
 }
 
 /** 解析 ~/.studio/logs 下某日志文件的实际路径（测试时改写到隔离目录，文件名不变） */

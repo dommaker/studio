@@ -14,8 +14,7 @@
  */
 
 import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
+import { studioPath } from './config/studio-dir';
 
 /** Built-in provider ids scanned by default */
 export type BuiltinProviderId = 'claude' | 'kimi' | 'codex' | 'opencode';
@@ -205,7 +204,7 @@ export const GENERIC_PROVIDER_DEFINITION: ProviderDefinition = {
 
 /** Default user override file: ~/.studio/providers.json */
 export function getDefaultProvidersConfigPath(): string {
-  return path.join(os.homedir(), '.studio', 'providers.json');
+  return studioPath('providers.json');
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {

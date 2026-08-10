@@ -13,6 +13,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import { logger, FileStore } from '@dommaker/studio-shared';
 import { NotificationService } from '@dommaker/studio-notification';
 import { skillStore } from '../../skills/skill-store.js';
@@ -108,7 +109,7 @@ export async function pushConfirmationCards(fileStore: FileStore, suggestions: S
     try {
       const notifService = new NotificationService(fileStore);
       // Read users from FileStore
-      const usersDir = path.join(os.homedir(), '.studio', 'data', 'users');
+      const usersDir = studioPath('data', 'users');
       let userIds: string[] = [];
       try {
         const entries = await fs.promises.readdir(usersDir, { withFileTypes: true });
