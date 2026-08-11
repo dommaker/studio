@@ -40,7 +40,7 @@
   - `agent-loop-utils.ts` — 进程存活 / git 仓库根 / worktrees 目录小工具
   - `agent-targeting.ts` — Observations → Target 解析（认领优先级）+ 频道锚点消息
   - `wu-test-guards.ts` — B2 测试特征 WU 判定（STUDIO_TEST_WU_GUARD 开关 + scope 模式）
-  - `prompt-composer.ts` — prompt 组装（base prompt 选择 + guard hint 注入 + skills/persona/roster/memory/knowledge/handoff 注入段，#91 分段软定额 + 池内余量共享 + section_trimmed 埋点）
+  - `prompt-composer.ts` — prompt 组装（base prompt 选择 + guard hint 注入 + skills/persona/roster/memory/knowledge/handoff 注入段，#91 分段软定额 + 池内余量共享 + section_trimmed 埋点；#107 T1 tracer bullet：WU 归属 PMO 有 map 时注入 `## PMO 地图` 一行（destination + 开放雾条数），non-blocking，T5/#111 接替为完整地图段）
   - `agent-loop-workspace.ts` — 执行根目录/worktree 解析（B3a 归属链 / B3b-i 专属 worktree / 提交守卫 git 探针）
   - `session-resume.ts` — #94 会话续用判定纯函数（只信档案 metadata.sessionId；claude 按 cwd 校验 `~/.claude/projects/<cwd-slug>/<id>.jsonl` 存在性，slug = cwd 的 `/`、`.` → `-`；kimi/codex/opencode 档案有号即续用；RESUME_FAILURE_RE 识别「会话不存在」错误供降级重试）。B5 会话数上限与降级重试编排在 agent-loop.ts agentStep
   - `agent-loop-instance-state.ts` — 运行时实例状态写入（启动失败记录 / idle 心跳 / 忙闲 SSE）

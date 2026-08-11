@@ -17,9 +17,10 @@ import * as os from 'node:os';
 const testSkillsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'prompt-composer-skills-'));
 process.env.SKILLS_DIR = testSkillsDir;
 
-const { mockInjectContext, mockAppendJsonl } = vi.hoisted(() => ({
+const { mockInjectContext, mockAppendJsonl, mockProjectGet } = vi.hoisted(() => ({
   mockInjectContext: vi.fn().mockResolvedValue({ prompt: '## 系统约束\n- test rule', injectedIds: ['rule-1'] }),
   mockAppendJsonl: vi.fn().mockResolvedValue(undefined),
+  mockProjectGet: vi.fn().mockResolvedValue(null),
 }));
 
 vi.mock('../../knowledge/knowledge-service', () => ({
@@ -28,6 +29,10 @@ vi.mock('../../knowledge/knowledge-service', () => ({
 
 vi.mock('../loop/agent-loop-events', () => ({
   metricsFileStore: { appendJsonl: mockAppendJsonl },
+}));
+
+vi.mock('../../pmo/project.service.js', () => ({
+  projectService: { get: mockProjectGet },
 }));
 
 import { FileStore, estimateTokens } from '@dommaker/studio-shared';
@@ -265,5 +270,80 @@ describe('#91: composeStepPrompt 分段软定额 + 池内余量共享 + trim 埋
     const { prompt } = await composeStepPrompt({ wu: makeWu(), metadata: {} as any }, deps(makeRole()));
 
     expect(prompt).not.toContain('AGENTS.generated.md');
+  });
+});
+
+describe('#107 T1 tracer bullet: PMO 地图行（存 → 拼 → 见）', () => {
+  let fileStore: FileStore;
+  let testDir: string;
+
+  const deps = (role: AgentProfileData): any => ({
+    role,
+    acceptedTypes: ['implement'],
+    fileStore,
+    resolveEventsFile: () => path.join(testDir, 'studio-events.jsonl'),
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockProjectGet.mockResolvedValue(null);
+    mockInjectContext.mockResolvedValue({ prompt: '## 系统约束\n- test rule', injectedIds: ['rule-1'] });
+    testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'prompt-composer-pmo-map-'));
+    fileStore = new FileStore(testDir);
+  });
+
+  it('所属 PMO 有 map → prompt 含地图行（destination + 开放雾条数）', async () => {
+    mockProjectGet.mockResolvedValue({
+      id: 'proj-1',
+      map: {
+        destination: '把结算链路迁到新引擎',
+        decisions: [],
+        fog: [
+          { id: 'F1', question: 'q1', wuId: null, status: 'open' },
+          { id: 'F2', question: 'q2', wuId: 'wu-9', status: 'resolved' },
+          { id: 'F3', question: 'q3', wuId: null, status: 'in-discussion' },
+        ],
+      },
+    });
+
+    const { prompt } = await composeStepPrompt(
+      { wu: makeWu(), metadata: { pmoId: 'proj-1' } as any },
+      deps(makeRole()),
+    );
+
+    expect(mockProjectGet).toHaveBeenCalledWith('proj-1');
+    expect(prompt).toContain('## PMO 地图');
+    expect(prompt).toContain('把结算链路迁到新引擎');
+    // 开放雾 = status !== resolved（open + in-discussion = 2）
+    expect(prompt).toContain('开放雾 2 条');
+  });
+
+  it('PMO 无 map → prompt 不含地图行（非探路型，行为同现状）', async () => {
+    mockProjectGet.mockResolvedValue({ id: 'proj-1', map: null });
+
+    const { prompt } = await composeStepPrompt(
+      { wu: makeWu(), metadata: { pmoId: 'proj-1' } as any },
+      deps(makeRole()),
+    );
+
+    expect(prompt).not.toContain('## PMO 地图');
+  });
+
+  it('WU 无 pmoId → 不查 PMO、不含地图行', async () => {
+    const { prompt } = await composeStepPrompt({ wu: makeWu(), metadata: {} as any }, deps(makeRole()));
+
+    expect(mockProjectGet).not.toHaveBeenCalled();
+    expect(prompt).not.toContain('## PMO 地图');
+  });
+
+  it('PMO 读取失败 → 按无地图处理，不阻断执行（non-blocking）', async () => {
+    mockProjectGet.mockRejectedValue(new Error('io error'));
+
+    const { prompt } = await composeStepPrompt(
+      { wu: makeWu(), metadata: { pmoId: 'proj-1' } as any },
+      deps(makeRole()),
+    );
+
+    expect(prompt).not.toContain('## PMO 地图');
   });
 });

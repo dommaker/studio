@@ -79,6 +79,7 @@ const PROJECTS_DIR = path.join(os.homedir(), '.studio', 'projects');
 
 let projectService: typeof import('../project.service.js').projectService;
 let generatePmoNumber: typeof import('../project.service.js').generatePmoNumber;
+let resolveDeliveries: typeof import('../project.service.js').resolveDeliveries;
 
 beforeEach(async () => {
   vi.clearAllMocks();
@@ -90,6 +91,7 @@ beforeEach(async () => {
   const mod = await import('../project.service.js');
   projectService = mod.projectService;
   generatePmoNumber = mod.generatePmoNumber;
+  resolveDeliveries = mod.resolveDeliveries;
 });
 
 // ── Helper: create Dir-like objects for readdir mock ──
@@ -518,5 +520,80 @@ describe('PMO-a：getByReqAlias / getByPmoNumber 归一 / ensureChoreProject', (
     expect((await projectService.findChoreProject('ch-9'))!.id).toBe('proj-1');
     expect(await projectService.findChoreProject('ch-other')).toBeNull();
     expect(mockWriteJson).not.toHaveBeenCalled();
+  });
+});
+
+// ============================================================
+describe('#107 T1: map/deliveries 缺省兼容（老项目零迁移）', () => {
+  it('老项目 JSON（无 map/deliveries）读出 = 单腿、无地图，行为不变', async () => {
+    mockReadJson.mockResolvedValue(sampleProject({ gitRepo: '/repo/a', gitBranch: 'PMO-7' }));
+
+    const result = await projectService.get('proj-001');
+
+    expect(result!.map ?? null).toBeNull();
+    expect(result!.deliveries).toEqual([{ gitRepo: '/repo/a', branch: 'PMO-7', status: 'pending' }]);
+  });
+
+  it('老项目 JSON 无 gitRepo/gitBranch → 单腿字段为 null', async () => {
+    mockReadJson.mockResolvedValue(sampleProject());
+
+    const result = await projectService.get('proj-001');
+
+    expect(result!.deliveries).toEqual([{ gitRepo: null, branch: null, status: 'pending' }]);
+  });
+
+  it('显式 deliveries 的项目读出原样多腿（不合成）', async () => {
+    const legs = [
+      { gitRepo: '/repo/a', branch: 'pmo-7-a', status: 'delivered' },
+      { gitRepo: '/repo/b', branch: 'pmo-7-b', status: 'pending' },
+    ];
+    mockReadJson.mockResolvedValue(sampleProject({ deliveries: legs }));
+
+    const result = await projectService.get('proj-001');
+
+    expect(result!.deliveries).toEqual(legs);
+  });
+
+  it('有 map 的项目读出地图（destination/fog/decisions 原样）', async () => {
+    const map = {
+      destination: '把结算链路迁到新引擎',
+      decisions: [{ wuId: 'wu-1', summary: '用方案 B', resolvedAt: '2026-08-10T00:00:00.000Z' }],
+      fog: [
+        { id: 'F1', question: 'Q1', wuId: 'wu-1', status: 'resolved' },
+        { id: 'F2', question: 'Q2', wuId: null, status: 'open' },
+      ],
+    };
+    mockReadJson.mockResolvedValue(sampleProject({ map }));
+
+    const result = await projectService.get('proj-001');
+
+    expect(result!.map).toEqual(map);
+  });
+
+  it('resolveDeliveries：缺省由 gitRepo/gitBranch 合成单腿；显式多腿原样返回', () => {
+    expect(resolveDeliveries(sampleProject({ gitRepo: '/r', gitBranch: 'b' })))
+      .toEqual([{ gitRepo: '/r', branch: 'b', status: 'pending' }]);
+
+    const legs = [{ gitRepo: '/r2', branch: 'b2', status: 'delivered' }];
+    expect(resolveDeliveries({ deliveries: legs })).toBe(legs);
+  });
+
+  it('合成腿 status 从 deliveredAt 派生：已交付老项目读出 delivered', async () => {
+    mockReadJson.mockResolvedValue(
+      sampleProject({ gitRepo: '/repo/a', gitBranch: 'PMO-7', deliveredAt: '2026-08-01T00:00:00.000Z' }),
+    );
+
+    const result = await projectService.get('proj-001');
+
+    expect(result!.deliveries).toEqual([{ gitRepo: '/repo/a', branch: 'PMO-7', status: 'delivered' }]);
+  });
+
+  it('list 路径（readAllProjects）同样合成单腿，读取口径与 get 一致', async () => {
+    mockReadDir.mockResolvedValue([dirEnt('proj-001.json')] as unknown as fs.Dirent[]);
+    mockReadJson.mockResolvedValue(sampleProject({ gitRepo: '/repo/a', gitBranch: 'PMO-7' }));
+
+    const result = await projectService.list();
+
+    expect(result[0].deliveries).toEqual([{ gitRepo: '/repo/a', branch: 'PMO-7', status: 'pending' }]);
   });
 });

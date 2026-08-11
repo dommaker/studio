@@ -52,6 +52,10 @@ export interface UpdateProjectInput {
   deliveredAt?: string | null;
   deliveredBy?: string | null;
   deliverCommit?: string | null;
+  /** #107 T1：探路地图（M7 开图机制写入；null = 非探路型） */
+  map?: PmoMap | null;
+  /** #107 T1：多交付腿（缺省读取时合成单腿，写入则按显式多腿） */
+  deliveries?: DeliveryLeg[];
 }
 
 export interface ProjectListOptions {
@@ -64,6 +68,64 @@ export interface ProjectListOptions {
 
 /** PMO 交付策略：auto-merge=studio 执行合并（缺证据硬拒）；branch-only=默认，只标证据齐缺 */
 export type DeliveryPolicy = 'auto-merge' | 'branch-only';
+
+// ============================================
+// #107 T1（#106 spec）：探路地图 + 多交付腿
+// 两个字段均可选、缺省零迁移——老项目 JSON 读出行为与现状一致。
+// ============================================
+
+/** 决策落地记录（M1：decision 单人工确认时填写的一句话结论，机制原样存） */
+export interface PmoDecision {
+  wuId: string;
+  summary: string;
+  resolvedAt: string;
+}
+
+export type FogStatus = 'open' | 'in-discussion' | 'resolved';
+
+/** 雾条目（待决问题）；wuId = 认领该问题的 decision WU，未认领为 null */
+export interface FogItem {
+  id: string;
+  question: string;
+  wuId: string | null;
+  status: FogStatus;
+}
+
+/** 探路地图。缺省 null = 非探路型需求，行为与现状一致 */
+export interface PmoMap {
+  destination: string;
+  decisions: PmoDecision[];
+  fog: FogItem[];
+}
+
+/** 交付腿（多腿交付按腿独立台账/合并/状态，T7 起消费） */
+export interface DeliveryLeg {
+  gitRepo: string | null;
+  branch: string | null;
+  status: string;
+}
+
+/**
+ * 交付腿缺省解析：未设置 deliveries 时由现有 gitRepo/gitBranch 合成单腿
+ * （读取时合成、不落盘，老项目零迁移；单腿 = 现状行为）。
+ * 合成腿 status 从 deliveredAt 派生（已交付的老项目读出 'delivered' 而非硬编码 'pending'）；
+ * 显式多腿的 status 词表归 T7（#113 交付守卫按腿循环）定义，本票不裁剪。
+ */
+export function resolveDeliveries(
+  project: Pick<ProjectData, 'gitRepo' | 'gitBranch' | 'deliveredAt'> & { deliveries?: DeliveryLeg[] },
+): DeliveryLeg[] {
+  if (Array.isArray(project.deliveries) && project.deliveries.length > 0) return project.deliveries;
+  return [{
+    gitRepo: project.gitRepo ?? null,
+    branch: project.gitBranch ?? null,
+    status: project.deliveredAt ? 'delivered' : 'pending',
+  }];
+}
+
+/** 读取默认视图：deliveries 缺省合成单腿（map 缺省即非探路型，无需合成）。所有读取路径统一走此口径 */
+function withReadDefaults(project: ProjectData): ProjectData {
+  return { ...project, deliveries: resolveDeliveries(project) };
+}
 
 export interface ProjectData {
   id: string;
@@ -95,6 +157,10 @@ export interface ProjectData {
   deliveredAt?: string | null;
   deliveredBy?: string | null;
   deliverCommit?: string | null;
+  /** #107 T1：探路地图（缺省 null = 非探路型，行为同现状） */
+  map?: PmoMap | null;
+  /** #107 T1：多交付腿（缺省 = 读取时由 gitRepo/gitBranch 合成单腿，见 resolveDeliveries） */
+  deliveries?: DeliveryLeg[];
 }
 
 /** 交付策略缺省解析：未设置一律 branch-only（不碰合并/发布链路是默认姿态） */
@@ -144,7 +210,7 @@ async function readAllProjects(): Promise<ProjectData[]> {
     const projects: ProjectData[] = [];
     for (const f of files) {
       const data = await fileStore.readJson<ProjectData>(path.join(PROJECTS_DIR, f.name));
-      if (data) projects.push(data);
+      if (data) projects.push(withReadDefaults(data));
     }
     return projects;
   } catch (err: unknown) {
@@ -270,7 +336,9 @@ export const projectService = {
   },
 
   async get(projectId: string): Promise<ProjectData | null> {
-    return fileStore.readJson<ProjectData>(projectPath(projectId));
+    const data = await fileStore.readJson<ProjectData>(projectPath(projectId));
+    // #107 T1：读取时合成单腿（不落盘，老项目零迁移）；map 缺省即非探路型，无需合成
+    return data ? withReadDefaults(data) : null;
   },
 
   /** 决策 4 别名层：按 REQ 别名反查 PMO（REQ-XXXX → 统一编号对象）；存量无别名 → null */

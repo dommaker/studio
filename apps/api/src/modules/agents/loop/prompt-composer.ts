@@ -18,6 +18,7 @@
 import { estimateTokens, parseChannels, FileStore, type AgentProfileData } from '@dommaker/studio-shared';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import { knowledgeService } from '../../knowledge/knowledge-service.js';
+import { projectService } from '../../pmo/project.service.js';
 import { loadManifest } from '../../skills/manifest-loader.js';
 import { selectSkillsWithDomain, parseSkillHintsFromScope } from '../../skills/skill-selector.js';
 import { resolveMaxDepth, MAX_DELEGATIONS_PER_PARENT } from '../../workunit/delegation-gate.js';
@@ -130,6 +131,12 @@ export async function composeStepPrompt(
   if (verifyFailHint) prompt = `${prompt}\n\n## 验证失败\n\n${verifyFailHint}`;
   if (childGuardHint) prompt = `${prompt}\n\n## 子任务提醒\n\n${childGuardHint}`;
 
+  // #107 T1 tracer bullet（存 → 拼 → 见）：WU 归属 PMO 有探路地图时，
+  // 把 destination + 开放雾条数一行塞进 prompt（non-blocking，读取失败按无地图处理）。
+  // T5（#111）接替为完整地图段（近 N 条 decisions + 开放 fog 清单 + 分段预算）。
+  const pmoMapLine = await buildPmoMapLine(metadata).catch(() => null);
+  if (pmoMapLine) prompt = `${prompt}\n\n${pmoMapLine}`;
+
   // #91: 分段软定额 + 池内余量共享 —— 段有效预算 = 定额 + 池；用量差额回流池中。
   // 任一段截断落 prompt:section_trimmed 事件（fire-and-forget，供定额初值校准）。
   let pool = 0;
@@ -231,6 +238,20 @@ export async function composeStepPrompt(
   }
 
   return { prompt, pendingReplies, knowledgeContext, skillMatched, injectedKnowledgeIds, consumedHintUpdates };
+}
+
+/**
+ * #107 T1 tracer bullet：组装 PMO 地图行（`## PMO 地图\n目标：…；开放雾 N 条`）。
+ * WU 无 pmoId / PMO 无 map（非探路型）→ null（不注入）；开放雾 = status !== resolved。
+ */
+async function buildPmoMapLine(metadata: WorkUnitMetadata): Promise<string | null> {
+  const pmoId = typeof metadata.pmoId === 'string' && metadata.pmoId.length > 0 ? metadata.pmoId : null;
+  if (!pmoId) return null;
+  const project = await projectService.get(pmoId);
+  const map = project?.map;
+  if (!map) return null;
+  const openFog = (map.fog ?? []).filter(f => f.status !== 'resolved').length;
+  return `## PMO 地图\n目标：${map.destination}；开放雾 ${openFog} 条`;
 }
 
 /**

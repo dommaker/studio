@@ -17,6 +17,7 @@
 | `projectService` 实例 | `project.service.ts` | 项目服务单例（含 `getByReqAlias`/`getByPmoNumber`（数字归一）/`ensureChoreProject`/`findChoreProject`） |
 | `generatePmoNumber` / `parsePmoSeq` | `project.service.ts` | 统一编号（决策 4：max(PM/PMO, REQ 两序列)+1，新格式 PMO-<n>） |
 | `resolveDeliveryPolicy` | `project.service.ts` | 交付策略缺省解析（未设置 = branch-only） |
+| `resolveDeliveries` / `PmoMap` / `DeliveryLeg` | `project.service.ts` | #107 T1（#106 spec）：探路地图 `map`（destination/decisions/fog，缺省 null = 非探路型）+ 多交付腿 `deliveries`（缺省 = 读取时由 gitRepo/gitBranch 合成单腿、status 从 deliveredAt 派生、不落盘，老项目零迁移；get/list 等全部读取路径统一口径） |
 | `parsePmoNumberFromCommand` | `project.service.ts` | 从命令中解析 PMO 号 |
 | `PROJECT_STATUS` 常量 | `project.service.ts` | 项目状态枚举 |
 | `initPmoProgressRollup` / `syncProjectProgress` / `parseWuMetaPmoId`（re-export） | `progress-rollup.ts` | B3a：订阅 workunit.status_changed，按项目下全部 Requirement（含决策 4 别名视图）关联 WU 的完结比例回写 progress（语义=「活干完了多少」，in_review 计入完结）；全部完结按证据翻转（2026-07-30 根因修复）：deliverable → completed，证据缺口 → active/pending 置 in_review（等证据验收，已 in_review 不动，completed/cancelled 不回退；skipValidation 直写）。同项目回写按 projectId 串行化（防相邻事件并发覆盖）；幂等补写证据不产生状态事件，靠 `GET /project/:id` 读取时重算纠偏 |
