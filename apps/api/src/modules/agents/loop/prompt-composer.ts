@@ -31,13 +31,15 @@ import { metricsFileStore } from './agent-loop-events.js';
  * 定额职责 = 防注入劣化（防注入段膨胀挤占对话空间、防噪声稀释信噪比），
  * 不防 CLI 上下文溢出（溢出归反应式策略管）；base prompt 不截断，CLI 脚手架不在管辖内。
  *
- * 软定额 + 池内余量共享：按 skills → persona → roster → memory → knowledge → handoff
+ * 软定额 + 池内余量共享：按 map → skills → persona → roster → memory → knowledge → handoff
  * 顺序逐段组装，段有效预算 = 本段定额 + 共享池余量；段实际用量低于有效预算时，
- * 差额流入共享池供后续段借用（注入总量封顶 = 定额总和 ~3.5K）。
+ * 差额流入共享池供后续段借用（注入总量封顶 = 定额总和 ~4.3K）。
+ * map 段 = #111 T5 探路地图完整渲染（定额 800，实测校准见 agents/CONTEXT.md）。
  * memory / handoff 段内容源分别归 #100（角色记忆索引常驻注入）与 #95（handoff 前序
  * 进展段），落地前两段恒为空、定额经共享池让给后续段。
  */
 export const SECTION_QUOTAS = {
+  map: 800,
   skills: 600,
   persona: 300,
   roster: 400,
@@ -47,6 +49,11 @@ export const SECTION_QUOTAS = {
 } as const;
 
 type InjectSectionName = keyof typeof SECTION_QUOTAS;
+
+/** #111 T5：地图段 decisions 渲染条数封顶 N（实测校准：典型 ~160tok，顶格偏重 ~720tok < 800 定额） */
+export const MAP_DECISIONS_MAX = 10;
+/** #111 T5：单条 decision summary 紧凑截断阈值（超出加省略号；顶格单行 ~43tok） */
+export const MAP_SUMMARY_MAX_CHARS = 160;
 
 /** 单个注入段的组装产出：tokens = 截断后实际用量；originalTokens = 未截断的原始尺寸（> tokens 即发生了截断） */
 interface BuiltSection {
@@ -91,7 +98,7 @@ export interface ComposedStepPrompt {
  *  1. hint 读取（pendingReplies / commitGuardHint / verifyFailHint / childGuardHint，注入后即消费）；
  *  2. base prompt：pendingReplies > target.newReplies > continue；
  *  3. 三类 guard hint 段注入；
- *  4. 注入段分段软定额 + 池内余量共享（#91），顺序 skills > persona > roster > memory > knowledge > handoff；
+ *  4. 注入段分段软定额 + 池内余量共享（#91），顺序 map > skills > persona > roster > memory > knowledge > handoff；
  *  5. 产出 consumedHintUpdates（已消费 hint 的清除增量）。
  * 全部注入路径 non-blocking：任一段失败按空段处理，绝不阻断执行。
  */
@@ -131,11 +138,8 @@ export async function composeStepPrompt(
   if (verifyFailHint) prompt = `${prompt}\n\n## 验证失败\n\n${verifyFailHint}`;
   if (childGuardHint) prompt = `${prompt}\n\n## 子任务提醒\n\n${childGuardHint}`;
 
-  // #107 T1 tracer bullet（存 → 拼 → 见）：WU 归属 PMO 有探路地图时，
-  // 把 destination + 开放雾条数一行塞进 prompt（non-blocking，读取失败按无地图处理）。
-  // T5（#111）接替为完整地图段（近 N 条 decisions + 开放 fog 清单 + 分段预算）。
-  const pmoMapLine = await buildPmoMapLine(metadata).catch(() => null);
-  if (pmoMapLine) prompt = `${prompt}\n\n${pmoMapLine}`;
+  // #107 T1 tracer bullet 已升级为 #111 T5 完整地图段（见下方 runSection('map')）：
+  // destination + 近 N 条 decisions（新→旧）+ 开放 fog 清单，纳入分段预算首段。
 
   // #91: 分段软定额 + 池内余量共享 —— 段有效预算 = 定额 + 池；用量差额回流池中。
   // 任一段截断落 prompt:section_trimmed 事件（fire-and-forget，供定额初值校准）。
@@ -169,6 +173,11 @@ export async function composeStepPrompt(
     pool = Math.max(0, budget - built.tokens);
     return built;
   };
+
+  // #111 T5: PMO 地图完整段（## PMO 地图）——分段预算首段（定额 800 + 池共享）；
+  // 段文本沿用 T1 落点拼进 base prompt（开场白位置），不进 knowledgeContext。
+  const pmoMap = await runSection('map', budget => buildPmoMapSection(metadata, budget));
+  if (pmoMap.section) prompt = `${prompt}\n\n${pmoMap.section}`;
 
   // 决策 7/11: skill 段（## 本次任务 Skills）step 时计算，吃 skill 库最新版
   interface SkillSection extends BuiltSection { matched: string[] }
@@ -241,17 +250,59 @@ export async function composeStepPrompt(
 }
 
 /**
- * #107 T1 tracer bullet：组装 PMO 地图行（`## PMO 地图\n目标：…；开放雾 N 条`）。
- * WU 无 pmoId / PMO 无 map（非探路型）→ null（不注入）；开放雾 = status !== resolved。
+ * #111 T5（接替 #107 T1 tracer bullet）：组装完整 `## PMO 地图` 段。
+ * 紧凑文本：destination 一行 + 近 MAP_DECISIONS_MAX 条 decisions（新→旧，summary 超
+ * MAP_SUMMARY_MAX_CHARS 截断加省略号）+ 开放 fog（open/in-discussion，resolved 不列）清单。
+ * WU 无 pmoId / PMO 无 map（非探路型）→ 空段（不注入，行为同现状）。
+ * 超预算截断策略：fog 全保留，decisions 从旧到新逐条裁（保最新）；决策裁光仍超
+ * （fog+destination 病态规模）→ 按 chars/4 兜底截（与其他段同口径）。
+ * originalTokens = N 封顶后完整渲染尺寸（N 封顶不算截断，只有预算裁条才落埋点）。
  */
-async function buildPmoMapLine(metadata: WorkUnitMetadata): Promise<string | null> {
+async function buildPmoMapSection(metadata: WorkUnitMetadata, tokenBudget: number): Promise<BuiltSection> {
   const pmoId = typeof metadata.pmoId === 'string' && metadata.pmoId.length > 0 ? metadata.pmoId : null;
-  if (!pmoId) return null;
+  if (!pmoId) return { section: '', tokens: 0, originalTokens: 0 };
   const project = await projectService.get(pmoId);
   const map = project?.map;
-  if (!map) return null;
-  const openFog = (map.fog ?? []).filter(f => f.status !== 'resolved').length;
-  return `## PMO 地图\n目标：${map.destination}；开放雾 ${openFog} 条`;
+  if (!map) return { section: '', tokens: 0, originalTokens: 0 };
+
+  const destLine = `目标：${map.destination}`;
+  const openFog = (map.fog ?? []).filter(f => f.status !== 'resolved');
+  const fogHeader = openFog.length > 0 ? `开放雾（${openFog.length} 条）：` : '开放雾：无';
+  const fogLines = openFog.map(f => `- [${f.status}] ${f.question}`);
+
+  // decisions 数组尾 = 最新（#110 T4 追加写）→ 反转为新→旧，封顶 N
+  const decisionLines = [...(map.decisions ?? [])].reverse().slice(0, MAP_DECISIONS_MAX).map(d => {
+    const date = typeof d.resolvedAt === 'string' ? d.resolvedAt.slice(5, 10) : '';
+    const summary = d.summary.length > MAP_SUMMARY_MAX_CHARS
+      ? `${d.summary.slice(0, MAP_SUMMARY_MAX_CHARS)}…`
+      : d.summary;
+    return `- [${date}] ${summary}`;
+  });
+
+  const render = (keptDecisions: string[]): string => {
+    const lines = ['## PMO 地图', destLine];
+    if (keptDecisions.length > 0) {
+      lines.push(`已落地决策（新→旧，近 ${MAP_DECISIONS_MAX} 条）：`, ...keptDecisions);
+    }
+    lines.push(fogHeader, ...fogLines);
+    return lines.join('\n');
+  };
+
+  const full = render(decisionLines);
+  const originalTokens = estimateTokens(full.length);
+  if (originalTokens <= tokenBudget) return { section: full, tokens: originalTokens, originalTokens };
+
+  // 超预算：fog 全保留，decisions 从旧到新逐条裁（列表尾 = 最旧）
+  let kept = decisionLines;
+  while (kept.length > 0 && estimateTokens(render(kept).length) > tokenBudget) {
+    kept = kept.slice(0, -1);
+  }
+  let section = render(kept);
+  if (estimateTokens(section.length) > tokenBudget) {
+    // 兜底：fog+destination 自身已超预算，按 chars/4 截（与其他段同口径）
+    section = section.slice(0, Math.max(0, tokenBudget * 4));
+  }
+  return { section, tokens: estimateTokens(section.length), originalTokens };
 }
 
 /**

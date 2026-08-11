@@ -393,9 +393,9 @@ describe('A2A P1: DELEGATE / complete 守卫 / 新鲜度检查 / 花名册', () 
       await runStep(parent.id);
 
       const opts = mockInjectContext.mock.calls[0][1];
-      // #91 分段软定额：skills/memory 段空（余量全入池），persona/roster 占用部分定额——
-      // maxTokens = 1000 + 600 + 300 + 400 + 300 - personaTokens - rosterTokens
-      expect(opts.maxTokens).toBeLessThan(2600);
+      // #91 分段软定额：map/skills/memory 段空（余量全入池），persona/roster 占用部分定额——
+      // maxTokens = 1000 + 800 + 600 + 300 + 400 + 300 - personaTokens - rosterTokens
+      expect(opts.maxTokens).toBeLessThan(3400);
       expect(opts.maxTokens).toBeGreaterThan(1000);
     });
 

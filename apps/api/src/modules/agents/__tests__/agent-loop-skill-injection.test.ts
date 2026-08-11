@@ -5,8 +5,8 @@
  * - 域匹配命中（wu.type/role.acceptedTypes 经 normalizeToStage 归一化 ∩ skill.agentTypes）：
  *   knowledgeContext 含 `## 本次任务 Skills`（在 `## 项目上下文` 之前）+ 协议说明行
  *   + 索引块（name + description + triggers 摘要 + SKILL.md 指针（studioPath 解析的绝对路径）），不含正文；
- *   injectContext 收到分段定额 + 池内余量共享后的 maxTokens（#91：skills 600 / persona 300 /
- *   roster 400 / memory 300 / knowledge 1000 / handoff 800，前段未用定额流入后段）
+ *   injectContext 收到分段定额 + 池内余量共享后的 maxTokens（#91：map 800（#111 T5）/ skills 600 /
+ *   persona 300 / roster 400 / memory 300 / knowledge 1000 / handoff 800，前段未用定额流入后段）
  * - metadata.matchedSkills 不再作为注入输入（step 时实时计算；匹配名单经 metadataUpdates 落盘供度量）
  * - +skill 显式点名 step 时从 wu.scope 解析（parseSkillHintsFromScope），排最高优先级
  * - 决策 13：`## 你的角色` 段（persona ?? description，为空省略）
@@ -163,10 +163,10 @@ describe('§10 P0 + 决策 7/11/13: agentStep skill/persona 注入', () => {
     expect(knowledgeContext).toContain('- test rule');
     expect(knowledgeContext.indexOf('## 本次任务 Skills')).toBeLessThan(knowledgeContext.indexOf('## 项目上下文'));
 
-    // skill 段先占定额：injectContext 收到 knowledge 定额 1000 + 各前段余量（persona/roster/memory 空）
+    // skill 段先占定额：injectContext 收到 knowledge 定额 1000 + 各前段余量（map/persona/roster/memory 空）
     expect(mockInjectContext).toHaveBeenCalledWith('feature', {
       tags: ['feature'],
-      maxTokens: 1000 + (600 - SKILL_TOKENS) + 300 + 400 + 300,
+      maxTokens: 1000 + (1400 - SKILL_TOKENS) + 300 + 400 + 300,
     });
   });
 
@@ -193,7 +193,7 @@ describe('§10 P0 + 决策 7/11/13: agentStep skill/persona 注入', () => {
     expect(result.metadataUpdates?.matchedSkills?.[0]).toBe('feature-dev');
   });
 
-  it('skill 库为空 → 无 skill 段，injectContext 吃到全部前段余量（#91：1000 定额 + 1600 余量）', async () => {
+  it('skill 库为空 → 无 skill 段，injectContext 吃到全部前段余量（#91：1000 定额 + 2400 余量）', async () => {
     fs.rmSync(path.join(testSkillsDir, 'feature-dev'), { recursive: true, force: true });
     invalidateManifestCache();
     try {
@@ -203,7 +203,7 @@ describe('§10 P0 + 决策 7/11/13: agentStep skill/persona 注入', () => {
       expect(knowledgeContext).not.toContain('## 本次任务 Skills');
       expect(mockInjectContext).toHaveBeenCalledWith('feature', {
         tags: ['feature'],
-        maxTokens: 1000 + 600 + 300 + 400 + 300,
+        maxTokens: 1000 + 800 + 600 + 300 + 400 + 300,
       });
     } finally {
       writeSkillFixture();
