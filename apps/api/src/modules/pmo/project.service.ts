@@ -509,12 +509,20 @@ export const projectService = {
     await channelMessageService.updateMessageMeta(message.id, { pmoId: project.id });
 
     const workUnitService = new WorkUnitService();
+    // #112 T6 多腿分析单：显式多腿（deliveries > 1）时 scope 注入全部仓库路径
+    // （只读约束不变、无 worktree 隔离）。单腿（无 deliveries 时读取合成的单腿）
+    // 不注入——scope 与现状逐字节一致（回归硬要求）。
+    const legs = resolveDeliveries(project);
+    const multiLegSection = legs.length > 1
+      ? `\n\n## 多交付腿（只读范围）\n本需求跨 ${legs.length} 个仓库交付，分析须覆盖以下全部仓库路径（均为只读，约束同上，不做 worktree 隔离）：\n`
+        + legs.map(leg => `- ${leg.gitRepo ?? '（未设置仓库路径）'}${leg.branch ? `（分支 ${leg.branch}）` : ''}`).join('\n')
+      : '';
     const workUnit = await workUnitService.create({
       type: 'analysis',
       scope: `分析需求 ${project.pmoNumber}: ${project.title}
 
 ${project.requirement || ''}
-
+${multiLegSection}
 ## 工作方式约束（只读分析，重要）
 你是分析角色，只读不改：禁止创建/修改/删除任何文件（不使用 Edit/Write/NotebookEdit），禁止执行会改变工作区状态的命令（git commit/checkout/clean、包管理器 install、写临时脚本等）。只用 Read/Grep/Glob 和只读 Bash（git log/diff/status、ls、cat、grep 等）。分析结论直接以 markdown 输出在回复里，不落盘。
 

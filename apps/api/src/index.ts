@@ -212,6 +212,13 @@ async function start() {
         logger.info('[DecisionResolution] Subscribed to workunit.status_changed');
       } catch (e) { logger.warn('[DecisionResolution] Failed to subscribe', { error: String(e) }); }
 
+      // #112 开图机制：analysis 确认（含待决问题清单）→ 初始化 map + 逐条建 decision 单
+      try {
+        const { initMapOpening } = await import('./modules/pmo/map-opening.js');
+        initMapOpening();
+        logger.info('[MapOpening] Subscribed to workunit.status_changed');
+      } catch (e) { logger.warn('[MapOpening] Failed to subscribe', { error: String(e) }); }
+
       if (agentLoopEnabled) {
         for (const profile of profiles) {
           const entry = await agentLoopRegistry.mount(profile);
