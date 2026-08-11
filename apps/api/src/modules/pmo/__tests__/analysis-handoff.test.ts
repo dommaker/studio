@@ -40,10 +40,20 @@ async function createAnalysisWu(metadata: WorkUnitMetadata): Promise<WorkUnitDat
   });
 }
 
+/** 轮询等待异步事件处理落定（同 decision-resolution/progress-rollup 等姊妹测试；
+ *  固定 sleep 在 forks 并行负载下不可靠——handler 是 6 步串行文件 I/O，实测超 50ms） */
+async function waitFor(cond: () => Promise<boolean>, timeoutMs = 3000): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await cond()) return true;
+    await new Promise(r => setTimeout(r, 20));
+  }
+  return false;
+}
+
 /** 手工发 status_changed（快照状态与 payload 一致） */
-async function emitStatus(wu: WorkUnitData, status: string) {
+function emitStatus(wu: WorkUnitData, status: string) {
   eventBus.publish('workunit.status_changed', { workunit: { ...wu, status } });
-  await new Promise(r => setTimeout(r, 50));
 }
 
 beforeEach(async () => {
@@ -76,10 +86,11 @@ afterEach(() => {
 describe('AnalysisHandoff（PMO 分析接力）', () => {
   it('analysis → in_review：频道发人工确认提示（含派工预告）', async () => {
     const wu = await createAnalysisWu({ analysisTasks: ['任务一', '任务二'] });
-    await emitStatus(wu, 'in_review');
+    emitStatus(wu, 'in_review');
 
+    const ok = await waitFor(async () => (await channelMessages()).length === 1);
+    expect(ok).toBe(true);
     const msgs = await channelMessages();
-    expect(msgs.length).toBe(1);
     expect(msgs[0].workUnitId).toBe(wu.id);
     expect(msgs[0].content).toContain('人工');
     expect(msgs[0].content).toContain('自动派工');
@@ -91,8 +102,11 @@ describe('AnalysisHandoff（PMO 分析接力）', () => {
       pmoId: 'proj-1',
       pmoNumber: 'PMO-1',
     });
-    await emitStatus(wu, 'done');
+    emitStatus(wu, 'done');
 
+    const ok = await waitFor(async () =>
+      (await fileStore.getIndex()).filter(s => s.parentId === wu.id).length === 2);
+    expect(ok).toBe(true);
     const snapshots = await fileStore.getIndex();
     const children = snapshots.filter(s => s.parentId === wu.id);
     expect(children.length).toBe(2);
@@ -109,14 +123,21 @@ describe('AnalysisHandoff（PMO 分析接力）', () => {
     const after = await wuService.getById(wu.id);
     expect(metaOf(after!.metadata).analysisTasksSpawnedAt).toBeTruthy();
 
-    const msgs = await channelMessages();
-    expect(msgs.some(m => m.content.includes('拆分 2 个任务'))).toBe(true);
+    const msgOk = await waitFor(async () =>
+      (await channelMessages()).some(m => m.content.includes('拆分 2 个任务')));
+    expect(msgOk).toBe(true);
   });
 
   it('幂等：重复 done 事件不重复派生', async () => {
     const wu = await createAnalysisWu({ analysisTasks: ['任务一'] });
-    await emitStatus(wu, 'done');
-    await emitStatus(wu, 'done');
+    emitStatus(wu, 'done');
+    const ok = await waitFor(async () =>
+      (await fileStore.getIndex()).filter(s => s.parentId === wu.id).length === 1);
+    expect(ok).toBe(true);
+
+    emitStatus(wu, 'done');
+    // 负向断言（不重复派生）无轮询条件，给二次事件一个处理窗口（同姊妹测试先例）
+    await new Promise(r => setTimeout(r, 150));
 
     const snapshots = await fileStore.getIndex();
     expect(snapshots.filter(s => s.parentId === wu.id).length).toBe(1);
@@ -127,8 +148,11 @@ describe('AnalysisHandoff（PMO 分析接力）', () => {
       analysisTasks: ['任务一'],
       workspaceRoot: '/root/projects/demo',
     });
-    await emitStatus(wu, 'done');
+    emitStatus(wu, 'done');
 
+    const ok = await waitFor(async () =>
+      (await fileStore.getIndex()).filter(s => s.parentId === wu.id).length === 1);
+    expect(ok).toBe(true);
     const snapshots = await fileStore.getIndex();
     const children = snapshots.filter(s => s.parentId === wu.id);
     expect(children.length).toBe(1);
@@ -136,7 +160,10 @@ describe('AnalysisHandoff（PMO 分析接力）', () => {
 
     // 无 workspaceRoot 的 analysis：子 WU 不带该字段（不编造）
     const wu2 = await createAnalysisWu({ analysisTasks: ['任务二'] });
-    await emitStatus(wu2, 'done');
+    emitStatus(wu2, 'done');
+    const ok2 = await waitFor(async () =>
+      (await fileStore.getIndex()).filter(s => s.parentId === wu2.id).length === 1);
+    expect(ok2).toBe(true);
     const children2 = (await fileStore.getIndex()).filter(s => s.parentId === wu2.id);
     expect(children2.length).toBe(1);
     expect(metaOf(children2[0].metadata).workspaceRoot).toBeUndefined();
@@ -144,18 +171,21 @@ describe('AnalysisHandoff（PMO 分析接力）', () => {
 
   it('无 TASK 拆分行：不派生，频道提示可手动转任务', async () => {
     const wu = await createAnalysisWu({});
-    await emitStatus(wu, 'done');
+    emitStatus(wu, 'done');
 
+    const msgOk = await waitFor(async () =>
+      (await channelMessages()).some(m => m.content.includes('未输出 TASK')));
+    expect(msgOk).toBe(true);
     const snapshots = await fileStore.getIndex();
     expect(snapshots.filter(s => s.parentId === wu.id).length).toBe(0);
-    const msgs = await channelMessages();
-    expect(msgs.some(m => m.content.includes('未输出 TASK'))).toBe(true);
   });
 
   it('非 analysis 类型 / 其他状态：忽略', async () => {
     const task = await wuService.create({ type: 'task', scope: '普通任务', channelId: 'ch-test', status: 'active' });
-    await emitStatus(task, 'in_review');
-    await emitStatus(task, 'done');
+    emitStatus(task, 'in_review');
+    emitStatus(task, 'done');
+    // 负向断言（忽略）无轮询条件，给一个处理窗口
+    await new Promise(r => setTimeout(r, 150));
 
     const msgs = await channelMessages();
     expect(msgs.length).toBe(0);
