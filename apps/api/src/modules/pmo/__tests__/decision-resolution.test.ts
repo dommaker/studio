@@ -239,3 +239,64 @@ describe('DecisionResolution（#110 决策落地）', () => {
     expect((await projectService.get(project.id))!.map!.decisions.length).toBe(0);
   });
 });
+
+describe('DecisionResolution（评审收尾：认领 → fog in-discussion）', () => {
+  it('decision 单被认领（active）→ 对应雾 open → in-discussion', async () => {
+    const project = await createProject(twoFogMap()); // fog-2 为 open
+    const wu = await createDecisionWu(project, 'fog-2');
+
+    eventBus.publish('workunit.status_changed', { workunit: { ...wu, status: 'active' } });
+    const ok = await waitFor(async () =>
+      (await projectService.get(project.id))!.map!.fog.find(f => f.id === 'fog-2')!.status === 'in-discussion');
+    expect(ok).toBe(true);
+    // 不动 decisions[]，不动其他雾
+    const after = (await projectService.get(project.id))!.map!;
+    expect(after.decisions.length).toBe(0);
+    expect(after.fog.find(f => f.id === 'fog-1')!.status).toBe('in-discussion');
+  });
+
+  it('幂等不回摆：已 resolved / 已 in-discussion 的雾不被 active 事件改写', async () => {
+    const project = await createProject({
+      destination: 'd',
+      decisions: [],
+      fog: [
+        { id: 'fog-1', question: 'q1', wuId: null, status: 'resolved' },
+        { id: 'fog-2', question: 'q2', wuId: null, status: 'in-discussion' },
+      ],
+    });
+    const wu1 = await createDecisionWu(project, 'fog-1');
+    const wu2 = await createDecisionWu(project, 'fog-2');
+
+    eventBus.publish('workunit.status_changed', { workunit: { ...wu1, status: 'active' } });
+    eventBus.publish('workunit.status_changed', { workunit: { ...wu2, status: 'active' } });
+    await new Promise(r => setTimeout(r, 200));
+
+    const after = (await projectService.get(project.id))!.map!;
+    expect(after.fog.find(f => f.id === 'fog-1')!.status).toBe('resolved');
+    expect(after.fog.find(f => f.id === 'fog-2')!.status).toBe('in-discussion');
+  });
+
+  it('边界：缺关联戳 / 无 map 的 PMO → active 事件不炸不写', async () => {
+    const project = await createProject(twoFogMap());
+    const noStamp = await wuService.create({
+      type: 'decision',
+      scope: '无戳决策单',
+      status: 'unassigned',
+      metadata: {},
+    });
+    const noMapProject = await createProject(null);
+    const wuNoMap = await wuService.create({
+      type: 'decision',
+      scope: '无地图项目决策单',
+      status: 'unassigned',
+      metadata: { pmoId: noMapProject.id, fogId: 'fog-1' },
+    });
+
+    eventBus.publish('workunit.status_changed', { workunit: { ...noStamp, status: 'active' } });
+    eventBus.publish('workunit.status_changed', { workunit: { ...wuNoMap, status: 'active' } });
+    await new Promise(r => setTimeout(r, 200));
+
+    expect((await projectService.get(project.id))!.map!.fog.find(f => f.id === 'fog-2')!.status).toBe('open');
+    expect((await projectService.get(noMapProject.id))!.map).toBeFalsy();
+  });
+});

@@ -2,7 +2,9 @@
  * Decision Resolution — 决策落地（#110，#106 子票 T4）
  *
  * 订阅 workunit.status_changed，把探路地图（#107 map）与 decision 单（#108）接通：
- *   1) decision WU → done（人工确认通过）：把人工确认时填写的结论文本**原样**追加
+ *   1) decision WU → active（被认领进入讨论）：对应 map.fog[] 条目 open → in-discussion
+ *      （幂等——仅 open 态翻转，resolved 不回摆；#106 数据模型三态的补齐，评审收尾）。
+ *   2) decision WU → done（人工确认通过）：把人工确认时填写的结论文本**原样**追加
  *      map.decisions[]（不做 LLM 摘要提取），对应 map.fog[] 条目置 resolved。
  *      关联契约：decision WU 的 metadata 带 pmoId 与 fogId（T6 开图机制建单时落档）——
  *      按 metadata.pmoId 找 PMO，按 metadata.fogId 定位 fog 条目；缺戳/找不到条目跳过不炸。
@@ -10,7 +12,7 @@
  *      F6 台账原有字段，本票只是把 review-passed 端点的可选 body.summary 穿透进去）；
  *      人工未填 → 空串落 decisions[]（不拒写——机制不阻塞雾消解，最小惊讶）。
  *      幂等：decisions[] 按 wuId 去重，同一 decision WU 重复投递不双写。
- *   2) 所属 PMO 的 fog[] 全 resolved → 自动建未指派 spec 成文单
+ *   3) 所属 PMO 的 fog[] 全 resolved → 自动建未指派 spec 成文单
  *      （scope 带 PMO 引用 + metadata.pmoId/pmoNumber 溯源，形态照 analysis-handoff 建单）。
  *      map.specSpawnedAt 为幂等哨兵（照 analysisTasksSpawnedAt 先例，先落档再建单，
  *      建单失败只记日志人工可补）；建成后 map.specWuId 回写溯源。
@@ -40,10 +42,38 @@ export class DecisionResolution {
 
     eventBus.subscribe('workunit.status_changed', async (payload: { workunit: WorkUnitData }) => {
       const wu = payload.workunit;
-      if (!wu || wu.type !== 'decision' || wu.status !== 'done') return;
-      await this.onDecisionDone(wu.id).catch(err =>
-        logger.warn('[DecisionResolution] onDecisionDone failed', { wuId: wu.id, error: String(err) }),
-      );
+      if (!wu || wu.type !== 'decision') return;
+      if (wu.status === 'done') {
+        await this.onDecisionDone(wu.id).catch(err =>
+          logger.warn('[DecisionResolution] onDecisionDone failed', { wuId: wu.id, error: String(err) }),
+        );
+      } else if (wu.status === 'active') {
+        await this.onDecisionClaimed(wu.id).catch(err =>
+          logger.warn('[DecisionResolution] onDecisionClaimed failed', { wuId: wu.id, error: String(err) }),
+        );
+      }
+    });
+  }
+
+  /** decision 单被认领 → 对应雾 open → in-discussion（幂等，仅 open 翻转，resolved 不回摆） */
+  private async onDecisionClaimed(wuId: string): Promise<void> {
+    const fresh = await this.workUnitService.getById(wuId);
+    if (!fresh) return;
+    const meta = parseWuMetadata(fresh.metadata);
+    const pmoId = typeof meta.pmoId === 'string' ? meta.pmoId : '';
+    const fogId = typeof meta.fogId === 'string' ? meta.fogId : '';
+    if (!pmoId || !fogId) return;
+
+    await this.enqueue(pmoId, async () => {
+      const project = await projectService.get(pmoId);
+      const map = project?.map;
+      if (!project || !map) return;
+      const fogItem = map.fog.find(f => f.id === fogId);
+      if (!fogItem || fogItem.status !== 'open') return;
+      await projectService.update(pmoId, {
+        map: { ...map, fog: map.fog.map(f => (f.id === fogId ? { ...f, status: 'in-discussion' } : f)) },
+      });
+      logger.info('[DecisionResolution] Fog in-discussion (decision claimed)', { wuId, projectId: pmoId, fogId });
     });
   }
 
