@@ -124,6 +124,8 @@ export interface DeliveryLeg {
  *   pending/active → in_review（腿内 WU 全完结但证据有缺口，等验收）
  *   → completed（腿内 WU 全完结且证据齐）→ delivered（auto-merge 已合，终态）
  * delivered 不被回写；零 WU 腿状态不动、不阻断整体翻转（无活可交视为满足）。
+ * #115：completed/in_review 可回摆 active——派生物化（spec-materialization）/人工补单
+ * 会让已完结腿重新出现在途 WU，腿状态随真实工作量回摆（delivered 终态除外）。
  */
 export const LEG_STATUS = {
   PENDING: 'pending',

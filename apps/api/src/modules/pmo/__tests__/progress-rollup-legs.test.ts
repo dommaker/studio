@@ -163,4 +163,26 @@ describe('syncProjectProgress 多腿（#113 T7）', () => {
     expect(after!.deliveries![1]).toEqual(expect.objectContaining({ branch: 'PMO-b', status: 'completed' }));
     expect(after!.status).toBe(PROJECT_STATUS.COMPLETED); // delivered 腿视为完结
   });
+
+  it('#115：已 completed 腿出现在途 WU（派生物化/补单）→ 腿回摆 active；delivered 腿不回摆', async () => {
+    const project = await createMultiLegProject();
+    await projectService.update(project.id, {
+      deliveries: [
+        { gitRepo: '/repo/a', branch: 'PMO-a', status: 'completed' },
+        { gitRepo: '/repo/b', branch: 'PMO-b', status: 'delivered', deliverCommit: 'bbbb' },
+      ],
+    });
+    const req = await reqService.create({ title: '需求', projectId: project.id });
+    await wuService.create({ scope: 'a1', type: 'task', status: 'done', reqId: req.id, metadata: { workspaceRoot: '/repo/a', ...fullEvidence } });
+    // 物化新建的在途 WU 落到两腿
+    await wuService.create({ scope: 'a2', type: 'task', status: 'unassigned', reqId: req.id, metadata: { workspaceRoot: '/repo/a' } });
+    await wuService.create({ scope: 'b2', type: 'task', status: 'unassigned', reqId: req.id, metadata: { workspaceRoot: '/repo/b' } });
+
+    await syncProjectProgress(project.id, fileStore);
+
+    const after = await projectService.get(project.id);
+    expect(after!.deliveries![0]).toEqual(expect.objectContaining({ branch: 'PMO-a', status: 'active' })); // 回摆
+    expect(after!.deliveries![1]).toEqual(expect.objectContaining({ branch: 'PMO-b', status: 'delivered' })); // 终态不动
+    expect(after!.status).not.toBe(PROJECT_STATUS.COMPLETED);
+  });
 });

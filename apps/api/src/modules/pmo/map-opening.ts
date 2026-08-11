@@ -121,9 +121,14 @@ export class MapOpening {
     if (!project) return;
     if (project.map) return; // 已有 map 的 PMO：不重建
 
-    // 幂等哨兵先落档：即便后续建单部分失败也不重复派生（失败只记日志，人工可补）
+    // 幂等哨兵先落档：即便后续建单部分失败也不重复派生（失败只记日志，人工可补）。
+    // 与 analysis-handoff 同一 done 事件写同一 WU metadata（它落 analysisTasksSpawnedAt）——
+    // 写入前重读合并，防 read-modify-write 丢更新（#115 e2e 实测两哨兵互覆）
+    const latest = await this.workUnitService.getById(wu.id);
+    const latestMeta = latest ? parseWuMetadata(latest.metadata) : meta;
+    if (latestMeta.mapOpenedAt) return; // 重读后哨兵已落（并发/重发）
     await this.workUnitService.update(wu.id, {
-      metadata: { ...meta, mapOpenedAt: new Date().toISOString() },
+      metadata: { ...latestMeta, mapOpenedAt: new Date().toISOString() },
     });
 
     // 1) 先初始化 map（wuId 待回写）
