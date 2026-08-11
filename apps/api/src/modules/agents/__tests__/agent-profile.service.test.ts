@@ -523,6 +523,11 @@ describe('决策 9: create preset 预填（.agents/roles/*.yaml）', () => {
         'name: Developer',
         'description: 代码实现、TDD 流程',
         'acceptedTypes: [implement]',
+        'skills: [tdd-implement, task-planner]',
+        'tools: [read, write]',
+        'constraints:',
+        '  max_concurrent_tasks: 2',
+        '  can_delegate: false',
         'persona: |',
         '  你是开发者。遵循 TDD 流程。',
         '',
@@ -594,5 +599,17 @@ describe('决策 9: create preset 预填（.agents/roles/*.yaml）', () => {
     expect(profile.description).toBeNull();
     expect(profile.persona).toBeUndefined();
     expect(profile.acceptedTypes).toBeUndefined();
+  });
+
+  it('#91: preset 带入 skills/tools/constraints 并落盘可回读（prompt 组装消费链不再断）', async () => {
+    const profile = await service.create({ name: 'dev-7', preset: 'developer' });
+
+    expect(profile.skills).toEqual(['tdd-implement', 'task-planner']);
+    expect(profile.tools).toEqual(['read', 'write']);
+    expect(profile.constraints).toEqual({ max_concurrent_tasks: 2, can_delegate: false });
+    const onDisk = await service.getById(profile.id);
+    expect(onDisk!.skills).toEqual(['tdd-implement', 'task-planner']);
+    expect(onDisk!.tools).toEqual(['read', 'write']);
+    expect(onDisk!.constraints).toEqual({ max_concurrent_tasks: 2, can_delegate: false });
   });
 });
