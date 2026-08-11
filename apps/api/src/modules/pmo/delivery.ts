@@ -8,7 +8,7 @@
  *
  * 台账口径：WU 证据（l1 自动验证 / l2 agent 评审 / l3 人工确认）一律过
  * evidence-summary 共享口径（底层仍走 deriveDisplayState 派生，铁律：禁止各自解释 attestations）。
- * l1 只对代码类 WU（task/bug/feature/refactor）要求；l2 豁免 review/analysis
+ * l1 只对代码类 WU（task/bug/feature/refactor）要求；l2 豁免 review/analysis/decision/spec
  * （dispatcher 不派评审，验收闸是人工 L3）；l3 对所有已完成 WU 要求。
  */
 import { FileStore, type WorkUnitSnapshot } from '@dommaker/studio-shared';
@@ -43,7 +43,7 @@ export interface DeliveryStatus {
     /** l2 中自评数（决策 5：评审独立性参考，不阻断交付） */
     selfReviewCount: number;
   };
-  /** 可交付 = 有 WU 且全部完成且证据齐（l1 限代码类，l2 豁免 review/analysis） */
+  /** 可交付 = 有 WU 且全部完成且证据齐（l1 限代码类，l2 豁免 review/analysis/decision/spec） */
   deliverable: boolean;
   /** 人话缺口清单（branch-only 标记 / auto-merge 拒绝原因共用） */
   missing: string[];

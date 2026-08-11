@@ -22,6 +22,7 @@
 
 import { eventBus, logger, parseChannels, deriveDisplayState, type FileStore, type AgentProfileData } from '@dommaker/studio-shared';
 import { WorkUnitService, type WorkUnitData, type WorkUnitMetadata } from '../../workunit/workunit.service.js';
+import { DECISION_SPEC_TYPES } from '../../workunit/workunit.types.js';
 import { readCollab } from '../../workunit/delegation-gate.js';
 import { postWuSystemMessage } from '../../workunit/wu-messenger.js';
 import { parseWuMetadata, clearSessionBookkeeping } from '../../workunit/wu-metadata.js';
@@ -45,8 +46,9 @@ export class ReviewDispatcher {
       // 路径 A：父 WU 进入 in_review -> 尝试创建 review 子 WU
       // （跳过 type='review'：review 子 WU 不需要再被 review；
       //   跳过 type='analysis'：分析结论的评审 = 人工确认（F6 l3），diff-only 契约
-      //   对非代码产物恒 needs-info 转人工纯噪声；接力提示与派工见 pmo/analysis-handoff.ts）
-      if (wu.status === 'in_review' && wu.type !== 'review' && wu.type !== 'analysis') {
+      //   对非代码产物恒 needs-info 转人工纯噪声；接力提示与派工见 pmo/analysis-handoff.ts；
+      //   跳过 decision/spec（#108）：人工验收类工单，验收闸 = 人工 in_review，不派评审子 WU）
+      if (wu.status === 'in_review' && wu.type !== 'review' && wu.type !== 'analysis' && !DECISION_SPEC_TYPES.has(wu.type)) {
         await this.handleParentInReview(wu).catch(err =>
           logger.warn('[ReviewDispatcher] handleParentInReview failed', { wuId: wu.id, error: String(err) }),
         );
@@ -143,6 +145,7 @@ export class ReviewDispatcher {
    * F6-c（断点 3）：人工补派评审（POST /api/v1/workunits/:id/dispatch-review 的服务层，同步调用）。
    * 复用路径 A 的建单逻辑（excludeAssignee/自评兜底/同父唯一性不变）。守卫：
    *   type=review/analysis → 拒绝（设计如此：review 不再被评审；analysis 验收闸是人工 L3）；
+   *   type=decision/spec（#108）→ 拒绝（人工验收类工单，同 analysis 先例）；
    *   status 不在 in_review/done → 拒绝（active/blocked 等应先走正常收口）；
    *   deriveDisplayState 判定 l2 已达成 → 拒绝（无需补派；rejected 留痕不算达成，允许重派）；
    *   无频道 → 拒绝（评审子 WU 经频道涌现认领，无频道必卡死）；
@@ -152,8 +155,8 @@ export class ReviewDispatcher {
   async dispatchReviewNow(parentWuId: string): Promise<WorkUnitData> {
     const parent = await this.workUnitService.getById(parentWuId);
     if (!parent) throw new Error(`WorkUnit ${parentWuId} not found`);
-    if (parent.type === 'review' || parent.type === 'analysis') {
-      throw new Error(`WorkUnit type ${parent.type} is not reviewable (review 不再被评审；analysis 验收闸是人工 L3)`);
+    if (parent.type === 'review' || parent.type === 'analysis' || DECISION_SPEC_TYPES.has(parent.type)) {
+      throw new Error(`WorkUnit type ${parent.type} is not reviewable (review 不再被评审；analysis/decision/spec 验收闸是人工 L3)`);
     }
     if (parent.status !== 'in_review' && parent.status !== 'done') {
       throw new Error(`Cannot dispatch review: current status is ${parent.status}, expected in_review/done`);

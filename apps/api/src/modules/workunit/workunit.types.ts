@@ -1,6 +1,6 @@
 /**
  * WorkUnit 类型契约 + 状态机表/超时常量（工单 30 自 workunit.service.ts 头部抽出，纯搬运零逻辑变更）。
- * 内容：WorkUnitMetadata / 输入输出 DTO / VALID_TRANSITIONS / 超时常量 / ANALYSIS_TASKS_MAX / resolveClaimTimeoutAt。
+ * 内容：WorkUnitMetadata / 输入输出 DTO / VALID_TRANSITIONS（+ #108 按 type 覆盖表 DECISION_SPEC_TYPES/TYPE_VALID_TRANSITIONS）/ 超时常量 / ANALYSIS_TASKS_MAX / resolveClaimTimeoutAt。
  * 零服务依赖（仅 wu-metadata 叶子），供 service 与跨模块类型级消费方直接引用。
  */
 
@@ -200,6 +200,38 @@ export const VALID_TRANSITIONS: Record<string, string[]> = {
   blocked: ['active', 'closed', 'unassigned'],
   closed: ['unassigned'],
 };
+
+/**
+ * #108（T2，#106 子票）：决策单/成文单类型集——人工验收类工单。
+ * 无 worktree、无证据台账齐缺要求、无合并（不落 worktree 落档 → merge-on-review-pass 自然旁路）；
+ * ReviewDispatcher 不自动派评审子 WU（同 analysis 先例，验收闸 = 人工 in_review）。
+ */
+export const DECISION_SPEC_TYPES = new Set(['decision', 'spec']);
+
+/**
+ * #108：decision/spec 的裁剪状态机 —— `unassigned → active ⇄ waitingForInput → in_review → done`。
+ * 现有实现里 waitingForInput 挂起 = status blocked + metadata.waitingForInput（F5 双向沟通），
+ * 故表内体现为 active ⇄ blocked；无 closed（决策单可能等关键人多天，不进死信/超时关闭路径；
+ * 死信关闭机制 #57 尚待实现，届时需对齐本豁免）。
+ */
+const DECISION_SPEC_TRANSITIONS: Record<string, string[]> = {
+  unassigned: ['active'],
+  active: ['in_review', 'blocked'],
+  blocked: ['active'],
+  in_review: ['done', 'active'],
+  done: [],
+};
+
+/** 按 WU type 的状态机覆盖表（未列出的 type 用全局 VALID_TRANSITIONS） */
+export const TYPE_VALID_TRANSITIONS: Record<string, Record<string, string[]>> = {
+  decision: DECISION_SPEC_TRANSITIONS,
+  spec: DECISION_SPEC_TRANSITIONS,
+};
+
+/** transitionStatus 查表入口：type 覆盖优先，缺省回落全局表 */
+export function resolveValidTransitions(wuType: string, status: string): string[] | undefined {
+  return (TYPE_VALID_TRANSITIONS[wuType] ?? VALID_TRANSITIONS)[status];
+}
 
 /**
  * P0 修复（WU 超时机制）：WU 被认领进入 active 时的默认超时时长（分钟），按 type 区分。

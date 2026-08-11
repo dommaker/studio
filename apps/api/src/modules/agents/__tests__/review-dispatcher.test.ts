@@ -376,6 +376,24 @@ describe('ReviewDispatcher (AC-4.1 ~ AC-4.5 + F4)', () => {
     expect(reviewChild).toBeUndefined();
   });
 
+  it('#108: decision/spec WU in_review -> 不派 review 子 WU（人工验收类工单，验收闸 = 人工 in_review）', async () => {
+    for (const type of ['decision', 'spec']) {
+      const wu = await wuService.create({
+        scope: `${type} 单测试`,
+        type,
+        channelId: 'ch-test',
+        assigneeId: executorProfile.id,
+        status: 'active',
+      });
+      await wuService.transitionStatus(wu.id, 'in_review');
+      await new Promise(r => setTimeout(r, 100));
+
+      const snapshots = await fileStore.getIndex();
+      const reviewChild = snapshots.find(s => s.parentId === wu.id && s.type === 'review');
+      expect(reviewChild).toBeUndefined();
+    }
+  });
+
   // ─── F6-c 断点 3：dispatchReviewNow 人工补派 ───
 
   it('F6-c: in_review 父 WU 缺评审子 WU -> dispatchReviewNow 补派成功（未指派 + excludeAssignee=实现者）', async () => {
@@ -419,6 +437,15 @@ describe('ReviewDispatcher (AC-4.1 ~ AC-4.5 + F4)', () => {
       scope: '分析 X', type: 'analysis', channelId: 'ch-test', status: 'in_review',
     });
     await expect(dispatcher.dispatchReviewNow(analysis.id)).rejects.toThrow('not reviewable');
+  });
+
+  it('#108: type=decision/spec -> 拒绝补派（人工验收类工单，同 analysis 先例）', async () => {
+    for (const type of ['decision', 'spec']) {
+      const wu = await wuService.create({
+        scope: `${type} Y`, type, channelId: 'ch-test', status: 'in_review',
+      });
+      await expect(dispatcher.dispatchReviewNow(wu.id)).rejects.toThrow('not reviewable');
+    }
   });
 
   it('F6-c: status 不在 in_review/done（active）-> 拒绝补派', async () => {

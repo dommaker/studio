@@ -11,11 +11,13 @@
  *   - l2 对已完成 WU 要求，但豁免 type==='review' 与 type==='analysis'——
  *     与 review-dispatcher.ts:47 的跳过集对齐：review 子 WU 自身不再派评审，
  *     analysis 的验收闸是人工确认（L3），diff-only 契约对非代码产物恒 needs-info
- *     转人工纯噪声。若不豁免，analysis 类 WU 永远不可能 deliverable（规则自相矛盾）；
+ *     转人工纯噪声。若不豁免，analysis 类 WU 永远不可能 deliverable（规则自相矛盾）。
+ *     #108 起 decision/spec 同入豁免（DECISION_SPEC_TYPES，人工验收类工单不派评审）；
  *   - l3 对所有已完成 WU 要求（验收权只在人）。
  */
 import { deriveDisplayState, type WorkUnitSnapshot } from '@dommaker/studio-shared';
 import { parseWuPmoId } from '../requirements/wu-pmo-attribution.js';
+import { DECISION_SPEC_TYPES } from '../workunit/workunit.types.js';
 
 /**
  * @deprecated 兼容别名（progress-rollup 及其测试沿用旧名）：parser 已迁至
@@ -28,8 +30,8 @@ export const parseWuMetaPmoId = parseWuPmoId;
 /** 代码类 WU（与 agent-loop CODE_WORKTREE_TYPES 同集——有专属 worktree 才跑自动验证） */
 export const CODE_TYPES = new Set(['task', 'bug', 'feature', 'refactor']);
 
-/** L2 豁免集：ReviewDispatcher 不派自动评审的类型（review-dispatcher.ts:47） */
-const L2_EXEMPT_TYPES = new Set(['review', 'analysis']);
+/** L2 豁免集：ReviewDispatcher 不派自动评审的类型（review-dispatcher.ts 跳过集 + #108 decision/spec） */
+const L2_EXEMPT_TYPES = new Set(['review', 'analysis', ...DECISION_SPEC_TYPES]);
 
 /** 项目证据汇总（deliverable = 有 WU 且全部完成且三层证据齐） */
 export interface EvidenceSummary {

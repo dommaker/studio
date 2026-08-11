@@ -107,6 +107,19 @@ describe('summarizeEvidence', () => {
     expect(s2.deliverable).toBe(false);
   });
 
+  it('#108: decision/spec 豁免 l2（人工验收类工单不派评审），l3 仍要求', () => {
+    for (const type of ['decision', 'spec']) {
+      const withL3 = wu({ type, metadataObj: { attestations: { l3: att('human-confirm') } } });
+      expect(summarizeEvidence([withL3]).deliverable).toBe(true);
+
+      const noL3 = wu({ type, metadataObj: {} });
+      const s = summarizeEvidence([noL3]);
+      expect(s.l2Missing).toEqual([]);
+      expect(s.l3Missing).toEqual([noL3.id]);
+      expect(s.deliverable).toBe(false);
+    }
+  });
+
   it('closed 计入 finished；在途 WU 按原始状态进 byStatus 且阻断交付', () => {
     const done = wu({ metadataObj: fullEvidence });
     const closed = wu({ status: 'closed', metadataObj: fullEvidence });

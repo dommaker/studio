@@ -8,6 +8,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { FileStore } from '@dommaker/studio-shared';
 import { WorkUnitService, WU_TIMEOUT_MINUTES, type WorkUnitMetadata } from '../workunit.service.js';
+import { parseWuMetadata } from '../wu-metadata.js';
 import { scanTimedOutWorkUnits, MAX_TIMEOUT_RELEASES } from '../timeout-release.js';
 
 const { mockPostWuSystemMessage } = vi.hoisted(() => ({ mockPostWuSystemMessage: vi.fn() }));
@@ -116,6 +117,39 @@ describe('P0: scanTimedOutWorkUnits（workunit-timeout-scan handler）', () => {
     expect(releaseCall![0]).toEqual(expect.objectContaining({ id: wu.id }));
     expect(releaseCall![2].milestone).toBeUndefined();
     expect(releaseCall![2]).toEqual(expect.objectContaining({ fileStore }));
+  });
+
+  it('#108: decision 单不进超时扫描（可能等关键人多天）；spec/task 仍正常处理', async () => {
+    const decision = await wuService.create({
+      scope: '决策单', type: 'decision', channelId,
+      status: 'active', assigneeId: 'instance-1',
+      timeoutAt: new Date(Date.now() - 60_000),
+    });
+    const spec = await wuService.create({
+      scope: '成文单', type: 'spec', channelId,
+      status: 'active', assigneeId: 'instance-1',
+      timeoutAt: new Date(Date.now() - 60_000),
+    });
+    const task = await createTimedOutWorkUnit();
+
+    const handled = await scanTimedOutWorkUnits(fileStore);
+    expect(handled).toBe(2); // spec + task，decision 跳过
+
+    // decision 单原样保留：状态/认领/timeoutAt 均不动，metadata 无释放记录
+    const after = (await wuService.getById(decision.id))!;
+    expect(after.status).toBe('active');
+    expect(after.assigneeId).toBe('instance-1');
+    expect(after.timeoutAt).not.toBeNull();
+    expect(parseWuMetadata(after.metadata).timeoutReleaseCount).toBeUndefined();
+
+    // spec/task 正常释放回池
+    for (const id of [spec.id, task.id]) {
+      expect((await wuService.getById(id))!.status).toBe('unassigned');
+    }
+
+    // decision 单不发超时系统消息
+    const decisionMsgs = await fileStore.queryMessages(channelId, { workUnitId: decision.id });
+    expect(decisionMsgs).toHaveLength(0);
   });
 
   it('未超时 / 非 active 的 WU 不受影响', async () => {
