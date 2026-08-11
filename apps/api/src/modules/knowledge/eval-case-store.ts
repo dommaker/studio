@@ -9,8 +9,8 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
 import { randomUUID } from 'crypto';
+import { studioDir } from '@dommaker/studio-shared/studio-dir';
 
 // ── Types ──
 
@@ -28,7 +28,7 @@ export interface EvalCaseRecord {
 
 // ── Store ──
 
-const DATA_DIR = path.join(os.homedir(), '.studio');
+const DATA_DIR = studioDir();
 const INDEX_FILE = path.join(DATA_DIR, 'eval-cases.json');
 
 let cache: EvalCaseRecord[] | null = null;

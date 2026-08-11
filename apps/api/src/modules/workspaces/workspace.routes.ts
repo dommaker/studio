@@ -15,11 +15,11 @@ import { FileStore, generateId } from '@dommaker/studio-shared';
 import { logger } from '../../utils/logger.js';
 import { requireAuth, requireAdmin, workspaceAuth, AuthRequest } from '../../middleware/auth.js';
 import * as path from 'node:path';
-import * as os from 'node:os';
 import * as fs from 'node:fs';
+import { studioPath } from '@dommaker/studio-shared/studio-dir';
 
 const fileStore = new FileStore();
-const WORKSPACES_DIR = path.join(os.homedir(), '.studio', 'workspaces');
+const WORKSPACES_DIR = studioPath('workspaces');
 const router = Router();
 
 // ── Workspace data helpers ──

@@ -11,8 +11,8 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
 import { logger } from '@dommaker/studio-shared';
+import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import type { FileStore } from '@dommaker/studio-shared';
 import { readStudioEvents, parseStudioEventPayload, getStudioEventTime } from '../../../utils/studio-events.js';
 
@@ -135,7 +135,7 @@ export function trackTrends(snapshot: {
   missingCaptureCount: number; sensitiveOpsSessions: number;
   highSensitiveOpsCount: number; avgTurns: number; maxTurnCount: number;
 }): string[] {
-  const auditorDir = path.join(os.homedir(), '.studio', 'auditor');
+  const auditorDir = studioPath('auditor');
   fs.mkdirSync(auditorDir, { recursive: true });
   const snapshotFile = path.join(auditorDir, 'daily-snapshots.jsonl');
 

@@ -5,7 +5,7 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
+import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import { FileStore } from '@dommaker/studio-shared';
 import { FileKnowledgeStore } from '@dommaker/harness';
 import type { KnowledgeStore } from '@dommaker/harness';
@@ -200,7 +200,7 @@ export class UnifiedQuery {
       if (filter?.consumptionModes?.includes('context')) {
         const prefs = this.store.list({ tags: ['preference', 'user-default'] });
         if (prefs.length > 0) count++;
-        const snapshotsDir = path.join(os.homedir(), '.studio', 'snapshots');
+        const snapshotsDir = studioPath('snapshots');
         try {
           const files = await fs.promises.readdir(snapshotsDir);
           const jsonFiles = files.filter(f => f.endsWith('.json')).sort().reverse();
@@ -247,7 +247,7 @@ export class UnifiedQuery {
 
     // EnvironmentSnapshot → context entry (from ~/.studio/snapshots/)
     if (modes.includes('context')) {
-      const snapshotsDir = path.join(os.homedir(), '.studio', 'snapshots');
+      const snapshotsDir = studioPath('snapshots');
       let latestSnapshot: any = null;
       try {
         const files = await fs.promises.readdir(snapshotsDir);

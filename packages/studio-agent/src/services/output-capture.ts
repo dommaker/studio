@@ -7,11 +7,11 @@
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import * as fsSync from 'fs';
-import * as os from 'os';
 import { logger, FileStore } from '@dommaker/studio-shared';
 import { parseSessionMetrics } from '@dommaker/studio-shared/harness';
+import { studioPath } from '@dommaker/studio-shared/studio-dir';
 
-const STUDIO_EVENTS_JSONL = path.join(os.homedir(), '.studio', 'logs', 'studio-events.jsonl');
+const STUDIO_EVENTS_JSONL = studioPath('logs', 'studio-events.jsonl');
 const fileStore = new FileStore();
 
 // .progress.json 结构

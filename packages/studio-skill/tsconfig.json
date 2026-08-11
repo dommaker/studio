@@ -2,7 +2,9 @@
   "extends": "../../tsconfig.json",
   "compilerOptions": {
     "outDir": "dist",
-    "rootDir": "src"
+    "rootDir": "src",
+    // 与 studio-audit/studio-notification 对齐：bundler 解析读 exports map（./studio-dir 子路径），根 tsconfig 的 node10 不读
+    "moduleResolution": "bundler"
   },
   "include": ["src"]
 }

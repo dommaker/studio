@@ -8,9 +8,9 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
+import { studioPath } from '@dommaker/studio-shared/studio-dir';
 
-const DATA_TRENDS_DIR = path.join(os.homedir(), '.studio', 'data', 'trends');
+const DATA_TRENDS_DIR = studioPath('data', 'trends');
 
 /**
  * 写入趋势数据到 data/trends/ 目录。

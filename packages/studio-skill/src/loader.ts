@@ -7,8 +7,8 @@
 
 import fs from 'fs';
 import path from 'path';
-import os from 'os';
 import { parseFrontmatter } from '@dommaker/studio-shared';
+import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import type { SkillDefinition } from './types.js';
 
 export interface LoadOptions {
@@ -22,7 +22,7 @@ const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
  * Get skills directory. Reads env var at runtime to support test isolation.
  */
 function getSkillsDir(): string {
-  return process.env.SKILLS_DIR || path.join(os.homedir(), '.studio', 'skills');
+  return process.env.SKILLS_DIR || studioPath('skills');
 }
 
 interface SkillFrontmatter {

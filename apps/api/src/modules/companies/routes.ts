@@ -7,12 +7,12 @@
 import { Router, Request, Response } from 'express';
 import { FileStore, generateId } from '@dommaker/studio-shared';
 import { logger } from '../../utils/logger.js';
-import * as os from 'os';
 import * as path from 'path';
+import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import * as fs from 'node:fs';
 import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
 
-const COMPANIES_DIR = path.join(os.homedir(), '.studio', 'data', 'companies');
+const COMPANIES_DIR = studioPath('data', 'companies');
 const EXECUTIONS_JSONL = resolveStudioLogFile('executions.jsonl');
 const fileStore = new FileStore();
 

@@ -9,9 +9,8 @@
  */
 
 import * as fs from 'fs';
-import * as path from 'path';
-import * as os from 'os';
 import { logger } from '@dommaker/studio-shared';
+import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import type { FileStore } from '@dommaker/studio-shared';
 import { knowledgeService } from '../../knowledge/knowledge-service.js';
 import { preferenceObserver } from '../../knowledge/preference-observer.js';
@@ -292,7 +291,7 @@ export async function dailyReflection(fileStore: FileStore, state: ReportState):
 
       // Write aggregated stats for audit D6 to read
       try {
-        const statsPath = path.join(os.homedir(), '.studio', 'knowledge', '.consumption-stats.json');
+        const statsPath = studioPath('knowledge', '.consumption-stats.json');
         fs.writeFileSync(statsPath, JSON.stringify({
           date: today,
           dailyEvents: consumptionEvents.length,
@@ -304,7 +303,7 @@ export async function dailyReflection(fileStore: FileStore, state: ReportState):
     // 5. Knowledge quality audit (daily, auto-fix)
     try {
       const { KnowledgeAudit } = await import('@dommaker/harness') as any;
-      const knowledgeDir = path.join(os.homedir(), '.studio', 'knowledge');
+      const knowledgeDir = studioPath('knowledge');
       const audit = new KnowledgeAudit({ baseDir: knowledgeDir });
       const report = audit.run({ autoFix: true });
       if (report.totalEntries > 0) {
@@ -332,7 +331,7 @@ export async function dailyReflection(fileStore: FileStore, state: ReportState):
     // 5b. Knowledge index snapshot (for KR4 30d survival rate)
     try {
       const { FileKnowledgeStore } = await import('@dommaker/harness') as any;
-      const knowledgeDir = path.join(os.homedir(), '.studio', 'knowledge');
+      const knowledgeDir = studioPath('knowledge');
       const store = new FileKnowledgeStore({ baseDir: knowledgeDir });
       store.snapshot();
     } catch { /* best-effort */ }

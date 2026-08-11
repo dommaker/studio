@@ -9,10 +9,10 @@
 
 import { Router, Request, Response } from 'express';
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
 import { notifyService, NotifyMessage } from './notify.service.js';
 import { logger } from '@dommaker/studio-shared';
+import { studioPath } from '@dommaker/studio-shared/studio-dir';
 
 const router = Router();
 
@@ -32,7 +32,7 @@ interface NotifyUserConfig {
 }
 
 // 持久化到 ~/.studio/notify-config.json：服务重启后自动恢复（C5 修复，原仅存进程内存重启即丢）
-const CONFIG_FILE = path.join(os.homedir(), '.studio', 'notify-config.json');
+const CONFIG_FILE = studioPath('notify-config.json');
 
 function loadUserConfig(): NotifyUserConfig {
   try {

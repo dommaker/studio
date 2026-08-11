@@ -45,7 +45,7 @@ export async function studioUp(configPath?: string) {
       const secret = require('crypto').randomBytes(32).toString('hex');
       fs.writeFileSync(jwtFile, secret, 'utf-8');
       process.env.JWT_SECRET = secret;
-      console.log('Generated JWT_SECRET (stored in ~/.studio/.daemon/jwt-secret)');
+      console.log(`Generated JWT_SECRET (stored in ${jwtFile})`);
     }
   }
   if (!process.env.ENCRYPTION_KEY) {
@@ -56,7 +56,7 @@ export async function studioUp(configPath?: string) {
       const encKey = require('crypto').randomBytes(32).toString('hex');
       fs.writeFileSync(encFile, encKey, 'utf-8');
       process.env.ENCRYPTION_KEY = encKey;
-      console.log('Generated ENCRYPTION_KEY (stored in ~/.studio/.daemon/encryption-key)');
+      console.log(`Generated ENCRYPTION_KEY (stored in ${encFile})`);
     }
   }
 

@@ -3,10 +3,10 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
+import { studioPath } from '@dommaker/studio-shared/studio-dir';
 
 export async function studioConfig(args: string[]) {
-  const CONFIG_PATH = path.join(os.homedir(), '.studio', 'config.env');
+  const CONFIG_PATH = studioPath('config.env');
 
   function maskValue(value: string): string {
     if (value.length <= 8) return '****';

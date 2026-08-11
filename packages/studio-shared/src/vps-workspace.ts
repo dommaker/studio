@@ -12,9 +12,9 @@
  */
 
 import * as path from 'path';
-import * as os from 'os';
 import * as fs from 'fs/promises';
 import { FileStore } from './file-store.js';
+import { studioPath } from './config/studio-dir';
 
 /** workspace 记录中与本判定相关的字段（记录其余字段经索引签名原样保留） */
 export interface VpsWorkspaceRecord {
@@ -30,7 +30,7 @@ const fileStore = new FileStore();
 
 /** workspaces 存储目录（~/.studio/workspaces） */
 export function resolveWorkspacesDir(): string {
-  return path.join(os.homedir(), '.studio', 'workspaces');
+  return studioPath('workspaces');
 }
 
 /**

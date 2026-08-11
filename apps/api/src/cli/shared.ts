@@ -2,9 +2,9 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
+import { studioDir } from '@dommaker/studio-shared/studio-dir';
 
-export const STUDIO_DIR = path.join(os.homedir(), '.studio');
+export const STUDIO_DIR = studioDir();
 export const DATA_DIR = path.join(STUDIO_DIR, 'data');
 
 export function ensureDir(dir: string) {

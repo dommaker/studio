@@ -5,6 +5,7 @@
 import { existsSync } from 'fs';
 import { join } from 'path';
 import * as os from 'os';
+import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import { ANALYSIS_TASKS_MAX, type WorkUnitData } from '../../workunit/workunit.service.js';
 import type { ParsedReviewReport } from './review-contract.js';
 import type { StepResult, Observations, Target } from './agent-loop.types.js';
@@ -199,7 +200,7 @@ ${wu.scope}
   ACTION: COMPLETE:<summary>      全部完成
   ACTION: NEED_INPUT:<需要什么>   需要人类输入
 
-当做出设计决策（选型、架构选择、方案取舍）时，用 Write 工具追加到 ~/.studio/knowledge/decision-YYYY-MM-DD.md 记录：话题、候选方案、选择、理由。`;
+当做出设计决策（选型、架构选择、方案取舍）时，用 Write 工具追加到 ${studioPath('knowledge')}/decision-YYYY-MM-DD.md 记录：话题、候选方案、选择、理由。`;
 }
 
 export function buildReplyPrompt(wu: WorkUnitData, replies: string[]): string {

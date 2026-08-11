@@ -12,10 +12,10 @@ import { logger } from '../utils/logger.js';
 import { verifyToken, type UserData, type SessionData } from '../modules/auth/service.js';
 import crypto from 'crypto';
 import * as path from 'node:path';
-import * as os from 'node:os';
+import { studioDir } from '@dommaker/studio-shared/studio-dir';
 
 const fileStore = new FileStore();
-const STUDIO_DIR = path.join(os.homedir(), '.studio');
+const STUDIO_DIR = studioDir();
 const USERS_FILE = path.join(STUDIO_DIR, 'users.json');
 const SESSIONS_FILE = path.join(STUDIO_DIR, 'sessions.json');
 const DOCUMENTS_DIR = path.join(STUDIO_DIR, 'data', 'documents');
