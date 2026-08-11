@@ -192,6 +192,67 @@ describe('ProjectService — FileStore 迁移', () => {
       expect(result.gitBranch).toBe('feature/custom');
       expect(result.deliveryPolicy).toBe('auto-merge');
     });
+
+    // ── #114 T8：多工程入参 gitRepos → 每选中工程一条交付腿 ──
+    it('#114：gitRepos 多选 → 落 deliveries，每工程一腿、branch=pmoNumber、gitRepo=首工程', async () => {
+      mockReadDir.mockResolvedValue([]);
+      mockReadJson.mockResolvedValue(null);
+
+      const result = await projectService.create({
+        title: '多腿项目',
+        gitRepos: ['/repos/app', '/repos/lib'],
+      });
+
+      expect(result.pmoNumber).toBe('PMO-1');
+      expect(result.deliveries).toEqual([
+        { gitRepo: '/repos/app', branch: 'PMO-1', status: 'pending' },
+        { gitRepo: '/repos/lib', branch: 'PMO-1', status: 'pending' },
+      ]);
+      // 兼容字段：gitRepo 取首工程（归属链 workspaceRoot 等单仓库消费方不受影响）
+      expect(result.gitRepo).toBe('/repos/app');
+      expect(result.gitBranch).toBe('PMO-1');
+    });
+
+    it('#114：gitRepos 单工程 → 同样落一条显式腿；显式 gitBranch 覆盖全腿分支名', async () => {
+      mockReadDir.mockResolvedValue([]);
+      mockReadJson.mockResolvedValue(null);
+
+      const result = await projectService.create({
+        title: '单腿多选',
+        gitRepos: ['/repos/app'],
+        gitBranch: 'feature/x',
+      });
+
+      expect(result.deliveries).toEqual([
+        { gitRepo: '/repos/app', branch: 'feature/x', status: 'pending' },
+      ]);
+    });
+
+    it('#114：旧入参 gitRepo（无 gitRepos）→ 不落 deliveries（读取时合成单腿，行为不变）', async () => {
+      mockReadDir.mockResolvedValue([]);
+      mockReadJson.mockResolvedValue(null);
+
+      const result = await projectService.create({
+        title: '旧单选',
+        gitRepo: '/repos/app',
+      });
+
+      expect(result.gitRepo).toBe('/repos/app');
+      expect(result.deliveries).toBeUndefined();
+    });
+
+    it('#114：gitRepos 空数组/空白项 → 视为未传，不落 deliveries', async () => {
+      mockReadDir.mockResolvedValue([]);
+      mockReadJson.mockResolvedValue(null);
+
+      const result = await projectService.create({
+        title: '空多选',
+        gitRepos: ['', '  '],
+      });
+
+      expect(result.deliveries).toBeUndefined();
+      expect(result.gitRepo).toBeNull();
+    });
   });
 
   // ── AC-1.1/1.2: get ──

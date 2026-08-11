@@ -26,6 +26,12 @@ export interface CreateProjectInput {
   priority?: string;
   gitBranch?: string;
   gitRepo?: string;
+  /**
+   * #114 T8：多工程入参（创建表单多选）。每个选中工程落一条交付腿
+   * （branch 按现有 pmo-<n> 规则合成，显式 gitBranch 可覆盖全腿）；
+   * 缺省/空数组 = 旧单选行为（不落 deliveries，读取时合成单腿）。
+   */
+  gitRepos?: string[];
   requirementsDocId?: string;
   /** F6/PMO-a：交付策略（默认 branch-only——不碰合并与发布链路，只标记证据齐缺） */
   deliveryPolicy?: DeliveryPolicy;
@@ -353,6 +359,18 @@ export const projectService = {
       deliveryPolicy: input.deliveryPolicy ?? 'branch-only',
       ...(input.isChore ? { isChore: true, channelId: input.channelId ?? null } : {}),
     };
+
+    // #114 T8：多工程入参——每选中工程一条腿（gitRepo 兼容字段取首工程；
+    // 空白项剔除后为空 = 旧单选行为，不落 deliveries）
+    const repos = (input.gitRepos ?? []).map(r => r.trim()).filter(Boolean);
+    if (repos.length > 0) {
+      project.gitRepo = repos[0];
+      project.deliveries = repos.map(repo => ({
+        gitRepo: repo,
+        branch: project.gitBranch,
+        status: 'pending',
+      }));
+    }
 
     await fileStore.writeJson(projectPath(id), project);
     logger.info({ projectId: id, pmoNumber, reqAlias }, 'Project created');

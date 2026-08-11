@@ -1,4 +1,6 @@
-// CreateProjectDialog - 新建 PMO 弹窗（工程扫描 + 交付策略；自 PMOPage 抽出，工单 33）
+// CreateProjectDialog - 新建 PMO 弹窗（工程多选 + 交付策略；自 PMOPage 抽出，工单 33）
+// #114 T8：工程选择改多选——每个选中工程建一条交付腿（≥2 走 gitRepos 多工程入参，
+// 单个选中仍走旧 gitRepo 入参，行为与现状一致）。
 import { useState, useEffect, useCallback } from 'react';
 import { projectApi } from '../../api';
 import { channelApi, type LocalProject } from '../../api/channel';
@@ -15,10 +17,11 @@ export function CreateProjectDialog({ open, onClose, onCreated }: CreateProjectD
   // 🆕 PMO-a: 新建 PMO 弹窗（决策 2/4：deliveryPolicy 创建时选定，默认 branch-only）
   const [newTitle, setNewTitle] = useState('');
   const [newRequirement, setNewRequirement] = useState('');
-  const [newGitRepo, setNewGitRepo] = useState('');
+  // 🆕 #114 T8：工程多选（每个选中工程一条交付腿）
+  const [selectedRepos, setSelectedRepos] = useState<string[]>([]);
   const [newDeliveryPolicy, setNewDeliveryPolicy] = useState<'branch-only' | 'auto-merge'>('branch-only');
   const [creating, setCreating] = useState(false);
-  // 工程下拉：打开弹窗时实时扫描（与角色 CLI 扫描同一交互模式）
+  // 工程清单：打开弹窗时实时扫描（与角色 CLI 扫描同一交互模式）
   const [discoveredProjects, setDiscoveredProjects] = useState<LocalProject[]>([]);
   const [projectsScanning, setProjectsScanning] = useState(false);
   const [projectsScanError, setProjectsScanError] = useState(false);
@@ -55,6 +58,7 @@ export function CreateProjectDialog({ open, onClose, onCreated }: CreateProjectD
   }, [open, loadDiscoveredProjects]);
 
   // 🆕 PMO-a: 创建 PMO（companyId 由服务端解析；成功后刷新列表并清空表单）
+  // #114 T8：选中 ≥2 个工程走 gitRepos 多工程入参（每工程一条腿）；单个选中走旧 gitRepo 入参
   const handleCreateProject = async () => {
     if (!newTitle.trim()) {
       toast.warning('请输入标题');
@@ -65,14 +69,18 @@ export function CreateProjectDialog({ open, onClose, onCreated }: CreateProjectD
       await projectApi.create({
         title: newTitle.trim(),
         requirement: newRequirement.trim() || undefined,
-        gitRepo: newGitRepo.trim() || undefined,
+        ...(selectedRepos.length === 1
+          ? { gitRepo: selectedRepos[0] }
+          : selectedRepos.length > 1
+            ? { gitRepos: selectedRepos }
+            : {}),
         deliveryPolicy: newDeliveryPolicy,
       });
       toast.success('创建成功');
       onClose();
       setNewTitle('');
       setNewRequirement('');
-      setNewGitRepo('');
+      setSelectedRepos([]);
       setNewDeliveryPolicy('branch-only');
       onCreated();
     } catch (err) {
@@ -81,6 +89,12 @@ export function CreateProjectDialog({ open, onClose, onCreated }: CreateProjectD
     } finally {
       setCreating(false);
     }
+  };
+
+  const toggleRepo = (path: string) => {
+    setSelectedRepos(prev =>
+      prev.includes(path) ? prev.filter(p => p !== path) : [...prev, path],
+    );
   };
 
   if (!open) return null;
@@ -117,20 +131,29 @@ export function CreateProjectDialog({ open, onClose, onCreated }: CreateProjectD
               />
             </div>
             <div>
-              <label className="mc-card-label" style={{ display: 'block', marginBottom: 4 }}>工程路径 (gitRepo)</label>
-              <Select
-                value={newGitRepo}
-                onChange={setNewGitRepo}
-                options={[
-                  { value: '', label: '（不关联工程）' },
-                  ...discoveredProjects.map(p => ({ value: p.path, label: `${p.name}（${p.path}）` })),
-                ]}
-                placeholder={projectsScanning ? '正在扫描本地工程…' : '选择扫描到的工程'}
-                disabled={projectsScanning}
-                aria-label="工程路径"
-                className="input"
-                style={{ width: '100%' }}
-              />
+              <label className="mc-card-label" style={{ display: 'block', marginBottom: 4 }}>
+                工程（可多选，每个选中工程建一条交付腿）
+              </label>
+              <div className="u-surface-2 rounded" style={{ padding: 8, maxHeight: 180, overflowY: 'auto' }}>
+                {projectsScanning ? (
+                  <div className="text-xs u-text-3">正在扫描本地工程…</div>
+                ) : (
+                  discoveredProjects.map(p => (
+                    <label
+                      key={p.path}
+                      className="flex items-center gap-2 text-sm u-text-1"
+                      style={{ cursor: 'pointer', padding: '4px 0' }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedRepos.includes(p.path)}
+                        onChange={() => toggleRepo(p.path)}
+                      />
+                      <span>{p.name}（{p.path}）</span>
+                    </label>
+                  ))
+                )}
+              </div>
               {projectsScanError && (
                 <div className="text-xs mt-1 u-text-3">
                   工程扫描失败（需要管理员权限）。

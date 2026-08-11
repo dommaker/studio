@@ -76,10 +76,9 @@ describe('PMO-a: 新建 PMO 表单', () => {
     // 填写字段
     fireEvent.change(screen.getByPlaceholderText('项目标题'), { target: { value: '证据链看板' } });
     fireEvent.change(screen.getByPlaceholderText('需求背景、验收标准等'), { target: { value: '展示 L1/L2/L3 证据' } });
-    // 工程路径：下拉选择扫描到的工程（打开弹窗时触发 discoverProjects 扫描）
+    // 工程多选（#114）：勾选扫描到的工程（打开弹窗时触发 discoverProjects 扫描）；单个选中仍走旧 gitRepo 入参
     await waitFor(() => expect(mockDiscoverProjects).toHaveBeenCalled());
-    fireEvent.click(screen.getByRole('button', { name: '工程路径' }));
-    fireEvent.click(await screen.findByRole('option', { name: 'studio（/root/projects/studio）' }));
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'studio（/root/projects/studio）' }));
     // 自定义 Select：触发器按钮显示当前项，点开后选目标项
     fireEvent.click(screen.getByRole('button', { name: '分支交付（不碰合并/发布）' }));
     fireEvent.click(screen.getByRole('option', { name: '自动合并（缺证据拒绝）' }));
@@ -106,6 +105,60 @@ describe('PMO-a: 新建 PMO 表单', () => {
       expect(screen.getByText('PMO-12')).toBeTruthy();
     });
     expect(screen.queryByPlaceholderText('项目标题')).toBeNull();
+  });
+
+  it('#114：勾选多个工程 → gitRepos 多工程入参（不传 gitRepo）', async () => {
+    mockDiscoverProjects.mockResolvedValue({
+      data: {
+        data: [
+          { name: 'app', path: '/repos/app', hasClaudeMd: true, language: 'typescript' },
+          { name: 'lib', path: '/repos/lib', hasClaudeMd: false, language: 'typescript' },
+        ],
+      },
+    });
+    renderPMO();
+
+    await waitFor(() => expect(screen.getByText('既有项目')).toBeTruthy());
+    fireEvent.click(screen.getByText('+ 新建 PMO'));
+    fireEvent.change(screen.getByPlaceholderText('项目标题'), { target: { value: '多腿需求' } });
+
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'app（/repos/app）' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'lib（/repos/lib）' }));
+
+    fireEvent.click(screen.getByText('创建'));
+
+    await waitFor(() => {
+      expect(mockCreate).toHaveBeenCalledWith({
+        title: '多腿需求',
+        requirement: undefined,
+        gitRepos: ['/repos/app', '/repos/lib'],
+        deliveryPolicy: 'branch-only',
+      });
+    });
+    // 不多传 gitRepo（多腿只走 gitRepos）
+    expect(mockCreate.mock.calls[0][0].gitRepo).toBeUndefined();
+  });
+
+  it('#114：勾选后可取消勾选 → 不关联工程', async () => {
+    renderPMO();
+
+    await waitFor(() => expect(screen.getByText('既有项目')).toBeTruthy());
+    fireEvent.click(screen.getByText('+ 新建 PMO'));
+    fireEvent.change(screen.getByPlaceholderText('项目标题'), { target: { value: '无工程需求' } });
+
+    const checkbox = await screen.findByRole('checkbox', { name: 'studio（/root/projects/studio）' });
+    fireEvent.click(checkbox);
+    fireEvent.click(checkbox); // 取消勾选
+
+    fireEvent.click(screen.getByText('创建'));
+
+    await waitFor(() => {
+      expect(mockCreate).toHaveBeenCalledWith({
+        title: '无工程需求',
+        requirement: undefined,
+        deliveryPolicy: 'branch-only',
+      });
+    });
   });
 
   it('标题为空时不提交并提示', async () => {

@@ -40,6 +40,9 @@ vi.mock('../../api/workunit', () => ({
     verify: mockVerify,
     dispatchReview: mockDispatchReview,
     reviewPassed: mockReviewPassed,
+    // #114：下一个该干什么 / 决策单状态（默认空，地图测试单独覆写）
+    list: vi.fn().mockResolvedValue({ data: { data: [], total: 0 } }),
+    get: vi.fn().mockRejectedValue(new Error('not found')),
   },
 }));
 vi.mock('../../api/requirements', () => ({

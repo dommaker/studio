@@ -54,6 +54,7 @@
 - 统一编号（决策 4 修正版）：新 PMO 编号 = max(PM/PMO, REQ 两序列)+1，格式 PMO-<n>（即分支名）；`reqAlias` 与 pmoNumber 同号（REQ-XXXX 只读别名）；存量 PM-XXX/REQ-XXXX 不迁移（编号重叠；一次性映射脚本已随 2026-08 死代码清理移除）。
 - 交付策略 `deliveryPolicy`：`branch-only`（默认，不碰合并/发布链路，只出台账标记）/ `auto-merge`（POST /project/:id/deliver 人工触发，缺证据 409 硬拒，主仓 checkout 非默认分支拒绝，合并冲突不自动 rebase 转人工）。
 - 杂务 PMO（决策 2）：`isChore + channelId` 联合标识，`ensureChoreProject` find-or-create（POST /channels/:id/chore-pmo 登记）；热路径只查不建（findChoreProject）。
+- **#114 T8 创建端点多工程入参**：`POST /project` 接受 `gitRepos: string[]`（必须字符串数组，否则 400）——每个选中工程落一条显式交付腿 `deliveries[]`（branch 按 pmoNumber 规则合成、显式 gitBranch 可覆盖全腿、status=pending；兼容字段 gitRepo 取首工程）；空白项剔除后为空 = 旧单选行为（不落 deliveries，读取时合成单腿），旧 `gitRepo` 入参行为不变。
 - **发起讨论（publish）全链路（2026-07-29 接力补齐）**：pending 项目 publish → 频道发需求消息 + 建未指派 analysis WU（scope 含 TASK 输出契约 + 「只读分析」约束——2026-07-30 走查修复：分析阶段曾直接改目标仓库文件，现 prompt 层明确禁止 Edit/Write/删改命令，结论只以 markdown 回复不落盘）→ 频道成员 loop 认领分析 → COMPLETE 时 agent-loop 解析 `TASK: <任务描述>` 行落 metadata.analysisTasks（parseTaskBreakdown，≤8 条/条 ≤300 字符）→ in_review（不派自动评审，频道提示人工确认）→ 人工「通过」（reviewPassed）→ analysis-handoff 按 analysisTasks 建未指派 task 子 WU（频道成员涌现认领 = 派工）；确认时 summary 填 `FOG:`/`DESTINATION:` 逐行清单 → map-opening 初始化探路地图并逐条建 decision 单（#112 开图机制，提取契约见核心导出表 map-opening 行）。与交付策略 deliveryPolicy 无关（deliveryPolicy 只被 delivery.ts 交付守卫消费）。
 - 所有服务都基于 FileStore（JSON 文件）而非数据库。
 - 测试中使用了 mock，注意 mock 目录与测试数据的路径约定。

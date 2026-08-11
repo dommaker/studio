@@ -19,6 +19,8 @@ export interface WorkUnit {
   updatedAt: string;
   claimedAt: string | null;
   completedAt: string | null;
+  /** #109：列表 API 附「可认领」标记（unassigned 且 blockedBy 依赖全了结才为 true）；仅列表项有 */
+  claimable?: boolean;
 }
 
 export interface PaginatedResponse<T> {
