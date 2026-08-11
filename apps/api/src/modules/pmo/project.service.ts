@@ -107,13 +107,33 @@ export interface DeliveryLeg {
   gitRepo: string | null;
   branch: string | null;
   status: string;
+  /** #113 T7：auto-merge 逐腿交付落档（branch-only 永不写；合成单腿不落盘） */
+  deliveredAt?: string | null;
+  deliverCommit?: string | null;
 }
+
+/**
+ * #113 T7 腿状态词表（progress-rollup 按腿独立演进；仅显式多腿项目回写）：
+ *   pending → active（腿内有在途 WU）
+ *   pending/active → in_review（腿内 WU 全完结但证据有缺口，等验收）
+ *   → completed（腿内 WU 全完结且证据齐）→ delivered（auto-merge 已合，终态）
+ * delivered 不被回写；零 WU 腿状态不动、不阻断整体翻转（无活可交视为满足）。
+ */
+export const LEG_STATUS = {
+  PENDING: 'pending',
+  ACTIVE: 'active',
+  IN_REVIEW: 'in_review',
+  COMPLETED: 'completed',
+  DELIVERED: 'delivered',
+} as const;
+
+export type DeliveryLegStatus = typeof LEG_STATUS[keyof typeof LEG_STATUS];
 
 /**
  * 交付腿缺省解析：未设置 deliveries 时由现有 gitRepo/gitBranch 合成单腿
  * （读取时合成、不落盘，老项目零迁移；单腿 = 现状行为）。
  * 合成腿 status 从 deliveredAt 派生（已交付的老项目读出 'delivered' 而非硬编码 'pending'）；
- * 显式多腿的 status 词表归 T7（#113 交付守卫按腿循环）定义，本票不裁剪。
+ * 显式多腿的 status 词表 = LEG_STATUS（#113 T7，progress-rollup 逐腿回写、deliverProject 逐腿落档）。
  */
 export function resolveDeliveries(
   project: Pick<ProjectData, 'gitRepo' | 'gitBranch' | 'deliveredAt'> & { deliveries?: DeliveryLeg[] },

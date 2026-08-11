@@ -131,6 +131,58 @@ describe('resolvePmoBranchForWU（PMO-b 决策 3）', () => {
   });
 });
 
+describe('resolvePmoBranchForWU 多腿（#113 T7：按腿解析 WU 归属分支）', () => {
+  const multiLegProject = () => project({
+    deliveries: [
+      { gitRepo: '/repo/a', branch: 'PMO-11-a', status: 'pending' },
+      { gitRepo: '/repo/b', branch: 'PMO-11-b', status: 'pending' },
+    ],
+  });
+
+  it('WU metadata.workspaceRoot 命中腿 gitRepo → 腿分支', async () => {
+    const r = await resolvePmoBranchForWU(
+      { metadata: JSON.stringify({ pmoId: 'proj-1', workspaceRoot: '/repo/b' }) },
+      undefined,
+      { getProject: async () => multiLegProject() },
+    );
+    expect(r).toEqual({ projectId: 'proj-1', branch: 'PMO-11-b', deliveryPolicy: 'branch-only' });
+  });
+
+  it('WU metadata.pmoBranch 命中腿 branch → 腿分支；worktreeBaseRepo 同口径', async () => {
+    const byBranch = await resolvePmoBranchForWU(
+      { metadata: JSON.stringify({ pmoId: 'proj-1', pmoBranch: 'PMO-11-a' }) },
+      undefined,
+      { getProject: async () => multiLegProject() },
+    );
+    expect(byBranch?.branch).toBe('PMO-11-a');
+
+    const byBaseRepo = await resolvePmoBranchForWU(
+      { metadata: JSON.stringify({ pmoId: 'proj-1', worktreeBaseRepo: '/repo/b' }) },
+      undefined,
+      { getProject: async () => multiLegProject() },
+    );
+    expect(byBaseRepo?.branch).toBe('PMO-11-b');
+  });
+
+  it('多腿项目未命中任何腿 → 回落项目级 gitBranch || pmoNumber（现状口径）', async () => {
+    const r = await resolvePmoBranchForWU(
+      { metadata: JSON.stringify({ pmoId: 'proj-1' }) },
+      undefined,
+      { getProject: async () => multiLegProject() },
+    );
+    expect(r?.branch).toBe('PMO-11');
+  });
+
+  it('单腿项目（无 deliveries）不受腿归属影响（回归）', async () => {
+    const r = await resolvePmoBranchForWU(
+      { metadata: JSON.stringify({ pmoId: 'proj-1', workspaceRoot: '/elsewhere' }) },
+      undefined,
+      { getProject: async () => project({}) },
+    );
+    expect(r?.branch).toBe('PMO-11');
+  });
+});
+
 describe('resolvePmoProjectIdForWU（2026-07 PMO-flow UX §6：只出项目 id）', () => {
   it('① metadata.pmoId 直读命中且项目存在（analysis 派生链回归：reqId=null）→ 项目 id', async () => {
     const r = await resolvePmoProjectIdForWU(
