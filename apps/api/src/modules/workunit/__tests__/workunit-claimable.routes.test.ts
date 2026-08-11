@@ -110,13 +110,13 @@ describe('GET / claimable 标记（#109）', () => {
     expect(byId['wu-ready'].claimable).toBe(true);
   });
 
-  it('非 unassigned → claimable: false', async () => {
+  it('非 unassigned → claimable: false，且不读 index（无 unassigned 行跳过依赖判定）', async () => {
     mockList.mockResolvedValue({ data: [wu('wu-1', 'active')], total: 1 });
-    mockGetIndex.mockResolvedValue([{ id: 'wu-1', status: 'active' }]);
 
     const res = await fetch(base);
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.data[0].claimable).toBe(false);
+    expect(mockGetIndex).not.toHaveBeenCalled();
   });
 });

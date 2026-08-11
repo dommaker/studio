@@ -1,7 +1,7 @@
 // #109（T3，#106 子票）blockedBy 依赖解析与可认领判定单元测试。
 // 纯函数叶子 wu-dependencies.ts：parseBlockedBy / hasUnfinishedDeps / resolveClaimable。
 import { describe, it, expect } from 'vitest';
-import { parseBlockedBy, hasUnfinishedDeps, resolveClaimable } from '../wu-dependencies.js';
+import { parseBlockedBy, buildStatusById, hasUnfinishedDeps, resolveClaimable } from '../wu-dependencies.js';
 
 describe('parseBlockedBy', () => {
   it('解析字符串 metadata 的 blockedBy 数组', () => {
@@ -26,6 +26,18 @@ describe('parseBlockedBy', () => {
   });
 });
 
+describe('buildStatusById', () => {
+  it('从快照构建 id → status 映射', () => {
+    const map = buildStatusById([
+      { id: 'wu-1', status: 'done' },
+      { id: 'wu-2', status: 'active' },
+    ]);
+    expect(map.get('wu-1')).toBe('done');
+    expect(map.get('wu-2')).toBe('active');
+    expect(map.size).toBe(2);
+  });
+});
+
 describe('hasUnfinishedDeps', () => {
   const statusById = new Map([
     ['wu-done', 'done'],
@@ -37,15 +49,15 @@ describe('hasUnfinishedDeps', () => {
     expect(hasUnfinishedDeps({ blockedBy: ['wu-done'] }, statusById)).toBe(false);
   });
 
-  it('任一依赖未 done → true', () => {
+  it('任一依赖未了结 → true', () => {
     expect(hasUnfinishedDeps({ blockedBy: ['wu-done', 'wu-active'] }, statusById)).toBe(true);
   });
 
-  it('依赖 closed 也算未 done（严格 done 口径）→ true', () => {
-    expect(hasUnfinishedDeps({ blockedBy: ['wu-closed'] }, statusById)).toBe(true);
+  it('依赖 closed 视为已了结（终态不可能再 done）→ false', () => {
+    expect(hasUnfinishedDeps({ blockedBy: ['wu-closed'] }, statusById)).toBe(false);
   });
 
-  it('引用缺失 id（已删除/笔误）保守按未 done → true', () => {
+  it('引用缺失 id（已删除/笔误）保守按未了结 → true', () => {
     expect(hasUnfinishedDeps({ blockedBy: ['wu-missing'] }, statusById)).toBe(true);
   });
 

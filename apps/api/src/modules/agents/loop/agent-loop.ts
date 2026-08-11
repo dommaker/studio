@@ -20,7 +20,7 @@ import { knowledgeService } from '../../knowledge/knowledge-service.js';
 import { eventStore } from '../../../core/event-store.js';
 import { postWuSystemMessage } from '../../workunit/wu-messenger.js';
 import { parseWuMetadata, mergedWuView } from '../../workunit/wu-metadata.js';
-import { hasUnfinishedDeps } from '../../workunit/wu-dependencies.js';
+import { hasUnfinishedDeps, buildStatusById } from '../../workunit/wu-dependencies.js';
 import { resolveWorkspaceRoot } from '../../workspaces/workspace-store.js';
 import { resolvePmoBranchForWU } from '../../requirements/pmo-branch-resolver.js';
 import { resolveStudioLogFile } from '../../../utils/studio-log-path.js';
@@ -431,7 +431,7 @@ export class AgentLoop {
     // （FileStore 规模小，成本可忽略）。
     const channelMembers = await this.loadChannelMembers();
     // #109（M4 接单过滤）：全局 id→status 映射（FileStore index 天然跨 PMO）
-    const statusById = new Map(allSnapshots.map(s => [s.id, s.status]));
+    const statusById = buildStatusById(allSnapshots);
     const unassigned = allSnapshots.filter(s => {
       if (s.status !== 'unassigned') return false;
       // Assignee-aware claiming（@mention 语义，docs/vision-2026.md §3）：

@@ -28,7 +28,7 @@ import { Router, type Request, type Response } from 'express';
 import { FileStore } from '@dommaker/studio-shared';
 import { WorkUnitService, type WorkUnitMetadata } from './workunit.service.js';
 import { parseWuMetadata } from './wu-metadata.js';
-import { resolveClaimable } from './wu-dependencies.js';
+import { resolveClaimable, buildStatusById } from './wu-dependencies.js';
 import { aggregateTreeTokens } from '../agents/token-usage.service.js';
 import { CODE_WORKTREE_TYPES, resolveVerifyCommands, runWuVerification } from '../agents/loop/wu-verification.js';
 import { channelMessageService } from '../channels/channel-message.service.js';
@@ -67,8 +67,11 @@ router.get('/', async (req: Request, res: Response) => {
     });
 
     // #109：列表项附「可认领」标记（claimable）供 UI 使用 —— unassigned 且
-    // blockedBy 依赖全 done 才为 true；profile 无关（认领侧仍由 loop observe 判定）
-    const statusById = new Map((await fileStore.getIndex()).map(s => [s.id, s.status]));
+    // blockedBy 依赖全了结才为 true；profile 无关（认领侧仍由 loop observe 判定）。
+    // 仅当本页含 unassigned 行才读 index 做依赖判定（其余行 claimable 恒 false）
+    const statusById = result.data.some(w => w.status === 'unassigned')
+      ? buildStatusById(await fileStore.getIndex())
+      : new Map<string, string>();
     const data = result.data.map(w => ({ ...w, claimable: resolveClaimable(w, statusById) }));
 
     res.json(formatPaginatedResponse(data, result.total, page, limit));
