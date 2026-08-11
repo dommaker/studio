@@ -219,6 +219,13 @@ async function start() {
         logger.info('[MapOpening] Subscribed to workunit.status_changed');
       } catch (e) { logger.warn('[MapOpening] Failed to subscribe', { error: String(e) }); }
 
+      // #115 交稿物化：spec 确认（含 TASK 物化清单）→ 批量建 task 单（ac/blockedBy/腿归属）
+      try {
+        const { initSpecMaterialization } = await import('./modules/pmo/spec-materialization.js');
+        initSpecMaterialization();
+        logger.info('[SpecMaterialization] Subscribed to workunit.status_changed');
+      } catch (e) { logger.warn('[SpecMaterialization] Failed to subscribe', { error: String(e) }); }
+
       if (agentLoopEnabled) {
         for (const profile of profiles) {
           const entry = await agentLoopRegistry.mount(profile);

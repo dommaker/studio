@@ -121,6 +121,9 @@ export interface WorkUnitMetadata {
   // #112 开图机制（pmo/map-opening）：analysis 人工确认（l3.summary 含 FOG:/DESTINATION: 清单）
   // → 初始化 PMO map + 逐条建 decision 单；mapOpenedAt 为幂等哨兵（先落档再建单）
   mapOpenedAt?: string;
+  // #115 交稿物化（pmo/spec-materialization）：spec 人工确认（l3.summary 含 TASK 物化清单）
+  // → 批量建 task 单（ac/blockedBy/腿归属齐全）；specTasksSpawnedAt 为幂等哨兵（先落档再建单）
+  specTasksSpawnedAt?: string;
   traceId?: string;           // P0 修复 6: 链路追踪 id（频道消息 req → WU → agent-loop 日志；与 audit requestId 同值）
   // F4 reviewer 解锚（2026-07-28 分析文档，决策 5）：评审 WU 未指派走 claim 涌现时的约束/标记
   excludeAssignee?: string;   // 禁止认领的 profile id（评审排除实现者；agent-loop observe 未指派过滤据此剔除）
