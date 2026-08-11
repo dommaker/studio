@@ -10,6 +10,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { logger, FileStore } from '@dommaker/studio-shared';
+import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import { loadRules, type OpsRules } from './ops-rules.js';
 import { hashPassword } from '../../auth/service.js';
 import { resolveStudioLogFile } from '../../../utils/studio-log-path.js';
@@ -64,14 +65,14 @@ export class OpsService {
 
     // 1. Check storage (FileStore)
     try {
-      const probeFile = path.join(os.homedir(), '.studio', 'data', '_health_probe');
+      const probeFile = studioPath('data', '_health_probe');
       await fs.promises.writeFile(probeFile, Date.now().toString());
       await fs.promises.unlink(probeFile);
       add({ name: 'storage', passed: true, message: 'FileStore OK', critical: true });
     } catch (e: any) {
       add({
         name: 'storage', passed: false, critical: true,
-        message: `❌ FileStore error! Cannot write to ~/.studio/data. Check disk space and permissions. (${e.message})`,
+        message: `❌ FileStore error! Cannot write to ${studioPath('data')}. Check disk space and permissions. (${e.message})`,
       });
     }
 
@@ -572,7 +573,7 @@ export class OpsService {
     channelCount = channelCount || allCh.length;
 
     // Ensure admin exists (FileStore)
-    const usersDir = path.join(os.homedir(), '.studio', 'data', 'users');
+    const usersDir = studioPath('data', 'users');
     let adminExists = false;
     try {
       const entries = await fs.promises.readdir(usersDir, { withFileTypes: true });

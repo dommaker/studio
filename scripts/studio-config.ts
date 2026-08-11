@@ -11,9 +11,9 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
+import { studioPath } from '../packages/studio-shared/src/config/studio-dir';
 
-const CONFIG_PATH = path.join(os.homedir(), '.studio', 'config.env');
+const CONFIG_PATH = studioPath('config.env');
 
 // 需要管理的配置项
 const MANAGED_KEYS = [

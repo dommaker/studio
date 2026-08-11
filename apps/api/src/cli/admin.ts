@@ -70,7 +70,7 @@ export async function studioDaemonStart() {
 
   // 4. Write workspace.json
   writeWorkspaceConfig(config);
-  console.log(`Workspace config written to ~/.studio/workspace.json`);
+  console.log(`Workspace config written to ${path.join(STUDIO_DIR, 'workspace.json')}`);
   console.log(`  Name: ${config.name}`);
   console.log(`  Server: ${config.serverUrl}`);
   console.log(`  Root: ${config.workspaceRoot}`);

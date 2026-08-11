@@ -8,10 +8,10 @@
  */
 
 import { FileStore, logger, generateId as sharedGenerateId } from '@dommaker/studio-shared';
+import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import { getRegistryPath } from '@dommaker/harness';
 import * as fs from 'fs';
 import * as path from 'node:path';
-import * as os from 'node:os';
 
 // ─── 类型定义 ───
 
@@ -51,7 +51,7 @@ interface Registry {
 
 // ─── 常量 ───
 
-const CAPABILITIES_DIR = path.join(os.homedir(), '.studio', 'capabilities');
+const CAPABILITIES_DIR = studioPath('capabilities');
 
 // 能力消耗配置（按类型）
 const CAPABILITY_COST: Record<string, number> = {

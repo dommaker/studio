@@ -14,9 +14,9 @@ import { execSync } from 'child_process';
 import { logger } from '@dommaker/studio-shared';
 import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
+import { studioPath } from '@dommaker/studio-shared/studio-dir';
 
-const CHECKPOINT_FILE = path.join(os.homedir(), '.studio', 'session-checkpoint.json');
+const CHECKPOINT_FILE = studioPath('session-checkpoint.json');
 const REPO_DIR = process.env.REPO_DIR || process.cwd();
 
 interface SessionCheckpoint {

@@ -9,8 +9,8 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
 import { logger } from '@dommaker/studio-shared';
+import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import type { FileStore } from '@dommaker/studio-shared';
 import { agentRunner } from '@dommaker/studio-agent';
 import type { MonitorAlert } from '../types.js';
@@ -32,7 +32,7 @@ export async function checkFailureTrend(fileStore: FileStore): Promise<MonitorAl
   const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
 
   // Read recent tasks from FileStore
-  const tasksDir = path.join(os.homedir(), '.studio', 'data', 'tasks');
+  const tasksDir = studioPath('data', 'tasks');
   let allTasks: any[] = [];
   try {
     const entries = await fs.promises.readdir(tasksDir, { withFileTypes: true });

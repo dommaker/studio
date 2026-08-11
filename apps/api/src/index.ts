@@ -17,16 +17,19 @@ import { spawn, type ChildProcess } from 'child_process';
 import { bootstrapHarness } from '@dommaker/studio-shared';
 import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
+import { studioDir as resolveStudioDir, warnIfNonProdUsesProdRoot } from '@dommaker/studio-shared/studio-dir';
 
 const PORT = process.env.PORT || 3001;
+
+// 软护栏：非 production 指向生产缺省根时启动落 warning（幂等，显式触发不靠间接 import 链）
+warnIfNonProdUsesProdRoot();
 
 // ── 配置加载（无论怎么启动都会执行）──
 function loadConfig(): void {
   const configDir = process.env.STUDIO_CONFIG_DIR;
   if (!configDir) {
-    // Fallback: ~/.studio/ defaults
-    const studioDir = path.join(os.homedir(), '.studio');
+    // Fallback: STUDIO_HOME（缺省 ~/.studio）defaults
+    const studioDir = resolveStudioDir();
     if (!process.env.WORKTREES_DIR) process.env.WORKTREES_DIR = path.join(studioDir, 'worktrees');
     if (!process.env.EVENTS_DIR) process.env.EVENTS_DIR = path.join(studioDir, 'events');
     return;

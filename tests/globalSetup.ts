@@ -92,6 +92,7 @@ export async function setup() {
         // 覆盖 .env 中的 production 配置，确保测试 server auth bypass
         STUDIO_AUTH: 'none',
         NODE_ENV: 'test',
+        STUDIO_HOME: isolatedRoot,
         STUDIO_DATA_DIR: path.join(isolatedRoot, 'data'),
         STUDIO_EVENTS_DIR: path.join(isolatedRoot, 'events'),
       },

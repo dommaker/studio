@@ -12,12 +12,13 @@
 import * as path from 'path';
 import * as os from 'os';
 import * as fs from 'fs';
+import { studioDir, warnIfNonProdUsesProdRoot } from './studio-dir';
 
 /**
- * 加载 ~/.studio/config.env 到 process.env（仅当 env 未设置时）
+ * 加载 config.env 到 process.env（仅当 env 未设置时）
  */
 export function loadConfigEnv(): void {
-  const configPath = path.join(os.homedir(), '.studio', 'config.env');
+  const configPath = path.join(studioDir(), 'config.env');
   if (!fs.existsSync(configPath)) return;
 
   const content = fs.readFileSync(configPath, 'utf-8');
@@ -41,11 +42,14 @@ export function loadConfigEnv(): void {
 // 启动时自动加载 config.env
 loadConfigEnv();
 
+// 软护栏：非 production 指向生产缺省根时启动落 warning（每进程一次）
+warnIfNonProdUsesProdRoot();
+
 // CWD 陷阱修复：固定数据目录绝对路径，防止 claude CLI 子进程（HOME=agentHome）
 // 里 FileStore baseDir 随 os.homedir() 漂移到嵌套路径（~/.studio/data/agents/<id>/.studio/data）。
 // ??= 不覆盖子进程继承到的父进程值（buildSessionEnv 经 ...process.env 透传）。
 // 必须早于任何 FileStore 实例化。
-process.env.STUDIO_DATA_DIR ??= path.join(os.homedir(), '.studio', 'data');
+process.env.STUDIO_DATA_DIR ??= path.join(studioDir(), 'data');
 
 export interface AgentStudioConfig {
   // 路径配置

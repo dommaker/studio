@@ -21,6 +21,10 @@
       "types": "./dist/cli/index.d.ts",
       "default": "./src/cli/index.ts"
     },
+    "./studio-dir": {
+      "types": "./dist/config/studio-dir.d.ts",
+      "default": "./src/config/studio-dir.ts"
+    },
     "./constants": {
       "types": "./dist/constants/levels.d.ts",
       "default": "./src/constants/levels.ts"

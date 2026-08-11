@@ -18,6 +18,8 @@ export default defineConfig({
   },
   resolve: {
     alias: {
+      // studio-dir 子路径在 src/config/ 下，扁平别名覆盖不到，需精确条目（须置于通用条目前）
+      '@dommaker/studio-shared/studio-dir': path.resolve(__dirname, '../../packages/studio-shared/src/config/studio-dir.ts'),
       '@dommaker/studio-shared': path.resolve(__dirname, '../../packages/studio-shared/src'),
     },
   },

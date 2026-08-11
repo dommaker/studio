@@ -18,7 +18,8 @@ echo "🚀 Starting agent-studio (beta)"
 echo "   API: http://localhost:$API_PORT"
 echo "   Web: http://localhost:$WEB_PORT"
 
-# 启动后端 API
+# 启动后端 API（STUDIO_HOME 隔离 dev 数据根，允许外部覆盖）
+export STUDIO_HOME="${STUDIO_HOME:-$HOME/.studio-dev}"
 cd "$API_DIR"
 PORT=$API_PORT nohup npx tsx src/index.ts > /tmp/studio-api-dev.log 2>&1 &
 API_PID=$!

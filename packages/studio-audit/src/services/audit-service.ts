@@ -10,13 +10,13 @@
  */
 
 import { FileStore, logger, generateId } from '@dommaker/studio-shared';
+import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import * as path from 'node:path';
-import * as os from 'node:os';
 import fs from 'node:fs';
 
 // ========== 常量 ==========
 
-const AUDIT_JSONL_PATH = path.join(os.homedir(), '.studio', 'logs', 'audit.jsonl');
+const AUDIT_JSONL_PATH = studioPath('logs', 'audit.jsonl');
 
 // ========== 类型定义 ==========
 

@@ -3,8 +3,7 @@
  */
 
 import { FileStore, logger, generateId as sharedGenerateId } from '@dommaker/studio-shared';
-import * as path from 'node:path';
-import * as os from 'node:os';
+import { studioPath } from '@dommaker/studio-shared/studio-dir';
 
 export interface CreateNotificationInput {
   userId: string;
@@ -14,7 +13,7 @@ export interface CreateNotificationInput {
   link?: string;
 }
 
-const NOTIFICATIONS_JSONL = path.join(os.homedir(), '.studio', 'logs', 'notifications.jsonl');
+const NOTIFICATIONS_JSONL = studioPath('logs', 'notifications.jsonl');
 
 interface NotificationRow {
   id: string;

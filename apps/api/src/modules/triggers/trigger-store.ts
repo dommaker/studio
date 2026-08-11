@@ -3,6 +3,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as yaml from 'js-yaml';
+import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import { CronMatcher } from './cron-matcher.js';
 import type { TriggerConfig } from './trigger.types.js';
 
@@ -63,7 +64,7 @@ export class TriggerStore {
   private dir: string;
 
   constructor(dir?: string) {
-    this.dir = dir || path.join(process.env.HOME || '~', '.studio', 'triggers');
+    this.dir = dir || studioPath('triggers');
     if (!fs.existsSync(this.dir)) {
       fs.mkdirSync(this.dir, { recursive: true });
     }

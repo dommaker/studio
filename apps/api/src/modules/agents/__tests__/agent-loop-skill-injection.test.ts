@@ -4,7 +4,7 @@
  *
  * - 域匹配命中（wu.type/role.acceptedTypes 经 normalizeToStage 归一化 ∩ skill.agentTypes）：
  *   knowledgeContext 含 `## 本次任务 Skills`（在 `## 项目上下文` 之前）+ 协议说明行
- *   + 索引块（name + description + triggers 摘要 + `~/.studio/skills/<name>/SKILL.md` 指针），不含正文；
+ *   + 索引块（name + description + triggers 摘要 + SKILL.md 指针（studioPath 解析的绝对路径）），不含正文；
  *   injectContext 收到扣减后的 maxTokens（skills > persona > roster > knowledge 共用 2K）
  * - metadata.matchedSkills 不再作为注入输入（step 时实时计算；匹配名单经 metadataUpdates 落盘供度量）
  * - +skill 显式点名 step 时从 wu.scope 解析（parseSkillHintsFromScope），排最高优先级
@@ -88,7 +88,7 @@ const { invalidateManifestCache } = await import('../../skills/manifest-loader.j
 
 /** 新注入契约的固定文本（与 agent-loop buildSkillSection 保持一致） */
 const SKILL_HEADER = '## 本次任务 Skills\n\n以下 skill 按相关度排序；任务内容命中其触发条件时，先读全文再按此执行；不相关则忽略。';
-const SKILL_BLOCK = '### feature-dev\n功能开发流程｜触发：登录, 认证, 会话, 鉴权, 令牌\n全文：~/.studio/skills/feature-dev/SKILL.md';
+const SKILL_BLOCK = `### feature-dev\n功能开发流程｜触发：登录, 认证, 会话, 鉴权, 令牌\n全文：${path.join(os.homedir(), '.studio', 'skills', 'feature-dev', 'SKILL.md')}`;
 const SKILL_TOKENS = estimateTokens(SKILL_HEADER.length) + estimateTokens(SKILL_BLOCK.length + 2);
 
 describe('§10 P0 + 决策 7/11/13: agentStep skill/persona 注入', () => {
@@ -156,7 +156,7 @@ describe('§10 P0 + 决策 7/11/13: agentStep skill/persona 注入', () => {
     expect(knowledgeContext).toContain('以下 skill 按相关度排序；任务内容命中其触发条件时，先读全文再按此执行；不相关则忽略。');
     expect(knowledgeContext).toContain('### feature-dev');
     expect(knowledgeContext).toContain('功能开发流程｜触发：登录, 认证, 会话, 鉴权, 令牌');
-    expect(knowledgeContext).toContain('全文：~/.studio/skills/feature-dev/SKILL.md');
+    expect(knowledgeContext).toContain(`全文：${path.join(os.homedir(), '.studio', 'skills', 'feature-dev', 'SKILL.md')}`);
     expect(knowledgeContext).not.toContain(SKILL_BODY);
     expect(knowledgeContext).toContain('## 项目上下文');
     expect(knowledgeContext).toContain('- test rule');

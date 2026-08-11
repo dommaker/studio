@@ -9,11 +9,11 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
 import { logger } from '@dommaker/studio-shared';
+import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import { loadManifest, invalidateManifestCache } from './manifest-loader.js';
 
-const SKILLS_DIR = process.env.SKILLS_DIR || path.join(os.homedir(), '.studio', 'skills');
+const SKILLS_DIR = process.env.SKILLS_DIR || studioPath('skills');
 
 /** 表格单元格转义（| 会破坏 markdown 表格） */
 function cell(text: string | undefined): string {
@@ -63,7 +63,7 @@ export function generateManifest(): void {
       '<!-- GENERATED FILE — 由 manifest-generator 从各 SKILL.md frontmatter 生成。 -->',
       '<!-- 要修改本文件内容，请编辑对应 skill 的 SKILL.md frontmatter，然后重新生成。 -->',
       '',
-      '`~/.studio/skills/` 下每个目录是一个 Skill（SKILL.md）。Agent 读此清单 → 自选 Skill。',
+      `\`${studioPath('skills')}/\` 下每个目录是一个 Skill（SKILL.md）。Agent 读此清单 → 自选 Skill。`,
       '',
       '## 开发流程链（Skill Chain）',
       '',

@@ -11,11 +11,11 @@ import { FileStore } from '@dommaker/studio-shared';
 import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
 import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
+import { studioPath } from '@dommaker/studio-shared/studio-dir';
 
 // ── Data layer: trends directory ──
 
-const DATA_TRENDS_DIR = path.join(os.homedir(), '.studio', 'data', 'trends');
+const DATA_TRENDS_DIR = studioPath('data', 'trends');
 const STUDIO_EVENTS_JSONL = resolveStudioLogFile('studio-events.jsonl');
 const fileStore = new FileStore();
 
@@ -41,7 +41,7 @@ export function writeTrendData(filename: string, content: string): void {
 // resolutionService 主存储（~/.studio/knowledge/resolution-*.md）；
 // matchResolutions/verifyResolution 仍读影子库，存量数据合并由 γ 轨道清洗脚本完成。
 
-const RESOLUTIONS_DIR = path.join(os.homedir(), '.studio', 'data', 'resolutions');
+const RESOLUTIONS_DIR = studioPath('data', 'resolutions');
 
 async function listResolutions(): Promise<any[]> {
   try {

@@ -5,12 +5,12 @@
  */
 
 import { FileStore } from '@dommaker/studio-shared';
+import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import * as os from 'node:os';
 
 const fileStore = new FileStore();
-const SKILLS_DIR = path.join(os.homedir(), '.studio', 'data', 'skills');
+const SKILLS_DIR = studioPath('data', 'skills');
 
 const BUILTIN_SKILLS = [
   {

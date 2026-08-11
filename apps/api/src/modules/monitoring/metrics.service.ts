@@ -14,9 +14,8 @@
  * 工单 30：类型区 → metrics.types.ts，纯函数聚合区 → metrics-aggregate.ts（re-export 保持导出路径兼容）。
  */
 
-import * as os from 'node:os';
-import * as path from 'node:path';
 import { FileStore, type WorkUnitSnapshot, type WorkUnitEvent } from '@dommaker/studio-shared';
+import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import { readStudioEvents } from '../../utils/studio-events.js';
 import { buildAssigneeProfileResolver } from '../workunit/assignee-resolver.js';
 import { aggregateOverview, DEFAULT_WINDOW_DAYS } from './metrics-aggregate.js';
@@ -68,7 +67,7 @@ export class MetricsService {
   }
 
   private defaultWuEventsFile(): string {
-    return path.join(os.homedir(), '.studio', 'data', 'workunits', 'events.jsonl');
+    return studioPath('data', 'workunits', 'events.jsonl');
   }
 
   async getOverviewMetrics(opts?: OverviewOptions): Promise<OverviewMetrics> {

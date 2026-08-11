@@ -1,6 +1,6 @@
 // Agent Registry - Agent 注册中心
 import { FileStore, logger } from '@dommaker/studio-shared';
-import * as os from 'os';
+import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import * as path from 'path';
 import * as fs from 'fs';
 import Ajv from 'ajv';
@@ -37,7 +37,7 @@ type StoredAgent = Omit<StoredAgentJson, 'createdAt' | 'updatedAt'> & {
 export class AgentRegistry {
   private fileStore: FileStore;
   private store: CacheStore;
-  private agentsDir = path.join(os.homedir(), '.studio', 'agents-registry');
+  private agentsDir = studioPath('agents-registry');
   private cachePrefix = 'agent:';
   private cacheTTL = 3600; // 1 hour
 

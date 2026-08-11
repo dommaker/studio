@@ -13,6 +13,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import { logger } from '@dommaker/studio-shared';
 import type { TriageIncidentInput } from '../types.js';
 import { triageService } from '../triage/triage.service.js';
@@ -319,7 +320,7 @@ export async function systemHealthCheck(): Promise<TriageIncidentInput[]> {
 
     // 6. Storage health check
     try {
-      const probeFile = path.join(os.homedir(), '.studio', 'data', '_monitor_probe');
+      const probeFile = studioPath('data', '_monitor_probe');
       await fs.promises.writeFile(probeFile, Date.now().toString());
       await fs.promises.unlink(probeFile);
     } catch {

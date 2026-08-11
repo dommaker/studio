@@ -5,14 +5,14 @@
 import { Router, Request, Response } from 'express';
 import { eventStore } from '../../core/event-store.js';
 import { v4 as uuidv4 } from 'uuid';
-import * as os from 'os';
 import * as path from 'path';
 import { FileStore, logger } from '@dommaker/studio-shared';
+import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import * as fs from 'fs';
 import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
 
 const EXECUTIONS_JSONL = resolveStudioLogFile('executions.jsonl');
-const TASKS_DIR = path.join(os.homedir(), '.studio', 'data', 'tasks');
+const TASKS_DIR = studioPath('data', 'tasks');
 const fileStore = new FileStore();
 
 async function findTaskByExecutionId(executionId: string): Promise<{ id: string; status: string } | null> {

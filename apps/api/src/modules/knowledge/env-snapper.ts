@@ -8,6 +8,7 @@ import { logger, FileStore } from '@dommaker/studio-shared';
 import * as fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { studioPath } from '@dommaker/studio-shared/studio-dir';
 
 interface SnapshotData {
   hostname: string;
@@ -26,7 +27,7 @@ interface SnapshotData {
   knownLimitations: any[];
 }
 
-const SNAPSHOTS_DIR = path.join(os.homedir(), '.studio', 'snapshots');
+const SNAPSHOTS_DIR = studioPath('snapshots');
 
 export class EnvSnapper {
   private timer: NodeJS.Timeout | null = null;

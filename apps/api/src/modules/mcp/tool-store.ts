@@ -9,22 +9,22 @@
 import { FileStore } from '@dommaker/studio-shared';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import * as os from 'node:os';
+import { studioPath } from '@dommaker/studio-shared/studio-dir';
 
 // ─── FileStore 存储路径 ───
 
 export const fileStore = new FileStore();
 export function getTasksDir(): string {
-  return path.join((process.env.HOME || os.homedir()), '.studio', 'data', 'tasks');
+  return studioPath('data', 'tasks');
 }
 export function getDocumentsDir(): string {
-  return path.join((process.env.HOME || os.homedir()), '.studio', 'data', 'documents');
+  return studioPath('data', 'documents');
 }
 export function getSpecReviewsDir(): string {
-  return path.join((process.env.HOME || os.homedir()), '.studio', 'data', 'spec-reviews');
+  return studioPath('data', 'spec-reviews');
 }
 export function getCompaniesDir(): string {
-  return path.join((process.env.HOME || os.homedir()), '.studio', 'data', 'companies');
+  return studioPath('data', 'companies');
 }
 
 // ─── 通用 FileStore 工具 ───

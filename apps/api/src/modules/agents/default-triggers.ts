@@ -1,6 +1,7 @@
 // Default Triggers — 10 system triggers for Agent Network
 import { TriggerScheduler } from '../triggers/trigger-scheduler.js';
 import type { TriggerConfig } from '../triggers/trigger.types.js';
+import { studioPath } from '@dommaker/studio-shared/studio-dir';
 
 /** Register the 10 default system triggers */
 export function registerDefaultTriggers(registry: TriggerScheduler): void {
@@ -36,7 +37,7 @@ export function registerDefaultTriggers(registry: TriggerScheduler): void {
       target: 'WorkUnit',
       payload: {
         type: 'analysis',
-        scope: 'Run knowledge-quality-skill: audit semantic quality of ~/.studio/knowledge/. Check D1-D6 dimensions. Archive low_quality noise entries. Merge fragment clusters. Rebuild _index.md after convergence.',
+        scope: `Run knowledge-quality-skill: audit semantic quality of ${studioPath('knowledge')}/. Check D1-D6 dimensions. Archive low_quality noise entries. Merge fragment clusters. Rebuild _index.md after convergence.`,
         assigneeRole: 'studio', // 系统维护任务钉死 studio 角色执行（独占认领，消除竞争；docs/issues/2026-08-03-unattended-token-burn.md）
       },
     },
@@ -64,7 +65,7 @@ export function registerDefaultTriggers(registry: TriggerScheduler): void {
       target: 'WorkUnit',
       payload: {
         type: 'analysis',
-        scope: 'Scan ~/.studio/data/sessions/ for unprocessed JSONL files. Extract knowledge using knowledge-extraction skill. Mark processed files with .done suffix.',
+        scope: `Scan ${studioPath('data', 'sessions')}/ for unprocessed JSONL files. Extract knowledge using knowledge-extraction skill. Mark processed files with .done suffix.`,
         assigneeRole: 'studio', // 系统维护任务钉死 studio 角色执行（独占认领，消除竞争；docs/issues/2026-08-03-unattended-token-burn.md）
       },
     },
@@ -82,7 +83,7 @@ export function registerDefaultTriggers(registry: TriggerScheduler): void {
       target: 'WorkUnit',
       payload: {
         type: 'analysis',
-        scope: 'Scan ~/.studio/knowledge/ for entries with empty referencedBy. Output audit report to ~/.studio/data/knowledge-consumption-audit.md with entry list, creation dates, and recommendations (keep/archive).',
+        scope: `Scan ${studioPath('knowledge')}/ for entries with empty referencedBy. Output audit report to ${studioPath('data', 'knowledge-consumption-audit.md')} with entry list, creation dates, and recommendations (keep/archive).`,
         assigneeRole: 'studio', // 系统维护任务钉死 studio 角色执行（独占认领，消除竞争；docs/issues/2026-08-03-unattended-token-burn.md）
       },
     },
@@ -179,7 +180,7 @@ export function getDefaultTriggerConfigs(): TriggerConfig[] {
         target: 'WorkUnit',
         payload: {
           type: 'analysis',
-          scope: 'Run knowledge-quality-skill: audit semantic quality of ~/.studio/knowledge/. Check D1-D6 dimensions. Archive low_quality noise entries. Merge fragment clusters. Rebuild _index.md after convergence.',
+          scope: `Run knowledge-quality-skill: audit semantic quality of ${studioPath('knowledge')}/. Check D1-D6 dimensions. Archive low_quality noise entries. Merge fragment clusters. Rebuild _index.md after convergence.`,
         },
       },
       enabled: true,
@@ -202,7 +203,7 @@ export function getDefaultTriggerConfigs(): TriggerConfig[] {
         target: 'WorkUnit',
         payload: {
           type: 'analysis',
-          scope: 'Scan ~/.studio/data/sessions/ for unprocessed JSONL files. Extract knowledge using knowledge-extraction skill. Mark processed files with .done suffix.',
+          scope: `Scan ${studioPath('data', 'sessions')}/ for unprocessed JSONL files. Extract knowledge using knowledge-extraction skill. Mark processed files with .done suffix.`,
         },
       },
       enabled: true,
@@ -217,7 +218,7 @@ export function getDefaultTriggerConfigs(): TriggerConfig[] {
         target: 'WorkUnit',
         payload: {
           type: 'analysis',
-          scope: 'Scan ~/.studio/knowledge/ for entries with empty referencedBy. Output audit report to ~/.studio/data/knowledge-consumption-audit.md with entry list, creation dates, and recommendations (keep/archive).',
+          scope: `Scan ${studioPath('knowledge')}/ for entries with empty referencedBy. Output audit report to ${studioPath('data', 'knowledge-consumption-audit.md')} with entry list, creation dates, and recommendations (keep/archive).`,
         },
       },
       enabled: true,

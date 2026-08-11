@@ -12,7 +12,7 @@ import { scheduleVectorDbSync } from './knowledge-bus.service.js';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
+import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
 import type {
   Resolution,
@@ -21,7 +21,7 @@ import type {
   MatchResolutionResult,
 } from '@dommaker/studio-shared';
 
-const KNOWLEDGE_DIR = path.join(os.homedir(), '.studio', 'knowledge');
+const KNOWLEDGE_DIR = studioPath('knowledge');
 const STUDIO_EVENTS_JSONL = resolveStudioLogFile('studio-events.jsonl');
 const fileStore = new FileStore();
 

@@ -5,6 +5,7 @@
  */
 
 import { resolveStudioEventsFile, writeStudioEvent } from '../../utils/studio-events.js';
+import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import type { RegisteredTool } from './tool-registry.js';
 
 // ─── Agent-First 系统健康 ───
@@ -77,7 +78,7 @@ const systemHealth: RegisteredTool = {
 
 const emitEvent: RegisteredTool = {
   name: 'emitEvent',
-  description: 'Agent 向统一事件流发射结构化事件（D18：写入 ~/.studio/logs/studio-events.jsonl，测试期隔离）。用于 Agent 间的异步通信和系统级通知。类型以 "agent:" 为前缀。',
+  description: `Agent 向统一事件流发射结构化事件（D18：写入 ${studioPath('logs', 'studio-events.jsonl')}，测试期隔离）。用于 Agent 间的异步通信和系统级通知。类型以 "agent:" 为前缀。`,
   inputSchema: {
     type: 'object',
     properties: {

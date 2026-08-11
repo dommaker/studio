@@ -3,11 +3,10 @@
  * 测试配置加载
  */
 
-import * as path from 'path';
-import * as os from 'os';
 import * as fs from 'fs';
+import { studioPath } from '../packages/studio-shared/src/config/studio-dir';
 
-const CONFIG_PATH = path.join(os.homedir(), '.studio', 'config.env');
+const CONFIG_PATH = studioPath('config.env');
 
 // 模拟 loadConfigEnv
 function loadConfigEnv(): void {
