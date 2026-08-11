@@ -108,11 +108,11 @@ export interface PmoMap {
   specWuId?: string | null;
 }
 
-/** 交付腿（多腿交付按腿独立台账/合并/状态，T7 起消费） */
+/** 交付腿（多腿交付按腿独立台账/合并/状态，T7 起消费；status 词表 = LEG_STATUS） */
 export interface DeliveryLeg {
   gitRepo: string | null;
   branch: string | null;
-  status: string;
+  status: DeliveryLegStatus;
   /** #113 T7：auto-merge 逐腿交付落档（branch-only 永不写；合成单腿不落盘） */
   deliveredAt?: string | null;
   deliverCommit?: string | null;

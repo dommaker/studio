@@ -20,7 +20,7 @@
  */
 import { FileStore, type WorkUnitSnapshot } from '@dommaker/studio-shared';
 import { execSh } from '@dommaker/studio-shared/node';
-import { projectService, resolveDeliveries, resolveDeliveryPolicy, LEG_STATUS, type DeliveryLeg, type DeliveryPolicy, type ProjectData } from './project.service.js';
+import { projectService, resolveDeliveries, resolveDeliveryPolicy, LEG_STATUS, type DeliveryLeg, type DeliveryLegStatus, type DeliveryPolicy, type ProjectData } from './project.service.js';
 import { RequirementService } from '../requirements/requirement.service.js';
 import { selectProjectSnapshots, summarizeEvidence, partitionSnapshotsByLeg, type EvidenceSummary } from './evidence-summary.js';
 import { sumTokensForWorkUnits } from '../agents/token-usage.service.js';
@@ -70,7 +70,7 @@ export interface LegDeliveryStatus {
   gitRepo: string | null;
   branch: string | null;
   /** 腿状态（LEG_STATUS 词表；progress-rollup 逐腿回写、deliverProject 逐腿落档） */
-  status: string;
+  status: DeliveryLegStatus;
   /** 腿级交付落档（auto-merge 逐腿写入；branch-only 永为 null） */
   deliveredAt: string | null;
   deliverCommit: string | null;
