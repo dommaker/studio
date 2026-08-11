@@ -20,6 +20,7 @@ import { knowledgeService } from '../../knowledge/knowledge-service.js';
 import { eventStore } from '../../../core/event-store.js';
 import { postWuSystemMessage } from '../../workunit/wu-messenger.js';
 import { parseWuMetadata, mergedWuView } from '../../workunit/wu-metadata.js';
+import { hasUnfinishedDeps } from '../../workunit/wu-dependencies.js';
 import { resolveWorkspaceRoot } from '../../workspaces/workspace-store.js';
 import { resolvePmoBranchForWU } from '../../requirements/pmo-branch-resolver.js';
 import { resolveStudioLogFile } from '../../../utils/studio-log-path.js';
@@ -429,6 +430,8 @@ export class AgentLoop {
     // §9.5: channel.members 为成员关系唯一事实源 — observe 每轮加载一次频道配置
     // （FileStore 规模小，成本可忽略）。
     const channelMembers = await this.loadChannelMembers();
+    // #109（M4 接单过滤）：全局 id→status 映射（FileStore index 天然跨 PMO）
+    const statusById = new Map(allSnapshots.map(s => [s.id, s.status]));
     const unassigned = allSnapshots.filter(s => {
       if (s.status !== 'unassigned') return false;
       // Assignee-aware claiming（@mention 语义，docs/vision-2026.md §3）：
@@ -450,6 +453,8 @@ export class AgentLoop {
       // F4（reviewer 解锚，决策 5）：评审 WU 排除实现者 —— metadata.excludeAssignee
       // 命中的 profile 不可见（自评兜底场景 dispatcher 不设该字段，此处自然放行）
       if (parseExcludeAssignee(s.metadata) === this.role.id) return false;
+      // #109（M4 接单过滤）：metadata.blockedBy 中有未 done 的 WU → 对所有 loop 不可见
+      if (hasUnfinishedDeps(s.metadata, statusById)) return false;
       return true;
     }).sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
       .slice(0, 5)

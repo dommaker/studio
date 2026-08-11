@@ -51,6 +51,9 @@ export interface WorkUnitMetadata {
   // analysis-handoff 创建时落档；pmo-branch-resolver 与证据归属过滤的唯一直读 key）
   pmoId?: string;
   ownershipProjectId?: string; // @deprecated legacy 同位名（原 B3a 审计字段），仅读兼容——wu-pmo-attribution 同级回退读；新写入一律用 pmoId
+  // #109（T3，#106 子票）：接单规则机制化——依赖与验收标准
+  blockedBy?: string[];       // 阻塞本 WU 的 WU id 列表（可跨 PMO）；任一未 done → unassigned 对所有 loop 不可见（wu-dependencies.ts 判定；agent-loop observe 过滤 + 列表 claimable 标记消费）
+  ac?: string[];              // 验收标准（验收闸对照用；机制只存不解释）
   // B3b-i 每 WU worktree 隔离（决策 D1）：代码类 WU 首个 step 创建并落档，后续 step 复用
   worktreePath?: string;      // 专属 worktree 路径（<worktreesDir>/wu-<wuId>；执行 cwd + 提交守卫 + 自动验证的消费点）
   worktreeBranch?: string;    // 专属分支名（task/<wuId>）

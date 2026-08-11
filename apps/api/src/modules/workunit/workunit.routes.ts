@@ -2,7 +2,7 @@
  * WorkUnit API 路由 (AS-025 §3.28c-1, §5.16)
  *
  * Endpoints:
- *   GET    /api/v1/workunits          — list
+ *   GET    /api/v1/workunits          — list（#109：列表项附 claimable 可认领标记）
  *   POST   /api/v1/workunits          — create
  *   GET    /api/v1/workunits/:id      — get by id
  *   PUT    /api/v1/workunits/:id      — update
@@ -28,6 +28,7 @@ import { Router, type Request, type Response } from 'express';
 import { FileStore } from '@dommaker/studio-shared';
 import { WorkUnitService, type WorkUnitMetadata } from './workunit.service.js';
 import { parseWuMetadata } from './wu-metadata.js';
+import { resolveClaimable } from './wu-dependencies.js';
 import { aggregateTreeTokens } from '../agents/token-usage.service.js';
 import { CODE_WORKTREE_TYPES, resolveVerifyCommands, runWuVerification } from '../agents/loop/wu-verification.js';
 import { channelMessageService } from '../channels/channel-message.service.js';
@@ -65,7 +66,12 @@ router.get('/', async (req: Request, res: Response) => {
       limit,
     });
 
-    res.json(formatPaginatedResponse(result.data, result.total, page, limit));
+    // #109：列表项附「可认领」标记（claimable）供 UI 使用 —— unassigned 且
+    // blockedBy 依赖全 done 才为 true；profile 无关（认领侧仍由 loop observe 判定）
+    const statusById = new Map((await fileStore.getIndex()).map(s => [s.id, s.status]));
+    const data = result.data.map(w => ({ ...w, claimable: resolveClaimable(w, statusById) }));
+
+    res.json(formatPaginatedResponse(data, result.total, page, limit));
   } catch (error) {
     res.status(500).json({
       error: { code: 'INTERNAL_ERROR', message: getErrorMessage(error) },
