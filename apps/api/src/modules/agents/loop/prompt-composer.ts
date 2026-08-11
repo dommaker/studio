@@ -1,12 +1,12 @@
 /**
- * prompt/上下文组装（2026-08 从 agent-loop.agentStep 抽出，行为一字不改）：
+ * prompt/上下文组装（2026-08 从 agent-loop.agentStep 抽出）：
  * agentStep 的 prompt 组装与上下文注入段 —— hint/traceId 邻接的 hint 读取、
  * base prompt 选择（pendingReplies > newReplies > continue）、三类 guard hint 注入、
- * skill > persona > roster > knowledge 共用 2K 预算注入，以及 hint 消费清除增量。
+ * 注入段分段软定额 + 池内余量共享（#91），以及 hint 消费清除增量。
  *
  * 职责边界：
- *   - 本模块 = prompt 组装政策：hint 读取/注入/消费清除、注入段预算分配与截断、
- *     skill_used 度量落盘。三个 build 段函数（skill/persona/roster）同为模块级私有函数。
+ *   - 本模块 = prompt 组装政策：hint 读取/注入/消费清除、注入段定额分配与截断、
+ *     skill_used / section_trimmed 度量落盘。build 段函数同为模块级私有函数。
  *   - agent-loop.agentStep = 编排：traceId/channelVersion 读取（下游仍消费，留在 agentStep）→
  *     调 composeStepPrompt → 会话管理 → worktree 准备 → 执行与簿记。
  *
@@ -26,12 +26,33 @@ import { buildContinuePrompt, buildReplyPrompt } from './agent-loop-parsers.js';
 import { metricsFileStore } from './agent-loop-events.js';
 
 /**
- * §10 P0: 注入总预算（skill 段 + 知识段共用的 2K 红线）。
- * 必须与 knowledge-service 的 INJECT_TOKEN_BUDGET 保持一致——
- * 不从 knowledge-service import：现有测试以 vi.mock 工厂替换整个 knowledge-service
- * 模块（只暴露 knowledgeService），新增命名导入会在 mock 模块上访问不到而抛错。
+ * #91（#88 决策 2）：注入段分段软定额（替代单池 2K 优先级制）。
+ * 定额职责 = 防注入劣化（防注入段膨胀挤占对话空间、防噪声稀释信噪比），
+ * 不防 CLI 上下文溢出（溢出归反应式策略管）；base prompt 不截断，CLI 脚手架不在管辖内。
+ *
+ * 软定额 + 池内余量共享：按 skills → persona → roster → memory → knowledge → handoff
+ * 顺序逐段组装，段有效预算 = 本段定额 + 共享池余量；段实际用量低于有效预算时，
+ * 差额流入共享池供后续段借用（注入总量封顶 = 定额总和 ~3.5K）。
+ * memory / handoff 段内容源分别归 #100（角色记忆索引常驻注入）与 #95（handoff 前序
+ * 进展段），落地前两段恒为空、定额经共享池让给后续段。
  */
-const INJECT_TOKEN_BUDGET = 2_000;
+export const SECTION_QUOTAS = {
+  skills: 600,
+  persona: 300,
+  roster: 400,
+  memory: 300,
+  knowledge: 1000,
+  handoff: 800,
+} as const;
+
+type InjectSectionName = keyof typeof SECTION_QUOTAS;
+
+/** 单个注入段的组装产出：tokens = 截断后实际用量；originalTokens = 未截断的原始尺寸（> tokens 即发生了截断） */
+interface BuiltSection {
+  section: string;
+  tokens: number;
+  originalTokens: number;
+}
 
 /** prompt 组装输入。metadata 为 agentStep 入口解析的持久化视图（hint 消费读取同一来源）。 */
 export interface PromptComposerCtx {
@@ -41,7 +62,7 @@ export interface PromptComposerCtx {
   newReplies?: string[];
 }
 
-/** prompt 组装外部依赖（loop 绑定状态下传；skill_used 度量事件路径惰性解析，测试可改 env 生效）。 */
+/** prompt 组装外部依赖（loop 绑定状态下传；度量事件路径惰性解析，测试可改 env 生效）。 */
 export interface PromptComposerDeps {
   role: AgentProfileData;
   acceptedTypes: string[];
@@ -69,7 +90,7 @@ export interface ComposedStepPrompt {
  *  1. hint 读取（pendingReplies / commitGuardHint / verifyFailHint / childGuardHint，注入后即消费）；
  *  2. base prompt：pendingReplies > target.newReplies > continue；
  *  3. 三类 guard hint 段注入；
- *  4. 注入段共用 2K 红线，优先级 skills > persona > roster > knowledge（逐段扣减剩余额度）；
+ *  4. 注入段分段软定额 + 池内余量共享（#91），顺序 skills > persona > roster > memory > knowledge > handoff；
  *  5. 产出 consumedHintUpdates（已消费 hint 的清除增量）。
  * 全部注入路径 non-blocking：任一段失败按空段处理，绝不阻断执行。
  */
@@ -109,57 +130,86 @@ export async function composeStepPrompt(
   if (verifyFailHint) prompt = `${prompt}\n\n## 验证失败\n\n${verifyFailHint}`;
   if (childGuardHint) prompt = `${prompt}\n\n## 子任务提醒\n\n${childGuardHint}`;
 
-  // GAP-5: Knowledge injection — non-blocking
-  // R1 反馈环: 接住 injectContext 返回的 injectedIds，贯穿到 recordOutcome /
-  // extractFromExecution 的 consumedKnowledge（断点 A：此前注入 id 被丢弃，
-  // outcome 永远上报 consumedKnowledge: []，飞轮无反馈数据）。
-  // §10 P0 + 决策 7/13: 注入段共用 2K 红线，优先级 skills > persona > roster > knowledge——
-  // skill 段（## 本次任务 Skills）step 时计算，先占预算；persona 段（## 你的角色）次之；
-  // 成员花名册段（## 频道成员与委派）再次；剩余额度传给 injectContext。
-  let skillSection = '';
-  let skillTokens = 0;
-  let skillMatched: string[] = [];
-  try {
-    const composed = await buildSkillSection(wu, deps);
-    skillSection = composed.section;
-    skillTokens = composed.tokens;
-    skillMatched = composed.matched;
-  } catch {
-    // Non-blocking: agent continues without skill section
-  }
+  // #91: 分段软定额 + 池内余量共享 —— 段有效预算 = 定额 + 池；用量差额回流池中。
+  // 任一段截断落 prompt:section_trimmed 事件（fire-and-forget，供定额初值校准）。
+  let pool = 0;
+  const runSection = async <T extends BuiltSection>(
+    name: InjectSectionName,
+    build: (budget: number) => Promise<T>,
+  ): Promise<T | BuiltSection> => {
+    const quota = SECTION_QUOTAS[name];
+    const budget = quota + pool;
+    let built: T | BuiltSection;
+    try {
+      built = await build(budget);
+    } catch {
+      // Non-blocking: agent continues without this section
+      built = { section: '', tokens: 0, originalTokens: 0 };
+    }
+    if (built.originalTokens > built.tokens) {
+      void metricsFileStore.appendJsonl(deps.resolveEventsFile(), {
+        type: 'prompt:section_trimmed',
+        source: 'prompt-composer',
+        payload: JSON.stringify({
+          section: name,
+          originalTokens: built.originalTokens,
+          trimmedTokens: built.tokens,
+          quota,
+        }),
+        createdAt: new Date().toISOString(),
+      }).catch(() => {});
+    }
+    pool = Math.max(0, budget - built.tokens);
+    return built;
+  };
 
-  // 决策 13: `## 你的角色` 段（persona ?? description；为空则省略）。纯字符串组装，不抛错
-  const persona = buildPersonaSection(deps.role, Math.max(0, INJECT_TOKEN_BUDGET - skillTokens));
-  const personaSection = persona.section;
-  const personaTokens = persona.tokens;
+  // 决策 7/11: skill 段（## 本次任务 Skills）step 时计算，吃 skill 库最新版
+  interface SkillSection extends BuiltSection { matched: string[] }
+  const skills = await runSection<SkillSection>('skills', budget => buildSkillSection(wu, deps, budget));
+  const skillMatched = 'matched' in skills ? skills.matched : [];
 
-  let rosterSection = '';
-  let rosterTokens = 0;
-  try {
-    const roster = await buildRosterSection(wu, deps, Math.max(0, INJECT_TOKEN_BUDGET - skillTokens - personaTokens));
-    rosterSection = roster.section;
-    rosterTokens = roster.tokens;
-  } catch {
-    // Non-blocking: agent continues without roster section
-  }
+  // 决策 13 + #91: `## 你的角色` 段（persona ?? description + preset 的 skills/tools/constraints；皆空则省略）
+  const persona = await runSection('persona', budget => Promise.resolve(buildPersonaSection(deps.role, budget)));
 
-  let knowledgeContext = '';
+  // A2A §4.1 机制 2: 成员花名册段（## 频道成员与委派）
+  const roster = await runSection('roster', budget => buildRosterSection(wu, deps, budget));
+
+  // #91 定额位：memory 段内容源 = 角色记忆索引常驻注入（#100，依赖 #98 存储服务），落地前段恒为空
+  const memory = await runSection('memory', () => Promise.resolve<BuiltSection>({ section: '', tokens: 0, originalTokens: 0 }));
+
+  // GAP-5 + R1 反馈环: knowledge 段 —— injectContext 内部按 maxTokens（= 定额 + 池余量）截断，
+  // 截断尺寸经 usage 回传（originalTokens > keptTokens 即发生了段内截断）。
   let injectedKnowledgeIds: string[] = [];
-  try {
+  const knowledge = await runSection('knowledge', async budget => {
     const injected = await knowledgeService.injectContext(wu.type, {
       tags: [wu.type],
-      maxTokens: Math.max(0, INJECT_TOKEN_BUDGET - skillTokens - personaTokens - rosterTokens),
+      maxTokens: budget,
     });
-    knowledgeContext = injected.prompt;
     injectedKnowledgeIds = injected.injectedIds ?? [];
-  } catch {
-    // Non-blocking: agent continues without knowledge context
-  }
-  const leadSections = [skillSection, personaSection, rosterSection].filter(s => s.length > 0).join('\n\n');
+    const keptTokens = injected.usage?.keptTokens ?? estimateTokens(injected.prompt.length);
+    return {
+      section: injected.prompt,
+      tokens: keptTokens,
+      originalTokens: injected.usage?.originalTokens ?? keptTokens,
+    };
+  });
+  const knowledgeSection = knowledge.section;
+
+  // #91 定额位：handoff 段内容源 = 断链前序进展段（#95），落地前段恒为空
+  const handoff = await runSection('handoff', () => Promise.resolve<BuiltSection>({ section: '', tokens: 0, originalTokens: 0 }));
+
+  const leadSections = [skills.section, persona.section, roster.section, memory.section]
+    .filter(s => s.length > 0)
+    .join('\n\n');
+  // `## 项目上下文` 包装头仅在前置段存在时添加（沿用原组装口径）
+  let knowledgeContext = knowledgeSection;
   if (leadSections) {
-    knowledgeContext = knowledgeContext
-      ? `${leadSections}\n\n## 项目上下文\n${knowledgeContext}`
+    knowledgeContext = knowledgeSection
+      ? `${leadSections}\n\n## 项目上下文\n${knowledgeSection}`
       : leadSections;
+  }
+  if (handoff.section) {
+    knowledgeContext = knowledgeContext ? `${knowledgeContext}\n\n${handoff.section}` : handoff.section;
   }
 
   const consumedHintUpdates: Partial<WorkUnitMetadata> = {};
@@ -188,7 +238,7 @@ export async function composeStepPrompt(
  * metadata.matchedSkills，消竞态并吃到 skill 库最新版）。
  * 匹配（selectSkillsWithDomain）：+skill 显式点名（wu.scope 解析）> 域匹配
  * （role.acceptedTypes ∪ 归一化 wu.type ∩ skill.agentTypes）> scope 文本 > 其余按热度——
- * 产出相关度排序全量列表，由 2K 预算块级截断（取代封顶 3）。
+ * 产出相关度排序全量列表，按调用方传入的有效预算（#91 定额 + 池余量）块级截断（取代封顶 3）。
  * index-on-demand：索引行 = name + description + triggers 摘要 + 全文指针
  * （~/.studio/skills/<name>/SKILL.md，agent 按需阅读），不注入正文；段首协议行说明按需语义。
  * 返回 matched = 实际进入注入段的 skill 名（调用方落盘 metadata.matchedSkills；
@@ -197,33 +247,41 @@ export async function composeStepPrompt(
 async function buildSkillSection(
   wu: WorkUnitData,
   deps: PromptComposerDeps,
-): Promise<{ section: string; tokens: number; matched: string[] }> {
+  tokenBudget: number,
+): Promise<{ section: string; tokens: number; originalTokens: number; matched: string[] }> {
   const manifest = loadManifest();
-  if (manifest.length === 0) return { section: '', tokens: 0, matched: [] };
+  if (manifest.length === 0) return { section: '', tokens: 0, originalTokens: 0, matched: [] };
 
   const hints = parseSkillHintsFromScope(wu.scope ?? '');
   const ranked = selectSkillsWithDomain(wu.scope ?? '', manifest, {
     acceptedTypes: deps.acceptedTypes,
     wuType: wu.type,
   }, hints);
-  if (ranked.length === 0) return { section: '', tokens: 0, matched: [] };
+  if (ranked.length === 0) return { section: '', tokens: 0, originalTokens: 0, matched: [] };
 
   const header = '## 本次任务 Skills\n\n以下 skill 按相关度排序；任务内容命中其触发条件时，先读全文再按此执行；不相关则忽略。';
-  let tokens = estimateTokens(header.length);
-  const blocks: string[] = [];
-  const matched: string[] = [];
-  for (const entry of ranked) {
+  const candidates = ranked.map(entry => {
     const triggerSummary = Array.isArray(entry.triggers) && entry.triggers.length > 0
       ? `｜触发：${entry.triggers.slice(0, 5).join(', ')}`
       : '';
     const block = `### ${entry.name}\n${entry.description || '（无描述）'}${triggerSummary}\n全文：${studioPath('skills', entry.name, 'SKILL.md')}`;
-    const blockTokens = estimateTokens(block.length + 2); // + \n\n 分隔符
-    if (tokens + blockTokens > INJECT_TOKEN_BUDGET) {
-      // 首个块即超预算：截断塞入，保证段不为空（沿用原整段截断口径）
+    return { entry, block, blockTokens: estimateTokens(block.length + 2) }; // + \n\n 分隔符
+  });
+  // 未截断的原始尺寸（截断埋点的 originalTokens；块级跳过也计入）
+  const originalTokens = estimateTokens(header.length) + candidates.reduce((sum, c) => sum + c.blockTokens, 0);
+
+  let tokens = estimateTokens(header.length);
+  const blocks: string[] = [];
+  const matched: string[] = [];
+  for (const { entry, block, blockTokens } of candidates) {
+    if (tokens + blockTokens > tokenBudget) {
+      // 首个块即超预算：截断塞入，保证段不为空（沿用原整段截断口径）；
+      // 按截断后实际内容重算 tokens，省下的余量回流共享池（#91）
       if (blocks.length === 0) {
-        blocks.push(block.slice(0, Math.max(0, (INJECT_TOKEN_BUDGET - tokens) * 4)));
+        const sliced = block.slice(0, Math.max(0, (tokenBudget - tokens) * 4));
+        blocks.push(sliced);
         matched.push(entry.name);
-        tokens = INJECT_TOKEN_BUDGET;
+        tokens = estimateTokens(header.length) + estimateTokens(sliced.length);
       }
       break;
     }
@@ -242,26 +300,38 @@ async function buildSkillSection(
     }).catch(() => {});
   }
 
-  return { section: `${header}\n\n${blocks.join('\n\n')}`, tokens, matched };
+  return { section: `${header}\n\n${blocks.join('\n\n')}`, tokens, originalTokens, matched };
 }
 
 /**
- * 决策 13: 组装 `## 你的角色` 段（角色自述）。
- * 内容 = role.persona ?? role.description（皆空则段省略）；
- * 与 skill/roster/知识段共用 2K 红线（skills > persona > roster > knowledge），
- * 调用方传入剩余额度，超出按 chars/4 口径截断。
+ * 决策 13 + #91: 组装 `## 你的角色` 段（角色自述 + preset 声明）。
+ * 内容 = role.persona ?? role.description，附 preset 带入的 skills/tools/constraints 行
+ * （#91 修复：此前 preset 三字段落盘后无任何消费，角色配置形同虚设）；皆空则段省略。
+ * 调用方传入有效预算（#91 定额 + 池余量），超出按 chars/4 口径截断。
  */
-function buildPersonaSection(role: AgentProfileData, tokenBudget: number): { section: string; tokens: number } {
+function buildPersonaSection(role: AgentProfileData, tokenBudget: number): BuiltSection {
   const persona = role.persona ?? role.description;
-  if (!persona || tokenBudget <= 0) return { section: '', tokens: 0 };
-
-  let section = `## 你的角色\n\n${persona}`;
-  let tokens = estimateTokens(section.length);
-  if (tokens > tokenBudget) {
-    section = section.slice(0, tokenBudget * 4);
-    tokens = tokenBudget;
+  const presetLines: string[] = [];
+  if (Array.isArray(role.skills) && role.skills.length > 0) {
+    presetLines.push(`技能：${role.skills.join('、')}`);
   }
-  return { section, tokens };
+  if (Array.isArray(role.tools) && role.tools.length > 0) {
+    presetLines.push(`工具：${role.tools.join('、')}`);
+  }
+  if (role.constraints && typeof role.constraints === 'object' && Object.keys(role.constraints).length > 0) {
+    presetLines.push(`约束：${Object.entries(role.constraints).map(([k, v]) => `${k}=${String(v)}`).join('；')}`);
+  }
+  const body = [persona, ...presetLines].filter(s => s && s.length > 0).join('\n');
+  if (!body || tokenBudget <= 0) return { section: '', tokens: 0, originalTokens: 0 };
+
+  const full = `## 你的角色\n\n${body}`;
+  const originalTokens = estimateTokens(full.length);
+  if (originalTokens > tokenBudget) {
+    // 按截断后实际内容重算 tokens，省下的余量回流共享池（#91）
+    const sliced = full.slice(0, tokenBudget * 4);
+    return { section: sliced, tokens: estimateTokens(sliced.length), originalTokens };
+  }
+  return { section: full, tokens: originalTokens, originalTokens };
 }
 
 /**
@@ -269,15 +339,14 @@ function buildPersonaSection(role: AgentProfileData, tokenBudget: number): { sec
  * 花名册 = 本频道 active 成员的 name + description + provider（排除自己——委派质量取决于
  * 模型对角色能力的理解，没有花名册的 DELEGATE 是盲派）；members 为空（历史频道未回填）
  * 时回退到全部 active profile，与 DelegationGate 的过渡期口径一致。
- * 预算：与 skill/知识段共用 2K 红线，优先级 skills index > roster > knowledge——
- * 调用方传入 skill 之后的剩余额度，超出按 chars/4 口径截断。
+ * 预算：调用方传入有效预算（#91 定额 + 池余量），超出按 chars/4 口径截断。
  */
 async function buildRosterSection(
   wu: WorkUnitData,
   deps: PromptComposerDeps,
   tokenBudget: number,
-): Promise<{ section: string; tokens: number }> {
-  if (!wu.channelId || tokenBudget <= 0) return { section: '', tokens: 0 };
+): Promise<BuiltSection> {
+  if (!wu.channelId || tokenBudget <= 0) return { section: '', tokens: 0, originalTokens: 0 };
 
   const channel = await deps.fileStore.getChannel(wu.channelId);
   const memberIds = parseChannels(channel?.members);
@@ -289,22 +358,23 @@ async function buildRosterSection(
     members = await deps.fileStore.listProfiles({ status: 'active' });
   }
   members = members.filter(p => p.id !== deps.role.id);
-  if (members.length === 0) return { section: '', tokens: 0 };
+  if (members.length === 0) return { section: '', tokens: 0, originalTokens: 0 };
 
   const rosterLines = members.map(p =>
     `- ${p.name}（provider: ${p.provider ?? 'claude'}）：${p.description || '（无描述）'}`
   );
-  let section = `## 频道成员与委派
+  const full = `## 频道成员与委派
 
 本频道可协作成员：
 ${rosterLines.join('\n')}
 
 如需把一部分工作交给更合适的成员，输出一行：ACTION: DELEGATE:@<成员名>:<子任务 scope>（scope 为该行剩余内容）。仅可委派给上述成员，不可委派给自己；委派深度上限 ${resolveMaxDepth()} 跳（根任务 depth=0），同一任务最多委派 ${MAX_DELEGATIONS_PER_PARENT} 次，不可对同一成员重复委派。系统校验通过后会创建子任务并在频道发卡片，你继续按 PROGRESS 推进自己的部分；校验不通过则转为 NEED_INPUT 请人裁决。`;
 
-  let tokens = estimateTokens(section.length);
-  if (tokens > tokenBudget) {
-    section = section.slice(0, tokenBudget * 4);
-    tokens = tokenBudget;
+  const originalTokens = estimateTokens(full.length);
+  if (originalTokens > tokenBudget) {
+    // 按截断后实际内容重算 tokens，省下的余量回流共享池（#91）
+    const sliced = full.slice(0, tokenBudget * 4);
+    return { section: sliced, tokens: estimateTokens(sliced.length), originalTokens };
   }
-  return { section, tokens };
+  return { section: full, tokens: originalTokens, originalTokens };
 }

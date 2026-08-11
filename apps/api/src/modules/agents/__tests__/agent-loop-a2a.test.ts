@@ -388,13 +388,15 @@ describe('A2A P1: DELEGATE / complete 守卫 / 新鲜度检查 / 花名册', () 
       expect(ctx).not.toContain('AgentA（provider');
     });
 
-    it('花名册占用 2K 预算：injectContext 的 maxTokens 相应缩减（skills > roster > knowledge）', async () => {
+    it('#91: persona/花名册占用段定额 → injectContext 的 maxTokens 相应缩减（池内余量共享）', async () => {
       const parent = await setupParent();
       await runStep(parent.id);
 
       const opts = mockInjectContext.mock.calls[0][1];
-      expect(opts.maxTokens).toBeLessThan(2000);
-      expect(opts.maxTokens).toBeGreaterThan(0);
+      // #91 分段软定额：skills/memory 段空（余量全入池），persona/roster 占用部分定额——
+      // maxTokens = 1000 + 600 + 300 + 400 + 300 - personaTokens - rosterTokens
+      expect(opts.maxTokens).toBeLessThan(2600);
+      expect(opts.maxTokens).toBeGreaterThan(1000);
     });
 
     it('members 为空 → 回退到全部 active profile（与闸门口径一致）', async () => {

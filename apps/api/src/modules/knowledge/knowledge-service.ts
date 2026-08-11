@@ -177,6 +177,8 @@ export interface ExecutionOutcome {
 export interface InjectContextResult {
   prompt: string;
   injectedIds: string[];
+  /** #91: 注入尺寸（originalTokens > keptTokens 即发生了段内截断），供调用方落 prompt:section_trimmed 事件 */
+  usage?: { originalTokens: number; keptTokens: number };
 }
 
 export interface InjectOpts {
@@ -501,7 +503,7 @@ export class KnowledgeService {
   async injectContext(agentType: string, opts?: InjectOpts): Promise<InjectContextResult> {
     const injectedIds: string[] = [];
     // §10 依赖项：maxTokens 做实（此前 _opts 未生效，2K 红线只有度量无运行时截断）。
-    // 缺省回退 INJECT_TOKEN_BUDGET——skill 段优先占用预算时由调用方传入剩余额度。
+    // 缺省回退 INJECT_TOKEN_BUDGET——#91 起 prompt 组装按分段软定额传入有效预算（knowledge 定额 + 池余量）。
     const maxTokens = opts?.maxTokens ?? INJECT_TOKEN_BUDGET;
 
     // 1. rule — full content injection (constraints must be followed)
@@ -540,6 +542,15 @@ export class KnowledgeService {
     // 预算内给检索指引预留（有注入时必附加，属红线内固定小额开销）
     const guidanceTokens = estimateTokens(KNOWLEDGE_QUERY_GUIDANCE.length + 2);
 
+    // #91: 未截断的原始尺寸（inject-trimmed / section_trimmed 埋点的尺寸字段，
+    // 口径与下方 kept 一致：header + 行 + reference 提示 + 检索指引）
+    let originalTokens = 0;
+    for (const section of sectionCandidates) {
+      if (section.items.length === 0) continue;
+      originalTokens += estimateTokens(section.header.length + 2);
+      for (const item of section.items) originalTokens += estimateTokens(item.line.length + 1);
+    }
+
     for (const section of sectionCandidates) {
       if (section.items.length === 0) continue;
       const headerTokens = estimateTokens(section.header.length + 2); // header + 段落分隔
@@ -563,11 +574,15 @@ export class KnowledgeService {
     if (refCount > 0) {
       const hint = `[知识库: ${refCount} 条参考，遇到问题时用 search()]`;
       const hintTokens = estimateTokens(hint.length + 2);
+      originalTokens += hintTokens;
       if (usedTokens + hintTokens + guidanceTokens <= maxTokens) {
         sections.push(hint);
         usedTokens += hintTokens;
       }
     }
+
+    // #91: 检索指引在「有任何注入内容（含 reference 提示）」时附加，原始尺寸口径同 kept
+    if (originalTokens > 0 || refCount > 0) originalTokens += guidanceTokens;
 
     // 5. E2 检索主动性（断点 G）：有知识注入时附「何时查知识库」指引 —
     // signal 档只有索引，agent 需显式指引才会主动检索。无注入时不附加。
@@ -586,6 +601,7 @@ export class KnowledgeService {
             agentType,
             budgetTokens: maxTokens,
             keptTokens: usedTokens,
+            originalTokens,
             keptIds: injectedIds,
             trimmedIds,
             trimmedCount: trimmedIds.length,
@@ -605,7 +621,7 @@ export class KnowledgeService {
       }
     }
 
-    return { prompt: sections.join('\n\n'), injectedIds };
+    return { prompt: sections.join('\n\n'), injectedIds, usage: { originalTokens, keptTokens: usedTokens } };
   }
 
   /**

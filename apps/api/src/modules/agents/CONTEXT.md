@@ -40,7 +40,7 @@
   - `agent-loop-utils.ts` — 进程存活 / git 仓库根 / worktrees 目录小工具
   - `agent-targeting.ts` — Observations → Target 解析（认领优先级）+ 频道锚点消息
   - `wu-test-guards.ts` — B2 测试特征 WU 判定（STUDIO_TEST_WU_GUARD 开关 + scope 模式）
-  - `agent-loop-prompts.ts` — prompt 构建（continue/reply 模板 + skills/persona/roster 注入段，共用 2K 红线）
+  - `prompt-composer.ts` — prompt 组装（base prompt 选择 + guard hint 注入 + skills/persona/roster/memory/knowledge/handoff 注入段，#91 分段软定额 + 池内余量共享 + section_trimmed 埋点）
   - `agent-loop-workspace.ts` — 执行根目录/worktree 解析（B3a 归属链 / B3b-i 专属 worktree / 提交守卫 git 探针）
   - `agent-loop-session.ts` — per-WU 会话簿记（续用判定 / B5 会话数上限 / token 截断重置）
   - `agent-loop-instance-state.ts` — 运行时实例状态写入（启动失败记录 / idle 心跳 / 忙闲 SSE）
@@ -79,8 +79,8 @@
 
 - AgentLoop session token 限制为 100K（`SESSION_TOKEN_LIMIT`），超过后自动截断
 - **AgentProfile 持久化布局**：`~/.studio/data/agents/{id}/profile.json`（身份：name/description/provider/status/nodeId，模型见 `packages/studio-shared/src/file-store.ts`，无 systemPrompt 字段）+ 同目录 `state.json`（运行时实例）；原子写 + mkdir 锁，永久存在仅可显式 DELETE；保留名 `studio`（系统执行角色，provider 由 StudioRoleSetupModal 补配）
-- **prompt 注入架构 = index-on-demand（严禁全量注入）**：skills 走索引+按需（step 时匹配：相关度排序全量列表，2K 预算块级截断取代封顶 3；prompt 只放 name+description+triggers 摘要+`~/.studio/skills/<name>/SKILL.md` 绝对路径指针，正文不注入，agent 按需阅读，见 `loop/prompt-composer.ts` buildSkillSection）；知识分层（rule/context 约束层按设计全量、signal 层 `[id] summary` 索引、reference 层只报条数，见 knowledge-service.injectContext）；roster 只放 `name（provider）：description` 索引行且不含自身；全部注入共享 2K token 红线硬截断。不注入：agent 完整记录、频道列表、成员 ID、记忆
-- A2A 协作 P1（2026-07-agent-to-agent-collab-design）：`ACTION: DELEGATE:@<profileName>:<scope>` 协议由 recordResult 拦截，经 workunit/delegation-gate 校验后建子单（`metadata.collab`）+ 发 delegate 卡片，拒绝则降级 NEED_INPUT；父 complete 守卫（未完结子 WU → 降级 progress）；发言层新鲜度检查（step 期间房间有外部新消息 → 结果帖拦截注入 pendingReplies，连续 2 次后照发）；花名册段（## 频道成员与委派）与 skill/知识段共用 2K 注入红线（优先级 skills > roster > knowledge）
+- **prompt 注入架构 = index-on-demand（严禁全量注入）**：skills 走索引+按需（step 时匹配：相关度排序全量列表，按段有效预算块级截断取代封顶 3；prompt 只放 name+description+triggers 摘要+`~/.studio/skills/<name>/SKILL.md` 绝对路径指针，正文不注入，agent 按需阅读，见 `loop/prompt-composer.ts` buildSkillSection）；知识分层（rule/context 约束层按设计全量、signal 层 `[id] summary` 索引、reference 层只报条数，见 knowledge-service.injectContext）；roster 只放 `name（provider）：description` 索引行且不含自身；#91 起注入段按分段软定额 + 池内余量共享截断（skills 600 / persona 300 / roster 400 / memory 300 / knowledge 1000 / handoff 800，前段余量流入后段，总量 ~3.5K；任一段截断落 `prompt:section_trimmed` 事件；memory/handoff 段内容源归 #100/#95，落地前恒空）；persona 段消费 role preset 的 persona + skills/tools/constraints（#91 修复 preset 三字段不落盘不消费的断链）。不注入：agent 完整记录、频道列表、成员 ID、记忆
+- A2A 协作 P1（2026-07-agent-to-agent-collab-design）：`ACTION: DELEGATE:@<profileName>:<scope>` 协议由 recordResult 拦截，经 workunit/delegation-gate 校验后建子单（`metadata.collab`）+ 发 delegate 卡片，拒绝则降级 NEED_INPUT；父 complete 守卫（未完结子 WU → 降级 progress）；发言层新鲜度检查（step 期间房间有外部新消息 → 结果帖拦截注入 pendingReplies，连续 2 次后照发）；花名册段（## 频道成员与委派）纳入 #91 分段定额（roster 400 + 池余量）
 - Idle 心跳间隔固定 45 秒（`IDLE_HEARTBEAT_INTERVAL_MS`），配合超时扫描 5 分钟阈值
 - `AgentLoopRegistry.mount()` 幂等且不抛错，失败仅标记为 failed 状态
 - 路由层统一使用 `getErrorMessage` 捕获异常，并返回标准错误码（如 `INTERNAL_ERROR`、`NOT_FOUND`）
