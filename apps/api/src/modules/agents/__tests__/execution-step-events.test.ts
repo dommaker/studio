@@ -157,6 +157,14 @@ describe('buildExecutionStepEvent', () => {
     expect(payload!.toolCalls.length).toBe(30);
     expect(payload!.toolCalls[29].summary).toBe('/f29');
   });
+
+  it('#94: sessionResumed 透传（true/false 原样落 payload；缺省 → 无该键）', () => {
+    const raw = streamJson([ASSISTANT([{ type: 'thinking', thinking: '想' }])]);
+    const base = { workUnitId: 'w', executionId: 'e', step: 1, rawOutput: raw };
+    expect(buildExecutionStepEvent({ ...base, sessionResumed: true })!.sessionResumed).toBe(true);
+    expect(buildExecutionStepEvent({ ...base, sessionResumed: false })!.sessionResumed).toBe(false);
+    expect(buildExecutionStepEvent(base)!).not.toHaveProperty('sessionResumed');
+  });
 });
 
 describe('emitExecutionStepEvent', () => {

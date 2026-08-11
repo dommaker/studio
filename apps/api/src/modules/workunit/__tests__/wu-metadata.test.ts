@@ -1,5 +1,5 @@
 // wu-metadata 契约测试：WorkUnitMetadata 访问器三件套（parseWuMetadata / clearSessionBookkeeping / mergedWuView）
-// 覆盖：容错解析矩阵（null/undefined/空串/坏 JSON/非对象 JSON）、12 字段会话簿记清除
+// 覆盖：容错解析矩阵（null/undefined/空串/坏 JSON/非对象 JSON）、13 字段会话簿记清除
 //       （含列表外字段存活、入参不可变、未知新簿记字段的闭合清单语义）、
 //       合并视图语义（updates 覆盖、显式 undefined 清除 hint 的序列化口径）。
 // 纯函数无 FileStore 依赖，直接单测。
@@ -35,12 +35,13 @@ describe('parseWuMetadata 容错解析矩阵', () => {
   });
 });
 
-describe('clearSessionBookkeeping 12 字段权威清单', () => {
+describe('clearSessionBookkeeping 13 字段权威清单', () => {
   const BOOKKEEPING: Record<string, unknown> = {
     sessionId: 'sess-1',
     startedAt: '2026-08-01T00:00:00Z',
     sessionResumes: 2,
     sessionCount: 1,
+    lastSessionResumed: true,
     blockReason: '连续失败',
     stepCount: 7,
     consecutiveStuck: 3,
@@ -51,7 +52,7 @@ describe('clearSessionBookkeeping 12 字段权威清单', () => {
     lastInputTokens: 1234,
   };
 
-  it('12 个簿记字段全部清除', () => {
+  it('13 个簿记字段全部清除', () => {
     const cleaned = clearSessionBookkeeping({ ...BOOKKEEPING });
     for (const key of Object.keys(BOOKKEEPING)) {
       expect(cleaned[key], `字段 ${key} 应被清除`).toBeUndefined();

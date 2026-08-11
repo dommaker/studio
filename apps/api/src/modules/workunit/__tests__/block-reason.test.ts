@@ -1,5 +1,5 @@
 // B4（2026-08-03 unattended-token-burn issue P0-2）：blocked 原因落盘（blockReason）
-// B5 配套：人工回复恢复时重置会话预算（sessionCount）
+// #94：人工回复恢复时不再清零会话预算（sessionCount 保留，凭 metadata.sessionId 优先续用旧会话）
 // 约定与 waiting-input.test.ts 一致：真实 FileStore（tmpdir）+ 真实 WorkUnitService
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
@@ -105,8 +105,8 @@ describe('B4: blockReason 落盘', () => {
   });
 });
 
-describe('B4+B5: 人工恢复时的清理', () => {
-  it('resumeWaitingWorkUnit 清除 blockReason 并重置 sessionCount', async () => {
+describe('B4+#94: 人工恢复时的清理', () => {
+  it('resumeWaitingWorkUnit 清除 blockReason、保留 sessionCount（复活优先续用旧会话，不再清零预算）', async () => {
     const wu = await wuService.create({ scope: '挂起任务', type: 'task', status: 'active', assigneeId: 'inst-1' });
     await wuService.transitionStatus(wu.id, 'blocked');
     await wuService.update(wu.id, {
@@ -127,7 +127,7 @@ describe('B4+B5: 人工恢复时的清理', () => {
     expect(after.status).toBe('active');
     const meta = metaOf(after);
     expect(meta.blockReason).toBeUndefined();
-    expect(meta.sessionCount).toBe(0);
+    expect(meta.sessionCount).toBe(2);
     expect(meta.waitingForInput).toBe(false);
     expect(meta.pendingReplies).toEqual(['继续执行']);
   });

@@ -67,7 +67,8 @@ export async function resumeWaitingWorkUnit(
       waitingForInput: false,
       waitingReminded: false, // 重置提醒标记：下次挂起重新计一次
       blockReason: undefined, // B4: 人工接管后清除 blocked 原因（JSON 序列化丢弃 undefined）
-      sessionCount: 0,        // B5: 人工回复 = 有人看护，重置会话预算（防无人值守反复重开会话烧 token）
+      // #94: 不再清零 sessionCount —— 复活后下一步凭 metadata.sessionId 优先续用旧会话，
+      // 不靠清零预算放行（清零会让失控 WU 无限重开新会话烧 token）
       pendingReplies,
     },
   });

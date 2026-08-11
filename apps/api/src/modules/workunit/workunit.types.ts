@@ -33,6 +33,7 @@ export interface WorkUnitMetadata {
   consecutiveStuck?: number;  // 连续无进展步数
   sessionResumes?: number;    // session 恢复次数
   sessionCount?: number;      // B5（2026-08-03 token-burn issue）：本 WU 已建立的独立会话数（≥2 转人工，防全文重放烧钱）
+  lastSessionResumed?: boolean; // #94: 本步会话续用(true)/新建(false) 标记（内部状态，不上频道）
   blockReason?: string;       // B4（同上 P0-2）：最近一次转 blocked 的原因（恢复执行时清除，防事后无法诊断）
   testWorkUnitGuard?: boolean; // B2（同上 P0-1c）：测试特征 WU 被 daemon 守卫关闭的留痕
   lastInputTokens?: number;   // 最新一次 execution 的 input_tokens (cache 追踪)

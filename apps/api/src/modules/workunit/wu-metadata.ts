@@ -28,12 +28,12 @@ export function parseWuMetadata(metadata: string | null | undefined): WorkUnitMe
 
 /**
  * 会话/执行簿记绝不继承到子 WU（2026-07-30 走查实锤）：继承 sessionId 会让子 WU
- * 误续用父 WU 的 CLI 会话 —— agent-loop 续用守卫是 metadata.sessionId === instance.sessionId，
+ * 误续用父 WU 的 CLI 会话 —— #94 起 agent-loop 续用判定只信档案 metadata.sessionId，
  * 共享 ~/.studio 多实例下可错位命中；且 root + bypassPermissions settings 下
  * claude --resume 自注入 --dangerously-skip-permissions 被 root guard 秒拒（code 1）。
  * 跨 WU 续用本就违反"同一 WU 内才续用"约定（异 cwd 会话不存在）。
  *
- * 本列表是这 12 个字段的唯一权威出处（原 review-dispatcher.createReviewWorkUnit 的手维护
+ * 本列表是这 13 个字段的唯一权威出处（原 review-dispatcher.createReviewWorkUnit 的手维护
  * delete 清单）。agent-loop 新增簿记字段时必须同步加入本列表，否则会静默泄漏进 review 子 WU。
  *
  * 返回删掉簿记字段后的浅拷贝，不改入参（与 review-dispatcher 原语义一致：
@@ -45,6 +45,7 @@ export function clearSessionBookkeeping(meta: WorkUnitMetadata): WorkUnitMetadat
   delete cleaned.startedAt;
   delete cleaned.sessionResumes;
   delete cleaned.sessionCount;   // B5: 会话预算不继承（否则父 WU 超限会连坐子 WU 直接转人工）
+  delete cleaned.lastSessionResumed; // #94: 续用/新建标记不继承（子 WU 尚未起会话）
   delete cleaned.blockReason;    // B4: blocked 原因不继承（子 WU 从未被 block）
   delete cleaned.stepCount;
   delete cleaned.consecutiveStuck;

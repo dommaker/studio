@@ -529,7 +529,7 @@ describe('AgentLoop', () => {
   });
 
   describe('Session truncation (input_tokens detection)', () => {
-    it('resets sessionId when input_tokens exceed threshold', async () => {
+    it('input_tokens 超阈值仅记观测日志（#94 起不再清会话）', async () => {
       // First call: create session (no existing sessionId)
       mockExecuteLightweight.mockResolvedValueOnce({
         success: true, outputText: JSON.stringify({
@@ -538,7 +538,7 @@ describe('AgentLoop', () => {
         }),
         logFile: '/tmp/log', worktree: '/tmp/wt', outputFiles: [], sessionCount: 2,
       });
-      // Second call: after reset, no sessionId should be passed
+      // Second call: 档案无 sessionId（未走 recordResult 落库）→ 新建路径签发新 UUID
       mockExecuteLightweight.mockResolvedValueOnce({
         success: true, outputText: 'ACTION: PROGRESS:working',
         logFile: '/tmp/log', worktree: '/tmp/wt', outputFiles: [], sessionCount: 1,
@@ -560,12 +560,13 @@ describe('AgentLoop', () => {
       // First call: creates session, returns high tokens
       await (agentLoop as unknown as { agentStep(t: unknown): Promise<unknown> }).agentStep(target);
 
-      // Second call: should NOT have sessionId (was reset)
+      // Second call: should get a fresh sessionId (档案仍无 sessionId → 新建路径)
       await (agentLoop as unknown as { agentStep(t: unknown): Promise<unknown> }).agentStep(target);
 
       const secondCallParams = mockExecuteLightweight.mock.calls[1][0].parameters;
-      // fix/guard-and-resume: session 截断后 instance.sessionId 置 null，下一步按
-      // non-resume 路径生成新 sessionId（新生命周期），不再传 undefined。
+      // #94: checkSessionTruncation 只留观测日志、不再清会话；但 agentStep 不落库 metadata
+      // （recordResult 负责），本用例未走 recordResult → 第二 step 档案仍无 sessionId，
+      // 按 non-resume 路径生成新 sessionId（新生命周期），不再传 undefined。
       expect(secondCallParams.sessionId).toMatch(/^[0-9a-f]{8}-/);
       expect(secondCallParams.sessionResume).toBeUndefined();
     });

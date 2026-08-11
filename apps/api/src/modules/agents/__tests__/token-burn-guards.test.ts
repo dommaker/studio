@@ -194,8 +194,12 @@ describe('B2: agentStep 守卫集成（STUDIO_TEST_WU_GUARD=on）', () => {
 // ── B5: 每 WU 会话数上限 ──
 
 describe('B5: 会话数上限（MAX_SESSIONS_PER_WU=2）', () => {
+  // #94: claude 续用判定要求会话文件存在（cwd 未知时一律按续用）——本组用例验证新建分支，
+  // 统一给一个无会话文件的 workspaceRoot（无 .git 不走 worktree），使判定落入新建路径
+  const noSessionRoot = (): string => path.join(tmpDir, 'wt-no-session');
+
   it('sessionCount 已达 2 且无续用 → need_input 转人工，不起新会话', async () => {
-    const wu = await createActiveWu({ sessionCount: 2, sessionId: 'old-session' });
+    const wu = await createActiveWu({ sessionCount: 2, sessionId: 'old-session', workspaceRoot: noSessionRoot() });
 
     const result = await stepOf(agentLoop)({ workUnit: wu });
 
@@ -217,7 +221,7 @@ describe('B5: 会话数上限（MAX_SESSIONS_PER_WU=2）', () => {
       success: true, outputText: 'ACTION: PROGRESS:working',
       logFile: '/tmp/log', worktree: '/tmp/wt', outputFiles: [], sessionCount: 1,
     });
-    const wu = await createActiveWu({ sessionCount: 1, sessionId: 'prev-session' });
+    const wu = await createActiveWu({ sessionCount: 1, sessionId: 'prev-session', workspaceRoot: noSessionRoot() });
 
     const result = await stepOf(agentLoop)({ workUnit: wu });
 
@@ -231,7 +235,7 @@ describe('B5: 会话数上限（MAX_SESSIONS_PER_WU=2）', () => {
       success: true, outputText: 'ACTION: PROGRESS:working',
       logFile: '/tmp/log', worktree: '/tmp/wt', outputFiles: [], sessionCount: 1,
     });
-    const wu = await createActiveWu({ sessionId: 'legacy-session' });
+    const wu = await createActiveWu({ sessionId: 'legacy-session', workspaceRoot: noSessionRoot() });
 
     const result = await stepOf(agentLoop)({ workUnit: wu });
 
@@ -250,9 +254,9 @@ describe('B5: 会话数上限（MAX_SESSIONS_PER_WU=2）', () => {
     expect(first.metadataUpdates!.sessionCount).toBe(1);
     const sessionId = first.metadataUpdates!.sessionId as string;
 
-    // 第二 step：metadata.sessionId 与实例一致 → 续用
+    // 第二 step：档案有 sessionId → 续用（#94：cwd 解析不出时 claude 无法校验会话文件，
+    // 按续用处理、交给 CLI 错误 + 降级兜底；本用例 WU 无 workspaceId/workspaceRoot → cwd=null）
     const wu2 = await createActiveWu({ sessionCount: 1, sessionId });
-    // 注意：WU 不同但 instance.sessionId 已是第一 step 建立的会话；metadata 匹配才续用
     const second = await stepOf(agentLoop)({ workUnit: wu2 });
     expect(second.metadataUpdates!.sessionResumes).toBe(1);
     expect(second.metadataUpdates!.sessionCount).toBeUndefined();
@@ -263,7 +267,7 @@ describe('B5: 会话数上限（MAX_SESSIONS_PER_WU=2）', () => {
       success: false, error: 'CLI crashed',
       logFile: '/tmp/log', worktree: '/tmp/wt', outputFiles: [], sessionCount: 1,
     });
-    const wu = await createActiveWu({ sessionCount: 1, sessionId: 'prev' });
+    const wu = await createActiveWu({ sessionCount: 1, sessionId: 'prev', workspaceRoot: noSessionRoot() });
 
     const result = await stepOf(agentLoop)({ workUnit: wu });
 
