@@ -205,6 +205,13 @@ async function start() {
         logger.info('[AnalysisHandoff] Subscribed to workunit.status_changed');
       } catch (e) { logger.warn('[AnalysisHandoff] Failed to subscribe', { error: String(e) }); }
 
+      // #110 决策落地：decision 确认 → 写探路地图 + 雾全清建 spec 单
+      try {
+        const { initDecisionResolution } = await import('./modules/pmo/decision-resolution.js');
+        initDecisionResolution();
+        logger.info('[DecisionResolution] Subscribed to workunit.status_changed');
+      } catch (e) { logger.warn('[DecisionResolution] Failed to subscribe', { error: String(e) }); }
+
       if (agentLoopEnabled) {
         for (const profile of profiles) {
           const entry = await agentLoopRegistry.mount(profile);

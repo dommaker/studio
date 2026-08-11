@@ -96,6 +96,10 @@ export interface PmoMap {
   destination: string;
   decisions: PmoDecision[];
   fog: FogItem[];
+  /** #110 T4：雾全清后 spec 成文单已派生时间戳（幂等哨兵，照 analysisTasksSpawnedAt 先例先落档） */
+  specSpawnedAt?: string;
+  /** #110 T4：自动建成的 spec 单 id（溯源回写；幂等判定只看 specSpawnedAt） */
+  specWuId?: string | null;
 }
 
 /** 交付腿（多腿交付按腿独立台账/合并/状态，T7 起消费） */

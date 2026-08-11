@@ -267,10 +267,14 @@ router.post('/:id/review-passed', requireAuth(), requireNotGuest(), async (req: 
       });
     }
     // F6（决策 1）：人工确认落台账 l3 —— by 取登录用户名（本地模式回落 Local User/id）
+    // #110：可选 body.summary（人点通过时填写的结论文本）穿透进 l3 台账——
+    // pmo/decision-resolution 订阅器据此把 decision 单结论原样写入探路地图 decisions[]
     const user = (req as AuthRequest).user;
+    const summary = req.body?.summary;
     const wu = await service.reviewPassed(req.params.id, {
       by: user?.name ?? user?.email ?? user?.id ?? 'human',
       kind: 'human-confirm',
+      ...(typeof summary === 'string' && summary.trim() ? { summary } : {}),
     });
     res.json(wu);
   } catch (error) {
