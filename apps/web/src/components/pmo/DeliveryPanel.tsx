@@ -10,6 +10,8 @@ import { useNavigate } from 'react-router-dom';
 import { projectApi, type DeliveryStatus, type DeliveryGap } from '../../api';
 import { workunitApi } from '../../api/workunit';
 import { toast } from '../../utils/toast';
+import { AnalysisApproveDialog } from './AnalysisApproveDialog';
+import { buildMapOpeningPrefill } from './mapUtils';
 
 // 🆕 F6-c: 缺口层 → 人话文案
 const GAP_LAYER_LABELS: Record<'l1' | 'l2' | 'l3', string> = {
@@ -34,9 +36,21 @@ export function DeliveryPanel({ projectId, delivery, onRefresh }: DeliveryPanelP
   const [deliverError, setDeliverError] = useState<{ message: string; missing?: string[]; conflictFiles?: string[] } | null>(null);
   // 🆕 F6-c: 缺口行动按钮的独立 loading 态（key = `${wuId}:${action}`），防重复点击
   const [gapActionPending, setGapActionPending] = useState<Record<string, boolean>>({});
+  // #106 M7：analysis 缺口的「人工确认」走共享确认弹窗（预填待决问题清单 → 人改 → 带 summary 提交）
+  const [approveGap, setApproveGap] = useState<{ gap: DeliveryGap; prefill: string } | null>(null);
+
+  // analysis 缺口开弹窗：gaps 列表无 metadata，best-effort 拉 WU 详情取预填（拉不到 → 空手填）
+  const openAnalysisApprove = async (gap: DeliveryGap) => {
+    let prefill = '';
+    try {
+      const res = await workunitApi.get(gap.id);
+      prefill = buildMapOpeningPrefill(res.data?.metadata);
+    } catch { /* best-effort */ }
+    setApproveGap({ gap, prefill });
+  };
 
   // 🆕 F6-c: 缺口行动——重跑 L1 验证 / 补派 L2 评审 / L3 人工确认
-  const handleGapAction = async (gap: DeliveryGap, action: 'verify' | 'dispatchReview' | 'reviewPassed') => {
+  const handleGapAction = async (gap: DeliveryGap, action: 'verify' | 'dispatchReview' | 'reviewPassed', summary?: string) => {
     const key = `${gap.id}:${action}`;
     setGapActionPending(prev => ({ ...prev, [key]: true }));
     try {
@@ -54,7 +68,7 @@ export function DeliveryPanel({ projectId, delivery, onRefresh }: DeliveryPanelP
         toast.success('已创建评审 WorkUnit，待 agent 认领');
         await onRefresh();
       } else {
-        await workunitApi.reviewPassed(gap.id);
+        await workunitApi.reviewPassed(gap.id, summary);
         toast.success('已确认，L3 已补齐');
         await onRefresh();
       }
@@ -179,7 +193,7 @@ export function DeliveryPanel({ projectId, delivery, onRefresh }: DeliveryPanelP
                   )}
                   {gap.missing.includes('l3') && (
                     <button
-                      onClick={() => handleGapAction(gap, 'reviewPassed')}
+                      onClick={() => gap.type === 'analysis' ? openAnalysisApprove(gap) : handleGapAction(gap, 'reviewPassed')}
                       disabled={!!gapActionPending[`${gap.id}:reviewPassed`]}
                       className="btn btn-sm u-ok-dim u-ok u-hover-bg"
                     >
@@ -238,6 +252,18 @@ export function DeliveryPanel({ projectId, delivery, onRefresh }: DeliveryPanelP
             证据已齐:请合并分支 {delivery.branch} 并走下游发布链路
           </div>
         )
+      )}
+      {/* #106 M7：analysis 缺口的共享确认弹窗 */}
+      {approveGap && (
+        <AnalysisApproveDialog
+          prefill={approveGap.prefill}
+          onConfirm={summary => {
+            const gap = approveGap.gap;
+            setApproveGap(null);
+            handleGapAction(gap, 'reviewPassed', summary);
+          }}
+          onCancel={() => setApproveGap(null)}
+        />
       )}
     </div>
   );

@@ -12,6 +12,7 @@ const {
   mockVerify,
   mockDispatchReview,
   mockReviewPassed,
+  mockWuGet,
   mockToastSuccess,
   mockToastError,
   mockToastInfo,
@@ -21,6 +22,7 @@ const {
   mockVerify: vi.fn(),
   mockDispatchReview: vi.fn(),
   mockReviewPassed: vi.fn(),
+  mockWuGet: vi.fn(),
   mockToastSuccess: vi.fn(),
   mockToastError: vi.fn(),
   mockToastInfo: vi.fn(),
@@ -37,6 +39,7 @@ vi.mock('../../../api', () => ({
 
 vi.mock('../../../api/workunit', () => ({
   workunitApi: {
+    get: mockWuGet,
     verify: mockVerify,
     dispatchReview: mockDispatchReview,
     reviewPassed: mockReviewPassed,
@@ -194,7 +197,32 @@ describe('DeliveryPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '人工确认' }));
 
-    await waitFor(() => expect(mockReviewPassed).toHaveBeenCalledWith('wu-1'));
+    await waitFor(() => expect(mockReviewPassed).toHaveBeenCalledWith('wu-1', undefined));
+    await waitFor(() => expect(mockToastSuccess).toHaveBeenCalledWith('已确认，L3 已补齐'));
+    expect(onRefresh).toHaveBeenCalled();
+  });
+
+  it('analysis 缺口（#106 M7）：人工确认走共享弹窗——拉 WU 详情预填清单，人改后 summary 随 reviewPassed 回传', async () => {
+    mockWuGet.mockResolvedValue({
+      data: { metadata: JSON.stringify({ analysisFog: ['存储选型用哪个？'] }) },
+    });
+    const onRefresh = vi.fn();
+    renderPanel({
+      ...gapDelivery(['l3']),
+      gaps: [{ id: 'wu-a1', title: '分析存储选型', type: 'analysis', missing: ['l3'] }],
+    }, onRefresh);
+
+    fireEvent.click(screen.getByRole('button', { name: '人工确认' }));
+
+    const textarea = await screen.findByPlaceholderText(/DESTINATION/) as HTMLTextAreaElement;
+    expect(mockWuGet).toHaveBeenCalledWith('wu-a1');
+    expect(textarea.value).toBe('FOG: 存储选型用哪个？');
+    expect(mockReviewPassed).not.toHaveBeenCalled();
+
+    fireEvent.change(textarea, { target: { value: 'FOG: 改后的待决问题？' } });
+    fireEvent.click(screen.getByText('确认通过'));
+
+    await waitFor(() => expect(mockReviewPassed).toHaveBeenCalledWith('wu-a1', 'FOG: 改后的待决问题？'));
     await waitFor(() => expect(mockToastSuccess).toHaveBeenCalledWith('已确认，L3 已补齐'));
     expect(onRefresh).toHaveBeenCalled();
   });

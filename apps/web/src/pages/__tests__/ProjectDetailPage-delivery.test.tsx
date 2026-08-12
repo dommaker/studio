@@ -263,7 +263,7 @@ describe('PMO-b/F6-c: 交付区块', () => {
     fireEvent.click(screen.getByRole('button', { name: '人工确认' }));
 
     await waitFor(() => {
-      expect(mockReviewPassed).toHaveBeenCalledWith('wu-9');
+      expect(mockReviewPassed).toHaveBeenCalledWith('wu-9', undefined);
     });
     // toast + 刷新（初次加载 1 次 + 行动后 refreshDelivery 再拉 1 次）
     await screen.findByText('已确认，L3 已补齐');

@@ -14,6 +14,8 @@ import { ExecutionSteps } from '../workunit/ExecutionSteps';
 import { TreeTokenDrawer } from '../workunit/TreeTokenDrawer';
 import { SelfReviewBadge } from '../workunit/SelfReviewBadge';
 import { EvidenceLedger } from '../workunit/EvidenceLedger';
+import { AnalysisApproveDialog } from '../pmo/AnalysisApproveDialog';
+import { buildMapOpeningPrefill } from '../pmo/mapUtils';
 import { deriveDisplayState, parseAttestations } from '@dommaker/studio-shared/web';
 
 export type DrawerState = { kind: 'wu'; id: string } | { kind: 'req'; id: string } | null;
@@ -99,6 +101,8 @@ function WuDetail({ id, onOpenReq }: { id: string; onOpenReq: (reqId: string) =>
   const [error, setError] = useState('');
   const [showTreeTokens, setShowTreeTokens] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  // #106 M7：analysis 通过/确认弹窗（共享件），非 analysis 保持一键通过
+  const [showApproveModal, setShowApproveModal] = useState(false);
   // WU 事件（SSE）：状态变化/执行步事件时重拉详情（认领/审查/完成/执行过程即时可见）
   const [eventTick, setEventTick] = useState(0);
   useWorkUnitEvents(() => setEventTick(t => t + 1));
@@ -143,15 +147,17 @@ function WuDetail({ id, onOpenReq }: { id: string; onOpenReq: (reqId: string) =>
 
   /** 人工确认入口：in_review = 审查硬门（过→done；analysis 过后自动拆任务派工）；
    *  done 缺 l3 = L3 人工验收留痕（不阻断流程）。同调 reviewPassed（服务端幂等）。 */
-  const handleReviewPassed = async () => {
+  const handleReviewPassed = async (summary?: string) => {
     setConfirming(true);
     try {
-      await workunitApi.reviewPassed(id);
+      await workunitApi.reviewPassed(id, summary);
       setEventTick(t => t + 1);
     } finally {
       setConfirming(false);
     }
   };
+  // analysis 单走确认弹窗（待决问题清单审核，预填→人改→带 summary 提交）；其余类型保持一键通过
+  const handleApprove = () => (wu.type === 'analysis' ? setShowApproveModal(true) : handleReviewPassed());
 
   return (
     <div>
@@ -191,7 +197,7 @@ function WuDetail({ id, onOpenReq }: { id: string; onOpenReq: (reqId: string) =>
             className="mc-wu-link"
             disabled={confirming}
             title="审查硬门：通过→done（analysis 通过后按 TASK 拆分自动派工）；拒绝请在列表行操作"
-            onClick={handleReviewPassed}
+            onClick={handleApprove}
           >
             {confirming ? '提交中…' : '通过（审查闸门）'}
           </button>
@@ -203,11 +209,18 @@ function WuDetail({ id, onOpenReq }: { id: string; onOpenReq: (reqId: string) =>
             className="mc-wu-link"
             disabled={confirming}
             title="流程已由 Agent 评审推进完成；此确认为 L3 人工验收留痕，不阻断流程，确认后出审查列"
-            onClick={handleReviewPassed}
+            onClick={handleApprove}
           >
             {confirming ? '提交中…' : '人工验收确认（L3 留痕）'}
           </button>
         </div>
+      )}
+      {showApproveModal && (
+        <AnalysisApproveDialog
+          prefill={buildMapOpeningPrefill(wu.metadata)}
+          onConfirm={summary => { setShowApproveModal(false); handleReviewPassed(summary); }}
+          onCancel={() => setShowApproveModal(false)}
+        />
       )}
 
       {/* WU 过程可视化：执行步事件流（思考/工具调用/skill 注入/用量），SSE 步级刷新。

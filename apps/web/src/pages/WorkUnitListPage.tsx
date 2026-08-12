@@ -9,6 +9,7 @@ import { SelfReviewBadge } from '../components/workunit/SelfReviewBadge';
 import { channelApi, type AgentProfile } from '../api/channel';
 import type { WorkUnit } from '../api/workunit';
 import { buildMapOpeningPrefill } from '../components/pmo/mapUtils';
+import { AnalysisApproveDialog } from '../components/pmo/AnalysisApproveDialog';
 import { useWorkUnitEvents } from '../hooks/useWorkUnitEvents';
 import { Select } from '../components/ui';
 
@@ -217,19 +218,14 @@ function WorkUnitRow({
   const [rejectReason, setRejectReason] = useState('');
   // #106 M7：analysis 通过/确认弹窗——预填 agent 产出的待决问题清单（人审改后随 summary 回传开图）
   const [showApproveModal, setShowApproveModal] = useState(false);
-  const [approveText, setApproveText] = useState('');
   const [channelMembers, setChannelMembers] = useState<AgentProfile[]>([]);
   const navigate = useNavigate();
   // F6-b：徽章/按钮的展示判断一律过派生函数（通过/拒绝的调用资格仍看存储状态，
   // 因为服务端状态机以存储为准；done 缺 l3 时"确认"调同一端点幂等补写）
   const derived = deriveWu(wu);
 
-  const openApprove = () => {
-    setApproveText(buildMapOpeningPrefill(wu.metadata));
-    setShowApproveModal(true);
-  };
   // analysis 单走确认弹窗（待决问题清单审核）；其余类型保持一键通过
-  const handleApprove = () => (wu.type === 'analysis' ? openApprove() : onReviewPassed());
+  const handleApprove = () => (wu.type === 'analysis' ? setShowApproveModal(true) : onReviewPassed());
 
   // AC-2.4: expanded 时获取频道成员，用于 ReviewHint 判断是否有 reviewer
   useEffect(() => {
@@ -345,41 +341,11 @@ function WorkUnitRow({
       )}
 
       {showApproveModal && (
-        <div className="modal-overlay" onClick={() => setShowApproveModal(false)}>
-          <div className="modal" style={{ maxWidth: '28rem' }} onClick={e => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3 className="modal-title">确认分析结论</h3>
-              <button className="modal-close" onClick={() => setShowApproveModal(false)} aria-label="关闭">×</button>
-            </div>
-            <div className="modal-body">
-              <p className="text-xs u-text-2 mb-2">
-                审核待决问题清单（逐行 FOG: 格式，可增删改）；确认通过后系统据此开图并逐条建决策单。
-                清空清单直接通过 = 非探路型，不开图。
-              </p>
-              <textarea
-                className="input w-full font-mono"
-                rows={8}
-                placeholder={'DESTINATION: 一句话目标（可选）\nFOG: 待决问题 1\nFOG: 待决问题 2'}
-                value={approveText}
-                onChange={e => setApproveText(e.target.value)}
-              />
-            </div>
-            <div className="modal-footer">
-              <button
-                className="btn btn-secondary"
-                onClick={() => setShowApproveModal(false)}
-              >
-                取消
-              </button>
-              <button
-                className="btn btn-primary"
-                onClick={() => { onReviewPassed(approveText); setShowApproveModal(false); }}
-              >
-                确认通过
-              </button>
-            </div>
-          </div>
-        </div>
+        <AnalysisApproveDialog
+          prefill={buildMapOpeningPrefill(wu.metadata)}
+          onConfirm={summary => { onReviewPassed(summary); setShowApproveModal(false); }}
+          onCancel={() => setShowApproveModal(false)}
+        />
       )}
 
       {showRejectModal && (
