@@ -16,7 +16,7 @@
 import { logger, withAttestation, deriveDisplayState, type AttestationEntry, type WorkUnitSnapshot, type WorkUnitEvent } from '@dommaker/studio-shared';
 import { mergeWorktreeBranchOnReviewPass } from './merge-on-review-pass.js';
 import { parseWuMetadata } from './wu-metadata.js';
-import { VALID_TRANSITIONS, type WorkUnitMetadata, type ReviewAttestationSource } from './workunit.types.js';
+import { resolveValidTransitions, type WorkUnitMetadata, type ReviewAttestationSource } from './workunit.types.js';
 import { snapshotToData } from './workunit.mappers.js';
 import { WorkUnitCrudService, type WorkUnitData } from './workunit-crud.js';
 
@@ -89,7 +89,8 @@ export class WorkUnitService extends WorkUnitCrudService {
       throw new Error('WorkUnit not found');
     }
 
-    const allowed = VALID_TRANSITIONS[current.status];
+    // #108：decision/spec 走裁剪状态机（TYPE_VALID_TRANSITIONS 覆盖），其余 type 用全局表
+    const allowed = resolveValidTransitions(current.type, current.status);
     if (!allowed || !allowed.includes(newStatus)) {
       throw new Error(
         `Invalid status transition: ${current.status} → ${newStatus}`

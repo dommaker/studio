@@ -12,9 +12,14 @@
  * （2026-08 前的 ③ metadata.pmoProjectId 级已移除——那是 agent-loop 首 step 落档的
  *  冗余缓存，生产存量为零；本次修复 analysis 派生链 task WU（仅 pmoId、reqId=null）
  *  永远解析不到 PMO 分支、代码合并未走 PMO 集成分支的 bug。）
+ *
+ * #113 T7：显式多腿项目（resolveDeliveries > 1）按 WU→腿归属解析腿分支
+ * （matchWuToLeg：workspaceRoot/worktreeBaseRepo 命中腿 gitRepo，或 pmoBranch
+ * 命中腿 branch）；未命中任何腿回落项目级分支，单腿项目行为不变。
  */
 import { FileStore } from '@dommaker/studio-shared';
-import { projectService, resolveDeliveryPolicy, type DeliveryPolicy, type ProjectData } from '../pmo/project.service.js';
+import { projectService, resolveDeliveries, resolveDeliveryPolicy, type DeliveryPolicy, type ProjectData } from '../pmo/project.service.js';
+import { matchWuToLeg } from '../pmo/evidence-summary.js';
 import { RequirementService } from './requirement.service.js';
 import { parseWuPmoId } from './wu-pmo-attribution.js';
 
@@ -70,6 +75,16 @@ export async function resolvePmoBranchForWU(
 ): Promise<PmoBranchResolution | null> {
   const project = await resolveAttribution(wu, fileStore, deps);
   if (!project) return null;
+  // #113 T7：显式多腿项目按 WU→腿归属解析腿分支（matchWuToLeg：workspaceRoot/
+  // worktreeBaseRepo 命中腿 gitRepo，或 pmoBranch 命中腿 branch）；未命中任何腿
+  // 回落项目级 gitBranch || pmoNumber（与单腿同口径）。单腿项目不走腿归属，行为不变。
+  const legs = resolveDeliveries(project);
+  if (legs.length > 1) {
+    const leg = legs.find(l => matchWuToLeg(wu.metadata, l));
+    if (leg?.branch) {
+      return { projectId: project.id, branch: leg.branch, deliveryPolicy: resolveDeliveryPolicy(project) };
+    }
+  }
   const branch = project.gitBranch || project.pmoNumber;
   if (!branch) return null;
   return { projectId: project.id, branch, deliveryPolicy: resolveDeliveryPolicy(project) };

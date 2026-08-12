@@ -249,7 +249,7 @@ describe('WorkUnitDrawer', () => {
     expect(screen.getByText(/✓ agent-review · 76d96d3/)).toBeTruthy();
     const btn = screen.getByText('人工验收确认（L3 留痕）');
     fireEvent.click(btn);
-    await waitFor(() => expect(mockReviewPassed).toHaveBeenCalledWith('WU-1017'));
+    await waitFor(() => expect(mockReviewPassed).toHaveBeenCalledWith('WU-1017', undefined));
   });
 
   it('证据台账：in_review → 审查闸门「通过」按钮（硬门语义）', async () => {
@@ -257,7 +257,32 @@ describe('WorkUnitDrawer', () => {
     renderDrawer({ kind: 'wu', id: 'WU-1017' });
     await waitFor(() => expect(screen.getByText('通过（审查闸门）')).toBeTruthy());
     fireEvent.click(screen.getByText('通过（审查闸门）'));
-    await waitFor(() => expect(mockReviewPassed).toHaveBeenCalledWith('WU-1017'));
+    await waitFor(() => expect(mockReviewPassed).toHaveBeenCalledWith('WU-1017', undefined));
+  });
+
+  it('analysis 单（#106 M7）：通过走共享确认弹窗——预填清单人改后 summary 随 reviewPassed 回传', async () => {
+    mockWuGet.mockResolvedValue({
+      data: {
+        ...WU,
+        type: 'analysis',
+        status: 'in_review',
+        metadata: JSON.stringify({
+          analysisDestination: '三仓特性联动上线',
+          analysisFog: ['存储选型用哪个？'],
+        }),
+      },
+    });
+    renderDrawer({ kind: 'wu', id: 'WU-1017' });
+    await waitFor(() => expect(screen.getByText('通过（审查闸门）')).toBeTruthy());
+    fireEvent.click(screen.getByText('通过（审查闸门）'));
+
+    const textarea = await screen.findByPlaceholderText(/DESTINATION/) as HTMLTextAreaElement;
+    expect(textarea.value).toBe('DESTINATION: 三仓特性联动上线\nFOG: 存储选型用哪个？');
+    expect(mockReviewPassed).not.toHaveBeenCalled();
+
+    fireEvent.change(textarea, { target: { value: 'FOG: 存储选型用哪个？' } });
+    fireEvent.click(screen.getByText('确认通过'));
+    await waitFor(() => expect(mockReviewPassed).toHaveBeenCalledWith('WU-1017', 'FOG: 存储选型用哪个？'));
   });
 
   it('Layer B 实时区块：渲染执行中 chunk（思考/工具/result），step-start 不渲染', async () => {

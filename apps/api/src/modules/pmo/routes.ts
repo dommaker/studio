@@ -59,7 +59,7 @@ router.get('/project', async (req: Request, res: Response) => {
  */
 router.post('/project', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
-    const { companyId, title, description, requirement, okrId, priority, gitBranch, gitRepo, deliveryPolicy, requirementsDocId } = req.body;
+    const { companyId, title, description, requirement, okrId, priority, gitBranch, gitRepo, gitRepos, deliveryPolicy, requirementsDocId } = req.body;
 
     if (!title) {
       return res.status(400).json({
@@ -72,6 +72,12 @@ router.post('/project', requireAuth(), requireNotGuest(), async (req: Request, r
         error: { code: 'INVALID_INPUT', message: "deliveryPolicy must be 'auto-merge' or 'branch-only'" },
       });
     }
+    // #114 T8：多工程入参——必须为非空字符串数组（空数组视为未传，走旧单选行为）
+    if (gitRepos !== undefined && (!Array.isArray(gitRepos) || gitRepos.some((r: unknown) => typeof r !== 'string'))) {
+      return res.status(400).json({
+        error: { code: 'INVALID_INPUT', message: 'gitRepos must be an array of strings' },
+      });
+    }
 
     const project = await projectService.create({
       companyId,
@@ -82,6 +88,7 @@ router.post('/project', requireAuth(), requireNotGuest(), async (req: Request, r
       priority,
       gitBranch,
       gitRepo,
+      gitRepos,
       deliveryPolicy,
       requirementsDocId,
     });

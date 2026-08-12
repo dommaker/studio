@@ -11,11 +11,15 @@
  *   - l2 对已完成 WU 要求，但豁免 type==='review' 与 type==='analysis'——
  *     与 review-dispatcher.ts:47 的跳过集对齐：review 子 WU 自身不再派评审，
  *     analysis 的验收闸是人工确认（L3），diff-only 契约对非代码产物恒 needs-info
- *     转人工纯噪声。若不豁免，analysis 类 WU 永远不可能 deliverable（规则自相矛盾）；
+ *     转人工纯噪声。若不豁免，analysis 类 WU 永远不可能 deliverable（规则自相矛盾）。
+ *     #108 起 decision/spec 同入豁免（DECISION_SPEC_TYPES，人工验收类工单不派评审）；
  *   - l3 对所有已完成 WU 要求（验收权只在人）。
  */
 import { deriveDisplayState, type WorkUnitSnapshot } from '@dommaker/studio-shared';
 import { parseWuPmoId } from '../requirements/wu-pmo-attribution.js';
+import { parseWuMetadata } from '../workunit/wu-metadata.js';
+import { DECISION_SPEC_TYPES } from '../workunit/workunit.types.js';
+import type { DeliveryLeg } from './project.service.js';
 
 /**
  * @deprecated 兼容别名（progress-rollup 及其测试沿用旧名）：parser 已迁至
@@ -28,8 +32,8 @@ export const parseWuMetaPmoId = parseWuPmoId;
 /** 代码类 WU（与 agent-loop CODE_WORKTREE_TYPES 同集——有专属 worktree 才跑自动验证） */
 export const CODE_TYPES = new Set(['task', 'bug', 'feature', 'refactor']);
 
-/** L2 豁免集：ReviewDispatcher 不派自动评审的类型（review-dispatcher.ts:47） */
-const L2_EXEMPT_TYPES = new Set(['review', 'analysis']);
+/** L2 豁免集：ReviewDispatcher 不派自动评审的类型（review-dispatcher.ts 跳过集 + #108 decision/spec） */
+const L2_EXEMPT_TYPES = new Set(['review', 'analysis', ...DECISION_SPEC_TYPES]);
 
 /** 项目证据汇总（deliverable = 有 WU 且全部完成且三层证据齐） */
 export interface EvidenceSummary {
@@ -109,4 +113,43 @@ export function summarizeEvidence(snapshots: WorkUnitSnapshot[]): EvidenceSummar
     selfReviewCount,
     deliverable,
   };
+}
+
+// ============================================
+// #113 T7（#106 子票）：WU→腿归属（仅显式多腿项目消费；单腿不走此口径）
+// ============================================
+
+/**
+ * WU→腿归属判定（最小口径，创建期/运行期已有戳，不新增落档）：
+ *   ① metadata.workspaceRoot === leg.gitRepo（publish/analysis-handoff 创建期落档的归属根）
+ *   ② metadata.worktreeBaseRepo === leg.gitRepo（agent-loop worktree 落档的母仓库）
+ *   ③ metadata.pmoBranch === leg.branch（agent-loop 首 step 落档的 PMO 集成分支）
+ * 均要求两侧非空才比较；任一命中即归该腿。
+ */
+export function matchWuToLeg(metadata: string | null | undefined, leg: DeliveryLeg): boolean {
+  const meta = parseWuMetadata(metadata);
+  if (leg.gitRepo) {
+    if (meta.workspaceRoot === leg.gitRepo) return true;
+    if (meta.worktreeBaseRepo === leg.gitRepo) return true;
+  }
+  if (leg.branch && meta.pmoBranch === leg.branch) return true;
+  return false;
+}
+
+/**
+ * 多腿分桶：WU 归首个命中的腿（数组序）；全部不命中 = 未分腿公共 WU（shared）。
+ * 公共 WU 保守计入每条腿的台账与判定——证据缺口不允许从任何一条腿的交付闸逃逸。
+ */
+export function partitionSnapshotsByLeg(
+  legs: DeliveryLeg[],
+  snapshots: WorkUnitSnapshot[],
+): { perLeg: WorkUnitSnapshot[][]; shared: WorkUnitSnapshot[] } {
+  const perLeg: WorkUnitSnapshot[][] = legs.map(() => []);
+  const shared: WorkUnitSnapshot[] = [];
+  for (const s of snapshots) {
+    const idx = legs.findIndex(leg => matchWuToLeg(s.metadata, leg));
+    if (idx >= 0) perLeg[idx].push(s);
+    else shared.push(s);
+  }
+  return { perLeg, shared };
 }

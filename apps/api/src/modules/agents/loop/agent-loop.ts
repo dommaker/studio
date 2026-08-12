@@ -20,6 +20,7 @@ import { knowledgeService } from '../../knowledge/knowledge-service.js';
 import { eventStore } from '../../../core/event-store.js';
 import { postWuSystemMessage } from '../../workunit/wu-messenger.js';
 import { parseWuMetadata, mergedWuView } from '../../workunit/wu-metadata.js';
+import { hasUnfinishedDeps, buildStatusById } from '../../workunit/wu-dependencies.js';
 import { resolveWorkspaceRoot } from '../../workspaces/workspace-store.js';
 import { resolvePmoBranchForWU } from '../../requirements/pmo-branch-resolver.js';
 import { resolveStudioLogFile } from '../../../utils/studio-log-path.js';
@@ -30,6 +31,7 @@ import {
 import { emitExecutionStepEvent, emitExecutionStreamLine, emitExecutionStreamStepStart } from './execution-step-events.js';
 import { CODE_WORKTREE_TYPES, runWuVerification } from './wu-verification.js';
 import { runCompletionGuards } from './completion-gates.js';
+import { parseMapOpening } from '../../pmo/map-opening.js';
 import type { StepResult, Observations, Target, RuntimeInstanceRow } from './agent-loop.types.js';
 import {
   extractInputTokens, isProcessAlive, isGitRepoRoot, resolveWorktreesDir,
@@ -43,6 +45,7 @@ import {
 import { testWuGuardEnabled, isTestLikeWorkUnit, parseExcludeAssignee } from './agent-loop-guards.js';
 import { composeStepPrompt } from './prompt-composer.js';
 import { handleDelegateBranch } from './delegate-branch.js';
+import { shouldResumeSession, RESUME_FAILURE_RE } from './session-resume.js';
 
 // 输出解析/prompt 构建纯函数已抽到 ./agent-loop-parsers.js（工单 28，行为不变）；
 // re-export 保持对外导出语义不变
@@ -80,7 +83,8 @@ const REVIEW_STEP_LIMIT = 30;
 
 /** B5（2026-08-03 token-burn issue P1-1）：每 WU 独立会话数上限。
  *  会话反复重建（stuck 重开 / token 截断重开）意味着整段 transcript 全文重放重新烧一遍；
- *  超限说明自动执行已失控，转 need_input 等人工评估（人工回复经 resumeWaitingWorkUnit 重置预算）。 */
+ *  超限说明自动执行已失控，转 need_input 等人工评估（#94 起人工回复不再重置预算——
+ *  复活后凭 metadata.sessionId 优先续用旧会话，见 waiting-input.ts）。 */
 const MAX_SESSIONS_PER_WU = 2;
 
 /** F6-fix: 空闲分支心跳节流间隔 — agent-timeout-scan 阈值为 5min，45s 一次足够保活 */
@@ -427,6 +431,8 @@ export class AgentLoop {
     // §9.5: channel.members 为成员关系唯一事实源 — observe 每轮加载一次频道配置
     // （FileStore 规模小，成本可忽略）。
     const channelMembers = await this.loadChannelMembers();
+    // #109（M4 接单过滤）：全局 id→status 映射（FileStore index 天然跨 PMO）
+    const statusById = buildStatusById(allSnapshots);
     const unassigned = allSnapshots.filter(s => {
       if (s.status !== 'unassigned') return false;
       // Assignee-aware claiming（@mention 语义，docs/vision-2026.md §3）：
@@ -448,6 +454,8 @@ export class AgentLoop {
       // F4（reviewer 解锚，决策 5）：评审 WU 排除实现者 —— metadata.excludeAssignee
       // 命中的 profile 不可见（自评兜底场景 dispatcher 不设该字段，此处自然放行）
       if (parseExcludeAssignee(s.metadata) === this.role.id) return false;
+      // #109（M4 接单过滤）：metadata.blockedBy 中有未 done 的 WU → 对所有 loop 不可见
+      if (hasUnfinishedDeps(s.metadata, statusById)) return false;
       return true;
     }).sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
       .slice(0, 5)
@@ -541,7 +549,9 @@ export class AgentLoop {
     );
     const { prompt, pendingReplies, knowledgeContext, skillMatched, injectedKnowledgeIds } = composed;
 
-    // Session management — per-WU session (RuntimeInstance.sessionId, cwd-scoped)
+    // Session management — #94 会话号 per-WU 化：只信档案 metadata.sessionId，
+    // 实例单槽位（RuntimeInstance.sessionId）废弃（并行互踩 + 重启孤儿化）。
+    // 续用判定在 worktree 解析之后进行（此时 workspaceRoot 才是本步真实 cwd），见下方。
     const metadataUpdates: Partial<WorkUnitMetadata> = {};
     if (skillMatched.length > 0) {
       // 决策 7: step 时匹配名单落盘 metadata.matchedSkills（随 recordResult 原子写入，
@@ -551,43 +561,6 @@ export class AgentLoop {
     // 已消费 hint（pendingReplies/commitGuardHint/verifyFailHint/childGuardHint）的清除增量
     // （undefined 在 JSON 序列化时丢弃，清除避免后续步骤重复注入）
     Object.assign(metadataUpdates, composed.consumedHintUpdates);
-    // 续用判定（fix/guard-and-resume）：同一 WU 内才续用。claude 会话按 (HOME, cwd) 存储
-    // （2.1.80 实测：异 cwd --resume 报 "No conversation found with session ID"）。
-    // HOME 不再 per-agent 隔离（GAP-2 已移除），会话区分靠 cwd；token 由 process.env 透传。
-    // B3b-i 每 WU 独立 worktree → 跨 WU 续用必失败；WU metadata.sessionId 由本 WU 首 step
-    // 写入，与 instance.sessionId 相等才说明会话是在本 WU（同一 worktree/cwd）建立的。
-    const resumeSessionId = this.instance?.sessionId && metadata.sessionId === this.instance.sessionId
-      ? this.instance.sessionId
-      : null;
-    let newSessionId: string | null = null;
-    if (!resumeSessionId) {
-      // B5（2026-08-03 token-burn issue P1-1，决策记录 #3）：每 WU 会话数上限。
-      // 新建会话 = 从零重读 SKILL.md/探索文件 + 后续 step 全文重放，是最大的 token 放大器；
-      // 超限转 need_input 等人工评估，替代静默重开。人工回复由 resumeWaitingWorkUnit 重置 sessionCount。
-      // 旧数据无 sessionCount 字段：已有 sessionId 的按已用 1 个计。
-      const sessionsUsed = metadata.sessionCount ?? (metadata.sessionId ? 1 : 0);
-      if (sessionsUsed >= MAX_SESSIONS_PER_WU) {
-        logger.warn('[AgentLoop] Session limit reached — need human evaluation', {
-          workUnitId: wu.id, sessionsUsed, max: MAX_SESSIONS_PER_WU,
-        });
-        return {
-          action: 'need_input' as const,
-          summary: `会话重建已达上限（${sessionsUsed}/${MAX_SESSIONS_PER_WU}）：反复从零重开会话会全文重放烧钱，已暂停自动执行。请人工评估后回复任意内容继续（回复会重置会话预算），或直接关闭任务`,
-          metadataUpdates,
-        };
-      }
-      newSessionId = randomUUID();
-      metadataUpdates.sessionId = newSessionId;
-      metadataUpdates.sessionCount = sessionsUsed + 1;
-      metadataUpdates.startedAt = new Date().toISOString();
-      // Persist sessionId to RuntimeInstance for cross-WorkUnit continuity
-      if (this.instance) {
-        await this.fileStore.updateState(this.instance.id, { sessionId: newSessionId });
-        this.instance.sessionId = newSessionId;
-      }
-    } else {
-      metadataUpdates.sessionResumes = (metadata.sessionResumes ?? 0) + 1;
-    }
 
     // F6 → B3a: WorkUnit 绑定工程 → 解析执行根目录，经 parameters.workspaceRoot
     // 传给 agent-runner（resolveWorkspace Priority 1：直接以该目录为 cwd）。
@@ -648,8 +621,7 @@ export class AgentLoop {
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         logger.error(`[AgentLoop] Worktree creation failed for ${wu.id}: ${message}`, { traceId });
-        // 首 step 失败：会话未建立，重置避免下步 --resume 空 id
-        if (newSessionId) await this.resetUnestablishedSession(metadataUpdates);
+        // 会话签发在 worktree 解析之后（#94），此处尚无会话簿记需重置
         return {
           action: 'failed' as const,
           summary: `worktree 创建失败: ${message.slice(0, 500)}`,
@@ -668,7 +640,46 @@ export class AgentLoop {
     }
 
     // AgentTask with new interface: provider, sessionId, maxTurns, knowledgeContext
+    // F4: profile provider (registry id) → AgentTask. Cast via AgentTask['provider'] because
+    // apps/api tsc resolves studio-agent types from its (possibly stale) dist/index.d.ts.
+    // （取值前移：续用判定需要 provider）
     const taskProvider = (this.role.provider || 'claude') as AgentTask['provider'];
+    // 续用判定（#94 per-WU 化）：只信档案 metadata.sessionId，不再读 instance 槽位。
+    // claude 会话按 (HOME, cwd) 存储（2.1.80 实测：异 cwd --resume 报
+    // "No conversation found with session ID"）——cwd 取本步最终 workspaceRoot（此时已是
+    // 真实执行 cwd），会话文件 ~/.claude/projects/<cwd-slug>/<id>.jsonl 不在 → 直接走新建；
+    // kimi/codex/opencode 为 cwd 维度续用（无 id 文件可查），档案有号即续用（cli-adapter 头部实证）。
+    const resumeSessionId = shouldResumeSession(taskProvider, metadata.sessionId, workspaceRoot)
+      ? metadata.sessionId!
+      : null;
+    let newSessionId: string | null = null;
+    // B5（2026-08-03 token-burn issue P1-1，决策记录 #3）：每 WU 会话数上限。
+    // 新建会话 = 从零重读 SKILL.md/探索文件 + 后续 step 全文重放，是最大的 token 放大器；
+    // 超限转 need_input 等人工评估，替代静默重开。旧数据无 sessionCount 字段：已有 sessionId 的按已用 1 个计。
+    const sessionsUsed = metadata.sessionCount ?? (metadata.sessionId ? 1 : 0);
+    if (!resumeSessionId) {
+      if (sessionsUsed >= MAX_SESSIONS_PER_WU) {
+        logger.warn('[AgentLoop] Session limit reached — need human evaluation', {
+          workUnitId: wu.id, sessionsUsed, max: MAX_SESSIONS_PER_WU,
+        });
+        return {
+          action: 'need_input' as const,
+          summary: `会话重建已达上限（${sessionsUsed}/${MAX_SESSIONS_PER_WU}）：反复从零重开会话会全文重放烧钱，已暂停自动执行。请人工评估后回复任意内容继续，或直接关闭任务`,
+          metadataUpdates,
+        };
+      }
+      newSessionId = randomUUID();
+      metadataUpdates.sessionId = newSessionId;
+      metadataUpdates.sessionCount = sessionsUsed + 1;
+      metadataUpdates.startedAt = new Date().toISOString();
+      metadataUpdates.lastSessionResumed = false;
+    } else {
+      // sessionResumes 不在此预增——#94 起只计实际续用成功的步（见成功路径统一落账）
+      metadataUpdates.lastSessionResumed = true;
+    }
+    // 本步最终实际会话形态（续用降级重试后会被改写：换新号 + resumed=false）
+    let effectiveSessionId: string | null = resumeSessionId ?? newSessionId;
+    let sessionResumed = resumeSessionId !== null;
     const executionId = `${wu.id}-${Date.now()}`;
     // 本步步号（与 recordResult 的 stepCount+1 同口径）——Layer A 执行步事件与 Layer B 步内流式共用
     const stepNo = (metadata.stepCount ?? 0) + 1;
@@ -737,7 +748,7 @@ export class AgentLoop {
       // Layer B: step 开始信号（CLI 首行到达前抽屉即有反馈）
       void emitExecutionStreamStepStart({ workUnitId: wu.id, executionId, step: stepNo }).catch(() => {});
       // §9.6: 经 Executor 接口执行（P0 恒为 LocalExecutor → agentRunner.executeLightweight）
-      const result: ExecutionResult = await this.executor.execute(task);
+      let result: ExecutionResult = await this.executor.execute(task);
 
       // W-3 接线：runner 失败时返回 { success:false } 而不抛错、且无 outputText ——
       // 直接落入 parseAgentOutput 会得到默认 progress（空 summary），导致 consecutiveStuck
@@ -745,13 +756,7 @@ export class AgentLoop {
       // 记 consecutiveStuck + errorType/errorDetail，不发频道消息；连续 3 次走 blocked 路径。
       // 不带 channelVersion —— 失败不是发言，无需新鲜度检查（避免被降级为 progress）。
       if (result.success === false) {
-        const detail = (result.error ?? '未知错误').slice(0, 500);
-        logger.error(`[AgentLoop] agentStep execution failed for ${wu.id}: ${detail}`, { traceId });
-        // B6: 失败执行同样记账（CLI 已跑的轮次照样烧了 token，runner error 路径透出 usage）
-        recordTokenEvent(result);
-        // 首 step 失败：会话未必已建立，重置避免下步 --resume 一个从未建立的会话
-        if (newSessionId) await this.resetUnestablishedSession(metadataUpdates);
-        return {
+        const failResult = (detail: string) => ({
           action: 'failed' as const,
           summary: `CLI 执行失败: ${detail}`,
           metadataUpdates: {
@@ -760,7 +765,46 @@ export class AgentLoop {
             errorDetail: detail,
             errorAt: new Date().toISOString(),
           },
-        };
+        });
+        let detail = (result.error ?? '未知错误').slice(0, 500);
+        logger.error(`[AgentLoop] agentStep execution failed for ${wu.id}: ${detail}`, { traceId });
+        // B6: 失败执行同样记账（CLI 已跑的轮次照样烧了 token，runner error 路径透出 usage）
+        recordTokenEvent(result);
+        // #94 续用降级：仅续用步 + 「会话不存在」错误（档案 sessionId 对应会话已被清理）→
+        // 换发新 sessionId 重试一次（claude 传 --session-id、不带 sessionResume）。
+        // 非续用类错误（超时/业务失败）与 catch 分支（spawn 异常）不触发；每步至多烧一次重试。
+        if (resumeSessionId && RESUME_FAILURE_RE.test(detail)) {
+          const fallbackSessionId = randomUUID();
+          logger.warn(`[AgentLoop] Resume target session lost for ${wu.id} — falling back to a new session`, { traceId });
+          task.parameters!.sessionId = taskProvider === 'claude' ? fallbackSessionId : undefined;
+          delete task.parameters!.sessionResume;
+          const retryResult: ExecutionResult = await this.executor.execute(task);
+          if (retryResult.success === false) {
+            // 降级重试仍失败 → 既有 failed 返回；新会话未建立，清掉未落盘的新会话簿记
+            detail = (retryResult.error ?? '未知错误').slice(0, 500);
+            logger.error(`[AgentLoop] agentStep fallback retry failed for ${wu.id}: ${detail}`, { traceId });
+            recordTokenEvent(retryResult);
+            this.resetUnestablishedSession(metadataUpdates);
+            return failResult(detail);
+          }
+          // 降级成功：走正常成功路径；换新号落盘（sessionCount+1；绕过 MAX 上限一次——
+          // 预算防线针对「反复从零重开」，降级是单次自愈）
+          result = retryResult;
+          effectiveSessionId = fallbackSessionId;
+          sessionResumed = false;
+          metadataUpdates.sessionId = fallbackSessionId;
+          metadataUpdates.sessionCount = sessionsUsed + 1;
+          metadataUpdates.lastSessionResumed = false;
+        } else {
+          // 首 step 失败：会话未必已建立，重置避免下步 --resume 一个从未建立的会话
+          if (newSessionId) this.resetUnestablishedSession(metadataUpdates);
+          return failResult(detail);
+        }
+      }
+
+      // #94: sessionResumes 只计「实际续用成功」的步（续用尝试但降级/失败的步不计，防计数失真）
+      if (sessionResumed) {
+        metadataUpdates.sessionResumes = (metadata.sessionResumes ?? 0) + 1;
       }
 
       const stepResult = parseAgentOutput(result.outputText ?? '');
@@ -795,7 +839,9 @@ export class AgentLoop {
       void emitExecutionStepEvent({
         workUnitId: wu.id,
         executionId: task.executionId,
-        sessionId: resumeSessionId ?? newSessionId ?? undefined,
+        sessionId: effectiveSessionId ?? undefined,
+        // #94: 本步最终实际的续用形态（续用降级重试后 = false）
+        sessionResumed,
         step: stepNo,
         action: stepResult.action,
         rawOutput: toolTraceSource,
@@ -826,7 +872,7 @@ export class AgentLoop {
       }
 
       // Session truncation: detect input_tokens exceeding threshold
-      this.checkSessionTruncation(result.outputText, metadataUpdates);
+      this.checkSessionTruncation(result.outputText);
 
       // P0 修复（reviewReport 回传断链）：review 子 WU 报告 COMPLETE 时，把 reviewer
       // 最终输出解析为结构化结论写入 metadata.reviewReport —— 这是 ReviewDispatcher
@@ -849,6 +895,17 @@ export class AgentLoop {
         if (tasks.length > 0) {
           metadataUpdates.analysisTasks = tasks;
         }
+        // #106 M7 对齐：同份输出里的 FOG:/DESTINATION: 行（map-opening 同一解析器，
+        // 契约单一来源）落 metadata——人工确认弹窗据此预填待决问题清单（人审改后随
+        // l3.summary 回传开图）。无 FOG 行 = 非探路型，两字段都不落（destination
+        // 单独落档会预填出一行无人消费的 DESTINATION，误导确认人）。
+        const opening = parseMapOpening(result.outputText ?? '');
+        if (opening.fog.length > 0) {
+          metadataUpdates.analysisFog = opening.fog;
+          if (opening.destination) {
+            metadataUpdates.analysisDestination = opening.destination;
+          }
+        }
       }
 
       // AC-4.3/4.4: Cache tracking — extract input_tokens from result events
@@ -863,7 +920,7 @@ export class AgentLoop {
       // success===false 显式分支接线（consecutiveStuck → blocked）；本 catch 只覆盖
       // 真正抛出的异常（如 spawn 失败），保持 need_input 语义。
       // 首 step 抛异常：会话未建立，重置避免下步 --resume 空 id
-      if (newSessionId) await this.resetUnestablishedSession(metadataUpdates);
+      if (newSessionId) this.resetUnestablishedSession(metadataUpdates);
       const message = err instanceof Error ? err.message : String(err);
       logger.error(`[AgentLoop] agentStep execute failed: ${message}`, { traceId });
       // AC-8.7 远程节点不可达分支已随 RemoteExecutor 一并删除（远程方向放弃，bdaf0dd3）。
@@ -978,23 +1035,21 @@ export class AgentLoop {
   }
 
   /**
-   * 首 step（新建会话）执行失败时重置 sessionId：CLI 会话未必已建立（可能根本没 spawn 到），
-   * 不重置则下一步按续用发 `--resume <从未建立的 id>`（claude 必报 "No conversation found"）。
-   * 续用 step 失败不调用 —— 会话已存在，保留下一步继续 resume。
+   * 首 step（新建会话）执行失败 / 续用降级重试仍失败时重置会话簿记：CLI 会话未必已建立
+   * （可能根本没 spawn 到），不重置则下一步按续用发 `--resume <从未建立的 id>`
+   * （claude 必报 "No conversation found"）。续用 step 失败不调用 —— 会话已存在，
+   * 保留下一步继续 resume。（#94：实例槽位清除已随 per-WU 化一并移除）
    */
-  private async resetUnestablishedSession(metadataUpdates: Partial<WorkUnitMetadata>): Promise<void> {
-    if (this.instance) {
-      this.instance.sessionId = null;
-      await this.fileStore.updateState(this.instance.id, { sessionId: null }).catch(() => {});
-    }
+  private resetUnestablishedSession(metadataUpdates: Partial<WorkUnitMetadata>): void {
     delete metadataUpdates.sessionId;
     // B5: 会话未建立不计入会话预算（失败重试由 consecutiveStuck>=3 → blocked 兜底）
     delete metadataUpdates.sessionCount;
+    delete metadataUpdates.lastSessionResumed;
   }
 
-  /** Check execution output for input_tokens exceeding threshold, reset session if needed */
-  private checkSessionTruncation(outputText: string | undefined, metadataUpdates: Partial<WorkUnitMetadata>): void {
-    if (!outputText || !this.instance) return;
+  /** Check execution output for input_tokens exceeding threshold（#94 起仅留观测日志，不再清会话） */
+  private checkSessionTruncation(outputText: string | undefined): void {
+    if (!outputText) return;
     try {
       // Parse stream JSON events for usage data
       const lines = outputText.split('\n').filter(l => l.trim());
@@ -1005,9 +1060,6 @@ export class AgentLoop {
             const inputTokens = event.input_tokens as number;
             if (inputTokens > SESSION_TOKEN_LIMIT) {
               logger.info(`[AgentLoop] Session truncation: ${inputTokens} tokens exceeds limit ${SESSION_TOKEN_LIMIT}`);
-              this.instance.sessionId = null;
-              this.fileStore.updateState(this.instance.id, { sessionId: null }).catch(() => {});
-              delete metadataUpdates.sessionId;
             }
           }
         } catch {

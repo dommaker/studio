@@ -169,13 +169,15 @@ describe('AC-5: PMO Publish API', () => {
     expect('workspaceRoot' in meta).toBe(false);
   });
 
-  it('analysis scope 含只读约束（2026-07-30：分析阶段禁止改文件）+ TASK 输出约定', async () => {
+  it('analysis scope 含只读约束（2026-07-30：分析阶段禁止改文件）+ TASK 输出约定 + FOG/DESTINATION 待决清单约定（#106 M7）', async () => {
     await projectService.publish({ projectId: 'proj-1', channelId: 'ch-1' });
 
     const scope = mockWuCreate.mock.calls[0][0].scope as string;
     expect(scope).toContain('只读分析');
     expect(scope).toContain('禁止创建/修改/删除任何文件');
     expect(scope).toContain('TASK:');
+    expect(scope).toContain('FOG:');
+    expect(scope).toContain('DESTINATION:');
   });
 
   it('ChannelMessage meta contains pmoId', async () => {
@@ -195,5 +197,43 @@ describe('AC-5: PMO Publish API', () => {
       expect.stringContaining('proj-1'),
       expect.objectContaining({ status: 'active' })
     );
+  });
+
+  it('#112 多腿：显式 deliveries 多腿 → 分析单 scope 含全部仓库路径（只读约束不变）', async () => {
+    mockReadJson.mockResolvedValue(sampleProject({
+      gitRepo: '/root/projects/leg-a',
+      deliveries: [
+        { gitRepo: '/root/projects/leg-a', branch: 'PMO-1', status: 'pending' },
+        { gitRepo: '/root/projects/leg-b', branch: 'PMO-1', status: 'pending' },
+        { gitRepo: '/root/projects/leg-c', branch: null, status: 'pending' },
+      ],
+    }));
+    await projectService.publish({ projectId: 'proj-1', channelId: 'ch-1' });
+
+    const scope = mockWuCreate.mock.calls[0][0].scope as string;
+    expect(scope).toContain('/root/projects/leg-a');
+    expect(scope).toContain('/root/projects/leg-b');
+    expect(scope).toContain('/root/projects/leg-c');
+    expect(scope).toContain('只读');
+  });
+
+  it('#112 单腿回归：无 deliveries 字段 → 分析单 scope 与现状一致（无多腿段）', async () => {
+    mockReadJson.mockResolvedValue(sampleProject({ gitRepo: '/root/projects/demo' }));
+    await projectService.publish({ projectId: 'proj-1', channelId: 'ch-1' });
+
+    const scope = mockWuCreate.mock.calls[0][0].scope as string;
+    expect(scope).not.toContain('多交付腿');
+    expect(scope).toContain('只读分析');
+    expect(scope).toContain('TASK:');
+  });
+
+  it('#112 单腿回归：显式单腿 deliveries → 同样不注入多腿段', async () => {
+    mockReadJson.mockResolvedValue(sampleProject({
+      deliveries: [{ gitRepo: '/root/projects/only', branch: 'PMO-1', status: 'pending' }],
+    }));
+    await projectService.publish({ projectId: 'proj-1', channelId: 'ch-1' });
+
+    const scope = mockWuCreate.mock.calls[0][0].scope as string;
+    expect(scope).not.toContain('多交付腿');
   });
 });

@@ -26,6 +26,12 @@ export interface CreateProjectInput {
   priority?: string;
   gitBranch?: string;
   gitRepo?: string;
+  /**
+   * #114 T8：多工程入参（创建表单多选）。每个选中工程落一条交付腿
+   * （branch 按现有 pmo-<n> 规则合成，显式 gitBranch 可覆盖全腿）；
+   * 缺省/空数组 = 旧单选行为（不落 deliveries，读取时合成单腿）。
+   */
+  gitRepos?: string[];
   requirementsDocId?: string;
   /** F6/PMO-a：交付策略（默认 branch-only——不碰合并与发布链路，只标记证据齐缺） */
   deliveryPolicy?: DeliveryPolicy;
@@ -52,6 +58,10 @@ export interface UpdateProjectInput {
   deliveredAt?: string | null;
   deliveredBy?: string | null;
   deliverCommit?: string | null;
+  /** #107 T1：探路地图（M7 开图机制写入；null = 非探路型） */
+  map?: PmoMap | null;
+  /** #107 T1：多交付腿（缺省读取时合成单腿，写入则按显式多腿） */
+  deliveries?: DeliveryLeg[];
 }
 
 export interface ProjectListOptions {
@@ -64,6 +74,90 @@ export interface ProjectListOptions {
 
 /** PMO 交付策略：auto-merge=studio 执行合并（缺证据硬拒）；branch-only=默认，只标证据齐缺 */
 export type DeliveryPolicy = 'auto-merge' | 'branch-only';
+
+// ============================================
+// #107 T1（#106 spec）：探路地图 + 多交付腿
+// 两个字段均可选、缺省零迁移——老项目 JSON 读出行为与现状一致。
+// ============================================
+
+/** 决策落地记录（M1：decision 单人工确认时填写的一句话结论，机制原样存） */
+export interface PmoDecision {
+  wuId: string;
+  summary: string;
+  resolvedAt: string;
+}
+
+export type FogStatus = 'open' | 'in-discussion' | 'resolved';
+
+/** 雾条目（待决问题）；wuId = 认领该问题的 decision WU，未认领为 null */
+export interface FogItem {
+  id: string;
+  question: string;
+  wuId: string | null;
+  status: FogStatus;
+}
+
+/** 探路地图。缺省 null = 非探路型需求，行为与现状一致 */
+export interface PmoMap {
+  destination: string;
+  decisions: PmoDecision[];
+  fog: FogItem[];
+  /** #110 T4：雾全清后 spec 成文单已派生时间戳（幂等哨兵，照 analysisTasksSpawnedAt 先例先落档） */
+  specSpawnedAt?: string;
+  /** #110 T4：自动建成的 spec 单 id（溯源回写；幂等判定只看 specSpawnedAt） */
+  specWuId?: string | null;
+}
+
+/** 交付腿（多腿交付按腿独立台账/合并/状态，T7 起消费；status 词表 = LEG_STATUS） */
+export interface DeliveryLeg {
+  gitRepo: string | null;
+  branch: string | null;
+  status: DeliveryLegStatus;
+  /** #113 T7：auto-merge 逐腿交付落档（branch-only 永不写；合成单腿不落盘） */
+  deliveredAt?: string | null;
+  deliverCommit?: string | null;
+}
+
+/**
+ * #113 T7 腿状态词表（progress-rollup 按腿独立演进；仅显式多腿项目回写）：
+ *   pending → active（腿内有在途 WU）
+ *   pending/active → in_review（腿内 WU 全完结但证据有缺口，等验收）
+ *   → completed（腿内 WU 全完结且证据齐）→ delivered（auto-merge 已合，终态）
+ * delivered 不被回写；零 WU 腿状态不动、不阻断整体翻转（无活可交视为满足）。
+ * #115：completed/in_review 可回摆 active——派生物化（spec-materialization）/人工补单
+ * 会让已完结腿重新出现在途 WU，腿状态随真实工作量回摆（delivered 终态除外）。
+ */
+export const LEG_STATUS = {
+  PENDING: 'pending',
+  ACTIVE: 'active',
+  IN_REVIEW: 'in_review',
+  COMPLETED: 'completed',
+  DELIVERED: 'delivered',
+} as const;
+
+export type DeliveryLegStatus = typeof LEG_STATUS[keyof typeof LEG_STATUS];
+
+/**
+ * 交付腿缺省解析：未设置 deliveries 时由现有 gitRepo/gitBranch 合成单腿
+ * （读取时合成、不落盘，老项目零迁移；单腿 = 现状行为）。
+ * 合成腿 status 从 deliveredAt 派生（已交付的老项目读出 'delivered' 而非硬编码 'pending'）；
+ * 显式多腿的 status 词表 = LEG_STATUS（#113 T7，progress-rollup 逐腿回写、deliverProject 逐腿落档）。
+ */
+export function resolveDeliveries(
+  project: Pick<ProjectData, 'gitRepo' | 'gitBranch' | 'deliveredAt'> & { deliveries?: DeliveryLeg[] },
+): DeliveryLeg[] {
+  if (Array.isArray(project.deliveries) && project.deliveries.length > 0) return project.deliveries;
+  return [{
+    gitRepo: project.gitRepo ?? null,
+    branch: project.gitBranch ?? null,
+    status: project.deliveredAt ? 'delivered' : 'pending',
+  }];
+}
+
+/** 读取默认视图：deliveries 缺省合成单腿（map 缺省即非探路型，无需合成）。所有读取路径统一走此口径 */
+function withReadDefaults(project: ProjectData): ProjectData {
+  return { ...project, deliveries: resolveDeliveries(project) };
+}
 
 export interface ProjectData {
   id: string;
@@ -95,6 +189,10 @@ export interface ProjectData {
   deliveredAt?: string | null;
   deliveredBy?: string | null;
   deliverCommit?: string | null;
+  /** #107 T1：探路地图（缺省 null = 非探路型，行为同现状） */
+  map?: PmoMap | null;
+  /** #107 T1：多交付腿（缺省 = 读取时由 gitRepo/gitBranch 合成单腿，见 resolveDeliveries） */
+  deliveries?: DeliveryLeg[];
 }
 
 /** 交付策略缺省解析：未设置一律 branch-only（不碰合并/发布链路是默认姿态） */
@@ -144,7 +242,7 @@ async function readAllProjects(): Promise<ProjectData[]> {
     const projects: ProjectData[] = [];
     for (const f of files) {
       const data = await fileStore.readJson<ProjectData>(path.join(PROJECTS_DIR, f.name));
-      if (data) projects.push(data);
+      if (data) projects.push(withReadDefaults(data));
     }
     return projects;
   } catch (err: unknown) {
@@ -264,13 +362,27 @@ export const projectService = {
       ...(input.isChore ? { isChore: true, channelId: input.channelId ?? null } : {}),
     };
 
+    // #114 T8：多工程入参——每选中工程一条腿（gitRepo 兼容字段取首工程；
+    // 空白项剔除后为空 = 旧单选行为，不落 deliveries）
+    const repos = (input.gitRepos ?? []).map(r => r.trim()).filter(Boolean);
+    if (repos.length > 0) {
+      project.gitRepo = repos[0];
+      project.deliveries = repos.map(repo => ({
+        gitRepo: repo,
+        branch: project.gitBranch,
+        status: 'pending',
+      }));
+    }
+
     await fileStore.writeJson(projectPath(id), project);
     logger.info({ projectId: id, pmoNumber, reqAlias }, 'Project created');
     return project;
   },
 
   async get(projectId: string): Promise<ProjectData | null> {
-    return fileStore.readJson<ProjectData>(projectPath(projectId));
+    const data = await fileStore.readJson<ProjectData>(projectPath(projectId));
+    // #107 T1：读取时合成单腿（不落盘，老项目零迁移）；map 缺省即非探路型，无需合成
+    return data ? withReadDefaults(data) : null;
   },
 
   /** 决策 4 别名层：按 REQ 别名反查 PMO（REQ-XXXX → 统一编号对象）；存量无别名 → null */
@@ -437,12 +549,20 @@ export const projectService = {
     await channelMessageService.updateMessageMeta(message.id, { pmoId: project.id });
 
     const workUnitService = new WorkUnitService();
+    // #112 T6 多腿分析单：显式多腿（deliveries > 1）时 scope 注入全部仓库路径
+    // （只读约束不变、无 worktree 隔离）。单腿（无 deliveries 时读取合成的单腿）
+    // 不注入——scope 与现状逐字节一致（回归硬要求）。
+    const legs = resolveDeliveries(project);
+    const multiLegSection = legs.length > 1
+      ? `\n\n## 多交付腿（只读范围）\n本需求跨 ${legs.length} 个仓库交付，分析须覆盖以下全部仓库路径（均为只读，约束同上，不做 worktree 隔离）：\n`
+        + legs.map(leg => `- ${leg.gitRepo ?? '（未设置仓库路径）'}${leg.branch ? `（分支 ${leg.branch}）` : ''}`).join('\n')
+      : '';
     const workUnit = await workUnitService.create({
       type: 'analysis',
       scope: `分析需求 ${project.pmoNumber}: ${project.title}
 
 ${project.requirement || ''}
-
+${multiLegSection}
 ## 工作方式约束（只读分析，重要）
 你是分析角色，只读不改：禁止创建/修改/删除任何文件（不使用 Edit/Write/NotebookEdit），禁止执行会改变工作区状态的命令（git commit/checkout/clean、包管理器 install、写临时脚本等）。只用 Read/Grep/Glob 和只读 Bash（git log/diff/status、ls、cat、grep 等）。分析结论直接以 markdown 输出在回复里，不落盘。
 
@@ -450,7 +570,12 @@ ${project.requirement || ''}
 
 分析完成后，除 ACTION 行外，逐行输出拆分后的实现任务（每条一行，3~8 条，每条可被独立认领、独立完成）：
 TASK: <任务描述>
-需求很小无需拆分时可不输出 TASK 行。结论由人工确认后，系统按 TASK 行自动建任务并派工。`,
+需求很小无需拆分时可不输出 TASK 行。结论由人工确认后，系统按 TASK 行自动建任务并派工。
+
+如分析中发现必须人工拍板才能推进的待决问题（探路型需求），另逐行输出（每条一行，至多 12 条）：
+FOG: <待决问题>
+可选输出一行 DESTINATION: <一句话目标> 指定探路目的地（缺省用项目标题）。
+人工确认时会审核这份待决问题清单（可增删改），确认通过后系统据此初始化探路地图并逐条建决策单；无 FOG 行 = 非探路型，只按 TASK 行派工。`,
       channelId: input.channelId,
       metadata: {
         pmoId: project.id,

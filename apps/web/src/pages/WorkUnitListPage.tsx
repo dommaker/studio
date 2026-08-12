@@ -8,6 +8,8 @@ import { ReviewHint } from '../components/workunit/ReviewHint';
 import { SelfReviewBadge } from '../components/workunit/SelfReviewBadge';
 import { channelApi, type AgentProfile } from '../api/channel';
 import type { WorkUnit } from '../api/workunit';
+import { buildMapOpeningPrefill } from '../components/pmo/mapUtils';
+import { AnalysisApproveDialog } from '../components/pmo/AnalysisApproveDialog';
 import { useWorkUnitEvents } from '../hooks/useWorkUnitEvents';
 import { Select } from '../components/ui';
 
@@ -190,7 +192,7 @@ export function WorkUnitListPage() {
                 <WorkUnitRow
                   key={wu.id}
                   wu={wu}
-                  onReviewPassed={() => reviewPassed(wu.id)}
+                  onReviewPassed={(summary) => reviewPassed(wu.id, summary)}
                   onReviewRejected={(reason) => reviewRejected(wu.id, reason)}
                   formatTime={formatTime}
                 />
@@ -207,18 +209,23 @@ function WorkUnitRow({
   wu, onReviewPassed, onReviewRejected, formatTime,
 }: {
   wu: WorkUnit;
-  onReviewPassed: () => void;
+  onReviewPassed: (summary?: string) => void;
   onReviewRejected: (reason?: string) => void;
   formatTime: (ts: string | null) => string;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
+  // #106 M7：analysis 通过/确认弹窗——预填 agent 产出的待决问题清单（人审改后随 summary 回传开图）
+  const [showApproveModal, setShowApproveModal] = useState(false);
   const [channelMembers, setChannelMembers] = useState<AgentProfile[]>([]);
   const navigate = useNavigate();
   // F6-b：徽章/按钮的展示判断一律过派生函数（通过/拒绝的调用资格仍看存储状态，
   // 因为服务端状态机以存储为准；done 缺 l3 时"确认"调同一端点幂等补写）
   const derived = deriveWu(wu);
+
+  // analysis 单走确认弹窗（待决问题清单审核）；其余类型保持一键通过
+  const handleApprove = () => (wu.type === 'analysis' ? setShowApproveModal(true) : onReviewPassed());
 
   // AC-2.4: expanded 时获取频道成员，用于 ReviewHint 判断是否有 reviewer
   useEffect(() => {
@@ -269,7 +276,7 @@ function WorkUnitRow({
             <>
               <button
                 className="text-xs px-2 py-1 rounded u-ok-dim u-ok u-hover-bg"
-                onClick={e => { e.stopPropagation(); onReviewPassed(); }}
+                onClick={e => { e.stopPropagation(); handleApprove(); }}
               >
                 通过
               </button>
@@ -287,7 +294,7 @@ function WorkUnitRow({
             <button
               className="text-xs px-2 py-1 rounded u-ok-dim u-ok u-hover-bg"
               title="流程已由 Agent 评审推进完成；此确认为 L3 人工验收留痕，不阻断流程，确认后出审查列"
-              onClick={e => { e.stopPropagation(); onReviewPassed(); }}
+              onClick={e => { e.stopPropagation(); handleApprove(); }}
             >
               确认
             </button>
@@ -331,6 +338,14 @@ function WorkUnitRow({
           </div>
           <DiscussionPanel workUnitId={wu.id} />
         </div>
+      )}
+
+      {showApproveModal && (
+        <AnalysisApproveDialog
+          prefill={buildMapOpeningPrefill(wu.metadata)}
+          onConfirm={summary => { onReviewPassed(summary); setShowApproveModal(false); }}
+          onCancel={() => setShowApproveModal(false)}
+        />
       )}
 
       {showRejectModal && (

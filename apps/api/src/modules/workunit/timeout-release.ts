@@ -29,6 +29,9 @@ export async function scanTimedOutWorkUnits(fs?: FileStore, now: Date = new Date
   let handled = 0;
 
   for (const wu of timedOut.data) {
+    // #108（T2）：decision 单不进超时扫描——决策可能等关键人好几天，
+    // claim 写入的 timeoutAt 对其无意义（spec 成文单仍按默认时长正常参与扫描）
+    if (wu.type === 'decision') continue;
     try {
       const metadata = parseWuMetadata(wu.metadata);
       const releases = (metadata.timeoutReleaseCount ?? 0) + 1;

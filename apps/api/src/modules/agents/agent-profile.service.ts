@@ -51,6 +51,12 @@ export interface RolePreset {
   description?: string;
   persona?: string;
   acceptedTypes?: string[];
+  /** #91: skill 声明（prompt「## 你的角色」段消费） */
+  skills?: string[];
+  /** #91: 工具声明（prompt「## 你的角色」段消费） */
+  tools?: string[];
+  /** #91: 约束声明（键值对；prompt「## 你的角色」段消费） */
+  constraints?: Record<string, unknown>;
 }
 
 /** .agents/roles 目录（默认 <cwd>/.agents/roles；STUDIO_ROLES_DIR 可覆盖——测试注入用） */
@@ -59,7 +65,8 @@ function resolveRolesDir(): string {
 }
 
 /**
- * 决策 9: 读取角色预设 `.agents/roles/<preset>.yaml` 的 description/persona/acceptedTypes。
+ * 决策 9: 读取角色预设 `.agents/roles/<preset>.yaml` 的 description/persona/acceptedTypes
+ * （#91 补 skills/tools/constraints——此前读取即丢弃，prompt 组装无从消费）。
  * preset 名含路径字符（防目录穿越）、文件不存在或解析失败 → 返回 null。
  */
 export function loadRolePreset(preset: string, rolesDir: string = resolveRolesDir()): RolePreset | null {
@@ -70,11 +77,16 @@ export function loadRolePreset(preset: string, rolesDir: string = resolveRolesDi
     const parsed = yaml.load(fs.readFileSync(file, 'utf-8'));
     if (!parsed || typeof parsed !== 'object') return null;
     const p = parsed as Record<string, unknown>;
+    const asStringArray = (v: unknown): string[] | undefined =>
+      Array.isArray(v) ? v.filter((t): t is string => typeof t === 'string' && t.length > 0) : undefined;
     return {
       description: typeof p.description === 'string' ? p.description : undefined,
       persona: typeof p.persona === 'string' ? p.persona : undefined,
-      acceptedTypes: Array.isArray(p.acceptedTypes)
-        ? p.acceptedTypes.filter((t): t is string => typeof t === 'string' && t.length > 0)
+      acceptedTypes: asStringArray(p.acceptedTypes),
+      skills: asStringArray(p.skills),
+      tools: asStringArray(p.tools),
+      constraints: p.constraints && typeof p.constraints === 'object' && !Array.isArray(p.constraints)
+        ? p.constraints as Record<string, unknown>
         : undefined,
     };
   } catch {
@@ -187,6 +199,10 @@ export class AgentProfileService {
       ...(input.acceptedTypes ?? preset?.acceptedTypes
         ? { acceptedTypes: input.acceptedTypes ?? preset?.acceptedTypes }
         : {}),
+      // #91: preset 的 skills/tools/constraints 落盘（prompt 组装消费；皆无则不写）
+      ...(preset?.skills?.length ? { skills: preset.skills } : {}),
+      ...(preset?.tools?.length ? { tools: preset.tools } : {}),
+      ...(preset?.constraints ? { constraints: preset.constraints } : {}),
     };
     await this.fileStore.createProfile(data);
     // F1: notify AgentLoopRegistry (mounts a loop when created already active)

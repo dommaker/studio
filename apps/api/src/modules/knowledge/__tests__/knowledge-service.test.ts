@@ -351,7 +351,8 @@ describe('KnowledgeService Phase 1A: Consume', () => {
     it('returns empty prompt and injectedIds when no knowledge exists', async () => {
       const { ks } = createKS();
       const result = await ks.injectContext('executor');
-      expect(result).toEqual({ prompt: '', injectedIds: [] });
+      // #91: 返回值带 usage 尺寸字段（无注入时 original/kept 均 0）
+      expect(result).toEqual({ prompt: '', injectedIds: [], usage: { originalTokens: 0, keptTokens: 0 } });
     });
 
     it('includes rules section when rules exist', async () => {

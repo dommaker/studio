@@ -97,9 +97,9 @@ describe('AgentLoop agentStep via Executor interface', () => {
       startedAt: new Date().toISOString(), terminatedAt: null,
       lastHeartbeat: null, metadata: null, pid: process.pid,
     });
-    // fix/guard-and-resume: WU metadata.sessionId 须与 instance.sessionId 相等才进入
-    // 续用路径（避开 non-resume → newSessionId → updateState 持久化），否则 metadata=null
-    // 导致每次新建、覆盖原有 exec 逻辑。
+    // #94: 续用判定只信档案 metadata.sessionId（不再读 instance 槽位）；本用例 WU 无
+    // workspaceId/workspaceRoot → cwd=null → claude 无法校验会话文件按续用处理，
+    // 避开新建分支的会话签发，保持既有 exec 逻辑断言聚焦 Executor 接口形状。
     (agentLoop as unknown as { instance: unknown }).instance = {
       id: 'instance-exec',
       roleId: mockRole.id,

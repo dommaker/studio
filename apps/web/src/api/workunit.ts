@@ -19,6 +19,8 @@ export interface WorkUnit {
   updatedAt: string;
   claimedAt: string | null;
   completedAt: string | null;
+  /** #109：列表 API 附「可认领」标记（unassigned 且 blockedBy 依赖全了结才为 true）；仅列表项有 */
+  claimable?: boolean;
 }
 
 export interface PaginatedResponse<T> {
@@ -246,8 +248,11 @@ export const workunitApi = {
   transitionStatus: (id: string, status: string) =>
     api.post<WorkUnit>(`/workunits/${id}/status`, { status }),
 
-  reviewPassed: (id: string) =>
-    api.post<WorkUnit>(`/workunits/${id}/review-passed`),
+  // #106 M7：可选 summary 穿透 l3 台账（analysis 确认弹窗的待决问题清单、decision 结论等）
+  reviewPassed: (id: string, summary?: string) => {
+    const trimmed = summary?.trim();
+    return api.post<WorkUnit>(`/workunits/${id}/review-passed`, trimmed ? { summary: trimmed } : {});
+  },
 
   reviewRejected: (id: string, reason?: string) =>
     api.post<WorkUnit>(`/workunits/${id}/review-rejected`, { reason }),

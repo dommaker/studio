@@ -1,6 +1,6 @@
 /**
  * WorkUnit 类型契约 + 状态机表/超时常量（工单 30 自 workunit.service.ts 头部抽出，纯搬运零逻辑变更）。
- * 内容：WorkUnitMetadata / 输入输出 DTO / VALID_TRANSITIONS / 超时常量 / ANALYSIS_TASKS_MAX / resolveClaimTimeoutAt。
+ * 内容：WorkUnitMetadata / 输入输出 DTO / VALID_TRANSITIONS（+ #108 按 type 覆盖表 DECISION_SPEC_TYPES/TYPE_VALID_TRANSITIONS）/ 超时常量 / ANALYSIS_TASKS_MAX / resolveClaimTimeoutAt。
  * 零服务依赖（仅 wu-metadata 叶子），供 service 与跨模块类型级消费方直接引用。
  */
 
@@ -33,6 +33,7 @@ export interface WorkUnitMetadata {
   consecutiveStuck?: number;  // 连续无进展步数
   sessionResumes?: number;    // session 恢复次数
   sessionCount?: number;      // B5（2026-08-03 token-burn issue）：本 WU 已建立的独立会话数（≥2 转人工，防全文重放烧钱）
+  lastSessionResumed?: boolean; // #94: 本步会话续用(true)/新建(false) 标记（内部状态，不上频道）
   blockReason?: string;       // B4（同上 P0-2）：最近一次转 blocked 的原因（恢复执行时清除，防事后无法诊断）
   testWorkUnitGuard?: boolean; // B2（同上 P0-1c）：测试特征 WU 被 daemon 守卫关闭的留痕
   lastInputTokens?: number;   // 最新一次 execution 的 input_tokens (cache 追踪)
@@ -49,7 +50,13 @@ export interface WorkUnitMetadata {
   // 2026-08 归因统一：pmoId 是 canonical 创建期 PMO 归因戳（message-routing / project.service /
   // analysis-handoff 创建时落档；pmo-branch-resolver 与证据归属过滤的唯一直读 key）
   pmoId?: string;
+  // #110（T4，#106 子票）：decision 单与探路地图 fog 条目的关联戳（T6 开图机制建单时落档；
+  // pmo/decision-resolution 订阅器按 metadata.pmoId 找 PMO、按 fogId 定位 map.fog[] 条目）
+  fogId?: string;
   ownershipProjectId?: string; // @deprecated legacy 同位名（原 B3a 审计字段），仅读兼容——wu-pmo-attribution 同级回退读；新写入一律用 pmoId
+  // #109（T3，#106 子票）：接单规则机制化——依赖与验收标准
+  blockedBy?: string[];       // 阻塞本 WU 的 WU id 列表（可跨 PMO）；任一未了结（非 done/closed）→ unassigned 对所有 loop 不可见（wu-dependencies.ts 判定；agent-loop observe 过滤 + 列表 claimable 标记消费）
+  ac?: string[];              // 验收标准（验收闸对照用；机制只存不解释）
   // B3b-i 每 WU worktree 隔离（决策 D1）：代码类 WU 首个 step 创建并落档，后续 step 复用
   worktreePath?: string;      // 专属 worktree 路径（<worktreesDir>/wu-<wuId>；执行 cwd + 提交守卫 + 自动验证的消费点）
   worktreeBranch?: string;    // 专属分支名（task/<wuId>）
@@ -111,6 +118,17 @@ export interface WorkUnitMetadata {
   // 人工确认（reviewPassed → done）后由 analysis-handoff 据此建未指派 task 子 WU 派工
   analysisTasks?: string[];       // TASK: 拆分行解析结果（≤8 条，每条 ≤300 字符）
   analysisTasksSpawnedAt?: string; // 子 WU 已建时间戳（幂等哨兵：存在即不再重复派生）
+  // #106 M7 对齐：analysis WU COMPLETE 时 agent-loop 用 map-opening 同一解析器解析
+  // FOG:/DESTINATION: 行落档——人工确认弹窗据此预填待决问题清单（审清单，人改后随
+  // l3.summary 回传，map-opening 消费契约不变）；无 FOG 行 = 非探路型，两字段缺省
+  analysisFog?: string[];         // FOG: 待决问题行解析结果（≤12 条，MAP_OPENING_FOG_MAX）
+  analysisDestination?: string;   // DESTINATION: 行（缺省 = 开图时回退项目 title）
+  // #112 开图机制（pmo/map-opening）：analysis 人工确认（l3.summary 含 FOG:/DESTINATION: 清单）
+  // → 初始化 PMO map + 逐条建 decision 单；mapOpenedAt 为幂等哨兵（先落档再建单）
+  mapOpenedAt?: string;
+  // #115 交稿物化（pmo/spec-materialization）：spec 人工确认（l3.summary 含 TASK 物化清单）
+  // → 批量建 task 单（ac/blockedBy/腿归属齐全）；specTasksSpawnedAt 为幂等哨兵（先落档再建单）
+  specTasksSpawnedAt?: string;
   traceId?: string;           // P0 修复 6: 链路追踪 id（频道消息 req → WU → agent-loop 日志；与 audit requestId 同值）
   // F4 reviewer 解锚（2026-07-28 分析文档，决策 5）：评审 WU 未指派走 claim 涌现时的约束/标记
   excludeAssignee?: string;   // 禁止认领的 profile id（评审排除实现者；agent-loop observe 未指派过滤据此剔除）
@@ -199,6 +217,38 @@ export const VALID_TRANSITIONS: Record<string, string[]> = {
   blocked: ['active', 'closed', 'unassigned'],
   closed: ['unassigned'],
 };
+
+/**
+ * #108（T2，#106 子票）：决策单/成文单类型集——人工验收类工单。
+ * 无 worktree、无证据台账齐缺要求、无合并（不落 worktree 落档 → merge-on-review-pass 自然旁路）；
+ * ReviewDispatcher 不自动派评审子 WU（同 analysis 先例，验收闸 = 人工 in_review）。
+ */
+export const DECISION_SPEC_TYPES = new Set(['decision', 'spec']);
+
+/**
+ * #108：decision/spec 的裁剪状态机 —— `unassigned → active ⇄ waitingForInput → in_review → done`。
+ * 现有实现里 waitingForInput 挂起 = status blocked + metadata.waitingForInput（F5 双向沟通），
+ * 故表内体现为 active ⇄ blocked；无 closed（决策单可能等关键人多天，不进死信/超时关闭路径；
+ * 死信关闭机制 #57 尚待实现，届时需对齐本豁免）。
+ */
+const DECISION_SPEC_TRANSITIONS: Record<string, string[]> = {
+  unassigned: ['active'],
+  active: ['in_review', 'blocked'],
+  blocked: ['active'],
+  in_review: ['done', 'active'],
+  done: [],
+};
+
+/** 按 WU type 的状态机覆盖表（未列出的 type 用全局 VALID_TRANSITIONS） */
+export const TYPE_VALID_TRANSITIONS: Record<string, Record<string, string[]>> = {
+  decision: DECISION_SPEC_TRANSITIONS,
+  spec: DECISION_SPEC_TRANSITIONS,
+};
+
+/** transitionStatus 查表入口：type 覆盖优先，缺省回落全局表 */
+export function resolveValidTransitions(wuType: string, status: string): string[] | undefined {
+  return (TYPE_VALID_TRANSITIONS[wuType] ?? VALID_TRANSITIONS)[status];
+}
 
 /**
  * P0 修复（WU 超时机制）：WU 被认领进入 active 时的默认超时时长（分钟），按 type 区分。

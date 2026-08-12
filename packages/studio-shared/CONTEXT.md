@@ -29,6 +29,7 @@
 
 ## 注意事项
 
+- **类型消费走 dist**：package.json `types` 指向 `dist/*.d.ts`（runtime 入口才是 src），改本包类型后须 `pnpm --filter @dommaker/studio-shared build` 重建 dist，否则下游 tsc-gate 报 TS2339（新字段不可见）。
 - **FileStore 目录布局**（`~/.studio/data/`）：`agents/{id}/profile.json` + `agents/{id}/state.json`（Agent 身份与运行时实例，永久存在仅可显式 DELETE）；channels/workunits 等同理按域分目录。其他相关路径：`~/.studio/providers.json`（provider 覆盖）、`~/.studio/workspaces/{id}.json`（workspace 记录，内嵌 runtimes）。
 - provider 注册表是"装了哪些 CLI"的唯一权威定义：daemon 扫描（`apps/api/src/daemon/cli-scanner.ts`）、本地扫描（`local-workspace.ts`）、spawn（`cli-adapter.ts`）、健康探针（`agent-loop.ts`）全部从这里取定义，新增 CLI 只需 `~/.studio/providers.json`。
 - FileStore 写操作全部原子写（tmp+rename），跨进程并发经 `withLock()`（mkdir 锁）。

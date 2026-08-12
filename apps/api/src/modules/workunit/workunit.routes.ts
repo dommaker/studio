@@ -2,7 +2,7 @@
  * WorkUnit API 路由 (AS-025 §3.28c-1, §5.16)
  *
  * Endpoints:
- *   GET    /api/v1/workunits          — list
+ *   GET    /api/v1/workunits          — list（#109：列表项附 claimable 可认领标记）
  *   POST   /api/v1/workunits          — create
  *   GET    /api/v1/workunits/:id      — get by id
  *   PUT    /api/v1/workunits/:id      — update
@@ -28,6 +28,7 @@ import { Router, type Request, type Response } from 'express';
 import { FileStore } from '@dommaker/studio-shared';
 import { WorkUnitService, type WorkUnitMetadata } from './workunit.service.js';
 import { parseWuMetadata } from './wu-metadata.js';
+import { resolveClaimable, buildStatusById } from './wu-dependencies.js';
 import { aggregateTreeTokens } from '../agents/token-usage.service.js';
 import { CODE_WORKTREE_TYPES, resolveVerifyCommands, runWuVerification } from '../agents/loop/wu-verification.js';
 import { channelMessageService } from '../channels/channel-message.service.js';
@@ -65,7 +66,15 @@ router.get('/', async (req: Request, res: Response) => {
       limit,
     });
 
-    res.json(formatPaginatedResponse(result.data, result.total, page, limit));
+    // #109：列表项附「可认领」标记（claimable）供 UI 使用 —— unassigned 且
+    // blockedBy 依赖全了结才为 true；profile 无关（认领侧仍由 loop observe 判定）。
+    // 仅当本页含 unassigned 行才读 index 做依赖判定（其余行 claimable 恒 false）
+    const statusById = result.data.some(w => w.status === 'unassigned')
+      ? buildStatusById(await fileStore.getIndex())
+      : new Map<string, string>();
+    const data = result.data.map(w => ({ ...w, claimable: resolveClaimable(w, statusById) }));
+
+    res.json(formatPaginatedResponse(data, result.total, page, limit));
   } catch (error) {
     res.status(500).json({
       error: { code: 'INTERNAL_ERROR', message: getErrorMessage(error) },
@@ -258,10 +267,14 @@ router.post('/:id/review-passed', requireAuth(), requireNotGuest(), async (req: 
       });
     }
     // F6（决策 1）：人工确认落台账 l3 —— by 取登录用户名（本地模式回落 Local User/id）
+    // #110：可选 body.summary（人点通过时填写的结论文本）穿透进 l3 台账——
+    // pmo/decision-resolution 订阅器据此把 decision 单结论原样写入探路地图 decisions[]
     const user = (req as AuthRequest).user;
+    const summary = req.body?.summary;
     const wu = await service.reviewPassed(req.params.id, {
       by: user?.name ?? user?.email ?? user?.id ?? 'human',
       kind: 'human-confirm',
+      ...(typeof summary === 'string' && summary.trim() ? { summary } : {}),
     });
     res.json(wu);
   } catch (error) {

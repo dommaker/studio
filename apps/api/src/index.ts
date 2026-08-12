@@ -205,6 +205,27 @@ async function start() {
         logger.info('[AnalysisHandoff] Subscribed to workunit.status_changed');
       } catch (e) { logger.warn('[AnalysisHandoff] Failed to subscribe', { error: String(e) }); }
 
+      // #110 决策落地：decision 确认 → 写探路地图 + 雾全清建 spec 单
+      try {
+        const { initDecisionResolution } = await import('./modules/pmo/decision-resolution.js');
+        initDecisionResolution();
+        logger.info('[DecisionResolution] Subscribed to workunit.status_changed');
+      } catch (e) { logger.warn('[DecisionResolution] Failed to subscribe', { error: String(e) }); }
+
+      // #112 开图机制：analysis 确认（含待决问题清单）→ 初始化 map + 逐条建 decision 单
+      try {
+        const { initMapOpening } = await import('./modules/pmo/map-opening.js');
+        initMapOpening();
+        logger.info('[MapOpening] Subscribed to workunit.status_changed');
+      } catch (e) { logger.warn('[MapOpening] Failed to subscribe', { error: String(e) }); }
+
+      // #115 交稿物化：spec 确认（含 TASK 物化清单）→ 批量建 task 单（ac/blockedBy/腿归属）
+      try {
+        const { initSpecMaterialization } = await import('./modules/pmo/spec-materialization.js');
+        initSpecMaterialization();
+        logger.info('[SpecMaterialization] Subscribed to workunit.status_changed');
+      } catch (e) { logger.warn('[SpecMaterialization] Failed to subscribe', { error: String(e) }); }
+
       if (agentLoopEnabled) {
         for (const profile of profiles) {
           const entry = await agentLoopRegistry.mount(profile);

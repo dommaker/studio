@@ -6,6 +6,7 @@
 
 import * as os from 'os';
 import { execSync } from 'child_process';
+import { studioPath } from '@dommaker/studio-shared/studio-dir';
 
 // ─── 类型 ───
 
@@ -288,7 +289,7 @@ export async function runGC(): Promise<GCResult> {
 
   // Clean old session files (> 24h)
   try {
-    const sessionsDir = `${os.homedir()}/.studio/sessions`;
+    const sessionsDir = studioPath('sessions');
     const fs = await import('fs');
     if (fs.existsSync(sessionsDir)) {
       const entries = fs.readdirSync(sessionsDir);

@@ -83,9 +83,14 @@ export class AnalysisHandoff {
       ? meta.analysisTasks.filter((t): t is string => typeof t === 'string' && t.trim().length > 0).slice(0, ANALYSIS_TASKS_MAX)
       : [];
 
-    // 幂等哨兵先落档：即便后续建单部分失败也不重复派生（失败只记日志，人工可补）
+    // 幂等哨兵先落档：即便后续建单部分失败也不重复派生（失败只记日志，人工可补）。
+    // 与 map-opening 同一 done 事件写同一 WU metadata（它落 mapOpenedAt）——
+    // 写入前重读合并，防 read-modify-write 丢更新（#115 e2e 实测两哨兵互覆）
+    const latest = await this.workUnitService.getById(fresh.id);
+    const latestMeta = latest ? this.readMeta(latest) : meta;
+    if (latestMeta.analysisTasksSpawnedAt) return; // 重读后哨兵已落（并发/重发）
     await this.workUnitService.update(fresh.id, {
-      metadata: { ...meta, analysisTasksSpawnedAt: new Date().toISOString() },
+      metadata: { ...latestMeta, analysisTasksSpawnedAt: new Date().toISOString() },
     });
 
     if (tasks.length === 0) {

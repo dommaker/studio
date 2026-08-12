@@ -21,6 +21,16 @@ vi.mock('@dommaker/studio-shared', () => {
   return { FileStore, logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } };
 });
 
+// 数据根入口走真实现会撞上面的 os mock（无 homedir），这里钉一个 env 敏感的等价物：
+// 断言的边界是「runGC 经 studioPath/STUDIO_HOME 解析 sessions 目录」而非 studioDir 本身。
+vi.mock('@dommaker/studio-shared/studio-dir', async () => {
+  const path = await import('path');
+  return {
+    studioPath: (...segments: string[]) =>
+      path.join(process.env.STUDIO_HOME ?? '/nonexistent-studio-home', ...segments),
+  };
+});
+
 // Mock process.memoryUsage
 vi.spyOn(process, 'memoryUsage').mockReturnValue({
   heapUsed: 200 * 1024 * 1024, // 200MB
@@ -138,5 +148,29 @@ describe('runGC', () => {
     expect(result).toHaveProperty('duration');
     expect(Array.isArray(result.details)).toBe(true);
     expect(typeof result.duration).toBe('number');
+  });
+
+  it('cleans stale sessions under STUDIO_HOME（经 studioPath，不硬编码 ~/.studio）', async () => {
+    const fs = await import('fs');
+    const osReal = await vi.importActual<typeof import('os')>('os');
+    const path = await import('path');
+    const tmpRoot = fs.mkdtempSync(path.join(osReal.tmpdir(), 'studio-gc-'));
+    const sessionsDir = path.join(tmpRoot, 'sessions');
+    fs.mkdirSync(sessionsDir, { recursive: true });
+    const staleFile = path.join(sessionsDir, 'stale.json');
+    fs.writeFileSync(staleFile, '{}');
+    const old = new Date(Date.now() - 48 * 60 * 60 * 1000);
+    fs.utimesSync(staleFile, old, old);
+
+    vi.stubEnv('STUDIO_HOME', tmpRoot);
+    try {
+      const { runGC } = await import('../ops/system-health');
+      const result = await runGC();
+      expect(fs.existsSync(staleFile)).toBe(false);
+      expect(result.details.some((d) => d.includes('stale.json'))).toBe(true);
+    } finally {
+      vi.unstubAllEnvs();
+      fs.rmSync(tmpRoot, { recursive: true, force: true });
+    }
   });
 });

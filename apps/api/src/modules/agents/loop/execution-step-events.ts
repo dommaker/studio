@@ -49,6 +49,8 @@ export interface ExecutionStepEventPayload {
   workUnitId: string;
   executionId: string;
   sessionId?: string;
+  /** #94: 本步会话续用(true)/新建(false) 标记（内部状态，不上频道；缺省 = 调用方未提供） */
+  sessionResumed?: boolean;
   /** 1 基步号（调用方按 metadata.stepCount+1 计） */
   step: number;
   /** 本步 ACTION 结论（progress/complete/need_input/failed） */
@@ -67,6 +69,8 @@ export interface BuildExecutionStepEventArgs {
   workUnitId: string;
   executionId: string;
   sessionId?: string;
+  /** #94: 本步会话续用(true)/新建(false) 标记（undefined 时 payload 不产该键） */
+  sessionResumed?: boolean;
   step: number;
   action?: string;
   /** stream-json 全量 stdout（result.rawOutput）；空/不可解析 → 返回 null */
@@ -173,6 +177,7 @@ export function buildExecutionStepEvent(args: BuildExecutionStepEventArgs): Exec
     workUnitId: args.workUnitId,
     executionId: args.executionId,
     ...(args.sessionId ? { sessionId: args.sessionId } : {}),
+    ...(args.sessionResumed !== undefined ? { sessionResumed: args.sessionResumed } : {}),
     step: args.step,
     ...(args.action ? { action: args.action } : {}),
     thinking,

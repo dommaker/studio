@@ -22,6 +22,12 @@ export interface AgentProfileData {
   acceptedTypes?: string[];
   /** 决策 13: 角色自述（prompt「## 你的角色」段内容）；缺省回退 description */
   persona?: string;
+  /** #91: 角色 preset 带入的 skill 声明（.agents/roles/*.yaml），prompt「## 你的角色」段消费 */
+  skills?: string[];
+  /** #91: 角色 preset 带入的工具声明，prompt「## 你的角色」段消费 */
+  tools?: string[];
+  /** #91: 角色 preset 带入的约束声明（键值对），prompt「## 你的角色」段消费 */
+  constraints?: Record<string, unknown>;
 }
 
 export interface RuntimeStateData {

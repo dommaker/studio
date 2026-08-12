@@ -22,9 +22,17 @@ import { requirementApi, type RequirementChainWorkUnit } from '../api/requiremen
 import { monitoringApi, type AgentInfo } from '../api/monitoring';
 import { knowledgeApi, type KnowledgeDoc } from '../api/knowledge';
 import { maintenanceApi } from '../api/maintenance';
+import { workunitApi } from '../api/workunit';
 import { PmoNumberBadge } from '../components/PmoNumberBadge';
 import { ProjectPipeline } from '../components/pmo/ProjectPipeline';
 import { ProjectActivity } from '../components/pmo/ProjectActivity';
+import { ProjectMap, NextActionCard } from '../components/pmo/ProjectMap';
+import {
+  pickNextAction,
+  toNextActionCandidate,
+  type NextActionCandidate,
+  type PmoMap,
+} from '../components/pmo/mapUtils';
 import { DeliveryPanel } from '../components/pmo/DeliveryPanel';
 import { VscodeGuideDialog, CloudIdeGuideDialog } from '../components/pmo/IdeGuideDialogs';
 import { ProjectProgressCard } from '../components/pmo/ProjectProgressCard';
@@ -55,6 +63,8 @@ interface Project {
   completedAt?: string;
   deliveredAt?: string | null;
   createdAt: string;
+  /** #114 T8：探路地图（缺省 null = 非探路型，不渲染地图区） */
+  map?: PmoMap | null;
   OKR?: { id: string; title: string; quarter: string };
 }
 
@@ -92,6 +102,10 @@ export function ProjectDetailPage() {
   // 交互（缺口行动 / 交付合并）在 DeliveryPanel 内，经 onRefresh 回调刷新）
   const [delivery, setDelivery] = useState<DeliveryStatus | null>(null);
 
+  // 🆕 #114 T8：地图区决策单状态（fog.wuId → WU status）+ 顶部「下一个该干什么」
+  const [decisionStatusByWuId, setDecisionStatusByWuId] = useState<Record<string, string>>({});
+  const [nextAction, setNextAction] = useState<NextActionCandidate | null>(null);
+
   // projectId 切换时在渲染期同步置回加载态（替代原 loadData 内、由 effect 触发的同步 setLoading）
   const [prevProjectId, setPrevProjectId] = useState(projectId);
   if (prevProjectId !== projectId) {
@@ -118,6 +132,35 @@ export function ProjectDetailPage() {
         const deliveryRes = await projectApi.getDelivery(projectId!);
         setDelivery(deliveryRes.data);
       } catch { setDelivery(null); }
+
+      // 🆕 #114 T8：「下一个该干什么」——可认领 + 依赖已清的第一张
+      //（列表 API claimable 标记 + metadata.pmoId 归属过滤，排序细则见 mapUtils.pickNextAction）
+      try {
+        const unassignedRes = await workunitApi.list({ status: 'unassigned', limit: 100 });
+        const candidates = (unassignedRes.data?.data ?? [])
+          .map(w => toNextActionCandidate(w, projectData.id))
+          .filter((c): c is NextActionCandidate => c !== null);
+        const fogOrder = projectData.map?.fog.map(f => f.id) ?? [];
+        setNextAction(pickNextAction(candidates, fogOrder));
+      } catch { setNextAction(null); }
+
+      // 🆕 #114 T8：地图区决策单状态（fog.wuId 互挂的 decision WU 逐个 best-effort 拉；
+      // 拉不到的徽章按待认领兜底，见 mapUtils.resolveFogBadge）
+      if (projectData.map) {
+        const entries = await Promise.all(
+          projectData.map.fog
+            .filter(f => f.wuId)
+            .map(async f => {
+              try {
+                const res = await workunitApi.get(f.wuId!);
+                return [f.wuId!, res.data?.status] as const;
+              } catch { return null; }
+            }),
+        );
+        const statusMap: Record<string, string> = {};
+        for (const e of entries) if (e && e[1]) statusMap[e[0]] = e[1];
+        setDecisionStatusByWuId(statusMap);
+      }
 
       // 🆕 AC-5: 进度管道数据（best-effort）——REQ 链路 WU（chain 自带 type/时间戳，§10 消 N+1）+ agent 名册
       if (projectData.reqAlias) {
@@ -318,11 +361,22 @@ export function ProjectDetailPage() {
         </div>
       </div>
 
+      {/* 🆕 #114 T8：下一个该干什么（可认领 + 依赖已清的第一张；探路型 PMO 无可认领时也显示空态） */}
+      {(nextAction || project.map) && <NextActionCard action={nextAction} />}
+
       {/* 🆕 AC-5: 进度管道（REQ 链路五泳道，WU 小卡可点 → /workunits/:id） */}
       <div className="card p-4 mb-6">
         <h3 className="text-sm font-medium u-text-2 mb-3">🚦 进度管道</h3>
         <ProjectPipeline workunits={pipelineWus} agents={agents} loading={chainLoading} />
       </div>
+
+      {/* 🆕 #114 T8：地图区（目标 / 待决问题 / 结论时间线 / 任务单依赖；非探路型无 map 不渲染） */}
+      {project.map && (
+        <div className="card p-4 mb-6">
+          <h3 className="text-sm font-medium u-text-2 mb-3">🗺️ 地图</h3>
+          <ProjectMap map={project.map} decisionStatusByWuId={decisionStatusByWuId} chainWus={chainWus} />
+        </div>
+      )}
 
       {/* 📚 知识库（AC-5：卡片点开抽屉阅读器） */}
       <div className="card p-4 mb-6">

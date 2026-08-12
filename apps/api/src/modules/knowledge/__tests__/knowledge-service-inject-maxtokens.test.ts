@@ -3,6 +3,8 @@
  *
  * - 自定义预算：按 maxTokens 截断，knowledge:inject-trimmed 事件带该预算值
  * - 缺省：行为不变（INJECT_TOKEN_BUDGET = 2000）
+ * - #91：inject-trimmed 事件补尺寸字段（originalTokens 原始 / keptTokens 截断后），
+ *   返回值带 usage 供 prompt-composer 落 prompt:section_trimmed
  */
 import { describe, it, expect, vi } from 'vitest';
 
@@ -74,13 +76,18 @@ describe('injectContext maxTokens（§10：_opts 做实）', () => {
     expect(result.prompt).toContain('规则一');
     expect(result.prompt).not.toContain('规则二');
 
-    // 裁剪事件带自定义预算
+    // 裁剪事件带自定义预算 + #91 尺寸字段（原始 > 截断后）
     expect(mockAppendJsonl).toHaveBeenCalled();
     const evt = mockAppendJsonl.mock.calls[0][1];
     expect(evt.type).toBe('knowledge:inject-trimmed');
     const payload = JSON.parse(evt.payload);
     expect(payload.budgetTokens).toBe(1000);
     expect(payload.trimmedIds).toContain('r2');
+    expect(typeof payload.originalTokens).toBe('number');
+    expect(payload.originalTokens).toBeGreaterThan(payload.keptTokens);
+    // #91: usage 回传（prompt-composer 据此落 prompt:section_trimmed）
+    expect(result.usage?.keptTokens).toBe(payload.keptTokens);
+    expect(result.usage?.originalTokens).toBe(payload.originalTokens);
   });
 
   it('defaults to INJECT_TOKEN_BUDGET (2000) when maxTokens absent — behavior unchanged', async () => {
