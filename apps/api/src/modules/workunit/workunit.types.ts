@@ -118,6 +118,11 @@ export interface WorkUnitMetadata {
   // 人工确认（reviewPassed → done）后由 analysis-handoff 据此建未指派 task 子 WU 派工
   analysisTasks?: string[];       // TASK: 拆分行解析结果（≤8 条，每条 ≤300 字符）
   analysisTasksSpawnedAt?: string; // 子 WU 已建时间戳（幂等哨兵：存在即不再重复派生）
+  // #106 M7 对齐：analysis WU COMPLETE 时 agent-loop 用 map-opening 同一解析器解析
+  // FOG:/DESTINATION: 行落档——人工确认弹窗据此预填待决问题清单（审清单，人改后随
+  // l3.summary 回传，map-opening 消费契约不变）；无 FOG 行 = 非探路型，两字段缺省
+  analysisFog?: string[];         // FOG: 待决问题行解析结果（≤12 条，MAP_OPENING_FOG_MAX）
+  analysisDestination?: string;   // DESTINATION: 行（缺省 = 开图时回退项目 title）
   // #112 开图机制（pmo/map-opening）：analysis 人工确认（l3.summary 含 FOG:/DESTINATION: 清单）
   // → 初始化 PMO map + 逐条建 decision 单；mapOpenedAt 为幂等哨兵（先落档再建单）
   mapOpenedAt?: string;

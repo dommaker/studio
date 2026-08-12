@@ -97,6 +97,31 @@ export function parseBlockedBy(metadata?: string | null): string[] {  if (!metad
 }
 
 /**
+ * #106 M7：analysis 确认弹窗的待决问题清单预填——agent COMPLETE 时落档的
+ * metadata.analysisDestination/analysisFog 还原为 map-opening 契约行
+ * （DESTINATION:/FOG: 逐行）。人审改后作为 reviewPassed 的 summary 回传。
+ * 无清单 → 空串（弹窗显示占位提示，人手填或直接通过 = 非探路型不开图）。
+ */
+export function buildMapOpeningPrefill(metadata?: string | null): string {
+  if (!metadata) return '';
+  try {
+    const v = JSON.parse(metadata) as { analysisDestination?: unknown; analysisFog?: unknown };
+    const lines: string[] = [];
+    if (typeof v.analysisDestination === 'string' && v.analysisDestination.trim()) {
+      lines.push(`DESTINATION: ${v.analysisDestination.trim()}`);
+    }
+    if (Array.isArray(v.analysisFog)) {
+      for (const q of v.analysisFog) {
+        if (typeof q === 'string' && q.trim()) lines.push(`FOG: ${q.trim()}`);
+      }
+    }
+    return lines.join('\n');
+  } catch {
+    return '';
+  }
+}
+
+/**
  * 列表 API 的 WU 行 → 「下一个该干什么」候选。
  * 门槛：claimable=true（未指派且依赖已清）且 metadata.pmoId 属于本 PMO；
  * 标题取 metadata.title，缺省回退 scope 首行截断。metadata 坏 JSON / 不属本 PMO → null。

@@ -31,6 +31,7 @@ import {
 import { emitExecutionStepEvent, emitExecutionStreamLine, emitExecutionStreamStepStart } from './execution-step-events.js';
 import { CODE_WORKTREE_TYPES, runWuVerification } from './wu-verification.js';
 import { runCompletionGuards } from './completion-gates.js';
+import { parseMapOpening } from '../../pmo/map-opening.js';
 import type { StepResult, Observations, Target, RuntimeInstanceRow } from './agent-loop.types.js';
 import {
   extractInputTokens, isProcessAlive, isGitRepoRoot, resolveWorktreesDir,
@@ -893,6 +894,17 @@ export class AgentLoop {
         const tasks = parseTaskBreakdown(result.outputText ?? '');
         if (tasks.length > 0) {
           metadataUpdates.analysisTasks = tasks;
+        }
+        // #106 M7 对齐：同份输出里的 FOG:/DESTINATION: 行（map-opening 同一解析器，
+        // 契约单一来源）落 metadata——人工确认弹窗据此预填待决问题清单（人审改后随
+        // l3.summary 回传开图）。无 FOG 行 = 非探路型，两字段都不落（destination
+        // 单独落档会预填出一行无人消费的 DESTINATION，误导确认人）。
+        const opening = parseMapOpening(result.outputText ?? '');
+        if (opening.fog.length > 0) {
+          metadataUpdates.analysisFog = opening.fog;
+          if (opening.destination) {
+            metadataUpdates.analysisDestination = opening.destination;
+          }
         }
       }
 

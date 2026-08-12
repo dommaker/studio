@@ -5,6 +5,7 @@ import {
   pickNextAction,
   toNextActionCandidate,
   parseBlockedBy,
+  buildMapOpeningPrefill,
   buildTaskDepRows,
   FOG_BADGE_META,
 } from '../mapUtils';
@@ -110,6 +111,29 @@ describe('parseBlockedBy：metadata 依赖解析', () => {
     expect(parseBlockedBy(JSON.stringify({ blockedBy: 'wu-1' }))).toEqual([]);
     expect(parseBlockedBy(JSON.stringify({ other: 1 }))).toEqual([]);
     expect(parseBlockedBy(JSON.stringify({ blockedBy: ['wu-1', 42, ''] }))).toEqual(['wu-1']);
+  });
+});
+
+describe('buildMapOpeningPrefill：analysis 确认弹窗清单预填（#106 M7）', () => {
+  it('analysisDestination + analysisFog → DESTINATION:/FOG: 逐行还原', () => {
+    const metadata = JSON.stringify({
+      analysisDestination: '三仓特性联动上线',
+      analysisFog: ['存储选型用哪个？', '部署形态先单机还是分布式？'],
+    });
+    expect(buildMapOpeningPrefill(metadata)).toBe(
+      'DESTINATION: 三仓特性联动上线\nFOG: 存储选型用哪个？\nFOG: 部署形态先单机还是分布式？',
+    );
+  });
+
+  it('只有 analysisFog → 无 DESTINATION 行；空白项剔除', () => {
+    const metadata = JSON.stringify({ analysisFog: ['队列方案？', '  ', 42] });
+    expect(buildMapOpeningPrefill(metadata)).toBe('FOG: 队列方案？');
+  });
+
+  it('无清单 / 坏 JSON / null → 空串（非探路型，弹窗空手填）', () => {
+    expect(buildMapOpeningPrefill(null)).toBe('');
+    expect(buildMapOpeningPrefill('not-json')).toBe('');
+    expect(buildMapOpeningPrefill(JSON.stringify({ analysisTasks: ['x'] }))).toBe('');
   });
 });
 

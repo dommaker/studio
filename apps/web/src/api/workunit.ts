@@ -248,8 +248,11 @@ export const workunitApi = {
   transitionStatus: (id: string, status: string) =>
     api.post<WorkUnit>(`/workunits/${id}/status`, { status }),
 
-  reviewPassed: (id: string) =>
-    api.post<WorkUnit>(`/workunits/${id}/review-passed`),
+  // #106 M7：可选 summary 穿透 l3 台账（analysis 确认弹窗的待决问题清单、decision 结论等）
+  reviewPassed: (id: string, summary?: string) => {
+    const trimmed = summary?.trim();
+    return api.post<WorkUnit>(`/workunits/${id}/review-passed`, trimmed ? { summary: trimmed } : {});
+  },
 
   reviewRejected: (id: string, reason?: string) =>
     api.post<WorkUnit>(`/workunits/${id}/review-rejected`, { reason }),
