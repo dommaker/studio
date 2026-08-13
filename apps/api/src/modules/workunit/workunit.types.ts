@@ -44,6 +44,9 @@ export interface WorkUnitMetadata {
     summary: string;          // 截断 200 字符
     at: string;               // 记录时间 ISO 8601
   }>;
+  // #96: 会话滚动摘要（上下文溢出时落盘，来源 = scope + progressLog，不递归摘要）；
+  // 溢出重试失败转 NEED_INPUT 后保留供人工参考
+  sessionSummary?: string;
   // F5 双向沟通：NEED_INPUT 挂起/恢复状态
   waitingForInput?: boolean;  // NEED_INPUT 挂起中（status=blocked，等待人类回复）
   waitingQuestion?: string;   // agent 提出的问题
