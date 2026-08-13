@@ -54,6 +54,12 @@ export class AuditorService {
         return new Date(s.completedAt).getTime() >= yesterday.getTime();
       });
       const total = recentExecs.length;
+      // #90: 过去 24h 零执行 → 无审计对象，早退抑制噪声（不 push #系统、不记 trend、
+      // 不 escalate 到 Triage、不生成 eval case/resolution）。保持有执行时的行为不变。
+      if (total === 0) {
+        logger.info('[AuditorService] Daily audit skipped — no executions in the past 24h');
+        return;
+      }
       const failed = recentExecs.filter(e => e.status === 'closed').length;
       const successRate = total > 0 ? Math.round((1 - failed / total) * 100) : 100;
 
