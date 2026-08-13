@@ -789,6 +789,7 @@ export class AgentLoop {
             logger.warn('[AgentLoop] Resume session lost and session limit reached — need human evaluation', {
               workUnitId: wu.id, sessionsUsed, max: MAX_SESSIONS_PER_WU,
             });
+            this.recordOutcomeEvent(wu, false, detail, 'execution_failed', injectedKnowledgeIds);
             return {
               action: 'need_input' as const,
               summary: `续用会话已丢失且会话重建已达上限（${sessionsUsed}/${MAX_SESSIONS_PER_WU}）：已暂停自动执行。请人工评估后回复任意内容继续，或直接关闭任务`,
@@ -816,6 +817,7 @@ export class AgentLoop {
             logger.error(`[AgentLoop] agentStep fallback retry failed for ${wu.id}: ${detail}`, { traceId });
             recordTokenEvent(retryResult);
             this.resetUnestablishedSession(metadataUpdates);
+            this.recordOutcomeEvent(wu, false, detail, 'execution_failed', injectedKnowledgeIds);
             return failResult(detail);
           }
           // 降级成功：走正常成功路径；换新号落盘（sessionCount 已在查过 MAX 后计入）
@@ -835,6 +837,7 @@ export class AgentLoop {
             logger.warn('[AgentLoop] Context overflow and session limit reached — need human evaluation', {
               workUnitId: wu.id, sessionsUsed, max: MAX_SESSIONS_PER_WU,
             });
+            this.recordOutcomeEvent(wu, false, detail, 'execution_failed', injectedKnowledgeIds);
             return {
               action: 'need_input' as const,
               summary: `CLI 上下文溢出且会话重建已达上限（${sessionsUsed}/${MAX_SESSIONS_PER_WU}）：已暂停自动执行。请人工评估后回复任意内容继续，或直接关闭任务`,
@@ -862,6 +865,7 @@ export class AgentLoop {
             logger.error(`[AgentLoop] agentStep overflow retry failed for ${wu.id}: ${retryDetail}`, { traceId });
             recordTokenEvent(retryResult);
             this.resetUnestablishedSession(metadataUpdates);
+            this.recordOutcomeEvent(wu, false, retryDetail, 'execution_failed', injectedKnowledgeIds);
             return {
               action: 'need_input' as const,
               summary: `CLI 上下文溢出：新会话带摘要重试一次仍失败（${retryDetail.slice(0, 200)}），已暂停自动执行。请人工评估后回复任意内容继续，或直接关闭任务`,
@@ -875,6 +879,7 @@ export class AgentLoop {
         } else {
           // 首 step 失败：会话未必已建立，重置避免下步 --resume 一个从未建立的会话
           if (newSessionId) this.resetUnestablishedSession(metadataUpdates);
+          this.recordOutcomeEvent(wu, false, detail, 'execution_failed', injectedKnowledgeIds);
           return failResult(detail);
         }
       }
@@ -1010,6 +1015,7 @@ export class AgentLoop {
       if (newSessionId) this.resetUnestablishedSession(metadataUpdates);
       const message = err instanceof Error ? err.message : String(err);
       logger.error(`[AgentLoop] agentStep execute failed: ${message}`, { traceId });
+      this.recordOutcomeEvent(wu, false, message, 'execution_failed', injectedKnowledgeIds);
       // AC-8.7 远程节点不可达分支已随 RemoteExecutor 一并删除（远程方向放弃，bdaf0dd3）。
       return {
         action: 'need_input' as const, // increments consecutiveStuck
@@ -1093,20 +1099,11 @@ export class AgentLoop {
    */
 
   /** Record execution outcome to knowledge service (GAP-6, non-blocking).
-   *  R1: consumedKnowledge = 本次 agentStep 经 injectContext 实际注入的知识条目 id。 */
+   *  R1: consumedKnowledge = 本次 agentStep 经 injectContext 实际注入的知识条目 id。
+   *  #90: outcome 事件经 recordOutcomeEvent 单一正本落盘；本方法覆盖成功步（+ 会话提取）。
+   *  失败步由 agentStep 失败分支直接调 recordOutcomeEvent（success=false + errorType）。 */
   private async recordExecutionOutcome(wu: WorkUnitData, result: ExecutionResult, consumedKnowledge: string[] = []): Promise<void> {
-    try {
-      await knowledgeService.recordOutcome({
-        executionId: wu.id,
-        agentType: 'claude',
-        consumedKnowledge,
-        success: result.success,
-        details: result.outputText?.slice(0, 500) ?? '',
-        timestamp: new Date().toISOString(),
-      });
-    } catch {
-      // Non-blocking
-    }
+    this.recordOutcomeEvent(wu, result.success, result.outputText ?? '', undefined, consumedKnowledge);
     try {
       await knowledgeService.extractFromExecution({
         task: wu.scope ?? '',
@@ -1119,6 +1116,20 @@ export class AgentLoop {
     } catch {
       // Non-blocking
     }
+  }
+
+  /** #90: knowledge:outcome 事件单一正本 —— success/failure 统一经此落盘，避免两套漂移。
+   *  errorType 仅失败步携带（success 时 undefined，JSON.stringify 丢弃）。fire-and-forget。 */
+  private recordOutcomeEvent(wu: WorkUnitData, success: boolean, details: string, errorType: string | undefined, consumedKnowledge: string[]): void {
+    void knowledgeService.recordOutcome({
+      executionId: wu.id,
+      agentType: 'claude',
+      consumedKnowledge,
+      success,
+      details: details.slice(0, 500),
+      errorType,
+      timestamp: new Date().toISOString(),
+    }).catch(() => { /* Non-blocking */ });
   }
 
   /**

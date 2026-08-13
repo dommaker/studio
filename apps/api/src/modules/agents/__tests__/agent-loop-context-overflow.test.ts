@@ -28,6 +28,7 @@ vi.mock('../../knowledge/knowledge-service', () => ({
 }));
 
 import { AgentLoop } from '../loop/agent-loop';
+import { knowledgeService } from '../../knowledge/knowledge-service';
 
 const mockRole = {
   id: 'role-overflow',
@@ -161,6 +162,11 @@ describe('#96: CLI 上下文溢出纯反应式策略', () => {
     expect(mockExecuteLightweight).toHaveBeenCalledTimes(2);
     expect(step.action).toBe('need_input');
     expect(step.summary).toContain('上下文溢出');
+    // #90: 溢出重试再败转 need_input 也落 failure outcome
+    expect(knowledgeService.recordOutcome).toHaveBeenCalledWith(expect.objectContaining({
+      success: false,
+      errorType: 'execution_failed',
+    }));
     // 摘要保留（落盘供人工参考），会话簿记：sessionId 重置、sessionCount 计入
     expect(typeof step.metadataUpdates?.sessionSummary).toBe('string');
     expect(step.metadataUpdates).not.toHaveProperty('sessionId');
