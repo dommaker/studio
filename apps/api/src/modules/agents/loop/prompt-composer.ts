@@ -20,7 +20,7 @@ import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import { knowledgeService } from '../../knowledge/knowledge-service.js';
 import { projectService } from '../../pmo/project.service.js';
 import { loadManifest } from '../../skills/manifest-loader.js';
-import { selectSkillsWithDomain, parseSkillHintsFromScope } from '../../skills/skill-selector.js';
+import { selectSkillsForInjection, parseSkillHintsFromScope } from '../../skills/skill-selector.js';
 import { resolveMaxDepth, MAX_DELEGATIONS_PER_PARENT } from '../../workunit/delegation-gate.js';
 import type { WorkUnitData, WorkUnitMetadata } from '../../workunit/workunit.service.js';
 import { buildContinuePrompt, buildReplyPrompt } from './agent-loop-parsers.js';
@@ -361,15 +361,17 @@ function buildHandoffSection(metadata: WorkUnitMetadata, isNewSession: boolean, 
 }
 
 /**
- * §10 P0 + 决策 7/11: 组装 `## 本次任务 Skills` 段 —— step 时计算（不再读 claim 落盘的
+ * §10 P0 + 决策 7/11 + #92: 组装 `## 本次任务 Skills` 段 —— step 时计算（不再读 claim 落盘的
  * metadata.matchedSkills，消竞态并吃到 skill 库最新版）。
- * 匹配（selectSkillsWithDomain）：+skill 显式点名（wu.scope 解析）> 域匹配
- * （role.acceptedTypes ∪ 归一化 wu.type ∩ skill.agentTypes）> scope 文本 > 其余按热度——
- * 产出相关度排序全量列表，按调用方传入的有效预算（#91 定额 + 池余量）块级截断（取代封顶 3）。
+ * #92 硬预裁剪（selectSkillsForInjection）：注入段只含 +skill 显式点名（wu.scope 解析）+
+ * 域匹配（role.acceptedTypes ∪ 归一化 wu.type ∩ skill.agentTypes）两类；scope 文本匹配与
+ * 「rest 热度」不再进注入段（由段尾 MANIFEST 指针按需兜底）。预裁剪后仍受 #91 分段定额截断
+ * （有效预算 = 定额 + 池余量，块级截断，取代封顶 3）。
  * index-on-demand：索引行 = name + description + triggers 摘要 + 全文指针
- * （~/.studio/skills/<name>/SKILL.md，agent 按需阅读），不注入正文；段首协议行说明按需语义。
- * 返回 matched = 实际进入注入段的 skill 名（调用方落盘 metadata.matchedSkills；
- * 此处并发 knowledge:skill_used 事件，fire-and-forget，供度量/被无视率）。
+ * （~/.studio/skills/<name>/SKILL.md，agent 按需阅读），不注入正文；段首协议行说明按需语义；
+ * 段尾一行 MANIFEST 指针（~/.studio/skills/MANIFEST.md，agent 按需读全文清单），恒在段尾（无论是否裁剪）。
+ * 返回 matched = 实际进入注入段的 skill 名（预裁剪后、截断后的集合；调用方落盘
+ * metadata.matchedSkills；此处并发 knowledge:skill_used 事件，fire-and-forget，供度量/被无视率）。
  */
 async function buildSkillSection(
   wu: WorkUnitData,
@@ -380,13 +382,18 @@ async function buildSkillSection(
   if (manifest.length === 0) return { section: '', tokens: 0, originalTokens: 0, matched: [] };
 
   const hints = parseSkillHintsFromScope(wu.scope ?? '');
-  const ranked = selectSkillsWithDomain(wu.scope ?? '', manifest, {
+  const ranked = selectSkillsForInjection(manifest, {
     acceptedTypes: deps.acceptedTypes,
     wuType: wu.type,
   }, hints);
   if (ranked.length === 0) return { section: '', tokens: 0, originalTokens: 0, matched: [] };
 
   const header = '## 本次任务 Skills\n\n以下 skill 按相关度排序；任务内容命中其触发条件时，先读全文再按此执行；不相关则忽略。';
+  // #92: 段尾 MANIFEST 指针（恒在段尾，agent 按需读全文清单）
+  const pointer = `完整 skill 清单见 skills MANIFEST.md（${studioPath('skills', 'MANIFEST.md')}）`;
+  const pointerTokens = estimateTokens(pointer.length + 2); // +\n\n 分隔符
+  const fixedTokens = estimateTokens(header.length) + pointerTokens;
+
   const candidates = ranked.map(entry => {
     const triggerSummary = Array.isArray(entry.triggers) && entry.triggers.length > 0
       ? `｜触发：${entry.triggers.slice(0, 5).join(', ')}`
@@ -395,9 +402,9 @@ async function buildSkillSection(
     return { entry, block, blockTokens: estimateTokens(block.length + 2) }; // + \n\n 分隔符
   });
   // 未截断的原始尺寸（截断埋点的 originalTokens；块级跳过也计入）
-  const originalTokens = estimateTokens(header.length) + candidates.reduce((sum, c) => sum + c.blockTokens, 0);
+  const originalTokens = fixedTokens + candidates.reduce((sum, c) => sum + c.blockTokens, 0);
 
-  let tokens = estimateTokens(header.length);
+  let tokens = fixedTokens;
   const blocks: string[] = [];
   const matched: string[] = [];
   for (const { entry, block, blockTokens } of candidates) {
@@ -408,7 +415,7 @@ async function buildSkillSection(
         const sliced = block.slice(0, Math.max(0, (tokenBudget - tokens) * 4));
         blocks.push(sliced);
         matched.push(entry.name);
-        tokens = estimateTokens(header.length) + estimateTokens(sliced.length);
+        tokens = fixedTokens + estimateTokens(sliced.length);
       }
       break;
     }
@@ -427,7 +434,7 @@ async function buildSkillSection(
     }).catch(() => {});
   }
 
-  return { section: `${header}\n\n${blocks.join('\n\n')}`, tokens, originalTokens, matched };
+  return { section: `${header}\n\n${blocks.join('\n\n')}\n\n${pointer}`, tokens, originalTokens, matched };
 }
 
 /**

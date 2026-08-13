@@ -43,6 +43,7 @@ const { composeStepPrompt, SECTION_QUOTAS } = await import('../loop/prompt-compo
 const { invalidateManifestCache } = await import('../../skills/manifest-loader.js');
 
 const SKILL_HEADER = '## 本次任务 Skills\n\n以下 skill 按相关度排序；任务内容命中其触发条件时，先读全文再按此执行；不相关则忽略。';
+const SKILL_MANIFEST_POINTER = `完整 skill 清单见 skills MANIFEST.md（${path.join(os.homedir(), '.studio', 'skills', 'MANIFEST.md')}）`;
 
 function writeSkill(name: string, description: string) {
   fs.mkdirSync(path.join(testSkillsDir, name), { recursive: true });
@@ -51,6 +52,18 @@ function writeSkill(name: string, description: string) {
     `---\nname: ${name}\ndescription: "${description}"\nagentTypes: [feature]\ntriggers: [登录]\nstatus: published\n---\n\n## 正文\n`,
     'utf-8',
   );
+  invalidateManifestCache();
+}
+
+/** #92 测试：按需控制 agentTypes/description/triggers（无 agentTypes 时测 scope 文本匹配/rest 热度被硬预裁剪） */
+function writeSkillMeta(name: string, meta: { description?: string; agentTypes?: string[]; triggers?: string[] }) {
+  const lines = [`name: ${name}`];
+  if (meta.description != null) lines.push(`description: "${meta.description}"`);
+  if (meta.agentTypes) lines.push(`agentTypes: [${meta.agentTypes.join(',')}]`);
+  if (meta.triggers) lines.push(`triggers: [${meta.triggers.join(',')}]`);
+  lines.push('status: published');
+  fs.mkdirSync(path.join(testSkillsDir, name), { recursive: true });
+  fs.writeFileSync(path.join(testSkillsDir, name, 'SKILL.md'), `---\n${lines.join('\n')}\n---\n\n## 正文\n`, 'utf-8');
   invalidateManifestCache();
 }
 
@@ -131,7 +144,8 @@ describe('#91: composeStepPrompt 分段软定额 + 池内余量共享 + trim 埋
   it('skills 段占定额后余量入池：knowledge 预算 = 1000 + (1400 - skillTokens) + 300 + 400 + 300', async () => {
     writeSkill('feature-dev', '功能开发流程');
     const skillBlock = `### feature-dev\n功能开发流程｜触发：登录\n全文：${path.join(os.homedir(), '.studio', 'skills', 'feature-dev', 'SKILL.md')}`;
-    const skillTokens = estimateTokens(SKILL_HEADER.length) + estimateTokens(skillBlock.length + 2);
+    const skillTokens = estimateTokens(SKILL_HEADER.length) + estimateTokens(skillBlock.length + 2)
+      + estimateTokens(SKILL_MANIFEST_POINTER.length + 2);
 
     const { knowledgeContext, skillMatched } = await composeStepPrompt(
       { wu: makeWu(), metadata: {} as any },
@@ -272,6 +286,112 @@ describe('#91: composeStepPrompt 分段软定额 + 池内余量共享 + trim 埋
     const { prompt } = await composeStepPrompt({ wu: makeWu(), metadata: {} as any }, deps(makeRole()));
 
     expect(prompt).not.toContain('AGENTS.generated.md');
+  });
+});
+
+describe('#92: skills 硬预裁剪 + MANIFEST 指针', () => {
+  let fileStore: FileStore;
+  let testDir: string;
+
+  const deps = (role: AgentProfileData): any => ({
+    role,
+    acceptedTypes: ['implement'],
+    fileStore,
+    resolveEventsFile: () => path.join(testDir, 'studio-events.jsonl'),
+  });
+
+  const sectionTrimmedEvents = () =>
+    mockAppendJsonl.mock.calls
+      .map(c => c[1])
+      .filter((e: any) => e.type === 'prompt:section_trimmed')
+      .map((e: any) => JSON.parse(e.payload));
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    clearSkills();
+    mockInjectContext.mockResolvedValue({ prompt: '## 系统约束\n- test rule', injectedIds: ['rule-1'] });
+    testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'prompt-composer-precrop-'));
+    fileStore = new FileStore(testDir);
+  });
+
+  afterEach(() => {
+    clearSkills();
+  });
+
+  it('AC1: 不匹配 wuType 的 skill 索引行不进 prompt（scope 文本匹配与 rest 热度一并被硬预裁剪）', async () => {
+    writeSkillMeta('domain-skill', { agentTypes: ['feature'] });
+    writeSkillMeta('scope-only', { description: '实现登录功能相关流程' });
+    writeSkillMeta('rest-skill', { description: '无关技能' });
+
+    const { knowledgeContext, skillMatched } = await composeStepPrompt(
+      { wu: makeWu({ scope: '实现登录功能' }), metadata: {} as any },
+      deps(makeRole()),
+    );
+
+    expect(knowledgeContext).toContain('### domain-skill');
+    expect(knowledgeContext).not.toContain('### scope-only');
+    expect(knowledgeContext).not.toContain('### rest-skill');
+    expect(skillMatched).toEqual(['domain-skill']);
+  });
+
+  it('AC2: +skill 显式点名的行始终注入（域匹配为空时）', async () => {
+    writeSkillMeta('hinted-skill', { description: 'xyzzy 无交集' });
+
+    const { knowledgeContext, skillMatched } = await composeStepPrompt(
+      { wu: makeWu({ type: 'zzz-无交集', scope: 'xyzzy +hinted-skill' }), metadata: {} as any },
+      deps(makeRole()),
+    );
+
+    expect(knowledgeContext).toContain('### hinted-skill');
+    expect(skillMatched).toEqual(['hinted-skill']);
+  });
+
+  it('AC3: 段尾 MANIFEST 指针行存在（位于最后一个索引块之后）', async () => {
+    writeSkillMeta('domain-skill', { agentTypes: ['feature'] });
+
+    const { knowledgeContext } = await composeStepPrompt(
+      { wu: makeWu(), metadata: {} as any },
+      deps(makeRole()),
+    );
+
+    expect(knowledgeContext).toContain(SKILL_MANIFEST_POINTER);
+    expect(knowledgeContext.indexOf(SKILL_MANIFEST_POINTER)).toBeGreaterThan(knowledgeContext.indexOf('### domain-skill'));
+  });
+
+  it('两者皆空（无 hint 无域匹配）→ 段为空、无指针（scope 文本匹配不再兜底）', async () => {
+    writeSkillMeta('scope-only', { description: '实现登录功能相关流程' });
+
+    const { knowledgeContext, skillMatched } = await composeStepPrompt(
+      { wu: makeWu({ type: 'zzz-无交集', scope: '实现登录功能' }), metadata: {} as any },
+      deps(makeRole()),
+    );
+
+    expect(knowledgeContext).not.toContain('## 本次任务 Skills');
+    expect(knowledgeContext).not.toContain('MANIFEST');
+    expect(skillMatched).toEqual([]);
+  });
+
+  it('AC4: 预裁剪与定额截断叠加 —— 超预算的 scope 匹配 skill 不进段，超预算的域匹配 skill 仍受 #91 截断且指针恒在段尾', async () => {
+    writeSkillMeta('scope-big', { description: `实现登录功能 ${'述'.repeat(6000)}` });
+    writeSkillMeta('domain-big', { agentTypes: ['feature'], description: '述'.repeat(6000) });
+
+    const { knowledgeContext } = await composeStepPrompt(
+      { wu: makeWu({ scope: '实现登录功能' }), metadata: {} as any },
+      deps(makeRole()),
+    );
+
+    // 预裁剪：scope-big（scope 文本匹配）不进段；domain-big（域匹配）保留
+    expect(knowledgeContext).toContain('### domain-big');
+    expect(knowledgeContext).not.toContain('### scope-big');
+    // 预裁剪后仍受 #91 定额截断（domain-big 单块超 1400 有效预算 → 落 skills 截断埋点）
+    const events = sectionTrimmedEvents();
+    expect(events).toHaveLength(1);
+    expect(events[0].section).toBe('skills');
+    expect(events[0].trimmedTokens).toBe(1400);
+    expect(events[0].originalTokens).toBeGreaterThan(events[0].trimmedTokens);
+    // 指针恒在段尾（截断也保留）
+    expect(knowledgeContext).toContain(SKILL_MANIFEST_POINTER);
+    expect(knowledgeContext.indexOf(SKILL_MANIFEST_POINTER)).toBeGreaterThan(knowledgeContext.indexOf('### domain-big'));
   });
 });
 
