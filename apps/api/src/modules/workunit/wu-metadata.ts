@@ -54,6 +54,7 @@ export function clearSessionBookkeeping(meta: WorkUnitMetadata): WorkUnitMetadat
   delete cleaned.errorAt;
   delete cleaned._cumulativeTokens;
   delete cleaned.lastInputTokens;
+  delete cleaned.progressLog;  // #95: 父 WU 进展史不继承（子 WU 从零记自己的 progressLog）
   return cleaned;
 }
 

@@ -37,6 +37,13 @@ export interface WorkUnitMetadata {
   blockReason?: string;       // B4（同上 P0-2）：最近一次转 blocked 的原因（恢复执行时清除，防事后无法诊断）
   testWorkUnitGuard?: boolean; // B2（同上 P0-1c）：测试特征 WU 被 daemon 守卫关闭的留痕
   lastInputTokens?: number;   // 最新一次 execution 的 input_tokens (cache 追踪)
+  // #95: 最近成功步环形簿记（前序进展段内容源；只记成功步，保留最近 5 条，summary 截 200 字符）
+  progressLog?: Array<{
+    step: number;             // 步号（与 recordResult 的 stepCount 同口径）
+    action: string;           // progress / complete（delegate 经 handleDelegateBranch 归化后）
+    summary: string;          // 截断 200 字符
+    at: string;               // 记录时间 ISO 8601
+  }>;
   // F5 双向沟通：NEED_INPUT 挂起/恢复状态
   waitingForInput?: boolean;  // NEED_INPUT 挂起中（status=blocked，等待人类回复）
   waitingQuestion?: string;   // agent 提出的问题

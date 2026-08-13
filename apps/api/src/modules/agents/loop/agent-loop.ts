@@ -1149,6 +1149,20 @@ export class AgentLoop {
     const stepCount = (metadata.stepCount ?? 0) + 1;
     let consecutiveStuck = action === 'progress' ? 0 : (metadata.consecutiveStuck ?? 0) + 1;
 
+    // #95: progressLog 环形簿记 —— 只记成功步（progress/complete；delegate 经 handleDelegateBranch
+    // 已归化为 progress/need_input，failed/need_input 不进 log），summary 截 200 字符、保留最近 5 条。
+    // 失败步不落 log：errorType 留在 metadata，由 prompt-composer 注入「前序进展」段时附「上一步失败」行。
+    const progressLogUpdates: Partial<WorkUnitMetadata> = {};
+    if (action === 'progress' || action === 'complete') {
+      const prev = Array.isArray(metadata.progressLog) ? metadata.progressLog : [];
+      progressLogUpdates.progressLog = [...prev, {
+        step: stepCount,
+        action,
+        summary: (result.summary ?? '').slice(0, 200),
+        at: new Date().toISOString(),
+      }].slice(-5);
+    }
+
     // F6-c（断点 1）：步骤超限强制收口前补跑 L1 —— COMPLETE 验证守卫只在 action=complete 时跑，
     // 超限路径（任意 action）此前完全跳过验证，代码类 WU 被强制 in_review 时永远缺 l1。
     // 台账写法与 COMPLETE 守卫同结构（approved 全绿 + verifyReport / rejected 留痕），
@@ -1216,7 +1230,7 @@ export class AgentLoop {
     // Single atomic metadata write: merges agentStep updates (sessionId/startedAt/sessionResumes)
     // with monitoring counters (stepCount/consecutiveStuck) — fixes C-3 non-atomic write
     await this.workUnitService.update(wuId, {
-      metadata: { ...metadata, ...result.metadataUpdates, ...waitingUpdates, ...guardUpdates, ...freshnessUpdates, ...blockReasonUpdates, stepCount, consecutiveStuck },
+      metadata: { ...metadata, ...result.metadataUpdates, ...waitingUpdates, ...guardUpdates, ...freshnessUpdates, ...blockReasonUpdates, ...progressLogUpdates, stepCount, consecutiveStuck },
     });
 
     // P0 修复 6: trace 锚点 — 有 traceId 的 WU（频道消息链路）每步留一条可 grep 日志
