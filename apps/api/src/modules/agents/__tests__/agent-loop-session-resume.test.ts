@@ -254,7 +254,7 @@ describe('#94: 会话号 per-WU 化与续用降级', () => {
     expect((agentLoop as unknown as InstanceHolder).instance?.sessionId).toBe('sess-stale');
   });
 
-  it('首 step（新建）执行失败 → 重置 sessionId/sessionCount（下一步按新建重试，不 --resume 未建立的会话）', async () => {
+  it('首 step（新建）执行失败 → 重置 sessionId 但 sessionCount 计入（#95），下一步按新建重试', async () => {
     const wu = await setupWorkUnit();
     mockExecuteLightweight.mockResolvedValue({
       success: false, error: 'CLI boom', logFile: '/tmp/log', worktree: '/tmp/wt',
@@ -265,7 +265,7 @@ describe('#94: 会话号 per-WU 化与续用降级', () => {
 
     expect(step.action).toBe('failed');
     expect(step.metadataUpdates).not.toHaveProperty('sessionId');
-    expect(step.metadataUpdates).not.toHaveProperty('sessionCount');
+    expect(step.metadataUpdates!.sessionCount).toBe(1);
 
     // 下一步重新按新建签发
     mockExecuteLightweight.mockResolvedValue({ ...SUCCESS_RESULT });
@@ -320,7 +320,7 @@ describe('#94: 会话号 per-WU 化与续用降级', () => {
     expect(step.action).toBe('failed');
   });
 
-  it('降级重试仍失败 → action=failed，新会话簿记（sessionId/sessionCount/lastSessionResumed）被重置', async () => {
+  it('降级重试仍失败 → action=failed，sessionId/lastSessionResumed 回滚、sessionCount 计入（#95）', async () => {
     createClaudeSessionFile('sess-lost');
     const wu = await setupWorkUnit({ sessionId: 'sess-lost', sessionCount: 1 });
     mockExecuteLightweight.mockResolvedValue({
@@ -333,7 +333,7 @@ describe('#94: 会话号 per-WU 化与续用降级', () => {
     expect(mockExecuteLightweight).toHaveBeenCalledTimes(2);
     expect(step.action).toBe('failed');
     expect(step.metadataUpdates).not.toHaveProperty('sessionId');
-    expect(step.metadataUpdates).not.toHaveProperty('sessionCount');
+    expect(step.metadataUpdates!.sessionCount).toBe(2);
     expect(step.metadataUpdates).not.toHaveProperty('lastSessionResumed');
   });
 

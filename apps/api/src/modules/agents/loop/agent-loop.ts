@@ -81,11 +81,12 @@ function studioEventsJsonlPath(): string {
 const STEP_LIMIT = 15;
 const REVIEW_STEP_LIMIT = 30;
 
-/** B5（2026-08-03 token-burn issue P1-1）：每 WU 独立会话数上限。
+/** B5（2026-08-03 token-burn issue P1-1）：每 WU 独立会话数上限（#95 由 2 放宽到 5）。
  *  会话反复重建（stuck 重开 / token 截断重开）意味着整段 transcript 全文重放重新烧一遍；
  *  超限说明自动执行已失控，转 need_input 等人工评估（#94 起人工回复不再重置预算——
- *  复活后凭 metadata.sessionId 优先续用旧会话，见 waiting-input.ts）。 */
-const MAX_SESSIONS_PER_WU = 2;
+ *  复活后凭 metadata.sessionId 优先续用旧会话，见 waiting-input.ts）。
+ *  #95: 失败/超时的会话建立尝试计入预算（resetUnestablishedSession 不再清 sessionCount）。 */
+const MAX_SESSIONS_PER_WU = 5;
 
 /** F6-fix: 空闲分支心跳节流间隔 — agent-timeout-scan 阈值为 5min，45s 一次足够保活 */
 const IDLE_HEARTBEAT_INTERVAL_MS = 45_000;
@@ -779,22 +780,23 @@ export class AgentLoop {
           logger.warn(`[AgentLoop] Resume target session lost for ${wu.id} — falling back to a new session`, { traceId });
           task.parameters!.sessionId = taskProvider === 'claude' ? fallbackSessionId : undefined;
           delete task.parameters!.sessionResume;
+          // #95: 降级重试 = 一次新建会话尝试，成败均计入会话预算（失败/超时尝试计入）
+          metadataUpdates.sessionCount = sessionsUsed + 1;
           const retryResult: ExecutionResult = await this.executor.execute(task);
           if (retryResult.success === false) {
-            // 降级重试仍失败 → 既有 failed 返回；新会话未建立，清掉未落盘的新会话簿记
+            // 降级重试仍失败 → 既有 failed 返回；新会话未建立，重置 sessionId 但保留 sessionCount（计入）
             detail = (retryResult.error ?? '未知错误').slice(0, 500);
             logger.error(`[AgentLoop] agentStep fallback retry failed for ${wu.id}: ${detail}`, { traceId });
             recordTokenEvent(retryResult);
             this.resetUnestablishedSession(metadataUpdates);
             return failResult(detail);
           }
-          // 降级成功：走正常成功路径；换新号落盘（sessionCount+1；绕过 MAX 上限一次——
+          // 降级成功：走正常成功路径；换新号落盘（sessionCount 已前置计入；绕过 MAX 上限一次——
           // 预算防线针对「反复从零重开」，降级是单次自愈）
           result = retryResult;
           effectiveSessionId = fallbackSessionId;
           sessionResumed = false;
           metadataUpdates.sessionId = fallbackSessionId;
-          metadataUpdates.sessionCount = sessionsUsed + 1;
           metadataUpdates.lastSessionResumed = false;
         } else {
           // 首 step 失败：会话未必已建立，重置避免下步 --resume 一个从未建立的会话
@@ -1040,11 +1042,10 @@ export class AgentLoop {
    * （可能根本没 spawn 到），不重置则下一步按续用发 `--resume <从未建立的 id>`
    * （claude 必报 "No conversation found"）。续用 step 失败不调用 —— 会话已存在，
    * 保留下一步继续 resume。（#94：实例槽位清除已随 per-WU 化一并移除）
+   * #95: sessionCount 不再清除 —— 失败/超时的会话建立尝试计入预算（超限转 need_input）。
    */
   private resetUnestablishedSession(metadataUpdates: Partial<WorkUnitMetadata>): void {
     delete metadataUpdates.sessionId;
-    // B5: 会话未建立不计入会话预算（失败重试由 consecutiveStuck>=3 → blocked 兜底）
-    delete metadataUpdates.sessionCount;
     delete metadataUpdates.lastSessionResumed;
   }
 
