@@ -37,7 +37,7 @@ transcript 归档器（#97，#88 子票）：把会话原文落盘到数据区�
 - `apps/api/src/modules/agents/loop/agent-loop.ts`（写入方：每步成功执行后 `appendTranscriptStep`）
 
 **下游**:
-- #99 WU 收尾批量提取、handoff 摘要、#85 执行质量评估（读取方，后续实现）
+- #99 WU 收尾批量提取（`readTranscript` 读取方，已落地：role-memory/completion-extraction.ts）、handoff 摘要、#85 执行质量评估（后续实现）
 
 ## 注意事项
 

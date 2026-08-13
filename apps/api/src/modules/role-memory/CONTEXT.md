@@ -4,7 +4,7 @@
 
 ## 职责
 
-角色记忆存储服务（#98，#88 spec §A）：per-role 目录落数据区（经 `studioDir()`/`studioPath()`），三件套——`MEMORY.md` 索引 + `topics/*.md` topic 正文 + `draft.jsonl` append-only 草稿区。只做存储层：读索引（供 #100 注入）、读/写草稿（供 #99 写、#101 读）、promote 合并（草稿 → topic/索引）、容量检查。不实现注入（#100）、提取钩子（#99）、人审卡片（#101）、收尾提取。
+角色记忆存储服务（#98，#88 spec §A）：per-role 目录落数据区（经 `studioDir()`/`studioPath()`），三件套——`MEMORY.md` 索引 + `topics/*.md` topic 正文 + `draft.jsonl` append-only 草稿区。`role-memory.ts` 只做存储层：读索引（供 #100 注入）、读/写草稿（供 #99 写、#101 读）、promote 合并（草稿 → topic/索引）、容量检查；不实现注入（#100）、人审卡片（#101）。WU 收尾提取钩子（#99）在本目录 `completion-extraction.ts`（存储层之外的消费方，订阅 `workunit.status_changed` → done）。
 
 ## 数据布局
 
@@ -32,6 +32,10 @@
 | `roleMemoryDir` | `role-memory.ts` | per-role 目录路径（纯函数，含 `env` 注入测试） |
 | `sanitizeRoleId` / `sanitizeTopicSlug` | `role-memory.ts` | 路径穿越防护（拒 `..` / 分隔符 / 空） |
 | `MemoryKind` / `MemoryDraftEntry` / `TopicDoc` / `CapacityCheck` / `PromoteResult` 等 | `role-memory.ts` | 类型定义 |
+| `WuCompletionExtractor` | `completion-extraction.ts` | #99 WU 收尾批量提取钩子：订阅 `workunit.status_changed` → done，读 transcript → LLM → `appendDraft`；可熔断/可审计，fire-and-forget |
+| `initWuCompletionExtraction` | `completion-extraction.ts` | 单例工厂（懒初始化 + 订阅，index.ts 启动调用，形态同 `initAnalysisHandoff`） |
+| `MEMORY_EXTRACTION_SYSTEM_PROMPT` | `completion-extraction.ts` | 角色记忆提取 prompt（产出 execution-knowledge/preference，适配 appendDraft） |
+| `buildTranscriptText` / `normalizeDraftInput` | `completion-extraction.ts` | 纯函数：transcript 拼接截断 / LLM 条目 → appendDraft 入参 |
 
 ## 设计决策
 
@@ -50,7 +54,7 @@
 - `apps/api/src/utils/studio-log-path.ts`（`isTestEnv` 测试隔离判定）
 
 **下游**:
-- #99 WU 收尾批量提取（`appendDraft` 写入方）
+- #99 WU 收尾批量提取（`appendDraft` 写入方，已落地：本目录 `completion-extraction.ts`）
 - #100 角色记忆索引常驻注入（`readIndex` 读取方）
 - #101 记忆人审卡片（`readDraft`/`promote` 读取与 approve→promote 路径）
 

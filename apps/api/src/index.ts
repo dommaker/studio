@@ -226,6 +226,13 @@ async function start() {
         logger.info('[SpecMaterialization] Subscribed to workunit.status_changed');
       } catch (e) { logger.warn('[SpecMaterialization] Failed to subscribe', { error: String(e) }); }
 
+      // #99 WU 收尾批量提取：done → 读归档 transcript → LLM → 角色记忆草稿区（可审计/可熔断）
+      try {
+        const { initWuCompletionExtraction } = await import('./modules/role-memory/completion-extraction.js');
+        initWuCompletionExtraction();
+        logger.info('[RoleMemory] Completion extraction subscribed (workunit.status_changed → done)');
+      } catch (e) { logger.warn('[RoleMemory] Completion extraction init failed', { error: String(e) }); }
+
       if (agentLoopEnabled) {
         for (const profile of profiles) {
           const entry = await agentLoopRegistry.mount(profile);
