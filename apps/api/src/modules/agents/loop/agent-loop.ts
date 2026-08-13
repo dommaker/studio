@@ -46,6 +46,7 @@ import { testWuGuardEnabled, isTestLikeWorkUnit, parseExcludeAssignee } from './
 import { composeStepPrompt } from './prompt-composer.js';
 import { handleDelegateBranch } from './delegate-branch.js';
 import { shouldResumeSession, RESUME_FAILURE_RE } from './session-resume.js';
+import { isContextOverflowError, buildRollingSummary, OVERFLOW_SUMMARY_HEADER } from './context-overflow.js';
 
 // 输出解析/prompt 构建纯函数已抽到 ./agent-loop-parsers.js（工单 28，行为不变）；
 // re-export 保持对外导出语义不变
@@ -62,9 +63,6 @@ export type { WorkunitTokenEventArgs, RealUsage } from './agent-loop-events.js';
 // B2 测试特征 WU 守卫 + F4 excludeAssignee 解析已抽到 ./agent-loop-guards.js（工单 28，行为不变）；
 // re-export 保持对外导出语义不变
 export { testWuGuardEnabled, isTestLikeWorkUnit } from './agent-loop-guards.js';
-
-/** Threshold for input_tokens before session truncation (100K) */
-const SESSION_TOKEN_LIMIT = 100_000;
 
 /** M2: workunit:tokens 事件写入目标（与 knowledge consumption/outcome 事件同一事件流）。
  *  STUDIO_EVENTS_JSONL 环境变量可覆盖（测试隔离用）；缺省走 resolveStudioLogFile ——
@@ -785,6 +783,17 @@ export class AgentLoop {
         // 换发新 sessionId 重试一次（claude 传 --session-id、不带 sessionResume）。
         // 非续用类错误（超时/业务失败）与 catch 分支（spawn 异常）不触发；每步至多烧一次重试。
         if (resumeSessionId && RESUME_FAILURE_RE.test(detail)) {
+          // #96: 收口 #95 降级超限 —— 续用降级重试也遵守 MAX_SESSIONS_PER_WU（删除 #94「绕过 MAX 一次」先例）。
+          if (sessionsUsed >= MAX_SESSIONS_PER_WU) {
+            logger.warn('[AgentLoop] Resume session lost and session limit reached — need human evaluation', {
+              workUnitId: wu.id, sessionsUsed, max: MAX_SESSIONS_PER_WU,
+            });
+            return {
+              action: 'need_input' as const,
+              summary: `续用会话已丢失且会话重建已达上限（${sessionsUsed}/${MAX_SESSIONS_PER_WU}）：已暂停自动执行。请人工评估后回复任意内容继续，或直接关闭任务`,
+              metadataUpdates,
+            };
+          }
           const fallbackSessionId = randomUUID();
           logger.warn(`[AgentLoop] Resume target session lost for ${wu.id} — falling back to a new session`, { traceId });
           task.parameters!.sessionId = taskProvider === 'claude' ? fallbackSessionId : undefined;
@@ -808,13 +817,60 @@ export class AgentLoop {
             this.resetUnestablishedSession(metadataUpdates);
             return failResult(detail);
           }
-          // 降级成功：走正常成功路径；换新号落盘（sessionCount 已前置计入；绕过 MAX 上限一次——
-          // 预算防线针对「反复从零重开」，降级是单次自愈）
+          // 降级成功：走正常成功路径；换新号落盘（sessionCount 已在查过 MAX 后计入）
           result = retryResult;
           effectiveSessionId = fallbackSessionId;
           sessionResumed = false;
           metadataUpdates.sessionId = fallbackSessionId;
           metadataUpdates.lastSessionResumed = false;
+        } else if (isContextOverflowError(detail)) {
+          // #96: CLI 上下文溢出纯反应式策略 —— 溢出错误 → 会话滚动摘要落盘 → 新会话带摘要
+          // 注入重试一次 → 再败 NEED_INPUT。溢出重试 = 一次新建会话尝试，占会话配额
+          // （与 #95 失败/超时尝试计入语义一致，超限走 need_input，不静默绕过 MAX）。
+          // 摘要来源 = wu.scope + progressLog（会话内逐步 summary），不递归摘要、不建语义搜索。
+          const overflowSummary = buildRollingSummary(wu.scope, metadata);
+          metadataUpdates.sessionSummary = overflowSummary;
+          if (sessionsUsed >= MAX_SESSIONS_PER_WU) {
+            logger.warn('[AgentLoop] Context overflow and session limit reached — need human evaluation', {
+              workUnitId: wu.id, sessionsUsed, max: MAX_SESSIONS_PER_WU,
+            });
+            return {
+              action: 'need_input' as const,
+              summary: `CLI 上下文溢出且会话重建已达上限（${sessionsUsed}/${MAX_SESSIONS_PER_WU}）：已暂停自动执行。请人工评估后回复任意内容继续，或直接关闭任务`,
+              metadataUpdates,
+            };
+          }
+          const overflowSessionId = randomUUID();
+          logger.warn(`[AgentLoop] Context overflow for ${wu.id} — persisting rolling summary and retrying in a new session`, { traceId });
+          task.parameters!.sessionId = taskProvider === 'claude' ? overflowSessionId : undefined;
+          delete task.parameters!.sessionResume;
+          metadataUpdates.sessionCount = sessionsUsed + 1;
+          metadataUpdates.sessionId = overflowSessionId;
+          metadataUpdates.lastSessionResumed = false;
+          // 重算 prompt 注入摘要（isNewSession:false 避免与 handoff 前序进展段重复；摘要单独注入）
+          const recomposed = await composeStepPrompt(
+            { wu, metadata, newReplies: target.newReplies?.map(r => r.content), isNewSession: false },
+            composeDeps,
+          );
+          task.prompt = `${recomposed.prompt}\n\n${OVERFLOW_SUMMARY_HEADER}\n\n${overflowSummary}`;
+          const retryResult: ExecutionResult = await this.executor.execute(task);
+          if (retryResult.success === false) {
+            // 再败 → NEED_INPUT（合流既有 need_input 路径）；sessionSummary 保留落盘供人工参考，
+            // sessionId 重置、sessionCount 计入（不再三连败静默 blocked）
+            const retryDetail = (retryResult.error ?? '未知错误').slice(0, 500);
+            logger.error(`[AgentLoop] agentStep overflow retry failed for ${wu.id}: ${retryDetail}`, { traceId });
+            recordTokenEvent(retryResult);
+            this.resetUnestablishedSession(metadataUpdates);
+            return {
+              action: 'need_input' as const,
+              summary: `CLI 上下文溢出：新会话带摘要重试一次仍失败（${retryDetail.slice(0, 200)}），已暂停自动执行。请人工评估后回复任意内容继续，或直接关闭任务`,
+              metadataUpdates,
+            };
+          }
+          // 溢出重试成功：走正常成功路径；换新号落盘
+          result = retryResult;
+          effectiveSessionId = overflowSessionId;
+          sessionResumed = false;
         } else {
           // 首 step 失败：会话未必已建立，重置避免下步 --resume 一个从未建立的会话
           if (newSessionId) this.resetUnestablishedSession(metadataUpdates);
@@ -890,9 +946,6 @@ export class AgentLoop {
             );
         } catch { /* non-blocking */ }
       }
-
-      // Session truncation: detect input_tokens exceeding threshold
-      this.checkSessionTruncation(result.outputText);
 
       // P0 修复（reviewReport 回传断链）：review 子 WU 报告 COMPLETE 时，把 reviewer
       // 最终输出解析为结构化结论写入 metadata.reviewReport —— 这是 ReviewDispatcher
@@ -1064,30 +1117,6 @@ export class AgentLoop {
   private resetUnestablishedSession(metadataUpdates: Partial<WorkUnitMetadata>): void {
     delete metadataUpdates.sessionId;
     delete metadataUpdates.lastSessionResumed;
-  }
-
-  /** Check execution output for input_tokens exceeding threshold（#94 起仅留观测日志，不再清会话） */
-  private checkSessionTruncation(outputText: string | undefined): void {
-    if (!outputText) return;
-    try {
-      // Parse stream JSON events for usage data
-      const lines = outputText.split('\n').filter(l => l.trim());
-      for (const line of lines) {
-        try {
-          const event = JSON.parse(line) as Record<string, unknown>;
-          if (event.type === 'usage' && typeof event.input_tokens === 'number') {
-            const inputTokens = event.input_tokens as number;
-            if (inputTokens > SESSION_TOKEN_LIMIT) {
-              logger.info(`[AgentLoop] Session truncation: ${inputTokens} tokens exceeds limit ${SESSION_TOKEN_LIMIT}`);
-            }
-          }
-        } catch {
-          // Skip non-JSON lines
-        }
-      }
-    } catch {
-      // Non-blocking
-    }
   }
 
   /** Record result: monitoring checkpoints + state transitions (zero token) */

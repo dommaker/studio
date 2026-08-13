@@ -33,9 +33,9 @@ export function parseWuMetadata(metadata: string | null | undefined): WorkUnitMe
  * claude --resume 自注入 --dangerously-skip-permissions 被 root guard 秒拒（code 1）。
  * 跨 WU 续用本就违反"同一 WU 内才续用"约定（异 cwd 会话不存在）。
  *
- * 本列表是这 14 个字段的唯一权威出处（原 review-dispatcher.createReviewWorkUnit 的手维护
- * delete 清单；#94 增 lastSessionResumed、#95 增 progressLog）。agent-loop 新增簿记字段时
- * 必须同步加入本列表，否则会静默泄漏进 review 子 WU。
+ * 本列表是这 15 个字段的唯一权威出处（原 review-dispatcher.createReviewWorkUnit 的手维护
+ * delete 清单；#94 增 lastSessionResumed、#95 增 progressLog、#96 增 sessionSummary）。
+ * agent-loop 新增簿记字段时必须同步加入本列表，否则会静默泄漏进 review 子 WU。
  *
  * 返回删掉簿记字段后的浅拷贝，不改入参（与 review-dispatcher 原语义一致：
  * 它 delete 的是自己 spread 出来的 childMeta 副本）。
@@ -56,6 +56,7 @@ export function clearSessionBookkeeping(meta: WorkUnitMetadata): WorkUnitMetadat
   delete cleaned._cumulativeTokens;
   delete cleaned.lastInputTokens;
   delete cleaned.progressLog;  // #95: 父 WU 进展史不继承（子 WU 从零记自己的 progressLog）
+  delete cleaned.sessionSummary; // #96: 父 WU 会话滚动摘要不继承（子 WU 从零记自己的会话）
   return cleaned;
 }
 
