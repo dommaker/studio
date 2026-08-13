@@ -47,6 +47,7 @@ import { composeStepPrompt } from './prompt-composer.js';
 import { handleDelegateBranch } from './delegate-branch.js';
 import { shouldResumeSession, RESUME_FAILURE_RE } from './session-resume.js';
 import { isContextOverflowError, buildRollingSummary, OVERFLOW_SUMMARY_HEADER } from './context-overflow.js';
+import { appendTranscriptStep } from '../../transcripts/transcript-archive.js';
 
 // 输出解析/prompt 构建纯函数已抽到 ./agent-loop-parsers.js（工单 28，行为不变）；
 // re-export 保持对外导出语义不变
@@ -908,6 +909,19 @@ export class AgentLoop {
         try {
           writeToolCallEvents(toolTraceSource, resolveToolTraceFile());
         } catch { /* non-blocking */ }
+      }
+
+      // #97: transcript 归档 —— 本步原文（raw CLI stdout，provider 无关）追加到 per-WU
+      // 归档文件（JSONL，studioPath('transcripts/<wuId>.jsonl')）。三消费方（#99 WU 收尾
+      // 提取、handoff 摘要、#85 执行质量评估）共用；fire-and-forget，失败绝不阻断任务流程。
+      if (toolTraceSource) {
+        void appendTranscriptStep({
+          workUnitId: wu.id,
+          sessionId: effectiveSessionId ?? undefined,
+          step: stepNo,
+          action: stepResult.action,
+          rawOutput: toolTraceSource,
+        }).catch(() => {});
       }
 
       // WU 过程可视化：执行步事件（本步思考/工具调用/skill 注入/用量 → 事件流落盘 + SSE，
