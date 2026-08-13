@@ -350,4 +350,28 @@ describe('#94: 会话号 per-WU 化与续用降级', () => {
     expect(step.metadataUpdates).not.toHaveProperty('sessionId');
     expect(step.metadataUpdates).not.toHaveProperty('sessionCount');
   });
+
+  it('#95: 续用不命中（会话文件缺）且 stepCount>0 → task.prompt 注入前序进展段', async () => {
+    const wu = await setupWorkUnit({
+      sessionId: 'sess-gone', sessionCount: 1, stepCount: 2,
+      progressLog: [{ step: 1, action: 'progress', summary: '完成数据层', at: '2026-08-12T10:00:00Z' }],
+    });
+
+    await (agentLoop as unknown as AgentStepCapable).agentStep({ workUnit: wu });
+
+    expect(lastTask().prompt).toContain('## 前序进展');
+    expect(lastTask().prompt).toContain('完成数据层');
+  });
+
+  it('#95: 续用命中（会话文件在）→ task.prompt 不注入前序进展段', async () => {
+    createClaudeSessionFile('sess-live');
+    const wu = await setupWorkUnit({
+      sessionId: 'sess-live', sessionCount: 1, stepCount: 2,
+      progressLog: [{ step: 1, action: 'progress', summary: '完成数据层', at: '2026-08-12T10:00:00Z' }],
+    });
+
+    await (agentLoop as unknown as AgentStepCapable).agentStep({ workUnit: wu });
+
+    expect(lastTask().prompt).not.toContain('## 前序进展');
+  });
 });

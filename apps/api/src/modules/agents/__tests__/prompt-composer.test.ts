@@ -443,3 +443,95 @@ describe('#111 T5: PMO 地图段完整渲染（destination + 近 N 条决策 + �
     expect(prompt).not.toContain('## PMO 地图');
   });
 });
+
+describe('#95: handoff 前序进展段', () => {
+  let fileStore: FileStore;
+  let testDir: string;
+
+  const deps = (role: AgentProfileData): any => ({
+    role,
+    acceptedTypes: ['implement'],
+    fileStore,
+    resolveEventsFile: () => path.join(testDir, 'studio-events.jsonl'),
+  });
+
+  const meta = (overrides: Record<string, unknown> = {}) => ({
+    stepCount: 2,
+    progressLog: [
+      { step: 1, action: 'progress', summary: '完成数据层', at: '2026-08-12T10:00:00Z' },
+      { step: 2, action: 'progress', summary: '完成接口层', at: '2026-08-12T10:05:00Z' },
+    ],
+    ...overrides,
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    clearSkills();
+    mockInjectContext.mockResolvedValue({ prompt: '', injectedIds: [] });
+    testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'prompt-composer-handoff-'));
+    fileStore = new FileStore(testDir);
+  });
+
+  it('续用不命中（isNewSession）+ stepCount>0 → prompt 含前序进展段（progressLog 逐条渲染）', async () => {
+    const { prompt } = await composeStepPrompt(
+      { wu: makeWu(), metadata: meta() as any, isNewSession: true },
+      deps(makeRole()),
+    );
+
+    expect(prompt).toContain('## 前序进展');
+    expect(prompt).toContain('第 1 步 [progress]：完成数据层');
+    expect(prompt).toContain('第 2 步 [progress]：完成接口层');
+  });
+
+  it('续用命中（非新会话）→ 不注入前序进展段', async () => {
+    const { prompt } = await composeStepPrompt(
+      { wu: makeWu(), metadata: meta() as any, isNewSession: false },
+      deps(makeRole()),
+    );
+
+    expect(prompt).not.toContain('## 前序进展');
+  });
+
+  it('stepCount=0（首步）→ 不注入前序进展段', async () => {
+    const { prompt } = await composeStepPrompt(
+      { wu: makeWu(), metadata: meta({ stepCount: 0 }) as any, isNewSession: true },
+      deps(makeRole()),
+    );
+
+    expect(prompt).not.toContain('## 前序进展');
+  });
+
+  it('errorType 存在 → 附「上一步失败」行（失败步不落 log 但注入失败行）', async () => {
+    const { prompt } = await composeStepPrompt(
+      { wu: makeWu(), metadata: meta({ errorType: 'execution_failed' }) as any, isNewSession: true },
+      deps(makeRole()),
+    );
+
+    expect(prompt).toContain('## 前序进展');
+    expect(prompt).toContain('上一步执行失败');
+    expect(prompt).toContain('execution_failed');
+  });
+
+  it('挂载位：base 之后、hint 之前', async () => {
+    const { prompt } = await composeStepPrompt(
+      { wu: makeWu(), metadata: meta({ commitGuardHint: '有未提交改动' }) as any, isNewSession: true },
+      deps(makeRole()),
+    );
+
+    const baseIdx = prompt.indexOf('## 当前工作');
+    const handoffIdx = prompt.indexOf('## 前序进展');
+    const hintIdx = prompt.indexOf('## 提交提醒');
+    expect(baseIdx).toBeGreaterThanOrEqual(0);
+    expect(handoffIdx).toBeGreaterThan(baseIdx);
+    expect(hintIdx).toBeGreaterThan(handoffIdx);
+  });
+
+  it('progressLog 空且无 errorType → 不注入（空段）', async () => {
+    const { prompt } = await composeStepPrompt(
+      { wu: makeWu(), metadata: { stepCount: 2 } as any, isNewSession: true },
+      deps(makeRole()),
+    );
+
+    expect(prompt).not.toContain('## 前序进展');
+  });
+});

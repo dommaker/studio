@@ -540,27 +540,9 @@ export class AgentLoop {
       ? await this.fileStore.getChannelVersion(wu.channelId).catch(() => undefined)
       : undefined;
 
-    // prompt 组装与上下文注入（hint 读取/注入/消费清除、skill > persona > roster > knowledge
-    // 共用 2K 预算注入、三个 build 段函数）已抽到 ./prompt-composer.js（2026-08 工单 05，
-    // 行为一字不改，事故档案注释随代码迁走）——agentStep 只保留编排。
-    const composed = await composeStepPrompt(
-      { wu, metadata, newReplies: target.newReplies?.map(r => r.content) },
-      { role: this.role, acceptedTypes: this.acceptedTypes, fileStore: this.fileStore, resolveEventsFile: studioEventsJsonlPath },
-    );
-    const { prompt, pendingReplies, knowledgeContext, skillMatched, injectedKnowledgeIds } = composed;
-
-    // Session management — #94 会话号 per-WU 化：只信档案 metadata.sessionId，
-    // 实例单槽位（RuntimeInstance.sessionId）废弃（并行互踩 + 重启孤儿化）。
-    // 续用判定在 worktree 解析之后进行（此时 workspaceRoot 才是本步真实 cwd），见下方。
+    // 本 step metadata 增量（agentStep 落盘、recordResult 原子写）。worktree 解析 / 会话签发 /
+    // prompt 组装消费的 hint 清除都合并进这里。
     const metadataUpdates: Partial<WorkUnitMetadata> = {};
-    if (skillMatched.length > 0) {
-      // 决策 7: step 时匹配名单落盘 metadata.matchedSkills（随 recordResult 原子写入，
-      // 供 skill-demotion 成功率与被无视率度量——替代原 claim 时 fire-and-forget 落盘，消竞态）
-      metadataUpdates.matchedSkills = skillMatched;
-    }
-    // 已消费 hint（pendingReplies/commitGuardHint/verifyFailHint/childGuardHint）的清除增量
-    // （undefined 在 JSON 序列化时丢弃，清除避免后续步骤重复注入）
-    Object.assign(metadataUpdates, composed.consumedHintUpdates);
 
     // F6 → B3a: WorkUnit 绑定工程 → 解析执行根目录，经 parameters.workspaceRoot
     // 传给 agent-runner（resolveWorkspace Priority 1：直接以该目录为 cwd）。
@@ -652,6 +634,25 @@ export class AgentLoop {
     const resumeSessionId = shouldResumeSession(taskProvider, metadata.sessionId, workspaceRoot)
       ? metadata.sessionId!
       : null;
+
+    // prompt 组装与上下文注入（hint 读取/注入/消费清除、skill > persona > roster > knowledge
+    // 共用分段软定额注入）已抽到 ./prompt-composer.js（2026-08 工单 05）——agentStep 只保留编排。
+    // #95: 续用判定在 worktree 解析后、prompt 组装前完成 —— isNewSession（续用不命中）决定
+    // 是否注入「前序进展」段与回放 waitingQuestion。
+    const composed = await composeStepPrompt(
+      { wu, metadata, newReplies: target.newReplies?.map(r => r.content), isNewSession: !resumeSessionId },
+      { role: this.role, acceptedTypes: this.acceptedTypes, fileStore: this.fileStore, resolveEventsFile: studioEventsJsonlPath },
+    );
+    const { prompt, pendingReplies, knowledgeContext, skillMatched, injectedKnowledgeIds } = composed;
+    if (skillMatched.length > 0) {
+      // 决策 7: step 时匹配名单落盘 metadata.matchedSkills（随 recordResult 原子写入，
+      // 供 skill-demotion 成功率与被无视率度量——替代原 claim 时 fire-and-forget 落盘，消竞态）
+      metadataUpdates.matchedSkills = skillMatched;
+    }
+    // 已消费 hint（pendingReplies/commitGuardHint/verifyFailHint/childGuardHint）的清除增量
+    // （undefined 在 JSON 序列化时丢弃，清除避免后续步骤重复注入）
+    Object.assign(metadataUpdates, composed.consumedHintUpdates);
+
     let newSessionId: string | null = null;
     // B5（2026-08-03 token-burn issue P1-1，决策记录 #3）：每 WU 会话数上限。
     // 新建会话 = 从零重读 SKILL.md/探索文件 + 后续 step 全文重放，是最大的 token 放大器；
