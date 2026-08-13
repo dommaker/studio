@@ -15,10 +15,11 @@
  * knowledge-service 模块，同一模块 ID 解析到同一绝对路径，mock 照常生效）。
  */
 
-import { estimateTokens, parseChannels, FileStore, type AgentProfileData } from '@dommaker/studio-shared';
+import { estimateTokens, parseChannels, FileStore, logger, type AgentProfileData } from '@dommaker/studio-shared';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import { knowledgeService } from '../../knowledge/knowledge-service.js';
 import { projectService } from '../../pmo/project.service.js';
+import { roleMemoryStore } from '../../role-memory/role-memory.js';
 import { loadManifest } from '../../skills/manifest-loader.js';
 import { selectSkillsForInjection, parseSkillHintsFromScope } from '../../skills/skill-selector.js';
 import { resolveMaxDepth, MAX_DELEGATIONS_PER_PARENT } from '../../workunit/delegation-gate.js';
@@ -203,8 +204,8 @@ export async function composeStepPrompt(
   // A2A §4.1 机制 2: 成员花名册段（## 频道成员与委派）
   const roster = await runSection('roster', budget => buildRosterSection(wu, deps, budget));
 
-  // #91 定额位：memory 段内容源 = 角色记忆索引常驻注入（#100，依赖 #98 存储服务），落地前段恒为空
-  const memory = await runSection('memory', () => Promise.resolve<BuiltSection>({ section: '', tokens: 0, originalTokens: 0 }));
+  // #100: memory 段内容源 = 角色记忆索引常驻注入（per-role MEMORY.md 索引全文，依赖 #98 存储服务）
+  const memory = await runSection('memory', budget => buildMemorySection(deps.role.id, budget));
 
   // GAP-5 + R1 反馈环: knowledge 段 —— injectContext 内部按 maxTokens（= 定额 + 池余量）截断，
   // 截断尺寸经 usage 回传（originalTokens > keptTokens 即发生了段内截断）。
@@ -508,6 +509,41 @@ ${rosterLines.join('\n')}
   if (originalTokens > tokenBudget) {
     // 按截断后实际内容重算 tokens，省下的余量回流共享池（#91）
     const sliced = full.slice(0, tokenBudget * 4);
+    return { section: sliced, tokens: estimateTokens(sliced.length), originalTokens };
+  }
+  return { section: full, tokens: originalTokens, originalTokens };
+}
+
+/**
+ * #100: 组装 `## 角色记忆索引` 段 —— 注入 per-role MEMORY.md 索引全文（index-on-demand：
+ * 每行 = topic 路径 + 一句话摘要，正文由 agent 现成文件工具按需读，不引入语义搜索/RAG）。
+ * 内容源 = roleMemoryStore.readIndex(roleId)；索引不存在/为空 → 空段（section: ''，同现状）；
+ * 读盘失败 → 空段 + 记日志（non-blocking，绝不阻断 prompt 组装）。段首协议行说明按需语义
+ * （同 skills 段风格）。预算经调用方 runSection 传有效预算（#91 定额 300 + 池余量），
+ * 超出按 chars/4 口径截断，originalTokens > tokens 由 runSection 落 prompt:section_trimmed 埋点。
+ */
+async function buildMemorySection(roleId: string, tokenBudget: number): Promise<BuiltSection> {
+  let index: string;
+  try {
+    index = await roleMemoryStore.readIndex(roleId);
+  } catch (err) {
+    // 读盘失败（非 ENOENT 的 IO/权限等异常）：空段兜底，只记日志，不阻断 prompt 组装
+    logger.warn('[prompt-composer] role memory index read failed (non-blocking)', {
+      roleId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return { section: '', tokens: 0, originalTokens: 0 };
+  }
+
+  const body = index.trim();
+  if (!body || tokenBudget <= 0) return { section: '', tokens: 0, originalTokens: 0 };
+
+  const header = '## 角色记忆索引\n\n以下为你在往次任务中沉淀的记忆索引（每行 = topic 路径 + 一句话摘要）；任务内容命中相关记忆时，先用文件工具按需读对应 topic 正文再据此执行，不相关则忽略。';
+  const full = `${header}\n\n${body}`;
+  const originalTokens = estimateTokens(full.length);
+  if (originalTokens > tokenBudget) {
+    // 按截断后实际内容重算 tokens，省下的余量回流共享池（#91）
+    const sliced = full.slice(0, Math.max(0, tokenBudget * 4));
     return { section: sliced, tokens: estimateTokens(sliced.length), originalTokens };
   }
   return { section: full, tokens: originalTokens, originalTokens };
