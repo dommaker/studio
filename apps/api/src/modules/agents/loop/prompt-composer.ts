@@ -55,6 +55,9 @@ export const MAP_DECISIONS_MAX = 10;
 /** #111 T5：单条 decision summary 紧凑截断阈值（超出加省略号；顶格单行 ~43tok） */
 export const MAP_SUMMARY_MAX_CHARS = 160;
 
+/** #95：waitingQuestion 仅新会话回放的截断字符上限 */
+export const WAITING_QUESTION_REPLAY_MAX_CHARS = 300;
+
 /** 单个注入段的组装产出：tokens = 截断后实际用量；originalTokens = 未截断的原始尺寸（> tokens 即发生了截断） */
 interface BuiltSection {
   section: string;
@@ -68,6 +71,8 @@ export interface PromptComposerCtx {
   metadata: WorkUnitMetadata;
   /** §4.2 观察层新回复的消息正文（target.newReplies.map(r => r.content)），优先级低于 pendingReplies */
   newReplies?: string[];
+  /** #95: 本步是否新建会话（续用不命中）。true 且 stepCount>0 时注入「前序进展」段 + 回放 waitingQuestion */
+  isNewSession?: boolean;
 }
 
 /** prompt 组装外部依赖（loop 绑定状态下传；度量事件路径惰性解析，测试可改 env 生效）。 */
@@ -128,15 +133,24 @@ export async function composeStepPrompt(
     ? metadata.childGuardHint
     : null;
 
-  const basePrompt = pendingReplies.length > 0
-    ? buildReplyPrompt(wu, pendingReplies)
+  // #95: 仅新会话回放 waitingQuestion（截 300 字符）并入人类回复段——断链后 agent 忘了自己提过什么问题
+  const replyTexts = pendingReplies.length > 0
+    && ctx.isNewSession === true
+    && typeof metadata.waitingQuestion === 'string'
+    && metadata.waitingQuestion.trim().length > 0
+    ? [`（你此前提出的问题：${metadata.waitingQuestion.slice(0, WAITING_QUESTION_REPLAY_MAX_CHARS)}）`, ...pendingReplies]
+    : pendingReplies;
+  const basePrompt = replyTexts.length > 0
+    ? buildReplyPrompt(wu, replyTexts)
     : ctx.newReplies?.length
       ? buildReplyPrompt(wu, ctx.newReplies)
       : buildContinuePrompt(wu);
-  let prompt = basePrompt;
-  if (commitGuardHint) prompt = `${prompt}\n\n## 提交提醒\n\n${commitGuardHint}`;
-  if (verifyFailHint) prompt = `${prompt}\n\n## 验证失败\n\n${verifyFailHint}`;
-  if (childGuardHint) prompt = `${prompt}\n\n## 子任务提醒\n\n${childGuardHint}`;
+  // #95: hint（guard hint）段延后组装 —— 前序进展段挂载在 base 之后、hint 之前
+  const hintBlocks = [
+    commitGuardHint ? `## 提交提醒\n\n${commitGuardHint}` : null,
+    verifyFailHint ? `## 验证失败\n\n${verifyFailHint}` : null,
+    childGuardHint ? `## 子任务提醒\n\n${childGuardHint}` : null,
+  ].filter((s): s is string => s !== null).join('\n\n');
 
   // #107 T1 tracer bullet 已升级为 #111 T5 完整地图段（见下方 runSection('map')）：
   // destination + 近 N 条 decisions（新→旧）+ 开放 fog 清单，纳入分段预算首段。
@@ -177,7 +191,6 @@ export async function composeStepPrompt(
   // #111 T5: PMO 地图完整段（## PMO 地图）——分段预算首段（定额 800 + 池共享）；
   // 段文本沿用 T1 落点拼进 base prompt（开场白位置），不进 knowledgeContext。
   const pmoMap = await runSection('map', budget => buildPmoMapSection(metadata, budget));
-  if (pmoMap.section) prompt = `${prompt}\n\n${pmoMap.section}`;
 
   // 决策 7/11: skill 段（## 本次任务 Skills）step 时计算，吃 skill 库最新版
   interface SkillSection extends BuiltSection { matched: string[] }
@@ -211,8 +224,9 @@ export async function composeStepPrompt(
   });
   const knowledgeSection = knowledge.section;
 
-  // #91 定额位：handoff 段内容源 = 断链前序进展段（#95），落地前段恒为空
-  const handoff = await runSection('handoff', () => Promise.resolve<BuiltSection>({ section: '', tokens: 0, originalTokens: 0 }));
+  // #95: handoff 前序进展段（续用不命中 + stepCount>0 时注入；挂载位 base 后/hint 前）
+  const handoff = await runSection('handoff', budget =>
+    Promise.resolve(buildHandoffSection(metadata, ctx.isNewSession === true, budget)));
 
   const leadSections = [skills.section, persona.section, roster.section, memory.section]
     .filter(s => s.length > 0)
@@ -224,9 +238,12 @@ export async function composeStepPrompt(
       ? `${leadSections}\n\n## 项目上下文\n${knowledgeSection}`
       : leadSections;
   }
-  if (handoff.section) {
-    knowledgeContext = knowledgeContext ? `${knowledgeContext}\n\n${handoff.section}` : handoff.section;
-  }
+
+  // #95: 前序进展段挂载 base 之后、hint 之前（易变尾部组）；map 仍随 base 拼 prompt（#119 才重排段序）
+  let prompt = basePrompt;
+  if (handoff.section) prompt = `${prompt}\n\n${handoff.section}`;
+  if (hintBlocks) prompt = `${prompt}\n\n${hintBlocks}`;
+  if (pmoMap.section) prompt = `${prompt}\n\n${pmoMap.section}`;
 
   const consumedHintUpdates: Partial<WorkUnitMetadata> = {};
   if (pendingReplies.length > 0) {
@@ -303,6 +320,44 @@ async function buildPmoMapSection(metadata: WorkUnitMetadata, tokenBudget: numbe
     section = section.slice(0, Math.max(0, tokenBudget * 4));
   }
   return { section, tokens: estimateTokens(section.length), originalTokens };
+}
+
+/**
+ * #95: 组装 `## 前序进展` 段 —— 断链新会话（续用不命中）时给 agent 的前序上下文。
+ * 注入条件：isNewSession && stepCount>0（含复活丢会话）。内容 = metadata.progressLog
+ * （成功步，旧→新）+ errorType 存在时附「上一步失败」行（失败步不落 log，注入时补）。
+ * progressLog 空且无 errorType → 空段。超预算按 chars/4 截（与其他段同口径），
+ * originalTokens > tokens 由 runSection 落 prompt:section_trimmed 埋点。
+ */
+function buildHandoffSection(metadata: WorkUnitMetadata, isNewSession: boolean, tokenBudget: number): BuiltSection {
+  if (!isNewSession) return { section: '', tokens: 0, originalTokens: 0 };
+  const stepCount = typeof metadata.stepCount === 'number' ? metadata.stepCount : 0;
+  if (stepCount <= 0) return { section: '', tokens: 0, originalTokens: 0 };
+  const log = Array.isArray(metadata.progressLog) ? metadata.progressLog : [];
+  if (log.length === 0 && !metadata.errorType) return { section: '', tokens: 0, originalTokens: 0 };
+
+  const lines = ['## 前序进展'];
+  if (log.length > 0) {
+    lines.push('以下是你在此任务中已完成的步骤（旧→新）：');
+    for (const entry of log) {
+      // metadata 是 `[key: string]: unknown` 反序列化的 JSON，旧版本/手改可能残留畸形条目（null/标量）——逐字段窄断言防渲染脏数据
+      const step = typeof entry?.step === 'number' ? entry.step : '';
+      const action = typeof entry?.action === 'string' ? entry.action : '';
+      const summary = typeof entry?.summary === 'string' ? entry.summary : '';
+      lines.push(`- 第 ${step} 步 [${action}]：${summary}`);
+    }
+  }
+  if (metadata.errorType) {
+    lines.push(`上一步执行失败（${metadata.errorType}），请结合上文进展处理失败后再继续。`);
+  }
+
+  const full = lines.join('\n');
+  const originalTokens = estimateTokens(full.length);
+  if (originalTokens > tokenBudget) {
+    const sliced = full.slice(0, Math.max(0, tokenBudget * 4));
+    return { section: sliced, tokens: estimateTokens(sliced.length), originalTokens };
+  }
+  return { section: full, tokens: originalTokens, originalTokens };
 }
 
 /**
