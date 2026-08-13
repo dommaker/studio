@@ -55,6 +55,9 @@ export const MAP_DECISIONS_MAX = 10;
 /** #111 T5：单条 decision summary 紧凑截断阈值（超出加省略号；顶格单行 ~43tok） */
 export const MAP_SUMMARY_MAX_CHARS = 160;
 
+/** #95：waitingQuestion 仅新会话回放的截断字符上限 */
+export const WAITING_QUESTION_REPLAY_MAX_CHARS = 300;
+
 /** 单个注入段的组装产出：tokens = 截断后实际用量；originalTokens = 未截断的原始尺寸（> tokens 即发生了截断） */
 interface BuiltSection {
   section: string;
@@ -135,7 +138,7 @@ export async function composeStepPrompt(
     && ctx.isNewSession === true
     && typeof metadata.waitingQuestion === 'string'
     && metadata.waitingQuestion.trim().length > 0
-    ? [`（你此前提出的问题：${metadata.waitingQuestion.slice(0, 300)}）`, ...pendingReplies]
+    ? [`（你此前提出的问题：${metadata.waitingQuestion.slice(0, WAITING_QUESTION_REPLAY_MAX_CHARS)}）`, ...pendingReplies]
     : pendingReplies;
   const basePrompt = replyTexts.length > 0
     ? buildReplyPrompt(wu, replyTexts)
@@ -337,6 +340,7 @@ function buildHandoffSection(metadata: WorkUnitMetadata, isNewSession: boolean, 
   if (log.length > 0) {
     lines.push('以下是你在此任务中已完成的步骤（旧→新）：');
     for (const entry of log) {
+      // metadata 是 `[key: string]: unknown` 反序列化的 JSON，旧版本/手改可能残留畸形条目（null/标量）——逐字段窄断言防渲染脏数据
       const step = typeof entry?.step === 'number' ? entry.step : '';
       const action = typeof entry?.action === 'string' ? entry.action : '';
       const summary = typeof entry?.summary === 'string' ? entry.summary : '';

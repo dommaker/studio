@@ -81,6 +81,11 @@ function studioEventsJsonlPath(): string {
 const STEP_LIMIT = 15;
 const REVIEW_STEP_LIMIT = 30;
 
+/** #95: progressLog 环形簿记——保留最近成功步条数上限 */
+const PROGRESS_LOG_MAX_ENTRIES = 5;
+/** #95: progressLog 单条 summary 截断字符上限 */
+const PROGRESS_LOG_SUMMARY_MAX_CHARS = 200;
+
 /** B5（2026-08-03 token-burn issue P1-1）：每 WU 独立会话数上限（#95 由 2 放宽到 5）。
  *  会话反复重建（stuck 重开 / token 截断重开）意味着整段 transcript 全文重放重新烧一遍；
  *  超限说明自动执行已失控，转 need_input 等人工评估（#94 起人工回复不再重置预算——
@@ -1160,9 +1165,9 @@ export class AgentLoop {
       progressLogUpdates.progressLog = [...prev, {
         step: stepCount,
         action,
-        summary: (result.summary ?? '').slice(0, 200),
+        summary: (result.summary ?? '').slice(0, PROGRESS_LOG_SUMMARY_MAX_CHARS),
         at: new Date().toISOString(),
-      }].slice(-5);
+      }].slice(-PROGRESS_LOG_MAX_ENTRIES);
     }
 
     // F6-c（断点 1）：步骤超限强制收口前补跑 L1 —— COMPLETE 验证守卫只在 action=complete 时跑，
