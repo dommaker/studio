@@ -17,10 +17,11 @@ import * as os from 'node:os';
 const testSkillsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'prompt-composer-skills-'));
 process.env.SKILLS_DIR = testSkillsDir;
 
-const { mockInjectContext, mockAppendJsonl, mockProjectGet } = vi.hoisted(() => ({
+const { mockInjectContext, mockAppendJsonl, mockProjectGet, mockReadIndex } = vi.hoisted(() => ({
   mockInjectContext: vi.fn().mockResolvedValue({ prompt: '## 系统约束\n- test rule', injectedIds: ['rule-1'] }),
   mockAppendJsonl: vi.fn().mockResolvedValue(undefined),
   mockProjectGet: vi.fn().mockResolvedValue(null),
+  mockReadIndex: vi.fn().mockResolvedValue(''),
 }));
 
 vi.mock('../../knowledge/knowledge-service', () => ({
@@ -33,6 +34,10 @@ vi.mock('../loop/agent-loop-events', () => ({
 
 vi.mock('../../pmo/project.service.js', () => ({
   projectService: { get: mockProjectGet },
+}));
+
+vi.mock('../../role-memory/role-memory.js', () => ({
+  roleMemoryStore: { readIndex: mockReadIndex },
 }));
 
 import { FileStore, estimateTokens } from '@dommaker/studio-shared';
@@ -716,5 +721,94 @@ describe('#95: waitingQuestion 回放（仅新会话）', () => {
     expect(prompt).toContain('你此前提出的问题');
     expect(prompt).toContain('q'.repeat(300));
     expect(prompt).not.toContain('q'.repeat(301));
+  });
+});
+
+describe('#100: 角色记忆索引常驻注入（memory 段 = per-role MEMORY.md 索引全文）', () => {
+  let fileStore: FileStore;
+  let testDir: string;
+
+  const deps = (role: AgentProfileData): any => ({
+    role,
+    acceptedTypes: ['implement'],
+    fileStore,
+    resolveEventsFile: () => path.join(testDir, 'studio-events.jsonl'),
+  });
+
+  const sectionTrimmedEvents = () =>
+    mockAppendJsonl.mock.calls
+      .map(c => c[1])
+      .filter((e: any) => e.type === 'prompt:section_trimmed')
+      .map((e: any) => JSON.parse(e.payload));
+
+  const MEMORY_HEADER = '## 角色记忆索引';
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    clearSkills();
+    mockInjectContext.mockResolvedValue({ prompt: '## 系统约束\n- test rule', injectedIds: ['rule-1'] });
+    mockReadIndex.mockResolvedValue('');
+    testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'prompt-composer-memory-'));
+    fileStore = new FileStore(testDir);
+  });
+
+  it('AC1/AC2: 索引存在 → memory 段注入 readIndex 全文（topic 路径 + 一句话摘要行原样保留）+ 段首协议行说明按需语义', async () => {
+    const index = '# Role Memory Index\n\n- [auth-flow](topics/auth-flow.md) — OAuth 授权走 PKCE 且不回退账号密码\n- [build-cache](topics/build-cache.md) — pnpm 损坏时用 vitest/tsc-gate 直跑';
+    mockReadIndex.mockResolvedValue(index);
+
+    const { knowledgeContext } = await composeStepPrompt(
+      { wu: makeWu(), metadata: {} as any },
+      deps(makeRole()),
+    );
+
+    expect(mockReadIndex).toHaveBeenCalledWith('role-1');
+    expect(knowledgeContext).toContain(MEMORY_HEADER);
+    // 索引行（topic 路径 + 一句话摘要）原样保留，正文不注入
+    expect(knowledgeContext).toContain('- [auth-flow](topics/auth-flow.md) — OAuth 授权走 PKCE 且不回退账号密码');
+    expect(knowledgeContext).toContain('- [build-cache](topics/build-cache.md) — pnpm 损坏时用 vitest/tsc-gate 直跑');
+    // 段首协议行说明按需语义（正文靠文件工具按需读，不引入语义搜索）
+    expect(knowledgeContext).toContain('按需读');
+    // 段首协议行位于索引行之前
+    expect(knowledgeContext.indexOf(MEMORY_HEADER)).toBeLessThan(knowledgeContext.indexOf('- [auth-flow]'));
+  });
+
+  it('AC1: 索引不存在/为空 → 空段（行为同现状，不注入该段）', async () => {
+    const { knowledgeContext } = await composeStepPrompt(
+      { wu: makeWu(), metadata: {} as any },
+      deps(makeRole()),
+    );
+
+    expect(knowledgeContext).not.toContain(MEMORY_HEADER);
+  });
+
+  it('读盘失败 → 空段 + 不阻断 prompt 组装（knowledge 段仍照常组装）', async () => {
+    mockReadIndex.mockRejectedValue(new Error('io error'));
+
+    const { knowledgeContext } = await composeStepPrompt(
+      { wu: makeWu(), metadata: {} as any },
+      deps(makeRole()),
+    );
+
+    expect(knowledgeContext).not.toContain(MEMORY_HEADER);
+    expect(knowledgeContext).toContain('## 系统约束'); // knowledge 段仍组装，证明 non-blocking
+  });
+
+  it('AC1: 索引超有效预算（定额 300 + 池余量）→ 截断并落 prompt:section_trimmed(section=memory, quota=300)', async () => {
+    const lines = Array.from({ length: 200 }, (_, i) => `- [t${i}](topics/t${i}.md) — ${'述'.repeat(80)}`);
+    mockReadIndex.mockResolvedValue(`# Role Memory Index\n\n${lines.join('\n')}`);
+
+    const { knowledgeContext } = await composeStepPrompt(
+      { wu: makeWu(), metadata: {} as any },
+      deps(makeRole()),
+    );
+
+    expect(knowledgeContext).toContain(MEMORY_HEADER);
+    const events = sectionTrimmedEvents();
+    expect(events).toHaveLength(1);
+    expect(events[0].section).toBe('memory');
+    expect(events[0].quota).toBe(300);
+    // 有效预算 = 定额 300 + 前段（map 800 + skills 600 + persona 300 + roster 400）余量 2100
+    expect(events[0].trimmedTokens).toBe(2400);
+    expect(events[0].originalTokens).toBeGreaterThan(events[0].trimmedTokens);
   });
 });
