@@ -93,6 +93,7 @@ export interface WorkUnitMetadata {
   mergeConflict?: boolean;    // 自动合并（含 rebase 重试）仍冲突，已转人工（WU 置 blocked）
   conflictFiles?: string[];   // 合并冲突文件清单（diff-filter=U）
   knowledgeExtractedAt?: string; // R3: 会话知识提取已触达时间戳（去重——同一 WorkUnit 只提取一次）
+  memoryExtractedAt?: string;    // #99: WU 收尾角色记忆批量提取已触达时间戳（去重——同一 WorkUnit 只提取一次；区别于 R3 的 knowledgeExtractedAt）
   matchedSkills?: string[];   // 决策 7: step 时域匹配命中并实际注入的 skill 名（agent-loop 落盘，度量用）
   lastCommitHash?: string;    // §10.5: PROGRESS 无提交监视 — 上次观察到的 worktree HEAD
   noCommitSteps?: number;     // §10.5: 连续无新提交步数（满 3 步频道提醒一次并归零）
