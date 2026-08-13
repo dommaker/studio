@@ -130,8 +130,15 @@ export async function composeStepPrompt(
     ? metadata.childGuardHint
     : null;
 
-  const basePrompt = pendingReplies.length > 0
-    ? buildReplyPrompt(wu, pendingReplies)
+  // #95: 仅新会话回放 waitingQuestion（截 300 字符）并入人类回复段——断链后 agent 忘了自己提过什么问题
+  const replyTexts = pendingReplies.length > 0
+    && ctx.isNewSession === true
+    && typeof metadata.waitingQuestion === 'string'
+    && metadata.waitingQuestion.trim().length > 0
+    ? [`（你此前提出的问题：${metadata.waitingQuestion.slice(0, 300)}）`, ...pendingReplies]
+    : pendingReplies;
+  const basePrompt = replyTexts.length > 0
+    ? buildReplyPrompt(wu, replyTexts)
     : ctx.newReplies?.length
       ? buildReplyPrompt(wu, ctx.newReplies)
       : buildContinuePrompt(wu);

@@ -535,3 +535,66 @@ describe('#95: handoff 前序进展段', () => {
     expect(prompt).not.toContain('## 前序进展');
   });
 });
+
+describe('#95: waitingQuestion 回放（仅新会话）', () => {
+  let fileStore: FileStore;
+  let testDir: string;
+
+  const deps = (role: AgentProfileData): any => ({
+    role,
+    acceptedTypes: ['implement'],
+    fileStore,
+    resolveEventsFile: () => path.join(testDir, 'studio-events.jsonl'),
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    clearSkills();
+    mockInjectContext.mockResolvedValue({ prompt: '', injectedIds: [] });
+    testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'prompt-composer-wq-'));
+    fileStore = new FileStore(testDir);
+  });
+
+  it('新会话 + 人类回复 → 回放问题（并入人类回复段）', async () => {
+    const { prompt } = await composeStepPrompt(
+      {
+        wu: makeWu(),
+        metadata: { pendingReplies: ['使用账号密码'], waitingQuestion: '使用 OAuth 还是账号密码？' } as any,
+        isNewSession: true,
+      },
+      deps(makeRole()),
+    );
+
+    expect(prompt).toContain('你此前提出的问题');
+    expect(prompt).toContain('使用 OAuth 还是账号密码？');
+    expect(prompt).toContain('使用账号密码');
+  });
+
+  it('续用命中（非新会话）→ 不回放问题', async () => {
+    const { prompt } = await composeStepPrompt(
+      {
+        wu: makeWu(),
+        metadata: { pendingReplies: ['使用账号密码'], waitingQuestion: '使用 OAuth 还是账号密码？' } as any,
+        isNewSession: false,
+      },
+      deps(makeRole()),
+    );
+
+    expect(prompt).not.toContain('你此前提出的问题');
+  });
+
+  it('问题超 300 字符 → 截断为 300', async () => {
+    const { prompt } = await composeStepPrompt(
+      {
+        wu: makeWu(),
+        metadata: { pendingReplies: ['答'], waitingQuestion: 'q'.repeat(400) } as any,
+        isNewSession: true,
+      },
+      deps(makeRole()),
+    );
+
+    expect(prompt).toContain('你此前提出的问题');
+    expect(prompt).toContain('q'.repeat(300));
+    expect(prompt).not.toContain('q'.repeat(301));
+  });
+});
