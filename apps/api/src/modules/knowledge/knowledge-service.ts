@@ -511,15 +511,15 @@ export class KnowledgeService {
     // ②（wireups）：来源凭证读生产字段 sourceReferences（复数，length>0），
     // 此前误读单数 sourceReference → 生产恒 false，rule/context 两档恒空。
     const rules = await this.query.queryEntries({ consumptionModes: ['rule'], agentType, status: 'published' });
-    const filteredRules = (rules || []).filter((r: any) => hasSourceReferences(r) && r.status !== 'stale' && isInjectableMaturity(r.maturity));
+    const filteredRules = (rules || []).filter((r: any) => hasSourceReferences(r) && !isRoleMemory(r) && r.status !== 'stale' && isInjectableMaturity(r.maturity));
 
     // 2. context — full content injection (preferences + environment)
     const context = await this.query.queryEntries({ consumptionModes: ['context'], status: 'published' });
-    const filteredContext = (context || []).filter((c: any) => hasSourceReferences(c) && c.status !== 'stale' && isInjectableMaturity(c.maturity));
+    const filteredContext = (context || []).filter((c: any) => hasSourceReferences(c) && !isRoleMemory(c) && c.status !== 'stale' && isInjectableMaturity(c.maturity));
 
     // 3. signal — index injection (informational)
     const signals = this.query.getIndexes({ consumptionModes: ['signal'], limit: 5 });
-    const filteredSignals = (signals || []).filter((s: any) => s.status !== 'stale' && isInjectableMaturity(s.maturity));
+    const filteredSignals = (signals || []).filter((s: any) => !isRoleMemory(s) && s.status !== 'stale' && isInjectableMaturity(s.maturity));
 
     // ③（wireups）：2K 注入红线执行 — 候选按注入优先级（成熟度 → 引用计数）排序，
     // 逐个累加 estimateTokens（chars/4 现有口径），超 2000 截断并记 knowledge:inject-trimmed 事件。
@@ -1104,6 +1104,12 @@ function isInjectableMaturity(maturity: unknown): boolean {
 /** ②（wireups）：生产条目来源凭证字段是 sourceReferences（复数数组），length>0 才算有凭证。 */
 function hasSourceReferences(entry: any): boolean {
   return Array.isArray(entry?.sourceReferences) && entry.sourceReferences.length > 0;
+}
+
+/** #93：知识库收窄为项目级共享知识 —— 角色记忆（#100 per-role MEMORY.md 体系）不进注入段。
+ *  守卫约定：角色记忆条目若误入 KB，须带 'role-memory' tag，注入闸门在此拦截。 */
+function isRoleMemory(entry: any): boolean {
+  return Array.isArray(entry?.tags) && entry.tags.includes('role-memory');
 }
 
 /** ③（wireups）：注入 token 预算（vision D6「注入 ≤2K tokens」红线执行点） */

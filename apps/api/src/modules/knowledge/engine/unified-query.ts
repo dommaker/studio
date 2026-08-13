@@ -232,7 +232,7 @@ export class UnifiedQuery {
       const prefEntries = this.store.list({ tags: ['preference', 'user-default'] });
       if (prefEntries.length > 0) {
         const prefData = JSON.parse((prefEntries[0] as any).content || '{}');
-        entries.push(this.preferenceToEntry(prefData));
+        entries.push(this.preferenceToEntry(prefData, String((prefEntries[0] as any).id ?? 'user-default')));
       }
     }
 
@@ -241,7 +241,7 @@ export class UnifiedQuery {
       const ruleEntries = this.store.list({ tags: ['rule', 'active'] });
       for (const entry of ruleEntries) {
         const rule = JSON.parse((entry as any).content || '{}');
-        entries.push(this.ruleToEntry({ ...rule, name: (entry as any).title }));
+        entries.push(this.ruleToEntry({ ...rule, name: (entry as any).title }, String((entry as any).id ?? rule.name)));
       }
     }
 
@@ -249,23 +249,25 @@ export class UnifiedQuery {
     if (modes.includes('context')) {
       const snapshotsDir = studioPath('snapshots');
       let latestSnapshot: any = null;
+      let latestSnapshotFile: string | null = null;
       try {
         const files = await fs.promises.readdir(snapshotsDir);
         const jsonFiles = files.filter(f => f.endsWith('.json')).sort().reverse();
         if (jsonFiles.length > 0) {
           const fileStore = new FileStore();
           latestSnapshot = await fileStore.readJson<any>(path.join(snapshotsDir, jsonFiles[0]));
+          latestSnapshotFile = jsonFiles[0];
         }
       } catch { /* no snapshots */ }
       if (latestSnapshot) {
-        entries.push(this.envToEntry(latestSnapshot));
+        entries.push(this.envToEntry(latestSnapshot, latestSnapshotFile ?? 'latest'));
       }
     }
 
     return entries;
   }
 
-  private preferenceToEntry(pref: any): StudioEntry {
+  private preferenceToEntry(pref: any, sourceId: string): StudioEntry {
     const parts: string[] = [];
     if (pref.preferredModel) parts.push(`偏好模型: ${pref.preferredModel}`);
     if (pref.responseStyle) parts.push(`回复风格: ${pref.responseStyle}`);
@@ -273,6 +275,10 @@ export class UnifiedQuery {
     if (pref.favoriteTools && pref.favoriteTools !== '[]') parts.push(`常用工具: ${pref.favoriteTools}`);
     if (pref.autoApproveThreshold != null) parts.push(`自动批准阈值: ${pref.autoApproveThreshold}`);
     if (pref.confidence) parts.push(`置信度: ${pref.confidence}`);
+
+    // #93：合成条目带真实出处（injectContext 的 hasSourceReferences 闸门要求 length>0；
+    // 此前恒 [] → context 注入恒空）
+    const ts = pref.updatedAt?.toISOString?.() ?? String(pref.updatedAt ?? '');
 
     return {
       id: 'pref:user',
@@ -287,7 +293,7 @@ export class UnifiedQuery {
       projects: [],
       tags: ['preference', 'user'],
       applicablePhases: [],
-      sourceReferences: [],
+      sourceReferences: [{ source: `preference:${sourceId}`, timestamp: ts }] as any,
       referencedBy: [],
       executionResults: [],
       consumptionMode: 'context',
@@ -296,11 +302,14 @@ export class UnifiedQuery {
     };
   }
 
-  private ruleToEntry(rule: any): StudioEntry {
+  private ruleToEntry(rule: any, sourceId: string): StudioEntry {
     const affects: string[] = this.safeParseJson(rule.affects, []);
     const parts: string[] = [rule.description];
     if (rule.condition) parts.push(`条件: ${rule.condition}`);
     if (rule.action) parts.push(`动作: ${rule.action}`);
+
+    // #93：合成条目带真实出处（同 preferenceToEntry）
+    const ts = rule.updatedAt?.toISOString?.() ?? String(rule.updatedAt ?? '');
 
     return {
       id: `rule:${rule.name}`,
@@ -315,7 +324,7 @@ export class UnifiedQuery {
       projects: [],
       tags: [rule.category],
       applicablePhases: [],
-      sourceReferences: [],
+      sourceReferences: [{ source: `rule:${sourceId}`, timestamp: ts }] as any,
       referencedBy: [],
       executionResults: [],
       consumptionMode: 'rule',
@@ -324,13 +333,16 @@ export class UnifiedQuery {
     };
   }
 
-  private envToEntry(env: any): StudioEntry {
+  private envToEntry(env: any, snapshotFile: string): StudioEntry {
     const limitations: string[] = this.safeParseJson(env.knownLimitations, []);
     const parts: string[] = [];
     if (env.platform) parts.push(`平台: ${env.platform}`);
     if (env.nodeVersion) parts.push(`Node: ${env.nodeVersion}`);
     if (env.nodeEnv) parts.push(`环境: ${env.nodeEnv}`);
     if (limitations.length) parts.push(`已知限制: ${limitations.join(', ')}`);
+
+    // #93：合成条目带真实出处（同 preferenceToEntry）
+    const ts = env.createdAt?.toISOString?.() ?? String(env.createdAt ?? '');
 
     return {
       id: 'env:current',
@@ -345,7 +357,7 @@ export class UnifiedQuery {
       projects: [],
       tags: ['environment'],
       applicablePhases: [],
-      sourceReferences: [],
+      sourceReferences: [{ source: `snapshot:${snapshotFile}`, timestamp: ts }] as any,
       referencedBy: [],
       executionResults: [],
       consumptionMode: 'context',
