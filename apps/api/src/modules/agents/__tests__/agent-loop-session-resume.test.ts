@@ -337,6 +337,33 @@ describe('#94: 会话号 per-WU 化与续用降级', () => {
     expect(step.metadataUpdates).not.toHaveProperty('lastSessionResumed');
   });
 
+  it('#95: 续用降级（check 判命中、执行才发现会话丢失）→ 重试 prompt 注入前序进展段', async () => {
+    createClaudeSessionFile('sess-lost');
+    const wu = await setupWorkUnit({
+      sessionId: 'sess-lost', sessionCount: 1, stepCount: 2,
+      progressLog: [{ step: 1, action: 'progress', summary: '完成数据层', at: '2026-08-12T10:00:00Z' }],
+    });
+    // 首次调用（续用形态）报「会话不存在」→ 触发降级；重试走默认成功。
+    // 降级复用同一 task 对象改 prompt（#95）——首次 prompt 需在调用时快照（对象引用会被改写）。
+    let firstPrompt: string | undefined;
+    mockExecuteLightweight.mockImplementationOnce(async (task: AgentTask) => {
+      firstPrompt = task.prompt;
+      return {
+        success: false, error: 'No conversation found with session ID sess-lost',
+        logFile: '/tmp/log', worktree: '/tmp/wt', outputFiles: [], sessionCount: 1,
+      };
+    });
+
+    const step = await (agentLoop as unknown as AgentStepCapable).agentStep({ workUnit: wu });
+
+    expect(mockExecuteLightweight).toHaveBeenCalledTimes(2);
+    expect(step.action).toBe('progress');
+    // 首次（续用形态）不注入；降级重试（新建形态）注入前序进展
+    expect(firstPrompt).not.toContain('## 前序进展');
+    expect(taskAt(1).prompt).toContain('## 前序进展');
+    expect(taskAt(1).prompt).toContain('完成数据层');
+  });
+
   it('续用步抛异常（spawn 失败）→ catch 分支不降级：只调用一次、need_input、档案 sessionId 保留', async () => {
     createClaudeSessionFile('sess-wu1');
     const wu = await setupWorkUnit({ sessionId: 'sess-wu1', sessionCount: 1 });

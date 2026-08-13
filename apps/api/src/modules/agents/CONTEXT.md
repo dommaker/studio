@@ -40,7 +40,7 @@
   - `agent-loop-utils.ts` — 进程存活 / git 仓库根 / worktrees 目录小工具
   - `agent-targeting.ts` — Observations → Target 解析（认领优先级）+ 频道锚点消息
   - `wu-test-guards.ts` — B2 测试特征 WU 判定（STUDIO_TEST_WU_GUARD 开关 + scope 模式）
-  - `prompt-composer.ts` — prompt 组装（base prompt 选择 + guard hint 注入 + map/skills/persona/roster/memory/knowledge/handoff 注入段，#91 分段软定额 + 池内余量共享 + section_trimmed 埋点；#111 T5 探路地图完整段：destination + 近 N 条 decisions + 开放 fog 清单，纳入分段预算首段，non-blocking；#95 handoff 前序进展段：续用不命中 + stepCount>0 时注入，挂 base 后/hint 前，waitingQuestion 仅新会话回放截 300 字符）
+  - `prompt-composer.ts` — prompt 组装（base prompt 选择 + guard hint 注入 + map/skills/persona/roster/memory/knowledge/handoff 注入段，#91 分段软定额 + 池内余量共享 + section_trimmed 埋点；#111 T5 探路地图完整段：destination + 近 N 条 decisions + 开放 fog 清单，纳入分段预算首段，non-blocking；#95 handoff 前序进展段：续用不命中（含执行期降级换新号——check 判命中但执行报「会话不存在」时重算 prompt）+ stepCount>0 时注入，挂 base 后/hint 前，waitingQuestion 仅新会话回放截 300 字符）
   - `agent-loop-workspace.ts` — 执行根目录/worktree 解析（B3a 归属链 / B3b-i 专属 worktree / 提交守卫 git 探针；#113 T7 多腿：PMO 分支解析经 requirements `pmo-branch-resolver` 按 WU→腿归属出腿分支——metadata.workspaceRoot/worktreeBaseRepo 命中腿 gitRepo 或 pmoBranch 命中腿 branch，未命中回落项目级分支，单腿行为不变）
   - `session-resume.ts` — #94 会话续用判定纯函数（只信档案 metadata.sessionId；claude 按 cwd 校验 `~/.claude/projects/<cwd-slug>/<id>.jsonl` 存在性，slug = cwd 的 `/`、`.` → `-`；kimi/codex/opencode 档案有号即续用；RESUME_FAILURE_RE 识别「会话不存在」错误供降级重试）。B5 会话数上限（MAX_SESSIONS_PER_WU=5，#95 2→5，失败/超时的会话建立尝试计入预算）与降级重试编排在 agent-loop.ts agentStep
   - `agent-loop-instance-state.ts` — 运行时实例状态写入（启动失败记录 / idle 心跳 / 忙闲 SSE）

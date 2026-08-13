@@ -645,9 +645,13 @@ export class AgentLoop {
     // 共用分段软定额注入）已抽到 ./prompt-composer.js（2026-08 工单 05）——agentStep 只保留编排。
     // #95: 续用判定在 worktree 解析后、prompt 组装前完成 —— isNewSession（续用不命中）决定
     // 是否注入「前序进展」段与回放 waitingQuestion。
+    const composeDeps = {
+      role: this.role, acceptedTypes: this.acceptedTypes, fileStore: this.fileStore,
+      resolveEventsFile: studioEventsJsonlPath,
+    };
     const composed = await composeStepPrompt(
       { wu, metadata, newReplies: target.newReplies?.map(r => r.content), isNewSession: !resumeSessionId },
-      { role: this.role, acceptedTypes: this.acceptedTypes, fileStore: this.fileStore, resolveEventsFile: studioEventsJsonlPath },
+      composeDeps,
     );
     const { prompt, pendingReplies, knowledgeContext, skillMatched, injectedKnowledgeIds } = composed;
     if (skillMatched.length > 0) {
@@ -787,6 +791,14 @@ export class AgentLoop {
           delete task.parameters!.sessionResume;
           // #95: 降级重试 = 一次新建会话尝试，成败均计入会话预算（失败/超时尝试计入）
           metadataUpdates.sessionCount = sessionsUsed + 1;
+          // #95: 降级换新号 = 执行期续用不命中（断链新会话）——check 时 shouldResumeSession 判命中
+          // 未注入前序进展，执行才发现会话丢失。重算 prompt 以注入「前序进展」段 + 回放
+          // waitingQuestion（复用同一 ctx/deps；knowledge/skill 等段重复组装一次，副作用均 fire-and-forget）。
+          const recomposed = await composeStepPrompt(
+            { wu, metadata, newReplies: target.newReplies?.map(r => r.content), isNewSession: true },
+            composeDeps,
+          );
+          task.prompt = recomposed.prompt;
           const retryResult: ExecutionResult = await this.executor.execute(task);
           if (retryResult.success === false) {
             // 降级重试仍失败 → 既有 failed 返回；新会话未建立，重置 sessionId 但保留 sessionCount（计入）
