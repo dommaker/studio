@@ -10,18 +10,27 @@ import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import { sharedStore, scheduleVectorDbSync } from '../knowledge/knowledge-singletons.js';
 import { resolveStudioEventsFile } from '../../utils/studio-events.js';
 import { DistillService } from './distill-service.js';
+import { createSkillLanding, createConstraintLanding, createMemoryLanding } from './distill-landings.js';
 
 let _service: DistillService | null = null;
 
 /** 懒单例：知识库 = 统一 ~/.studio/knowledge；运行记录落 ~/.studio/distill/ 数据区 */
 export function getDistillService(): DistillService {
   if (!_service) {
+    const fileStore = new FileStore();
+    const dataDir = studioPath('distill');
     _service = new DistillService({
       store: sharedStore,
-      fileStore: new FileStore(),
-      dataDir: studioPath('distill'),
+      fileStore,
+      dataDir,
       eventsFile: resolveStudioEventsFile(),
       onProductsSaved: () => scheduleVectorDbSync(),
+      // #145 三分落地通道（skill 提案 / 约束草案 / 角色记忆草稿）
+      landings: {
+        skill: createSkillLanding({ fileStore, companiesDir: studioPath('data', 'companies') }),
+        constraint: createConstraintLanding({ fileStore, dataDir }),
+        memory: createMemoryLanding({ fileStore }),
+      },
     });
   }
   return _service;

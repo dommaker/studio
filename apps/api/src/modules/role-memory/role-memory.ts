@@ -95,6 +95,8 @@ export interface MemoryDraftEntry {
   topicSlug?: string;
   /** 人审档位：auto=直接进索引；manual=发卡人审（缺省 manual） */
   review: MemoryReview;
+  /** 来源原料指针（#145 蒸馏产物三分落地：原料知识条目 id 清单；#99 提取链路不传） */
+  sourceRefs?: string[];
   createdAt: string;
 }
 
@@ -117,6 +119,8 @@ export interface AppendDraftInput {
   content: string;
   topicSlug?: string;
   review?: MemoryReview;
+  /** 来源原料指针（#145 蒸馏落地用；缺省不带） */
+  sourceRefs?: string[];
   createdAt?: string;
 }
 
@@ -306,6 +310,7 @@ export class RoleMemoryStore {
       content: input.content,
       ...(input.topicSlug ? { topicSlug: sanitizeTopicSlug(input.topicSlug) } : {}),
       review: input.review === 'auto' ? 'auto' : 'manual',
+      ...(input.sourceRefs && input.sourceRefs.length > 0 ? { sourceRefs: input.sourceRefs } : {}),
       createdAt: input.createdAt ?? new Date().toISOString(),
     };
     await store.appendJsonl(this.draftPath(rid), entry);

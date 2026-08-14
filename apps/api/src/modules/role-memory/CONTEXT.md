@@ -25,7 +25,7 @@
 | `roleMemoryStore` | `role-memory.ts` | 模块级单例（#99/#100/#101 共用同一互斥与缓存） |
 | `readIndex` | `role-memory.ts` | 读 `MEMORY.md` 索引全文；不存在返回 `''`（供 #100 注入兜底） |
 | `readTopic` | `role-memory.ts` | 读单个 topic 文档；不存在返回 `null` |
-| `appendDraft` | `role-memory.ts` | 追加草稿（JSONL 一行）；kind 白名单外抛错；review 档位（auto/manual，缺省 manual） |
+| `appendDraft` | `role-memory.ts` | 追加草稿（JSONL 一行）；kind 白名单外抛错；review 档位（auto/manual，缺省 manual）；可选 `sourceRefs` 原料指针（#145 蒸馏落地用） |
 | `readDraft` | `role-memory.ts` | 读 pending 草稿（按 id 去重取最新行，排除已 promote / 已 rejected） |
 | `getDraftStatus` | `role-memory.ts` | 按 id 查审核状态（pending/promoted/rejected/unknown，供 #101 卡片刷新后派生已审态） |
 | `promote` | `role-memory.ts` | 草稿条目 → topic/索引 的唯一合并路径 + per-role 互斥；merge 幂等（topic 已含 `## 标题` 段落的条目跳过，墓碑丢失重试不产生重复段落） |
@@ -63,6 +63,7 @@
 - #99 WU 收尾批量提取（`appendDraft` 写入方，已落地：本目录 `completion-extraction.ts`）
 - #100 角色记忆索引常驻注入（`readIndex` 读取方）
 - #101 记忆人审卡片（已实现：`memory-proposal-card.ts` 发卡 + `role-memory.routes.ts` approve→promote / reject→demote；manual 档走卡、auto 档直 promote）
+- #145 蒸馏产物三分落地（preference/execution-knowledge 产物 → studio 系统角色草稿，经 `modules/distill/distill-landings.ts` 调 `appendDraft` 带 `sourceRefs` 原料指针 + `postMemoryProposalCard` source='distill'）
 
 ## 注意事项
 
