@@ -32,7 +32,7 @@
   - `knowledge/knowledge-extraction.ts` — 提取 prompt 单一来源（EXTRACT_FROM_TEXT_SYSTEM_PROMPT + E1 文件覆盖 getter）
   - `knowledge/knowledge-cold-start.ts` — 冷启动四源导入（P1b: docs/code/git/manual）+ Discord 通知
   - `knowledge/knowledge-maintenance.ts` — 语料分析（F1：语义去重/质量评估/过期验证/矛盾审查）
-- `default-triggers.ts` — 10 个系统默认 trigger 注册（含 `doc-semantic-review` 周级文档语义审查，2026-07 文档治理闭环 P1）
+- `default-triggers.ts` — 6 个系统默认 trigger 注册（含 `doc-semantic-review` 周级文档语义审查，2026-07 文档治理闭环 P1；#102 删 4 个：knowledge-quality-audit / session-knowledge-extraction / zero-consumption-audit / knowledge-synthesis，配置真相源归注册块，`getDefaultTriggerConfigs()` 已删）
 - `agent-loop.ts` — AgentLoop 门面（observe→resolveTarget→agentStep→recordResult 决策循环，AS-025），T3 拆分后仅保留循环主流程（start/runLoop/observe/agentStep 编排 + 薄壳委托）与 re-export；对外导出 `AgentLoop` / `parseAgentOutput` / `parseReviewReport` / `parseTaskBreakdown` / `dynamicInterval` / `analyzeKnowledgeSearch` / `extractKnowledgeEntryIds` / `extractInputTokens` / `resolveRealUsage` / `writeWorkunitTokenEvent` / `resolveToolTraceFile` / `writeToolCallEvents` / `isProcessAlive` / `isGitRepoRoot` / `resolveWorktreesDir` / `findAnchorMessage` / `resolveTarget` / `testWuGuardEnabled` / `isTestLikeWorkUnit` 及类型 `StepResult` / `KnowledgeSearchAnalysis` / `RealUsage` / `WorkunitTokenEventArgs` / `Observations` / `Target` 不变。
   - `agent-output-parser.ts` — ACTION 协议解析（parseAgentOutput）/ REVIEW_RESULT 审查结论解析 / TASK: 分析拆分行 / 动态轮询间隔（dynamicInterval）
   - `agent-knowledge-analysis.ts` — 知识检索行为分析（stream-json 日志 → searchCalls / 知识条目 id 提取）
