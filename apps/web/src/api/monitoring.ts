@@ -110,6 +110,54 @@ export interface EvidenceStats {
   derivedByColumn: Record<string, number>;
 }
 
+/** #120：输入缓存命中率分桶（/monitoring/efficiency） */
+export interface CacheHitRateBucket {
+  cacheReadTokens: number;
+  inputTokens: number;
+  hitRatePct: number | null;
+  events: number;
+}
+
+/** #120：单步命中数据点 */
+export interface StepCacheHitRate {
+  executionId: string | null;
+  workUnitId: string | null;
+  createdAt: string;
+  inputTokens: number;
+  cacheReadTokens: number;
+  hitRatePct: number | null;
+}
+
+/** #120：输入缓存命中率（步/WU/角色/天） */
+export interface CacheHitRateStats {
+  description: string;
+  windowDays: number;
+  overall: CacheHitRateBucket & { workUnits: number };
+  steps: StepCacheHitRate[];
+  byWorkUnit: Array<{ workUnitId: string } & CacheHitRateBucket>;
+  byRole: Array<{ profileId: string; profileName: string } & CacheHitRateBucket>;
+  byDay: Array<{ day: string } & CacheHitRateBucket>;
+  coveragePct: number;
+  source: 'events' | 'insufficient-data';
+}
+
+/** #120：段 trim 率（按段计数） */
+export interface SectionTrimStats {
+  description: string;
+  windowDays: number;
+  bySection: Array<{ section: string; trimCount: number; avgOriginalTokens: number; avgTrimmedTokens: number; avgTrimPct: number }>;
+  totals: { trimEvents: number; totalOriginalTokens: number; totalTrimmedTokens: number };
+  source: 'events' | 'insufficient-data';
+}
+
+/** #120：/monitoring/efficiency —— 输入缓存命中率 + 段 trim 率 */
+export interface EfficiencyStats {
+  windowDays: number;
+  generatedAt: string;
+  cacheHitRate: CacheHitRateStats;
+  sectionTrim: SectionTrimStats;
+}
+
 export const monitoringApi = {
   getAgentSummary: () => api.get<AgentSummary>('/monitoring/agents'),
   getStats: () => api.get<MonitoringStats>('/monitoring/stats'),
@@ -117,6 +165,8 @@ export const monitoringApi = {
   getOverhead: () => api.get<OverheadStats>('/monitoring/overhead'),
   /** F6：概览（只消费 evidence 段，其余字段不声明不依赖） */
   getOverview: () => api.get<{ evidence: EvidenceStats }>('/monitoring/overview'),
+  /** #120：输入缓存命中率（步/WU/角色/天）+ 段 trim 率（按段） */
+  getEfficiency: () => api.get<EfficiencyStats>('/monitoring/efficiency'),
   /** 强制停止实例（当前任务转人工处理；AgentDashboardPage / AgentDetailPage 共用） */
   terminateInstance: (instanceId: string) =>
     api.post(`/agent-instances/${instanceId}/terminate`),

@@ -67,4 +67,20 @@ router.get('/overview', async (req: Request, res: Response) => {
   }
 });
 
+/**
+ * GET /efficiency — #120: 输入缓存命中率（步/WU/角色/天）+ 段 trim 率（按段）。
+ * Query: windowDays（默认 7，1-90 clamp）。60s 缓存。
+ */
+router.get('/efficiency', async (req: Request, res: Response) => {
+  try {
+    const raw = Number(req.query.windowDays);
+    const windowDays = Number.isFinite(raw) && raw > 0 ? Math.min(Math.max(Math.floor(raw), 1), 90) : undefined;
+    const result = await metricsService.getEfficiencyMetrics({ windowDays });
+    res.json(result);
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: msg } });
+  }
+});
+
 export default router;

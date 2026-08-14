@@ -1,7 +1,7 @@
 // MonitoringPage — Agent Network MVP-6
 import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
-import { monitoringApi, type MonitoringStats, type FlywheelStats, type OverheadStats, type EvidenceStats } from '../api/monitoring';
+import { monitoringApi, type MonitoringStats, type FlywheelStats, type OverheadStats, type EvidenceStats, type EfficiencyStats } from '../api/monitoring';
 import { knowledgeApi, type KnowledgeEntryItem } from '../api/knowledge';
 
 export function MonitoringPage() {
@@ -9,6 +9,7 @@ export function MonitoringPage() {
   const [flywheel, setFlywheel] = useState<FlywheelStats | null>(null);
   const [overhead, setOverhead] = useState<OverheadStats | null>(null);
   const [evidence, setEvidence] = useState<EvidenceStats | null>(null);
+  const [efficiency, setEfficiency] = useState<EfficiencyStats | null>(null);
   // 审核闭环：proposal 待审列表（maturity=draft，与 proposalsPendingReview 计数同库口径）
   const [proposals, setProposals] = useState<KnowledgeEntryItem[] | null>(null);
   const [approvingIds, setApprovingIds] = useState<Set<string>>(new Set());
@@ -32,6 +33,8 @@ export function MonitoringPage() {
     monitoringApi.getOverhead().then(r => setOverhead(r.data)).catch(() => setOverhead(null));
     // F6 证据台账独立加载，失败不影响主面板
     monitoringApi.getOverview().then(r => setEvidence(r.data.evidence)).catch(() => setEvidence(null));
+    // #120 输入缓存命中率 + 段 trim 率独立加载，失败不影响主面板
+    monitoringApi.getEfficiency().then(r => setEfficiency(r.data)).catch(() => setEfficiency(null));
     // 待审列表独立加载，失败不阻塞其他区块
     knowledgeApi.listPendingReview().then(r => setProposals(r.data.entries)).catch(() => setProposals(null));
   }, []);
@@ -236,6 +239,102 @@ export function MonitoringPage() {
                   <div className="text-sm u-text-2">暂无 workunit:tokens 事件，开销数据不足</div>
                 )}
               </Section>
+
+              {/* #120: 输入缓存命中率（步/WU/角色/天；趋势面，现序即基线） */}
+              {efficiency && (
+                <Section title="输入缓存命中率">
+                  {efficiency.cacheHitRate.source === 'events' ? (
+                    <>
+                      <div className="grid grid-cols-4 gap-3">
+                        <StatCard
+                          label="命中率"
+                          value={efficiency.cacheHitRate.overall.hitRatePct !== null
+                            ? `${efficiency.cacheHitRate.overall.hitRatePct}%`
+                            : 'N/A'}
+                          color="u-accent"
+                        />
+                        <StatCard label="缓存读取 tokens" value={efficiency.cacheHitRate.overall.cacheReadTokens} color="u-accent" />
+                        <StatCard label="输入 tokens" value={efficiency.cacheHitRate.overall.inputTokens} color="u-accent" />
+                        <StatCard label="覆盖事件" value={efficiency.cacheHitRate.overall.events} color="u-text-3" />
+                        <StatCard label="WU 数" value={efficiency.cacheHitRate.overall.workUnits} color="u-text-3" />
+                        <StatCard label="覆盖率" value={`${efficiency.cacheHitRate.coveragePct}%`} color="u-text-3" />
+                      </div>
+                      {efficiency.cacheHitRate.byDay.length > 0 && (
+                        <div className="mt-3">
+                          <div className="text-sm u-text-3 mb-1">按天趋势</div>
+                          <div className="flex flex-wrap gap-2">
+                            {efficiency.cacheHitRate.byDay.map(d => (
+                              <div key={d.day} className="px-2 py-1 rounded" style={{ border: '1px solid var(--border-subtle)' }}>
+                                <span className="text-xs u-text-3">{d.day.slice(5)}</span>{' '}
+                                <span className="text-sm font-bold u-accent">{d.hitRatePct !== null ? `${d.hitRatePct}%` : 'N/A'}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {efficiency.cacheHitRate.byRole.length > 0 && (
+                        <div className="mt-3">
+                          <div className="text-sm u-text-3 mb-1">按角色</div>
+                          <div className="space-y-1">
+                            {efficiency.cacheHitRate.byRole.map(r => (
+                              <div key={r.profileId} className="flex items-center justify-between text-sm">
+                                <span className="u-text">{r.profileName}</span>
+                                <span className="font-bold u-accent">{r.hitRatePct !== null ? `${r.hitRatePct}%` : 'N/A'}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {efficiency.cacheHitRate.byWorkUnit.length > 0 && (
+                        <div className="mt-3">
+                          <div className="text-sm u-text-3 mb-1">按 WU（事件数降序，top 5）</div>
+                          <div className="space-y-1">
+                            {efficiency.cacheHitRate.byWorkUnit.slice(0, 5).map(w => (
+                              <div key={w.workUnitId} className="flex items-center justify-between text-sm">
+                                <span className="u-text" style={{ maxWidth: '60%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{w.workUnitId}</span>
+                                <span className="font-bold u-accent">{w.hitRatePct !== null ? `${w.hitRatePct}%` : 'N/A'}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {efficiency.cacheHitRate.coveragePct < 100 && (
+                        <div className="mt-2 text-xs u-text-2">覆盖率 &lt;100%：部分执行无 CLI usage 回报，命中率口径不含这些事件</div>
+                      )}
+                    </>
+                  ) : (
+                    <div className="text-sm u-text-2">暂无带缓存字段的 workunit:tokens 事件，命中率数据不足</div>
+                  )}
+                </Section>
+              )}
+
+              {/* #120: 段 trim 率（按段计数） */}
+              {efficiency && (
+                <Section title="段 trim 率">
+                  {efficiency.sectionTrim.source === 'events' ? (
+                    <>
+                      <div className="grid grid-cols-4 gap-3">
+                        <StatCard label="trim 事件总数" value={efficiency.sectionTrim.totals.trimEvents} color="u-accent" />
+                        <StatCard label="原始 tokens" value={efficiency.sectionTrim.totals.totalOriginalTokens} color="u-text-3" />
+                        <StatCard label="裁剪后 tokens" value={efficiency.sectionTrim.totals.totalTrimmedTokens} color="u-text-3" />
+                      </div>
+                      <div className="mt-3">
+                        <div className="text-sm u-text-3 mb-1">按段计数</div>
+                        <div className="space-y-1">
+                          {efficiency.sectionTrim.bySection.map(s => (
+                            <div key={s.section} className="flex items-center justify-between text-sm">
+                              <span className="u-text">{s.section}</span>
+                              <span className="text-xs u-text-3">trim {s.trimCount} 次 · 平均裁 {s.avgTrimPct}%</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="text-sm u-text-2">暂无 prompt:section_trimmed 事件，trim 数据不足</div>
+                  )}
+                </Section>
+              )}
             </div>
           ) : null}
         </div>
