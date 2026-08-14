@@ -785,12 +785,12 @@ export class DistillService {
     materials: KnowledgeEntry[],
     now: string,
   ): KnowledgeEntry {
-    // harness SourceRef 无 entryId 字段；扩展键随 frontmatter YAML 原样往返（#143 证据链落点）
-    const sourceReferences = materials.map(m => ({
+    // SourceRef.entryId（harness#23）已落地，直接以 SourceRef[] 构造，去掉强转（#148）
+    const sourceReferences: SourceRef[] = materials.map(m => ({
       workflow: 'distill',
       entryId: m.id,
       timestamp: now,
-    })) as unknown as SourceRef[];
+    }));
     return {
       id: randomUUID(),
       type: 'guideline',

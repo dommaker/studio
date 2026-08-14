@@ -160,7 +160,7 @@ describe('端到端：矿石 → 门槛 → 发卡 → approve → 产物入库 
     expect(products[0].title).toBe('蒸馏产物：fix 模式');
     expect(products[0].maturity).toBe('active');
     expect(products[0].origin).toBe('system');
-    const refIds = (products[0].sourceReferences as unknown as Array<{ entryId?: string }>).map(r => r.entryId);
+    const refIds = products[0].sourceReferences.map(r => r.entryId);
     expect(refIds.sort()).toEqual(ores.map(o => o.id).sort());
 
     // 原料归档移出主区
