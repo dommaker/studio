@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@dommaker/harness':
-        specifier: ^0.17.1
-        version: 0.17.1
+        specifier: ^0.18.0
+        version: 0.18.0
       tsx:
         specifier: ^4.22.3
         version: 4.23.1
@@ -40,8 +40,8 @@ importers:
   apps/api:
     dependencies:
       '@dommaker/harness':
-        specifier: ^0.17.1
-        version: 0.17.1
+        specifier: ^0.18.0
+        version: 0.18.0
       '@dommaker/studio-agent':
         specifier: workspace:*
         version: link:../../packages/studio-agent
@@ -519,6 +519,11 @@ packages:
 
   '@dommaker/harness@0.17.1':
     resolution: {integrity: sha512-oxDGH9Fdbspds+/Gn+mK7g0gqhnYuTPmAbOldg9A76h8+slmFEcxBI4LQhcmlBnLfGWqRaNPnemJlMHg5ToFRQ==}
+    engines: {node: '>=18.0.0'}
+    hasBin: true
+
+  '@dommaker/harness@0.18.0':
+    resolution: {integrity: sha512-f1bcnPfyuSZSmW1SEfhhzxvy3z8l1cox9qTT1Mn76PssNTMCdci2nMn1n4cncNGg1Gt1oI52bszNU4LLIYjkwg==}
     engines: {node: '>=18.0.0'}
     hasBin: true
 
@@ -3372,6 +3377,13 @@ snapshots:
   '@csstools/css-tokenizer@4.0.0': {}
 
   '@dommaker/harness@0.17.1':
+    dependencies:
+      chalk: 4.1.2
+      commander: 12.1.0
+      fast-glob: 3.3.3
+      js-yaml: 4.3.1
+
+  '@dommaker/harness@0.18.0':
     dependencies:
       chalk: 4.1.2
       commander: 12.1.0
