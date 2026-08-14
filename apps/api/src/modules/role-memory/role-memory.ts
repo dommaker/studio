@@ -106,6 +106,9 @@ interface MemoryDraftRow extends MemoryDraftEntry {
   rejectedAt?: string;
 }
 
+/** 草稿条目审核状态（getDraftStatus 返回值；'unknown' = id 不存在） */
+export type MemoryDraftStatus = 'pending' | 'promoted' | 'rejected' | 'unknown';
+
 /** appendDraft 入参（id/review/createdAt 缺省自动生成；review 缺省 manual） */
 export interface AppendDraftInput {
   id?: string;
@@ -324,6 +327,24 @@ export class RoleMemoryStore {
     const latest = new Map<string, MemoryDraftRow>();
     for (const r of rows) latest.set(r.id, r);
     return [...latest.values()].filter(r => !r.promoted && !r.rejected);
+  }
+
+  /**
+   * 查询草稿条目状态（供 #101 卡片刷新/重进频道后派生已审态，对齐 KnowledgeProposalCard
+   * 按 maturity 派生的机制）：按 id 归并取最新行，promoted→'promoted'、rejected→'rejected'、
+   * 否则 'pending'；id 不存在 → 'unknown'。
+   */
+  async getDraftStatus(roleId: string, entryIds: string[]): Promise<Record<string, MemoryDraftStatus>> {
+    const rid = sanitizeRoleId(roleId);
+    const rows = await store.readJsonl<MemoryDraftRow>(this.draftPath(rid));
+    const latest = new Map<string, MemoryDraftRow>();
+    for (const r of rows) latest.set(r.id, r);
+    const result: Record<string, MemoryDraftStatus> = {};
+    for (const id of entryIds) {
+      const row = latest.get(id);
+      result[id] = !row ? 'unknown' : row.promoted ? 'promoted' : row.rejected ? 'rejected' : 'pending';
+    }
+    return result;
   }
 
   // ── promote 合并（单路径 + 同角色互斥）──

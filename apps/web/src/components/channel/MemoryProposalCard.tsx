@@ -3,8 +3,9 @@
 // （由 ChannelDetailPage.handleAction 分发到 /role-memory/promote、/role-memory/demote）
 // 文案人类可读：不出现「操作型事实/规律/教训」等内部分类词，用「建议沉淀为角色记忆」表达。
 // 视觉复用 mc-card 族（仿 KnowledgeProposalCard / AuditorSuggestionCard）。
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { ChannelMessage } from '../../api/channel';
+import { memoryApi } from '../../api/memory';
 import type { CardMeta } from './ChannelMessageItem';
 
 interface Props {
@@ -28,10 +29,30 @@ export function MemoryProposalCard({ message, meta, onAction }: Props) {
     kind?: string;
   }> | undefined;
   const workUnitId = meta.cardData?.workUnitId as string | null | undefined;
+  const roleId = meta.cardData?.roleId as string | undefined;
   const [reviewed, setReviewed] = useState<'approved' | 'rejected' | null>(
     meta.status === 'approved' || meta.status === 'rejected' ? meta.status : null,
   );
   const [pending, setPending] = useState(false);
+
+  // 已审核态按草稿墓碑状态派生（刷新/重进频道后仍正确；其他入口的审核也会反映），
+  // 对齐 KnowledgeProposalCard 按 maturity 派生的机制：
+  // 全部 promoted → approved；全部 rejected → rejected；否则保持待审。派生失败静默保持待审。
+  useEffect(() => {
+    if (reviewed || !entries?.length || !roleId) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const { data } = await memoryApi.draftStatus(roleId, entries.map(e => e.draftId));
+        if (cancelled) return;
+        const statuses = entries.map(e => data?.statuses?.[e.draftId]);
+        if (statuses.every(s => s === 'promoted')) setReviewed('approved');
+        else if (statuses.every(s => s === 'rejected')) setReviewed('rejected');
+      } catch { /* 派生失败保持待审 */ }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const act = async (action: 'memory_proposal_approve' | 'memory_proposal_reject') => {
     setPending(true);

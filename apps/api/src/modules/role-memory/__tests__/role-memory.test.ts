@@ -306,6 +306,23 @@ describe('demote（拒绝 → 墓碑，append-only，#101 reject 闸口）', () 
   });
 });
 
+describe('getDraftStatus（卡片刷新派生已审态，#101）', () => {
+  it('pending / promoted / rejected / unknown 四态归并正确', async () => {
+    const roleId = freshRoleId();
+    const pending = await store.appendDraft(roleId, { kind: 'execution-knowledge', title: 'P', content: 'p' });
+    const promoted = await store.appendDraft(roleId, { kind: 'execution-knowledge', title: 'A', content: 'a' });
+    const rejected = await store.appendDraft(roleId, { kind: 'preference', title: 'R', content: 'r' });
+    await store.promote(roleId, [promoted.id]);
+    await store.demote(roleId, [rejected.id]);
+
+    const statuses = await store.getDraftStatus(roleId, [pending.id, promoted.id, rejected.id, 'no-such-id']);
+    expect(statuses[pending.id]).toBe('pending');
+    expect(statuses[promoted.id]).toBe('promoted');
+    expect(statuses[rejected.id]).toBe('rejected');
+    expect(statuses['no-such-id']).toBe('unknown');
+  });
+});
+
 describe('容量检查（超限提醒，不自动删、不落新人罪）', () => {
   it('topic 数超限 → overLimit 且含 topics violation', async () => {
     const small = new RoleMemoryStore({ maxTopics: 1, maxPendingDrafts: 100 });

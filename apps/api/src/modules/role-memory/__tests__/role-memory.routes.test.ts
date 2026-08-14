@@ -84,4 +84,23 @@ describe('role-memory routes — 人审闸口 approve/reject', () => {
     expect(res.status).toBe(400);
     expect(res.json.error).toContain('entryIds');
   });
+
+  it('GET /draft-status：返回各条目审核状态（卡片刷新派生用）', async () => {
+    const roleId = freshRoleId();
+    const p = await roleMemoryStore.appendDraft(roleId, { kind: 'execution-knowledge', title: 'Status P', content: 'p' });
+    const a = await roleMemoryStore.appendDraft(roleId, { kind: 'execution-knowledge', title: 'Status A', content: 'a' });
+    await roleMemoryStore.promote(roleId, [a.id]);
+
+    const res = await api('GET', `/draft-status?roleId=${roleId}&ids=${p.id},${a.id},no-such`);
+    expect(res.status).toBe(200);
+    expect(res.json.statuses[p.id]).toBe('pending');
+    expect(res.json.statuses[a.id]).toBe('promoted');
+    expect(res.json.statuses['no-such']).toBe('unknown');
+  });
+
+  it('GET /draft-status 缺 roleId → 400', async () => {
+    const res = await api('GET', '/draft-status?ids=x');
+    expect(res.status).toBe(400);
+    expect(res.json.error).toContain('roleId');
+  });
 });
