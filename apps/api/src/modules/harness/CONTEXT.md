@@ -16,7 +16,7 @@ Harness 监控与治理 API（FL-029 / T-015）：轨迹采集分析、约束生
 | `routes.ts` | 挂载门面（默认导出 Router，route-registry 挂 /api/v1/harness，2026-07 起 requireAuth+requireAdmin） |
 | `traces.routes.ts` | 轨迹采集/分析/诊断（/traces、/analysis、/diagnose） |
 | `proposals.routes.ts` | 约束提案（/proposals；/evolve 已随 harness 0.17.0 移除，execute 为 410） |
-| `constraints.routes.ts` | 约束清单 + 质量门（/constraints*、/check-constraints；degrade/schedule 已随 0.17.0 移除，rollback 为 config.yml 语义） |
+| `constraints.routes.ts` | 约束清单 + 质量门（/constraints*、/check-constraints；degrade/schedule 已随 0.17.0 移除；retired/rollback 双落点——config.yml 内置/历史 + custom-constraints.yml #82 D6 统一落点） |
 | `guards.routes.ts` | 安全护栏（/check-input、/check-output、/sandbox） |
 | `knowledge.routes.ts` | 知识引擎（/knowledge*） |
 | `sessions.routes.ts` | 上下文管理（/estimate-tokens、/sessions*） |
