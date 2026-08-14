@@ -266,14 +266,14 @@ describe('#91: composeStepPrompt 分段软定额 + 池内余量共享 + trim 埋
       { wu: makeWu(), metadata: {} as any },
       deps(makeRole({
         persona: '你是开发者。',
-        skills: ['tdd-implement', 'task-planner'],
+        skills: ['tdd-implement', 'to-tickets'],
         tools: ['read', 'write'],
         constraints: { can_delegate: false, max_concurrent_tasks: 2 },
       })),
     );
 
     expect(knowledgeContext).toContain('## 你的角色\n\n你是开发者。');
-    expect(knowledgeContext).toContain('技能：tdd-implement、task-planner');
+    expect(knowledgeContext).toContain('技能：tdd-implement、to-tickets');
     expect(knowledgeContext).toContain('工具：read、write');
     expect(knowledgeContext).toContain('约束：can_delegate=false；max_concurrent_tasks=2');
   });
