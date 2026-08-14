@@ -1,13 +1,10 @@
 // MonitoringPage — Agent Network MVP-6
 import { useState, useEffect, useCallback } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { monitoringApi, type MonitoringStats, type FlywheelStats, type OverheadStats, type EvidenceStats } from '../api/monitoring';
 import { knowledgeApi, type KnowledgeEntryItem } from '../api/knowledge';
-import { maintenanceApi, type TriggerCosts } from '../api/maintenance';
-import { ManualTaskButton } from '../components/ui';
 
 export function MonitoringPage() {
-  const navigate = useNavigate();
   const [data, setData] = useState<MonitoringStats | null>(null);
   const [flywheel, setFlywheel] = useState<FlywheelStats | null>(null);
   const [overhead, setOverhead] = useState<OverheadStats | null>(null);
@@ -17,8 +14,6 @@ export function MonitoringPage() {
   const [approvingIds, setApprovingIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  // 手动任务成本（近 30 天 token；失败静默）
-  const [costs, setCosts] = useState<TriggerCosts | null>(null);
 
   const load = useCallback(() => {
     // promise 链写法：setState 全部在回调里，符合 set-state-in-effect 规则的外部同步口径
@@ -39,8 +34,6 @@ export function MonitoringPage() {
     monitoringApi.getOverview().then(r => setEvidence(r.data.evidence)).catch(() => setEvidence(null));
     // 待审列表独立加载，失败不阻塞其他区块
     knowledgeApi.listPendingReview().then(r => setProposals(r.data.entries)).catch(() => setProposals(null));
-    // 手动任务成本独立加载，失败静默
-    maintenanceApi.getCosts().then(r => setCosts(r)).catch(() => setCosts(null));
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -70,19 +63,6 @@ export function MonitoringPage() {
             <p className="page-subtitle">Agent Network 运营度量</p>
           </div>
           <div className="flex gap-2">
-            <ManualTaskButton
-              label="🩺 健康巡检"
-              className="btn btn-secondary"
-              costTokens={costs?.byTrigger['daily-health-check']}
-              onRun={async () => {
-                const r = await maintenanceApi.fireTrigger('daily-health-check');
-                if (r.workUnit?.id) {
-                  navigate(`/workunits/${r.workUnit.id}`);
-                  return '已创建巡检任务，可在 WorkUnit 列表查看';
-                }
-                return '已创建巡检任务';
-              }}
-            />
             <button className="btn btn-secondary" onClick={load}>刷新</button>
             <Link to="/" className="btn btn-secondary">返回</Link>
           </div>
