@@ -19,7 +19,8 @@ import { WorkUnitService, type WorkUnitData } from '../workunit/workunit.service
 import { parseWuMetadata } from '../workunit/wu-metadata.js';
 import { readTranscript, type TranscriptEntry } from '../transcripts/transcript-archive.js';
 import { roleMemoryStore } from './role-memory.js';
-import type { AppendDraftInput } from './role-memory.js';
+import type { AppendDraftInput, MemoryDraftEntry } from './role-memory.js';
+import { postMemoryProposalCard } from './memory-proposal-card.js';
 import { getSystemExecutor, StudioRoleNotConfiguredError } from '../agents/system-executor.js';
 import {
   tokenBudgetGuardEnabled,
@@ -39,8 +40,12 @@ export const MEMORY_EXTRACTION_SYSTEM_PROMPT = `你是角色记忆提取专家�
 - execution-knowledge：有效做法 / 踩坑 / 失败教训。每条必须写清 ①根因（非表面现象）②责任（哪个环节该预防）③预防（具体可操作）。
 - preference：该角色的偏好 / 约定（如代码风格、工作流习惯）。
 
+每条需判定人审档位 review：
+- "auto"：操作型事实，高置信、零争议（如测试命令 / 路径 / 既定流程），可直接进记忆无需人审；
+- "manual"：规律 / 教训 / 偏好（需人工把关），走人审卡片。
+
 输出 JSON（不要 markdown 包裹）：
-{ "entries": [ { "kind": "execution-knowledge" | "preference", "title": "一句话概括", "content": "正文（execution-knowledge 写根因+责任+预防；preference 写约定原文）", "topicSlug": "可选，英文短横线 slug，缺省由 title 推导" } ] }
+{ "entries": [ { "kind": "execution-knowledge" | "preference", "title": "一句话概括", "content": "正文（execution-knowledge 写根因+责任+预防；preference 写约定原文）", "topicSlug": "可选，英文短横线 slug，缺省由 title 推导", "review": "\"auto\" | \"manual\"（缺省 manual）" } ] }
 
 只提取有复用价值、值得沉淀的；没有则返回空数组；最多 5 条。`;
 
@@ -72,23 +77,27 @@ export function buildTranscriptText(entries: TranscriptEntry[]): string {
 
 /**
  * LLM 产出条目 → appendDraft 入参。kind 白名单外回落 execution-knowledge（记忆只收两类，
- * 白名单由 appendDraft 最终把关）；缺 title/content 返回 null（丢弃，不写空条目）。
+ * 白名单由 appendDraft 最终把关）；review 白名单外回落 manual（缺省 manual）；
+ * 缺 title/content 返回 null（丢弃，不写空条目）。
  */
 export function normalizeDraftInput(raw: {
   kind?: string;
   title?: string;
   content?: string;
   topicSlug?: string;
+  review?: string;
 }): AppendDraftInput | null {
   const title = typeof raw.title === 'string' ? raw.title.trim() : '';
   const content = typeof raw.content === 'string' ? raw.content.trim() : '';
   if (!title || !content) return null;
   const kind = raw.kind === 'preference' ? 'preference' : 'execution-knowledge';
   const topicSlug = typeof raw.topicSlug === 'string' ? raw.topicSlug.trim() : '';
+  const review = raw.review === 'auto' ? 'auto' : 'manual';
   return {
     kind,
     title,
     content,
+    review,
     ...(topicSlug ? { topicSlug } : {}),
   };
 }
@@ -197,26 +206,38 @@ export class WuCompletionExtractor {
       const totalTokens = promptTokens + completionTokens;
 
       const parsed = JSON.parse(execResult.output) as {
-        entries?: Array<{ kind?: string; title?: string; content?: string; topicSlug?: string }>;
+        entries?: Array<{ kind?: string; title?: string; content?: string; topicSlug?: string; review?: string }>;
       };
       const rawEntries = Array.isArray(parsed?.entries) ? parsed.entries.slice(0, MAX_ENTRIES) : [];
 
-      const drafted: string[] = [];
+      const drafted: MemoryDraftEntry[] = [];
       for (const raw of rawEntries) {
         const input = normalizeDraftInput(raw);
         if (!input) continue;
-        const saved = await roleMemoryStore.appendDraft(roleId, input);
-        drafted.push(saved.id);
+        drafted.push(await roleMemoryStore.appendDraft(roleId, input));
+      }
+
+      // 两档路由（#101）：auto=操作型事实直接 promote 进索引（不产卡）；
+      // manual=规律/教训/偏好发 memory_proposal 卡人审（approve→promote / reject→demote）。
+      const auto = drafted.filter(e => e.review === 'auto');
+      const manual = drafted.filter(e => e.review === 'manual');
+      if (auto.length > 0) {
+        await roleMemoryStore.promote(roleId, auto.map(e => e.id));
+      }
+      if (manual.length > 0) {
+        await postMemoryProposalCard(manual, { workUnitId: wu.id, source: 'wu-completion' });
       }
 
       logger.info('[WuCompletionExtractor] extraction completed', {
-        wuId: wu.id, roleId, entryCount: drafted.length, totalTokens, durationMs,
+        wuId: wu.id, roleId, entryCount: drafted.length, autoCount: auto.length, manualCount: manual.length, totalTokens, durationMs,
       });
       await this.emitEvent({
         outcome: 'completed',
         workUnitId: wu.id,
         roleId,
         entryCount: drafted.length,
+        autoCount: auto.length,
+        manualCount: manual.length,
         promptTokens,
         completionTokens,
         totalTokens,

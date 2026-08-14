@@ -7,6 +7,7 @@ import { AuthorAvatar } from './AuthorAvatar';
 import { RequirementsDocCard } from './RequirementsDocCard';
 import { KnowledgeConfirmCard } from './KnowledgeConfirmCard';
 import { KnowledgeProposalCard } from './KnowledgeProposalCard';
+import { MemoryProposalCard } from './MemoryProposalCard';
 import { AuditorSuggestionCard } from './AuditorSuggestionCard';
 import { ConvertToTaskDialog } from './ConvertToTaskDialog';
 
@@ -40,6 +41,8 @@ function renderCard(meta: CardMeta, message: ChannelMessage, onAction: Props['on
       return <KnowledgeConfirmCard message={message} meta={meta} onAction={onAction} />;
     case 'knowledge_proposal': // 2026-07 知识审核闭环
       return <KnowledgeProposalCard message={message} meta={meta} onAction={onAction} />;
+    case 'memory_proposal': // #101 角色记忆人审闸口
+      return <MemoryProposalCard message={message} meta={meta} onAction={onAction} />;
     case 'auditor_suggestion':
       return <AuditorSuggestionCard message={message} meta={meta} onAction={onAction} />;
     default:

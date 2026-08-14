@@ -23,7 +23,7 @@ import { appendTranscriptStep } from '../../transcripts/transcript-archive.js';
 import { roleMemoryStore } from '../role-memory.js';
 import { resetDailyTokenBudgetState } from '../../agents/loop/daily-token-budget.js';
 
-const { mockRun } = vi.hoisted(() => ({ mockRun: vi.fn() }));
+const { mockRun, mockPostCard } = vi.hoisted(() => ({ mockRun: vi.fn(), mockPostCard: vi.fn() }));
 
 vi.mock('../../agents/system-executor.js', () => ({
   getSystemExecutor: () => ({ run: mockRun }),
@@ -33,6 +33,11 @@ vi.mock('../../agents/system-executor.js', () => ({
       this.name = 'StudioRoleNotConfiguredError';
     }
   },
+}));
+
+// #101 两档路由：manual 档发卡经 postMemoryProposalCard（发卡逻辑单测在 memory-proposal-card.test.ts）
+vi.mock('../memory-proposal-card.js', () => ({
+  postMemoryProposalCard: mockPostCard,
 }));
 
 import { WuCompletionExtractor, buildTranscriptText, normalizeDraftInput, MEMORY_EXTRACTION_SYSTEM_PROMPT } from '../completion-extraction.js';
@@ -140,11 +145,15 @@ describe('buildTranscriptText / normalizeDraftInput（纯函数）', () => {
     expect(text).not.toContain('step 3');
   });
 
-  it('normalizeDraftInput：kind 白名单外回落 execution-knowledge；缺 title/content 返回 null', () => {
-    expect(normalizeDraftInput({ kind: 'preference', title: ' 用空格 ', content: ' body ', topicSlug: ' code-style ' }))
-      .toEqual({ kind: 'preference', title: '用空格', content: 'body', topicSlug: 'code-style' });
-    expect(normalizeDraftInput({ kind: 'weird', title: 't', content: 'c' }))
-      .toEqual({ kind: 'execution-knowledge', title: 't', content: 'c' });
+  it('normalizeDraftInput：kind 白名单外回落 execution-knowledge；review 白名单外回落 manual；缺 title/content 返回 null', () => {
+    expect(normalizeDraftInput({ kind: 'preference', title: ' 用空格 ', content: ' body ', topicSlug: ' code-style ', review: 'manual' }))
+      .toEqual({ kind: 'preference', title: '用空格', content: 'body', topicSlug: 'code-style', review: 'manual' });
+    expect(normalizeDraftInput({ kind: 'weird', title: 't', content: 'c', review: 'auto' }))
+      .toEqual({ kind: 'execution-knowledge', title: 't', content: 'c', review: 'auto' });
+    expect(normalizeDraftInput({ kind: 'execution-knowledge', title: 't', content: 'c' }))
+      .toEqual({ kind: 'execution-knowledge', title: 't', content: 'c', review: 'manual' });
+    expect(normalizeDraftInput({ title: 't', content: 'c', review: 'bogus' }))
+      .toEqual({ kind: 'execution-knowledge', title: 't', content: 'c', review: 'manual' });
     expect(normalizeDraftInput({ title: '', content: 'c' })).toBeNull();
     expect(normalizeDraftInput({ title: 't', content: '' })).toBeNull();
   });
@@ -293,5 +302,85 @@ describe('WuCompletionExtractor（#99 AC）', () => {
     await new Promise(r => setTimeout(r, 100));
     expect(mockRun).not.toHaveBeenCalled();
     expect(await readExtractionEvents()).toHaveLength(0);
+  });
+});
+
+describe('两档路由（#101：auto→promote / manual→卡）', () => {
+  it('AC1-2: auto 条目直接 promote 进索引，不产卡', async () => {
+    const roleId = `role-${Date.now()}-g`;
+    await createProfile(roleId);
+    const wu = await createDoneWu(roleId);
+    await appendTranscriptStep({ workUnitId: wu.id, step: 1, action: 'progress', rawOutput: 'AUTO-RAW' });
+
+    mockRun.mockResolvedValue({
+      output: JSON.stringify({
+        entries: [{ kind: 'execution-knowledge', title: 'Testing Command', content: 'pnpm test:api', review: 'auto' }],
+      }),
+      usage: { inputTokens: 1, outputTokens: 1 },
+    });
+
+    emitStatus(wu, 'done');
+    const ok = await waitFor(async () => (await roleMemoryStore.readIndex(roleId)).includes('testing-command'));
+    expect(ok).toBe(true);
+
+    // 自动进索引：topic + 索引已写，草稿无 pending，不发卡
+    const topic = await roleMemoryStore.readTopic(roleId, 'testing-command');
+    expect(topic?.body).toContain('pnpm test:api');
+    expect(await roleMemoryStore.readDraft(roleId)).toHaveLength(0);
+    expect(mockPostCard).not.toHaveBeenCalled();
+  });
+
+  it('AC2-1: manual 条目发 memory_proposal 卡（不自动 promote），草稿留 pending', async () => {
+    const roleId = `role-${Date.now()}-h`;
+    await createProfile(roleId);
+    const wu = await createDoneWu(roleId);
+    await appendTranscriptStep({ workUnitId: wu.id, step: 1, action: 'progress', rawOutput: 'MANUAL-RAW' });
+
+    mockRun.mockResolvedValue({
+      output: JSON.stringify({
+        entries: [{ kind: 'preference', title: '命名约定', content: '分支名 feat/<n>-<slug>', review: 'manual' }],
+      }),
+      usage: { inputTokens: 1, outputTokens: 1 },
+    });
+
+    emitStatus(wu, 'done');
+    const ok = await waitFor(async () => mockPostCard.mock.calls.length === 1);
+    expect(ok).toBe(true);
+
+    // 发卡（不自动进索引）；草稿仍 pending 待 approve
+    const [entries, ctx] = mockPostCard.mock.calls[0];
+    expect(entries).toHaveLength(1);
+    expect(entries[0].review).toBe('manual');
+    expect(ctx.workUnitId).toBe(wu.id);
+    expect(await roleMemoryStore.readIndex(roleId)).toBe('');
+    expect(await roleMemoryStore.readDraft(roleId)).toHaveLength(1);
+  });
+
+  it('混合：auto 直接进索引 + manual 发卡', async () => {
+    const roleId = `role-${Date.now()}-i`;
+    await createProfile(roleId);
+    const wu = await createDoneWu(roleId);
+    await appendTranscriptStep({ workUnitId: wu.id, step: 1, action: 'progress', rawOutput: 'MIX-RAW' });
+
+    mockRun.mockResolvedValue({
+      output: JSON.stringify({
+        entries: [
+          { kind: 'execution-knowledge', title: 'Auto Fact', content: 'auto-content', review: 'auto' },
+          { kind: 'execution-knowledge', title: 'Manual Lesson', content: 'manual-content', review: 'manual' },
+        ],
+      }),
+      usage: { inputTokens: 1, outputTokens: 1 },
+    });
+
+    emitStatus(wu, 'done');
+    const ok = await waitFor(async () => mockPostCard.mock.calls.length === 1);
+    expect(ok).toBe(true);
+
+    const index = await roleMemoryStore.readIndex(roleId);
+    expect(index).toContain('auto-fact');
+    expect(index).not.toContain('manual-lesson');
+    const manualEntries = mockPostCard.mock.calls[0][0];
+    expect(manualEntries).toHaveLength(1);
+    expect(manualEntries[0].title).toBe('Manual Lesson');
   });
 });

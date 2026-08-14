@@ -18,6 +18,7 @@ import {
   roleMemoryDir,
   sanitizeRoleId,
   sanitizeTopicSlug,
+  resolveTopicSlug,
   RoleMemoryStore,
   type MemoryDraftEntry,
 } from '../role-memory.js';
@@ -229,6 +230,66 @@ describe('promote 合并（单路径 + 同角色互斥）', () => {
     }
     // 全部已 promote，无残留 pending
     await expect(store.readDraft(roleId)).resolves.toEqual([]);
+  });
+});
+
+describe('review 档位（auto/manual，缺省 manual）', () => {
+  it('appendDraft 缺省 review=manual', async () => {
+    const roleId = freshRoleId();
+    const e = await store.appendDraft(roleId, { kind: 'execution-knowledge', title: 'T', content: 'C' });
+    expect(e.review).toBe('manual');
+  });
+
+  it('appendDraft review=auto 透传；非法值回落 manual', async () => {
+    const roleId = freshRoleId();
+    const e = await store.appendDraft(roleId, { kind: 'execution-knowledge', title: 'T', content: 'C', review: 'auto' });
+    expect(e.review).toBe('auto');
+    const e2 = await store.appendDraft(roleId, { kind: 'execution-knowledge', title: 'T2', content: 'C2', review: 'bogus' as never });
+    expect(e2.review).toBe('manual');
+  });
+
+  it('resolveTopicSlug：显式 topicSlug 优先，缺省由 title 推导', () => {
+    expect(resolveTopicSlug('Testing Command')).toBe('testing-command');
+    expect(resolveTopicSlug('Any Title', 'explicit-slug')).toBe('explicit-slug');
+  });
+});
+
+describe('demote（拒绝 → 墓碑，append-only，#101 reject 闸口）', () => {
+  it('demote 后 readDraft 排除已拒绝条目，不写 topic/索引', async () => {
+    const roleId = freshRoleId();
+    const e1 = await store.appendDraft(roleId, { kind: 'execution-knowledge', title: 'A', content: 'a' });
+    const e2 = await store.appendDraft(roleId, { kind: 'execution-knowledge', title: 'B', content: 'b' });
+
+    const result = await store.demote(roleId, [e1.id]);
+    expect(result.demoted).toBe(1);
+
+    const drafts = await store.readDraft(roleId);
+    expect(drafts).toHaveLength(1);
+    expect(drafts[0].id).toBe(e2.id);
+
+    // demote 不 promote：无 topic / 索引写
+    await expect(store.readTopic(roleId, 'a')).resolves.toBeNull();
+    await expect(store.readIndex(roleId)).resolves.toBe('');
+  });
+
+  it('demote 未知 id → demoted 0，不抛错', async () => {
+    const roleId = freshRoleId();
+    await expect(store.demote(roleId, ['no-such-id'])).resolves.toMatchObject({ demoted: 0 });
+  });
+
+  it('demote 后 promote 该条目 → promoted 0（墓碑互斥，不落记忆）', async () => {
+    const roleId = freshRoleId();
+    const e = await store.appendDraft(roleId, { kind: 'execution-knowledge', title: 'A', content: 'a' });
+    await store.demote(roleId, [e.id]);
+    await expect(store.promote(roleId, [e.id])).resolves.toMatchObject({ promoted: 0 });
+    await expect(store.readDraft(roleId)).resolves.toEqual([]);
+  });
+
+  it('promote 后 demote 该条目 → demoted 0（已 promote 不再 pending）', async () => {
+    const roleId = freshRoleId();
+    const e = await store.appendDraft(roleId, { kind: 'execution-knowledge', title: 'A', content: 'a' });
+    await store.promote(roleId, [e.id]);
+    await expect(store.demote(roleId, [e.id])).resolves.toMatchObject({ demoted: 0 });
   });
 });
 
