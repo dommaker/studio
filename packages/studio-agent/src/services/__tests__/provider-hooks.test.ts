@@ -28,7 +28,8 @@ import {
   writeCodexHooks,
   ensureKimiHookHome,
   kimiCodeHomePath,
-  hostKimiHome,
+  kimiCodeHomeReady,
+  hostKimiCodeHome,
   writeProviderEnforcementConfigs,
 } from '../provider-hooks.js';
 
@@ -146,7 +147,9 @@ describe('ensureKimiHookHome', () => {
     ensureKimiHookHome(worktree);
 
     const wtHome = kimiCodeHomePath(worktree);
-    expect(hostKimiHome()).toBe(path.join(hostHome, '.kimi-code'));
+    expect(hostKimiCodeHome()).toBe(path.join(hostHome, '.kimi-code'));
+    expect(kimiCodeHomeReady(worktree)).toBe(true);
+    expect(kimiCodeHomeReady(path.join(worktree, 'no-such'))).toBe(false);
     expect(fs.existsSync(path.join(wtHome, 'config.toml'))).toBe(true);
 
     const config = fs.readFileSync(path.join(wtHome, 'config.toml'), 'utf-8');

@@ -11,14 +11,12 @@
  */
 
 import * as fs from 'fs/promises';
-import * as fsSync from 'fs';
-import * as path from 'path';
 import { logger, readSddDoc, findSddDocById, parseTaskDocContractTests, parseTaskDocTestFiles } from '@dommaker/studio-shared';
 import { execSh, resolveProviderDefinition, buildHealthProbeCommand } from '@dommaker/studio-shared/node';
 import { buildAgentConstraintPrompt } from '@dommaker/studio-shared/harness/hooks';
 import { skillLoader } from '@dommaker/studio-skill';
 import { buildSpawnArgs, type Provider, type SpawnParams } from '../cli-adapter.js';
-import { kimiCodeHomePath } from './provider-hooks.js';
+import { kimiCodeHomePath, kimiCodeHomeReady } from './provider-hooks.js';
 
 import type { ExecutorConfig, AgentTask, PrerequisiteCheck, AcGroup, AnalystContext } from './types.js';
 import type { ProgressReport } from './output-capture.js';
@@ -368,7 +366,7 @@ export function buildSessionEnv(opts: SessionEnvOptions): NodeJS.ProcessEnv {
   // #147 P1：kimi 多 WU 隔离——KIMI_CODE_HOME 指向 per-worktree home（provider-hooks
   // ensureKimiHookHome 生成：host config 复制 + hook 追加 + 凭证软链）。home 未生成
   // （kimi 未安装/生成失败）则不注入，kimi 回落全局 home，不因隔离失败阻断 spawn。
-  const kimiCodeHome = opts.worktree && task.provider === 'kimi'
+  const kimiCodeHome = opts.worktree && task.provider === 'kimi' && kimiCodeHomeReady(opts.worktree)
     ? kimiCodeHomePath(opts.worktree)
     : null;
   return {
@@ -380,9 +378,7 @@ export function buildSessionEnv(opts: SessionEnvOptions): NodeJS.ProcessEnv {
     // 声明 bypassPermissions），只让 root guard 放行。已实测复现并验证。
     IS_SANDBOX: process.env.IS_SANDBOX ?? '1',
     STUDIO_EXECUTION_ID: task.executionId,
-    ...(kimiCodeHome && fsSync.existsSync(path.join(kimiCodeHome, 'config.toml'))
-      ? { KIMI_CODE_HOME: kimiCodeHome }
-      : {}),
+    ...(kimiCodeHome ? { KIMI_CODE_HOME: kimiCodeHome } : {}),
     ...(task.parameters?.goalId ? { STUDIO_GOAL_ID: task.parameters.goalId as string } : {}),
     ...(opts.withWorkUnitEnv && task.parameters?.workUnitId ? { STUDIO_WORKUNIT_ID: task.parameters.workUnitId as string } : { STUDIO_WORKUNIT_ID: undefined }),
     ...(opts.withWorkUnitEnv ? (task.parameters?.extraEnv as Record<string, string> || {}) : {}),

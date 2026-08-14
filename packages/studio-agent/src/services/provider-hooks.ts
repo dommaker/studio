@@ -44,6 +44,8 @@ export function buildHookScriptContent(): string {
     'process.stdin.on("end", () => {',
     '  let input = {};',
     '  try { input = JSON.parse(raw || "{}"); } catch (e) { /* 非 JSON stdin：放行 */ }',
+    '  // fail-open 对齐 provider 语义（#138 §3.2/§3.4：非 exit 2 一律放行）——',
+    '  // stdin 格式变化时宁可漏拦也不全体 Bash 秒断；拦截层只是纵深防御的一道。',
     `  const { CommandGate } = require(${requireArg});`,
     '  const command = (input.tool_input && input.tool_input.command) || "";',
     '  const gate = new CommandGate();',
@@ -132,8 +134,13 @@ export function kimiCodeHomePath(worktree: string): string {
 }
 
 /** host 全局 kimi home（凭证/配置来源） */
-export function hostKimiHome(): string {
+export function hostKimiCodeHome(): string {
   return path.join(os.homedir(), '.kimi-code');
+}
+
+/** per-worktree kimi home 是否已生成（= config.toml 存在）——spawn 注入 KIMI_CODE_HOME 的判定谓词 */
+export function kimiCodeHomeReady(worktree: string): boolean {
+  return fsSync.existsSync(path.join(kimiCodeHomePath(worktree), 'config.toml'));
 }
 
 /** kimi config.toml 追加段：[[hooks]] PreToolUse → 共享 hook 脚本，exit 2 阻断 */
@@ -159,7 +166,7 @@ function buildKimiHookFragment(worktree: string): string {
  * 幂等：config.toml 已含 marker 则不动；缺失/被删 → 重写（自愈）。
  */
 export function ensureKimiHookHome(worktree: string): void {
-  const hostHome = hostKimiHome();
+  const hostHome = hostKimiCodeHome();
   const hostConfig = path.join(hostHome, 'config.toml');
   if (!fsSync.existsSync(hostConfig)) return;
 
