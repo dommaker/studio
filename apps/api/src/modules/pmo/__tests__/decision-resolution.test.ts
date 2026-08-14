@@ -157,6 +157,11 @@ describe('DecisionResolution（#110 决策落地）', () => {
     expect(specMeta.pmoNumber).toBe(project.pmoNumber);
 
     // 哨兵 + 溯源回写
+    // specWuId 在 spec 落地之后的异步 update 中回写（spawnSpecWu 尾部），并发下与 spec
+    // 落地之间存在窗口；等回写完成再断言（防 flaky）。
+    const written = await waitFor(async () => (await projectService.get(project.id))!.map!.specWuId === spec.id);
+    expect(written).toBe(true);
+
     const map = (await projectService.get(project.id))!.map!;
     expect(map.specSpawnedAt).toBeTruthy();
     expect(map.specWuId).toBe(spec.id);
