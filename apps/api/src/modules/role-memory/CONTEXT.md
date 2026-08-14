@@ -27,7 +27,8 @@
 | `readTopic` | `role-memory.ts` | 读单个 topic 文档；不存在返回 `null` |
 | `appendDraft` | `role-memory.ts` | 追加草稿（JSONL 一行）；kind 白名单外抛错；review 档位（auto/manual，缺省 manual） |
 | `readDraft` | `role-memory.ts` | 读 pending 草稿（按 id 去重取最新行，排除已 promote / 已 rejected） |
-| `promote` | `role-memory.ts` | 草稿条目 → topic/索引 的唯一合并路径 + per-role 互斥 |
+| `getDraftStatus` | `role-memory.ts` | 按 id 查审核状态（pending/promoted/rejected/unknown，供 #101 卡片刷新后派生已审态） |
+| `promote` | `role-memory.ts` | 草稿条目 → topic/索引 的唯一合并路径 + per-role 互斥；merge 幂等（topic 已含 `## 标题` 段落的条目跳过，墓碑丢失重试不产生重复段落） |
 | `demote` | `role-memory.ts` | 拒绝草稿（#101 reject 闸口）：追加 rejected 墓碑行，readDraft 排除，不写 topic/索引 |
 | `resolveTopicSlug` | `role-memory.ts` | 目标 topic slug（显式 topicSlug 优先，缺省由 title 推导；promote 与 #101 卡片共用口径） |
 | `checkCapacity` | `role-memory.ts` | 容量检查：topic 数 / pending 草稿数超限 → 结构化提醒 |
@@ -35,7 +36,7 @@
 | `sanitizeRoleId` / `sanitizeTopicSlug` | `role-memory.ts` | 路径穿越防护（拒 `..` / 分隔符 / 空） |
 | `MemoryKind` / `MemoryReview` / `MemoryDraftEntry` / `TopicDoc` / `CapacityCheck` / `PromoteResult` / `DemoteResult` 等 | `role-memory.ts` | 类型定义 |
 | `postMemoryProposalCard` | `memory-proposal-card.ts` | #101 发 memory_proposal 卡到 #系统 频道（cardData.entries 指「文件 + 段落」） |
-| `role-memory.routes` | `role-memory.routes.ts` | approve/reject 端点：POST `/promote` / `/demote`（`{roleId, entryIds[]}`） |
+| `role-memory.routes` | `role-memory.routes.ts` | approve/reject 端点：POST `/promote` / `/demote`（`{roleId, entryIds[]}`）；GET `/draft-status?roleId&ids=a,b,c`（只读，卡片刷新派生已审态） |
 | `WuCompletionExtractor` | `completion-extraction.ts` | #99 WU 收尾批量提取钩子：订阅 `workunit.status_changed` → done，读 transcript → LLM → `appendDraft`；可熔断/可审计，fire-and-forget |
 | `initWuCompletionExtraction` | `completion-extraction.ts` | 单例工厂（懒初始化 + 订阅，index.ts 启动调用，形态同 `initAnalysisHandoff`） |
 | `MEMORY_EXTRACTION_SYSTEM_PROMPT` | `completion-extraction.ts` | 角色记忆提取 prompt（产出 execution-knowledge/preference，适配 appendDraft） |
