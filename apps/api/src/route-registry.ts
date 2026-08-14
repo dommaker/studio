@@ -97,9 +97,7 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
   const { default: skillProposalRoutes } = await import('./modules/skills/skill-proposal-routes.js') as { default: Router };
 
   // Knowledge Import routes (冷启动导入)
-  const { default: knowledgeImportRoutes } = await import('./modules/knowledge/import.routes.js') as { default: Router };
-
-  // Company routes (FileStore 存储；PMO 页 / Settings 依赖)
+  const { default: knowledgeImportRoutes } = await import('./modules/knowledge/import.routes.js') as { default: Router };  // Company routes (FileStore 存储；PMO 页 / Settings 依赖)
   const { default: companyRoutes } = await import('./modules/companies/routes.js') as { default: Router };
 
   // KnowledgeService HTTP API + SSE
@@ -133,6 +131,9 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
 
   // Channel routes (B1-001)
   const { default: channelRoutes } = await import('./modules/channels/channel.routes.js') as { default: Router };
+
+  // Role memory review routes (#101: memory_proposal approve/reject → promote/demote)
+  const { default: roleMemoryRoutes } = await import('./modules/role-memory/role-memory.routes.js') as { default: Router };
 
   // Workspace routes (AS-020 P2)
   const { default: workspaceRoutes } = await import('./modules/workspaces/workspace.routes.js') as { default: Router };
@@ -250,6 +251,7 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     { path: '/api/v1/knowledge', router: knowledgeRoutes, middleware: auth },
     { path: '/api/v1/knowledge-service', router: knowledgeServiceRoutes, middleware: auth, comment: 'KnowledgeService HTTP API + SSE' },
     { path: '/api/v1/knowledge/import', router: knowledgeImportRoutes, middleware: auth, comment: 'S2: 冷启动导入' },
+    { path: '/api/v1/role-memory', router: roleMemoryRoutes, middleware: auth, comment: '#101: 角色记忆人审闸口 approve/reject' },
     { path: '/api/knowledge', router: knowledgeInternalRoutes, middleware: localhost, comment: 'Internal knowledge extraction API (2026-07 收紧：本机回环限定，此前全匿名可写/盗用 LLM)' },
     { path: '/api/v1/wiki', router: wikiRoutes, comment: 'B2-008: LLM Wiki 档案馆' },
 

@@ -42,6 +42,13 @@ export type MemoryKind = 'execution-knowledge' | 'preference';
 
 const MEMORY_KINDS: ReadonlySet<string> = new Set<MemoryKind>(['execution-knowledge', 'preference']);
 
+/**
+ * 人审档位（#101 两档人审闸口）：
+ * - auto：操作型事实（高置信、零争议，如测试命令/路径/流程）→ 直接 promote 进索引，不产卡；
+ * - manual：规律/教训/偏好（需人把关）→ 发 knowledge 卡片人审（approve→promote / reject→demote）。
+ */
+export type MemoryReview = 'auto' | 'manual';
+
 // ─── 路径 ───
 
 /**
@@ -77,7 +84,7 @@ export function roleMemoryDir(roleId: string, env: NodeJS.ProcessEnv = process.e
 
 // ─── 类型 ───
 
-/** 草稿条目（draft.jsonl 一行；pending 形态，无 promoted 标记） */
+/** 草稿条目（draft.jsonl 一行；pending 形态，无 promoted/rejected 标记） */
 export interface MemoryDraftEntry {
   id: string;
   roleId: string;
@@ -86,22 +93,27 @@ export interface MemoryDraftEntry {
   content: string;
   /** 目标 topic slug；缺省由 title 推导 */
   topicSlug?: string;
+  /** 人审档位：auto=直接进索引；manual=发卡人审（缺省 manual） */
+  review: MemoryReview;
   createdAt: string;
 }
 
-/** 草稿行（含 promote 墓碑标记；append-only 下 promote 追加一行而非改写） */
+/** 草稿行（含 promote/reject 墓碑标记；append-only 下追加墓碑行而非改写原行） */
 interface MemoryDraftRow extends MemoryDraftEntry {
   promoted?: boolean;
   promotedAt?: string;
+  rejected?: boolean;
+  rejectedAt?: string;
 }
 
-/** appendDraft 入参（id/createdAt 缺省自动生成） */
+/** appendDraft 入参（id/review/createdAt 缺省自动生成；review 缺省 manual） */
 export interface AppendDraftInput {
   id?: string;
   kind: MemoryKind;
   title: string;
   content: string;
   topicSlug?: string;
+  review?: MemoryReview;
   createdAt?: string;
 }
 
@@ -146,6 +158,11 @@ export interface PromoteResult {
   topicsUpdated: string[];
 }
 
+export interface DemoteResult {
+  roleId: string;
+  demoted: number;
+}
+
 // ─── 工具 ───
 
 function isErrnoCode(err: unknown, code: string): boolean {
@@ -169,6 +186,11 @@ function summarize(entry: MemoryDraftEntry): string {
     .map(l => l.trim())
     .find(l => l.length > 0) ?? entry.title;
   return firstLine.length > 120 ? `${firstLine.slice(0, 120)}…` : firstLine;
+}
+
+/** 目标 topic slug：显式 topicSlug 优先，缺省由 title 推导（sanitize + slugify）。promote 与 #101 卡片共用口径。 */
+export function resolveTopicSlug(title: string, topicSlug?: string): string {
+  return sanitizeTopicSlug(topicSlug && topicSlug.trim() ? topicSlug : slugify(title));
 }
 
 // ─── 服务 ───
@@ -280,6 +302,7 @@ export class RoleMemoryStore {
       title: input.title.trim(),
       content: input.content,
       ...(input.topicSlug ? { topicSlug: sanitizeTopicSlug(input.topicSlug) } : {}),
+      review: input.review === 'auto' ? 'auto' : 'manual',
       createdAt: input.createdAt ?? new Date().toISOString(),
     };
     await store.appendJsonl(this.draftPath(rid), entry);
@@ -296,11 +319,11 @@ export class RoleMemoryStore {
     return this.resolvePending(rows);
   }
 
-  /** 按 id 归并（后写覆盖先写）后返回未 promote 的行。 */
+  /** 按 id 归并（后写覆盖先写）后返回未 promote 且未 rejected 的行。 */
   private resolvePending(rows: MemoryDraftRow[]): MemoryDraftRow[] {
     const latest = new Map<string, MemoryDraftRow>();
     for (const r of rows) latest.set(r.id, r);
-    return [...latest.values()].filter(r => !r.promoted);
+    return [...latest.values()].filter(r => !r.promoted && !r.rejected);
   }
 
   // ── promote 合并（单路径 + 同角色互斥）──
@@ -323,7 +346,7 @@ export class RoleMemoryStore {
       // 按目标 topic 分组（显式 topicSlug 优先，缺省由 title 推导）
       const bySlug = new Map<string, MemoryDraftRow[]>();
       for (const e of toPromote) {
-        const slug = sanitizeTopicSlug(e.topicSlug && e.topicSlug.trim() ? e.topicSlug : slugify(e.title));
+        const slug = resolveTopicSlug(e.title, e.topicSlug);
         const list = bySlug.get(slug) ?? [];
         list.push(e);
         bySlug.set(slug, list);
@@ -344,6 +367,28 @@ export class RoleMemoryStore {
       }
 
       return { roleId: rid, promoted: toPromote.length, topicsUpdated };
+    });
+  }
+
+  /**
+   * 拒绝草稿条目（demote，#101 reject 闸口）：append-only 墓碑语义，追加
+   * `{…entry, rejected:true, rejectedAt}` 行；readDraft 排除已 rejected。
+   * 与 promote 同角色互斥（共用 withRoleLock）；reject 不做 topic/索引写（不落记忆）。
+   */
+  async demote(roleId: string, entryIds: string[]): Promise<DemoteResult> {
+    const rid = sanitizeRoleId(roleId);
+    const ids = new Set(entryIds);
+    return this.withRoleLock(rid, async () => {
+      const rows = await store.readJsonl<MemoryDraftRow>(this.draftPath(rid));
+      const toReject = this.resolvePending(rows).filter(r => ids.has(r.id));
+      if (toReject.length === 0) {
+        return { roleId: rid, demoted: 0 };
+      }
+      const rejectedAt = new Date().toISOString();
+      for (const e of toReject) {
+        await store.appendJsonl(this.draftPath(rid), { ...e, rejected: true, rejectedAt });
+      }
+      return { roleId: rid, demoted: toReject.length };
     });
   }
 
