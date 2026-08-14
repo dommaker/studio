@@ -1,6 +1,6 @@
 # CAPABILITIES.md
 
-> 最后更新: 2026-08-08
+> 最后更新: 2026-08-14
 
 ---
 
@@ -97,3 +97,8 @@
 | dismissed | apps/web/src/components/setup/dismissed.ts | 角色配置引导弹框的会话级 dismiss 标记（sessionStorage key 与检查函数； |
 | useTheme | apps/web/src/contexts/useTheme.ts | 使用主题 Hook |
 
+| completion-extraction | apps/api/src/modules/role-memory/completion-extraction.ts | completion-extraction (#99) — WU 收尾批量提取钩子 |
+| memory-proposal-card | apps/api/src/modules/role-memory/memory-proposal-card.ts | memory-proposal-card (#101) — 角色记忆草稿的人审提案卡。 |
+| role-memory.routes | apps/api/src/modules/role-memory/role-memory.routes.ts | role-memory.routes (#101) — 角色记忆人审闸口的 approve/reject 端点。 |
+| role-memory | apps/api/src/modules/role-memory/role-memory.ts | role-memory (#98) — 角色记忆存储服务 |
+| transcript-archive | apps/api/src/modules/transcripts/transcript-archive.ts | transcript-archive — transcript 归档器（#97，#88 子票） |
