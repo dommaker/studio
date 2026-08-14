@@ -15,6 +15,7 @@ import type { Channel, ChannelMessage } from '../api/channel';
 import { channelApi } from '../api/channel';
 import { knowledgeApi } from '../api/knowledge';
 import { memoryApi } from '../api/memory';
+import { distillApi } from '../api/distill';
 
 function isToday(d: Date) {
   const now = new Date();
@@ -189,21 +190,25 @@ export function ChannelDetailPage() {
   // knowledge_proposal approve → /knowledge-service/promote（draft→verified，参与注入）；
   // reject → /knowledge-service/demote（draft→archived）。
   // memory_proposal approve → /role-memory/promote（草稿→topic/索引）；reject → /role-memory/demote。
+  // distill_proposal approve → /distill/approve（#143 蒸馏运行）；reject → /distill/reject（零副作用）。
   // 返回是否成功（卡片据此显示已审核状态）。
   const handleAction = useCallback(async (messageId: string, action: string): Promise<boolean> => {
     if (action === 'converted') { refresh(); return true; }
-    if (action === 'knowledge_proposal_approve' || action === 'knowledge_proposal_reject') {
+    // 卡片 meta 解析（三种提案卡共用；解析失败 → null，各分支按缺数据返回 false）
+    const cardDataOf = (): Record<string, any> | null => {
       const msg = messages.find(m => m.id === messageId);
-      let entryIds: string[] = [];
       try {
-        const meta = JSON.parse(typeof msg?.meta === 'string' ? msg.meta : '{}');
-        const entries = meta?.cardData?.entries;
-        if (Array.isArray(entries)) {
-          entryIds = entries
+        return JSON.parse(typeof msg?.meta === 'string' ? msg.meta : '{}')?.cardData ?? null;
+      } catch { return null; }
+    };
+    if (action === 'knowledge_proposal_approve' || action === 'knowledge_proposal_reject') {
+      const cardData = cardDataOf();
+      const entries = cardData?.entries;
+      const entryIds: string[] = Array.isArray(entries)
+        ? entries
             .map((e: { id?: unknown }) => e?.id)
-            .filter((id: unknown): id is string => typeof id === 'string' && id.length > 0);
-        }
-      } catch { entryIds = []; }
+            .filter((id: unknown): id is string => typeof id === 'string' && id.length > 0)
+        : [];
       if (entryIds.length === 0) return false;
       const review = action === 'knowledge_proposal_approve'
         ? knowledgeApi.promote
@@ -217,25 +222,39 @@ export function ChannelDetailPage() {
       }
     }
     if (action === 'memory_proposal_approve' || action === 'memory_proposal_reject') {
-      const msg = messages.find(m => m.id === messageId);
-      let roleId = '';
-      let entryIds: string[] = [];
-      try {
-        const meta = JSON.parse(typeof msg?.meta === 'string' ? msg.meta : '{}');
-        if (typeof meta?.cardData?.roleId === 'string') roleId = meta.cardData.roleId;
-        const entries = meta?.cardData?.entries;
-        if (Array.isArray(entries)) {
-          entryIds = entries
+      const cardData = cardDataOf();
+      const roleId = typeof cardData?.roleId === 'string' ? cardData.roleId : '';
+      const entries = cardData?.entries;
+      const entryIds: string[] = Array.isArray(entries)
+        ? entries
             .map((e: { draftId?: unknown }) => e?.draftId)
-            .filter((id: unknown): id is string => typeof id === 'string' && id.length > 0);
-        }
-      } catch { entryIds = []; }
+            .filter((id: unknown): id is string => typeof id === 'string' && id.length > 0)
+        : [];
       if (!roleId || entryIds.length === 0) return false;
       const review = action === 'memory_proposal_approve'
         ? memoryApi.promote
         : memoryApi.demote;
       try {
         await review(roleId, entryIds);
+        refresh();
+        return true;
+      } catch {
+        return false;
+      }
+    }
+    if (action === 'distill_proposal_approve' || action === 'distill_proposal_reject') {
+      // #143 蒸馏提案：approve → /distill/approve；reject → /distill/reject（零副作用）
+      const cardData = cardDataOf();
+      const proposalId = typeof cardData?.proposalId === 'string' ? cardData.proposalId : '';
+      if (!proposalId) return false;
+      try {
+        if (action === 'distill_proposal_approve') {
+          const { data } = await distillApi.approve(proposalId);
+          // 预算熔断（skipped）/ 执行失败 → 卡片保持待审（提案仍 pending，可重试）
+          if (!data?.success) return false;
+        } else {
+          await distillApi.reject(proposalId);
+        }
         refresh();
         return true;
       } catch {

@@ -233,6 +233,13 @@ async function start() {
         logger.info('[RoleMemory] Completion extraction subscribed (workunit.status_changed → done)');
       } catch (e) { logger.warn('[RoleMemory] Completion extraction init failed', { error: String(e) }); }
 
+      // #143 蒸馏主链路：WU done → 门槛检测（纯计数零 LLM）→ distill_proposal 人审卡
+      try {
+        const { initDistillLoop } = await import('./modules/distill/distill-runtime.js');
+        initDistillLoop();
+        logger.info('[Distill] Threshold check subscribed (workunit.status_changed → done)');
+      } catch (e) { logger.warn('[Distill] Init failed', { error: String(e) }); }
+
       if (agentLoopEnabled) {
         for (const profile of profiles) {
           const entry = await agentLoopRegistry.mount(profile);

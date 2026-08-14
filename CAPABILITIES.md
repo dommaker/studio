@@ -102,3 +102,5 @@
 | role-memory.routes | apps/api/src/modules/role-memory/role-memory.routes.ts | role-memory.routes (#101) — 角色记忆人审闸口的 approve/reject 端点。 |
 | role-memory | apps/api/src/modules/role-memory/role-memory.ts | role-memory (#98) — 角色记忆存储服务 |
 | transcript-archive | apps/api/src/modules/transcripts/transcript-archive.ts | transcript-archive — transcript 归档器（#97，#88 子票） |
+| distill | apps/api/src/modules/distill/ | 蒸馏主链路最小闭环（#143）：门槛检测纯函数 + distill_proposal 人审卡 + approve 执行 + runs.jsonl 运行记录 |
+| DistillProposalCard | apps/web/src/components/channel/DistillProposalCard.tsx | distill_proposal 人审卡（#143）：原料清单 + 确认蒸馏/拒绝 |
