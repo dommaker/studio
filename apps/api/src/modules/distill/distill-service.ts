@@ -18,6 +18,10 @@
  * fire-and-forget，绝不阻塞 WU 收尾）。
  *
  * 三分落地（skill/约束/角色记忆分流）归 #145；本票产物统一入库为知识条目。
+ *
+ * #144 GC 候选清单：每次蒸馏运行落盘后 runGcCheck 按蒸馏周期计龄（gc-candidates 纯函数，
+ * 不读墙钟）生成候选清单发 gc_proposal 人审卡；approveGc 候选 maturity=archived（可恢复），
+ * rejectGc 零副作用且人判保留条目后续不再提案。零候选不发卡。
  */
 import { randomUUID } from 'node:crypto';
 import { eventBus, logger, FileStore } from '@dommaker/studio-shared';
@@ -31,6 +35,9 @@ import {
   type DistillRun,
 } from './distill-store.js';
 import { postDistillProposalCard } from './distill-proposal-card.js';
+import { generateGcCandidates } from './gc-candidates.js';
+import { GcStore, type GcProposal, type GcProposalRecord, type GcProposalStatus } from './gc-store.js';
+import { postGcProposalCard } from './gc-proposal-card.js';
 import { getSystemExecutor } from '../agents/system-executor.js';
 import {
   tokenBudgetGuardEnabled,
@@ -41,6 +48,8 @@ import { writeStudioEvent } from '../../utils/studio-events.js';
 import type { WorkUnitData } from '../workunit/workunit.service.js';
 
 export type { DistillProposal, DistillProposalRecord, DistillProposalStatus, DistillRun } from './distill-store.js';
+export type { GcProposal, GcProposalRecord, GcProposalStatus } from './gc-store.js';
+export type { GcCandidate } from './gc-candidates.js';
 
 /**
  * 蒸馏 prompt（单一来源）：矿石 → 蒸馏知识条目。结构参考 MEMORY_EXTRACTION_SYSTEM_PROMPT，
@@ -120,9 +129,11 @@ export function normalizeDistillProducts(parsed: { products?: unknown }): Array<
 export class DistillService {
   private subscribed = false;
   private distillStore: DistillStore;
+  private gcStore: GcStore;
 
   constructor(private deps: DistillServiceDeps) {
     this.distillStore = new DistillStore(deps.fileStore, deps.dataDir);
+    this.gcStore = new GcStore(deps.fileStore, deps.dataDir);
   }
 
   /** 订阅 workunit.status_changed（done → 门槛检测）。幂等。 */
@@ -252,7 +263,8 @@ export class DistillService {
         }
       }
 
-      await this.distillStore.appendRun(this.buildRun(proposal, 'executed', productIds));
+      const run = this.buildRun(proposal, 'executed', productIds);
+      await this.distillStore.appendRun(run);
       await this.distillStore.appendStatus(proposalId, 'executed');
       this.deps.onProductsSaved?.(productIds);
 
@@ -266,13 +278,17 @@ export class DistillService {
         productIds,
         durationMs: Date.now() - startMs,
       });
+      // 蒸馏运行 = GC 事件源（#144）：每次执行成功的运行后按周期计龄出候选清单（永不抛）
+      await this.runGcCheck(run);
       return { ok: true, productIds };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       logger.warn('[Distill] run failed (materials not consumed)', { proposalId, error: message });
-      await this.distillStore.appendRun(this.buildRun(proposal, 'failed', [], message));
+      const run = this.buildRun(proposal, 'failed', [], message);
+      await this.distillStore.appendRun(run);
       await this.distillStore.appendStatus(proposalId, 'failed');
       await this.emitEvent({ stage: 'failed', reason: message, proposalId, durationMs: Date.now() - startMs });
+      // 失败运行不构成蒸馏周期（同 #143 消费基线「失败不推进」口径）→ 不触发 GC
       return { ok: false, error: message };
     }
   }
@@ -310,6 +326,133 @@ export class DistillService {
 
   async listRuns(): Promise<DistillRun[]> {
     return this.distillStore.listRuns();
+  }
+
+  // ── #144 GC 候选清单与人审归档 ──
+
+  /**
+   * 蒸馏运行后的 GC 检查（approve 内部调用 + 测试直驱）：按蒸馏周期计龄生成候选清单，
+   * 非零则建 GC 提案 + 发 gc_proposal 人审卡；零候选不发卡。永不抛（不阻塞蒸馏主链路）。
+   * 去重口径：已有 pending GC 提案不重复发卡；曾被 reject 的条目（人判保留）不再提案。
+   */
+  async runGcCheck(triggerRun: DistillRun): Promise<void> {
+    try {
+      // 蒸馏周期 = 执行成功的运行（失败运行不构成周期，同 #143 消费基线「失败不推进」口径）
+      const runs = await this.distillStore.listRuns();
+      const cycles = runs.filter(r => r.outcome === 'executed').map(r => r.executedAt);
+      const result = generateGcCandidates(this.deps.store.list(), cycles);
+      if (result.candidates.length === 0) {
+        logger.debug('[Distill] GC: no candidates', { runId: triggerRun.id, mainAreaCount: result.mainAreaCount });
+        return;
+      }
+
+      // 人判保留（reject）的条目不再重复提案打扰
+      const rejected = await this.gcStore.rejectedEntryIds();
+      const candidates = result.candidates.filter(c => !rejected.has(c.entryId));
+      if (candidates.length === 0) {
+        logger.debug('[Distill] GC: all candidates previously rejected by human', { runId: triggerRun.id });
+        return;
+      }
+
+      // 已有 pending GC 提案等人审 → 不重复发卡
+      const pending = await this.gcStore.findPending();
+      if (pending) {
+        logger.info('[Distill] GC skip: pending proposal exists', { gcProposalId: pending.id, runId: triggerRun.id });
+        return;
+      }
+
+      const proposal: GcProposal = {
+        id: randomUUID(),
+        createdAt: new Date().toISOString(),
+        runId: triggerRun.id,
+        candidates,
+        forced: result.forced,
+        mainAreaCount: result.mainAreaCount,
+      };
+      await this.gcStore.appendProposal(proposal);
+
+      // 发卡失败静默跳过（#101 降级口径）：标记 card-failed，不阻塞蒸馏主链路
+      const posted = await postGcProposalCard(proposal, { fileStore: this.deps.fileStore });
+      if (!posted) {
+        await this.gcStore.appendStatus(proposal.id, 'card-failed');
+        await this.emitEvent({ stage: 'gc-card-failed', gcProposalId: proposal.id, candidateCount: candidates.length });
+        return;
+      }
+
+      logger.info('[Distill] GC proposal posted', {
+        gcProposalId: proposal.id, candidateCount: candidates.length, forced: result.forced, runId: triggerRun.id,
+      });
+      await this.emitEvent({
+        stage: 'gc-proposal-posted',
+        gcProposalId: proposal.id,
+        runId: triggerRun.id,
+        candidateCount: candidates.length,
+        forced: result.forced,
+        mainAreaCount: result.mainAreaCount,
+      });
+    } catch (err) {
+      logger.warn('[Distill] runGcCheck failed (non-blocking)', { runId: triggerRun.id, error: String(err) });
+    }
+  }
+
+  /**
+   * approve GC 清单：候选条目 maturity=archived 移出主区（可恢复——FileKnowledgeStore
+   * 归档不搬文件，改回 active 即恢复）。人审期间已被其它路径退出主区的条目跳过。
+   */
+  async approveGc(gcProposalId: string): Promise<{ ok: boolean; archivedIds?: string[]; error?: string }> {
+    const proposal = await this.gcStore.getProposal(gcProposalId);
+    if (!proposal) return { ok: false, error: 'gc-proposal-not-found' };
+    if (proposal.status !== 'pending') return { ok: false, error: `gc-proposal-not-pending:${proposal.status}` };
+
+    const archivedIds: string[] = [];
+    for (const c of proposal.candidates) {
+      const entry = this.deps.store.get(c.entryId);
+      if (!entry || EXITED_MATURITY.has(entry.maturity)) continue; // 已被其它路径退出主区
+      this.deps.store.update(c.entryId, { maturity: 'archived' });
+      archivedIds.push(c.entryId);
+    }
+
+    await this.gcStore.appendStatus(gcProposalId, 'executed');
+    if (archivedIds.length > 0) this.deps.onProductsSaved?.(archivedIds); // 知识库变动 → 向量库同步
+    logger.info('[Distill] GC executed', { gcProposalId, archivedCount: archivedIds.length });
+    await this.emitEvent({
+      stage: 'gc-executed',
+      gcProposalId,
+      archivedIds,
+      candidateCount: proposal.candidates.length,
+    });
+    return { ok: true, archivedIds };
+  }
+
+  /** reject GC 清单：零副作用——条目全部保留，仅提案终态 + 事件；被拒条目后续运行不再提案 */
+  async rejectGc(gcProposalId: string): Promise<{ ok: boolean; error?: string }> {
+    const proposal = await this.gcStore.getProposal(gcProposalId);
+    if (!proposal) return { ok: false, error: 'gc-proposal-not-found' };
+    if (proposal.status !== 'pending') return { ok: false, error: `gc-proposal-not-pending:${proposal.status}` };
+
+    await this.gcStore.appendStatus(gcProposalId, 'rejected');
+    logger.info('[Distill] GC proposal rejected (entries kept)', { gcProposalId });
+    await this.emitEvent({
+      stage: 'gc-rejected', gcProposalId, candidateCount: proposal.candidates.length,
+    });
+    return { ok: true };
+  }
+
+  /** GC 卡片刷新派生已审态（同蒸馏提案口径） */
+  async getGcProposalStatuses(ids: string[]): Promise<Record<string, GcProposalStatus | 'unknown'>> {
+    const proposals = await this.gcStore.listProposals();
+    const byId = new Map(proposals.map(p => [p.id, p.status]));
+    const statuses: Record<string, GcProposalStatus | 'unknown'> = {};
+    for (const id of ids) statuses[id] = byId.get(id) ?? 'unknown';
+    return statuses;
+  }
+
+  async getGcProposal(id: string): Promise<GcProposalRecord | null> {
+    return this.gcStore.getProposal(id);
+  }
+
+  async listGcProposals(): Promise<GcProposalRecord[]> {
+    return this.gcStore.listProposals();
   }
 
   /** 每日 token 预算熔断判定（与 WuCompletionExtractor 同口径） */

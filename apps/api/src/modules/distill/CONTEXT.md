@@ -6,17 +6,20 @@
 
 蒸馏主链路最小闭环（#143，spec #141 / 决策 #83 D1-D5）：把知识库里堆积的「矿石」（session-summary 自动沉淀条目）事件门槛驱动地提炼成蒸馏知识条目。链路 = WU 收尾钩子（`workunit.status_changed → done`）顺带跑门槛检测（纯确定性计数，零 LLM 成本）→ 命中发 `distill_proposal` 人审卡到 #系统 频道 → approve 后由 system-executor 执行一次蒸馏调用 → 产物入库（`sourceReferences` 指向全部原料 id）+ 原料 `maturity=archived` 移出主区 → 运行记录落数据区、全链路事件写 `studio-events.jsonl`。
 
-本票边界：产物统一入库为知识条目（guideline/active/reference）；三分落地（skill/约束/角色记忆分流）归 #145，GC 候选清单归 #144，存量约束审计归 #146。
+GC 候选清单与人审归档（#144，D4）：每次蒸馏运行后按**蒸馏周期**计龄生成淘汰候选——reference/context 层条目连续 3 个周期 `lastReferenced` 未更新 → 进清单（每条附可读理由：哪几个周期零引用）发 `gc_proposal` 人审卡；approve 后候选 `maturity=archived`（可恢复：归档不搬文件）；reject = 人判保留，后续运行不再提案该条目。manual 过审（verified/proven）条目享 3 周期新生豁免；signal 层跳过（归蒸馏生命周期）、rule 层跳过（归 #139）；主区 >200 条无条件强制出清单（放宽周期门，有多少周期用多少）。判据不读墙钟：系统闲置 → 无蒸馏运行 → 无新周期 → GC 自然休眠。
+
+本票边界：产物统一入库为知识条目（guideline/active/reference）；三分落地（skill/约束/角色记忆分流）归 #145，存量约束审计归 #146。
 
 ## 数据布局
 
 ```
 <studioDir()>/distill/
-  proposals.jsonl   # append-only：{kind:'proposal',...} 行 + {kind:'status',id,status,at} 墓碑行
-  runs.jsonl        # 蒸馏运行记录：executedAt/outcome(executed|failed)/signals/materialIds/productIds
+  proposals.jsonl      # append-only：{kind:'proposal',...} 行 + {kind:'status',id,status,at} 墓碑行
+  runs.jsonl           # 蒸馏运行记录：executedAt/outcome(executed|failed)/signals/materialIds/productIds
+  gc-proposals.jsonl   # GC 候选清单提案（#144）：候选附理由 + runId 回指触发运行 + 状态墓碑
 ```
 
-- `runs.jsonl` 的 executedAt 序列有两个读法：熔断时钟 `lastRunAt`（任何 outcome——失败/空产出也烧了 token，同样熔断）与消费基线 `lastConsumedAt`（executed 且产物 ≥1——「新条目」判定基线，失败不推进，原料不被老化作废）；后者也是 #144 GC 按蒸馏周期计龄的输入。
+- `runs.jsonl` 的 executedAt 序列有三个读法：熔断时钟 `lastRunAt`（任何 outcome——失败/空产出也烧了 token，同样熔断）、消费基线 `lastConsumedAt`（executed 且产物 ≥1——「新条目」判定基线，失败不推进，原料不被老化作废）、GC 蒸馏周期序列（outcome=executed 的运行——#144 计龄输入，失败运行不构成周期）。
 - 知识库读写走 harness `FileKnowledgeStore`（`update(id,{maturity:'archived'})` 即归档，不搬文件）。
 
 ## 核心导出
@@ -29,18 +32,24 @@
 | `DISTILL_SYSTEM_PROMPT` / `buildDistillPrompt` / `normalizeDistillProducts` | `distill-service.ts` | 蒸馏 prompt 与产出解析（缺 title/content 丢弃，≤5 条） |
 | `DistillStore` | `distill-store.ts` | proposals/runs JSONL 持久化（墓碑折叠、lastRunAt） |
 | `postDistillProposalCard` | `distill-proposal-card.ts` | 发卡到 #系统；频道缺失/发卡失败返回 false（静默，#101 降级口径） |
+| `generateGcCandidates` | `gc-candidates.ts` | GC 周期计龄纯函数（#144）：reference/context 层连续 3 周期 `lastReferenced` 未更新 → 候选（附可读理由）；manual 3 周期新生豁免；signal/rule 跳过；主区 >200 强制 |
+| `GC_REQUIRED_CYCLES` / `GC_MAIN_AREA_LIMIT` | `gc-candidates.ts` | 阈值常量（3 / 200） |
+| `GcStore` | `gc-store.ts` | gc-proposals.jsonl 持久化（墓碑折叠；rejectedEntryIds = 人判保留不再提案） |
+| `postGcProposalCard` | `gc-proposal-card.ts` | gc_proposal 卡到 #系统（候选逐条附理由；失败静默同口径） |
+| `DistillService.runGcCheck/approveGc/rejectGc` | `distill-service.ts` | #144：每次蒸馏运行后 GC 检查（永不抛）；approve → 候选 archived（可恢复）；reject → 零副作用 |
 | `getDistillService` / `initDistillLoop` | `distill-runtime.ts` | 懒单例 + 启动订阅（唯一 import knowledge-singletons 的文件；onProductsSaved 接 scheduleVectorDbSync） |
-| `distill.routes` | `distill.routes.ts` | POST `/approve` `/reject`（`{proposalId}`）；GET `/proposal-status?ids=`（只读） |
+| `distill.routes` | `distill.routes.ts` | POST `/approve` `/reject`（`{proposalId}`）；GET `/proposal-status?ids=`（只读）；#144：POST `/gc/approve` `/gc/reject`（`{gcProposalId}`）、GET `/gc/proposal-status?ids=` |
 
 ## 设计决策
 
 - **人审闸门**：LLM 批处理永远有人确认（#80 已判无人值守触发器死刑）。pending 提案存在期间不重复发卡；发卡失败标记 `card-failed`（终态，不阻塞后续提案）。
+- **GC 周期计龄（#144）**：计龄单位 = 执行成功的蒸馏运行（runs.jsonl 中 outcome=executed 的 executedAt 序列；失败运行不构成周期，同消费基线「失败不推进」口径），不读墙钟——系统闲置三个月 → 无新运行 → 无新周期 → 无人过线冤案。manual 新生豁免锚在 `created`（promote 不留独立时间戳，承袭 #143 口径；「老条目新过审」场景覆盖不了，已知限制）。reject 的候选条目记入人判保留集，后续运行不再提案（防打扰，D4「人审历史作保护项」）；approve 归档可恢复（改回 active 即恢复，无独立恢复入口——语义可逆）。GC 检查挂在每次 executed 运行落盘后，runGcCheck 永不抛。
 - **蒸馏即消费**：approve 成功且产物 ≥1 → 原料 `maturity=archived`；产物 `sourceReferences` 用扩展键 `entryId` 回指全部原料 id（harness `SourceRef` 无此字段，扩展键随 frontmatter YAML 原样往返）。LLM 空产出 → 不消费原料但落 executed 运行记录。
 - **失败不阻塞**：LLM 异常 / JSON 解析失败 → 原料不动、提案 `failed`、落 failed 运行记录；maybePropose 永不抛（fire-and-forget + catch 记日志，同 WuCompletionExtractor）。失败运行推进熔断时钟（防烧钱循环）但不推进消费基线（原料可下轮再蒸馏）。
 - **预算守卫**：approve 时查 daily-token-budget（与 #99 同口径）；耗尽 → 跳过执行（不报错、不消费），提案保持 pending 可次日重试。
 - **manual 过审口径**：maturity verified/proven（promote 路径 draft→verified→proven 是唯一人审通过通道）；promote 不留独立时间戳，故按「created 晚于上次运行」计新。
-- **事件**：`knowledge:distill`，stage ∈ proposal-posted / card-failed / executed / failed / rejected / skipped(budget-exhausted)；门槛未命中不落事件（零噪音）。
-- **前端**：`DistillProposalCard`（cardType `distill_proposal`）+ ChannelDetailPage handleAction 分发；approve 返回 `success:false + skipped:'budget-exhausted'` 时卡片保持待审。
+- **事件**：`knowledge:distill`，stage ∈ proposal-posted / card-failed / executed / failed / rejected / skipped(budget-exhausted) / gc-proposal-posted / gc-card-failed / gc-executed / gc-rejected（#144）；门槛未命中与 GC 零候选不落事件（零噪音）。
+- **前端**：`DistillProposalCard`（cardType `distill_proposal`）+ `GcProposalCard`（cardType `gc_proposal`，#144）+ ChannelDetailPage handleAction 分发；approve 返回 `success:false + skipped:'budget-exhausted'` 时卡片保持待审。
 
 ## 依赖关系
 
@@ -52,7 +61,7 @@
 - `modules/channels/channel-message.service.ts`（发卡）、`utils/studio-events.ts`（统一事件入口）
 
 **下游**:
-- #144 GC 候选清单（消费 runs.jsonl 计龄）、#145 产物三分落地、#146 存量约束审计挂蒸馏事件
+- #145 产物三分落地、#146 存量约束审计挂蒸馏事件；#144 GC 候选清单已落地（本模块 gc-*）
 
 ## 注意事项
 

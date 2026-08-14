@@ -2,10 +2,17 @@
 // distill_proposal 卡 approve → POST /distill/approve（执行蒸馏运行，含预算守卫）
 //                    reject  → POST /distill/reject（零副作用）
 // 刷新后已审态派生   → GET  /distill/proposal-status（按提案状态）
+// #144 GC 候选清单人审闸口
+// gc_proposal 卡 approve → POST /distill/gc/approve（候选条目归档，可恢复）
+//                reject  → POST /distill/gc/reject（零副作用，人判保留不再提案）
+// 刷新后已审态派生 → GET  /distill/gc/proposal-status
 import { api } from './index';
 
 /** 提案状态（与 API DistillProposalStatus 对齐；unknown = 查无此提案） */
 export type DistillProposalStatus = 'pending' | 'executed' | 'rejected' | 'failed' | 'card-failed' | 'unknown';
+
+/** GC 提案状态（与 API GcProposalStatus 对齐；unknown = 查无此提案） */
+export type GcProposalStatus = 'pending' | 'executed' | 'rejected' | 'card-failed' | 'unknown';
 
 export interface DistillApproveResponse {
   success: boolean;
@@ -23,5 +30,14 @@ export const distillApi = {
   proposalStatus: (proposalIds: string[]) =>
     api.get<{ success: boolean; statuses: Record<string, DistillProposalStatus> }>(
       `/distill/proposal-status?ids=${proposalIds.map(encodeURIComponent).join(',')}`,
+    ),
+  // #144 GC 候选清单
+  gcApprove: (gcProposalId: string) =>
+    api.post<{ success: boolean; archivedIds?: string[]; error?: string }>('/distill/gc/approve', { gcProposalId }),
+  gcReject: (gcProposalId: string) =>
+    api.post('/distill/gc/reject', { gcProposalId }),
+  gcProposalStatus: (gcProposalIds: string[]) =>
+    api.get<{ success: boolean; statuses: Record<string, GcProposalStatus> }>(
+      `/distill/gc/proposal-status?ids=${gcProposalIds.map(encodeURIComponent).join(',')}`,
     ),
 };

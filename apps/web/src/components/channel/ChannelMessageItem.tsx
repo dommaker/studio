@@ -9,6 +9,7 @@ import { KnowledgeConfirmCard } from './KnowledgeConfirmCard';
 import { KnowledgeProposalCard } from './KnowledgeProposalCard';
 import { MemoryProposalCard } from './MemoryProposalCard';
 import { DistillProposalCard } from './DistillProposalCard';
+import { GcProposalCard } from './GcProposalCard';
 import { AuditorSuggestionCard } from './AuditorSuggestionCard';
 import { ConvertToTaskDialog } from './ConvertToTaskDialog';
 
@@ -46,6 +47,8 @@ function renderCard(meta: CardMeta, message: ChannelMessage, onAction: Props['on
       return <MemoryProposalCard message={message} meta={meta} onAction={onAction} />;
     case 'distill_proposal': // #143 蒸馏提案人审闸口
       return <DistillProposalCard message={message} meta={meta} onAction={onAction} />;
+    case 'gc_proposal': // #144 知识库 GC 候选清单人审闸口
+      return <GcProposalCard message={message} meta={meta} onAction={onAction} />;
     case 'auditor_suggestion':
       return <AuditorSuggestionCard message={message} meta={meta} onAction={onAction} />;
     default:

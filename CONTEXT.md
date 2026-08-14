@@ -13,7 +13,7 @@ _Avoid_: 超大文件、巨型文件、god file
 _Avoid_: 会话边界、续用链
 
 **蒸馏**:
-从沉淀知识中提炼可复用模式的函数——知识飞轮创造复利的核心环节，studio 存在的理由之一。沉淀只是积累，蒸馏让系统变聪明。产物按类型各有落地处：skill（过程性知识）→ skills 库；约束（边界性知识）→ 目标项目自己的 harness 约束实例（公共 harness 包只提供 schema/checker/retire 机器，内容不回填）；角色偏好与执行知识 → 角色记忆文件。触发形态按事件门槛理解（攒够新原料才点火），日历 cron 在原料不足时结构性空转（#80，2026-08-10）。闭环定稿：门槛=可蒸馏性信号（同 topic 新条目≥3 或 manual 过审≥5），矿石（session-summary 沉淀）蒸馏即归档，GC 按蒸馏周期计龄不打分，执行走收尾钩子检测+人审卡+system-executor（#83 D1-D5，2026-08-14）。主链路实现：`apps/api/src/modules/distill/`（#143，2026-08-15；门槛纯函数 + distill_proposal 人审卡 + approve 执行 + runs.jsonl 运行记录）。
+从沉淀知识中提炼可复用模式的函数——知识飞轮创造复利的核心环节，studio 存在的理由之一。沉淀只是积累，蒸馏让系统变聪明。产物按类型各有落地处：skill（过程性知识）→ skills 库；约束（边界性知识）→ 目标项目自己的 harness 约束实例（公共 harness 包只提供 schema/checker/retire 机器，内容不回填）；角色偏好与执行知识 → 角色记忆文件。触发形态按事件门槛理解（攒够新原料才点火），日历 cron 在原料不足时结构性空转（#80，2026-08-10）。闭环定稿：门槛=可蒸馏性信号（同 topic 新条目≥3 或 manual 过审≥5），矿石（session-summary 沉淀）蒸馏即归档，GC 按蒸馏周期计龄不打分，执行走收尾钩子检测+人审卡+system-executor（#83 D1-D5，2026-08-14）。主链路实现：`apps/api/src/modules/distill/`（#143，2026-08-15；门槛纯函数 + distill_proposal 人审卡 + approve 执行 + runs.jsonl 运行记录）。GC 候选清单同人模块（#144；连续 3 周期零引用 → gc_proposal 人审卡 → approve 归档可恢复，manual 3 周期新生豁免，主区 >200 强制出清单）。
 _Avoid_: 知识合成、周报式合成
 
 **注入预算**:

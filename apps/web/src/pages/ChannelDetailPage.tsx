@@ -191,6 +191,7 @@ export function ChannelDetailPage() {
   // reject → /knowledge-service/demote（draft→archived）。
   // memory_proposal approve → /role-memory/promote（草稿→topic/索引）；reject → /role-memory/demote。
   // distill_proposal approve → /distill/approve（#143 蒸馏运行）；reject → /distill/reject（零副作用）。
+  // gc_proposal approve → /distill/gc/approve（#144 GC 候选归档）；reject → /distill/gc/reject（零副作用）。
   // 返回是否成功（卡片据此显示已审核状态）。
   const handleAction = useCallback(async (messageId: string, action: string): Promise<boolean> => {
     if (action === 'converted') { refresh(); return true; }
@@ -254,6 +255,24 @@ export function ChannelDetailPage() {
           if (!data?.success) return false;
         } else {
           await distillApi.reject(proposalId);
+        }
+        refresh();
+        return true;
+      } catch {
+        return false;
+      }
+    }
+    if (action === 'gc_proposal_approve' || action === 'gc_proposal_reject') {
+      // #144 GC 候选清单：approve → /distill/gc/approve（候选归档）；reject → /distill/gc/reject（零副作用）
+      const cardData = cardDataOf();
+      const gcProposalId = typeof cardData?.gcProposalId === 'string' ? cardData.gcProposalId : '';
+      if (!gcProposalId) return false;
+      try {
+        if (action === 'gc_proposal_approve') {
+          const { data } = await distillApi.gcApprove(gcProposalId);
+          if (!data?.success) return false;
+        } else {
+          await distillApi.gcReject(gcProposalId);
         }
         refresh();
         return true;

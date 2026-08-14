@@ -10,10 +10,13 @@ import express from 'express';
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 
-const { mockApprove, mockReject, mockGetProposalStatuses } = vi.hoisted(() => ({
+const { mockApprove, mockReject, mockGetProposalStatuses, mockApproveGc, mockRejectGc, mockGetGcProposalStatuses } = vi.hoisted(() => ({
   mockApprove: vi.fn(),
   mockReject: vi.fn(),
   mockGetProposalStatuses: vi.fn(),
+  mockApproveGc: vi.fn(),
+  mockRejectGc: vi.fn(),
+  mockGetGcProposalStatuses: vi.fn(),
 }));
 
 vi.mock('../distill-runtime.js', () => ({
@@ -21,6 +24,9 @@ vi.mock('../distill-runtime.js', () => ({
     approve: mockApprove,
     reject: mockReject,
     getProposalStatuses: mockGetProposalStatuses,
+    approveGc: mockApproveGc,
+    rejectGc: mockRejectGc,
+    getGcProposalStatuses: mockGetGcProposalStatuses,
   }),
 }));
 
@@ -124,5 +130,65 @@ describe('GET /proposal-status', () => {
     const res = await api('GET', '/proposal-status?ids=dp-1,dp-2');
     expect(res.status).toBe(200);
     expect(res.json.statuses).toEqual({ 'dp-1': 'executed', 'dp-2': 'unknown' });
+  });
+});
+
+// ── #144 GC 候选清单人审闸口 ──
+
+describe('POST /gc/approve', () => {
+  it('缺 gcProposalId → 400', async () => {
+    const res = await api('POST', '/gc/approve', {});
+    expect(res.status).toBe(400);
+    expect(res.json.error).toContain('gcProposalId');
+    expect(mockApproveGc).not.toHaveBeenCalled();
+  });
+
+  it('归档成功 → 200 + archivedIds', async () => {
+    mockApproveGc.mockResolvedValue({ ok: true, archivedIds: ['e1', 'e2'] });
+    const res = await api('POST', '/gc/approve', { gcProposalId: 'gc-1' });
+    expect(res.status).toBe(200);
+    expect(res.json).toEqual({ success: true, archivedIds: ['e1', 'e2'] });
+    expect(mockApproveGc).toHaveBeenCalledWith('gc-1');
+  });
+
+  it('提案非 pending → 400', async () => {
+    mockApproveGc.mockResolvedValue({ ok: false, error: 'gc-proposal-not-pending:executed' });
+    const res = await api('POST', '/gc/approve', { gcProposalId: 'gc-1' });
+    expect(res.status).toBe(400);
+    expect(res.json.error).toContain('gc-proposal-not-pending');
+  });
+});
+
+describe('POST /gc/reject', () => {
+  it('缺 gcProposalId → 400', async () => {
+    const res = await api('POST', '/gc/reject', {});
+    expect(res.status).toBe(400);
+  });
+
+  it('拒绝成功 → 200', async () => {
+    mockRejectGc.mockResolvedValue({ ok: true });
+    const res = await api('POST', '/gc/reject', { gcProposalId: 'gc-1' });
+    expect(res.status).toBe(200);
+    expect(res.json.success).toBe(true);
+  });
+
+  it('提案非 pending → 400', async () => {
+    mockRejectGc.mockResolvedValue({ ok: false, error: 'gc-proposal-not-pending:rejected' });
+    const res = await api('POST', '/gc/reject', { gcProposalId: 'gc-1' });
+    expect(res.status).toBe(400);
+  });
+});
+
+describe('GET /gc/proposal-status', () => {
+  it('缺 ids → 400', async () => {
+    const res = await api('GET', '/gc/proposal-status');
+    expect(res.status).toBe(400);
+  });
+
+  it('返回各 GC 提案状态（unknown 兜底）', async () => {
+    mockGetGcProposalStatuses.mockResolvedValue({ 'gc-1': 'executed', 'gc-2': 'unknown' });
+    const res = await api('GET', '/gc/proposal-status?ids=gc-1,gc-2');
+    expect(res.status).toBe(200);
+    expect(res.json.statuses).toEqual({ 'gc-1': 'executed', 'gc-2': 'unknown' });
   });
 });

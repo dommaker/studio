@@ -22,8 +22,8 @@ export const MAX_MATERIALS = 20;
 const COOLDOWN_MS = COOLDOWN_DAYS * 24 * 3600 * 1000;
 /** 已退出主区的 maturity（不计数、不作原料） */
 export const EXITED_MATURITY = new Set(['archived', 'deprecated']);
-/** manual 人审通过的 maturity 口径（promote 路径：draft→verified→proven） */
-const MANUAL_APPROVED_MATURITY = new Set(['verified', 'proven']);
+/** manual 人审通过的 maturity 口径（promote 路径：draft→verified→proven）；GC 新生豁免同口径（#144） */
+export const MANUAL_APPROVED_MATURITY = new Set(['verified', 'proven']);
 
 export interface DistillThresholdEntry {
   id: string;
