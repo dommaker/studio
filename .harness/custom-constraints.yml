@@ -104,3 +104,15 @@ custom_constraints:
       - 安全回滚：删除 worktree 即可放弃改动
       - 并行开发：多个任务可同时在不同 worktree 中进行
     promptInjection: "高风险改动（新功能、跨模块、基础设施）应在 worktree 中进行。配置修改、单文件 fix 可直接编辑。"
+
+  # 8. 完成验证口径澄清（shadow override 内置 no_completion_without_verification，2026-08-14 决策）：
+  #    收尾验证 = 受影响测试（vitest --changed，对齐 studio-deploy-quick 口径）+ typecheck；
+  #    全量测试由 CI / studio-ship 兜底。核心不变：新鲜输出为证，禁止凭记忆声称完成。
+  no_completion_without_verification:
+    id: no_completion_without_verification
+    level: iron_law
+    rule: "NO COMPLETION CLAIM WITHOUT FRESH VERIFICATION"
+    message: "声明完成前必须重跑新鲜的验证命令（受影响测试 + type check），全量测试由 CI/ship 兜底"
+    trigger: ["code_implementation"]
+    description: "2026-08-14 决策：受影响测试口径对齐 studio-deploy-quick（vitest run --changed origin/master），全量留 CI/ship，避免每票 4.5min 全量空转"
+    promptInjection: "在声明任务完成前，必须重新运行新鲜的验证命令——受改动影响的测试（vitest run --changed origin/master）+ type check，使用新鲜的输出作为完成证据，不得复用旧结果。全量测试由 CI / studio-ship 兜底。"
