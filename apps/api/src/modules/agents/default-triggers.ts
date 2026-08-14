@@ -72,7 +72,7 @@ export function registerDefaultTriggers(registry: TriggerScheduler): void {
         assigneeRole: 'studio', // 系统维护任务钉死 studio 角色执行（独占认领，消除竞争；docs/issues/2026-08-03-unattended-token-burn.md）
       },
     },
-    enabled: false, // 2026-08-03 停用：LLM 周任务，与已停的日级 LLM 触发器同批止血（docs/issues/2026-08-03-unattended-token-burn.md），恢复前需先验证预算熔断生效；恢复归 #103
+    enabled: true, // #103 恢复：前置（#90 失败步 outcome 埋点）+ 消防演练（daily-token-budget.test.ts 覆盖熔断→need_input→告警→budget-tripped 全链路）已满足。观察期：恢复后前 4 次运行人工核查 outcome 事件 + 单次 token 消耗，异常即回退 enabled:false
     scope: 'system',
   });
 
