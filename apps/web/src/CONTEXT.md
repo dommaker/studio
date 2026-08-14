@@ -13,7 +13,7 @@
 | `App` | `App.tsx` | 根组件，包含路由定义、主题、全局布局（TopNav、Sidebar）及懒加载页面；频道工作区路由为满高三栏（各栏独立滚动） |
 | `api` (axios 实例) | `api/index.ts` | 统一 API 客户端，含 Bearer token 注入和 401 自动刷新 |
 | `channelApi` | `api/channel.ts` | 频道（list/get/create/update/members）、消息、Agent 配置相关 API |
-| `monitoringApi` | `api/monitoring.ts` | 监控、飞轮指标、开销 API + `terminateInstance`（强制停止实例，AgentDashboardPage/AgentDetailPage 共用） |
+| `monitoringApi` | `api/monitoring.ts` | 监控、飞轮指标、开销 API + `getEfficiency`（#120 输入缓存命中率/段 trim 率）+ `terminateInstance`（强制停止实例，AgentDashboardPage/AgentDetailPage 共用） |
 | `requirementApi` / `requirementsDocApi` | `api/requirements.ts` | 需求（REQ）CRUD 及关联工作单元链 API；`requirementsDocApi.update` = B2-009 SDD 需求文档编辑（PUT /requirements-docs/:id，RequirementsDocCard） |
 | `knowledgeApi` | `api/knowledge.ts` | 知识审核闭环（promote/demote/archive）+ 项目文档（listByProject/getDetail）+ 知识库浏览（listResolutions/listGaps/listUnified/createUnifiedEntry/search，KnowledgePage）+ 冷启动导入（importScan/importExecute，KnowledgeImportPage） |
 | `companyApi` | `api/company.ts` | 公司 CRUD（list/get/create/update；Settings 页 / PMOPage 共用，list 取 [0] 为默认公司） |

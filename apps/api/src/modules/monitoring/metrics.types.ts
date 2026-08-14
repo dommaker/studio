@@ -135,6 +135,73 @@ export interface EvidenceMetrics {
   derivedByColumn: Record<string, number>;
 }
 
+/** #120：单步（一次 CLI 执行 = 一个 workunit:tokens 事件）输入缓存命中数据点 */
+export interface StepCacheHitRate {
+  executionId: string | null;
+  workUnitId: string | null;
+  createdAt: string;
+  inputTokens: number;
+  cacheReadTokens: number;
+  /** 命中率 %（cacheRead/(input+cacheRead)；分母 0 → null） */
+  hitRatePct: number | null;
+}
+
+/** #120：输入缓存命中率分桶（ΣcacheRead / Σ(input+cacheRead)） */
+export interface CacheHitRateBucket {
+  cacheReadTokens: number;
+  inputTokens: number;
+  /** 命中率 %（分母 0 → null） */
+  hitRatePct: number | null;
+  events: number;
+}
+
+/** #120：输入缓存命中率（验证指标三件套之 1）——步 / WU / 角色 / 天 四维度 */
+export interface CacheHitRateMetrics {
+  description: string;
+  windowDays: number;
+  /** 全局命中率 */
+  overall: CacheHitRateBucket & { workUnits: number };
+  /** 步：每个带缓存字段的事件一个数据点（时间序，最细粒度） */
+  steps: StepCacheHitRate[];
+  /** WU 维度（事件数降序） */
+  byWorkUnit: Array<{ workUnitId: string } & CacheHitRateBucket>;
+  /** 角色维度（workUnitId → assigneeId → profileId 归因，同 tokens.byRole） */
+  byRole: Array<{ profileId: string; profileName: string } & CacheHitRateBucket>;
+  /** 天维度（createdAt 的 YYYY-MM-DD，时间升序） */
+  byDay: Array<{ day: string } & CacheHitRateBucket>;
+  /** 带 inputTokens + cacheReadTokens 的事件占窗口内 workunit:tokens 事件的比例 % */
+  coveragePct: number;
+  source: 'events' | 'insufficient-data';
+}
+
+/** #120：段 trim 率单段分桶（prompt:section_trimmed 事件 payload.section 动态分桶） */
+export interface SectionTrimBucket {
+  section: string;
+  /** trim 事件数 */
+  trimCount: number;
+  avgOriginalTokens: number;
+  avgTrimmedTokens: number;
+  /** 平均被裁掉比例 %（mean((original-trimmed)/original)） */
+  avgTrimPct: number;
+}
+
+/** #120：段 trim 率（验证指标三件套之 2）——按段计数 */
+export interface SectionTrimMetrics {
+  description: string;
+  windowDays: number;
+  bySection: SectionTrimBucket[];
+  totals: { trimEvents: number; totalOriginalTokens: number; totalTrimmedTokens: number };
+  source: 'events' | 'insufficient-data';
+}
+
+/** #120：/monitoring/efficiency —— 输入缓存命中率 + 段 trim 率 */
+export interface EfficiencyMetrics {
+  windowDays: number;
+  generatedAt: string;
+  cacheHitRate: CacheHitRateMetrics;
+  sectionTrim: SectionTrimMetrics;
+}
+
 export interface OverviewMetrics {
   windowDays: number;
   generatedAt: string;

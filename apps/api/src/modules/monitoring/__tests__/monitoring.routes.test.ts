@@ -1,7 +1,7 @@
 // Contract test: Monitoring Routes — MVP-2 + MVP-6
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const { mockGetAgentSummary, mockGetStats, mockGetOverviewMetrics } = vi.hoisted(() => ({
+const { mockGetAgentSummary, mockGetStats, mockGetOverviewMetrics, mockGetEfficiencyMetrics } = vi.hoisted(() => ({
   mockGetAgentSummary: vi.fn().mockResolvedValue({
     agents: [{ id: 'inst-1', name: 'test-agent', status: 'idle', currentWorkUnitId: null, startedAt: '2026-01-01T00:00:00Z' }],
     summary: { total: 1, idle: 1, active: 0, terminated: 0 },
@@ -14,6 +14,11 @@ const { mockGetAgentSummary, mockGetStats, mockGetOverviewMetrics } = vi.hoisted
   mockGetOverviewMetrics: vi.fn().mockResolvedValue({
     windowDays: 7, generatedAt: '2026-07-27T00:00:00.000Z', source: 'events',
     humanIntervention: { avgPerCompletedWu: 0.5 },
+  }),
+  mockGetEfficiencyMetrics: vi.fn().mockResolvedValue({
+    windowDays: 7, generatedAt: '2026-07-27T00:00:00.000Z',
+    cacheHitRate: { source: 'events', overall: { hitRatePct: 47, cacheReadTokens: 1400, inputTokens: 1600, events: 4, workUnits: 3 } },
+    sectionTrim: { source: 'events', totals: { trimEvents: 3 }, bySection: [{ section: 'knowledge', trimCount: 2 }] },
   }),
 }));
 
@@ -28,7 +33,7 @@ vi.mock('../monitoring.service.js', () => ({
 
 vi.mock('../metrics.service.js', () => ({
   MetricsService: vi.fn(function MetricsService() {
-    return { getOverviewMetrics: mockGetOverviewMetrics };
+    return { getOverviewMetrics: mockGetOverviewMetrics, getEfficiencyMetrics: mockGetEfficiencyMetrics };
   }),
 }));
 
@@ -109,6 +114,39 @@ describe('Monitoring Routes', () => {
     const req = { query: {} } as any;
     const res = mockRes();
     const handler = router.stack.find((l: any) => l.route?.path === '/overview')?.route?.stack[0]?.handle;
+    await handler!(req, res, () => {});
+    expect(res.statusCode).toBe(500);
+    expect(res.body.error.code).toBe('INTERNAL_ERROR');
+  });
+
+  it('GET /efficiency returns #120 缓存命中率 + 段 trim 率（默认窗口）', async () => {
+    const req = { query: {} } as any;
+    const res = mockRes();
+    const handler = router.stack.find((l: any) => l.route?.path === '/efficiency')?.route?.stack[0]?.handle;
+    await handler!(req, res, () => {});
+    expect(res.statusCode).toBe(200);
+    expect(res.body.cacheHitRate.overall.hitRatePct).toBe(47);
+    expect(res.body.sectionTrim.totals.trimEvents).toBe(3);
+    expect(mockGetEfficiencyMetrics).toHaveBeenCalledWith({ windowDays: undefined });
+  });
+
+  it('GET /efficiency 透传 windowDays 并 clamp 到 1-90', async () => {
+    const handler = router.stack.find((l: any) => l.route?.path === '/efficiency')?.route?.stack[0]?.handle;
+    await handler!({ query: { windowDays: '30' } } as any, mockRes(), () => {});
+    expect(mockGetEfficiencyMetrics).toHaveBeenCalledWith({ windowDays: 30 });
+
+    await handler!({ query: { windowDays: '999' } } as any, mockRes(), () => {});
+    expect(mockGetEfficiencyMetrics).toHaveBeenCalledWith({ windowDays: 90 });
+
+    await handler!({ query: { windowDays: 'abc' } } as any, mockRes(), () => {});
+    expect(mockGetEfficiencyMetrics).toHaveBeenCalledWith({ windowDays: undefined });
+  });
+
+  it('GET /efficiency returns 500 on service error', async () => {
+    mockGetEfficiencyMetrics.mockRejectedValueOnce(new Error('scan error'));
+    const req = { query: {} } as any;
+    const res = mockRes();
+    const handler = router.stack.find((l: any) => l.route?.path === '/efficiency')?.route?.stack[0]?.handle;
     await handler!(req, res, () => {});
     expect(res.statusCode).toBe(500);
     expect(res.body.error.code).toBe('INTERNAL_ERROR');
