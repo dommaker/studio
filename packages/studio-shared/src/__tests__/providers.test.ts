@@ -160,12 +160,15 @@ describe('spawn-args templates', () => {
     expect(promptViaStdin).toBe(false);
   });
 
-  test('codex: exec --json, resume subcommand for sessions, positional prompt', () => {
-    expect(buildArgsFromTemplate(BUILTIN_PROVIDERS.codex, {}).args).toEqual(['exec', '--json']);
+  test('codex: exec --json + hook-trust bypass, resume subcommand for sessions, positional prompt', () => {
+    // #147：exec 非交互下未信任 hook 一律跳过，需 --dangerously-bypass-hook-trust 才能执行
+    // project hooks.json（0.147.0 实测）；studio 经 propagateHarnessConfig 自行审查 hook 来源。
+    expect(buildArgsFromTemplate(BUILTIN_PROVIDERS.codex, {}).args)
+      .toEqual(['exec', '--json', '--dangerously-bypass-hook-trust']);
     expect(buildArgsFromTemplate(BUILTIN_PROVIDERS.codex, {}).promptViaStdin).toBe(true);
 
     const resumed = buildArgsFromTemplate(BUILTIN_PROVIDERS.codex, { sessionId: 'sess-1', prompt: 'continue' });
-    expect(resumed.args).toEqual(['exec', 'resume', 'sess-1', '--json', 'continue']);
+    expect(resumed.args).toEqual(['exec', 'resume', 'sess-1', '--json', '--dangerously-bypass-hook-trust', 'continue']);
     expect(resumed.promptViaStdin).toBe(false);
   });
 

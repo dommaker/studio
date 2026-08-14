@@ -10,7 +10,7 @@
 
 | 导出 | 文件 | 说明 |
 |------|------|------|
-| `BUILTIN_PROVIDERS` / `ProviderDefinition` | `src/providers.ts` | 内置 4 个 agent CLI 定义（claude/kimi/codex/opencode；openclaw 为 config-only legacy）：binaries、versionArgs、healthProbeArgs、spawn 模板 |
+| `BUILTIN_PROVIDERS` / `ProviderDefinition` | `src/providers.ts` | 内置 4 个 agent CLI 定义（claude/kimi/codex/opencode；openclaw 为 config-only legacy）：binaries、versionArgs、healthProbeArgs、spawn 模板。**codex spawn 模板带 `--dangerously-bypass-hook-trust`（#147 D7：0.147.0 trust 门下非交互 exec 不跑未信任 hook；studio 经 propagateHarnessConfig 自行审查 hook 来源，详见 studio-agent CONTEXT.md「步内前置拦截层」）** |
 | `listScanProviders()` / `resolveProviderDefinition()` / `buildArgsFromTemplate()` / `buildHealthProbeCommand()` | `src/providers.ts` | 扫描清单、定义解析（含 GENERIC 兜底）、CLI argv 构建、健康探针命令 |
 | `loadProviderRegistry()` / `resetProviderRegistryCache()` | `src/providers.ts` | 内置 + 用户覆盖（`~/.studio/providers.json`）深合并，带缓存；**新增 CLI 扩展点 = 写 providers.json，不改代码** |
 | `FileStore` | `src/file-store.ts` | 全部运行时数据的文件存储（原子写 tmp+rename + mkdir 锁 withLock），baseDir 默认 `~/.studio/data`。门面包：类型在 `file-store-types.ts`，JSON/锁原语在 `file-store-base.ts`，WorkUnit 事件溯源在 `file-store-workunit.ts`，channels 编解码在 `channels-codec.ts`，frontmatter 在 `frontmatter.ts`，全部经 file-store.ts re-export |

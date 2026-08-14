@@ -249,7 +249,7 @@ export async function executeSessionLoop(state: RunnerExecutionState, task: Agen
       try {
         const { stdout } = await execSh(cmd, {
           cwd: worktree,
-          env: buildSessionEnv({ task, role: 'executor' }),
+          env: buildSessionEnv({ task, role: 'executor', worktree }),
           // 扁平默认 30min（原 fast/standard/premium tier 分档已删）
           timeoutMs: task.timeoutMs ?? 30 * 60_000,
           maxBuffer: 10 * 1024 * 1024,
