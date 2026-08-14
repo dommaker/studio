@@ -68,6 +68,7 @@
 ## 注意事项
 
 - `readIndex`/`readDraft`/`readTopic` 对不存在文件返回 `''`/`[]`/`null`（不抛），供注入与召回兜底。
+- `memory-proposal-card.ts` 用模块级 `new FileStore()`（非注入，指向默认 studioDir）——测试须 mock 整个发卡模块（completion-extraction / distill-landings 测试同做法）。
 - `appendDraft` 写盘失败会抛出——调用方按 fire-and-forget 兜底（同 transcript-archive 约定）。
 - promote 结果 `topicsUpdated` 已按 slug 排序（结果确定）。
 - 测试经 `new RoleMemoryStore({ maxTopics, maxPendingDrafts })` 注入小上限验证容量提醒；`FileStore` 读穿缓存按绝对路径 + mtime 失效，append 后立即读一致。
