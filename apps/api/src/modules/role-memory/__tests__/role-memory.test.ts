@@ -209,6 +209,19 @@ describe('promote 合并（单路径 + 同角色互斥）', () => {
     await expect(store.promote(roleId, ['no-such-id'])).resolves.toMatchObject({ promoted: 0 });
   });
 
+  it('promote 重试幂等：墓碑丢失后同标题条目再合并不产生重复段落', async () => {
+    const roleId = freshRoleId();
+    const e1 = await store.appendDraft(roleId, { kind: 'execution-knowledge', title: 'Retry me', content: 'content-retry', topicSlug: 'shared' });
+    await store.promote(roleId, [e1.id]);
+
+    // 模拟墓碑追加失败：同标题同内容的条目仍 pending，被重试 promote
+    const e2 = await store.appendDraft(roleId, { kind: 'execution-knowledge', title: 'Retry me', content: 'content-retry', topicSlug: 'shared' });
+    await store.promote(roleId, [e2.id]);
+
+    const topic = await store.readTopic(roleId, 'shared');
+    expect(topic?.body.split('## Retry me')).toHaveLength(2); // 段落只出现一次
+  });
+
   it('同角色并发 promote 互斥：20 并发合并全部落盘无丢失', async () => {
     const roleId = freshRoleId();
     const entries: MemoryDraftEntry[] = [];

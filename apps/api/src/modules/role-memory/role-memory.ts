@@ -392,7 +392,11 @@ export class RoleMemoryStore {
     });
   }
 
-  /** 合并一组条目进指定 topic：读旧正文 → 追加段落 → 写回（frontmatter 保留首条元数据）。 */
+  /**
+   * 合并一组条目进指定 topic：读旧正文 → 追加段落 → 写回（frontmatter 保留首条元数据）。
+   * 幂等：正文已含 `## 标题` 段落的条目跳过——promote 先写 topic 后落墓碑，墓碑追加
+   * 失败时条目仍 pending，重试 promote 依赖此跳过避免段落重复。
+   */
   private async mergeIntoTopic(roleId: string, slug: string, entries: MemoryDraftRow[]): Promise<void> {
     const filePath = this.topicPath(roleId, slug);
     let meta: Record<string, unknown> = {};
@@ -410,13 +414,19 @@ export class RoleMemoryStore {
       if (!isErrnoCode(err, 'ENOENT')) throw err;
     }
 
-    const first = entries[0];
+    const existingHeadings = new Set(
+      body.split('\n').filter(l => l.startsWith('## ')).map(l => l.slice(3)),
+    );
+    const fresh = entries.filter(e => !existingHeadings.has(e.title));
+    if (fresh.length === 0) return;
+
+    const first = fresh[0];
     meta.title = meta.title ?? first.title;
     meta.summary = meta.summary ?? summarize(first);
     meta.kind = meta.kind ?? first.kind;
     meta.updatedAt = new Date().toISOString();
 
-    const sections = entries.map(e => `## ${e.title}\n\n${e.content}`).join('\n\n');
+    const sections = fresh.map(e => `## ${e.title}\n\n${e.content}`).join('\n\n');
     body = body ? `${body}\n\n${sections}` : sections;
 
     await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
