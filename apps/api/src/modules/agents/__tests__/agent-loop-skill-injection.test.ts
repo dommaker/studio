@@ -213,12 +213,12 @@ describe('§10 P0 + 决策 7/11/13: agentStep skill/persona 注入', () => {
     }
   });
 
-  it('决策 13：role.persona → 注入 `## 你的角色` 段，顺序在 skills 之后、知识之前', async () => {
+  it('决策 13：role.persona → 注入 `## 你的角色` 段，顺序在 skills 之前（#119 段序重排）、知识之前', async () => {
     const { knowledgeContext } = await runStep(makeWu(null), { persona: '你是测试者，先写测试再实现。' });
 
     expect(knowledgeContext).toContain('## 你的角色\n\n你是测试者，先写测试再实现。');
-    expect(knowledgeContext.indexOf('## 本次任务 Skills')).toBeLessThan(knowledgeContext.indexOf('## 你的角色'));
-    expect(knowledgeContext.indexOf('## 你的角色')).toBeLessThan(knowledgeContext.indexOf('## 项目上下文'));
+    expect(knowledgeContext.indexOf('## 你的角色')).toBeLessThan(knowledgeContext.indexOf('## 本次任务 Skills'));
+    expect(knowledgeContext.indexOf('## 本次任务 Skills')).toBeLessThan(knowledgeContext.indexOf('## 项目上下文'));
   });
 
   it('决策 13：persona 缺省回退 description', async () => {
@@ -233,7 +233,7 @@ describe('§10 P0 + 决策 7/11/13: agentStep skill/persona 注入', () => {
     expect(knowledgeContext).not.toContain('## 你的角色');
   });
 
-  it('决策 13 + #91：注入顺序 skills > persona > roster > knowledge（分段软定额 + 池内余量共享）', async () => {
+  it('决策 13 + #91/#119：注入顺序 persona > roster > skills > knowledge（#119 段序稳定性重排）', async () => {
     const now = new Date().toISOString();
     await fileStore.createChannel({
       id: 'ch-1', name: '#test-order', type: 'rnd',
@@ -253,9 +253,9 @@ describe('§10 P0 + 决策 7/11/13: agentStep skill/persona 注入', () => {
     const personaIdx = knowledgeContext.indexOf('## 你的角色');
     const rosterIdx = knowledgeContext.indexOf('## 频道成员与委派');
     const knowledgeIdx = knowledgeContext.indexOf('## 项目上下文');
-    expect(skillIdx).toBeGreaterThanOrEqual(0);
-    expect(personaIdx).toBeGreaterThan(skillIdx);
+    expect(personaIdx).toBeGreaterThanOrEqual(0);
     expect(rosterIdx).toBeGreaterThan(personaIdx);
-    expect(knowledgeIdx).toBeGreaterThan(rosterIdx);
+    expect(skillIdx).toBeGreaterThan(rosterIdx);
+    expect(knowledgeIdx).toBeGreaterThan(skillIdx);
   });
 });
