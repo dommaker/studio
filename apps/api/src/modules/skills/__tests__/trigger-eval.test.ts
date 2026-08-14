@@ -64,7 +64,7 @@ function runTriggerEval(targetSkill: string, cases: TriggerEvalCase[]) {
 }
 
 describe('trigger-eval: Skill Discovery precision', () => {
-  const skillsToEval = ['design-analyst', 'task-planner', 'tdd-implement'];
+  const skillsToEval = ['task-planner', 'tdd-implement'];
 
   for (const skillName of skillsToEval) {
     describe(skillName, () => {

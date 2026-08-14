@@ -2,7 +2,7 @@
  * manifest-generator 测试
  *
  * - generateManifest() 从 SKILL.md frontmatter 重新生成 MANIFEST.md
- * - GENERATED 头、active skills 表格（name/description/agentTypes/triggers）、开发流程链、_deprecated 列表
+ * - GENERATED 头、active skills 表格（name/description/agentTypes/triggers）、工单类型指针、_deprecated 列表
  * - best-effort：空目录/异常不 throw
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -49,7 +49,7 @@ afterEach(() => {
 });
 
 describe('generateManifest', () => {
-  it('regenerates MANIFEST.md with header, chain, active table and deprecated list', () => {
+  it('regenerates MANIFEST.md with header, type index pointer, active table and deprecated list', () => {
     writeSkill('design-analyst', [
       'name: design-analyst',
       'description: "把模糊需求变成结构化设计文档"',
@@ -83,8 +83,8 @@ describe('generateManifest', () => {
 
     // GENERATED 头
     expect(content).toContain('GENERATED');
-    // 开发流程链
-    expect(content).toContain('design-analyst → spec-review-skill → task-planner → sdd-review-skill → tdd-implement → code-review');
+    // 工单类型 → 方法论（链条语义已摘除，指针代替硬编码链）
+    expect(content).toContain('工单类型 → 方法论');
     // active 表格行
     expect(content).toContain('`design-analyst/SKILL.md`');
     expect(content).toContain('把模糊需求变成结构化设计文档');

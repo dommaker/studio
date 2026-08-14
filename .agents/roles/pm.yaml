@@ -14,8 +14,8 @@ capabilities:
   - blocker-detection
 
 skills:
+  - requirement-clarify
   - task-planner
-  - design-analyst
   - doc-manager-skill
 
 tools:
