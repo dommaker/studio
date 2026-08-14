@@ -192,6 +192,7 @@ export function ChannelDetailPage() {
   // memory_proposal approve → /role-memory/promote（草稿→topic/索引）；reject → /role-memory/demote。
   // distill_proposal approve → /distill/approve（#143 蒸馏运行）；reject → /distill/reject（零副作用）。
   // gc_proposal approve → /distill/gc/approve（#144 GC 候选归档）；reject → /distill/gc/reject（零副作用）。
+  // constraint_audit_proposal approve → /distill/audit/approve（#146 约束退役执行）；reject → /distill/audit/reject（零副作用）。
   // 返回是否成功（卡片据此显示已审核状态）。
   const handleAction = useCallback(async (messageId: string, action: string): Promise<boolean> => {
     if (action === 'converted') { refresh(); return true; }
@@ -273,6 +274,24 @@ export function ChannelDetailPage() {
           if (!data?.success) return false;
         } else {
           await distillApi.gcReject(gcProposalId);
+        }
+        refresh();
+        return true;
+      } catch {
+        return false;
+      }
+    }
+    if (action === 'constraint_audit_approve' || action === 'constraint_audit_reject') {
+      // #146 存量约束审计：approve → /distill/audit/approve（retire 执行，可回滚）；reject → /distill/audit/reject（零副作用）
+      const cardData = cardDataOf();
+      const auditProposalId = typeof cardData?.auditProposalId === 'string' ? cardData.auditProposalId : '';
+      if (!auditProposalId) return false;
+      try {
+        if (action === 'constraint_audit_approve') {
+          const { data } = await distillApi.auditApprove(auditProposalId);
+          if (!data?.success) return false;
+        } else {
+          await distillApi.auditReject(auditProposalId);
         }
         refresh();
         return true;

@@ -7,10 +7,12 @@
  */
 import { FileStore } from '@dommaker/studio-shared';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
+import path from 'node:path';
 import { sharedStore, scheduleVectorDbSync } from '../knowledge/knowledge-singletons.js';
 import { resolveStudioEventsFile } from '../../utils/studio-events.js';
 import { DistillService } from './distill-service.js';
 import { createSkillLanding, createConstraintLanding, createMemoryLanding } from './distill-landings.js';
+import { customConstraintsPath } from '../harness/constraints.routes.js';
 
 let _service: DistillService | null = null;
 
@@ -31,6 +33,9 @@ export function getDistillService(): DistillService {
         constraint: createConstraintLanding({ fileStore, dataDir }),
         memory: createMemoryLanding({ fileStore }),
       },
+      // #146 存量约束审计输入：custom-constraints.yml + package.json（技术存量证据）
+      constraintsFile: customConstraintsPath(),
+      packageJsonFile: path.join(process.cwd(), 'package.json'),
     });
   }
   return _service;

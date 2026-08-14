@@ -10,13 +10,16 @@ import express from 'express';
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 
-const { mockApprove, mockReject, mockGetProposalStatuses, mockApproveGc, mockRejectGc, mockGetGcProposalStatuses } = vi.hoisted(() => ({
+const { mockApprove, mockReject, mockGetProposalStatuses, mockApproveGc, mockRejectGc, mockGetGcProposalStatuses, mockApproveAudit, mockRejectAudit, mockGetAuditProposalStatuses } = vi.hoisted(() => ({
   mockApprove: vi.fn(),
   mockReject: vi.fn(),
   mockGetProposalStatuses: vi.fn(),
   mockApproveGc: vi.fn(),
   mockRejectGc: vi.fn(),
   mockGetGcProposalStatuses: vi.fn(),
+  mockApproveAudit: vi.fn(),
+  mockRejectAudit: vi.fn(),
+  mockGetAuditProposalStatuses: vi.fn(),
 }));
 
 vi.mock('../distill-runtime.js', () => ({
@@ -27,6 +30,9 @@ vi.mock('../distill-runtime.js', () => ({
     approveGc: mockApproveGc,
     rejectGc: mockRejectGc,
     getGcProposalStatuses: mockGetGcProposalStatuses,
+    approveAudit: mockApproveAudit,
+    rejectAudit: mockRejectAudit,
+    getAuditProposalStatuses: mockGetAuditProposalStatuses,
   }),
 }));
 
@@ -190,5 +196,72 @@ describe('GET /gc/proposal-status', () => {
     const res = await api('GET', '/gc/proposal-status?ids=gc-1,gc-2');
     expect(res.status).toBe(200);
     expect(res.json.statuses).toEqual({ 'gc-1': 'executed', 'gc-2': 'unknown' });
+  });
+});
+
+// ── #146 存量约束审计人审闸口 ──
+
+describe('POST /audit/approve', () => {
+  it('缺 auditProposalId → 400', async () => {
+    const res = await api('POST', '/audit/approve', {});
+    expect(res.status).toBe(400);
+    expect(res.json.error).toContain('auditProposalId');
+    expect(mockApproveAudit).not.toHaveBeenCalled();
+  });
+
+  it('退役执行成功 → 200 + retiredIds', async () => {
+    mockApproveAudit.mockResolvedValue({ ok: true, retiredIds: ['c1'] });
+    const res = await api('POST', '/audit/approve', { auditProposalId: 'audit-1' });
+    expect(res.status).toBe(200);
+    expect(res.json).toEqual({ success: true, retiredIds: ['c1'] });
+    expect(mockApproveAudit).toHaveBeenCalledWith('audit-1');
+  });
+
+  it('提案非 pending → 400', async () => {
+    mockApproveAudit.mockResolvedValue({ ok: false, error: 'audit-proposal-not-pending:executed' });
+    const res = await api('POST', '/audit/approve', { auditProposalId: 'audit-1' });
+    expect(res.status).toBe(400);
+    expect(res.json.error).toContain('audit-proposal-not-pending');
+  });
+
+  it('约束文件未装配 → 500', async () => {
+    mockApproveAudit.mockResolvedValue({ ok: false, error: 'constraints-file-unavailable' });
+    const res = await api('POST', '/audit/approve', { auditProposalId: 'audit-1' });
+    expect(res.status).toBe(500);
+    expect(res.json.error).toContain('constraints-file-unavailable');
+  });
+});
+
+describe('POST /audit/reject', () => {
+  it('缺 auditProposalId → 400', async () => {
+    const res = await api('POST', '/audit/reject', {});
+    expect(res.status).toBe(400);
+  });
+
+  it('拒绝成功 → 200（零副作用）', async () => {
+    mockRejectAudit.mockResolvedValue({ ok: true });
+    const res = await api('POST', '/audit/reject', { auditProposalId: 'audit-1' });
+    expect(res.status).toBe(200);
+    expect(res.json.success).toBe(true);
+  });
+
+  it('提案非 pending → 400', async () => {
+    mockRejectAudit.mockResolvedValue({ ok: false, error: 'audit-proposal-not-pending:rejected' });
+    const res = await api('POST', '/audit/reject', { auditProposalId: 'audit-1' });
+    expect(res.status).toBe(400);
+  });
+});
+
+describe('GET /audit/proposal-status', () => {
+  it('缺 ids → 400', async () => {
+    const res = await api('GET', '/audit/proposal-status');
+    expect(res.status).toBe(400);
+  });
+
+  it('返回各审计提案状态（unknown 兜底）', async () => {
+    mockGetAuditProposalStatuses.mockResolvedValue({ 'audit-1': 'executed', 'audit-2': 'unknown' });
+    const res = await api('GET', '/audit/proposal-status?ids=audit-1,audit-2');
+    expect(res.status).toBe(200);
+    expect(res.json.statuses).toEqual({ 'audit-1': 'executed', 'audit-2': 'unknown' });
   });
 });

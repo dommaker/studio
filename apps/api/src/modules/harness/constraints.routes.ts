@@ -35,8 +35,9 @@ function configPath(): string {
   return path.join(projectRoot(), '.harness', 'config.yml');
 }
 
-/** custom-constraints.yml 路径：config.yml `custom_constraints_file` 可覆盖文件名（缺省 custom-constraints.yml） */
-function customConstraintsPath(): string {
+/** custom-constraints.yml 路径：config.yml `custom_constraints_file` 可覆盖文件名（缺省 custom-constraints.yml）。
+ *  导出供 distill-runtime 装配 #146 存量约束审计的 constraintsFile。 */
+export function customConstraintsPath(): string {
   const cfg = configPath();
   let name = 'custom-constraints.yml';
   if (fs.existsSync(cfg)) {

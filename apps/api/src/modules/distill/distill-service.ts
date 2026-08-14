@@ -25,8 +25,15 @@
  * constraint（边界性知识）→ constraint-drafts.jsonl 变更草案（D6 派单通道未就绪的简化落盘形态）；
  * preference/execution-knowledge → 角色记忆草稿（memory_proposal 人审卡）。缺类型/未知类型/
  * 落地失败 → 回落知识库条目（#143 行为）。落地通道经 deps.landings 注入，实现见 distill-landings。
+ *
+ * #146 存量约束审计：蒸馏运行产出新约束（landings.constraint 非空）→ 顺带审计存量 custom
+ * 约束（#139 判据「是否还有可被违反的未来场景」，constraint-audit 纯函数 + 判据白名单闸门）
+ * → 退役建议清单发 constraint_audit_proposal 人审卡；approveAudit 走 retire 执行
+ * （custom-constraints.yml 条目内 retired 元数据段，#82 D6 落点，可恢复），rejectAudit
+ * 零副作用且人判保留约束不再进审计输入。零建议不发卡；审计永不阻塞蒸馏主链路。
  */
 import { randomUUID } from 'node:crypto';
+import fs from 'node:fs';
 import { eventBus, logger, FileStore } from '@dommaker/studio-shared';
 import type { KnowledgeStore, KnowledgeEntry, SourceRef } from '@dommaker/harness';
 import { evaluateDistillThreshold, EXITED_MATURITY } from './distill-threshold.js';
@@ -42,6 +49,22 @@ import { postDistillProposalCard } from './distill-proposal-card.js';
 import { generateGcCandidates } from './gc-candidates.js';
 import { GcStore, type GcProposal, type GcProposalRecord, type GcProposalStatus } from './gc-store.js';
 import { postGcProposalCard } from './gc-proposal-card.js';
+import {
+  CONSTRAINT_AUDIT_SYSTEM_PROMPT,
+  buildConstraintAuditPrompt,
+  loadActiveCustomConstraints,
+  normalizeAuditSuggestions,
+  readPackageDeps,
+  type AuditSuggestion,
+} from './constraint-audit.js';
+import {
+  ConstraintAuditStore,
+  type ConstraintAuditProposal,
+  type ConstraintAuditProposalRecord,
+  type ConstraintAuditStatus,
+} from './audit-store.js';
+import { postConstraintAuditCard } from './constraint-audit-card.js';
+import { retireConstraintEntry } from '../evolution/applier.js';
 import { getSystemExecutor } from '../agents/system-executor.js';
 import {
   tokenBudgetGuardEnabled,
@@ -54,6 +77,8 @@ import type { WorkUnitData } from '../workunit/workunit.service.js';
 export type { DistillProposal, DistillProposalRecord, DistillProposalStatus, DistillRun } from './distill-store.js';
 export type { GcProposal, GcProposalRecord, GcProposalStatus } from './gc-store.js';
 export type { GcCandidate } from './gc-candidates.js';
+export type { ConstraintAuditProposal, ConstraintAuditProposalRecord, ConstraintAuditStatus } from './audit-store.js';
+export type { AuditSuggestion, AuditCategory, CustomConstraintInfo } from './constraint-audit.js';
 
 /**
  * 蒸馏 prompt（单一来源）：矿石 → 带类型分类的蒸馏产物。结构参考 MEMORY_EXTRACTION_SYSTEM_PROMPT，
@@ -100,6 +125,10 @@ export interface DistillServiceDeps {
   onProductsSaved?: (productIds: string[]) => void;
   /** #145 三分落地通道（运行时装配 distill-landings）；缺省/失败/返回 null → 回落知识条目 */
   landings?: DistillLandings;
+  /** #146 存量约束审计：custom-constraints.yml 路径（运行时装配）；缺省 → 审计跳过 */
+  constraintsFile?: string;
+  /** #146 审计判据证据：package.json 路径（技术存量信号）；缺省 → prompt 降级保守判断 */
+  packageJsonFile?: string;
 }
 
 /** #145 产物类型：三通道 + knowledge 回落 */
@@ -225,10 +254,12 @@ export class DistillService {
   private subscribed = false;
   private distillStore: DistillStore;
   private gcStore: GcStore;
+  private auditStore: ConstraintAuditStore;
 
   constructor(private deps: DistillServiceDeps) {
     this.distillStore = new DistillStore(deps.fileStore, deps.dataDir);
     this.gcStore = new GcStore(deps.fileStore, deps.dataDir);
+    this.auditStore = new ConstraintAuditStore(deps.fileStore, deps.dataDir);
   }
 
   /** 订阅 workunit.status_changed（done → 门槛检测）。幂等。 */
@@ -400,6 +431,10 @@ export class DistillService {
       });
       // 蒸馏运行 = GC 事件源（#144）：每次执行成功的运行后按周期计龄出候选清单（永不抛）
       await this.runGcCheck(run);
+      // 新约束入库 = 存量约束审计事件源（#146）：本次运行产出约束草案才触发（永不抛）
+      if ((run.landings?.constraint.length ?? 0) > 0) {
+        await this.runConstraintAudit(run);
+      }
       return { ok: true, productIds };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -573,6 +608,166 @@ export class DistillService {
 
   async listGcProposals(): Promise<GcProposalRecord[]> {
     return this.gcStore.listProposals();
+  }
+
+  // ── #146 存量约束审计（挂蒸馏事件：新约束入库才触发） ──
+
+  /**
+   * 蒸馏运行后的存量约束审计（approve 内部在产出新约束时调用 + 测试直驱）：
+   * 读 custom-constraints.yml active 条目 → LLM 按「是否还有可被违反的未来场景」判据
+   * 出退役建议 → 判据白名单闸门过滤（constraint-audit.normalizeAuditSuggestions）→
+   * 非零则建审计提案 + 发 constraint_audit_proposal 人审卡；零建议不发卡（零噪音）。
+   * 永不抛（不阻塞蒸馏主链路）。去重口径：已有 pending 审计提案不重复发卡；
+   * 曾被 reject 的约束（人判保留）剔除出审计输入；预算耗尽跳过（不报错）。
+   */
+  async runConstraintAudit(triggerRun: DistillRun): Promise<void> {
+    try {
+      const file = this.deps.constraintsFile;
+      if (!file) {
+        logger.debug('[Distill] constraint audit skip: no constraintsFile wired', { runId: triggerRun.id });
+        return;
+      }
+      const active = loadActiveCustomConstraints(file);
+      if (active.length === 0) {
+        logger.debug('[Distill] constraint audit skip: no active custom constraints', { runId: triggerRun.id });
+        return;
+      }
+      // 人判保留（reject）的约束剔除出审计输入，不再重复提案打扰
+      const rejected = await this.auditStore.rejectedConstraintIds();
+      const auditables = active.filter(c => !rejected.has(c.id));
+      if (auditables.length === 0) {
+        logger.debug('[Distill] constraint audit skip: all constraints human-kept', { runId: triggerRun.id });
+        return;
+      }
+      // 已有 pending 审计提案等人审 → 不重复发卡（不进 LLM，零成本）
+      const pending = await this.auditStore.findPending();
+      if (pending) {
+        logger.info('[Distill] constraint audit skip: pending proposal exists', { auditProposalId: pending.id, runId: triggerRun.id });
+        return;
+      }
+      // 预算守卫（与蒸馏 approve 同口径）：耗尽 → 跳过审计，不报错不提案
+      if (await this.isBudgetExhausted()) {
+        logger.warn('[Distill] constraint audit skipped: daily token budget exhausted', { runId: triggerRun.id });
+        return;
+      }
+
+      const parsed = await getSystemExecutor().runJson<{ suggestions?: unknown }>(
+        buildConstraintAuditPrompt(auditables, { packageDeps: this.deps.packageJsonFile ? readPackageDeps(this.deps.packageJsonFile) : [] }),
+        { systemPrompt: CONSTRAINT_AUDIT_SYSTEM_PROMPT, eventSource: 'constraint-audit' },
+      );
+      const suggestions = normalizeAuditSuggestions(parsed, new Set(auditables.map(c => c.id)));
+      if (suggestions.length === 0) {
+        logger.debug('[Distill] constraint audit: no suggestions', { runId: triggerRun.id, auditedCount: auditables.length });
+        return;
+      }
+
+      const proposal: ConstraintAuditProposal = {
+        id: randomUUID(),
+        createdAt: new Date().toISOString(),
+        runId: triggerRun.id,
+        suggestions,
+        auditedCount: auditables.length,
+      };
+      await this.auditStore.appendProposal(proposal);
+
+      // 发卡失败静默跳过（#101 降级口径）：标记 card-failed，不阻塞蒸馏主链路
+      const posted = await postConstraintAuditCard(proposal, { fileStore: this.deps.fileStore });
+      if (!posted) {
+        await this.auditStore.appendStatus(proposal.id, 'card-failed');
+        await this.emitEvent({ stage: 'audit-card-failed', auditProposalId: proposal.id, suggestionCount: suggestions.length });
+        return;
+      }
+
+      logger.info('[Distill] constraint audit proposal posted', {
+        auditProposalId: proposal.id, suggestionCount: suggestions.length, auditedCount: auditables.length, runId: triggerRun.id,
+      });
+      await this.emitEvent({
+        stage: 'audit-proposal-posted',
+        auditProposalId: proposal.id,
+        runId: triggerRun.id,
+        suggestionCount: suggestions.length,
+        auditedCount: auditables.length,
+      });
+    } catch (err) {
+      logger.warn('[Distill] runConstraintAudit failed (non-blocking)', { runId: triggerRun.id, error: String(err) });
+    }
+  }
+
+  /**
+   * approve 审计清单：逐条走 retire 执行——custom-constraints.yml 既有条目内追加
+   * retired 元数据段（#82 D6 统一落点，复用 E1 applier retireConstraintEntry；
+   * 规则原文保留，可恢复：POST /api/v1/harness/constraints/:id/rollback 删段即恢复）。
+   * 人审期间已被其它路径退役/删除、或文本定位失败的条目跳过（幂等），
+   * 跳过名单随返回值与事件给出（skippedIds），人审可见哪些建议未真正执行。
+   */
+  async approveAudit(auditProposalId: string): Promise<{ ok: boolean; retiredIds?: string[]; skippedIds?: string[]; error?: string }> {
+    const proposal = await this.auditStore.getProposal(auditProposalId);
+    if (!proposal) return { ok: false, error: 'audit-proposal-not-found' };
+    if (proposal.status !== 'pending') return { ok: false, error: `audit-proposal-not-pending:${proposal.status}` };
+    const file = this.deps.constraintsFile;
+    if (!file) return { ok: false, error: 'constraints-file-unavailable' };
+
+    let content = fs.existsSync(file) ? fs.readFileSync(file, 'utf-8') : '';
+    const now = new Date().toISOString();
+    const retiredIds: string[] = [];
+    const skippedIds: string[] = [];
+    for (const s of proposal.suggestions) {
+      const next = retireConstraintEntry(content, s.constraintId, {
+        at: now,
+        reason: `[${s.category}] ${s.rationale}`,
+      });
+      if (next === null) {
+        skippedIds.push(s.constraintId); // 条目不存在 / 已退役 / 文本定位失败
+        continue;
+      }
+      content = next;
+      retiredIds.push(s.constraintId);
+    }
+    if (retiredIds.length > 0) {
+      fs.writeFileSync(file, content, 'utf-8');
+    }
+
+    await this.auditStore.appendStatus(auditProposalId, 'executed');
+    logger.info('[Distill] constraint audit executed', { auditProposalId, retiredCount: retiredIds.length, skippedCount: skippedIds.length });
+    await this.emitEvent({
+      stage: 'audit-executed',
+      auditProposalId,
+      retiredIds,
+      skippedIds,
+      suggestionCount: proposal.suggestions.length,
+    });
+    return { ok: true, retiredIds, skippedIds };
+  }
+
+  /** reject 审计清单：零副作用——约束全部保留，仅提案终态 + 事件；被拒约束后续不再进审计输入 */
+  async rejectAudit(auditProposalId: string): Promise<{ ok: boolean; error?: string }> {
+    const proposal = await this.auditStore.getProposal(auditProposalId);
+    if (!proposal) return { ok: false, error: 'audit-proposal-not-found' };
+    if (proposal.status !== 'pending') return { ok: false, error: `audit-proposal-not-pending:${proposal.status}` };
+
+    await this.auditStore.appendStatus(auditProposalId, 'rejected');
+    logger.info('[Distill] constraint audit rejected (constraints kept)', { auditProposalId });
+    await this.emitEvent({
+      stage: 'audit-rejected', auditProposalId, suggestionCount: proposal.suggestions.length,
+    });
+    return { ok: true };
+  }
+
+  /** 审计卡片刷新派生已审态（同蒸馏提案口径） */
+  async getAuditProposalStatuses(ids: string[]): Promise<Record<string, ConstraintAuditStatus | 'unknown'>> {
+    const proposals = await this.auditStore.listProposals();
+    const byId = new Map(proposals.map(p => [p.id, p.status]));
+    const statuses: Record<string, ConstraintAuditStatus | 'unknown'> = {};
+    for (const id of ids) statuses[id] = byId.get(id) ?? 'unknown';
+    return statuses;
+  }
+
+  async getAuditProposal(id: string): Promise<ConstraintAuditProposalRecord | null> {
+    return this.auditStore.getProposal(id);
+  }
+
+  async listAuditProposals(): Promise<ConstraintAuditProposalRecord[]> {
+    return this.auditStore.listProposals();
   }
 
   /** 每日 token 预算熔断判定（与 WuCompletionExtractor 同口径） */

@@ -9,6 +9,10 @@
  *   POST /gc/approve { gcProposalId } → DistillService.approveGc（候选条目归档，可恢复）
  *   POST /gc/reject  { gcProposalId } → DistillService.rejectGc（零副作用，人判保留不再提案）
  *   GET  /gc/proposal-status?ids=a,b,c → 各 GC 提案状态（只读）
+ * constraint_audit_proposal 卡片（#146 存量约束退役建议）：
+ *   POST /audit/approve { auditProposalId } → DistillService.approveAudit（retire 执行，可恢复）
+ *   POST /audit/reject  { auditProposalId } → DistillService.rejectAudit（零副作用，人判保留不再提案）
+ *   GET  /audit/proposal-status?ids=a,b,c → 各审计提案状态（只读）
  * 与 /role-memory/promote|demote（#101）平行，对象不同（蒸馏提案 vs 角色记忆草稿）。
  */
 import { Router } from 'express';
@@ -24,6 +28,11 @@ function parseProposalId(body: unknown): string | null {
 
 function parseGcProposalId(body: unknown): string | null {
   const id = (body as { gcProposalId?: unknown } | null)?.gcProposalId;
+  return typeof id === 'string' && id.trim() ? id.trim() : null;
+}
+
+function parseAuditProposalId(body: unknown): string | null {
+  const id = (body as { auditProposalId?: unknown } | null)?.auditProposalId;
   return typeof id === 'string' && id.trim() ? id.trim() : null;
 }
 
@@ -105,6 +114,48 @@ router.get('/gc/proposal-status', requireAuth(), async (req, res) => {
     const ids = typeof req.query.ids === 'string' ? req.query.ids.split(',').filter(s => s.length > 0) : [];
     if (ids.length === 0) return res.status(400).json({ error: 'ids must be a non-empty comma-separated list' });
     const statuses = await getDistillService().getGcProposalStatuses(ids);
+    res.json({ success: true, statuses });
+  } catch (e) {
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// ── #146 存量约束审计人审闸口 ──
+
+router.post('/audit/approve', requireAuth(), requireNotGuest(), async (req, res) => {
+  try {
+    const auditProposalId = parseAuditProposalId(req.body);
+    if (!auditProposalId) return res.status(400).json({ error: 'auditProposalId required' });
+    const result = await getDistillService().approveAudit(auditProposalId);
+    if (result.ok) return res.json({ success: true, retiredIds: result.retiredIds, skippedIds: result.skippedIds });
+    if (result.error?.startsWith('audit-proposal-not-')) return res.status(400).json({ error: result.error });
+    return res.status(500).json({ error: result.error ?? 'audit approve failed' });
+  } catch (e) {
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+router.post('/audit/reject', requireAuth(), requireNotGuest(), async (req, res) => {
+  try {
+    const auditProposalId = parseAuditProposalId(req.body);
+    if (!auditProposalId) return res.status(400).json({ error: 'auditProposalId required' });
+    const result = await getDistillService().rejectAudit(auditProposalId);
+    if (!result.ok) return res.status(400).json({ error: result.error });
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+/**
+ * GET /audit/proposal-status?ids=a,b,c → { statuses: { [id]: pending|executed|rejected|card-failed|unknown } }
+ * 只读（不需要 requireNotGuest）：constraint_audit_proposal 卡片刷新/重进频道后据此派生已审态。
+ */
+router.get('/audit/proposal-status', requireAuth(), async (req, res) => {
+  try {
+    const ids = typeof req.query.ids === 'string' ? req.query.ids.split(',').filter(s => s.length > 0) : [];
+    if (ids.length === 0) return res.status(400).json({ error: 'ids must be a non-empty comma-separated list' });
+    const statuses = await getDistillService().getAuditProposalStatuses(ids);
     res.json({ success: true, statuses });
   } catch (e) {
     res.status(500).json({ error: e instanceof Error ? e.message : String(e) });

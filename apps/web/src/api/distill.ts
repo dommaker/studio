@@ -14,6 +14,9 @@ export type DistillProposalStatus = 'pending' | 'executed' | 'rejected' | 'faile
 /** GC 提案状态（与 API GcProposalStatus 对齐；unknown = 查无此提案） */
 export type GcProposalStatus = 'pending' | 'executed' | 'rejected' | 'card-failed' | 'unknown';
 
+/** 审计提案状态（与 API ConstraintAuditStatus 对齐；unknown = 查无此提案） */
+export type AuditProposalStatus = 'pending' | 'executed' | 'rejected' | 'card-failed' | 'unknown';
+
 export interface DistillApproveResponse {
   success: boolean;
   productIds?: string[];
@@ -39,5 +42,14 @@ export const distillApi = {
   gcProposalStatus: (gcProposalIds: string[]) =>
     api.get<{ success: boolean; statuses: Record<string, GcProposalStatus> }>(
       `/distill/gc/proposal-status?ids=${gcProposalIds.map(encodeURIComponent).join(',')}`,
+    ),
+  // #146 存量约束审计
+  auditApprove: (auditProposalId: string) =>
+    api.post<{ success: boolean; retiredIds?: string[]; error?: string }>('/distill/audit/approve', { auditProposalId }),
+  auditReject: (auditProposalId: string) =>
+    api.post('/distill/audit/reject', { auditProposalId }),
+  auditProposalStatus: (auditProposalIds: string[]) =>
+    api.get<{ success: boolean; statuses: Record<string, AuditProposalStatus> }>(
+      `/distill/audit/proposal-status?ids=${auditProposalIds.map(encodeURIComponent).join(',')}`,
     ),
 };
