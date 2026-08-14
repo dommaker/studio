@@ -52,6 +52,25 @@ vi.mock('../../api/monitoring', () => ({
         },
       },
     }),
+    // #120 输入缓存命中率 + 段 trim 率（空数据形态，独立加载不阻塞主面板）
+    getEfficiency: vi.fn().mockResolvedValue({
+      data: {
+        windowDays: 30,
+        generatedAt: '2026-08-14T00:00:00Z',
+        cacheHitRate: {
+          description: '', windowDays: 30,
+          overall: { cacheReadTokens: 0, inputTokens: 0, hitRatePct: null, events: 0, workUnits: 0 },
+          steps: [], byWorkUnit: [], byRole: [], byDay: [],
+          coveragePct: 0, source: 'insufficient-data',
+        },
+        sectionTrim: {
+          description: '', windowDays: 30,
+          bySection: [],
+          totals: { trimEvents: 0, totalOriginalTokens: 0, totalTrimmedTokens: 0 },
+          source: 'insufficient-data',
+        },
+      },
+    }),
   },
 }));
 

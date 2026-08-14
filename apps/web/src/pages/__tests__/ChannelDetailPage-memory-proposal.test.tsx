@@ -1,0 +1,121 @@
+// ChannelDetailPage — 角色记忆人审闸口：handleAction 分发 memory_proposal approve/reject
+// 契约：approve → POST /role-memory/promote {roleId, entryIds}；reject → POST /role-memory/demote（一次整卡）
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { MemoryRouter, Routes, Route } from 'react-router-dom';
+
+const { mockSendMessage, mockListWorkunits, mockListReqs, mockApiGet, mockApiPost, mockRefresh, mockMemoryPromote, mockMemoryDemote } = vi.hoisted(() => ({
+  mockSendMessage: vi.fn(),
+  mockListWorkunits: vi.fn(),
+  mockListReqs: vi.fn(),
+  mockApiGet: vi.fn(),
+  mockApiPost: vi.fn(),
+  mockRefresh: vi.fn(),
+  mockMemoryPromote: vi.fn(),
+  mockMemoryDemote: vi.fn(),
+}));
+
+vi.mock('../../api', () => ({
+  api: { get: mockApiGet, post: mockApiPost },
+}));
+
+vi.mock('../../api/memory', () => ({
+  memoryApi: { promote: mockMemoryPromote, demote: mockMemoryDemote },
+}));
+
+vi.mock('../../hooks/useChannelEvents', () => ({
+  useChannelMessages: () => ({
+    messages: MESSAGES,
+    loading: false,
+    hasMore: false,
+    sendMessage: mockSendMessage,
+    loadMore: vi.fn(),
+    refresh: mockRefresh,
+  }),
+}));
+
+vi.mock('../../api/workunit', () => ({
+  workunitApi: { list: mockListWorkunits },
+}));
+
+vi.mock('../../api/requirements', () => ({
+  requirementApi: { list: mockListReqs },
+}));
+
+vi.mock('../../components/channel/ChannelRail', () => ({ ChannelRail: () => null }));
+vi.mock('../../components/channel/WorkUnitDrawer', () => ({ WorkUnitDrawer: () => null }));
+vi.mock('../../components/channel/ChannelMemberManager', () => ({ ChannelMemberManager: () => null }));
+vi.mock('../../components/ChannelWorkspaceSetting', () => ({ ChannelWorkspaceSetting: () => null }));
+vi.mock('../../components/channel/ChannelInput', () => ({ ChannelInput: () => null }));
+// 其他卡片与本测试无关；MemoryProposalCard 用真实组件（无 API 副作用）
+vi.mock('../../components/channel/RequirementsDocCard', () => ({ RequirementsDocCard: () => null }));
+vi.mock('../../components/channel/KnowledgeConfirmCard', () => ({ KnowledgeConfirmCard: () => null }));
+vi.mock('../../components/channel/KnowledgeProposalCard', () => ({ KnowledgeProposalCard: () => null }));
+vi.mock('../../components/channel/AuditorSuggestionCard', () => ({ AuditorSuggestionCard: () => null }));
+vi.mock('../../components/channel/ConvertToTaskDialog', () => ({ ConvertToTaskDialog: () => null }));
+
+import { ChannelDetailPage } from '../ChannelDetailPage';
+
+const MESSAGES = [
+  {
+    id: 'msg-mp-1', channelId: 'ch-sys', authorType: 'agent' as const, agentName: 'KK',
+    content: '角色记忆提案 — 待确认', workUnitId: null, replyToId: null,
+    meta: JSON.stringify({
+      cardType: 'memory_proposal',
+      status: 'ready',
+      cardData: {
+        roleId: 'role-1',
+        workUnitId: 'WU-2042',
+        entries: [
+          { draftId: 'd-1', title: '测试命令', topicSlug: 'testing-command', topicPath: 'topics/testing-command.md', kind: 'execution-knowledge' },
+          { draftId: 'd-2', title: '命名约定', topicSlug: 'naming', topicPath: 'topics/naming.md', kind: 'preference' },
+        ],
+      },
+    }),
+    createdAt: new Date().toISOString(),
+  },
+];
+
+const renderPage = () =>
+  render(
+    <MemoryRouter initialEntries={['/channels/ch-sys']}>
+      <Routes>
+        <Route path="/channels/:id" element={<ChannelDetailPage />} />
+      </Routes>
+    </MemoryRouter>,
+  );
+
+describe('ChannelDetailPage — memory_proposal 审核分发', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockApiGet.mockResolvedValue({ data: { data: { id: 'ch-sys', name: '系统', type: 'system', members: '[]' } } });
+    mockListWorkunits.mockResolvedValue({ data: { data: [] } });
+    mockListReqs.mockResolvedValue({ data: { data: [] } });
+    mockApiPost.mockResolvedValue({ data: { success: true } });
+    mockMemoryPromote.mockResolvedValue({ data: { success: true } });
+    mockMemoryDemote.mockResolvedValue({ data: { success: true } });
+  });
+
+  it('approve → POST /role-memory/promote {roleId, entryIds}，卡片显示已确认', async () => {
+    renderPage();
+    const btn = await screen.findByText('确认写入');
+    fireEvent.click(btn);
+
+    await waitFor(() => {
+      expect(mockMemoryPromote).toHaveBeenCalledWith('role-1', ['d-1', 'd-2']);
+    });
+    expect(await screen.findByText(/已确认/)).toBeTruthy();
+    expect(mockRefresh).toHaveBeenCalled();
+  });
+
+  it('reject → POST /role-memory/demote {roleId, entryIds}，卡片显示已丢弃', async () => {
+    renderPage();
+    const btn = await screen.findByText('丢弃');
+    fireEvent.click(btn);
+
+    await waitFor(() => {
+      expect(mockMemoryDemote).toHaveBeenCalledWith('role-1', ['d-1', 'd-2']);
+    });
+    expect(await screen.findByText(/已丢弃/)).toBeTruthy();
+  });
+});

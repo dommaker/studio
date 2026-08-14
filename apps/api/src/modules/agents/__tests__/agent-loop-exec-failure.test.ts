@@ -29,6 +29,7 @@ vi.mock('../../knowledge/knowledge-service', () => ({
 }));
 
 import { AgentLoop } from '../loop/agent-loop';
+import { knowledgeService } from '../../knowledge/knowledge-service';
 
 const mockRole = {
   id: 'role-w3',
@@ -93,6 +94,22 @@ describe('P0/W-3: CLI 执行失败显式分支', () => {
     expect(result.metadataUpdates?.errorType).toBe('execution_failed');
     expect(result.metadataUpdates?.errorDetail).toContain('boom');
     expect(typeof result.metadataUpdates?.errorAt).toBe('string');
+  });
+
+  it('#90: agentStep 失败步落 failure outcome（success=false + errorType=execution_failed）', async () => {
+    mockExecuteLightweight.mockResolvedValue({
+      success: false, error: 'CLI exited with code 1: boom',
+      worktree: '/tmp/wt', outputFiles: [], logFile: '/tmp/log', sessionCount: 1,
+    });
+
+    const wu = await createActiveWorkUnit();
+    await (agentLoop as unknown as RecordResultCapable).agentStep({ workUnit: wu });
+
+    expect(knowledgeService.recordOutcome).toHaveBeenCalledWith(expect.objectContaining({
+      success: false,
+      errorType: 'execution_failed',
+      details: expect.stringContaining('boom'),
+    }));
   });
 
   it('agentStep: 成功后清除失败标记（errorType/errorDetail/errorAt 置 undefined）', async () => {

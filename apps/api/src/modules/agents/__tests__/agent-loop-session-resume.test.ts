@@ -254,7 +254,7 @@ describe('#94: 会话号 per-WU 化与续用降级', () => {
     expect((agentLoop as unknown as InstanceHolder).instance?.sessionId).toBe('sess-stale');
   });
 
-  it('首 step（新建）执行失败 → 重置 sessionId/sessionCount（下一步按新建重试，不 --resume 未建立的会话）', async () => {
+  it('首 step（新建）执行失败 → 重置 sessionId 但 sessionCount 计入（#95），下一步按新建重试', async () => {
     const wu = await setupWorkUnit();
     mockExecuteLightweight.mockResolvedValue({
       success: false, error: 'CLI boom', logFile: '/tmp/log', worktree: '/tmp/wt',
@@ -265,7 +265,7 @@ describe('#94: 会话号 per-WU 化与续用降级', () => {
 
     expect(step.action).toBe('failed');
     expect(step.metadataUpdates).not.toHaveProperty('sessionId');
-    expect(step.metadataUpdates).not.toHaveProperty('sessionCount');
+    expect(step.metadataUpdates!.sessionCount).toBe(1);
 
     // 下一步重新按新建签发
     mockExecuteLightweight.mockResolvedValue({ ...SUCCESS_RESULT });
@@ -320,7 +320,7 @@ describe('#94: 会话号 per-WU 化与续用降级', () => {
     expect(step.action).toBe('failed');
   });
 
-  it('降级重试仍失败 → action=failed，新会话簿记（sessionId/sessionCount/lastSessionResumed）被重置', async () => {
+  it('降级重试仍失败 → action=failed，sessionId/lastSessionResumed 回滚、sessionCount 计入（#95）', async () => {
     createClaudeSessionFile('sess-lost');
     const wu = await setupWorkUnit({ sessionId: 'sess-lost', sessionCount: 1 });
     mockExecuteLightweight.mockResolvedValue({
@@ -333,8 +333,35 @@ describe('#94: 会话号 per-WU 化与续用降级', () => {
     expect(mockExecuteLightweight).toHaveBeenCalledTimes(2);
     expect(step.action).toBe('failed');
     expect(step.metadataUpdates).not.toHaveProperty('sessionId');
-    expect(step.metadataUpdates).not.toHaveProperty('sessionCount');
+    expect(step.metadataUpdates!.sessionCount).toBe(2);
     expect(step.metadataUpdates).not.toHaveProperty('lastSessionResumed');
+  });
+
+  it('#95: 续用降级（check 判命中、执行才发现会话丢失）→ 重试 prompt 注入前序进展段', async () => {
+    createClaudeSessionFile('sess-lost');
+    const wu = await setupWorkUnit({
+      sessionId: 'sess-lost', sessionCount: 1, stepCount: 2,
+      progressLog: [{ step: 1, action: 'progress', summary: '完成数据层', at: '2026-08-12T10:00:00Z' }],
+    });
+    // 首次调用（续用形态）报「会话不存在」→ 触发降级；重试走默认成功。
+    // 降级复用同一 task 对象改 prompt（#95）——首次 prompt 需在调用时快照（对象引用会被改写）。
+    let firstPrompt: string | undefined;
+    mockExecuteLightweight.mockImplementationOnce(async (task: AgentTask) => {
+      firstPrompt = task.prompt;
+      return {
+        success: false, error: 'No conversation found with session ID sess-lost',
+        logFile: '/tmp/log', worktree: '/tmp/wt', outputFiles: [], sessionCount: 1,
+      };
+    });
+
+    const step = await (agentLoop as unknown as AgentStepCapable).agentStep({ workUnit: wu });
+
+    expect(mockExecuteLightweight).toHaveBeenCalledTimes(2);
+    expect(step.action).toBe('progress');
+    // 首次（续用形态）不注入；降级重试（新建形态）注入前序进展
+    expect(firstPrompt).not.toContain('## 前序进展');
+    expect(taskAt(1).prompt).toContain('## 前序进展');
+    expect(taskAt(1).prompt).toContain('完成数据层');
   });
 
   it('续用步抛异常（spawn 失败）→ catch 分支不降级：只调用一次、need_input、档案 sessionId 保留', async () => {
@@ -349,5 +376,29 @@ describe('#94: 会话号 per-WU 化与续用降级', () => {
     // 会话簿记不清（会话本身仍在，保留给下一步续用）
     expect(step.metadataUpdates).not.toHaveProperty('sessionId');
     expect(step.metadataUpdates).not.toHaveProperty('sessionCount');
+  });
+
+  it('#95: 续用不命中（会话文件缺）且 stepCount>0 → task.prompt 注入前序进展段', async () => {
+    const wu = await setupWorkUnit({
+      sessionId: 'sess-gone', sessionCount: 1, stepCount: 2,
+      progressLog: [{ step: 1, action: 'progress', summary: '完成数据层', at: '2026-08-12T10:00:00Z' }],
+    });
+
+    await (agentLoop as unknown as AgentStepCapable).agentStep({ workUnit: wu });
+
+    expect(lastTask().prompt).toContain('## 前序进展');
+    expect(lastTask().prompt).toContain('完成数据层');
+  });
+
+  it('#95: 续用命中（会话文件在）→ task.prompt 不注入前序进展段', async () => {
+    createClaudeSessionFile('sess-live');
+    const wu = await setupWorkUnit({
+      sessionId: 'sess-live', sessionCount: 1, stepCount: 2,
+      progressLog: [{ step: 1, action: 'progress', summary: '完成数据层', at: '2026-08-12T10:00:00Z' }],
+    });
+
+    await (agentLoop as unknown as AgentStepCapable).agentStep({ workUnit: wu });
+
+    expect(lastTask().prompt).not.toContain('## 前序进展');
   });
 });

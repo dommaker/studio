@@ -186,26 +186,6 @@ export function KnowledgePage() {
                 return `维护完成：合并 ${r.dedupMerged} / 归档 ${r.qualityArchived} / 更新 ${r.freshnessUpdated} / 解矛盾 ${r.contradictionsResolved}`;
               }}
             />
-            <ManualTaskButton
-              label="🧩 知识综合"
-              costTokens={costs?.byTrigger['knowledge-synthesis']}
-              onRun={async () => {
-                const r = await maintenanceApi.fireTrigger('knowledge-synthesis');
-                return r.workUnit
-                  ? `已创建综合任务（WU ${r.workUnit.id.slice(0, 8)}…）`
-                  : '已触发知识综合';
-              }}
-            />
-            <ManualTaskButton
-              label="📥 会话提取"
-              costTokens={costs?.byTrigger['session-knowledge-extraction']}
-              onRun={async () => {
-                const r = await maintenanceApi.fireTrigger('session-knowledge-extraction');
-                return r.workUnit
-                  ? `已创建提取任务（WU ${r.workUnit.id.slice(0, 8)}…）`
-                  : '已触发会话提取';
-              }}
-            />
             <button onClick={() => navigate('/knowledge/import')} className="btn btn-primary">📥 冷启动导入</button>
           </div>
         </div>

@@ -135,6 +135,40 @@ export function parseSkillHintsFromScope(scope: string): string[] {
   return hints;
 }
 
+/** 决策 7/8/11 公共前置：仅 status 缺省或 'published' 且非 loop-consumer 的 skill 参与（防御式过滤——loadManifest 已过滤） */
+function activeSkills(skills: SkillEntry[]): SkillEntry[] {
+  return skills.filter(s => (!s.status || s.status === 'published') && !isLoopConsumer(s));
+}
+
+/** 决策 11：+skill 显式点名解析为条目（未知/不活跃/loop-only 跳过并记日志） */
+function resolveHints(active: SkillEntry[], skillHints: string[]): SkillEntry[] {
+  const hinted: SkillEntry[] = [];
+  for (const hint of skillHints) {
+    const entry = active.find(e => e.name === hint);
+    if (!entry) {
+      logger.warn('[SkillDiscovery] Skill hint not found or not eligible (skipped)', { hint });
+      continue;
+    }
+    hinted.push(entry);
+  }
+  return hinted;
+}
+
+/** 决策 8：wuType 与 acceptedTypes（及 skill.agentTypes）先经 normalizeToStage 归一化再求交集 */
+function matchDomain(
+  active: SkillEntry[],
+  domain: { acceptedTypes?: string[]; wuType?: string },
+): SkillEntry[] {
+  const domainTypes = new Set(
+    [...(domain.acceptedTypes ?? []), domain.wuType]
+      .filter((t): t is string => !!t)
+      .map(normalizeToStage),
+  );
+  return domainTypes.size > 0
+    ? active.filter(s => Array.isArray(s.agentTypes) && s.agentTypes.some(t => domainTypes.has(normalizeToStage(t))))
+    : [];
+}
+
 /** 「其余 published」排序：引用数降序 > 更新时间降序 > 名称序（manifest 未回填这些字段时兜底） */
 function compareByPopularity(a: SkillEntry, b: SkillEntry): number {
   if (a.referenceCount != null && b.referenceCount != null && a.referenceCount !== b.referenceCount) {
@@ -163,29 +197,9 @@ export function selectSkillsWithDomain(
   domain: { acceptedTypes?: string[]; wuType?: string },
   skillHints: string[] = [],
 ): SkillEntry[] {
-  const active = skills.filter(s => (!s.status || s.status === 'published') && !isLoopConsumer(s));
-
-  // 决策 11 显式覆盖：hint 逐名解析，未知/不活跃/loop-only 跳过并记日志
-  const hinted: SkillEntry[] = [];
-  for (const hint of skillHints) {
-    const entry = active.find(e => e.name === hint);
-    if (!entry) {
-      logger.warn('[SkillDiscovery] Skill hint not found or not eligible (skipped)', { hint });
-      continue;
-    }
-    hinted.push(entry);
-  }
-
-  // 决策 8：wuType 与 acceptedTypes（及 skill.agentTypes）先经 normalizeToStage 归一化再求交集
-  const domainTypes = new Set(
-    [...(domain.acceptedTypes ?? []), domain.wuType]
-      .filter((t): t is string => !!t)
-      .map(normalizeToStage),
-  );
-  const domainMatched = domainTypes.size > 0
-    ? active.filter(s => Array.isArray(s.agentTypes) && s.agentTypes.some(t => domainTypes.has(normalizeToStage(t))))
-    : [];
-
+  const active = activeSkills(skills);
+  const hinted = resolveHints(active, skillHints);
+  const domainMatched = matchDomain(active, domain);
   const scopeMatched = scope ? selectSkills(scope, active) : [];
 
   const seen = new Set<string>();
@@ -203,6 +217,34 @@ export function selectSkillsWithDomain(
   }
 
   logger.info(`[SkillDiscovery] domain matched=[${domainMatched.map(s => s.name).join(',')}] ranked=[${merged.map(s => s.name).join(',')}]`);
+
+  return merged;
+}
+
+/**
+ * #92（#88 决策）：skills 索引硬预裁剪 —— 注入段只含 hint（+skill 点名）+ 域匹配两类。
+ * scope 文本匹配与「rest 热度」不进注入段（由段尾 skills MANIFEST 指针按需兜底，见
+ * prompt-composer buildSkillSection）。复用 selectSkillsWithDomain 的 active 过滤 / hint 解析 /
+ * 域匹配口径（normalizeToStage 归一化），不重写。hint 保点名顺序置顶，按 name 去重。
+ */
+export function selectSkillsForInjection(
+  skills: SkillEntry[],
+  domain: { acceptedTypes?: string[]; wuType?: string },
+  skillHints: string[] = [],
+): SkillEntry[] {
+  const active = activeSkills(skills);
+  const hinted = resolveHints(active, skillHints);
+  const domainMatched = matchDomain(active, domain);
+
+  const seen = new Set<string>();
+  const merged: SkillEntry[] = [];
+  for (const entry of [...hinted, ...domainMatched]) {
+    if (seen.has(entry.name)) continue;
+    seen.add(entry.name);
+    merged.push(entry);
+  }
+
+  logger.info(`[SkillDiscovery] hard-precrop hinted=[${hinted.map(s => s.name).join(',')}] domain=[${domainMatched.map(s => s.name).join(',')}]`);
 
   return merged;
 }

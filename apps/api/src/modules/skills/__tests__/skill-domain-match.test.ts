@@ -26,7 +26,7 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => {
 });
 
 const { loadManifest, invalidateManifestCache } = await import('../manifest-loader.js');
-const { selectSkillsWithDomain, parseSkillHintsFromScope } = await import('../skill-selector.js');
+const { selectSkillsWithDomain, selectSkillsForInjection, parseSkillHintsFromScope } = await import('../skill-selector.js');
 type SkillEntry = import('../manifest-loader.js').SkillEntry;
 
 function writeSkill(dirName: string, frontmatterLines: string[], body?: string) {
@@ -247,5 +247,58 @@ describe('selectSkillsWithDomain（决策 7/8：排序器 + 阶段词表归一�
       expect.stringContaining('not found'),
       expect.objectContaining({ hint: 'loop-skill' }),
     );
+  });
+});
+
+describe('selectSkillsForInjection（#92：硬预裁剪 —— 注入段只含 hint + 域匹配）', () => {
+  const entry = (name: string, extra?: Partial<SkillEntry>): SkillEntry => ({
+    name,
+    path: `${name}/SKILL.md`,
+    description: `desc-of-${name}`,
+    ...extra,
+  });
+
+  it('只返回 hint + 域匹配：scope 文本匹配与 rest 热度不进注入段', () => {
+    const skills = [
+      entry('domain-a', { agentTypes: ['feature'] }),
+      entry('scope-only', { description: '分析需求、AC 形式化' }),
+      entry('rest-hot', { referenceCount: 99 }),
+    ];
+    const matched = selectSkillsForInjection(skills, { acceptedTypes: [], wuType: 'feature' }, []);
+    expect(matched.map(s => s.name)).toEqual(['domain-a']);
+  });
+
+  it('域匹配为空但 hint 非空 → 仍返回 hint 行', () => {
+    const skills = [
+      entry('hint-skill', { description: 'xyzzy 无交集' }),
+      entry('scope-only', { description: '分析需求、AC 形式化' }),
+    ];
+    const matched = selectSkillsForInjection(skills, { acceptedTypes: [], wuType: 'zzz-无交集' }, ['hint-skill']);
+    expect(matched.map(s => s.name)).toEqual(['hint-skill']);
+  });
+
+  it('两者皆空 → 空列表（scope 文本匹配不再兜底）', () => {
+    const skills = [entry('scope-only', { description: '分析需求、AC 形式化' })];
+    const matched = selectSkillsForInjection(skills, { acceptedTypes: [], wuType: 'zzz-无交集' }, []);
+    expect(matched).toEqual([]);
+  });
+
+  it('hint 置顶于域匹配之前，按 name 去重', () => {
+    const skills = [
+      entry('both', { agentTypes: ['feature'] }),
+      entry('hint-skill', { description: 'xyzzy' }),
+    ];
+    const matched = selectSkillsForInjection(skills, { acceptedTypes: [], wuType: 'feature' }, ['both', 'hint-skill']);
+    expect(matched.map(s => s.name)).toEqual(['both', 'hint-skill']);
+  });
+
+  it('复用 active 口径：排除 draft 与 loop-consumer', () => {
+    const skills = [
+      entry('loop-skill', { agentTypes: ['feature'], consumers: ['loop'] }),
+      entry('draft-skill', { agentTypes: ['feature'], status: 'draft' }),
+      entry('ok-skill', { agentTypes: ['feature'] }),
+    ];
+    const matched = selectSkillsForInjection(skills, { acceptedTypes: [], wuType: 'feature' }, []);
+    expect(matched.map(s => s.name)).toEqual(['ok-skill']);
   });
 });

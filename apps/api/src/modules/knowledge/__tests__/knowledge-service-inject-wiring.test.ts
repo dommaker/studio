@@ -103,6 +103,64 @@ describe('R4 regression: production knowledgeService wiring (injectContext)', ()
     expect(result.injectedIds).not.toContain(draft.id);
   });
 
+  it('#93: rule/context sections non-empty when rule/preference entries exist (sourceReferences gate)', async () => {
+    // #93 修复前：UnifiedQuery 合成条目 sourceReferences 恒 [] → hasSourceReferences 闸门全拦，
+    // 即使 store 里有 rule/preference 数据，'## 系统约束' / '## 上下文' 两段也恒空。
+    // 种子用生产形状：store 条目本身 sourceReferences 可以为空，出处由合成端（ruleToEntry/
+    // preferenceToEntry）从 store 条目 id 派生。
+    const now = new Date().toISOString();
+    sharedStore.save({
+      id: `rule-wiring-${Math.random().toString(36).slice(2, 8)}`,
+      type: 'guideline',
+      title: 'wiring_rule',
+      content: JSON.stringify({ name: 'wiring_rule', category: 'constraint', description: 'R4WIRING-RULE-CONTENT 接线验证规则', affects: '[]', status: 'active' }),
+      maturity: 'active', layer: 'system', created: now, lastReferenced: now,
+      contributors: [], projects: [], tags: ['rule', 'active'], applicablePhases: [],
+      sourceReferences: [], referencedBy: [], executionResults: [],
+      consumptionMode: 'reference', origin: 'system',
+    });
+    sharedStore.save({
+      id: `pref-wiring-${Math.random().toString(36).slice(2, 8)}`,
+      type: 'guideline',
+      title: '用户偏好',
+      content: JSON.stringify({ preferredModel: 'R4WIRING-PREF-MODEL', updatedAt: now }),
+      maturity: 'active', layer: 'system', created: now, lastReferenced: now,
+      contributors: [], projects: [], tags: ['preference', 'user-default'], applicablePhases: [],
+      sourceReferences: [], referencedBy: [], executionResults: [],
+      consumptionMode: 'reference', origin: 'system',
+    });
+
+    const result = await knowledgeService.injectContext('wiring-test-agent');
+
+    // rule 段（'## 系统约束'）与 context 段（'## 上下文'）均非空
+    expect(result.prompt).toContain('## 系统约束');
+    expect(result.prompt).toContain('R4WIRING-RULE-CONTENT');
+    expect(result.prompt).toContain('## 上下文');
+    expect(result.prompt).toContain('R4WIRING-PREF-MODEL');
+  });
+
+  it('#93: role-memory tagged entries are never injected (KB = project-level shared knowledge only)', async () => {
+    // 边界守卫：角色记忆（#100 per-role MEMORY.md 体系）不属于知识库注入范围。
+    // 若未来有人把角色记忆写进 KB，只要带 'role-memory' tag，注入闸门必须拦住——
+    // 即使它凭证齐全、成熟度可注入。
+    const now = new Date().toISOString();
+    sharedStore.save({
+      id: `rolemem-wiring-${Math.random().toString(36).slice(2, 8)}`,
+      type: 'guideline',
+      title: '角色记忆误入样本',
+      content: 'R4WIRING-ROLE-MEMORY 绝不应注入',
+      maturity: 'verified', layer: 'project', created: now, lastReferenced: now,
+      contributors: [], projects: [], tags: ['role-memory'], applicablePhases: [],
+      sourceReferences: [{ source: 'test:role-memory', timestamp: now }] as any,
+      referencedBy: [], executionResults: [],
+      consumptionMode: 'signal', origin: 'agent',
+    });
+
+    const result = await knowledgeService.injectContext('wiring-test-agent');
+
+    expect(result.prompt).not.toContain('R4WIRING-ROLE-MEMORY');
+  });
+
   it('list() adapts UnifiedQuery paged result to an entry array', async () => {
     seedEntries();
     const entries = await knowledgeService.list({ consumptionModes: ['signal'] } as any);

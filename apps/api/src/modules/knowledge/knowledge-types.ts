@@ -104,6 +104,8 @@ export interface ExecutionOutcome {
   details: string;
   timestamp: string;
   mode?: 'external_agent' | 'channel';
+  /** #90: 失败步的错误类型（execution_failed 等） */
+  errorType?: string;
 }
 
 export interface InjectContextResult {

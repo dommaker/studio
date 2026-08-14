@@ -213,6 +213,8 @@ entriesRoutes.post('/unified', requireAuth(), requireNotGuest(), async (req, res
     const { sharedStore } = await import('./knowledge-bus.service.js');
     const id = `manual-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
     const now = new Date().toISOString();
+    // #93：人工创建本身就是出处凭证——不 stamp 的话 hasSourceReferences 闸门会永远拦住该条目
+    const operator = (req as any).user?.id ?? 'unknown';
 
     // Store applicableAgents in tags (KnowledgeEntry doesn't have applicableAgents field)
     const entryTags = [...(tags || []), ...(applicableAgents || []).map((a: string) => `agent:${a}`)];
@@ -230,7 +232,7 @@ entriesRoutes.post('/unified', requireAuth(), requireNotGuest(), async (req, res
       projects: [],
       tags: entryTags,
       applicablePhases: [],
-      sourceReferences: [],
+      sourceReferences: [{ source: `manual:${operator}`, timestamp: now }] as any,
       referencedBy: [],
       executionResults: [],
       consumptionMode,

@@ -193,13 +193,13 @@ describe('B2: agentStep 守卫集成（STUDIO_TEST_WU_GUARD=on）', () => {
 
 // ── B5: 每 WU 会话数上限 ──
 
-describe('B5: 会话数上限（MAX_SESSIONS_PER_WU=2）', () => {
+describe('B5: 会话数上限（MAX_SESSIONS_PER_WU=5，#95 2→5）', () => {
   // #94: claude 续用判定要求会话文件存在（cwd 未知时一律按续用）——本组用例验证新建分支，
   // 统一给一个无会话文件的 workspaceRoot（无 .git 不走 worktree），使判定落入新建路径
   const noSessionRoot = (): string => path.join(tmpDir, 'wt-no-session');
 
-  it('sessionCount 已达 2 且无续用 → need_input 转人工，不起新会话', async () => {
-    const wu = await createActiveWu({ sessionCount: 2, sessionId: 'old-session', workspaceRoot: noSessionRoot() });
+  it('sessionCount 已达 5 且无续用 → need_input 转人工，不起新会话', async () => {
+    const wu = await createActiveWu({ sessionCount: 5, sessionId: 'old-session', workspaceRoot: noSessionRoot() });
 
     const result = await stepOf(agentLoop)({ workUnit: wu });
 
@@ -262,7 +262,7 @@ describe('B5: 会话数上限（MAX_SESSIONS_PER_WU=2）', () => {
     expect(second.metadataUpdates!.sessionCount).toBeUndefined();
   });
 
-  it('新会话首 step 失败：sessionCount 回滚（未建立不计入预算）', async () => {
+  it('新会话首 step 失败：sessionCount 计入（#95 失败尝试计入预算），sessionId 仍回滚', async () => {
     mockExecuteLightweight.mockResolvedValue({
       success: false, error: 'CLI crashed',
       logFile: '/tmp/log', worktree: '/tmp/wt', outputFiles: [], sessionCount: 1,
@@ -272,8 +272,21 @@ describe('B5: 会话数上限（MAX_SESSIONS_PER_WU=2）', () => {
     const result = await stepOf(agentLoop)({ workUnit: wu });
 
     expect(result.action).toBe('failed');
-    expect(result.metadataUpdates!.sessionCount).toBeUndefined();
+    expect(result.metadataUpdates!.sessionCount).toBe(2);
     expect(result.metadataUpdates!.sessionId).toBeUndefined();
+  });
+
+  it('sessionCount=4 仍可再开一个会话（计数到 5 上限）', async () => {
+    mockExecuteLightweight.mockResolvedValue({
+      success: true, outputText: 'ACTION: PROGRESS:working',
+      logFile: '/tmp/log', worktree: '/tmp/wt', outputFiles: [], sessionCount: 1,
+    });
+    const wu = await createActiveWu({ sessionCount: 4, sessionId: 'prev-session', workspaceRoot: noSessionRoot() });
+
+    const result = await stepOf(agentLoop)({ workUnit: wu });
+
+    expect(result.action).toBe('progress');
+    expect(result.metadataUpdates!.sessionCount).toBe(5);
   });
 });
 

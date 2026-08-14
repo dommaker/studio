@@ -18,15 +18,15 @@ import { FileStore, type WorkUnitSnapshot, type WorkUnitEvent } from '@dommaker/
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import { readStudioEvents } from '../../utils/studio-events.js';
 import { buildAssigneeProfileResolver } from '../workunit/assignee-resolver.js';
-import { aggregateOverview, DEFAULT_WINDOW_DAYS } from './metrics-aggregate.js';
-import type { OverviewMetrics } from './metrics.types.js';
+import { aggregateOverview, aggregateCacheHitRate, aggregateSectionTrim, DEFAULT_WINDOW_DAYS } from './metrics-aggregate.js';
+import type { OverviewMetrics, EfficiencyMetrics } from './metrics.types.js';
 
 /** D16: 聚合缓存（60s——要扫 index + 多个 jsonl，避免连打） */
 const CACHE_TTL_MS = 60_000;
 
 // re-export：保持既有消费方（routes / 测试）从 metrics.service 导入的路径不变
-export { aggregateOverview } from './metrics-aggregate.js';
-export type { OverviewAggregateInput } from './metrics-aggregate.js';
+export { aggregateOverview, aggregateCacheHitRate, aggregateSectionTrim } from './metrics-aggregate.js';
+export type { OverviewAggregateInput, CacheHitRateAggregateInput, SectionTrimAggregateInput } from './metrics-aggregate.js';
 export type {
   Percentile,
   TaskFlowMetrics,
@@ -39,6 +39,12 @@ export type {
   AlertMetrics,
   EvidenceMetrics,
   OverviewMetrics,
+  CacheHitRateMetrics,
+  CacheHitRateBucket,
+  StepCacheHitRate,
+  SectionTrimMetrics,
+  SectionTrimBucket,
+  EfficiencyMetrics,
 } from './metrics.types.js';
 
 // ─── Service（数据加载 + 60s 缓存）──
@@ -56,6 +62,7 @@ export interface OverviewOptions {
 export class MetricsService {
   private fileStore: FileStore;
   private cache = new Map<string, { at: number; data: OverviewMetrics }>();
+  private efficiencyCache = new Map<string, { at: number; data: EfficiencyMetrics }>();
 
   constructor(fileStore?: FileStore) {
     this.fileStore = fileStore ?? new FileStore();
@@ -107,6 +114,45 @@ export class MetricsService {
     });
 
     if (!opts?.now) this.cache.set(cacheKey, { at: now, data });
+    return data;
+  }
+
+  /**
+   * #120：输入缓存命中率（步/WU/角色/天）+ 段 trim 率（按段）。
+   * 数据源 = 统一事件文件（workunit:tokens / prompt:section_trimmed）+ WU index（角色归因）。
+   * 缓存键含 eventsFile + windowDays，注入 now 时跳过缓存（测试/排障口径）。
+   */
+  async getEfficiencyMetrics(opts?: OverviewOptions): Promise<EfficiencyMetrics> {
+    const windowDays = opts?.windowDays ?? DEFAULT_WINDOW_DAYS;
+    const now = opts?.now ?? Date.now();
+    const cacheKey = `${opts?.eventsFile ?? ''}|${windowDays}`;
+    if (!opts?.now) {
+      const hit = this.efficiencyCache.get(cacheKey);
+      if (hit && now - hit.at < CACHE_TTL_MS) return hit.data;
+    }
+
+    const [snapshots, events, states, profiles] = await Promise.all([
+      this.fileStore.getIndex().catch(() => [] as WorkUnitSnapshot[]),
+      readStudioEvents({ file: opts?.eventsFile }),
+      this.fileStore.listStates().catch(() => [] as Array<{ id: string; roleId: string }>),
+      this.fileStore.listProfiles().catch(() => [] as Array<{ id: string; name: string }>),
+    ]);
+
+    const resolveAssigneeProfile = buildAssigneeProfileResolver({
+      states,
+      profileIds: new Set(profiles.map(p => p.id)),
+    });
+    const profileNames = new Map<string, string>();
+    for (const p of profiles) if (p?.id) profileNames.set(p.id, p.name);
+
+    const data: EfficiencyMetrics = {
+      windowDays,
+      generatedAt: new Date(now).toISOString(),
+      cacheHitRate: aggregateCacheHitRate({ events, snapshots, resolveAssigneeProfile, profileNames, now, windowDays }),
+      sectionTrim: aggregateSectionTrim({ events, now, windowDays }),
+    };
+
+    if (!opts?.now) this.efficiencyCache.set(cacheKey, { at: now, data });
     return data;
   }
 }

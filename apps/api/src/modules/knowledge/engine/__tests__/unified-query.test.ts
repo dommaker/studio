@@ -126,6 +126,9 @@ describe('UnifiedQuery', () => {
         expect(pref!.applicableAgents).toEqual([]);
         expect(pref!.content).toContain('premium');
         expect(pref!.content).toContain('concise');
+        // #93：合成条目必须带真实出处（injectContext 的 hasSourceReferences 闸门要求 length>0）
+        expect(pref!.sourceReferences.length).toBeGreaterThan(0);
+        expect((pref!.sourceReferences[0] as any).source).toMatch(/^preference:/);
       });
 
       it('should convert BusinessRule to KnowledgeEntry with rule mode', async () => {
@@ -149,6 +152,9 @@ describe('UnifiedQuery', () => {
         expect(rule!.consumptionMode).toBe('rule');
         expect(rule!.applicableAgents).toEqual(['executor', 'reviewer']);
         expect(rule!.content).toContain('禁止 Redis 依赖');
+        // #93：同出处断言
+        expect(rule!.sourceReferences.length).toBeGreaterThan(0);
+        expect((rule!.sourceReferences[0] as any).source).toMatch(/^rule:/);
       });
 
       it('should convert EnvironmentSnapshot to KnowledgeEntry with context mode', async () => {
@@ -171,6 +177,9 @@ describe('UnifiedQuery', () => {
         expect(env!.applicableAgents).toEqual([]);
         expect(env!.content).toContain('linux');
         expect(env!.content).toContain('v20');
+        // #93：同出处断言
+        expect(env!.sourceReferences.length).toBeGreaterThan(0);
+        expect((env!.sourceReferences[0] as any).source).toMatch(/^snapshot:/);
       });
 
       it('should return empty when no store data or snapshots exist', async () => {

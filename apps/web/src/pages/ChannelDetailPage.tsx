@@ -14,6 +14,7 @@ import { requirementApi, type Requirement } from '../api/requirements';
 import type { Channel, ChannelMessage } from '../api/channel';
 import { channelApi } from '../api/channel';
 import { knowledgeApi } from '../api/knowledge';
+import { memoryApi } from '../api/memory';
 
 function isToday(d: Date) {
   const now = new Date();
@@ -184,9 +185,11 @@ export function ChannelDetailPage() {
     }
   }, [sendMessage]);
 
-  // 统一卡片 action 路由（2026-07 知识审核闭环）：按 action 分发。
-  // knowledge_proposal approve → /promote（draft→verified，参与注入）；
-  // reject → /demote（draft→archived）。返回是否成功（卡片据此显示已审核状态）。
+  // 统一卡片 action 路由（2026-07 知识审核闭环 / #101 角色记忆人审闸口）：按 action 分发。
+  // knowledge_proposal approve → /knowledge-service/promote（draft→verified，参与注入）；
+  // reject → /knowledge-service/demote（draft→archived）。
+  // memory_proposal approve → /role-memory/promote（草稿→topic/索引）；reject → /role-memory/demote。
+  // 返回是否成功（卡片据此显示已审核状态）。
   const handleAction = useCallback(async (messageId: string, action: string): Promise<boolean> => {
     if (action === 'converted') { refresh(); return true; }
     if (action === 'knowledge_proposal_approve' || action === 'knowledge_proposal_reject') {
@@ -207,6 +210,32 @@ export function ChannelDetailPage() {
         : knowledgeApi.demote;
       try {
         await Promise.all(entryIds.map(entryId => review(entryId)));
+        refresh();
+        return true;
+      } catch {
+        return false;
+      }
+    }
+    if (action === 'memory_proposal_approve' || action === 'memory_proposal_reject') {
+      const msg = messages.find(m => m.id === messageId);
+      let roleId = '';
+      let entryIds: string[] = [];
+      try {
+        const meta = JSON.parse(typeof msg?.meta === 'string' ? msg.meta : '{}');
+        if (typeof meta?.cardData?.roleId === 'string') roleId = meta.cardData.roleId;
+        const entries = meta?.cardData?.entries;
+        if (Array.isArray(entries)) {
+          entryIds = entries
+            .map((e: { draftId?: unknown }) => e?.draftId)
+            .filter((id: unknown): id is string => typeof id === 'string' && id.length > 0);
+        }
+      } catch { entryIds = []; }
+      if (!roleId || entryIds.length === 0) return false;
+      const review = action === 'memory_proposal_approve'
+        ? memoryApi.promote
+        : memoryApi.demote;
+      try {
+        await review(roleId, entryIds);
         refresh();
         return true;
       } catch {

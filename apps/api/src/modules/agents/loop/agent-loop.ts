@@ -46,6 +46,8 @@ import { testWuGuardEnabled, isTestLikeWorkUnit, parseExcludeAssignee } from './
 import { composeStepPrompt } from './prompt-composer.js';
 import { handleDelegateBranch } from './delegate-branch.js';
 import { shouldResumeSession, RESUME_FAILURE_RE } from './session-resume.js';
+import { isContextOverflowError, buildRollingSummary, OVERFLOW_SUMMARY_HEADER } from './context-overflow.js';
+import { appendTranscriptStep } from '../../transcripts/transcript-archive.js';
 
 // 输出解析/prompt 构建纯函数已抽到 ./agent-loop-parsers.js（工单 28，行为不变）；
 // re-export 保持对外导出语义不变
@@ -63,9 +65,6 @@ export type { WorkunitTokenEventArgs, RealUsage } from './agent-loop-events.js';
 // re-export 保持对外导出语义不变
 export { testWuGuardEnabled, isTestLikeWorkUnit } from './agent-loop-guards.js';
 
-/** Threshold for input_tokens before session truncation (100K) */
-const SESSION_TOKEN_LIMIT = 100_000;
-
 /** M2: workunit:tokens 事件写入目标（与 knowledge consumption/outcome 事件同一事件流）。
  *  STUDIO_EVENTS_JSONL 环境变量可覆盖（测试隔离用）；缺省走 resolveStudioLogFile ——
  *  测试环境（VITEST/NODE_ENV=test）自动改写 tmpdir，防止测试污染生产事件流
@@ -81,11 +80,17 @@ function studioEventsJsonlPath(): string {
 const STEP_LIMIT = 15;
 const REVIEW_STEP_LIMIT = 30;
 
-/** B5（2026-08-03 token-burn issue P1-1）：每 WU 独立会话数上限。
+/** #95: progressLog 环形簿记——保留最近成功步条数上限 */
+const PROGRESS_LOG_MAX_ENTRIES = 5;
+/** #95: progressLog 单条 summary 截断字符上限 */
+const PROGRESS_LOG_SUMMARY_MAX_CHARS = 200;
+
+/** B5（2026-08-03 token-burn issue P1-1）：每 WU 独立会话数上限（#95 由 2 放宽到 5）。
  *  会话反复重建（stuck 重开 / token 截断重开）意味着整段 transcript 全文重放重新烧一遍；
  *  超限说明自动执行已失控，转 need_input 等人工评估（#94 起人工回复不再重置预算——
- *  复活后凭 metadata.sessionId 优先续用旧会话，见 waiting-input.ts）。 */
-const MAX_SESSIONS_PER_WU = 2;
+ *  复活后凭 metadata.sessionId 优先续用旧会话，见 waiting-input.ts）。
+ *  #95: 失败/超时的会话建立尝试计入预算（resetUnestablishedSession 不再清 sessionCount）。 */
+const MAX_SESSIONS_PER_WU = 5;
 
 /** F6-fix: 空闲分支心跳节流间隔 — agent-timeout-scan 阈值为 5min，45s 一次足够保活 */
 const IDLE_HEARTBEAT_INTERVAL_MS = 45_000;
@@ -540,27 +545,9 @@ export class AgentLoop {
       ? await this.fileStore.getChannelVersion(wu.channelId).catch(() => undefined)
       : undefined;
 
-    // prompt 组装与上下文注入（hint 读取/注入/消费清除、skill > persona > roster > knowledge
-    // 共用 2K 预算注入、三个 build 段函数）已抽到 ./prompt-composer.js（2026-08 工单 05，
-    // 行为一字不改，事故档案注释随代码迁走）——agentStep 只保留编排。
-    const composed = await composeStepPrompt(
-      { wu, metadata, newReplies: target.newReplies?.map(r => r.content) },
-      { role: this.role, acceptedTypes: this.acceptedTypes, fileStore: this.fileStore, resolveEventsFile: studioEventsJsonlPath },
-    );
-    const { prompt, pendingReplies, knowledgeContext, skillMatched, injectedKnowledgeIds } = composed;
-
-    // Session management — #94 会话号 per-WU 化：只信档案 metadata.sessionId，
-    // 实例单槽位（RuntimeInstance.sessionId）废弃（并行互踩 + 重启孤儿化）。
-    // 续用判定在 worktree 解析之后进行（此时 workspaceRoot 才是本步真实 cwd），见下方。
+    // 本 step metadata 增量（agentStep 落盘、recordResult 原子写）。worktree 解析 / 会话签发 /
+    // prompt 组装消费的 hint 清除都合并进这里。
     const metadataUpdates: Partial<WorkUnitMetadata> = {};
-    if (skillMatched.length > 0) {
-      // 决策 7: step 时匹配名单落盘 metadata.matchedSkills（随 recordResult 原子写入，
-      // 供 skill-demotion 成功率与被无视率度量——替代原 claim 时 fire-and-forget 落盘，消竞态）
-      metadataUpdates.matchedSkills = skillMatched;
-    }
-    // 已消费 hint（pendingReplies/commitGuardHint/verifyFailHint/childGuardHint）的清除增量
-    // （undefined 在 JSON 序列化时丢弃，清除避免后续步骤重复注入）
-    Object.assign(metadataUpdates, composed.consumedHintUpdates);
 
     // F6 → B3a: WorkUnit 绑定工程 → 解析执行根目录，经 parameters.workspaceRoot
     // 传给 agent-runner（resolveWorkspace Priority 1：直接以该目录为 cwd）。
@@ -652,6 +639,29 @@ export class AgentLoop {
     const resumeSessionId = shouldResumeSession(taskProvider, metadata.sessionId, workspaceRoot)
       ? metadata.sessionId!
       : null;
+
+    // prompt 组装与上下文注入（hint 读取/注入/消费清除、skill > persona > roster > knowledge
+    // 共用分段软定额注入）已抽到 ./prompt-composer.js（2026-08 工单 05）——agentStep 只保留编排。
+    // #95: 续用判定在 worktree 解析后、prompt 组装前完成 —— isNewSession（续用不命中）决定
+    // 是否注入「前序进展」段与回放 waitingQuestion。
+    const composeDeps = {
+      role: this.role, acceptedTypes: this.acceptedTypes, fileStore: this.fileStore,
+      resolveEventsFile: studioEventsJsonlPath,
+    };
+    const composed = await composeStepPrompt(
+      { wu, metadata, newReplies: target.newReplies?.map(r => r.content), isNewSession: !resumeSessionId },
+      composeDeps,
+    );
+    const { prompt, pendingReplies, knowledgeContext, skillMatched, injectedKnowledgeIds } = composed;
+    if (skillMatched.length > 0) {
+      // 决策 7: step 时匹配名单落盘 metadata.matchedSkills（随 recordResult 原子写入，
+      // 供 skill-demotion 成功率与被无视率度量——替代原 claim 时 fire-and-forget 落盘，消竞态）
+      metadataUpdates.matchedSkills = skillMatched;
+    }
+    // 已消费 hint（pendingReplies/commitGuardHint/verifyFailHint/childGuardHint）的清除增量
+    // （undefined 在 JSON 序列化时丢弃，清除避免后续步骤重复注入）
+    Object.assign(metadataUpdates, composed.consumedHintUpdates);
+
     let newSessionId: string | null = null;
     // B5（2026-08-03 token-burn issue P1-1，决策记录 #3）：每 WU 会话数上限。
     // 新建会话 = 从零重读 SKILL.md/探索文件 + 后续 step 全文重放，是最大的 token 放大器；
@@ -774,30 +784,102 @@ export class AgentLoop {
         // 换发新 sessionId 重试一次（claude 传 --session-id、不带 sessionResume）。
         // 非续用类错误（超时/业务失败）与 catch 分支（spawn 异常）不触发；每步至多烧一次重试。
         if (resumeSessionId && RESUME_FAILURE_RE.test(detail)) {
+          // #96: 收口 #95 降级超限 —— 续用降级重试也遵守 MAX_SESSIONS_PER_WU（删除 #94「绕过 MAX 一次」先例）。
+          if (sessionsUsed >= MAX_SESSIONS_PER_WU) {
+            logger.warn('[AgentLoop] Resume session lost and session limit reached — need human evaluation', {
+              workUnitId: wu.id, sessionsUsed, max: MAX_SESSIONS_PER_WU,
+            });
+            this.recordOutcomeEvent(wu, false, detail, 'execution_failed', injectedKnowledgeIds);
+            return {
+              action: 'need_input' as const,
+              summary: `续用会话已丢失且会话重建已达上限（${sessionsUsed}/${MAX_SESSIONS_PER_WU}）：已暂停自动执行。请人工评估后回复任意内容继续，或直接关闭任务`,
+              metadataUpdates,
+            };
+          }
           const fallbackSessionId = randomUUID();
           logger.warn(`[AgentLoop] Resume target session lost for ${wu.id} — falling back to a new session`, { traceId });
           task.parameters!.sessionId = taskProvider === 'claude' ? fallbackSessionId : undefined;
           delete task.parameters!.sessionResume;
+          // #95: 降级重试 = 一次新建会话尝试，成败均计入会话预算（失败/超时尝试计入）
+          metadataUpdates.sessionCount = sessionsUsed + 1;
+          // #95: 降级换新号 = 执行期续用不命中（断链新会话）——check 时 shouldResumeSession 判命中
+          // 未注入前序进展，执行才发现会话丢失。重算 prompt 以注入「前序进展」段 + 回放
+          // waitingQuestion（复用同一 ctx/deps；knowledge/skill 等段重复组装一次，副作用均 fire-and-forget）。
+          const recomposed = await composeStepPrompt(
+            { wu, metadata, newReplies: target.newReplies?.map(r => r.content), isNewSession: true },
+            composeDeps,
+          );
+          task.prompt = recomposed.prompt;
           const retryResult: ExecutionResult = await this.executor.execute(task);
           if (retryResult.success === false) {
-            // 降级重试仍失败 → 既有 failed 返回；新会话未建立，清掉未落盘的新会话簿记
+            // 降级重试仍失败 → 既有 failed 返回；新会话未建立，重置 sessionId 但保留 sessionCount（计入）
             detail = (retryResult.error ?? '未知错误').slice(0, 500);
             logger.error(`[AgentLoop] agentStep fallback retry failed for ${wu.id}: ${detail}`, { traceId });
             recordTokenEvent(retryResult);
             this.resetUnestablishedSession(metadataUpdates);
+            this.recordOutcomeEvent(wu, false, detail, 'execution_failed', injectedKnowledgeIds);
             return failResult(detail);
           }
-          // 降级成功：走正常成功路径；换新号落盘（sessionCount+1；绕过 MAX 上限一次——
-          // 预算防线针对「反复从零重开」，降级是单次自愈）
+          // 降级成功：走正常成功路径；换新号落盘（sessionCount 已在查过 MAX 后计入）
           result = retryResult;
           effectiveSessionId = fallbackSessionId;
           sessionResumed = false;
           metadataUpdates.sessionId = fallbackSessionId;
-          metadataUpdates.sessionCount = sessionsUsed + 1;
           metadataUpdates.lastSessionResumed = false;
+        } else if (isContextOverflowError(detail)) {
+          // #96: CLI 上下文溢出纯反应式策略 —— 溢出错误 → 会话滚动摘要落盘 → 新会话带摘要
+          // 注入重试一次 → 再败 NEED_INPUT。溢出重试 = 一次新建会话尝试，占会话配额
+          // （与 #95 失败/超时尝试计入语义一致，超限走 need_input，不静默绕过 MAX）。
+          // 摘要来源 = wu.scope + progressLog（会话内逐步 summary），不递归摘要、不建语义搜索。
+          const overflowSummary = buildRollingSummary(wu.scope, metadata);
+          metadataUpdates.sessionSummary = overflowSummary;
+          if (sessionsUsed >= MAX_SESSIONS_PER_WU) {
+            logger.warn('[AgentLoop] Context overflow and session limit reached — need human evaluation', {
+              workUnitId: wu.id, sessionsUsed, max: MAX_SESSIONS_PER_WU,
+            });
+            this.recordOutcomeEvent(wu, false, detail, 'execution_failed', injectedKnowledgeIds);
+            return {
+              action: 'need_input' as const,
+              summary: `CLI 上下文溢出且会话重建已达上限（${sessionsUsed}/${MAX_SESSIONS_PER_WU}）：已暂停自动执行。请人工评估后回复任意内容继续，或直接关闭任务`,
+              metadataUpdates,
+            };
+          }
+          const overflowSessionId = randomUUID();
+          logger.warn(`[AgentLoop] Context overflow for ${wu.id} — persisting rolling summary and retrying in a new session`, { traceId });
+          task.parameters!.sessionId = taskProvider === 'claude' ? overflowSessionId : undefined;
+          delete task.parameters!.sessionResume;
+          metadataUpdates.sessionCount = sessionsUsed + 1;
+          metadataUpdates.sessionId = overflowSessionId;
+          metadataUpdates.lastSessionResumed = false;
+          // 重算 prompt 注入摘要（isNewSession:false 避免与 handoff 前序进展段重复；摘要单独注入）
+          const recomposed = await composeStepPrompt(
+            { wu, metadata, newReplies: target.newReplies?.map(r => r.content), isNewSession: false },
+            composeDeps,
+          );
+          task.prompt = `${recomposed.prompt}\n\n${OVERFLOW_SUMMARY_HEADER}\n\n${overflowSummary}`;
+          const retryResult: ExecutionResult = await this.executor.execute(task);
+          if (retryResult.success === false) {
+            // 再败 → NEED_INPUT（合流既有 need_input 路径）；sessionSummary 保留落盘供人工参考，
+            // sessionId 重置、sessionCount 计入（不再三连败静默 blocked）
+            const retryDetail = (retryResult.error ?? '未知错误').slice(0, 500);
+            logger.error(`[AgentLoop] agentStep overflow retry failed for ${wu.id}: ${retryDetail}`, { traceId });
+            recordTokenEvent(retryResult);
+            this.resetUnestablishedSession(metadataUpdates);
+            this.recordOutcomeEvent(wu, false, retryDetail, 'execution_failed', injectedKnowledgeIds);
+            return {
+              action: 'need_input' as const,
+              summary: `CLI 上下文溢出：新会话带摘要重试一次仍失败（${retryDetail.slice(0, 200)}），已暂停自动执行。请人工评估后回复任意内容继续，或直接关闭任务`,
+              metadataUpdates,
+            };
+          }
+          // 溢出重试成功：走正常成功路径；换新号落盘
+          result = retryResult;
+          effectiveSessionId = overflowSessionId;
+          sessionResumed = false;
         } else {
           // 首 step 失败：会话未必已建立，重置避免下步 --resume 一个从未建立的会话
           if (newSessionId) this.resetUnestablishedSession(metadataUpdates);
+          this.recordOutcomeEvent(wu, false, detail, 'execution_failed', injectedKnowledgeIds);
           return failResult(detail);
         }
       }
@@ -832,6 +914,19 @@ export class AgentLoop {
         try {
           writeToolCallEvents(toolTraceSource, resolveToolTraceFile());
         } catch { /* non-blocking */ }
+      }
+
+      // #97: transcript 归档 —— 本步原文（raw CLI stdout，provider 无关）追加到 per-WU
+      // 归档文件（JSONL，studioPath('transcripts/<wuId>.jsonl')）。三消费方（#99 WU 收尾
+      // 提取、handoff 摘要、#85 执行质量评估）共用；fire-and-forget，失败绝不阻断任务流程。
+      if (toolTraceSource) {
+        void appendTranscriptStep({
+          workUnitId: wu.id,
+          sessionId: effectiveSessionId ?? undefined,
+          step: stepNo,
+          action: stepResult.action,
+          rawOutput: toolTraceSource,
+        }).catch(() => {});
       }
 
       // WU 过程可视化：执行步事件（本步思考/工具调用/skill 注入/用量 → 事件流落盘 + SSE，
@@ -870,9 +965,6 @@ export class AgentLoop {
             );
         } catch { /* non-blocking */ }
       }
-
-      // Session truncation: detect input_tokens exceeding threshold
-      this.checkSessionTruncation(result.outputText);
 
       // P0 修复（reviewReport 回传断链）：review 子 WU 报告 COMPLETE 时，把 reviewer
       // 最终输出解析为结构化结论写入 metadata.reviewReport —— 这是 ReviewDispatcher
@@ -923,6 +1015,7 @@ export class AgentLoop {
       if (newSessionId) this.resetUnestablishedSession(metadataUpdates);
       const message = err instanceof Error ? err.message : String(err);
       logger.error(`[AgentLoop] agentStep execute failed: ${message}`, { traceId });
+      this.recordOutcomeEvent(wu, false, message, 'execution_failed', injectedKnowledgeIds);
       // AC-8.7 远程节点不可达分支已随 RemoteExecutor 一并删除（远程方向放弃，bdaf0dd3）。
       return {
         action: 'need_input' as const, // increments consecutiveStuck
@@ -1006,20 +1099,11 @@ export class AgentLoop {
    */
 
   /** Record execution outcome to knowledge service (GAP-6, non-blocking).
-   *  R1: consumedKnowledge = 本次 agentStep 经 injectContext 实际注入的知识条目 id。 */
+   *  R1: consumedKnowledge = 本次 agentStep 经 injectContext 实际注入的知识条目 id。
+   *  #90: outcome 事件经 recordOutcomeEvent 单一正本落盘；本方法覆盖成功步（+ 会话提取）。
+   *  失败步由 agentStep 失败分支直接调 recordOutcomeEvent（success=false + errorType）。 */
   private async recordExecutionOutcome(wu: WorkUnitData, result: ExecutionResult, consumedKnowledge: string[] = []): Promise<void> {
-    try {
-      await knowledgeService.recordOutcome({
-        executionId: wu.id,
-        agentType: 'claude',
-        consumedKnowledge,
-        success: result.success,
-        details: result.outputText?.slice(0, 500) ?? '',
-        timestamp: new Date().toISOString(),
-      });
-    } catch {
-      // Non-blocking
-    }
+    this.recordOutcomeEvent(wu, result.success, result.outputText ?? '', undefined, consumedKnowledge);
     try {
       await knowledgeService.extractFromExecution({
         task: wu.scope ?? '',
@@ -1034,41 +1118,30 @@ export class AgentLoop {
     }
   }
 
+  /** #90: knowledge:outcome 事件单一正本 —— success/failure 统一经此落盘，避免两套漂移。
+   *  errorType 仅失败步携带（success 时 undefined，JSON.stringify 丢弃）。fire-and-forget。 */
+  private recordOutcomeEvent(wu: WorkUnitData, success: boolean, details: string, errorType: string | undefined, consumedKnowledge: string[]): void {
+    void knowledgeService.recordOutcome({
+      executionId: wu.id,
+      agentType: 'claude',
+      consumedKnowledge,
+      success,
+      details: details.slice(0, 500),
+      errorType,
+      timestamp: new Date().toISOString(),
+    }).catch(() => { /* Non-blocking */ });
+  }
+
   /**
    * 首 step（新建会话）执行失败 / 续用降级重试仍失败时重置会话簿记：CLI 会话未必已建立
    * （可能根本没 spawn 到），不重置则下一步按续用发 `--resume <从未建立的 id>`
    * （claude 必报 "No conversation found"）。续用 step 失败不调用 —— 会话已存在，
    * 保留下一步继续 resume。（#94：实例槽位清除已随 per-WU 化一并移除）
+   * #95: sessionCount 不再清除 —— 失败/超时的会话建立尝试计入预算（超限转 need_input）。
    */
   private resetUnestablishedSession(metadataUpdates: Partial<WorkUnitMetadata>): void {
     delete metadataUpdates.sessionId;
-    // B5: 会话未建立不计入会话预算（失败重试由 consecutiveStuck>=3 → blocked 兜底）
-    delete metadataUpdates.sessionCount;
     delete metadataUpdates.lastSessionResumed;
-  }
-
-  /** Check execution output for input_tokens exceeding threshold（#94 起仅留观测日志，不再清会话） */
-  private checkSessionTruncation(outputText: string | undefined): void {
-    if (!outputText) return;
-    try {
-      // Parse stream JSON events for usage data
-      const lines = outputText.split('\n').filter(l => l.trim());
-      for (const line of lines) {
-        try {
-          const event = JSON.parse(line) as Record<string, unknown>;
-          if (event.type === 'usage' && typeof event.input_tokens === 'number') {
-            const inputTokens = event.input_tokens as number;
-            if (inputTokens > SESSION_TOKEN_LIMIT) {
-              logger.info(`[AgentLoop] Session truncation: ${inputTokens} tokens exceeds limit ${SESSION_TOKEN_LIMIT}`);
-            }
-          }
-        } catch {
-          // Skip non-JSON lines
-        }
-      }
-    } catch {
-      // Non-blocking
-    }
   }
 
   /** Record result: monitoring checkpoints + state transitions (zero token) */
@@ -1149,6 +1222,20 @@ export class AgentLoop {
     const stepCount = (metadata.stepCount ?? 0) + 1;
     let consecutiveStuck = action === 'progress' ? 0 : (metadata.consecutiveStuck ?? 0) + 1;
 
+    // #95: progressLog 环形簿记 —— 只记成功步（progress/complete；delegate 经 handleDelegateBranch
+    // 已归化为 progress/need_input，failed/need_input 不进 log），summary 截 200 字符、保留最近 5 条。
+    // 失败步不落 log：errorType 留在 metadata，由 prompt-composer 注入「前序进展」段时附「上一步失败」行。
+    const progressLogUpdates: Partial<WorkUnitMetadata> = {};
+    if (action === 'progress' || action === 'complete') {
+      const prev = Array.isArray(metadata.progressLog) ? metadata.progressLog : [];
+      progressLogUpdates.progressLog = [...prev, {
+        step: stepCount,
+        action,
+        summary: (result.summary ?? '').slice(0, PROGRESS_LOG_SUMMARY_MAX_CHARS),
+        at: new Date().toISOString(),
+      }].slice(-PROGRESS_LOG_MAX_ENTRIES);
+    }
+
     // F6-c（断点 1）：步骤超限强制收口前补跑 L1 —— COMPLETE 验证守卫只在 action=complete 时跑，
     // 超限路径（任意 action）此前完全跳过验证，代码类 WU 被强制 in_review 时永远缺 l1。
     // 台账写法与 COMPLETE 守卫同结构（approved 全绿 + verifyReport / rejected 留痕），
@@ -1216,7 +1303,7 @@ export class AgentLoop {
     // Single atomic metadata write: merges agentStep updates (sessionId/startedAt/sessionResumes)
     // with monitoring counters (stepCount/consecutiveStuck) — fixes C-3 non-atomic write
     await this.workUnitService.update(wuId, {
-      metadata: { ...metadata, ...result.metadataUpdates, ...waitingUpdates, ...guardUpdates, ...freshnessUpdates, ...blockReasonUpdates, stepCount, consecutiveStuck },
+      metadata: { ...metadata, ...result.metadataUpdates, ...waitingUpdates, ...guardUpdates, ...freshnessUpdates, ...blockReasonUpdates, ...progressLogUpdates, stepCount, consecutiveStuck },
     });
 
     // P0 修复 6: trace 锚点 — 有 traceId 的 WU（频道消息链路）每步留一条可 grep 日志

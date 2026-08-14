@@ -90,7 +90,9 @@ const { invalidateManifestCache } = await import('../../skills/manifest-loader.j
 /** 新注入契约的固定文本（与 agent-loop buildSkillSection 保持一致） */
 const SKILL_HEADER = '## 本次任务 Skills\n\n以下 skill 按相关度排序；任务内容命中其触发条件时，先读全文再按此执行；不相关则忽略。';
 const SKILL_BLOCK = `### feature-dev\n功能开发流程｜触发：登录, 认证, 会话, 鉴权, 令牌\n全文：${path.join(os.homedir(), '.studio', 'skills', 'feature-dev', 'SKILL.md')}`;
-const SKILL_TOKENS = estimateTokens(SKILL_HEADER.length) + estimateTokens(SKILL_BLOCK.length + 2);
+const SKILL_MANIFEST_POINTER = `完整 skill 清单见 skills MANIFEST.md（${path.join(os.homedir(), '.studio', 'skills', 'MANIFEST.md')}）`;
+const SKILL_TOKENS = estimateTokens(SKILL_HEADER.length) + estimateTokens(SKILL_BLOCK.length + 2)
+  + estimateTokens(SKILL_MANIFEST_POINTER.length + 2);
 
 describe('§10 P0 + 决策 7/11/13: agentStep skill/persona 注入', () => {
   let agentLoop: AgentLoop;
@@ -211,12 +213,12 @@ describe('§10 P0 + 决策 7/11/13: agentStep skill/persona 注入', () => {
     }
   });
 
-  it('决策 13：role.persona → 注入 `## 你的角色` 段，顺序在 skills 之后、知识之前', async () => {
+  it('决策 13：role.persona → 注入 `## 你的角色` 段，顺序在 skills 之前（#119 段序重排）、知识之前', async () => {
     const { knowledgeContext } = await runStep(makeWu(null), { persona: '你是测试者，先写测试再实现。' });
 
     expect(knowledgeContext).toContain('## 你的角色\n\n你是测试者，先写测试再实现。');
-    expect(knowledgeContext.indexOf('## 本次任务 Skills')).toBeLessThan(knowledgeContext.indexOf('## 你的角色'));
-    expect(knowledgeContext.indexOf('## 你的角色')).toBeLessThan(knowledgeContext.indexOf('## 项目上下文'));
+    expect(knowledgeContext.indexOf('## 你的角色')).toBeLessThan(knowledgeContext.indexOf('## 本次任务 Skills'));
+    expect(knowledgeContext.indexOf('## 本次任务 Skills')).toBeLessThan(knowledgeContext.indexOf('## 项目上下文'));
   });
 
   it('决策 13：persona 缺省回退 description', async () => {
@@ -231,7 +233,7 @@ describe('§10 P0 + 决策 7/11/13: agentStep skill/persona 注入', () => {
     expect(knowledgeContext).not.toContain('## 你的角色');
   });
 
-  it('决策 13 + #91：注入顺序 skills > persona > roster > knowledge（分段软定额 + 池内余量共享）', async () => {
+  it('决策 13 + #91/#119：注入顺序 persona > roster > skills > knowledge（#119 段序稳定性重排）', async () => {
     const now = new Date().toISOString();
     await fileStore.createChannel({
       id: 'ch-1', name: '#test-order', type: 'rnd',
@@ -251,9 +253,9 @@ describe('§10 P0 + 决策 7/11/13: agentStep skill/persona 注入', () => {
     const personaIdx = knowledgeContext.indexOf('## 你的角色');
     const rosterIdx = knowledgeContext.indexOf('## 频道成员与委派');
     const knowledgeIdx = knowledgeContext.indexOf('## 项目上下文');
-    expect(skillIdx).toBeGreaterThanOrEqual(0);
-    expect(personaIdx).toBeGreaterThan(skillIdx);
+    expect(personaIdx).toBeGreaterThanOrEqual(0);
     expect(rosterIdx).toBeGreaterThan(personaIdx);
-    expect(knowledgeIdx).toBeGreaterThan(rosterIdx);
+    expect(skillIdx).toBeGreaterThan(rosterIdx);
+    expect(knowledgeIdx).toBeGreaterThan(skillIdx);
   });
 });
