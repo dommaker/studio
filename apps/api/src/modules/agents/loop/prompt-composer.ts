@@ -32,20 +32,22 @@ import { metricsFileStore } from './agent-loop-events.js';
  * 定额职责 = 防注入劣化（防注入段膨胀挤占对话空间、防噪声稀释信噪比），
  * 不防 CLI 上下文溢出（溢出归反应式策略管）；base prompt 不截断，CLI 脚手架不在管辖内。
  *
- * 软定额 + 池内余量共享：按 map → skills → persona → roster → memory → knowledge → handoff
- * 顺序逐段组装，段有效预算 = 本段定额 + 共享池余量；段实际用量低于有效预算时，
- * 差额流入共享池供后续段借用（注入总量封顶 = 定额总和 ~4.3K）。
+ * 软定额 + 池内余量共享：按 persona → roster → skills → map → memory → knowledge → contract
+ * → handoff 顺序逐段组装，段有效预算 = 本段定额 + 共享池余量；段实际用量低于有效预算时，
+ * 差额流入共享池供后续段借用（注入总量封顶 = 定额总和 ~4.5K）。
  * map 段 = #111 T5 探路地图完整渲染（定额 800，实测校准见 agents/CONTEXT.md）。
+ * contract 段 = #119 契约段生成器（定额 200，按 WU type 产出格式 + 最小模板）。
  * memory / handoff 段内容源分别归 #100（角色记忆索引常驻注入）与 #95（handoff 前序
- * 进展段），落地前两段恒为空、定额经共享池让给后续段。
+ * 进展段）。
  */
 export const SECTION_QUOTAS = {
-  map: 800,
-  skills: 600,
   persona: 300,
   roster: 400,
+  skills: 600,
+  map: 800,
   memory: 300,
   knowledge: 1000,
+  contract: 200,
   handoff: 800,
 } as const;
 
@@ -58,6 +60,26 @@ export const MAP_SUMMARY_MAX_CHARS = 160;
 
 /** #95：waitingQuestion 仅新会话回放的截断字符上限 */
 export const WAITING_QUESTION_REPLAY_MAX_CHARS = 300;
+
+/**
+ * #119：契约段按 WU type 的产出格式 + 最小模板（内容定稿随 #118 续烤迭代，先落最简模板）。
+ * review → REVIEW_RESULT 协议行；implement → 测试先行 + Phase commit 格式；
+ * decision（决策单）→ 结论摘要格式。未列出的 type（task/feature/bug/analysis/spec 等）→ 空段（不注入）。
+ */
+export const CONTRACT_TEMPLATES: Record<string, string> = {
+  review: [
+    '完成审查后，除 ACTION 行外，还必须在输出的最后一行给出结构化结论：',
+    'REVIEW_RESULT: {"verdict":"pass"|"reject"|"needs-info","summary":"一句话结论","issues":[{"severity":"error"|"warn"|"info","message":"问题描述"}]}',
+    '（verdict=pass 通过 / reject 打回 / needs-info 上下文不足转人工；缺少该行将转人工评审。）',
+  ].join('\n'),
+  implement: [
+    '测试先行：先写失败测试（RED）再实现到测试全绿（GREEN），测试全绿后才算完成。',
+    'Phase commit：按阶段分批提交，commit message 用 `phase(<阶段名>): <摘要>` 格式。',
+  ].join('\n'),
+  decision: [
+    '结论摘要格式：输出末段 `## 结论摘要`，用一句话给出待决问题的结论与理由。',
+  ].join('\n'),
+};
 
 /** 单个注入段的组装产出：tokens = 截断后实际用量；originalTokens = 未截断的原始尺寸（> tokens 即发生了截断） */
 interface BuiltSection {
@@ -104,7 +126,8 @@ export interface ComposedStepPrompt {
  *  1. hint 读取（pendingReplies / commitGuardHint / verifyFailHint / childGuardHint，注入后即消费）；
  *  2. base prompt：pendingReplies > target.newReplies > continue；
  *  3. 三类 guard hint 段注入；
- *  4. 注入段分段软定额 + 池内余量共享（#91），顺序 map > skills > persona > roster > memory > knowledge > handoff；
+ *  4. 注入段分段软定额 + 池内余量共享（#91），稳定前缀序 persona > roster > skills > map > memory > knowledge，
+ *     尾组序 base > contract（#119）> handoff > hint；
  *  5. 产出 consumedHintUpdates（已消费 hint 的清除增量）。
  * 全部注入路径 non-blocking：任一段失败按空段处理，绝不阻断执行。
  */
@@ -153,9 +176,6 @@ export async function composeStepPrompt(
     childGuardHint ? `## 子任务提醒\n\n${childGuardHint}` : null,
   ].filter((s): s is string => s !== null).join('\n\n');
 
-  // #107 T1 tracer bullet 已升级为 #111 T5 完整地图段（见下方 runSection('map')）：
-  // destination + 近 N 条 decisions（新→旧）+ 开放 fog 清单，纳入分段预算首段。
-
   // #91: 分段软定额 + 池内余量共享 —— 段有效预算 = 定额 + 池；用量差额回流池中。
   // 任一段截断落 prompt:section_trimmed 事件（fire-and-forget，供定额初值校准）。
   let pool = 0;
@@ -189,20 +209,24 @@ export async function composeStepPrompt(
     return built;
   };
 
-  // #111 T5: PMO 地图完整段（## PMO 地图）——分段预算首段（定额 800 + 池共享）；
-  // 段文本沿用 T1 落点拼进 base prompt（开场白位置），不进 knowledgeContext。
-  const pmoMap = await runSection('map', budget => buildPmoMapSection(metadata, budget));
-
-  // 决策 7/11: skill 段（## 本次任务 Skills）step 时计算，吃 skill 库最新版
-  interface SkillSection extends BuiltSection { matched: string[] }
-  const skills = await runSection<SkillSection>('skills', budget => buildSkillSection(wu, deps, budget));
-  const skillMatched = 'matched' in skills ? skills.matched : [];
+  // #119 稳定性重排：稳定前缀（进 knowledgeContext，吃输入缓存）序 = persona → roster → skills
+  // → map → memory → knowledge；任务本体尾组（拼 prompt）序 = base → contract → handoff → hint。
+  // 段组装顺序即池共享顺序（前段余量流入后段），与稳定前缀序一致。
 
   // 决策 13 + #91: `## 你的角色` 段（persona ?? description + preset 的 skills/tools/constraints；皆空则省略）
   const persona = await runSection('persona', budget => Promise.resolve(buildPersonaSection(deps.role, budget)));
 
   // A2A §4.1 机制 2: 成员花名册段（## 频道成员与委派）
   const roster = await runSection('roster', budget => buildRosterSection(wu, deps, budget));
+
+  // 决策 7/11: skill 段（## 本次任务 Skills）step 时计算，吃 skill 库最新版
+  interface SkillSection extends BuiltSection { matched: string[] }
+  const skills = await runSection<SkillSection>('skills', budget => buildSkillSection(wu, deps, budget));
+  const skillMatched = 'matched' in skills ? skills.matched : [];
+
+  // #111 T5: PMO 地图完整段（## PMO 地图）——#119 起移入稳定前缀（skills 后、memory 前），
+  // 不再拼进 prompt 尾部。
+  const pmoMap = await runSection('map', budget => buildPmoMapSection(metadata, budget));
 
   // #100: memory 段内容源 = 角色记忆索引常驻注入（per-role MEMORY.md 索引全文，依赖 #98 存储服务）
   const memory = await runSection('memory', budget => buildMemorySection(deps.role.id, budget));
@@ -225,11 +249,15 @@ export async function composeStepPrompt(
   });
   const knowledgeSection = knowledge.section;
 
+  // #119: 契约段（## 产出契约）——按 WU type 产出格式 + 最小模板，挂 base 后、handoff 前。
+  const contract = await runSection('contract', budget =>
+    Promise.resolve(buildContractSection(wu, budget)));
+
   // #95: handoff 前序进展段（续用不命中 + stepCount>0 时注入；挂载位 base 后/hint 前）
   const handoff = await runSection('handoff', budget =>
     Promise.resolve(buildHandoffSection(metadata, ctx.isNewSession === true, budget)));
 
-  const leadSections = [skills.section, persona.section, roster.section, memory.section]
+  const leadSections = [persona.section, roster.section, skills.section, pmoMap.section, memory.section]
     .filter(s => s.length > 0)
     .join('\n\n');
   // `## 项目上下文` 包装头仅在前置段存在时添加（沿用原组装口径）
@@ -240,11 +268,11 @@ export async function composeStepPrompt(
       : leadSections;
   }
 
-  // #95: 前序进展段挂载 base 之后、hint 之前（易变尾部组）；map 仍随 base 拼 prompt（#119 才重排段序）
+  // #119: 尾组序 = base → contract → handoff → hint（map 已移入稳定前缀 knowledgeContext）
   let prompt = basePrompt;
+  if (contract.section) prompt = `${prompt}\n\n${contract.section}`;
   if (handoff.section) prompt = `${prompt}\n\n${handoff.section}`;
   if (hintBlocks) prompt = `${prompt}\n\n${hintBlocks}`;
-  if (pmoMap.section) prompt = `${prompt}\n\n${pmoMap.section}`;
 
   const consumedHintUpdates: Partial<WorkUnitMetadata> = {};
   if (pendingReplies.length > 0) {
@@ -321,6 +349,25 @@ async function buildPmoMapSection(metadata: WorkUnitMetadata, tokenBudget: numbe
     section = section.slice(0, Math.max(0, tokenBudget * 4));
   }
   return { section, tokens: estimateTokens(section.length), originalTokens };
+}
+
+/**
+ * #119: 组装 `## 产出契约` 段 —— 按 WU type 产出格式 + 最小模板（CONTRACT_TEMPLATES）。
+ * 未知/无契约 type → 空段（不注入）。超预算按 chars/4 截（与其他段同口径），
+ * originalTokens > tokens 由 runSection 落 prompt:section_trimmed 埋点（定额 200）。
+ */
+function buildContractSection(wu: WorkUnitData, tokenBudget: number): BuiltSection {
+  const template = CONTRACT_TEMPLATES[wu.type];
+  if (!template || tokenBudget <= 0) return { section: '', tokens: 0, originalTokens: 0 };
+
+  const full = `## 产出契约\n\n${template}`;
+  const originalTokens = estimateTokens(full.length);
+  if (originalTokens > tokenBudget) {
+    // 按截断后实际内容重算 tokens，省下的余量回流共享池（#91）
+    const sliced = full.slice(0, Math.max(0, tokenBudget * 4));
+    return { section: sliced, tokens: estimateTokens(sliced.length), originalTokens };
+  }
+  return { section: full, tokens: originalTokens, originalTokens };
 }
 
 /**
