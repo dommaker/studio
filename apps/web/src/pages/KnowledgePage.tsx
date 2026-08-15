@@ -359,7 +359,7 @@ export function KnowledgePage() {
           )}
 
           <div className="mt-6">
-            <button onClick={() => navigate('/wiki')} className="btn btn-secondary">← 前往文档</button>
+            <button onClick={() => navigate('/library')} className="btn btn-secondary">← 前往阅览室</button>
           </div>
         </div>
       </div>

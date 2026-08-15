@@ -10,8 +10,8 @@ const AuditLogsPage = lazy(() => import('./pages/AuditLogsPage').then(m => ({ de
 const PMOPage = lazy(() => import('./pages/PMOPage').then(m => ({ default: m.PMOPage })));
 const KnowledgePage = lazy(() => import('./pages/KnowledgePage').then(m => ({ default: m.KnowledgePage })));
 const ChannelDetailPage = lazy(() => import('./pages/ChannelDetailPage').then(m => ({ default: m.ChannelDetailPage })));
-const WikiPage = lazy(() => import('./pages/WikiPage').then(m => ({ default: m.WikiPage })));
-const WikiDocPage = lazy(() => import('./pages/WikiDocPage').then(m => ({ default: m.WikiDocPage })));
+const LibraryPage = lazy(() => import('./pages/LibraryPage').then(m => ({ default: m.LibraryPage })));
+const LibraryDocPage = lazy(() => import('./pages/LibraryDocPage').then(m => ({ default: m.LibraryDocPage })));
 const ProjectDetailPage = lazy(() => import('./pages/ProjectDetailPage').then(m => ({ default: m.ProjectDetailPage })));
 const OAuthCallback = lazy(() => import('./components/OAuthCallback').then(m => ({ default: m.OAuthCallback })));
 const WorkUnitListPage = lazy(() => import('./pages/WorkUnitListPage').then(m => ({ default: m.WorkUnitListPage })));
@@ -187,8 +187,8 @@ export default function App() {
             <Route path="/pmo" element={<Suspense fallback={<PageLoader />}><PMOPage /></Suspense>} />
             <Route path="/pmo/project/:projectId" element={<Suspense fallback={<PageLoader />}><ProjectDetailPage /></Suspense>} />
             <Route path="/knowledge" element={<Suspense fallback={<PageLoader />}><KnowledgePage /></Suspense>} />
-            <Route path="/wiki" element={<Suspense fallback={<PageLoader />}><WikiPage /></Suspense>} />
-            <Route path="/wiki/:id" element={<Suspense fallback={<PageLoader />}><WikiDocPage /></Suspense>} />
+            <Route path="/library" element={<Suspense fallback={<PageLoader />}><LibraryPage /></Suspense>} />
+            <Route path="/library/:id" element={<Suspense fallback={<PageLoader />}><LibraryDocPage /></Suspense>} />
             <Route path="/workunits" element={<Suspense fallback={<PageLoader />}><WorkUnitListPage /></Suspense>} />
             <Route path="/workunits/:id" element={<Suspense fallback={<PageLoader />}><WorkUnitDetailPage /></Suspense>} />
             <Route path="/agents" element={<Suspense fallback={<PageLoader />}><AgentDashboardPage /></Suspense>} />

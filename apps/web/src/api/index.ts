@@ -276,16 +276,12 @@ export interface DeliveryStatus {
   deliverCommit: string | null;
 }
 
-// Wiki API (B2-008)
-export const wikiApi = {
-  list: (params?: { search?: string; status?: string }) =>
-    api.get('/wiki', { params }),
+// Library API (#155 T5: 阅览室——跨项目 .studio/ 聚合只读层；无写路径)
+export const libraryApi = {
+  list: (params?: { search?: string; project?: string }) =>
+    api.get('/library', { params }),
   getDoc: (id: string) =>
-    api.get(`/wiki/${id}`),
-  updateDoc: (id: string, data: { content?: string; title?: string; linkedDocIds?: string[] }) =>
-    api.put(`/wiki/${id}`, data),
-  getGraph: () =>
-    api.get('/wiki/graph'),
+    api.get(`/library/${encodeURIComponent(id)}`),
 };
 
 // Workspace API — AS-020 P2/P7

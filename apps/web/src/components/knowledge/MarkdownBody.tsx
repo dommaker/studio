@@ -1,19 +1,19 @@
-// Markdown 正文渲染 — WikiDocPage 正文方案（2026-07-31 §10 任务 4b；lazy 按需加载，fallback 为原 plain-text 形态）
+// Markdown 正文渲染 — 阅览室详情页正文方案（2026-07-31 §10 任务 4b；lazy 按需加载，fallback 为原 plain-text 形态）
 //（另一消费方 DocReaderDrawer 已随 #149 document-store 退役删除）
 // react-markdown + remark-gfm：默认不渲染原始 HTML（agent 产出内容按不可信输入处理，无需 DOMPurify）。
 // 主题经 components 映射到 u-* 类 / CSS 变量（--bg-tertiary/--border-subtle 等），暗色天然适配——
 // 不引 @tailwindcss/typography（prose 体系与 style-guide 的 u-* 类冲突，全站未装该插件）。
-// [[wiki 链接]] 预处理为 /wiki/<title> 站内链接（沿用 WikiDocPage 原 renderContent 语义），
+// [[wiki 链接]] 预处理为 /library/<title> 站内链接（沿用原 WikiDocPage renderContent 语义），
 // 由 a 渲染器识别站内路径转 router Link；外链新标签页打开。
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Link } from 'react-router-dom';
 
-/** [[X]] → [X](/wiki/<encodeURIComponent(X)>)（在 markdown 解析前预处理；a 渲染器再转 router Link） */
+/** [[X]] → [X](/library/<encodeURIComponent(X)>)（在 markdown 解析前预处理；a 渲染器再转 router Link） */
 function preprocessWikiLinks(content: string): string {
   return content.replace(/\[\[([^\]]+)\]\]/g, (_, raw: string) => {
     const t = raw.trim();
-    return `[${t}](/wiki/${encodeURIComponent(t)})`;
+    return `[${t}](/library/${encodeURIComponent(t)})`;
   });
 }
 

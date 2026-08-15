@@ -44,11 +44,11 @@ describe('MarkdownBody', () => {
     expect(code.getAttribute('style') ?? '').not.toContain('--bg-tertiary');
   });
 
-  it('[[wiki 链接]] 预处理为 /wiki/<encodeURIComponent> 的 router Link', () => {
+  it('[[wiki 链接]] 预处理为 /library/<encodeURIComponent> 的 router Link', () => {
     renderBody('参见 [[设计 文档]] 与 [[SDD]]');
     const withSpace = screen.getByRole('link', { name: '设计 文档' });
-    expect(withSpace.getAttribute('href')).toBe(`/wiki/${encodeURIComponent('设计 文档')}`);
-    expect(screen.getByRole('link', { name: 'SDD' }).getAttribute('href')).toBe('/wiki/SDD');
+    expect(withSpace.getAttribute('href')).toBe(`/library/${encodeURIComponent('设计 文档')}`);
+    expect(screen.getByRole('link', { name: 'SDD' }).getAttribute('href')).toBe('/library/SDD');
   });
 
   it('外链新标签页打开（target=_blank rel=noreferrer）', () => {
