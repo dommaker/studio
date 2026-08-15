@@ -1,7 +1,7 @@
 // Channel Routes — B1-001/B1-002/B1-009/B1-011
 import { Router } from 'express';
 import { randomUUID } from 'crypto';
-import { logger, readSddDoc, updateSddFrontmatter, FileStore } from '@dommaker/studio-shared';
+import { logger, FileStore } from '@dommaker/studio-shared';
 import { channelMessageService } from './channel-message.service.js';
 import { routeMessage } from './message-routing.js';
 import { projectService } from '../pmo/project.service.js';
@@ -189,17 +189,6 @@ router.delete('/:id', requireAuth(), requireNotGuest(), async (req, res) => {
     rndChannel = { id: rndId, name: '#研发', type: 'rnd', defaultWorkspaceId: null, defaultPath: null, discordChannelId: null, discordWebhookUrl: null, members: '[]', createdAt: now, updatedAt: now };
     await fileStore.createChannel(rndChannel);
   }
-
-  // SDD frontmatters for migrated docs (non-blocking)
-  try {
-    const { listSddDocs } = await import('@dommaker/studio-shared');
-    for (const slug of await listSddDocs()) {
-      const sdd = await readSddDoc(slug, 'requirement');
-      if (sdd?.meta.sourceChannelId === channel.id) {
-        try { await updateSddFrontmatter(slug, { sourceChannelId: rndChannel.id, updatedAt: new Date().toISOString() }); } catch { /* non-blocking */ }
-      }
-    }
-  } catch { /* non-blocking */ }
 
   // Migrate WorkUnits via WorkUnitService (context.sourceChannelId in metadata)
   // 存储归属收敛：匹配（字段相等）与写入（事件+快照）均由 WorkUnitService.rebindSourceChannel 负责

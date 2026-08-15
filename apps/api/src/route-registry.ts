@@ -144,9 +144,6 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
   // Daemon (AS-020 P5) 与 Task management（AS-020 P5 UI/Server task CRUD）路由已删：
   // HTTP claim 竖井无任何消费者（客户端三件套 5a982122 已删），任务队列只进不出
 
-  // RequirementsDoc routes (B2-009)
-  const { default: requirementsDocRoutes } = await import('./modules/channels/requirements-doc.routes.js') as { default: Router };
-
   // Wiki routes (B2-008)
   const { wikiRoutes } = await import('./modules/wiki/wiki.routes.js') as { wikiRoutes: Router };
 
@@ -214,7 +211,6 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     { path: '/api/v1/executions', router: executionRoutes },
 
     { path: '/api/v1/channels', router: channelRoutes, comment: 'B1-001: Channel chat interface' },
-    { path: '/api/v1/requirements-docs', router: requirementsDocRoutes, comment: 'B2-009: RequirementsDoc edit' },
     { path: '/api/v1/pmo', router: pmoRoutes, comment: 'PMO-001' },
     { path: '/api/v1/companies', router: companyRoutes, middleware: auth, comment: '公司 CRUD（FileStore 存储；008912d 误删后恢复）' },
     { path: '/api/v1/workunits', router: workunitRoutes, comment: 'AS-025 §3.28c-1: WorkUnit CRUD + Claim + State machine' },
