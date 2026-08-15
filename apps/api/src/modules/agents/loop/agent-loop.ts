@@ -316,14 +316,13 @@ export class AgentLoop {
 
         // Claim if unassigned
         if (target.workUnit.status === 'unassigned') {
-          try {
-            await this.workUnitService.claim(target.workUnit.id, this.instance!.id);
-            const afterClaim = await this.workUnitService.getById(target.workUnit.id);
-            if (afterClaim) target.workUnit = afterClaim;
-          } catch {
+          const claimed = await this.claimAndAnnounce(target.workUnit);
+          if (!claimed) {
             await sleep(1_000);
             continue;
           }
+          const afterClaim = await this.workUnitService.getById(target.workUnit.id);
+          if (afterClaim) target.workUnit = afterClaim;
         }
 
         // Update heartbeat + status=active (fix: monitoring.active was always 0)
@@ -346,6 +345,27 @@ export class AgentLoop {
         await sleep(15_000);
       }
     }
+  }
+
+  /**
+   * #175（#55 决策 1）：认领即发声 —— 每次成功认领在 WU 线程发一条普通系统消息
+   * （「『角色名』已认领任务，开始执行」）；超时释放（timeout-release unclaim → unassigned）
+   * 后的再认领走同一路径同样发声，与「已释放回池」消息配对成完整叙事。
+   * 系统通知待遇：不过 §4.2 发言层新鲜度检查、不带里程碑 meta；
+   * 发帖失败只记日志，绝不阻断认领后的执行。
+   * @returns 认领是否成功（竞争失败 → false，调用方走重试）
+   */
+  private async claimAndAnnounce(workUnit: WorkUnitData): Promise<boolean> {
+    try {
+      await this.workUnitService.claim(workUnit.id, this.instance!.id);
+    } catch {
+      return false;
+    }
+    await postWuSystemMessage(workUnit, `『${this.role.name}』已认领任务，开始执行`, {
+      agentName: this.role.name,
+      fileStore: this.fileStore,
+    }).catch(err => logger.warn(`[AgentLoop] Failed to announce claim for ${workUnit.id}: ${err instanceof Error ? err.message : String(err)}`));
+    return true;
   }
 
   /**
@@ -809,8 +829,9 @@ export class AgentLoop {
       // W-3 接线：runner 失败时返回 { success:false } 而不抛错、且无 outputText ——
       // 直接落入 parseAgentOutput 会得到默认 progress（空 summary），导致 consecutiveStuck
       // 被清零、每 3s 重试、往频道发空消息。显式失败分支：action='failed'，由 recordResult
-      // 记 consecutiveStuck + errorType/errorDetail，不发频道消息；连续 3 次走 blocked 路径。
-      // 不带 channelVersion —— 失败不是发言，无需新鲜度检查（避免被降级为 progress）。
+      // 记 consecutiveStuck + errorType/errorDetail，并发「执行失败（第 N 次）」系统消息
+      // （#175/#55 决议）；连续 3 次走 blocked 里程碑路径。
+      // 不带 channelVersion —— 失败消息是系统通知不是结果回帖，不参与 §4.2 新鲜度判定。
       if (result.success === false) {
         const failResult = (detail: string) => ({
           action: 'failed' as const,
@@ -1495,8 +1516,14 @@ export class AgentLoop {
         }
         break;
       case 'failed':
-        // W-3 接线：CLI 执行失败 —— 不发频道消息、不做状态迁移（保持 active 待重试）；
-        // consecutiveStuck 已在上方累计，满 3 次走 blocked 路径并说明失败原因。
+        // W-3 接线 + #175（#55 决策 2）：CLI 执行失败 —— 发一条「执行失败（第 N 次）：原因截断」
+        // 普通系统消息（不带里程碑 meta、不过 §4.2 新鲜度闸），不做状态迁移（保持 active 待重试）；
+        // 重试不单独发声，下次成功的 progress 自然翻篇。consecutiveStuck 已在上方累计，
+        // 满 3 次在上方 blocked 里程碑路径 return（第 3 次不额外发声），走到这里 N ∈ {1,2}。
+        await this.postToDiscussionSpace(
+          wuId,
+          `『${this.role.name}』执行失败（第 ${consecutiveStuck} 次）：${(result.summary ?? '').slice(0, 200)}`,
+        );
         break;
     }
   }

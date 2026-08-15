@@ -1,6 +1,7 @@
 // P0 修复（W-3 接线）：CLI 执行失败（runner 返回 success:false）的显式失败分支
 // - agentStep: success:false → action='failed'，errorType/errorDetail 记入 metadataUpdates
-// - recordResult: failed 记 consecutiveStuck、不发频道消息；连续 3 次 → blocked 且频道说明失败原因
+// - recordResult: failed 记 consecutiveStuck、发「执行失败（第 N 次）」系统消息（#175/#55 决议）；
+//   连续 3 次 → blocked 里程碑且频道说明失败原因（第 3 次不额外发失败消息）
 // - recordResult: progress/complete 的空 summary 不发频道消息
 // 真实 FileStore（tmpdir）+ 真实 WorkUnitService；CLI 执行与 knowledge-service mock
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -149,7 +150,7 @@ describe('P0/W-3: CLI 执行失败显式分支', () => {
     expect(result.metadataUpdates).toHaveProperty('errorAt', undefined);
   });
 
-  it('recordResult: failed 记 consecutiveStuck、保持 active、不发频道消息', async () => {
+  it('recordResult: failed 记 consecutiveStuck、保持 active、发一条步失败系统消息（#175）', async () => {
     const wu = await createActiveWorkUnit();
     const loop = agentLoop as unknown as RecordResultCapable;
 
@@ -167,7 +168,9 @@ describe('P0/W-3: CLI 执行失败显式分支', () => {
     expect(meta.errorDetail).toBe('boom');
 
     const messages = await fileStore.queryMessages(channelId, { workUnitId: wu.id });
-    expect(messages.filter(m => m.authorType === 'agent')).toHaveLength(0);
+    const agentMsgs = messages.filter(m => m.authorType === 'agent');
+    expect(agentMsgs).toHaveLength(1);
+    expect(agentMsgs[0].content).toBe('『w3-agent』执行失败（第 1 次）：CLI 执行失败: boom');
   });
 
   it('recordResult: 连续 3 次 failed → blocked + 频道消息说明失败原因', async () => {
@@ -190,9 +193,12 @@ describe('P0/W-3: CLI 执行失败显式分支', () => {
     expect(meta.consecutiveStuck).toBe(3);
 
     const messages = await fileStore.queryMessages(channelId, { workUnitId: wu.id });
-    expect(messages).toHaveLength(1);
-    expect(messages[0].content).toContain('连续 3 步无进展');
-    expect(messages[0].content).toContain('provider quota exhausted');
+    // #175：第 1/2 次各发一条步失败消息，第 3 次走 blocked 里程碑（不额外发失败消息）
+    expect(messages).toHaveLength(3);
+    expect(messages[0].content).toContain('执行失败（第 1 次）');
+    expect(messages[1].content).toContain('执行失败（第 2 次）');
+    expect(messages[2].content).toContain('连续 3 步无进展');
+    expect(messages[2].content).toContain('provider quota exhausted');
   });
 
   it('recordResult: 中途 progress 清零 consecutiveStuck，之后 failed 重新计数', async () => {
