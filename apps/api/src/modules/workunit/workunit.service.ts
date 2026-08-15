@@ -117,8 +117,7 @@ export class WorkUnitService extends WorkUnitCrudService {
       timestamp: isoNow,
       data: updated as unknown as Record<string, unknown>,
     };
-    await this.fileStore.appendEvent(event);
-    await this.fileStore.upsertSnapshot(updated);
+    await this.fileStore.commitSnapshot(event, updated);
 
     // Publish status-change event（REQ roll-up 等订阅消费，best-effort）
     this.publishStatusChanged(updated);
@@ -321,8 +320,7 @@ export class WorkUnitService extends WorkUnitCrudService {
       timestamp: isoNow,
       data: updated as unknown as Record<string, unknown>,
     };
-    await this.fileStore.appendEvent(event);
-    await this.fileStore.upsertSnapshot(updated);
+    await this.fileStore.commitSnapshot(event, updated);
 
     this.publishStatusChanged(updated);
 
@@ -373,8 +371,7 @@ export class WorkUnitService extends WorkUnitCrudService {
       timestamp: isoNow,
       data: updated as unknown as Record<string, unknown>,
     };
-    await this.fileStore.appendEvent(event);
-    await this.fileStore.upsertSnapshot(updated);
+    await this.fileStore.commitSnapshot(event, updated);
 
     this.publishStatusChanged(updated);
 
@@ -459,7 +456,8 @@ export class WorkUnitService extends WorkUnitCrudService {
 
   /**
    * 评审/验证写入的共用落库尾部：构建 updated 快照（updatedAt=now，可选 status 覆盖 /
-   * markCompleted 置 completedAt=同一此刻）→ appendEvent + upsertSnapshot + publishStatusChanged。
+   * markCompleted 置 completedAt=同一此刻）→ commitSnapshot（#170：appendEvent +
+   * upsertSnapshot 同锁成对）+ publishStatusChanged。
    * 各调用方只保留自身策略：守卫、metadata 变更、事件类型、后续级联（父状态聚合/合并触发）。
    */
   private async persistSnapshot(
@@ -481,8 +479,7 @@ export class WorkUnitService extends WorkUnitCrudService {
       timestamp: isoNow,
       data: updated as unknown as Record<string, unknown>,
     };
-    await this.fileStore.appendEvent(event);
-    await this.fileStore.upsertSnapshot(updated);
+    await this.fileStore.commitSnapshot(event, updated);
     this.publishStatusChanged(updated);
     return updated;
   }
@@ -518,8 +515,7 @@ export class WorkUnitService extends WorkUnitCrudService {
         timestamp: now,
         data: updated as unknown as Record<string, unknown>,
       };
-      await this.fileStore.appendEvent(event);
-      await this.fileStore.upsertSnapshot(updated);
+      await this.fileStore.commitSnapshot(event, updated);
       rebound++;
     }
     if (rebound > 0) {

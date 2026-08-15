@@ -47,9 +47,11 @@ export async function resumeWaitingWorkUnit(
 
   // 已恢复但 loop 尚未消费 pendingReplies 的窗口内，后续回复直接追加拼接
   if (wu.status === 'active' && Array.isArray(metadata.pendingReplies) && metadata.pendingReplies.length > 0) {
-    await wuService.update(workUnitId, {
-      metadata: { ...metadata, pendingReplies: [...metadata.pendingReplies, replyText] },
-    });
+    // #170（决策 #65-1）：锁内合并写追加——并发回复之间、回复与 recordResult 簿记之间互不冲掉
+    await fileStore.updateMetadata(workUnitId, latest => ({
+      ...latest,
+      pendingReplies: [...(Array.isArray(latest.pendingReplies) ? latest.pendingReplies : []), replyText],
+    }));
     return true;
   }
 
@@ -60,18 +62,16 @@ export async function resumeWaitingWorkUnit(
     return resolveOwnershipFromReply(wu, metadata, replyText, fileStore);
   }
 
-  const pendingReplies = [...(Array.isArray(metadata.pendingReplies) ? metadata.pendingReplies : []), replyText];
-  await wuService.update(workUnitId, {
-    metadata: {
-      ...metadata,
-      waitingForInput: false,
-      waitingReminded: false, // 重置提醒标记：下次挂起重新计一次
-      blockReason: undefined, // B4: 人工接管后清除 blocked 原因（JSON 序列化丢弃 undefined）
-      // #94: 不再清零 sessionCount —— 复活后下一步凭 metadata.sessionId 优先续用旧会话，
-      // 不靠清零预算放行（清零会让失控 WU 无限重开新会话烧 token）
-      pendingReplies,
-    },
-  });
+  // #170（决策 #65-1）：锁内合并写——pendingReplies 基于锁内最新值追加
+  await fileStore.updateMetadata(workUnitId, latest => ({
+    ...latest,
+    waitingForInput: false,
+    waitingReminded: false, // 重置提醒标记：下次挂起重新计一次
+    blockReason: undefined, // B4: 人工接管后清除 blocked 原因（JSON 序列化丢弃 undefined）
+    // #94: 不再清零 sessionCount —— 复活后下一步凭 metadata.sessionId 优先续用旧会话，
+    // 不靠清零预算放行（清零会让失控 WU 无限重开新会话烧 token）
+    pendingReplies: [...(Array.isArray(latest.pendingReplies) ? latest.pendingReplies : []), replyText],
+  }));
   await wuService.transitionStatus(workUnitId, 'active');
 
   logger.info('[WaitingInput] WorkUnit resumed by human reply', { workUnitId });
@@ -108,17 +108,15 @@ async function resolveOwnershipFromReply(
 
   if (candidates.length === 1) {
     const hit = candidates[0];
-    const pendingReplies = [...(Array.isArray(metadata.pendingReplies) ? metadata.pendingReplies : []), replyText];
-    await wuService.update(wu.id, {
-      metadata: {
-        ...metadata,
-        waitingForInput: false,
-        waitingReminded: false,
-        workspaceRoot: hit.path,
-        ownershipSource: 'human-reply',
-        pendingReplies,
-      },
-    });
+    // #170（决策 #65-1）：锁内合并写——pendingReplies 基于锁内最新值追加
+    await fileStore.updateMetadata(wu.id, latest => ({
+      ...latest,
+      waitingForInput: false,
+      waitingReminded: false,
+      workspaceRoot: hit.path,
+      ownershipSource: 'human-reply',
+      pendingReplies: [...(Array.isArray(latest.pendingReplies) ? latest.pendingReplies : []), replyText],
+    }));
     // 置回 unassigned 而非 active：此 WU 创建即挂起、从未被认领，assigneeId 仍是
     // mention 路由写入的 profile id。置 active 会让它对所有人不可见——loop 续跑
     // 查询按 instance.id 过滤（myActive），认领过滤又要求 status==='unassigned'，

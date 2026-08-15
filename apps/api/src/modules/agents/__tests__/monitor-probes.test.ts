@@ -57,6 +57,9 @@ function makeFileStore(overrides: Record<string, unknown> = {}): any {
     readJsonl: vi.fn(async () => []),
     upsertSnapshot: vi.fn(async () => {}),
     removeSnapshot: vi.fn(async () => {}),
+    // #170：写路径改走锁内成对原语
+    commitSnapshot: vi.fn(async () => {}),
+    commitRemoval: vi.fn(async () => {}),
     ...overrides,
   };
 }
@@ -163,7 +166,9 @@ describe('checkTotalExecutionTime', () => {
       expect.objectContaining({ source: 'total_time', level: 'critical', relatedTaskIds: ['exec-timeout'] }),
     ]));
     expect(mockAgentStop).toHaveBeenCalledWith('exec-timeout');
-    expect(fileStore.upsertSnapshot).toHaveBeenCalledWith(
+    // #170：close 走锁内成对写（completed 事件 + 索引快照）
+    expect(fileStore.commitSnapshot).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'completed', wuId: 'exec-timeout' }),
       expect.objectContaining({ id: 'exec-timeout', status: 'closed', completedAt: expect.any(String) }),
     );
   });
@@ -179,7 +184,7 @@ describe('checkTotalExecutionTime', () => {
     const alerts = await checkTotalExecutionTime(fileStore);
     expect(alerts.map(a => a.level)).toEqual(['warning', 'info']);
     expect(mockAgentStop).not.toHaveBeenCalled();
-    expect(fileStore.upsertSnapshot).not.toHaveBeenCalled();
+    expect(fileStore.commitSnapshot).not.toHaveBeenCalled();
   });
 });
 
@@ -193,8 +198,12 @@ describe('autoAbandon probes', () => {
 
     await autoAbandonStaleBlocked(fileStore);
 
-    expect(fileStore.upsertSnapshot).toHaveBeenCalledTimes(1);
-    expect(fileStore.upsertSnapshot).toHaveBeenCalledWith(expect.objectContaining({ id: 'wu-stale', status: 'closed' }));
+    // #170：close 走锁内成对写（completed 事件 + 索引快照）
+    expect(fileStore.commitSnapshot).toHaveBeenCalledTimes(1);
+    expect(fileStore.commitSnapshot).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'completed', wuId: 'wu-stale' }),
+      expect.objectContaining({ id: 'wu-stale', status: 'closed' }),
+    );
   });
 });
 

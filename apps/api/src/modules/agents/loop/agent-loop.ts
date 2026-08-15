@@ -1225,16 +1225,8 @@ export class AgentLoop {
     // #95: progressLog 环形簿记 —— 只记成功步（progress/complete；delegate 经 handleDelegateBranch
     // 已归化为 progress/need_input，failed/need_input 不进 log），summary 截 200 字符、保留最近 5 条。
     // 失败步不落 log：errorType 留在 metadata，由 prompt-composer 注入「前序进展」段时附「上一步失败」行。
-    const progressLogUpdates: Partial<WorkUnitMetadata> = {};
-    if (action === 'progress' || action === 'complete') {
-      const prev = Array.isArray(metadata.progressLog) ? metadata.progressLog : [];
-      progressLogUpdates.progressLog = [...prev, {
-        step: stepCount,
-        action,
-        summary: (result.summary ?? '').slice(0, PROGRESS_LOG_SUMMARY_MAX_CHARS),
-        at: new Date().toISOString(),
-      }].slice(-PROGRESS_LOG_MAX_ENTRIES);
-    }
+    // #170（决策 #65-1）：追加动作随下方 updateMetadata 移入锁内（基于锁内最新 progressLog，
+    // 不再用读时快照拼接后全量回写）。
 
     // F6-c（断点 1）：步骤超限强制收口前补跑 L1 —— COMPLETE 验证守卫只在 action=complete 时跑，
     // 超限路径（任意 action）此前完全跳过验证，代码类 WU 被强制 in_review 时永远缺 l1。
@@ -1300,11 +1292,51 @@ export class AgentLoop {
       blockReasonUpdates.blockReason = undefined; // undefined 在 JSON 序列化时丢弃 → 清除
     }
 
-    // Single atomic metadata write: merges agentStep updates (sessionId/startedAt/sessionResumes)
-    // with monitoring counters (stepCount/consecutiveStuck) — fixes C-3 non-atomic write
-    await this.workUnitService.update(wuId, {
-      metadata: { ...metadata, ...result.metadataUpdates, ...waitingUpdates, ...guardUpdates, ...freshnessUpdates, ...blockReasonUpdates, ...progressLogUpdates, stepCount, consecutiveStuck },
+    // #170（决策 #65-1）：锁内字段级合并写 —— 守卫/新鲜度/强制收口判定仍在锁外基于合并视图
+    // 完成，最终只把本步字段级增量交给 updateMetadata 的 mutator 应用到锁内最新 metadata：
+    // stepCount/consecutiveStuck 锁内重计、progressLog 锁内基于最新值追加、pendingReplies
+    // 三段合成（精确移除本步已注入的旧条目；保留 step 期间经 waiting-input 锁内新到的人类
+    // 回复；尾部追加新鲜度拦截暂存），其余增量覆盖到最新值——人类回复/扫描计数不再被
+    // recordResult 的陈旧快照全量回写冲掉（#58-M1 扫描计数回退一并消除）。
+    const persistedMeta = parseWuMetadata(wu.metadata);
+    const stepStartReplyCount = Array.isArray(persistedMeta.pendingReplies) ? persistedMeta.pendingReplies.length : 0;
+    // prompt-composer 消费清除标记：metadataUpdates 携带 pendingReplies: undefined = 本步已注入
+    const stepUpdates = result.metadataUpdates ?? {};
+    const consumedPending = 'pendingReplies' in stepUpdates && stepUpdates.pendingReplies === undefined;
+    const freshnessHeld = Array.isArray(freshnessUpdates.pendingReplies) ? freshnessUpdates.pendingReplies : [];
+
+    const recorded = await this.fileStore.updateMetadata(wuId, (latestRaw) => {
+      const latest = latestRaw as WorkUnitMetadata;
+      const nextStepCount = (latest.stepCount ?? 0) + 1;
+      const next: WorkUnitMetadata = {
+        ...latest,
+        ...stepUpdates,
+        ...waitingUpdates,
+        ...guardUpdates,
+        ...freshnessUpdates,
+        ...blockReasonUpdates,
+        stepCount: nextStepCount,
+        consecutiveStuck: action === 'progress' ? 0 : (latest.consecutiveStuck ?? 0) + 1,
+      };
+      // progressLog 环形簿记：锁内基于最新值尾部追加（截 200 字符、保留最近 5 条）
+      if (action === 'progress' || action === 'complete') {
+        const prevLog = Array.isArray(latest.progressLog) ? latest.progressLog : [];
+        next.progressLog = [...prevLog, {
+          step: nextStepCount,
+          action,
+          summary: (result.summary ?? '').slice(0, PROGRESS_LOG_SUMMARY_MAX_CHARS),
+          at: new Date().toISOString(),
+        }].slice(-PROGRESS_LOG_MAX_ENTRIES);
+      }
+      // pendingReplies 三段合成（追加只发生在尾部 → slice 精确移除本步已注入的旧条目）
+      let replies = Array.isArray(latest.pendingReplies) ? [...latest.pendingReplies] : [];
+      if (consumedPending) replies = replies.slice(stepStartReplyCount);
+      if (freshnessHeld.length > 0) replies.push(...freshnessHeld);
+      if (replies.length > 0) next.pendingReplies = replies;
+      else delete next.pendingReplies;
+      return next as Record<string, unknown>;
     });
+    if (!recorded) return; // WU 已被删除（terminate/GC 竞态）——簿记无处落，放弃本步收尾
 
     // P0 修复 6: trace 锚点 — 有 traceId 的 WU（频道消息链路）每步留一条可 grep 日志
     if (traceId) {

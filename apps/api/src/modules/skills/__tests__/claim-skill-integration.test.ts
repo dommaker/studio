@@ -34,6 +34,8 @@ const { mockFileStore } = vi.hoisted(() => ({
     upsertSnapshot: vi.fn(),
     appendEvent: vi.fn(),
     removeSnapshot: vi.fn(),
+    // #170：update 改走锁内成对原语（claim 的 timeoutAt 回写经过）
+    commitSnapshot: vi.fn(),
   },
 }));
 

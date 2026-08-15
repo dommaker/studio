@@ -195,27 +195,17 @@ export class WorkUnitCrudService {
     const now = new Date();
     const snapshot = inputToSnapshot(id, input, now);
 
-    // Append event
+    // #170（决策 #65-3）：appendEvent + upsertSnapshot 同一把 flock 成对落盘
     const event: WorkUnitEvent = {
       type: 'created',
       wuId: id,
       timestamp: now.toISOString(),
       data: snapshot as unknown as Record<string, unknown>,
     };
-    await this.fileStore.appendEvent(event);
-
-    // Upsert index snapshot
-    await this.fileStore.upsertSnapshot(snapshot);
+    await this.fileStore.commitSnapshot(event, snapshot);
 
     // Publish event for EVENT trigger consumers (AgentLoop, etc.)
-    try {
-      eventBus.publish('workunit.created', { workunit: snapshotToData(snapshot) });
-    } catch (err) {
-      logger.warn('[WorkUnit] Failed to publish workunit.created (non-blocking)', {
-        workUnitId: id,
-        error: String(err),
-      });
-    }
+    this.publishCreated(snapshot);
 
     const parentWu = snapshotToData(snapshot);
 
@@ -232,6 +222,39 @@ export class WorkUnitCrudService {
     }
 
     return parentWu;
+  }
+
+  /**
+   * #170（决策 #65-2）：锁内 check-then-create 建单——guard 在 workunits flock 内对
+   * 最新 index 复查，通过才落 created 事件 + 索引快照（并发下同守卫建单只有一个成功）。
+   * 供 ReviewDispatcher 的同父唯一性建单使用；不做默认管线展开（guard 型调用方非 feature 链头）。
+   * @returns 建单成功返回 WorkUnitData；guard 拒绝返回 null（未落任何数据）
+   */
+  async createGuarded(
+    input: CreateWorkUnitInput,
+    guard: (snapshots: WorkUnitSnapshot[]) => boolean,
+  ): Promise<WorkUnitData | null> {
+    const id = randomUUID();
+    const now = new Date();
+    const snapshot = inputToSnapshot(id, input, now);
+
+    const created = await this.fileStore.createSnapshotGuarded(snapshot, guard);
+    if (!created) return null;
+
+    this.publishCreated(snapshot);
+    return snapshotToData(snapshot);
+  }
+
+  /** workunit.created 发布（best-effort，不阻断主流程；create/createGuarded 共用） */
+  private publishCreated(snapshot: WorkUnitSnapshot): void {
+    try {
+      eventBus.publish('workunit.created', { workunit: snapshotToData(snapshot) });
+    } catch (err) {
+      logger.warn('[WorkUnit] Failed to publish workunit.created (non-blocking)', {
+        workUnitId: snapshot.id,
+        error: String(err),
+      });
+    }
   }
 
   /**
@@ -330,17 +353,14 @@ export class WorkUnitCrudService {
     const now = new Date();
     const updated = patchSnapshot(existing, input, now);
 
-    // Append event
+    // #170（决策 #65-3）：appendEvent + upsertSnapshot 同锁成对
     const event: WorkUnitEvent = {
       type: 'updated',
       wuId: id,
       timestamp: now.toISOString(),
       data: updated as unknown as Record<string, unknown>,
     };
-    await this.fileStore.appendEvent(event);
-
-    // Upsert index snapshot
-    await this.fileStore.upsertSnapshot(updated);
+    await this.fileStore.commitSnapshot(event, updated);
 
     return snapshotToData(updated);
   }
@@ -355,16 +375,15 @@ export class WorkUnitCrudService {
 
     const now = new Date();
 
-    // Append closed event
+    // #170（决策 #65-3）：删除墓碑事件 + 索引移除同锁成对——
+    // data.deleted=true 墓碑让 rebuildIndex/reconcileIndex 不复活已删 WU
     const event: WorkUnitEvent = {
       type: 'closed',
       wuId: id,
       timestamp: now.toISOString(),
+      data: { deleted: true },
     };
-    await this.fileStore.appendEvent(event);
-
-    // Remove from index
-    await this.fileStore.removeSnapshot(id);
+    await this.fileStore.commitRemoval(event, id);
   }
 
   /**
@@ -477,8 +496,7 @@ export class WorkUnitCrudService {
       timestamp: now.toISOString(),
       data: updated as unknown as Record<string, unknown>,
     };
-    await this.fileStore.appendEvent(event);
-    await this.fileStore.upsertSnapshot(updated);
+    await this.fileStore.commitSnapshot(event, updated);
 
     // 释放回池（→ unassigned）同样发 status_changed（列表实时刷新/重新派工可见）
     this.publishStatusChanged(updated);
@@ -564,8 +582,7 @@ export class WorkUnitCrudService {
       timestamp: now,
       data: updatedParent as unknown as Record<string, unknown>,
     };
-    await this.fileStore.appendEvent(event);
-    await this.fileStore.upsertSnapshot(updatedParent);
+    await this.fileStore.commitSnapshot(event, updatedParent);
 
     logger.info('[WorkUnit] Parent status aggregated', {
       parentId: child.parentId,

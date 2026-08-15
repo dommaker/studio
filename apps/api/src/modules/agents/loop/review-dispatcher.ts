@@ -20,7 +20,7 @@
  *   （/review/diff 管理端点链路）已于 2026-08-06 整体删除——端点零真实调用方
  */
 
-import { eventBus, logger, parseChannels, deriveDisplayState, type FileStore, type AgentProfileData } from '@dommaker/studio-shared';
+import { eventBus, logger, parseChannels, deriveDisplayState, type FileStore, type AgentProfileData, type WorkUnitSnapshot } from '@dommaker/studio-shared';
 import { WorkUnitService, type WorkUnitData, type WorkUnitMetadata } from '../../workunit/workunit.service.js';
 import { DECISION_SPEC_TYPES } from '../../workunit/workunit.types.js';
 import { readCollab } from '../../workunit/delegation-gate.js';
@@ -92,16 +92,15 @@ export class ReviewDispatcher {
   private async handleParentInReview(parent: WorkUnitData): Promise<void> {
     if (!parent.channelId) return;
 
-    // 同父唯一性校验：已有未完结 review 子 WU -> 跳过
-    if (await this.hasUnfinishedReviewChild(parent.id)) return;
-
+    // #170（决策 #65-2）：同父唯一性检查收进建单的同一把 workunits flock
+    // （锁内 check-then-create），并发/多实例事件链下不会重复建单；
+    // guard 拒绝（另一实例已抢建）→ null → 静默跳过（等价原 hasUnfinishedReviewChild 预检）
     await this.createReviewChildFor(parent);
   }
 
-  /** 同父唯一性：已有未完结 review 子 WU */
-  private async hasUnfinishedReviewChild(parentId: string): Promise<boolean> {
-    const snapshots = await this.fileStore.getIndex();
-    return snapshots.some(s =>
+  /** 同父唯一性守卫（createGuarded 的锁内 guard + dispatchReviewNow 的友好预检共用） */
+  private hasNoUnfinishedReviewChild(parentId: string): (snapshots: WorkUnitSnapshot[]) => boolean {
+    return snapshots => !snapshots.some(s =>
       s.parentId === parentId
       && s.type === 'review'
       && s.status !== 'done'
@@ -109,13 +108,21 @@ export class ReviewDispatcher {
     );
   }
 
+  /** 同父唯一性：已有未完结 review 子 WU（锁外预检——友好报错用；原子保证在锁内 guard） */
+  private async hasUnfinishedReviewChild(parentId: string): Promise<boolean> {
+    const snapshots = await this.fileStore.getIndex();
+    return !this.hasNoUnfinishedReviewChild(parentId)(snapshots);
+  }
+
   /**
    * 建评审子 WU + 自评兜底频道提醒（路径 A 事件链与 F6-c 人工补派共用）。
    * F4: 评审子 WU 未指派走涌现；排除实现者（决策 5 衔接顺序）：
    * 成员已知且除实现者外无他人 → 自评兜底（不加排除 + selfReview 标记 + 频道提醒）；
    * 成员未知（历史频道未回填 members）同样保守处理为自评兜底。
+   * #170（决策 #65-2）：建单走 createGuarded 锁内 check-then-create——
+   * 并发下另一实例已抢建时返回 null（调用方按「已在途」处理）。
    */
-  private async createReviewChildFor(parent: WorkUnitData): Promise<WorkUnitData> {
+  private async createReviewChildFor(parent: WorkUnitData): Promise<WorkUnitData | null> {
     const members = await this.getChannelActiveMembers(parent.channelId!);
     const implementerId = await this.resolveProfileId(parent.assigneeId);
     const eligible = members?.filter(p => p.id !== implementerId) ?? null;
@@ -125,6 +132,7 @@ export class ReviewDispatcher {
       excludeAssignee: selfReview ? null : implementerId,
       selfReview,
     });
+    if (!child) return null; // 并发抢建被锁内 guard 拦截
 
     if (selfReview) {
       // 决策 5：提醒是给人看的（建议人工复核/加成员），自评是保流转的——二者不冲突
@@ -172,15 +180,22 @@ export class ReviewDispatcher {
     }
 
     const child = await this.createReviewChildFor(parent);
+    // #170（决策 #65-2）：预检与建单之间存在并发窗口——锁内 guard 拦截时按同父唯一性拒绝
+    if (!child) {
+      throw new Error('Review child already in flight — 已有未完结的评审子 WU');
+    }
     logger.info('[ReviewDispatcher] Review re-dispatched manually', { parentId: parent.id, childId: child.id, parentStatus: parent.status });
     return child;
   }
 
-  /** 创建 review 子 WU（未指派走 claim 涌现；绕过 DelegationGate，design.md D6） */
+  /** 创建 review 子 WU（未指派走 claim 涌现；绕过 DelegationGate，design.md D6）。
+   *  #170（决策 #65-2）：hasUnfinishedReviewChild 检查 + create 收进同一把 workunits flock
+   *  （createGuarded 锁内 check-then-create，照抄 claimWorkUnit 锁内复查模式）——
+   *  并发/多实例下不重复建单。guard 拒绝返回 null。 */
   private async createReviewWorkUnit(
     parent: WorkUnitData,
     opts: { excludeAssignee: string | null; selfReview: boolean },
-  ): Promise<WorkUnitData> {
+  ): Promise<WorkUnitData | null> {
     const parentMeta = parseWuMetadata(parent.metadata);
     const parentCollab = parentMeta.collab ?? {
       rootId: parent.id,
@@ -232,7 +247,7 @@ export class ReviewDispatcher {
 REVIEW_RESULT: {"verdict":"pass"|"reject"|"needs-info","summary":"一句话结论","issues":[{"severity":"error"|"warn"|"info","message":"问题描述"}]}
 （verdict=pass 通过 / reject 打回 / needs-info 上下文不足转人工；summary、issues 可省略。缺少该行将转人工评审。）`;
 
-    const child = await this.workUnitService.create({
+    const child = await this.workUnitService.createGuarded({
       type: 'review',
       // P0 修复（reviewReport 回传断链）：scope 写入 REVIEW_RESULT 输出约定 ——
       // 评审方 AgentLoop complete 时据此解析结构化结论写入 metadata.reviewReport
@@ -245,7 +260,13 @@ REVIEW_RESULT: {"verdict":"pass"|"reject"|"needs-info","summary":"一句话结�
       workspaceId: parent.workspaceId ?? null,
       reqId: typeof parentMeta.reqId === 'string' ? parentMeta.reqId : null,
       metadata: childMeta,
-    });
+    }, this.hasNoUnfinishedReviewChild(parent.id));
+
+    if (!child) {
+      // 锁内 guard 拦截：并发下另一实例/事件链已抢建（同父唯一性）
+      logger.info('[ReviewDispatcher] Review child creation skipped (concurrent creation won the lock)', { parentId: parent.id });
+      return null;
+    }
 
     logger.info('[ReviewDispatcher] Created review child WU (unassigned)', {
       parentId: parent.id,

@@ -58,7 +58,8 @@ export type MonitorAlertSource =
   | 'total_time'
   | 'tool_error_rate'
   | 'tool_zero_success'
-  | 'session_file_size';
+  | 'session_file_size'
+  | 'wu_index_reconcile'; // #170（决策 #65-3）：启动对账 events vs index 分叉告警
 
 export interface MonitorAlert {
   level: 'info' | 'warning' | 'critical';

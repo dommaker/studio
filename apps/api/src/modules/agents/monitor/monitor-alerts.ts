@@ -70,6 +70,7 @@ export function escalateToTriage(alerts: MonitorAlert[]): void {
     tool_error_rate: null,
     tool_zero_success: null,
     session_file_size: null,
+    wu_index_reconcile: null, // #170：对账分叉已自动重建，无需 Triage 升级
   };
 
   for (const alert of alerts) {

@@ -128,15 +128,21 @@ export async function checkTotalExecutionTime(fileStore: FileStore): Promise<Mon
       } catch (stopErr) {
         logger.warn('[MonitorService] Failed to stop workUnit process', { workUnitId: exec.id.slice(0, 8), error: String(stopErr) });
       }
-      // Update status via FileStore
+      // Update status via FileStore（#170：completed 事件 + 索引同锁成对，消除分叉窗口）
       try {
         const current = (await fileStore.getIndex()).find(s => s.id === exec.id);
         if (current) {
-          await fileStore.upsertSnapshot({
+          const closed: typeof current = {
             ...current,
             status: 'closed',
             completedAt: new Date().toISOString(),
-          });
+          };
+          await fileStore.commitSnapshot({
+            type: 'completed',
+            wuId: current.id,
+            timestamp: closed.completedAt!,
+            data: closed as unknown as Record<string, unknown>,
+          }, closed);
         }
         logger.info('[MonitorService] Auto-closed timed-out workUnit', { workUnitId: exec.id.slice(0, 8), elapsedMin });
       } catch (dbErr) {
@@ -176,7 +182,14 @@ export async function autoAbandonStaleBlocked(fileStore: FileStore): Promise<voi
     try {
       const current = (await fileStore.getIndex()).find(s => s.id === exec.id);
       if (current) {
-        await fileStore.upsertSnapshot({ ...current, status: 'closed' });
+        // #170：closed 事件 + 索引同锁成对（消除分叉窗口，对账可闭环）
+        const closed: typeof current = { ...current, status: 'closed' };
+        await fileStore.commitSnapshot({
+          type: 'completed',
+          wuId: current.id,
+          timestamp: new Date().toISOString(),
+          data: closed as unknown as Record<string, unknown>,
+        }, closed);
       }
     } catch (e) {
       logger.error('[MonitorService] Failed to auto-abandon', { executionId: exec.id, error: String(e) });

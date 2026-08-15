@@ -134,6 +134,22 @@ describe('resumeWaitingWorkUnit', () => {
   it('WorkUnit 不存在 → false，不抛错', async () => {
     await expect(resumeWaitingWorkUnit('no-such-wu', 'hi', fileStore)).resolves.toBe(false);
   });
+
+  it('#170（决策 #65-1）: 并发人类回复经锁内合并写不丢（pendingReplies 全部保留）', async () => {
+    const { wu } = await createParkedWorkUnit();
+
+    // 第一条回复解除挂起（→ active + pendingReplies=['回复1']）
+    await resumeWaitingWorkUnit(wu.id, '回复1', fileStore);
+    // 已恢复但 loop 尚未消费 pendingReplies 的窗口内，两条回复并发到达
+    await Promise.all([
+      resumeWaitingWorkUnit(wu.id, '回复2', fileStore),
+      resumeWaitingWorkUnit(wu.id, '回复3', fileStore),
+    ]);
+
+    const meta = metaOf(await findWu(wu.id));
+    expect(meta.pendingReplies).toHaveLength(3);
+    expect(meta.pendingReplies).toEqual(expect.arrayContaining(['回复1', '回复2', '回复3']));
+  });
 });
 
 describe('scanWaitingForInputReminders', () => {

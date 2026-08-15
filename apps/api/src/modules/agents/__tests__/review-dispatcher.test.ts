@@ -493,6 +493,26 @@ describe('ReviewDispatcher (AC-4.1 ~ AC-4.5 + F4)', () => {
     await expect(dispatcher.dispatchReviewNow(parent.id)).rejects.toThrow('already in flight');
   });
 
+  it('#170（决策 #65-2）: 并发 dispatchReviewNow 锁内 check-then-create —— 只建一个评审子 WU', async () => {
+    const parent = await wuService.create({
+      scope: '实现功能 K2', type: 'feature', channelId: 'ch-test',
+      assigneeId: executorProfile.id, status: 'in_review',
+    });
+
+    const results = await Promise.allSettled([
+      dispatcher.dispatchReviewNow(parent.id),
+      dispatcher.dispatchReviewNow(parent.id),
+      dispatcher.dispatchReviewNow(parent.id),
+    ]);
+
+    expect(results.filter(r => r.status === 'fulfilled')).toHaveLength(1);
+    for (const r of results) {
+      if (r.status === 'rejected') expect(String(r.reason)).toContain('already in flight');
+    }
+    const snapshots = await fileStore.getIndex();
+    expect(snapshots.filter(s => s.parentId === parent.id && s.type === 'review')).toHaveLength(1);
+  });
+
   it('F6-c: WU 不存在 / 无频道 -> 拒绝补派', async () => {
     await expect(dispatcher.dispatchReviewNow('wu-x')).rejects.toThrow('not found');
     const noChannel = await wuService.create({

@@ -319,7 +319,13 @@ export async function runGC(): Promise<GCResult> {
     const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
     for (const s of snapshots) {
       if ((s.status === 'done' || s.status === 'closed') && s.completedAt && s.completedAt < cutoff) {
-        await fileStore.removeSnapshot(s.id);
+        // #170：墓碑事件 + 索引移除同锁成对（对账/重建不复活已删 WU）
+        await fileStore.commitRemoval({
+          type: 'closed',
+          wuId: s.id,
+          timestamp: new Date().toISOString(),
+          data: { deleted: true },
+        }, s.id);
         cleaned++;
         details.push(`Removed completed WorkUnit: ${s.id}`);
       }
