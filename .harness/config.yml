@@ -1,0 +1,11 @@
+preset: standard
+enabled: true
+ironLaws:
+  enforceErrors: true
+  warnWarnings: true
+validators:
+  checkpoint: true
+  passesGate: true
+  cso: false
+harness:
+  version: 0.19.0
