@@ -46,3 +46,4 @@
 - 事件总线支持通配符（`*`）模式订阅，Handler 异常不会影响其他监听器
 - 级别常量为单一数据源，其他模块不应重复定义
 - `constants/` 下各文件应保持无外部依赖（仅内部引用），便于前端复用
+- `attestation.ts` 的 `deriveDisplayState()` 是 WU 展示状态唯一派生口径（F6 铁律，前后端共用）；#126（T4）起 `pending`（待确认人闸）为第七个看板列——按所有权状态原样透传且 `needsHuman=true`（人工确认才进 frontier），未知状态仍兜底 active
