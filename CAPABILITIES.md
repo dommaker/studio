@@ -1,6 +1,6 @@
 # CAPABILITIES.md
 
-> 最后更新: 2026-08-14
+> 最后更新: 2026-08-15
 
 ---
 
@@ -104,3 +104,78 @@
 | transcript-archive | apps/api/src/modules/transcripts/transcript-archive.ts | transcript-archive — transcript 归档器（#97，#88 子票） |
 | distill | apps/api/src/modules/distill/ | 蒸馏主链路最小闭环（#143）：门槛检测纯函数 + distill_proposal 人审卡 + approve 执行 + runs.jsonl 运行记录 |
 | DistillProposalCard | apps/web/src/components/channel/DistillProposalCard.tsx | distill_proposal 人审卡（#143）：原料清单 + 确认蒸馏/拒绝 |
+| App | apps/web/src/App.tsx | App.tsx - Agent Studio - 路由重构 |
+| AuthModal | apps/web/src/components/AuthModal.tsx | 隐形认证 — 仅通过手势触发（双击 ⚡ 或 Ctrl+Enter） |
+| ChannelWorkspaceSetting | apps/web/src/components/ChannelWorkspaceSetting.tsx | ChannelWorkspaceSetting |
+| DiscussionPanel | apps/web/src/components/DiscussionPanel.tsx | DiscussionPanel — WorkUnit 讨论空间（MVP-4） |
+| JoinComputeDialog | apps/web/src/components/JoinComputeDialog.tsx | JoinComputeDialog |
+| KnowledgeGraphView | apps/web/src/components/KnowledgeGraphView.tsx | 节点颜色映射（分类色板 → theme.css `--chart-1…9`，深/浅主题各自取值） |
+| LandingPage | apps/web/src/components/LandingPage.tsx | Lurk Wall: 个人网站展示页 — 不提示登录，不显示入口 |
+| MoreDropdown | apps/web/src/components/MoreDropdown.tsx | MoreDropdown.tsx - "更多"下拉菜单组件（L4 高级功能） |
+| NotificationBell | apps/web/src/components/NotificationBell.tsx | Notification Bell — B2-003: 通知中心 |
+| OAuthCallback | apps/web/src/components/OAuthCallback.tsx | OAuth callback handler. |
+| PmoNumberBadge | apps/web/src/components/PmoNumberBadge.tsx | PMO 号显示组件 - GEN-005 |
+| SidebarNew | apps/web/src/components/SidebarNew.tsx | Sidebar.tsx - 侧边栏组件（最新设计） |
+| TokenManager | apps/web/src/components/TokenManager.tsx | TokenManager |
+| TopNav | apps/web/src/components/TopNav.tsx | TopNav.tsx - 顶部导航栏组件（L1 核心功能） |
+| TriageBanner | apps/web/src/components/TriageBanner.tsx | Triage Global Banner — B2-005: 页面顶部常驻告警横幅 |
+| WorkspaceStatusBar | apps/web/src/components/WorkspaceStatusBar.tsx | WorkspaceStatusBar |
+| AuditorSuggestionCard | apps/web/src/components/channel/AuditorSuggestionCard.tsx | Auditor suggestion card — B3-005 |
+| AuthorAvatar | apps/web/src/components/channel/AuthorAvatar.tsx | AuthorAvatar — 频道消息作者头像：人类 = 品牌色 + 用户名首字（用户传了 avatar 图则用图）； |
+| ChannelInput | apps/web/src/components/channel/ChannelInput.tsx | Channel message input — AC-C1: @mention autocomplete + AC-C2: reply mode |
+| ChannelMemberManager | apps/web/src/components/channel/ChannelMemberManager.tsx | Channel Member Manager — AC-B frontend gap |
+| ChannelMessageItem | apps/web/src/components/channel/ChannelMessageItem.tsx | Channel message renderer — AC-C2: reply button + AC-C3: thread + AC-E3: Convert to Task |
+| ChannelRail | apps/web/src/components/channel/ChannelRail.tsx | ChannelRail — Mission Control 左栏：频道列表（未读 badge + agent 在线数）+ Agent 状态 |
+| ConstraintAuditCard | apps/web/src/components/channel/ConstraintAuditCard.tsx | ConstraintAuditCard — #146 存量约束退役建议人审闸口 |
+| ConvertToTaskDialog | apps/web/src/components/channel/ConvertToTaskDialog.tsx | AC-E3: Convert to Task dialog — LLM suggestion + form |
+| GcProposalCard | apps/web/src/components/channel/GcProposalCard.tsx | GC proposal card — #144 知识库 GC 候选清单人审闸口 |
+| KnowledgeConfirmCard | apps/web/src/components/channel/KnowledgeConfirmCard.tsx | Knowledge confirm / retract card — B1-008/B1-010 |
+| KnowledgeProposalCard | apps/web/src/components/channel/KnowledgeProposalCard.tsx | Knowledge proposal card — 2026-07 知识审核闭环（vision §4 提取→待审→注入，§6 人在频道审核） |
+| MemoryProposalCard | apps/web/src/components/channel/MemoryProposalCard.tsx | Memory proposal card — #101 角色记忆人审闸口 |
+| RequirementsDocCard | apps/web/src/components/channel/RequirementsDocCard.tsx | RequirementsDoc inline card — B1-001/B1-003, M2 quality gate |
+| WorkUnitDrawer | apps/web/src/components/channel/WorkUnitDrawer.tsx | WorkUnitDrawer — Mission Control 右抽屉：WorkUnit 详情 / REQ 全链路 |
+| DocReaderDrawer | apps/web/src/components/knowledge/DocReaderDrawer.tsx | 知识库文档阅读器 — PMO 驾驶舱文档区点开的右侧抽屉 |
+| GapCards | apps/web/src/components/knowledge/GapCards.tsx | 知识库页面六类 Gap 明细卡片（2026-08 工单 34 从 pages/KnowledgePage.tsx 抽出，纯展示无逻辑变更） |
+| KnowledgeDocGrid | apps/web/src/components/knowledge/KnowledgeDocGrid.tsx | 知识库三列网格（从 pages/ProjectDetailPage.tsx 抽取，工单 35-E4）：列定义数据驱动，卡片点开抽屉阅读器 |
+| MarkdownBody | apps/web/src/components/knowledge/MarkdownBody.tsx | Markdown 正文渲染 — DocReaderDrawer / WikiDocPage 统一方案（2026-07-31 §10 任务 4b） |
+| RequirementChainPanel | apps/web/src/components/requirement/RequirementChainPanel.tsx | REQ 全链路面板（vision §5.3）— 展示 GET /requirements/:id/chain |
+| CompanySection | apps/web/src/components/settings/CompanySection.tsx | 公司信息 section（从 pages/Settings.tsx 抽取，工单 35-E3）：公司名称自动保存 + 无公司时创建 |
+| ComputeSection | apps/web/src/components/settings/ComputeSection.tsx | 算力接入 section（从 pages/Settings.tsx 抽取，工单 35-E3）：Workspace 状态 + 加入算力弹窗 + Token 管理 |
+| KnowledgeEntrySection | apps/web/src/components/settings/KnowledgeEntrySection.tsx | 公司知识库入口 section（从 pages/Settings.tsx 抽取，工单 35-E3） |
+| NotifyChannelSection | apps/web/src/components/settings/NotifyChannelSection.tsx | 通知渠道 section（从 pages/Settings.tsx 抽取，工单 35-E3）：Discord/企微/Telegram 三段合并为数据驱动 |
+| NotifySyncStatusHint | apps/web/src/components/settings/NotifySyncStatusHint.tsx | 通知配置同步状态提示（从 pages/Settings.tsx 抽取，工单 35-E3） |
+| ThemeSettings | apps/web/src/components/settings/ThemeSettings.tsx | 主题设置 section（从 pages/Settings.tsx 抽取，工单 35-E3） |
+| FirstRoleSetupModal | apps/web/src/components/setup/FirstRoleSetupModal.tsx | AC-2.3（F2，2026-07-28）: 无已配置 provider 的用户角色时弹框提醒 |
+| StudioRoleSetupModal | apps/web/src/components/setup/StudioRoleSetupModal.tsx | AC-2.2: studio 角色 provider=null 弹框提醒 |
+| Button | apps/web/src/components/ui/Button.tsx | Button — 带 loading 态的通用按钮，包装 theme.css 的 .btn / .btn-{variant} / .btn-sm 类体系 |
+| ConfirmDialog | apps/web/src/components/ui/ConfirmDialog.tsx | ConfirmDialog — 确认/警示弹窗：替代原生 window.confirm / alert |
+| ManualTaskButton | apps/web/src/components/ui/ManualTaskButton.tsx | ManualTaskButton — 「手动任务」按钮：点击执行 → loading → toast 反馈 |
+| Modal | apps/web/src/components/ui/Modal.tsx | Reusable modal overlay + content shell. |
+| Select | apps/web/src/components/ui/Select.tsx | Select — 主题感知下拉选择，原生 <select> 的 drop-in 替代 |
+| EvidenceLedger | apps/web/src/components/workunit/EvidenceLedger.tsx | EvidenceLedger — F6 证据台账 L1/L2/L3 共享组件（WorkUnitDrawer 抽屉变体 / WorkUnitDetailPage 卡片变体） |
+| ExecutionSteps | apps/web/src/components/workunit/ExecutionSteps.tsx | ExecutionSteps — WU 过程可视化：执行步事件流（思考/工具调用/skill 注入/用量），SSE 步级刷新。 |
+| ReviewHint | apps/web/src/components/workunit/ReviewHint.tsx | AC-2.4（F4 2026-07-28 改口径）: WorkUnit in_review 且频道无可认领成员时的前端提醒横幅 |
+| SelfReviewBadge | apps/web/src/components/workunit/SelfReviewBadge.tsx | F6（决策 5）自评标记：频道内除实现者外无人可评时，评审由实现者自评兜底。 |
+| TreeTokenDrawer | apps/web/src/components/workunit/TreeTokenDrawer.tsx | TreeTokenDrawer - 树级 token 开销展示（AC-5.4 ~ AC-5.7） |
+| ThemeContext | apps/web/src/contexts/ThemeContext.tsx | 获取系统主题偏好 |
+| main | apps/web/src/main.tsx | main |
+| AgentDashboardPage | apps/web/src/pages/AgentDashboardPage.tsx | AgentDashboard — 角色（AgentProfile）作战视图（2026-07-31 全流程串联 UX 重构 §5.2） |
+| AgentDetailPage | apps/web/src/pages/AgentDetailPage.tsx | AgentDetailPage — /agents/:profileId（2026-07-31 全流程串联 UX 重构 §5.3） |
+| AuditLogsPage | apps/web/src/pages/AuditLogsPage.tsx | 审计日志页面 - AR-012 |
+| ChannelDetailPage | apps/web/src/pages/ChannelDetailPage.tsx | 线程内过程消息折叠/聚合：连续 ≥3 条「过程消息」收成一组（默认折叠，点击展开）。 |
+| ChannelListPage | apps/web/src/pages/ChannelListPage.tsx | Channel List Page — B2: 首页 = 频道列表 + Agent 状态栏 |
+| ForgotPasswordPage | apps/web/src/pages/ForgotPasswordPage.tsx | 忘记密码页面 — 输入邮箱，发送重置链接 |
+| KnowledgeImportPage | apps/web/src/pages/KnowledgeImportPage.tsx | 冷启动导入向导 |
+| KnowledgePage | apps/web/src/pages/KnowledgePage.tsx | 知识库页面 — 累积知识浏览 |
+| MonitoringPage | apps/web/src/pages/MonitoringPage.tsx | MonitoringPage — Agent Network MVP-6 |
+| NotFoundPage | apps/web/src/pages/NotFoundPage.tsx | 404 页面 - 路由表兜底（未匹配路径） |
+| PMOPage | apps/web/src/pages/PMOPage.tsx | PMOPage - PMO 管理主页面（项目 + OKR；三个弹窗已抽至 components/pmo/，工单 33） |
+| ProjectDetailPage | apps/web/src/pages/ProjectDetailPage.tsx | Project 详情页 - GEN-005 + FL-013 |
+| ResetPasswordPage | apps/web/src/pages/ResetPasswordPage.tsx | 重置密码页面 — 使用 token 设置新密码 |
+| RolesSetup | apps/web/src/pages/RolesSetup.tsx | AC-2.5: 角色初始化向导页 |
+| Settings | apps/web/src/pages/Settings.tsx | 设置页面 - API 配置 + 通知 + 公司 + 主题语言 |
+| WikiDocPage | apps/web/src/pages/WikiDocPage.tsx | B2-008: Wiki 文档详情页 |
+| WikiPage | apps/web/src/pages/WikiPage.tsx | B2-008: Wiki 主页面 — RequirementsDoc 档案馆 |
+| WorkUnitDetailPage | apps/web/src/pages/WorkUnitDetailPage.tsx | WorkUnitDetailPage — /workunits/:id WU 详情页（全站跳转枢纽，2026-07 agents-pmo-flow-ux §5.4） |
+| WorkUnitListPage | apps/web/src/pages/WorkUnitListPage.tsx | WorkUnitListPage |
+| WorkspacePage | apps/web/src/pages/WorkspacePage.tsx | WorkspacePage — AC Group 5: runtime list + create role dialog |
