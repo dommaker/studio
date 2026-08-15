@@ -64,7 +64,8 @@ export const WAITING_QUESTION_REPLAY_MAX_CHARS = 300;
 /**
  * #119：契约段按 WU type 的产出格式 + 最小模板（内容定稿随 #118 续烤迭代，先落最简模板）。
  * review → REVIEW_RESULT 协议行；implement → 测试先行 + Phase commit 格式；
- * decision（决策单）→ 结论摘要格式。未列出的 type（task/feature/bug/analysis/spec 等）→ 空段（不注入）。
+ * decision（决策单）→ 结论摘要格式；analysis → research/prototype 产出载体（T3/#125）。
+ * 未列出的 type（task/feature/bug/spec 等）→ 空段（不注入）。
  */
 export const CONTRACT_TEMPLATES: Record<string, string> = {
   review: [
@@ -78,6 +79,11 @@ export const CONTRACT_TEMPLATES: Record<string, string> = {
   ].join('\n'),
   decision: [
     '结论摘要格式：输出末段 `## 结论摘要`，用一句话给出待决问题的结论与理由。',
+  ].join('\n'),
+  analysis: [
+    '方法论二选一（详见 skills 段 research / prototype 全文）：',
+    'research → 调研报告落业务仓 .studio/research/，并在来源工单回挂报告链接。',
+    'prototype → 一次性代码落 prototype/<name> 分支（不合并、不进评审），结论（回答了什么问题）记录回工单。',
   ].join('\n'),
 };
 

@@ -928,8 +928,19 @@ describe('#119: 契约段生成器（按 WU type）+ 段序稳定性重排', () 
     expect(prompt).toContain('## 结论摘要');
   });
 
-  it('未知/无契约 type（task/feature/bug/analysis/spec）→ 空段不注入', async () => {
-    for (const type of ['task', 'feature', 'bug', 'analysis', 'spec']) {
+  it('契约段 analysis → research/prototype 产出载体（T3/#125）', async () => {
+    const { prompt } = await composeStepPrompt(
+      { wu: makeWu({ type: 'analysis' }), metadata: {} as any },
+      deps(makeRole()),
+    );
+
+    expect(prompt).toContain('## 产出契约');
+    expect(prompt).toContain('.studio/research/');
+    expect(prompt).toContain('prototype/<name>');
+  });
+
+  it('未知/无契约 type（task/feature/bug/spec）→ 空段不注入', async () => {
+    for (const type of ['task', 'feature', 'bug', 'spec']) {
       const { prompt } = await composeStepPrompt(
         { wu: makeWu({ type }), metadata: {} as any },
         deps(makeRole()),
@@ -938,8 +949,8 @@ describe('#119: 契约段生成器（按 WU type）+ 段序稳定性重排', () 
     }
   });
 
-  it('契约段 200 软定额 + 模板表仅覆盖 review/implement/decision', () => {
+  it('契约段 200 软定额 + 模板表仅覆盖 review/implement/decision/analysis', () => {
     expect(SECTION_QUOTAS.contract).toBe(200);
-    expect(Object.keys(CONTRACT_TEMPLATES).sort()).toEqual(['decision', 'implement', 'review']);
+    expect(Object.keys(CONTRACT_TEMPLATES).sort()).toEqual(['analysis', 'decision', 'implement', 'review']);
   });
 });
