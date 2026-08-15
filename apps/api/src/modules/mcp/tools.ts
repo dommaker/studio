@@ -12,7 +12,6 @@ import { toolRegistry, type RegisteredTool } from './tool-registry.js';
 import { mcpPermissionService } from './permission.service.js';
 import { pmoTools } from './pmo.tools.js';
 import { taskTools } from './task.tools.js';
-import { knowledgeTools } from './knowledge.tools.js';
 import { economyTools } from './economy.tools.js';
 import { specTools } from './spec.tools.js';
 import { safetyTools } from './safety.tools.js';
@@ -32,8 +31,6 @@ const allTools: RegisteredTool[] = [
   ...pmoTools,
   // 任务
   ...taskTools,
-  // 知识库
-  ...knowledgeTools,
   // 经济
   ...economyTools,
   // 规格审查

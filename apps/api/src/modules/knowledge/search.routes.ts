@@ -12,7 +12,6 @@ import { Router } from 'express';
 import { logger } from '@dommaker/studio-shared';
 import { resolutionService } from './resolution.service.js';
 import { apiCache, CACHE_CONFIG } from '../../middleware/api-cache.js';
-import { listDocs } from './document-store.js';
 
 export const searchRoutes = Router();
 
@@ -73,8 +72,9 @@ searchRoutes.get('/resolutions', async (req, res) => {
 /**
  * GET /api/v1/knowledge/search
  * Unified search across all knowledge types
- * Query: q (required), types (comma-separated: document,resolution,pattern)
+ * Query: q (required), types (comma-separated: resolution,pattern,knowledge)
  * R4: behavior 读端已删（写链路整体已清理，全库无写入方，属残尸）
+ * #149（2026-08-15）：document 源随 document-store 退役移除。
  */
 searchRoutes.get('/search', apiCache(CACHE_CONFIG.short), async (req, res) => {
   try {
@@ -83,30 +83,10 @@ searchRoutes.get('/search', apiCache(CACHE_CONFIG.short), async (req, res) => {
       return res.status(400).json({ error: 'q (search query) is required' });
     }
     const query = String(q).toLowerCase();
-    const searchTypes = types ? String(types).split(',') : ['document', 'resolution', 'pattern'];
+    const searchTypes = types ? String(types).split(',') : ['resolution', 'pattern'];
     const takeLimit = Math.min(Number(limit), 50);
 
     const results: Array<{ type: string; id: string; title: string; snippet: string; score: number }> = [];
-
-    // Search documents (FileStore)
-    if (searchTypes.includes('document')) {
-      const allDocs = await listDocs();
-      const matched = allDocs
-        .filter(d => d.title.toLowerCase().includes(query) || d.content.toLowerCase().includes(query))
-        .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
-        .slice(0, takeLimit);
-      for (const d of matched) {
-        const titleLower = d.title.toLowerCase();
-        const score = titleLower.includes(query) ? 3 : 1;
-        results.push({
-          type: 'document',
-          id: d.id,
-          title: d.title,
-          snippet: (d.content || '').slice(0, 200),
-          score,
-        });
-      }
-    }
 
     // Search resolutions（R3: 同浏览口径 pending + canonical，canonical 命中加分）
     if (searchTypes.includes('resolution')) {

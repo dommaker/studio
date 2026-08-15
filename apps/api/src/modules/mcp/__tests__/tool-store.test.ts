@@ -28,7 +28,6 @@ afterAll(() => {
 describe('tool-store', () => {
   it('惰性目录函数返回 $HOME/.studio/data/*', () => {
     expect(store.getTasksDir()).toBe(path.join(tmpHome, '.studio', 'data', 'tasks'));
-    expect(store.getDocumentsDir()).toBe(path.join(tmpHome, '.studio', 'data', 'documents'));
     expect(store.getSpecReviewsDir()).toBe(path.join(tmpHome, '.studio', 'data', 'spec-reviews'));
     expect(store.getCompaniesDir()).toBe(path.join(tmpHome, '.studio', 'data', 'companies'));
   });

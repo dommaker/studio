@@ -17,9 +17,6 @@ export const fileStore = new FileStore();
 export function getTasksDir(): string {
   return studioPath('data', 'tasks');
 }
-export function getDocumentsDir(): string {
-  return studioPath('data', 'documents');
-}
 export function getSpecReviewsDir(): string {
   return studioPath('data', 'spec-reviews');
 }

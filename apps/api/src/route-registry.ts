@@ -96,8 +96,7 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
   // Skill proposal routes
   const { default: skillProposalRoutes } = await import('./modules/skills/skill-proposal-routes.js') as { default: Router };
 
-  // Knowledge Import routes (冷启动导入)
-  const { default: knowledgeImportRoutes } = await import('./modules/knowledge/import.routes.js') as { default: Router };  // Company routes (FileStore 存储；PMO 页 / Settings 依赖)
+  // Company routes (FileStore 存储；PMO 页 / Settings 依赖)
   const { default: companyRoutes } = await import('./modules/companies/routes.js') as { default: Router };
 
   // KnowledgeService HTTP API + SSE
@@ -253,7 +252,6 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     { path: '/api/v1/notify', router: notifyRoutes, middleware: admin, comment: 'DD-009: 出站推送（内部调用）' },
     { path: '/api/v1/knowledge', router: knowledgeRoutes, middleware: auth },
     { path: '/api/v1/knowledge-service', router: knowledgeServiceRoutes, middleware: auth, comment: 'KnowledgeService HTTP API + SSE' },
-    { path: '/api/v1/knowledge/import', router: knowledgeImportRoutes, middleware: auth, comment: 'S2: 冷启动导入' },
     { path: '/api/v1/role-memory', router: roleMemoryRoutes, middleware: auth, comment: '#101: 角色记忆人审闸口 approve/reject' },
     { path: '/api/v1/distill', router: distillRoutes, middleware: auth, comment: '#143: 蒸馏提案人审闸口 approve/reject' },
     { path: '/api/knowledge', router: knowledgeInternalRoutes, middleware: localhost, comment: 'Internal knowledge extraction API (2026-07 收紧：本机回环限定，此前全匿名可写/盗用 LLM)' },

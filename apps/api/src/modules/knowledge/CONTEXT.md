@@ -55,8 +55,7 @@ knowledge/
 ├── knowledge-query.service.ts # 5 类缺口查询（query/getStats）
 ├── knowledge-sync.service.ts  # 自动同步 + 新鲜度检测
 ├── resolution.service.ts      # 解法库（独立子系统）
-├── evolution.service.ts       # 知识演化
-├── evolution-scheduler.ts     # 演化调度
+├── evolution-scheduler.ts     # 周期任务调度（G-005 模式挖掘 + eval spring cleaning）
 ├── improver-scheduler.service.ts # 自文档化调度器（refreshStaleContext + runArchDocs）
 ├── preference-observer.ts     # Producer: 用户偏好
 ├── rule-scanner.ts            # Producer: 业务规则
@@ -65,14 +64,10 @@ knowledge/
 ├── decision-chain-extractor.ts # Producer: 决策链
 ├── eval-case-generator.ts     # Producer: 评估用例
 ├── routes.ts                  # API 路由门面（挂载子路由，导出 knowledgeRoutes/knowledgeInternalRoutes 不变）
-├── document-store.ts          # 文档 FileStore 存取助手（DocRecord + list/get/save + 项目读取）
-├── documents.routes.ts        # 子路由：文档列表/详情/CRUD/归档/审批
 ├── files.routes.ts            # 子路由：文件浏览（/requirements /read-file /file）
 ├── entries.routes.ts          # 子路由：知识条目（/export /ask /gaps /unified）
-├── evolution.routes.ts        # 子路由：知识进化（/evolution/*）
 ├── search.routes.ts           # 子路由：检索与解法指标（/resolutions /search /resolution/*）
-├── internal.routes.ts         # 子路由：内部端点（/sync-status /upsert，无 auth）
-└── import.routes.ts           # 文件导入路由
+└── internal.routes.ts         # 子路由：内部端点（/sync-status /upsert，无 auth）
 ```
 
 ## 依赖关系
@@ -94,5 +89,6 @@ knowledge/
 - `knowledgeBus` 的 `formatIndexSummary()` 已删除（零调用方；替代者 `buildKnowledgeContext` 亦已于 2026-07-27 清理，现注入入口为 `knowledgeService.injectContext`）
 - `applicableAgents` 存储在 tags 中（`agent:executor` 格式），KnowledgeEntry 无此字段
 - **鉴权（2026-07-24 收紧）**：`/api/knowledge`（internal.routes，不在 /api/v1 大门内）2026-07-24 起挂载 requireLocalhost——此前全匿名：POST /upsert 可污染知识库、GET /sync-status 有 heal 写副作用；本机脚本经回环调用不受影响。（POST /extract-text-sync 已于 2026-07-28 删除：直连 DeepSeek HTTP API 时代的 debug 路由，绕过 CLI 且零调用方）
-- **鉴权（2026-07-24 收紧）**：/api/v1/knowledge 子路由写端点（documents 6 条、entries /ask+/unified、evolution 4 条、files /read-file、import /scan+/execute）与 /api/v1/knowledge-service 写 11 条已收 requireAuth+requireNotGuest；files/import 的 startsWith 路径前缀校验无分隔符（兄弟目录可绕，未修）；knowledge-service GET /entries/stats 被 :id 遮蔽（未修）。
+- **鉴权（2026-07-24 收紧）**：/api/v1/knowledge 子路由写端点（entries /ask+/unified、files /read-file）与 /api/v1/knowledge-service 写 11 条已收 requireAuth+requireNotGuest；knowledge-service GET /entries/stats 被 :id 遮蔽（未修）。
+- **document-store 退役（#149，2026-08-15）**：`~/.studio/data/documents`（DocRecord FileStore）整体退役——角色已由业务仓 `.studio/` 与知识引擎 unified entries 接管，生产数据为零（24 个文件全是 p1/c1 测试夹具，已归档为 `~/.studio/data/documents.retired-20260815.tar.gz`）。摘除面：document-store.ts、documents.routes.ts（文档 CRUD/审核）、evolution.service.ts + evolution.routes.ts（知识进化引擎 §12.12，持久化只落在该目录；evolution-scheduler 保留模式挖掘/eval cleaning）、import.routes.ts（冷启动导入，execute 写该目录）、mcp/knowledge.tools.ts（5 个 MCP 知识工具全是该目录 CRUD）、internal /upsert 的 Document 投影、search 的 document 源；web 侧 KnowledgeDocGrid/DocReaderDrawer/KnowledgeImportPage/PMO 文档计数徽章同步摘除。
 - **#90 outcome 事件 errorType（2026-08-13）**：`ExecutionOutcome` 增 `errorType?`（knowledge-service.ts 门面内联定义与 knowledge-types.ts 同构两处）；`recordOutcome` payload 携带 errorType（success 时 undefined 被 JSON.stringify 丢弃）。失败步（success=false + errorType=execution_failed）由 agent-loop `recordOutcomeEvent` 落 `knowledge:outcome:failure`，供失败分析/门禁消费。

@@ -21,7 +21,6 @@
 |------|------|-------|
 | `pmo.tools.ts` | 3 | createProject / listProjects / getProjectStatus |
 | `task.tools.ts` | 5 | getTaskBoard / createTask / assignTask / updateTaskStatus / getTaskStats |
-| `knowledge.tools.ts` | 5 | queryKnowledge / extractKnowledge / storeKnowledge / searchKnowledge / getMaturity |
 | `economy.tools.ts` | 1 | getBalance |
 | `spec.tools.ts` | 4 | createSpec / approveSpec / getSpecStatus / listSpecs |
 | `safety.tools.ts` | 3 | checkConstraint / checkGuardrail / getSandboxLevel |
@@ -29,7 +28,9 @@
 | `devops.tools.ts` | 1 | publishPackage |
 | `skill.tools.ts` | 1 | loadSkill |
 | `workunit.tools.ts` | 1 | createWorkUnit |
-| **合计** | **26** | |
+| **合计** | **21** | |
+
+> #149（2026-08-15）：`knowledge.tools.ts`（5 个知识工具，全是 document-store CRUD）随 document-store 退役删除。
 
 ## 核心导出
 
