@@ -58,6 +58,26 @@ export function studioPath(...segments: string[]): string {
   return path.join(studioDir(), ...segments);
 }
 
+/**
+ * spec 唯一落点：<repoRoot>/.studio/specs/。repoRoot 必填，拿不出即抛错（归属链断裂该暴露不兜底）。
+ */
+export function specsDir(repoRoot: string): string {
+  if (!repoRoot || typeof repoRoot !== 'string') {
+    throw new Error('specsDir: repoRoot is required (non-empty string)');
+  }
+  return path.join(repoRoot, '.studio', 'specs');
+}
+
+/**
+ * 遗产 SDD 归档目录：<repoRoot>/.studio/legacy-sdd/。repoRoot 必填。
+ */
+export function legacySddDir(repoRoot: string): string {
+  if (!repoRoot || typeof repoRoot !== 'string') {
+    throw new Error('legacySddDir: repoRoot is required (non-empty string)');
+  }
+  return path.join(repoRoot, '.studio', 'legacy-sdd');
+}
+
 let warnedNonProdProdRoot = false;
 
 /**

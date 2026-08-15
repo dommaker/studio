@@ -13,7 +13,7 @@ import { describe, it, expect, afterEach, vi } from 'vitest';
 import * as os from 'os';
 import osDefault from 'node:os';
 import * as path from 'path';
-import { defaultStudioDir, studioDir, studioPath } from '../studio-dir';
+import { defaultStudioDir, studioDir, studioPath, specsDir, legacySddDir } from '../studio-dir';
 
 const ENV_KEYS = ['STUDIO_HOME', 'NODE_ENV'] as const;
 const savedEnv: Record<string, string | undefined> = {};
@@ -88,6 +88,29 @@ describe('studioPath()', () => {
     } finally {
       delete process.env.STUDIO_HOME;
     }
+  });
+});
+
+describe('specsDir()', () => {
+  it('拼接 <repoRoot>/.studio/specs', () => {
+    expect(specsDir('/repo/x')).toBe(path.join('/repo/x', '.studio', 'specs'));
+  });
+
+  it('repoRoot 为空/非字符串时抛错（归属链断裂不兜底）', () => {
+    expect(() => specsDir('')).toThrow();
+    expect(() => specsDir(undefined as unknown as string)).toThrow();
+    expect(() => specsDir(null as unknown as string)).toThrow();
+  });
+});
+
+describe('legacySddDir()', () => {
+  it('拼接 <repoRoot>/.studio/legacy-sdd', () => {
+    expect(legacySddDir('/repo/x')).toBe(path.join('/repo/x', '.studio', 'legacy-sdd'));
+  });
+
+  it('repoRoot 为空/非字符串时抛错', () => {
+    expect(() => legacySddDir('')).toThrow();
+    expect(() => legacySddDir(undefined as unknown as string)).toThrow();
   });
 });
 
