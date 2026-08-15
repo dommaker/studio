@@ -44,6 +44,12 @@ export interface AgentTask {
   onStreamLine?: (line: string) => void;
   /** P3: 覆盖扁平默认超时 (ms)。提供时替代默认 30min。 */
   timeoutMs?: number;
+  /** #171（#54 决议）：静默看门狗 warn 阈值（ms，距最后一次输出间隔）。缺省 = 不报 warn。 */
+  silenceWarnMs?: number;
+  /** #171（#54 决议）：静默看门狗 kill 阈值（ms），触发即杀进程组。缺省 = 不启用看门狗。 */
+  silenceKillMs?: number;
+  /** #171: 静默 warn 观测回调（仅 LocalExecutor 同进程有意义；异常被吞） */
+  onSilenceWarn?: (silentMs: number) => void;
   /** §9.6 P1: 远程节点 ID。undefined/'local' → LocalExecutor，否则 RemoteExecutor。 */
   nodeId?: string;
 }

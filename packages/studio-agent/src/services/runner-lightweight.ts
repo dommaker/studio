@@ -130,6 +130,12 @@ export async function executeLightweightSession(state: RunnerExecutionState, tas
         timeoutMs: task.timeoutMs ?? 30 * 60_000,
         maxBuffer: 10 * 1024 * 1024,
         childRef,
+        // #171（#54 决议）：杀步 = 杀进程组（#68 实测 SIGTERM 杀不死孙进程，孤儿继续烧 token）；
+        // 静默看门狗判据 = 距最后一次输出间隔，仅任务显式配置 silenceKillMs 时启用。
+        killProcessGroup: true,
+        silence: task.silenceKillMs
+          ? { warnMs: task.silenceWarnMs, killMs: task.silenceKillMs, onWarn: task.onSilenceWarn }
+          : undefined,
         // Layer B: 步内行级透传（agent-loop → SSE 实时过程；undefined 时零开销）
         onLine: task.onStreamLine,
       });

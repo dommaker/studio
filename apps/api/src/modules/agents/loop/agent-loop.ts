@@ -24,6 +24,7 @@ import { hasUnfinishedDeps, buildStatusById } from '../../workunit/wu-dependenci
 import { resolveWorkspaceRoot } from '../../workspaces/workspace-store.js';
 import { resolvePmoBranchForWU } from '../../requirements/pmo-branch-resolver.js';
 import { resolveStudioLogFile } from '../../../utils/studio-log-path.js';
+import { writeStudioEvent } from '../../../utils/studio-events.js';
 import {
   tokenBudgetGuardEnabled, resolveDailyTokenBudget, getDailyTokenUsage,
   notifyBudgetTripped,
@@ -34,7 +35,7 @@ import { runCompletionGuards } from './completion-gates.js';
 import { parseMapOpening } from '../../pmo/map-opening.js';
 import type { StepResult, Observations, Target, RuntimeInstanceRow } from './agent-loop.types.js';
 import {
-  extractInputTokens, isProcessAlive, isGitRepoRoot, resolveWorktreesDir,
+  isProcessAlive, isGitRepoRoot, resolveWorktreesDir,
   resolveTarget, parseAgentOutput, dynamicInterval, parseReviewReport, parseTaskBreakdown,
   sleep,
 } from './agent-loop-parsers.js';
@@ -52,7 +53,7 @@ import { appendTranscriptStep } from '../../transcripts/transcript-archive.js';
 // 输出解析/prompt 构建纯函数已抽到 ./agent-loop-parsers.js（工单 28，行为不变）；
 // re-export 保持对外导出语义不变
 export {
-  extractInputTokens, isProcessAlive, isGitRepoRoot, resolveWorktreesDir,
+  isProcessAlive, isGitRepoRoot, resolveWorktreesDir,
   resolveTarget, parseAgentOutput, dynamicInterval, parseReviewReport, parseTaskBreakdown,
 } from './agent-loop-parsers.js';
 
@@ -84,6 +85,16 @@ const REVIEW_STEP_LIMIT = 30;
 const PROGRESS_LOG_MAX_ENTRIES = 5;
 /** #95: progressLog 单条 summary 截断字符上限 */
 const PROGRESS_LOG_SUMMARY_MAX_CHARS = 200;
+
+/** #171（#54 决议 A1，数值来自 #68 实测）：三层超时 ——
+ *  步墙钟 1800s 仅作兜底天花板（健康步时长 p99=693s × 2.6 安全系数；
+ *  旧 120s 固定墙钟连健康 p90=128s 都不到，上线以来大量健康步被误杀）；
+ *  主防线 = 静默看门狗：判据 = 距最后一次输出间隔（步内最大静默 p99=215s / 极值 305s，
+ *  均来自长 Bash 调用），300s warn（落 workunit:step_silence 事件）/ 600s 杀进程组；
+ *  预算语义归 maxTurns=50 + token 记账，不由超时承担。warn 探活为 #54 留的迭代方向，本期不做。 */
+const STEP_WALL_CLOCK_MS = 1_800_000;
+const STEP_SILENCE_WARN_MS = 300_000;
+const STEP_SILENCE_KILL_MS = 600_000;
 
 /** B5（2026-08-03 token-burn issue P1-1）：每 WU 独立会话数上限（#95 由 2 放宽到 5）。
  *  会话反复重建（stuck 重开 / token 截断重开）意味着整段 transcript 全文重放重新烧一遍；
@@ -721,7 +732,19 @@ export class AgentLoop {
           STUDIO_TRACE_ID: traceId ?? '',
         },
       },
-      timeoutMs: 120_000,
+      timeoutMs: STEP_WALL_CLOCK_MS,
+      // #171（#54 决议 A1）：静默看门狗 300s warn / 600s 杀进程组（杀法在 execSh killProcessGroup）。
+      silenceWarnMs: STEP_SILENCE_WARN_MS,
+      silenceKillMs: STEP_SILENCE_KILL_MS,
+      onSilenceWarn: (silentMs) => {
+        logger.warn('[AgentLoop] Step silence warn — no output beyond threshold', {
+          workUnitId: wu.id, executionId, step: stepNo, silentMs, warnThresholdMs: STEP_SILENCE_WARN_MS, traceId,
+        });
+        // warn 层负责「感知」：落事件流，供监控面板/告警管线消费（#54 决议 2）
+        void writeStudioEvent('workunit:step_silence', {
+          workUnitId: wu.id, executionId, step: stepNo, silentMs, warnThresholdMs: STEP_SILENCE_WARN_MS,
+        }, { source: 'agent-loop' }).catch(() => { /* fire-and-forget */ });
+      },
       // Layer B（WU 过程可视化）：步内 stream-json 行级透传 → SSE 实时过程。
       // fire-and-forget；仅 LocalExecutor 同进程有效。
       onStreamLine: (line) => {
@@ -998,12 +1021,6 @@ export class AgentLoop {
             metadataUpdates.analysisDestination = opening.destination;
           }
         }
-      }
-
-      // AC-4.3/4.4: Cache tracking — extract input_tokens from result events
-      const tokens = extractInputTokens(result.outputText ?? '');
-      if (tokens !== null) {
-        metadataUpdates.lastInputTokens = tokens;
       }
 
       return { ...stepResult, metadataUpdates, channelVersion };

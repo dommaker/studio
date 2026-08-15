@@ -201,7 +201,6 @@ describe('ReviewDispatcher (AC-4.1 ~ AC-4.5 + F4)', () => {
         stepCount: 3,
         consecutiveStuck: 1,
         _cumulativeTokens: 999,
-        lastInputTokens: 123,
         errorType: 'execution_failed',
         errorDetail: 'x',
         errorAt: '2026-07-29T01:00:00Z',
@@ -221,7 +220,6 @@ describe('ReviewDispatcher (AC-4.1 ~ AC-4.5 + F4)', () => {
     expect(meta.stepCount).toBeUndefined();
     expect(meta.consecutiveStuck).toBeUndefined();
     expect(meta._cumulativeTokens).toBeUndefined();
-    expect(meta.lastInputTokens).toBeUndefined();
     expect(meta.errorType).toBeUndefined();
     expect(meta.errorDetail).toBeUndefined();
     expect(meta.errorAt).toBeUndefined();

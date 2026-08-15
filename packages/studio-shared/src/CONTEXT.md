@@ -47,3 +47,4 @@
 - 级别常量为单一数据源，其他模块不应重复定义
 - `constants/` 下各文件应保持无外部依赖（仅内部引用），便于前端复用
 - `attestation.ts` 的 `deriveDisplayState()` 是 WU 展示状态唯一派生口径（F6 铁律，前后端共用）；#126（T4）起 `pending`（待确认人闸）为第七个看板列——按所有权状态原样透传且 `needsHuman=true`（人工确认才进 frontier），未知状态仍兜底 active
+- `utils/process-io.ts` 的 `execSh`（仅 /node 入口）：#171（#54 决议）起支持 `killProcessGroup`（detached spawn + `kill(-pid, SIGKILL)` 整组直杀，墙钟/静默/maxBuffer 三条杀路径同走；#68 实测 SIGTERM 杀不死孙进程）与 `silence` 静默看门狗（判据 = 距最后一次 stdout/stderr 输出间隔，warn 每段静默恰报一次、输出复位；超 killMs 杀并 reject）。未开选项的调用方行为不变

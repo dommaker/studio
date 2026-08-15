@@ -36,7 +36,6 @@ export interface WorkUnitMetadata {
   lastSessionResumed?: boolean; // #94: 本步会话续用(true)/新建(false) 标记（内部状态，不上频道）
   blockReason?: string;       // B4（同上 P0-2）：最近一次转 blocked 的原因（恢复执行时清除，防事后无法诊断）
   testWorkUnitGuard?: boolean; // B2（同上 P0-1c）：测试特征 WU 被 daemon 守卫关闭的留痕
-  lastInputTokens?: number;   // 最新一次 execution 的 input_tokens (cache 追踪)
   // #95: 最近成功步环形簿记（前序进展段内容源；只记成功步，保留最近 5 条，summary 截 200 字符）
   progressLog?: Array<{
     step: number;             // 步号（与 recordResult 的 stepCount 同口径）

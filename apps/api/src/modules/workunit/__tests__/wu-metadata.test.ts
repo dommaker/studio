@@ -49,11 +49,11 @@ describe('clearSessionBookkeeping 14 字段权威清单', () => {
     errorDetail: 'boom',
     errorAt: '2026-08-01T01:00:00Z',
     _cumulativeTokens: 42000,
-    lastInputTokens: 1234,
     progressLog: [{ step: 1, action: 'progress', summary: '完成数据层', at: '2026-08-12T10:00:00Z' }],
+    sessionSummary: '滚动摘要',
   };
 
-  it('14 个簿记字段全部清除', () => {
+  it('簿记字段全部清除', () => {
     const cleaned = clearSessionBookkeeping({ ...BOOKKEEPING });
     for (const key of Object.keys(BOOKKEEPING)) {
       expect(cleaned[key], `字段 ${key} 应被清除`).toBeUndefined();

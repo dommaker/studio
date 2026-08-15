@@ -10,22 +10,6 @@ import { ANALYSIS_TASKS_MAX, type WorkUnitData } from '../../workunit/workunit.s
 import type { ParsedReviewReport } from './review-contract.js';
 import type { StepResult, Observations, Target } from './agent-loop.types.js';
 
-/** Extract input_tokens from stream-json result events */
-export function extractInputTokens(outputText: string): number | null {
-  const lines = outputText.split('\n');
-  for (const line of lines) {
-    try {
-      const event = JSON.parse(line) as Record<string, unknown>;
-      if (event.type === 'result' && typeof event.input_tokens === 'number') {
-        return event.input_tokens as number;
-      }
-    } catch {
-      // Skip non-JSON lines
-    }
-  }
-  return null;
-}
-
 /** Check if a process is alive by sending signal 0 */
 export function isProcessAlive(pid: number): boolean {
   try {

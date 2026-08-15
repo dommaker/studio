@@ -98,7 +98,12 @@ describe('executeLightweightSession', () => {
     };
   }
 
-  function findSpawnCall(): [string, { env?: Record<string, string | undefined>; timeoutMs?: number }] {
+  function findSpawnCall(): [string, {
+    env?: Record<string, string | undefined>;
+    timeoutMs?: number;
+    killProcessGroup?: boolean;
+    silence?: { warnMs?: number; killMs: number; onWarn?: (silentMs: number) => void };
+  }] {
     const call = mockExecSh.mock.calls.find(([cmd]: [string]) => String(cmd).startsWith('cd '));
     expect(call).toBeTruthy();
     return call as [string, { env?: Record<string, string | undefined>; timeoutMs?: number }];
@@ -147,6 +152,27 @@ describe('executeLightweightSession', () => {
     expect(result.error).toBe('bad thing');
     expect(result.usage?.inputTokens).toBe(3);
     expect(result.sessionCount).toBe(1);
+  });
+
+  test('#171（#54 决议）：静默看门狗与进程组杀透传 execSh', async () => {
+    const onSilenceWarn = vi.fn();
+    await executeLightweightSession(state, makeTask({
+      timeoutMs: 1_800_000,
+      silenceWarnMs: 300_000,
+      silenceKillMs: 600_000,
+      onSilenceWarn,
+    }));
+    const opts = findSpawnCall()[1];
+    expect(opts.timeoutMs).toBe(1_800_000);
+    expect(opts.killProcessGroup).toBe(true);
+    expect(opts.silence).toEqual({ warnMs: 300_000, killMs: 600_000, onWarn: onSilenceWarn });
+  });
+
+  test('#171：未配 silenceKillMs → 不开看门狗，但进程组杀恒开（孤儿防护）', async () => {
+    await executeLightweightSession(state, makeTask());
+    const opts = findSpawnCall()[1];
+    expect(opts.killProcessGroup).toBe(true);
+    expect(opts.silence).toBeUndefined();
   });
 
   test('execSh 抛错 → 失败返回并记录执行错误', async () => {
