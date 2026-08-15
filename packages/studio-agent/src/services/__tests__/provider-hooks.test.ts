@@ -1,8 +1,9 @@
 /**
- * provider-hooks 单元测试（#147 步内前置拦截层）
+ * provider-hooks 单元测试（#147 步内前置拦截层；#154 改指 harness 出厂 shim）
  *
- * 覆盖：claude deny 规则生成、hook 脚本落盘、codex hooks.json 生成、
- * kimi per-worktree home 生成（host 配置复制 + hook 追加 + 凭证软链）与幂等性。
+ * 覆盖：claude deny 规则生成、shim 路径解析、codex hooks.json 生成、
+ * kimi per-worktree home 生成（host 配置复制 + hook 追加 + 凭证软链）与幂等性、
+ * #147 旧版生成脚本的存量清理。
  * 用真实临时目录（os.homedir mock 到假 host home），断言产物内容与结构。
  */
 import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -19,10 +20,8 @@ vi.mock('os', async (importOriginal) => {
 
 import {
   HOOK_MARKER,
-  hookScriptPath,
-  resolveCommandGatePath,
-  buildHookScriptContent,
-  writeHookScript,
+  resolvePreToolUseHookPath,
+  removeLegacyHookScript,
   buildClaudeDenyRules,
   buildCodexHooksJson,
   writeCodexHooks,
@@ -47,31 +46,44 @@ afterEach(() => {
   try { fs.rmSync(worktree, { recursive: true, force: true }); } catch { /* ignore */ }
 });
 
-// ─── hook 脚本 ───
+// ─── harness 出厂 shim 路径 ───
 
-describe('buildHookScriptContent / writeHookScript', () => {
-  test('脚本含 marker、harness CommandGate 引用与 exit 2 阻断', () => {
-    const content = buildHookScriptContent();
-    expect(content).toContain(HOOK_MARKER);
-    expect(content).toContain('require(');
-    expect(content).toContain('CommandGate');
-    expect(content).toContain('process.exit(2)');
-    expect(content).toContain('tool_input');
+describe('resolvePreToolUseHookPath（#154）', () => {
+  test('解析为 harness 包内 dist/pretool-use-hook.js 路径', () => {
+    const p = resolvePreToolUseHookPath();
+    expect(p.endsWith(path.join('@dommaker', 'harness', 'dist', 'pretool-use-hook.js'))).toBe(true);
+    // 注：文件存在性依赖 harness ≥ 含 #153 shim 的发版（0.19.0 尚无）；
+    // 发版前 provider 执行缺失文件 = 非 exit 2 = fail-open 放行，不致断流。
+  });
+});
+
+// ─── #147 旧版生成脚本清理 ───
+
+describe('removeLegacyHookScript（#154 存量清理）', () => {
+  const legacyRel = path.join('.studio', 'command-gate-hook.js');
+
+  test('含 marker 的生成脚本 → 删除', () => {
+    const p = path.join(worktree, legacyRel);
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    fs.writeFileSync(p, `// ${HOOK_MARKER} old generated script\n`, 'utf-8');
+
+    removeLegacyHookScript(worktree);
+
+    expect(fs.existsSync(p)).toBe(false);
   });
 
-  test('resolveCommandGatePath 指向真实存在的 harness dist 文件', () => {
-    const p = resolveCommandGatePath();
-    expect(p.endsWith(path.join('dist', 'gates', 'command.js'))).toBe(true);
+  test('不含 marker 的同名文件（非我产物）→ 不动', () => {
+    const p = path.join(worktree, legacyRel);
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    fs.writeFileSync(p, '// hand-written\n', 'utf-8');
+
+    removeLegacyHookScript(worktree);
+
     expect(fs.existsSync(p)).toBe(true);
   });
 
-  test('writeHookScript 落盘到 .studio/ 且幂等（二次调用内容一致）', () => {
-    writeHookScript(worktree);
-    const p = hookScriptPath(worktree);
-    expect(fs.existsSync(p)).toBe(true);
-    const first = fs.readFileSync(p, 'utf-8');
-    writeHookScript(worktree);
-    expect(fs.readFileSync(p, 'utf-8')).toBe(first);
+  test('无残留 → no-op', () => {
+    expect(() => removeLegacyHookScript(worktree)).not.toThrow();
   });
 });
 
@@ -109,15 +121,15 @@ describe('buildClaudeDenyRules', () => {
 // ─── codex hooks.json ───
 
 describe('buildCodexHooksJson / writeCodexHooks', () => {
-  test('结构：PreToolUse matcher Bash → node hook 脚本，timeout 10', () => {
-    const json = buildCodexHooksJson(worktree);
+  test('结构：PreToolUse matcher Bash → node harness shim，timeout 10', () => {
+    const json = buildCodexHooksJson();
     const pre = (json.hooks as Record<string, unknown>).PreToolUse as Array<Record<string, unknown>>;
     expect(json.description).toContain(HOOK_MARKER);
     expect(pre).toHaveLength(1);
     expect(pre[0].matcher).toBe('Bash');
     const hooks = pre[0].hooks as Array<Record<string, unknown>>;
     expect(hooks[0].type).toBe('command');
-    expect(hooks[0].command).toBe(`node ${hookScriptPath(worktree)}`);
+    expect(hooks[0].command).toBe(`node ${resolvePreToolUseHookPath()}`);
     expect(hooks[0].timeout).toBe(10);
   });
 
@@ -157,7 +169,7 @@ describe('ensureKimiHookHome', () => {
     expect(config).toContain(HOOK_MARKER);
     expect(config).toContain('event = "PreToolUse"');
     expect(config).toContain('matcher = "Bash"');
-    expect(config).toContain(`node ${hookScriptPath(worktree)}`);
+    expect(config).toContain(`node ${resolvePreToolUseHookPath()}`);
 
     expect(fs.lstatSync(path.join(wtHome, 'credentials')).isSymbolicLink()).toBe(true);
     expect(fs.lstatSync(path.join(wtHome, 'oauth')).isSymbolicLink()).toBe(true);
@@ -170,6 +182,24 @@ describe('ensureKimiHookHome', () => {
     ensureKimiHookHome(worktree);
 
     const config = fs.readFileSync(path.join(kimiCodeHomePath(worktree), 'config.toml'), 'utf-8');
+    expect(config.match(/event = "PreToolUse"/g)).toHaveLength(1);
+  });
+
+  test('#147 旧配置（marker 在但指向 worktree 内脚本）→ 重写迁移到 harness shim', () => {
+    seedHostKimiHome();
+    ensureKimiHookHome(worktree);
+    // 模拟 #147 生成版：含 marker，command 指向已废弃的 worktree 内脚本
+    const wtConfig = path.join(kimiCodeHomePath(worktree), 'config.toml');
+    fs.writeFileSync(wtConfig,
+      `default_model = "kimi-code/k3"\n\n# ${HOOK_MARKER} PreToolUse — studio-agent 生成（#147）\n` +
+      `[[hooks]]\nevent = "PreToolUse"\nmatcher = "Bash"\n` +
+      `command = "node ${path.join(worktree, '.studio', 'command-gate-hook.js')}"\ntimeout = 10\n`, 'utf-8');
+
+    ensureKimiHookHome(worktree);
+
+    const config = fs.readFileSync(wtConfig, 'utf-8');
+    expect(config).toContain(`node ${resolvePreToolUseHookPath()}`);
+    expect(config).not.toContain('command-gate-hook.js');
     expect(config.match(/event = "PreToolUse"/g)).toHaveLength(1);
   });
 
@@ -190,14 +220,27 @@ describe('ensureKimiHookHome', () => {
 // ─── 汇总入口 ───
 
 describe('writeProviderEnforcementConfigs', () => {
-  test('一次写齐 hook 脚本 + codex hooks.json + kimi home', () => {
+  test('一次写齐 codex hooks.json + kimi home（均指 harness shim），不再生成 worktree 内 hook 脚本', () => {
     fs.mkdirSync(path.join(hostHome, '.kimi-code'), { recursive: true });
     fs.writeFileSync(path.join(hostHome, '.kimi-code', 'config.toml'), 'x\n', 'utf-8');
 
     writeProviderEnforcementConfigs({ worktree });
 
-    expect(fs.existsSync(hookScriptPath(worktree))).toBe(true);
     expect(fs.existsSync(path.join(worktree, '.codex', 'hooks.json'))).toBe(true);
     expect(fs.existsSync(path.join(worktree, '.kimi-code', 'config.toml'))).toBe(true);
+    // #154：.studio/ 是纯文档正本进 git，hook 脚本不再落 worktree
+    expect(fs.existsSync(path.join(worktree, '.studio', 'command-gate-hook.js'))).toBe(false);
+    const codex = JSON.parse(fs.readFileSync(path.join(worktree, '.codex', 'hooks.json'), 'utf-8'));
+    expect(codex.hooks.PreToolUse[0].hooks[0].command).toBe(`node ${resolvePreToolUseHookPath()}`);
+  });
+
+  test('顺带清理 #147 旧版生成脚本', () => {
+    const legacy = path.join(worktree, '.studio', 'command-gate-hook.js');
+    fs.mkdirSync(path.dirname(legacy), { recursive: true });
+    fs.writeFileSync(legacy, `// ${HOOK_MARKER} old\n`, 'utf-8');
+
+    writeProviderEnforcementConfigs({ worktree });
+
+    expect(fs.existsSync(legacy)).toBe(false);
   });
 });

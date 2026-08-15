@@ -1,9 +1,11 @@
 /**
- * Behavioral tests for worktree 工具产物 exclude（§10.5 提交守卫误伤修复）
+ * Behavioral tests for worktree 工具产物 exclude（§10.5 提交守卫误伤修复；#154 删 .studio/）
  *
  * AC:
  *   - 新建 worktree（ensureWuWorktree / createWorktree）→ 仓库级 .git/info/exclude 写入
- *     `.claude/`、`.studio/`、`.daemon/`、`.agent.log` 四行，git status 不再看到这些产物
+ *     `.claude/`、`.daemon/`、`.agent.log` 等行，git status 不再看到这些产物
+ *   - `.studio/` 不再排除（#154/T5：业务仓 .studio/ = 纯文档正本整体进 git），
+ *     存量 exclude 里的 `.studio/` 行被自愈清除
  *   - 不排除 AGENTS.md（内容文件，agent 可能 legit 修改）
  *   - 已有 worktree 复用 → 不重复写（幂等）
  *   - 主 workspace 路径（resolveWorkspace P1 直给 workspaceRoot）→ 完全不动 exclude
@@ -22,7 +24,7 @@ import { ensureWuWorktree, createWorktree, resolveWorkspace } from '../worktree-
 import type { AgentTask } from '../types.js';
 
 const TEST_TIMEOUT = 30_000;
-const PATTERNS = ['.claude/', '.studio/', '.daemon/', '.agent.log', '.harness/'];
+const PATTERNS = ['.claude/', '.daemon/', '.agent.log', '.harness/'];
 
 const tmpRoots: string[] = [];
 
@@ -55,15 +57,13 @@ function readExclude(repoDir: string): string {
 function writeToolArtifacts(worktree: string): void {
   fs.mkdirSync(path.join(worktree, '.claude'), { recursive: true });
   fs.writeFileSync(path.join(worktree, '.claude', 'settings.json'), '{}');
-  fs.mkdirSync(path.join(worktree, '.studio', 'skills', 's'), { recursive: true });
-  fs.writeFileSync(path.join(worktree, '.studio', 'skills', 's', 'SKILL.md'), 'x');
   fs.mkdirSync(path.join(worktree, '.daemon'), { recursive: true });
   fs.writeFileSync(path.join(worktree, '.daemon', 'prompt.md'), 'x');
   fs.writeFileSync(path.join(worktree, '.agent.log'), 'x');
 }
 
 describe('worktree 工具产物 exclude', () => {
-  test('ensureWuWorktree 新建 → exclude 写入四行，git status 看不到工具产物，AGENTS.md 不排除', async () => {
+  test('ensureWuWorktree 新建 → exclude 写入工具产物行（不含 .studio/），git status 看不到工具产物，AGENTS.md 不排除', async () => {
     const repoDir = await makeRepo();
     const worktreesDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'wt-exclude-wts-'));
     tmpRoots.push(worktreesDir);
@@ -72,14 +72,36 @@ describe('worktree 工具产物 exclude', () => {
 
     const exclude = readExclude(repoDir);
     for (const p of PATTERNS) expect(exclude).toContain(p);
+    expect(exclude).not.toContain('.studio/');
     expect(exclude).not.toContain('AGENTS.md');
 
     writeToolArtifacts(info.worktreePath);
     expect(git('status --porcelain', info.worktreePath)).toBe('');
 
+    // #154：.studio/ 是纯文档正本 —— 不被 exclude，照常出现在 status（可入库）
+    fs.mkdirSync(path.join(info.worktreePath, '.studio'), { recursive: true });
+    fs.writeFileSync(path.join(info.worktreePath, '.studio', 'CONTEXT.md'), '# ctx\n');
+    expect(git('status --porcelain', info.worktreePath)).toBe('?? .studio/');
+
     // AGENTS.md 是内容文件 —— 不被 exclude，照常出现在 status
+    fs.rmSync(path.join(info.worktreePath, '.studio'), { recursive: true, force: true });
     fs.writeFileSync(path.join(info.worktreePath, 'AGENTS.md'), '# guide\n');
     expect(git('status --porcelain', info.worktreePath)).toBe('?? AGENTS.md');
+  }, TEST_TIMEOUT);
+
+  test('存量 exclude 含 .studio/ 行 → 新建 worktree 时自愈清除', async () => {
+    const repoDir = await makeRepo();
+    const worktreesDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'wt-exclude-wts-'));
+    tmpRoots.push(worktreesDir);
+    // 模拟 #154 前的存量 exclude
+    fs.mkdirSync(path.join(repoDir, '.git', 'info'), { recursive: true });
+    fs.writeFileSync(path.join(repoDir, '.git', 'info', 'exclude'), '.claude/\n.studio/\n.daemon/\n', 'utf-8');
+
+    await ensureWuWorktree({ wuId: 'wu-1', repoDir, worktreesDir, baseBranch: 'master' });
+
+    const exclude = readExclude(repoDir);
+    expect(exclude.split('\n').filter(l => l.trim() === '.studio/')).toHaveLength(0);
+    for (const p of PATTERNS) expect(exclude).toContain(p);
   }, TEST_TIMEOUT);
 
   test('已有 worktree 复用 → 不重复写 exclude（幂等，每行仍只出现一次）', async () => {

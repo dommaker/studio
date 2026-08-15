@@ -84,16 +84,24 @@ export async function createWorktree(worktree: string, baseBranch: string, repoD
   await writeGitExclude(repoDir);
 }
 
-/** 工具产物 exclude 规则（写入 .git/info/exclude，git status 不再看到这些产物） */
-const GIT_EXCLUDE_PATTERNS = ['.claude/', '.studio/', '.daemon/', '.agent.log', '.harness/', '.codex/', '.kimi-code/'];
+/** 工具产物 exclude 规则（写入 .git/info/exclude，git status 不再看到这些产物）。
+ *  #154（T5）：`.studio/` 移出清单——业务仓 .studio/ = 纯文档正本，整体进 git。 */
+const GIT_EXCLUDE_PATTERNS = ['.claude/', '.daemon/', '.agent.log', '.harness/', '.codex/', '.kimi-code/'];
+
+/** 历史 exclude 行（#154 前 .studio/ 曾被排除）：writeGitExclude 时自愈清除，让存量仓 .studio/ 也能进 git */
+const LEGACY_EXCLUDE_PATTERNS = ['.studio/'];
 
 async function writeGitExclude(repoDir: string): Promise<void> {
   try {
     const excludePath = path.join(repoDir, '.git', 'info', 'exclude');
     let existing = '';
     try { existing = await fs.readFile(excludePath, 'utf-8'); } catch { /* file may not exist */ }
-    const lines = existing.split('\n');
+    let lines = existing.split('\n');
     let changed = false;
+    for (const legacy of LEGACY_EXCLUDE_PATTERNS) {
+      const kept = lines.filter(l => l.trim() !== legacy);
+      if (kept.length !== lines.length) { lines = kept; changed = true; }
+    }
     for (const p of GIT_EXCLUDE_PATTERNS) {
       if (!lines.includes(p)) {
         lines.push(p);
@@ -240,8 +248,9 @@ export async function propagateHarnessConfig(worktree: string, taskId: string, e
     fsSync.mkdirSync(claudeDir, { recursive: true });
     fsSync.writeFileSync(settingsPath, JSON.stringify(settings, null, 2), 'utf-8');
 
-    // #147 步内前置拦截：codex .codex/hooks.json + kimi per-worktree home + 共享 hook 脚本
-    // （claude 走上面的 permissions.deny；--print 下 PreToolUse hook 不触发，不给 claude 写 hook）
+    // #147 步内前置拦截：codex .codex/hooks.json + kimi per-worktree home
+    // （hook shim 由 @dommaker/harness 包出厂，#154；claude 走上面的 permissions.deny，
+    //  --print 下 PreToolUse hook 不触发，不给 claude 写 hook）
     writeProviderEnforcementConfigs({ worktree });
   } catch { logger.warn('[WorktreeResolver] Harness/Claude config init failed (non-blocking)', { taskId, executionId }); }
 }
