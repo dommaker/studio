@@ -25,8 +25,15 @@ prompt 注入段的 token 定额，职责是防注入劣化（防注入段膨胀
 _Avoid_: 2K 红线、截断保护
 
 **三层存储**:
-文档/状态归属的唯一裁决（#118 第三轮，2026-08-12）：流转态 → PMO（工单/地图/状态/依赖图的唯一系统）；项目私有冻结/缓变文档 → 业务仓 `.studio/`（入 git，唯一正本：`specs/`、`CONTEXT.md`、`adr/`、`memory/`、`research/`、`prototypes/`）；全局/跨项目 → `~/.studio/`（项目注册、跨项目知识库、配置日志）。两个读层：wiki = 阅览室（按项目路由聚合读，不写作正本），Monitoring 面板 = 运行读层。一个过程留痕：频道线程（讨论过程，不作正本）。归属冲突时按此裁决，不设第四存储。
-_Avoid_: 多正本、wiki 落正本
+文档/状态归属的唯一裁决（#118 第三轮，2026-08-12）：流转态 → PMO（工单/地图/状态/依赖图的唯一系统）；项目私有冻结/缓变文档 → 业务仓 `.studio/`（入 git，唯一正本：`specs/`、`CONTEXT.md`、`adr/`、`memory/`、`research/`、`prototypes/`）；全局/跨项目 → `~/.studio/`（项目注册、跨项目知识库、配置日志）。两个读层：library = 阅览室（按项目路由聚合读，不写作正本），Monitoring 面板 = 运行读层。一个过程留痕：频道线程（讨论过程，不作正本）。归属冲突时按此裁决，不设第四存储。
+_Avoid_: 多正本、library 落正本
+
+**library（阅览室）**:
+跨项目 `.studio/` 文档面（specs/、research/、adr/、CONTEXT.md）的聚合只读层（#127 T5 / #155，2026-08-15）：缺省聚合全部有 gitRepo 的 PMO 项目，`?project=` 收窄，无写路径（变更历史 = git 历史），legacy-sdd 遗产打标记只读展示。旧称 **wiki**——凡历史文档/代码注释出现 wiki 即指 library。**概念面收敛 = 2**：library 读人写文档（业务仓 `.studio/`），knowledge 引擎管机器蒸馏知识（`~/.studio/knowledge/`），两者不混。
+_Avoid_: wiki、文档中心、第三概念面
+
+**documents / wiki（墓碑）**:
+documents（document-store，#149 T11 退役）与 wiki（#155 改名 library）均已注销，不再作为概念使用：文档正本归业务仓 `.studio/`（library 只读聚合），机器知识归 knowledge 引擎。docs/ 仅为目录惯例，不构成概念。
 
 **工单类型**:
 工单的唯一分类词表（#118 第三轮，2026-08-12）：需求 / 决策单 / spec单 / 任务单 / implement / review / analysis。**增删类型 = 治理变更**，须先过治理流程再改词表。操作载体 = PMO 工单类型字段（单一权威）；本条目是词表的文档化；GitHub label 仅 studio 自研特例，不构成第二平面（用户工程可能是任意 git 托管，流程信息零外泄，远端只见分支名/commit 指针）。agent 只见工单不见机制：类型决定默认方法论与产出契约（见 CLAUDE.md 工单类型索引表），派单/解锁/打回等流转由机制承载。**类型认领属性（#126 T4，2026-08-15）**：扩范围类型（需求=feature / 任务单=task / spec单=spec）创建落「待确认」（pending），人工确认才进 frontier 可认领；圈内类型（implement / review / analysis / 决策单 / bug）创建即可认领——机制载体 = workunit.types.ts `PENDING_CONFIRM_TYPES` + `resolveInitialStatus`。**变体不增类型（#128 T6 / #130 T8）**：类型内的用途变体用显式 metadata 标记表达（原型单 `prototype: true`、巡检单 `inspection: true`），不隐式判定、不进词表。**触发器人闸（#130 T8，2026-08-15）**：无人在环的自动触发（定时/事件）模型调用单，建单显式 `status='pending'` 待人确认才执行（按来源不按类型，不动 PENDING_CONFIRM_TYPES；doc-semantic-review 自周五自动跑改为建单待人确认）。
