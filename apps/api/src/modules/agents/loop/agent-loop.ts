@@ -561,8 +561,12 @@ export class AgentLoop {
     // 后续 step 经 ensureWuWorktree 按目录存在性复用。创建失败走 B1 失败分支
     // （action='failed' → consecutiveStuck → 3 次 blocked），绝不静默退回共享目录。
     // 解析不出 git 仓库（无绑定根 / 根目录无 .git）→ 维持现状。
+    // #157（T6）：analysis 原型单（建单显式 metadata.prototype=true）同样挂专属 worktree，
+    // 分支前缀 prototype/（永不合并）；无标记的普通 analysis 行为逐字节不变。
     let workspaceRoot = await this.resolveExecutionWorkspaceRoot(wu, metadata);
-    if (CODE_WORKTREE_TYPES.has(wu.type) && workspaceRoot && isGitRepoRoot(workspaceRoot)) {
+    const wantsWuWorktree = CODE_WORKTREE_TYPES.has(wu.type)
+      || (wu.type === 'analysis' && metadata.prototype === true);
+    if (wantsWuWorktree && workspaceRoot && isGitRepoRoot(workspaceRoot)) {
       try {
         // PMO-b（决策 3）：WU 归属 PMO → base 从默认分支改为 PMO 分支（分支名 = PMO id），
         // per-WU 临时分支从 PMO 分支拉、向 PMO 分支合（merge-on-review-pass 消费 pmoBranch 落档）。
@@ -591,6 +595,8 @@ export class AgentLoop {
             ?? (typeof metadata.worktreeBaseBranch === 'string' && metadata.worktreeBaseBranch.length > 0
               ? metadata.worktreeBaseBranch
               : undefined),
+          // #157（T6）：analysis 原型单分支 = prototype/<wuId>（永不合并）
+          branchPrefix: wu.type === 'analysis' ? 'prototype' : undefined,
         });
         if (metadata.worktreePath !== info.worktreePath) {
           metadataUpdates.worktreePath = info.worktreePath;
@@ -1077,9 +1083,11 @@ export class AgentLoop {
    * B3b-i: 提交守卫/自动验证的 git cwd 解析（recordResult 侧只读消费，不创建）。
    * 代码类 WU 有专属 worktree → 在 worktree 下跑 git status；
    * review WU → 父 WU worktree；否则回退 B3a/F6 的共享根解析。
+   * #157（T6）：挂 worktree 的 analysis（原型单）同样解析到 metadata.worktreePath ——
+   * 未 commit 打回守卫作用于原型 worktree；无落档的普通 analysis 走共享根解析，行为不变。
    */
   private async resolveExecutionCwd(wu: WorkUnitData, metadata: WorkUnitMetadata): Promise<string | null> {
-    if (CODE_WORKTREE_TYPES.has(wu.type)
+    if ((CODE_WORKTREE_TYPES.has(wu.type) || wu.type === 'analysis')
       && typeof metadata.worktreePath === 'string' && metadata.worktreePath.length > 0) {
       return metadata.worktreePath;
     }

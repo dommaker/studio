@@ -232,6 +232,53 @@ describe('B3b-i: 每 WU worktree 隔离 + 自动验证', () => {
     expect(mockExecuteLightweight.mock.calls[0][0].parameters.workspaceRoot).toBe(repoRoot);
   });
 
+  it('analysis 原型单（metadata.prototype=true，#157 T6）：挂专属 worktree，分支前缀 prototype/', async () => {
+    mockEnsureWuWorktree.mockImplementation(async ({ wuId, repoDir, baseBranch, branchPrefix }: { wuId: string; repoDir: string; baseBranch?: string; branchPrefix?: string }) => ({
+      worktreePath: WT(),
+      branch: `${branchPrefix ?? 'task'}/${wuId}`,
+      baseBranch: baseBranch ?? 'main',
+      baseRepo: repoDir,
+    }));
+    const wu = await createWu('analysis', { workspaceRoot: repoRoot, prototype: true });
+
+    const step = await loop().agentStep({ workUnit: wu });
+
+    expect(mockEnsureWuWorktree).toHaveBeenCalledWith(expect.objectContaining({
+      wuId: wu.id,
+      repoDir: repoRoot,
+      branchPrefix: 'prototype',
+    }));
+    const task = mockExecuteLightweight.mock.calls[0][0];
+    expect(task.parameters.workspaceRoot).toBe(WT());
+    expect(task.parameters.workspaceRoot).not.toBe(repoRoot);
+    expect(step.metadataUpdates).toMatchObject({
+      worktreePath: WT(),
+      worktreeBranch: `prototype/${wu.id}`,
+      worktreeBaseBranch: 'main',
+      worktreeBaseRepo: repoRoot,
+    });
+  });
+
+  it('analysis 原型单后续 step：复用 metadata 中的 worktree（branchPrefix 仍为 prototype）', async () => {
+    const wu = await createWu('analysis', {
+      workspaceRoot: repoRoot,
+      prototype: true,
+      worktreePath: WT(),
+      worktreeBranch: `prototype/${'x'}`,
+      worktreeBaseBranch: 'main',
+      worktreeBaseRepo: repoRoot,
+    });
+
+    const step = await loop().agentStep({ workUnit: wu });
+
+    expect(mockEnsureWuWorktree).toHaveBeenCalledWith(expect.objectContaining({
+      wuId: wu.id,
+      branchPrefix: 'prototype',
+      baseBranch: 'main',
+    }));
+    expect(step.metadataUpdates?.worktreePath).toBeUndefined();
+  });
+
   it('绑定根不是 git 仓库（无 .git）：不建 worktree，维持现状', async () => {
     const plainDir = fs.mkdtempSync(path.join(os.tmpdir(), 'b3b-plain-'));
     try {

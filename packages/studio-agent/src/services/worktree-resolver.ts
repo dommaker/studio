@@ -408,7 +408,7 @@ export async function ensureDeps(worktree: string, repoDir: string): Promise<voi
 
 export interface WuWorktreeInfo {
   worktreePath: string;   // <worktreesDir>/wu-<wuId>
-  branch: string;         // task/<wuId>
+  branch: string;         // <branchPrefix>/<wuId>（缺省 task；#157 原型单 prototype）
   baseBranch: string;     // 创建时探测/复用时沿用 metadata 记录
   baseRepo: string;       // 共享 git 仓库根
 }
@@ -423,10 +423,12 @@ export async function ensureWuWorktree(opts: {
   repoDir: string;
   worktreesDir: string;
   baseBranch?: string;
+  /** #157（T6）：分支前缀，缺省 'task'；analysis 原型单传 'prototype'（prototype/<wuId> 分支永不合并） */
+  branchPrefix?: string;
 }): Promise<WuWorktreeInfo> {
   const { wuId, repoDir, worktreesDir } = opts;
   const worktreePath = path.join(worktreesDir, `wu-${wuId}`);
-  const branch = `task/${wuId}`;
+  const branch = `${opts.branchPrefix ?? 'task'}/${wuId}`;
 
   if (fsSync.existsSync(path.join(worktreePath, '.git'))) {
     logger.info('[WorktreeResolver] Reusing WU worktree', { worktreePath, wuId });

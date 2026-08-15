@@ -8,7 +8,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { FileStore } from '@dommaker/studio-shared';
 import { WorkUnitService, type WorkUnitMetadata, type WorkUnitData } from '../workunit.service.js';
-import { mergeWorktreeBranchOnReviewPass } from '../merge-on-review-pass.js';
+import { mergeWorktreeBranchOnReviewPass, cleanupPrototypeWorktreeOnReviewPass } from '../merge-on-review-pass.js';
 
 const { mockExecSh, mockPostWuSystemMessage, mockResolvePmoProjectId } = vi.hoisted(() => ({
   mockExecSh: vi.fn(),
@@ -54,10 +54,10 @@ function worktreeMeta(extra?: Partial<WorkUnitMetadata>): WorkUnitMetadata {
   };
 }
 
-async function createWu(metadata: WorkUnitMetadata, status = 'in_review'): Promise<WorkUnitData> {
+async function createWu(metadata: WorkUnitMetadata, status = 'in_review', type = 'task'): Promise<WorkUnitData> {
   return wuService.create({
     scope: '实现登录接口',
-    type: 'task',
+    type,
     channelId: 'ch-merge',
     status,
     metadata,
@@ -459,5 +459,86 @@ describe('B3b-ii: 评审通过后自动合并', () => {
     expect(meta.conflictFiles).toEqual(['src/a.ts']);
     const msgs = await studioMessages(wu.id);
     expect(msgs.some(m => m.content.includes('转人工'))).toBe(true);
+  });
+});
+
+describe('#157（T6）：analysis 原型单——合并旁路 + 原型收尾清理', () => {
+  const PROTO_BRANCH = 'prototype/wu-9';
+
+  it('合并按类型硬旁路：analysis 有 worktree 落档也不合并，零 git 调用', async () => {
+    const wu = await createWu(worktreeMeta({ worktreeBranch: PROTO_BRANCH, prototype: true }), 'in_review', 'analysis');
+
+    const outcome = await mergeWorktreeBranchOnReviewPass(wuService, wu, fileStore);
+
+    expect(outcome).toEqual({ attempted: false, reason: 'analysis-bypass' });
+    expect(mockExecSh).not.toHaveBeenCalled();
+    const updated = await wuService.getById(wu.id);
+    expect(updated!.status).toBe('in_review'); // 状态不被合并模块触碰
+    expect(await studioMessages(wu.id)).toHaveLength(0);
+  });
+
+  it('原型收尾：删 worktree 目录、保留 prototype/ 分支（不合并不删分支）', async () => {
+    const wu = await createWu(worktreeMeta({ worktreeBranch: PROTO_BRANCH, prototype: true }), 'in_review', 'analysis');
+
+    const outcome = await cleanupPrototypeWorktreeOnReviewPass(wu);
+
+    expect(outcome).toEqual({ attempted: true, removed: true });
+    const cmds = calledCommands();
+    expect(cmds.some(c => c.includes('worktree remove --force') && c.includes(WT))).toBe(true);
+    expect(cmds.some(c => c.includes('merge'))).toBe(false);
+    expect(cmds.some(c => c.includes('branch -d'))).toBe(false);
+    expect(cmds.some(c => c.includes('branch -D'))).toBe(false);
+  });
+
+  it('原型收尾数据防丢：worktree 有未提交改动 → 不删（留人工），目录与分支都保留', async () => {
+    mockExecSh.mockImplementation(async (cmd: string) => {
+      if (cmd.includes('status --porcelain')) return { stdout: ' M proto.ts\n', stderr: '' };
+      return { stdout: '', stderr: '' };
+    });
+    const wu = await createWu(worktreeMeta({ worktreeBranch: PROTO_BRANCH, prototype: true }), 'in_review', 'analysis');
+
+    const outcome = await cleanupPrototypeWorktreeOnReviewPass(wu);
+
+    expect(outcome).toEqual({ attempted: true, removed: false });
+    expect(calledCommands().some(c => c.includes('worktree remove'))).toBe(false);
+  });
+
+  it('原型收尾旁路：非 analysis / 无 worktree 落档 → 零 git 调用', async () => {
+    const taskWu = await createWu(worktreeMeta());
+    expect(await cleanupPrototypeWorktreeOnReviewPass(taskWu))
+      .toEqual({ attempted: false, reason: 'not-analysis-prototype' });
+
+    const plainAnalysis = await createWu({}, 'in_review', 'analysis');
+    expect(await cleanupPrototypeWorktreeOnReviewPass(plainAnalysis))
+      .toEqual({ attempted: false, reason: 'not-analysis-prototype' });
+
+    expect(mockExecSh).not.toHaveBeenCalled();
+  });
+
+  it('reviewPassed 收口：analysis 原型单 done 后删 worktree 留分支，不触发合并', async () => {
+    const wu = await createWu(worktreeMeta({ worktreeBranch: PROTO_BRANCH, prototype: true }), 'in_review', 'analysis');
+
+    const passed = await wuService.reviewPassed(wu.id);
+    expect(passed.status).toBe('done'); // done 迁移不被收尾阻断
+
+    await waitFor(async () => calledCommands().some(c => c.includes('worktree remove --force')));
+    const cmds = calledCommands();
+    expect(cmds.some(c => c.includes('merge --no-ff'))).toBe(false);
+    expect(cmds.some(c => c.includes('branch -d') && c.includes(PROTO_BRANCH))).toBe(false);
+    const updated = await wuService.getById(wu.id);
+    const meta = JSON.parse(updated!.metadata!) as WorkUnitMetadata;
+    expect(meta.mergedAt).toBeUndefined();
+    expect(updated!.status).toBe('done'); // 不被置 blocked
+  });
+
+  it('reviewPassed 普通 analysis（无标记无落档）：行为完全不变（done，无 git，无消息）', async () => {
+    const wu = await createWu({}, 'in_review', 'analysis');
+
+    const passed = await wuService.reviewPassed(wu.id);
+    expect(passed.status).toBe('done');
+
+    await new Promise(r => setTimeout(r, 150)); // 给 best-effort 分支充分执行窗口
+    expect(mockExecSh).not.toHaveBeenCalled();
+    expect(await studioMessages(wu.id)).toHaveLength(0);
   });
 });

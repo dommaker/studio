@@ -68,8 +68,11 @@ export interface WorkUnitMetadata {
   blockedBy?: string[];       // 阻塞本 WU 的 WU id 列表（可跨 PMO）；任一未了结（非 done/closed）→ unassigned 对所有 loop 不可见（wu-dependencies.ts 判定；agent-loop observe 过滤 + 列表 claimable 标记消费）
   ac?: string[];              // 验收标准（验收闸对照用；机制只存不解释）
   // B3b-i 每 WU worktree 隔离（决策 D1）：代码类 WU 首个 step 创建并落档，后续 step 复用
+  // #157（T6，#128 决议）：analysis 原型单标记——建单显式 prototype: true 才挂专属 worktree
+  // （仅 analysis 类型消费本字段；不增类型、不隐式判定）
+  prototype?: boolean;
   worktreePath?: string;      // 专属 worktree 路径（<worktreesDir>/wu-<wuId>；执行 cwd + 提交守卫 + 自动验证的消费点）
-  worktreeBranch?: string;    // 专属分支名（task/<wuId>）
+  worktreeBranch?: string;    // 专属分支名（task/<wuId>；#157 原型单为 prototype/<wuId>，永不合并）
   worktreeBaseBranch?: string; // 创建时的 base 分支（origin/HEAD→main→master 探测；PMO-b：归属 PMO 时为 PMO 分支）
   worktreeBaseRepo?: string;  // 共享 git 仓库根（worktree 的母仓库）
   // PMO-b（决策 3）：WU 归属 PMO 的集成分支（agent-loop 首 step 落档；

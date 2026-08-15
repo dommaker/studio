@@ -14,7 +14,7 @@
  */
 
 import { logger, withAttestation, deriveDisplayState, type AttestationEntry, type WorkUnitSnapshot, type WorkUnitEvent } from '@dommaker/studio-shared';
-import { mergeWorktreeBranchOnReviewPass } from './merge-on-review-pass.js';
+import { mergeWorktreeBranchOnReviewPass, cleanupPrototypeWorktreeOnReviewPass } from './merge-on-review-pass.js';
 import { parseWuMetadata } from './wu-metadata.js';
 import { resolveValidTransitions, type WorkUnitMetadata, type ReviewAttestationSource } from './workunit.types.js';
 import { snapshotToData } from './workunit.mappers.js';
@@ -201,9 +201,18 @@ export class WorkUnitService extends WorkUnitCrudService {
     // B3b-ii（决策 D1/D3 后半）：评审通过 → task 分支自动合并回 base 分支。
     // best-effort：无 worktree 落档的 WU 在 merge 模块内旁路；冲突由模块自行置 blocked 转人工；
     // 任何失败只记日志，不阻断本方法的 done 迁移。
-    mergeWorktreeBranchOnReviewPass(this, snapshotToData(updated), this.fileStore).catch(err =>
-      logger.warn('[WorkUnit] merge-on-review-pass failed (non-blocking)', { workUnitId: id, error: String(err) })
-    );
+    // #157（T6）：analysis 原型单不合并——收尾只删 worktree 目录、保留 prototype/ 分支
+    // （merge 模块对 analysis 按类型硬旁路，双保险）。
+    const updatedData = snapshotToData(updated);
+    if (updatedData.type === 'analysis') {
+      cleanupPrototypeWorktreeOnReviewPass(updatedData).catch(err =>
+        logger.warn('[WorkUnit] prototype worktree cleanup failed (non-blocking)', { workUnitId: id, error: String(err) })
+      );
+    } else {
+      mergeWorktreeBranchOnReviewPass(this, updatedData, this.fileStore).catch(err =>
+        logger.warn('[WorkUnit] merge-on-review-pass failed (non-blocking)', { workUnitId: id, error: String(err) })
+      );
+    }
 
     return snapshotToData(updated);
   }

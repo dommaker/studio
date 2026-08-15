@@ -97,9 +97,9 @@ describe('§10.5: 提交守卫', () => {
   }
 
   /** 创建 active WorkUnit（绑定 workspace）+ anchor 消息 */
-  async function setupWorkUnit(metadata?: WorkUnitMetadata) {
+  async function setupWorkUnit(metadata?: WorkUnitMetadata, type = 'task') {
     const wu = await wuService.create({
-      scope: '实现登录功能', channelId, type: 'task',
+      scope: '实现登录功能', channelId, type,
       status: 'active', assigneeId: 'instance-1', workspaceId: 'ws-1',
       ...(metadata ? { metadata } : {}),
     });
@@ -200,6 +200,57 @@ describe('§10.5: 提交守卫', () => {
     const after = (await wuService.getById(wu.id))!;
     expect(after.status).toBe('in_review');
     expect(JSON.parse(after.metadata!).commitGuardHint).toBeUndefined();
+  });
+
+  it('#157（T6）：analysis 原型单 COMPLETE + 原型 worktree 未提交改动 → 打回 progress', async () => {
+    // cwd 感知 mock：原型 worktree 脏、共享根干净 —— 修复前守卫查共享根放行（假 complete）
+    mockExecSync.mockImplementation((cmd: string, opts?: { cwd?: string }) => {
+      if (String(cmd).includes('rev-parse')) return 'h1\n';
+      return opts?.cwd === '/tmp/proto-wt' ? ' M proto.ts\n' : '';
+    });
+    const wu = await setupWorkUnit({
+      workspaceRoot: '/tmp/shared-root',
+      prototype: true,
+      worktreePath: '/tmp/proto-wt',
+      worktreeBranch: `prototype/x`,
+      worktreeBaseBranch: 'main',
+      worktreeBaseRepo: '/tmp/shared-root',
+    }, 'analysis');
+
+    await (agentLoop as unknown as RecordResultCapable).recordResult(
+      { workUnit: wu },
+      { action: 'complete', summary: '原型做完了' },
+    );
+
+    const after = (await wuService.getById(wu.id))!;
+    expect(after.status).toBe('active');
+    const meta: WorkUnitMetadata = JSON.parse(after.metadata!);
+    expect(meta.commitGuardHint).toBe(COMMIT_HINT);
+  });
+
+  it('#157（T6）：analysis 原型单 COMPLETE + 原型 worktree 干净 → 正常进入 in_review（不跑 L1 验证）', async () => {
+    mockGit('', 'h1\n');
+    const wu = await setupWorkUnit({
+      workspaceRoot: '/tmp/shared-root',
+      prototype: true,
+      worktreePath: '/tmp/proto-wt',
+      worktreeBranch: `prototype/x`,
+      worktreeBaseBranch: 'main',
+      worktreeBaseRepo: '/tmp/shared-root',
+    }, 'analysis');
+
+    await (agentLoop as unknown as RecordResultCapable).recordResult(
+      { workUnit: wu },
+      { action: 'complete', summary: '原型做完了' },
+    );
+
+    const after = (await wuService.getById(wu.id))!;
+    expect(after.status).toBe('in_review');
+    const meta: WorkUnitMetadata = JSON.parse(after.metadata!);
+    expect(meta.commitGuardHint).toBeUndefined();
+    // analysis 非代码类：不触发 B3b-i 自动验证（无 verifyReport / l1 台账）
+    expect(meta.verifyReport).toBeUndefined();
+    expect(meta.attestations?.l1).toBeUndefined();
   });
 
   it('COMPLETE + git 调用失败 → 静默跳过守卫，正常完成', async () => {
