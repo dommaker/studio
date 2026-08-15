@@ -6,7 +6,8 @@
  *
  * 职责边界：
  *   - 本模块 = prompt 组装政策：hint 读取/注入/消费清除、注入段定额分配与截断、
- *     skill_used / section_trimmed 度量落盘。build 段函数同为模块级私有函数。
+ *     section_trimmed 度量落盘。build 段函数同为模块级私有函数。
+ *     （#172/#60：skill_used 曝光发射已删除——skill_used 唯一语义 = loadSkill 加载。）
  *   - agent-loop.agentStep = 编排：traceId/channelVersion 读取（下游仍消费，留在 agentStep）→
  *     调 composeStepPrompt → 会话管理 → worktree 准备 → 执行与簿记。
  *
@@ -425,7 +426,8 @@ function buildHandoffSection(metadata: WorkUnitMetadata, isNewSession: boolean, 
  * （~/.studio/skills/<name>/SKILL.md，agent 按需阅读），不注入正文；段首协议行说明按需语义；
  * 段尾一行 MANIFEST 指针（~/.studio/skills/MANIFEST.md，agent 按需读全文清单），恒在段尾（无论是否裁剪）。
  * 返回 matched = 实际进入注入段的 skill 名（预裁剪后、截断后的集合；调用方落盘
- * metadata.matchedSkills；此处并发 knowledge:skill_used 事件，fire-and-forget，供度量/被无视率）。
+ * metadata.matchedSkills）。#172（#60 决策 Q2）：曝光事件发射已删除（常量集合零信息量，
+ * 占事件流 ~88%）；knowledge:skill_used 唯一语义 = Skill 加载（skill-loader.ts）。
  */
 async function buildSkillSection(
   wu: WorkUnitData,
@@ -478,15 +480,8 @@ async function buildSkillSection(
     tokens += blockTokens;
   }
 
-  // 度量（fire-and-forget）：每个实际注入的 skill 记一条 knowledge:skill_used 事件
-  for (const skillName of matched) {
-    void metricsFileStore.appendJsonl(deps.resolveEventsFile(), {
-      type: 'knowledge:skill_used',
-      source: 'agent-loop',
-      payload: JSON.stringify({ skillName, workUnitId: wu.id }),
-      createdAt: new Date().toISOString(),
-    }).catch(() => {});
-  }
+  // #172（#60 决策 Q2）：曝光事件发射已删除 —— 曝光集合为常量（零信息量，占事件流 ~88%），
+  // knowledge:skill_used 唯一语义 = Skill 加载（MCP loadSkill 拉取正文，见 skill-loader.ts）。
 
   return { section: `${header}\n\n${blocks.join('\n\n')}\n\n${pointer}`, tokens, originalTokens, matched };
 }

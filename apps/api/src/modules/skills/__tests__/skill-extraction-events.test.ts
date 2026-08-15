@@ -141,4 +141,27 @@ describe('Skill event emission', () => {
     const payload = JSON.parse(skillUsedCall[1].payload);
     expect(payload.skillName).toBe('test-skill');
   });
+
+  test('#172（#60 决策）：loadSkill 的 skill_used 携带 workUnitId（传入时）+ envelope level=debug', async () => {
+    mockAppendJsonl.mockClear();
+
+    const { SkillLoaderService } = await import('../../skills/skill-loader.js');
+    const loader = new SkillLoaderService();
+
+    const result = await loader.loadSkill({
+      sessionId: 'sess-wu',
+      skillName: 'test-skill',
+      workUnitId: 'wu-42',
+    });
+    expect(result).not.toBeNull();
+
+    const skillUsedCall = mockAppendJsonl.mock.calls.find(
+      (c: any[]) => c[1]?.type === 'knowledge:skill_used',
+    );
+    expect(skillUsedCall).toBeDefined();
+    expect(skillUsedCall[1].level).toBe('debug'); // knowledge:* 默认 debug 分级
+    const payload = JSON.parse(skillUsedCall[1].payload);
+    expect(payload.skillName).toBe('test-skill');
+    expect(payload.workUnitId).toBe('wu-42');
+  });
 });

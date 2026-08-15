@@ -15,6 +15,7 @@ const loadSkill: RegisteredTool = {
     type: 'object',
     properties: {
       skillName: { type: 'string', description: 'Skill 名称（从索引中获取）' },
+      workUnitId: { type: 'string', description: '当前 WorkUnit ID（可选；用于 skill_used 事件归属）' },
     },
     required: ['skillName'],
   },
@@ -37,6 +38,8 @@ const loadSkill: RegisteredTool = {
     const loaded = await skillLoaderService.loadSkill({
       sessionId: `mcp-${Date.now()}`,
       skillName,
+      // #172: skill_used 事件补 WU 归属（调用方已知时）
+      ...(typeof input.workUnitId === 'string' && input.workUnitId ? { workUnitId: input.workUnitId } : {}),
     });
     if (loaded) {
       return { skillName, content: loaded.prompt, source: 'file' };

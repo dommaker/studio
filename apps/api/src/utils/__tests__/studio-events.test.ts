@@ -25,6 +25,7 @@ import {
   readStudioEvents,
   parseStudioEventPayload,
   getStudioEventTime,
+  defaultStudioEventLevel,
 } from '../studio-events.js';
 
 describe('resolveStudioEventsFile', () => {
@@ -151,5 +152,44 @@ describe('getStudioEventTime', () => {
   it('缺失/非法 → NaN', () => {
     expect(Number.isNaN(getStudioEventTime({}))).toBe(true);
     expect(Number.isNaN(getStudioEventTime({ createdAt: 'not-a-date' }))).toBe(true);
+  });
+});
+
+describe('event level（#172 / #60 决策：envelope 可选 level 字段）', () => {
+  let dir: string;
+  let file: string;
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'studio-events-level-'));
+    file = path.join(dir, 'studio-events.jsonl');
+  });
+
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('默认分级：knowledge:* 与 tool:call → debug；其余 → info', () => {
+    expect(defaultStudioEventLevel('knowledge:skill_used')).toBe('debug');
+    expect(defaultStudioEventLevel('knowledge:outcome')).toBe('debug');
+    expect(defaultStudioEventLevel('tool:call')).toBe('debug');
+    expect(defaultStudioEventLevel('workunit:execution_step')).toBe('info');
+    expect(defaultStudioEventLevel('workunit:failed')).toBe('info'); // 由调用方显式传 warning
+    expect(defaultStudioEventLevel('monitor:alert')).toBe('info'); // 维持现有分级（payload.level）
+  });
+
+  it('debug 级事件落盘带 level 字段；缺省 info 不落字段（可选字段，缺省即 info）', async () => {
+    await writeStudioEvent('knowledge:skill_used', { skillName: 'x' }, { source: 'skill-loader', file });
+    await writeStudioEvent('workunit:execution_step', { workUnitId: 'w' }, { file });
+    const rows = await readStudioEvents({ file });
+    expect(rows[0].level).toBe('debug');
+    expect(rows[1]).not.toHaveProperty('level');
+  });
+
+  it('显式 opts.level 覆盖默认分级（含把 knowledge:* 提级）', async () => {
+    await writeStudioEvent('workunit:failed', { workUnitId: 'w' }, { source: 'agent-loop', level: 'warning', file });
+    await writeStudioEvent('knowledge:outcome', { a: 1 }, { level: 'critical', file });
+    const rows = await readStudioEvents({ file });
+    expect(rows[0].level).toBe('warning');
+    expect(rows[1].level).toBe('critical');
   });
 });

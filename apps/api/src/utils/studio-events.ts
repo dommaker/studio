@@ -10,7 +10,13 @@
  * 本模块收敛为：一个文件（~/.studio/logs/studio-events.jsonl，测试期经
  * studio-log-path 隔离到 os.tmpdir()/studio-test-logs/）+ 一个入口（writeStudioEvent /
  * readStudioEvents）。事件形态统一为 StudioEvent：
- *   { type, source?, payload: JSON string, createdAt: ISO 8601 }
+ *   { type, source?, payload: JSON string, createdAt: ISO 8601, level?: debug|info|warning|critical }
+ *
+ * #172（#60 决策 Q2）：envelope 可选 level 字段（缺省 info —— 字段缺省即 info，不为
+ * info 冗余落字段）。默认分级按 type：knowledge:* 与 tool:call → debug（噪声），
+ * 其余 → info；调用方可经 opts.level 显式覆盖（如 workunit:failed → warning）。
+ * monitor:alert 维持现有分级（payload.level），不在 envelope 重复。
+ * 读取侧默认 ≥info（过滤归读取方，不在此处硬编码黑名单）。
  *
  * 写入校验：payload 为空（{} / null / undefined / 'null' / '{}' / 空串）的事件拒绝落盘
  * 并 logger.warn（调用方自查），返回 false —— 空事件不产信号只产噪音。
@@ -54,6 +60,21 @@ export interface WriteStudioEventOptions {
   createdAt?: string;
   /** 覆盖目标文件（测试/特殊场景；默认统一事件文件） */
   file?: string;
+  /** #172: 事件分级（缺省 = defaultStudioEventLevel(type)；info 不落字段） */
+  level?: StudioEventLevel;
+}
+
+/** #172（#60 决策 Q2）：事件分级。缺省 info（envelope 无 level 字段即视为 info） */
+export type StudioEventLevel = 'debug' | 'info' | 'warning' | 'critical';
+
+/**
+ * 默认分级（#60 决策 Q2）：knowledge:* 与 tool:call 为噪声 → debug；其余 → info。
+ * workunit:failed 等关键事件由调用方显式 opts.level='warning'；monitor:alert 维持
+ * payload.level 现有分级，不经本函数提级。
+ */
+export function defaultStudioEventLevel(type: string): StudioEventLevel {
+  if (type.startsWith('knowledge:') || type === 'tool:call') return 'debug';
+  return 'info';
 }
 
 /**
@@ -74,9 +95,12 @@ export async function writeStudioEvent(
     return false;
   }
   try {
+    const level = opts?.level ?? defaultStudioEventLevel(type);
     await fileStore.appendJsonl(opts?.file ?? resolveStudioEventsFile(), {
       type,
       ...(opts?.source ? { source: opts.source } : {}),
+      // #172: level 为可选字段，缺省 info 不落字段（读取侧缺省即 info）
+      ...(level !== 'info' ? { level } : {}),
       payload: typeof payload === 'string' ? payload : JSON.stringify(payload),
       createdAt: opts?.createdAt ?? new Date().toISOString(),
     });

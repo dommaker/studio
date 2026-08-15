@@ -29,7 +29,7 @@ import {
   tokenBudgetGuardEnabled, resolveDailyTokenBudget, getDailyTokenUsage,
   notifyBudgetTripped,
 } from './daily-token-budget.js';
-import { emitExecutionStepEvent, emitExecutionStreamLine, emitExecutionStreamStepStart } from './execution-step-events.js';
+import { emitExecutionStepEvent, emitExecutionStreamLine, emitExecutionStreamStepStart, emitWorkUnitFailedEvent } from './execution-step-events.js';
 import { CODE_WORKTREE_TYPES, runWuVerification } from './wu-verification.js';
 import { runCompletionGuards } from './completion-gates.js';
 import { parseMapOpening } from '../../pmo/map-opening.js';
@@ -777,6 +777,26 @@ export class AgentLoop {
       return real;
     };
 
+    // #172（#60 决策 Q1）：失败步也落 execution_step 事件（status='failed' + 错误字段）——
+    // 此前失败分支提前 return 到不了成功路径的发射点，失败步在事件流中完全不可查。
+    // 读取调用时的 effectiveSessionId/sessionResumed 当前值（重试降级后可能被改写）。
+    // fire-and-forget，与成功路径发射同形态，绝不影响失败处理流程。
+    const emitFailedStep = (action: string, detail: string, res?: ExecutionResult) => {
+      void emitExecutionStepEvent({
+        workUnitId: wu.id,
+        executionId: task.executionId,
+        sessionId: effectiveSessionId ?? undefined,
+        sessionResumed,
+        step: stepNo,
+        action,
+        rawOutput: res?.rawOutput ?? null,
+        skills: skillMatched,
+        status: 'failed',
+        errorType: 'execution_failed',
+        errorDetail: detail,
+      }).catch(() => {});
+    };
+
     try {
       // Layer B: step 开始信号（CLI 首行到达前抽屉即有反馈）
       void emitExecutionStreamStepStart({ workUnitId: wu.id, executionId, step: stepNo }).catch(() => {});
@@ -813,6 +833,7 @@ export class AgentLoop {
               workUnitId: wu.id, sessionsUsed, max: MAX_SESSIONS_PER_WU,
             });
             this.recordOutcomeEvent(wu, false, detail, 'execution_failed', injectedKnowledgeIds);
+            emitFailedStep('need_input', detail, result);
             return {
               action: 'need_input' as const,
               summary: `续用会话已丢失且会话重建已达上限（${sessionsUsed}/${MAX_SESSIONS_PER_WU}）：已暂停自动执行。请人工评估后回复任意内容继续，或直接关闭任务`,
@@ -841,6 +862,7 @@ export class AgentLoop {
             recordTokenEvent(retryResult);
             this.resetUnestablishedSession(metadataUpdates);
             this.recordOutcomeEvent(wu, false, detail, 'execution_failed', injectedKnowledgeIds);
+            emitFailedStep('failed', detail, retryResult);
             return failResult(detail);
           }
           // 降级成功：走正常成功路径；换新号落盘（sessionCount 已在查过 MAX 后计入）
@@ -861,6 +883,7 @@ export class AgentLoop {
               workUnitId: wu.id, sessionsUsed, max: MAX_SESSIONS_PER_WU,
             });
             this.recordOutcomeEvent(wu, false, detail, 'execution_failed', injectedKnowledgeIds);
+            emitFailedStep('need_input', detail, result);
             return {
               action: 'need_input' as const,
               summary: `CLI 上下文溢出且会话重建已达上限（${sessionsUsed}/${MAX_SESSIONS_PER_WU}）：已暂停自动执行。请人工评估后回复任意内容继续，或直接关闭任务`,
@@ -889,6 +912,7 @@ export class AgentLoop {
             recordTokenEvent(retryResult);
             this.resetUnestablishedSession(metadataUpdates);
             this.recordOutcomeEvent(wu, false, retryDetail, 'execution_failed', injectedKnowledgeIds);
+            emitFailedStep('need_input', retryDetail, retryResult);
             return {
               action: 'need_input' as const,
               summary: `CLI 上下文溢出：新会话带摘要重试一次仍失败（${retryDetail.slice(0, 200)}），已暂停自动执行。请人工评估后回复任意内容继续，或直接关闭任务`,
@@ -903,6 +927,7 @@ export class AgentLoop {
           // 首 step 失败：会话未必已建立，重置避免下步 --resume 一个从未建立的会话
           if (newSessionId) this.resetUnestablishedSession(metadataUpdates);
           this.recordOutcomeEvent(wu, false, detail, 'execution_failed', injectedKnowledgeIds);
+          emitFailedStep('failed', detail, result);
           return failResult(detail);
         }
       }
@@ -1033,6 +1058,8 @@ export class AgentLoop {
       const message = err instanceof Error ? err.message : String(err);
       logger.error(`[AgentLoop] agentStep execute failed: ${message}`, { traceId });
       this.recordOutcomeEvent(wu, false, message, 'execution_failed', injectedKnowledgeIds);
+      // #172: spawn 异常等抛出路径的失败步同样落 execution_step（status=failed）
+      emitFailedStep('need_input', message);
       // AC-8.7 远程节点不可达分支已随 RemoteExecutor 一并删除（远程方向放弃，bdaf0dd3）。
       return {
         action: 'need_input' as const, // increments consecutiveStuck
@@ -1370,6 +1397,16 @@ export class AgentLoop {
       if (wu.status !== 'blocked') {
         await this.workUnitService.transitionStatus(wuId, 'blocked');
       }
+      // #172（#60 决策 Q1）：WU 级终态失败事件落盘（level=warning，#62 失败趋势探测数据源）
+      void emitWorkUnitFailedEvent({
+        workUnitId: wuId,
+        failureType: 'verify_failed',
+        blockReason: String(blockReasonUpdates.blockReason ?? ''),
+        consecutiveStuck,
+        attempts: stepCount,
+        totalDurationMs: Math.max(0, Date.now() - new Date(wu.createdAt).getTime()),
+        traceId,
+      }).catch(() => {});
       // 2026-07 PMO-flow UX（§6-3）：验证失败打回/转人工里程碑 —— meta 带 pmoId（可解析时）+ atHuman
       await this.postToDiscussionSpace(
         wuId,
@@ -1397,6 +1434,20 @@ export class AgentLoop {
     // Monitoring: stuck detection
     if (consecutiveStuck >= 3) {
       await this.workUnitService.transitionStatus(wuId, 'blocked');
+      // #172（#60 决策 Q1）：WU 级终态失败事件落盘（level=warning）。
+      // failureType 取本步 errorType（execution_failed / worktree_creation_failed 等），
+      // 无 errorType 的纯停滞（连续 need_input/progress 无进展）记 'stuck'。
+      void emitWorkUnitFailedEvent({
+        workUnitId: wuId,
+        failureType: typeof metadata.errorType === 'string' && metadata.errorType
+          ? metadata.errorType
+          : action === 'failed' ? 'execution_failed' : 'stuck',
+        blockReason: String(blockReasonUpdates.blockReason ?? ''),
+        consecutiveStuck,
+        attempts: stepCount,
+        totalDurationMs: Math.max(0, Date.now() - new Date(wu.createdAt).getTime()),
+        traceId,
+      }).catch(() => {});
       // W-3 接线：执行失败导致的 blocked 在频道说明失败原因（summary 含 CLI 错误详情）
       const stuckReason = action === 'failed' && result.summary ? `（${result.summary}）` : '';
       // 2026-07 PMO-flow UX（§6-3）：blocked 转人工里程碑 —— meta 带 pmoId（可解析时）+ atHuman

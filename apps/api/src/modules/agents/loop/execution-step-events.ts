@@ -19,6 +19,15 @@
  * 本事件不进频道、不写 WU metadata（防膨胀），只走事件流。
  * fire-and-forget：解析/写盘/发布任何失败只记日志，绝不影响任务流程。
  *
+ * #172（#60 决策 Q1）结构化失败事件：
+ *   - execution_step payload 加 status: 'success'|'failed' + errorType/errorDetail；
+ *     失败步（CLI success:false / 异常）也落盘——此前失败分支提前 return 到不了发射点，
+ *     失败步在事件流中完全不可查。失败步无任何可解析内容也产事件（失败信号不落空）。
+ *   - 新增 workunit:failed（WU 级终态失败，转 blocked 时落盘，envelope level=warning）：
+ *     payload = workUnitId / failureType / blockReason / consecutiveStuck / attempts /
+ *     totalDurationMs / traceId（traceId 与 audit.jsonl 的 requestId 同值，打通审计侧）。
+ *     #62 的 WU 失败趋势探测直接读它。
+ *
  * 容量纪律：thinking ≤3 条 ×500 字符；toolCalls ≤30 条 ×160 字符摘要；text ≤500 字符；
  * stream chunk 单条 ≤500 字符、单行 ≤10 条、前端只留当前步。
  * 完整 transcript 需要时按 claude projects 文件回放（见 agents/CONTEXT.md），不在这里复制。
@@ -55,6 +64,12 @@ export interface ExecutionStepEventPayload {
   step: number;
   /** 本步 ACTION 结论（progress/complete/need_input/failed） */
   action?: string;
+  /** #172（#60 决策 Q1）：本步成败（缺省 success；失败步携带 errorType/errorDetail） */
+  status: 'success' | 'failed';
+  /** #172: 失败步错误分类（execution_failed / worktree_creation_failed 等，同 metadata.errorType 口径） */
+  errorType?: string;
+  /** #172: 失败步错误详情（截断，同 recordOutcomeEvent 口径） */
+  errorDetail?: string;
   thinking: string[];
   toolCalls: ExecutionStepToolCall[];
   /** 本步注入的 skill 名单（= 本步 metadata.matchedSkills 落盘值） */
@@ -73,7 +88,12 @@ export interface BuildExecutionStepEventArgs {
   sessionResumed?: boolean;
   step: number;
   action?: string;
-  /** stream-json 全量 stdout（result.rawOutput）；空/不可解析 → 返回 null */
+  /** #172: 缺省 'success'；'failed' 时无有效内容也产事件（失败信号不落空） */
+  status?: 'success' | 'failed';
+  /** #172: status='failed' 时的错误分类/详情（截断 500 字符） */
+  errorType?: string;
+  errorDetail?: string;
+  /** stream-json 全量 stdout（result.rawOutput）；空/不可解析 → 返回 null（status='failed' 除外） */
   rawOutput?: string | null;
   skills?: string[];
   at?: string;
@@ -155,6 +175,7 @@ export function extractTextSummary(events: StreamEvent[]): string {
 /**
  * 提炼一步的执行事件（纯函数，可测）。
  * 无任何有效内容（无 thinking/toolCalls/text/usage/skills）→ null（不产生空信号事件）。
+ * #172: status='failed' 除外——失败本身就是信号，无内容也产事件（失败步落盘决策）。
  */
 export function buildExecutionStepEvent(args: BuildExecutionStepEventArgs): ExecutionStepEventPayload | null {
   const events = typeof args.rawOutput === 'string' && args.rawOutput.trim().length > 0
@@ -168,8 +189,10 @@ export function buildExecutionStepEvent(args: BuildExecutionStepEventArgs): Exec
   const usage = extractUsage(events);
   const hasUsage = usage.inputTokens + usage.outputTokens > 0;
   const skills = (args.skills ?? []).filter(s => typeof s === 'string' && s.length > 0);
+  const status = args.status ?? 'success';
 
-  if (thinking.length === 0 && toolCalls.length === 0 && !text && !hasUsage && skills.length === 0) {
+  if (status !== 'failed'
+    && thinking.length === 0 && toolCalls.length === 0 && !text && !hasUsage && skills.length === 0) {
     return null;
   }
 
@@ -180,6 +203,9 @@ export function buildExecutionStepEvent(args: BuildExecutionStepEventArgs): Exec
     ...(args.sessionResumed !== undefined ? { sessionResumed: args.sessionResumed } : {}),
     step: args.step,
     ...(args.action ? { action: args.action } : {}),
+    status,
+    ...(status === 'failed' && args.errorType ? { errorType: args.errorType } : {}),
+    ...(status === 'failed' && args.errorDetail ? { errorDetail: truncate(args.errorDetail, TEXT_MAX_CHARS) } : {}),
     thinking,
     toolCalls,
     skills,
@@ -209,6 +235,50 @@ export async function emitExecutionStepEvent(args: BuildExecutionStepEventArgs):
     return true;
   } catch (err) {
     logger.warn('[ExecutionStepEvent] emit failed', { workUnitId: args.workUnitId, error: String(err) });
+    return false;
+  }
+}
+
+// ─── #172（#60 决策 Q1）：workunit:failed —— WU 级终态失败事件 ───
+
+export const WORKUNIT_FAILED_EVENT_TYPE = 'workunit:failed';
+
+/**
+ * WU 级终态失败 payload（决策字段）：
+ * traceId 与 audit.jsonl 的 requestId 同值（打通审计侧）；#62 失败趋势探测直接读本事件。
+ */
+export interface WorkUnitFailedEventPayload {
+  workUnitId: string;
+  /** 失败分类：verify_failed（自动验证连续失败）/ execution_failed 等 metadata.errorType / stuck（连续无进展） */
+  failureType: string;
+  /** 落盘到 metadata.blockReason 的同一文本 */
+  blockReason: string;
+  consecutiveStuck: number;
+  /** 已执行步数（metadata.stepCount 口径） */
+  attempts: number;
+  /** WU 创建 → 转 blocked 的总耗时 */
+  totalDurationMs: number;
+  traceId?: string;
+}
+
+/**
+ * WU 转 blocked（终态失败）时落盘 workunit:failed，envelope level=warning（#60 决策 Q2）。
+ * 只落盘不进频道（频道里程碑由 recordResult 既有 postToDiscussionSpace 负责）。
+ * fire-and-forget：写盘失败只记日志，绝不影响状态迁移。
+ */
+export async function emitWorkUnitFailedEvent(payload: WorkUnitFailedEventPayload): Promise<boolean> {
+  try {
+    return await writeStudioEvent(WORKUNIT_FAILED_EVENT_TYPE, {
+      workUnitId: payload.workUnitId,
+      failureType: payload.failureType,
+      blockReason: payload.blockReason,
+      consecutiveStuck: payload.consecutiveStuck,
+      attempts: payload.attempts,
+      totalDurationMs: payload.totalDurationMs,
+      ...(payload.traceId ? { traceId: payload.traceId } : {}),
+    }, { source: 'agent-loop', level: 'warning' });
+  } catch (err) {
+    logger.warn('[WorkUnitFailed] emit failed', { workUnitId: payload.workUnitId, error: String(err) });
     return false;
   }
 }

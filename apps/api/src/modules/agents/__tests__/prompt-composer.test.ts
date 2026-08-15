@@ -166,7 +166,7 @@ describe('#91: composeStepPrompt 分段软定额 + 池内余量共享 + trim 埋
       // skills 有效预算 = 600 + persona 300 + roster 400 余量 = 1300
       maxTokens: 1000 + (1300 - skillTokens) + 800 + 300,
     });
-    // 未截断 → 无 section_trimmed 事件（skill_used 事件不经 mock 的 metricsFileStore 之外的断言）
+    // 未截断 → 无 section_trimmed 事件（#172：skill_used 曝光发射已删除，此处不再出现）
     expect(sectionTrimmedEvents()).toEqual([]);
   });
 
@@ -376,6 +376,18 @@ describe('#92: skills 硬预裁剪 + MANIFEST 指针', () => {
     expect(knowledgeContext).not.toContain('## 本次任务 Skills');
     expect(knowledgeContext).not.toContain('MANIFEST');
     expect(skillMatched).toEqual([]);
+  });
+
+  it('#172（#60 决策 Q2）：曝光事件发射已删除 —— skill 注入不再产 knowledge:skill_used', async () => {
+    writeSkill('feature-dev', '功能开发流程');
+
+    const { skillMatched } = await composeStepPrompt({ wu: makeWu(), metadata: {} as any }, deps(makeRole()));
+    expect(skillMatched).toEqual(['feature-dev']); // 注入本身不动（prompt 策略超本票）
+
+    const skillUsedEvents = mockAppendJsonl.mock.calls
+      .map(c => c[1])
+      .filter((e: any) => e.type === 'knowledge:skill_used');
+    expect(skillUsedEvents).toEqual([]);
   });
 
   it('AC4: 预裁剪与定额截断叠加 —— 超预算的 scope 匹配 skill 不进段，超预算的域匹配 skill 仍受 #91 截断且指针恒在段尾', async () => {

@@ -8,8 +8,8 @@ skills 模块负责技能（Skill）的完整生命周期管理，包括基于�
 
 ## 词汇表
 
-- **Skill 加载（loaded）**：agent 经 MCP 工具 `loadSkill` 显式拉取 SKILL.md 正文。`knowledge:skill_used` 事件的唯一语义（#60 决策，2026-08-09）。
-- **Skill 曝光（exposed）**：已废除的概念。旧口径把「skill 索引条目进入 prompt」记为 skill_used，实测为常量集合（14/20 skill，零信息量），发射已随 #60 决策删除。基于曝光口径的降级提案统计无效，修复归知识飞轮 handoff。
+- **Skill 加载（loaded）**：agent 经 MCP 工具 `loadSkill` 显式拉取 SKILL.md 正文。`knowledge:skill_used` 事件的唯一语义（#60 决策，2026-08-09；#172 落地）：发射点 = `skill-loader.ts` 的 `loadSkill`，payload 携带 `workUnitId`（调用方已知时），envelope level=debug。
+- **Skill 曝光（exposed）**：已废除的概念。旧口径把「skill 索引条目进入 prompt」记为 skill_used，实测为常量集合（14/20 skill，零信息量），发射已删除（#60 决策，#172 落地，prompt-composer.ts）。基于曝光口径的降级提案统计无效，修复归知识飞轮 handoff。
 
 ## 核心导出
 

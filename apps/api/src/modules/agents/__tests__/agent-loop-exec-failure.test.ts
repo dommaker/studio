@@ -52,6 +52,8 @@ describe('P0/W-3: CLI 执行失败显式分支', () => {
   let wuService: WorkUnitService;
   let channelId: string;
   let agentLoop: AgentLoop;
+  let eventsFile: string;
+  const prevEventsEnv = process.env.STUDIO_EVENTS_FILE;
 
   beforeEach(async () => {
     vi.clearAllMocks();
@@ -59,6 +61,9 @@ describe('P0/W-3: CLI 执行失败显式分支', () => {
     fileStore = new FileStore(testDir);
     wuService = new WorkUnitService(fileStore);
     channelId = `ch-w3-${Date.now()}`;
+    // #172: 事件文件按用例隔离（writeStudioEvent 系落盘经 STUDIO_EVENTS_FILE 覆盖）
+    eventsFile = path.join(testDir, 'studio-events.jsonl');
+    process.env.STUDIO_EVENTS_FILE = eventsFile;
     await fileStore.createChannel({
       id: channelId, name: '#w3-test', type: 'rnd',
       defaultWorkspaceId: null, defaultPath: null,
@@ -70,8 +75,25 @@ describe('P0/W-3: CLI 执行失败显式分支', () => {
   });
 
   afterEach(() => {
+    if (prevEventsEnv === undefined) delete process.env.STUDIO_EVENTS_FILE;
+    else process.env.STUDIO_EVENTS_FILE = prevEventsEnv;
     fs.rmSync(testDir, { recursive: true, force: true });
   });
+
+  /** fire-and-forget 事件写盘轮询（≤1s）；type 缺省返回全部已落盘事件 */
+  async function readStudioEventsFile(): Promise<Array<Record<string, unknown>>> {
+    if (!fs.existsSync(eventsFile)) return [];
+    return fs.readFileSync(eventsFile, 'utf-8').trim().split('\n').filter(Boolean).map(l => JSON.parse(l));
+  }
+
+  async function waitForEvent(type: string): Promise<Record<string, unknown> | null> {
+    for (let i = 0; i < 50; i++) {
+      const hit = (await readStudioEventsFile()).find(e => e.type === type);
+      if (hit) return hit;
+      await new Promise(r => setTimeout(r, 20));
+    }
+    return null;
+  }
 
   async function createActiveWorkUnit() {
     return wuService.create({
@@ -203,5 +225,64 @@ describe('P0/W-3: CLI 执行失败显式分支', () => {
     await loop.recordResult({ workUnit: wu }, { action: 'progress', summary: '有实质进展' });
     messages = await fileStore.queryMessages(channelId, { workUnitId: wu.id });
     expect(messages.filter(m => m.authorType === 'agent')).toHaveLength(1);
+  });
+
+  // ─── #172（#60 决策 Q1）：失败在事件流中可查可统计 ───
+
+  it('#172: agentStep success:false → 失败步 execution_step 事件落盘（status=failed + 错误字段）', async () => {
+    mockExecuteLightweight.mockResolvedValue({
+      success: false, error: 'CLI exited with code 1: boom',
+      worktree: '/tmp/wt', outputFiles: [], logFile: '/tmp/log', sessionCount: 1,
+    });
+
+    const wu = await createActiveWorkUnit();
+    await (agentLoop as unknown as RecordResultCapable).agentStep({ workUnit: wu });
+
+    const ev = await waitForEvent('workunit:execution_step');
+    expect(ev).not.toBeNull();
+    const payload = JSON.parse(ev!.payload as string);
+    expect(payload.workUnitId).toBe(wu.id);
+    expect(payload.status).toBe('failed');
+    expect(payload.errorType).toBe('execution_failed');
+    expect(payload.errorDetail).toContain('boom');
+  });
+
+  it('#172: 连续 3 次 failed → blocked 时落 workunit:failed（level=warning + 决策 payload 字段）', async () => {
+    const wu = await createActiveWorkUnit();
+    const loop = agentLoop as unknown as RecordResultCapable;
+    const failed = {
+      action: 'failed',
+      summary: 'CLI 执行失败: provider quota exhausted',
+      metadataUpdates: { errorType: 'execution_failed', errorDetail: 'provider quota exhausted' },
+    };
+
+    await loop.recordResult({ workUnit: wu }, failed);
+    await loop.recordResult({ workUnit: wu }, failed);
+    await loop.recordResult({ workUnit: wu }, failed);
+    expect((await wuService.getById(wu.id))!.status).toBe('blocked');
+
+    const ev = await waitForEvent('workunit:failed');
+    expect(ev).not.toBeNull();
+    expect(ev!.level).toBe('warning');
+    const payload = JSON.parse(ev!.payload as string);
+    expect(payload.workUnitId).toBe(wu.id);
+    expect(payload.failureType).toBe('execution_failed');
+    expect(payload.blockReason).toContain('连续 3 步无进展');
+    expect(payload.consecutiveStuck).toBe(3);
+    expect(payload.attempts).toBe(3);
+    expect(typeof payload.totalDurationMs).toBe('number');
+  });
+
+  it('#172: need_input 挂起转 blocked 不产 workunit:failed（挂起 ≠ 终态失败）', async () => {
+    const wu = await createActiveWorkUnit();
+    const loop = agentLoop as unknown as RecordResultCapable;
+
+    await loop.recordResult({ workUnit: wu }, { action: 'need_input', summary: '需要人类确认方案' });
+    expect((await wuService.getById(wu.id))!.status).toBe('blocked');
+
+    // 等一拍确认无 workunit:failed 落盘
+    await new Promise(r => setTimeout(r, 100));
+    const events = await readStudioEventsFile();
+    expect(events.filter(e => e.type === 'workunit:failed')).toHaveLength(0);
   });
 });

@@ -158,6 +158,8 @@ export function writeToolCallEvents(outputText: string, filePath: string): numbe
     const event = JSON.stringify({
       type: 'tool:call',
       source: 'agent-loop',
+      // #172（#60 决策 Q2）：tool:call 为噪声 → debug（直写路径不走 writeStudioEvent，显式落字段）
+      level: 'debug',
       payload: JSON.stringify({
         tool: call.name,
         success: true,
