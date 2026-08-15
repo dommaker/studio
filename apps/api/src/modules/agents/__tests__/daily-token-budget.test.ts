@@ -336,3 +336,82 @@ describe('C3: agentStep 预算熔断（STUDIO_TOKEN_BUDGET_GUARD=on）', () => {
     expect(mockExecuteLightweight).toHaveBeenCalledTimes(1); // 仅第一 step 起了会话
   });
 });
+
+// ── #162（T8-E1）：WU 级 tokenBudget 熔断 ──
+
+describe('#162（T8-E1）: WU 级 tokenBudget 熔断（与日预算无关，字段在场即生效）', () => {
+  const progressMock = {
+    success: true, outputText: 'ACTION: PROGRESS:working',
+    logFile: '/tmp/log', worktree: '/tmp/wt', outputFiles: [], sessionCount: 1,
+  };
+
+  it('用量到线：不起会话、need_input 挂起 + waitingReason 标记 + blockReason；人读面无机制黑话', async () => {
+    const wu = await createActiveWu({ tokenBudget: 1000, _cumulativeTokens: 1500 }, '巡检任务');
+    const result = await stepOf(agentLoop)({ workUnit: wu });
+
+    expect(result.action).toBe('need_input');
+    expect(mockExecuteLightweight).not.toHaveBeenCalled();
+    // 人三选提示在场
+    expect(result.summary).toContain('追加预算');
+    expect(result.summary).toContain('收尾');
+    expect(result.summary).toContain('放弃');
+    // 人读面说人话：不出现机制黑话
+    for (const jargon of ['WU', 'metadata', '熔断', '闸']) {
+      expect(result.summary).not.toContain(jargon);
+    }
+    expect(result.metadataUpdates?.waitingReason).toBe('wu-token-budget');
+
+    // recordResult 落盘：blocked + 挂起标记 + waitingReason + blockReason（日预算同款链路）
+    await recordOf(agentLoop)({ workUnit: wu }, result);
+    const after = (await wuService.getById(wu.id))!;
+    expect(after.status).toBe('blocked');
+    const meta = metaOf(after);
+    expect(meta.waitingForInput).toBe(true);
+    expect(meta.waitingReason).toBe('wu-token-budget');
+    expect(meta.blockReason).toContain('need-input');
+  });
+
+  it('未到线：正常执行', async () => {
+    mockExecuteLightweight.mockResolvedValue(progressMock);
+    const wu = await createActiveWu({ tokenBudget: 1000, _cumulativeTokens: 500 }, '巡检任务');
+    const result = await stepOf(agentLoop)({ workUnit: wu });
+
+    expect(result.action).toBe('progress');
+    expect(mockExecuteLightweight).toHaveBeenCalledTimes(1);
+  });
+
+  it('无 tokenBudget / <=0 / 非法值：不受限照常执行', async () => {
+    mockExecuteLightweight.mockResolvedValue(progressMock);
+    for (const metadata of [
+      { _cumulativeTokens: 999_999 },
+      { tokenBudget: 0, _cumulativeTokens: 999_999 },
+      { tokenBudget: Number.NaN, _cumulativeTokens: 999_999 },
+    ]) {
+      mockExecuteLightweight.mockClear();
+      const wu = await createActiveWu(metadata, '普通任务');
+      const result = await stepOf(agentLoop)({ workUnit: wu });
+      expect(result.action).toBe('progress');
+      expect(mockExecuteLightweight).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it('追加预算续跑恢复：提高 tokenBudget 后下一步正常执行', async () => {
+    mockExecuteLightweight.mockResolvedValue(progressMock);
+    const wu = await createActiveWu({ tokenBudget: 1000, _cumulativeTokens: 1500 }, '巡检任务');
+
+    const tripped = await stepOf(agentLoop)({ workUnit: wu });
+    expect(tripped.action).toBe('need_input');
+    expect(mockExecuteLightweight).not.toHaveBeenCalled();
+
+    // 人三选「追加预算」的机制效果（waiting-input 同款）：tokenBudget 提高后挂起解除回 active
+    const meta = metaOf((await wuService.getById(wu.id))!);
+    await wuService.update(wu.id, {
+      metadata: { ...meta, tokenBudget: 3000, waitingForInput: false, waitingReason: undefined },
+    });
+    const resumed = (await wuService.getById(wu.id))!;
+    const next = await stepOf(agentLoop)({ workUnit: resumed });
+
+    expect(next.action).toBe('progress');
+    expect(mockExecuteLightweight).toHaveBeenCalledTimes(1);
+  });
+});

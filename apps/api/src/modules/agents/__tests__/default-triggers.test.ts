@@ -109,5 +109,8 @@ describe('Default Triggers', () => {
     expect((reviewCall!.config.action as any).payload.type).toBe('analysis');
     expect((reviewCall!.config.action as any).payload.scope).toContain('README.md');
     expect((reviewCall!.config.action as any).payload.scope).toContain('sync-docs');
+    // #162（T8-E1）行为修正：payload 不带 status——「建单落 pending 待人确认」由
+    // executeCreateAction 对所有触发器 CREATE 统一落地（按来源不按类型）
+    expect((reviewCall!.config.action as any).payload.status).toBeUndefined();
   });
 });

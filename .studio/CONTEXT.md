@@ -65,7 +65,7 @@
   - `knowledge/knowledge-extraction.ts` — 提取 prompt 单一来源（EXTRACT_FROM_TEXT_SYSTEM_PROMPT + E1 文件覆盖 getter）
   - `knowledge/knowledge-cold-start.ts` — 冷启动四源导入（P1b: docs/code/git/manual）+ Discord 通知
   - `knowledge/knowledge-maintenance.ts` — 语料分析（F1：语义去重/质量评估/过期验证/矛盾审查）
-- `default-triggers.ts` — 6 个系统默认 trigger 注册（含 `doc-semantic-review` 周级文档语义审查，2026-07 文档治理闭环 P1；#102 删 4 个：knowledge-quality-audit / session-knowledge-extraction / zero-consumption-audit / knowledge-synthesis，配置真相源归注册块，`getDefaultTriggerConfigs()` 已删）
+- `default-triggers.ts` — 6 个系统默认 trigger 注册（含 `doc-semantic-review` 周级文档语义审查，2026-07 文档治理闭环 P1；#102 删 4 个：knowledge-quality-audit / session-knowledge-extraction / zero-consumption-audit / knowledge-synthesis，配置真相源归注册块，`getDefaultTriggerConfigs()` 已删；#162 T8-E1 行为修正：doc-semantic-review 从「周五自动跑」改「周五建单落 pending 待人确认」，闸在 trigger-action.ts 统一落地）
 - `agent-loop.ts` — AgentLoop 门面（observe→resolveTarget→agentStep→recordResult 决策循环，AS-025），T3 拆分后仅保留循环主流程（start/runLoop/observe/agentStep 编排 + 薄壳委托）与 re-export；对外导出 `AgentLoop` / `parseAgentOutput` / `parseReviewReport` / `parseTaskBreakdown` / `dynamicInterval` / `analyzeKnowledgeSearch` / `extractKnowledgeEntryIds` / `extractInputTokens` / `resolveRealUsage` / `writeWorkunitTokenEvent` / `resolveToolTraceFile` / `writeToolCallEvents` / `isProcessAlive` / `isGitRepoRoot` / `resolveWorktreesDir` / `findAnchorMessage` / `resolveTarget` / `testWuGuardEnabled` / `isTestLikeWorkUnit` 及类型 `StepResult` / `KnowledgeSearchAnalysis` / `RealUsage` / `WorkunitTokenEventArgs` / `Observations` / `Target` 不变。
   - `agent-output-parser.ts` — ACTION 协议解析（parseAgentOutput）/ REVIEW_RESULT 审查结论解析 / TASK: 分析拆分行 / 动态轮询间隔（dynamicInterval）
   - `agent-knowledge-analysis.ts` — 知识检索行为分析（stream-json 日志 → searchCalls / 知识条目 id 提取）
@@ -91,6 +91,7 @@
   - `loop/agent-loop-events.ts` — `workunit:tokens` 与 `tool:call` 事件落盘（`writeWorkunitTokenEvent`/`resolveRealUsage`/`writeToolCallEvents`，含共享 `metricsFileStore`）
   - `loop/agent-loop-guards.ts` — B2 测试特征 WU 守卫（`testWuGuardEnabled`/`isTestLikeWorkUnit`）+ F4 `parseExcludeAssignee`
   - `loop/context-overflow.ts` — #96 CLI 上下文溢出纯反应式策略（纯函数零服务依赖）：`OVERFLOW_ERROR_RE`/`isContextOverflowError` 溢出识别（与 `RESUME_FAILURE_RE`「会话不存在」是不同失败类型；匹配 "Prompt is too long"/context length/token limit 等）+ `buildRollingSummary` 会话滚动摘要构建（来源 = wu.scope + progressLog，不递归摘要、不建语义搜索）。编排（溢出重试/配额检查/摘要落盘）在 agent-loop.ts agentStep
+  - #162（T8-E1）WU 级 token 预算编排在 agentStep（日预算守卫之后）：`metadata.tokenBudget` 显式数值在场即生效，对照 `_cumulativeTokens`（billed 口径）超线 → need_input 挂起（waitingReason='wu-token-budget'），人三选分流在 workunit/waiting-input.ts
 
 ### 依赖关系
 
@@ -1343,7 +1344,7 @@ Trigger 子系统（AS-026，3.28c-4）：SCHEDULE（cron）+ EVENT（EventBus�
 - `trigger-store.ts` — YAML 持久化
 - `trigger-scheduler.ts` — SCHEDULE tick + EVENT EventBus 订阅
 - `trigger-registry.ts` — 单例 TriggerScheduler（注入 eventBus）
-- `trigger-action.ts` — CREATE 动作执行（从 trigger payload 创建 WorkUnit）
+- `trigger-action.ts` — CREATE 动作执行（从 trigger payload 创建 WorkUnit；#162 T8-E1：建单显式 `status='pending'` 人闸，按来源不按类型，人工确认 pending→unassigned 后才可认领）
 - `trigger.routes.ts` — Trigger 管理 REST API
 
 ### 依赖关系
@@ -1439,7 +1440,7 @@ WorkUnit 核心域（AS-025 §3.28c-1, §5.16）：任务单元的 CRUD、认领
 - `workunit.mappers.ts` — 快照 ↔ DTO 转换层（工单 30 抽出）：`snapshotToData` / `inputToSnapshot` / `patchSnapshot`
 - `workunit-crud.ts` — `WorkUnitCrudService`（WorkUnitService 的基类，2026-08-04 自 workunit.service.ts 拆分的纯代码移动）：CRUD（create/update/delete/createFromMessage + 频道默认管线首跳展开）+ Claim（claim/unclaim，flock 悲观互斥锁）+ 快照转换函数；另含 `workunit.status_changed` 发布（publishStatusChanged）与父状态聚合（aggregateParentStatus）
 - `workunit.routes.ts` — WorkUnit API 路由
-- `waiting-input.ts` — F5 双向沟通：NEED_INPUT 挂起 WorkUnit 的恢复与超时提醒；B3a：waitingReason='ownership' 的挂起按回复解析工程归属（project-discovery 唯一命中 → 绑定 metadata.workspaceRoot + 写回 Requirement.projectId + 置回 unassigned（保留 assigneeId=profile id，待指名 loop 认领；此类 WU 从未被认领，置 active 会对所有 loop 不可见而卡死）；多候选/无命中 → 继续等待列候选）；频道系统消息经 `wu-messenger` 发送
+- `waiting-input.ts` — F5 双向沟通：NEED_INPUT 挂起 WorkUnit 的恢复与超时提醒；B3a：waitingReason='ownership' 的挂起按回复解析工程归属（project-discovery 唯一命中 → 绑定 metadata.workspaceRoot + 写回 Requirement.projectId + 置回 unassigned（保留 assigneeId=profile id，待指名 loop 认领；此类 WU 从未被认领，置 active 会对所有 loop 不可见而卡死）；多候选/无命中 → 继续等待列候选）；#162（T8-E1）：waitingReason='wu-token-budget' 的挂起（WU 级 tokenBudget 到线）按人三选分流（追加预算 → active / 收尾 → in_review / 放弃 → closed，未识别重述三选继续等待，频道文案不出现机制黑话）；频道系统消息经 `wu-messenger` 发送
 - `wu-messenger.ts` — WU 频道系统消息统一出口 `postWuSystemMessage(wu, content, opts)`（2026-08 收敛此前 5 处重复实现：agent-loop/review-dispatcher/merge-on-review-pass/waiting-input/timeout-release——其中 4 处裸写 FileStore 不发事件）：统一走 `ChannelMessageService.createAgentMessage`（**append + eventBus `channel.message_sent` + SSE**，频道页实时可见、NotificationBell 可响）；默认 agentName='Studio'、挂 WU 线程 anchor（首条根消息，显式 `replyToId` 时跳过查找）；`milestone: true` → best-effort 解析 pmoId + `atHuman: true`（`opts.meta` 合并覆盖）；空 content / 无 channelId 返回 null 不发帖。pmo-branch-resolver 走 lazy import（本模块经 merge-on-review-pass 被 workunit.service 静态依赖，静态引入会经 project.service 成循环）
 - `timeout-release.ts` — workunit-timeout-scan handler：执行超时 WU 释放回 unassigned（记 metadata.timeoutReleasedAt/timeoutReleaseCount + 频道系统消息），≥3 次转 blocked（**2026-07-31 起该转人工消息 meta 带 `{pmoId?, atHuman:true}`**，PMO-flow UX §6-3；经 wu-messenger 里程碑通道）；**#108 起 decision 单不进扫描**（决策可能等关键人多天；#63 租约落地后扫描逻辑不变，本跳过保持有效）
 - `delegation-gate.ts` — A2A 委派闸门（§4.1/§4.2，纯代码零 LLM）：成员/自派生/深度(P1=1)/宽度3/树8/环/重复委派校验，预算留桩（TODO §4.3 P2）

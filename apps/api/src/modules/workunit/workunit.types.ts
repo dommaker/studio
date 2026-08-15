@@ -26,6 +26,10 @@ export interface WorkUnitMetadata {
   sourceMessageId?: string;   // createFromMessage 涌现路径来源
   creationMode?: string;      // 创建模式：from-message / manual
   _cumulativeTokens?: number; // 内部 token 累计追踪
+  // #162（T8-E1，#130 决策 3）：WU 级 token 预算上限（显式数值，任何类型可带，首个消费 = 巡检单）。
+  // 对照 _cumulativeTokens（billed 口径簿记）超线 → need_input 挂起待人三选
+  // （追加预算 / 现有产出收尾 / 放弃，见 waiting-input.ts）；缺省/<=0 = 无上限
+  tokenBudget?: number;
   // Agent Loop session 追踪（AS-025 Agent Loop 重写）
   sessionId?: string;         // 当前关联的 Claude session
   stepCount?: number;         // 已执行步骤数
@@ -52,7 +56,7 @@ export interface WorkUnitMetadata {
   waitingQuestion?: string;   // agent 提出的问题
   waitingSince?: string;      // 挂起时间 ISO 8601（超时提醒据此计算）
   waitingReminded?: boolean;  // 本次挂起已提醒过（每次挂起只提醒一次，恢复时重置）
-  waitingReason?: string;     // 挂起原因：'ownership' = B3a 等待工程归属（缺省 = agent 提问）
+  waitingReason?: string;     // 挂起原因：'ownership' = B3a 等待工程归属；'wu-token-budget' = #162 WU 级 token 预算到线（三选分流见 waiting-input.ts）（缺省 = agent 提问）
   pendingReplies?: string[];  // 恢复后待注入下一轮 prompt 的人类回复（多条拼接，消费后清除）
   // B3a 工程归属链（决策 D2）：归属解析结果落档
   workspaceRoot?: string;     // 直接可用的工程根路径（Requirement→PMO gitRepo / 人工回复绑定；agent-loop 优先于 workspaceId 消费）

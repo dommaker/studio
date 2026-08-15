@@ -59,6 +59,8 @@ export function registerDefaultTriggers(registry: TriggerScheduler): void {
 
   // 6. doc-semantic-review: SCHEDULE weekly Friday 9:47 → CREATE WorkUnit for doc semantic review
   // （文档治理闭环 P1，docs/plans/2026-07-doc-governance-loop.md；错开日级 3:17-5:17 与周一 10:23）
+  // #162（T8-E1，#130 决策 8）行为修正：从「周五自动跑」改「周五建单待人确认」——
+  // 触发器 CREATE 统一落显式 pending 人闸（见 trigger-action.ts），人工确认后才烧 token。
   registry.registerTrigger({
     id: 'doc-semantic-review',
     name: 'Weekly doc semantic review',

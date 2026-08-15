@@ -536,6 +536,26 @@ export class AgentLoop {
         }
       }
     }
+    // #162（T8-E1，#130 决策 3）：WU 级 token 预算熔断。metadata.tokenBudget 显式数值
+    // （任何类型 WU 可带，与日预算无关、不吃 STUDIO_TOKEN_BUDGET_GUARD 开关——字段在场即生效），
+    // 对照 metadata._cumulativeTokens（billed 口径簿记，与日预算同口径）。超线复用日预算同款
+    // need_input 挂起路径（recordResult 落 waitingForInput + blockReason），不新造状态；
+    // waitingReason='wu-token-budget' 供 waiting-input 人三选分流（追加预算/收尾/放弃）。
+    // 人读面说人话：提示文案不出现 WU/metadata/闸/熔断等机制黑话。
+    if (typeof metadata.tokenBudget === 'number' && Number.isFinite(metadata.tokenBudget) && metadata.tokenBudget > 0) {
+      const wuBudget = Math.floor(metadata.tokenBudget);
+      const wuUsed = metadata._cumulativeTokens ?? 0;
+      if (wuUsed >= wuBudget) {
+        logger.warn('[AgentLoop] WU token budget reached — suspending for human decision', {
+          workUnitId: wu.id, usedTokens: wuUsed, budget: wuBudget,
+        });
+        return {
+          action: 'need_input' as const,
+          summary: `这项任务已消耗 ${wuUsed.toLocaleString()} token，达到为它设定的上限 ${wuBudget.toLocaleString()}，已暂停等你决定。回复：「追加预算」在上限之上再加 ${wuBudget.toLocaleString()} 继续执行；「追加预算 <数值>」把上限改为指定数值；「收尾」用现有产出提交审查；「放弃」结束任务`,
+          metadataUpdates: { waitingReason: 'wu-token-budget' },
+        };
+      }
+    }
     // P0 修复 6: traceId 贯穿 — 频道消息 → WU metadata → 执行参数（extraEnv）与日志行
     const traceId = typeof metadata.traceId === 'string' && metadata.traceId ? metadata.traceId : undefined;
 

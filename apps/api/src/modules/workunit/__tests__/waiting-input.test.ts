@@ -203,3 +203,96 @@ describe('getReminderThresholdMs', () => {
     expect(getReminderThresholdMs({ STUDIO_INPUT_REMINDER_MINUTES: '-3' })).toBe(30 * 60_000);
   });
 });
+
+describe('#162（T8-E1）: WU 级 token 预算到线挂起的人三选', () => {
+  /** 预算到线挂起中的 WU：blocked + waitingForInput + waitingReason='wu-token-budget' */
+  const createBudgetParkedWu = () => createParkedWorkUnit({
+    waitingReason: 'wu-token-budget',
+    waitingQuestion: '已消耗 1,500 token，达到上限 1,000，已暂停等你决定',
+    tokenBudget: 1000,
+    _cumulativeTokens: 1500,
+  });
+
+  it('「追加预算」→ 已用量之上再加一份原上限，清挂起回 active', async () => {
+    const { wu } = await createBudgetParkedWu();
+
+    const resumed = await resumeWaitingWorkUnit(wu.id, '追加预算', fileStore);
+
+    expect(resumed).toBe(true);
+    const after = await findWu(wu.id);
+    expect(after.status).toBe('active');
+    const meta = metaOf(after);
+    expect(meta.tokenBudget).toBe(2500); // 1500 已用量 + 1000 原上限
+    expect(meta.waitingForInput).toBe(false);
+    expect(meta.waitingReason).toBeUndefined();
+    expect(meta.blockReason).toBeUndefined();
+    expect(meta.pendingReplies).toBeUndefined(); // 机制交互回复不进 prompt
+  });
+
+  it('「追加预算 <数值>」→ 上限改为指定数值后回 active', async () => {
+    const { wu } = await createBudgetParkedWu();
+
+    const resumed = await resumeWaitingWorkUnit(wu.id, '追加预算 3000000', fileStore);
+
+    expect(resumed).toBe(true);
+    expect((await findWu(wu.id)).status).toBe('active');
+    expect(metaOf(await findWu(wu.id)).tokenBudget).toBe(3_000_000);
+  });
+
+  it('指定数值 ≤ 已用量 → 拒绝并继续等待（仍 blocked 挂起 + 提示重发）', async () => {
+    const { wu } = await createBudgetParkedWu();
+
+    const resumed = await resumeWaitingWorkUnit(wu.id, '追加预算 1200', fileStore);
+
+    expect(resumed).toBe(false);
+    const after = await findWu(wu.id);
+    expect(after.status).toBe('blocked');
+    const meta = metaOf(after);
+    expect(meta.waitingForInput).toBe(true);
+    expect(meta.tokenBudget).toBe(1000); // 上限未被改小
+    expect(mockPostWuSystemMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ id: wu.id }),
+      expect.stringContaining('新上限需要大于'),
+      expect.objectContaining({ fileStore }),
+    );
+  });
+
+  it('「收尾」→ 用现有产出提交审查（blocked 经 active 中转到 in_review）', async () => {
+    const { wu } = await createBudgetParkedWu();
+
+    const resumed = await resumeWaitingWorkUnit(wu.id, '收尾', fileStore);
+
+    expect(resumed).toBe(true);
+    expect((await findWu(wu.id)).status).toBe('in_review');
+    const meta = metaOf(await findWu(wu.id));
+    expect(meta.waitingForInput).toBe(false);
+    expect(meta.waitingReason).toBeUndefined();
+  });
+
+  it('「放弃」→ 结束任务（closed）', async () => {
+    const { wu } = await createBudgetParkedWu();
+
+    const resumed = await resumeWaitingWorkUnit(wu.id, '放弃', fileStore);
+
+    expect(resumed).toBe(true);
+    expect((await findWu(wu.id)).status).toBe('closed');
+  });
+
+  it('未识别回复 → 继续等待并重述三选（人读面无机制黑话）', async () => {
+    const { wu } = await createBudgetParkedWu();
+
+    const resumed = await resumeWaitingWorkUnit(wu.id, '我先想想', fileStore);
+
+    expect(resumed).toBe(false);
+    const after = await findWu(wu.id);
+    expect(after.status).toBe('blocked');
+    expect(metaOf(after).waitingForInput).toBe(true);
+    const repost = mockPostWuSystemMessage.mock.calls.find(
+      (c: unknown[]) => typeof c[1] === 'string' && (c[1] as string).includes('追加预算'),
+    );
+    expect(repost).toBeDefined();
+    for (const jargon of ['WU', 'metadata', '熔断', '闸']) {
+      expect(repost![1] as string).not.toContain(jargon);
+    }
+  });
+});

@@ -9,6 +9,9 @@
  *   （metadata.workspaceRoot）并写回 Requirement.projectId 供下次继承，随后置回
  *   unassigned（保留 assigneeId=profile id），由被指名 profile 的 loop 认领执行；
  *   多候选/无命中则继续等待并向频道列出候选。
+ * - #162（T8-E1）：metadata.waitingReason === 'wu-token-budget' 的挂起（WU 级 token
+ *   预算到线），回复按人三选分流：追加预算（→ active）/ 现有产出收尾（→ in_review）/
+ *   放弃（→ closed）；未识别回复继续等待并重述三选。
  * - scanWaitingForInputReminders: SCHEDULE trigger（workunit-input-reminder）的 handler，
  *   对挂起超过阈值的 WorkUnit 向频道发一次提醒（每次挂起只提醒一次，恢复时重置）。
  */
@@ -60,6 +63,12 @@ export async function resumeWaitingWorkUnit(
     return resolveOwnershipFromReply(wu, metadata, replyText, fileStore);
   }
 
+  // #162（T8-E1）：WU 级 token 预算到线的挂起 — 回复按人三选分流
+  // （追加预算 → 回 active / 现有产出收尾 → in_review / 放弃 → closed）
+  if (metadata.waitingReason === 'wu-token-budget') {
+    return resolveBudgetChoiceFromReply(wu, metadata, replyText, fileStore);
+  }
+
   const pendingReplies = [...(Array.isArray(metadata.pendingReplies) ? metadata.pendingReplies : []), replyText];
   await wuService.update(workUnitId, {
     metadata: {
@@ -76,6 +85,95 @@ export async function resumeWaitingWorkUnit(
 
   logger.info('[WaitingInput] WorkUnit resumed by human reply', { workUnitId });
   return true;
+}
+
+/**
+ * #162（T8-E1，#130 决策 3）：WU 级 token 预算到线挂起的人三选分流。
+ * 追加预算（「追加预算」= 已用量之上再加一份原上限；「追加预算 <数值>」或裸数值 = 改为指定值）
+ *   → 清挂起回 active，loop 下轮拾取续跑；
+ * 现有产出收尾（「收尾」）→ in_review 交人工审查；
+ * 放弃（「放弃」）→ closed 结束任务。
+ * 未识别回复 → 继续等待并重述三选（同 ownership 多候选路径的「不乱动」语义）。
+ * 频道文案说人话：不出现 WU/metadata/闸/熔断等机制黑话。
+ * @returns true = 已按选择解除挂起；false = 继续等待
+ */
+async function resolveBudgetChoiceFromReply(
+  wu: WorkUnitData,
+  metadata: WorkUnitMetadata,
+  replyText: string,
+  fileStore: FileStore,
+): Promise<boolean> {
+  const wuService = new WorkUnitService(fileStore);
+  const text = replyText.trim();
+  const used = metadata._cumulativeTokens ?? 0;
+  const budget = typeof metadata.tokenBudget === 'number' && Number.isFinite(metadata.tokenBudget)
+    ? Math.floor(metadata.tokenBudget) : 0;
+  const title = (metadata.title ?? wu.scope).slice(0, 50);
+
+  const clearedMetadata: WorkUnitMetadata = {
+    ...metadata,
+    waitingForInput: false,
+    waitingReminded: false,
+    waitingReason: undefined, // JSON 序列化丢弃 undefined → 清除
+    blockReason: undefined,
+  };
+  const notify = async (content: string) => {
+    if (wu.channelId) await postWuSystemMessage(wu, content, { fileStore });
+  };
+  // 状态迁移 best-effort：decision/spec 裁剪状态机无 closed 边（#57 死信豁免），
+  // 迁移失败仅记日志不抛给消息路由——挂起标记已清，留人工处置
+  const transit = async (status: string) => {
+    await wuService.transitionStatus(wu.id, status as Parameters<WorkUnitService['transitionStatus']>[1])
+      .catch(err => logger.warn('[WaitingInput] budget-choice transition failed (non-blocking)', {
+        workUnitId: wu.id, status, error: String(err),
+      }));
+  };
+
+  // 放弃 → closed
+  if (/放弃|abandon/i.test(text)) {
+    await wuService.update(wu.id, { metadata: clearedMetadata });
+    await transit('closed');
+    await notify(`好的，任务「${title}」已结束`);
+    logger.info('[WaitingInput] Budget-tripped WorkUnit abandoned by human', { workUnitId: wu.id });
+    return true;
+  }
+
+  // 现有产出收尾 → in_review（blocked→in_review 不在状态机表，经 active 中转，同 recordResult C-2 修法）
+  if (/收尾|wrap/i.test(text)) {
+    await wuService.update(wu.id, { metadata: clearedMetadata });
+    await transit('active');
+    await transit('in_review');
+    await notify(`好的，任务「${title}」已用现有产出提交审查`);
+    logger.info('[WaitingInput] Budget-tripped WorkUnit wrapped up by human', { workUnitId: wu.id });
+    return true;
+  }
+
+  // 追加预算：裸「追加预算/继续」= 已用量 + 一份原上限；「追加预算 <数值>」或裸数值 = 指定新上限
+  const budgetIntent = /追加|继续|加预算|continue/i.test(text);
+  const bareNumber = text.match(/^[\d,_\s]+$/);
+  if (budgetIntent || bareNumber) {
+    const numeric = text.replace(/[,_\s]/g, '').match(/\d+/);
+    const explicit = numeric ? Number(numeric[0]) : null;
+    const newBudget = explicit ?? (used + budget);
+    if (!Number.isFinite(newBudget) || newBudget <= used) {
+      await notify(`任务「${title}」已消耗 ${used.toLocaleString()} token，新上限需要大于这个数才能继续。请重新回复：「追加预算 <数值>」，或「收尾」/「放弃」`);
+      return false;
+    }
+    await wuService.update(wu.id, { metadata: { ...clearedMetadata, tokenBudget: newBudget } });
+    await transit('active');
+    await notify(`好的，任务「${title}」的 token 上限已调整为 ${newBudget.toLocaleString()}，继续执行`);
+    logger.info('[WaitingInput] Budget-tripped WorkUnit resumed with raised budget', {
+      workUnitId: wu.id, newBudget,
+    });
+    return true;
+  }
+
+  // 未识别 → 继续等待，重述三选
+  await notify(
+    `任务「${title}」已消耗 ${used.toLocaleString()} token，达到上限 ${budget.toLocaleString()}，仍在暂停中。请回复：「追加预算」在上限之上再加 ${budget.toLocaleString()} 继续执行；「追加预算 <数值>」把上限改为指定数值；「收尾」用现有产出提交审查；「放弃」结束任务`,
+  );
+  logger.info('[WaitingInput] Budget-choice reply unrecognized, still waiting', { workUnitId: wu.id });
+  return false;
 }
 
 /**

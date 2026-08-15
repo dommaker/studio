@@ -5,6 +5,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { executeCreateAction, setTriggerActionFileStore } from '../trigger-action';
 import { FileStore } from '@dommaker/studio-shared';
+import { WorkUnitService } from '../../workunit/workunit.service';
 import type { TriggerAction } from '../trigger.types';
 
 describe('TriggerAction — CREATE WorkUnit', () => {
@@ -38,7 +39,43 @@ describe('TriggerAction — CREATE WorkUnit', () => {
     expect(result.id).toBeDefined();
     expect(result.type).toBe('analysis');
     expect(result.scope).toBe('System health check');
-    expect(result.status).toBe('unassigned');
+    // #162（T8-E1）：触发器建单显式 pending 人闸（按来源不按类型）——analysis 原本
+    // 默认 unassigned 创建即可认领，现在一律落 pending 待人工确认
+    expect(result.status).toBe('pending');
+  });
+
+  it('#162（T8-E1）：pending 人闸可经人工确认解除（pending→unassigned 后可认领）', async () => {
+    const action: TriggerAction = {
+      type: 'CREATE',
+      target: 'WorkUnit',
+      payload: { type: 'analysis', scope: 'Gated analysis task' },
+    };
+
+    const result = await executeCreateAction(action, 'gated-trigger');
+    expect(result.status).toBe('pending');
+
+    // 人工确认（T4 单层人闸的唯一出口）→ unassigned 进 frontier
+    const wuService = new WorkUnitService(fileStore);
+    await wuService.transitionStatus(result.id, 'unassigned');
+
+    const snapshots = await fileStore.getIndex();
+    const wu = snapshots.find(s => s.id === result.id);
+    expect(wu?.status).toBe('unassigned');
+  });
+
+  it('#162（T8-E1）doc-semantic-review 行为修正：周五建单待人确认，不再是自动跑', async () => {
+    const action: TriggerAction = {
+      type: 'CREATE',
+      target: 'WorkUnit',
+      payload: {
+        type: 'analysis',
+        scope: '审查 README.md 与 docs/ 手写文档同当前代码结构/行为的一致性',
+        assigneeRole: 'studio',
+      },
+    };
+
+    const result = await executeCreateAction(action, 'doc-semantic-review');
+    expect(result.status).toBe('pending'); // 建单落 pending 人闸，确认后才烧 token
   });
 
   it('sets channelId when provided', async () => {

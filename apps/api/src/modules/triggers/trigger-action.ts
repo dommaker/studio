@@ -155,6 +155,11 @@ export async function executeCreateAction(
     scope,
     channelId: channelId || null,
     assigneeId,
+    // #162（T8-E1，#130 决策 8）：触发器建单显式 pending 人闸——无人在环的自动触发
+    // （定时/事件/手动 fire）模型调用单，执行前一律过人确认（pending → unassigned 才
+    // 可认领）。按来源不按类型：不动 PENDING_CONFIRM_TYPES，机制派生单不误伤；
+    // 落在 T4「显式 status 优先」既有语义上（resolveInitialStatus 唯一入口）。
+    status: 'pending',
     metadata: mergedMetadata,
   });
 
