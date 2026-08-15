@@ -14,10 +14,6 @@ export function KnowledgeEntrySection() {
             const companyId = localStorage.getItem('companyId') || '';
             navigate(`/knowledge?companyId=${companyId}`);
           }} className="btn btn-primary">查看知识库 →</button>
-          <button onClick={() => { navigate('/knowledge/import'); }}
-            className="btn btn-secondary">
-            📥 冷启动导入
-          </button>
         </div>
       </div>
     </section>

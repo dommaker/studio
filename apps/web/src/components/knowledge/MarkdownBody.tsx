@@ -1,4 +1,5 @@
-// Markdown 正文渲染 — DocReaderDrawer / WikiDocPage 统一方案（2026-07-31 §10 任务 4b）
+// Markdown 正文渲染 — WikiDocPage 正文方案（2026-07-31 §10 任务 4b；lazy 按需加载，fallback 为原 plain-text 形态）
+//（另一消费方 DocReaderDrawer 已随 #149 document-store 退役删除）
 // react-markdown + remark-gfm：默认不渲染原始 HTML（agent 产出内容按不可信输入处理，无需 DOMPurify）。
 // 主题经 components 映射到 u-* 类 / CSS 变量（--bg-tertiary/--border-subtle 等），暗色天然适配——
 // 不引 @tailwindcss/typography（prose 体系与 style-guide 的 u-* 类冲突，全站未装该插件）。

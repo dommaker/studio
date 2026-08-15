@@ -1,15 +1,15 @@
-// AC-6: PMOPage 卡片徽章测试 — WU 完成度 x/y + 文档计数（批量并行、失败静默）
+// AC-6: PMOPage 卡片徽章测试 — WU 完成度 x/y（批量并行、失败静默）
+// #149（2026-08-15）：文档计数徽章随 document-store 退役移除
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
-const { mockGet, mockPost, mockChannelList, mockListAllAgents, mockGetChain, mockListByProject, mockProjectList } = vi.hoisted(() => ({
+const { mockGet, mockPost, mockChannelList, mockListAllAgents, mockGetChain, mockProjectList } = vi.hoisted(() => ({
   mockGet: vi.fn(),
   mockPost: vi.fn(),
   mockChannelList: vi.fn(),
   mockListAllAgents: vi.fn(),
   mockGetChain: vi.fn(),
-  mockListByProject: vi.fn(),
   mockProjectList: vi.fn(),
 }));
 
@@ -22,9 +22,6 @@ vi.mock('../../api/channel', () => ({
 }));
 vi.mock('../../api/requirements', () => ({
   requirementApi: { getChain: mockGetChain },
-}));
-vi.mock('../../api/knowledge', () => ({
-  knowledgeApi: { listByProject: mockListByProject },
 }));
 
 import { PMOPage } from '../PMOPage';
@@ -65,30 +62,23 @@ describe('AC-6: PMO 卡片徽章', () => {
         },
       },
     });
-    mockListByProject.mockImplementation((projectId: string) => {
-      if (projectId === 'p1') return Promise.resolve({ data: { documents: [{ id: 'd1' }, { id: 'd2' }] } });
-      return Promise.reject(new Error('knowledge unavailable'));
-    });
   });
 
-  it('有 reqAlias 的项目显示 WU x/y 与文档计数徽章；无别名/查询失败不显示', async () => {
+  it('有 reqAlias 的项目显示 WU x/y 徽章；无别名不显示', async () => {
     renderPMO();
 
     await waitFor(() => {
       expect(screen.getByText('WU 2/3')).toBeTruthy();
     });
-    expect(screen.getByText('📄 2')).toBeTruthy();
     // chain 只对有别名的 p1 调一次
     expect(mockGetChain).toHaveBeenCalledTimes(1);
     expect(mockGetChain).toHaveBeenCalledWith('REQ-0001');
     // 徽章只出现一份（p2 无徽章）
     expect(screen.getAllByText(/WU \d+\/\d+/)).toHaveLength(1);
-    expect(screen.getAllByText(/📄 \d+/)).toHaveLength(1);
   });
 
-  it('chain / knowledge 全部失败：静默不显示徽章，卡片照常渲染', async () => {
+  it('chain 失败：静默不显示徽章，卡片照常渲染', async () => {
     mockGetChain.mockRejectedValue(new Error('boom'));
-    mockListByProject.mockRejectedValue(new Error('boom'));
     renderPMO();
 
     await waitFor(() => {
@@ -96,9 +86,8 @@ describe('AC-6: PMO 卡片徽章', () => {
     });
     // 等一拍让徽章 effect 落定
     await waitFor(() => {
-      expect(mockListByProject).toHaveBeenCalled();
+      expect(mockGetChain).toHaveBeenCalled();
     });
     expect(screen.queryByText(/WU \d+\/\d+/)).toBeNull();
-    expect(screen.queryByText(/📄 \d+/)).toBeNull();
   });
 });

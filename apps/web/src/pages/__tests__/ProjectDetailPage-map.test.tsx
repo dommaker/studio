@@ -9,7 +9,6 @@ const {
   mockGetDelivery,
   mockGetChain,
   mockGetAgentSummary,
-  mockListByProject,
   mockWuList,
   mockWuGet,
 } = vi.hoisted(() => ({
@@ -17,7 +16,6 @@ const {
   mockGetDelivery: vi.fn(),
   mockGetChain: vi.fn(),
   mockGetAgentSummary: vi.fn(),
-  mockListByProject: vi.fn(),
   mockWuList: vi.fn(),
   mockWuGet: vi.fn(),
 }));
@@ -34,12 +32,6 @@ vi.mock('../../api/requirements', () => ({
 }));
 vi.mock('../../api/monitoring', () => ({
   monitoringApi: { getAgentSummary: mockGetAgentSummary },
-}));
-vi.mock('../../api/knowledge', () => ({
-  knowledgeApi: { listByProject: mockListByProject, getDetail: vi.fn() },
-}));
-vi.mock('../../components/knowledge/MarkdownBody', () => ({
-  default: ({ content }: { content: string }) => <div>{content}</div>,
 }));
 
 import { ProjectDetailPage } from '../ProjectDetailPage';
@@ -110,7 +102,6 @@ describe('#114：PMO 地图区 + 下一个该干什么', { testTimeout: 15000 },
       data: { data: { requirement: { id: 'REQ-0011', title: '探路' }, workunits: chainWorkunits } },
     });
     mockGetAgentSummary.mockResolvedValue({ data: { agents: [] } });
-    mockListByProject.mockResolvedValue({ data: { documents: [] } });
     mockWuList.mockResolvedValue({ data: { data: unassignedRows, total: 3 } });
     mockWuGet.mockImplementation((id: string) => {
       if (id === 'wu-d2') return Promise.resolve({ data: { id, status: 'in_review' } });

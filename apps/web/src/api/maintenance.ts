@@ -1,4 +1,5 @@
-// Maintenance API — 手动任务按钮（触发器手动 fire / 成本聚合 / 知识库维护 / 中层演化）
+// Maintenance API — 手动任务按钮（触发器手动 fire / 成本聚合 / 知识库维护）
+// #149（2026-08-15）：runMesoEvolution 随知识进化引擎（document-store 退役）一并摘除
 import { api } from './index';
 
 /** POST /triggers/:id/fire 响应（CREATE 型带 workUnit；EXECUTE 型没有） */
@@ -25,12 +26,6 @@ export interface KnowledgeMaintenanceResult {
   contradictionsResolved: number;
 }
 
-/** POST /knowledge/evolution/meso 响应 */
-export interface MesoEvolutionResult {
-  results: unknown[];
-  total: number;
-}
-
 export const maintenanceApi = {
   /** 手动触发一个触发器 */
   fireTrigger: async (id: string): Promise<FireTriggerResult> => {
@@ -49,12 +44,6 @@ export const maintenanceApi = {
     const res = await api.post<KnowledgeMaintenanceResult>('/knowledge/maintenance/run', undefined, {
       timeout: 600_000,
     });
-    return res.data;
-  },
-
-  /** 手动跑中层演化（模式识别） */
-  runMesoEvolution: async (projectId: string): Promise<MesoEvolutionResult> => {
-    const res = await api.post<MesoEvolutionResult>('/knowledge/evolution/meso', { projectId });
     return res.data;
   },
 };

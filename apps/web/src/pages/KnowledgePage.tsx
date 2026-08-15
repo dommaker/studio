@@ -186,7 +186,6 @@ export function KnowledgePage() {
                 return `维护完成：合并 ${r.dedupMerged} / 归档 ${r.qualityArchived} / 更新 ${r.freshnessUpdated} / 解矛盾 ${r.contradictionsResolved}`;
               }}
             />
-            <button onClick={() => navigate('/knowledge/import')} className="btn btn-primary">📥 冷启动导入</button>
           </div>
         </div>
       </div>

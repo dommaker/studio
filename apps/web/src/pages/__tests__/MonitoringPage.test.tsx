@@ -89,7 +89,6 @@ vi.mock('../../api/maintenance', () => ({
     getCosts: vi.fn().mockResolvedValue({ days: 30, byTrigger: {}, bySource: {} }),
     fireTrigger: vi.fn(),
     runKnowledgeMaintenance: vi.fn(),
-    runMesoEvolution: vi.fn(),
   },
 }));
 
