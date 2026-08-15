@@ -76,7 +76,10 @@ e2e/.auth.json
 .analyst/
 .daemon/
 *.db
-.studio/
+# .studio/ 整体为会话私有，但 CONTEXT.md（#152 起模块上下文唯一正本）与 skills/ 镜像入库
+.studio/*
+!.studio/CONTEXT.md
+!.studio/skills/
 
 # Claude Code (development only)
 CLAUDE.md

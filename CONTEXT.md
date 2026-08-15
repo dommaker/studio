@@ -1,6 +1,6 @@
 # Studio 工程级语言
 
-跨模块共享的术语与约定。模块级上下文见各 `apps/api/src/modules/*/CONTEXT.md`。
+跨模块共享的术语与约定。模块级上下文（核心导出/注意事项，按模块锚点组织）见 `.studio/CONTEXT.md`（#152 起唯一沉淀正本）。
 
 ## Language
 

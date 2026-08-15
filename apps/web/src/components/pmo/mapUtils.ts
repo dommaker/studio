@@ -39,7 +39,7 @@ export const FOG_BADGE_META: Record<FogBadge, { label: string; className: string
 };
 
 /**
- * 待决问题徽章口径（以实际数据为准，与 apps/web/src/CONTEXT.md 同步）：
+ * 待决问题徽章口径（以实际数据为准，与 .studio/CONTEXT.md 的 apps/web/src 锚点同步）：
  *   已定   = fog 已 resolved（决策单确认落地、结论进了时间线）
  *   待确认 = 决策单在审（WU in_review），结论已提待人工拍板
  *   讨论中 = fog in-discussion，或决策单已被认领在执行（active / waitingForInput）
@@ -63,7 +63,7 @@ export interface NextActionCandidate {
 }
 
 /**
- * 「下一个该干什么」排序细则（#114；改动须同步 apps/web/src/CONTEXT.md）：
+ * 「下一个该干什么」排序细则（#114；改动须同步 .studio/CONTEXT.md 的 apps/web/src 锚点）：
  *   候选 = 本项目可认领的单（列表 API claimable=true：未指派且依赖已清）；
  *   ① 决策单（type=decision）优先，按地图待决问题顺序（fogId 不在图中排末尾，按创建时间兜底）；
  *   ② 其余单按创建时间升序（早建先干）。

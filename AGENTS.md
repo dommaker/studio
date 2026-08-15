@@ -34,19 +34,21 @@ pnpm start  # 启动生产服务
 
 ## 约束与治理
 
+- 治理配置：`.harness/config.yml`（preset: standard）
 - 约束清单：`CLAUDE.md` Governance Rules 块（Iron Laws 7 条、Guidelines 6 条）
 
 ## 知识入口
 
 - `.harness/knowledge/`：项目知识库，用 `harness knowledge` 查询
-- 各源码目录的 `CONTEXT.md` 是权威模块文档（现有 42 个），改动代码时同步更新
+- 各源码目录的 `CONTEXT.md` 是权威模块文档，缺失目录可由 `harness sync-docs` 生成模板
 
 <!-- PRESERVE:modules -->
 <!-- AUTO-GENERATED:modules -->
 ## 模块索引
 
 > 本区段由 `pnpm gen:agents-md`（scripts/gen-agents-md.mjs）生成，请勿手改；
-> 新增/变更模块后重跑该命令。AGENTS.md 全文（含 harness 生成的导读部分）用 `pnpm agents-md:sync` 重建，勿手改本文件。
+> 摘要取自 .studio/CONTEXT.md 同名锚点的「职责」节；新增/变更模块后补锚点并重跑该命令。
+> AGENTS.md 全文（含 harness 生成的导读部分）用 `pnpm agents-md:sync` 重建，勿手改本文件。
 
 | 目录 | 说明 |
 |------|------|
@@ -59,7 +61,7 @@ pnpm start  # 启动生产服务
 | `apps/api/src/modules/capabilities` | 提供能力注册表的读取与 API 暴露，包括从文件系统加载工具/技能定义，并通过 Express 路由对外提供服务。同时定义能力类型（Capability）和注册表（Registry）接口，支持缓存与阶段（Stage）识别。 |
 | `apps/api/src/modules/channels` | Channel 驱动管线入口：@Analyst 触发 → RequirementsDoc 生成 → Goal 创建 → 执行管线。 |
 | `apps/api/src/modules/companies` | 公司（Company）记录的 CRUD REST API，FileStore 文件存储（~/.studio/data/companies/*.json），不依赖数据库。前端 PMO 页、Settings 页依赖本模块获取/创建默认公司... |
-| `apps/api/src/modules/deploy` | （缺少 CONTEXT.md，请补充） |
+| `apps/api/src/modules/deploy` | （.studio/CONTEXT.md 无对应锚点，请补充） |
 | `apps/api/src/modules/dingtalk` | 处理钉钉机器人交互回调，包括 ActionCard 按钮点击的健康检查和操作忽略提示。当前 Meeting 模块已移除，按钮点击仅返回占位响应。 |
 | `apps/api/src/modules/discord` | 处理 Discord 集成，包括命令行 (studio run) 和 Discord 斜杠命令 (/studio run) 共享的命令运行逻辑，以及 Discord 交互端点（按钮点击回调）的路由处理。 |
 | `apps/api/src/modules/distill` | 蒸馏主链路最小闭环（#143，spec #141 / 决策 #83 D1-D5）：把知识库里堆积的「矿石」（session-summary 自动沉淀条目）事件门槛驱动地提炼成蒸馏知识条目。链路 = WU 收尾钩子（workunit.s... |
@@ -77,7 +79,6 @@ pnpm start  # 启动生产服务
 | `apps/api/src/modules/projects` | Project Discovery（AC-D1 + AC-D3）：发现已注册的工程（repo）信息并对外提供查询 API，供频道默认工程、WorkUnit 工程绑定等流程使用。 |
 | `apps/api/src/modules/requirements` | REQ 需求编号体系（vision §5.3）：一个需求（REQ-<序号>）= 一组 WorkUnit。负责 REQ 的创建、绑定解析与状态汇总，需求文档/SDD/产物以编号关联，UI 按编号串联全链路。 |
 | `apps/api/src/modules/role-memory` | 角色记忆存储服务（#98，#88 spec §A）：per-role 目录落数据区（经 studioDir()/studioPath()），三件套——MEMORY.md 索引 + topics/*.md topic 正文 + draf... |
-| `apps/api/src/modules/shared` | apps/api 各模块共享的纯函数工具，不承载业务状态。 |
 | `apps/api/src/modules/skills` | skills 模块负责技能（Skill）的完整生命周期管理，包括基于文件的技能元数据存储（SkillStore）、提案存储（ProposalStore）、技能目录扫描与加载（manifest-loader）、基于描述的技能匹配（ski... |
 | `apps/api/src/modules/specs` | 提供 Specs 模块的 HTTP API 路由，包括变更分析、变更历史查询和门禁验证（待实现）。遵循 SP-002 变更分级流程，通过调用外部 SDK 中的服务处理 Spec 变更相关的业务逻辑。 |
 | `apps/api/src/modules/transcripts` | transcript 归档器（#97，#88 子票）：把会话原文落盘到数据区（经 studioDir()/studioPath()），供三个消费方共用——#99 WU 收尾批量提取（要全文）、handoff 摘要（要对话）、#85 执... |

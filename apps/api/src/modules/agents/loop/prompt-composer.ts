@@ -35,7 +35,7 @@ import { metricsFileStore } from './agent-loop-events.js';
  * 软定额 + 池内余量共享：按 persona → roster → skills → map → memory → knowledge → contract
  * → handoff 顺序逐段组装，段有效预算 = 本段定额 + 共享池余量；段实际用量低于有效预算时，
  * 差额流入共享池供后续段借用（注入总量封顶 = 定额总和 ~4.5K）。
- * map 段 = #111 T5 探路地图完整渲染（定额 800，实测校准见 agents/CONTEXT.md）。
+ * map 段 = #111 T5 探路地图完整渲染（定额 800，实测校准见 .studio/CONTEXT.md 的 apps/api/src/modules/agents 锚点）。
  * contract 段 = #119 契约段生成器（定额 200，按 WU type 产出格式 + 最小模板）。
  * memory / handoff 段内容源分别归 #100（角色记忆索引常驻注入）与 #95（handoff 前序
  * 进展段）。
