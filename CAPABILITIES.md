@@ -134,10 +134,8 @@
 | MemoryProposalCard | apps/web/src/components/channel/MemoryProposalCard.tsx | Memory proposal card — #101 角色记忆人审闸口 |
 | RequirementsDocCard | apps/web/src/components/channel/RequirementsDocCard.tsx | RequirementsDoc inline card — B1-001/B1-003, M2 quality gate |
 | WorkUnitDrawer | apps/web/src/components/channel/WorkUnitDrawer.tsx | WorkUnitDrawer — Mission Control 右抽屉：WorkUnit 详情 / REQ 全链路 |
-| DocReaderDrawer | apps/web/src/components/knowledge/DocReaderDrawer.tsx | 知识库文档阅读器 — PMO 驾驶舱文档区点开的右侧抽屉 |
 | GapCards | apps/web/src/components/knowledge/GapCards.tsx | 知识库页面六类 Gap 明细卡片（2026-08 工单 34 从 pages/KnowledgePage.tsx 抽出，纯展示无逻辑变更） |
-| KnowledgeDocGrid | apps/web/src/components/knowledge/KnowledgeDocGrid.tsx | 知识库三列网格（从 pages/ProjectDetailPage.tsx 抽取，工单 35-E4）：列定义数据驱动，卡片点开抽屉阅读器 |
-| MarkdownBody | apps/web/src/components/knowledge/MarkdownBody.tsx | Markdown 正文渲染 — DocReaderDrawer / WikiDocPage 统一方案（2026-07-31 §10 任务 4b） |
+| MarkdownBody | apps/web/src/components/knowledge/MarkdownBody.tsx | Markdown 正文渲染 — WikiDocPage 正文方案（2026-07-31 §10 任务 4b） |
 | RequirementChainPanel | apps/web/src/components/requirement/RequirementChainPanel.tsx | REQ 全链路面板（vision §5.3）— 展示 GET /requirements/:id/chain |
 | CompanySection | apps/web/src/components/settings/CompanySection.tsx | 公司信息 section（从 pages/Settings.tsx 抽取，工单 35-E3）：公司名称自动保存 + 无公司时创建 |
 | ComputeSection | apps/web/src/components/settings/ComputeSection.tsx | 算力接入 section（从 pages/Settings.tsx 抽取，工单 35-E3）：Workspace 状态 + 加入算力弹窗 + Token 管理 |
@@ -165,7 +163,6 @@
 | ChannelDetailPage | apps/web/src/pages/ChannelDetailPage.tsx | 线程内过程消息折叠/聚合：连续 ≥3 条「过程消息」收成一组（默认折叠，点击展开）。 |
 | ChannelListPage | apps/web/src/pages/ChannelListPage.tsx | Channel List Page — B2: 首页 = 频道列表 + Agent 状态栏 |
 | ForgotPasswordPage | apps/web/src/pages/ForgotPasswordPage.tsx | 忘记密码页面 — 输入邮箱，发送重置链接 |
-| KnowledgeImportPage | apps/web/src/pages/KnowledgeImportPage.tsx | 冷启动导入向导 |
 | KnowledgePage | apps/web/src/pages/KnowledgePage.tsx | 知识库页面 — 累积知识浏览 |
 | MonitoringPage | apps/web/src/pages/MonitoringPage.tsx | MonitoringPage — Agent Network MVP-6 |
 | NotFoundPage | apps/web/src/pages/NotFoundPage.tsx | 404 页面 - 路由表兜底（未匹配路径） |
