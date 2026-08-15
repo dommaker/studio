@@ -53,6 +53,12 @@ vi.mock('../../api/monitoring', () => ({
 vi.mock('../../hooks/useWorkUnitEvents', () => ({ useWorkUnitEvents: () => {} }));
 vi.mock('../../hooks/useWorkUnitStreamEvents', () => ({ useWorkUnitStreamEvents: () => [] }));
 
+// #174: TranscriptViewer 桩（组件自身契约在 __tests__/TranscriptViewer.test.tsx 覆盖）
+vi.mock('../../components/workunit/TranscriptViewer', () => ({
+  TranscriptViewer: ({ workUnitId }: { workUnitId: string }) =>
+    React.createElement('div', { 'data-testid': 'transcript-viewer' }, workUnitId),
+}));
+
 import { WorkUnitDetailPage } from '../WorkUnitDetailPage';
 
 const baseWu = {
@@ -185,6 +191,12 @@ describe('WorkUnitDetailPage', () => {
     mockWuGet.mockResolvedValue({ data: { ...baseWu, metadata: '{}' } });
     render(<WorkUnitDetailPage />);
     expect(await screen.findByText('存量 WU，证据模型未介入（按存储状态展示）')).toBeDefined();
+  });
+
+  it('#174: 执行过程 section 之后挂 TranscriptViewer（传 WU id）', async () => {
+    render(<WorkUnitDetailPage />);
+    await screen.findByText('登录功能开发');
+    expect(await screen.findByTestId('transcript-viewer')).toHaveTextContent('wu-1');
   });
 
   it('REQ chip 点击打开 REQ 全链路弹窗', async () => {

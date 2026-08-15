@@ -120,7 +120,12 @@ export async function executeLightweightSession(state: RunnerExecutionState, tas
     runningProcesses.set(task.executionId, childRef);
 
     const sessionStart = Date.now();
-    await emitSessionStart(sessionId, task.executionId, 1);
+    // #174: session:start/end 事件补 workUnitId + transcript 归档路径（来自 agent-loop 注入的 parameters）
+    const sessionExtras = {
+      workUnitId: task.parameters?.workUnitId as string | undefined,
+      transcriptPath: task.parameters?.transcriptPath as string | undefined,
+    };
+    await emitSessionStart(sessionId, task.executionId, 1, sessionExtras);
 
     try {
       const { stdout } = await execSh(cmd, {
@@ -185,7 +190,7 @@ export async function executeLightweightSession(state: RunnerExecutionState, tas
         signal: execErr?.signal, code: execErr?.code,
       });
 
-      await emitSessionEnd(sessionId, task.executionId, 1);
+      await emitSessionEnd(sessionId, task.executionId, 1, sessionExtras);
 
       return {
         success: false, worktree, outputFiles: [],

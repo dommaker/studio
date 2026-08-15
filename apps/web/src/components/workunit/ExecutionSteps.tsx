@@ -1,5 +1,5 @@
 // ExecutionSteps — WU 过程可视化：执行步事件流（思考/工具调用/skill 注入/用量），SSE 步级刷新。
-// 频道只留里程碑，过程明细在这里；完整 transcript 见 agent HOME 的 claude projects 文件。
+// 频道只留里程碑，过程明细在这里；完整 transcript（会话原文）见 WU 详情页 TranscriptViewer（#174）。
 // Layer B：执行中的步内实时 chunk（SSE-only 不落盘）；REST 步级卡片落位（同 step）后实时区自动让位。
 // 消费方：WorkUnitDrawer（频道页右抽屉）、WorkUnitListPage（/workunits 行内展开）
 import { useEffect, useState } from 'react';

@@ -48,7 +48,7 @@ import { composeStepPrompt } from './prompt-composer.js';
 import { handleDelegateBranch } from './delegate-branch.js';
 import { shouldResumeSession, RESUME_FAILURE_RE } from './session-resume.js';
 import { isContextOverflowError, buildRollingSummary, OVERFLOW_SUMMARY_HEADER } from './context-overflow.js';
-import { appendTranscriptStep } from '../../transcripts/transcript-archive.js';
+import { appendTranscriptStep, transcriptPath } from '../../transcripts/transcript-archive.js';
 
 // 输出解析/prompt 构建纯函数已抽到 ./agent-loop-parsers.js（工单 28，行为不变）；
 // re-export 保持对外导出语义不变
@@ -724,6 +724,9 @@ export class AgentLoop {
         knowledgeContext: knowledgeContext || undefined,
         agentRole: 'executor',
         workUnitId: wu.id,
+        // #174: transcript 归档路径随 task 下发，runner 发 session:start/end 事件时并入 payload
+        // （路径规则唯一权威在 #97 归档器，含测试环境改写，勿在此复制规则）
+        transcriptPath: transcriptPath(wu.id),
         agentProfileId: this.role.id,
         ...(workspaceRoot ? { workspaceRoot } : {}),
         extraEnv: {

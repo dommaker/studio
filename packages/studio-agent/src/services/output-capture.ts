@@ -131,14 +131,27 @@ export async function recordSessionMetrics(opts: {
 }
 
 /**
+ * #174: session:start/end 附加字段（WU 归属 + transcript 归档路径）
+ * 有值才并入 payload；undefined 的键不出现（JSON.stringify 语义），无 extras 时行为不变。
+ */
+export interface SessionEventExtras {
+  workUnitId?: string;
+  transcriptPath?: string;
+}
+
+/**
  * 发射 session:start 事件
  */
-export async function emitSessionStart(sessionId: string, executionId: string, sessionCount: number): Promise<void> {
+export async function emitSessionStart(sessionId: string, executionId: string, sessionCount: number, extras?: SessionEventExtras): Promise<void> {
   try {
     await fileStore.appendJsonl(STUDIO_EVENTS_JSONL, {
       type: 'session:start',
       source: 'agent-executor',
-      payload: JSON.stringify({ sessionId, agentId: executionId, executionId, sessionCount }),
+      payload: JSON.stringify({
+        sessionId, agentId: executionId, executionId, sessionCount,
+        ...(extras?.workUnitId ? { workUnitId: extras.workUnitId } : {}),
+        ...(extras?.transcriptPath ? { transcriptPath: extras.transcriptPath } : {}),
+      }),
       createdAt: new Date().toISOString(),
     });
   } catch { /* non-blocking */ }
@@ -147,12 +160,16 @@ export async function emitSessionStart(sessionId: string, executionId: string, s
 /**
  * 发射 session:end 事件
  */
-export async function emitSessionEnd(sessionId: string, executionId: string, sessionCount: number): Promise<void> {
+export async function emitSessionEnd(sessionId: string, executionId: string, sessionCount: number, extras?: SessionEventExtras): Promise<void> {
   try {
     await fileStore.appendJsonl(STUDIO_EVENTS_JSONL, {
       type: 'session:end',
       source: 'agent-executor',
-      payload: JSON.stringify({ sessionId, agentId: executionId, executionId, sessionCount }),
+      payload: JSON.stringify({
+        sessionId, agentId: executionId, executionId, sessionCount,
+        ...(extras?.workUnitId ? { workUnitId: extras.workUnitId } : {}),
+        ...(extras?.transcriptPath ? { transcriptPath: extras.transcriptPath } : {}),
+      }),
       createdAt: new Date().toISOString(),
     });
   } catch { /* non-blocking */ }

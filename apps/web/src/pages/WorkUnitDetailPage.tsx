@@ -1,7 +1,7 @@
 // WorkUnitDetailPage — /workunits/:id WU 详情页（全站跳转枢纽，2026-07 agents-pmo-flow-ux §5.4）
 // 自上而下：Header（类型+状态+标题+时间+failureType）→ 归属条（PMO/REQ/频道/认领 agent 四回跳）
 // → 证据台账 L1/L2/L3（与 WorkUnitDrawer 同一数据路径：deriveDisplayState / parseAttestations）
-// → 执行过程（复用 ExecutionSteps，自带 REST 回放 + 实时流）→ 讨论区（复用 DiscussionPanel）
+// → 执行过程（复用 ExecutionSteps，自带 REST 回放 + 实时流）→ 会话原文（#174 TranscriptViewer）→ 讨论区（复用 DiscussionPanel）
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { deriveDisplayState, parseAttestations } from '@dommaker/studio-shared/web';
@@ -11,6 +11,7 @@ import { projectApi } from '../api/index';
 import { channelApi } from '../api/channel';
 import { monitoringApi } from '../api/monitoring';
 import { ExecutionSteps } from '../components/workunit/ExecutionSteps';
+import { TranscriptViewer } from '../components/workunit/TranscriptViewer';
 import { DiscussionPanel } from '../components/DiscussionPanel';
 import { RequirementChainPanel } from '../components/requirement/RequirementChainPanel';
 import { SelfReviewBadge } from '../components/workunit/SelfReviewBadge';
@@ -254,6 +255,13 @@ export function WorkUnitDetailPage() {
                 className="card mt-4 p-3"
               >
                 <ExecutionSteps workUnitId={wu.id} />
+              </div>
+
+              {/* 会话原文（#174）：归档 transcript 只读查看，默认折叠按需加载 */}
+              <div
+                className="card mt-4 p-3"
+              >
+                <TranscriptViewer workUnitId={wu.id} />
               </div>
 
               {/* 讨论区（WU 级消息，无需频道上下文） */}

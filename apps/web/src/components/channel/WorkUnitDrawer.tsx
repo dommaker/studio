@@ -248,7 +248,7 @@ function WuDetail({ id, onOpenReq }: { id: string; onOpenReq: (reqId: string) =>
       )}
 
       {/* WU 过程可视化：执行步事件流（思考/工具调用/skill 注入/用量），SSE 步级刷新。
-          频道只留里程碑，过程明细在这里；完整 transcript 见 agent HOME 的 claude projects 文件。 */}
+          频道只留里程碑，过程明细在这里；完整 transcript（会话原文）见 WU 详情页 TranscriptViewer（#174）。 */}
       <ExecutionSteps workUnitId={id} />
 
       {wu.status === 'blocked' && meta.waitingForInput && meta.waitingQuestion && (

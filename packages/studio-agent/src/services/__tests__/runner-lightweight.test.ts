@@ -50,7 +50,7 @@ vi.mock('../output-capture.js', () => ({
 
 import { executeLightweightSession } from '../runner-lightweight.js';
 import type { RunnerExecutionState } from '../runner-execution.js';
-import { recordExecutionError, emitSessionEnd } from '../output-capture.js';
+import { recordExecutionError, emitSessionStart, emitSessionEnd } from '../output-capture.js';
 import type { AgentTask } from '../types.js';
 
 function buildStreamStdout(result: unknown): string {
@@ -173,6 +173,43 @@ describe('executeLightweightSession', () => {
     const opts = findSpawnCall()[1];
     expect(opts.killProcessGroup).toBe(true);
     expect(opts.silence).toBeUndefined();
+  });
+
+  test('#174：emitSessionStart/End 第 4 参透传 parameters 的 workUnitId/transcriptPath', async () => {
+    const task = makeTask({
+      parameters: { workspaceRoot: wsRoot, workUnitId: 'wu-lw-7', transcriptPath: '/tmp/transcripts/wu-lw-7.jsonl' },
+    });
+    await executeLightweightSession(state, task);
+    expect(emitSessionStart).toHaveBeenCalledWith(task.executionId, task.executionId, 1, {
+      workUnitId: 'wu-lw-7',
+      transcriptPath: '/tmp/transcripts/wu-lw-7.jsonl',
+    });
+  });
+
+  test('#174：parameters 无 workUnitId/transcriptPath → 第 4 参两字段均 undefined', async () => {
+    const task = makeTask({ parameters: { workspaceRoot: wsRoot } });
+    await executeLightweightSession(state, task);
+    expect(emitSessionStart).toHaveBeenCalledWith(task.executionId, task.executionId, 1, {
+      workUnitId: undefined,
+      transcriptPath: undefined,
+    });
+  });
+
+  test('#174：失败路径 emitSessionEnd 同样透传 extras', async () => {
+    mockExecSh.mockImplementation(async (cmd: string) => {
+      if (String(cmd).startsWith('cd ')) {
+        throw Object.assign(new Error('cli gone'), { stdout: Buffer.from('partial'), stderr: Buffer.from('') });
+      }
+      return { stdout: '' };
+    });
+    const task = makeTask({
+      parameters: { workspaceRoot: wsRoot, workUnitId: 'wu-lw-8', transcriptPath: '/tmp/transcripts/wu-lw-8.jsonl' },
+    });
+    await executeLightweightSession(state, task);
+    expect(emitSessionEnd).toHaveBeenCalledWith(task.executionId, task.executionId, 1, {
+      workUnitId: 'wu-lw-8',
+      transcriptPath: '/tmp/transcripts/wu-lw-8.jsonl',
+    });
   });
 
   test('execSh 抛错 → 失败返回并记录执行错误', async () => {
