@@ -8,7 +8,7 @@
  *   - Stuck detection with strategy hints injection
  *
  * 模块拆分：实现按职责拆到
- *   - runner-params.ts      参数构建（prompt / session flag / cmd / env / 前置检查 / SDD）
+ *   - runner-params.ts      参数构建（prompt / session flag / cmd / env / 前置检查）
  *   - runner-output.ts      输出解析（mtime 探测 / RKB 已知解法）
  *   - runner-execution.ts   执行（多 session 循环）
  *   - runner-lightweight.ts 执行（轻量单 session）
@@ -56,7 +56,7 @@ export class AgentRunner {
     const homeDir = os.homedir();
     this.config = {
       worktreesDir: config?.worktreesDir || process.env.WORKTREES_DIR || path.join(homeDir, 'worktrees'),
-      repoDir: config?.repoDir || process.env.REPO_DIR || (() => {
+      repoDir: config?.repoDir || (() => {
         let dir = process.cwd();
         while (dir !== '/' && !fsSync.existsSync(path.join(dir, 'package.json'))) {
           dir = path.dirname(dir);

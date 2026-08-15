@@ -2,7 +2,8 @@
  * runner-params 单元测试
  *
  * 覆盖纯参数构建函数：prompt 拼接、session flag、--add-dir、
- * spawn cmd 组装、spawn env，以及 SDD task 层解析（mock SDD 读取）。
+ * spawn cmd 组装、spawn env。
+ * （#155：resolveSddTaskData 已随 SDD 体系退役删除，相关用例一并移除）
  */
 
 import { describe, test, expect, vi } from 'vitest';
@@ -10,18 +11,11 @@ import * as fsSync from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 
-const { mockFindSddDocById, mockReadSddDoc } = vi.hoisted(() => ({
-  mockFindSddDocById: vi.fn(),
-  mockReadSddDoc: vi.fn(),
-}));
-
 vi.mock('@dommaker/studio-shared', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@dommaker/studio-shared')>();
   return {
     ...actual,
     logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-    findSddDocById: mockFindSddDocById,
-    readSddDoc: mockReadSddDoc,
   };
 });
 
@@ -31,7 +25,6 @@ import {
   buildAddDirArgs,
   buildSessionCommand,
   buildSessionEnv,
-  resolveSddTaskData,
 } from '../runner-params.js';
 import type { AgentTask } from '../types.js';
 
@@ -199,49 +192,5 @@ describe('buildSessionEnv', () => {
     } finally {
       fsSync.rmSync(wt, { recursive: true, force: true });
     }
-  });
-});
-
-describe('resolveSddTaskData', () => {
-  test('无 slug → 回退 DB 值', async () => {
-    mockFindSddDocById.mockResolvedValue(null);
-    const task = makeTask({ parameters: { contractTests: [{ file: 'a.test.ts', content: 'x' }] } });
-    const result = await resolveSddTaskData(task);
-    expect(result.contractTests).toEqual([{ file: 'a.test.ts', content: 'x' }]);
-    expect(result.testFiles).toEqual([]);
-  });
-
-  test('sddSlug + task.md 命中 → 使用 SDD 层数据', async () => {
-    mockReadSddDoc.mockResolvedValue({
-      body: [
-        '## Contract Tests',
-        '### src/__tests__/x.test.ts',
-        '```typescript',
-        "import { test } from 'vitest';",
-        '```',
-        '## Test Files',
-        '- src/__tests__/x.test.ts',
-      ].join('\n'),
-    });
-    const task = makeTask({ parameters: { sddSlug: 'my-feature' } });
-    const result = await resolveSddTaskData(task);
-    expect(result.contractTests).toHaveLength(1);
-    expect(result.contractTests![0].file).toBe('src/__tests__/x.test.ts');
-    expect(result.testFiles).toEqual(['src/__tests__/x.test.ts']);
-  });
-
-  test('readSddDoc 返回 null → 回退 DB 值', async () => {
-    mockReadSddDoc.mockResolvedValue(null);
-    const task = makeTask({ parameters: { sddSlug: 'missing', contractTests: [{ file: 'db.test.ts', content: 'y' }] } });
-    const result = await resolveSddTaskData(task);
-    expect(result.contractTests).toEqual([{ file: 'db.test.ts', content: 'y' }]);
-  });
-
-  test('readSddDoc 抛错 → 回退 DB 值', async () => {
-    mockReadSddDoc.mockRejectedValue(new Error('io error'));
-    const task = makeTask({ parameters: { sddSlug: 'broken' } });
-    const result = await resolveSddTaskData(task);
-    expect(result.contractTests).toBeUndefined();
-    expect(result.testFiles).toEqual([]);
   });
 });

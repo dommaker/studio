@@ -2,16 +2,19 @@
  * Runner Params — 参数构建（agent-runner.ts 拆分模块）
  *
  * 从 agent-runner.ts 按职责拆出的 spawn/prompt 参数构建逻辑：
- *   - prompt 构建（buildPrompt / buildAugmentedPrompt / SDD task 层解析）
+ *   - prompt 构建（buildPrompt / buildAugmentedPrompt）
  *   - spawn 命令构建（session flag / --add-dir / cmd 组装 / env）
  *   - 前置检查（checkPrerequisites）
  *
  * 零行为变更：函数体均自 agent-runner.ts 平移，仅类方法改为自由函数；
  * cmd/env 组装块为两种执行模式（loop / lightweight）共享的原样抽取。
+ *
+ * #155：SDD task 层解析（resolveSddTaskData）已随 SDD 体系退役删除——
+ * contractTests/testFiles 只取 task.parameters（DB 值）。
  */
 
 import * as fs from 'fs/promises';
-import { logger, readSddDoc, findSddDocById, parseTaskDocContractTests, parseTaskDocTestFiles } from '@dommaker/studio-shared';
+import { logger } from '@dommaker/studio-shared';
 import { execSh, resolveProviderDefinition, buildHealthProbeCommand } from '@dommaker/studio-shared/node';
 import { buildAgentConstraintPrompt } from '@dommaker/studio-shared/harness/hooks';
 import { skillLoader } from '@dommaker/studio-skill';
@@ -30,67 +33,6 @@ const STRATEGY_HINTS: Record<number, string> = {
   3: '\u26a0\ufe0f\u26a0\ufe0f\u26a0\ufe0f \u4e25\u91cd\u963b\u585e \u2014 \u8fde\u7eed 3 \u6b21\u65e0\u8fdb\u5c55\u3002\u5f3a\u5236\u5207\u6362\u6a21\u5f0f\uff1a1) \u5148\u4e0d\u8981\u5199\u4ee3\u7801\uff0c\u8bfb REQUIREMENTS.md \u548c\u73b0\u6709\u4ee3\u7801\uff1b2) \u5199\u51fa 3 \u6b65\u4ee5\u5185\u7684 mini plan\uff1b3) \u53ea\u5b9e\u73b0\u7b2c 1 \u6b65\uff0c\u8dd1\u6d4b\u8bd5\uff1b4) \u8dd1\u901a\u540e\u518d\u7ee7\u7eed',
   4: '\ud83d\udd34 \u6700\u540e\u4e00\u6b21\u673a\u4f1a \u2014 \u653e\u5f03\u5f53\u524d\u65b9\u5411\uff0c\u4ece\u7b2c 0 \u884c\u91cd\u65b0\u5f00\u59cb\uff0c\u7528\u6700\u7b80\u5355\u3001\u6700\u6734\u7d20\u7684\u65b9\u5f0f\u5b9e\u73b0\uff08\u54ea\u6015\u4ee3\u7801\u4e11\uff09\uff0c\u5148\u8ba9\u6d4b\u8bd5\u901a\u8fc7\u3002',
 };
-
-// ========================================
-// SP-004 Step 5: SDD task layer resolution
-// ========================================
-
-/**
- * Resolve contractTests + testFiles from SDD task layer.
- * Tries `docs/sdd/<slug>/task.md` first, falls back to DB values in task.parameters.
- *
- * SDD task.md format:
- *   ## Contract Tests
- *   ### <file-path>
- *   ```typescript ... ```
- *   ## Test Files
- *   - <path>
- */
-export async function resolveSddTaskData(task: AgentTask): Promise<{
-  contractTests: Array<{ file: string; content: string }> | undefined;
-  testFiles: string[];
-}> {
-  // DB fallback values
-  const dbContractTests = task.parameters?.contractTests as Array<{ file: string; content: string }> | undefined;
-  const dbTestFiles: string[] = [];
-
-  // Resolve slug
-  const slug = (task.parameters?.sddSlug as string)
-    || await findSddDocById((task.parameters?.goalId as string) || '');
-
-  if (!slug) {
-    return { contractTests: dbContractTests, testFiles: dbTestFiles };
-  }
-
-  try {
-    const taskDoc = await readSddDoc(slug, 'task');
-    if (!taskDoc) {
-      return { contractTests: dbContractTests, testFiles: dbTestFiles };
-    }
-
-    const sddContractTests = parseTaskDocContractTests(taskDoc.body);
-    const sddTestFiles = parseTaskDocTestFiles(taskDoc.body);
-
-    const contractTests = sddContractTests.length > 0 ? sddContractTests : dbContractTests;
-    const testFiles = sddTestFiles.length > 0 ? sddTestFiles : dbTestFiles;
-
-    logger.info('[AgentRunner] SDD task layer resolved', {
-      slug,
-      contractTestsSource: sddContractTests.length > 0 ? 'sdd' : 'db',
-      contractTestsCount: contractTests?.length || 0,
-      testFilesSource: sddTestFiles.length > 0 ? 'sdd' : 'db',
-      testFilesCount: testFiles.length,
-    });
-
-    return { contractTests, testFiles };
-  } catch (err) {
-    logger.warn('[AgentRunner] SDD task layer read failed, falling back to DB', {
-      slug,
-      error: String(err),
-    });
-    return { contractTests: dbContractTests, testFiles: dbTestFiles };
-  }
-}
 
 // ========================================
 // Prerequisites

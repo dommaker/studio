@@ -35,7 +35,6 @@ import {
 } from './output-capture.js';
 import {
   buildPrompt,
-  resolveSddTaskData,
   checkPrerequisites,
   buildSessionFlag,
   buildAddDirArgs,
@@ -116,10 +115,9 @@ export async function executeSessionLoop(state: RunnerExecutionState, task: Agen
       hasFailingTest: true,
     });
 
-    // SP-004 Step 5: resolve contractTests + testFiles from SDD task layer (fallback DB)
-    const sddTaskData = await resolveSddTaskData(task);
-    const contractTests = sddTaskData.contractTests;
-    const testFiles = sddTaskData.testFiles;
+    // #155：SDD task 层解析已退役——contractTests/testFiles 只取 task.parameters（DB 值）
+    const contractTests = task.parameters?.contractTests as Array<{ file: string; content: string }> | undefined;
+    const testFiles = (task.parameters?.testFiles as string[] | undefined) ?? [];
 
     // Write REQUIREMENTS.md (with testFiles for GREEN phase verification)
     const acGroup = task.parameters?.acGroup as AcGroup | undefined;
