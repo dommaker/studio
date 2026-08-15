@@ -5,7 +5,6 @@ export { parseSpecMarkdown, loadSpecFile } from './spec-parser';
 export type { SpecContent, ApiEndpoint, SchemaDefinition, AcceptanceCriterion } from './spec-parser';
 export { execSh, resolveSessionId, readSessionIdFile, readProgress, writeProgress, readPhaseBridge } from './process-io';
 export type { ExecShOptions, SessionIdOptions, ProgressReport, PhaseBridge } from './process-io';
-export { readSddDoc, listSddDocs, findSddDocById, findSddDocByWorkUnitId, readSddDocByWorkUnitId, updateSddFrontmatter, appendChangelog } from './sdd-utils';
 export { toKebab, parseSddFrontmatter, stringifySddFrontmatter, listLegacySddDocs, readLegacySddDoc, findLegacySddDocById, findLegacySddDocs } from './sdd-legacy';
 export type { SddFrontmatter, LegacySddLayer } from './sdd-legacy';
 export { resolvePromptOverridesDir, readPromptOverride, renderWithOverride } from './prompt-overrides';
