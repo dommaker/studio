@@ -1,0 +1,611 @@
+<!-- GATE_REVISION_ATTEMPT 2 -->
+```json
+{
+  "requirement": {
+    "title": "JWT 认证系统测试覆盖补全 + 边界加固",
+    "summary": "核心 JWT 认证系统（token 签发/验证、refresh token 轮转、OAuth2.0 Google/GitHub 登录、中间件链、速率限制、CSRF 防护）已完整实现——8 个 AC 组覆盖全部功能模块，含单元测试 28+13+7=48 用例 + E2E 14 用例。本次需求聚焦剩余缺口：路由层测试、OAuth exchange 集成验证、扩展中间件测试、速率限制测试、并发 refresh 安全、前端组件测试、审计日志测试、PBKDF2 旧密码迁移路径覆盖。",
+    "tier": "standard",
+    "tierReason": "核心实现已完成（scout 确认 auth/service.ts、oauth.service.ts、middleware/auth.ts、rate-limit.ts 均已实现且有基础测试）。剩余工作为测试覆盖率补全（~10 个新测试文件）和边界用例加固，不涉及新功能开发或架构变更。按 preClassifyTier 规则：无新增 auth/jwt/oauth/security 关键词对应的新模块，判为 standard。",
+    "acGroups": [
+      {
+        "id": "ac-route-coverage",
+        "acs": [
+          "为 auth/routes.ts (201行) 编写路由级单元测试：覆盖 register/login/logout/me/guest-session 5 个端点的请求验证、状态码、错误响应映射",
+          "为 auth/routes.ts 编写审计日志记录验证测试：登录成功/失败、注册、登出事件均触发 AuditService 记录（SEC-010）",
+          "为 oauth/routes.ts (89行) 编写路由级单元测试：覆盖 CSRF state cookie 验证（有效/无效/缺失）、callback 错误 redirect（含 error query param）、成功 redirect（含 URL fragment）",
+          "验证 auth 端点速率限制中间件正确挂载：login/register 使用 authRateLimit(10/min)，refresh 使用 refreshRateLimit(20/min)"
+        ],
+        "files": [
+          "apps/api/src/modules/auth/routes.ts",
+          "apps/api/src/modules/auth/oauth.routes.ts",
+          "apps/api/src/middleware/rate-limit.ts"
+        ],
+        "dependencies": []
+      },
+      {
+        "id": "ac-middleware-ext-coverage",
+        "acs": [
+          "为 workspaceAuth() 编写单元测试：验证 Bearer token 提取 → sha256 hash → WorkspaceToken 表查询 → 注入 req.workspace 的完整调用链",
+          "为 checkOwnership(model, paramKey) 编写单元测试：覆盖 owner 匹配通过、非 owner 返回 403、Admin 角色跳过检查、无效 model 名运行时错误",
+          "为 requireNotGuest() 编写单元测试：覆盖 Guest 角色返回 403、非 Guest 角色放行",
+          "为 generateAnonymousId() 编写单元测试：验证 IP+UA+date 哈希一致性（SEC-009）"
+        ],
+        "files": [
+          "apps/api/src/middleware/auth.ts"
+        ],
+        "dependencies": []
+      },
+      {
+        "id": "ac-rate-limit-tests",
+        "acs": [
+          "为 authRateLimit 编写单元测试：验证 windowMs=60s、max=10、IP 级别限流配置正确",
+          "为 refreshRateLimit 编写单元测试：验证 windowMs=60s、max=20、IP 级别限流配置正确",
+          "验证速率限制中间件与 express-rate-limit 风格一致（与现有 mcpRateLimit/apiRateLimit 对比）"
+        ],
+        "files": [
+          "apps/api/src/middleware/rate-limit.ts"
+        ],
+        "dependencies": []
+      },
+      {
+        "id": "ac-oauth-exchange",
+        "acs": [
+          "为 exchangeGoogleCode 编写集成测试：mock fetch 模拟 Google token endpoint 成功/失败响应、profile endpoint 成功/失败响应",
+          "为 exchangeGitHubCode 编写集成测试：mock fetch 模拟 GitHub token endpoint + /user/emails endpoint（含 primary email null 的 fallback 路径）",
+          "验证 OAuth token exchange 错误分类：network error → 503、invalid code → 400、profile fetch fail → 502"
+        ],
+        "files": [
+          "apps/api/src/modules/auth/oauth.service.ts"
+        ],
+        "dependencies": []
+      },
+      {
+        "id": "ac-refresh-concurrency",
+        "acs": [
+          "为 exchangeRefreshToken 编写并发安全测试：模拟两个并发请求使用同一 refresh token，验证仅第一个成功、第二个返回 null（revokedAt 已设置）",
+          "验证 refresh token rotation 非事务包裹场景下的幂等性：重复撤销同一 token 不抛异常",
+          "验证前端 axios interceptor 并发 401 队列：isRefreshing flag + failedQueue 排队 → token 刷新后批量重试"
+        ],
+        "files": [
+          "apps/api/src/modules/auth/service.ts",
+          "apps/web/src/api/index.ts"
+        ],
+        "dependencies": []
+      },
+      {
+        "id": "ac-frontend-coverage",
+        "acs": [
+          "为 authStore.ts (215行 Zustand store) 编写单元测试：覆盖 login/register/logout/refreshToken/getCurrentUser action + 状态变更",
+          "为 OAuthCallback.tsx (50行) 编写组件测试：覆盖 URL fragment 解析 → token 存储 → redirect 流程、错误 fragment 展示",
+          "为 axios interceptor 编写单元测试：覆盖 Bearer token 注入、401 → refresh → retry 流程、refresh 失败清除 auth state"
+        ],
+        "files": [
+          "apps/web/src/stores/authStore.ts",
+          "apps/web/src/components/OAuthCallback.tsx",
+          "apps/web/src/api/index.ts"
+        ],
+        "dependencies": []
+      },
+      {
+        "id": "ac-audit-logger",
+        "acs": [
+          "为 audit-logger.ts (145行) 编写单元测试：覆盖登录事件记录、角色变更记录、审计日志查询过滤",
+          "验证审计日志包含必要字段：timestamp、userId、action、ipAddress、userAgent"
+        ],
+        "files": [
+          "apps/api/src/middleware/audit-logger.ts"
+        ],
+        "dependencies": []
+      },
+      {
+        "id": "ac-password-migration",
+        "acs": [
+          "为 verifyPassword PBKDF2 旧格式兼容路径编写测试：验证 legacy PBKDF2 salt:hash 格式识别 → 验证通过 → needsRehash=true",
+          "验证 login 流程中 needsRehash 触发静默升级：旧格式密码登录成功后自动更新为 bcrypt 哈希",
+          "验证旧格式哈希迁移后新登录使用 bcrypt 路径（不再走 PBKDF2）"
+        ],
+        "files": [
+          "apps/api/src/modules/auth/service.ts"
+        ],
+        "dependencies": []
+      },
+      {
+        "id": "ac-no-any-cleanup",
+        "acs": [
+          "消除 auth 测试中 ~50+ 处 as any 类型断言：mock 对象改用 Prisma 类型或具体接口类型",
+          "消除 middleware/auth.ts L274 中 (prisma as any)[model] 动态访问：改用类型安全的 model 映射表"
+        ],
+        "files": [
+          "apps/api/src/modules/auth/__tests__/service.test.ts",
+          "apps/api/src/modules/auth/__tests__/oauth.service.test.ts",
+          "apps/api/src/modules/auth/__tests__/middleware-invocation.test.ts",
+          "apps/api/src/middleware/auth.ts"
+        ],
+        "dependencies": []
+      }
+    ],
+    "constraints": [
+      "不修改已有测试的断言逻辑——仅补充缺失用例，不删除或弱化现有测试",
+      "不新增 npm 依赖——测试工具使用已有 vitest + @dommaker/studio-prisma mock 模式",
+      "覆盖率不得下降——新增测试后整体覆盖率 >= 当前基线",
+      "no_any_type 消除渐进进行——每次只改一个文件，改后运行完整测试确认无回归"
+    ],
+    "tags": [
+      "auth",
+      "jwt",
+      "oauth2",
+      "test-coverage",
+      "security",
+      "type-safety"
+    ]
+  },
+  "design": {
+    "acGroups": [
+      {
+        "id": "ac-route-coverage",
+        "implementationNotes": "路由测试使用 supertest 或直接调用 route handler 函数 + mock Express req/res。auth/routes.ts 导出 default Router，通过 mock auth/service.ts 函数（login/register/logout/getCurrentUser/createGuestSession）和 AuditService 控制测试路径。OAuth routes 需要 mock cookie-parser 注入 req.cookies 和 oauth.service.ts 函数。速率限制验证用 mock express-rate-limit 或检查中间件配置。",
+        "architectureContext": {
+          "functions": [
+            "auth/routes.ts default export: Router with POST /guest-session, POST /register, POST /login, POST /logout, GET /me, POST /refresh, POST /cleanup",
+            "oauth/routes.ts default export: Router with GET /:provider(google|github), GET /callback/:provider(google|github)",
+            "authRateLimit: RateLimitRequestHandler (express-rate-limit, windowMs=60s, max=10)",
+            "refreshRateLimit: RateLimitRequestHandler (express-rate-limit, windowMs=60s, max=20)"
+          ],
+          "callChain": "route-registry.ts:buildRouteTable → auth/routes.ts + oauth/routes.ts → auth/service.ts + oauth.service.ts + middleware chain",
+          "imports": [
+            "import { requireAuth, getAuthInfo, optionalAuth, requireRole } from '../../middleware/auth.js'",
+            "import { authRateLimit, refreshRateLimit } from '../../middleware/rate-limit.js'",
+            "import { AuditService } from '@dommaker/studio-audit'",
+            "import * as authService from '../../modules/auth/service.js'",
+            "import * as oauthService from '../../modules/auth/oauth.service.js'"
+          ],
+          "typesInScope": [
+            "LoginInput — { email: string; password: string }",
+            "RegisterInput — { email: string; password: string; name?: string }",
+            "SessionInput — { guestId?: string; ipAddress?: string; userAgent?: string }",
+            "AuthResult — { user?: User; session: Session; token: string; isNewUser?: boolean; refreshToken?: string }"
+          ],
+          "testMock": [
+            "vi.mock('../../../modules/auth/service.js', () => ({ verifyToken: vi.fn(), createGuestSession: vi.fn(), login: vi.fn(), register: vi.fn(), logout: vi.fn(), getCurrentUser: vi.fn() }))",
+            "vi.mock('../../../modules/auth/oauth.service.js', () => ({ getAuthorizationUrl: vi.fn(), exchangeCodeForTokens: vi.fn(), getOrCreateOAuthUser: vi.fn(), createOAuthSession: vi.fn() }))",
+            "vi.mock('@dommaker/studio-audit', () => ({ AuditService: { log: vi.fn() } }))",
+            "vi.mock('express-rate-limit', () => ({ default: vi.fn(() => (req, res, next) => next()) }))"
+          ],
+          "dangerZones": [
+            "oauth.routes.ts:L57 — CSRF state 验证: cookie clear 后才比较, 若 clearCookie 失败则比较永远为 true（宽松但非漏洞）",
+            "route-registry.ts:L164-165 — authRoutes + oauthRoutes 都挂载在 /api/v1/auth, 新增端点注意路径冲突"
+          ],
+          "verifiedAt": "无路由级单元测试；auth-flow.e2e.test.ts:147 行间接覆盖端点调用"
+        },
+        "codePatterns": [
+          "Express Router + 中间件数组模式: router.post('/path', [middleware1, middleware2], handler)"
+        ],
+        "gotchas": [
+          "requireAuth/optionalAuth/requireRole 是中间件工厂（返回函数），调用时必须加括号: requireAuth() 不是 requireAuth",
+          "oauth callback URL 路径为 /callback/:provider，非 /:provider/callback"
+        ],
+        "modelTier": "standard"
+      },
+      {
+        "id": "ac-middleware-ext-coverage",
+        "implementationNotes": "workspaceAuth 验证 Bearer token → sha256 hash → prisma.workspaceToken.findUnique（include workspace）→ 注入 req.workspace/req.workspaceToken。失败返回 401。checkOwnership 通过 (prisma as any)[model].findUnique 动态查询，检查 owner/creator 字段匹配 userId，Admin 跳过。requireNotGuest 简单检查 req.user.role !== 'Guest'。generateAnonymousId 为 crypto.createHash('sha256').update(ip+ua+date).digest('hex')。",
+        "architectureContext": {
+          "functions": [
+            "workspaceAuth(): (req: AuthRequest, res: Response, next: NextFunction) => Promise<void> @ middleware/auth.ts:328-383",
+            "checkOwnership(model: string, paramKey?: string): (req: AuthRequest, res: Response, next: NextFunction) => Promise<void> @ middleware/auth.ts:247-303",
+            "requireNotGuest(): (req: AuthRequest, res: Response, next: NextFunction) => void @ middleware/auth.ts:308-321",
+            "generateAnonymousId(req: Request): string @ middleware/auth.ts:56-62"
+          ],
+          "callChain": "route handler → requireAuth() → requireNotGuest() → handler; workspaceAuth 用于 Daemon 端点; checkOwnership 用于资源操作端点",
+          "imports": [
+            "import { prisma } from '@dommaker/studio-prisma'",
+            "import crypto from 'crypto'",
+            "import { verifyToken } from '../modules/auth/service.js'"
+          ],
+          "typesInScope": [
+            "AuthRequest — extends Request { user?: User | null; session?: Session | null; anonymousId?: string; workspace?: Workspace | null; workspaceToken?: WorkspaceToken | null }",
+            "WorkspaceToken (Prisma) — id, token (sha256 hash), workspaceId, workspace (relation), expiresAt, revokedAt?"
+          ],
+          "testMock": [
+            "vi.mock('@dommaker/studio-prisma', () => ({ prisma: { workspaceToken: { findUnique: vi.fn() }, user: { findUnique: vi.fn() }, channel: { findUnique: vi.fn() }, goal: { findUnique: vi.fn() } } }))",
+            "vi.mock('../../../modules/auth/service.js', () => ({ verifyToken: vi.fn().mockReturnValue({ sessionId: 's1', userId: 'u1' }) }))"
+          ],
+          "dangerZones": [
+            "middleware/auth.ts:L274 — (prisma as any)[model].findUnique: 传入无效 model 名导致运行时 prisma.undefinedModel 错误",
+            "middleware/auth.ts:L56-62 — generateAnonymousId 算法变更会破坏匿名 ID 一致性（SEC-009）"
+          ],
+          "verifiedAt": "无独立单元测试；通过集成测试间接覆盖"
+        },
+        "codePatterns": [
+          "中间件工厂模式: 所有中间件返回 (req, res, next) => void 闭包，支持参数化配置"
+        ],
+        "gotchas": [
+          "checkOwnership 使用 (prisma as any)[model] 违反 no_any_type — 需改为类型安全的 model 映射表",
+          "workspaceAuth 的 token hash 使用 sha256，与 JWT 签名算法（HS256）不同——这是 workspace token 验证，非用户认证"
+        ],
+        "modelTier": "standard"
+      },
+      {
+        "id": "ac-rate-limit-tests",
+        "implementationNotes": "rate-limit.ts 导出 authRateLimit 和 refreshRateLimit 两个 express-rate-limit 中间件实例（非工厂函数）。测试验证其配置（windowMs、max、message、standardHeaders、legacyHeaders）与项目其他限流器（mcpRateLimit、apiRateLimit）风格一致。",
+        "architectureContext": {
+          "functions": [
+            "authRateLimit — rateLimit({ windowMs: 60*1000, max: 10, ... })",
+            "refreshRateLimit — rateLimit({ windowMs: 60*1000, max: 20, ... })"
+          ],
+          "callChain": "auth/routes.ts 端点 → [authRateLimit, handler] 或 [refreshRateLimit, handler]",
+          "imports": [
+            "import rateLimit from 'express-rate-limit'"
+          ],
+          "typesInScope": [
+            "RateLimitRequestHandler (express-rate-limit types)"
+          ],
+          "testMock": [],
+          "dangerZones": [],
+          "verifiedAt": "无独立单元测试；集成在 auth endpoint E2E 中间接覆盖"
+        },
+        "codePatterns": [
+          "express-rate-limit 内存 store 模式: 与 mcpRateLimit/apiRateLimit 风格一致"
+        ],
+        "gotchas": [
+          "authRateLimit 阈值 10/min 不可随意放松——需安全评审",
+          "内存 store 在服务器重启后清零——生产环境需评估是否换成 Redis store"
+        ],
+        "modelTier": "fast"
+      },
+      {
+        "id": "ac-oauth-exchange",
+        "implementationNotes": "OAuth exchange 使用 native fetch（非 axios 或 passport）。exchangeGoogleCode 调用 https://oauth2.googleapis.com/token → https://www.googleapis.com/oauth2/v2/userinfo。exchangeGitHubCode 调用 https://github.com/login/oauth/access_token → https://api.github.com/user → https://api.github.com/user/emails（fallback 获取 primary verified email）。测试使用 vi.mock('node-fetch') 或 nock 拦截 HTTP 请求。",
+        "architectureContext": {
+          "functions": [
+            "exchangeCodeForTokens(provider: OAuthProvider, code: string): Promise<{ profile: OAuthProfile; tokens: OAuthTokens }> @ oauth.service.ts:68-80",
+            "exchangeGoogleCode(code: string): Promise<{ profile; tokens }> — private",
+            "exchangeGitHubCode(code: string): Promise<{ profile; tokens }> — private",
+            "getOrCreateOAuthUser(provider: OAuthProvider, profile: OAuthProfile, tokens: OAuthTokens): Promise<{ user: User }> @ oauth.service.ts:232-311",
+            "createOAuthSession(userId: string, req: Request): Promise<{ token: string; refreshToken: string; session: Session }> @ oauth.service.ts:316-353"
+          ],
+          "callChain": "GET /auth/callback/:provider → oauth/routes.ts → oauth/service.ts:exchangeCodeForTokens → fetch(token endpoint) → fetch(profile endpoint) → getOrCreateOAuthUser → createOAuthSession → redirect with #fragment",
+          "imports": [
+            "import { JWT_SECRET, generateRefreshToken } from './service.js'",
+            "import { prisma } from '@dommaker/studio-prisma'",
+            "import jwt from 'jsonwebtoken'"
+          ],
+          "typesInScope": [
+            "OAuthProvider — 'google' | 'github'",
+            "OAuthProfile — { provider: OAuthProvider; providerAccountId: string; email: string; name: string | null; avatar: string | null }",
+            "OAuthTokens — { accessToken: string; refreshToken: string | null; expiresAt: Date | null }",
+            "OAuthAccount — { id, userId, provider, providerAccountId, accessToken?, refreshToken?, expiresAt?, profile? } @@unique([provider, providerAccountId])"
+          ],
+          "testMock": [
+            "vi.mock('node-fetch') 或 nock('https://oauth2.googleapis.com') 控制 Google token/userinfo 端点",
+            "vi.mock('node-fetch') 或 nock('https://github.com') 控制 GitHub token/user/emails 端点",
+            "vi.mock('@dommaker/studio-prisma', () => ({ prisma: { oAuthAccount: { findUnique: vi.fn(), upsert: vi.fn() }, user: { findUnique: vi.fn(), create: vi.fn() }, session: { create: vi.fn() } } }))"
+          ],
+          "dangerZones": [
+            "oauth.service.ts:L68-80 — exchangeCodeForTokens 仅分发到 private 函数，无独立 HTTP 错误处理",
+            "GitHub email fallback: /user/emails 返回数组，需找 primary && verified 的 email；若用户无 verified email 则登录失败"
+          ],
+          "verifiedAt": "apps/api/src/modules/auth/__tests__/oauth.service.test.ts:258 行 — 仅覆盖 unsupported provider，空 describe blocks for Google/GitHub exchange (L120, L180)"
+        },
+        "codePatterns": [
+          "OAuth2 native fetch 模式: 无 passport.js 依赖，手工构建 URL + fetch + JSON.parse"
+        ],
+        "gotchas": [
+          "GitHub OAuth token endpoint 返回 URL-encoded 格式（非 JSON）：access_token=xxx&scope=user:email&token_type=bearer",
+          "Google userinfo endpoint 返回 email_verified 字段，需验证其为 true",
+          "OAuth token 通过 URL fragment (#) 传递——测试需验证 redirect URL 包含 #access_token=...&refresh_token=..."
+        ],
+        "modelTier": "premium"
+      },
+      {
+        "id": "ac-refresh-concurrency",
+        "implementationNotes": "exchangeRefreshToken 非事务包裹：先 updateMany 吊销旧 token → prisma.refreshToken.findUnique 验证 → prisma.session.create → jwt.sign → prisma.refreshToken.create。并发场景下两个请求可能同时通过吊销检查（updateMany 成功 twice），需验证第二个请求在 findUnique 时看到 revokedAt 已设置。前端 interceptor 使用模块级 isRefreshing flag + failedQueue 数组实现并发 401 排队。",
+        "architectureContext": {
+          "functions": [
+            "exchangeRefreshToken(refreshToken: string): Promise<{ accessToken: string; refreshToken: string; userId: string } | null> @ service.ts:341-372",
+            "revokeRefreshToken(refreshToken: string): Promise<boolean> @ service.ts:377-392",
+            "generateRefreshToken(userId: string): Promise<string> @ service.ts:326-336",
+            "api.interceptors.response (401) @ web/api/index.ts:70-130",
+            "refreshToken(refreshTokenValue: string) @ web/api/index.ts:64-67"
+          ],
+          "callChain": "axios response interceptor (401) → getStoredAuth() → refreshToken() → POST /auth/refresh → service.ts:exchangeRefreshToken → updateMany(revoke) → findUnique(verify) → create(session+token)",
+          "imports": [
+            "import { prisma } from '@dommaker/studio-prisma'",
+            "import jwt from 'jsonwebtoken'",
+            "import axios from 'axios'"
+          ],
+          "typesInScope": [
+            "RefreshToken (Prisma) — id, token (unique), userId, expiresAt, revokedAt?",
+            "Session (Prisma) — id, token (unique JWT), userId?, expiresAt"
+          ],
+          "testMock": [
+            "vi.mock('@dommaker/studio-prisma', () => ({ prisma: { refreshToken: { findUnique: vi.fn(), create: vi.fn(), updateMany: vi.fn() }, session: { create: vi.fn() } } }))",
+            "vi.mock('jsonwebtoken', () => ({ default: { sign: vi.fn().mockReturnValue('mock-jwt') } }))"
+          ],
+          "dangerZones": [
+            "service.ts:L341-L372 — exchangeRefreshToken: 非事务包裹，并发场景可能重复消费同一 refresh token。findUnique 在 updateMany 之后，若另一并发请求在 findUnique 前完成 updateMany，当前请求的 findUnique 返回 revokedAt!=null → 返回 null（安全，不会双发 token）",
+            "web/api/index.ts:L49-L50 — isRefreshing/failedQueue 为模块级变量，多 tab 不共享状态"
+          ],
+          "verifiedAt": "apps/api/src/modules/auth/__tests__/service.test.ts:334-404 — 单线程 exchangeRefreshToken 测试（revoked/expired/nonexistent/valid），无并发测试"
+        },
+        "codePatterns": [
+          "Refresh Token Rotation: 吊销旧 → 创建新（access + refresh），非事务但通过 updateMany(revokedAt) + findUnique 检查实现幂等",
+          "Axios interceptor 并发队列: isRefreshing flag + failedQueue = [{ resolve, reject, config }] → token 刷新后 flush"
+        ],
+        "gotchas": [
+          "exchangeRefreshToken 的第 2 步 findUnique 在 updateMany 之后——这提供了一种乐观并发控制（revokedAt 检查）",
+          "前端 failedQueue 中的请求按序重试（FIFO）——需确认重试请求使用新 token"
+        ],
+        "modelTier": "premium"
+      },
+      {
+        "id": "ac-frontend-coverage",
+        "implementationNotes": "authStore.ts 使用 Zustand 状态管理，含 user/session/token/refreshToken/isLoading 状态 + login/register/logout/refreshToken/getCurrentUser/clearAuth actions。OAuthCallback.tsx 在 useEffect 中解析 window.location.hash → 提取 access_token/refresh_token → 调用 authStore.setAuth → router.push('/')。axios interceptor 从 localStorage 直接读 token（不 import authStore 避免循环依赖）。",
+        "architectureContext": {
+          "functions": [
+            "useAuthStore() — Zustand store hook @ authStore.ts:5-215",
+            "OAuthCallback() — React component @ OAuthCallback.tsx:1-50",
+            "api.interceptors.request (Bearer inject) @ web/api/index.ts:30-45",
+            "api.interceptors.response (401 catch) @ web/api/index.ts:70-130"
+          ],
+          "callChain": "App → OAuthCallback → useEffect → parseHash → authStore.setAuth → redirect; Any API call → axios request interceptor → getStoredAuth() → inject Bearer; 401 → response interceptor → refreshToken() → retry",
+          "imports": [
+            "import { create } from 'zustand'",
+            "import axios from 'axios'"
+          ],
+          "typesInScope": [
+            "AuthState — { user: User | null; session: Session | null; token: string | null; refreshToken: string | null; isLoading: boolean; error: string | null }",
+            "AuthActions — { login, register, logout, refreshToken, getCurrentUser, clearAuth, setAuth }"
+          ],
+          "testMock": [
+            "vi.mock('axios', () => ({ default: { create: vi.fn(() => mockAxiosInstance) } }))",
+            "vi.mock('zustand') 或直接测试 store creator 函数"
+          ],
+          "dangerZones": [
+            "web/api/index.ts:L49-L50 — isRefreshing/failedQueue 模块级变量：SSR 或多 tab 竞态",
+            "OAuthCallback.tsx: hash 解析后未验证 token 格式即存储——恶意 hash 可注入无效 token"
+          ],
+          "verifiedAt": "无独立单元测试；authStore.ts 215行零测试；OAuthCallback.tsx 50行零测试；interceptor 通过 api-interceptor.test.ts + interceptor.test.ts 部分覆盖"
+        },
+        "codePatterns": [
+          "Zustand store: create<AuthState & AuthActions>((set, get) => ({ ...actions }))",
+          "Axios interceptor 直接读 localStorage: 避免 import authStore 导致的循环依赖"
+        ],
+        "gotchas": [
+          "authStore 的 refreshToken action 读取 localStorage 中的 refreshToken，非 store 中的 refreshToken 字段——不一致的 token 来源可能导致过期 token 被使用",
+          "OAuthCallback 组件无 loading/error 状态展示——OAuth 回调失败时用户看不到任何反馈"
+        ],
+        "modelTier": "standard"
+      },
+      {
+        "id": "ac-audit-logger",
+        "implementationNotes": "audit-logger.ts 为 Express 中间件，拦截特定路由（login/register/logout/role-change）记录审计日志到 AuditService。日志包含 action、userId、ip、userAgent、timestamp、metadata。测试需 mock AuditService 并验证 log() 被调用时的参数正确性。",
+        "architectureContext": {
+          "functions": [
+            "auditLogger(action: string): (req: AuthRequest, res: Response, next: NextFunction) => void @ audit-logger.ts",
+            "AuditService.log(entry: AuditEntry): Promise<void> — 外部服务"
+          ],
+          "callChain": "routes.ts handler → requireAuth → auditLogger → handler → AuditService.log",
+          "imports": [
+            "import { AuditService } from '@dommaker/studio-audit'",
+            "import { AuthRequest } from './auth.js'"
+          ],
+          "typesInScope": [
+            "AuditEntry — { action: string; userId?: string; ip?: string; userAgent?: string; timestamp: Date; metadata?: Record<string, unknown> }"
+          ],
+          "testMock": [
+            "vi.mock('@dommaker/studio-audit', () => ({ AuditService: { log: vi.fn().mockResolvedValue(undefined) } }))"
+          ],
+          "dangerZones": [],
+          "verifiedAt": "无独立单元测试；审计日志通过 auth-flow.e2e.test.ts 间接验证"
+        },
+        "codePatterns": [
+          "Express 中间件包装: auditLogger('LOGIN') 返回 (req, res, next) => { ... AuditService.log(...); next(); }"
+        ],
+        "gotchas": [
+          "审计日志为 fire-and-forget 模式（不等待 log 完成即 next()）——日志写入失败不影响用户请求但可能丢失审计记录"
+        ],
+        "modelTier": "fast"
+      },
+      {
+        "id": "ac-password-migration",
+        "implementationNotes": "verifyPassword 通过格式检测区分 bcrypt（$2a$/$2b$ 前缀）和旧 PBKDF2（hex salt:hex hash 格式）。旧格式验证：crypto.pbkdf2Sync(password, salt, 10000, 64, 'sha512').toString('hex') 与存储 hash 比较。匹配时返回 { valid: true, needsRehash: true }，login 流程检测 needsRehash 后调用 hashPassword 升级为 bcrypt 并 prisma.user.update。",
+        "architectureContext": {
+          "functions": [
+            "verifyPassword(password: string, storedHash: string): { valid: boolean; needsRehash: boolean } @ service.ts:56-70",
+            "hashPassword(password: string): Promise<string> @ service.ts:47-49",
+            "login(input: LoginInput): Promise<AuthResult> @ service.ts:151-217 — L180-186 needsRehash 分支"
+          ],
+          "callChain": "POST /auth/login → service.ts:login → verifyPassword → (needsRehash) → hashPassword(bcrypt) → prisma.user.update",
+          "imports": [
+            "import bcrypt from 'bcryptjs'",
+            "import * as crypto from 'crypto'"
+          ],
+          "typesInScope": [
+            "LoginInput — { email: string; password: string }"
+          ],
+          "testMock": [],
+          "dangerZones": [
+            "service.ts:L56-L70 — verifyPassword: PBKDF2 旧格式兼容逻辑，删除前需确认 DB 中无旧格式 hash 残留",
+            "PBKDF2 参数（iterations=10000, keylen=64, digest=sha512）不可变更——需与历史数据匹配"
+          ],
+          "verifiedAt": "无独立单元测试；通过 login 集成测试间接覆盖（仅 bcrypt 路径，PBKDF2 路径无测试）"
+        },
+        "codePatterns": [
+          "密码静默升级: 旧格式验证通过 → needsRehash flag → login 流程中自动 update passwordHash 为新 bcrypt 哈希"
+        ],
+        "gotchas": [
+          "旧 PBKDF2 格式识别依赖 hex 格式前缀检测——若 bcrypt hash 以 ':' 分隔则可能误识别",
+          "静默升级为同步写操作——在 login 响应返回前完成 user.update，慢查询可能影响登录响应时间"
+        ],
+        "modelTier": "standard"
+      },
+      {
+        "id": "ac-no-any-cleanup",
+        "implementationNotes": "auth 测试文件广泛使用 as any 绕过类型检查（service.test.ts ~20处、oauth.service.test.ts ~15处、middleware-invocation.test.ts ~10处）。需逐文件消除：mock 对象使用 satisfies Prisma 类型或具体接口类型，而非 as any 强制转换。middleware/auth.ts L274 的 (prisma as any)[model] 改为 Record<string, PrismaDelegate> 映射表。",
+        "architectureContext": {
+          "functions": [
+            "checkOwnership(model: string, paramKey?: string) @ middleware/auth.ts:247-303 — L274 (prisma as any)[model]"
+          ],
+          "callChain": "N/A — 类型安全改进，不改运行时行为",
+          "imports": [
+            "import { Prisma, PrismaClient } from '@prisma/client'",
+            "import { prisma } from '@dommaker/studio-prisma'"
+          ],
+          "typesInScope": [
+            "PrismaClient — 完整 Prisma client 类型",
+            "Prisma.ModelDelegate — 各 model 的 delegate 类型"
+          ],
+          "testMock": [],
+          "dangerZones": [
+            "消除 as any 时若 mock 类型不完整可能导致测试编译失败——需逐个文件处理并运行 tsc --noEmit 验证",
+            "checkOwnership 的 model 参数为运行时动态值，类型安全的映射表需维护 model 名列表"
+          ],
+          "verifiedAt": "全项目 tsc --noEmit 当前通过（as any 绕过导致类型检查实际不完全）"
+        },
+        "codePatterns": [
+          "类型安全 model 映射: const modelDelegates = { user: prisma.user, channel: prisma.channel, goal: prisma.goal } as const"
+        ],
+        "gotchas": [
+          "消除 as any 后测试 mock 的 Prisma 对象类型需与真实 Prisma 类型匹配——部分 mock 可能简化为 vi.fn() 但实际类型有 select/include 泛型参数，需使用 vi.fn<Parameters<typeof prisma.user.findUnique>>() 类型推断"
+        ],
+        "modelTier": "standard"
+      }
+    ]
+  },
+  "task": {
+    "acGroups": [
+      {
+        "id": "ac-route-coverage",
+        "contractTests": [
+          {
+            "file": "apps/api/src/modules/auth/__tests__/routes.test.ts",
+            "content": "// POST /guest-session: 200 → AuthResult with token+session; POST /register: 400 missing fields, 409 email exists, 201 → user+token+session; POST /login: 400 missing fields, 401 wrong password, 200 → user+token+refreshToken; POST /logout: 401 no token, 200 → success; GET /me: 200 with token → user+session, 200 without token → null; POST /refresh: 400 missing refreshToken, 401 invalid/expired, 200 → new access+refresh tokens; 审计日志验证: login 成功 → AuditService.log({ action:'LOGIN_SUCCESS', userId, ipAddress, userAgent... }), login 失败 → AuditService.log({ action:'LOGIN_FAILURE', metadata:{ reason, email } }), register → AuditService.log({ action:'REGISTER', ... }), logout → AuditService.log({ action:'LOGOUT', ... }); 速率限制中间件挂载验证: login/register 端点中间件栈含 authRateLimit, refresh 端点中间件栈含 refreshRateLimit"
+          },
+          {
+            "file": "apps/api/src/modules/auth/__tests__/oauth.routes.test.ts",
+            "content": "// GET /:provider: 302 redirect to provider auth URL, Set-Cookie oauth_state; invalid provider → 400; GET /callback/:provider: 有效 oauth_state cookie 且与 query.state 匹配 → CSRF 验证通过 → exchangeCodeForTokens 调用 → 302 redirect with #access_token+refresh_token; 缺失 oauth_state cookie → 400 'CSRF state missing'; cookie state 与 query.state 不匹配 → 403 'CSRF state mismatch'; exchangeCodeForTokens 抛出错误 → 302 redirect with ?error=<message>（前端可展示）; exchangeCodeForTokens 网络错误 → 302 redirect with ?error=server_error"
+          }
+        ],
+        "testFiles": [
+          "apps/api/src/modules/auth/__tests__/routes.test.ts",
+          "apps/api/src/modules/auth/__tests__/oauth.routes.test.ts"
+        ],
+        "contractTestsSkipReason": ""
+      },
+      {
+        "id": "ac-middleware-ext-coverage",
+        "contractTests": [
+          {
+            "file": "apps/api/src/modules/auth/__tests__/middleware-auth.test.ts",
+            "content": "// workspaceAuth: valid Bearer token → sha256 hash → findUnique returns workspace → req.workspace set → next(); no Auth header → 401; invalid hash → 401; expired token → 401\n// checkOwnership: user owns resource → next(); not owner → 403; Admin role → next() (skip check); invalid model name → 500\n// requireNotGuest: Guest role → 403; User/Admin role → next(); no user (unauthenticated) → 401\n// generateAnonymousId: same IP+UA+date → same hash; different IP → different hash"
+          }
+        ],
+        "testFiles": [
+          "apps/api/src/modules/auth/__tests__/middleware-auth.test.ts"
+        ],
+        "contractTestsSkipReason": ""
+      },
+      {
+        "id": "ac-rate-limit-tests",
+        "contractTests": [
+          {
+            "file": "apps/api/src/middleware/__tests__/rate-limit.test.ts",
+            "content": "// authRateLimit: 验证 windowMs === 60*1000, max === 10, standardHeaders === true, legacyHeaders === false, keyGenerator 使用 req.ip; 第 11 次请求在 60s 窗口内 → 429 Too Many Requests + Retry-After header\n// refreshRateLimit: 验证 windowMs === 60*1000, max === 20, standardHeaders === true; 第 21 次请求在 60s 窗口内 → 429; 验证 IP 级别限流（keyGenerator 使用 req.ip）\n// 与 express-rate-limit 风格一致性: 对比 mcpRateLimit/apiRateLimit 验证 authRateLimit/refreshRateLimit 均为 rateLimit() 直接调用返回的中间件实例（非工厂函数），配置结构一致（windowMs/max/standardHeaders/message/handler），差异仅限 windowMs 与 max 值"
+          }
+        ],
+        "testFiles": [
+          "apps/api/src/middleware/__tests__/rate-limit.test.ts"
+        ],
+        "contractTestsSkipReason": ""
+      },
+      {
+        "id": "ac-oauth-exchange",
+        "contractTests": [
+          {
+            "file": "apps/api/src/modules/auth/__tests__/oauth.exchange.test.ts",
+            "content": "// Google exchange: mock fetch token endpoint → { access_token, expires_in, token_type }; mock userinfo → { email, email_verified: true, name, picture }; verify exchangeGoogleCode returns profile+tokens\n// Google exchange error: token endpoint → { error: 'invalid_grant' } → throw with 400; userinfo → 401 → throw with 502\n// GitHub exchange: mock token endpoint → URL-encoded access_token; mock /user → { email: null, login, avatar_url }; mock /user/emails → [{ email, primary: true, verified: true }]; verify profile.email from emails fallback\n// GitHub no verified email: /user/emails → [] or all verified=false → throw 'No verified email found'"
+          }
+        ],
+        "testFiles": [
+          "apps/api/src/modules/auth/__tests__/oauth.exchange.test.ts"
+        ],
+        "contractTestsSkipReason": ""
+      },
+      {
+        "id": "ac-refresh-concurrency",
+        "contractTests": [
+          {
+            "file": "apps/api/src/modules/auth/__tests__/service.test.ts",
+            "content": "// Concurrent exchangeRefreshToken: 2 concurrent calls with same token → 验证第一个成功返回新 token pair（access + refresh），第二个在 findUnique 阶段发现 revokedAt!=null → 返回 null；revokeRefreshToken 幂等性: 对已撤销 token 再次调用 revokeRefreshToken → updateMany 返回 count=0 → 方法返回 false（不抛异常）"
+          },
+          {
+            "file": "apps/web/src/api/__tests__/interceptor-concurrency.test.ts",
+            "content": "// Concurrent 401 排队: 3 parallel API calls 同时返回 401 → 验证仅发起 1 次 refreshToken API 调用（isRefreshing flag 已设为 true）→ 其余 2 个请求的 config 推入 failedQueue → refresh 成功后依次 resolve failedQueue 中的请求 → 全部 3 个请求使用新 token 重试成功 → 验证 isRefreshing 重置为 false; refresh 请求本身也失败 → failedQueue 全部 reject → auth state 清除 → 重定向 /login"
+          }
+        ],
+        "testFiles": [
+          "apps/api/src/modules/auth/__tests__/service.test.ts",
+          "apps/web/src/api/__tests__/interceptor-concurrency.test.ts"
+        ],
+        "contractTestsSkipReason": ""
+      },
+      {
+        "id": "ac-frontend-coverage",
+        "contractTests": [
+          {
+            "file": "apps/web/src/stores/__tests__/authStore.test.ts",
+            "content": "// login: calls API → sets user/session/token/refreshToken; register: calls API → sets user/session/token + isNewUser; logout: clears state → calls API; refreshToken: reads localStorage → calls API → updates token; getCurrentUser: calls /auth/me → sets user/session"
+          },
+          {
+            "file": "apps/web/src/components/__tests__/OAuthCallback.test.tsx",
+            "content": "// Valid hash: window.location.hash = '#access_token=abc&refresh_token=xyz' → useEffect 解析 fragment → 调用 authStore.setAuth({ token: 'abc', refreshToken: 'xyz' }) → router.push('/'); Error hash: '#error=access_denied&error_description=User+denied' → 解析 error fragment → 展示错误信息; No hash (空 hash 或 hash=''): 组件渲染 null; 格式错误 hash（含 # 但无 access_token 也无 error）: 不调用 setAuth，展示通用错误或 redirect /login"
+          },
+          {
+            "file": "apps/web/src/api/__tests__/api-interceptor.test.ts",
+            "content": "// Request interceptor Bearer 注入: 有 token → Authorization: Bearer <token>; 无 token（localStorage 空）→ 无 Authorization header; Response interceptor 401 → refresh → retry: 请求返回 401 → 触发 refreshToken → 用新 token 替换原 config.headers.Authorization → axios(originalConfig) retry → 返回 2xx; Response interceptor refresh 失败: refreshToken 返回 null/error → 清除 localStorage token+refreshToken → 调用 clearAuth() → reject 原请求; 非 401 错误直通: 400/403/500 → 直接 reject，不触发 refresh"
+          }
+        ],
+        "testFiles": [
+          "apps/web/src/stores/__tests__/authStore.test.ts",
+          "apps/web/src/components/__tests__/OAuthCallback.test.tsx",
+          "apps/web/src/api/__tests__/api-interceptor.test.ts"
+        ],
+        "contractTestsSkipReason": ""
+      },
+      {
+        "id": "ac-audit-logger",
+        "contractTests": [
+          {
+            "file": "apps/api/src/middleware/__tests__/audit-logger.test.ts",
+            "content": "// auditLogger('LOGIN_SUCCESS'): 调用 AuditService.log 参数含 { action:'LOGIN_SUCCESS', userId, ipAddress, userAgent, timestamp }; auditLogger('LOGIN_FAILURE'): 参数含 metadata { reason, email }; auditLogger('ROLE_CHANGE'): 参数含 metadata { from, to, changedBy }; auditLogger('LOGOUT'): 调用 AuditService.log 参数含 userId; AuditService.log 内部抛异常 → next() 仍被调用（fire-and-forget 不阻断请求）; 审计日志查询过滤: 验证按 userId 过滤返回该用户所有事件、按 action 过滤（如 action='LOGIN_FAILURE'）返回匹配事件、按时间范围（startDate/endDate）过滤返回区间内事件; 验证每条审计记录包含必要字段: timestamp(Date), userId(string), action(string), ipAddress(string), userAgent(string)"
+          }
+        ],
+        "testFiles": [
+          "apps/api/src/middleware/__tests__/audit-logger.test.ts"
+        ],
+        "contractTestsSkipReason": ""
+      },
+      {
+        "id": "ac-password-migration",
+        "contractTests": [
+          {
+            "file": "apps/api/src/modules/auth/__tests__/service.test.ts",
+            "content": "// verifyPassword with legacy PBKDF2 hash: 'hexSalt:hexHash' format → valid:true + needsRehash:true; wrong password → valid:false + needsRehash:false\n// login with legacy password: user.passwordHash is PBKDF2 format → verifyPassword returns needsRehash → prisma.user.update called with bcrypt hash → login response returns AuthResult"
+          }
+        ],
+        "testFiles": [
+          "apps/api/src/modules/auth/__tests__/service.test.ts"
+        ],
+        "contractTestsSkipReason": ""
+      },
+      {
+        "id": "ac-no-any-cleanup",
+        "contractTests": [],
+        "testFiles": [],
+        "contractTestsSkipReason": "类型安全改进不改变运行时行为，不需要新测试。通过 tsc --noEmit 验证类型正确性。渐进式改进——每文件改完后运行现有测试确认无回归。"
+      }
+    ]
+  }
+}
+```
