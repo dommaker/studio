@@ -664,7 +664,7 @@ export class AgentLoop {
       // 供 skill-demotion 成功率与被无视率度量——替代原 claim 时 fire-and-forget 落盘，消竞态）
       metadataUpdates.matchedSkills = skillMatched;
     }
-    // 已消费 hint（pendingReplies/commitGuardHint/verifyFailHint/childGuardHint）的清除增量
+    // 已消费 hint（pendingReplies/commitGuardHint/verifyFailHint/childGuardHint/processCheckHint）的清除增量
     // （undefined 在 JSON 序列化时丢弃，清除避免后续步骤重复注入）
     Object.assign(metadataUpdates, composed.consumedHintUpdates);
 

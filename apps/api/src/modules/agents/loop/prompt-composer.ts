@@ -129,7 +129,7 @@ export interface ComposedStepPrompt {
 
 /**
  * 组装本 step 的 prompt 与注入上下文：
- *  1. hint 读取（pendingReplies / commitGuardHint / verifyFailHint / childGuardHint，注入后即消费）；
+ *  1. hint 读取（pendingReplies / commitGuardHint / verifyFailHint / childGuardHint / processCheckHint，注入后即消费）；
  *  2. base prompt：pendingReplies > target.newReplies > continue；
  *  3. 三类 guard hint 段注入；
  *  4. 注入段分段软定额 + 池内余量共享（#91），稳定前缀序 persona > roster > skills > map > memory > knowledge，
@@ -163,6 +163,11 @@ export async function composeStepPrompt(
     ? metadata.childGuardHint
     : null;
 
+  // T7-E2（#161）软观测守卫：上一轮 COMPLETE 过程检查违规合并提示（不阻断完成，注入后即消费）
+  const processCheckHint = typeof metadata.processCheckHint === 'string' && metadata.processCheckHint.length > 0
+    ? metadata.processCheckHint
+    : null;
+
   // #95: 仅新会话回放 waitingQuestion（截 300 字符）并入人类回复段——断链后 agent 忘了自己提过什么问题
   const replyTexts = pendingReplies.length > 0
     && ctx.isNewSession === true
@@ -180,6 +185,7 @@ export async function composeStepPrompt(
     commitGuardHint ? `## 提交提醒\n\n${commitGuardHint}` : null,
     verifyFailHint ? `## 验证失败\n\n${verifyFailHint}` : null,
     childGuardHint ? `## 子任务提醒\n\n${childGuardHint}` : null,
+    processCheckHint ? `## 过程检查提醒\n\n${processCheckHint}` : null,
   ].filter((s): s is string => s !== null).join('\n\n');
 
   // #91: 分段软定额 + 池内余量共享 —— 段有效预算 = 定额 + 池；用量差额回流池中。
@@ -296,6 +302,10 @@ export async function composeStepPrompt(
   if (childGuardHint) {
     // §6-2: 提示已注入 prompt，清除避免后续步骤重复注入
     consumedHintUpdates.childGuardHint = undefined;
+  }
+  if (processCheckHint) {
+    // T7-E2: 提示已注入 prompt，清除避免后续步骤重复注入
+    consumedHintUpdates.processCheckHint = undefined;
   }
 
   return { prompt, pendingReplies, knowledgeContext, skillMatched, injectedKnowledgeIds, consumedHintUpdates };

@@ -954,3 +954,49 @@ describe('#119: 契约段生成器（按 WU type）+ 段序稳定性重排', () 
     expect(Object.keys(CONTRACT_TEMPLATES).sort()).toEqual(['analysis', 'decision', 'implement', 'review']);
   });
 });
+
+describe('#161 T7-E2: processCheckHint 注入→消费→清除回路', () => {
+  let fileStore: FileStore;
+  let testDir: string;
+
+  const deps = (role: AgentProfileData): any => ({
+    role,
+    acceptedTypes: ['implement'],
+    fileStore,
+    resolveEventsFile: () => path.join(testDir, 'studio-events.jsonl'),
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    clearSkills();
+    mockInjectContext.mockResolvedValue({ prompt: '', injectedIds: [] });
+    testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'prompt-composer-pch-'));
+    fileStore = new FileStore(testDir);
+  });
+
+  it('processCheckHint 在场 → 注入「## 过程检查提醒」段（hint 组内），consumedHintUpdates 清除', async () => {
+    const { prompt, consumedHintUpdates } = await composeStepPrompt(
+      {
+        wu: makeWu(),
+        metadata: { processCheckHint: '过程软观测发现以下提交/契约违规：\n- [tdd-chain] aaaaaaa: 缺 Tested-By' } as any,
+        isNewSession: true,
+      },
+      deps(makeRole()),
+    );
+
+    expect(prompt).toContain('## 过程检查提醒');
+    expect(prompt).toContain('[tdd-chain] aaaaaaa: 缺 Tested-By');
+    // 注入后即消费：清除增量带 processCheckHint 键（undefined 序列化时丢弃）
+    expect(consumedHintUpdates).toHaveProperty('processCheckHint', undefined);
+  });
+
+  it('processCheckHint 缺省 → 不注入段、不产生清除增量', async () => {
+    const { prompt, consumedHintUpdates } = await composeStepPrompt(
+      { wu: makeWu(), metadata: {} as any, isNewSession: true },
+      deps(makeRole()),
+    );
+
+    expect(prompt).not.toContain('## 过程检查提醒');
+    expect(consumedHintUpdates).not.toHaveProperty('processCheckHint');
+  });
+});

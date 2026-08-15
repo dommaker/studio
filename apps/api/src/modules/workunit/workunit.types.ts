@@ -110,6 +110,9 @@ export interface WorkUnitMetadata {
     delegationCount: number;  // 本 WU 已派出的子任务数（宽度上限输入）
   };
   childGuardHint?: string;    // §6-2 父 complete 守卫：存在未完结子 WU 被打回时的提示（注入下一轮 prompt 后清除）
+  // T7-E2（#161）软观测守卫：COMPLETE 时过程检查（tdd-chain/phase-format/contract-presence）
+  // 违规合并提示——软观测不阻断完成，COMPLETE 放行时本 hint 沉睡，返工时才被消费（注入后即清除）
+  processCheckHint?: string;
   freshnessInterrupts?: number; // §4.2 发言层新鲜度检查：结果回帖被「房间已变」连续拦截次数（≥2 后照发并归零）
   // P0 修复（W-3 接线）：CLI 执行失败记录（agentStep success===false 显式分支写入，成功执行后清除）
   errorType?: string;         // 最近一次执行失败类型（如 execution_failed）

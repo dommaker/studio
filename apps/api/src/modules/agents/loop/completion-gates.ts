@@ -1,6 +1,7 @@
 /**
  * 收口守卫链（2026-08 从 agent-loop.recordResult 抽出，行为一字不改）：
- * recordResult 的 COMPLETE 收口判定 —— §10.5 提交守卫 → §6-2 子任务守卫 → B3b-i 自动验证守卫。
+ * recordResult 的 COMPLETE 收口判定 —— §10.5 提交守卫 → §6-2 子任务守卫 → B3b-i 自动验证守卫
+ * → T7-E2 软观测段（#161，只观测不拦截：checker:soft_check 台账 + processCheckHint）。
  * 顺序即优先级：前面的守卫把 action 降级为 progress 后，后面的 COMPLETE 守卫自然不再触发。
  *
  * 职责边界：
@@ -13,11 +14,15 @@
  * 默认实现（hasUncommittedChanges/readHeadHash/runWuVerification）与原 AgentLoop 私有方法逐字一致。
  */
 
-import { execSync } from 'child_process';
+import { execFileSync, execSync } from 'child_process';
+import { existsSync, readFileSync } from 'fs';
+import { join } from 'path';
+import yaml from 'js-yaml';
 import { logger, withAttestation } from '@dommaker/studio-shared';
 import { CODE_WORKTREE_TYPES, runWuVerification, type WuVerifyOutcome } from './wu-verification.js';
 import type { WorkUnitData, WorkUnitMetadata } from '../../workunit/workunit.service.js';
 import type { StepResult } from './agent-loop.js';
+import { writeStudioEvent } from '../../../utils/studio-events.js';
 
 /** §10.5 提交守卫：worktree 是否有未提交改动。
  *  git 调用失败返回 false —— 守卫静默跳过，绝不因基础设施故障阻断完成。 */
@@ -60,6 +65,16 @@ export interface CompletionGuardDeps {
   hasUncommittedChanges?: (cwd: string) => boolean;
   readHeadHash?: (cwd: string) => string | null;
   runVerification?: (wu: WorkUnitData, metadata: WorkUnitMetadata, worktreePath: string) => Promise<WuVerifyOutcome>;
+  /** T7-E2（#161）: harness 三纯函数（默认经 harness/runtime loadHarness 懒加载 + 特征检测；
+   *  返回 null = 包未加载或函数缺席 → 软观测段整体 fail-open 跳过） */
+  loadCompletionCheckers?: () => Promise<CompletionCheckerFns | null>;
+  /** T7-E2: 一次 git log 拉 WU 提交集（默认 execFileSync，2s 超时；失败返回 null = fail-open） */
+  readWuCommits?: (worktreePath: string, baseBranch: string) => SoftCheckCommitInput[] | null;
+  /** T7-E2: completion_checkers 配置（默认现读现解 <repoRoot>/.harness/custom-constraints.yml，不做缓存；
+   *  文件/段缺失或解析失败 = {} —— 三 checker 全开 + 默认 glob） */
+  loadCompletionCheckersConfig?: (repoRoot: string) => CompletionCheckersConfig;
+  /** T7-E2: 台账事件写入（默认 writeStudioEvent('checker:soft_check')，fire-and-forget） */
+  writeSoftCheckEvent?: (event: SoftCheckEvent) => void;
 }
 
 /** 守卫链产生的后续动作信号（recordResult 据此发频道通知/跑强制收口补验/转 blocked） */
@@ -81,8 +96,299 @@ export interface CompletionGuardOutcome {
   notices: CompletionGuardNotices;
 }
 
+// ─── T7-E2（#161）软观测段：消费 harness completion-checkers 三纯函数（#160） ───
+//
+// 定位：第四段「软观测」——只观测不拦截。action 未被前三张守卫降级（仍为 complete）才跑；
+// pass/violation/waiver 落 checker:soft_check 台账事件（skip 不记），违规合并成
+// processCheckHint 走 prompt-composer 一次性消费回路（COMPLETE 放行时 hint 沉睡，
+// 返工时才被消费——可接受，不做跨 WU 投递）。一切故障（包未加载/函数缺席/git/超时/解析）
+// 一律 fail-open 静默跳过 + logger 留痕，绝不阻断 COMPLETE。
+//
+// 类型是 harness 导出的结构化镜像：npm @dommaker/harness 0.19.0 尚无这些导出
+// （#160 未发版），运行时经 loadHarness 特征检测——函数缺席即整体跳过（发版激活归后续 bump 票）。
+
+/** git log 拉取超时 2s：「单 checker 2s」上限落在段内唯一 I/O 上（三纯函数为同步纯计算） */
+export const SOFT_CHECK_GIT_TIMEOUT_MS = 2_000;
+/** 三张 checker 合计 5s 预算：每张跑前检查余量，耗尽即停（fail-open） */
+export const SOFT_CHECK_TOTAL_BUDGET_MS = 5_000;
+
+/** harness CommitInput 镜像（有序，base..HEAD 升序） */
+export interface SoftCheckCommitInput {
+  sha: string;
+  subject: string;
+  /** trailer 段（git %(trailers) 输出）——Tested-By / Tests: none 协议均为 trailer */
+  body: string;
+  files: string[];
+  /** %P 父数 > 1 显式供给（缺省时 harness 按 subject 启发式） */
+  isMerge?: boolean;
+}
+
+export type SoftCheckVerdict = 'pass' | 'violation' | 'waiver' | 'skip';
+
+export interface SoftCheckCommitVerdict {
+  sha: string;
+  verdict: SoftCheckVerdict;
+  reason?: string;
+}
+
+/** verifyTddChain / verifyPhaseFormat 返回形状镜像（waiver 是 commit 级结论） */
+export interface SoftCheckCommitResult {
+  checker: string;
+  verdict: 'pass' | 'violation' | 'skip';
+  commits: SoftCheckCommitVerdict[];
+}
+
+/** verifyContractPresence 返回形状镜像 */
+export interface SoftCheckContractResult {
+  checker: string;
+  verdict: SoftCheckVerdict;
+  detail?: string;
+}
+
+/** CompletionCheckersConfig 镜像（对应 yml 顶层键 `completion_checkers:`，缺段 = 全开 + 默认 glob） */
+export interface CompletionCheckersConfig {
+  enabled?: boolean;
+  checkers?: { tddChain?: boolean; phaseFormat?: boolean; contractPresence?: boolean };
+  testGlobs?: string[];
+  noncodeGlobs?: string[];
+  /** 契约类型清单：类型在清单内才判定，无表项 = skip */
+  contracts?: string[];
+}
+
+export interface CompletionCheckerFns {
+  verifyTddChain: (commits: SoftCheckCommitInput[], config?: CompletionCheckersConfig) => SoftCheckCommitResult;
+  verifyPhaseFormat: (commits: SoftCheckCommitInput[], config?: CompletionCheckersConfig) => SoftCheckCommitResult;
+  verifyContractPresence: (
+    type: string,
+    context: { reviewReport?: unknown },
+    config?: CompletionCheckersConfig,
+  ) => SoftCheckContractResult;
+}
+
+/** checker:soft_check 台账事件 payload（聚合归 #132，本段只产出） */
+export interface SoftCheckEvent {
+  wuId: string;
+  checker: string;
+  verdict: 'pass' | 'violation' | 'waiver';
+  detail: string;
+}
+
+/** 默认：经 harness 路由的 loadHarness 单例拿三纯函数（动态 import 保持懒加载，不进本模块静态图）；
+ *  包加载失败或任一函数缺席（npm 0.19.0 未含）→ null = 软观测段整体跳过 */
+async function defaultLoadCompletionCheckers(): Promise<CompletionCheckerFns | null> {
+  try {
+    const runtime = await import('../../harness/runtime.js');
+    const loaded = await runtime.loadHarness();
+    const mod = loaded ? (runtime.harnessModule as unknown as Partial<CompletionCheckerFns> | null) : null;
+    if (mod
+      && typeof mod.verifyTddChain === 'function'
+      && typeof mod.verifyPhaseFormat === 'function'
+      && typeof mod.verifyContractPresence === 'function') {
+      return mod as CompletionCheckerFns;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 /**
- * 依次跑三条收口守卫（顺序即优先级，任一降级后后续 COMPLETE 守卫不再触发）：
+ * 解析 `git log --format='%x1e%H%x1f%s%x1f%P%x1f%(trailers)' --name-only` 输出。
+ * 记录以 \x1e 分隔；首行 = sha/subject/parents/首条 trailer（\x1f 分隔）；
+ * trailer 段内部无空行，首个空行之后为 --name-only 文件清单。
+ * 用 %(trailers) 而非 %b：协议（Tested-By/Tests: none）本就是 trailer，
+ * 全量 body 的空行边界对行式解析有歧义（对票面 '%H||%s||%b' 格式的稳健化偏离）。
+ */
+export function parseWuGitLog(output: string): SoftCheckCommitInput[] {
+  const commits: SoftCheckCommitInput[] = [];
+  for (const record of output.split('\x1e')) {
+    if (!record.trim()) continue;
+    const lines = record.split('\n');
+    const fields = lines[0].split('\x1f');
+    const sha = (fields[0] ?? '').trim();
+    if (!sha) continue;
+    const parents = (fields[2] ?? '').trim().split(/\s+/).filter(Boolean);
+    const trailerLines: string[] = [];
+    if (fields[3]) trailerLines.push(fields[3]);
+    let i = 1;
+    while (i < lines.length && lines[i] !== '') {
+      trailerLines.push(lines[i]);
+      i++;
+    }
+    const files = lines.slice(i).filter(l => l.trim().length > 0);
+    commits.push({
+      sha,
+      subject: fields[1] ?? '',
+      body: trailerLines.join('\n'),
+      files,
+      isMerge: parents.length > 1,
+    });
+  }
+  return commits.reverse(); // git log 为降序（新→旧），harness 输入约定 base..HEAD 升序
+}
+
+/** 默认：一次 git log 拉 base..HEAD 有序提交集（2s 超时；任何失败 → null = fail-open） */
+function defaultReadWuCommits(worktreePath: string, baseBranch: string): SoftCheckCommitInput[] | null {
+  try {
+    const out = execFileSync('git', [
+      'log', `${baseBranch}..HEAD`,
+      "--format=%x1e%H%x1f%s%x1f%P%x1f%(trailers)",
+      '--name-only',
+    ], {
+      cwd: worktreePath,
+      timeout: SOFT_CHECK_GIT_TIMEOUT_MS,
+      encoding: 'utf-8',
+      maxBuffer: 8 * 1024 * 1024,
+    });
+    return parseWuGitLog(out);
+  } catch {
+    return null;
+  }
+}
+
+/** 默认：现读现解 <repoRoot>/.harness/custom-constraints.yml 的 `completion_checkers:` 顶层键
+ *  （不做缓存；文件名不跟 config.yml 覆盖约定——票面写死 custom-constraints.yml）。
+ *  文件/段缺失或解析失败 → {}（三 checker 全开 + harness 默认 glob）。 */
+export function loadCompletionCheckersConfig(repoRoot: string): CompletionCheckersConfig {
+  try {
+    const file = join(repoRoot, '.harness', 'custom-constraints.yml');
+    if (!existsSync(file)) return {};
+    const raw = (yaml.load(readFileSync(file, 'utf-8')) as Record<string, unknown> | null) ?? {};
+    const section = raw['completion_checkers'];
+    if (!section || typeof section !== 'object' || Array.isArray(section)) return {};
+    return section as CompletionCheckersConfig;
+  } catch {
+    return {};
+  }
+}
+
+/** 默认：台账事件落 studio-events.jsonl（writeStudioEvent 永不抛出，.catch 双保险） */
+function defaultWriteSoftCheckEvent(event: SoftCheckEvent): void {
+  void writeStudioEvent('checker:soft_check', event, { source: 'completion-gates' }).catch(() => {});
+}
+
+/** commit 级结论聚合成事件口径：violation 优先，否则有 waiver 记 waiver，否则 pass */
+function emitCommitCheckerEvent(
+  emit: (event: SoftCheckEvent) => void,
+  wuId: string,
+  result: SoftCheckCommitResult,
+): string | null {
+  const violations = result.commits.filter(c => c.verdict === 'violation');
+  const waivers = result.commits.filter(c => c.verdict === 'waiver');
+  if (result.verdict === 'violation') {
+    const detail = violations.map(v => `${v.sha.slice(0, 7)}: ${v.reason ?? '违规'}`).join('；').slice(0, 500);
+    emit({ wuId, checker: result.checker, verdict: 'violation', detail });
+    return `[${result.checker}] ${detail}`;
+  }
+  if (waivers.length > 0) {
+    emit({
+      wuId, checker: result.checker, verdict: 'waiver',
+      detail: waivers.map(w => `${w.sha.slice(0, 7)}: ${w.reason ?? '豁免'}`).join('；').slice(0, 500),
+    });
+  } else {
+    emit({ wuId, checker: result.checker, verdict: 'pass', detail: `${result.commits.length} commit(s) checked` });
+  }
+  return null;
+}
+
+/** T7-E2 软观测段本体：返回待写入的 processCheckHint（无违规 → null）。永不抛出。 */
+async function runSoftObservation(
+  wu: WorkUnitData,
+  wuId: string,
+  metadata: WorkUnitMetadata,
+  deps: CompletionGuardDeps,
+): Promise<{ hint: string | null }> {
+  const deadline = Date.now() + SOFT_CHECK_TOTAL_BUDGET_MS;
+  const loadCheckers = deps.loadCompletionCheckers ?? defaultLoadCompletionCheckers;
+  const loadConfig = deps.loadCompletionCheckersConfig ?? loadCompletionCheckersConfig;
+  const emit = deps.writeSoftCheckEvent ?? defaultWriteSoftCheckEvent;
+
+  let fns: CompletionCheckerFns | null = null;
+  try {
+    fns = await loadCheckers();
+  } catch {
+    fns = null;
+  }
+  if (!fns) {
+    logger.info(`[AgentLoop] Soft check: harness completion-checkers unavailable for ${wuId}, segment skipped`);
+    return { hint: null };
+  }
+
+  const violationBlocks: string[] = [];
+
+  // commit 类两 checker（tdd-chain / phase-format）仅圈定 CODE_WORKTREE_TYPES；
+  // 无 worktreePath/baseBranch = 无提交集可判，静默跳过（不记事件）
+  if (CODE_WORKTREE_TYPES.has(wu.type)
+    && typeof metadata.worktreePath === 'string' && metadata.worktreePath.length > 0
+    && typeof metadata.worktreeBaseBranch === 'string' && metadata.worktreeBaseBranch.length > 0) {
+    const config = loadConfig(metadata.worktreePath);
+    const readCommits = deps.readWuCommits ?? defaultReadWuCommits;
+    let commits: SoftCheckCommitInput[] | null = null;
+    try {
+      commits = readCommits(metadata.worktreePath, metadata.worktreeBaseBranch);
+    } catch {
+      commits = null;
+    }
+    if (commits === null) {
+      logger.info(`[AgentLoop] Soft check: git log failed for ${wuId}, commit checkers skipped`);
+    } else {
+      const commitCheckers: Array<() => SoftCheckCommitResult> = [
+        () => fns.verifyTddChain(commits, config),
+        () => fns.verifyPhaseFormat(commits, config),
+      ];
+      for (const run of commitCheckers) {
+        if (Date.now() >= deadline) {
+          logger.info(`[AgentLoop] Soft check: total budget exhausted for ${wuId}, remaining checkers skipped`);
+          break;
+        }
+        try {
+          const result = run();
+          if (result.verdict === 'skip') continue; // 配置禁用 = skip，不记事件
+          const block = emitCommitCheckerEvent(emit, wuId, result);
+          if (block) violationBlocks.push(block);
+        } catch (e) {
+          logger.info(`[AgentLoop] Soft check: commit checker threw for ${wuId}, skipped`, { error: String(e) });
+        }
+      }
+    }
+  }
+
+  // contract-presence：通用引擎，类型不在 yml contracts 清单内 = skip（不记事件）。
+  // 配置根：代码类 = 本 WU worktree；review 等无 worktree 类型回退 baseRepo / 执行 cwd 解析
+  // （review 评审的是父 WU worktree 所在的仓，其 .harness 才是契约清单的归属地）。
+  if (Date.now() < deadline) {
+    let configRoot = metadata.worktreePath ?? metadata.worktreeBaseRepo ?? null;
+    if (!configRoot) {
+      try {
+        configRoot = await deps.resolveExecutionCwd(wu, metadata);
+      } catch {
+        configRoot = null;
+      }
+    }
+    const config = configRoot ? loadConfig(configRoot) : {};
+    try {
+      const result = fns.verifyContractPresence(wu.type, { reviewReport: metadata.reviewReport }, config);
+      if (result.verdict !== 'skip') {
+        const detail = result.detail ?? '';
+        emit({ wuId, checker: 'contract-presence', verdict: result.verdict, detail });
+        if (result.verdict === 'violation') violationBlocks.push(`[contract-presence] ${detail || '契约标记缺失'}`);
+      }
+    } catch (e) {
+      logger.info(`[AgentLoop] Soft check: contract-presence threw for ${wuId}, skipped`, { error: String(e) });
+    }
+  }
+
+  const hint = violationBlocks.length > 0
+    ? [
+      '过程软观测发现以下提交/契约违规（不阻断本次完成；若被打回返工，请一并修正）：',
+      ...violationBlocks.map(b => `- ${b}`),
+    ].join('\n')
+    : null;
+  return { hint };
+}
+
+/**
+ * 依次跑收口守卫（顺序即优先级，前三张任一降级后后续 COMPLETE 守卫不再触发）：
  *  1. §10.5 提交守卫：COMPLETE + 未提交改动 → 降级 progress + commitGuardHint；
  *     PROGRESS 无提交监视（lastCommitHash/noCommitSteps，≥3 → noCommit notice + 归零）。
  *     review WU 整体豁免（评审职责是读不是写）；路径解析/git 失败一律静默跳过。
@@ -90,6 +396,8 @@ export interface CompletionGuardOutcome {
  *  3. B3b-i 自动验证守卫：代码类 WU 有 worktreePath 才跑（runWuVerification）；
  *     失败 → verifyFailCount++/verifyFailHint/l1 rejected 台账/降级，≥3 → verifyBlocked；
  *     全绿 → verifyReport + l1 approved 台账 + verifyPassed 简报。
+ *  4. T7-E2 软观测段：仅 action 仍为 complete 才跑；不降级不阻断，违规落台账 +
+ *     processCheckHint（详见 runSoftObservation）。
  */
 export async function runCompletionGuards(
   ctx: CompletionGuardCtx,
@@ -202,6 +510,14 @@ export async function runCompletionGuards(
         logger.info(`[AgentLoop] Verify guard: all passed for ${wuId}`, { commands: outcome.ran, source: outcome.source });
       }
     }
+  }
+
+  // T7-E2（#161）第四段：软观测守卫 —— 仅 action 仍为 complete（未被降级）时跑。
+  // 只观测不拦截：结果落 checker:soft_check 台账 + processCheckHint（走 prompt-composer
+  // 一次性消费回路），不降级、不阻断 COMPLETE；任何故障 fail-open 静默跳过。
+  if (action === 'complete') {
+    const soft = await runSoftObservation(wu, wuId, metadata, deps);
+    if (soft.hint) guardUpdates.processCheckHint = soft.hint;
   }
 
   return { action, guardUpdates, notices };
