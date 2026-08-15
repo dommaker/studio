@@ -1,6 +1,6 @@
 # studio-agent CONTEXT.md
 
-> 最后更新: 2026-08-06
+> 最后更新: 2026-08-15
 > Agent 执行器 — session loop 模型 + git worktree 隔离 + 文件桥上下文传递
 
 ## 职责
@@ -67,11 +67,27 @@ worktree/
 
 `buildSessionEnv`（runner-params.ts）在 `process.env` 基础上补 `IS_SANDBOX=1`（host 已设则尊重 host）：cwd 的 `.claude/settings.json` 声明 `bypassPermissions` 时，claude `--resume` 续用会话会自注入 `--dangerously-skip-permissions`，而 root guard（`getuid()===0 && IS_SANDBOX!=="1"`）直接 exit 1 —— root 机器上同 WU 第 2+ step 曾全部秒败（2026-07-29 review WU 三连败实锤 + 最小复现验证）。IS_SANDBOX=1 是 CLI 预留的沙箱声明，不放宽任何权限（settings 本就声明 bypassPermissions）。
 
+`buildSessionEnv` 另按 provider 补 env（#147，2026-08-15）：provider=kimi 且 `<worktree>/.kimi-code/config.toml` 存在时注入 `KIMI_CODE_HOME=<worktree>/.kimi-code`（kimi 多 WU 隔离：per-worktree home 由 provider-hooks 生成，凭证软链复用 host，不动 HOME——PIT-019 教训）。home 未生成（kimi 未装/生成失败）则不注入，回落全局 home。
+
+## 步内前置拦截层（#147，2026-08-15）
+
+`services/provider-hooks.ts` = per-provider 执法配置生成器（#138 §4.3「执法面=写 provider 配置的一方」），由 `propagateHarnessConfig` 每次 worktree 创建时调用，幂等：
+
+| provider | 执法面 | 载体 | 语义 |
+|----------|--------|------|------|
+| claude | `permissions.deny`（`--print` 下 hook 不触发、deny 已实测生效） | `.claude/settings.json`（幂等合并，保留既有字段） | 3 条静态命令（rm -rf * / git push --force* / git reset --hard*）+ 越界写（`~/.studio/**`、主仓库 repoDir 绝对路径） |
+| codex | 原生 PreToolUse hook | `.codex/hooks.json`（项目级，per-worktree） | CommandGate block 级 exit 2 阻断（`exec --json` 生效，需 trust 门 bypass，见下） |
+| kimi | 原生 PreToolUse hook | `<worktree>/.kimi-code/config.toml`（host 配置复制 + hook 追加；credentials/oauth 软链复用 host）+ spawn env `KIMI_CODE_HOME` | 同上（`-p` 生效） |
+
+hook 统一指向 `<worktree>/.studio/command-gate-hook.js`（stdin JSON → `@dommaker/harness` CommandGate.isAllowed → exit 2）。`.codex/`、`.kimi-code/` 已入 `GIT_EXCLUDE_PATTERNS`。黑名单规则本身不在此改（harness 仓另议）。已知限制：agent 运行中可改写自己 worktree 内的执法配置（deny-only 执法面边界，worktree 重建时 propagate 幂等自愈）。
+
+**codex trust 门（0.147.0 实测，D7）**：非 managed command hook 须先 review+trust 才运行，exec 无人值守下未信任一律静默跳过（trust 按 hook hash 持久化，worktree 路径每 WU 不同，无法预信任）→ codex spawn 模板（studio-shared providers.ts）携带 `--dangerously-bypass-hook-trust`（官方定位：已自行审查 hook 来源的自动化）。本机实证：无 flag 时 SessionStart marker 不跑、有 flag 即跑；PreToolUse exit 2 端到端真拦。
+
 ## 依赖
 
 | 依赖 | 说明 |
 |------|------|
-| `@dommaker/harness` | buildConstraintPrompt() + checkBeforeExecution() |
+| `@dommaker/harness` | buildConstraintPrompt() + checkBeforeExecution() + CommandGate（#147 前置拦截 hook 脚本引用其 dist） |
 | `@dommaker/studio-shared` | logger |
 
 ## 事件

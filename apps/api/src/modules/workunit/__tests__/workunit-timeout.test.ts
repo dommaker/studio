@@ -47,7 +47,8 @@ describe('P0: claim 写入 timeoutAt', () => {
   it('task/bug/feature → 60 分钟；review/analysis → 30 分钟', async () => {
     const before = Date.now();
     for (const [type, minutes] of Object.entries(WU_TIMEOUT_MINUTES)) {
-      const wu = await wuService.create({ scope: `${type} 任务`, type, channelId });
+      // #126：task/feature 未显式 status 默认落 pending（不可认领），显式置 unassigned
+      const wu = await wuService.create({ scope: `${type} 任务`, type, channelId, status: 'unassigned' });
       const claimed = await wuService.claim(wu.id, 'instance-1');
       expect(claimed.status).toBe('active');
       expect(claimed.timeoutAt).not.toBeNull();
@@ -62,6 +63,7 @@ describe('P0: claim 写入 timeoutAt', () => {
     const explicit = '2026-08-01T00:00:00.000Z';
     const wu = await wuService.create({
       scope: '显式超时任务', type: 'task', channelId,
+      status: 'unassigned', // #126：task 默认落 pending（不可认领），显式置 unassigned
       metadata: { timeoutAt: explicit },
     });
     const claimed = await wuService.claim(wu.id, 'instance-1');
@@ -72,6 +74,7 @@ describe('P0: claim 写入 timeoutAt', () => {
     const preset = new Date(Date.now() + 5 * 60_000);
     const wu = await wuService.create({
       scope: '预设超时任务', type: 'task', channelId,
+      status: 'unassigned', // #126：task 默认落 pending（不可认领），显式置 unassigned
       timeoutAt: preset,
     });
     const claimed = await wuService.claim(wu.id, 'instance-1');

@@ -165,8 +165,8 @@ export interface EvolutionProposalData {
   targetType: EvolutionTargetType;
   targetId: string;           // 约束 id | prompt templateId | role 名（.agents/roles/<name>.yaml）
   action: 'add' | 'amend';    // add=新增条目（或 shadow 覆盖内置约束）；amend=修改既有条目
-  /** 仅 iron-law/guideline：变更种类（message=改提示文案；exception=加例外；new-entry=新增约束条目） */
-  constraintChange?: 'message' | 'exception' | 'new-entry';
+  /** 仅 iron-law/guideline：变更种类（message=改提示文案；exception=加例外；new-entry=新增约束条目；retire=退役既有 custom 条目，#82 D6 落 retired 元数据段） */
+  constraintChange?: 'message' | 'exception' | 'new-entry' | 'retire';
   currentText: string;        // 当前文本（add 时可为空串）
   proposedText: string;       // 提案文本（message/模板/persona 全量替换内容）
   rationale: string;          // 理由（含预期效果）

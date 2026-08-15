@@ -11,6 +11,9 @@
  *         ProjectConfigLoader 的 mergeConstraints 按 id 覆盖内置定义；
  *         extend-only 条目（仅 extend_exceptions）是 loader 原生支持的合并语义）。
  *       · new-entry：文件尾部追加完整条目。
+ *       · retire：既有 custom 条目内追加 retired 元数据段（#82 D6 统一落点，
+ *         保留规则原文；内置约束退役不走 E1——走 harness constraints retire
+ *         → config.yml）。已退役条目重放为 no-op。
  *       · 结构性变更（adjust_trigger / change_level）不在 v1 生效范围内（生成期已跳过）。
  *   - prompt-template → `~/.studio/prompt-overrides/<templateId>.md`（STUDIO_PROMPT_OVERRIDES_DIR
  *       可覆盖）。prompt 模板是 TS 内联常量，**不改写源码**，构建时经
@@ -114,12 +117,52 @@ function appendConstraintEntry(content: string, id: string, entryLines: string[]
   return `${base}\n  # ${comment}\n  ${id}:\n${entryLines.map(l => `    ${l}`).join('\n')}\n`;
 }
 
+/**
+ * 文本级手术：在 custom-constraints.yml 既有条目内追加 retired 元数据段
+ * （#82 D6 统一落点，保留规则原文）。条目定位与 amend 一致。
+ * 条目不存在 / 已含 retired 段 → null（调用方分别处理）。
+ */
+export function retireConstraintEntry(content: string, id: string, retired: { at: string; reason: string }): string | null {
+  const lines = content.split('\n');
+  const start = lines.findIndex(l => l.trimEnd() === `  ${id}:`);
+  if (start === -1) return null;
+  let end = lines.length;
+  for (let i = start + 1; i < lines.length; i++) {
+    if (/^ {2}\S/.test(lines[i])) { end = i; break; }
+  }
+  const block = lines.slice(start + 1, end);
+  if (block.some(l => /^ {4}retired:/.test(l))) return null; // 已退役
+  lines.splice(start + 1, 0,
+    `    retired:`,
+    `      at: ${yamlStr(retired.at)}`,
+    `      reason: ${yamlStr(retired.reason)}`,
+  );
+  return lines.join('\n');
+}
+
 function applyConstraintChange(proposal: EvolutionProposalData, constraintsFile: string): { detail: string } {
   const { targetId: id, constraintChange } = proposal;
   const custom = loadCustomConstraints(constraintsFile);
   const builtin = findBuiltinConstraint(id);
   const level = levelOf(proposal);
   const comment = `${proposal.id}: ${proposal.rationale.split('\n')[0].slice(0, 80)}`;
+
+  // retire：既有 custom 条目内追加 retired 元数据段（#82 D6 统一落点）。
+  // 内置约束退役不走 E1（harness constraints retire → config.yml）。
+  if (constraintChange === 'retire') {
+    if (!custom[id]) {
+      throw new Error(`cannot retire '${id}': no custom-constraints.yml entry（内置约束退役走 harness constraints retire → config.yml）`);
+    }
+    const content = fs.existsSync(constraintsFile) ? fs.readFileSync(constraintsFile, 'utf-8') : '';
+    const reason = proposal.proposedText || proposal.rationale.split('\n')[0];
+    const next = retireConstraintEntry(content, id, { at: new Date().toISOString(), reason });
+    if (next === null) {
+      return { detail: `custom constraint '${id}' already retired` };
+    }
+    fs.writeFileSync(constraintsFile, next, 'utf-8');
+    return { detail: `retired custom constraint '${id}'` };
+  }
+
   const content = fs.existsSync(constraintsFile) ? fs.readFileSync(constraintsFile, 'utf-8') : '# 自定义约束配置 — Studio 项目专属\n\ncustom_constraints:\n';
 
   // amend：条目在自定义文件中 → 文本级替换 message 行

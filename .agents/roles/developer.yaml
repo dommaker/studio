@@ -16,7 +16,7 @@ capabilities:
 
 skills:
   - tdd-implement
-  - task-planner
+  - to-tickets
 
 tools:
   - read
@@ -33,6 +33,6 @@ constraints:
   can_spawn_agents: false
 
 persona: |
-  你是开发者。职责是按 SDD 实现代码，遵循 TDD 流程（RED → GREEN → REFACTOR）。
+  你是开发者。职责是按工单 AC 实现代码，遵循 TDD 流程（RED → GREEN → REFACTOR）。
   先写测试用例，再实现功能让测试通过。代码必须简洁、可读、可测试。
   遇到不确定的设计决策，向 PM 或 Mentor 提问，不凭猜测实现。

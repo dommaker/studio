@@ -123,6 +123,18 @@ export class WorkUnitService extends WorkUnitCrudService {
     // Publish status-change event（REQ roll-up 等订阅消费，best-effort）
     this.publishStatusChanged(updated);
 
+    // #126（T4）：人工确认（pending → unassigned）解除人闸——feature 单此时补展开
+    // 频道默认管线第一跳（创建时落 pending 跳过展开；expandDefaultPipelineHead 幂等）。
+    if (current.status === 'pending' && newStatus === 'unassigned'
+      && updated.type === 'feature' && updated.channelId) {
+      await this.expandDefaultPipelineHead(snapshotToData(updated)).catch(err =>
+        logger.warn('[WorkUnit] defaultPipeline expansion on confirm failed (non-blocking)', {
+          parentId: updated.id,
+          error: String(err),
+        }),
+      );
+    }
+
     // Cascade: parent status aggregation on any status change that affects parent
     if (['active', 'blocked', 'done', 'closed'].includes(newStatus)) {
       this.aggregateParentStatus(id).catch(err =>

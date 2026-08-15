@@ -55,6 +55,12 @@ function seedConfig(content: string): void {
   fs.writeFileSync(path.join(dir, 'config.yml'), content, 'utf-8');
 }
 
+function seedCustom(content: string): void {
+  const dir = path.join(process.cwd(), '.harness');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'custom-constraints.yml'), content, 'utf-8');
+}
+
 beforeAll(async () => {
   tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'harness-constraints-routes-'));
   prevHome = process.env.HOME;
@@ -120,7 +126,60 @@ describe('constraints.routes', () => {
     expect(res.status).toBe(200);
     expect(res.json.total).toBe(1);
     expect(res.json.data[0].id).toBe('c-old');
+    expect(res.json.data[0].source).toBe('config');
     expect(res.json.data[0].retired.reason).toBe('zero trigger');
+    fs.rmSync(path.join(process.cwd(), '.harness'), { recursive: true, force: true });
+  });
+
+  it('GET /constraints/retired lists custom-constraints.yml retired entries (source: custom)', async () => {
+    seedCustom([
+      'custom_constraints:',
+      '  c-custom-old:',
+      '    level: guideline',
+      '    rule: "RULE"',
+      '    retired:',
+      '      at: "2026-08-02T00:00:00.000Z"',
+      '      reason: "作用对象消失"',
+      '  c-custom-live:',
+      '    level: guideline',
+      '    rule: "LIVE"',
+      '',
+    ].join('\n'));
+    const res = await api('GET', '/constraints/retired');
+    expect(res.status).toBe(200);
+    expect(res.json.total).toBe(1);
+    expect(res.json.data[0].id).toBe('c-custom-old');
+    expect(res.json.data[0].source).toBe('custom');
+    expect(res.json.data[0].retired.reason).toBe('作用对象消失');
+    fs.rmSync(path.join(process.cwd(), '.harness'), { recursive: true, force: true });
+  });
+
+  it('GET /constraints/retired 同 id 双落点（config 残段 + yml）→ 单条、source 取 custom', async () => {
+    seedConfig([
+      'constraints:',
+      '  c-dup:',
+      '    enabled: false',
+      '    retired:',
+      '      at: "2026-08-01T00:00:00.000Z"',
+      '      reason: "legacy"',
+      '',
+    ].join('\n'));
+    seedCustom([
+      'custom_constraints:',
+      '  c-dup:',
+      '    level: guideline',
+      '    rule: "RULE"',
+      '    retired:',
+      '      at: "2026-08-02T00:00:00.000Z"',
+      '      reason: "canonical"',
+      '',
+    ].join('\n'));
+    const res = await api('GET', '/constraints/retired');
+    expect(res.status).toBe(200);
+    expect(res.json.total).toBe(1);
+    expect(res.json.data[0].id).toBe('c-dup');
+    expect(res.json.data[0].source).toBe('custom');
+    expect(res.json.data[0].retired.reason).toBe('canonical');
     fs.rmSync(path.join(process.cwd(), '.harness'), { recursive: true, force: true });
   });
 
@@ -155,6 +214,66 @@ describe('constraints.routes', () => {
     const written = fs.readFileSync(path.join(process.cwd(), '.harness', 'config.yml'), 'utf-8');
     expect(written).not.toContain('c-old');
     expect(written).toContain('scenes');
+    fs.rmSync(path.join(process.cwd(), '.harness'), { recursive: true, force: true });
+  });
+
+  it('POST /constraints/:id/rollback deletes custom-constraints.yml retired 段、保留规则原文', async () => {
+    seedCustom([
+      'custom_constraints:',
+      '  c-custom-old:',
+      '    level: guideline',
+      '    rule: "RULE"',
+      '    retired:',
+      '      at: "2026-08-02T00:00:00.000Z"',
+      '      reason: "r"',
+      '',
+    ].join('\n'));
+    const ok = await api('POST', '/constraints/c-custom-old/rollback', {});
+    expect(ok.status).toBe(200);
+    expect(ok.json.rolledBack).toBe(true);
+    const written = fs.readFileSync(path.join(process.cwd(), '.harness', 'custom-constraints.yml'), 'utf-8');
+    expect(written).toContain('c-custom-old');
+    expect(written).toContain('RULE');
+    expect(written).not.toContain('retired');
+    fs.rmSync(path.join(process.cwd(), '.harness'), { recursive: true, force: true });
+  });
+
+  it('POST /constraints/:id/rollback 双落点同时清理（config 段 + yml retired 段）', async () => {
+    seedConfig([
+      'constraints:',
+      '  c-both:',
+      '    enabled: false',
+      '    retired: { at: "2026-08-01T00:00:00.000Z", reason: "legacy" }',
+      '',
+    ].join('\n'));
+    seedCustom([
+      'custom_constraints:',
+      '  c-both:',
+      '    level: guideline',
+      '    rule: "RULE"',
+      '    retired: { at: "2026-08-02T00:00:00.000Z", reason: "canonical" }',
+      '',
+    ].join('\n'));
+    const ok = await api('POST', '/constraints/c-both/rollback', {});
+    expect(ok.status).toBe(200);
+    expect(ok.json.rolledBack).toBe(true);
+    const cfg = fs.readFileSync(path.join(process.cwd(), '.harness', 'config.yml'), 'utf-8');
+    expect(cfg).not.toContain('c-both');
+    const cus = fs.readFileSync(path.join(process.cwd(), '.harness', 'custom-constraints.yml'), 'utf-8');
+    expect(cus).toContain('c-both');
+    expect(cus).not.toContain('retired');
+    fs.rmSync(path.join(process.cwd(), '.harness'), { recursive: true, force: true });
+  });
+
+  it('POST /constraints/:id/rollback 双文件均无该 id → 404', async () => {
+    seedCustom([
+      'custom_constraints:',
+      '  other:',
+      '    rule: "X"',
+      '',
+    ].join('\n'));
+    const miss = await api('POST', '/constraints/ghost/rollback', {});
+    expect(miss.status).toBe(404);
     fs.rmSync(path.join(process.cwd(), '.harness'), { recursive: true, force: true });
   });
 

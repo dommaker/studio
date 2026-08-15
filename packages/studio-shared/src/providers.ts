@@ -134,9 +134,13 @@ export const BUILTIN_PROVIDERS: Record<string, ProviderDefinition> = {
       // the prompt from stdin when no positional PROMPT is given; --json emits JSONL events.
       // Session continuation is the `exec resume <id>` subcommand, not a flag.
       // No max-turns equivalent.
-      baseArgs: ['exec', '--json'],
+      // #147（0.147.0 实测）：非 managed command hook 需先 review+trust 才运行，exec
+      // 无人值守下未信任一律跳过 → project hooks.json 不生效；--dangerously-bypass-hook-trust
+      // 面向"已自行审查 hook 来源的自动化"（studio 即此：propagateHarnessConfig 生成并校验）
+      // 才在非交互下执行 hooks。0.147.0 本机实证：加 flag 后 SessionStart hook 运行。
+      baseArgs: ['exec', '--json', '--dangerously-bypass-hook-trust'],
       defaultOutputFormat: 'stream-json',
-      resumeArgs: ['exec', 'resume', '{sessionId}', '--json'],
+      resumeArgs: ['exec', 'resume', '{sessionId}', '--json', '--dangerously-bypass-hook-trust'],
       modelFlag: '--model',
       addDirFlag: '--add-dir',
       promptViaStdin: true,

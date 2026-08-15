@@ -135,6 +135,9 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
   // Role memory review routes (#101: memory_proposal approve/reject → promote/demote)
   const { default: roleMemoryRoutes } = await import('./modules/role-memory/role-memory.routes.js') as { default: Router };
 
+  // Distill review routes (#143: distill_proposal approve/reject → 蒸馏运行/零副作用)
+  const { default: distillRoutes } = await import('./modules/distill/distill.routes.js') as { default: Router };
+
   // Workspace routes (AS-020 P2)
   const { default: workspaceRoutes } = await import('./modules/workspaces/workspace.routes.js') as { default: Router };
   const { default: workspaceTokenRoutes } = await import('./modules/workspaces/token.routes.js') as { default: Router };
@@ -252,6 +255,7 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     { path: '/api/v1/knowledge-service', router: knowledgeServiceRoutes, middleware: auth, comment: 'KnowledgeService HTTP API + SSE' },
     { path: '/api/v1/knowledge/import', router: knowledgeImportRoutes, middleware: auth, comment: 'S2: 冷启动导入' },
     { path: '/api/v1/role-memory', router: roleMemoryRoutes, middleware: auth, comment: '#101: 角色记忆人审闸口 approve/reject' },
+    { path: '/api/v1/distill', router: distillRoutes, middleware: auth, comment: '#143: 蒸馏提案人审闸口 approve/reject' },
     { path: '/api/knowledge', router: knowledgeInternalRoutes, middleware: localhost, comment: 'Internal knowledge extraction API (2026-07 收紧：本机回环限定，此前全匿名可写/盗用 LLM)' },
     { path: '/api/v1/wiki', router: wikiRoutes, comment: 'B2-008: LLM Wiki 档案馆' },
 

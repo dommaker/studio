@@ -141,7 +141,7 @@ describe('Requirement API (vision §5.3)', () => {
   it('GET /:id/chain returns requirement + workunit summaries', async () => {
     const created = (await api('POST', '/', { title: '链路需求' })).json.data;
     const wuService = new WorkUnitService(fileStore);
-    const wu = await wuService.create({ scope: '链路任务', reqId: created.id, assigneeId: 'agent-9' });
+    const wu = await wuService.create({ scope: '链路任务', reqId: created.id, status: 'unassigned', assigneeId: 'agent-9' });
 
     const { status, json } = await api('GET', `/${created.id}/chain`);
     expect(status).toBe(200);

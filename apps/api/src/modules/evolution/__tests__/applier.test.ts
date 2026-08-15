@@ -13,7 +13,7 @@ import path from 'node:path';
 import os from 'node:os';
 import yaml from 'js-yaml';
 import type { EvolutionProposalData } from '@dommaker/studio-shared';
-import { applyProposal, amendConstraintMessage, replacePersonaBlock } from '../applier';
+import { applyProposal, amendConstraintMessage, replacePersonaBlock, retireConstraintEntry } from '../applier';
 import { resolveEvolutionPaths, type EvolutionPaths } from '../signals';
 
 let tmpDir: string;
@@ -159,6 +159,58 @@ describe('applier: iron-law/guideline → custom-constraints.yml', () => {
     expect(entry.message).toBe('禁止绕过流水线直接部署生产环境');
     expect(entry.rule).toBe('NO DIRECT PROD DEPLOY');
     expect(entry.trigger).toEqual(['code_implementation']);
+  });
+
+  it('retire adds retired metadata to existing custom entry, keeps rule, creates backup', async () => {
+    const result = await applyProposal(makeProposal({
+      targetType: 'iron-law', targetId: 'no_redis_import', action: 'amend',
+      constraintChange: 'retire', proposedText: '作用对象已消失',
+      rationale: '目标技术栈已清零，防再引入风险已被依赖审计封死',
+    }), paths);
+
+    const entries = loadConstraints();
+    const entry = entries.no_redis_import;
+    expect(entry.rule).toBe('NO REDIS/IREDIS IMPORTS');
+    expect(entry.retired).toBeDefined();
+    expect((entry.retired as { reason?: string }).reason).toBe('作用对象已消失');
+    expect(typeof (entry.retired as { at?: string }).at).toBe('string');
+    // 文件注释保留
+    const raw = fs.readFileSync(constraintsFile, 'utf-8');
+    expect(raw).toContain('# 1. MemoryStore 替代 Redis');
+    // 备份存在且内容为原文
+    expect(result.backupPath).not.toBeNull();
+    expect(fs.readFileSync(result.backupPath as string, 'utf-8')).toBe(CONSTRAINTS_FIXTURE);
+  });
+
+  it('retire non-custom id throws without writing', async () => {
+    const before = fs.readFileSync(constraintsFile, 'utf-8');
+    await expect(applyProposal(makeProposal({
+      targetType: 'iron-law', targetId: 'no_bypass_checkpoint', action: 'amend',
+      constraintChange: 'retire', proposedText: 'x',
+    }), paths)).rejects.toThrow('cannot retire');
+    expect(fs.readFileSync(constraintsFile, 'utf-8')).toBe(before);
+  });
+
+  it('retire already-retired entry is a no-op', async () => {
+    await applyProposal(makeProposal({
+      targetType: 'iron-law', targetId: 'no_redis_import', action: 'amend',
+      constraintChange: 'retire', proposedText: '第一次',
+    }), paths);
+    const afterFirst = fs.readFileSync(constraintsFile, 'utf-8');
+
+    const result = await applyProposal(makeProposal({
+      targetType: 'iron-law', targetId: 'no_redis_import', action: 'amend',
+      constraintChange: 'retire', proposedText: '第二次',
+    }), paths);
+    expect(result.detail).toContain('already retired');
+    expect(fs.readFileSync(constraintsFile, 'utf-8')).toBe(afterFirst);
+  });
+
+  it('retireConstraintEntry null for unknown entry / already-retired entry', () => {
+    expect(retireConstraintEntry(CONSTRAINTS_FIXTURE, 'no_such_entry', { at: '2026-08-15T00:00:00.000Z', reason: 'r' })).toBeNull();
+    const once = retireConstraintEntry(CONSTRAINTS_FIXTURE, 'no_redis_import', { at: '2026-08-15T00:00:00.000Z', reason: 'r' });
+    expect(once).not.toBeNull();
+    expect(retireConstraintEntry(once!, 'no_redis_import', { at: '2026-08-16T00:00:00.000Z', reason: 'r2' })).toBeNull();
   });
 });
 

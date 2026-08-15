@@ -2,8 +2,8 @@
 // 组件见 ProjectPipeline.tsx / ProjectActivity.tsx；数据流见 ProjectDetailPage
 import { deriveDisplayState } from '@dommaker/studio-shared/web';
 
-/** 进度管道五泳道 */
-export type PipelineLane = 'unassigned' | 'active' | 'in_review' | 'blocked' | 'done';
+/** 进度管道六泳道（pending = #126 待确认人闸：扩范围单创建落点，人工确认才进待认领） */
+export type PipelineLane = 'pending' | 'unassigned' | 'active' | 'in_review' | 'blocked' | 'done';
 
 /** 管道 WU：REQ chain 条目（§10 起 chain 自带 type/时间戳，不再 N+1 详情补全） */
 export interface PipelineWorkUnit {
@@ -32,6 +32,7 @@ export function laneOfWorkUnit(wu: Pick<PipelineWorkUnit, 'status' | 'metadata'>
 /** 五泳道分组（保持输入顺序，chain 已按 createdAt 升序） */
 export function groupWorkUnitsByLane(wus: PipelineWorkUnit[]): Record<PipelineLane, PipelineWorkUnit[]> {
   const lanes: Record<PipelineLane, PipelineWorkUnit[]> = {
+    pending: [],
     unassigned: [],
     active: [],
     in_review: [],

@@ -11,7 +11,7 @@ E1 约束进化（vision §6 / docs/plans/2026-07-flywheel-repair.md §4）：�
 - `signals.ts` — 路径解析 + 信号加载（traces/outcomes）
 - `generator.ts` — 提案生成器（信号 → 约束提案）
 - `channel-review.ts` — 频道审核（提案卡片 → 人确认），卡片交互模式被其他频道确认流复用
-- `applier.ts` — 提案生效器（审核通过后写入约束配置）
+- `applier.ts` — 提案生效器（审核通过后写入约束配置；iron-law/guideline diff 含 amend/shadow/extend_exceptions/new-entry/retire——retire 在既有 custom 条目内落 retired 元数据段，#82 D6 一处真相，内置退役不走 E1）
 - `evolution.service.ts` — 聚合服务（扫描 → 生成 → 审核 → 生效编排）
 - `evolution.routes.ts` — E1 约束进化 API
 

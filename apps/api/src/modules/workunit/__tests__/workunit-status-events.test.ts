@@ -34,7 +34,8 @@ afterEach(() => {
 
 describe('WorkUnitService 状态变化事件补齐', () => {
   it('claim → 发 status_changed（active + assignee）', async () => {
-    const wu = await wuService.create({ scope: '任务', type: 'task', channelId: 'ch-1' });
+    // #126：task 未显式 status 默认落 pending（不可认领），显式置 unassigned
+    const wu = await wuService.create({ scope: '任务', type: 'task', channelId: 'ch-1', status: 'unassigned' });
     const claimed = await wuService.claim(wu.id, 'inst-1');
 
     expect(claimed.status).toBe('active');
@@ -44,7 +45,8 @@ describe('WorkUnitService 状态变化事件补齐', () => {
   });
 
   it('unclaim → 发 status_changed（unassigned）', async () => {
-    const wu = await wuService.create({ scope: '任务', type: 'task', channelId: 'ch-1' });
+    // #126：task 未显式 status 默认落 pending（不可认领），显式置 unassigned
+    const wu = await wuService.create({ scope: '任务', type: 'task', channelId: 'ch-1', status: 'unassigned' });
     await wuService.claim(wu.id, 'inst-1');
     events.length = 0;
 

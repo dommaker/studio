@@ -56,4 +56,5 @@ skills 模块负责技能（Skill）的完整生命周期管理，包括基于�
 - skill-selector 匹配时会排除 `NOT-for` 子句，避免排除项关键词触发误匹配
 - 技能加载器按 SKILL.md frontmatter 的 `tier` 字段记录技能层级（fast/standard/premium）
 - 所有日志使用 `@dommaker/studio-shared` 的 logger 实例，统一日志格式
+- SkillStore/ProposalStore 是模块级单例 + 固定 `~/.studio` 存储路径（无构造注入）——测试须 mock fs 或整个模块（distill-landings / skill-extraction-events 测试同做法）；蒸馏 skill 落地经 `modules/distill/distill-landings.ts` 调这两个单例（#145）。另知：skill-extraction 发 skill_review_request 卡直传字面 `system` 作 channelId，与查 #系统 频道取真 id 的口径不一致（未修）。
 - **鉴权（2026-07-24 收紧）**：skills 7 条写（POST /、PATCH、DELETE、publish、deprecate、restore、usage）+ demotion-proposals approve/reject + proposals 5 条写已收 requireAuth+requireNotGuest。GET /api/v1/skills/proposals 被 skills 的 GET /:id 遮蔽，属路由顺序 bug（未修）。

@@ -70,10 +70,12 @@ describe('AC-6.3: WorkUnit create() defaultPipeline expansion', () => {
   });
 
   it('type=feature + channel.defaultPipeline -> creates head child WU', async () => {
+    // #126：pending feature 创建时不展开管线；显式 unassigned（可直接认领）才在创建时展开
     const parent = await service.create({
       type: 'feature',
       scope: 'implement feature X',
       channelId,
+      status: 'unassigned',
     });
 
     // Lookup child WUs
@@ -93,6 +95,7 @@ describe('AC-6.3: WorkUnit create() defaultPipeline expansion', () => {
       type: 'feature',
       scope: 'multi-step feature',
       channelId,
+      status: 'unassigned', // #126：pending feature 创建时不展开，显式 unassigned
     });
     const all = await fileStore.getIndex();
     const children = all.filter(s => s.parentId === parent.id);
@@ -115,6 +118,7 @@ describe('AC-6.3: WorkUnit create() defaultPipeline expansion', () => {
       type: 'feature',
       scope: 'fallback feature',
       channelId: fallbackChId,
+      status: 'unassigned', // #126：pending feature 创建时不展开，显式 unassigned
     });
     const all = await fileStore.getIndex();
     const children = all.filter(s => s.parentId === parent.id);
@@ -182,6 +186,7 @@ describe('AC-6.3: WorkUnit create() defaultPipeline expansion', () => {
       type: 'feature',
       scope: 'feature collab check',
       channelId,
+      status: 'unassigned', // #126：pending feature 创建时不展开，显式 unassigned
     });
     const all = await fileStore.getIndex();
     const child = all.find(s => s.parentId === parent.id);

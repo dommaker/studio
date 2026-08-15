@@ -69,7 +69,7 @@ describe('buildSpawnArgs', () => {
 
     it('codex: resume 改 exec resume --last（cwd 过滤最新会话；仅 --help 实证）', () => {
       const result = buildSpawnArgs('codex', { worktreeDir: '/tmp/test', sessionId: 'sess-123', sessionResume: true });
-      expect(result.args).toEqual(['exec', 'resume', '--last', '--json']);
+      expect(result.args).toEqual(['exec', 'resume', '--last', '--json', '--dangerously-bypass-hook-trust']);
     });
 
     it('opencode: resume 改 --continue（cwd 维度续用，1.18.4 实测；Studio UUID 不接）', () => {
@@ -84,14 +84,14 @@ describe('buildSpawnArgs', () => {
       expect(result.command).toBe('codex');
     });
 
-    it('uses exec --json for non-interactive runs', () => {
+    it('uses exec --json --dangerously-bypass-hook-trust for non-interactive runs（#147 trust 门）', () => {
       const result = buildSpawnArgs('codex', { worktreeDir: '/tmp/test' });
-      expect(result.args).toEqual(['exec', '--json']);
+      expect(result.args).toEqual(['exec', '--json', '--dangerously-bypass-hook-trust']);
     });
 
     it('新建时丢弃 sessionId（exec resume 是续用语义，未知 id 会报错）', () => {
       const result = buildSpawnArgs('codex', { worktreeDir: '/tmp/test', sessionId: 'sess-123' });
-      expect(result.args).toEqual(['exec', '--json']);
+      expect(result.args).toEqual(['exec', '--json', '--dangerously-bypass-hook-trust']);
     });
   });
 

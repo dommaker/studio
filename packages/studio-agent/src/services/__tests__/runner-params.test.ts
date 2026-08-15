@@ -6,6 +6,9 @@
  */
 
 import { describe, test, expect, vi } from 'vitest';
+import * as fsSync from 'fs';
+import * as path from 'path';
+import * as os from 'os';
 
 const { mockFindSddDocById, mockReadSddDoc } = vi.hoisted(() => ({
   mockFindSddDocById: vi.fn(),
@@ -157,6 +160,44 @@ describe('buildSessionEnv', () => {
     } finally {
       if (saved === undefined) delete process.env.IS_SANDBOX;
       else process.env.IS_SANDBOX = saved;
+    }
+  });
+
+  // #147 P1：kimi 多 WU 隔离——KIMI_CODE_HOME 仅在 provider=kimi 且 per-worktree
+  // home 已生成（config.toml 存在）时注入；否则回落全局 home。
+  test('kimi + per-worktree home 已生成 → 注入 KIMI_CODE_HOME', () => {
+    const wt = fsSync.mkdtempSync(path.join(os.tmpdir(), 'kimi-home-'));
+    try {
+      fsSync.mkdirSync(path.join(wt, '.kimi-code'), { recursive: true });
+      fsSync.writeFileSync(path.join(wt, '.kimi-code', 'config.toml'), 'x\n', 'utf-8');
+
+      const env = buildSessionEnv({ task: makeTask({ provider: 'kimi' }), role: 'executor', worktree: wt });
+      expect(env.KIMI_CODE_HOME).toBe(path.join(wt, '.kimi-code'));
+    } finally {
+      fsSync.rmSync(wt, { recursive: true, force: true });
+    }
+  });
+
+  test('kimi 但 home 未生成 → 不注入（回落全局 home）', () => {
+    const wt = fsSync.mkdtempSync(path.join(os.tmpdir(), 'kimi-home-'));
+    try {
+      const env = buildSessionEnv({ task: makeTask({ provider: 'kimi' }), role: 'executor', worktree: wt });
+      expect(env.KIMI_CODE_HOME).toBeUndefined();
+    } finally {
+      fsSync.rmSync(wt, { recursive: true, force: true });
+    }
+  });
+
+  test('非 kimi provider 不注入 KIMI_CODE_HOME', () => {
+    const wt = fsSync.mkdtempSync(path.join(os.tmpdir(), 'kimi-home-'));
+    try {
+      fsSync.mkdirSync(path.join(wt, '.kimi-code'), { recursive: true });
+      fsSync.writeFileSync(path.join(wt, '.kimi-code', 'config.toml'), 'x\n', 'utf-8');
+
+      const env = buildSessionEnv({ task: makeTask({ provider: 'claude' }), role: 'executor', worktree: wt });
+      expect(env.KIMI_CODE_HOME).toBeUndefined();
+    } finally {
+      fsSync.rmSync(wt, { recursive: true, force: true });
     }
   });
 });

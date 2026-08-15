@@ -125,7 +125,7 @@ export async function executeLightweightSession(state: RunnerExecutionState, tas
     try {
       const { stdout } = await execSh(cmd, {
         cwd: worktree,
-        env: buildSessionEnv({ task, role: agentRole as 'analyst' | 'executor', withWorkUnitEnv: true }),
+        env: buildSessionEnv({ task, role: agentRole as 'analyst' | 'executor', withWorkUnitEnv: true, worktree }),
         // 扁平默认 30min（原 fast/standard/premium tier 分档已删）
         timeoutMs: task.timeoutMs ?? 30 * 60_000,
         maxBuffer: 10 * 1024 * 1024,

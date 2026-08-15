@@ -21,6 +21,7 @@
 | `LEVEL_CONFIG`, `getLevelConfig`, `getLevelSalary` 等 | constants/levels | 全局统一的职级配置与辅助函数 |
 | `eventBus`, `StudioEventBus` | event-bus | 内存事件总线，支持通配符订阅 |
 | `AgentProfileData`, `RuntimeStateData`, `ChannelData`, `ChannelMessageData` 等 | file-store | 文件存储基础数据类型 |
+| `EvolutionProposalData`（constraintChange: message/exception/new-entry/retire——retire 为 #82 D6 退役落点） | file-store-types | E1 进化提案类型 |
 | `resolveVpsWorkspace`, `resolveWorkspacesDir` | vps-workspace（仅 /node 入口） | 'VPS' 工作区命名约定与 ~/.studio/workspaces 扫描的唯一属主（2026-08 起；worktree-resolver 与 local-workspace 均委托到此，禁止第三处手扫） |
 | `studioDir`, `studioPath`, `defaultStudioDir`, `warnIfNonProdUsesProdRoot` | config/studio-dir（`./studio-dir` 子路径入口） | 数据根解析单入口（issue #89）：STUDIO_HOME 优先，缺省 ~/.studio；全部数据区读写必须经此，禁止新增 `os.homedir() + '.studio'` 硬编码 |
 
@@ -45,3 +46,4 @@
 - 事件总线支持通配符（`*`）模式订阅，Handler 异常不会影响其他监听器
 - 级别常量为单一数据源，其他模块不应重复定义
 - `constants/` 下各文件应保持无外部依赖（仅内部引用），便于前端复用
+- `attestation.ts` 的 `deriveDisplayState()` 是 WU 展示状态唯一派生口径（F6 铁律，前后端共用）；#126（T4）起 `pending`（待确认人闸）为第七个看板列——按所有权状态原样透传且 `needsHuman=true`（人工确认才进 frontier），未知状态仍兜底 active

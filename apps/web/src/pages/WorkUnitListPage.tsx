@@ -18,6 +18,7 @@ const deriveWu = (wu: { status: string; metadata?: string | null }): DerivedWuSt
   deriveDisplayState({ status: wu.status, metadata: wu.metadata });
 
 const statusLabels: Record<string, string> = {
+  pending: '待确认',
   unassigned: '待分配',
   active: '执行中',
   in_review: '审查中',
@@ -27,6 +28,7 @@ const statusLabels: Record<string, string> = {
 };
 
 const statusColors: Record<string, string> = {
+  pending: 'u-warn-dim u-warn',
   unassigned: 'u-surface-2 u-text-3',
   active: 'u-accent-dim u-accent',
   in_review: 'u-warn-dim u-warn',
@@ -42,7 +44,7 @@ const typeLabels: Record<string, string> = {
   discussion: '讨论',
 };
 
-const STATUS_OPTIONS = ['all', 'unassigned', 'active', 'in_review', 'done', 'closed', 'blocked'] as const;
+const STATUS_OPTIONS = ['all', 'pending', 'unassigned', 'active', 'in_review', 'done', 'closed', 'blocked'] as const;
 
 export function WorkUnitListPage() {
   const {

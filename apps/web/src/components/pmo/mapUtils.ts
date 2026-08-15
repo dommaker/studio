@@ -193,6 +193,7 @@ export function buildTaskDepRows(
 
 /** 依赖图状态标签（大白话，不用行话；未知状态原样显示） */
 export const DEP_STATUS_LABEL: Record<string, string> = {
+  pending: '待确认',
   unassigned: '待认领',
   active: '进行中',
   waitingForInput: '等回复',

@@ -65,10 +65,10 @@ export function generateManifest(): void {
       '',
       `\`${studioPath('skills')}/\` 下每个目录是一个 Skill（SKILL.md）。Agent 读此清单 → 自选 Skill。`,
       '',
-      '## 开发流程链（Skill Chain）',
+      '## 工单类型 → 方法论',
       '',
-      // 硬编码开发链：链顺序是流程约定，无法从 frontmatter 推导，调整时请同步改这里
-      'design-analyst → spec-review-skill → task-planner → sdd-review-skill → tdd-implement → code-review',
+      // 链条语义已摘除（#118 第三轮 / #122）：方法论按工单类型取，无固定流程链
+      '权威索引见业务仓 CLAUDE.md「工单类型 → 方法论索引」（类型词表见根 CONTEXT.md「工单类型」，增删类型 = 治理变更）。',
       '',
       '## Active Skills',
       '',

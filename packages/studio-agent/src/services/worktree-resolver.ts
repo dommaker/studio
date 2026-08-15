@@ -19,6 +19,7 @@ import { execSh, resolveVpsWorkspace } from '@dommaker/studio-shared/node';
 
 import type { AgentTask } from './types.js';
 import { execSync } from 'child_process';
+import { buildClaudeDenyRules, writeProviderEnforcementConfigs } from './provider-hooks.js';
 
 /** 检测仓库默认分支名（不猜 main/master） */
 export function getDefaultBranch(cwd: string): string {
@@ -84,7 +85,7 @@ export async function createWorktree(worktree: string, baseBranch: string, repoD
 }
 
 /** 工具产物 exclude 规则（写入 .git/info/exclude，git status 不再看到这些产物） */
-const GIT_EXCLUDE_PATTERNS = ['.claude/', '.studio/', '.daemon/', '.agent.log', '.harness/'];
+const GIT_EXCLUDE_PATTERNS = ['.claude/', '.studio/', '.daemon/', '.agent.log', '.harness/', '.codex/', '.kimi-code/'];
 
 async function writeGitExclude(repoDir: string): Promise<void> {
   try {
@@ -195,34 +196,53 @@ export async function propagateHarnessConfig(worktree: string, taskId: string, e
       }
     }
 
-    // 写入 .claude/settings.json 使 root daemon 无需 --dangerously-skip-permissions
+    // 写入 .claude/settings.json 使 root daemon 无需 --dangerously-skip-permissions；
+    // #147：permissions.deny 幂等合并（WU worktree 复用场景保留既有字段，只确保 deny 就位）
     const claudeDir = path.join(worktree, '.claude');
     const settingsPath = path.join(claudeDir, 'settings.json');
-    if (!fsSync.existsSync(settingsPath)) {
-      fsSync.mkdirSync(claudeDir, { recursive: true });
+    let settings: Record<string, unknown> = {};
+    if (fsSync.existsSync(settingsPath)) {
+      try {
+        settings = JSON.parse(fsSync.readFileSync(settingsPath, 'utf-8')) as Record<string, unknown>;
+      } catch {
+        logger.warn('[WorktreeResolver] .claude/settings.json parse failed, rebuilding', { worktree });
+        settings = {};
+      }
+    }
+    const permissions = (typeof settings.permissions === 'object' && settings.permissions !== null
+      ? settings.permissions
+      : {}) as Record<string, unknown>;
+    permissions.defaultMode = permissions.defaultMode ?? 'bypassPermissions';
+    const deny = new Set<string>(Array.isArray(permissions.deny) ? (permissions.deny as string[]) : []);
+    for (const rule of buildClaudeDenyRules({ worktree, repoDir })) deny.add(rule);
+    permissions.deny = [...deny];
+    settings.permissions = permissions;
 
+    if (!settings.mcpServers) {
       // Studio MCP server URL (provides loadSkill, searchKnowledge, etc.)
       const studioMcpUrl = process.env.STUDIO_MCP_URL || 'http://localhost:13101/api/v1/mcp/sse';
-
-      fsSync.writeFileSync(settingsPath, JSON.stringify({
-        permissions: { defaultMode: 'bypassPermissions' },
-        mcpServers: {
-          'studio': {
-            type: 'sse',
-            url: studioMcpUrl,
-          },
-          'local-rag': process.env.LOCAL_RAG_BRIDGE_URL
-            ? { type: 'sse', url: process.env.LOCAL_RAG_BRIDGE_URL }
-            : {
-                command: 'mcp-local-rag',
-                args: [
-                  '--db-path', process.env.LOCAL_RAG_DB_PATH || '/root/.cache/mcp-local-rag/lancedb',
-                  '--model-name', process.env.LOCAL_RAG_MODEL || '/root/.cache/huggingface/hub/models--onnx-community--bge-small-zh-v1.5-ONNX/snapshots/main',
-                ],
-              },
+      settings.mcpServers = {
+        'studio': {
+          type: 'sse',
+          url: studioMcpUrl,
         },
-      }, null, 2), 'utf-8');
+        'local-rag': process.env.LOCAL_RAG_BRIDGE_URL
+          ? { type: 'sse', url: process.env.LOCAL_RAG_BRIDGE_URL }
+          : {
+              command: 'mcp-local-rag',
+              args: [
+                '--db-path', process.env.LOCAL_RAG_DB_PATH || '/root/.cache/mcp-local-rag/lancedb',
+                '--model-name', process.env.LOCAL_RAG_MODEL || '/root/.cache/huggingface/hub/models--onnx-community--bge-small-zh-v1.5-ONNX/snapshots/main',
+              ],
+            },
+      };
     }
+    fsSync.mkdirSync(claudeDir, { recursive: true });
+    fsSync.writeFileSync(settingsPath, JSON.stringify(settings, null, 2), 'utf-8');
+
+    // #147 步内前置拦截：codex .codex/hooks.json + kimi per-worktree home + 共享 hook 脚本
+    // （claude 走上面的 permissions.deny；--print 下 PreToolUse hook 不触发，不给 claude 写 hook）
+    writeProviderEnforcementConfigs({ worktree });
   } catch { logger.warn('[WorktreeResolver] Harness/Claude config init failed (non-blocking)', { taskId, executionId }); }
 }
 

@@ -51,7 +51,7 @@ describe('B4: blockReason 落盘', () => {
   });
 
   it('reviewRejected 连续 3 次 → blocked + review-rejected 原因（含最近拒绝理由）', async () => {
-    const wu = await wuService.create({ scope: '被评审任务', type: 'task' });
+    const wu = await wuService.create({ scope: '被评审任务', type: 'task', status: 'unassigned' }); // #126：task 默认落 pending（不可认领），显式置 unassigned
     await wuService.claim(wu.id, 'inst-1');
     await wuService.transitionStatus(wu.id, 'in_review');
     await wuService.reviewRejected(wu.id, '第一次拒绝');
@@ -67,7 +67,7 @@ describe('B4: blockReason 落盘', () => {
   });
 
   it('reviewRejected 未达 3 次（回 active）不写 blockReason', async () => {
-    const wu = await wuService.create({ scope: '被评审任务', type: 'task' });
+    const wu = await wuService.create({ scope: '被评审任务', type: 'task', status: 'unassigned' }); // #126：task 默认落 pending（不可认领），显式置 unassigned
     await wuService.claim(wu.id, 'inst-1');
     await wuService.transitionStatus(wu.id, 'in_review');
     const after = await wuService.reviewRejected(wu.id, '第一次拒绝');
@@ -79,6 +79,7 @@ describe('B4: blockReason 落盘', () => {
   it('超时释放达上限 → blocked + timeout 原因', async () => {
     const wu = await wuService.create({
       scope: '超时任务', type: 'task',
+      status: 'unassigned', // #126：task 默认落 pending（不可认领），显式置 unassigned
       metadata: { timeoutReleaseCount: MAX_TIMEOUT_RELEASES - 1 },
     });
     await wuService.claim(wu.id, 'inst-1');
@@ -93,7 +94,7 @@ describe('B4: blockReason 落盘', () => {
   });
 
   it('超时释放未达上限（回池）不写 blockReason', async () => {
-    const wu = await wuService.create({ scope: '超时任务', type: 'task' });
+    const wu = await wuService.create({ scope: '超时任务', type: 'task', status: 'unassigned' }); // #126：task 默认落 pending（不可认领），显式置 unassigned
     await wuService.claim(wu.id, 'inst-1');
     await wuService.update(wu.id, { timeoutAt: new Date(Date.now() - 1000) });
 

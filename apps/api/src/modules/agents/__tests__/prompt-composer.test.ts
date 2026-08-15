@@ -266,14 +266,14 @@ describe('#91: composeStepPrompt 分段软定额 + 池内余量共享 + trim 埋
       { wu: makeWu(), metadata: {} as any },
       deps(makeRole({
         persona: '你是开发者。',
-        skills: ['tdd-implement', 'task-planner'],
+        skills: ['tdd-implement', 'to-tickets'],
         tools: ['read', 'write'],
         constraints: { can_delegate: false, max_concurrent_tasks: 2 },
       })),
     );
 
     expect(knowledgeContext).toContain('## 你的角色\n\n你是开发者。');
-    expect(knowledgeContext).toContain('技能：tdd-implement、task-planner');
+    expect(knowledgeContext).toContain('技能：tdd-implement、to-tickets');
     expect(knowledgeContext).toContain('工具：read、write');
     expect(knowledgeContext).toContain('约束：can_delegate=false；max_concurrent_tasks=2');
   });
@@ -928,8 +928,19 @@ describe('#119: 契约段生成器（按 WU type）+ 段序稳定性重排', () 
     expect(prompt).toContain('## 结论摘要');
   });
 
-  it('未知/无契约 type（task/feature/bug/analysis/spec）→ 空段不注入', async () => {
-    for (const type of ['task', 'feature', 'bug', 'analysis', 'spec']) {
+  it('契约段 analysis → research/prototype 产出载体（T3/#125）', async () => {
+    const { prompt } = await composeStepPrompt(
+      { wu: makeWu({ type: 'analysis' }), metadata: {} as any },
+      deps(makeRole()),
+    );
+
+    expect(prompt).toContain('## 产出契约');
+    expect(prompt).toContain('.studio/research/');
+    expect(prompt).toContain('prototype/<name>');
+  });
+
+  it('未知/无契约 type（task/feature/bug/spec）→ 空段不注入', async () => {
+    for (const type of ['task', 'feature', 'bug', 'spec']) {
       const { prompt } = await composeStepPrompt(
         { wu: makeWu({ type }), metadata: {} as any },
         deps(makeRole()),
@@ -938,8 +949,8 @@ describe('#119: 契约段生成器（按 WU type）+ 段序稳定性重排', () 
     }
   });
 
-  it('契约段 200 软定额 + 模板表仅覆盖 review/implement/decision', () => {
+  it('契约段 200 软定额 + 模板表仅覆盖 review/implement/decision/analysis', () => {
     expect(SECTION_QUOTAS.contract).toBe(200);
-    expect(Object.keys(CONTRACT_TEMPLATES).sort()).toEqual(['decision', 'implement', 'review']);
+    expect(Object.keys(CONTRACT_TEMPLATES).sort()).toEqual(['analysis', 'decision', 'implement', 'review']);
   });
 });

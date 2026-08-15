@@ -25,7 +25,8 @@ afterEach(() => {
 
 describe.each(['decision', 'spec'])('#108: %s 单裁剪状态机', (type) => {
   async function createWu() {
-    return wuService.create({ scope: `${type} 单`, type });
+    // #126：spec 未显式 status 默认落 pending（待确认门）；本组用例测裁剪状态机主链，显式置 unassigned
+    return wuService.create({ scope: `${type} 单`, type, status: 'unassigned' });
   }
 
   it('合法主链：unassigned → active → in_review → done', async () => {
@@ -85,11 +86,12 @@ describe.each(['decision', 'spec'])('#108: %s 单裁剪状态机', (type) => {
 
 describe('#108: 全局状态机回归（非 decision/spec 不受影响）', () => {
   it('task 仍允许 unassigned → closed 与 done → closed', async () => {
-    const wu = await wuService.create({ scope: 'task 单', type: 'task' });
+    // #126：task 未显式 status 默认落 pending；本用例测全局状态机的 unassigned/done → closed，显式置 unassigned
+    const wu = await wuService.create({ scope: 'task 单', type: 'task', status: 'unassigned' });
     const closed = await wuService.transitionStatus(wu.id, 'closed');
     expect(closed.status).toBe('closed');
 
-    const wu2 = await wuService.create({ scope: 'task 单 2', type: 'task' });
+    const wu2 = await wuService.create({ scope: 'task 单 2', type: 'task', status: 'unassigned' });
     await wuService.transitionStatus(wu2.id, 'active');
     await wuService.transitionStatus(wu2.id, 'in_review');
     await wuService.transitionStatus(wu2.id, 'done');
