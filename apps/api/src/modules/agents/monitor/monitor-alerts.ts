@@ -70,6 +70,7 @@ export function escalateToTriage(alerts: MonitorAlert[]): void {
     tool_error_rate: null,
     tool_zero_success: null,
     session_file_size: null,
+    lock: null, // #169: lock 告警不设 critical，无需 Triage 映射
   };
 
   for (const alert of alerts) {

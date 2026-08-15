@@ -58,7 +58,8 @@ export type MonitorAlertSource =
   | 'total_time'
   | 'tool_error_rate'
   | 'tool_zero_success'
-  | 'session_file_size';
+  | 'session_file_size'
+  | 'lock'; // #169: FileStore 锁 stale 回收/获锁超时（仅 warning，不升级 Triage）
 
 export interface MonitorAlert {
   level: 'info' | 'warning' | 'critical';

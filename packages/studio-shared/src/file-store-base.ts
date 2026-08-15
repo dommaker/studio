@@ -7,8 +7,11 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { studioPath } from './config/studio-dir';
+import { eventBus } from './event-bus';
+import { logger } from './utils/logger';
 
 /** 锁超时错误 */
 export class LockTimeoutError extends Error {
@@ -22,6 +25,46 @@ export class LockTimeoutError extends Error {
 
 const LOCK_RETRY_INTERVAL_MS = 10;
 const DEFAULT_LOCK_TIMEOUT_MS = 5000;
+/** stale 兜底判据阈值（#64 决议 2）：acquiredAt / 锁目录 mtime 距今超此值即回收 */
+const STALE_LOCK_AGE_MS = 30_000;
+
+/** 锁内属主文件 owner.json（#64 决议 1：mkdir 获锁后写入锁目录） */
+interface LockOwner {
+  pid: number;
+  hostname: string;
+  acquiredAt: number;
+}
+
+/** stale 命中判据：pid_dead = 主判据（同机 pid 已死）；age = 兜底判据（超龄） */
+type StaleCriterion = 'pid_dead' | 'age';
+
+// ─── 进程内 per-lockDir async mutex（#64 决议 5）───
+// 同进程并发在 mutex 层排队，不打到 mkdir；跨进程互斥仍由 mkdir 保证。
+const inProcessLocks = new Map<string, Promise<void>>();
+
+async function acquireInProcessLock(lockDir: string): Promise<() => void> {
+  const prev = inProcessLocks.get(lockDir) ?? Promise.resolve();
+  let release!: () => void;
+  const current = new Promise<void>(resolve => { release = resolve; });
+  const tail = prev.then(() => current);
+  inProcessLocks.set(lockDir, tail);
+  await prev;
+  // 尾结点 settle 后清理 map，避免无限增长；有新等待者接上时不动
+  void tail.then(() => {
+    if (inProcessLocks.get(lockDir) === tail) inProcessLocks.delete(lockDir);
+  });
+  return release;
+}
+
+/** pid 是否存活：kill(pid, 0) 报 ESRCH = 已死；EPERM = 存活但无权限（视为存活） */
+function isPidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err: unknown) {
+    return isErrnoError(err) && err.code !== 'ESRCH';
+  }
+}
 
 // ─── FileStoreBase 类 ───
 
@@ -121,30 +164,129 @@ export class FileStoreBase {
    * 基于 mkdir 原子性的跨进程文件锁。
    * 获取锁后执行 fn，释放锁后返回结果。
    * timeoutMs 为获取锁的超时时间。
+   *
+   * #64 决议 / #169：
+   * - 获锁后写 owner.json（pid/hostname/acquiredAt），供 stale 判定；
+   * - EEXIST 时先走 stale 双判据回收（pid_dead / age），回收发 lock.stale_reclaimed；
+   * - 超时抛 LockTimeoutError 前发 lock.acquire_timeout；
+   * - 同进程并发经进程内 per-lockDir mutex 排队，不打到 mkdir。
    */
   async withLock<T>(lockDir: string, fn: () => Promise<T>, timeoutMs: number = DEFAULT_LOCK_TIMEOUT_MS): Promise<T> {
-    // 确保父目录存在，防止 mkdir 因 ENOENT 失败
-    await fs.promises.mkdir(path.dirname(lockDir), { recursive: true });
-    const start = Date.now();
-    while (true) {
-      try {
-        // 原子性创建锁目录（没有 recursive，存在即失败）
-        await fs.promises.mkdir(lockDir);
-        break;
-      } catch (err: unknown) {
-        // EEXIST 是预期中的锁冲突，其他错误直接抛
-        if (isErrnoError(err) && err.code !== 'EEXIST') throw err;
-        if (Date.now() - start > timeoutMs) {
-          throw new LockTimeoutError(timeoutMs);
+    const releaseMutex = await acquireInProcessLock(lockDir);
+    try {
+      // 确保父目录存在，防止 mkdir 因 ENOENT 失败
+      await fs.promises.mkdir(path.dirname(lockDir), { recursive: true });
+      const start = Date.now();
+      while (true) {
+        try {
+          // 原子性创建锁目录（没有 recursive，存在即失败）
+          await fs.promises.mkdir(lockDir);
+          break;
+        } catch (err: unknown) {
+          // EEXIST 是预期中的锁冲突，其他错误直接抛
+          if (!isErrnoError(err) || err.code !== 'EEXIST') throw err;
+          // stale 双判据回收（#64 决议 2），回收成功立即回到 mkdir 竞争
+          if (await this.tryReclaimStaleLock(lockDir)) continue;
+          if (Date.now() - start > timeoutMs) {
+            // #64 决议 3：首个 LockTimeoutError 即告警，不等回收
+            this.emitLockEvent('lock.acquire_timeout', {
+              lockDir,
+              waitedMs: Date.now() - start,
+              owner: await this.readLockOwner(lockDir),
+            });
+            throw new LockTimeoutError(timeoutMs);
+          }
+          await sleep(LOCK_RETRY_INTERVAL_MS);
         }
-        await sleep(LOCK_RETRY_INTERVAL_MS);
+      }
+      // 获锁后写属主文件；写失败必须放锁，避免留下无属主裸锁（只能靠超龄判据兜底）
+      try {
+        await this.writeJson(this.lockOwnerPath(lockDir), {
+          pid: process.pid,
+          hostname: os.hostname(),
+          acquiredAt: Date.now(),
+        });
+      } catch (err) {
+        await fs.promises.rm(lockDir, { recursive: true, force: true }).catch(() => {});
+        throw err;
+      }
+      try {
+        return await fn();
+      } finally {
+        // 锁目录内含 owner.json，需 recursive 删除
+        await fs.promises.rm(lockDir, { recursive: true, force: true }).catch(() => {});
+      }
+    } finally {
+      releaseMutex();
+    }
+  }
+
+  /** 锁内属主文件路径 */
+  private lockOwnerPath(lockDir: string): string {
+    return path.join(lockDir, 'owner.json');
+  }
+
+  /** 读取锁属主（不存在/损坏返回 null）。不走 this.readJson：FileStore 覆写了带读穿缓存的版本，锁属主判定要求跨进程实时性（同 readIndexFile 无缓存先例） */
+  private async readLockOwner(lockDir: string): Promise<LockOwner | null> {
+    try {
+      const content = await fs.promises.readFile(this.lockOwnerPath(lockDir), 'utf-8');
+      try {
+        return JSON.parse(content) as LockOwner;
+      } catch {
+        return null; // corrupt JSON → treat as missing
+      }
+    } catch (err: unknown) {
+      if (isErrnoError(err) && err.code === 'ENOENT') return null;
+      throw err;
+    }
+  }
+
+  /**
+   * stale 双判据（#64 决议 2），满足其一即回收（删整个锁目录）并告警：
+   * - pid_dead：owner.hostname 与本机相同且 pid 已死（ESRCH）；hostname 不同不走此判据；
+   * - age：owner.acquiredAt 距今超 STALE_LOCK_AGE_MS；
+   *   读不到 owner.json（窗口期 crash 残留/旧版裸锁）按锁目录 mtime 走同一超龄判据。
+   * 返回是否发生了回收。
+   */
+  private async tryReclaimStaleLock(lockDir: string): Promise<boolean> {
+    const owner = await this.readLockOwner(lockDir);
+    let criterion: StaleCriterion | null = null;
+    if (owner) {
+      if (owner.hostname === os.hostname() && !isPidAlive(owner.pid)) {
+        criterion = 'pid_dead';
+      } else if (Date.now() - owner.acquiredAt > STALE_LOCK_AGE_MS) {
+        criterion = 'age';
+      }
+    } else {
+      try {
+        const stat = await fs.promises.stat(lockDir);
+        if (Date.now() - stat.mtimeMs > STALE_LOCK_AGE_MS) criterion = 'age';
+      } catch {
+        return false; // 锁目录已被对方释放，不算回收，回到正常 mkdir 竞争
       }
     }
+    if (!criterion) return false;
+    await fs.promises.rm(lockDir, { recursive: true, force: true });
+    this.emitLockEvent('lock.stale_reclaimed', {
+      lockDir,
+      ownerPid: owner?.pid ?? null,
+      ownerAcquiredAt: owner?.acquiredAt ?? null,
+      criterion,
+      reclaimerPid: process.pid,
+    });
+    return true;
+  }
+
+  /**
+   * lock.* 结构化事件（均为 warning 级，不设 critical）：
+   * 先落 logger，再发进程内 eventBus（订阅方 apps/api lock-events-bridge 走 dispatchMonitorAlerts 全管线）。
+   * 发射失败不阻塞锁流程。
+   */
+  private emitLockEvent(type: 'lock.stale_reclaimed' | 'lock.acquire_timeout', payload: Record<string, unknown>): void {
+    logger.warn(`[FileStore] ${type}`, payload);
     try {
-      return await fn();
-    } finally {
-      await fs.promises.rmdir(lockDir).catch(() => {});
-    }
+      eventBus.publish(type, payload);
+    } catch { /* non-blocking */ }
   }
 }
 

@@ -198,6 +198,12 @@ async function start() {
         initWorkunitEventsBridge();
       } catch (e) { logger.warn('[Events] WorkUnit events bridge failed', { error: String(e) }); }
 
+      // #169: lock.* 事件（stale 回收/获锁超时）→ Monitor 告警全管线
+      try {
+        const { initLockEventsBridge } = await import('./modules/events/lock-events-bridge.js');
+        initLockEventsBridge();
+      } catch (e) { logger.warn('[Events] Lock events bridge failed', { error: String(e) }); }
+
       // PMO 分析接力：analysis 确认 → 拆 task WU 派工
       try {
         const { initAnalysisHandoff } = await import('./modules/pmo/analysis-handoff.js');

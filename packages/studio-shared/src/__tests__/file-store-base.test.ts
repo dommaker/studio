@@ -9,10 +9,27 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { spawn } from 'node:child_process';
 import { FileStoreBase, LockTimeoutError } from '../file-store-base';
+import { eventBus } from '../event-bus';
 
 function createTempDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'filestore-base-test-'));
+}
+
+/** 订阅 lock.* 事件并收集 payload，返回收集数组与退订函数 */
+function collectLockEvents(type: 'lock.stale_reclaimed' | 'lock.acquire_timeout') {
+  const events: Array<Record<string, unknown>> = [];
+  const handler = (p: unknown) => events.push(p as Record<string, unknown>);
+  eventBus.subscribe(type, handler);
+  return { events, off: () => eventBus.unsubscribe(type, handler) };
+}
+
+/** 拿一个确定已退出的 pid（spawn 子进程并等其退出） */
+async function deadPid(): Promise<number> {
+  const child = spawn(process.execPath, ['-e', ''], { stdio: 'ignore' });
+  await new Promise<void>(resolve => child.on('exit', () => resolve()));
+  return child.pid!;
 }
 
 describe('FileStoreBase（直接单元测试）', () => {
@@ -222,6 +239,156 @@ describe('FileStoreBase（直接单元测试）', () => {
       expect(err.name).toBe('LockTimeoutError');
       expect(err.message).toContain('200');
       expect(fs.existsSync(lockDir())).toBe(true); // 未获取锁，不进入 finally 的 rmdir
+    });
+  });
+
+  // ═══ withLock stale 回收 / owner.json / 进程内 mutex（#169 / #64）═══
+
+  describe('withLock stale 回收与 owner.json（#169）', () => {
+    const lockDir = () => path.join(tmpDir, 'locks', 'stale.lock');
+    const ownerPath = () => path.join(lockDir(), 'owner.json');
+
+    const writeOwner = (owner: { pid: number; hostname: string; acquiredAt: number }) => {
+      fs.mkdirSync(lockDir(), { recursive: true });
+      fs.writeFileSync(ownerPath(), JSON.stringify(owner));
+    };
+
+    it('持锁期间锁目录内有 owner.json（pid/hostname/acquiredAt），释放后整体删除', async () => {
+      let seen: { pid: number; hostname: string; acquiredAt: number } | null = null;
+      await store.withLock(lockDir(), async () => {
+        seen = JSON.parse(fs.readFileSync(ownerPath(), 'utf-8'));
+        return 'ok';
+      });
+      expect(seen).not.toBeNull();
+      expect(seen!.pid).toBe(process.pid);
+      expect(seen!.hostname).toBe(os.hostname());
+      expect(typeof seen!.acquiredAt).toBe('number');
+      expect(fs.existsSync(lockDir())).toBe(false); // 含 owner.json 也能整体释放
+    });
+
+    it('主判据：同机死 pid 的锁被回收，发 lock.stale_reclaimed（criterion=pid_dead）', async () => {
+      const pid = await deadPid();
+      writeOwner({ pid, hostname: os.hostname(), acquiredAt: Date.now() });
+      const { events, off } = collectLockEvents('lock.stale_reclaimed');
+      try {
+        const r = await store.withLock(lockDir(), async () => 'acquired', 3000);
+        expect(r).toBe('acquired');
+        expect(events).toHaveLength(1);
+        expect(events[0]).toMatchObject({
+          lockDir: lockDir(),
+          ownerPid: pid,
+          criterion: 'pid_dead',
+          reclaimerPid: process.pid,
+        });
+        expect(typeof events[0].ownerAcquiredAt).toBe('number');
+      } finally {
+        off();
+      }
+    });
+
+    it('兜底判据：活 pid 但 acquiredAt 超 30s 的锁被回收（criterion=age）', async () => {
+      writeOwner({ pid: process.pid, hostname: os.hostname(), acquiredAt: Date.now() - 31_000 });
+      const { events, off } = collectLockEvents('lock.stale_reclaimed');
+      try {
+        const r = await store.withLock(lockDir(), async () => 'acquired', 3000);
+        expect(r).toBe('acquired');
+        expect(events).toHaveLength(1);
+        expect(events[0]).toMatchObject({ criterion: 'age', ownerPid: process.pid });
+      } finally {
+        off();
+      }
+    });
+
+    it('无 owner.json 的裸锁按目录 mtime 走超龄判据：超龄回收，未超龄不回收', async () => {
+      // 超龄裸锁 → 回收
+      fs.mkdirSync(lockDir(), { recursive: true });
+      const past = new Date(Date.now() - 31_000);
+      fs.utimesSync(lockDir(), past, past);
+      const { events, off } = collectLockEvents('lock.stale_reclaimed');
+      try {
+        await expect(store.withLock(lockDir(), async () => 'acquired', 3000)).resolves.toBe('acquired');
+        expect(events).toHaveLength(1);
+        expect(events[0]).toMatchObject({ criterion: 'age', ownerPid: null, ownerAcquiredAt: null });
+      } finally {
+        off();
+      }
+      // 未超龄裸锁 → 不回收，超时且锁目录保留
+      fs.mkdirSync(lockDir(), { recursive: true });
+      const err = await store.withLock(lockDir(), async () => 'never', 200).catch(e => e);
+      expect(err).toBeInstanceOf(LockTimeoutError);
+      expect(fs.existsSync(lockDir())).toBe(true);
+      expect(events).toHaveLength(1); // 未新增回收事件
+    });
+
+    it('活 pid 且未超龄的锁不被误回收：超时抛 LockTimeoutError，发 lock.acquire_timeout 携带 owner', async () => {
+      writeOwner({ pid: process.pid, hostname: os.hostname(), acquiredAt: Date.now() });
+      const reclaimed = collectLockEvents('lock.stale_reclaimed');
+      const timeouts = collectLockEvents('lock.acquire_timeout');
+      try {
+        const err = await store.withLock(lockDir(), async () => 'never', 200).catch(e => e);
+        expect(err).toBeInstanceOf(LockTimeoutError);
+        expect(fs.existsSync(ownerPath())).toBe(true); // 锁未被回收
+        expect(reclaimed.events).toHaveLength(0);
+        expect(timeouts.events).toHaveLength(1);
+        expect(timeouts.events[0]).toMatchObject({ lockDir: lockDir() });
+        expect(timeouts.events[0].waitedMs as number).toBeGreaterThanOrEqual(200);
+        expect(timeouts.events[0].owner).toMatchObject({ pid: process.pid, hostname: os.hostname() });
+      } finally {
+        reclaimed.off();
+        timeouts.off();
+      }
+    });
+
+    it('hostname 不同不走 pid 判据：异机死 pid 且未超龄的锁不回收', async () => {
+      const pid = await deadPid();
+      writeOwner({ pid, hostname: 'other-host', acquiredAt: Date.now() });
+      const { events, off } = collectLockEvents('lock.stale_reclaimed');
+      try {
+        const err = await store.withLock(lockDir(), async () => 'never', 200).catch(e => e);
+        expect(err).toBeInstanceOf(LockTimeoutError);
+        expect(fs.existsSync(ownerPath())).toBe(true);
+        expect(events).toHaveLength(0);
+      } finally {
+        off();
+      }
+    });
+
+    it('hostname 不同仍走超龄兜底：异机锁 acquiredAt 超 30s 被回收', async () => {
+      const pid = await deadPid();
+      writeOwner({ pid, hostname: 'other-host', acquiredAt: Date.now() - 31_000 });
+      const { events, off } = collectLockEvents('lock.stale_reclaimed');
+      try {
+        await expect(store.withLock(lockDir(), async () => 'acquired', 3000)).resolves.toBe('acquired');
+        expect(events).toHaveLength(1);
+        expect(events[0]).toMatchObject({ criterion: 'age', ownerPid: pid });
+      } finally {
+        off();
+      }
+    });
+
+    it('进程内 mutex：同进程并发在 mutex 层排队，mkdir 竞争超时参数不误伤排队者', async () => {
+      const timeouts = collectLockEvents('lock.acquire_timeout');
+      try {
+        let holderIn = false;
+        // 持锁 150ms；第二个调用 timeoutMs=50 —— 若无 mutex 会在 mkdir 自旋中超时
+        const first = store.withLock(lockDir(), async () => {
+          holderIn = true;
+          await new Promise(r => setTimeout(r, 150));
+          holderIn = false;
+          return 'first';
+        });
+        await new Promise(r => setTimeout(r, 30)); // 确保 first 已持锁
+        expect(holderIn).toBe(true);
+        const second = store.withLock(lockDir(), async () => {
+          expect(holderIn).toBe(false); // 不重叠
+          return 'second';
+        }, 50);
+        await expect(first).resolves.toBe('first');
+        await expect(second).resolves.toBe('second'); // mutex 排队成功获取，不超时
+        expect(timeouts.events).toHaveLength(0);
+      } finally {
+        timeouts.off();
+      }
     });
   });
 
