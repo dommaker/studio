@@ -5,13 +5,13 @@
  * Spec 3: 迁移到 FileStore (~/.studio/projects/{id}.json)
  */
 
-import { FileStore, generateId } from '@dommaker/studio-shared';
+import { FileStore, generateId, parseFrontmatter } from '@dommaker/studio-shared';
 import { logger } from '../../utils/logger.js';
 import { channelMessageService } from '../channels/channel-message.service.js';
 import { WorkUnitService } from '../workunit/workunit.service.js';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { studioPath } from '@dommaker/studio-shared/studio-dir';
+import { studioPath, specsDir } from '@dommaker/studio-shared/studio-dir';
 
 const PROJECTS_DIR = studioPath('projects');
 
@@ -597,27 +597,32 @@ FOG: <待决问题>
     const project = await this.get(projectId);
     if (!project) throw new Error('Project not found');
 
-    const indexPath = path.join(process.cwd(), 'docs/sdd/_index.md');
-    if (!fs.existsSync(indexPath)) {
-      logger.warn({ projectId }, 'SDD index file not found');
+    // #155 新口径：spec 唯一落点 = <gitRepo>/.studio/specs/*.md。
+    // project 无 gitRepo 或目录不存在 → 空列表，不报错。
+    if (!project.gitRepo) return { sddEntries: [] };
+
+    const dir = specsDir(project.gitRepo);
+    let files: string[];
+    try {
+      files = fs.readdirSync(dir).filter(f => f.endsWith('.md'));
+    } catch {
       return { sddEntries: [] };
     }
 
-    const content = fs.readFileSync(indexPath, 'utf-8');
-    const entries = content
-      .split('\n')
-      .filter(line => line.includes(project.pmoNumber) && !line.startsWith('#'))
-      .map(line => {
-        const parts = line.split('|').map(s => s.trim());
-        return {
-          slug: parts[0] || '',
-          pmoNumber: parts[1] || '',
-          status: parts[2] || '',
-          title: parts[3] || '',
-          tags: parts[4] || '',
-        };
-      });
+    const sddEntries = files.map(file => {
+      const slug = path.basename(file, '.md');
+      let title = slug;
+      let status = '';
+      try {
+        const parsed = parseFrontmatter(fs.readFileSync(path.join(dir, file), 'utf-8'));
+        if (parsed) {
+          title = (parsed.meta.title as string) || slug;
+          status = (parsed.meta.status as string) || '';
+        }
+      } catch { /* 单文件解析失败不阻断列表，落文件名/空串兜底 */ }
+      return { slug, pmoNumber: project.pmoNumber, status, title, tags: '' };
+    });
 
-    return { sddEntries: entries };
+    return { sddEntries };
   },
 };
