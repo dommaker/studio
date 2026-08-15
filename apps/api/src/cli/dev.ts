@@ -130,12 +130,6 @@ export async function studioTest() {
     return r.ok;
   });
 
-  // RequirementsDoc endpoint
-  await check('RequirementsDoc endpoint', async () => {
-    const r = await fetch(`${baseUrl}/requirements-docs`);
-    return r.ok || r.status === 404;
-  });
-
   console.log(`\n  Results: ${passes} pass, ${failures} fail`);
   if (failures > 0) process.exit(1);
 }

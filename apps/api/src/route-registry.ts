@@ -144,8 +144,8 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
   // Daemon (AS-020 P5) 与 Task management（AS-020 P5 UI/Server task CRUD）路由已删：
   // HTTP claim 竖井无任何消费者（客户端三件套 5a982122 已删），任务队列只进不出
 
-  // Wiki routes (B2-008)
-  const { wikiRoutes } = await import('./modules/wiki/wiki.routes.js') as { wikiRoutes: Router };
+  // T5 #155: library 阅览室——跨项目 .studio/ 聚合只读层
+  const { libraryRoutes } = await import('./modules/library/library.routes.js') as { libraryRoutes: Router };
 
   // Health routes (M1)
   const healthRouter = ExpressRouter();
@@ -251,7 +251,7 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     { path: '/api/v1/role-memory', router: roleMemoryRoutes, middleware: auth, comment: '#101: 角色记忆人审闸口 approve/reject' },
     { path: '/api/v1/distill', router: distillRoutes, middleware: auth, comment: '#143: 蒸馏提案人审闸口 approve/reject' },
     { path: '/api/knowledge', router: knowledgeInternalRoutes, middleware: localhost, comment: 'Internal knowledge extraction API (2026-07 收紧：本机回环限定，此前全匿名可写/盗用 LLM)' },
-    { path: '/api/v1/wiki', router: wikiRoutes, comment: 'B2-008: LLM Wiki 档案馆' },
+    { path: '/api/v1/library', router: libraryRoutes, comment: 'T5 #155: library 阅览室——跨项目 .studio/ 聚合只读层' },
 
     // 运维
     { path: '/api/v1/health', router: healthRoutes, comment: 'M1: Health check' },
