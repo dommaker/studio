@@ -334,12 +334,11 @@ Channel 驱动管线入口：@Analyst 触发 → RequirementsDoc 生成 → Goal
 | contract-test-validator.ts | `validateContractTests()` | Layer 1-3 契约测试质量检查（AC coverage / TS syntax / import path） |
 | contract-test-red-check.ts | `verifyRedState()` | Layer 4 RED 状态验证 |
 | channel.routes.ts | Express router | Channel API 端点（消息/start_execution/cancel 等） |
-| requirements-doc.routes.ts | Express router | RequirementsDoc CRUD 端点 |
 
 ### 依赖关系
 
 **本模块依赖**：
-- `@dommaker/studio-shared` — FileStore（Channel / RequirementsDoc 等文件存储，已替代 studio-prisma DB）, logger, modelGateway, eventBus, toKebab, writeSddDoc
+- `@dommaker/studio-shared` — FileStore（Channel / RequirementsDoc 等文件存储，已替代 studio-prisma DB）, logger, modelGateway, eventBus, toKebab
 - `agents/monitor-agent` — 管线监控
 
 **被依赖**：
@@ -1360,38 +1359,37 @@ Trigger 子系统（AS-026，3.28c-4）：SCHEDULE（cron）+ EVENT（EventBus�
 - **鉴权（2026-07-24 收紧）**：`/api/v1/triggers` 挂载级 `requireAuth()+requireAdmin()` —— POST/DELETE 会热加载触发器直接驱动 AgentLoop 执行。另：`GET /status` 注册在 `GET /:id` 之后被遮蔽（历史 bug，未修）。
 
 
-## apps/api/src/modules/wiki
+## apps/api/src/modules/library
 
 ### 职责
 
-本目录实现 Wiki 文档的查询与更新 API，基于 SDD（Software Design Document）文件读取，提供列表搜索、图谱构建、文档详情与内容更新功能。所有读取操作均为 SDD-only（不依赖数据库），符合 B2-008 规范。
+阅览室（#155 T5）：跨项目 `.studio/` 文档面的聚合只读层。缺省遍历全部有 `gitRepo` 的 PMO 项目，读各仓 `.studio/` 下的 `specs/`、`research/`、`adr/`、`CONTEXT.md`（`?project=` 收窄单项目）；`legacy-sdd/<slug>/` 三层遗产 SDD 文档打 `legacy: true` 标记只读展示。无写路径——文档随各仓演进，变更历史 = git 历史。
 
 ### 核心导出
 
 | 导出 | 文件 | 说明 |
 | --- | --- | --- |
-| `wikiRoutes` | `wiki.routes.ts` | Express 路由，注册 `/api/v1/wiki` 下的 GET 列表、GET /graph、GET /:id 详情、PUT /:id 更新端点 |
-| `listWikiDocs` | `wiki.service.ts` | 过滤搜索 Wiki 文档（支持 search/status），返回 `WikiListItem[]` |
-| `buildWikiGraph` | `wiki.service.ts` | 构建所有文档的节点与边图结构，返回 `{ nodes, edges }` |
-| `getWikiDocById` | `wiki.service.ts` | 获取单个文档详情（含内容、链接解析、三级层级），返回 `WikiDocDetail` |
+| `libraryRoutes` | `library.routes.ts` | Express 路由，注册 `/api/v1/library` 下的 GET 列表（query: project/search）、GET /:id 详情端点（只读，无 PUT/POST/DELETE） |
+| `listLibraryDocs` | `library.service.ts` | 跨仓聚合文档列表（`{ projectId?, search? }`），返回 `LibraryListItem[]`（id = `projectId:relPath`，projectId 为 PMO 项目真值） |
+| `getLibraryDoc` | `library.service.ts` | 按 `projectId:relPath` 取详情；防路径穿越（resolve 后必须落在该仓 `.studio/` 根内）；legacy 文档带 requirement/design/task 三段 |
 
 ### 依赖关系
 
 上游：
-- `@dommaker/studio-shared`（依赖 `listSddDocs`、`readSddDoc`、`findSddDocById`、`logger`、`appendChangelog`、`updateSddFrontmatter`）
+- `@dommaker/studio-shared`（`logger`、`parseFrontmatter`、`listLegacySddDocs`、`readLegacySddDoc`）
+- `@dommaker/studio-shared/studio-dir`（`legacySddDir`）
+- `apps/api/src/modules/pmo/project.service.ts`（PMO 项目清单，只取 `gitRepo` 非空）
 - `express`（Router）
 
 下游：
-- `apps/api/src/route-registry.ts`（引入 `wikiRoutes` 并挂载至 `/api/v1/wiki` 路径）
+- `apps/api/src/route-registry.ts`（引入 `libraryRoutes` 并挂载至 `/api/v1/library` 路径）
 
 ### 注意事项
 
-- 所有读取操作均为 SDD-only，禁止回退到数据库读取
-- PUT 更新接口必须校验 `content` 为字符串类型，避免非字符串导致写入异常
-- `linkedDocIds` 参数兼容数组与 JSON 字符串形式，需使用 `parseLinkedDocIds` 解析
-- 路由中每个端点包含 `try-catch` 错误处理，统一返回 500 错误
-- 遵循 B2-008 规范，Wiki 文档即为 RequirementsDoc 档案馆的视图
-- **鉴权（2026-07-24 收紧）**：PUT /:id 已收 requireAuth+requireNotGuest。
+- 只读层：无任何写端点；文档变更走各仓 git，不走 API
+- title 兜底链：frontmatter title → 首个 H1 → 文件名；updatedAt 兜底链：frontmatter updatedAt → 文件 mtime
+- 单仓读失败（目录不存在/权限）不炸整体，跳过并 `logger.warn`
+- 前端 id 整段 `encodeURIComponent` 传入（含 `:` 与 `/`），路由侧 decode 后按首个冒号切分 projectId/relPath
 
 
 ## apps/api/src/modules/workspaces
@@ -1502,7 +1500,7 @@ WorkUnit 核心域（AS-025 §3.28c-1, §5.16）：任务单元的 CRUD、认领
 | `monitoringApi` | `api/monitoring.ts` | 监控、飞轮指标、开销 API + `getEfficiency`（#120 输入缓存命中率/段 trim 率）+ `terminateInstance`（强制停止实例，AgentDashboardPage/AgentDetailPage 共用） |
 | `memoryApi` | `api/memory.ts` | #101 角色记忆人审闸口（promote/demote）+ `draftStatus`（GET /role-memory/draft-status，MemoryProposalCard 刷新后按草稿墓碑状态派生已审态） |
 | `distillApi` | `api/distill.ts` | 蒸馏人审闸口（#143 approve/reject + proposal-status）、GC 候选清单（#144 gcApprove/gcReject/gcProposalStatus）、存量约束审计（#146 auditApprove/auditReject/auditProposalStatus）；卡片刷新后按提案状态派生已审态 |
-| `requirementApi` / `requirementsDocApi` | `api/requirements.ts` | 需求（REQ）CRUD 及关联工作单元链 API；`requirementsDocApi.update` = B2-009 SDD 需求文档编辑（PUT /requirements-docs/:id，RequirementsDocCard） |
+| `requirementApi` | `api/requirements.ts` | 需求（REQ）CRUD 及关联工作单元链 API（B2-009 requirementsDocApi 已随 #155 SDD 写侧退役删除） |
 | `knowledgeApi` | `api/knowledge.ts` | 知识审核闭环（promote/demote）+ 知识库浏览（listResolutions/listGaps/listUnified/createUnifiedEntry/search，KnowledgePage）。#149（2026-08-15）document-store 退役：项目文档（listByProject/getDetail/archive）与冷启动导入（importScan/importExecute）已摘除 |
 | `companyApi` | `api/company.ts` | 公司 CRUD（list/get/create/update；Settings 页 / PMOPage 共用，list 取 [0] 为默认公司） |
 | `okrApi` | `api/pmo.ts` | PMO OKR 列表/创建（/pmo/okr；PMOPage、PMOCard。PMO 项目 CRUD 仍在 api/index.ts 的 projectApi） |
@@ -1547,9 +1545,9 @@ WorkUnit 核心域（AS-025 §3.28c-1, §5.16）：任务单元的 CRUD、认领
 - **pending 确认入口（#126 T4，2026-08-15）**：扩范围单（feature/task/spec）创建落 `pending`（待确认人闸，引擎语义见本文 `apps/api/src/modules/workunit` 锚点），WorkUnitDrawer 对该状态显示「确认（进待认领）」按钮（`workunitApi.transitionStatus(id,'unassigned')`）；PMO 进度管道新增「待确认」泳道（pipelineUtils `PipelineLane` 第七值，列首），列表页状态过滤 `STATUS_OPTIONS` 增 pending；各处状态标签/配色表（WorkUnitDrawer/WorkUnitListPage/ProjectPipeline/ProjectActivity/mapUtils）均补 pending=待确认（u-warn 系）。
 - **PMO 页（决策 2/4 + PMO-b）**：PMOPage 有「新建 PMO」表单（标题/需求描述/工程多选/交付策略，projectApi.create）；卡片显示杂务徽章与交付策略。**工单 33 拆分（2026-08-07）**：PMOPage 只留列表+两个 tab（约 400 行）；三个自包含弹窗抽至 `components/pmo/`——`CreateProjectDialog`（新建 PMO，含工程扫描，open 时触发 discover；**#114 T8 工程改 checkbox 多选**——≥2 个选中走 `gitRepos` 多工程入参（每工程一条交付腿），单个选中仍走旧 `gitRepo` 入参）、`CreateOkrDialog`（创建 OKR + KR 编辑）、`PublishProjectDialog`（发起需求讨论，选频道+响应 Agent 解析，props = open/projectId/channels/onClose/onPublished）；OKR 度量纯函数与常量（getCurrentQuarter/parseIdArray/KR/METRIC_TYPE_OPTIONS/METRIC_META/validateKRTarget）抽至 `components/pmo/okrMetric.ts`。ProjectDetailPage 头部显示 REQ 别名/分支/交付策略，「📦 交付」区块 = `components/pmo/DeliveryPanel`（Card 7 抽取；props = projectId / delivery / onRefresh 回调）：台账（WU 完成度 + 三层证据缺口 + missing 清单）、auto-merge 显示交付合并按钮（human-only，409 缺口/冲突内联展示）、branch-only 只显示自行合并说明；缺口行动（重跑 L1 / 派发 L2 / L3 人工确认）的状态码→toast 矩阵集中在面板内（verify 422→hint / verify 409→无 worktree / dispatchReview 409→info，单测覆盖）。
 - **PMO 驾驶舱（2026-07-31，§5.5/§5.6/§10）**：ProjectDetailPage 自上而下 = 头部卡（原始需求可折叠块 + 状态 stepper 讨论→进行中→待验收→已交付 + channelId「去频道」）→「🚦 进度管道」（`components/pmo/ProjectPipeline`：总进度条 x/y（workFinished 口径）+ 待确认/待认领/执行中/评审中/阻塞/已完成六泳道（待确认 = #126 pending 人闸，扩范围单创建落点）；数据 = `requirementApi.getChain(reqAlias)`（§10 起条目自带 id/title/status/assigneeId/metadata + type/createdAt/claimedAt/completedAt，原逐 WU `workunitApi.get` N+1 补全已移除）+ `monitoringApi.getAgentSummary()` 名册解析认领人（assigneeId=instance.id → name，点击 →`/agents/:roleId`）；泳道/徽章走 deriveDisplayState 派生列，纯函数在 `components/pmo/pipelineUtils.ts`）→ 交付台账（`components/pmo/DeliveryPanel`，gaps 每行加「查看 WU ›」→`/workunits/:id`）→「📈 项目进展」（进度条取 project.progress + WU 链路六卡统计，仅 delivery 存在时渲染）→「🕐 项目动态」（`ProjectActivity`，buildProjectTimeline 拼 chain WU 时间戳 + deliveredAt，倒序 ≤20 条）。**Card 7（2026-08）**：老 Task 看板 / 执行历史 / 双轨统计（tasks 五卡 vs WU 六卡 if/else）已从页面删除，WU 链路为唯一口径；`/tasks?projectId=` 前端 fetch 一并移除——后端 `/tasks` API 与存量数据（16 条 legacy task，11 条 pending）刻意保留，仍可从 API 访问。§10 去重：「📈 项目进展」卡内旧四节点 stepper 已移除（与头部 stepper 重复，进度条/统计卡保留）。PMOPage 卡片徽章（§5.6）：列表加载后对可见项目并行 getChain（WU x/y），allSettled 失败静默、0 值不显示。**#149（2026-08-15）document-store 退役**：页面原「📚 知识库」文档区（KnowledgeDocGrid 三列网格 + DocReaderDrawer 抽屉 + 「归档知识」/「模式识别」按钮）、PMOPage 📄 文档计数徽章、KnowledgeImportPage 冷启动导入向导一并摘除。
-- **MarkdownBody 统一渲染（2026-07-31，§10 任务 4b）**：`components/knowledge/MarkdownBody.tsx` = react-markdown + remark-gfm（新依赖；默认不渲染原始 HTML，agent 产出按不可信输入免 DOMPurify），components 映射到 u-* 类/CSS 变量（--bg-tertiary/--border-subtle）适配暗色，不引 typography 插件；`[[wiki 链接]]` 预处理为 /wiki/<title> 站内 router Link（沿用 WikiDocPage 原 renderContent 语义），外链 target=_blank。WikiDocPage 正文接入（React.lazy 按需加载，fallback = 原 plain-text pre-wrap 形态；WikiDocPage 旧 renderContent 与无效 prose 类已删；另一消费方 DocReaderDrawer 已随 #149 document-store 退役删除）。
+- **MarkdownBody 统一渲染（2026-07-31，§10 任务 4b）**：`components/knowledge/MarkdownBody.tsx` = react-markdown + remark-gfm（新依赖；默认不渲染原始 HTML，agent 产出按不可信输入免 DOMPurify），components 映射到 u-* 类/CSS 变量（--bg-tertiary/--border-subtle）适配暗色，不引 typography 插件；`[[wiki 链接]]` 预处理为 /library/<title> 站内 router Link（#155 起指向阅览室），外链 target=_blank。现消费方 = LibraryDocPage 正文（React.lazy 按需加载，fallback = 原 plain-text pre-wrap 形态；另一消费方 DocReaderDrawer 已随 #149 document-store 退役删除）。
 - **工单 35 拆分（2026-08-07）**：Settings 8 个 section 组件化抽至 `components/settings/`——`ComputeSection`（算力接入：WorkspaceStatusBar + 加入算力 + TokenManager，JoinComputeDialog 开关状态内化）、`NotifyChannelSection`（Discord/企微/Telegram 三段合并为数据驱动 fields 数组，enabled 推导逻辑留在页面 props）、`NotifySyncStatusHint`（已同步/需重存提示）、`CompanySection`（公司名自动保存 + 无公司时创建，Company 类型由此导出）、`KnowledgeEntrySection`、`ThemeSettings`，页面只剩 secrets/通知/公司加载链路与 handleSave（244 行）。ProjectDetailPage 抽 `components/pmo/IdeGuideDialogs`（VS Code/Cloud IDE 两个指南弹窗 + steps 常量 + copyStep 内化）、`components/knowledge/KnowledgeDocGrid`（三列数据驱动：需求/设计规范/执行归档；已随 #149 document-store 退役删除）、`components/pmo/ProjectProgressCard`（进度条 + WU 六卡 + 证据警告条，evidenceGapSummary 内化），页面剩 381 行。**硬编码生产 IP 已消除**：IDE 地址走既有 vite env 配置通道（同 `VITE_API_URL` 惯例）——`VITE_IDE_SSH_HOST` / `VITE_IDE_CLOUD_IDE_URL`，缺省回退按 `window.location.hostname` 推导（`root@<host>` / `http://<host>:8443`）。
-- **工单 34 拆分（2026-08-07）**：KnowledgePage 底部六类 Gap 展示卡片（Preference/BusinessRule/EnvSnapshot/DecisionChain/InteractionPattern/Resolution）抽至 `components/knowledge/GapCards.tsx`（纯展示，页面剩约 370 行）；KnowledgeGraphView 的图谱数据类型（KnowledgeNode/KnowledgeEdge/Layer/KnowledgeGraph）、简化 dagre 布局 `applySimpleLayout`、diff 影响分析 `analyzeDiffImpact` 与构建工具 `buildKnowledgeGraphFromAnalysis` 抽至 `components/knowledge/graphUtils.ts` 纯函数模块，视图组件（约 280 行）只留渲染并 re-export 类型门面（WikiPage 等既有 import 路径不变；函数 re-export 已于 lint B8 移除，无消费方，直接从 graphUtils 导入）。
+- **工单 34 拆分（2026-08-07）**：KnowledgePage 底部六类 Gap 展示卡片（Preference/BusinessRule/EnvSnapshot/DecisionChain/InteractionPattern/Resolution）抽至 `components/knowledge/GapCards.tsx`（纯展示，页面剩约 370 行）；KnowledgeGraphView 的图谱数据类型（KnowledgeNode/KnowledgeEdge/Layer/KnowledgeGraph）、简化 dagre 布局 `applySimpleLayout`、diff 影响分析 `analyzeDiffImpact` 与构建工具 `buildKnowledgeGraphFromAnalysis` 抽至 `components/knowledge/graphUtils.ts` 纯函数模块，视图组件（约 280 行）只留渲染并 re-export 类型门面（图谱唯一消费方 WikiPage 已随 #155 退役，组件暂留备用；函数 re-export 已于 lint B8 移除，无消费方，直接从 graphUtils 导入）。
 - **PMO 发起讨论弹窗（2026-07-29）**：选频道后实时解析「会响应的 Agent」（与 AgentLoop.observe 同口径——channel.members 非空取成员交集；空则回退 profile.channels，空 channels = 全频道可见；数据源 listAllAgents 客户端过滤 active/非 studio），0 人可响应时显示 ⚠ 警示（不阻断发起）；确认后跳转该频道闭环。
 - **频道线程内过程消息折叠（2026-07-29）**：ChannelDetailPage 线程回复里连续 ≥3 条「过程消息」聚合为一组默认折叠（`collapseProcessReplies`）；里程碑不折叠 = 人类消息 / 卡片消息 / NEED_INPUT 等待回复 / 最后一条回复（最新状态恒可见）。频道只留里程碑、过程可展开——防止 agent 每步 summary 淹没讨论。
 - **通知/消息可点击跳转（2026-07-31，§5.7）**：NotificationBell 从 SSE payload 取 `message.workUnitId` + `message.meta.pmoId`（老消息缺 pmoId → null，防御），每条通知右侧「WU」「PMO」直跳小按钮（stopPropagation + 标记已读 + 收起）；点本体优先级 WU 详情 `/workunits/:id` > PMO 详情 `/pmo/project/:id` > 频道。ChannelMessageItem 的 WU chip（仍开右抽屉）旁加「↗」直跳 `/workunits/:id`；`meta.pmoId` 存在时渲染「PMO ›」chip 直跳 `/pmo/project/:id`。

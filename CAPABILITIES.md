@@ -58,7 +58,7 @@
 | skills | apps/api/src/modules/skills/ | SkillHub API — CRUD + 生命周期 + Agent 可发现性 + 使用统计 |
 | routes | apps/api/src/modules/specs/routes.ts | POST /api/v1/specs/:id/analyze-change |
 | error-class | apps/api/src/modules/triage/error-class.ts | Triage ErrorClass — B1-007: 八类错误标签 + 严重度三级 + 策略路由 |
-| wiki | apps/api/src/modules/wiki/ | GET /api/v1/wiki |
+| library | apps/api/src/modules/library/ | GET /api/v1/library（#155 阅览室：跨项目 .studio/ 聚合只读）|
 | api | apps/web/src/api/ | Channel API — list + publish 发布 |
 | hooks | apps/web/src/hooks/ | Channel SSE hook — B2: EventSource 实时推送替代 3s 轮询 |
 

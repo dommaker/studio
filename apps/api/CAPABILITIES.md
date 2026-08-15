@@ -88,7 +88,7 @@
 | skill-extraction.service | src/modules/skills/skill-extraction.service.ts | Skill Extraction Service — 面向新架构 GoalExecution |
 | skill-proposal-routes | src/modules/skills/skill-proposal-routes.ts | Skill Proposal API 路由 |
 | error-class | src/modules/triage/error-class.ts | Triage ErrorClass — B1-007: 八类错误标签 + 严重度三级 + 策略路由 |
-| wiki.routes | src/modules/wiki/wiki.routes.ts | GET /api/v1/wiki |
+| library.routes | src/modules/library/library.routes.ts | GET /api/v1/library（只读，无写端点）|
 | daemon-routes | src/modules/workspaces/daemon-routes.ts | Daemon Routes — AS-020 P5: HTTP Claim + Event Reporting |
 | discover-proxy | src/modules/workspaces/discover-proxy.ts | Discover Proxy — AS-020 P4: Proxy directory discovery through WS |
 | local-workspace | src/modules/workspaces/local-workspace.ts | Local Workspace Registration — AS-020 P2-04 |
@@ -123,6 +123,6 @@
 | trigger-store | src/modules/triggers/trigger-store.ts | Trigger Store — YAML-based trigger config persistence (3.28c-4) |
 | trigger.routes | src/modules/triggers/trigger.routes.ts | Trigger Routes — REST API for trigger management (3.28c-4) |
 | trigger.types | src/modules/triggers/trigger.types.ts | Trigger Registry Types (3.28c-4, AS-026 extended) |
-| wiki.service | src/modules/wiki/wiki.service.ts | Wiki service — SDD-based read logic |
+| library.service | src/modules/library/library.service.ts | Library service — 跨仓 .studio/ 聚合只读 |
 | workunit.routes | src/modules/workunit/workunit.routes.ts | WorkUnit API 路由 (AS-025 §3.28c-1, §5.16) |
 | workunit.service | src/modules/workunit/workunit.service.ts | WorkUnit Service — 工作单元 CRUD + Claim + 状态机 |
