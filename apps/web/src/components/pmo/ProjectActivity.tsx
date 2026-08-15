@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { formatTimelineTime, type ProjectTimelineEntry } from './pipelineUtils';
 
 const WU_STATUS_LABELS: Record<string, string> = {
+  pending: '待确认',
   unassigned: '待分配',
   active: '执行中',
   in_review: '审查中',

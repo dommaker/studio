@@ -221,6 +221,7 @@ export interface WorkUnitData {
 
 /** Valid status transitions map */
 export const VALID_TRANSITIONS: Record<string, string[]> = {
+  pending: ['unassigned', 'closed'],
   unassigned: ['active', 'closed'],
   active: ['in_review', 'closed', 'blocked'],
   in_review: ['done', 'active', 'closed'],
@@ -237,12 +238,29 @@ export const VALID_TRANSITIONS: Record<string, string[]> = {
 export const DECISION_SPEC_TYPES = new Set(['decision', 'spec']);
 
 /**
+ * #126（T4，#105 子票）：扩范围类型集——创建后落「待确认」（pending），人工确认
+ * （pending → unassigned）才进 frontier 可认领；未列出的类型（bug/implement/review/
+ * analysis/decision 等圈内单）创建即可认领。词表映射（根 CONTEXT.md「工单类型」）：
+ * 需求=feature、任务单=task、spec单=spec；增删类型 = 治理变更。
+ * 已过人工闸的机制建单（spec-materialization/analysis-handoff l3 确认后派生 task、
+ * 管线展开 implement 子单）显式传 status='unassigned'，不吃默认落 pending——单层人闸。
+ */
+export const PENDING_CONFIRM_TYPES = new Set(['feature', 'task', 'spec']);
+
+/** 创建时初始状态决策：显式 status 优先，否则按类型属性（扩范围 → pending，其余 → unassigned） */
+export function resolveInitialStatus(wuType: string, explicit?: string): string {
+  if (explicit) return explicit;
+  return PENDING_CONFIRM_TYPES.has(wuType) ? 'pending' : 'unassigned';
+}
+
+/**
  * #108：decision/spec 的裁剪状态机 —— `unassigned → active ⇄ waitingForInput → in_review → done`。
  * 现有实现里 waitingForInput 挂起 = status blocked + metadata.waitingForInput（F5 双向沟通），
  * 故表内体现为 active ⇄ blocked；无 closed（决策单可能等关键人多天，不进死信/超时关闭路径；
  * 死信关闭机制 #57 尚待实现，届时需对齐本豁免）。
  */
 const DECISION_SPEC_TRANSITIONS: Record<string, string[]> = {
+  pending: ['unassigned'],
   unassigned: ['active'],
   active: ['in_review', 'blocked'],
   blocked: ['active'],

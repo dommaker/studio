@@ -155,13 +155,14 @@ describe('snapshotToData 转换边界', () => {
 // ── create（inputToSnapshot 边界 + 事件发布）──
 
 describe('create', () => {
-  it('仅传 scope → 默认值：type=task、status=unassigned、retryCount=0、可空字段全 null', async () => {
+  it('仅传 scope → 默认值：type=task、status=pending（#126 待确认门）、retryCount=0、可空字段全 null', async () => {
     const wu = await service.create({ scope: '最小输入' });
 
     expect(wu.id).toBeTruthy();
     expect(wu.type).toBe('task');
     expect(wu.scope).toBe('最小输入');
-    expect(wu.status).toBe('unassigned');
+    // #126：feature/task/spec 未显式 status 默认落 pending（待确认人工门），不再是 unassigned
+    expect(wu.status).toBe('pending');
     expect(wu.retryCount).toBe(0);
     expect(wu.assigneeId).toBeNull();
     expect(wu.parentId).toBeNull();
@@ -224,7 +225,7 @@ describe('create', () => {
     const handler = (payload: { workunit: WorkUnitData }) => { created.push(payload.workunit); };
     eventBus.subscribe('workunit.created', handler);
     try {
-      const wu = await service.create({ scope: '事件验证', type: 'task', channelId: 'ch-1' });
+      const wu = await service.create({ scope: '事件验证', type: 'task', channelId: 'ch-1', status: 'unassigned' }); // #126：task 默认落 pending，本用例断言快照 unassigned，显式置 status
 
       // 事件流
       const events = readEvents();
@@ -452,6 +453,7 @@ describe('claim', () => {
     const explicit = '2026-09-01T00:00:00.000Z';
     const wu = await service.create({
       scope: '显式超时', type: 'task', channelId: 'ch-1',
+      status: 'unassigned', // #126：task 默认落 pending（不可认领），显式置 unassigned
       metadata: { timeoutAt: explicit },
     });
 
@@ -464,6 +466,7 @@ describe('claim', () => {
     const before = Date.now();
     const wu = await service.create({
       scope: '非法显式超时', type: 'task', channelId: 'ch-1',
+      status: 'unassigned', // #126：task 默认落 pending（不可认领），显式置 unassigned
       metadata: { timeoutAt: 'not-a-date' },
     });
 
@@ -476,7 +479,7 @@ describe('claim', () => {
 
   it('metadata 损坏（非法 JSON）→ 不阻断 claim，回落默认 timeout', async () => {
     const before = Date.now();
-    const wu = await service.create({ scope: '损坏元数据', type: 'task', channelId: 'ch-1' });
+    const wu = await service.create({ scope: '损坏元数据', type: 'task', channelId: 'ch-1', status: 'unassigned' }); // #126：task 默认落 pending（不可认领），显式置 unassigned
     // 绕过 create 的 JSON.stringify，直接把损坏 metadata 写进索引
     const snapshot = await findSnapshot(wu.id);
     await fileStore.upsertSnapshot({ ...snapshot!, metadata: '{broken json' });
@@ -492,7 +495,9 @@ describe('claim', () => {
   it('已有 timeoutAt 列值时 claim 不覆盖', async () => {
     const preset = new Date(Date.now() + 5 * 60_000);
     const wu = await service.create({
-      scope: '预设超时', type: 'task', channelId: 'ch-1', timeoutAt: preset,
+      scope: '预设超时', type: 'task', channelId: 'ch-1',
+      status: 'unassigned', // #126：task 默认落 pending（不可认领），显式置 unassigned
+      timeoutAt: preset,
     });
 
     const claimed = await service.claim(wu.id, 'inst-1');
@@ -522,6 +527,7 @@ describe('claim', () => {
     });
     const other = await service.create({
       scope: '无关文件', type: 'task', channelId: 'ch-1',
+      status: 'unassigned', // #126：task 默认落 pending（不可认领），显式置 unassigned
       metadata: { files: ['src/c.ts'] },
     });
 
@@ -536,7 +542,7 @@ describe('unclaim', () => {
   });
 
   it('成功：回到 unassigned、清 assigneeId/claimedAt，发 status_changed', async () => {
-    const wu = await service.create({ scope: '释放任务', type: 'task', channelId: 'ch-1' });
+    const wu = await service.create({ scope: '释放任务', type: 'task', channelId: 'ch-1', status: 'unassigned' }); // #126：task 默认落 pending（不可认领），显式置 unassigned
     await service.claim(wu.id, 'inst-1');
     statusEvents.length = 0;
 

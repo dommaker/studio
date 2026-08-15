@@ -12,6 +12,7 @@
 
 import { randomUUID } from 'crypto';
 import { logger, eventBus, FileStore, type AgentProfileData, type ChannelMessageData, type WorkUnitSnapshot, type WorkUnitEvent } from '@dommaker/studio-shared';
+import { resolveInitialStatus } from './workunit.types.js';
 import type { WorkUnitMetadata } from './workunit.service.js';
 
 export interface CreateWorkUnitInput {
@@ -137,7 +138,8 @@ function inputToSnapshot(
     type: input.type ?? 'task',
     scope: input.scope,
     assigneeId: input.assigneeId ?? null,
-    status: input.status ?? 'unassigned',
+    // #126（T4）：扩范围类型（feature/task/spec）未显式给 status 时默认落 pending（待确认人闸）
+    status: resolveInitialStatus(input.type ?? 'task', input.status),
     failureType: input.failureType ?? null,
     retryCount: input.retryCount ?? 0,
     timeoutAt: input.timeoutAt?.toISOString() ?? null,
@@ -218,7 +220,9 @@ export class WorkUnitCrudService {
     const parentWu = snapshotToData(snapshot);
 
     // AC-6.3: 频道默认管线展开（D10: 只展开第一跳，后续靠 agent DELEGATE）
-    if (input.type === 'feature' && input.channelId) {
+    // #126（T4）：feature 落 pending（待确认人闸）时不展开——确认（pending→unassigned）
+    // 时由 transitionStatus 补展开，避免未确认需求先烧 token。
+    if (input.type === 'feature' && input.channelId && parentWu.status === 'unassigned') {
       await this.expandDefaultPipelineHead(parentWu).catch(err =>
         logger.warn('[WorkUnit] defaultPipeline expansion failed (non-blocking)', {
           parentId: parentWu.id,
@@ -234,10 +238,14 @@ export class WorkUnitCrudService {
    * AC-6.3 + D10: 展开频道默认管线的第一跳。
    * 仅 type='feature' 父 WU 触发；创建 type=pipeline[0] 的链头子 WU，
    * 后续跳由 agent DELEGATE 协议接管（不全链路代码展开）。
+   * #126（T4）：幂等——父单已有任何子单则跳过（create 与确认后补展开两处调用点）。
    */
-  private async expandDefaultPipelineHead(parent: WorkUnitData): Promise<void> {
+  protected async expandDefaultPipelineHead(parent: WorkUnitData): Promise<void> {
     const channel = await this.fileStore.getChannel(parent.channelId!);
     if (!channel?.defaultPipeline || channel.defaultPipeline.length === 0) return;
+
+    const existing = await this.fileStore.getIndex();
+    if (existing.some(s => s.parentId === parent.id)) return;
 
     const firstName = channel.defaultPipeline[0];
     const profiles = await this.fileStore.listProfiles({ status: 'active' });
@@ -534,6 +542,10 @@ export class WorkUnitCrudService {
 
     const parent = snapshots.find(s => s.id === child.parentId);
     if (!parent || parent.status === newStatus) return;
+
+    // #126（T4）：pending = 待确认人闸，只能人工确认（pending→unassigned）解除，
+    // 子单聚合不覆盖（否则子单 active 会顶掉人闸）。
+    if (parent.status === 'pending') return;
 
     // State ordering guard: don't overwrite a parent that's already at a "later" state.
     const ORDER: Record<string, number> = { unassigned: 0, active: 1, blocked: 2, in_review: 3, done: 4, closed: 5 };

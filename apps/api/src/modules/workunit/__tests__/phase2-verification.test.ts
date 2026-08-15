@@ -66,7 +66,10 @@ describe('Phase 2 Verification Scenarios', () => {
     // Convert message to WorkUnit
     const wu = await service.createFromMessage(msg.id);
     testIds.push(wu.id);
-    expect(wu.status).toBe('unassigned');
+    // #126：消息转 WU（默认 type=task）落 pending（待确认门）；createFromMessage 不透传 status，
+    // 确认（pending → unassigned）后才可被认领
+    expect(wu.status).toBe('pending');
+    await service.transitionStatus(wu.id, 'unassigned');
 
     // Verify message linked
     const linked = await fileStore.getMessageById(msg.id);
@@ -101,7 +104,7 @@ describe('Phase 2 Verification Scenarios', () => {
   // ── Scenario 2: Review failure → retry → success ──
 
   it('Scenario 2: in_review → reject → active → in_review → approve → done', async () => {
-    const wu = await service.create({ scope: 'Review retry test' });
+    const wu = await service.create({ scope: 'Review retry test', status: 'unassigned' }); // #126：task 默认落 pending，显式置 unassigned
     testIds.push(wu.id);
 
     await service.claim(wu.id, 'agent-dev');
@@ -122,7 +125,7 @@ describe('Phase 2 Verification Scenarios', () => {
   });
 
   it('Scenario 2 edge: 3 consecutive rejections → auto-block', async () => {
-    const wu = await service.create({ scope: 'Triple reject test' });
+    const wu = await service.create({ scope: 'Triple reject test', status: 'unassigned' }); // #126：task 默认落 pending，显式置 unassigned
     testIds.push(wu.id);
     await service.claim(wu.id, 'agent-stuck');
 
@@ -143,7 +146,7 @@ describe('Phase 2 Verification Scenarios', () => {
   // ── Scenario 3: Claim competition ──
 
   it('Scenario 3: optimistic lock — only one agent claims', async () => {
-    const wu = await service.create({ scope: 'Claim race' });
+    const wu = await service.create({ scope: 'Claim race', status: 'unassigned' }); // #126：task 默认落 pending，显式置 unassigned
     testIds.push(wu.id);
 
     const results = await Promise.allSettled([
@@ -161,13 +164,14 @@ describe('Phase 2 Verification Scenarios', () => {
 
   it('Scenario 5: parent-child decomposition + aggregation', async () => {
     // Parent: "Implement auth"
-    const parent = await service.create({ scope: 'Implement auth system' });
+    // #126：task 默认落 pending（不可认领/迁移），父子全部显式置 unassigned 保持原有用例语义
+    const parent = await service.create({ scope: 'Implement auth system', status: 'unassigned' });
     testIds.push(parent.id);
 
     // Children: decomposition
-    const analysis = await service.create({ scope: 'Auth requirement analysis', parentId: parent.id });
-    const impl = await service.create({ scope: 'Auth implementation', parentId: parent.id });
-    const review = await service.create({ scope: 'Auth review', parentId: parent.id });
+    const analysis = await service.create({ scope: 'Auth requirement analysis', parentId: parent.id, status: 'unassigned' });
+    const impl = await service.create({ scope: 'Auth implementation', parentId: parent.id, status: 'unassigned' });
+    const review = await service.create({ scope: 'Auth review', parentId: parent.id, status: 'unassigned' });
     testIds.push(analysis.id, impl.id, review.id);
 
     // Wait for fire-and-forget aggregateParentStatus to settle.
@@ -209,7 +213,7 @@ describe('Phase 2 Verification Scenarios', () => {
   });
 
   it('Scenario 5 edge: 1 closed + rest done → parent in_review', async () => {
-    const parent = await service.create({ scope: 'Mixed completion' });
+    const parent = await service.create({ scope: 'Mixed completion', status: 'unassigned' }); // #126：task 默认落 pending，显式置 unassigned
     const c1 = await service.create({ scope: 'Done child', parentId: parent.id, status: 'done' });
     const c2 = await service.create({ scope: 'Closed child', parentId: parent.id, status: 'closed' });
     testIds.push(parent.id, c1.id, c2.id);

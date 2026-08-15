@@ -41,8 +41,8 @@ export interface WuAttestations {
   l3?: AttestationEntry;
 }
 
-/** 看板列词表（与现门模型状态词表一致，派生值也落在这六列） */
-export type WuDisplayColumn = 'unassigned' | 'active' | 'in_review' | 'done' | 'blocked' | 'closed';
+/** 看板列词表（与现门模型状态词表一致，派生值也落在这七列） */
+export type WuDisplayColumn = 'pending' | 'unassigned' | 'active' | 'in_review' | 'done' | 'blocked' | 'closed';
 
 export interface DerivedWuState {
   /** 展示列：UI 分列/徽章/计数只能用这个值 */
@@ -116,7 +116,8 @@ export function withAttestation(
  * 唯一派生口径：WU 存储状态 + 证据台账 → 展示列/证据快照/人类待办。
  *
  * 派生规则（双轨期）：
- *   - 所有权状态（unassigned/active/blocked/closed）原样透传——这些不是信任状态；
+ *   - 所有权状态（pending/unassigned/active/blocked/closed）原样透传——这些不是信任状态；
+ *     pending（#126 待确认人闸）= 扩范围单创建落点，needsHuman = true（人工确认才进 frontier）；
  *   - 手写 in_review → in_review（门模型仍在跑，存储值保持权威）；
  *   - done 且无证据（legacy 存量）→ done 原样透传；
  *   - done 且证据已介入 → l3 approved 才出 done 列，否则回 in_review 列（等人工确认）。
@@ -132,6 +133,7 @@ export function deriveDisplayState(input: { status: string; metadata?: unknown }
 
   let column: WuDisplayColumn;
   switch (input.status) {
+    case 'pending':
     case 'unassigned':
     case 'active':
     case 'blocked':
@@ -151,6 +153,7 @@ export function deriveDisplayState(input: { status: string; metadata?: unknown }
   }
 
   const needsHuman =
+    input.status === 'pending' ||
     input.status === 'in_review' ||
     (input.status === 'done' && attestations !== undefined && !l3);
 

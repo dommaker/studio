@@ -144,7 +144,10 @@ describe('WorkUnit E2E Lifecycle (3.28c-6)', () => {
     expect(result.id).toBeDefined();
     expect(result.type).toBe('task');
     expect(result.scope).toBe('需求分析：验证 E2E 流程');
-    expect(result.status).toBe('unassigned');
+    // #126：task 未显式 status 默认落 pending（待确认人工门）；trigger 链路不透传 status，
+    // 确认（pending → unassigned）后才进入可认领任务池，后续 AC 走认领流
+    expect(result.status).toBe('pending');
+    await workUnitService.transitionStatus(workUnitId, 'unassigned');
     expect(result.channelId).toBe(testChannelId);
 
     // Metadata has trigger traceability

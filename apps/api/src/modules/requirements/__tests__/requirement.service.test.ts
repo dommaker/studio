@@ -207,8 +207,8 @@ describe('RequirementService (vision §5.3)', () => {
   describe('getChain', () => {
     it('returns requirement + workunit summaries (id/title/status/assignee + type/时间戳)', async () => {
       const req = await service.create({ title: '链路需求' });
-      const wu1 = await workUnitService.create({ scope: '任务一', reqId: req.id, metadata: { title: '实现登录' } });
-      const wu2 = await workUnitService.create({ scope: '任务二', reqId: req.id, assigneeId: 'agent-1' });
+      const wu1 = await workUnitService.create({ scope: '任务一', reqId: req.id, status: 'unassigned', metadata: { title: '实现登录' } });
+      const wu2 = await workUnitService.create({ scope: '任务二', reqId: req.id, status: 'unassigned', assigneeId: 'agent-1' });
       await workUnitService.create({ scope: '别的需求任务', reqId: null });
       // 认领 wu1 → claimedAt 落档（completedAt 仍为 null）
       await workUnitService.claim(wu1.id, 'inst-1');
@@ -239,8 +239,8 @@ describe('RequirementService (vision §5.3)', () => {
   describe('status roll-up (maybeRollUpToDone)', () => {
     it('marks requirement done when all workunits reach terminal states', async () => {
       const req = await service.create({ title: '汇总需求', status: 'in-progress' });
-      const wu1 = await workUnitService.create({ scope: 't1', reqId: req.id });
-      const wu2 = await workUnitService.create({ scope: 't2', reqId: req.id });
+      const wu1 = await workUnitService.create({ scope: 't1', reqId: req.id, status: 'unassigned' });
+      const wu2 = await workUnitService.create({ scope: 't2', reqId: req.id, status: 'unassigned' });
 
       // 未到终态 → 不汇总
       expect(await service.maybeRollUpToDone(req.id)).toBe(false);
@@ -295,7 +295,7 @@ describe('RequirementService (vision §5.3)', () => {
   describe('initRequirementRollup (event subscription)', () => {
     it('rolls up to done on workunit.status_changed', async () => {
       const req = await service.create({ title: '事件汇总', status: 'in-progress' });
-      const wu = await workUnitService.create({ scope: 't', reqId: req.id });
+      const wu = await workUnitService.create({ scope: 't', reqId: req.id, status: 'unassigned' });
 
       const unsubscribe = initRequirementRollup(service);
       try {
@@ -422,7 +422,7 @@ describe('PMO-a：REQ → PMO 只读别名层（决策 4/2）', () => {
 
   it('maybeRollUpToDone：别名视图跳过（PMO 状态由 progress-rollup 拥有）', async () => {
     const svc = aliasService();
-    const wu = await workUnitService.create({ scope: '杂活', reqId: 'REQ-0011' });
+    const wu = await workUnitService.create({ scope: '杂活', reqId: 'REQ-0011', status: 'unassigned' });
     await workUnitService.claim(wu.id, 'inst-1');
     await workUnitService.transitionStatus(wu.id, 'in_review');
     await workUnitService.transitionStatus(wu.id, 'done');

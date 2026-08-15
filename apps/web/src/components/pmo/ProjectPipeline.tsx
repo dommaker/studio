@@ -12,6 +12,7 @@ import {
 } from './pipelineUtils';
 
 const LANE_DEFS: Array<{ key: PipelineLane; label: string; headClass: string; laneClass: string }> = [
+  { key: 'pending', label: '待确认', headClass: 'u-warn', laneClass: 'u-warn-dim' },
   { key: 'unassigned', label: '待认领', headClass: 'u-text-2', laneClass: 'u-surface-2' },
   { key: 'active', label: '执行中', headClass: 'u-accent', laneClass: 'u-accent-dim' },
   { key: 'in_review', label: '评审中', headClass: 'u-warn', laneClass: 'u-warn-dim' },
@@ -21,6 +22,7 @@ const LANE_DEFS: Array<{ key: PipelineLane; label: string; headClass: string; la
 
 // 状态 chip 配色与 RequirementChainPanel / 任务看板一致
 const STATUS_LABELS: Record<string, string> = {
+  pending: '待确认',
   unassigned: '待分配',
   active: '执行中',
   in_review: '审查中',
@@ -30,6 +32,7 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 const STATUS_COLORS: Record<string, string> = {
+  pending: 'u-warn-dim u-warn',
   unassigned: 'u-surface-2 u-text-2',
   active: 'u-accent-dim u-accent',
   in_review: 'u-warn-dim u-warn',

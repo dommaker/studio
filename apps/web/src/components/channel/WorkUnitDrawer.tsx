@@ -28,6 +28,7 @@ const REQ_STATUS_LABELS: Record<string, string> = {
 };
 
 const WU_STATUS_LABELS: Record<string, string> = {
+  pending: '待确认',
   unassigned: '待分配',
   active: '执行中',
   in_review: '审查中',
@@ -159,6 +160,17 @@ function WuDetail({ id, onOpenReq }: { id: string; onOpenReq: (reqId: string) =>
   // analysis 单走确认弹窗（待决问题清单审核，预填→人改→带 summary 提交）；其余类型保持一键通过
   const handleApprove = () => (wu.type === 'analysis' ? setShowApproveModal(true) : handleReviewPassed());
 
+  /** #126（T4）待确认人闸：扩范围单（feature/task/spec）创建落 pending，人工确认 → unassigned 进 frontier 可认领 */
+  const handleConfirmPending = async () => {
+    setConfirming(true);
+    try {
+      await workunitApi.transitionStatus(id, 'unassigned');
+      setEventTick(t => t + 1);
+    } finally {
+      setConfirming(false);
+    }
+  };
+
   return (
     <div>
       <div className="mc-drawer-subject">
@@ -191,6 +203,18 @@ function WuDetail({ id, onOpenReq }: { id: string; onOpenReq: (reqId: string) =>
       {/* F6 证据台账：L1 自动验证 / L2 Agent 评审 / L3 人工验收 三层留痕（共享 EvidenceLedger，卡片变体见 WorkUnitDetailPage）。
           语义：L2 是流程硬门（过了即推进）；L3 是人工背书台账，不阻断流程（done 缺 l3 时展示回审查列）。 */}
       <EvidenceLedger attestations={attestations} variant="drawer" />
+      {wu.status === 'pending' && (
+        <div style={{ margin: '4px 0 8px' }}>
+          <button
+            className="mc-wu-link"
+            disabled={confirming}
+            title="待确认人闸：扩范围单创建落待确认，确认后进入待认领（agent 可见可认领）"
+            onClick={handleConfirmPending}
+          >
+            {confirming ? '提交中…' : '确认（进待认领）'}
+          </button>
+        </div>
+      )}
       {wu.status === 'in_review' && (
         <div style={{ margin: '4px 0 8px' }}>
           <button

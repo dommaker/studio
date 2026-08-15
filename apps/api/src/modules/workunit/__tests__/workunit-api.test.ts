@@ -60,7 +60,8 @@ describeIf('WorkUnit API service', () => {
       expect(wu.id).toBeDefined();
       expect(wu.scope).toBe('Test minimal');
       expect(wu.type).toBe('task');
-      expect(wu.status).toBe('unassigned');
+      // #126：feature/task/spec 未显式 status 默认落 pending（待确认人工门），不再是 unassigned
+      expect(wu.status).toBe('pending');
       expect(wu.assigneeId).toBeNull();
     });
 
@@ -126,7 +127,7 @@ describeIf('WorkUnit API service', () => {
 
   describe('Claim', () => {
     it('AC3: claim succeeds for unassigned WorkUnit', async () => {
-      const wu = await service.create({ scope: 'Claimable' });
+      const wu = await service.create({ scope: 'Claimable', status: 'unassigned' }); // #126：task 默认落 pending（不可认领），显式置 unassigned
       testIds.push(wu.id);
 
       const claimed = await service.claim(wu.id, 'agent-A');
@@ -136,7 +137,7 @@ describeIf('WorkUnit API service', () => {
     });
 
     it('AC3: claim fails for already assigned WorkUnit', async () => {
-      const wu = await service.create({ scope: 'Already claimed' });
+      const wu = await service.create({ scope: 'Already claimed', status: 'unassigned' }); // #126：task 默认落 pending（不可认领），显式置 unassigned
       testIds.push(wu.id);
 
       await service.claim(wu.id, 'agent-A');
@@ -148,7 +149,7 @@ describeIf('WorkUnit API service', () => {
     });
 
     it('AC3: concurrent claim — exactly one succeeds', async () => {
-      const wu = await service.create({ scope: 'Contested' });
+      const wu = await service.create({ scope: 'Contested', status: 'unassigned' }); // #126：task 默认落 pending（不可认领），显式置 unassigned
       testIds.push(wu.id);
 
       const [resultA, resultB] = await Promise.allSettled([
@@ -169,7 +170,7 @@ describeIf('WorkUnit API service', () => {
     });
 
     it('unclaim resets WorkUnit to unassigned', async () => {
-      const wu = await service.create({ scope: 'Unclaimable' });
+      const wu = await service.create({ scope: 'Unclaimable', status: 'unassigned' }); // #126：task 默认落 pending（不可认领），显式置 unassigned
       testIds.push(wu.id);
 
       await service.claim(wu.id, 'agent-A');
@@ -180,12 +181,15 @@ describeIf('WorkUnit API service', () => {
     });
 
     it('claim rejects on file conflict', async () => {
+      // #126：task 默认落 pending（不可认领），两个 WU 均显式置 unassigned
       const wu1 = await service.create({
         scope: 'File owner',
+        status: 'unassigned',
         metadata: { files: ['src/auth.ts', 'src/login.ts'] },
       });
       const wu2 = await service.create({
         scope: 'File conflict',
+        status: 'unassigned',
         metadata: { files: ['src/auth.ts'] },
       });
       testIds.push(wu1.id, wu2.id);
@@ -196,12 +200,15 @@ describeIf('WorkUnit API service', () => {
     });
 
     it('claim succeeds when files do not overlap', async () => {
+      // #126：task 默认落 pending（不可认领），两个 WU 均显式置 unassigned
       const wu1 = await service.create({
         scope: 'Files A',
+        status: 'unassigned',
         metadata: { files: ['src/a.ts'] },
       });
       const wu2 = await service.create({
         scope: 'Files B',
+        status: 'unassigned',
         metadata: { files: ['src/b.ts'] },
       });
       testIds.push(wu1.id, wu2.id);
@@ -213,8 +220,9 @@ describeIf('WorkUnit API service', () => {
     });
 
     it('claim succeeds when no files specified', async () => {
-      const wu1 = await service.create({ scope: 'No files', metadata: {} });
-      const wu2 = await service.create({ scope: 'Also no files' });
+      // #126：task 默认落 pending（不可认领），两个 WU 均显式置 unassigned
+      const wu1 = await service.create({ scope: 'No files', status: 'unassigned', metadata: {} });
+      const wu2 = await service.create({ scope: 'Also no files', status: 'unassigned' });
       testIds.push(wu1.id, wu2.id);
 
       await service.claim(wu1.id, 'agent-A');
@@ -224,12 +232,15 @@ describeIf('WorkUnit API service', () => {
     });
 
     it('Bug fix: claim rejects on file conflict with in_review WorkUnit', async () => {
+      // #126：task 默认落 pending（不可认领），两个 WU 均显式置 unassigned
       const wu1 = await service.create({
         scope: 'In review owner',
+        status: 'unassigned',
         metadata: { files: ['src/conflict-review.ts'] },
       });
       const wu2 = await service.create({
         scope: 'Conflicts with review',
+        status: 'unassigned',
         metadata: { files: ['src/conflict-review.ts'] },
       });
       testIds.push(wu1.id, wu2.id);
@@ -247,7 +258,7 @@ describeIf('WorkUnit API service', () => {
 
   describe('State machine', () => {
     it('AC4: valid transition unassigned → active', async () => {
-      const wu = await service.create({ scope: 'Transition test' });
+      const wu = await service.create({ scope: 'Transition test', status: 'unassigned' }); // #126：task 默认落 pending，本用例测 unassigned → active，显式置 status
       testIds.push(wu.id);
 
       const updated = await service.transitionStatus(wu.id, 'active');
@@ -342,7 +353,7 @@ describeIf('WorkUnit API service', () => {
 
   describe('Review', () => {
     it('reviewPassed: in_review → done', async () => {
-      const wu = await service.create({ scope: 'review-pass-test' });
+      const wu = await service.create({ scope: 'review-pass-test', status: 'unassigned' }); // #126：task 默认落 pending，显式置 unassigned
       testIds.push(wu.id);
       await service.transitionStatus(wu.id, 'active');
       await service.transitionStatus(wu.id, 'in_review');
@@ -360,7 +371,7 @@ describeIf('WorkUnit API service', () => {
     });
 
     it('reviewRejected: in_review → active', async () => {
-      const wu = await service.create({ scope: 'review-reject-1' });
+      const wu = await service.create({ scope: 'review-reject-1', status: 'unassigned' }); // #126：task 默认落 pending，显式置 unassigned
       testIds.push(wu.id);
       await service.transitionStatus(wu.id, 'active');
       await service.transitionStatus(wu.id, 'in_review');
@@ -372,7 +383,7 @@ describeIf('WorkUnit API service', () => {
     });
 
     it('reviewRejected: 3 consecutive → auto-block', async () => {
-      const wu = await service.create({ scope: 'review-block-test' });
+      const wu = await service.create({ scope: 'review-block-test', status: 'unassigned' }); // #126：task 默认落 pending，显式置 unassigned
       testIds.push(wu.id);
 
       // Reject 1: in_review → active
@@ -391,7 +402,7 @@ describeIf('WorkUnit API service', () => {
     });
 
     it('reviewPassed resets rejection counter', async () => {
-      const wu = await service.create({ scope: 'review-reset-test' });
+      const wu = await service.create({ scope: 'review-reset-test', status: 'unassigned' }); // #126：task 默认落 pending，显式置 unassigned
       testIds.push(wu.id);
 
       // 2 rejections
@@ -417,7 +428,7 @@ describeIf('WorkUnit API service', () => {
     });
 
     it('Bug fix: transitionStatus in_review→done also works (reviewPassed event path)', async () => {
-      const wu = await service.create({ scope: 'review-via-transition' });
+      const wu = await service.create({ scope: 'review-via-transition', status: 'unassigned' }); // #126：task 默认落 pending，显式置 unassigned
       testIds.push(wu.id);
       await service.transitionStatus(wu.id, 'active');
       await service.transitionStatus(wu.id, 'in_review');
@@ -500,7 +511,7 @@ describeIf('WorkUnit API service', () => {
 
   describe('Parent state aggregation', () => {
     it('direct: all children done → parent in_review', async () => {
-      const parent = await service.create({ scope: 'parent-agg-1' });
+      const parent = await service.create({ scope: 'parent-agg-1', status: 'unassigned' }); // #126：task 默认落 pending，显式置 unassigned
       const c1 = await service.create({ scope: 'child-1', parentId: parent.id, status: 'done' });
       const c2 = await service.create({ scope: 'child-2', parentId: parent.id, status: 'done' });
       testIds.push(parent.id, c1.id, c2.id);
@@ -512,9 +523,10 @@ describeIf('WorkUnit API service', () => {
     });
 
     it('direct: any child active → parent active', async () => {
-      const parent = await service.create({ scope: 'parent-agg-2' });
+      // #126：task 默认落 pending，parent 与未显式 status 的 child 均显式置 unassigned 保持原语义
+      const parent = await service.create({ scope: 'parent-agg-2', status: 'unassigned' });
       const c1 = await service.create({ scope: 'child-a', parentId: parent.id, status: 'active' });
-      const c2 = await service.create({ scope: 'child-b', parentId: parent.id });
+      const c2 = await service.create({ scope: 'child-b', parentId: parent.id, status: 'unassigned' });
       testIds.push(parent.id, c1.id, c2.id);
 
       await service.aggregateParentStatus(c1.id);
@@ -524,7 +536,7 @@ describeIf('WorkUnit API service', () => {
     });
 
     it('direct: any child blocked → parent blocked', async () => {
-      const parent = await service.create({ scope: 'parent-agg-3' });
+      const parent = await service.create({ scope: 'parent-agg-3', status: 'unassigned' }); // #126：task 默认落 pending，显式置 unassigned
       const c1 = await service.create({ scope: 'child-x', parentId: parent.id, status: 'blocked' });
       testIds.push(parent.id, c1.id);
 
@@ -535,7 +547,7 @@ describeIf('WorkUnit API service', () => {
     });
 
     it('direct: all children closed → parent closed', async () => {
-      const parent = await service.create({ scope: 'parent-agg-4' });
+      const parent = await service.create({ scope: 'parent-agg-4', status: 'unassigned' }); // #126：task 默认落 pending，显式置 unassigned
       const c1 = await service.create({ scope: 'child-c', parentId: parent.id, status: 'closed' });
       testIds.push(parent.id, c1.id);
 
@@ -546,7 +558,7 @@ describeIf('WorkUnit API service', () => {
     });
 
     it('direct: 1 closed + rest done → parent in_review', async () => {
-      const parent = await service.create({ scope: 'parent-agg-5' });
+      const parent = await service.create({ scope: 'parent-agg-5', status: 'unassigned' }); // #126：task 默认落 pending，显式置 unassigned
       const c1 = await service.create({ scope: 'child-d1', parentId: parent.id, status: 'done' });
       const c2 = await service.create({ scope: 'child-d2', parentId: parent.id, status: 'closed' });
       testIds.push(parent.id, c1.id, c2.id);
@@ -558,7 +570,7 @@ describeIf('WorkUnit API service', () => {
     });
 
     it('cascade: child done triggers parent aggregation', async () => {
-      const parent = await service.create({ scope: 'parent-cascade' });
+      const parent = await service.create({ scope: 'parent-cascade', status: 'unassigned' }); // #126：task 默认落 pending，显式置 unassigned
       // transitionStatus fires aggregateParentStatus fire-and-forget; driving the
       // child through transitions here would race the next getIndex/upsertSnapshot
       // on index.json (torn read → flaky "WorkUnit not found"). Like the 'direct'
@@ -592,7 +604,8 @@ describeIf('WorkUnit API service', () => {
     });
 
     it('create() still returns WorkUnit after event publish', async () => {
-      const wu = await service.create({ scope: 'Return value test' });
+      // #126：task 默认落 pending；本用例断言返回值 status=unassigned，显式置 status 保持原语义
+      const wu = await service.create({ scope: 'Return value test', status: 'unassigned' });
       testIds.push(wu.id);
 
       expect(wu.id).toBeDefined();
