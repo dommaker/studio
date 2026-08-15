@@ -101,6 +101,15 @@ async function start() {
       setInterval(() => sessionSummaryService.summarize(), 6 * 60 * 60 * 1000);
     }).catch(err => logger.warn('[SessionSummary] Import failed', { error: String(err) }));
 
+    // #173（#60 决策 Q3b / spec 批次 C4）：事件保留轮转——信号热 30 天 → 月度 gzip 冷包
+    // 永久保留；噪声（level=debug：knowledge:*/tool:call）7 天滚动删除。启动后跑一次 + 每 24h。
+    import('./utils/studio-events-rotation.js').then(({ rotateStudioEvents }) => {
+      const runRotation = () => rotateStudioEvents()
+        .catch(err => logger.warn('[StudioEvents] Retention rotation failed', { error: String(err) }));
+      setTimeout(runRotation, 15_000);
+      setInterval(runRotation, 24 * 60 * 60 * 1000);
+    }).catch(err => logger.warn('[StudioEvents] Rotation import failed', { error: String(err) }));
+
     // G-002: 冷启动业务规则扫描（异步，不阻塞启动）
     import('./modules/knowledge/rule-scanner.js').then(({ ruleScanner }) => {
       ruleScanner.fullScan().catch(err => logger.warn('[RuleScanner] Cold start scan failed', { error: String(err) }));

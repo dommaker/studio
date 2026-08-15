@@ -20,6 +20,9 @@
  *
  * 写入校验：payload 为空（{} / null / undefined / 'null' / '{}' / 空串）的事件拒绝落盘
  * 并 logger.warn（调用方自查），返回 false —— 空事件不产信号只产噪音。
+ *
+ * #173（#60 决策 Q3b）：保留轮转在 ./studio-events-rotation.ts（信号热 30 天 → 月度
+ * gzip 冷包永久保留；噪声 level=debug 7 天滚动删除），index.ts 启动挂载每 24h 一轮。
  */
 import { FileStore, logger } from '@dommaker/studio-shared';
 import { resolveStudioLogFile } from './studio-log-path.js';

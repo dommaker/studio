@@ -46,3 +46,4 @@
 - session:summary 在 session:end 时触发，fire-and-forget
 - patternType 分类规则：纯 deterministic，不调 LLM
 - **鉴权（2026-07-24 收紧）**：event.routes 的 POST /、/agent-events 已收 requireAuth+requireNotGuest；GET /stream 保持公开（Lurk 设计有意放行，会广播内部事件总线）。
+- **保留轮转（#173 / #60 决策 Q3b，2026-08-15）**：`apps/api/src/utils/studio-events-rotation.ts` 每日轮转 studio-events.jsonl——信号（level≥info）热 30 天，超期切 `archive/studio-events-YYYY-MM.jsonl.gz` 月度冷包永久保留；噪声（level=debug：knowledge:*、tool:call）7 天滚动删除。分类口径 = envelope level（显式字段优先，缺省走 type 默认分级）。挂载点：index.ts 启动后跑一次 + 每 24h；测试 `utils/__tests__/studio-events-rotation.test.ts`。audit.jsonl/incidents.jsonl 的 30 天热+月度 gzip 同属 #60 Q3b 但未在任何子票范围，待后续立项。
