@@ -13,10 +13,10 @@ describe('Default Triggers', () => {
 
   const registeredIds = (): string[] => registry.getStates().map(s => s.config.id);
 
-  it('registers 6 default triggers (10 − 4 pruned)', () => {
+  it('registers 7 default triggers (10 − 4 pruned + 1 reconciliation)', () => {
     registerDefaultTriggers(registry);
 
-    expect(registeredIds()).toHaveLength(6);
+    expect(registeredIds()).toHaveLength(7);
   });
 
   it('retained triggers are registered', () => {
@@ -29,6 +29,7 @@ describe('Default Triggers', () => {
       'workunit-input-reminder',
       'evolution-daily-scan',
       'doc-semantic-review',
+      'dispatch-reconciliation',
     ]));
   });
 
@@ -76,6 +77,19 @@ describe('Default Triggers', () => {
     );
     expect(reminderCall!.config.action).toEqual(
       expect.objectContaining({ type: 'EXECUTE', target: 'workunit-input-reminder-scan' }),
+    );
+  });
+
+  it('dispatch-reconciliation fires every 5 minutes (#183)', () => {
+    registerDefaultTriggers(registry);
+
+    const reconCall = registry.getStates().find(s => s.config.id === 'dispatch-reconciliation');
+    expect(reconCall).toBeDefined();
+    expect(reconCall!.config.condition).toEqual(
+      expect.objectContaining({ type: 'SCHEDULE', cron: '*/5 * * * *' }),
+    );
+    expect(reconCall!.config.action).toEqual(
+      expect.objectContaining({ type: 'EXECUTE', target: 'dispatch-reconciliation-scan' }),
     );
   });
 

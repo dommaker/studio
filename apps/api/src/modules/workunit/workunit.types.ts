@@ -130,6 +130,11 @@ export interface WorkUnitMetadata {
   // 人工确认（reviewPassed → done）后由 analysis-handoff 据此建未指派 task 子 WU 派工
   analysisTasks?: string[];       // TASK: 拆分行解析结果（≤8 条，每条 ≤300 字符）
   analysisTasksSpawnedAt?: string; // 子 WU 已建时间戳（幂等哨兵：存在即不再重复派生）
+  // #183（#159 决议 2）：哨兵清单化——已建子 WU id 清单，5min 对账扫描据此补差集
+  // （analysisTasks − 清单）；人工关闭的子 WU 仍在清单中 → 对账不复活（决议 3）。
+  // 旧数据只有上面的时间戳哨兵：无清单即跳过对账（兼容读取，无需迁移）。
+  analysisTasksSpawned?: string[];
+  analysisRespawnAttempts?: number; // #183：对账补建连续失败次数，≥3 停跑并升 critical
   // #177（#69 决议）：analysis 人工确认处可选「默认执行角色」（profile id）——
   // analysis-handoff spawnTasks 据此给全部派生 task 子 WU 落 assigneeId；缺省 = 涌现
   defaultTaskAssigneeId?: string;
@@ -149,6 +154,7 @@ export interface WorkUnitMetadata {
   excludeAssignee?: string;   // 禁止认领的 profile id（评审排除实现者；agent-loop observe 未指派过滤据此剔除）
   selfReview?: boolean;       // 本评审 WU 未排除实现者（频道内无其他 active 成员）→ 可能是自评，台账/提醒据此标记
   reviewInput?: { mode: string; skill: string };  // R3: 评审输入契约落档（diff-only + code-review），审计用
+  reviewRedispatchAttempts?: number; // #183（#66 决议①）：review 对账重跑连续失败次数，≥3 停跑并升 critical
   // F6 信任证据模型（决策 1）：分层证据台账，l1 自动验证 / l2 agent 评审 / l3 人工确认。
   // 写入方：l1=agent-loop 验证守卫；l2/l3=reviewPassed/reviewRejected（attestation 入参）。
   // 消费铁律：展示/指标只准过 studio-shared 的 deriveDisplayState()，禁止各自解释。

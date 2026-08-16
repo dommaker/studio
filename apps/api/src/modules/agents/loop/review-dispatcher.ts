@@ -98,6 +98,17 @@ export class ReviewDispatcher {
     await this.createReviewChildFor(parent);
   }
 
+  /**
+   * #183（#66 决议①对账）：幂等重跑路径 A —— 父 WU in_review 断链（评审子 WU 未建起）
+   * 时由 5min 对账扫描调用。幂等保证不变：createGuarded 锁内同父唯一性 guard，
+   * 已有未完结评审子 WU（含并发抢建）→ 返回 null。频道不出声由调用方保证
+   * （本方法除既有自评兜底提醒外不发频道消息；告警事件由扫描方统一出口）。
+   */
+  async redispatchReview(parent: WorkUnitData): Promise<WorkUnitData | null> {
+    if (!parent.channelId) return null;
+    return this.createReviewChildFor(parent);
+  }
+
   /** 同父唯一性守卫（createGuarded 的锁内 guard + dispatchReviewNow 的友好预检共用） */
   private hasNoUnfinishedReviewChild(parentId: string): (snapshots: WorkUnitSnapshot[]) => boolean {
     return snapshots => !snapshots.some(s =>

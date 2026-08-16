@@ -307,6 +307,12 @@ async function start() {
       await scanTimedOutWorkUnits();
     });
 
+    // ── #183: 派工/评审断链对账 handler（dispatch-reconciliation 触发器，5min）──
+    registerExecuteHandler('dispatch-reconciliation-scan', async () => {
+      const { reconcileDispatchBreaks } = await import('./modules/agents/dispatch-reconciliation.js');
+      await reconcileDispatchBreaks();
+    });
+
     // ── E1 约束进化（vision §6）：每日扫描 handler + 频道审核 watcher ──
     registerExecuteHandler('evolution-scan', async () => {
       const { getEvolutionService } = await import('./modules/evolution/evolution.service.js');

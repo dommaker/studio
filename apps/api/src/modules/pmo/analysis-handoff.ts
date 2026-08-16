@@ -8,7 +8,9 @@
  *   2) analysis WU → done（人工确认通过）：按 metadata.analysisTasks
  *     （agent-loop 解析 TASK: 行落档）建未指派 task 子 WU —— 频道成员 loop
  *      observe 到未指派即认领，派工完成；频道发任务清单。
- *      metadata.analysisTasksSpawnedAt 为幂等哨兵，防重复派生。
+ *      metadata.analysisTasksSpawnedAt + analysisTasksSpawned（已建子 WU id 清单，
+ *      #183 起清单化）为幂等哨兵，防重复派生；断链由 5min 对账扫描补差集自愈
+ *      （agents/dispatch-reconciliation.ts，#159 决议）。
  *   未输出 TASK: 行的分析：确认后只提示可手动拆任务，不自动派生。
  *
  * 事件订阅语义与 ReviewDispatcher 一致（eventBus 进程内，best-effort）。
@@ -77,21 +79,24 @@ export class AnalysisHandoff {
     const fresh = await this.workUnitService.getById(wu.id);
     if (!fresh) return;
     const meta = this.readMeta(fresh);
-    if (meta.analysisTasksSpawnedAt) return;
+    if (meta.analysisTasksSpawnedAt || meta.analysisTasksSpawned) return;
 
     const tasks = Array.isArray(meta.analysisTasks)
       ? meta.analysisTasks.filter((t): t is string => typeof t === 'string' && t.trim().length > 0).slice(0, ANALYSIS_TASKS_MAX)
       : [];
 
-    // 幂等哨兵先落档：即便后续建单部分失败也不重复派生（失败只记日志，人工可补）。
-    // 与 map-opening 同一 done 事件写同一 WU metadata（它落 mapOpenedAt）——
-    // 写入前重读合并，防 read-modify-write 丢更新（#115 e2e 实测两哨兵互覆）
-    const latest = await this.workUnitService.getById(fresh.id);
-    const latestMeta = latest ? this.readMeta(latest) : meta;
-    if (latestMeta.analysisTasksSpawnedAt) return; // 重读后哨兵已落（并发/重发）
-    await this.workUnitService.update(fresh.id, {
-      metadata: { ...latestMeta, analysisTasksSpawnedAt: new Date().toISOString() },
-    });
+    // 幂等哨兵先落档：即便后续建单部分失败也不重复派生（差额由 #183 对账扫描补建）。
+    // #170 updateMetadata 锁内合并写：与 map-opening 同一 done 事件写同一 WU metadata
+    // （它落 mapOpenedAt）不再 read-modify-write 互覆（#115 e2e 实测两哨兵互覆）。
+    // #183（#159 决议 2）哨兵清单化：时间戳 + 已建子 WU id 清单（初始空，随建单逐个追加）。
+    // stamp 回读比对判定本实例是否抢到哨兵（并发/重发只放行一个）。
+    const stamp = new Date().toISOString();
+    const sentinel = await this.fileStore.updateMetadata(fresh.id, latest =>
+      (latest.analysisTasksSpawnedAt || latest.analysisTasksSpawned)
+        ? latest // 重读后哨兵已落（并发/重发）
+        : { ...latest, analysisTasksSpawnedAt: stamp, analysisTasksSpawned: [] as string[] });
+    if (!sentinel) return;
+    if (parseWuMetadata(sentinel.metadata).analysisTasksSpawnedAt !== stamp) return;
 
     if (tasks.length === 0) {
       await this.post(fresh, '分析结论已确认。未输出 TASK 拆分行，不自动派生任务——可在频道里转任务或手动创建 WorkUnit');
@@ -101,36 +106,17 @@ export class AnalysisHandoff {
     const created: string[] = [];
     // #177（#69 决议）：analysis 确认处可选「默认执行角色」应用于全部派生 task 子 WU
     // （留空 = 涌现）；指名 = 排他邮箱，无自动回池（滞留由 #62 探针出声）
-    const defaultAssigneeId = typeof meta.defaultTaskAssigneeId === 'string' && meta.defaultTaskAssigneeId.trim()
-      ? meta.defaultTaskAssigneeId.trim()
-      : null;
+    const defaultAssigneeId = this.resolveDefaultAssignee(meta);
     for (const scope of tasks) {
       try {
-        await this.workUnitService.create({
-          type: 'task',
-          scope,
-          status: 'unassigned',
-          ...(defaultAssigneeId ? { assigneeId: defaultAssigneeId } : {}),
-          channelId: fresh.channelId,
-          parentId: fresh.id,
-          workspaceId: fresh.workspaceId ?? null,
-          reqId: fresh.reqId ?? null,
-          metadata: {
-            creationMode: 'analysis-breakdown',
-            // PMO 溯源（progress-rollup / delivery 台账消费）
-            pmoId: meta.pmoId,
-            pmoNumber: meta.pmoNumber,
-            // B3a 归属链继承：analysis WU 的 workspaceRoot（publish 时由 project.gitRepo
-            // 落档）传给 task 子 WU——agent-loop 据此走 per-WU worktree + PMO 分支合并，
-            // 不继承则 task 直接在共享开发仓落地。
-            ...(typeof meta.workspaceRoot === 'string' && meta.workspaceRoot.length > 0
-              ? { workspaceRoot: meta.workspaceRoot }
-              : {}),
-          },
-        });
+        const child = await this.createTaskChild(fresh, scope, meta, defaultAssigneeId);
         created.push(scope);
+        // 清单随建单逐个追加（锁内合并写）；追加失败不阻断——对账扫描的活体去重兜底
+        await this.appendSpawnedId(fresh.id, child.id).catch(err =>
+          logger.warn('[AnalysisHandoff] append spawned id failed (对账将认养补记)', { wuId: fresh.id, childId: child.id, error: String(err) }),
+        );
       } catch (err) {
-        logger.warn('[AnalysisHandoff] create task WU failed (skip)', { wuId: fresh.id, scope: scope.slice(0, 80), error: String(err) });
+        logger.warn('[AnalysisHandoff] create task WU failed (skip, 对账将补建)', { wuId: fresh.id, scope: scope.slice(0, 80), error: String(err) });
       }
     }
 
@@ -142,6 +128,118 @@ export class AnalysisHandoff {
         + created.map((t, i) => `${i + 1}. ${t}`).join('\n'),
       );
     }
+  }
+
+  /** #177 默认执行角色解析（spawnTasks 与对账补建共用） */
+  private resolveDefaultAssignee(meta: WorkUnitMetadata): string | null {
+    return typeof meta.defaultTaskAssigneeId === 'string' && meta.defaultTaskAssigneeId.trim()
+      ? meta.defaultTaskAssigneeId.trim()
+      : null;
+  }
+
+  /** 建单个派生 task 子 WU（spawnTasks 与 #183 对账补建共用同一形状） */
+  private async createTaskChild(
+    fresh: WorkUnitData,
+    scope: string,
+    meta: WorkUnitMetadata,
+    defaultAssigneeId: string | null,
+  ): Promise<WorkUnitData> {
+    return this.workUnitService.create({
+      type: 'task',
+      scope,
+      status: 'unassigned',
+      ...(defaultAssigneeId ? { assigneeId: defaultAssigneeId } : {}),
+      channelId: fresh.channelId,
+      parentId: fresh.id,
+      workspaceId: fresh.workspaceId ?? null,
+      reqId: fresh.reqId ?? null,
+      metadata: {
+        creationMode: 'analysis-breakdown',
+        // PMO 溯源（progress-rollup / delivery 台账消费）
+        pmoId: meta.pmoId,
+        pmoNumber: meta.pmoNumber,
+        // B3a 归属链继承：analysis WU 的 workspaceRoot（publish 时由 project.gitRepo
+        // 落档）传给 task 子 WU——agent-loop 据此走 per-WU worktree + PMO 分支合并，
+        // 不继承则 task 直接在共享开发仓落地。
+        ...(typeof meta.workspaceRoot === 'string' && meta.workspaceRoot.length > 0
+          ? { workspaceRoot: meta.workspaceRoot }
+          : {}),
+      },
+    });
+  }
+
+  /** 清单追加子 WU id（锁内合并写；幂等——已在清单不重复追加） */
+  private async appendSpawnedId(wuId: string, childId: string): Promise<void> {
+    await this.fileStore.updateMetadata(wuId, latest => {
+      const list = Array.isArray(latest.analysisTasksSpawned) ? latest.analysisTasksSpawned as string[] : [];
+      if (list.includes(childId)) return latest;
+      return { ...latest, analysisTasksSpawned: [...list, childId] };
+    });
+  }
+
+  /**
+   * #183（#159 决议 2/3）对账差集：analysisTasks 中未被清单覆盖的 scope。
+   * 口径以 id 清单为准——人工关闭的子 WU 仍在清单中（closed 不删 index）→ 覆盖、不复活；
+   * 清单 id 已从 index 消失（硬删除墓碑）→ 不覆盖，进差集补建。
+   */
+  async listMissingSpawnScopes(wu: WorkUnitData): Promise<string[]> {
+    const meta = this.readMeta(wu);
+    const tasks = Array.isArray(meta.analysisTasks)
+      ? meta.analysisTasks.filter((t): t is string => typeof t === 'string' && t.trim().length > 0).slice(0, ANALYSIS_TASKS_MAX)
+      : [];
+    const spawned = Array.isArray(meta.analysisTasksSpawned) ? meta.analysisTasksSpawned : [];
+
+    // 清单 id → scope 多重集（同 scope 多条时按个数抵扣）
+    const covered = new Map<string, number>();
+    for (const id of spawned) {
+      const child = await this.workUnitService.getById(id).catch(() => null);
+      if (!child) continue;
+      covered.set(child.scope, (covered.get(child.scope) ?? 0) + 1);
+    }
+    const missing: string[] = [];
+    for (const scope of tasks) {
+      const n = covered.get(scope) ?? 0;
+      if (n > 0) covered.set(scope, n - 1);
+      else missing.push(scope);
+    }
+    return missing;
+  }
+
+  /**
+   * #183（#159 决议 2）对账补建：补差集前按 parentId+scope 查活体去重
+   * （create 成功但清单落档失败的极端窗口 → 认养入清单，不重复建单）。
+   * 频道不出声（决议 5）；出声由对账扫描方统一走 #62 告警管线。
+   */
+  async respawnScopes(
+    wu: WorkUnitData,
+    scopes: string[],
+  ): Promise<{ createdIds: string[]; adoptedIds: string[]; failedScopes: string[] }> {
+    const result = { createdIds: [] as string[], adoptedIds: [] as string[], failedScopes: [] as string[] };
+    const fresh = await this.workUnitService.getById(wu.id);
+    if (!fresh) return result;
+    const meta = this.readMeta(fresh);
+    const defaultAssigneeId = this.resolveDefaultAssignee(meta);
+    const siblings = (await this.workUnitService.list({ parentId: fresh.id, limit: 1000 })).data;
+
+    for (const scope of scopes) {
+      try {
+        // 活体去重：同 parentId+scope 且未关闭的子 WU 已存在 → 认养（不重建）
+        const live = siblings.find(s => s.scope === scope && s.status !== 'closed');
+        if (live) {
+          await this.appendSpawnedId(fresh.id, live.id);
+          result.adoptedIds.push(live.id);
+          continue;
+        }
+        const child = await this.createTaskChild(fresh, scope, meta, defaultAssigneeId);
+        await this.appendSpawnedId(fresh.id, child.id);
+        result.createdIds.push(child.id);
+        siblings.push(child); // 同轮后续同 scope 去重
+      } catch (err) {
+        logger.warn('[AnalysisHandoff] reconcile respawn failed', { wuId: fresh.id, scope: scope.slice(0, 80), error: String(err) });
+        result.failedScopes.push(scope);
+      }
+    }
+    return result;
   }
 }
 
