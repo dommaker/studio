@@ -41,8 +41,9 @@ vi.mock('../../role-memory/role-memory.js', () => ({
   roleMemoryStore: { readIndex: mockReadIndex },
 }));
 
-import { FileStore, estimateTokens } from '@dommaker/studio-shared';
+import { FileStore } from '@dommaker/studio-shared';
 import type { AgentProfileData } from '@dommaker/studio-shared';
+import { TokenEstimator } from '@dommaker/harness';
 
 // 动态 import：保证 process.env.SKILLS_DIR 赋值先于 manifest-loader 模块加载
 const { composeStepPrompt, SECTION_QUOTAS, CONTRACT_TEMPLATES } = await import('../loop/prompt-composer');
@@ -151,8 +152,8 @@ describe('#91: composeStepPrompt 分段软定额 + 池内余量共享 + trim 埋
   it('skills 段占定额后余量入池：knowledge 预算 = 1000 + (1300 - skillTokens) + 800 + 300', async () => {
     writeSkill('feature-dev', '功能开发流程');
     const skillBlock = `### feature-dev\n功能开发流程｜触发：登录\n全文：${path.join(os.homedir(), '.studio', 'skills', 'feature-dev', 'SKILL.md')}`;
-    const skillTokens = estimateTokens(SKILL_HEADER.length) + estimateTokens(skillBlock.length + 2)
-      + estimateTokens(SKILL_MANIFEST_POINTER.length + 2);
+    const skillTokens = TokenEstimator.estimateText(SKILL_HEADER) + TokenEstimator.estimateText(skillBlock + '\n\n')
+      + TokenEstimator.estimateText(SKILL_MANIFEST_POINTER + '\n\n');
 
     const { knowledgeContext, skillMatched } = await composeStepPrompt(
       { wu: makeWu(), metadata: {} as any },
@@ -171,7 +172,7 @@ describe('#91: composeStepPrompt 分段软定额 + 池内余量共享 + trim 埋
   });
 
   it('skills 段超有效预算（定额 600 + persona 300 + roster 400 余量）截断并落 prompt:section_trimmed（段名/原始/截断后/定额齐全）', async () => {
-    writeSkill('big-skill', '述'.repeat(6000)); // 单块 ~1500+ token，超 1300 有效预算
+    writeSkill('big-skill', '述'.repeat(6000)); // 单块 ~4000+ token（含中文 ≈1.5 字符/token），超 1300 有效预算
 
     const { knowledgeContext } = await composeStepPrompt({ wu: makeWu(), metadata: {} as any }, deps(makeRole()));
 
@@ -190,7 +191,7 @@ describe('#91: composeStepPrompt 分段软定额 + 池内余量共享 + trim 埋
   });
 
   it('persona 段超有效预算（定额 300，首段无余量）截断并落事件，定额字段记名义定额 300', async () => {
-    const persona = '角'.repeat(8000); // ~2000 token > 定额 300
+    const persona = '角'.repeat(8000); // ~5300+ token > 定额 300
 
     const { knowledgeContext } = await composeStepPrompt(
       { wu: makeWu(), metadata: {} as any },
@@ -510,10 +511,11 @@ describe('#111 T5: PMO 地图段完整渲染（destination + 近 N 条决策 + �
   });
 
   it('超预算 → fog 全保留、decisions 从旧到新截（保最新），落 prompt:section_trimmed(section=map)', async () => {
-    // 80 条开放雾 × ~96 字 + 10 条决策 → 原始 ~2370 tok > 2100 有效预算（persona/roster/skills 全空余量入池）
+    // 80 条开放雾（≈1910 tok，TokenEstimator 中文口径）+ 10 条决策 → 原始 ~3040 tok > 2100 有效预算（persona/roster/skills 全空余量入池）；
+    // 决策从旧裁到只剩最新 1 条（fog 自身未超预算 → 不触发兜底整段截）
     const fog = Array.from({ length: 80 }, (_, i) => ({
       id: `F${i}`,
-      question: `雾问题-${String(i).padStart(2, '0')}：${'详'.repeat(80)}`,
+      question: `雾问题-${String(i).padStart(2, '0')}：${'详'.repeat(14)}`,
       wuId: null,
       status: i % 2 === 0 ? 'open' : 'in-discussion',
     }));

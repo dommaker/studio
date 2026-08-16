@@ -248,7 +248,7 @@ export class SafetyService {
 }
 
 // Session metrics (observability)
-export { parseSessionMetrics, estimateTokens } from './session-metrics';
+export { parseSessionMetrics } from './session-metrics';
 export type { SessionMetrics } from './session-metrics';
 
 // Phase 1-6 服务单例

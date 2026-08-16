@@ -15,7 +15,7 @@ export const metricsFileStore = new FileStore();
 export interface WorkunitTokenEventArgs {
   workUnitId: string;
   executionId?: string;
-  /** 注入上下文估算 tokens（调用方按 chars/4 约定估算，与 estimateTokens 一致） */
+  /** 注入上下文估算 tokens（调用方按 TokenEstimator.estimateText 口径估算） */
   injectedTokens: number;
   /**
    * 非缓存执行 tokens（CLI usage input+output，不含 cache）。CLI 未回报 usage 时传 null ——
@@ -107,7 +107,7 @@ export async function writeWorkunitTokenEvent(eventsFile: string, args: Workunit
       workUnitId: args.workUnitId,
       executionId: args.executionId,
       injectedTokens: args.injectedTokens,
-      injectedSource: 'estimate:chars/4',
+      injectedSource: 'estimate:token-estimator',
       executionTokens,
       executionSource: executionTokens !== null || billedTokens !== null ? 'cli-usage' : 'unavailable',
       totalTokens: args.injectedTokens + (billedTokens ?? executionTokens ?? 0),

@@ -25,7 +25,7 @@ function tokenEvent(injected: number, execution: number | null, createdAt: Date,
     payload: JSON.stringify({
       workUnitId,
       injectedTokens: injected,
-      injectedSource: 'estimate:chars/4',
+      injectedSource: 'estimate:token-estimator',
       executionTokens: execution,
       executionSource: execution !== null ? 'cli-usage' : 'unavailable',
       totalTokens: injected + (execution ?? 0),

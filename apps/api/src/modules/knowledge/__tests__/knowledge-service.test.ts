@@ -7,7 +7,7 @@
  * - injectContext: rule + context + signal assembly
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { estimateTokens } from '@dommaker/studio-shared';
+import { TokenEstimator } from '@dommaker/harness';
 
 // ── Mock FileStore to intercept appendJsonl calls ──
 const { mockAppendJsonl, mockResolutionCreate } = vi.hoisted(() => ({
@@ -464,7 +464,7 @@ describe('KnowledgeService Phase 1A: Consume', () => {
     it('③: 候选总量超 2K tokens 时裁剪到预算内，并写 knowledge:inject-trimmed 事件', async () => {
       const { ks, query } = createKS();
       mockAppendJsonl.mockClear();
-      const big = (label: string) => `${label} ${'规'.repeat(3500)}`; // ≈875 tokens/条
+      const big = (label: string) => `${label} ${'规'.repeat(1400)}`; // ≈934 tokens/条（TokenEstimator 中文 ≈1.5 字符/token）
       query.queryEntries
         .mockResolvedValueOnce([
           { id: 'r1', content: big('规则一'), type: 'guideline', sourceReferences: [{ timestamp: 't' }], status: 'published', maturity: 'verified' },
@@ -475,8 +475,8 @@ describe('KnowledgeService Phase 1A: Consume', () => {
 
       const result = await ks.injectContext('executor');
 
-      // 注入估算 ≤ 2000 tokens（chars/4 现有口径）；r3 被裁剪
-      expect(estimateTokens(result.prompt.length)).toBeLessThanOrEqual(2000);
+      // 注入估算 ≤ 2000 tokens（TokenEstimator.estimateText 口径）；r3 被裁剪
+      expect(TokenEstimator.estimateText(result.prompt)).toBeLessThanOrEqual(2000);
       expect(result.injectedIds).toEqual(['r1', 'r2']);
       expect(result.prompt).not.toContain('规则三');
       // 裁剪事件（沿用 studio-events.jsonl 事件写入路径）
@@ -503,7 +503,7 @@ describe('KnowledgeService Phase 1A: Consume', () => {
 
       const result = await ks.injectContext('executor');
 
-      expect(estimateTokens(result.prompt.length)).toBeLessThanOrEqual(2000);
+      expect(TokenEstimator.estimateText(result.prompt)).toBeLessThanOrEqual(2000);
       expect(result.injectedIds).toContain('r-small');
       expect(result.injectedIds).not.toContain('r-big');
       expect(result.prompt).toContain('高优先级 proven 小条目');

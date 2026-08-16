@@ -7,7 +7,8 @@
 // DELEGATE 分支（建子单 + collab 元数据 + 降级文案）→ delegate-branch.js。
 // 本文件保留 AgentLoop 类编排逻辑 + re-export（对外导出语义不变）。
 import { execSync } from 'child_process';
-import { eventBus, logger, FileStore, parseChannels, estimateTokens, withAttestation, type RuntimeStateData } from '@dommaker/studio-shared';
+import { eventBus, logger, FileStore, parseChannels, withAttestation, type RuntimeStateData } from '@dommaker/studio-shared';
+import { TokenEstimator } from '@dommaker/harness';
 import { resolveProviderDefinition, buildHealthProbeCommand } from '@dommaker/studio-shared/node';
 import { randomUUID } from 'crypto';
 import type { AgentTask, ExecutionResult } from '@dommaker/studio-agent';
@@ -763,7 +764,7 @@ export class AgentLoop {
       void writeWorkunitTokenEvent(studioEventsJsonlPath(), {
         workUnitId: wu.id,
         executionId: task.executionId,
-        injectedTokens: estimateTokens(knowledgeContext.length),
+        injectedTokens: TokenEstimator.estimateText(knowledgeContext),
         executionTokens: real ? real.inputTokens + real.outputTokens : null,
         // D16/B6: 缓存命中与真实账单数据源（CLI 回报 usage 时才有；未回报则缺省不编造）
         ...(real ? {
@@ -924,7 +925,7 @@ export class AgentLoop {
       metadataUpdates.errorAt = undefined;
 
       // M2 成本红线度量 + B6 真实记账: 每次 CLI 执行完成记一条 workunit:tokens 事件
-      // （注入估算 chars/4 vs 2K 红线；执行 tokens 取 CLI 真实 usage，未回报记 null 不编造）。
+      // （注入估算 TokenEstimator.estimateText 口径 vs 2K 红线；执行 tokens 取 CLI 真实 usage，未回报记 null 不编造）。
       const realUsage = recordTokenEvent(result);
 
       // wireup④ token 预算数据源: 本次真实消耗（billed 口径，含 cache）累加进

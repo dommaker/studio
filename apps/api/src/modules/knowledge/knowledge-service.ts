@@ -33,7 +33,8 @@ import type {
   MaturityLevel,
   KnowledgeSubsystem,
 } from '@dommaker/harness';
-import { FileStore, logger, estimateTokens } from '@dommaker/studio-shared';
+import { TokenEstimator } from '@dommaker/harness';
+import { FileStore, logger } from '@dommaker/studio-shared';
 import { getSystemExecutor, StudioRoleNotConfiguredError } from '../agents/system-executor.js';
 import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
 import type { CreateResolutionInput } from '@dommaker/studio-shared';
@@ -524,7 +525,7 @@ export class KnowledgeService {
     const filteredSignals = (signals || []).filter((s: any) => !isRoleMemory(s) && s.status !== 'stale' && isInjectableMaturity(s.maturity));
 
     // ③（wireups）：2K 注入红线执行 — 候选按注入优先级（成熟度 → 引用计数）排序，
-    // 逐个累加 estimateTokens（chars/4 现有口径），超 2000 截断并记 knowledge:inject-trimmed 事件。
+    // 逐个累加 TokenEstimator.estimateText（harness 1.1.0 口径），超 2000 截断并记 knowledge:inject-trimmed 事件。
     interface Candidate { line: string; id: string }
     const toCandidates = (entries: any[], lineOf: (e: any) => string): Candidate[] =>
       entries
@@ -542,23 +543,23 @@ export class KnowledgeService {
     const trimmedIds: string[] = [];
     let usedTokens = 0;
     // 预算内给检索指引预留（有注入时必附加，属红线内固定小额开销）
-    const guidanceTokens = estimateTokens(KNOWLEDGE_QUERY_GUIDANCE.length + 2);
+    const guidanceTokens = TokenEstimator.estimateText(KNOWLEDGE_QUERY_GUIDANCE + '\n\n');
 
     // #91: 未截断的原始尺寸（inject-trimmed / section_trimmed 埋点的尺寸字段，
     // 口径与下方 kept 一致：header + 行 + reference 提示 + 检索指引）
     let originalTokens = 0;
     for (const section of sectionCandidates) {
       if (section.items.length === 0) continue;
-      originalTokens += estimateTokens(section.header.length + 2);
-      for (const item of section.items) originalTokens += estimateTokens(item.line.length + 1);
+      originalTokens += TokenEstimator.estimateText(section.header + '\n\n');
+      for (const item of section.items) originalTokens += TokenEstimator.estimateText(item.line + '\n');
     }
 
     for (const section of sectionCandidates) {
       if (section.items.length === 0) continue;
-      const headerTokens = estimateTokens(section.header.length + 2); // header + 段落分隔
+      const headerTokens = TokenEstimator.estimateText(section.header + '\n\n'); // header + 段落分隔
       const keptLines: string[] = [];
       for (const item of section.items) {
-        const lineTokens = estimateTokens(item.line.length + 1);
+        const lineTokens = TokenEstimator.estimateText(item.line + '\n');
         const cost = (keptLines.length === 0 ? headerTokens : 0) + lineTokens;
         if (usedTokens + cost + guidanceTokens > maxTokens) {
           trimmedIds.push(item.id);
@@ -575,7 +576,7 @@ export class KnowledgeService {
     const refCount = await this.query.count({ consumptionModes: ['reference'] });
     if (refCount > 0) {
       const hint = `[知识库: ${refCount} 条参考，遇到问题时用 search()]`;
-      const hintTokens = estimateTokens(hint.length + 2);
+      const hintTokens = TokenEstimator.estimateText(hint + '\n\n');
       originalTokens += hintTokens;
       if (usedTokens + hintTokens + guidanceTokens <= maxTokens) {
         sections.push(hint);
