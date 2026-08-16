@@ -63,6 +63,15 @@ describe('RuleScanner.scanHarnessConstraints — 生效集公共 API', () => {
     expect(rules[0].description).toBe('中文消息');
   });
 
+  it('description 与 message 均缺失时按 rule 文本兜底（不产空描述）', () => {
+    mockGetEffective.mockReturnValue([
+      { id: 'only_rule', level: 'prompt', rule: 'RULE ONLY TEXT' },
+    ]);
+
+    const rules = (ruleScanner as any).scanHarnessConstraints();
+    expect(rules[0].description).toBe('RULE ONLY TEXT');
+  });
+
   it('生效集为空 → 空清单', () => {
     expect((ruleScanner as any).scanHarnessConstraints()).toEqual([]);
   });
