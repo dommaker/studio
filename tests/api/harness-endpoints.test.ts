@@ -65,27 +65,6 @@ describe('Harness API Endpoints', () => {
     });
   });
 
-  describe('Token 估算', () => {
-    it('应按比例估算 token 数', () => {
-      const estimateTokens = (text: string) => Math.ceil(text.length / 4);
-
-      expect(estimateTokens('hello')).toBe(2); // 5/4 = 1.25 → 2
-      expect(estimateTokens('a'.repeat(100))).toBe(25);
-      expect(estimateTokens('')).toBe(0);
-    });
-
-    it('中文字符应使用更高的 token 比率', () => {
-      const estimateTokens = (text: string) => {
-        const cjkChars = (text.match(/[一-鿿]/g) || []).length;
-        const otherChars = text.length - cjkChars;
-        return Math.ceil(otherChars / 4 + cjkChars / 2);
-      };
-
-      expect(estimateTokens('你好世界')).toBe(2); // 4 CJK chars / 2
-      expect(estimateTokens('hello world')).toBe(3); // 11 chars / 4
-    });
-  });
-
   describe('Token 估算（TokenEstimator 口径）', () => {
     it('空字符串应估算为 0', () => {
       expect(TokenEstimator.estimateText('')).toBe(0);
