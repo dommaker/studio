@@ -15,7 +15,7 @@
 
 - **现象**：vision D6「注入 ≤2K tokens」只有看板度量（`monitoring.service.ts:310-311` 实算 `injectedBudgetUsedPct`，有测试），无任何执行点；`injectContext` 的参数名为 `_opts`，`maxTokens` 被显式忽略（`knowledge-service.ts:658`）。
 - **可复用**：harness 有 budget-aware 的 `KnowledgeInjector`，但 `sharedInjector` 仅测试引用未接线（`knowledge-singletons.ts:53`）。
-- **修法（从简）**：`injectContext` 内实施裁剪——候选条目按注入优先级（成熟度 → 引用计数）排序，逐个累加 `estimateTokens`（现有 chars/4 口径），超 2000 截断并记 `knowledge:inject-trimmed` 事件。不急于接线 sharedInjector（更大改造，另议）。
+- **修法（从简）**：`injectContext` 内实施裁剪——候选条目按注入优先级（成熟度 → 引用计数）排序，逐个累加 `TokenEstimator.estimateText`（TokenEstimator 口径），超 2000 截断并记 `knowledge:inject-trimmed` 事件。不急于接线 sharedInjector（更大改造，另议）。
 - **验收**：构造 >2K 候选的库，实际注入估算 ≤2K；`workunit:tokens` 事件 `injectedTokens` ≤2000；看板 `budgetUsedPct` ≤100%；裁剪事件可在事件流中查到。
 
 ## ④ token 预算告警数据源（恢复已删 probe 的前提）
