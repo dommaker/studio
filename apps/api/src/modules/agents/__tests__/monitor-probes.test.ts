@@ -5,7 +5,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 
-const { tmpDir, mockLogger, mockAgentStop, mockReaddir, mockGetStats } = vi.hoisted(() => {
+const { tmpDir, mockLogger, mockAgentStop, mockReaddir, mockGetStats, mockCloseWithNotice } = vi.hoisted(() => {
   const fs = require('fs');
   const path = require('path');
   const os = require('os');
@@ -15,6 +15,8 @@ const { tmpDir, mockLogger, mockAgentStop, mockReaddir, mockGetStats } = vi.hois
     mockAgentStop: vi.fn(() => Promise.resolve()),
     mockReaddir: vi.fn(() => Promise.resolve([] as any[])),
     mockGetStats: vi.fn(() => ({} as Record<string, any>)),
+    // #176（决策 #62 §3 双出声）：关闭统一出口（事件 + 频道 + 快照）打桩，探头只断言委托
+    mockCloseWithNotice: vi.fn(() => Promise.resolve(true)),
   };
 });
 
@@ -39,6 +41,12 @@ vi.mock('../triage/triage.service.js', () => ({ triageService: { handleAlert: vi
 
 vi.mock('../../mcp/tool-registry.js', () => ({
   toolRegistry: { getStats: mockGetStats },
+}));
+
+// #176：关闭双出声出口（wu-closure）打桩 —— 其自身行为由 wu-closure.test.ts 覆盖
+vi.mock('../../workunit/wu-closure.js', () => ({
+  closeWorkUnitWithNotice: mockCloseWithNotice,
+  WORKUNIT_CLOSED_EVENT_TYPE: 'workunit:closed',
 }));
 
 import {
@@ -155,7 +163,7 @@ describe('checkProgressStagnation', () => {
 });
 
 describe('checkTotalExecutionTime', () => {
-  it('auto-fails workUnit exceeding 2.5h: critical alert + agentRunner.stop + close snapshot', async () => {
+  it('auto-fails workUnit exceeding 2.5h: critical alert + agentRunner.stop + 双出声关闭（#176）', async () => {
     const threeHoursAgo = new Date(Date.now() - 3 * 3600_000).toISOString();
     const exec = makeSnapshot({ id: 'exec-timeout', status: 'active', claimedAt: threeHoursAgo, createdAt: threeHoursAgo });
     const fileStore = makeFileStore({ getIndex: vi.fn(async () => [exec]) });
@@ -166,10 +174,12 @@ describe('checkTotalExecutionTime', () => {
       expect.objectContaining({ source: 'total_time', level: 'critical', relatedTaskIds: ['exec-timeout'] }),
     ]));
     expect(mockAgentStop).toHaveBeenCalledWith('exec-timeout');
-    // #170：close 走锁内成对写（completed 事件 + 索引快照）
-    expect(fileStore.commitSnapshot).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'completed', wuId: 'exec-timeout' }),
-      expect.objectContaining({ id: 'exec-timeout', status: 'closed', completedAt: expect.any(String) }),
+    // #176（决策 #62 §3）：2.5h 强杀置 closed 补关闭原因事件 + 频道说明（经统一出口）
+    expect(mockCloseWithNotice).toHaveBeenCalledTimes(1);
+    expect(mockCloseWithNotice).toHaveBeenCalledWith(
+      fileStore,
+      expect.objectContaining({ id: 'exec-timeout', status: 'active' }),
+      expect.objectContaining({ closedBy: 'total-time-kill', reason: expect.stringContaining('2.5h') }),
     );
   });
 
@@ -184,26 +194,70 @@ describe('checkTotalExecutionTime', () => {
     const alerts = await checkTotalExecutionTime(fileStore);
     expect(alerts.map(a => a.level)).toEqual(['warning', 'info']);
     expect(mockAgentStop).not.toHaveBeenCalled();
-    expect(fileStore.commitSnapshot).not.toHaveBeenCalled();
+    expect(mockCloseWithNotice).not.toHaveBeenCalled();
   });
 });
 
 describe('autoAbandon probes', () => {
-  it('autoAbandonStaleBlocked closes blocked workUnits older than 24h', async () => {
-    const stale = makeSnapshot({ id: 'wu-stale', status: 'blocked', createdAt: new Date(Date.now() - 48 * 3600_000).toISOString() });
-    const fresh = makeSnapshot({ id: 'wu-fresh', status: 'blocked', createdAt: new Date().toISOString() });
-    const fileStore = makeFileStore({
-      getIndex: vi.fn(async (filter?: any) => (filter?.status === 'blocked' ? [stale, fresh] : [stale, fresh])),
+  // #176（决策 #57 D4）：死信计时基准从 createdAt 改 metadata.blockedAt
+  it('blockedAt 超 24h → 双出声关闭（即使 createdAt 较新）', async () => {
+    const stale = makeSnapshot({
+      id: 'wu-stale', status: 'blocked',
+      createdAt: new Date(Date.now() - 3600_000).toISOString(), // 创建仅 1h
+      metadata: JSON.stringify({ blockedAt: new Date(Date.now() - 25 * 3600_000).toISOString(), blockReason: 'stuck: x' }),
     });
+    const fileStore = makeFileStore({ getIndex: vi.fn(async () => [stale]) });
 
     await autoAbandonStaleBlocked(fileStore);
 
-    // #170：close 走锁内成对写（completed 事件 + 索引快照）
-    expect(fileStore.commitSnapshot).toHaveBeenCalledTimes(1);
-    expect(fileStore.commitSnapshot).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'completed', wuId: 'wu-stale' }),
-      expect.objectContaining({ id: 'wu-stale', status: 'closed' }),
+    expect(mockCloseWithNotice).toHaveBeenCalledTimes(1);
+    expect(mockCloseWithNotice).toHaveBeenCalledWith(
+      fileStore,
+      expect.objectContaining({ id: 'wu-stale', status: 'blocked' }),
+      expect.objectContaining({ closedBy: 'auto-abandon-stale-blocked' }),
     );
+  });
+
+  it('createdAt 超 24h 但 blockedAt 新鲜 → 不关闭（修掉「刚 blocked 就被秒关」bug）', async () => {
+    const fresh = makeSnapshot({
+      id: 'wu-fresh-block', status: 'blocked',
+      createdAt: new Date(Date.now() - 72 * 3600_000).toISOString(), // 创建 3 天前
+      metadata: JSON.stringify({ blockedAt: new Date(Date.now() - 3600_000).toISOString() }), // 1h 前才 blocked
+    });
+    const fileStore = makeFileStore({ getIndex: vi.fn(async () => [fresh]) });
+
+    await autoAbandonStaleBlocked(fileStore);
+
+    expect(mockCloseWithNotice).not.toHaveBeenCalled();
+  });
+
+  it('无 blockedAt 的存量 blocked → 回退 createdAt 计时（兼容旧档案）', async () => {
+    const legacy = makeSnapshot({
+      id: 'wu-legacy', status: 'blocked',
+      createdAt: new Date(Date.now() - 48 * 3600_000).toISOString(),
+    });
+    const fileStore = makeFileStore({ getIndex: vi.fn(async () => [legacy]) });
+
+    await autoAbandonStaleBlocked(fileStore);
+
+    expect(mockCloseWithNotice).toHaveBeenCalledTimes(1);
+  });
+
+  it('decision/spec 类型豁免死信（裁剪状态机无 closed，可等关键人多天）', async () => {
+    const decision = makeSnapshot({
+      id: 'wu-decision', type: 'decision', status: 'blocked',
+      createdAt: new Date(Date.now() - 96 * 3600_000).toISOString(),
+      metadata: JSON.stringify({ blockedAt: new Date(Date.now() - 96 * 3600_000).toISOString() }),
+    });
+    const spec = makeSnapshot({
+      id: 'wu-spec', type: 'spec', status: 'blocked',
+      createdAt: new Date(Date.now() - 96 * 3600_000).toISOString(),
+    });
+    const fileStore = makeFileStore({ getIndex: vi.fn(async () => [decision, spec]) });
+
+    await autoAbandonStaleBlocked(fileStore);
+
+    expect(mockCloseWithNotice).not.toHaveBeenCalled();
   });
 });
 

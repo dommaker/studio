@@ -13,6 +13,7 @@ import { logger, FileStore } from '@dommaker/studio-shared';
 import { WorkUnitService, type WorkUnitMetadata } from './workunit.service.js';
 import { postWuSystemMessage } from './wu-messenger.js';
 import { parseWuMetadata } from './wu-metadata.js';
+import { withBlockedCta } from './blocked-cta.js';
 
 /** 同一 WU 的超时释放上限：达到后转 blocked，等待人工介入 */
 export const MAX_TIMEOUT_RELEASES = 3;
@@ -53,9 +54,13 @@ export async function scanTimedOutWorkUnits(fs?: FileStore, now: Date = new Date
         await wuService.transitionStatus(wu.id, 'blocked');
         // 2026-07 PMO-flow UX（§6-3）：blocked 转人工里程碑 —— meta 带 pmoId（可解析时）+ atHuman
         // wu 参数带 nextMetadata 视图（pmoId 解析以最新落档为准）
+        // #176（决策 #57 D3-1）：blocked 里程碑统一携带 CTA 行动召唤块（含失败原因摘要）
         await postWuSystemMessage(
           { ...wu, metadata: JSON.stringify(nextMetadata) },
-          `任务「${title}」已 ${releases} 次执行超时被释放回池，转为 blocked，请人工介入处理`,
+          withBlockedCta(
+            `任务「${title}」已 ${releases} 次执行超时被释放回池，转为 blocked，请人工介入处理`,
+            nextMetadata.blockReason,
+          ),
           { milestone: true, fileStore },
         );
       } else {

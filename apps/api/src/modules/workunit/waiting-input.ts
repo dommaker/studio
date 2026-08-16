@@ -1,21 +1,31 @@
 /**
- * F5 双向沟通：NEED_INPUT 挂起（waiting）WorkUnit 的恢复与超时提醒。
+ * F5 双向沟通：blocked WorkUnit 的恢复与超时提醒。
  *
- * - resumeWaitingWorkUnit: 人类在频道线程中回复 → 解除挂起（blocked → active），
+ * - resumeWaitingWorkUnit: 人类在频道线程中回复 → 复活（blocked → active），
  *   回复内容写入 metadata.pendingReplies，由 AgentLoop 下一步注入 prompt。
- *   不依赖已挂载的 AgentLoop —— 无 loop 时同样解除挂起，待 loop 轮询拾取。
+ *   不依赖已挂载的 AgentLoop —— 无 loop 时同样复活，待 loop 轮询拾取。
+ *   #176（决策 #57 D2）：回复即复活扩到所有 blocked 类型（不再限 waitingForInput）；
+ *   复活重置 consecutiveStuck/blockReason、记 resumeCount（不限次，观测钩子供 #62），
+ *   timeoutReleaseCount 终身保留（不绕过 #63 的 3 次上限）；
+ *   回复「关闭」为显式关闭指令（双出声：workunit:closed 事件 + 频道说明，
+ *   decision/spec 裁剪状态机无 closed → 拒绝并说明）。
  * - B3a 工程归属链（决策 D2）：metadata.waitingReason === 'ownership' 的挂起，
  *   回复先按工程名/路径解析（project-discovery 候选）——唯一命中则绑定工程
  *   （metadata.workspaceRoot）并写回 Requirement.projectId 供下次继承，随后置回
  *   unassigned（保留 assigneeId=profile id），由被指名 profile 的 loop 认领执行；
  *   多候选/无命中则继续等待并向频道列出候选。
  * - scanWaitingForInputReminders: SCHEDULE trigger（workunit-input-reminder）的 handler，
- *   对挂起超过阈值的 WorkUnit 向频道发一次提醒（每次挂起只提醒一次，恢复时重置）。
+ *   #176（决策 #57 D3-2）：覆盖面从 waitingForInput 扩到全部 blocked 类型，
+ *   计时基准取 metadata.blockedAt（回退 waitingSince/updatedAt），复用同一 30 分钟
+ *   阈值 + 一次性 waitingReminded 标记，消息带统一 CTA（blocked-cta 模板）。
  */
 import { logger, FileStore } from '@dommaker/studio-shared';
 import { WorkUnitService, type WorkUnitData, type WorkUnitMetadata } from './workunit.service.js';
+import { resolveValidTransitions } from './workunit.types.js';
 import { postWuSystemMessage } from './wu-messenger.js';
 import { parseWuMetadata } from './wu-metadata.js';
+import { withBlockedCta } from './blocked-cta.js';
+import { closeWorkUnitWithNotice } from './wu-closure.js';
 import { ProjectDiscoveryService, type LocalProject } from '../projects/project-discovery.service.js';
 import { RequirementService } from '../requirements/requirement.service.js';
 import { projectService } from '../pmo/project.service.js';
@@ -27,11 +37,12 @@ export function getReminderThresholdMs(env: NodeJS.ProcessEnv = process.env): nu
 }
 
 /**
- * 人类回复后恢复挂起的 WorkUnit。
- * 仅当 WorkUnit 处于 blocked 且 metadata.waitingForInput 时生效（区分卡住型 blocked）。
- * 多条回复在恢复前追加拼接（pendingReplies 数组）。
+ * 人类回复后复活 blocked 的 WorkUnit（#176 决策 #57 D2：回复即复活扩全 blocked 类型）。
+ * 回复「关闭」→ 显式关闭指令（见 closeOnHumanCommand）；其余回复 → 复活：
+ * 重置 consecutiveStuck/blockReason、resumeCount 累加（D5 不限次观测钩子）、
+ * timeoutReleaseCount 终身保留，回复原文追加进 pendingReplies 注入下一步 prompt。
  * B3a: metadata.waitingReason === 'ownership' 时走工程归属解析（见 resolveOwnershipFromReply）。
- * @returns true = 已解除挂起
+ * @returns true = 回复已消费（复活/关闭/拒绝关闭均属已消费）
  */
 export async function resumeWaitingWorkUnit(
   workUnitId: string,
@@ -55,7 +66,12 @@ export async function resumeWaitingWorkUnit(
     return true;
   }
 
-  if (wu.status !== 'blocked' || !metadata.waitingForInput) return false;
+  if (wu.status !== 'blocked') return false;
+
+  // #176（决策 #57 D2）：「关闭」显式关闭指令（优先于归属解析——命令不是工程名）
+  if (replyText.trim() === '关闭') {
+    return closeOnHumanCommand(wu, metadata, fileStore);
+  }
 
   // B3a 归属链：等待工程归属的挂起 — 回复先解析为工程，唯一命中才复活
   if (metadata.waitingReason === 'ownership') {
@@ -66,8 +82,11 @@ export async function resumeWaitingWorkUnit(
   await fileStore.updateMetadata(workUnitId, latest => ({
     ...latest,
     waitingForInput: false,
-    waitingReminded: false, // 重置提醒标记：下次挂起重新计一次
+    waitingReminded: false, // 重置提醒标记：下次 blocked 重新计一次
     blockReason: undefined, // B4: 人工接管后清除 blocked 原因（JSON 序列化丢弃 undefined）
+    consecutiveStuck: 0,    // #176（决策 #57 D2）：复活重置停滞计数（仿 B5 重置 sessionCount 先例）
+    resumeCount: (typeof latest.resumeCount === 'number' ? latest.resumeCount : 0) + 1, // D5：观测钩子
+    // timeoutReleaseCount 不动 —— 终身保留（#63 的 3 次上限不可被复活绕过）
     // #94: 不再清零 sessionCount —— 复活后下一步凭 metadata.sessionId 优先续用旧会话，
     // 不靠清零预算放行（清零会让失控 WU 无限重开新会话烧 token）
     pendingReplies: [...(Array.isArray(latest.pendingReplies) ? latest.pendingReplies : []), replyText],
@@ -75,6 +94,45 @@ export async function resumeWaitingWorkUnit(
   await wuService.transitionStatus(workUnitId, 'active');
 
   logger.info('[WaitingInput] WorkUnit resumed by human reply', { workUnitId });
+  return true;
+}
+
+/**
+ * #176（决策 #57 D2）：「关闭」指令 —— 显式关闭 blocked WU。
+ * 双出声（决策 #62 §3）：workunit:closed 结构化事件 + 频道说明（经 wu-closure 统一出口）。
+ * decision/spec 裁剪状态机无 closed（#108：可能等关键人多天）→ 拒绝并频道说明，状态不变。
+ * 指令不进入 pendingReplies（不复活、无下一步可注入）。
+ * @returns true —— 指令已被消费（拒绝也是一种处理）
+ */
+async function closeOnHumanCommand(
+  wu: WorkUnitData,
+  metadata: WorkUnitMetadata,
+  fileStore: FileStore,
+): Promise<boolean> {
+  const title = (metadata.title ?? wu.scope).slice(0, 50);
+
+  if (!(resolveValidTransitions(wu.type, 'blocked') ?? []).includes('closed')) {
+    if (wu.channelId) {
+      await postWuSystemMessage(
+        wu,
+        `任务「${title}」是 ${wu.type} 类型（人工验收类，无 closed 状态），不支持「关闭」指令；如需继续请直接回复指导意见。`,
+        { fileStore },
+      ).catch(err =>
+        logger.warn('[WaitingInput] Close-reject notice failed (non-blocking)', { workUnitId: wu.id, error: String(err) })
+      );
+    }
+    logger.info('[WaitingInput] Close command rejected (type has no closed state)', { workUnitId: wu.id, type: wu.type });
+    return true;
+  }
+
+  const snapshot = (await fileStore.getIndex()).find(s => s.id === wu.id);
+  if (!snapshot || snapshot.status !== 'blocked') return false;
+  const closed = await closeWorkUnitWithNotice(fileStore, snapshot, {
+    reason: '人类在线程内回复「关闭」指令，显式关闭',
+    closedBy: 'human-command',
+    message: `任务「${title}」已按你的要求关闭。如需继续请重新派发。`,
+  });
+  logger.info('[WaitingInput] WorkUnit closed by human command', { workUnitId: wu.id, closed });
   return true;
 }
 
@@ -203,7 +261,10 @@ function formatProjectCandidates(projects: LocalProject[]): string {
 }
 
 /**
- * 扫描挂起超时的 WorkUnit 并向频道发提醒（每次挂起仅一条）。
+ * 扫描 blocked 超时的 WorkUnit 并向频道发提醒（每次 blocked 仅一条，waitingReminded 一次性标记）。
+ * #176（决策 #57 D3-2）：覆盖面从 waitingForInput 扩到全部 blocked 类型；
+ * 计时基准取 metadata.blockedAt（回退 waitingSince/updatedAt）——刚 blocked 的老 WU 不被秒提醒；
+ * 消息携带统一 CTA（blocked-cta 模板，含失败原因摘要与 24h 死信预告）。
  * @returns 本次发送的提醒数
  */
 export async function scanWaitingForInputReminders(fs?: FileStore, now: Date = new Date()): Promise<number> {
@@ -217,18 +278,22 @@ export async function scanWaitingForInputReminders(fs?: FileStore, now: Date = n
   for (const wu of blocked.data) {
     if (!wu.channelId) continue;
     const metadata = parseWuMetadata(wu.metadata);
-    if (!metadata.waitingForInput || metadata.waitingReminded) continue;
+    if (metadata.waitingReminded) continue;
 
-    const since = metadata.waitingSince ? new Date(metadata.waitingSince) : wu.updatedAt;
-    if (now.getTime() - since.getTime() < thresholdMs) continue;
+    const sinceRaw = metadata.blockedAt ?? metadata.waitingSince ?? wu.updatedAt;
+    const since = new Date(sinceRaw);
+    if (!Number.isFinite(since.getTime()) || now.getTime() - since.getTime() < thresholdMs) continue;
 
     const title = (metadata.title ?? wu.scope).slice(0, 50);
-    const question = (metadata.waitingQuestion ?? '').slice(0, 100);
+    const headline = metadata.waitingForInput
+      ? `任务「${title}」正在等待你的回复：${(metadata.waitingQuestion ?? '').slice(0, 100)}`
+      : `任务「${title}」已 blocked 超过 ${Math.round(thresholdMs / 60_000)} 分钟，等待人工介入`;
 
-    // 2026-07 PMO-flow UX（§10）：挂起超时提醒按里程碑消息发送（meta 带 pmoId?/atHuman）
+    // 2026-07 PMO-flow UX（§10）：超时提醒按里程碑消息发送（meta 带 pmoId?/atHuman）
+    // #176（决策 #57 D3-1）：同口径重发统一 CTA + blockReason 失败原因摘要
     await postWuSystemMessage(
       wu,
-      `任务「${title}」正在等待你的回复：${question}`,
+      withBlockedCta(headline, metadata.blockReason),
       { milestone: true, fileStore },
     );
     await wuService.update(wu.id, { metadata: { ...metadata, waitingReminded: true } });
@@ -236,7 +301,7 @@ export async function scanWaitingForInputReminders(fs?: FileStore, now: Date = n
   }
 
   if (reminded > 0) {
-    logger.info(`[WaitingInput] Posted ${reminded} waiting-for-input reminder(s)`);
+    logger.info(`[WaitingInput] Posted ${reminded} blocked reminder(s)`);
   }
   return reminded;
 }

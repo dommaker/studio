@@ -106,6 +106,59 @@ describe('B4: blockReason 落盘', () => {
   });
 });
 
+describe('#176（决策 #57 D4）：blockedAt 死信计时基准落档', () => {
+  it('transitionStatus → blocked 落 metadata.blockedAt', async () => {
+    const wu = await wuService.create({ scope: '任务', type: 'task', status: 'active', assigneeId: 'inst-1' });
+
+    await wuService.transitionStatus(wu.id, 'blocked');
+
+    const meta = metaOf((await wuService.getById(wu.id))!);
+    expect(typeof meta.blockedAt).toBe('string');
+    expect(Math.abs(Date.now() - new Date(meta.blockedAt!).getTime())).toBeLessThan(10_000);
+  });
+
+  it('markMergeConflict → blocked 落 blockedAt', async () => {
+    const wu = await wuService.create({ scope: '合并冲突任务', type: 'task', status: 'in_review' });
+    await wuService.markMergeConflict(wu.id, ['a.ts']);
+
+    expect(typeof metaOf((await wuService.getById(wu.id))!).blockedAt).toBe('string');
+  });
+
+  it('blockForManualRelease → blocked 落 blockedAt', async () => {
+    const wu = await wuService.create({ scope: '被释放任务', type: 'task', status: 'active', assigneeId: 'inst-1' });
+    await wuService.blockForManualRelease(wu.id, 'terminate instance inst-1');
+
+    expect(typeof metaOf((await wuService.getById(wu.id))!).blockedAt).toBe('string');
+  });
+
+  it('reviewRejected 连续 3 次 → blocked 落 blockedAt', async () => {
+    const wu = await wuService.create({ scope: '被评审任务', type: 'task', status: 'unassigned' });
+    await wuService.claim(wu.id, 'inst-1');
+    for (const reason of ['一', '二', '三']) {
+      await wuService.transitionStatus(wu.id, 'in_review');
+      await wuService.reviewRejected(wu.id, reason);
+    }
+
+    const after = (await wuService.getById(wu.id))!;
+    expect(after.status).toBe('blocked');
+    expect(typeof metaOf(after).blockedAt).toBe('string');
+  });
+
+  it('复活后再次 blocked → blockedAt 刷新为新时刻', async () => {
+    const wu = await wuService.create({ scope: '任务', type: 'task', status: 'active', assigneeId: 'inst-1' });
+    await wuService.transitionStatus(wu.id, 'blocked');
+    await wuService.update(wu.id, {
+      metadata: { waitingForInput: true, blockedAt: new Date(Date.now() - 3600_000).toISOString() },
+    });
+    await resumeWaitingWorkUnit(wu.id, '继续', fileStore);
+
+    await wuService.transitionStatus(wu.id, 'blocked');
+
+    const meta = metaOf((await wuService.getById(wu.id))!);
+    expect(Math.abs(Date.now() - new Date(meta.blockedAt!).getTime())).toBeLessThan(10_000);
+  });
+});
+
 describe('B4+#94: 人工恢复时的清理', () => {
   it('resumeWaitingWorkUnit 清除 blockReason、保留 sessionCount（复活优先续用旧会话，不再清零预算）', async () => {
     const wu = await wuService.create({ scope: '挂起任务', type: 'task', status: 'active', assigneeId: 'inst-1' });

@@ -14,6 +14,10 @@ import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import type { FileStore } from '@dommaker/studio-shared';
 import { agentRunner } from '@dommaker/studio-agent';
 import type { MonitorAlert } from '../types.js';
+import { closeWorkUnitWithNotice } from '../../workunit/wu-closure.js';
+import { buildDeadLetterNotice } from '../../workunit/blocked-cta.js';
+import { parseWuMetadata } from '../../workunit/wu-metadata.js';
+import { DECISION_SPEC_TYPES } from '../../workunit/workunit.types.js';
 
 const FAILURE_THRESHOLD = 3;
 
@@ -128,21 +132,15 @@ export async function checkTotalExecutionTime(fileStore: FileStore): Promise<Mon
       } catch (stopErr) {
         logger.warn('[MonitorService] Failed to stop workUnit process', { workUnitId: exec.id.slice(0, 8), error: String(stopErr) });
       }
-      // Update status via FileStore（#170：completed 事件 + 索引同锁成对，消除分叉窗口）
+      // 推向终态（closed）必须双出声（#176，决策 #62 §3）：结构化事件 + 频道说明，
+      // 统一走 wu-closure 出口（#170 锁内成对写在其内部保持）
       try {
         const current = (await fileStore.getIndex()).find(s => s.id === exec.id);
         if (current) {
-          const closed: typeof current = {
-            ...current,
-            status: 'closed',
-            completedAt: new Date().toISOString(),
-          };
-          await fileStore.commitSnapshot({
-            type: 'completed',
-            wuId: current.id,
-            timestamp: closed.completedAt!,
-            data: closed as unknown as Record<string, unknown>,
-          }, closed);
+          await closeWorkUnitWithNotice(fileStore, current, {
+            reason: `执行超过 2.5h（已 ${elapsedMin} 分钟），系统强制关闭`,
+            closedBy: 'total-time-kill',
+          });
         }
         logger.info('[MonitorService] Auto-closed timed-out workUnit', { workUnitId: exec.id.slice(0, 8), elapsedMin });
       } catch (dbErr) {
@@ -168,28 +166,39 @@ export async function checkTotalExecutionTime(fileStore: FileStore): Promise<Mon
   return alerts;
 }
 
-// ── NA Step 7: 24h 自动放弃 ──
+// ── NA Step 7: 24h 自动放弃（死信） ──
 
+/**
+ * #176（决策 #57 D4）：死信计时基准从 createdAt 改为 metadata.blockedAt
+ * （修掉「创建超 24h 的 WU 刚 blocked 就被秒关」bug；无 blockedAt 的存量档案回退 createdAt）。
+ * 全 blocked 类型统一适用；decision/spec 豁免（#108 裁剪状态机无 closed，可等关键人多天）。
+ * 关闭必须双出声（决策 #62 §3）：workunit:closed 结构化事件 + 频道死信通知
+ * （已关闭 + 后续出路），统一走 wu-closure 出口，不再静默改状态。
+ */
 export async function autoAbandonStaleBlocked(fileStore: FileStore): Promise<void> {
-  const cutoff = new Date(Date.now() - BLOCKED_AUTO_ABANDON_MS);
+  const cutoff = Date.now() - BLOCKED_AUTO_ABANDON_MS;
 
   const stale = (await fileStore.getIndex({ status: 'blocked' }))
-    .filter(s => new Date(s.createdAt).getTime() < cutoff.getTime())
+    .filter(s => !DECISION_SPEC_TYPES.has(s.type))
+    .filter(s => {
+      const blockedAt = parseWuMetadata(s.metadata).blockedAt;
+      const basis = new Date(typeof blockedAt === 'string' ? blockedAt : s.createdAt).getTime();
+      return Number.isFinite(basis) && basis < cutoff;
+    })
     .slice(0, 20);
 
   for (const exec of stale) {
     logger.warn('[MonitorService] Auto-abandoning stale blocked workUnit', { workUnitId: exec.id });
     try {
       const current = (await fileStore.getIndex()).find(s => s.id === exec.id);
-      if (current) {
-        // #170：closed 事件 + 索引同锁成对（消除分叉窗口，对账可闭环）
-        const closed: typeof current = { ...current, status: 'closed' };
-        await fileStore.commitSnapshot({
-          type: 'completed',
-          wuId: current.id,
-          timestamp: new Date().toISOString(),
-          data: closed as unknown as Record<string, unknown>,
-        }, closed);
+      if (current && current.status === 'blocked') {
+        const meta = parseWuMetadata(current.metadata);
+        const title = (meta.title ?? current.scope ?? current.id).slice(0, 50);
+        await closeWorkUnitWithNotice(fileStore, current, {
+          reason: 'blocked 超 24h 无人工介入，自动关闭',
+          closedBy: 'auto-abandon-stale-blocked',
+          message: buildDeadLetterNotice(title, meta.blockReason),
+        });
       }
     } catch (e) {
       logger.error('[MonitorService] Failed to auto-abandon', { executionId: exec.id, error: String(e) });

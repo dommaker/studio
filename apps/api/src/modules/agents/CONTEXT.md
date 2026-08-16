@@ -19,7 +19,7 @@
 ## 核心导出
 
 - `monitor/monitor.service.ts` — MonitorAgent 门面（健康监控 + 渐进告警，每 5min 轮询），T3 拆分后仅保留聚合/调度逻辑与实例状态；对外导出 `MonitorAgent` / `monitorAgent` 不变。
-  - `monitor/monitor-probes.ts` — 任务/WorkUnit 级探测（失败趋势/停滞/超时/工具模式）
+  - `monitor/monitor-probes.ts` — 任务/WorkUnit 级探测（失败趋势/停滞/超时/工具模式）；**#176 起系统推向 closed 双出声（决策 #62 §3）**：autoAbandonStaleBlocked（死信计时基准 = metadata.blockedAt，无则回退 createdAt；decision/spec 豁免）与 checkTotalExecutionTime 2.5h 强杀均经 workunit/wu-closure 统一出口（workunit:closed 事件 + 频道说明），不再静默 commitSnapshot
   - `monitor/monitor-system-probes.ts` — 系统/知识级探测与自修复（systemHealthCheck/worktree GC/知识健康循环/KnowledgeSync）
   - `monitor/monitor-alerts.ts` — 告警分发/Triage 升级（FL-037）/studio.jsonl 事件写入
   - `monitor/monitor-reports.ts` — 轨迹评估（G4）/每日洞察（DailyReflection）/交互模式观察（B9-025）

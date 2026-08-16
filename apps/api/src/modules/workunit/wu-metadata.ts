@@ -33,8 +33,9 @@ export function parseWuMetadata(metadata: string | null | undefined): WorkUnitMe
  * claude --resume 自注入 --dangerously-skip-permissions 被 root guard 秒拒（code 1）。
  * 跨 WU 续用本就违反"同一 WU 内才续用"约定（异 cwd 会话不存在）。
  *
- * 本列表是这 14 个字段的唯一权威出处（原 review-dispatcher.createReviewWorkUnit 的手维护
+ * 本列表是这 16 个字段的唯一权威出处（原 review-dispatcher.createReviewWorkUnit 的手维护
  * delete 清单；#94 增 lastSessionResumed、#95 增 progressLog、#96 增 sessionSummary；
+ * #176 增 blockedAt/resumeCount（死信计时基准/复活观测钩子，同理不继承）；
  * #171 删只写零消费方的 input_tokens 死字段 —— #67 决议：token 观测由 workunit:tokens 事件覆盖）。
  * agent-loop 新增簿记字段时必须同步加入本列表，否则会静默泄漏进 review 子 WU。
  *
@@ -49,6 +50,8 @@ export function clearSessionBookkeeping(meta: WorkUnitMetadata): WorkUnitMetadat
   delete cleaned.sessionCount;   // B5: 会话预算不继承（否则父 WU 超限会连坐子 WU 直接转人工）
   delete cleaned.lastSessionResumed; // #94: 续用/新建标记不继承（子 WU 尚未起会话）
   delete cleaned.blockReason;    // B4: blocked 原因不继承（子 WU 从未被 block）
+  delete cleaned.blockedAt;      // #176: 死信计时基准不继承（同上）
+  delete cleaned.resumeCount;    // #176: 复活计数不继承（同上）
   delete cleaned.stepCount;
   delete cleaned.consecutiveStuck;
   delete cleaned.errorType;

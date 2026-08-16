@@ -108,6 +108,11 @@ export class WorkUnitService extends WorkUnitCrudService {
       ...current,
       status: newStatus,
       completedAt: (newStatus === 'done' || newStatus === 'closed') ? isoNow : current.completedAt,
+      // #176（决策 #57 D4）：转入 blocked 统一落死信计时基准 metadata.blockedAt
+      // （24h 自动关闭与 30min 提醒均以此为锚；复活后再次 blocked 刷新）
+      metadata: newStatus === 'blocked'
+        ? JSON.stringify({ ...parseWuMetadata(current.metadata), blockedAt: isoNow })
+        : current.metadata,
       updatedAt: isoNow,
     };
 
@@ -307,6 +312,7 @@ export class WorkUnitService extends WorkUnitCrudService {
 
     const now = new Date();
     const isoNow = now.toISOString();
+    metadata.blockedAt = isoNow; // #176（决策 #57 D4）：死信计时基准
     const updated: WorkUnitSnapshot = {
       ...current,
       status: 'blocked',
@@ -356,6 +362,7 @@ export class WorkUnitService extends WorkUnitCrudService {
 
     const now = new Date();
     const isoNow = now.toISOString();
+    metadata.blockedAt = isoNow; // #176（决策 #57 D4）：死信计时基准
     const updated: WorkUnitSnapshot = {
       ...current,
       status: 'blocked',
@@ -416,6 +423,7 @@ export class WorkUnitService extends WorkUnitCrudService {
     if (newStatus === 'blocked') {
       // B4: blocked 原因落盘（2026-08-03 token-burn issue P0-2）
       metadata.blockReason = `review-rejected x${rejections}: ${reason ?? metadata._lastRejectionReason ?? '连续评审拒绝'}`.slice(0, 300);
+      metadata.blockedAt = new Date().toISOString(); // #176（决策 #57 D4）：死信计时基准
     }
 
     // in_review → active/blocked 也是状态变化：status_changed 由 persistSnapshot 尾部补发（列表实时刷新）

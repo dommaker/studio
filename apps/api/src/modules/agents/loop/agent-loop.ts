@@ -19,6 +19,7 @@ import { getTriggerScheduler } from '../../triggers/trigger-registry.js';
 import { knowledgeService } from '../../knowledge/knowledge-service.js';
 import { eventStore } from '../../../core/event-store.js';
 import { postWuSystemMessage } from '../../workunit/wu-messenger.js';
+import { withBlockedCta } from '../../workunit/blocked-cta.js';
 import { parseWuMetadata, mergedWuView } from '../../workunit/wu-metadata.js';
 import { hasUnfinishedDeps, buildStatusById } from '../../workunit/wu-dependencies.js';
 import { resolveWorkspaceRoot } from '../../workspaces/workspace-store.js';
@@ -1432,9 +1433,13 @@ export class AgentLoop {
         traceId,
       }).catch(() => {});
       // 2026-07 PMO-flow UX（§6-3）：验证失败打回/转人工里程碑 —— meta 带 pmoId（可解析时）+ atHuman
+      // #176（决策 #57 D3-1）：blocked 里程碑统一携带 CTA 行动召唤块
       await this.postToDiscussionSpace(
         wuId,
-        `自动验证连续失败 ${guardUpdates.verifyFailCount} 次，任务已转 blocked，等待人类介入。最近失败命令与输出已记录到任务上下文`,
+        withBlockedCta(
+          `自动验证连续失败 ${guardUpdates.verifyFailCount} 次，任务已转 blocked，等待人类介入。最近失败命令与输出已记录到任务上下文`,
+          String(blockReasonUpdates.blockReason ?? ''),
+        ),
         wu,
       );
       return;
@@ -1475,7 +1480,12 @@ export class AgentLoop {
       // W-3 接线：执行失败导致的 blocked 在频道说明失败原因（summary 含 CLI 错误详情）
       const stuckReason = action === 'failed' && result.summary ? `（${result.summary}）` : '';
       // 2026-07 PMO-flow UX（§6-3）：blocked 转人工里程碑 —— meta 带 pmoId（可解析时）+ atHuman
-      await this.postToDiscussionSpace(wuId, `连续 3 步无进展${stuckReason}，等待人类介入`, wu);
+      // #176（决策 #57 D3-1）：blocked 里程碑统一携带 CTA 行动召唤块
+      await this.postToDiscussionSpace(
+        wuId,
+        withBlockedCta(`连续 3 步无进展${stuckReason}，等待人类介入`, String(blockReasonUpdates.blockReason ?? '')),
+        wu,
+      );
       return;
     }
 

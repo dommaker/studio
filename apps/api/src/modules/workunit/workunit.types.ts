@@ -35,6 +35,8 @@ export interface WorkUnitMetadata {
   sessionCount?: number;      // B5（2026-08-03 token-burn issue）：本 WU 已建立的独立会话数（≥2 转人工，防全文重放烧钱）
   lastSessionResumed?: boolean; // #94: 本步会话续用(true)/新建(false) 标记（内部状态，不上频道）
   blockReason?: string;       // B4（同上 P0-2）：最近一次转 blocked 的原因（恢复执行时清除，防事后无法诊断）
+  blockedAt?: string;         // #176（决策 #57 D4）：最近一次转 blocked 的时刻 ISO 8601（死信 24h 计时基准；各 blocked 迁移点统一落档）
+  resumeCount?: number;       // #176（决策 #57 D5）：人工复活累计次数（不限次，纯观测钩子，供 #62 趋势探测）
   testWorkUnitGuard?: boolean; // B2（同上 P0-1c）：测试特征 WU 被 daemon 守卫关闭的留痕
   // #95: 最近成功步环形簿记（前序进展段内容源；只记成功步，保留最近 5 条，summary 截 200 字符）
   progressLog?: Array<{
@@ -256,7 +258,7 @@ export function resolveInitialStatus(wuType: string, explicit?: string): string 
  * #108：decision/spec 的裁剪状态机 —— `unassigned → active ⇄ waitingForInput → in_review → done`。
  * 现有实现里 waitingForInput 挂起 = status blocked + metadata.waitingForInput（F5 双向沟通），
  * 故表内体现为 active ⇄ blocked；无 closed（决策单可能等关键人多天，不进死信/超时关闭路径；
- * 死信关闭机制 #57 尚待实现，届时需对齐本豁免）。
+ * #176 已对齐本豁免：autoAbandonStaleBlocked 跳过 decision/spec，「关闭」指令对其拒绝并说明）。
  */
 const DECISION_SPEC_TRANSITIONS: Record<string, string[]> = {
   pending: ['unassigned'],
