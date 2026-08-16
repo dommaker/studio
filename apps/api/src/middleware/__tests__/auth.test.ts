@@ -6,8 +6,10 @@
  * AC3: requireNotGuest() — Guest 403 / non-Guest pass
  * AC4: generateAnonymousId() — IP+UA+date hash consistency (SEC-009)
  *
- * 存储迁移后（Prisma → FileStore）：token/workspace/document 均通过
+ * 存储迁移后（Prisma → FileStore）：token/workspace 均通过
  * FileStore.readJson 读取 JSON 文件，测试 mock FileStore 而非 prisma。
+ * 2026-08-16（#187）：document 分支随 document-store 退役摘除，checkOwnership
+ * 当前无任何受支持 model，分发恒走 unsupported → 500。
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Request, Response, NextFunction } from 'express';
@@ -182,8 +184,8 @@ describe('checkOwnership', () => {
   });
 
   it('returns 401 when user not logged in', async () => {
-    const middleware = checkOwnership('document');
-    req.params = { id: 'doc1' };
+    const middleware = checkOwnership('resource');
+    req.params = { id: 'r1' };
 
     await middleware(req as Request, res as Response, next);
 
@@ -196,7 +198,7 @@ describe('checkOwnership', () => {
 
   it('calls next() when user is Admin (bypass ownership check)', async () => {
     (req as any).user = { id: 'u1', role: 'Admin' };
-    const middleware = checkOwnership('document');
+    const middleware = checkOwnership('resource');
 
     await middleware(req as Request, res as Response, next);
 
@@ -206,7 +208,7 @@ describe('checkOwnership', () => {
 
   it('returns 400 when resource ID is missing from params', async () => {
     (req as any).user = { id: 'u1', role: 'User' };
-    const middleware = checkOwnership('document');
+    const middleware = checkOwnership('resource');
 
     await middleware(req as Request, res as Response, next);
 
@@ -216,64 +218,7 @@ describe('checkOwnership', () => {
     );
   });
 
-  it('returns 404 when resource not found in FileStore', async () => {
-    (req as any).user = { id: 'u1', role: 'User' };
-    req.params = { id: 'nonexistent' };
-    // documents/<id>.json 不存在 → readJson 返回 null → creatorId undefined
-    mockReadJson.mockResolvedValueOnce(null);
-
-    const middleware = checkOwnership('document');
-    await middleware(req as Request, res as Response, next);
-
-    expect(res.status).toHaveBeenCalledWith(404);
-    expect(res.json).toHaveBeenCalledWith(
-      expect.objectContaining({ code: 'RESOURCE_NOT_FOUND' }),
-    );
-  });
-
-  it('returns 403 when resource uses createdBy field and mismatches', async () => {
-    (req as any).user = { id: 'u1', role: 'User' };
-    req.params = { id: 'doc1' };
-    mockReadJson.mockResolvedValueOnce({
-      createdBy: 'other-user',
-    });
-
-    const middleware = checkOwnership('document');
-    await middleware(req as Request, res as Response, next);
-
-    expect(res.status).toHaveBeenCalledWith(403);
-    expect(res.json).toHaveBeenCalledWith(
-      expect.objectContaining({ code: 'FORBIDDEN' }),
-    );
-  });
-
-  it('calls next() when user owns the resource via createdBy', async () => {
-    (req as any).user = { id: 'u1', role: 'User' };
-    req.params = { id: 'doc1' };
-    mockReadJson.mockResolvedValueOnce({
-      createdBy: 'u1',
-    });
-
-    const middleware = checkOwnership('document');
-    await middleware(req as Request, res as Response, next);
-
-    expect(next).toHaveBeenCalled();
-  });
-
-  it('uses custom paramKey to extract resource ID', async () => {
-    (req as any).user = { id: 'u1', role: 'User' };
-    req.params = { docId: 'd1' };
-    mockReadJson.mockResolvedValueOnce({
-      createdBy: 'u1',
-    });
-
-    const middleware = checkOwnership('document', 'docId');
-    await middleware(req as Request, res as Response, next);
-
-    expect(next).toHaveBeenCalled();
-  });
-
-  it('returns 500 for invalid model name (runtime error)', async () => {
+  it('returns 500 for unsupported model name (runtime error)', async () => {
     (req as any).user = { id: 'u1', role: 'User' };
     req.params = { id: 'ws1' };
 

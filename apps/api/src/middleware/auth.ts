@@ -18,7 +18,6 @@ const fileStore = new FileStore();
 const STUDIO_DIR = studioDir();
 const USERS_FILE = path.join(STUDIO_DIR, 'users.json');
 const SESSIONS_FILE = path.join(STUDIO_DIR, 'sessions.json');
-const DOCUMENTS_DIR = path.join(STUDIO_DIR, 'data', 'documents');
 const WORKSPACE_TOKENS_DIR = path.join(STUDIO_DIR, 'workspace-tokens');
 const WORKSPACES_DIR = path.join(STUDIO_DIR, 'workspaces');
 
@@ -314,10 +313,6 @@ export function requireRole(...roles: string[]) {
  */
 async function findResourceCreator(model: string, resourceId: string): Promise<string | null | undefined> {
   switch (model.toLowerCase()) {
-    case 'document': {
-      const r = await fileStore.readJson<{ createdBy?: string | null }>(path.join(DOCUMENTS_DIR, `${resourceId}.json`));
-      return r?.createdBy ?? undefined;
-    }
     default:
       throw new Error(`Unsupported ownership model: ${model}`);
   }
