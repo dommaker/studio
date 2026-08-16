@@ -6,8 +6,11 @@
  * - GET  /     — query StudioEvents (type/since/limit filter, empty, error)
  * - POST /agent-events — batch ingest AgentEvent[] (validation, batch size, session:end trigger)
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Router } from 'express';
+import { promises as fs } from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 
 // ── Hoisted mocks ─────────────────────────────────────────────────────
 const mockAppendJsonl = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
@@ -170,25 +173,49 @@ describe('POST / (create event)', () => {
 });
 
 describe('GET / (query events)', () => {
-  beforeEach(() => {
+  // #180 缝升级：GET 改走尾部倒读（studio-events-tail），测试用真临时文件 + STUDIO_EVENTS_FILE 覆盖
+  let tmpDir: string;
+  let eventsFile: string;
+
+  beforeEach(async () => {
     vi.clearAllMocks();
-    mockReadJsonl.mockResolvedValue([
-      { type: 'a', source: 's1', payload: '{}', createdAt: '2026-07-18T10:00:00.000Z' },
-      { type: 'b', source: 's2', payload: '{}', createdAt: '2026-07-18T11:00:00.000Z' },
-      { type: 'a', source: 's1', payload: '{}', createdAt: '2026-07-18T12:00:00.000Z' },
-    ]);
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'event-routes-test-'));
+    eventsFile = path.join(tmpDir, 'studio-events.jsonl');
+    process.env.STUDIO_EVENTS_FILE = eventsFile;
   });
 
-  it('returns all events sorted by createdAt desc', async () => {
+  afterEach(async () => {
+    delete process.env.STUDIO_EVENTS_FILE;
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  });
+
+  async function seed(lines: Array<Record<string, unknown>>): Promise<void> {
+    await fs.writeFile(eventsFile, lines.map((l) => JSON.stringify(l)).join('\n') + '\n');
+  }
+
+  const baseLines = () => [
+    { type: 'a', source: 's1', payload: '{}', createdAt: '2026-07-18T10:00:00.000Z' },
+    { type: 'b', source: 's2', payload: '{}', createdAt: '2026-07-18T11:00:00.000Z' },
+    { type: 'a', source: 's1', payload: '{}', createdAt: '2026-07-18T12:00:00.000Z' },
+  ];
+
+  it('#60 决策 Q3a：GET / 挂 requireAuth（路由栈 ≥2 个 handler）', () => {
+    expect(getHandlers(routes, 'get', '/').length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('returns all events sorted by createdAt desc, nextCursor null', async () => {
+    await seed(baseLines());
     const { res } = await invokeRoute(routes, 'get', '/');
 
-    const { events, total } = res.json.mock.calls[0][0];
+    const { events, total, nextCursor } = res.json.mock.calls[0][0];
     expect(total).toBe(3);
     expect(events[0].createdAt).toBe('2026-07-18T12:00:00.000Z');
     expect(events[2].createdAt).toBe('2026-07-18T10:00:00.000Z');
+    expect(nextCursor).toBeNull();
   });
 
   it('filters by type', async () => {
+    await seed(baseLines());
     const { res } = await invokeRoute(routes, 'get', '/', {
       query: { type: 'a' },
     });
@@ -199,6 +226,7 @@ describe('GET / (query events)', () => {
   });
 
   it('filters by since', async () => {
+    await seed(baseLines());
     const { res } = await invokeRoute(routes, 'get', '/', {
       query: { since: '2026-07-18T11:30:00.000Z' },
     });
@@ -208,7 +236,91 @@ describe('GET / (query events)', () => {
     expect(events[0].createdAt).toBe('2026-07-18T12:00:00.000Z');
   });
 
+  it('#180: filters by until（只返回不晚于 until 的事件）', async () => {
+    await seed(baseLines());
+    const { res } = await invokeRoute(routes, 'get', '/', {
+      query: { until: '2026-07-18T11:30:00.000Z' },
+    });
+
+    const { events } = res.json.mock.calls[0][0];
+    expect(events).toHaveLength(2);
+    expect(events[0].createdAt).toBe('2026-07-18T11:00:00.000Z');
+  });
+
+  it('#180: level 默认 ≥info —— debug 事件默认隐藏，level=debug 全返回', async () => {
+    await seed([
+      { type: 'knowledge:skill_used', source: 's', level: 'debug', payload: '{}', createdAt: '2026-07-18T10:00:00.000Z' },
+      { type: 'workunit:failed', source: 's', level: 'warning', payload: '{}', createdAt: '2026-07-18T11:00:00.000Z' },
+      { type: 'workunit:closed', source: 's', payload: '{}', createdAt: '2026-07-18T12:00:00.000Z' },
+    ]);
+
+    const def = await invokeRoute(routes, 'get', '/');
+    const defEvents = def.res.json.mock.calls[0][0].events;
+    expect(defEvents).toHaveLength(2);
+    expect(defEvents.every((e: any) => e.type !== 'knowledge:skill_used')).toBe(true);
+
+    const dbg = await invokeRoute(routes, 'get', '/', { query: { level: 'debug' } });
+    expect(dbg.res.json.mock.calls[0][0].events).toHaveLength(3);
+  });
+
+  it('#180: level=warning 只返回 warning/critical（无 level 字段的 info 被滤掉）', async () => {
+    await seed([
+      { type: 'knowledge:skill_used', source: 's', level: 'debug', payload: '{}', createdAt: '2026-07-18T10:00:00.000Z' },
+      { type: 'workunit:closed', source: 's', payload: '{}', createdAt: '2026-07-18T11:00:00.000Z' },
+      { type: 'workunit:failed', source: 's', level: 'warning', payload: '{}', createdAt: '2026-07-18T12:00:00.000Z' },
+    ]);
+
+    const { res } = await invokeRoute(routes, 'get', '/', { query: { level: 'warning' } });
+    const { events } = res.json.mock.calls[0][0];
+    expect(events).toHaveLength(1);
+    expect(events[0].type).toBe('workunit:failed');
+  });
+
+  it('#180: keyword 过滤（type/source/payload 大小写不敏感子串）', async () => {
+    await seed([
+      { type: 'workunit:failed', source: 'agent-loop', payload: JSON.stringify({ blockReason: 'Verify FAILED: tsc' }), createdAt: '2026-07-18T10:00:00.000Z' },
+      { type: 'workunit:closed', source: 'agent-loop', payload: JSON.stringify({ summary: 'done' }), createdAt: '2026-07-18T11:00:00.000Z' },
+      { type: 'monitor:alert', source: 'watchdog', payload: JSON.stringify({ message: 'disk low' }), createdAt: '2026-07-18T12:00:00.000Z' },
+    ]);
+
+    const byPayload = await invokeRoute(routes, 'get', '/', { query: { keyword: 'verify failed' } });
+    expect(byPayload.res.json.mock.calls[0][0].events).toHaveLength(1);
+    expect(byPayload.res.json.mock.calls[0][0].events[0].type).toBe('workunit:failed');
+
+    const byType = await invokeRoute(routes, 'get', '/', { query: { keyword: 'monitor' } });
+    expect(byType.res.json.mock.calls[0][0].events).toHaveLength(1);
+
+    const noHit = await invokeRoute(routes, 'get', '/', { query: { keyword: 'nonexistent-keyword' } });
+    expect(noHit.res.json.mock.calls[0][0].events).toHaveLength(0);
+  });
+
+  it('#180: 游标分页替代 200 硬顶 —— 三页扫完无重叠，末页 nextCursor null', async () => {
+    await seed(Array.from({ length: 5 }, (_, i) => ({
+      type: 't', source: 's', payload: '{}',
+      createdAt: `2026-07-18T${String(10 + i).padStart(2, '0')}:00:00.000Z`,
+    })));
+
+    const p1 = await invokeRoute(routes, 'get', '/', { query: { limit: '2' } });
+    const b1 = p1.res.json.mock.calls[0][0];
+    expect(b1.events).toHaveLength(2);
+    expect(b1.nextCursor).not.toBeNull();
+
+    const p2 = await invokeRoute(routes, 'get', '/', { query: { limit: '2', cursor: b1.nextCursor } });
+    const b2 = p2.res.json.mock.calls[0][0];
+    expect(b2.events).toHaveLength(2);
+    expect(b2.nextCursor).not.toBeNull();
+
+    const p3 = await invokeRoute(routes, 'get', '/', { query: { limit: '2', cursor: b2.nextCursor } });
+    const b3 = p3.res.json.mock.calls[0][0];
+    expect(b3.events).toHaveLength(1);
+    expect(b3.nextCursor).toBeNull();
+
+    const all = [...b1.events, ...b2.events, ...b3.events].map((e: any) => e.createdAt);
+    expect(new Set(all).size).toBe(5); // 无重叠
+  });
+
   it('applies limit param (1-200 clamp)', async () => {
+    await seed(baseLines());
     const { res } = await invokeRoute(routes, 'get', '/', {
       query: { limit: '1' },
     });
@@ -218,34 +330,20 @@ describe('GET / (query events)', () => {
   });
 
   it('defaults limit to 50', async () => {
-    mockReadJsonl.mockResolvedValueOnce(
-      Array.from({ length: 70 }, (_, i) => ({
-        type: 't',
-        source: 's',
-        payload: '{}',
-        createdAt: new Date(2026, 6, 18, i).toISOString(),
-      }))
-    );
+    await seed(Array.from({ length: 70 }, (_, i) => ({
+      type: 't', source: 's', payload: '{}',
+      createdAt: new Date(2026, 6, 18, Math.floor(i / 24), i % 60).toISOString(),
+    })));
 
     const { res } = await invokeRoute(routes, 'get', '/');
 
-    const { events } = res.json.mock.calls[0][0];
+    const { events, nextCursor } = res.json.mock.calls[0][0];
     expect(events).toHaveLength(50);
-  });
-
-  it('caps limit at 200', async () => {
-    const { res } = await invokeRoute(routes, 'get', '/', {
-      query: { limit: '999' },
-    });
-
-    const { events } = res.json.mock.calls[0][0];
-    // 3 events exist, so all returned (caps slice, not truncate to 200)
-    expect(events).toHaveLength(3);
+    expect(nextCursor).not.toBeNull(); // 还有 20 条更旧的
   });
 
   it('returns empty when no events match', async () => {
-    mockReadJsonl.mockResolvedValueOnce([]);
-
+    await seed(baseLines());
     const { res } = await invokeRoute(routes, 'get', '/', {
       query: { type: 'nonexistent' },
     });
@@ -256,12 +354,12 @@ describe('GET / (query events)', () => {
   });
 
   it('filters by workUnitId（payload.workUnitId 匹配；损坏 payload 行跳过）', async () => {
-    mockReadJsonl.mockResolvedValueOnce([
-      { type: 'workunit:execution_step', source: 'agent-loop', payload: JSON.stringify({ workUnitId: 'wu-1', step: 1 }), createdAt: '2026-07-18T10:00:00.000Z' },
-      { type: 'workunit:execution_step', source: 'agent-loop', payload: JSON.stringify({ workUnitId: 'wu-2', step: 1 }), createdAt: '2026-07-18T11:00:00.000Z' },
-      { type: 'workunit:execution_step', source: 'agent-loop', payload: 'broken-json', createdAt: '2026-07-18T12:00:00.000Z' },
-      { type: 'workunit:execution_step', source: 'agent-loop', payload: JSON.stringify({ workUnitId: 'wu-1', step: 2 }), createdAt: '2026-07-18T13:00:00.000Z' },
-    ]);
+    await fs.writeFile(eventsFile, [
+      JSON.stringify({ type: 'workunit:execution_step', source: 'agent-loop', payload: JSON.stringify({ workUnitId: 'wu-1', step: 1 }), createdAt: '2026-07-18T10:00:00.000Z' }),
+      JSON.stringify({ type: 'workunit:execution_step', source: 'agent-loop', payload: JSON.stringify({ workUnitId: 'wu-2', step: 1 }), createdAt: '2026-07-18T11:00:00.000Z' }),
+      'broken-json',
+      JSON.stringify({ type: 'workunit:execution_step', source: 'agent-loop', payload: JSON.stringify({ workUnitId: 'wu-1', step: 2 }), createdAt: '2026-07-18T13:00:00.000Z' }),
+    ].join('\n') + '\n');
 
     const { res } = await invokeRoute(routes, 'get', '/', {
       query: { type: 'workunit:execution_step', workUnitId: 'wu-1' },
@@ -272,8 +370,8 @@ describe('GET / (query events)', () => {
     expect(events.every((e: any) => JSON.parse(e.payload).workUnitId === 'wu-1')).toBe(true);
   });
 
-  it('returns 500 on FileStore error', async () => {
-    mockReadJsonl.mockRejectedValueOnce(new Error('Read error'));
+  it('returns 500 on read error（事件文件路径指向目录）', async () => {
+    process.env.STUDIO_EVENTS_FILE = tmpDir; // 目录：open 成功、read 抛 EISDIR
 
     const { res } = await invokeRoute(routes, 'get', '/');
 

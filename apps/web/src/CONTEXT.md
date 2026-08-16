@@ -24,6 +24,7 @@
 | `harnessApi` | `api/harness.ts` | /harness/* 质量门（checkConstraints，RequirementsDocCard 执行前确认） |
 | `workunitApi` | `api/workunit.ts` | 工作单元（WorkUnit）全生命周期 API + token 度量事件查询/解析 + 执行步事件查询/解析（`listExecutionStepEvents`/`parseExecutionStepEvents`，WU 过程可视化）+ 流式 chunk→文案共享格式化 `formatExecutionStreamChunkText`（chunk→text 映射全站唯一出处：useAgentRoster 卡片动态与 ExecutionSteps 实时区共用；默认截断，传 false 不截断） |
 | `transcriptsApi` | `api/transcript.ts` | WU transcript 只读查看（#174，#60 C5）：get(workUnitId, {offset,limit}) → GET /transcripts/:id（认证、分页）；TranscriptViewer 消费 |
+| `eventsApi` | `api/events.ts` | #180 事件检索（#60 Q3a）：search(params) → GET /events（level/type/keyword/until 过滤 + nextCursor 游标分页）；MonitoringPage「事件检索」Tab（`components/monitoring/EventSearchPanel`）消费 |
 | `useWebSocket` / `WebSocketProvider` | `api/websocket.tsx` | SSE 客户端 hook 及 Context Provider；应用根部唯一 EventSource（/events/stream），事件经 `useWebSocketContext().onEvent` 分发 |
 | `useWorkUnitEvents` | `hooks/useWorkUnitEvents.ts` | workunit.created/status_changed/execution.step（SSE）订阅 hook（防抖合并）；WorkUnitListPage 列表与 WorkUnitDrawer 详情据此实时刷新（execution.step 驱动执行过程近实时更新） |
 | `useWorkUnitStreamEvents` | `hooks/useWorkUnitStreamEvents.ts` | workunit.execution.stream（Layer B 步内流式，SSE-only）订阅 hook：按 workUnitId 过滤、内存保留当前步 ≤50 条、新步 step-start 清空；WorkUnitDrawer「执行过程」实时区块消费 |

@@ -11,7 +11,7 @@
 | 模块 | 路由 | 用途 |
 |------|------|------|
 | event.routes.ts | POST /api/v1/events | 创建 StudioEvent |
-| event.routes.ts | GET /api/v1/events | 查询 StudioEvent (type/since/limit/workUnitId 过滤；workUnitId 按 payload.workUnitId 匹配，供 WU 执行步回放) |
+| event.routes.ts | GET /api/v1/events | 查询 StudioEvent（requireAuth；#180 起：type/since/until/level/keyword/workUnitId 过滤 + 尾部倒读游标分页 `cursor`→`nextCursor`，替代全文件线性扫 + 200 硬顶；level 缺省 ≥info，level=debug 看全部；倒读实现 `../../utils/studio-events-tail.ts`） |
 | event.routes.ts | POST /api/v1/events/agent-events | 批量写入 AgentEvent[] |
 | sse.routes.ts | GET /api/v1/events/stream | SSE 实时事件流 |
 | sse.routes.ts | GET /api/v1/events/clients | SSE 客户端列表 (debug) |
@@ -33,7 +33,7 @@
 
 | 文件 | 用例数 | 覆盖内容 |
 |------|--------|---------|
-| `__tests__/event.routes.test.ts` | 24 | POST/GET/agent-events: 创建/查询/验证/空 payload 拒收（D18）/错误路径 |
+| `__tests__/event.routes.test.ts` | 30 | POST/GET/agent-events: 创建/查询/验证/空 payload 拒收（D18）/错误路径；#180 起 GET 用真临时文件 + STUDIO_EVENTS_FILE 缝（过滤/游标/鉴权栈） |
 | `__tests__/session-summary-generator.test.ts` | 17 | classifyPattern 13种模式 + generateSessionSummary 边界情况 |
 | `__tests__/workunit-events-bridge.test.ts` | 1 | workunit.* 事件转发 'events' 频道（信封形状） |
 
@@ -45,5 +45,6 @@
 - **SSE 帧格式（2026-07-29 修复）**：只写 `id:` + `data:` 匿名事件（不写 `event:` 命名行——EventSource.onmessage 只收匿名事件），且 data 是完整信封 `{event_type, event_id, timestamp, data}`（此前只发内层 payload，客户端按 event_type 分发恒失败，全站 SSE 实际不通）。topic 映射：execution./runtime.→executions、node.→nodes、task.→tasks、goal.→goals、knowledge.→knowledge、workunit.→workunits、channel.→channels、其余→all（客户端默认订阅 all 全收）
 - session:summary 在 session:end 时触发，fire-and-forget
 - patternType 分类规则：纯 deterministic，不调 LLM
-- **鉴权（2026-07-24 收紧）**：event.routes 的 POST /、/agent-events 已收 requireAuth+requireNotGuest；GET /stream 保持公开（Lurk 设计有意放行，会广播内部事件总线）。
+- **鉴权（2026-07-24 收紧）**：event.routes 的 POST /、/agent-events 已收 requireAuth+requireNotGuest；GET /stream 保持公开（Lurk 设计有意放行，会广播内部事件总线）。#180（#60 决策 Q3a）起 GET / 也收 requireAuth。
+- **事件检索（#180 / #60 决策 Q3a，2026-08-16）**：GET / 改走 `../../utils/studio-events-tail.ts` 尾部倒读（字节层切行，0x0A 切分防 UTF-8 跨块截断），过滤下推到倒读循环、limit 按匹配数计、扫满即停；游标 = 已扫区间下界字节偏移，无效游标容错重扫最新。读取侧默认 level≥info（envelope 缺省 info），`level=debug` 看全部。Web 消费面 = MonitoringPage「事件检索」Tab。
 - **保留轮转（#173 / #60 决策 Q3b，2026-08-15）**：`apps/api/src/utils/studio-events-rotation.ts` 每日轮转 studio-events.jsonl——信号（level≥info）热 30 天，超期切 `archive/studio-events-YYYY-MM.jsonl.gz` 月度冷包永久保留；噪声（level=debug：knowledge:*、tool:call）7 天滚动删除。分类口径 = envelope level（显式字段优先，缺省走 type 默认分级）。挂载点：index.ts 启动后跑一次 + 每 24h；测试 `utils/__tests__/studio-events-rotation.test.ts`。audit.jsonl/incidents.jsonl 的 30 天热+月度 gzip 同属 #60 Q3b 但未在任何子票范围，待后续立项。
