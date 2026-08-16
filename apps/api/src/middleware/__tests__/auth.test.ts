@@ -2,14 +2,14 @@
  * Auth middleware unit tests
  *
  * AC1: workspaceAuth() — Bearer token → sha256 → WorkspaceToken (FileStore) → req.workspace
- * AC2: checkOwnership(model, paramKey) — owner match / non-owner 403 / Admin bypass / invalid model
  * AC3: requireNotGuest() — Guest 403 / non-Guest pass
  * AC4: generateAnonymousId() — IP+UA+date hash consistency (SEC-009)
  *
  * 存储迁移后（Prisma → FileStore）：token/workspace 均通过
  * FileStore.readJson 读取 JSON 文件，测试 mock FileStore 而非 prisma。
- * 2026-08-16（#187）：document 分支随 document-store 退役摘除，checkOwnership
- * 当前无任何受支持 model，分发恒走 unsupported → 500。
+ * 2026-08-16（#187）：document 分支随 document-store 退役摘除。
+ * 2026-08-16（#195）：checkOwnership / findResourceCreator 整体退役
+ * （零生产调用方），AC2 测试块同步删除。
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Request, Response, NextFunction } from 'express';
@@ -32,7 +32,7 @@ vi.mock('../../../utils/logger.js', () => ({
   logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
 }));
 
-import { workspaceAuth, checkOwnership, requireNotGuest, requireLocalhost, generateAnonymousId, optionalAuth, requireAuth, requireRole, requireAdmin } from '../auth.js';
+import { workspaceAuth, requireNotGuest, requireLocalhost, generateAnonymousId, optionalAuth, requireAuth, requireRole, requireAdmin } from '../auth.js';
 
 // ---------------------------------------------------------------------------
 // AC1: workspaceAuth()
@@ -164,71 +164,6 @@ describe('workspaceAuth', () => {
     expect(res.status).toHaveBeenCalledWith(500);
     expect(res.json).toHaveBeenCalledWith(
       expect.objectContaining({ code: 'WORKSPACE_AUTH_ERROR' }),
-    );
-  });
-});
-
-// ---------------------------------------------------------------------------
-// AC2: checkOwnership(model, paramKey)
-// ---------------------------------------------------------------------------
-describe('checkOwnership', () => {
-  let req: Partial<Request>;
-  let res: Partial<Response>;
-  let next: ReturnType<typeof vi.fn>;
-
-  beforeEach(() => {
-    vi.clearAllMocks();
-    req = { headers: {}, params: {}, socket: {} as any };
-    res = { status: vi.fn().mockReturnThis(), json: vi.fn() };
-    next = vi.fn();
-  });
-
-  it('returns 401 when user not logged in', async () => {
-    const middleware = checkOwnership('resource');
-    req.params = { id: 'r1' };
-
-    await middleware(req as Request, res as Response, next);
-
-    expect(res.status).toHaveBeenCalledWith(401);
-    expect(res.json).toHaveBeenCalledWith(
-      expect.objectContaining({ code: 'UNAUTHORIZED' }),
-    );
-    expect(next).not.toHaveBeenCalled();
-  });
-
-  it('calls next() when user is Admin (bypass ownership check)', async () => {
-    (req as any).user = { id: 'u1', role: 'Admin' };
-    const middleware = checkOwnership('resource');
-
-    await middleware(req as Request, res as Response, next);
-
-    expect(next).toHaveBeenCalled();
-    expect(res.status).not.toHaveBeenCalled();
-  });
-
-  it('returns 400 when resource ID is missing from params', async () => {
-    (req as any).user = { id: 'u1', role: 'User' };
-    const middleware = checkOwnership('resource');
-
-    await middleware(req as Request, res as Response, next);
-
-    expect(res.status).toHaveBeenCalledWith(400);
-    expect(res.json).toHaveBeenCalledWith(
-      expect.objectContaining({ code: 'MISSING_RESOURCE_ID' }),
-    );
-  });
-
-  it('returns 500 for unsupported model name (runtime error)', async () => {
-    (req as any).user = { id: 'u1', role: 'User' };
-    req.params = { id: 'ws1' };
-
-    const middleware = checkOwnership('nonexistentModel');
-    await middleware(req as Request, res as Response, next);
-
-    // findResourceCreator 不支持的 model → throw → catch → 500
-    expect(res.status).toHaveBeenCalledWith(500);
-    expect(res.json).toHaveBeenCalledWith(
-      expect.objectContaining({ code: 'AUTH_CHECK_ERROR' }),
     );
   });
 });
