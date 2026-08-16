@@ -337,22 +337,25 @@ class KnowledgeSyncService {
 
     const durationMs = Date.now() - startTime;
 
-    // Write sync cycle event to knowledge store
-    knowledgeBus.recordPattern({
-      source: 'monitor',
-      type: 'trend',
-      title: `KnowledgeSync cycle: ${stale.length} stale, ${unmonitored.length} unmonitored, ${healed.length} healed`,
-      content: [
-        `Stale entries: ${stale.length}`,
-        `Unmonitored: ${unmonitored.length}`,
-        `Healed: ${healed.length}`,
-        `Duration: ${durationMs}ms`,
-        stale.length > 0 ? `Stale scopes: ${stale.map(s => s.scope).join(', ')}` : '',
-        unmonitored.length > 0 ? `Unmonitored: ${unmonitored.map(u => `${u.scope}(${u.reason})`).join(', ')}` : '',
-      ].filter(Boolean).join('\n'),
-      severity: stale.length > 0 || unmonitored.length > 0 ? 'warning' : 'info',
-      timestamp: Date.now(),
-    }).catch(() => {});
+    // Write sync cycle event to knowledge store — only when something happened (#137:
+    // all-zero cycles are pure noise, ~40% of trend entries; log-only for those)
+    if (stale.length > 0 || unmonitored.length > 0) {
+      knowledgeBus.recordPattern({
+        source: 'monitor',
+        type: 'trend',
+        title: `KnowledgeSync cycle: ${stale.length} stale, ${unmonitored.length} unmonitored, ${healed.length} healed`,
+        content: [
+          `Stale entries: ${stale.length}`,
+          `Unmonitored: ${unmonitored.length}`,
+          `Healed: ${healed.length}`,
+          `Duration: ${durationMs}ms`,
+          stale.length > 0 ? `Stale scopes: ${stale.map(s => s.scope).join(', ')}` : '',
+          unmonitored.length > 0 ? `Unmonitored: ${unmonitored.map(u => `${u.scope}(${u.reason})`).join(', ')}` : '',
+        ].filter(Boolean).join('\n'),
+        severity: 'warning',
+        timestamp: Date.now(),
+      }).catch(() => {});
+    }
 
     logger.debug('[KnowledgeSync] cycle complete', { durationMs, stale: stale.length, unmonitored: unmonitored.length, healed: healed.length });
 

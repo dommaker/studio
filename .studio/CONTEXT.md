@@ -1142,7 +1142,7 @@ PMO-a 别名层（2026-07-28 分析文档，决策 4）：REQ 退化为 PMO 的�
 - **墓碑语义**：草稿 append-only，promote 追加 `{...entry, promoted:true}` 墓碑行、demote 追加 `{...entry, rejected:true, rejectedAt}` 墓碑行而非改写原行；读 pending 须按 id 去重取最新行，再排除 promoted + rejected（否则原 pending 行仍会被当作未 promote / 未 reject）。
 - **两档人审路由（#101）**：草稿条目带 `review` 档位（`auto`=操作型事实，高置信零争议；`manual`=规律/教训/偏好）。提取收尾按档位分流：auto → 直接 `promote` 进索引（不产卡）；manual → `postMemoryProposalCard` 发 `memory_proposal` 卡，人在频道 approve→`promote` / reject→`demote`。promote 保持唯一合并路径（单代码路径），demote 与 promote 共用同一 per-role 互斥锁。
 - **容量上限 + GC（最简）**：超限只提醒（`checkCapacity` 返回结构化 signal），**不落新人罪**（不拒绝写入）、**不自动删**。GC = 超限提醒人合并 topic / 淘汰草稿。
-- **KnowledgeSync「零值 trend 止血 + GC」合并**：defer。#88 该子项指向 #83（知识飞轮 GC，spec 明确 Out of Scope）；本仓库 grep「零值」无命中，`knowledge-sync.service.ts` 的 trend 写入（`recordPattern({type:'trend'})`）与 `knowledge-metrics.ts` 的 `deriveOutcomeTrend`（零数据已返 `insufficient-data`/`stable`）均无「零值 trend」实现锚点。本票只留 `checkCapacity` 作为未来 GC 可消费的 hook，不深入改 KnowledgeSync。建议另开票跟进。
+- **KnowledgeSync 零值 trend 止血**：已落地（#137，2026-08-16）。`knowledge-sync.service.ts` 的 cycle 事件仅在有 stale/unmonitored 时落库（severity=warning），全零 cycle 只写日志；存量零值条目（dedup 合并为 PRO-002）已一次性删除。历史背景：#88 时期曾 defer（grep「零值」无锚点），#137 复核定位到 cycle 事件无条件落库。
 - **路径**：生产经 `studioPath()`（读 `STUDIO_HOME`，dev/prod 隔离）；禁硬编码 `~/.studio`。测试隔离走 `isTestEnv` 改写 tmpdir，不全局设 `STUDIO_HOME`（会破坏既有测试）。
 
 ### 依赖关系
