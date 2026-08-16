@@ -3,14 +3,12 @@
  *
  * 从 monitor.service.ts 拆分（探测/告警/报告分离，零行为变更）。
  * 本模块负责产生 MonitorAlert 的各项任务级检查：
- *   - 失败趋势 / 进度停滞 / 总执行时间（含主动终止）
- *   - blocked 24h 自动放弃 / 会话文件健康 / 工具调用异常模式
+ *   - 失败趋势（#181 起改读统一事件流）/ 进度停滞 / 总执行时间（含主动终止）
+ *   - 池滞留 / in_review 滞留（#181）/ blocked 24h 自动放弃 / 会话文件健康 / 工具调用异常模式
  */
 
 import * as fs from 'fs';
-import * as path from 'path';
 import { logger } from '@dommaker/studio-shared';
-import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import type { FileStore } from '@dommaker/studio-shared';
 import { agentRunner } from '@dommaker/studio-agent';
 import type { MonitorAlert } from '../types.js';
@@ -18,6 +16,7 @@ import { closeWorkUnitWithNotice } from '../../workunit/wu-closure.js';
 import { buildDeadLetterNotice } from '../../workunit/blocked-cta.js';
 import { parseWuMetadata } from '../../workunit/wu-metadata.js';
 import { DECISION_SPEC_TYPES } from '../../workunit/workunit.types.js';
+import { getStudioEventTime, parseStudioEventPayload, readStudioEvents } from '../../../utils/studio-events.js';
 
 const FAILURE_THRESHOLD = 3;
 
@@ -29,48 +28,144 @@ const TIME_ESCALATE_MS = 2 * 60 * 60 * 1000; // 2h → Level 2
 const TIME_CRITICAL_MS = 2.5 * 60 * 60 * 1000; // 2.5h → Level 3
 const BLOCKED_AUTO_ABANDON_MS = 24 * 60 * 60 * 1000; // 24h
 
-// ── 已有 ──
+// #181（决策 #62 D2 + #167③）：WU 维度滞留阈值（初版配置，上线后调）
+const POOL_STAGNATION_WARN_MS = 2 * 60 * 60 * 1000;   // 池滞留 >2h → warning
+const POOL_STAGNATION_CRIT_MS = 12 * 60 * 60 * 1000;  // 池滞留 >12h → critical
+const REVIEW_STAGNATION_WARN_MS = 24 * 60 * 60 * 1000;  // in_review 滞留 >24h → warning
+const REVIEW_STAGNATION_CRIT_MS = 72 * 60 * 60 * 1000;  // in_review 滞留 >72h → critical
 
-export async function checkFailureTrend(fileStore: FileStore): Promise<MonitorAlert[]> {
+// ── #181（决策 #62 D2）：失败趋势改读统一事件流 ──
+
+/**
+ * 失败趋势：近 1h 的 `workunit:failed`（WU 终态失败）+ `workunit:execution_step`
+ * （status=failed 失败步）计数。阈值语义维持旧探针：失败 ≥3 次 → warning；
+ * 失败率 >50% 且样本（失败 + 成功步）≥5 → critical。
+ * 旧 data/tasks 目录读取已删除（WU 时代空转）。fileStore 形参保留以统一探针签名。
+ */
+export async function checkFailureTrend(_fileStore: FileStore): Promise<MonitorAlert[]> {
   const alerts: MonitorAlert[] = [];
-  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+  const cutoff = Date.now() - 60 * 60 * 1000;
 
-  // Read recent tasks from FileStore
-  const tasksDir = studioPath('data', 'tasks');
-  let allTasks: any[] = [];
-  try {
-    const entries = await fs.promises.readdir(tasksDir, { withFileTypes: true });
-    for (const e of entries) {
-      if (!e.isFile() || !e.name.endsWith('.json')) continue;
-      const t = await fileStore.readJson<any>(path.join(tasksDir, e.name));
-      if (t) allTasks.push(t);
+  const events = await readStudioEvents();
+  let wuFailed = 0;
+  let stepFailed = 0;
+  let stepSucceeded = 0;
+  const failedWuIds = new Set<string>();
+
+  for (const event of events) {
+    const t = getStudioEventTime(event);
+    if (!Number.isFinite(t) || t < cutoff) continue;
+
+    if (event.type === 'workunit:failed') {
+      wuFailed++;
+      const payload = parseStudioEventPayload<{ workUnitId?: string }>(event);
+      if (payload?.workUnitId) failedWuIds.add(payload.workUnitId);
+    } else if (event.type === 'workunit:execution_step') {
+      const payload = parseStudioEventPayload<{ status?: string; workUnitId?: string }>(event);
+      if (payload?.status === 'failed') {
+        stepFailed++;
+        if (payload.workUnitId) failedWuIds.add(payload.workUnitId);
+      } else if (payload?.status === 'success') {
+        stepSucceeded++;
+      }
     }
-  } catch { /* no tasks dir */ }
-  const recentTasks = allTasks
-    .filter(t => t.startedAt && new Date(t.startedAt) >= oneHourAgo && ['completed', 'failed'].includes(t.status))
-    .map(t => ({ id: t.id, status: t.status, projectId: t.projectId, name: t.name, startedAt: t.startedAt }))
-    .sort((a, b) => new Date(b.startedAt || 0).getTime() - new Date(a.startedAt || 0).getTime())
-    .slice(0, 20);
+  }
 
-  if (recentTasks.length < FAILURE_THRESHOLD) return alerts;
+  const failedCount = wuFailed + stepFailed;
+  const sample = failedCount + stepSucceeded;
 
-  const failedTasks = recentTasks.filter(t => t.status === 'failed');
-  if (failedTasks.length >= FAILURE_THRESHOLD) {
+  if (failedCount >= FAILURE_THRESHOLD) {
     alerts.push({
       source: 'failure_trend',
       level: 'warning',
-      message: `最近 1 小时内有 ${failedTasks.length} 个任务失败`,
-      projectId: failedTasks[0].projectId,
-      relatedTaskIds: failedTasks.map(t => t.id),
+      message: `最近 1 小时内有 ${failedCount} 次失败（WU 终态 ${wuFailed} + 失败步 ${stepFailed}）`,
+      relatedTaskIds: [...failedWuIds].slice(0, 20),
     });
   }
 
-  const failureRate = failedTasks.length / recentTasks.length;
-  if (failureRate > 0.5 && recentTasks.length >= 5) {
+  const failureRate = sample > 0 ? failedCount / sample : 0;
+  if (failureRate > 0.5 && sample >= 5) {
     alerts.push({
       source: 'failure_trend',
       level: 'critical',
-      message: `任务失败率 ${(failureRate * 100).toFixed(0)}%，需要关注`,
+      message: `任务失败率 ${(failureRate * 100).toFixed(0)}%（${failedCount}/${sample}），需要关注`,
+    });
+  }
+
+  return alerts;
+}
+
+// ── #181（决策 #62 D2）：池滞留探测 ──
+
+/**
+ * 池滞留：扫 status=unassigned，按最老一条滞留时长（createdAt 起计）告警——
+ * >2h warning / >12h critical。指名未认领（assigneeId=profile id，等特定 loop 认领）
+ * 与无人认领池（assigneeId=null）分开出声：前者是「被指名的 loop 没来领」，后者是「无人认领」。
+ */
+export async function checkPoolStagnation(fileStore: FileStore): Promise<MonitorAlert[]> {
+  const alerts: MonitorAlert[] = [];
+  const unassigned = await fileStore.getIndex({ status: 'unassigned' });
+
+  const groups: Array<{ label: string; items: typeof unassigned }> = [
+    { label: '无人认领', items: unassigned.filter(w => !w.assigneeId) },
+    { label: '指名未认领', items: unassigned.filter(w => w.assigneeId) },
+  ];
+
+  for (const { label, items } of groups) {
+    if (items.length === 0) continue;
+    const oldest = items.reduce((a, b) => (new Date(a.createdAt).getTime() <= new Date(b.createdAt).getTime() ? a : b));
+    const stalledMs = Date.now() - new Date(oldest.createdAt).getTime();
+    const hours = Math.floor(stalledMs / 3_600_000);
+    const designated = oldest.assigneeId ? `（@${oldest.assigneeId}）` : '';
+
+    if (stalledMs > POOL_STAGNATION_CRIT_MS) {
+      alerts.push({
+        source: 'pool_stagnation',
+        level: 'critical',
+        message: `未认领池滞留：${label} WU 最老 ${oldest.id}${designated} 已滞留 ${hours}h（共 ${items.length} 条）`,
+        relatedTaskIds: [oldest.id],
+      });
+    } else if (stalledMs > POOL_STAGNATION_WARN_MS) {
+      alerts.push({
+        source: 'pool_stagnation',
+        level: 'warning',
+        message: `未认领池滞留：${label} WU 最老 ${oldest.id}${designated} 已滞留 ${hours}h（共 ${items.length} 条）`,
+        relatedTaskIds: [oldest.id],
+      });
+    }
+  }
+
+  return alerts;
+}
+
+// ── #181（决策 #167③）：in_review 滞留探测 ──
+
+/**
+ * in_review 滞留：人工确认队列以天计（不对齐池滞留 2h/12h）——
+ * 最老一条（updatedAt = 进入 in_review 的最近流转时间）>24h warning / >72h critical。
+ */
+export async function checkReviewStagnation(fileStore: FileStore): Promise<MonitorAlert[]> {
+  const alerts: MonitorAlert[] = [];
+  const inReview = await fileStore.getIndex({ status: 'in_review' });
+  if (inReview.length === 0) return alerts;
+
+  const oldest = inReview.reduce((a, b) => (new Date(a.updatedAt).getTime() <= new Date(b.updatedAt).getTime() ? a : b));
+  const stalledMs = Date.now() - new Date(oldest.updatedAt).getTime();
+  const hours = Math.floor(stalledMs / 3_600_000);
+
+  if (stalledMs > REVIEW_STAGNATION_CRIT_MS) {
+    alerts.push({
+      source: 'review_stagnation',
+      level: 'critical',
+      message: `in_review 滞留：WU ${oldest.id} 待人工确认已 ${hours}h（共 ${inReview.length} 条）`,
+      relatedTaskIds: [oldest.id],
+    });
+  } else if (stalledMs > REVIEW_STAGNATION_WARN_MS) {
+    alerts.push({
+      source: 'review_stagnation',
+      level: 'warning',
+      message: `in_review 滞留：WU ${oldest.id} 待人工确认已 ${hours}h（共 ${inReview.length} 条）`,
+      relatedTaskIds: [oldest.id],
     });
   }
 

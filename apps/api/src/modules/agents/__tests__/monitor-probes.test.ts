@@ -5,7 +5,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 
-const { tmpDir, mockLogger, mockAgentStop, mockReaddir, mockGetStats, mockCloseWithNotice } = vi.hoisted(() => {
+const { tmpDir, mockLogger, mockAgentStop, mockReaddir, mockGetStats, mockCloseWithNotice, mockReadStudioEvents } = vi.hoisted(() => {
   const fs = require('fs');
   const path = require('path');
   const os = require('os');
@@ -17,6 +17,8 @@ const { tmpDir, mockLogger, mockAgentStop, mockReaddir, mockGetStats, mockCloseW
     mockGetStats: vi.fn(() => ({} as Record<string, any>)),
     // #176（决策 #62 §3 双出声）：关闭统一出口（事件 + 频道 + 快照）打桩，探头只断言委托
     mockCloseWithNotice: vi.fn(() => Promise.resolve(true)),
+    // #181（决策 #62 D2）：失败趋势改读统一事件流，readStudioEvents 打桩
+    mockReadStudioEvents: vi.fn(() => Promise.resolve([] as any[])),
   };
 });
 
@@ -49,8 +51,26 @@ vi.mock('../../workunit/wu-closure.js', () => ({
   WORKUNIT_CLOSED_EVENT_TYPE: 'workunit:closed',
 }));
 
+// #181：统一事件流读取打桩（全量 mock——真模块顶层 new FileStore() 依赖 shared，不宜 importOriginal）
+vi.mock('../../../utils/studio-events.js', () => ({
+  readStudioEvents: mockReadStudioEvents,
+  parseStudioEventPayload: (event: { payload?: unknown }) => {
+    const raw = event?.payload;
+    if (raw === null || raw === undefined) return null;
+    if (typeof raw === 'object') return raw;
+    if (typeof raw !== 'string') return null;
+    try { return JSON.parse(raw); } catch { return null; }
+  },
+  getStudioEventTime: (event: { createdAt?: unknown }) => {
+    const ts = typeof event?.createdAt === 'string' ? new Date(event.createdAt).getTime() : NaN;
+    return Number.isFinite(ts) ? ts : NaN;
+  },
+}));
+
 import {
   checkFailureTrend,
+  checkPoolStagnation,
+  checkReviewStagnation,
   checkProgressStagnation,
   checkTotalExecutionTime,
   autoAbandonStaleBlocked,
@@ -87,57 +107,154 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockReaddir.mockResolvedValue([] as any);
   mockGetStats.mockReturnValue({}); // clearAllMocks 不清实现，显式重置
+  mockReadStudioEvents.mockResolvedValue([] as any);
 });
 
 afterEach(() => {
   delete process.env.SESSION_FILE_PATH;
 });
 
-describe('checkFailureTrend', () => {
-  it('returns empty when tasks dir unreadable or too few recent tasks', async () => {
-    mockReaddir.mockRejectedValueOnce(new Error('ENOENT'));
-    const alerts = await checkFailureTrend(makeFileStore());
-    expect(alerts).toEqual([]);
+// #181（决策 #62 D2）：失败趋势探针改读统一事件流（workunit:failed + execution_step failed）
+function makeEvent(type: string, payload: Record<string, unknown>, createdAt = new Date().toISOString()) {
+  return { type, source: 'agent-loop', payload: JSON.stringify(payload), createdAt };
+}
+
+describe('checkFailureTrend（事件流，#181）', () => {
+  it('无近 1h 失败事件 → 无告警，且不再读取 data/tasks 目录', async () => {
+    mockReadStudioEvents.mockResolvedValue([
+      makeEvent('workunit:execution_step', { workUnitId: 'wu-1', status: 'success' }),
+    ]);
+
+    expect(await checkFailureTrend(makeFileStore())).toEqual([]);
+    expect(mockReaddir).not.toHaveBeenCalled();
   });
 
-  it('warns on ≥3 failures and criticals when failure rate >50% with ≥5 tasks', async () => {
-    const now = new Date().toISOString();
-    const tasks: Record<string, any> = {
-      t1: { id: 't1', status: 'failed', startedAt: now, projectId: 'p1' },
-      t2: { id: 't2', status: 'failed', startedAt: now, projectId: 'p1' },
-      t3: { id: 't3', status: 'failed', startedAt: now, projectId: 'p2' },
-      t4: { id: 't4', status: 'failed', startedAt: now, projectId: 'p2' },
-      t5: { id: 't5', status: 'completed', startedAt: now, projectId: 'p3' },
-    };
-    mockReaddir.mockResolvedValue(
-      Object.keys(tasks).map(id => ({ name: `${id}.json`, isFile: () => true })) as any,
-    );
-    const fileStore = makeFileStore({
-      readJson: vi.fn(async (p: string) => tasks[path.basename(p, '.json')]),
-    });
+  it('≥3 次失败（workunit:failed + 失败步混合计数）→ warning', async () => {
+    mockReadStudioEvents.mockResolvedValue([
+      makeEvent('workunit:failed', { workUnitId: 'wu-a', failureType: 'stuck' }),
+      makeEvent('workunit:failed', { workUnitId: 'wu-b', failureType: 'verify' }),
+      makeEvent('workunit:execution_step', { workUnitId: 'wu-c', status: 'failed' }),
+      makeEvent('workunit:execution_step', { workUnitId: 'wu-d', status: 'success' }),
+    ]);
 
-    const alerts = await checkFailureTrend(fileStore);
+    const alerts = await checkFailureTrend(makeFileStore());
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]).toMatchObject({ source: 'failure_trend', level: 'warning' });
+    expect(alerts[0].message).toContain('3');
+    expect(alerts[0].relatedTaskIds).toEqual(expect.arrayContaining(['wu-a', 'wu-b', 'wu-c']));
+  });
+
+  it('失败率 >50% 且样本 ≥5 → warning + critical 双出声', async () => {
+    mockReadStudioEvents.mockResolvedValue([
+      makeEvent('workunit:failed', { workUnitId: 'wu-a' }),
+      makeEvent('workunit:failed', { workUnitId: 'wu-b' }),
+      makeEvent('workunit:execution_step', { workUnitId: 'wu-c', status: 'failed' }),
+      makeEvent('workunit:execution_step', { workUnitId: 'wu-d', status: 'failed' }),
+      makeEvent('workunit:execution_step', { workUnitId: 'wu-e', status: 'success' }),
+    ]);
+
+    const alerts = await checkFailureTrend(makeFileStore());
     expect(alerts).toHaveLength(2);
-    expect(alerts[0]).toMatchObject({ source: 'failure_trend', level: 'warning', projectId: 'p1' });
+    expect(alerts[0]).toMatchObject({ source: 'failure_trend', level: 'warning' });
     expect(alerts[1]).toMatchObject({ source: 'failure_trend', level: 'critical' });
     expect(alerts[1].message).toContain('80%');
   });
 
-  it('ignores tasks older than 1 hour', async () => {
+  it('失败 <3 且失败率 ≤50% → 无告警', async () => {
+    mockReadStudioEvents.mockResolvedValue([
+      makeEvent('workunit:execution_step', { workUnitId: 'wu-a', status: 'failed' }),
+      makeEvent('workunit:execution_step', { workUnitId: 'wu-b', status: 'failed' }),
+      makeEvent('workunit:execution_step', { workUnitId: 'wu-c', status: 'success' }),
+      makeEvent('workunit:execution_step', { workUnitId: 'wu-d', status: 'success' }),
+      makeEvent('workunit:execution_step', { workUnitId: 'wu-e', status: 'success' }),
+    ]);
+
+    expect(await checkFailureTrend(makeFileStore())).toEqual([]);
+  });
+
+  it('忽略 1 小时前的事件', async () => {
     const old = new Date(Date.now() - 2 * 3600_000).toISOString();
-    const tasks: Record<string, any> = {
-      t1: { id: 't1', status: 'failed', startedAt: old },
-      t2: { id: 't2', status: 'failed', startedAt: old },
-      t3: { id: 't3', status: 'failed', startedAt: old },
-    };
-    mockReaddir.mockResolvedValue(
-      Object.keys(tasks).map(id => ({ name: `${id}.json`, isFile: () => true })) as any,
-    );
-    const fileStore = makeFileStore({
-      readJson: vi.fn(async (p: string) => tasks[path.basename(p, '.json')]),
+    mockReadStudioEvents.mockResolvedValue([
+      makeEvent('workunit:failed', { workUnitId: 'wu-a' }, old),
+      makeEvent('workunit:failed', { workUnitId: 'wu-b' }, old),
+      makeEvent('workunit:failed', { workUnitId: 'wu-c' }, old),
+    ]);
+
+    expect(await checkFailureTrend(makeFileStore())).toEqual([]);
+  });
+});
+
+// #181（决策 #62 D2）：池滞留探针 —— unassigned 最老 >2h warning / >12h critical，指名未认领区分出声
+describe('checkPoolStagnation（#181）', () => {
+  const mkUnassigned = (hoursAgo: number, id: string, assigneeId: string | null = null) =>
+    makeSnapshot({
+      id, status: 'unassigned', assigneeId,
+      createdAt: new Date(Date.now() - hoursAgo * 3600_000).toISOString(),
+      updatedAt: new Date(Date.now() - hoursAgo * 3600_000).toISOString(),
     });
 
-    expect(await checkFailureTrend(fileStore)).toEqual([]);
+  it('无人认领池最老 >2h → warning，>12h → critical', async () => {
+    let fileStore = makeFileStore({ getIndex: vi.fn(async () => [mkUnassigned(3, 'wu-warn'), mkUnassigned(0.5, 'wu-fresh')]) });
+    let alerts = await checkPoolStagnation(fileStore);
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]).toMatchObject({ source: 'pool_stagnation', level: 'warning', relatedTaskIds: ['wu-warn'] });
+    expect(alerts[0].message).toContain('无人认领');
+
+    fileStore = makeFileStore({ getIndex: vi.fn(async () => [mkUnassigned(13, 'wu-crit')]) });
+    alerts = await checkPoolStagnation(fileStore);
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]).toMatchObject({ source: 'pool_stagnation', level: 'critical' });
+  });
+
+  it('指名未认领（assigneeId=profile id）单独区分出声，与池滞留分开告警', async () => {
+    const fileStore = makeFileStore({
+      getIndex: vi.fn(async () => [
+        mkUnassigned(3, 'wu-pool'),
+        mkUnassigned(14, 'wu-designated', 'profile-analyst'),
+      ]),
+    });
+
+    const alerts = await checkPoolStagnation(fileStore);
+    expect(alerts).toHaveLength(2);
+    const pool = alerts.find(a => a.relatedTaskIds?.includes('wu-pool'));
+    const designated = alerts.find(a => a.relatedTaskIds?.includes('wu-designated'));
+    expect(pool).toMatchObject({ level: 'warning' });
+    expect(pool!.message).toContain('无人认领');
+    expect(designated).toMatchObject({ level: 'critical' });
+    expect(designated!.message).toContain('指名未认领');
+    expect(designated!.message).toContain('profile-analyst');
+  });
+
+  it('全部新鲜（<2h）→ 无告警', async () => {
+    const fileStore = makeFileStore({ getIndex: vi.fn(async () => [mkUnassigned(1, 'wu-fresh'), mkUnassigned(0.5, 'wu-fresh2', 'profile-x')]) });
+    expect(await checkPoolStagnation(fileStore)).toEqual([]);
+  });
+});
+
+// #181（决策 #167③）：in_review 滞留探针 —— >24h warning / >72h critical
+describe('checkReviewStagnation（#181）', () => {
+  const mkInReview = (hoursAgo: number, id: string) =>
+    makeSnapshot({
+      id, status: 'in_review',
+      createdAt: new Date(Date.now() - (hoursAgo + 5) * 3600_000).toISOString(),
+      updatedAt: new Date(Date.now() - hoursAgo * 3600_000).toISOString(),
+    });
+
+  it('最老 >24h → warning，>72h → critical', async () => {
+    let fileStore = makeFileStore({ getIndex: vi.fn(async () => [mkInReview(25, 'wu-warn'), mkInReview(1, 'wu-fresh')]) });
+    let alerts = await checkReviewStagnation(fileStore);
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]).toMatchObject({ source: 'review_stagnation', level: 'warning', relatedTaskIds: ['wu-warn'] });
+
+    fileStore = makeFileStore({ getIndex: vi.fn(async () => [mkInReview(73, 'wu-crit')]) });
+    alerts = await checkReviewStagnation(fileStore);
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]).toMatchObject({ source: 'review_stagnation', level: 'critical' });
+  });
+
+  it('全部新鲜（<24h）→ 无告警', async () => {
+    const fileStore = makeFileStore({ getIndex: vi.fn(async () => [mkInReview(2, 'wu-fresh')]) });
+    expect(await checkReviewStagnation(fileStore)).toEqual([]);
   });
 });
 
