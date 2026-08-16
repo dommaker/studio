@@ -92,7 +92,6 @@
 | webhook.routes | apps/api/src/modules/deploy/webhook.routes.ts | Deploy Webhook — GitHub push 事件触发的部署入口（触发式部署，替代每分钟轮询的主通道） |
 
 | pmo | apps/web/src/components/pmo/ | WU → 泳道。F6 铁律：分列只准看 deriveDisplayState 派生列（done 缺 L3 回「评审中」等人工确认）。 |
-| graphUtils | apps/web/src/components/knowledge/graphUtils.ts | 知识图谱节点数据 |
 | statusClasses | apps/web/src/components/channel/statusClasses.ts | 频道/agent 状态点样式映射（从 ChannelRail.tsx 拆出，供 ChannelRail 与 ChannelListPage 共用） |
 | dismissed | apps/web/src/components/setup/dismissed.ts | 角色配置引导弹框的会话级 dismiss 标记（sessionStorage key 与检查函数； |
 | useTheme | apps/web/src/contexts/useTheme.ts | 使用主题 Hook |
@@ -109,7 +108,6 @@
 | ChannelWorkspaceSetting | apps/web/src/components/ChannelWorkspaceSetting.tsx | ChannelWorkspaceSetting |
 | DiscussionPanel | apps/web/src/components/DiscussionPanel.tsx | DiscussionPanel — WorkUnit 讨论空间（MVP-4） |
 | JoinComputeDialog | apps/web/src/components/JoinComputeDialog.tsx | JoinComputeDialog |
-| KnowledgeGraphView | apps/web/src/components/KnowledgeGraphView.tsx | 节点颜色映射（分类色板 → theme.css `--chart-1…9`，深/浅主题各自取值） |
 | LandingPage | apps/web/src/components/LandingPage.tsx | Lurk Wall: 个人网站展示页 — 不提示登录，不显示入口 |
 | MoreDropdown | apps/web/src/components/MoreDropdown.tsx | MoreDropdown.tsx - "更多"下拉菜单组件（L4 高级功能） |
 | NotificationBell | apps/web/src/components/NotificationBell.tsx | Notification Bell — B2-003: 通知中心 |
