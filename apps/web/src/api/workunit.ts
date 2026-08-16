@@ -278,6 +278,14 @@ export const workunitApi = {
   dispatchReview: (id: string) =>
     api.post<DispatchReviewResult>(`/workunits/${id}/dispatch-review`),
 
+  /** #185（决策 #87 D2）：Web 按钮通道「继续执行」——纯授权复活，与频道回复共享同一复活原语 */
+  resume: (id: string) =>
+    api.post<WorkUnit>(`/workunits/${id}/resume`),
+
+  /** #185（决策 #87 D2）：Web 按钮通道「关闭任务」——死信显式关闭路径（decision/spec 无 closed → 409） */
+  close: (id: string) =>
+    api.post<WorkUnit>(`/workunits/${id}/close`),
+
   getMessages: (id: string, params?: { before?: string; limit?: number }) =>
     api.get(`/workunits/${id}/messages`, { params }),
 

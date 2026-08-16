@@ -10,6 +10,9 @@ import { FileStore, type ChannelMessageData } from '@dommaker/studio-shared';
 import { WorkUnitService, type WorkUnitMetadata } from '../workunit.service.js';
 import {
   resumeWaitingWorkUnit,
+  resumeBlockedWorkUnitFromWeb,
+  closeBlockedWorkUnitFromWeb,
+  WEB_RESUME_PLACEHOLDER,
   scanWaitingForInputReminders,
   getReminderThresholdMs,
 } from '../waiting-input.js';
@@ -338,6 +341,103 @@ describe('scanWaitingForInputReminders', () => {
     });
 
     expect(await scanWaitingForInputReminders(fileStore)).toBe(0);
+  });
+});
+
+describe('#185（决策 #87 D2）：Web 按钮通道（纯授权复活 + 关闭原语）', () => {
+  it('卡住型 blocked → resumeBlockedWorkUnitFromWeb：共享复活原语（重置计数 + 固定占位文案注入 pendingReplies）+ Studio 里程碑消息（#62 双出声）', async () => {
+    const { wu } = await createParkedWorkUnit({
+      waitingForInput: false,
+      consecutiveStuck: 3,
+      blockReason: 'stuck: 连续 3 步无进展',
+      timeoutReleaseCount: 2,
+      resumeCount: 1,
+    });
+
+    const resumed = await resumeBlockedWorkUnitFromWeb(wu.id, fileStore);
+
+    expect(resumed).toBe(true);
+    const after = await findWu(wu.id);
+    expect(after.status).toBe('active');
+    const meta = metaOf(after);
+    expect(meta.consecutiveStuck).toBe(0);
+    expect(meta.blockReason).toBeUndefined();
+    expect(meta.resumeCount).toBe(2); // 既有值上累加
+    expect(meta.timeoutReleaseCount).toBe(2); // 终身保留
+    expect(meta.pendingReplies).toEqual([WEB_RESUME_PLACEHOLDER]);
+    expect(WEB_RESUME_PLACEHOLDER).toBe('（人类在 Web 端授权继续执行）');
+    // #62 双出声：按钮动作在频道不可见 → 补 Studio 系统消息里程碑
+    expect(mockPostWuSystemMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ id: wu.id }),
+      expect.stringContaining('继续执行'),
+      expect.objectContaining({ milestone: true, fileStore }),
+    );
+  });
+
+  it('NEED_INPUT 型 blocked 同样可复活（端点不设类型门槛，分类型显示是 UI 层决策 D3）', async () => {
+    const { wu } = await createParkedWorkUnit(); // waitingForInput: true
+
+    const resumed = await resumeBlockedWorkUnitFromWeb(wu.id, fileStore);
+
+    expect(resumed).toBe(true);
+    expect((await findWu(wu.id)).status).toBe('active');
+  });
+
+  it('active WorkUnit（无 pendingReplies）→ false，不动状态', async () => {
+    const wu = await wuService.create({ scope: 't', channelId, type: 'task', status: 'active', assigneeId: 'i-1' });
+
+    await expect(resumeBlockedWorkUnitFromWeb(wu.id, fileStore)).resolves.toBe(false);
+    expect((await findWu(wu.id)).status).toBe('active');
+  });
+
+  it('WorkUnit 不存在 → false，不抛错', async () => {
+    await expect(resumeBlockedWorkUnitFromWeb('no-such-wu', fileStore)).resolves.toBe(false);
+  });
+
+  it('blocked task → closeBlockedWorkUnitFromWeb：closed + 频道确认 + workunit:closed 事件（human-command，死信关闭路径）', async () => {
+    const { wu } = await createParkedWorkUnit({
+      waitingForInput: false,
+      blockReason: 'stuck: 连续 3 步无进展',
+      blockedAt: new Date().toISOString(),
+    });
+
+    const outcome = await closeBlockedWorkUnitFromWeb(wu.id, fileStore);
+
+    expect(outcome).toBe('closed');
+    expect((await findWu(wu.id)).status).toBe('closed');
+    const messages = await fileStore.queryMessages(channelId, { workUnitId: wu.id });
+    expect(messages.some(m => m.content.includes('已按你的要求关闭'))).toBe(true);
+    const closedEvents = readStudioEvents()
+      .filter(e => e.type === 'workunit:closed')
+      .map(e => ({ ...e, payload: JSON.parse(e.payload) }));
+    expect(closedEvents).toHaveLength(1);
+    expect(closedEvents[0].payload).toMatchObject({
+      workUnitId: wu.id,
+      closedBy: 'human-command',
+    });
+  });
+
+  it('decision 类型（裁剪状态机无 closed）→ rejected-no-closed-state + 频道说明，状态不变', async () => {
+    const wu = await wuService.create({
+      scope: '决策单', channelId, type: 'decision', status: 'unassigned',
+      metadata: { title: '决策单' },
+    });
+    await wuService.transitionStatus(wu.id, 'active');
+    await wuService.transitionStatus(wu.id, 'blocked');
+
+    const outcome = await closeBlockedWorkUnitFromWeb(wu.id, fileStore);
+
+    expect(outcome).toBe('rejected-no-closed-state');
+    expect((await findWu(wu.id)).status).toBe('blocked');
+    const messages = await fileStore.queryMessages(channelId, { workUnitId: wu.id });
+    expect(messages.some(m => m.content.includes('不支持'))).toBe(true);
+  });
+
+  it('非 blocked / 不存在 → not-found-or-not-blocked', async () => {
+    const wu = await wuService.create({ scope: 't', channelId, type: 'task', status: 'active', assigneeId: 'i-1' });
+
+    await expect(closeBlockedWorkUnitFromWeb(wu.id, fileStore)).resolves.toBe('not-found-or-not-blocked');
+    await expect(closeBlockedWorkUnitFromWeb('no-such-wu', fileStore)).resolves.toBe('not-found-or-not-blocked');
   });
 });
 

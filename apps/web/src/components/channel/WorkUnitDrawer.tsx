@@ -11,6 +11,7 @@ import { requirementApi, type RequirementChain } from '../../api/requirements';
 import { monitoringApi, type OverheadStats } from '../../api/monitoring';
 import { useWorkUnitEvents } from '../../hooks/useWorkUnitEvents';
 import { ExecutionSteps } from '../workunit/ExecutionSteps';
+import { BlockedActions } from '../workunit/BlockedActions';
 import { TreeTokenDrawer } from '../workunit/TreeTokenDrawer';
 import { SelfReviewBadge } from '../workunit/SelfReviewBadge';
 import { EvidenceLedger } from '../workunit/EvidenceLedger';
@@ -247,6 +248,10 @@ function WuDetail({ id, onOpenReq }: { id: string; onOpenReq: (reqId: string) =>
           onCancel={() => setShowApproveModal(false)}
         />
       )}
+
+      {/* #185（决策 #87 D4）：blocked 处置组件（继续执行/关闭任务），与详情页同一组件；
+          动作成功后经 eventTick 重拉详情 */}
+      <BlockedActions wu={wu} onChanged={() => setEventTick(t => t + 1)} />
 
       {/* WU 过程可视化：执行步事件流（思考/工具调用/skill 注入/用量），SSE 步级刷新。
           频道只留里程碑，过程明细在这里；完整 transcript（会话原文）见 WU 详情页 TranscriptViewer（#174）。

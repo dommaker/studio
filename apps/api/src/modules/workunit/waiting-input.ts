@@ -9,6 +9,9 @@
  *   timeoutReleaseCount 终身保留（不绕过 #63 的 3 次上限）；
  *   回复「关闭」为显式关闭指令（双出声：workunit:closed 事件 + 频道说明，
  *   decision/spec 裁剪状态机无 closed → 拒绝并说明）。
+ *   #185（决策 #87 D2）Web 按钮通道：resumeBlockedWorkUnitFromWeb（纯授权 = 占位文案
+ *   走同一复活原语 + Studio 里程碑消息补双出声）/ closeBlockedWorkUnitFromWeb（同一
+ *   死信关闭路径，三态返回值供路由映射 200/409）。
  * - B3a 工程归属链（决策 D2）：metadata.waitingReason === 'ownership' 的挂起，
  *   回复先按工程名/路径解析（project-discovery 候选）——唯一命中则绑定工程
  *   （metadata.workspaceRoot）并写回 Requirement.projectId 供下次继承，随后置回
@@ -70,7 +73,9 @@ export async function resumeWaitingWorkUnit(
 
   // #176（决策 #57 D2）：「关闭」显式关闭指令（优先于归属解析——命令不是工程名）
   if (replyText.trim() === '关闭') {
-    return closeOnHumanCommand(wu, metadata, fileStore);
+    const outcome = await closeOnHumanCommand(wu, metadata, fileStore);
+    // not-found-or-not-blocked = 指令未被消费（竞态下状态已变，交还后续流程）
+    return outcome !== 'not-found-or-not-blocked';
   }
 
   // B3a 归属链：等待工程归属的挂起 — 回复先解析为工程，唯一命中才复活
@@ -102,13 +107,15 @@ export async function resumeWaitingWorkUnit(
  * 双出声（决策 #62 §3）：workunit:closed 结构化事件 + 频道说明（经 wu-closure 统一出口）。
  * decision/spec 裁剪状态机无 closed（#108：可能等关键人多天）→ 拒绝并频道说明，状态不变。
  * 指令不进入 pendingReplies（不复活、无下一步可注入）。
- * @returns true —— 指令已被消费（拒绝也是一种处理）
+ * #185（决策 #87 D2）：返回值细化为三态（Web 按钮通道复用同一关闭路径，需区分拒绝原因）；
+ * opts.reason 覆盖关闭原因文案（Web 按钮 ≠ 频道回复）。
  */
 async function closeOnHumanCommand(
   wu: WorkUnitData,
   metadata: WorkUnitMetadata,
   fileStore: FileStore,
-): Promise<boolean> {
+  opts?: { reason?: string },
+): Promise<WebCloseOutcome> {
   const title = (metadata.title ?? wu.scope).slice(0, 50);
 
   if (!(resolveValidTransitions(wu.type, 'blocked') ?? []).includes('closed')) {
@@ -122,18 +129,70 @@ async function closeOnHumanCommand(
       );
     }
     logger.info('[WaitingInput] Close command rejected (type has no closed state)', { workUnitId: wu.id, type: wu.type });
-    return true;
+    return 'rejected-no-closed-state';
   }
 
   const snapshot = (await fileStore.getIndex()).find(s => s.id === wu.id);
-  if (!snapshot || snapshot.status !== 'blocked') return false;
+  if (!snapshot || snapshot.status !== 'blocked') return 'not-found-or-not-blocked';
   const closed = await closeWorkUnitWithNotice(fileStore, snapshot, {
-    reason: '人类在线程内回复「关闭」指令，显式关闭',
+    reason: opts?.reason ?? '人类在线程内回复「关闭」指令，显式关闭',
     closedBy: 'human-command',
     message: `任务「${title}」已按你的要求关闭。如需继续请重新派发。`,
   });
   logger.info('[WaitingInput] WorkUnit closed by human command', { workUnitId: wu.id, closed });
+  return 'closed';
+}
+
+/** #185（决策 #87 D2）：Web 按钮通道关闭结果三态（路由据此映射 200 / 409） */
+export type WebCloseOutcome = 'closed' | 'rejected-no-closed-state' | 'not-found-or-not-blocked';
+
+/** #185（决策 #87 D2）：Web 按钮通道「继续执行」注入 pendingReplies 的固定占位文案（纯授权，无指导内容） */
+export const WEB_RESUME_PLACEHOLDER = '（人类在 Web 端授权继续执行）';
+
+/**
+ * #185（决策 #87 D1/D2）：Web 按钮通道「继续执行」—— 纯授权复活。
+ * 与回复路径共享同一复活原语（占位文案即一条等价人类回复：重置 consecutiveStuck/blockReason、
+ * resumeCount 累加、timeoutReleaseCount 终身保留）；复活后补发 Studio 系统消息里程碑
+ * （#62 双出声：按钮动作在频道不可见，需系统消息留痕）。复活不确认（非破坏、可再拦截）。
+ * 归属等待型（waitingReason='ownership'）按回复语义解析占位文案 → 无工程命中 → false（不复活）。
+ */
+export async function resumeBlockedWorkUnitFromWeb(
+  workUnitId: string,
+  fs?: FileStore,
+): Promise<boolean> {
+  const fileStore = fs ?? new FileStore();
+  const resumed = await resumeWaitingWorkUnit(workUnitId, WEB_RESUME_PLACEHOLDER, fileStore);
+  if (!resumed) return false;
+
+  const wu = await new WorkUnitService(fileStore).getById(workUnitId);
+  if (wu) {
+    const metadata = parseWuMetadata(wu.metadata);
+    const title = (metadata.title ?? wu.scope).slice(0, 50);
+    await postWuSystemMessage(wu, `任务「${title}」已在 Web 端被授权继续执行。`, { milestone: true, fileStore })
+      .catch(err =>
+        logger.warn('[WaitingInput] Web-resume milestone notice failed (non-blocking)', { workUnitId, error: String(err) })
+      );
+  }
+  logger.info('[WaitingInput] WorkUnit resumed from Web button', { workUnitId });
   return true;
+}
+
+/**
+ * #185（决策 #87 D2）：Web 按钮通道「关闭任务」—— 复用 #57 D4 死信显式关闭路径
+ * （closeOnHumanCommand 同一出口：显式状态迁移 + 频道通知 + 结构化事件，不靠文本魔法串）。
+ * decision/spec 无 closed 状态 → rejected-no-closed-state（频道说明已在关闭路径内发出）。
+ */
+export async function closeBlockedWorkUnitFromWeb(
+  workUnitId: string,
+  fs?: FileStore,
+): Promise<WebCloseOutcome> {
+  const fileStore = fs ?? new FileStore();
+  const wu = await new WorkUnitService(fileStore).getById(workUnitId);
+  if (!wu || wu.status !== 'blocked') return 'not-found-or-not-blocked';
+  const metadata = parseWuMetadata(wu.metadata);
+  return closeOnHumanCommand(wu, metadata, fileStore, {
+    reason: '人类在 Web 端点击「关闭任务」，显式关闭',
+  });
 }
 
 /**

@@ -15,13 +15,15 @@ vi.mock('react-router-dom', () => ({
   useNavigate: () => vi.fn(),
 }));
 
-const { mockWuGet, mockReqGet, mockReqGetChain, mockProjectGet, mockChannelList, mockAgentSummary } = vi.hoisted(() => ({
+const { mockWuGet, mockReqGet, mockReqGetChain, mockProjectGet, mockChannelList, mockAgentSummary, mockResume, mockClose } = vi.hoisted(() => ({
   mockWuGet: vi.fn(),
   mockReqGet: vi.fn(),
   mockReqGetChain: vi.fn(),
   mockProjectGet: vi.fn(),
   mockChannelList: vi.fn(),
   mockAgentSummary: vi.fn(),
+  mockResume: vi.fn(),
+  mockClose: vi.fn(),
 }));
 
 vi.mock('../../api/workunit', () => ({
@@ -29,6 +31,8 @@ vi.mock('../../api/workunit', () => ({
     get: mockWuGet,
     listExecutionStepEvents: vi.fn().mockResolvedValue({ data: { events: [], total: 0 } }),
     getMessages: vi.fn().mockResolvedValue({ data: { data: [] } }),
+    resume: mockResume,
+    close: mockClose,
   },
 }));
 
@@ -105,6 +109,8 @@ describe('WorkUnitDetailPage', () => {
     mockReqGetChain.mockResolvedValue({
       data: { success: true, data: { requirement: { id: 'REQ-0042', seq: 42, title: '登录需求', status: 'in-progress', createdAt: '2026-07-29T09:00:00Z', createdBy: 'manual' }, workunits: [] } },
     });
+    mockResume.mockResolvedValue({ data: { ...baseWu, status: 'active' } });
+    mockClose.mockResolvedValue({ data: { ...baseWu, status: 'closed' } });
   });
 
   it('加载态：WU 未返回时显示加载中', () => {
@@ -204,5 +210,37 @@ describe('WorkUnitDetailPage', () => {
     fireEvent.click(await screen.findByText('REQ-0042'));
     expect(await screen.findByText(/REQ 全链路 · REQ-0042/)).toBeDefined();
     expect(await screen.findByText('登录需求')).toBeDefined();
+  });
+
+  it('#185（决策 #87 D4）：blocked 卡住型 WU 显示处置组件（继续执行/关闭任务），点继续执行调 resume 并重拉', async () => {
+    mockWuGet.mockResolvedValue({
+      data: {
+        ...baseWu,
+        status: 'blocked',
+        completedAt: null,
+        metadata: JSON.stringify({ title: '登录功能开发', blockReason: 'stuck: 连续 3 步无进展' }),
+      },
+    });
+    render(<WorkUnitDetailPage />);
+    const resumeBtn = await screen.findByRole('button', { name: '继续执行' });
+    expect(screen.getByRole('button', { name: '关闭任务' })).toBeDefined();
+    fireEvent.click(resumeBtn);
+    await waitFor(() => expect(mockResume).toHaveBeenCalledWith('wu-1'));
+    // 动作成功后 onChanged 触发重拉详情
+    await waitFor(() => expect(mockWuGet.mock.calls.length).toBeGreaterThanOrEqual(2));
+  });
+
+  it('#185（决策 #87 D3）：blocked NEED_INPUT 型不显示「继续执行」，仅「关闭任务」', async () => {
+    mockWuGet.mockResolvedValue({
+      data: {
+        ...baseWu,
+        status: 'blocked',
+        completedAt: null,
+        metadata: JSON.stringify({ title: '登录功能开发', waitingForInput: true, waitingQuestion: '用 OAuth 吗？' }),
+      },
+    });
+    render(<WorkUnitDetailPage />);
+    await screen.findByRole('button', { name: '关闭任务' });
+    expect(screen.queryByRole('button', { name: '继续执行' })).toBeNull();
   });
 });

@@ -11,6 +11,7 @@ import { projectApi } from '../api/index';
 import { channelApi } from '../api/channel';
 import { monitoringApi } from '../api/monitoring';
 import { ExecutionSteps } from '../components/workunit/ExecutionSteps';
+import { BlockedActions } from '../components/workunit/BlockedActions';
 import { TranscriptViewer } from '../components/workunit/TranscriptViewer';
 import { DiscussionPanel } from '../components/DiscussionPanel';
 import { RequirementChainPanel } from '../components/requirement/RequirementChainPanel';
@@ -83,6 +84,8 @@ export function WorkUnitDetailPage() {
   const [assignee, setAssignee] = useState<{ name: string; roleId: string } | null>(null);
   const [chainReqId, setChainReqId] = useState<string | null>(null);
   const [showTreeTokens, setShowTreeTokens] = useState(false);
+  // #185：blocked 处置动作成功后 +1 触发重拉详情
+  const [actionTick, setActionTick] = useState(0);
 
   // id 切换时在渲染期同步清空上一 WU 的全部展示数据（替代原 effect 顶部的五处同步重置）
   const [prevId, setPrevId] = useState(id);
@@ -126,7 +129,7 @@ export function WorkUnitDetailPage() {
       })
       .catch(e => { if (alive) setError(e instanceof Error ? e.message : String(e)); });
     return () => { alive = false; };
-  }, [id]);
+  }, [id, actionTick]);
 
   const handleBack = () => {
     // 有站内历史则后退，否则回 /workunits（深链直达场景）
@@ -249,6 +252,10 @@ export function WorkUnitDetailPage() {
 
               {/* F6 证据台账：L1 自动验证 / L2 Agent 评审 / L3 人工验收（共享 EvidenceLedger，数据路径同 WorkUnitDrawer） */}
               <EvidenceLedger attestations={attestations} variant="card" />
+
+              {/* #185（决策 #87 D4）：blocked 处置（继续执行/关闭任务），与 WorkUnitDrawer 同一组件；
+                  动作成功后经 actionTick 重拉详情 */}
+              <BlockedActions wu={wu} onChanged={() => setActionTick(t => t + 1)} />
 
               {/* 执行过程（思考/工具调用/用量；组件自带 REST 回放 + SSE 实时流，页面不接 SSE）。
                   #182：传 wu 启用置顶「当前状态速览」节（决策 #61，与 WorkUnitDrawer 同组件复用） */}
