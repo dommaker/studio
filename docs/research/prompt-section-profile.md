@@ -16,7 +16,7 @@
 | trim 事件 | `~/.studio/logs/studio-events.jsonl` | 10,831 行（2026-08-02 ~ 08-09），`knowledge:inject-trimmed` **0 条** |
 | WU 索引 | `~/.studio/data/workunits/index.json` | 150 WU；仅 3 个 metadata 含 `worktreePath` 且目录已拆除 |
 
-**token 估算口径：TokenEstimator.estimateText**（@dommaker/harness 现役口径，`prompt-composer.ts` 与 `knowledge-service.ts` 统一使用）。下文所有 token 数均为此估算值。
+**token 估算口径：TokenEstimator.estimateText**（@dommaker/harness 现役口径，`prompt-composer.ts` 与 `knowledge-service.ts` 统一使用）。**下文 token 数均为 2026-08-09 迁移前 chars/4 口径实测的历史快照**（CJK 段与现役口径有差，仅供历史参考）。
 
 **分段口径**：最终 prompt = `[knowledgeContext]\n\n---\n\n[basePrompt]`（`runner-params.ts:266-270`）。按代码里的固定字面标题锚定切分：`## 本次任务 Skills`（skills 索引）→ `## 你的角色`（persona）→ `## 频道成员与委派`（roster + 委派协议）→ `## 项目上下文`（知识包装，内容为空壳）→ `## 系统约束` / `## 上下文` / `## 近期信号`（知识注入正文）→ `[知识库: N 条参考…]` 行 → `## 何时查知识库` → `---` → `## 当前工作`（wu.scope）→ `## 人类新回复`（若有）→ `## 要求`（ACTION 协议）→ `## 提交提醒` / `## 验证失败` / `## 子任务提醒`（guard-hint，若有）。知识条目正文里嵌套的 `## 问题` 等标题不属于顶层分段，已按锚定标题规避。
 

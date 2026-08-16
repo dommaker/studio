@@ -44,7 +44,7 @@ export interface OverheadStats {
   executions: number;
   /** 涉及的 distinct workUnit 数 */
   workUnits: number;
-  /** 平均每任务注入估算 tokens（chars/4 约定，agent-loop 写入） */
+  /** 平均每任务注入估算 tokens（TokenEstimator 口径，agent-loop 写入） */
   avgInjectedTokens: number;
   /** 注入红线 = 2000（vision §3） */
   injectedBudget: number;

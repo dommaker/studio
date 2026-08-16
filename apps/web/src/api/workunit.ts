@@ -34,7 +34,7 @@ export interface PaginatedResponse<T> {
 export interface WorkunitTokenEvent {
   workUnitId: string;
   executionId?: string;
-  /** 注入上下文估算 tokens（chars/4 约定） */
+  /** 注入上下文估算 tokens（TokenEstimator 口径） */
   injectedTokens: number;
   /** 执行总 tokens；CLI 未回报 usage 时为 null（不编造 0） */
   executionTokens: number | null;
