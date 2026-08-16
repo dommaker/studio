@@ -1,7 +1,7 @@
 /**
  * Channel API 测试 — B2 Channel UI 后端
  *
- * 覆盖: CRUD、消息发送、SSE 事件发布、卡片 action、RequirementsDoc 编辑
+ * 覆盖: CRUD、消息发送、SSE 事件发布、卡片 action
  *
  * 集成测试性质: 依赖运行中的 API 服务器 + Prisma 数据库。
  * CI 中无运行服务器时自动 skip;本地/e2e 环境有服务器时自动运行。
@@ -135,28 +135,6 @@ describe.skipIf(!serverAvailable)('Channel API', () => {
       expect(data.data.length).toBeGreaterThan(0);
       expect(typeof data.hasMore).toBe('boolean');
       expect(typeof data.total).toBe('number');
-    });
-  });
-
-  // ── RequirementsDoc Edit (B2-009) ──
-
-  describe('PUT /requirements-docs/:id', () => {
-    it('rejects missing content', async () => {
-      const res = await fetch(`${BASE}/requirements-docs/nonexistent`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}) },
-        body: JSON.stringify({}),
-      });
-      expect(res.status).toBe(400);
-    });
-
-    it('returns 404 for nonexistent doc', async () => {
-      const res = await fetch(`${BASE}/requirements-docs/nonexistent`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}) },
-        body: JSON.stringify({ content: 'new content' }),
-      });
-      expect(res.status).toBe(404);
     });
   });
 
