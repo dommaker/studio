@@ -28,7 +28,7 @@ const checkConstraint: RegisteredTool = {
       const { constraintService } = await import('@dommaker/studio-shared');
       const context = { ...input.context, operation: input.operation };
       const result = await constraintService.checkConstraints(context);
-      const violations = [...result.ironLaws, ...result.guidelines, ...result.tips].filter(r => !r.satisfied);
+      const violations = [...result.ironLaws, ...result.guidelines].filter(r => !r.satisfied);
       return {
         operation: input.operation,
         allowed: result.passed,

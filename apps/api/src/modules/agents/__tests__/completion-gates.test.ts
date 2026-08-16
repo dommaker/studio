@@ -78,7 +78,10 @@ describe('completion-gates: §10.5 提交守卫', () => {
   });
 
   it('review WU 整体豁免：不解析 cwd、不碰 git', async () => {
-    const deps = makeDeps();
+    // 注入 checkers=null 隔离提交守卫语义：harness ≥1.1.0 起软观测段激活，
+    // contract-presence 对无 worktree 类型（含 review）会设计性回退解析 cwd 取 .harness 契约清单
+    // （见 completion-gates.ts runSoftObservation 注释），不在本测试的提交守卫豁免口径内。
+    const deps = makeDeps({ loadCompletionCheckers: async () => null });
     const out = await runCompletionGuards(ctxOf(makeWu({ type: 'review' }), {}), deps);
 
     expect(deps.resolveExecutionCwd).not.toHaveBeenCalled();

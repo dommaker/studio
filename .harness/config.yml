@@ -8,4 +8,4 @@ validators:
   passesGate: true
   cso: false
 harness:
-  version: 0.19.0
+  version: 1.1.0

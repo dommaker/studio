@@ -39,7 +39,6 @@ export function formatConstraintsForPrompt(role: AgentRole): string {
 
   const ironLaws = applicable.filter(c => c.level === 'iron_law');
   const guidelines = applicable.filter(c => c.level === 'guideline');
-  const tips = applicable.filter(c => c.level === 'tip');
 
   const lines: string[] = ['\n## 行为约束（前置声明）\n'];
 
@@ -54,14 +53,6 @@ export function formatConstraintsForPrompt(role: AgentRole): string {
   if (guidelines.length > 0) {
     lines.push('### 指导原则（优先建议）\n');
     for (const c of guidelines) {
-      if (c.promptInjection) lines.push(`- **${c.id}**: ${c.promptInjection}`);
-    }
-    lines.push('');
-  }
-
-  if (tips.length > 0) {
-    lines.push('### 提示\n');
-    for (const c of tips) {
       if (c.promptInjection) lines.push(`- **${c.id}**: ${c.promptInjection}`);
     }
     lines.push('');

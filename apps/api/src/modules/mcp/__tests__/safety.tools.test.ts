@@ -48,7 +48,6 @@ describe('safety.tools', () => {
       passed: true,
       ironLaws: [{ satisfied: true }],
       guidelines: [{ satisfied: true }],
-      tips: [],
     });
     const result = await tool('checkConstraint').handler({ operation: 'deploy', context: { roleId: 'r1' } });
     expect(mockCheckConstraints).toHaveBeenCalledWith({ roleId: 'r1', operation: 'deploy' });
@@ -59,15 +58,15 @@ describe('safety.tools', () => {
   });
 
   it('checkConstraint 汇总未满足项并报告数量', async () => {
+    // harness 1.x：tips 层已移除，违规聚合只剩 ironLaws + guidelines
     mockCheckConstraints.mockResolvedValue({
       passed: false,
       ironLaws: [{ satisfied: false, id: 'IL1' }],
-      guidelines: [{ satisfied: true }],
-      tips: [{ satisfied: false, id: 'T1' }],
+      guidelines: [{ satisfied: false, id: 'G1' }],
     });
     const result = await tool('checkConstraint').handler({ operation: 'op' });
     expect(result.allowed).toBe(false);
-    expect(result.violations).toEqual([{ satisfied: false, id: 'IL1' }, { satisfied: false, id: 'T1' }]);
+    expect(result.violations).toEqual([{ satisfied: false, id: 'IL1' }, { satisfied: false, id: 'G1' }]);
     expect(result.message).toBe('2 violation(s) found');
   });
 
