@@ -13,10 +13,10 @@ describe('Default Triggers', () => {
 
   const registeredIds = (): string[] => registry.getStates().map(s => s.config.id);
 
-  it('registers 6 default triggers (10 − 4 pruned)', () => {
+  it('registers 8 default triggers (6 retained + #163 inspection-scan 双通道)', () => {
     registerDefaultTriggers(registry);
 
-    expect(registeredIds()).toHaveLength(6);
+    expect(registeredIds()).toHaveLength(8);
   });
 
   it('retained triggers are registered', () => {
@@ -29,6 +29,8 @@ describe('Default Triggers', () => {
       'workunit-input-reminder',
       'evolution-daily-scan',
       'doc-semantic-review',
+      'inspection-scan',
+      'inspection-scan-schedule',
     ]));
   });
 
@@ -112,5 +114,34 @@ describe('Default Triggers', () => {
     // #162（T8-E1）行为修正：payload 不带 status——「建单落 pending 待人确认」由
     // executeCreateAction 对所有触发器 CREATE 统一落地（按来源不按类型）
     expect((reviewCall!.config.action as any).payload.status).toBeUndefined();
+  });
+
+  it('#163（T8-E2）：inspection-scan = EVENT workunit.status_changed + CREATE 巡检单（inspection 标记 + tokenBudget）', () => {
+    registerDefaultTriggers(registry);
+
+    const scan = registry.getStates().find(s => s.config.id === 'inspection-scan');
+    expect(scan).toBeDefined();
+    expect(scan!.config.condition).toEqual(
+      expect.objectContaining({ type: 'EVENT', event: 'workunit.status_changed' }),
+    );
+    const payload = (scan!.config.action as any).payload;
+    expect(scan!.config.action).toEqual(expect.objectContaining({ type: 'CREATE', target: 'WorkUnit' }));
+    expect(payload.type).toBe('analysis');
+    expect(payload.metadata.inspection).toBe(true);
+    expect(payload.metadata.tokenBudget).toBeGreaterThan(0);
+    // pending 人闸由 executeCreateAction 统一落地，payload 不带 status
+    expect(payload.status).toBeUndefined();
+    // 默认启用；INSPECTION_SCAN_ENABLED=false 可整体关闭
+    expect(scan!.config.enabled).toBe(true);
+  });
+
+  it('#163（T8-E2）：inspection-scan-schedule = SCHEDULE 留位默认关闭', () => {
+    registerDefaultTriggers(registry);
+
+    const schedule = registry.getStates().find(s => s.config.id === 'inspection-scan-schedule');
+    expect(schedule).toBeDefined();
+    expect(schedule!.config.condition.type).toBe('SCHEDULE');
+    expect(schedule!.config.enabled).toBe(false);
+    expect(((schedule!.config.action as any).payload.metadata.inspection)).toBe(true);
   });
 });

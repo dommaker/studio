@@ -6,7 +6,7 @@ import { existsSync } from 'fs';
 import { join } from 'path';
 import * as os from 'os';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
-import { ANALYSIS_TASKS_MAX, type WorkUnitData } from '../../workunit/workunit.service.js';
+import { ANALYSIS_TASKS_MAX, INSPECTION_OPPORTUNITIES_MAX, type WorkUnitData } from '../../workunit/workunit.service.js';
 import type { ParsedReviewReport } from './review-contract.js';
 import type { StepResult, Observations, Target } from './agent-loop.types.js';
 
@@ -180,6 +180,47 @@ export function parseTaskBreakdown(text: string): string[] {
     if (tasks.length >= ANALYSIS_TASKS_MAX) break;
   }
   return tasks;
+}
+
+/**
+ * #163（T8-E2，#130 决策 2）：解析巡检 WU 输出中的 OPPORTUNITY: 协议行
+ * （约定见 prompt-composer 巡检契约段）。每行一条
+ * `OPPORTUNITY: {"problem":"...","suggestion":"...","estimate":"..."（可省）}`；
+ * problem/suggestion 缺或非串的条目丢弃，去重（problem+suggestion）/封顶
+ * INSPECTION_OPPORTUNITIES_MAX 条/单字段截 300 字符；无合法行返回 []
+ * （调用方据此不写 opportunities，不阻断 COMPLETE）。
+ */
+export interface ParsedOpportunity {
+  problem: string;
+  suggestion: string;
+  estimate?: string;
+}
+
+export function parseOpportunities(text: string): ParsedOpportunity[] {
+  const opps: ParsedOpportunity[] = [];
+  const seen = new Set<string>();
+  for (const line of text.split('\n')) {
+    const match = line.match(/^\s*OPPORTUNITY:\s*(\{.*\})\s*$/);
+    if (!match) continue;
+    try {
+      const parsed = JSON.parse(match[1]) as { problem?: unknown; suggestion?: unknown; estimate?: unknown };
+      if (typeof parsed.problem !== 'string' || !parsed.problem.trim()) continue;
+      if (typeof parsed.suggestion !== 'string' || !parsed.suggestion.trim()) continue;
+      const opp: ParsedOpportunity = {
+        problem: parsed.problem.trim().slice(0, ANALYSIS_TASK_MAX_CHARS),
+        suggestion: parsed.suggestion.trim().slice(0, ANALYSIS_TASK_MAX_CHARS),
+      };
+      if (typeof parsed.estimate === 'string' && parsed.estimate.trim()) {
+        opp.estimate = parsed.estimate.trim().slice(0, ANALYSIS_TASK_MAX_CHARS);
+      }
+      const key = `${opp.problem}${opp.suggestion}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      opps.push(opp);
+      if (opps.length >= INSPECTION_OPPORTUNITIES_MAX) break;
+    } catch { /* JSON 损坏行跳过 */ }
+  }
+  return opps;
 }
 
 export function sleep(ms: number): Promise<void> {

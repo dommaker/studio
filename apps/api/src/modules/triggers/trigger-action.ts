@@ -74,6 +74,11 @@ export function setTriggerActionFileStore(fs: FileStore): void {
   workUnitService = new WorkUnitService(fs);
 }
 
+/** #163（T8-E2）：暴露当前 FileStore 实例——inspection-scan 冷却闸消费（一处注入全覆盖） */
+export function getTriggerActionFileStore(): FileStore {
+  return fileStore;
+}
+
 /**
  * B3 触发器幂等（2026-08-03 token-burn issue）：同一 triggerId 在同一分钟内已创建过 WU 则跳过。
  * 跨进程/重启兜底（in-memory lastFiredAt 挡不住）：两个实例共享数据根时第二个进程在此被拦。

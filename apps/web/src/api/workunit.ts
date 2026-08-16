@@ -288,6 +288,14 @@ export const workunitApi = {
   /** AC-5.4: 树级 token 开销聚合 */
   getTreeTokens: (id: string) =>
     api.get<TreeTokenReport>(`/workunits/${id}/tree-tokens`),
+
+  /** #163 T8-E2: 巡检机会采纳（201，建 feature 子单，源条目记 wuId） */
+  adoptOpportunity: (id: string, oppId: string) =>
+    api.post<AdoptOpportunityResult>(`/workunits/${id}/opportunities/${oppId}/adopt`),
+
+  /** #163 T8-E2: 巡检机会忽略（200，终态；reason 可省） */
+  ignoreOpportunity: (id: string, oppId: string, reason?: string) =>
+    api.post<IgnoreOpportunityResult>(`/workunits/${id}/opportunities/${oppId}/ignore`, { reason }),
 };
 
 /** AC-5.4: 树级 token 开销报告（GET /workunits/:id/tree-tokens 响应体） */
@@ -320,4 +328,28 @@ export interface VerifyResult {
 /** F6-c: POST /workunits/:id/dispatch-review 响应体 */
 export interface DispatchReviewResult {
   reviewWorkUnitId: string;
+}
+
+/** #163 T8-E2: 巡检机会条目（WU metadata.opportunities 数组元素） */
+export interface Opportunity {
+  id: string;
+  problem: string;
+  suggestion: string;
+  estimate?: string;
+  status: 'pending' | 'adopted' | 'ignored';
+  /** adopted：采纳开出的 feature 子单 id */
+  wuId?: string;
+  /** ignored：忽略理由（可附） */
+  ignoreReason?: string;
+}
+
+/** #163: POST /workunits/:id/opportunities/:oppId/adopt 响应体（201） */
+export interface AdoptOpportunityResult {
+  workUnit: WorkUnit;
+  opportunities: Opportunity[];
+}
+
+/** #163: POST /workunits/:id/opportunities/:oppId/ignore 响应体（200） */
+export interface IgnoreOpportunityResult {
+  opportunities: Opportunity[];
 }

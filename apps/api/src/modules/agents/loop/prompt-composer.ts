@@ -65,6 +65,8 @@ export const WAITING_QUESTION_REPLAY_MAX_CHARS = 300;
  * #119：契约段按 WU type 的产出格式 + 最小模板（内容定稿随 #118 续烤迭代，先落最简模板）。
  * review → REVIEW_RESULT 协议行；implement → 测试先行 + Phase commit 格式；
  * decision（决策单）→ 结论摘要格式；analysis → research/prototype 产出载体（T3/#125）。
+ * #163（T8-E2）：analysis + metadata.inspection===true → 巡检契约（INSPECTION_CONTRACT，
+ * 优先级高于 analysis 通用模板）。
  * 未列出的 type（task/feature/bug/spec 等）→ 空段（不注入）。
  */
 export const CONTRACT_TEMPLATES: Record<string, string> = {
@@ -86,6 +88,20 @@ export const CONTRACT_TEMPLATES: Record<string, string> = {
     'prototype → 一次性代码落 prototype/<name> 分支（不合并、不进评审），结论（回答了什么问题）记录回工单。',
   ].join('\n'),
 };
+
+/**
+ * #163（T8-E2，#130 决策 2/3/7）：巡检单（analysis + metadata.inspection）专属契约——
+ * 分片扫描、结论即落盘、机会清单协议行。人读面说人话：报告/频道消息不出现
+ * WU/metadata/闸/熔断等机制黑话。
+ */
+export const INSPECTION_CONTRACT = [
+  '巡检执行纪律：',
+  '- 分片扫描：按目录/模块分片推进，每片扫完立即把结论追加写入报告文件（结论即落盘），不要在内存里攒到最后一次性输出。',
+  '- 对象面：代码/文档/配置/测试气味（默认全仓四面；本单 metadata.inspectionScope 在场时按其裁剪）。运行时健康归监控探针、文档一致性归专项审查，都不在巡检范围。',
+  '- 报告落业务仓 .studio/research/inspection-<日期>.md，并在来源工单回挂报告链接；报告与频道消息说人话，不出现内部机制术语。',
+  '- 每条机会在输出尾部给出协议行（机器消费，报告正文照旧写人话细节）：',
+  '  OPPORTUNITY: {"problem":"问题","suggestion":"建议","estimate":"预估（可省）"}',
+].join('\n');
 
 /** 单个注入段的组装产出：tokens = 截断后实际用量；originalTokens = 未截断的原始尺寸（> tokens 即发生了截断） */
 interface BuiltSection {
@@ -263,7 +279,7 @@ export async function composeStepPrompt(
 
   // #119: 契约段（## 产出契约）——按 WU type 产出格式 + 最小模板，挂 base 后、handoff 前。
   const contract = await runSection('contract', budget =>
-    Promise.resolve(buildContractSection(wu, budget)));
+    Promise.resolve(buildContractSection(wu, metadata, budget)));
 
   // #95: handoff 前序进展段（续用不命中 + stepCount>0 时注入；挂载位 base 后/hint 前）
   const handoff = await runSection('handoff', budget =>
@@ -372,8 +388,11 @@ async function buildPmoMapSection(metadata: WorkUnitMetadata, tokenBudget: numbe
  * 未知/无契约 type → 空段（不注入）。超预算按 chars/4 截（与其他段同口径），
  * originalTokens > tokens 由 runSection 落 prompt:section_trimmed 埋点（定额 200）。
  */
-function buildContractSection(wu: WorkUnitData, tokenBudget: number): BuiltSection {
-  const template = CONTRACT_TEMPLATES[wu.type];
+function buildContractSection(wu: WorkUnitData, metadata: WorkUnitMetadata, tokenBudget: number): BuiltSection {
+  // #163（T8-E2）：巡检单契约优先于 analysis 通用模板
+  const template = (wu.type === 'analysis' && metadata.inspection === true)
+    ? INSPECTION_CONTRACT
+    : CONTRACT_TEMPLATES[wu.type];
   if (!template || tokenBudget <= 0) return { section: '', tokens: 0, originalTokens: 0 };
 
   const full = `## 产出契约\n\n${template}`;

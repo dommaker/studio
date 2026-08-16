@@ -10,6 +10,11 @@ import {
   executeUpdateAction,
   registerExecuteHandler as registerActionHandler,
 } from './trigger-action.js';
+import {
+  evaluateInspectionEvent, checkInspectionCooldown,
+  INSPECTION_SCAN_TRIGGER_ID, INSPECTION_SCAN_SCHEDULE_TRIGGER_ID,
+} from './inspection-scan.js';
+import { writeStudioEvent } from '../../utils/studio-events.js';
 import type { TriggerConfig, TriggerState, TriggerLogEntry } from './trigger.types.js';
 
 const TICK_INTERVAL_MS = 60_000; // 1 minute
@@ -163,6 +168,16 @@ export class TriggerScheduler {
             continue;
           }
           this.log(id, 'fired', `Trigger "${state.config.name}" fired`);
+          // #163（T8-E2）：inspection-scan-schedule 落位后同过冷却闸（冷却挡自动触发：
+          // 事件/定时；最近巡检单有待处理机会条目 → 跳过留痕，频道不打扰）
+          if (id === INSPECTION_SCAN_SCHEDULE_TRIGGER_ID) {
+            this.executeInspectionSchedule(state.config).catch(err => {
+              state.errorCount++;
+              this.log(id, 'error', `Trigger "${state.config.name}" failed: ${err.message}`);
+            });
+            state.lastFiredAt = now;
+            continue;
+          }
           this.executeTrigger(state.config).catch(err => {
             state.errorCount++;
             this.log(id, 'error', `Trigger "${state.config.name}" failed: ${err.message}`);
@@ -200,6 +215,18 @@ export class TriggerScheduler {
   private handleEvent(trigger: TriggerConfig, payload: unknown): void {
     if (!trigger.enabled) return;
 
+    // #163（T8-E2）：inspection-scan 事件触发先过闸（bug 关闭累计计数 + 冷却去重），
+    // 闸内自判嵌套 payload（matchFilter 顶层浅匹配吃不了 { workunit: {...} } 形态）。
+    // 手动 fire 不经此路径，天然绕过冷却（T9/#131 决策 2）。
+    if (trigger.id === INSPECTION_SCAN_TRIGGER_ID) {
+      this.handleInspectionScanEvent(trigger, payload).catch(err => {
+        const state = this.states.get(trigger.id);
+        if (state) state.errorCount++;
+        this.log(trigger.id, 'error', `EVENT trigger "${trigger.name}" gate failed: ${(err as Error).message}`);
+      });
+      return;
+    }
+
     // Filter matching
     if (trigger.condition.type === 'EVENT' && trigger.condition.filter) {
       if (!this.matchFilter(payload, trigger.condition.filter)) return;
@@ -211,6 +238,48 @@ export class TriggerScheduler {
       if (state) state.errorCount++;
       this.log(trigger.id, 'error', `EVENT trigger "${trigger.name}" failed: ${(err as Error).message}`);
     });
+  }
+
+  /**
+   * #163（T8-E2）：inspection-scan 事件闸路径。非 bug 关闭/未达阈值静默忽略；
+   * 冷却命中 → 落 studio-events 事件留痕（含待处理条数），频道不打扰。
+   */
+  private async handleInspectionScanEvent(trigger: TriggerConfig, payload: unknown): Promise<void> {
+    const verdict = await evaluateInspectionEvent(payload);
+    // 显式判等（!== true）：本工程 tsconfig 非 strict，真值窄化不能消除 { fire: true } 分支
+    if (verdict.fire === true) {
+      this.log(trigger.id, 'fired', `EVENT trigger "${trigger.name}" fired (bug-close threshold reached)`);
+      await this.executeTrigger(trigger, payload);
+      return;
+    }
+    if (verdict.reason === 'cooldown') {
+      this.log(trigger.id, 'tick', `EVENT trigger "${trigger.name}" skipped by cooldown (${verdict.pendingCount} pending opportunities)`);
+      await writeStudioEvent('trigger:inspection_scan_skipped', {
+        triggerId: trigger.id,
+        reason: 'cooldown',
+        pendingCount: verdict.pendingCount,
+        latestWuId: verdict.latestWuId,
+      }, { source: 'triggers' });
+    }
+  }
+
+  /**
+   * #163（T8-E2）：inspection-scan-schedule 留位启用后的执行路径——先过冷却闸
+   * （冷却挡自动触发含定时），命中跳过落事件留痕；未命中走 CREATE（同分钟去重照旧）。
+   */
+  private async executeInspectionSchedule(config: TriggerConfig): Promise<void> {
+    const cooldown = await checkInspectionCooldown();
+    if (cooldown.skip) {
+      this.log(config.id, 'tick', `Trigger "${config.name}" skipped by cooldown (${cooldown.pendingCount} pending opportunities)`);
+      await writeStudioEvent('trigger:inspection_scan_skipped', {
+        triggerId: config.id,
+        reason: 'cooldown',
+        pendingCount: cooldown.pendingCount,
+        latestWuId: cooldown.latestWuId,
+      }, { source: 'triggers' });
+      return;
+    }
+    await executeCreateAction(config.action, config.id, { dedupeWithinMinute: new Date() });
   }
 
   /** Check if event payload matches trigger filter (shallow key-value match) */

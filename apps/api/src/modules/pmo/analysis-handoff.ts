@@ -62,7 +62,21 @@ export class AnalysisHandoff {
 
   /** in_review：提示人工确认入口（确认后自动拆任务派工） */
   private async postConfirmGuidance(wu: WorkUnitData): Promise<void> {
-    const hasTasks = Array.isArray(this.readMeta(wu).analysisTasks);
+    const meta = this.readMeta(wu);
+    // #163（T8-E2，#130 决策 2）：巡检单走机会清单确认（web 逐条采纳/忽略），
+    // 不拆 TASK 派工；消息说人话（不出现机制黑话），指路报告与工单详情页。
+    if (meta.inspection === true) {
+      const pending = (Array.isArray(meta.opportunities) ? meta.opportunities : [])
+        .filter(o => o && o.status === 'pending').length;
+      await this.post(
+        wu,
+        pending > 0
+          ? `巡检完成（#${wu.id.slice(0, 8)}）：发现 ${pending} 条改进机会，细节报告在业务仓 .studio/research/ 目录。请到工单详情页逐条决定「采纳」（自动开需求单进认领池）或「忽略」`
+          : `巡检完成（#${wu.id.slice(0, 8)}）：本轮未发现改进机会，细节报告在业务仓 .studio/research/ 目录`,
+      );
+      return;
+    }
+    const hasTasks = Array.isArray(meta.analysisTasks);
     await this.post(
       wu,
       `分析结论已提交审查（#${wu.id.slice(0, 8)}）：请人工在 WorkUnit 列表/详情点「通过」确认结论`
@@ -77,6 +91,8 @@ export class AnalysisHandoff {
     const fresh = await this.workUnitService.getById(wu.id);
     if (!fresh) return;
     const meta = this.readMeta(fresh);
+    // #163（T8-E2）：巡检单确认后不拆 TASK 派工——机会清单走 web 采纳/忽略消费
+    if (meta.inspection === true) return;
     if (meta.analysisTasksSpawnedAt) return;
 
     const tasks = Array.isArray(meta.analysisTasks)

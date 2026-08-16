@@ -36,6 +36,7 @@ import type { StepResult, Observations, Target, RuntimeInstanceRow } from './age
 import {
   extractInputTokens, isProcessAlive, isGitRepoRoot, resolveWorktreesDir,
   resolveTarget, parseAgentOutput, dynamicInterval, parseReviewReport, parseTaskBreakdown,
+  parseOpportunities,
   sleep,
 } from './agent-loop-parsers.js';
 import {
@@ -1022,6 +1023,19 @@ export class AgentLoop {
           metadataUpdates.analysisFog = opening.fog;
           if (opening.destination) {
             metadataUpdates.analysisDestination = opening.destination;
+          }
+        }
+        // #163（T8-E2，#130 决策 2）：巡检单 COMPLETE 时解析 OPPORTUNITY: 协议行
+        // 落 metadata.opportunities（初始全 pending；id=opp-N 单内唯一）——冷却闸判定
+        // 与 web 确认 UI（采纳/忽略）消费。无合法 OPPORTUNITY 行不写，不阻断完成。
+        if (metadata.inspection === true) {
+          const opps = parseOpportunities(result.outputText ?? '');
+          if (opps.length > 0) {
+            metadataUpdates.opportunities = opps.map((o, i) => ({
+              id: `opp-${i + 1}`,
+              ...o,
+              status: 'pending' as const,
+            }));
           }
         }
       }

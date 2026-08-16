@@ -166,6 +166,26 @@ describe('trigger manual fire + costs', () => {
     expect(res.status).toBe(400);
   });
 
+  it('#163（T8-E2/T9）：手动 fire inspection-scan 直调 executeCreateAction——不过冷却闸、不做同分钟去重', async () => {
+    // 冷却闸只挂在 scheduler 的 EVENT/SCHEDULE 自动路径；手动 fire 是人点按钮的显式意图，
+    // 路由层直调 executeCreateAction（本文件 mock 掉的就是它——若手动路径接入冷却闸，
+    // 本用例的调用断言会随之断裂）。
+    mockStoreGet.mockReturnValue(undefined);
+    mockGetStates.mockReturnValue([
+      { config: { ...makeConfig('inspection-scan', 'CREATE'), condition: { type: 'EVENT', event: 'workunit.status_changed' } }, lastFiredAt: null, nextFireAt: null, errorCount: 0 },
+    ]);
+    mockExecuteCreateAction.mockResolvedValue({ id: 'wu-insp', scope: '巡检', status: 'pending' });
+
+    const res = await fetch(`${base}/inspection-scan/fire`, { method: 'POST' });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.fired).toBe(true);
+    // 建单落 pending（#162 人闸手动 fire 继承，由 executeCreateAction 统一落地）
+    expect(body.workUnit.status).toBe('pending');
+    expect(mockExecuteCreateAction).toHaveBeenCalledWith(expect.objectContaining({ type: 'CREATE' }), 'inspection-scan');
+    expect(mockExecuteCreateAction.mock.calls[0]).toHaveLength(2);
+  });
+
   it('GET /costs：按 triggerId/source 聚合并按 days 窗口过滤', async () => {
     const now = new Date();
     const old = new Date(now.getTime() - 40 * 24 * 3600_000);

@@ -1,7 +1,7 @@
-// Default Triggers — 6 system triggers for Agent Network
+// Default Triggers — 8 system triggers for Agent Network
 import { TriggerScheduler } from '../triggers/trigger-scheduler.js';
 
-/** Register the 6 default system triggers */
+/** Register the 8 default system triggers */
 export function registerDefaultTriggers(registry: TriggerScheduler): void {
   // 1. workunit-timeout: SCHEDULE every 5 min → EXECUTE workunit-timeout-scan
   // （P0 修复：原为 UPDATE + 注册时冻结的 timeoutAt 查询，永不命中；改为 EXECUTE handler
@@ -75,6 +75,63 @@ export function registerDefaultTriggers(registry: TriggerScheduler): void {
       },
     },
     enabled: true, // #103 恢复：前置（#90 失败步 outcome 埋点）+ 消防演练（daily-token-budget.test.ts 覆盖熔断→need_input→告警→budget-tripped 全链路）已满足。观察期：恢复后前 4 次运行人工核查 outcome 事件 + 单次 token 消耗，异常即回退 enabled:false
+    scope: 'system',
+  });
+
+  // 7. inspection-scan: #163（T8-E2，#130 决策 5）EVENT workunit.status_changed →
+  //    bug 关闭累计 N 起一轮巡检（N = INSPECTION_SCAN_THRESHOLD 覆盖，默认 3，<=0 关事件触发）。
+  //    事件闸（计数+冷却去重）在 trigger-scheduler.handleEvent 分叉（triggers/inspection-scan.ts）：
+  //    最近巡检单有待处理机会条目 → 跳过落 studio-events 留痕，频道不打扰。
+  //    手动 fire（POST /api/triggers/inspection-scan/fire）不过冷却闸（T9/#131 决策 2）。
+  //    建单显式 pending 人闸由 executeCreateAction 统一落地（#162，payload 不带 status）；
+  //    tokenBudget = WU 级预算熔断（#162 底座），INSPECTION_TOKEN_BUDGET 覆盖默认 500K。
+  //    INSPECTION_SCAN_ENABLED=false 整体关闭。
+  registry.registerTrigger({
+    id: 'inspection-scan',
+    name: 'Inspection scan on bug-close accumulation (T8)',
+    condition: { type: 'EVENT', event: 'workunit.status_changed' },
+    action: {
+      type: 'CREATE',
+      target: 'WorkUnit',
+      payload: {
+        type: 'analysis',
+        scope: '全仓巡检：扫描代码/文档/配置/测试气味，产出机会清单（问题/建议/预估）。分片扫描、结论即落盘；报告落业务仓 .studio/research/ 并回挂本单，每条机会输出 OPPORTUNITY: 协议行（契约详见 prompt 产出契约段）。',
+        assigneeRole: 'studio', // 系统维护任务钉死 studio 角色执行（同 doc-semantic-review 先例）
+        metadata: {
+          inspection: true,
+          tokenBudget: Number(process.env.INSPECTION_TOKEN_BUDGET) > 0
+            ? Number(process.env.INSPECTION_TOKEN_BUDGET)
+            : 500_000,
+        },
+      },
+    },
+    enabled: process.env.INSPECTION_SCAN_ENABLED !== 'false',
+    scope: 'system',
+  });
+
+  // 8. inspection-scan-schedule: #163（T8-E2，#130 决策 5）SCHEDULE 通道留位、默认关闭——
+  //    INSPECTION_SCAN_SCHEDULE_ENABLED=true 启用（cron 由 INSPECTION_SCAN_CRON 覆盖，
+  //    默认周一 5:17 错开其他日级任务）；启用后同过冷却闸（冷却挡自动触发含定时）。
+  registry.registerTrigger({
+    id: 'inspection-scan-schedule',
+    name: 'Inspection scan schedule placeholder (T8, default off)',
+    condition: { type: 'SCHEDULE', cron: process.env.INSPECTION_SCAN_CRON || '17 5 * * 1' },
+    action: {
+      type: 'CREATE',
+      target: 'WorkUnit',
+      payload: {
+        type: 'analysis',
+        scope: '全仓巡检：扫描代码/文档/配置/测试气味，产出机会清单（问题/建议/预估）。分片扫描、结论即落盘；报告落业务仓 .studio/research/ 并回挂本单，每条机会输出 OPPORTUNITY: 协议行（契约详见 prompt 产出契约段）。',
+        assigneeRole: 'studio',
+        metadata: {
+          inspection: true,
+          tokenBudget: Number(process.env.INSPECTION_TOKEN_BUDGET) > 0
+            ? Number(process.env.INSPECTION_TOKEN_BUDGET)
+            : 500_000,
+        },
+      },
+    },
+    enabled: process.env.INSPECTION_SCAN_SCHEDULE_ENABLED === 'true',
     scope: 'system',
   });
 

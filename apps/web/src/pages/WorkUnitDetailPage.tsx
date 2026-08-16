@@ -5,7 +5,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { deriveDisplayState, parseAttestations } from '@dommaker/studio-shared/web';
-import { workunitApi, type WorkUnit } from '../api/workunit';
+import { workunitApi, type Opportunity, type WorkUnit } from '../api/workunit';
 import { requirementApi } from '../api/requirements';
 import { projectApi } from '../api/index';
 import { channelApi } from '../api/channel';
@@ -16,6 +16,7 @@ import { RequirementChainPanel } from '../components/requirement/RequirementChai
 import { SelfReviewBadge } from '../components/workunit/SelfReviewBadge';
 import { TreeTokenDrawer } from '../components/workunit/TreeTokenDrawer';
 import { EvidenceLedger } from '../components/workunit/EvidenceLedger';
+import { OpportunitiesPanel } from '../components/workunit/OpportunitiesPanel';
 
 const statusLabels: Record<string, string> = {
   unassigned: '待分配',
@@ -135,6 +136,13 @@ export function WorkUnitDetailPage() {
   };
 
   const meta = wu ? parseMeta(wu.metadata) : {};
+  // #163 T8-E2: 采纳/忽略机会后重拉 WU（走与首屏相同的 workunitApi.get 路径，只刷新 wu 本体）
+  const reloadWu = () => {
+    if (!id) return;
+    workunitApi.get(id)
+      .then(r => setWu(r.data))
+      .catch(() => { /* best-effort：失败时清单保持旧态，下轮手动刷新 */ });
+  };
   const title = wu ? (typeof meta.title === 'string' && meta.title ? meta.title : wu.scope) : '';
   // F6 派生（铁律：徽章/证据判断一律过 deriveDisplayState，不自行解释 attestations）
   const derived = wu ? deriveDisplayState({ status: wu.status, metadata: wu.metadata }) : null;
@@ -244,6 +252,15 @@ export function WorkUnitDetailPage() {
                     )
                   )}
                 </div>
+              )}
+
+              {/* #163 T8-E2 巡检机会清单（metadata.opportunities 非空数组才渲染） */}
+              {Array.isArray(meta.opportunities) && (meta.opportunities as Opportunity[]).length > 0 && (
+                <OpportunitiesPanel
+                  workUnitId={wu.id}
+                  opportunities={meta.opportunities as Opportunity[]}
+                  onChanged={reloadWu}
+                />
               )}
 
               {/* F6 证据台账：L1 自动验证 / L2 Agent 评审 / L3 人工验收（共享 EvidenceLedger，数据路径同 WorkUnitDrawer） */}

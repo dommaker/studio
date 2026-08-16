@@ -949,6 +949,20 @@ describe('#119: 契约段生成器（按 WU type）+ 段序稳定性重排', () 
     }
   });
 
+  it('#163（T8-E2）契约段 analysis + inspection:true → 巡检契约优先于通用模板', async () => {
+    const { prompt } = await composeStepPrompt(
+      { wu: makeWu({ type: 'analysis' }), metadata: { inspection: true } as any },
+      deps(makeRole()),
+    );
+
+    expect(prompt).toContain('## 产出契约');
+    expect(prompt).toContain('巡检执行纪律');
+    expect(prompt).toContain('分片扫描');
+    expect(prompt).toContain('OPPORTUNITY:');
+    // 巡检契约替换通用 analysis 模板（不含 prototype 分支文案）
+    expect(prompt).not.toContain('prototype/<name>');
+  });
+
   it('契约段 200 软定额 + 模板表仅覆盖 review/implement/decision/analysis', () => {
     expect(SECTION_QUOTAS.contract).toBe(200);
     expect(Object.keys(CONTRACT_TEMPLATES).sort()).toEqual(['analysis', 'decision', 'implement', 'review']);

@@ -75,6 +75,18 @@ export interface WorkUnitMetadata {
   // #157（T6，#128 决议）：analysis 原型单标记——建单显式 prototype: true 才挂专属 worktree
   // （仅 analysis 类型消费本字段；不增类型、不隐式判定）
   prototype?: boolean;
+  // #163（T8-E2，#130 决策 1）：巡检单标记——analysis 类型 + 显式 inspection: true
+  // （不增类型，仿 prototype 先例）。消费方：inspection-scan 冷却闸 / prompt 契约分叉 /
+  // COMPLETE 解析 OPPORTUNITY: 行 / analysis-handoff 频道摘要 / web 确认 UI。
+  inspection?: boolean;
+  // #163（T8-E2，#130 决策 7）：巡检对象面裁剪（代码/文档/配置/测试气味子集）；
+  // 缺省 = 全仓四面全扫。不含 Monitor 运行时健康与 doc-semantic-review 文档一致性专项。
+  inspectionScope?: string[];
+  // #163（T8-E2，#130 决策 2）：巡检机会清单——机制消费（冷却判定、采纳开单）。
+  // 写入方：巡检 WU COMPLETE 时 agent-loop 解析 OPPORTUNITY: 协议行落档（初始全 pending）；
+  // 状态流转走 workunit/inspection-opportunities.ts 的 adopt/ignore（web 确认 UI 消费）。
+  // 人读细节报告按 analysis 契约落 .studio/research/ 回挂来源单，本字段只存结构化条目。
+  opportunities?: InspectionOpportunity[];
   worktreePath?: string;      // 专属 worktree 路径（<worktreesDir>/wu-<wuId>；执行 cwd + 提交守卫 + 自动验证的消费点）
   worktreeBranch?: string;    // 专属分支名（task/<wuId>；#157 原型单为 prototype/<wuId>，永不合并）
   worktreeBaseBranch?: string; // 创建时的 base 分支（origin/HEAD→main→master 探测；PMO-b：归属 PMO 时为 PMO 分支）
@@ -160,6 +172,21 @@ export interface WorkUnitMetadata {
   // 消费铁律：展示/指标只准过 studio-shared 的 deriveDisplayState()，禁止各自解释。
   attestations?: WuAttestations;
   [key: string]: unknown;     // 允许扩展字段
+}
+
+/**
+ * #163（T8-E2，#130 决策 2）：巡检机会清单条目。
+ * 三态：pending（待处理）→ adopted（已开单，记 wuId）/ ignored（已忽略，可附理由——
+ * 供下轮巡检不重复上报）。人读面说人话：problem/suggestion/estimate 不出现机制黑话。
+ */
+export interface InspectionOpportunity {
+  id: string;                          // 条目 id（opp-1… 解析落档时生成，单内唯一）
+  problem: string;                     // 问题（人读）
+  suggestion: string;                  // 建议（人读）
+  estimate?: string;                   // 预估（工作量/影响，人读，可省）
+  status: 'pending' | 'adopted' | 'ignored';
+  wuId?: string;                       // adopted：采纳开出的 feature 单 id
+  ignoreReason?: string;               // ignored：忽略理由（可附）
 }
 
 /** F6: reviewPassed/reviewRejected 的证据来源——agent-review 写 l2，human-confirm 写 l3 */
@@ -304,6 +331,9 @@ export const WU_DEFAULT_TIMEOUT_MINUTES = 60;
 
 /** analysis 任务拆分上限（agent-loop 解析 TASK: 行 / analysis-handoff 派生子 WU 共用） */
 export const ANALYSIS_TASKS_MAX = 8;
+
+/** #163（T8-E2）：巡检机会清单条数上限（agent-loop 解析 OPPORTUNITY: 行封顶，防刷行） */
+export const INSPECTION_OPPORTUNITIES_MAX = 10;
 
 /** claim 时的 timeoutAt 决策：metadata.timeoutAt 显式值优先，否则按 WU type 给默认时长 */
 export function resolveClaimTimeoutAt(wuType: string, metadataRaw: string | null): Date {

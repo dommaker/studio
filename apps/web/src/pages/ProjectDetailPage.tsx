@@ -25,6 +25,7 @@ import { projectApi, type DeliveryStatus } from '../api';
 import { requirementApi, type RequirementChainWorkUnit } from '../api/requirements';
 import { monitoringApi, type AgentInfo } from '../api/monitoring';
 import { workunitApi } from '../api/workunit';
+import { maintenanceApi } from '../api/maintenance';
 import { PmoNumberBadge } from '../components/PmoNumberBadge';
 import { ProjectPipeline } from '../components/pmo/ProjectPipeline';
 import { ProjectActivity } from '../components/pmo/ProjectActivity';
@@ -38,6 +39,7 @@ import {
 import { DeliveryPanel } from '../components/pmo/DeliveryPanel';
 import { VscodeGuideDialog, CloudIdeGuideDialog } from '../components/pmo/IdeGuideDialogs';
 import { ProjectProgressCard } from '../components/pmo/ProjectProgressCard';
+import { ManualTaskButton } from '../components/ui/ManualTaskButton';
 import { buildProjectTimeline, type PipelineWorkUnit } from '../components/pmo/pipelineUtils';
 
 interface Project {
@@ -366,6 +368,14 @@ export function ProjectDetailPage() {
         >
           {copySuccess ? '✓ 已复制' : '📋 复制路径'}
         </button>
+        {/* #163 T8-E2: 手动发起巡检（结果挂到巡检单详情页的机会清单，由人在那里确认） */}
+        <ManualTaskButton
+          label="🔍 发起巡检"
+          onRun={async () => {
+            await maintenanceApi.fireTrigger('inspection-scan');
+            return '巡检单已创建，待人确认';
+          }}
+        />
       </div>
 
       {/* IDE 指南弹窗 */}

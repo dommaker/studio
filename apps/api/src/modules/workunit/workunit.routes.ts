@@ -14,6 +14,8 @@
  *   POST   /api/v1/workunits/:id/review-rejected — review rejected (in_review → active/blocked)
  *   POST   /api/v1/workunits/:id/verify          — F6-c 断点 2：人工重跑 L1 自动验证（human-only，不动状态）
  *   POST   /api/v1/workunits/:id/dispatch-review — F6-c 断点 3：人工补派 agent 评审（human-only）
+ *   POST   /api/v1/workunits/:id/opportunities/:oppId/adopt  — #163 巡检机会采纳（建 feature 子单）
+ *   POST   /api/v1/workunits/:id/opportunities/:oppId/ignore — #163 巡检机会忽略（终态，可附理由）
  *
  * 涌现路径 (AS-025 §5.15):
  *   POST   /api/v1/workunits/from-message — convert ChannelMessage to WorkUnit
@@ -29,6 +31,7 @@ import { FileStore } from '@dommaker/studio-shared';
 import { WorkUnitService, type WorkUnitMetadata } from './workunit.service.js';
 import { parseWuMetadata } from './wu-metadata.js';
 import { resolveClaimable, buildStatusById } from './wu-dependencies.js';
+import { adoptInspectionOpportunity, ignoreInspectionOpportunity } from './inspection-opportunities.js';
 import { aggregateTreeTokens } from '../agents/token-usage.service.js';
 import { CODE_WORKTREE_TYPES, resolveVerifyCommands, runWuVerification } from '../agents/loop/wu-verification.js';
 import { channelMessageService } from '../channels/channel-message.service.js';
@@ -171,6 +174,44 @@ router.put('/:id', requireAuth(), requireNotGuest(), async (req: Request, res: R
     res.status(500).json({
       error: { code: 'INTERNAL_ERROR', message: msg },
     });
+  }
+});
+
+/**
+ * #163（T8-E2，#130 决策 6）：巡检机会采纳——建 feature 子单（显式 unassigned 进
+ * frontier，采纳动作即人工闸），源条目记 wuId。机制在 inspection-opportunities.ts。
+ */
+router.post('/:id/opportunities/:oppId/adopt', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
+  try {
+    const result = await adoptInspectionOpportunity(service, req.params.id, req.params.oppId);
+    res.status(201).json(result);
+  } catch (error) {
+    const msg = getErrorMessage(error);
+    if (msg.includes('not found')) {
+      return res.status(404).json({ error: { code: 'NOT_FOUND', message: msg } });
+    }
+    if (msg.includes('already resolved') || msg.includes('not an inspection')) {
+      return res.status(409).json({ error: { code: 'INVALID_STATE', message: msg } });
+    }
+    res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: msg } });
+  }
+});
+
+/** #163（T8-E2）：巡检机会忽略——终态，可附理由（body.reason，下轮巡检不重复上报的判据） */
+router.post('/:id/opportunities/:oppId/ignore', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
+  try {
+    const reason = typeof req.body?.reason === 'string' ? req.body.reason : undefined;
+    const result = await ignoreInspectionOpportunity(service, req.params.id, req.params.oppId, reason);
+    res.json(result);
+  } catch (error) {
+    const msg = getErrorMessage(error);
+    if (msg.includes('not found')) {
+      return res.status(404).json({ error: { code: 'NOT_FOUND', message: msg } });
+    }
+    if (msg.includes('already resolved') || msg.includes('not an inspection')) {
+      return res.status(409).json({ error: { code: 'INVALID_STATE', message: msg } });
+    }
+    res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: msg } });
   }
 });
 

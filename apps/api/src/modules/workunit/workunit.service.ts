@@ -22,8 +22,8 @@ import { WorkUnitCrudService, type WorkUnitData } from './workunit-crud.js';
 
 // re-export：保持既有消费方（agent-loop / routes / 测试等）从 workunit.service 导入的路径不变
 export { snapshotToData } from './workunit.mappers.js';
-export { ANALYSIS_TASKS_MAX } from './workunit.types.js';
-export type { WorkUnitMetadata, ReviewAttestationSource } from './workunit.types.js';
+export { ANALYSIS_TASKS_MAX, INSPECTION_OPPORTUNITIES_MAX } from './workunit.types.js';
+export type { WorkUnitMetadata, ReviewAttestationSource, InspectionOpportunity } from './workunit.types.js';
 
 export class WorkUnitService extends WorkUnitCrudService {
 
