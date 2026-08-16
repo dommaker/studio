@@ -129,15 +129,5 @@ pnpm start  # 启动生产服务
 <!-- PRESERVE:agent-skills -->
 ## Agent skills
 
-### Issue tracker
-
-Issues 存放在本仓库的 GitHub Issues（dommaker/studio），通过 `gh` CLI 操作。见 `docs/agents/issue-tracker.md`。
-
-### Triage labels
-
-五个标准 triage 标签原名使用（needs-triage 等）。见 `docs/agents/triage-labels.md`。
-
-### Domain docs
-
-single-context：根 `CONTEXT.md` + `docs/adr/`。见 `docs/agents/domain.md`。
+指针见 CLAUDE.md「Agent skills」节（issue tracker / triage 标签 / domain docs 的唯一正本，由 setup-matt-pocock-skills 初始化写入；2026-08-16 归位，本段不再重复正文）。
 <!-- /PRESERVE:agent-skills -->
