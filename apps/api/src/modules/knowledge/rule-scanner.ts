@@ -195,11 +195,12 @@ export class RuleScanner {
     const rules: ScannedRule[] = [];
     const harnessRoot = path.join(PROJECT_ROOT, 'node_modules', '@dommaker', 'harness');
 
-    // definitions.ts 是薄聚合；真实定义在 definitions/{iron-laws,guidelines,tips}.ts（harness 拆分后用 id: 字段）
+    // definitions.ts 是薄聚合；真实定义在 definitions/{iron-laws,guidelines,prompts}.ts
+    // （harness 1.x：tip 层已删，prompt 层取代；harness 拆分后用 id: 字段）
     const layers: Array<{ file: string; prefix: string }> = [
       { file: 'iron-laws.ts', prefix: 'iron_law' },
       { file: 'guidelines.ts', prefix: 'guideline' },
-      { file: 'tips.ts', prefix: 'tip' },
+      { file: 'prompts.ts', prefix: 'prompt' },
     ];
 
     let foundAny = false;
