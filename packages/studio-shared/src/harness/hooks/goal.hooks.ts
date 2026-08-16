@@ -9,6 +9,12 @@ import type { ConstraintContext } from '@dommaker/harness';
 import { safeCallHook } from './config';
 import { sampledCheck } from '../runtime/cache';
 
+/** 延迟取 bootstrap 合并约束（含 custom-constraints.yml），避免与 bootstrap→register→hooks 的静态循环依赖 */
+async function getMergedConstraints() {
+  const { getHarness } = await import('../runtime/bootstrap');
+  return getHarness()?.mergedConstraints ?? null;
+}
+
 /** Goal 创建前：harness 约束检查（采样模式，减少 I/O） */
 export async function beforeGoalCreate(ctx: ConstraintContext): Promise<void> {
   await safeCallHook('beforeGoalCreate', async () => {
@@ -18,7 +24,7 @@ export async function beforeGoalCreate(ctx: ConstraintContext): Promise<void> {
         operation: 'goal_creation',
         taskDescription: ctx.taskDescription,
         projectPath: ctx.projectPath,
-      });
+      }, await getMergedConstraints());
       return true;
     });
   });
@@ -45,6 +51,6 @@ export async function beforeAgentDispatch(ctx: ConstraintContext & {
       hasTwoStageReview: (ctx as any).hasTwoStageReview,
       hasRootCauseInvestigation: (ctx as any).hasRootCauseInvestigation,
       hasFailingTest: (ctx as any).hasFailingTest,
-    });
+    }, await getMergedConstraints());
   });
 }

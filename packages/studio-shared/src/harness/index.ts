@@ -12,7 +12,6 @@ import {
   checkConstraint,
   IRON_LAWS,
   GUIDELINES,
-  TIPS,
   CheckpointValidator,
   // Phase 1-6 新增模块
   FileKnowledgeStore,
@@ -37,7 +36,7 @@ import {
 import { logger } from '../utils';
 
 /**
- * 约束服务（三层：Iron Laws / Guidelines / Tips）
+ * 约束服务（两层：Iron Laws / Guidelines）
  */
 export class ConstraintService {
   /**
@@ -59,13 +58,6 @@ export class ConstraintService {
    */
   getGuidelines(): Record<string, Constraint> {
     return GUIDELINES;
-  }
-
-  /**
-   * 获取 Tips
-   */
-  getTips(): Record<string, Constraint> {
-    return TIPS;
   }
 
   /**

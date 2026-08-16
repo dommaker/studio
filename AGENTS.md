@@ -34,7 +34,8 @@ pnpm start  # 启动生产服务
 
 ## 约束与治理
 
-- 约束清单：`CLAUDE.md` Governance Rules 块（Iron Laws 7 条、Guidelines 6 条）
+- 治理配置：`.harness/config.yml`（preset: standard）
+- 约束清单：`CLAUDE.md` Governance Rules 块（Iron Laws 6 条、Guidelines 5 条）
 
 ## 知识入口
 
