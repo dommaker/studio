@@ -42,15 +42,6 @@ custom_constraints:
       - code_implementation
     description: 2026-05-23 解耦决策：Agent 接口不假设分支拓扑，diff/merge 用参数化 refs
     promptInjection: Agent 方法（reviewDiff/mergeBranches/pushBranch）必须用参数化 ref，禁止硬编码 branch 名。Agent 接口不假设分支拓扑。
-  hook_must_be_registered:
-    id: hook_must_be_registered
-    level: guideline
-    rule: NEW HOOKS MUST BE REGISTERED
-    message: 新增 harness hook 函数必须在 registerAllHooks() 中注册，否则不会被管线调用
-    trigger:
-      - code_implementation
-    description: hook 定义不注册 = 死代码。新 hook 必须在 hooks/register.ts 的 registerAllHooks 中添加
-    promptInjection: 新增 harness hook 函数必须在 registerAllHooks()（hooks/register.ts）中注册，否则不会被管线调用。hook 定义不注册 = 死代码。
   two_stage_review_required:
     id: two_stage_review_required
     level: iron_law
