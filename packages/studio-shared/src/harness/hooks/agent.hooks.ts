@@ -9,6 +9,12 @@ import type { ConstraintContext } from '@dommaker/harness';
 import { safeCallHook } from './config';
 import { formatConstraintsForPrompt } from '../prompt-injection';
 
+/** 延迟取 bootstrap 合并约束（含 custom-constraints.yml），避免与 bootstrap→register→hooks 的静态循环依赖 */
+async function getMergedConstraints() {
+  const { getHarness } = await import('../runtime/bootstrap');
+  return getHarness()?.mergedConstraints ?? null;
+}
+
 export async function beforeAgentExecute(ctx: ConstraintContext & {
   hasWorktree?: boolean;
   worktreePath?: string;
@@ -29,7 +35,7 @@ export async function beforeAgentExecute(ctx: ConstraintContext & {
       hasTwoStageReview: (ctx as any).hasTwoStageReview,
       hasRootCauseInvestigation: (ctx as any).hasRootCauseInvestigation,
       hasFailingTest: (ctx as any).hasFailingTest,
-    });
+    }, await getMergedConstraints());
   });
 }
 

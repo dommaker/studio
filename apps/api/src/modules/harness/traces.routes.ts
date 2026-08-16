@@ -135,10 +135,10 @@ tracesRoutes.post('/diagnose', async (req: Request, res: Response) => {
     const loaded = await loadHarness();
     if (!loaded) return res.status(503).json({ error: 'Harness not available' });
 
-    const { anomaly, useLLM } = req.body;
+    const { anomaly } = req.body;
     if (!anomaly) return res.status(400).json({ error: 'anomaly is required' });
 
-    const doctor = new harnessModule!.ConstraintDoctor({ enabled: !!useLLM });
+    const doctor = new harnessModule!.ConstraintDoctor();
     const a = await getAnalyzer();
     if (a) {
       const c = await getCollector();

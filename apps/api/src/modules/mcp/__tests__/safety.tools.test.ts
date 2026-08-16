@@ -48,7 +48,6 @@ describe('safety.tools', () => {
       passed: true,
       ironLaws: [{ satisfied: true }],
       guidelines: [{ satisfied: true }],
-      tips: [],
     });
     const result = await tool('checkConstraint').handler({ operation: 'deploy', context: { roleId: 'r1' } });
     expect(mockCheckConstraints).toHaveBeenCalledWith({ roleId: 'r1', operation: 'deploy' });
@@ -63,12 +62,11 @@ describe('safety.tools', () => {
       passed: false,
       ironLaws: [{ satisfied: false, id: 'IL1' }],
       guidelines: [{ satisfied: true }],
-      tips: [{ satisfied: false, id: 'T1' }],
     });
     const result = await tool('checkConstraint').handler({ operation: 'op' });
     expect(result.allowed).toBe(false);
-    expect(result.violations).toEqual([{ satisfied: false, id: 'IL1' }, { satisfied: false, id: 'T1' }]);
-    expect(result.message).toBe('2 violation(s) found');
+    expect(result.violations).toEqual([{ satisfied: false, id: 'IL1' }]);
+    expect(result.message).toBe('1 violation(s) found');
   });
 
   it('checkConstraint 服务异常时降级 harnessUnavailable', async () => {
