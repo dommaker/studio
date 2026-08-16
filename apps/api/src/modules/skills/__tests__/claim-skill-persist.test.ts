@@ -27,6 +27,7 @@ const { mockFileStore } = vi.hoisted(() => ({
     claimWorkUnit: vi.fn(),
     upsertSnapshot: vi.fn(),
     appendEvent: vi.fn(),
+    commitSnapshot: vi.fn(), // #170：update 的 appendEvent+upsertSnapshot 同锁成对原语
     removeSnapshot: vi.fn(),
     getState: vi.fn(),
     getProfile: vi.fn(),
@@ -67,6 +68,7 @@ describe('§10 P0 → 决策 7: claim 不再落盘 metadata.matchedSkills', () =
     mockFileStore.claimWorkUnit.mockResolvedValue(true);
     mockFileStore.upsertSnapshot.mockResolvedValue(undefined);
     mockFileStore.appendEvent.mockResolvedValue(undefined);
+    mockFileStore.commitSnapshot.mockResolvedValue(undefined);
     mockFileStore.getState.mockResolvedValue({ id: 'inst-1', roleId: 'role-1' });
     mockFileStore.getProfile.mockResolvedValue({ id: 'role-1', description: '负责实现' });
 
