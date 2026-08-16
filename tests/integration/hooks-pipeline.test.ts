@@ -1,7 +1,7 @@
 /**
  * Hooks 管线集成测试
  *
- * 覆盖：Hook 配置管理、per-hook 开关、safeCallHook 行为
+ * 覆盖：Hook 配置管理、per-hook 开关、runHook 行为
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
 
@@ -33,29 +33,29 @@ describe('Hooks Config — per-hook 开关', () => {
   });
 });
 
-describe('safeCallHook — 失败处理', () => {
-  it('blocking hook 失败应抛异常', async () => {
-    const { safeCallHook } = await import('../../packages/studio-shared/src/harness/hooks/config.js');
+describe('runHook — 失败处理（errorStrategy）', () => {
+  it('block hook 失败应抛异常', async () => {
+    const { runHook } = await import('../../packages/studio-shared/src/harness/hooks/config.js');
 
     await expect(
-      safeCallHook('beforeAgentExecute', async () => { throw new Error('test error'); }),
+      runHook('beforeAgentExecute', async () => { throw new Error('test error'); }),
     ).rejects.toThrow('test error');
   });
 
-  it('non-blocking hook 失败应静默', async () => {
-    const { safeCallHook } = await import('../../packages/studio-shared/src/harness/hooks/config.js');
+  it('warn hook 失败应静默', async () => {
+    const { runHook } = await import('../../packages/studio-shared/src/harness/hooks/config.js');
 
     await expect(
-      safeCallHook('afterAgentComplete', async () => { throw new Error('non-blocking error'); }),
+      runHook('afterAgentComplete', async () => { throw new Error('non-blocking error'); }),
     ).resolves.toBeUndefined();
   });
 
   it('禁用的 hook 不执行', async () => {
     process.env.HARNESS_HOOK_DISABLE = 'checkBeforeTaskComplete';
-    const { safeCallHook } = await import('../../packages/studio-shared/src/harness/hooks/config.js');
+    const { runHook } = await import('../../packages/studio-shared/src/harness/hooks/config.js');
     const fn = vi.fn();
 
-    await safeCallHook('checkBeforeTaskComplete', fn);
+    await runHook('checkBeforeTaskComplete', fn);
     expect(fn).not.toHaveBeenCalled();
   });
 });

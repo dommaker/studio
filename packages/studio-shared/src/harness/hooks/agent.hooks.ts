@@ -6,14 +6,14 @@ import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { checkBeforeExecution, getTraceCollector } from '@dommaker/harness';
 import type { ConstraintContext } from '@dommaker/harness';
-import { safeCallHook } from './config';
+import { runHook } from './config';
 import { formatConstraintsForPrompt } from '../prompt-injection';
 
 export async function beforeAgentExecute(ctx: ConstraintContext & {
   hasWorktree?: boolean;
   worktreePath?: string;
 }): Promise<void> {
-  await safeCallHook('beforeAgentExecute', async () => {
+  await runHook('beforeAgentExecute', async () => {
     await checkBeforeExecution({
       operation: 'code_implementation',
       taskDescription: ctx.taskDescription,
@@ -78,7 +78,7 @@ export async function afterAgentComplete(params?: {
   success?: boolean;
   sessionCount?: number;
 }): Promise<void> {
-  await safeCallHook('afterAgentComplete', async () => {
+  await runHook('afterAgentComplete', async () => {
     const collector = getTraceCollector();
     const traceBase = {
       agentType: 'claude',

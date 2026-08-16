@@ -6,7 +6,7 @@
 
 import { checkBeforeExecution, CheckCache } from '@dommaker/harness';
 import type { ConstraintContext } from '@dommaker/harness';
-import { safeCallHook } from './config';
+import { runHook } from './config';
 
 /**
  * Goal 检查采样缓存（A1：runtime/cache.ts 退役，直用 harness CheckCache）。
@@ -17,7 +17,7 @@ const goalCheckCache = new CheckCache();
 
 /** Goal 创建前：harness 约束检查（采样模式，减少 I/O） */
 export async function beforeGoalCreate(ctx: ConstraintContext): Promise<void> {
-  await safeCallHook('beforeGoalCreate', async () => {
+  await runHook('beforeGoalCreate', async () => {
     await goalCheckCache.get(
       'goal_create',
       ctx.projectPath || 'default',
@@ -39,7 +39,7 @@ export async function beforeAgentDispatch(ctx: ConstraintContext & {
   hasWorktree?: boolean;
   worktreePath?: string;
 }): Promise<void> {
-  await safeCallHook('beforeAgentDispatch', async () => {
+  await runHook('beforeAgentDispatch', async () => {
     await checkBeforeExecution({
       operation: 'code_implementation',
       taskDescription: ctx.taskDescription,
