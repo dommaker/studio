@@ -2,22 +2,23 @@
  * safety.tools 单元测试（T3 拆分新增，pre-commit TDD 门禁）。
  *
  * 覆盖 checkConstraint / checkGuardrail / getSandboxLevel。
- * handler 内动态 import 的 constraintService / safetyService 被 mock。
+ * handler 内动态 import 的 harness 直连 API（checkConstraints /
+ * InputGuardrail / OutputGuardrail / Sandbox）被 mock（#150 A5）。
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const mockCheckConstraints = vi.fn();
-const mockInputCheck = vi.fn();
-const mockOutputCheck = vi.fn();
-const mockGetSandbox = vi.fn();
+const { mockCheckConstraints, mockInputCheck, mockOutputCheck, mockGetSandbox } = vi.hoisted(() => ({
+  mockCheckConstraints: vi.fn(),
+  mockInputCheck: vi.fn(),
+  mockOutputCheck: vi.fn(),
+  mockGetSandbox: vi.fn(),
+}));
 
-vi.mock('@dommaker/studio-shared', () => ({
-  constraintService: { checkConstraints: mockCheckConstraints },
-  safetyService: {
-    getInputGuardrail: () => ({ check: mockInputCheck }),
-    getOutputGuardrail: () => ({ check: mockOutputCheck }),
-    getSandbox: mockGetSandbox,
-  },
+vi.mock('@dommaker/harness', () => ({
+  checkConstraints: mockCheckConstraints,
+  InputGuardrail: class { check(input: string) { return mockInputCheck(input); } },
+  OutputGuardrail: class { check(input: string) { return mockOutputCheck(input); } },
+  Sandbox: class { getLevel() { return mockGetSandbox().getLevel(); } getDescription() { return mockGetSandbox().getDescription(); } },
 }));
 
 import { safetyTools } from '../safety.tools.js';
