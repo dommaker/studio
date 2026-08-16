@@ -148,10 +148,10 @@ function WuDetail({ id, onOpenReq }: { id: string; onOpenReq: (reqId: string) =>
 
   /** 人工确认入口：in_review = 审查硬门（过→done；analysis 过后自动拆任务派工）；
    *  done 缺 l3 = L3 人工验收留痕（不阻断流程）。同调 reviewPassed（服务端幂等）。 */
-  const handleReviewPassed = async (summary?: string) => {
+  const handleReviewPassed = async (summary?: string, assigneeId?: string) => {
     setConfirming(true);
     try {
-      await workunitApi.reviewPassed(id, summary);
+      await workunitApi.reviewPassed(id, summary, assigneeId);
       setEventTick(t => t + 1);
     } finally {
       setConfirming(false);
@@ -242,7 +242,8 @@ function WuDetail({ id, onOpenReq }: { id: string; onOpenReq: (reqId: string) =>
       {showApproveModal && (
         <AnalysisApproveDialog
           prefill={buildMapOpeningPrefill(wu.metadata)}
-          onConfirm={summary => { setShowApproveModal(false); handleReviewPassed(summary); }}
+          channelId={wu.channelId}
+          onConfirm={(summary, assigneeId) => { setShowApproveModal(false); handleReviewPassed(summary, assigneeId); }}
           onCancel={() => setShowApproveModal(false)}
         />
       )}

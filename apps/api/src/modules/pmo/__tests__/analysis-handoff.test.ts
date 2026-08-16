@@ -169,6 +169,29 @@ describe('AnalysisHandoff（PMO 分析接力）', () => {
     expect(metaOf(children2[0].metadata).workspaceRoot).toBeUndefined();
   });
 
+  it('#177：analysis 确认时指定默认执行角色 → 全部派生 task 子 WU 带 assigneeId（未指定 = 涌现，不带）', async () => {
+    const wu = await createAnalysisWu({
+      analysisTasks: ['实现登录接口', '补登录单测'],
+      defaultTaskAssigneeId: 'profile-7',
+    });
+    emitStatus(wu, 'done');
+
+    const ok = await waitFor(async () =>
+      (await fileStore.getIndex()).filter(s => s.parentId === wu.id).length === 2);
+    expect(ok).toBe(true);
+    const children = (await fileStore.getIndex()).filter(s => s.parentId === wu.id);
+    expect(children.every(c => c.assigneeId === 'profile-7')).toBe(true);
+
+    // 未指定：子 WU 不带 assigneeId（回池涌现）
+    const wu2 = await createAnalysisWu({ analysisTasks: ['另一个任务'] });
+    emitStatus(wu2, 'done');
+    const ok2 = await waitFor(async () =>
+      (await fileStore.getIndex()).filter(s => s.parentId === wu2.id).length === 1);
+    expect(ok2).toBe(true);
+    const children2 = (await fileStore.getIndex()).filter(s => s.parentId === wu2.id);
+    expect(children2[0].assigneeId).toBeFalsy();
+  });
+
   it('无 TASK 拆分行：不派生，频道提示可手动转任务', async () => {
     const wu = await createAnalysisWu({});
     emitStatus(wu, 'done');

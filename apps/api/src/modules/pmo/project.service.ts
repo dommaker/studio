@@ -539,7 +539,7 @@ export const projectService = {
     return Math.round((completed / tasks.length) * 100);
   },
 
-  async publish(input: { projectId: string; channelId: string }) {
+  async publish(input: { projectId: string; channelId: string; assigneeId?: string }) {
     const project = await this.get(input.projectId);
     if (!project) throw new Error('Project not found');
     if (project.status !== 'pending') throw new Error('Project must be pending to publish');
@@ -559,6 +559,8 @@ export const projectService = {
       : '';
     const workUnit = await workUnitService.create({
       type: 'analysis',
+      // #177（#69 决议）：发布人可选显式指派 analysis WU 执行角色（留空 = 回池涌现）
+      ...(input.assigneeId ? { assigneeId: input.assigneeId } : {}),
       scope: `分析需求 ${project.pmoNumber}: ${project.title}
 
 ${project.requirement || ''}

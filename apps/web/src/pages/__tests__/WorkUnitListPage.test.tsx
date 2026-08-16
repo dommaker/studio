@@ -118,7 +118,7 @@ describe('WorkUnitListPage — analysis 确认弹窗（#106 M7）', () => {
     fireEvent.change(textarea, { target: { value: 'FOG: 存储选型用哪个？' } });
     fireEvent.click(screen.getByText('确认通过'));
 
-    expect(mockStore.reviewPassed).toHaveBeenCalledWith('wu-a1', 'FOG: 存储选型用哪个？');
+    expect(mockStore.reviewPassed).toHaveBeenCalledWith('wu-a1', 'FOG: 存储选型用哪个？', undefined);
   });
 
   it('analysis 无清单 metadata → 弹窗空文本（空手填或直接通过 = 非探路型）', () => {
@@ -130,7 +130,7 @@ describe('WorkUnitListPage — analysis 确认弹窗（#106 M7）', () => {
     expect(textarea.value).toBe('');
 
     fireEvent.click(screen.getByText('确认通过'));
-    expect(mockStore.reviewPassed).toHaveBeenCalledWith('wu-a2', '');
+    expect(mockStore.reviewPassed).toHaveBeenCalledWith('wu-a2', '', undefined);
   });
 
   it('非 analysis（task）点通过 → 不开弹窗，直接调 reviewPassed（回归）', () => {
@@ -140,6 +140,6 @@ describe('WorkUnitListPage — analysis 确认弹窗（#106 M7）', () => {
     fireEvent.click(screen.getByText('通过'));
 
     expect(screen.queryByPlaceholderText(/DESTINATION/)).toBeNull();
-    expect(mockStore.reviewPassed).toHaveBeenCalledWith('wu-t1', undefined);
+    expect(mockStore.reviewPassed).toHaveBeenCalledWith('wu-t1', undefined, undefined);
   });
 });

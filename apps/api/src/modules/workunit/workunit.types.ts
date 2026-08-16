@@ -130,6 +130,9 @@ export interface WorkUnitMetadata {
   // 人工确认（reviewPassed → done）后由 analysis-handoff 据此建未指派 task 子 WU 派工
   analysisTasks?: string[];       // TASK: 拆分行解析结果（≤8 条，每条 ≤300 字符）
   analysisTasksSpawnedAt?: string; // 子 WU 已建时间戳（幂等哨兵：存在即不再重复派生）
+  // #177（#69 决议）：analysis 人工确认处可选「默认执行角色」（profile id）——
+  // analysis-handoff spawnTasks 据此给全部派生 task 子 WU 落 assigneeId；缺省 = 涌现
+  defaultTaskAssigneeId?: string;
   // #106 M7 对齐：analysis WU COMPLETE 时 agent-loop 用 map-opening 同一解析器解析
   // FOG:/DESTINATION: 行落档——人工确认弹窗据此预填待决问题清单（审清单，人改后随
   // l3.summary 回传，map-opening 消费契约不变）；无 FOG 行 = 非探路型，两字段缺省

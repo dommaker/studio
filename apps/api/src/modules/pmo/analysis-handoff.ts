@@ -99,12 +99,18 @@ export class AnalysisHandoff {
     }
 
     const created: string[] = [];
+    // #177（#69 决议）：analysis 确认处可选「默认执行角色」应用于全部派生 task 子 WU
+    // （留空 = 涌现）；指名 = 排他邮箱，无自动回池（滞留由 #62 探针出声）
+    const defaultAssigneeId = typeof meta.defaultTaskAssigneeId === 'string' && meta.defaultTaskAssigneeId.trim()
+      ? meta.defaultTaskAssigneeId.trim()
+      : null;
     for (const scope of tasks) {
       try {
         await this.workUnitService.create({
           type: 'task',
           scope,
           status: 'unassigned',
+          ...(defaultAssigneeId ? { assigneeId: defaultAssigneeId } : {}),
           channelId: fresh.channelId,
           parentId: fresh.id,
           workspaceId: fresh.workspaceId ?? null,
@@ -132,7 +138,7 @@ export class AnalysisHandoff {
     if (created.length > 0) {
       await this.post(
         fresh,
-        `分析结论已确认，拆分 ${created.length} 个任务并派工（频道成员自动认领）：\n`
+        `分析结论已确认，拆分 ${created.length} 个任务并派工（${defaultAssigneeId ? '已指定执行角色' : '频道成员自动认领'}）：\n`
         + created.map((t, i) => `${i + 1}. ${t}`).join('\n'),
       );
     }

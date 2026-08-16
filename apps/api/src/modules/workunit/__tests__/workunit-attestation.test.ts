@@ -107,6 +107,20 @@ describe('F6 attestation 台账写入（reviewPassed/reviewRejected）', () => {
     expect(attestationsOf(wu!.metadata).l2).toBeUndefined();
   });
 
+  it('#177：reviewPassed 带 defaultTaskAssigneeId → 落 metadata（analysis 确认默认执行角色，analysis-handoff 消费）', async () => {
+    const id = await createInReviewWu();
+    await wuService.reviewPassed(
+      id,
+      { by: 'Alice', kind: 'human-confirm' },
+      { defaultTaskAssigneeId: 'profile-7' },
+    );
+
+    const wu = await wuService.getById(id);
+    expect(wu!.status).toBe('done');
+    const meta: WorkUnitMetadata = wu!.metadata ? JSON.parse(wu!.metadata) : {};
+    expect(meta.defaultTaskAssigneeId).toBe('profile-7');
+  });
+
   it('F6-b：done + human-confirm → 幂等补写 l3（不动状态/时间戳）；agent-review 打 done 仍报错', async () => {
     const id = await createInReviewWu();
     // agent 评审通过 → done + l2

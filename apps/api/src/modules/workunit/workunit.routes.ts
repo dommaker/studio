@@ -271,11 +271,16 @@ router.post('/:id/review-passed', requireAuth(), requireNotGuest(), async (req: 
     // pmo/decision-resolution 订阅器据此把 decision 单结论原样写入探路地图 decisions[]
     const user = (req as AuthRequest).user;
     const summary = req.body?.summary;
+    // #177：可选 defaultAssigneeId（profile id）——analysis 确认处「默认执行角色」，
+    // 落 WU metadata.defaultTaskAssigneeId，analysis-handoff 应用于全部派生 task 子 WU
+    const defaultAssigneeId = req.body?.defaultAssigneeId;
     const wu = await service.reviewPassed(req.params.id, {
       by: user?.name ?? user?.email ?? user?.id ?? 'human',
       kind: 'human-confirm',
       ...(typeof summary === 'string' && summary.trim() ? { summary } : {}),
-    });
+    }, typeof defaultAssigneeId === 'string' && defaultAssigneeId.trim()
+      ? { defaultTaskAssigneeId: defaultAssigneeId.trim() }
+      : undefined);
     res.json(wu);
   } catch (error) {
     const msg = getErrorMessage(error);

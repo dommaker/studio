@@ -249,9 +249,13 @@ export const workunitApi = {
     api.post<WorkUnit>(`/workunits/${id}/status`, { status }),
 
   // #106 M7：可选 summary 穿透 l3 台账（analysis 确认弹窗的待决问题清单、decision 结论等）
-  reviewPassed: (id: string, summary?: string) => {
+  // #177：可选 defaultAssigneeId（analysis 确认处「默认执行角色」）→ 应用于全部派生 task 子 WU
+  reviewPassed: (id: string, summary?: string, defaultAssigneeId?: string) => {
     const trimmed = summary?.trim();
-    return api.post<WorkUnit>(`/workunits/${id}/review-passed`, trimmed ? { summary: trimmed } : {});
+    return api.post<WorkUnit>(`/workunits/${id}/review-passed`, {
+      ...(trimmed ? { summary: trimmed } : {}),
+      ...(defaultAssigneeId ? { defaultAssigneeId } : {}),
+    });
   },
 
   reviewRejected: (id: string, reason?: string) =>

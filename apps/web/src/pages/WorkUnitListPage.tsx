@@ -194,7 +194,7 @@ export function WorkUnitListPage() {
                 <WorkUnitRow
                   key={wu.id}
                   wu={wu}
-                  onReviewPassed={(summary) => reviewPassed(wu.id, summary)}
+                  onReviewPassed={(summary, assigneeId) => reviewPassed(wu.id, summary, assigneeId)}
                   onReviewRejected={(reason) => reviewRejected(wu.id, reason)}
                   formatTime={formatTime}
                 />
@@ -211,7 +211,7 @@ function WorkUnitRow({
   wu, onReviewPassed, onReviewRejected, formatTime,
 }: {
   wu: WorkUnit;
-  onReviewPassed: (summary?: string) => void;
+  onReviewPassed: (summary?: string, assigneeId?: string) => void;
   onReviewRejected: (reason?: string) => void;
   formatTime: (ts: string | null) => string;
 }) {
@@ -345,7 +345,8 @@ function WorkUnitRow({
       {showApproveModal && (
         <AnalysisApproveDialog
           prefill={buildMapOpeningPrefill(wu.metadata)}
-          onConfirm={summary => { onReviewPassed(summary); setShowApproveModal(false); }}
+          channelId={wu.channelId}
+          onConfirm={(summary, assigneeId) => { onReviewPassed(summary, assigneeId); setShowApproveModal(false); }}
           onCancel={() => setShowApproveModal(false)}
         />
       )}

@@ -159,7 +159,7 @@ export class WorkUnitService extends WorkUnitCrudService {
    * F6-c（断点 3）：agent-review 且当前已是 done 且 l2 缺失 → 幂等补写 l2
    * （人工直推 done 抢跑评审链，迟到的评审结论无处落账的补票口），同不改状态、不触发合并。
    */
-  async reviewPassed(id: string, attestation?: ReviewAttestationSource): Promise<WorkUnitData> {
+  async reviewPassed(id: string, attestation?: ReviewAttestationSource, options?: { defaultTaskAssigneeId?: string }): Promise<WorkUnitData> {
     const snapshots = await this.fileStore.getIndex();
     const current = snapshots.find(s => s.id === id);
     if (!current) throw new Error('WorkUnit not found');
@@ -179,6 +179,10 @@ export class WorkUnitService extends WorkUnitCrudService {
 
     const metadata: WorkUnitMetadata = parseWuMetadata(current.metadata);
     delete metadata._consecutiveReviewRejections;
+    // #177：analysis 确认处可选「默认执行角色」落档（analysis-handoff 派生 task 子 WU 时消费）
+    if (options?.defaultTaskAssigneeId) {
+      metadata.defaultTaskAssigneeId = options.defaultTaskAssigneeId;
+    }
     if (attestation) {
       const level = attestation.kind === 'agent-review' ? 'l2' : 'l3';
       metadata.attestations = withAttestation(metadata.attestations, level, this.buildAttestationEntry({
