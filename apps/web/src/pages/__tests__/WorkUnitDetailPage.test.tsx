@@ -123,7 +123,7 @@ describe('WorkUnitDetailPage', () => {
     render(<WorkUnitDetailPage />);
     expect(await screen.findByText('登录功能开发')).toBeDefined();
     expect(screen.getByText('任务')).toBeDefined();
-    expect(screen.getByText('已完成')).toBeDefined();
+    expect(screen.getAllByText('已完成').length).toBeGreaterThan(0); // #182：状态 pill 与速览节各出现一次
     expect(screen.getByText(/创建 07\/30/)).toBeDefined();
     expect(screen.getByText(/认领/)).toBeDefined();
     expect(screen.getByText(/完成 07\/30/)).toBeDefined();

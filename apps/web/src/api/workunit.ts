@@ -87,6 +87,12 @@ export interface ExecutionStepEvent {
   /** 1 基步号 */
   step: number;
   action?: string;
+  /** #172（#60 决策 Q1）：本步成败（历史事件无该字段 → 缺省 success） */
+  status: 'success' | 'failed';
+  /** #172: 失败步错误分类（execution_failed 等） */
+  errorType?: string;
+  /** #172: 失败步错误详情（已截断） */
+  errorDetail?: string;
   /** 模型思考摘要（≤3 条，已截断） */
   thinking: string[];
   /** 本步工具调用（≤30 条） */
@@ -119,6 +125,9 @@ export function parseExecutionStepEvents(
         sessionId: p.sessionId,
         step: p.step,
         action: typeof p.action === 'string' ? p.action : undefined,
+        status: p.status === 'failed' ? 'failed' : 'success',
+        errorType: typeof p.errorType === 'string' ? p.errorType : undefined,
+        errorDetail: typeof p.errorDetail === 'string' ? p.errorDetail : undefined,
         thinking: Array.isArray(p.thinking) ? p.thinking.filter((t: unknown) => typeof t === 'string') : [],
         toolCalls: Array.isArray(p.toolCalls)
           ? p.toolCalls

@@ -250,11 +250,12 @@ export function WorkUnitDetailPage() {
               {/* F6 证据台账：L1 自动验证 / L2 Agent 评审 / L3 人工验收（共享 EvidenceLedger，数据路径同 WorkUnitDrawer） */}
               <EvidenceLedger attestations={attestations} variant="card" />
 
-              {/* 执行过程（思考/工具调用/用量；组件自带 REST 回放 + SSE 实时流，页面不接 SSE） */}
+              {/* 执行过程（思考/工具调用/用量；组件自带 REST 回放 + SSE 实时流，页面不接 SSE）。
+                  #182：传 wu 启用置顶「当前状态速览」节（决策 #61，与 WorkUnitDrawer 同组件复用） */}
               <div
                 className="card mt-4 p-3"
               >
-                <ExecutionSteps workUnitId={wu.id} />
+                <ExecutionSteps workUnitId={wu.id} wu={wu} />
               </div>
 
               {/* 会话原文（#174）：归档 transcript 只读查看，默认折叠按需加载 */}

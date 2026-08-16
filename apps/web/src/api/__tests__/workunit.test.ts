@@ -10,7 +10,7 @@ vi.mock('../index', () => ({
   },
 }));
 
-import { workunitApi, formatExecutionStreamChunkText, type ExecutionStreamChunk } from '../workunit';
+import { workunitApi, formatExecutionStreamChunkText, parseExecutionStepEvents, type ExecutionStreamChunk } from '../workunit';
 import { api } from '../index';
 
 describe('workunitApi', () => {
@@ -66,5 +66,30 @@ describe('formatExecutionStreamChunkText', () => {
       .toBe(long);
     expect(formatExecutionStreamChunkText(chunk({ kind: 'tool', tool: 'Bash', summary: long }), { maxSummaryLength: false }))
       .toBe(`🔧 Bash ${long}`);
+  });
+});
+
+// #182（决策 #61 速览档）：失败步字段（#172 落的 status/errorType/errorDetail）必须解析出来
+describe('parseExecutionStepEvents · 失败步字段', () => {
+  const row = (payload: Record<string, unknown>) => ({
+    payload: JSON.stringify({ workUnitId: 'WU-1', executionId: 'e1', thinking: [], toolCalls: [], skills: [], ...payload }),
+    createdAt: '2026-08-16T00:00:00Z',
+  });
+
+  it('失败步：status/errorType/errorDetail 透传', () => {
+    const events = parseExecutionStepEvents([
+      row({ step: 3, action: 'failed', status: 'failed', errorType: 'execution_failed', errorDetail: 'Verify FAILED: tsc' }),
+    ], 'WU-1');
+    expect(events).toHaveLength(1);
+    expect(events[0].status).toBe('failed');
+    expect(events[0].errorType).toBe('execution_failed');
+    expect(events[0].errorDetail).toBe('Verify FAILED: tsc');
+  });
+
+  it('历史成功步无 status 字段 → 缺省 success，不带错误字段', () => {
+    const events = parseExecutionStepEvents([row({ step: 1 })], 'WU-1');
+    expect(events[0].status).toBe('success');
+    expect(events[0].errorType).toBeUndefined();
+    expect(events[0].errorDetail).toBeUndefined();
   });
 });

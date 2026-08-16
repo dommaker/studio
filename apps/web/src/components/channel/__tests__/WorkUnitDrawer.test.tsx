@@ -131,7 +131,7 @@ describe('WorkUnitDrawer', () => {
   it('shows WorkUnit detail with status, owner, REQ link and step count', async () => {
     renderDrawer({ kind: 'wu', id: 'WU-1017' });
     await waitFor(() => expect(screen.getByText('方向稿 A/B 原型页搭建')).toBeTruthy());
-    expect(screen.getByText('执行中')).toBeTruthy();
+    expect(screen.getAllByText('执行中').length).toBeGreaterThan(0); // #182：状态 chip 与速览节各出现一次
     expect(screen.getByText('@coder-1')).toBeTruthy();
     expect(screen.getByText('REQ-0042 ›')).toBeTruthy();
     expect(screen.getByText('7')).toBeTruthy(); // stepCount

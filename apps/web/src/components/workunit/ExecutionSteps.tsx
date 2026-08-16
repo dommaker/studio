@@ -1,18 +1,62 @@
 // ExecutionSteps — WU 过程可视化：执行步事件流（思考/工具调用/skill 注入/用量），SSE 步级刷新。
 // 频道只留里程碑，过程明细在这里；完整 transcript（会话原文）见 WU 详情页 TranscriptViewer（#174）。
 // Layer B：执行中的步内实时 chunk（SSE-only 不落盘）；REST 步级卡片落位（同 step）后实时区自动让位。
-// 消费方：WorkUnitDrawer（频道页右抽屉）、WorkUnitListPage（/workunits 行内展开）
+// 消费方：WorkUnitDrawer（频道页右抽屉）、WorkUnitDetailPage（详情页）、WorkUnitListPage（/workunits 行内展开）
+// #182（决策 #61 速览档）：传 wu 时置顶「当前状态速览」节——状态 / 第 N 步·上限 M / 最近进展 / 失败原因 / 累计 token；
+// 抽屉与详情页都传 wu，两端复用同一组件避免渲染逻辑漂移；ListPage 不传则不渲染速览。
 import { useEffect, useState } from 'react';
 import {
   workunitApi,
   parseExecutionStepEvents,
   formatExecutionStreamChunkText,
   type ExecutionStepEvent,
+  type WorkUnit,
 } from '../../api/workunit';
+import { deriveDisplayState } from '@dommaker/studio-shared/web';
 import { useWorkUnitEvents } from '../../hooks/useWorkUnitEvents';
 import { useWorkUnitStreamEvents } from '../../hooks/useWorkUnitStreamEvents';
 
-export function ExecutionSteps({ workUnitId }: { workUnitId: string }) {
+// 步数预算：与 apps/api/src/modules/agents/loop/agent-loop.ts 的 STEP_LIMIT/REVIEW_STEP_LIMIT 同值——
+// 超限处置仍走服务端既有「强制提交审查」路径，这里只做展示与 ≥80% 提示（决策 #61 §5）
+const STEP_LIMIT = 15;
+const REVIEW_STEP_LIMIT = 30;
+const BUDGET_HINT_RATIO = 0.8;
+
+// 状态文案与 WorkUnitDrawer 同口径（大白话，不用行话）
+const WU_STATUS_LABELS: Record<string, string> = {
+  pending: '待确认',
+  unassigned: '待分配',
+  active: '执行中',
+  in_review: '审查中',
+  done: '已完成',
+  closed: '已关闭',
+  blocked: '阻塞',
+};
+
+/** WU metadata JSON 解析（只消费速览需要的字段，其余透传；坏 JSON → 空对象） */
+interface GlanceMeta {
+  stepCount?: number;
+  /** #95 成功步环形簿记：[{step, action, summary, at}]，取最后一条当「最近进展」 */
+  progressLog?: unknown;
+}
+
+function parseGlanceMeta(metadata: string | null): GlanceMeta {
+  try { return JSON.parse(metadata || '{}'); } catch { return {}; }
+}
+
+/** progressLog 最后一条带 summary 的条目（畸形条目跳过） */
+function lastProgressEntry(log: unknown): { step?: number; summary: string } | null {
+  if (!Array.isArray(log)) return null;
+  for (let i = log.length - 1; i >= 0; i--) {
+    const e = log[i] as { step?: unknown; summary?: unknown } | null;
+    if (e && typeof e.summary === 'string' && e.summary) {
+      return { step: typeof e.step === 'number' ? e.step : undefined, summary: e.summary };
+    }
+  }
+  return null;
+}
+
+export function ExecutionSteps({ workUnitId, wu }: { workUnitId: string; wu?: WorkUnit }) {
   const [steps, setSteps] = useState<ExecutionStepEvent[] | null>(null);
   // WU 事件（SSE）：执行步落盘/状态变化时重拉（认领/审查/完成/执行过程即时可见）
   const [eventTick, setEventTick] = useState(0);
@@ -38,6 +82,53 @@ export function ExecutionSteps({ workUnitId }: { workUnitId: string }) {
 
   return (
     <>
+      {/* #182（决策 #61）「当前状态速览」置顶节：传 wu 才渲染（抽屉/详情页），五要素全部取现有字段 + #172 失败步事件 */}
+      {wu && (() => {
+        const meta = parseGlanceMeta(wu.metadata);
+        const maxEventStep = (steps ?? []).reduce((m, s) => Math.max(m, s.step), 0);
+        const maxLiveStep = liveChunks.reduce((m, c) => Math.max(m, c.step), 0);
+        const currentStepNo = Math.max(typeof meta.stepCount === 'number' ? meta.stepCount : 0, maxEventStep, maxLiveStep);
+        const stepLimit = wu.type === 'review' ? REVIEW_STEP_LIMIT : STEP_LIMIT;
+        const progress = lastProgressEntry(meta.progressLog);
+        const failedStep = steps ? [...steps].reverse().find(s => s.status === 'failed') : undefined;
+        const totalTokens = (steps ?? []).reduce(
+          (sum, s) => sum + (s.usage ? s.usage.inputTokens + s.usage.outputTokens : 0), 0,
+        );
+        // F6 铁律：展示状态一律过 deriveDisplayState，不自行解释 metadata
+        const column = deriveDisplayState({ status: wu.status, metadata: wu.metadata }).column;
+        return (
+          <>
+            <div className="mc-block-label">当前状态</div>
+            <div className="mc-kv">
+              <span className="mc-kv-k">状态</span>
+              <span className="mc-kv-v">{WU_STATUS_LABELS[column] ?? column}</span>
+            </div>
+            <div className="mc-kv">
+              <span className="mc-kv-k">进度</span>
+              <span className="mc-kv-v">第 {currentStepNo} 步 / 上限 {stepLimit} 步</span>
+            </div>
+            <div className="mc-kv">
+              <span className="mc-kv-k">最近进展</span>
+              <span className="mc-kv-v">
+                {progress ? `${typeof progress.step === 'number' ? `第 ${progress.step} 步：` : ''}${progress.summary}` : '—'}
+              </span>
+            </div>
+            {failedStep && (
+              <div className="mc-kv">
+                <span className="mc-kv-k">失败原因</span>
+                <span className="mc-kv-v">{failedStep.errorDetail || failedStep.errorType || '执行失败'}</span>
+              </div>
+            )}
+            <div className="mc-kv">
+              <span className="mc-kv-k">累计 token</span>
+              <span className="mc-kv-v">{steps === null ? '—' : formatTokens(totalTokens)}</span>
+            </div>
+            {currentStepNo / stepLimit >= BUDGET_HINT_RATIO && (
+              <div className="mc-drawer-note">已接近步数上限：再超限将自动转人工审查</div>
+            )}
+          </>
+        );
+      })()}
       <div className="mc-block-label">执行过程</div>
       {(() => {
         const maxPersistedStep = (steps ?? []).reduce((m, s) => Math.max(m, s.step), 0);
@@ -76,7 +167,7 @@ export function ExecutionSteps({ workUnitId }: { workUnitId: string }) {
       {steps !== null && steps.length > 0 && steps.map(s => (
         <div key={`${s.executionId}-${s.step}`} style={{ marginBottom: 8 }}>
           <div className="mc-kv">
-            <span className="mc-kv-k">#{s.step}{s.action ? ` · ${s.action}` : ''}</span>
+            <span className="mc-kv-k">#{s.step}{s.action ? ` · ${s.action}` : ''}{s.status === 'failed' ? ' · ✗ 失败' : ''}</span>
             <span className="mc-kv-v">
               {formatTime(s.at)}
               {s.usage ? ` · ${formatTokens(s.usage.inputTokens + s.usage.outputTokens)} tok` : ''}

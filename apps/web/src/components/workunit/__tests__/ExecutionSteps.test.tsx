@@ -27,6 +27,7 @@ vi.mock('../../../hooks/useWorkUnitStreamEvents', () => ({
 }));
 
 import { ExecutionSteps } from '../ExecutionSteps';
+import type { WorkUnit } from '../../../api/workunit';
 
 const stepEvent = (step: number, overrides: Record<string, unknown> = {}) => ({
   payload: JSON.stringify({
@@ -121,5 +122,108 @@ describe('ExecutionSteps', () => {
     const archived = screen.getAllByText('思考：已归档的思考');
     expect(archived).toHaveLength(1); // 只有步级卡片里那一份（实时区不重复展示）
     expect(screen.getByText('思考：进行中的思考')).toBeTruthy();
+  });
+});
+
+// #182（决策 #61 速览档）：传 wu 时置顶「当前状态速览」节——状态 / 第 N 步·上限 M / 最近进展 / 失败原因 / 累计 token
+describe('ExecutionSteps · 当前状态速览（#182）', () => {
+  const glanceWu = (overrides: Record<string, unknown> = {}): WorkUnit => ({
+    id: 'WU-1',
+    parentId: null,
+    dependsOn: '',
+    type: 'task',
+    scope: '范围',
+    assigneeId: null,
+    status: 'active',
+    failureType: null,
+    retryCount: 0,
+    timeoutAt: null,
+    channelId: null,
+    metadata: JSON.stringify({ stepCount: 7, progressLog: [{ step: 7, action: 'progress', summary: '修好登录校验', at: '2026-08-16T00:00:00Z' }] }),
+    createdAt: '2026-08-16T00:00:00Z',
+    updatedAt: '2026-08-16T00:00:00Z',
+    claimedAt: null,
+    completedAt: null,
+    ...overrides,
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockListExecSteps.mockResolvedValue({ data: { events: [], total: 0 } });
+    mockStreamChunks.mockReturnValue([]);
+  });
+
+  it('置顶速览节：状态 / 进度 / 最近进展 / 累计 token 四行全在，且在「执行过程」之前', async () => {
+    mockListExecSteps.mockResolvedValue({
+      data: {
+        events: [
+          stepEvent(1, { usage: { inputTokens: 2000, outputTokens: 500 } }),
+          stepEvent(2, { usage: { inputTokens: 1000, outputTokens: 500 } }),
+        ],
+        total: 2,
+      },
+    });
+    render(<ExecutionSteps workUnitId="WU-1" wu={glanceWu()} />);
+    await waitFor(() => expect(screen.getByText('当前状态')).toBeTruthy());
+    expect(screen.getByText('状态')).toBeTruthy();
+    expect(screen.getByText('执行中')).toBeTruthy();
+    expect(screen.getByText('进度')).toBeTruthy();
+    expect(screen.getByText('第 7 步 / 上限 15 步')).toBeTruthy();
+    expect(screen.getByText('最近进展')).toBeTruthy();
+    expect(screen.getByText(/修好登录校验/)).toBeTruthy();
+    // 累计 token = 步事件 usage 合计（2500 + 1500 = 4000 → 4.0k）
+    expect(screen.getByText('累计 token')).toBeTruthy();
+    expect(screen.getByText('4.0k')).toBeTruthy();
+    // 置顶：速览节在「执行过程」标签之前
+    const glance = screen.getByText('当前状态');
+    const stepsLabel = screen.getByText('执行过程');
+    expect(glance.compareDocumentPosition(stepsLabel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('不传 wu -> 不渲染速览节（WorkUnitListPage 行内展开不受影响）', async () => {
+    render(<ExecutionSteps workUnitId="WU-1" />);
+    await waitFor(() => expect(screen.getByText(/暂无执行过程记录/)).toBeTruthy());
+    expect(screen.queryByText('当前状态')).toBeNull();
+  });
+
+  it('步数 ≥80% 上限 -> 平实提示；未达 -> 不提示', async () => {
+    const { unmount } = render(
+      <ExecutionSteps workUnitId="WU-1" wu={glanceWu({ metadata: JSON.stringify({ stepCount: 12 }) })} />,
+    );
+    await waitFor(() => expect(screen.getByText(/接近步数上限/)).toBeTruthy());
+    unmount();
+    render(<ExecutionSteps workUnitId="WU-1" wu={glanceWu()} />);
+    await waitFor(() => expect(screen.getByText('当前状态')).toBeTruthy());
+    expect(screen.queryByText(/接近步数上限/)).toBeNull();
+  });
+
+  it('review WU 上限放宽为 30（对齐 agent-loop REVIEW_STEP_LIMIT）', async () => {
+    render(<ExecutionSteps workUnitId="WU-1" wu={glanceWu({ type: 'review' })} />);
+    await waitFor(() => expect(screen.getByText('第 7 步 / 上限 30 步')).toBeTruthy());
+  });
+
+  it('失败原因来自失败步事件（errorDetail 优先），失败步卡片标 ✗', async () => {
+    mockListExecSteps.mockResolvedValue({
+      data: {
+        events: [
+          stepEvent(1, { usage: { inputTokens: 10, outputTokens: 10 } }),
+          stepEvent(2, { action: 'failed', status: 'failed', errorType: 'execution_failed', errorDetail: 'Verify FAILED: tsc' }),
+        ],
+        total: 2,
+      },
+    });
+    render(<ExecutionSteps workUnitId="WU-1" wu={glanceWu({ status: 'blocked', metadata: JSON.stringify({ stepCount: 2 }) })} />);
+    await waitFor(() => expect(screen.getByText('失败原因')).toBeTruthy());
+    expect(screen.getByText('Verify FAILED: tsc')).toBeTruthy();
+    // 失败步卡片头部标 ✗
+    expect(screen.getByText('#2 · failed · ✗ 失败')).toBeTruthy();
+    expect(screen.getByText('#1 · progress')).toBeTruthy(); // 成功步不标
+  });
+
+  it('无失败步事件 -> 不渲染失败原因行', async () => {
+    mockListExecSteps.mockResolvedValue({ data: { events: [stepEvent(1)], total: 1 } });
+    render(<ExecutionSteps workUnitId="WU-1" wu={glanceWu({ metadata: JSON.stringify({ stepCount: 1 }) })} />);
+    await waitFor(() => expect(screen.getByText('当前状态')).toBeTruthy());
+    expect(screen.queryByText('失败原因')).toBeNull();
   });
 });
