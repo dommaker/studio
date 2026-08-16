@@ -4,23 +4,33 @@
  * Goal 创建 → Plan 审批 → GoalScheduler dispatch
  */
 
-import { checkBeforeExecution } from '@dommaker/harness';
+import { checkBeforeExecution, CheckCache } from '@dommaker/harness';
 import type { ConstraintContext } from '@dommaker/harness';
 import { safeCallHook } from './config';
-import { sampledCheck } from '../runtime/cache';
+
+/**
+ * Goal 检查采样缓存（A1：runtime/cache.ts 退役，直用 harness CheckCache）。
+ * 对同一 projectPath 每 3 次执行 1 次完整检查，其余复用缓存；
+ * 非采样轮缓存未命中/过期返回 defaultValueOnMiss（true = 默认通过）。
+ */
+const goalCheckCache = new CheckCache();
 
 /** Goal 创建前：harness 约束检查（采样模式，减少 I/O） */
 export async function beforeGoalCreate(ctx: ConstraintContext): Promise<void> {
   await safeCallHook('beforeGoalCreate', async () => {
-    const key = `goal_create:${ctx.projectPath || 'default'}`;
-    await sampledCheck(key, async () => {
-      await checkBeforeExecution({
-        operation: 'goal_creation',
-        taskDescription: ctx.taskDescription,
-        projectPath: ctx.projectPath,
-      });
-      return true;
-    });
+    await goalCheckCache.get(
+      'goal_create',
+      ctx.projectPath || 'default',
+      async () => {
+        await checkBeforeExecution({
+          operation: 'goal_creation',
+          taskDescription: ctx.taskDescription,
+          projectPath: ctx.projectPath,
+        });
+        return true;
+      },
+      { sampleRate: 3, defaultValueOnMiss: true },
+    );
   });
 }
 
