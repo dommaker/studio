@@ -1,11 +1,14 @@
 /**
- * Constraint Prompt Injection — 将 harness 约束的前置声明注入 Agent prompt
+ * Constraint Prompt Injection — 约束前置声明路由层（A3 删薄后）
  *
- * 从 harness 读取约束定义，按 agent role 路由，生成注入 Agent system prompt 的文本。
- * 此模块原在 harness 中（@dommaker/harness），迁至 studio-shared 以解耦管道拓扑。
+ * 只做 role → trigger 路由；生效集过滤、层级分组与文案渲染统一走
+ * harness `renderConstraintsByTrigger`（H6/G6，与 init 注入/check 同一
+ * getEffectiveConstraints 数据源）。此模块原在 harness 中
+ * （@dommaker/harness），迁至 studio-shared 以解耦管道拓扑；A3 起渲染
+ * 层回收到 harness，本文件不再手写过滤/分组。
  */
 
-import { getAllConstraints } from '@dommaker/harness';
+import { renderConstraintsByTrigger } from '@dommaker/harness';
 import type { ConstraintTrigger } from '@dommaker/harness';
 
 export type AgentRole = 'analyst' | 'executor' | 'integration' | 'reviewer' | 'deploy' | 'monitor' | 'triage';
@@ -20,43 +23,17 @@ export const ROLE_TRIGGERS: Record<AgentRole, ConstraintTrigger[]> = {
   triage: ['triage', 'diagnosis'],
 };
 
+export interface FormatConstraintsOptions {
+  /** 项目根路径（决定 renderConstraintsByTrigger 的 config.yml 生效集），缺省 process.cwd() */
+  projectRoot?: string;
+}
+
 /**
- * Format all applicable constraints as a prompt injection section for a given agent role.
- * Uses the existing promptInjection field from each constraint definition.
+ * 按 agent role 路由生成注入 Agent system prompt 的约束段文本。
+ * 渲染委托 harness renderConstraintsByTrigger（trigger 参数化分组渲染 API）。
  */
-export function formatConstraintsForPrompt(role: AgentRole): string {
-  const allConstraints = getAllConstraints();
-  const triggers = ROLE_TRIGGERS[role] || [];
-  if (triggers.length === 0) return '';
-
-  const applicable = Object.values(allConstraints).filter(c => {
-    const ct = c.trigger;
-    if (Array.isArray(ct)) return ct.some(t => triggers.includes(t));
-    return triggers.includes(ct);
-  });
-
-  if (applicable.length === 0) return '';
-
-  const ironLaws = applicable.filter(c => c.level === 'iron_law');
-  const guidelines = applicable.filter(c => c.level === 'guideline');
-
-  const lines: string[] = ['\n## 行为约束（前置声明）\n'];
-
-  if (ironLaws.length > 0) {
-    lines.push('### 铁律（绝对禁止，无例外）\n');
-    for (const c of ironLaws) {
-      if (c.promptInjection) lines.push(`- **${c.id}**: ${c.promptInjection}`);
-    }
-    lines.push('');
-  }
-
-  if (guidelines.length > 0) {
-    lines.push('### 指导原则（优先建议）\n');
-    for (const c of guidelines) {
-      if (c.promptInjection) lines.push(`- **${c.id}**: ${c.promptInjection}`);
-    }
-    lines.push('');
-  }
-
-  return lines.join('\n');
+export function formatConstraintsForPrompt(role: AgentRole, options?: FormatConstraintsOptions): string {
+  const triggers = ROLE_TRIGGERS[role];
+  if (!triggers || triggers.length === 0) return '';
+  return renderConstraintsByTrigger(triggers, options);
 }

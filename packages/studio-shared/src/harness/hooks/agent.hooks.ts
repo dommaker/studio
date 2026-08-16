@@ -34,14 +34,15 @@ export async function beforeAgentExecute(ctx: ConstraintContext & {
 }
 
 export function buildAgentConstraintPrompt(ctx: ConstraintContext): string {
-  // Inject all applicable harness constraints by role (full text, not truncated)
-  const harnessConstraints = formatConstraintsForPrompt('executor');
+  const projectPath = ctx.projectPath || process.cwd();
+  // Inject all applicable harness constraints by role (full text, not truncated)；
+  // 渲染走 harness renderConstraintsByTrigger（A3），按项目生效集渲染。
+  const harnessConstraints = formatConstraintsForPrompt('executor', { projectRoot: projectPath });
 
   // Runtime dedup: if CLAUDE.md already has HARNESS_CONSTRAINTS section,
   // inject a reference instead of duplicating the full constraint text.
   // This avoids double injection (CLAUDE.md + system prompt) per Step 8 of the plan.
   let constraintSection: string;
-  const projectPath = ctx.projectPath || process.cwd();
   const claudePath = join(projectPath, 'CLAUDE.md');
   if (existsSync(claudePath)) {
     try {
