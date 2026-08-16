@@ -36,7 +36,7 @@ import {
 import { logger } from '../utils';
 
 /**
- * 约束服务（两层：Iron Laws / Guidelines；Tips 层已随 harness 1.x 移除）
+ * 约束服务（check/prompt 二元模型：IRON_LAWS + GUIDELINES 走约束检查，PROMPTS 走 prompt 注入；tip 层已随 harness 1.x 移除）
  */
 export class ConstraintService {
   /**

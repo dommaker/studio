@@ -61,7 +61,7 @@ interface BuiltinConstraintDef {
 }
 
 function findBuiltinConstraint(id: string): BuiltinConstraintDef | null {
-  // 0.17.0：TIPS 已退役（deprecated 空表），prompt 层定义为 PROMPTS
+  // 0.17.0 起 tip 层退役，prompt 层定义为 PROMPTS
   return (IRON_LAWS as Record<string, BuiltinConstraintDef>)[id]
     ?? (GUIDELINES as Record<string, BuiltinConstraintDef>)[id]
     ?? (PROMPTS as Record<string, BuiltinConstraintDef>)[id]
