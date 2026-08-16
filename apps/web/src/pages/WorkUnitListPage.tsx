@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { deriveDisplayState, type DerivedWuState } from '@dommaker/studio-shared/web';
 import { useWorkUnitStore } from '../stores/workunitStore';
 import { DiscussionPanel } from '../components/DiscussionPanel';
@@ -58,6 +58,16 @@ export function WorkUnitListPage() {
   const [newType, setNewType] = useState('task');
   const [creating, setCreating] = useState(false);
   const [humanOnly, setHumanOnly] = useState(false);
+  const [searchParams] = useSearchParams();
+
+  // #184：支持下钻链接 URL 初始化状态筛选（/workunits?status=blocked），仅首载读取一次
+  useEffect(() => {
+    const s = searchParams.get('status');
+    if (s && s !== 'all' && (STATUS_OPTIONS as readonly string[]).includes(s)) {
+      setStatusFilter(s);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     loadWorkUnits();

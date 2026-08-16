@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import { monitoringApi, type MonitoringStats, type FlywheelStats, type OverheadStats, type EvidenceStats, type EfficiencyStats } from '../api/monitoring';
 import { knowledgeApi, type KnowledgeEntryItem } from '../api/knowledge';
 import { EventSearchPanel } from '../components/monitoring/EventSearchPanel';
+import { NeedsAttentionSection } from '../components/monitoring/NeedsAttentionSection';
 
 type MonitoringTab = 'overview' | 'events';
 
@@ -102,6 +103,9 @@ export function MonitoringPage() {
           {error && (
             <div className="mt-4 p-3 rounded u-err-dim u-err text-sm">{error}</div>
           )}
+
+          {/* #184「需要处理」区：独立加载，不依赖主 stats 的 loading 状态 */}
+          <NeedsAttentionSection />
 
           {loading && !data ? (
             <div className="text-center py-20 u-text-2">加载中...</div>

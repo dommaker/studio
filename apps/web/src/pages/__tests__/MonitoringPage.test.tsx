@@ -98,6 +98,11 @@ vi.mock('../../api/events', () => ({
   eventsApi: { search: mockEventSearch },
 }));
 
+// #184「需要处理」区：桩件隔离（其数据加载契约见组件自身测试）
+vi.mock('../../components/monitoring/NeedsAttentionSection', () => ({
+  NeedsAttentionSection: () => React.createElement('div', null, '需要处理'),
+}));
+
 import { MonitoringPage } from '../MonitoringPage';
 
 describe('MonitoringPage', () => {
@@ -275,5 +280,14 @@ describe('MonitoringPage', () => {
     fireEvent.click(screen.getByText('事件检索'));
     fireEvent.click(screen.getByText('查询'));
     expect(await screen.findByText(/查询失败/)).toBeDefined();
+  });
+
+  // ── #184 概览 Tab 顶部「需要处理」区（#62 D4：首屏回答"有没有事需要我管"） ──
+
+  it('概览 Tab 顶部出现「需要处理」区（位于 WorkUnit 状态分布之前）', async () => {
+    render(<MonitoringPage />);
+    const needsAttention = await screen.findByText('需要处理');
+    const firstSection = await screen.findByText('WorkUnit 状态分布');
+    expect(needsAttention.compareDocumentPosition(firstSection) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });

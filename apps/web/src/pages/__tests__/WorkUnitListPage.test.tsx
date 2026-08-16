@@ -9,9 +9,12 @@ vi.mock('react', async () => {
   return { ...actual, default: actual };
 });
 
+const { mockSearchParamsValue } = vi.hoisted(() => ({ mockSearchParamsValue: { value: '' } }));
+
 vi.mock('react-router-dom', () => ({
   Link: ({ children, to }: { children: React.ReactNode; to: string }) => React.createElement('a', { href: to }, children),
   useNavigate: () => vi.fn(),
+  useSearchParams: () => [new URLSearchParams(mockSearchParamsValue.value)],
 }));
 
 const mockStore = {
@@ -72,6 +75,7 @@ describe('WorkUnitListPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockStore.workunits = [];
+    mockSearchParamsValue.value = '';
   });
 
   it('renders page title', () => {
@@ -87,6 +91,18 @@ describe('WorkUnitListPage', () => {
   it('shows empty state when no workunits', () => {
     render(<WorkUnitListPage />);
     expect(screen.getByText('暂无 WorkUnit')).toBeDefined();
+  });
+
+  // #184：监控页「需要处理」下钻链接（/workunits?status=blocked）初始化状态筛选
+  it('URL ?status=blocked 初始化状态筛选', () => {
+    mockSearchParamsValue.value = 'status=blocked';
+    render(<WorkUnitListPage />);
+    expect(mockStore.setStatusFilter).toHaveBeenCalledWith('blocked');
+  });
+
+  it('无 status query 时不触碰筛选', () => {
+    render(<WorkUnitListPage />);
+    expect(mockStore.setStatusFilter).not.toHaveBeenCalled();
   });
 });
 
