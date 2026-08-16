@@ -1,68 +1,62 @@
-# 自定义约束配置 — Studio 项目专属
-
 custom_constraints:
-
-  # 1. MemoryStore 替代 Redis，禁止引入 Redis 依赖
   no_redis_import:
     id: no_redis_import
     level: iron_law
-    rule: "NO REDIS/IREDIS IMPORTS"
-    message: "禁止引入 Redis/ioredis 依赖。项目使用 MemoryStore（studio-shared）替代"
-    trigger: ["code_implementation"]
-    description: "B0-002 已完成 Redis→MemoryStore 迁移。任何新代码不得引入 redis/ioredis 包或 Redis 连接逻辑"
-    promptInjection: "禁止引入 Redis/ioredis 依赖。项目使用 MemoryStore（studio-shared）替代。任何新代码不得引入 redis/ioredis 包或 Redis 连接逻辑。"
-
-  # 2. Prisma schema 变更必须附带 migration
+    rule: NO REDIS/IREDIS IMPORTS
+    message: 禁止引入 Redis/ioredis 依赖。项目使用 MemoryStore（studio-shared）替代
+    trigger:
+      - code_implementation
+    description: B0-002 已完成 Redis→MemoryStore 迁移。任何新代码不得引入 redis/ioredis 包或 Redis 连接逻辑
+    promptInjection: 禁止引入 Redis/ioredis 依赖。项目使用 MemoryStore（studio-shared）替代。任何新代码不得引入 redis/ioredis 包或 Redis 连接逻辑。
   prisma_schema_needs_migration:
     id: prisma_schema_needs_migration
     level: iron_law
-    rule: "PRISMA SCHEMA CHANGES REQUIRE MIGRATION"
-    message: "修改 schema.prisma 必须同时创建 migration 文件（prisma migrate dev --name <desc>）"
-    trigger: ["code_implementation"]
-    description: "schema 变更不带 migration 会导致生产环境 DB 不同步"
-    promptInjection: "修改 schema.prisma 必须同时创建 migration 文件（prisma migrate dev --name <desc>）。schema 变更不带 migration 会导致生产环境 DB 不同步。"
-
-  # 3. Monorepo 包边界：apps/ 之间禁止直接导入
+    rule: PRISMA SCHEMA CHANGES REQUIRE MIGRATION
+    message: 修改 schema.prisma 必须同时创建 migration 文件（prisma migrate dev --name <desc>）
+    trigger:
+      - code_implementation
+    description: schema 变更不带 migration 会导致生产环境 DB 不同步
+    promptInjection: 修改 schema.prisma 必须同时创建 migration 文件（prisma migrate dev --name <desc>）。schema 变更不带 migration 会导致生产环境 DB 不同步。
+    retired:
+      at: '2026-08-16T05:14:06.058Z'
+      reason: ''
+      stats:
+        total: 4
+        fail: 0
+        failRate: 0
   monorepo_app_boundary:
     id: monorepo_app_boundary
     level: guideline
-    rule: "NO CROSS-APP IMPORTS"
-    message: "apps/ 之间禁止直接导入。共享逻辑必须提取到 packages/"
-    trigger: ["code_implementation"]
-    description: "apps/api 和 apps/web 不能互相 import。公共逻辑放 packages/studio-shared 或对应 package"
-    promptInjection: "apps/ 之间禁止直接导入。共享逻辑必须提取到 packages/（公共逻辑放 packages/studio-shared 或对应 package）。"
-
-  # 4. Agent 方法必须参数化分支名（拓扑无关）
+    rule: NO CROSS-APP IMPORTS
+    message: apps/ 之间禁止直接导入。共享逻辑必须提取到 packages/
+    trigger:
+      - code_implementation
+    description: apps/api 和 apps/web 不能互相 import。公共逻辑放 packages/studio-shared 或对应 package
+    promptInjection: apps/ 之间禁止直接导入。共享逻辑必须提取到 packages/（公共逻辑放 packages/studio-shared 或对应 package）。
   agent_topology_agnostic:
     id: agent_topology_agnostic
     level: guideline
-    rule: "AGENT METHODS MUST BE TOPOLOGY-AGNOSTIC"
-    message: "Agent 方法（reviewDiff/mergeBranches/pushBranch）必须用参数化 ref，禁止硬编码 branch 名"
-    trigger: ["code_implementation"]
-    description: "2026-05-23 解耦决策：Agent 接口不假设分支拓扑，diff/merge 用参数化 refs"
-    promptInjection: "Agent 方法（reviewDiff/mergeBranches/pushBranch）必须用参数化 ref，禁止硬编码 branch 名。Agent 接口不假设分支拓扑。"
-
-  # 5. 新增 harness hook 必须注册到 registerAllHooks
+    rule: AGENT METHODS MUST BE TOPOLOGY-AGNOSTIC
+    message: Agent 方法（reviewDiff/mergeBranches/pushBranch）必须用参数化 ref，禁止硬编码 branch 名
+    trigger:
+      - code_implementation
+    description: 2026-05-23 解耦决策：Agent 接口不假设分支拓扑，diff/merge 用参数化 refs
+    promptInjection: Agent 方法（reviewDiff/mergeBranches/pushBranch）必须用参数化 ref，禁止硬编码 branch 名。Agent 接口不假设分支拓扑。
   hook_must_be_registered:
     id: hook_must_be_registered
     level: guideline
-    rule: "NEW HOOKS MUST BE REGISTERED"
-    message: "新增 harness hook 函数必须在 registerAllHooks() 中注册，否则不会被管线调用"
-    trigger: ["code_implementation"]
-    description: "hook 定义不注册 = 死代码。新 hook 必须在 hooks/register.ts 的 registerAllHooks 中添加"
-    promptInjection: "新增 harness hook 函数必须在 registerAllHooks()（hooks/register.ts）中注册，否则不会被管线调用。hook 定义不注册 = 死代码。"
-
-  # ─── 收编自 harness 0.16.9 内置（0.17.0 移出内置，ADR-0001 决策 8）───
-  # custom 约束在 0.17.0 统一 kind='prompt'（无 checker，check() 短路通过），
-  # level 仅决定所在桶与严重性行为。原文语义抄自 0.16.9 definitions。
-
-  # 6. 必须两阶段审查（原内置 iron_law，0.17.0 移出内置）
+    rule: NEW HOOKS MUST BE REGISTERED
+    message: 新增 harness hook 函数必须在 registerAllHooks() 中注册，否则不会被管线调用
+    trigger:
+      - code_implementation
+    description: hook 定义不注册 = 死代码。新 hook 必须在 hooks/register.ts 的 registerAllHooks 中添加
+    promptInjection: 新增 harness hook 函数必须在 registerAllHooks()（hooks/register.ts）中注册，否则不会被管线调用。hook 定义不注册 = 死代码。
   two_stage_review_required:
     id: two_stage_review_required
     level: iron_law
-    rule: "REVIEW MUST COVER SPEC COMPLIANCE BEFORE CODE QUALITY"
-    message: "审查必须两阶段：先验证规范合规，再检查代码质量"
-    trigger: "code_implementation"
+    rule: REVIEW MUST COVER SPEC COMPLIANCE BEFORE CODE QUALITY
+    message: 审查必须两阶段：先验证规范合规，再检查代码质量
+    trigger: code_implementation
     description: |
       代码审查必须分两阶段进行：
 
@@ -77,15 +71,16 @@ custom_constraints:
       - 安全性检查（注入、泄露、权限）
       - 可读性检查（命名、结构、DRY）
       - 类型安全（type check、lint）
-    promptInjection: "代码审查必须分两阶段：① 规范合规审查 — 逐条对照验收标准(AC)验证实现是否满足需求，重新运行测试，审计测试质量并补写边界用例；② 代码质量审查 — 仅在 Stage 1 全部通过后，检查安全性、可读性、类型安全。Stage 1 不通过则不得进入 Stage 2。"
-
-  # 7. 高风险改动优先使用 worktree（原内置 guideline，0.17.0 移出内置）
+    promptInjection: >-
+      代码审查必须分两阶段：① 规范合规审查 — 逐条对照验收标准(AC)验证实现是否满足需求，重新运行测试，审计测试质量并补写边界用例；② 代码质量审查 — 仅在 Stage 1 全部通过后，检查安全性、可读性、类型安全。Stage
+      1 不通过则不得进入 Stage 2。
   prefer_worktree:
     id: prefer_worktree
     level: guideline
-    rule: "USE WORKTREE FOR HIGH-RISK CHANGES"
-    message: "高风险改动应在 worktree 中进行"
-    trigger: ["code_implementation"]
+    rule: USE WORKTREE FOR HIGH-RISK CHANGES
+    message: 高风险改动应在 worktree 中进行
+    trigger:
+      - code_implementation
     description: |
       高风险改动应在隔离的 worktree 中进行。
 
@@ -103,16 +98,15 @@ custom_constraints:
       - 隔离风险：worktree 中的改动不会影响主工作区
       - 安全回滚：删除 worktree 即可放弃改动
       - 并行开发：多个任务可同时在不同 worktree 中进行
-    promptInjection: "高风险改动（新功能、跨模块、基础设施）应在 worktree 中进行。配置修改、单文件 fix 可直接编辑。"
-
-  # 8. 完成验证口径澄清（shadow override 内置 no_completion_without_verification，2026-08-14 决策）：
-  #    收尾验证 = 受影响测试（vitest --changed，对齐 studio-deploy-quick 口径）+ typecheck；
-  #    全量测试由 CI / studio-ship 兜底。核心不变：新鲜输出为证，禁止凭记忆声称完成。
+    promptInjection: 高风险改动（新功能、跨模块、基础设施）应在 worktree 中进行。配置修改、单文件 fix 可直接编辑。
   no_completion_without_verification:
     id: no_completion_without_verification
     level: iron_law
-    rule: "NO COMPLETION CLAIM WITHOUT FRESH VERIFICATION"
-    message: "声明完成前必须重跑新鲜的验证命令（受影响测试 + type check），全量测试由 CI/ship 兜底"
-    trigger: ["code_implementation"]
-    description: "2026-08-14 决策：受影响测试口径对齐 studio-deploy-quick（vitest run --changed origin/master），全量留 CI/ship，避免每票 4.5min 全量空转"
-    promptInjection: "在声明任务完成前，必须重新运行新鲜的验证命令——受改动影响的测试（vitest run --changed origin/master）+ type check，使用新鲜的输出作为完成证据，不得复用旧结果。全量测试由 CI / studio-ship 兜底。"
+    rule: NO COMPLETION CLAIM WITHOUT FRESH VERIFICATION
+    message: 声明完成前必须重跑新鲜的验证命令（受影响测试 + type check），全量测试由 CI/ship 兜底
+    trigger:
+      - code_implementation
+    description: 2026-08-14 决策：受影响测试口径对齐 studio-deploy-quick（vitest run --changed origin/master），全量留 CI/ship，避免每票 4.5min 全量空转
+    promptInjection: >-
+      在声明任务完成前，必须重新运行新鲜的验证命令——受改动影响的测试（vitest run --changed origin/master）+ type check，使用新鲜的输出作为完成证据，不得复用旧结果。全量测试由 CI /
+      studio-ship 兜底。
