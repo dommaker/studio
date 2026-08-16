@@ -5,6 +5,9 @@
  *   1) analysis WU → in_review：ReviewDispatcher 对 analysis 不派自动评审
  *     （diff-only 契约对非代码产物恒 needs-info 转人工，纯噪声）——本服务在频道
  *      提示人工确认入口；确认动作 = WorkUnit 列表/抽屉的「通过」（reviewPassed）。
+ *      #186（#167 决议）起按来源分流：无频道 + trigger 来源 + 无 TASK 的巡检单
+ *      免确认直转 done；无频道其余情形保留人闸、确认提示改投 Web「需要处理」
+ *      收件箱（monitor:alert，修 channelId=null 早退吞提示的断链）。
  *   2) analysis WU → done（人工确认通过）：按 metadata.analysisTasks
  *     （agent-loop 解析 TASK: 行落档）建未指派 task 子 WU —— 频道成员 loop
  *      observe 到未指派即认领，派工完成；频道发任务清单。
@@ -20,6 +23,7 @@ import { eventBus, logger, type FileStore } from '@dommaker/studio-shared';
 import { WorkUnitService, ANALYSIS_TASKS_MAX, type WorkUnitData, type WorkUnitMetadata } from '../workunit/workunit.service.js';
 import { parseWuMetadata } from '../workunit/wu-metadata.js';
 import { ChannelMessageService } from '../channels/channel-message.service.js';
+import { dispatchMonitorAlerts } from '../agents/monitor/monitor-alerts.js';
 
 export class AnalysisHandoff {
   private subscribed = false;
@@ -42,8 +46,8 @@ export class AnalysisHandoff {
       const wu = payload.workunit;
       if (!wu || wu.type !== 'analysis') return;
       if (wu.status === 'in_review') {
-        await this.postConfirmGuidance(wu).catch(err =>
-          logger.warn('[AnalysisHandoff] postConfirmGuidance failed', { wuId: wu.id, error: String(err) }),
+        await this.handleInReview(wu).catch(err =>
+          logger.warn('[AnalysisHandoff] handleInReview failed', { wuId: wu.id, error: String(err) }),
         );
       } else if (wu.status === 'done') {
         await this.spawnTasks(wu).catch(err =>
@@ -60,6 +64,63 @@ export class AnalysisHandoff {
   private async post(wu: WorkUnitData, content: string): Promise<void> {
     if (!wu.channelId || !content.trim()) return;
     await this.messageService.createAgentMessage(wu.channelId, 'Studio', content, { workUnitId: wu.id });
+  }
+
+  /** 非空 TASK 拆分行（spawnTasks 同口径：空白行不算任务） */
+  private taskScopes(meta: WorkUnitMetadata): string[] {
+    return Array.isArray(meta.analysisTasks)
+      ? meta.analysisTasks.filter((t): t is string => typeof t === 'string' && t.trim().length > 0).slice(0, ANALYSIS_TASKS_MAX)
+      : [];
+  }
+
+  /**
+   * in_review 路由（#186 / #167 决议，2026-08-16）：
+   *   - 有频道：维持确认闸不变——频道发人工确认提示（原行为）。
+   *   - 无频道 + trigger 来源 + 无 TASK：免确认直转 done（决议 1）——#130 T8 人闸已在
+   *     建单时设过，巡检单无 TASK 下游，第二道闸纯空转。
+   *   - 无频道其余情形（trigger 带 TASK / 非 trigger）：保留人闸，确认提示改投
+   *     Web「需要处理」收件箱（决议 2，修 channelId=null 早退吞提示的断链）。
+   */
+  private async handleInReview(wu: WorkUnitData): Promise<void> {
+    const meta = this.readMeta(wu);
+    if (wu.channelId) {
+      await this.postConfirmGuidance(wu);
+      return;
+    }
+    const isTrigger = typeof meta.triggerId === 'string' && meta.triggerId.length > 0;
+    if (isTrigger && this.taskScopes(meta).length === 0) {
+      await this.autoConfirmTriggerInspection(wu);
+      return;
+    }
+    this.postConfirmGuidanceToInbox(wu, isTrigger);
+  }
+
+  /** 决议 1：trigger 巡检单（无频道、无 TASK）免确认直转 done，留痕 autoConfirmed* */
+  private async autoConfirmTriggerInspection(wu: WorkUnitData): Promise<void> {
+    // 事件载荷可能是旧快照（重发/乱序）——以库存最新状态为准，已离开 in_review 不再动作
+    const fresh = await this.workUnitService.getById(wu.id);
+    if (!fresh || fresh.status !== 'in_review') return;
+    await this.workUnitService.reviewPassed(wu.id);
+    await this.fileStore.updateMetadata(wu.id, latest => ({
+      ...latest,
+      autoConfirmedBy: 'trigger-inspection-no-gate',
+      autoConfirmedAt: new Date().toISOString(),
+    }));
+    logger.info('[AnalysisHandoff] trigger 巡检单免确认直转 done（#167 决议 1）', { wuId: wu.id });
+  }
+
+  /** 决议 2：无频道确认提示投 Web「需要处理」收件箱（dispatchMonitorAlerts 既有管线，warning 级） */
+  private postConfirmGuidanceToInbox(wu: WorkUnitData, isTrigger: boolean): void {
+    const hasTasks = this.taskScopes(this.readMeta(wu)).length > 0;
+    dispatchMonitorAlerts([{
+      source: 'analysis_confirm',
+      level: 'warning',
+      relatedTaskIds: [wu.id],
+      message: `分析结论待人工确认：「${wu.scope.slice(0, 60)}」（WU ${wu.id.slice(0, 8)}，`
+        + `${isTrigger ? 'trigger 自动巡检' : 'analysis'}，无频道可投递）——请在 Web WorkUnit 列表/详情点「通过」`
+        + (hasTasks ? '（确认后将按 TASK 拆分自动派工）' : '')
+        + '；结论有问题点「拒绝」返工',
+    }]);
   }
 
   /** in_review：提示人工确认入口（确认后自动拆任务派工） */
@@ -81,9 +142,7 @@ export class AnalysisHandoff {
     const meta = this.readMeta(fresh);
     if (meta.analysisTasksSpawnedAt || meta.analysisTasksSpawned) return;
 
-    const tasks = Array.isArray(meta.analysisTasks)
-      ? meta.analysisTasks.filter((t): t is string => typeof t === 'string' && t.trim().length > 0).slice(0, ANALYSIS_TASKS_MAX)
-      : [];
+    const tasks = this.taskScopes(meta);
 
     // 幂等哨兵先落档：即便后续建单部分失败也不重复派生（差额由 #183 对账扫描补建）。
     // #170 updateMetadata 锁内合并写：与 map-opening 同一 done 事件写同一 WU metadata

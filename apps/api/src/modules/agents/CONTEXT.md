@@ -21,7 +21,7 @@
 - `monitor/monitor.service.ts` — MonitorAgent 门面（健康监控 + 渐进告警，每 5min 轮询），T3 拆分后仅保留聚合/调度逻辑与实例状态；对外导出 `MonitorAgent` / `monitorAgent` 不变。
   - `monitor/monitor-probes.ts` — 任务/WorkUnit 级探测（失败趋势/停滞/超时/工具模式）；**#176 起系统推向 closed 双出声（决策 #62 §3）**：autoAbandonStaleBlocked（死信计时基准 = metadata.blockedAt，无则回退 createdAt；decision/spec 豁免）与 checkTotalExecutionTime 2.5h 强杀均经 workunit/wu-closure 统一出口（workunit:closed 事件 + 频道说明），不再静默 commitSnapshot；**#181（决策 #62 D2 + #167③）**：checkFailureTrend 改读统一事件流（workunit:failed + execution_step failed 近 1h 计数，阈值语义维持 ≥3 warning / 失败率>50% 且样本≥5 critical，旧 data/tasks 读取删除）；新增 checkPoolStagnation（unassigned 最老 >2h warning / >12h critical，指名未认领 assigneeId=profile id 与无人认领池分开出声）与 checkReviewStagnation（in_review 最老 updatedAt >24h warning / >72h critical）；三探针均走 dispatchMonitorAlerts 既有管线，不升级 Triage
   - `monitor/monitor-system-probes.ts` — 系统/知识级探测与自修复（systemHealthCheck/worktree GC/知识健康循环/KnowledgeSync）
-  - `monitor/monitor-alerts.ts` — 告警分发/Triage 升级（FL-037）/studio.jsonl 事件写入
+  - `monitor/monitor-alerts.ts` — 告警分发/Triage 升级（FL-037）/studio.jsonl 事件写入；#186 起 MonitorAlertSource 增 `analysis_confirm`（无频道 analysis 确认提示投 Web 收件箱，不升级 Triage）
   - `monitor/monitor-reports.ts` — 轨迹评估（G4）/每日洞察（DailyReflection）/交互模式观察（B9-025）
   - `monitor/monitor-lifecycle.ts` — G31 知识沉淀闸门 + 每日 23:55 数据 TTL 清理
 - `auditor/auditor.service.ts` — AuditorAgent 门面（跨任务审计 + 周期洞察，每 24h 日审），T3 拆分后仅保留聚合/委托逻辑；对外导出 `AuditorAgent` / `auditorAgent` 不变。

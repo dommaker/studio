@@ -76,6 +76,7 @@ export function escalateToTriage(alerts: MonitorAlert[]): void {
     review_stagnation: null, // #181：同上
     analysis_respawn: null, // #183：critical 引人介入走告警管线本身，不升级 Triage
     review_redispatch: null, // #183：同上
+    analysis_confirm: null, // #186：人工动作队列走收件箱本身，不升级 Triage（决策 #62：不发明新出口）
   };
 
   for (const alert of alerts) {

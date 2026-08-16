@@ -135,6 +135,9 @@ export interface WorkUnitMetadata {
   // 旧数据只有上面的时间戳哨兵：无清单即跳过对账（兼容读取，无需迁移）。
   analysisTasksSpawned?: string[];
   analysisRespawnAttempts?: number; // #183：对账补建连续失败次数，≥3 停跑并升 critical
+  // #186（#167 决议 1）：trigger 巡检单（无频道 + 无 TASK）免确认直转 done 的留痕
+  autoConfirmedBy?: string;       // 固定 'trigger-inspection-no-gate'
+  autoConfirmedAt?: string;       // 自动确认时间 ISO 8601
   // #177（#69 决议）：analysis 人工确认处可选「默认执行角色」（profile id）——
   // analysis-handoff spawnTasks 据此给全部派生 task 子 WU 落 assigneeId；缺省 = 涌现
   defaultTaskAssigneeId?: string;
