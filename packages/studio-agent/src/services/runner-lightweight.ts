@@ -120,7 +120,12 @@ export async function executeLightweightSession(state: RunnerExecutionState, tas
     runningProcesses.set(task.executionId, childRef);
 
     const sessionStart = Date.now();
-    await emitSessionStart(sessionId, task.executionId, 1);
+    // #174: session:start/end 事件补 workUnitId + transcript 归档路径（来自 agent-loop 注入的 parameters）
+    const sessionExtras = {
+      workUnitId: task.parameters?.workUnitId as string | undefined,
+      transcriptPath: task.parameters?.transcriptPath as string | undefined,
+    };
+    await emitSessionStart(sessionId, task.executionId, 1, sessionExtras);
 
     try {
       const { stdout } = await execSh(cmd, {
@@ -130,6 +135,12 @@ export async function executeLightweightSession(state: RunnerExecutionState, tas
         timeoutMs: task.timeoutMs ?? 30 * 60_000,
         maxBuffer: 10 * 1024 * 1024,
         childRef,
+        // #171（#54 决议）：杀步 = 杀进程组（#68 实测 SIGTERM 杀不死孙进程，孤儿继续烧 token）；
+        // 静默看门狗判据 = 距最后一次输出间隔，仅任务显式配置 silenceKillMs 时启用。
+        killProcessGroup: true,
+        silence: task.silenceKillMs
+          ? { warnMs: task.silenceWarnMs, killMs: task.silenceKillMs, onWarn: task.onSilenceWarn }
+          : undefined,
         // Layer B: 步内行级透传（agent-loop → SSE 实时过程；undefined 时零开销）
         onLine: task.onStreamLine,
       });
@@ -179,7 +190,7 @@ export async function executeLightweightSession(state: RunnerExecutionState, tas
         signal: execErr?.signal, code: execErr?.code,
       });
 
-      await emitSessionEnd(sessionId, task.executionId, 1);
+      await emitSessionEnd(sessionId, task.executionId, 1, sessionExtras);
 
       return {
         success: false, worktree, outputFiles: [],

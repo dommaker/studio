@@ -1,10 +1,11 @@
 // PublishProjectDialog - 发起需求讨论弹窗（选择目标频道；自 PMOPage 抽出，工单 33）
+// #177（#69 决议）：可选「指定分析角色」下拉（默认留空=涌现，候选=频道成员，不阻塞主交互）
 import { useState, useEffect } from 'react';
 import { projectApi } from '../../api';
 import { channelApi, type Channel, type AgentProfile } from '../../api/channel';
 import { toast } from '../../utils/toast';
 import { Select } from '../ui';
-import { parseIdArray } from './okrMetric';
+import { resolveChannelResponders } from './channelResponders';
 
 interface PublishProjectDialogProps {
   open: boolean;
@@ -18,6 +19,8 @@ export function PublishProjectDialog({ open, projectId, channels, onClose, onPub
   // AC-6: Publish dialog state
   const [selectedChannelId, setSelectedChannelId] = useState('');
   const [publishing, setPublishing] = useState(false);
+  // #177：可选指派 analysis WU 执行角色（'' = 留空涌现）
+  const [assigneeId, setAssigneeId] = useState('');
   // 发起弹窗：所选频道可响应的 Agent 成员（谁会认领一目了然；空 → 提前警示）
   const [channelAgents, setChannelAgents] = useState<AgentProfile[]>([]);
   const [agentsLoading, setAgentsLoading] = useState(false);
@@ -36,9 +39,10 @@ export function PublishProjectDialog({ open, projectId, channels, onClose, onPub
   if (prevRespondersKey !== respondersKey) {
     setPrevRespondersKey(respondersKey);
     if (respondersKey) setAgentsLoading(true);
+    setAssigneeId(''); // 切换频道候选变化，指派选择随之重置回留空
   }
 
-  // 弹窗打开/切换频道时解析「谁会响应」：与 AgentLoop.observe 同一口径 ——
+  // 弹窗打开/切换频道时解析「谁会响应」：与 AgentLoop.observe 同一口径（resolveChannelResponders）——
   // channel.members 非空 → 仅成员；为空（历史频道未回填）→ 回退 profile.channels（空 = 全频道可见）
   useEffect(() => {
     if (!open || !selectedChannelId) return;
@@ -48,14 +52,7 @@ export function PublishProjectDialog({ open, projectId, channels, onClose, onPub
         if (cancelled) return;
         const active = (res.data?.data || []).filter(p => p.status === 'active' && p.name !== 'studio');
         const ch = channels.find(c => c.id === selectedChannelId);
-        const memberIds = parseIdArray(ch?.members);
-        const responders = memberIds.length > 0
-          ? active.filter(p => memberIds.includes(p.id))
-          : active.filter(p => {
-              const chs = parseIdArray(typeof p.channels === 'string' ? p.channels : JSON.stringify(p.channels ?? []));
-              return chs.length === 0 || chs.includes(selectedChannelId);
-            });
-        setChannelAgents(responders);
+        setChannelAgents(resolveChannelResponders(ch, selectedChannelId, active));
       })
       .catch(() => { if (!cancelled) setChannelAgents([]); })
       .finally(() => { if (!cancelled) setAgentsLoading(false); });
@@ -66,7 +63,7 @@ export function PublishProjectDialog({ open, projectId, channels, onClose, onPub
     if (!projectId || !selectedChannelId) return;
     setPublishing(true);
     try {
-      await projectApi.publish(projectId, selectedChannelId);
+      await projectApi.publish(projectId, selectedChannelId, assigneeId || undefined);
       toast.success('已发起需求讨论');
       onClose();
       // 闭环：发起后直达频道，可看到需求消息与 agent 的实时回复
@@ -111,6 +108,26 @@ export function PublishProjectDialog({ open, projectId, channels, onClose, onPub
                 <p className="u-warn text-sm" style={{ marginTop: 8 }}>
                   ⚠ 该频道没有可响应的 Agent 成员，发起后需求可能无人认领；请先在频道里添加成员
                 </p>
+              )}
+              {/* #177：可选指派分析角色（默认留空=自动认领，候选=频道成员，不阻塞主交互） */}
+              {!agentsLoading && channelAgents.length > 0 && (
+                <div style={{ marginTop: 12 }}>
+                  <p className="u-text-3 text-sm" style={{ marginBottom: 4 }}>
+                    指定分析角色（可选，不选则由频道成员自动认领）
+                  </p>
+                  <Select
+                    value={assigneeId}
+                    onChange={setAssigneeId}
+                    options={[
+                      { value: '', label: '自动认领（不指定）' },
+                      ...channelAgents.map(a => ({ value: a.id, label: a.name })),
+                    ]}
+                    placeholder="自动认领（不指定）"
+                    aria-label="指定分析角色"
+                    className="input"
+                    style={{ width: '100%' }}
+                  />
+                </div>
               )}
             </>
           )}

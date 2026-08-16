@@ -243,8 +243,7 @@ export async function executeUpdateAction(
         timestamp: now,
         data: updatedSnapshot as unknown as Record<string, unknown>,
       };
-      await fileStore.appendEvent(event);
-      await fileStore.upsertSnapshot(updatedSnapshot);
+      await fileStore.commitSnapshot(event, updatedSnapshot);
     }
   } else {
     logger.warn(`[TriggerAction] Unknown UPDATE target: ${action.target}`);

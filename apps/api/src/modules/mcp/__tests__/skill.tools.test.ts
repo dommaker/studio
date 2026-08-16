@@ -55,4 +55,14 @@ describe('skill.tools', () => {
     const result = await loadSkill.handler({ skillName: 'ghost' });
     expect(result).toEqual({ skillName: 'ghost', error: 'Skill "ghost" not found' });
   });
+
+  it('#172: 携带 workUnitId 时透传到文件加载（skill_used 事件补 WU 归属）', async () => {
+    mockGetFullPrompt.mockReturnValue(null);
+    mockLoadSkill.mockResolvedValue({ prompt: 'file prompt' });
+    await loadSkill.handler({ skillName: 'custom', workUnitId: 'wu-42' });
+    expect(mockLoadSkill).toHaveBeenCalledWith(expect.objectContaining({
+      skillName: 'custom',
+      workUnitId: 'wu-42',
+    }));
+  });
 });

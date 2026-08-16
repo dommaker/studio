@@ -265,7 +265,7 @@ export async function analyzeCircuitHealth(fileStore: FileStore): Promise<Sugges
               historyCount: history.length,
             };
 
-            // 创建 WorkUnit（通过 fileStore.upsertSnapshot）
+            // 创建 WorkUnit（#170：created 事件 + 索引同锁成对，替代裸 upsertSnapshot）
             try {
               const snapshot = {
                 id: wuId,
@@ -285,7 +285,12 @@ export async function analyzeCircuitHealth(fileStore: FileStore): Promise<Sugges
                 claimedAt: null,
                 completedAt: null,
               };
-              await fileStore.upsertSnapshot(snapshot);
+              await fileStore.commitSnapshot({
+                type: 'created',
+                wuId,
+                timestamp: now,
+                data: snapshot as unknown as Record<string, unknown>,
+              }, snapshot);
             } catch {}
           } else if (ratio < 0.8) {
             suggestions.push({

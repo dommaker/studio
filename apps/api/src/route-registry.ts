@@ -116,6 +116,9 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
   // StudioEvent CRUD routes (G30)
   const { default: eventRoutes } = await import('./modules/events/event.routes.js') as { default: Router };
 
+  // WU transcript 只读查看 (#174, #60 C5)
+  const { default: transcriptRoutes } = await import('./modules/transcripts/transcript.routes.js') as { default: Router };
+
   // Iron Laws routes (ex-runtime-proxy, 2026-05-14)
   const { default: ironLawsRoutes } = await import('./modules/harness/iron-laws.routes.js') as { default: Router };
 
@@ -235,6 +238,7 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     { path: '/api/v1/iron-laws', router: ironLawsRoutes, comment: 'Iron Laws (ex-runtime-proxy)' },
     { path: '/api/v1/events', router: sseRoutes, comment: 'HZ-028: Event Stream SSE' },
     { path: '/api/v1/events', router: eventRoutes, middleware: auth, comment: 'G30: StudioEvent CRUD' },
+    { path: '/api/v1/transcripts', router: transcriptRoutes, middleware: auth, comment: '#174: WU transcript 只读查看（#60 C5）' },
     { path: '/api/v1/mcp', router: mcpRoutes, comment: '§12.9: MCP Server (rate limit via tool-registry, auth via permission service)' },
     { path: '/api/v1/harness', router: harnessRoutes, middleware: admin, comment: 'T-015: Harness 监控集成' },
     { path: '/api/v1/cso', router: csoRoutes, comment: 'Decision #5: CSO 验证（无需认证；仅 csoRoutes，不再整挂 harness router）' },

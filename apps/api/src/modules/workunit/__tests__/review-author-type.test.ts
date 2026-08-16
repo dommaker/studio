@@ -72,7 +72,7 @@ describe('review API authorType 校验（A2A §4.4）', () => {
     expect(mockReviewPassed).toHaveBeenCalledWith('wu-1', expect.objectContaining({
       kind: 'human-confirm',
       by: expect.any(String),
-    }));
+    }), undefined);
   });
 
   it('review-passed：缺省 authorType（UI/人类调用不发送）→ 正常执行，落台账 l3', async () => {
@@ -82,7 +82,16 @@ describe('review API authorType 校验（A2A §4.4）', () => {
     expect(mockReviewPassed).toHaveBeenCalledWith('wu-1', expect.objectContaining({
       kind: 'human-confirm',
       by: expect.any(String),
-    }));
+    }), undefined);
+  });
+
+  it('review-passed：#177 body.defaultAssigneeId → 透传 service 第三参（trim 后）', async () => {
+    mockReviewPassed.mockClear();
+    const res = await post('/wu-1/review-passed', { body: { defaultAssigneeId: ' profile-7 ' } });
+    expect(res.status).toBe(200);
+    expect(mockReviewPassed).toHaveBeenCalledWith('wu-1', expect.objectContaining({
+      kind: 'human-confirm',
+    }), { defaultTaskAssigneeId: 'profile-7' });
   });
 
   it('review-rejected：agent → 403；human → 正常执行，落台账 l3', async () => {

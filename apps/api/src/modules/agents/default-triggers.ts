@@ -1,7 +1,7 @@
-// Default Triggers — 8 system triggers for Agent Network
+// Default Triggers — 9 system triggers for Agent Network
 import { TriggerScheduler } from '../triggers/trigger-scheduler.js';
 
-/** Register the 8 default system triggers */
+/** Register the 9 default system triggers */
 export function registerDefaultTriggers(registry: TriggerScheduler): void {
   // 1. workunit-timeout: SCHEDULE every 5 min → EXECUTE workunit-timeout-scan
   // （P0 修复：原为 UPDATE + 注册时冻结的 timeoutAt 查询，永不命中；改为 EXECUTE handler
@@ -132,6 +132,18 @@ export function registerDefaultTriggers(registry: TriggerScheduler): void {
       },
     },
     enabled: process.env.INSPECTION_SCAN_SCHEDULE_ENABLED === 'true',
+    scope: 'system',
+  });
+
+  // 9. dispatch-reconciliation: #183（#159 + #66 决议①）派工/评审断链 5min 对账扫描
+  // （timeout-scan 同类；10min 宽限）——analysis 哨兵清单补差集自愈 + review 断链幂等重跑，
+  // warning 事件走 #62 告警管线，重试 3 次停跑升 critical
+  registry.registerTrigger({
+    id: 'dispatch-reconciliation',
+    name: 'Reconcile dispatch/review breaks',
+    condition: { type: 'SCHEDULE', cron: '*/5 * * * *' },
+    action: { type: 'EXECUTE', target: 'dispatch-reconciliation-scan' },
+    enabled: true,
     scope: 'system',
   });
 

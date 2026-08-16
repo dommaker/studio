@@ -317,8 +317,10 @@ async function closeAndEmit(wuId: string, reason: string): Promise<void> {
     updatedAt: now,
   };
 
-  await fileStore.appendEvent({ type: 'closed', wuId, timestamp: now, data: updated as unknown as Record<string, unknown> });
-  await fileStore.upsertSnapshot(updated);
+  await fileStore.commitSnapshot(
+    { type: 'closed', wuId, timestamp: now, data: updated as unknown as Record<string, unknown> },
+    updated,
+  );
   eventStore.publish('events:goal-execution', JSON.stringify({
     event_type: 'goal-execution.updated',
     data: { executionId: wuId, status: 'failed', error: reason },
@@ -345,8 +347,10 @@ async function updateWorkUnitStatus(wuId: string, status: string, extraMeta: Rec
     updatedAt: now,
   };
 
-  await fileStore.appendEvent({ type: 'updated', wuId, timestamp: now, data: updated as unknown as Record<string, unknown> });
-  await fileStore.upsertSnapshot(updated);
+  await fileStore.commitSnapshot(
+    { type: 'updated', wuId, timestamp: now, data: updated as unknown as Record<string, unknown> },
+    updated,
+  );
 }
 
 export default router;

@@ -23,6 +23,8 @@ import {
   buildExecutionStreamChunks,
   emitExecutionStreamLine,
   emitExecutionStreamStepStart,
+  emitWorkUnitFailedEvent,
+  WORKUNIT_FAILED_EVENT_TYPE,
 } from '../loop/execution-step-events.js';
 
 /** 造一段 claude stream-json stdout（assistant 事件 + result 事件） */
@@ -165,6 +167,34 @@ describe('buildExecutionStepEvent', () => {
     expect(buildExecutionStepEvent({ ...base, sessionResumed: false })!.sessionResumed).toBe(false);
     expect(buildExecutionStepEvent(base)!).not.toHaveProperty('sessionResumed');
   });
+
+  it('#172（#60 决策）：status 缺省 success；failed 携带 errorType/errorDetail', () => {
+    const raw = streamJson([ASSISTANT([{ type: 'thinking', thinking: '想' }])]);
+    const base = { workUnitId: 'w', executionId: 'e', step: 1, rawOutput: raw };
+    const ok = buildExecutionStepEvent(base)!;
+    expect(ok.status).toBe('success');
+    expect(ok).not.toHaveProperty('errorType');
+
+    const failed = buildExecutionStepEvent({
+      ...base, status: 'failed', errorType: 'execution_failed', errorDetail: 'CLI exited with code 1: boom',
+    })!;
+    expect(failed.status).toBe('failed');
+    expect(failed.errorType).toBe('execution_failed');
+    expect(failed.errorDetail).toBe('CLI exited with code 1: boom');
+  });
+
+  it('#172: 失败步无任何可解析内容也产事件（失败信号不落空）；成功步空内容仍 null', () => {
+    const failed = buildExecutionStepEvent({
+      workUnitId: 'w', executionId: 'e', step: 1, rawOutput: '',
+      status: 'failed', errorType: 'execution_failed', errorDetail: 'spawn 失败',
+    });
+    expect(failed).not.toBeNull();
+    expect(failed!.status).toBe('failed');
+    expect(failed!.thinking).toEqual([]);
+    expect(failed!.toolCalls).toEqual([]);
+    // 对照：非失败空内容依旧不产空信号事件
+    expect(buildExecutionStepEvent({ workUnitId: 'w', executionId: 'e', step: 1, rawOutput: '' })).toBeNull();
+  });
 });
 
 describe('emitExecutionStepEvent', () => {
@@ -191,6 +221,74 @@ describe('emitExecutionStepEvent', () => {
     const ok = await emitExecutionStepEvent({ workUnitId: 'w', executionId: 'e', step: 1, rawOutput: '' });
     expect(ok).toBe(false);
     expect(fs.existsSync(eventsFile)).toBe(false);
+  });
+
+  it('#172: 失败步落盘（status=failed + errorType/errorDetail），rawOutput 缺失也落', async () => {
+    const ok = await emitExecutionStepEvent({
+      workUnitId: 'wu-f',
+      executionId: 'exec-f',
+      step: 3,
+      rawOutput: null,
+      status: 'failed',
+      errorType: 'execution_failed',
+      errorDetail: 'CLI exited with code 1: boom',
+    });
+    expect(ok).toBe(true);
+
+    const event = JSON.parse(fs.readFileSync(eventsFile, 'utf-8').trim());
+    expect(event.type).toBe(EXECUTION_STEP_EVENT_TYPE);
+    const payload = JSON.parse(event.payload);
+    expect(payload.workUnitId).toBe('wu-f');
+    expect(payload.step).toBe(3);
+    expect(payload.status).toBe('failed');
+    expect(payload.errorType).toBe('execution_failed');
+    expect(payload.errorDetail).toContain('boom');
+  });
+});
+
+// ─── #172（#60 决策 Q1）：workunit:failed —— WU 级终态失败事件 ───
+
+describe('emitWorkUnitFailedEvent', () => {
+  it('落盘 workunit:failed：envelope level=warning + source=agent-loop，payload 决策字段齐全', async () => {
+    const ok = await emitWorkUnitFailedEvent({
+      workUnitId: 'wu-1',
+      failureType: 'execution_failed',
+      blockReason: 'stuck: 连续 3 步无进展（CLI 执行失败: boom）',
+      consecutiveStuck: 3,
+      attempts: 5,
+      totalDurationMs: 12345,
+      traceId: 'trace-1',
+    });
+    expect(ok).toBe(true);
+
+    const event = JSON.parse(fs.readFileSync(eventsFile, 'utf-8').trim());
+    expect(event.type).toBe(WORKUNIT_FAILED_EVENT_TYPE);
+    expect(event.level).toBe('warning');
+    expect(event.source).toBe('agent-loop');
+    expect(JSON.parse(event.payload)).toEqual({
+      workUnitId: 'wu-1',
+      failureType: 'execution_failed',
+      blockReason: 'stuck: 连续 3 步无进展（CLI 执行失败: boom）',
+      consecutiveStuck: 3,
+      attempts: 5,
+      totalDurationMs: 12345,
+      traceId: 'trace-1',
+    });
+  });
+
+  it('traceId 缺省 → payload 无该键（JSON 序列化丢弃）', async () => {
+    const ok = await emitWorkUnitFailedEvent({
+      workUnitId: 'wu-2',
+      failureType: 'verify_failed',
+      blockReason: 'verify-failed x3: 自动验证连续失败',
+      consecutiveStuck: 1,
+      attempts: 7,
+      totalDurationMs: 100,
+    });
+    expect(ok).toBe(true);
+    const payload = JSON.parse(JSON.parse(fs.readFileSync(eventsFile, 'utf-8').trim()).payload);
+    expect(payload).not.toHaveProperty('traceId');
+    expect(payload.failureType).toBe('verify_failed');
   });
 });
 

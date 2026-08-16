@@ -10,6 +10,8 @@ const mockFileStore = vi.hoisted(() => ({
   appendEvent: vi.fn(),
   removeSnapshot: vi.fn(),
   claimWorkUnit: vi.fn(),
+  // #170：写路径改走锁内成对原语
+  commitSnapshot: vi.fn(),
 }));
 
 vi.mock('@dommaker/studio-shared', async (importOriginal) => {
@@ -68,11 +70,10 @@ describe('Trigger UPDATE action', () => {
 
     await executeUpdateAction(action, {});
 
-    // Verify the update was applied via upsertSnapshot
-    expect(mockFileStore.appendEvent).toHaveBeenCalled();
-    expect(mockFileStore.upsertSnapshot).toHaveBeenCalled();
+    // #170：更新经锁内成对写落盘（appendEvent + upsertSnapshot 同锁）
+    expect(mockFileStore.commitSnapshot).toHaveBeenCalled();
 
-    const updatedSnapshot = mockFileStore.upsertSnapshot.mock.calls[0][0];
+    const updatedSnapshot = mockFileStore.commitSnapshot.mock.calls[0][1];
     expect(updatedSnapshot.status).toBe('unassigned');
     expect(updatedSnapshot.assigneeId).toBeNull();
   });

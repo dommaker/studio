@@ -123,6 +123,18 @@ describe('AC-5: PMO Publish API', () => {
     );
   });
 
+  it('#177：可选 assigneeId 落 analysis WU（留空 = 不带该字段，回池涌现）', async () => {
+    await projectService.publish({ projectId: 'proj-1', channelId: 'ch-1', assigneeId: 'profile-7' });
+    expect(mockWuCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'analysis', assigneeId: 'profile-7' })
+    );
+
+    mockWuCreate.mockClear();
+    await projectService.publish({ projectId: 'proj-1', channelId: 'ch-1' });
+    const input = mockWuCreate.mock.calls[0][0] as Record<string, unknown>;
+    expect('assigneeId' in input).toBe(false);
+  });
+
   it('non-pending PMO → error', async () => {
     mockReadJson.mockResolvedValue(sampleProject({ status: 'active' }));
 

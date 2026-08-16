@@ -37,20 +37,23 @@ export function DeliveryPanel({ projectId, delivery, onRefresh }: DeliveryPanelP
   // 🆕 F6-c: 缺口行动按钮的独立 loading 态（key = `${wuId}:${action}`），防重复点击
   const [gapActionPending, setGapActionPending] = useState<Record<string, boolean>>({});
   // #106 M7：analysis 缺口的「人工确认」走共享确认弹窗（预填待决问题清单 → 人改 → 带 summary 提交）
-  const [approveGap, setApproveGap] = useState<{ gap: DeliveryGap; prefill: string } | null>(null);
+  const [approveGap, setApproveGap] = useState<{ gap: DeliveryGap; prefill: string; channelId: string | null } | null>(null);
 
   // analysis 缺口开弹窗：gaps 列表无 metadata，best-effort 拉 WU 详情取预填（拉不到 → 空手填）
+  // #177：同时取 channelId 喂弹窗的「默认执行角色」下拉（候选=频道成员）
   const openAnalysisApprove = async (gap: DeliveryGap) => {
     let prefill = '';
+    let channelId: string | null = null;
     try {
       const res = await workunitApi.get(gap.id);
       prefill = buildMapOpeningPrefill(res.data?.metadata);
+      channelId = res.data?.channelId ?? null;
     } catch { /* best-effort */ }
-    setApproveGap({ gap, prefill });
+    setApproveGap({ gap, prefill, channelId });
   };
 
   // 🆕 F6-c: 缺口行动——重跑 L1 验证 / 补派 L2 评审 / L3 人工确认
-  const handleGapAction = async (gap: DeliveryGap, action: 'verify' | 'dispatchReview' | 'reviewPassed', summary?: string) => {
+  const handleGapAction = async (gap: DeliveryGap, action: 'verify' | 'dispatchReview' | 'reviewPassed', summary?: string, assigneeId?: string) => {
     const key = `${gap.id}:${action}`;
     setGapActionPending(prev => ({ ...prev, [key]: true }));
     try {
@@ -68,7 +71,7 @@ export function DeliveryPanel({ projectId, delivery, onRefresh }: DeliveryPanelP
         toast.success('已创建评审 WorkUnit，待 agent 认领');
         await onRefresh();
       } else {
-        await workunitApi.reviewPassed(gap.id, summary);
+        await workunitApi.reviewPassed(gap.id, summary, assigneeId);
         toast.success('已确认，L3 已补齐');
         await onRefresh();
       }
@@ -257,10 +260,11 @@ export function DeliveryPanel({ projectId, delivery, onRefresh }: DeliveryPanelP
       {approveGap && (
         <AnalysisApproveDialog
           prefill={approveGap.prefill}
-          onConfirm={summary => {
+          channelId={approveGap.channelId}
+          onConfirm={(summary, assigneeId) => {
             const gap = approveGap.gap;
             setApproveGap(null);
-            handleGapAction(gap, 'reviewPassed', summary);
+            handleGapAction(gap, 'reviewPassed', summary, assigneeId);
           }}
           onCancel={() => setApproveGap(null)}
         />

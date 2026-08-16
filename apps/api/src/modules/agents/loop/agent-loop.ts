@@ -20,22 +20,24 @@ import { getTriggerScheduler } from '../../triggers/trigger-registry.js';
 import { knowledgeService } from '../../knowledge/knowledge-service.js';
 import { eventStore } from '../../../core/event-store.js';
 import { postWuSystemMessage } from '../../workunit/wu-messenger.js';
+import { withBlockedCta } from '../../workunit/blocked-cta.js';
 import { parseWuMetadata, mergedWuView } from '../../workunit/wu-metadata.js';
 import { hasUnfinishedDeps, buildStatusById } from '../../workunit/wu-dependencies.js';
 import { resolveWorkspaceRoot } from '../../workspaces/workspace-store.js';
 import { resolvePmoBranchForWU } from '../../requirements/pmo-branch-resolver.js';
 import { resolveStudioLogFile } from '../../../utils/studio-log-path.js';
+import { writeStudioEvent } from '../../../utils/studio-events.js';
 import {
   tokenBudgetGuardEnabled, resolveDailyTokenBudget, getDailyTokenUsage,
   notifyBudgetTripped,
 } from './daily-token-budget.js';
-import { emitExecutionStepEvent, emitExecutionStreamLine, emitExecutionStreamStepStart } from './execution-step-events.js';
+import { emitExecutionStepEvent, emitExecutionStreamLine, emitExecutionStreamStepStart, emitWorkUnitFailedEvent } from './execution-step-events.js';
 import { CODE_WORKTREE_TYPES, runWuVerification } from './wu-verification.js';
 import { runCompletionGuards } from './completion-gates.js';
 import { parseMapOpening } from '../../pmo/map-opening.js';
 import type { StepResult, Observations, Target, RuntimeInstanceRow } from './agent-loop.types.js';
 import {
-  extractInputTokens, isProcessAlive, isGitRepoRoot, resolveWorktreesDir,
+  isProcessAlive, isGitRepoRoot, resolveWorktreesDir,
   resolveTarget, parseAgentOutput, dynamicInterval, parseReviewReport, parseTaskBreakdown,
   parseOpportunities,
   sleep,
@@ -49,12 +51,13 @@ import { composeStepPrompt } from './prompt-composer.js';
 import { handleDelegateBranch } from './delegate-branch.js';
 import { shouldResumeSession, RESUME_FAILURE_RE } from './session-resume.js';
 import { isContextOverflowError, buildRollingSummary, OVERFLOW_SUMMARY_HEADER } from './context-overflow.js';
-import { appendTranscriptStep } from '../../transcripts/transcript-archive.js';
+import { startLeaseHeartbeat } from './lease-heartbeat.js';
+import { appendTranscriptStep, transcriptPath } from '../../transcripts/transcript-archive.js';
 
 // 输出解析/prompt 构建纯函数已抽到 ./agent-loop-parsers.js（工单 28，行为不变）；
 // re-export 保持对外导出语义不变
 export {
-  extractInputTokens, isProcessAlive, isGitRepoRoot, resolveWorktreesDir,
+  isProcessAlive, isGitRepoRoot, resolveWorktreesDir,
   resolveTarget, parseAgentOutput, dynamicInterval, parseReviewReport, parseTaskBreakdown,
 } from './agent-loop-parsers.js';
 
@@ -87,6 +90,16 @@ const PROGRESS_LOG_MAX_ENTRIES = 5;
 /** #95: progressLog 单条 summary 截断字符上限 */
 const PROGRESS_LOG_SUMMARY_MAX_CHARS = 200;
 
+/** #171（#54 决议 A1，数值来自 #68 实测）：三层超时 ——
+ *  步墙钟 1800s 仅作兜底天花板（健康步时长 p99=693s × 2.6 安全系数；
+ *  旧 120s 固定墙钟连健康 p90=128s 都不到，上线以来大量健康步被误杀）；
+ *  主防线 = 静默看门狗：判据 = 距最后一次输出间隔（步内最大静默 p99=215s / 极值 305s，
+ *  均来自长 Bash 调用），300s warn（落 workunit:step_silence 事件）/ 600s 杀进程组；
+ *  预算语义归 maxTurns=50 + token 记账，不由超时承担。warn 探活为 #54 留的迭代方向，本期不做。 */
+const STEP_WALL_CLOCK_MS = 1_800_000;
+const STEP_SILENCE_WARN_MS = 300_000;
+const STEP_SILENCE_KILL_MS = 600_000;
+
 /** B5（2026-08-03 token-burn issue P1-1）：每 WU 独立会话数上限（#95 由 2 放宽到 5）。
  *  会话反复重建（stuck 重开 / token 截断重开）意味着整段 transcript 全文重放重新烧一遍；
  *  超限说明自动执行已失控，转 need_input 等人工评估（#94 起人工回复不再重置预算——
@@ -98,6 +111,9 @@ const MAX_SESSIONS_PER_WU = 5;
 const IDLE_HEARTBEAT_INTERVAL_MS = 45_000;
 /** 单活实例守卫：心跳/启动时间新鲜度阈值（idle 心跳 45s 一跳，留近 3 跳余量） */
 const LIVE_HOLDER_THRESHOLD_MS = 120_000;
+/** #179（#66 决议 3 loop 侧）：实例心跳写连败上限 —— 连败 3 次（idle 45s 一跳 ≈90s）
+ *  判定 FileStore 故障，loop 自我了断（同 #63 fencing 哲学） */
+const HEARTBEAT_FAIL_LIMIT = 3;
 
 // §10 P0 注入总预算（2K 红线）随 prompt 组装段一并迁到 ./prompt-composer.js（2026-08 工单 05）
 
@@ -118,6 +134,12 @@ export class AgentLoop {
   private executor: Executor;
   /** 2026-07 PMO-flow UX（§6-2）：最后一次已发布的 instance 状态（SSE 去重——状态不变不发） */
   private lastPublishedStatus: string | null = null;
+  /** #178（#63 决议 1/2）：当前持有 WU 的租约心跳轨道（fencing 代际令牌 = claimedAt ISO） */
+  private lease: { wuId: string; claimedAt: string; stop: () => void } | null = null;
+  /** #178（#63 决议 2）：当前步 executionId——易主时据此经 Executor 杀自身 CLI 进程组 */
+  private currentExecutionId: string | null = null;
+  /** #179（#66 决议 3 loop 侧）：实例心跳写连败计数（成功即清零，连败 HEARTBEAT_FAIL_LIMIT 次自裁） */
+  private consecutiveHeartbeatFailures = 0;
 
   constructor(role: AgentProfileData, fileStore?: FileStore) {
     this.role = role;
@@ -307,35 +329,187 @@ export class AgentLoop {
 
         // Claim if unassigned
         if (target.workUnit.status === 'unassigned') {
-          try {
-            await this.workUnitService.claim(target.workUnit.id, this.instance!.id);
-            const afterClaim = await this.workUnitService.getById(target.workUnit.id);
-            if (afterClaim) target.workUnit = afterClaim;
-          } catch {
+          const claimed = await this.claimAndAnnounce(target.workUnit);
+          if (!claimed) {
             await sleep(1_000);
             continue;
           }
+          const afterClaim = await this.workUnitService.getById(target.workUnit.id);
+          if (afterClaim) target.workUnit = afterClaim;
         }
 
         // Update heartbeat + status=active (fix: monitoring.active was always 0)
         if (this.instance) {
-          await this.fileStore.updateState(this.instance.id, {
+          // #179（#66 决议 3 loop 侧）：心跳写连败 ≈3 次自裁；自裁后中止本次迭代不开新 step
+          const stillAlive = await this.updateStateWithHeartbeatWatch({
             lastHeartbeat: new Date().toISOString(),
             currentWorkUnitId: target.workUnit.id,
             status: 'active',
-          }).catch(() => {});
+          });
+          if (!stillAlive) continue;
           // 2026-07 PMO-flow UX（§6-2）：忙闲变化 SSE（仅状态实际变化时发一次）
           this.publishInstanceStatus('active', target.workUnit.id);
         }
 
+        // #178（#63 决议 1）：持有中 WU 的 30s 租约心跳（claim 与 myActive 续跑统一入口）
+        this.ensureLease(target.workUnit);
+
         const result = await this.agentStep(target);
         await this.recordResult(target, result);
+        // #178（#63 决议 1）：WU 离开 active（complete→in_review/done、need_input→blocked）
+        // 或已易主 → 停租约心跳（blocked 不进超时扫描；复活回 active 时 ensureLease 重开）
+        await this.releaseLeaseIfForfeited(target.workUnit.id);
         await sleep(dynamicInterval(result));
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         logger.error(`[AgentLoop] Loop iteration error: ${message}`);
         await sleep(15_000);
       }
+    }
+  }
+
+  /**
+   * #175（#55 决策 1）：认领即发声 —— 每次成功认领在 WU 线程发一条普通系统消息
+   * （「『角色名』已认领任务，开始执行」）；超时释放（timeout-release unclaim → unassigned）
+   * 后的再认领走同一路径同样发声，与「已释放回池」消息配对成完整叙事。
+   * 系统通知待遇：不过 §4.2 发言层新鲜度检查、不带里程碑 meta；
+   * 发帖失败只记日志，绝不阻断认领后的执行。
+   * @returns 认领是否成功（竞争失败 → false，调用方走重试）
+   */
+  private async claimAndAnnounce(workUnit: WorkUnitData): Promise<boolean> {
+    try {
+      await this.workUnitService.claim(workUnit.id, this.instance!.id);
+    } catch {
+      return false;
+    }
+    await postWuSystemMessage(workUnit, `『${this.role.name}』已认领任务，开始执行`, {
+      agentName: this.role.name,
+      fileStore: this.fileStore,
+    }).catch(err => logger.warn(`[AgentLoop] Failed to announce claim for ${workUnit.id}: ${err instanceof Error ? err.message : String(err)}`));
+    return true;
+  }
+
+  /**
+   * #178（#63 决议 1/2）：为持有中的 WU 确保租约心跳在跑。
+   * 新认领与 myActive 续跑（含 blocked 复活回 active）统一经此进入；令牌（wuId+claimedAt）
+   * 与在跑轨道一致时幂等跳过，令牌换代（如本实例重新认领）先停旧轨再开新轨。
+   */
+  private ensureLease(wu: WorkUnitData): void {
+    if (!this.instance) return;
+    const claimedAt = wu.claimedAt?.toISOString();
+    if (!claimedAt || wu.assigneeId !== this.instance.id) return;
+    if (this.lease && this.lease.wuId === wu.id && this.lease.claimedAt === claimedAt) return;
+    this.stopLease();
+    this.lease = {
+      wuId: wu.id,
+      claimedAt,
+      stop: startLeaseHeartbeat({
+        fileStore: this.fileStore,
+        wuId: wu.id,
+        claimedAt,
+        assigneeId: this.instance.id,
+        onLost: (reason) => { void this.handleLeaseLost(wu.id, reason); },
+      }),
+    };
+  }
+
+  /** 停止租约心跳（幂等） */
+  private stopLease(): void {
+    if (!this.lease) return;
+    this.lease.stop();
+    this.lease = null;
+  }
+
+  /**
+   * #179（#66 决议 3 loop 侧）：实例状态写（含心跳）不再静默吞错 —— 成功清零连败计数；
+   * 失败计数并在连败 HEARTBEAT_FAIL_LIMIT 次（≈90s）时自我了断。
+   * 返回是否仍存活（调用方据此中止本次迭代，不再开新 step）。
+   */
+  private async updateStateWithHeartbeatWatch(update: Partial<RuntimeStateData>): Promise<boolean> {
+    if (!this.instance) return this.alive;
+    try {
+      await this.fileStore.updateState(this.instance.id, update);
+      this.consecutiveHeartbeatFailures = 0;
+    } catch (err) {
+      this.consecutiveHeartbeatFailures++;
+      logger.warn(`[AgentLoop] Heartbeat/state write failed (${this.consecutiveHeartbeatFailures}/${HEARTBEAT_FAIL_LIMIT})`, {
+        instanceId: this.instance.id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      if (this.consecutiveHeartbeatFailures >= HEARTBEAT_FAIL_LIMIT) {
+        await this.selfTerminateOnHeartbeatFailure();
+      }
+    }
+    return this.alive;
+  }
+
+  /**
+   * #179（#66 决议 3 loop 侧）：心跳连败自我了断 —— FileStore 故障时 loop 继续跑只会
+   * 盲写盲判；停租约心跳、杀自身 CLI 进程组（停 step）、静默退出循环（不写状态——
+   * 写了也会失败）。在飞 WU 由租约到期正常回收（timeout-release）。
+   */
+  private async selfTerminateOnHeartbeatFailure(): Promise<void> {
+    if (!this.alive) return;
+    logger.error(`[AgentLoop] Heartbeat write failed ${HEARTBEAT_FAIL_LIMIT} consecutive times — FileStore suspected broken; self-terminating (kill own CLI process group, silent exit)`);
+    this.stopLease();
+    const executionId = this.currentExecutionId;
+    if (executionId) {
+      try {
+        await this.executor.stopProcessGroup?.(executionId);
+      } catch (err) {
+        logger.warn(`[AgentLoop] stopProcessGroup failed (non-blocking): ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+    this.alive = false;
+  }
+
+  /**
+   * #178（#63 决议 2）：fencing 校验 —— 步结果回写前 / 状态迁移前比对 claimedAt 代际令牌
+   * （「每次心跳前」校验由 refreshWorkUnitLease 锁内原子完成）。无租约轨道（未 start 的
+   * 测试直调等）不拦，保持既有行为。
+   */
+  private async stillHoldsLease(wuId: string): Promise<boolean> {
+    if (!this.lease || this.lease.wuId !== wuId || !this.instance) return true;
+    const snap = (await this.fileStore.getIndex()).find(s => s.id === wuId);
+    return !!snap && snap.assigneeId === this.instance.id && snap.claimedAt === this.lease.claimedAt;
+  }
+
+  /**
+   * #178（#63 决议 2）：易主善后 —— 停止心跳、杀自身 CLI 进程组（best-effort）、
+   * 静默退出该 WU（不发频道消息、不写回：fencing 语义就是「旧 holder 一字不再写」）。
+   */
+  private async handleLeaseLost(wuId: string, reason: 'lost' | 'missing'): Promise<void> {
+    if (this.lease?.wuId === wuId) this.stopLease();
+    logger.warn(`[AgentLoop] Lease lost for ${wuId} (${reason}) — fencing: killing own CLI process group, abandoning WU`);
+    const executionId = this.currentExecutionId;
+    if (executionId) {
+      try {
+        await this.executor.stopProcessGroup?.(executionId);
+      } catch (err) {
+        logger.warn(`[AgentLoop] stopProcessGroup failed (non-blocking): ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+  }
+
+  /**
+   * #178（#63 决议 2）：状态迁移前 fencing —— 易主即善后并返回 false（调用方立即静默退出），
+   * 持有有效才执行真实迁移。
+   */
+  private async transitionIfHeld(wuId: string, status: string): Promise<boolean> {
+    if (!(await this.stillHoldsLease(wuId))) {
+      await this.handleLeaseLost(wuId, 'lost');
+      return false;
+    }
+    await this.workUnitService.transitionStatus(wuId, status);
+    return true;
+  }
+
+  /** #178（#63 决议 1）：WU 离开 active 或已易主 → 停租约心跳（recordResult 后调用） */
+  private async releaseLeaseIfForfeited(wuId: string): Promise<void> {
+    if (!this.lease || this.lease.wuId !== wuId) return;
+    const snap = (await this.fileStore.getIndex()).find(s => s.id === wuId);
+    if (!snap || snap.status !== 'active' || !(await this.stillHoldsLease(wuId))) {
+      this.stopLease();
     }
   }
 
@@ -355,7 +529,8 @@ export class AgentLoop {
       update.lastHeartbeat = new Date(nowMs).toISOString();
       this.lastIdleHeartbeatAt = nowMs;
     }
-    await this.fileStore.updateState(this.instance.id, update).catch(() => {});
+    // #179（#66 决议 3 loop 侧）：心跳写连败计数/自裁统一走 watch 入口
+    await this.updateStateWithHeartbeatWatch(update);
     // 2026-07 PMO-flow UX（§6-2）：进入 idle 发一次 SSE；45s 节流心跳重入不重复发
     this.publishInstanceStatus('idle', null);
   }
@@ -387,6 +562,7 @@ export class AgentLoop {
   /** Stop the agent loop and clean up */
   stop(): void {
     this.alive = false;
+    this.stopLease(); // #178: 停租约心跳（WU 租约到期后由扫描释放，不再续命）
     if (this.triggerId) {
       getTriggerScheduler().unregisterTrigger(this.triggerId);
     }
@@ -741,6 +917,9 @@ export class AgentLoop {
         knowledgeContext: knowledgeContext || undefined,
         agentRole: 'executor',
         workUnitId: wu.id,
+        // #174: transcript 归档路径随 task 下发，runner 发 session:start/end 事件时并入 payload
+        // （路径规则唯一权威在 #97 归档器，含测试环境改写，勿在此复制规则）
+        transcriptPath: transcriptPath(wu.id),
         agentProfileId: this.role.id,
         ...(workspaceRoot ? { workspaceRoot } : {}),
         extraEnv: {
@@ -749,7 +928,19 @@ export class AgentLoop {
           STUDIO_TRACE_ID: traceId ?? '',
         },
       },
-      timeoutMs: 120_000,
+      timeoutMs: STEP_WALL_CLOCK_MS,
+      // #171（#54 决议 A1）：静默看门狗 300s warn / 600s 杀进程组（杀法在 execSh killProcessGroup）。
+      silenceWarnMs: STEP_SILENCE_WARN_MS,
+      silenceKillMs: STEP_SILENCE_KILL_MS,
+      onSilenceWarn: (silentMs) => {
+        logger.warn('[AgentLoop] Step silence warn — no output beyond threshold', {
+          workUnitId: wu.id, executionId, step: stepNo, silentMs, warnThresholdMs: STEP_SILENCE_WARN_MS, traceId,
+        });
+        // warn 层负责「感知」：落事件流，供监控面板/告警管线消费（#54 决议 2）
+        void writeStudioEvent('workunit:step_silence', {
+          workUnitId: wu.id, executionId, step: stepNo, silentMs, warnThresholdMs: STEP_SILENCE_WARN_MS,
+        }, { source: 'agent-loop' }).catch(() => { /* fire-and-forget */ });
+      },
       // Layer B（WU 过程可视化）：步内 stream-json 行级透传 → SSE 实时过程。
       // fire-and-forget；仅 LocalExecutor 同进程有效。
       onStreamLine: (line) => {
@@ -782,17 +973,40 @@ export class AgentLoop {
       return real;
     };
 
+    // #172（#60 决策 Q1）：失败步也落 execution_step 事件（status='failed' + 错误字段）——
+    // 此前失败分支提前 return 到不了成功路径的发射点，失败步在事件流中完全不可查。
+    // 读取调用时的 effectiveSessionId/sessionResumed 当前值（重试降级后可能被改写）。
+    // fire-and-forget，与成功路径发射同形态，绝不影响失败处理流程。
+    const emitFailedStep = (action: string, detail: string, res?: ExecutionResult) => {
+      void emitExecutionStepEvent({
+        workUnitId: wu.id,
+        executionId: task.executionId,
+        sessionId: effectiveSessionId ?? undefined,
+        sessionResumed,
+        step: stepNo,
+        action,
+        rawOutput: res?.rawOutput ?? null,
+        skills: skillMatched,
+        status: 'failed',
+        errorType: 'execution_failed',
+        errorDetail: detail,
+      }).catch(() => {});
+    };
+
     try {
       // Layer B: step 开始信号（CLI 首行到达前抽屉即有反馈）
       void emitExecutionStreamStepStart({ workUnitId: wu.id, executionId, step: stepNo }).catch(() => {});
+      // #178（#63 决议 2）：fencing 易主时按 executionId 杀自身 CLI 进程组（finally 清除）
+      this.currentExecutionId = executionId;
       // §9.6: 经 Executor 接口执行（P0 恒为 LocalExecutor → agentRunner.executeLightweight）
       let result: ExecutionResult = await this.executor.execute(task);
 
       // W-3 接线：runner 失败时返回 { success:false } 而不抛错、且无 outputText ——
       // 直接落入 parseAgentOutput 会得到默认 progress（空 summary），导致 consecutiveStuck
       // 被清零、每 3s 重试、往频道发空消息。显式失败分支：action='failed'，由 recordResult
-      // 记 consecutiveStuck + errorType/errorDetail，不发频道消息；连续 3 次走 blocked 路径。
-      // 不带 channelVersion —— 失败不是发言，无需新鲜度检查（避免被降级为 progress）。
+      // 记 consecutiveStuck + errorType/errorDetail，并发「执行失败（第 N 次）」系统消息
+      // （#175/#55 决议）；连续 3 次走 blocked 里程碑路径。
+      // 不带 channelVersion —— 失败消息是系统通知不是结果回帖，不参与 §4.2 新鲜度判定。
       if (result.success === false) {
         const failResult = (detail: string) => ({
           action: 'failed' as const,
@@ -818,6 +1032,7 @@ export class AgentLoop {
               workUnitId: wu.id, sessionsUsed, max: MAX_SESSIONS_PER_WU,
             });
             this.recordOutcomeEvent(wu, false, detail, 'execution_failed', injectedKnowledgeIds);
+            emitFailedStep('need_input', detail, result);
             return {
               action: 'need_input' as const,
               summary: `续用会话已丢失且会话重建已达上限（${sessionsUsed}/${MAX_SESSIONS_PER_WU}）：已暂停自动执行。请人工评估后回复任意内容继续，或直接关闭任务`,
@@ -846,6 +1061,7 @@ export class AgentLoop {
             recordTokenEvent(retryResult);
             this.resetUnestablishedSession(metadataUpdates);
             this.recordOutcomeEvent(wu, false, detail, 'execution_failed', injectedKnowledgeIds);
+            emitFailedStep('failed', detail, retryResult);
             return failResult(detail);
           }
           // 降级成功：走正常成功路径；换新号落盘（sessionCount 已在查过 MAX 后计入）
@@ -866,6 +1082,7 @@ export class AgentLoop {
               workUnitId: wu.id, sessionsUsed, max: MAX_SESSIONS_PER_WU,
             });
             this.recordOutcomeEvent(wu, false, detail, 'execution_failed', injectedKnowledgeIds);
+            emitFailedStep('need_input', detail, result);
             return {
               action: 'need_input' as const,
               summary: `CLI 上下文溢出且会话重建已达上限（${sessionsUsed}/${MAX_SESSIONS_PER_WU}）：已暂停自动执行。请人工评估后回复任意内容继续，或直接关闭任务`,
@@ -894,6 +1111,7 @@ export class AgentLoop {
             recordTokenEvent(retryResult);
             this.resetUnestablishedSession(metadataUpdates);
             this.recordOutcomeEvent(wu, false, retryDetail, 'execution_failed', injectedKnowledgeIds);
+            emitFailedStep('need_input', retryDetail, retryResult);
             return {
               action: 'need_input' as const,
               summary: `CLI 上下文溢出：新会话带摘要重试一次仍失败（${retryDetail.slice(0, 200)}），已暂停自动执行。请人工评估后回复任意内容继续，或直接关闭任务`,
@@ -908,6 +1126,7 @@ export class AgentLoop {
           // 首 step 失败：会话未必已建立，重置避免下步 --resume 一个从未建立的会话
           if (newSessionId) this.resetUnestablishedSession(metadataUpdates);
           this.recordOutcomeEvent(wu, false, detail, 'execution_failed', injectedKnowledgeIds);
+          emitFailedStep('failed', detail, result);
           return failResult(detail);
         }
       }
@@ -1041,12 +1260,6 @@ export class AgentLoop {
         }
       }
 
-      // AC-4.3/4.4: Cache tracking — extract input_tokens from result events
-      const tokens = extractInputTokens(result.outputText ?? '');
-      if (tokens !== null) {
-        metadataUpdates.lastInputTokens = tokens;
-      }
-
       return { ...stepResult, metadataUpdates, channelVersion };
     } catch (err) {
       // W-3 fix: executeLightweight 失败返回 { success:false } 不抛错 —— 已在上方
@@ -1057,12 +1270,17 @@ export class AgentLoop {
       const message = err instanceof Error ? err.message : String(err);
       logger.error(`[AgentLoop] agentStep execute failed: ${message}`, { traceId });
       this.recordOutcomeEvent(wu, false, message, 'execution_failed', injectedKnowledgeIds);
+      // #172: spawn 异常等抛出路径的失败步同样落 execution_step（status=failed）
+      emitFailedStep('need_input', message);
       // AC-8.7 远程节点不可达分支已随 RemoteExecutor 一并删除（远程方向放弃，bdaf0dd3）。
       return {
         action: 'need_input' as const, // increments consecutiveStuck
         summary: `Agent execution failed: ${message}`,
         metadataUpdates,
       };
+    } finally {
+      // #178: 步结束（含被杀/异常）清除当前 executionId，fencing 杀进程组只针对在飞步
+      this.currentExecutionId = null;
     }
   }
 
@@ -1195,6 +1413,14 @@ export class AgentLoop {
     const wu = await this.workUnitService.getById(wuId);
     if (!wu) return;
 
+    // #178（#63 决议 2）：fencing —— 步结果回写前比对 claimedAt 代际令牌。
+    // 易主（超时释放后被他人认领 / 释放回池）→ 放弃回写、杀自身 CLI 进程组、
+    // 停止心跳、静默退出（旧 holder 一字不再写，新 holder 的上下文不被污染）。
+    if (!(await this.stillHoldsLease(wuId))) {
+      await this.handleLeaseLost(wuId, 'lost');
+      return;
+    }
+
     // 提交守卫/自动验证必须以「持久化 + 本 step metadataUpdates」的合并视图为准
     // （首 step 的 worktreePath 尚未落库，只看持久化值会漏拦 → 假 complete；
     //   完整事故实录与 undefined-清除口径见 workunit/wu-metadata.ts mergedWuView）
@@ -1268,16 +1494,8 @@ export class AgentLoop {
     // #95: progressLog 环形簿记 —— 只记成功步（progress/complete；delegate 经 handleDelegateBranch
     // 已归化为 progress/need_input，failed/need_input 不进 log），summary 截 200 字符、保留最近 5 条。
     // 失败步不落 log：errorType 留在 metadata，由 prompt-composer 注入「前序进展」段时附「上一步失败」行。
-    const progressLogUpdates: Partial<WorkUnitMetadata> = {};
-    if (action === 'progress' || action === 'complete') {
-      const prev = Array.isArray(metadata.progressLog) ? metadata.progressLog : [];
-      progressLogUpdates.progressLog = [...prev, {
-        step: stepCount,
-        action,
-        summary: (result.summary ?? '').slice(0, PROGRESS_LOG_SUMMARY_MAX_CHARS),
-        at: new Date().toISOString(),
-      }].slice(-PROGRESS_LOG_MAX_ENTRIES);
-    }
+    // #170（决策 #65-1）：追加动作随下方 updateMetadata 移入锁内（基于锁内最新 progressLog，
+    // 不再用读时快照拼接后全量回写）。
 
     // F6-c（断点 1）：步骤超限强制收口前补跑 L1 —— COMPLETE 验证守卫只在 action=complete 时跑，
     // 超限路径（任意 action）此前完全跳过验证，代码类 WU 被强制 in_review 时永远缺 l1。
@@ -1343,11 +1561,51 @@ export class AgentLoop {
       blockReasonUpdates.blockReason = undefined; // undefined 在 JSON 序列化时丢弃 → 清除
     }
 
-    // Single atomic metadata write: merges agentStep updates (sessionId/startedAt/sessionResumes)
-    // with monitoring counters (stepCount/consecutiveStuck) — fixes C-3 non-atomic write
-    await this.workUnitService.update(wuId, {
-      metadata: { ...metadata, ...result.metadataUpdates, ...waitingUpdates, ...guardUpdates, ...freshnessUpdates, ...blockReasonUpdates, ...progressLogUpdates, stepCount, consecutiveStuck },
+    // #170（决策 #65-1）：锁内字段级合并写 —— 守卫/新鲜度/强制收口判定仍在锁外基于合并视图
+    // 完成，最终只把本步字段级增量交给 updateMetadata 的 mutator 应用到锁内最新 metadata：
+    // stepCount/consecutiveStuck 锁内重计、progressLog 锁内基于最新值追加、pendingReplies
+    // 三段合成（精确移除本步已注入的旧条目；保留 step 期间经 waiting-input 锁内新到的人类
+    // 回复；尾部追加新鲜度拦截暂存），其余增量覆盖到最新值——人类回复/扫描计数不再被
+    // recordResult 的陈旧快照全量回写冲掉（#58-M1 扫描计数回退一并消除）。
+    const persistedMeta = parseWuMetadata(wu.metadata);
+    const stepStartReplyCount = Array.isArray(persistedMeta.pendingReplies) ? persistedMeta.pendingReplies.length : 0;
+    // prompt-composer 消费清除标记：metadataUpdates 携带 pendingReplies: undefined = 本步已注入
+    const stepUpdates = result.metadataUpdates ?? {};
+    const consumedPending = 'pendingReplies' in stepUpdates && stepUpdates.pendingReplies === undefined;
+    const freshnessHeld = Array.isArray(freshnessUpdates.pendingReplies) ? freshnessUpdates.pendingReplies : [];
+
+    const recorded = await this.fileStore.updateMetadata(wuId, (latestRaw) => {
+      const latest = latestRaw as WorkUnitMetadata;
+      const nextStepCount = (latest.stepCount ?? 0) + 1;
+      const next: WorkUnitMetadata = {
+        ...latest,
+        ...stepUpdates,
+        ...waitingUpdates,
+        ...guardUpdates,
+        ...freshnessUpdates,
+        ...blockReasonUpdates,
+        stepCount: nextStepCount,
+        consecutiveStuck: action === 'progress' ? 0 : (latest.consecutiveStuck ?? 0) + 1,
+      };
+      // progressLog 环形簿记：锁内基于最新值尾部追加（截 200 字符、保留最近 5 条）
+      if (action === 'progress' || action === 'complete') {
+        const prevLog = Array.isArray(latest.progressLog) ? latest.progressLog : [];
+        next.progressLog = [...prevLog, {
+          step: nextStepCount,
+          action,
+          summary: (result.summary ?? '').slice(0, PROGRESS_LOG_SUMMARY_MAX_CHARS),
+          at: new Date().toISOString(),
+        }].slice(-PROGRESS_LOG_MAX_ENTRIES);
+      }
+      // pendingReplies 三段合成（追加只发生在尾部 → slice 精确移除本步已注入的旧条目）
+      let replies = Array.isArray(latest.pendingReplies) ? [...latest.pendingReplies] : [];
+      if (consumedPending) replies = replies.slice(stepStartReplyCount);
+      if (freshnessHeld.length > 0) replies.push(...freshnessHeld);
+      if (replies.length > 0) next.pendingReplies = replies;
+      else delete next.pendingReplies;
+      return next as Record<string, unknown>;
     });
+    if (!recorded) return; // WU 已被删除（terminate/GC 竞态）——簿记无处落，放弃本步收尾
 
     // P0 修复 6: trace 锚点 — 有 traceId 的 WU（频道消息链路）每步留一条可 grep 日志
     if (traceId) {
@@ -1361,13 +1619,26 @@ export class AgentLoop {
 
     // B3b-i: 自动验证连续失败 ≥3 次 → blocked 并频道说明（优先于 step limit / 状态迁移）
     if (verifyBlocked) {
-      if (wu.status !== 'blocked') {
-        await this.workUnitService.transitionStatus(wuId, 'blocked');
-      }
+      // #178（#63 决议 2）：状态迁移前 fencing，易主即静默退出
+      if (wu.status !== 'blocked' && !(await this.transitionIfHeld(wuId, 'blocked'))) return;
+      // #172（#60 决策 Q1）：WU 级终态失败事件落盘（level=warning，#62 失败趋势探测数据源）
+      void emitWorkUnitFailedEvent({
+        workUnitId: wuId,
+        failureType: 'verify_failed',
+        blockReason: String(blockReasonUpdates.blockReason ?? ''),
+        consecutiveStuck,
+        attempts: stepCount,
+        totalDurationMs: Math.max(0, Date.now() - new Date(wu.createdAt).getTime()),
+        traceId,
+      }).catch(() => {});
       // 2026-07 PMO-flow UX（§6-3）：验证失败打回/转人工里程碑 —— meta 带 pmoId（可解析时）+ atHuman
+      // #176（决策 #57 D3-1）：blocked 里程碑统一携带 CTA 行动召唤块
       await this.postToDiscussionSpace(
         wuId,
-        `自动验证连续失败 ${guardUpdates.verifyFailCount} 次，任务已转 blocked，等待人类介入。最近失败命令与输出已记录到任务上下文`,
+        withBlockedCta(
+          `自动验证连续失败 ${guardUpdates.verifyFailCount} 次，任务已转 blocked，等待人类介入。最近失败命令与输出已记录到任务上下文`,
+          String(blockReasonUpdates.blockReason ?? ''),
+        ),
         wu,
       );
       return;
@@ -1381,31 +1652,49 @@ export class AgentLoop {
     // Monitoring: step limit（review WU 用放宽阈值，见 REVIEW_STEP_LIMIT 注释）
     if (stepCount > (wu.type === 'review' ? REVIEW_STEP_LIMIT : STEP_LIMIT)) {
       // C-2 fix: blocked→in_review is not in VALID_TRANSITIONS, go through active first
-      if (wu.status === 'blocked') {
-        await this.workUnitService.transitionStatus(wuId, 'active');
-      }
-      await this.workUnitService.transitionStatus(wuId, 'in_review');
+      // #178（#63 决议 2）：状态迁移前 fencing，易主即静默退出
+      if (wu.status === 'blocked' && !(await this.transitionIfHeld(wuId, 'active'))) return;
+      if (!(await this.transitionIfHeld(wuId, 'in_review'))) return;
       await this.postToDiscussionSpace(wuId, '步骤数超限，强制提交审查');
       return;
     }
     // Monitoring: stuck detection
     if (consecutiveStuck >= 3) {
-      await this.workUnitService.transitionStatus(wuId, 'blocked');
+      // #178（#63 决议 2）：状态迁移前 fencing，易主即静默退出
+      if (!(await this.transitionIfHeld(wuId, 'blocked'))) return;
+      // #172（#60 决策 Q1）：WU 级终态失败事件落盘（level=warning）。
+      // failureType 取本步 errorType（execution_failed / worktree_creation_failed 等），
+      // 无 errorType 的纯停滞（连续 need_input/progress 无进展）记 'stuck'。
+      void emitWorkUnitFailedEvent({
+        workUnitId: wuId,
+        failureType: typeof metadata.errorType === 'string' && metadata.errorType
+          ? metadata.errorType
+          : action === 'failed' ? 'execution_failed' : 'stuck',
+        blockReason: String(blockReasonUpdates.blockReason ?? ''),
+        consecutiveStuck,
+        attempts: stepCount,
+        totalDurationMs: Math.max(0, Date.now() - new Date(wu.createdAt).getTime()),
+        traceId,
+      }).catch(() => {});
       // W-3 接线：执行失败导致的 blocked 在频道说明失败原因（summary 含 CLI 错误详情）
       const stuckReason = action === 'failed' && result.summary ? `（${result.summary}）` : '';
       // 2026-07 PMO-flow UX（§6-3）：blocked 转人工里程碑 —— meta 带 pmoId（可解析时）+ atHuman
-      await this.postToDiscussionSpace(wuId, `连续 3 步无进展${stuckReason}，等待人类介入`, wu);
+      // #176（决策 #57 D3-1）：blocked 里程碑统一携带 CTA 行动召唤块
+      await this.postToDiscussionSpace(
+        wuId,
+        withBlockedCta(`连续 3 步无进展${stuckReason}，等待人类介入`, String(blockReasonUpdates.blockReason ?? '')),
+        wu,
+      );
       return;
     }
 
     // State transitions by action (§10.5: 使用守卫降级后的 action；§4.2: 新鲜度拦截时不发帖)
+    // #178（#63 决议 2）：全部迁移走 transitionIfHeld（迁移前 fencing，易主即静默退出）。
     // 非空守卫：summary 为空（如 CLI 成功但无文本输出）不发帖，避免频道空消息。
     switch (action) {
       case 'progress':
         if (!skipResultPost && result.summary.trim().length > 0) await this.postToDiscussionSpace(wuId, result.summary);
-        if (wu.status === 'blocked') {
-          await this.workUnitService.transitionStatus(wuId, 'active');
-        }
+        if (wu.status === 'blocked' && !(await this.transitionIfHeld(wuId, 'active'))) return;
         break;
       case 'complete':
         // 2026-07 PMO-flow UX（§6-3）：COMPLETE 完成汇报里程碑 —— meta 带 pmoId（可解析时）+ atHuman
@@ -1413,16 +1702,12 @@ export class AgentLoop {
           await this.postToDiscussionSpace(wuId, result.summary, wu);
         }
         // C-2 fix: blocked→in_review is not in VALID_TRANSITIONS, go through active first
-        if (wu.status === 'blocked') {
-          await this.workUnitService.transitionStatus(wuId, 'active');
-        }
-        await this.workUnitService.transitionStatus(wuId, 'in_review');
+        if (wu.status === 'blocked' && !(await this.transitionIfHeld(wuId, 'active'))) return;
+        if (!(await this.transitionIfHeld(wuId, 'in_review'))) return;
         // P0 修复（reviewReport 回传断链）：review 子 WU 不再被二次评审
         // （ReviewDispatcher 路径 A 跳过 type=review），complete 后直接收口 done，
         // 触发路径 B 读取 metadata.reviewReport 判定父 WU reviewPassed/reviewRejected。
-        if (wu.type === 'review') {
-          await this.workUnitService.transitionStatus(wuId, 'done');
-        }
+        if (wu.type === 'review' && !(await this.transitionIfHeld(wuId, 'done'))) return;
         break;
       case 'need_input':
         // 2026-07 PMO-flow UX（§6-3）：NEED_INPUT 里程碑 —— meta 带 pmoId（可解析时）+ atHuman
@@ -1430,13 +1715,18 @@ export class AgentLoop {
           await this.postToDiscussionSpace(wuId, `需要输入: ${result.summary}`, wu);
         }
         // F5: 挂起 — 守卫重复 NEED_INPUT（blocked → blocked 不在 VALID_TRANSITIONS 中）
-        if (wu.status !== 'blocked') {
-          await this.workUnitService.transitionStatus(wuId, 'blocked');
-        }
+        // #178（#63 决议 2）：状态迁移前 fencing，易主即静默退出
+        if (wu.status !== 'blocked' && !(await this.transitionIfHeld(wuId, 'blocked'))) return;
         break;
       case 'failed':
-        // W-3 接线：CLI 执行失败 —— 不发频道消息、不做状态迁移（保持 active 待重试）；
-        // consecutiveStuck 已在上方累计，满 3 次走 blocked 路径并说明失败原因。
+        // W-3 接线 + #175（#55 决策 2）：CLI 执行失败 —— 发一条「执行失败（第 N 次）：原因截断」
+        // 普通系统消息（不带里程碑 meta、不过 §4.2 新鲜度闸），不做状态迁移（保持 active 待重试）；
+        // 重试不单独发声，下次成功的 progress 自然翻篇。consecutiveStuck 已在上方累计，
+        // 满 3 次在上方 blocked 里程碑路径 return（第 3 次不额外发声），走到这里 N ∈ {1,2}。
+        await this.postToDiscussionSpace(
+          wuId,
+          `『${this.role.name}』执行失败（第 ${consecutiveStuck} 次）：${(result.summary ?? '').slice(0, 200)}`,
+        );
         break;
     }
   }

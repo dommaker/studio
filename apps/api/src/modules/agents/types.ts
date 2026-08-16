@@ -59,7 +59,14 @@ export type MonitorAlertSource =
   | 'tool_error_rate'
   | 'tool_zero_success'
   | 'session_file_size'
-  | 'lock'; // #169: FileStore 锁 stale 回收/获锁超时（仅 warning，不升级 Triage）
+  | 'lock' // #169: FileStore 锁 stale 回收/获锁超时（仅 warning，不升级 Triage）
+  | 'wu_index_reconcile' // #170（决策 #65-3）：启动对账 events vs index 分叉告警
+  | 'agent_timeout_scan' // #179（#66 决议 3）：心跳过期但 pid 活（疑似 FileStore 故障）告警
+  | 'pool_stagnation' // #181（决策 #62 D2）：unassigned 池滞留（指名未认领区分出声）
+  | 'review_stagnation' // #181（决策 #167③）：in_review 滞留待人工确认
+  | 'analysis_respawn' // #183（#159）：analysis 派工断链对账补建（3 次仍败升 critical）
+  | 'review_redispatch' // #183（#66 决议①）：review 断链对账重跑（3 次仍败升 critical）
+  | 'analysis_confirm'; // #186（#167 决议 2）：无频道 analysis 确认提示投 Web「需要处理」收件箱
 
 export interface MonitorAlert {
   level: 'info' | 'warning' | 'critical';

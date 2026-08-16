@@ -87,6 +87,12 @@ export interface ExecutionStepEvent {
   /** 1 基步号 */
   step: number;
   action?: string;
+  /** #172（#60 决策 Q1）：本步成败（历史事件无该字段 → 缺省 success） */
+  status: 'success' | 'failed';
+  /** #172: 失败步错误分类（execution_failed 等） */
+  errorType?: string;
+  /** #172: 失败步错误详情（已截断） */
+  errorDetail?: string;
   /** 模型思考摘要（≤3 条，已截断） */
   thinking: string[];
   /** 本步工具调用（≤30 条） */
@@ -119,6 +125,9 @@ export function parseExecutionStepEvents(
         sessionId: p.sessionId,
         step: p.step,
         action: typeof p.action === 'string' ? p.action : undefined,
+        status: p.status === 'failed' ? 'failed' : 'success',
+        errorType: typeof p.errorType === 'string' ? p.errorType : undefined,
+        errorDetail: typeof p.errorDetail === 'string' ? p.errorDetail : undefined,
         thinking: Array.isArray(p.thinking) ? p.thinking.filter((t: unknown) => typeof t === 'string') : [],
         toolCalls: Array.isArray(p.toolCalls)
           ? p.toolCalls
@@ -249,9 +258,13 @@ export const workunitApi = {
     api.post<WorkUnit>(`/workunits/${id}/status`, { status }),
 
   // #106 M7：可选 summary 穿透 l3 台账（analysis 确认弹窗的待决问题清单、decision 结论等）
-  reviewPassed: (id: string, summary?: string) => {
+  // #177：可选 defaultAssigneeId（analysis 确认处「默认执行角色」）→ 应用于全部派生 task 子 WU
+  reviewPassed: (id: string, summary?: string, defaultAssigneeId?: string) => {
     const trimmed = summary?.trim();
-    return api.post<WorkUnit>(`/workunits/${id}/review-passed`, trimmed ? { summary: trimmed } : {});
+    return api.post<WorkUnit>(`/workunits/${id}/review-passed`, {
+      ...(trimmed ? { summary: trimmed } : {}),
+      ...(defaultAssigneeId ? { defaultAssigneeId } : {}),
+    });
   },
 
   reviewRejected: (id: string, reason?: string) =>
@@ -264,6 +277,14 @@ export const workunitApi = {
   /** F6-c: 人工补派 L2 agent 评审（human-only） */
   dispatchReview: (id: string) =>
     api.post<DispatchReviewResult>(`/workunits/${id}/dispatch-review`),
+
+  /** #185（决策 #87 D2）：Web 按钮通道「继续执行」——纯授权复活，与频道回复共享同一复活原语 */
+  resume: (id: string) =>
+    api.post<WorkUnit>(`/workunits/${id}/resume`),
+
+  /** #185（决策 #87 D2）：Web 按钮通道「关闭任务」——死信显式关闭路径（decision/spec 无 closed → 409） */
+  close: (id: string) =>
+    api.post<WorkUnit>(`/workunits/${id}/close`),
 
   getMessages: (id: string, params?: { before?: string; limit?: number }) =>
     api.get(`/workunits/${id}/messages`, { params }),

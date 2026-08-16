@@ -61,6 +61,25 @@ async function start() {
     // FileStore 自动建目录，无需 DB 连接
     logger.info('Storage initialized (FileStore)');
 
+    // #170（决策 #65-3）：启动对账 WorkUnit events vs index —— 不一致即按事件流重建索引
+    // 并走告警频道（#62 决议出口：dispatchMonitorAlerts 既有管线，warning 级）。
+    // 历史数据可能已分叉，不对账永远不可知；失败不阻断启动。
+    try {
+      const { FileStore: ReconFileStore } = await import('@dommaker/studio-shared');
+      const recon = await new ReconFileStore().reconcileIndex();
+      if (recon.rebuilt) {
+        logger.warn('[WorkUnit] Startup reconcile: events/index diverged — index rebuilt from events', recon);
+        const { dispatchMonitorAlerts } = await import('./modules/agents/monitor/monitor-alerts.js');
+        dispatchMonitorAlerts([{
+          source: 'wu_index_reconcile',
+          level: 'warning',
+          message: `WorkUnit 启动对账发现 events/index 分叉，已按事件流重建索引（missing=${recon.missingInIndex} stale=${recon.staleInIndex} diverged=${recon.diverged}，events=${recon.eventCount}）`,
+        }]);
+      } else {
+        logger.info('[WorkUnit] Startup reconcile: events/index consistent', { eventCount: recon.eventCount, indexCount: recon.indexCount });
+      }
+    } catch (e) { logger.warn('[WorkUnit] Startup reconcile failed (non-blocking)', { error: String(e) }); }
+
     // 初始化 harness 运行时（加载 .harness/config.yml 注入 ConstraintChecker）
     await bootstrapHarness();
 
@@ -81,6 +100,15 @@ async function start() {
       // 每 6 小时增量跑一次（daemon 长期运行不丢分析）
       setInterval(() => sessionSummaryService.summarize(), 6 * 60 * 60 * 1000);
     }).catch(err => logger.warn('[SessionSummary] Import failed', { error: String(err) }));
+
+    // #173（#60 决策 Q3b / spec 批次 C4）：事件保留轮转——信号热 30 天 → 月度 gzip 冷包
+    // 永久保留；噪声（level=debug：knowledge:*/tool:call）7 天滚动删除。启动后跑一次 + 每 24h。
+    import('./utils/studio-events-rotation.js').then(({ rotateStudioEvents }) => {
+      const runRotation = () => rotateStudioEvents()
+        .catch(err => logger.warn('[StudioEvents] Retention rotation failed', { error: String(err) }));
+      setTimeout(runRotation, 15_000);
+      setInterval(runRotation, 24 * 60 * 60 * 1000);
+    }).catch(err => logger.warn('[StudioEvents] Rotation import failed', { error: String(err) }));
 
     // G-002: 冷启动业务规则扫描（异步，不阻塞启动）
     import('./modules/knowledge/rule-scanner.js').then(({ ruleScanner }) => {
@@ -267,20 +295,10 @@ async function start() {
     // ── Agent Timeout Scan（超时释放 handler）──
     const { registerExecuteHandler } = await import('./modules/triggers/trigger-action.js');
     registerExecuteHandler('agent-timeout-scan', async () => {
-      const { AgentInstanceService } = await import('./modules/agents/agent-instance.service.js');
+      const { scanStaleAgentInstances } = await import('./modules/agents/instance-timeout-scan.js');
       const { FileStore } = await import('@dommaker/studio-shared');
-      const TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
-      const threshold = Date.now() - TIMEOUT_MS;
-      const fileStore = new FileStore();
-      const allStates = await fileStore.listStates();
-      const stale = allStates.filter(s => s.status !== 'terminated' && s.status !== 'error' && (s.lastHeartbeat ? new Date(s.lastHeartbeat).getTime() < threshold : true));
-      const svc = new AgentInstanceService(fileStore);
-      for (const inst of stale) {
-        await svc.terminate(inst.id).catch(err =>
-          logger.warn(`[AgentTimeout] Failed to terminate ${inst.id}: ${err}`)
-        );
-      }
-      if (stale.length > 0) logger.info(`[AgentTimeout] Terminated ${stale.length} stale instances`);
+      const result = await scanStaleAgentInstances(new FileStore());
+      if (result.terminated > 0) logger.info(`[AgentTimeout] Terminated ${result.terminated} stale instances`);
     });
 
     // ── F5: NEED_INPUT 挂起超时提醒 handler ──
@@ -293,6 +311,12 @@ async function start() {
     registerExecuteHandler('workunit-timeout-scan', async () => {
       const { scanTimedOutWorkUnits } = await import('./modules/workunit/timeout-release.js');
       await scanTimedOutWorkUnits();
+    });
+
+    // ── #183: 派工/评审断链对账 handler（dispatch-reconciliation 触发器，5min）──
+    registerExecuteHandler('dispatch-reconciliation-scan', async () => {
+      const { reconcileDispatchBreaks } = await import('./modules/agents/dispatch-reconciliation.js');
+      await reconcileDispatchBreaks();
     });
 
     // ── E1 约束进化（vision §6）：每日扫描 handler + 频道审核 watcher ──
@@ -431,6 +455,14 @@ async function start() {
       try {
         const { agentLoopRegistry } = await import('./modules/agents/loop/agent-loop-registry.js');
         agentLoopRegistry.unmountAll();
+      } catch {}
+
+      // #179（#66 决议 2）：SIGTERM 杀全部在飞 CLI 进程组（不等 step 落盘，
+      // 5s 强制 exit 纪律不变；在飞 WU 由 #63 租约到期回收）
+      try {
+        const { agentRunner } = await import('@dommaker/studio-agent');
+        const killed = await agentRunner.stopAllProcessGroups();
+        if (killed > 0) logger.info(`[Shutdown] SIGTERM sent to ${killed} in-flight CLI process group(s)`);
       } catch {}
 
       if (cloudflaredProc) { cloudflaredProc.kill(); cloudflaredProc = null; }

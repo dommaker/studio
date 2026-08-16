@@ -1,7 +1,7 @@
 // WorkUnitDetailPage — /workunits/:id WU 详情页（全站跳转枢纽，2026-07 agents-pmo-flow-ux §5.4）
 // 自上而下：Header（类型+状态+标题+时间+failureType）→ 归属条（PMO/REQ/频道/认领 agent 四回跳）
 // → 证据台账 L1/L2/L3（与 WorkUnitDrawer 同一数据路径：deriveDisplayState / parseAttestations）
-// → 执行过程（复用 ExecutionSteps，自带 REST 回放 + 实时流）→ 讨论区（复用 DiscussionPanel）
+// → 执行过程（复用 ExecutionSteps，自带 REST 回放 + 实时流）→ 会话原文（#174 TranscriptViewer）→ 讨论区（复用 DiscussionPanel）
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { deriveDisplayState, parseAttestations } from '@dommaker/studio-shared/web';
@@ -11,6 +11,8 @@ import { projectApi } from '../api/index';
 import { channelApi } from '../api/channel';
 import { monitoringApi } from '../api/monitoring';
 import { ExecutionSteps } from '../components/workunit/ExecutionSteps';
+import { BlockedActions } from '../components/workunit/BlockedActions';
+import { TranscriptViewer } from '../components/workunit/TranscriptViewer';
 import { DiscussionPanel } from '../components/DiscussionPanel';
 import { RequirementChainPanel } from '../components/requirement/RequirementChainPanel';
 import { SelfReviewBadge } from '../components/workunit/SelfReviewBadge';
@@ -83,6 +85,8 @@ export function WorkUnitDetailPage() {
   const [assignee, setAssignee] = useState<{ name: string; roleId: string } | null>(null);
   const [chainReqId, setChainReqId] = useState<string | null>(null);
   const [showTreeTokens, setShowTreeTokens] = useState(false);
+  // #185：blocked 处置动作成功后 +1 触发重拉详情
+  const [actionTick, setActionTick] = useState(0);
 
   // id 切换时在渲染期同步清空上一 WU 的全部展示数据（替代原 effect 顶部的五处同步重置）
   const [prevId, setPrevId] = useState(id);
@@ -126,7 +130,7 @@ export function WorkUnitDetailPage() {
       })
       .catch(e => { if (alive) setError(e instanceof Error ? e.message : String(e)); });
     return () => { alive = false; };
-  }, [id]);
+  }, [id, actionTick]);
 
   const handleBack = () => {
     // 有站内历史则后退，否则回 /workunits（深链直达场景）
@@ -266,11 +270,23 @@ export function WorkUnitDetailPage() {
               {/* F6 证据台账：L1 自动验证 / L2 Agent 评审 / L3 人工验收（共享 EvidenceLedger，数据路径同 WorkUnitDrawer） */}
               <EvidenceLedger attestations={attestations} variant="card" />
 
-              {/* 执行过程（思考/工具调用/用量；组件自带 REST 回放 + SSE 实时流，页面不接 SSE） */}
+              {/* #185（决策 #87 D4）：blocked 处置（继续执行/关闭任务），与 WorkUnitDrawer 同一组件；
+                  动作成功后经 actionTick 重拉详情 */}
+              <BlockedActions wu={wu} onChanged={() => setActionTick(t => t + 1)} />
+
+              {/* 执行过程（思考/工具调用/用量；组件自带 REST 回放 + SSE 实时流，页面不接 SSE）。
+                  #182：传 wu 启用置顶「当前状态速览」节（决策 #61，与 WorkUnitDrawer 同组件复用） */}
               <div
                 className="card mt-4 p-3"
               >
-                <ExecutionSteps workUnitId={wu.id} />
+                <ExecutionSteps workUnitId={wu.id} wu={wu} />
+              </div>
+
+              {/* 会话原文（#174）：归档 transcript 只读查看，默认折叠按需加载 */}
+              <div
+                className="card mt-4 p-3"
+              >
+                <TranscriptViewer workUnitId={wu.id} />
               </div>
 
               {/* 讨论区（WU 级消息，无需频道上下文） */}

@@ -395,7 +395,7 @@ describe('Message Routing (AC-B1-B4)', () => {
       expect(meta.pendingReplies).toEqual(['用 OAuth']);
     });
 
-    it('reply to non-waiting blocked WorkUnit → status untouched', async () => {
+    it('#176（决策 #57 D2）：reply to non-waiting blocked WorkUnit → 回复即复活（status → active + pendingReplies 注入）', async () => {
       const wu = await workUnitService.create({
         scope: '卡住的任务', channelId, type: 'task', status: 'active', assigneeId: 'instance-1',
       });
@@ -409,7 +409,11 @@ describe('Message Routing (AC-B1-B4)', () => {
 
       await routeMessage(channelId, '看看情况', anchor.id, fileStore);
 
-      expect((await findWu(wu.id))!.status).toBe('blocked');
+      const after = await findWu(wu.id);
+      expect(after!.status).toBe('active');
+      const meta = after!.metadata ? JSON.parse(after!.metadata) : {};
+      expect(meta.pendingReplies).toEqual(['看看情况']);
+      expect(meta.resumeCount).toBe(1);
     });
   });
 

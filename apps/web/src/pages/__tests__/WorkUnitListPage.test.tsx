@@ -9,9 +9,12 @@ vi.mock('react', async () => {
   return { ...actual, default: actual };
 });
 
+const { mockSearchParamsValue } = vi.hoisted(() => ({ mockSearchParamsValue: { value: '' } }));
+
 vi.mock('react-router-dom', () => ({
   Link: ({ children, to }: { children: React.ReactNode; to: string }) => React.createElement('a', { href: to }, children),
   useNavigate: () => vi.fn(),
+  useSearchParams: () => [new URLSearchParams(mockSearchParamsValue.value)],
 }));
 
 const mockStore = {
@@ -72,6 +75,7 @@ describe('WorkUnitListPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockStore.workunits = [];
+    mockSearchParamsValue.value = '';
   });
 
   it('renders page title', () => {
@@ -87,6 +91,18 @@ describe('WorkUnitListPage', () => {
   it('shows empty state when no workunits', () => {
     render(<WorkUnitListPage />);
     expect(screen.getByText('暂无 WorkUnit')).toBeDefined();
+  });
+
+  // #184：监控页「需要处理」下钻链接（/workunits?status=blocked）初始化状态筛选
+  it('URL ?status=blocked 初始化状态筛选', () => {
+    mockSearchParamsValue.value = 'status=blocked';
+    render(<WorkUnitListPage />);
+    expect(mockStore.setStatusFilter).toHaveBeenCalledWith('blocked');
+  });
+
+  it('无 status query 时不触碰筛选', () => {
+    render(<WorkUnitListPage />);
+    expect(mockStore.setStatusFilter).not.toHaveBeenCalled();
   });
 });
 
@@ -118,7 +134,7 @@ describe('WorkUnitListPage — analysis 确认弹窗（#106 M7）', () => {
     fireEvent.change(textarea, { target: { value: 'FOG: 存储选型用哪个？' } });
     fireEvent.click(screen.getByText('确认通过'));
 
-    expect(mockStore.reviewPassed).toHaveBeenCalledWith('wu-a1', 'FOG: 存储选型用哪个？');
+    expect(mockStore.reviewPassed).toHaveBeenCalledWith('wu-a1', 'FOG: 存储选型用哪个？', undefined);
   });
 
   it('analysis 无清单 metadata → 弹窗空文本（空手填或直接通过 = 非探路型）', () => {
@@ -130,7 +146,7 @@ describe('WorkUnitListPage — analysis 确认弹窗（#106 M7）', () => {
     expect(textarea.value).toBe('');
 
     fireEvent.click(screen.getByText('确认通过'));
-    expect(mockStore.reviewPassed).toHaveBeenCalledWith('wu-a2', '');
+    expect(mockStore.reviewPassed).toHaveBeenCalledWith('wu-a2', '', undefined);
   });
 
   it('非 analysis（task）点通过 → 不开弹窗，直接调 reviewPassed（回归）', () => {
@@ -140,6 +156,6 @@ describe('WorkUnitListPage — analysis 确认弹窗（#106 M7）', () => {
     fireEvent.click(screen.getByText('通过'));
 
     expect(screen.queryByPlaceholderText(/DESTINATION/)).toBeNull();
-    expect(mockStore.reviewPassed).toHaveBeenCalledWith('wu-t1', undefined);
+    expect(mockStore.reviewPassed).toHaveBeenCalledWith('wu-t1', undefined, undefined);
   });
 });

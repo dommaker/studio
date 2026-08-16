@@ -54,6 +54,7 @@ export type {
   WorkUnitEventType,
   WorkUnitSnapshot,
   WorkUnitFilter,
+  WorkUnitReconcileResult,
   RequirementData,
   RequirementStatus,
   RequirementFilter,

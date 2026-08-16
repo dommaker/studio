@@ -363,4 +363,244 @@ describe('FileStoreWorkUnitBase（直接单元测试）', () => {
       await expect(store.removeSnapshot('wu1')).rejects.toThrow('index.json');
     });
   });
+
+  // ═══ updateMetadata（#170 / 决策 #65-1：锁内字段级合并写）═══
+
+  describe('updateMetadata', () => {
+    it('锁内读最新 metadata → 应用 mutator → appendEvent + upsertSnapshot 一次落盘', async () => {
+      await seedWu(makeWuSnapshot('wu1', { metadata: JSON.stringify({ stepCount: 1 }) }));
+
+      const updated = await store.updateMetadata('wu1', cur => ({
+        ...cur,
+        stepCount: (cur.stepCount as number) + 1,
+        tag: 'x',
+      }));
+
+      expect(updated).not.toBeNull();
+      expect(JSON.parse(updated!.metadata!)).toMatchObject({ stepCount: 2, tag: 'x' });
+
+      // 成对写：事件流与索引同步（rebuild 结论与 index 一致）
+      const events = await store.readJsonl<WorkUnitEvent>(eventsPath());
+      expect(events.filter(e => e.type === 'updated' && e.wuId === 'wu1')).toHaveLength(1);
+      const rebuilt = await store.rebuildIndex();
+      expect(JSON.parse(rebuilt[0].metadata!).stepCount).toBe(2);
+    });
+
+    it('不存在的 wuId 返回 null（不抛错、不产生事件）', async () => {
+      await seedWu(makeWuSnapshot('wu1'));
+      const result = await store.updateMetadata('nope', cur => cur);
+      expect(result).toBeNull();
+      const events = await store.readJsonl<WorkUnitEvent>(eventsPath());
+      expect(events.filter(e => e.wuId === 'nope')).toHaveLength(0);
+    });
+
+    it('metadata 为 null / 损坏 JSON 时按 {} 起评（与 parseWuMetadata 同口径）', async () => {
+      await seedWu(makeWuSnapshot('wu1', { metadata: '{broken' }));
+      const updated = await store.updateMetadata('wu1', cur => ({ ...cur, a: 1 }));
+      expect(JSON.parse(updated!.metadata!)).toEqual({ a: 1 });
+    });
+
+    it('mutator 返回的 undefined 值键在序列化时丢弃（清除语义）', async () => {
+      await seedWu(makeWuSnapshot('wu1', { metadata: JSON.stringify({ blockReason: 'stuck', keep: 1 }) }));
+      const updated = await store.updateMetadata('wu1', cur => ({ ...cur, blockReason: undefined }));
+      const meta = JSON.parse(updated!.metadata!);
+      expect('blockReason' in meta).toBe(false);
+      expect(meta.keep).toBe(1);
+    });
+
+    it('并发 30 个增量 mutator 不丢更新（计数 + 数组尾部追加）', async () => {
+      await seedWu(makeWuSnapshot('wu1', { metadata: JSON.stringify({ count: 0, log: [] as string[] }) }));
+
+      await Promise.all(Array.from({ length: 30 }, (_, i) =>
+        store.updateMetadata('wu1', cur => ({
+          ...cur,
+          count: (cur.count as number) + 1,
+          log: [...(cur.log as string[]), `r${i}`],
+        })),
+      ));
+
+      const [wu] = await store.getIndex();
+      const meta = JSON.parse(wu.metadata!);
+      expect(meta.count).toBe(30);
+      expect(meta.log).toHaveLength(30);
+      expect(new Set(meta.log as string[]).size).toBe(30);
+    });
+
+    it('并发 updateMetadata 与 upsertSnapshot 混合不丢数据（同一把 flock）', async () => {
+      await seedWu(makeWuSnapshot('wu1', { metadata: JSON.stringify({ count: 0 }) }));
+      await Promise.all([
+        ...Array.from({ length: 10 }, () =>
+          store.updateMetadata('wu1', cur => ({ ...cur, count: (cur.count as number) + 1 }))),
+        ...Array.from({ length: 5 }, (_, i) => store.upsertSnapshot(makeWuSnapshot(`other-${i}`))),
+      ]);
+      const index = await store.getIndex();
+      const wu1 = index.find(s => s.id === 'wu1')!;
+      expect(JSON.parse(wu1.metadata!).count).toBe(10);
+      expect(index.filter(s => s.id.startsWith('other-'))).toHaveLength(5);
+    });
+  });
+
+  // ═══ commitSnapshot / commitRemoval（#170 / 决策 #65-3：锁内成对写）═══
+
+  describe('commitSnapshot / commitRemoval', () => {
+    it('commitSnapshot 同锁成对：事件流与索引同步可见', async () => {
+      const snap = makeWuSnapshot('wu1');
+      await store.commitSnapshot(createdEvent(snap), snap);
+
+      const events = await store.readJsonl<WorkUnitEvent>(eventsPath());
+      expect(events).toHaveLength(1);
+      expect((await store.getIndex()).map(s => s.id)).toEqual(['wu1']);
+      // 对账口径一致（无需重建）
+      const recon = await store.reconcileIndex();
+      expect(recon.consistent).toBe(true);
+    });
+
+    it('并发 commitSnapshot 20 个不同 id 全部保留', async () => {
+      await Promise.all(Array.from({ length: 20 }, (_, i) => {
+        const snap = makeWuSnapshot(`p-${i}`);
+        return store.commitSnapshot(createdEvent(snap), snap);
+      }));
+      expect(await store.getIndex()).toHaveLength(20);
+      expect(await store.readJsonl<WorkUnitEvent>(eventsPath())).toHaveLength(20);
+    });
+
+    it('commitRemoval 同锁成对：墓碑事件 + 索引移除，rebuild 不复活', async () => {
+      await seedWu(makeWuSnapshot('wu1'));
+      await store.commitRemoval({
+        type: 'closed',
+        wuId: 'wu1',
+        timestamp: new Date().toISOString(),
+        data: { deleted: true },
+      }, 'wu1');
+
+      expect(await store.getIndex()).toEqual([]);
+      // 墓碑事件落盘，rebuild 尊重墓碑（deleted 标记）不复活已删 WU
+      const rebuilt = await store.rebuildIndex();
+      expect(rebuilt).toEqual([]);
+      const recon = await store.reconcileIndex();
+      expect(recon.consistent).toBe(true);
+    });
+
+    it('commitRemoval 不存在的 id 仍落墓碑事件（幂等，索引无变化）', async () => {
+      await seedWu(makeWuSnapshot('wu1'));
+      await store.commitRemoval({
+        type: 'closed',
+        wuId: 'ghost',
+        timestamp: new Date().toISOString(),
+        data: { deleted: true },
+      }, 'ghost');
+      expect((await store.getIndex()).map(s => s.id)).toEqual(['wu1']);
+      expect(await store.reconcileIndex()).toMatchObject({ consistent: true });
+    });
+  });
+
+  // ═══ createSnapshotGuarded（#170 / 决策 #65-2：锁内 check-then-create）═══
+
+  describe('createSnapshotGuarded', () => {
+    const noChildGuard = (parentId: string) => (snapshots: WorkUnitSnapshot[]) =>
+      !snapshots.some(s => s.parentId === parentId && s.status !== 'done' && s.status !== 'closed');
+
+    it('guard 通过 → 建单（事件 + 索引成对），返回 true', async () => {
+      const snap = makeWuSnapshot('child-1', { parentId: 'p1', type: 'review' });
+      const ok = await store.createSnapshotGuarded(snap, noChildGuard('p1'));
+      expect(ok).toBe(true);
+      expect((await store.getIndex()).map(s => s.id)).toEqual(['child-1']);
+      const events = await store.readJsonl<WorkUnitEvent>(eventsPath());
+      expect(events.filter(e => e.type === 'created' && e.wuId === 'child-1')).toHaveLength(1);
+    });
+
+    it('guard 拒绝 → 返回 false，不落事件也不落索引', async () => {
+      await seedWu(makeWuSnapshot('existing', { parentId: 'p1', type: 'review' }));
+      const snap = makeWuSnapshot('child-2', { parentId: 'p1', type: 'review' });
+      const ok = await store.createSnapshotGuarded(snap, noChildGuard('p1'));
+      expect(ok).toBe(false);
+      expect((await store.getIndex()).map(s => s.id)).toEqual(['existing']);
+      const events = await store.readJsonl<WorkUnitEvent>(eventsPath());
+      expect(events.filter(e => e.wuId === 'child-2')).toHaveLength(0);
+    });
+
+    it('并发 guarded create 同一守卫仅一个成功（flock 互斥 check-then-create）', async () => {
+      const results = await Promise.all(Array.from({ length: 8 }, (_, i) =>
+        store.createSnapshotGuarded(makeWuSnapshot(`child-${i}`, { parentId: 'p1', type: 'review' }), noChildGuard('p1')),
+      ));
+      expect(results.filter(Boolean)).toHaveLength(1);
+      expect(await store.getIndex()).toHaveLength(1);
+    });
+  });
+
+  // ═══ reconcileIndex（#170 / 决策 #65-3：启动对账）═══
+
+  describe('reconcileIndex', () => {
+    it('事件与索引一致 → consistent: true，不重建（index.json 内容不变）', async () => {
+      await seedWu(makeWuSnapshot('wu1'));
+      await store.claimWorkUnit('wu1', 'agent1');
+      const before = fs.readFileSync(indexPath(), 'utf-8');
+
+      const recon = await store.reconcileIndex();
+      expect(recon).toMatchObject({ consistent: true, rebuilt: false, missingInIndex: 0, staleInIndex: 0, diverged: 0 });
+      expect(fs.readFileSync(indexPath(), 'utf-8')).toBe(before);
+    });
+
+    it('索引缺条目（崩溃分叉）→ 重建补回并报告 missingInIndex', async () => {
+      await seedWu(makeWuSnapshot('wu1'));
+      await seedWu(makeWuSnapshot('wu2'));
+      // 人为制造分叉：index 抹掉 wu2（模拟 upsert 前崩溃）
+      await store.writeJson(indexPath(), [makeWuSnapshot('wu1')]);
+
+      const recon = await store.reconcileIndex();
+      expect(recon).toMatchObject({ consistent: false, rebuilt: true, missingInIndex: 1 });
+      expect((await store.getIndex()).map(s => s.id).sort()).toEqual(['wu1', 'wu2']);
+    });
+
+    it('索引内容陈旧（同 id 字段不一致）→ 以事件流为准重建', async () => {
+      await seedWu(makeWuSnapshot('wu1', { scope: 'real' }));
+      await store.writeJson(indexPath(), [makeWuSnapshot('wu1', { scope: 'stale' })]);
+
+      const recon = await store.reconcileIndex();
+      expect(recon).toMatchObject({ consistent: false, rebuilt: true, diverged: 1 });
+      expect((await store.getIndex())[0].scope).toBe('real');
+    });
+
+    it('索引多出条目（事件流无）→ 重建清除并报告 staleInIndex', async () => {
+      await seedWu(makeWuSnapshot('wu1'));
+      await store.writeJson(indexPath(), [makeWuSnapshot('wu1'), makeWuSnapshot('phantom')]);
+
+      const recon = await store.reconcileIndex();
+      expect(recon).toMatchObject({ consistent: false, rebuilt: true, staleInIndex: 1 });
+      expect((await store.getIndex()).map(s => s.id)).toEqual(['wu1']);
+    });
+
+    it('空数据区（无事件无索引）→ consistent: true', async () => {
+      const recon = await store.reconcileIndex();
+      expect(recon).toMatchObject({ consistent: true, rebuilt: false });
+    });
+  });
+
+  // ═══ rebuildIndex 墓碑语义（#170：deleted 标记的 closed 事件 = 删除）═══
+
+  describe('rebuildIndex 墓碑', () => {
+    it('data.deleted=true 的 closed 事件使快照从重建结果中移除', async () => {
+      await store.appendEvent(createdEvent(makeWuSnapshot('wu1')));
+      await store.appendEvent({
+        type: 'closed',
+        wuId: 'wu1',
+        timestamp: new Date().toISOString(),
+        data: { deleted: true },
+      });
+      expect(await store.rebuildIndex()).toEqual([]);
+    });
+
+    it('无 deleted 标记的 closed 事件维持原合并语义（不删快照）', async () => {
+      await store.appendEvent(createdEvent(makeWuSnapshot('wu1')));
+      await store.appendEvent({
+        type: 'closed',
+        wuId: 'wu1',
+        timestamp: new Date().toISOString(),
+        data: { status: 'closed' },
+      });
+      const rebuilt = await store.rebuildIndex();
+      expect(rebuilt).toHaveLength(1);
+      expect(rebuilt[0].status).toBe('closed');
+    });
+  });
 });

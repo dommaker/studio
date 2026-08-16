@@ -1,10 +1,15 @@
-// MonitoringPage — Agent Network MVP-6
+// MonitoringPage — Agent Network MVP-6；#180 Tab 化「概览 / 事件检索」（#60 决策 Q3a）
 import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { monitoringApi, type MonitoringStats, type FlywheelStats, type OverheadStats, type EvidenceStats, type EfficiencyStats } from '../api/monitoring';
 import { knowledgeApi, type KnowledgeEntryItem } from '../api/knowledge';
+import { EventSearchPanel } from '../components/monitoring/EventSearchPanel';
+import { NeedsAttentionSection } from '../components/monitoring/NeedsAttentionSection';
+
+type MonitoringTab = 'overview' | 'events';
 
 export function MonitoringPage() {
+  const [activeTab, setActiveTab] = useState<MonitoringTab>('overview');
   const [data, setData] = useState<MonitoringStats | null>(null);
   const [flywheel, setFlywheel] = useState<FlywheelStats | null>(null);
   const [overhead, setOverhead] = useState<OverheadStats | null>(null);
@@ -72,11 +77,35 @@ export function MonitoringPage() {
         </div>
       </div>
 
+      {/* #180：概览 / 事件检索 Tab（IA：行动信号 > 健康度量 > 参考资料） */}
+      <div className="px-8 pt-3 flex gap-1" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+        {([['overview', '概览'], ['events', '事件检索']] as Array<[MonitoringTab, string]>).map(([id, label]) => (
+          <button
+            key={id}
+            onClick={() => setActiveTab(id)}
+            className={`px-4 py-2 text-sm rounded-t-lg transition ${activeTab === id ? 'u-surface u-accent' : 'u-text-3'}`}
+            style={{ borderBottom: activeTab === id ? '2px solid var(--accent-primary)' : '2px solid transparent' }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === 'events' ? (
+        <div className="flex-1 overflow-auto px-8 pb-8">
+          <div className="max-w-5xl">
+            <EventSearchPanel />
+          </div>
+        </div>
+      ) : (
       <div className="flex-1 overflow-auto px-8 pb-8">
         <div className="max-w-5xl">
           {error && (
             <div className="mt-4 p-3 rounded u-err-dim u-err text-sm">{error}</div>
           )}
+
+          {/* #184「需要处理」区：独立加载，不依赖主 stats 的 loading 状态 */}
+          <NeedsAttentionSection />
 
           {loading && !data ? (
             <div className="text-center py-20 u-text-2">加载中...</div>
@@ -339,6 +368,7 @@ export function MonitoringPage() {
           ) : null}
         </div>
       </div>
+      )}
     </div>
   );
 }

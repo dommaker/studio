@@ -9,13 +9,20 @@
  *  - 无 TASK 拆分行：不派生，频道提示可手动转任务
  *  - 非 analysis 类型 / 其他状态：忽略
  */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { FileStore, eventBus } from '@dommaker/studio-shared';
 import { WorkUnitService, type WorkUnitMetadata, type WorkUnitData } from '../../workunit/workunit.service.js';
 import { AnalysisHandoff } from '../analysis-handoff.js';
+
+// #186（#167 决议 2）：无频道确认提示改投 Web「需要处理」收件箱 —— 告警出口 mock
+const mockDispatch = vi.fn();
+vi.mock('../../agents/monitor/monitor-alerts.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../agents/monitor/monitor-alerts.js')>();
+  return { ...actual, dispatchMonitorAlerts: (...args: unknown[]) => mockDispatch(...args) };
+});
 
 let tmpDir: string;
 let fileStore: FileStore;
@@ -57,6 +64,7 @@ function emitStatus(wu: WorkUnitData, status: string) {
 }
 
 beforeEach(async () => {
+  mockDispatch.mockClear();
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'analysis-handoff-'));
   fileStore = new FileStore(tmpDir);
   wuService = new WorkUnitService(fileStore);
@@ -169,6 +177,29 @@ describe('AnalysisHandoff（PMO 分析接力）', () => {
     expect(metaOf(children2[0].metadata).workspaceRoot).toBeUndefined();
   });
 
+  it('#177：analysis 确认时指定默认执行角色 → 全部派生 task 子 WU 带 assigneeId（未指定 = 涌现，不带）', async () => {
+    const wu = await createAnalysisWu({
+      analysisTasks: ['实现登录接口', '补登录单测'],
+      defaultTaskAssigneeId: 'profile-7',
+    });
+    emitStatus(wu, 'done');
+
+    const ok = await waitFor(async () =>
+      (await fileStore.getIndex()).filter(s => s.parentId === wu.id).length === 2);
+    expect(ok).toBe(true);
+    const children = (await fileStore.getIndex()).filter(s => s.parentId === wu.id);
+    expect(children.every(c => c.assigneeId === 'profile-7')).toBe(true);
+
+    // 未指定：子 WU 不带 assigneeId（回池涌现）
+    const wu2 = await createAnalysisWu({ analysisTasks: ['另一个任务'] });
+    emitStatus(wu2, 'done');
+    const ok2 = await waitFor(async () =>
+      (await fileStore.getIndex()).filter(s => s.parentId === wu2.id).length === 1);
+    expect(ok2).toBe(true);
+    const children2 = (await fileStore.getIndex()).filter(s => s.parentId === wu2.id);
+    expect(children2[0].assigneeId).toBeFalsy();
+  });
+
   it('无 TASK 拆分行：不派生，频道提示可手动转任务', async () => {
     const wu = await createAnalysisWu({});
     emitStatus(wu, 'done');
@@ -189,5 +220,104 @@ describe('AnalysisHandoff（PMO 分析接力）', () => {
 
     const msgs = await channelMessages();
     expect(msgs.length).toBe(0);
+  });
+});
+
+// #186（#167 决议，2026-08-16）：trigger 巡检单免确认直转 done / 带 TASK 走闸 + 提示投 Web 收件箱
+describe('#186 trigger 巡检单收口（#167 决议 1/2）', () => {
+  /** 建无频道 analysis WU（trigger 巡检单形态），并真实迁移到 in_review（persistSnapshot 自发事件） */
+  async function createTriggerWuInReview(metadata: WorkUnitMetadata): Promise<WorkUnitData> {
+    const wu = await wuService.create({
+      type: 'analysis',
+      scope: '定时巡检：知识库质量',
+      channelId: null,
+      status: 'active',
+      metadata,
+    });
+    await wuService.transitionStatus(wu.id, 'in_review');
+    return wu;
+  }
+
+  async function freshStatus(id: string): Promise<string | undefined> {
+    return (await fileStore.getIndex()).find(s => s.id === id)?.status;
+  }
+
+  it('决议 1：trigger + 无频道 + 无 TASK → 免确认直转 done（不过人闸、不留痕收件箱）', async () => {
+    const wu = await createTriggerWuInReview({
+      triggerId: 'knowledge-quality',
+      triggerSource: 'trigger-registry',
+      triggeredAt: new Date().toISOString(),
+    });
+
+    const ok = await waitFor(async () => (await freshStatus(wu.id)) === 'done');
+    expect(ok).toBe(true);
+    // 留痕：自动确认标记落档
+    const after = await wuService.getById(wu.id);
+    expect(metaOf(after!.metadata).autoConfirmedBy).toBe('trigger-inspection-no-gate');
+    expect(metaOf(after!.metadata).autoConfirmedAt).toBeTruthy();
+    // 不投收件箱、不派生子 WU
+    expect(mockDispatch).not.toHaveBeenCalled();
+    expect((await fileStore.getIndex()).filter(s => s.parentId === wu.id).length).toBe(0);
+  });
+
+  it('决议 1 边界：analysisTasks 为空数组/空白行 = 无 TASK → 同样直转 done', async () => {
+    const wu = await createTriggerWuInReview({
+      triggerId: 'session-knowledge-extraction',
+      triggerSource: 'trigger-registry',
+      analysisTasks: ['', '   '],
+    });
+
+    const ok = await waitFor(async () => (await freshStatus(wu.id)) === 'done');
+    expect(ok).toBe(true);
+    expect(mockDispatch).not.toHaveBeenCalled();
+  });
+
+  it('决议 2：trigger + 无频道 + 带 TASK → 保留人闸（停 in_review），提示投 Web 收件箱', async () => {
+    const wu = await createTriggerWuInReview({
+      triggerId: 'knowledge-quality',
+      triggerSource: 'trigger-registry',
+      analysisTasks: ['修复失效知识条目'],
+    });
+
+    const ok = await waitFor(() => Promise.resolve(mockDispatch.mock.calls.length === 1));
+    expect(ok).toBe(true);
+    const alerts = mockDispatch.mock.calls[0][0] as Array<{ source: string; level: string; message: string; relatedTaskIds?: string[] }>;
+    expect(alerts[0].source).toBe('analysis_confirm');
+    expect(alerts[0].level).toBe('warning');
+    expect(alerts[0].relatedTaskIds).toContain(wu.id);
+    expect(alerts[0].message).toContain('通过');
+    // 人闸保留：不自动 done、不派生
+    await new Promise(r => setTimeout(r, 150));
+    expect(await freshStatus(wu.id)).toBe('in_review');
+    expect((await fileStore.getIndex()).filter(s => s.parentId === wu.id).length).toBe(0);
+  });
+
+  it('决议 2 边界：非 trigger 的无频道 analysis → 不直转，提示同样投收件箱（修 channelId=null 吞提示）', async () => {
+    const wu = await wuService.create({
+      type: 'analysis',
+      scope: '手动创建的无频道分析',
+      channelId: null,
+      status: 'active',
+      metadata: {},
+    });
+    await wuService.transitionStatus(wu.id, 'in_review');
+
+    const ok = await waitFor(() => Promise.resolve(mockDispatch.mock.calls.length === 1));
+    expect(ok).toBe(true);
+    expect(await freshStatus(wu.id)).toBe('in_review');
+  });
+
+  it('频道发起的 analysis（有 channelId）维持确认闸不变：频道提示、不直转、不投收件箱', async () => {
+    const wu = await createAnalysisWu({
+      triggerId: 'knowledge-quality', // 即便带 trigger 溯源，有频道即走频道闸
+      triggerSource: 'trigger-registry',
+      analysisTasks: ['任务一'],
+    });
+    emitStatus(wu, 'in_review');
+
+    const ok = await waitFor(async () => (await channelMessages()).length === 1);
+    expect(ok).toBe(true);
+    expect(mockDispatch).not.toHaveBeenCalled();
+    expect(await freshStatus(wu.id)).not.toBe('done');
   });
 });

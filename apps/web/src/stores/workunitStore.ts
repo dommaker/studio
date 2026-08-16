@@ -15,7 +15,7 @@ interface WorkUnitState {
   // Actions
   loadWorkUnits: (params?: { status?: string; type?: string; page?: number }) => Promise<void>;
   createWorkUnit: (data: { scope: string; type?: string }) => Promise<WorkUnit>;
-  reviewPassed: (id: string, summary?: string) => Promise<void>;
+  reviewPassed: (id: string, summary?: string, defaultAssigneeId?: string) => Promise<void>;
   reviewRejected: (id: string, reason?: string) => Promise<void>;
   setStatusFilter: (status: string | null) => void;
   setTypeFilter: (type: string | null) => void;
@@ -60,8 +60,8 @@ export const useWorkUnitStore = create<WorkUnitState>((set, get) => ({
     return wu;
   },
 
-  reviewPassed: async (id, summary) => {
-    await workunitApi.reviewPassed(id, summary);
+  reviewPassed: async (id, summary, defaultAssigneeId) => {
+    await workunitApi.reviewPassed(id, summary, defaultAssigneeId);
     await get().loadWorkUnits();
   },
 

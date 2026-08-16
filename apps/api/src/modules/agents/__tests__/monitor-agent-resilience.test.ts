@@ -9,9 +9,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const {
   mockGetIndex,
   mockUpsertSnapshot,
+  mockCommitSnapshot,
 } = vi.hoisted(() => ({
   mockGetIndex: vi.fn(() => Promise.resolve([])),
   mockUpsertSnapshot: vi.fn(() => Promise.resolve()),
+  // #170：close 走锁内成对原语
+  mockCommitSnapshot: vi.fn(() => Promise.resolve()),
 }));
 
 vi.mock('@dommaker/studio-shared', () => ({
@@ -19,6 +22,7 @@ vi.mock('@dommaker/studio-shared', () => ({
   FileStore: class {
     getIndex = mockGetIndex;
     upsertSnapshot = mockUpsertSnapshot;
+    commitSnapshot = mockCommitSnapshot;
     removeSnapshot = vi.fn(() => Promise.resolve());
   },
 }));
@@ -81,6 +85,7 @@ describe('MonitorService auto-fail time-critical workUnits', () => {
     mockGetIndex.mockReset();
     mockGetIndex.mockResolvedValue([]);
     mockUpsertSnapshot.mockReset();
+    mockCommitSnapshot.mockReset();
     vi.mocked(agentRunner.stop).mockReset();
   });
 
@@ -106,8 +111,9 @@ describe('MonitorService auto-fail time-critical workUnits', () => {
     // Should call agentRunner.stop to kill the process
     expect(agentRunner.stop).toHaveBeenCalledWith(execId);
 
-    // Should upsert snapshot with status 'closed'
-    expect(mockUpsertSnapshot).toHaveBeenCalledWith(
+    // Should close snapshot（#170：锁内成对写，completed 事件 + 索引快照）
+    expect(mockCommitSnapshot).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'completed', wuId: execId }),
       expect.objectContaining({ id: execId, status: 'closed' }),
     );
   });

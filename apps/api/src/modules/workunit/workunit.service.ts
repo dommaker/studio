@@ -108,6 +108,11 @@ export class WorkUnitService extends WorkUnitCrudService {
       ...current,
       status: newStatus,
       completedAt: (newStatus === 'done' || newStatus === 'closed') ? isoNow : current.completedAt,
+      // #176（决策 #57 D4）：转入 blocked 统一落死信计时基准 metadata.blockedAt
+      // （24h 自动关闭与 30min 提醒均以此为锚；复活后再次 blocked 刷新）
+      metadata: newStatus === 'blocked'
+        ? JSON.stringify({ ...parseWuMetadata(current.metadata), blockedAt: isoNow })
+        : current.metadata,
       updatedAt: isoNow,
     };
 
@@ -117,8 +122,7 @@ export class WorkUnitService extends WorkUnitCrudService {
       timestamp: isoNow,
       data: updated as unknown as Record<string, unknown>,
     };
-    await this.fileStore.appendEvent(event);
-    await this.fileStore.upsertSnapshot(updated);
+    await this.fileStore.commitSnapshot(event, updated);
 
     // Publish status-change event（REQ roll-up 等订阅消费，best-effort）
     this.publishStatusChanged(updated);
@@ -155,7 +159,7 @@ export class WorkUnitService extends WorkUnitCrudService {
    * F6-c（断点 3）：agent-review 且当前已是 done 且 l2 缺失 → 幂等补写 l2
    * （人工直推 done 抢跑评审链，迟到的评审结论无处落账的补票口），同不改状态、不触发合并。
    */
-  async reviewPassed(id: string, attestation?: ReviewAttestationSource): Promise<WorkUnitData> {
+  async reviewPassed(id: string, attestation?: ReviewAttestationSource, options?: { defaultTaskAssigneeId?: string }): Promise<WorkUnitData> {
     const snapshots = await this.fileStore.getIndex();
     const current = snapshots.find(s => s.id === id);
     if (!current) throw new Error('WorkUnit not found');
@@ -175,6 +179,10 @@ export class WorkUnitService extends WorkUnitCrudService {
 
     const metadata: WorkUnitMetadata = parseWuMetadata(current.metadata);
     delete metadata._consecutiveReviewRejections;
+    // #177：analysis 确认处可选「默认执行角色」落档（analysis-handoff 派生 task 子 WU 时消费）
+    if (options?.defaultTaskAssigneeId) {
+      metadata.defaultTaskAssigneeId = options.defaultTaskAssigneeId;
+    }
     if (attestation) {
       const level = attestation.kind === 'agent-review' ? 'l2' : 'l3';
       metadata.attestations = withAttestation(metadata.attestations, level, this.buildAttestationEntry({
@@ -317,6 +325,7 @@ export class WorkUnitService extends WorkUnitCrudService {
 
     const now = new Date();
     const isoNow = now.toISOString();
+    metadata.blockedAt = isoNow; // #176（决策 #57 D4）：死信计时基准
     const updated: WorkUnitSnapshot = {
       ...current,
       status: 'blocked',
@@ -330,8 +339,7 @@ export class WorkUnitService extends WorkUnitCrudService {
       timestamp: isoNow,
       data: updated as unknown as Record<string, unknown>,
     };
-    await this.fileStore.appendEvent(event);
-    await this.fileStore.upsertSnapshot(updated);
+    await this.fileStore.commitSnapshot(event, updated);
 
     this.publishStatusChanged(updated);
 
@@ -367,6 +375,7 @@ export class WorkUnitService extends WorkUnitCrudService {
 
     const now = new Date();
     const isoNow = now.toISOString();
+    metadata.blockedAt = isoNow; // #176（决策 #57 D4）：死信计时基准
     const updated: WorkUnitSnapshot = {
       ...current,
       status: 'blocked',
@@ -382,8 +391,7 @@ export class WorkUnitService extends WorkUnitCrudService {
       timestamp: isoNow,
       data: updated as unknown as Record<string, unknown>,
     };
-    await this.fileStore.appendEvent(event);
-    await this.fileStore.upsertSnapshot(updated);
+    await this.fileStore.commitSnapshot(event, updated);
 
     this.publishStatusChanged(updated);
 
@@ -428,6 +436,7 @@ export class WorkUnitService extends WorkUnitCrudService {
     if (newStatus === 'blocked') {
       // B4: blocked 原因落盘（2026-08-03 token-burn issue P0-2）
       metadata.blockReason = `review-rejected x${rejections}: ${reason ?? metadata._lastRejectionReason ?? '连续评审拒绝'}`.slice(0, 300);
+      metadata.blockedAt = new Date().toISOString(); // #176（决策 #57 D4）：死信计时基准
     }
 
     // in_review → active/blocked 也是状态变化：status_changed 由 persistSnapshot 尾部补发（列表实时刷新）
@@ -468,7 +477,8 @@ export class WorkUnitService extends WorkUnitCrudService {
 
   /**
    * 评审/验证写入的共用落库尾部：构建 updated 快照（updatedAt=now，可选 status 覆盖 /
-   * markCompleted 置 completedAt=同一此刻）→ appendEvent + upsertSnapshot + publishStatusChanged。
+   * markCompleted 置 completedAt=同一此刻）→ commitSnapshot（#170：appendEvent +
+   * upsertSnapshot 同锁成对）+ publishStatusChanged。
    * 各调用方只保留自身策略：守卫、metadata 变更、事件类型、后续级联（父状态聚合/合并触发）。
    */
   private async persistSnapshot(
@@ -490,8 +500,7 @@ export class WorkUnitService extends WorkUnitCrudService {
       timestamp: isoNow,
       data: updated as unknown as Record<string, unknown>,
     };
-    await this.fileStore.appendEvent(event);
-    await this.fileStore.upsertSnapshot(updated);
+    await this.fileStore.commitSnapshot(event, updated);
     this.publishStatusChanged(updated);
     return updated;
   }
@@ -527,8 +536,7 @@ export class WorkUnitService extends WorkUnitCrudService {
         timestamp: now,
         data: updated as unknown as Record<string, unknown>,
       };
-      await this.fileStore.appendEvent(event);
-      await this.fileStore.upsertSnapshot(updated);
+      await this.fileStore.commitSnapshot(event, updated);
       rebound++;
     }
     if (rebound > 0) {
@@ -538,8 +546,8 @@ export class WorkUnitService extends WorkUnitCrudService {
   }
 }
 
-// 拆分后兼容 re-export（原导入方零改动）：以下符号已迁至 workunit-crud.ts
-export { WU_TIMEOUT_MINUTES, WU_DEFAULT_TIMEOUT_MINUTES } from './workunit-crud.js';
+// 拆分后兼容 re-export（原导入方零改动）：以下符号已迁至 workunit-crud.ts / workunit.types.ts
 export type { CreateWorkUnitInput, UpdateWorkUnitInput, WorkUnitData } from './workunit-crud.js';
+export { WU_LEASE_TTL_MS } from './workunit.types.js';
 
 export type { WorkUnitSnapshot, WorkUnitFilter } from '@dommaker/studio-shared';

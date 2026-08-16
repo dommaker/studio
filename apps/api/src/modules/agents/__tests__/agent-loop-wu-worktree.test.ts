@@ -213,14 +213,16 @@ describe('B3b-i: 每 WU worktree 隔离 + 自动验证', () => {
     expect(step.metadataUpdates?.errorType).toBe('worktree_creation_failed');
     expect(mockExecuteLightweight).not.toHaveBeenCalled();
 
-    // recordResult：记 consecutiveStuck，不发频道消息，状态保持 active
+    // recordResult：记 consecutiveStuck，发一条步失败系统消息（#175），状态保持 active
     await loop().recordResult({ workUnit: wu }, step);
     const after = (await wuService.getById(wu.id))!;
     expect(after.status).toBe('active');
     const meta = await metaOf(wu.id);
     expect(meta.consecutiveStuck).toBe(1);
     expect(meta.errorType).toBe('worktree_creation_failed');
-    expect(await channelTexts(wu.id)).toHaveLength(0);
+    const texts = await channelTexts(wu.id);
+    expect(texts).toHaveLength(1);
+    expect(texts[0]).toContain('执行失败（第 1 次）');
   });
 
   it('非代码类 WU（analysis）：不建 worktree，维持共享目录 cwd', async () => {

@@ -201,7 +201,6 @@ describe('ReviewDispatcher (AC-4.1 ~ AC-4.5 + F4)', () => {
         stepCount: 3,
         consecutiveStuck: 1,
         _cumulativeTokens: 999,
-        lastInputTokens: 123,
         errorType: 'execution_failed',
         errorDetail: 'x',
         errorAt: '2026-07-29T01:00:00Z',
@@ -221,7 +220,6 @@ describe('ReviewDispatcher (AC-4.1 ~ AC-4.5 + F4)', () => {
     expect(meta.stepCount).toBeUndefined();
     expect(meta.consecutiveStuck).toBeUndefined();
     expect(meta._cumulativeTokens).toBeUndefined();
-    expect(meta.lastInputTokens).toBeUndefined();
     expect(meta.errorType).toBeUndefined();
     expect(meta.errorDetail).toBeUndefined();
     expect(meta.errorAt).toBeUndefined();
@@ -491,6 +489,26 @@ describe('ReviewDispatcher (AC-4.1 ~ AC-4.5 + F4)', () => {
       channelId: 'ch-test', status: 'active',
     });
     await expect(dispatcher.dispatchReviewNow(parent.id)).rejects.toThrow('already in flight');
+  });
+
+  it('#170（决策 #65-2）: 并发 dispatchReviewNow 锁内 check-then-create —— 只建一个评审子 WU', async () => {
+    const parent = await wuService.create({
+      scope: '实现功能 K2', type: 'feature', channelId: 'ch-test',
+      assigneeId: executorProfile.id, status: 'in_review',
+    });
+
+    const results = await Promise.allSettled([
+      dispatcher.dispatchReviewNow(parent.id),
+      dispatcher.dispatchReviewNow(parent.id),
+      dispatcher.dispatchReviewNow(parent.id),
+    ]);
+
+    expect(results.filter(r => r.status === 'fulfilled')).toHaveLength(1);
+    for (const r of results) {
+      if (r.status === 'rejected') expect(String(r.reason)).toContain('already in flight');
+    }
+    const snapshots = await fileStore.getIndex();
+    expect(snapshots.filter(s => s.parentId === parent.id && s.type === 'review')).toHaveLength(1);
   });
 
   it('F6-c: WU 不存在 / 无频道 -> 拒绝补派', async () => {
