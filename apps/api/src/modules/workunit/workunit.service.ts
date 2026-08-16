@@ -537,8 +537,8 @@ export class WorkUnitService extends WorkUnitCrudService {
   }
 }
 
-// 拆分后兼容 re-export（原导入方零改动）：以下符号已迁至 workunit-crud.ts
-export { WU_TIMEOUT_MINUTES, WU_DEFAULT_TIMEOUT_MINUTES } from './workunit-crud.js';
+// 拆分后兼容 re-export（原导入方零改动）：以下符号已迁至 workunit-crud.ts / workunit.types.ts
 export type { CreateWorkUnitInput, UpdateWorkUnitInput, WorkUnitData } from './workunit-crud.js';
+export { WU_LEASE_TTL_MS } from './workunit.types.js';
 
 export type { WorkUnitSnapshot, WorkUnitFilter } from '@dommaker/studio-shared';

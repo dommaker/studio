@@ -1,11 +1,10 @@
 /**
  * WorkUnit 类型契约 + 状态机表/超时常量（工单 30 自 workunit.service.ts 头部抽出，纯搬运零逻辑变更）。
- * 内容：WorkUnitMetadata / 输入输出 DTO / VALID_TRANSITIONS（+ #108 按 type 覆盖表 DECISION_SPEC_TYPES/TYPE_VALID_TRANSITIONS）/ 超时常量 / ANALYSIS_TASKS_MAX / resolveClaimTimeoutAt。
- * 零服务依赖（仅 wu-metadata 叶子），供 service 与跨模块类型级消费方直接引用。
+ * 内容：WorkUnitMetadata / 输入输出 DTO / VALID_TRANSITIONS（+ #108 按 type 覆盖表 DECISION_SPEC_TYPES/TYPE_VALID_TRANSITIONS）/ 租约常量（#178 WU_LEASE_TTL_MS）/ ANALYSIS_TASKS_MAX。
+ * 零服务依赖，供 service 与跨模块类型级消费方直接引用。
  */
 
 import type { WuAttestations } from '@dommaker/studio-shared';
-import { parseWuMetadata } from './wu-metadata.js';
 
 /** Metadata JSON schema — fields that don't warrant first-class columns */
 export interface WorkUnitMetadata {
@@ -113,8 +112,9 @@ export interface WorkUnitMetadata {
   errorType?: string;         // 最近一次执行失败类型（如 execution_failed）
   errorDetail?: string;       // 最近一次执行失败详情（截断 500 字符）
   errorAt?: string;           // 最近一次执行失败时间 ISO 8601
-  // P0 修复（WU 超时机制）：claim 写入 timeoutAt 列；metadata.timeoutAt 显式值优先于按 type 的默认时长
-  timeoutAt?: string;         // 显式超时刻 ISO 8601（claim 时优先于默认时长）
+  // #178（#63 决议 1）：租约化后 metadata.timeoutAt 不再被 claim 消费（列值固定 5min 租约，
+  // 心跳推前）；字段保留仅为存量数据兼容，不再写入
+  timeoutAt?: string;         // deprecated：显式超时刻 ISO 8601（#178 起不生效）
   timeoutReleasedAt?: string; // 最近一次超时释放时间 ISO 8601
   timeoutReleaseCount?: number; // 超时释放次数（≥3 → blocked，不再自动回池）
   // 2026-07 PMO-flow UX（§4 terminate 语义修正）：AgentInstanceService.terminate 强制释放留痕
@@ -284,28 +284,12 @@ export function resolveValidTransitions(wuType: string, status: string): string[
 }
 
 /**
- * P0 修复（WU 超时机制）：WU 被认领进入 active 时的默认超时时长（分钟），按 type 区分。
- * metadata.timeoutAt 显式值优先于此表；未知 type 回落 WU_DEFAULT_TIMEOUT_MINUTES。
+ * #178（2026-08-16，#63 决议 1）：WU 租约（lease）TTL 单一固定值 5min。
+ * claim 时写 timeoutAt = now + TTL；持有方 loop 每 30s 心跳推前（agents/loop/lease-heartbeat），
+ * timeout-release 扫描逻辑不变。废除按 type 的 30/60min 预算默认值与 metadata.timeoutAt
+ * 显式值优先（任务预算归 maxTurns + token 记账，#54）。
  */
-export const WU_TIMEOUT_MINUTES: Record<string, number> = {
-  task: 60,
-  bug: 60,
-  feature: 60,
-  review: 30,
-  analysis: 30,
-};
-export const WU_DEFAULT_TIMEOUT_MINUTES = 60;
+export const WU_LEASE_TTL_MS = 5 * 60_000;
 
 /** analysis 任务拆分上限（agent-loop 解析 TASK: 行 / analysis-handoff 派生子 WU 共用） */
 export const ANALYSIS_TASKS_MAX = 8;
-
-/** claim 时的 timeoutAt 决策：metadata.timeoutAt 显式值优先，否则按 WU type 给默认时长 */
-export function resolveClaimTimeoutAt(wuType: string, metadataRaw: string | null): Date {
-  const meta = parseWuMetadata(metadataRaw);
-  if (typeof meta.timeoutAt === 'string') {
-    const explicit = new Date(meta.timeoutAt);
-    if (!Number.isNaN(explicit.getTime())) return explicit;
-  }
-  const minutes = WU_TIMEOUT_MINUTES[wuType] ?? WU_DEFAULT_TIMEOUT_MINUTES;
-  return new Date(Date.now() + minutes * 60_000);
-}

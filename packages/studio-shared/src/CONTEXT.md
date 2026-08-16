@@ -41,6 +41,7 @@
 - 数据根：`studioDir()`（config/studio-dir）= `STUDIO_HOME` 或 `~/.studio`；config.env 与 `STUDIO_DATA_DIR ??=` 钉值均走它。dev 启动（scripts/dev/start.sh、apps/api dev script）默认 `STUDIO_HOME=~/.studio-dev`，prod systemd 显式 `/root/.studio`；非 production 指向缺省根时 `warnIfNonProdUsesProdRoot()` 落 warning（config/index.ts 初始化 + apps/api 入口显式调用，幂等）
 - `studioDir()` 内含 vitest 内建模块双视图兼容层（resolveHomedir）：仓库测试对 `os.homedir` 有四种互不兼容的 mock 风格，该层保证迁移后的 SUT 在旧 mock 下仍被隔离；生产两视图恒等。测试收敛到 env 隔离后可删除（见 code-review follow-up）
 - `FileStore` 使用 `flock` 目录锁（`mkdir` 原子操作）保障 claim 原子性
+- `file-store-workunit.ts` 锁内复合原语（#170 起）：`commitSnapshot`/`commitRemoval`/`updateMetadata`/`createSnapshotGuarded`/`reconcileIndex`；#178 增 `refreshWorkUnitLease(wuId, expectedAssigneeId, expectedClaimedAt, timeoutAt)`——WU 租约心跳的锁内 fencing 写（claimedAt 代际令牌 + assigneeId 双比对与 timeoutAt 推前同锁原子），返回 'ok'/'lost'/'missing'，事件 data 走增量（reduce 合并语义）
 - `FileStore` 的 readJson/readJsonl/readdir 走模块级读穿缓存（stat mtime 校验 + 写/删精确失效，工单 26 A1）；缓存命中返回结构克隆，调用方 mutate 返回值不会污染缓存；`readIndexFile` 保持无缓存（锁内跨进程正确性）
 - `FileStore` 的 Requirement/Evolution 段共用泛型「序号分配型条目存储」实现（`SeqEntryStoreConfig`，工单 26 A2），新增同类存储应加配置而非复制段
 - 事件总线支持通配符（`*`）模式订阅，Handler 异常不会影响其他监听器

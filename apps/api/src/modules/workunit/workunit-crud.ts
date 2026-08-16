@@ -12,7 +12,7 @@
 
 import { randomUUID } from 'crypto';
 import { logger, eventBus, FileStore, type AgentProfileData, type ChannelMessageData, type WorkUnitSnapshot, type WorkUnitEvent } from '@dommaker/studio-shared';
-import { resolveInitialStatus } from './workunit.types.js';
+import { resolveInitialStatus, WU_LEASE_TTL_MS } from './workunit.types.js';
 import type { WorkUnitMetadata } from './workunit.service.js';
 
 export interface CreateWorkUnitInput {
@@ -74,32 +74,11 @@ export interface WorkUnitData {
 }
 
 /**
- * P0 修复（WU 超时机制）：WU 被认领进入 active 时的默认超时时长（分钟），按 type 区分。
- * metadata.timeoutAt 显式值优先于此表；未知 type 回落 WU_DEFAULT_TIMEOUT_MINUTES。
+ * #178（2026-08-16，#63 决议 1）：claim 租约化 —— timeoutAt = 固定 5min 租约
+ * （WU_LEASE_TTL_MS，常量在 workunit.types.ts），持有方 loop 每 30s 心跳推前；
+ * 废除按 type 的 30/60min 预算默认值、metadata.timeoutAt 显式值优先与「已有列值不动」
+ * （租约语义下认领即发新租约；任务预算归 maxTurns + token 记账，#54）。
  */
-export const WU_TIMEOUT_MINUTES: Record<string, number> = {
-  task: 60,
-  bug: 60,
-  feature: 60,
-  review: 30,
-  analysis: 30,
-};
-export const WU_DEFAULT_TIMEOUT_MINUTES = 60;
-
-/** claim 时的 timeoutAt 决策：metadata.timeoutAt 显式值优先，否则按 WU type 给默认时长 */
-function resolveClaimTimeoutAt(wuType: string, metadataRaw: string | null): Date {
-  if (metadataRaw) {
-    try {
-      const meta = JSON.parse(metadataRaw) as WorkUnitMetadata;
-      if (typeof meta.timeoutAt === 'string') {
-        const explicit = new Date(meta.timeoutAt);
-        if (!Number.isNaN(explicit.getTime())) return explicit;
-      }
-    } catch { /* 元数据损坏按无显式值处理 */ }
-  }
-  const minutes = WU_TIMEOUT_MINUTES[wuType] ?? WU_DEFAULT_TIMEOUT_MINUTES;
-  return new Date(Date.now() + minutes * 60_000);
-}
 
 // ── 转换函数 ──
 
@@ -397,7 +376,7 @@ export class WorkUnitCrudService {
     try {
       meta = JSON.parse(metadataRaw) as WorkUnitMetadata;
     } catch {
-      // 元数据损坏按无显式值处理（与 resolveClaimTimeoutAt 容错口径一致），不阻断 claim
+      // 元数据损坏按无文件列表处理，不阻断 claim
       return [];
     }
     const files = meta.files;
@@ -461,13 +440,12 @@ export class WorkUnitCrudService {
 
     // 决策 7: skill 匹配已从 claim 挪到 agent-loop step 时（消竞态、吃到 skill 库最新版），
     // claim 不再做 skill 自动加载/落盘。
-    // P0 修复（WU 超时机制）：认领进入 active 时写入 timeoutAt（workunit-timeout
-    // 扫描的判定字段）。已有列值不动；metadata.timeoutAt 显式值优先；否则按 type 给默认时长。
-    if (!wu.timeoutAt) {
-      const timeoutAt = resolveClaimTimeoutAt(wu.type, wu.metadata);
-      await this.update(id, { timeoutAt });
-      wu.timeoutAt = timeoutAt.toISOString();
-    }
+    // #178（#63 决议 1）：租约制 —— 认领即写固定 5min 租约 timeoutAt（workunit-timeout
+    // 扫描的判定字段；已有列值/显式 metadata 值一律刷新，租约语义下认领即发新租约）。
+    // 持有期间由 loop 30s 心跳经 refreshWorkUnitLease 推前（agents/loop/lease-heartbeat）。
+    const timeoutAt = new Date(Date.now() + WU_LEASE_TTL_MS);
+    await this.update(id, { timeoutAt });
+    wu.timeoutAt = timeoutAt.toISOString();
     // 认领即状态变化（unassigned → active）：补发 status_changed（WU 列表实时刷新/接力订阅消费）
     this.publishStatusChanged(wu);
     return snapshotToData(wu);

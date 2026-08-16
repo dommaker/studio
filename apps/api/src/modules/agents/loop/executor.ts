@@ -11,6 +11,8 @@ import type { AgentTask, ExecutionResult } from '@dommaker/studio-agent';
 /** 执行器接口：输入 AgentTask（agent-loop 已构建的形状），输出 ExecutionResult。 */
 export interface Executor {
   execute(task: AgentTask): Promise<ExecutionResult>;
+  /** #178（#63 决议 2）：fencing 易主时杀 executionId 对应 CLI 的整进程组（best-effort） */
+  stopProcessGroup?(executionId: string): Promise<void>;
 }
 
 /**
@@ -19,5 +21,10 @@ export interface Executor {
 export class LocalExecutor implements Executor {
   execute(task: AgentTask): Promise<ExecutionResult> {
     return agentRunner.executeLightweight(task);
+  }
+
+  async stopProcessGroup(executionId: string): Promise<void> {
+    // 测试 mock 可能未提供该方法（旧用例零感知），可选调用
+    await agentRunner.stopProcessGroup?.(executionId);
   }
 }

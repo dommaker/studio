@@ -223,6 +223,42 @@ export class FileStoreWorkUnitBase extends FileStoreBase {
   }
 
   /**
+   * #178（#63 决议 1/2）锁内租约心跳：fencing（claimedAt 代际令牌 + assigneeId 双比对）
+   * 与 timeoutAt 推前收进同一把 workunits flock——僵尸 holder 醒来一跳心跳无法覆盖新
+   * holder 的租约（校验在锁内、与写入原子）。心跳高频写只更新 timeoutAt/updatedAt 两个
+   * 字段，事件 data 走增量（reduce 合并语义）。
+   * @returns 'ok' = 已推前；'lost' = 易主（令牌/assignee 不匹配，一字未写）；'missing' = WU 不存在
+   */
+  async refreshWorkUnitLease(
+    wuId: string,
+    expectedAssigneeId: string,
+    expectedClaimedAt: string,
+    timeoutAt: Date,
+  ): Promise<'ok' | 'lost' | 'missing'> {
+    return this.withLock(this.lockDir, async () => {
+      const snapshots = (await this.readIndexFile()) ?? [];
+      const current = snapshots.find(s => s.id === wuId);
+      if (!current) return 'missing';
+      if (current.assigneeId !== expectedAssigneeId || current.claimedAt !== expectedClaimedAt) {
+        return 'lost';
+      }
+
+      const isoNow = new Date().toISOString();
+      const isoTimeout = timeoutAt.toISOString();
+      const updated: WorkUnitSnapshot = { ...current, timeoutAt: isoTimeout, updatedAt: isoNow };
+      const event: WorkUnitEvent = {
+        type: 'updated',
+        wuId,
+        timestamp: isoNow,
+        data: { timeoutAt: isoTimeout, updatedAt: isoNow },
+      };
+      await this.appendJsonl(this.eventsPath, event);
+      await this.upsertSnapshotLocked(updated);
+      return 'ok';
+    });
+  }
+
+  /**
    * 锁内字段级 metadata 合并写（#65-1）：锁内读最新 metadata → 应用 mutator →
    * appendEvent('updated') + upsertSnapshotLocked 一次落盘。
    * 调用方（recordResult / pendingReplies 追加等）只把本步字段级增量交给 mutator，

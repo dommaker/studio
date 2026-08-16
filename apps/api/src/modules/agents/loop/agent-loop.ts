@@ -49,6 +49,7 @@ import { composeStepPrompt } from './prompt-composer.js';
 import { handleDelegateBranch } from './delegate-branch.js';
 import { shouldResumeSession, RESUME_FAILURE_RE } from './session-resume.js';
 import { isContextOverflowError, buildRollingSummary, OVERFLOW_SUMMARY_HEADER } from './context-overflow.js';
+import { startLeaseHeartbeat } from './lease-heartbeat.js';
 import { appendTranscriptStep, transcriptPath } from '../../transcripts/transcript-archive.js';
 
 // 输出解析/prompt 构建纯函数已抽到 ./agent-loop-parsers.js（工单 28，行为不变）；
@@ -128,6 +129,10 @@ export class AgentLoop {
   private executor: Executor;
   /** 2026-07 PMO-flow UX（§6-2）：最后一次已发布的 instance 状态（SSE 去重——状态不变不发） */
   private lastPublishedStatus: string | null = null;
+  /** #178（#63 决议 1/2）：当前持有 WU 的租约心跳轨道（fencing 代际令牌 = claimedAt ISO） */
+  private lease: { wuId: string; claimedAt: string; stop: () => void } | null = null;
+  /** #178（#63 决议 2）：当前步 executionId——易主时据此经 Executor 杀自身 CLI 进程组 */
+  private currentExecutionId: string | null = null;
 
   constructor(role: AgentProfileData, fileStore?: FileStore) {
     this.role = role;
@@ -337,8 +342,14 @@ export class AgentLoop {
           this.publishInstanceStatus('active', target.workUnit.id);
         }
 
+        // #178（#63 决议 1）：持有中 WU 的 30s 租约心跳（claim 与 myActive 续跑统一入口）
+        this.ensureLease(target.workUnit);
+
         const result = await this.agentStep(target);
         await this.recordResult(target, result);
+        // #178（#63 决议 1）：WU 离开 active（complete→in_review/done、need_input→blocked）
+        // 或已易主 → 停租约心跳（blocked 不进超时扫描；复活回 active 时 ensureLease 重开）
+        await this.releaseLeaseIfForfeited(target.workUnit.id);
         await sleep(dynamicInterval(result));
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
@@ -367,6 +378,87 @@ export class AgentLoop {
       fileStore: this.fileStore,
     }).catch(err => logger.warn(`[AgentLoop] Failed to announce claim for ${workUnit.id}: ${err instanceof Error ? err.message : String(err)}`));
     return true;
+  }
+
+  /**
+   * #178（#63 决议 1/2）：为持有中的 WU 确保租约心跳在跑。
+   * 新认领与 myActive 续跑（含 blocked 复活回 active）统一经此进入；令牌（wuId+claimedAt）
+   * 与在跑轨道一致时幂等跳过，令牌换代（如本实例重新认领）先停旧轨再开新轨。
+   */
+  private ensureLease(wu: WorkUnitData): void {
+    if (!this.instance) return;
+    const claimedAt = wu.claimedAt?.toISOString();
+    if (!claimedAt || wu.assigneeId !== this.instance.id) return;
+    if (this.lease && this.lease.wuId === wu.id && this.lease.claimedAt === claimedAt) return;
+    this.stopLease();
+    this.lease = {
+      wuId: wu.id,
+      claimedAt,
+      stop: startLeaseHeartbeat({
+        fileStore: this.fileStore,
+        wuId: wu.id,
+        claimedAt,
+        assigneeId: this.instance.id,
+        onLost: (reason) => { void this.handleLeaseLost(wu.id, reason); },
+      }),
+    };
+  }
+
+  /** 停止租约心跳（幂等） */
+  private stopLease(): void {
+    if (!this.lease) return;
+    this.lease.stop();
+    this.lease = null;
+  }
+
+  /**
+   * #178（#63 决议 2）：fencing 校验 —— 步结果回写前 / 状态迁移前比对 claimedAt 代际令牌
+   * （「每次心跳前」校验由 refreshWorkUnitLease 锁内原子完成）。无租约轨道（未 start 的
+   * 测试直调等）不拦，保持既有行为。
+   */
+  private async stillHoldsLease(wuId: string): Promise<boolean> {
+    if (!this.lease || this.lease.wuId !== wuId || !this.instance) return true;
+    const snap = (await this.fileStore.getIndex()).find(s => s.id === wuId);
+    return !!snap && snap.assigneeId === this.instance.id && snap.claimedAt === this.lease.claimedAt;
+  }
+
+  /**
+   * #178（#63 决议 2）：易主善后 —— 停止心跳、杀自身 CLI 进程组（best-effort）、
+   * 静默退出该 WU（不发频道消息、不写回：fencing 语义就是「旧 holder 一字不再写」）。
+   */
+  private async handleLeaseLost(wuId: string, reason: 'lost' | 'missing'): Promise<void> {
+    if (this.lease?.wuId === wuId) this.stopLease();
+    logger.warn(`[AgentLoop] Lease lost for ${wuId} (${reason}) — fencing: killing own CLI process group, abandoning WU`);
+    const executionId = this.currentExecutionId;
+    if (executionId) {
+      try {
+        await this.executor.stopProcessGroup?.(executionId);
+      } catch (err) {
+        logger.warn(`[AgentLoop] stopProcessGroup failed (non-blocking): ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+  }
+
+  /**
+   * #178（#63 决议 2）：状态迁移前 fencing —— 易主即善后并返回 false（调用方立即静默退出），
+   * 持有有效才执行真实迁移。
+   */
+  private async transitionIfHeld(wuId: string, status: string): Promise<boolean> {
+    if (!(await this.stillHoldsLease(wuId))) {
+      await this.handleLeaseLost(wuId, 'lost');
+      return false;
+    }
+    await this.workUnitService.transitionStatus(wuId, status);
+    return true;
+  }
+
+  /** #178（#63 决议 1）：WU 离开 active 或已易主 → 停租约心跳（recordResult 后调用） */
+  private async releaseLeaseIfForfeited(wuId: string): Promise<void> {
+    if (!this.lease || this.lease.wuId !== wuId) return;
+    const snap = (await this.fileStore.getIndex()).find(s => s.id === wuId);
+    if (!snap || snap.status !== 'active' || !(await this.stillHoldsLease(wuId))) {
+      this.stopLease();
+    }
   }
 
   /**
@@ -417,6 +509,7 @@ export class AgentLoop {
   /** Stop the agent loop and clean up */
   stop(): void {
     this.alive = false;
+    this.stopLease(); // #178: 停租约心跳（WU 租约到期后由扫描释放，不再续命）
     if (this.triggerId) {
       getTriggerScheduler().unregisterTrigger(this.triggerId);
     }
@@ -824,6 +917,8 @@ export class AgentLoop {
     try {
       // Layer B: step 开始信号（CLI 首行到达前抽屉即有反馈）
       void emitExecutionStreamStepStart({ workUnitId: wu.id, executionId, step: stepNo }).catch(() => {});
+      // #178（#63 决议 2）：fencing 易主时按 executionId 杀自身 CLI 进程组（finally 清除）
+      this.currentExecutionId = executionId;
       // §9.6: 经 Executor 接口执行（P0 恒为 LocalExecutor → agentRunner.executeLightweight）
       let result: ExecutionResult = await this.executor.execute(task);
 
@@ -1091,6 +1186,9 @@ export class AgentLoop {
         summary: `Agent execution failed: ${message}`,
         metadataUpdates,
       };
+    } finally {
+      // #178: 步结束（含被杀/异常）清除当前 executionId，fencing 杀进程组只针对在飞步
+      this.currentExecutionId = null;
     }
   }
 
@@ -1220,6 +1318,14 @@ export class AgentLoop {
     const wuId = target.workUnit.id;
     const wu = await this.workUnitService.getById(wuId);
     if (!wu) return;
+
+    // #178（#63 决议 2）：fencing —— 步结果回写前比对 claimedAt 代际令牌。
+    // 易主（超时释放后被他人认领 / 释放回池）→ 放弃回写、杀自身 CLI 进程组、
+    // 停止心跳、静默退出（旧 holder 一字不再写，新 holder 的上下文不被污染）。
+    if (!(await this.stillHoldsLease(wuId))) {
+      await this.handleLeaseLost(wuId, 'lost');
+      return;
+    }
 
     // 提交守卫/自动验证必须以「持久化 + 本 step metadataUpdates」的合并视图为准
     // （首 step 的 worktreePath 尚未落库，只看持久化值会漏拦 → 假 complete；
@@ -1419,9 +1525,8 @@ export class AgentLoop {
 
     // B3b-i: 自动验证连续失败 ≥3 次 → blocked 并频道说明（优先于 step limit / 状态迁移）
     if (verifyBlocked) {
-      if (wu.status !== 'blocked') {
-        await this.workUnitService.transitionStatus(wuId, 'blocked');
-      }
+      // #178（#63 决议 2）：状态迁移前 fencing，易主即静默退出
+      if (wu.status !== 'blocked' && !(await this.transitionIfHeld(wuId, 'blocked'))) return;
       // #172（#60 决策 Q1）：WU 级终态失败事件落盘（level=warning，#62 失败趋势探测数据源）
       void emitWorkUnitFailedEvent({
         workUnitId: wuId,
@@ -1453,16 +1558,16 @@ export class AgentLoop {
     // Monitoring: step limit（review WU 用放宽阈值，见 REVIEW_STEP_LIMIT 注释）
     if (stepCount > (wu.type === 'review' ? REVIEW_STEP_LIMIT : STEP_LIMIT)) {
       // C-2 fix: blocked→in_review is not in VALID_TRANSITIONS, go through active first
-      if (wu.status === 'blocked') {
-        await this.workUnitService.transitionStatus(wuId, 'active');
-      }
-      await this.workUnitService.transitionStatus(wuId, 'in_review');
+      // #178（#63 决议 2）：状态迁移前 fencing，易主即静默退出
+      if (wu.status === 'blocked' && !(await this.transitionIfHeld(wuId, 'active'))) return;
+      if (!(await this.transitionIfHeld(wuId, 'in_review'))) return;
       await this.postToDiscussionSpace(wuId, '步骤数超限，强制提交审查');
       return;
     }
     // Monitoring: stuck detection
     if (consecutiveStuck >= 3) {
-      await this.workUnitService.transitionStatus(wuId, 'blocked');
+      // #178（#63 决议 2）：状态迁移前 fencing，易主即静默退出
+      if (!(await this.transitionIfHeld(wuId, 'blocked'))) return;
       // #172（#60 决策 Q1）：WU 级终态失败事件落盘（level=warning）。
       // failureType 取本步 errorType（execution_failed / worktree_creation_failed 等），
       // 无 errorType 的纯停滞（连续 need_input/progress 无进展）记 'stuck'。
@@ -1490,13 +1595,12 @@ export class AgentLoop {
     }
 
     // State transitions by action (§10.5: 使用守卫降级后的 action；§4.2: 新鲜度拦截时不发帖)
+    // #178（#63 决议 2）：全部迁移走 transitionIfHeld（迁移前 fencing，易主即静默退出）。
     // 非空守卫：summary 为空（如 CLI 成功但无文本输出）不发帖，避免频道空消息。
     switch (action) {
       case 'progress':
         if (!skipResultPost && result.summary.trim().length > 0) await this.postToDiscussionSpace(wuId, result.summary);
-        if (wu.status === 'blocked') {
-          await this.workUnitService.transitionStatus(wuId, 'active');
-        }
+        if (wu.status === 'blocked' && !(await this.transitionIfHeld(wuId, 'active'))) return;
         break;
       case 'complete':
         // 2026-07 PMO-flow UX（§6-3）：COMPLETE 完成汇报里程碑 —— meta 带 pmoId（可解析时）+ atHuman
@@ -1504,16 +1608,12 @@ export class AgentLoop {
           await this.postToDiscussionSpace(wuId, result.summary, wu);
         }
         // C-2 fix: blocked→in_review is not in VALID_TRANSITIONS, go through active first
-        if (wu.status === 'blocked') {
-          await this.workUnitService.transitionStatus(wuId, 'active');
-        }
-        await this.workUnitService.transitionStatus(wuId, 'in_review');
+        if (wu.status === 'blocked' && !(await this.transitionIfHeld(wuId, 'active'))) return;
+        if (!(await this.transitionIfHeld(wuId, 'in_review'))) return;
         // P0 修复（reviewReport 回传断链）：review 子 WU 不再被二次评审
         // （ReviewDispatcher 路径 A 跳过 type=review），complete 后直接收口 done，
         // 触发路径 B 读取 metadata.reviewReport 判定父 WU reviewPassed/reviewRejected。
-        if (wu.type === 'review') {
-          await this.workUnitService.transitionStatus(wuId, 'done');
-        }
+        if (wu.type === 'review' && !(await this.transitionIfHeld(wuId, 'done'))) return;
         break;
       case 'need_input':
         // 2026-07 PMO-flow UX（§6-3）：NEED_INPUT 里程碑 —— meta 带 pmoId（可解析时）+ atHuman
@@ -1521,9 +1621,8 @@ export class AgentLoop {
           await this.postToDiscussionSpace(wuId, `需要输入: ${result.summary}`, wu);
         }
         // F5: 挂起 — 守卫重复 NEED_INPUT（blocked → blocked 不在 VALID_TRANSITIONS 中）
-        if (wu.status !== 'blocked') {
-          await this.workUnitService.transitionStatus(wuId, 'blocked');
-        }
+        // #178（#63 决议 2）：状态迁移前 fencing，易主即静默退出
+        if (wu.status !== 'blocked' && !(await this.transitionIfHeld(wuId, 'blocked'))) return;
         break;
       case 'failed':
         // W-3 接线 + #175（#55 决策 2）：CLI 执行失败 —— 发一条「执行失败（第 N 次）：原因截断」
