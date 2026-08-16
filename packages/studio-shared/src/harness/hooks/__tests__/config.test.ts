@@ -76,6 +76,18 @@ describe('runHook — errorStrategy 执行（safeCallHook 接替者）', () => {
     ).resolves.toBeUndefined();
   });
 
+  it('warn hook 失败按 warn 口径记录警告（errorStrategy=warn 文案）', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      await runHook('afterAgentComplete', async () => { throw new Error('boom'); });
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      expect(warnSpy.mock.calls[0][0]).toBe('[HarnessHook] afterAgentComplete failed (warn):');
+      expect(warnSpy.mock.calls[0][1]).toBe('boom');
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
   it('禁用的 hook 不执行', async () => {
     process.env.HARNESS_HOOK_DISABLE = 'checkBeforeTaskComplete';
     const fn = vi.fn();
