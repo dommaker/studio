@@ -5,7 +5,7 @@
 import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { checkBeforeExecution, getTraceCollector } from '@dommaker/harness';
-import type { ConstraintContext } from '@dommaker/harness';
+import type { ConstraintContext, HookDefinition } from '@dommaker/harness';
 import { runHook } from './config';
 import { formatConstraintsForPrompt } from '../prompt-injection';
 
@@ -96,3 +96,26 @@ export async function afterAgentComplete(params?: {
     }
   });
 }
+
+/**
+ * 导出即注册（C1）：buildAgentConstraintPrompt 是同步直接调用助手，不进管线，
+ * 无 HookDefinition（与声明表一致）。
+ */
+export const agentHookDefinitions: HookDefinition[] = [
+  {
+    name: 'beforeAgentExecute',
+    phase: 'before',
+    execute: async (ctx: any) => {
+      await beforeAgentExecute(ctx);
+      return { passed: true };
+    },
+  },
+  {
+    name: 'afterAgentComplete',
+    phase: 'after',
+    execute: async (params: any) => {
+      await afterAgentComplete(params);
+      return { passed: true };
+    },
+  },
+];

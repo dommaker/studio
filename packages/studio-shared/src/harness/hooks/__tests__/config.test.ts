@@ -93,6 +93,27 @@ describe('assertHookRegistryClosed — 声明 ↔ 注册双向闭环', () => {
     delete process.env.HARNESS_HOOK_DISABLE;
   });
 
+  it('C1 导出即注册：定义由各 hook 模块导出、聚合无手工清单', async () => {
+    const goal = await import('../goal.hooks');
+    const agent = await import('../agent.hooks');
+    const completion = await import('../completion.hooks');
+    const pr = await import('../pr.hooks');
+
+    const moduleDefs = [
+      ...goal.goalHookDefinitions,
+      ...agent.agentHookDefinitions,
+      ...completion.completionHookDefinitions,
+      ...pr.prHookDefinitions,
+    ];
+    const moduleNames = moduleDefs.map(d => d.name).sort();
+    expect(moduleNames).toEqual([
+      'afterAgentComplete', 'afterPrCreated', 'afterReview',
+      'beforeAgentDispatch', 'beforeAgentExecute', 'beforeGoalCreate', 'checkBeforeTaskComplete',
+    ]);
+    // 注册聚合 = 模块导出并集（不再有 register.ts 手工清单）
+    expect(buildHookDefinitions().map(d => d.name).sort()).toEqual(moduleNames);
+  });
+
   it('正例：声明表与注册定义完全闭合', () => {
     expect(() => assertHookRegistryClosed(getAllHookConfigs(), buildHookDefinitions())).not.toThrow();
   });

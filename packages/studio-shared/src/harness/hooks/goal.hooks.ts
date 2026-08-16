@@ -5,7 +5,7 @@
  */
 
 import { checkBeforeExecution, CheckCache } from '@dommaker/harness';
-import type { ConstraintContext } from '@dommaker/harness';
+import type { ConstraintContext, HookDefinition } from '@dommaker/harness';
 import { runHook } from './config';
 
 /**
@@ -33,6 +33,29 @@ export async function beforeGoalCreate(ctx: ConstraintContext): Promise<void> {
     );
   });
 }
+
+/**
+ * 导出即注册（C1）：hook 函数与 HookDefinition 同文件导出，
+ * 注册表聚合见 hooks/register.ts；enabled/errorStrategy 由注册表按声明表合并。
+ */
+export const goalHookDefinitions: HookDefinition[] = [
+  {
+    name: 'beforeGoalCreate',
+    phase: 'before',
+    execute: async (ctx: any) => {
+      await beforeGoalCreate(ctx);
+      return { passed: true };
+    },
+  },
+  {
+    name: 'beforeAgentDispatch',
+    phase: 'before',
+    execute: async (ctx: any) => {
+      await beforeAgentDispatch(ctx);
+      return { passed: true };
+    },
+  },
+];
 
 /** Agent dispatch 前：Iron Laws + 前置条件 */
 export async function beforeAgentDispatch(ctx: ConstraintContext & {

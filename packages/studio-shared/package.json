@@ -47,7 +47,7 @@
     }
   },
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && npx tsx ../../scripts/tools/hooks-closure-check.ts",
     "test": "vitest run",
     "test:watch": "vitest"
   },
