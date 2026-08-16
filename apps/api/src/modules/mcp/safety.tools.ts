@@ -10,7 +10,7 @@ import type { RegisteredTool } from './tool-registry.js';
 
 const checkConstraint: RegisteredTool = {
   name: 'checkConstraint',
-  description: '检查操作是否违反安全约束（Iron Laws + Guidelines + Tips）',
+  description: '检查操作是否违反安全约束（Iron Laws + Guidelines）',
   inputSchema: {
     type: 'object',
     properties: {
