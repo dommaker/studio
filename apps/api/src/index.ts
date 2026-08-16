@@ -289,20 +289,10 @@ async function start() {
     // ── Agent Timeout Scan（超时释放 handler）──
     const { registerExecuteHandler } = await import('./modules/triggers/trigger-action.js');
     registerExecuteHandler('agent-timeout-scan', async () => {
-      const { AgentInstanceService } = await import('./modules/agents/agent-instance.service.js');
+      const { scanStaleAgentInstances } = await import('./modules/agents/instance-timeout-scan.js');
       const { FileStore } = await import('@dommaker/studio-shared');
-      const TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
-      const threshold = Date.now() - TIMEOUT_MS;
-      const fileStore = new FileStore();
-      const allStates = await fileStore.listStates();
-      const stale = allStates.filter(s => s.status !== 'terminated' && s.status !== 'error' && (s.lastHeartbeat ? new Date(s.lastHeartbeat).getTime() < threshold : true));
-      const svc = new AgentInstanceService(fileStore);
-      for (const inst of stale) {
-        await svc.terminate(inst.id).catch(err =>
-          logger.warn(`[AgentTimeout] Failed to terminate ${inst.id}: ${err}`)
-        );
-      }
-      if (stale.length > 0) logger.info(`[AgentTimeout] Terminated ${stale.length} stale instances`);
+      const result = await scanStaleAgentInstances(new FileStore());
+      if (result.terminated > 0) logger.info(`[AgentTimeout] Terminated ${result.terminated} stale instances`);
     });
 
     // ── F5: NEED_INPUT 挂起超时提醒 handler ──
@@ -453,6 +443,14 @@ async function start() {
       try {
         const { agentLoopRegistry } = await import('./modules/agents/loop/agent-loop-registry.js');
         agentLoopRegistry.unmountAll();
+      } catch {}
+
+      // #179（#66 决议 2）：SIGTERM 杀全部在飞 CLI 进程组（不等 step 落盘，
+      // 5s 强制 exit 纪律不变；在飞 WU 由 #63 租约到期回收）
+      try {
+        const { agentRunner } = await import('@dommaker/studio-agent');
+        const killed = await agentRunner.stopAllProcessGroups();
+        if (killed > 0) logger.info(`[Shutdown] SIGTERM sent to ${killed} in-flight CLI process group(s)`);
       } catch {}
 
       if (cloudflaredProc) { cloudflaredProc.kill(); cloudflaredProc = null; }

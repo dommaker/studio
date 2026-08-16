@@ -59,7 +59,8 @@ export type MonitorAlertSource =
   | 'tool_error_rate'
   | 'tool_zero_success'
   | 'session_file_size'
-  | 'wu_index_reconcile'; // #170（决策 #65-3）：启动对账 events vs index 分叉告警
+  | 'wu_index_reconcile' // #170（决策 #65-3）：启动对账 events vs index 分叉告警
+  | 'agent_timeout_scan'; // #179（#66 决议 3）：心跳过期但 pid 活（疑似 FileStore 故障）告警
 
 export interface MonitorAlert {
   level: 'info' | 'warning' | 'critical';

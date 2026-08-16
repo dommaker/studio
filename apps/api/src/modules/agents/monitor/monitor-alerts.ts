@@ -71,6 +71,7 @@ export function escalateToTriage(alerts: MonitorAlert[]): void {
     tool_zero_success: null,
     session_file_size: null,
     wu_index_reconcile: null, // #170：对账分叉已自动重建，无需 Triage 升级
+    agent_timeout_scan: 'execution_heartbeat_lost', // #179：疑似 FileStore 故障（仅 critical 才升级，本告警为 warning 不触发）
   };
 
   for (const alert of alerts) {

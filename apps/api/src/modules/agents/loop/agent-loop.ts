@@ -109,6 +109,9 @@ const MAX_SESSIONS_PER_WU = 5;
 const IDLE_HEARTBEAT_INTERVAL_MS = 45_000;
 /** 单活实例守卫：心跳/启动时间新鲜度阈值（idle 心跳 45s 一跳，留近 3 跳余量） */
 const LIVE_HOLDER_THRESHOLD_MS = 120_000;
+/** #179（#66 决议 3 loop 侧）：实例心跳写连败上限 —— 连败 3 次（idle 45s 一跳 ≈90s）
+ *  判定 FileStore 故障，loop 自我了断（同 #63 fencing 哲学） */
+const HEARTBEAT_FAIL_LIMIT = 3;
 
 // §10 P0 注入总预算（2K 红线）随 prompt 组装段一并迁到 ./prompt-composer.js（2026-08 工单 05）
 
@@ -133,6 +136,8 @@ export class AgentLoop {
   private lease: { wuId: string; claimedAt: string; stop: () => void } | null = null;
   /** #178（#63 决议 2）：当前步 executionId——易主时据此经 Executor 杀自身 CLI 进程组 */
   private currentExecutionId: string | null = null;
+  /** #179（#66 决议 3 loop 侧）：实例心跳写连败计数（成功即清零，连败 HEARTBEAT_FAIL_LIMIT 次自裁） */
+  private consecutiveHeartbeatFailures = 0;
 
   constructor(role: AgentProfileData, fileStore?: FileStore) {
     this.role = role;
@@ -333,11 +338,13 @@ export class AgentLoop {
 
         // Update heartbeat + status=active (fix: monitoring.active was always 0)
         if (this.instance) {
-          await this.fileStore.updateState(this.instance.id, {
+          // #179（#66 决议 3 loop 侧）：心跳写连败 ≈3 次自裁；自裁后中止本次迭代不开新 step
+          const stillAlive = await this.updateStateWithHeartbeatWatch({
             lastHeartbeat: new Date().toISOString(),
             currentWorkUnitId: target.workUnit.id,
             status: 'active',
-          }).catch(() => {});
+          });
+          if (!stillAlive) continue;
           // 2026-07 PMO-flow UX（§6-2）：忙闲变化 SSE（仅状态实际变化时发一次）
           this.publishInstanceStatus('active', target.workUnit.id);
         }
@@ -412,6 +419,49 @@ export class AgentLoop {
   }
 
   /**
+   * #179（#66 决议 3 loop 侧）：实例状态写（含心跳）不再静默吞错 —— 成功清零连败计数；
+   * 失败计数并在连败 HEARTBEAT_FAIL_LIMIT 次（≈90s）时自我了断。
+   * 返回是否仍存活（调用方据此中止本次迭代，不再开新 step）。
+   */
+  private async updateStateWithHeartbeatWatch(update: Partial<RuntimeStateData>): Promise<boolean> {
+    if (!this.instance) return this.alive;
+    try {
+      await this.fileStore.updateState(this.instance.id, update);
+      this.consecutiveHeartbeatFailures = 0;
+    } catch (err) {
+      this.consecutiveHeartbeatFailures++;
+      logger.warn(`[AgentLoop] Heartbeat/state write failed (${this.consecutiveHeartbeatFailures}/${HEARTBEAT_FAIL_LIMIT})`, {
+        instanceId: this.instance.id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      if (this.consecutiveHeartbeatFailures >= HEARTBEAT_FAIL_LIMIT) {
+        await this.selfTerminateOnHeartbeatFailure();
+      }
+    }
+    return this.alive;
+  }
+
+  /**
+   * #179（#66 决议 3 loop 侧）：心跳连败自我了断 —— FileStore 故障时 loop 继续跑只会
+   * 盲写盲判；停租约心跳、杀自身 CLI 进程组（停 step）、静默退出循环（不写状态——
+   * 写了也会失败）。在飞 WU 由租约到期正常回收（timeout-release）。
+   */
+  private async selfTerminateOnHeartbeatFailure(): Promise<void> {
+    if (!this.alive) return;
+    logger.error(`[AgentLoop] Heartbeat write failed ${HEARTBEAT_FAIL_LIMIT} consecutive times — FileStore suspected broken; self-terminating (kill own CLI process group, silent exit)`);
+    this.stopLease();
+    const executionId = this.currentExecutionId;
+    if (executionId) {
+      try {
+        await this.executor.stopProcessGroup?.(executionId);
+      } catch (err) {
+        logger.warn(`[AgentLoop] stopProcessGroup failed (non-blocking): ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+    this.alive = false;
+  }
+
+  /**
    * #178（#63 决议 2）：fencing 校验 —— 步结果回写前 / 状态迁移前比对 claimedAt 代际令牌
    * （「每次心跳前」校验由 refreshWorkUnitLease 锁内原子完成）。无租约轨道（未 start 的
    * 测试直调等）不拦，保持既有行为。
@@ -477,7 +527,8 @@ export class AgentLoop {
       update.lastHeartbeat = new Date(nowMs).toISOString();
       this.lastIdleHeartbeatAt = nowMs;
     }
-    await this.fileStore.updateState(this.instance.id, update).catch(() => {});
+    // #179（#66 决议 3 loop 侧）：心跳写连败计数/自裁统一走 watch 入口
+    await this.updateStateWithHeartbeatWatch(update);
     // 2026-07 PMO-flow UX（§6-2）：进入 idle 发一次 SSE；45s 节流心跳重入不重复发
     this.publishInstanceStatus('idle', null);
   }

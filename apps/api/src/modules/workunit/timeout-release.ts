@@ -26,8 +26,9 @@ export const MAX_TIMEOUT_RELEASES = 3;
  * #178（#63 决议 3）pid 复用兜底：/proc/<pid> 启动时间与实例 startedAt 比对，
  * 偏差超容忍窗（10min）判定 pid 已被复用 → 不杀。非 Linux / 读不到 /proc → 放行
  * （无法校验时按 best-effort 处理；kill 侧仍有 ESRCH 跳过）。
+ * #179（#66 决议 3）导出复用：agent-timeout-scan terminate 前 pid 复核同款判定。
  */
-async function pidStartMatchesInstance(pid: number, startedAt: string | null | undefined): Promise<boolean> {
+export async function pidStartMatchesInstance(pid: number, startedAt: string | null | undefined): Promise<boolean> {
   if (!startedAt) return true;
   try {
     const stat = await fs.promises.readFile(`/proc/${pid}/stat`, 'utf-8');
