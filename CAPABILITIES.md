@@ -1,6 +1,6 @@
 # CAPABILITIES.md
 
-> 最后更新: 2026-08-15
+> 最后更新: 2026-08-16
 
 ---
 
@@ -169,8 +169,10 @@
 | ResetPasswordPage | apps/web/src/pages/ResetPasswordPage.tsx | 重置密码页面 — 使用 token 设置新密码 |
 | RolesSetup | apps/web/src/pages/RolesSetup.tsx | AC-2.5: 角色初始化向导页 |
 | Settings | apps/web/src/pages/Settings.tsx | 设置页面 - API 配置 + 通知 + 公司 + 主题语言 |
-| WikiDocPage | apps/web/src/pages/WikiDocPage.tsx | B2-008: Wiki 文档详情页 |
-| WikiPage | apps/web/src/pages/WikiPage.tsx | B2-008: Wiki 主页面 — RequirementsDoc 档案馆 |
+
 | WorkUnitDetailPage | apps/web/src/pages/WorkUnitDetailPage.tsx | WorkUnitDetailPage — /workunits/:id WU 详情页（全站跳转枢纽，2026-07 agents-pmo-flow-ux §5.4） |
 | WorkUnitListPage | apps/web/src/pages/WorkUnitListPage.tsx | WorkUnitListPage |
 | WorkspacePage | apps/web/src/pages/WorkspacePage.tsx | WorkspacePage — AC Group 5: runtime list + create role dialog |
+| OpportunitiesPanel | apps/web/src/components/workunit/OpportunitiesPanel.tsx | OpportunitiesPanel — #163 T8-E2 巡检机会清单卡片（WU 详情页用） |
+| LibraryDocPage | apps/web/src/pages/LibraryDocPage.tsx | #155 T5: Library 文档详情页 — 只读 |
+| LibraryPage | apps/web/src/pages/LibraryPage.tsx | #155 T5: Library 阅览室 — 跨项目 .studio/ 聚合只读层 |
