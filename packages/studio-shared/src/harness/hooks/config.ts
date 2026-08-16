@@ -73,6 +73,6 @@ export async function runHook(
     await fn();
   } catch (err) {
     if (config.errorStrategy === 'block') throw err;
-    console.warn(`[HarnessHook] ${name} failed (non-blocking):`, (err as Error).message);
+    console.warn(`[HarnessHook] ${name} failed (warn):`, (err as Error).message);
   }
 }
