@@ -32,9 +32,4 @@ describe('maintenanceApi', () => {
     await maintenanceApi.runKnowledgeMaintenance();
     expect(api.post).toHaveBeenCalledWith('/knowledge/maintenance/run', undefined, { timeout: 600_000 });
   });
-
-  it('runMesoEvolution posts projectId in body', async () => {
-    await maintenanceApi.runMesoEvolution('proj-1');
-    expect(api.post).toHaveBeenCalledWith('/knowledge/evolution/meso', { projectId: 'proj-1' });
-  });
 });

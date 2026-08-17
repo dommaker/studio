@@ -197,7 +197,7 @@ describe('DeliveryPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '人工确认' }));
 
-    await waitFor(() => expect(mockReviewPassed).toHaveBeenCalledWith('wu-1', undefined));
+    await waitFor(() => expect(mockReviewPassed).toHaveBeenCalledWith('wu-1', undefined, undefined));
     await waitFor(() => expect(mockToastSuccess).toHaveBeenCalledWith('已确认，L3 已补齐'));
     expect(onRefresh).toHaveBeenCalled();
   });
@@ -222,7 +222,7 @@ describe('DeliveryPanel', () => {
     fireEvent.change(textarea, { target: { value: 'FOG: 改后的待决问题？' } });
     fireEvent.click(screen.getByText('确认通过'));
 
-    await waitFor(() => expect(mockReviewPassed).toHaveBeenCalledWith('wu-a1', 'FOG: 改后的待决问题？'));
+    await waitFor(() => expect(mockReviewPassed).toHaveBeenCalledWith('wu-a1', 'FOG: 改后的待决问题？', undefined));
     await waitFor(() => expect(mockToastSuccess).toHaveBeenCalledWith('已确认，L3 已补齐'));
     expect(onRefresh).toHaveBeenCalled();
   });

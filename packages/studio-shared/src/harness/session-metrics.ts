@@ -89,10 +89,3 @@ function extractMetrics(raw: Record<string, unknown>): SessionMetrics {
     sessionId: (raw.session_id as string) || '',
   };
 }
-
-/**
- * Estimate tokens from character count (rough: chars / 4).
- */
-export function estimateTokens(chars: number): number {
-  return Math.ceil(chars / 4);
-}

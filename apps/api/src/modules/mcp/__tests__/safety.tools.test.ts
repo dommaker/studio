@@ -2,22 +2,23 @@
  * safety.tools 单元测试（T3 拆分新增，pre-commit TDD 门禁）。
  *
  * 覆盖 checkConstraint / checkGuardrail / getSandboxLevel。
- * handler 内动态 import 的 constraintService / safetyService 被 mock。
+ * handler 内动态 import 的 harness 直连 API（checkConstraints /
+ * InputGuardrail / OutputGuardrail / Sandbox）被 mock（#150 A5）。
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const mockCheckConstraints = vi.fn();
-const mockInputCheck = vi.fn();
-const mockOutputCheck = vi.fn();
-const mockGetSandbox = vi.fn();
+const { mockCheckConstraints, mockInputCheck, mockOutputCheck, mockGetSandbox } = vi.hoisted(() => ({
+  mockCheckConstraints: vi.fn(),
+  mockInputCheck: vi.fn(),
+  mockOutputCheck: vi.fn(),
+  mockGetSandbox: vi.fn(),
+}));
 
-vi.mock('@dommaker/studio-shared', () => ({
-  constraintService: { checkConstraints: mockCheckConstraints },
-  safetyService: {
-    getInputGuardrail: () => ({ check: mockInputCheck }),
-    getOutputGuardrail: () => ({ check: mockOutputCheck }),
-    getSandbox: mockGetSandbox,
-  },
+vi.mock('@dommaker/harness', () => ({
+  checkConstraints: mockCheckConstraints,
+  InputGuardrail: class { check(input: string) { return mockInputCheck(input); } },
+  OutputGuardrail: class { check(input: string) { return mockOutputCheck(input); } },
+  Sandbox: class { getLevel() { return mockGetSandbox().getLevel(); } getDescription() { return mockGetSandbox().getDescription(); } },
 }));
 
 import { safetyTools } from '../safety.tools.js';
@@ -58,15 +59,16 @@ describe('safety.tools', () => {
   });
 
   it('checkConstraint 汇总未满足项并报告数量', async () => {
+    // harness 1.x：tips 层已移除，违规聚合只剩 ironLaws + guidelines
     mockCheckConstraints.mockResolvedValue({
       passed: false,
       ironLaws: [{ satisfied: false, id: 'IL1' }],
-      guidelines: [{ satisfied: true }],
+      guidelines: [{ satisfied: false, id: 'G1' }],
     });
     const result = await tool('checkConstraint').handler({ operation: 'op' });
     expect(result.allowed).toBe(false);
-    expect(result.violations).toEqual([{ satisfied: false, id: 'IL1' }]);
-    expect(result.message).toBe('1 violation(s) found');
+    expect(result.violations).toEqual([{ satisfied: false, id: 'IL1' }, { satisfied: false, id: 'G1' }]);
+    expect(result.message).toBe('2 violation(s) found');
   });
 
   it('checkConstraint 服务异常时降级 harnessUnavailable', async () => {

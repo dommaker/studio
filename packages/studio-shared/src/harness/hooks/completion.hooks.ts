@@ -5,7 +5,7 @@
  */
 
 import { PassesGate, getTraceCollector, createFailureRecorder, ErrorType, FailureLevel } from '@dommaker/harness';
-import type { TestResult } from '@dommaker/harness';
+import type { TestResult, HookDefinition } from '@dommaker/harness';
 
 /** 任务完成前：测试门控 */
 export async function checkBeforeTaskComplete(
@@ -56,3 +56,26 @@ export async function afterReview(params?: {
     });
   }
 }
+
+/**
+ * 导出即注册（C1）：checkBeforeTaskComplete 返回 { allowed, violations }
+ * → 映射为 HookResult { passed, data }。
+ */
+export const completionHookDefinitions: HookDefinition[] = [
+  {
+    name: 'checkBeforeTaskComplete',
+    phase: 'before',
+    execute: async (testResults: any) => {
+      const result = await checkBeforeTaskComplete(testResults);
+      return { passed: result.allowed, data: result };
+    },
+  },
+  {
+    name: 'afterReview',
+    phase: 'after',
+    execute: async (params: any) => {
+      await afterReview(params);
+      return { passed: true };
+    },
+  },
+];

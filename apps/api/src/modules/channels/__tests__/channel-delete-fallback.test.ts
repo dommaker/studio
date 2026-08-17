@@ -4,7 +4,7 @@
  * 验证路由把 WU 重绑委托给 WorkUnitService.rebindSourceChannel：
  *  - context.sourceChannelId 字段相等的顶层 task WU 重挂到兜底频道
  *  - metadata 其它字段仅子串含 channel id 的 WU 不动（字段相等口径）
- *  - 路由周边行为不变：SDD frontmatter 迁移 non-blocking、频道删除、响应形状
+ *  - 路由周边行为不变：频道删除、响应形状（#155：SDD frontmatter 迁移块已随 SDD 退役删除）
  *
  * 接线：STUDIO_DATA_DIR 指向临时目录后才动态 import channel.routes
  * （模块级 `new FileStore()` 在 import 时解析数据目录）。

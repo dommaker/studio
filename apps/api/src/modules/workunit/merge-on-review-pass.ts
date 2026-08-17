@@ -24,7 +24,10 @@
  *      频道发一条简短系统消息
  *
  * 防重：metadata.mergedAt 存在即跳过（人工重复触发 / 事件重放均不再合并）。
- * 无 worktree 落档的 WU（analysis 等）直接旁路，行为与改造前完全一致。
+ * 无 worktree 落档的 WU 直接旁路，行为与改造前完全一致。
+ * #157（T6）：analysis 按类型硬旁路——原型单虽有 worktree 落档，但 prototype/<wuId>
+ * 分支永不合并；其 reviewPassed 收尾（删 worktree 目录、留分支）见
+ * cleanupPrototypeWorktreeOnReviewPass。
  *
  * 依赖说明：只依赖 studio-shared(+node) 与 WorkUnitService 类型，不 import
  * agent-loop（避免 workunit.service → 本模块 → agent-loop 的重依赖链与循环）；
@@ -50,7 +53,7 @@ const REBASE_TIMEOUT_MS = 120_000;
 const GIT_OP_TIMEOUT_MS = 15_000;
 
 export type MergeOnReviewPassOutcome =
-  | { attempted: false; reason: 'no-worktree' | 'already-merged' }
+  | { attempted: false; reason: 'no-worktree' | 'already-merged' | 'analysis-bypass' }
   | { attempted: true; merged: true; mergeCommit: string }
   | { attempted: true; merged: false; conflictFiles: string[]; reason?: 'conflict' | 'uncommitted-changes' };
 
@@ -125,7 +128,13 @@ export async function mergeWorktreeBranchOnReviewPass(
   const baseBranch = meta.worktreeBaseBranch;
   const worktreePath = meta.worktreePath;
 
-  // 旁路：无 worktree 落档（analysis 等非代码类 WU）→ 行为不变
+  // #157（T6）：analysis 按类型硬旁路（类型硬编码，不再只看 metadata 三字段）——
+  // 原型单有 worktree 落档，但 prototype/<wuId> 分支永不合并；
+  // 收尾清理走 cleanupPrototypeWorktreeOnReviewPass。
+  if (wu.type === 'analysis') {
+    return { attempted: false, reason: 'analysis-bypass' };
+  }
+  // 旁路：无 worktree 落档（普通 analysis 等非代码类 WU）→ 行为不变
   if (!branch || !baseRepo || !baseBranch) {
     return { attempted: false, reason: 'no-worktree' };
   }
@@ -330,5 +339,52 @@ async function tryMergeWithRebaseRetry(
     await abortMergeAndRebase(baseRepo);
     logger.warn('[MergeOnReviewPass] merge after rebase still failed', { branch, baseBranch, conflictFiles });
     return { ok: false, conflictFiles };
+  }
+}
+
+// ── #157（T6）：analysis 原型单 reviewPassed 收尾 ──
+
+export type PrototypeWorktreeCleanupOutcome =
+  | { attempted: false; reason: 'not-analysis-prototype' }
+  | { attempted: true; removed: boolean };
+
+/**
+ * #157（T6）：analysis 原型单评审通过后的 worktree 收尾——删 worktree 目录、
+ * 保留 prototype/<wuId> 分支（复用合并收尾的 worktree 清理，跳过合并与删分支；
+ * 原型分支是一次性代码的证据存档，永不合并）。
+ * 数据防丢（与合并闸同口径）：worktree 有未提交改动（或 git status 失败）→ 不删，
+ * 目录与分支都保留交人工；不置 blocked、不改状态（done 迁移已完成，仅记日志）。
+ * best-effort：任何失败只记日志，不向调用方抛错。
+ */
+export async function cleanupPrototypeWorktreeOnReviewPass(
+  wu: WorkUnitData,
+): Promise<PrototypeWorktreeCleanupOutcome> {
+  if (wu.type !== 'analysis') return { attempted: false, reason: 'not-analysis-prototype' };
+  const meta = parseWuMetadata(wu.metadata);
+  const worktreePath = meta.worktreePath;
+  const baseRepo = meta.worktreeBaseRepo;
+  if (!worktreePath || !baseRepo) return { attempted: false, reason: 'not-analysis-prototype' };
+
+  const dirtyFiles = await listDirtyFiles(worktreePath, baseRepo);
+  if (dirtyFiles === null || dirtyFiles.length > 0) {
+    logger.warn('[MergeOnReviewPass] prototype worktree dirty at review-pass cleanup — kept for human', {
+      wuId: wu.id, worktreePath, branch: meta.worktreeBranch, dirtyCount: dirtyFiles?.length ?? -1,
+    });
+    return { attempted: true, removed: false };
+  }
+
+  try {
+    await execSh(`git -C ${shq(baseRepo)} worktree remove --force ${shq(worktreePath)}`, {
+      cwd: baseRepo, timeoutMs: GIT_OP_TIMEOUT_MS,
+    });
+    logger.info('[MergeOnReviewPass] prototype worktree removed (branch kept)', {
+      wuId: wu.id, worktreePath, branch: meta.worktreeBranch,
+    });
+    return { attempted: true, removed: true };
+  } catch (err) {
+    logger.warn('[MergeOnReviewPass] prototype worktree remove failed (non-blocking)', {
+      wuId: wu.id, worktreePath, error: String(err),
+    });
+    return { attempted: true, removed: false };
   }
 }

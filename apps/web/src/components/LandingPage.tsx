@@ -54,7 +54,7 @@ export function LandingPage() {
             { icon: '📋', label: '需求分析', desc: '自动拆解验收标准' },
             { icon: '⚙️', label: 'TDD 开发', desc: '写测试→实现→通过' },
             { icon: '🔍', label: '多立场审查', desc: '安全/性能/架构' },
-            { icon: '📚', label: 'Wiki 沉淀', desc: '自动归档知识' },
+            { icon: '📚', label: '阅览室沉淀', desc: '自动归档知识' },
             { icon: '📊', label: '周报审计', desc: '趋势+异常检测' },
             { icon: '🚨', label: '自动修复', desc: 'Triage 自愈' },
           ].map((f) => (

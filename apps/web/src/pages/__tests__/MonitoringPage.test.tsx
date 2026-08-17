@@ -89,8 +89,18 @@ vi.mock('../../api/maintenance', () => ({
     getCosts: vi.fn().mockResolvedValue({ days: 30, byTrigger: {}, bySource: {} }),
     fireTrigger: vi.fn(),
     runKnowledgeMaintenance: vi.fn(),
-    runMesoEvolution: vi.fn(),
   },
+}));
+
+// #180 事件检索 Tab 数据源（GET /events）
+const { mockEventSearch } = vi.hoisted(() => ({ mockEventSearch: vi.fn() }));
+vi.mock('../../api/events', () => ({
+  eventsApi: { search: mockEventSearch },
+}));
+
+// #184「需要处理」区：桩件隔离（其数据加载契约见组件自身测试）
+vi.mock('../../components/monitoring/NeedsAttentionSection', () => ({
+  NeedsAttentionSection: () => React.createElement('div', null, '需要处理'),
 }));
 
 import { MonitoringPage } from '../MonitoringPage';
@@ -180,5 +190,104 @@ describe('MonitoringPage', () => {
       expect(screen.queryByText('session 过期未刷新导致 401')).toBeNull();
     });
     expect(screen.getByText('登录流程统一走 auth-service')).toBeDefined();
+  });
+
+  // ── #180 事件检索 Tab（#60 决策 Q3a：概览 / 事件检索） ──
+
+  it('渲染「概览 / 事件检索」Tab，默认概览', async () => {
+    render(<MonitoringPage />);
+    expect(screen.getByText('概览')).toBeDefined();
+    expect(screen.getByText('事件检索')).toBeDefined();
+    expect(await screen.findByText('WorkUnit 状态分布')).toBeDefined();
+    // 默认不触发事件检索
+    expect(mockEventSearch).not.toHaveBeenCalled();
+  });
+
+  it('切到事件检索 Tab 显示检索表单', async () => {
+    render(<MonitoringPage />);
+    fireEvent.click(screen.getByText('事件检索'));
+    expect(await screen.findByPlaceholderText('关键词（可选）')).toBeDefined();
+    expect(screen.getByPlaceholderText('类型（可选），如 workunit:failed')).toBeDefined();
+    expect(screen.getByText('查询')).toBeDefined();
+  });
+
+  it('查询：带 level/type/keyword/until 调 eventsApi.search 并渲染结果', async () => {
+    mockEventSearch.mockResolvedValue({
+      data: {
+        events: [
+          { type: 'workunit:failed', source: 'agent-loop', level: 'warning', payload: JSON.stringify({ blockReason: 'Verify FAILED: tsc' }), createdAt: '2026-08-15T10:00:00.000Z' },
+        ],
+        total: 1,
+        nextCursor: null,
+      },
+    });
+    render(<MonitoringPage />);
+    fireEvent.click(screen.getByText('事件检索'));
+
+    fireEvent.change(screen.getByPlaceholderText('关键词（可选）'), { target: { value: 'tsc' } });
+    fireEvent.change(screen.getByPlaceholderText('类型（可选），如 workunit:failed'), { target: { value: 'workunit:failed' } });
+    fireEvent.change(screen.getByLabelText('截止时间（可选）'), { target: { value: '2026-08-16T00:00' } });
+    fireEvent.click(screen.getByText('查询'));
+
+    await waitFor(() => {
+      expect(mockEventSearch).toHaveBeenCalledWith(expect.objectContaining({
+        level: 'info',
+        type: 'workunit:failed',
+        keyword: 'tsc',
+        until: new Date('2026-08-16T00:00').toISOString(),
+      }));
+    });
+    expect(await screen.findByText('workunit:failed')).toBeDefined();
+    expect(screen.getByText('警告')).toBeDefined();
+    expect(screen.getByText(/Verify FAILED: tsc/)).toBeDefined();
+    // nextCursor null → 无「加载更多」
+    expect(screen.queryByText('加载更多')).toBeNull();
+  });
+
+  it('加载更多：带 nextCursor 续翻并追加结果', async () => {
+    mockEventSearch
+      .mockResolvedValueOnce({
+        data: {
+          events: [{ type: 'a', source: 's', payload: '{}', createdAt: '2026-08-15T10:00:00.000Z' }],
+          total: 1,
+          nextCursor: '1234',
+        },
+      })
+      .mockResolvedValueOnce({
+        data: {
+          events: [{ type: 'b', source: 's', payload: '{}', createdAt: '2026-08-15T09:00:00.000Z' }],
+          total: 1,
+          nextCursor: null,
+        },
+      });
+    render(<MonitoringPage />);
+    fireEvent.click(screen.getByText('事件检索'));
+    fireEvent.click(screen.getByText('查询'));
+
+    expect(await screen.findByText('a')).toBeDefined();
+    fireEvent.click(screen.getByText('加载更多'));
+
+    await waitFor(() => {
+      expect(mockEventSearch).toHaveBeenLastCalledWith(expect.objectContaining({ cursor: '1234' }));
+    });
+    expect(await screen.findByText('b')).toBeDefined();
+    expect(screen.getByText('a')).toBeDefined(); // 第一页结果保留
+  });
+
+  it('查询失败显示错误提示', async () => {
+    mockEventSearch.mockRejectedValue(new Error('boom'));
+    render(<MonitoringPage />);
+    fireEvent.click(screen.getByText('事件检索'));
+    fireEvent.click(screen.getByText('查询'));
+    expect(await screen.findByText(/查询失败/)).toBeDefined();
+  });
+
+  // ── #184 概览 Tab 顶部「需要处理」区（#62 D4：首屏回答"有没有事需要我管"） ──
+
+  it('概览 Tab 顶部出现「需要处理」区（位于 WorkUnit 状态分布之前）', async () => {
+    render(<MonitoringPage />);
+    const needsAttention = await screen.findByText('需要处理');
+    const firstSection = await screen.findByText('WorkUnit 状态分布');
+    expect(needsAttention.compareDocumentPosition(firstSection) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });

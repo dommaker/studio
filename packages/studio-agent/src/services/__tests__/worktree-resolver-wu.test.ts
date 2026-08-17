@@ -6,6 +6,7 @@
  *   - 目录已存在（含 .git）→ 复用，不重建（零 git 调用）
  *   - 创建失败 → 清理半成品（worktree remove + rm + branch -D）后抛错，不静默退回
  *   - baseBranch：opts 显式值优先，缺省探测默认分支（无 git 环境回落 master）
+ *   - branchPrefix（#157 T6）：缺省 task/；analysis 原型单传 prototype → 分支 prototype/<wuId>（创建与复用同口径）
  *
  * Strategy: mock fs/fs.promises/execSh（同 worktree-resolver.test.ts 风格），真实代码跑逻辑。
  */
@@ -79,6 +80,25 @@ describe('ensureWuWorktree()', () => {
       'git worktree add -b "task/wu-1" "/worktrees/wu-wu-1" "develop"',
       expect.objectContaining({ cwd: '/repo' }),
     );
+  });
+
+  test('branchPrefix=prototype（#157 T6 原型单）：分支 prototype/<wuId>', async () => {
+    const info = await ensureWuWorktree({ ...baseOpts, branchPrefix: 'prototype' });
+
+    expect(info.branch).toBe('prototype/wu-1');
+    expect(mockExecSh).toHaveBeenCalledWith(
+      'git worktree add -b "prototype/wu-1" "/worktrees/wu-wu-1" "develop"',
+      expect.objectContaining({ cwd: '/repo' }),
+    );
+  });
+
+  test('branchPrefix=prototype 复用路径同样返回 prototype/<wuId>（零 git 调用）', async () => {
+    mockExistsSync.mockImplementation((p: string) => p === '/repo/.git' || p === '/worktrees/wu-wu-1/.git');
+
+    const info = await ensureWuWorktree({ ...baseOpts, branchPrefix: 'prototype' });
+
+    expect(info.branch).toBe('prototype/wu-1');
+    expect(mockExecSh).not.toHaveBeenCalled();
   });
 
   test('reuses existing worktree dir (has .git) — zero git mutations, keeps metadata baseBranch', async () => {

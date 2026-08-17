@@ -2,7 +2,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
-const { mockWuGet, mockListTokenEvents, mockListExecSteps, mockReviewPassed, mockGetChain, mockGetOverhead, mockStreamChunks } = vi.hoisted(() => ({
+const { mockWuGet, mockListTokenEvents, mockListExecSteps, mockReviewPassed, mockGetChain, mockGetOverhead, mockStreamChunks, mockResume, mockClose } = vi.hoisted(() => ({
   mockWuGet: vi.fn(),
   mockListTokenEvents: vi.fn(),
   mockListExecSteps: vi.fn(),
@@ -10,6 +10,8 @@ const { mockWuGet, mockListTokenEvents, mockListExecSteps, mockReviewPassed, moc
   mockGetChain: vi.fn(),
   mockGetOverhead: vi.fn(),
   mockStreamChunks: vi.fn(),
+  mockResume: vi.fn(),
+  mockClose: vi.fn(),
 }));
 
 vi.mock('../../../api/workunit', async () => {
@@ -21,6 +23,8 @@ vi.mock('../../../api/workunit', async () => {
       listTokenEvents: mockListTokenEvents,
       listExecutionStepEvents: mockListExecSteps,
       reviewPassed: mockReviewPassed,
+      resume: mockResume,
+      close: mockClose,
     },
   };
 });
@@ -118,6 +122,8 @@ describe('WorkUnitDrawer', () => {
     mockListTokenEvents.mockResolvedValue({ data: { events: TOKEN_EVENTS, total: TOKEN_EVENTS.length } });
     mockListExecSteps.mockResolvedValue({ data: { events: [], total: 0 } });
     mockReviewPassed.mockResolvedValue({ data: { ...WU, status: 'done' } });
+    mockResume.mockResolvedValue({ data: { ...WU, status: 'active' } });
+    mockClose.mockResolvedValue({ data: { ...WU, status: 'closed' } });
     mockGetOverhead.mockResolvedValue({ data: OVERHEAD });
     mockGetChain.mockResolvedValue({ data: { data: CHAIN } });
     mockStreamChunks.mockReturnValue([]);
@@ -131,7 +137,7 @@ describe('WorkUnitDrawer', () => {
   it('shows WorkUnit detail with status, owner, REQ link and step count', async () => {
     renderDrawer({ kind: 'wu', id: 'WU-1017' });
     await waitFor(() => expect(screen.getByText('方向稿 A/B 原型页搭建')).toBeTruthy());
-    expect(screen.getByText('执行中')).toBeTruthy();
+    expect(screen.getAllByText('执行中').length).toBeGreaterThan(0); // #182：状态 chip 与速览节各出现一次
     expect(screen.getByText('@coder-1')).toBeTruthy();
     expect(screen.getByText('REQ-0042 ›')).toBeTruthy();
     expect(screen.getByText('7')).toBeTruthy(); // stepCount
@@ -249,7 +255,7 @@ describe('WorkUnitDrawer', () => {
     expect(screen.getByText(/✓ agent-review · 76d96d3/)).toBeTruthy();
     const btn = screen.getByText('人工验收确认（L3 留痕）');
     fireEvent.click(btn);
-    await waitFor(() => expect(mockReviewPassed).toHaveBeenCalledWith('WU-1017', undefined));
+    await waitFor(() => expect(mockReviewPassed).toHaveBeenCalledWith('WU-1017', undefined, undefined));
   });
 
   it('证据台账：in_review → 审查闸门「通过」按钮（硬门语义）', async () => {
@@ -257,7 +263,7 @@ describe('WorkUnitDrawer', () => {
     renderDrawer({ kind: 'wu', id: 'WU-1017' });
     await waitFor(() => expect(screen.getByText('通过（审查闸门）')).toBeTruthy());
     fireEvent.click(screen.getByText('通过（审查闸门）'));
-    await waitFor(() => expect(mockReviewPassed).toHaveBeenCalledWith('WU-1017', undefined));
+    await waitFor(() => expect(mockReviewPassed).toHaveBeenCalledWith('WU-1017', undefined, undefined));
   });
 
   it('analysis 单（#106 M7）：通过走共享确认弹窗——预填清单人改后 summary 随 reviewPassed 回传', async () => {
@@ -282,7 +288,7 @@ describe('WorkUnitDrawer', () => {
 
     fireEvent.change(textarea, { target: { value: 'FOG: 存储选型用哪个？' } });
     fireEvent.click(screen.getByText('确认通过'));
-    await waitFor(() => expect(mockReviewPassed).toHaveBeenCalledWith('WU-1017', 'FOG: 存储选型用哪个？'));
+    await waitFor(() => expect(mockReviewPassed).toHaveBeenCalledWith('WU-1017', 'FOG: 存储选型用哪个？', undefined));
   });
 
   it('Layer B 实时区块：渲染执行中 chunk（思考/工具/result），step-start 不渲染', async () => {
@@ -322,5 +328,25 @@ describe('WorkUnitDrawer', () => {
     const archived = screen.getAllByText('思考：已归档的思考');
     expect(archived).toHaveLength(1); // 只有步级卡片里那一份（实时区不重复展示）
     expect(screen.getByText('思考：进行中的思考')).toBeTruthy();
+  });
+
+  it('#185（决策 #87 D4）：blocked 卡住型 WU 显示处置组件（继续执行/关闭任务），点继续执行调 resume', async () => {
+    mockWuGet.mockResolvedValue({
+      data: { ...WU, status: 'blocked', metadata: JSON.stringify({ title: '方向稿 A/B 原型页搭建', blockReason: 'stuck: 连续 3 步无进展' }) },
+    });
+    renderDrawer({ kind: 'wu', id: 'WU-1017' });
+    const resumeBtn = await screen.findByRole('button', { name: '继续执行' });
+    expect(screen.getByRole('button', { name: '关闭任务' })).toBeTruthy();
+    fireEvent.click(resumeBtn);
+    await waitFor(() => expect(mockResume).toHaveBeenCalledWith('WU-1017'));
+  });
+
+  it('#185（决策 #87 D3）：blocked NEED_INPUT 型不显示「继续执行」（维持引导回复），仅「关闭任务」', async () => {
+    mockWuGet.mockResolvedValue({
+      data: { ...WU, status: 'blocked', metadata: JSON.stringify({ title: '方向稿', waitingForInput: true, waitingQuestion: '用 OAuth 吗？' }) },
+    });
+    renderDrawer({ kind: 'wu', id: 'WU-1017' });
+    await screen.findByRole('button', { name: '关闭任务' });
+    expect(screen.queryByRole('button', { name: '继续执行' })).toBeNull();
   });
 });

@@ -23,14 +23,9 @@ describe('knowledgeApi（知识审核闭环）', () => {
     knowledgeApi.demote('k-2');
     expect(mockPost).toHaveBeenCalledWith('/knowledge-service/demote', { entryId: 'k-2' });
   });
-
-  it('archive → POST /knowledge/:id/archive（PMO 详情页归档知识库）', () => {
-    knowledgeApi.archive('doc-1');
-    expect(mockPost).toHaveBeenCalledWith('/knowledge/doc-1/archive');
-  });
 });
 
-describe('knowledgeApi（知识库浏览/搜索/冷启动导入）', () => {
+describe('knowledgeApi（知识库浏览/搜索）', () => {
   it('listResolutions → GET /knowledge/resolutions（解法库 tab）', () => {
     knowledgeApi.listResolutions();
     expect(mockGet).toHaveBeenCalledWith('/knowledge/resolutions');
@@ -57,18 +52,5 @@ describe('knowledgeApi（知识库浏览/搜索/冷启动导入）', () => {
   it('search → GET /knowledge/search?q=（S11 全局搜索）', () => {
     knowledgeApi.search('超时 重试');
     expect(mockGet).toHaveBeenCalledWith('/knowledge/search', { params: { q: '超时 重试' } });
-  });
-
-  it('importScan → POST /knowledge/import/scan（冷启动扫描）', () => {
-    knowledgeApi.importScan({ projectId: 'p1', scanPath: '/data', maxDepth: 3 });
-    expect(mockPost).toHaveBeenCalledWith('/knowledge/import/scan', {
-      projectId: 'p1', scanPath: '/data', maxDepth: 3,
-    });
-  });
-
-  it('importExecute → POST /knowledge/import/execute（冷启动执行）', () => {
-    const payload = { projectId: 'p1', files: [{ path: '/data/a.md', type: 'requirement', tags: [] }] };
-    knowledgeApi.importExecute(payload);
-    expect(mockPost).toHaveBeenCalledWith('/knowledge/import/execute', payload);
   });
 });

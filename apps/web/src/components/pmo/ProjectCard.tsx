@@ -1,4 +1,5 @@
-// PMO 项目卡片 — 编号 / 徽章（杂务 · 交付策略 · WU 完成度 · 文档计数）/ 进度 / 发起讨论（从 pages/PMOPage.tsx 抽出，纯代码移动）
+// PMO 项目卡片 — 编号 / 徽章（杂务 · 交付策略 · WU 完成度）/ 进度 / 发起讨论（从 pages/PMOPage.tsx 抽出，纯代码移动）
+// #149（2026-08-15）：文档计数徽章随 document-store 退役移除
 import { useNavigate } from 'react-router-dom';
 import type { Channel } from '../../api/channel';
 import type { Project } from './types';
@@ -6,12 +7,11 @@ import type { Project } from './types';
 interface ProjectCardProps {
   project: Project;
   wuStats: Record<string, { finished: number; total: number }>;
-  docCounts: Record<string, number>;
   channels: Channel[];
   handlePublishClick: (e: React.MouseEvent, projectId: string) => void;
 }
 
-export function ProjectCard({ project, wuStats, docCounts, channels, handlePublishClick }: ProjectCardProps) {
+export function ProjectCard({ project, wuStats, channels, handlePublishClick }: ProjectCardProps) {
   const navigate = useNavigate();
   return (
     <div
@@ -43,15 +43,10 @@ export function ProjectCard({ project, wuStats, docCounts, channels, handlePubli
                   · {project.deliveryPolicy}
                 </span>
               )}
-              {/* 🆕 AC-6: WU 完成度 + 文档计数徽章（数据缺失/为 0 不显示） */}
+              {/* 🆕 AC-6: WU 完成度徽章（数据缺失/为 0 不显示） */}
               {wuStats[project.id] && wuStats[project.id].total > 0 && (
                 <span className="ml-2 px-1.5 py-0.5 rounded u-surface-2 u-text-2">
                   WU {wuStats[project.id].finished}/{wuStats[project.id].total}
-                </span>
-              )}
-              {(docCounts[project.id] ?? 0) > 0 && (
-                <span className="ml-1 px-1.5 py-0.5 rounded u-surface-2 u-text-2">
-                  📄 {docCounts[project.id]}
                 </span>
               )}
             </div>

@@ -1,6 +1,6 @@
 # CAPABILITIES.md
 
-> 最后更新: 2026-08-15
+> 最后更新: 2026-08-17
 
 ---
 
@@ -58,7 +58,7 @@
 | skills | apps/api/src/modules/skills/ | SkillHub API — CRUD + 生命周期 + Agent 可发现性 + 使用统计 |
 | routes | apps/api/src/modules/specs/routes.ts | POST /api/v1/specs/:id/analyze-change |
 | error-class | apps/api/src/modules/triage/error-class.ts | Triage ErrorClass — B1-007: 八类错误标签 + 严重度三级 + 策略路由 |
-| wiki | apps/api/src/modules/wiki/ | GET /api/v1/wiki |
+| library | apps/api/src/modules/library/ | GET /api/v1/library（#155 阅览室：跨项目 .studio/ 聚合只读）|
 | api | apps/web/src/api/ | Channel API — list + publish 发布 |
 | hooks | apps/web/src/hooks/ | Channel SSE hook — B2: EventSource 实时推送替代 3s 轮询 |
 
@@ -92,7 +92,6 @@
 | webhook.routes | apps/api/src/modules/deploy/webhook.routes.ts | Deploy Webhook — GitHub push 事件触发的部署入口（触发式部署，替代每分钟轮询的主通道） |
 
 | pmo | apps/web/src/components/pmo/ | WU → 泳道。F6 铁律：分列只准看 deriveDisplayState 派生列（done 缺 L3 回「评审中」等人工确认）。 |
-| graphUtils | apps/web/src/components/knowledge/graphUtils.ts | 知识图谱节点数据 |
 | statusClasses | apps/web/src/components/channel/statusClasses.ts | 频道/agent 状态点样式映射（从 ChannelRail.tsx 拆出，供 ChannelRail 与 ChannelListPage 共用） |
 | dismissed | apps/web/src/components/setup/dismissed.ts | 角色配置引导弹框的会话级 dismiss 标记（sessionStorage key 与检查函数； |
 | useTheme | apps/web/src/contexts/useTheme.ts | 使用主题 Hook |
@@ -109,7 +108,6 @@
 | ChannelWorkspaceSetting | apps/web/src/components/ChannelWorkspaceSetting.tsx | ChannelWorkspaceSetting |
 | DiscussionPanel | apps/web/src/components/DiscussionPanel.tsx | DiscussionPanel — WorkUnit 讨论空间（MVP-4） |
 | JoinComputeDialog | apps/web/src/components/JoinComputeDialog.tsx | JoinComputeDialog |
-| KnowledgeGraphView | apps/web/src/components/KnowledgeGraphView.tsx | 节点颜色映射（分类色板 → theme.css `--chart-1…9`，深/浅主题各自取值） |
 | LandingPage | apps/web/src/components/LandingPage.tsx | Lurk Wall: 个人网站展示页 — 不提示登录，不显示入口 |
 | MoreDropdown | apps/web/src/components/MoreDropdown.tsx | MoreDropdown.tsx - "更多"下拉菜单组件（L4 高级功能） |
 | NotificationBell | apps/web/src/components/NotificationBell.tsx | Notification Bell — B2-003: 通知中心 |
@@ -134,10 +132,8 @@
 | MemoryProposalCard | apps/web/src/components/channel/MemoryProposalCard.tsx | Memory proposal card — #101 角色记忆人审闸口 |
 | RequirementsDocCard | apps/web/src/components/channel/RequirementsDocCard.tsx | RequirementsDoc inline card — B1-001/B1-003, M2 quality gate |
 | WorkUnitDrawer | apps/web/src/components/channel/WorkUnitDrawer.tsx | WorkUnitDrawer — Mission Control 右抽屉：WorkUnit 详情 / REQ 全链路 |
-| DocReaderDrawer | apps/web/src/components/knowledge/DocReaderDrawer.tsx | 知识库文档阅读器 — PMO 驾驶舱文档区点开的右侧抽屉 |
 | GapCards | apps/web/src/components/knowledge/GapCards.tsx | 知识库页面六类 Gap 明细卡片（2026-08 工单 34 从 pages/KnowledgePage.tsx 抽出，纯展示无逻辑变更） |
-| KnowledgeDocGrid | apps/web/src/components/knowledge/KnowledgeDocGrid.tsx | 知识库三列网格（从 pages/ProjectDetailPage.tsx 抽取，工单 35-E4）：列定义数据驱动，卡片点开抽屉阅读器 |
-| MarkdownBody | apps/web/src/components/knowledge/MarkdownBody.tsx | Markdown 正文渲染 — DocReaderDrawer / WikiDocPage 统一方案（2026-07-31 §10 任务 4b） |
+| MarkdownBody | apps/web/src/components/knowledge/MarkdownBody.tsx | Markdown 正文渲染 — WikiDocPage 正文方案（2026-07-31 §10 任务 4b） |
 | RequirementChainPanel | apps/web/src/components/requirement/RequirementChainPanel.tsx | REQ 全链路面板（vision §5.3）— 展示 GET /requirements/:id/chain |
 | CompanySection | apps/web/src/components/settings/CompanySection.tsx | 公司信息 section（从 pages/Settings.tsx 抽取，工单 35-E3）：公司名称自动保存 + 无公司时创建 |
 | ComputeSection | apps/web/src/components/settings/ComputeSection.tsx | 算力接入 section（从 pages/Settings.tsx 抽取，工单 35-E3）：Workspace 状态 + 加入算力弹窗 + Token 管理 |
@@ -165,7 +161,6 @@
 | ChannelDetailPage | apps/web/src/pages/ChannelDetailPage.tsx | 线程内过程消息折叠/聚合：连续 ≥3 条「过程消息」收成一组（默认折叠，点击展开）。 |
 | ChannelListPage | apps/web/src/pages/ChannelListPage.tsx | Channel List Page — B2: 首页 = 频道列表 + Agent 状态栏 |
 | ForgotPasswordPage | apps/web/src/pages/ForgotPasswordPage.tsx | 忘记密码页面 — 输入邮箱，发送重置链接 |
-| KnowledgeImportPage | apps/web/src/pages/KnowledgeImportPage.tsx | 冷启动导入向导 |
 | KnowledgePage | apps/web/src/pages/KnowledgePage.tsx | 知识库页面 — 累积知识浏览 |
 | MonitoringPage | apps/web/src/pages/MonitoringPage.tsx | MonitoringPage — Agent Network MVP-6 |
 | NotFoundPage | apps/web/src/pages/NotFoundPage.tsx | 404 页面 - 路由表兜底（未匹配路径） |
@@ -174,8 +169,15 @@
 | ResetPasswordPage | apps/web/src/pages/ResetPasswordPage.tsx | 重置密码页面 — 使用 token 设置新密码 |
 | RolesSetup | apps/web/src/pages/RolesSetup.tsx | AC-2.5: 角色初始化向导页 |
 | Settings | apps/web/src/pages/Settings.tsx | 设置页面 - API 配置 + 通知 + 公司 + 主题语言 |
-| WikiDocPage | apps/web/src/pages/WikiDocPage.tsx | B2-008: Wiki 文档详情页 |
-| WikiPage | apps/web/src/pages/WikiPage.tsx | B2-008: Wiki 主页面 — RequirementsDoc 档案馆 |
+
 | WorkUnitDetailPage | apps/web/src/pages/WorkUnitDetailPage.tsx | WorkUnitDetailPage — /workunits/:id WU 详情页（全站跳转枢纽，2026-07 agents-pmo-flow-ux §5.4） |
 | WorkUnitListPage | apps/web/src/pages/WorkUnitListPage.tsx | WorkUnitListPage |
 | WorkspacePage | apps/web/src/pages/WorkspacePage.tsx | WorkspacePage — AC Group 5: runtime list + create role dialog |
+| OpportunitiesPanel | apps/web/src/components/workunit/OpportunitiesPanel.tsx | OpportunitiesPanel — #163 T8-E2 巡检机会清单卡片（WU 详情页用） |
+| LibraryDocPage | apps/web/src/pages/LibraryDocPage.tsx | #155 T5: Library 文档详情页 — 只读 |
+| LibraryPage | apps/web/src/pages/LibraryPage.tsx | #155 T5: Library 阅览室 — 跨项目 .studio/ 聚合只读层 |
+| transcript.routes | apps/api/src/modules/transcripts/transcript.routes.ts | Transcript 只读路由（#174，#60 C5） |
+| EventSearchPanel | apps/web/src/components/monitoring/EventSearchPanel.tsx | EventSearchPanel — #180 事件检索面板（#60 决策 Q3a） |
+| NeedsAttentionSection | apps/web/src/components/monitoring/NeedsAttentionSection.tsx | NeedsAttentionSection — #184 监控页概览 Tab 顶部「需要处理」区（#62 D4 + #60 IA：行动信号 > 健康度量 > 参考资料） |
+| BlockedActions | apps/web/src/components/workunit/BlockedActions.tsx | BlockedActions — #185（决策 #87 D1/D3/D4/D5）：blocked WU 的 Web 处置组件 |
+| TranscriptViewer | apps/web/src/components/workunit/TranscriptViewer.tsx | TranscriptViewer — #174: WU 会话原文（transcript）只读查看器（#60 C5） |

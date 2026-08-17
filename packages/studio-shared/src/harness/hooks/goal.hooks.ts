@@ -4,38 +4,65 @@
  * Goal 创建 → Plan 审批 → GoalScheduler dispatch
  */
 
-import { checkBeforeExecution } from '@dommaker/harness';
-import type { ConstraintContext } from '@dommaker/harness';
-import { safeCallHook } from './config';
-import { sampledCheck } from '../runtime/cache';
+import { checkBeforeExecution, CheckCache } from '@dommaker/harness';
+import type { ConstraintContext, HookDefinition } from '@dommaker/harness';
+import { runHook } from './config';
 
-/** 延迟取 bootstrap 合并约束（含 custom-constraints.yml），避免与 bootstrap→register→hooks 的静态循环依赖 */
-async function getMergedConstraints() {
-  const { getHarness } = await import('../runtime/bootstrap');
-  return getHarness()?.mergedConstraints ?? null;
-}
+/**
+ * Goal 检查采样缓存（A1：runtime/cache.ts 退役，直用 harness CheckCache）。
+ * 对同一 projectPath 每 3 次执行 1 次完整检查，其余复用缓存；
+ * 非采样轮缓存未命中/过期返回 defaultValueOnMiss（true = 默认通过）。
+ */
+const goalCheckCache = new CheckCache();
 
 /** Goal 创建前：harness 约束检查（采样模式，减少 I/O） */
 export async function beforeGoalCreate(ctx: ConstraintContext): Promise<void> {
-  await safeCallHook('beforeGoalCreate', async () => {
-    const key = `goal_create:${ctx.projectPath || 'default'}`;
-    await sampledCheck(key, async () => {
-      await checkBeforeExecution({
-        operation: 'goal_creation',
-        taskDescription: ctx.taskDescription,
-        projectPath: ctx.projectPath,
-      }, await getMergedConstraints());
-      return true;
-    });
+  await runHook('beforeGoalCreate', async () => {
+    await goalCheckCache.get(
+      'goal_create',
+      ctx.projectPath || 'default',
+      async () => {
+        await checkBeforeExecution({
+          operation: 'goal_creation',
+          taskDescription: ctx.taskDescription,
+          projectPath: ctx.projectPath,
+        });
+        return true;
+      },
+      { sampleRate: 3, defaultValueOnMiss: true },
+    );
   });
 }
+
+/**
+ * 导出即注册（C1）：hook 函数与 HookDefinition 同文件导出，
+ * 注册表聚合见 hooks/register.ts；enabled/errorStrategy 由注册表按声明表合并。
+ */
+export const goalHookDefinitions: HookDefinition[] = [
+  {
+    name: 'beforeGoalCreate',
+    phase: 'before',
+    execute: async (ctx: any) => {
+      await beforeGoalCreate(ctx);
+      return { passed: true };
+    },
+  },
+  {
+    name: 'beforeAgentDispatch',
+    phase: 'before',
+    execute: async (ctx: any) => {
+      await beforeAgentDispatch(ctx);
+      return { passed: true };
+    },
+  },
+];
 
 /** Agent dispatch 前：Iron Laws + 前置条件 */
 export async function beforeAgentDispatch(ctx: ConstraintContext & {
   hasWorktree?: boolean;
   worktreePath?: string;
 }): Promise<void> {
-  await safeCallHook('beforeAgentDispatch', async () => {
+  await runHook('beforeAgentDispatch', async () => {
     await checkBeforeExecution({
       operation: 'code_implementation',
       taskDescription: ctx.taskDescription,
@@ -51,6 +78,6 @@ export async function beforeAgentDispatch(ctx: ConstraintContext & {
       hasTwoStageReview: (ctx as any).hasTwoStageReview,
       hasRootCauseInvestigation: (ctx as any).hasRootCauseInvestigation,
       hasFailingTest: (ctx as any).hasFailingTest,
-    }, await getMergedConstraints());
+    });
   });
 }

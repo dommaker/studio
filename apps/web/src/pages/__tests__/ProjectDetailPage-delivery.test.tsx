@@ -1,5 +1,6 @@
 // PMO-b/F6-c: ProjectDetailPage 交付区块测试
-// （台账渲染 / 四态徽标 / 缺口行动清单 / auto-merge 交付按钮 / branch-only 提示 / 进展卡口径 / 归档知识）
+// （台账渲染 / 四态徽标 / 缺口行动清单 / auto-merge 交付按钮 / branch-only 提示 / 进展卡口径）
+// #149（2026-08-15）：归档知识按钮测试随 document-store 退役移除
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
@@ -120,7 +121,6 @@ describe('PMO-b/F6-c: 交付区块', () => {
     mockGetProject.mockResolvedValue({ data: mockProject });
     mockApiGet.mockImplementation((url: string) => {
       if (url.includes('/tasks')) return Promise.resolve({ data: [] });
-      if (url.includes('/knowledge')) return Promise.resolve({ data: { documents: [] } });
       return Promise.resolve({ data: [] });
     });
     mockApiPost.mockResolvedValue({ data: {} });
@@ -263,7 +263,7 @@ describe('PMO-b/F6-c: 交付区块', () => {
     fireEvent.click(screen.getByRole('button', { name: '人工确认' }));
 
     await waitFor(() => {
-      expect(mockReviewPassed).toHaveBeenCalledWith('wu-9', undefined);
+      expect(mockReviewPassed).toHaveBeenCalledWith('wu-9', undefined, undefined);
     });
     // toast + 刷新（初次加载 1 次 + 行动后 refreshDelivery 再拉 1 次）
     await screen.findByText('已确认，L3 已补齐');
@@ -354,63 +354,5 @@ describe('PMO-b/F6-c: 交付区块', () => {
     expectCard('⏳ 待领取', '2');
     expectCard('🚫 阻塞', '1');
     expectCard('💰 Token', (1234567).toLocaleString());
-  });
-
-  it('归档知识：点击后逐个归档未归档文档并刷新，全部归档后按钮隐藏', async () => {
-    const docs = [
-      { id: 'd1', title: '需求文档', type: 'requirement', status: 'published', version: 1 },
-      { id: 'd2', title: '设计稿', type: 'design', status: 'draft', version: 2 },
-      { id: 'd3', title: '旧归档', type: 'archive', status: 'archived', version: 1 },
-    ];
-    let knowledgeCalls = 0;
-    mockApiGet.mockImplementation((url: string) => {
-      if (url.includes('/tasks')) return Promise.resolve({ data: [] });
-      if (url.includes('/knowledge')) {
-        knowledgeCalls += 1;
-        const archived = knowledgeCalls > 1;
-        return Promise.resolve({
-          data: { documents: archived ? docs.map(d => ({ ...d, status: 'archived' })) : docs },
-        });
-      }
-      return Promise.resolve({ data: [] });
-    });
-    mockGetDelivery.mockResolvedValue({ data: deliveryAutoMergePending });
-    renderDetail();
-
-    fireEvent.click(await screen.findByText('📦 归档知识'));
-
-    await waitFor(() => {
-      expect(mockApiPost).toHaveBeenCalledWith('/knowledge/d1/archive');
-      expect(mockApiPost).toHaveBeenCalledWith('/knowledge/d2/archive');
-    });
-    expect(mockApiPost).not.toHaveBeenCalledWith('/knowledge/d3/archive');
-    await screen.findByText('已归档 2 篇文档');
-    // 刷新后全部 archived → 按钮隐藏
-    await waitFor(() => {
-      expect(screen.queryByText('📦 归档知识')).toBeNull();
-    });
-  });
-
-  it('归档知识：文档全部已归档时按钮不渲染', async () => {
-    mockApiGet.mockImplementation((url: string) => {
-      if (url.includes('/tasks')) return Promise.resolve({ data: [] });
-      if (url.includes('/knowledge')) {
-        return Promise.resolve({
-          data: {
-            documents: [
-              { id: 'd1', title: '需求文档', type: 'requirement', status: 'archived', version: 1 },
-            ],
-          },
-        });
-      }
-      return Promise.resolve({ data: [] });
-    });
-    mockGetDelivery.mockResolvedValue({ data: deliveryAutoMergePending });
-    renderDetail();
-
-    await waitFor(() => {
-      expect(screen.getByText('📦 交付')).toBeTruthy();
-    });
-    expect(screen.queryByText('📦 归档知识')).toBeNull();
   });
 });

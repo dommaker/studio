@@ -1,39 +1,38 @@
 /**
- * Per-Hook Runtime Config（S10 修复）
+ * Per-Hook 声明表（A4：HookConfig 归一为 harness 形状 {name,enabled,errorStrategy}）
  *
- * 允许按环境和阶段单独启用/禁用 hook。
- * 解决此前 interceptor 的 skip/setEnabled 只有全局粒度的问题。
- *
- * 配置来源（优先级从高到低）：
- *   1. 环境变量 HARNESS_HOOK_DISABLE=hook1,hook2
- *   2. 本文件的 DEFAULTS
+ * - 声明表是注册表闭环（assertHookRegistryClosed）的「声明」侧：只含经
+ *   registerAllHooks 注册进管线的 7 个 hook。buildAgentConstraintPrompt 是同步
+ *   直接调用助手（不进管线），不在声明表中。
+ * - blocking 仅作为声明表内的映射源存在：经 harness `toErrorStrategy` 无损映射为
+ *   errorStrategy（blocking=true → 'block' 阻断管线 / false → 'warn' 记录警告继续），
+ *   对外的 HookConfig 形状不含 blocking 字段。
+ * - 配置来源（优先级从高到低）：
+ *   1. 环境变量 HARNESS_HOOK_DISABLE=hook1,hook2（保留 studio 侧开关）
+ *   2. 本文件声明表
  */
 
-export interface HookConfig {
-  /** hook 名称 */
-  name: string;
-  /** 是否启用 */
-  enabled: boolean;
-  /** 失败时是否阻断（true=抛异常, false=记录警告继续） */
-  blocking: boolean;
-}
+import { toErrorStrategy } from '@dommaker/harness';
+import type { HookConfig } from '@dommaker/harness';
 
-const DEFAULTS: HookConfig[] = [
+export type { HookConfig };
+
+/** 映射源表：blocking（失败是否阻断）→ errorStrategy 的唯一映射点 */
+const DECLARATIONS: ReadonlyArray<{ name: string; enabled: boolean; blocking: boolean }> = [
   // Goal phase
   { name: 'beforeGoalCreate', enabled: true, blocking: false },       // Phase 5: 非阻断（Guideline 级别）
   { name: 'beforeAgentDispatch', enabled: true, blocking: false },    // 非阻断（Guideline 级别）
 
   // Agent phase
   { name: 'beforeAgentExecute', enabled: true, blocking: true },
-  { name: 'buildAgentConstraintPrompt', enabled: true, blocking: false },
   { name: 'afterAgentComplete', enabled: true, blocking: false },
 
   // Completion phase
-  { name: 'checkBeforeTaskComplete', enabled: true, blocking: true },  // Goal 完成前检查 worktree 测试结果
-  { name: 'afterReview', enabled: true, blocking: false },              // 审查结果写入 TraceCollector + FailureRecorder
+  { name: 'checkBeforeTaskComplete', enabled: true, blocking: true }, // Goal 完成前检查 worktree 测试结果
+  { name: 'afterReview', enabled: true, blocking: false },            // 审查结果写入 TraceCollector + FailureRecorder
 
   // PR phase
-  { name: 'afterPrCreated', enabled: true, blocking: false },           // PR 创建后：门禁检查（待 GateChecker 全量接入）
+  { name: 'afterPrCreated', enabled: true, blocking: false },         // PR 创建后：门禁检查（待 GateChecker 全量接入）
 ];
 
 /** 从环境变量解析禁用列表 */
@@ -42,20 +41,28 @@ function parseDisableList(): Set<string> {
   return new Set(env.split(',').map(s => s.trim()).filter(Boolean));
 }
 
-/** 获取 hook 配置 */
-export function getHookConfig(name: string): HookConfig {
+/** 获取全部 hook 声明（enabled 已并入 HARNESS_HOOK_DISABLE 覆盖） */
+export function getAllHookConfigs(): HookConfig[] {
   const disabled = parseDisableList();
-  const config = DEFAULTS.find(c => c.name === name);
-  if (!config) return { name, enabled: false, blocking: false };
-
-  return {
-    ...config,
-    enabled: config.enabled && !disabled.has(name),
-  };
+  return DECLARATIONS.map(({ name, enabled, blocking }) => ({
+    name,
+    enabled: enabled && !disabled.has(name),
+    errorStrategy: toErrorStrategy(blocking),
+  }));
 }
 
-/** 安全调用 hook：根据配置决定是否执行 + 如何处理失败 */
-export async function safeCallHook(
+/** 获取单个 hook 声明（未知名 → 默认 disabled + warn） */
+export function getHookConfig(name: string): HookConfig {
+  const config = getAllHookConfigs().find(c => c.name === name);
+  return config ?? { name, enabled: false, errorStrategy: 'warn' };
+}
+
+/**
+ * 直接调用入口（safeCallHook 接替者）：按声明执行 enabled 检查 + errorStrategy。
+ * 管线外直接调 hook 函数时与 HookPipeline 语义一致：
+ * enabled=false 跳过；失败时 block 抛错、warn 记录警告继续。
+ */
+export async function runHook(
   name: string,
   fn: () => Promise<void>,
 ): Promise<void> {
@@ -65,16 +72,7 @@ export async function safeCallHook(
   try {
     await fn();
   } catch (err) {
-    if (config.blocking) throw err;
-    console.warn(`[HarnessHook] ${name} failed (non-blocking):`, (err as Error).message);
+    if (config.errorStrategy === 'block') throw err;
+    console.warn(`[HarnessHook] ${name} failed (warn):`, (err as Error).message);
   }
-}
-
-/** 获取所有 hook 配置（用于覆盖率报告） */
-export function getAllHookConfigs(): HookConfig[] {
-  const disabled = parseDisableList();
-  return DEFAULTS.map(c => ({
-    ...c,
-    enabled: c.enabled && !disabled.has(c.name),
-  }));
 }

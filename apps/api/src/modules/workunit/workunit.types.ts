@@ -1,11 +1,10 @@
 /**
  * WorkUnit 类型契约 + 状态机表/超时常量（工单 30 自 workunit.service.ts 头部抽出，纯搬运零逻辑变更）。
- * 内容：WorkUnitMetadata / 输入输出 DTO / VALID_TRANSITIONS（+ #108 按 type 覆盖表 DECISION_SPEC_TYPES/TYPE_VALID_TRANSITIONS）/ 超时常量 / ANALYSIS_TASKS_MAX / resolveClaimTimeoutAt。
- * 零服务依赖（仅 wu-metadata 叶子），供 service 与跨模块类型级消费方直接引用。
+ * 内容：WorkUnitMetadata / 输入输出 DTO / VALID_TRANSITIONS（+ #108 按 type 覆盖表 DECISION_SPEC_TYPES/TYPE_VALID_TRANSITIONS）/ 租约常量（#178 WU_LEASE_TTL_MS）/ ANALYSIS_TASKS_MAX。
+ * 零服务依赖，供 service 与跨模块类型级消费方直接引用。
  */
 
 import type { WuAttestations } from '@dommaker/studio-shared';
-import { parseWuMetadata } from './wu-metadata.js';
 
 /** Metadata JSON schema — fields that don't warrant first-class columns */
 export interface WorkUnitMetadata {
@@ -26,6 +25,10 @@ export interface WorkUnitMetadata {
   sourceMessageId?: string;   // createFromMessage 涌现路径来源
   creationMode?: string;      // 创建模式：from-message / manual
   _cumulativeTokens?: number; // 内部 token 累计追踪
+  // #162（T8-E1，#130 决策 3）：WU 级 token 预算上限（显式数值，任何类型可带，首个消费 = 巡检单）。
+  // 对照 _cumulativeTokens（billed 口径簿记）超线 → need_input 挂起待人三选
+  // （追加预算 / 现有产出收尾 / 放弃，见 waiting-input.ts）；缺省/<=0 = 无上限
+  tokenBudget?: number;
   // Agent Loop session 追踪（AS-025 Agent Loop 重写）
   sessionId?: string;         // 当前关联的 Claude session
   stepCount?: number;         // 已执行步骤数
@@ -35,8 +38,9 @@ export interface WorkUnitMetadata {
   sessionCount?: number;      // B5（2026-08-03 token-burn issue）：本 WU 已建立的独立会话数（≥2 转人工，防全文重放烧钱）
   lastSessionResumed?: boolean; // #94: 本步会话续用(true)/新建(false) 标记（内部状态，不上频道）
   blockReason?: string;       // B4（同上 P0-2）：最近一次转 blocked 的原因（恢复执行时清除，防事后无法诊断）
+  blockedAt?: string;         // #176（决策 #57 D4）：最近一次转 blocked 的时刻 ISO 8601（死信 24h 计时基准；各 blocked 迁移点统一落档）
+  resumeCount?: number;       // #176（决策 #57 D5）：人工复活累计次数（不限次，纯观测钩子，供 #62 趋势探测）
   testWorkUnitGuard?: boolean; // B2（同上 P0-1c）：测试特征 WU 被 daemon 守卫关闭的留痕
-  lastInputTokens?: number;   // 最新一次 execution 的 input_tokens (cache 追踪)
   // #95: 最近成功步环形簿记（前序进展段内容源；只记成功步，保留最近 5 条，summary 截 200 字符）
   progressLog?: Array<{
     step: number;             // 步号（与 recordResult 的 stepCount 同口径）
@@ -52,7 +56,7 @@ export interface WorkUnitMetadata {
   waitingQuestion?: string;   // agent 提出的问题
   waitingSince?: string;      // 挂起时间 ISO 8601（超时提醒据此计算）
   waitingReminded?: boolean;  // 本次挂起已提醒过（每次挂起只提醒一次，恢复时重置）
-  waitingReason?: string;     // 挂起原因：'ownership' = B3a 等待工程归属（缺省 = agent 提问）
+  waitingReason?: string;     // 挂起原因：'ownership' = B3a 等待工程归属；'wu-token-budget' = #162 WU 级 token 预算到线（三选分流见 waiting-input.ts）（缺省 = agent 提问）
   pendingReplies?: string[];  // 恢复后待注入下一轮 prompt 的人类回复（多条拼接，消费后清除）
   // B3a 工程归属链（决策 D2）：归属解析结果落档
   workspaceRoot?: string;     // 直接可用的工程根路径（Requirement→PMO gitRepo / 人工回复绑定；agent-loop 优先于 workspaceId 消费）
@@ -68,8 +72,23 @@ export interface WorkUnitMetadata {
   blockedBy?: string[];       // 阻塞本 WU 的 WU id 列表（可跨 PMO）；任一未了结（非 done/closed）→ unassigned 对所有 loop 不可见（wu-dependencies.ts 判定；agent-loop observe 过滤 + 列表 claimable 标记消费）
   ac?: string[];              // 验收标准（验收闸对照用；机制只存不解释）
   // B3b-i 每 WU worktree 隔离（决策 D1）：代码类 WU 首个 step 创建并落档，后续 step 复用
+  // #157（T6，#128 决议）：analysis 原型单标记——建单显式 prototype: true 才挂专属 worktree
+  // （仅 analysis 类型消费本字段；不增类型、不隐式判定）
+  prototype?: boolean;
+  // #163（T8-E2，#130 决策 1）：巡检单标记——analysis 类型 + 显式 inspection: true
+  // （不增类型，仿 prototype 先例）。消费方：inspection-scan 冷却闸 / prompt 契约分叉 /
+  // COMPLETE 解析 OPPORTUNITY: 行 / analysis-handoff 频道摘要 / web 确认 UI。
+  inspection?: boolean;
+  // #163（T8-E2，#130 决策 7）：巡检对象面裁剪（代码/文档/配置/测试气味子集）；
+  // 缺省 = 全仓四面全扫。不含 Monitor 运行时健康与 doc-semantic-review 文档一致性专项。
+  inspectionScope?: string[];
+  // #163（T8-E2，#130 决策 2）：巡检机会清单——机制消费（冷却判定、采纳开单）。
+  // 写入方：巡检 WU COMPLETE 时 agent-loop 解析 OPPORTUNITY: 协议行落档（初始全 pending）；
+  // 状态流转走 workunit/inspection-opportunities.ts 的 adopt/ignore（web 确认 UI 消费）。
+  // 人读细节报告按 analysis 契约落 .studio/research/ 回挂来源单，本字段只存结构化条目。
+  opportunities?: InspectionOpportunity[];
   worktreePath?: string;      // 专属 worktree 路径（<worktreesDir>/wu-<wuId>；执行 cwd + 提交守卫 + 自动验证的消费点）
-  worktreeBranch?: string;    // 专属分支名（task/<wuId>）
+  worktreeBranch?: string;    // 专属分支名（task/<wuId>；#157 原型单为 prototype/<wuId>，永不合并）
   worktreeBaseBranch?: string; // 创建时的 base 分支（origin/HEAD→main→master 探测；PMO-b：归属 PMO 时为 PMO 分支）
   worktreeBaseRepo?: string;  // 共享 git 仓库根（worktree 的母仓库）
   // PMO-b（决策 3）：WU 归属 PMO 的集成分支（agent-loop 首 step 落档；
@@ -107,13 +126,17 @@ export interface WorkUnitMetadata {
     delegationCount: number;  // 本 WU 已派出的子任务数（宽度上限输入）
   };
   childGuardHint?: string;    // §6-2 父 complete 守卫：存在未完结子 WU 被打回时的提示（注入下一轮 prompt 后清除）
+  // T7-E2（#161）软观测守卫：COMPLETE 时过程检查（tdd-chain/phase-format/contract-presence）
+  // 违规合并提示——软观测不阻断完成，COMPLETE 放行时本 hint 沉睡，返工时才被消费（注入后即清除）
+  processCheckHint?: string;
   freshnessInterrupts?: number; // §4.2 发言层新鲜度检查：结果回帖被「房间已变」连续拦截次数（≥2 后照发并归零）
   // P0 修复（W-3 接线）：CLI 执行失败记录（agentStep success===false 显式分支写入，成功执行后清除）
   errorType?: string;         // 最近一次执行失败类型（如 execution_failed）
   errorDetail?: string;       // 最近一次执行失败详情（截断 500 字符）
   errorAt?: string;           // 最近一次执行失败时间 ISO 8601
-  // P0 修复（WU 超时机制）：claim 写入 timeoutAt 列；metadata.timeoutAt 显式值优先于按 type 的默认时长
-  timeoutAt?: string;         // 显式超时刻 ISO 8601（claim 时优先于默认时长）
+  // #178（#63 决议 1）：租约化后 metadata.timeoutAt 不再被 claim 消费（列值固定 5min 租约，
+  // 心跳推前）；字段保留仅为存量数据兼容，不再写入
+  timeoutAt?: string;         // deprecated：显式超时刻 ISO 8601（#178 起不生效）
   timeoutReleasedAt?: string; // 最近一次超时释放时间 ISO 8601
   timeoutReleaseCount?: number; // 超时释放次数（≥3 → blocked，不再自动回池）
   // 2026-07 PMO-flow UX（§4 terminate 语义修正）：AgentInstanceService.terminate 强制释放留痕
@@ -129,6 +152,17 @@ export interface WorkUnitMetadata {
   // 人工确认（reviewPassed → done）后由 analysis-handoff 据此建未指派 task 子 WU 派工
   analysisTasks?: string[];       // TASK: 拆分行解析结果（≤8 条，每条 ≤300 字符）
   analysisTasksSpawnedAt?: string; // 子 WU 已建时间戳（幂等哨兵：存在即不再重复派生）
+  // #183（#159 决议 2）：哨兵清单化——已建子 WU id 清单，5min 对账扫描据此补差集
+  // （analysisTasks − 清单）；人工关闭的子 WU 仍在清单中 → 对账不复活（决议 3）。
+  // 旧数据只有上面的时间戳哨兵：无清单即跳过对账（兼容读取，无需迁移）。
+  analysisTasksSpawned?: string[];
+  analysisRespawnAttempts?: number; // #183：对账补建连续失败次数，≥3 停跑并升 critical
+  // #186（#167 决议 1）：trigger 巡检单（无频道 + 无 TASK）免确认直转 done 的留痕
+  autoConfirmedBy?: string;       // 固定 'trigger-inspection-no-gate'
+  autoConfirmedAt?: string;       // 自动确认时间 ISO 8601
+  // #177（#69 决议）：analysis 人工确认处可选「默认执行角色」（profile id）——
+  // analysis-handoff spawnTasks 据此给全部派生 task 子 WU 落 assigneeId；缺省 = 涌现
+  defaultTaskAssigneeId?: string;
   // #106 M7 对齐：analysis WU COMPLETE 时 agent-loop 用 map-opening 同一解析器解析
   // FOG:/DESTINATION: 行落档——人工确认弹窗据此预填待决问题清单（审清单，人改后随
   // l3.summary 回传，map-opening 消费契约不变）；无 FOG 行 = 非探路型，两字段缺省
@@ -145,11 +179,27 @@ export interface WorkUnitMetadata {
   excludeAssignee?: string;   // 禁止认领的 profile id（评审排除实现者；agent-loop observe 未指派过滤据此剔除）
   selfReview?: boolean;       // 本评审 WU 未排除实现者（频道内无其他 active 成员）→ 可能是自评，台账/提醒据此标记
   reviewInput?: { mode: string; skill: string };  // R3: 评审输入契约落档（diff-only + code-review），审计用
+  reviewRedispatchAttempts?: number; // #183（#66 决议①）：review 对账重跑连续失败次数，≥3 停跑并升 critical
   // F6 信任证据模型（决策 1）：分层证据台账，l1 自动验证 / l2 agent 评审 / l3 人工确认。
   // 写入方：l1=agent-loop 验证守卫；l2/l3=reviewPassed/reviewRejected（attestation 入参）。
   // 消费铁律：展示/指标只准过 studio-shared 的 deriveDisplayState()，禁止各自解释。
   attestations?: WuAttestations;
   [key: string]: unknown;     // 允许扩展字段
+}
+
+/**
+ * #163（T8-E2，#130 决策 2）：巡检机会清单条目。
+ * 三态：pending（待处理）→ adopted（已开单，记 wuId）/ ignored（已忽略，可附理由——
+ * 供下轮巡检不重复上报）。人读面说人话：problem/suggestion/estimate 不出现机制黑话。
+ */
+export interface InspectionOpportunity {
+  id: string;                          // 条目 id（opp-1… 解析落档时生成，单内唯一）
+  problem: string;                     // 问题（人读）
+  suggestion: string;                  // 建议（人读）
+  estimate?: string;                   // 预估（工作量/影响，人读，可省）
+  status: 'pending' | 'adopted' | 'ignored';
+  wuId?: string;                       // adopted：采纳开出的 feature 单 id
+  ignoreReason?: string;               // ignored：忽略理由（可附）
 }
 
 /** F6: reviewPassed/reviewRejected 的证据来源——agent-review 写 l2，human-confirm 写 l3 */
@@ -257,7 +307,7 @@ export function resolveInitialStatus(wuType: string, explicit?: string): string 
  * #108：decision/spec 的裁剪状态机 —— `unassigned → active ⇄ waitingForInput → in_review → done`。
  * 现有实现里 waitingForInput 挂起 = status blocked + metadata.waitingForInput（F5 双向沟通），
  * 故表内体现为 active ⇄ blocked；无 closed（决策单可能等关键人多天，不进死信/超时关闭路径；
- * 死信关闭机制 #57 尚待实现，届时需对齐本豁免）。
+ * #176 已对齐本豁免：autoAbandonStaleBlocked 跳过 decision/spec，「关闭」指令对其拒绝并说明）。
  */
 const DECISION_SPEC_TRANSITIONS: Record<string, string[]> = {
   pending: ['unassigned'],
@@ -280,28 +330,15 @@ export function resolveValidTransitions(wuType: string, status: string): string[
 }
 
 /**
- * P0 修复（WU 超时机制）：WU 被认领进入 active 时的默认超时时长（分钟），按 type 区分。
- * metadata.timeoutAt 显式值优先于此表；未知 type 回落 WU_DEFAULT_TIMEOUT_MINUTES。
+ * #178（2026-08-16，#63 决议 1）：WU 租约（lease）TTL 单一固定值 5min。
+ * claim 时写 timeoutAt = now + TTL；持有方 loop 每 30s 心跳推前（agents/loop/lease-heartbeat），
+ * timeout-release 扫描逻辑不变。废除按 type 的 30/60min 预算默认值与 metadata.timeoutAt
+ * 显式值优先（任务预算归 maxTurns + token 记账，#54）。
  */
-export const WU_TIMEOUT_MINUTES: Record<string, number> = {
-  task: 60,
-  bug: 60,
-  feature: 60,
-  review: 30,
-  analysis: 30,
-};
-export const WU_DEFAULT_TIMEOUT_MINUTES = 60;
+export const WU_LEASE_TTL_MS = 5 * 60_000;
 
 /** analysis 任务拆分上限（agent-loop 解析 TASK: 行 / analysis-handoff 派生子 WU 共用） */
 export const ANALYSIS_TASKS_MAX = 8;
 
-/** claim 时的 timeoutAt 决策：metadata.timeoutAt 显式值优先，否则按 WU type 给默认时长 */
-export function resolveClaimTimeoutAt(wuType: string, metadataRaw: string | null): Date {
-  const meta = parseWuMetadata(metadataRaw);
-  if (typeof meta.timeoutAt === 'string') {
-    const explicit = new Date(meta.timeoutAt);
-    if (!Number.isNaN(explicit.getTime())) return explicit;
-  }
-  const minutes = WU_TIMEOUT_MINUTES[wuType] ?? WU_DEFAULT_TIMEOUT_MINUTES;
-  return new Date(Date.now() + minutes * 60_000);
-}
+/** #163（T8-E2）：巡检机会清单条数上限（agent-loop 解析 OPPORTUNITY: 行封顶，防刷行） */
+export const INSPECTION_OPPORTUNITIES_MAX = 10;

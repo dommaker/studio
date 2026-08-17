@@ -14,6 +14,10 @@
  *   POST   /api/v1/workunits/:id/review-rejected — review rejected (in_review → active/blocked)
  *   POST   /api/v1/workunits/:id/verify          — F6-c 断点 2：人工重跑 L1 自动验证（human-only，不动状态）
  *   POST   /api/v1/workunits/:id/dispatch-review — F6-c 断点 3：人工补派 agent 评审（human-only）
+ *   POST   /api/v1/workunits/:id/opportunities/:oppId/adopt  — #163 巡检机会采纳（建 feature 子单）
+ *   POST   /api/v1/workunits/:id/opportunities/:oppId/ignore — #163 巡检机会忽略（终态，可附理由）
+ *   POST   /api/v1/workunits/:id/resume — #185（决策 #87 D2）：Web 按钮通道「继续执行」（与回复路径共享复活原语）
+ *   POST   /api/v1/workunits/:id/close  — #185（决策 #87 D2）：Web 按钮通道「关闭任务」（死信显式关闭路径）
  *
  * 涌现路径 (AS-025 §5.15):
  *   POST   /api/v1/workunits/from-message — convert ChannelMessage to WorkUnit
@@ -29,9 +33,11 @@ import { FileStore } from '@dommaker/studio-shared';
 import { WorkUnitService, type WorkUnitMetadata } from './workunit.service.js';
 import { parseWuMetadata } from './wu-metadata.js';
 import { resolveClaimable, buildStatusById } from './wu-dependencies.js';
+import { adoptInspectionOpportunity, ignoreInspectionOpportunity } from './inspection-opportunities.js';
 import { aggregateTreeTokens } from '../agents/token-usage.service.js';
 import { CODE_WORKTREE_TYPES, resolveVerifyCommands, runWuVerification } from '../agents/loop/wu-verification.js';
 import { channelMessageService } from '../channels/channel-message.service.js';
+import { resumeBlockedWorkUnitFromWeb, closeBlockedWorkUnitFromWeb } from './waiting-input.js';
 import { getErrorMessage } from '../../utils/errors.js';
 import { parsePagination, formatPaginatedResponse } from '../../utils/pagination.js';
 import { requireAuth, requireNotGuest, type AuthRequest } from '../../middleware/auth.js';
@@ -174,6 +180,44 @@ router.put('/:id', requireAuth(), requireNotGuest(), async (req: Request, res: R
   }
 });
 
+/**
+ * #163（T8-E2，#130 决策 6）：巡检机会采纳——建 feature 子单（显式 unassigned 进
+ * frontier，采纳动作即人工闸），源条目记 wuId。机制在 inspection-opportunities.ts。
+ */
+router.post('/:id/opportunities/:oppId/adopt', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
+  try {
+    const result = await adoptInspectionOpportunity(service, req.params.id, req.params.oppId);
+    res.status(201).json(result);
+  } catch (error) {
+    const msg = getErrorMessage(error);
+    if (msg.includes('not found')) {
+      return res.status(404).json({ error: { code: 'NOT_FOUND', message: msg } });
+    }
+    if (msg.includes('already resolved') || msg.includes('not an inspection')) {
+      return res.status(409).json({ error: { code: 'INVALID_STATE', message: msg } });
+    }
+    res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: msg } });
+  }
+});
+
+/** #163（T8-E2）：巡检机会忽略——终态，可附理由（body.reason，下轮巡检不重复上报的判据） */
+router.post('/:id/opportunities/:oppId/ignore', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
+  try {
+    const reason = typeof req.body?.reason === 'string' ? req.body.reason : undefined;
+    const result = await ignoreInspectionOpportunity(service, req.params.id, req.params.oppId, reason);
+    res.json(result);
+  } catch (error) {
+    const msg = getErrorMessage(error);
+    if (msg.includes('not found')) {
+      return res.status(404).json({ error: { code: 'NOT_FOUND', message: msg } });
+    }
+    if (msg.includes('already resolved') || msg.includes('not an inspection')) {
+      return res.status(409).json({ error: { code: 'INVALID_STATE', message: msg } });
+    }
+    res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: msg } });
+  }
+});
+
 /** GET /:id/tree-tokens - 树级 token 开销聚合（AC-5.4, §8.4.4） */
 router.get('/:id/tree-tokens', async (req: Request, res: Response) => {
   try {
@@ -271,11 +315,16 @@ router.post('/:id/review-passed', requireAuth(), requireNotGuest(), async (req: 
     // pmo/decision-resolution 订阅器据此把 decision 单结论原样写入探路地图 decisions[]
     const user = (req as AuthRequest).user;
     const summary = req.body?.summary;
+    // #177：可选 defaultAssigneeId（profile id）——analysis 确认处「默认执行角色」，
+    // 落 WU metadata.defaultTaskAssigneeId，analysis-handoff 应用于全部派生 task 子 WU
+    const defaultAssigneeId = req.body?.defaultAssigneeId;
     const wu = await service.reviewPassed(req.params.id, {
       by: user?.name ?? user?.email ?? user?.id ?? 'human',
       kind: 'human-confirm',
       ...(typeof summary === 'string' && summary.trim() ? { summary } : {}),
-    });
+    }, typeof defaultAssigneeId === 'string' && defaultAssigneeId.trim()
+      ? { defaultTaskAssigneeId: defaultAssigneeId.trim() }
+      : undefined);
     res.json(wu);
   } catch (error) {
     const msg = getErrorMessage(error);
@@ -416,6 +465,74 @@ router.post('/:id/dispatch-review', requireAuth(), requireNotGuest(), async (req
       return res.status(400).json({ error: { code: 'INVALID_INPUT', message: msg } });
     }
     res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: msg } });
+  }
+});
+
+/**
+ * POST /:id/resume — #185（决策 #87 D2）：Web 按钮通道「继续执行」（纯授权复活，human-only）。
+ * 与频道回复路径共享同一复活原语（重置 consecutiveStuck/blockReason、记 resumeCount、
+ * timeoutReleaseCount 终身保留），pendingReplies 注入固定占位文案；复活后发 Studio 系统消息里程碑。
+ * 分类型显示是 UI 层决策（D3），端点不设类型门槛；归属等待型按回复语义不被纯授权复活 → 409。
+ */
+router.post('/:id/resume', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
+  try {
+    const wu = await service.getById(req.params.id);
+    if (!wu) {
+      return res.status(404).json({
+        error: { code: 'NOT_FOUND', message: `WorkUnit ${req.params.id} not found` },
+      });
+    }
+    if (wu.status !== 'blocked') {
+      return res.status(409).json({
+        error: { code: 'NOT_BLOCKED', message: `WorkUnit 当前状态为 ${wu.status}，仅 blocked 可继续执行` },
+      });
+    }
+    const resumed = await resumeBlockedWorkUnitFromWeb(req.params.id, fileStore);
+    if (!resumed) {
+      return res.status(409).json({
+        error: { code: 'RESUME_REJECTED', message: '复活未完成（等待工程归属的任务请在频道回复工程名或路径）' },
+      });
+    }
+    const updated = await service.getById(req.params.id);
+    res.json(updated);
+  } catch (error) {
+    res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: getErrorMessage(error) } });
+  }
+});
+
+/**
+ * POST /:id/close — #185（决策 #87 D2）：Web 按钮通道「关闭任务」（死信显式关闭路径，human-only）。
+ * 复用 #57 D4 关闭路径：显式状态迁移 + 频道通知 + workunit:closed 结构化事件（不靠文本魔法串）。
+ * decision/spec 裁剪状态机无 closed → 409 NO_CLOSED_STATE（拒绝说明已同步发到频道）。
+ */
+router.post('/:id/close', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
+  try {
+    const wu = await service.getById(req.params.id);
+    if (!wu) {
+      return res.status(404).json({
+        error: { code: 'NOT_FOUND', message: `WorkUnit ${req.params.id} not found` },
+      });
+    }
+    if (wu.status !== 'blocked') {
+      return res.status(409).json({
+        error: { code: 'NOT_BLOCKED', message: `WorkUnit 当前状态为 ${wu.status}，仅 blocked 可关闭` },
+      });
+    }
+    const outcome = await closeBlockedWorkUnitFromWeb(req.params.id, fileStore);
+    if (outcome === 'rejected-no-closed-state') {
+      return res.status(409).json({
+        error: { code: 'NO_CLOSED_STATE', message: `该类型（${wu.type}，人工验收类）无 closed 状态，不支持关闭；如需继续请回复指导意见` },
+      });
+    }
+    if (outcome !== 'closed') {
+      return res.status(409).json({
+        error: { code: 'NOT_BLOCKED', message: 'WorkUnit 状态已变化，关闭未完成' },
+      });
+    }
+    const updated = await service.getById(req.params.id);
+    res.json(updated);
+  } catch (error) {
+    res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: getErrorMessage(error) } });
   }
 });
 

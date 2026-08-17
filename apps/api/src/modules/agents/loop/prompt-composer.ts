@@ -6,7 +6,8 @@
  *
  * 职责边界：
  *   - 本模块 = prompt 组装政策：hint 读取/注入/消费清除、注入段定额分配与截断、
- *     skill_used / section_trimmed 度量落盘。build 段函数同为模块级私有函数。
+ *     section_trimmed 度量落盘。build 段函数同为模块级私有函数。
+ *     （#172/#60：skill_used 曝光发射已删除——skill_used 唯一语义 = loadSkill 加载。）
  *   - agent-loop.agentStep = 编排：traceId/channelVersion 读取（下游仍消费，留在 agentStep）→
  *     调 composeStepPrompt → 会话管理 → worktree 准备 → 执行与簿记。
  *
@@ -15,7 +16,8 @@
  * knowledge-service 模块，同一模块 ID 解析到同一绝对路径，mock 照常生效）。
  */
 
-import { estimateTokens, parseChannels, FileStore, logger, type AgentProfileData } from '@dommaker/studio-shared';
+import { parseChannels, FileStore, logger, type AgentProfileData } from '@dommaker/studio-shared';
+import { TokenEstimator } from '@dommaker/harness';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import { knowledgeService } from '../../knowledge/knowledge-service.js';
 import { projectService } from '../../pmo/project.service.js';
@@ -35,7 +37,7 @@ import { metricsFileStore } from './agent-loop-events.js';
  * 软定额 + 池内余量共享：按 persona → roster → skills → map → memory → knowledge → contract
  * → handoff 顺序逐段组装，段有效预算 = 本段定额 + 共享池余量；段实际用量低于有效预算时，
  * 差额流入共享池供后续段借用（注入总量封顶 = 定额总和 ~4.5K）。
- * map 段 = #111 T5 探路地图完整渲染（定额 800，实测校准见 agents/CONTEXT.md）。
+ * map 段 = #111 T5 探路地图完整渲染（定额 800，实测校准见 .studio/CONTEXT.md 的 apps/api/src/modules/agents 锚点）。
  * contract 段 = #119 契约段生成器（定额 200，按 WU type 产出格式 + 最小模板）。
  * memory / handoff 段内容源分别归 #100（角色记忆索引常驻注入）与 #95（handoff 前序
  * 进展段）。
@@ -65,6 +67,8 @@ export const WAITING_QUESTION_REPLAY_MAX_CHARS = 300;
  * #119：契约段按 WU type 的产出格式 + 最小模板（内容定稿随 #118 续烤迭代，先落最简模板）。
  * review → REVIEW_RESULT 协议行；implement → 测试先行 + Phase commit 格式；
  * decision（决策单）→ 结论摘要格式；analysis → research/prototype 产出载体（T3/#125）。
+ * #163（T8-E2）：analysis + metadata.inspection===true → 巡检契约（INSPECTION_CONTRACT，
+ * 优先级高于 analysis 通用模板）。
  * 未列出的 type（task/feature/bug/spec 等）→ 空段（不注入）。
  */
 export const CONTRACT_TEMPLATES: Record<string, string> = {
@@ -87,11 +91,43 @@ export const CONTRACT_TEMPLATES: Record<string, string> = {
   ].join('\n'),
 };
 
+/**
+ * #163（T8-E2，#130 决策 2/3/7）：巡检单（analysis + metadata.inspection）专属契约——
+ * 分片扫描、结论即落盘、机会清单协议行。人读面说人话：报告/频道消息不出现
+ * WU/metadata/闸/熔断等机制黑话。
+ */
+export const INSPECTION_CONTRACT = [
+  '巡检执行纪律：',
+  '- 分片扫描：按目录/模块分片推进，每片扫完立即把结论追加写入报告文件（结论即落盘），不要在内存里攒到最后一次性输出。',
+  '- 对象面：代码/文档/配置/测试气味（默认全仓四面；本单 metadata.inspectionScope 在场时按其裁剪）。运行时健康归监控探针、文档一致性归专项审查，都不在巡检范围。',
+  '- 报告落业务仓 .studio/research/inspection-<日期>.md，并在来源工单回挂报告链接；报告与频道消息说人话，不出现内部机制术语。',
+  '- 每条机会在输出尾部给出协议行（机器消费，报告正文照旧写人话细节）：',
+  '  OPPORTUNITY: {"problem":"问题","suggestion":"建议","estimate":"预估（可省）"}',
+].join('\n');
+
 /** 单个注入段的组装产出：tokens = 截断后实际用量；originalTokens = 未截断的原始尺寸（> tokens 即发生了截断） */
 interface BuiltSection {
   section: string;
   tokens: number;
   originalTokens: number;
+}
+
+/**
+ * #150 A2: 按 token 预算截断文本（TokenEstimator 口径，替代 chars/4 反推 slice(0, budget*4)）。
+ * 旧反推只在纯 ASCII 下成立：含中文文本按 TokenEstimator（≈1.5 字符/token）会超预算。
+ * 二分求 estimateText 口径下最长的预算适配前缀，与估算器严格一致，不再复制启发式。
+ */
+function sliceToTokenBudget(text: string, tokenBudget: number): string {
+  if (tokenBudget <= 0) return '';
+  if (TokenEstimator.estimateText(text) <= tokenBudget) return text;
+  let lo = 0;
+  let hi = text.length;
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2);
+    if (TokenEstimator.estimateText(text.slice(0, mid)) <= tokenBudget) lo = mid;
+    else hi = mid - 1;
+  }
+  return text.slice(0, lo);
 }
 
 /** prompt 组装输入。metadata 为 agentStep 入口解析的持久化视图（hint 消费读取同一来源）。 */
@@ -129,7 +165,7 @@ export interface ComposedStepPrompt {
 
 /**
  * 组装本 step 的 prompt 与注入上下文：
- *  1. hint 读取（pendingReplies / commitGuardHint / verifyFailHint / childGuardHint，注入后即消费）；
+ *  1. hint 读取（pendingReplies / commitGuardHint / verifyFailHint / childGuardHint / processCheckHint，注入后即消费）；
  *  2. base prompt：pendingReplies > target.newReplies > continue；
  *  3. 三类 guard hint 段注入；
  *  4. 注入段分段软定额 + 池内余量共享（#91），稳定前缀序 persona > roster > skills > map > memory > knowledge，
@@ -163,6 +199,11 @@ export async function composeStepPrompt(
     ? metadata.childGuardHint
     : null;
 
+  // T7-E2（#161）软观测守卫：上一轮 COMPLETE 过程检查违规合并提示（不阻断完成，注入后即消费）
+  const processCheckHint = typeof metadata.processCheckHint === 'string' && metadata.processCheckHint.length > 0
+    ? metadata.processCheckHint
+    : null;
+
   // #95: 仅新会话回放 waitingQuestion（截 300 字符）并入人类回复段——断链后 agent 忘了自己提过什么问题
   const replyTexts = pendingReplies.length > 0
     && ctx.isNewSession === true
@@ -180,6 +221,7 @@ export async function composeStepPrompt(
     commitGuardHint ? `## 提交提醒\n\n${commitGuardHint}` : null,
     verifyFailHint ? `## 验证失败\n\n${verifyFailHint}` : null,
     childGuardHint ? `## 子任务提醒\n\n${childGuardHint}` : null,
+    processCheckHint ? `## 过程检查提醒\n\n${processCheckHint}` : null,
   ].filter((s): s is string => s !== null).join('\n\n');
 
   // #91: 分段软定额 + 池内余量共享 —— 段有效预算 = 定额 + 池；用量差额回流池中。
@@ -246,7 +288,7 @@ export async function composeStepPrompt(
       maxTokens: budget,
     });
     injectedKnowledgeIds = injected.injectedIds ?? [];
-    const keptTokens = injected.usage?.keptTokens ?? estimateTokens(injected.prompt.length);
+    const keptTokens = injected.usage?.keptTokens ?? TokenEstimator.estimateText(injected.prompt);
     return {
       section: injected.prompt,
       tokens: keptTokens,
@@ -257,7 +299,7 @@ export async function composeStepPrompt(
 
   // #119: 契约段（## 产出契约）——按 WU type 产出格式 + 最小模板，挂 base 后、handoff 前。
   const contract = await runSection('contract', budget =>
-    Promise.resolve(buildContractSection(wu, budget)));
+    Promise.resolve(buildContractSection(wu, metadata, budget)));
 
   // #95: handoff 前序进展段（续用不命中 + stepCount>0 时注入；挂载位 base 后/hint 前）
   const handoff = await runSection('handoff', budget =>
@@ -297,6 +339,10 @@ export async function composeStepPrompt(
     // §6-2: 提示已注入 prompt，清除避免后续步骤重复注入
     consumedHintUpdates.childGuardHint = undefined;
   }
+  if (processCheckHint) {
+    // T7-E2: 提示已注入 prompt，清除避免后续步骤重复注入
+    consumedHintUpdates.processCheckHint = undefined;
+  }
 
   return { prompt, pendingReplies, knowledgeContext, skillMatched, injectedKnowledgeIds, consumedHintUpdates };
 }
@@ -307,7 +353,7 @@ export async function composeStepPrompt(
  * MAP_SUMMARY_MAX_CHARS 截断加省略号）+ 开放 fog（open/in-discussion，resolved 不列）清单。
  * WU 无 pmoId / PMO 无 map（非探路型）→ 空段（不注入，行为同现状）。
  * 超预算截断策略：fog 全保留，decisions 从旧到新逐条裁（保最新）；决策裁光仍超
- * （fog+destination 病态规模）→ 按 chars/4 兜底截（与其他段同口径）。
+ * （fog+destination 病态规模）→ 按 TokenEstimator 口径兜底截（与其他段同口径）。
  * originalTokens = N 封顶后完整渲染尺寸（N 封顶不算截断，只有预算裁条才落埋点）。
  */
 async function buildPmoMapSection(metadata: WorkUnitMetadata, tokenBudget: number): Promise<BuiltSection> {
@@ -341,37 +387,40 @@ async function buildPmoMapSection(metadata: WorkUnitMetadata, tokenBudget: numbe
   };
 
   const full = render(decisionLines);
-  const originalTokens = estimateTokens(full.length);
+  const originalTokens = TokenEstimator.estimateText(full);
   if (originalTokens <= tokenBudget) return { section: full, tokens: originalTokens, originalTokens };
 
   // 超预算：fog 全保留，decisions 从旧到新逐条裁（列表尾 = 最旧）
   let kept = decisionLines;
-  while (kept.length > 0 && estimateTokens(render(kept).length) > tokenBudget) {
+  while (kept.length > 0 && TokenEstimator.estimateText(render(kept)) > tokenBudget) {
     kept = kept.slice(0, -1);
   }
   let section = render(kept);
-  if (estimateTokens(section.length) > tokenBudget) {
-    // 兜底：fog+destination 自身已超预算，按 chars/4 截（与其他段同口径）
-    section = section.slice(0, Math.max(0, tokenBudget * 4));
+  if (TokenEstimator.estimateText(section) > tokenBudget) {
+    // 兜底：fog+destination 自身已超预算，按 TokenEstimator 口径截（与其他段同口径）
+    section = sliceToTokenBudget(section, tokenBudget);
   }
-  return { section, tokens: estimateTokens(section.length), originalTokens };
+  return { section, tokens: TokenEstimator.estimateText(section), originalTokens };
 }
 
 /**
  * #119: 组装 `## 产出契约` 段 —— 按 WU type 产出格式 + 最小模板（CONTRACT_TEMPLATES）。
- * 未知/无契约 type → 空段（不注入）。超预算按 chars/4 截（与其他段同口径），
+ * 未知/无契约 type → 空段（不注入）。超预算按 TokenEstimator 口径截（与其他段同口径），
  * originalTokens > tokens 由 runSection 落 prompt:section_trimmed 埋点（定额 200）。
  */
-function buildContractSection(wu: WorkUnitData, tokenBudget: number): BuiltSection {
-  const template = CONTRACT_TEMPLATES[wu.type];
+function buildContractSection(wu: WorkUnitData, metadata: WorkUnitMetadata, tokenBudget: number): BuiltSection {
+  // #163（T8-E2）：巡检单契约优先于 analysis 通用模板
+  const template = (wu.type === 'analysis' && metadata.inspection === true)
+    ? INSPECTION_CONTRACT
+    : CONTRACT_TEMPLATES[wu.type];
   if (!template || tokenBudget <= 0) return { section: '', tokens: 0, originalTokens: 0 };
 
   const full = `## 产出契约\n\n${template}`;
-  const originalTokens = estimateTokens(full.length);
+  const originalTokens = TokenEstimator.estimateText(full);
   if (originalTokens > tokenBudget) {
     // 按截断后实际内容重算 tokens，省下的余量回流共享池（#91）
-    const sliced = full.slice(0, Math.max(0, tokenBudget * 4));
-    return { section: sliced, tokens: estimateTokens(sliced.length), originalTokens };
+    const sliced = sliceToTokenBudget(full, tokenBudget);
+    return { section: sliced, tokens: TokenEstimator.estimateText(sliced), originalTokens };
   }
   return { section: full, tokens: originalTokens, originalTokens };
 }
@@ -380,7 +429,7 @@ function buildContractSection(wu: WorkUnitData, tokenBudget: number): BuiltSecti
  * #95: 组装 `## 前序进展` 段 —— 断链新会话（续用不命中）时给 agent 的前序上下文。
  * 注入条件：isNewSession && stepCount>0（含复活丢会话）。内容 = metadata.progressLog
  * （成功步，旧→新）+ errorType 存在时附「上一步失败」行（失败步不落 log，注入时补）。
- * progressLog 空且无 errorType → 空段。超预算按 chars/4 截（与其他段同口径），
+ * progressLog 空且无 errorType → 空段。超预算按 TokenEstimator 口径截（与其他段同口径），
  * originalTokens > tokens 由 runSection 落 prompt:section_trimmed 埋点。
  */
 function buildHandoffSection(metadata: WorkUnitMetadata, isNewSession: boolean, tokenBudget: number): BuiltSection {
@@ -406,10 +455,10 @@ function buildHandoffSection(metadata: WorkUnitMetadata, isNewSession: boolean, 
   }
 
   const full = lines.join('\n');
-  const originalTokens = estimateTokens(full.length);
+  const originalTokens = TokenEstimator.estimateText(full);
   if (originalTokens > tokenBudget) {
-    const sliced = full.slice(0, Math.max(0, tokenBudget * 4));
-    return { section: sliced, tokens: estimateTokens(sliced.length), originalTokens };
+    const sliced = sliceToTokenBudget(full, tokenBudget);
+    return { section: sliced, tokens: TokenEstimator.estimateText(sliced), originalTokens };
   }
   return { section: full, tokens: originalTokens, originalTokens };
 }
@@ -425,7 +474,8 @@ function buildHandoffSection(metadata: WorkUnitMetadata, isNewSession: boolean, 
  * （~/.studio/skills/<name>/SKILL.md，agent 按需阅读），不注入正文；段首协议行说明按需语义；
  * 段尾一行 MANIFEST 指针（~/.studio/skills/MANIFEST.md，agent 按需读全文清单），恒在段尾（无论是否裁剪）。
  * 返回 matched = 实际进入注入段的 skill 名（预裁剪后、截断后的集合；调用方落盘
- * metadata.matchedSkills；此处并发 knowledge:skill_used 事件，fire-and-forget，供度量/被无视率）。
+ * metadata.matchedSkills）。#172（#60 决策 Q2）：曝光事件发射已删除（常量集合零信息量，
+ * 占事件流 ~88%）；knowledge:skill_used 唯一语义 = Skill 加载（skill-loader.ts）。
  */
 async function buildSkillSection(
   wu: WorkUnitData,
@@ -445,15 +495,15 @@ async function buildSkillSection(
   const header = '## 本次任务 Skills\n\n以下 skill 按相关度排序；任务内容命中其触发条件时，先读全文再按此执行；不相关则忽略。';
   // #92: 段尾 MANIFEST 指针（恒在段尾，agent 按需读全文清单）
   const pointer = `完整 skill 清单见 skills MANIFEST.md（${studioPath('skills', 'MANIFEST.md')}）`;
-  const pointerTokens = estimateTokens(pointer.length + 2); // +\n\n 分隔符
-  const fixedTokens = estimateTokens(header.length) + pointerTokens;
+  const pointerTokens = TokenEstimator.estimateText(pointer + '\n\n'); // +\n\n 分隔符
+  const fixedTokens = TokenEstimator.estimateText(header) + pointerTokens;
 
   const candidates = ranked.map(entry => {
     const triggerSummary = Array.isArray(entry.triggers) && entry.triggers.length > 0
       ? `｜触发：${entry.triggers.slice(0, 5).join(', ')}`
       : '';
     const block = `### ${entry.name}\n${entry.description || '（无描述）'}${triggerSummary}\n全文：${studioPath('skills', entry.name, 'SKILL.md')}`;
-    return { entry, block, blockTokens: estimateTokens(block.length + 2) }; // + \n\n 分隔符
+    return { entry, block, blockTokens: TokenEstimator.estimateText(block + '\n\n') }; // + \n\n 分隔符
   });
   // 未截断的原始尺寸（截断埋点的 originalTokens；块级跳过也计入）
   const originalTokens = fixedTokens + candidates.reduce((sum, c) => sum + c.blockTokens, 0);
@@ -466,10 +516,10 @@ async function buildSkillSection(
       // 首个块即超预算：截断塞入，保证段不为空（沿用原整段截断口径）；
       // 按截断后实际内容重算 tokens，省下的余量回流共享池（#91）
       if (blocks.length === 0) {
-        const sliced = block.slice(0, Math.max(0, (tokenBudget - tokens) * 4));
+        const sliced = sliceToTokenBudget(block, tokenBudget - tokens);
         blocks.push(sliced);
         matched.push(entry.name);
-        tokens = fixedTokens + estimateTokens(sliced.length);
+        tokens = fixedTokens + TokenEstimator.estimateText(sliced);
       }
       break;
     }
@@ -478,15 +528,8 @@ async function buildSkillSection(
     tokens += blockTokens;
   }
 
-  // 度量（fire-and-forget）：每个实际注入的 skill 记一条 knowledge:skill_used 事件
-  for (const skillName of matched) {
-    void metricsFileStore.appendJsonl(deps.resolveEventsFile(), {
-      type: 'knowledge:skill_used',
-      source: 'agent-loop',
-      payload: JSON.stringify({ skillName, workUnitId: wu.id }),
-      createdAt: new Date().toISOString(),
-    }).catch(() => {});
-  }
+  // #172（#60 决策 Q2）：曝光事件发射已删除 —— 曝光集合为常量（零信息量，占事件流 ~88%），
+  // knowledge:skill_used 唯一语义 = Skill 加载（MCP loadSkill 拉取正文，见 skill-loader.ts）。
 
   return { section: `${header}\n\n${blocks.join('\n\n')}\n\n${pointer}`, tokens, originalTokens, matched };
 }
@@ -495,7 +538,7 @@ async function buildSkillSection(
  * 决策 13 + #91: 组装 `## 你的角色` 段（角色自述 + preset 声明）。
  * 内容 = role.persona ?? role.description，附 preset 带入的 skills/tools/constraints 行
  * （#91 修复：此前 preset 三字段落盘后无任何消费，角色配置形同虚设）；皆空则段省略。
- * 调用方传入有效预算（#91 定额 + 池余量），超出按 chars/4 口径截断。
+ * 调用方传入有效预算（#91 定额 + 池余量），超出按 TokenEstimator 口径截断。
  */
 function buildPersonaSection(role: AgentProfileData, tokenBudget: number): BuiltSection {
   const persona = role.persona ?? role.description;
@@ -513,11 +556,11 @@ function buildPersonaSection(role: AgentProfileData, tokenBudget: number): Built
   if (!body || tokenBudget <= 0) return { section: '', tokens: 0, originalTokens: 0 };
 
   const full = `## 你的角色\n\n${body}`;
-  const originalTokens = estimateTokens(full.length);
+  const originalTokens = TokenEstimator.estimateText(full);
   if (originalTokens > tokenBudget) {
     // 按截断后实际内容重算 tokens，省下的余量回流共享池（#91）
-    const sliced = full.slice(0, tokenBudget * 4);
-    return { section: sliced, tokens: estimateTokens(sliced.length), originalTokens };
+    const sliced = sliceToTokenBudget(full, tokenBudget);
+    return { section: sliced, tokens: TokenEstimator.estimateText(sliced), originalTokens };
   }
   return { section: full, tokens: originalTokens, originalTokens };
 }
@@ -527,7 +570,7 @@ function buildPersonaSection(role: AgentProfileData, tokenBudget: number): Built
  * 花名册 = 本频道 active 成员的 name + description + provider（排除自己——委派质量取决于
  * 模型对角色能力的理解，没有花名册的 DELEGATE 是盲派）；members 为空（历史频道未回填）
  * 时回退到全部 active profile，与 DelegationGate 的过渡期口径一致。
- * 预算：调用方传入有效预算（#91 定额 + 池余量），超出按 chars/4 口径截断。
+ * 预算：调用方传入有效预算（#91 定额 + 池余量），超出按 TokenEstimator 口径截断。
  */
 async function buildRosterSection(
   wu: WorkUnitData,
@@ -558,11 +601,11 @@ ${rosterLines.join('\n')}
 
 如需把一部分工作交给更合适的成员，输出一行：ACTION: DELEGATE:@<成员名>:<子任务 scope>（scope 为该行剩余内容）。仅可委派给上述成员，不可委派给自己；委派深度上限 ${resolveMaxDepth()} 跳（根任务 depth=0），同一任务最多委派 ${MAX_DELEGATIONS_PER_PARENT} 次，不可对同一成员重复委派。系统校验通过后会创建子任务并在频道发卡片，你继续按 PROGRESS 推进自己的部分；校验不通过则转为 NEED_INPUT 请人裁决。`;
 
-  const originalTokens = estimateTokens(full.length);
+  const originalTokens = TokenEstimator.estimateText(full);
   if (originalTokens > tokenBudget) {
     // 按截断后实际内容重算 tokens，省下的余量回流共享池（#91）
-    const sliced = full.slice(0, tokenBudget * 4);
-    return { section: sliced, tokens: estimateTokens(sliced.length), originalTokens };
+    const sliced = sliceToTokenBudget(full, tokenBudget);
+    return { section: sliced, tokens: TokenEstimator.estimateText(sliced), originalTokens };
   }
   return { section: full, tokens: originalTokens, originalTokens };
 }
@@ -573,7 +616,7 @@ ${rosterLines.join('\n')}
  * 内容源 = roleMemoryStore.readIndex(roleId)；索引不存在/为空 → 空段（section: ''，同现状）；
  * 读盘失败 → 空段 + 记日志（non-blocking，绝不阻断 prompt 组装）。段首协议行说明按需语义
  * （同 skills 段风格）。预算经调用方 runSection 传有效预算（#91 定额 300 + 池余量），
- * 超出按 chars/4 口径截断，originalTokens > tokens 由 runSection 落 prompt:section_trimmed 埋点。
+ * 超出按 TokenEstimator 口径截断，originalTokens > tokens 由 runSection 落 prompt:section_trimmed 埋点。
  */
 async function buildMemorySection(roleId: string, tokenBudget: number): Promise<BuiltSection> {
   let index: string;
@@ -593,11 +636,11 @@ async function buildMemorySection(roleId: string, tokenBudget: number): Promise<
 
   const header = '## 角色记忆索引\n\n以下为你在往次任务中沉淀的记忆索引（每行 = topic 路径 + 一句话摘要）；任务内容命中相关记忆时，先用文件工具按需读对应 topic 正文再据此执行，不相关则忽略。';
   const full = `${header}\n\n${body}`;
-  const originalTokens = estimateTokens(full.length);
+  const originalTokens = TokenEstimator.estimateText(full);
   if (originalTokens > tokenBudget) {
     // 按截断后实际内容重算 tokens，省下的余量回流共享池（#91）
-    const sliced = full.slice(0, Math.max(0, tokenBudget * 4));
-    return { section: sliced, tokens: estimateTokens(sliced.length), originalTokens };
+    const sliced = sliceToTokenBudget(full, tokenBudget);
+    return { section: sliced, tokens: TokenEstimator.estimateText(sliced), originalTokens };
   }
   return { section: full, tokens: originalTokens, originalTokens };
 }

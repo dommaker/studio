@@ -2,10 +2,12 @@
  * routes.ts 门面测试（T3 拆分新增，pre-commit TDD 门禁）。
  *
  * 验证拆分后门面（knowledgeRoutes / knowledgeInternalRoutes）：
- * 1. 所有 7 个子路由的 (method, path) 完整注册（集合比较，不依赖 Express 内部 flatten 顺序）；
- * 2. 关键顺序约束：/requirements、/read-file、/file 必须在 /:projectId 之前（否则被遮蔽）；
- * 3. HTTP 层验证语义——字面路径可到达、原文件中的遮蔽行为保留。
+ * 1. 所有子路由的 (method, path) 完整注册（集合比较，不依赖 Express 内部 flatten 顺序）；
+ * 2. HTTP 层验证语义——字面路径可到达。
  * HOME 指向临时目录隔离 sharedStore / FileStore。
+ *
+ * #149（2026-08-15）：document-store 退役，documents.routes / evolution.routes 摘除；
+ * 原 /:projectId 通配路由消失，/export /ask 等字面路径不再被遮蔽（原遮蔽行为测试一并移除）。
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import express from 'express';
@@ -35,16 +37,9 @@ function flattenRoutes(router: any): FlatRoute[] {
 const EXPECTED_PUBLIC: Array<[string, string]> = [
   // files.routes
   ['GET', '/requirements'], ['POST', '/read-file'], ['GET', '/file'],
-  // documents.routes
-  ['GET', '/'], ['GET', '/detail/:documentId'], ['GET', '/:projectId'], ['POST', '/:projectId'],
-  ['PUT', '/:documentId'], ['POST', '/:documentId/archive'], ['POST', '/:documentId/approve'],
-  ['POST', '/:documentId/reject'], ['DELETE', '/:documentId'],
   // entries.routes
   ['GET', '/export'], ['POST', '/ask'], ['GET', '/gaps/:type'], ['GET', '/gaps'],
   ['GET', '/unified'], ['POST', '/unified'],
-  // evolution.routes
-  ['POST', '/evolution/micro'], ['POST', '/evolution/meso'], ['POST', '/evolution/macro'],
-  ['POST', '/evolution/decay'], ['GET', '/evolution/health'],
   // search.routes
   ['GET', '/resolutions'], ['GET', '/search'], ['GET', '/resolution/density'],
   ['GET', '/resolution/cross-session'],
@@ -110,7 +105,7 @@ describe('knowledge routes facade', () => {
     expect(typeof knowledgeInternalRoutes.use).toBe('function');
   });
 
-  it('all 7 sub-routers fully registered (set comparison)', () => {
+  it('all 4 sub-routers fully registered (set comparison)', () => {
     const flat = flattenRoutes(knowledgeRoutes);
     const actual = flat.map(r => [r.method, r.path] as [string, string]);
     const actualSet = toSet(actual);
@@ -123,19 +118,7 @@ describe('knowledge routes facade', () => {
     expect(extra).toEqual([]);
   });
 
-  it('/requirements, /read-file, /file registered before /:projectId (no shadowing)', () => {
-    const flat = flattenRoutes(knowledgeRoutes).map(r => [r.method, r.path] as [string, string]);
-    const projectIdIdx = flat.findIndex(r => r[0] === 'GET' && r[1] === '/:projectId');
-    expect(projectIdIdx).not.toBe(-1);
-
-    for (const lp of ['/requirements', '/read-file', '/file']) {
-      const idx = flat.findIndex(r => r[1] === lp);
-      expect(idx).not.toBe(-1);
-      expect(idx).toBeLessThan(projectIdIdx);
-    }
-  });
-
-  it('internal route table has all 5 routes (set comparison)', () => {
+  it('internal route table has all 2 routes (set comparison)', () => {
     const flat = flattenRoutes(knowledgeInternalRoutes);
     const actual = flat.map(r => [r.method, r.path] as [string, string]);
     const actualSet = toSet(actual);
@@ -154,35 +137,11 @@ describe('knowledge routes facade', () => {
     expect(search?.handlers).toBe(2);
   });
 
-  it('GET /requirements reaches files handler (registered before /:projectId)', async () => {
+  it('GET /requirements reaches files handler', async () => {
     const res = await api(basePublic, 'GET', '/requirements');
     expect(res.status).toBe(200);
     expect(res.json).toHaveProperty('docs');
     expect(res.json).toHaveProperty('total');
-  });
-
-  it('GET / reaches documents handler (companyId required)', async () => {
-    const res = await api(basePublic, 'GET', '/');
-    expect(res.status).toBe(400);
-    expect(res.json.error).toBe('companyId is required');
-  });
-
-  it('GET /export keeps original shadowing by /:projectId', async () => {
-    // 原文件中 /:projectId 注册于 /export 之前，GET /export 由项目文档列表处理器捕获
-    const res = await api(basePublic, 'GET', '/export');
-    expect(res.status).toBe(200);
-    expect(res.json).toHaveProperty('documents');
-    expect(res.json).toHaveProperty('byType');
-    expect(res.json).toHaveProperty('stats');
-  });
-
-  it('POST /ask keeps original shadowing by POST /:projectId (404 Project not found)', async () => {
-    // 原文件中 POST /:projectId 注册于 /ask 之前：带 type+title 的请求体通过
-    // /:projectId 的参数校验后查项目（'ask' 不是项目）→ 404；若落到 ask 处理器
-    // 则会因缺 question 返回 400——两种结果可明确区分归属。
-    const res = await api(basePublic, 'POST', '/ask', { type: 'design', title: 'X' });
-    expect(res.status).toBe(404);
-    expect(res.json.error).toBe('Project not found');
   });
 
   it('GET /api/knowledge/sync-status reachable on internal router', async () => {

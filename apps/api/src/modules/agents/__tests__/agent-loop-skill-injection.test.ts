@@ -81,7 +81,8 @@ vi.mock('../../knowledge/knowledge-service', () => ({
   INJECT_TOKEN_BUDGET: 2000,
 }));
 
-import { FileStore, estimateTokens } from '@dommaker/studio-shared';
+import { FileStore } from '@dommaker/studio-shared';
+import { TokenEstimator } from '@dommaker/harness';
 
 // 动态 import：保证 process.env.SKILLS_DIR 赋值先于 manifest-loader 模块加载
 const { AgentLoop } = await import('../loop/agent-loop');
@@ -91,8 +92,8 @@ const { invalidateManifestCache } = await import('../../skills/manifest-loader.j
 const SKILL_HEADER = '## 本次任务 Skills\n\n以下 skill 按相关度排序；任务内容命中其触发条件时，先读全文再按此执行；不相关则忽略。';
 const SKILL_BLOCK = `### feature-dev\n功能开发流程｜触发：登录, 认证, 会话, 鉴权, 令牌\n全文：${path.join(os.homedir(), '.studio', 'skills', 'feature-dev', 'SKILL.md')}`;
 const SKILL_MANIFEST_POINTER = `完整 skill 清单见 skills MANIFEST.md（${path.join(os.homedir(), '.studio', 'skills', 'MANIFEST.md')}）`;
-const SKILL_TOKENS = estimateTokens(SKILL_HEADER.length) + estimateTokens(SKILL_BLOCK.length + 2)
-  + estimateTokens(SKILL_MANIFEST_POINTER.length + 2);
+const SKILL_TOKENS = TokenEstimator.estimateText(SKILL_HEADER) + TokenEstimator.estimateText(SKILL_BLOCK + '\n\n')
+  + TokenEstimator.estimateText(SKILL_MANIFEST_POINTER + '\n\n');
 
 describe('§10 P0 + 决策 7/11/13: agentStep skill/persona 注入', () => {
   let agentLoop: AgentLoop;

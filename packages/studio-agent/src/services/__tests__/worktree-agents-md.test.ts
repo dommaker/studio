@@ -50,8 +50,8 @@ describe('propagateHarnessConfig → 停写 AGENTS.md / CLAUDE.md / skill 拷贝
 
     expect(fs.existsSync(path.join(worktree, 'AGENTS.md'))).toBe(false);
     expect(fs.existsSync(path.join(worktree, 'CLAUDE.md'))).toBe(false);
-    // .studio/ 只承载 #147 生成的执法 hook 脚本，无 skill 拷贝
-    expect(fs.readdirSync(path.join(worktree, '.studio'))).toEqual(['command-gate-hook.js']);
+    // 无 skill 拷贝；#154 起 hook 脚本也不再落 worktree（harness 包出厂 shim），.studio/ 不被创建
+    expect(fs.existsSync(path.join(worktree, '.studio'))).toBe(false);
   });
 
   test('仍写 .claude/settings.json（bypassPermissions + studio MCP + deny 规则 #147）', async () => {

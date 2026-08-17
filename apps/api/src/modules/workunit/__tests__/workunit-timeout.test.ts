@@ -1,5 +1,5 @@
-// P0 修复（WU 超时机制 a/d）：
-// - claim 进入 active 时写入 timeoutAt（按 type 默认时长；metadata.timeoutAt 显式值优先；已有列值不动）
+// P0 修复（WU 超时机制 a/d）+ #178（#63 决议：租约化）：
+// - claim 进入 active 时写入 timeoutAt = 固定 5min 租约（#178 废除按 type 默认/metadata 显式值/已有列值不动）
 // - scanTimedOutWorkUnits：超时 → 释放回 unassigned + metadata 记录 + 频道系统消息；≥3 次 → blocked
 // 约定与 waiting-input.test.ts 一致：真实 FileStore（tmpdir）+ 真实 WorkUnitService
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { FileStore } from '@dommaker/studio-shared';
-import { WorkUnitService, WU_TIMEOUT_MINUTES, type WorkUnitMetadata } from '../workunit.service.js';
+import { WorkUnitService, WU_LEASE_TTL_MS, type WorkUnitMetadata } from '../workunit.service.js';
 import { parseWuMetadata } from '../wu-metadata.js';
 import { scanTimedOutWorkUnits, MAX_TIMEOUT_RELEASES } from '../timeout-release.js';
 
@@ -43,42 +43,46 @@ afterEach(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
-describe('P0: claim 写入 timeoutAt', () => {
-  it('task/bug/feature → 60 分钟；review/analysis → 30 分钟', async () => {
-    const before = Date.now();
-    for (const [type, minutes] of Object.entries(WU_TIMEOUT_MINUTES)) {
+describe('#178: claim 写入 timeoutAt（固定 5min 租约，废除按 type 默认）', () => {
+  it('任意 type 一律 now+5min 租约', async () => {
+    for (const type of ['task', 'bug', 'feature', 'review', 'analysis']) {
+      const before = Date.now();
       // #126：task/feature 未显式 status 默认落 pending（不可认领），显式置 unassigned
       const wu = await wuService.create({ scope: `${type} 任务`, type, channelId, status: 'unassigned' });
       const claimed = await wuService.claim(wu.id, 'instance-1');
       expect(claimed.status).toBe('active');
       expect(claimed.timeoutAt).not.toBeNull();
       const deltaMs = claimed.timeoutAt!.getTime() - before;
-      // 容忍执行耗时：落在 [minutes, minutes+1min] 区间
-      expect(deltaMs).toBeGreaterThanOrEqual(minutes * 60_000);
-      expect(deltaMs).toBeLessThanOrEqual(minutes * 60_000 + 60_000);
+      // 容忍执行耗时：落在 [5min, 5min+1min] 区间
+      expect(deltaMs).toBeGreaterThanOrEqual(WU_LEASE_TTL_MS);
+      expect(deltaMs).toBeLessThanOrEqual(WU_LEASE_TTL_MS + 60_000);
     }
   });
 
-  it('metadata.timeoutAt 显式值优先于默认时长', async () => {
+  it('metadata.timeoutAt 显式值不再优先（租约 TTL 单一固定值）', async () => {
     const explicit = '2026-08-01T00:00:00.000Z';
     const wu = await wuService.create({
       scope: '显式超时任务', type: 'task', channelId,
       status: 'unassigned', // #126：task 默认落 pending（不可认领），显式置 unassigned
       metadata: { timeoutAt: explicit },
     });
+    const before = Date.now();
     const claimed = await wuService.claim(wu.id, 'instance-1');
-    expect(claimed.timeoutAt!.toISOString()).toBe(explicit);
+    expect(claimed.timeoutAt!.toISOString()).not.toBe(explicit);
+    const deltaMs = claimed.timeoutAt!.getTime() - before;
+    expect(deltaMs).toBeGreaterThanOrEqual(WU_LEASE_TTL_MS);
+    expect(deltaMs).toBeLessThanOrEqual(WU_LEASE_TTL_MS + 60_000);
   });
 
-  it('已有 timeoutAt 列值时 claim 不覆盖', async () => {
-    const preset = new Date(Date.now() + 5 * 60_000);
+  it('已有 timeoutAt 列值被刷新为新租约', async () => {
+    const preset = new Date(Date.now() + 30 * 60_000);
     const wu = await wuService.create({
       scope: '预设超时任务', type: 'task', channelId,
       status: 'unassigned', // #126：task 默认落 pending（不可认领），显式置 unassigned
       timeoutAt: preset,
     });
     const claimed = await wuService.claim(wu.id, 'instance-1');
-    expect(claimed.timeoutAt!.toISOString()).toBe(preset.toISOString());
+    expect(claimed.timeoutAt!.toISOString()).not.toBe(preset.toISOString());
   });
 });
 

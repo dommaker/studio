@@ -296,6 +296,49 @@ describe('analyzeCircuitHealth()', () => {
   });
 });
 
+// ── analyzeCircuitHealth Circuit 5：.studio/CONTEXT.md 锚点覆盖（#152）──
+
+describe('analyzeCircuitHealth() Circuit 5 锚点覆盖', () => {
+  const prevRepoDir = process.env.REPO_DIR;
+  let tmpRepo: string;
+
+  function setupRepo(modules: string[], anchors: string[]): void {
+    tmpRepo = fs.mkdtempSync(path.join(tmpHome, 'c5-repo-'));
+    for (const m of modules) {
+      fs.mkdirSync(path.join(tmpRepo, 'apps/api/src/modules', m), { recursive: true });
+    }
+    fs.mkdirSync(path.join(tmpRepo, '.studio'), { recursive: true });
+    fs.writeFileSync(
+      path.join(tmpRepo, '.studio/CONTEXT.md'),
+      ['# Studio 模块上下文', ...anchors.map(a => `\n## ${a}\n\n正文`)].join('\n'),
+    );
+    process.env.REPO_DIR = tmpRepo;
+  }
+
+  afterEach(() => {
+    if (prevRepoDir === undefined) delete process.env.REPO_DIR;
+    else process.env.REPO_DIR = prevRepoDir;
+  });
+
+  it('模块目录缺锚点 → 报 low 风险 circuit_fix', async () => {
+    mockGetStats.mockReturnValue({ total: 50, pattern: 20, failure: 15, trend: 15 });
+    setupRepo(['alpha', 'beta'], ['apps/api/src/modules/alpha']);
+    const result = await analyzeCircuitHealth(fileStoreStub);
+    const c5 = result.find(s => s.detail.includes('缺锚点'));
+    expect(c5).toBeDefined();
+    expect(c5!.risk).toBe('low');
+    expect(c5!.detail).toContain('beta');
+    expect(c5!.detail).not.toContain('alpha');
+  });
+
+  it('锚点齐全 → 不报 Circuit 5', async () => {
+    mockGetStats.mockReturnValue({ total: 50, pattern: 20, failure: 15, trend: 15 });
+    setupRepo(['alpha'], ['apps/api/src/modules/alpha']);
+    const result = await analyzeCircuitHealth(fileStoreStub);
+    expect(result.find(s => s.detail.includes('缺锚点'))).toBeUndefined();
+  });
+});
+
 // ── studioEventsJsonl ──
 
 describe('studioEventsJsonl()', () => {

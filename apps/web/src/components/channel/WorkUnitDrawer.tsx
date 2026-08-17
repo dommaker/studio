@@ -11,6 +11,7 @@ import { requirementApi, type RequirementChain } from '../../api/requirements';
 import { monitoringApi, type OverheadStats } from '../../api/monitoring';
 import { useWorkUnitEvents } from '../../hooks/useWorkUnitEvents';
 import { ExecutionSteps } from '../workunit/ExecutionSteps';
+import { BlockedActions } from '../workunit/BlockedActions';
 import { TreeTokenDrawer } from '../workunit/TreeTokenDrawer';
 import { SelfReviewBadge } from '../workunit/SelfReviewBadge';
 import { EvidenceLedger } from '../workunit/EvidenceLedger';
@@ -148,10 +149,10 @@ function WuDetail({ id, onOpenReq }: { id: string; onOpenReq: (reqId: string) =>
 
   /** 人工确认入口：in_review = 审查硬门（过→done；analysis 过后自动拆任务派工）；
    *  done 缺 l3 = L3 人工验收留痕（不阻断流程）。同调 reviewPassed（服务端幂等）。 */
-  const handleReviewPassed = async (summary?: string) => {
+  const handleReviewPassed = async (summary?: string, assigneeId?: string) => {
     setConfirming(true);
     try {
-      await workunitApi.reviewPassed(id, summary);
+      await workunitApi.reviewPassed(id, summary, assigneeId);
       setEventTick(t => t + 1);
     } finally {
       setConfirming(false);
@@ -242,14 +243,20 @@ function WuDetail({ id, onOpenReq }: { id: string; onOpenReq: (reqId: string) =>
       {showApproveModal && (
         <AnalysisApproveDialog
           prefill={buildMapOpeningPrefill(wu.metadata)}
-          onConfirm={summary => { setShowApproveModal(false); handleReviewPassed(summary); }}
+          channelId={wu.channelId}
+          onConfirm={(summary, assigneeId) => { setShowApproveModal(false); handleReviewPassed(summary, assigneeId); }}
           onCancel={() => setShowApproveModal(false)}
         />
       )}
 
+      {/* #185（决策 #87 D4）：blocked 处置组件（继续执行/关闭任务），与详情页同一组件；
+          动作成功后经 eventTick 重拉详情 */}
+      <BlockedActions wu={wu} onChanged={() => setEventTick(t => t + 1)} />
+
       {/* WU 过程可视化：执行步事件流（思考/工具调用/skill 注入/用量），SSE 步级刷新。
-          频道只留里程碑，过程明细在这里；完整 transcript 见 agent HOME 的 claude projects 文件。 */}
-      <ExecutionSteps workUnitId={id} />
+          频道只留里程碑，过程明细在这里；完整 transcript（会话原文）见 WU 详情页 TranscriptViewer（#174）。
+          #182：传 wu 启用置顶「当前状态速览」节（决策 #61 速览档，与详情页同组件复用）。 */}
+      <ExecutionSteps workUnitId={id} wu={wu} />
 
       {wu.status === 'blocked' && meta.waitingForInput && meta.waitingQuestion && (
         <>

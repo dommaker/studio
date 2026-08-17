@@ -35,7 +35,6 @@ import {
 } from './output-capture.js';
 import {
   buildPrompt,
-  resolveSddTaskData,
   checkPrerequisites,
   buildSessionFlag,
   buildAddDirArgs,
@@ -116,10 +115,9 @@ export async function executeSessionLoop(state: RunnerExecutionState, task: Agen
       hasFailingTest: true,
     });
 
-    // SP-004 Step 5: resolve contractTests + testFiles from SDD task layer (fallback DB)
-    const sddTaskData = await resolveSddTaskData(task);
-    const contractTests = sddTaskData.contractTests;
-    const testFiles = sddTaskData.testFiles;
+    // #155：SDD task 层解析已退役——contractTests/testFiles 只取 task.parameters（DB 值）
+    const contractTests = task.parameters?.contractTests as Array<{ file: string; content: string }> | undefined;
+    const testFiles = (task.parameters?.testFiles as string[] | undefined) ?? [];
 
     // Write REQUIREMENTS.md (with testFiles for GREEN phase verification)
     const acGroup = task.parameters?.acGroup as AcGroup | undefined;
@@ -244,7 +242,13 @@ export async function executeSessionLoop(state: RunnerExecutionState, task: Agen
       const sessionStart = Date.now();
       collectedSessionIds.push(sessionId);
 
-      await emitSessionStart(sessionId, task.executionId, sessionCount);
+      // #174: session:start/end 事件补 workUnitId + transcript 归档路径
+      // （旧 daemon 链路 parameters 无此两键即 undefined，payload 不带）
+      const sessionExtras = {
+        workUnitId: task.parameters?.workUnitId as string | undefined,
+        transcriptPath: task.parameters?.transcriptPath as string | undefined,
+      };
+      await emitSessionStart(sessionId, task.executionId, sessionCount, sessionExtras);
 
       try {
         const { stdout } = await execSh(cmd, {
@@ -307,7 +311,7 @@ export async function executeSessionLoop(state: RunnerExecutionState, task: Agen
         });
 
         // Emit session:end on failure path — without this, failed sessions leak (163 starts / 74 ends)
-        await emitSessionEnd(sessionId, task.executionId, sessionCount);
+        await emitSessionEnd(sessionId, task.executionId, sessionCount, sessionExtras);
 
         logger.warn('[AgentRunner] Session failed', {
           taskId: task.id, executionId: task.executionId,

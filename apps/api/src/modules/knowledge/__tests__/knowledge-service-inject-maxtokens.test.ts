@@ -54,7 +54,7 @@ function createKS() {
 
 const bigRule = (id: string, label: string) => ({
   id,
-  content: `${label} ${'规'.repeat(3500)}`, // ≈875+ tokens/条（chars/4）
+  content: `${label} ${'规'.repeat(1300)}`, // ≈870+ tokens/条（TokenEstimator 中文 ≈1.5 字符/token）
   type: 'guideline',
   sourceReferences: [{ timestamp: 't' }],
   status: 'published',
@@ -71,7 +71,7 @@ describe('injectContext maxTokens（§10：_opts 做实）', () => {
 
     const result = await ks.injectContext('executor', { maxTokens: 1000 });
 
-    // 第一条 ~876 tokens 进预算，第二条被裁
+    // 第一条 ~870 tokens 进预算，第二条被裁
     expect(result.injectedIds).toEqual(['r1']);
     expect(result.prompt).toContain('规则一');
     expect(result.prompt).not.toContain('规则二');
@@ -99,7 +99,7 @@ describe('injectContext maxTokens（§10：_opts 做实）', () => {
 
     const result = await ks.injectContext('executor');
 
-    // 默认 2000：两条 ~876 进预算，第三条被裁
+    // 默认 2000：两条 ~870 进预算，第三条被裁
     expect(result.injectedIds).toEqual(['r1', 'r2']);
     const evt = mockAppendJsonl.mock.calls[0][1];
     const payload = JSON.parse(evt.payload);

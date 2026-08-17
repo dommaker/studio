@@ -44,7 +44,7 @@ export interface OverheadStats {
   executions: number;
   /** 涉及的 distinct workUnit 数 */
   workUnits: number;
-  /** 平均每任务注入估算 tokens（chars/4 约定，agent-loop 写入） */
+  /** 平均每任务注入估算 tokens（TokenEstimator 口径，agent-loop 写入） */
   avgInjectedTokens: number;
   /** 注入红线 = 2000（vision §3） */
   injectedBudget: number;
@@ -373,7 +373,7 @@ export class MonitoringService {
  * 口径：
  * - 仅统计窗口内（默认 30 天，容忍 1 分钟时钟偏移）的 workunit:tokens 事件；
  *   payload 损坏或 injectedTokens 非数值的行跳过（不计为 0，不编造）。
- * - avgInjectedTokens = mean(injectedTokens)（注入估算，chars/4 约定由写入方执行）。
+ * - avgInjectedTokens = mean(injectedTokens)（注入估算，TokenEstimator 口径由写入方执行）。
  * - executionTokens 为 null 的事件（CLI 未回报 usage）计入注入均值，
  *   但不计入 avgExecutionTokens / avgOverheadRatio；executionCoveragePct 反映覆盖率。
  * - avgOverheadRatio = mean(injectedTokens / executionTokens)，仅对 executionTokens > 0 的事件；

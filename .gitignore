@@ -76,7 +76,10 @@ e2e/.auth.json
 .analyst/
 .daemon/
 *.db
-.studio/
+# .studio/ 整体为会话私有，但 CONTEXT.md（#152 起模块上下文唯一正本）与 legacy-sdd/ 遗产归档（#155 起，原样迁入只读）入库
+.studio/*
+!.studio/CONTEXT.md
+!.studio/legacy-sdd/
 
 # Claude Code (development only)
 CLAUDE.md

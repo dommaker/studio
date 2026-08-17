@@ -1,9 +1,11 @@
-// Knowledge API — 两部分：
+// Knowledge API — 知识审核闭环 + 知识库浏览：
 // 1) 知识审核闭环（2026-07）：GET /knowledge-service/entries?maturity=draft（与 audit.byMaturity.draft 同库口径）
 //    approve → POST /knowledge-service/promote（draft→verified，参与注入）
 //    reject  → POST /knowledge-service/demote（draft→archived）
-// 2) 知识库文档（PMO 驾驶舱文档区 + 抽屉阅读器）：
-//    GET /knowledge/:projectId（列表）/ GET /knowledge/detail/:documentId（含 content 详情）
+// 2) 知识库浏览（KnowledgePage）：listResolutions/listGaps/listUnified/createUnifiedEntry/search
+//
+// #149（2026-08-15）：document-store 退役——项目文档接口（listByProject/getDetail/archive）
+// 与冷启动导入（importScan/importExecute）已随后端 documents/import 路由一并摘除。
 import { api } from './index';
 
 export interface KnowledgeEntryItem {
@@ -13,36 +15,6 @@ export interface KnowledgeEntryItem {
   maturity?: string;
   created?: string;
   tags?: string[];
-}
-
-/** 知识库文档摘要（列表条目；与后端 DocRecord 对齐，只声明 UI 消费字段） */
-export interface KnowledgeDoc {
-  id: string;
-  projectId: string;
-  type: string;          // requirement / design / spec / execution / archive …
-  title: string;
-  version: number;
-  status: string;        // active / archived / draft …
-  createdAt?: string;
-  updatedAt?: string;
-}
-
-/** 文档详情（GET /knowledge/detail/:documentId，比列表多 content） */
-export interface KnowledgeDocDetail extends KnowledgeDoc {
-  content: string;
-  tags?: string[];
-  createdBy?: string;
-}
-
-/** GET /knowledge/:projectId 响应体（后端直接 res.json，无 success 信封） */
-export interface ProjectKnowledgeList {
-  documents: KnowledgeDoc[];
-  stats?: {
-    total: number;
-    active: number;
-    archived: number;
-    byType: Array<{ type: string; count: number }>;
-  };
 }
 
 export const knowledgeApi = {
@@ -55,18 +27,6 @@ export const knowledgeApi = {
   demote: (entryId: string) => api.post('/knowledge-service/demote', { entryId }),
   /** 单条目查询（卡片已审核态按 maturity 派生的数据源） */
   getEntry: (id: string) => api.get<KnowledgeEntryItem>(`/knowledge-service/entries/${id}`),
-
-  /** 项目文档列表（PMO 详情页文档区 / PMO 列表页文档计数徽章） */
-  listByProject: (projectId: string) =>
-    api.get<ProjectKnowledgeList>(`/knowledge/${projectId}`),
-
-  /** 文档详情（抽屉阅读器；此前端接口此前零调用） */
-  getDetail: (documentId: string) =>
-    api.get<KnowledgeDocDetail>(`/knowledge/detail/${documentId}`),
-
-  /** 归档单篇文档（PMO 详情页「归档知识库」，human-only） */
-  archive: (documentId: string) =>
-    api.post(`/knowledge/${documentId}/archive`),
 
   /** 解法库浏览（KnowledgePage 解法库 tab；pending + canonical 口径） */
   listResolutions: () =>
@@ -92,19 +52,9 @@ export const knowledgeApi = {
     applicableAgents?: string[];
   }) => api.post('/knowledge/unified', data),
 
-  /** 全局搜索（S11：document/resolution/pattern/knowledge 混合结果，按 score 倒序） */
+  /** 全局搜索（S11：resolution/pattern/knowledge 混合结果，按 score 倒序） */
   search: (q: string) =>
     api.get<{ results: KnowledgeSearchResult[] }>('/knowledge/search', { params: { q } }),
-
-  /** 冷启动导入：扫描目录，返回可导入文件列表（KnowledgeImportPage） */
-  importScan: (data: { projectId: string; scanPath?: string; maxDepth?: number }) =>
-    api.post<ImportScanResult>('/knowledge/import/scan', data),
-
-  /** 冷启动导入：导入选中文件为知识条目（KnowledgeImportPage） */
-  importExecute: (data: {
-    projectId: string;
-    files: Array<{ path: string; type?: string; title?: string; tags?: string[] }>;
-  }) => api.post<ImportExecuteResult>('/knowledge/import/execute', data),
 };
 
 /** 解法库条目（GET /knowledge/resolutions；只声明 ResolutionCard 消费字段） */
@@ -147,34 +97,4 @@ export interface KnowledgeSearchResult {
   title: string;
   snippet: string;
   score: number;
-}
-
-/** 冷启动导入扫描到的文件（POST /knowledge/import/scan 的 files 元素） */
-export interface ImportScannedFile {
-  path: string;
-  name: string;
-  relativePath: string;
-  size: number;
-  ext: string;
-  inferredType: string;
-  tags: string[];
-  modifiedAt: string;
-}
-
-/** POST /knowledge/import/scan 响应体（后端直接 res.json，无 success 信封） */
-export interface ImportScanResult {
-  projectId: string;
-  projectTitle: string;
-  scanPath: string;
-  totalFiles: number;
-  byType: Record<string, number>;
-  files: ImportScannedFile[];
-}
-
-/** POST /knowledge/import/execute 响应体 */
-export interface ImportExecuteResult {
-  imported: number;
-  skipped: number;
-  errors: number;
-  results: Array<{ path: string; status: string; documentId?: string; error?: string }>;
 }

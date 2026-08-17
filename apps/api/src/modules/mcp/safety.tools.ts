@@ -2,6 +2,8 @@
  * MCP Tools — 安全约束
  *
  * T3 拆分：自 tools.ts 原样提取（checkConstraint / checkGuardrail / getSandboxLevel）。
+ * #150 A5：SafetyService/constraintService facade 退役，handler 内直连 @dommaker/harness
+ * （checkConstraints / InputGuardrail / OutputGuardrail / Sandbox）。
  */
 
 import type { RegisteredTool } from './tool-registry.js';
@@ -25,9 +27,9 @@ const checkConstraint: RegisteredTool = {
       if (!input.operation?.trim()) {
         return { error: 'operation is required and must be non-empty', allowed: false };
       }
-      const { constraintService } = await import('@dommaker/studio-shared');
+      const { checkConstraints } = await import('@dommaker/harness');
       const context = { ...input.context, operation: input.operation };
-      const result = await constraintService.checkConstraints(context);
+      const result = await checkConstraints(context);
       const violations = [...result.ironLaws, ...result.guidelines].filter(r => !r.satisfied);
       return {
         operation: input.operation,
@@ -63,11 +65,11 @@ const checkGuardrail: RegisteredTool = {
   },
   handler: async (input) => {
     try {
-      const { safetyService } = await import('@dommaker/studio-shared');
+      const { InputGuardrail, OutputGuardrail } = await import('@dommaker/harness');
       const direction = input.direction || 'input';
       const guardrail = direction === 'input'
-        ? safetyService.getInputGuardrail()
-        : safetyService.getOutputGuardrail();
+        ? new InputGuardrail()
+        : new OutputGuardrail();
       const result = guardrail.check(input.content);
       return {
         direction,
@@ -96,8 +98,8 @@ const getSandboxLevel: RegisteredTool = {
   },
   handler: async () => {
     try {
-      const { safetyService } = await import('@dommaker/studio-shared');
-      const sandbox = safetyService.getSandbox();
+      const { Sandbox } = await import('@dommaker/harness');
+      const sandbox = new Sandbox();
       return {
         level: `L${sandbox.getLevel()}`,
         description: sandbox.getDescription(),

@@ -23,6 +23,8 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => {
     getIndex = mockGetIndex;
     appendEvent = vi.fn().mockResolvedValue(undefined);
     upsertSnapshot = vi.fn().mockResolvedValue(undefined);
+    // #170：close/update 走锁内成对原语
+    commitSnapshot = vi.fn().mockResolvedValue(undefined);
   }
   return { ...orig, FileStore: MockFileStore };
 });

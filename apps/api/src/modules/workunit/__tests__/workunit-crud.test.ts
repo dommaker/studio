@@ -3,7 +3,7 @@
  *
  * 覆盖：snapshotToData/inputToSnapshot/patchSnapshot 转换边界、create 的
  * workunit.created 事件发布与默认值、createFromMessage、update/delete 路径、
- * claim/unclaim 与 resolveClaimTimeoutAt 的 timeout 解析。
+ * claim/unclaim 与租约 timeoutAt（#178：固定 5min，废除按 type 默认）。
  *
  * 约定与 workunit-status-events.test.ts / waiting-input.test.ts 一致：
  * 真实 FileStore（tmpdir）+ 真实 Service 实例，不 mock。
@@ -23,10 +23,9 @@ import {
 import {
   WorkUnitCrudService,
   snapshotToData,
-  WU_TIMEOUT_MINUTES,
-  WU_DEFAULT_TIMEOUT_MINUTES,
   type WorkUnitData,
 } from '../workunit-crud.js';
+import { WU_LEASE_TTL_MS } from '../workunit.types.js';
 import type { WorkUnitMetadata } from '../workunit.service.js';
 
 let tmpDir: string;
@@ -406,7 +405,7 @@ describe('delete', () => {
   });
 });
 
-// ── claim / unclaim（resolveClaimTimeoutAt）──
+// ── claim / unclaim（#178：固定 5min 租约 timeoutAt）──
 
 describe('claim', () => {
   it('WorkUnit 不存在 → 抛 WorkUnit not found', async () => {
@@ -418,7 +417,7 @@ describe('claim', () => {
     await expect(service.claim(wu.id, 'inst-2')).rejects.toThrow('Claim failed');
   });
 
-  it('成功：active + assigneeId + claimedAt，按 type 写默认 timeoutAt，发 status_changed', async () => {
+  it('成功：active + assigneeId + claimedAt，写固定 5min 租约 timeoutAt，发 status_changed', async () => {
     const before = Date.now();
     const wu = await service.create({ scope: '认领任务', type: 'review', channelId: 'ch-1' });
 
@@ -427,29 +426,29 @@ describe('claim', () => {
     expect(claimed.status).toBe('active');
     expect(claimed.assigneeId).toBe('inst-1');
     expect(claimed.claimedAt).toBeInstanceOf(Date);
-    // review → 30 分钟
-    const minutes = WU_TIMEOUT_MINUTES.review;
+    // #178（#63 决议 1）：租约 TTL 单一固定值 5min，与 type 无关
     const deltaMs = claimed.timeoutAt!.getTime() - before;
-    expect(deltaMs).toBeGreaterThanOrEqual(minutes * 60_000);
-    expect(deltaMs).toBeLessThanOrEqual(minutes * 60_000 + 60_000);
+    expect(deltaMs).toBeGreaterThanOrEqual(WU_LEASE_TTL_MS);
+    expect(deltaMs).toBeLessThanOrEqual(WU_LEASE_TTL_MS + 60_000);
 
     const evt = statusEvents.find(e => e.id === wu.id && e.status === 'active');
     expect(evt).toBeDefined();
     expect(evt!.assigneeId).toBe('inst-1');
   });
 
-  it('未知 type → 回落 WU_DEFAULT_TIMEOUT_MINUTES', async () => {
+  it('未知 type → 同样 5min 租约（无按 type 分档）', async () => {
     const before = Date.now();
     const wu = await service.create({ scope: '未知类型', type: 'spike', channelId: 'ch-1' });
 
     const claimed = await service.claim(wu.id, 'inst-1');
 
     const deltaMs = claimed.timeoutAt!.getTime() - before;
-    expect(deltaMs).toBeGreaterThanOrEqual(WU_DEFAULT_TIMEOUT_MINUTES * 60_000);
-    expect(deltaMs).toBeLessThanOrEqual(WU_DEFAULT_TIMEOUT_MINUTES * 60_000 + 60_000);
+    expect(deltaMs).toBeGreaterThanOrEqual(WU_LEASE_TTL_MS);
+    expect(deltaMs).toBeLessThanOrEqual(WU_LEASE_TTL_MS + 60_000);
   });
 
-  it('metadata.timeoutAt 显式有效值优先于默认时长', async () => {
+  it('metadata.timeoutAt 显式值不再优先（#178：租约 TTL 单一固定值）', async () => {
+    const before = Date.now();
     const explicit = '2026-09-01T00:00:00.000Z';
     const wu = await service.create({
       scope: '显式超时', type: 'task', channelId: 'ch-1',
@@ -459,10 +458,13 @@ describe('claim', () => {
 
     const claimed = await service.claim(wu.id, 'inst-1');
 
-    expect(claimed.timeoutAt!.toISOString()).toBe(explicit);
+    expect(claimed.timeoutAt!.toISOString()).not.toBe(explicit);
+    const deltaMs = claimed.timeoutAt!.getTime() - before;
+    expect(deltaMs).toBeGreaterThanOrEqual(WU_LEASE_TTL_MS);
+    expect(deltaMs).toBeLessThanOrEqual(WU_LEASE_TTL_MS + 60_000);
   });
 
-  it('metadata.timeoutAt 为非法日期字符串 → 回落默认时长', async () => {
+  it('metadata.timeoutAt 为非法日期字符串 → 不阻断 claim，写 5min 租约', async () => {
     const before = Date.now();
     const wu = await service.create({
       scope: '非法显式超时', type: 'task', channelId: 'ch-1',
@@ -473,11 +475,11 @@ describe('claim', () => {
     const claimed = await service.claim(wu.id, 'inst-1');
 
     const deltaMs = claimed.timeoutAt!.getTime() - before;
-    expect(deltaMs).toBeGreaterThanOrEqual(WU_DEFAULT_TIMEOUT_MINUTES * 60_000);
-    expect(deltaMs).toBeLessThanOrEqual(WU_DEFAULT_TIMEOUT_MINUTES * 60_000 + 60_000);
+    expect(deltaMs).toBeGreaterThanOrEqual(WU_LEASE_TTL_MS);
+    expect(deltaMs).toBeLessThanOrEqual(WU_LEASE_TTL_MS + 60_000);
   });
 
-  it('metadata 损坏（非法 JSON）→ 不阻断 claim，回落默认 timeout', async () => {
+  it('metadata 损坏（非法 JSON）→ 不阻断 claim，写 5min 租约', async () => {
     const before = Date.now();
     const wu = await service.create({ scope: '损坏元数据', type: 'task', channelId: 'ch-1', status: 'unassigned' }); // #126：task 默认落 pending（不可认领），显式置 unassigned
     // 绕过 create 的 JSON.stringify，直接把损坏 metadata 写进索引
@@ -488,12 +490,12 @@ describe('claim', () => {
 
     expect(claimed.status).toBe('active');
     const deltaMs = claimed.timeoutAt!.getTime() - before;
-    expect(deltaMs).toBeGreaterThanOrEqual(WU_TIMEOUT_MINUTES.task * 60_000);
-    expect(deltaMs).toBeLessThanOrEqual(WU_TIMEOUT_MINUTES.task * 60_000 + 60_000);
+    expect(deltaMs).toBeGreaterThanOrEqual(WU_LEASE_TTL_MS);
+    expect(deltaMs).toBeLessThanOrEqual(WU_LEASE_TTL_MS + 60_000);
   });
 
-  it('已有 timeoutAt 列值时 claim 不覆盖', async () => {
-    const preset = new Date(Date.now() + 5 * 60_000);
+  it('已有 timeoutAt 列值被刷新为新租约（#178：认领即发新租约）', async () => {
+    const preset = new Date(Date.now() + 30 * 60_000);
     const wu = await service.create({
       scope: '预设超时', type: 'task', channelId: 'ch-1',
       status: 'unassigned', // #126：task 默认落 pending（不可认领），显式置 unassigned
@@ -502,7 +504,7 @@ describe('claim', () => {
 
     const claimed = await service.claim(wu.id, 'inst-1');
 
-    expect(claimed.timeoutAt!.toISOString()).toBe(preset.toISOString());
+    expect(claimed.timeoutAt!.toISOString()).not.toBe(preset.toISOString());
   });
 
   it('与 active/in_review WU 的 metadata.files 重叠 → 抛 File conflict', async () => {

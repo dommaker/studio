@@ -4,9 +4,10 @@
  * 挂载 internalRoutes 到 express app（route-registry 的 /api/knowledge 挂载层自
  * 2026-07-24 起为 requireLocalhost——本测试经 127.0.0.1 直连 router，不含挂载中间件），覆盖：
  * GET /sync-status（200，新鲜度检测结构）、
- * POST /upsert（400 缺字段 / 200 写入 KnowledgeStore + Document 投影 created→updated）。
+ * POST /upsert（400 缺字段 / 200 写入 KnowledgeStore）。
  * HOME 指向临时目录隔离 sharedStore 与 FileStore。
  * （2026-07-28: /extract-text-sync 路由已删除，对应 400 校验测试一并移除。）
+ * （2026-08-15 #149: document-store 退役，/upsert 的 Document 投影测试一并移除。）
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import express from 'express';
@@ -67,25 +68,11 @@ describe('internal.routes', () => {
     expect(res.json.error).toBe('scope, title, and content are required');
   });
 
-  it('POST /upsert creates then updates FileStore Document projection', async () => {
+  it('POST /upsert writes to KnowledgeStore', async () => {
     const body = { scope: 'auth', title: '鉴权设计', content: 'v1 内容', projectId: 'p1', companyId: 'c1' };
     const created = await api('POST', '/upsert', body);
     expect(created.status).toBe(200);
-    expect(created.json.prismaDocument.action).toBe('created');
-    expect(created.json.prismaDocument.docId).toMatch(/^doc_/);
     expect(created.json).toHaveProperty('knowledgeStore');
-
-    const updated = await api('POST', '/upsert', { ...body, content: 'v2 内容' });
-    expect(updated.status).toBe(200);
-    expect(updated.json.prismaDocument.action).toBe('updated');
-    expect(updated.json.prismaDocument.docId).toBe(created.json.prismaDocument.docId);
-
-    // 投影文档内容已更新且版本递增
-    const docPath = path.join(tmpHome, '.studio', 'data', 'documents', `${created.json.prismaDocument.docId}.json`);
-    const doc = JSON.parse(fs.readFileSync(docPath, 'utf-8'));
-    expect(doc.content).toBe('v2 内容');
-    expect(doc.version).toBe(2);
-    expect(doc.tags).toEqual(['auth', 'design-doc']);
   });
 
 });

@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { deriveDisplayState } from '@dommaker/studio-shared/web';
-import { requirementApi, requirementsDocApi } from '../../api/requirements';
+import { requirementApi } from '../../api/requirements';
 import { harnessApi, type ConstraintCheckResult } from '../../api/harness';
 import type { ChannelMessage } from '../../api/channel';
 import type { CardMeta } from './ChannelMessageItem';
@@ -21,13 +21,6 @@ interface Props {
   message: ChannelMessage;
   meta: CardMeta;
   onAction: (messageId: string, action: string) => void;
-}
-
-async function updateRequirementsDoc(docId: string, content: string) {
-  try {
-    await requirementsDocApi.update(docId, content);
-    return true;
-  } catch { return false; }
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -61,10 +54,6 @@ export function RequirementsDocCard({ message, meta, onAction }: Props) {
   const isIdle = status === 'ready';
   const navigate = useNavigate();
   const [progress, setProgress] = useState<{ total: number; completed: number } | null>(null);
-  const [editing, setEditing] = useState(false);
-  const [editContent, setEditContent] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [edited, setEdited] = useState(false);
 
   // M2: quality gate confirmation state
   const [qualityCheck, setQualityCheck] = useState<QualityGateResult | null>(null);
@@ -112,22 +101,6 @@ export function RequirementsDocCard({ message, meta, onAction }: Props) {
     onAction(message.id, 'start_execution');
   };
 
-  const handleEdit = () => {
-    setEditContent(message.content);
-    setEditing(true);
-  };
-
-  const handleSave = async () => {
-    setSaving(true);
-    const docId = meta.requirementsDocId || (meta.cardData?.requirementsDocId as string | undefined);
-    if (docId) {
-      const ok = await updateRequirementsDoc(docId, editContent);
-      if (ok) setEdited(true);
-    }
-    setSaving(false);
-    setEditing(false);
-  };
-
   // Poll requirement chain progress when executing
   const reqId: string | undefined = meta.requirementId || meta.reqId;
   useEffect(() => {
@@ -162,40 +135,10 @@ export function RequirementsDocCard({ message, meta, onAction }: Props) {
         </span>
       </div>
 
-      {/* Content */}
+      {/* Content（#155：SDD 写侧已退役，卡片只读展示） */}
       <div className="mc-card-body" style={{ marginBottom: 8 }}>
-        {editing ? (
-          <div>
-            <textarea
-              value={editContent}
-              onChange={e => setEditContent(e.target.value)}
-              className="input"
-              style={{ width: '100%', fontSize: 'var(--fs-sm)', resize: 'vertical' }}
-              rows={8}
-              autoFocus
-            />
-            <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
-              <button onClick={handleSave} disabled={saving} className="mc-btn mc-btn-primary">
-                {saving ? '保存中...' : '保存'}
-              </button>
-              <button onClick={() => setEditing(false)} className="mc-btn">
-                取消
-              </button>
-            </div>
-          </div>
-        ) : (
-          <div>
-            {edited && <span className="mc-status mc-status-done" style={{ marginRight: 6 }}>✓ 已更新</span>}
-            {message.content}
-          </div>
-        )}
+        {message.content}
       </div>
-      {/* Edit button (B2-009) */}
-      {!editing && isIdle && (
-        <button onClick={handleEdit} className="mc-icon-btn" style={{ opacity: 1, marginBottom: 6 }}>
-          编辑
-        </button>
-      )}
 
       {/* M2: Quality gate confirmation modal */}
       {showQualityModal && qualityCheck && (

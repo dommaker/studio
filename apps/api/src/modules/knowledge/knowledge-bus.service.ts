@@ -2,9 +2,8 @@
  * KnowledgeBus — 兼容层（thin compat，R4 收敛后保留）
  *
  * TODO(R4-followup): KnowledgeBus 类的 write/search API 与 KnowledgeService 重复，
- * 消费者（evolution.service / knowledge-sync /
- * knowledge-curator / routes）应逐步迁移到 knowledgeService，
- * 之后删除本类。新代码禁止直接使用 KnowledgeBus，请用 knowledgeService。
+ * 消费者（knowledge-sync / knowledge-curator / routes）应逐步迁移到
+ * knowledgeService，之后删除本类。新代码禁止直接使用 KnowledgeBus，请用 knowledgeService。
  *
  * 共享单例（sharedStore/sharedLifecycle/sharedIngest/sharedQuery/sharedInjector/
  * sharedLinter）、向量库同步（scheduleVectorDbSync）与消费链验证

@@ -96,8 +96,7 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
   // Skill proposal routes
   const { default: skillProposalRoutes } = await import('./modules/skills/skill-proposal-routes.js') as { default: Router };
 
-  // Knowledge Import routes (冷启动导入)
-  const { default: knowledgeImportRoutes } = await import('./modules/knowledge/import.routes.js') as { default: Router };  // Company routes (FileStore 存储；PMO 页 / Settings 依赖)
+  // Company routes (FileStore 存储；PMO 页 / Settings 依赖)
   const { default: companyRoutes } = await import('./modules/companies/routes.js') as { default: Router };
 
   // KnowledgeService HTTP API + SSE
@@ -116,6 +115,9 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
 
   // StudioEvent CRUD routes (G30)
   const { default: eventRoutes } = await import('./modules/events/event.routes.js') as { default: Router };
+
+  // WU transcript 只读查看 (#174, #60 C5)
+  const { default: transcriptRoutes } = await import('./modules/transcripts/transcript.routes.js') as { default: Router };
 
   // Iron Laws routes (ex-runtime-proxy, 2026-05-14)
   const { default: ironLawsRoutes } = await import('./modules/harness/iron-laws.routes.js') as { default: Router };
@@ -145,11 +147,8 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
   // Daemon (AS-020 P5) 与 Task management（AS-020 P5 UI/Server task CRUD）路由已删：
   // HTTP claim 竖井无任何消费者（客户端三件套 5a982122 已删），任务队列只进不出
 
-  // RequirementsDoc routes (B2-009)
-  const { default: requirementsDocRoutes } = await import('./modules/channels/requirements-doc.routes.js') as { default: Router };
-
-  // Wiki routes (B2-008)
-  const { wikiRoutes } = await import('./modules/wiki/wiki.routes.js') as { wikiRoutes: Router };
+  // T5 #155: library 阅览室——跨项目 .studio/ 聚合只读层
+  const { libraryRoutes } = await import('./modules/library/library.routes.js') as { libraryRoutes: Router };
 
   // Health routes (M1)
   const healthRouter = ExpressRouter();
@@ -215,7 +214,6 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     { path: '/api/v1/executions', router: executionRoutes },
 
     { path: '/api/v1/channels', router: channelRoutes, comment: 'B1-001: Channel chat interface' },
-    { path: '/api/v1/requirements-docs', router: requirementsDocRoutes, comment: 'B2-009: RequirementsDoc edit' },
     { path: '/api/v1/pmo', router: pmoRoutes, comment: 'PMO-001' },
     { path: '/api/v1/companies', router: companyRoutes, middleware: auth, comment: '公司 CRUD（FileStore 存储；008912d 误删后恢复）' },
     { path: '/api/v1/workunits', router: workunitRoutes, comment: 'AS-025 §3.28c-1: WorkUnit CRUD + Claim + State machine' },
@@ -240,6 +238,7 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     { path: '/api/v1/iron-laws', router: ironLawsRoutes, comment: 'Iron Laws (ex-runtime-proxy)' },
     { path: '/api/v1/events', router: sseRoutes, comment: 'HZ-028: Event Stream SSE' },
     { path: '/api/v1/events', router: eventRoutes, middleware: auth, comment: 'G30: StudioEvent CRUD' },
+    { path: '/api/v1/transcripts', router: transcriptRoutes, middleware: auth, comment: '#174: WU transcript 只读查看（#60 C5）' },
     { path: '/api/v1/mcp', router: mcpRoutes, comment: '§12.9: MCP Server (rate limit via tool-registry, auth via permission service)' },
     { path: '/api/v1/harness', router: harnessRoutes, middleware: admin, comment: 'T-015: Harness 监控集成' },
     { path: '/api/v1/cso', router: csoRoutes, comment: 'Decision #5: CSO 验证（无需认证；仅 csoRoutes，不再整挂 harness router）' },
@@ -253,11 +252,10 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     { path: '/api/v1/notify', router: notifyRoutes, middleware: admin, comment: 'DD-009: 出站推送（内部调用）' },
     { path: '/api/v1/knowledge', router: knowledgeRoutes, middleware: auth },
     { path: '/api/v1/knowledge-service', router: knowledgeServiceRoutes, middleware: auth, comment: 'KnowledgeService HTTP API + SSE' },
-    { path: '/api/v1/knowledge/import', router: knowledgeImportRoutes, middleware: auth, comment: 'S2: 冷启动导入' },
     { path: '/api/v1/role-memory', router: roleMemoryRoutes, middleware: auth, comment: '#101: 角色记忆人审闸口 approve/reject' },
     { path: '/api/v1/distill', router: distillRoutes, middleware: auth, comment: '#143: 蒸馏提案人审闸口 approve/reject' },
     { path: '/api/knowledge', router: knowledgeInternalRoutes, middleware: localhost, comment: 'Internal knowledge extraction API (2026-07 收紧：本机回环限定，此前全匿名可写/盗用 LLM)' },
-    { path: '/api/v1/wiki', router: wikiRoutes, comment: 'B2-008: LLM Wiki 档案馆' },
+    { path: '/api/v1/library', router: libraryRoutes, comment: 'T5 #155: library 阅览室——跨项目 .studio/ 聚合只读层' },
 
     // 运维
     { path: '/api/v1/health', router: healthRoutes, comment: 'M1: Health check' },

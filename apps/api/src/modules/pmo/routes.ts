@@ -274,7 +274,7 @@ router.delete('/project/:id', requireRole('Admin'), async (req: Request, res: Re
  */
 router.post('/project/:id/publish', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
-    const { channelId } = req.body;
+    const { channelId, assigneeId } = req.body;
     if (!channelId) {
       return res.status(400).json({
         error: { code: 'MISSING_CHANNEL_ID', message: 'channelId is required' },
@@ -284,6 +284,8 @@ router.post('/project/:id/publish', requireAuth(), requireNotGuest(), async (req
     const result = await projectService.publish({
       projectId: req.params.id,
       channelId,
+      // #177：可选 assigneeId（profile id）落 analysis WU；留空 = 回池涌现
+      ...(typeof assigneeId === 'string' && assigneeId.trim() ? { assigneeId: assigneeId.trim() } : {}),
     });
     res.json(result);
   } catch (error) {

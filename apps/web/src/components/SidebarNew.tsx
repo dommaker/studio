@@ -16,7 +16,7 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
     { to: '/channels', icon: '💬', label: '频道' },
     { to: '/pmo', icon: '📊', label: 'PMO' },
     { to: '/knowledge', icon: '📚', label: '知识库' },
-    { to: '/wiki', icon: '📖', label: '文档' },
+    { to: '/library', icon: '📖', label: '阅览室' },
     { to: '/workunits', icon: '📋', label: 'WorkUnit' },
     { to: '/agents', icon: '🤖', label: 'Agent' },
     { to: '/monitoring', icon: '📈', label: '监控' },

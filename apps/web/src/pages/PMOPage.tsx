@@ -6,7 +6,6 @@ import { companyApi } from '../api/company';
 import { okrApi, type OkrKeyResult } from '../api/pmo';
 import { channelApi, type Channel } from '../api/channel';
 import { requirementApi } from '../api/requirements';
-import { knowledgeApi } from '../api/knowledge';
 import { deriveDisplayState } from '@dommaker/studio-shared/web';
 import { CreateOkrDialog } from '../components/pmo/CreateOkrDialog';
 import { CreateProjectDialog } from '../components/pmo/CreateProjectDialog';
@@ -59,9 +58,9 @@ export function PMOPage({ companyId }: PMOPageProps) {
   // 工单 38: loadData 失败反馈（页面内错误条 + 重试，原先仅 console.error 静默）
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  // 🆕 AC-6: 卡片徽章数据（WU 完成度 / 文档计数；批量并行、失败静默不显示）
+  // 🆕 AC-6: 卡片徽章数据（WU 完成度；批量并行、失败静默不显示）
+  // #149（2026-08-15）：文档计数徽章随 document-store 退役移除
   const [wuStats, setWuStats] = useState<Record<string, { finished: number; total: number }>>({});
-  const [docCounts, setDocCounts] = useState<Record<string, number>>({});
 
   // 🆕 B8: OKR 创建弹窗（组件见 components/pmo/CreateOkrDialog）
   const [showOKRDialog, setShowOKRDialog] = useState(false);
@@ -139,7 +138,7 @@ export function PMOPage({ companyId }: PMOPageProps) {
     loadData();
   }, [loadData]);
 
-  // 🆕 AC-6: 列表加载后对可见项目批量并行查徽章数据（每项目一次 chain + 一次 knowledge；失败静默）
+  // 🆕 AC-6: 列表加载后对可见项目批量并行查徽章数据（每项目一次 chain；失败静默）
   // projects 变空时在渲染期同步清空徽章（派生重置，替代原 effect 顶部的同步清空）
   const projectsEmpty = projects.length === 0;
   const [prevProjectsEmpty, setPrevProjectsEmpty] = useState(projectsEmpty);
@@ -147,7 +146,6 @@ export function PMOPage({ companyId }: PMOPageProps) {
     setPrevProjectsEmpty(projectsEmpty);
     if (projectsEmpty) {
       setWuStats({});
-      setDocCounts({});
     }
   }
 
@@ -172,18 +170,6 @@ export function PMOPage({ companyId }: PMOPageProps) {
         if (r.status === 'fulfilled') next[r.value.id] = { finished: r.value.finished, total: r.value.total };
       }
       setWuStats(next);
-    });
-
-    Promise.allSettled(projects.map(async p => {
-      const res = await knowledgeApi.listByProject(p.id);
-      return { id: p.id, count: res.data?.documents?.length ?? 0 };
-    })).then(results => {
-      if (cancelled) return;
-      const next: Record<string, number> = {};
-      for (const r of results) {
-        if (r.status === 'fulfilled') next[r.value.id] = r.value.count;
-      }
-      setDocCounts(next);
     });
 
     return () => { cancelled = true; };
@@ -267,7 +253,6 @@ export function PMOPage({ companyId }: PMOPageProps) {
                   key={project.id}
                   project={project}
                   wuStats={wuStats}
-                  docCounts={docCounts}
                   channels={channels}
                   handlePublishClick={handlePublishClick}
                 />

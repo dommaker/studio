@@ -73,6 +73,7 @@ export type {
 } from './file-store-types';
 export { formatRequirementId, formatEvolutionId } from './file-store-types';
 export { LockTimeoutError } from './file-store-base';
+export type { WorkUnitReconcileResult } from './file-store-workunit';
 export { parseChannels, stringifyChannels } from './channels-codec';
 export { parseFrontmatter, serializeFrontmatter } from './frontmatter';
 

@@ -11,6 +11,8 @@ const mockFileStore = vi.hoisted(() => ({
   appendEvent: vi.fn(),
   removeSnapshot: vi.fn(),
   claimWorkUnit: vi.fn(),
+  // #170：写路径改走锁内成对原语
+  commitSnapshot: vi.fn(),
 }));
 
 vi.mock('@dommaker/studio-shared', async (importOriginal) => {
@@ -120,8 +122,8 @@ describe('executeUpdateAction（P0：操作符查询集成）', () => {
 
     await executeUpdateAction(action, {});
 
-    expect(mockFileStore.upsertSnapshot).toHaveBeenCalledTimes(1);
-    const updated = mockFileStore.upsertSnapshot.mock.calls[0][0];
+    expect(mockFileStore.commitSnapshot).toHaveBeenCalledTimes(1);
+    const updated = mockFileStore.commitSnapshot.mock.calls[0][1];
     expect(updated.id).toBe('wu-expired');
     expect(updated.status).toBe('unassigned');
     expect(updated.assigneeId).toBeNull();

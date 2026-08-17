@@ -9,7 +9,13 @@ import {
   runCompletionGuards,
   hasUncommittedChanges,
   readHeadHash,
+  parseWuGitLog,
+  loadCompletionCheckersConfig,
+  type CompletionCheckerFns,
+  type CompletionCheckersConfig,
   type CompletionGuardDeps,
+  type SoftCheckCommitInput,
+  type SoftCheckEvent,
 } from '../loop/completion-gates';
 import type { WorkUnitData, WorkUnitMetadata } from '../../workunit/workunit.service.js';
 
@@ -72,7 +78,10 @@ describe('completion-gates: §10.5 提交守卫', () => {
   });
 
   it('review WU 整体豁免：不解析 cwd、不碰 git', async () => {
-    const deps = makeDeps();
+    // 注入 checkers=null 隔离提交守卫语义：harness ≥1.1.0 起软观测段激活，
+    // contract-presence 对无 worktree 类型（含 review）会设计性回退解析 cwd 取 .harness 契约清单
+    // （见 completion-gates.ts runSoftObservation 注释），不在本测试的提交守卫豁免口径内。
+    const deps = makeDeps({ loadCompletionCheckers: async () => null });
     const out = await runCompletionGuards(ctxOf(makeWu({ type: 'review' }), {}), deps);
 
     expect(deps.resolveExecutionCwd).not.toHaveBeenCalled();
@@ -271,6 +280,214 @@ describe('completion-gates: 默认 git 探针（真实实现，失败静默跳�
       expect(readHeadHash(plain)).toBeNull();
     } finally {
       fs.rmSync(plain, { recursive: true, force: true });
+    }
+  });
+});
+
+// ─── T7-E2（#161）软观测段：mock git/配置/harness 函数，纯 ctx 驱动 ───
+describe('completion-gates: T7-E2 软观测段', () => {
+  const SOFT_META: WorkUnitMetadata = { worktreePath: '/repo/wt', worktreeBaseBranch: 'main' };
+  const COMMITS: SoftCheckCommitInput[] = [
+    { sha: 'aaaaaaa1', subject: 'phase(x): a', body: '', files: ['src/a.ts'], isMerge: false },
+  ];
+
+  function makeSoftDeps(
+    fnsOverrides: Partial<CompletionCheckerFns> | null,
+    opts: { commits?: SoftCheckCommitInput[] | null; config?: CompletionCheckersConfig } = {},
+  ) {
+    const fns: CompletionCheckerFns = {
+      verifyTddChain: vi.fn().mockReturnValue({
+        checker: 'tdd-chain', verdict: 'pass', commits: [{ sha: 'aaaaaaa1', verdict: 'pass' }],
+      }),
+      verifyPhaseFormat: vi.fn().mockReturnValue({
+        checker: 'phase-format', verdict: 'pass', commits: [{ sha: 'aaaaaaa1', verdict: 'pass' }],
+      }),
+      verifyContractPresence: vi.fn().mockReturnValue({
+        checker: 'contract-presence', verdict: 'skip', detail: '类型 task 无 contracts 表项',
+      }),
+      ...(fnsOverrides ?? {}),
+    };
+    const events: SoftCheckEvent[] = [];
+    const deps = makeDeps({
+      loadCompletionCheckers: vi.fn().mockResolvedValue(fnsOverrides === null ? null : fns),
+      readWuCommits: vi.fn().mockReturnValue(opts.commits === undefined ? COMMITS : opts.commits),
+      loadCompletionCheckersConfig: vi.fn().mockReturnValue(opts.config ?? {}),
+      writeSoftCheckEvent: vi.fn((e: SoftCheckEvent) => { events.push(e); }),
+    });
+    return { deps, fns, events };
+  }
+
+  it('违规 → violation 事件 + processCheckHint；不阻断 COMPLETE', async () => {
+    const { deps, events } = makeSoftDeps({
+      verifyTddChain: vi.fn().mockReturnValue({
+        checker: 'tdd-chain', verdict: 'violation',
+        commits: [{ sha: 'aaaaaaa1', verdict: 'violation', reason: '缺 Tested-By trailer 且未声明 Tests: none' }],
+      }),
+    });
+    const out = await runCompletionGuards(ctxOf(makeWu(), SOFT_META), deps);
+
+    expect(out.action).toBe('complete'); // 软观测不降级
+    expect(events).toContainEqual(expect.objectContaining({
+      wuId: 'wu-1', checker: 'tdd-chain', verdict: 'violation',
+    }));
+    expect(events.find(e => e.checker === 'tdd-chain')?.detail).toContain('缺 Tested-By');
+    expect(out.guardUpdates.processCheckHint).toContain('[tdd-chain]');
+    expect(out.guardUpdates.processCheckHint).toContain('缺 Tested-By');
+  });
+
+  it('豁免（Tests: none）→ waiver 事件，不写 hint', async () => {
+    const { deps, events } = makeSoftDeps({
+      verifyTddChain: vi.fn().mockReturnValue({
+        checker: 'tdd-chain', verdict: 'pass',
+        commits: [{ sha: 'aaaaaaa1', verdict: 'waiver', reason: 'Tests: none 显式豁免' }],
+      }),
+    });
+    const out = await runCompletionGuards(ctxOf(makeWu(), SOFT_META), deps);
+
+    expect(events).toContainEqual(expect.objectContaining({ checker: 'tdd-chain', verdict: 'waiver' }));
+    expect(out.guardUpdates.processCheckHint).toBeUndefined();
+    expect(out.action).toBe('complete');
+  });
+
+  it('全合规 → pass 事件在场（两 commit checker 各一条）', async () => {
+    const { deps, events } = makeSoftDeps({});
+    const out = await runCompletionGuards(ctxOf(makeWu(), SOFT_META), deps);
+
+    expect(events).toContainEqual(expect.objectContaining({ checker: 'tdd-chain', verdict: 'pass' }));
+    expect(events).toContainEqual(expect.objectContaining({ checker: 'phase-format', verdict: 'pass' }));
+    expect(out.guardUpdates.processCheckHint).toBeUndefined();
+  });
+
+  it('fail-open：harness 函数缺席（包未加载/未发版）→ 整体静默跳过，不阻断 COMPLETE', async () => {
+    const { deps, events } = makeSoftDeps(null);
+    const out = await runCompletionGuards(ctxOf(makeWu(), SOFT_META), deps);
+
+    expect(out.action).toBe('complete');
+    expect(events).toHaveLength(0);
+    expect(out.guardUpdates.processCheckHint).toBeUndefined();
+  });
+
+  it('fail-open：git log 故障 → commit 两 checker 跳过不记事件，contract-presence 仍跑', async () => {
+    const { deps, fns, events } = makeSoftDeps({}, { commits: null });
+    const out = await runCompletionGuards(ctxOf(makeWu(), SOFT_META), deps);
+
+    expect(fns.verifyTddChain).not.toHaveBeenCalled();
+    expect(fns.verifyPhaseFormat).not.toHaveBeenCalled();
+    expect(fns.verifyContractPresence).toHaveBeenCalled();
+    expect(events).toHaveLength(0); // contract-presence 无表项 skip 不记事件
+    expect(out.action).toBe('complete');
+  });
+
+  it('缺 yml 段 = 默认全开：config {} 时 commit 两 checker 均被调用', async () => {
+    const { deps, fns } = makeSoftDeps({}, { config: {} });
+    await runCompletionGuards(ctxOf(makeWu(), SOFT_META), deps);
+
+    expect(fns.verifyTddChain).toHaveBeenCalledWith(COMMITS, {});
+    expect(fns.verifyPhaseFormat).toHaveBeenCalledWith(COMMITS, {});
+  });
+
+  it('圈定口径：非代码类型（analysis）→ 不拉提交集；contracts 无表项 → contract-presence skip 不记事件', async () => {
+    const { deps, fns, events } = makeSoftDeps({});
+    const out = await runCompletionGuards(ctxOf(makeWu({ type: 'analysis' }), SOFT_META), deps);
+
+    expect(deps.readWuCommits).not.toHaveBeenCalled();
+    expect(fns.verifyTddChain).not.toHaveBeenCalled();
+    expect(fns.verifyContractPresence).toHaveBeenCalled();
+    expect(events).toHaveLength(0);
+    expect(out.action).toBe('complete');
+  });
+
+  it('圈定口径：review 型契约缺失（contracts 含 review + 无 reviewReport）→ violation 事件 + hint', async () => {
+    const { deps, fns, events } = makeSoftDeps(
+      {
+        verifyContractPresence: vi.fn().mockReturnValue({
+          checker: 'contract-presence', verdict: 'violation', detail: '类型 review 契约标记缺失',
+        }),
+      },
+      { config: { contracts: ['review'] } },
+    );
+    const out = await runCompletionGuards(ctxOf(makeWu({ type: 'review' }), {}), deps);
+
+    expect(fns.verifyContractPresence).toHaveBeenCalledWith('review', { reviewReport: undefined }, { contracts: ['review'] });
+    expect(events).toContainEqual(expect.objectContaining({ checker: 'contract-presence', verdict: 'violation' }));
+    expect(out.guardUpdates.processCheckHint).toContain('[contract-presence]');
+    expect(out.action).toBe('complete');
+  });
+
+  it('action 已被前面守卫降级 → 软观测段不跑', async () => {
+    const { deps } = makeSoftDeps({});
+    deps.hasUncommittedChanges.mockReturnValue(true);
+    const out = await runCompletionGuards(ctxOf(makeWu(), SOFT_META), deps);
+
+    expect(out.action).toBe('progress');
+    expect(deps.loadCompletionCheckers).not.toHaveBeenCalled();
+  });
+});
+
+describe('completion-gates: T7-E2 parseWuGitLog（git log %(trailers) 输出解析）', () => {
+  it('sha/subject/parents/trailer/文件清单分段；merge commit 按 %P 父数标记；输出反转为升序', () => {
+    const shaNew = 'b'.repeat(40);
+    const shaOld = 'a'.repeat(40);
+    const out = [
+      // 新提交（git log 先出）：单父、带 trailer、两个文件
+      `\x1e${shaNew}\x1fphase(two): impl\x1f${'p'.repeat(40)}\x1fTested-By: aaaa111\n\n\nsrc/b.ts\ntest/b.test.ts\n`,
+      // 旧提交：双父（merge）、无 trailer、一个文件
+      `\x1e${shaOld}\x1fMerge branch x\x1f${'q'.repeat(40)} ${'r'.repeat(40)}\x1f\n\ntest/a.test.ts\n`,
+    ].join('');
+
+    const commits = parseWuGitLog(out);
+    expect(commits).toHaveLength(2);
+    // 反转为 base..HEAD 升序：旧提交在前
+    expect(commits[0]).toEqual({
+      sha: shaOld, subject: 'Merge branch x', body: '', files: ['test/a.test.ts'], isMerge: true,
+    });
+    expect(commits[1]).toEqual({
+      sha: shaNew, subject: 'phase(two): impl', body: 'Tested-By: aaaa111',
+      files: ['src/b.ts', 'test/b.test.ts'], isMerge: false,
+    });
+  });
+
+  it('空输出（base..HEAD 零提交）→ 空数组', () => {
+    expect(parseWuGitLog('')).toEqual([]);
+  });
+});
+
+describe('completion-gates: T7-E2 loadCompletionCheckersConfig（yml 现读现解）', () => {
+  it('文件缺失 / 缺 completion_checkers 段 / 坏 yml → {}（默认全开）', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cg-cfg-'));
+    try {
+      expect(loadCompletionCheckersConfig(dir)).toEqual({});
+
+      fs.mkdirSync(path.join(dir, '.harness'));
+      fs.writeFileSync(path.join(dir, '.harness', 'custom-constraints.yml'), 'custom_constraints: {}\n');
+      expect(loadCompletionCheckersConfig(dir)).toEqual({});
+
+      fs.writeFileSync(path.join(dir, '.harness', 'custom-constraints.yml'), ':\n  - [broken');
+      expect(loadCompletionCheckersConfig(dir)).toEqual({});
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('completion_checkers 段在场 → 原样取出（开关/glob/contracts 透传 harness）', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cg-cfg-'));
+    try {
+      fs.mkdirSync(path.join(dir, '.harness'));
+      fs.writeFileSync(path.join(dir, '.harness', 'custom-constraints.yml'), [
+        'completion_checkers:',
+        '  checkers:',
+        '    phaseFormat: false',
+        '  testGlobs: ["**/*.spec.ts"]',
+        '  contracts: ["review"]',
+        '',
+      ].join('\n'));
+      expect(loadCompletionCheckersConfig(dir)).toEqual({
+        checkers: { phaseFormat: false },
+        testGlobs: ['**/*.spec.ts'],
+        contracts: ['review'],
+      });
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
     }
   });
 });

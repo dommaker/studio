@@ -21,7 +21,6 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => {
   return {
     ...actual,
     logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-    findSddDocById: vi.fn().mockResolvedValue(null),
   };
 });
 

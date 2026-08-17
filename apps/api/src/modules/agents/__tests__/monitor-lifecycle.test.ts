@@ -50,6 +50,8 @@ function makeFileStore(overrides: Record<string, unknown> = {}): any {
     readJson: vi.fn(async () => null),
     readJsonl: vi.fn(async () => []),
     removeSnapshot: vi.fn(async () => {}),
+    // #170：删除走锁内墓碑 + 移除成对原语
+    commitRemoval: vi.fn(async () => {}),
     ...overrides,
   };
 }
@@ -120,12 +122,16 @@ describe('dataLifecycle (每日 23:55 TTL)', () => {
 
     expect(state.lastDataLifecycleRun).not.toBe('');
     expect(state.lastPrecipitateRun).not.toBe(''); // 闸门先于清理执行
-    expect(fileStore.removeSnapshot).toHaveBeenCalledTimes(1);
-    expect(fileStore.removeSnapshot).toHaveBeenCalledWith('wu-old');
+    // #170：删除走锁内墓碑（closed + deleted:true）+ 索引移除成对原语
+    expect(fileStore.commitRemoval).toHaveBeenCalledTimes(1);
+    expect(fileStore.commitRemoval).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'closed', wuId: 'wu-old', data: { deleted: true } }),
+      'wu-old',
+    );
 
     // 同一天第二次调用直接去重返回
     await dataLifecycle(fileStore, state);
-    expect(fileStore.removeSnapshot).toHaveBeenCalledTimes(1);
+    expect(fileStore.commitRemoval).toHaveBeenCalledTimes(1);
   });
 
   it('truncates 统一事件文件 keeping last 7 days（createdAt 口径，坏行保留）', async () => {

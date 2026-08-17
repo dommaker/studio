@@ -1,18 +1,22 @@
 /**
  * Project 详情页 - GEN-005 + FL-013
  *
- * 显示项目详情、PMO 号、关联 OKR、进度管道、知识库、交付面板（DeliveryPanel）、项目进展、项目动态
+ * 显示项目详情、PMO 号、关联 OKR、进度管道、交付面板（DeliveryPanel）、项目进展、项目动态
  *
  * 合并功能：
  * - VS Code 打开 + Cloud IDE 弹窗（迁移自 ProjectDetail.tsx）
- * - 归档知识库 + 复制路径（迁移自 ProjectDetail.tsx）
+ * - 复制路径（迁移自 ProjectDetail.tsx）
  *
  * Card 7（2026-08）：老 Task 看板 / 执行历史 / 双轨统计已删除（WU 链路为唯一口径）；
  * 后端 /tasks API 与数据保留（存量 16 条 legacy task 仍可从 API 访问）。
  *
  * 工单 35-E4（2026-08-07）：IDE 指南弹窗（components/pmo/IdeGuideDialogs，服务器地址走
- * VITE_IDE_SSH_HOST / VITE_IDE_CLOUD_IDE_URL，原硬编码生产 IP 已消除）、知识库三列网格
- *（components/knowledge/KnowledgeDocGrid）、项目进展卡（components/pmo/ProjectProgressCard）抽出。
+ * VITE_IDE_SSH_HOST / VITE_IDE_CLOUD_IDE_URL，原硬编码生产 IP 已消除）、
+ * 项目进展卡（components/pmo/ProjectProgressCard）抽出。
+ *
+ * #149（2026-08-15）：document-store 退役——知识库文档区（KnowledgeDocGrid）、
+ * 抽屉阅读器（DocReaderDrawer）、「归档知识」按钮、「模式识别」按钮（meso 端点）
+ * 一并摘除。
  */
 
 import React, { useCallback, useEffect, useState } from 'react';
@@ -20,9 +24,8 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { projectApi, type DeliveryStatus } from '../api';
 import { requirementApi, type RequirementChainWorkUnit } from '../api/requirements';
 import { monitoringApi, type AgentInfo } from '../api/monitoring';
-import { knowledgeApi, type KnowledgeDoc } from '../api/knowledge';
-import { maintenanceApi } from '../api/maintenance';
 import { workunitApi } from '../api/workunit';
+import { maintenanceApi } from '../api/maintenance';
 import { PmoNumberBadge } from '../components/PmoNumberBadge';
 import { ProjectPipeline } from '../components/pmo/ProjectPipeline';
 import { ProjectActivity } from '../components/pmo/ProjectActivity';
@@ -36,11 +39,8 @@ import {
 import { DeliveryPanel } from '../components/pmo/DeliveryPanel';
 import { VscodeGuideDialog, CloudIdeGuideDialog } from '../components/pmo/IdeGuideDialogs';
 import { ProjectProgressCard } from '../components/pmo/ProjectProgressCard';
+import { ManualTaskButton } from '../components/ui/ManualTaskButton';
 import { buildProjectTimeline, type PipelineWorkUnit } from '../components/pmo/pipelineUtils';
-import { KnowledgeDocGrid } from '../components/knowledge/KnowledgeDocGrid';
-import { DocReaderDrawer } from '../components/knowledge/DocReaderDrawer';
-import { ManualTaskButton } from '../components/ui';
-import { toast } from '../utils/toast';
 
 interface Project {
   id: string;
@@ -81,21 +81,18 @@ export function ProjectDetailPage() {
   const navigate = useNavigate();
   
   const [project, setProject] = useState<Project | null>(null);
-  const [documents, setDocuments] = useState<KnowledgeDoc[]>([]);  // 知识库文档
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // 🆕 AC-5: 进度管道（REQ chain WU + agent 名册）/ 文档阅读器 / 原始需求折叠
+  // 🆕 AC-5: 进度管道（REQ chain WU + agent 名册）/ 原始需求折叠
   const [chainWus, setChainWus] = useState<RequirementChainWorkUnit[]>([]);
   const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [chainLoading, setChainLoading] = useState(false);
-  const [readerDocId, setReaderDocId] = useState<string | null>(null);
   const [requirementExpanded, setRequirementExpanded] = useState(false);
   
   // 弹窗状态
   const [showVscodeGuide, setShowVscodeGuide] = useState(false);
   const [showCloudIdeGuide, setShowCloudIdeGuide] = useState(false);
-  const [archiveLoading, setArchiveLoading] = useState(false);
   const [copySuccess, setCopySuccess] = useState(false);
 
   // 🆕 PMO-b: 交付台账（delivery 数据由页面持有：管道时间线 / 进展卡 / 证据警告条共用；
@@ -120,12 +117,6 @@ export function ProjectDetailPage() {
       const projectData = projectRes.data;
       setProject(projectData);
       setLoading(false);
-
-      // 加载知识库文档（best-effort，不阻塞页面）
-      try {
-        const docsRes = await knowledgeApi.listByProject(projectId!);
-        setDocuments(docsRes.data?.documents || []);
-      } catch { setDocuments([]); }
 
       // 🆕 PMO-b: 加载交付台账（best-effort，不阻塞页面）
       try {
@@ -197,34 +188,6 @@ export function ProjectDetailPage() {
     await navigator.clipboard.writeText(path);
     setCopySuccess(true);
     setTimeout(() => setCopySuccess(false), 2000);
-  };
-
-  // 归档知识库：把项目文档中未归档的全部置 archived（human-only）
-  const archivableDocs = documents.filter(d => d.status !== 'archived');
-
-  const handleArchive = async () => {
-    if (!projectId || archivableDocs.length === 0) return;
-
-    try {
-      setArchiveLoading(true);
-      const results = await Promise.allSettled(
-        archivableDocs.map(doc => knowledgeApi.archive(doc.id)),
-      );
-      const failed = results.filter(r => r.status === 'rejected').length;
-      const succeeded = results.length - failed;
-      if (failed === 0) {
-        toast.success(`已归档 ${succeeded} 篇文档`);
-      } else {
-        toast.error(`归档失败 ${failed} 篇（成功 ${succeeded} 篇）`);
-      }
-      // 刷新文档列表
-      try {
-        const docsRes = await knowledgeApi.listByProject(projectId);
-        setDocuments(docsRes.data?.documents || []);
-      } catch { /* best-effort */ }
-    } finally {
-      setArchiveLoading(false);
-    }
   };
 
   // 🆕 F6-c: 重新拉台账 + 全量数据（缺口行动/交付成功后由 DeliveryPanel 回调）
@@ -350,13 +313,6 @@ export function ProjectDetailPage() {
                 💬 去频道
               </button>
             )}
-            <ManualTaskButton
-              label="🔍 模式识别"
-              onRun={async () => {
-                const r = await maintenanceApi.runMesoEvolution(projectId!);
-                return `识别完成：发现 ${r.total} 个模式`;
-              }}
-            />
           </div>
         </div>
       </div>
@@ -377,12 +333,6 @@ export function ProjectDetailPage() {
           <ProjectMap map={project.map} decisionStatusByWuId={decisionStatusByWuId} chainWus={chainWus} />
         </div>
       )}
-
-      {/* 📚 知识库（AC-5：卡片点开抽屉阅读器） */}
-      <div className="card p-4 mb-6">
-        <h3 className="text-sm font-medium u-text-2 mb-3">📚 知识库 ({documents.length})</h3>
-        <KnowledgeDocGrid documents={documents} onOpenDoc={setReaderDocId} />
-      </div>
 
       {/* 🆕 PMO-b: 交付（台账 + human-only 合并 + F6-c 缺口行动）——Card 7 抽取为 DeliveryPanel */}
       {delivery && (
@@ -412,25 +362,21 @@ export function ProjectDetailPage() {
         >
           ☁️ Cloud IDE
         </button>
-        {archivableDocs.length > 0 && (
-          <button
-            onClick={handleArchive}
-            disabled={archiveLoading}
-            className="btn u-ok-bg u-on-accent u-hover-bg"
-          >
-            {archiveLoading ? '归档中...' : '📦 归档知识'}
-          </button>
-        )}
         <button
           onClick={handleCopyPath}
           className="btn btn-secondary"
         >
           {copySuccess ? '✓ 已复制' : '📋 复制路径'}
         </button>
+        {/* #163 T8-E2: 手动发起巡检（结果挂到巡检单详情页的机会清单，由人在那里确认） */}
+        <ManualTaskButton
+          label="🔍 发起巡检"
+          onRun={async () => {
+            await maintenanceApi.fireTrigger('inspection-scan');
+            return '巡检单已创建，待人确认';
+          }}
+        />
       </div>
-
-      {/* 🆕 AC-5: 知识库文档阅读抽屉 */}
-      <DocReaderDrawer documentId={readerDocId} onClose={() => setReaderDocId(null)} />
 
       {/* IDE 指南弹窗 */}
       <VscodeGuideDialog open={showVscodeGuide} onClose={() => setShowVscodeGuide(false)} />

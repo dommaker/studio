@@ -5,6 +5,7 @@
  */
 
 import { logger } from '@dommaker/studio-shared';
+import { getEffectiveConstraints } from '@dommaker/harness';
 import { sharedStore } from './knowledge-bus.service.js';
 import { readFileSync, existsSync, readdirSync } from 'fs';
 import path from 'path';
@@ -193,45 +194,27 @@ export class RuleScanner {
 
   private scanHarnessConstraints(): ScannedRule[] {
     const rules: ScannedRule[] = [];
-    const harnessRoot = path.join(PROJECT_ROOT, 'node_modules', '@dommaker', 'harness');
 
-    // definitions.ts 是薄聚合；真实定义在 definitions/{iron-laws,guidelines,tips}.ts（harness 拆分后用 id: 字段）
-    const layers: Array<{ file: string; prefix: string }> = [
-      { file: 'iron-laws.ts', prefix: 'iron_law' },
-      { file: 'guidelines.ts', prefix: 'guideline' },
-      { file: 'tips.ts', prefix: 'tip' },
-    ];
-
-    let foundAny = false;
-    for (const { file, prefix } of layers) {
-      const defPath = path.join(harnessRoot, 'src', 'core', 'constraints', 'definitions', file);
-      if (!existsSync(defPath)) continue;
-      foundAny = true;
-
-      try {
-        const content = readFileSync(defPath, 'utf-8');
-
-        // 每个约束块以 id: 'xxx' 开头，取其后最近的 description 首行
-        const blockRe = /id:\s*'(\w+)'[\s\S]*?description:\s*['`]([^'`\n]+)/g;
-        for (const m of content.matchAll(blockRe)) {
-          rules.push({
-            name: `${prefix}:${m[1]}`,
-            category: 'constraint',
-            description: m[2],
-            condition: 'always',
-            action: `enforce ${prefix}:${m[1]}`,
-            source: `@dommaker/harness/src/core/constraints/definitions/${file}`,
-            sourceType: 'harness_constraint',
-            affects: ['agent', 'reviewer'],
-          });
-        }
-      } catch (err) {
-        logger.warn('[RuleScanner] Failed to scan harness constraints', { error: String(err) });
+    // #150 B2：不再硬编码 node_modules/@dommaker/harness/src/core/constraints/definitions/
+    // 源路径（harness H3 files 去 src 的前置）；改走公共 API getEffectiveConstraints
+    // —— 与 init 注入 / harness check 同一生效集口径（内置 → preset → config.yml 禁用
+    // → custom 追加 → scenes 过滤）。description 缺省按 message → rule 兜底。
+    try {
+      const effective = getEffectiveConstraints(PROJECT_ROOT);
+      for (const c of effective) {
+        rules.push({
+          name: `${c.level}:${c.id}`,
+          category: 'constraint',
+          description: c.description || c.message || c.rule,
+          condition: 'always',
+          action: `enforce ${c.level}:${c.id}`,
+          source: '@dommaker/harness',
+          sourceType: 'harness_constraint',
+          affects: ['agent', 'reviewer'],
+        });
       }
-    }
-
-    if (!foundAny) {
-      logger.debug('[RuleScanner] harness definitions subfiles not found', { path: harnessRoot });
+    } catch (err) {
+      logger.warn('[RuleScanner] Failed to scan harness constraints', { error: String(err) });
     }
 
     return rules;

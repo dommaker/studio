@@ -186,7 +186,6 @@ export function KnowledgePage() {
                 return `维护完成：合并 ${r.dedupMerged} / 归档 ${r.qualityArchived} / 更新 ${r.freshnessUpdated} / 解矛盾 ${r.contradictionsResolved}`;
               }}
             />
-            <button onClick={() => navigate('/knowledge/import')} className="btn btn-primary">📥 冷启动导入</button>
           </div>
         </div>
       </div>
@@ -360,7 +359,7 @@ export function KnowledgePage() {
           )}
 
           <div className="mt-6">
-            <button onClick={() => navigate('/wiki')} className="btn btn-secondary">← 前往文档</button>
+            <button onClick={() => navigate('/library')} className="btn btn-secondary">← 前往阅览室</button>
           </div>
         </div>
       </div>

@@ -74,6 +74,11 @@ export function setTriggerActionFileStore(fs: FileStore): void {
   workUnitService = new WorkUnitService(fs);
 }
 
+/** #163（T8-E2）：暴露当前 FileStore 实例——inspection-scan 冷却闸消费（一处注入全覆盖） */
+export function getTriggerActionFileStore(): FileStore {
+  return fileStore;
+}
+
 /**
  * B3 触发器幂等（2026-08-03 token-burn issue）：同一 triggerId 在同一分钟内已创建过 WU 则跳过。
  * 跨进程/重启兜底（in-memory lastFiredAt 挡不住）：两个实例共享数据根时第二个进程在此被拦。
@@ -155,6 +160,11 @@ export async function executeCreateAction(
     scope,
     channelId: channelId || null,
     assigneeId,
+    // #162（T8-E1，#130 决策 8）：触发器建单显式 pending 人闸——无人在环的自动触发
+    // （定时/事件/手动 fire）模型调用单，执行前一律过人确认（pending → unassigned 才
+    // 可认领）。按来源不按类型：不动 PENDING_CONFIRM_TYPES，机制派生单不误伤；
+    // 落在 T4「显式 status 优先」既有语义上（resolveInitialStatus 唯一入口）。
+    status: 'pending',
     metadata: mergedMetadata,
   });
 
@@ -233,8 +243,7 @@ export async function executeUpdateAction(
         timestamp: now,
         data: updatedSnapshot as unknown as Record<string, unknown>,
       };
-      await fileStore.appendEvent(event);
-      await fileStore.upsertSnapshot(updatedSnapshot);
+      await fileStore.commitSnapshot(event, updatedSnapshot);
     }
   } else {
     logger.warn(`[TriggerAction] Unknown UPDATE target: ${action.target}`);

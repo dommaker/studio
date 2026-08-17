@@ -18,7 +18,6 @@ const fileStore = new FileStore();
 const STUDIO_DIR = studioDir();
 const USERS_FILE = path.join(STUDIO_DIR, 'users.json');
 const SESSIONS_FILE = path.join(STUDIO_DIR, 'sessions.json');
-const DOCUMENTS_DIR = path.join(STUDIO_DIR, 'data', 'documents');
 const WORKSPACE_TOKENS_DIR = path.join(STUDIO_DIR, 'workspace-tokens');
 const WORKSPACES_DIR = path.join(STUDIO_DIR, 'workspaces');
 
@@ -305,78 +304,6 @@ export function requireRole(...roles: string[]) {
     }
 
     next();
-  };
-}
-
-/**
- * 类型安全地查询资源创建者（FileStore）
- * 各模型使用对应的 creatorId / createdBy 字段
- */
-async function findResourceCreator(model: string, resourceId: string): Promise<string | null | undefined> {
-  switch (model.toLowerCase()) {
-    case 'document': {
-      const r = await fileStore.readJson<{ createdBy?: string | null }>(path.join(DOCUMENTS_DIR, `${resourceId}.json`));
-      return r?.createdBy ?? undefined;
-    }
-    default:
-      throw new Error(`Unsupported ownership model: ${model}`);
-  }
-}
-
-/**
- * 所有权检查 - 要求是资源创建者或管理员
- */
-export function checkOwnership(model: string, paramKey: string = 'id') {
-  return async (req: Request, res: Response, next: NextFunction) => {
-    const authReq = req as AuthRequest;
-    
-    if (!authReq.user) {
-      return res.status(401).json({
-        error: '未登录',
-        code: 'UNAUTHORIZED',
-      });
-    }
-    
-    // Admin 可以操作所有资源
-    if (authReq.user.role === 'Admin') {
-      return next();
-    }
-    
-    // 获取资源 ID
-    const resourceId = req.params[paramKey];
-    if (!resourceId) {
-      return res.status(400).json({
-        error: '缺少资源 ID',
-        code: 'MISSING_RESOURCE_ID',
-      });
-    }
-    
-    try {
-      // 查询资源的创建者 — 类型安全的分发
-      const creatorId = await findResourceCreator(model, resourceId);
-
-      if (creatorId === undefined) {
-        return res.status(404).json({
-          error: '资源不存在',
-          code: 'RESOURCE_NOT_FOUND',
-        });
-      }
-
-      if (creatorId !== authReq.user.id) {
-        return res.status(403).json({
-          error: '无权操作他人创建的资源',
-          code: 'FORBIDDEN',
-        });
-      }
-      
-      next();
-    } catch (error) {
-      logger.error({ error }, 'Check ownership error');
-      return res.status(500).json({
-        error: '权限检查失败',
-        code: 'AUTH_CHECK_ERROR',
-      });
-    }
   };
 }
 

@@ -5,8 +5,8 @@
 import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { checkBeforeExecution, getTraceCollector } from '@dommaker/harness';
-import type { ConstraintContext } from '@dommaker/harness';
-import { safeCallHook } from './config';
+import type { ConstraintContext, HookDefinition } from '@dommaker/harness';
+import { runHook } from './config';
 import { formatConstraintsForPrompt } from '../prompt-injection';
 
 /** 延迟取 bootstrap 合并约束（含 custom-constraints.yml），避免与 bootstrap→register→hooks 的静态循环依赖 */
@@ -19,7 +19,7 @@ export async function beforeAgentExecute(ctx: ConstraintContext & {
   hasWorktree?: boolean;
   worktreePath?: string;
 }): Promise<void> {
-  await safeCallHook('beforeAgentExecute', async () => {
+  await runHook('beforeAgentExecute', async () => {
     await checkBeforeExecution({
       operation: 'code_implementation',
       taskDescription: ctx.taskDescription,
@@ -40,14 +40,15 @@ export async function beforeAgentExecute(ctx: ConstraintContext & {
 }
 
 export function buildAgentConstraintPrompt(ctx: ConstraintContext): string {
-  // Inject all applicable harness constraints by role (full text, not truncated)
-  const harnessConstraints = formatConstraintsForPrompt('executor');
+  const projectPath = ctx.projectPath || process.cwd();
+  // Inject all applicable harness constraints by role (full text, not truncated)；
+  // 渲染走 harness renderConstraintsByTrigger（A3），按项目生效集渲染。
+  const harnessConstraints = formatConstraintsForPrompt('executor', { projectRoot: projectPath });
 
   // Runtime dedup: if CLAUDE.md already has HARNESS_CONSTRAINTS section,
   // inject a reference instead of duplicating the full constraint text.
   // This avoids double injection (CLAUDE.md + system prompt) per Step 8 of the plan.
   let constraintSection: string;
-  const projectPath = ctx.projectPath || process.cwd();
   const claudePath = join(projectPath, 'CLAUDE.md');
   if (existsSync(claudePath)) {
     try {
@@ -83,7 +84,7 @@ export async function afterAgentComplete(params?: {
   success?: boolean;
   sessionCount?: number;
 }): Promise<void> {
-  await safeCallHook('afterAgentComplete', async () => {
+  await runHook('afterAgentComplete', async () => {
     const collector = getTraceCollector();
     const traceBase = {
       agentType: 'claude',
@@ -101,3 +102,26 @@ export async function afterAgentComplete(params?: {
     }
   });
 }
+
+/**
+ * 导出即注册（C1）：buildAgentConstraintPrompt 是同步直接调用助手，不进管线，
+ * 无 HookDefinition（与声明表一致）。
+ */
+export const agentHookDefinitions: HookDefinition[] = [
+  {
+    name: 'beforeAgentExecute',
+    phase: 'before',
+    execute: async (ctx: any) => {
+      await beforeAgentExecute(ctx);
+      return { passed: true };
+    },
+  },
+  {
+    name: 'afterAgentComplete',
+    phase: 'after',
+    execute: async (params: any) => {
+      await afterAgentComplete(params);
+      return { passed: true };
+    },
+  },
+];

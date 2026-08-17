@@ -93,7 +93,7 @@ vi.mock('../../knowledge/knowledge-service', () => ({
   },
 }));
 
-import { AgentLoop, extractInputTokens, isProcessAlive, writeToolCallEvents, resolveToolTraceFile } from '../loop/agent-loop';
+import { AgentLoop, isProcessAlive, writeToolCallEvents, resolveToolTraceFile } from '../loop/agent-loop';
 
 describe('AgentLoop', () => {
   let agentLoop: AgentLoop;
@@ -770,61 +770,6 @@ describe('AgentLoop', () => {
       expect(started).toBe(true);
       const holder = await fileStore.getState('holder-instance');
       expect(holder!.status).toBe('terminated');
-    });
-  });
-
-  describe('AC-4.3/4.4: extractInputTokens()', () => {
-    it('returns null for empty string', () => {
-      expect(extractInputTokens('')).toBeNull();
-    });
-
-    it('returns input_tokens from result event', () => {
-      const output = JSON.stringify({ type: 'result', input_tokens: 75_000 });
-      expect(extractInputTokens(output)).toBe(75_000);
-    });
-
-    it('returns null when no result event found', () => {
-      const output = JSON.stringify({ type: 'usage', input_tokens: 50_000 });
-      expect(extractInputTokens(output)).toBeNull();
-    });
-
-    it('returns null for non-JSON lines', () => {
-      expect(extractInputTokens('not json')).toBeNull();
-    });
-
-    it('parses result event from multi-line output', () => {
-      const output = [
-        JSON.stringify({ type: 'text', text: 'hello' }),
-        JSON.stringify({ type: 'result', input_tokens: 42_000 }),
-        JSON.stringify({ type: 'usage', input_tokens: 50_000 }),
-      ].join('\n');
-      expect(extractInputTokens(output)).toBe(42_000);
-    });
-
-    it('tracks lastInputTokens in agentStep metadataUpdates', async () => {
-      mockExecuteLightweight.mockResolvedValue({
-        success: true,
-        outputText: JSON.stringify({ type: 'result', input_tokens: 42_000 }),
-        logFile: '/tmp/log', worktree: '/tmp/wt', outputFiles: [], sessionCount: 1,
-      });
-
-      agentLoop = new AgentLoop(mockRole, fileStore);
-      await agentLoop.start();
-
-      const target = {
-        workUnit: {
-          id: 'wu-last-tokens', type: 'task', scope: 'test', channelId: 'ch-1',
-          status: 'active', assigneeId: 'agent-1', parentId: null,
-          failureType: null, retryCount: 0, timeoutAt: null,
-          projectPath: null, metadata: null, claimedAt: null,
-          completedAt: null, createdAt: new Date(), updatedAt: new Date(),
-        },
-      };
-
-      const result = await (agentLoop as unknown as { agentStep(t: unknown): Promise<unknown> }).agentStep(target);
-      const resultTyped = result as { metadataUpdates?: Record<string, unknown> };
-      expect(resultTyped.metadataUpdates).toBeDefined();
-      expect(resultTyped.metadataUpdates!.lastInputTokens).toBe(42_000);
     });
   });
 

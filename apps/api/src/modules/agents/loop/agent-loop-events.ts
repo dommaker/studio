@@ -15,7 +15,7 @@ export const metricsFileStore = new FileStore();
 export interface WorkunitTokenEventArgs {
   workUnitId: string;
   executionId?: string;
-  /** 注入上下文估算 tokens（调用方按 chars/4 约定估算，与 estimateTokens 一致） */
+  /** 注入上下文估算 tokens（调用方按 TokenEstimator.estimateText 口径估算） */
   injectedTokens: number;
   /**
    * 非缓存执行 tokens（CLI usage input+output，不含 cache）。CLI 未回报 usage 时传 null ——
@@ -107,7 +107,7 @@ export async function writeWorkunitTokenEvent(eventsFile: string, args: Workunit
       workUnitId: args.workUnitId,
       executionId: args.executionId,
       injectedTokens: args.injectedTokens,
-      injectedSource: 'estimate:chars/4',
+      injectedSource: 'estimate:token-estimator',
       executionTokens,
       executionSource: executionTokens !== null || billedTokens !== null ? 'cli-usage' : 'unavailable',
       totalTokens: args.injectedTokens + (billedTokens ?? executionTokens ?? 0),
@@ -158,6 +158,8 @@ export function writeToolCallEvents(outputText: string, filePath: string): numbe
     const event = JSON.stringify({
       type: 'tool:call',
       source: 'agent-loop',
+      // #172（#60 决策 Q2）：tool:call 为噪声 → debug（直写路径不走 writeStudioEvent，显式落字段）
+      level: 'debug',
       payload: JSON.stringify({
         tool: call.name,
         success: true,

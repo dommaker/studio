@@ -129,6 +129,21 @@ describe('monitor-alerts: dispatchMonitorAlerts', () => {
     }
   });
 
+  it('monitor:alert 的告警级别落 envelope level（#184 收件箱 level 过滤只认 envelope）', async () => {
+    dispatchMonitorAlerts([
+      { source: 'total_time', level: 'critical', message: 'crit' } as any,
+      { source: 'failure_trend', level: 'warning', message: 'warn' } as any,
+    ]);
+
+    await vi.waitFor(() => {
+      expect(readEventLines()).toHaveLength(2);
+    });
+    const byPayloadLevel = Object.fromEntries(
+      readEventLines().map(l => [JSON.parse(l.payload).level, l.level]),
+    );
+    expect(byPayloadLevel).toEqual({ critical: 'critical', warning: 'warning' });
+  });
+
   it('emits nothing for info-only alerts', async () => {
     dispatchMonitorAlerts([{ source: 'progress_stagnation', level: 'info', message: 'i' } as any]);
     await new Promise(r => setTimeout(r, 50));

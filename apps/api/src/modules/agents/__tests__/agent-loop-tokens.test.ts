@@ -2,14 +2,14 @@
  * M2 成本红线 — workunit:tokens 事件写入。
  *
  * writeWorkunitTokenEvent 是 agent-loop 任务执行完成时的 token 记录点：
- * 注入估算（chars/4 约定，调用方用 estimateTokens 计算）+ 执行 tokens（CLI usage，
+ * 注入估算（TokenEstimator.estimateText 口径，调用方直接算）+ 执行 tokens（CLI usage，
  * 未回报时 null）。用 tmp 文件验证事件形态与诚实语义（null 不编造为 0）。
  */
 import { describe, it, expect } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { estimateTokens } from '@dommaker/studio-shared';
+import { TokenEstimator } from '@dommaker/harness';
 
 import { writeWorkunitTokenEvent } from '../loop/agent-loop.js';
 
@@ -31,9 +31,9 @@ function readEvents(eventsFile: string): any[] {
 describe('M2: writeWorkunitTokenEvent', () => {
   it('emits workunit:tokens event with injected estimate + execution tokens on completion', async () => {
     await withTmpFile(async (eventsFile) => {
-      // 模拟 agentStep 完成路径：注入文本 800 字符 → chars/4 = 200 tokens
+      // 模拟 agentStep 完成路径：注入文本 800 字符（纯 ASCII）→ 800/4 = 200 tokens
       const knowledgeContext = 'x'.repeat(800);
-      const injectedTokens = estimateTokens(knowledgeContext.length);
+      const injectedTokens = TokenEstimator.estimateText(knowledgeContext);
       expect(injectedTokens).toBe(200);
 
       await writeWorkunitTokenEvent(eventsFile, {
@@ -54,7 +54,7 @@ describe('M2: writeWorkunitTokenEvent', () => {
       expect(payload.workUnitId).toBe('wu-1');
       expect(payload.executionId).toBe('wu-1-123');
       expect(payload.injectedTokens).toBe(200);
-      expect(payload.injectedSource).toBe('estimate:chars/4');
+      expect(payload.injectedSource).toBe('estimate:token-estimator');
       expect(payload.executionTokens).toBe(12_345);
       expect(payload.executionSource).toBe('cli-usage');
       expect(payload.totalTokens).toBe(200 + 12_345);
@@ -76,10 +76,12 @@ describe('M2: writeWorkunitTokenEvent', () => {
     });
   });
 
-  it('follows estimateTokens chars/4 convention (codebase-wide estimation convention)', () => {
-    expect(estimateTokens(0)).toBe(0);
-    expect(estimateTokens(4)).toBe(1);
-    expect(estimateTokens(5)).toBe(2); // ceil
-    expect(estimateTokens(8_000)).toBe(2_000); // 2K 红线对应的字符量
+  it('follows TokenEstimator.estimateText convention (codebase-wide estimation convention)', () => {
+    expect(TokenEstimator.estimateText('')).toBe(0);
+    expect(TokenEstimator.estimateText('abcd')).toBe(1);
+    expect(TokenEstimator.estimateText('abcde')).toBe(2); // ceil
+    expect(TokenEstimator.estimateText('a'.repeat(8_000))).toBe(2_000); // 2K 红线对应的纯 ASCII 字符量
+    expect(TokenEstimator.estimateText('你好世界')).toBe(3); // 含中文 ≈1.5 字符/token：4/1.5→3
+    expect(TokenEstimator.estimateText('hello 世界')).toBe(6); // 含中文整段按 1.5：8/1.5→6
   });
 });

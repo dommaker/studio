@@ -5,13 +5,17 @@
  * Adds: session-level load cache（生产调用方仅 mcp/skill.tools.ts 的 loadSkill）。
  *
  * #75: loadSkill lifecycle
+ * #172（#60 决策 Q2）：knowledge:skill_used 唯一语义 = Skill 加载（本文件发射点），
+ * 携带 workUnitId（调用方已知时）；经 writeStudioEvent 落盘（envelope level=debug），
+ * 替代模块加载期固化的直连路径（修复测试期假 id 写入生产事件文件的污染漏洞）。
  */
 
 // string type removed — using string. See packages/studio-skill/src/types.ts
-import { logger, FileStore } from '@dommaker/studio-shared';
+import { logger } from '@dommaker/studio-shared';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import * as fs from 'fs';
 import * as path from 'path';
+import { writeStudioEvent } from '../../utils/studio-events.js';
 
 // ── Types ──
 
@@ -34,6 +38,8 @@ export interface LoadSkillOptions {
   sessionId: string;
   skillName: string;
   agentType?: string;
+  /** #172: WU 归属（skill_used 事件 payload；调用方已知时传入） */
+  workUnitId?: string;
 }
 
 // ── File-based skill loading (.md with frontmatter) ──
@@ -100,9 +106,6 @@ function getOrCreateSession(sessionId: string, agentType: string): SessionSkillS
   return state;
 }
 
-const STUDIO_EVENTS_JSONL = studioPath('logs', 'studio-events.jsonl');
-const fileStore = new FileStore();
-
 // ── Service ──
 
 export class SkillLoaderService {
@@ -159,13 +162,13 @@ export class SkillLoaderService {
 
     state.loaded.set(skillName, loaded);
 
-    // S3 Gap 3c: emit skill_used for knowledge_skill_usage_rate metric
-    fileStore.appendJsonl(STUDIO_EVENTS_JSONL, {
-      type: 'knowledge:skill_used',
-      source: 'skill-loader',
-      payload: JSON.stringify({ skillName, skillId }),
-      createdAt: new Date().toISOString(),
-    }).catch(() => {});
+    // S3 Gap 3c + #172（#60 决策 Q2）: skill_used 唯一语义 = Skill 加载，补 workUnitId；
+    // 经 writeStudioEvent 统一入口落盘（envelope level=debug，测试期走隔离事件文件）
+    void writeStudioEvent('knowledge:skill_used', {
+      skillName,
+      skillId,
+      ...(options.workUnitId ? { workUnitId: options.workUnitId } : {}),
+    }, { source: 'skill-loader' }).catch(() => {});
 
     logger.info('[SkillLoader] Loaded skill', {
       sessionId,

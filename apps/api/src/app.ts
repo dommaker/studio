@@ -82,7 +82,6 @@ export async function registerRoutes(): Promise<void> {
       '/events/stream',  // SSE
       // Public read-only endpoints (Lurk Wall bypass)
       '/channels',
-      '/requirements-docs',
       '/health',
       '/pipeline/status',
       '/mcp/tools',        // MCP tool listing + execution (auth via permission service)

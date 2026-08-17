@@ -1,5 +1,5 @@
 /**
- * assigneeId 双语义批量解析器（语义权威：workunit/CONTEXT.md「assigneeId 双语义」条）。
+ * assigneeId 双语义批量解析器（语义权威：.studio/CONTEXT.md 的 apps/api/src/modules/workunit 锚点「assigneeId 双语义」条）。
  *
  * assigneeId 两种形态：
  *   - 认领后 = 实例 id（需经 state.roleId 反查 profile id）

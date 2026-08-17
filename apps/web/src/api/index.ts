@@ -220,9 +220,9 @@ export const projectApi = {
   updateStatus: (id: string, status: string) =>
     api.put(`/pmo/project/${id}/status`, { status }),
 
-  // 发布 PMO 到 Channel
-  publish: (id: string, channelId: string) =>
-    api.post(`/pmo/project/${id}/publish`, { channelId }),
+  // 发布 PMO 到 Channel（#177：可选 assigneeId 指派 analysis WU 执行角色，留空=涌现）
+  publish: (id: string, channelId: string, assigneeId?: string) =>
+    api.post(`/pmo/project/${id}/publish`, { channelId, ...(assigneeId ? { assigneeId } : {}) }),
 
   // 删除项目
   delete: (id: string) => api.delete(`/pmo/project/${id}`),
@@ -276,16 +276,12 @@ export interface DeliveryStatus {
   deliverCommit: string | null;
 }
 
-// Wiki API (B2-008)
-export const wikiApi = {
-  list: (params?: { search?: string; status?: string }) =>
-    api.get('/wiki', { params }),
+// Library API (#155 T5: 阅览室——跨项目 .studio/ 聚合只读层；无写路径)
+export const libraryApi = {
+  list: (params?: { search?: string; project?: string }) =>
+    api.get('/library', { params }),
   getDoc: (id: string) =>
-    api.get(`/wiki/${id}`),
-  updateDoc: (id: string, data: { content?: string; title?: string; linkedDocIds?: string[] }) =>
-    api.put(`/wiki/${id}`, data),
-  getGraph: () =>
-    api.get('/wiki/graph'),
+    api.get(`/library/${encodeURIComponent(id)}`),
 };
 
 // Workspace API — AS-020 P2/P7

@@ -9,62 +9,38 @@
  * 拦截逻辑复用 @dommaker/harness CommandGate（SEC-006 黑名单，block/warn/audit 三级）；
  * 本模块只生成配置、不改黑名单规则本身（规则变更走 harness 仓，本票明确不做）。
  * 生成产物均为磁盘配置文件，调用方 = worktree-resolver.propagateHarnessConfig。
+ *
+ * #154（T5-E2）：hook 脚本不再由本模块生成——harness 包出厂 `dist/pretool-use-hook.js`
+ * （studio #153），provider 配置直接指向包内路径（require.resolve 同一解析）。
  */
 import * as path from 'path';
 import * as fsSync from 'fs';
 import * as os from 'os';
 import { logger } from '@dommaker/studio-shared';
 
-/** hook 注入 marker：检测配置/脚本是否已含我们生成的执法段（幂等依据） */
+/** hook 注入 marker：检测配置是否已含我们的执法段（幂等依据；与 harness shim 同一标识） */
 export const HOOK_MARKER = 'harness-command-gate';
 
-/** hook 脚本在 worktree 内的落点（.studio/ 已在 git exclude 清单，不随代码提交） */
-export function hookScriptPath(worktree: string): string {
+/** 解析 @dommaker/harness 出厂的 PreToolUse hook shim 绝对路径（根导出 → dist/pretool-use-hook.js） */
+export function resolvePreToolUseHookPath(): string {
+  const entry = require.resolve('@dommaker/harness');
+  return path.join(path.dirname(entry), 'pretool-use-hook.js');
+}
+
+/** #147 旧版生成脚本的落点（#154 起停用，仅用于存量清理） */
+function legacyHookScriptPath(worktree: string): string {
   return path.join(worktree, '.studio', 'command-gate-hook.js');
 }
 
-/** 解析 @dommaker/harness 的 CommandGate 编译产物绝对路径（根导出 → dist/gates/command.js） */
-export function resolveCommandGatePath(): string {
-  const entry = require.resolve('@dommaker/harness');
-  return path.join(path.dirname(entry), 'gates', 'command.js');
-}
-
 /**
- * hook 脚本内容：stdin 收 provider PreToolUse JSON（tool_name / tool_input.command），
- * CommandGate.isAllowed 判定 block 级黑名单，命中 → stderr 写原因 + exit 2（阻断语义：
- * codex/kimi 均按 exit 2 + stderr 阻断、其余 exit code fail-open，#138 §3.2/§3.4）。
+ * 清理 #147 生成的旧 hook 脚本（.studio/ 自 #154 起整体进 git = 纯文档正本，
+ * 生成脚本残留会成为 git status 噪声）。只删含 marker 的生成产物，他人文件不动。
  */
-export function buildHookScriptContent(): string {
-  const requireArg = JSON.stringify(resolveCommandGatePath());
-  return [
-    `// ${HOOK_MARKER} PreToolUse 执法脚本 — studio-agent 生成（#147），勿手改。`,
-    '// stdin: provider PreToolUse JSON；exit 2 = 阻断（stderr 作为阻断原因回填模型）。',
-    'let raw = "";',
-    'process.stdin.on("data", (c) => { raw += c; });',
-    'process.stdin.on("end", () => {',
-    '  let input = {};',
-    '  try { input = JSON.parse(raw || "{}"); } catch (e) { /* 非 JSON stdin：放行 */ }',
-    '  // fail-open 对齐 provider 语义（#138 §3.2/§3.4：非 exit 2 一律放行）——',
-    '  // stdin 格式变化时宁可漏拦也不全体 Bash 秒断；拦截层只是纵深防御的一道。',
-    `  const { CommandGate } = require(${requireArg});`,
-    '  const command = (input.tool_input && input.tool_input.command) || "";',
-    '  const gate = new CommandGate();',
-    '  if (!gate.isAllowed(command)) {',
-    `    console.error("[${HOOK_MARKER}] blocked: " + command);`,
-    '    process.exit(2);',
-    '  }',
-    '});',
-    '',
-  ].join('\n');
-}
-
-/** 写 hook 脚本到 worktree（幂等：内容一致跳过；不一致/缺失重写 = 自愈） */
-export function writeHookScript(worktree: string): void {
-  const p = hookScriptPath(worktree);
-  const content = buildHookScriptContent();
-  if (fsSync.existsSync(p) && fsSync.readFileSync(p, 'utf-8') === content) return;
-  fsSync.mkdirSync(path.dirname(p), { recursive: true });
-  fsSync.writeFileSync(p, content, 'utf-8');
+export function removeLegacyHookScript(worktree: string): void {
+  const p = legacyHookScriptPath(worktree);
+  if (!fsSync.existsSync(p)) return;
+  if (!fsSync.readFileSync(p, 'utf-8').includes(HOOK_MARKER)) return;
+  fsSync.rmSync(p);
 }
 
 // ─── claude：permissions.deny（P0 方案 A） ───
@@ -101,15 +77,15 @@ export function buildClaudeDenyRules(opts: { worktree: string; repoDir?: string 
 // ─── codex：项目级 .codex/hooks.json（P1） ───
 
 /** codex hooks.json 载体：{description, hooks}（#138 §3.2，ClaudeHooksEngine 兼容格式） */
-export function buildCodexHooksJson(worktree: string): Record<string, unknown> {
+export function buildCodexHooksJson(): Record<string, unknown> {
   return {
-    description: `${HOOK_MARKER} PreToolUse 前置拦截（#147）`,
+    description: `${HOOK_MARKER} PreToolUse 前置拦截（#147；shim 由 @dommaker/harness 出厂，#154）`,
     hooks: {
       PreToolUse: [
         {
           matcher: 'Bash',
           hooks: [
-            { type: 'command', command: `node ${hookScriptPath(worktree)}`, timeout: 10 },
+            { type: 'command', command: `node ${resolvePreToolUseHookPath()}`, timeout: 10 },
           ],
         },
       ],
@@ -120,7 +96,7 @@ export function buildCodexHooksJson(worktree: string): Record<string, unknown> {
 /** 写 <worktree>/.codex/hooks.json（codex exec cwd=worktree 时项目级发现；幂等） */
 export function writeCodexHooks(worktree: string): void {
   const p = path.join(worktree, '.codex', 'hooks.json');
-  const content = JSON.stringify(buildCodexHooksJson(worktree), null, 2) + '\n';
+  const content = JSON.stringify(buildCodexHooksJson(), null, 2) + '\n';
   if (fsSync.existsSync(p) && fsSync.readFileSync(p, 'utf-8') === content) return;
   fsSync.mkdirSync(path.dirname(p), { recursive: true });
   fsSync.writeFileSync(p, content, 'utf-8');
@@ -143,15 +119,15 @@ export function kimiCodeHomeReady(worktree: string): boolean {
   return fsSync.existsSync(path.join(kimiCodeHomePath(worktree), 'config.toml'));
 }
 
-/** kimi config.toml 追加段：[[hooks]] PreToolUse → 共享 hook 脚本，exit 2 阻断 */
-function buildKimiHookFragment(worktree: string): string {
+/** kimi config.toml 追加段：[[hooks]] PreToolUse → harness 出厂 shim，exit 2 阻断 */
+function buildKimiHookFragment(): string {
   return [
     '',
-    `# ${HOOK_MARKER} PreToolUse — studio-agent 生成（#147）：block 级黑名单 exit 2 阻断`,
+    `# ${HOOK_MARKER} PreToolUse — studio-agent 生成（#147；shim 由 @dommaker/harness 出厂，#154）：block 级黑名单 exit 2 阻断`,
     '[[hooks]]',
     'event = "PreToolUse"',
     'matcher = "Bash"',
-    `command = "node ${hookScriptPath(worktree)}"`,
+    `command = "node ${resolvePreToolUseHookPath()}"`,
     'timeout = 10',
     '',
   ].join('\n');
@@ -163,7 +139,8 @@ function buildKimiHookFragment(worktree: string): string {
  *   - credentials/oauth 目录软链复用 host（#138 §3.4 先例：凭证不复制、不散落）；
  *   - device_id 复制（CLI 设备标识）。
  * host 无 config.toml（kimi 未安装/未初始化）→ 直接跳过，不生成。
- * 幂等：config.toml 已含 marker 则不动；缺失/被删 → 重写（自愈）。
+ * 幂等：config.toml 已含当期 hook 段（fragment 全串匹配）则不动；缺失/被删/旧版
+ * 指向 worktree 内脚本（#147 生成版）→ 重写（自愈 + 旧配置迁移到 harness shim）。
  */
 export function ensureKimiHookHome(worktree: string): void {
   const hostHome = hostKimiCodeHome();
@@ -194,24 +171,25 @@ export function ensureKimiHookHome(worktree: string): void {
 
   const wtConfig = path.join(wtHome, 'config.toml');
   const needsWrite = !fsSync.existsSync(wtConfig)
-    || !fsSync.readFileSync(wtConfig, 'utf-8').includes(HOOK_MARKER);
+    || !fsSync.readFileSync(wtConfig, 'utf-8').includes(buildKimiHookFragment().trim());
   if (needsWrite) {
     const base = fsSync.readFileSync(hostConfig, 'utf-8');
-    fsSync.writeFileSync(wtConfig, base.trimEnd() + '\n' + buildKimiHookFragment(worktree), 'utf-8');
+    fsSync.writeFileSync(wtConfig, base.trimEnd() + '\n' + buildKimiHookFragment(), 'utf-8');
   }
 }
 
 // ─── 汇总入口（propagateHarnessConfig 调用） ───
 
 /**
- * 一次写完各 provider 的执法配置（hook 脚本 + codex hooks.json + kimi home）。
+ * 一次写完各 provider 的执法配置（codex hooks.json + kimi home，均指向 harness 出厂 shim）
+ * + 清理 #147 旧版生成脚本。
  * 各步骤独立 try——单 provider 生成失败不影响其余（与 writeGitExclude 同口径：
  * 执法配置缺失 ≠ worktree 不可用，绝不断 spawn）。
  */
 export function writeProviderEnforcementConfigs(opts: { worktree: string }): void {
   const { worktree } = opts;
   for (const [name, step] of [
-    ['hook-script', () => writeHookScript(worktree)],
+    ['legacy-hook-cleanup', () => removeLegacyHookScript(worktree)],
     ['codex-hooks', () => writeCodexHooks(worktree)],
     ['kimi-home', () => ensureKimiHookHome(worktree)],
   ] as const) {

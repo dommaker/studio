@@ -180,7 +180,13 @@ export async function dataLifecycle(fileStore: FileStore, state: LifecycleState)
       const allWu = await fileStore.getIndex();
       const toDelete = allWu.filter(s => new Date(s.createdAt).getTime() < execCutoffMs);
       for (const wu of toDelete) {
-        await fileStore.removeSnapshot(wu.id);
+        // #170：墓碑事件 + 索引移除同锁成对（对账/重建不复活已删 WU）
+        await fileStore.commitRemoval({
+          type: 'closed',
+          wuId: wu.id,
+          timestamp: new Date().toISOString(),
+          data: { deleted: true },
+        }, wu.id);
       }
       logger.info('[MonitorService] TTL: WorkUnit cleaned', { deleted: toDelete.length, cutoff: new Date(execCutoffMs).toISOString() });
     } catch (e) {

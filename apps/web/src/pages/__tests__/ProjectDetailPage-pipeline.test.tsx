@@ -1,4 +1,5 @@
-// AC-5: ProjectDetailPage 驾驶舱测试 — 头部增强 / 进度管道 / 文档阅读器 / 项目动态 / 跳转
+// AC-5: ProjectDetailPage 驾驶舱测试 — 头部增强 / 进度管道 / 项目动态 / 跳转
+// #149（2026-08-15）：文档阅读器相关测试随 document-store 退役移除
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
@@ -14,8 +15,6 @@ const {
   mockDispatchReview,
   mockReviewPassed,
   mockGetAgentSummary,
-  mockListByProject,
-  mockGetDocDetail,
 } = vi.hoisted(() => ({
   mockApiGet: vi.fn(),
   mockApiPost: vi.fn(),
@@ -27,8 +26,6 @@ const {
   mockDispatchReview: vi.fn(),
   mockReviewPassed: vi.fn(),
   mockGetAgentSummary: vi.fn(),
-  mockListByProject: vi.fn(),
-  mockGetDocDetail: vi.fn(),
 }));
 
 vi.mock('../../api', () => ({
@@ -50,13 +47,6 @@ vi.mock('../../api/requirements', () => ({
 }));
 vi.mock('../../api/monitoring', () => ({
   monitoringApi: { getAgentSummary: mockGetAgentSummary },
-}));
-vi.mock('../../api/knowledge', () => ({
-  knowledgeApi: { listByProject: mockListByProject, getDetail: mockGetDocDetail },
-}));
-// MarkdownBody lazy import 加载 react-markdown，pipeline 测试不验证 markdown 渲染，mock 掉避免 transform 超时
-vi.mock('../../components/knowledge/MarkdownBody', () => ({
-  default: ({ content }: { content: string }) => <div>{content}</div>,
 }));
 
 import { ProjectDetailPage } from '../ProjectDetailPage';
@@ -105,10 +95,6 @@ const mockAgents = [
   { id: 'inst-2', roleId: 'role-qa', name: 'qa', status: 'active', currentWorkUnitId: 'wu-2', startedAt: '2026-07-01' },
 ];
 
-const mockDocs = [
-  { id: 'd1', projectId: 'p1', type: 'requirement', title: '需求分析文档', version: 1, status: 'active' },
-];
-
 const renderDetail = () =>
   render(
     <MemoryRouter initialEntries={['/pmo/project/p1']}>
@@ -136,10 +122,6 @@ describe('AC-5: PMO 驾驶舱', { testTimeout: 15000 }, () => {
     });
     mockGetAgentSummary.mockResolvedValue({
       data: { agents: mockAgents, summary: { total: 2, idle: 1, active: 1, error: 0, terminated: 0 } },
-    });
-    mockListByProject.mockResolvedValue({ data: { documents: mockDocs } });
-    mockGetDocDetail.mockResolvedValue({
-      data: { ...mockDocs[0], version: 2, content: '需求正文内容' },
     });
   });
 
@@ -216,27 +198,6 @@ describe('AC-5: PMO 驾驶舱', { testTimeout: 15000 }, () => {
     await screen.findByText('频道页');
   });
 
-  it('文档卡片点击 → 抽屉阅读器拉取详情并渲染正文', async () => {
-    renderDetail();
-    await waitFor(() => expect(screen.getByText('需求分析文档')).toBeTruthy());
-
-    fireEvent.click(screen.getByText('需求分析文档'));
-
-    await waitFor(() => {
-      expect(mockGetDocDetail).toHaveBeenCalledWith('d1');
-    });
-    await screen.findByText('需求正文内容');
-    // 抽屉头部元信息
-    expect(screen.getByText('v2')).toBeTruthy();
-    expect(screen.getByText('需求')).toBeTruthy();
-
-    // 关闭抽屉
-    fireEvent.click(screen.getByLabelText('关闭抽屉'));
-    await waitFor(() => {
-      expect(screen.queryByText('需求正文内容')).toBeNull();
-    });
-  });
-
   it('项目动态：认领/完成/新增条目拼装，标题可点跳 WU 详情', async () => {
     renderDetail();
     await waitFor(() => expect(screen.getByText(/项目动态/)).toBeTruthy());
@@ -259,17 +220,15 @@ describe('AC-5: PMO 驾驶舱', { testTimeout: 15000 }, () => {
     await screen.findByText('WU 详情页');
   });
 
-  it('空态：无 WU → 管道空态；无文档 → 暂无文档产出；无动态 → 暂无动态', async () => {
+  it('空态：无 WU → 管道空态；无动态 → 暂无动态', async () => {
     mockGetChain.mockResolvedValue({
       data: { data: { requirement: { id: 'REQ-0011', title: '驾驶舱' }, workunits: [] } },
     });
-    mockListByProject.mockResolvedValue({ data: { documents: [] } });
     renderDetail();
 
     await waitFor(() => {
       expect(screen.getByText('暂无 WorkUnit 产出')).toBeTruthy();
     });
-    expect(screen.getByText('暂无文档产出')).toBeTruthy();
     expect(screen.getByText('暂无动态')).toBeTruthy();
   });
 

@@ -8,7 +8,7 @@
  *   - Stuck detection with strategy hints injection
  *
  * 模块拆分：实现按职责拆到
- *   - runner-params.ts      参数构建（prompt / session flag / cmd / env / 前置检查 / SDD）
+ *   - runner-params.ts      参数构建（prompt / session flag / cmd / env / 前置检查）
  *   - runner-output.ts      输出解析（mtime 探测 / RKB 已知解法）
  *   - runner-execution.ts   执行（多 session 循环）
  *   - runner-lightweight.ts 执行（轻量单 session）
@@ -56,7 +56,7 @@ export class AgentRunner {
     const homeDir = os.homedir();
     this.config = {
       worktreesDir: config?.worktreesDir || process.env.WORKTREES_DIR || path.join(homeDir, 'worktrees'),
-      repoDir: config?.repoDir || process.env.REPO_DIR || (() => {
+      repoDir: config?.repoDir || (() => {
         let dir = process.cwd();
         while (dir !== '/' && !fsSync.existsSync(path.join(dir, 'package.json'))) {
           dir = path.dirname(dir);
@@ -112,6 +112,58 @@ export class AgentRunner {
     } else {
       logger.info('[AgentRunner] Stop requested but no child process found', { executionId });
     }
+  }
+
+  /**
+   * #178（#63 决议 2/3）：杀 executionId 对应 CLI 的整进程组。
+   * execSh killProcessGroup 以 detached  spawn，child.pid 即进程组组长；
+   * #68 实测 SIGTERM 杀不死孙进程，必须 kill(-pid) 杀整组。ESRCH = 已死，跳过；
+   * 组杀失败（非 ESRCH）回落单进程 SIGKILL。best-effort，绝不抛错。
+   */
+  async stopProcessGroup(executionId: string): Promise<void> {
+    const childRef = this.runningProcesses.get(executionId);
+    const child = childRef?.current;
+    const pid = child?.pid;
+    if (!child || pid === undefined) {
+      logger.info('[AgentRunner] stopProcessGroup: no child process found', { executionId });
+      return;
+    }
+    logger.info('[AgentRunner] Killing child process group', { executionId, pid });
+    try {
+      process.kill(-pid, 'SIGKILL');
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException)?.code !== 'ESRCH') {
+        try { child.kill('SIGKILL'); } catch { /* best-effort */ }
+      }
+    }
+    this.runningProcesses.delete(executionId);
+  }
+
+  /**
+   * #179（#66 决议 2）：优雅关闭杀全部在飞 CLI 进程组 —— 经 runningProcesses 注册表
+   * 逐组 SIGTERM，不等 step 落盘（部署 5s 强制 exit 纪律不变，残留由强退兜底）；
+   * 在飞 WU 回收交给 #63 租约。best-effort：ESRCH/空条目只清注册表不抛错。
+   * @returns 实际 SIGTERM 到的进程组数
+   */
+  async stopAllProcessGroups(): Promise<number> {
+    const entries = [...this.runningProcesses.entries()];
+    let killed = 0;
+    for (const [executionId, childRef] of entries) {
+      const child = childRef.current;
+      const pid = child?.pid;
+      this.runningProcesses.delete(executionId);
+      if (!child || pid === undefined) continue;
+      logger.info('[AgentRunner] Shutdown: SIGTERM child process group', { executionId, pid });
+      try {
+        process.kill(-pid, 'SIGTERM');
+        killed++;
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException)?.code !== 'ESRCH') {
+          try { child.kill('SIGTERM'); killed++; } catch { /* best-effort */ }
+        }
+      }
+    }
+    return killed;
   }
 
   getStatus(): { config: ExecutorConfig } {

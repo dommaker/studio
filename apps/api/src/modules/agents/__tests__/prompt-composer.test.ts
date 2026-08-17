@@ -41,8 +41,9 @@ vi.mock('../../role-memory/role-memory.js', () => ({
   roleMemoryStore: { readIndex: mockReadIndex },
 }));
 
-import { FileStore, estimateTokens } from '@dommaker/studio-shared';
+import { FileStore } from '@dommaker/studio-shared';
 import type { AgentProfileData } from '@dommaker/studio-shared';
+import { TokenEstimator } from '@dommaker/harness';
 
 // 动态 import：保证 process.env.SKILLS_DIR 赋值先于 manifest-loader 模块加载
 const { composeStepPrompt, SECTION_QUOTAS, CONTRACT_TEMPLATES } = await import('../loop/prompt-composer');
@@ -151,8 +152,8 @@ describe('#91: composeStepPrompt 分段软定额 + 池内余量共享 + trim 埋
   it('skills 段占定额后余量入池：knowledge 预算 = 1000 + (1300 - skillTokens) + 800 + 300', async () => {
     writeSkill('feature-dev', '功能开发流程');
     const skillBlock = `### feature-dev\n功能开发流程｜触发：登录\n全文：${path.join(os.homedir(), '.studio', 'skills', 'feature-dev', 'SKILL.md')}`;
-    const skillTokens = estimateTokens(SKILL_HEADER.length) + estimateTokens(skillBlock.length + 2)
-      + estimateTokens(SKILL_MANIFEST_POINTER.length + 2);
+    const skillTokens = TokenEstimator.estimateText(SKILL_HEADER) + TokenEstimator.estimateText(skillBlock + '\n\n')
+      + TokenEstimator.estimateText(SKILL_MANIFEST_POINTER + '\n\n');
 
     const { knowledgeContext, skillMatched } = await composeStepPrompt(
       { wu: makeWu(), metadata: {} as any },
@@ -166,12 +167,12 @@ describe('#91: composeStepPrompt 分段软定额 + 池内余量共享 + trim 埋
       // skills 有效预算 = 600 + persona 300 + roster 400 余量 = 1300
       maxTokens: 1000 + (1300 - skillTokens) + 800 + 300,
     });
-    // 未截断 → 无 section_trimmed 事件（skill_used 事件不经 mock 的 metricsFileStore 之外的断言）
+    // 未截断 → 无 section_trimmed 事件（#172：skill_used 曝光发射已删除，此处不再出现）
     expect(sectionTrimmedEvents()).toEqual([]);
   });
 
   it('skills 段超有效预算（定额 600 + persona 300 + roster 400 余量）截断并落 prompt:section_trimmed（段名/原始/截断后/定额齐全）', async () => {
-    writeSkill('big-skill', '述'.repeat(6000)); // 单块 ~1500+ token，超 1300 有效预算
+    writeSkill('big-skill', '述'.repeat(6000)); // 单块 ~4000+ token（含中文 ≈1.5 字符/token），超 1300 有效预算
 
     const { knowledgeContext } = await composeStepPrompt({ wu: makeWu(), metadata: {} as any }, deps(makeRole()));
 
@@ -190,7 +191,7 @@ describe('#91: composeStepPrompt 分段软定额 + 池内余量共享 + trim 埋
   });
 
   it('persona 段超有效预算（定额 300，首段无余量）截断并落事件，定额字段记名义定额 300', async () => {
-    const persona = '角'.repeat(8000); // ~2000 token > 定额 300
+    const persona = '角'.repeat(8000); // ~5300+ token > 定额 300
 
     const { knowledgeContext } = await composeStepPrompt(
       { wu: makeWu(), metadata: {} as any },
@@ -378,6 +379,18 @@ describe('#92: skills 硬预裁剪 + MANIFEST 指针', () => {
     expect(skillMatched).toEqual([]);
   });
 
+  it('#172（#60 决策 Q2）：曝光事件发射已删除 —— skill 注入不再产 knowledge:skill_used', async () => {
+    writeSkill('feature-dev', '功能开发流程');
+
+    const { skillMatched } = await composeStepPrompt({ wu: makeWu(), metadata: {} as any }, deps(makeRole()));
+    expect(skillMatched).toEqual(['feature-dev']); // 注入本身不动（prompt 策略超本票）
+
+    const skillUsedEvents = mockAppendJsonl.mock.calls
+      .map(c => c[1])
+      .filter((e: any) => e.type === 'knowledge:skill_used');
+    expect(skillUsedEvents).toEqual([]);
+  });
+
   it('AC4: 预裁剪与定额截断叠加 —— 超预算的 scope 匹配 skill 不进段，超预算的域匹配 skill 仍受 #91 截断且指针恒在段尾', async () => {
     writeSkillMeta('scope-big', { description: `实现登录功能 ${'述'.repeat(6000)}` });
     writeSkillMeta('domain-big', { agentTypes: ['feature'], description: '述'.repeat(6000) });
@@ -510,10 +523,11 @@ describe('#111 T5: PMO 地图段完整渲染（destination + 近 N 条决策 + �
   });
 
   it('超预算 → fog 全保留、decisions 从旧到新截（保最新），落 prompt:section_trimmed(section=map)', async () => {
-    // 80 条开放雾 × ~96 字 + 10 条决策 → 原始 ~2370 tok > 2100 有效预算（persona/roster/skills 全空余量入池）
+    // 80 条开放雾（≈1910 tok，TokenEstimator 中文口径）+ 10 条决策 → 原始 ~3040 tok > 2100 有效预算（persona/roster/skills 全空余量入池）；
+    // 决策从旧裁到只剩最新 1 条（fog 自身未超预算 → 不触发兜底整段截）
     const fog = Array.from({ length: 80 }, (_, i) => ({
       id: `F${i}`,
-      question: `雾问题-${String(i).padStart(2, '0')}：${'详'.repeat(80)}`,
+      question: `雾问题-${String(i).padStart(2, '0')}：${'详'.repeat(14)}`,
       wuId: null,
       status: i % 2 === 0 ? 'open' : 'in-discussion',
     }));
@@ -949,8 +963,68 @@ describe('#119: 契约段生成器（按 WU type）+ 段序稳定性重排', () 
     }
   });
 
+  it('#163（T8-E2）契约段 analysis + inspection:true → 巡检契约优先于通用模板', async () => {
+    const { prompt } = await composeStepPrompt(
+      { wu: makeWu({ type: 'analysis' }), metadata: { inspection: true } as any },
+      deps(makeRole()),
+    );
+
+    expect(prompt).toContain('## 产出契约');
+    expect(prompt).toContain('巡检执行纪律');
+    expect(prompt).toContain('分片扫描');
+    expect(prompt).toContain('OPPORTUNITY:');
+    // 巡检契约替换通用 analysis 模板（不含 prototype 分支文案）
+    expect(prompt).not.toContain('prototype/<name>');
+  });
+
   it('契约段 200 软定额 + 模板表仅覆盖 review/implement/decision/analysis', () => {
     expect(SECTION_QUOTAS.contract).toBe(200);
     expect(Object.keys(CONTRACT_TEMPLATES).sort()).toEqual(['analysis', 'decision', 'implement', 'review']);
+  });
+});
+
+describe('#161 T7-E2: processCheckHint 注入→消费→清除回路', () => {
+  let fileStore: FileStore;
+  let testDir: string;
+
+  const deps = (role: AgentProfileData): any => ({
+    role,
+    acceptedTypes: ['implement'],
+    fileStore,
+    resolveEventsFile: () => path.join(testDir, 'studio-events.jsonl'),
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    clearSkills();
+    mockInjectContext.mockResolvedValue({ prompt: '', injectedIds: [] });
+    testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'prompt-composer-pch-'));
+    fileStore = new FileStore(testDir);
+  });
+
+  it('processCheckHint 在场 → 注入「## 过程检查提醒」段（hint 组内），consumedHintUpdates 清除', async () => {
+    const { prompt, consumedHintUpdates } = await composeStepPrompt(
+      {
+        wu: makeWu(),
+        metadata: { processCheckHint: '过程软观测发现以下提交/契约违规：\n- [tdd-chain] aaaaaaa: 缺 Tested-By' } as any,
+        isNewSession: true,
+      },
+      deps(makeRole()),
+    );
+
+    expect(prompt).toContain('## 过程检查提醒');
+    expect(prompt).toContain('[tdd-chain] aaaaaaa: 缺 Tested-By');
+    // 注入后即消费：清除增量带 processCheckHint 键（undefined 序列化时丢弃）
+    expect(consumedHintUpdates).toHaveProperty('processCheckHint', undefined);
+  });
+
+  it('processCheckHint 缺省 → 不注入段、不产生清除增量', async () => {
+    const { prompt, consumedHintUpdates } = await composeStepPrompt(
+      { wu: makeWu(), metadata: {} as any, isNewSession: true },
+      deps(makeRole()),
+    );
+
+    expect(prompt).not.toContain('## 过程检查提醒');
+    expect(consumedHintUpdates).not.toHaveProperty('processCheckHint');
   });
 });

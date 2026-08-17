@@ -26,12 +26,16 @@ export function studioEventsJsonl(): string {
 /**
  * 统一事件写入（D18）：data.type 作为事件类型，其余字段作为 payload
  * （StudioEvent 形态 { type, source: 'monitor', payload, createdAt }）。
+ * data.level 为合法级别时同时落 envelope level（#184：读取侧 level 过滤只认
+ * envelope，否则告警收件箱 level≥warning 查询恒空）；payload 侧保留 level 兼容既有读者。
  * fire-and-forget：写盘失败/空 payload 仅记日志，不阻塞 check loop。
  */
 export function emitMonitorEvent(data: Record<string, unknown>): void {
   const { type, ...rest } = data;
   if (typeof type !== 'string' || !type) return;
-  void writeStudioEvent(type, rest, { source: 'monitor' });
+  const level = rest.level;
+  const envelopeLevel = level === 'debug' || level === 'warning' || level === 'critical' ? level : undefined;
+  void writeStudioEvent(type, rest, { source: 'monitor', ...(envelopeLevel ? { level: envelopeLevel } : {}) });
 }
 
 /** Log all alerts + emit warning/critical to studio events file + notifyAlert 出口（频道 + 企业微信 webhook） */
@@ -70,6 +74,14 @@ export function escalateToTriage(alerts: MonitorAlert[]): void {
     tool_error_rate: null,
     tool_zero_success: null,
     session_file_size: null,
+    lock: null, // #169: lock 告警不设 critical，无需 Triage 映射
+    wu_index_reconcile: null, // #170：对账分叉已自动重建，无需 Triage 升级
+    agent_timeout_scan: 'execution_heartbeat_lost', // #179：疑似 FileStore 故障（仅 critical 才升级，本告警为 warning 不触发）
+    pool_stagnation: null, // #181：滞留告警不升级 Triage（决策 #62：不发明新出口）
+    review_stagnation: null, // #181：同上
+    analysis_respawn: null, // #183：critical 引人介入走告警管线本身，不升级 Triage
+    review_redispatch: null, // #183：同上
+    analysis_confirm: null, // #186：人工动作队列走收件箱本身，不升级 Triage（决策 #62：不发明新出口）
   };
 
   for (const alert of alerts) {
