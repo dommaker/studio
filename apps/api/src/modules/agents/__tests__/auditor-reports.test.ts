@@ -52,8 +52,10 @@ import {
 afterAll(() => {
   const os = require('node:os');
   os.homedir = origHomedir;
-  process.env.STUDIO_HOME = origStudioHome;
-  process.env.STUDIO_DATA_DIR = origStudioDataDir;
+  if (origStudioHome === undefined) delete process.env.STUDIO_HOME;
+  else process.env.STUDIO_HOME = origStudioHome;
+  if (origStudioDataDir === undefined) delete process.env.STUDIO_DATA_DIR;
+  else process.env.STUDIO_DATA_DIR = origStudioDataDir;
   fs.rmSync(tmpHome, { recursive: true, force: true });
 });
 
