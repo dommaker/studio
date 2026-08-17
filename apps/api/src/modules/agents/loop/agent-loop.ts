@@ -51,7 +51,7 @@ import { composeStepPrompt } from './prompt-composer.js';
 import { handleDelegateBranch } from './delegate-branch.js';
 import { shouldResumeSession, RESUME_FAILURE_RE } from './session-resume.js';
 import { isContextOverflowError, buildRollingSummary, OVERFLOW_SUMMARY_HEADER } from './context-overflow.js';
-import { startLeaseHeartbeat } from './lease-heartbeat.js';
+import { WuLeaseTracker } from './wu-lease.js';
 import { appendTranscriptStep, transcriptPath } from '../../transcripts/transcript-archive.js';
 
 // 输出解析/prompt 构建纯函数已抽到 ./agent-loop-parsers.js（工单 28，行为不变）；
@@ -134,8 +134,8 @@ export class AgentLoop {
   private executor: Executor;
   /** 2026-07 PMO-flow UX（§6-2）：最后一次已发布的 instance 状态（SSE 去重——状态不变不发） */
   private lastPublishedStatus: string | null = null;
-  /** #178（#63 决议 1/2）：当前持有 WU 的租约心跳轨道（fencing 代际令牌 = claimedAt ISO） */
-  private lease: { wuId: string; claimedAt: string; stop: () => void } | null = null;
+  /** #178（#63 决议 1/2，#209 smell 4 迁出）：当前持有 WU 的租约轨道 + fencing 三件套（./wu-lease.js） */
+  private readonly wuLease: WuLeaseTracker;
   /** #178（#63 决议 2）：当前步 executionId——易主时据此经 Executor 杀自身 CLI 进程组 */
   private currentExecutionId: string | null = null;
   /** #179（#66 决议 3 loop 侧）：实例心跳写连败计数（成功即清零，连败 HEARTBEAT_FAIL_LIMIT 次自裁） */
@@ -152,6 +152,14 @@ export class AgentLoop {
     // §9.6: 执行面走 Executor 接口。远程节点方向已放弃（origin/master bdaf0dd3：生产无
     // nodeId profile、无 WS 客户端活路径），统一 LocalExecutor；profile.nodeId 仅为数据兼容保留。
     this.executor = new LocalExecutor();
+    // #209 smell 4：租约/fencing 三件套迁 ./wu-lease.js，AgentLoop 只注入依赖 + 委托
+    this.wuLease = new WuLeaseTracker({
+      fileStore: this.fileStore,
+      getAssigneeId: () => this.instance?.id ?? null,
+      getCurrentExecutionId: () => this.currentExecutionId ?? undefined,
+      stopProcessGroup: async (executionId) => { await this.executor.stopProcessGroup?.(executionId); },
+      transitionStatus: (wuId, status) => this.workUnitService.transitionStatus(wuId, status),
+    });
   }
 
   /** Start the agent loop: create instance, register EVENT trigger, enter observe-decide-act cycle.
@@ -393,31 +401,15 @@ export class AgentLoop {
    * #178（#63 决议 1/2）：为持有中的 WU 确保租约心跳在跑。
    * 新认领与 myActive 续跑（含 blocked 复活回 active）统一经此进入；令牌（wuId+claimedAt）
    * 与在跑轨道一致时幂等跳过，令牌换代（如本实例重新认领）先停旧轨再开新轨。
+   * #209 smell 4：实现在 ./wu-lease.js，此处委托。
    */
   private ensureLease(wu: WorkUnitData): void {
-    if (!this.instance) return;
-    const claimedAt = wu.claimedAt?.toISOString();
-    if (!claimedAt || wu.assigneeId !== this.instance.id) return;
-    if (this.lease && this.lease.wuId === wu.id && this.lease.claimedAt === claimedAt) return;
-    this.stopLease();
-    this.lease = {
-      wuId: wu.id,
-      claimedAt,
-      stop: startLeaseHeartbeat({
-        fileStore: this.fileStore,
-        wuId: wu.id,
-        claimedAt,
-        assigneeId: this.instance.id,
-        onLost: (reason) => { void this.handleLeaseLost(wu.id, reason); },
-      }),
-    };
+    this.wuLease.ensure(wu);
   }
 
   /** 停止租约心跳（幂等） */
   private stopLease(): void {
-    if (!this.lease) return;
-    this.lease.stop();
-    this.lease = null;
+    this.wuLease.stop();
   }
 
   /**
@@ -469,9 +461,7 @@ export class AgentLoop {
    * 测试直调等）不拦，保持既有行为。
    */
   private async stillHoldsLease(wuId: string): Promise<boolean> {
-    if (!this.lease || this.lease.wuId !== wuId || !this.instance) return true;
-    const snap = (await this.fileStore.getIndex()).find(s => s.id === wuId);
-    return !!snap && snap.assigneeId === this.instance.id && snap.claimedAt === this.lease.claimedAt;
+    return this.wuLease.stillHolds(wuId);
   }
 
   /**
@@ -479,16 +469,7 @@ export class AgentLoop {
    * 静默退出该 WU（不发频道消息、不写回：fencing 语义就是「旧 holder 一字不再写」）。
    */
   private async handleLeaseLost(wuId: string, reason: 'lost' | 'missing'): Promise<void> {
-    if (this.lease?.wuId === wuId) this.stopLease();
-    logger.warn(`[AgentLoop] Lease lost for ${wuId} (${reason}) — fencing: killing own CLI process group, abandoning WU`);
-    const executionId = this.currentExecutionId;
-    if (executionId) {
-      try {
-        await this.executor.stopProcessGroup?.(executionId);
-      } catch (err) {
-        logger.warn(`[AgentLoop] stopProcessGroup failed (non-blocking): ${err instanceof Error ? err.message : String(err)}`);
-      }
-    }
+    return this.wuLease.handleLost(wuId, reason);
   }
 
   /**
@@ -496,21 +477,12 @@ export class AgentLoop {
    * 持有有效才执行真实迁移。
    */
   private async transitionIfHeld(wuId: string, status: string): Promise<boolean> {
-    if (!(await this.stillHoldsLease(wuId))) {
-      await this.handleLeaseLost(wuId, 'lost');
-      return false;
-    }
-    await this.workUnitService.transitionStatus(wuId, status);
-    return true;
+    return this.wuLease.transitionIfHeld(wuId, status);
   }
 
   /** #178（#63 决议 1）：WU 离开 active 或已易主 → 停租约心跳（recordResult 后调用） */
   private async releaseLeaseIfForfeited(wuId: string): Promise<void> {
-    if (!this.lease || this.lease.wuId !== wuId) return;
-    const snap = (await this.fileStore.getIndex()).find(s => s.id === wuId);
-    if (!snap || snap.status !== 'active' || !(await this.stillHoldsLease(wuId))) {
-      this.stopLease();
-    }
+    return this.wuLease.releaseIfForfeited(wuId);
   }
 
   /**

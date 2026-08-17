@@ -45,10 +45,11 @@ const mockRole = {
   updatedAt: new Date(),
 };
 
-/** 直探 AgentLoop 私有租约/执行字段（既有测试同款 cast 约定） */
+/** 直探 AgentLoop 私有租约/执行字段（既有测试同款 cast 约定）；
+ * #209 smell 4 起租约轨道本体在 WuLeaseTracker（wu-lease.ts），经 wuLease 直探 */
 interface LeaseInternals {
   instance: { id: string } | null;
-  lease: { wuId: string; claimedAt: string; stop: () => void } | null;
+  wuLease: { lease: { wuId: string; claimedAt: string; stop: () => void } | null };
   currentExecutionId: string | null;
   recordResult(target: unknown, result: unknown): Promise<void>;
 }
@@ -75,7 +76,7 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
-  (agentLoop as unknown as LeaseInternals).lease?.stop();
+  (agentLoop as unknown as LeaseInternals).wuLease.lease?.stop();
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
@@ -91,7 +92,7 @@ describe('#178: recordResult fencing（易主即放弃回写 + 杀自身 CLI 进
   function armLease(claimedAt: string, wuId: string) {
     const loop = agentLoop as unknown as LeaseInternals;
     loop.instance = { id: 'inst-1' };
-    loop.lease = { wuId, claimedAt, stop: vi.fn() };
+    loop.wuLease.lease = { wuId, claimedAt, stop: vi.fn() };
     return loop;
   }
 
@@ -114,7 +115,7 @@ describe('#178: recordResult fencing（易主即放弃回写 + 杀自身 CLI 进
     expect(meta.stepCount).toBeUndefined();
     // 杀自身 CLI 进程组 + 停止心跳
     expect(mockStopProcessGroup).toHaveBeenCalledWith('exec-x');
-    expect(loop.lease).toBeNull(); // 心跳已停
+    expect(loop.wuLease.lease).toBeNull(); // 心跳已停
   });
 
   it('易主发生在状态迁移前（回写时仍持有）→ 迁移被拦截', async () => {
