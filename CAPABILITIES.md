@@ -1,6 +1,6 @@
 # CAPABILITIES.md
 
-> 最后更新: 2026-08-16
+> 最后更新: 2026-08-17
 
 ---
 
@@ -176,3 +176,8 @@
 | OpportunitiesPanel | apps/web/src/components/workunit/OpportunitiesPanel.tsx | OpportunitiesPanel — #163 T8-E2 巡检机会清单卡片（WU 详情页用） |
 | LibraryDocPage | apps/web/src/pages/LibraryDocPage.tsx | #155 T5: Library 文档详情页 — 只读 |
 | LibraryPage | apps/web/src/pages/LibraryPage.tsx | #155 T5: Library 阅览室 — 跨项目 .studio/ 聚合只读层 |
+| transcript.routes | apps/api/src/modules/transcripts/transcript.routes.ts | Transcript 只读路由（#174，#60 C5） |
+| EventSearchPanel | apps/web/src/components/monitoring/EventSearchPanel.tsx | EventSearchPanel — #180 事件检索面板（#60 决策 Q3a） |
+| NeedsAttentionSection | apps/web/src/components/monitoring/NeedsAttentionSection.tsx | NeedsAttentionSection — #184 监控页概览 Tab 顶部「需要处理」区（#62 D4 + #60 IA：行动信号 > 健康度量 > 参考资料） |
+| BlockedActions | apps/web/src/components/workunit/BlockedActions.tsx | BlockedActions — #185（决策 #87 D1/D3/D4/D5）：blocked WU 的 Web 处置组件 |
+| TranscriptViewer | apps/web/src/components/workunit/TranscriptViewer.tsx | TranscriptViewer — #174: WU 会话原文（transcript）只读查看器（#60 C5） |
