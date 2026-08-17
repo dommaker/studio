@@ -177,38 +177,48 @@ export class FileStoreBase {
       // 确保父目录存在，防止 mkdir 因 ENOENT 失败
       await fs.promises.mkdir(path.dirname(lockDir), { recursive: true });
       const start = Date.now();
-      while (true) {
-        try {
-          // 原子性创建锁目录（没有 recursive，存在即失败）
-          await fs.promises.mkdir(lockDir);
-          break;
-        } catch (err: unknown) {
-          // EEXIST 是预期中的锁冲突，其他错误直接抛
-          if (!isErrnoError(err) || err.code !== 'EEXIST') throw err;
-          // stale 双判据回收（#64 决议 2），回收成功立即回到 mkdir 竞争
-          if (await this.tryReclaimStaleLock(lockDir)) continue;
-          if (Date.now() - start > timeoutMs) {
-            // #64 决议 3：首个 LockTimeoutError 即告警，不等回收
-            this.emitLockEvent('lock.acquire_timeout', {
-              lockDir,
-              waitedMs: Date.now() - start,
-              owner: await this.readLockOwner(lockDir),
-            });
-            throw new LockTimeoutError(timeoutMs);
+      // #210：owner 写入抛 ENOENT = 锁目录在获锁窗口内被并发回收方删除（从未真正持锁），
+      // 跳回获取循环重试；受同一 timeoutMs 预算约束。labeled loop 见下。
+      acquire: while (true) {
+        while (true) {
+          try {
+            // 原子性创建锁目录（没有 recursive，存在即失败）
+            await fs.promises.mkdir(lockDir);
+            break;
+          } catch (err: unknown) {
+            // EEXIST 是预期中的锁冲突，其他错误直接抛
+            if (!isErrnoError(err) || err.code !== 'EEXIST') throw err;
+            // stale 双判据回收（#64 决议 2），回收成功立即回到 mkdir 竞争
+            if (await this.tryReclaimStaleLock(lockDir)) continue;
+            if (Date.now() - start > timeoutMs) {
+              // #64 决议 3：首个 LockTimeoutError 即告警，不等回收
+              this.emitLockEvent('lock.acquire_timeout', {
+                lockDir,
+                waitedMs: Date.now() - start,
+                owner: await this.readLockOwner(lockDir),
+              });
+              throw new LockTimeoutError(timeoutMs);
+            }
+            await sleep(LOCK_RETRY_INTERVAL_MS);
           }
-          await sleep(LOCK_RETRY_INTERVAL_MS);
         }
-      }
-      // 获锁后写属主文件；写失败必须放锁，避免留下无属主裸锁（只能靠超龄判据兜底）
-      try {
-        await this.writeJson(this.lockOwnerPath(lockDir), {
-          pid: process.pid,
-          hostname: os.hostname(),
-          acquiredAt: Date.now(),
-        });
-      } catch (err) {
-        await fs.promises.rm(lockDir, { recursive: true, force: true }).catch(() => {});
-        throw err;
+        // 获锁后写属主文件；写失败必须放锁，避免留下无属主裸锁（只能靠超龄判据兜底）
+        try {
+          await this.writeJson(this.lockOwnerPath(lockDir), {
+            pid: process.pid,
+            hostname: os.hostname(),
+            acquiredAt: Date.now(),
+          });
+          break acquire;
+        } catch (err) {
+          if (isErrnoError(err) && err.code === 'ENOENT') {
+            // #210：锁目录已被回收，未持锁不算失败，回到 mkdir 竞争
+            if (Date.now() - start > timeoutMs) throw new LockTimeoutError(timeoutMs);
+            continue acquire;
+          }
+          await fs.promises.rm(lockDir, { recursive: true, force: true }).catch(() => {});
+          throw err;
+        }
       }
       try {
         return await fn();
