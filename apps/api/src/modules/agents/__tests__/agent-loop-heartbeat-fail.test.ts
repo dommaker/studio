@@ -46,7 +46,7 @@ const mockRole = {
 interface HbInternals {
   instance: { id: string } | null;
   alive: boolean;
-  lease: { wuId: string; claimedAt: string; stop: () => void } | null;
+  wuLease: { lease: { wuId: string; claimedAt: string; stop: () => void } | null };
   currentExecutionId: string | null;
   consecutiveHeartbeatFailures: number;
   updateIdleState(): Promise<void>;
@@ -68,7 +68,7 @@ beforeEach(async () => {
   internals.instance = { id: 'inst-hb' };
   internals.alive = true;
   leaseStop = vi.fn();
-  internals.lease = { wuId: 'wu-hb', claimedAt: new Date().toISOString(), stop: leaseStop };
+  internals.wuLease.lease = { wuId: 'wu-hb', claimedAt: new Date().toISOString(), stop: leaseStop };
   internals.currentExecutionId = 'exec-hb';
   await fileStore.createState('inst-hb', {
     id: 'inst-hb', roleId: 'role-hb', sessionId: null, status: 'idle',
@@ -99,7 +99,7 @@ describe('#179: loop 心跳写连败自我了断', () => {
     expect(internals.alive).toBe(false);
     expect(mockStopProcessGroup).toHaveBeenCalledWith('exec-hb');
     expect(leaseStop).toHaveBeenCalled();
-    expect(internals.lease).toBeNull();
+    expect(internals.wuLease.lease).toBeNull();
   });
 
   it('连败中途成功一次 → 计数重置，不达 3 连败不自裁', async () => {

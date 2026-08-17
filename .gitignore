@@ -111,3 +111,7 @@ node-compile-cache/
 
 # TypeScript build cache
 *.tsbuildinfo
+
+# Agent CLI local runtime state (credentials/oauth, never commit)
+.codex/
+.kimi-code/

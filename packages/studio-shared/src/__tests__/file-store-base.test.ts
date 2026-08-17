@@ -366,6 +366,31 @@ describe('FileStoreBase（直接单元测试）', () => {
       }
     });
 
+    it('#210 owner 写入抛 ENOENT（锁目录被并发回收）：回到获取循环重试而非致命错', async () => {
+      const pid = await deadPid();
+      writeOwner({ pid, hostname: os.hostname(), acquiredAt: Date.now() });
+      const orig = store.writeJson.bind(store);
+      let injected = false;
+      // 模拟：mkdir 获锁后、owner.json rename 前，并发回收方删掉锁目录 -> writeJson 抛 ENOENT
+      store.writeJson = async (fp: string, data: unknown) => {
+        if (!injected && fp.endsWith('owner.json')) {
+          injected = true;
+          fs.rmSync(lockDir(), { recursive: true, force: true });
+          const err = new Error(`ENOENT: rename ${fp}.tmp`) as NodeJS.ErrnoException;
+          err.code = 'ENOENT';
+          throw err;
+        }
+        return orig(fp, data);
+      };
+      try {
+        await expect(store.withLock(lockDir(), async () => 'acquired', 3000)).resolves.toBe('acquired');
+        expect(injected).toBe(true);
+        expect(fs.existsSync(lockDir())).toBe(false); // 重试获锁后正常释放
+      } finally {
+        store.writeJson = orig;
+      }
+    });
+
     it('进程内 mutex：同进程并发在 mutex 层排队，mkdir 竞争超时参数不误伤排队者', async () => {
       const timeouts = collectLockEvents('lock.acquire_timeout');
       try {

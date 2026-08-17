@@ -259,9 +259,7 @@ export class AnalysisHandoff {
    */
   async listMissingSpawnScopes(wu: WorkUnitData): Promise<string[]> {
     const meta = this.readMeta(wu);
-    const tasks = Array.isArray(meta.analysisTasks)
-      ? meta.analysisTasks.filter((t): t is string => typeof t === 'string' && t.trim().length > 0).slice(0, ANALYSIS_TASKS_MAX)
-      : [];
+    const tasks = this.taskScopes(meta);
     const spawned = Array.isArray(meta.analysisTasksSpawned) ? meta.analysisTasksSpawned : [];
 
     // 清单 id → scope 多重集（同 scope 多条时按个数抵扣）

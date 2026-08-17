@@ -5,10 +5,11 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { eventsApi, type StudioEventItem } from '../../api/events';
 import { workunitApi } from '../../api/workunit';
+import { formatAge, POOL_STAGNATION_WARN_MS } from '@dommaker/studio-shared/web';
 
 const HOUR = 3600_000;
-/** 待认领滞留阈值（对齐 #181 池滞留探针） */
-const STALE_UNASSIGNED_MS = 2 * HOUR;
+/** 待认领滞留阈值（对齐 #181 池滞留探针，正本在 studio-shared/constants/monitoring） */
+const STALE_UNASSIGNED_MS = POOL_STAGNATION_WARN_MS;
 /** 翻页防御上限（limit 200/页） */
 const MAX_PAGES = 5;
 
@@ -132,19 +133,6 @@ async function loadFailures(now: number, since48: string): Promise<FailureStats>
     ? r.rate > p.rate ? 'up' : r.rate < p.rate ? 'down' : 'flat'
     : null;
   return { n: r.n, rate: r.rate, trend };
-}
-
-/** 相对时间（与 MonitoringPage formatAge 同风格） */
-function formatAge(iso?: string): string {
-  if (!iso) return '时间未知';
-  const ms = Date.now() - new Date(iso).getTime();
-  if (!Number.isFinite(ms) || ms < 0) return '刚刚';
-  const minutes = Math.floor(ms / 60_000);
-  if (minutes < 1) return '刚刚';
-  if (minutes < 60) return `${minutes} 分钟前`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours} 小时前`;
-  return `${Math.floor(hours / 24)} 天前`;
 }
 
 interface PartState<T> {
