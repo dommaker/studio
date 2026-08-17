@@ -1059,10 +1059,13 @@ main().catch(err => {
 // ~/.studio/data/agents/<profile-id>/.studio/data 产生嵌套。解耦后 env 优先于 homedir。
 describe('FileStore baseDir resolution (STUDIO_DATA_DIR decouples from HOME)', () => {
   const prevEnv = process.env.STUDIO_DATA_DIR;
+  const prevHomeEnv = process.env.STUDIO_HOME;
 
   afterEach(() => {
     if (prevEnv === undefined) delete process.env.STUDIO_DATA_DIR;
     else process.env.STUDIO_DATA_DIR = prevEnv;
+    if (prevHomeEnv === undefined) delete process.env.STUDIO_HOME;
+    else process.env.STUDIO_HOME = prevHomeEnv;
     vi.restoreAllMocks();
   });
 
@@ -1094,6 +1097,7 @@ describe('FileStore baseDir resolution (STUDIO_DATA_DIR decouples from HOME)', (
   it('falls back to os.homedir()/.studio/data when neither arg nor env set', async () => {
     const homedirFallback = createTempDir();
     delete process.env.STUDIO_DATA_DIR;
+    delete process.env.STUDIO_HOME; // #219 setup 双轨钉死后 STUDIO_HOME 也算 env 输入
     vi.spyOn(os, 'homedir').mockReturnValue(homedirFallback);
 
     const store = new FileStore();

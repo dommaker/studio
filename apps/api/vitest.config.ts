@@ -1,4 +1,4 @@
-import { defineConfig } from 'vitest/config';
+import { defineConfig, configDefaults } from 'vitest/config';
 import path from 'path';
 
 export default defineConfig({
@@ -7,6 +7,9 @@ export default defineConfig({
     environment: 'node',
     setupFiles: ['./tests/setup-isolated-data.setup.ts'],
     include: ['tests/**/*.test.ts', 'src/**/__tests__/**/*.test.ts'],
+    // #219 活端口 e2e 不进默认测试面（对齐根 config baseExclude）；
+    // 需跑时显式 STUDIO_E2E_LIVE=1 且按文件名单独指定
+    exclude: [...configDefaults.exclude, '**/*.e2e.test.ts'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],

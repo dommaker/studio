@@ -23,6 +23,7 @@ export default defineConfig({
           ...baseTest,
           include: ['packages/**/src/**/*.test.ts'],
           exclude: baseExclude,
+          setupFiles: ['./apps/api/tests/setup-isolated-data.setup.ts'],
         },
       },
       // apps/web 组件测试（jsdom）
@@ -53,6 +54,7 @@ export default defineConfig({
           ...baseTest,
           include: ['apps/api/src/daemon/__tests__/**/*.test.ts'],
           exclude: baseExclude,
+          setupFiles: ['./apps/api/tests/setup-isolated-data.setup.ts'],
         },
       },
       // apps tests/ 目录
@@ -71,6 +73,7 @@ export default defineConfig({
           ...baseTest,
           include: ['scripts/**/__tests__/**/*.test.ts'],
           exclude: baseExclude,
+          setupFiles: ['./apps/api/tests/setup-isolated-data.setup.ts'],
         },
       },
     ],
