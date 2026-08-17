@@ -10,6 +10,12 @@
 import * as fs from 'fs';
 import { logger } from '@dommaker/studio-shared';
 import type { FileStore } from '@dommaker/studio-shared';
+import {
+  POOL_STAGNATION_WARN_MS,
+  POOL_STAGNATION_CRIT_MS,
+  REVIEW_STAGNATION_WARN_MS,
+  REVIEW_STAGNATION_CRIT_MS,
+} from '@dommaker/studio-shared';
 import { agentRunner } from '@dommaker/studio-agent';
 import type { MonitorAlert } from '../types.js';
 import { closeWorkUnitWithNotice } from '../../workunit/wu-closure.js';
@@ -28,11 +34,15 @@ const TIME_ESCALATE_MS = 2 * 60 * 60 * 1000; // 2h → Level 2
 const TIME_CRITICAL_MS = 2.5 * 60 * 60 * 1000; // 2.5h → Level 3
 const BLOCKED_AUTO_ABANDON_MS = 24 * 60 * 60 * 1000; // 24h
 
-// #181（决策 #62 D2 + #167③）：WU 维度滞留阈值（初版配置，上线后调）
-const POOL_STAGNATION_WARN_MS = 2 * 60 * 60 * 1000;   // 池滞留 >2h → warning
-const POOL_STAGNATION_CRIT_MS = 12 * 60 * 60 * 1000;  // 池滞留 >12h → critical
-const REVIEW_STAGNATION_WARN_MS = 24 * 60 * 60 * 1000;  // in_review 滞留 >24h → warning
-const REVIEW_STAGNATION_CRIT_MS = 72 * 60 * 60 * 1000;  // in_review 滞留 >72h → critical
+// #181（决策 #62 D2 + #167③）：WU 维度滞留阈值（初版配置，上线后调）--
+// 常量正本在 studio-shared/constants/monitoring（#209 smell 3：与 Web 下钻口径同源）
+
+/** 滞留双阈值定级：>crit → critical；>warn → warning；否则不出声（#209 smell 1 共享） */
+function stagnationLevel(stalledMs: number, warnMs: number, critMs: number): 'critical' | 'warning' | null {
+  if (stalledMs > critMs) return 'critical';
+  if (stalledMs > warnMs) return 'warning';
+  return null;
+}
 
 // ── #181（决策 #62 D2）：失败趋势改读统一事件流 ──
 
@@ -118,17 +128,11 @@ export async function checkPoolStagnation(fileStore: FileStore): Promise<Monitor
     const hours = Math.floor(stalledMs / 3_600_000);
     const designated = oldest.assigneeId ? `（@${oldest.assigneeId}）` : '';
 
-    if (stalledMs > POOL_STAGNATION_CRIT_MS) {
+    const level = stagnationLevel(stalledMs, POOL_STAGNATION_WARN_MS, POOL_STAGNATION_CRIT_MS);
+    if (level) {
       alerts.push({
         source: 'pool_stagnation',
-        level: 'critical',
-        message: `未认领池滞留：${label} WU 最老 ${oldest.id}${designated} 已滞留 ${hours}h（共 ${items.length} 条）`,
-        relatedTaskIds: [oldest.id],
-      });
-    } else if (stalledMs > POOL_STAGNATION_WARN_MS) {
-      alerts.push({
-        source: 'pool_stagnation',
-        level: 'warning',
+        level,
         message: `未认领池滞留：${label} WU 最老 ${oldest.id}${designated} 已滞留 ${hours}h（共 ${items.length} 条）`,
         relatedTaskIds: [oldest.id],
       });
@@ -153,17 +157,11 @@ export async function checkReviewStagnation(fileStore: FileStore): Promise<Monit
   const stalledMs = Date.now() - new Date(oldest.updatedAt).getTime();
   const hours = Math.floor(stalledMs / 3_600_000);
 
-  if (stalledMs > REVIEW_STAGNATION_CRIT_MS) {
+  const level = stagnationLevel(stalledMs, REVIEW_STAGNATION_WARN_MS, REVIEW_STAGNATION_CRIT_MS);
+  if (level) {
     alerts.push({
       source: 'review_stagnation',
-      level: 'critical',
-      message: `in_review 滞留：WU ${oldest.id} 待人工确认已 ${hours}h（共 ${inReview.length} 条）`,
-      relatedTaskIds: [oldest.id],
-    });
-  } else if (stalledMs > REVIEW_STAGNATION_WARN_MS) {
-    alerts.push({
-      source: 'review_stagnation',
-      level: 'warning',
+      level,
       message: `in_review 滞留：WU ${oldest.id} 待人工确认已 ${hours}h（共 ${inReview.length} 条）`,
       relatedTaskIds: [oldest.id],
     });
