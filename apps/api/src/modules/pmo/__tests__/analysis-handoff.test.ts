@@ -249,7 +249,12 @@ describe('#186 trigger 巡检单收口（#167 决议 1/2）', () => {
       triggeredAt: new Date().toISOString(),
     });
 
-    const ok = await waitFor(async () => (await freshStatus(wu.id)) === 'done');
+    // 留痕写入在 reviewPassed 置 done 之后，waitFor 需连带等留痕落定，避免全量并行负载下的断言竞态
+    const ok = await waitFor(async () => {
+      const after = await wuService.getById(wu.id);
+      return (await freshStatus(wu.id)) === 'done'
+        && metaOf(after?.metadata ?? null).autoConfirmedBy === 'trigger-inspection-no-gate';
+    });
     expect(ok).toBe(true);
     // 留痕：自动确认标记落档
     const after = await wuService.getById(wu.id);
