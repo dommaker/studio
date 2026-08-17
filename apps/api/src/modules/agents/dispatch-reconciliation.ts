@@ -124,7 +124,25 @@ async function reconcileAnalysisRespawns(
         );
       }
     } catch (err) {
-      logger.warn('[Reconciliation] analysis respawn scan failed for WU', { wuId: wu.id, error: String(err) });
+      // 异常同样算一次失败（与 review 侧对称）：递增尝试数，达上限停跑升 critical
+      const nextAttempts = attempts + 1;
+      await fileStore.updateMetadata(wu.id, latest => ({ ...latest, analysisRespawnAttempts: nextAttempts }))
+        .catch(e => logger.warn('[Reconciliation] persist analysis attempts failed', { wuId: wu.id, error: String(e) }));
+      const payload = { wuId: wu.id, attempts: nextAttempts, outcome: 'failed', error: String(err) };
+      if (nextAttempts >= MAX_RECONCILE_ATTEMPTS) {
+        result.analysis.gaveUp++;
+        emitReconcileAlert(
+          'analysis.respawned', 'analysis_respawn', 'critical',
+          `analysis WU ${wu.id} 派工断链对账连续 ${nextAttempts} 次异常，已停跑，请人工介入`,
+          payload,
+        );
+      } else {
+        emitReconcileAlert(
+          'analysis.respawned', 'analysis_respawn', 'warning',
+          `analysis WU ${wu.id} 派工断链对账异常（第 ${nextAttempts} 次）：${String(err).slice(0, 120)}`,
+          payload,
+        );
+      }
     }
   }
 }

@@ -273,6 +273,46 @@ describe('#183 analysis 侧：哨兵清单化 + 对账补差集', () => {
     expect(events).toHaveLength(1);
     expect(events[0].level).toBe('warning');
   });
+
+  it('对账异常路径同样记尝试数：扫描抛错 → 递增，达上限停跑升 critical', async () => {
+    const wu = await createAnalysisWithSentinel({
+      tasks: ['任务A'], attempts: MAX_RECONCILE_ATTEMPTS - 1,
+    });
+    const spy = vi.spyOn(AnalysisHandoff.prototype, 'listMissingSpawnScopes')
+      .mockRejectedValue(new Error('FileStore down'));
+
+    await reconcileDispatchBreaks(fileStore);
+
+    // 异常也算一次失败：尝试数递增到达上限 → critical + 停跑
+    let meta = await readMeta(wu.id);
+    expect(meta.analysisRespawnAttempts).toBe(MAX_RECONCILE_ATTEMPTS);
+    const events = await eventsOfType('analysis.respawned');
+    expect(events).toHaveLength(1);
+    expect(events[0].level).toBe('critical');
+    expect(mockDispatch.mock.calls[0][0][0].level).toBe('critical');
+
+    // 停跑：后续扫描不再尝试、不刷告警
+    spy.mockClear();
+    mockDispatch.mockClear();
+    await reconcileDispatchBreaks(fileStore);
+    expect(spy).not.toHaveBeenCalled();
+    meta = await readMeta(wu.id);
+    expect(meta.analysisRespawnAttempts).toBe(MAX_RECONCILE_ATTEMPTS);
+  });
+
+  it('对账异常未达上限：warning + 尝试数递增，下轮继续', async () => {
+    const wu = await createAnalysisWithSentinel({ tasks: ['任务A'] });
+    vi.spyOn(AnalysisHandoff.prototype, 'listMissingSpawnScopes')
+      .mockRejectedValue(new Error('FileStore down'));
+
+    await reconcileDispatchBreaks(fileStore);
+
+    const meta = await readMeta(wu.id);
+    expect(meta.analysisRespawnAttempts).toBe(1);
+    const events = await eventsOfType('analysis.respawned');
+    expect(events).toHaveLength(1);
+    expect(events[0].level).toBe('warning');
+  });
 });
 
 describe('#183 review 侧：in_review 断链对账重跑', () => {

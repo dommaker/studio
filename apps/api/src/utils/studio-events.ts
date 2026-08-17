@@ -15,7 +15,8 @@
  * #172（#60 决策 Q2）：envelope 可选 level 字段（缺省 info —— 字段缺省即 info，不为
  * info 冗余落字段）。默认分级按 type：knowledge:* 与 tool:call → debug（噪声），
  * 其余 → info；调用方可经 opts.level 显式覆盖（如 workunit:failed → warning）。
- * monitor:alert 维持现有分级（payload.level），不在 envelope 重复。
+ * monitor:alert 由 emitMonitorEvent 透传 opts.level（#184 修复：读取侧 level 过滤只认
+ * envelope，payload-only 分级导致告警收件箱恒空）；payload.level 保留兼容既有读者。
  * 读取侧默认 ≥info（过滤归读取方，不在此处硬编码黑名单）。
  *
  * 写入校验：payload 为空（{} / null / undefined / 'null' / '{}' / 空串）的事件拒绝落盘
@@ -72,8 +73,8 @@ export type StudioEventLevel = 'debug' | 'info' | 'warning' | 'critical';
 
 /**
  * 默认分级（#60 决策 Q2）：knowledge:* 与 tool:call 为噪声 → debug；其余 → info。
- * workunit:failed 等关键事件由调用方显式 opts.level='warning'；monitor:alert 维持
- * payload.level 现有分级，不经本函数提级。
+ * workunit:failed 等关键事件由调用方显式 opts.level='warning'；monitor:alert 经
+ * emitMonitorEvent 显式透传 opts.level（#184 修复），不经本函数提级。
  */
 export function defaultStudioEventLevel(type: string): StudioEventLevel {
   if (type.startsWith('knowledge:') || type === 'tool:call') return 'debug';

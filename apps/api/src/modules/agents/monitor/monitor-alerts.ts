@@ -26,12 +26,16 @@ export function studioEventsJsonl(): string {
 /**
  * 统一事件写入（D18）：data.type 作为事件类型，其余字段作为 payload
  * （StudioEvent 形态 { type, source: 'monitor', payload, createdAt }）。
+ * data.level 为合法级别时同时落 envelope level（#184：读取侧 level 过滤只认
+ * envelope，否则告警收件箱 level≥warning 查询恒空）；payload 侧保留 level 兼容既有读者。
  * fire-and-forget：写盘失败/空 payload 仅记日志，不阻塞 check loop。
  */
 export function emitMonitorEvent(data: Record<string, unknown>): void {
   const { type, ...rest } = data;
   if (typeof type !== 'string' || !type) return;
-  void writeStudioEvent(type, rest, { source: 'monitor' });
+  const level = rest.level;
+  const envelopeLevel = level === 'debug' || level === 'warning' || level === 'critical' ? level : undefined;
+  void writeStudioEvent(type, rest, { source: 'monitor', ...(envelopeLevel ? { level: envelopeLevel } : {}) });
 }
 
 /** Log all alerts + emit warning/critical to studio events file + notifyAlert 出口（频道 + 企业微信 webhook） */
