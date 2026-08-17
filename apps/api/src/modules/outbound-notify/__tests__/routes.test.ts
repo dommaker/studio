@@ -13,6 +13,7 @@ let tmpHome: string;
 let server: Server;
 let base: string;
 let prevHome: string | undefined;
+let prevStudioHome: string | undefined;
 
 async function req(method: string, p: string, body?: unknown): Promise<{ status: number; json: any }> {
   const res = await fetch(`${base}/api/v1/notify${p}`, {
@@ -35,10 +36,13 @@ async function listenOn(routes: Router): Promise<void> {
 }
 
 beforeAll(async () => {
-  // 模块加载时即计算 CONFIG_FILE（os.homedir()），须先于 import 设置 HOME
+  // 模块加载时即计算 CONFIG_FILE（studioPath → STUDIO_HOME 优先于 os.homedir()），
+  // 须先于 import 设置 STUDIO_HOME（#219 setup 已钉隔离根，这里改指本测试的 tmp home）。
   tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'notify-routes-'));
   prevHome = process.env.HOME;
   process.env.HOME = tmpHome;
+  prevStudioHome = process.env.STUDIO_HOME;
+  process.env.STUDIO_HOME = path.join(tmpHome, '.studio');
 
   const { default: notifyRoutes } = await import('../routes.js');
   await listenOn(notifyRoutes);
@@ -47,6 +51,8 @@ beforeAll(async () => {
 afterAll(async () => {
   if (prevHome === undefined) delete process.env.HOME;
   else process.env.HOME = prevHome;
+  if (prevStudioHome === undefined) delete process.env.STUDIO_HOME;
+  else process.env.STUDIO_HOME = prevStudioHome;
   await new Promise(resolve => server.close(resolve));
   fs.rmSync(tmpHome, { recursive: true, force: true });
 });

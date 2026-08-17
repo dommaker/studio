@@ -66,7 +66,10 @@ vi.mock('../../knowledge/knowledge-service', () => ({
 import { AgentLoop } from '../loop/agent-loop';
 import { WorkUnitService } from '../../workunit/workunit.service';
 
-const WORKSPACES_DIR = path.join(os.homedir(), '.studio', 'workspaces');
+// #219：workspace-store 在 import 期冻结 WORKSPACES_DIR = studioPath('workspaces')，
+// STUDIO_HOME 已被 setup 钉到每文件隔离根 —— 测试写记录必须落在同一根下，
+// 既不触真实 ~/.studio，也与 SUT 读取路径一致。
+const WORKSPACES_DIR = path.join(process.env.STUDIO_HOME ?? path.join(os.homedir(), '.studio'), 'workspaces');
 
 function makeRole(): AgentProfileData {
   const now = new Date().toISOString();
@@ -94,7 +97,7 @@ describe('F6: AgentLoop workspace binding + idle heartbeat', () => {
     testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-loop-f6-'));
     fileStore = new FileStore(testDir);
     workUnitService = new WorkUnitService(fileStore);
-    // 真实 workspace 记录（workspace-store 读 ~/.studio/workspaces，与模块约定一致）
+    // 真实 workspace 记录（workspace-store 读 $STUDIO_HOME/workspaces 隔离根，与模块约定一致）
     wsRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'f6-ws-root-'));
     wsId = `ws-f6-loop-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     fs.mkdirSync(WORKSPACES_DIR, { recursive: true });

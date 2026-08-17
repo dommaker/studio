@@ -79,6 +79,15 @@ describe('resolveVpsWorkspace()', () => {
   });
 
   test('defaults to ~/.studio/workspaces when no dir injected', () => {
-    expect(resolveWorkspacesDir()).toBe(path.join(os.homedir(), '.studio', 'workspaces'));
+    // #219 setup 把 STUDIO_HOME 钉到隔离根，studioPath() 走 env 优先；
+    // 本用例测的是缺省回退，临时摘除 env，finally 恢复。
+    const savedStudioHome = process.env.STUDIO_HOME;
+    try {
+      delete process.env.STUDIO_HOME;
+      expect(resolveWorkspacesDir()).toBe(path.join(os.homedir(), '.studio', 'workspaces'));
+    } finally {
+      if (savedStudioHome === undefined) delete process.env.STUDIO_HOME;
+      else process.env.STUDIO_HOME = savedStudioHome;
+    }
   });
 });

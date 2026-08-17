@@ -32,8 +32,17 @@ describe('resolveStudioLogsDir', () => {
   });
 
   it('生产环境 → ~/.studio/logs（行为不变）', () => {
-    expect(resolveStudioLogsDir({}))
-      .toBe(path.join(os.homedir(), '.studio', 'logs'));
+    // #219：setup 钉了 STUDIO_HOME，验证 os.homedir() 缺省分支须临时摘除
+    // （纯路径断言，无任何 fs 读写，不触碰真实 ~/.studio）。
+    const prevStudioHome = process.env.STUDIO_HOME;
+    delete process.env.STUDIO_HOME;
+    try {
+      expect(resolveStudioLogsDir({}))
+        .toBe(path.join(os.homedir(), '.studio', 'logs'));
+    } finally {
+      if (prevStudioHome === undefined) delete process.env.STUDIO_HOME;
+      else process.env.STUDIO_HOME = prevStudioHome;
+    }
   });
 });
 
@@ -46,8 +55,16 @@ describe('resolveStudioLogFile', () => {
   });
 
   it('生产环境保持 ~/.studio/logs 下原路径', () => {
-    expect(resolveStudioLogFile('incidents.jsonl', {}))
-      .toBe(path.join(os.homedir(), '.studio', 'logs', 'incidents.jsonl'));
+    // #219：同上，临时摘除 STUDIO_HOME 验证 os.homedir() 缺省分支。
+    const prevStudioHome = process.env.STUDIO_HOME;
+    delete process.env.STUDIO_HOME;
+    try {
+      expect(resolveStudioLogFile('incidents.jsonl', {}))
+        .toBe(path.join(os.homedir(), '.studio', 'logs', 'incidents.jsonl'));
+    } finally {
+      if (prevStudioHome === undefined) delete process.env.STUDIO_HOME;
+      else process.env.STUDIO_HOME = prevStudioHome;
+    }
   });
 });
 

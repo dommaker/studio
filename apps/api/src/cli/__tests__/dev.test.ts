@@ -15,6 +15,7 @@ import os from 'node:os';
 
 let tmpHome: string;
 let prevHome: string | undefined;
+let prevStudioHome: string | undefined;
 let prevAdminPassword: string | undefined;
 let dev: typeof import('../dev.js');
 let errs: string[];
@@ -23,6 +24,10 @@ beforeAll(async () => {
   tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'studio-cli-dev-'));
   prevHome = process.env.HOME;
   process.env.HOME = tmpHome;
+  // #219：STUDIO_DIR 在 import 期冻结且 STUDIO_HOME 优先于 $HOME，
+  // 须先把 STUDIO_HOME 钉到本测试的临时 home 再 import dev.js。
+  prevStudioHome = process.env.STUDIO_HOME;
+  process.env.STUDIO_HOME = path.join(tmpHome, '.studio');
   prevAdminPassword = process.env.ADMIN_PASSWORD;
   delete process.env.ADMIN_PASSWORD;
   dev = await import('../dev.js');
@@ -31,6 +36,8 @@ beforeAll(async () => {
 afterAll(() => {
   if (prevHome === undefined) delete process.env.HOME;
   else process.env.HOME = prevHome;
+  if (prevStudioHome === undefined) delete process.env.STUDIO_HOME;
+  else process.env.STUDIO_HOME = prevStudioHome;
   if (prevAdminPassword === undefined) delete process.env.ADMIN_PASSWORD;
   else process.env.ADMIN_PASSWORD = prevAdminPassword;
   fs.rmSync(tmpHome, { recursive: true, force: true });

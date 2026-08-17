@@ -15,13 +15,15 @@ import { channelMessageService } from '../channel-message.service.js';
 import { ConvertToTaskService } from '../convert-to-task.service.js';
 import { validateDefaultWorkspaceId } from '../channel.routes.js';
 
-const WORKSPACES_DIR = path.join(os.homedir(), '.studio', 'workspaces');
+// #219：SUT 的 WORKSPACES_DIR 经 studioPath('workspaces') 在 import 期冻结，走 STUDIO_HOME
+// （setup 钉的隔离根）而非 os.homedir()；测试写记录必须落到同一根，且不触碰真实 ~/.studio。
+const WORKSPACES_DIR = path.join(process.env.STUDIO_HOME ?? path.join(os.homedir(), '.studio'), 'workspaces');
 
 let tmpDir: string;
 let fileStore: FileStore;
 let channelId: string;
 
-/** 在真实 ~/.studio/workspaces 下写一条临时 workspace 记录（channel-members.test.ts 同款约定：用真实目录 + afterAll 清理） */
+/** 在隔离根（STUDIO_HOME）的 workspaces/ 下写一条临时 workspace 记录（afterAll 清理） */
 const testWsId = `ws-f6-test-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
 
 function wsFilePath(id: string): string {

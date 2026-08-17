@@ -49,8 +49,12 @@ import { TokenEstimator } from '@dommaker/harness';
 const { composeStepPrompt, SECTION_QUOTAS, CONTRACT_TEMPLATES } = await import('../loop/prompt-composer');
 const { invalidateManifestCache } = await import('../../skills/manifest-loader.js');
 
+// #219：STUDIO_HOME 已被 setup 钉到隔离根，SUT 的 MANIFEST 指针/全文路径经 studioPath()
+// 动态解析到该根；期望值必须走同一根（os.homedir() 已不再生效）
+const studioHome = process.env.STUDIO_HOME ?? path.join(os.homedir(), '.studio');
+
 const SKILL_HEADER = '## 本次任务 Skills\n\n以下 skill 按相关度排序；任务内容命中其触发条件时，先读全文再按此执行；不相关则忽略。';
-const SKILL_MANIFEST_POINTER = `完整 skill 清单见 skills MANIFEST.md（${path.join(os.homedir(), '.studio', 'skills', 'MANIFEST.md')}）`;
+const SKILL_MANIFEST_POINTER = `完整 skill 清单见 skills MANIFEST.md（${path.join(studioHome, 'skills', 'MANIFEST.md')}）`;
 
 function writeSkill(name: string, description: string) {
   fs.mkdirSync(path.join(testSkillsDir, name), { recursive: true });
@@ -151,7 +155,7 @@ describe('#91: composeStepPrompt 分段软定额 + 池内余量共享 + trim 埋
 
   it('skills 段占定额后余量入池：knowledge 预算 = 1000 + (1300 - skillTokens) + 800 + 300', async () => {
     writeSkill('feature-dev', '功能开发流程');
-    const skillBlock = `### feature-dev\n功能开发流程｜触发：登录\n全文：${path.join(os.homedir(), '.studio', 'skills', 'feature-dev', 'SKILL.md')}`;
+    const skillBlock = `### feature-dev\n功能开发流程｜触发：登录\n全文：${path.join(studioHome, 'skills', 'feature-dev', 'SKILL.md')}`;
     const skillTokens = TokenEstimator.estimateText(SKILL_HEADER) + TokenEstimator.estimateText(skillBlock + '\n\n')
       + TokenEstimator.estimateText(SKILL_MANIFEST_POINTER + '\n\n');
 

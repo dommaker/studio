@@ -13,7 +13,12 @@ import * as path from 'path';
 const { TEST_HOME } = vi.hoisted(() => {
   const nodePath = require('path');
   const nodeOs = require('os');
-  return { TEST_HOME: nodePath.join(nodeOs.tmpdir(), `agent-registry-test-${process.pid}`) };
+  const testHome = nodePath.join(nodeOs.tmpdir(), `agent-registry-test-${process.pid}`);
+  // #219 setup 把 STUDIO_HOME 钉到隔离根后，studioDir() 走 env 优先于 os.homedir()，
+  // 仅靠下面的 homedir mock 会被旁路（SUT 写 setup 根、断言读 TEST_HOME）。
+  // 此处把 STUDIO_HOME 同步钉到 TEST_HOME/.studio（仍是 per-pid 临时目录，不碰真实 ~/.studio）。
+  process.env.STUDIO_HOME = nodePath.join(testHome, '.studio');
+  return { TEST_HOME: testHome };
 });
 
 vi.mock('os', async (importOriginal) => {

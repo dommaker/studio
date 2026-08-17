@@ -75,7 +75,9 @@ vi.mock('node:fs', async () => {
 });
 
 // ── Setup: dynamically import service ──
-const PROJECTS_DIR = path.join(os.homedir(), '.studio', 'projects');
+// #219：SUT 的 PROJECTS_DIR 经 studioPath('projects') 在 import 期冻结，走 STUDIO_HOME
+// （setup 钉的隔离根），优先于 os.homedir()；断言路径必须与 SUT 同根（fs 已 mock，不落盘）。
+const PROJECTS_DIR = path.join(process.env.STUDIO_HOME ?? path.join(os.homedir(), '.studio'), 'projects');
 
 let projectService: typeof import('../project.service.js').projectService;
 let generatePmoNumber: typeof import('../project.service.js').generatePmoNumber;

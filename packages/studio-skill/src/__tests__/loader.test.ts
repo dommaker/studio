@@ -1,6 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import fs from 'fs';
 
+// #219 setup 把 STUDIO_HOME 钉到隔离根后，studioPath('skills') 不再落到
+// mock home 的 .studio/skills（fs mock 按该后缀匹配目录）。SKILLS_DIR 是
+// SkillLoader 自带的测试隔离注入点（运行期读取），钉到 mock home 下。
+vi.hoisted(() => {
+  process.env.SKILLS_DIR = '/tmp/test-home/.studio/skills';
+});
+
 vi.mock('fs', () => ({
   default: {
     existsSync: vi.fn().mockReturnValue(false),

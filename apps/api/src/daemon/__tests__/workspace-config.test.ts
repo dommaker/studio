@@ -3,6 +3,12 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 
+// #219：setup 将 STUDIO_HOME 钉到隔离根，SUT 的 STUDIO_DIR 常量在 import 期冻结。
+// 覆盖为含 `.studio` 段的隔离路径（fs 已整体 mock，不落盘），路径断言才能命中。
+vi.hoisted(() => {
+  process.env.STUDIO_HOME = '/tmp/studio-ws-config-test/.studio';
+});
+
 // Mock fs module
 vi.mock('fs', async () => {
   const actual = await vi.importActual<typeof fs>('fs');

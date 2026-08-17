@@ -11,7 +11,11 @@ const tmpHome = vi.hoisted(() => {
   const fsH = require('node:fs') as typeof import('node:fs');
   const osH = require('node:os') as typeof import('node:os');
   const pathH = require('node:path') as typeof import('node:path');
-  return fsH.mkdtempSync(pathH.join(osH.tmpdir(), 'ws-store-test-'));
+  const tmp = fsH.mkdtempSync(pathH.join(osH.tmpdir(), 'ws-store-test-'));
+  // #219：STUDIO_HOME 优先于 os.homedir() mock，且 SUT 的 WORKSPACES_DIR 在 import 期冻结；
+  // 把 STUDIO_HOME 钉到同一 tmp home，保证 SUT 与断言读写同根（仍是隔离临时目录）。
+  process.env.STUDIO_HOME = pathH.join(tmp, '.studio');
+  return tmp;
 });
 
 vi.mock('os', async (importOriginal) => {

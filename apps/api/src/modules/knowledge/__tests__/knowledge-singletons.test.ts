@@ -4,6 +4,8 @@
  * 深层行为由 knowledge-service / knowledge-bus-sync 等测试覆盖。
  */
 import { describe, it, expect } from 'vitest';
+import * as os from 'os';
+import * as path from 'path';
 import {
   UNIFIED_KNOWLEDGE_DIR,
   sharedStore,
@@ -18,8 +20,10 @@ import {
 } from '../knowledge-singletons.js';
 
 describe('knowledge-singletons (R4)', () => {
-  it('owns the unified knowledge dir under ~/.studio/knowledge', () => {
-    expect(UNIFIED_KNOWLEDGE_DIR.replace(/\\/g, '/')).toMatch(/\.studio\/knowledge$/);
+  it('owns the unified knowledge dir under the studio data root', () => {
+    // #219：数据根 = STUDIO_HOME（setup 隔离根）优先，缺省 ~/.studio
+    const studioRoot = process.env.STUDIO_HOME || path.join(os.homedir(), '.studio');
+    expect(UNIFIED_KNOWLEDGE_DIR).toBe(path.join(studioRoot, 'knowledge'));
   });
 
   it('exposes all six shared singletons wired to the same store', () => {
