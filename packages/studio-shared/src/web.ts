@@ -10,3 +10,6 @@
 
 // F6 信任证据模型（纯逻辑：parseAttestations / deriveDisplayState 等）
 export * from './attestation';
+
+// 监控探针阈值常量（纯常量，无 Node 依赖；Web 下钻口径与 api 探针同源）
+export * from './constants/monitoring';

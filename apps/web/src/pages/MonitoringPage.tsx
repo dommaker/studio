@@ -5,6 +5,7 @@ import { monitoringApi, type MonitoringStats, type FlywheelStats, type OverheadS
 import { knowledgeApi, type KnowledgeEntryItem } from '../api/knowledge';
 import { EventSearchPanel } from '../components/monitoring/EventSearchPanel';
 import { NeedsAttentionSection } from '../components/monitoring/NeedsAttentionSection';
+import { formatAge } from '@dommaker/studio-shared/web';
 
 type MonitoringTab = 'overview' | 'events';
 
@@ -378,19 +379,6 @@ function budgetColor(usedPct: number): string {
   if (usedPct > 100) return 'u-err';
   if (usedPct >= 70) return 'u-warn';
   return 'u-ok';
-}
-
-/** 待审提案年龄：created → 「N 分钟/小时/天前」 */
-function formatAge(iso?: string): string {
-  if (!iso) return '时间未知';
-  const ms = Date.now() - new Date(iso).getTime();
-  if (!Number.isFinite(ms) || ms < 0) return '刚刚';
-  const minutes = Math.floor(ms / 60_000);
-  if (minutes < 1) return '刚刚';
-  if (minutes < 60) return `${minutes} 分钟前`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours} 小时前`;
-  return `${Math.floor(hours / 24)} 天前`;
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {

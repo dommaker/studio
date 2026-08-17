@@ -19,6 +19,7 @@ export type { LlmProvider } from './config/index';
 
 // 导出 Constants 模块
 export * from './constants/levels';
+export * from './constants/monitoring';
 
 // 导出职能域词表（决策 8：阶段导向单一词表 + legacy 归一化）
 export * from './domain-vocab';
