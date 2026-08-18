@@ -91,13 +91,37 @@ describe('seedBuiltinSkills', () => {
     expect(fs.readFileSync(path.join(targetDir, 'skill-a/SKILL.md'), 'utf-8')).toBe('user edited\n');
   });
 
-  it('存量无 hash 记录（legacy/用户同名自建）→ 永不动', () => {
+  it('存量无 hash 记录（legacy/用户同名自建）且与正本不一致 → 永不动', () => {
     // 目标里预先存在 skill-a，但无台账（模拟 seed 机制前的老安装）
     writeSkill(targetDir, 'skill-a', { 'SKILL.md': 'legacy content\n' });
     const r = seedBuiltinSkills({ sourceDir, targetDir });
     expect(r.skippedLegacy).toEqual(['skill-a']);
     expect(r.copied).toEqual(['skill-b']);
     expect(fs.readFileSync(path.join(targetDir, 'skill-a/SKILL.md'), 'utf-8')).toBe('legacy content\n');
+  });
+
+  it('收养：无台账记录但磁盘与正本字节一致 → 写台账收养，内容不动（#225）', () => {
+    // 目标里预先存在与正本逐字节一致的 skill-a，但无台账（#223 落地前的存量环境）
+    writeSkill(targetDir, 'skill-a', SKILL_A_V1);
+    const r = seedBuiltinSkills({ sourceDir, targetDir });
+    expect(r.adopted).toEqual(['skill-a']);
+    expect(r.skippedLegacy).toEqual([]);
+    expect(readHashes()['skill-a']).toBe(hashSkillDir(path.join(sourceDir, 'skill-a')));
+    expect(fs.readFileSync(path.join(targetDir, 'skill-a/SKILL.md'), 'utf-8')).toBe(SKILL_A_V1['SKILL.md']);
+    // 收养后正本升级走正常覆盖升级，不再卡 legacy
+    writeSkill(sourceDir, 'skill-a', { 'SKILL.md': '---\nname: skill-a\n---\nv2\n' });
+    const r2 = seedBuiltinSkills({ sourceDir, targetDir });
+    expect(r2.upgraded).toEqual(['skill-a']);
+    expect(r2.skippedLegacy).toEqual([]);
+    expect(fs.readFileSync(path.join(targetDir, 'skill-a/SKILL.md'), 'utf-8')).toContain('v2');
+  });
+
+  it('收养不适用：无台账记录且磁盘与正本不一致 → 仍 skippedLegacy，不写台账（#225）', () => {
+    writeSkill(targetDir, 'skill-a', { 'SKILL.md': 'user custom\n' });
+    const r = seedBuiltinSkills({ sourceDir, targetDir });
+    expect(r.adopted).toEqual([]);
+    expect(r.skippedLegacy).toEqual(['skill-a']);
+    expect(readHashes()['skill-a']).toBeUndefined();
   });
 
   it('非内置目录（用户自建 skill）→ 不进台账、永不动', () => {

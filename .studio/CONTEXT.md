@@ -1911,7 +1911,7 @@ hook 统一指向 `@dommaker/harness` 包内出厂 shim `dist/pretool-use-hook.j
 | `LoadOptions` | `loader.ts` | `load()` 的参数接口：agentType、exclude |
 | `SkillLoader` | `loader.ts` | 技能加载器类，支持缓存（5 分钟 TTL）和懒加载 |
 | `skillLoader` | `loader.ts` | `SkillLoader` 的单例实例 |
-| `seedBuiltinSkills` | `seed.ts` | 内置 skill 同步：缺→拷贝、未改→覆盖升级、用户改过/无台账存量→不动；best-effort 不 throw |
+| `seedBuiltinSkills` | `seed.ts` | 内置 skill 同步：缺→拷贝、未改→覆盖升级、无台账且与正本一致→收养写台账（#225）、用户改过/无台账不一致→不动；best-effort 不 throw |
 | `hashSkillDir` | `seed.ts` | skill 目录树内容 hash（sha256，排序相对路径+逐文件内容） |
 
 ### 依赖关系

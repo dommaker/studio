@@ -7,7 +7,7 @@
  *
  * 升级语义（中央 hash 台账 `<SKILLS_DIR>/.builtin-hashes.json`，name → 内容 hash）：
  * - 目标目录不存在 → 拷贝 + 记 hash
- * - 目标存在但无 hash 记录（legacy 存量/用户同名自建）→ 永不动
+ * - 目标存在但无 hash 记录 → 磁盘与正本一致则收养写台账（#225），不一致（legacy 存量/用户同名自建）则永不动
  * - 磁盘内容 ≠ 记录（用户改过内置 skill）→ 永不动
  * - 磁盘内容 == 记录 ≠ 仓库版本 → 覆盖升级 + 更新记录
  * - 磁盘内容 == 记录 == 仓库版本 → 跳过
@@ -36,8 +36,10 @@ export interface SeedResult {
   upgraded: string[];
   /** 用户改过、保留不动的 skill 名 */
   skippedUserModified: string[];
-  /** 无 hash 记录的存量目录、保留不动的 skill 名 */
+  /** 无 hash 记录且与正本不一致的存量目录、保留不动的 skill 名 */
   skippedLegacy: string[];
+  /** 无 hash 记录但磁盘与正本字节一致、收养写台账的 skill 名（#225） */
+  adopted: string[];
   /** 台账写入或拷贝失败（best-effort，不 throw） */
   errors: string[];
 }
@@ -106,7 +108,7 @@ function readHashes(targetDir: string): Record<string, string> {
 export function seedBuiltinSkills(options: SeedOptions = {}): SeedResult {
   const sourceDir = options.sourceDir || defaultSourceDir();
   const targetDir = options.targetDir || defaultTargetDir();
-  const result: SeedResult = { copied: [], upgraded: [], skippedUserModified: [], skippedLegacy: [], errors: [] };
+  const result: SeedResult = { copied: [], upgraded: [], skippedUserModified: [], skippedLegacy: [], adopted: [], errors: [] };
 
   let entries: fs.Dirent[];
   try {
@@ -142,7 +144,15 @@ export function seedBuiltinSkills(options: SeedOptions = {}): SeedResult {
 
       const recorded = hashes[name];
       if (!recorded) {
-        result.skippedLegacy.push(name);
+        // 无台账记录：磁盘与正本字节一致 → 收养写台账（#225，#223 落地前的存量环境自愈）；
+        // 不一致才维持 legacy 保护语义
+        const diskHash = hashSkillDir(dest);
+        if (diskHash === repoHash) {
+          hashes[name] = repoHash;
+          result.adopted.push(name);
+        } else {
+          result.skippedLegacy.push(name);
+        }
         continue;
       }
       const diskHash = hashSkillDir(dest);
