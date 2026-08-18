@@ -20,7 +20,7 @@
  *   （/review/diff 管理端点链路）已于 2026-08-06 整体删除——端点零真实调用方
  */
 
-import { eventBus, logger, parseChannels, deriveDisplayState, type FileStore, type AgentProfileData, type WorkUnitSnapshot } from '@dommaker/studio-shared';
+import { eventBus, logger, parseChannels, deriveDisplayState, createSettledTracker, type FileStore, type AgentProfileData, type WorkUnitSnapshot } from '@dommaker/studio-shared';
 import { WorkUnitService, type WorkUnitData, type WorkUnitMetadata } from '../../workunit/workunit.service.js';
 import { DECISION_SPEC_TYPES } from '../../workunit/workunit.types.js';
 import { readCollab } from '../../workunit/delegation-gate.js';
@@ -31,7 +31,7 @@ import type { ParsedReviewReport } from './review-contract.js';
 export class ReviewDispatcher {
   private subscribed = false;
   /** #228 测试可观测性（纯增量）：在途事件链登记，见 waitForSettled */
-  private inFlight = new Set<Promise<void>>();
+  private readonly settled = createSettledTracker();
 
   constructor(
     private fileStore: FileStore,
@@ -44,7 +44,7 @@ export class ReviewDispatcher {
     this.subscribed = true;
 
     eventBus.subscribe('workunit.status_changed', (payload: { workunit: WorkUnitData }) => {
-      this.trackInFlight(this.handleStatusChanged(payload.workunit));
+      this.settled.track(this.handleStatusChanged(payload.workunit));
     });
   }
 
@@ -68,27 +68,14 @@ export class ReviewDispatcher {
   }
 
   /**
-   * #228 测试可观测性（纯增量，不改变发布/消费行为）：登记在途事件链。
-   * 事件订阅是 fire-and-forget，publish 同步触发 handler 后链路仍在异步推进，
-   * 测试侧原本只能盲等（定长 sleep / waitFor 轮询）——全量负载下事件循环饥饿
-   * 会吃满预算（#228：F4 自评兜底频道提醒在 100ms 盲等内落不了盘，近确定性红）。
-   */
-  private trackInFlight(chain: Promise<void>): void {
-    this.inFlight.add(chain);
-    const done = () => { this.inFlight.delete(chain); };
-    chain.then(done, done);
-  }
-
-  /**
    * 等待本实例已触发的全部事件链落定（测试用确定性信号，替代盲等）。
    * publish 在 transitionStatus await 链内同步发射（eventBus emit 同步），故
    * await transitionStatus 返回时在途链必已登记，await 本方法即等到链路真正完成。
+   * （事件订阅是 fire-and-forget，全量负载下盲等会吃不满链路落盘——#228 F4
+   * 自评兜底频道提醒曾因此近确定性红。实现经 studio-shared createSettledTracker。）
    */
   async waitForSettled(): Promise<void> {
-    // while 循环兜底级联：等待期间新事件再触发的链也一并等完
-    while (this.inFlight.size > 0) {
-      await Promise.allSettled([...this.inFlight]);
-    }
+    await this.settled.waitForSettled();
   }
 
   /** 频道 active 成员（不含 studio）；members 未回填（历史频道）返回 null = 成员未知 */

@@ -153,13 +153,10 @@ describe('#183 analysis 侧：哨兵清单化 + 对账补差集', () => {
     });
     eventBus.publish('workunit.status_changed', { workunit: { ...wu, status: 'done' } });
 
-    const deadline = Date.now() + 3000;
-    let meta: WorkUnitMetadata = {};
-    while (Date.now() < deadline) {
-      meta = await readMeta(wu.id);
-      if (Array.isArray(meta.analysisTasksSpawned) && meta.analysisTasksSpawned.length === 2) break;
-      await new Promise(r => setTimeout(r, 20));
-    }
+    // #228：确定性等待接力链落定（替代盲等轮询——publish 同步触发订阅，
+    // 在途链必已登记）
+    await handoff.waitForSettled();
+    const meta = await readMeta(wu.id);
     expect(meta.analysisTasksSpawnedAt).toBeTruthy();
     expect(meta.analysisTasksSpawned).toHaveLength(2);
     const children = await childrenOf(wu.id);

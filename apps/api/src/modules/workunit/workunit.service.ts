@@ -13,7 +13,7 @@
  * 并 re-export 全部迁出符号，导入面不变。
  */
 
-import { logger, withAttestation, deriveDisplayState, type AttestationEntry, type WorkUnitSnapshot, type WorkUnitEvent } from '@dommaker/studio-shared';
+import { logger, withAttestation, deriveDisplayState, createSettledTracker, type AttestationEntry, type WorkUnitSnapshot, type WorkUnitEvent } from '@dommaker/studio-shared';
 import { mergeWorktreeBranchOnReviewPass, cleanupPrototypeWorktreeOnReviewPass } from './merge-on-review-pass.js';
 import { parseWuMetadata } from './wu-metadata.js';
 import { resolveValidTransitions, type WorkUnitMetadata, type ReviewAttestationSource } from './workunit.types.js';
@@ -31,12 +31,10 @@ export type { WorkUnitMetadata, ReviewAttestationSource, InspectionOpportunity }
  * 测试侧原本只能 waitFor 轮询盲等——全量负载下 git mock 链 + 频道消息落盘
  * 会吃满 3s 预算（merge-on-review-pass 偶发红）。
  */
-const inFlightReviewPassEffects = new Set<Promise<unknown>>();
+const reviewPassTracker = createSettledTracker();
 
 function trackReviewPassEffect(effect: Promise<unknown>): void {
-  inFlightReviewPassEffects.add(effect);
-  const done = () => { inFlightReviewPassEffects.delete(effect); };
-  effect.then(done, done);
+  reviewPassTracker.track(effect);
 }
 
 /**
@@ -44,10 +42,7 @@ function trackReviewPassEffect(effect: Promise<unknown>): void {
  * 收尾在 reviewPassed 返回前已同步登记，await 本函数即等到收尾（含频道消息落盘）完成。
  */
 export async function waitForReviewPassSettled(): Promise<void> {
-  // while 循环兜底级联：等待期间新触发的收尾也一并等完
-  while (inFlightReviewPassEffects.size > 0) {
-    await Promise.allSettled([...inFlightReviewPassEffects]);
-  }
+  await reviewPassTracker.waitForSettled();
 }
 
 export class WorkUnitService extends WorkUnitCrudService {

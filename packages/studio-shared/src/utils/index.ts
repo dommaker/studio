@@ -8,3 +8,5 @@ export type { ExecShOptions, SessionIdOptions, ProgressReport, PhaseBridge } fro
 export { toKebab, parseSddFrontmatter, stringifySddFrontmatter, listLegacySddDocs, readLegacySddDoc, findLegacySddDocById, findLegacySddDocs } from './sdd-legacy';
 export type { SddFrontmatter, LegacySddLayer } from './sdd-legacy';
 export { resolvePromptOverridesDir, readPromptOverride, renderWithOverride } from './prompt-overrides';
+export { createSettledTracker } from './settled-tracker';
+export type { SettledTracker } from './settled-tracker';
