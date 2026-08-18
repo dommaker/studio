@@ -8,8 +8,7 @@ scripts/
 │   ├── start.sh      # 启动开发环境（vite + API）
 │   ├── stop.sh       # 停止开发环境
 │   ├── status.sh     # 状态检查
-│   ├── logs.sh       # 查看日志
-│   └── validate-env.sh
+│   └── logs.sh       # 查看日志
 │
 └── tools/        # 工具脚本
     ├── health-check.sh
