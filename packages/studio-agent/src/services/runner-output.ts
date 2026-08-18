@@ -21,6 +21,7 @@ import {
   extractFilePath as extractFilePathShared,
   extractResult,
   extractUsage,
+  extractProviderUsage,
 } from '@dommaker/studio-shared';
 import type { StreamEvent } from '@dommaker/studio-shared';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
@@ -49,6 +50,8 @@ export interface ProcessSessionOutputContext {
   agentRole: string;
   stage?: string;
   promptSize: number;
+  /** #134: 执行 CLI 的 provider——usage 提取按 provider 分流（缺省 claude，行为不变）。 */
+  provider?: string;
 }
 
 export interface ProcessedSessionOutput {
@@ -75,7 +78,20 @@ export async function processSessionOutput(
   // AC1.1 + AC1.3: Parse stream-json line by line
   const events = parseStreamEvents(stdout);
   const { text, isError } = extractResult(events);
-  const streamUsage = extractUsage(events);
+  // #134: usage 提取按 provider 分流——claude/缺省走既有 extractUsage（行为不变），
+  // opencode/codex 走 per-provider 提取器（事件形态不同，extractUsage 恒产 0）。
+  const providerUsage = ctx.provider && ctx.provider !== 'claude'
+    ? extractProviderUsage(ctx.provider, stdout)
+    : null;
+  const streamUsage: StreamUsage = providerUsage
+    ? {
+        inputTokens: providerUsage.inputTokens,
+        outputTokens: providerUsage.outputTokens,
+        cacheReadTokens: providerUsage.cacheReadTokens,
+        cacheCreationTokens: providerUsage.cacheCreationTokens,
+        model: providerUsage.model ?? '',
+      }
+    : extractUsage(events);
 
   // AC1.3: Emit tool:call and file:change events
   const tools = extractToolCalls(events);

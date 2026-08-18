@@ -4,7 +4,7 @@
 // tool:call trace 落盘（PatternMiner 数据源）。
 // agent-loop.ts re-export 保持对外导出语义不变。
 import { appendFileSync, existsSync, mkdirSync } from 'fs';
-import { parseStreamEvents, extractToolCalls, parseSessionMetrics, FileStore } from '@dommaker/studio-shared';
+import { parseStreamEvents, extractToolCalls, extractProviderUsage, FileStore } from '@dommaker/studio-shared';
 import type { ExecutionResult } from '@dommaker/studio-agent';
 import { noteTokensWritten } from './daily-token-budget.js';
 import { resolveStudioEventsFile } from '../../../utils/studio-events.js';
@@ -40,6 +40,8 @@ export interface WorkunitTokenEventArgs {
   numTurns?: number;
   /** B6: 触发器来源（trigger 创建的 WU；按触发器聚合的输入） */
   triggerId?: string;
+  /** #134: 执行 CLI 的 provider（#120 按 provider 分桶的数据源——「后端未上报」与「0% 命中」必须可分） */
+  provider?: string;
 }
 
 /** B6: 一次执行的真实 token 用量（账单口径，含 cache） */
@@ -56,20 +58,22 @@ export interface RealUsage {
 
 /**
  * B6（2026-08-03 token-burn issue P1-2）：真实 usage 解析链。
- * 优先 modelUsage 累积（parseSessionMetrics 读 result 事件的 modelUsage.* —— 多轮会话全量；
- * 顶层 usage.* 仅最后一轮，extractUsage 只见到它，是此前 cache_read 无账的结构性原因之一）；
- * 兜底 runner 透出的 extractUsage 聚合（无 rawOutput 的失败路径）；全零 → null（不编造）。
+ * #134：按 provider 分流（extractProviderUsage）——claude 优先 modelUsage 累积
+ * （多轮会话全量；顶层 usage.* 仅最后一轮，是此前 cache_read 无账的结构性原因之一），
+ * opencode 读 step_finish.part.tokens、codex 读 turn.completed.usage、
+ * kimi 无 usage 出口 → null；兜底 runner 透出的 usage 聚合（无 rawOutput 的失败路径）；
+ * 全零 → null（不编造）。
  */
-export function resolveRealUsage(result: ExecutionResult): RealUsage | null {
+export function resolveRealUsage(result: ExecutionResult, provider = 'claude'): RealUsage | null {
   if (result.rawOutput) {
-    const m = parseSessionMetrics(result.rawOutput);
-    if (m.tokenInput + m.tokenOutput + m.tokenCacheRead + m.tokenCacheWrite > 0) {
+    const m = extractProviderUsage(provider, result.rawOutput);
+    if (m && m.inputTokens + m.outputTokens + m.cacheReadTokens + m.cacheCreationTokens > 0) {
       return {
-        inputTokens: m.tokenInput,
-        outputTokens: m.tokenOutput,
-        cacheReadTokens: m.tokenCacheRead,
-        cacheCreationTokens: m.tokenCacheWrite,
-        billedTokens: m.tokenInput + m.tokenOutput + m.tokenCacheRead + m.tokenCacheWrite,
+        inputTokens: m.inputTokens,
+        outputTokens: m.outputTokens,
+        cacheReadTokens: m.cacheReadTokens,
+        cacheCreationTokens: m.cacheCreationTokens,
+        billedTokens: m.inputTokens + m.outputTokens + m.cacheReadTokens + m.cacheCreationTokens,
         ...(m.costUsd ? { costUsd: m.costUsd } : {}),
         ...(m.numTurns ? { numTurns: m.numTurns } : {}),
       };
@@ -120,6 +124,7 @@ export async function writeWorkunitTokenEvent(eventsFile: string, args: Workunit
       ...(typeof args.costUsd === 'number' ? { costUsd: args.costUsd } : {}),
       ...(typeof args.numTurns === 'number' ? { numTurns: args.numTurns } : {}),
       ...(args.triggerId ? { triggerId: args.triggerId } : {}),
+      ...(args.provider ? { provider: args.provider } : {}),
     }),
     createdAt: new Date().toISOString(),
   });
