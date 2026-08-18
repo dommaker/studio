@@ -946,7 +946,7 @@ describe('#119: 契约段生成器（按 WU type）+ 段序稳定性重排', () 
     expect(prompt).toContain('## 结论摘要');
   });
 
-  it('契约段 analysis → research/prototype 产出载体（T3/#125）', async () => {
+  it('契约段 analysis → research/prototype 产出载体（T3/#125）+ bug 路由规则与升级触发器（#121）', async () => {
     const { prompt } = await composeStepPrompt(
       { wu: makeWu({ type: 'analysis' }), metadata: {} as any },
       deps(makeRole()),
@@ -955,10 +955,26 @@ describe('#119: 契约段生成器（按 WU type）+ 段序稳定性重排', () 
     expect(prompt).toContain('## 产出契约');
     expect(prompt).toContain('.studio/research/');
     expect(prompt).toContain('prototype/<name>');
+    // #121：bug 默认快速路 + 升级触发器（根因在需求/设计层 → 转决策单或开图，诊断事实随票携带）
+    expect(prompt).toContain('bug 路由');
+    expect(prompt).toContain('快速路');
+    expect(prompt).toContain('升级触发器');
+    expect(prompt).toContain('随票携带');
   });
 
-  it('未知/无契约 type（task/feature/bug/spec）→ 空段不注入', async () => {
-    for (const type of ['task', 'feature', 'bug', 'spec']) {
+  it('契约段 bug → 复现测试先行 + 防回归测试随修复同 commit（#121）', async () => {
+    const { prompt } = await composeStepPrompt(
+      { wu: makeWu({ type: 'bug' }), metadata: {} as any },
+      deps(makeRole()),
+    );
+
+    expect(prompt).toContain('## 产出契约');
+    expect(prompt).toContain('复现测试先行');
+    expect(prompt).toContain('防回归测试随修复同 commit');
+  });
+
+  it('未知/无契约 type（task/feature/spec）→ 空段不注入', async () => {
+    for (const type of ['task', 'feature', 'spec']) {
       const { prompt } = await composeStepPrompt(
         { wu: makeWu({ type }), metadata: {} as any },
         deps(makeRole()),
@@ -981,9 +997,9 @@ describe('#119: 契约段生成器（按 WU type）+ 段序稳定性重排', () 
     expect(prompt).not.toContain('prototype/<name>');
   });
 
-  it('契约段 200 软定额 + 模板表仅覆盖 review/implement/decision/analysis', () => {
+  it('契约段 200 软定额 + 模板表仅覆盖 review/implement/decision/analysis/bug（#121）', () => {
     expect(SECTION_QUOTAS.contract).toBe(200);
-    expect(Object.keys(CONTRACT_TEMPLATES).sort()).toEqual(['analysis', 'decision', 'implement', 'review']);
+    expect(Object.keys(CONTRACT_TEMPLATES).sort()).toEqual(['analysis', 'bug', 'decision', 'implement', 'review']);
   });
 });
 
