@@ -1,7 +1,7 @@
 // Contract test: WorkUnitListPage — MVP-1 + MVP-3 + MVP-4
 // #106 M7：analysis 确认弹窗（预填待决问题清单 → summary 随 reviewPassed 回传）
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import React from 'react';
 
 vi.mock('react', async () => {
@@ -157,5 +157,73 @@ describe('WorkUnitListPage — analysis 确认弹窗（#106 M7）', () => {
 
     expect(screen.queryByPlaceholderText(/DESTINATION/)).toBeNull();
     expect(mockStore.reviewPassed).toHaveBeenCalledWith('wu-t1', undefined, undefined);
+  });
+});
+
+// #116：BlockedByList 经 workunitApi.get 拉依赖状态（行内展开时）；mock 全文件生效（vi.mock 提升）
+const { mockDepGet } = vi.hoisted(() => ({ mockDepGet: vi.fn() }));
+vi.mock('../../api/workunit', () => ({
+  workunitApi: {
+    get: mockDepGet,
+    listExecutionStepEvents: vi.fn().mockResolvedValue({ data: { events: [], total: 0 } }),
+    getMessages: vi.fn().mockResolvedValue({ data: { data: [] } }),
+  },
+}));
+// ExecutionSteps（行内展开渲染）依赖的 SSE hook — 测试无 WebSocketProvider，置空
+vi.mock('../../hooks/useWorkUnitStreamEvents', () => ({ useWorkUnitStreamEvents: () => [] }));
+
+describe('WorkUnitListPage — claimable 置灰与被阻塞徽标（#116）', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockStore.workunits = [];
+    mockSearchParamsValue.value = '';
+  });
+
+  it('unassigned + claimable=false → 被阻塞徽标（悬停 title 可见依赖 id）+ 行置灰', () => {
+    mockStore.workunits = [makeWu({
+      id: 'wu-b1',
+      status: 'unassigned',
+      claimable: false,
+      metadata: JSON.stringify({ blockedBy: ['wu-dep-1', 'wu-dep-2'] }),
+    })];
+    render(<WorkUnitListPage />);
+
+    const badge = screen.getByText('被阻塞');
+    expect(badge.getAttribute('title')).toContain('wu-dep-1');
+    expect(badge.getAttribute('title')).toContain('wu-dep-2');
+    const card = badge.closest('.card') as HTMLElement;
+    expect(card.className).toContain('u-dimmed');
+  });
+
+  it('unassigned + claimable=true（依赖全了结）→ 无徽标不置灰（恢复可认领样式）', () => {
+    mockStore.workunits = [makeWu({ id: 'wu-c1', status: 'unassigned', claimable: true })];
+    render(<WorkUnitListPage />);
+
+    expect(screen.queryByText('被阻塞')).toBeNull();
+    const link = screen.getByText('分析需求 PMO-1: 测试');
+    expect((link.closest('.card') as HTMLElement).className).not.toContain('u-dimmed');
+  });
+
+  it('非 unassigned 行 claimable 恒 false（服务端口径）→ 不误标', () => {
+    mockStore.workunits = [makeWu({ id: 'wu-a3', status: 'active', claimable: false })];
+    render(<WorkUnitListPage />);
+
+    expect(screen.queryByText('被阻塞')).toBeNull();
+  });
+
+  it('展开被阻塞行 → 依赖清单拉取并展示依赖状态', async () => {
+    mockDepGet.mockResolvedValue({ data: { id: 'wu-dep-1', status: 'active', scope: '依赖任务一', metadata: null } });
+    mockStore.workunits = [makeWu({
+      id: 'wu-b2',
+      status: 'unassigned',
+      claimable: false,
+      metadata: JSON.stringify({ blockedBy: ['wu-dep-1'] }),
+    })];
+    render(<WorkUnitListPage />);
+
+    fireEvent.click(screen.getByText('ID: wu-b2...'));
+
+    await waitFor(() => expect(screen.getByText('依赖任务一')).toBeDefined());
+    expect(mockDepGet).toHaveBeenCalledWith('wu-dep-1');
   });
 });

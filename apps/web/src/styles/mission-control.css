@@ -689,6 +689,8 @@
 .u-text { color: var(--text-primary); }
 .u-text-2 { color: var(--text-secondary); }
 .u-text-3 { color: var(--text-muted); }
+/* 整卡置灰弱化（#116：依赖未了结的不可认领任务单卡） */
+.u-dimmed { opacity: 0.55; }
 .u-border { border-color: var(--border-subtle); }
 .u-border-2 { border-color: var(--border-default); }
 .u-accent { color: var(--accent-primary); }
