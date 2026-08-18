@@ -16,7 +16,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { eventBus, FileStore } from '@dommaker/studio-shared';
-import { initPmoProgressRollup, syncProjectProgress, syncProjectProgressByReqId, parseWuMetaPmoId } from '../progress-rollup.js';
+import { initPmoProgressRollup, syncProjectProgress, syncProjectProgressByReqId, parseWuMetaPmoId, waitForPmoProgressRollupSettled } from '../progress-rollup.js';
 import { projectService, PROJECT_STATUS, type ProjectData } from '../project.service.js';
 import { RequirementService } from '../../requirements/requirement.service.js';
 import { WorkUnitService } from '../../workunit/workunit.service.js';
@@ -30,16 +30,6 @@ let fileStore: FileStore;
 let reqService: RequirementService;
 let wuService: WorkUnitService;
 const createdProjectIds: string[] = [];
-
-/** 轮询直至条件满足（事件订阅是 fire-and-forget，需要给异步回写留时间窗） */
-async function waitFor(cond: () => Promise<boolean>, timeoutMs = 3000): Promise<boolean> {
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    if (await cond()) return true;
-    await new Promise(r => setTimeout(r, 20));
-  }
-  return false;
-}
 
 async function createRealProject(): Promise<ProjectData> {
   const project = await projectService.create({
@@ -362,9 +352,12 @@ describe('initPmoProgressRollup（事件接线）', () => {
       await wuService.transitionStatus(wu.id, 'in_review');
       await wuService.transitionStatus(wu.id, 'done');
 
-      const synced = await waitFor(async () => (await projectService.get(project.id))!.status === PROJECT_STATUS.COMPLETED);
-      expect(synced).toBe(true);
-      expect((await projectService.get(project.id))!.progress).toBe(100);
+      // #158：确定性等待事件消费完成（替代 waitFor 盲等，全量负载下不再偶发超时）
+      await waitForPmoProgressRollupSettled();
+
+      const after = await projectService.get(project.id);
+      expect(after!.status).toBe(PROJECT_STATUS.COMPLETED);
+      expect(after!.progress).toBe(100);
     } finally {
       off();
     }
@@ -379,9 +372,12 @@ describe('initPmoProgressRollup（事件接线）', () => {
       await wuService.transitionStatus(wu.id, 'in_review');
       await wuService.transitionStatus(wu.id, 'done');
 
-      const synced = await waitFor(async () => (await projectService.get(project.id))!.status === PROJECT_STATUS.COMPLETED);
-      expect(synced).toBe(true);
-      expect((await projectService.get(project.id))!.progress).toBe(100);
+      // #158：确定性等待事件消费完成（替代 waitFor 盲等）
+      await waitForPmoProgressRollupSettled();
+
+      const after = await projectService.get(project.id);
+      expect(after!.status).toBe(PROJECT_STATUS.COMPLETED);
+      expect(after!.progress).toBe(100);
     } finally {
       off();
     }
@@ -396,7 +392,8 @@ describe('initPmoProgressRollup（事件接线）', () => {
 
     eventBus.publish('workunit.status_changed', { workunit: { id: 'wu-x', reqId: req.id } });
     eventBus.publish('workunit.status_changed', { workunit: { id: 'wu-y', reqId: null } });
-    await new Promise(r => setTimeout(r, 100));
+    // off 已解绑 → publish 不登记任何在途回写，settled 立即返回；若解绑失效这里会等到回写落定后露出断言失败
+    await waitForPmoProgressRollupSettled();
 
     expect((await projectService.get(project.id))!.progress).toBe(0);
   });
