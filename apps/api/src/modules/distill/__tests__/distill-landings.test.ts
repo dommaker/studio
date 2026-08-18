@@ -60,7 +60,7 @@ import {
   type DistillProposal,
 } from '../distill-service.js';
 import { createSkillLanding, createConstraintLanding, createMemoryLanding } from '../distill-landings.js';
-import { roleMemoryStore } from '../../role-memory/role-memory.js';
+import { roleMemoryRoot, roleMemoryStore } from '../../role-memory/role-memory.js';
 
 let tmpDir: string;
 let fileStore: FileStore;
@@ -141,7 +141,7 @@ afterEach(() => {
   eventBus.unsubscribeAll?.('workunit.status_changed');
   fs.rmSync(tmpDir, { recursive: true, force: true });
   for (const roleId of createdRoleIds.splice(0)) {
-    fs.rmSync(path.join(os.tmpdir(), 'studio-test-role-memory', roleId), { recursive: true, force: true });
+    fs.rmSync(path.join(roleMemoryRoot(), roleId), { recursive: true, force: true });
   }
 });
 

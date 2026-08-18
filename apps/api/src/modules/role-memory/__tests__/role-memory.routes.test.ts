@@ -1,7 +1,7 @@
 /**
  * role-memory.routes (#101) — 人审闸口 approve/reject 端点集成测试
  *
- * 挂载真实 router + 真实 roleMemoryStore（测试环境写 os.tmpdir()/studio-test-role-memory），
+ * 挂载真实 router + 真实 roleMemoryStore（测试环境写 os.tmpdir()/studio-test-role-memory/<per-进程子目录>，#135），
  * 走 HTTP 验证 approve→promote（草稿→topic/索引）/ reject→demote（草稿→rejected 墓碑）。
  * STUDIO_AUTH=none（缺省）下 requireAuth/requireNotGuest 直通。
  */
@@ -10,12 +10,10 @@ import express from 'express';
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
 
-import { roleMemoryStore } from '../role-memory.js';
+import { roleMemoryRoot, roleMemoryStore } from '../role-memory.js';
 
-const TEST_ROOT = path.join(os.tmpdir(), 'studio-test-role-memory');
+const TEST_ROOT = roleMemoryRoot();
 
 /** 每用例唯一角色 id，防跨用例索引/草稿状态串扰 */
 function freshRoleId(): string {

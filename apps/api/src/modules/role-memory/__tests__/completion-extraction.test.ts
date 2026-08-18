@@ -19,8 +19,8 @@ import path from 'node:path';
 import os from 'node:os';
 import { FileStore, eventBus } from '@dommaker/studio-shared';
 import { WorkUnitService, type WorkUnitData } from '../../workunit/workunit.service.js';
-import { appendTranscriptStep } from '../../transcripts/transcript-archive.js';
-import { roleMemoryStore } from '../role-memory.js';
+import { appendTranscriptStep, transcriptsDir } from '../../transcripts/transcript-archive.js';
+import { roleMemoryRoot, roleMemoryStore } from '../role-memory.js';
 import { resetDailyTokenBudgetState } from '../../agents/loop/daily-token-budget.js';
 
 const { mockRun, mockPostCard } = vi.hoisted(() => ({ mockRun: vi.fn(), mockPostCard: vi.fn() }));
@@ -42,15 +42,15 @@ vi.mock('../memory-proposal-card.js', () => ({
 
 import { WuCompletionExtractor, buildTranscriptText, normalizeDraftInput, MEMORY_EXTRACTION_SYSTEM_PROMPT } from '../completion-extraction.js';
 
-const ROLE_MEMORY_TEST_ROOT = path.join(os.tmpdir(), 'studio-test-role-memory');
-const TRANSCRIPTS_TEST_DIR = path.join(os.tmpdir(), 'studio-test-transcripts');
+const ROLE_MEMORY_TEST_ROOT = roleMemoryRoot();
+const TRANSCRIPTS_TEST_DIR = transcriptsDir();
 
 let tmpDir: string;
 let fileStore: FileStore;
 let wuService: WorkUnitService;
 let eventsFile: string;
 let extractor: WuCompletionExtractor;
-// 外科式清理清单（不 rm 共享根目录，避免与 role-memory/transcript-archive 姊妹测试并发互删）
+// 清理清单（#135 起根目录已 per-进程隔离，这里仍只删本文件写入的角色目录 / transcript 文件）
 let createdRoleIds: string[] = [];
 let createdWuIds: string[] = [];
 
@@ -99,7 +99,7 @@ afterEach(() => {
   delete process.env.STUDIO_DAILY_TOKEN_BUDGET;
   delete process.env.STUDIO_EVENTS_JSONL;
   fs.rmSync(tmpDir, { recursive: true, force: true });
-  // 只清理本文件写入的角色目录 / transcript 文件，不动共享根目录
+  // 只清理本文件写入的角色目录 / transcript 文件
   for (const rid of createdRoleIds) {
     fs.rmSync(path.join(ROLE_MEMORY_TEST_ROOT, rid), { recursive: true, force: true });
   }

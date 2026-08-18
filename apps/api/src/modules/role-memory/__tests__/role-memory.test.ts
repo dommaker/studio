@@ -12,9 +12,9 @@
  */
 import { describe, it, expect, afterEach } from 'vitest';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import {
+  roleMemoryRoot,
   roleMemoryDir,
   sanitizeRoleId,
   sanitizeTopicSlug,
@@ -23,8 +23,8 @@ import {
   type MemoryDraftEntry,
 } from '../role-memory.js';
 
-// 测试环境隔离目录（同 transcript-archive / studio-log-path 约定）：不写生产 ~/.studio
-const TEST_ROOT = path.join(os.tmpdir(), 'studio-test-role-memory');
+// 本测试进程的隔离根目录（os.tmpdir()/studio-test-role-memory/<per-进程子目录>，#135）：不写生产 ~/.studio
+const TEST_ROOT = roleMemoryRoot();
 
 /** 每用例唯一角色 id，防跨用例碰撞 */
 function freshRoleId(prefix = 'role'): string {
@@ -78,7 +78,7 @@ describe('roleMemoryDir（路径：生产经 studioPath，测试隔离）', () =
     });
   });
 
-  it('测试环境 → os.tmpdir()/studio-test-role-memory/<roleId>（隔离，不写生产路径）', () => {
+  it('测试环境 → os.tmpdir()/studio-test-role-memory/<per-进程子目录>/<roleId>（隔离，不写生产路径）', () => {
     expect(roleMemoryDir('r1', { VITEST: 'true' })).toBe(path.join(TEST_ROOT, 'r1'));
     expect(roleMemoryDir('r1', { NODE_ENV: 'test' })).toBe(path.join(TEST_ROOT, 'r1'));
   });

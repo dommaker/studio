@@ -9,11 +9,27 @@
  */
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 
 /** 是否测试环境（vitest 设置 VITEST=true；CI/脚本常用 NODE_ENV=test） */
 export function isTestEnv(env: NodeJS.ProcessEnv = process.env): boolean {
   return Boolean(env.VITEST) || env.NODE_ENV === 'test';
+}
+
+/**
+ * 本测试进程（模块实例）唯一 id：pid + uuid。
+ * vitest 并行下每个测试文件是独立 fork 进程/隔离模块图，本值 per 文件唯一（#135）。
+ */
+const TEST_RUN_ID = `${process.pid}-${randomUUID().slice(0, 8)}`;
+
+/**
+ * 测试隔离子根：os.tmpdir()/<name>/<TEST_RUN_ID>。
+ * 各并行测试文件各拿一份，afterEach/afterAll 整删自己那份不互踩（#135）；
+ * 生产路径不经过本函数。
+ */
+export function testTmpRoot(name: string): string {
+  return path.join(os.tmpdir(), name, TEST_RUN_ID);
 }
 
 /**
