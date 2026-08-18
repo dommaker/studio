@@ -14,6 +14,8 @@ const { mockDispatch } = vi.hoisted(() => ({ mockDispatch: vi.fn() }));
 
 vi.mock('../monitor/monitor-alerts.js', () => ({
   dispatchMonitorAlerts: mockDispatch,
+  // #220：scan 侧 dispatch 前过冷却；此处透传，冷却本体由 monitor-alert-cooldown.test.ts 覆盖
+  filterCooldownAlerts: (alerts: unknown[]) => alerts,
 }));
 
 import { scanStaleAgentInstances } from '../instance-timeout-scan';
@@ -75,6 +77,7 @@ describe('#179: agent-timeout-scan terminate 前 pid 复核', () => {
     expect(alerts).toHaveLength(1);
     expect(alerts[0].level).toBe('warning');
     expect(alerts[0].source).toBe('agent_timeout_scan');
+    expect(alerts[0].subject).toBe('inst-alive'); // #220：指纹主体 = 实例 id
   });
 
   it('心跳过期 + 无 pid → 照常 terminate（无复核依据，保持既有行为）', async () => {

@@ -75,4 +75,6 @@ export interface MonitorAlert {
   timestamp?: number;
   projectId?: string;
   relatedTaskIds?: string[];
+  /** #220：告警去重指纹主体（实例 id / 工具名）；缺省回退 relatedTaskIds[0]，再回退 source 单车道 */
+  subject?: string;
 }

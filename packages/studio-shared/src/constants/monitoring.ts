@@ -11,6 +11,11 @@ export const POOL_STAGNATION_CRIT_MS = 12 * 60 * 60 * 1000;
 export const REVIEW_STAGNATION_WARN_MS = 24 * 60 * 60 * 1000;
 export const REVIEW_STAGNATION_CRIT_MS = 72 * 60 * 60 * 1000;
 
+// 告警指纹冷却去重（#220，#218 决议）：同指纹 warning 4h / critical 1h 内只出声一次；惰性 GC 24h
+export const ALERT_COOLDOWN_WARN_MS = 4 * 60 * 60 * 1000;
+export const ALERT_COOLDOWN_CRIT_MS = 60 * 60 * 1000;
+export const ALERT_COOLDOWN_GC_MS = 24 * 60 * 60 * 1000;
+
 /** 相对时间：iso -> 「N 分钟/小时/天前」（#209 smell 3：MonitoringPage 与 NeedsAttentionSection 同源） */
 export function formatAge(iso?: string): string {
   if (!iso) return '时间未知';

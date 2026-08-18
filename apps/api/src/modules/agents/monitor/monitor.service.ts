@@ -87,14 +87,17 @@ export class MonitorService {
     // G31: Data lifecycle TTL — 每天 23:55 清理过期数据
     await this.dataLifecycle();
 
+    // #220：冷却过滤后再分发 —— 四出口（事件流/频道/Triage/KnowledgeBus）同压
+    const filtered = alerting.filterCooldownAlerts(alerts);
+
     // Log all alerts + emit warning/critical to studio events file
-    alerting.dispatchMonitorAlerts(alerts);
+    alerting.dispatchMonitorAlerts(filtered);
 
     // Phase 1 (FL-037): Escalate critical execution-level alerts to Triage
-    this.escalateToTriage(alerts);
+    this.escalateToTriage(filtered);
 
     // H3: Write patterns to KnowledgeBus (Monitor→Auditor/KK→Analyst)
-    alerting.recordAlertPatterns(alerts);
+    alerting.recordAlertPatterns(filtered);
   }
 
   // ── 探测（monitor-probes / monitor-system-probes）──

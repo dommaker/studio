@@ -88,6 +88,7 @@ export async function checkFailureTrend(_fileStore: FileStore): Promise<MonitorA
     alerts.push({
       source: 'failure_trend',
       level: 'warning',
+      subject: 'global', // #220：聚合单车道——relatedTaskIds 首位随 churn 轮换，不作指纹；与 critical 同 subject 升级才生效
       message: `最近 1 小时内有 ${failedCount} 次失败（WU 终态 ${wuFailed} + 失败步 ${stepFailed}）`,
       relatedTaskIds: [...failedWuIds].slice(0, 20),
     });
@@ -98,6 +99,7 @@ export async function checkFailureTrend(_fileStore: FileStore): Promise<MonitorA
     alerts.push({
       source: 'failure_trend',
       level: 'critical',
+      subject: 'global', // #220：与 warning 同车道
       message: `任务失败率 ${(failureRate * 100).toFixed(0)}%（${failedCount}/${sample}），需要关注`,
     });
   }
@@ -133,6 +135,7 @@ export async function checkPoolStagnation(fileStore: FileStore): Promise<Monitor
       alerts.push({
         source: 'pool_stagnation',
         level,
+        subject: label, // #220：桶级车道（指名/未指名不互吞）；oldest.id 随认领轮换，不作指纹
         message: `未认领池滞留：${label} WU 最老 ${oldest.id}${designated} 已滞留 ${hours}h（共 ${items.length} 条）`,
         relatedTaskIds: [oldest.id],
       });
@@ -162,6 +165,7 @@ export async function checkReviewStagnation(fileStore: FileStore): Promise<Monit
     alerts.push({
       source: 'review_stagnation',
       level,
+      subject: 'global', // #220：聚合单车道——oldest.id 随确认轮换，不作指纹
       message: `in_review 滞留：WU ${oldest.id} 待人工确认已 ${hours}h（共 ${inReview.length} 条）`,
       relatedTaskIds: [oldest.id],
     });
@@ -358,6 +362,7 @@ export async function checkToolPatterns(): Promise<MonitorAlert[]> {
         alerts.push({
           source: 'tool_error_rate',
           level: 'warning',
+          subject: toolName, // #220：指纹主体 = 工具名，不同工具互不吞并
           message: `Tool "${toolName}" error rate ${Math.round(errorRate * 100)}% (${stats.errorCalls}/${totalCalls} calls)`,
           timestamp: Date.now(),
         });
@@ -368,6 +373,7 @@ export async function checkToolPatterns(): Promise<MonitorAlert[]> {
         alerts.push({
           source: 'tool_zero_success',
           level: 'warning',
+          subject: toolName, // #220：指纹主体 = 工具名
           message: `Tool "${toolName}" has zero successful calls in ${totalCalls} attempts`,
           timestamp: Date.now(),
         });

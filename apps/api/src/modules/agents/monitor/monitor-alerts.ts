@@ -8,12 +8,70 @@
  *   - H3: 告警写入 KnowledgeBus pattern
  */
 
-import { logger } from '@dommaker/studio-shared';
+import { logger, ALERT_COOLDOWN_WARN_MS, ALERT_COOLDOWN_CRIT_MS, ALERT_COOLDOWN_GC_MS } from '@dommaker/studio-shared';
 import { knowledgeService } from '../../knowledge/knowledge-service.js';
 import { notifyAlert } from '../../../utils/notifier.js';
 import type { MonitorAlert } from '../types.js';
 import { triageService } from '../triage/triage.service.js';
 import { resolveStudioEventsFile, writeStudioEvent } from '../../../utils/studio-events.js';
+
+// ── 告警指纹冷却去重（#220，#218 决议）──
+// 进程内存态，不落盘：FileStore 故障本身是告警条件之一，落盘 = 循环依赖。
+// API 重启清零、活跃条件一次性补发一轮为已接受代价。
+
+export interface AlertCooldownEntry {
+  lastEmitAt: number;
+  lastLevel: MonitorAlert['level'];
+  lastSeenAt: number;
+}
+
+/** 冷却表：fingerprint → 条目。导出供测试 clear()/观察 */
+export const alertCooldownState = new Map<string, AlertCooldownEntry>();
+
+/**
+ * 指纹 = source + subject。回退链：subject → relatedTaskIds[0] → source 单车道
+ * （聚合探针 failure_trend/池滞留/in_review 滞留天然单车道）。
+ * message 文本含周期变量（分钟数/计数），不作指纹成分。
+ */
+export function alertFingerprint(alert: MonitorAlert): string {
+  return `${alert.source}:${alert.subject ?? alert.relatedTaskIds?.[0] ?? ''}`;
+}
+
+/**
+ * 冷却过滤器：同指纹 warning 4h / critical 1h 内只出声一次。
+ * 级别升级（上次非 critical 本轮 critical）无视冷却立即出声并重置计时；
+ * 同级内容漂移压掉；降级不动作（按当前级别冷却继续压）。
+ * 被压制条目打 debug 级日志（不进事件流）。惰性 GC：超 24h 未见的条目删除。
+ */
+export function filterCooldownAlerts(alerts: MonitorAlert[], now: number = Date.now()): MonitorAlert[] {
+  // 惰性 GC：超窗未见的条目删除（lastSeenAt 每轮刷新，持续出现的条目不 GC）
+  for (const [fp, entry] of alertCooldownState) {
+    if (now - entry.lastSeenAt > ALERT_COOLDOWN_GC_MS) alertCooldownState.delete(fp);
+  }
+  const out: MonitorAlert[] = [];
+  for (const alert of alerts) {
+    const fp = alertFingerprint(alert);
+    const entry = alertCooldownState.get(fp);
+    if (!entry) {
+      alertCooldownState.set(fp, { lastEmitAt: now, lastLevel: alert.level, lastSeenAt: now });
+      out.push(alert);
+      continue;
+    }
+    entry.lastSeenAt = now;
+    const upgraded = alert.level === 'critical' && entry.lastLevel !== 'critical';
+    const cooldownMs = alert.level === 'critical' ? ALERT_COOLDOWN_CRIT_MS : ALERT_COOLDOWN_WARN_MS;
+    if (!upgraded && now - entry.lastEmitAt < cooldownMs) {
+      logger.debug('[MonitorService] Alert suppressed by cooldown', {
+        fingerprint: fp, level: alert.level, source: alert.source,
+      });
+      continue;
+    }
+    entry.lastEmitAt = now;
+    entry.lastLevel = alert.level;
+    out.push(alert);
+  }
+  return out;
+}
 
 /**
  * D18 事件入口统一：事件文件 = ~/.studio/logs/studio-events.jsonl

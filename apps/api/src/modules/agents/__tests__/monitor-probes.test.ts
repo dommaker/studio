@@ -140,7 +140,8 @@ describe('checkFailureTrend（事件流，#181）', () => {
 
     const alerts = await checkFailureTrend(makeFileStore());
     expect(alerts).toHaveLength(1);
-    expect(alerts[0]).toMatchObject({ source: 'failure_trend', level: 'warning' });
+    // #220：聚合探针显式 subject 固定车道（relatedTaskIds 首位随 churn 轮换，不作指纹）
+    expect(alerts[0]).toMatchObject({ source: 'failure_trend', level: 'warning', subject: 'global' });
     expect(alerts[0].message).toContain('3');
     expect(alerts[0].relatedTaskIds).toEqual(expect.arrayContaining(['wu-a', 'wu-b', 'wu-c']));
   });
@@ -156,8 +157,9 @@ describe('checkFailureTrend（事件流，#181）', () => {
 
     const alerts = await checkFailureTrend(makeFileStore());
     expect(alerts).toHaveLength(2);
-    expect(alerts[0]).toMatchObject({ source: 'failure_trend', level: 'warning' });
-    expect(alerts[1]).toMatchObject({ source: 'failure_trend', level: 'critical' });
+    expect(alerts[0]).toMatchObject({ source: 'failure_trend', level: 'warning', subject: 'global' });
+    // #220：warning/critical 同 subject 同车道，升级重置计时逻辑才生效
+    expect(alerts[1]).toMatchObject({ source: 'failure_trend', level: 'critical', subject: 'global' });
     expect(alerts[1].message).toContain('80%');
   });
 
@@ -198,7 +200,7 @@ describe('checkPoolStagnation（#181）', () => {
     let fileStore = makeFileStore({ getIndex: vi.fn(async () => [mkUnassigned(3, 'wu-warn'), mkUnassigned(0.5, 'wu-fresh')]) });
     let alerts = await checkPoolStagnation(fileStore);
     expect(alerts).toHaveLength(1);
-    expect(alerts[0]).toMatchObject({ source: 'pool_stagnation', level: 'warning', relatedTaskIds: ['wu-warn'] });
+    expect(alerts[0]).toMatchObject({ source: 'pool_stagnation', level: 'warning', relatedTaskIds: ['wu-warn'], subject: '无人认领' });
     expect(alerts[0].message).toContain('无人认领');
 
     fileStore = makeFileStore({ getIndex: vi.fn(async () => [mkUnassigned(13, 'wu-crit')]) });
@@ -219,9 +221,9 @@ describe('checkPoolStagnation（#181）', () => {
     expect(alerts).toHaveLength(2);
     const pool = alerts.find(a => a.relatedTaskIds?.includes('wu-pool'));
     const designated = alerts.find(a => a.relatedTaskIds?.includes('wu-designated'));
-    expect(pool).toMatchObject({ level: 'warning' });
+    expect(pool).toMatchObject({ level: 'warning', subject: '无人认领' });
     expect(pool!.message).toContain('无人认领');
-    expect(designated).toMatchObject({ level: 'critical' });
+    expect(designated).toMatchObject({ level: 'critical', subject: '指名未认领' });
     expect(designated!.message).toContain('指名未认领');
     expect(designated!.message).toContain('profile-analyst');
   });
@@ -245,7 +247,7 @@ describe('checkReviewStagnation（#181）', () => {
     let fileStore = makeFileStore({ getIndex: vi.fn(async () => [mkInReview(25, 'wu-warn'), mkInReview(1, 'wu-fresh')]) });
     let alerts = await checkReviewStagnation(fileStore);
     expect(alerts).toHaveLength(1);
-    expect(alerts[0]).toMatchObject({ source: 'review_stagnation', level: 'warning', relatedTaskIds: ['wu-warn'] });
+    expect(alerts[0]).toMatchObject({ source: 'review_stagnation', level: 'warning', relatedTaskIds: ['wu-warn'], subject: 'global' });
 
     fileStore = makeFileStore({ getIndex: vi.fn(async () => [mkInReview(73, 'wu-crit')]) });
     alerts = await checkReviewStagnation(fileStore);
