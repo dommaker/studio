@@ -243,4 +243,43 @@ describe('WorkUnitDetailPage', () => {
     await screen.findByRole('button', { name: '关闭任务' });
     expect(screen.queryByRole('button', { name: '继续执行' })).toBeNull();
   });
+
+  it('#116：metadata.blockedBy/ac 非空 → 依赖清单（含各自状态与「找不到这张单」）+ 验收标准', async () => {
+    mockWuGet.mockImplementation((id: string) => {
+      if (id === 'wu-1') {
+        return Promise.resolve({
+          data: {
+            ...baseWu,
+            metadata: JSON.stringify({
+              title: '登录功能开发',
+              pmoId: 'proj-1',
+              blockedBy: ['wu-dep-1', 'wu-gone'],
+              ac: ['AC1 单测通过', 'AC2 类型检查零错误'],
+            }),
+          },
+        });
+      }
+      if (id === 'wu-dep-1') {
+        return Promise.resolve({ data: { id, status: 'done', scope: '依赖任务一', metadata: null } });
+      }
+      return Promise.reject(new Error('404'));
+    });
+    render(<WorkUnitDetailPage />);
+
+    // 依赖行：标题 + 跳详情页链接；done 依赖状态 chip（Header pill 之外新增一处）
+    const depLink = await screen.findByText('依赖任务一');
+    expect(depLink.closest('a')?.getAttribute('href')).toBe('/workunits/wu-dep-1');
+    expect(screen.getAllByText('已完成').length).toBeGreaterThanOrEqual(2);
+    // 缺失 id 保守按未了结展示
+    expect(screen.getByText('找不到这张单')).toBeDefined();
+    // ac 验收标准逐条展示
+    expect(screen.getByText('AC1 单测通过')).toBeDefined();
+    expect(screen.getByText('AC2 类型检查零错误')).toBeDefined();
+  });
+
+  it('#116：无 blockedBy / ac → 不渲染「依赖与验收」卡', async () => {
+    render(<WorkUnitDetailPage />);
+    await screen.findByText('登录功能开发');
+    expect(screen.queryByText('依赖与验收')).toBeNull();
+  });
 });

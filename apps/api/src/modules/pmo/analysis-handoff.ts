@@ -19,7 +19,7 @@
  * 事件订阅语义与 ReviewDispatcher 一致（eventBus 进程内，best-effort）。
  */
 
-import { eventBus, logger, type FileStore } from '@dommaker/studio-shared';
+import { eventBus, logger, createSettledTracker, type FileStore } from '@dommaker/studio-shared';
 import { WorkUnitService, ANALYSIS_TASKS_MAX, type WorkUnitData, type WorkUnitMetadata } from '../workunit/workunit.service.js';
 import { parseWuMetadata } from '../workunit/wu-metadata.js';
 import { ChannelMessageService } from '../channels/channel-message.service.js';
@@ -28,6 +28,8 @@ import { dispatchMonitorAlerts } from '../agents/monitor/monitor-alerts.js';
 export class AnalysisHandoff {
   private subscribed = false;
   private messageService: ChannelMessageService;
+  /** #228 测试可观测性（纯增量）：在途事件链登记，见 waitForSettled */
+  private readonly settled = createSettledTracker();
 
   constructor(
     private fileStore: FileStore,
@@ -42,19 +44,31 @@ export class AnalysisHandoff {
     if (this.subscribed) return;
     this.subscribed = true;
 
-    eventBus.subscribe('workunit.status_changed', async (payload: { workunit: WorkUnitData }) => {
-      const wu = payload.workunit;
-      if (!wu || wu.type !== 'analysis') return;
-      if (wu.status === 'in_review') {
-        await this.handleInReview(wu).catch(err =>
-          logger.warn('[AnalysisHandoff] handleInReview failed', { wuId: wu.id, error: String(err) }),
-        );
-      } else if (wu.status === 'done') {
-        await this.spawnTasks(wu).catch(err =>
-          logger.warn('[AnalysisHandoff] spawnTasks failed', { wuId: wu.id, error: String(err) }),
-        );
-      }
+    eventBus.subscribe('workunit.status_changed', (payload: { workunit: WorkUnitData }) => {
+      this.settled.track(this.handleStatusChanged(payload.workunit));
     });
+  }
+
+  private async handleStatusChanged(wu: WorkUnitData): Promise<void> {
+    if (!wu || wu.type !== 'analysis') return;
+    if (wu.status === 'in_review') {
+      await this.handleInReview(wu).catch(err =>
+        logger.warn('[AnalysisHandoff] handleInReview failed', { wuId: wu.id, error: String(err) }),
+      );
+    } else if (wu.status === 'done') {
+      await this.spawnTasks(wu).catch(err =>
+        logger.warn('[AnalysisHandoff] spawnTasks failed', { wuId: wu.id, error: String(err) }),
+      );
+    }
+  }
+
+  /**
+   * 等待本实例已触发的全部事件链落定（测试用确定性信号，替代盲等轮询）。
+   * publish 在 transitionStatus await 链内同步发射（eventBus emit 同步），故
+   * await 触发方返回时在途链必已登记。实现经 studio-shared createSettledTracker。
+   */
+  async waitForSettled(): Promise<void> {
+    await this.settled.waitForSettled();
   }
 
   private readMeta(wu: WorkUnitData): WorkUnitMetadata {

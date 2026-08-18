@@ -359,6 +359,47 @@ describe('B6: resolveRealUsage', () => {
       usage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, model: '' },
     } as unknown as ExecutionResult)).toBeNull();
   });
+
+  it('#134: opencode rawOutput 从 step_finish part.tokens 解析', () => {
+    const rawOutput = [
+      '{"type":"step_start","part":{"type":"step-start"}}',
+      '{"type":"step_finish","part":{"type":"step-finish","tokens":{"input":12073,"output":2,"reasoning":0,"cache":{"write":100,"read":5000}},"cost":0.005253495}}',
+    ].join('\n');
+    const real = resolveRealUsage({ rawOutput } as unknown as ExecutionResult, 'opencode');
+    expect(real).toEqual({
+      inputTokens: 12073,
+      outputTokens: 2,
+      cacheReadTokens: 5000,
+      cacheCreationTokens: 100,
+      billedTokens: 17175,
+      costUsd: 0.005253495,
+    });
+  });
+
+  it('#134: codex rawOutput 从 turn.completed usage 解析（input 归一化为非缓存口径）', () => {
+    const rawOutput = [
+      '{"type":"thread.started","thread_id":"t-1"}',
+      '{"type":"turn.completed","usage":{"input_tokens":13618,"cached_input_tokens":9728,"cache_write_input_tokens":0,"output_tokens":2}}',
+    ].join('\n');
+    const real = resolveRealUsage({ rawOutput } as unknown as ExecutionResult, 'codex');
+    expect(real).toEqual({
+      inputTokens: 3890, // 13618 含 cached 9728 子集，归一化防 billed 双计
+      outputTokens: 2,
+      cacheReadTokens: 9728,
+      cacheCreationTokens: 0,
+      billedTokens: 13620,
+    });
+  });
+
+  it('#134: kimi rawOutput 无 usage 出口 → null（诚实口径）', () => {
+    const rawOutput = '{"role":"meta","type":"system.version","version":"0.36.1"}\n{"role":"assistant","content":"OK"}';
+    expect(resolveRealUsage({ rawOutput } as unknown as ExecutionResult, 'kimi')).toBeNull();
+  });
+
+  it('#134: 缺省 provider=claude（既有行为不变）', () => {
+    const rawOutput = '{"type":"result","usage":{"input_tokens":10,"output_tokens":5}}';
+    expect(resolveRealUsage({ rawOutput } as unknown as ExecutionResult)!.inputTokens).toBe(10);
+  });
 });
 
 describe('B6: writeWorkunitTokenEvent 载荷', () => {
@@ -388,6 +429,16 @@ describe('B6: writeWorkunitTokenEvent 载荷', () => {
     expect(payload.executionSource).toBe('unavailable');
     expect(payload.totalTokens).toBe(600);
     expect(payload.billedTokens).toBeUndefined();
+  });
+
+  it('#134: provider 字段落盘（#120 按 provider 分桶的数据源）', async () => {
+    await writeWorkunitTokenEvent(eventsFile, {
+      workUnitId: 'wu-134', executionId: 'e-3', injectedTokens: 600,
+      executionTokens: 12075, inputTokens: 12073, outputTokens: 2,
+      billedTokens: 12075, provider: 'opencode',
+    });
+    const payload = JSON.parse(JSON.parse(fs.readFileSync(eventsFile, 'utf-8').trim()).payload);
+    expect(payload.provider).toBe('opencode');
   });
 });
 

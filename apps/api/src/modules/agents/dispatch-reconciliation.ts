@@ -42,15 +42,18 @@ export interface ReconciliationResult {
   review: { scanned: number; redispatched: number; gaveUp: number };
 }
 
-/** 结构化事件（studio-events.jsonl，带 level）+ #62 告警管线出口（告警频道 + Web 收件箱） */
-function emitReconcileAlert(
+/** 结构化事件（studio-events.jsonl，带 level）+ #62 告警管线出口（告警频道 + Web 收件箱）。
+ *  #228：事件落盘改为 await（原 fire-and-forget `void`——测试在 reconcile 返回后
+ *  即读事件文件，全量负载下落盘未完成致偶发断言红；writeStudioEvent 永不抛出，await 安全）。
+ *  告警管线仍为 fire-and-forget（频道不出声原则不变，投递链路有自己的容错）。 */
+async function emitReconcileAlert(
   type: 'analysis.respawned' | 'review.redispatched',
   source: MonitorAlertSource,
   level: 'warning' | 'critical',
   message: string,
   payload: Record<string, unknown>,
-): void {
-  void writeStudioEvent(type, payload, { source: 'dispatch-reconciliation', level });
+): Promise<void> {
+  await writeStudioEvent(type, payload, { source: 'dispatch-reconciliation', level });
   dispatchMonitorAlerts([{ source, level, message }]);
 }
 
@@ -108,14 +111,14 @@ async function reconcileAnalysisRespawns(
       };
       if (!healed && nextAttempts >= MAX_RECONCILE_ATTEMPTS) {
         result.analysis.gaveUp++;
-        emitReconcileAlert(
+        await emitReconcileAlert(
           'analysis.respawned', 'analysis_respawn', 'critical',
           `analysis WU ${wu.id} 派工断链对账补建连续 ${nextAttempts} 次失败（缺 ${missing.length} 项），已停跑，请人工介入`,
           payload,
         );
       } else {
         result.analysis.respawned++;
-        emitReconcileAlert(
+        await emitReconcileAlert(
           'analysis.respawned', 'analysis_respawn', 'warning',
           healed
             ? `analysis WU ${wu.id} 派工断链自愈：补建 ${r.createdIds.length} 项、认养 ${r.adoptedIds.length} 项（应建 ${missing.length} 项缺失）`
@@ -131,13 +134,13 @@ async function reconcileAnalysisRespawns(
       const payload = { wuId: wu.id, attempts: nextAttempts, outcome: 'failed', error: String(err) };
       if (nextAttempts >= MAX_RECONCILE_ATTEMPTS) {
         result.analysis.gaveUp++;
-        emitReconcileAlert(
+        await emitReconcileAlert(
           'analysis.respawned', 'analysis_respawn', 'critical',
           `analysis WU ${wu.id} 派工断链对账连续 ${nextAttempts} 次异常，已停跑，请人工介入`,
           payload,
         );
       } else {
-        emitReconcileAlert(
+        await emitReconcileAlert(
           'analysis.respawned', 'analysis_respawn', 'warning',
           `analysis WU ${wu.id} 派工断链对账异常（第 ${nextAttempts} 次）：${String(err).slice(0, 120)}`,
           payload,
@@ -180,7 +183,7 @@ async function reconcileReviewRedispatches(
       }
       if (attempts > 0) await clearAttempts(fileStore, wu.id, 'reviewRedispatchAttempts');
       result.review.redispatched++;
-      emitReconcileAlert(
+      await emitReconcileAlert(
         'review.redispatched', 'review_redispatch', 'warning',
         `父 WU ${wu.id} in_review 断链自愈：重跑评审派工，已建评审子 WU ${child.id}`,
         { parentId: wu.id, childId: child.id, attempts: 0, outcome: 'redispatched' },
@@ -192,13 +195,13 @@ async function reconcileReviewRedispatches(
       const payload = { parentId: wu.id, attempts: nextAttempts, outcome: 'failed', error: String(err) };
       if (nextAttempts >= MAX_RECONCILE_ATTEMPTS) {
         result.review.gaveUp++;
-        emitReconcileAlert(
+        await emitReconcileAlert(
           'review.redispatched', 'review_redispatch', 'critical',
           `父 WU ${wu.id} review 断链重跑连续 ${nextAttempts} 次失败，已停跑，请人工介入`,
           payload,
         );
       } else {
-        emitReconcileAlert(
+        await emitReconcileAlert(
           'review.redispatched', 'review_redispatch', 'warning',
           `父 WU ${wu.id} review 断链重跑失败（第 ${nextAttempts} 次）：${String(err).slice(0, 120)}`,
           payload,

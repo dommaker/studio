@@ -271,6 +271,7 @@ export async function executeSessionLoop(state: RunnerExecutionState, task: Agen
           agentRole: 'executor',
           stage: task.parameters?.stage as string,
           promptSize: prompt.length,
+          provider, // #134: usage 提取按 provider 分流
         });
 
         // Accumulate tokens across sessions for summary

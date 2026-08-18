@@ -19,6 +19,8 @@ import { SelfReviewBadge } from '../components/workunit/SelfReviewBadge';
 import { TreeTokenDrawer } from '../components/workunit/TreeTokenDrawer';
 import { EvidenceLedger } from '../components/workunit/EvidenceLedger';
 import { OpportunitiesPanel } from '../components/workunit/OpportunitiesPanel';
+import { BlockedByList } from '../components/workunit/BlockedByList';
+import { parseBlockedBy } from '../components/pmo/mapUtils';
 
 const statusLabels: Record<string, string> = {
   unassigned: '待分配',
@@ -140,6 +142,11 @@ export function WorkUnitDetailPage() {
   };
 
   const meta = wu ? parseMeta(wu.metadata) : {};
+  // #116：依赖（blockedBy）与验收标准（ac）展示数据
+  const blockedByIds = wu ? parseBlockedBy(wu.metadata) : [];
+  const acList = Array.isArray(meta.ac)
+    ? (meta.ac as unknown[]).filter((x): x is string => typeof x === 'string' && x.length > 0)
+    : [];
   // #163 T8-E2: 采纳/忽略机会后重拉 WU（走与首屏相同的 workunitApi.get 路径，只刷新 wu 本体）
   const reloadWu = () => {
     if (!id) return;
@@ -265,6 +272,22 @@ export function WorkUnitDetailPage() {
                   opportunities={meta.opportunities as Opportunity[]}
                   onChanged={reloadWu}
                 />
+              )}
+
+              {/* #116：依赖与验收（blockedBy 依赖清单含各自状态 + ac 验收标准；两者皆无则不渲染） */}
+              {(blockedByIds.length > 0 || acList.length > 0) && (
+                <div className="card mt-4 p-3">
+                  <h3 className="text-sm font-medium u-text-2 mb-2">依赖与验收</h3>
+                  <BlockedByList metadata={wu.metadata} />
+                  {acList.length > 0 && (
+                    <div className={blockedByIds.length > 0 ? 'mt-2' : ''}>
+                      <span className="text-xs u-text-2">验收标准（{acList.length}）</span>
+                      <ul className="mt-1 space-y-1 text-xs u-text-3 list-disc pl-4">
+                        {acList.map((ac, i) => <li key={i}>{ac}</li>)}
+                      </ul>
+                    </div>
+                  )}
+                </div>
               )}
 
               {/* F6 证据台账：L1 自动验证 / L2 Agent 评审 / L3 人工验收（共享 EvidenceLedger，数据路径同 WorkUnitDrawer） */}

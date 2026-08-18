@@ -929,7 +929,8 @@ export class AgentLoop {
     // M2 成本红线度量 + B6 真实 token 记账（2026-08-03 token-burn issue P1-2）：
     // 成功与失败执行都记 workunit:tokens（失败照样烧 token）。fire-and-forget，绝不影响任务流程。
     const recordTokenEvent = (res: ExecutionResult): RealUsage | null => {
-      const real = resolveRealUsage(res);
+      // #134: usage 解析按 provider 分流（opencode/codex 事件形态与 claude 不同）
+      const real = resolveRealUsage(res, taskProvider);
       void writeWorkunitTokenEvent(studioEventsJsonlPath(), {
         workUnitId: wu.id,
         executionId: task.executionId,
@@ -947,6 +948,8 @@ export class AgentLoop {
         } : {}),
         // B6: 触发器来源落盘（按触发器聚合的输入）
         ...(typeof metadata.triggerId === 'string' && metadata.triggerId ? { triggerId: metadata.triggerId } : {}),
+        // #134: provider 落盘（#120 按 provider 分桶的数据源）
+        provider: taskProvider,
       }).catch(() => {});
       return real;
     };
