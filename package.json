@@ -33,7 +33,6 @@
     "=== 工具脚本 ===": "",
     "tools:health": "./scripts/tools/health-check.sh",
     "tools:status": "./scripts/tools/status.sh",
-    "tools:validate": "./scripts/tools/validate-env.sh",
     "typecheck": "node bin/tsc-gate.js --check --baseline .tsc-baseline.json --packages apps/api,apps/web,packages/studio-shared,packages/studio-agent",
     "cleanup:data": "npx tsx scripts/cleanup-runtime-data.ts",
     "harness:coverage": "npx tsx scripts/tools/harness-coverage.ts",
