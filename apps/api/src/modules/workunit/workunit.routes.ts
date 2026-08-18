@@ -536,9 +536,20 @@ router.post('/:id/close', requireAuth(), requireNotGuest(), async (req: Request,
   }
 });
 
-/** POST /:id/status — transition WorkUnit status (state machine) */
+/**
+ * POST /:id/status — transition WorkUnit status (state machine)
+ * #237：同 review 系端点的 human-only 约定（A2A §4.4-2）——agent 身份调用一律 403。
+ * agent 可经此端点直推 in_review→done 绕过评审链且不落 attestation 台账（只有
+ * reviewPassed/reviewRejected 落账），故收口。agent 内部合法迁移走服务层
+ * transitionStatus，不经 REST，不受影响。
+ */
 router.post('/:id/status', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
+    if (resolveCallerAuthorType(req) === 'agent') {
+      return res.status(403).json({
+        error: { code: 'FORBIDDEN', message: 'Status transitions are human-only (authorType=agent rejected)' },
+      });
+    }
     const { status } = req.body;
     if (!status || typeof status !== 'string') {
       return res.status(400).json({

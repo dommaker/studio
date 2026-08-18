@@ -5,15 +5,17 @@ import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
 import express from 'express';
 import type { Server } from 'node:http';
 
-const { mockReviewPassed, mockReviewRejected } = vi.hoisted(() => ({
+const { mockReviewPassed, mockReviewRejected, mockTransitionStatus } = vi.hoisted(() => ({
   mockReviewPassed: vi.fn(),
   mockReviewRejected: vi.fn(),
+  mockTransitionStatus: vi.fn(),
 }));
 
 vi.mock('../workunit.service.js', () => ({
   WorkUnitService: class {
     reviewPassed = mockReviewPassed;
     reviewRejected = mockReviewRejected;
+    transitionStatus = mockTransitionStatus;
   },
 }));
 
@@ -106,5 +108,42 @@ describe('review API authorType 校验（A2A §4.4）', () => {
       kind: 'human-confirm',
       by: expect.any(String),
     }));
+  });
+
+  // #237：/status 同 human-only 约定 —— agent 一律 403（含 in_review→done 与非终态迁移），
+  // human/缺省放行。agent 内部合法迁移走服务层 transitionStatus，不经 REST。
+  it('status：body authorType=agent → 403（终态与非终态均拦），service 未被调用', async () => {
+    mockTransitionStatus.mockClear();
+    const toDone = await post('/wu-1/status', { body: { authorType: 'agent', status: 'done' } });
+    expect(toDone.status).toBe(403);
+    const json = await toDone.json() as { error: { code: string } };
+    expect(json.error.code).toBe('FORBIDDEN');
+
+    const toBlocked = await post('/wu-1/status', { body: { authorType: 'agent', status: 'blocked' } });
+    expect(toBlocked.status).toBe(403);
+    expect(mockTransitionStatus).not.toHaveBeenCalled();
+  });
+
+  it('status：x-author-type: agent header → 403', async () => {
+    mockTransitionStatus.mockClear();
+    const res = await post('/wu-1/status', {
+      headers: { 'x-author-type': 'agent' },
+      body: { status: 'done' },
+    });
+    expect(res.status).toBe(403);
+    expect(mockTransitionStatus).not.toHaveBeenCalled();
+  });
+
+  it('status：authorType=human / 缺省 → 正常迁移', async () => {
+    mockTransitionStatus.mockClear();
+    mockTransitionStatus.mockResolvedValue({ id: 'wu-1', status: 'unassigned' });
+
+    const human = await post('/wu-1/status', { body: { authorType: 'human', status: 'unassigned' } });
+    expect(human.status).toBe(200);
+
+    const fallback = await post('/wu-1/status', { body: { status: 'unassigned' } });
+    expect(fallback.status).toBe(200);
+    expect(mockTransitionStatus).toHaveBeenCalledTimes(2);
+    expect(mockTransitionStatus).toHaveBeenCalledWith('wu-1', 'unassigned');
   });
 });
