@@ -10,6 +10,7 @@ import express from 'express';
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import fs from 'node:fs';
+import path from 'node:path';
 
 import { roleMemoryRoot, roleMemoryStore } from '../role-memory.js';
 
