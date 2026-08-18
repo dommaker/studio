@@ -1,0 +1,37 @@
+{
+  "skill_name": "arch-review-skill",
+  "evals": [
+    {
+      "id": 1,
+      "eval_name": "extract-and-trace",
+      "prompt": "配合 quality-loop 执行架构文档 review。读取 evals/files/mock-arch.md 作为架构文档，读取 ~/.studio/knowledge/arch-patterns/ 下的 pattern 文件获取质量标准。执行 DomainSkill contract 的完整 6 步循环（define→trace→diagnose→fix→verify→converge）。",
+      "expected_output": "从 mock 文档提取 3 个概念，用 pattern 文件的 required 标准作为维度，产出 trace 矩阵（3 concepts × 4 required dimensions = 12 cells）。识别出缺事件和缺验证的 P0 gap，修复后收敛。",
+      "files": ["evals/files/mock-arch.md"],
+      "expectations": [
+        "define 步骤读取了 ~/.studio/knowledge/arch-patterns/ 下的 pattern 文件",
+        "define 步骤从 mock 文档提取了 3 个概念作为 units",
+        "dimensions 来自 pattern 文件的 [required] 标准，不是硬编码",
+        "trace 矩阵覆盖了所有 unit × dimension 组合",
+        "每个 trace 结果有 status + evidence",
+        "diagnose 将 required 维度的 fail 分类为 P0",
+        "fix 步骤有具体的修复动作和模板",
+        "verify 步骤重跑了修复涉及的 unit×dimension",
+        "converge 步骤给出了收敛判定"
+      ]
+    },
+    {
+      "id": 2,
+      "eval_name": "pattern-change-adaptation",
+      "prompt": "测试 pattern 变更后的适配能力。假设 concept.md 新增了 '### 指标 [required]' 维度（可量化的健康度量）。读取 evals/files/mock-arch.md，执行 quality loop。检查新增维度是否被自动纳入检查。",
+      "expected_output": "define 步骤应从 pattern 文件提取维度时包含新增的'指标'维度。trace 矩阵应包含该维度列。大部分概念的'指标'维度应为 fail（mock 文档未定义指标），diagnose 应将其分类为 P0（因为是 required）。",
+      "files": ["evals/files/mock-arch.md"],
+      "expectations": [
+        "define 步骤包含'指标'维度（来自 pattern 变更）",
+        "trace 矩阵覆盖了'指标'维度",
+        "trace 结果中'指标'维度大部分为 fail 或 warn",
+        "diagnose 将 required 维度的 fail 分类为 P0",
+        "skill 代码/指令无需修改即可适配新维度"
+      ]
+    }
+  ]
+}

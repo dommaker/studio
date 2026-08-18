@@ -1,0 +1,23 @@
+[
+  {"query": "帮我审查一下 knowledge 目录下的知识条目质量", "should_trigger": true},
+  {"query": "knowledge quality review，看看有没有语义重复的条目", "should_trigger": true},
+  {"query": "检查一下知识库里哪些条目已经过时了，代码引用都失效了", "should_trigger": true},
+  {"query": "帮我评估 knowledge 目录里各条目的内容价值，哪些是真正的知识哪些是事件噪音", "should_trigger": true},
+  {"query": "knowledge 里有没有互相矛盾的条目", "should_trigger": true},
+  {"query": "做一次知识条目的语义审计，重点看 pitfall 和 decision 类型的内容完整性", "should_trigger": true},
+  {"query": "帮我看看 guideline 类型的条目，有没有缺少反例或者适用场景的", "should_trigger": true},
+  {"query": "knowledge base audit for semantic duplicates and stale references", "should_trigger": true},
+  {"query": "检查 architecture 类型的知识条目，看看设计权衡写清楚了没有", "should_trigger": true},
+  {"query": "帮我做一次全面的知识质量检查，覆盖 D1-D6 所有维度", "should_trigger": true},
+
+  {"query": "往 knowledge 里添加一条新的 pitfall 条目", "should_trigger": false},
+  {"query": "读一下 knowledge/architecture-knowledge-engine-ops-gap.md 讲了什么", "should_trigger": false},
+  {"query": "运行 harness knowledge audit 做格式检查", "should_trigger": false},
+  {"query": "帮我把 knowledge 目录的索引更新一下", "should_trigger": false},
+  {"query": "解释一下 knowledge entry 的 frontmatter 各字段是什么意思", "should_trigger": false},
+  {"query": "帮我实现 knowledge bus 的搜索功能", "should_trigger": false},
+  {"query": "写一篇关于知识管理最佳实践的新文档", "should_trigger": false},
+  {"query": "把 knowledge 里的条目按 type 分类统计一下", "should_trigger": false},
+  {"query": "帮我修改某条知识条目的 maturity 级别", "should_trigger": false},
+  {"query": "分析一下为什么知识飞轮的上次沉淀失败了", "should_trigger": false}
+]

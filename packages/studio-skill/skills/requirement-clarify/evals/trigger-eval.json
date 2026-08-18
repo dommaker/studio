@@ -1,0 +1,18 @@
+[
+  {"query": "这个需求很模糊，帮我做多轮澄清", "should_trigger": true},
+  {"query": "有设计空间，帮我做个方案对比", "should_trigger": true},
+  {"query": "帮我做详细设计和风险评估", "should_trigger": true},
+  {"query": "spec 落业务仓前要过就绪度质量门", "should_trigger": true},
+  {"query": "每轮给我 1-3 个关键问题和建议答案", "should_trigger": true},
+  {"query": "需求澄清后路由拆单", "should_trigger": true},
+  {"query": "AC 定义和风险评估还没做", "should_trigger": true},
+
+  {"query": "拆任务，给出每张票的 AC 和阻塞关系", "should_trigger": false},
+  {"query": "按工单 AC 写 FAIL 测试再实现", "should_trigger": false},
+  {"query": "查一下官方文档，调研这个 API", "should_trigger": false},
+  {"query": "做个一次性原型验证状态模型", "should_trigger": false},
+  {"query": "审查代码质量和安全性", "should_trigger": false},
+  {"query": "把调研结论沉淀进 CONTEXT.md", "should_trigger": false},
+  {"query": "并行执行这些独立任务", "should_trigger": false},
+  {"query": "更新 roadmap 和文档状态", "should_trigger": false}
+]

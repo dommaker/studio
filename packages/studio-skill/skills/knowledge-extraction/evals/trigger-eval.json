@@ -1,0 +1,22 @@
+[
+  {"query": "刚才调试了两个小时发现是 DATABASE_URL 从 CWD 解析的问题，帮我记下来别让下次再踩坑", "should_trigger": true},
+  {"query": "这次我们选了 Prisma 而不是 Drizzle，主要是因为 type safety 和 migration 工具链更成熟，把这个决策记一下", "should_trigger": true},
+  {"query": "沉淀一下这次 session 的知识，我觉得有几个值得记录的地方", "should_trigger": true},
+  {"query": "我刚发现所有 Agent 返回错误时都应该用统一的 Result 类型包装，这个模式以后都用，帮我记为 guideline", "should_trigger": true},
+  {"query": "这次部署失败的根因是 PM2 的 restart 策略配置问题，解法是设置 max_restarts=0 然后用 systemd 管理，提取这条 pitfall", "should_trigger": true},
+  {"query": "我们刚才讨论了三种缓存策略最后选了 Redis LRU + TTL 混合方案，把这个架构决策写进知识库", "should_trigger": true},
+  {"query": "从今天这个对话里提取出所有值得复用的知识", "should_trigger": true},
+  {"query": "刚才修的这个 race condition 很典型，多个 Agent 同时写同一个文件导致的，以后要加文件锁，记录一下", "should_trigger": true},
+  {"query": "我建立了一个新的代码审查流程：先跑 lint，再 type check，最后人工 review。把这个 process 沉淀下来", "should_trigger": true},
+  {"query": "刚才发现 SQLite 不支持 ALTER TABLE DROP COLUMN 在旧版本，这是个常见坑，帮我记一下", "should_trigger": true},
+  {"query": "检查一下这条 guideline 条目的内容是不是过时了，引用还在不在", "should_trigger": false},
+  {"query": "运行 harness knowledge audit 看看有没有格式问题", "should_trigger": false},
+  {"query": "帮我创建一个新的 skill 用来做安全审计", "should_trigger": false},
+  {"query": "搜索知识库里关于 pipeline 的所有条目", "should_trigger": false},
+  {"query": "用 harness knowledge health 看看飞轮健康度", "should_trigger": false},
+  {"query": "帮我写一个 FL spec 文档，关于用户认证系统", "should_trigger": false},
+  {"query": "审查 SDD 三层文档的一致性，看 requirement 和 design 是否对齐", "should_trigger": false},
+  {"query": "部署完成了，没有遇到什么问题", "should_trigger": false},
+  {"query": "这条 architecture 条目的 tradeoff 分析写得好不好", "should_trigger": false},
+  {"query": "清理一下知识库里过时的内容", "should_trigger": false}
+]

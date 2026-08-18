@@ -1,0 +1,30 @@
+{
+  "skill_name": "tdd-implement",
+  "evals": [
+    {
+      "id": 1,
+      "eval_name": "isSimpleChange-total-lines-tdd",
+      "prompt": "按 SDD 实现 isSimpleChange 的总行数检查功能。AC：1) isSimpleChange 在 total changed lines > 20 时返回 false；2) 保留现有行为（单文件、纯增量、<=3 ACs）；3) 测试覆盖 <=20 行通过、>20 行失败、边界值 20。文件：apps/api/src/modules/agents/review-agent.service.ts（逻辑）+ apps/api/src/modules/agents/__tests__/review-agent-empty-diff.test.ts（测试）。",
+      "expected_output": "先写 FAIL 测试（RED），确认测试失败，再写最小实现（GREEN），测试全部通过。增量类型检查无错误。",
+      "files": [
+        "apps/api/src/modules/agents/review-agent.service.ts",
+        "apps/api/src/modules/agents/__tests__/review-agent-empty-diff.test.ts"
+      ],
+      "expectations": [
+        "先读现有测试结构，了解 mock 模式和测试风格",
+        "读取 SDD 后，为每个 AC 调用 TaskCreate（subject 含 AC 描述）",
+        "RED 阶段：写完 FAIL 测试后，调用 TaskUpdate(status=\"in_progress\")",
+        "GREEN 阶段：实现后，调用 TaskUpdate(status=\"completed\")",
+        "RED 阶段：为 AC1 写 FAIL 测试（totalLines > 20 返回 false）",
+        "RED 阶段：为 AC2 写测试（现有行为不变）",
+        "RED 阶段：为 AC3 写边界测试（totalLines = 20 通过，21 失败）",
+        "确认测试 FAIL（pnpm test 有 failures）",
+        "GREEN 阶段：在 isSimpleChange 中添加 totalLines 检查",
+        "确认测试 PASS（pnpm test 0 failures）",
+        "增量类型检查：只检查修改的文件",
+        "测试文件未被修改（只新增测试用例）",
+        "未添加测试未要求的功能"
+      ]
+    }
+  ]
+}
