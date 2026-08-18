@@ -70,7 +70,7 @@ if (verdict.status === 'approved') {
   console.log('  3. 通知相关人员开始开发');
   console.log('  4. 代码需带 @spec GEN-001 注释');
   console.log('\n开发完成后:');
-  console.log('  - 运行 pnpm spec:gate 检查');
+  console.log('  - 运行 npx harness spec 检查');
   console.log('  - 提交 PR');
   console.log('  - CI 自动验证');
 } else {
