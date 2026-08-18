@@ -70,11 +70,13 @@ describe('transcriptsDir / transcriptPath', () => {
     expect(dev).toBe(path.join('/tmp/dev-home', 'transcripts', 'wu-1.jsonl'));
   });
 
-  it('测试环境 → os.tmpdir()/studio-test-transcripts（隔离，不写生产路径）', () => {
+  it('测试环境 → os.tmpdir()/studio-test-transcripts/<per-进程子目录>（隔离，不写生产路径）', () => {
     expect(transcriptPath('wu-1', { VITEST: 'true' }))
-      .toBe(path.join(os.tmpdir(), 'studio-test-transcripts', 'wu-1.jsonl'));
+      .toBe(path.join(transcriptsDir({ VITEST: 'true' }), 'wu-1.jsonl'));
     expect(transcriptPath('wu-1', { NODE_ENV: 'test' }))
-      .toBe(path.join(os.tmpdir(), 'studio-test-transcripts', 'wu-1.jsonl'));
+      .toBe(path.join(transcriptsDir({ NODE_ENV: 'test' }), 'wu-1.jsonl'));
+    // per-进程子目录挂在约定根下（#135），不同进程互不相同
+    expect(transcriptsDir({ VITEST: 'true' }).startsWith(path.join(os.tmpdir(), 'studio-test-transcripts'))).toBe(true);
   });
 });
 

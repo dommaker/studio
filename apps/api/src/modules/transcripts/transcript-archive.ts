@@ -18,16 +18,17 @@
  *   - 保留策略：不主动 GC（后续由 ops 按需清理）
  *
  * 测试隔离：与 studio-log-path 同一约定 —— VITEST/NODE_ENV=test 时改写到
- * os.tmpdir()/studio-test-transcripts（文件名格式不变），防测试写生产 ~/.studio/transcripts
- * （agent-loop 集成测试会触发本写入，须隔离）。生产路径不变。
+ * os.tmpdir()/studio-test-transcripts/<per-进程子目录>（文件名格式不变），防测试写生产
+ * ~/.studio/transcripts（agent-loop 集成测试会触发本写入，须隔离）；per-进程子目录防
+ * vitest 并行测试文件互踩（#135）。生产路径不变。
  *
  * 不落 metadata、不建独立索引：路径由 workUnitId 确定性推导（transcriptPath 纯函数），
  * 无需在 WorkUnitMetadata 冗余存 archive 路径。
  */
-import * as os from 'node:os';
 import * as path from 'node:path';
 import { FileStore } from '@dommaker/studio-shared';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
+import { testTmpRoot } from '../../utils/studio-log-path.js';
 
 const store = new FileStore();
 
@@ -40,12 +41,12 @@ export function isTestEnv(env: NodeJS.ProcessEnv = process.env): boolean {
 }
 
 /**
- * 归档根目录：测试 → os.tmpdir()/studio-test-transcripts；生产 → studioPath('transcripts')
- * （经 studioDir() 读 STUDIO_HOME，dev/prod 隔离，禁硬编码 ~/.studio）。
+ * 归档根目录：测试 → os.tmpdir()/studio-test-transcripts/<per-进程子目录>（testTmpRoot，#135）；
+ * 生产 → studioPath('transcripts')（经 studioDir() 读 STUDIO_HOME，dev/prod 隔离，禁硬编码 ~/.studio）。
  */
 export function transcriptsDir(env: NodeJS.ProcessEnv = process.env): string {
   return isTestEnv(env)
-    ? path.join(os.tmpdir(), 'studio-test-transcripts')
+    ? testTmpRoot('studio-test-transcripts')
     : studioPath(TRANSCRIPTS_DIR);
 }
 

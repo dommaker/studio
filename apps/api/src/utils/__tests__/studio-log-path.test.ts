@@ -4,7 +4,7 @@
 import { describe, it, expect } from 'vitest';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { isTestEnv, resolveStudioLogsDir, resolveStudioLogFile } from '../studio-log-path.js';
+import { isTestEnv, resolveStudioLogsDir, resolveStudioLogFile, testTmpRoot } from '../studio-log-path.js';
 
 describe('isTestEnv', () => {
   it('VITEST 存在 → true', () => {
@@ -73,5 +73,18 @@ describe('当前 vitest 进程（VITEST 已设置）', () => {
     expect(process.env.VITEST).toBeTruthy();
     expect(resolveStudioLogsDir()).toBe(path.join(os.tmpdir(), 'studio-test-logs'));
     expect(resolveStudioLogsDir()).not.toContain('.studio' + path.sep + 'logs');
+  });
+});
+
+describe('testTmpRoot（#135 per-进程隔离子根）', () => {
+  it('os.tmpdir()/<name>/<pid>-<uuid8>，同进程内多次调用稳定', () => {
+    const root = testTmpRoot('studio-test-role-memory');
+    expect(root.startsWith(path.join(os.tmpdir(), 'studio-test-role-memory') + path.sep)).toBe(true);
+    expect(path.basename(root)).toMatch(new RegExp(`^${process.pid}-[0-9a-f]{8}$`));
+    expect(testTmpRoot('studio-test-role-memory')).toBe(root);
+  });
+
+  it('不同 name 各自独立子根', () => {
+    expect(testTmpRoot('a')).not.toBe(testTmpRoot('b'));
   });
 });

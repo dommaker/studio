@@ -22,15 +22,15 @@
  *
  * 路径：落盘经 studioPath()（读 STUDIO_HOME，dev/prod 隔离，禁硬编码 ~/.studio）。
  * 测试隔离与 studio-log-path 同约定：VITEST/NODE_ENV=test 时改写 os.tmpdir()/
- * studio-test-role-memory（全局设 STUDIO_HOME 会破坏既有测试，故不改写 env 用 tmpdir）。
+ * studio-test-role-memory/<per-进程子目录>（全局设 STUDIO_HOME 会破坏既有测试，故不改写
+ * env 用 tmpdir；per-进程子目录防 vitest 并行测试文件整删互踩，#135）。
  */
 import fs from 'node:fs';
-import * as os from 'node:os';
 import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { FileStore, parseFrontmatter, serializeFrontmatter } from '@dommaker/studio-shared';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
-import { isTestEnv } from '../../utils/studio-log-path.js';
+import { isTestEnv, testTmpRoot } from '../../utils/studio-log-path.js';
 
 const store = new FileStore();
 
@@ -52,12 +52,12 @@ export type MemoryReview = 'auto' | 'manual';
 // ─── 路径 ───
 
 /**
- * 记忆根目录：测试 → os.tmpdir()/studio-test-role-memory；生产 → studioPath('memory')。
- * （经 studioDir() 读 STUDIO_HOME，dev/prod 隔离，禁硬编码 ~/.studio。）
+ * 记忆根目录：测试 → os.tmpdir()/studio-test-role-memory/<per-进程子目录>（testTmpRoot，#135）；
+ * 生产 → studioPath('memory')（经 studioDir() 读 STUDIO_HOME，dev/prod 隔离，禁硬编码 ~/.studio）。
  */
 export function roleMemoryRoot(env: NodeJS.ProcessEnv = process.env): string {
   return isTestEnv(env)
-    ? path.join(os.tmpdir(), 'studio-test-role-memory')
+    ? testTmpRoot('studio-test-role-memory')
     : studioPath(ROLE_MEMORY_DIR);
 }
 
