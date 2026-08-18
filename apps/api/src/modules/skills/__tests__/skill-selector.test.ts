@@ -25,7 +25,6 @@ const SKILLS: SkillEntry[] = [
   { name: 'knowledge-extraction', path: 'knowledge-extraction/SKILL.md', description: '知识提取、从事件提取可复用知识' },
   { name: 'knowledge-synthesis-skill', path: 'knowledge-synthesis-skill/SKILL.md', description: '知识综合、跨时间窗口模式识别' },
   { name: 'knowledge-quality-skill', path: 'knowledge-quality-skill/SKILL.md', description: '知识库健康度、语义层审计、知识质量审查' },
-  { name: 'doc-manager-skill', path: 'doc-manager-skill/SKILL.md', description: '文档管理、保存进度、创建 spec、更新 roadmap' },
 ];
 
 describe('skill-selector', () => {
@@ -68,11 +67,6 @@ describe('skill-selector', () => {
     it('"知识库健康度" → knowledge-quality-skill', () => {
       const result = selectSkills('检查知识库健康度', SKILLS);
       expect(result.map(s => s.name)).toContain('knowledge-quality-skill');
-    });
-
-    it('"更新 roadmap" → doc-manager-skill', () => {
-      const result = selectSkills('更新 roadmap 和 spec', SKILLS);
-      expect(result.map(s => s.name)).toContain('doc-manager-skill');
     });
 
     it('matches multiple skills for composite scope', () => {

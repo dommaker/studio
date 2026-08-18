@@ -34,9 +34,9 @@ let channelId: string;
 let authToken: string;
 
 // 集成测试: 依赖运行中的 API 服务器 + Prisma 数据库。
-// CI 中默认不启动 API 服务器,检测到服务器不可用时自动 skip。
-// 本地或 e2e 环境启动服务器后自动运行。
-describe.skipIf(!serverAvailable)('Channel API', () => {
+// #219 活端口门禁：默认 skip，显式 STUDIO_E2E_LIVE=1 且服务器可用才跑。
+const LIVE = process.env.STUDIO_E2E_LIVE === '1';
+describe.skipIf(!LIVE || !serverAvailable)('Channel API', () => {
   beforeAll(async () => {
     // Register a non-guest test user for auth-required endpoints (requireNotGuest)
     const testEmail = `test-channel-api-${Date.now()}@test.studio`;

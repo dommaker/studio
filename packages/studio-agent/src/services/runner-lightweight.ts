@@ -155,6 +155,7 @@ export async function executeLightweightSession(state: RunnerExecutionState, tas
         sessionMs,
         agentRole,
         promptSize: task.prompt.length,
+        provider, // #134: usage 提取按 provider 分流
       });
 
       if (isError) {

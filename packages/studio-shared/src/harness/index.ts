@@ -15,6 +15,10 @@ export type { AgentRole, FormatConstraintsOptions } from './prompt-injection';
 export { parseSessionMetrics } from './session-metrics';
 export type { SessionMetrics } from './session-metrics';
 
+// Per-provider usage 提取（#134：opencode/codex 分流，kimi 无出口 → null）
+export { extractProviderUsage } from './provider-usage';
+export type { ProviderUsage } from './provider-usage';
+
 // Harness 运行时 & Hooks（Phase 2: 迁移到新 hooks 管线）
 export { bootstrapHarness, getHarness, getPipeline, isHarnessInitialized } from './runtime/bootstrap';
 export type { HarnessBootstrap } from '@dommaker/harness';

@@ -19,6 +19,7 @@ const MANAGED_KEYS = ['JWT_SECRET', 'ENCRYPTION_KEY', 'DISCORD_DAILY_CHANNEL'];
 
 let tmpHome: string;
 let prevHome: string | undefined;
+let prevStudioHome: string | undefined;
 let prevEnv: Record<string, string | undefined>;
 let logs: string[];
 let errs: string[];
@@ -30,6 +31,9 @@ beforeAll(() => {
   tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'studio-cli-config-'));
   prevHome = process.env.HOME;
   process.env.HOME = tmpHome;
+  // #219：studioPath() 的 STUDIO_HOME 优先于 $HOME，钉到本测试的临时 home。
+  prevStudioHome = process.env.STUDIO_HOME;
+  process.env.STUDIO_HOME = path.join(tmpHome, '.studio');
   prevEnv = Object.fromEntries(MANAGED_KEYS.map(k => [k, process.env[k]]));
   for (const k of MANAGED_KEYS) delete process.env[k];
 });
@@ -37,6 +41,8 @@ beforeAll(() => {
 afterAll(() => {
   if (prevHome === undefined) delete process.env.HOME;
   else process.env.HOME = prevHome;
+  if (prevStudioHome === undefined) delete process.env.STUDIO_HOME;
+  else process.env.STUDIO_HOME = prevStudioHome;
   for (const k of MANAGED_KEYS) {
     if (prevEnv[k] === undefined) delete process.env[k];
     else process.env[k] = prevEnv[k];

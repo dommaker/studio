@@ -438,6 +438,36 @@ describe('FileStoreWorkUnitBase（直接单元测试）', () => {
       expect(JSON.parse(wu1.metadata!).count).toBe(10);
       expect(index.filter(s => s.id.startsWith('other-'))).toHaveLength(5);
     });
+
+    it('缺省 bump updatedAt（既有语义不变）', async () => {
+      const staleIso = new Date(Date.now() - 72 * 60 * 60 * 1000).toISOString();
+      await seedWu(makeWuSnapshot('wu1', { updatedAt: staleIso }));
+
+      const updated = await store.updateMetadata('wu1', cur => ({ ...cur, tag: 'x' }));
+
+      expect(updated!.updatedAt).not.toBe(staleIso);
+      const [wu] = await store.getIndex();
+      expect(wu.updatedAt).not.toBe(staleIso);
+    });
+
+    // #221（#214 决议）：认领陈旧守卫的标记写不能刷新 updatedAt——否则守卫自己复活僵尸
+    it('touchUpdatedAt:false 保留 updatedAt（标记写不复活沉睡 WU）', async () => {
+      const staleIso = new Date(Date.now() - 72 * 60 * 60 * 1000).toISOString();
+      await seedWu(makeWuSnapshot('wu1', { updatedAt: staleIso }));
+
+      const updated = await store.updateMetadata(
+        'wu1',
+        cur => ({ ...cur, staleGuardBlockedAt: staleIso }),
+        { touchUpdatedAt: false },
+      );
+
+      expect(updated!.updatedAt).toBe(staleIso);
+      expect(JSON.parse(updated!.metadata!).staleGuardBlockedAt).toBe(staleIso);
+      // 索引落盘值同样保留
+      const [wu] = await store.getIndex();
+      expect(wu.updatedAt).toBe(staleIso);
+      expect(JSON.parse(wu.metadata!).staleGuardBlockedAt).toBe(staleIso);
+    });
   });
 
   // ═══ commitSnapshot / commitRemoval（#170 / 决策 #65-3：锁内成对写）═══

@@ -28,7 +28,12 @@ const mockFs = vi.mocked(fs);
 const fsStore = (fs as any).__store;
 const fsReset = (fs as any).__reset;
 
-const DATA_FILE = require('path').join(require('os').homedir(), '.studio', 'eval-cases.json');
+// #219：SUT 的 DATA_DIR = studioDir() 在 import 期冻结，STUDIO_HOME 优先于 os.homedir()；
+// setup 已把 STUDIO_HOME 钉到进程级隔离根，这里用同一优先级算 fs-mock 的 key。
+const DATA_FILE = require('path').join(
+  process.env.STUDIO_HOME || require('path').join(require('os').homedir(), '.studio'),
+  'eval-cases.json',
+);
 
 beforeEach(() => {
   vi.clearAllMocks();

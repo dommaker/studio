@@ -66,10 +66,11 @@ export const WAITING_QUESTION_REPLAY_MAX_CHARS = 300;
 /**
  * #119：契约段按 WU type 的产出格式 + 最小模板（内容定稿随 #118 续烤迭代，先落最简模板）。
  * review → REVIEW_RESULT 协议行；implement → 测试先行 + Phase commit 格式；
- * decision（决策单）→ 结论摘要格式；analysis → research/prototype 产出载体（T3/#125）。
+ * decision（决策单）→ 结论摘要格式；analysis → research/prototype 产出载体（T3/#125）
+ * + bug 路由规则与升级触发器（#121）；bug → 复现测试先行 + 防回归测试随修复同 commit（#121）。
  * #163（T8-E2）：analysis + metadata.inspection===true → 巡检契约（INSPECTION_CONTRACT，
  * 优先级高于 analysis 通用模板）。
- * 未列出的 type（task/feature/bug/spec 等）→ 空段（不注入）。
+ * 未列出的 type（task/feature/spec 等）→ 空段（不注入）。
  */
 export const CONTRACT_TEMPLATES: Record<string, string> = {
   review: [
@@ -88,6 +89,13 @@ export const CONTRACT_TEMPLATES: Record<string, string> = {
     '方法论二选一（详见 skills 段 research / prototype 全文）：',
     'research → 调研报告落业务仓 .studio/research/，并在来源工单回挂报告链接。',
     'prototype → 一次性代码落 prototype/<name> 分支（不合并、不进评审），结论（回答了什么问题）记录回工单。',
+    'bug 路由（#121）：bug 默认快速路（不开图不写成文单），落任务单走「诊断→复现→修复→防回归」（diagnosing-bugs）。',
+    '升级触发器：根因在需求/设计层 → 转决策单或开图；诊断事实（复现命令/已排除假设/定位结论）随票携带。',
+  ].join('\n'),
+  // #121：bug 类契约段模板——复现测试先行（FAIL 复现 bug → 修复 → GREEN），防回归测试随修复同 commit
+  bug: [
+    '复现测试先行：先写 FAIL 的复现测试（断言报告的症状，确认变红），再修复到 GREEN。',
+    '防回归测试随修复同 commit：复现测试最小化后即为防回归测试，与修复代码同一个 commit 提交。',
   ].join('\n'),
 };
 

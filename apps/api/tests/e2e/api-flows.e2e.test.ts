@@ -5,6 +5,9 @@ import { describe, it, expect, beforeAll } from 'vitest';
 
 const API = `http://localhost:${process.env.TEST_PORT || process.env.PORT || '13001'}/api/v1`;
 
+// #219 活端口门禁：默认 skip，显式 STUDIO_E2E_LIVE=1 才打真实服务器
+const LIVE = process.env.STUDIO_E2E_LIVE === '1';
+
 async function api(method: string, path: string, body?: unknown) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), 8000);
@@ -20,7 +23,7 @@ async function api(method: string, path: string, body?: unknown) {
   } finally { clearTimeout(t); }
 }
 
-describe('API Flows E2E', () => {
+describe.skipIf(!LIVE)('API Flows E2E', () => {
   beforeAll(async () => {
     for (let i = 0; i < 20; i++) {
       try {

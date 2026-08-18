@@ -7,7 +7,7 @@
 // DELEGATE 分支（建子单 + collab 元数据 + 降级文案）→ delegate-branch.js。
 // 本文件保留 AgentLoop 类编排逻辑 + re-export（对外导出语义不变）。
 import { execSync } from 'child_process';
-import { eventBus, logger, FileStore, parseChannels, withAttestation, type RuntimeStateData } from '@dommaker/studio-shared';
+import { eventBus, logger, FileStore, parseChannels, withAttestation, isStaleClaimSleep, type RuntimeStateData } from '@dommaker/studio-shared';
 import { TokenEstimator } from '@dommaker/harness';
 import { resolveProviderDefinition, buildHealthProbeCommand } from '@dommaker/studio-shared/node';
 import { randomUUID } from 'crypto';
@@ -588,8 +588,14 @@ export class AgentLoop {
     const channelMembers = await this.loadChannelMembers();
     // #109（M4 接单过滤）：全局 id→status 映射（FileStore index 天然跨 PMO）
     const statusById = buildStatusById(allSnapshots);
+    const now = Date.now();
     const unassigned = allSnapshots.filter(s => {
       if (s.status !== 'unassigned') return false;
+      // #221（#214 决议）：认领陈旧守卫 —— updatedAt 超 72h 的 unassigned WU（含显式指名）
+      // 在可见性层拦截：不可见、状态不动、不迁移、不写事件流 WU 状态。observe 保持纯过滤
+      // 无副作用；首次拦截告警由 monitor 探针 stale_claim_guard 出声。updatedAt 被任何
+      // 写操作刷新后复活（零新增机制）。判定与探针同源（isStaleClaimSleep）。
+      if (isStaleClaimSleep(s.updatedAt, now)) return false;
       // Assignee-aware claiming（@mention 语义，docs/vision-2026.md §3）：
       // 显式指派给某个 profile 的 WorkUnit 只能被该 profile 的 loop 认领；
       // 未指派的保持频道作用域（§9.5: 频道 members 含本 profile）。
@@ -923,7 +929,8 @@ export class AgentLoop {
     // M2 成本红线度量 + B6 真实 token 记账（2026-08-03 token-burn issue P1-2）：
     // 成功与失败执行都记 workunit:tokens（失败照样烧 token）。fire-and-forget，绝不影响任务流程。
     const recordTokenEvent = (res: ExecutionResult): RealUsage | null => {
-      const real = resolveRealUsage(res);
+      // #134: usage 解析按 provider 分流（opencode/codex 事件形态与 claude 不同）
+      const real = resolveRealUsage(res, taskProvider);
       void writeWorkunitTokenEvent(studioEventsJsonlPath(), {
         workUnitId: wu.id,
         executionId: task.executionId,
@@ -941,6 +948,8 @@ export class AgentLoop {
         } : {}),
         // B6: 触发器来源落盘（按触发器聚合的输入）
         ...(typeof metadata.triggerId === 'string' && metadata.triggerId ? { triggerId: metadata.triggerId } : {}),
+        // #134: provider 落盘（#120 按 provider 分桶的数据源）
+        provider: taskProvider,
       }).catch(() => {});
       return real;
     };

@@ -4,7 +4,7 @@
  * 每 5 分钟轮询：
  *   - 失败趋势（#181 起改读统一事件流）
  *   - 进度停滞（.progress.json completedSteps 无变化）
- *   - 池滞留 / in_review 滞留（#181）
+ *   - 池滞留 / in_review 滞留（#181）/ 认领陈旧守卫（#221）
  *   - 会话计数超阈值
  *   - 总执行时间超阈值
  *   - blocked 24h 自动放弃
@@ -74,6 +74,7 @@ export class MonitorService {
     alerts.push(...await this.checkTotalExecutionTime());
     alerts.push(...await this.checkPoolStagnation());
     alerts.push(...await this.checkReviewStagnation());
+    alerts.push(...await this.checkStaleClaimGuard());
     alerts.push(...await this.checkToolPatterns());
     await this.evaluateTrajectory();  // G4
     await this.autoAbandonStaleBlocked();
@@ -87,14 +88,17 @@ export class MonitorService {
     // G31: Data lifecycle TTL — 每天 23:55 清理过期数据
     await this.dataLifecycle();
 
+    // #220：冷却过滤后再分发 —— 四出口（事件流/频道/Triage/KnowledgeBus）同压
+    const filtered = alerting.filterCooldownAlerts(alerts);
+
     // Log all alerts + emit warning/critical to studio events file
-    alerting.dispatchMonitorAlerts(alerts);
+    alerting.dispatchMonitorAlerts(filtered);
 
     // Phase 1 (FL-037): Escalate critical execution-level alerts to Triage
-    this.escalateToTriage(alerts);
+    this.escalateToTriage(filtered);
 
     // H3: Write patterns to KnowledgeBus (Monitor→Auditor/KK→Analyst)
-    alerting.recordAlertPatterns(alerts);
+    alerting.recordAlertPatterns(filtered);
   }
 
   // ── 探测（monitor-probes / monitor-system-probes）──
@@ -117,6 +121,10 @@ export class MonitorService {
 
   private async checkReviewStagnation(): Promise<MonitorAlert[]> {
     return probes.checkReviewStagnation(this.fileStore);
+  }
+
+  private async checkStaleClaimGuard(): Promise<MonitorAlert[]> {
+    return probes.checkStaleClaimGuard(this.fileStore);
   }
 
   private async autoAbandonStaleBlocked(): Promise<void> {

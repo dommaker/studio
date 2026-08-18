@@ -32,7 +32,7 @@
  * 命中即跳过本次 completed/in_review 翻转（progress 照写），待派生落定后的下一事件
  * 或 GET /project/:id 读取时重算再评估。
  */
-import { eventBus, FileStore, logger, type WorkUnitSnapshot } from '@dommaker/studio-shared';
+import { eventBus, FileStore, logger, createSettledTracker, type WorkUnitSnapshot } from '@dommaker/studio-shared';
 import { RequirementService, TERMINAL_WORKUNIT_STATUSES } from '../requirements/requirement.service.js';
 import { projectService, resolveDeliveries, LEG_STATUS, PROJECT_STATUS, type DeliveryLeg, type ProjectData } from './project.service.js';
 import { parseWuMetaPmoId, selectProjectSnapshots, summarizeEvidence, partitionSnapshotsByLeg } from './evidence-summary.js';
@@ -50,20 +50,37 @@ export function initPmoProgressRollup(fileStore?: FileStore): () => void {
     const wu = payload?.workunit;
     if (!wu) return;
     if (wu.reqId) {
-      syncProjectProgressByReqId(wu.reqId, fileStore).catch(err =>
+      rollupTracker.track(syncProjectProgressByReqId(wu.reqId, fileStore).catch(err =>
         logger.warn('[PMO] Progress rollup failed (non-blocking)', { reqId: wu.reqId, error: String(err) })
-      );
+      ));
       return;
     }
     // analysis 派生链：无 reqId，经 metadata.pmoId 找到项目再 rollup
     const pmoId = parseWuMetaPmoId(wu.metadata);
     if (!pmoId) return;
-    syncProjectProgress(pmoId, fileStore).catch(err =>
+    rollupTracker.track(syncProjectProgress(pmoId, fileStore).catch(err =>
       logger.warn('[PMO] Progress rollup failed (non-blocking)', { projectId: pmoId, error: String(err) })
-    );
+    ));
   };
   eventBus.subscribe('workunit.status_changed', handler);
   return () => eventBus.unsubscribe('workunit.status_changed', handler);
+}
+
+/**
+ * #158 测试可观测性（纯增量，不改变发布/消费行为）：登记在途回写 promise。
+ * 事件订阅是 fire-and-forget，publish 同步触发 handler 后回写链路仍在异步推进，
+ * 测试侧原本只能盲等（waitFor 轮询）——全量负载下事件循环饥饿会吃满超时预算（偶发红）。
+ * #228：实现归并到 studio-shared 的 createSettledTracker（原三处复制之一）。
+ */
+const rollupTracker = createSettledTracker();
+
+/**
+ * 等待当前已触发的全部进度回写落定（测试用确定性信号，替代 waitFor 盲等）。
+ * publish 在 transitionStatus await 链内同步发射（workunit.service.ts），故
+ * await transitionStatus 返回时在途回写必已登记，await 本函数即等到回写真正完成。
+ */
+export async function waitForPmoProgressRollupSettled(): Promise<void> {
+  await rollupTracker.waitForSettled();
 }
 
 /** WU 状态变更入口：经其 reqId 找到挂接的 PMO 项目并重算进度 */

@@ -89,9 +89,12 @@ const { AgentLoop } = await import('../loop/agent-loop');
 const { invalidateManifestCache } = await import('../../skills/manifest-loader.js');
 
 /** 新注入契约的固定文本（与 agent-loop buildSkillSection 保持一致） */
+// #219：SUT 经 studioPath('skills', ...) 解析，STUDIO_HOME 已被 setup 钉到隔离根，
+// 期望路径必须跟随 STUDIO_HOME，而不是 os.homedir()（否则指向真实 ~/.studio 且必然不匹配）
+const studioHome = process.env.STUDIO_HOME ?? path.join(os.homedir(), '.studio');
 const SKILL_HEADER = '## 本次任务 Skills\n\n以下 skill 按相关度排序；任务内容命中其触发条件时，先读全文再按此执行；不相关则忽略。';
-const SKILL_BLOCK = `### feature-dev\n功能开发流程｜触发：登录, 认证, 会话, 鉴权, 令牌\n全文：${path.join(os.homedir(), '.studio', 'skills', 'feature-dev', 'SKILL.md')}`;
-const SKILL_MANIFEST_POINTER = `完整 skill 清单见 skills MANIFEST.md（${path.join(os.homedir(), '.studio', 'skills', 'MANIFEST.md')}）`;
+const SKILL_BLOCK = `### feature-dev\n功能开发流程｜触发：登录, 认证, 会话, 鉴权, 令牌\n全文：${path.join(studioHome, 'skills', 'feature-dev', 'SKILL.md')}`;
+const SKILL_MANIFEST_POINTER = `完整 skill 清单见 skills MANIFEST.md（${path.join(studioHome, 'skills', 'MANIFEST.md')}）`;
 const SKILL_TOKENS = TokenEstimator.estimateText(SKILL_HEADER) + TokenEstimator.estimateText(SKILL_BLOCK + '\n\n')
   + TokenEstimator.estimateText(SKILL_MANIFEST_POINTER + '\n\n');
 
@@ -160,7 +163,7 @@ describe('§10 P0 + 决策 7/11/13: agentStep skill/persona 注入', () => {
     expect(knowledgeContext).toContain('以下 skill 按相关度排序；任务内容命中其触发条件时，先读全文再按此执行；不相关则忽略。');
     expect(knowledgeContext).toContain('### feature-dev');
     expect(knowledgeContext).toContain('功能开发流程｜触发：登录, 认证, 会话, 鉴权, 令牌');
-    expect(knowledgeContext).toContain(`全文：${path.join(os.homedir(), '.studio', 'skills', 'feature-dev', 'SKILL.md')}`);
+    expect(knowledgeContext).toContain(`全文：${path.join(studioHome, 'skills', 'feature-dev', 'SKILL.md')}`);
     expect(knowledgeContext).not.toContain(SKILL_BODY);
     expect(knowledgeContext).toContain('## 项目上下文');
     expect(knowledgeContext).toContain('- test rule');

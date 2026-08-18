@@ -12,14 +12,19 @@ import * as os from 'os';
 // libuv getenv，forks 池下则会），在根 workspace（forks）下会出现「写入 tmp、
 // 读取真实 home」的路径分裂。这里直接 mock os.homedir()，让 import 时与调用时
 // 解析到同一个 tmp 目录，任何 pool 下行为一致。
-const { tmpDir } = await vi.hoisted(async () => {
+const { tmpDir, setupStudioHome } = await vi.hoisted(async () => {
   const fs = await import('node:fs');
   const os = await import('node:os');
   const path = await import('node:path');
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'resolution-test-'));
   fs.mkdirSync(path.join(tmpDir, '.studio', 'knowledge'), { recursive: true });
   fs.mkdirSync(path.join(tmpDir, '.studio', 'logs'), { recursive: true });
-  return { tmpDir };
+  // #219：setup 把 STUDIO_HOME 钉到进程级隔离根，studioPath() 优先读它、
+  // 旁路下面的 os.homedir() mock。在模块 import 前把 STUDIO_HOME 指到本测试
+  // 的 tmp home，让 import 期冻结的 KNOWLEDGE_DIR 与写入/断言路径一致。
+  const setupStudioHome = process.env.STUDIO_HOME;
+  process.env.STUDIO_HOME = path.join(tmpDir, '.studio');
+  return { tmpDir, setupStudioHome };
 });
 
 vi.mock('os', async (importOriginal) => {
@@ -39,8 +44,9 @@ vi.mock('../knowledge-bus.service.js', () => ({
 import { resolutionService } from '../resolution.service.js';
 import { scheduleVectorDbSync } from '../knowledge-bus.service.js';
 
-// os.homedir() 已被 mock 指向 tmpDir —— resolution.service 的 KNOWLEDGE_DIR
-// 与本测试的写入/清理路径都落在 tmpDir/.studio/knowledge，不触碰真实 ~/.studio。
+// os.homedir() 已被 mock 指向 tmpDir，STUDIO_HOME 也在 hoisted 块钉到 tmpDir/.studio
+// —— resolution.service 的 KNOWLEDGE_DIR 与本测试的写入/清理路径都落在
+// tmpDir/.studio/knowledge，不触碰真实 ~/.studio。
 
 async function writeTestResolution(overrides: {
   id?: string; pattern?: string; errorClass?: string; layer?: string;
@@ -89,6 +95,9 @@ describe('ResolutionService', () => {
   });
 
   afterAll(() => {
+    // 恢复 setup 的隔离根，避免泄漏到同 worker 的后继测试文件
+    if (setupStudioHome === undefined) delete process.env.STUDIO_HOME;
+    else process.env.STUDIO_HOME = setupStudioHome;
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 

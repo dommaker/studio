@@ -12,9 +12,9 @@
  */
 import { describe, it, expect, afterEach } from 'vitest';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import {
+  roleMemoryRoot,
   roleMemoryDir,
   sanitizeRoleId,
   sanitizeTopicSlug,
@@ -23,19 +23,25 @@ import {
   type MemoryDraftEntry,
 } from '../role-memory.js';
 
-// 测试环境隔离目录（同 transcript-archive / studio-log-path 约定）：不写生产 ~/.studio
-const TEST_ROOT = path.join(os.tmpdir(), 'studio-test-role-memory');
+// 本测试进程的隔离根目录（os.tmpdir()/studio-test-role-memory/<per-进程子目录>，#135）：不写生产 ~/.studio；
+// per-进程唯一后不再有跨文件共享根互踩（#228 整根 rm 风险随之消除，下方 afterEach 定向清理仍保留）
+const TEST_ROOT = roleMemoryRoot();
 
-/** 每用例唯一角色 id，防跨用例碰撞 */
+/** 每用例唯一角色 id，防跨用例碰撞；登记入 createdRoleIds 供 afterEach 定向清理 */
+const createdRoleIds: string[] = [];
 function freshRoleId(prefix = 'role'): string {
-  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const id = `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  createdRoleIds.push(id);
+  return id;
 }
 
 const store = new RoleMemoryStore();
 
 afterEach(() => {
-  // 清理本用例写入的角色目录（roleId 唯一，按根目录整体清更稳）
-  fs.rmSync(TEST_ROOT, { recursive: true, force: true });
+  // #228：只清本用例写入的角色目录（不整根 rm——共享根上有并行 worker 的在途数据）
+  for (const id of createdRoleIds.splice(0)) {
+    fs.rmSync(path.join(TEST_ROOT, id), { recursive: true, force: true });
+  }
 });
 
 describe('sanitizeRoleId / sanitizeTopicSlug（防路径穿越）', () => {
@@ -78,7 +84,7 @@ describe('roleMemoryDir（路径：生产经 studioPath，测试隔离）', () =
     });
   });
 
-  it('测试环境 → os.tmpdir()/studio-test-role-memory/<roleId>（隔离，不写生产路径）', () => {
+  it('测试环境 → os.tmpdir()/studio-test-role-memory/<per-进程子目录>/<roleId>（隔离，不写生产路径）', () => {
     expect(roleMemoryDir('r1', { VITEST: 'true' })).toBe(path.join(TEST_ROOT, 'r1'));
     expect(roleMemoryDir('r1', { NODE_ENV: 'test' })).toBe(path.join(TEST_ROOT, 'r1'));
   });

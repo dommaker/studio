@@ -15,9 +15,12 @@ vi.mock('../../knowledge-singletons.js', () => ({
   UNIFIED_KNOWLEDGE_DIR: tempDir,
 }));
 
-// The SUT reads env snapshots from os.homedir()/.studio/snapshots. Under
-// vitest's worker threads, process.env.HOME writes don't reach the C-level
-// getenv behind os.homedir() — so mock homedir() itself (per-test temp dir).
+// The SUT reads env snapshots from ~/.studio/snapshots via studioPath(), which
+// prefers STUDIO_HOME over os.homedir(). #219's setup pins STUDIO_HOME to a
+// process-level isolated root, bypassing the homedir mock below — so each test
+// also points STUDIO_HOME at its own temp home (restored in afterEach).
+// (os.homedir() is still mocked: under worker threads, process.env.HOME writes
+// don't reach the C-level getenv behind os.homedir().)
 const { mockHomeRef } = vi.hoisted(() => ({ mockHomeRef: { dir: '' } }));
 vi.mock('os', async (importOriginal) => {
   const actual = await importOriginal() as any;
@@ -27,6 +30,9 @@ vi.mock('os', async (importOriginal) => {
 // Use real KnowledgeStore (it's file-based, no external deps)
 const { UnifiedQuery } = await import('../unified-query.js');
 const { FileKnowledgeStore } = await import('@dommaker/harness');
+
+// #219 setup 钉的进程级隔离根，per-test 改指后据此恢复
+const SETUP_STUDIO_HOME = process.env.STUDIO_HOME;
 
 // ── Helpers: write preference/rule data to KnowledgeStore ──
 
@@ -92,6 +98,8 @@ describe('UnifiedQuery', () => {
     // so snapshot reads are deterministic (box-independent).
     mockHomeRef.dir = fs.mkdtempSync(path.join(os.tmpdir(), 'uq-home-'));
     testHome = mockHomeRef.dir;
+    // studioPath() 优先读 STUDIO_HOME —— 指到本测试的 tmp home，与 homedir mock 一致
+    process.env.STUDIO_HOME = path.join(testHome, '.studio');
     // Fresh temp dir per test for isolation
     testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'uq-case-'));
     uq = new UnifiedQuery(new FileKnowledgeStore({ baseDir: testDir }));
@@ -101,6 +109,8 @@ describe('UnifiedQuery', () => {
     try { fs.rmSync(testDir, { recursive: true, force: true }); } catch {}
     try { fs.rmSync(testHome, { recursive: true, force: true }); } catch {}
     mockHomeRef.dir = '';
+    if (SETUP_STUDIO_HOME === undefined) delete process.env.STUDIO_HOME;
+    else process.env.STUDIO_HOME = SETUP_STUDIO_HOME;
   });
 
   describe('queryEntries', () => {

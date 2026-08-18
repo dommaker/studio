@@ -40,6 +40,7 @@ export interface WorkUnitMetadata {
   blockReason?: string;       // B4（同上 P0-2）：最近一次转 blocked 的原因（恢复执行时清除，防事后无法诊断）
   blockedAt?: string;         // #176（决策 #57 D4）：最近一次转 blocked 的时刻 ISO 8601（死信 24h 计时基准；各 blocked 迁移点统一落档）
   resumeCount?: number;       // #176（决策 #57 D5）：人工复活累计次数（不限次，纯观测钩子，供 #62 趋势探测）
+  staleGuardBlockedAt?: string; // #221（#214 决议）：认领陈旧守卫首次拦截时记下的 updatedAt（防重复告警；与现 updatedAt 不一致 = 已复活，再沉睡超阈值重新告警）
   testWorkUnitGuard?: boolean; // B2（同上 P0-1c）：测试特征 WU 被 daemon 守卫关闭的留痕
   // #95: 最近成功步环形簿记（前序进展段内容源；只记成功步，保留最近 5 条，summary 截 200 字符）
   progressLog?: Array<{

@@ -4,6 +4,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
+import { FileStore } from '@dommaker/studio-shared';
 
 const { tmpDir, mockLogger, mockAgentStop, mockReaddir, mockGetStats, mockCloseWithNotice, mockReadStudioEvents } = vi.hoisted(() => {
   const fs = require('fs');
@@ -72,6 +74,7 @@ import {
   checkFailureTrend,
   checkPoolStagnation,
   checkReviewStagnation,
+  checkStaleClaimGuard,
   checkProgressStagnation,
   checkTotalExecutionTime,
   autoAbandonStaleBlocked,
@@ -140,7 +143,8 @@ describe('checkFailureTrend（事件流，#181）', () => {
 
     const alerts = await checkFailureTrend(makeFileStore());
     expect(alerts).toHaveLength(1);
-    expect(alerts[0]).toMatchObject({ source: 'failure_trend', level: 'warning' });
+    // #220：聚合探针显式 subject 固定车道（relatedTaskIds 首位随 churn 轮换，不作指纹）
+    expect(alerts[0]).toMatchObject({ source: 'failure_trend', level: 'warning', subject: 'global' });
     expect(alerts[0].message).toContain('3');
     expect(alerts[0].relatedTaskIds).toEqual(expect.arrayContaining(['wu-a', 'wu-b', 'wu-c']));
   });
@@ -156,8 +160,9 @@ describe('checkFailureTrend（事件流，#181）', () => {
 
     const alerts = await checkFailureTrend(makeFileStore());
     expect(alerts).toHaveLength(2);
-    expect(alerts[0]).toMatchObject({ source: 'failure_trend', level: 'warning' });
-    expect(alerts[1]).toMatchObject({ source: 'failure_trend', level: 'critical' });
+    expect(alerts[0]).toMatchObject({ source: 'failure_trend', level: 'warning', subject: 'global' });
+    // #220：warning/critical 同 subject 同车道，升级重置计时逻辑才生效
+    expect(alerts[1]).toMatchObject({ source: 'failure_trend', level: 'critical', subject: 'global' });
     expect(alerts[1].message).toContain('80%');
   });
 
@@ -198,7 +203,7 @@ describe('checkPoolStagnation（#181）', () => {
     let fileStore = makeFileStore({ getIndex: vi.fn(async () => [mkUnassigned(3, 'wu-warn'), mkUnassigned(0.5, 'wu-fresh')]) });
     let alerts = await checkPoolStagnation(fileStore);
     expect(alerts).toHaveLength(1);
-    expect(alerts[0]).toMatchObject({ source: 'pool_stagnation', level: 'warning', relatedTaskIds: ['wu-warn'] });
+    expect(alerts[0]).toMatchObject({ source: 'pool_stagnation', level: 'warning', relatedTaskIds: ['wu-warn'], subject: '无人认领' });
     expect(alerts[0].message).toContain('无人认领');
 
     fileStore = makeFileStore({ getIndex: vi.fn(async () => [mkUnassigned(13, 'wu-crit')]) });
@@ -219,9 +224,9 @@ describe('checkPoolStagnation（#181）', () => {
     expect(alerts).toHaveLength(2);
     const pool = alerts.find(a => a.relatedTaskIds?.includes('wu-pool'));
     const designated = alerts.find(a => a.relatedTaskIds?.includes('wu-designated'));
-    expect(pool).toMatchObject({ level: 'warning' });
+    expect(pool).toMatchObject({ level: 'warning', subject: '无人认领' });
     expect(pool!.message).toContain('无人认领');
-    expect(designated).toMatchObject({ level: 'critical' });
+    expect(designated).toMatchObject({ level: 'critical', subject: '指名未认领' });
     expect(designated!.message).toContain('指名未认领');
     expect(designated!.message).toContain('profile-analyst');
   });
@@ -245,7 +250,7 @@ describe('checkReviewStagnation（#181）', () => {
     let fileStore = makeFileStore({ getIndex: vi.fn(async () => [mkInReview(25, 'wu-warn'), mkInReview(1, 'wu-fresh')]) });
     let alerts = await checkReviewStagnation(fileStore);
     expect(alerts).toHaveLength(1);
-    expect(alerts[0]).toMatchObject({ source: 'review_stagnation', level: 'warning', relatedTaskIds: ['wu-warn'] });
+    expect(alerts[0]).toMatchObject({ source: 'review_stagnation', level: 'warning', relatedTaskIds: ['wu-warn'], subject: 'global' });
 
     fileStore = makeFileStore({ getIndex: vi.fn(async () => [mkInReview(73, 'wu-crit')]) });
     alerts = await checkReviewStagnation(fileStore);
@@ -256,6 +261,101 @@ describe('checkReviewStagnation（#181）', () => {
   it('全部新鲜（<24h）→ 无告警', async () => {
     const fileStore = makeFileStore({ getIndex: vi.fn(async () => [mkInReview(2, 'wu-fresh')]) });
     expect(await checkReviewStagnation(fileStore)).toEqual([]);
+  });
+});
+
+// #221（#214 决议）：认领陈旧守卫探针 —— unassigned 且 updatedAt >72h（observe 已拦截）首次拦截
+// 发 1 条 warning；metadata.staleGuardBlockedAt 落盘防重；标记写 touchUpdatedAt:false 不复活僵尸；
+// 外部写刷新 updatedAt 复活，再次沉睡超阈值重新告警。真 FileStore（tmpdir）测外部行为。
+describe('checkStaleClaimGuard（#221）', () => {
+  const STALE_MS = 72 * 3600_000 + 60_000;
+  let guardDir: string;
+  let realStore: FileStore;
+
+  beforeEach(() => {
+    guardDir = fs.mkdtempSync(path.join(os.tmpdir(), 'stale-claim-guard-'));
+    realStore = new FileStore(guardDir);
+  });
+
+  afterEach(() => {
+    fs.rmSync(guardDir, { recursive: true, force: true });
+  });
+
+  async function seedStale(id: string, staleMs = STALE_MS, assigneeId: string | null = null): Promise<string> {
+    const updatedAt = new Date(Date.now() - staleMs).toISOString();
+    await realStore.upsertSnapshot(makeSnapshot({
+      id, status: 'unassigned', assigneeId, updatedAt, createdAt: updatedAt,
+    }) as never);
+    return updatedAt;
+  }
+
+  it('陈旧 unassigned → 1 条 warning（指纹含 wuId），标记落盘且 updatedAt/状态不动', async () => {
+    const staleIso = await seedStale('wu-stale');
+
+    const alerts = await checkStaleClaimGuard(realStore);
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]).toMatchObject({
+      source: 'stale_claim_guard', level: 'warning',
+      subject: 'wu-stale', relatedTaskIds: ['wu-stale'],
+    });
+    expect(alerts[0].message).toContain('回复');
+    expect(alerts[0].message).toContain('关闭');
+
+    const [snap] = await realStore.getIndex();
+    expect(JSON.parse(snap.metadata!).staleGuardBlockedAt).toBe(staleIso);
+    expect(snap.updatedAt).toBe(staleIso); // 守卫自身的标记写不能复活僵尸
+    expect(snap.status).toBe('unassigned');
+  });
+
+  it('同 WU 跨轮不重复出声（staleGuardBlockedAt === updatedAt 即跳过）', async () => {
+    await seedStale('wu-stale');
+    expect(await checkStaleClaimGuard(realStore)).toHaveLength(1);
+    expect(await checkStaleClaimGuard(realStore)).toEqual([]);
+    expect(await checkStaleClaimGuard(realStore)).toEqual([]);
+  });
+
+  it('updatedAt 刷新后复活（不再告警）；再次沉睡超阈值重新告警', async () => {
+    const firstStale = await seedStale('wu-stale');
+    expect(await checkStaleClaimGuard(realStore)).toHaveLength(1);
+
+    // 外部写刷新 updatedAt → 复活，不再告警
+    const snap = (await realStore.getIndex())[0];
+    await realStore.upsertSnapshot({ ...snap, updatedAt: new Date().toISOString() });
+    expect(await checkStaleClaimGuard(realStore)).toEqual([]);
+
+    // 再次沉睡超阈值（updatedAt 与落盘标记不一致）→ 重新告警
+    const secondStale = new Date(Date.now() - STALE_MS).toISOString();
+    expect(secondStale).not.toBe(firstStale);
+    await realStore.upsertSnapshot({ ...snap, updatedAt: secondStale });
+    const alerts = await checkStaleClaimGuard(realStore);
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0].subject).toBe('wu-stale');
+  });
+
+  it('72h 内的 unassigned 与非 unassigned 状态不出警', async () => {
+    await seedStale('wu-fresh', 2 * 3600_000);
+    await realStore.upsertSnapshot(makeSnapshot({
+      id: 'wu-active', status: 'active',
+      updatedAt: new Date(Date.now() - STALE_MS).toISOString(),
+    }) as never);
+    expect(await checkStaleClaimGuard(realStore)).toEqual([]);
+  });
+
+  it('已标记 WU 不占周期名额：20 条已出声 + 1 条新沉睡 → 新沉睡正常告警（slice 顺序回归）', async () => {
+    // 20 条陈旧且已落标记（长期占据 index 前部）
+    for (let i = 0; i < 20; i++) {
+      const updatedAt = await seedStale(`wu-old-${i}`);
+      const snap = (await realStore.getIndex()).find(s => s.id === `wu-old-${i}`)!;
+      await realStore.upsertSnapshot({
+        ...snap,
+        metadata: JSON.stringify({ staleGuardBlockedAt: updatedAt }),
+      });
+    }
+    await seedStale('wu-new');
+
+    const alerts = await checkStaleClaimGuard(realStore);
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0].subject).toBe('wu-new');
   });
 });
 

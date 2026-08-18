@@ -12,16 +12,23 @@ import * as store from '../tool-store.js';
 
 let tmpHome: string;
 let prevHome: string | undefined;
+let prevStudioHome: string | undefined;
 
 beforeAll(() => {
   tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-tool-store-'));
   prevHome = process.env.HOME;
   process.env.HOME = tmpHome;
+  // #219：studioPath() 走 STUDIO_HOME（setup 钉的隔离根），优先于 HOME；
+  // 改指本测试的 tmp home，与下方 $HOME/.studio/data/* 断言同根。
+  prevStudioHome = process.env.STUDIO_HOME;
+  process.env.STUDIO_HOME = path.join(tmpHome, '.studio');
 });
 
 afterAll(() => {
   if (prevHome === undefined) delete process.env.HOME;
   else process.env.HOME = prevHome;
+  if (prevStudioHome === undefined) delete process.env.STUDIO_HOME;
+  else process.env.STUDIO_HOME = prevStudioHome;
   fs.rmSync(tmpHome, { recursive: true, force: true });
 });
 

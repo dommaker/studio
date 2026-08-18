@@ -66,7 +66,8 @@ export type MonitorAlertSource =
   | 'review_stagnation' // #181（决策 #167③）：in_review 滞留待人工确认
   | 'analysis_respawn' // #183（#159）：analysis 派工断链对账补建（3 次仍败升 critical）
   | 'review_redispatch' // #183（#66 决议①）：review 断链对账重跑（3 次仍败升 critical）
-  | 'analysis_confirm'; // #186（#167 决议 2）：无频道 analysis 确认提示投 Web「需要处理」收件箱
+  | 'analysis_confirm' // #186（#167 决议 2）：无频道 analysis 确认提示投 Web「需要处理」收件箱
+  | 'stale_claim_guard'; // #221（#214 决议）：认领陈旧守卫——unassigned updatedAt>72h 已被 observe 拦截，首次拦截告警
 
 export interface MonitorAlert {
   level: 'info' | 'warning' | 'critical';
@@ -75,4 +76,6 @@ export interface MonitorAlert {
   timestamp?: number;
   projectId?: string;
   relatedTaskIds?: string[];
+  /** #220：告警去重指纹主体（实例 id / 工具名）；缺省回退 relatedTaskIds[0]，再回退 source 单车道 */
+  subject?: string;
 }

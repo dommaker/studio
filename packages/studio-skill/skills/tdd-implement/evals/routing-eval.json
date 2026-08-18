@@ -1,0 +1,25 @@
+[
+  {
+    "scenario": "输入完整 SDD",
+    "input_type": "sdd",
+    "expected_behavior": "standard_flow",
+    "expected_steps": ["读取三层文档", "创建 task 跟踪", "RED", "依赖分析", "GREEN", "全量验证", "增量类型检查"],
+    "reason": "完整 SDD 输入，走标准流程"
+  },
+  {
+    "scenario": "输入轻量 PLAN",
+    "input_type": "lightweight_plan",
+    "expected_behavior": "simplified_flow",
+    "expected_steps": ["读取 PLAN", "RED", "GREEN", "全量验证"],
+    "expected_skips": ["task 跟踪（可选）", "依赖分析（默认串行）"],
+    "reason": "轻量 PLAN 输入，简化流程"
+  },
+  {
+    "scenario": "轻量 PLAN + 单文件改动",
+    "input_type": "lightweight_plan",
+    "expected_behavior": "minimal_flow",
+    "expected_steps": ["读取 PLAN", "RED", "GREEN", "全量验证"],
+    "expected_skips": ["task 跟踪", "依赖分析", "增量类型检查（可选）"],
+    "reason": "单文件改动，最小流程"
+  }
+]

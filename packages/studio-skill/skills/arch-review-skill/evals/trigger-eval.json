@@ -1,0 +1,23 @@
+[
+  {"query": "帮我 review 一下 agent-network.md 里的概念定义，看看 WorkUnit 和 Agent 的完整性", "should_trigger": true},
+  {"query": "检查 studio/docs/specs/arch/agent-network.md 里所有概念的 lifecycle 和 events 是否定义完整", "should_trigger": true},
+  {"query": "做一个架构文档审查，重点看 Claim 机制的事件定义和验证场景", "should_trigger": true},
+  {"query": "帮我看看 DiscussionSpace 这个概念在架构文档里有没有缺东西，比如事件、生命周期", "should_trigger": true},
+  {"query": "arch review for agent-network-infra.md, check concept completeness against patterns", "should_trigger": true},
+  {"query": "我想检查新写的 workspace-repo 架构文档，看看概念定义是否满足完整性标准", "should_trigger": true},
+  {"query": "帮我对照 arch-patterns 检查 pipeline 架构文档的概念覆盖率", "should_trigger": true},
+  {"query": "看看 knowledge engine 架构文档里 KnowledgeBus 和 Resolution 的定义是否完整", "should_trigger": true},
+  {"query": "检查 evolution 服务架构文档，看 pattern miner 和 behavior distiller 的概念定义", "should_trigger": true},
+  {"query": "做一次完整的架构文档 review，覆盖所有概念的所有 required 维度", "should_trigger": true},
+
+  {"query": "帮我实现 WorkUnit 的数据模型和 API", "should_trigger": false},
+  {"query": "解释一下 Claim 机制是怎么工作的", "should_trigger": false},
+  {"query": "写一篇关于 Agent 身份管理的新架构文档", "should_trigger": false},
+  {"query": "把 agent-network.md 里的概念列表提取出来给我看", "should_trigger": false},
+  {"query": "帮我修改 DiscussionSpace 的数据结构，加一个 maxLength 字段", "should_trigger": false},
+  {"query": "知识引擎的 Resolution 和 KnowledgeBus 有什么区别？", "should_trigger": false},
+  {"query": "帮我做一个 SDD 的三层一致性检查", "should_trigger": false},
+  {"query": "运行 quality loop 检查文档质量", "should_trigger": false},
+  {"query": "帮我写一个关于 skill 加载机制的 spec", "should_trigger": false},
+  {"query": "分析一下为什么 pipeline 上次执行超时了", "should_trigger": false}
+]

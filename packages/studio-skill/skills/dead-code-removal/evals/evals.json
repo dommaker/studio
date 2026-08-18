@@ -1,0 +1,22 @@
+[
+  {"query": "我们之前有个 Pipeline 概念，现在已经被 Agent Network 替代了。帮我把 Pipeline 相关的所有代码彻底清理掉，包括 schema、API、前端页面、types、packages 里的共享代码", "should_trigger": true},
+  {"query": "apps/api/src/modules/roles/ 这个目录下的 Role 模块已经没用了，现在用 AgentProfile 替代。把整个 roles 模块删干净，包括 schema 里的 Role model", "should_trigger": true},
+  {"query": "WorkflowEditor 这个组件没人用了，帮我删掉。顺便检查一下有没有其他地方还在引用 workflow 相关的东西，一起清理", "should_trigger": true},
+  {"query": "我发现 schema 里有好几个字段已经没用了，比如 Execution.workflowId、IssueReport.workflowId。这些字段引用的是已经删除的 Workflow 概念，需要彻底移除", "should_trigger": true},
+  {"query": "现在 Agent Network 架构已经完全上线了，之前老的 Role 和 Workflow 的导航入口虽然还在 UI 上但已经不能用了。帮我把这些死代码彻底清掉，从路由到组件到 store 全部清理", "should_trigger": true},
+  {"query": "packages/studio-shared/src/events/event-emitter.ts 里面还有 WORKFLOW_STARTED 这些事件，这些事件对应的概念已经废弃了，需要清理掉这些事件定义和所有监听方", "should_trigger": true},
+  {"query": "帮我彻底移除 MemoryRelation 这个 model，它是给 Role memory 用的，现在 Role 已经不用了。记得处理 FK 依赖和 migration 历史", "should_trigger": true},
+  {"query": "apps/web/src/pages/RolesPage.tsx 这个页面有 600 多行，现在角色管理已经用 Agent Dashboard 替代了。把这个页面和对应的路由、导航链接都删掉", "should_trigger": true},
+  {"query": "我发现 mcp/tools.ts 里面还有 list_roles 和 get_role_memory 这两个 tool，Role 概念已经废弃了，把这些 MCP tool 定义和实现都清理掉", "should_trigger": true},
+  {"query": "之前清理的时候漏了 workflowId 这个字段，它在 SignedDocument、SpecReview、Execution 这些 model 里都有。现在 Workflow 概念已经不存在了，把这些字段和对应的索引都删掉，顺便清理代码里所有引用", "should_trigger": true},
+  {"query": "帮我审查一下 apps/api/src/modules/pmo/okr.service.ts 这个文件的代码质量，看看有没有可以改进的地方，比如可读性、可维护性、错误处理", "should_trigger": false},
+  {"query": "我们想给 Agent Network 加一个新的协作功能，让多个 Agent 可以协同完成一个任务。帮我分析一下需求和设计方案", "should_trigger": false},
+  {"query": "帮我审查一下 docs/sdd/agent-dashboard/ 这个 SDD 的质量，看看 AC 定义是否完整，三层文档是否一致", "should_trigger": false},
+  {"query": "最近的工作产出了很多新的经验教训，帮我从这周的 batch progress 和 session memory 中提取可复用的知识", "should_trigger": false},
+  {"query": "帮我重构 knowledge/routes.ts 这个文件，代码太乱了，有些函数太长需要拆分，还要加一些错误处理和类型注解", "should_trigger": false},
+  {"query": "我想了解一下现在 Agent Network 的架构文档是否完整，概念覆盖度如何，有没有维度缺口", "should_trigger": false},
+  {"query": "帮我实现一下 design.md 里设计的 NotificationService，按照 AC 写测试然后实现代码", "should_trigger": false},
+  {"query": "帮我检查一下 ~/.studio/knowledge/ 里的知识条目质量，看看有没有低质量的、重复的、或者过时的条目需要清理", "should_trigger": false},
+  {"query": "这个函数有个 bug，当输入为空数组时会抛出异常。帮我诊断一下问题根因并修复", "should_trigger": false},
+  {"query": "帮我设计一个缓存失效策略，现在的缓存逻辑太简单了，需要根据数据类型设置不同的 TTL", "should_trigger": false}
+]

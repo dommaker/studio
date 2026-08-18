@@ -1,0 +1,20 @@
+[
+  {"query": "按工单 AC 实现代码，先写 FAIL 测试", "should_trigger": true},
+  {"query": "工单已评审通过，开始 TDD 实现", "should_trigger": true},
+  {"query": "写 FAIL 测试然后写实现让测试通过", "should_trigger": true},
+  {"query": "先写 FAIL 测试，再实现让测试通过，Phase 提交", "should_trigger": true},
+  {"query": "TDD 实现这个 feature，测试先行", "should_trigger": true},
+  {"query": "Phase 提交前让测试通过", "should_trigger": true},
+  {"query": "RED + GREEN 流程，按 AC 写测试和实现", "should_trigger": true},
+
+  {"query": "帮我澄清需求做个方案对比", "should_trigger": false},
+  {"query": "把 spec 拆成子工单", "should_trigger": false},
+  {"query": "审查代码质量", "should_trigger": false},
+  {"query": "查官方文档做个调研", "should_trigger": false},
+  {"query": "帮我写测试但不写实现", "should_trigger": false},
+  {"query": "测试失败了帮我诊断根因", "should_trigger": false},
+  {"query": "并行执行这些独立任务", "should_trigger": false},
+  {"query": "从这次对话提取知识", "should_trigger": false},
+  {"query": "管理文档，更新 roadmap", "should_trigger": false},
+  {"query": "这个 bug 很小，直接修", "should_trigger": false}
+]

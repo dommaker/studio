@@ -4,7 +4,7 @@
 import { describe, it, expect } from 'vitest';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { isTestEnv, resolveStudioLogsDir, resolveStudioLogFile } from '../studio-log-path.js';
+import { isTestEnv, resolveStudioLogsDir, resolveStudioLogFile, testTmpRoot } from '../studio-log-path.js';
 
 describe('isTestEnv', () => {
   it('VITEST 存在 → true', () => {
@@ -32,8 +32,17 @@ describe('resolveStudioLogsDir', () => {
   });
 
   it('生产环境 → ~/.studio/logs（行为不变）', () => {
-    expect(resolveStudioLogsDir({}))
-      .toBe(path.join(os.homedir(), '.studio', 'logs'));
+    // #219：setup 钉了 STUDIO_HOME，验证 os.homedir() 缺省分支须临时摘除
+    // （纯路径断言，无任何 fs 读写，不触碰真实 ~/.studio）。
+    const prevStudioHome = process.env.STUDIO_HOME;
+    delete process.env.STUDIO_HOME;
+    try {
+      expect(resolveStudioLogsDir({}))
+        .toBe(path.join(os.homedir(), '.studio', 'logs'));
+    } finally {
+      if (prevStudioHome === undefined) delete process.env.STUDIO_HOME;
+      else process.env.STUDIO_HOME = prevStudioHome;
+    }
   });
 });
 
@@ -46,8 +55,16 @@ describe('resolveStudioLogFile', () => {
   });
 
   it('生产环境保持 ~/.studio/logs 下原路径', () => {
-    expect(resolveStudioLogFile('incidents.jsonl', {}))
-      .toBe(path.join(os.homedir(), '.studio', 'logs', 'incidents.jsonl'));
+    // #219：同上，临时摘除 STUDIO_HOME 验证 os.homedir() 缺省分支。
+    const prevStudioHome = process.env.STUDIO_HOME;
+    delete process.env.STUDIO_HOME;
+    try {
+      expect(resolveStudioLogFile('incidents.jsonl', {}))
+        .toBe(path.join(os.homedir(), '.studio', 'logs', 'incidents.jsonl'));
+    } finally {
+      if (prevStudioHome === undefined) delete process.env.STUDIO_HOME;
+      else process.env.STUDIO_HOME = prevStudioHome;
+    }
   });
 });
 
@@ -56,5 +73,18 @@ describe('当前 vitest 进程（VITEST 已设置）', () => {
     expect(process.env.VITEST).toBeTruthy();
     expect(resolveStudioLogsDir()).toBe(path.join(os.tmpdir(), 'studio-test-logs'));
     expect(resolveStudioLogsDir()).not.toContain('.studio' + path.sep + 'logs');
+  });
+});
+
+describe('testTmpRoot（#135 per-进程隔离子根）', () => {
+  it('os.tmpdir()/<name>/<pid>-<uuid8>，同进程内多次调用稳定', () => {
+    const root = testTmpRoot('studio-test-role-memory');
+    expect(root.startsWith(path.join(os.tmpdir(), 'studio-test-role-memory') + path.sep)).toBe(true);
+    expect(path.basename(root)).toMatch(new RegExp(`^${process.pid}-[0-9a-f]{8}$`));
+    expect(testTmpRoot('studio-test-role-memory')).toBe(root);
+  });
+
+  it('不同 name 各自独立子根', () => {
+    expect(testTmpRoot('a')).not.toBe(testTmpRoot('b'));
   });
 });

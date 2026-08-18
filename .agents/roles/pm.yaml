@@ -16,7 +16,6 @@ capabilities:
 skills:
   - requirement-clarify
   - to-tickets
-  - doc-manager-skill
 
 tools:
   - read

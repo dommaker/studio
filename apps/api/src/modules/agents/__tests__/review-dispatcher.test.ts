@@ -59,16 +59,6 @@ function metaOf(raw: string | null): WorkUnitMetadata {
   return raw ? JSON.parse(raw) as WorkUnitMetadata : {};
 }
 
-/** 事件链异步收口轮询（替代定长 sleep，防监听器累积/CI 负载下的时序抖动） */
-async function waitFor(cond: () => Promise<boolean>, timeoutMs = 3000): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (await cond()) return;
-    await new Promise(r => setTimeout(r, 25));
-  }
-  throw new Error('waitFor timeout');
-}
-
 beforeEach(async () => {
   mockPostWuSystemMessage.mockClear(); // 清调用记录（保留间谍包装的实现）
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'review-dispatcher-'));
@@ -111,7 +101,9 @@ async function createParentAndReview(scope: string, assigneeId: string | null) {
     status: 'active',
   });
   await wuService.transitionStatus(parent.id, 'in_review');
-  await new Promise(r => setTimeout(r, 100));
+  // #228：确定性等待派单事件链落定（替代 100ms 盲等——全量负载下自评兜底
+  // 频道提醒在盲等窗口内落不了盘，F4 决策 5 近确定性红）
+  await dispatcher.waitForSettled();
   const snapshots = await fileStore.getIndex();
   return { parent, child: snapshots.find(s => s.parentId === parent.id && s.type === 'review') };
 }
@@ -207,7 +199,7 @@ describe('ReviewDispatcher (AC-4.1 ~ AC-4.5 + F4)', () => {
       },
     });
     await wuService.transitionStatus(parent.id, 'in_review');
-    await new Promise(r => setTimeout(r, 100));
+    await dispatcher.waitForSettled();
 
     const snapshots = await fileStore.getIndex();
     const child = snapshots.find(s => s.parentId === parent.id && s.type === 'review');
@@ -247,7 +239,7 @@ describe('ReviewDispatcher (AC-4.1 ~ AC-4.5 + F4)', () => {
     });
 
     await wuService.transitionStatus(parent.id, 'in_review');
-    await new Promise(r => setTimeout(r, 100));
+    await dispatcher.waitForSettled();
 
     const snapshots = await fileStore.getIndex();
     const reviewChildren = snapshots.filter(s => s.parentId === parent.id && s.type === 'review');
@@ -265,7 +257,7 @@ describe('ReviewDispatcher (AC-4.1 ~ AC-4.5 + F4)', () => {
     childMeta.reviewReport = { approved: true, reason: '代码质量良好' };
     await wuService.update(child!.id, { metadata: childMeta });
     await wuService.transitionStatus(child!.id, 'done');
-    await new Promise(r => setTimeout(r, 100));
+    await dispatcher.waitForSettled();
 
     const updatedParent = await wuService.getById(parent.id);
     expect(updatedParent!.status).toBe('done');
@@ -283,7 +275,7 @@ describe('ReviewDispatcher (AC-4.1 ~ AC-4.5 + F4)', () => {
     childMeta.reviewReport = { approved: true, reason: '代码质量良好' };
     await wuService.update(child!.id, { metadata: childMeta });
     await wuService.transitionStatus(child!.id, 'done');
-    await new Promise(r => setTimeout(r, 100));
+    await dispatcher.waitForSettled();
 
     const updatedParent = await wuService.getById(parent.id);
     const att = metaOf(updatedParent!.metadata).attestations;
@@ -308,7 +300,7 @@ describe('ReviewDispatcher (AC-4.1 ~ AC-4.5 + F4)', () => {
     childMeta.reviewReport = { approved: true };
     await wuService.update(child!.id, { metadata: childMeta });
     await wuService.transitionStatus(child!.id, 'done');
-    await new Promise(r => setTimeout(r, 100));
+    await dispatcher.waitForSettled();
 
     const updatedParent = await wuService.getById(parent.id);
     const att = metaOf(updatedParent!.metadata).attestations;
@@ -326,7 +318,7 @@ describe('ReviewDispatcher (AC-4.1 ~ AC-4.5 + F4)', () => {
     childMeta.reviewReport = { approved: false, reason: '缺少错误处理' };
     await wuService.update(child!.id, { metadata: childMeta });
     await wuService.transitionStatus(child!.id, 'done');
-    await new Promise(r => setTimeout(r, 100));
+    await dispatcher.waitForSettled();
 
     const updatedParent = await wuService.getById(parent.id);
     expect(['active', 'blocked']).toContain(updatedParent!.status);
@@ -340,7 +332,7 @@ describe('ReviewDispatcher (AC-4.1 ~ AC-4.5 + F4)', () => {
     await wuService.transitionStatus(child!.id, 'active');
     await wuService.transitionStatus(child!.id, 'in_review');
     await wuService.transitionStatus(child!.id, 'done');
-    await new Promise(r => setTimeout(r, 100));
+    await dispatcher.waitForSettled();
 
     // P0 修复：解析失败不再默认 reviewRejected（误杀）——父 WU 保持 in_review，
     // 频道发系统消息转人工裁决
@@ -367,7 +359,7 @@ describe('ReviewDispatcher (AC-4.1 ~ AC-4.5 + F4)', () => {
       status: 'active',
     });
     await wuService.transitionStatus(analysis.id, 'in_review');
-    await new Promise(r => setTimeout(r, 100));
+    await dispatcher.waitForSettled();
 
     const snapshots = await fileStore.getIndex();
     const reviewChild = snapshots.find(s => s.parentId === analysis.id && s.type === 'review');
@@ -384,7 +376,7 @@ describe('ReviewDispatcher (AC-4.1 ~ AC-4.5 + F4)', () => {
         status: 'active',
       });
       await wuService.transitionStatus(wu.id, 'in_review');
-      await new Promise(r => setTimeout(r, 100));
+      await dispatcher.waitForSettled();
 
       const snapshots = await fileStore.getIndex();
       const reviewChild = snapshots.find(s => s.parentId === wu.id && s.type === 'review');
@@ -418,7 +410,7 @@ describe('ReviewDispatcher (AC-4.1 ~ AC-4.5 + F4)', () => {
       assigneeId: executorProfile.id, status: 'in_review',
     });
     await wuService.transitionStatus(parent.id, 'done');
-    await new Promise(r => setTimeout(r, 100));
+    await dispatcher.waitForSettled();
 
     const child = await dispatcher.dispatchReviewNow(parent.id);
     expect(child.type).toBe('review');
@@ -521,18 +513,15 @@ describe('ReviewDispatcher (AC-4.1 ~ AC-4.5 + F4)', () => {
 
   // ─── F6-c 断点 3：handleReviewChildDone 对 done 父 WU 的幂等补写 ───
 
-  /** 建父 WU（active → in_review 触发路径 A）并轮询等评审子 WU 落地 */
+  /** 建父 WU（active → in_review 触发路径 A）并确定性等评审子 WU 落地 */
   async function createParentAndReviewWait(scope: string, assigneeId: string | null) {
     const parent = await wuService.create({
       scope, type: 'feature', channelId: 'ch-test', assigneeId, status: 'active',
     });
     await wuService.transitionStatus(parent.id, 'in_review');
-    let child;
-    await waitFor(async () => {
-      const snapshots = await fileStore.getIndex();
-      child = snapshots.find(s => s.parentId === parent.id && s.type === 'review');
-      return !!child;
-    });
+    await dispatcher.waitForSettled();
+    const snapshots = await fileStore.getIndex();
+    const child = snapshots.find(s => s.parentId === parent.id && s.type === 'review');
     return { parent, child: child! };
   }
 
@@ -552,10 +541,7 @@ describe('ReviewDispatcher (AC-4.1 ~ AC-4.5 + F4)', () => {
     await wuService.update(child.id, { metadata: childMeta });
     await wuService.transitionStatus(child.id, 'done');
 
-    await waitFor(async () => {
-      const p = await wuService.getById(parent.id);
-      return metaOf(p!.metadata).attestations?.l2?.verdict === 'approved';
-    });
+    await dispatcher.waitForSettled();
     const updatedParent = await wuService.getById(parent.id);
     expect(updatedParent!.status).toBe('done'); // 不动状态
     const att = metaOf(updatedParent!.metadata).attestations;
@@ -571,7 +557,8 @@ describe('ReviewDispatcher (AC-4.1 ~ AC-4.5 + F4)', () => {
     await wuService.transitionStatus(child.id, 'active');
     await wuService.transitionStatus(child.id, 'in_review');
     await wuService.transitionStatus(child.id, 'done');
-    await new Promise(r => setTimeout(r, 150)); // 断言「不发生」，给事件链留窗口
+    // 「不发生」断言：settled 后事件链已落定，比定长 sleep 窗口更强
+    await dispatcher.waitForSettled();
 
     const updatedParent = await wuService.getById(parent.id);
     expect(updatedParent!.status).toBe('done');
@@ -591,12 +578,10 @@ describe('ReviewDispatcher (AC-4.1 ~ AC-4.5 + F4)', () => {
     await wuService.update(child.id, { metadata: childMeta });
     await wuService.transitionStatus(child.id, 'done');
 
-    let notice;
-    await waitFor(async () => {
-      const messages = await fileStore.queryMessages('ch-test', { workUnitId: parent.id });
-      notice = messages.find(m => m.authorType === 'agent' && m.agentName === 'Studio' && m.content.includes('人工复核'));
-      return !!notice;
-    });
+    await dispatcher.waitForSettled();
+    const messages = await fileStore.queryMessages('ch-test', { workUnitId: parent.id });
+    const notice = messages.find(m => m.authorType === 'agent' && m.agentName === 'Studio' && m.content.includes('人工复核'));
+    expect(notice).toBeDefined();
     expect(notice!.content).toContain('缺少错误处理');
 
     const updatedParent = await wuService.getById(parent.id);
@@ -619,7 +604,8 @@ describe('ReviewDispatcher (AC-4.1 ~ AC-4.5 + F4)', () => {
     childMeta.reviewReport = { approved: true, reason: '重复结论' };
     await wuService.update(child.id, { metadata: childMeta });
     await wuService.transitionStatus(child.id, 'done');
-    await new Promise(r => setTimeout(r, 150)); // 断言「不发生」，给事件链留窗口
+    // 「不发生」断言：settled 后事件链已落定，比定长 sleep 窗口更强
+    await dispatcher.waitForSettled();
 
     // l2 保持原值（ref 不被迟到结论覆盖）
     const att = metaOf((await wuService.getById(parent.id))!.metadata).attestations;

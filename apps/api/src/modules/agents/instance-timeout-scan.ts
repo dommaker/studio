@@ -11,7 +11,7 @@
  */
 import { logger, type FileStore } from '@dommaker/studio-shared';
 import { AgentInstanceService } from './agent-instance.service.js';
-import { dispatchMonitorAlerts } from './monitor/monitor-alerts.js';
+import { dispatchMonitorAlerts, filterCooldownAlerts } from './monitor/monitor-alerts.js';
 import { pidStartMatchesInstance } from '../workunit/timeout-release.js';
 
 /** 实例心跳超时阈值（与原内联 handler 一致：5min） */
@@ -55,11 +55,13 @@ export async function scanStaleAgentInstances(
       logger.warn('[AgentTimeout] Stale heartbeat but pid alive — FileStore failure suspected, skip terminate', {
         instanceId: inst.id, pid: inst.pid, lastHeartbeat: inst.lastHeartbeat,
       });
-      dispatchMonitorAlerts([{
+      // #220：dispatch 前冷却过滤；subject = 实例 id，不同实例告警互不吞并
+      dispatchMonitorAlerts(filterCooldownAlerts([{
         source: 'agent_timeout_scan',
         level: 'warning',
+        subject: inst.id,
         message: `实例 ${inst.id}（role ${inst.roleId}）心跳过期（${inst.lastHeartbeat ?? 'never'}）但 pid ${inst.pid} 仍存活 —— 疑似 FileStore 故障导致心跳写失败，已跳过 terminate，请检查数据区`,
-      }]);
+      }]));
       continue;
     }
     try {

@@ -14,18 +14,25 @@ import os from 'node:os';
 
 let tmpHome: string;
 let prevHome: string | undefined;
+let prevStudioHome: string | undefined;
 let shared: typeof import('../shared.js');
 
 beforeAll(async () => {
   tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'studio-cli-shared-'));
   prevHome = process.env.HOME;
   process.env.HOME = tmpHome;
+  // #219：STUDIO_DIR 在 import 期冻结且 STUDIO_HOME 优先于 $HOME，
+  // 须先把 STUDIO_HOME 钉到本测试的临时 home 再 import shared.js。
+  prevStudioHome = process.env.STUDIO_HOME;
+  process.env.STUDIO_HOME = path.join(tmpHome, '.studio');
   shared = await import('../shared.js');
 });
 
 afterAll(() => {
   if (prevHome === undefined) delete process.env.HOME;
   else process.env.HOME = prevHome;
+  if (prevStudioHome === undefined) delete process.env.STUDIO_HOME;
+  else process.env.STUDIO_HOME = prevStudioHome;
   fs.rmSync(tmpHome, { recursive: true, force: true });
 });
 

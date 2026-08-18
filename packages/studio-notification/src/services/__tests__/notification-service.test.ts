@@ -11,7 +11,7 @@
  * - getUnreadCount
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, afterAll } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { FileStore } from '@dommaker/studio-shared';
@@ -19,11 +19,19 @@ import { NotificationService } from '../notification-service';
 
 // vi.hoisted runs before vi.mock factory evaluation, ensuring tmpDir
 // is initialized before the module-level NOTIFICATIONS_JSONL constant.
-const { tmpDir } = vi.hoisted(() => {
+const { tmpDir, SETUP_STUDIO_HOME } = vi.hoisted(() => {
   const _fs = require('node:fs');
   const _path = require('node:path');
   const _os = require('node:os');
-  return { tmpDir: _fs.mkdtempSync(_path.join(_os.tmpdir(), 'notif-test-')) };
+  const tmpDir = _fs.mkdtempSync(_path.join(_os.tmpdir(), 'notif-test-'));
+  // #219：setup-isolated-data.setup.ts 把 STUDIO_HOME 钉到隔离根，
+  // studioDir() 优先读 STUDIO_HOME，homedir mock 被旁路。
+  // notification-service.ts 在 import 期冻结 NOTIFICATIONS_JSONL（studioPath 模块级常量），
+  // 因此必须在模块 import 前（本 hoisted 块内）把 STUDIO_HOME 指到本测试的临时数据根。
+  // 注意 STUDIO_HOME 指向 .studio 根本身，不是 home 目录。
+  const SETUP_STUDIO_HOME = process.env.STUDIO_HOME; // setup 钉的原始值，afterAll 恢复
+  process.env.STUDIO_HOME = _path.join(tmpDir, '.studio');
+  return { tmpDir, SETUP_STUDIO_HOME };
 });
 
 // Redirect os.homedir() to temp dir so NOTIFICATIONS_JSONL resolves
@@ -51,6 +59,12 @@ describe('NotificationService', () => {
 
   afterEach(() => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  afterAll(() => {
+    // 恢复 setup 文件钉的 STUDIO_HOME，避免污染同 worker 进程后续测试文件
+    if (SETUP_STUDIO_HOME === undefined) delete process.env.STUDIO_HOME;
+    else process.env.STUDIO_HOME = SETUP_STUDIO_HOME;
   });
 
   // ============================================

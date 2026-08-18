@@ -8,7 +8,8 @@ import { ReviewHint } from '../components/workunit/ReviewHint';
 import { SelfReviewBadge } from '../components/workunit/SelfReviewBadge';
 import { channelApi, type AgentProfile } from '../api/channel';
 import type { WorkUnit } from '../api/workunit';
-import { buildMapOpeningPrefill } from '../components/pmo/mapUtils';
+import { buildMapOpeningPrefill, parseBlockedBy } from '../components/pmo/mapUtils';
+import { BlockedByList } from '../components/workunit/BlockedByList';
 import { AnalysisApproveDialog } from '../components/pmo/AnalysisApproveDialog';
 import { useWorkUnitEvents } from '../hooks/useWorkUnitEvents';
 import { Select } from '../components/ui';
@@ -235,6 +236,10 @@ function WorkUnitRow({
   // F6-b：徽章/按钮的展示判断一律过派生函数（通过/拒绝的调用资格仍看存储状态，
   // 因为服务端状态机以存储为准；done 缺 l3 时"确认"调同一端点幂等补写）
   const derived = deriveWu(wu);
+  // #116：依赖未了结的待分配单 → 置灰 + 被阻塞徽标。
+  // 注意服务端对非 unassigned 行 claimable 恒 false（workunit.routes.ts 口径），必须叠加存储状态判定
+  const depBlocked = wu.status === 'unassigned' && wu.claimable === false;
+  const depIds = depBlocked ? parseBlockedBy(wu.metadata) : [];
 
   // analysis 单走确认弹窗（待决问题清单审核）；其余类型保持一键通过
   const handleApprove = () => (wu.type === 'analysis' ? setShowApproveModal(true) : onReviewPassed());
@@ -248,7 +253,7 @@ function WorkUnitRow({
   }, [expanded, wu.channelId]);
 
   return (
-    <div className="card">
+    <div className={depBlocked ? 'card u-dimmed' : 'card'}>
       <div
         className="p-3 cursor-pointer flex items-center justify-between gap-4"
         onClick={() => setExpanded(!expanded)}
@@ -258,6 +263,16 @@ function WorkUnitRow({
             <span className={`text-xs px-2 py-0.5 rounded ${statusColors[derived.column] || 'u-surface-2 u-text-3'}`}>
               {statusLabels[derived.column] ?? derived.column}
             </span>
+            {/* #116：被阻塞徽标，悬停 title 列依赖 id（客户端不知各依赖状态，口径保持中性；
+                未了结判定与可点击清单见行内展开 BlockedByList） */}
+            {depBlocked && (
+              <span
+                className="text-xs px-2 py-0.5 rounded u-warn-dim u-warn"
+                title={depIds.length > 0 ? `依赖：${depIds.join(', ')}` : '依赖未了结'}
+              >
+                被阻塞
+              </span>
+            )}
             <SelfReviewBadge wu={wu} />
             <span className="text-xs u-text-2">{typeLabels[wu.type] ?? wu.type}</span>
             {wu.reqId && (
@@ -336,6 +351,12 @@ function WorkUnitRow({
               <div className="col-span-2"><span className="u-text-2">Completed:</span> <span className="u-text-3">{formatTime(wu.completedAt)}</span></div>
             )}
           </div>
+          {/* #116：被阻塞行展开显示依赖清单（各依赖状态 + 跳详情页） */}
+          {depBlocked && (
+            <div className="mt-2">
+              <BlockedByList metadata={wu.metadata} />
+            </div>
+          )}
           {wu.metadata && (
             <div className="mt-2">
               <span className="u-text-2 text-xs">Metadata:</span>

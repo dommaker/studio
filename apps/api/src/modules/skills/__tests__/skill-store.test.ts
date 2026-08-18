@@ -28,7 +28,12 @@ const mockFs = vi.mocked(fs);
 const fsStore = (fs as any).__store;
 const fsReset = (fs as any).__reset;
 
-const DATA_FILE = require('path').join(require('os').homedir(), '.studio', 'skills-index.json');
+// #219: SUT 经 studioDir() 解析数据根（STUDIO_HOME env 优先于 os.homedir()），
+// setup-isolated-data 已把 STUDIO_HOME 钉到隔离根，此处必须与 SUT 保持同一解析优先级。
+const DATA_FILE = require('path').join(
+  process.env.STUDIO_HOME || require('path').join(require('os').homedir(), '.studio'),
+  'skills-index.json'
+);
 
 function makeSkill(overrides: Partial<SkillRecord> = {}): SkillRecord {
   return {

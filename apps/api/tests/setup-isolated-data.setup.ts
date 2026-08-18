@@ -6,6 +6,7 @@
  *
  * 时机说明：setupFiles 先于测试模块 import 执行，因此：
  * - FileStore 构造时读取的 process.env.STUDIO_DATA_DIR 已指向临时目录；
+ * - 模块级 `studioPath()` 常量读取的 STUDIO_HOME 同样已指向隔离根（#219 双轨钉死）；
  * - studio-shared config 的 `STUDIO_DATA_DIR ??= ~/.studio/data` 钉值保留既有值。
  * pool=forks 下每个测试文件一个进程，mkdtemp 互不相撞。
  *
@@ -21,5 +22,24 @@ import path from 'node:path';
 
 const tmpDir = process.env.TMPDIR || '/tmp';
 const isolatedRoot = fs.mkdtempSync(path.join(tmpDir, 'studio-test-data-'));
+// #219 双轨钉死：STUDIO_DATA_DIR 与 STUDIO_HOME 必须同时指向隔离根。
+// 只钉 STUDIO_DATA_DIR 时，模块级 `studioPath(...)` 常量走 STUDIO_HOME 逃逸到
+// 真实 ~/.studio（89 处，#172 skill-loader 同类事故）。
+process.env.STUDIO_HOME = isolatedRoot;
 process.env.STUDIO_DATA_DIR = path.join(isolatedRoot, 'data');
 process.env.STUDIO_EVENTS_DIR = path.join(isolatedRoot, 'events');
+
+// #219 硬断言：隔离根解析结果指向真实生产根（$HOME/.studio）即 fail fast。
+// 不用 os.homedir()（见文件头 ESM 冻结说明），直接读 $HOME。
+const realHome = process.env.HOME;
+if (realHome) {
+  const prodRoot = path.resolve(realHome, '.studio');
+  const resolved = [process.env.STUDIO_HOME, process.env.STUDIO_DATA_DIR, process.env.STUDIO_EVENTS_DIR]
+    .map((p) => path.resolve(p!));
+  if (resolved.some((p) => p === prodRoot || p.startsWith(prodRoot + path.sep))) {
+    throw new Error(
+      `[setup-isolated-data] 测试数据根解析到真实生产根 ${prodRoot}，拒绝继续（#219 fail fast）。`
+      + `STUDIO_HOME=${process.env.STUDIO_HOME} STUDIO_DATA_DIR=${process.env.STUDIO_DATA_DIR}`,
+    );
+  }
+}

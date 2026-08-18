@@ -3,6 +3,9 @@ import { describe, it, expect, beforeAll } from 'vitest';
 const API = `http://localhost:${process.env.TEST_PORT || process.env.PORT || '13001'}/api/v1`;
 const TIMEOUT = 15_000;
 
+// #219 活端口门禁：默认 skip，显式 STUDIO_E2E_LIVE=1 才打真实服务器
+const LIVE = process.env.STUDIO_E2E_LIVE === '1';
+
 async function api(method: string, path: string, body?: unknown, token?: string) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), 8000);
@@ -28,7 +31,7 @@ async function registerFresh(suffix: string) {
   return { email, password, token: res.data.token as string, refreshToken: res.data.refreshToken as string, user: res.data.user };
 }
 
-describe('Auth Flow E2E', () => {
+describe.skipIf(!LIVE)('Auth Flow E2E', () => {
   beforeAll(async () => {
     // Wait for server to be ready
     for (let i = 0; i < 20; i++) {

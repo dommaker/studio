@@ -6,7 +6,7 @@
 // knowledge-service mock 掉（recordPattern 不落真实知识库）。
 import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
 
-const { tmpHome, tmpRepo, origHomedir } = vi.hoisted(() => {
+const { tmpHome, tmpRepo, origHomedir, origStudioHome } = vi.hoisted(() => {
   const fs = require('node:fs');
   const path = require('node:path');
   const os = require('node:os');
@@ -23,7 +23,12 @@ const { tmpHome, tmpRepo, origHomedir } = vi.hoisted(() => {
   git('-c user.name=test -c user.email=test@t commit -q --allow-empty -m "feat: 新增频道面板"');
   // REPO_DIR 在 service 模块加载时解析 —— 必须先设
   process.env.REPO_DIR = repo;
-  return { tmpHome: home, tmpRepo: repo, origHomedir: orig };
+  // #219：STUDIO_HOME 已被 setup 钉到隔离根，homedir 补丁被 studioDir() 旁路；
+  // 同步钉到本测试的 tmpHome/.studio（STUDIO_HOME 即数据根本身，与 homedir 补丁
+  // 时代的 <home>/.studio 同口径），先于 service import 生效，afterAll 恢复 setup 原值
+  const origStudioHome = process.env.STUDIO_HOME;
+  process.env.STUDIO_HOME = path.join(home, '.studio');
+  return { tmpHome: home, tmpRepo: repo, origHomedir: orig, origStudioHome };
 });
 
 const { mockRecordPattern, mockLoggerWarn } = vi.hoisted(() => ({
@@ -65,6 +70,11 @@ describe('SessionSummary checkpoint 失效回退（P5b）', () => {
     const os = require('node:os');
     os.homedir = origHomedir;
     delete process.env.REPO_DIR;
+    if (origStudioHome === undefined) {
+      delete process.env.STUDIO_HOME;
+    } else {
+      process.env.STUDIO_HOME = origStudioHome;
+    }
     fs.rmSync(tmpHome, { recursive: true, force: true });
     fs.rmSync(tmpRepo, { recursive: true, force: true });
   });

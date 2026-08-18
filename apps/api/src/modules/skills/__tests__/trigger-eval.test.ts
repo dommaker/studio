@@ -16,14 +16,13 @@ import { selectSkills } from '../skill-selector.js';
 import type { SkillEntry } from '../manifest-loader.js';
 
 // All active skills with real descriptions (from SKILL.md frontmatter).
-// 与 ~/.studio/skills/MANIFEST.md Active Skills 对齐（16 个）；退役 skill（_deprecated/）不入池。
+// 与 ~/.studio/skills/MANIFEST.md Active Skills 对齐（15 个）；退役 skill 不入池（#224 起删正本留 git 史，无 _deprecated 残留）。
 // 注：to-tickets 保留扩展版描述——frontmatter 的 triggers（拆任务/独立交付/并行认领等）
 // 在生产环境参与匹配，fixture 不载 triggers 字段，扩展描述用于等价覆盖这些触发面。
 const ALL_SKILLS: SkillEntry[] = [
   { name: 'arch-review-skill', path: 'arch-review-skill/SKILL.md', description: '对照 arch-patterns 知识库检查架构文档的概念完整性和覆盖度，识别 P0/P1 缺口。' },
   { name: 'code-review', path: 'code-review/SKILL.md', description: '对实现分支的 diff 执行两轴审查——契约轴（代码是否兑现工单 issue/AC）与规范轴（是否符合仓内标准与气味基线），两轴并列报告不合并定级。' },
   { name: 'dead-code-removal', path: 'dead-code-removal/SKILL.md', description: '彻底清理已废弃的代码概念：跨 schema、后端、前端、packages 全链路删除。' },
-  { name: 'doc-manager-skill', path: 'doc-manager-skill/SKILL.md', description: '文档状态管理：保存进度到 memory、维护文档格式、更新 roadmap Phase、同步 spec status。' },
   { name: 'exploration-sediment', path: 'exploration-sediment/SKILL.md', description: '调研/探索结论沉淀：把本轮调研的耐久发现写入业务仓 .studio/CONTEXT.md（注意事项/核心导出），避免下个会话重复探索。' },
   { name: 'knowledge-extraction', path: 'knowledge-extraction/SKILL.md', description: '从近期工作产物中提取可复用知识，去重后写入知识库（Loop 自动触发，也支持用户请求）。' },
   { name: 'knowledge-quality-skill', path: 'knowledge-quality-skill/SKILL.md', description: '审查知识库条目的语义质量：内容完整性、价值、跨条目矛盾、引用存活、语义重复。' },

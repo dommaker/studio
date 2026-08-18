@@ -14,6 +14,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { studioPath } from '@dommaker/studio-shared/studio-dir';
 
 // Mock external dependencies — keep the real module (knowledge-service.ts
 // instantiates the real FileStore at module top-level), silence only the logger.
@@ -65,7 +66,7 @@ describe('AC-A.1: recordTrend → data/', () => {
     writeTrendData(`${dateStr}.md`, '## Test Trend\n\nmetric: test_metric');
 
     // Verify file was created in data/trends/
-    const expectedDir = path.join(os.homedir(), '.studio', 'data', 'trends');
+    const expectedDir = studioPath('data', 'trends');
     const expectedFile = path.join(expectedDir, `${dateStr}.md`);
     expect(fs.existsSync(expectedFile)).toBe(true);
 
@@ -79,7 +80,7 @@ describe('AC-A.1: recordTrend → data/', () => {
     const dateStr = '2026-07-01';
     writeTrendData(`${dateStr}.md`, '## Test\n\ncontent');
 
-    const expectedDir = path.join(os.homedir(), '.studio', 'data', 'trends');
+    const expectedDir = studioPath('data', 'trends');
     expect(fs.existsSync(expectedDir)).toBe(true);
     expect(fs.statSync(expectedDir).isDirectory()).toBe(true);
   });
@@ -91,7 +92,7 @@ describe('AC-A.1: recordTrend → data/', () => {
     writeTrendData(`${dateStr}.md`, '## First\n\nmetric: first');
     writeTrendData(`${dateStr}.md`, '## Second\n\nmetric: second');
 
-    const expectedFile = path.join(os.homedir(), '.studio', 'data', 'trends', `${dateStr}.md`);
+    const expectedFile = studioPath('data', 'trends', `${dateStr}.md`);
     const content = fs.readFileSync(expectedFile, 'utf-8');
     expect(content).toContain('## First');
     expect(content).toContain('## Second');
@@ -134,7 +135,7 @@ describe('AC-A.2: recordAnalystAccuracy → data/', () => {
 
     // Verify file was created
     const dateStr = new Date().toISOString().split('T')[0];
-    const expectedFile = path.join(os.homedir(), '.studio', 'data', 'trends', `${dateStr}.md`);
+    const expectedFile = studioPath('data', 'trends', `${dateStr}.md`);
     expect(fs.existsSync(expectedFile)).toBe(true);
 
     const content = fs.readFileSync(expectedFile, 'utf-8');
@@ -171,7 +172,7 @@ describe('AC-A.2: recordAnalystAccuracy → data/', () => {
     await knowledgeService.recordAnalystAccuracy(testData2);
 
     const dateStr = new Date().toISOString().split('T')[0];
-    const expectedFile = path.join(os.homedir(), '.studio', 'data', 'trends', `${dateStr}.md`);
+    const expectedFile = studioPath('data', 'trends', `${dateStr}.md`);
     const content = fs.readFileSync(expectedFile, 'utf-8');
     expect(content).toContain('Goal 1');
     expect(content).toContain('Goal 2');
@@ -303,7 +304,7 @@ describe('writeTrendData utility', () => {
 
     writeTrendData('2026-07-01.md', '# Test\n\nContent here');
 
-    const filePath = path.join(os.homedir(), '.studio', 'data', 'trends', '2026-07-01.md');
+    const filePath = studioPath('data', 'trends', '2026-07-01.md');
     expect(fs.existsSync(filePath)).toBe(true);
     const content = fs.readFileSync(filePath, 'utf-8');
     expect(content).toContain('# Test');

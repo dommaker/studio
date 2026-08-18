@@ -24,9 +24,18 @@ import { FileStore } from '@dommaker/studio-shared';
 import { AuditService, AuditActions, AuditResources } from '../audit-service';
 
 // vi.hoisted 在模块导入前执行，确保 tempDir 在 audit-service.ts 评估前就存在
-const tempDir = vi.hoisted(() => {
+const { tempDir, SETUP_STUDIO_HOME } = vi.hoisted(() => {
   const _fs = require('node:fs') as typeof import('node:fs');
-  return _fs.mkdtempSync('/tmp/audit-test-');
+  const _path = require('node:path') as typeof import('node:path');
+  const tempDir = _fs.mkdtempSync('/tmp/audit-test-');
+  // #219：setup-isolated-data.setup.ts 把 STUDIO_HOME 钉到隔离根，
+  // studioDir() 优先读 STUDIO_HOME，homedir mock 被旁路。
+  // audit-service.ts 在 import 期冻结 AUDIT_JSONL_PATH（studioPath 模块级常量），
+  // 因此必须在模块 import 前（本 hoisted 块内）把 STUDIO_HOME 指到本测试的临时数据根。
+  // 注意 STUDIO_HOME 指向 .studio 根本身，不是 home 目录。
+  const SETUP_STUDIO_HOME = process.env.STUDIO_HOME; // setup 钉的原始值，afterAll 恢复
+  process.env.STUDIO_HOME = _path.join(tempDir, '.studio');
+  return { tempDir, SETUP_STUDIO_HOME };
 });
 
 vi.mock('node:os', async (importOriginal) => {
@@ -374,5 +383,8 @@ describe('AuditService', () => {
   // ============================================
   afterAll(() => {
     try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch { /* ignore */ }
+    // 恢复 setup 文件钉的 STUDIO_HOME，避免污染同 worker 进程后续测试文件
+    if (SETUP_STUDIO_HOME === undefined) delete process.env.STUDIO_HOME;
+    else process.env.STUDIO_HOME = SETUP_STUDIO_HOME;
   });
 });

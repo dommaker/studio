@@ -6,7 +6,7 @@ import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 
-const { tmpHome, tmpEvents, eventsFile, mockSave, origHomedir } = vi.hoisted(() => {
+const { tmpHome, tmpEvents, eventsFile, mockSave, origHomedir, origStudioHome, origStudioDataDir } = vi.hoisted(() => {
   const fs = require('node:fs');
   const path = require('node:path');
   const os = require('node:os');
@@ -19,12 +19,21 @@ const { tmpHome, tmpEvents, eventsFile, mockSave, origHomedir } = vi.hoisted(() 
   const orig = os.homedir;
   const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'auditor-reports-home-'));
   os.homedir = () => tmpHome;
+  // #219：setup 已把 STUDIO_HOME/STUDIO_DATA_DIR 钉到每文件隔离根，homedir 补丁被
+  // studioDir() 的 env 优先级旁路。这里把 env 同步钉到本测试 tmpHome 下的 .studio，
+  // 恢复「SUT 与断言同根」语义（仍不触真实 ~/.studio）。须在模块 import 前设置（hoisted）。
+  const origStudioHome = process.env.STUDIO_HOME;
+  const origStudioDataDir = process.env.STUDIO_DATA_DIR;
+  process.env.STUDIO_HOME = path.join(tmpHome, '.studio');
+  process.env.STUDIO_DATA_DIR = path.join(tmpHome, '.studio', 'data');
   return {
     tmpHome,
     tmpEvents,
     eventsFile,
     mockSave: vi.fn(),
     origHomedir: orig,
+    origStudioHome,
+    origStudioDataDir,
   };
 });
 
@@ -39,10 +48,14 @@ import {
   postToSystemChannel,
 } from '../auditor/auditor-reports.js';
 
-// 还原 homedir 补丁 + 清理 tmpHome（同 worker 后续文件不受影响）
+// 还原 homedir/env 补丁 + 清理 tmpHome（同 worker 后续文件不受影响）
 afterAll(() => {
   const os = require('node:os');
   os.homedir = origHomedir;
+  if (origStudioHome === undefined) delete process.env.STUDIO_HOME;
+  else process.env.STUDIO_HOME = origStudioHome;
+  if (origStudioDataDir === undefined) delete process.env.STUDIO_DATA_DIR;
+  else process.env.STUDIO_DATA_DIR = origStudioDataDir;
   fs.rmSync(tmpHome, { recursive: true, force: true });
 });
 

@@ -1,0 +1,26 @@
+[
+  {
+    "scenario": "输入有完整 SDD",
+    "input_type": "sdd",
+    "expected_mode": "standard",
+    "expected_dimensions": ["AC 覆盖", "代码质量", "安全性", "架构一致性", "法证分析"],
+    "reason": "完整 SDD 可对照，全维度审查"
+  },
+  {
+    "scenario": "输入只有轻量 PLAN",
+    "input_type": "lightweight_plan",
+    "expected_mode": "lightweight",
+    "expected_dimensions": ["AC 覆盖（对照 PLAN）", "安全性"],
+    "expected_skips": ["架构一致性（无 design.md 可对照）"],
+    "reason": "无 SDD，只检查 AC 覆盖和安全性"
+  },
+  {
+    "scenario": "变更 ≤ 50 行、轻量 PLAN",
+    "input_type": "lightweight_plan",
+    "lines_changed": 30,
+    "expected_mode": "lightweight",
+    "expected_dimensions": ["AC 覆盖", "安全性"],
+    "expected_skips": ["代码质量", "架构一致性", "法证分析"],
+    "reason": "小改动，只检必要维度"
+  }
+]

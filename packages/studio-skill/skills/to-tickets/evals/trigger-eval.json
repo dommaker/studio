@@ -1,0 +1,18 @@
+[
+  {"query": "把这个 spec 拆成子工单", "should_trigger": true},
+  {"query": "拆任务，给出每张票的 AC 和阻塞关系", "should_trigger": true},
+  {"query": "需求明确了，帮我拆单发布到工单系统", "should_trigger": true},
+  {"query": "这个特性太大，切成能独立交付的几张票", "should_trigger": true},
+  {"query": "规划实现顺序，哪些票可以并行认领", "should_trigger": true},
+  {"query": "to-tickets，把方案落成 tracer-bullet 子票", "should_trigger": true},
+  {"query": "这是个 wide refactor，帮我排 expand-contract 批次", "should_trigger": true},
+
+  {"query": "帮我澄清一下这个需求", "should_trigger": false},
+  {"query": "做方案对比和风险评估", "should_trigger": false},
+  {"query": "按工单 AC 实现代码写测试", "should_trigger": false},
+  {"query": "审查代码质量", "should_trigger": false},
+  {"query": "写 FAIL 测试然后实现", "should_trigger": false},
+  {"query": "并行执行这些独立任务", "should_trigger": false},
+  {"query": "从这次对话提取知识", "should_trigger": false},
+  {"query": "管理文档，更新 roadmap", "should_trigger": false}
+]

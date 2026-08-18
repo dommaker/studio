@@ -8,7 +8,10 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 
-const snapshotFile = path.join(os.homedir(), '.studio', 'auditor', 'daily-snapshots.jsonl');
+// #219：STUDIO_HOME 已被 setup 钉到隔离根，SUT 经 studioPath() 动态解析到该根；
+// 测试读写必须与 SUT 同根（不再碰真实 ~/.studio）
+const studioHome = process.env.STUDIO_HOME ?? path.join(os.homedir(), '.studio');
+const snapshotFile = path.join(studioHome, 'auditor', 'daily-snapshots.jsonl');
 
 // Dynamic import to avoid Prisma initialization at module level
 async function getAgent() {
