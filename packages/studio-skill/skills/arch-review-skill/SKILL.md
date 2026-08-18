@@ -2,7 +2,7 @@
 name: arch-review-skill
 description: "对照 arch-patterns 知识库检查架构文档的概念完整性和覆盖度，识别 P0/P1 缺口。"
 agentTypes: [review, analysis]
-triggers: [架构审查, arch review, 概念完整性, 覆盖度检查, 维度覆盖, 缺口识别, pipeline, agent-network, architecture review]
+triggers: [架构审查, arch review, 概念完整性, 覆盖度检查, 维度覆盖, 缺口识别, architecture review]
 status: published
 ---
 
@@ -11,7 +11,7 @@ status: published
 触发关键词：架构 review、架构文档检查、概念完整性、arch review。
 
 本 skill 提供架构文档审查的领域知识：检查什么、什么是好的、怎么修。
-遵循 [quality-loop-pattern](../../knowledge/quality-loop-pattern.md) 的 6 步流程（Define→Trace→Diagnose→Fix→Verify→Converge）。
+遵循 quality-loop-pattern 的 6 步流程（Define→Trace→Diagnose→Fix→Verify→Converge；原文归档于 `~/.studio/knowledge/archive/guideline-quality-loop-pattern.md`）。
 
 ## 职责
 

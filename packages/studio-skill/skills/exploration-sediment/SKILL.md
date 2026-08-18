@@ -21,7 +21,6 @@ status: published
 |------|------|--------|
 | 本 skill | 业务仓 `.studio/CONTEXT.md` | 面向下一个摸代码者的耐久事实 |
 | knowledge-extraction | 知识库 | 跨任务可复用的知识条目（Loop 自动触发） |
-| doc-manager-skill | roadmap / spec / memory | 文档状态与进度 |
 
 ## 输入
 

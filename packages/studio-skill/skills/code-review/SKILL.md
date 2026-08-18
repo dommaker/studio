@@ -217,12 +217,11 @@ REVIEW_RESULT: {"verdict":"pass"|"reject","summary":"一句话结论","issues":[
 
 自检全部通过后：
 
-1. **同步 spec status**：若契约源是 `.studio/specs/` 的 spec → **invoke doc-manager-skill**（操作类型 `update-spec-status`）。无 spec → 跳过。
-2. **invoke exploration-sediment**：把本轮实现 + review 发现按分流清单写入对应目录 CONTEXT.md（无耐久发现则显式记录 N/A）。
-3. **提交 CONTEXT.md 变更**：exploration-sediment 产生的 CONTEXT.md 改动必须 commit，且须在 push 前。
-4. **push 分支**：`git push origin <current-branch>`
-5. **push 成功** → 流程结束
-6. **push 失败**（如 `protected branch` / `GH006`）→ 醒目提示：
+1. **invoke exploration-sediment**：把本轮实现 + review 发现按分流清单写入对应目录 CONTEXT.md（无耐久发现则显式记录 N/A）。
+2. **提交 CONTEXT.md 变更**：exploration-sediment 产生的 CONTEXT.md 改动必须 commit，且须在 push 前。
+3. **push 分支**：`git push origin <current-branch>`
+4. **push 成功** → 流程结束
+5. **push 失败**（如 `protected branch` / `GH006`）→ 醒目提示：
    > ⚠️ 推送失败：远端拒绝了当前分支的推送。
    > 请检查分支保护规则或触发工程的 CI/合并流程。不得绕过保护（--force / --no-verify）。
 
