@@ -51,6 +51,7 @@ export function clearSessionBookkeeping(meta: WorkUnitMetadata): WorkUnitMetadat
   delete cleaned.lastSessionResumed; // #94: 续用/新建标记不继承（子 WU 尚未起会话）
   delete cleaned.blockReason;    // B4: blocked 原因不继承（子 WU 从未被 block）
   delete cleaned.blockedAt;      // #176: 死信计时基准不继承（同上）
+  delete cleaned.staleGuardBlockedAt; // #221: 陈旧守卫拦截标记不继承（子 WU 自己的 updatedAt 生命周期）
   delete cleaned.resumeCount;    // #176: 复活计数不继承（同上）
   delete cleaned.stepCount;
   delete cleaned.consecutiveStuck;

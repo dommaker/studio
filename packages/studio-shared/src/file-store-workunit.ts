@@ -265,10 +265,13 @@ export class FileStoreWorkUnitBase extends FileStoreBase {
    * 计数/数组类字段在锁内基于最新值计算，不再用读时快照全量回写（消读-改-写竞态）。
    * mutator 返回对象中 undefined 值的键在 JSON 序列化时丢弃 = 清除语义。
    * WU 不存在 → 返回 null（不抛错、不产生事件）；metadata 损坏按 {} 起评（parseWuMetadata 同口径）。
+   * opts.touchUpdatedAt（缺省 true）：false 时保留原 updatedAt——#221 认领陈旧守卫的
+   * 标记写专用，守卫写不能刷新 updatedAt（任何刷新 = 复活语义，守卫自己复活僵尸则防线失效）。
    */
   async updateMetadata(
     wuId: string,
     mutator: (current: Record<string, unknown>) => Record<string, unknown>,
+    opts?: { touchUpdatedAt?: boolean },
   ): Promise<WorkUnitSnapshot | null> {
     return this.withLock(this.lockDir, async () => {
       const snapshots = (await this.readIndexFile()) ?? [];
@@ -280,7 +283,7 @@ export class FileStoreWorkUnitBase extends FileStoreBase {
       const updated: WorkUnitSnapshot = {
         ...current,
         metadata: JSON.stringify(nextMeta),
-        updatedAt: isoNow,
+        updatedAt: opts?.touchUpdatedAt === false ? current.updatedAt : isoNow,
       };
       const event: WorkUnitEvent = {
         type: 'updated',

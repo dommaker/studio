@@ -15,6 +15,7 @@ import {
   POOL_STAGNATION_CRIT_MS,
   REVIEW_STAGNATION_WARN_MS,
   REVIEW_STAGNATION_CRIT_MS,
+  isStaleClaimSleep,
 } from '@dommaker/studio-shared';
 import { agentRunner } from '@dommaker/studio-agent';
 import type { MonitorAlert } from '../types.js';
@@ -168,6 +169,56 @@ export async function checkReviewStagnation(fileStore: FileStore): Promise<Monit
       subject: 'global', // #220：聚合单车道——oldest.id 随确认轮换，不作指纹
       message: `in_review 滞留：WU ${oldest.id} 待人工确认已 ${hours}h（共 ${inReview.length} 条）`,
       relatedTaskIds: [oldest.id],
+    });
+  }
+
+  return alerts;
+}
+
+// ── #221（#214 决议）：认领陈旧守卫告警探针 ──
+
+/**
+ * 认领陈旧守卫：扫 status=unassigned 且 updatedAt 超 STALE_CLAIM_GUARD_MS（72h）的 WU
+ * ——它们已被 observe 可见性层拦截（任何 loop 都看不见、不会认领），此处负责首次拦截出声。
+ * 探测由探针做、observe 保持纯过滤（issue #221 开放点决策：与 #62 体系同构）。
+ *
+ * 防重复（双保险）：
+ *   1. 落盘：metadata.staleGuardBlockedAt 记拦截时的 updatedAt，与当前 updatedAt 一致 = 本次
+ *      沉睡已出过声。写走 #65-1 锁内字段级合并 mutator，且 touchUpdatedAt:false——守卫自身
+ *      的标记写不能刷新 updatedAt（任何 updatedAt 刷新 = 复活语义，守卫复活僵尸则防线失效）。
+ *   2. 内存：#220 冷却指纹 = source+subject（subject=wuId），同 WU 同轮/跨轮只出声一条。
+ * WU 被任何外部写刷新 updatedAt 后复活（零新增机制）；再次沉睡超阈值（updatedAt ≠ 落盘标记）
+ * 重新告警。不自动关闭/迁移沉睡 WU，CTA 对齐 #57/#87 既有入口（回复即复活 / 回复「关闭」）。
+ */
+export async function checkStaleClaimGuard(fileStore: FileStore): Promise<MonitorAlert[]> {
+  const alerts: MonitorAlert[] = [];
+  const now = Date.now();
+  // 先排除已出声者再截断：已标记 WU 永不认领、长期占据 index 前部，
+  // 先 slice 会让第 21 条起的新沉睡 WU 永久静默（#221 review 修复）。
+  const pending = (await fileStore.getIndex({ status: 'unassigned' }))
+    .filter(s => isStaleClaimSleep(s.updatedAt, now))
+    .filter(s => parseWuMetadata(s.metadata).staleGuardBlockedAt !== s.updatedAt) // 本次沉睡已出过声
+    .slice(0, 20); // 周期上限只压未出声者，防存量清点刷屏
+
+  for (const s of pending) {
+    const written = await fileStore.updateMetadata(
+      s.id,
+      latest => ({ ...latest, staleGuardBlockedAt: s.updatedAt }),
+      { touchUpdatedAt: false },
+    );
+    // 扫描到取锁之间 WU 被外部写复活（updatedAt 已变）→ 本轮不出声；
+    // 落盘标记与现 updatedAt 不一致，若再沉睡下轮会正常告警（自愈）。
+    if (!written || written.updatedAt !== s.updatedAt) continue;
+    const days = Math.floor((now - new Date(s.updatedAt).getTime()) / 86_400_000);
+    const designated = s.assigneeId ? `（指名 @${s.assigneeId}）` : '';
+    alerts.push({
+      source: 'stale_claim_guard',
+      level: 'warning',
+      subject: s.id, // #220 指纹含 wuId：同 WU 一条车道
+      message: `认领陈旧守卫：WU ${s.id}${designated} 已沉睡 ${days} 天（updatedAt 超 72h 未动），`
+        + '已在认领可见性层拦截，不会被任何 loop 认领。'
+        + '回复该 WU 即复活（任何写刷新 updatedAt 后恢复可认领）；确认无需执行请回复「关闭」。',
+      relatedTaskIds: [s.id],
     });
   }
 
