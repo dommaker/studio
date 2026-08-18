@@ -30,6 +30,8 @@ import type { ParsedReviewReport } from './review-contract.js';
 
 export class ReviewDispatcher {
   private subscribed = false;
+  /** #228 测试可观测性（纯增量）：在途事件链登记，见 waitForSettled */
+  private inFlight = new Set<Promise<void>>();
 
   constructor(
     private fileStore: FileStore,
@@ -41,25 +43,52 @@ export class ReviewDispatcher {
     if (this.subscribed) return;
     this.subscribed = true;
 
-    eventBus.subscribe('workunit.status_changed', async (payload: { workunit: WorkUnitData }) => {
-      const wu = payload.workunit;
-      // 路径 A：父 WU 进入 in_review -> 尝试创建 review 子 WU
-      // （跳过 type='review'：review 子 WU 不需要再被 review；
-      //   跳过 type='analysis'：分析结论的评审 = 人工确认（F6 l3），diff-only 契约
-      //   对非代码产物恒 needs-info 转人工纯噪声；接力提示与派工见 pmo/analysis-handoff.ts；
-      //   跳过 decision/spec（#108）：人工验收类工单，验收闸 = 人工 in_review，不派评审子 WU）
-      if (wu.status === 'in_review' && wu.type !== 'review' && wu.type !== 'analysis' && !DECISION_SPEC_TYPES.has(wu.type)) {
-        await this.handleParentInReview(wu).catch(err =>
-          logger.warn('[ReviewDispatcher] handleParentInReview failed', { wuId: wu.id, error: String(err) }),
-        );
-      }
-      // 路径 B：子 WU（type='review'）完成 -> 处理父 WU review 结果
-      if (wu.status === 'done' && wu.type === 'review' && wu.parentId) {
-        await this.handleReviewChildDone(wu).catch(err =>
-          logger.warn('[ReviewDispatcher] handleReviewChildDone failed', { childId: wu.id, error: String(err) }),
-        );
-      }
+    eventBus.subscribe('workunit.status_changed', (payload: { workunit: WorkUnitData }) => {
+      this.trackInFlight(this.handleStatusChanged(payload.workunit));
     });
+  }
+
+  private async handleStatusChanged(wu: WorkUnitData): Promise<void> {
+    // 路径 A：父 WU 进入 in_review -> 尝试创建 review 子 WU
+    // （跳过 type='review'：review 子 WU 不需要再被 review；
+    //   跳过 type='analysis'：分析结论的评审 = 人工确认（F6 l3），diff-only 契约
+    //   对非代码产物恒 needs-info 转人工纯噪声；接力提示与派工见 pmo/analysis-handoff.ts；
+    //   跳过 decision/spec（#108）：人工验收类工单，验收闸 = 人工 in_review，不派评审子 WU）
+    if (wu.status === 'in_review' && wu.type !== 'review' && wu.type !== 'analysis' && !DECISION_SPEC_TYPES.has(wu.type)) {
+      await this.handleParentInReview(wu).catch(err =>
+        logger.warn('[ReviewDispatcher] handleParentInReview failed', { wuId: wu.id, error: String(err) }),
+      );
+    }
+    // 路径 B：子 WU（type='review'）完成 -> 处理父 WU review 结果
+    if (wu.status === 'done' && wu.type === 'review' && wu.parentId) {
+      await this.handleReviewChildDone(wu).catch(err =>
+        logger.warn('[ReviewDispatcher] handleReviewChildDone failed', { childId: wu.id, error: String(err) }),
+      );
+    }
+  }
+
+  /**
+   * #228 测试可观测性（纯增量，不改变发布/消费行为）：登记在途事件链。
+   * 事件订阅是 fire-and-forget，publish 同步触发 handler 后链路仍在异步推进，
+   * 测试侧原本只能盲等（定长 sleep / waitFor 轮询）——全量负载下事件循环饥饿
+   * 会吃满预算（#228：F4 自评兜底频道提醒在 100ms 盲等内落不了盘，近确定性红）。
+   */
+  private trackInFlight(chain: Promise<void>): void {
+    this.inFlight.add(chain);
+    const done = () => { this.inFlight.delete(chain); };
+    chain.then(done, done);
+  }
+
+  /**
+   * 等待本实例已触发的全部事件链落定（测试用确定性信号，替代盲等）。
+   * publish 在 transitionStatus await 链内同步发射（eventBus emit 同步），故
+   * await transitionStatus 返回时在途链必已登记，await 本方法即等到链路真正完成。
+   */
+  async waitForSettled(): Promise<void> {
+    // while 循环兜底级联：等待期间新事件再触发的链也一并等完
+    while (this.inFlight.size > 0) {
+      await Promise.allSettled([...this.inFlight]);
+    }
   }
 
   /** 频道 active 成员（不含 studio）；members 未回填（历史频道）返回 null = 成员未知 */

@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { FileStore } from '@dommaker/studio-shared';
-import { WorkUnitService, type WorkUnitMetadata, type WorkUnitData } from '../workunit.service.js';
+import { WorkUnitService, waitForReviewPassSettled, type WorkUnitMetadata, type WorkUnitData } from '../workunit.service.js';
 import { mergeWorktreeBranchOnReviewPass, cleanupPrototypeWorktreeOnReviewPass } from '../merge-on-review-pass.js';
 
 const { mockExecSh, mockPostWuSystemMessage, mockResolvePmoProjectId } = vi.hoisted(() => ({
@@ -79,15 +79,6 @@ function calledCommands(): string[] {
 async function studioMessages(wuId: string) {
   const messages = await fileStore.queryMessages('ch-merge', { workUnitId: wuId });
   return messages.filter(m => m.authorType === 'agent' && m.agentName === 'Studio');
-}
-
-async function waitFor(cond: () => Promise<boolean>, ms = 3000): Promise<void> {
-  const start = Date.now();
-  while (Date.now() - start < ms) {
-    if (await cond()) return;
-    await new Promise(r => setTimeout(r, 20));
-  }
-  throw new Error('waitFor timeout');
 }
 
 beforeEach(async () => {
@@ -412,11 +403,12 @@ describe('B3b-ii: 评审通过后自动合并', () => {
     const passed = await wuService.reviewPassed(wu.id);
     expect(passed.status).toBe('done'); // done 迁移不被合并阻断
 
-    await waitFor(async () => {
-      const updated = await wuService.getById(wu.id);
-      const meta = JSON.parse(updated!.metadata!) as WorkUnitMetadata;
-      return typeof meta.mergedAt === 'string';
-    });
+    // #228：确定性等待收尾链落定（替代 waitFor 盲等——全量负载下 git mock 链
+    // + 频道消息落盘会吃满 3s 轮询预算）。settled 后 mergedAt 落档与频道消息均已完成。
+    await waitForReviewPassSettled();
+    const updated = await wuService.getById(wu.id);
+    const meta = JSON.parse(updated!.metadata!) as WorkUnitMetadata;
+    expect(typeof meta.mergedAt).toBe('string');
     const cmds = calledCommands();
     expect(cmds.some(c => c.includes('merge --no-ff'))).toBe(true);
     const msgs = await studioMessages(wu.id);
@@ -430,7 +422,8 @@ describe('B3b-ii: 评审通过后自动合并', () => {
     expect(passed.status).toBe('done');
     expect(passed.completedAt).not.toBeNull();
 
-    await new Promise(r => setTimeout(r, 150)); // 给 best-effort 分支充分执行窗口
+    // 「不发生」断言：settled 后收尾链已落定（旁路即时返回），比定长 sleep 窗口更强
+    await waitForReviewPassSettled();
     expect(mockExecSh).not.toHaveBeenCalled();
     expect(await studioMessages(wu.id)).toHaveLength(0);
     const updated = await wuService.getById(wu.id);
@@ -452,8 +445,9 @@ describe('B3b-ii: 评审通过后自动合并', () => {
     const passed = await wuService.reviewPassed(wu.id);
     expect(passed.status).toBe('done'); // 冲突不回滚评审结论
 
-    await waitFor(async () => (await wuService.getById(wu.id))!.status === 'blocked');
+    await waitForReviewPassSettled();
     const updated = await wuService.getById(wu.id);
+    expect(updated!.status).toBe('blocked');
     const meta = JSON.parse(updated!.metadata!) as WorkUnitMetadata;
     expect(meta.mergeConflict).toBe(true);
     expect(meta.conflictFiles).toEqual(['src/a.ts']);
@@ -521,8 +515,9 @@ describe('#157（T6）：analysis 原型单——合并旁路 + 原型收尾清�
     const passed = await wuService.reviewPassed(wu.id);
     expect(passed.status).toBe('done'); // done 迁移不被收尾阻断
 
-    await waitFor(async () => calledCommands().some(c => c.includes('worktree remove --force')));
+    await waitForReviewPassSettled();
     const cmds = calledCommands();
+    expect(cmds.some(c => c.includes('worktree remove --force'))).toBe(true);
     expect(cmds.some(c => c.includes('merge --no-ff'))).toBe(false);
     expect(cmds.some(c => c.includes('branch -d') && c.includes(PROTO_BRANCH))).toBe(false);
     const updated = await wuService.getById(wu.id);
@@ -537,7 +532,8 @@ describe('#157（T6）：analysis 原型单——合并旁路 + 原型收尾清�
     const passed = await wuService.reviewPassed(wu.id);
     expect(passed.status).toBe('done');
 
-    await new Promise(r => setTimeout(r, 150)); // 给 best-effort 分支充分执行窗口
+    // 「不发生」断言：settled 后收尾链已落定（analysis 旁路即时返回），比定长 sleep 窗口更强
+    await waitForReviewPassSettled();
     expect(mockExecSh).not.toHaveBeenCalled();
     expect(await studioMessages(wu.id)).toHaveLength(0);
   });

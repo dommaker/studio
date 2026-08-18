@@ -25,6 +25,31 @@ export { snapshotToData } from './workunit.mappers.js';
 export { ANALYSIS_TASKS_MAX, INSPECTION_OPPORTUNITIES_MAX } from './workunit.types.js';
 export type { WorkUnitMetadata, ReviewAttestationSource, InspectionOpportunity } from './workunit.types.js';
 
+/**
+ * #228 测试可观测性（纯增量，不改变行为）：登记 reviewPassed 的 best-effort
+ * 收尾（自动合并 / 原型 worktree 清理）在途 promise。收尾是 fire-and-forget，
+ * 测试侧原本只能 waitFor 轮询盲等——全量负载下 git mock 链 + 频道消息落盘
+ * 会吃满 3s 预算（merge-on-review-pass 偶发红）。
+ */
+const inFlightReviewPassEffects = new Set<Promise<unknown>>();
+
+function trackReviewPassEffect(effect: Promise<unknown>): void {
+  inFlightReviewPassEffects.add(effect);
+  const done = () => { inFlightReviewPassEffects.delete(effect); };
+  effect.then(done, done);
+}
+
+/**
+ * 等待当前已触发的全部 reviewPassed 收尾落定（测试用确定性信号，替代 waitFor 盲等）。
+ * 收尾在 reviewPassed 返回前已同步登记，await 本函数即等到收尾（含频道消息落盘）完成。
+ */
+export async function waitForReviewPassSettled(): Promise<void> {
+  // while 循环兜底级联：等待期间新触发的收尾也一并等完
+  while (inFlightReviewPassEffects.size > 0) {
+    await Promise.allSettled([...inFlightReviewPassEffects]);
+  }
+}
+
 export class WorkUnitService extends WorkUnitCrudService {
 
   /**
@@ -213,13 +238,13 @@ export class WorkUnitService extends WorkUnitCrudService {
     // （merge 模块对 analysis 按类型硬旁路，双保险）。
     const updatedData = snapshotToData(updated);
     if (updatedData.type === 'analysis') {
-      cleanupPrototypeWorktreeOnReviewPass(updatedData).catch(err =>
+      trackReviewPassEffect(cleanupPrototypeWorktreeOnReviewPass(updatedData).catch(err =>
         logger.warn('[WorkUnit] prototype worktree cleanup failed (non-blocking)', { workUnitId: id, error: String(err) })
-      );
+      ));
     } else {
-      mergeWorktreeBranchOnReviewPass(this, updatedData, this.fileStore).catch(err =>
+      trackReviewPassEffect(mergeWorktreeBranchOnReviewPass(this, updatedData, this.fileStore).catch(err =>
         logger.warn('[WorkUnit] merge-on-review-pass failed (non-blocking)', { workUnitId: id, error: String(err) })
-      );
+      ));
     }
 
     return snapshotToData(updated);
