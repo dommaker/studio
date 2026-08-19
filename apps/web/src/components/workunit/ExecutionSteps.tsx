@@ -15,6 +15,44 @@ import {
 import { deriveDisplayState } from '@dommaker/studio-shared/web';
 import { useWorkUnitEvents } from '../../hooks/useWorkUnitEvents';
 import { useWorkUnitStreamEvents } from '../../hooks/useWorkUnitStreamEvents';
+import {
+  deriveLiveToolRows,
+  derivePersistedToolRows,
+  type ToolRow,
+  type ToolRowState,
+} from './execution-rows';
+
+// #240: 工具行四态 → 状态点/可读标签（运行中 pulse 黄点 / 成功绿 / 失败红 / 已中断灰）
+const TOOL_STATE_DOT: Record<ToolRowState, string> = {
+  running: 'mc-dot-busy',
+  ok: 'mc-dot-online',
+  error: 'mc-dot-error',
+  stopped: 'mc-dot-offline',
+};
+const TOOL_STATE_LABEL: Record<ToolRowState, string> = {
+  running: '运行中',
+  ok: '成功',
+  error: '失败',
+  stopped: '已中断',
+};
+
+/** #240: 折叠单行工具卡——整行点击展开/收起；长输出在内部滚动容器，不撑爆消息流 */
+function ToolRowView({ row }: { row: ToolRow }) {
+  const [open, setOpen] = useState(false);
+  const stateLabel = TOOL_STATE_LABEL[row.state];
+  return (
+    <div className="mc-toolrow-wrap">
+      <button type="button" className="mc-toolrow" aria-expanded={open} onClick={() => setOpen(o => !o)}>
+        <span className={`mc-dot ${TOOL_STATE_DOT[row.state]}`} role="img" aria-label={stateLabel} title={stateLabel} />
+        <span className="mc-toolrow-label">{row.tool}{row.summary ? ` ${row.summary}` : ''}</span>
+        <span className="mc-toolrow-chevron">{open ? '▾' : '▸'}</span>
+      </button>
+      {open && (
+        <div className="mc-toolrow-output">{row.output || row.summary || '（无输出记录）'}</div>
+      )}
+    </div>
+  );
+}
 
 // 步数预算：与 apps/api/src/modules/agents/loop/agent-loop.ts 的 STEP_LIMIT/REVIEW_STEP_LIMIT 同值——
 // 超限处置仍走服务端既有「强制提交审查」路径，这里只做展示与 ≥80% 提示（决策 #61 §5）
@@ -135,22 +173,30 @@ export function ExecutionSteps({ workUnitId, wu }: { workUnitId: string; wu?: Wo
         const live = liveChunks.filter(c => c.step > maxPersistedStep);
         if (live.length === 0) return null;
         const currentStep = live[live.length - 1].step;
+        // 步结束信号 = result chunk（「本回合结束」）；结束后未配对工具 → stopped（#240 中断合成）
+        const stepEnded = live.some(c => c.kind === 'result');
+        // 工具行四态由纯函数推导（execution-rows.ts）；此处按 chunk 到达序穿插渲染
+        const toolRowQueue = [...deriveLiveToolRows(live, stepEnded)];
         return (
           <div style={{ marginBottom: 8 }}>
-            <div className="mc-kv">
-              <span className="mc-kv-k">
-                <span className="mc-status mc-status-running"><span className="mc-dot" />实时</span>
-              </span>
-              <span className="mc-kv-v">第 {currentStep} 步进行中</span>
+            {/* 执行级状态条（#240）：常驻整个执行期，步切换只更新文案不卸载（不闪烁） */}
+            <div className="mc-exec-statusbar">
+              <span className="mc-status mc-status-running"><span className="mc-dot" />实时</span>
+              <span>第 {currentStep} 步进行中</span>
             </div>
             {live.map((c, i) => {
-              // chunk→文案映射唯一出处：api/workunit.ts formatExecutionStreamChunkText（step-start → null 不渲染）
+              // 工具调用 → 折叠单行卡；tool-result/step-start 不独立渲染（前者配对进行，后者只作步边界）
+              if (c.kind === 'tool') {
+                const row = toolRowQueue.shift();
+                return row ? <ToolRowView key={row.key} row={row} /> : null;
+              }
+              if (c.kind === 'tool-result' || c.kind === 'step-start') return null;
+              // chunk→文案映射唯一出处：api/workunit.ts formatExecutionStreamChunkText
               const text = formatExecutionStreamChunkText(c, { maxTextLength: false, maxSummaryLength: false });
               if (text === null) return null;
-              return c.kind === 'tool' ? (
-                <div key={i} className="mc-drawer-note" style={{ fontFamily: 'monospace', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
-                  {text}
-                </div>
+              // #240: thinking 独立成行，与正文/工具调用分开
+              return c.kind === 'thinking' ? (
+                <div key={i} className="mc-exec-thinking">{text}</div>
               ) : (
                 <div key={i} className="mc-drawer-note" style={{ whiteSpace: 'pre-wrap' }}>
                   {text}
@@ -174,14 +220,12 @@ export function ExecutionSteps({ workUnitId, wu }: { workUnitId: string; wu?: Wo
             </span>
           </div>
           {s.thinking.map((t, i) => (
-            <div key={`t${i}`} className="mc-drawer-note" style={{ whiteSpace: 'pre-wrap' }}>
+            <div key={`t${i}`} className="mc-exec-thinking">
               思考：{t}
             </div>
           ))}
-          {s.toolCalls.map((c, i) => (
-            <div key={`c${i}`} className="mc-drawer-note" style={{ fontFamily: 'monospace', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
-              {c.tool}{c.summary ? `  ${c.summary}` : ''}
-            </div>
+          {derivePersistedToolRows(s).map(row => (
+            <ToolRowView key={row.key} row={row} />
           ))}
           {s.skills.length > 0 && (
             <div className="mc-drawer-note">skills：{s.skills.join(', ')}</div>

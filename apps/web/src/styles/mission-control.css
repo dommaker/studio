@@ -672,6 +672,66 @@
 .mc-chain-node-title { color: var(--text-secondary); font-size: var(--fs-sm); margin-top: 2px; }
 .mc-chain-arrow { text-align: center; color: var(--text-muted); font-size: var(--fs-xs); margin-bottom: 8px; }
 
+/* ---------- #240 ExecutionSteps 升级：执行级状态条 + 折叠工具行 + thinking 独立行 ---------- */
+/* 执行级状态条：常驻整个 execution，步切换只更新文案不闪烁 */
+.mc-exec-statusbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  margin-bottom: 6px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+}
+/* thinking 独立成行：弱化 + 左缘线，与正文/工具行视觉分离 */
+.mc-exec-thinking {
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+  border-left: 2px solid var(--border-subtle);
+  padding-left: 8px;
+  margin: 4px 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+/* 折叠工具行：整行可点，单行省略 */
+.mc-toolrow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 3px 6px;
+  border-radius: 3px;
+  text-align: left;
+  font-size: var(--fs-sm);
+  color: var(--text-primary);
+}
+.mc-toolrow:hover { background: var(--bg-hover); }
+.mc-toolrow-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: monospace;
+}
+.mc-toolrow-chevron { color: var(--text-muted); font-size: var(--fs-xs); flex-shrink: 0; }
+/* 展开输出：内部滚动容器，不撑爆消息流 */
+.mc-toolrow-output {
+  max-height: 200px;
+  overflow-y: auto;
+  margin: 2px 0 6px 19px;
+  padding: 6px 8px;
+  background: var(--bg-tertiary);
+  border-radius: 3px;
+  font-family: monospace;
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
 /* ---------- 窄屏降级：rail 可隐藏 ---------- */
 @media (max-width: 900px) {
   .mc-rail { display: none; }
