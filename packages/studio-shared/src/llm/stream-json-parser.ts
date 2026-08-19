@@ -23,6 +23,8 @@ export interface StreamContentBlock {
   id?: string;
   name?: string;
   input?: unknown;
+  /** thinking 块的思考文本（部分 provider 用 thinking 而非 text 承载） */
+  thinking?: string;
   text?: string;
   /** tool_result 块：回指 tool_use.id */
   tool_use_id?: string;

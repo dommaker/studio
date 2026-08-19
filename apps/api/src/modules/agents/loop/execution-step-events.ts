@@ -33,7 +33,7 @@
  * 完整 transcript 需要时按 claude projects 文件回放（见 .studio/CONTEXT.md 的 apps/api/src/modules/agents 锚点），不在这里复制。
  */
 
-import { parseStreamEvents, parseStreamLine, extractToolCalls, extractUsage, logger, type StreamEvent } from '@dommaker/studio-shared';
+import { parseStreamEvents, parseStreamLine, extractToolCalls, extractUsage, logger, type StreamEvent, type StreamContentBlock } from '@dommaker/studio-shared';
 import { v4 as uuidv4 } from 'uuid';
 import { eventStore } from '../../../core/event-store.js';
 import { writeStudioEvent } from '../../../utils/studio-events.js';
@@ -136,7 +136,7 @@ export function summarizeToolInput(tool: string, input: unknown): string {
 /** thinking 块提取（content / message.content 两种载体；文本字段 thinking 优先、text 兜底） */
 export function extractThinking(events: StreamEvent[]): string[] {
   const out: string[] = [];
-  const walk = (blocks: Array<Record<string, unknown>> | undefined) => {
+  const walk = (blocks: StreamContentBlock[] | undefined) => {
     if (!Array.isArray(blocks)) return;
     for (const block of blocks) {
       if (block?.type !== 'thinking') continue;
@@ -148,8 +148,8 @@ export function extractThinking(events: StreamEvent[]): string[] {
     }
   };
   for (const event of events) {
-    walk(event.content as Array<Record<string, unknown>> | undefined);
-    walk(event.message?.content as Array<Record<string, unknown>> | undefined);
+    walk(event.content);
+    walk(event.message?.content);
     if (out.length >= THINKING_MAX_ENTRIES) break;
   }
   return out.slice(0, THINKING_MAX_ENTRIES);
@@ -341,7 +341,7 @@ export function buildExecutionStreamChunks(args: BuildStreamChunksArgs): Executi
   const out: ExecutionStreamChunk[] = [];
 
   if (event.type === 'assistant') {
-    const blocks = (event.message?.content ?? event.content) as Array<Record<string, unknown>> | undefined;
+    const blocks = event.message?.content ?? event.content;
     if (!Array.isArray(blocks)) return [];
     for (const block of blocks) {
       if (out.length >= MAX_CHUNKS_PER_LINE) break;
@@ -364,7 +364,7 @@ export function buildExecutionStreamChunks(args: BuildStreamChunksArgs): Executi
       }
     }
   } else if (event.type === 'user') {
-    const blocks = (event.message?.content ?? event.content) as Array<Record<string, unknown>> | undefined;
+    const blocks = event.message?.content ?? event.content;
     if (!Array.isArray(blocks)) return [];
     for (const block of blocks) {
       if (out.length >= MAX_CHUNKS_PER_LINE) break;
