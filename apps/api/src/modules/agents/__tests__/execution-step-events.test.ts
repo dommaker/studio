@@ -334,10 +334,58 @@ describe('buildExecutionStreamChunks', () => {
     expect(bad[0].text).toBeUndefined();
   });
 
-  it('非 JSON 行 / system / user(tool_result) → []（降噪）', () => {
+  it('非 JSON 行 / system → []（降噪）', () => {
     expect(buildExecutionStreamChunks({ ...base, line: 'not json' })).toEqual([]);
     expect(buildExecutionStreamChunks({ ...base, line: JSON.stringify({ type: 'system', subtype: 'init' }) })).toEqual([]);
-    expect(buildExecutionStreamChunks({ ...base, line: JSON.stringify({ type: 'user', message: { content: [{ type: 'tool_result', content: 'x' }] } }) })).toEqual([]);
+  });
+
+  it('tool_use 块带 id → tool chunk 携带 toolUseId（#240 配对锚点）', () => {
+    const chunks = buildExecutionStreamChunks({
+      ...base,
+      line: JSON.stringify(ASSISTANT([
+        { type: 'tool_use', id: 'toolu_1', name: 'Bash', input: { command: 'pnpm test' } },
+      ])),
+    });
+    expect(chunks).toHaveLength(1);
+    expect(chunks[0]).toMatchObject({ kind: 'tool', tool: 'Bash', summary: 'pnpm test', toolUseId: 'toolu_1' });
+  });
+
+  it('user(tool_result) → tool-result chunk：toolUseId 配对 + isError + 文本扁平化（#240）', () => {
+    const ok = buildExecutionStreamChunks({
+      ...base,
+      line: JSON.stringify({
+        type: 'user',
+        message: { content: [{ type: 'tool_result', tool_use_id: 'toolu_1', content: 'Tests 22 passed' }] },
+      }),
+    });
+    expect(ok).toHaveLength(1);
+    expect(ok[0]).toMatchObject({ kind: 'tool-result', toolUseId: 'toolu_1', text: 'Tests 22 passed' });
+    expect(ok[0].isError).toBeUndefined();
+
+    // is_error + content 为块数组（stream-json 真实形态）→ 文本块拼接
+    const bad = buildExecutionStreamChunks({
+      ...base,
+      line: JSON.stringify({
+        type: 'user',
+        message: { content: [{ type: 'tool_result', tool_use_id: 'toolu_2', is_error: true, content: [{ type: 'text', text: 'Exit code 1' }] }] },
+      }),
+    });
+    expect(bad).toHaveLength(1);
+    expect(bad[0]).toMatchObject({ kind: 'tool-result', toolUseId: 'toolu_2', isError: true, text: 'Exit code 1' });
+  });
+
+  it('tool-result 缺 tool_use_id → 跳过（无法配对不产 chunk）；空内容仍产（配对 ok 无输出）', () => {
+    expect(buildExecutionStreamChunks({
+      ...base,
+      line: JSON.stringify({ type: 'user', message: { content: [{ type: 'tool_result', content: 'x' }] } }),
+    })).toEqual([]);
+    const empty = buildExecutionStreamChunks({
+      ...base,
+      line: JSON.stringify({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'toolu_9' }] } }),
+    });
+    expect(empty).toHaveLength(1);
+    expect(empty[0]).toMatchObject({ kind: 'tool-result', toolUseId: 'toolu_9' });
+    expect(empty[0].text).toBeUndefined();
   });
 
   it('单行超 10 块截断到 10（容量纪律）', () => {

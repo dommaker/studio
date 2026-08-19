@@ -291,7 +291,7 @@ export const EXECUTION_STREAM_SSE_TYPE = 'workunit.execution.stream';
 const STREAM_TEXT_MAX_CHARS = 500;
 const MAX_CHUNKS_PER_LINE = 10;
 
-export type ExecutionStreamChunkKind = 'step-start' | 'thinking' | 'text' | 'tool' | 'result';
+export type ExecutionStreamChunkKind = 'step-start' | 'thinking' | 'text' | 'tool' | 'tool-result' | 'result';
 
 export interface ExecutionStreamChunk {
   workUnitId: string;
@@ -299,12 +299,14 @@ export interface ExecutionStreamChunk {
   /** 1 基步号（与 Layer A 执行步事件同口径） */
   step: number;
   kind: ExecutionStreamChunkKind;
-  /** thinking/text/result 文本（截断）；step-start/tool 时缺省 */
+  /** thinking/text/result/tool-result 文本（截断）；step-start/tool 时缺省 */
   text?: string;
   /** kind=tool 的工具名 + 人读摘要 */
   tool?: string;
   summary?: string;
-  /** kind=result 且 CLI 标 is_error */
+  /** #240: tool/tool-result 配对锚点（tool_use.id ↔ tool_result.tool_use_id） */
+  toolUseId?: string;
+  /** kind=result 且 CLI 标 is_error；kind=tool-result 且工具报错 */
   isError?: boolean;
   at: string;
 }
@@ -321,7 +323,10 @@ export interface BuildStreamChunksArgs {
 /**
  * 单行 stream-json → 0..n 个轻量 chunk（纯函数，可测）。
  * 只提炼面向人读的最小信息（thinking/text 截断、tool 人读摘要）；
- * system/user(tool_result)/progress 等事件跳过（降噪），非 JSON 行 → []。
+ * system/progress 等事件跳过（降噪），非 JSON 行 → []。
+ * #240：tool_use 块带 toolUseId；user(tool_result) 提炼为 tool-result chunk
+ * （toolUseId 配对 + isError + 文本扁平化），支撑前端工具行四态推导；
+ * 缺 tool_use_id 的 tool_result 无法配对 → 跳过。
  * result 恒产一条（空文本也产——它是「本回合结束」信号，供前端停掉实时指示）。
  */
 export function buildExecutionStreamChunks(args: BuildStreamChunksArgs): ExecutionStreamChunk[] {
@@ -349,8 +354,29 @@ export function buildExecutionStreamChunks(args: BuildStreamChunksArgs): Executi
         const t = (typeof block.text === 'string' ? block.text : '').trim();
         if (t) out.push({ ...base, kind: 'text', text: truncate(t, STREAM_TEXT_MAX_CHARS) });
       } else if (block?.type === 'tool_use' && typeof block.name === 'string') {
-        out.push({ ...base, kind: 'tool', tool: block.name, summary: summarizeToolInput(block.name, block.input) });
+        out.push({
+          ...base,
+          kind: 'tool',
+          tool: block.name,
+          summary: summarizeToolInput(block.name, block.input),
+          ...(typeof block.id === 'string' && block.id ? { toolUseId: block.id } : {}),
+        });
       }
+    }
+  } else if (event.type === 'user') {
+    const blocks = (event.message?.content ?? event.content) as Array<Record<string, unknown>> | undefined;
+    if (!Array.isArray(blocks)) return [];
+    for (const block of blocks) {
+      if (out.length >= MAX_CHUNKS_PER_LINE) break;
+      if (block?.type !== 'tool_result' || typeof block.tool_use_id !== 'string' || !block.tool_use_id) continue;
+      const text = flattenToolResultText(block.content);
+      out.push({
+        ...base,
+        kind: 'tool-result',
+        toolUseId: block.tool_use_id,
+        ...(block.is_error === true ? { isError: true } : {}),
+        ...(text ? { text: truncate(text, STREAM_TEXT_MAX_CHARS) } : {}),
+      });
     }
   } else if (event.type === 'result') {
     const t = typeof event.result === 'string' ? event.result.trim() : '';
@@ -362,6 +388,22 @@ export function buildExecutionStreamChunks(args: BuildStreamChunksArgs): Executi
     });
   }
   return out;
+}
+
+/** tool_result 块内容 → 单行文本（string 原样；块数组取 text 块拼接，其余 JSON；空 → ''） */
+function flattenToolResultText(content: unknown): string {
+  if (typeof content === 'string') return content.trim();
+  if (Array.isArray(content)) {
+    const parts: string[] = [];
+    for (const block of content) {
+      if (block && typeof block === 'object' && (block as { type?: unknown }).type === 'text'
+        && typeof (block as { text?: unknown }).text === 'string') {
+        parts.push((block as { text: string }).text);
+      }
+    }
+    return parts.join('\n').trim();
+  }
+  return '';
 }
 
 /** SSE 逐条发布（只发 SSE，不落盘；单条失败不影响后续） */
