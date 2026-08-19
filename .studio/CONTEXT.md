@@ -656,7 +656,8 @@ E1 约束进化（vision §6 / docs/plans/2026-07-flywheel-repair.md §4）：�
 ### 职责
 
 Harness 监控与治理 API（FL-029 / T-015）：轨迹采集分析、约束生命周期、
-安全护栏、知识引擎、会话/Agent 管理、错误分类与验证、仪表盘。
+知识引擎、会话/Agent 管理、错误分类与验证、仪表盘。
+（安全护栏 guards.routes 已随 harness 1.2.0 删除 InputGuardrail/OutputGuardrail/Sandbox（ADR-0003）移除，2026-08。）
 
 路由结构（T3 大文件拆分 5/N，2026-07-19）：`routes.ts` 为挂载门面，
 处理器按资源拆分为子路由，共享运行时集中于 `runtime.ts`：
@@ -668,7 +669,6 @@ Harness 监控与治理 API（FL-029 / T-015）：轨迹采集分析、约束生
 | `traces.routes.ts` | 轨迹采集/分析/诊断（/traces、/analysis、/diagnose） |
 | `proposals.routes.ts` | 约束提案（/proposals；/evolve 已随 harness 0.17.0 移除，execute 为 410） |
 | `constraints.routes.ts` | 约束清单 + 质量门（/constraints*、/check-constraints；degrade/schedule 已随 0.17.0 移除；retired/rollback 双落点——config.yml 内置/历史 + custom-constraints.yml #82 D6 统一落点；导出 customConstraintsPath 供 distill #146 审计装配复用） |
-| `guards.routes.ts` | 安全护栏（/check-input、/check-output、/sandbox） |
 | `knowledge.routes.ts` | 知识引擎（/knowledge*） |
 | `sessions.routes.ts` | 上下文管理（/estimate-tokens、/sessions*） |
 | `agents.routes.ts` | Agent 生命周期（/agents*） |
@@ -679,7 +679,7 @@ Harness 监控与治理 API（FL-029 / T-015）：轨迹采集分析、约束生
 
 ### 核心导出
 
-- `routes.ts` default export：express Router（44 个端点，见门面注释）
+- `routes.ts` default export：express Router（39 个端点，见门面注释）
 
 ### 依赖关系
 
@@ -840,14 +840,15 @@ knowledge/
 | `task.tools.ts` | 5 | getTaskBoard / createTask / assignTask / updateTaskStatus / getTaskStats |
 | `economy.tools.ts` | 1 | getBalance |
 | `spec.tools.ts` | 4 | createSpec / approveSpec / getSpecStatus / listSpecs |
-| `safety.tools.ts` | 3 | checkConstraint / checkGuardrail / getSandboxLevel |
+| `safety.tools.ts` | 1 | checkConstraint（checkGuardrail/getSandboxLevel 已随 harness 1.2.0 ADR-0003 删除） |
 | `system.tools.ts` | 2 | systemHealth / emitEvent |
 | `devops.tools.ts` | 1 | publishPackage |
 | `skill.tools.ts` | 1 | loadSkill |
 | `workunit.tools.ts` | 1 | createWorkUnit |
-| **合计** | **21** | |
+| **合计** | **19** | |
 
 > #149（2026-08-15）：`knowledge.tools.ts`（5 个知识工具，全是 document-store CRUD）随 document-store 退役删除。
+> 2026-08-19：checkGuardrail / getSandboxLevel 随 harness 1.2.0 删除 InputGuardrail/OutputGuardrail/Sandbox（ADR-0003）移除（21 → 19）。
 > #172（2026-08-15）：`loadSkill` 入参加可选 `workUnitId`（透传 skill-loader，skill_used 事件补 WU 归属，#60 决策 Q2）。
 
 ### 核心导出

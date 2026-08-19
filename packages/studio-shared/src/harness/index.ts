@@ -3,8 +3,8 @@
  *
  * 纯透传 @dommaker/harness 的 wrapper 层已退役：消费方直接 import
  * @dommaker/harness（getAllConstraints / getConstraint / checkConstraint /
- * checkConstraints / InputGuardrail / OutputGuardrail / Sandbox 等），
- * 本文件只保留 studio 侧自有的编排/适配模块。
+ * checkConstraints 等），本文件只保留 studio 侧自有的编排/适配模块。
+ * （InputGuardrail / OutputGuardrail / Sandbox 已随 harness 1.2.0 ADR-0003 删除。）
  */
 
 // Prompt injection — 约束前置声明路由层（role→trigger；渲染走 harness renderConstraintsByTrigger）

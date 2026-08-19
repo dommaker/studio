@@ -1,9 +1,11 @@
 /**
  * MCP Tools — 安全约束
  *
- * T3 拆分：自 tools.ts 原样提取（checkConstraint / checkGuardrail / getSandboxLevel）。
+ * T3 拆分：自 tools.ts 原样提取（checkConstraint）。
  * #150 A5：SafetyService/constraintService facade 退役，handler 内直连 @dommaker/harness
- * （checkConstraints / InputGuardrail / OutputGuardrail / Sandbox）。
+ * （checkConstraints）。
+ * 2026-08：checkGuardrail / getSandboxLevel 随 harness 1.2.0 删除
+ * InputGuardrail/OutputGuardrail/Sandbox（ADR-0003）而移除。
  */
 
 import type { RegisteredTool } from './tool-registry.js';
@@ -51,68 +53,6 @@ const checkConstraint: RegisteredTool = {
   },
 };
 
-const checkGuardrail: RegisteredTool = {
-  name: 'checkGuardrail',
-  description: '检查输入/输出是否通过安全护栏',
-  inputSchema: {
-    type: 'object',
-    properties: {
-      direction: { type: 'string', description: '检查方向', enum: ['input', 'output'], default: 'input' },
-      content: { type: 'string', description: '要检查的内容' },
-      context: { type: 'object', description: '上下文' },
-    },
-    required: ['content'],
-  },
-  handler: async (input) => {
-    try {
-      const { InputGuardrail, OutputGuardrail } = await import('@dommaker/harness');
-      const direction = input.direction || 'input';
-      const guardrail = direction === 'input'
-        ? new InputGuardrail()
-        : new OutputGuardrail();
-      const result = guardrail.check(input.content);
-      return {
-        direction,
-        passed: result.safe,
-        violations: result.violations,
-        content: input.content.slice(0, 200),
-        message: result.safe ? 'Guardrail check passed' : `${result.violations.length} violation(s) found`,
-      };
-    } catch {
-      return {
-        direction: input.direction || 'input',
-        passed: false,
-        harnessUnavailable: true,
-        message: 'Harness unavailable, guardrail check not performed',
-      };
-    }
-  },
-};
-
-const getSandboxLevel: RegisteredTool = {
-  name: 'getSandboxLevel',
-  description: '获取当前沙箱安全级别配置',
-  inputSchema: {
-    type: 'object',
-    properties: {},
-  },
-  handler: async () => {
-    try {
-      const { Sandbox } = await import('@dommaker/harness');
-      const sandbox = new Sandbox();
-      return {
-        level: `L${sandbox.getLevel()}`,
-        description: sandbox.getDescription(),
-        message: 'Sandbox configuration retrieved',
-      };
-    } catch {
-      return { level: 'L3', message: 'Sandbox info unavailable (harness not loaded)' };
-    }
-  },
-};
-
 export const safetyTools: RegisteredTool[] = [
   checkConstraint,
-  checkGuardrail,
-  getSandboxLevel,
 ];

@@ -2,7 +2,7 @@
  * routes.ts 门面测试（T3 拆分新增，pre-commit TDD 门禁）。
  *
  * 验证拆分后门面（default export router）：
- * 1. 全部 10 个子路由的 44 个 (method, path) 完整注册（集合比较）；
+ * 1. 全部 9 个子路由的 39 个 (method, path) 完整注册（集合比较）；
  * 2. 关键顺序约束：GET /constraints/stats 必须在 GET /constraints/:id 之前；
  * 3. HTTP 层冒烟：/health、/verify/rules、/agents、/api/v1/cso/validate 可达
  *    （部分 mock @dommaker/harness：保留真实模块，仅覆盖 AgentLifecycle/CSOValidator）。
@@ -49,7 +49,9 @@ function flattenRoutes(router: any): FlatRoute[] {
 
 /** 原单文件的全部路由（集合顺序无关，仅用于存在性校验）。
  *  harness 0.17.0（ADR-0001 决策 8）：删 /evolve、/constraints/:id/degrade、
- *  /constraints/:id/schedule，增 GET /constraints/retired → 42 个。 */
+ *  /constraints/:id/schedule，增 GET /constraints/retired → 42 个。
+ *  harness 1.2.0（ADR-0003）：删 guards.routes（/check-input、/check-output、
+ *  /sandbox 随 InputGuardrail/OutputGuardrail/Sandbox 移除）→ 39 个。 */
 const EXPECTED: Array<[string, string]> = [
   // traces.routes
   ['GET', '/traces'], ['POST', '/traces'], ['GET', '/analysis'],
@@ -61,8 +63,6 @@ const EXPECTED: Array<[string, string]> = [
   ['GET', '/constraints'], ['GET', '/constraints/stats'], ['GET', '/constraints/retired'],
   ['GET', '/constraints/:id'], ['POST', '/constraints/:id/rollback'],
   ['POST', '/check-constraints'],
-  // guards.routes
-  ['POST', '/check-input'], ['POST', '/check-output'], ['GET', '/sandbox'],
   // knowledge.routes
   ['POST', '/knowledge/query'], ['GET', '/knowledge'], ['GET', '/knowledge/:id'],
   ['POST', '/knowledge'], ['DELETE', '/knowledge/:id'], ['POST', '/knowledge/lint'],
@@ -119,7 +119,7 @@ describe('harness routes facade', () => {
     expect(typeof harnessRoutes.handle).toBe('function');
   });
 
-  it('all 10 sub-routers fully registered: 42 routes (set comparison)', () => {
+  it('all 9 sub-routers fully registered: 39 routes (set comparison)', () => {
     const flat = flattenRoutes(harnessRoutes);
     const actualSet = new Set(flat.map(r => `${r.method} ${r.path}`));
     const expectedSet = new Set(EXPECTED.map(r => `${r[0]} ${r[1]}`));
@@ -129,7 +129,7 @@ describe('harness routes facade', () => {
 
     expect(missing).toEqual([]);
     expect(extra).toEqual([]);
-    expect(flat).toHaveLength(42);
+    expect(flat).toHaveLength(39);
   });
 
   it('GET /constraints/stats registered before GET /constraints/:id (no shadowing)', () => {
