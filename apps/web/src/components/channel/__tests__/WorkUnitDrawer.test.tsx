@@ -2,11 +2,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
-const { mockWuGet, mockListTokenEvents, mockListExecSteps, mockReviewPassed, mockGetChain, mockGetOverhead, mockStreamChunks, mockResume, mockClose } = vi.hoisted(() => ({
+const { mockWuGet, mockListTokenEvents, mockListExecSteps, mockReviewPassed, mockReviewRejected, mockGetChain, mockGetOverhead, mockStreamChunks, mockResume, mockClose } = vi.hoisted(() => ({
   mockWuGet: vi.fn(),
   mockListTokenEvents: vi.fn(),
   mockListExecSteps: vi.fn(),
   mockReviewPassed: vi.fn(),
+  mockReviewRejected: vi.fn(),
   mockGetChain: vi.fn(),
   mockGetOverhead: vi.fn(),
   mockStreamChunks: vi.fn(),
@@ -23,6 +24,7 @@ vi.mock('../../../api/workunit', async () => {
       listTokenEvents: mockListTokenEvents,
       listExecutionStepEvents: mockListExecSteps,
       reviewPassed: mockReviewPassed,
+      reviewRejected: mockReviewRejected,
       resume: mockResume,
       close: mockClose,
     },
@@ -122,6 +124,7 @@ describe('WorkUnitDrawer', () => {
     mockListTokenEvents.mockResolvedValue({ data: { events: TOKEN_EVENTS, total: TOKEN_EVENTS.length } });
     mockListExecSteps.mockResolvedValue({ data: { events: [], total: 0 } });
     mockReviewPassed.mockResolvedValue({ data: { ...WU, status: 'done' } });
+    mockReviewRejected.mockResolvedValue({ data: { ...WU, status: 'active' } });
     mockResume.mockResolvedValue({ data: { ...WU, status: 'active' } });
     mockClose.mockResolvedValue({ data: { ...WU, status: 'closed' } });
     mockGetOverhead.mockResolvedValue({ data: OVERHEAD });
@@ -289,6 +292,38 @@ describe('WorkUnitDrawer', () => {
     fireEvent.change(textarea, { target: { value: 'FOG: 存储选型用哪个？' } });
     fireEvent.click(screen.getByText('确认通过'));
     await waitFor(() => expect(mockReviewPassed).toHaveBeenCalledWith('WU-1017', 'FOG: 存储选型用哪个？', undefined));
+  });
+
+  it('#284：in_review → 拒绝入口（带原因弹窗，调 reviewRejected），与列表行行为一致', async () => {
+    mockWuGet.mockResolvedValue({ data: { ...WU, status: 'in_review' } });
+    renderDrawer({ kind: 'wu', id: 'WU-1017' });
+    fireEvent.click(await screen.findByText('拒绝'));
+    fireEvent.change(screen.getByPlaceholderText(/拒绝原因/), { target: { value: '结论不完整，返工' } });
+    fireEvent.click(screen.getByText('确认拒绝'));
+    await waitFor(() => expect(mockReviewRejected).toHaveBeenCalledWith('WU-1017', '结论不完整，返工'));
+  });
+
+  it('#284（决策 #250 D6）：autoApprove「打开即弹」——analysis in_review 抽屉自动弹确认弹窗，无需点通过', async () => {
+    mockWuGet.mockResolvedValue({
+      data: {
+        ...WU,
+        type: 'analysis',
+        status: 'in_review',
+        metadata: JSON.stringify({ analysisDestination: '三仓特性联动上线', analysisFog: ['存储选型用哪个？'] }),
+      },
+    });
+    renderDrawer({ kind: 'wu', id: 'WU-1017', autoApprove: true });
+    const textarea = await screen.findByPlaceholderText(/DESTINATION/) as HTMLTextAreaElement;
+    // 预填逻辑（buildMapOpeningPrefill）不变
+    expect(textarea.value).toBe('DESTINATION: 三仓特性联动上线\nFOG: 存储选型用哪个？');
+    expect(mockReviewPassed).not.toHaveBeenCalled();
+  });
+
+  it('#284：autoApprove 但 WU 非 analysis/非 in_review → 不自动弹窗（仅打开抽屉）', async () => {
+    mockWuGet.mockResolvedValue({ data: { ...WU, status: 'in_review' } }); // type=dev
+    renderDrawer({ kind: 'wu', id: 'WU-1017', autoApprove: true });
+    await waitFor(() => expect(screen.getByText('通过（审查闸门）')).toBeTruthy());
+    expect(screen.queryByPlaceholderText(/DESTINATION/)).toBeNull();
   });
 
   it('Layer B 实时区块：渲染执行中 chunk（思考/工具/result），step-start 不渲染', async () => {

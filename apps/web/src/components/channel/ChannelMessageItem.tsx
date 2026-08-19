@@ -18,6 +18,7 @@ import { DistillProposalCard } from './DistillProposalCard';
 import { GcProposalCard } from './GcProposalCard';
 import { ConstraintAuditCard } from './ConstraintAuditCard';
 import { AuditorSuggestionCard } from './AuditorSuggestionCard';
+import { AnalysisConfirmCard } from './AnalysisConfirmCard';
 import { ConvertToTaskDialog } from './ConvertToTaskDialog';
 import { NeedInputOptions } from './NeedInputOptions';
 import { shortWuId } from '../../utils/id';
@@ -40,6 +41,8 @@ interface Props {
   waitingForInput?: boolean;
   /** Mission Control: 打开右抽屉（WorkUnit 详情 / REQ 全链路） */
   onOpenWorkUnit?: (workUnitId: string) => void;
+  /** #284（决策 #250 D6）：analysis_confirm 接力卡「去确认」——开 WU 抽屉并自动弹确认对话框 */
+  onOpenWorkUnitConfirm?: (workUnitId: string) => void;
   onOpenRequirement?: (reqId: string) => void;
   /** F5: NEED_INPUT 卡片内嵌回复（与回复按钮同链路：sendMessage + replyToId） */
   onInlineReply?: (message: ChannelMessage, content: string) => void;
@@ -49,7 +52,12 @@ interface Props {
   compact?: boolean;
 }
 
-function renderCard(meta: CardMeta, message: ChannelMessage, onAction: Props['onAction']) {
+function renderCard(
+  meta: CardMeta,
+  message: ChannelMessage,
+  onAction: Props['onAction'],
+  onOpenWorkUnitConfirm: Props['onOpenWorkUnitConfirm'],
+) {
   switch (meta.cardType) {
     case 'requirements_doc':
       return <RequirementsDocCard message={message} meta={meta} onAction={onAction} />;
@@ -68,6 +76,8 @@ function renderCard(meta: CardMeta, message: ChannelMessage, onAction: Props['on
       return <ConstraintAuditCard message={message} meta={meta} onAction={onAction} />;
     case 'auditor_suggestion':
       return <AuditorSuggestionCard message={message} meta={meta} onAction={onAction} />;
+    case 'analysis_confirm': // #284（决策 #250 D6）analysis 接力卡
+      return <AnalysisConfirmCard message={message} meta={meta} onOpenConfirm={onOpenWorkUnitConfirm} />;
     default:
       return null;
   }
@@ -76,11 +86,11 @@ function renderCard(meta: CardMeta, message: ChannelMessage, onAction: Props['on
 export function ChannelMessageItem({
   message, onAction, onReply, findMessage, channelId,
   isThreadAnchor, threadReplyCount, isExpanded, onToggleThread, isThreadReply,
-  waitingForInput, onOpenWorkUnit, onOpenRequirement, onInlineReply, fileVocabulary, compact,
+  waitingForInput, onOpenWorkUnit, onOpenWorkUnitConfirm, onOpenRequirement, onInlineReply, fileVocabulary, compact,
 }: Props) {
   const isHuman = message.authorType === 'human';
   const meta = parseMeta(message.meta);
-  const card = renderCard(meta, message, onAction);
+  const card = renderCard(meta, message, onAction, onOpenWorkUnitConfirm);
   const parentMessage = message.replyToId && findMessage ? findMessage(message.replyToId) : undefined;
   const [convertOpen, setConvertOpen] = useState(false);
   const [needDraft, setNeedDraft] = useState('');

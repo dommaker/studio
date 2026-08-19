@@ -15,7 +15,7 @@ vi.mock('react-router-dom', () => ({
   useNavigate: () => vi.fn(),
 }));
 
-const { mockWuGet, mockReqGet, mockReqGetChain, mockProjectGet, mockChannelList, mockAgentSummary, mockResume, mockClose } = vi.hoisted(() => ({
+const { mockWuGet, mockReqGet, mockReqGetChain, mockProjectGet, mockChannelList, mockAgentSummary, mockResume, mockClose, mockTransitionStatus, mockReviewPassed, mockReviewRejected } = vi.hoisted(() => ({
   mockWuGet: vi.fn(),
   mockReqGet: vi.fn(),
   mockReqGetChain: vi.fn(),
@@ -24,6 +24,9 @@ const { mockWuGet, mockReqGet, mockReqGetChain, mockProjectGet, mockChannelList,
   mockAgentSummary: vi.fn(),
   mockResume: vi.fn(),
   mockClose: vi.fn(),
+  mockTransitionStatus: vi.fn(),
+  mockReviewPassed: vi.fn(),
+  mockReviewRejected: vi.fn(),
 }));
 
 vi.mock('../../api/workunit', () => ({
@@ -33,6 +36,9 @@ vi.mock('../../api/workunit', () => ({
     getMessages: vi.fn().mockResolvedValue({ data: { data: [] } }),
     resume: mockResume,
     close: mockClose,
+    transitionStatus: mockTransitionStatus,
+    reviewPassed: mockReviewPassed,
+    reviewRejected: mockReviewRejected,
   },
 }));
 
@@ -46,7 +52,12 @@ vi.mock('../../api/index', async (importOriginal) => {
 });
 
 vi.mock('../../api/channel', () => ({
-  channelApi: { list: mockChannelList },
+  channelApi: {
+    list: mockChannelList,
+    // #284：in_review analysis「通过」弹 AnalysisApproveDialog（channelId 非空时拉成员候选）
+    get: vi.fn().mockResolvedValue({ data: { data: { id: 'ch-1', members: '[]' } } }),
+    listAllAgents: vi.fn().mockResolvedValue({ data: { data: [] } }),
+  },
 }));
 
 vi.mock('../../api/monitoring', () => ({
@@ -111,6 +122,9 @@ describe('WorkUnitDetailPage', () => {
     });
     mockResume.mockResolvedValue({ data: { ...baseWu, status: 'active' } });
     mockClose.mockResolvedValue({ data: { ...baseWu, status: 'closed' } });
+    mockTransitionStatus.mockResolvedValue({ data: { ...baseWu, status: 'unassigned' } });
+    mockReviewPassed.mockResolvedValue({ data: { ...baseWu, status: 'done' } });
+    mockReviewRejected.mockResolvedValue({ data: { ...baseWu, status: 'active' } });
   });
 
   it('加载态：WU 未返回时显示加载中', () => {
@@ -281,5 +295,52 @@ describe('WorkUnitDetailPage', () => {
     render(<WorkUnitDetailPage />);
     await screen.findByText('登录功能开发');
     expect(screen.queryByText('依赖与验收')).toBeNull();
+  });
+
+  // #284（决策 #250 D1/F7-F9）：详情页（「新页面打开」落点）补齐闸门入口，与列表行/抽屉一致
+  it('#284：pending → 「确认（进待认领）」调 transitionStatus(unassigned) 并重拉详情', async () => {
+    mockWuGet.mockResolvedValue({
+      data: { ...baseWu, status: 'pending', completedAt: null, metadata: JSON.stringify({ title: '登录功能开发' }) },
+    });
+    render(<WorkUnitDetailPage />);
+    fireEvent.click(await screen.findByText('确认（进待认领）'));
+    await waitFor(() => expect(mockTransitionStatus).toHaveBeenCalledWith('wu-1', 'unassigned'));
+    await waitFor(() => expect(mockWuGet.mock.calls.length).toBeGreaterThanOrEqual(2));
+  });
+
+  it('#284：in_review task → 通过直调 reviewPassed；拒绝带原因调 reviewRejected（与列表行一致）', async () => {
+    mockWuGet.mockResolvedValue({
+      data: { ...baseWu, status: 'in_review', completedAt: null, metadata: JSON.stringify({ title: '登录功能开发' }) },
+    });
+    render(<WorkUnitDetailPage />);
+
+    fireEvent.click(await screen.findByText('通过（审查闸门）'));
+    await waitFor(() => expect(mockReviewPassed).toHaveBeenCalledWith('wu-1', undefined, undefined));
+
+    fireEvent.click(screen.getByText('拒绝'));
+    fireEvent.change(screen.getByPlaceholderText(/拒绝原因/), { target: { value: '实现不符合预期' } });
+    fireEvent.click(screen.getByText('确认拒绝'));
+    await waitFor(() => expect(mockReviewRejected).toHaveBeenCalledWith('wu-1', '实现不符合预期'));
+  });
+
+  it('#284：in_review analysis → 通过弹确认弹窗（预填逻辑不变），确认后 summary 随 reviewPassed 回传', async () => {
+    mockWuGet.mockResolvedValue({
+      data: {
+        ...baseWu,
+        type: 'analysis',
+        status: 'in_review',
+        completedAt: null,
+        metadata: JSON.stringify({ title: '分析单', analysisDestination: '目标', analysisFog: ['问题1'] }),
+      },
+    });
+    render(<WorkUnitDetailPage />);
+
+    fireEvent.click(await screen.findByText('通过（审查闸门）'));
+    const textarea = await screen.findByPlaceholderText(/DESTINATION/) as HTMLTextAreaElement;
+    expect(textarea.value).toBe('DESTINATION: 目标\nFOG: 问题1');
+    expect(mockReviewPassed).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByText('确认通过'));
+    await waitFor(() => expect(mockReviewPassed).toHaveBeenCalledWith('wu-1', 'DESTINATION: 目标\nFOG: 问题1', undefined));
   });
 });

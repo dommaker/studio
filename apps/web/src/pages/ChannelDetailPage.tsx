@@ -422,6 +422,8 @@ export function ChannelDetailPage() {
   }, [isWaitingForInput]);
 
   const openWu = useCallback((wuId: string) => setDrawer({ kind: 'wu', id: wuId }), []);
+  // #284（决策 #250 D6）：analysis_confirm 接力卡「去确认」——打开即弹确认对话框
+  const openWuConfirm = useCallback((wuId: string) => setDrawer({ kind: 'wu', id: wuId, autoApprove: true }), []);
   const openReq = useCallback((reqId: string) => setDrawer({ kind: 'req', id: reqId }), []);
 
   if (!id) return <div className="mc-stream-empty" style={{ height: '100%' }}>Invalid channel</div>;
@@ -436,6 +438,7 @@ export function ChannelDetailPage() {
       channelId={id}
       waitingForInput={isWaitingForInput(msg)}
       onOpenWorkUnit={openWu}
+      onOpenWorkUnitConfirm={openWuConfirm}
       onOpenRequirement={openReq}
       onInlineReply={handleInlineReply}
       fileVocabulary={fileVocabulary && fileVocabulary.channelId === id ? fileVocabulary.data : undefined}

@@ -17,6 +17,8 @@ interface WorkUnitState {
   createWorkUnit: (data: { scope: string; type?: string }) => Promise<WorkUnit>;
   reviewPassed: (id: string, summary?: string, defaultAssigneeId?: string) => Promise<void>;
   reviewRejected: (id: string, reason?: string) => Promise<void>;
+  /** #284（决策 #250 D1）：pending 人闸确认（→ unassigned 进 frontier 可认领），列表行展开态入口 */
+  confirmPending: (id: string) => Promise<void>;
   setStatusFilter: (status: string | null) => void;
   setTypeFilter: (type: string | null) => void;
 }
@@ -67,6 +69,11 @@ export const useWorkUnitStore = create<WorkUnitState>((set, get) => ({
 
   reviewRejected: async (id, reason) => {
     await workunitApi.reviewRejected(id, reason);
+    await get().loadWorkUnits();
+  },
+
+  confirmPending: async (id) => {
+    await workunitApi.transitionStatus(id, 'unassigned');
     await get().loadWorkUnits();
   },
 

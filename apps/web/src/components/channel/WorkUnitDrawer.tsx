@@ -1,6 +1,6 @@
 // WorkUnitDrawer — Mission Control 右抽屉：WorkUnit 详情 / REQ 全链路
 // 只展示真实 API 数据（workunitApi / requirementApi / monitoringApi），无对应数据的维度不展示、不编造
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import {
   workunitApi,
@@ -20,7 +20,11 @@ import { AnalysisApproveDialog } from '../pmo/AnalysisApproveDialog';
 import { buildMapOpeningPrefill } from '../pmo/mapUtils';
 import { deriveDisplayState, parseAttestations } from '@dommaker/studio-shared/web';
 
-export type DrawerState = { kind: 'wu'; id: string } | { kind: 'req'; id: string } | null;
+export type DrawerState =
+  // #284（决策 #250 D6）：autoApprove = analysis_confirm 接力卡「去确认」的「打开即弹」入参
+  | { kind: 'wu'; id: string; autoApprove?: boolean }
+  | { kind: 'req'; id: string }
+  | null;
 
 const REQ_STATUS_LABELS: Record<string, string> = {
   open: '未开始',
@@ -88,7 +92,7 @@ export function WorkUnitDrawer({ drawer, onClose, onOpenWu, onOpenReq }: Props) 
       </div>
       <div className="mc-drawer-body">
         {drawer.kind === 'wu'
-          ? <WuDetail id={drawer.id} onOpenReq={onOpenReq} />
+          ? <WuDetail id={drawer.id} autoApprove={drawer.autoApprove === true} onOpenReq={onOpenReq} />
           : <ReqChain id={drawer.id} onOpenWu={onOpenWu} />}
       </div>
     </aside>
@@ -97,7 +101,7 @@ export function WorkUnitDrawer({ drawer, onClose, onOpenWu, onOpenReq }: Props) 
 
 // ── WorkUnit 详情 ──
 
-function WuDetail({ id, onOpenReq }: { id: string; onOpenReq: (reqId: string) => void }) {
+function WuDetail({ id, autoApprove = false, onOpenReq }: { id: string; autoApprove?: boolean; onOpenReq: (reqId: string) => void }) {
   const [wu, setWu] = useState<WorkUnit | null>(null);
   const [tokens, setTokens] = useState<WorkunitTokenEvent[] | null>(null);
   const [overhead, setOverhead] = useState<OverheadStats | null>(null);
@@ -108,6 +112,15 @@ function WuDetail({ id, onOpenReq }: { id: string; onOpenReq: (reqId: string) =>
   const [confirming, setConfirming] = useState(false);
   // #106 M7：analysis 通过/确认弹窗（共享件），非 analysis 保持一键通过
   const [showApproveModal, setShowApproveModal] = useState(false);
+  // #284：in_review 拒绝入口（带原因弹窗，与列表行/详情页一致）
+  const [showRejectModal, setShowRejectModal] = useState(false);
+  const [rejectReason, setRejectReason] = useState('');
+  // #284（决策 #250 D6）：接力卡「打开即弹」一次性哨兵（ref：避免 effect 内 setState 触发 lint；
+  // 仅 id/autoApprove 变化时重新武装，SSE eventTick 重拉不重复弹）
+  const autoPopupDoneRef = useRef(!autoApprove);
+  useEffect(() => {
+    autoPopupDoneRef.current = !autoApprove;
+  }, [id, autoApprove]);
   // WU 事件（SSE）：状态变化/执行步事件时重拉详情（认领/审查/完成/执行过程即时可见）
   const [eventTick, setEventTick] = useState(0);
   useWorkUnitEvents(() => setEventTick(t => t + 1));
@@ -126,7 +139,17 @@ function WuDetail({ id, onOpenReq }: { id: string; onOpenReq: (reqId: string) =>
   useEffect(() => {
     let alive = true;
     workunitApi.get(id)
-      .then(r => { if (alive) { setWu(r.data); setError(''); } })
+      .then(r => {
+        if (!alive) return;
+        setWu(r.data);
+        setError('');
+        // #284（决策 #250 D6）：接力卡「去确认」打开即弹——WU 加载完成自动弹 AnalysisApproveDialog
+        // （仅 in_review analysis；其余情形仅打开抽屉。一次性，确认/取消后不重弹）
+        if (!autoPopupDoneRef.current) {
+          autoPopupDoneRef.current = true;
+          if (r.data.type === 'analysis' && r.data.status === 'in_review') setShowApproveModal(true);
+        }
+      })
       .catch(e => {
         if (!alive) return;
         if (axios.isAxiosError(e) && e.response?.status === 404) setNotFound(true);
@@ -181,6 +204,19 @@ function WuDetail({ id, onOpenReq }: { id: string; onOpenReq: (reqId: string) =>
     }
   };
 
+  /** #284：审查硬门拒绝（带原因），与列表行/详情页同一端点同一语义 */
+  const handleReviewRejected = async () => {
+    setConfirming(true);
+    try {
+      await workunitApi.reviewRejected(id, rejectReason.trim() || undefined);
+      setShowRejectModal(false);
+      setRejectReason('');
+      setEventTick(t => t + 1);
+    } finally {
+      setConfirming(false);
+    }
+  };
+
   return (
     <div>
       <div className="mc-drawer-subject">
@@ -226,14 +262,23 @@ function WuDetail({ id, onOpenReq }: { id: string; onOpenReq: (reqId: string) =>
         </div>
       )}
       {wu.status === 'in_review' && (
-        <div style={{ margin: '4px 0 8px' }}>
+        <div style={{ margin: '4px 0 8px', display: 'flex', gap: 8 }}>
           <button
             className="mc-wu-link"
             disabled={confirming}
-            title="审查硬门：通过→done（analysis 通过后按 TASK 拆分自动派工）；拒绝请在列表行操作"
+            title="审查硬门：通过→done（analysis 通过后按 TASK 拆分自动派工）"
             onClick={handleApprove}
           >
             {confirming ? '提交中…' : '通过（审查闸门）'}
+          </button>
+          {/* #284：拒绝入口补齐（带原因弹窗），与列表行/WU 详情页三处一致 */}
+          <button
+            className="mc-wu-link"
+            disabled={confirming}
+            title="审查硬门：拒绝→返工（附原因供 agent 修正）"
+            onClick={() => setShowRejectModal(true)}
+          >
+            拒绝
           </button>
         </div>
       )}
@@ -256,6 +301,42 @@ function WuDetail({ id, onOpenReq }: { id: string; onOpenReq: (reqId: string) =>
           onConfirm={(summary, assigneeId) => { setShowApproveModal(false); handleReviewPassed(summary, assigneeId); }}
           onCancel={() => setShowApproveModal(false)}
         />
+      )}
+
+      {/* #284：审查拒绝弹窗（带原因），与列表行同款 */}
+      {showRejectModal && (
+        <div className="modal-overlay" onClick={() => setShowRejectModal(false)}>
+          <div className="modal" style={{ maxWidth: '24rem' }} onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3 className="modal-title">拒绝原因</h3>
+              <button className="modal-close" onClick={() => setShowRejectModal(false)} aria-label="关闭">×</button>
+            </div>
+            <div className="modal-body">
+              <textarea
+                className="input w-full"
+                rows={3}
+                placeholder="输入拒绝原因（可选）"
+                value={rejectReason}
+                onChange={e => setRejectReason(e.target.value)}
+              />
+            </div>
+            <div className="modal-footer">
+              <button
+                className="btn btn-secondary"
+                onClick={() => { setShowRejectModal(false); setRejectReason(''); }}
+              >
+                取消
+              </button>
+              <button
+                className="btn btn-danger"
+                disabled={confirming}
+                onClick={handleReviewRejected}
+              >
+                确认拒绝
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* #185（决策 #87 D4）：blocked 处置组件（继续执行/关闭任务），与详情页同一组件；

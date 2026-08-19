@@ -137,11 +137,12 @@ export class AnalysisHandoff {
     }]);
   }
 
-  /** in_review：提示人工确认入口（确认后自动拆任务派工） */
+  /** in_review：发 analysis_confirm 接力卡（#284，决策 #250 D6——「去确认」开 WU 抽屉并自动弹确认弹窗） */
   private async postConfirmGuidance(wu: WorkUnitData): Promise<void> {
     const meta = this.readMeta(wu);
     // #163（T8-E2，#130 决策 2）：巡检单走机会清单确认（web 逐条采纳/忽略），
     // 不拆 TASK 派工；消息说人话（不出现机制黑话），指路报告与工单详情页。
+    // 确认链路是机会清单而非 AnalysisApproveDialog，故不发接力卡、维持纯文本引导。
     if (meta.inspection === true) {
       const pending = (Array.isArray(meta.opportunities) ? meta.opportunities : [])
         .filter(o => o && o.status === 'pending').length;
@@ -153,12 +154,15 @@ export class AnalysisHandoff {
       );
       return;
     }
-    const hasTasks = Array.isArray(meta.analysisTasks);
-    await this.post(
-      wu,
-      `分析结论已提交审查（#${wu.id.slice(0, 8)}）：请人工在 WorkUnit 列表/详情点「通过」确认结论`
+    if (!wu.channelId) return;
+    const hasTasks = this.taskScopes(meta).length > 0;
+    await this.messageService.createAgentMessage(
+      wu.channelId,
+      'Studio',
+      `分析结论待确认（#${wu.id.slice(0, 8)}）`
       + (hasTasks ? '，确认后将按 TASK 拆分自动派工' : '（本次未输出 TASK 拆分行，确认后可手动转任务）')
-      + '；结论有问题点「拒绝」，将由原 Agent 返工',
+      + '；结论有问题请返工',
+      { workUnitId: wu.id, meta: { cardType: 'analysis_confirm' } },
     );
   }
 
