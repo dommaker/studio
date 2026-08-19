@@ -1,6 +1,6 @@
 # CAPABILITIES.md
 
-> 最后更新: 2026-08-17
+> 最后更新: 2026-08-18
 
 ---
 
@@ -181,3 +181,4 @@
 | NeedsAttentionSection | apps/web/src/components/monitoring/NeedsAttentionSection.tsx | NeedsAttentionSection — #184 监控页概览 Tab 顶部「需要处理」区（#62 D4 + #60 IA：行动信号 > 健康度量 > 参考资料） |
 | BlockedActions | apps/web/src/components/workunit/BlockedActions.tsx | BlockedActions — #185（决策 #87 D1/D3/D4/D5）：blocked WU 的 Web 处置组件 |
 | TranscriptViewer | apps/web/src/components/workunit/TranscriptViewer.tsx | TranscriptViewer — #174: WU 会话原文（transcript）只读查看器（#60 C5） |
+| BlockedByList | apps/web/src/components/workunit/BlockedByList.tsx | #116: 依赖（metadata.blockedBy）清单共享组件 — WorkUnitListPage 被阻塞行展开 / WorkUnitDetailPage「依赖与验收」卡复用。 |
