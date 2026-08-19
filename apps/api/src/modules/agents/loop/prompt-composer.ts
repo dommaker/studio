@@ -25,6 +25,7 @@ import { roleMemoryStore } from '../../role-memory/role-memory.js';
 import { loadManifest } from '../../skills/manifest-loader.js';
 import { selectSkillsForInjection, parseSkillHintsFromScope } from '../../skills/skill-selector.js';
 import { resolveMaxDepth, MAX_DELEGATIONS_PER_PARENT } from '../../workunit/delegation-gate.js';
+import { postWuSystemMessage } from '../../workunit/wu-messenger.js';
 import type { WorkUnitData, WorkUnitMetadata } from '../../workunit/workunit.service.js';
 import { buildContinuePrompt, buildReplyPrompt } from './agent-loop-parsers.js';
 import { metricsFileStore } from './agent-loop-events.js';
@@ -34,10 +35,11 @@ import { metricsFileStore } from './agent-loop-events.js';
  * 定额职责 = 防注入劣化（防注入段膨胀挤占对话空间、防噪声稀释信噪比），
  * 不防 CLI 上下文溢出（溢出归反应式策略管）；base prompt 不截断，CLI 脚手架不在管辖内。
  *
- * 软定额 + 池内余量共享：按 persona → roster → skills → map → memory → knowledge → contract
- * → handoff 顺序逐段组装，段有效预算 = 本段定额 + 共享池余量；段实际用量低于有效预算时，
- * 差额流入共享池供后续段借用（注入总量封顶 = 定额总和 ~4.5K）。
+ * 软定额 + 池内余量共享：按 persona → roster → skills → map → memory → knowledge → files
+ * → contract → handoff 顺序逐段组装，段有效预算 = 本段定额 + 共享池余量；段实际用量低于有效预算时，
+ * 差额流入共享池供后续段借用（注入总量封顶 = 定额总和 ~4.9K）。
  * map 段 = #111 T5 探路地图完整渲染（定额 800，实测校准见 .studio/CONTEXT.md 的 apps/api/src/modules/agents 锚点）。
+ * files 段 = #285（决策 #257）@文件引用注入段「## 引用文件」（定额 400，见 buildFilesSection）。
  * contract 段 = #119 契约段生成器（定额 200，按 WU type 产出格式 + 最小模板）。
  * memory / handoff 段内容源分别归 #100（角色记忆索引常驻注入）与 #95（handoff 前序
  * 进展段）。
@@ -49,6 +51,7 @@ export const SECTION_QUOTAS = {
   map: 800,
   memory: 300,
   knowledge: 1000,
+  files: 400,
   contract: 200,
   handoff: 800,
 } as const;
@@ -118,6 +121,8 @@ interface BuiltSection {
   section: string;
   tokens: number;
   originalTokens: number;
+  /** #285（决策 #257 D7-2/D9）：截断明细——存在时由 runSection merge 进 prompt:section_trimmed payload */
+  trimDetail?: { keptCount: number; droppedPaths: string[]; droppedCount: number };
 }
 
 /**
@@ -176,7 +181,7 @@ export interface ComposedStepPrompt {
  *  1. hint 读取（pendingReplies / commitGuardHint / verifyFailHint / childGuardHint / processCheckHint，注入后即消费）；
  *  2. base prompt：pendingReplies > target.newReplies > continue；
  *  3. 三类 guard hint 段注入；
- *  4. 注入段分段软定额 + 池内余量共享（#91），稳定前缀序 persona > roster > skills > map > memory > knowledge，
+ *  4. 注入段分段软定额 + 池内余量共享（#91），稳定前缀序 persona > roster > skills > map > memory > knowledge > files（#285），
  *     尾组序 base > contract（#119）> handoff > hint；
  *  5. 产出 consumedHintUpdates（已消费 hint 的清除增量）。
  * 全部注入路径 non-blocking：任一段失败按空段处理，绝不阻断执行。
@@ -257,6 +262,8 @@ export async function composeStepPrompt(
           originalTokens: built.originalTokens,
           trimmedTokens: built.tokens,
           quota,
+          // #285: files 段截断明细（keptCount/droppedPaths/droppedCount），其他段不受影响
+          ...(built.trimDetail ?? {}),
         }),
         createdAt: new Date().toISOString(),
       }).catch(() => {});
@@ -266,7 +273,7 @@ export async function composeStepPrompt(
   };
 
   // #119 稳定性重排：稳定前缀（进 knowledgeContext，吃输入缓存）序 = persona → roster → skills
-  // → map → memory → knowledge；任务本体尾组（拼 prompt）序 = base → contract → handoff → hint。
+  // → map → memory → knowledge → files（#285）；任务本体尾组（拼 prompt）序 = base → contract → handoff → hint。
   // 段组装顺序即池共享顺序（前段余量流入后段），与稳定前缀序一致。
 
   // 决策 13 + #91: `## 你的角色` 段（persona ?? description + preset 的 skills/tools/constraints；皆空则省略）
@@ -305,6 +312,28 @@ export async function composeStepPrompt(
   });
   const knowledgeSection = knowledge.section;
 
+  // #285（决策 #257 D1）：files 段（## 引用文件）——稳定前缀最末，knowledge 之后、contract 之前
+  // 组装（段组装顺序 = 池共享顺序，files 参与池内余量共享）。
+  const files = await runSection('files', budget =>
+    Promise.resolve(buildFilesSection(metadata, budget)));
+  const filesTrimDetail = 'trimDetail' in files ? files.trimDetail : undefined;
+
+  // #285（决策 #257 D4 用户面）：files 段截断 → 向 WU 所在频道播报一次（best-effort 不阻断）。
+  // 只在第一步播报（metadata.stepCount 缺失或为 0；fileRefs 全程稳定，逐步播报会刷屏）；
+  // wu.channelId 缺失不播报。
+  const stepCount = typeof metadata.stepCount === 'number' ? metadata.stepCount : 0;
+  if (filesTrimDetail && filesTrimDetail.droppedCount > 0 && stepCount === 0 && wu.channelId) {
+    void postWuSystemMessage(
+      wu,
+      `引用文件较多，已注入前 ${filesTrimDetail.keptCount} 条`,
+      { fileStore: deps.fileStore },
+    ).catch(err =>
+      logger.warn('[prompt-composer] Post files-trimmed notice failed (non-blocking)', {
+        workUnitId: wu.id, error: String(err),
+      })
+    );
+  }
+
   // #119: 契约段（## 产出契约）——按 WU type 产出格式 + 最小模板，挂 base 后、handoff 前。
   const contract = await runSection('contract', budget =>
     Promise.resolve(buildContractSection(wu, metadata, budget)));
@@ -322,6 +351,10 @@ export async function composeStepPrompt(
     knowledgeContext = knowledgeSection
       ? `${leadSections}\n\n## 项目上下文\n${knowledgeSection}`
       : leadSections;
+  }
+  // #285（D1）：files 段拼进 knowledgeContext 尾部（稳定前缀最末）
+  if (files.section) {
+    knowledgeContext = knowledgeContext ? `${knowledgeContext}\n\n${files.section}` : files.section;
   }
 
   // #119: 尾组序 = base → contract → handoff → hint（map 已移入稳定前缀 knowledgeContext）
@@ -409,6 +442,90 @@ async function buildPmoMapSection(metadata: WorkUnitMetadata, tokenBudget: numbe
     section = sliceToTokenBudget(section, tokenBudget);
   }
   return { section, tokens: TokenEstimator.estimateText(section), originalTokens };
+}
+
+/**
+ * #285（决策 #257 D1/D2/D4/D6/D7/D9）：组装 `## 引用文件` 段 —— WU metadata.fileRefs
+ * （#281 路由层校验后的 kept refs，message-routing 建 WU 时落档）注入稳定前缀最末。
+ *
+ * 内容：每引用一条块 —— 绝对路径 = repo/path（repo 尾斜杠归一，拼接防双斜杠）；
+ * 与 metadata.workspaceRoot（尾斜杠归一）同仓 → 标注「本工程内，相对路径：<path>」，
+ * 否则（含 workspaceRoot 缺失）标注「位于本工程之外」；段尾固定行（D6 原文）只读约束。
+ * 防御性解析：fileRefs 非数组/畸形条目跳过；无有效引用 → 空段不注入。
+ *
+ * 截断（D2/D4，TokenEstimator 口径）：块级截断保注入序前缀 —— 段头+固定行保留，
+ * 引用块按序填充超预算即停；有未注入引用时段尾标注「另有 N 条引用未注入」（标注自身
+ * 计入预算，加标注超预算则再少保一条，迭代收敛）。病态超预算（段头+固定行都装不下）
+ * → 空段不注入（不半截输出）。截断明细经 trimDetail 回传（runSection merge 进
+ * prompt:section_trimmed payload：keptCount/droppedPaths(≤5)/droppedCount，D7-2/D9）。
+ */
+function buildFilesSection(metadata: WorkUnitMetadata, tokenBudget: number): BuiltSection {
+  // 防御性解析：metadata 是反序列化 JSON，旧版本/手改可能残留畸形数据
+  const raw = Array.isArray(metadata.fileRefs) ? metadata.fileRefs : [];
+  const refs = raw.filter((r): r is { repo: string; path: string } =>
+    !!r && typeof r === 'object'
+    && typeof (r as { repo?: unknown }).repo === 'string' && (r as { repo: string }).repo.length > 0
+    && typeof (r as { path?: unknown }).path === 'string' && (r as { path: string }).path.length > 0);
+  if (refs.length === 0 || tokenBudget <= 0) return { section: '', tokens: 0, originalTokens: 0 };
+
+  const normalizeRepo = (p: string) => p.replace(/[/\\]+$/, '');
+  const workspaceRoot = typeof metadata.workspaceRoot === 'string' && metadata.workspaceRoot
+    ? normalizeRepo(metadata.workspaceRoot)
+    : null;
+
+  const blocks = refs.map(r => {
+    const repo = normalizeRepo(r.repo);
+    const rel = r.path.replace(/^[/\\]+/, '');
+    const abs = `${repo}/${rel}`;
+    const note = workspaceRoot !== null && repo === workspaceRoot
+      ? `本工程内，相对路径：${rel}`
+      : '位于本工程之外';
+    return { abs, line: `- ${abs}（${note}）` };
+  });
+
+  // D6 原文（逐字）
+  const FOOTER = '以下引用中位于本工程（workspaceRoot）之外的文件为**只读上下文**，请勿修改；跨仓写入请显式提出并等人确认。大文件请按需分段读取，不要全文吞入。';
+  const render = (kept: typeof blocks, droppedCount: number): string => {
+    const lines = ['## 引用文件', '', ...kept.map(b => b.line), '', FOOTER];
+    if (droppedCount > 0) lines.push('', `另有 ${droppedCount} 条引用未注入`);
+    return lines.join('\n');
+  };
+
+  const full = render(blocks, 0);
+  const originalTokens = TokenEstimator.estimateText(full);
+  if (originalTokens <= tokenBudget) return { section: full, tokens: originalTokens, originalTokens };
+
+  // 病态超预算：段头 + 固定行（含标注）都装不下 → 空段不注入（不半截输出）
+  if (TokenEstimator.estimateText(render([], blocks.length)) > tokenBudget) {
+    return { section: '', tokens: 0, originalTokens: 0 };
+  }
+
+  // 块级截断保注入序前缀：按序填充，超预算即停；「另有 N 条」标注计入预算
+  // （加标注超预算则再少保一条，迭代收敛——引用数量级小，逐条重估可承受）
+  let keptCount = 0;
+  while (
+    keptCount < blocks.length
+    && TokenEstimator.estimateText(render(blocks.slice(0, keptCount + 1), blocks.length - keptCount - 1)) <= tokenBudget
+  ) {
+    keptCount++;
+  }
+  // 标注计数位宽变化（9→10 等）可能把末态顶超预算：再少保一条直至收敛
+  while (keptCount > 0 && TokenEstimator.estimateText(render(blocks.slice(0, keptCount), blocks.length - keptCount)) > tokenBudget) {
+    keptCount--;
+  }
+
+  const droppedCount = blocks.length - keptCount;
+  const section = render(blocks.slice(0, keptCount), droppedCount);
+  return {
+    section,
+    tokens: TokenEstimator.estimateText(section),
+    originalTokens,
+    trimDetail: {
+      keptCount,
+      droppedPaths: blocks.slice(keptCount, keptCount + 5).map(b => b.abs),
+      droppedCount,
+    },
+  };
 }
 
 /**

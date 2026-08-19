@@ -197,12 +197,14 @@ export async function routeMessage(
       logger.warn('[MessageRouting] REQ binding failed (non-blocking)', { error: String(err) });
       return null;
     });
-    // B3a 工程归属链（决策 D2）：显式 > Requirement→PMO gitRepo > 频道默认 > 无归属挂起。
+    // B3a 工程归属链（决策 D2 + #285 决策 #249 §4）：显式 > Requirement→PMO gitRepo
+    // > 文件引用（kept refs 全同仓）> 频道默认 > 无归属挂起。
     // 解析故障返回 null，走旧绑定规则兜底。
     const ownership = await resolveWorkspaceForWU({
       explicitWorkspaceId: options?.workspaceId,
       reqId,
       channelId,
+      fileRefs: filesMeta?.files,
       fileStore: resolvedFs,
     }).catch(err => {
       logger.warn('[MessageRouting] Ownership resolution failed, falling back to legacy workspace binding', {
@@ -231,6 +233,8 @@ export async function routeMessage(
         ...(reroutedFrom ? { reroutedFrom } : {}),
         // P0 修复 6: traceId 贯穿（audit requestId → WU metadata → agent-loop 日志）
         ...(options?.traceId ? { traceId: options.traceId } : {}),
+        // #285: @文件引用落档（仅在有有效引用时写字段；prompt-composer files 段消费）
+        ...(filesMeta?.files ? { fileRefs: filesMeta.files } : {}),
         // B3a: 归属解析结果落档（来源区分供日志/审计）
         ownershipSource: ownership?.source ?? 'fallback',
         ...(ownership?.workspaceRoot ? { workspaceRoot: ownership.workspaceRoot } : {}),
@@ -305,7 +309,11 @@ export async function routeMessage(
       type: 'task',
       status: 'unassigned',
       assigneeId: channel.defaultProfileId,
-      metadata: { creationMode: 'channel-default' },
+      metadata: {
+        creationMode: 'channel-default',
+        // #285: @文件引用落档（本路径不做归属解析，仅落档供 prompt-composer files 段消费）
+        ...(filesMeta?.files ? { fileRefs: filesMeta.files } : {}),
+      },
     });
     logger.info('[MessageRouting] WorkUnit created for channel default profile', {
       channelId,

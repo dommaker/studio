@@ -164,3 +164,79 @@ describe('路由层文件引用校验（#281）', () => {
     expect(parseMeta(reply.meta).files).toEqual([{ repo: '/repo/default', path: 'src/a.ts' }]);
   });
 });
+
+/** 读 WU 落档 metadata（snapshot.metadata 为 JSON 字符串） */
+async function getWuMetadata(workUnitId: string): Promise<Record<string, unknown>> {
+  const index = await fileStore.getIndex();
+  const wu = index.find(w => w.id === workUnitId);
+  return JSON.parse(wu!.metadata);
+}
+
+async function createDevProfile() {
+  await fileStore.createProfile({
+    id: 'agent-dev', name: 'dev', description: null, channels: '[]', status: 'active',
+    createdAt: now(), updatedAt: now(),
+  });
+}
+
+describe('WU metadata.fileRefs 落档 + 归属 rung（#285，决策 #249 §4）', () => {
+  it('@mention 建 WU：kept refs 原样写入 WU metadata.fileRefs（失效引用不进）', async () => {
+    await createDevProfile();
+    const message = await routeMessage(channelId, '@dev 看文件', undefined, fileStore, {
+      files: [
+        { repo: '/repo/default', path: 'src/a.ts' },
+        { repo: '/repo/default', path: 'gone.ts' },
+      ],
+      fileRefDeps: makeDeps(),
+    });
+
+    const metadata = await getWuMetadata(message.workUnitId!);
+    expect(metadata.fileRefs).toEqual([{ repo: '/repo/default', path: 'src/a.ts' }]);
+  });
+
+  it('@mention 建 WU：全部引用失效 → 不写 fileRefs 字段', async () => {
+    await createDevProfile();
+    const message = await routeMessage(channelId, '@dev 看文件', undefined, fileStore, {
+      files: [{ repo: '/repo/default', path: 'gone.ts' }],
+      fileRefDeps: makeDeps(),
+    });
+
+    const metadata = await getWuMetadata(message.workUnitId!);
+    expect(metadata).not.toHaveProperty('fileRefs');
+  });
+
+  it('@mention 建 WU：kept refs 全同仓且与频道默认不同仓 → ownershipSource=file-refs + workspaceRoot 落档', async () => {
+    await createDevProfile();
+    // 候选集 = 频道默认 /repo/default ∪ 杂务 PMO /repo/chore；引用全部落在 /repo/chore
+    const deps: FileRefVocabularyDeps = {
+      ...makeDeps(),
+      findChoreProject: async () => ({ gitRepo: '/repo/chore' }),
+    };
+    const message = await routeMessage(channelId, '@dev 看杂务仓文件', undefined, fileStore, {
+      files: [{ repo: '/repo/chore/', path: 'src/a.ts' }], // 尾斜杠写法差，校验侧归一
+      fileRefDeps: deps,
+    });
+
+    const metadata = await getWuMetadata(message.workUnitId!);
+    expect(metadata.ownershipSource).toBe('file-refs');
+    expect(metadata.workspaceRoot).toBe('/repo/chore');
+    expect(metadata.fileRefs).toEqual([{ repo: '/repo/chore', path: 'src/a.ts' }]);
+    // WU 主字段 workspaceId 不再取频道默认
+    const index = await fileStore.getIndex();
+    expect(index.find(w => w.id === message.workUnitId)!.workspaceId).toBeNull();
+  });
+
+  it('决策 12 channel-default 建 WU 路径：同样写 metadata.fileRefs（该路径不做归属解析）', async () => {
+    await fileStore.updateChannel(channelId, { defaultProfileId: 'agent-dev' });
+    await createDevProfile();
+    const message = await routeMessage(channelId, '无 at 消息带文件', undefined, fileStore, {
+      files: [{ repo: '/repo/default', path: 'README.md' }],
+      fileRefDeps: makeDeps(),
+    });
+
+    expect(message.workUnitId).toBeTruthy();
+    const metadata = await getWuMetadata(message.workUnitId!);
+    expect(metadata.creationMode).toBe('channel-default');
+    expect(metadata.fileRefs).toEqual([{ repo: '/repo/default', path: 'README.md' }]);
+  });
+});

@@ -384,6 +384,20 @@
 }
 .mc-wu-link:hover { border-color: var(--accent-primary); }
 
+/* #285: agent 消息 inline-code 文件 chip（点击复制绝对路径 / .studio/ 跳阅览室） */
+.mc-file-chip {
+  font-size: var(--fs-sm);
+  color: var(--accent-primary);
+  background: var(--accent-dim);
+  border: 1px solid var(--accent-border);
+  border-radius: 4px;
+  padding: 0 6px;
+  margin: 0 1px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.mc-file-chip:hover { border-color: var(--accent-primary); }
+
 /* 进度条 */
 .mc-progress {
   height: 3px;

@@ -5,6 +5,7 @@
  * → WU（从 Requirement 继承工程）→ 执行。频道绑定降级为默认提示。
  *
  * 优先级：显式 workspaceId > Requirement.projectId → PMO 项目 gitRepo
+ * > 文件引用（#285 决策 #249 §4：全部引用同仓时该仓即归属工程）
  * > 频道 defaultWorkspaceId > 无归属（none → 调用方转 NEED_INPUT 问人）。
  *
  * 各步独立容错：需求/项目/频道读取失败仅记日志并落到下一优先级，
@@ -22,7 +23,7 @@ import type { RequirementWithProject } from './requirement.service.js';
 export const OWNERSHIP_WAITING_QUESTION = '这个任务要修改哪个工程？请回复工程名或路径';
 
 /** 归属来源 — 写入 WU metadata.ownershipSource，供日志与审计区分 */
-export type OwnershipSource = 'explicit' | 'requirement' | 'channel-default' | 'none';
+export type OwnershipSource = 'explicit' | 'requirement' | 'file-refs' | 'channel-default' | 'none';
 
 export interface OwnershipResolution {
   source: OwnershipSource;
@@ -41,6 +42,8 @@ export interface ResolveWorkspaceInput {
   reqId?: string | null;
   /** 来源频道（defaultWorkspaceId 默认提示） */
   channelId?: string | null;
+  /** #285（决策 #249 §4）：@文件引用（路由层校验后的 kept refs；全部引用同仓时该仓即归属工程） */
+  fileRefs?: { repo: string; path: string }[];
   fileStore?: FileStore;
   /** 项目查询（可注入，测试用 stub 避免碰真实 ~/.studio/projects） */
   getProject?: (projectId: string) => Promise<{ gitRepo?: string | null } | null>;
@@ -80,7 +83,22 @@ export async function resolveWorkspaceForWU(input: ResolveWorkspaceInput): Promi
     }
   }
 
-  // 3. 频道 defaultWorkspaceId（降级为默认提示）
+  // 3. 文件引用（#285 决策 #249 §4）：全部引用尾斜杠归一后同仓 → 该仓即归属工程；
+  //    跨多仓引用不参与归属（落到下一优先级）；空数组等同无引用。
+  if (input.fileRefs && input.fileRefs.length > 0) {
+    try {
+      const repos = input.fileRefs.map(r =>
+        typeof r?.repo === 'string' ? r.repo.replace(/[/\\]+$/, '') : '');
+      // 任一引用 repo 缺失/畸形 = 不满足「全部同仓」，不参与归属
+      if (repos.every(r => r.length > 0) && new Set(repos).size === 1) {
+        return { source: 'file-refs', workspaceId: null, workspaceRoot: repos[0], projectId: null };
+      }
+    } catch (err) {
+      logger.warn('[Ownership] File-refs resolution failed, falling through', { error: String(err) });
+    }
+  }
+
+  // 4. 频道 defaultWorkspaceId（降级为默认提示）
   if (input.channelId) {
     try {
       const channel = await fileStore.getChannel(input.channelId);
@@ -95,6 +113,6 @@ export async function resolveWorkspaceForWU(input: ResolveWorkspaceInput): Promi
     }
   }
 
-  // 4. 无归属 → 调用方转 NEED_INPUT 问人
+  // 5. 无归属 → 调用方转 NEED_INPUT 问人
   return NONE;
 }

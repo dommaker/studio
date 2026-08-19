@@ -1,7 +1,7 @@
 /**
  * #91 — composeStepPrompt 函数级测试接缝：分段软定额 + 池内余量共享 + trim 埋点
  *
- * - 八段软定额：persona 300 / roster 400 / skills 600 / map 800（#111 T5）/ memory 300 / knowledge 1000 / contract 200（#119）/ handoff 800
+ * - 九段软定额：persona 300 / roster 400 / skills 600 / map 800（#111 T5）/ memory 300 / knowledge 1000 / files 400（#285）/ contract 200（#119）/ handoff 800
  * - 池内余量共享：前段未用定额流入共享池，后段有效预算 = 定额 + 池（总量封顶 ~4.5K）
  * - 任一段截断落 prompt:section_trimmed 事件（段名/原始 token 数/截断后 token 数/定额），
  *   经 metricsFileStore fire-and-forget 写 studio-events.jsonl
@@ -18,11 +18,12 @@ import * as os from 'node:os';
 const testSkillsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'prompt-composer-skills-'));
 process.env.SKILLS_DIR = testSkillsDir;
 
-const { mockInjectContext, mockAppendJsonl, mockProjectGet, mockReadIndex } = vi.hoisted(() => ({
+const { mockInjectContext, mockAppendJsonl, mockProjectGet, mockReadIndex, mockPostWuSystemMessage } = vi.hoisted(() => ({
   mockInjectContext: vi.fn().mockResolvedValue({ prompt: '## 系统约束\n- test rule', injectedIds: ['rule-1'] }),
   mockAppendJsonl: vi.fn().mockResolvedValue(undefined),
   mockProjectGet: vi.fn().mockResolvedValue(null),
   mockReadIndex: vi.fn().mockResolvedValue(''),
+  mockPostWuSystemMessage: vi.fn().mockResolvedValue(null),
 }));
 
 vi.mock('../../knowledge/knowledge-service', () => ({
@@ -39,6 +40,10 @@ vi.mock('../../pmo/project.service.js', () => ({
 
 vi.mock('../../role-memory/role-memory.js', () => ({
   roleMemoryStore: { readIndex: mockReadIndex },
+}));
+
+vi.mock('../../workunit/wu-messenger.js', () => ({
+  postWuSystemMessage: mockPostWuSystemMessage,
 }));
 
 import { FileStore } from '@dommaker/studio-shared';
@@ -130,7 +135,7 @@ describe('#91: composeStepPrompt 分段软定额 + 池内余量共享 + trim 埋
     fileStore = new FileStore(testDir);
   });
 
-  it('八段软定额表：persona 300 / roster 400 / skills 600 / map 800 / memory 300 / knowledge 1000 / contract 200 / handoff 800', () => {
+  it('九段软定额表：persona 300 / roster 400 / skills 600 / map 800 / memory 300 / knowledge 1000 / files 400（#285）/ contract 200 / handoff 800', () => {
     expect(SECTION_QUOTAS).toEqual({
       persona: 300,
       roster: 400,
@@ -138,6 +143,7 @@ describe('#91: composeStepPrompt 分段软定额 + 池内余量共享 + trim 埋
       map: 800,
       memory: 300,
       knowledge: 1000,
+      files: 400,
       contract: 200,
       handoff: 800,
     });
@@ -1046,5 +1052,227 @@ describe('#161 T7-E2: processCheckHint 注入→消费→清除回路', () => {
 
     expect(prompt).not.toContain('## 过程检查提醒');
     expect(consumedHintUpdates).not.toHaveProperty('processCheckHint');
+  });
+});
+
+describe('#285（决策 #257 D1/D2/D4/D6/D7/D9）：files 段「## 引用文件」', () => {
+  let fileStore: FileStore;
+  let testDir: string;
+
+  const deps = (role: AgentProfileData): any => ({
+    role,
+    acceptedTypes: ['implement'],
+    fileStore,
+    resolveEventsFile: () => path.join(testDir, 'studio-events.jsonl'),
+  });
+
+  const sectionTrimmedEvents = () =>
+    mockAppendJsonl.mock.calls
+      .map(c => c[1])
+      .filter((e: any) => e.type === 'prompt:section_trimmed')
+      .map((e: any) => JSON.parse(e.payload));
+
+  const FILES_HEADER = '## 引用文件';
+  // D6 原文（逐字）
+  const FILES_FOOTER = '以下引用中位于本工程（workspaceRoot）之外的文件为**只读上下文**，请勿修改；跨仓写入请显式提出并等人确认。大文件请按需分段读取，不要全文吞入。';
+
+  /** 让 knowledge 段吃满有效预算（3400），files 段有效预算 = 裸定额 400 */
+  const saturateKnowledgeBudget = () => {
+    mockInjectContext.mockResolvedValue({
+      prompt: '## 系统约束\n- test rule',
+      injectedIds: [],
+      usage: { originalTokens: 3400, keptTokens: 3400 },
+    });
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    clearSkills();
+    mockInjectContext.mockResolvedValue({ prompt: '## 系统约束\n- test rule', injectedIds: ['rule-1'] });
+    mockReadIndex.mockResolvedValue('');
+    mockProjectGet.mockResolvedValue(null);
+    testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'prompt-composer-files-'));
+    fileStore = new FileStore(testDir);
+  });
+
+  it('段内容：绝对路径 = repo/path（尾斜杠归一防双斜杠），本工程内标相对路径，跨仓标「位于本工程之外」，段尾固定行逐字', async () => {
+    const { knowledgeContext } = await composeStepPrompt(
+      {
+        wu: makeWu(),
+        metadata: {
+          workspaceRoot: '/repo/ws/', // 尾斜杠写法差，归一后与 ref.repo 相等
+          fileRefs: [
+            { repo: '/repo/ws', path: 'src/a.ts' },
+            { repo: '/repo/other/', path: 'lib/b.ts' },
+          ],
+        } as any,
+      },
+      deps(makeRole()),
+    );
+
+    expect(knowledgeContext).toContain(FILES_HEADER);
+    expect(knowledgeContext).toContain('- /repo/ws/src/a.ts（本工程内，相对路径：src/a.ts）');
+    expect(knowledgeContext).toContain('- /repo/other/lib/b.ts（位于本工程之外）');
+    expect(knowledgeContext).toContain(FILES_FOOTER);
+    // 固定行在段尾（引用块之后）
+    expect(knowledgeContext.indexOf(FILES_FOOTER)).toBeGreaterThan(knowledgeContext.indexOf('- /repo/other/lib/b.ts'));
+  });
+
+  it('workspaceRoot 缺失 → 全部按「位于本工程之外」标注', async () => {
+    const { knowledgeContext } = await composeStepPrompt(
+      { wu: makeWu(), metadata: { fileRefs: [{ repo: '/repo/ws', path: 'src/a.ts' }] } as any },
+      deps(makeRole()),
+    );
+
+    expect(knowledgeContext).toContain('- /repo/ws/src/a.ts（位于本工程之外）');
+    expect(knowledgeContext).not.toContain('本工程内');
+  });
+
+  it('位置（D1）：files 段在 knowledge 段之后（稳定前缀最末，knowledgeContext 内序）', async () => {
+    const { knowledgeContext } = await composeStepPrompt(
+      { wu: makeWu(), metadata: { fileRefs: [{ repo: '/repo/ws', path: 'src/a.ts' }] } as any },
+      deps(makeRole()),
+    );
+
+    const idx = (s: string) => knowledgeContext.indexOf(s);
+    expect(idx('## 系统约束')).toBeGreaterThanOrEqual(0);
+    expect(idx(FILES_HEADER)).toBeGreaterThan(idx('## 系统约束'));
+  });
+
+  it('无 fileRefs → 不注入段（行为同现状）', async () => {
+    const { knowledgeContext } = await composeStepPrompt(
+      { wu: makeWu(), metadata: {} as any },
+      deps(makeRole()),
+    );
+
+    expect(knowledgeContext).not.toContain(FILES_HEADER);
+    expect(sectionTrimmedEvents()).toEqual([]);
+  });
+
+  it('畸形 fileRefs（非数组 / 畸形条目）→ 不炸，畸形条目跳过', async () => {
+    const notArray = await composeStepPrompt(
+      { wu: makeWu(), metadata: { fileRefs: 'oops' } as any },
+      deps(makeRole()),
+    );
+    expect(notArray.knowledgeContext).not.toContain(FILES_HEADER);
+
+    const mixed = await composeStepPrompt(
+      {
+        wu: makeWu(),
+        metadata: {
+          fileRefs: [
+            null,
+            { repo: '/repo/ws' }, // 缺 path
+            { path: 'src/a.ts' }, // 缺 repo
+            42,
+            { repo: '/repo/ws', path: 'src/ok.ts' },
+          ],
+        } as any,
+      },
+      deps(makeRole()),
+    );
+    expect(mixed.knowledgeContext).toContain('- /repo/ws/src/ok.ts');
+    expect(mixed.knowledgeContext).not.toContain('null');
+  });
+
+  it('截断（D2/D4）：超 400 定额 → 保注入序前缀 + 段尾「另有 N 条引用未注入」+ section_trimmed payload 含 keptCount/droppedPaths(≤5)/droppedCount', async () => {
+    saturateKnowledgeBudget(); // files 有效预算 = 400
+    const refs = Array.from({ length: 40 }, (_, i) => ({
+      repo: '/repo/ws',
+      path: `src/very/deeply/nested/directory/structure/for/budget/file-${String(i).padStart(2, '0')}.ts`,
+    }));
+
+    const { knowledgeContext } = await composeStepPrompt(
+      { wu: makeWu(), metadata: { workspaceRoot: '/repo/ws', fileRefs: refs } as any },
+      deps(makeRole()),
+    );
+
+    const events = sectionTrimmedEvents();
+    expect(events).toHaveLength(1);
+    expect(events[0].section).toBe('files');
+    expect(events[0].quota).toBe(400);
+    expect(events[0].trimmedTokens).toBeLessThanOrEqual(400);
+    expect(events[0].originalTokens).toBeGreaterThan(events[0].trimmedTokens);
+    const { keptCount, droppedPaths, droppedCount } = events[0];
+    expect(keptCount).toBeGreaterThan(0);
+    expect(keptCount).toBeLessThan(40);
+    expect(droppedCount).toBe(40 - keptCount);
+    expect(droppedPaths.length).toBeLessThanOrEqual(5);
+    expect(droppedPaths[0]).toBe(`/repo/ws/${refs[keptCount].path}`); // 首条未注入引用的绝对路径
+
+    // 保注入序前缀：第 keptCount-1 条在，第 keptCount 条不在
+    expect(knowledgeContext).toContain(`file-${String(keptCount - 1).padStart(2, '0')}.ts`);
+    expect(knowledgeContext).not.toContain(`file-${String(keptCount).padStart(2, '0')}.ts`);
+    // 段尾标注 + 固定行保留
+    expect(knowledgeContext).toContain(`另有 ${droppedCount} 条引用未注入`);
+    expect(knowledgeContext).toContain(FILES_FOOTER);
+  });
+
+  it('播报（D4）：截断且首步（stepCount 缺失）→ 频道播报一次「引用文件较多，已注入前 N 条」', async () => {
+    saturateKnowledgeBudget();
+    const refs = Array.from({ length: 40 }, (_, i) => ({
+      repo: '/repo/ws',
+      path: `src/very/deeply/nested/directory/structure/for/budget/file-${String(i).padStart(2, '0')}.ts`,
+    }));
+
+    await composeStepPrompt(
+      { wu: makeWu({ channelId: 'ch-1' }), metadata: { workspaceRoot: '/repo/ws', fileRefs: refs } as any },
+      deps(makeRole()),
+    );
+
+    expect(mockPostWuSystemMessage).toHaveBeenCalledTimes(1);
+    const [wuArg, content, opts] = mockPostWuSystemMessage.mock.calls[0];
+    expect(wuArg.id).toBe('wu-1');
+    const events = sectionTrimmedEvents();
+    expect(content).toBe(`引用文件较多，已注入前 ${events[0].keptCount} 条`);
+    expect(opts.fileStore).toBe(fileStore);
+  });
+
+  it('播报只在第一步：stepCount>0 时截断也不重复播报', async () => {
+    saturateKnowledgeBudget();
+    const refs = Array.from({ length: 40 }, (_, i) => ({
+      repo: '/repo/ws',
+      path: `src/very/deeply/nested/directory/structure/for/budget/file-${String(i).padStart(2, '0')}.ts`,
+    }));
+
+    await composeStepPrompt(
+      {
+        wu: makeWu({ channelId: 'ch-1' }),
+        metadata: { workspaceRoot: '/repo/ws', fileRefs: refs, stepCount: 2 } as any,
+      },
+      deps(makeRole()),
+    );
+
+    expect(sectionTrimmedEvents()).toHaveLength(1); // 埋点照落
+    expect(mockPostWuSystemMessage).not.toHaveBeenCalled();
+  });
+
+  it('wu.channelId 缺失 → 不播报（埋点照落）', async () => {
+    saturateKnowledgeBudget();
+    const refs = Array.from({ length: 40 }, (_, i) => ({
+      repo: '/repo/ws',
+      path: `src/very/deeply/nested/directory/structure/for/budget/file-${String(i).padStart(2, '0')}.ts`,
+    }));
+
+    await composeStepPrompt(
+      { wu: makeWu({ channelId: null }), metadata: { workspaceRoot: '/repo/ws', fileRefs: refs } as any },
+      deps(makeRole()),
+    );
+
+    expect(sectionTrimmedEvents()).toHaveLength(1);
+    expect(mockPostWuSystemMessage).not.toHaveBeenCalled();
+  });
+
+  it('未截断（少量引用）→ 不播报、无 files 截断埋点', async () => {
+    await composeStepPrompt(
+      {
+        wu: makeWu({ channelId: 'ch-1' }),
+        metadata: { fileRefs: [{ repo: '/repo/ws', path: 'src/a.ts' }] } as any,
+      },
+      deps(makeRole()),
+    );
+
+    expect(mockPostWuSystemMessage).not.toHaveBeenCalled();
+    expect(sectionTrimmedEvents().filter(e => e.section === 'files')).toEqual([]);
   });
 });

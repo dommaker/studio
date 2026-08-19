@@ -140,3 +140,105 @@ describe('resolveWorkspaceForWU（B3a 优先级链）', () => {
     expect(OWNERSHIP_WAITING_QUESTION).toBe('这个任务要修改哪个工程？请回复工程名或路径');
   });
 });
+
+describe('#285（决策 #249 §4）：fileRefs 归属 rung（显式 > REQ 继承 > 文件引用 > 频道默认 > none）', () => {
+  const sameRepoRefs = [
+    { repo: '/data/repo', path: 'src/a.ts' },
+    { repo: '/data/repo/', path: 'src/b.ts' }, // 尾斜杠写法差归一后仍同仓
+  ];
+
+  it('显式 workspaceId 压过 fileRefs', async () => {
+    const result = await resolveWorkspaceForWU({
+      explicitWorkspaceId: 'ws-explicit',
+      fileRefs: sameRepoRefs,
+      fileStore,
+    });
+
+    expect(result).toEqual({
+      source: 'explicit', workspaceId: 'ws-explicit', workspaceRoot: null, projectId: null,
+    });
+  });
+
+  it('REQ 继承压过 fileRefs', async () => {
+    const req = await reqService.create({ title: 'r', projectId: 'proj-1' });
+
+    const result = await resolveWorkspaceForWU({
+      reqId: req.id,
+      fileRefs: sameRepoRefs,
+      fileStore,
+      getProject: async () => ({ gitRepo: '/data/req-repo' }),
+    });
+
+    expect(result).toEqual({
+      source: 'requirement', workspaceId: null, workspaceRoot: '/data/req-repo', projectId: 'proj-1',
+    });
+  });
+
+  it('全部引用同仓（尾斜杠归一）→ source=file-refs，workspaceRoot=归一后的 repo，压过频道默认', async () => {
+    await setChannelDefault('ws-channel');
+
+    const result = await resolveWorkspaceForWU({
+      fileRefs: sameRepoRefs,
+      channelId,
+      fileStore,
+    });
+
+    expect(result).toEqual({
+      source: 'file-refs', workspaceId: null, workspaceRoot: '/data/repo', projectId: null,
+    });
+  });
+
+  it('跨仓引用不参与归属 → 落频道默认', async () => {
+    await setChannelDefault('ws-channel');
+
+    const result = await resolveWorkspaceForWU({
+      fileRefs: [
+        { repo: '/data/repo-a', path: 'src/a.ts' },
+        { repo: '/data/repo-b', path: 'src/b.ts' },
+      ],
+      channelId,
+      fileStore,
+    });
+
+    expect(result).toEqual({
+      source: 'channel-default', workspaceId: 'ws-channel', workspaceRoot: null, projectId: null,
+    });
+  });
+
+  it('空数组等同无引用 → 落频道默认', async () => {
+    await setChannelDefault('ws-channel');
+
+    const result = await resolveWorkspaceForWU({ fileRefs: [], channelId, fileStore });
+
+    expect(result.source).toBe('channel-default');
+  });
+
+  it('无引用输入行为不变：无任何输入 → none', async () => {
+    const result = await resolveWorkspaceForWU({ fileStore });
+
+    expect(result).toEqual({ source: 'none', workspaceId: null, workspaceRoot: null, projectId: null });
+  });
+
+  it('仅 fileRefs 同仓、无频道默认 → source=file-refs（不落 none 挂起）', async () => {
+    const result = await resolveWorkspaceForWU({ fileRefs: sameRepoRefs, channelId, fileStore });
+
+    expect(result).toEqual({
+      source: 'file-refs', workspaceId: null, workspaceRoot: '/data/repo', projectId: null,
+    });
+  });
+
+  it('畸形条目（repo 缺失/非字符串）不参与归属 → 落频道默认', async () => {
+    await setChannelDefault('ws-channel');
+
+    const result = await resolveWorkspaceForWU({
+      fileRefs: [
+        { repo: '/data/repo', path: 'src/a.ts' },
+        { repo: '', path: 'src/b.ts' },
+      ],
+      channelId,
+      fileStore,
+    });
+
+    expect(result.source).toBe('channel-default');
+  });
+});

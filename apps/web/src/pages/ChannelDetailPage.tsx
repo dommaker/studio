@@ -14,7 +14,7 @@ import { ChannelRail } from '../components/channel/ChannelRail';
 import { WorkUnitDrawer, type DrawerState } from '../components/channel/WorkUnitDrawer';
 import { workunitApi } from '../api/workunit';
 import { requirementApi, type Requirement } from '../api/requirements';
-import type { Channel, ChannelMessage, FileRef } from '../api/channel';
+import type { Channel, ChannelMessage, ChannelFileVocabulary, FileRef } from '../api/channel';
 import { channelApi } from '../api/channel';
 import { knowledgeApi } from '../api/knowledge';
 import { memoryApi } from '../api/memory';
@@ -329,6 +329,23 @@ export function ChannelDetailPage() {
     return !!msg.workUnitId && waitingWuIds.has(msg.workUnitId);
   }, [waitingWuIds]);
 
+  // #285: agent 消息 inline-code 文件 chip 词表（channelId 变化时拉一次；失败静默降级，不渲染 chip）
+  // 携带 channelId 防跨频道串词表（切换频道后旧词表不传给新频道）
+  const [fileVocabulary, setFileVocabulary] = useState<{ channelId: string; data: ChannelFileVocabulary } | null>(null);
+  useEffect(() => {
+    if (!id) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await channelApi.getFileVocabulary(id);
+        if (!cancelled && res.data?.data) setFileVocabulary({ channelId: id, data: res.data.data });
+      } catch {
+        // 静默降级：词表拿不到则 agent 正文维持纯文本现状
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [id]);
+
   // AC-C3: Thread expand/collapse state
   const [expandedThreads, setExpandedThreads] = useState<Set<string>>(new Set());
   // 线程内过程消息组的展开状态（默认折叠，key = proc-<首条消息 id>）
@@ -375,6 +392,7 @@ export function ChannelDetailPage() {
       onOpenWorkUnit={openWu}
       onOpenRequirement={openReq}
       onInlineReply={handleInlineReply}
+      fileVocabulary={fileVocabulary && fileVocabulary.channelId === id ? fileVocabulary.data : undefined}
       {...extra}
     />
   );

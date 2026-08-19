@@ -2,8 +2,9 @@
 // 2026-07 视觉重构（方向 A Mission Control）：纯文本行 + 卡片族视觉重绘；交互语义零变更
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import type { ChannelMessage } from '../../api/channel';
+import type { ChannelFileVocabulary, ChannelMessage } from '../../api/channel';
 import { AuthorAvatar } from './AuthorAvatar';
+import { AgentMessageBody } from './FileRefChip';
 import { RequirementsDocCard } from './RequirementsDocCard';
 import { KnowledgeConfirmCard } from './KnowledgeConfirmCard';
 import { KnowledgeProposalCard } from './KnowledgeProposalCard';
@@ -37,6 +38,8 @@ interface Props {
   onOpenRequirement?: (reqId: string) => void;
   /** F5: NEED_INPUT 卡片内嵌回复（与回复按钮同链路：sendMessage + replyToId） */
   onInlineReply?: (message: ChannelMessage, content: string) => void;
+  /** #285: agent 消息 inline-code 文件 chip 词表；不传则 agent 正文维持纯文本现状 */
+  fileVocabulary?: ChannelFileVocabulary;
 }
 
 function renderCard(meta: CardMeta, message: ChannelMessage, onAction: Props['onAction']) {
@@ -66,7 +69,7 @@ function renderCard(meta: CardMeta, message: ChannelMessage, onAction: Props['on
 export function ChannelMessageItem({
   message, onAction, onReply, findMessage, channelId,
   isThreadAnchor, threadReplyCount, isExpanded, onToggleThread, isThreadReply,
-  waitingForInput, onOpenWorkUnit, onOpenRequirement, onInlineReply,
+  waitingForInput, onOpenWorkUnit, onOpenRequirement, onInlineReply, fileVocabulary,
 }: Props) {
   const isHuman = message.authorType === 'human';
   const meta = parseMeta(message.meta);
@@ -149,9 +152,14 @@ export function ChannelMessageItem({
       </div>
 
       {/* Content or Card */}
-      {card || (
+      {/* #285: 仅 agent 无卡片正文走 inline-code 文件 chip 分段渲染；人类消息维持纯文本 */}
+      {card || (isHuman ? (
         <div className="mc-msg-body">{message.content}</div>
-      )}
+      ) : (
+        <div className="mc-msg-body">
+          <AgentMessageBody content={message.content} fileVocabulary={fileVocabulary} />
+        </div>
+      ))}
 
       {/* F5: NEED_INPUT 卡片内嵌回复框；#267：有 meta.options 时渲染结构化选项卡 */}
       {waitingForInput && onInlineReply && (
