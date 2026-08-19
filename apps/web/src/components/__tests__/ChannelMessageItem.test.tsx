@@ -84,6 +84,45 @@ describe('ChannelMessageItem — §5.7 WU/PMO 直跳', () => {
   });
 });
 
+describe('ChannelMessageItem — #264 object meta 双型兼容（线上 REST/SSE 出口为 object）', () => {
+  it('meta 为 object 时人审卡正常渲染为卡片（非纯文本）', () => {
+    const msg: ChannelMessage = {
+      ...baseMessage,
+      content: '知识提案 — 待人工审核',
+      meta: {
+        cardType: 'knowledge_proposal',
+        status: 'ready',
+        cardData: { entries: [{ id: 'k-1', title: 'session 过期未刷新导致 401', type: 'pitfall' }] },
+      },
+    };
+    render(<ChannelMessageItem message={msg} onAction={vi.fn()} />);
+    // 卡片渲染出审批按钮；纯文本回退时只显示 content，无按钮
+    expect(screen.getByText('通过')).toBeTruthy();
+    expect(screen.getByText('拒绝')).toBeTruthy();
+  });
+
+  it('meta 为 string 时行为不变（存量形态回归）', () => {
+    const msg: ChannelMessage = {
+      ...baseMessage,
+      content: '知识提案 — 待人工审核',
+      meta: JSON.stringify({
+        cardType: 'knowledge_proposal',
+        status: 'ready',
+        cardData: { entries: [{ id: 'k-1', title: 'session 过期未刷新导致 401', type: 'pitfall' }] },
+      }),
+    };
+    render(<ChannelMessageItem message={msg} onAction={vi.fn()} />);
+    expect(screen.getByText('通过')).toBeTruthy();
+  });
+
+  it('meta 为 object 且含 pmoId 时渲染 PMO chip，点击跳 /pmo/project/:id', () => {
+    const msg: ChannelMessage = { ...baseMessage, meta: { pmoId: 'proj-9' } };
+    render(<ChannelMessageItem message={msg} onAction={vi.fn()} />);
+    fireEvent.click(screen.getByTitle('打开项目详情'));
+    expect(mockNavigate).toHaveBeenCalledWith('/pmo/project/proj-9');
+  });
+});
+
 describe('ChannelMessageItem — #241 footer WU 链接截短显示', () => {
   it('长 UUID 截短为前 8 位 + …，title 保留全量 id', () => {
     const uuid = '160eeee8-aaaa-bbbb-cccc-dddddddddddd';

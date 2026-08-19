@@ -200,6 +200,54 @@ describe('ChannelDetailPage — Mission Control 三栏', () => {
     expect(screen.getByText('完成的工作 3')).toBeTruthy();
   });
 
+  // #264：线上 meta 为 object——已完成折叠与里程碑判定必须同样生效
+  it('object meta：已完成消息仍正确折叠（默认留最近 2 条）', async () => {
+    currentMessages = MESSAGES.map(m => ({ ...m, meta: JSON.parse(m.meta as string) as Record<string, unknown> }));
+    renderPage();
+    await waitFor(() => expect(screen.getByText('完成的工作 5')).toBeTruthy());
+    expect(screen.queryByText('完成的工作 3')).toBeNull();
+    fireEvent.click(screen.getByText('显示 1 条已完成消息'));
+    expect(screen.getByText('完成的工作 3')).toBeTruthy();
+  });
+
+  it('object meta：卡片回复识别为里程碑，不被折叠进过程消息组', async () => {
+    currentMessages = [
+      {
+        id: 'c-1', channelId: 'ch-1', authorType: 'agent' as const, agentName: 'pm',
+        content: '需求已收到，开始分析', workUnitId: 'WU-2000', replyToId: null,
+        meta: '{}', createdAt: iso(0),
+      },
+      ...[2, 3, 4].map(i => ({
+        id: `c-${i}`, channelId: 'ch-1', authorType: 'agent' as const, agentName: 'pm',
+        content: `过程步骤 ${i}`, workUnitId: 'WU-2000', replyToId: 'c-1',
+        meta: '{}', createdAt: iso(i),
+      })),
+      {
+        id: 'c-5', channelId: 'ch-1', authorType: 'agent' as const, agentName: 'librarian',
+        content: '知识提案 — 待人工审核', workUnitId: 'WU-2000', replyToId: 'c-1',
+        meta: {
+          cardType: 'knowledge_proposal',
+          status: 'ready',
+          cardData: { entries: [{ id: 'k-1', title: 't', type: 'pitfall' }] },
+        } as Record<string, unknown>,
+        createdAt: iso(5),
+      },
+      {
+        id: 'c-6', channelId: 'ch-1', authorType: 'agent' as const, agentName: 'pm',
+        content: '分析结论：拆成 3 个任务', workUnitId: 'WU-2000', replyToId: 'c-1',
+        meta: '{}', createdAt: iso(6),
+      },
+    ];
+    renderPage();
+    await waitFor(() => expect(screen.getByText('需求已收到，开始分析')).toBeTruthy());
+    fireEvent.click(screen.getByText('▸ 5 条回复'));
+
+    // 3 条连续过程消息收成一组；卡片回复（非末位）是里程碑，直接可见
+    expect(screen.getByText('▸ 3 条过程消息')).toBeTruthy();
+    expect(screen.getByText('通过')).toBeTruthy();
+    expect(screen.getByText('分析结论：拆成 3 个任务')).toBeTruthy();
+  });
+
   it('NEED_INPUT: waiting badge + inline reply sends through the same replyTo link', async () => {
     renderPage();
     await waitFor(() => expect(screen.getByText('等待回复')).toBeTruthy());

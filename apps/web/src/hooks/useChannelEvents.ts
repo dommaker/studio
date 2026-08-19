@@ -52,7 +52,7 @@ export function useChannelMessages(channelId: string | undefined) {
           });
         }
       } else if (msg.event_type === 'channel.message_updated') {
-        const data = msg.data as { channelId?: string; messageId?: string; meta?: string; content?: string };
+        const data = msg.data as { channelId?: string; messageId?: string; meta?: string | Record<string, unknown>; content?: string };
         if (data?.channelId === channelId && data?.messageId) {
           setMessages(prev => prev.map(m =>
             m.id === data.messageId

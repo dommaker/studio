@@ -218,23 +218,9 @@ export function ChannelMessageItem({
   );
 }
 
-/** 卡片 meta：消息 meta JSON 解析产物；cardData 形状随 cardType 而异，卡片内按需断言 */
-export interface CardMeta {
-  cardType?: string;
-  status?: string;
-  cardData?: Record<string, unknown>;
-  projectPath?: string;
-  requirementsDocId?: string;
-  requirementId?: string;
-  reqId?: string;
-  pmoId?: string;
-  error?: string;
-  [key: string]: unknown;
-}
-
-function parseMeta(meta?: string): CardMeta {
-  try { return JSON.parse(meta || '{}'); } catch { return {}; }
-}
+/** 卡片 meta 类型与解析已迁至 utils/messageMeta（#264）；此处 re-export 保持既有 import 路径不变 */
+export type { CardMeta } from '../../utils/messageMeta';
+import { parseMeta, type CardMeta } from '../../utils/messageMeta';
 
 function formatTime(iso: string): string {
   try {

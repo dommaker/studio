@@ -98,6 +98,34 @@ describe('GET /channels/:id/messages 分页 limit（C2）', () => {
     expect(body.hasMore).toBe(false);
   });
 
+  // #264：meta 形态契约——REST 出口必须是 object（前端 NotificationBell/频道页按 object 定型消费），
+  // 防有人把 shapeMessageData 改回 string 造成二次错配（人审卡全灭事故的回归点）
+  it('契约：data 内 meta 为 object（非 string），卡片 meta 完整解析', async () => {
+    const cardMeta = { cardType: 'knowledge_proposal', status: 'ready', cardData: { entries: [{ id: 'k-1' }] } };
+    await fileStore.appendMessage(CH, {
+      id: 'msg-card',
+      channelId: CH,
+      workUnitId: null,
+      authorType: 'agent',
+      agentName: 'librarian',
+      content: '知识提案 — 待人工审核',
+      replyToId: null,
+      meta: JSON.stringify(cardMeta),
+      createdAt: new Date().toISOString(),
+    });
+
+    const res = await fetch(`${baseUrl}/${CH}/messages?limit=50`);
+    const body: MessagesPageResponse = await res.json();
+
+    for (const m of body.data) {
+      expect(typeof m.meta).toBe('object');
+      expect(m.meta).not.toBeNull();
+      expect(Array.isArray(m.meta)).toBe(false);
+    }
+    const card = body.data.find(m => m.id === 'msg-card');
+    expect(card?.meta).toEqual(cardMeta);
+  });
+
   it('before + limit 组合：窗口内仍只取最新 take 条', async () => {
     const before = new Date(Date.now() - 5.5 * 1000).toISOString(); // 只含 msg-00..msg-04
     const res = await fetch(`${baseUrl}/${CH}/messages?limit=2&before=${encodeURIComponent(before)}`);

@@ -9,7 +9,8 @@ export interface ChannelMessage {
   content: string;
   replyToId?: string | null;
   workUnitId?: string | null;
-  meta?: string;
+  /** #264：REST/SSE 出口为 object（shapeMessageData 已解析）；string 为存量/测试形态，消费侧双型兼容 */
+  meta?: string | Record<string, unknown>;
   createdAt: string;
 }
 

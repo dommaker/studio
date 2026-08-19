@@ -6,6 +6,7 @@ import { useChannelMessages } from '../hooks/useChannelEvents';
 import { useChannelLiveExecutions } from '../hooks/useChannelLiveExecutions';
 import { shortWuId } from '../utils/id';
 import { ChannelMessageItem } from '../components/channel/ChannelMessageItem';
+import { parseMeta } from '../utils/messageMeta';
 import { ChannelInput } from '../components/channel/ChannelInput';
 import { ChannelWorkspaceSetting } from '../components/ChannelWorkspaceSetting';
 import { ChannelMemberManager } from '../components/channel/ChannelMemberManager';
@@ -200,12 +201,11 @@ export function ChannelDetailPage() {
   // 返回是否成功（卡片据此显示已审核状态）。
   const handleAction = useCallback(async (messageId: string, action: string): Promise<boolean> => {
     if (action === 'converted') { refresh(); return true; }
-    // 卡片 meta 解析（三种提案卡共用；解析失败 → null，各分支按缺数据返回 false）
+    // 卡片 meta 解析（三种提案卡共用；缺 cardData → null，各分支按缺数据返回 false）
+    // #264：meta 双型兼容——线上为 object，存量/夹具为 string
     const cardDataOf = (): Record<string, any> | null => {
       const msg = messages.find(m => m.id === messageId);
-      try {
-        return JSON.parse(typeof msg?.meta === 'string' ? msg.meta : '{}')?.cardData ?? null;
-      } catch { return null; }
+      return parseMeta(msg?.meta).cardData ?? null;
     };
     if (action === 'knowledge_proposal_approve' || action === 'knowledge_proposal_reject') {
       const cardData = cardDataOf();
@@ -350,12 +350,7 @@ export function ChannelDetailPage() {
   // 里程碑判定（不折叠）：人类消息 / 卡片消息 / 等待回复 / 最后一条回复
   const isMilestoneReply = useCallback((m: ChannelMessage, isLast: boolean) => {
     if (isLast || m.authorType === 'human' || isWaitingForInput(m)) return true;
-    try {
-      const meta = JSON.parse(typeof m.meta === 'string' ? m.meta : '{}');
-      return !!meta.cardType;
-    } catch {
-      return false;
-    }
+    return !!parseMeta(m.meta).cardType;
   }, [isWaitingForInput]);
 
   const openWu = useCallback((wuId: string) => setDrawer({ kind: 'wu', id: wuId }), []);
@@ -463,10 +458,8 @@ export function ChannelDetailPage() {
             {/* B2-002: Date separators + B2-006: collapse completed + AC-C3: threads */}
             {(() => {
               const completed = messages.filter(m => {
-                try {
-                  const meta = JSON.parse(typeof m.meta === 'string' ? m.meta : '{}');
-                  return ['done', 'confirmed', 'rejected', 'deprecated', 'error'].includes(meta.status);
-                } catch { return false; }
+                const status = parseMeta(m.meta).status;
+                return typeof status === 'string' && ['done', 'confirmed', 'rejected', 'deprecated', 'error'].includes(status);
               });
               const active = messages.filter(m => !completed.includes(m));
               const visibleMessages = (showCompleted ? messages : [...active, ...completed.slice(-2)])
