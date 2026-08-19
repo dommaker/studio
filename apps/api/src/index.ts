@@ -128,6 +128,17 @@ async function start() {
       setInterval(runRotation, 24 * 60 * 60 * 1000);
     }).catch(err => logger.warn('[StudioEvents] Rotation import failed', { error: String(err) }));
 
+    // #213：其余 jsonl 日志保留轮转（incidents 信号热 30 天→月 gzip、audit 审计热 90 天→月
+    // gzip、notifications 噪声 7 天滚删）+ 遗留 tasks-*.jsonl / 残留 incidents 一次性归档后
+    // 删除。与 #173 同一节奏：启动后跑一次 + 每 24h。
+    import('./utils/studio-log-rotation.js').then(({ rotateStudioLogFiles, archiveLegacyStudioLogs }) => {
+      const runLogRotation = () => rotateStudioLogFiles()
+        .then(() => archiveLegacyStudioLogs())
+        .catch(err => logger.warn('[StudioLogRotation] Rotation failed', { error: String(err) }));
+      setTimeout(runLogRotation, 20_000);
+      setInterval(runLogRotation, 24 * 60 * 60 * 1000);
+    }).catch(err => logger.warn('[StudioLogRotation] Rotation import failed', { error: String(err) }));
+
     // G-002: 冷启动业务规则扫描（异步，不阻塞启动）
     import('./modules/knowledge/rule-scanner.js').then(({ ruleScanner }) => {
       ruleScanner.fullScan().catch(err => logger.warn('[RuleScanner] Cold start scan failed', { error: String(err) }));
