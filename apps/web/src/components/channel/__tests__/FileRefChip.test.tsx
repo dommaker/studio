@@ -1,6 +1,7 @@
 // #285（决策 #249 §5）：agent 消息 inline-code 文件 chip —— 复制绝对路径 / .studio/ 跳阅览室
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 
 const { mockNavigate, mockCompanyList, mockProjectList, mockWriteText } = vi.hoisted(() => ({
   mockNavigate: vi.fn(),
@@ -9,9 +10,10 @@ const { mockNavigate, mockCompanyList, mockProjectList, mockWriteText } = vi.hoi
   mockWriteText: vi.fn(),
 }));
 
-vi.mock('react-router-dom', () => ({
-  useNavigate: () => mockNavigate,
-}));
+vi.mock('react-router-dom', async () => {
+  const actual = await vi.importActual('react-router-dom');
+  return { ...actual, useNavigate: () => mockNavigate };
+});
 
 vi.mock('../../../api/company', () => ({
   companyApi: { list: mockCompanyList },
@@ -22,7 +24,7 @@ vi.mock('../../../api', () => ({
 }));
 
 import type { ChannelFileVocabulary, ChannelMessage } from '../../../api/channel';
-import { FileRefChip, AgentMessageBody } from '../FileRefChip';
+import { FileRefChip } from '../FileRefChip';
 import { ChannelMessageItem } from '../ChannelMessageItem';
 
 const vocab: ChannelFileVocabulary = {
@@ -93,49 +95,39 @@ describe('FileRefChip（#285）', () => {
   });
 });
 
-describe('AgentMessageBody（#285 分段渲染）', () => {
-  it('唯一命中 token 渲染 chip；未命中 code 段保持纯文本（含反引号）', () => {
-    render(<AgentMessageBody content="改了 `src/index.ts` 和 `no/match.ts`" fileVocabulary={vocab} />);
-    expect(screen.getByRole('button', { name: 'src/index.ts' })).toBeTruthy();
-    // 未命中的 code token 原样保留反引号
-    expect(screen.getByText('`no/match.ts`')).toBeTruthy();
-  });
-
-  it('歧义 token（basename 不唯一）保持纯文本：无 chip、无按钮', () => {
-    const { container } = render(<AgentMessageBody content="动了 `util.ts`" fileVocabulary={vocab} />);
-    expect(container.querySelector('button')).toBeNull();
-    expect(screen.getByText('`util.ts`')).toBeTruthy();
-  });
-
-  it('无词表 → 正文原样纯文本（含反引号原样）', () => {
-    const { container } = render(<AgentMessageBody content="看 `src/index.ts`" />);
-    expect(container.querySelector('button')).toBeNull();
-    expect(container.textContent).toBe('看 `src/index.ts`');
-  });
-});
-
-describe('ChannelMessageItem 集成（#285）', () => {
+describe('ChannelMessageItem 集成（#285；#271 起正文走 Markdown 渲染）', () => {
   const base: ChannelMessage = {
     id: 'm1', channelId: 'ch1', authorType: 'agent', agentName: 'dev-agent',
     content: '完成 `src/index.ts` 的修改', createdAt: '2026-08-19T00:00:00.000Z',
   };
 
   it('agent 消息 + 词表 → 正文命中 token 染 chip', () => {
-    render(<ChannelMessageItem message={base} onAction={vi.fn()} fileVocabulary={vocab} />);
+    render(
+      <MemoryRouter>
+        <ChannelMessageItem message={base} onAction={vi.fn()} fileVocabulary={vocab} />
+      </MemoryRouter>,
+    );
     expect(screen.getByRole('button', { name: 'src/index.ts' })).toBeTruthy();
   });
 
   it('人类消息 + 词表 → 正文不动，无 chip', () => {
     const { container } = render(
-      <ChannelMessageItem message={{ ...base, authorType: 'human' }} onAction={vi.fn()} fileVocabulary={vocab} />,
+      <MemoryRouter>
+        <ChannelMessageItem message={{ ...base, authorType: 'human' }} onAction={vi.fn()} fileVocabulary={vocab} />
+      </MemoryRouter>,
     );
     expect(container.querySelector('.mc-file-chip')).toBeNull();
     expect(screen.getByText('完成 `src/index.ts` 的修改')).toBeTruthy();
   });
 
-  it('agent 消息不传词表 → 维持纯文本现状', () => {
-    const { container } = render(<ChannelMessageItem message={base} onAction={vi.fn()} />);
+  it('agent 消息不传词表 → inline-code 走默认 chip 样式，无文件 chip', () => {
+    const { container } = render(
+      <MemoryRouter>
+        <ChannelMessageItem message={base} onAction={vi.fn()} />
+      </MemoryRouter>,
+    );
     expect(container.querySelector('.mc-file-chip')).toBeNull();
-    expect(screen.getByText('完成 `src/index.ts` 的修改')).toBeTruthy();
+    const code = container.querySelector('.mc-msg-body code');
+    expect(code?.textContent).toBe('src/index.ts');
   });
 });

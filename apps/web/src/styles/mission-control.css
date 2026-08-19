@@ -287,6 +287,8 @@
 .mc-avatar-human { background: var(--accent-primary); color: var(--bg-primary); }
 .mc-time { color: var(--text-muted); font-size: var(--fs-xs); }
 .mc-msg-body { color: var(--text-primary); white-space: pre-wrap; word-break: break-word; }
+/* #271: agent 消息内的 Markdown 容器覆盖 pre-wrap，软换行按 Markdown 语义折叠为空格 */
+.mc-md { white-space: normal; }
 /* #239: 动作图标可读性——常显弱化态（不再 hover 才出现），hover/focus-within 强化；
    字号/对比度上调（fs-xs→fs-sm、text-muted→text-secondary），点击区域加大 */
 .mc-msg-actions { display: inline-flex; gap: 6px; margin-left: 8px; opacity: 0.55; }

@@ -1,10 +1,12 @@
 // Channel message renderer — AC-C2: reply button + AC-C3: thread + AC-E3: Convert to Task
 // 2026-07 视觉重构（方向 A Mission Control）：纯文本行 + 卡片族视觉重绘；交互语义零变更
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { ChannelFileVocabulary, ChannelMessage } from '../../api/channel';
 import { AuthorAvatar } from './AuthorAvatar';
-import { AgentMessageBody } from './FileRefChip';
+import { FileRefChip } from './FileRefChip';
+import { MarkdownBody } from '../knowledge/MarkdownBody';
+import { matchFileRefToken } from '../../utils/fileChipMatch';
 import { RequirementsDocCard } from './RequirementsDocCard';
 import { KnowledgeConfirmCard } from './KnowledgeConfirmCard';
 import { KnowledgeProposalCard } from './KnowledgeProposalCard';
@@ -38,7 +40,7 @@ interface Props {
   onOpenRequirement?: (reqId: string) => void;
   /** F5: NEED_INPUT 卡片内嵌回复（与回复按钮同链路：sendMessage + replyToId） */
   onInlineReply?: (message: ChannelMessage, content: string) => void;
-  /** #285: agent 消息 inline-code 文件 chip 词表；不传则 agent 正文维持纯文本现状 */
+  /** #285: agent 消息 inline-code 文件 chip 词表；经 MarkdownBody renderInlineCode 挂载（#271） */
   fileVocabulary?: ChannelFileVocabulary;
 }
 
@@ -108,6 +110,17 @@ export function ChannelMessageItem({
     ? meta.options.filter((o): o is MetaOption => !!o && typeof o.label === 'string')
     : undefined;
 
+  // #271（决策 #248 D4）：agent 无卡片正文走 Markdown 渲染（wiki-link 关闭 + 代码块复制按钮）；
+  // #285 文件 chip 经 renderInlineCode 挂载到 inline-code，命中词表唯一项才染 chip
+  const renderInlineCode = useCallback(
+    (text: string) => {
+      if (!fileVocabulary) return null;
+      const ref = matchFileRefToken(text, fileVocabulary);
+      return ref ? <FileRefChip token={text.trim()} fileRef={ref} /> : null;
+    },
+    [fileVocabulary],
+  );
+
   return (
     <div className={`mc-msg ${isThreadReply ? 'mc-msg-reply' : ''}`} data-message-id={message.id}>
       {/* Quote block (reply reference) */}
@@ -152,12 +165,18 @@ export function ChannelMessageItem({
       </div>
 
       {/* Content or Card */}
-      {/* #285: 仅 agent 无卡片正文走 inline-code 文件 chip 分段渲染；人类消息维持纯文本 */}
+      {/* #271: agent 正文 Markdown 渲染（wikiLinks 关、codeCopy 开）；人类消息维持纯文本 pre-wrap */}
       {card || (isHuman ? (
         <div className="mc-msg-body">{message.content}</div>
       ) : (
         <div className="mc-msg-body">
-          <AgentMessageBody content={message.content} fileVocabulary={fileVocabulary} />
+          <MarkdownBody
+            content={message.content}
+            className="mc-md"
+            wikiLinks={false}
+            codeCopy
+            renderInlineCode={renderInlineCode}
+          />
         </div>
       ))}
 

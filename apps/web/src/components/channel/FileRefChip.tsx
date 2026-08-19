@@ -1,12 +1,14 @@
 // #285（决策 #249 §5）：agent 消息正文 inline-code 路径 token 染「文件 chip」。
 // 点击 = 复制绝对路径 + 短暂「已复制」反馈；例外：.studio/ 前缀 → 解析 PMO 项目跳阅览室，
 // 解析不到（无公司/无项目/接口失败）降级回复制，不报错不空跳。
+// #271 起经 MarkdownBody 的 renderInlineCode 挂载点接入（见 ChannelMessageItem）。
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import type { ChannelFileVocabulary, FileRef } from '../../api/channel';
+import type { FileRef } from '../../api/channel';
 import { companyApi } from '../../api/company';
 import { projectApi } from '../../api';
-import { fileRefFullPath, matchFileRefToken, splitInlineCode } from '../../utils/fileChipMatch';
+import { fileRefFullPath } from '../../utils/fileChipMatch';
+import { copyText } from '../../utils/clipboard';
 
 const LIBRARY_PREFIX = '.studio/';
 const COPIED_FEEDBACK_MS = 1500;
@@ -38,29 +40,6 @@ async function resolveLibraryUrl(ref: FileRef): Promise<string | null> {
     return `/library/${encodeURIComponent(`${project.id}:${relPath}`)}`;
   } catch {
     return null;
-  }
-}
-
-async function copyText(text: string): Promise<void> {
-  try {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(text);
-      return;
-    }
-  } catch {
-    // 走 execCommand 降级
-  }
-  try {
-    const ta = document.createElement('textarea');
-    ta.value = text;
-    ta.style.position = 'fixed';
-    ta.style.opacity = '0';
-    document.body.appendChild(ta);
-    ta.select();
-    document.execCommand('copy');
-    document.body.removeChild(ta);
-  } catch {
-    // 剪贴板不可用时静默（chip 仍展示 tooltip 供手动复制）
   }
 }
 
@@ -99,28 +78,5 @@ export function FileRefChip({ token, fileRef }: { token: string; fileRef: FileRe
     <button type="button" className="mc-file-chip" title={fullPath} onClick={handleClick}>
       {copied ? '已复制' : token}
     </button>
-  );
-}
-
-/**
- * agent 消息正文分段渲染：inline-code token 与词表恰好唯一命中 → chip；
- * 未命中/歧义/无词表 → 维持纯文本现状（反引号原样保留）。
- */
-export function AgentMessageBody({ content, fileVocabulary }: {
-  content: string;
-  fileVocabulary?: ChannelFileVocabulary;
-}) {
-  if (!fileVocabulary) return <>{content}</>;
-  const segments = splitInlineCode(content);
-  if (!segments.some(s => s.type === 'code')) return <>{content}</>;
-  return (
-    <>
-      {segments.map((seg, i) => {
-        if (seg.type === 'text') return <span key={i}>{seg.text}</span>;
-        const ref = matchFileRefToken(seg.text, fileVocabulary);
-        if (!ref) return <span key={i}>{'`' + seg.text + '`'}</span>;
-        return <FileRefChip key={i} token={seg.text.trim()} fileRef={ref} />;
-      })}
-    </>
   );
 }
