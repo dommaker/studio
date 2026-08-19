@@ -6,7 +6,8 @@
  *
  * 优先级：显式 workspaceId > Requirement.projectId → PMO 项目 gitRepo
  * > 文件引用（#285 决策 #249 §4：全部引用同仓时该仓即归属工程）
- * > 频道 defaultWorkspaceId > 无归属（none → 调用方转 NEED_INPUT 问人）。
+ * > 频道 defaultPath（#272 决策 #251 Q2'：默认工程=本地 repo）
+ * > 频道 defaultWorkspaceId（默认执行机器）> 无归属（none → 调用方转 NEED_INPUT 问人）。
  *
  * 各步独立容错：需求/项目/频道读取失败仅记日志并落到下一优先级，
  * 归属解析绝不阻断 WorkUnit 创建。
@@ -23,7 +24,7 @@ import type { RequirementWithProject } from './requirement.service.js';
 export const OWNERSHIP_WAITING_QUESTION = '这个任务要修改哪个工程？请回复工程名或路径';
 
 /** 归属来源 — 写入 WU metadata.ownershipSource，供日志与审计区分 */
-export type OwnershipSource = 'explicit' | 'requirement' | 'file-refs' | 'channel-default' | 'none';
+export type OwnershipSource = 'explicit' | 'requirement' | 'file-refs' | 'channel-default-path' | 'channel-default' | 'none';
 
 export interface OwnershipResolution {
   source: OwnershipSource;
@@ -40,7 +41,7 @@ export interface ResolveWorkspaceInput {
   explicitWorkspaceId?: string | null;
   /** 本次派发绑定的 REQ id（经其 projectId 查 PMO 项目 gitRepo） */
   reqId?: string | null;
-  /** 来源频道（defaultWorkspaceId 默认提示） */
+  /** 来源频道（defaultPath 默认工程 / defaultWorkspaceId 默认执行机器，降级提示） */
   channelId?: string | null;
   /** #285（决策 #249 §4）：@文件引用（路由层校验后的 kept refs；全部引用同仓时该仓即归属工程） */
   fileRefs?: { repo: string; path: string }[];
@@ -98,7 +99,22 @@ export async function resolveWorkspaceForWU(input: ResolveWorkspaceInput): Promi
     }
   }
 
-  // 4. 频道 defaultWorkspaceId（降级为默认提示）
+  // 4. 频道 defaultPath（#272 决策 #251 Q2'：默认工程 = 本地 repo，直接作执行根）
+  if (input.channelId) {
+    try {
+      const channel = await fileStore.getChannel(input.channelId);
+      if (channel?.defaultPath) {
+        return { source: 'channel-default-path', workspaceId: null, workspaceRoot: channel.defaultPath, projectId: null };
+      }
+    } catch (err) {
+      logger.warn('[Ownership] Channel default path resolution failed, falling through', {
+        channelId: input.channelId,
+        error: String(err),
+      });
+    }
+  }
+
+  // 5. 频道 defaultWorkspaceId（默认执行机器，降级为默认提示）
   if (input.channelId) {
     try {
       const channel = await fileStore.getChannel(input.channelId);
@@ -113,6 +129,6 @@ export async function resolveWorkspaceForWU(input: ResolveWorkspaceInput): Promi
     }
   }
 
-  // 5. 无归属 → 调用方转 NEED_INPUT 问人
+  // 6. 无归属 → 调用方转 NEED_INPUT 问人
   return NONE;
 }

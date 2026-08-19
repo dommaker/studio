@@ -8,8 +8,9 @@ import { shortWuId } from '../utils/id';
 import { ChannelMessageItem } from '../components/channel/ChannelMessageItem';
 import { parseMeta } from '../utils/messageMeta';
 import { ChannelInput } from '../components/channel/ChannelInput';
-import { ChannelWorkspaceSetting } from '../components/ChannelWorkspaceSetting';
 import { ChannelMemberManager } from '../components/channel/ChannelMemberManager';
+import { ChannelDefaultProjectSelect } from '../components/channel/ChannelDefaultProjectSelect';
+import { ChannelCurrentPmoChip } from '../components/channel/ChannelCurrentPmoChip';
 import { ChannelRail } from '../components/channel/ChannelRail';
 import { WorkUnitDrawer, type DrawerState } from '../components/channel/WorkUnitDrawer';
 import { workunitApi } from '../api/workunit';
@@ -427,10 +428,14 @@ export function ChannelDetailPage() {
             {channel?.type === 'rnd' ? '研发频道' : channel?.type === 'decision' ? '决策频道' : '系统频道'}
           </span>
           <div className="mc-topbar-actions">
+            {/* #272（决策 #251 Q6）：当前 PMO chip（派生不落库，点击跳项目页） */}
+            <ChannelCurrentPmoChip channelId={id} />
             <ChannelMemberManager channelId={id} membersJson={channel?.members} />
-            <ChannelWorkspaceSetting
+            {/* #272（决策 #251 Q2'）：默认工程 = 本地 repo 下拉（落 defaultPath）；
+                默认执行机器（远程 Workspace）挪设置区由 #286 承接 */}
+            <ChannelDefaultProjectSelect
               channelId={id}
-              defaultWorkspaceId={channel?.defaultWorkspaceId}
+              defaultPath={channel?.defaultPath}
             />
           </div>
         </div>

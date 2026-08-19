@@ -18,6 +18,8 @@ export interface CreateChannelInput {
   type: string;
   /** 初始 Agent 名（逗号/换行拆分后的数组） */
   agents: string[];
+  /** #272：可选默认工程（本地 repo 路径，创建即绑定，可留空） */
+  defaultPath?: string;
 }
 
 export function useChannelList() {
@@ -61,6 +63,7 @@ export function useChannelList() {
       name: input.name,
       type: input.type,
       ...(agents.length > 0 ? { agents } : {}),
+      ...(input.defaultPath ? { defaultPath: input.defaultPath } : {}),
     });
     const ch = res.data.data as ChannelListItem;
     setChannels(prev => [...prev, ch]);

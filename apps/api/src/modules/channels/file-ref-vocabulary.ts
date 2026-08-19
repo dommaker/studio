@@ -2,7 +2,7 @@
  * #281（决策 #249 §1 / #257 D7）：@文件引用词表服务。
  *
  * 候选集 = 「频道相关工程」（UX 划界，非安全边界；安全边界在 agent CLI 权限层）：
- *   频道默认工程（defaultWorkspaceId → workspaceRoot）
+ *   频道默认工程（#272：defaultPath=本地 repo 优先；legacy defaultWorkspaceId → workspaceRoot 保留）
  *   ∪ 本频道 REQ 挂接 PMO 的全部工程（Requirement.channelId → projectId → PMO
  *     的 gitRepo + deliveries[].gitRepo，多腿全收）
  *   ∪ 杂务 PMO 工程（isChore + channelId）
@@ -36,7 +36,7 @@ export interface FileRefDrop extends FileRef {
 }
 
 /** PMO 工程的最小形状（getProject / findChoreProject 返回值收窄） */
-interface ProjectLike {
+export interface ProjectLike {
   gitRepo?: string | null;
   deliveries?: Array<{ gitRepo?: string | null }>;
 }
@@ -61,8 +61,8 @@ function normalizeRepoPath(p: string): string {
   return p.replace(/[/\\]+$/, '');
 }
 
-/** 工程记录 → 仓路径清单（gitRepo + deliveries[].gitRepo，去重保序） */
-function reposOfProject(project: ProjectLike | null): string[] {
+/** 工程记录 → 仓路径清单（gitRepo + deliveries[].gitRepo，去重保序；#272 当前 PMO chip 复用） */
+export function reposOfProject(project: ProjectLike | null): string[] {
   if (!project) return [];
   const out: string[] = [];
   const seen = new Set<string>();
@@ -133,10 +133,11 @@ export async function computeCandidateRepos(
   const findChoreProject = deps.findChoreProject ?? (async (id: string) => projectService.findChoreProject(id));
   const resolveRoot = deps.resolveWorkspaceRoot ?? defaultResolveWorkspaceRoot;
 
-  // 基础序：默认工程 → REQ 挂接 PMO（含多腿）→ 杂务 PMO
+  // 基础序：默认工程（#272：defaultPath=本地 repo 优先，defaultWorkspaceId 执行机器根保留）→ REQ 挂接 PMO（含多腿）→ 杂务 PMO
   const base: string[] = [];
   try {
     const channel = await fileStore.getChannel(channelId);
+    if (channel?.defaultPath) base.push(channel.defaultPath);
     if (channel?.defaultWorkspaceId) {
       const root = await resolveRoot(channel.defaultWorkspaceId);
       if (root) base.push(root);

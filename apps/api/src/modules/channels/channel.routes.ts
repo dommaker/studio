@@ -12,6 +12,7 @@ import { WorkUnitService } from '../workunit/workunit.service.js';
 import { ProjectDiscoveryService } from '../projects/project-discovery.service.js';
 import { getWorkspaceRecord } from '../workspaces/workspace-store.js';
 import { getChannelFileVocabulary } from './file-ref-vocabulary.js';
+import { deriveChannelCurrentPmo } from './current-pmo.js';
 
 const router = Router();
 const fileStore = new FileStore();
@@ -28,13 +29,18 @@ router.get('/', apiCache(CACHE_CONFIG.medium), async (_req, res) => {
 // POST /api/v1/channels — create a new channel (B2-007)
 // Also supports creating initial agents: { agents: [{ name, description? }] }
 router.post('/', requireAuth(), requireNotGuest(), async (req, res) => {
-  const { name, type = 'rnd', members, agents, defaultPipeline } = req.body;
+  const { name, type = 'rnd', members, agents, defaultPipeline, defaultPath } = req.body;
   if (!name || typeof name !== 'string' || !name.trim()) {
     return res.status(400).json({ success: false, error: 'name is required' });
   }
   if (!['rnd', 'decision', 'system'].includes(type)) {
     return res.status(400).json({ success: false, error: 'type must be rnd, decision, or system' });
   }
+  // #272（决策 #251 Q7）：创建表单可选「默认工程」（本地 repo 路径，可留空）
+  if (defaultPath !== undefined && defaultPath !== null && typeof defaultPath !== 'string') {
+    return res.status(400).json({ success: false, error: 'defaultPath must be a string' });
+  }
+  const defaultPathValue = typeof defaultPath === 'string' && defaultPath.trim() ? defaultPath.trim() : null;
   // AC-6.2: validate defaultPipeline items are active AgentProfile names
   let pipelineValue: string[] | undefined;
   if (defaultPipeline !== undefined) {
@@ -58,7 +64,7 @@ router.post('/', requireAuth(), requireNotGuest(), async (req, res) => {
       name: channelName,
       type,
       defaultWorkspaceId: null,
-      defaultPath: null,
+      defaultPath: defaultPathValue,
       discordChannelId: null,
       discordWebhookUrl: null,
       members: '[]',
@@ -111,6 +117,15 @@ router.get('/:id', async (req, res) => {
   if (!channel) return res.status(404).json({ success: false, error: 'Channel not found' });
   const messageCount = await fileStore.countMessages(req.params.id);
   res.json({ success: true, data: { ...channel, _count: { ChannelMessage: messageCount } } });
+});
+
+// GET /api/v1/channels/:id/current-pmo — #272（决策 #251 Q6）：顶栏「当前 PMO」chip
+// 派生概念不落库：最近挂接 REQ 所属 PMO → 杂务 PMO 反推 → null（见 current-pmo.ts）。
+router.get('/:id/current-pmo', async (req, res) => {
+  const channel = await fileStore.getChannel(req.params.id);
+  if (!channel) return res.status(404).json({ success: false, error: 'Channel not found' });
+  const pmo = await deriveChannelCurrentPmo(req.params.id);
+  res.json({ success: true, data: pmo });
 });
 
 // GET /api/v1/channels/:id/messages — paginated messages

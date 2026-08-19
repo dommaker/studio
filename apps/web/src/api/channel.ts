@@ -59,6 +59,14 @@ export interface ChannelFileVocabulary {
   repos: { repo: string; files: string[] }[];
 }
 
+/** #272（决策 #251 Q6）：顶栏「当前 PMO」chip 形状（派生不落库；gitRepos 多仓走 tooltip） */
+export interface ChannelCurrentPmo {
+  id: string;
+  pmoNumber: string;
+  title: string;
+  gitRepos: string[];
+}
+
 export const channelApi = {
   list: () =>
     api.get<{ success: boolean; data: Channel[] }>('/channels'),
@@ -66,7 +74,7 @@ export const channelApi = {
   get: (channelId: string) =>
     api.get<{ success: boolean; data: Channel }>(`/channels/${channelId}`),
 
-  create: (data: { name: string; type: string; agents?: Array<{ name: string }> }) =>
+  create: (data: { name: string; type: string; agents?: Array<{ name: string }>; defaultPath?: string | null }) =>
     api.post<{ success: boolean; data: Channel }>('/channels', data),
 
   update: (channelId: string, data: { defaultWorkspaceId?: string; defaultPath?: string; name?: string }) =>
@@ -87,6 +95,10 @@ export const channelApi = {
   /** #281: @文件引用只读词表（候选集 = 频道相关工程；文件候选走词表路径后缀补全） */
   getFileVocabulary: (channelId: string) =>
     api.get<{ success: boolean; data: ChannelFileVocabulary }>(`/channels/${channelId}/file-vocabulary`),
+
+  /** #272: 顶栏「当前 PMO」chip 派生（最近挂接 REQ 所属 PMO / 杂务 PMO；无 → data=null） */
+  getCurrentPmo: (channelId: string) =>
+    api.get<{ success: boolean; data: ChannelCurrentPmo | null }>(`/channels/${channelId}/current-pmo`),
 
   listAgents: (channelId?: string, options?: { includeSystem?: boolean }) =>
     api.get<{ data: AgentProfile[]; pagination: { total: number } }>('/agent-profiles', {

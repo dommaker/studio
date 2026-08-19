@@ -1,12 +1,13 @@
 // Channel List Page — B2: 首页 = 频道列表 + Agent 状态栏
 // 2026-07 视觉重构（方向 A Mission Control）：数据逻辑收敛到 useChannelList（与 ChannelRail 同源），
 // Agent 状态栏改接 monitoringApi 真实数据；路由与创建频道能力保留
+// #272（决策 #251 Q7）：创建表单与 ChannelRail 合并为单一实现 CreateChannelForm
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useChannelList, type ChannelListItem } from '../hooks/useChannelList';
 import { monitoringApi, type AgentSummary } from '../api/monitoring';
 import { agentDotClass } from '../components/channel/statusClasses';
-import { Select, ConfirmDialog, Button } from '../components/ui';
+import { CreateChannelForm } from '../components/channel/CreateChannelForm';
 
 const TYPE_LABELS: Record<string, string> = {
   rnd: '研发',
@@ -18,13 +19,6 @@ export function ChannelListPage() {
   const { channels, loading, unreadCounts, clearUnread, createChannel } = useChannelList();
   const [agentSummary, setAgentSummary] = useState<AgentSummary | null>(null);
   const [showNewForm, setShowNewForm] = useState(false);
-  const [newName, setNewName] = useState('');
-  const [newType, setNewType] = useState('rnd');
-  const [newAgents, setNewAgents] = useState(''); // comma-separated agent names
-  // 创建失败提示（ui/ConfirmDialog 单按钮 alert 模式，替代原生 alert）
-  const [createError, setCreateError] = useState<string | null>(null);
-  // 工单 38: 创建提交中状态——Button loading 态防连点重复提交
-  const [creating, setCreating] = useState(false);
   const navigate = useNavigate();
 
   // B2-010: 默认展开 #研发
@@ -45,24 +39,6 @@ export function ChannelListPage() {
     return () => { alive = false; };
   }, []);
 
-  // B2-007: Create new channel (with optional initial agents)
-  const handleCreate = async () => {
-    if (!newName.trim() || creating) return;
-    setCreating(true);
-    try {
-      const agents = newAgents.split(/[,\n]/).map(s => s.trim()).filter(Boolean);
-      const ch = await createChannel({ name: newName.trim(), type: newType, agents });
-      setShowNewForm(false);
-      setNewName('');
-      setNewAgents('');
-      navigate(`/channels/${ch.id}`);
-    } catch (err) {
-      setCreateError(err?.response?.data?.error || 'Failed to create channel');
-    } finally {
-      setCreating(false);
-    }
-  };
-
   return (
     <div className="flex h-full" style={{ background: 'var(--bg-primary)' }}>
       {/* Left: Channel list */}
@@ -74,40 +50,14 @@ export function ChannelListPage() {
           </button>
         </div>
 
-        {/* B2-007: New channel form */}
+        {/* B2-007 / #272: New channel form（单一实现，含可选默认工程） */}
         {showNewForm && (
-          <div className="card" style={{ padding: 10, marginBottom: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <input
-              value={newName}
-              onChange={e => setNewName(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && handleCreate()}
-              placeholder="#频道名称"
-              className="input"
-              autoFocus
+          <div className="card" style={{ padding: 0, marginBottom: 12, overflow: 'hidden' }}>
+            <CreateChannelForm
+              createChannel={createChannel}
+              onCreated={ch => { setShowNewForm(false); navigate(`/channels/${ch.id}`); }}
+              onCancel={() => setShowNewForm(false)}
             />
-            <textarea
-              value={newAgents}
-              onChange={e => setNewAgents(e.target.value)}
-              placeholder="初始 Agent（可选，逗号分隔）&#10;例: Analyst, Executor, Reviewer"
-              className="input"
-              style={{ resize: 'none', fontSize: 'var(--fs-sm)' }}
-              rows={2}
-            />
-            <div className="flex items-center gap-2">
-              <Select
-                value={newType}
-                onChange={setNewType}
-                options={Object.entries(TYPE_LABELS).map(([v, l]) => ({ value: v, label: l }))}
-                className="input"
-                style={{ padding: '3px 6px' }}
-              />
-              <Button onClick={handleCreate} loading={creating} loadingLabel="创建中...">
-                创建
-              </Button>
-              <button onClick={() => { setShowNewForm(false); setNewName(''); setNewAgents(''); }} className="mc-btn">
-                取消
-              </button>
-            </div>
           </div>
         )}
 
@@ -162,16 +112,6 @@ export function ChannelListPage() {
           </div>
         ))}
       </div>
-
-      <ConfirmDialog
-        open={createError != null}
-        title="创建频道失败"
-        message={createError ?? ''}
-        confirmLabel="知道了"
-        cancelLabel={null}
-        onConfirm={() => setCreateError(null)}
-        onCancel={() => setCreateError(null)}
-      />
     </div>
   );
 }

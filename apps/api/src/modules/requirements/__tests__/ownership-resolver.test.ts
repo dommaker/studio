@@ -242,3 +242,72 @@ describe('#285（决策 #249 §4）：fileRefs 归属 rung（显式 > REQ 继承
     expect(result.source).toBe('channel-default');
   });
 });
+
+describe('#272（决策 #251 Q2\'）：频道默认工程 defaultPath 归属 rung', () => {
+  async function setChannelDefaultPath(defaultPath: string | null) {
+    await fileStore.updateChannel(channelId, { defaultPath });
+  }
+
+  it('频道 defaultPath 命中 → source=channel-default-path，workspaceRoot=defaultPath', async () => {
+    await setChannelDefaultPath('/data/channel-repo');
+
+    const result = await resolveWorkspaceForWU({ channelId, fileStore });
+
+    expect(result).toEqual({
+      source: 'channel-default-path',
+      workspaceId: null,
+      workspaceRoot: '/data/channel-repo',
+      projectId: null,
+    });
+  });
+
+  it('fileRefs（同仓）压过频道 defaultPath', async () => {
+    await setChannelDefaultPath('/data/channel-repo');
+
+    const result = await resolveWorkspaceForWU({
+      fileRefs: [{ repo: '/data/refs-repo', path: 'src/a.ts' }],
+      channelId,
+      fileStore,
+    });
+
+    expect(result.source).toBe('file-refs');
+    expect(result.workspaceRoot).toBe('/data/refs-repo');
+  });
+
+  it('defaultPath（默认工程）压过 defaultWorkspaceId（默认执行机器）', async () => {
+    await setChannelDefaultPath('/data/channel-repo');
+    await setChannelDefault('ws-channel');
+
+    const result = await resolveWorkspaceForWU({ channelId, fileStore });
+
+    expect(result.source).toBe('channel-default-path');
+    expect(result.workspaceRoot).toBe('/data/channel-repo');
+  });
+
+  it('defaultPath 为 null/空串 → 跳过该 rung，落 defaultWorkspaceId 或 none', async () => {
+    await setChannelDefault('ws-channel');
+
+    await setChannelDefaultPath(null);
+    const nullCase = await resolveWorkspaceForWU({ channelId, fileStore });
+    expect(nullCase.source).toBe('channel-default');
+
+    await setChannelDefaultPath('');
+    const emptyCase = await resolveWorkspaceForWU({ channelId, fileStore });
+    expect(emptyCase.source).toBe('channel-default');
+  });
+
+  it('REQ 继承仍压过 defaultPath（第一性归属不变）', async () => {
+    await setChannelDefaultPath('/data/channel-repo');
+    const req = await reqService.create({ title: 'r', projectId: 'proj-1' });
+
+    const result = await resolveWorkspaceForWU({
+      reqId: req.id,
+      channelId,
+      fileStore,
+      getProject: async () => ({ gitRepo: '/data/req-repo' }),
+    });
+
+    expect(result.source).toBe('requirement');
+    expect(result.workspaceRoot).toBe('/data/req-repo');
+  });
+});

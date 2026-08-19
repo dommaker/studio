@@ -51,7 +51,8 @@ vi.mock('../../api/websocketHooks', () => ({
 vi.mock('../../components/channel/ChannelRail', () => ({ ChannelRail: () => null }));
 vi.mock('../../components/channel/WorkUnitDrawer', () => ({ WorkUnitDrawer: () => null }));
 vi.mock('../../components/channel/ChannelMemberManager', () => ({ ChannelMemberManager: () => null }));
-vi.mock('../../components/ChannelWorkspaceSetting', () => ({ ChannelWorkspaceSetting: () => null }));
+vi.mock('../../components/channel/ChannelDefaultProjectSelect', () => ({ ChannelDefaultProjectSelect: () => null }));
+vi.mock('../../components/channel/ChannelCurrentPmoChip', () => ({ ChannelCurrentPmoChip: () => null }));
 vi.mock('../../components/channel/ChannelInput', () => ({ ChannelInput: () => null }));
 // 其他卡片与本测试无关；DistillProposalCard 用真实组件（其 API 已 mock）
 vi.mock('../../components/channel/RequirementsDocCard', () => ({ RequirementsDocCard: () => null }));

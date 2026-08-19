@@ -33,7 +33,8 @@ vi.mock('../../api/websocketHooks', () => ({ useWebSocketContext: () => ({ onEve
 vi.mock('../../components/channel/ChannelRail', () => ({ ChannelRail: () => <div data-testid="channel-rail" /> }));
 vi.mock('../../components/channel/WorkUnitDrawer', () => ({ WorkUnitDrawer: () => null }));
 vi.mock('../../components/channel/ChannelMemberManager', () => ({ ChannelMemberManager: () => null }));
-vi.mock('../../components/ChannelWorkspaceSetting', () => ({ ChannelWorkspaceSetting: () => null }));
+vi.mock('../../components/channel/ChannelDefaultProjectSelect', () => ({ ChannelDefaultProjectSelect: () => null }));
+vi.mock('../../components/channel/ChannelCurrentPmoChip', () => ({ ChannelCurrentPmoChip: () => null }));
 vi.mock('../../components/channel/ChannelInput', () => ({ ChannelInput: () => null }));
 vi.mock('../../components/channel/RequirementsDocCard', () => ({ RequirementsDocCard: () => null }));
 vi.mock('../../components/channel/KnowledgeConfirmCard', () => ({ KnowledgeConfirmCard: () => null }));

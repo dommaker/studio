@@ -16,6 +16,11 @@ vi.mock('../../api/monitoring', () => ({
   monitoringApi: { getAgentSummary: mockGetAgentSummary },
 }));
 
+// #272：创建表单（CreateChannelForm）加载本地工程发现候选——单测置空即可
+vi.mock('../../api/channel', () => ({
+  channelApi: { discoverProjects: vi.fn().mockResolvedValue({ data: { success: true, data: [] } }) },
+}));
+
 import { ChannelListPage } from '../ChannelListPage';
 import type { ChannelListItem } from '../../hooks/useChannelList';
 
@@ -59,7 +64,7 @@ describe('工单 38: ChannelListPage 创建频道 loading', () => {
     await waitFor(() => expect(screen.queryByText('创建中...')).toBeNull());
   });
 
-  it('创建失败时通过错误弹窗反馈（非原生 alert）', async () => {
+  it('创建失败时内联报错（#272 表单合并后两处统一内联错误）', async () => {
     const createChannel = vi.fn().mockRejectedValue(new Error('boom'));
     mockUseChannelList.mockReturnValue({
       channels: [], loading: false, unreadCounts: {},
@@ -71,9 +76,8 @@ describe('工单 38: ChannelListPage 创建频道 loading', () => {
     fireEvent.change(screen.getByPlaceholderText('#频道名称'), { target: { value: 'ops' } });
     fireEvent.click(screen.getByText('创建'));
 
-    expect(await screen.findByText('创建频道失败')).toBeTruthy();
-    // 弹窗关闭后按钮恢复可点
-    fireEvent.click(screen.getByText('知道了'));
+    expect(await screen.findByText('创建失败')).toBeTruthy();
+    // 失败后按钮恢复可点
     await waitFor(() => expect(screen.getByText('创建').closest('button')!.disabled).toBe(false));
   });
 });

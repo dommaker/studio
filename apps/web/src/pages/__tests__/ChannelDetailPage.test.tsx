@@ -57,8 +57,12 @@ vi.mock('../../components/channel/ChannelMemberManager', () => ({
   ChannelMemberManager: () => <div data-testid="member-manager" />,
 }));
 
-vi.mock('../../components/ChannelWorkspaceSetting', () => ({
-  ChannelWorkspaceSetting: () => <div data-testid="workspace-setting" />,
+vi.mock('../../components/channel/ChannelDefaultProjectSelect', () => ({
+  ChannelDefaultProjectSelect: () => <div data-testid="default-project-select" />,
+}));
+
+vi.mock('../../components/channel/ChannelCurrentPmoChip', () => ({
+  ChannelCurrentPmoChip: () => <div data-testid="current-pmo-chip" />,
 }));
 
 vi.mock('../../components/channel/ChannelInput', () => ({
@@ -164,7 +168,9 @@ describe('ChannelDetailPage — Mission Control 三栏', () => {
     await waitFor(() => expect(screen.getByText('#rnd-主研发')).toBeTruthy());
     expect(screen.getByTestId('channel-input')).toBeTruthy();
     expect(screen.getByTestId('member-manager')).toBeTruthy();
-    expect(screen.getByTestId('workspace-setting')).toBeTruthy();
+    // #272：顶栏 = 当前 PMO chip + 默认工程（本地 repo）下拉
+    expect(screen.getByTestId('current-pmo-chip')).toBeTruthy();
+    expect(screen.getByTestId('default-project-select')).toBeTruthy();
     expect(screen.queryByTestId('wu-drawer')).toBeNull();
   });
 

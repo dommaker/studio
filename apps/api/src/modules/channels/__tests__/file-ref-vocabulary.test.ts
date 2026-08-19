@@ -115,6 +115,35 @@ describe('computeCandidateRepos（候选集计算）', () => {
     const repos = await computeCandidateRepos(channelId, deps);
     expect(repos).toEqual(['/repo/default']);
   });
+
+  it('#272（决策 #251 Q2\'）：频道 defaultPath（默认工程=本地 repo）进入候选集', async () => {
+    await createChannel('ws-1');
+    await fileStore.updateChannel(channelId, { defaultPath: '/repo/local-default' });
+    const deps: FileRefVocabularyDeps = {
+      fileStore,
+      resolveWorkspaceRoot: async () => '/repo/ws-root',
+      getProject: async () => null,
+      findChoreProject: async () => null,
+    };
+
+    const repos = await computeCandidateRepos(channelId, deps);
+    // 默认工程（defaultPath）在前，执行机器根（defaultWorkspaceId）仍保留为候选
+    expect(repos).toEqual(['/repo/local-default', '/repo/ws-root']);
+  });
+
+  it('#272：defaultPath 与 REQ 挂接 PMO 同仓时归一去重；空串 defaultPath 忽略', async () => {
+    await createChannel();
+    await fileStore.updateChannel(channelId, { defaultPath: '/repo/a/' });
+    await createRequirement('REQ-0001', 'p1');
+    const deps: FileRefVocabularyDeps = {
+      fileStore,
+      getProject: async () => ({ gitRepo: '/repo/a' }),
+      findChoreProject: async () => null,
+    };
+
+    const repos = await computeCandidateRepos(channelId, deps);
+    expect(repos).toEqual(['/repo/a']);
+  });
 });
 
 describe('getChannelFileVocabulary（git ls-files 词表 + 内存缓存）', () => {
