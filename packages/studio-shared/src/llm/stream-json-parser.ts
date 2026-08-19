@@ -9,11 +9,28 @@ import * as path from 'path';
 export interface StreamEvent {
   type: string;
   subtype?: string;
-  content?: Array<{ type: string; name?: string; input?: unknown; text?: string }>;
-  message?: { content?: Array<{ type: string; name?: string; input?: unknown }> };
+  content?: StreamContentBlock[];
+  message?: { content?: StreamContentBlock[] };
   result?: string;
   is_error?: boolean;
   usage?: Record<string, unknown>;
+}
+
+/** stream-json 内容块：thinking/text/tool_use（assistant）与 tool_result（user）两类载体共用 */
+export interface StreamContentBlock {
+  type: string;
+  /** tool_use 块 id（#240：tool/tool-result 配对锚点） */
+  id?: string;
+  name?: string;
+  input?: unknown;
+  /** thinking 块的思考文本（部分 provider 用 thinking 而非 text 承载） */
+  thinking?: string;
+  text?: string;
+  /** tool_result 块：回指 tool_use.id */
+  tool_use_id?: string;
+  is_error?: boolean;
+  /** tool_result 块内容（string 或 {type,text}[]） */
+  content?: unknown;
 }
 
 export interface ToolCall {

@@ -287,12 +287,14 @@
 .mc-avatar-human { background: var(--accent-primary); color: var(--bg-primary); }
 .mc-time { color: var(--text-muted); font-size: var(--fs-xs); }
 .mc-msg-body { color: var(--text-primary); white-space: pre-wrap; word-break: break-word; }
-.mc-msg-actions { display: inline-flex; gap: 6px; margin-left: 8px; opacity: 0; }
-.mc-msg:hover .mc-msg-actions { opacity: 1; }
+/* #239: 动作图标可读性——常显弱化态（不再 hover 才出现），hover/focus-within 强化；
+   字号/对比度上调（fs-xs→fs-sm、text-muted→text-secondary），点击区域加大 */
+.mc-msg-actions { display: inline-flex; gap: 6px; margin-left: 8px; opacity: 0.55; }
+.mc-msg:hover .mc-msg-actions, .mc-msg-actions:focus-within { opacity: 1; }
 .mc-icon-btn {
-  color: var(--text-muted);
-  font-size: var(--fs-xs);
-  padding: 0 4px;
+  color: var(--text-secondary);
+  font-size: var(--fs-sm);
+  padding: 2px 5px;
   border-radius: 3px;
 }
 .mc-icon-btn:hover { color: var(--accent-primary); background: var(--accent-dim); }
@@ -371,12 +373,13 @@
 
 /* WorkUnit / REQ 链接 chip（点击开右抽屉） */
 .mc-wu-link {
-  font-size: var(--fs-xs);
+  /* #239: footer 直跳链接可读性——fs-xs→fs-sm，padding 加大 */
+  font-size: var(--fs-sm);
   color: var(--accent-primary);
   background: var(--accent-dim);
   border: 1px solid var(--accent-border);
   border-radius: 4px;
-  padding: 1px 7px;
+  padding: 2px 8px;
   white-space: nowrap;
 }
 .mc-wu-link:hover { border-color: var(--accent-primary); }
@@ -669,12 +672,101 @@
 .mc-chain-node-title { color: var(--text-secondary); font-size: var(--fs-sm); margin-top: 2px; }
 .mc-chain-arrow { text-align: center; color: var(--text-muted); font-size: var(--fs-xs); margin-bottom: 8px; }
 
+/* ---------- #242 频道 live 执行状态条（与消息流同宽约束，含 #239 大屏断点） ---------- */
+.mc-livebars { padding: 6px 14px 0; }
+.mc-livebars-inner { max-width: 760px; margin: 0 auto; display: flex; flex-direction: column; gap: 4px; }
+.mc-livebar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 8px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+  text-align: left;
+}
+.mc-livebar:hover { border-color: var(--accent-primary); }
+
+/* ---------- #240 ExecutionSteps 升级：执行级状态条 + 折叠工具行 + thinking 独立行 ---------- */
+/* 执行级状态条：常驻整个 execution，步切换只更新文案不闪烁 */
+.mc-exec-statusbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  margin-bottom: 6px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+}
+/* thinking 独立成行：弱化 + 左缘线，与正文/工具行视觉分离 */
+.mc-exec-thinking {
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+  border-left: 2px solid var(--border-subtle);
+  padding-left: 8px;
+  margin: 4px 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+/* 折叠工具行：整行可点，单行省略 */
+.mc-toolrow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 3px 6px;
+  border-radius: 3px;
+  text-align: left;
+  font-size: var(--fs-sm);
+  color: var(--text-primary);
+}
+.mc-toolrow:hover { background: var(--bg-hover); }
+.mc-toolrow-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: monospace;
+}
+.mc-toolrow-chevron { color: var(--text-muted); font-size: var(--fs-xs); flex-shrink: 0; }
+/* 展开输出：内部滚动容器，不撑爆消息流 */
+.mc-toolrow-output {
+  max-height: 200px;
+  overflow-y: auto;
+  margin: 2px 0 6px 19px;
+  padding: 6px 8px;
+  background: var(--bg-tertiary);
+  border-radius: 3px;
+  font-family: monospace;
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
 /* ---------- 窄屏降级：rail 可隐藏 ---------- */
 @media (max-width: 900px) {
   .mc-rail { display: none; }
 }
 @media (max-width: 1100px) {
   .mc-drawer { width: 300px; }
+}
+
+/* ---------- #239 D3: 大屏（≥1440px）布局放宽 ---------- */
+/* 消息流/输入框 760→1000，卡片 560→吃满消息流；小屏维持现状。
+   正文行宽保持克制（760px），卡片/代码块可吃满新宽度。 */
+@media (min-width: 1440px) {
+  .mc-stream-inner,
+  .mc-inputbar-inner { max-width: 1000px; }
+  .mc-livebars-inner { max-width: 1000px; }
+  .mc-card { max-width: 1000px; }
+  .mc-msg-body { max-width: 760px; }
 }
 
 /* ============================================================

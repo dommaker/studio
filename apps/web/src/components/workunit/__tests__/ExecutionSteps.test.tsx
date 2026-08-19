@@ -1,7 +1,7 @@
 // ExecutionSteps - WU 过程可视化组件：执行步事件流 + Layer B 步内实时 chunk
 // 从 WorkUnitDrawer 抽取的复用组件，独立验证渲染契约（步事件/空态/实时/让位）
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 
 const { mockListExecSteps, mockStreamChunks } = vi.hoisted(() => ({
   mockListExecSteps: vi.fn(),
@@ -122,6 +122,85 @@ describe('ExecutionSteps', () => {
     const archived = screen.getAllByText('思考：已归档的思考');
     expect(archived).toHaveLength(1); // 只有步级卡片里那一份（实时区不重复展示）
     expect(screen.getByText('思考：进行中的思考')).toBeTruthy();
+  });
+});
+
+// #240：折叠工具行 + 四态 + 执行级状态条（状态推导本体见 execution-rows.test.ts）
+describe('ExecutionSteps — #240 折叠工具行与执行级状态条', () => {
+  const live = (chunks: Array<Record<string, unknown>>) =>
+    chunks.map(c => ({ workUnitId: 'WU-1', executionId: 'e1', step: 8, at: 't', ...c }));
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockListExecSteps.mockResolvedValue({ data: { events: [], total: 0 } });
+    mockStreamChunks.mockReturnValue([]);
+  });
+
+  it('工具行默认折叠；点击整行展开看输出（内部滚动容器），再点收起', async () => {
+    mockStreamChunks.mockReturnValue(live([
+      { kind: 'tool', tool: 'Bash', summary: 'pnpm test', toolUseId: 'tu1' },
+      { kind: 'tool-result', toolUseId: 'tu1', text: 'Tests 22 passed' },
+    ]));
+    render(<ExecutionSteps workUnitId="WU-1" />);
+    const label = await screen.findByText(/Bash pnpm test/);
+    // 默认折叠：输出不可见
+    expect(screen.queryByText('Tests 22 passed')).toBeNull();
+    fireEvent.click(label);
+    expect(screen.getByText('Tests 22 passed')).toBeTruthy();
+    fireEvent.click(label);
+    expect(screen.queryByText('Tests 22 passed')).toBeNull();
+  });
+
+  it('四态可区分：running/ok/error/stopped 各有可读标识', async () => {
+    mockStreamChunks.mockReturnValue(live([
+      { kind: 'tool', tool: 'Bash', summary: 'cmd-a', toolUseId: 'tu1' },
+      { kind: 'tool-result', toolUseId: 'tu1', text: 'ok' },
+      { kind: 'tool', tool: 'Read', summary: '/a.ts', toolUseId: 'tu2' },
+      { kind: 'tool-result', toolUseId: 'tu2', isError: true, text: 'boom' },
+      { kind: 'tool', tool: 'Grep', summary: 'foo', toolUseId: 'tu3' },
+      { kind: 'result', text: '' }, // 步结束 → tu3 未配对 = stopped
+    ]));
+    render(<ExecutionSteps workUnitId="WU-1" />);
+    await screen.findByText(/Bash cmd-a/);
+    expect(screen.getByLabelText('成功')).toBeTruthy();
+    expect(screen.getByLabelText('失败')).toBeTruthy();
+    expect(screen.getByLabelText('已中断')).toBeTruthy();
+    expect(screen.queryByLabelText('运行中')).toBeNull(); // 步已结束，不得永远转圈
+  });
+
+  it('步进行中时未配对工具 = running（运行中标识）', async () => {
+    mockStreamChunks.mockReturnValue(live([
+      { kind: 'tool', tool: 'Bash', summary: 'cmd-a', toolUseId: 'tu1' },
+    ]));
+    render(<ExecutionSteps workUnitId="WU-1" />);
+    await screen.findByText(/Bash cmd-a/);
+    expect(screen.getByLabelText('运行中')).toBeTruthy();
+  });
+
+  it('执行级状态条跨步不卸载（不闪烁），文案更新到最新步', async () => {
+    mockStreamChunks.mockReturnValue(live([{ kind: 'thinking', text: '想' }]));
+    const { rerender } = render(<ExecutionSteps workUnitId="WU-1" />);
+    const bar = await screen.findByText('实时');
+    const barEl = bar.closest('.mc-exec-statusbar');
+    expect(barEl).toBeTruthy();
+    expect(screen.getByText('第 8 步进行中')).toBeTruthy();
+    // 新一步 chunk 到达（同一 execution）：状态条仍是同一 DOM 节点，仅文案更新
+    mockStreamChunks.mockReturnValue(
+      live([{ kind: 'thinking', text: '想' }]).map(c => ({ ...c, step: 9 })),
+    );
+    rerender(<ExecutionSteps workUnitId="WU-1" />);
+    expect(screen.getByText('第 9 步进行中')).toBeTruthy();
+    expect(screen.getByText('实时').closest('.mc-exec-statusbar')).toBe(barEl);
+  });
+
+  it('thinking 独立成行（与工具行/正文分开）', async () => {
+    mockStreamChunks.mockReturnValue(live([
+      { kind: 'thinking', text: '先看现有实现' },
+      { kind: 'tool', tool: 'Read', summary: '/a.ts', toolUseId: 'tu1' },
+    ]));
+    render(<ExecutionSteps workUnitId="WU-1" />);
+    const thinking = await screen.findByText('思考：先看现有实现');
+    expect(thinking.closest('.mc-exec-thinking')).toBeTruthy();
   });
 });
 

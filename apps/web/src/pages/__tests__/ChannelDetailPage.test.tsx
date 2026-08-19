@@ -1,15 +1,16 @@
 // ChannelDetailPage — Mission Control 三栏 smoke test
 // 覆盖：三栏渲染 / REQ chip 开抽屉 / WU 链接开抽屉 / 已完成折叠 / NEED_INPUT 内嵌回复链路 / 线程展开
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 
-const { mockSendMessage, mockListWorkunits, mockListReqs, mockApiGet, mockDrawerSpy } = vi.hoisted(() => ({
+const { mockSendMessage, mockListWorkunits, mockListReqs, mockApiGet, mockDrawerSpy, mockOnEvent } = vi.hoisted(() => ({
   mockSendMessage: vi.fn(),
   mockListWorkunits: vi.fn(),
   mockListReqs: vi.fn(),
   mockApiGet: vi.fn(),
   mockDrawerSpy: vi.fn(),
+  mockOnEvent: vi.fn(),
 }));
 
 vi.mock('../../api', () => ({
@@ -33,6 +34,11 @@ vi.mock('../../api/workunit', () => ({
 
 vi.mock('../../api/requirements', () => ({
   requirementApi: { list: mockListReqs },
+}));
+
+// #242：live 状态条的 SSE 事件源（onEvent 注册回调，用例手工驱动）
+vi.mock('../../api/websocketHooks', () => ({
+  useWebSocketContext: () => ({ onEvent: mockOnEvent }),
 }));
 
 // 左栏/右抽屉/顶栏控件：保留接口，隔离其内部 API 依赖
@@ -119,6 +125,13 @@ const REQS = [
 // useChannelEvents mock 的当前消息集（默认 MESSAGES，单测可替换为 PROCESS_MESSAGES 等夹具）
 let currentMessages: ChannelMessage[] = MESSAGES;
 
+// #242：onEvent 注册的 SSE 处理器（用例手工驱动事件）
+type SseHandler = (msg: { event_type: string; data?: unknown }) => void;
+let wuEventHandler: SseHandler | null = null;
+
+/** #242 夹具：本频道 active WU 列表响应（deriveLiveExecutions 初始数据源） */
+const activeWuList = (wus: Array<{ id: string; metadata: string | null }>) => ({ data: { data: wus } });
+
 const renderPage = () =>
   render(
     <MemoryRouter initialEntries={['/channels/ch-1']}>
@@ -132,10 +145,15 @@ describe('ChannelDetailPage — Mission Control 三栏', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     currentMessages = MESSAGES;
+    wuEventHandler = null;
     mockApiGet.mockResolvedValue({ data: { data: { id: 'ch-1', name: 'rnd-主研发', type: 'rnd', members: '[]' } } });
-    mockListWorkunits.mockResolvedValue({
-      data: { data: [{ id: 'WU-1018', metadata: JSON.stringify({ waitingForInput: true }) }] },
-    });
+    // 同一 list 接口服务两种查询：blocked（NEED_INPUT 挂起集合）/ active（#242 live 状态条，默认无执行中）
+    mockListWorkunits.mockImplementation((params?: { status?: string }) => Promise.resolve(
+      params?.status === 'active'
+        ? activeWuList([])
+        : { data: { data: [{ id: 'WU-1018', metadata: JSON.stringify({ waitingForInput: true }) }] } },
+    ));
+    mockOnEvent.mockImplementation((cb: SseHandler) => { wuEventHandler = cb; return () => {}; });
     mockListReqs.mockResolvedValue({ data: { data: REQS } });
     mockSendMessage.mockResolvedValue({});
   });
@@ -219,5 +237,109 @@ describe('ChannelDetailPage — Mission Control 三栏', () => {
     expect(screen.getByText('过程步骤 3')).toBeTruthy();
     fireEvent.click(screen.getByText('收起 4 条过程消息'));
     expect(screen.queryByText('过程步骤 3')).toBeNull();
+  });
+});
+
+// #242：频道 live 执行状态条——出现/更新/终态/点击开抽屉（事件驱动，复用 execution-rows 推导层）
+describe('ChannelDetailPage — #242 live 执行状态条', () => {
+  // 与上层 describe 同套的干净基线（本 describe 独立于外层，beforeEach 不共享）
+  beforeEach(() => {
+    vi.clearAllMocks();
+    currentMessages = MESSAGES;
+    wuEventHandler = null;
+    mockApiGet.mockResolvedValue({ data: { data: { id: 'ch-1', name: 'rnd-主研发', type: 'rnd', members: '[]' } } });
+    mockListWorkunits.mockImplementation((params?: { status?: string }) => Promise.resolve(
+      params?.status === 'active'
+        ? activeWuList([])
+        : { data: { data: [{ id: 'WU-1018', metadata: JSON.stringify({ waitingForInput: true }) }] } },
+    ));
+    mockOnEvent.mockImplementation((cb: SseHandler) => { wuEventHandler = cb; return () => {}; });
+    mockListReqs.mockResolvedValue({ data: { data: REQS } });
+    mockSendMessage.mockResolvedValue({});
+  });
+
+  it('本频道有执行中 WU → 状态条出现（WU 标识 + 步号来自 metadata.stepCount）', async () => {
+    mockListWorkunits.mockImplementation((params?: { status?: string }) => Promise.resolve(
+      params?.status === 'active'
+        ? activeWuList([{ id: 'WU-1018', metadata: JSON.stringify({ stepCount: 3 }) }])
+        : { data: { data: [] } },
+    ));
+    renderPage();
+    await waitFor(() => expect(screen.getByText(/WU-1018 正在执行 · 第 3 步/)).toBeTruthy());
+  });
+
+  it('无执行中 WU → 不出现状态条', async () => {
+    renderPage();
+    await waitFor(() => expect(screen.getByText('#rnd-主研发')).toBeTruthy());
+    expect(screen.queryByText(/正在执行/)).toBeNull();
+  });
+
+  it('SSE 步事件驱动更新：第 3 步 → 第 4 步（带 action）', async () => {
+    mockListWorkunits.mockImplementation((params?: { status?: string }) => Promise.resolve(
+      params?.status === 'active'
+        ? activeWuList([{ id: 'WU-1018', metadata: JSON.stringify({ stepCount: 3 }) }])
+        : { data: { data: [] } },
+    ));
+    renderPage();
+    await waitFor(() => expect(screen.getByText(/第 3 步/)).toBeTruthy());
+    act(() => wuEventHandler!({
+      event_type: 'workunit.execution.step',
+      data: { workUnitId: 'WU-1018', step: 4, action: 'progress' },
+    }));
+    expect(screen.getByText(/WU-1018 正在执行 · 第 4 步 · progress/)).toBeTruthy();
+  });
+
+  it('status_changed → active 事件让状态条出现（页面已打开时新开始的执行）', async () => {
+    renderPage();
+    await waitFor(() => expect(screen.getByText('#rnd-主研发')).toBeTruthy());
+    expect(screen.queryByText(/正在执行/)).toBeNull();
+    act(() => wuEventHandler!({
+      event_type: 'workunit.status_changed',
+      data: { workunit: { id: 'WU-2020', status: 'active', channelId: 'ch-1', metadata: JSON.stringify({ stepCount: 1 }) } },
+    }));
+    expect(screen.getByText(/WU-2020 正在执行 · 第 1 步/)).toBeTruthy();
+  });
+
+  it('执行到达终态（status_changed → done）→ 状态条消失', async () => {
+    mockListWorkunits.mockImplementation((params?: { status?: string }) => Promise.resolve(
+      params?.status === 'active'
+        ? activeWuList([{ id: 'WU-1018', metadata: JSON.stringify({ stepCount: 3 }) }])
+        : { data: { data: [] } },
+    ));
+    renderPage();
+    await waitFor(() => expect(screen.getByText(/WU-1018 正在执行/)).toBeTruthy());
+    act(() => wuEventHandler!({
+      event_type: 'workunit.status_changed',
+      data: { workunit: { id: 'WU-1018', status: 'done', channelId: 'ch-1', metadata: '{}' } },
+    }));
+    expect(screen.queryByText(/正在执行/)).toBeNull();
+  });
+
+  it('其他频道的 status_changed / 未知 WU 的步事件 → 不产生状态条', async () => {
+    renderPage();
+    await waitFor(() => expect(screen.getByText('#rnd-主研发')).toBeTruthy());
+    act(() => wuEventHandler!({
+      event_type: 'workunit.status_changed',
+      data: { workunit: { id: 'WU-9999', status: 'active', channelId: 'ch-other', metadata: '{}' } },
+    }));
+    act(() => wuEventHandler!({
+      event_type: 'workunit.execution.step',
+      data: { workUnitId: 'WU-9999', step: 9 },
+    }));
+    expect(screen.queryByText(/正在执行/)).toBeNull();
+  });
+
+  it('点击状态条 → 打开对应 WU 右抽屉', async () => {
+    mockListWorkunits.mockImplementation((params?: { status?: string }) => Promise.resolve(
+      params?.status === 'active'
+        ? activeWuList([{ id: 'WU-1018', metadata: JSON.stringify({ stepCount: 3 }) }])
+        : { data: { data: [] } },
+    ));
+    renderPage();
+    await waitFor(() => expect(screen.getByText(/WU-1018 正在执行/)).toBeTruthy());
+    fireEvent.click(screen.getByText(/WU-1018 正在执行/));
+    const drawer = screen.getByTestId('wu-drawer');
+    expect(drawer.getAttribute('data-kind')).toBe('wu');
+    expect(drawer.getAttribute('data-id')).toBe('WU-1018');
   });
 });

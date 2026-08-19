@@ -1,6 +1,7 @@
 // WorkUnitDrawer — Mission Control 右抽屉：WorkUnit 详情 / REQ 全链路
 // 只展示真实 API 数据（workunitApi / requirementApi / monitoringApi），无对应数据的维度不展示、不编造
 import { useEffect, useState } from 'react';
+import axios from 'axios';
 import {
   workunitApi,
   parseWorkunitTokenEvents,
@@ -101,6 +102,8 @@ function WuDetail({ id, onOpenReq }: { id: string; onOpenReq: (reqId: string) =>
   const [tokens, setTokens] = useState<WorkunitTokenEvent[] | null>(null);
   const [overhead, setOverhead] = useState<OverheadStats | null>(null);
   const [error, setError] = useState('');
+  // #241: 悬空 WU 引用（历史清理后消息 footer 指向已不存在的 WU）——404 单列友好态
+  const [notFound, setNotFound] = useState(false);
   const [showTreeTokens, setShowTreeTokens] = useState(false);
   const [confirming, setConfirming] = useState(false);
   // #106 M7：analysis 通过/确认弹窗（共享件），非 analysis 保持一键通过
@@ -117,13 +120,18 @@ function WuDetail({ id, onOpenReq }: { id: string; onOpenReq: (reqId: string) =>
     setWu(null);
     setTokens(null);
     setError('');
+    setNotFound(false);
   }
 
   useEffect(() => {
     let alive = true;
     workunitApi.get(id)
       .then(r => { if (alive) { setWu(r.data); setError(''); } })
-      .catch(e => { if (alive) setError(e instanceof Error ? e.message : String(e)); });
+      .catch(e => {
+        if (!alive) return;
+        if (axios.isAxiosError(e) && e.response?.status === 404) setNotFound(true);
+        else setError(e instanceof Error ? e.message : String(e));
+      });
     workunitApi.listTokenEvents()
       .then(r => { if (alive) setTokens(parseWorkunitTokenEvents(r.data.events || [], id)); })
       .catch(() => { if (alive) setTokens([]); });
@@ -133,6 +141,7 @@ function WuDetail({ id, onOpenReq }: { id: string; onOpenReq: (reqId: string) =>
     return () => { alive = false; };
   }, [id, eventTick]);
 
+  if (notFound) return <div className="mc-drawer-note">该任务不存在或已被清理（id：{id}）</div>;
   if (error) return <div className="mc-drawer-note">加载失败: {error}</div>;
   if (!wu) return <div className="mc-drawer-note">加载中…</div>;
 

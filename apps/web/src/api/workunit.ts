@@ -154,10 +154,13 @@ export interface ExecutionStreamChunk {
   workUnitId: string;
   executionId: string;
   step: number;
-  kind: 'step-start' | 'thinking' | 'text' | 'tool' | 'result';
+  /** #240: 增加 tool-result（user 事件 tool_result 块提炼，与 tool chunk 按 toolUseId 配对） */
+  kind: 'step-start' | 'thinking' | 'text' | 'tool' | 'tool-result' | 'result';
   text?: string;
   tool?: string;
   summary?: string;
+  /** #240: tool/tool-result 配对锚点（tool_use.id ↔ tool_result.tool_use_id） */
+  toolUseId?: string;
   isError?: boolean;
   at: string;
 }
@@ -170,7 +173,7 @@ export function parseExecutionStreamChunk(data: unknown): ExecutionStreamChunk |
     const p = (typeof data === 'string' ? JSON.parse(data) : data) as Record<string, unknown> | null;
     if (!p || typeof p !== 'object') return null;
     if (typeof p.workUnitId !== 'string' || typeof p.step !== 'number') return null;
-    if (!['step-start', 'thinking', 'text', 'tool', 'result'].includes(String(p.kind))) return null;
+    if (!['step-start', 'thinking', 'text', 'tool', 'tool-result', 'result'].includes(String(p.kind))) return null;
     return {
       workUnitId: p.workUnitId,
       executionId: typeof p.executionId === 'string' ? p.executionId : '',
@@ -179,6 +182,7 @@ export function parseExecutionStreamChunk(data: unknown): ExecutionStreamChunk |
       text: typeof p.text === 'string' ? p.text : undefined,
       tool: typeof p.tool === 'string' ? p.tool : undefined,
       summary: typeof p.summary === 'string' ? p.summary : undefined,
+      toolUseId: typeof p.toolUseId === 'string' ? p.toolUseId : undefined,
       isError: p.isError === true ? true : undefined,
       at: typeof p.at === 'string' ? p.at : '',
     };
