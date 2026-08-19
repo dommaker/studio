@@ -12,7 +12,7 @@
  * 规则命中目录名（精确）或绝对路径（目录边界前缀）即跳过，不递归进入。
  */
 import { readdir, stat, access } from 'node:fs/promises';
-import { join, sep } from 'node:path';
+import { join, sep, basename } from 'node:path';
 import { homedir } from 'node:os';
 
 export interface LocalProject {
@@ -20,6 +20,34 @@ export interface LocalProject {
   path: string;
   hasClaudeMd: boolean;
   language?: string;
+}
+
+/** #265（决策 #258）：归属问答分层匹配结果 — 唯一命中 / 候选列表 */
+export type ProjectMatchResult =
+  | { kind: 'hit'; project: LocalProject }
+  | { kind: 'candidates'; projects: LocalProject[] };
+
+/**
+ * #265（决策 #258）归属问答分层匹配原语（纯函数，可脱离 FileStore 单测），命中即停：
+ * ① name 或 path 精确等值（大小写不敏感）唯一 → 直接命中，不看其他候选
+ *    （多命中不误绑，下潜候选——同名工程存在时由人选）；
+ * ② 路径尾段边界匹配唯一（query 是 path 末尾的完整段序列：'studio' 命中
+ *    '/root/projects/studio'，不命中 'studio-config'；'g/tool' 命中 '/a/g/tool'）；
+ * ③ 以上落空 → 子串匹配产出候选列表。
+ */
+export function matchProjectByReply(query: string, projects: LocalProject[]): ProjectMatchResult {
+  const q = query.trim().toLowerCase();
+  if (!q) return { kind: 'candidates', projects: [] };
+  const exact = projects.filter(
+    p => p.name.toLowerCase() === q || p.path.toLowerCase() === q,
+  );
+  if (exact.length === 1) return { kind: 'hit', project: exact[0] };
+  const tail = projects.filter(p => p.path.toLowerCase().endsWith(`/${q}`));
+  if (tail.length === 1) return { kind: 'hit', project: tail[0] };
+  const subs = projects.filter(
+    p => p.name.toLowerCase().includes(q) || p.path.toLowerCase().includes(q),
+  );
+  return { kind: 'candidates', projects: subs };
 }
 
 interface ProjectDiscoveryOptions {
@@ -73,6 +101,28 @@ export class ProjectDiscoveryService {
     return projects.filter(
       p => p.name.toLowerCase().includes(q) || p.path.toLowerCase().includes(q),
     );
+  }
+
+  /**
+   * #265（决策 #258）：绝对路径直连校验 —— stat + isProject 合法即返回工程，否则 null。
+   * 归属问答中「/」开头的回复不走 search，绕过一切歧义直接绑定。
+   * 不读 discovery 缓存/候选集：root 之外的合法工程路径同样可绑。
+   */
+  async validateProjectPath(absPath: string): Promise<LocalProject | null> {
+    try {
+      const s = await stat(absPath);
+      if (!s.isDirectory()) return null;
+      const info = await this.isProject(absPath);
+      if (!info.isProject) return null;
+      return {
+        name: basename(absPath),
+        path: absPath,
+        hasClaudeMd: info.hasClaudeMd,
+        language: info.language,
+      };
+    } catch {
+      return null;
+    }
   }
 
   invalidateCache(): void {

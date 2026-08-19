@@ -62,6 +62,7 @@ export interface WorkUnitMetadata {
   // B3a 工程归属链（决策 D2）：归属解析结果落档
   workspaceRoot?: string;     // 直接可用的工程根路径（Requirement→PMO gitRepo / 人工回复绑定；agent-loop 优先于 workspaceId 消费）
   ownershipSource?: string;   // 归属来源：explicit / requirement / channel-default / none / human-reply
+  ownershipAttempts?: number; // #265（决策 #258）：归属问答未解轮次计数（仿 resumeCount 先例；≥3 停止追问转人工，绑定成功清除）
   // 2026-08 归因统一：pmoId 是 canonical 创建期 PMO 归因戳（message-routing / project.service /
   // analysis-handoff 创建时落档；pmo-branch-resolver 与证据归属过滤的唯一直读 key）
   pmoId?: string;
