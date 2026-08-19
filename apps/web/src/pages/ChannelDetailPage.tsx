@@ -20,6 +20,7 @@ import { channelApi } from '../api/channel';
 import { knowledgeApi } from '../api/knowledge';
 import { memoryApi } from '../api/memory';
 import { distillApi } from '../api/distill';
+import { skillsApi } from '../api/skills';
 
 function isToday(d: Date) {
   const now = new Date();
@@ -221,6 +222,8 @@ export function ChannelDetailPage() {
   // distill_proposal approve → /distill/approve（#143 蒸馏运行）；reject → /distill/reject（零副作用）。
   // gc_proposal approve → /distill/gc/approve（#144 GC 候选归档）；reject → /distill/gc/reject（零副作用）。
   // constraint_audit_proposal approve → /distill/audit/approve（#146 约束退役执行）；reject → /distill/audit/reject（零副作用）。
+  // auditor_suggestion confirm/reject → POST /channels/:id/messages/:mid/card-decision（#278，采纳建未指派 task 工单；拒绝留痕）。
+  // retract_confirm confirm/reject → POST /skills/:id/retract/decide（#278，confirm→deprecated / reject→published，卡片状态同步回写）。
   // 返回是否成功（卡片据此显示已审核状态）。
   const handleAction = useCallback(async (messageId: string, action: string): Promise<boolean> => {
     if (action === 'converted') { refresh(); return true; }
@@ -326,8 +329,33 @@ export function ChannelDetailPage() {
         return false;
       }
     }
+    // #278（决策 #250 D2）：auditor_suggestion 卡接 card-decision 端点（human-only）。
+    // 采纳 = 本频道建未指派 task 工单；拒绝 = 仅留痕。状态由后端回写 meta.status + SSE 推送。
+    if (action === 'auditor_apply_confirm' || action === 'auditor_apply_reject') {
+      if (!id) return false;
+      try {
+        await channelApi.cardDecision(id, messageId, action === 'auditor_apply_confirm' ? 'confirm' : 'reject');
+        refresh();
+        return true;
+      } catch {
+        return false;
+      }
+    }
+    // #278（决策 #250 D2）：retract_confirm 卡接技能退役决策端点（confirm→deprecated / reject→published）。
+    if (action === 'retract_confirm' || action === 'retract_reject') {
+      const cardData = cardDataOf();
+      const skillId = typeof cardData?.skillId === 'string' ? cardData.skillId : '';
+      if (!skillId) return false;
+      try {
+        await skillsApi.retractDecide(skillId, action === 'retract_confirm' ? 'confirm' : 'reject', messageId);
+        refresh();
+        return true;
+      } catch {
+        return false;
+      }
+    }
     return false;
-  }, [messages, refresh]);
+  }, [id, messages, refresh]);
 
   const handleReply = useCallback((message: ChannelMessage) => {
     setReplyTo(message);

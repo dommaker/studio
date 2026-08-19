@@ -123,6 +123,13 @@ export const channelApi = {
       data
     ),
 
+  /** #278（决策 #250 D2）：auditor_suggestion 卡人审决策（采纳建本频道未指派 task 工单；拒绝仅留痕） */
+  cardDecision: (channelId: string, messageId: string, decision: 'confirm' | 'reject') =>
+    api.post<{ success: boolean; data: { status: 'confirmed' | 'rejected'; workUnitId?: string } }>(
+      `/channels/${channelId}/messages/${messageId}/card-decision`,
+      { decision }
+    ),
+
   suggestTask: (channelId: string, messageId: string) =>
     api.post<{ success: boolean; data: ConvertSuggestion }>(
       `/channels/${channelId}/messages/${messageId}/convert-to-task/suggest`

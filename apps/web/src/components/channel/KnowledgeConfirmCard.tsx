@@ -1,5 +1,7 @@
 // Knowledge confirm / retract card — B1-008/B1-010
 // 2026-07 视觉重构（方向 A Mission Control）：mc-card 视觉重绘；交互语义零变更
+// #278（决策 #250 D2）：knowledge_confirm 产卡链已删（历史卡）→ 按钮区整区隐藏 + 卡底淡注；
+// retract_confirm 按钮接活（POST /skills/:id/retract/decide）。
 import type { ChannelMessage } from '../../api/channel';
 import type { CardMeta } from './ChannelMessageItem';
 
@@ -46,7 +48,10 @@ export function KnowledgeConfirmCard({ message, meta, onAction }: Props) {
         <span className="mc-card-label">
           {isRetract ? '撤回确认' : '知识收录确认'}
         </span>
-        <span className="mc-status mc-status-need">{entries?.length || 0} 条知识</span>
+        {/* #278：retract 卡 cardData 携带 skillId/skillName（无 entries），头部 chip 按卡型分流 */}
+        <span className="mc-status mc-status-need">
+          {isRetract ? String(meta.cardData?.skillName ?? '未知技能') : `${entries?.length || 0} 条知识`}
+        </span>
       </div>
 
       {/* Entries */}
@@ -63,23 +68,28 @@ export function KnowledgeConfirmCard({ message, meta, onAction }: Props) {
         </div>
       ))}
 
-      {/* Action buttons */}
-      {status !== 'confirmed' && status !== 'rejected' && status !== 'deprecated' && (
+      {/* #278（决策 #250 D2）：knowledge_confirm 产卡链已删，历史卡按钮区整区隐藏 + 卡底淡注；
+          retract_confirm 按钮接活（retract/decide 端点） */}
+      {isRetract && status !== 'confirmed' && status !== 'rejected' && status !== 'deprecated' && status !== 'published' ? (
         <div className="mc-card-actions">
           <button
-            onClick={() => onAction(message.id, isRetract ? 'retract_confirm' : 'knowledge_confirm')}
-            className={isRetract ? 'mc-btn mc-btn-warn' : 'mc-btn mc-btn-primary'}
+            onClick={() => onAction(message.id, 'retract_confirm')}
+            className="mc-btn mc-btn-warn"
           >
-            {isRetract ? '确认废弃' : '确认入库'}
+            确认废弃
           </button>
           <button
-            onClick={() => onAction(message.id, isRetract ? 'retract_reject' : 'knowledge_reject')}
+            onClick={() => onAction(message.id, 'retract_reject')}
             className="mc-btn"
           >
             拒绝
           </button>
         </div>
-      )}
+      ) : !isRetract ? (
+        <div className="mc-card-foot mc-card-dim" style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 8 }}>
+          该确认入口已下线
+        </div>
+      ) : null}
     </div>
   );
 }
