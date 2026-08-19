@@ -1,6 +1,6 @@
 # CAPABILITIES.md
 
-> 最后更新: 2026-08-18
+> 最后更新: 2026-08-19
 
 ---
 
@@ -182,3 +182,4 @@
 | BlockedActions | apps/web/src/components/workunit/BlockedActions.tsx | BlockedActions — #185（决策 #87 D1/D3/D4/D5）：blocked WU 的 Web 处置组件 |
 | TranscriptViewer | apps/web/src/components/workunit/TranscriptViewer.tsx | TranscriptViewer — #174: WU 会话原文（transcript）只读查看器（#60 C5） |
 | BlockedByList | apps/web/src/components/workunit/BlockedByList.tsx | #116: 依赖（metadata.blockedBy）清单共享组件 — WorkUnitListPage 被阻塞行展开 / WorkUnitDetailPage「依赖与验收」卡复用。 |
+| execution-rows | apps/web/src/components/workunit/execution-rows.ts | active WU 列表 + 最新步事件索引 → 状态条模型（顺序保持输入序）。 |
