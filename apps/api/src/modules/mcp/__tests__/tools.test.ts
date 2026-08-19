@@ -1,10 +1,12 @@
 /**
  * tools.ts 注册门面测试（T3 拆分新增）。
  *
- * 固化门面对外契约：21 个 tool 的注册顺序、风险级别标注、
+ * 固化门面对外契约：19 个 tool 的注册顺序、风险级别标注、
  * getToolSchemas 形状，以及 executeTool 的权限/执行路径。
  * permission.service 被 mock；STUDIO_EVENTS_DIR 指向临时目录隔离 trace 写入。
  * #149（2026-08-15）：5 个知识库 tool 随 document-store 退役移除（26 → 21）。
+ * 2026-08：checkGuardrail/getSandboxLevel 随 harness 1.2.0 删除
+ * InputGuardrail/OutputGuardrail/Sandbox（ADR-0003）移除（21 → 19）。
  */
 import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
 import fs from 'node:fs';
@@ -63,10 +65,8 @@ const EXPECTED_ORDER: Array<[string, 'low' | 'medium']> = [
   ['approveSpec', 'medium'],
   ['getSpecStatus', 'low'],
   ['listSpecs', 'low'],
-  // 安全 (3)
+  // 安全 (1)
   ['checkConstraint', 'low'],
-  ['checkGuardrail', 'low'],
-  ['getSandboxLevel', 'low'],
   // Agent-First 系统 (2)
   ['systemHealth', 'low'],
   ['emitEvent', 'low'],
@@ -79,8 +79,8 @@ const EXPECTED_ORDER: Array<[string, 'low' | 'medium']> = [
 ];
 
 describe('tools.ts 注册门面', () => {
-  it('注册 21 个 tool，顺序与拆分前一致', () => {
-    expect(toolRegistry.toolCount).toBe(21);
+  it('注册 19 个 tool，顺序与拆分前一致', () => {
+    expect(toolRegistry.toolCount).toBe(19);
     expect(getToolSchemas().map(s => s.name)).toEqual(EXPECTED_ORDER.map(([name]) => name));
   });
 
@@ -131,7 +131,7 @@ describe('tools.ts 注册门面', () => {
     }));
   });
 
-  it('模块加载时种子默认权限（21 个 tool 名）', async () => {
+  it('模块加载时种子默认权限（19 个 tool 名）', async () => {
     await vi.waitFor(() => expect(mockSeed).toHaveBeenCalled());
     expect(mockSeed).toHaveBeenCalledWith(EXPECTED_ORDER.map(([name]) => name));
   });

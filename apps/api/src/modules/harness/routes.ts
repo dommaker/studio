@@ -17,8 +17,6 @@
  *                        GET /constraints/stats、GET /constraints/retired、
  *                        GET /constraints/:id、POST /constraints/:id/rollback、
  *                        POST /check-constraints
- * - guards.routes.ts     安全护栏（T-012）：POST /check-input、POST /check-output、
- *                        GET /sandbox
  * - knowledge.routes.ts  知识引擎（T-010）：POST /knowledge/query、GET /knowledge、
  *                        GET /knowledge/:id、POST /knowledge、
  *                        DELETE /knowledge/:id、POST /knowledge/lint
@@ -36,7 +34,7 @@
  *
  * 挂载顺序等价性（Express 路由匹配顺序敏感）：
  * 各子路由的路径首段字面前缀互不重叠（traces/analysis/diagnose/proposals/
- * constraints/check-constraints/check-input/check-output/sandbox/knowledge/
+ * constraints/check-constraints/knowledge/
  * estimate-tokens/sessions/agents/classify/failures/check-spec/verify/dashboard/
  * health/validate），router.use 无匹配时自动 fallthrough；唯一的前缀包含关系
  * GET /constraints/stats 与 GET /constraints/:id 位于同一子路由内且保持
@@ -47,7 +45,6 @@ import { Router } from 'express';
 import { tracesRoutes } from './traces.routes.js';
 import { proposalsRoutes } from './proposals.routes.js';
 import { constraintsRoutes } from './constraints.routes.js';
-import { guardsRoutes } from './guards.routes.js';
 import { knowledgeRoutes } from './knowledge.routes.js';
 import { sessionsRoutes } from './sessions.routes.js';
 import { agentsRoutes } from './agents.routes.js';
@@ -61,7 +58,6 @@ const router = Router();
 router.use(tracesRoutes);
 router.use(proposalsRoutes);
 router.use(constraintsRoutes);
-router.use(guardsRoutes);
 router.use(knowledgeRoutes);
 router.use(sessionsRoutes);
 router.use(agentsRoutes);

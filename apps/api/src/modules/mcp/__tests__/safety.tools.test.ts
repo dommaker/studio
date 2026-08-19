@@ -1,24 +1,19 @@
 /**
  * safety.tools 单元测试（T3 拆分新增，pre-commit TDD 门禁）。
  *
- * 覆盖 checkConstraint / checkGuardrail / getSandboxLevel。
- * handler 内动态 import 的 harness 直连 API（checkConstraints /
- * InputGuardrail / OutputGuardrail / Sandbox）被 mock（#150 A5）。
+ * 覆盖 checkConstraint。handler 内动态 import 的 harness 直连 API
+ * （checkConstraints）被 mock（#150 A5）。
+ * 2026-08：checkGuardrail / getSandboxLevel 随 harness 1.2.0 删除
+ * InputGuardrail/OutputGuardrail/Sandbox（ADR-0003）而移除，用例同删。
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const { mockCheckConstraints, mockInputCheck, mockOutputCheck, mockGetSandbox } = vi.hoisted(() => ({
+const { mockCheckConstraints } = vi.hoisted(() => ({
   mockCheckConstraints: vi.fn(),
-  mockInputCheck: vi.fn(),
-  mockOutputCheck: vi.fn(),
-  mockGetSandbox: vi.fn(),
 }));
 
 vi.mock('@dommaker/harness', () => ({
   checkConstraints: mockCheckConstraints,
-  InputGuardrail: class { check(input: string) { return mockInputCheck(input); } },
-  OutputGuardrail: class { check(input: string) { return mockOutputCheck(input); } },
-  Sandbox: class { getLevel() { return mockGetSandbox().getLevel(); } getDescription() { return mockGetSandbox().getDescription(); } },
 }));
 
 import { safetyTools } from '../safety.tools.js';
@@ -34,8 +29,8 @@ describe('safety.tools', () => {
     vi.clearAllMocks();
   });
 
-  it('导出 3 个 tool，注册顺序不变', () => {
-    expect(safetyTools.map(t => t.name)).toEqual(['checkConstraint', 'checkGuardrail', 'getSandboxLevel']);
+  it('导出 1 个 tool', () => {
+    expect(safetyTools.map(t => t.name)).toEqual(['checkConstraint']);
   });
 
   it('checkConstraint 空 operation 直接返回 error，不调服务', async () => {
@@ -77,42 +72,6 @@ describe('safety.tools', () => {
     expect(result).toEqual({
       operation: 'op', allowed: false, harnessUnavailable: true,
       message: 'Harness unavailable, constraint check not performed',
-    });
-  });
-
-  it('checkGuardrail 默认 input 方向，content 截断到 200 字符', async () => {
-    mockInputCheck.mockReturnValue({ safe: true, violations: [] });
-    const long = 'x'.repeat(300);
-    const result = await tool('checkGuardrail').handler({ content: long });
-    expect(mockInputCheck).toHaveBeenCalledWith(long);
-    expect(result).toMatchObject({
-      direction: 'input', passed: true, violations: [], message: 'Guardrail check passed',
-    });
-    expect(result.content).toHaveLength(200);
-  });
-
-  it('checkGuardrail output 方向走 output guardrail；异常时降级', async () => {
-    mockOutputCheck.mockReturnValue({ safe: false, violations: ['v1'] });
-    const bad = await tool('checkGuardrail').handler({ direction: 'output', content: 'c' });
-    expect(bad).toMatchObject({ direction: 'output', passed: false, message: '1 violation(s) found' });
-
-    mockOutputCheck.mockImplementation(() => { throw new Error('down'); });
-    const degraded = await tool('checkGuardrail').handler({ direction: 'output', content: 'c' });
-    expect(degraded).toEqual({
-      direction: 'output', passed: false, harnessUnavailable: true,
-      message: 'Harness unavailable, guardrail check not performed',
-    });
-  });
-
-  it('getSandboxLevel 返回 L{level}；异常时回退 L3', async () => {
-    mockGetSandbox.mockReturnValue({ getLevel: () => 1, getDescription: () => 'full isolation' });
-    expect(await tool('getSandboxLevel').handler({})).toEqual({
-      level: 'L1', description: 'full isolation', message: 'Sandbox configuration retrieved',
-    });
-
-    mockGetSandbox.mockImplementation(() => { throw new Error('down'); });
-    expect(await tool('getSandboxLevel').handler({})).toEqual({
-      level: 'L3', message: 'Sandbox info unavailable (harness not loaded)',
     });
   });
 });
