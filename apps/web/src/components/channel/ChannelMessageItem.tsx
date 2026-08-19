@@ -16,6 +16,7 @@ import { ConvertToTaskDialog } from './ConvertToTaskDialog';
 import { NeedInputOptions } from './NeedInputOptions';
 import { shortWuId } from '../../utils/id';
 import { parseMeta, type CardMeta, type MetaOption } from '../../utils/messageMeta';
+import { useImeEnterGuard } from '../../hooks/useImeEnterGuard';
 
 interface Props {
   message: ChannelMessage;
@@ -74,6 +75,8 @@ export function ChannelMessageItem({
   const [convertOpen, setConvertOpen] = useState(false);
   const [needDraft, setNeedDraft] = useState('');
   const [needSent, setNeedSent] = useState(false);
+  // #270：NEED_INPUT 内嵌回复框共享 composer 同款 IME 守卫
+  const { handleCompositionEnd, isImeEvent } = useImeEnterGuard();
   const canConvert = !message.workUnitId && isHuman && !!channelId;
   const reqId: string | undefined = meta.requirementId || meta.reqId;
   // 2026-07 §5.7: 里程碑消息 meta.pmoId（老消息没有 → undefined，不渲染 PMO chip）
@@ -170,7 +173,12 @@ export function ChannelMessageItem({
               placeholder="直接在此回复，WorkUnit 将继续执行…"
               value={needDraft}
               onChange={e => setNeedDraft(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && sendInlineReply()}
+              onCompositionEnd={handleCompositionEnd}
+              onKeyDown={e => {
+                // #270：IME 选词 Enter 不发送；长按不连发
+                if (e.key !== 'Enter' || isImeEvent(e) || e.repeat) return;
+                sendInlineReply();
+              }}
             />
             <button className="mc-btn mc-btn-primary" onClick={sendInlineReply} disabled={!needDraft.trim()}>
               回复

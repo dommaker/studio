@@ -67,6 +67,33 @@ describe('NeedInputOptions — 固定动作', () => {
   });
 });
 
+describe('NeedInputOptions — 自定义输入 IME 守卫（#270）', () => {
+  it('IME 合成期间 Enter 不发送，合成结束后正常发送', () => {
+    const onReply = vi.fn();
+    render(<NeedInputOptions options={OPTIONS} onReply={onReply} />);
+    fireEvent.click(screen.getByText('自定义…'));
+    const input = screen.getByLabelText('自定义回复');
+
+    fireEvent.change(input, { target: { value: '/数据/工程' } });
+    fireEvent.keyDown(input, { key: 'Enter', isComposing: true });
+    expect(onReply).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(onReply).toHaveBeenCalledWith('/数据/工程');
+  });
+
+  it('Enter 长按（e.repeat）不发送', () => {
+    const onReply = vi.fn();
+    render(<NeedInputOptions options={OPTIONS} onReply={onReply} />);
+    fireEvent.click(screen.getByText('自定义…'));
+    const input = screen.getByLabelText('自定义回复');
+
+    fireEvent.change(input, { target: { value: '/data/my-repo' } });
+    fireEvent.keyDown(input, { key: 'Enter', repeat: true });
+    expect(onReply).not.toHaveBeenCalled();
+  });
+});
+
 describe('NeedInputOptions — multiSelect 预留钩子（#250 D3）', () => {
   it('multiSelect prop 透传 aria-multiselectable；v1 仍单选即发送', () => {
     const onReply = vi.fn();

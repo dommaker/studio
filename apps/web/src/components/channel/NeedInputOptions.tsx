@@ -5,6 +5,7 @@
 // 未来开多选只改后端发字段 + 本组件 checkbox 语义，wire 与存储零迁移。
 import { useState } from 'react';
 import type { MetaOption } from '../../utils/messageMeta';
+import { useImeEnterGuard } from '../../hooks/useImeEnterGuard';
 
 export const AGENT_JUDGE_LABEL = '交给 agent 判断';
 
@@ -21,6 +22,8 @@ export function NeedInputOptions({ options, multiSelect, onReply }: Props) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [customOpen, setCustomOpen] = useState(false);
   const [customDraft, setCustomDraft] = useState('');
+  // #270：自定义输入框共享 composer 同款 IME 守卫
+  const { handleCompositionEnd, isImeEvent } = useImeEnterGuard();
 
   const pick = (opt: MetaOption) => {
     const key = opt.value ?? opt.label;
@@ -66,7 +69,12 @@ export function NeedInputOptions({ options, multiSelect, onReply }: Props) {
             placeholder="直接输入工程路径或说明…"
             value={customDraft}
             onChange={e => setCustomDraft(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && sendCustom()}
+            onCompositionEnd={handleCompositionEnd}
+            onKeyDown={e => {
+              // #270：IME 选词 Enter 不发送；长按不连发
+              if (e.key !== 'Enter' || isImeEvent(e) || e.repeat) return;
+              sendCustom();
+            }}
           />
           <button className="mc-btn mc-btn-primary" onClick={sendCustom} disabled={!customDraft.trim()}>
             回复

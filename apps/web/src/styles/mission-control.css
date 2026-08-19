@@ -537,7 +537,8 @@
   border-radius: 4px;
   box-shadow: var(--shadow-lg);
   z-index: 50;
-  max-height: 192px;
+  /* #270：max-height 按可用空间 clamp，超出滚动 */
+  max-height: min(240px, 40vh);
   overflow-y: auto;
 }
 .mc-mention-item {
