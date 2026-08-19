@@ -1,7 +1,7 @@
 // Channel Detail Page — Mission Control 三栏（左频道栏 / 中对话流 / 右抽屉）
 // 对话流逻辑与 B1-001/Phase 2 一致：日期分隔、已完成折叠、线程分组、NEED_INPUT 回复链路，零语义变更
 import { useParams } from 'react-router-dom';
-import { useEffect, useLayoutEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useLayoutEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useChannelMessages } from '../hooks/useChannelEvents';
 import { useChannelLiveExecutions } from '../hooks/useChannelLiveExecutions';
 import { shortWuId } from '../utils/id';
@@ -11,6 +11,7 @@ import { ChannelInput } from '../components/channel/ChannelInput';
 import { ChannelMemberManager } from '../components/channel/ChannelMemberManager';
 import { ChannelDefaultProjectSelect } from '../components/channel/ChannelDefaultProjectSelect';
 import { ChannelCurrentPmoChip } from '../components/channel/ChannelCurrentPmoChip';
+import { ChannelNeedInputChip, type NeedInputTodo } from '../components/channel/ChannelNeedInputChip';
 import { ChannelRail } from '../components/channel/ChannelRail';
 import { WorkUnitDrawer, type DrawerState } from '../components/channel/WorkUnitDrawer';
 import { workunitApi } from '../api/workunit';
@@ -32,13 +33,14 @@ function isYesterday(d: Date) {
   return d.toDateString() === y.toDateString();
 }
 
-/** AC-C3: Group messages into threads (anchor + replies) */
+/** AC-C3: Group messages into threads (anchor + replies)
+ *  #279（走查 F4）：promoteIds 命中的线程回复提升到主流（agent 追问主流可见，不只在折叠线程里） */
 interface ThreadGroup {
   anchor: ChannelMessage;
   replies: ChannelMessage[];
 }
 
-function groupIntoThreads(messages: ChannelMessage[]): Array<ChannelMessage | ThreadGroup> {
+function groupIntoThreads(messages: ChannelMessage[], promoteIds?: Set<string>): Array<ChannelMessage | ThreadGroup> {
   const anchorMap = new Map<string, ThreadGroup>();
   const result: Array<ChannelMessage | ThreadGroup> = [];
 
@@ -48,7 +50,7 @@ function groupIntoThreads(messages: ChannelMessage[]): Array<ChannelMessage | Th
       const group: ThreadGroup = { anchor: msg, replies: [] };
       anchorMap.set(msg.id, group);
       result.push(group);
-    } else if (msg.replyToId && anchorMap.has(msg.replyToId)) {
+    } else if (msg.replyToId && anchorMap.has(msg.replyToId) && !promoteIds?.has(msg.id)) {
       // This is a thread reply
       anchorMap.get(msg.replyToId)!.replies.push(msg);
     } else {
@@ -71,6 +73,9 @@ type ReplyItem =
  * 系统播报（Studio 署名无卡）与卡片消息不参与合并（既不并入别人，别人也不并入它）。
  */
 const MERGE_WINDOW_MS = 5 * 60 * 1000;
+
+/** #279（决策 #250 D4）：闸门类 WU 类型（人工验收单）——不聚合进 NEED_INPUT 待办 chip */
+const GATE_WU_TYPES = new Set(['decision', 'spec']);
 
 function mergeable(m: ChannelMessage): boolean {
   return !parseMeta(m.meta).cardType && !(m.authorType === 'agent' && m.agentName === 'Studio');
@@ -119,8 +124,9 @@ export function ChannelDetailPage() {
   const [sending, setSending] = useState(false);
   const [showCompleted, setShowCompleted] = useState(false);
   const [replyTo, setReplyTo] = useState<ChannelMessage | null>(null);
-  // F5: NEED_INPUT 挂起中的 WorkUnit id 集合（等待人类回复）
-  const [waitingWuIds, setWaitingWuIds] = useState<Set<string>>(new Set());
+  // F5: NEED_INPUT 挂起中的 WorkUnit 集合（等待人类回复）；
+  // #279（决策 #250 D4）：扩为对象集（chip 聚合要 WU 标识 + 问题摘要），闸门类（decision/spec）不聚合
+  const [waitingWus, setWaitingWus] = useState<NeedInputTodo[]>([]);
   // REQ 需求编号（vision §5.3）：本频道需求 chips；全链路改右抽屉呈现
   const [channelReqs, setChannelReqs] = useState<Requirement[]>([]);
   // Mission Control 右抽屉：WorkUnit 详情 / REQ 全链路
@@ -134,16 +140,25 @@ export function ChannelDetailPage() {
   }, [id]);
 
   // F5: 拉取本频道挂起中的 WorkUnit（blocked + metadata.waitingForInput）
+  // #279：闸门类（decision/spec 人工验收单）不聚合进待办 chip（不阻塞执行，避免红点焦虑）；
+  // waitingQuestion 供 chip 下拉问题摘要
   useEffect(() => {
     if (!id) return;
     workunitApi.list({ channelId: id, status: 'blocked', limit: 100 })
       .then(r => {
-        const waiting = r.data.data
-          .filter(wu => {
-            try { return !!JSON.parse(wu.metadata || '{}').waitingForInput; } catch { return false; }
-          })
-          .map(wu => wu.id);
-        setWaitingWuIds(new Set(waiting));
+        const waiting = r.data.data.flatMap(wu => {
+          try {
+            const md = JSON.parse(wu.metadata || '{}');
+            if (!md.waitingForInput) return [];
+            if (GATE_WU_TYPES.has(wu.type)) return [];
+            return [{
+              wuId: wu.id,
+              question: typeof md.waitingQuestion === 'string' ? md.waitingQuestion : undefined,
+              scope: wu.scope,
+            }];
+          } catch { return []; }
+        });
+        setWaitingWus(waiting);
       })
       .catch(() => {});
   }, [id, messages.length]);
@@ -370,10 +385,36 @@ export function ChannelDetailPage() {
     return messages.find(m => m.id === msgId);
   }, [messages]);
 
-  // F5: 消息关联的 WorkUnit 是否挂起等待回复
+  // F5: 挂起集合（由 waitingWus 派生）
+  const waitingWuIds = useMemo(() => new Set(waitingWus.map(w => w.wuId)), [waitingWus]);
+
+  // #279（走查 F4）：每个挂起 WU 的「当前提问消息」= 该 WU 最新一条非人类消息。
+  // badge/回复区只落在这一条（同 WU 多消息不再一屏多个回复框）；chip 定位也用它
+  const latestQuestionIdByWu = useMemo(() => {
+    const map = new Map<string, { id: string; at: number }>();
+    for (const m of messages) {
+      if (!m.workUnitId || m.authorType === 'human') continue;
+      const at = new Date(m.createdAt).getTime();
+      const prev = map.get(m.workUnitId);
+      if (!prev || at >= prev.at) map.set(m.workUnitId, { id: m.id, at });
+    }
+    return new Map([...map].map(([wuId, v]) => [wuId, v.id]));
+  }, [messages]);
+
+  // #279（走查 F4）：挂起 WU 的当前提问消息若是线程回复（agent 追问），提升到主流可见
+  const promotedQuestionIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const wu of waitingWus) {
+      const msgId = latestQuestionIdByWu.get(wu.wuId);
+      if (msgId) ids.add(msgId);
+    }
+    return ids;
+  }, [waitingWus, latestQuestionIdByWu]);
+
+  // F5: 消息是否为关联 WorkUnit 的当前提问（badge/内嵌回复区只落在这一条）
   const isWaitingForInput = useCallback((msg: ChannelMessage) => {
-    return !!msg.workUnitId && waitingWuIds.has(msg.workUnitId);
-  }, [waitingWuIds]);
+    return !!msg.workUnitId && waitingWuIds.has(msg.workUnitId) && latestQuestionIdByWu.get(msg.workUnitId) === msg.id;
+  }, [waitingWuIds, latestQuestionIdByWu]);
 
   // #285: agent 消息 inline-code 文件 chip 词表（channelId 变化时拉一次；失败静默降级，不渲染 chip）
   // 携带 channelId 防跨频道串词表（切换频道后旧词表不传给新频道）
@@ -415,6 +456,29 @@ export function ChannelDetailPage() {
     });
   }, []);
 
+  // #279（决策 #250 D4）：chip 点条目 → 滚动定位到该 WU 当前提问消息并高亮（2s 后消退）。
+  // 提问消息若还埋在折叠线程里（数据时序边界），先把所属线程展开
+  const [highlightId, setHighlightId] = useState<string | null>(null);
+  const locateWaitingQuestion = useCallback((wuId: string) => {
+    const msgId = latestQuestionIdByWu.get(wuId);
+    if (!msgId) return;
+    const target = messages.find(m => m.id === msgId);
+    if (target?.replyToId) {
+      const anchorId = target.replyToId;
+      setExpandedThreads(prev => new Set(prev).add(anchorId));
+    }
+    setHighlightId(msgId);
+  }, [latestQuestionIdByWu, messages]);
+
+  useEffect(() => {
+    if (!highlightId) return;
+    const el = streamRef.current?.querySelector(`[data-message-id="${highlightId}"]`);
+    // jsdom 无 scrollIntoView 实现，?. 兜底
+    (el as HTMLElement | null)?.scrollIntoView?.({ block: 'center' });
+    const timer = setTimeout(() => setHighlightId(null), 2000);
+    return () => clearTimeout(timer);
+  }, [highlightId]);
+
   // 里程碑判定（不折叠）：人类消息 / 卡片消息 / 等待回复 / 最后一条回复
   const isMilestoneReply = useCallback((m: ChannelMessage, isLast: boolean) => {
     if (isLast || m.authorType === 'human' || isWaitingForInput(m)) return true;
@@ -442,6 +506,7 @@ export function ChannelDetailPage() {
       onOpenRequirement={openReq}
       onInlineReply={handleInlineReply}
       fileVocabulary={fileVocabulary && fileVocabulary.channelId === id ? fileVocabulary.data : undefined}
+      highlight={highlightId === msg.id}
       {...extra}
     />
   );
@@ -459,6 +524,8 @@ export function ChannelDetailPage() {
             {channel?.type === 'rnd' ? '研发频道' : channel?.type === 'decision' ? '决策频道' : '系统频道'}
           </span>
           <div className="mc-topbar-actions">
+            {/* #279（决策 #250 D4）：NEED_INPUT 待办 chip（只聚合等待回复，闸门类不聚合） */}
+            <ChannelNeedInputChip items={waitingWus} onLocate={locateWaitingQuestion} />
             {/* #272（决策 #251 Q6）：当前 PMO chip（派生不落库，点击跳项目页） */}
             <ChannelCurrentPmoChip channelId={id} />
             <ChannelMemberManager channelId={id} membersJson={channel?.members} />
@@ -541,16 +608,18 @@ export function ChannelDetailPage() {
               const visibleMessages = (showCompleted ? messages : [...active, ...completed.slice(-2)])
                 .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 
-              // Re-group visible messages into threads
-              const items = groupIntoThreads(visibleMessages);
+              // Re-group visible messages into threads（#279：当前提问消息提升主流，不进折叠线程）
+              const items = groupIntoThreads(visibleMessages, promotedQuestionIds);
 
               // 每项（线程组取 anchor）的代表消息与日期串：日期分隔/合并判定均按可见项纯比较
               const itemMsgs = items.map(item => ('anchor' in item ? item.anchor : item));
               const itemDateStrs = itemMsgs.map(m =>
                 new Date(m.createdAt).toLocaleDateString('zh-CN', { month: 'long', day: 'numeric' }));
               // #277 D2：主流连续合并（日期分隔线切断；线程组以其 anchor 参与主流序列）
+              // #279：提升主流的当前提问消息不参与合并（badge/选项卡需要完整头，且不被前一条吃掉）
               const itemCompact = itemMsgs.map((m, idx) => {
                 const showDate = idx === 0 || itemDateStrs[idx] !== itemDateStrs[idx - 1];
+                if (promotedQuestionIds.has(m.id) || promotedQuestionIds.has(itemMsgs[idx - 1]?.id ?? '')) return false;
                 return !showDate && shouldOmitHead(itemMsgs[idx - 1] ?? null, m);
               });
 

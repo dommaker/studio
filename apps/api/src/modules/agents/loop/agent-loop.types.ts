@@ -14,6 +14,9 @@ export interface StepResult {
   summary: string;
   /** A2A §4.1: DELEGATE 协议解析结果（action='delegate' 时存在） */
   delegate?: { targetName: string; scope: string };
+  /** #279（决策 #250 D3）：NEED_INPUT 下一行 OPTIONS: 解析出的结构化选项，
+   *  随频道提问消息 meta 发出供前端渲染选项卡；解析失败/缺失时为 undefined */
+  options?: { label: string; description?: string; value?: string }[];
   /** §4.2 发言层新鲜度检查：step 开始时捕获的频道版本（agentStep 写入，recordResult 比对） */
   channelVersion?: { lineCount: number; lastMessageId: string | null };
   /** Metadata fields to merge into WorkUnit.metadata (set by agentStep, written atomically by recordResult) */

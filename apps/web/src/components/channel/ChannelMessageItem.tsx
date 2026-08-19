@@ -50,6 +50,8 @@ interface Props {
   fileVocabulary?: ChannelFileVocabulary;
   /** #277（决策 #248 D2）：连续合并——省略重复头（头像/署名/时间），动作保留 */
   compact?: boolean;
+  /** #279（决策 #250 D4）：顶栏待办 chip 定位高亮 */
+  highlight?: boolean;
 }
 
 function renderCard(
@@ -86,7 +88,7 @@ function renderCard(
 export function ChannelMessageItem({
   message, onAction, onReply, findMessage, channelId,
   isThreadAnchor, threadReplyCount, isExpanded, onToggleThread, isThreadReply,
-  waitingForInput, onOpenWorkUnit, onOpenWorkUnitConfirm, onOpenRequirement, onInlineReply, fileVocabulary, compact,
+  waitingForInput, onOpenWorkUnit, onOpenWorkUnitConfirm, onOpenRequirement, onInlineReply, fileVocabulary, compact, highlight,
 }: Props) {
   const isHuman = message.authorType === 'human';
   const meta = parseMeta(message.meta);
@@ -168,7 +170,7 @@ export function ChannelMessageItem({
 
   return (
     <div
-      className={`mc-msg ${isThreadReply ? 'mc-msg-reply' : ''} ${compact ? 'mc-msg-compact' : ''} ${sideClass}`}
+      className={`mc-msg ${isThreadReply ? 'mc-msg-reply' : ''} ${compact ? 'mc-msg-compact' : ''} ${sideClass}${highlight ? ' mc-msg-highlight' : ''}`}
       data-message-id={message.id}
     >
       {/* Quote block (reply reference) */}
@@ -194,7 +196,8 @@ export function ChannelMessageItem({
               <span className="mc-time">{formatTime(message.createdAt)}</span>
             </>
           )}
-          {waitingForInput && (
+          {/* #279（走查 F4）：needSent（已回复）时 badge 让位——「已回复」与「等待回复」不同屏并存 */}
+          {waitingForInput && !needSent && (
             <span className="mc-wait-badge">等待回复</span>
           )}
           <span className="mc-msg-actions">{actionButtons}</span>
@@ -203,7 +206,7 @@ export function ChannelMessageItem({
       {/* #277 D2：compact 省略重复头；动作（+等待 badge）浮于角落保留可用性 */}
       {!isSystem && compact && (
         <span className="mc-msg-actions mc-msg-actions-compact">
-          {waitingForInput && (
+          {waitingForInput && !needSent && (
             <span className="mc-wait-badge">等待回复</span>
           )}
           {actionButtons}

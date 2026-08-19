@@ -505,6 +505,58 @@
 }
 .mc-need-option-extra:hover { color: var(--text-primary); border-color: var(--accent-primary); }
 
+/* #279（决策 #250 D4）：顶栏 NEED_INPUT 待办 chip + 下拉清单 + 定位高亮 */
+.mc-need-chip-wrap { position: relative; }
+.mc-need-chip {
+  color: var(--warning);
+  background: var(--warning-dim);
+  border-color: var(--warning-border);
+}
+.mc-need-chip:hover { color: var(--warning); border-color: var(--warning); }
+.mc-need-chip-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 30;
+  min-width: 260px;
+  max-width: 360px;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: 4px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  overflow: hidden;
+}
+.mc-need-chip-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font: inherit;
+  font-size: var(--fs-sm);
+  color: var(--text-primary);
+  text-align: left;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--border-subtle);
+  padding: 8px 12px;
+  cursor: pointer;
+}
+.mc-need-chip-item:last-child { border-bottom: none; }
+.mc-need-chip-item:hover { background: var(--bg-tertiary); }
+.mc-need-chip-wu { color: var(--accent-primary); flex-shrink: 0; }
+.mc-need-chip-q {
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mc-msg-highlight {
+  outline: 2px solid var(--warning);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
 /* 按钮（Mission Control 密度） */
 .mc-btn {
   font-size: var(--fs-sm);

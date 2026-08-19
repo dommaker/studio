@@ -74,10 +74,40 @@ export function parseAgentOutput(text: string): StepResult {
         COMPLETE: 'complete',
         NEED_INPUT: 'need_input',
       };
-      return { action: actionMap[match[1]], summary: match[2].trim() };
+      const result: StepResult = { action: actionMap[match[1]], summary: match[2].trim() };
+      // #279（决策 #250 D3）：NEED_INPUT 行紧接着的下一行可选携带
+      //   OPTIONS: [{"label":"方案 A","description":"说明","value":"a"},...]
+      // 防御：OPTIONS 缺失 / JSON 损坏 / 元素缺 label → 静默忽略（options 为 undefined），
+      // 绝不影响 NEED_INPUT 本体解析；只对 NEED_INPUT 生效。
+      if (result.action === 'need_input') {
+        const options = parseNeedInputOptions(lines[i + 1]);
+        if (options) result.options = options;
+      }
+      return result;
     }
   }
   return { action: 'progress', summary: text.trim() };
+}
+
+/** #279：解析 NEED_INPUT 下一行的 OPTIONS: JSON 数组；非法输入一律返回 undefined */
+function parseNeedInputOptions(line: string | undefined): StepResult['options'] {
+  const match = line?.match(/^OPTIONS:\s*(.+)$/);
+  if (!match) return undefined;
+  try {
+    const parsed = JSON.parse(match[1]) as unknown;
+    if (!Array.isArray(parsed)) return undefined;
+    const options = parsed
+      .filter((o): o is Record<string, unknown> => o !== null && typeof o === 'object')
+      .filter(o => typeof o.label === 'string')
+      .map(o => ({
+        label: o.label as string,
+        ...(typeof o.description === 'string' ? { description: o.description } : {}),
+        ...(typeof o.value === 'string' ? { value: o.value } : {}),
+      }));
+    return options.length > 0 ? options : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /** Dynamic sleep interval based on result */
@@ -223,7 +253,7 @@ ${wu.scope}
 继续上次工作。仓库根有 AGENTS.md/CLAUDE.md 时以它们为准。每步结束后输出：
   ACTION: PROGRESS:<summary>      完成一步，继续中
   ACTION: COMPLETE:<summary>      全部完成
-  ACTION: NEED_INPUT:<需要什么>   需要人类输入
+  ACTION: NEED_INPUT:<需要什么>   需要人类输入（有选项时下一行加 OPTIONS: [{"label":"方案 A","value":"a"},...]，value 可省）
 
 当做出设计决策（选型、架构选择、方案取舍）时，用 Write 工具追加到 ${studioPath('knowledge')}/decision-YYYY-MM-DD.md 记录：话题、候选方案、选择、理由。`;
 }
@@ -243,5 +273,5 @@ ${replyText}
 根据回复调整方案，继续工作。仓库根有 AGENTS.md/CLAUDE.md 时以它们为准。每步结束后输出：
   ACTION: PROGRESS:<summary>      完成一步，继续中
   ACTION: COMPLETE:<summary>      全部完成
-  ACTION: NEED_INPUT:<需要什么>   需要人类输入`;
+  ACTION: NEED_INPUT:<需要什么>   需要人类输入（有选项时下一行加 OPTIONS: [{"label":"方案 A","value":"a"},...]，value 可省）`;
 }

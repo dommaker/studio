@@ -47,6 +47,23 @@ describe('ChannelMessageItem — F5 waiting badge', () => {
     render(<ChannelMessageItem message={baseMessage} onAction={vi.fn()} />);
     expect(screen.queryByText('等待回复')).not.toBeInTheDocument();
   });
+
+  // #279（走查 F4）：回答后「已回复」与「等待回复」不得同屏并存——badge 让位给已回复提示
+  it('发送内嵌回复后 badge 让位：只显示已回复，不再同屏并存', () => {
+    render(<ChannelMessageItem message={baseMessage} onAction={vi.fn()} waitingForInput onInlineReply={vi.fn()} />);
+    expect(screen.getByText('等待回复')).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('回复 wu-1'), { target: { value: '用 OAuth' } });
+    fireEvent.click(screen.getByText('回复'));
+    expect(screen.getByText(/已回复/)).toBeInTheDocument();
+    expect(screen.queryByText('等待回复')).not.toBeInTheDocument();
+  });
+
+  // #279（决策 #250 D4）：顶栏 chip 定位高亮——highlight prop 挂 mc-msg-highlight class
+  it('highlight prop → 消息根元素带 mc-msg-highlight class', () => {
+    const { container } = render(<ChannelMessageItem message={baseMessage} onAction={vi.fn()} highlight />);
+    expect(container.querySelector('.mc-msg.mc-msg-highlight')).toBeTruthy();
+    expect(container.querySelector('[data-message-id="msg-1"]')).toBeTruthy();
+  });
 });
 
 describe('ChannelMessageItem — §5.7 WU/PMO 直跳', () => {
