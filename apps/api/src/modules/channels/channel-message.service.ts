@@ -19,6 +19,9 @@ export interface MessageMeta {
   options?: { label: string; description?: string; value?: string }[];
   /** #267（决策 #250 D3）预留多选钩子（v1 恒单选；未来开多选只改发射端字段 + 前端 checkbox 语义） */
   multiSelect?: boolean;
+  /** #281（决策 #249 §2）：@文件引用结构化载体——repo = 工程绝对路径（与 PMO gitRepos 条目
+   * 同形），path = git ls-files 原样相对路径，无行范围。路由层校验后只含有效引用 */
+  files?: { repo: string; path: string }[];
   [key: string]: unknown;
 }
 
@@ -82,6 +85,7 @@ export class ChannelMessageService {
     content: string,
     replyToId?: string,
     workUnitId?: string,
+    meta?: MessageMeta,
   ): Promise<MessageRecord> {
     const trimmed = content.trim();
     if (!trimmed) throw new Error('Content cannot be empty');
@@ -94,7 +98,7 @@ export class ChannelMessageService {
       agentName: null,
       content: trimmed,
       replyToId: replyToId || null,
-      meta: '{}',
+      meta: meta && Object.keys(meta).length > 0 ? JSON.stringify(meta) : '{}',
       workUnitId: workUnitId || null,
       createdAt: now,
     };

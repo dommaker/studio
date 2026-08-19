@@ -48,6 +48,17 @@ export interface LocalProject {
   language?: string;
 }
 
+/** #281（决策 #249 §2）：@文件引用——repo = 工程绝对路径（PMO gitRepos 同形），path = git ls-files 相对路径 */
+export interface FileRef {
+  repo: string;
+  path: string;
+}
+
+/** #281：频道文件词表（候选集顺序，各仓 git ls-files） */
+export interface ChannelFileVocabulary {
+  repos: { repo: string; files: string[] }[];
+}
+
 export const channelApi = {
   list: () =>
     api.get<{ success: boolean; data: Channel[] }>('/channels'),
@@ -67,11 +78,15 @@ export const channelApi = {
       { params }
     ),
 
-  sendMessage: (channelId: string, content: string, replyToId?: string) =>
+  sendMessage: (channelId: string, content: string, replyToId?: string, files?: FileRef[]) =>
     api.post<{ success: boolean; data: ChannelMessage }>(
       `/channels/${channelId}/messages`,
-      { content, replyToId }
+      { content, replyToId, ...(files?.length ? { files } : {}) }
     ),
+
+  /** #281: @文件引用只读词表（候选集 = 频道相关工程；文件候选走词表路径后缀补全） */
+  getFileVocabulary: (channelId: string) =>
+    api.get<{ success: boolean; data: ChannelFileVocabulary }>(`/channels/${channelId}/file-vocabulary`),
 
   listAgents: (channelId?: string, options?: { includeSystem?: boolean }) =>
     api.get<{ data: AgentProfile[]; pagination: { total: number } }>('/agent-profiles', {

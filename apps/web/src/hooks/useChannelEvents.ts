@@ -1,6 +1,6 @@
 // Channel SSE hook — B2: EventSource 实时推送替代 3s 轮询
 import { useState, useEffect, useCallback } from 'react';
-import { channelApi, type ChannelMessage } from '../api/channel';
+import { channelApi, type ChannelMessage, type FileRef } from '../api/channel';
 import { useWebSocketContext } from '../api/websocketHooks';
 
 export function useChannelMessages(channelId: string | undefined) {
@@ -72,9 +72,9 @@ export function useChannelMessages(channelId: string | undefined) {
     return () => clearInterval(poll);
   }, [channelId, fetchMessages, status]);
 
-  const sendMessage = useCallback(async (content: string, replyToId?: string) => {
+  const sendMessage = useCallback(async (content: string, replyToId?: string, files?: FileRef[]) => {
     if (!channelId || !content.trim()) return null;
-    const res = await channelApi.sendMessage(channelId, content, replyToId);
+    const res = await channelApi.sendMessage(channelId, content, replyToId, files);
     const msg = res.data.data;
     setMessages(prev => [...prev, msg]);
     return msg;

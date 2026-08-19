@@ -553,6 +553,9 @@
 }
 .mc-mention-item:hover, .mc-mention-item-active { background: var(--accent-dim); color: var(--accent-primary); }
 .mc-mention-desc { margin-left: auto; color: var(--text-muted); font-size: var(--fs-xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* #281: @弹框统一分组（上 Agents 下 Files） */
+.mc-mention-group { padding: 4px 10px 2px; font-size: var(--fs-xs); color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.mc-mention-repo { margin-left: auto; color: var(--text-muted); font-size: var(--fs-xs); }
 
 /* ---------- 右栏：抽屉 ---------- */
 .mc-drawer {

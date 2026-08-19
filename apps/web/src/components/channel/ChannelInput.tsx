@@ -1,15 +1,26 @@
 // Channel message input — AC-C1: @mention autocomplete + AC-C2: reply mode
 // 2026-07 视觉重构（方向 A Mission Control）：mc-inputbar 视觉重绘；交互语义零变更
+// #281（决策 #249 §5 / #248 D9）：@弹框统一分组——上 Agents 下 Files；文件候选走
+// 频道词表（git ls-files）路径后缀精确匹配补全，选中插入纯路径文本（mention 正则不动），
+// 发送时携带结构化 files=[{repo, path}]（仅保留正文仍含其路径的引用，防陈旧）。
 import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
-import { channelApi, type AgentProfile, type ChannelMessage } from '../../api/channel';
+import { channelApi, type AgentProfile, type ChannelMessage, type FileRef } from '../../api/channel';
 import { useImeEnterGuard } from '../../hooks/useImeEnterGuard';
 
 interface Props {
-  onSend: (content: string, replyToId?: string) => void;
+  onSend: (content: string, replyToId?: string, files?: FileRef[]) => void;
   sending: boolean;
   replyTo?: ChannelMessage | null;
   onCancelReply?: () => void;
   channelId?: string;
+}
+
+/** 文件候选展示上限（词表可能数千条，弹框只给补全头部） */
+const FILE_CANDIDATE_CAP = 20;
+
+/** 工程绝对路径 → basename（多仓同名文件消歧展示用） */
+function repoBasename(repo: string): string {
+  return repo.split('/').filter(Boolean).pop() ?? repo;
 }
 
 export function ChannelInput({ onSend, sending, replyTo, onCancelReply, channelId }: Props) {
@@ -22,6 +33,9 @@ export function ChannelInput({ onSend, sending, replyTo, onCancelReply, channelI
   // #270：Esc dismiss 状态——记录被 Esc 关掉的 mention 起点；继续输入（onChange）时复位。
   // 无此状态时弹框由残留 @query 推导永远关不掉，与「Esc 取消」提示矛盾。
   const [mentionDismissedAt, setMentionDismissedAt] = useState<number | null>(null);
+  // #281：频道文件词表（候选集 = 频道相关工程）+ 已选文件引用台账
+  const [vocabRepos, setVocabRepos] = useState<{ repo: string; files: string[] }[]>([]);
+  const [fileRefs, setFileRefs] = useState<FileRef[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const activeMentionItemRef = useRef<HTMLButtonElement>(null);
   // #270：IME 合成守卫（isComposing / keyCode 229 / compositionend 后 10ms 兜底）
@@ -32,6 +46,14 @@ export function ChannelInput({ onSend, sending, replyTo, onCancelReply, channelI
     channelApi.listAgents(channelId)
       .then(res => setAgents(res.data.data))
       .catch(() => setAgents([]));
+  }, [channelId]);
+
+  // #281: 拉取频道文件词表（只读端点；失败降级为无文件候选，不影响 agent 组）
+  useEffect(() => {
+    if (!channelId) return;
+    channelApi.getFileVocabulary(channelId)
+      .then(res => setVocabRepos(res.data.data.repos))
+      .catch(() => setVocabRepos([]));
   }, [channelId]);
 
   // Parse if we're in a mention: last @word before cursor
@@ -52,13 +74,31 @@ export function ChannelInput({ onSend, sending, replyTo, onCancelReply, channelI
     return agents.filter(a => a.name.toLowerCase().includes(q));
   }, [mentionState, agents]);
 
+  // #281: 文件候选 = 词表路径后缀精确匹配（#248 D9），空 query 不献候选（防全量刷屏）
+  const filteredFiles = useMemo(() => {
+    if (!mentionState || !mentionState.query) return [];
+    const q = mentionState.query.toLowerCase();
+    const out: FileRef[] = [];
+    for (const r of vocabRepos) {
+      for (const p of r.files) {
+        if (p.toLowerCase().endsWith(q)) out.push({ repo: r.repo, path: p });
+        if (out.length >= FILE_CANDIDATE_CAP) return out;
+      }
+    }
+    return out;
+  }, [mentionState, vocabRepos]);
+
   // #270：弹框可见性 = 有候选 且 未被 Esc dismiss（不再由残留 @query 单独推导）
-  const popupOpen = filteredAgents.length > 0 && mentionDismissedAt !== mentionState?.start;
+  const popupOpen = (filteredAgents.length > 0 || filteredFiles.length > 0)
+    && mentionDismissedAt !== mentionState?.start;
+  const totalCandidates = filteredAgents.length + filteredFiles.length;
+  // 跨组统一序号（agents 在前 files 在后）；query 变化致候选收缩时钳位选中项
+  const activeIdx = totalCandidates > 0 ? mentionIdx % totalCandidates : 0;
 
   // #270：弹框轻量重绘——选中项滚动进可视区（jsdom 无 scrollIntoView，?. 兜底）
   useEffect(() => {
     if (popupOpen) activeMentionItemRef.current?.scrollIntoView?.({ block: 'nearest' });
-  }, [mentionIdx, popupOpen]);
+  }, [activeIdx, popupOpen]);
 
   const insertMention = useCallback((agentName: string) => {
     if (!mentionState) return;
@@ -80,12 +120,42 @@ export function ChannelInput({ onSend, sending, replyTo, onCancelReply, channelI
     }, 0);
   }, [content, cursorPos, mentionState]);
 
+  // #281: 文件引用插入 = 纯路径文本（不带 @——mention 正则会误吃文件名触发派发）；
+  // 结构化载体在 fileRefs 台账，发送时随消息上送
+  const insertFileRef = useCallback((ref: FileRef) => {
+    if (!mentionState) return;
+    const pos = Math.min(cursorPos, content.length);
+    const before = content.slice(0, mentionState.start);
+    const after = content.slice(pos);
+    const newContent = `${before}${ref.path} ${after}`;
+    const newCursor = mentionState.start + ref.path.length + 1; // path[space]
+    setContent(newContent);
+    setCursorPos(newCursor);
+    setMentionIdx(0);
+    setFileRefs(prev =>
+      prev.some(f => f.repo === ref.repo && f.path === ref.path) ? prev : [...prev, ref]);
+    setTimeout(() => {
+      const el = textareaRef.current;
+      if (el) {
+        el.setSelectionRange(newCursor, newCursor);
+        el.focus();
+      }
+    }, 0);
+  }, [content, cursorPos, mentionState]);
+
   const handleSend = () => {
     const trimmed = content.trim();
     if (!trimmed || sending) return;
-    onSend(trimmed, replyTo?.id);
+    // #281: 只上送正文仍含其路径的引用（发送前删掉路径文本 = 撤销引用）
+    const refs = fileRefs.filter(f => trimmed.includes(f.path));
+    if (refs.length > 0) {
+      onSend(trimmed, replyTo?.id, refs);
+    } else {
+      onSend(trimmed, replyTo?.id);
+    }
     setContent('');
     setCursorPos(0);
+    setFileRefs([]);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -100,17 +170,22 @@ export function ChannelInput({ onSend, sending, replyTo, onCancelReply, channelI
     if (popupOpen) {
       if (e.key === 'ArrowDown') {
         e.preventDefault();
-        setMentionIdx(prev => (prev + 1) % filteredAgents.length);
+        setMentionIdx(prev => (prev + 1) % totalCandidates);
         return;
       }
       if (e.key === 'ArrowUp') {
         e.preventDefault();
-        setMentionIdx(prev => (prev - 1 + filteredAgents.length) % filteredAgents.length);
+        setMentionIdx(prev => (prev - 1 + totalCandidates) % totalCandidates);
         return;
       }
       if (e.key === 'Enter' || e.key === 'Tab') {
         e.preventDefault();
-        insertMention(filteredAgents[mentionIdx].name);
+        // 跨组统一序号：落在 file 组则插入文件引用，否则 agent mention
+        if (activeIdx >= filteredAgents.length) {
+          insertFileRef(filteredFiles[activeIdx - filteredAgents.length]);
+        } else {
+          insertMention(filteredAgents[activeIdx].name);
+        }
         return;
       }
       if (e.key === 'Escape') {
@@ -176,16 +251,17 @@ export function ChannelInput({ onSend, sending, replyTo, onCancelReply, channelI
         </div>
       </div>
 
-      {/* @mention popup */}
+      {/* @mention popup —— #281: 统一分组（上 Agents 下 Files），跨组统一键盘序号 */}
       {popupOpen && (
-        <div className="mc-mention-popup" role="listbox" aria-label="提及 Agent 候选">
+        <div className="mc-mention-popup" role="listbox" aria-label="提及 Agent / 文件候选">
+          {filteredAgents.length > 0 && <div className="mc-mention-group">Agents</div>}
           {filteredAgents.map((agent, i) => (
             <button
               key={agent.id}
-              ref={i === mentionIdx ? activeMentionItemRef : null}
+              ref={i === activeIdx ? activeMentionItemRef : null}
               role="option"
-              aria-selected={i === mentionIdx}
-              className={i === mentionIdx ? 'mc-mention-item mc-mention-item-active' : 'mc-mention-item'}
+              aria-selected={i === activeIdx}
+              className={i === activeIdx ? 'mc-mention-item mc-mention-item-active' : 'mc-mention-item'}
               onMouseDown={e => { e.preventDefault(); insertMention(agent.name); }}
             >
               <span>@{agent.name}</span>
@@ -194,6 +270,23 @@ export function ChannelInput({ onSend, sending, replyTo, onCancelReply, channelI
               )}
             </button>
           ))}
+          {filteredFiles.length > 0 && <div className="mc-mention-group">Files</div>}
+          {filteredFiles.map((file, j) => {
+            const i = filteredAgents.length + j;
+            return (
+              <button
+                key={`${file.repo}:${file.path}`}
+                ref={i === activeIdx ? activeMentionItemRef : null}
+                role="option"
+                aria-selected={i === activeIdx}
+                className={i === activeIdx ? 'mc-mention-item mc-mention-item-active' : 'mc-mention-item'}
+                onMouseDown={e => { e.preventDefault(); insertFileRef(file); }}
+              >
+                <span>{file.path}</span>
+                <span className="mc-mention-repo">{repoBasename(file.repo)}</span>
+              </button>
+            );
+          })}
         </div>
       )}
     </div>

@@ -11,6 +11,7 @@ import { ConvertToTaskService } from './convert-to-task.service.js';
 import { WorkUnitService } from '../workunit/workunit.service.js';
 import { ProjectDiscoveryService } from '../projects/project-discovery.service.js';
 import { getWorkspaceRecord } from '../workspaces/workspace-store.js';
+import { getChannelFileVocabulary } from './file-ref-vocabulary.js';
 
 const router = Router();
 const fileStore = new FileStore();
@@ -139,11 +140,35 @@ router.get('/:id/messages', async (req, res) => {
   res.json({ success: true, data, total, hasMore });
 });
 
+// GET /api/v1/channels/:id/file-vocabulary — #281：@文件引用只读词表
+// 候选集 = 频道相关工程（默认工程 ∪ REQ 挂接 PMO ∪ 杂务 PMO，最近使用优先），
+// 各仓 git ls-files + 内存缓存（见 file-ref-vocabulary.ts）。
+router.get('/:id/file-vocabulary', async (req, res) => {
+  const channel = await fileStore.getChannel(req.params.id);
+  if (!channel) return res.status(404).json({ success: false, error: 'Channel not found' });
+  try {
+    const vocabulary = await getChannelFileVocabulary(req.params.id);
+    res.json({ success: true, data: vocabulary });
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    logger.warn('[Channel] file vocabulary failed', { channelId: req.params.id, error: msg });
+    res.status(500).json({ success: false, error: msg });
+  }
+});
+
 // POST /api/v1/channels/:id/messages — send a message
 router.post('/:id/messages', requireAuth(), requireNotGuest(), async (req, res) => {
-  const { content, replyToId, workspaceId, reqId } = req.body;
+  const { content, replyToId, workspaceId, reqId, files } = req.body;
   if (!content || typeof content !== 'string' || !content.trim()) {
     return res.status(400).json({ success: false, error: 'content is required' });
+  }
+  // #281: @文件引用结构化载体（可选）；形状不符整体 400，存在性校验在路由层
+  if (files !== undefined && (!Array.isArray(files) || files.some(
+    (f: unknown) => !f || typeof (f as { repo?: unknown }).repo !== 'string'
+      || typeof (f as { path?: unknown }).path !== 'string'
+      || !(f as { repo: string }).repo || !(f as { path: string }).path,
+  ))) {
+    return res.status(400).json({ success: false, error: 'files must be an array of {repo, path} strings' });
   }
 
   const channelId = req.params.id;
@@ -169,6 +194,8 @@ router.post('/:id/messages', requireAuth(), requireNotGuest(), async (req, res) 
       // REQ 需求编号（vision §5.3）：调用方可显式指定（缺省走 #REQ-XXXX token / 自动新建）
       reqId: typeof reqId === 'string' && reqId ? reqId : undefined,
       traceId,
+      // #281: @文件引用（路由层做存在性校验 + 剔除播报）
+      files: files as { repo: string; path: string }[] | undefined,
     },
   );
 

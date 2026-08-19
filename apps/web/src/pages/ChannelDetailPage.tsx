@@ -14,7 +14,7 @@ import { ChannelRail } from '../components/channel/ChannelRail';
 import { WorkUnitDrawer, type DrawerState } from '../components/channel/WorkUnitDrawer';
 import { workunitApi } from '../api/workunit';
 import { requirementApi, type Requirement } from '../api/requirements';
-import type { Channel, ChannelMessage } from '../api/channel';
+import type { Channel, ChannelMessage, FileRef } from '../api/channel';
 import { channelApi } from '../api/channel';
 import { knowledgeApi } from '../api/knowledge';
 import { memoryApi } from '../api/memory';
@@ -181,10 +181,15 @@ export function ChannelDetailPage() {
     }
   }, [messages, loading]);
 
-  const handleSend = useCallback(async (content: string, replyToId?: string) => {
+  const handleSend = useCallback(async (content: string, replyToId?: string, files?: FileRef[]) => {
     setSending(true);
     try {
-      await sendMessage(content, replyToId);
+      // #281: files 仅在有文件引用时透传（保旧调用两参形态）
+      if (files?.length) {
+        await sendMessage(content, replyToId, files);
+      } else {
+        await sendMessage(content, replyToId);
+      }
       setReplyTo(null);
     } finally {
       setSending(false);
