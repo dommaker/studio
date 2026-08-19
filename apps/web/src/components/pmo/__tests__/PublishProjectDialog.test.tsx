@@ -38,7 +38,7 @@ beforeEach(() => {
 });
 
 function renderDialog(onPublished = vi.fn()) {
-  // 与真实使用一致：弹窗从关闭态打开（open 上升沿才默认选中第一个频道）
+  // 与真实使用一致：弹窗从关闭态打开（open 上升沿重置表单）
   const utils = render(
     <PublishProjectDialog
       open={false}
@@ -60,9 +60,37 @@ function renderDialog(onPublished = vi.fn()) {
   return utils;
 }
 
+// #273：发布弹窗不预选频道——角色下拉等频道联动内容需先显式选择频道
+async function selectChannel(name = '#dev') {
+  fireEvent.click(await screen.findByRole('button', { name: '目标频道' }));
+  fireEvent.click(screen.getByRole('option', { name }));
+}
+
+describe('#273 发布弹窗不预选频道（发布时点绑定是唯一入口，须用户显式选择）', () => {
+  it('打开弹窗不默认选中任何频道（显示占位提示）', async () => {
+    renderDialog();
+
+    const trigger = await screen.findByRole('button', { name: '目标频道' });
+    expect(trigger.textContent).toContain('请选择目标频道');
+  });
+
+  it('未选频道时确认发起禁用；显式选择后可发起', async () => {
+    renderDialog();
+
+    const confirm = await screen.findByText('确认发起');
+    expect(confirm).toHaveProperty('disabled', true);
+
+    await selectChannel();
+    expect(screen.getByText('确认发起')).toHaveProperty('disabled', false);
+    fireEvent.click(screen.getByText('确认发起'));
+    await waitFor(() => expect(mockPublish).toHaveBeenCalledWith('proj-1', 'ch-1', undefined));
+  });
+});
+
 describe('PublishProjectDialog #177 指定分析角色', () => {
   it('角色下拉默认留空（自动认领），候选=频道成员（非成员不在列）', async () => {
     renderDialog();
+    await selectChannel();
 
     const trigger = await screen.findByRole('button', { name: '指定分析角色' });
     expect(trigger.textContent).toContain('自动认领');
@@ -74,6 +102,7 @@ describe('PublishProjectDialog #177 指定分析角色', () => {
 
   it('不选角色确认发起 → publish 不带 assigneeId（留空=涌现，不阻塞主交互）', async () => {
     renderDialog();
+    await selectChannel();
 
     await screen.findByRole('button', { name: '指定分析角色' });
     fireEvent.click(screen.getByText('确认发起'));
@@ -82,6 +111,7 @@ describe('PublishProjectDialog #177 指定分析角色', () => {
 
   it('选中成员后确认发起 → publish 带该 profile id 作为 assigneeId', async () => {
     renderDialog();
+    await selectChannel();
 
     fireEvent.click(await screen.findByRole('button', { name: '指定分析角色' }));
     fireEvent.click(screen.getByRole('option', { name: 'dev' }));

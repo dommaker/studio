@@ -25,12 +25,13 @@ export function PublishProjectDialog({ open, projectId, channels, onClose, onPub
   const [channelAgents, setChannelAgents] = useState<AgentProfile[]>([]);
   const [agentsLoading, setAgentsLoading] = useState(false);
 
-  // 打开弹窗时默认选中第一个频道（原 handlePublishClick 行为；prevOpen 上升沿渲染期调整：
-  // 只在打开瞬间默认，弹窗开着时父级刷新 channels 不再把用户已选重置回第一个）
+  // #273（#251 决议）：发布弹窗不再默认选中第一个频道——publish 时点绑定是唯一入口，
+  // 频道必须由用户显式选择；打开瞬间仅重置为空（prevOpen 上升沿渲染期调整，
+  // 弹窗开着时父级刷新 channels 不重置用户已选）
   const [prevOpen, setPrevOpen] = useState(open);
   if (prevOpen !== open) {
     setPrevOpen(open);
-    if (open) setSelectedChannelId(channels.length > 0 ? channels[0].id : '');
+    if (open) setSelectedChannelId('');
   }
 
   // 弹窗打开/切换频道时在渲染期同步置解析中标志（替代原 effect 内同步 setAgentsLoading）
@@ -94,10 +95,15 @@ export function PublishProjectDialog({ open, projectId, channels, onClose, onPub
                 value={selectedChannelId}
                 onChange={setSelectedChannelId}
                 options={channels.map(ch => ({ value: ch.id, label: ch.name }))}
+                placeholder="请选择目标频道"
+                aria-label="目标频道"
                 className="input"
                 style={{ width: '100%' }}
               />
-              {agentsLoading ? (
+              {/* #273：未选频道时不解析/提示频道成员，先引导显式选择 */}
+              {!selectedChannelId ? (
+                <p className="u-text-3 text-sm" style={{ marginTop: 8 }}>请选择目标频道后再发起</p>
+              ) : agentsLoading ? (
                 <p className="u-text-3 text-sm" style={{ marginTop: 8 }}>加载频道成员…</p>
               ) : channelAgents.length > 0 ? (
                 <p className="u-text-3 text-sm" style={{ marginTop: 8 }}>
@@ -138,7 +144,7 @@ export function PublishProjectDialog({ open, projectId, channels, onClose, onPub
           </button>
           <button
             onClick={handlePublishConfirm}
-            disabled={publishing || channels.length === 0}
+            disabled={publishing || channels.length === 0 || !selectedChannelId}
             className="btn btn-primary"
           >
             {publishing ? '发起中...' : '确认发起'}

@@ -198,6 +198,14 @@ describe('AC-5: PMO 驾驶舱', { testTimeout: 15000 }, () => {
     await screen.findByText('频道页');
   });
 
+  it('#273：未绑定频道（channelId 缺失）时不渲染去频道按钮', async () => {
+    mockGetProject.mockResolvedValue({ data: { ...mockProject, channelId: null } });
+    renderDetail();
+
+    await waitFor(() => expect(screen.getByText('🚦 进度管道')).toBeTruthy());
+    expect(screen.queryByRole('button', { name: /去频道/ })).toBeNull();
+  });
+
   it('项目动态：认领/完成/新增条目拼装，标题可点跳 WU 详情', async () => {
     renderDetail();
     await waitFor(() => expect(screen.getByText(/项目动态/)).toBeTruthy());

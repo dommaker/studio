@@ -201,6 +201,16 @@ describe('AC-5: PMO Publish API', () => {
     );
   });
 
+  it('#273（#251 决议）：publish 回写 project.channelId 并持久化（发布即绑定，1 PMO : 1 频道）', async () => {
+    const result = await projectService.publish({ projectId: 'proj-1', channelId: 'ch-1' });
+
+    expect(result.project.channelId).toBe('ch-1');
+    expect(mockWriteJson).toHaveBeenCalledWith(
+      expect.stringContaining('proj-1'),
+      expect.objectContaining({ status: 'active', channelId: 'ch-1' })
+    );
+  });
+
   it('PMO status transitions to active', async () => {
     await projectService.publish({ projectId: 'proj-1', channelId: 'ch-1' });
 
