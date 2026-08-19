@@ -165,8 +165,8 @@ export function ChannelMessageItem({
       {(message.workUnitId || reqId || pmoId || (isThreadAnchor && threadReplyCount !== undefined && threadReplyCount > 0)) && (
         <div className="mc-card-foot">
           {message.workUnitId && onOpenWorkUnit && (
-            <button className="mc-wu-link" onClick={() => onOpenWorkUnit(message.workUnitId!)} title="打开 WorkUnit 详情">
-              {message.workUnitId} ›
+            <button className="mc-wu-link" onClick={() => onOpenWorkUnit(message.workUnitId!)} title={`打开 WorkUnit 详情：${message.workUnitId}`}>
+              {shortWuId(message.workUnitId)} ›
             </button>
           )}
           {message.workUnitId && (
@@ -233,6 +233,11 @@ export interface CardMeta {
 
 function parseMeta(meta?: string): CardMeta {
   try { return JSON.parse(meta || '{}'); } catch { return {}; }
+}
+
+/** #241: footer WU 链接显示——UUID 长 id 截短为前 8 位 + …（全量在 title/路由参数，不受影响） */
+function shortWuId(id: string): string {
+  return id.length > 12 ? `${id.slice(0, 8)}…` : id;
 }
 
 function formatTime(iso: string): string {

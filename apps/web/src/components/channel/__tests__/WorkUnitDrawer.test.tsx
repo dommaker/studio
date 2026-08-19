@@ -349,4 +349,24 @@ describe('WorkUnitDrawer', () => {
     await screen.findByRole('button', { name: '关闭任务' });
     expect(screen.queryByRole('button', { name: '继续执行' })).toBeNull();
   });
+
+  // #241：悬空 WU 引用容错——历史清理后消息 footer 可能指向已不存在的 WU
+  const axiosError = (status: number) =>
+    Object.assign(new Error(`Request failed with status code ${status}`), { isAxiosError: true, response: { status } });
+
+  it('#241：WU 详情 404 → 友好文案 + 原始 id，无裸 404 错误', async () => {
+    mockWuGet.mockRejectedValue(axiosError(404));
+    renderDrawer({ kind: 'wu', id: '160eeee8-aaaa-bbbb-cccc-dddddddddddd' });
+    const note = await screen.findByText(/该任务不存在或已被清理/);
+    expect(note.textContent).toContain('160eeee8-aaaa-bbbb-cccc-dddddddddddd');
+    expect(screen.queryByText(/加载失败/)).toBeNull();
+    expect(screen.queryByText(/status code 404/)).toBeNull();
+  });
+
+  it('#241：非 404 错误 → 维持原「加载失败」文案（回归）', async () => {
+    mockWuGet.mockRejectedValue(axiosError(500));
+    renderDrawer({ kind: 'wu', id: 'WU-1017' });
+    await waitFor(() => expect(screen.getByText(/加载失败/)).toBeTruthy());
+    expect(screen.queryByText(/该任务不存在或已被清理/)).toBeNull();
+  });
 });

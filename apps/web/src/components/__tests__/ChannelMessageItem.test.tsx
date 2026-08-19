@@ -83,3 +83,17 @@ describe('ChannelMessageItem — §5.7 WU/PMO 直跳', () => {
     expect(screen.queryByTitle('打开项目详情')).not.toBeInTheDocument();
   });
 });
+
+describe('ChannelMessageItem — #241 footer WU 链接截短显示', () => {
+  it('长 UUID 截短为前 8 位 + …，title 保留全量 id', () => {
+    const uuid = '160eeee8-aaaa-bbbb-cccc-dddddddddddd';
+    render(<ChannelMessageItem message={{ ...baseMessage, workUnitId: uuid }} onAction={vi.fn()} onOpenWorkUnit={vi.fn()} />);
+    const link = screen.getByTitle(`打开 WorkUnit 详情：${uuid}`);
+    expect(link.textContent).toBe('160eeee8… ›');
+  });
+
+  it('短 id（WU-N 形态）原样显示不截短', () => {
+    render(<ChannelMessageItem message={baseMessage} onAction={vi.fn()} onOpenWorkUnit={vi.fn()} />);
+    expect(screen.getByText('wu-1 ›')).toBeTruthy();
+  });
+});
