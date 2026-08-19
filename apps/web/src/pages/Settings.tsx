@@ -7,6 +7,7 @@ import { ComputeSection } from '../components/settings/ComputeSection';
 import { NotifySyncStatusHint, type NotifySyncStatus } from '../components/settings/NotifySyncStatusHint';
 import { NotifyChannelSection } from '../components/settings/NotifyChannelSection';
 import { CompanySection, type Company } from '../components/settings/CompanySection';
+import { ProjectCandidatesSection } from '../components/settings/ProjectCandidatesSection';
 import { KnowledgeEntrySection } from '../components/settings/KnowledgeEntrySection';
 import { ThemeSettings } from '../components/settings/ThemeSettings';
 import { toast } from '../utils/toast';
@@ -213,6 +214,9 @@ export function Settings() {
             setCompany={setCompany}
             setNewCompanyName={setNewCompanyName}
           />
+
+          {/* 🗂️ 工程候选管理 — #266（决策 #258） */}
+          <ProjectCandidatesSection />
 
           {/* 📚 知识库 */}
           <KnowledgeEntrySection />
