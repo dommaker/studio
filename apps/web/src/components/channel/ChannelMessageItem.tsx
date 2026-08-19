@@ -13,6 +13,7 @@ import { GcProposalCard } from './GcProposalCard';
 import { ConstraintAuditCard } from './ConstraintAuditCard';
 import { AuditorSuggestionCard } from './AuditorSuggestionCard';
 import { ConvertToTaskDialog } from './ConvertToTaskDialog';
+import { shortWuId } from '../../utils/id';
 
 interface Props {
   message: ChannelMessage;
@@ -233,11 +234,6 @@ export interface CardMeta {
 
 function parseMeta(meta?: string): CardMeta {
   try { return JSON.parse(meta || '{}'); } catch { return {}; }
-}
-
-/** #241: footer WU 链接显示——UUID 长 id 截短为前 8 位 + …（全量在 title/路由参数，不受影响） */
-function shortWuId(id: string): string {
-  return id.length > 12 ? `${id.slice(0, 8)}…` : id;
 }
 
 function formatTime(iso: string): string {

@@ -2,7 +2,13 @@
 // 配对规则：toolUseId 优先；result 缺 id 时位置兜底（最早未配对）；孤儿 result 跳过。
 // stopped 合成：步结束（result chunk / REST 步卡片落位）时仍未配对的 tool ≠ 永远 running。
 import { describe, it, expect } from 'vitest';
-import { deriveLiveToolRows, derivePersistedToolRows } from '../execution-rows';
+import {
+  deriveLiveToolRows,
+  derivePersistedToolRows,
+  deriveLiveExecutions,
+  parseLiveStepRef,
+  parseLiveWuRef,
+} from '../execution-rows';
 import type { ExecutionStepEvent, ExecutionStreamChunk } from '../../../api/workunit';
 
 const chunk = (over: Partial<ExecutionStreamChunk>): ExecutionStreamChunk => ({
@@ -92,5 +98,68 @@ describe('derivePersistedToolRows — Layer A 落盘步（无逐工具结果，�
 
   it('失败步 → 全部 stopped（执行中断于本步，逐工具结果未落盘）', () => {
     expect(derivePersistedToolRows(step('failed')).map(r => r.state)).toEqual(['stopped', 'stopped']);
+  });
+});
+
+// #242：频道 live 状态条模型推导（复用本模块推导层，不另起一套）
+describe('deriveLiveExecutions — 频道 live 状态条模型', () => {
+  it('SSE 步事件优先：步号/动作取最新事件', () => {
+    const rows = deriveLiveExecutions(
+      [{ id: 'WU-1', metadata: JSON.stringify({ stepCount: 3 }) }],
+      { 'WU-1': { step: 5, action: 'progress' } },
+    );
+    expect(rows).toEqual([{ workUnitId: 'WU-1', step: 5, action: 'progress' }]);
+  });
+
+  it('无步事件 → 回退 metadata.stepCount；metadata 坏/无 → step undefined', () => {
+    const rows = deriveLiveExecutions(
+      [
+        { id: 'WU-1', metadata: JSON.stringify({ stepCount: 2 }) },
+        { id: 'WU-2', metadata: '{broken' },
+        { id: 'WU-3', metadata: null },
+      ],
+      {},
+    );
+    expect(rows).toEqual([
+      { workUnitId: 'WU-1', step: 2 },
+      { workUnitId: 'WU-2' },
+      { workUnitId: 'WU-3' },
+    ]);
+  });
+
+  it('stepCount=0（未开始执行）→ step undefined（不显示「第 0 步」）', () => {
+    const rows = deriveLiveExecutions([{ id: 'WU-1', metadata: JSON.stringify({ stepCount: 0 }) }], {});
+    expect(rows).toEqual([{ workUnitId: 'WU-1' }]);
+  });
+
+  it('多个执行中 WU 保持输入顺序，各自取步号', () => {
+    const rows = deriveLiveExecutions(
+      [{ id: 'WU-1', metadata: null }, { id: 'WU-2', metadata: null }],
+      { 'WU-2': { step: 7 } },
+    );
+    expect(rows.map(r => r.workUnitId)).toEqual(['WU-1', 'WU-2']);
+    expect(rows[1].step).toBe(7);
+  });
+});
+
+describe('parseLiveStepRef / parseLiveWuRef — SSE data 防御解析', () => {
+  it('parseLiveStepRef：正常解析 workUnitId/step/action；坏数据 → null', () => {
+    expect(parseLiveStepRef({ workUnitId: 'WU-1', step: 3, action: 'progress' }))
+      .toEqual({ workUnitId: 'WU-1', step: 3, action: 'progress' });
+    expect(parseLiveStepRef({ workUnitId: 'WU-1', step: 3 })).toEqual({ workUnitId: 'WU-1', step: 3 });
+    expect(parseLiveStepRef('{broken')).toBeNull();
+    expect(parseLiveStepRef({ step: 3 })).toBeNull();
+    expect(parseLiveStepRef({ workUnitId: 'WU-1' })).toBeNull();
+    expect(parseLiveStepRef(null)).toBeNull();
+  });
+
+  it('parseLiveWuRef：从 { workunit } 信封解析；坏数据/缺字段 → null', () => {
+    expect(parseLiveWuRef({ workunit: { id: 'WU-1', status: 'active', channelId: 'ch-1', metadata: '{}' } }))
+      .toEqual({ id: 'WU-1', status: 'active', channelId: 'ch-1', metadata: '{}' });
+    expect(parseLiveWuRef({ workunit: { id: 'WU-1', status: 'done' } }))
+      .toEqual({ id: 'WU-1', status: 'done', channelId: null, metadata: null });
+    expect(parseLiveWuRef({})).toBeNull();
+    expect(parseLiveWuRef({ workunit: { status: 'active' } })).toBeNull();
+    expect(parseLiveWuRef('broken')).toBeNull();
   });
 });

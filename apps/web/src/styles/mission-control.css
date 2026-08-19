@@ -672,6 +672,24 @@
 .mc-chain-node-title { color: var(--text-secondary); font-size: var(--fs-sm); margin-top: 2px; }
 .mc-chain-arrow { text-align: center; color: var(--text-muted); font-size: var(--fs-xs); margin-bottom: 8px; }
 
+/* ---------- #242 频道 live 执行状态条（与消息流同宽约束，含 #239 大屏断点） ---------- */
+.mc-livebars { padding: 6px 14px 0; }
+.mc-livebars-inner { max-width: 760px; margin: 0 auto; display: flex; flex-direction: column; gap: 4px; }
+.mc-livebar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 8px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+  text-align: left;
+}
+.mc-livebar:hover { border-color: var(--accent-primary); }
+
 /* ---------- #240 ExecutionSteps 升级：执行级状态条 + 折叠工具行 + thinking 独立行 ---------- */
 /* 执行级状态条：常驻整个 execution，步切换只更新文案不闪烁 */
 .mc-exec-statusbar {
@@ -746,6 +764,7 @@
 @media (min-width: 1440px) {
   .mc-stream-inner,
   .mc-inputbar-inner { max-width: 1000px; }
+  .mc-livebars-inner { max-width: 1000px; }
   .mc-card { max-width: 1000px; }
   .mc-msg-body { max-width: 760px; }
 }

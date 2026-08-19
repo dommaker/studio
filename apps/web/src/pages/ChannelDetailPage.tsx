@@ -3,6 +3,8 @@
 import { useParams } from 'react-router-dom';
 import { useEffect, useLayoutEffect, useState, useCallback, useRef } from 'react';
 import { useChannelMessages } from '../hooks/useChannelEvents';
+import { useChannelLiveExecutions } from '../hooks/useChannelLiveExecutions';
+import { shortWuId } from '../utils/id';
 import { ChannelMessageItem } from '../components/channel/ChannelMessageItem';
 import { ChannelInput } from '../components/channel/ChannelInput';
 import { ChannelWorkspaceSetting } from '../components/ChannelWorkspaceSetting';
@@ -103,6 +105,8 @@ export function ChannelDetailPage() {
   const [channelReqs, setChannelReqs] = useState<Requirement[]>([]);
   // Mission Control 右抽屉：WorkUnit 详情 / REQ 全链路
   const [drawer, setDrawer] = useState<DrawerState>(null);
+  // #242: 频道 live 执行状态条（本频道执行中 WU + 步号，SSE 驱动，点击开抽屉）
+  const liveExecs = useChannelLiveExecutions(id ?? null);
 
   useEffect(() => {
     if (!id) return;
@@ -395,6 +399,29 @@ export function ChannelDetailPage() {
             />
           </div>
         </div>
+
+        {/* #242: live 执行状态条——有 WU 执行中时显示，点击打开对应 WU 抽屉（过程明细仍在抽屉） */}
+        {liveExecs.length > 0 && (
+          <div className="mc-livebars">
+            <div className="mc-livebars-inner">
+              {liveExecs.map(e => (
+                <button
+                  key={e.workUnitId}
+                  className="mc-livebar"
+                  onClick={() => openWu(e.workUnitId)}
+                  title={`打开 ${e.workUnitId} 执行详情`}
+                >
+                  <span className="mc-status mc-status-running"><span className="mc-dot" />执行中</span>
+                  <span>
+                    {shortWuId(e.workUnitId)} 正在执行
+                    {e.step !== undefined ? ` · 第 ${e.step} 步` : ''}
+                    {e.action ? ` · ${e.action}` : ''}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* REQ 需求编号 chips（vision §5.3）— 点击打开右抽屉全链路 */}
         {channelReqs.length > 0 && (
