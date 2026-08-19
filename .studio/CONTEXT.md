@@ -583,6 +583,7 @@ GC 候选清单与人审归档（#144，D4）：每次蒸馏运行后按**蒸馏
 - SSE 使用 EventBus pub/sub (B0-002)，不依赖数据库
 - **SSE 帧格式（2026-07-29 修复）**：只写 `id:` + `data:` 匿名事件（不写 `event:` 命名行——EventSource.onmessage 只收匿名事件），且 data 是完整信封 `{event_type, event_id, timestamp, data}`（此前只发内层 payload，客户端按 event_type 分发恒失败，全站 SSE 实际不通）。topic 映射：execution./runtime.→executions、node.→nodes、task.→tasks、goal.→goals、knowledge.→knowledge、workunit.→workunits、channel.→channels、其余→all（客户端默认订阅 all 全收）
 - session:summary 在 session:end 时触发，fire-and-forget
+- **SSE 与全局 compression（#263 / 根因 #259，2026-08-19）**：app.ts 全局 compression 中间件必须带 `filter: shouldCompress`（`apps/api/src/middleware/compression-filter.ts`）——默认 compressible 对 `text/event-stream` 经 `^text/` fallback 返回 true 会缓冲 SSE 流，频道实时推送全灭。/events/stream 与 /mcp/sse 均经此中间件覆盖；新增 SSE 端点只要走同一 app 即自动生效
 - patternType 分类规则：纯 deterministic，不调 LLM
 - **鉴权（2026-07-24 收紧）**：event.routes 的 POST /、/agent-events 已收 requireAuth+requireNotGuest；GET /stream 保持公开（Lurk 设计有意放行，会广播内部事件总线）。#180（#60 决策 Q3a）起 GET / 也收 requireAuth。
 - **事件检索（#180 / #60 决策 Q3a，2026-08-16）**：GET / 改走 `../../utils/studio-events-tail.ts` 尾部倒读（字节层切行，0x0A 切分防 UTF-8 跨块截断），过滤下推到倒读循环、limit 按匹配数计、扫满即停；游标 = 已扫区间下界字节偏移，无效游标容错重扫最新。读取侧默认 level≥info（envelope 缺省 info），`level=debug` 看全部。Web 消费面 = MonitoringPage「事件检索」Tab。
