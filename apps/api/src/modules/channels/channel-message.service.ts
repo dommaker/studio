@@ -14,6 +14,11 @@ export interface MessageMeta {
   /** 2026-07 PMO-flow UX：里程碑消息归属 PMO 项目 id（NotificationBell 跳转 PMO 详情用；解析不到则不携带） */
   pmoId?: string;
   risks?: string[];
+  /** #267（决策 #250 D3）结构化选项卡：NEED_INPUT 内嵌回复区的点选选项。
+   * 点选即把 value（缺省 label）作为 replyTo 回复发送，走现有 resumeWaitingWorkUnit 通道，后端零改动 */
+  options?: { label: string; description?: string; value?: string }[];
+  /** #267（决策 #250 D3）预留多选钩子（v1 恒单选；未来开多选只改发射端字段 + 前端 checkbox 语义） */
+  multiSelect?: boolean;
   [key: string]: unknown;
 }
 

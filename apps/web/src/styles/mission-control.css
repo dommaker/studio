@@ -416,6 +416,38 @@
 .mc-need-form input:focus { border-color: var(--accent-primary); }
 .mc-need-sent { color: var(--success); font-size: var(--fs-sm); margin-top: 8px; }
 
+/* #267 NEED_INPUT 结构化选项卡（meta.options[]） */
+.mc-need-options { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.mc-need-option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  text-align: left;
+  font: inherit;
+  font-size: var(--fs-sm);
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-default);
+  border-radius: 3px;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+.mc-need-option:hover, .mc-need-option.selected { border-color: var(--accent-primary); }
+.mc-need-option-desc { color: var(--text-muted); font-size: var(--fs-xs); }
+.mc-need-options-actions { display: flex; gap: 8px; }
+.mc-need-option-extra {
+  font: inherit;
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+  background: none;
+  border: 1px dashed var(--border-default);
+  border-radius: 3px;
+  padding: 3px 10px;
+  cursor: pointer;
+}
+.mc-need-option-extra:hover { color: var(--text-primary); border-color: var(--accent-primary); }
+
 /* 按钮（Mission Control 密度） */
 .mc-btn {
   font-size: var(--fs-sm);

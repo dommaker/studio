@@ -123,6 +123,62 @@ describe('ChannelMessageItem — #264 object meta 双型兼容（线上 REST/SSE
   });
 });
 
+describe('ChannelMessageItem — #267 NEED_INPUT 结构化选项卡（meta.options[]）', () => {
+  const optionsMessage = (meta: ChannelMessage['meta']): ChannelMessage => ({
+    ...baseMessage,
+    agentName: 'Studio',
+    content: '任务「改一下登录页」匹配到多个工程，请回复其中一个',
+    meta,
+  });
+  const OPTIONS = [
+    { label: 'studio', description: '/root/projects/studio', value: '/root/projects/studio' },
+    { label: 'studio-config', description: '/root/projects/studio-config', value: '/root/projects/studio-config' },
+  ];
+
+  it('waitingForInput + object meta 带 options → 渲染选项卡而非纯文本列表', () => {
+    render(<ChannelMessageItem message={optionsMessage({ options: OPTIONS })} onAction={vi.fn()} waitingForInput onInlineReply={vi.fn()} />);
+    expect(screen.getByText('studio')).toBeTruthy();
+    expect(screen.getByText('/root/projects/studio-config')).toBeTruthy();
+    expect(screen.getByText('自定义…')).toBeTruthy();
+    expect(screen.getByText('交给 agent 判断')).toBeTruthy();
+    // 默认不渲染单行回复输入（收起进「自定义…」）
+    expect(screen.queryByPlaceholderText(/直接在此回复/)).toBeNull();
+  });
+
+  it('点选选项 → onInlineReply(message, value) 走现有内嵌回复通道', () => {
+    const onInlineReply = vi.fn();
+    const msg = optionsMessage({ options: OPTIONS });
+    render(<ChannelMessageItem message={msg} onAction={vi.fn()} waitingForInput onInlineReply={onInlineReply} />);
+    fireEvent.click(screen.getByText('studio-config'));
+    expect(onInlineReply).toHaveBeenCalledWith(msg, '/root/projects/studio-config');
+  });
+
+  it('发送后选项卡收起为已回复提示', () => {
+    render(<ChannelMessageItem message={optionsMessage({ options: OPTIONS })} onAction={vi.fn()} waitingForInput onInlineReply={vi.fn()} />);
+    fireEvent.click(screen.getByText('studio'));
+    expect(screen.getByText(/已回复/)).toBeTruthy();
+    expect(screen.queryByText('studio-config')).toBeNull();
+  });
+
+  it('string 形态 meta 带 options 同样渲染（存量形态回归）', () => {
+    render(<ChannelMessageItem message={optionsMessage(JSON.stringify({ options: OPTIONS }))} onAction={vi.fn()} waitingForInput onInlineReply={vi.fn()} />);
+    expect(screen.getByText('studio')).toBeTruthy();
+  });
+
+  it('无 options 时保持现有单行回复框 fallback', () => {
+    render(<ChannelMessageItem message={optionsMessage({})} onAction={vi.fn()} waitingForInput onInlineReply={vi.fn()} />);
+    expect(screen.getByPlaceholderText(/直接在此回复/)).toBeTruthy();
+    expect(screen.queryByText('自定义…')).toBeNull();
+  });
+
+  it('options 元素非法（缺 label）时防御性过滤，不崩溃', () => {
+    const msg = optionsMessage({ options: [{ description: '/x' }, { label: 'studio' }] });
+    render(<ChannelMessageItem message={msg} onAction={vi.fn()} waitingForInput onInlineReply={vi.fn()} />);
+    expect(screen.getByText('studio')).toBeTruthy();
+    expect(screen.queryByText('/x')).toBeNull();
+  });
+});
+
 describe('ChannelMessageItem — #241 footer WU 链接截短显示', () => {
   it('长 UUID 截短为前 8 位 + …，title 保留全量 id', () => {
     const uuid = '160eeee8-aaaa-bbbb-cccc-dddddddddddd';

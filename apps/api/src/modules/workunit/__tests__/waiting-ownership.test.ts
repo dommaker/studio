@@ -495,3 +495,67 @@ describe('#265: 3 轮未解终止转人工', () => {
     expect(meta.ownershipAttempts).toBeUndefined();
   });
 });
+
+describe('#267（决策 #250 D3）: 结构化选项卡 meta.options 发射', () => {
+  /** 解析频道 Studio 通知消息的 meta（落盘形态为 JSON string） */
+  function noticeMeta(notice: ChannelMessageData): Record<string, unknown> {
+    return JSON.parse(typeof notice.meta === 'string' ? notice.meta : '{}');
+  }
+
+  it('多候选 → 消息 meta 带 options[]（label=工程名，description=path，value=path）', async () => {
+    const dirOne = makeDiscoveredProject('beta-one');
+    const dirTwo = makeDiscoveredProject('beta-two');
+    const { wu } = await createOwnershipParkedWu();
+
+    expect(await resumeWaitingWorkUnit(wu.id, 'beta', fileStore)).toBe(false);
+
+    const messages = await fileStore.queryMessages(channelId, { workUnitId: wu.id });
+    const notice = messages.find(m => m.agentName === 'Studio')!;
+    const meta = noticeMeta(notice);
+    expect(meta.options).toEqual([
+      { label: 'beta-one', description: dirOne, value: dirOne },
+      { label: 'beta-two', description: dirTwo, value: dirTwo },
+    ]);
+  });
+
+  it('无命中 → options 列出全部工程', async () => {
+    const dirGamma = makeDiscoveredProject('gamma');
+    const { wu } = await createOwnershipParkedWu();
+
+    expect(await resumeWaitingWorkUnit(wu.id, 'zzz-no-match', fileStore)).toBe(false);
+
+    const messages = await fileStore.queryMessages(channelId, { workUnitId: wu.id });
+    const notice = messages.find(m => m.agentName === 'Studio')!;
+    const meta = noticeMeta(notice);
+    expect(meta.options).toEqual([{ label: 'gamma', description: dirGamma, value: dirGamma }]);
+  });
+
+  it('点选选项（回复 value=工程绝对路径）→ 走绝对路径直连绑定解挂，轮次计数清除', async () => {
+    const dirOne = makeDiscoveredProject('beta-one');
+    makeDiscoveredProject('beta-two');
+    const { wu } = await createOwnershipParkedWu();
+
+    expect(await resumeWaitingWorkUnit(wu.id, 'beta', fileStore)).toBe(false);
+    expect(metaOf(await findWu(wu.id)).ownershipAttempts).toBe(1);
+    const messages = await fileStore.queryMessages(channelId, { workUnitId: wu.id });
+    const options = noticeMeta(messages.find(m => m.agentName === 'Studio')!).options as { value: string }[];
+
+    // 前端点选 = 把 option.value 作为内嵌回复发送（同一 resumeWaitingWorkUnit 通道）
+    const resumed = await resumeWaitingWorkUnit(wu.id, options[0].value, fileStore);
+
+    expect(resumed).toBe(true);
+    const meta = metaOf(await findWu(wu.id));
+    expect(meta.workspaceRoot).toBe(dirOne);
+    expect(meta.ownershipAttempts).toBeUndefined();
+  });
+
+  it('点选「交给 agent 判断」类未解回复 → 同样计入归属尝试计数（#265 三轮终止联动）', async () => {
+    makeDiscoveredProject('gamma');
+    const { wu } = await createOwnershipParkedWu();
+
+    expect(await resumeWaitingWorkUnit(wu.id, '交给 agent 判断', fileStore)).toBe(false);
+
+    expect(metaOf(await findWu(wu.id)).ownershipAttempts).toBe(1);
+    expect((await findWu(wu.id)).status).toBe('blocked');
+  });
+});

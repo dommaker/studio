@@ -13,7 +13,9 @@ import { GcProposalCard } from './GcProposalCard';
 import { ConstraintAuditCard } from './ConstraintAuditCard';
 import { AuditorSuggestionCard } from './AuditorSuggestionCard';
 import { ConvertToTaskDialog } from './ConvertToTaskDialog';
+import { NeedInputOptions } from './NeedInputOptions';
 import { shortWuId } from '../../utils/id';
+import { parseMeta, type CardMeta, type MetaOption } from '../../utils/messageMeta';
 
 interface Props {
   message: ChannelMessage;
@@ -94,6 +96,12 @@ export function ChannelMessageItem({
     setNeedSent(true);
   };
 
+  // #267（决策 #250 D3）：meta.options 存在 → 结构化选项卡（点选即发送内嵌回复）；
+  // 无 options → 现有单行回复框 fallback。防御性过滤非法元素（缺 label 的丢弃）
+  const needOptions: MetaOption[] | undefined = Array.isArray(meta.options)
+    ? meta.options.filter((o): o is MetaOption => !!o && typeof o.label === 'string')
+    : undefined;
+
   return (
     <div className={`mc-msg ${isThreadReply ? 'mc-msg-reply' : ''}`} data-message-id={message.id}>
       {/* Quote block (reply reference) */}
@@ -142,10 +150,19 @@ export function ChannelMessageItem({
         <div className="mc-msg-body">{message.content}</div>
       )}
 
-      {/* F5: NEED_INPUT 卡片内嵌回复框 */}
+      {/* F5: NEED_INPUT 卡片内嵌回复框；#267：有 meta.options 时渲染结构化选项卡 */}
       {waitingForInput && onInlineReply && (
         needSent ? (
           <div className="mc-need-sent">✓ 已回复，WorkUnit 将继续执行</div>
+        ) : needOptions && needOptions.length > 0 ? (
+          <NeedInputOptions
+            options={needOptions}
+            multiSelect={meta.multiSelect === true}
+            onReply={content => {
+              onInlineReply(message, content);
+              setNeedSent(true);
+            }}
+          />
         ) : (
           <div className="mc-need-form">
             <input
@@ -220,7 +237,6 @@ export function ChannelMessageItem({
 
 /** 卡片 meta 类型与解析已迁至 utils/messageMeta（#264）；此处 re-export 保持既有 import 路径不变 */
 export type { CardMeta } from '../../utils/messageMeta';
-import { parseMeta, type CardMeta } from '../../utils/messageMeta';
 
 function formatTime(iso: string): string {
   try {

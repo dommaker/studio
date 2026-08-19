@@ -22,6 +22,9 @@
  *   轮次终止：metadata.ownershipAttempts 记未解轮次（仿 resumeCount 先例），
  *   同一 WU 3 轮未解 → 停止追问、频道播报转人工、WU 保持 blocked（顶栏
  *   NEED_INPUT chip 入口手动绑定；之后未解回复不再发声，有效回复仍可绑定）。
+ *   #267（决策 #250 D3）：多候选/无命中的追问消息携带 meta.options 结构化选项卡
+ *   （label=工程名、description=path、value=path），前端点选即作为回复发送，
+ *   文本列表保留为纯文本通道 fallback。
  * - #162（T8-E1）：metadata.waitingReason === 'wu-token-budget' 的挂起（WU 级 token
  *   预算到线），回复按人三选分流：追加预算（→ active）/ 现有产出收尾（→ in_review）/
  *   放弃（→ closed）；未识别回复继续等待并重述三选。
@@ -40,6 +43,7 @@ import { closeWorkUnitWithNotice } from './wu-closure.js';
 import { ProjectDiscoveryService, matchProjectByReply, type LocalProject } from '../projects/project-discovery.service.js';
 import { RequirementService } from '../requirements/requirement.service.js';
 import { projectService } from '../pmo/project.service.js';
+import type { MessageMeta } from '../channels/channel-message.service.js';
 
 /** 提醒阈值（毫秒）。默认 30 分钟，可用 STUDIO_INPUT_REMINDER_MINUTES 覆盖 */
 export function getReminderThresholdMs(env: NodeJS.ProcessEnv = process.env): number {
@@ -399,20 +403,27 @@ async function resolveOwnershipFromReply(
   }
 
   // 多候选 / 无命中 → 继续等待，向频道列出候选让人选
+  // #267（决策 #250 D3）：候选同时以 meta.options 结构化选项卡形态发射
+  // （文本列表保留为旧前端/纯文本通道的 fallback）
   let content: string;
+  let options: MessageMeta['options'];
   if (candidates.length > 1) {
     content = `任务「${title}」匹配到多个工程，请回复其中一个：\n${formatProjectCandidates(candidates)}`;
+    options = projectOptions(candidates);
   } else {
     let all: LocalProject[] = [];
     try {
       all = await discovery.search('');
     } catch { /* 列出全部失败按无可选处理 */ }
-    content = all.length > 0
-      ? `任务「${title}」没有找到匹配「${query.slice(0, 50)}」的工程。可选工程：\n${formatProjectCandidates(all)}`
-      : `任务「${title}」没有找到匹配「${query.slice(0, 50)}」的工程，请回复工程名或绝对路径。`;
+    if (all.length > 0) {
+      content = `任务「${title}」没有找到匹配「${query.slice(0, 50)}」的工程。可选工程：\n${formatProjectCandidates(all)}`;
+      options = projectOptions(all);
+    } else {
+      content = `任务「${title}」没有找到匹配「${query.slice(0, 50)}」的工程，请回复工程名或绝对路径。`;
+    }
   }
   if (wu.channelId) {
-    await postWuSystemMessage(wu, content, { fileStore });
+    await postWuSystemMessage(wu, content, { fileStore, ...(options ? { meta: { options } } : {}) });
   }
   logger.info('[WaitingInput] Ownership reply unresolved, still waiting', {
     workUnitId: wu.id,
@@ -465,6 +476,15 @@ function formatProjectCandidates(projects: LocalProject[]): string {
     .slice(0, 10)
     .map(p => `- ${p.name}（${p.path}）`)
     .join('\n');
+}
+
+/**
+ * #267（决策 #250 D3）：候选工程 → 结构化选项卡 options（封顶 10 条，同 formatProjectCandidates 口径）。
+ * label=工程名、description=path 副标题消歧；value=path —— 前端点选即把 value 作为回复发送，
+ * 走「/」开头绝对路径直连通道绕过歧义（同名候选 label 无法区分，path 唯一精确命中）。
+ */
+function projectOptions(projects: LocalProject[]): NonNullable<MessageMeta['options']> {
+  return projects.slice(0, 10).map(p => ({ label: p.name, description: p.path, value: p.path }));
 }
 
 /**
