@@ -1,5 +1,7 @@
 // Channel message renderer — AC-C2: reply button + AC-C3: thread + AC-E3: Convert to Task
 // 2026-07 视觉重构（方向 A Mission Control）：纯文本行 + 卡片族视觉重绘；交互语义零变更
+// #277（决策 #248 D1/D2/D3/D5）：分侧布局——人右轻气泡 / agent 左无气泡文档流 / 系统播报
+// （Studio 无卡非等待消息）居中淡色一行 / 卡片全宽不参与分侧；compact 省略重复头；双侧 @name 染 mention chip。
 import { useCallback, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { ChannelFileVocabulary, ChannelMessage } from '../../api/channel';
@@ -7,6 +9,7 @@ import { AuthorAvatar } from './AuthorAvatar';
 import { FileRefChip } from './FileRefChip';
 import { MarkdownBody } from '../knowledge/MarkdownBody';
 import { matchFileRefToken } from '../../utils/fileChipMatch';
+import { renderWithMentions } from '../../utils/mentions';
 import { RequirementsDocCard } from './RequirementsDocCard';
 import { KnowledgeConfirmCard } from './KnowledgeConfirmCard';
 import { KnowledgeProposalCard } from './KnowledgeProposalCard';
@@ -42,6 +45,8 @@ interface Props {
   onInlineReply?: (message: ChannelMessage, content: string) => void;
   /** #285: agent 消息 inline-code 文件 chip 词表；经 MarkdownBody renderInlineCode 挂载（#271） */
   fileVocabulary?: ChannelFileVocabulary;
+  /** #277（决策 #248 D2）：连续合并——省略重复头（头像/署名/时间），动作保留 */
+  compact?: boolean;
 }
 
 function renderCard(meta: CardMeta, message: ChannelMessage, onAction: Props['onAction']) {
@@ -71,7 +76,7 @@ function renderCard(meta: CardMeta, message: ChannelMessage, onAction: Props['on
 export function ChannelMessageItem({
   message, onAction, onReply, findMessage, channelId,
   isThreadAnchor, threadReplyCount, isExpanded, onToggleThread, isThreadReply,
-  waitingForInput, onOpenWorkUnit, onOpenRequirement, onInlineReply, fileVocabulary,
+  waitingForInput, onOpenWorkUnit, onOpenRequirement, onInlineReply, fileVocabulary, compact,
 }: Props) {
   const isHuman = message.authorType === 'human';
   const meta = parseMeta(message.meta);
@@ -121,8 +126,41 @@ export function ChannelMessageItem({
     [fileVocabulary],
   );
 
+  // #277 D3：系统播报判定——Studio 署名、无卡片、非 NEED_INPUT 等待中（等待中的提问保留 agent 形态供回复）
+  const isSystem = !isHuman && !card && !waitingForInput && message.agentName === 'Studio';
+  // #277 D1：分侧类——卡片全宽不参与分侧
+  const sideClass = card ? 'mc-msg-card' : isSystem ? 'mc-msg-system' : isHuman ? 'mc-msg-human' : 'mc-msg-agent';
+
+  const actionButtons = (
+    <>
+      {onReply && (
+        <button
+          onClick={() => onReply(message)}
+          className="mc-icon-btn"
+          title="回复"
+          aria-label="回复消息"
+        >
+          ↩
+        </button>
+      )}
+      {canConvert && (
+        <button
+          onClick={() => setConvertOpen(true)}
+          className="mc-icon-btn"
+          title="转为任务"
+          aria-label="转为任务"
+        >
+          ⊕
+        </button>
+      )}
+    </>
+  );
+
   return (
-    <div className={`mc-msg ${isThreadReply ? 'mc-msg-reply' : ''}`} data-message-id={message.id}>
+    <div
+      className={`mc-msg ${isThreadReply ? 'mc-msg-reply' : ''} ${compact ? 'mc-msg-compact' : ''} ${sideClass}`}
+      data-message-id={message.id}
+    >
       {/* Quote block (reply reference) */}
       {parentMessage && (
         <div className="mc-quote">
@@ -131,43 +169,42 @@ export function ChannelMessageItem({
       )}
 
       {/* Author label + hover actions */}
-      <div className="mc-msg-head">
-        <AuthorAvatar isHuman={isHuman} agentName={message.agentName} />
-        <span className={isHuman ? 'mc-author' : 'mc-author mc-author-agent'}>
-          {isHuman ? 'You' : `@${message.agentName || 'Agent'}`}
-        </span>
-        <span className="mc-time">{formatTime(message.createdAt)}</span>
-        {waitingForInput && (
-          <span className="mc-wait-badge">等待回复</span>
-        )}
-        <span className="mc-msg-actions">
-          {onReply && (
-            <button
-              onClick={() => onReply(message)}
-              className="mc-icon-btn"
-              title="回复"
-              aria-label="回复消息"
-            >
-              ↩
-            </button>
+      {/* #277 D2：agent 侧完整头（头像 + @名 + 时间）；人类侧头像 + 时间（不署名）；系统播报无头 */}
+      {!isSystem && !compact && (
+        <div className="mc-msg-head">
+          {isHuman ? (
+            <>
+              <span className="mc-time">{formatTime(message.createdAt)}</span>
+              <AuthorAvatar isHuman={isHuman} agentName={message.agentName} />
+            </>
+          ) : (
+            <>
+              <AuthorAvatar isHuman={isHuman} agentName={message.agentName} />
+              <span className="mc-author mc-author-agent">{`@${message.agentName || 'Agent'}`}</span>
+              <span className="mc-time">{formatTime(message.createdAt)}</span>
+            </>
           )}
-          {canConvert && (
-            <button
-              onClick={() => setConvertOpen(true)}
-              className="mc-icon-btn"
-              title="转为任务"
-              aria-label="转为任务"
-            >
-              ⊕
-            </button>
+          {waitingForInput && (
+            <span className="mc-wait-badge">等待回复</span>
           )}
+          <span className="mc-msg-actions">{actionButtons}</span>
+        </div>
+      )}
+      {/* #277 D2：compact 省略重复头；动作（+等待 badge）浮于角落保留可用性 */}
+      {!isSystem && compact && (
+        <span className="mc-msg-actions mc-msg-actions-compact">
+          {waitingForInput && (
+            <span className="mc-wait-badge">等待回复</span>
+          )}
+          {actionButtons}
         </span>
-      </div>
+      )}
 
       {/* Content or Card */}
-      {/* #271: agent 正文 Markdown 渲染（wikiLinks 关、codeCopy 开）；人类消息维持纯文本 pre-wrap */}
-      {card || (isHuman ? (
-        <div className="mc-msg-body">{message.content}</div>
+      {/* #271: agent 正文 Markdown 渲染（wikiLinks 关、codeCopy 开）；人类/系统维持纯文本 pre-wrap。
+          #277 D5：双侧 @name 染 mention chip（纯文本侧 renderWithMentions 拆分；agent 侧 MarkdownBody mentions 插件） */}
+      {card || (isSystem || isHuman ? (
+        <div className={`mc-msg-body ${isHuman ? 'mc-bubble' : ''}`}>{renderWithMentions(message.content)}</div>
       ) : (
         <div className="mc-msg-body">
           <MarkdownBody
@@ -176,6 +213,7 @@ export function ChannelMessageItem({
             wikiLinks={false}
             codeCopy
             renderInlineCode={renderInlineCode}
+            mentions
           />
         </div>
       ))}

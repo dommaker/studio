@@ -9,10 +9,11 @@
 //   wikiLinks=false 关掉阅览室专属预处理；codeCopy 给围栏代码块加复制按钮；
 //   renderInlineCode 为 inline-code 自定义渲染挂载点（频道文件 chip 经此接入）。
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import ReactMarkdown, { type Components } from 'react-markdown';
+import ReactMarkdown, { defaultUrlTransform, type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Link } from 'react-router-dom';
 import { copyText } from '../../utils/clipboard';
+import { remarkMentions } from '../../utils/remarkMentions';
 
 /** [[X]] → [X](/library/<encodeURIComponent(X)>)（在 markdown 解析前预处理；a 渲染器再转 router Link） */
 function preprocessWikiLinks(content: string): string {
@@ -85,9 +86,11 @@ function CopyablePre({ children }: { children?: ReactNode }) {
 interface ComponentsOptions {
   codeCopy: boolean;
   renderInlineCode?: (text: string) => ReactNode;
+  /** #277（决策 #248 D5）：@name 染 mention chip（remarkMentions 产物，href = mention:<name>） */
+  mentions?: boolean;
 }
 
-function createComponents({ codeCopy, renderInlineCode }: ComponentsOptions): Components {
+function createComponents({ codeCopy, renderInlineCode, mentions }: ComponentsOptions): Components {
   return {
     h1: ({ children }) => <h1 className="text-lg font-bold u-text mt-4 mb-2">{children}</h1>,
     h2: ({ children }) => <h2 className="text-base font-semibold u-text mt-4 mb-2">{children}</h2>,
@@ -95,6 +98,10 @@ function createComponents({ codeCopy, renderInlineCode }: ComponentsOptions): Co
     h4: ({ children }) => <h4 className="text-sm font-medium u-text-2 mt-3 mb-1">{children}</h4>,
     p: ({ children }) => <p className="my-1.5">{children}</p>,
     a: ({ href, children }) => {
+      // #277: remarkMentions 拆出的 mention 节点染 chip，不成链接
+      if (mentions && href?.startsWith('mention:')) {
+        return <span className="mc-mention-chip">{children}</span>;
+      }
       if (href?.startsWith('/')) {
         return <Link to={href} className={LINK_CLASS}>{children}</Link>;
       }
@@ -155,16 +162,30 @@ interface Props {
   codeCopy?: boolean;
   /** inline-code 自定义渲染挂载点：返回非 null 替代默认行内 chip（#285 文件 chip 经此接入） */
   renderInlineCode?: (text: string) => ReactNode;
+  /** #277：正文 @name 染 mention chip（remarkMentions 插件 + a 渲染器接管 mention: href） */
+  mentions?: boolean;
 }
 
-export function MarkdownBody({ content, className, wikiLinks = true, codeCopy = false, renderInlineCode }: Props) {
+/** #277: mention 开启时放行 mention: 协议，其余走默认消毒（默认白名单不含 mention:，不放行会被剥成空 href） */
+const mentionUrlTransform = (url: string) =>
+  url.startsWith('mention:') ? url : defaultUrlTransform(url);
+
+export function MarkdownBody({ content, className, wikiLinks = true, codeCopy = false, renderInlineCode, mentions = false }: Props) {
   const components = useMemo(
-    () => createComponents({ codeCopy, renderInlineCode }),
-    [codeCopy, renderInlineCode],
+    () => createComponents({ codeCopy, renderInlineCode, mentions }),
+    [codeCopy, renderInlineCode, mentions],
+  );
+  const remarkPlugins = useMemo(
+    () => (mentions ? [remarkGfm, remarkMentions] : [remarkGfm]),
+    [mentions],
   );
   return (
     <div className={`text-sm u-text ${className ?? ''}`} style={{ lineHeight: 1.8 }}>
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
+      <ReactMarkdown
+        remarkPlugins={remarkPlugins}
+        components={components}
+        urlTransform={mentions ? mentionUrlTransform : defaultUrlTransform}
+      >
         {wikiLinks ? preprocessWikiLinks(content) : content}
       </ReactMarkdown>
     </div>

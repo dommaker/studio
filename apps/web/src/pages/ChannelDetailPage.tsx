@@ -64,6 +64,23 @@ type ReplyItem =
   | { kind: 'group'; key: string; messages: ChannelMessage[] };
 
 /**
+ * #277（决策 #248 D2）：连续消息合并——同作者（authorType + agentName）5 分钟内、
+ * 同线程/主流内、未参与折叠的连续消息省略重复头（Slack 式）。
+ * 系统播报（Studio 署名无卡）与卡片消息不参与合并（既不并入别人，别人也不并入它）。
+ */
+const MERGE_WINDOW_MS = 5 * 60 * 1000;
+
+function mergeable(m: ChannelMessage): boolean {
+  return !parseMeta(m.meta).cardType && !(m.authorType === 'agent' && m.agentName === 'Studio');
+}
+
+function shouldOmitHead(prev: ChannelMessage | null, cur: ChannelMessage): boolean {
+  if (!prev || !mergeable(prev) || !mergeable(cur)) return false;
+  if (prev.authorType !== cur.authorType || (prev.agentName ?? '') !== (cur.agentName ?? '')) return false;
+  return new Date(cur.createdAt).getTime() - new Date(prev.createdAt).getTime() <= MERGE_WINDOW_MS;
+}
+
+/**
  * 线程内过程消息折叠/聚合：连续 ≥3 条「过程消息」收成一组（默认折叠，点击展开）。
  * 里程碑消息不折叠：人类消息、卡片消息、等待回复（NEED_INPUT）、最后一条回复（最新状态）。
  */
@@ -491,10 +508,14 @@ export function ChannelDetailPage() {
               // Re-group visible messages into threads
               const items = groupIntoThreads(visibleMessages);
 
-              // 每项（线程组取 anchor）的日期串：日期分隔是否显示改为与前一项纯比较，避免渲染期重赋值
-              const itemDateStrs = items.map(item => {
-                const m = 'anchor' in item ? item.anchor : item;
-                return new Date(m.createdAt).toLocaleDateString('zh-CN', { month: 'long', day: 'numeric' });
+              // 每项（线程组取 anchor）的代表消息与日期串：日期分隔/合并判定均按可见项纯比较
+              const itemMsgs = items.map(item => ('anchor' in item ? item.anchor : item));
+              const itemDateStrs = itemMsgs.map(m =>
+                new Date(m.createdAt).toLocaleDateString('zh-CN', { month: 'long', day: 'numeric' }));
+              // #277 D2：主流连续合并（日期分隔线切断；线程组以其 anchor 参与主流序列）
+              const itemCompact = itemMsgs.map((m, idx) => {
+                const showDate = idx === 0 || itemDateStrs[idx] !== itemDateStrs[idx - 1];
+                return !showDate && shouldOmitHead(itemMsgs[idx - 1] ?? null, m);
               });
 
               const dateSep = (d: Date, dateStr: string, key: string) => (
@@ -533,25 +554,34 @@ export function ChannelDetailPage() {
                             threadReplyCount: item.replies.length,
                             isExpanded: expanded,
                             onToggleThread: () => toggleThread(anchorId),
+                            compact: itemCompact[idx],
                           })}
                           {expanded && item.replies.length > 0 && (
                             <div className="mc-thread-replies">
-                              {collapseProcessReplies(item.replies, isMilestoneReply).map(ri =>
-                                ri.kind === 'msg' ? (
-                                  renderMessageItem(ri.msg, { isThreadReply: true })
-                                ) : expandedProcGroups.has(ri.key) ? (
-                                  <div key={ri.key}>
-                                    <button onClick={() => toggleProcGroup(ri.key)} className="mc-collapse-toggle">
-                                      收起 {ri.messages.length} 条过程消息
+                              {(() => {
+                                // #277 D2：线程内同作者连续回复合并；折叠组切断合并，组内消息参与过折叠不省头
+                                let prevReply: ChannelMessage | null = null;
+                                return collapseProcessReplies(item.replies, isMilestoneReply).map(ri => {
+                                  if (ri.kind === 'msg') {
+                                    const compactReply = shouldOmitHead(prevReply, ri.msg);
+                                    prevReply = ri.msg;
+                                    return renderMessageItem(ri.msg, { isThreadReply: true, compact: compactReply });
+                                  }
+                                  prevReply = null;
+                                  return expandedProcGroups.has(ri.key) ? (
+                                    <div key={ri.key}>
+                                      <button onClick={() => toggleProcGroup(ri.key)} className="mc-collapse-toggle">
+                                        收起 {ri.messages.length} 条过程消息
+                                      </button>
+                                      {ri.messages.map(reply => renderMessageItem(reply, { isThreadReply: true }))}
+                                    </div>
+                                  ) : (
+                                    <button key={ri.key} onClick={() => toggleProcGroup(ri.key)} className="mc-collapse-toggle">
+                                      ▸ {ri.messages.length} 条过程消息
                                     </button>
-                                    {ri.messages.map(reply => renderMessageItem(reply, { isThreadReply: true }))}
-                                  </div>
-                                ) : (
-                                  <button key={ri.key} onClick={() => toggleProcGroup(ri.key)} className="mc-collapse-toggle">
-                                    ▸ {ri.messages.length} 条过程消息
-                                  </button>
-                                )
-                              )}
+                                  );
+                                });
+                              })()}
                             </div>
                           )}
                         </div>
@@ -565,7 +595,7 @@ export function ChannelDetailPage() {
                       return (
                         <div key={msg.id}>
                           {showDate && dateSep(d, dateStr, `date-${msg.id}`)}
-                          {renderMessageItem(msg)}
+                          {renderMessageItem(msg, { compact: itemCompact[idx] })}
                         </div>
                       );
                     }
