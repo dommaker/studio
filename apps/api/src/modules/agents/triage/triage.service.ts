@@ -4,9 +4,7 @@ import { classifySystemError } from '../../triage/error-class.js';
 import { knowledgeService } from '../../knowledge/knowledge-service.js';
 import type { SystemTriageResult } from '../../triage/error-class.js';
 import type { TriageIncidentInput, TriageLogEntry } from '../types.js';
-import * as path from 'path';
-import * as os from 'os';
-import * as fs from 'fs';
+import { appendIncidentUpdate } from './incident-store.js';
 import { resolveStudioLogFile } from '../../../utils/studio-log-path.js';
 
 const MAX_TRIAGE_TIME_MS = 10 * 60_000; // 10 min
@@ -498,14 +496,10 @@ class TriageService {
     return Date.now() - startedAt > MAX_TRIAGE_TIME_MS;
   }
 
+  // append-only（#255）：整文件覆写会与 #213 轮转交错产生行复活/丢失，
+  // 更新改为追加同 id 新行，读方按 rank 归并（见 incident-store.ts）
   private async updateIncident(incidentId: string, patch: Record<string, any>): Promise<void> {
-    const rows = await this.fileStore.readJsonl<any>(INCIDENTS_JSONL);
-    const idx = rows.findIndex((r: any) => r.id === incidentId);
-    if (idx !== -1) {
-      rows[idx] = { ...rows[idx], ...patch };
-      await fs.promises.mkdir(path.dirname(INCIDENTS_JSONL), { recursive: true });
-      await fs.promises.writeFile(INCIDENTS_JSONL, rows.map((r: any) => JSON.stringify(r)).join('\n') + '\n', 'utf-8');
-    }
+    await appendIncidentUpdate(this.fileStore, INCIDENTS_JSONL, incidentId, patch);
   }
 
   private async appendLog(incidentId: string, triageLog: TriageLogEntry[]): Promise<void> {

@@ -46,7 +46,7 @@
 - `monitor/` — Monitor 内部 Agent（service/probes/system-probes/alerts/reports/lifecycle）
 - `ops/` — 进程级守护（ops.service/ops-rules/system-health）
 - `knowledge/` — 知识维护 Agent（curator/cold-start/extraction/maintenance）
-- `triage/` — Triage 内部 Agent（triage.service）
+- `triage/` — Triage 内部 Agent（triage.service；incident-store = incidents.jsonl append-only 持久化，#255）
 - 根目录 — 共享与 legacy CRUD：routes、types、agent-profile/*、agent-instance/*、token-usage/*、default-provider、default-triggers、system-executor、session-summary.service、requirement-gate
 
 ### 核心导出
@@ -592,7 +592,7 @@ GC 候选清单与人审归档（#144，D4）：每次蒸馏运行后按**蒸馏
 - **鉴权（2026-07-24 收紧）**：event.routes 的 POST /、/agent-events 已收 requireAuth+requireNotGuest；GET /stream 保持公开（Lurk 设计有意放行，会广播内部事件总线）。#180（#60 决策 Q3a）起 GET / 也收 requireAuth。
 - **事件检索（#180 / #60 决策 Q3a，2026-08-16）**：GET / 改走 `../../utils/studio-events-tail.ts` 尾部倒读（字节层切行，0x0A 切分防 UTF-8 跨块截断），过滤下推到倒读循环、limit 按匹配数计、扫满即停；游标 = 已扫区间下界字节偏移，无效游标容错重扫最新。读取侧默认 level≥info（envelope 缺省 info），`level=debug` 看全部。Web 消费面 = MonitoringPage「事件检索」Tab。
 - **保留轮转（#173 / #60 决策 Q3b，2026-08-15）**：`apps/api/src/utils/studio-events-rotation.ts` 每日轮转 studio-events.jsonl——信号（level≥info）热 30 天，超期切 `archive/studio-events-YYYY-MM.jsonl.gz` 月度冷包永久保留；噪声（level=debug：knowledge:*、tool:call）7 天滚动删除。分类口径 = envelope level（显式字段优先，缺省走 type 默认分级）。挂载点：index.ts 启动后跑一次 + 每 24h；测试 `utils/__tests__/studio-events-rotation.test.ts`。
-- **其余日志保留轮转（#213，2026-08-19）**：#173 机制泛化为 `apps/api/src/utils/studio-log-rotation.ts`（rotateJsonlLog 配置驱动，studio-events-rotation 委托之）。决议值：incidents.jsonl（信号）热 30 天→月 gzip、audit.jsonl（审计）热 90 天→月 gzip、notifications.jsonl（噪声）7 天滚删；遗留 tasks-*.jsonl 一族 + 残留 ~/.studio/events/incidents.jsonl 一次性 gzip 归档（archive/*-legacy.jsonl.gz）后删除。挂载点：index.ts 与 #173 同节奏；测试 `utils/__tests__/studio-log-rotation.test.ts`。#205 已并入本票。
+- **其余日志保留轮转（#213，2026-08-19）**：#173 机制泛化为 `apps/api/src/utils/studio-log-rotation.ts`（rotateJsonlLog 配置驱动，studio-events-rotation 委托之）。决议值：incidents.jsonl（信号）热 30 天→月 gzip、audit.jsonl（审计）热 90 天→月 gzip、notifications.jsonl（噪声）7 天滚删；遗留 tasks-*.jsonl 一族 + 残留 ~/.studio/events/incidents.jsonl 一次性 gzip 归档（archive/*-legacy.jsonl.gz）后删除。挂载点：index.ts 与 #173 同节奏；测试 `utils/__tests__/studio-log-rotation.test.ts`。#205 已并入本票。**incidents.jsonl 写入侧（#255，2026-08-20）**：rename 防丢行承诺只对 append-only 写入方成立——triage `updateIncident` 原 readJsonl→整文件 writeFile 覆写会与轮转窗口交错产生行复活/覆盖，已收敛为 append-only：更新以同 id 新行追加（带 updatedAt，`modules/agents/triage/incident-store.ts` appendIncidentUpdate），读方按 rank 归并（updatedAt→createdAt，并列后行胜出）。轮转窗口内热文件不可见时更新 no-op（行不丢、不复活，该次更新丢弃——与旧实现同窗口行为一致）。同 id 并发更新 last-writer-wins，安全前提 = handleAlert 流程内串行 await。
 
 
 ## apps/api/src/modules/evolution

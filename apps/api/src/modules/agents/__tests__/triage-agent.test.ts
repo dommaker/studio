@@ -41,6 +41,7 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => {
 // Use dynamic import after mock setup
 const { triageService } = await import('../triage/triage.service.js');
 const { systemHealthCheck } = await import('../monitor/monitor-system-probes.js');
+const { foldIncidentRows } = await import('../triage/incident-store.js');
 
 describe('TriageService + MonitorService', () => {
   beforeEach(() => {
@@ -75,14 +76,16 @@ describe('TriageService + MonitorService', () => {
   // ── handleAlert cross-execution ──
 
   describe('TriageService.handleAlert()', () => {
-    // Helper: find incident from in-memory store
+    // Helper: find latest merged incident from in-memory store
+    // (append-only #255: same id has multiple rows, latest by rank wins)
     function findIncident(id: string): any {
-      return incidentStore.find((i: any) => i.id === id) || null;
+      return foldIncidentRows(incidentStore).get(id) || null;
     }
-    // Helper: remove incident from in-memory store
+    // Helper: remove all rows of an incident from in-memory store
     function removeIncident(id: string): void {
-      const idx = incidentStore.findIndex((i: any) => i.id === id);
-      if (idx !== -1) incidentStore.splice(idx, 1);
+      for (let i = incidentStore.length - 1; i >= 0; i--) {
+        if (incidentStore[i]?.id === id) incidentStore.splice(i, 1);
+      }
     }
 
     it('creates an Incident record with valid ID format', async () => {
