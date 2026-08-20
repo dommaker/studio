@@ -311,6 +311,15 @@ export class AgentProfileService {
       throw new Error(`name "${STUDIO_ROLE_NAME}" is reserved for system role`);
     }
 
+    // #298: 名字唯一性校验（与 create 同口径；排除自身 id 以支持改名为自己当前名=幂等）。
+    // 不分 status：inactive profile 占用名字也拒绝，与 create 一致。
+    if (input.name !== undefined && input.name !== existing.name) {
+      const all = await this.fileStore.listProfiles();
+      if (all.some(p => p.name === input.name && p.id !== id)) {
+        throw new Error(`Unique constraint: AgentProfile with name "${input.name}" already exists`);
+      }
+    }
+
     const patch: Partial<AgentProfileData> = {};
     if (input.name !== undefined) patch.name = input.name;
     if (input.description !== undefined) patch.description = input.description;

@@ -98,6 +98,12 @@ router.patch('/:id', requireAuth(), requireNotGuest(), async (req: Request, res:
         error: { code: 'NOT_FOUND', message: msg },
       });
     }
+    // #298: 改名冲突与 create 同口径 -> 409 DUPLICATE
+    if (msg.includes('Unique constraint')) {
+      return res.status(409).json({
+        error: { code: 'DUPLICATE', message: `AgentProfile with name "${req.body.name}" already exists` },
+      });
+    }
     res.status(500).json({
       error: { code: 'INTERNAL_ERROR', message: msg },
     });
