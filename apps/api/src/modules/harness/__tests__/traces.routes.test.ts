@@ -1,9 +1,11 @@
 /**
  * traces.routes 路由测试（T3 拆分新增，pre-commit TDD 门禁）。
  *
- * mock @dommaker/harness（TraceCollector/TraceAnalyzer/ConstraintDoctor），
+ * mock @dommaker/harness（TraceCollector/TraceAnalyzer），
  * 挂载 tracesRoutes 覆盖：GET|POST /traces、GET /analysis、
- * GET /analysis/anomalies、POST /diagnose 的参数校验与正常链路。
+ * GET /analysis/anomalies 的参数校验与正常链路。
+ * （POST /diagnose 随 harness 1.2.0 ADR-0003 断链删除；
+ * result=bypassed 随 bypass 记录 API 删除改为 400）
  * HOME 指向临时目录隔离 knowledge-bus 链路。
  */
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
@@ -24,7 +26,6 @@ vi.mock('@dommaker/harness', async (importOriginal) => {
       }
       recordPass() {}
       recordFail() {}
-      recordBypass() {}
     },
     TraceAnalyzer: class {
       constructor(_collector: unknown) {}
@@ -33,13 +34,6 @@ vi.mock('@dommaker/harness', async (importOriginal) => {
       }
       detectAnomalies() {
         return [{ constraintId: 'c1', type: 'high-failure-rate' }];
-      }
-    },
-    ConstraintDoctor: class {
-      constructor(_opts: unknown) {}
-      setData() {}
-      async diagnose(anomaly: unknown) {
-        return { anomaly, rootCause: 'test-cause' };
       }
     },
   };
@@ -100,12 +94,18 @@ describe('traces.routes', () => {
     expect(res.json.error).toBe('constraintId, level, and result are required');
   });
 
-  it('POST /traces records pass/fail/bypassed', async () => {
-    for (const result of ['pass', 'fail', 'bypassed']) {
+  it('POST /traces records pass/fail', async () => {
+    for (const result of ['pass', 'fail']) {
       const res = await api('POST', '/traces', { constraintId: 'c1', level: 'L1', result });
       expect(res.status).toBe(200);
       expect(res.json).toEqual({ recorded: true });
     }
+  });
+
+  it('POST /traces rejects bypassed (harness 1.2.0 removed bypass recording)', async () => {
+    const res = await api('POST', '/traces', { constraintId: 'c1', level: 'L1', result: 'bypassed' });
+    expect(res.status).toBe(400);
+    expect(res.json.error).toContain('no longer supported');
   });
 
   it('GET /analysis returns summaries + anomalies', async () => {
@@ -121,17 +121,5 @@ describe('traces.routes', () => {
     const res = await api('GET', '/analysis/anomalies');
     expect(res.status).toBe(200);
     expect(res.json).toEqual({ data: [{ constraintId: 'c1', type: 'high-failure-rate' }], total: 1 });
-  });
-
-  it('POST /diagnose 400 without anomaly', async () => {
-    const res = await api('POST', '/diagnose', {});
-    expect(res.status).toBe(400);
-    expect(res.json.error).toBe('anomaly is required');
-  });
-
-  it('POST /diagnose returns diagnosis', async () => {
-    const res = await api('POST', '/diagnose', { anomaly: { constraintId: 'c1' }, useLLM: false });
-    expect(res.status).toBe(200);
-    expect(res.json.data.rootCause).toBe('test-cause');
   });
 });

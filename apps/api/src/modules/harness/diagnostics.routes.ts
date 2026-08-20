@@ -1,12 +1,12 @@
 /**
- * diagnostics.routes — Harness 错误分类/规格检查/验证循环子路由（T-016 / T-018 / T-013）
+ * diagnostics.routes — Harness 错误分类子路由（T-016）
  *
  * 从 routes.ts 提取（T3 大文件拆分，零行为变更），处理器逐字迁移：
  * - POST /classify      使用 ErrorClassifier 分类错误（T-016）
  * - POST /failures      记录失败（T-016）
- * - POST /check-spec    检查文件/目录的 @spec 标注（T-018）
- * - POST /verify        对变更文件运行验证规则（T-013）
- * - GET  /verify/rules  可用验证规则列表（T-013）
+ *
+ * /check-spec、/verify、/verify/rules 已随 harness 1.2.0 删除
+ * （ADR-0003 孤儿子系统断链，规格检查/规则验证 API 无替代，前端零消费）。
  */
 
 import { Router, Request, Response } from 'express';
@@ -73,104 +73,5 @@ diagnosticsRoutes.post('/failures', async (req: Request, res: Response) => {
   } catch (error) {
     logger.error('Failed to record failure', { error: String(error) });
     return res.status(500).json({ error: 'Failed to record failure' });
-  }
-});
-
-// ─── Spec Checking (T-018) ───
-
-/**
- * POST /api/v1/harness/check-spec
- * Check file or directory for @spec annotations
- */
-diagnosticsRoutes.post('/check-spec', async (req: Request, res: Response) => {
-  try {
-    const loaded = await loadHarness();
-    if (!loaded) return res.status(503).json({ error: 'Harness not available' });
-
-    const { filePath, dirPath } = req.body;
-    if (!filePath && !dirPath) {
-      return res.status(400).json({ error: 'filePath or dirPath is required' });
-    }
-
-    await loadHarness();
-
-    if (filePath) {
-      const result = harnessModule!.checkFile(filePath);
-      return res.json({ data: result });
-    }
-
-    const results = harnessModule!.checkDirectory(dirPath || process.cwd());
-    const report = harnessModule!.generateReport(results);
-    const totalErrors = results.reduce((sum: number, r: { errors: unknown[]; warnings: unknown[] }) => sum + r.errors.length, 0);
-    const totalWarnings = results.reduce((sum: number, r: { errors: unknown[]; warnings: unknown[] }) => sum + r.warnings.length, 0);
-
-    return res.json({
-      data: results,
-      report,
-      totalFiles: results.length,
-      totalErrors,
-      totalWarnings,
-    });
-  } catch (error) {
-    logger.error('Failed to check spec annotations', { error: String(error) });
-    return res.status(500).json({ error: 'Failed to check spec annotations' });
-  }
-});
-
-// ─── Verification Loop (T-013) ───
-
-/**
- * POST /api/v1/harness/verify
- * Run verification rules on changed files
- */
-diagnosticsRoutes.post('/verify', async (req: Request, res: Response) => {
-  try {
-    const loaded = await loadHarness();
-    if (!loaded) return res.status(503).json({ error: 'Harness not available' });
-
-    const { rules, projectRoot, changedFiles } = req.body;
-    if (!rules || !Array.isArray(rules)) {
-      return res.status(400).json({ error: 'rules array is required' });
-    }
-
-    await loadHarness();
-    const verifier = new harnessModule!.RulesBasedVerification(rules);
-
-    const context = {
-      projectRoot: projectRoot || process.cwd(),
-      changedFiles: changedFiles || [],
-    };
-
-    const results = await verifier.verifyAll(context);
-    const allPassed = results.every((r: { passed: boolean }) => r.passed);
-
-    return res.json({ data: results, passed: allPassed, total: results.length });
-  } catch (error) {
-    logger.error('Failed to run verification', { error: String(error) });
-    return res.status(500).json({ error: 'Failed to run verification' });
-  }
-});
-
-/**
- * GET /api/v1/harness/verify/rules
- * List available verification rules
- */
-diagnosticsRoutes.get('/verify/rules', async (_req: Request, res: Response) => {
-  try {
-    const loaded = await loadHarness();
-    if (!loaded) return res.status(503).json({ error: 'Harness not available' });
-
-    // Return default rule types
-    return res.json({
-      data: [
-        { type: 'test', description: 'Run test suite', command: 'pnpm test' },
-        { type: 'lint', description: 'Run linter', command: 'pnpm lint' },
-        { type: 'typecheck', description: 'TypeScript check', command: 'npx tsc --noEmit' },
-        { type: 'custom', description: 'Custom verification function' },
-      ],
-    });
-  } catch (error) {
-    logger.error('Failed to list rules', { error: String(error) });
-    return res.status(500).json({ error: 'Failed to list rules' });
   }
 });

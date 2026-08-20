@@ -9,8 +9,9 @@
  *
  * - runtime.ts           共享运行时：@dommaker/harness 懒加载、Collector/Analyzer/
  *                        KnowledgeStore 单例、TTL 响应缓存
- * - traces.routes.ts     轨迹采集/分析/诊断（T-015）：GET|POST /traces、
- *                        GET /analysis、GET /analysis/anomalies、POST /diagnose
+ * - traces.routes.ts     轨迹采集/分析（T-015）：GET|POST /traces、
+ *                        GET /analysis、GET /analysis/anomalies
+ *                        （POST /diagnose 随 harness 1.2.0 ADR-0003 断链删除）
  * - proposals.routes.ts  约束提案（T-002）：GET /proposals、
  *                        POST /proposals/:id/review、POST /proposals/:id/execute（410）
  * - constraints.routes.ts 约束清单 + 质量门（T-002/M2）：GET /constraints、
@@ -26,17 +27,18 @@
  * - agents.routes.ts     Agent 生命周期（T-014）：POST /agents、
  *                        POST /agents/:id/start|complete|fail、
  *                        GET /agents、GET /agents/:id
- * - diagnostics.routes.ts 错误分类/规格检查/验证（T-016/T-018/T-013）：
- *                        POST /classify、POST /failures、POST /check-spec、
- *                        POST /verify、GET /verify/rules
- * - dashboard.routes.ts  仪表盘/健康（T-017）：GET /dashboard、GET /health
+ * - diagnostics.routes.ts 错误分类（T-016）：POST /classify、POST /failures
+ *                        （/check-spec、/verify、/verify/rules 随 harness 1.2.0
+ *                        ADR-0003 断链删除）
+ * - dashboard.routes.ts  健康检查（T-017）：GET /health
+ *                        （GET /dashboard 随 harness 1.2.0 ADR-0003 断链删除）
  * - cso.routes.ts        CSO 验证（Decision #5）：GET /validate
  *
  * 挂载顺序等价性（Express 路由匹配顺序敏感）：
- * 各子路由的路径首段字面前缀互不重叠（traces/analysis/diagnose/proposals/
+ * 各子路由的路径首段字面前缀互不重叠（traces/analysis/proposals/
  * constraints/check-constraints/knowledge/
- * estimate-tokens/sessions/agents/classify/failures/check-spec/verify/dashboard/
- * health/validate），router.use 无匹配时自动 fallthrough；唯一的前缀包含关系
+ * estimate-tokens/sessions/agents/classify/failures/health/validate），
+ * router.use 无匹配时自动 fallthrough；唯一的前缀包含关系
  * GET /constraints/stats 与 GET /constraints/:id 位于同一子路由内且保持
  * stats 在前。因此任一 method+path 的第一个匹配处理器与原单文件注册顺序完全一致。
  */

@@ -40,7 +40,7 @@ const MIN_ROLE_FAIL_RATE = 0.3;
 
 export interface GenerationResult {
   created: EvolutionProposalData[];
-  /** 跳过原因 → 计数（unsupported-type / custom-exception-unsupported / no-op / unknown-constraint / duplicate / open-exists） */
+  /** 跳过原因 → 计数（unsupported-type / no-op / unknown-constraint / duplicate / open-exists） */
   skipped: Record<string, number>;
   scanned: { constraintTraces: number; toolCalls: number; outcomes: number };
 }
@@ -49,7 +49,7 @@ interface RawProposal {
   targetType: EvolutionTargetType;
   targetId: string;
   action: 'add' | 'amend';
-  constraintChange?: 'message' | 'exception' | 'new-entry';
+  constraintChange?: 'message' | 'new-entry';
   currentText: string;
   proposedText: string;
   rationale: string;
@@ -68,7 +68,7 @@ export interface GeneratorDeps {
  * autoEvolve 已删除；report 数据层（buildConstraintsUsageReport /
  * diagnoseRetireCandidates）在 dist/core/constraints/usage-report 存在但未公开导出，
  * 等待改吃 constraints report 候选数据（飞轮修复立项 ①）。
- * 复活时恢复 traces → 退役候选 → modify_message/add_exception/new_constraint 映射。
+ * 复活时恢复 traces → 退役候选 → modify_message/new_constraint 映射。
  */
 async function constraintProposals(): Promise<RawProposal[]> {
   return [];

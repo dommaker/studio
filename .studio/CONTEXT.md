@@ -605,7 +605,7 @@ E1 约束进化（vision §6 / docs/plans/2026-07-flywheel-repair.md §4）：�
 - `signals.ts` — 路径解析 + 信号加载（traces/outcomes）
 - `generator.ts` — 提案生成器（信号 → 约束提案）
 - `channel-review.ts` — 频道审核（提案卡片 → 人确认），卡片交互模式被其他频道确认流复用
-- `applier.ts` — 提案生效器（审核通过后写入约束配置；iron-law/guideline diff 含 amend/shadow/extend_exceptions/new-entry/retire——retire 在既有 custom 条目内落 retired 元数据段，#82 D6 一处真相，内置退役不走 E1）
+- `applier.ts` — 提案生效器（审核通过后写入约束配置；iron-law/guideline diff 含 amend/shadow/new-entry/retire——retire 在既有 custom 条目内落 retired 元数据段，#82 D6 一处真相，内置退役不走 E1）
 - `evolution.service.ts` — 聚合服务（扫描 → 生成 → 审核 → 生效编排）
 - `evolution.routes.ts` — E1 约束进化 API
 
@@ -670,20 +670,20 @@ Harness 监控与治理 API（FL-029 / T-015）：轨迹采集分析、约束生
 |------|------|
 | `runtime.ts` | @dommaker/harness 懒加载、Collector/Analyzer/KnowledgeStore 单例、TTL 缓存 |
 | `routes.ts` | 挂载门面（默认导出 Router，route-registry 挂 /api/v1/harness，2026-07 起 requireAuth+requireAdmin） |
-| `traces.routes.ts` | 轨迹采集/分析/诊断（/traces、/analysis、/diagnose） |
+| `traces.routes.ts` | 轨迹采集/分析（/traces、/analysis；/diagnose 随 harness 1.2.0 ADR-0003 断链删除） |
 | `proposals.routes.ts` | 约束提案（/proposals；/evolve 已随 harness 0.17.0 移除，execute 为 410） |
 | `constraints.routes.ts` | 约束清单 + 质量门（/constraints*、/check-constraints；degrade/schedule 已随 0.17.0 移除；retired/rollback 双落点——config.yml 内置/历史 + custom-constraints.yml #82 D6 统一落点；导出 customConstraintsPath 供 distill #146 审计装配复用） |
 | `knowledge.routes.ts` | 知识引擎（/knowledge*） |
 | `sessions.routes.ts` | 上下文管理（/estimate-tokens、/sessions*） |
 | `agents.routes.ts` | Agent 生命周期（/agents*） |
-| `diagnostics.routes.ts` | 错误分类/规格检查/验证（/classify、/failures、/check-spec、/verify*） |
-| `dashboard.routes.ts` | 仪表盘/健康（/dashboard、/health） |
+| `diagnostics.routes.ts` | 错误分类（/classify、/failures；/check-spec、/verify* 随 harness 1.2.0 ADR-0003 断链删除） |
+| `dashboard.routes.ts` | 健康检查（/health；/dashboard 随 harness 1.2.0 ADR-0003 断链删除） |
 | `cso.routes.ts` | CSO 验证（/validate；2026-07 起 /api/v1/cso 只挂本文件，不再整挂 routes.ts 门面——否则 harness 的 Admin 收紧可被 /cso/* 双挂载绕过） |
 | `iron-laws.routes.ts` | Iron Laws（独立子路由，挂 /api/v1/iron-laws） |
 
 ### 核心导出
 
-- `routes.ts` default export：express Router（39 个端点，见门面注释）
+- `routes.ts` default export：express Router（34 个端点，见门面注释）
 
 ### 依赖关系
 

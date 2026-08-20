@@ -1,10 +1,10 @@
 /**
  * diagnostics.routes 路由测试（T3 拆分新增，pre-commit TDD 门禁）。
  *
- * mock @dommaker/harness（ErrorClassifier/FailureRecorder/checkFile/
- * checkDirectory/generateReport/RulesBasedVerification），挂载 diagnosticsRoutes
- * 覆盖：POST /classify、POST /failures、POST /check-spec（file/dir 两支）、
- * POST /verify、GET /verify/rules。HOME 指向临时目录隔离 knowledge-bus 链路。
+ * mock @dommaker/harness（ErrorClassifier/FailureRecorder），挂载 diagnosticsRoutes
+ * 覆盖：POST /classify、POST /failures。
+ * （/check-spec、/verify、/verify/rules 随 harness 1.2.0 ADR-0003 断链删除）
+ * HOME 指向临时目录隔离 knowledge-bus 链路。
  */
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import express from 'express';
@@ -30,18 +30,6 @@ vi.mock('@dommaker/harness', async (importOriginal) => {
       constructor(_opts: unknown) {}
       async record(record: unknown) {
         return record;
-      }
-    },
-    checkFile: (filePath: string) => ({ file: filePath, errors: [], warnings: [] }),
-    checkDirectory: (dirPath: string) => [
-      { file: `${dirPath}/a.ts`, errors: [{ msg: 'e1' }], warnings: [] },
-      { file: `${dirPath}/b.ts`, errors: [], warnings: [{ msg: 'w1' }] },
-    ],
-    generateReport: () => 'SPEC REPORT',
-    RulesBasedVerification: class {
-      constructor(_rules: unknown) {}
-      async verifyAll() {
-        return [{ rule: 'test', passed: true }];
       }
     },
   };
@@ -109,42 +97,5 @@ describe('diagnostics.routes', () => {
     expect(ok.json.data.level).toBe('L1');
     expect(ok.json.data.message).toBe('boom');
     expect(typeof ok.json.data.timestamp).toBe('number');
-  });
-
-  it('POST /check-spec 400 without paths / 200 file branch', async () => {
-    const bad = await api('POST', '/check-spec', {});
-    expect(bad.status).toBe(400);
-    expect(bad.json.error).toBe('filePath or dirPath is required');
-
-    const ok = await api('POST', '/check-spec', { filePath: '/tmp/a.ts' });
-    expect(ok.status).toBe(200);
-    expect(ok.json.data).toEqual({ file: '/tmp/a.ts', errors: [], warnings: [] });
-  });
-
-  it('POST /check-spec 200 directory branch with report + totals', async () => {
-    const res = await api('POST', '/check-spec', { dirPath: '/tmp' });
-    expect(res.status).toBe(200);
-    expect(res.json.report).toBe('SPEC REPORT');
-    expect(res.json.totalFiles).toBe(2);
-    expect(res.json.totalErrors).toBe(1);
-    expect(res.json.totalWarnings).toBe(1);
-    expect(res.json.data).toHaveLength(2);
-  });
-
-  it('POST /verify 400 without rules array / 200 runs rules', async () => {
-    const bad = await api('POST', '/verify', { rules: 'nope' });
-    expect(bad.status).toBe(400);
-    expect(bad.json.error).toBe('rules array is required');
-
-    const ok = await api('POST', '/verify', { rules: [{ type: 'test' }], changedFiles: ['a.ts'] });
-    expect(ok.status).toBe(200);
-    expect(ok.json).toEqual({ data: [{ rule: 'test', passed: true }], passed: true, total: 1 });
-  });
-
-  it('GET /verify/rules returns 4 default rule types', async () => {
-    const res = await api('GET', '/verify/rules');
-    expect(res.status).toBe(200);
-    expect(res.json.data).toHaveLength(4);
-    expect(res.json.data.map((r: any) => r.type)).toEqual(['test', 'lint', 'typecheck', 'custom']);
   });
 });

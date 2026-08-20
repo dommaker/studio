@@ -2,9 +2,9 @@
  * routes.ts 门面测试（T3 拆分新增，pre-commit TDD 门禁）。
  *
  * 验证拆分后门面（default export router）：
- * 1. 全部 9 个子路由的 39 个 (method, path) 完整注册（集合比较）；
+ * 1. 全部 9 个子路由的 34 个 (method, path) 完整注册（集合比较）；
  * 2. 关键顺序约束：GET /constraints/stats 必须在 GET /constraints/:id 之前；
- * 3. HTTP 层冒烟：/health、/verify/rules、/agents、/api/v1/cso/validate 可达
+ * 3. HTTP 层冒烟：/health、/agents、/api/v1/cso/validate 可达
  *    （部分 mock @dommaker/harness：保留真实模块，仅覆盖 AgentLifecycle/CSOValidator）。
  * HOME 指向临时目录隔离 knowledge-bus 链路。
  */
@@ -51,11 +51,13 @@ function flattenRoutes(router: any): FlatRoute[] {
  *  harness 0.17.0（ADR-0001 决策 8）：删 /evolve、/constraints/:id/degrade、
  *  /constraints/:id/schedule，增 GET /constraints/retired → 42 个。
  *  harness 1.2.0（ADR-0003）：删 guards.routes（/check-input、/check-output、
- *  /sandbox 随 InputGuardrail/OutputGuardrail/Sandbox 移除）→ 39 个。 */
+ *  /sandbox 随 InputGuardrail/OutputGuardrail/Sandbox 移除）→ 39 个；
+ *  删 /diagnose、/check-spec、/verify、/verify/rules、/dashboard
+ *  （孤儿子系统断链，前端零消费）→ 34 个。 */
 const EXPECTED: Array<[string, string]> = [
   // traces.routes
   ['GET', '/traces'], ['POST', '/traces'], ['GET', '/analysis'],
-  ['GET', '/analysis/anomalies'], ['POST', '/diagnose'],
+  ['GET', '/analysis/anomalies'],
   // proposals.routes
   ['GET', '/proposals'], ['POST', '/proposals/:id/review'],
   ['POST', '/proposals/:id/execute'],
@@ -73,10 +75,9 @@ const EXPECTED: Array<[string, string]> = [
   ['POST', '/agents'], ['POST', '/agents/:id/start'], ['POST', '/agents/:id/complete'],
   ['POST', '/agents/:id/fail'], ['GET', '/agents'], ['GET', '/agents/:id'],
   // diagnostics.routes
-  ['POST', '/classify'], ['POST', '/failures'], ['POST', '/check-spec'],
-  ['POST', '/verify'], ['GET', '/verify/rules'],
+  ['POST', '/classify'], ['POST', '/failures'],
   // dashboard.routes
-  ['GET', '/dashboard'], ['GET', '/health'],
+  ['GET', '/health'],
   // cso.routes
   ['GET', '/validate'],
 ];
@@ -119,7 +120,7 @@ describe('harness routes facade', () => {
     expect(typeof harnessRoutes.handle).toBe('function');
   });
 
-  it('all 9 sub-routers fully registered: 39 routes (set comparison)', () => {
+  it('all 9 sub-routers fully registered: 34 routes (set comparison)', () => {
     const flat = flattenRoutes(harnessRoutes);
     const actualSet = new Set(flat.map(r => `${r.method} ${r.path}`));
     const expectedSet = new Set(EXPECTED.map(r => `${r[0]} ${r[1]}`));
@@ -129,7 +130,7 @@ describe('harness routes facade', () => {
 
     expect(missing).toEqual([]);
     expect(extra).toEqual([]);
-    expect(flat).toHaveLength(39);
+    expect(flat).toHaveLength(34);
   });
 
   it('GET /constraints/stats registered before GET /constraints/:id (no shadowing)', () => {
@@ -145,13 +146,6 @@ describe('harness routes facade', () => {
     const res = await fetch(`${baseHarness}/health`);
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ status: 'ok', harness: 'connected', constraintsActive: true });
-  });
-
-  it('GET /api/v1/harness/verify/rules reachable (200, 4 rules)', async () => {
-    const res = await fetch(`${baseHarness}/verify/rules`);
-    expect(res.status).toBe(200);
-    const json = await res.json();
-    expect(json.data).toHaveLength(4);
   });
 
   it('GET /api/v1/harness/agents reaches agents handler (200 empty list, not 404)', async () => {
