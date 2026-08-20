@@ -1,7 +1,7 @@
 // ChannelMessageItem — #270（决策 #248 D7）：NEED_INPUT 内嵌回复框共享 composer 同款
 // IME 合成守卫（isComposing / keyCode 229 / compositionend 后 10ms 兜底）+ Enter 防连发。
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, act } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import type { ChannelMessage } from '../../../api/channel';
 import { ChannelMessageItem } from '../ChannelMessageItem';
@@ -33,14 +33,17 @@ function setup() {
 }
 
 describe('ChannelMessageItem — NEED_INPUT 内嵌回复 IME 守卫（#270）', () => {
-  it('isComposing 期间 Enter 不发送', () => {
+  it('isComposing 期间 Enter 不发送', async () => {
     const { onInlineReply, input } = setup();
 
     fireEvent.change(input, { target: { value: '用 studio' } });
     fireEvent.keyDown(input, { key: 'Enter', isComposing: true });
     expect(onInlineReply).not.toHaveBeenCalled();
 
-    fireEvent.keyDown(input, { key: 'Enter' });
+    // #276：发送后状态置位走 async 微任务，act 包裹 flush
+    await act(async () => {
+      fireEvent.keyDown(input, { key: 'Enter' });
+    });
     expect(onInlineReply).toHaveBeenCalledWith(message, '用 studio');
   });
 
@@ -52,7 +55,7 @@ describe('ChannelMessageItem — NEED_INPUT 内嵌回复 IME 守卫（#270）', 
     expect(onInlineReply).not.toHaveBeenCalled();
   });
 
-  it('compositionend 后 10ms 内 Enter 兜底不发送', () => {
+  it('compositionend 后 10ms 内 Enter 兜底不发送', async () => {
     const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1000);
     try {
       const { onInlineReply, input } = setup();
@@ -65,7 +68,10 @@ describe('ChannelMessageItem — NEED_INPUT 内嵌回复 IME 守卫（#270）', 
       expect(onInlineReply).not.toHaveBeenCalled();
 
       nowSpy.mockReturnValue(1020);
-      fireEvent.keyDown(input, { key: 'Enter' });
+      // #276：发送后状态置位走 async 微任务，act 包裹 flush
+      await act(async () => {
+        fireEvent.keyDown(input, { key: 'Enter' });
+      });
       expect(onInlineReply).toHaveBeenCalledWith(message, '用 studio');
     } finally {
       nowSpy.mockRestore();

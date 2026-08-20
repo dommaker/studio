@@ -377,8 +377,9 @@ export function ChannelDetailPage() {
   }, []);
 
   // F5: NEED_INPUT 卡片内嵌回复 —— 与回复按钮同链路（sendMessage + replyToId）
+  // #276（P2 #15）：返回 Promise——子组件 await 真实发送结果后才置位「已回复」（不发假承诺）
   const handleInlineReply = useCallback((message: ChannelMessage, content: string) => {
-    void handleSend(content, message.id);
+    return handleSend(content, message.id);
   }, [handleSend]);
 
   const findMessage = useCallback((msgId: string) => {

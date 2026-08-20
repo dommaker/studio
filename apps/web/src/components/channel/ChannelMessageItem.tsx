@@ -44,8 +44,9 @@ interface Props {
   /** #284（决策 #250 D6）：analysis_confirm 接力卡「去确认」——开 WU 抽屉并自动弹确认对话框 */
   onOpenWorkUnitConfirm?: (workUnitId: string) => void;
   onOpenRequirement?: (reqId: string) => void;
-  /** F5: NEED_INPUT 卡片内嵌回复（与回复按钮同链路：sendMessage + replyToId） */
-  onInlineReply?: (message: ChannelMessage, content: string) => void;
+  /** F5: NEED_INPUT 卡片内嵌回复（与回复按钮同链路：sendMessage + replyToId）；
+   * #276：返回 Promise 以便按真实成功置位「已回复」（失败可重试，不发假承诺） */
+  onInlineReply?: (message: ChannelMessage, content: string) => void | Promise<void>;
   /** #285: agent 消息 inline-code 文件 chip 词表；经 MarkdownBody renderInlineCode 挂载（#271） */
   fileVocabulary?: ChannelFileVocabulary;
   /** #285 AC4: 该消息所属 WU 的产出/修改文件集（chip 第一优先词表，绝对路径；空/缺省 → 仅用候选集词表） */
@@ -99,6 +100,8 @@ export function ChannelMessageItem({
   const [convertOpen, setConvertOpen] = useState(false);
   const [needDraft, setNeedDraft] = useState('');
   const [needSent, setNeedSent] = useState(false);
+  // #276（P2 #15）：发送中状态——禁用表单防重复触发，await 真实结果后才置位「已回复」
+  const [needSending, setNeedSending] = useState(false);
   // #270：NEED_INPUT 内嵌回复框共享 composer 同款 IME 守卫
   const { handleCompositionEnd, isImeEvent } = useImeEnterGuard();
   const canConvert = !message.workUnitId && isHuman && !!channelId;
@@ -115,12 +118,20 @@ export function ChannelMessageItem({
 
   // F5: 卡片内嵌回复 —— 走与回复按钮完全相同的链路（sendMessage + replyToId），
   // 后端 message-routing 检测 replyTo 继承 workUnitId 后调 resumeWaitingWorkUnit
-  const sendInlineReply = () => {
+  // #276（P2 #15）：await 真实发送结果——成功才置位「已回复」；失败恢复可用可重试，不发假承诺
+  const sendInlineReply = async () => {
     const trimmed = needDraft.trim();
-    if (!trimmed || !onInlineReply) return;
-    onInlineReply(message, trimmed);
+    if (!trimmed || !onInlineReply || needSending) return;
+    setNeedSending(true);
     setNeedDraft('');
-    setNeedSent(true);
+    try {
+      await onInlineReply(message, trimmed);
+      setNeedSent(true);
+    } catch {
+      // #276：失败不置位「已回复」，表单恢复可用可重试
+    } finally {
+      setNeedSending(false);
+    }
   };
 
   // #267（决策 #250 D3）：meta.options 存在 → 结构化选项卡（点选即发送内嵌回复）；
@@ -235,35 +246,50 @@ export function ChannelMessageItem({
         </div>
       ))}
 
-      {/* F5: NEED_INPUT 卡片内嵌回复框；#267：有 meta.options 时渲染结构化选项卡 */}
+      {/* F5: NEED_INPUT 卡片内嵌回复框；#267：有 meta.options 时渲染结构化选项卡
+          #276：needSent 仅在 await 真实发送成功后置位；发送中禁用表单防重复触发 */}
       {waitingForInput && onInlineReply && (
         needSent ? (
-          <div className="mc-need-sent">✓ 已回复，WorkUnit 将继续执行</div>
+          <div className="mc-need-sent">✓ 已回复</div>
         ) : needOptions && needOptions.length > 0 ? (
           <NeedInputOptions
             options={needOptions}
             multiSelect={meta.multiSelect === true}
-            onReply={content => {
-              onInlineReply(message, content);
-              setNeedSent(true);
+            disabled={needSending}
+            onReply={async content => {
+              if (needSending) return;
+              setNeedSending(true);
+              try {
+                await onInlineReply(message, content);
+                setNeedSent(true);
+              } catch {
+                // #276：失败不置位「已回复」，选项恢复可点
+              } finally {
+                setNeedSending(false);
+              }
             }}
           />
         ) : (
           <div className="mc-need-form">
             <input
               aria-label={`回复 ${message.workUnitId ?? message.id}`}
-              placeholder="直接在此回复，WorkUnit 将继续执行…"
+              placeholder="直接在此回复…"
               value={needDraft}
               onChange={e => setNeedDraft(e.target.value)}
               onCompositionEnd={handleCompositionEnd}
               onKeyDown={e => {
-                // #270：IME 选词 Enter 不发送；长按不连发
-                if (e.key !== 'Enter' || isImeEvent(e) || e.repeat) return;
-                sendInlineReply();
+                // #270：IME 选词 Enter 不发送；长按不连发；#276：发送中防重复 Enter
+                if (e.key !== 'Enter' || isImeEvent(e) || e.repeat || needSending) return;
+                void sendInlineReply();
               }}
+              disabled={needSending}
             />
-            <button className="mc-btn mc-btn-primary" onClick={sendInlineReply} disabled={!needDraft.trim()}>
-              回复
+            <button
+              className="mc-btn mc-btn-primary"
+              onClick={() => void sendInlineReply()}
+              disabled={!needDraft.trim() || needSending}
+            >
+              {needSending ? '发送中…' : '回复'}
             </button>
           </div>
         )

@@ -3,7 +3,7 @@
  * + 2026-07 §5.7: WU ↗ 直跳 / PMO chip 渲染与跳转
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 
 const { mockNavigate } = vi.hoisted(() => ({ mockNavigate: vi.fn() }));
 
@@ -48,14 +48,73 @@ describe('ChannelMessageItem — F5 waiting badge', () => {
     expect(screen.queryByText('等待回复')).not.toBeInTheDocument();
   });
 
-  // #279（走查 F4）：回答后「已回复」与「等待回复」不得同屏并存——badge 让位给已回复提示
-  it('发送内嵌回复后 badge 让位：只显示已回复，不再同屏并存', () => {
-    render(<ChannelMessageItem message={baseMessage} onAction={vi.fn()} waitingForInput onInlineReply={vi.fn()} />);
+  // #279（走查 F4）+ #276（P2 #15）：回答后「已回复」与「等待回复」不得同屏并存；
+  // #276：needSent 不再点击即置位--仅在 onInlineReply await resolve 后置位，
+  // 发送失败不发「已回复」假承诺；「已回复」文本去掉「WorkUnit 将继续执行」未来时承诺。
+  it('#276 发送成功 -> 显示已回复，badge 让位（互斥；不再点击即假承诺）', async () => {
+    let resolveReply: () => void = () => {};
+    const onInlineReply = vi.fn().mockImplementation(
+      () => new Promise<void>(resolve => { resolveReply = resolve; }),
+    );
+    render(<ChannelMessageItem message={baseMessage} onAction={vi.fn()} waitingForInput onInlineReply={onInlineReply} />);
     expect(screen.getByText('等待回复')).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('回复 wu-1'), { target: { value: '用 OAuth' } });
     fireEvent.click(screen.getByText('回复'));
-    expect(screen.getByText(/已回复/)).toBeInTheDocument();
+    // 发送期间：button 显示「发送中…」、input 禁用
+    await waitFor(() => expect(screen.getByText('发送中…')).toBeInTheDocument());
+    expect((screen.getByLabelText('回复 wu-1') as HTMLInputElement).disabled).toBe(true);
+    // await resolve 后：needSent=true -> 已回复，badge 消失（互斥）
+    resolveReply();
+    expect(await screen.findByText(/已回复/)).toBeInTheDocument();
     expect(screen.queryByText('等待回复')).not.toBeInTheDocument();
+  });
+
+  // #276 AC1：发送失败 -> 不发假承诺「已回复」，表单恢复可用可重试
+  it('#276 发送失败 -> 不显示已回复，表单恢复可用', async () => {
+    let rejectReply: ((err: Error) => void) | null = null;
+    const onInlineReply = vi.fn().mockImplementation(
+      () => new Promise<void>((_, reject) => { rejectReply = reject; }),
+    );
+    render(<ChannelMessageItem message={baseMessage} onAction={vi.fn()} waitingForInput onInlineReply={onInlineReply} />);
+    expect(screen.getByText('等待回复')).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('回复 wu-1'), { target: { value: '用 OAuth' } });
+    fireEvent.click(screen.getByText('回复'));
+    // 发送中：button 显示「发送中…」、input 禁用
+    await waitFor(() => expect(screen.getByText('发送中…')).toBeInTheDocument());
+    expect((screen.getByLabelText('回复 wu-1') as HTMLInputElement).disabled).toBe(true);
+    // 模拟失败
+    rejectReply!(new Error('network'));
+    // 失败后：needSent 保持 false，表单恢复可用，未发假承诺
+    await waitFor(() => expect(screen.getByText('回复')).toBeInTheDocument());
+    expect((screen.getByLabelText('回复 wu-1') as HTMLInputElement).disabled).toBe(false);
+    expect(screen.queryByText(/已回复/)).not.toBeInTheDocument();
+    expect(screen.getByText('等待回复')).toBeInTheDocument();
+  });
+
+  // #276 AC1：文案不再含未来时假承诺「WorkUnit 将继续执行」
+  it('#276 文案不再含「WorkUnit 将继续执行」假承诺（已回复文本 + placeholder）', () => {
+    render(<ChannelMessageItem message={baseMessage} onAction={vi.fn()} waitingForInput onInlineReply={vi.fn()} />);
+    expect(screen.queryByText(/WorkUnit 将继续执行/)).not.toBeInTheDocument();
+    const input = screen.getByPlaceholderText(/直接在此回复/) as HTMLInputElement;
+    expect(input).toBeTruthy();
+    expect(input.placeholder).not.toMatch(/WorkUnit 将继续执行/);
+  });
+
+  // #276 AC1：发送中（needSending）防 re-entry 重复触发
+  it('#276 发送中再次 Enter 不重复触发 onInlineReply', async () => {
+    let resolveReply: () => void = () => {};
+    const onInlineReply = vi.fn().mockImplementation(
+      () => new Promise<void>(resolve => { resolveReply = resolve; }),
+    );
+    render(<ChannelMessageItem message={baseMessage} onAction={vi.fn()} waitingForInput onInlineReply={onInlineReply} />);
+    fireEvent.change(screen.getByLabelText('回复 wu-1'), { target: { value: '用 OAuth' } });
+    fireEvent.keyDown(screen.getByLabelText('回复 wu-1'), { key: 'Enter' });
+    await waitFor(() => expect(onInlineReply).toHaveBeenCalledTimes(1));
+    // 再次 Enter：needSending 守卫，不重复调用
+    fireEvent.keyDown(screen.getByLabelText('回复 wu-1'), { key: 'Enter' });
+    expect(onInlineReply).toHaveBeenCalledTimes(1);
+    resolveReply();
+    await waitFor(() => expect(screen.getByText(/已回复/)).toBeInTheDocument());
   });
 
   // #279（决策 #250 D4）：顶栏 chip 定位高亮——highlight prop 挂 mc-msg-highlight class
@@ -162,19 +221,41 @@ describe('ChannelMessageItem — #267 NEED_INPUT 结构化选项卡（meta.optio
     expect(screen.queryByPlaceholderText(/直接在此回复/)).toBeNull();
   });
 
-  it('点选选项 → onInlineReply(message, value) 走现有内嵌回复通道', () => {
+  it('点选选项 → onInlineReply(message, value) 走现有内嵌回复通道', async () => {
     const onInlineReply = vi.fn();
     const msg = optionsMessage({ options: OPTIONS });
     render(<ChannelMessageItem message={msg} onAction={vi.fn()} waitingForInput onInlineReply={onInlineReply} />);
-    fireEvent.click(screen.getByText('studio-config'));
+    // #276：点击后经 async 微任务置位状态，act 包裹 flush 微任务
+    await act(async () => {
+      fireEvent.click(screen.getByText('studio-config'));
+    });
     expect(onInlineReply).toHaveBeenCalledWith(msg, '/root/projects/studio-config');
   });
 
-  it('发送后选项卡收起为已回复提示', () => {
-    render(<ChannelMessageItem message={optionsMessage({ options: OPTIONS })} onAction={vi.fn()} waitingForInput onInlineReply={vi.fn()} />);
+  // #276：选项卡发送成功 -> needSent 置位 -> 收起为已回复提示
+  it('#276 选项卡发送成功 -> 收起为已回复提示', async () => {
+    const onInlineReply = vi.fn().mockResolvedValue(undefined);
+    render(<ChannelMessageItem message={optionsMessage({ options: OPTIONS })} onAction={vi.fn()} waitingForInput onInlineReply={onInlineReply} />);
     fireEvent.click(screen.getByText('studio'));
-    expect(screen.getByText(/已回复/)).toBeTruthy();
+    // await resolve 后：needSent=true -> 已回复，选项卡收起
+    expect(await screen.findByText(/已回复/)).toBeTruthy();
     expect(screen.queryByText('studio-config')).toBeNull();
+  });
+
+  // #276 AC1：选项卡发送失败 -> 选项卡恢复可用，未发假承诺
+  it('#276 选项卡发送失败 -> 不显示已回复，选项恢复可点', async () => {
+    let rejectReply: ((err: Error) => void) | null = null;
+    const onInlineReply = vi.fn().mockImplementation(
+      () => new Promise<void>((_, reject) => { rejectReply = reject; }),
+    );
+    render(<ChannelMessageItem message={optionsMessage({ options: OPTIONS })} onAction={vi.fn()} waitingForInput onInlineReply={onInlineReply} />);
+    fireEvent.click(screen.getByText('studio'));
+    // 发送中：选项禁用
+    await waitFor(() => expect((screen.getByText('studio-config').closest('button') as HTMLButtonElement).disabled).toBe(true));
+    rejectReply!(new Error('network'));
+    // 失败后：选项恢复可点，未发假承诺
+    await waitFor(() => expect((screen.getByText('studio-config').closest('button') as HTMLButtonElement).disabled).toBe(false));
+    expect(screen.queryByText(/已回复/)).not.toBeInTheDocument();
   });
 
   it('string 形态 meta 带 options 同样渲染（存量形态回归）', () => {
