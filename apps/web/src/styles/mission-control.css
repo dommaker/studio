@@ -287,6 +287,49 @@
 .mc-avatar-human { background: var(--accent-primary); color: var(--bg-primary); }
 .mc-time { color: var(--text-muted); font-size: var(--fs-xs); }
 .mc-msg-body { color: var(--text-primary); white-space: pre-wrap; word-break: break-word; }
+/* #271: agent 消息内的 Markdown 容器覆盖 pre-wrap，软换行按 Markdown 语义折叠为空格 */
+.mc-md { white-space: normal; }
+
+/* ---------- #277（决策 #248 D1/D2/D3/D5）：分侧布局 + 系统播报 + mention chip + 连续合并 ---------- */
+/* D1 人类消息：右侧轻气泡（头像 + 时间戳在右，不署名） */
+.mc-msg-human { display: flex; flex-direction: column; align-items: flex-end; }
+.mc-msg-human .mc-msg-head { justify-content: flex-end; }
+.mc-bubble {
+  width: fit-content;
+  max-width: 75%;
+  background: var(--accent-dim);
+  border: 1px solid var(--accent-border);
+  border-radius: 10px;
+  border-top-right-radius: 3px;
+  padding: 6px 12px;
+}
+/* D1 agent 消息：左侧无气泡文档流，占内容列宽（大屏 1000px 上限见文末 #239 媒体查询） */
+.mc-msg-agent { text-align: left; }
+/* D3 系统播报：居中淡色小字，与左右对话流明确区隔；无头无动作，仅正文（+可选 footer 链接居中） */
+.mc-msg-system { text-align: center; }
+.mc-msg-system .mc-msg-body {
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+  white-space: pre-wrap;
+}
+.mc-msg-system .mc-card-foot { justify-content: center; }
+/* D2 compact（连续合并）：省略重复头，动作浮于消息右上，hover/focus 显化（沿用 .mc-msg-actions 弱化态） */
+.mc-msg-compact { position: relative; }
+.mc-msg-compact > .mc-msg-actions-compact {
+  position: absolute;
+  top: 0;
+  right: 0;
+  margin-left: 0;
+}
+/* D5 mention chip：双侧正文 @name 染色（纯渲染，存储仍是纯文本） */
+.mc-mention-chip {
+  color: var(--accent-primary);
+  background: var(--accent-dim);
+  border: 1px solid var(--accent-border);
+  border-radius: 4px;
+  padding: 0 4px;
+  font-weight: 600;
+}
 /* #239: 动作图标可读性——常显弱化态（不再 hover 才出现），hover/focus-within 强化；
    字号/对比度上调（fs-xs→fs-sm、text-muted→text-secondary），点击区域加大 */
 .mc-msg-actions { display: inline-flex; gap: 6px; margin-left: 8px; opacity: 0.55; }
@@ -384,6 +427,20 @@
 }
 .mc-wu-link:hover { border-color: var(--accent-primary); }
 
+/* #285: agent 消息 inline-code 文件 chip（点击复制绝对路径 / .studio/ 跳阅览室） */
+.mc-file-chip {
+  font-size: var(--fs-sm);
+  color: var(--accent-primary);
+  background: var(--accent-dim);
+  border: 1px solid var(--accent-border);
+  border-radius: 4px;
+  padding: 0 6px;
+  margin: 0 1px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.mc-file-chip:hover { border-color: var(--accent-primary); }
+
 /* 进度条 */
 .mc-progress {
   height: 3px;
@@ -415,6 +472,90 @@
 }
 .mc-need-form input:focus { border-color: var(--accent-primary); }
 .mc-need-sent { color: var(--success); font-size: var(--fs-sm); margin-top: 8px; }
+
+/* #267 NEED_INPUT 结构化选项卡（meta.options[]） */
+.mc-need-options { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.mc-need-option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  text-align: left;
+  font: inherit;
+  font-size: var(--fs-sm);
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-default);
+  border-radius: 3px;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+.mc-need-option:hover, .mc-need-option.selected { border-color: var(--accent-primary); }
+.mc-need-option-desc { color: var(--text-muted); font-size: var(--fs-xs); }
+.mc-need-options-actions { display: flex; gap: 8px; }
+.mc-need-option-extra {
+  font: inherit;
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+  background: none;
+  border: 1px dashed var(--border-default);
+  border-radius: 3px;
+  padding: 3px 10px;
+  cursor: pointer;
+}
+.mc-need-option-extra:hover { color: var(--text-primary); border-color: var(--accent-primary); }
+
+/* #279（决策 #250 D4）：顶栏 NEED_INPUT 待办 chip + 下拉清单 + 定位高亮 */
+.mc-need-chip-wrap { position: relative; }
+.mc-need-chip {
+  color: var(--warning);
+  background: var(--warning-dim);
+  border-color: var(--warning-border);
+}
+.mc-need-chip:hover { color: var(--warning); border-color: var(--warning); }
+.mc-need-chip-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 30;
+  min-width: 260px;
+  max-width: 360px;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: 4px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  overflow: hidden;
+}
+.mc-need-chip-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font: inherit;
+  font-size: var(--fs-sm);
+  color: var(--text-primary);
+  text-align: left;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--border-subtle);
+  padding: 8px 12px;
+  cursor: pointer;
+}
+.mc-need-chip-item:last-child { border-bottom: none; }
+.mc-need-chip-item:hover { background: var(--bg-tertiary); }
+.mc-need-chip-wu { color: var(--accent-primary); flex-shrink: 0; }
+.mc-need-chip-q {
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mc-msg-highlight {
+  outline: 2px solid var(--warning);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
 
 /* 按钮（Mission Control 密度） */
 .mc-btn {
@@ -505,7 +646,8 @@
   border-radius: 4px;
   box-shadow: var(--shadow-lg);
   z-index: 50;
-  max-height: 192px;
+  /* #270：max-height 按可用空间 clamp，超出滚动 */
+  max-height: min(240px, 40vh);
   overflow-y: auto;
 }
 .mc-mention-item {
@@ -520,6 +662,9 @@
 }
 .mc-mention-item:hover, .mc-mention-item-active { background: var(--accent-dim); color: var(--accent-primary); }
 .mc-mention-desc { margin-left: auto; color: var(--text-muted); font-size: var(--fs-xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* #281: @弹框统一分组（上 Agents 下 Files） */
+.mc-mention-group { padding: 4px 10px 2px; font-size: var(--fs-xs); color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.mc-mention-repo { margin-left: auto; color: var(--text-muted); font-size: var(--fs-xs); }
 
 /* ---------- 右栏：抽屉 ---------- */
 .mc-drawer {
@@ -760,13 +905,13 @@
 
 /* ---------- #239 D3: 大屏（≥1440px）布局放宽 ---------- */
 /* 消息流/输入框 760→1000，卡片 560→吃满消息流；小屏维持现状。
-   正文行宽保持克制（760px），卡片/代码块可吃满新宽度。 */
+   #277 D1 起 agent 文档流吃满内容列宽（原 .mc-msg-body 760px 克制上限随分侧移除），
+   人类侧由 .mc-bubble 75% 收口。 */
 @media (min-width: 1440px) {
   .mc-stream-inner,
   .mc-inputbar-inner { max-width: 1000px; }
   .mc-livebars-inner { max-width: 1000px; }
   .mc-card { max-width: 1000px; }
-  .mc-msg-body { max-width: 760px; }
 }
 
 /* ============================================================

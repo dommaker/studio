@@ -107,6 +107,10 @@ describe('AC-6: PMO publish button', () => {
     await waitFor(() => expect(screen.getAllByText('发起讨论').length).toBeGreaterThan(0));
     fireEvent.click(screen.getAllByText('发起讨论')[0]);
 
+    // #273：弹窗不预选频道，需显式选择后才解析响应成员
+    fireEvent.click(await screen.findByRole('button', { name: '目标频道' }));
+    fireEvent.click(screen.getByRole('option', { name: '#general' }));
+
     // members=["agent-1"] → 只显示 dev（pm 不在 members 里）
     await waitFor(() => expect(screen.getByText(/会响应的 Agent（1）：dev/)).toBeTruthy());
   });
@@ -118,6 +122,8 @@ describe('AC-6: PMO publish button', () => {
     renderPMO();
     await waitFor(() => expect(screen.getAllByText('发起讨论').length).toBeGreaterThan(0));
     fireEvent.click(screen.getAllByText('发起讨论')[0]);
+    fireEvent.click(await screen.findByRole('button', { name: '目标频道' }));
+    fireEvent.click(screen.getByRole('option', { name: '#general' }));
     await waitFor(() => expect(screen.getByText(/会响应的 Agent（1）：dev/)).toBeTruthy());
   });
 
@@ -127,6 +133,8 @@ describe('AC-6: PMO publish button', () => {
     renderPMO();
     await waitFor(() => expect(screen.getAllByText('发起讨论').length).toBeGreaterThan(0));
     fireEvent.click(screen.getAllByText('发起讨论')[0]);
+    fireEvent.click(await screen.findByRole('button', { name: '目标频道' }));
+    fireEvent.click(screen.getByRole('option', { name: '#general' }));
 
     await waitFor(() => expect(screen.getByText(/无人认领/)).toBeTruthy());
   });

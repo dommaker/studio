@@ -3,7 +3,7 @@
  *
  * 覆盖四类 targetType 的生效写入 + 备份：
  *   - iron-law/guideline → .harness/custom-constraints.yml（amend 文案手术 / 内置
- *     shadow 追加 / extend_exceptions 追加 / new-entry 追加；注释保留、YAML 可解析）
+ *     shadow 追加 / new-entry 追加；注释保留、YAML 可解析）
  *   - prompt-template → ~/.studio/prompt-overrides/<templateId>.md
  *   - role-preset → .agents/roles/<name>.yaml（persona 块标量替换 + 写后校验）
  */
@@ -132,19 +132,6 @@ describe('applier: iron-law/guideline → custom-constraints.yml', () => {
     expect(typeof shadow.rule).toBe('string');
     expect(shadow.rule).toBe('NO BYPASSING CHECKPOINTS'); // 拷贝自内置定义
     expect(fs.readFileSync(constraintsFile, 'utf-8')).toContain('# EP-0001:');
-  });
-
-  it('exception change appends an extend-only entry (no rule key)', async () => {
-    await applyProposal(makeProposal({
-      targetType: 'guideline', targetId: 'prefer_worktree', action: 'add',
-      constraintChange: 'exception', proposedText: 'hotfix_branch',
-    }), paths);
-
-    const entries = loadConstraints();
-    const entry = entries.prefer_worktree;
-    expect(entry.extend_exceptions).toEqual(['hotfix_branch']);
-    expect(entry.rule).toBeUndefined();
-    expect(entry.exceptions).toBeUndefined();
   });
 
   it('new-entry change appends a complete constraint entry', async () => {

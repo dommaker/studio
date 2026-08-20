@@ -16,7 +16,11 @@ import type { WorkUnitData } from '../../workunit/workunit.service.js';
 
 // We'll import the actual functions once implemented
 // For RED phase, these imports will fail until implementation exists
-let parseAgentOutput: (text: string) => { action: 'progress' | 'complete' | 'need_input'; summary: string };
+let parseAgentOutput: (text: string) => {
+  action: 'progress' | 'complete' | 'need_input';
+  summary: string;
+  options?: { label: string; description?: string; value?: string }[];
+};
 let dynamicInterval: (result: { action: string }) => number;
 let resolveTarget: (obs: {
   myActive: WorkUnitData[];
@@ -73,6 +77,40 @@ describe('parseAgentOutput()', () => {
     const result = parseAgentOutput('ACTION: PROGRESS:step 1\nmore work\nACTION: COMPLETE:done');
     expect(result.action).toBe('complete');
     expect(result.summary).toBe('done');
+  });
+
+  // #279（决策 #250 D3）：NEED_INPUT 下一行可选携带 OPTIONS: JSON 选项数组
+  test('parses OPTIONS line following NEED_INPUT', () => {
+    const result = parseAgentOutput(
+      'ACTION: NEED_INPUT:选哪个方案？\nOPTIONS: [{"label":"方案 A","description":"说明","value":"a"},{"label":"方案 B"}]',
+    );
+    expect(result.action).toBe('need_input');
+    expect(result.summary).toBe('选哪个方案？');
+    expect(result.options).toEqual([
+      { label: '方案 A', description: '说明', value: 'a' },
+      { label: '方案 B' },
+    ]);
+  });
+
+  test('ignores broken OPTIONS JSON without affecting NEED_INPUT parsing', () => {
+    const result = parseAgentOutput('ACTION: NEED_INPUT:选哪个方案？\nOPTIONS: [{bad json');
+    expect(result.action).toBe('need_input');
+    expect(result.summary).toBe('选哪个方案？');
+    expect(result.options).toBeUndefined();
+  });
+
+  test('does not parse OPTIONS after PROGRESS', () => {
+    const result = parseAgentOutput('ACTION: PROGRESS:step 1\nOPTIONS: [{"label":"x"}]');
+    expect(result.action).toBe('progress');
+    expect(result.summary).toBe('step 1');
+    expect(result.options).toBeUndefined();
+  });
+
+  test('filters OPTIONS elements without a string label, drops non-string description/value', () => {
+    const result = parseAgentOutput(
+      'ACTION: NEED_INPUT:选哪个？\nOPTIONS: [{"description":"no label"},{"label":"ok","value":1},{"label":"ok2"}]',
+    );
+    expect(result.options).toEqual([{ label: 'ok' }, { label: 'ok2' }]);
   });
 });
 

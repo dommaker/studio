@@ -59,6 +59,18 @@ documents（document-store，#149 T11 退役）与 wiki（#155 改名 library）
 工单的唯一分类词表（#118 第三轮，2026-08-12）：需求 / 决策单 / spec单 / 任务单 / implement / review / analysis。**增删类型 = 治理变更**，须先过治理流程（CLAUDE.md「治理变更流程」节，#166）再改词表。操作载体 = PMO 工单类型字段（单一权威）；本条目是词表的文档化；GitHub label 仅 studio 自研特例，不构成第二平面（用户工程可能是任意 git 托管，流程信息零外泄，远端只见分支名/commit 指针）。agent 只见工单不见机制：类型决定默认方法论与产出契约（见 CLAUDE.md 工单类型索引表），派单/解锁/打回等流转由机制承载。**类型认领属性（#126 T4，2026-08-15）**：扩范围类型（需求=feature / 任务单=task / spec单=spec）创建落「待确认」（pending），人工确认才进 frontier 可认领；圈内类型（implement / review / analysis / 决策单 / bug）创建即可认领——机制载体 = workunit.types.ts `PENDING_CONFIRM_TYPES` + `resolveInitialStatus`。**变体不增类型（#128 T6 / #130 T8）**：类型内的用途变体用显式 metadata 标记表达（原型单 `prototype: true`、巡检单 `inspection: true`），不隐式判定、不进词表。**触发器人闸（#130 T8，2026-08-15）**：无人在环的自动触发（定时/事件）模型调用单，建单显式 `status='pending'` 待人确认才执行（按来源不按类型，不动 PENDING_CONFIRM_TYPES；doc-semantic-review 自周五自动跑改为建单待人确认）。**WU 级 token 预算（#162 T8-E1，2026-08-15）**：任何类型工单可带显式 `metadata.tokenBudget` 数值上限，对照 `_cumulativeTokens`（billed 口径）超线即暂停待人三选（追加预算 / 现有产出收尾 / 放弃）；首个消费 = 巡检单。
 _Avoid_: 自创类型、label 当词表载体、隐式判定变体
 
+**频道相关工程**:
+频道交互（@文件补全、文件引用渲染等）的候选工程集（#249，2026-08-19）= 频道默认工程 ∪ 本频道需求挂接 PMO 的全部工程 ∪ 杂务 PMO 工程，去重、频道内最近使用优先。性质 = UX 划界（收窄补全候选），**非安全边界**——安全边界在 agent CLI 权限层。其中「频道默认工程」自 #272（决策 #251 Q2'）起 = `channel.defaultPath`（本地 repo）；legacy `defaultWorkspaceId`（远程执行机器）解析根仍保留为候选来源。
+_Avoid_: 全量扫描工程当候选、把候选集当权限边界
+
+**默认工程 / 默认执行机器（分家）**:
+「哪个 repo」与「在哪跑」是两个概念，术语自此分家（#251 Q2'，2026-08-19；#272 落地）：**默认工程** = 本地 repo 路径，落 `channel.defaultPath`，顶栏下拉数据源 = `/projects/discover` 本地工程发现（非 Admin 可用），归属链 rung 在文件引用之后、执行机器之前（`source=channel-default-path`）；**默认执行机器** = 远程 Workspace（`channel.defaultWorkspaceId`），Admin 概念，正名挪设置区（#286）。旧顶栏「默认工程」下拉绑的是 Workspace，系语义张冠李戴，已拆除。
+_Avoid_: 用 defaultWorkspaceId 表达工程归属、顶栏混摆两个概念
+
+**文件引用（频道）**:
+频道消息里指向频道相关工程内文件的结构化轻引用（#249，2026-08-19）：只记「哪个工程 + 仓内路径」，agent 按需读文件本体；不含内容快照、无行范围。归属语义 = 用户显式指向的工程信号：全部引用同仓时参与工程归属（位于需求继承之后、频道默认工程之前），跨仓不参与、按只读预期。mention 仍是纯文本不结构化（#254 备查）。
+_Avoid_: 附件/上传语义、内容快照、引用当权限授权
+
 ## 大文件治理
 
 **拆分模式**: 整块原样抽出 + 原文件门面 re-export（导出面不变）+ 测试零改动；验收后按需对重模块定向回填直接单测，不要求每个抽出的轻模块/类型文件配同名测试。

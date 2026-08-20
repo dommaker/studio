@@ -1,18 +1,21 @@
 /**
- * traces.routes — Harness 执行轨迹采集/分析/诊断子路由（T-015）
+ * traces.routes — Harness 执行轨迹采集/分析子路由（T-015）
  *
  * 从 routes.ts 提取（T3 大文件拆分，零行为变更），处理器逐字迁移：
  * - GET  /traces              查询执行轨迹
  * - POST /traces              记录执行轨迹
  * - GET  /analysis            轨迹汇总 + 异常
  * - GET  /analysis/anomalies  检测到的异常列表
- * - POST /diagnose            对异常运行 ConstraintDoctor 诊断
+ *
+ * POST /diagnose 已随 harness 1.2.0 删除（ADR-0003 孤儿子系统断链，
+ * 诊断器无替代，前端零消费）；result=bypassed 随 bypass 记录 API
+ * 删除改为 400。
  */
 
 import { Router, Request, Response } from 'express';
 import { logger } from '@dommaker/studio-shared';
 import type { ExecutionTrace, TraceFilter } from '@dommaker/harness';
-import { loadHarness, harnessModule, getCollector, getAnalyzer } from './runtime.js';
+import { getCollector, getAnalyzer } from './runtime.js';
 
 export const tracesRoutes = Router();
 
@@ -53,7 +56,7 @@ tracesRoutes.post('/traces', async (req: Request, res: Response) => {
     const c = await getCollector();
     if (!c) return res.status(503).json({ error: 'Harness not available' });
 
-    const { constraintId, level, result, operation, projectPath, sessionId, userAction, bypassReason } = req.body;
+    const { constraintId, level, result, operation, projectPath, sessionId, userAction } = req.body;
     if (!constraintId || !level || !result) {
       return res.status(400).json({ error: 'constraintId, level, and result are required' });
     }
@@ -67,12 +70,13 @@ tracesRoutes.post('/traces', async (req: Request, res: Response) => {
       projectPath,
       sessionId,
       userAction,
-      bypassReason,
     };
 
     if (result === 'pass') c.recordPass(constraintId, level, trace);
     else if (result === 'fail') c.recordFail(constraintId, level, trace);
-    else if (result === 'bypassed') c.recordBypass(constraintId, level, bypassReason, trace);
+    else if (result === 'bypassed') {
+      return res.status(400).json({ error: 'bypassed traces are no longer supported (harness 1.2.0 removed recordBypass)' });
+    }
 
     return res.json({ recorded: true });
   } catch (error) {
@@ -123,35 +127,5 @@ tracesRoutes.get('/analysis/anomalies', async (req: Request, res: Response) => {
   } catch (error) {
     logger.error('Failed to get anomalies', { error: String(error) });
     return res.status(500).json({ error: 'Failed to get anomalies' });
-  }
-});
-
-/**
- * POST /api/v1/harness/diagnose
- * Run ConstraintDoctor on an anomaly
- */
-tracesRoutes.post('/diagnose', async (req: Request, res: Response) => {
-  try {
-    const loaded = await loadHarness();
-    if (!loaded) return res.status(503).json({ error: 'Harness not available' });
-
-    const { anomaly } = req.body;
-    if (!anomaly) return res.status(400).json({ error: 'anomaly is required' });
-
-    const doctor = new harnessModule!.ConstraintDoctor();
-    const a = await getAnalyzer();
-    if (a) {
-      const c = await getCollector();
-      if (c) {
-        const traces = c.read({ constraintId: anomaly.constraintId });
-        doctor.setData(traces);
-      }
-    }
-
-    const diagnosis = await doctor.diagnose(anomaly);
-    return res.json({ data: diagnosis });
-  } catch (error) {
-    logger.error('Failed to diagnose', { error: String(error) });
-    return res.status(500).json({ error: 'Failed to diagnose' });
   }
 });

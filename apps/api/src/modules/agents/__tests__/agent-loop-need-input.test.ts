@@ -128,6 +128,21 @@ describe('F5: NEED_INPUT 挂起与恢复', () => {
     expect((await wuService.getById(wu.id))!.status).toBe('blocked');
   });
 
+  it('(a3) #279：need_input 带 options → 提问消息 meta 携带结构化选项', async () => {
+    const { wu } = await setupDispatchedWorkUnit();
+
+    await (agentLoop as unknown as RecordResultCapable).recordResult(
+      { workUnit: wu },
+      { action: 'need_input', summary: '选哪个方案？', options: [{ label: 'A', value: 'a' }, { label: 'B' }] },
+    );
+
+    const messages = await fileStore.queryMessages(channelId, { workUnitId: wu.id });
+    const question = messages.find(m => m.authorType === 'agent' && m.content.includes('需要输入'));
+    expect(question).toBeDefined();
+    const meta = JSON.parse(question!.meta as string);
+    expect(meta.options).toEqual([{ label: 'A', value: 'a' }, { label: 'B' }]);
+  });
+
   it('(b) 人类回复 → 恢复 active，回复文本注入下一轮 agent prompt', async () => {
     const { wu } = await setupDispatchedWorkUnit();
     const loop = agentLoop as unknown as RecordResultCapable;

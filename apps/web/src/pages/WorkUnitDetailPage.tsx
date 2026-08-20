@@ -20,9 +20,11 @@ import { TreeTokenDrawer } from '../components/workunit/TreeTokenDrawer';
 import { EvidenceLedger } from '../components/workunit/EvidenceLedger';
 import { OpportunitiesPanel } from '../components/workunit/OpportunitiesPanel';
 import { BlockedByList } from '../components/workunit/BlockedByList';
-import { parseBlockedBy } from '../components/pmo/mapUtils';
+import { parseBlockedBy, buildMapOpeningPrefill } from '../components/pmo/mapUtils';
+import { AnalysisApproveDialog } from '../components/pmo/AnalysisApproveDialog';
 
 const statusLabels: Record<string, string> = {
+  pending: '待确认',
   unassigned: '待分配',
   active: '执行中',
   in_review: '审查中',
@@ -32,6 +34,7 @@ const statusLabels: Record<string, string> = {
 };
 
 const statusColors: Record<string, string> = {
+  pending: 'u-warn-dim u-warn',
   unassigned: 'u-surface-2 u-text-3',
   active: 'u-accent-dim u-accent',
   in_review: 'u-warn-dim u-warn',
@@ -89,6 +92,11 @@ export function WorkUnitDetailPage() {
   const [showTreeTokens, setShowTreeTokens] = useState(false);
   // #185：blocked 处置动作成功后 +1 触发重拉详情
   const [actionTick, setActionTick] = useState(0);
+  // #284（决策 #250 D1/F7-F9）：闸门入口补齐——pending 确认 / in_review 通过+拒绝（拒绝带原因）
+  const [confirming, setConfirming] = useState(false);
+  const [showApproveModal, setShowApproveModal] = useState(false);
+  const [showRejectModal, setShowRejectModal] = useState(false);
+  const [rejectReason, setRejectReason] = useState('');
 
   // id 切换时在渲染期同步清空上一 WU 的全部展示数据（替代原 effect 顶部的五处同步重置）
   const [prevId, setPrevId] = useState(id);
@@ -155,6 +163,29 @@ export function WorkUnitDetailPage() {
       .catch(() => { /* best-effort：失败时清单保持旧态，下轮手动刷新 */ });
   };
   const title = wu ? (typeof meta.title === 'string' && meta.title ? meta.title : wu.scope) : '';
+
+  /** #284：闸门动作统一经 actionTick 重拉详情（与 BlockedActions.onChanged 同一路径） */
+  const runGateAction = async (fn: () => Promise<unknown>) => {
+    setConfirming(true);
+    try {
+      await fn();
+      setActionTick(t => t + 1);
+    } finally {
+      setConfirming(false);
+    }
+  };
+  // #126（T4）待确认人闸：确认 → unassigned 进 frontier 可认领（与频道抽屉同行为）
+  const handleConfirmPending = () => id && runGateAction(() => workunitApi.transitionStatus(id, 'unassigned'));
+  // 审查硬门：通过→done（analysis 走确认弹窗，预填待决问题清单随 summary 回传开图）
+  const handleReviewPassed = (summary?: string, assigneeId?: string) =>
+    id && runGateAction(() => workunitApi.reviewPassed(id, summary, assigneeId));
+  const handleApprove = () => wu && (wu.type === 'analysis' ? setShowApproveModal(true) : handleReviewPassed());
+  const handleReviewRejected = () => {
+    if (!id) return;
+    runGateAction(() => workunitApi.reviewRejected(id, rejectReason.trim() || undefined));
+    setShowRejectModal(false);
+    setRejectReason('');
+  };
   // F6 派生（铁律：徽章/证据判断一律过 deriveDisplayState，不自行解释 attestations）
   const derived = wu ? deriveDisplayState({ status: wu.status, metadata: wu.metadata }) : null;
   const attestations = wu ? parseAttestations(wu.metadata) : undefined;
@@ -293,6 +324,41 @@ export function WorkUnitDetailPage() {
               {/* F6 证据台账：L1 自动验证 / L2 Agent 评审 / L3 人工验收（共享 EvidenceLedger，数据路径同 WorkUnitDrawer） */}
               <EvidenceLedger attestations={attestations} variant="card" />
 
+              {/* #284（决策 #250 D1/F7-F9）：闸门类人审入口补齐详情页（「新页面打开」落点此前无任何审查操作），
+                  与列表行/频道抽屉三处一致——pending 确认（进待认领）；in_review 通过/拒绝（拒绝带原因） */}
+              {wu.status === 'pending' && (
+                <div className="card mt-4 p-3">
+                  <button
+                    className="btn btn-primary"
+                    disabled={confirming}
+                    title="待确认人闸：扩范围单创建落待确认，确认后进入待认领（agent 可见可认领）"
+                    onClick={handleConfirmPending}
+                  >
+                    {confirming ? '提交中…' : '确认（进待认领）'}
+                  </button>
+                </div>
+              )}
+              {wu.status === 'in_review' && (
+                <div className="card mt-4 p-3 flex gap-2">
+                  <button
+                    className="btn btn-primary"
+                    disabled={confirming}
+                    title="审查硬门：通过→done（analysis 通过后按 TASK 拆分自动派工）"
+                    onClick={handleApprove}
+                  >
+                    {confirming ? '提交中…' : '通过（审查闸门）'}
+                  </button>
+                  <button
+                    className="btn btn-danger"
+                    disabled={confirming}
+                    title="审查硬门：拒绝→返工（附原因供 agent 修正）"
+                    onClick={() => setShowRejectModal(true)}
+                  >
+                    拒绝
+                  </button>
+                </div>
+              )}
+
               {/* #185（决策 #87 D4）：blocked 处置（继续执行/关闭任务），与 WorkUnitDrawer 同一组件；
                   动作成功后经 actionTick 重拉详情 */}
               <BlockedActions wu={wu} onChanged={() => setActionTick(t => t + 1)} />
@@ -321,6 +387,48 @@ export function WorkUnitDetailPage() {
 
       {/* REQ 全链路弹窗（复用 RequirementChainPanel） */}
       {chainReqId && <RequirementChainPanel reqId={chainReqId} onClose={() => setChainReqId(null)} />}
+
+      {/* #284：analysis 通过确认弹窗（共享件，预填逻辑 buildMapOpeningPrefill 不变） */}
+      {showApproveModal && wu && (
+        <AnalysisApproveDialog
+          prefill={buildMapOpeningPrefill(wu.metadata)}
+          channelId={wu.channelId}
+          onConfirm={(summary, assigneeId) => { setShowApproveModal(false); handleReviewPassed(summary, assigneeId); }}
+          onCancel={() => setShowApproveModal(false)}
+        />
+      )}
+
+      {/* #284：审查拒绝弹窗（带原因），与列表行/抽屉同款 */}
+      {showRejectModal && (
+        <div className="modal-overlay" onClick={() => setShowRejectModal(false)}>
+          <div className="modal" style={{ maxWidth: '24rem' }} onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3 className="modal-title">拒绝原因</h3>
+              <button className="modal-close" onClick={() => setShowRejectModal(false)} aria-label="关闭">×</button>
+            </div>
+            <div className="modal-body">
+              <textarea
+                className="input w-full"
+                rows={3}
+                placeholder="输入拒绝原因（可选）"
+                value={rejectReason}
+                onChange={e => setRejectReason(e.target.value)}
+              />
+            </div>
+            <div className="modal-footer">
+              <button
+                className="btn btn-secondary"
+                onClick={() => { setShowRejectModal(false); setRejectReason(''); }}
+              >
+                取消
+              </button>
+              <button className="btn btn-danger" disabled={confirming} onClick={handleReviewRejected}>
+                确认拒绝
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* AC-5.6: 协作树 Token 开销弹窗 */}
       {showTreeTokens && wu && (

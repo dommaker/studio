@@ -7,9 +7,8 @@
  * 各 targetType 的写入目标（设计决策，见 docs/plans/2026-07-flywheel-repair.md §4 E1）：
  *   - iron-law / guideline → `<repoRoot>/.harness/custom-constraints.yml`
  *       · amend 既有自定义条目：文本级手术替换 `message:` 行（保留文件注释）。
- *       · 内置约束的 message 修改 / 例外追加：文件尾部追加条目（harness
- *         ProjectConfigLoader 的 mergeConstraints 按 id 覆盖内置定义；
- *         extend-only 条目（仅 extend_exceptions）是 loader 原生支持的合并语义）。
+ *       · 内置约束的 message 修改：文件尾部追加条目（harness
+ *         ProjectConfigLoader 的 mergeConstraints 按 id 覆盖内置定义）。
  *       · new-entry：文件尾部追加完整条目。
  *       · retire：既有 custom 条目内追加 retired 元数据段（#82 D6 统一落点，
  *         保留规则原文；内置约束退役不走 E1——走 harness constraints retire
@@ -173,18 +172,6 @@ function applyConstraintChange(proposal: EvolutionProposalData, constraintsFile:
       return { detail: `amended message of custom constraint '${id}'` };
     }
     // 文本定位失败（异常格式）→ 退化为追加 shadow 条目（loader 按 id 覆盖）
-  }
-
-  if (constraintChange === 'exception') {
-    // extend-only 条目：ProjectConfigLoader 原生支持的合并语义（仅对内置约束生效，
-    // 自定义条目的 exception 追加在生成期已跳过）。
-    const next = appendConstraintEntry(content, id, [
-      `id: ${id}`,
-      `level: ${level}`,
-      `extend_exceptions: [${yamlStr(proposal.proposedText)}]`,
-    ], comment);
-    fs.writeFileSync(constraintsFile, next, 'utf-8');
-    return { detail: `appended extend_exceptions entry for '${id}'` };
   }
 
   if (constraintChange === 'new-entry') {

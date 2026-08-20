@@ -1,6 +1,6 @@
 # CAPABILITIES.md
 
-> 最后更新: 2026-08-18
+> 最后更新: 2026-08-20
 
 ---
 
@@ -105,7 +105,7 @@
 | DistillProposalCard | apps/web/src/components/channel/DistillProposalCard.tsx | distill_proposal 人审卡（#143）：原料清单 + 确认蒸馏/拒绝 |
 | App | apps/web/src/App.tsx | App.tsx - Agent Studio - 路由重构 |
 | AuthModal | apps/web/src/components/AuthModal.tsx | 隐形认证 — 仅通过手势触发（双击 ⚡ 或 Ctrl+Enter） |
-| ChannelWorkspaceSetting | apps/web/src/components/ChannelWorkspaceSetting.tsx | ChannelWorkspaceSetting |
+
 | DiscussionPanel | apps/web/src/components/DiscussionPanel.tsx | DiscussionPanel — WorkUnit 讨论空间（MVP-4） |
 | JoinComputeDialog | apps/web/src/components/JoinComputeDialog.tsx | JoinComputeDialog |
 | LandingPage | apps/web/src/components/LandingPage.tsx | Lurk Wall: 个人网站展示页 — 不提示登录，不显示入口 |
@@ -182,3 +182,13 @@
 | BlockedActions | apps/web/src/components/workunit/BlockedActions.tsx | BlockedActions — #185（决策 #87 D1/D3/D4/D5）：blocked WU 的 Web 处置组件 |
 | TranscriptViewer | apps/web/src/components/workunit/TranscriptViewer.tsx | TranscriptViewer — #174: WU 会话原文（transcript）只读查看器（#60 C5） |
 | BlockedByList | apps/web/src/components/workunit/BlockedByList.tsx | #116: 依赖（metadata.blockedBy）清单共享组件 — WorkUnitListPage 被阻塞行展开 / WorkUnitDetailPage「依赖与验收」卡复用。 |
+| execution-rows | apps/web/src/components/workunit/execution-rows.ts | active WU 列表 + 最新步事件索引 → 状态条模型（顺序保持输入序）。 |
+| AnalysisConfirmCard | apps/web/src/components/channel/AnalysisConfirmCard.tsx | AnalysisConfirmCard — #284（决策 #250 D6）analysis 接力卡 |
+| ChannelCurrentPmoChip | apps/web/src/components/channel/ChannelCurrentPmoChip.tsx | #272（决策 #251 Q6）：顶栏「当前 PMO」chip。 |
+| ChannelDefaultProjectSelect | apps/web/src/components/channel/ChannelDefaultProjectSelect.tsx | #272（决策 #251 Q2'）：顶栏「默认工程」= 本地 repo 下拉。 |
+| ChannelNeedInputChip | apps/web/src/components/channel/ChannelNeedInputChip.tsx | #279（决策 #250 D4）：顶栏 NEED_INPUT 待办 chip。 |
+| CreateChannelForm | apps/web/src/components/channel/CreateChannelForm.tsx | #272（决策 #251 Q3/Q7）：创建频道表单单一实现 —— ChannelListPage 与 ChannelRail 共用。 |
+| FileRefChip | apps/web/src/components/channel/FileRefChip.tsx | #285（决策 #249 §5）：agent 消息正文 inline-code 路径 token 染「文件 chip」。 |
+| NeedInputOptions | apps/web/src/components/channel/NeedInputOptions.tsx | #267（决策 #250 D3）: NEED_INPUT 结构化选项卡 — meta.options[] 全仓首发落地。 |
+| DefaultExecutionMachineSection | apps/web/src/components/settings/DefaultExecutionMachineSection.tsx | 默认执行机器 section（#286，决策 #251 Q2'）：远程 Workspace 绑定从频道顶栏挪入设置区， |
+| ProjectCandidatesSection | apps/web/src/components/settings/ProjectCandidatesSection.tsx | 工程候选管理 section（#266，决策 #258）：归属问答候选集排除清单管理。 |

@@ -9,7 +9,8 @@ export interface ChannelMessage {
   content: string;
   replyToId?: string | null;
   workUnitId?: string | null;
-  meta?: string;
+  /** #264：REST/SSE 出口为 object（shapeMessageData 已解析）；string 为存量/测试形态，消费侧双型兼容 */
+  meta?: string | Record<string, unknown>;
   createdAt: string;
 }
 
@@ -47,6 +48,25 @@ export interface LocalProject {
   language?: string;
 }
 
+/** #281（决策 #249 §2）：@文件引用——repo = 工程绝对路径（PMO gitRepos 同形），path = git ls-files 相对路径 */
+export interface FileRef {
+  repo: string;
+  path: string;
+}
+
+/** #281：频道文件词表（候选集顺序，各仓 git ls-files） */
+export interface ChannelFileVocabulary {
+  repos: { repo: string; files: string[] }[];
+}
+
+/** #272（决策 #251 Q6）：顶栏「当前 PMO」chip 形状（派生不落库；gitRepos 多仓走 tooltip） */
+export interface ChannelCurrentPmo {
+  id: string;
+  pmoNumber: string;
+  title: string;
+  gitRepos: string[];
+}
+
 export const channelApi = {
   list: () =>
     api.get<{ success: boolean; data: Channel[] }>('/channels'),
@@ -54,7 +74,7 @@ export const channelApi = {
   get: (channelId: string) =>
     api.get<{ success: boolean; data: Channel }>(`/channels/${channelId}`),
 
-  create: (data: { name: string; type: string; agents?: Array<{ name: string }> }) =>
+  create: (data: { name: string; type: string; agents?: Array<{ name: string }>; defaultPath?: string | null }) =>
     api.post<{ success: boolean; data: Channel }>('/channels', data),
 
   update: (channelId: string, data: { defaultWorkspaceId?: string; defaultPath?: string; name?: string }) =>
@@ -66,11 +86,19 @@ export const channelApi = {
       { params }
     ),
 
-  sendMessage: (channelId: string, content: string, replyToId?: string) =>
+  sendMessage: (channelId: string, content: string, replyToId?: string, files?: FileRef[]) =>
     api.post<{ success: boolean; data: ChannelMessage }>(
       `/channels/${channelId}/messages`,
-      { content, replyToId }
+      { content, replyToId, ...(files?.length ? { files } : {}) }
     ),
+
+  /** #281: @文件引用只读词表（候选集 = 频道相关工程；文件候选走词表路径后缀补全） */
+  getFileVocabulary: (channelId: string) =>
+    api.get<{ success: boolean; data: ChannelFileVocabulary }>(`/channels/${channelId}/file-vocabulary`),
+
+  /** #272: 顶栏「当前 PMO」chip 派生（最近挂接 REQ 所属 PMO / 杂务 PMO；无 → data=null） */
+  getCurrentPmo: (channelId: string) =>
+    api.get<{ success: boolean; data: ChannelCurrentPmo | null }>(`/channels/${channelId}/current-pmo`),
 
   listAgents: (channelId?: string, options?: { includeSystem?: boolean }) =>
     api.get<{ data: AgentProfile[]; pagination: { total: number } }>('/agent-profiles', {
@@ -93,6 +121,13 @@ export const channelApi = {
     api.post<{ success: boolean; data: unknown }>(
       `/channels/${channelId}/messages/${messageId}/convert-to-task`,
       data
+    ),
+
+  /** #278（决策 #250 D2）：auditor_suggestion 卡人审决策（采纳建本频道未指派 task 工单；拒绝仅留痕） */
+  cardDecision: (channelId: string, messageId: string, decision: 'confirm' | 'reject') =>
+    api.post<{ success: boolean; data: { status: 'confirmed' | 'rejected'; workUnitId?: string } }>(
+      `/channels/${channelId}/messages/${messageId}/card-decision`,
+      { decision }
     ),
 
   suggestTask: (channelId: string, messageId: string) =>

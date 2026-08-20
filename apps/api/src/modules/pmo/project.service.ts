@@ -467,7 +467,7 @@ export const projectService = {
     return updated;
   },
 
-  async updateStatus(projectId: string, status: string, skipValidation = false) {
+  async updateStatus(projectId: string, status: string, skipValidation = false, extra: Record<string, unknown> = {}) {
     const now = new Date();
     const current = await fileStore.readJson<ProjectData>(projectPath(projectId));
 
@@ -480,7 +480,7 @@ export const projectService = {
       throw new Error(`Invalid status transition: ${current.status} → ${status}`);
     }
 
-    const updateData: Record<string, unknown> = { status };
+    const updateData: Record<string, unknown> = { status, ...extra };
 
     if (status === PROJECT_STATUS.ACTIVE && !current.startedAt) {
       updateData.startedAt = now.toISOString();
@@ -590,7 +590,9 @@ FOG: <待决问题>
       },
     });
 
-    const updatedProject = await this.updateStatus(input.projectId, 'active');
+    // #273（#251 决议）：发布即绑定——publish 时回写 project.channelId（1 PMO : 1 频道，
+    // 绑定唯一入口），项目页「去频道」按钮（条件 project.channelId）随之复活；channel 侧不加 pmoId
+    const updatedProject = await this.updateStatus(input.projectId, 'active', false, { channelId: input.channelId });
 
     return { message, workUnit, project: updatedProject };
   },

@@ -35,7 +35,7 @@ describe('parseWuMetadata 容错解析矩阵', () => {
   });
 });
 
-describe('clearSessionBookkeeping 14 字段权威清单', () => {
+describe('clearSessionBookkeeping 15 字段权威清单', () => {
   const BOOKKEEPING: Record<string, unknown> = {
     sessionId: 'sess-1',
     startedAt: '2026-08-01T00:00:00Z',
@@ -51,6 +51,7 @@ describe('clearSessionBookkeeping 14 字段权威清单', () => {
     _cumulativeTokens: 42000,
     progressLog: [{ step: 1, action: 'progress', summary: '完成数据层', at: '2026-08-12T10:00:00Z' }],
     sessionSummary: '滚动摘要',
+    ownershipAttempts: 2, // #265: 归属问答轮次计数不继承（子 WU 自己的归属问答从零计）
   };
 
   it('簿记字段全部清除', () => {

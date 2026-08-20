@@ -4,6 +4,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import compression from 'compression';
 import cookieParser from 'cookie-parser';
+import { shouldCompress } from './middleware/compression-filter.js';
 import { errorHandler } from './middleware/error-handler.js';
 import { requestLogger } from './middleware/request-logger.js';
 import { auditLogger } from './middleware/audit-logger.js';
@@ -23,7 +24,7 @@ app.use(helmet({
   hsts: false,
 }));
 app.use(cors());
-app.use(compression());
+app.use(compression({ filter: shouldCompress }));
 
 // Discord interactions 需要原始 body 进行签名验证，跳过 JSON 解析
 app.use('/api/v1/discord/interactions', express.raw({ type: 'application/json', limit: '1mb' }));

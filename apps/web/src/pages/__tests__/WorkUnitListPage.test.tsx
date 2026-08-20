@@ -21,6 +21,7 @@ const mockStore = {
   workunits: [] as Array<Record<string, unknown>>,
   reviewPassed: vi.fn(),
   reviewRejected: vi.fn(),
+  confirmPending: vi.fn(),
   loadWorkUnits: vi.fn(),
   createWorkUnit: vi.fn(),
   setStatusFilter: vi.fn(),
@@ -38,6 +39,7 @@ vi.mock('../../stores/workunitStore', () => ({
       createWorkUnit: mockStore.createWorkUnit,
       reviewPassed: mockStore.reviewPassed,
       reviewRejected: mockStore.reviewRejected,
+      confirmPending: mockStore.confirmPending,
       setStatusFilter: mockStore.setStatusFilter,
     }),
     { getState: vi.fn().mockReturnValue({ workunits: [], total: 0, loading: false, error: null, loadWorkUnits: vi.fn() }) }
@@ -157,6 +159,34 @@ describe('WorkUnitListPage — analysis 确认弹窗（#106 M7）', () => {
 
     expect(screen.queryByPlaceholderText(/DESTINATION/)).toBeNull();
     expect(mockStore.reviewPassed).toHaveBeenCalledWith('wu-t1', undefined, undefined);
+  });
+});
+
+// #284（决策 #250 D1）：pending 人闸确认入口补齐到行展开态（与频道抽屉同行为）
+describe('WorkUnitListPage — pending 人闸入口（#284）', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockStore.workunits = [];
+    mockSearchParamsValue.value = '';
+  });
+
+  it('pending 行展开态 → 「确认（进待认领）」→ confirmPending(id)', async () => {
+    mockStore.workunits = [makeWu({ id: 'wu-p1', type: 'task', status: 'pending' })];
+    render(<WorkUnitListPage />);
+
+    fireEvent.click(screen.getByText('ID: wu-p1...')); // 行内展开
+    fireEvent.click(await screen.findByText('确认（进待认领）'));
+
+    expect(mockStore.confirmPending).toHaveBeenCalledWith('wu-p1');
+  });
+
+  it('非 pending 行展开态无确认按钮', async () => {
+    mockStore.workunits = [makeWu({ id: 'wu-a9', type: 'task', status: 'active' })];
+    render(<WorkUnitListPage />);
+
+    fireEvent.click(screen.getByText('ID: wu-a9...'));
+    await waitFor(() => expect(screen.getByText(/Assignee/)).toBeDefined()); // 展开已生效
+    expect(screen.queryByText('确认（进待认领）')).toBeNull();
   });
 });
 

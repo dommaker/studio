@@ -9,6 +9,7 @@ import { logger } from '../../utils/logger.js';
 import { skillStore } from './skill-store.js';
 import { proposalStore } from './proposal-store.js';
 import { promoteSkill } from './skill-promotion.js';
+import { channelMessageService } from '../channels/channel-message.service.js';
 import { requireAuth, requireNotGuest } from '../../middleware/auth.js';
 
 const router = Router();
@@ -192,6 +193,43 @@ router.post('/:id/deprecate', requireAuth(), requireNotGuest(), async (req: Requ
   } catch (error) {
     logger.error({ error }, 'Failed to deprecate skill');
     res.status(500).json({ error: 'Failed to deprecate skill' });
+  }
+});
+
+/**
+ * POST /api/v1/skills/:id/retract/decide — #278（决策 #250 D2）：retract_confirm 卡的退役决策端点
+ * retract（skill-proposal-routes）已把 skill 置 under_review 并推卡，本端点补下半截：
+ * confirm → deprecated、reject → 恢复 published；body.messageId 提供时同步回写卡片 meta.status
+ * （经 updateMessageMeta → SSE channel.message_updated，非阻断——卡片找不到不拖垮状态迁移）。
+ */
+router.post('/:id/retract/decide', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
+  try {
+    const { decision, messageId } = req.body ?? {};
+    if (decision !== 'confirm' && decision !== 'reject') {
+      return res.status(400).json({ error: "decision must be 'confirm' or 'reject'" });
+    }
+    const skill = skillStore.get(req.params.id);
+    if (!skill) return res.status(404).json({ error: 'Skill not found' });
+    if (skill.status !== 'under_review') {
+      return res.status(400).json({ error: `Cannot decide retract for skill with status '${skill.status}'` });
+    }
+
+    const nextStatus = decision === 'confirm' ? 'deprecated' : 'published';
+    const updated = skillStore.update(req.params.id, { status: nextStatus });
+
+    if (typeof messageId === 'string' && messageId) {
+      try {
+        await channelMessageService.updateMessageMeta(messageId, { status: nextStatus });
+      } catch (e: unknown) {
+        logger.warn({ messageId, error: String(e) }, '[Skill] retract decide 卡片回写失败（非阻断）');
+      }
+    }
+
+    logger.info({ skillId: req.params.id, decision, status: nextStatus }, '[Skill] Retract decided');
+    res.json({ data: updated });
+  } catch (error) {
+    logger.error({ error }, 'Failed to decide skill retract');
+    res.status(500).json({ error: 'Failed to decide skill retract' });
   }
 });
 

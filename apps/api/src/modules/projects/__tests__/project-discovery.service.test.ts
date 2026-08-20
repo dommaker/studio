@@ -244,4 +244,131 @@ describe('D6: STUDIO_PROJECTS_EXCLUDE 排除清单', () => {
       expect(names).toContain(name);
     }
   });
+
+  // #266（决策 #258）：排除清单第二层来源 —— ~/.studio 数据区配置文件
+  // （STUDIO_HOME 隔离根，仿 outbound-notify 路由测试）；env 保留为部署级覆盖
+  describe('#266: 配置文件来源 projects-exclude.json', () => {
+    let tmpStudioHome: string;
+    let savedStudioHome: string | undefined;
+    const configFile = () => join(tmpStudioHome, 'projects-exclude.json');
+
+    beforeEach(async () => {
+      tmpStudioHome = await mkdtemp(join(tmpdir(), 'studio-home-exclude-'));
+      savedStudioHome = process.env.STUDIO_HOME;
+      process.env.STUDIO_HOME = tmpStudioHome;
+    });
+
+    afterEach(async () => {
+      if (savedStudioHome === undefined) delete process.env.STUDIO_HOME;
+      else process.env.STUDIO_HOME = savedStudioHome;
+      await rm(tmpStudioHome, { recursive: true, force: true });
+    });
+
+    it('env 未设置时从配置文件读排除规则', async () => {
+      await writeFile(configFile(), JSON.stringify({ exclude: ['skip-b', join(tempRoot, 'skip-path')] }));
+      const service = new ProjectDiscoveryService({ roots: [tempRoot] });
+
+      const names = await discoverNames(service);
+      expect(names).toContain('keep-a');
+      expect(names).not.toContain('skip-b');
+      expect(names).not.toContain('skip-path');
+    });
+
+    it('env STUDIO_PROJECTS_EXCLUDE 覆盖配置文件（部署级覆盖优先）', async () => {
+      await writeFile(configFile(), JSON.stringify({ exclude: ['skip-b'] }));
+      process.env.STUDIO_PROJECTS_EXCLUDE = 'keep-a';
+      const service = new ProjectDiscoveryService({ roots: [tempRoot] });
+
+      const names = await discoverNames(service);
+      expect(names).not.toContain('keep-a');  // env 规则生效
+      expect(names).toContain('skip-b');       // 配置文件规则被覆盖
+    });
+
+    it('配置文件损坏（非法 JSON）→ 降级为空清单，不炸', async () => {
+      await writeFile(configFile(), '{ not json');
+      const service = new ProjectDiscoveryService({ roots: [tempRoot] });
+
+      const names = await discoverNames(service);
+      for (const name of ['keep-a', 'skip-b', 'skip-path', 'prefix', 'prefix2', 'inner']) {
+        expect(names).toContain(name);
+      }
+    });
+
+    it('配置文件形状不符（exclude 非数组）→ 降级为空清单', async () => {
+      await writeFile(configFile(), JSON.stringify({ exclude: 'skip-b' }));
+      const service = new ProjectDiscoveryService({ roots: [tempRoot] });
+
+      const names = await discoverNames(service);
+      expect(names).toContain('skip-b');
+    });
+
+    it('invalidateCache 后重新读取配置文件（设置页改动即时生效）', async () => {
+      const service = new ProjectDiscoveryService({ roots: [tempRoot] });
+      expect(await discoverNames(service)).toContain('skip-b');
+
+      await writeFile(configFile(), JSON.stringify({ exclude: ['skip-b'] }));
+      // 缓存未失效前仍是旧候选
+      expect(await discoverNames(service)).toContain('skip-b');
+
+      service.invalidateCache();
+      expect(await discoverNames(service)).not.toContain('skip-b');
+    });
+  });
+
+  // #266（决策 #258）兜底排序：已绑定 PMO 的工程排前，纯扫描发现的排后（组内保持扫描序）
+  describe('#266: 候选排序 — PMO 绑定工程排前', () => {
+    it('options.boundPaths 注入：绑定工程排前，组内顺序稳定', async () => {
+      const baseline = (await new ProjectDiscoveryService({ roots: [tempRoot] }).discover()).map(p => p.name);
+      const service = new ProjectDiscoveryService({
+        roots: [tempRoot],
+        boundPaths: () => [join(tempRoot, 'prefix2')],
+      });
+
+      const names = (await service.discover()).map(p => p.name);
+      expect(names[0]).toBe('prefix2');
+      // 未绑定组保持原扫描序（稳定排序，组内不重排）
+      expect(names.slice(1)).toEqual(baseline.filter(n => n !== 'prefix2'));
+    });
+
+    it('缺省来源 ~/.studio/projects/*.json（gitRepo + deliveries[].gitRepo）', async () => {
+      const tmpStudioHome = await mkdtemp(join(tmpdir(), 'studio-home-bound-'));
+      const savedStudioHome = process.env.STUDIO_HOME;
+      process.env.STUDIO_HOME = tmpStudioHome;
+      try {
+        await mkdir(join(tmpStudioHome, 'projects'));
+        await writeFile(join(tmpStudioHome, 'projects', 'proj-a.json'), JSON.stringify({
+          id: 'proj-a', gitRepo: join(tempRoot, 'skip-path'),
+          deliveries: [{ gitRepo: join(tempRoot, 'prefix'), branch: 'PMO-1', status: 'pending' }],
+        }));
+        const service = new ProjectDiscoveryService({ roots: [tempRoot] });
+
+        const names = (await service.discover()).map(p => p.name);
+        expect(names.slice(0, 2).sort()).toEqual(['prefix', 'skip-path']);
+        expect(names.indexOf('prefix')).toBeLessThan(names.indexOf('keep-a'));
+      } finally {
+        if (savedStudioHome === undefined) delete process.env.STUDIO_HOME;
+        else process.env.STUDIO_HOME = savedStudioHome;
+        await rm(tmpStudioHome, { recursive: true, force: true });
+      }
+    });
+
+    it('PMO 数据区读取失败 → 不炸，排序退化为扫描序', async () => {
+      const tmpStudioHome = await mkdtemp(join(tmpdir(), 'studio-home-nopmo-'));
+      const savedStudioHome = process.env.STUDIO_HOME;
+      process.env.STUDIO_HOME = tmpStudioHome; // 无 projects 目录
+      try {
+        const baseline = (await new ProjectDiscoveryService({
+          roots: [tempRoot],
+          boundPaths: () => [],
+        }).discover()).map(p => p.name);
+        const service = new ProjectDiscoveryService({ roots: [tempRoot] });
+        const names = (await service.discover()).map(p => p.name);
+        expect(names).toEqual(baseline);
+      } finally {
+        if (savedStudioHome === undefined) delete process.env.STUDIO_HOME;
+        else process.env.STUDIO_HOME = savedStudioHome;
+        await rm(tmpStudioHome, { recursive: true, force: true });
+      }
+    });
+  });
 });

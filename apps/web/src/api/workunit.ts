@@ -314,6 +314,10 @@ export const workunitApi = {
   getTreeTokens: (id: string) =>
     api.get<TreeTokenReport>(`/workunits/${id}/tree-tokens`),
 
+  /** #285 AC4: per-WU 产出/修改文件集（文件 chip 第一优先词表；空数组 → 降级候选集词表） */
+  getChangedFiles: (id: string) =>
+    api.get<{ success: boolean; data: { files: string[] } }>(`/workunits/${id}/changed-files`),
+
   /** #163 T8-E2: 巡检机会采纳（201，建 feature 子单，源条目记 wuId） */
   adoptOpportunity: (id: string, oppId: string) =>
     api.post<AdoptOpportunityResult>(`/workunits/${id}/opportunities/${oppId}/adopt`),

@@ -92,7 +92,8 @@ afterEach(() => {
 });
 
 describe('AnalysisHandoff（PMO 分析接力）', () => {
-  it('analysis → in_review：频道发人工确认提示（含派工预告）', async () => {
+  // #284（决策 #250 D6）：in_review 引导由纯文本升级为 analysis_confirm 接力卡
+  it('analysis → in_review：频道发 analysis_confirm 接力卡（含派工预告）', async () => {
     const wu = await createAnalysisWu({ analysisTasks: ['任务一', '任务二'] });
     emitStatus(wu, 'in_review');
 
@@ -100,8 +101,37 @@ describe('AnalysisHandoff（PMO 分析接力）', () => {
     expect(ok).toBe(true);
     const msgs = await channelMessages();
     expect(msgs[0].workUnitId).toBe(wu.id);
-    expect(msgs[0].content).toContain('人工');
+    const meta = JSON.parse(msgs[0].meta || '{}');
+    expect(meta.cardType).toBe('analysis_confirm');
+    expect(msgs[0].content).toContain('分析结论待确认');
     expect(msgs[0].content).toContain('自动派工');
+  });
+
+  it('analysis → in_review（无 TASK）：接力卡同样发卡，文案提示确认后可手动转任务', async () => {
+    const wu = await createAnalysisWu({});
+    emitStatus(wu, 'in_review');
+
+    const ok = await waitFor(async () => (await channelMessages()).length === 1);
+    expect(ok).toBe(true);
+    const msgs = await channelMessages();
+    const meta = JSON.parse(msgs[0].meta || '{}');
+    expect(meta.cardType).toBe('analysis_confirm');
+    expect(msgs[0].content).toContain('手动转任务');
+  });
+
+  it('#163 巡检单（inspection）不发接力卡：维持纯文本引导（其确认走机会清单采纳/忽略，非确认弹窗）', async () => {
+    const wu = await createAnalysisWu({
+      inspection: true,
+      opportunities: [{ id: 'o1', problem: 'p', suggestion: 's', status: 'pending' }],
+    });
+    emitStatus(wu, 'in_review');
+
+    const ok = await waitFor(async () => (await channelMessages()).length === 1);
+    expect(ok).toBe(true);
+    const msgs = await channelMessages();
+    expect(msgs[0].content).toContain('巡检完成');
+    const meta = JSON.parse(msgs[0].meta || '{}');
+    expect(meta.cardType).toBeUndefined();
   });
 
   it('analysis → done：按 analysisTasks 建未指派 task 子 WU + 频道清单', async () => {

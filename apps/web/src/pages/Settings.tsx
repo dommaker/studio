@@ -4,9 +4,11 @@ import { useState, useEffect } from 'react';
 import { companyApi } from '../api/company';
 import { notifyApi } from '../api/notify';
 import { ComputeSection } from '../components/settings/ComputeSection';
+import { DefaultExecutionMachineSection } from '../components/settings/DefaultExecutionMachineSection';
 import { NotifySyncStatusHint, type NotifySyncStatus } from '../components/settings/NotifySyncStatusHint';
 import { NotifyChannelSection } from '../components/settings/NotifyChannelSection';
 import { CompanySection, type Company } from '../components/settings/CompanySection';
+import { ProjectCandidatesSection } from '../components/settings/ProjectCandidatesSection';
 import { KnowledgeEntrySection } from '../components/settings/KnowledgeEntrySection';
 import { ThemeSettings } from '../components/settings/ThemeSettings';
 import { toast } from '../utils/toast';
@@ -171,6 +173,9 @@ export function Settings() {
           {/* 🖥️ 算力接入 — AS-020 P7 */}
           <ComputeSection />
 
+          {/* 🖥️ 默认执行机器 — #286（决策 #251 Q2'）：频道级 WU 执行机器绑定（从频道顶栏挪入） */}
+          <DefaultExecutionMachineSection />
+
           {/* 📢 通知配置同步状态提示 */}
           <NotifySyncStatusHint status={notifySyncStatus} />
 
@@ -213,6 +218,9 @@ export function Settings() {
             setCompany={setCompany}
             setNewCompanyName={setNewCompanyName}
           />
+
+          {/* 🗂️ 工程候选管理 — #266（决策 #258） */}
+          <ProjectCandidatesSection />
 
           {/* 📚 知识库 */}
           <KnowledgeEntrySection />

@@ -2,16 +2,17 @@
  * MarkdownBody tests - §10 任务 4b 统一 markdown 渲染
  * 覆盖：标题/列表/行内代码基础渲染、GFM 表格、围栏代码块（pre>code 无行内 chip 样式）、
  *       [[wiki 链接]] → router Link、外链新标签页、原始 HTML 不渲染（不可信输入安全）
+ * #271（决策 #248 D4）：wikiLinks 开关 / codeCopy 复制按钮 / renderInlineCode 挂载点
  */
-import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { describe, it, expect, vi } from 'vitest';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { MarkdownBody } from '../MarkdownBody';
 
-const renderBody = (content: string) =>
+const renderBody = (content: string, props?: Partial<Parameters<typeof MarkdownBody>[0]>) =>
   render(
     <MemoryRouter>
-      <MarkdownBody content={content} />
+      <MarkdownBody content={content} {...props} />
     </MemoryRouter>,
   );
 
@@ -64,5 +65,48 @@ describe('MarkdownBody', () => {
     expect(container.querySelector('script')).toBeNull();
     // 原样按文本输出
     expect(container.textContent).toContain('<b>html</b>');
+  });
+
+  it('#271：wikiLinks=false 时 [[链接]] 保持字面文本，不转 router Link（频道用法）', () => {
+    const { container } = renderBody('参见 [[设计 文档]] 与 [[SDD]]', { wikiLinks: false });
+    expect(container.querySelector('a')).toBeNull();
+    expect(container.textContent).toContain('参见 [[设计 文档]] 与 [[SDD]]');
+  });
+
+  it('#271：wikiLinks 缺省 = true，阅览室 [[链接]] 行为零变化', () => {
+    renderBody('参见 [[SDD]]');
+    expect(screen.getByRole('link', { name: 'SDD' }).getAttribute('href')).toBe('/library/SDD');
+  });
+
+  it('#271：codeCopy 开启时围栏代码块带复制按钮，点击写剪贴板并反馈「已复制」', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    renderBody('```ts\nconst a = 1;\nconst b = 2;\n```', { codeCopy: true });
+    const btn = screen.getByRole('button', { name: '复制' });
+    fireEvent.click(btn);
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith('const a = 1;\nconst b = 2;'));
+    expect(screen.getByRole('button', { name: '已复制' })).toBeTruthy();
+  });
+
+  it('#271：codeCopy 缺省关闭，代码块无复制按钮（阅览室行为零变化）', () => {
+    renderBody('```ts\nconst a = 1;\n```');
+    expect(screen.queryByRole('button', { name: '复制' })).toBeNull();
+  });
+
+  it('#271：renderInlineCode 命中时替换行内 chip，返回 null 走默认样式，块级代码不受影响', () => {
+    const { container } = renderBody('看 `src/index.ts` 和 `other.ts`\n\n```ts\nconst a = 1;\n```', {
+      renderInlineCode: text =>
+        text === 'src/index.ts' ? <button type="button">chip:{text}</button> : null,
+    });
+    // 命中的 inline-code 被自定义渲染替换
+    expect(screen.getByRole('button', { name: 'chip:src/index.ts' })).toBeTruthy();
+    // 未命中的 inline-code 走默认行内 chip 样式
+    const inline = screen.getByText('other.ts');
+    expect(inline.tagName).toBe('CODE');
+    expect(inline.closest('pre')).toBeNull();
+    // 块级代码不经过 renderInlineCode，仍在 pre 内
+    const block = screen.getByText(/const a = 1;/);
+    expect(block.closest('pre')).not.toBeNull();
+    expect(container.querySelectorAll('button')).toHaveLength(1);
   });
 });

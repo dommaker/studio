@@ -15,8 +15,16 @@
  * - B3a 工程归属链（决策 D2）：metadata.waitingReason === 'ownership' 的挂起，
  *   回复先按工程名/路径解析（project-discovery 候选）——唯一命中则绑定工程
  *   （metadata.workspaceRoot）并写回 Requirement.projectId 供下次继承，随后置回
- *   unassigned（保留 assigneeId=profile id），由被指名 profile 的 loop 认领执行；
- *   多候选/无命中则继续等待并向频道列出候选。
+ *   unassigned（保留 assigneeId=profile id），由被指名 profile 的 loop 认领执行。
+ *   #265（决策 #258）分层匹配命中即停：① name/path 精确等值（大小写不敏感）唯一
+ *   → 直接解挂；② 路径尾段边界匹配唯一 → 解挂；③ 落空 → 子串候选列表。
+ *   「/」开头的绝对路径回复不走 search，stat + isProject 校验合法即直连绑定。
+ *   轮次终止：metadata.ownershipAttempts 记未解轮次（仿 resumeCount 先例），
+ *   同一 WU 3 轮未解 → 停止追问、频道播报转人工、WU 保持 blocked（顶栏
+ *   NEED_INPUT chip 入口手动绑定；之后未解回复不再发声，有效回复仍可绑定）。
+ *   #267（决策 #250 D3）：多候选/无命中的追问消息携带 meta.options 结构化选项卡
+ *   （label=工程名、description=path、value=path），前端点选即作为回复发送，
+ *   文本列表保留为纯文本通道 fallback。
  * - #162（T8-E1）：metadata.waitingReason === 'wu-token-budget' 的挂起（WU 级 token
  *   预算到线），回复按人三选分流：追加预算（→ active）/ 现有产出收尾（→ in_review）/
  *   放弃（→ closed）；未识别回复继续等待并重述三选。
@@ -32,9 +40,10 @@ import { postWuSystemMessage } from './wu-messenger.js';
 import { parseWuMetadata } from './wu-metadata.js';
 import { withBlockedCta } from './blocked-cta.js';
 import { closeWorkUnitWithNotice } from './wu-closure.js';
-import { ProjectDiscoveryService, type LocalProject } from '../projects/project-discovery.service.js';
+import { ProjectDiscoveryService, matchProjectByReply, type LocalProject } from '../projects/project-discovery.service.js';
 import { RequirementService } from '../requirements/requirement.service.js';
 import { projectService } from '../pmo/project.service.js';
+import type { MessageMeta } from '../channels/channel-message.service.js';
 
 /** 提醒阈值（毫秒）。默认 30 分钟，可用 STUDIO_INPUT_REMINDER_MINUTES 覆盖 */
 export function getReminderThresholdMs(env: NodeJS.ProcessEnv = process.env): number {
@@ -295,9 +304,16 @@ export async function closeBlockedWorkUnitFromWeb(
 
 /**
  * B3a 归属链：把人类回复解析为工程归属（project-discovery 候选）。
+ * #265（决策 #258）分层匹配命中即停（matchProjectByReply 纯函数）：
+ * ① name/path 精确等值 → 直接解挂（AC1 无唯一性前提，同名多命中取首个）；
+ * ② 路径尾段边界唯一 → 解挂；③ 落空 → 子串候选。
+ * 「/」开头的绝对路径回复不走 search，validateProjectPath（stat + isProject）直连绑定。
  * 唯一命中 → 绑定 metadata.workspaceRoot + 置回 unassigned（保留 assigneeId=profile id，
  * 指名 loop 认领后转 active）+ 写回 Requirement.projectId（best-effort）；
  * 多候选/无命中 → 继续等待并向频道列出候选（或提示无匹配）。
+ * 轮次终止：metadata.ownershipAttempts 锁内累加（仿 resumeCount 先例），3 轮未解
+ * → 停止追问、里程碑播报转人工、WU 保持 blocked；之后未解回复不再发声，
+ * 有效回复（精确命中/合法绝对路径）仍可绑定解挂，绑定成功清除计数。
  * pendingReplies 保留归属回复原文：首次 agentStep 经 buildReplyPrompt 注入
  * （prompt 本身含 scope，注入后即清除），不会跨步骤重复注入。
  * @returns true = 已绑定并解除挂起；false = 继续等待
@@ -310,19 +326,29 @@ async function resolveOwnershipFromReply(
 ): Promise<boolean> {
   const wuService = new WorkUnitService(fileStore);
   const query = replyText.trim();
+  const discovery = new ProjectDiscoveryService();
 
+  // 分层解析：绝对路径直连（绕过 search 歧义）；否则三层匹配命中即停
+  let hit: LocalProject | null = null;
   let candidates: LocalProject[] = [];
-  try {
-    candidates = await new ProjectDiscoveryService().search(query);
-  } catch (err) {
-    logger.warn('[WaitingInput] Project discovery search failed (treated as no match)', {
-      workUnitId: wu.id,
-      error: String(err),
-    });
+  if (query.startsWith('/')) {
+    hit = await discovery.validateProjectPath(query);
+  } else {
+    let projects: LocalProject[] = [];
+    try {
+      projects = await discovery.discover();
+    } catch (err) {
+      logger.warn('[WaitingInput] Project discovery failed (treated as no match)', {
+        workUnitId: wu.id,
+        error: String(err),
+      });
+    }
+    const match = matchProjectByReply(query, projects);
+    if (match.kind === 'hit') hit = match.project;
+    else candidates = match.projects;
   }
 
-  if (candidates.length === 1) {
-    const hit = candidates[0];
+  if (hit) {
     // #170（决策 #65-1）：锁内合并写——pendingReplies 基于锁内最新值追加
     await fileStore.updateMetadata(wu.id, latest => ({
       ...latest,
@@ -330,6 +356,7 @@ async function resolveOwnershipFromReply(
       waitingReminded: false,
       workspaceRoot: hit.path,
       ownershipSource: 'human-reply',
+      ownershipAttempts: undefined, // #265: 绑定成功清除轮次计数（JSON 序列化丢弃 undefined）
       pendingReplies: [...(Array.isArray(latest.pendingReplies) ? latest.pendingReplies : []), replyText],
     }));
     // 置回 unassigned 而非 active：此 WU 创建即挂起、从未被认领，assigneeId 仍是
@@ -351,29 +378,64 @@ async function resolveOwnershipFromReply(
     return true;
   }
 
-  // 多候选 / 无命中 → 继续等待，向频道列出候选让人选
+  // 未解 → 轮次计数锁内累加（#265 仿 resumeCount 先例）
+  let attempts = 0;
+  await fileStore.updateMetadata(wu.id, latest => {
+    attempts = (typeof latest.ownershipAttempts === 'number' ? latest.ownershipAttempts : 0) + 1;
+    return { ...latest, ownershipAttempts: attempts };
+  });
   const title = (metadata.title ?? wu.scope).slice(0, 50);
+
+  // #265（决策 #258）：3 轮未解 → 停止追问、播报转人工、WU 保持 blocked
+  // （顶栏 NEED_INPUT chip 入口手动绑定）；之后未解回复不再发声，避免无限追问刷屏
+  if (attempts >= MAX_OWNERSHIP_ATTEMPTS) {
+    if (attempts === MAX_OWNERSHIP_ATTEMPTS && wu.channelId) {
+      await postWuSystemMessage(
+        wu,
+        `任务「${title}」的工程归属已连续 ${MAX_OWNERSHIP_ATTEMPTS} 轮未能确定，停止追问，转人工处理：请在顶栏 NEED_INPUT 入口手动绑定工程，或直接回复合法工程绝对路径。`,
+        { milestone: true, fileStore },
+      );
+    }
+    logger.info('[WaitingInput] Ownership unresolved after max attempts, handed off to human', {
+      workUnitId: wu.id,
+      attempts,
+    });
+    return false;
+  }
+
+  // 多候选 / 无命中 → 继续等待，向频道列出候选让人选
+  // #267（决策 #250 D3）：候选同时以 meta.options 结构化选项卡形态发射
+  // （文本列表保留为旧前端/纯文本通道的 fallback）
   let content: string;
+  let options: MessageMeta['options'];
   if (candidates.length > 1) {
     content = `任务「${title}」匹配到多个工程，请回复其中一个：\n${formatProjectCandidates(candidates)}`;
+    options = projectOptions(candidates);
   } else {
     let all: LocalProject[] = [];
     try {
-      all = await new ProjectDiscoveryService().search('');
+      all = await discovery.search('');
     } catch { /* 列出全部失败按无可选处理 */ }
-    content = all.length > 0
-      ? `任务「${title}」没有找到匹配「${query.slice(0, 50)}」的工程。可选工程：\n${formatProjectCandidates(all)}`
-      : `任务「${title}」没有找到匹配「${query.slice(0, 50)}」的工程，请回复工程名或绝对路径。`;
+    if (all.length > 0) {
+      content = `任务「${title}」没有找到匹配「${query.slice(0, 50)}」的工程。可选工程：\n${formatProjectCandidates(all)}`;
+      options = projectOptions(all);
+    } else {
+      content = `任务「${title}」没有找到匹配「${query.slice(0, 50)}」的工程，请回复工程名或绝对路径。`;
+    }
   }
   if (wu.channelId) {
-    await postWuSystemMessage(wu, content, { fileStore });
+    await postWuSystemMessage(wu, content, { fileStore, ...(options ? { meta: { options } } : {}) });
   }
   logger.info('[WaitingInput] Ownership reply unresolved, still waiting', {
     workUnitId: wu.id,
     candidateCount: candidates.length,
+    attempts,
   });
   return false;
 }
+
+/** #265（决策 #258）：归属问答最大追问轮次，到线停止追问转人工（WU 保持 blocked） */
+const MAX_OWNERSHIP_ATTEMPTS = 3;
 
 /**
  * B3a 归属链：把人工选定的工程写回 Requirement.projectId 供下次继承。
@@ -415,6 +477,15 @@ function formatProjectCandidates(projects: LocalProject[]): string {
     .slice(0, 10)
     .map(p => `- ${p.name}（${p.path}）`)
     .join('\n');
+}
+
+/**
+ * #267（决策 #250 D3）：候选工程 → 结构化选项卡 options（封顶 10 条，同 formatProjectCandidates 口径）。
+ * label=工程名、description=path 副标题消歧；value=path —— 前端点选即把 value 作为回复发送，
+ * 走「/」开头绝对路径直连通道绕过歧义（同名候选 label 无法区分，path 唯一精确命中）。
+ */
+function projectOptions(projects: LocalProject[]): NonNullable<MessageMeta['options']> {
+  return projects.slice(0, 10).map(p => ({ label: p.name, description: p.path, value: p.path }));
 }
 
 /**

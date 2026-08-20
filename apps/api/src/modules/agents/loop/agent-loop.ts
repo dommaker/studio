@@ -20,6 +20,7 @@ import { getTriggerScheduler } from '../../triggers/trigger-registry.js';
 import { knowledgeService } from '../../knowledge/knowledge-service.js';
 import { eventStore } from '../../../core/event-store.js';
 import { postWuSystemMessage } from '../../workunit/wu-messenger.js';
+import type { MessageMeta } from '../../channels/channel-message.service.js';
 import { withBlockedCta } from '../../workunit/blocked-cta.js';
 import { parseWuMetadata, mergedWuView } from '../../workunit/wu-metadata.js';
 import { hasUnfinishedDeps, buildStatusById } from '../../workunit/wu-dependencies.js';
@@ -1692,8 +1693,10 @@ export class AgentLoop {
         break;
       case 'need_input':
         // 2026-07 PMO-flow UX（§6-3）：NEED_INPUT 里程碑 —— meta 带 pmoId（可解析时）+ atHuman
+        // #279（决策 #250 D3）：result.options 存在时随 meta 透传，供前端渲染选项卡
         if (!skipResultPost) {
-          await this.postToDiscussionSpace(wuId, `需要输入: ${result.summary}`, wu);
+          await this.postToDiscussionSpace(wuId, `需要输入: ${result.summary}`, wu,
+            result.options?.length ? { options: result.options } : undefined);
         }
         // F5: 挂起 — 守卫重复 NEED_INPUT（blocked → blocked 不在 VALID_TRANSITIONS 中）
         // #178（#63 决议 2）：状态迁移前 fencing，易主即静默退出
@@ -1723,8 +1726,9 @@ export class AgentLoop {
   /** Post message to discussion space（经 wu-messenger → ChannelMessageService：eventBus + SSE，频道页实时可见）。
    *  milestoneWu 存在时按里程碑消息处理（2026-07 PMO-flow UX §6-3：meta 带 pmoId?/atHuman，普通 progress 不带）；
    *  2026-08 归因统一后解析链只读创建期持久化数据（metadata.pmoId / reqId），调用方直接传持久化 wu 本体，
-   *  不再需要「持久化 + 本 step metadataUpdates」合并视图。 */
-  private async postToDiscussionSpace(workUnitId: string, content: string, milestoneWu?: WorkUnitData): Promise<void> {
+   *  不再需要「持久化 + 本 step metadataUpdates」合并视图。
+   *  extraMeta：#279 追加 meta（如 NEED_INPUT 的 options），合并于里程碑 meta 之上。 */
+  private async postToDiscussionSpace(workUnitId: string, content: string, milestoneWu?: WorkUnitData, extraMeta?: MessageMeta): Promise<void> {
     if (!content.trim()) return;
     const wu = milestoneWu ?? await this.workUnitService.getById(workUnitId);
     if (!wu) return;
@@ -1734,6 +1738,7 @@ export class AgentLoop {
       agentName: this.role.name,
       fileStore: this.fileStore,
       ...(milestoneWu ? { milestone: true } : {}),
+      ...(extraMeta ? { meta: extraMeta } : {}),
     });
   }
 

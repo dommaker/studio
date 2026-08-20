@@ -1,11 +1,12 @@
 // ChannelRail — Mission Control 左栏：频道列表（未读 badge + agent 在线数）+ Agent 状态
 // 数据：useChannelList（与 ChannelListPage 同源）+ monitoringApi.getAgentSummary（真实 API）
+// #272（决策 #251 Q7）：创建表单与 ChannelListPage 合并为单一实现 CreateChannelForm
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useChannelList } from '../../hooks/useChannelList';
 import { monitoringApi, type AgentSummary } from '../../api/monitoring';
 import { agentDotClass } from './statusClasses';
-import { Select, Button } from '../ui';
+import { CreateChannelForm } from './CreateChannelForm';
 
 const TYPE_LABELS: Record<string, string> = {
   rnd: '研发',
@@ -21,12 +22,6 @@ export function ChannelRail({ activeChannelId }: Props) {
   const { channels, loading, unreadCounts, clearUnread, createChannel } = useChannelList();
   const [agentSummary, setAgentSummary] = useState<AgentSummary | null>(null);
   const [showNewForm, setShowNewForm] = useState(false);
-  const [newName, setNewName] = useState('');
-  const [newType, setNewType] = useState('rnd');
-  const [newAgents, setNewAgents] = useState('');
-  const [createError, setCreateError] = useState('');
-  // 工单 38: 创建提交中状态——Button loading 态防连点重复提交
-  const [creating, setCreating] = useState(false);
   const navigate = useNavigate();
 
   // Agent 状态：挂载加载 + 30s 刷新（只读展示，与监控页同源）
@@ -84,24 +79,6 @@ export function ChannelRail({ activeChannelId }: Props) {
     if (id !== activeChannelId) navigate(`/channels/${id}`);
   };
 
-  const handleCreate = async () => {
-    if (!newName.trim() || creating) return;
-    setCreateError('');
-    setCreating(true);
-    try {
-      const agents = newAgents.split(/[,\n]/).map(s => s.trim()).filter(Boolean);
-      const ch = await createChannel({ name: newName.trim(), type: newType, agents });
-      setShowNewForm(false);
-      setNewName('');
-      setNewAgents('');
-      navigate(`/channels/${ch.id}`);
-    } catch (err) {
-      setCreateError(err?.response?.data?.error || '创建失败');
-    } finally {
-      setCreating(false);
-    }
-  };
-
   return (
     <aside className="mc-rail" aria-label="频道栏">
       <div className="mc-rail-head">
@@ -116,36 +93,11 @@ export function ChannelRail({ activeChannelId }: Props) {
       </div>
 
       {showNewForm && (
-        <div className="mc-newchan">
-          <input
-            value={newName}
-            onChange={e => setNewName(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && handleCreate()}
-            placeholder="#频道名称"
-            aria-label="频道名称"
-            autoFocus
-          />
-          <textarea
-            value={newAgents}
-            onChange={e => setNewAgents(e.target.value)}
-            placeholder="初始 Agent（可选，逗号分隔）"
-            aria-label="初始 Agent"
-            rows={2}
-          />
-          <div className="mc-newchan-row">
-            <Select
-              value={newType}
-              onChange={setNewType}
-              options={Object.entries(TYPE_LABELS).map(([v, l]) => ({ value: v, label: l }))}
-              aria-label="频道类型"
-            />
-            <Button size="sm" loading={creating} loadingLabel="创建中..." onClick={handleCreate}>创建</Button>
-            <button className="mc-btn" onClick={() => { setShowNewForm(false); setNewName(''); setNewAgents(''); }}>
-              取消
-            </button>
-          </div>
-          {createError && <div className="mc-newchan-error">{createError}</div>}
-        </div>
+        <CreateChannelForm
+          createChannel={createChannel}
+          onCreated={ch => { setShowNewForm(false); navigate(`/channels/${ch.id}`); }}
+          onCancel={() => setShowNewForm(false)}
+        />
       )}
 
       <nav className="mc-rail-list" aria-label="频道列表">

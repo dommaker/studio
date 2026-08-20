@@ -16,23 +16,16 @@
  *
  * 调度：apps/api/src/index.ts 启动后跑一次 + 每 24h（见该文件 #173 挂载点）。
  */
-import fs from 'node:fs';
-import path from 'node:path';
-import zlib from 'node:zlib';
-import { randomUUID } from 'node:crypto';
-import { logger } from '@dommaker/studio-shared';
 import {
   resolveStudioEventsFile,
   defaultStudioEventLevel,
-  getStudioEventTime,
 } from './studio-events.js';
+import { rotateJsonlLog } from './studio-log-rotation.js';
 
 /** 噪声（level=debug）热保留天数，超期滚动删除（#60：噪声 7 天滚） */
 export const NOISE_RETENTION_DAYS = 7;
 /** 信号热保留天数，超期切月度 gzip 冷包（#60：信号热 30 天） */
 export const SIGNAL_HOT_DAYS = 30;
-
-const DAY_MS = 24 * 60 * 60 * 1000;
 
 export type StudioEventRetentionClass = 'signal' | 'noise';
 
@@ -71,97 +64,27 @@ export interface StudioEventsRotationResult {
 /**
  * 跑一轮事件保留轮转。热文件不存在 → no-op。永不抛出到调度层以外的语义：
  * 单轮失败由调用方 catch + logger.warn（index.ts 挂载点已包）。
+ *
+ * 实现：#213 起委托 rotateJsonlLog（./studio-log-rotation.ts）——同构机制
+ * 泛化为配置驱动，本函数仅保留 #173 的策略配置与对外结果形态。
  */
 export async function rotateStudioEvents(opts?: RotateStudioEventsOptions): Promise<StudioEventsRotationResult> {
-  const file = opts?.file ?? resolveStudioEventsFile();
-  const archiveDir = opts?.archiveDir ?? path.join(path.dirname(file), 'archive');
-  const now = opts?.now ?? new Date();
-  const result: StudioEventsRotationResult = {
-    rotated: false,
-    keptHot: 0,
-    noiseDropped: 0,
-    signalArchived: 0,
-    archiveFiles: [],
+  const r = await rotateJsonlLog({
+    file: opts?.file ?? resolveStudioEventsFile(),
+    archiveDir: opts?.archiveDir,
+    now: opts?.now,
+    policies: {
+      signal: { hotDays: SIGNAL_HOT_DAYS, action: 'archive' },
+      noise: { hotDays: NOISE_RETENTION_DAYS, action: 'drop' },
+    },
+    classify: classifyStudioEventForRetention,
+    tag: '(#173)',
+  });
+  return {
+    rotated: r.rotated,
+    keptHot: r.keptHot,
+    noiseDropped: r.dropped,
+    signalArchived: r.archived,
+    archiveFiles: r.archiveFiles,
   };
-  if (!fs.existsSync(file)) return result;
-
-  // 1. rename 热文件 → 暂存：rename 原子，此后新写入在新热文件重建，轮转窗口不丢行
-  const rotating = `${file}.rotating-${process.pid}-${randomUUID()}`;
-  await fs.promises.rename(file, rotating);
-  result.rotated = true;
-
-  try {
-    const lines = (await fs.promises.readFile(rotating, 'utf-8'))
-      .split('\n')
-      .filter(l => l.trim().length > 0);
-
-    const noiseCutoff = now.getTime() - NOISE_RETENTION_DAYS * DAY_MS;
-    const signalCutoff = now.getTime() - SIGNAL_HOT_DAYS * DAY_MS;
-    const kept: string[] = [];
-    const archivedByMonth = new Map<string, string[]>();
-
-    for (const line of lines) {
-      let event: Record<string, unknown> | null = null;
-      try {
-        event = JSON.parse(line) as Record<string, unknown>;
-      } catch {
-        event = null;
-      }
-      // 损坏行 / 无时间：无法分类计龄 → 保守保留
-      const t = event ? getStudioEventTime(event) : NaN;
-      if (!event || !Number.isFinite(t)) {
-        kept.push(line);
-        continue;
-      }
-      if (classifyStudioEventForRetention(event) === 'noise') {
-        if (t < noiseCutoff) {
-          result.noiseDropped++;
-          continue;
-        }
-        kept.push(line);
-      } else if (t < signalCutoff) {
-        const month = new Date(t).toISOString().slice(0, 7); // UTC YYYY-MM
-        const bucket = archivedByMonth.get(month);
-        if (bucket) bucket.push(line);
-        else archivedByMonth.set(month, [line]);
-        result.signalArchived++;
-      } else {
-        kept.push(line);
-      }
-    }
-
-    // 2. 幸存者 append 回热文件（保留原始行文本不重序列化；与并发追加安全交错）
-    if (kept.length > 0) {
-      await fs.promises.appendFile(file, kept.join('\n') + '\n', 'utf-8');
-    }
-    result.keptHot = kept.length;
-
-    // 3. 超期信号 → 月度 gzip 冷包（永久保留）：已有 gz 解压追加再压回，tmp+rename 原子写
-    if (archivedByMonth.size > 0) {
-      await fs.promises.mkdir(archiveDir, { recursive: true });
-      for (const month of [...archivedByMonth.keys()].sort()) {
-        const gzFile = path.join(archiveDir, `studio-events-${month}.jsonl.gz`);
-        let existing = '';
-        if (fs.existsSync(gzFile)) {
-          existing = zlib.gunzipSync(await fs.promises.readFile(gzFile)).toString('utf-8');
-          if (existing && !existing.endsWith('\n')) existing += '\n';
-        }
-        const content = existing + archivedByMonth.get(month)!.join('\n') + '\n';
-        const tmp = `${gzFile}.tmp-${process.pid}-${randomUUID()}`;
-        try {
-          await fs.promises.writeFile(tmp, zlib.gzipSync(content));
-          await fs.promises.rename(tmp, gzFile);
-        } catch (err) {
-          await fs.promises.unlink(tmp).catch(() => {});
-          throw err;
-        }
-        result.archiveFiles.push(gzFile);
-      }
-    }
-  } finally {
-    await fs.promises.unlink(rotating).catch(() => {});
-  }
-
-  logger.info('[StudioEvents] Retention rotation done (#173)', { file, ...result });
-  return result;
 }

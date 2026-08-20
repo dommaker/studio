@@ -50,7 +50,7 @@ const STATUS_OPTIONS = ['all', 'pending', 'unassigned', 'active', 'in_review', '
 export function WorkUnitListPage() {
   const {
     workunits, total, loading, error,
-    loadWorkUnits, createWorkUnit, reviewPassed, reviewRejected,
+    loadWorkUnits, createWorkUnit, reviewPassed, reviewRejected, confirmPending,
     statusFilter, setStatusFilter,
   } = useWorkUnitStore();
 
@@ -207,6 +207,7 @@ export function WorkUnitListPage() {
                   wu={wu}
                   onReviewPassed={(summary, assigneeId) => reviewPassed(wu.id, summary, assigneeId)}
                   onReviewRejected={(reason) => reviewRejected(wu.id, reason)}
+                  onConfirmPending={() => confirmPending(wu.id)}
                   formatTime={formatTime}
                 />
               ))}
@@ -219,11 +220,13 @@ export function WorkUnitListPage() {
 }
 
 function WorkUnitRow({
-  wu, onReviewPassed, onReviewRejected, formatTime,
+  wu, onReviewPassed, onReviewRejected, onConfirmPending, formatTime,
 }: {
   wu: WorkUnit;
   onReviewPassed: (summary?: string, assigneeId?: string) => void;
   onReviewRejected: (reason?: string) => void;
+  /** #284（决策 #250 D1）：pending 人闸确认（行展开态入口，与频道抽屉同行为） */
+  onConfirmPending: () => void;
   formatTime: (ts: string | null) => string;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -351,6 +354,19 @@ function WorkUnitRow({
               <div className="col-span-2"><span className="u-text-2">Completed:</span> <span className="u-text-3">{formatTime(wu.completedAt)}</span></div>
             )}
           </div>
+          {/* #284（决策 #250 D1/F7）：pending 人闸确认入口补齐到行展开态（与频道抽屉同行为：
+              确认 → unassigned 进 frontier 可认领） */}
+          {wu.status === 'pending' && (
+            <div className="mt-2">
+              <button
+                className="text-xs px-2 py-1 rounded u-ok-dim u-ok u-hover-bg"
+                title="待确认人闸：扩范围单创建落待确认，确认后进入待认领（agent 可见可认领）"
+                onClick={onConfirmPending}
+              >
+                确认（进待认领）
+              </button>
+            </div>
+          )}
           {/* #116：被阻塞行展开显示依赖清单（各依赖状态 + 跳详情页） */}
           {depBlocked && (
             <div className="mt-2">

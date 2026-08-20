@@ -10,6 +10,13 @@
  * - 无命中 → 继续等待 + 列出全部可选工程
  * - 非 ownership 挂起的回复不受影响（走原 F5 路径，blocked → active）
  *
+ * #265（决策 #258）分层匹配 + 绝对路径直连 + 3 轮终止：
+ * - 纯函数 matchProjectByReply 分层原语（精确等值 → 尾段边界唯一 → 子串候选）
+ * - 回复精确工程名（大小写不敏感）一次解挂；studio 不误命中 studio-config/studio-prod
+ * - 尾段边界不唯一 → 落候选列表不误绑
+ * - 「/」开头合法工程绝对路径绕过歧义直连绑定；非法路径不绑定
+ * - 同一 WU 3 轮未解 → 停止追问 + 播报转人工 + 保持 blocked；之后未解回复不再发声
+ *
  * 约定：discovery 根用 STUDIO_PROJECTS_ROOT 指向 tmp fixture；
  * PMO 项目写真实 ~/.studio/projects（workspace-binding.test.ts 同款约定），afterEach 清理。
  */
@@ -21,6 +28,10 @@ import { v4 as uuidv4 } from 'uuid';
 import { FileStore, type ChannelMessageData } from '@dommaker/studio-shared';
 import { WorkUnitService, type WorkUnitMetadata } from '../workunit.service.js';
 import { resumeWaitingWorkUnit } from '../waiting-input.js';
+import {
+  matchProjectByReply,
+  type LocalProject,
+} from '../../projects/project-discovery.service.js';
 import { RequirementService } from '../../requirements/requirement.service.js';
 import { projectService } from '../../pmo/project.service.js';
 
@@ -45,6 +56,14 @@ async function findWu(id: string) {
 /** 在 discovery fixture 下造一个假工程（package.json 标记） */
 function makeDiscoveredProject(name: string): string {
   const dir = path.join(discoveryRoot, name);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name }));
+  return dir;
+}
+
+/** #265: 造嵌套工程（group/name 两层，group 无标记 → discovery 下钻发现 name） */
+function makeNestedProject(group: string, name: string): string {
+  const dir = path.join(discoveryRoot, group, name);
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name }));
   return dir;
@@ -274,5 +293,285 @@ describe('B3a: 非 ownership 挂起不受影响', () => {
     const meta = metaOf(await findWu(wu.id));
     expect(meta.workspaceRoot).toBeUndefined(); // 不做工程绑定
     expect(meta.pendingReplies).toEqual(['alpha']);
+  });
+});
+
+describe('#265: 分层匹配原语 matchProjectByReply（纯函数，无 FileStore）', () => {
+  const proj = (p: string): LocalProject => ({ name: p.split('/').pop()!, path: p, hasClaudeMd: false });
+
+  it('第 1 层：name 精确等值（大小写不敏感）→ 直接命中，不看其他候选', () => {
+    const ps = [proj('/root/projects/studio'), proj('/root/projects/studio-config')];
+    expect(matchProjectByReply('STUDIO', ps)).toEqual({ kind: 'hit', project: ps[0] });
+  });
+
+  it('第 1 层：path 精确等值（大小写不敏感）→ 直接命中', () => {
+    const ps = [proj('/root/projects/studio'), proj('/root/projects/studio-config')];
+    expect(matchProjectByReply('/ROOT/PROJECTS/STUDIO', ps)).toEqual({ kind: 'hit', project: ps[0] });
+  });
+
+  it('第 2 层：尾段边界部分路径唯一命中；studio 不误命中 studio-config/studio-prod', () => {
+    const ps = [
+      proj('/root/projects/studio'),
+      proj('/root/projects/studio-config'),
+      proj('/root/projects/studio-prod'),
+    ];
+    expect(matchProjectByReply('projects/studio', ps)).toEqual({ kind: 'hit', project: ps[0] });
+  });
+
+  it('第 1 层 name 精确等值命中多个同名 → 按 AC 字面直接命中（无唯一性前提）', () => {
+    // AC1 原文「name 或 path 精确等值（大小写不敏感）→ 直接解挂」，不含唯一性前提；
+    // 同名工程精确等值即解挂（取列表首个），不再下潜候选
+    const ps = [proj('/a/g1/tool'), proj('/b/g2/tool')];
+    expect(matchProjectByReply('tool', ps)).toEqual({ kind: 'hit', project: ps[0] });
+  });
+
+  it('第 2 层尾段边界多命中 → 落候选列表不误绑', () => {
+    const ps = [proj('/a/g/tool'), proj('/b/g/tool'), proj('/c/other')];
+    const m = matchProjectByReply('g/tool', ps);
+    expect(m.kind).toBe('candidates');
+    expect(m.kind === 'candidates' ? m.projects : []).toHaveLength(2);
+  });
+
+  it('前两层落空 → 子串匹配产出候选列表', () => {
+    const ps = [proj('/root/projects/alpha-one'), proj('/root/projects/beta')];
+    expect(matchProjectByReply('alpha', ps)).toEqual({ kind: 'candidates', projects: [ps[0]] });
+  });
+});
+
+describe('#265: 分层匹配解挂（命中即停）', () => {
+  it('回复精确工程名（大小写不敏感）一次解挂', async () => {
+    const repoDir = makeDiscoveredProject('alpha');
+    makeDiscoveredProject('alpha-two');
+    const { wu } = await createOwnershipParkedWu();
+
+    const resumed = await resumeWaitingWorkUnit(wu.id, 'ALPHA', fileStore);
+
+    expect(resumed).toBe(true);
+    const after = await findWu(wu.id);
+    expect(after.status).toBe('unassigned');
+    expect(after.assigneeId).toBe(MENTIONED_PROFILE_ID); // mention 语义不变
+    expect(metaOf(after).workspaceRoot).toBe(repoDir);
+  });
+
+  it('studio / studio-config / studio-prod 共存：回复 studio 唯一精确命中，不误绑兄弟仓', async () => {
+    const repoDir = makeDiscoveredProject('studio');
+    makeDiscoveredProject('studio-config');
+    makeDiscoveredProject('studio-prod');
+    const { wu } = await createOwnershipParkedWu();
+
+    const resumed = await resumeWaitingWorkUnit(wu.id, 'studio', fileStore);
+
+    expect(resumed).toBe(true);
+    expect(metaOf(await findWu(wu.id)).workspaceRoot).toBe(repoDir);
+  });
+
+  it('路径尾段边界部分路径唯一命中 → 解挂', async () => {
+    const repoDir = makeNestedProject('group', 'alpha');
+    makeDiscoveredProject('alpha-two');
+    const { wu } = await createOwnershipParkedWu();
+
+    const resumed = await resumeWaitingWorkUnit(wu.id, 'group/alpha', fileStore);
+
+    expect(resumed).toBe(true);
+    expect(metaOf(await findWu(wu.id)).workspaceRoot).toBe(repoDir);
+  });
+
+  it('尾段边界命中不唯一 → 落候选列表而非误绑', async () => {
+    // /a/g/tool 与 /b/g/tool：回复 'g/tool' 非 name 精确等值（name='tool'），
+    // 尾段边界命中两条 → 候选列表（同名精确多命中按 AC1 字面直接解挂，见下一条用例）
+    makeNestedProject('a/g', 'tool');
+    makeNestedProject('b/g', 'tool');
+    const { wu } = await createOwnershipParkedWu();
+
+    const resumed = await resumeWaitingWorkUnit(wu.id, 'g/tool', fileStore);
+
+    expect(resumed).toBe(false);
+    const after = await findWu(wu.id);
+    expect(after.status).toBe('blocked');
+    expect(metaOf(after).workspaceRoot).toBeUndefined(); // 未误绑
+    const messages = await fileStore.queryMessages(channelId, { workUnitId: wu.id });
+    const notice = messages.find(m => m.agentName === 'Studio');
+    expect(notice).toBeTruthy();
+    expect(notice!.content).toContain('匹配到多个工程');
+    expect(notice!.content).toContain('a/g');
+    expect(notice!.content).toContain('b/g');
+  });
+
+  it('AC1 字面：同名工程精确等值（无唯一性前提）→ 直接解挂', async () => {
+    const dir1 = makeNestedProject('g1', 'tool');
+    const dir2 = makeNestedProject('g2', 'tool');
+    const { wu } = await createOwnershipParkedWu();
+
+    const resumed = await resumeWaitingWorkUnit(wu.id, 'tool', fileStore);
+
+    expect(resumed).toBe(true);
+    const after = await findWu(wu.id);
+    expect(after.status).toBe('unassigned');
+    // 同名多命中取列表首个（discovery 字典序 g1 < g2）
+    expect([dir1, dir2]).toContain(metaOf(after).workspaceRoot);
+  });
+});
+
+describe('#265: 绝对路径直连（绕过 search 歧义）', () => {
+  it('回复合法工程绝对路径 → 直接绑定（兄弟仓同名前缀不构成歧义）', async () => {
+    makeDiscoveredProject('studio');
+    const configDir = makeDiscoveredProject('studio-config');
+    makeDiscoveredProject('studio-prod');
+    const { wu } = await createOwnershipParkedWu();
+
+    const resumed = await resumeWaitingWorkUnit(wu.id, configDir, fileStore);
+
+    expect(resumed).toBe(true);
+    const after = await findWu(wu.id);
+    expect(after.status).toBe('unassigned');
+    expect(metaOf(after).workspaceRoot).toBe(configDir);
+  });
+
+  it('discovery root 之外的合法工程路径同样直连（stat + isProject 校验）', async () => {
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'waiting-ownership-outside-'));
+    fs.writeFileSync(path.join(outside, 'package.json'), '{}');
+    const { wu } = await createOwnershipParkedWu();
+
+    const resumed = await resumeWaitingWorkUnit(wu.id, outside, fileStore);
+
+    expect(resumed).toBe(true);
+    expect(metaOf(await findWu(wu.id)).workspaceRoot).toBe(outside);
+    fs.rmSync(outside, { recursive: true, force: true });
+  });
+
+  it('不存在的绝对路径 → 不绑定，继续等待', async () => {
+    const { wu } = await createOwnershipParkedWu();
+
+    const resumed = await resumeWaitingWorkUnit(wu.id, '/nonexistent/definitely-not-a-project', fileStore);
+
+    expect(resumed).toBe(false);
+    const after = await findWu(wu.id);
+    expect(after.status).toBe('blocked');
+    expect(metaOf(after).workspaceRoot).toBeUndefined();
+  });
+
+  it('存在但无工程标记的目录 → 不绑定，继续等待', async () => {
+    const plain = fs.mkdtempSync(path.join(os.tmpdir(), 'waiting-ownership-plain-'));
+    const { wu } = await createOwnershipParkedWu();
+
+    const resumed = await resumeWaitingWorkUnit(wu.id, plain, fileStore);
+
+    expect(resumed).toBe(false);
+    const after = await findWu(wu.id);
+    expect(after.status).toBe('blocked');
+    expect(metaOf(after).workspaceRoot).toBeUndefined();
+    fs.rmSync(plain, { recursive: true, force: true });
+  });
+});
+
+describe('#265: 3 轮未解终止转人工', () => {
+  it('同一 WU 3 轮未解 → 停止追问 + 播报转人工 + WU 保持 blocked；之后未解回复不再发声', async () => {
+    makeDiscoveredProject('gamma');
+    const { wu } = await createOwnershipParkedWu();
+
+    expect(await resumeWaitingWorkUnit(wu.id, 'zzz-1', fileStore)).toBe(false);
+    expect(await resumeWaitingWorkUnit(wu.id, 'zzz-2', fileStore)).toBe(false);
+    expect(await resumeWaitingWorkUnit(wu.id, 'zzz-3', fileStore)).toBe(false);
+
+    const after = await findWu(wu.id);
+    expect(after.status).toBe('blocked');
+    const meta = metaOf(after);
+    expect(meta.waitingForInput).toBe(true);
+    expect(meta.ownershipAttempts).toBe(3);
+
+    const messages = await fileStore.queryMessages(channelId, { workUnitId: wu.id });
+    const notices = messages.filter(m => m.agentName === 'Studio');
+    // 前 2 轮候选提示 + 第 3 轮转人工播报，不多发
+    expect(notices).toHaveLength(3);
+    expect(notices[2].content).toContain('转人工');
+    expect(notices[2].content).not.toContain('可选工程');
+
+    // 第 4 轮未解回复：停止追问后不再发任何消息
+    expect(await resumeWaitingWorkUnit(wu.id, 'zzz-4', fileStore)).toBe(false);
+    const later = await fileStore.queryMessages(channelId, { workUnitId: wu.id });
+    expect(later.filter(m => m.agentName === 'Studio')).toHaveLength(3);
+    expect((await findWu(wu.id)).status).toBe('blocked');
+  });
+
+  it('3 轮后回复有效精确名仍可绑定解挂，轮次计数清除', async () => {
+    const repoDir = makeDiscoveredProject('gamma');
+    const { wu } = await createOwnershipParkedWu();
+    await resumeWaitingWorkUnit(wu.id, 'zzz-1', fileStore);
+    await resumeWaitingWorkUnit(wu.id, 'zzz-2', fileStore);
+    await resumeWaitingWorkUnit(wu.id, 'zzz-3', fileStore);
+
+    const resumed = await resumeWaitingWorkUnit(wu.id, 'gamma', fileStore);
+
+    expect(resumed).toBe(true);
+    const after = await findWu(wu.id);
+    expect(after.status).toBe('unassigned');
+    expect(after.assigneeId).toBe(MENTIONED_PROFILE_ID); // mention 语义不变
+    const meta = metaOf(after);
+    expect(meta.workspaceRoot).toBe(repoDir);
+    expect(meta.ownershipAttempts).toBeUndefined();
+  });
+});
+
+describe('#267（决策 #250 D3）: 结构化选项卡 meta.options 发射', () => {
+  /** 解析频道 Studio 通知消息的 meta（落盘形态为 JSON string） */
+  function noticeMeta(notice: ChannelMessageData): Record<string, unknown> {
+    return JSON.parse(typeof notice.meta === 'string' ? notice.meta : '{}');
+  }
+
+  it('多候选 → 消息 meta 带 options[]（label=工程名，description=path，value=path）', async () => {
+    const dirOne = makeDiscoveredProject('beta-one');
+    const dirTwo = makeDiscoveredProject('beta-two');
+    const { wu } = await createOwnershipParkedWu();
+
+    expect(await resumeWaitingWorkUnit(wu.id, 'beta', fileStore)).toBe(false);
+
+    const messages = await fileStore.queryMessages(channelId, { workUnitId: wu.id });
+    const notice = messages.find(m => m.agentName === 'Studio')!;
+    const meta = noticeMeta(notice);
+    expect(meta.options).toEqual([
+      { label: 'beta-one', description: dirOne, value: dirOne },
+      { label: 'beta-two', description: dirTwo, value: dirTwo },
+    ]);
+  });
+
+  it('无命中 → options 列出全部工程', async () => {
+    const dirGamma = makeDiscoveredProject('gamma');
+    const { wu } = await createOwnershipParkedWu();
+
+    expect(await resumeWaitingWorkUnit(wu.id, 'zzz-no-match', fileStore)).toBe(false);
+
+    const messages = await fileStore.queryMessages(channelId, { workUnitId: wu.id });
+    const notice = messages.find(m => m.agentName === 'Studio')!;
+    const meta = noticeMeta(notice);
+    expect(meta.options).toEqual([{ label: 'gamma', description: dirGamma, value: dirGamma }]);
+  });
+
+  it('点选选项（回复 value=工程绝对路径）→ 走绝对路径直连绑定解挂，轮次计数清除', async () => {
+    const dirOne = makeDiscoveredProject('beta-one');
+    makeDiscoveredProject('beta-two');
+    const { wu } = await createOwnershipParkedWu();
+
+    expect(await resumeWaitingWorkUnit(wu.id, 'beta', fileStore)).toBe(false);
+    expect(metaOf(await findWu(wu.id)).ownershipAttempts).toBe(1);
+    const messages = await fileStore.queryMessages(channelId, { workUnitId: wu.id });
+    const options = noticeMeta(messages.find(m => m.agentName === 'Studio')!).options as { value: string }[];
+
+    // 前端点选 = 把 option.value 作为内嵌回复发送（同一 resumeWaitingWorkUnit 通道）
+    const resumed = await resumeWaitingWorkUnit(wu.id, options[0].value, fileStore);
+
+    expect(resumed).toBe(true);
+    const meta = metaOf(await findWu(wu.id));
+    expect(meta.workspaceRoot).toBe(dirOne);
+    expect(meta.ownershipAttempts).toBeUndefined();
+  });
+
+  it('点选「交给 agent 判断」类未解回复 → 同样计入归属尝试计数（#265 三轮终止联动）', async () => {
+    makeDiscoveredProject('gamma');
+    const { wu } = await createOwnershipParkedWu();
+
+    expect(await resumeWaitingWorkUnit(wu.id, '交给 agent 判断', fileStore)).toBe(false);
+
+    expect(metaOf(await findWu(wu.id)).ownershipAttempts).toBe(1);
+    expect((await findWu(wu.id)).status).toBe('blocked');
   });
 });

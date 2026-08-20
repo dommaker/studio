@@ -1,9 +1,15 @@
 // Channel message renderer — AC-C2: reply button + AC-C3: thread + AC-E3: Convert to Task
 // 2026-07 视觉重构（方向 A Mission Control）：纯文本行 + 卡片族视觉重绘；交互语义零变更
-import { useState } from 'react';
+// #277（决策 #248 D1/D2/D3/D5）：分侧布局——人右轻气泡 / agent 左无气泡文档流 / 系统播报
+// （Studio 无卡非等待消息）居中淡色一行 / 卡片全宽不参与分侧；compact 省略重复头；双侧 @name 染 mention chip。
+import { useCallback, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import type { ChannelMessage } from '../../api/channel';
+import type { ChannelFileVocabulary, ChannelMessage } from '../../api/channel';
 import { AuthorAvatar } from './AuthorAvatar';
+import { FileRefChip } from './FileRefChip';
+import { MarkdownBody } from '../knowledge/MarkdownBody';
+import { matchFileRefToken } from '../../utils/fileChipMatch';
+import { renderWithMentions } from '../../utils/mentions';
 import { RequirementsDocCard } from './RequirementsDocCard';
 import { KnowledgeConfirmCard } from './KnowledgeConfirmCard';
 import { KnowledgeProposalCard } from './KnowledgeProposalCard';
@@ -12,8 +18,12 @@ import { DistillProposalCard } from './DistillProposalCard';
 import { GcProposalCard } from './GcProposalCard';
 import { ConstraintAuditCard } from './ConstraintAuditCard';
 import { AuditorSuggestionCard } from './AuditorSuggestionCard';
+import { AnalysisConfirmCard } from './AnalysisConfirmCard';
 import { ConvertToTaskDialog } from './ConvertToTaskDialog';
+import { NeedInputOptions } from './NeedInputOptions';
 import { shortWuId } from '../../utils/id';
+import { parseMeta, type CardMeta, type MetaOption } from '../../utils/messageMeta';
+import { useImeEnterGuard } from '../../hooks/useImeEnterGuard';
 
 interface Props {
   message: ChannelMessage;
@@ -31,12 +41,27 @@ interface Props {
   waitingForInput?: boolean;
   /** Mission Control: 打开右抽屉（WorkUnit 详情 / REQ 全链路） */
   onOpenWorkUnit?: (workUnitId: string) => void;
+  /** #284（决策 #250 D6）：analysis_confirm 接力卡「去确认」——开 WU 抽屉并自动弹确认对话框 */
+  onOpenWorkUnitConfirm?: (workUnitId: string) => void;
   onOpenRequirement?: (reqId: string) => void;
   /** F5: NEED_INPUT 卡片内嵌回复（与回复按钮同链路：sendMessage + replyToId） */
   onInlineReply?: (message: ChannelMessage, content: string) => void;
+  /** #285: agent 消息 inline-code 文件 chip 词表；经 MarkdownBody renderInlineCode 挂载（#271） */
+  fileVocabulary?: ChannelFileVocabulary;
+  /** #285 AC4: 该消息所属 WU 的产出/修改文件集（chip 第一优先词表，绝对路径；空/缺省 → 仅用候选集词表） */
+  wuChangedFiles?: string[];
+  /** #277（决策 #248 D2）：连续合并——省略重复头（头像/署名/时间），动作保留 */
+  compact?: boolean;
+  /** #279（决策 #250 D4）：顶栏待办 chip 定位高亮 */
+  highlight?: boolean;
 }
 
-function renderCard(meta: CardMeta, message: ChannelMessage, onAction: Props['onAction']) {
+function renderCard(
+  meta: CardMeta,
+  message: ChannelMessage,
+  onAction: Props['onAction'],
+  onOpenWorkUnitConfirm: Props['onOpenWorkUnitConfirm'],
+) {
   switch (meta.cardType) {
     case 'requirements_doc':
       return <RequirementsDocCard message={message} meta={meta} onAction={onAction} />;
@@ -55,6 +80,8 @@ function renderCard(meta: CardMeta, message: ChannelMessage, onAction: Props['on
       return <ConstraintAuditCard message={message} meta={meta} onAction={onAction} />;
     case 'auditor_suggestion':
       return <AuditorSuggestionCard message={message} meta={meta} onAction={onAction} />;
+    case 'analysis_confirm': // #284（决策 #250 D6）analysis 接力卡
+      return <AnalysisConfirmCard message={message} meta={meta} onOpenConfirm={onOpenWorkUnitConfirm} />;
     default:
       return null;
   }
@@ -63,15 +90,17 @@ function renderCard(meta: CardMeta, message: ChannelMessage, onAction: Props['on
 export function ChannelMessageItem({
   message, onAction, onReply, findMessage, channelId,
   isThreadAnchor, threadReplyCount, isExpanded, onToggleThread, isThreadReply,
-  waitingForInput, onOpenWorkUnit, onOpenRequirement, onInlineReply,
+  waitingForInput, onOpenWorkUnit, onOpenWorkUnitConfirm, onOpenRequirement, onInlineReply, fileVocabulary, wuChangedFiles, compact, highlight,
 }: Props) {
   const isHuman = message.authorType === 'human';
   const meta = parseMeta(message.meta);
-  const card = renderCard(meta, message, onAction);
+  const card = renderCard(meta, message, onAction, onOpenWorkUnitConfirm);
   const parentMessage = message.replyToId && findMessage ? findMessage(message.replyToId) : undefined;
   const [convertOpen, setConvertOpen] = useState(false);
   const [needDraft, setNeedDraft] = useState('');
   const [needSent, setNeedSent] = useState(false);
+  // #270：NEED_INPUT 内嵌回复框共享 composer 同款 IME 守卫
+  const { handleCompositionEnd, isImeEvent } = useImeEnterGuard();
   const canConvert = !message.workUnitId && isHuman && !!channelId;
   const reqId: string | undefined = meta.requirementId || meta.reqId;
   // 2026-07 §5.7: 里程碑消息 meta.pmoId（老消息没有 → undefined，不渲染 PMO chip）
@@ -94,8 +123,60 @@ export function ChannelMessageItem({
     setNeedSent(true);
   };
 
+  // #267（决策 #250 D3）：meta.options 存在 → 结构化选项卡（点选即发送内嵌回复）；
+  // 无 options → 现有单行回复框 fallback。防御性过滤非法元素（缺 label 的丢弃）
+  const needOptions: MetaOption[] | undefined = Array.isArray(meta.options)
+    ? meta.options.filter((o): o is MetaOption => !!o && typeof o.label === 'string')
+    : undefined;
+
+  // #271（决策 #248 D4）：agent 无卡片正文走 Markdown 渲染（wiki-link 关闭 + 代码块复制按钮）；
+  // #285 文件 chip 经 renderInlineCode 挂载到 inline-code：WU 文件集优先（AC4），
+  // 降级候选集词表，唯一命中才染 chip
+  const renderInlineCode = useCallback(
+    (text: string) => {
+      const hasWuFiles = !!wuChangedFiles && wuChangedFiles.length > 0;
+      if (!fileVocabulary && !hasWuFiles) return null;
+      const ref = matchFileRefToken(text, fileVocabulary ?? { repos: [] }, wuChangedFiles);
+      return ref ? <FileRefChip token={text.trim()} fileRef={ref} /> : null;
+    },
+    [fileVocabulary, wuChangedFiles],
+  );
+
+  // #277 D3：系统播报判定——Studio 署名、无卡片、非 NEED_INPUT 等待中（等待中的提问保留 agent 形态供回复）
+  const isSystem = !isHuman && !card && !waitingForInput && message.agentName === 'Studio';
+  // #277 D1：分侧类——卡片全宽不参与分侧
+  const sideClass = card ? 'mc-msg-card' : isSystem ? 'mc-msg-system' : isHuman ? 'mc-msg-human' : 'mc-msg-agent';
+
+  const actionButtons = (
+    <>
+      {onReply && (
+        <button
+          onClick={() => onReply(message)}
+          className="mc-icon-btn"
+          title="回复"
+          aria-label="回复消息"
+        >
+          ↩
+        </button>
+      )}
+      {canConvert && (
+        <button
+          onClick={() => setConvertOpen(true)}
+          className="mc-icon-btn"
+          title="转为任务"
+          aria-label="转为任务"
+        >
+          ⊕
+        </button>
+      )}
+    </>
+  );
+
   return (
-    <div className={`mc-msg ${isThreadReply ? 'mc-msg-reply' : ''}`} data-message-id={message.id}>
+    <div
+      className={`mc-msg ${isThreadReply ? 'mc-msg-reply' : ''} ${compact ? 'mc-msg-compact' : ''} ${sideClass}${highlight ? ' mc-msg-highlight' : ''}`}
+      data-message-id={message.id}
+    >
       {/* Quote block (reply reference) */}
       {parentMessage && (
         <div className="mc-quote">
@@ -104,48 +185,69 @@ export function ChannelMessageItem({
       )}
 
       {/* Author label + hover actions */}
-      <div className="mc-msg-head">
-        <AuthorAvatar isHuman={isHuman} agentName={message.agentName} />
-        <span className={isHuman ? 'mc-author' : 'mc-author mc-author-agent'}>
-          {isHuman ? 'You' : `@${message.agentName || 'Agent'}`}
-        </span>
-        <span className="mc-time">{formatTime(message.createdAt)}</span>
-        {waitingForInput && (
-          <span className="mc-wait-badge">等待回复</span>
-        )}
-        <span className="mc-msg-actions">
-          {onReply && (
-            <button
-              onClick={() => onReply(message)}
-              className="mc-icon-btn"
-              title="回复"
-              aria-label="回复消息"
-            >
-              ↩
-            </button>
+      {/* #277 D2：agent 侧完整头（头像 + @名 + 时间）；人类侧头像 + 时间（不署名）；系统播报无头 */}
+      {!isSystem && !compact && (
+        <div className="mc-msg-head">
+          {isHuman ? (
+            <>
+              <span className="mc-time">{formatTime(message.createdAt)}</span>
+              <AuthorAvatar isHuman={isHuman} agentName={message.agentName} />
+            </>
+          ) : (
+            <>
+              <AuthorAvatar isHuman={isHuman} agentName={message.agentName} />
+              <span className="mc-author mc-author-agent">{`@${message.agentName || 'Agent'}`}</span>
+              <span className="mc-time">{formatTime(message.createdAt)}</span>
+            </>
           )}
-          {canConvert && (
-            <button
-              onClick={() => setConvertOpen(true)}
-              className="mc-icon-btn"
-              title="转为任务"
-              aria-label="转为任务"
-            >
-              ⊕
-            </button>
+          {/* #279（走查 F4）：needSent（已回复）时 badge 让位——「已回复」与「等待回复」不同屏并存 */}
+          {waitingForInput && !needSent && (
+            <span className="mc-wait-badge">等待回复</span>
           )}
+          <span className="mc-msg-actions">{actionButtons}</span>
+        </div>
+      )}
+      {/* #277 D2：compact 省略重复头；动作（+等待 badge）浮于角落保留可用性 */}
+      {!isSystem && compact && (
+        <span className="mc-msg-actions mc-msg-actions-compact">
+          {waitingForInput && !needSent && (
+            <span className="mc-wait-badge">等待回复</span>
+          )}
+          {actionButtons}
         </span>
-      </div>
-
-      {/* Content or Card */}
-      {card || (
-        <div className="mc-msg-body">{message.content}</div>
       )}
 
-      {/* F5: NEED_INPUT 卡片内嵌回复框 */}
+      {/* Content or Card */}
+      {/* #271: agent 正文 Markdown 渲染（wikiLinks 关、codeCopy 开）；人类/系统维持纯文本 pre-wrap。
+          #277 D5：双侧 @name 染 mention chip（纯文本侧 renderWithMentions 拆分；agent 侧 MarkdownBody mentions 插件） */}
+      {card || (isSystem || isHuman ? (
+        <div className={`mc-msg-body ${isHuman ? 'mc-bubble' : ''}`}>{renderWithMentions(message.content)}</div>
+      ) : (
+        <div className="mc-msg-body">
+          <MarkdownBody
+            content={message.content}
+            className="mc-md"
+            wikiLinks={false}
+            codeCopy
+            renderInlineCode={renderInlineCode}
+            mentions
+          />
+        </div>
+      ))}
+
+      {/* F5: NEED_INPUT 卡片内嵌回复框；#267：有 meta.options 时渲染结构化选项卡 */}
       {waitingForInput && onInlineReply && (
         needSent ? (
           <div className="mc-need-sent">✓ 已回复，WorkUnit 将继续执行</div>
+        ) : needOptions && needOptions.length > 0 ? (
+          <NeedInputOptions
+            options={needOptions}
+            multiSelect={meta.multiSelect === true}
+            onReply={content => {
+              onInlineReply(message, content);
+              setNeedSent(true);
+            }}
+          />
         ) : (
           <div className="mc-need-form">
             <input
@@ -153,7 +255,12 @@ export function ChannelMessageItem({
               placeholder="直接在此回复，WorkUnit 将继续执行…"
               value={needDraft}
               onChange={e => setNeedDraft(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && sendInlineReply()}
+              onCompositionEnd={handleCompositionEnd}
+              onKeyDown={e => {
+                // #270：IME 选词 Enter 不发送；长按不连发
+                if (e.key !== 'Enter' || isImeEvent(e) || e.repeat) return;
+                sendInlineReply();
+              }}
             />
             <button className="mc-btn mc-btn-primary" onClick={sendInlineReply} disabled={!needDraft.trim()}>
               回复
@@ -218,23 +325,8 @@ export function ChannelMessageItem({
   );
 }
 
-/** 卡片 meta：消息 meta JSON 解析产物；cardData 形状随 cardType 而异，卡片内按需断言 */
-export interface CardMeta {
-  cardType?: string;
-  status?: string;
-  cardData?: Record<string, unknown>;
-  projectPath?: string;
-  requirementsDocId?: string;
-  requirementId?: string;
-  reqId?: string;
-  pmoId?: string;
-  error?: string;
-  [key: string]: unknown;
-}
-
-function parseMeta(meta?: string): CardMeta {
-  try { return JSON.parse(meta || '{}'); } catch { return {}; }
-}
+/** 卡片 meta 类型与解析已迁至 utils/messageMeta（#264）；此处 re-export 保持既有 import 路径不变 */
+export type { CardMeta } from '../../utils/messageMeta';
 
 function formatTime(iso: string): string {
   try {

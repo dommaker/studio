@@ -61,7 +61,11 @@ export interface WorkUnitMetadata {
   pendingReplies?: string[];  // 恢复后待注入下一轮 prompt 的人类回复（多条拼接，消费后清除）
   // B3a 工程归属链（决策 D2）：归属解析结果落档
   workspaceRoot?: string;     // 直接可用的工程根路径（Requirement→PMO gitRepo / 人工回复绑定；agent-loop 优先于 workspaceId 消费）
-  ownershipSource?: string;   // 归属来源：explicit / requirement / channel-default / none / human-reply
+  ownershipSource?: string;   // 归属来源：explicit / requirement / file-refs（#285）/ channel-default / none / human-reply
+  // #285（决策 #249 §4 / #257）：@文件引用落档（#281 路由层校验后的 kept refs，仅在有有效引用时写入；
+  // prompt-composer files 段消费；全部引用同仓时兼任归属 rung 输入）
+  fileRefs?: { repo: string; path: string }[];
+  ownershipAttempts?: number; // #265（决策 #258）：归属问答未解轮次计数（仿 resumeCount 先例；≥3 停止追问转人工，绑定成功清除）
   // 2026-08 归因统一：pmoId 是 canonical 创建期 PMO 归因戳（message-routing / project.service /
   // analysis-handoff 创建时落档；pmo-branch-resolver 与证据归属过滤的唯一直读 key）
   pmoId?: string;

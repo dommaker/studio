@@ -19,7 +19,7 @@ vi.mock('../../api', () => ({
 
 vi.mock('../../hooks/useChannelEvents', () => ({
   useChannelMessages: () => ({
-    messages: MESSAGES,
+    messages: currentMessages,
     loading: false,
     hasMore: false,
     sendMessage: mockSendMessage,
@@ -44,7 +44,8 @@ vi.mock('../../api/websocketHooks', () => ({
 vi.mock('../../components/channel/ChannelRail', () => ({ ChannelRail: () => null }));
 vi.mock('../../components/channel/WorkUnitDrawer', () => ({ WorkUnitDrawer: () => null }));
 vi.mock('../../components/channel/ChannelMemberManager', () => ({ ChannelMemberManager: () => null }));
-vi.mock('../../components/ChannelWorkspaceSetting', () => ({ ChannelWorkspaceSetting: () => null }));
+vi.mock('../../components/channel/ChannelDefaultProjectSelect', () => ({ ChannelDefaultProjectSelect: () => null }));
+vi.mock('../../components/channel/ChannelCurrentPmoChip', () => ({ ChannelCurrentPmoChip: () => null }));
 vi.mock('../../components/channel/ChannelInput', () => ({ ChannelInput: () => null }));
 // 其他卡片与本测试无关；KnowledgeProposalCard 用真实组件（无 API 副作用）
 vi.mock('../../components/channel/RequirementsDocCard', () => ({ RequirementsDocCard: () => null }));
@@ -54,24 +55,31 @@ vi.mock('../../components/channel/ConvertToTaskDialog', () => ({ ConvertToTaskDi
 
 import { ChannelDetailPage } from '../ChannelDetailPage';
 
-const MESSAGES = [
-  {
-    id: 'msg-kp-1', channelId: 'ch-sys', authorType: 'agent' as const, agentName: 'KK',
-    content: '知识提案 — 待人工审核', workUnitId: null, replyToId: null,
-    meta: JSON.stringify({
-      cardType: 'knowledge_proposal',
-      status: 'ready',
-      cardData: {
-        workUnitId: 'WU-2042',
-        entries: [
-          { id: 'k-1', title: 'session 过期未刷新导致 401', type: 'pitfall' },
-          { id: 'k-2', title: '登录流程统一走 auth-service', type: 'guideline' },
-        ],
-      },
-    }),
-    createdAt: new Date().toISOString(),
-  },
-];
+const STRING_META_MESSAGE = {
+  id: 'msg-kp-1', channelId: 'ch-sys', authorType: 'agent' as const, agentName: 'KK',
+  content: '知识提案 — 待人工审核', workUnitId: null, replyToId: null,
+  meta: JSON.stringify({
+    cardType: 'knowledge_proposal',
+    status: 'ready',
+    cardData: {
+      workUnitId: 'WU-2042',
+      entries: [
+        { id: 'k-1', title: 'session 过期未刷新导致 401', type: 'pitfall' },
+        { id: 'k-2', title: '登录流程统一走 auth-service', type: 'guideline' },
+      ],
+    },
+  }),
+  createdAt: new Date().toISOString(),
+};
+
+// #264：线上 REST/SSE 出口的 object 形态 meta（与 string 夹具内容相同，仅形态不同）
+const OBJECT_META_MESSAGE = {
+  ...STRING_META_MESSAGE,
+  meta: JSON.parse(STRING_META_MESSAGE.meta) as Record<string, unknown>,
+};
+
+// useChannelMessages mock 的当前消息集（默认 string-meta 存量形态，单测可替换）
+let currentMessages = [STRING_META_MESSAGE];
 
 const renderPage = () =>
   render(
@@ -85,6 +93,7 @@ const renderPage = () =>
 describe('ChannelDetailPage — knowledge_proposal 审核分发', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    currentMessages = [STRING_META_MESSAGE];
     mockApiGet.mockResolvedValue({ data: { data: { id: 'ch-sys', name: '系统', type: 'system', members: '[]' } } });
     mockListWorkunits.mockResolvedValue({ data: { data: [] } });
     mockListReqs.mockResolvedValue({ data: { data: [] } });
@@ -114,5 +123,20 @@ describe('ChannelDetailPage — knowledge_proposal 审核分发', () => {
       expect(mockApiPost).toHaveBeenCalledWith('/knowledge-service/demote', { entryId: 'k-2' });
     });
     expect(await screen.findByText(/已拒绝/)).toBeTruthy();
+  });
+
+  // #264：线上 meta 为 object（回归点 48d883d9）——approve/reject 必须同样拿到 cardData 生效
+  it('object meta（线上形态）：卡片渲染 + approve 拿到 cardData 分发 promote', async () => {
+    currentMessages = [OBJECT_META_MESSAGE];
+    renderPage();
+    const btn = await screen.findByText('通过');
+    fireEvent.click(btn);
+
+    await waitFor(() => {
+      expect(mockApiPost).toHaveBeenCalledWith('/knowledge-service/promote', { entryId: 'k-1' });
+      expect(mockApiPost).toHaveBeenCalledWith('/knowledge-service/promote', { entryId: 'k-2' });
+    });
+    expect(await screen.findByText(/已通过/)).toBeTruthy();
+    expect(mockRefresh).toHaveBeenCalled();
   });
 });

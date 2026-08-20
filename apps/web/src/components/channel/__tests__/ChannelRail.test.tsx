@@ -17,6 +17,11 @@ vi.mock('../../../api/monitoring', () => ({
   monitoringApi: { getAgentSummary: mockGetAgentSummary },
 }));
 
+// #272：创建表单（CreateChannelForm）加载本地工程发现候选——单测置空即可
+vi.mock('../../../api/channel', () => ({
+  channelApi: { discoverProjects: vi.fn().mockResolvedValue({ data: { success: true, data: [] } }) },
+}));
+
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual('react-router-dom');
   return { ...actual, useNavigate: () => mockNavigate };

@@ -57,8 +57,12 @@ vi.mock('../../components/channel/ChannelMemberManager', () => ({
   ChannelMemberManager: () => <div data-testid="member-manager" />,
 }));
 
-vi.mock('../../components/ChannelWorkspaceSetting', () => ({
-  ChannelWorkspaceSetting: () => <div data-testid="workspace-setting" />,
+vi.mock('../../components/channel/ChannelDefaultProjectSelect', () => ({
+  ChannelDefaultProjectSelect: () => <div data-testid="default-project-select" />,
+}));
+
+vi.mock('../../components/channel/ChannelCurrentPmoChip', () => ({
+  ChannelCurrentPmoChip: () => <div data-testid="current-pmo-chip" />,
 }));
 
 vi.mock('../../components/channel/ChannelInput', () => ({
@@ -164,7 +168,9 @@ describe('ChannelDetailPage — Mission Control 三栏', () => {
     await waitFor(() => expect(screen.getByText('#rnd-主研发')).toBeTruthy());
     expect(screen.getByTestId('channel-input')).toBeTruthy();
     expect(screen.getByTestId('member-manager')).toBeTruthy();
-    expect(screen.getByTestId('workspace-setting')).toBeTruthy();
+    // #272：顶栏 = 当前 PMO chip + 默认工程（本地 repo）下拉
+    expect(screen.getByTestId('current-pmo-chip')).toBeTruthy();
+    expect(screen.getByTestId('default-project-select')).toBeTruthy();
     expect(screen.queryByTestId('wu-drawer')).toBeNull();
   });
 
@@ -198,6 +204,54 @@ describe('ChannelDetailPage — Mission Control 三栏', () => {
     expect(screen.queryByText('完成的工作 3')).toBeNull();
     fireEvent.click(screen.getByText('显示 1 条已完成消息'));
     expect(screen.getByText('完成的工作 3')).toBeTruthy();
+  });
+
+  // #264：线上 meta 为 object——已完成折叠与里程碑判定必须同样生效
+  it('object meta：已完成消息仍正确折叠（默认留最近 2 条）', async () => {
+    currentMessages = MESSAGES.map(m => ({ ...m, meta: JSON.parse(m.meta as string) as Record<string, unknown> }));
+    renderPage();
+    await waitFor(() => expect(screen.getByText('完成的工作 5')).toBeTruthy());
+    expect(screen.queryByText('完成的工作 3')).toBeNull();
+    fireEvent.click(screen.getByText('显示 1 条已完成消息'));
+    expect(screen.getByText('完成的工作 3')).toBeTruthy();
+  });
+
+  it('object meta：卡片回复识别为里程碑，不被折叠进过程消息组', async () => {
+    currentMessages = [
+      {
+        id: 'c-1', channelId: 'ch-1', authorType: 'agent' as const, agentName: 'pm',
+        content: '需求已收到，开始分析', workUnitId: 'WU-2000', replyToId: null,
+        meta: '{}', createdAt: iso(0),
+      },
+      ...[2, 3, 4].map(i => ({
+        id: `c-${i}`, channelId: 'ch-1', authorType: 'agent' as const, agentName: 'pm',
+        content: `过程步骤 ${i}`, workUnitId: 'WU-2000', replyToId: 'c-1',
+        meta: '{}', createdAt: iso(i),
+      })),
+      {
+        id: 'c-5', channelId: 'ch-1', authorType: 'agent' as const, agentName: 'librarian',
+        content: '知识提案 — 待人工审核', workUnitId: 'WU-2000', replyToId: 'c-1',
+        meta: {
+          cardType: 'knowledge_proposal',
+          status: 'ready',
+          cardData: { entries: [{ id: 'k-1', title: 't', type: 'pitfall' }] },
+        } as Record<string, unknown>,
+        createdAt: iso(5),
+      },
+      {
+        id: 'c-6', channelId: 'ch-1', authorType: 'agent' as const, agentName: 'pm',
+        content: '分析结论：拆成 3 个任务', workUnitId: 'WU-2000', replyToId: 'c-1',
+        meta: '{}', createdAt: iso(6),
+      },
+    ];
+    renderPage();
+    await waitFor(() => expect(screen.getByText('需求已收到，开始分析')).toBeTruthy());
+    fireEvent.click(screen.getByText('▸ 5 条回复'));
+
+    // 3 条连续过程消息收成一组；卡片回复（非末位）是里程碑，直接可见
+    expect(screen.getByText('▸ 3 条过程消息')).toBeTruthy();
+    expect(screen.getByText('通过')).toBeTruthy();
+    expect(screen.getByText('分析结论：拆成 3 个任务')).toBeTruthy();
   });
 
   it('NEED_INPUT: waiting badge + inline reply sends through the same replyTo link', async () => {
@@ -341,5 +395,116 @@ describe('ChannelDetailPage — #242 live 执行状态条', () => {
     const drawer = screen.getByTestId('wu-drawer');
     expect(drawer.getAttribute('data-kind')).toBe('wu');
     expect(drawer.getAttribute('data-id')).toBe('WU-1018');
+  });
+});
+
+// #279（决策 #250 D3/D4 + 走查 F4）：NEED_INPUT 选项卡通用化 + 顶栏待办 chip + 等待态清理
+describe('ChannelDetailPage — #279 NEED_INPUT 待办 chip 与等待态清理', () => {
+  // 派发 anchor + agent 追问（线程回复，带通用 options）
+  const FOLLOWUP_MESSAGES: ChannelMessage[] = [
+    {
+      id: 'a-1', channelId: 'ch-1', authorType: 'agent' as const, agentName: 'pm',
+      content: '任务已派发，开始执行', workUnitId: 'WU-3000', replyToId: null,
+      meta: '{}', createdAt: iso(0),
+    },
+    {
+      id: 'q-2', channelId: 'ch-1', authorType: 'agent' as const, agentName: 'pm',
+      content: '需要输入: 使用 OAuth 还是账号密码？', workUnitId: 'WU-3000', replyToId: 'a-1',
+      meta: { options: [{ label: 'OAuth' }, { label: '账号密码' }] } as Record<string, unknown>,
+      createdAt: iso(1),
+    },
+  ];
+  const waitingWu = (id: string, type: string, question: string) => ({
+    id, type, scope: `scope of ${id}`,
+    metadata: JSON.stringify({ waitingForInput: true, waitingQuestion: question }),
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    currentMessages = FOLLOWUP_MESSAGES;
+    wuEventHandler = null;
+    mockApiGet.mockResolvedValue({ data: { data: { id: 'ch-1', name: 'rnd-主研发', type: 'rnd', members: '[]' } } });
+    mockListWorkunits.mockImplementation((params?: { status?: string }) => Promise.resolve(
+      params?.status === 'active'
+        ? activeWuList([])
+        : { data: { data: [waitingWu('WU-3000', 'task', '使用 OAuth 还是账号密码？')] } },
+    ));
+    mockOnEvent.mockImplementation((cb: SseHandler) => { wuEventHandler = cb; return () => {}; });
+    mockListReqs.mockResolvedValue({ data: { data: [] } });
+    mockSendMessage.mockResolvedValue({});
+    Element.prototype.scrollIntoView = vi.fn();
+  });
+
+  it('顶栏 chip 聚合 NEED_INPUT 等待计数；闸门类（decision/spec）不聚合', async () => {
+    mockListWorkunits.mockImplementation((params?: { status?: string }) => Promise.resolve(
+      params?.status === 'active'
+        ? activeWuList([])
+        : {
+            data: {
+              data: [
+                waitingWu('WU-3000', 'task', '使用 OAuth 还是账号密码？'),
+                waitingWu('WU-3001', 'decision', '决策单待批'),
+                waitingWu('WU-3002', 'spec', 'spec 单待批'),
+              ],
+            },
+          },
+    ));
+    renderPage();
+    await waitFor(() => expect(screen.getByText('待回复 · 1')).toBeTruthy());
+    fireEvent.click(screen.getByText('待回复 · 1'));
+    expect(screen.getByText('WU-3000')).toBeTruthy();
+    // 问题摘要来自 metadata.waitingQuestion
+    expect(screen.getAllByText('使用 OAuth 还是账号密码？').length).toBeGreaterThan(0);
+    expect(screen.queryByText('WU-3001')).toBeNull();
+    expect(screen.queryByText('WU-3002')).toBeNull();
+  });
+
+  it('无 NEED_INPUT 等待 → chip 不渲染', async () => {
+    mockListWorkunits.mockImplementation((params?: { status?: string }) => Promise.resolve(
+      params?.status === 'active' ? activeWuList([]) : { data: { data: [] } },
+    ));
+    renderPage();
+    await waitFor(() => expect(screen.getByText('#rnd-主研发')).toBeTruthy());
+    expect(screen.queryByText(/待回复 ·/)).toBeNull();
+  });
+
+  it('agent 追问主流可见（不展开线程即可见），通用 options 渲染选项卡', async () => {
+    renderPage();
+    // 追问从折叠线程提升到主流：不点「▸ N 条回复」直接可见
+    await waitFor(() => expect(screen.getByText(/需要输入: 使用 OAuth 还是账号密码？/)).toBeTruthy());
+    expect(screen.queryByText(/条回复/)).toBeNull();
+    // #279 AC1：通用 need_input（非归属问答）携带 options[] → 流内选项卡
+    expect(screen.getByText('OAuth')).toBeTruthy();
+    expect(screen.getByText('账号密码')).toBeTruthy();
+    expect(screen.getByText('交给 agent 判断')).toBeTruthy();
+  });
+
+  it('等待 badge 与回复区只落在当前提问消息（anchor 不再重复 badge/回复框）', async () => {
+    renderPage();
+    await waitFor(() => expect(screen.getByText('等待回复')).toBeTruthy());
+    expect(screen.getAllByText('等待回复')).toHaveLength(1);
+    // 选项卡只此一份（anchor 上没有第二份回复区）
+    expect(screen.getAllByText('交给 agent 判断')).toHaveLength(1);
+  });
+
+  it('点选项回答后：经 replyTo 走复活链路，同屏不再「已回复」与「等待回复」并存', async () => {
+    renderPage();
+    await waitFor(() => expect(screen.getByText('OAuth')).toBeTruthy());
+    fireEvent.click(screen.getByText('OAuth'));
+    await waitFor(() => expect(mockSendMessage).toHaveBeenCalledWith('OAuth', 'q-2'));
+    expect(screen.getByText(/已回复/)).toBeTruthy();
+    expect(screen.queryByText('等待回复')).toBeNull();
+  });
+
+  it('chip 点条目 → 滚动定位到该 WU 提问消息并高亮', async () => {
+    renderPage();
+    await waitFor(() => expect(screen.getByText('待回复 · 1')).toBeTruthy());
+    fireEvent.click(screen.getByText('待回复 · 1'));
+    fireEvent.click(screen.getByText('WU-3000'));
+    await waitFor(() => {
+      const el = document.querySelector('[data-message-id="q-2"]');
+      expect(el?.className).toContain('mc-msg-highlight');
+    });
+    expect(Element.prototype.scrollIntoView).toHaveBeenCalled();
   });
 });

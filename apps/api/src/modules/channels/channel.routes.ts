@@ -8,13 +8,17 @@ import { projectService } from '../pmo/project.service.js';
 import { apiCache, CACHE_CONFIG } from '../../middleware/api-cache.js';
 import { requireAuth, requireNotGuest } from '../../middleware/auth.js';
 import { ConvertToTaskService } from './convert-to-task.service.js';
+import { CardDecisionService } from './card-decision.service.js';
 import { WorkUnitService } from '../workunit/workunit.service.js';
 import { ProjectDiscoveryService } from '../projects/project-discovery.service.js';
 import { getWorkspaceRecord } from '../workspaces/workspace-store.js';
+import { getChannelFileVocabulary } from './file-ref-vocabulary.js';
+import { deriveChannelCurrentPmo } from './current-pmo.js';
 
 const router = Router();
 const fileStore = new FileStore();
 const convertToTaskService = new ConvertToTaskService(fileStore);
+const cardDecisionService = new CardDecisionService(fileStore, channelMessageService);
 const workUnitService = new WorkUnitService(fileStore);
 const projectDiscoveryService = new ProjectDiscoveryService();
 
@@ -27,13 +31,18 @@ router.get('/', apiCache(CACHE_CONFIG.medium), async (_req, res) => {
 // POST /api/v1/channels — create a new channel (B2-007)
 // Also supports creating initial agents: { agents: [{ name, description? }] }
 router.post('/', requireAuth(), requireNotGuest(), async (req, res) => {
-  const { name, type = 'rnd', members, agents, defaultPipeline } = req.body;
+  const { name, type = 'rnd', members, agents, defaultPipeline, defaultPath } = req.body;
   if (!name || typeof name !== 'string' || !name.trim()) {
     return res.status(400).json({ success: false, error: 'name is required' });
   }
   if (!['rnd', 'decision', 'system'].includes(type)) {
     return res.status(400).json({ success: false, error: 'type must be rnd, decision, or system' });
   }
+  // #272（决策 #251 Q7）：创建表单可选「默认工程」（本地 repo 路径，可留空）
+  if (defaultPath !== undefined && defaultPath !== null && typeof defaultPath !== 'string') {
+    return res.status(400).json({ success: false, error: 'defaultPath must be a string' });
+  }
+  const defaultPathValue = typeof defaultPath === 'string' && defaultPath.trim() ? defaultPath.trim() : null;
   // AC-6.2: validate defaultPipeline items are active AgentProfile names
   let pipelineValue: string[] | undefined;
   if (defaultPipeline !== undefined) {
@@ -57,7 +66,7 @@ router.post('/', requireAuth(), requireNotGuest(), async (req, res) => {
       name: channelName,
       type,
       defaultWorkspaceId: null,
-      defaultPath: null,
+      defaultPath: defaultPathValue,
       discordChannelId: null,
       discordWebhookUrl: null,
       members: '[]',
@@ -112,6 +121,15 @@ router.get('/:id', async (req, res) => {
   res.json({ success: true, data: { ...channel, _count: { ChannelMessage: messageCount } } });
 });
 
+// GET /api/v1/channels/:id/current-pmo — #272（决策 #251 Q6）：顶栏「当前 PMO」chip
+// 派生概念不落库：最近挂接 REQ 所属 PMO → 杂务 PMO 反推 → null（见 current-pmo.ts）。
+router.get('/:id/current-pmo', async (req, res) => {
+  const channel = await fileStore.getChannel(req.params.id);
+  if (!channel) return res.status(404).json({ success: false, error: 'Channel not found' });
+  const pmo = await deriveChannelCurrentPmo(req.params.id);
+  res.json({ success: true, data: pmo });
+});
+
 // GET /api/v1/channels/:id/messages — paginated messages
 router.get('/:id/messages', async (req, res) => {
   const { before, limit = '50' } = req.query;
@@ -139,11 +157,35 @@ router.get('/:id/messages', async (req, res) => {
   res.json({ success: true, data, total, hasMore });
 });
 
+// GET /api/v1/channels/:id/file-vocabulary — #281：@文件引用只读词表
+// 候选集 = 频道相关工程（默认工程 ∪ REQ 挂接 PMO ∪ 杂务 PMO，最近使用优先），
+// 各仓 git ls-files + 内存缓存（见 file-ref-vocabulary.ts）。
+router.get('/:id/file-vocabulary', async (req, res) => {
+  const channel = await fileStore.getChannel(req.params.id);
+  if (!channel) return res.status(404).json({ success: false, error: 'Channel not found' });
+  try {
+    const vocabulary = await getChannelFileVocabulary(req.params.id);
+    res.json({ success: true, data: vocabulary });
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    logger.warn('[Channel] file vocabulary failed', { channelId: req.params.id, error: msg });
+    res.status(500).json({ success: false, error: msg });
+  }
+});
+
 // POST /api/v1/channels/:id/messages — send a message
 router.post('/:id/messages', requireAuth(), requireNotGuest(), async (req, res) => {
-  const { content, replyToId, workspaceId, reqId } = req.body;
+  const { content, replyToId, workspaceId, reqId, files } = req.body;
   if (!content || typeof content !== 'string' || !content.trim()) {
     return res.status(400).json({ success: false, error: 'content is required' });
+  }
+  // #281: @文件引用结构化载体（可选）；形状不符整体 400，存在性校验在路由层
+  if (files !== undefined && (!Array.isArray(files) || files.some(
+    (f: unknown) => !f || typeof (f as { repo?: unknown }).repo !== 'string'
+      || typeof (f as { path?: unknown }).path !== 'string'
+      || !(f as { repo: string }).repo || !(f as { path: string }).path,
+  ))) {
+    return res.status(400).json({ success: false, error: 'files must be an array of {repo, path} strings' });
   }
 
   const channelId = req.params.id;
@@ -169,6 +211,8 @@ router.post('/:id/messages', requireAuth(), requireNotGuest(), async (req, res) 
       // REQ 需求编号（vision §5.3）：调用方可显式指定（缺省走 #REQ-XXXX token / 自动新建）
       reqId: typeof reqId === 'string' && reqId ? reqId : undefined,
       traceId,
+      // #281: @文件引用（路由层做存在性校验 + 剔除播报）
+      files: files as { repo: string; path: string }[] | undefined,
     },
   );
 
@@ -331,6 +375,32 @@ router.post('/:id/messages/:messageId/convert-to-task', requireAuth(), requireNo
       return res.status(404).json({ success: false, error: msg });
     }
     if (msg.includes('already')) {
+      return res.status(400).json({ success: false, error: msg });
+    }
+    throw e;
+  }
+});
+
+// POST /api/v1/channels/:id/messages/:messageId/card-decision — #278（决策 #250 D2）
+// auditor_suggestion 卡的人审决策端点（human-only；不复活已删的通用 actions 端点——AC-A5）。
+// 采纳 = 本频道建 type:task 未指派工单（正文 = 建议详情 + 原卡链接）；拒绝 = 仅留痕。
+// 状态经 updateMessageMeta 回写 meta.status 并由 SSE channel.message_updated 推送。
+router.post('/:id/messages/:messageId/card-decision', requireAuth(), requireNotGuest(), async (req, res) => {
+  const { id: channelId, messageId } = req.params;
+  const { decision } = req.body;
+  if (decision !== 'confirm' && decision !== 'reject') {
+    return res.status(400).json({ success: false, error: "decision must be 'confirm' or 'reject'" });
+  }
+
+  try {
+    const result = await cardDecisionService.decide(channelId, messageId, decision);
+    res.json({ success: true, data: result });
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (msg.includes('not found')) {
+      return res.status(404).json({ success: false, error: msg });
+    }
+    if (msg.includes('already') || msg.includes('not support')) {
       return res.status(400).json({ success: false, error: msg });
     }
     throw e;
