@@ -14,6 +14,7 @@ import { logger, FileStore } from '@dommaker/studio-shared';
 import { WorkUnitService } from '../workunit/workunit.service.js';
 import type { WorkUnitData } from '../workunit/workunit.service.js';
 import { ChannelMessageService, channelMessageService } from './channel-message.service.js';
+import { parseMessageMeta } from '../../utils/message-meta.js';
 
 export type CardDecision = 'confirm' | 'reject';
 
@@ -49,8 +50,7 @@ export class CardDecisionService {
       throw new Error(`Message ${messageId} not found in channel ${channelId}`);
     }
 
-    const rawMeta = found.message.meta;
-    const meta: Record<string, unknown> = typeof rawMeta === 'string' ? JSON.parse(rawMeta || '{}') : (rawMeta ?? {});
+    const meta = parseMessageMeta(found.message.meta);
     if (meta.cardType !== 'auditor_suggestion') {
       throw new Error(`Card type '${String(meta.cardType)}' does not support card-decision (only auditor_suggestion)`);
     }
