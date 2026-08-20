@@ -2,13 +2,12 @@
 /**
  * AuditService 测试
  *
- * 覆盖 7 个核心方法：
+ * 覆盖 6 个核心方法（#256 后 cleanup 下线）：
  * - log
  * - logBatch
  * - query
  * - getById
  * - getStats
- * - cleanup
  * - export
  *
  * 改用 FileStore 后验证实际文件 IO：
@@ -324,41 +323,10 @@ describe('AuditService', () => {
   });
 
   // ============================================
-  // AC-008: cleanup
+  // AC-008: cleanup -- #256 下线
+  // 物理删除路径已移除，删除语义归 #213 轮转机制（audit.jsonl hotDays=90 -> 月度 gz 归档只增不删）。
+  // 端点级回归保护见 apps/api/src/modules/audit-logs/__tests__/routes.test.ts。
   // ============================================
-  describe('cleanup', () => {
-    it('删除超过保留天数的条目', async () => {
-      const now = Date.now();
-      writeFixture([
-        { id: 'old-1', action: 'create', resource: 'task', status: 'success', createdAt: new Date(now - 60 * 86400000).toISOString() },
-        { id: 'old-2', action: 'update', resource: 'role', status: 'success', createdAt: new Date(now - 50 * 86400000).toISOString() },
-        { id: 'recent', action: 'delete', resource: 'company', status: 'success', createdAt: new Date(now - 5 * 86400000).toISOString() },
-      ]);
-
-      const deletedCount = await service.cleanup(30);
-
-      expect(deletedCount).toBe(2);
-
-      const remaining = readLines();
-      expect(remaining).toHaveLength(1);
-      expect(remaining[0].id).toBe('recent');
-    });
-
-    it('自定义保留天数', async () => {
-      const now = Date.now();
-      writeFixture([
-        { id: 'old', action: 'create', resource: 'task', status: 'success', createdAt: new Date(now - 10 * 86400000).toISOString() },
-        { id: 'new', action: 'update', resource: 'role', status: 'success', createdAt: new Date(now - 1 * 86400000).toISOString() },
-      ]);
-
-      const deletedCount = await service.cleanup(7);
-
-      expect(deletedCount).toBe(1);
-      const remaining = readLines();
-      expect(remaining).toHaveLength(1);
-      expect(remaining[0].id).toBe('new');
-    });
-  });
 
   // ============================================
   // AC-009: export
