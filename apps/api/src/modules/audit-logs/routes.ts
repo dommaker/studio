@@ -141,30 +141,11 @@ router.post('/', async (req: Request, res: Response) => {
 });
 
 /**
- * POST /api/audit-logs/cleanup - 清理过期日志
- * 
- * Body:
- * - retentionDays: 保留天数 (default: 90)
+ * #256: POST /api/audit-logs/cleanup 端点下线--硬删 audit 行不归档，绕过 #213
+ * 「只增不删」决议。删除语义统一归轮转机制（STUDIO_LOG_FILE_POLICIES
+ * 已配置 audit.jsonl: hotDays=90, action=archive）。
+ * 若需重新引入清理能力，必须先归档（复用 rotateJsonlLog/appendGz）再删热行。
  */
-router.post('/cleanup', async (req: Request, res: Response) => {
-  try {
-    const service = getAuditService();
-    const retentionDays = req.body.retentionDays || 90;
-    
-    const count = await service.cleanup(retentionDays);
-
-    res.json({
-      message: `Cleaned up ${count} audit logs`,
-      retentionDays,
-      deletedCount: count,
-    });
-  } catch (error) {
-    logger.error({ error }, 'Failed to cleanup audit logs');
-    res.status(500).json({
-      error: { code: 'INTERNAL_ERROR', message: 'Failed to cleanup audit logs' },
-    });
-  }
-});
 
 /**
  * GET /api/audit-logs/export - 导出审计日志

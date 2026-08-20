@@ -11,8 +11,6 @@
 
 import { FileStore, logger, generateId } from '@dommaker/studio-shared';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
-import * as path from 'node:path';
-import fs from 'node:fs';
 
 // ========== 常量 ==========
 
@@ -337,27 +335,6 @@ export class AuditService {
       topUsers,
       dailyStats,
     };
-  }
-
-  /**
-   * 清理过期日志
-   */
-  async cleanup(retentionDays: number = 90): Promise<number> {
-    const cutoffDate = new Date();
-    cutoffDate.setDate(cutoffDate.getDate() - retentionDays);
-    const cutoffTime = cutoffDate.getTime();
-
-    const rows = await this.fileStore.readJsonl<AuditLogRow>(AUDIT_JSONL_PATH);
-    const filtered = rows.filter(r => new Date(r.createdAt).getTime() >= cutoffTime);
-    const deletedCount = rows.length - filtered.length;
-
-    // 重写 jsonl 文件（移除过期行）
-    const content = filtered.map(r => JSON.stringify(r)).join('\n') + '\n';
-    await fs.promises.mkdir(path.dirname(AUDIT_JSONL_PATH), { recursive: true });
-    await fs.promises.writeFile(AUDIT_JSONL_PATH, content, 'utf-8');
-
-    logger.info('Audit logs cleaned up', { deletedCount, retentionDays });
-    return deletedCount;
   }
 
   /**
