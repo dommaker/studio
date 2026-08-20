@@ -16,7 +16,7 @@
  * knowledge-service 模块，同一模块 ID 解析到同一绝对路径，mock 照常生效）。
  */
 
-import { parseChannels, FileStore, logger, type AgentProfileData } from '@dommaker/studio-shared';
+import { parseChannels, FileStore, logger, stripTrailingSlashes, type AgentProfileData } from '@dommaker/studio-shared';
 import { TokenEstimator } from '@dommaker/harness';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import { knowledgeService } from '../../knowledge/knowledge-service.js';
@@ -468,13 +468,12 @@ function buildFilesSection(metadata: WorkUnitMetadata, tokenBudget: number): Bui
     && typeof (r as { path?: unknown }).path === 'string' && (r as { path: string }).path.length > 0);
   if (refs.length === 0 || tokenBudget <= 0) return { section: '', tokens: 0, originalTokens: 0 };
 
-  const normalizeRepo = (p: string) => p.replace(/[/\\]+$/, '');
   const workspaceRoot = typeof metadata.workspaceRoot === 'string' && metadata.workspaceRoot
-    ? normalizeRepo(metadata.workspaceRoot)
+    ? stripTrailingSlashes(metadata.workspaceRoot)
     : null;
 
   const blocks = refs.map(r => {
-    const repo = normalizeRepo(r.repo);
+    const repo = stripTrailingSlashes(r.repo);
     const rel = r.path.replace(/^[/\\]+/, '');
     const abs = `${repo}/${rel}`;
     const note = workspaceRoot !== null && repo === workspaceRoot

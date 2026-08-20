@@ -13,3 +13,6 @@ export * from './attestation';
 
 // 监控探针阈值常量（纯常量，无 Node 依赖；Web 下钻口径与 api 探针同源）
 export * from './constants/monitoring';
+
+// 路径归一（纯函数：尾斜杠归一，文件 chip / 词表路径比对共用）
+export { stripTrailingSlashes } from './utils/repo-path';

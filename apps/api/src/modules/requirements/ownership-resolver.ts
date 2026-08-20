@@ -16,7 +16,7 @@
  * 以 metadata.workspaceRoot 字符串形式进入 WU，agent-loop 直接作为执行根目录
  * （与 task.parameters.workspaceRoot 消费方式兼容，不经 workspace 记录解析）。
  */
-import { logger, FileStore } from '@dommaker/studio-shared';
+import { logger, FileStore, stripTrailingSlashes } from '@dommaker/studio-shared';
 import { projectService } from '../pmo/project.service.js';
 import type { RequirementWithProject } from './requirement.service.js';
 
@@ -89,7 +89,7 @@ export async function resolveWorkspaceForWU(input: ResolveWorkspaceInput): Promi
   if (input.fileRefs && input.fileRefs.length > 0) {
     try {
       const repos = input.fileRefs.map(r =>
-        typeof r?.repo === 'string' ? r.repo.replace(/[/\\]+$/, '') : '');
+        typeof r?.repo === 'string' ? stripTrailingSlashes(r.repo) : '');
       // 任一引用 repo 缺失/畸形 = 不满足「全部同仓」，不参与归属
       if (repos.every(r => r.length > 0) && new Set(repos).size === 1) {
         return { source: 'file-refs', workspaceId: null, workspaceRoot: repos[0], projectId: null };

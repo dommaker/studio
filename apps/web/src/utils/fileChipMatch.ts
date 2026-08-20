@@ -5,6 +5,7 @@
 // ② 拿不到/WU 层无命中 → 降级候选集词表（#281 file-vocabulary）。
 // 两层守同一匹配纪律：恰好唯一命中才染 chip，多条命中（含 basename 不唯一）保持纯文本。
 import type { ChannelFileVocabulary, FileRef } from '../api/channel';
+import { stripTrailingSlashes } from '@dommaker/studio-shared/web';
 
 export interface ContentSegment {
   type: 'text' | 'code';
@@ -83,5 +84,5 @@ export function matchFileRefToken(
 
 /** chip tooltip / 剪贴板用的绝对路径（repo 尾斜杠归一，防双斜杠） */
 export function fileRefFullPath(ref: FileRef): string {
-  return `${ref.repo.replace(/\/+$/, '')}/${ref.path.replace(/^\/+/, '')}`;
+  return `${stripTrailingSlashes(ref.repo)}/${ref.path.replace(/^\/+/, '')}`;
 }

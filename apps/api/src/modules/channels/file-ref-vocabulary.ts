@@ -18,7 +18,7 @@
  * 候选集计算绝不抛出让消息路由失败。
  */
 import { execFile } from 'node:child_process';
-import { logger, FileStore } from '@dommaker/studio-shared';
+import { logger, FileStore, stripTrailingSlashes } from '@dommaker/studio-shared';
 import { projectService } from '../pmo/project.service.js';
 import { resolveWorkspaceRoot as defaultResolveWorkspaceRoot } from '../workspaces/workspace-store.js';
 
@@ -56,11 +56,6 @@ export interface FileRefVocabularyDeps {
   now?: () => number;
 }
 
-/** 尾斜杠归一（PMO gitRepo 与 workspaceRoot 的写法差不对齐去重键） */
-function normalizeRepoPath(p: string): string {
-  return p.replace(/[/\\]+$/, '');
-}
-
 /** 工程记录 → 仓路径清单（gitRepo + deliveries[].gitRepo，去重保序；#272 当前 PMO chip 复用） */
 export function reposOfProject(project: ProjectLike | null): string[] {
   if (!project) return [];
@@ -68,7 +63,7 @@ export function reposOfProject(project: ProjectLike | null): string[] {
   const seen = new Set<string>();
   const push = (p?: string | null) => {
     if (typeof p !== 'string' || !p) return;
-    const key = normalizeRepoPath(p);
+    const key = stripTrailingSlashes(p);
     if (seen.has(key)) return;
     seen.add(key);
     out.push(p);
@@ -102,7 +97,7 @@ function gitLsFiles(repo: string): Promise<string[]> {
 }
 
 async function getRepoFiles(repo: string, deps: FileRefVocabularyDeps): Promise<string[]> {
-  const key = normalizeRepoPath(repo);
+  const key = stripTrailingSlashes(repo);
   const nowMs = (deps.now ?? Date.now)();
   const ttl = deps.cacheTtlMs ?? 60_000;
   const hit = vocabCache.get(key);
@@ -174,7 +169,7 @@ export async function computeCandidateRepos(
   const baseSet = new Set<string>();
   const deduped: string[] = [];
   for (const repo of base) {
-    const key = normalizeRepoPath(repo);
+    const key = stripTrailingSlashes(repo);
     if (seen.has(key)) continue;
     seen.add(key);
     baseSet.add(key);
@@ -195,16 +190,16 @@ export async function computeCandidateRepos(
       try {
         const meta = JSON.parse(wu.metadata) as { workspaceRoot?: unknown };
         if (typeof meta.workspaceRoot !== 'string' || !meta.workspaceRoot) continue;
-        const key = normalizeRepoPath(meta.workspaceRoot);
+        const key = stripTrailingSlashes(meta.workspaceRoot);
         if (!baseSet.has(key) || recentSeen.has(key)) continue;
         recentSeen.add(key);
         recentKeys.push(key);
       } catch { /* 单条 metadata 损坏跳过 */ }
     }
     if (recentKeys.length > 0) {
-      const byKey = new Map(deduped.map(r => [normalizeRepoPath(r), r]));
+      const byKey = new Map(deduped.map(r => [stripTrailingSlashes(r), r]));
       const recentFirst = recentKeys.map(k => byKey.get(k)!);
-      const rest = deduped.filter(r => !recentSeen.has(normalizeRepoPath(r)));
+      const rest = deduped.filter(r => !recentSeen.has(stripTrailingSlashes(r)));
       return [...recentFirst, ...rest];
     }
   } catch (err) {
@@ -243,11 +238,11 @@ export async function validateFileRefs(
   deps: FileRefVocabularyDeps = {},
 ): Promise<{ kept: FileRef[]; dropped: FileRefDrop[] }> {
   const candidates = await computeCandidateRepos(channelId, deps);
-  const candidateKeys = new Set(candidates.map(normalizeRepoPath));
+  const candidateKeys = new Set(candidates.map(stripTrailingSlashes));
   const kept: FileRef[] = [];
   const dropped: FileRefDrop[] = [];
   for (const ref of refs) {
-    const key = normalizeRepoPath(ref.repo);
+    const key = stripTrailingSlashes(ref.repo);
     if (!candidateKeys.has(key)) {
       dropped.push({ ...ref, reason: 'not-in-candidate-set' });
       continue;

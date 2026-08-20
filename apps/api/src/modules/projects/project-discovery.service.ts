@@ -17,6 +17,7 @@ import { readdir, readFile, stat, access } from 'node:fs/promises';
 import { join, sep, basename } from 'node:path';
 import { homedir } from 'node:os';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
+import { stripTrailingSlashes } from '@dommaker/studio-shared';
 import { loadProjectExcludeConfig } from './project-exclude-config.js';
 
 export interface LocalProject {
@@ -66,10 +67,8 @@ interface ProjectDiscoveryOptions {
   boundPaths?: () => string[] | Promise<string[]>;
 }
 
-/** 尾斜杠归一（PMO gitRepo 与扫描路径的写法差不对齐排序键） */
-function normalizeRepoPath(p: string): string {
-  return p.replace(/[/\\]+$/, '');
-}
+/** 尾斜杠归一（PMO gitRepo 与扫描路径的写法差不对齐排序键）——共享实现 studio-shared */
+const normalizeRepoPath = stripTrailingSlashes;
 
 /**
  * #266（决策 #258）：PMO 已绑定工程路径集 —— 读 ~/.studio/projects/*.json 的

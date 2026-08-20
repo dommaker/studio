@@ -10,3 +10,4 @@ export type { SddFrontmatter, LegacySddLayer } from './sdd-legacy';
 export { resolvePromptOverridesDir, readPromptOverride, renderWithOverride } from './prompt-overrides';
 export { createSettledTracker } from './settled-tracker';
 export type { SettledTracker } from './settled-tracker';
+export { stripTrailingSlashes } from './repo-path';
