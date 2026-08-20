@@ -107,7 +107,7 @@ pnpm start  # 启动生产服务
 - 部署状态：`studio-ship deploy-state`（state.json）或 PushPlus 微信告警
 - 部署日志：`/var/log/studio-deploy.log`
 - 本仓的任何分支/脏树/本地领先状态都**不影响**部署（2026-07-29 起）
-- **分批提交（用户要求，2026-08-04 起）**：长任务开发中按逻辑批次及时 `git commit`（feat/fix/chore/docs 前缀），不攒大批量未提交改动，避免工作丢失；提交落在本地 master 或 feature 分支均可。`studio-deploy-quick` 与 `studio-ship` 均由用户触发，agent 不主动执行、不主动 push。
+- **分批提交（用户要求，2026-08-04 起）**：长任务开发中按逻辑批次及时 `git commit`（feat/fix/chore/docs 前缀），不攒大批量未提交改动，避免工作丢失；**提交直落本地 master**（分支策略见父 AGENTS.md：单票不一票一分支）。`studio-deploy-quick` 与 `studio-ship` 均由用户触发，agent 不主动执行、不主动 push。
 
 ### ship 前置纪律（2026-08-08 事故固化）
 
