@@ -109,9 +109,18 @@ export class NotificationService {
   }
 
   /**
-   * 标记已读 — 追加 tombstone 行
+   * 标记已读 — 归属校验通过后追加 tombstone 行
+   * #274: 校验通知活跃归属为 userId，跨用户/不存在的 id 不写入
    */
   async markAsRead(notificationId: string, userId: string) {
+    const rows = await this.fileStore.readJsonl<NotificationRow>(NOTIFICATIONS_JSONL);
+
+    const entries = rows.filter(r => r.id === notificationId);
+    const nonDeleted = entries.filter(e => !e.deleted);
+    if (nonDeleted.length === 0) return;
+    const lastData = nonDeleted[nonDeleted.length - 1];
+    if (lastData.userId !== userId) return;
+
     await this.fileStore.appendJsonl(NOTIFICATIONS_JSONL, {
       id: notificationId,
       deleted: true,
@@ -170,9 +179,10 @@ export class NotificationService {
       const nonDeleted = entries.filter(e => !e.deleted);
       if (nonDeleted.length === 0) continue;
       const lastData = nonDeleted[nonDeleted.length - 1];
-      if (lastData.userId === userId) {
-        count++;
-      }
+      if (lastData.userId !== userId) continue;
+      // #274 修复：有 tombstone 即已读，不计入未读数（此前漏判，恒计全部）
+      if (entries.some(e => e.deleted === true)) continue;
+      count++;
     }
     return count;
   }
