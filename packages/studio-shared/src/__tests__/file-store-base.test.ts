@@ -402,7 +402,10 @@ describe('FileStoreBase（直接单元测试）', () => {
           holderIn = false;
           return 'first';
         });
-        await new Promise(r => setTimeout(r, 30)); // 确保 first 已持锁
+        // 轮询等 first 真正持锁（CI runner 负载高时获锁可超数十 ms，固定 30ms 等待曾 flaky）
+        for (let waited = 0; !holderIn && waited < 2000; waited += 5) {
+          await new Promise(r => setTimeout(r, 5));
+        }
         expect(holderIn).toBe(true);
         const second = store.withLock(lockDir(), async () => {
           expect(holderIn).toBe(false); // 不重叠
