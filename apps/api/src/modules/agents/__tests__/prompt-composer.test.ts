@@ -1073,8 +1073,8 @@ describe('#285（决策 #257 D1/D2/D4/D6/D7/D9）：files 段「## 引用文件�
       .map((e: any) => JSON.parse(e.payload));
 
   const FILES_HEADER = '## 引用文件';
-  // D6 原文（逐字）
-  const FILES_FOOTER = '以下引用中位于本工程（workspaceRoot）之外的文件为**只读上下文**，请勿修改；跨仓写入请显式提出并等人确认。大文件请按需分段读取，不要全文吞入。';
+  // D6 原文（逐字，与 #285 票体固定行一致）
+  const FILES_FOOTER = '以下引用中位于本工程之外的文件为只读上下文，请勿修改；跨仓写入请显式提出并等人确认。大文件请按需分段读取，不要全文吞入。';
 
   /** 让 knowledge 段吃满有效预算（3400），files 段有效预算 = 裸定额 400 */
   const saturateKnowledgeBudget = () => {

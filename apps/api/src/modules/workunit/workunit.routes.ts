@@ -38,6 +38,7 @@ import { aggregateTreeTokens } from '../agents/token-usage.service.js';
 import { CODE_WORKTREE_TYPES, resolveVerifyCommands, runWuVerification } from '../agents/loop/wu-verification.js';
 import { channelMessageService } from '../channels/channel-message.service.js';
 import { resumeBlockedWorkUnitFromWeb, closeBlockedWorkUnitFromWeb } from './waiting-input.js';
+import { listWorkUnitChangedFiles } from './wu-changed-files.js';
 import { getErrorMessage } from '../../utils/errors.js';
 import { parsePagination, formatPaginatedResponse } from '../../utils/pagination.js';
 import { requireAuth, requireNotGuest, type AuthRequest } from '../../middleware/auth.js';
@@ -231,6 +232,22 @@ router.get('/:id/tree-tokens', async (req: Request, res: Response) => {
     const rootId = meta.collab?.rootId ?? wu.id;
     const report = await aggregateTreeTokens(rootId, fileStore);
     res.json(report);
+  } catch (error) {
+    res.status(500).json({
+      error: { code: 'INTERNAL_ERROR', message: getErrorMessage(error) },
+    });
+  }
+});
+
+/**
+ * GET /:id/changed-files — #285 AC4（决策 #249 §5）：per-WU 产出/修改文件集
+ * （session:start.workUnitId → file:change 绝对路径；无数据/读取失败 → 空数组，
+ * 前端文件 chip 降级候选集词表）。只读，匿名公开（与 GET /:id 同口径）。
+ */
+router.get('/:id/changed-files', async (req: Request, res: Response) => {
+  try {
+    const files = await listWorkUnitChangedFiles(req.params.id);
+    res.json({ success: true, data: { files } });
   } catch (error) {
     res.status(500).json({
       error: { code: 'INTERNAL_ERROR', message: getErrorMessage(error) },

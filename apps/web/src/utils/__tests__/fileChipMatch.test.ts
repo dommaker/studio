@@ -59,6 +59,41 @@ describe('matchFileRefToken（#285 唯一命中纪律）', () => {
   });
 });
 
+describe('matchFileRefToken · WU 产出/修改文件集优先层（#285 AC4，决策 #249 §5）', () => {
+  const wuFiles = ['/wt/exec-1/src/index.ts', '/wt/exec-1/docs/wu-only.md'];
+
+  it('WU 文件集唯一命中 → 优先于候选集词表染 chip（FileRef 从绝对路径切出）', () => {
+    // 'docs/wu-only.md' 不在候选集词表：词表层本来染不了，WU 层唯一命中 → 染
+    expect(matchFileRefToken('docs/wu-only.md', vocab, wuFiles))
+      .toEqual({ repo: '/wt/exec-1', path: 'docs/wu-only.md' });
+    // 绝对路径全写同样命中（token === 绝对路径 → repo 取目录、path 取 basename，
+    // fileRefFullPath 重组后仍是同一绝对路径）
+    expect(matchFileRefToken('/wt/exec-1/docs/wu-only.md', vocab, wuFiles))
+      .toEqual({ repo: '/wt/exec-1/docs', path: 'wu-only.md' });
+  });
+
+  it('WU 文件集与词表都能命中时 WU 层优先', () => {
+    // 'src/index.ts' 词表唯一命中 /repo/studio；WU 层也唯一命中 → 取 WU 层
+    expect(matchFileRefToken('src/index.ts', vocab, wuFiles))
+      .toEqual({ repo: '/wt/exec-1', path: 'src/index.ts' });
+  });
+
+  it('WU 文件集歧义（多条命中）→ null，不回退词表（同一匹配纪律：歧义保持纯文本）', () => {
+    const ambiguous = ['/wt/exec-1/src/util.ts', '/wt/exec-1/lib/util.ts'];
+    expect(matchFileRefToken('util.ts', vocab, ambiguous)).toBeNull();
+  });
+
+  it('WU 文件集无命中 → 降级候选集词表', () => {
+    expect(matchFileRefToken('main.ts', vocab, wuFiles))
+      .toEqual({ repo: '/repo/web', path: 'src/main.ts' });
+  });
+
+  it('WU 文件集为空/未传 → 行为与单词表一致', () => {
+    expect(matchFileRefToken('index.ts', vocab, [])).toEqual({ repo: '/repo/studio', path: 'src/index.ts' });
+    expect(matchFileRefToken('index.ts', vocab)).toEqual({ repo: '/repo/studio', path: 'src/index.ts' });
+  });
+});
+
 describe('splitInlineCode', () => {
   it('按 `...` 切分 text/code 段', () => {
     expect(splitInlineCode('看 `src/index.ts` 和 `main.ts` 结尾')).toEqual([

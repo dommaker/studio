@@ -483,8 +483,8 @@ function buildFilesSection(metadata: WorkUnitMetadata, tokenBudget: number): Bui
     return { abs, line: `- ${abs}（${note}）` };
   });
 
-  // D6 原文（逐字）
-  const FOOTER = '以下引用中位于本工程（workspaceRoot）之外的文件为**只读上下文**，请勿修改；跨仓写入请显式提出并等人确认。大文件请按需分段读取，不要全文吞入。';
+  // D6 原文（逐字，与 #285 票体固定行一致）
+  const FOOTER = '以下引用中位于本工程之外的文件为只读上下文，请勿修改；跨仓写入请显式提出并等人确认。大文件请按需分段读取，不要全文吞入。';
   const render = (kept: typeof blocks, droppedCount: number): string => {
     const lines = ['## 引用文件', '', ...kept.map(b => b.line), '', FOOTER];
     if (droppedCount > 0) lines.push('', `另有 ${droppedCount} 条引用未注入`);

@@ -433,6 +433,38 @@ export function ChannelDetailPage() {
     return () => { cancelled = true; };
   }, [id]);
 
+  // #285 AC4: 文件 chip 第一优先词表 = 各 agent 消息所属 WU 的产出/修改文件集
+  // （distinct workUnitId 逐个拉一次并缓存；拿不到/为空 → 该 WU 降级候选集词表，行为不变）
+  const [wuChangedFiles, setWuChangedFiles] = useState<Record<string, string[]>>({});
+  const wuFilesFetchedRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const wuIds = [...new Set(
+      messages.filter(m => m.authorType === 'agent' && m.workUnitId).map(m => m.workUnitId!),
+    )];
+    const pending = wuIds.filter(wuId => !wuFilesFetchedRef.current.has(wuId));
+    if (pending.length === 0) return;
+    let cancelled = false;
+    for (const wuId of pending) wuFilesFetchedRef.current.add(wuId);
+    void (async () => {
+      const entries = await Promise.all(pending.map(async (wuId): Promise<[string, string[]]> => {
+        try {
+          const res = await workunitApi.getChangedFiles(wuId);
+          return [wuId, res.data?.data?.files ?? []];
+        } catch {
+          return [wuId, []]; // 静默降级：该 WU 走候选集词表
+        }
+      }));
+      if (!cancelled) {
+        setWuChangedFiles(prev => {
+          const next = { ...prev };
+          for (const [wuId, files] of entries) next[wuId] = files;
+          return next;
+        });
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [messages]);
+
   // AC-C3: Thread expand/collapse state
   const [expandedThreads, setExpandedThreads] = useState<Set<string>>(new Set());
   // 线程内过程消息组的展开状态（默认折叠，key = proc-<首条消息 id>）
@@ -506,6 +538,7 @@ export function ChannelDetailPage() {
       onOpenRequirement={openReq}
       onInlineReply={handleInlineReply}
       fileVocabulary={fileVocabulary && fileVocabulary.channelId === id ? fileVocabulary.data : undefined}
+      wuChangedFiles={msg.workUnitId ? wuChangedFiles[msg.workUnitId] : undefined}
       highlight={highlightId === msg.id}
       {...extra}
     />

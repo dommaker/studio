@@ -48,6 +48,8 @@ interface Props {
   onInlineReply?: (message: ChannelMessage, content: string) => void;
   /** #285: agent 消息 inline-code 文件 chip 词表；经 MarkdownBody renderInlineCode 挂载（#271） */
   fileVocabulary?: ChannelFileVocabulary;
+  /** #285 AC4: 该消息所属 WU 的产出/修改文件集（chip 第一优先词表，绝对路径；空/缺省 → 仅用候选集词表） */
+  wuChangedFiles?: string[];
   /** #277（决策 #248 D2）：连续合并——省略重复头（头像/署名/时间），动作保留 */
   compact?: boolean;
   /** #279（决策 #250 D4）：顶栏待办 chip 定位高亮 */
@@ -88,7 +90,7 @@ function renderCard(
 export function ChannelMessageItem({
   message, onAction, onReply, findMessage, channelId,
   isThreadAnchor, threadReplyCount, isExpanded, onToggleThread, isThreadReply,
-  waitingForInput, onOpenWorkUnit, onOpenWorkUnitConfirm, onOpenRequirement, onInlineReply, fileVocabulary, compact, highlight,
+  waitingForInput, onOpenWorkUnit, onOpenWorkUnitConfirm, onOpenRequirement, onInlineReply, fileVocabulary, wuChangedFiles, compact, highlight,
 }: Props) {
   const isHuman = message.authorType === 'human';
   const meta = parseMeta(message.meta);
@@ -128,14 +130,16 @@ export function ChannelMessageItem({
     : undefined;
 
   // #271（决策 #248 D4）：agent 无卡片正文走 Markdown 渲染（wiki-link 关闭 + 代码块复制按钮）；
-  // #285 文件 chip 经 renderInlineCode 挂载到 inline-code，命中词表唯一项才染 chip
+  // #285 文件 chip 经 renderInlineCode 挂载到 inline-code：WU 文件集优先（AC4），
+  // 降级候选集词表，唯一命中才染 chip
   const renderInlineCode = useCallback(
     (text: string) => {
-      if (!fileVocabulary) return null;
-      const ref = matchFileRefToken(text, fileVocabulary);
+      const hasWuFiles = !!wuChangedFiles && wuChangedFiles.length > 0;
+      if (!fileVocabulary && !hasWuFiles) return null;
+      const ref = matchFileRefToken(text, fileVocabulary ?? { repos: [] }, wuChangedFiles);
       return ref ? <FileRefChip token={text.trim()} fileRef={ref} /> : null;
     },
-    [fileVocabulary],
+    [fileVocabulary, wuChangedFiles],
   );
 
   // #277 D3：系统播报判定——Studio 署名、无卡片、非 NEED_INPUT 等待中（等待中的提问保留 agent 形态供回复）

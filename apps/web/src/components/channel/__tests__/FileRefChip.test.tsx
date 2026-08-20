@@ -130,4 +130,46 @@ describe('ChannelMessageItem 集成（#285；#271 起正文走 Markdown 渲染�
     const code = container.querySelector('.mc-msg-body code');
     expect(code?.textContent).toBe('src/index.ts');
   });
+
+  it('AC4：WU 文件集优先——token 不在候选集词表但在 wuChangedFiles → 仍染 chip（绝对路径 tooltip）', () => {
+    render(
+      <MemoryRouter>
+        <ChannelMessageItem
+          message={{ ...base, content: '完成 `docs/wu-only.md` 的修改', workUnitId: 'wu-1' }}
+          onAction={vi.fn()}
+          fileVocabulary={vocab}
+          wuChangedFiles={['/wt/exec-1/docs/wu-only.md']}
+        />
+      </MemoryRouter>,
+    );
+    const chip = screen.getByRole('button', { name: 'docs/wu-only.md' });
+    expect(chip.getAttribute('title')).toBe('/wt/exec-1/docs/wu-only.md');
+  });
+
+  it('AC4：不传候选集词表但 wuChangedFiles 有命中 → 染 chip（WU 层不依赖词表）', () => {
+    render(
+      <MemoryRouter>
+        <ChannelMessageItem
+          message={{ ...base, workUnitId: 'wu-1' }}
+          onAction={vi.fn()}
+          wuChangedFiles={['/wt/exec-1/src/index.ts']}
+        />
+      </MemoryRouter>,
+    );
+    expect(screen.getByRole('button', { name: 'src/index.ts' })).toBeTruthy();
+  });
+
+  it('AC4：wuChangedFiles 为空数组 → 回退候选集词表行为', () => {
+    render(
+      <MemoryRouter>
+        <ChannelMessageItem
+          message={{ ...base, workUnitId: 'wu-1' }}
+          onAction={vi.fn()}
+          fileVocabulary={vocab}
+          wuChangedFiles={[]}
+        />
+      </MemoryRouter>,
+    );
+    expect(screen.getByRole('button', { name: 'src/index.ts' })).toBeTruthy();
+  });
 });
