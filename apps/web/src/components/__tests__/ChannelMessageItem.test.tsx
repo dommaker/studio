@@ -117,6 +117,43 @@ describe('ChannelMessageItem — F5 waiting badge', () => {
     await waitFor(() => expect(screen.getByText(/已回复/)).toBeInTheDocument());
   });
 
+  // #276 AC1：以 WU 真实状态为准——回复成功后 WU 复活又再度挂起（仍是本条提问），
+  // needSent 重置回到「等待回复」态，可再次回复（列表 key={msg.id} 不重挂载，须显式重置）
+  it('#276 WU 再度挂起 -> 回到等待回复态（needSent 重置）', async () => {
+    let resolveReply: () => void = () => {};
+    const onInlineReply = vi.fn().mockImplementation(
+      () => new Promise<void>(resolve => { resolveReply = resolve; }),
+    );
+    const { rerender } = render(<ChannelMessageItem message={baseMessage} onAction={vi.fn()} waitingForInput onInlineReply={onInlineReply} />);
+    fireEvent.change(screen.getByLabelText('回复 wu-1'), { target: { value: '用 OAuth' } });
+    fireEvent.click(screen.getByText('回复'));
+    resolveReply();
+    expect(await screen.findByText(/已回复/)).toBeInTheDocument();
+    // WU 复活 -> 等待区整体收起
+    rerender(<ChannelMessageItem message={baseMessage} onAction={vi.fn()} waitingForInput={false} onInlineReply={onInlineReply} />);
+    expect(screen.queryByText(/已回复/)).not.toBeInTheDocument();
+    // WU 再度挂起（无新提问，仍落本条）-> 回到等待回复态，表单可再次使用
+    rerender(<ChannelMessageItem message={baseMessage} onAction={vi.fn()} waitingForInput onInlineReply={onInlineReply} />);
+    expect(screen.getByText('等待回复')).toBeInTheDocument();
+    expect(screen.getByLabelText('回复 wu-1')).toBeInTheDocument();
+    expect(screen.queryByText(/已回复/)).not.toBeInTheDocument();
+  });
+
+  // #276 AC1：发送失败保留已输入内容，便于直接重试
+  it('#276 发送失败 -> draft 保留可重试', async () => {
+    let rejectReply: ((err: Error) => void) | null = null;
+    const onInlineReply = vi.fn().mockImplementation(
+      () => new Promise<void>((_, reject) => { rejectReply = reject; }),
+    );
+    render(<ChannelMessageItem message={baseMessage} onAction={vi.fn()} waitingForInput onInlineReply={onInlineReply} />);
+    fireEvent.change(screen.getByLabelText('回复 wu-1'), { target: { value: '用 OAuth' } });
+    fireEvent.click(screen.getByText('回复'));
+    await waitFor(() => expect(screen.getByText('发送中…')).toBeInTheDocument());
+    rejectReply!(new Error('network'));
+    await waitFor(() => expect(screen.getByText('回复')).toBeInTheDocument());
+    expect((screen.getByLabelText('回复 wu-1') as HTMLInputElement).value).toBe('用 OAuth');
+  });
+
   // #279（决策 #250 D4）：顶栏 chip 定位高亮——highlight prop 挂 mc-msg-highlight class
   it('highlight prop → 消息根元素带 mc-msg-highlight class', () => {
     const { container } = render(<ChannelMessageItem message={baseMessage} onAction={vi.fn()} highlight />);

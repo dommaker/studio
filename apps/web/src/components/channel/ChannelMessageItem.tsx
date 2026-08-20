@@ -2,7 +2,7 @@
 // 2026-07 视觉重构（方向 A Mission Control）：纯文本行 + 卡片族视觉重绘；交互语义零变更
 // #277（决策 #248 D1/D2/D3/D5）：分侧布局——人右轻气泡 / agent 左无气泡文档流 / 系统播报
 // （Studio 无卡非等待消息）居中淡色一行 / 卡片全宽不参与分侧；compact 省略重复头；双侧 @name 染 mention chip。
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { ChannelFileVocabulary, ChannelMessage } from '../../api/channel';
 import { AuthorAvatar } from './AuthorAvatar';
@@ -118,21 +118,32 @@ export function ChannelMessageItem({
 
   // F5: 卡片内嵌回复 —— 走与回复按钮完全相同的链路（sendMessage + replyToId），
   // 后端 message-routing 检测 replyTo 继承 workUnitId 后调 resumeWaitingWorkUnit
-  // #276（P2 #15）：await 真实发送结果——成功才置位「已回复」；失败恢复可用可重试，不发假承诺
-  const sendInlineReply = async () => {
-    const trimmed = needDraft.trim();
+  // #276（P2 #15）：await 真实发送结果——成功才置位「已回复」并清 draft；失败保留 draft 可重试
+  const sendNeedReply = async (content: string) => {
+    const trimmed = content.trim();
     if (!trimmed || !onInlineReply || needSending) return;
     setNeedSending(true);
-    setNeedDraft('');
     try {
       await onInlineReply(message, trimmed);
+      setNeedDraft('');
       setNeedSent(true);
     } catch {
-      // #276：失败不置位「已回复」，表单恢复可用可重试
+      // #276：失败不置位「已回复」，表单/选项恢复可用，draft 保留可重试
     } finally {
       setNeedSending(false);
     }
   };
+
+  // #276 AC1：以 WU 真实状态为准——回复成功后 WU 复活又再度挂起（waitingForInput false→true，
+  // 仍落本条提问），重置 needSent 回到「等待回复」态。列表 key={msg.id} 复用实例不重挂载，须显式重置
+  const prevWaiting = useRef(waitingForInput);
+  useEffect(() => {
+    if (waitingForInput && !prevWaiting.current) {
+      setNeedSent(false);
+      setNeedDraft('');
+    }
+    prevWaiting.current = waitingForInput;
+  }, [waitingForInput]);
 
   // #267（决策 #250 D3）：meta.options 存在 → 结构化选项卡（点选即发送内嵌回复）；
   // 无 options → 现有单行回复框 fallback。防御性过滤非法元素（缺 label 的丢弃）
@@ -256,18 +267,7 @@ export function ChannelMessageItem({
             options={needOptions}
             multiSelect={meta.multiSelect === true}
             disabled={needSending}
-            onReply={async content => {
-              if (needSending) return;
-              setNeedSending(true);
-              try {
-                await onInlineReply(message, content);
-                setNeedSent(true);
-              } catch {
-                // #276：失败不置位「已回复」，选项恢复可点
-              } finally {
-                setNeedSending(false);
-              }
-            }}
+            onReply={content => void sendNeedReply(content)}
           />
         ) : (
           <div className="mc-need-form">
@@ -280,13 +280,13 @@ export function ChannelMessageItem({
               onKeyDown={e => {
                 // #270：IME 选词 Enter 不发送；长按不连发；#276：发送中防重复 Enter
                 if (e.key !== 'Enter' || isImeEvent(e) || e.repeat || needSending) return;
-                void sendInlineReply();
+                void sendNeedReply(needDraft);
               }}
               disabled={needSending}
             />
             <button
               className="mc-btn mc-btn-primary"
-              onClick={() => void sendInlineReply()}
+              onClick={() => void sendNeedReply(needDraft)}
               disabled={!needDraft.trim() || needSending}
             >
               {needSending ? '发送中…' : '回复'}
