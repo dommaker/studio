@@ -33,8 +33,8 @@ export type ProjectMatchResult =
 
 /**
  * #265（决策 #258）归属问答分层匹配原语（纯函数，可脱离 FileStore 单测），命中即停：
- * ① name 或 path 精确等值（大小写不敏感）唯一 → 直接命中，不看其他候选
- *    （多命中不误绑，下潜候选——同名工程存在时由人选）；
+ * ① name 或 path 精确等值（大小写不敏感）→ 直接命中，不看其他候选——AC1 原文
+ *    无唯一性前提：同名工程精确等值命中多条时取列表首个直接解挂，不下潜候选；
  * ② 路径尾段边界匹配唯一（query 是 path 末尾的完整段序列：'studio' 命中
  *    '/root/projects/studio'，不命中 'studio-config'；'g/tool' 命中 '/a/g/tool'）；
  * ③ 以上落空 → 子串匹配产出候选列表。
@@ -45,7 +45,7 @@ export function matchProjectByReply(query: string, projects: LocalProject[]): Pr
   const exact = projects.filter(
     p => p.name.toLowerCase() === q || p.path.toLowerCase() === q,
   );
-  if (exact.length === 1) return { kind: 'hit', project: exact[0] };
+  if (exact.length >= 1) return { kind: 'hit', project: exact[0] };
   const tail = projects.filter(p => p.path.toLowerCase().endsWith(`/${q}`));
   if (tail.length === 1) return { kind: 'hit', project: tail[0] };
   const subs = projects.filter(

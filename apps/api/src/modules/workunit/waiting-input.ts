@@ -305,7 +305,8 @@ export async function closeBlockedWorkUnitFromWeb(
 /**
  * B3a 归属链：把人类回复解析为工程归属（project-discovery 候选）。
  * #265（决策 #258）分层匹配命中即停（matchProjectByReply 纯函数）：
- * ① name/path 精确等值唯一 → 直接解挂；② 路径尾段边界唯一 → 解挂；③ 落空 → 子串候选。
+ * ① name/path 精确等值 → 直接解挂（AC1 无唯一性前提，同名多命中取首个）；
+ * ② 路径尾段边界唯一 → 解挂；③ 落空 → 子串候选。
  * 「/」开头的绝对路径回复不走 search，validateProjectPath（stat + isProject）直连绑定。
  * 唯一命中 → 绑定 metadata.workspaceRoot + 置回 unassigned（保留 assigneeId=profile id，
  * 指名 loop 认领后转 active）+ 写回 Requirement.projectId（best-effort）；

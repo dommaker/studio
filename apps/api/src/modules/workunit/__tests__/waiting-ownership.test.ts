@@ -318,11 +318,11 @@ describe('#265: 分层匹配原语 matchProjectByReply（纯函数，无 FileSto
     expect(matchProjectByReply('projects/studio', ps)).toEqual({ kind: 'hit', project: ps[0] });
   });
 
-  it('第 1 层 name 精确多命中 → 落候选列表不误绑', () => {
+  it('第 1 层 name 精确等值命中多个同名 → 按 AC 字面直接命中（无唯一性前提）', () => {
+    // AC1 原文「name 或 path 精确等值（大小写不敏感）→ 直接解挂」，不含唯一性前提；
+    // 同名工程精确等值即解挂（取列表首个），不再下潜候选
     const ps = [proj('/a/g1/tool'), proj('/b/g2/tool')];
-    const m = matchProjectByReply('tool', ps);
-    expect(m.kind).toBe('candidates');
-    expect(m.kind === 'candidates' ? m.projects : []).toHaveLength(2);
+    expect(matchProjectByReply('tool', ps)).toEqual({ kind: 'hit', project: ps[0] });
   });
 
   it('第 2 层尾段边界多命中 → 落候选列表不误绑', () => {
@@ -377,11 +377,13 @@ describe('#265: 分层匹配解挂（命中即停）', () => {
   });
 
   it('尾段边界命中不唯一 → 落候选列表而非误绑', async () => {
-    makeNestedProject('g1', 'tool');
-    makeNestedProject('g2', 'tool');
+    // /a/g/tool 与 /b/g/tool：回复 'g/tool' 非 name 精确等值（name='tool'），
+    // 尾段边界命中两条 → 候选列表（同名精确多命中按 AC1 字面直接解挂，见下一条用例）
+    makeNestedProject('a/g', 'tool');
+    makeNestedProject('b/g', 'tool');
     const { wu } = await createOwnershipParkedWu();
 
-    const resumed = await resumeWaitingWorkUnit(wu.id, 'tool', fileStore);
+    const resumed = await resumeWaitingWorkUnit(wu.id, 'g/tool', fileStore);
 
     expect(resumed).toBe(false);
     const after = await findWu(wu.id);
@@ -391,8 +393,22 @@ describe('#265: 分层匹配解挂（命中即停）', () => {
     const notice = messages.find(m => m.agentName === 'Studio');
     expect(notice).toBeTruthy();
     expect(notice!.content).toContain('匹配到多个工程');
-    expect(notice!.content).toContain('g1');
-    expect(notice!.content).toContain('g2');
+    expect(notice!.content).toContain('a/g');
+    expect(notice!.content).toContain('b/g');
+  });
+
+  it('AC1 字面：同名工程精确等值（无唯一性前提）→ 直接解挂', async () => {
+    const dir1 = makeNestedProject('g1', 'tool');
+    const dir2 = makeNestedProject('g2', 'tool');
+    const { wu } = await createOwnershipParkedWu();
+
+    const resumed = await resumeWaitingWorkUnit(wu.id, 'tool', fileStore);
+
+    expect(resumed).toBe(true);
+    const after = await findWu(wu.id);
+    expect(after.status).toBe('unassigned');
+    // 同名多命中取列表首个（discovery 字典序 g1 < g2）
+    expect([dir1, dir2]).toContain(metaOf(after).workspaceRoot);
   });
 });
 
