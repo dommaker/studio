@@ -15,6 +15,7 @@ import {
   getChannelFileVocabulary,
   validateFileRefs,
   invalidateFileRefVocabularyCache,
+  listChannelReqPmoProjects,
   type FileRefVocabularyDeps,
 } from '../file-ref-vocabulary.js';
 import { WorkUnitService } from '../../workunit/workunit.service.js';
@@ -188,6 +189,45 @@ describe('getChannelFileVocabulary（git ls-files 词表 + 内存缓存）', () 
       { repo: '/repo/bad', files: [] },
       { repo: '/repo/good', files: ['x.ts'] },
     ]);
+  });
+});
+
+describe('listChannelReqPmoProjects（频道 REQ 挂接 PMO 工程共用查询）', () => {
+  it('返回挂接工程的 reqId/seq/projectId/project；无 projectId 的 REQ 跳过', async () => {
+    await createRequirement('REQ-0001', 'p1');
+    await createRequirement('REQ-0002', null);
+    await createRequirement('REQ-0003', 'p3');
+    const links = await listChannelReqPmoProjects(channelId, {
+      fileStore,
+      getProject: async id => ({ gitRepo: `/repo/${id}` }),
+    });
+    expect(links).toEqual([
+      { reqId: 'REQ-0001', seq: 1, projectId: 'p1', project: { gitRepo: '/repo/p1' } },
+      { reqId: 'REQ-0003', seq: 3, projectId: 'p3', project: { gitRepo: '/repo/p3' } },
+    ]);
+  });
+
+  it('单条解析抛错/项目不存在 → 记日志跳过，不影响其他条目', async () => {
+    await createRequirement('REQ-0001', 'p1');
+    await createRequirement('REQ-0002', 'p2');
+    await createRequirement('REQ-0003', 'p3');
+    const links = await listChannelReqPmoProjects(channelId, {
+      fileStore,
+      getProject: async id => {
+        if (id === 'p1') throw new Error('corrupt project json');
+        if (id === 'p2') return null; // 项目被删 → 跳过
+        return { gitRepo: '/repo/p3' };
+      },
+    });
+    expect(links.map(l => l.projectId)).toEqual(['p3']);
+  });
+
+  it('REQ 列表读取失败 → 抛出（调用方各自决定降级路径）', async () => {
+    const broken = {
+      listRequirements: async () => { throw new Error('disk gone'); },
+    } as unknown as FileStore;
+    await expect(listChannelReqPmoProjects(channelId, { fileStore: broken }))
+      .rejects.toThrow('disk gone');
   });
 });
 

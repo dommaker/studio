@@ -56,6 +56,50 @@ export interface FileRefVocabularyDeps {
   now?: () => number;
 }
 
+/** 频道 REQ 挂接 PMO 工程的一条关联（seq 供调用方决定排序） */
+export interface ChannelReqPmoLink<P extends ProjectLike = ProjectLike> {
+  reqId: string;
+  seq: number;
+  projectId: string;
+  project: P;
+}
+
+/**
+ * 频道 REQ 挂接 PMO 工程清单 —— computeCandidateRepos 候选集与 current-pmo
+ * 派生共用的查询原语（原为两处逐字拷贝的 listRequirements→projectId→getProject
+ * 逐条容错遍历）。
+ * REQ 列表读取失败 → 抛出（两调用方降级路径不同，各自兜底）；
+ * 单条 projectId 解析抛错/项目不存在 → 记日志跳过，不影响其他条目
+ * （#249/#251：派生绝不因单条坏数据整体失败）。
+ */
+export async function listChannelReqPmoProjects<P extends ProjectLike>(
+  channelId: string,
+  deps: {
+    fileStore?: FileStore;
+    /** 默认 projectService.get */
+    getProject?: (projectId: string) => Promise<P | null>;
+  } = {},
+): Promise<ChannelReqPmoLink<P>[]> {
+  const fileStore = deps.fileStore ?? new FileStore();
+  const getProject = deps.getProject
+    ?? (async (id: string) => (await projectService.get(id)) as unknown as P | null);
+  const requirements = await fileStore.listRequirements({ channelId });
+  const links: ChannelReqPmoLink<P>[] = [];
+  for (const req of requirements) {
+    const projectId = (req as { projectId?: string | null }).projectId;
+    if (!projectId) continue;
+    try {
+      const project = await getProject(projectId);
+      if (project) links.push({ reqId: req.id, seq: req.seq, projectId, project });
+    } catch (err) {
+      logger.warn('[ChannelReqPmo] REQ project resolution failed, skipped', {
+        channelId, reqId: req.id, projectId, error: String(err),
+      });
+    }
+  }
+  return links;
+}
+
 /** 工程记录 → 仓路径清单（gitRepo + deliveries[].gitRepo，去重保序；#272 当前 PMO chip 复用） */
 export function reposOfProject(project: ProjectLike | null): string[] {
   if (!project) return [];
@@ -143,18 +187,8 @@ export async function computeCandidateRepos(
     });
   }
   try {
-    const requirements = await fileStore.listRequirements({ channelId });
-    for (const req of requirements) {
-      const projectId = (req as { projectId?: string | null }).projectId;
-      if (!projectId) continue;
-      try {
-        base.push(...reposOfProject(await getProject(projectId)));
-      } catch (err) {
-        logger.warn('[FileRefVocabulary] REQ project resolution failed, skipped', {
-          channelId, reqId: req.id, projectId, error: String(err),
-        });
-      }
-    }
+    const links = await listChannelReqPmoProjects(channelId, { fileStore, getProject });
+    for (const link of links) base.push(...reposOfProject(link.project));
   } catch (err) {
     logger.warn('[FileRefVocabulary] Requirement listing failed, skipped', { channelId, error: String(err) });
   }

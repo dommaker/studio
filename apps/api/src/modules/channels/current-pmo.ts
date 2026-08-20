@@ -11,7 +11,7 @@
  */
 import { logger, FileStore } from '@dommaker/studio-shared';
 import { projectService } from '../pmo/project.service.js';
-import { reposOfProject, type ProjectLike } from './file-ref-vocabulary.js';
+import { reposOfProject, listChannelReqPmoProjects, type ProjectLike } from './file-ref-vocabulary.js';
 
 /** 顶栏当前 PMO chip 的呈现形状（多仓 PMO 只显名称，gitRepos 走 tooltip） */
 export interface ChannelCurrentPmo {
@@ -54,23 +54,11 @@ export async function deriveChannelCurrentPmo(
   const getProject = deps.getProject ?? (async (id: string) => projectService.get(id));
   const findChoreProject = deps.findChoreProject ?? (async (id: string) => projectService.findChoreProject(id));
 
-  // 1. 最近挂接 REQ 所属 PMO（seq 大→小；项目缺失/读取失败顺延到下一条）
+  // 1. 最近挂接 REQ 所属 PMO（seq 大→小；项目缺失/读取失败已在共用查询内顺延跳过）
   try {
-    const requirements = await fileStore.listRequirements({ channelId });
-    const attached = requirements
-      .map(r => ({ seq: r.seq, projectId: (r as { projectId?: string | null }).projectId }))
-      .filter((r): r is { seq: number; projectId: string } => !!r.projectId)
-      .sort((a, b) => b.seq - a.seq);
-    for (const req of attached) {
-      try {
-        const project = await getProject(req.projectId);
-        if (project) return toChip(project);
-      } catch (err) {
-        logger.warn('[CurrentPmo] REQ project resolution failed, trying next', {
-          channelId, projectId: req.projectId, error: String(err),
-        });
-      }
-    }
+    const links = await listChannelReqPmoProjects(channelId, { fileStore, getProject });
+    const attached = links.sort((a, b) => b.seq - a.seq);
+    if (attached.length > 0) return toChip(attached[0].project);
   } catch (err) {
     logger.warn('[CurrentPmo] Requirement listing failed, falling back to chore PMO', {
       channelId, error: String(err),
