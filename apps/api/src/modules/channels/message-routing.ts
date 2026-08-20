@@ -65,7 +65,8 @@ export function detectMention(content: string): string | null {
  * （repo ∈ 频道相关工程候选集 且 path ∈ 该仓 git ls-files 词表）；有效引用写消息
  * 结构化 meta.files（mention 仍为纯文本不动），失效引用剔除（不进消息 meta、不进 WU）
  * + 频道 Studio 系统播报 + channel:file_refs_dropped 事件（reason + paths，
- * dropped 封顶前 5 条 + droppedCount 全量）。
+ * dropped 封顶前 5 条 + droppedCount 全量）。校验自身故障（异常路径）同样不静默：
+ * 整批引用按 reason=validation-failed 走同一播报/事件面，消息按无引用继续。
  */
 export async function routeMessage(
   channelId: string,
@@ -86,7 +87,9 @@ export async function routeMessage(
   // Use resolved FileStore for WorkUnitService (supports test injection)
   const wuService = new WorkUnitService(resolvedFs);
 
-  // #281: 文件引用校验（候选集是 UX 划界非安全边界；校验自身故障不阻断消息，按无引用处理）
+  // #281: 文件引用校验（候选集是 UX 划界非安全边界；校验自身故障不阻断消息，按无引用处理——
+  // 但不静默吞掉：整批引用以 reason=validation-failed 计入 droppedRefs，
+  // 与正常剔除同等可见（频道系统播报 + file_refs_dropped 事件））
   let filesMeta: MessageMeta | undefined;
   let droppedRefs: FileRefDrop[] = [];
   if (options?.files?.length) {
@@ -101,6 +104,11 @@ export async function routeMessage(
       logger.warn('[MessageRouting] File-ref validation failed, proceeding without refs', {
         channelId, error: String(err),
       });
+      droppedRefs = options.files.map(f => ({
+        repo: typeof f?.repo === 'string' ? f.repo : '',
+        path: typeof f?.path === 'string' ? f.path : '',
+        reason: 'validation-failed',
+      }));
     }
   }
   // 剔除面：频道系统播报 + file_refs_dropped 事件（best-effort 播报，事件 await 落盘）
@@ -109,6 +117,7 @@ export async function routeMessage(
     const REASON_LABEL: Record<FileRefDrop['reason'], string> = {
       'not-found': '不存在',
       'not-in-candidate-set': '不在本频道候选工程内',
+      'validation-failed': '校验失败',
     };
     const listed = droppedRefs.slice(0, 5)
       .map(d => `${d.path}（${REASON_LABEL[d.reason]}）`).join('、');

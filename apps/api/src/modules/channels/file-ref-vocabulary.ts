@@ -29,7 +29,7 @@ export interface FileRef {
   path: string;
 }
 
-export type FileRefDropReason = 'not-found' | 'not-in-candidate-set';
+export type FileRefDropReason = 'not-found' | 'not-in-candidate-set' | 'validation-failed';
 
 export interface FileRefDrop extends FileRef {
   reason: FileRefDropReason;

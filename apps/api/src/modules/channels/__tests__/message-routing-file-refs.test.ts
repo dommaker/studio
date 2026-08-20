@@ -119,6 +119,31 @@ describe('路由层文件引用校验（#281）', () => {
     ]);
   });
 
+  it('校验自身故障（畸形引用触发异常）→ 不静默吞掉：系统播报 + file_refs_dropped 事件（reason=validation-failed）', async () => {
+    // repo 非字符串 → validateFileRefs 内部抛 TypeError，走 catch 异常路径
+    const message = await routeMessage(channelId, '看文件', undefined, fileStore, {
+      files: [{ repo: null as unknown as string, path: 'src/a.ts' }],
+      fileRefDeps: makeDeps(),
+    });
+
+    // 异常路径仍按无引用处理（meta.files 不写入），但可见性与正常剔除路径同等
+    expect(parseMeta(message.meta).files).toBeUndefined();
+    const all = await fileStore.queryMessages(channelId);
+    const broadcast = all.find(m => m.authorType === 'agent' && m.agentName === 'Studio');
+    expect(broadcast).toBeTruthy();
+    expect(broadcast!.content).toContain('校验失败');
+    expect(broadcast!.replyToId).toBe(message.id);
+
+    const events = await readStudioEvents({ file: eventsFile });
+    const dropped = events.filter(e => e.type === 'channel:file_refs_dropped');
+    expect(dropped).toHaveLength(1);
+    const payload = parseStudioEventPayload<{
+      droppedCount: number; dropped: { path: string; reason: string }[];
+    }>(dropped[0])!;
+    expect(payload.droppedCount).toBe(1);
+    expect(payload.dropped).toEqual([{ repo: '', path: 'src/a.ts', reason: 'validation-failed' }]);
+  });
+
   it('事件 payload 尺寸纪律：dropped 封顶前 5 条 + droppedCount 全量', async () => {
     const files = Array.from({ length: 7 }, (_, i) => ({ repo: '/repo/default', path: `gone-${i}.ts` }));
     await routeMessage(channelId, '看文件', undefined, fileStore, { files, fileRefDeps: makeDeps() });
