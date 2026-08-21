@@ -221,6 +221,31 @@ describe('AC-5: PMO Publish API', () => {
     );
   });
 
+  it('#282：新项目只有 description（requirement=null）→ 消息正文与分析单 scope 回退用 description', async () => {
+    mockReadJson.mockResolvedValue(sampleProject({ requirement: null, description: '需求背景与验收标准' }));
+    await projectService.publish({ projectId: 'proj-1', channelId: 'ch-1' });
+
+    expect(mockCreateHumanMessage).toHaveBeenCalledWith(
+      'ch-1',
+      expect.stringContaining('需求背景与验收标准')
+    );
+    const scope = mockWuCreate.mock.calls[0][0].scope as string;
+    expect(scope).toContain('需求背景与验收标准');
+  });
+
+  it('#282：存量项目 requirement 有值 → 仍用 requirement（既有数据读取兼容不变）', async () => {
+    mockReadJson.mockResolvedValue(sampleProject({ requirement: '旧需求正文', description: '新描述' }));
+    await projectService.publish({ projectId: 'proj-1', channelId: 'ch-1' });
+
+    expect(mockCreateHumanMessage).toHaveBeenCalledWith(
+      'ch-1',
+      expect.stringContaining('旧需求正文')
+    );
+    const scope = mockWuCreate.mock.calls[0][0].scope as string;
+    expect(scope).toContain('旧需求正文');
+    expect(scope).not.toContain('新描述');
+  });
+
   it('#112 多腿：显式 deliveries 多腿 → 分析单 scope 含全部仓库路径（只读约束不变）', async () => {
     mockReadJson.mockResolvedValue(sampleProject({
       gitRepo: '/root/projects/leg-a',

@@ -544,7 +544,10 @@ export const projectService = {
     if (!project) throw new Error('Project not found');
     if (project.status !== 'pending') throw new Error('Project must be pending to publish');
 
-    const content = `📋 ${project.pmoNumber}: ${project.title}\n\n${project.requirement || ''}`;
+    // #282：需求正文双口径回退——新项目文本落 description（创建表单唯一文本字段），
+    // 存量项目 requirement 有值时行为逐字节不变
+    const requirementText = project.requirement || project.description || '';
+    const content = `📋 ${project.pmoNumber}: ${project.title}\n\n${requirementText}`;
     const message = await channelMessageService.createHumanMessage(input.channelId, content);
     await channelMessageService.updateMessageMeta(message.id, { pmoId: project.id });
 
@@ -563,7 +566,7 @@ export const projectService = {
       ...(input.assigneeId ? { assigneeId: input.assigneeId } : {}),
       scope: `分析需求 ${project.pmoNumber}: ${project.title}
 
-${project.requirement || ''}
+${requirementText}
 ${multiLegSection}
 ## 工作方式约束（只读分析，重要）
 你是分析角色，只读不改：禁止创建/修改/删除任何文件（不使用 Edit/Write/NotebookEdit），禁止执行会改变工作区状态的命令（git commit/checkout/clean、包管理器 install、写临时脚本等）。只用 Read/Grep/Glob 和只读 Bash（git log/diff/status、ls、cat、grep 等）。分析结论直接以 markdown 输出在回复里，不落盘。

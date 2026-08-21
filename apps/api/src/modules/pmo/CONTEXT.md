@@ -15,7 +15,7 @@
 | `resolveDeliveryPolicy` | `project.service.ts` | 交付策略缺省解析（默认 branch-only） |
 | `resolveDeliveries` / `PmoMap` / `DeliveryLeg` / `LEG_STATUS` | `project.service.ts` | 探路地图 + 多交付腿模型（pending->active->in_review->completed->delivered） |
 | `parsePmoNumberFromCommand` / `PROJECT_STATUS` | `project.service.ts` | 命令解析 PMO 号 + 项目状态枚举 |
-| `initPmoProgressRollup` / `syncProjectProgress` / `waitForPmoProgressRollupSettled` | `progress-rollup.ts` | 订阅 WU 状态变化，按项目完结比例回写 progress + 状态翻转（派生链未落定不翻 completed） |
+| `initPmoProgressRollup` / `syncProjectProgress` / `waitForPmoProgressRollupSettled` | `progress-rollup.ts` | 订阅 WU 状态变化回写 progress + 状态翻转；#282 起 progress 分子 = workFinished（done/closed，与 WU 完成管道同源），翻转判定仍按 TERMINAL（派生链未落定不翻 completed） |
 | `selectProjectSnapshots` / `summarizeEvidence` / `matchWuToLeg` / `partitionSnapshotsByLeg` / `CODE_TYPES` | `evidence-summary.ts` | 共享证据口径：快照派生 l1/l2/l3 + deliverable 判定 + WU->腿归属 |
 | `AnalysisHandoff` / `initAnalysisHandoff` / `waitForSettled` | `analysis-handoff.ts` | analysis->in_review 分流确认（有频道=人工确认卡，无频道+trigger=直转）+ 建 task 子 WU |
 | `DecisionResolution` / `initDecisionResolution` | `decision-resolution.ts` | 决策单状态推进 + 落 decisions[] + 雾消解 + 全清自动建 spec 单 |

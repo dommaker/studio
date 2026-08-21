@@ -68,7 +68,9 @@ export function CreateProjectDialog({ open, onClose, onCreated }: CreateProjectD
     try {
       await projectApi.create({
         title: newTitle.trim(),
-        requirement: newRequirement.trim() || undefined,
+        // #282：需求描述落 description（原错落 requirement 致 description 恒 null、列表/详情恒「无描述」）；
+        // requirement 字段保留给存量数据，publish 组分析单时按 requirement || description 回退
+        description: newRequirement.trim() || undefined,
         ...(selectedRepos.length === 1
           ? { gitRepo: selectedRepos[0] }
           : selectedRepos.length > 1

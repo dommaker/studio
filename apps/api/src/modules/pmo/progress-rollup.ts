@@ -12,7 +12,10 @@
  * analysis 派生链（analysis-handoff）的 task WU 无 reqId，仅 metadata.pmoId
  * 溯源——Requirement 链路拿不到关联 WU 时回退按 pmoId 归属，口径不变。
  *
- * 完结口径与 REQ 状态汇总一致（TERMINAL_WORKUNIT_STATUSES：in_review 视同工作完成）。
+ * 完结口径与 REQ 状态汇总一致（TERMINAL_WORKUNIT_STATUSES：in_review 视同工作完成）——
+ * 仅用于状态翻转判定；progress 分子与 WU 完成管道同源（#282：
+ * deriveDisplayState.workFinished = 存储态 done/closed，in_review/failed 不计进度），
+ * 消除「管道 0/1 WU 完成却 progress=100」的口径矛盾。
  * progress 语义 = 「活干完了多少」，与证据口径无关。
  * best-effort：任何失败仅记日志，不阻断事件主流程。
  *
@@ -32,7 +35,7 @@
  * 命中即跳过本次 completed/in_review 翻转（progress 照写），待派生落定后的下一事件
  * 或 GET /project/:id 读取时重算再评估。
  */
-import { eventBus, FileStore, logger, createSettledTracker, type WorkUnitSnapshot } from '@dommaker/studio-shared';
+import { eventBus, FileStore, logger, createSettledTracker, deriveDisplayState, type WorkUnitSnapshot } from '@dommaker/studio-shared';
 import { RequirementService, TERMINAL_WORKUNIT_STATUSES } from '../requirements/requirement.service.js';
 import { projectService, resolveDeliveries, LEG_STATUS, PROJECT_STATUS, type DeliveryLeg, type ProjectData } from './project.service.js';
 import { parseWuMetaPmoId, selectProjectSnapshots, summarizeEvidence, partitionSnapshotsByLeg } from './evidence-summary.js';
@@ -98,6 +101,11 @@ export async function syncProjectProgressByReqId(reqId: string, fileStore?: File
  */
 const syncChains = new Map<string, Promise<void>>();
 
+/** #282：progress 分子唯一口径 = WU 完成管道的 workFinished（存储态 done/closed），两处 progress 计算共用 */
+function isWorkFinished(s: WorkUnitSnapshot): boolean {
+  return deriveDisplayState({ status: s.status, metadata: s.metadata }).workFinished;
+}
+
 /**
  * 重算单个 PMO 项目进度：该项目下全部 Requirement 关联 WU 的完结比例。
  * Requirement 链路拿不到关联 WU 时回退按 metadata.pmoId 归属统计（analysis 派生链），口径不变。
@@ -152,7 +160,8 @@ async function doSyncProjectProgress(projectId: string, fileStore?: FileStore): 
   }
 
   const done = snapshots.filter(s => TERMINAL_WORKUNIT_STATUSES.includes(s.status)).length;
-  const progress = Math.round((done / snapshots.length) * 100);
+  const finished = snapshots.filter(isWorkFinished).length;
+  const progress = Math.round((finished / snapshots.length) * 100);
 
   // #115：派生链未落定（假相全完结）不翻状态，progress 照写
   if (done === snapshots.length && derivationPending(project, snapshots)) {
@@ -195,8 +204,9 @@ async function doSyncProjectProgress(projectId: string, fileStore?: FileStore): 
  *   - 腿 WU 集 = 本腿命中 + 未分腿公共 WU（evidence-summary 保守口径）；
  *   - 腿内全完结：证据齐 → 腿 completed，证据缺口 → 腿 in_review；
  *     有在途且腿仍 pending → 腿 active；delivered 腿不回写（终态）；零 WU 腿状态不动；
- *   - 项目整体：progress 口径不变（全部 WU 完结比例）；翻转条件 = 全部腿
- *     completed/delivered（零 WU 腿视为满足）→ completed，否则同单腿语义置 in_review。
+ *   - 项目整体：progress 口径同单腿（#282 起分子 = workFinished，与 WU 完成管道同源）；
+ *     翻转条件 = 全部腿 completed/delivered（零 WU 腿视为满足）→ completed，
+ *     否则同单腿语义置 in_review。
  */
 async function doSyncMultiLegProgress(
   project: ProjectData,
@@ -206,7 +216,8 @@ async function doSyncMultiLegProgress(
   const projectId = project.id;
   const isTerminal = (s: WorkUnitSnapshot) => TERMINAL_WORKUNIT_STATUSES.includes(s.status);
   const done = snapshots.filter(isTerminal).length;
-  const progress = Math.round((done / snapshots.length) * 100);
+  const finished = snapshots.filter(isWorkFinished).length;
+  const progress = Math.round((finished / snapshots.length) * 100);
 
   // #115：派生链未落定（假相全完结）——腿状态与项目状态都不翻（腿 completed 同样
   // 是假相），progress 照写；派生落定后的下一事件再评估
