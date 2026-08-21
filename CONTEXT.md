@@ -45,11 +45,11 @@ prompt 注入段的 token 定额，职责是防注入劣化（防注入段膨胀
 _Avoid_: 2K 红线、截断保护
 
 **三层存储**:
-文档/状态归属的唯一裁决（#118 第三轮，2026-08-12）：流转态 → PMO（工单/地图/状态/依赖图的唯一系统）；项目私有冻结/缓变文档 → 业务仓 `.studio/`（入 git，唯一正本：`specs/`、`CONTEXT.md`、`memory/`、`research/`、`prototypes/`；**ADR 例外**：决策记录是工单无关永久导航件，归各仓 `docs/adr/`——2026-08-21 裁决，原 `.studio/adr/` 约定废止，library 聚合面适配见后续工单）；全局/跨项目 → `~/.studio/`（项目注册、跨项目知识库、配置日志）。两个读层：library = 阅览室（按项目路由聚合读，不写作正本），Monitoring 面板 = 运行读层。一个过程留痕：频道线程（讨论过程，不作正本）。归属冲突时按此裁决，不设第四存储。
+文档/状态归属的唯一裁决（#118 第三轮，2026-08-12）：流转态 → PMO（工单/地图/状态/依赖图的唯一系统）；项目私有冻结/缓变文档 → 业务仓 `.studio/`（入 git，唯一正本：`specs/`、`CONTEXT.md`、`memory/`、`research/`、`prototypes/`；**ADR 例外**：决策记录是工单无关永久导航件，归各仓 `docs/adr/`——2026-08-21 裁决，原 `.studio/adr/` 约定废止，library 聚合面适配完成（#305））；全局/跨项目 → `~/.studio/`（项目注册、跨项目知识库、配置日志）。两个读层：library = 阅览室（按项目路由聚合读，不写作正本），Monitoring 面板 = 运行读层。一个过程留痕：频道线程（讨论过程，不作正本）。归属冲突时按此裁决，不设第四存储。
 _Avoid_: 多正本、library 落正本
 
 **library（阅览室）**:
-跨项目 `.studio/` 文档面（specs/、research/、adr/、CONTEXT.md）的聚合只读层（#127 T5 / #155，2026-08-15）：缺省聚合全部有 gitRepo 的 PMO 项目，`?project=` 收窄，无写路径（变更历史 = git 历史），legacy-sdd 遗产打标记只读展示。旧称 **wiki**——凡历史文档/代码注释出现 wiki 即指 library。**概念面收敛 = 2**：library 读人写文档（业务仓 `.studio/`），knowledge 引擎管机器蒸馏知识（`~/.studio/knowledge/`），两者不混。
+跨项目 `.studio/` 文档面（specs/、research/、CONTEXT.md）+ 各仓 `docs/adr/`（ADR 例外，#305 适配）的聚合只读层（#127 T5 / #155，2026-08-15）：缺省聚合全部有 gitRepo 的 PMO 项目，`?project=` 收窄，无写路径（变更历史 = git 历史），legacy-sdd 遗产打标记只读展示。旧称 **wiki**——凡历史文档/代码注释出现 wiki 即指 library。**概念面收敛 = 2**：library 读人写文档（业务仓 `.studio/`），knowledge 引擎管机器蒸馏知识（`~/.studio/knowledge/`），两者不混。
 _Avoid_: wiki、文档中心、第三概念面
 
 **documents / wiki（墓碑）**:
