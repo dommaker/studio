@@ -25,9 +25,13 @@ export interface WorkUnit {
 
 export interface PaginatedResponse<T> {
   data: T[];
-  total: number;
-  page: number;
-  limit: number;
+  /** 后端 formatPaginatedResponse 包成 pagination 对象（见 apps/api/src/utils/pagination.ts） */
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
 }
 
 /** M2 成本红线度量：agent-loop 写入的 workunit:tokens 事件（payload 解析后） */

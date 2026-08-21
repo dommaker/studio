@@ -49,7 +49,9 @@ export interface DerivedWuState {
   column: WuDisplayColumn;
   /** 证据达成快照（approved 才算达成；rejected/缺失为 false） */
   evidence: { l1: boolean; l2: boolean; l3: boolean; selfReview: boolean };
-  /** 人类待办 = 活已干完但人未确认（手写 in_review，或 done 且证据模型已介入但缺 l3） */
+  /** 人类待办 = 活已干完但人未确认（手写 in_review，或 done 且证据模型已介入但缺 l3）。
+   *  注意：pending（扩范围待确认人闸）不计入 needsHuman--pending 是「待确认」而非「待人工」，
+   *  口径与工单类型认领属性一致（pending -> 人确认后才进 frontier 可认领）。 */
   needsHuman: boolean;
   /** 活干完没（所有权口径，与信任无关）= 存储状态 done/closed。进度统计用这个，不要用 column */
   workFinished: boolean;
@@ -117,7 +119,7 @@ export function withAttestation(
  *
  * 派生规则（双轨期）：
  *   - 所有权状态（pending/unassigned/active/blocked/closed）原样透传——这些不是信任状态；
- *     pending（#126 待确认人闸）= 扩范围单创建落点，needsHuman = true（人工确认才进 frontier）；
+ *     pending（#126 待确认人闸）= 扩范围单创建落点，列入「待确认」而非「待人工」--人确认后进 frontier，活未开干故不计 needsHuman；
  *   - 手写 in_review → in_review（门模型仍在跑，存储值保持权威）；
  *   - done 且无证据（legacy 存量）→ done 原样透传；
  *   - done 且证据已介入 → l3 approved 才出 done 列，否则回 in_review 列（等人工确认）。
@@ -152,8 +154,9 @@ export function deriveDisplayState(input: { status: string; metadata?: unknown }
       break;
   }
 
+  // pending 不计 needsHuman（#280）：pending 是「待确认」人闸（扩范围单创建落点，活未开干），
+  // 与 in_review（活已干完等审查）/ done 缺 l3（活已干完等人工验收）语义不同。
   const needsHuman =
-    input.status === 'pending' ||
     input.status === 'in_review' ||
     (input.status === 'done' && attestations !== undefined && !l3);
 

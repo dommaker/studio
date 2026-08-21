@@ -108,6 +108,80 @@ describe('WorkUnitListPage', () => {
   });
 });
 
+// #280：统计条口径覆盖（总数反映列表条数 + pending 单列「待确认」不再计入「待人工」）
+describe('WorkUnitListPage - 统计条口径（#280）', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockStore.workunits = [];
+    mockSearchParamsValue.value = '';
+  });
+
+  /** 找到 StatBadge（<span class="font-bold"/>value + <span class="text-sm u-text-3"/>label 结构）的数字。
+   *  注意：filter pill 也会渲染同名标签（如「待确认」），所以用 font-bold sibling 定位 StatBadge。 */
+  function statValue(label: string): string {
+    const allLabels = screen.getAllByText(label);
+    const statLabel = allLabels.find(el =>
+      el.classList.contains('u-text-3') &&
+      el.previousElementSibling?.classList.contains('font-bold')
+    );
+    if (!statLabel) throw new Error(`StatBadge label "${label}" not found`);
+    return statLabel.previousElementSibling?.textContent ?? '';
+  }
+
+  it('「总数」等于列表实际条数', () => {
+    mockStore.workunits = [
+      makeWu({ id: 'wu-1', status: 'pending' }),
+      makeWu({ id: 'wu-2', status: 'in_review' }),
+      makeWu({ id: 'wu-3', status: 'active' }),
+    ];
+    render(<WorkUnitListPage />);
+    expect(statValue('总数')).toBe('3');
+  });
+
+  it('pending 单列「待确认」，不计入「待人工」', () => {
+    // 1 pending + 1 in_review（needsHuman）+ 1 active（非 needsHuman）
+    // -> 待确认 = 1，待人工 = 1（仅 in_review）
+    mockStore.workunits = [
+      makeWu({ id: 'wu-p1', status: 'pending' }),
+      makeWu({ id: 'wu-r1', status: 'in_review' }),
+      makeWu({ id: 'wu-a1', status: 'active' }),
+    ];
+    render(<WorkUnitListPage />);
+    expect(statValue('待确认')).toBe('1');
+    expect(statValue('待人工')).toBe('1');
+  });
+
+  it('多个 pending 全计入「待确认」且不串到「待人工」', () => {
+    mockStore.workunits = [
+      makeWu({ id: 'wu-p1', status: 'pending' }),
+      makeWu({ id: 'wu-p2', status: 'pending' }),
+      makeWu({ id: 'wu-p3', status: 'pending' }),
+    ];
+    render(<WorkUnitListPage />);
+    expect(statValue('待确认')).toBe('3');
+    expect(statValue('待人工')).toBe('0');
+  });
+
+  it('done 缺 l3（attestations 已介入）计入「待人工」不计入「待确认」', () => {
+    mockStore.workunits = [
+      makeWu({
+        id: 'wu-d1',
+        status: 'done',
+        metadata: JSON.stringify({
+          attestations: {
+            l1: { verdict: 'approved', by: 'dev', at: 't', kind: 'verify' },
+            l2: { verdict: 'approved', by: 'rev', at: 't', kind: 'agent-review' },
+            // l3 缺失 -> needsHuman
+          },
+        }),
+      }),
+    ];
+    render(<WorkUnitListPage />);
+    expect(statValue('待人工')).toBe('1');
+    expect(statValue('待确认')).toBe('0');
+  });
+});
+
 describe('WorkUnitListPage — analysis 确认弹窗（#106 M7）', () => {
   beforeEach(() => {
     vi.clearAllMocks();

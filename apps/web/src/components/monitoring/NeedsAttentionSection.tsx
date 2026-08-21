@@ -78,7 +78,7 @@ async function loadStuck(now: number): Promise<StuckCounts> {
     workunitApi.list({ status: 'active', limit: 200 }),
   ]);
   return {
-    blocked: blockedRes.data.total,
+    blocked: blockedRes.data.pagination.total,
     staleUnassigned: unassignedRes.data.data.filter(
       w => now - new Date(w.createdAt).getTime() > STALE_UNASSIGNED_MS,
     ).length,

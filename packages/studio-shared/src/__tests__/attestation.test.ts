@@ -49,6 +49,13 @@ describe('deriveDisplayState（双轨期规则）', () => {
     }
   });
 
+  it('pending 透传到 pending 列且不计 needsHuman（#280：拆待确认/待人工）', () => {
+    const d = deriveDisplayState({ status: 'pending' });
+    expect(d.column).toBe('pending');
+    expect(d.needsHuman).toBe(false);
+    expect(d.hasAttestations).toBe(false);
+  });
+
   it('手写 in_review 保持权威（门模型仍在跑）', () => {
     const d = deriveDisplayState({ status: 'in_review' });
     expect(d.column).toBe('in_review');

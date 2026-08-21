@@ -71,7 +71,7 @@ export function AgentDetailPage() {
         try {
           const hisRes = await workunitApi.list({ assigneeId: inst.id, limit: HISTORY_LIMIT });
           setHistory(hisRes.data.data);
-          setHistoryTotal(hisRes.data.total);
+          setHistoryTotal(hisRes.data.pagination.total);
         } catch {
           setHistory([]);
           setHistoryTotal(0);
