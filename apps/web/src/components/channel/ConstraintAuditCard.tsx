@@ -2,6 +2,8 @@
 // cardType 'constraint_audit_proposal'；action 'constraint_audit_approve' / 'constraint_audit_reject'
 // （由 ChannelDetailPage.handleAction 分发到 /distill/audit/approve、/distill/audit/reject）
 // 视觉复用 mc-card 族（仿 GcProposalCard）。
+// #288（清单 P2 #20）：「确认退役」为高危操作 → acknowledge→confirm 两步确认
+// （首次点击仅进入待确认态，再次点击才执行；点全部保留或执行失败退出待确认态）。
 import { useEffect, useState } from 'react';
 import type { ChannelMessage } from '../../api/channel';
 import { distillApi } from '../../api/distill';
@@ -38,6 +40,8 @@ export function ConstraintAuditCard({ message, meta, onAction }: Props) {
   const auditedCount = meta.cardData?.auditedCount as number | undefined;
   const [reviewed, setReviewed] = useState<ReviewState | null>(null);
   const [pending, setPending] = useState(false);
+  // #288：「确认退役」两步确认——armed=true 表示已进入待确认态，再次点击才执行
+  const [armed, setArmed] = useState(false);
 
   // 已审态按提案状态派生（刷新/重进频道后仍正确）：executed/rejected 均为终态；
   // 派生失败静默保持待审。对齐 GcProposalCard 机制。
@@ -63,6 +67,8 @@ export function ConstraintAuditCard({ message, meta, onAction }: Props) {
       if (ok !== false) setReviewed(action === 'constraint_audit_approve' ? 'executed' : 'rejected');
     } finally {
       setPending(false);
+      // #288：执行完毕（含失败重武装）退出两步确认待确认态
+      setArmed(false);
     }
   };
 
@@ -100,17 +106,17 @@ export function ConstraintAuditCard({ message, meta, onAction }: Props) {
         确认后走 retire 执行（retired 元数据留痕，可回滚）；拒绝则全部保留且后续不再提案。
       </div>
 
-      {/* Action buttons */}
+      {/* Action buttons（#288：确认退役两步确认 + pending 锁存禁用防连击） */}
       <div className="mc-card-actions">
         <button
-          onClick={() => act('constraint_audit_approve')}
+          onClick={() => (armed ? void act('constraint_audit_approve') : setArmed(true))}
           disabled={pending}
           className="mc-btn mc-btn-primary"
         >
-          确认退役
+          {armed ? '再次点击确认退役' : '确认退役'}
         </button>
         <button
-          onClick={() => act('constraint_audit_reject')}
+          onClick={() => { setArmed(false); void act('constraint_audit_reject'); }}
           disabled={pending}
           className="mc-btn"
         >

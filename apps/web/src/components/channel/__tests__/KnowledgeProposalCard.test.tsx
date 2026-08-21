@@ -62,6 +62,22 @@ describe('KnowledgeProposalCard — 知识审核闭环', () => {
     expect(screen.queryByText('通过')).not.toBeTruthy();
   });
 
+  it('锁存（#288 核查）：onAction 未回流前连击不重复触发，按钮禁用', async () => {
+    let resolve: (v: boolean) => void = () => {};
+    const onAction = vi.fn().mockImplementation(() => new Promise<boolean>(r => { resolve = r; }));
+    render(<KnowledgeProposalCard message={baseMessage} meta={JSON.parse(baseMessage.meta!)} onAction={onAction} />);
+    const approveBtn = screen.getByText('通过').closest('button')!;
+    fireEvent.click(approveBtn);
+    expect(approveBtn.disabled).toBe(true);
+    expect(screen.getByText('拒绝').closest('button')!.disabled).toBe(true);
+    fireEvent.click(approveBtn);
+    fireEvent.click(screen.getByText('拒绝'));
+    expect(onAction).toHaveBeenCalledTimes(1);
+    resolve(true);
+    expect(await screen.findByText(/已通过/)).toBeTruthy();
+    expect(onAction).toHaveBeenCalledTimes(1);
+  });
+
   it('点拒绝 → onAction(messageId, knowledge_proposal_reject)，成功后显示已拒绝', async () => {
     const onAction = vi.fn().mockResolvedValue(true);
     render(<KnowledgeProposalCard message={baseMessage} meta={JSON.parse(baseMessage.meta!)} onAction={onAction} />);

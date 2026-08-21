@@ -62,6 +62,22 @@ describe('DistillProposalCard — 蒸馏提案人审闸口', () => {
     expect(await screen.findByText(/已确认，蒸馏已执行/)).toBeTruthy();
   });
 
+  it('锁存（#288 核查）：onAction 未回流前连击不重复触发，按钮禁用', async () => {
+    let resolve: (v: boolean) => void = () => {};
+    const onAction = vi.fn().mockImplementation(() => new Promise<boolean>(r => { resolve = r; }));
+    render(<DistillProposalCard message={baseMessage} meta={JSON.parse(baseMessage.meta!)} onAction={onAction} />);
+    const approveBtn = screen.getByText('确认蒸馏').closest('button')!;
+    fireEvent.click(approveBtn);
+    expect(approveBtn.disabled).toBe(true);
+    expect(screen.getByText('拒绝').closest('button')!.disabled).toBe(true);
+    fireEvent.click(approveBtn);
+    fireEvent.click(screen.getByText('拒绝'));
+    expect(onAction).toHaveBeenCalledTimes(1);
+    resolve(true);
+    expect(await screen.findByText(/已确认，蒸馏已执行/)).toBeTruthy();
+    expect(onAction).toHaveBeenCalledTimes(1);
+  });
+
   it('点拒绝 → onAction(messageId, distill_proposal_reject)，成功后显示已拒绝', async () => {
     const onAction = vi.fn().mockResolvedValue(true);
     render(<DistillProposalCard message={baseMessage} meta={JSON.parse(baseMessage.meta!)} onAction={onAction} />);
