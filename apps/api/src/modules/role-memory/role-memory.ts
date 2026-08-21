@@ -18,7 +18,7 @@
  * 不自动删。GC 最简 = 超限提醒人合并 topic / 淘汰草稿。
  * 与 KnowledgeSync「零值 trend 止血 + GC」的合并：#88 中该子项属 #83（知识飞轮 GC，
  * spec Out of Scope），本仓库无明确实现锚点（grep「零值」无命中），故本票只留
- * checkCapacity 作为未来 GC 可消费的 hook，不深入改 KnowledgeSync。见 .studio/CONTEXT.md 的 apps/api/src/modules/role-memory 锚点。
+ * checkCapacity 作为未来 GC 可消费的 hook，不深入改 KnowledgeSync。见 apps/api/src/modules/role-memory/CONTEXT.md。
  *
  * 路径：落盘经 studioPath()（读 STUDIO_HOME，dev/prod 隔离，禁硬编码 ~/.studio）。
  * 测试隔离与 studio-log-path 同约定：VITEST/NODE_ENV=test 时改写 os.tmpdir()/

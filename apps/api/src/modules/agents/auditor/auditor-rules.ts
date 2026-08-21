@@ -153,30 +153,42 @@ export async function analyzeCircuitHealth(fileStore: FileStore): Promise<Sugges
       });
     }
 
-    // Circuit 5: 模块锚点覆盖率（#152 起沉淀正本 = .studio/CONTEXT.md）— 关键目录缺锚点则 Analyst 每次都重探索
+    // Circuit 5: 散置模块 CONTEXT.md 覆盖率（#299 撤销 #152 归并，散置模型回归）— 关键目录缺 CONTEXT.md 则 Analyst 每次都重探索；工单号密度 >0.3/行告警（防工单叙事淹没耐久事实）
     try {
       const fs = require('fs');
       const p = require('path');
       const repoRoot = process.env.REPO_DIR || process.cwd();
       const modulesDir = p.join(repoRoot, 'apps/api/src/modules');
-      const contextPath = p.join(repoRoot, '.studio/CONTEXT.md');
-      if (fs.existsSync(modulesDir) && fs.existsSync(contextPath)) {
-        const anchors = new Set(
-          (fs.readFileSync(contextPath, 'utf-8').match(/^## (\S+)$/gm) || [])
-            .map((h: string) => h.replace(/^## /, '')),
-        );
+      if (fs.existsSync(modulesDir)) {
         const dirs = fs.readdirSync(modulesDir, { withFileTypes: true })
           .filter((d: any) => d.isDirectory() && d.name !== '__tests__');
         const missing: string[] = [];
+        const dense: string[] = [];
         for (const d of dirs) {
-          if (!anchors.has(`apps/api/src/modules/${d.name}`)) missing.push(d.name);
+          const ctxPath = p.join(modulesDir, d.name, 'CONTEXT.md');
+          if (!fs.existsSync(ctxPath)) {
+            missing.push(d.name);
+            continue;
+          }
+          const text = fs.readFileSync(ctxPath, 'utf-8');
+          const lines = text.split('\n').filter((l: string) => l.trim().length > 0).length;
+          const tickets = (text.match(/#\d+/g) || []).length;
+          if (lines > 0 && tickets / lines > 0.3) dense.push(`${d.name}(${tickets}票号/${lines}行)`);
         }
         if (missing.length > 0) {
           suggestions.push({
             type: 'circuit_fix',
             risk: 'low',
             agentType: 'auditor',
-            detail: `${missing.length} 个模块目录在 .studio/CONTEXT.md 缺锚点: ${missing.join(', ')} — Analyst 每次探索都会重读代码。按 exploration-sediment skill 补写锚点即可。`,
+            detail: `${missing.length} 个模块目录缺 CONTEXT.md: ${missing.join(', ')} — Analyst 每次探索都会重读代码。按 exploration-sediment skill 补写即可。`,
+          });
+        }
+        if (dense.length > 0) {
+          suggestions.push({
+            type: 'circuit_fix',
+            risk: 'low',
+            agentType: 'auditor',
+            detail: `CONTEXT.md 工单号密度超线（>0.3/行）: ${dense.join(', ')} — 工单叙事淹没耐久事实，按 exploration-sediment skill 重写（修复叙事的家是 git log）。`,
           });
         }
       }

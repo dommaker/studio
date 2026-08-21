@@ -1,0 +1,30 @@
+# apps/api/src/modules/requirements
+
+### 职责
+
+REQ 需求编号体系（vision §5.3）：一个需求（`REQ-<序号>`）= 一组 WorkUnit。负责 REQ 的创建、绑定解析与状态汇总，需求文档/SDD/产物以编号关联，UI 按编号串联全链路。
+
+PMO-a 别名层（2026-07-28 分析文档，决策 4）：REQ 退化为 PMO 的只读别名——get/list 先查统一编号 PMO（reqAlias 命中 → 投影为 REQ 视图，projectId = PMO 自身 id），查不到才回落 legacy REQ 记录；update/maybeRollUpToDone 对别名视图只读跳过（PMO 状态由 pmo/progress-rollup 拥有）。新代码只见 PMO；下个大版本删别名层。
+
+### 核心导出
+
+- `requirement.service.ts` — Requirement Service（REQ CRUD 与编号分配；B3a: projectId 挂接 PMO 项目；决策 4 别名层 get/list/update/getChain 别名感知；决策 2 createFromDispatch 杂务归集——频道已登记杂务 PMO 时小活归集其 REQ 别名，只查不建）
+- `requirement.routes.ts` — Requirement API 路由
+- `req-binding.ts` — REQ 绑定解析（显式 reqId > #REQ-XXXX token > #PMO-n/#PM-n token（决策 4 别名层解析，无别名存量拒绝歧义降级）> 自动新建），@mention 派发 / convert-to-task 共用
+- `ownership-resolver.ts` — B3a 工程归属解析（决策 D2 + #285 决策 #249 §4）：显式 workspaceId > Requirement.projectId → PMO gitRepo > 文件引用（#285：fileRefs 全部引用尾斜杠归一后同仓 → source=file-refs、workspaceRoot=归一 repo；跨多仓不参与落下一 rung，空数组等同无引用）> 频道默认 > none
+- `pmo-branch-resolver.ts` — PMO-b（决策 3）：WU → PMO 分支解析（2026-08 归因统一后两级链：①创建期直读戳 metadata.pmoId ‖ deprecated legacy ownershipProjectId（同级，pmoId 优先）②reqId→REQ→PMO；branch = gitBranch || pmoNumber，透出 deliveryPolicy），agent-loop worktree base 与 merge-on-review-pass 的目标分支来源；#113 T7 多腿：显式多腿项目（resolveDeliveries > 1）按 WU→腿归属解析腿分支——口径 = pmo/evidence-summary 的 `matchWuToLeg`（metadata.workspaceRoot/worktreeBaseRepo 命中腿 gitRepo，或 pmoBranch 命中腿 branch，两侧非空才比较，归数组序首个命中腿），未命中任何腿回落项目级 gitBranch || pmoNumber，单腿项目不走腿归属、行为不变；`resolvePmoProjectIdForWU`（2026-07 PMO-flow UX §6）：同链只出项目 id（与 resolvePmoBranchForWU 共享内部 resolveAttribution，项目存在校验逐级容错），monitoring /agents 聚合（map 版 deps 批量内存匹配）与里程碑消息 meta.pmoId（agent-loop/ReviewDispatcher/timeout-release/merge-on-review-pass）共用。原 ③ metadata.pmoProjectId 级 2026-08 移除（agent-loop 落档的冗余缓存，生产存量为零；修复 analysis 派生链仅 pmoId、reqId=null 的 task WU 解析不到 PMO 分支的 bug）
+- `wu-pmo-attribution.ts` — 2026-08 归因统一：创建期 PMO 归因戳纯解析叶子（零 app 依赖，防 pmo/ → pmo-branch-resolver → project.service → workunit.service 循环）；`parseWuPmoId` = metadata.pmoId（canonical）→ metadata.ownershipProjectId（deprecated legacy 同位）容错同步解析，pmo-branch-resolver 与 pmo/evidence-summary（内存过滤）共用
+- `rollup.ts` — REQ 状态汇总：订阅 `workunit.status_changed` 事件回写需求整体状态（别名视图跳过，PMO 侧 progress-rollup 拥有）
+
+### 依赖关系
+
+- 上游：`@dommaker/studio-shared`（eventBus、FileStore）、workunit 模块事件、pmo（projectService 项目存在性校验 / gitRepo 查询 / 别名扫描 / 杂务 find-or-create）
+- 下游：channels（@mention 派发、convert-to-task）、pmo（progress-rollup 进度回写）、agents（agent-loop 经 pmo-branch-resolver 决定 worktree base）、apps/api 路由挂载、apps/web 需求页
+
+### 注意事项
+
+- 首次 @mention 派发时自动分配 REQ 编号（频道已登记杂务 PMO 时归集到杂务别名，不再每条消息新建 REQ）
+- 状态汇总走事件驱动（`workunit.status_changed`），不做轮询
+- **鉴权（2026-07-24 收紧）**：POST /、PATCH /:id 已收 requireAuth+requireNotGuest；GET 端点保持大门层鉴权不变。
+- **B3a（决策 D2）**：Requirement 增 projectId 字段挂 PMO 项目（工程归属锚点）；studio-shared 的 RequirementData 暂未加该字段（本批改动限 apps/api/src），由本地 `RequirementWithProject` 扩展类型承载，FileStore 透传 JSON 运行时无差异。
+- **决策 4（别名层）**：别名视图 createdBy='pmo-alias' 只读；`RequirementServiceDeps` 可注入 getProjectByAlias/findChoreProject/listAliasProjects/getProjectByPmoNumber——单测务必注入中性桩（默认实现读真实 ~/.studio/projects，并行测试会被 routes 测试的真实项目串扰）。

@@ -1,0 +1,42 @@
+# apps/api/src/modules/harness
+
+### 职责
+
+Harness 监控与治理 API（FL-029 / T-015）：轨迹采集分析、约束生命周期、
+知识引擎、会话/Agent 管理、错误分类与验证、仪表盘。
+（安全护栏 guards.routes 已随 harness 1.2.0 删除 InputGuardrail/OutputGuardrail/Sandbox（ADR-0003）移除，2026-08。）
+
+路由结构（T3 大文件拆分 5/N，2026-07-19）：`routes.ts` 为挂载门面，
+处理器按资源拆分为子路由，共享运行时集中于 `runtime.ts`：
+
+| 文件 | 职责 |
+|------|------|
+| `runtime.ts` | @dommaker/harness 懒加载、Collector/Analyzer/KnowledgeStore 单例、TTL 缓存 |
+| `routes.ts` | 挂载门面（默认导出 Router，route-registry 挂 /api/v1/harness，2026-07 起 requireAuth+requireAdmin） |
+| `traces.routes.ts` | 轨迹采集/分析（/traces、/analysis；/diagnose 随 harness 1.2.0 ADR-0003 断链删除） |
+| `proposals.routes.ts` | 约束提案（/proposals；/evolve 已随 harness 0.17.0 移除，execute 为 410） |
+| `constraints.routes.ts` | 约束清单 + 质量门（/constraints*、/check-constraints；degrade/schedule 已随 0.17.0 移除；retired/rollback 双落点——config.yml 内置/历史 + custom-constraints.yml #82 D6 统一落点；导出 customConstraintsPath 供 distill #146 审计装配复用） |
+| `knowledge.routes.ts` | 知识引擎（/knowledge*） |
+| `sessions.routes.ts` | 上下文管理（/estimate-tokens、/sessions*） |
+| `agents.routes.ts` | Agent 生命周期（/agents*） |
+| `diagnostics.routes.ts` | 错误分类（/classify、/failures；/check-spec、/verify* 随 harness 1.2.0 ADR-0003 断链删除） |
+| `dashboard.routes.ts` | 健康检查（/health；/dashboard 随 harness 1.2.0 ADR-0003 断链删除） |
+| `cso.routes.ts` | CSO 验证（/validate；2026-07 起 /api/v1/cso 只挂本文件，不再整挂 routes.ts 门面——否则 harness 的 Admin 收紧可被 /cso/* 双挂载绕过） |
+| `iron-laws.routes.ts` | Iron Laws（独立子路由，挂 /api/v1/iron-laws） |
+
+### 核心导出
+
+- `routes.ts` default export：express Router（34 个端点，见门面注释）
+
+### 依赖关系
+
+- 依赖 `@dommaker/harness`（懒加载，不可用时端点降级 503）
+- 依赖 `@dommaker/studio-shared`（logger）、`../knowledge/knowledge-bus.service.js`（UNIFIED_KNOWLEDGE_DIR）
+- 被 `apps/api/src/route-registry.ts` 引用（/api/v1/harness = requireAuth+requireAdmin；/api/v1/cso 仅挂 cso.routes 的 /validate，公开不变）
+
+### 注意事项
+
+- 子路由路径首段字面前缀互不重叠；唯一前缀包含关系 /constraints/stats 先于
+  /constraints/:id 注册（constraints.routes.ts 内保持顺序）。
+- 提案持久化于 `process.cwd()/.harness/proposals/`；会话与 AgentLifecycle 为内存态。
+- GET /knowledge 有 30s TTL 缓存（runtime.ts）。
