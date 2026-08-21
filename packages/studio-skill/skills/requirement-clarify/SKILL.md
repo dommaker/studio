@@ -18,7 +18,7 @@ status: published
 产出：澄清结论；有设计空间时追加 spec（`.studio/specs/<slug>.md`）。
 下游：**to-tickets**（spec 过位2 质量门后拆单）。
 
-澄清/设计过程中固化的领域术语 → 业务仓 `.studio/CONTEXT.md` 词条；架构级决策 → `.studio/adr/`。
+澄清/设计过程中固化的领域术语 → 仓根 `CONTEXT.md` 词条（工程级语言词表，domain docs 约定）；架构级决策 → `.studio/adr/`。
 
 ---
 
