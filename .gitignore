@@ -116,3 +116,6 @@ node-compile-cache/
 # Agent CLI local runtime state (credentials/oauth, never commit)
 .codex/
 .kimi-code/
+
+# 本地 playwright 覆盖配置（勿提交）
+*.local.config.ts

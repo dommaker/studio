@@ -204,6 +204,119 @@ test.describe('Channel API 端点', () => {
   });
 });
 
+test.describe('Channel 滚动行为（#289 observed-top 台账 + ResizeObserver 跟随 + 回到底部）', () => {
+  // 共享一个 60 条消息的专用频道（> 50/页，必有「加载更早」），用例间有状态依赖故串行。
+  // Lurk Wall（guest 只见 LandingPage）+ 写接口 requireNotGuest：注册/登录真实用户，
+  // 经 addInitScript 注入 zustand persist（auth-storage）完成登录态。
+  test.describe.configure({ mode: 'serial' });
+  let channelId: string;
+  let auth: { token: string; user: { id: string; email: string; name: string; role: string } };
+
+  test.beforeAll(async ({ request }) => {
+    // 固定账号：首次注册，后续登录（避免重复注册污染 users.json）
+    // 本地 dev API 的一次性测试夹具账号（非真实凭证）；口令可用 env 覆盖
+    const email = process.env.E2E_SCROLL_EMAIL || 'e2e-scroll@test.local';
+    const password = process.env.E2E_SCROLL_PASS || 'e2e-scroll-pass-1';
+    let res = await request.post(`${API}/auth/register`, { data: { email, password, name: 'e2e-scroll' } });
+    if (!res.ok()) {
+      res = await request.post(`${API}/auth/login`, { data: { email, password } });
+    }
+    const body = await res.json();
+    const token = body.session?.token ?? body.token;
+    if (!token) throw new Error('e2e 登录失败: ' + JSON.stringify(body));
+    auth = { token, user: body.user };
+
+    const headers = { Authorization: `Bearer ${token}` };
+    res = await request.post(`${API}/channels`, {
+      headers,
+      data: { name: `e2e-scroll-${Date.now()}`, type: 'rnd' },
+    });
+    channelId = (await res.json()).data.id;
+    for (let i = 1; i <= 60; i++) {
+      await request.post(`${API}/channels/${channelId}/messages`, {
+        headers,
+        data: { content: `seed-${String(i).padStart(2, '0')}` },
+      });
+    }
+  });
+
+  test.afterAll(async ({ request }) => {
+    if (channelId && auth?.token) {
+      await request.delete(`${API}/channels/${channelId}`, {
+        headers: { Authorization: `Bearer ${auth.token}` },
+      }).catch(() => {});
+    }
+  });
+
+  // 注入登录态并进入频道，等待初始定位最新（seed-60 可见即到底）
+  async function gotoScrollChannel(page: Page) {
+    await page.addInitScript(([token, user]) => {
+      localStorage.setItem('auth-storage', JSON.stringify({
+        state: { token, user, session: null, refreshToken: null, guestId: null, isLoading: false, error: null },
+        version: 0,
+      }));
+    }, [auth.token, auth.user]);
+    await page.goto(`${BASE}/channels/${channelId}`);
+    await page.waitForLoadState('domcontentloaded');
+    await expect(page.locator('text=seed-60')).toBeVisible({ timeout: 15000 });
+  }
+
+  // 距底几何断言（px）
+  async function distanceFromBottom(page: Page): Promise<number> {
+    return page.locator('.mc-stream').evaluate(el => el.scrollHeight - el.scrollTop - el.clientHeight);
+  }
+
+  test('进入频道定位最新，无「回到底部」浮钮', async ({ page }) => {
+    await gotoScrollChannel(page);
+    await expect.poll(() => distanceFromBottom(page), { timeout: 5000 }).toBeLessThanOrEqual(2);
+    await expect(page.locator('.mc-jump-bottom')).toHaveCount(0);
+  });
+
+  test('向上滚动浮出「回到底部」，点击回底后浮钮消失', async ({ page }) => {
+    await gotoScrollChannel(page);
+    await page.locator('.mc-stream').evaluate(el => { el.scrollTop = 0; });
+    const jump = page.locator('.mc-jump-bottom');
+    await expect(jump).toBeVisible({ timeout: 5000 });
+    await jump.click();
+    await expect.poll(() => distanceFromBottom(page), { timeout: 5000 }).toBeLessThanOrEqual(2);
+    await expect(jump).toHaveCount(0);
+  });
+
+  test('加载更早：视口停留在原消息，程序补偿滚动不扰乱浮钮状态（台账归属）', async ({ page }) => {
+    await gotoScrollChannel(page);
+    await page.locator('.mc-stream').evaluate(el => { el.scrollTop = 0; });
+    const jump = page.locator('.mc-jump-bottom');
+    await expect(jump).toBeVisible({ timeout: 5000 });
+    // 补偿前首条消息（加载更早按钮之后的首条）
+    const anchorId = await page.locator('.mc-stream [data-message-id]').first().getAttribute('data-message-id');
+    await page.locator('.mc-loadmore').click();
+    // 前插落地后：原消息仍在视口内（高度差补偿生效），仍离底 → 浮钮保持
+    await expect(page.locator(`[data-message-id="${anchorId}"]`)).toBeVisible({ timeout: 10000 });
+    await expect(jump).toBeVisible({ timeout: 5000 });
+  });
+
+  test('钉底时视口高度变化跟随底部（ResizeObserver）', async ({ page }) => {
+    await gotoScrollChannel(page);
+    await expect.poll(() => distanceFromBottom(page), { timeout: 5000 }).toBeLessThanOrEqual(2);
+    // 压缩视口高度：无 ResizeObserver 跟随时底部内容会被顶出视口
+    await page.setViewportSize({ width: 1280, height: 400 });
+    await expect.poll(() => distanceFromBottom(page), { timeout: 5000 }).toBeLessThanOrEqual(2);
+    await expect(page.locator('.mc-jump-bottom')).toHaveCount(0);
+  });
+
+  test('阅读中自己发送消息：强制跟随回底', async ({ page }) => {
+    await gotoScrollChannel(page);
+    await page.locator('.mc-stream').evaluate(el => { el.scrollTop = 0; });
+    await expect(page.locator('.mc-jump-bottom')).toBeVisible({ timeout: 5000 });
+    const testMsg = `e2e-scroll-send-${Date.now()}`;
+    await page.locator('textarea, [role="textbox"]').fill(testMsg);
+    await page.locator('button:has-text("发送")').click();
+    await expect(page.locator(`text=${testMsg}`)).toBeVisible({ timeout: 10000 });
+    await expect.poll(() => distanceFromBottom(page), { timeout: 5000 }).toBeLessThanOrEqual(2);
+    await expect(page.locator('.mc-jump-bottom')).toHaveCount(0);
+  });
+});
+
 test.describe('通知中心', () => {
 
   test('通知铃铛点击打开下拉菜单', async ({ page }) => {

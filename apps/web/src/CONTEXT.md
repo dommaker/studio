@@ -37,6 +37,7 @@ Web 前端主源码。路由、全局状态、API 客户端、UI 组件、样式
 - **SSE 单连接**：全应用仅根部 `WebSocketProvider` 建一个 EventSource（/events/stream），禁止开第二条。
 - **视觉体系**：`theme.css` 深色变量 + `mission-control.css` 三栏布局（mc-*）与工具类（u-*）。禁止写死浅色 Tailwind 类。规范：`docs/specs/ui/style-guide.md`。
 - **频道工作区** = 左 ChannelRail / 中对话流 / 右 WorkUnitDrawer。消息分侧：人类右气泡、agent 左文档流、系统居中。
+- **频道流滚动**（#289）：程序写 scrollTop 必记 observed-top 台账（ChannelDetailPage `scrollStreamTo`），钉底/归属/跟随判定走 `utils/streamFollow.ts` 纯函数；ResizeObserver 跟随撑高，离底浮「回到底部」。
 - **WU 详情页**（`/workunits/:id`）= 跳转枢纽：Header -> 归属条 -> 证据台账 -> ExecutionSteps -> TranscriptViewer -> DiscussionPanel。
 - **F6 铁律**：WU 状态/证据展示一律过 `deriveDisplayState()`（`@dommaker/studio-shared`）。
 - **UI 件**：原生 `<select>` 弃用用 `ui/Select`；`Button`+`ConfirmDialog` 替代 `window.confirm`/`alert`。站内跳转用 `useNavigate`。

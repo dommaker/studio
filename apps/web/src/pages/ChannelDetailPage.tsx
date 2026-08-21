@@ -7,6 +7,7 @@ import { useChannelLiveExecutions } from '../hooks/useChannelLiveExecutions';
 import { shortWuId } from '../utils/id';
 import { ChannelMessageItem } from '../components/channel/ChannelMessageItem';
 import { parseMeta } from '../utils/messageMeta';
+import { isPinnedToBottom, isReaderScroll, shouldFollowBottom } from '../utils/streamFollow';
 import { ChannelInput } from '../components/channel/ChannelInput';
 import { ChannelMemberManager } from '../components/channel/ChannelMemberManager';
 import { ChannelDefaultProjectSelect } from '../components/channel/ChannelDefaultProjectSelect';
@@ -171,13 +172,54 @@ export function ChannelDetailPage() {
       .catch(() => {});
   }, [id, messages.length]);
 
-  // 消息流滚动管理（仿 QQ/微信）：打开定位最新；新消息仅在人本就在底部附近或自己发送时跟随；加载更早保持视口
+  // 消息流滚动管理（仿 QQ/微信；#289 落地 dsh observed-top 台账方案）：
+  // 打开定位最新；程序写 scrollTop 必记 observedTopRef 台账，scroll 事件偏离台账才算读者滚动；
+  // 新消息仅在钉底中或自己发送时跟随；ResizeObserver 跟随卡片展开等撑高；离底浮出「回到底部」
   const streamRef = useRef<HTMLDivElement>(null);
+  const streamInnerRef = useRef<HTMLDivElement>(null);
   const scrollStateRef = useRef({ initial: true, preserve: false, prevHeight: 0 });
+  // observed-top 台账：记录最近一次程序写入落地后的 scrollTop（记 clamp 后实际值）
+  const observedTopRef = useRef<number | null>(null);
+  // 钉底状态只由读者滚动改写（几何判定见 streamFollow 纯函数）
+  const pinnedRef = useRef(true);
+  const [showJumpToBottom, setShowJumpToBottom] = useState(false);
+  // 「自己发送」挂起标记：发送动作到消息落地之间的窗口置位，跟随判定据此识别自己的消息
+  // （消息模型只有 authorType 无 authorId，无法精确到人；窗口内他人 human 消息会被误判为自发，可接受）
+  const ownSendPendingRef = useRef(false);
+
+  // 程序滚动统一入口：写入并记账
+  const scrollStreamTo = useCallback((top: number) => {
+    const el = streamRef.current;
+    if (!el) return;
+    el.scrollTop = top;
+    observedTopRef.current = el.scrollTop;
+  }, []);
+
+  const pinAndJumpToBottom = useCallback(() => {
+    const el = streamRef.current;
+    if (!el) return;
+    pinnedRef.current = true;
+    setShowJumpToBottom(false);
+    scrollStreamTo(el.scrollHeight);
+  }, [scrollStreamTo]);
+
+  // scroll 事件归属判定：偏离台账才算读者滚动，读者滚动才改写钉底状态
+  const handleStreamScroll = useCallback(() => {
+    const el = streamRef.current;
+    if (!el) return;
+    if (isReaderScroll(el.scrollTop, observedTopRef.current)) {
+      const pinned = isPinnedToBottom(el);
+      pinnedRef.current = pinned;
+      setShowJumpToBottom(!pinned);
+    }
+    // 无论归属都续记实际位置：浏览器 shrink-clamp / 延迟落地的程序滚动精确落在台账上
+    observedTopRef.current = el.scrollTop;
+  }, []);
 
   // 切换频道后，下一批消息到达时重新定位到底部
   useEffect(() => {
     scrollStateRef.current.initial = true;
+    ownSendPendingRef.current = false;
   }, [id]);
 
   const handleLoadMore = useCallback(() => {
@@ -196,27 +238,43 @@ export function ChannelDetailPage() {
     // 前插了更早的消息：按高度差补偿，视口停留在原消息
     if (state.preserve) {
       state.preserve = false;
-      el.scrollTop = el.scrollTop + (el.scrollHeight - state.prevHeight);
+      scrollStreamTo(el.scrollTop + (el.scrollHeight - state.prevHeight));
       return;
     }
     // 初次加载完成：直接定位到最新一条
     if (state.initial) {
       if (!loading) {
         state.initial = false;
-        el.scrollTop = el.scrollHeight;
+        pinAndJumpToBottom();
       }
       return;
     }
-    // 新消息：人在底部附近（≤80px）或是自己发的，才跟随到底
-    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= 80;
+    // 新消息：钉底中或是自己发的，才跟随到底（他人的 human 消息不拽走阅读中的读者）
     const last = messages[messages.length - 1];
-    if (nearBottom || last?.authorType === 'human') {
-      el.scrollTop = el.scrollHeight;
+    const lastIsOwn = last?.authorType === 'human' && ownSendPendingRef.current;
+    if (lastIsOwn) ownSendPendingRef.current = false;
+    if (shouldFollowBottom(pinnedRef.current, lastIsOwn)) {
+      pinAndJumpToBottom();
     }
-  }, [messages, loading]);
+  }, [messages, loading, scrollStreamTo, pinAndJumpToBottom]);
+
+  // ResizeObserver 跟随：卡片展开/图片加载撑高内容、composer 撑高压缩视口时，钉底中则跟随
+  useEffect(() => {
+    const el = streamRef.current;
+    const inner = streamInnerRef.current;
+    if (!el || !inner || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => {
+      if (pinnedRef.current) scrollStreamTo(el.scrollHeight);
+    });
+    ro.observe(inner);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [scrollStreamTo]);
 
   const handleSend = useCallback(async (content: string, replyToId?: string, files?: FileRef[]) => {
     setSending(true);
+    // 标记「自己发送」窗口：消息落地（本 effect 链或 SSE 先去重）时跟随分支消费并清除
+    ownSendPendingRef.current = true;
     try {
       // #281: files 仅在有文件引用时透传（保旧调用两参形态）
       if (files?.length) {
@@ -225,6 +283,9 @@ export function ChannelDetailPage() {
         await sendMessage(content, replyToId);
       }
       setReplyTo(null);
+    } catch (err) {
+      ownSendPendingRef.current = false;
+      throw err;
     } finally {
       setSending(false);
     }
@@ -613,8 +674,8 @@ export function ChannelDetailPage() {
         )}
 
         {/* Message list */}
-        <div className="mc-stream" ref={streamRef}>
-          <div className="mc-stream-inner">
+        <div className="mc-stream" ref={streamRef} onScroll={handleStreamScroll}>
+          <div className="mc-stream-inner" ref={streamInnerRef}>
             {loading && messages.length === 0 && (
               <div className="mc-stream-empty">加载中…</div>
             )}
@@ -743,6 +804,14 @@ export function ChannelDetailPage() {
               );
             })()}
           </div>
+          {/* #289: 偏离底部时浮出「回到底部」（sticky 贴滚动视口底部，不占流内高度） */}
+          {showJumpToBottom && (
+            <div className="mc-jump-wrap">
+              <button type="button" className="mc-jump-bottom" onClick={pinAndJumpToBottom}>
+                ↓ 回到底部
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Input */}
