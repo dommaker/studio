@@ -3,6 +3,18 @@ import { useState, useEffect, useCallback } from 'react';
 import { channelApi, type ChannelMessage, type FileRef } from '../api/channel';
 import { useWebSocketContext } from '../api/websocketHooks';
 
+/** #287（清单 P2 #19）：增量到达按 createdAt 升序归位 + id 去重。
+ *  下游 groupIntoThreads 单遍归组要求 anchor 先于 reply 出现；一律 push 尾部会让
+ *  乱序/孤儿到达的线程回复滞留主流（走查 F17：同一消息刷新前后两种位置）。
+ *  有序插入后，任意到达路径下的顺序与刷新全量列表一致，孤儿回复在 anchor 到达时归并。 */
+function insertMessage(prev: ChannelMessage[], msg: ChannelMessage): ChannelMessage[] {
+  if (prev.some(m => m.id === msg.id)) return prev;
+  const t = new Date(msg.createdAt).getTime();
+  let idx = prev.length;
+  while (idx > 0 && new Date(prev[idx - 1].createdAt).getTime() > t) idx--;
+  return [...prev.slice(0, idx), msg, ...prev.slice(idx)];
+}
+
 export function useChannelMessages(channelId: string | undefined) {
   const [messages, setMessages] = useState<ChannelMessage[]>([]);
   // 初值覆盖挂载首拉；channelId undefined→defined 的上升沿由下方渲染期分支补齐
@@ -45,11 +57,7 @@ export function useChannelMessages(channelId: string | undefined) {
       if (msg.event_type === 'channel.message_sent') {
         const data = msg.data as { channelId?: string; message?: ChannelMessage };
         if (data?.channelId === channelId && data?.message) {
-          setMessages(prev => {
-            // 去重：SSE 事件可能比自己发送的乐观更新晚到
-            if (prev.some(m => m.id === data.message!.id)) return prev;
-            return [...prev, data.message];
-          });
+          setMessages(prev => insertMessage(prev, data.message!));
         }
       } else if (msg.event_type === 'channel.message_updated') {
         const data = msg.data as { channelId?: string; messageId?: string; meta?: string | Record<string, unknown>; content?: string };
@@ -76,7 +84,7 @@ export function useChannelMessages(channelId: string | undefined) {
     if (!channelId || !content.trim()) return null;
     const res = await channelApi.sendMessage(channelId, content, replyToId, files);
     const msg = res.data.data;
-    setMessages(prev => [...prev, msg]);
+    setMessages(prev => insertMessage(prev, msg));
     return msg;
   }, [channelId]);
 
