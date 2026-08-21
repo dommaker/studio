@@ -1,6 +1,7 @@
 // WorkUnitDrawer — Mission Control 右抽屉：WorkUnit 详情 / REQ 全链路
-// 只展示真实 API 数据（workunitApi / requirementApi / monitoringApi），无对应数据的维度不展示、不编造
+// 只展示真实 API 数据（workunitApi / requirementApi / monitoringApi / channelApi），无对应数据的维度不展示、不编造
 import { useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import {
   workunitApi,
@@ -10,6 +11,7 @@ import {
 } from '../../api/workunit';
 import { requirementApi, type RequirementChain } from '../../api/requirements';
 import { monitoringApi, type OverheadStats } from '../../api/monitoring';
+import { channelApi } from '../../api/channel';
 import { useWorkUnitEvents } from '../../hooks/useWorkUnitEvents';
 import { ExecutionSteps } from '../workunit/ExecutionSteps';
 import { BlockedActions } from '../workunit/BlockedActions';
@@ -102,9 +104,12 @@ export function WorkUnitDrawer({ drawer, onClose, onOpenWu, onOpenReq }: Props) 
 // ── WorkUnit 详情 ──
 
 function WuDetail({ id, autoApprove = false, onOpenReq }: { id: string; autoApprove?: boolean; onOpenReq: (reqId: string) => void }) {
+  const navigate = useNavigate();
   const [wu, setWu] = useState<WorkUnit | null>(null);
   const [tokens, setTokens] = useState<WorkunitTokenEvent[] | null>(null);
   const [overhead, setOverhead] = useState<OverheadStats | null>(null);
+  // #275（#251 断点2）：「#频道名」回频道入口的频道名（best-effort，失败退回 id 截短显示）
+  const [channelName, setChannelName] = useState<string | null>(null);
   const [error, setError] = useState('');
   // #241: 悬空 WU 引用（历史清理后消息 footer 指向已不存在的 WU）——404 单列友好态
   const [notFound, setNotFound] = useState(false);
@@ -132,6 +137,7 @@ function WuDetail({ id, autoApprove = false, onOpenReq }: { id: string; autoAppr
     setPrevId(id);
     setWu(null);
     setTokens(null);
+    setChannelName(null);
     setError('');
     setNotFound(false);
   }
@@ -148,6 +154,12 @@ function WuDetail({ id, autoApprove = false, onOpenReq }: { id: string; autoAppr
         if (!autoPopupDoneRef.current) {
           autoPopupDoneRef.current = true;
           if (r.data.type === 'analysis' && r.data.status === 'in_review') setShowApproveModal(true);
+        }
+        // #275（#251 断点2）：频道名 best-effort（频道已删/无权限时保留 null，链接退回 id 截短）
+        if (r.data.channelId) {
+          channelApi.get(r.data.channelId)
+            .then(res => { if (alive) setChannelName(res.data.data.name); })
+            .catch(() => { /* best-effort */ });
         }
       })
       .catch(e => {
@@ -237,6 +249,23 @@ function WuDetail({ id, autoApprove = false, onOpenReq }: { id: string; autoAppr
             : '—'}
         </span>
       </div>
+      {/* #275（#251 断点2）：WU→频道 反向链路在抽屉侧补齐（与 WU 详情页归属条频道 chip 同语义，
+          取数路径不同：详情页 list().find、此处 channelApi.get 单取）。
+          跳频道页属页面级跳转，走 react-router，不走抽屉回调 */}
+      {wu.channelId && (
+        <div className="mc-kv">
+          <span className="mc-kv-k">所属频道</span>
+          <span className="mc-kv-v">
+            <button
+              className="mc-wu-link"
+              onClick={() => navigate(`/channels/${wu.channelId}`)}
+              title="回频道（需求讨论现场）"
+            >
+              #{channelName ?? `${wu.channelId.slice(0, 8)}…`}
+            </button>
+          </span>
+        </div>
+      )}
       <div className="mc-kv"><span className="mc-kv-k">类型</span><span className="mc-kv-v">{wu.type}</span></div>
       {typeof meta.stepCount === 'number' && (
         <div className="mc-kv"><span className="mc-kv-k">已执行步数</span><span className="mc-kv-v">{meta.stepCount}</span></div>
