@@ -93,7 +93,7 @@ git log <基点>..HEAD --oneline
 
 ### ③ 定位规范源
 
-仓内任何成文的代码标准（`CODING_STANDARDS.md` / `CONTRIBUTING.md` / CLAUDE.md 治理规则 / CONTEXT.md 注意事项）。
+仓内任何成文的代码标准（`CODING_STANDARDS.md` / `CONTRIBUTING.md` / `AGENTS.md` 治理契约 / CONTEXT.md 注意事项）。
 
 规范轴在仓内标准之上恒载**气味基线**（Fowler《重构》ch.3，仓无标准也适用），两条绑定规则：
 
