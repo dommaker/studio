@@ -1,6 +1,6 @@
 # Agent 文档内容三分：「入口文档」作废，拆为项目说明书 / 治理契约 / 本机运维簿（2026-08-21）
 
-> 状态：**proposed**，待决策单冻结。来源：grilling 三轮开图（Q1-Q11 全裁决）+ 工具读取行为实证调研。
+> 状态：**active**（2026-08-21 决策单 [#300](https://github.com/dommaker/studio/issues/300) 冻结）。来源：grilling 三轮开图（Q1-Q11 全裁决）+ 工具读取行为实证调研。
 > 配套 ADR：[2026-08-21-agent-docs-placement-model.md](./2026-08-21-agent-docs-placement-model.md)（落点模型）。
 
 ## 背景
