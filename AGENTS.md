@@ -35,12 +35,103 @@ pnpm start  # 启动生产服务
 ## 约束与治理
 
 - 治理配置：`.harness/config.yml`（preset: standard）
-- 约束清单：`CLAUDE.md` Governance Rules 块（Iron Laws 6 条、Guidelines 5 条）
 
 ## 知识入口
 
 - `.harness/knowledge/`：项目知识库，用 `harness knowledge` 查询
 - 各源码目录的 `CONTEXT.md` 是权威模块文档（现有 42 个），改动代码时同步更新
+
+<!-- PRESERVE:governance -->
+## 治理契约
+
+> 本段手写，增删改走段末「治理变更流程」。依据：docs/adr/2026-08-21-agent-docs-three-kinds.md（内容三分）+ 2026-08-21-agent-docs-placement-model.md（落点模型），2026-08-21 自 CLAUDE.md 迁入（#300/#303）。
+
+## Governance Rules
+<!-- HARNESS_CONSTRAINTS_START -->
+<!-- version: 1.1.0 -->
+### Iron Laws (违反将阻断)
+- **no_completion_without_verification**: 在声明任务完成前，必须重新运行新鲜的验证命令——受改动影响的测试（vitest run --changed origin/master）+ type check，使用新鲜的输出作为完成证据，不得复用旧结果。全量测试由 CI / 发布流程兜底。
+- **incremental_progress**: 一次只处理一个任务。改动涉及多个模块、超过 100 行、或影响多个文件时，必须拆分为小步骤分步执行，每步有独立 checkpoint 可回滚。不要试图一次性完成所有改动。
+- **no_implementation_without_requirement**: 开始编写代码前，必须确认：需求来源明确（Spec/Issue/Roadmap/用户指令）、验收标准(AC)已定义、边界情况已明确。不要凭假设或猜测开始实现。实现完成后，必须逐条对比原始需求文档中的验收标准(AC)，确认每条 AC 已实现且边界情况已覆盖，输出验证清单。不得仅凭"功能能跑"就认为完成。
+- **no_test_simplification**: 编写测试时遇到困难（mock、异步、环境），不得删除用例或跳过断言。正确做法：分析问题 → 查阅文档 → 尝试解决 → 仍不行则向用户说明困难请求指示。不得降低覆盖率要求。
+- **no_redis_import**: 禁止引入 Redis/ioredis 依赖。项目使用 MemoryStore（studio-shared）替代。任何新代码不得引入 redis/ioredis 包或 Redis 连接逻辑。
+- **two_stage_review_required**: 代码审查必须分两阶段：① 规范合规审查 — 逐条对照验收标准(AC)验证实现是否满足需求，重新运行测试，审计测试质量并补写边界用例；② 代码质量审查 — 仅在 Stage 1 全部通过后，检查安全性、可读性、类型安全。Stage 1 不通过则不得进入 Stage 2。
+
+### Guidelines (应遵循)
+- **no_hardcoded_credentials**: 禁止在代码中硬编码密码、API 密钥、Token 等凭证。使用环境变量或安全的凭证管理方案存储敏感信息。
+- **no_bypass_checkpoint**: 每个关键步骤后有 checkpoint 验证点，必须通过才能继续。通过标准：测试通过、类型检查无错误、lint 无新增警告。未通过时回退修复，不得跳过。
+- **monorepo_app_boundary**: apps/ 之间禁止直接导入。共享逻辑必须提取到 packages/（公共逻辑放 packages/studio-shared 或对应 package）。
+- **agent_topology_agnostic**: Agent 方法（reviewDiff/mergeBranches/pushBranch）必须用参数化 ref，禁止硬编码 branch 名。Agent 接口不假设分支拓扑。
+- **prefer_worktree**: 高风险改动（新功能、跨模块、基础设施）应在 worktree 中进行。配置修改、单文件 fix 可直接编辑。
+
+### Prompts (行为约束)
+- **no_fuzzy_completion_claim**: 声明任务完成时，必须附可复现的验证证据，不得仅凭自己的判断声称完成：测试给出精确通过数量与验证命令输出（如 "142 passed, 0 failed"），声明"已删除"前用 ls 确认文件不存在，文档结论用 grep 确认，Spec 完成前逐条 AC 对照标注 pass/fail。禁用模糊词："应该没问题""大概完成了""基本完成""差不多""我记得""之前说""已修复"（未经 test 验证）。遇困难禁止借口搪塞（"稍后修复""小问题""不影响功能""以后再说""先这样""临时方案"）——必须说明问题的具体影响、修复的时间点或版本；是临时方案的，给出正式方案的计划。
+- **no_fix_without_root_cause**: 修复问题前必须先诊断根因——不止"哪里出错"，而是"为什么设计成这样"：用 Read/Grep 定位后禁止直接 Edit，先对照设计原型（CLAUDE.md、类型定义、commit message）确认原设计意图，呈现确认的根因+方案草案后才能动手。遇到空值/异常/不完整数据，禁止用 fallback/兜底/try-catch 掩盖——先追上游：数据谁产生的？为什么是空的？选择防御性兜底时必须在注释中说明根因；同一位置连续兜底 2+ 次是上游 bug 信号，停止修下游、追踪源头。从数据到结论必须先验证关键假设：数字的含义（累积/单次？量纲？）、正常范围、同类场景对比与反例，禁止"数字异常→直接定根因→直接改"的跳级推理。不绕过问题、不遮掩症状、不用临时方案代替根本修复。
+- **simplest_solution_first**: 最简方案优先：用最少代码解决当前问题，不添加"以防万一"的冗余功能，不为仅用一次的代码强行设计抽象。创建新模块/文件/能力前，先查现有能力索引确认无可复用——优先级：直接复用 > 扩展现有 > 组合现有 > 新建。遵循 YAGNI：不为"未来可能需要"添加抽象层、接口、配置项或插件系统；一个 interface/abstract class 只有一个实现者时，删除这个抽象。自检：资深工程师是否会认为此实现过度复杂？若是，立即简化。
+- **no_code_without_test**: 新代码必须同时编写测试。实现功能前先写测试用例（RED），然后实现让测试通过（GREEN）。不得提交无测试覆盖的实现代码。
+- **no_simplification_without_approval**: 不得擅自简化或删除测试、lint 规则、类型检查或约束。如需降低检查标准，必须先提案并获明确批准。
+- **fix_the_problem_not_the_gate**: 质量门禁阻断时修复代码，不修复门禁。不降阈值、不删测试、不关 lint、不改断言让 CI 通过。
+- **verify_external_capability**: 实现方案依赖外部 API/服务未确认的能力时，必须先查阅官方文档确认能力存在，再发送最小测试验证可行性，记录限制作为设计约束。不要假设外部系统支持某种能力就直接开发。
+- **no_delete_without_context**: 删除任何代码前，先查设计意图（JSDoc/commit/spec），分析被替代的函数是否有丢失的关键模式。零引用≠无价值。分类：未接线→接线，被替代→吸收模式，真正无用→才删。
+- **design_decision_requires_discussion**: 涉及架构变更、新增依赖、API 设计等重大决策时，必须先提出讨论获得确认，再开始实现。不要凭单方面判断做架构决策。
+- **surgical_changes_only**: 外科手术式修改：仅改动绝对必要的部分。不顺手"优化"相邻代码、注释或格式。未出问题的代码不重构。
+- **follow_conventions**: 约定胜于新奇：规范一致性 > 技术偏好。项目用 snake_case 就用 snake_case。有异议显式提出，不暗中另起范式。
+- **first_principles_first**: 第一性优先: 分析设计问题从本质出发，不从当前代码推导。正确设计是什么→当前实现匹配吗→差距决定行动。禁止"代码就是这样"作为理由。
+- **no_conflict_blending**: 暴露冲突不折中：若两种模式冲突→选其一（优先更经测试的版本）+说明理由+标记另一种为待清理。
+- **no_performative_agreement**: 先思后码。明确声明前提假设。遇不确定先提问而非猜测。存在歧义时列出多种理解路径。若存在更简方案应果断提出异议。收到需求时：①复述理解 ②提出疑问 ③说明方案 ④确认一致。
+<!-- HARNESS_CONSTRAINTS_END -->
+
+## 探索结论沉淀
+
+避免重复探索的三条规则：
+
+- **探索前**：先读目标目录的 `CONTEXT.md`（模块级耐久知识散置在各源码目录）+ `docs/plans/` 相关计划，能回答就不再重复探索。
+- **探索/实现后**：把新发现的关键事实（数据流、存储布局、调用链、坑）更新到对应源码目录 `CONTEXT.md` 的「核心导出 / 注意事项」。凡启动过调研（explore agent / 多路搜索 / 多文件排查）的任务，收尾必须按 `~/.studio/skills/exploration-sediment/SKILL.md` 的分流清单过一遍，并在交付回复中列出沉淀清单（写了哪几条、其余为何不写）。
+- **计划落盘**：非平凡任务的计划一律先写 `docs/plans/YYYY-MM-<slug>.md` 再实施。
+
+## AGENTS.md 维护
+
+- 本文件机器生成部分由 `harness sync-docs --agents` 生成；`AUTO-GENERATED:modules` 段由 `pnpm gen:agents-md`（scripts/gen-agents-md.mjs）维护；统一重建入口 `pnpm agents-md:sync`（先 harness 打底，再组合模块索引段，幂等）。机器生成段禁止手改，过时重新生成。
+- 手写内容住 `PRESERVE:*` 段（本段、Agent skills 等），重新生成原样保留；手写段的增删改走治理变更流程。
+- CI 的 `harness sync-docs --check --agents` 漂移校验对组合文件有效（模块索引段外层套 `PRESERVE:modules`，2026-07-27 治理决策起 CI 开启 `--agents`）。
+
+## 治理变更流程（#166，2026-08-16）
+
+「改规矩的规矩」——治理内容的增/删/改/弱化一视同仁，均须先过人闸再动手：
+
+- **治理内容清单**：本段（`PRESERVE:governance`）+ 其他手写 PRESERVE 段（如 `PRESERVE:agent-skills`）+ CONTEXT.md 中标「治理变更」的条目（如工单类型词表）。机器可再生的内容（AGENTS.md 生成段、模块索引、CAPABILITIES.md）不在此列——不设审批，过时重新生成，禁止手改。
+- **人闸两种情形**：人在会话中 → 改动前摆出「改哪条、为什么」，人确认才动手；无人在场（定时/事件触发） → 禁止直接改，建「待确认」状态的工单等人批准（与工单创建的人闸同一套机制，出处 #126/#130）。
+- **留痕**：commit 必带 trailer `Governance-Approved: session`（当场确认）或 `Governance-Approved: #<单号>`（走单批准）；条文旁注明出处与日期。
+- **执行**：君子协定不拦截；trailer 即合规数据源，`git log --grep Governance-Approved` 可统计合规率，机器化检查留待数据支撑后再议。
+- docs/vision-2026.md 是架构宪法：修订须逐条当人面过、全票人审，不走本流程（出处 #81）。
+
+## 发布纪律（公共面）
+
+- 长任务开发中按逻辑批次及时 `git commit`（feat/fix/chore/docs 前缀），不攒大批量未提交改动；提交直落本地 master（单票不一票一分支）。
+- 部署与发布命令由用户触发：agent 不主动执行部署/发布命令、不主动 push。
+
+## 工单类型 → 方法论索引
+
+工单类型词表见根 `CONTEXT.md`「工单类型」（增删类型 = 治理变更）。agent 按工单类型取默认方法论与产出契约；派单/解锁/打回等流转由机制承载，agent 不见机制、不判前置产出。
+
+| 工单类型 | 默认方法论 | 产出契约 |
+|---------|-----------|---------|
+| 需求 | requirement-clarify（问清楚，位1 主方法论） | spec 落业务仓 `.studio/specs/`（冻结正本） |
+| 决策单 | grilling（开图，网状决策） | 结论记录于工单；需冻结的落 `docs/adr/` |
+| spec单 | requirement-clarify 位2 质量门（spec 就绪度） | spec 过质量门，状态回写工单 |
+| 任务单 | to-tickets → tdd-implement | 子工单 + RED-GREEN 实现 + Phase commit |
+| implement | tdd-implement | 先行测试 + 实现 + Phase commit（实现 commit 引用测试 sha） |
+| review | code-review（两轴：契约轴 AC 对照 → 规范轴） | 评审结论回写工单；打回 → 修复单 |
+| analysis | research（调研）/ prototype（原型） | 报告落 `.studio/research/` 并回挂来源单；原型 = `prototype/<name>` 一次性分支（不合并、不评审）+ 结论 |
+| bug | diagnosing-bugs（诊断→复现→修复→防回归；快速路，不开图不写成文单） | 复现测试先行（FAIL 复现 → 修复 → GREEN）+ 防回归测试随修复同 commit；根因在需求/设计层 → 升级转决策单/开图，诊断事实随票携带 |
+
+### 不触发场景
+
+- 改一行 bug fix、格式调整、重命名 → 直接改
+- 用户说"直接改/直接实现" → 直接改
+- 改动 ≤ 1 文件且无 AC → 不走 tdd-implement
+- 分析/读代码阶段 → 不触发任何 Skill
+<!-- /PRESERVE:governance -->
 
 <!-- PRESERVE:modules -->
 <!-- AUTO-GENERATED:modules -->
@@ -97,37 +188,20 @@ pnpm start  # 启动生产服务
 <!-- /AUTO-GENERATED:modules -->
 <!-- /PRESERVE:modules -->
 
-<!-- PRESERVE:release-flow -->
-## 发布流程（代码写完后怎么上线）
-
-**唯一权威说明：`/root/projects/studio-config/SHIP.md`**。双轨制（2026-08-04 起）：
-
-- **日常快速部署（平时走这条）：`studio-deploy-quick`**（`~/projects/studio-config/bin/`）——本地校验（vitest --changed + harness check + sync-docs）+ 直部署生产 checkout `/root/projects/studio-prod`，3-5min 看效果，不走 PR/CI；写 `state.json mode=quick` 阻止 cron auto-deploy 覆盖；健康检查失败自动回滚 PREV（本地分支保留，不丢代码）；完成后异步 push 当前分支到 GitHub 备份。
-- **批次同步：`studio-ship`**——攒一批后手动跑：清 `mode=quick` → PR → CI → auto-merge → 盯到合并；合并后 cron 每分钟 `auto-deploy.sh` 在 studio-prod（git worktree，与开发仓解耦）部署 origin/master → 健康检查 → 失败自动回滚。
-
-- 部署状态：`studio-ship deploy-state`（state.json）或 PushPlus 微信告警
-- 部署日志：`/var/log/studio-deploy.log`
-- 本仓的任何分支/脏树/本地领先状态都**不影响**部署（2026-07-29 起）
-- **分批提交（用户要求，2026-08-04 起）**：长任务开发中按逻辑批次及时 `git commit`（feat/fix/chore/docs 前缀），不攒大批量未提交改动，避免工作丢失；**提交直落本地 master**（分支策略见父 AGENTS.md：单票不一票一分支）。`studio-deploy-quick` 与 `studio-ship` 均由用户触发，agent 不主动执行、不主动 push。
-
-### ship 前置纪律（2026-08-08 事故固化）
-
-跑 `studio-ship` 之前必须先做分叉检查（脚本步骤 1.6 已硬门禁，此处为人工纪律）：
-
-1. `git fetch origin` 刷新远端
-2. `git rev-list --count HEAD..origin/master` 必须为 0；非 0 说明远端有新合并（可能是其他会话经 work 分支上线），先确认再决定 merge/rebase，禁止直接 ship
-3. 发现大量未推送 commit（>10）时停下来向用户报告清单，确认这些 commit 是否该随本次上线，不得默认全部带上（脚本要求 `ALLOW_MANY_COMMITS=1` 显式确认）
-
-背景：本地积压 140 个 commit 与远端 PR #44/#45 的 43 个 commit 分叉，盲目 ship 产生 30+ 文件冲突的废 PR #46（已关）。
-
-日常预防：
-
-- 每轮迭代结束即 ship 或 `studio-deploy-quick`（异步推分支备份），不积压长 commit 栈
-- 多会话并行时，开工前先 fetch；上线统一走一个会话，避免 master/work 双线各自演进
-<!-- /PRESERVE:release-flow -->
-
 <!-- PRESERVE:agent-skills -->
 ## Agent skills
 
-指针见 CLAUDE.md「Agent skills」节（issue tracker / triage 标签 / domain docs 的唯一正本，由 setup-matt-pocock-skills 初始化写入；2026-08-16 归位，本段不再重复正文）。
+### Issue tracker
+
+Issues 存放在本仓库的 GitHub Issues（dommaker/studio），通过 `gh` CLI 操作。见 `docs/agents/issue-tracker.md`。
+
+### Triage labels
+
+五个标准 triage 标签原名使用（needs-triage 等）。见 `docs/agents/triage-labels.md`。
+
+### Domain docs
+
+single-context：根 `CONTEXT.md` + `docs/adr/`。见 `docs/agents/domain.md`。
+
+> 本节由 setup-matt-pocock-skills 初始化写入；2026-08-21 起唯一正本自 CLAUDE.md 归位本段（#300/#303）。
 <!-- /PRESERVE:agent-skills -->
