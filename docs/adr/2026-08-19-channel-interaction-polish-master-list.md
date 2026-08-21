@@ -56,7 +56,7 @@
 | P2 | 17 | PMO description 落错字段 + progress 口径矛盾 | 缺陷修复 | #247 F13 | S | 需求描述存进 requirement、description 恒 null 显示「无描述」；0/1 WU 阻塞却 progress=100。✅ #282 已完成（efc31476，local master，待 ship） |
 | P2 | 18 | 非 Admin 403 降级 UX | 缺陷修复 | #247 F14 | S | 左栏 Agents 恒「加载中…」+ console 403 轮询刷屏；应渲染「无权限」。✅ #283 已完成（6bfad0f2，local master，待 ship） |
 | P2 | 19 | 线程回复位置不稳定 | 缺陷修复 | #247 F17 | M | 轮询增量到达时线程回复以主消息 appended 流尾，刷新后归并线程——同一消息两种位置 |
-| P2 | 20 | 人审卡片按钮一次性锁存核查 + 高危操作二次确认 | 打磨 | #246 P2 | S | 逐个卡片核查点击到状态回流间的防重复；retract/退役类接 acknowledge→confirm 两步 |
+| P2 | 20 | 人审卡片按钮一次性锁存核查 + 高危操作二次确认 | 打磨 | #246 P2 | S | 逐个卡片核查点击到状态回流间的防重复；retract/退役类接 acknowledge→confirm 两步。✅ #288 已完成（7f9bd618，local master，待 ship；需求文档卡经核查 #278 已只读化无按钮，无需锁存） |
 | P2 | 21 | observed-top 滚动台账 + ResizeObserver 跟随 + 回到底部按钮 | 决策落地 | #248 / #246 P1 | M | 程序写 scrollTop 必记账，偏离才算读者滚动；卡片展开撑高时跟随。从 #246 P1 降到 P2：顺滑度优化，不阻塞链路 |
 | P3 | 22 | 加载更早消息改行锚点补偿 | 打磨 | #246 P2 | S | 高度差补偿法不抗加载期间高度变化；换行锚点 + 位移补偿 |
 | P3 | 23 | dev 深链/刷新 404 修复 | 缺陷修复 | #247 F3 / #259 | S | vite base=/dev/ × Router 无 basename；生产已通过，dev-only |
