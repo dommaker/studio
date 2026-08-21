@@ -27,4 +27,4 @@ lint 清零计划（`.scratch/studio-lint-zeroing/plan.md`）对 B9 批（react-
 
 ## 程序教训
 
-越过自定硬约束应当场留决策记录（leftovers 跟踪器或 docs/decisions/）。本次例外实质正确、程序缺失，本文档补录闭环。后续 lint 清零类计划如再遇「告警与真 bug 同源」的情形，先例即本文：允许例外，但必须 ① commit 如实标注新旧行为 ② 当场补决策记录。
+越过自定硬约束应当场留决策记录（leftovers 跟踪器或 docs/adr/）。本次例外实质正确、程序缺失，本文档补录闭环。后续 lint 清零类计划如再遇「告警与真 bug 同源」的情形，先例即本文：允许例外，但必须 ① commit 如实标注新旧行为 ② 当场补决策记录。

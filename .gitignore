@@ -57,8 +57,9 @@ coverage/
 # Test results (screenshots, videos)
 test-results/
 
-# Spec source (ignored)
-docs/
+# Spec source (ignored; docs/adr/ 豁免——决策记录是公共面永久导航件，须常规追踪，2026-08-21)
+docs/*
+!docs/adr/
 
 # Scratch workspace (ignored)
 .scratch/
