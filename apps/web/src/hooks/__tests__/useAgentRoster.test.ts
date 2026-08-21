@@ -236,4 +236,30 @@ describe('useAgentRoster', () => {
     await act(async () => { vi.advanceTimersByTime(ROSTER_POLL_INTERVAL_MS * 2); });
     expect(mockListAllAgents).toHaveBeenCalledTimes(1);
   });
+
+  // #283：非 Admin 访问 Admin-only monitoring 接口的降级体验
+  it('403 → forbidden 终态（不写 error），refresh 短路，轮询不再发请求', async () => {
+    const err = Object.assign(new Error('Request failed with status code 403'), { response: { status: 403 } });
+    mockGetAgentSummary.mockRejectedValue(err);
+    const { result } = renderHook(() => useAgentRoster());
+    await flush();
+    expect(result.current.forbidden).toBe(true);
+    expect(result.current.loading).toBe(false);
+    expect(result.current.error).toBeNull();
+    await act(async () => { vi.advanceTimersByTime(ROSTER_POLL_INTERVAL_MS * 2); });
+    expect(mockListAllAgents).toHaveBeenCalledTimes(1);
+    // 手动 refresh 同样被短路
+    await act(async () => { await result.current.refresh(); });
+    expect(mockListAllAgents).toHaveBeenCalledTimes(1);
+  });
+
+  it('非 403 错误 → 写 error 不置 forbidden，轮询继续', async () => {
+    mockGetAgentSummary.mockRejectedValue(new Error('boom'));
+    const { result } = renderHook(() => useAgentRoster());
+    await flush();
+    expect(result.current.error).toBe('boom');
+    expect(result.current.forbidden).toBe(false);
+    await act(async () => { vi.advanceTimersByTime(ROSTER_POLL_INTERVAL_MS); });
+    expect(mockListAllAgents).toHaveBeenCalledTimes(2);
+  });
 });

@@ -6,6 +6,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useChannelList, type ChannelListItem } from '../hooks/useChannelList';
 import { monitoringApi, type AgentSummary } from '../api/monitoring';
+import { isForbidden } from '../utils/http';
 import { agentDotClass } from '../components/channel/statusClasses';
 import { CreateChannelForm } from '../components/channel/CreateChannelForm';
 
@@ -18,6 +19,8 @@ const TYPE_LABELS: Record<string, string> = {
 export function ChannelListPage() {
   const { channels, loading, unreadCounts, clearUnread, createChannel } = useChannelList();
   const [agentSummary, setAgentSummary] = useState<AgentSummary | null>(null);
+  // #283：monitoring 接口 Admin-only，非 Admin 403 → 「无权限」终态
+  const [agentsForbidden, setAgentsForbidden] = useState(false);
   const [showNewForm, setShowNewForm] = useState(false);
   const navigate = useNavigate();
 
@@ -35,7 +38,7 @@ export function ChannelListPage() {
     let alive = true;
     monitoringApi.getAgentSummary()
       .then(r => { if (alive) setAgentSummary(r.data); })
-      .catch(() => {});
+      .catch(err => { if (alive && isForbidden(err)) setAgentsForbidden(true); });
     return () => { alive = false; };
   }, []);
 
@@ -103,7 +106,11 @@ export function ChannelListPage() {
       {/* Right: Agent status bar（真实监控数据） */}
       <div style={{ width: 224, borderLeft: '1px solid var(--border-subtle)', padding: '32px 16px', background: 'var(--bg-secondary)' }}>
         <h2 className="mc-sec-label" style={{ padding: '0 0 8px' }}>Agent 状态</h2>
-        {!agentSummary && <div className="mc-drawer-note">加载中…</div>}
+        {agentsForbidden ? (
+          <div className="mc-drawer-note">无权限查看 Agent 状态（需 Admin 权限）</div>
+        ) : (
+          !agentSummary && <div className="mc-drawer-note">加载中…</div>
+        )}
         {agentSummary?.agents.map(a => (
           <div className="mc-agent" key={a.id} style={{ padding: '4px 0' }} title={a.lastError || undefined}>
             <span className={agentDotClass(a.status)} />

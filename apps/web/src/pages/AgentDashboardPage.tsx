@@ -16,7 +16,7 @@ import {
 
 export function AgentDashboardPage() {
   const navigate = useNavigate();
-  const { roles, activities, lastDone, channelNames, loading, error, terminate } = useAgentRoster();
+  const { roles, activities, lastDone, channelNames, loading, error, forbidden, terminate } = useAgentRoster();
   // 强制停止二次确认（ui/ConfirmDialog，替代原生 window.confirm）
   const [terminateTarget, setTerminateTarget] = useState<string | null>(null);
 
@@ -63,7 +63,13 @@ export function AgentDashboardPage() {
             <div className="mt-4 p-3 rounded u-err-dim u-err text-sm">{error}</div>
           )}
 
-          {loading && roles.length === 0 ? (
+          {forbidden ? (
+            // #283：monitoring 接口 Admin-only，非 Admin 渲染「无权限」终态
+            <div className="text-center py-20 u-text-2">
+              <div className="text-4xl mb-4">🔒</div>
+              <p>无权限查看 Agent 运行数据（需 Admin 权限）</p>
+            </div>
+          ) : loading && roles.length === 0 ? (
             <div className="text-center py-20 u-text-2">加载中...</div>
           ) : roles.length === 0 ? (
             <div className="text-center py-20 u-text-2">

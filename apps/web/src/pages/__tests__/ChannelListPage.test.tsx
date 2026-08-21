@@ -80,4 +80,17 @@ describe('工单 38: ChannelListPage 创建频道 loading', () => {
     // 失败后按钮恢复可点
     await waitFor(() => expect(screen.getByText('创建').closest('button')!.disabled).toBe(false));
   });
+
+  // #283：非 Admin 访问 Admin-only monitoring 接口的降级体验
+  it('Agent 状态栏 403 → 渲染「无权限」终态而非恒加载', async () => {
+    const err = Object.assign(new Error('Request failed with status code 403'), { response: { status: 403 } });
+    mockGetAgentSummary.mockRejectedValue(err);
+    mockUseChannelList.mockReturnValue({
+      channels: [], loading: false, unreadCounts: {},
+      clearUnread: vi.fn(), createChannel: vi.fn(),
+    });
+    renderPage();
+    expect(await screen.findByText(/无权限查看 Agent 状态/)).toBeTruthy();
+    expect(screen.queryByText('加载中…')).toBeNull();
+  });
 });

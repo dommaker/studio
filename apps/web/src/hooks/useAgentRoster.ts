@@ -8,6 +8,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { monitoringApi, type AgentInfo } from '../api/monitoring';
 import { channelApi, type AgentProfile } from '../api/channel';
+import { isForbidden } from '../utils/http';
 import {
   workunitApi,
   parseExecutionStreamChunk,
@@ -39,6 +40,8 @@ export interface UseAgentRosterResult {
   channelNames: Record<string, string>;
   loading: boolean;
   error: string | null;
+  /** #283：monitoring 接口 Admin-only，非 Admin 403 → true（页面渲染「无权限」终态，轮询停止） */
+  forbidden: boolean;
   /** 手动重拉（silent=true 不闪 loading；30s 轮询与 SSE 外的兜底） */
   refresh: (silent?: boolean) => Promise<void>;
   /** 强制停止实例（POST terminate 后静默重拉；失败写入 error，不抛出） */
@@ -89,6 +92,9 @@ export function useAgentRoster(): UseAgentRosterResult {
   const [channelNames, setChannelNames] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // #283：403 是无权限终态——ref 供 refresh 闭包短路（30s 轮询不再发请求、不刷 403），state 供页面渲染「无权限」
+  const [forbidden, setForbidden] = useState(false);
+  const forbiddenRef = useRef(false);
   const rolesRef = useRef<RosterRole[]>([]);
   useEffect(() => {
     rolesRef.current = roles;
@@ -115,6 +121,7 @@ export function useAgentRoster(): UseAgentRosterResult {
   }, []);
 
   const refresh = useCallback(async (silent = false) => {
+    if (forbiddenRef.current) return;
     if (!silent) setLoading(true);
     try {
       const [profilesRes, summaryRes, channelsRes] = await Promise.all([
@@ -152,7 +159,12 @@ export function useAgentRoster(): UseAgentRosterResult {
       }));
       setLastDone(Object.fromEntries(doneEntries));
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Failed to load agents');
+      if (isForbidden(e)) {
+        forbiddenRef.current = true;
+        setForbidden(true);
+      } else {
+        setError(e instanceof Error ? e.message : 'Failed to load agents');
+      }
     } finally {
       setLoading(false);
     }
@@ -262,5 +274,5 @@ export function useAgentRoster(): UseAgentRosterResult {
     }
   }, [refresh]);
 
-  return { roles, activities, lastDone, channelNames, loading, error, refresh, terminate };
+  return { roles, activities, lastDone, channelNames, loading, error, forbidden, refresh, terminate };
 }
