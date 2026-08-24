@@ -11,7 +11,8 @@ describe('AuditorSuggestionCard B3-005', () => {
   it('ChannelMessageItem 注册 auditor_suggestion cardType', async () => {
     const { ChannelMessageItem } = await import('../channel/ChannelMessageItem');
     expect(ChannelMessageItem).toBeDefined();
-    expect(typeof ChannelMessageItem).toBe('function');
+    // #322 起经 React.memo 包装（memo 组件 typeof 为 object），注册契约不变
+    expect(['function', 'object']).toContain(typeof ChannelMessageItem);
   });
 
   it('cardType 常量一致性 — 前后端使用相同值', async () => {
