@@ -1,10 +1,10 @@
-// ExecutionSteps — WU 过程可视化：执行步事件流（思考/工具调用/skill 注入/用量），SSE 步级刷新。
+// ExecutionSteps — WU 过程可视化：执行步事件流（思考/工具调用/skill 注入/用量），SSE 负载直更（#318，无 eventTick 重拉）。
 // 频道只留里程碑，过程明细在这里；完整 transcript（会话原文）见 WU 详情页 TranscriptViewer（#174）。
 // Layer B：执行中的步内实时 chunk（SSE-only 不落盘）；REST 步级卡片落位（同 step）后实时区自动让位。
 // 消费方：WorkUnitDrawer（频道页右抽屉）、WorkUnitDetailPage（详情页）、WorkUnitListPage（/workunits 行内展开）
 // #182（决策 #61 速览档）：传 wu 时置顶「当前状态速览」节——状态 / 第 N 步·上限 M / 最近进展 / 失败原因 / 累计 token；
 // 抽屉与详情页都传 wu，两端复用同一组件避免渲染逻辑漂移；ListPage 不传则不渲染速览。
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   workunitApi,
   parseExecutionStepEvents,
@@ -13,7 +13,7 @@ import {
   type WorkUnit,
 } from '../../api/workunit';
 import { deriveDisplayState } from '@dommaker/studio-shared/web';
-import { useWorkUnitEvents } from '../../hooks/useWorkUnitEvents';
+import { useWebSocketContext } from '../../api/websocketHooks';
 import { useWorkUnitStreamEvents } from '../../hooks/useWorkUnitStreamEvents';
 import {
   deriveLiveToolRows,
@@ -94,29 +94,59 @@ function lastProgressEntry(log: unknown): { step?: number; summary: string } | n
   return null;
 }
 
+/** #318：步事件并集合并——按 executionId-step 去重（后到的覆盖），按步号升序；SSE 负载 append 与 REST 打底/重连 refetch 共用 */
+function mergeStepEvents(base: ExecutionStepEvent[], incoming: ExecutionStepEvent[]): ExecutionStepEvent[] {
+  if (incoming.length === 0) return base;
+  const byKey = new Map<string, ExecutionStepEvent>();
+  for (const s of base) byKey.set(`${s.executionId}-${s.step}`, s);
+  for (const s of incoming) byKey.set(`${s.executionId}-${s.step}`, s);
+  return [...byKey.values()].sort((a, b) => a.step - b.step || a.at.localeCompare(b.at));
+}
+
 export function ExecutionSteps({ workUnitId, wu }: { workUnitId: string; wu?: WorkUnit }) {
   const [steps, setSteps] = useState<ExecutionStepEvent[] | null>(null);
-  // WU 事件（SSE）：执行步落盘/状态变化时重拉（认领/审查/完成/执行过程即时可见）
-  const [eventTick, setEventTick] = useState(0);
-  useWorkUnitEvents(() => setEventTick(t => t + 1));
+  // #318：workunit.execution.step SSE 负载直更（对齐批 3 模式）——步结束事件负载就地 append，
+  // 替代 eventTick 防抖整组重拉；SSE 重连经 onReconnect 一次性 refetch 对齐（ADR D3：refetch 不回放）
+  const { onEvent, onReconnect } = useWebSocketContext();
+  const [refreshTick, setRefreshTick] = useState(0);
+  // 首拉（steps===null）期间到达的步事件暂存，首拉落位时并入——落盘先于 SSE，但首拉可能在途漏收
+  const pendingRef = useRef<ExecutionStepEvent[]>([]);
   // Layer B 步内流式：执行中的实时 chunk（内存态，步级 REST 卡片落位后自动让位）
   const liveChunks = useWorkUnitStreamEvents(workUnitId);
 
-  // 渲染期按 workUnitId 重置（替代原 effect 内同步重置）：SSE eventTick 重拉不再清空 steps，
-  // 消除每次事件都闪"加载中…"的闪烁——事件刷新静默进行，旧列表留到新数据到达
+  // 渲染期按 workUnitId 重置（替代原 effect 内同步重置）：SSE 负载 append 不清空 steps，
+  // 消除事件闪"加载中…"的闪烁——事件刷新静默进行，旧列表留到新数据到达
   const [prevWorkUnitId, setPrevWorkUnitId] = useState(workUnitId);
   if (prevWorkUnitId !== workUnitId) {
     setPrevWorkUnitId(workUnitId);
     setSteps(null);
+    pendingRef.current = [];
   }
+
+  useEffect(() => onEvent((msg) => {
+    if (msg.event_type !== 'workunit.execution.step') return;
+    const [ev] = parseExecutionStepEvents([{ payload: msg.data }], workUnitId);
+    if (!ev) return;
+    setSteps(prev => {
+      if (prev === null) { pendingRef.current.push(ev); return prev; }
+      return mergeStepEvents(prev, [ev]);
+    });
+  }), [onEvent, workUnitId]);
+
+  useEffect(() => onReconnect(() => setRefreshTick(t => t + 1)), [onReconnect]);
 
   useEffect(() => {
     let alive = true;
     workunitApi.listExecutionStepEvents(workUnitId)
-      .then(r => { if (alive) setSteps(parseExecutionStepEvents(r.data.events || [], workUnitId)); })
+      .then(r => {
+        if (!alive) return;
+        const loaded = parseExecutionStepEvents(r.data.events || [], workUnitId);
+        setSteps(mergeStepEvents(loaded, pendingRef.current));
+        pendingRef.current = [];
+      })
       .catch(() => { if (alive) setSteps([]); });
     return () => { alive = false; };
-  }, [workUnitId, eventTick]);
+  }, [workUnitId, refreshTick]);
 
   return (
     <>
