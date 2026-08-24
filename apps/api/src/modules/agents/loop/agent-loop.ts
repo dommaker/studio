@@ -22,7 +22,7 @@ import { eventStore } from '../../../core/event-store.js';
 import { postWuSystemMessage } from '../../workunit/wu-messenger.js';
 import type { MessageMeta } from '../../channels/channel-message.service.js';
 import { withBlockedCta } from '../../workunit/blocked-cta.js';
-import { parseWuMetadata, parseWuTitle, mergedWuView } from '../../workunit/wu-metadata.js';
+import { parseWuMetadata, mergedWuView } from '../../workunit/wu-metadata.js';
 import { hasUnfinishedDeps, buildStatusById } from '../../workunit/wu-dependencies.js';
 import { resolveWorkspaceRoot } from '../../workspaces/workspace-store.js';
 import { resolvePmoBranchForWU } from '../../requirements/pmo-branch-resolver.js';
@@ -33,6 +33,7 @@ import {
   notifyBudgetTripped,
 } from './daily-token-budget.js';
 import { emitExecutionStepEvent, emitExecutionStreamLine, emitExecutionStreamStepStart, emitWorkUnitFailedEvent } from './execution-step-events.js';
+import { loadCurrentWuContexts } from '../../monitoring/current-wu-context.js';
 import { CODE_WORKTREE_TYPES, runWuVerification } from './wu-verification.js';
 import { runCompletionGuards } from './completion-gates.js';
 import { parseMapOpening } from '../../pmo/map-opening.js';
@@ -339,6 +340,9 @@ export class AgentLoop {
         currentWorkUnitId: null,
         currentWorkUnit: null,
         channelId: null,
+        // #318（additive）：与 publishInstanceStatus 负载同形状
+        pmo: null,
+        startedAt: now,
         lastError: message,
         lastErrorAt: now,
       },
@@ -540,6 +544,8 @@ export class AgentLoop {
    * #312（SSE 事件负载契约体检）：负载 additive 带 currentWorkUnit 快照（逐字段对齐
    * getAgentSummary：title = metadata.title ?? scope；悬空 WU → null，裸 currentWorkUnitId
    * 保留）+ channelId（当前 WU 所在频道，无当前 WU → null）+ lastError/lastErrorAt。
+   * #318：负载再添 pmo 快照 + startedAt；WU 聚合上下文改走共享出口
+   * （monitoring/current-wu-context，与 getAgentSummary 同源，claimedAt 快照原样透传）。
    * WU 查询失败/不存在不阻断发布（快照 null 兜底），调用方 fire-and-forget。
    */
   private async publishInstanceStatus(status: string, currentWorkUnitId: string | null): Promise<void> {
@@ -547,8 +553,14 @@ export class AgentLoop {
     this.lastPublishedStatus = status;
     const instance = this.instance;
     try {
-      const wu = currentWorkUnitId
-        ? await this.workUnitService.getById(currentWorkUnitId).catch(() => null)
+      // #318：WU 聚合上下文走共享出口（current-wu-context，与 getAgentSummary 同源）——
+      // 负载 additive 补 pmo 快照；claimedAt 改快照原样透传（对齐 getAgentSummary 口径）。
+      // projects 读取失败不阻断发布（pmo null 兜底），调用方 fire-and-forget。
+      const ctx = currentWorkUnitId
+        ? (await loadCurrentWuContexts(this.fileStore, [currentWorkUnitId], async () => {
+            const mod = await import('../../pmo/project.service.js');
+            return mod.projectService.list({ limit: 100000 });
+          }).catch(() => new Map())).get(currentWorkUnitId) ?? null
         : null;
       eventStore.publish('events', JSON.stringify({
         event_type: 'agent.instance.status_changed',
@@ -560,14 +572,11 @@ export class AgentLoop {
           name: this.role.name,
           status,
           currentWorkUnitId,
-          currentWorkUnit: wu ? {
-            id: wu.id,
-            title: parseWuTitle(wu.metadata, wu.scope),
-            type: wu.type,
-            status: wu.status,
-            claimedAt: wu.claimedAt ? wu.claimedAt.toISOString() : null,
-          } : null,
-          channelId: wu?.channelId ?? null,
+          currentWorkUnit: ctx?.currentWorkUnit ?? null,
+          channelId: ctx?.channelId ?? null,
+          // #318（additive）：归属 PMO 快照 + instance 启动时刻（AgentDetailPage 就地更新）
+          pmo: ctx?.pmo ?? null,
+          startedAt: instance.startedAt ?? null,
           lastError: instance.lastError ?? null,
           lastErrorAt: instance.lastErrorAt ?? null,
         },
