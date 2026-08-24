@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { deriveDisplayState } from '@dommaker/studio-shared/web';
 import { Modal } from '../ui/Modal';
 import { requirementApi, type RequirementChain } from '../../api/requirements';
+import { AssigneeLabel } from '../workunit/AssigneeLabel';
 
 const reqStatusLabels: Record<string, string> = {
   open: '未开始',
@@ -102,7 +103,7 @@ export function RequirementChainPanel({ reqId, onClose }: Props) {
                     </span>
                     <span className="truncate" style={{ color: 'var(--text-primary)' }}>{wu.title}</span>
                     {wu.assigneeId && (
-                      <span className="text-xs u-text-3 flex-shrink-0">@{wu.assigneeId.slice(0, 8)}</span>
+                      <AssigneeLabel assigneeId={wu.assigneeId} className="text-xs u-text-3 flex-shrink-0" />
                     )}
                   </li>
                   );

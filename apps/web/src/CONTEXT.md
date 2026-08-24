@@ -21,6 +21,7 @@ Web 前端主源码。路由、全局状态、API 客户端、UI 组件、样式
 | `WebSocketProvider` | `api/websocket.tsx` | SSE Context Provider，根部唯一 EventSource |
 | `useWorkUnitEvents` / `useWorkUnitStreamEvents` | `hooks/` | WU SSE 事件 / 步内流式订阅 |
 | `useAgentRoster` | `hooks/useAgentRoster.ts` | Agent 作战视图：名册 + SSE 路由 + 轮询 |
+| `useAssigneeDisplay` / `AssigneeLabel` | `hooks/useAssigneeDisplay.ts` / `components/workunit/AssigneeLabel.tsx` | 负责人 instance id → 角色名解析（运行实例→离线实例 profile→短 UUID），WU 详情/抽屉/REQ 链路共用 |
 | `useChannelList` / `useChannelLiveExecutions` / `useDetectedProviders` | `hooks/` | 频道列表 / live 执行 / provider 探测 |
 | `NeedsAttentionSection` | `components/monitoring/` | 监控页「需要处理」区 |
 | `ProjectMap` / `NextActionCard` | `components/pmo/ProjectMap.tsx` | PMO 地图 + 下一个该干什么 |
@@ -37,7 +38,7 @@ Web 前端主源码。路由、全局状态、API 客户端、UI 组件、样式
 - **SSE 单连接**：全应用仅根部 `WebSocketProvider` 建一个 EventSource（/events/stream），禁止开第二条。
 - **视觉体系**：`theme.css` 深色变量 + `mission-control.css` 三栏布局（mc-*）与工具类（u-*）。禁止写死浅色 Tailwind 类。规范：`docs/specs/ui/style-guide.md`。
 - **频道工作区** = 左 ChannelRail / 中对话流 / 右 WorkUnitDrawer。消息分侧：人类右气泡、agent 左文档流、系统居中。
-- **频道流滚动**（#289）：程序写 scrollTop 必记 observed-top 台账（ChannelDetailPage `scrollStreamTo`），钉底/归属/跟随判定走 `utils/streamFollow.ts` 纯函数；ResizeObserver 跟随撑高，离底浮「回到底部」。
+- **频道流滚动**（#289/#290）：程序写 scrollTop 必记 observed-top 台账（ChannelDetailPage `scrollStreamTo`），钉底/归属/跟随/行锚点判定走 `utils/streamFollow.ts` 纯函数（钉底阈值 `FOLLOW_THRESHOLD_PX=24`）；加载更早 = 行锚点补偿（`data-message-id` 首个可见行位移校正，非高度差）；阅读位置按频道持久化 localStorage（`utils/readingPosition.ts`，切频道/卸载存档，钉底存 null）；ResizeObserver 跟随撑高，离底浮「回到底部」。
 - **WU 详情页**（`/workunits/:id`）= 跳转枢纽：Header -> 归属条 -> 证据台账 -> ExecutionSteps -> TranscriptViewer -> DiscussionPanel。
 - **Router basename**（#275/#291）：`main.tsx` 接 `import.meta.env.BASE_URL`（dev=`/dev/`、生产=`/`），深链/刷新依赖此对齐；路由层回归测试 `__tests__/App-basename.test.tsx`。
 - **F6 铁律**：WU 状态/证据展示一律过 `deriveDisplayState()`（`@dommaker/studio-shared`）。

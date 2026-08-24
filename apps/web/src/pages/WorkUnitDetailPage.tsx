@@ -9,7 +9,7 @@ import { workunitApi, type Opportunity, type WorkUnit } from '../api/workunit';
 import { requirementApi } from '../api/requirements';
 import { projectApi } from '../api/index';
 import { channelApi } from '../api/channel';
-import { monitoringApi } from '../api/monitoring';
+import { AssigneeLabel } from '../components/workunit/AssigneeLabel';
 import { ExecutionSteps } from '../components/workunit/ExecutionSteps';
 import { BlockedActions } from '../components/workunit/BlockedActions';
 import { TranscriptViewer } from '../components/workunit/TranscriptViewer';
@@ -87,7 +87,6 @@ export function WorkUnitDetailPage() {
   const [error, setError] = useState('');
   const [pmo, setPmo] = useState<PmoInfo | null>(null);
   const [channelName, setChannelName] = useState<string | null>(null);
-  const [assignee, setAssignee] = useState<{ name: string; roleId: string } | null>(null);
   const [chainReqId, setChainReqId] = useState<string | null>(null);
   const [showTreeTokens, setShowTreeTokens] = useState(false);
   // #185：blocked 处置动作成功后 +1 触发重拉详情
@@ -106,7 +105,6 @@ export function WorkUnitDetailPage() {
     setError('');
     setPmo(null);
     setChannelName(null);
-    setAssignee(null);
   }
 
   useEffect(() => {
@@ -124,16 +122,6 @@ export function WorkUnitDetailPage() {
             .then(res => {
               if (!alive) return;
               setChannelName(res.data.data.find(c => c.id === unit.channelId)?.name ?? null);
-            })
-            .catch(() => { /* best-effort */ });
-        }
-        if (unit.assigneeId) {
-          // assigneeId 是 instance id：按 id 匹配 /monitoring/agents 拿角色名与 roleId
-          monitoringApi.getAgentSummary()
-            .then(res => {
-              if (!alive) return;
-              const a = res.data.agents.find(a => a.id === unit.assigneeId);
-              setAssignee(a ? { name: a.name, roleId: a.roleId } : null);
             })
             .catch(() => { /* best-effort */ });
         }
@@ -276,22 +264,10 @@ export function WorkUnitDetailPage() {
                     </Link>
                   )}
                   {wu.assigneeId && (
-                    assignee ? (
-                      <Link
-                        to={`/agents/${assignee.roleId}`}
-                        className="text-xs px-2 py-0.5 rounded u-surface-2 u-text-3 u-hover-bg"
-                        title="认领 Agent"
-                      >
-                        @{assignee.name}
-                      </Link>
-                    ) : (
-                      <span
-                        className="text-xs px-2 py-0.5 rounded u-surface-2 u-text-3"
-                        title="认领 Agent（实例不在当前运行列表，无法定位角色）"
-                      >
-                        @{wu.assigneeId.slice(0, 8)}
-                      </span>
-                    )
+                    <AssigneeLabel
+                      assigneeId={wu.assigneeId}
+                      className="text-xs px-2 py-0.5 rounded u-surface-2 u-text-3 u-hover-bg"
+                    />
                   )}
                 </div>
               )}

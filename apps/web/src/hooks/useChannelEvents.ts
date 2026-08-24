@@ -88,17 +88,20 @@ export function useChannelMessages(channelId: string | undefined) {
     return msg;
   }, [channelId]);
 
-  const loadMore = useCallback(async () => {
-    if (!channelId || !hasMore) return;
+  // #290（清单 #22）：返回是否真实前插（供调用方在失败/无更多时清理行锚点，防视口乱跳）
+  const loadMore = useCallback(async (): Promise<boolean> => {
+    if (!channelId || !hasMore) return false;
     const oldest = messages[0];
-    if (!oldest) return;
+    if (!oldest) return false;
     try {
       const res = await channelApi.listMessages(channelId, { before: oldest.createdAt });
       const older = res.data.data;
       setMessages(prev => [...older, ...prev]);
       setHasMore(res.data.hasMore);
+      return older.length > 0;
     } catch (err) {
       console.error('[Channel] Failed to load more', err);
+      return false;
     }
   }, [channelId, hasMore, messages]);
 

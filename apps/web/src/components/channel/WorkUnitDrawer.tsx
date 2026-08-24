@@ -21,6 +21,7 @@ import { EvidenceLedger } from '../workunit/EvidenceLedger';
 import { AnalysisApproveDialog } from '../pmo/AnalysisApproveDialog';
 import { buildMapOpeningPrefill } from '../pmo/mapUtils';
 import { deriveDisplayState, parseAttestations } from '@dommaker/studio-shared/web';
+import { AssigneeLabel } from '../workunit/AssigneeLabel';
 
 export type DrawerState =
   // #284（决策 #250 D6）：autoApprove = analysis_confirm 接力卡「去确认」的「打开即弹」入参
@@ -240,7 +241,8 @@ function WuDetail({ id, autoApprove = false, onOpenReq }: { id: string; autoAppr
         <span className="mc-drawer-subject-title">{title}</span>
       </div>
 
-      <div className="mc-kv"><span className="mc-kv-k">负责人</span><span className="mc-kv-v">{wu.assigneeId ? `@${wu.assigneeId}` : '—'}</span></div>
+      {/* #290（清单 #24）：负责人解析为角色名并链角色页（与详情页同一 hook 口径），查不到回退短 UUID */}
+      <div className="mc-kv"><span className="mc-kv-k">负责人</span><span className="mc-kv-v">{wu.assigneeId ? <AssigneeLabel assigneeId={wu.assigneeId} className="mc-wu-link" /> : '—'}</span></div>
       <div className="mc-kv">
         <span className="mc-kv-k">所属 REQ</span>
         <span className="mc-kv-v">
@@ -519,7 +521,7 @@ function ReqChain({ id, onOpenWu }: { id: string; onOpenWu: (wuId: string) => vo
                 {WU_STATUS_LABELS[deriveWuColumn(wu)] ?? deriveWuColumn(wu)}
               </span>
               <span className="mc-mono">{wu.id}</span>
-              {wu.assigneeId && <span className="mc-dim" style={{ marginLeft: 'auto' }}>@{wu.assigneeId.slice(0, 8)}</span>}
+              {wu.assigneeId && <AssigneeLabel assigneeId={wu.assigneeId} className="mc-dim" style={{ marginLeft: 'auto' }} />}
             </div>
             <div className="mc-chain-node-title">{wu.title}</div>
           </button>

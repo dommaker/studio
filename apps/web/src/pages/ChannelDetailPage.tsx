@@ -7,7 +7,8 @@ import { useChannelLiveExecutions } from '../hooks/useChannelLiveExecutions';
 import { shortWuId } from '../utils/id';
 import { ChannelMessageItem } from '../components/channel/ChannelMessageItem';
 import { parseMeta } from '../utils/messageMeta';
-import { isPinnedToBottom, isReaderScroll, shouldFollowBottom } from '../utils/streamFollow';
+import { isPinnedToBottom, isReaderScroll, shouldFollowBottom, captureFirstVisibleAnchor, anchorScrollDelta, type ScrollAnchor, type MessageRowRect } from '../utils/streamFollow';
+import { loadReadingPosition, saveReadingPosition } from '../utils/readingPosition';
 import { ChannelInput } from '../components/channel/ChannelInput';
 import { ChannelMemberManager } from '../components/channel/ChannelMemberManager';
 import { ChannelDefaultProjectSelect } from '../components/channel/ChannelDefaultProjectSelect';
@@ -174,10 +175,11 @@ export function ChannelDetailPage() {
 
   // 消息流滚动管理（仿 QQ/微信；#289 落地 dsh observed-top 台账方案）：
   // 打开定位最新；程序写 scrollTop 必记 observedTopRef 台账，scroll 事件偏离台账才算读者滚动；
-  // 新消息仅在钉底中或自己发送时跟随；ResizeObserver 跟随卡片展开等撑高；离底浮出「回到底部」
+  // 新消息仅在钉底中或自己发送时跟随；ResizeObserver 跟随卡片展开等撑高；离底浮出「回到底部」；
+  // #290（清单 #22/#27）：加载更早走行锚点补偿（不依赖总高度差）；阅读位置按频道持久化（localStorage）
   const streamRef = useRef<HTMLDivElement>(null);
   const streamInnerRef = useRef<HTMLDivElement>(null);
-  const scrollStateRef = useRef({ initial: true, preserve: false, prevHeight: 0 });
+  const scrollStateRef = useRef<{ initial: boolean; anchor: ScrollAnchor | null }>({ initial: true, anchor: null });
   // observed-top 台账：记录最近一次程序写入落地后的 scrollTop（记 clamp 后实际值）
   const observedTopRef = useRef<number | null>(null);
   // 钉底状态只由读者滚动改写（几何判定见 streamFollow 纯函数）
@@ -186,6 +188,9 @@ export function ChannelDetailPage() {
   // 「自己发送」挂起标记：发送动作到消息落地之间的窗口置位，跟随判定据此识别自己的消息
   // （消息模型只有 authorType 无 authorId，无法精确到人；窗口内他人 human 消息会被误判为自发，可接受）
   const ownSendPendingRef = useRef(false);
+  // #290（清单 #27）：阅读位置存档按 channelId 懒读（useLayoutEffect 早于 useEffect，
+  // 挂载首帧被动 effect 还没跑，存档读取放在恢复分支里同步进行）
+  const restoreRef = useRef<{ channelId: string | undefined; pos: { mid: string; top: number } | null | undefined } | null>(null);
 
   // 程序滚动统一入口：写入并记账
   const scrollStreamTo = useCallback((top: number) => {
@@ -193,6 +198,27 @@ export function ChannelDetailPage() {
     if (!el) return;
     el.scrollTop = top;
     observedTopRef.current = el.scrollTop;
+  }, []);
+
+  // 捕获首个可见消息行作锚点（视口相对坐标；几何判定走 streamFollow 纯函数）
+  const captureAnchor = useCallback((): ScrollAnchor | null => {
+    const el = streamRef.current;
+    if (!el) return null;
+    const containerTop = el.getBoundingClientRect().top;
+    const rows: MessageRowRect[] = Array.from(el.querySelectorAll('[data-message-id]')).map(node => {
+      const rect = node.getBoundingClientRect();
+      return { mid: node.getAttribute('data-message-id')!, top: rect.top - containerTop, bottom: rect.bottom - containerTop };
+    });
+    return captureFirstVisibleAnchor(rows);
+  }, []);
+
+  // 锚行当前视口相对 top（找不到返回 null：锚消息被清理/未渲染）
+  const anchorRowTop = useCallback((mid: string): number | null => {
+    const el = streamRef.current;
+    if (!el) return null;
+    const row = el.querySelector(`[data-message-id="${mid}"]`);
+    if (!row) return null;
+    return row.getBoundingClientRect().top - el.getBoundingClientRect().top;
   }, []);
 
   const pinAndJumpToBottom = useCallback(() => {
@@ -216,36 +242,53 @@ export function ChannelDetailPage() {
     observedTopRef.current = el.scrollTop;
   }, []);
 
-  // 切换频道后，下一批消息到达时重新定位到底部
+  // 切换频道：下一批消息到达时按存档恢复阅读位置（无存档/钉底则定位底部）；
+  // cleanup（切走/卸载，此时 DOM 仍是旧频道消息）存档旧频道阅读位置——钉底存 null，否则记首个可见行
   useEffect(() => {
+    const currentId = id;
     scrollStateRef.current.initial = true;
     ownSendPendingRef.current = false;
-  }, [id]);
+    return () => {
+      if (!currentId) return;
+      saveReadingPosition(currentId, pinnedRef.current ? null : captureAnchor());
+    };
+  }, [id, captureAnchor]);
 
-  const handleLoadMore = useCallback(() => {
-    const el = streamRef.current;
-    if (el) {
-      scrollStateRef.current.preserve = true;
-      scrollStateRef.current.prevHeight = el.scrollHeight;
-    }
-    loadMore();
-  }, [loadMore]);
+  // #290（清单 #22）：行锚点补偿——记录首个可见消息行；失败/无更多时清锚点防视口乱跳
+  const handleLoadMore = useCallback(async () => {
+    scrollStateRef.current.anchor = captureAnchor();
+    const prepended = await loadMore();
+    if (!prepended) scrollStateRef.current.anchor = null;
+  }, [loadMore, captureAnchor]);
 
   useLayoutEffect(() => {
     const el = streamRef.current;
     if (!el || messages.length === 0) return;
     const state = scrollStateRef.current;
-    // 前插了更早的消息：按高度差补偿，视口停留在原消息
-    if (state.preserve) {
-      state.preserve = false;
-      scrollStreamTo(el.scrollTop + (el.scrollHeight - state.prevHeight));
+    // 前插了更早的消息：按锚行位移校正，视口停留在原消息行（不依赖总高度差，抗加载期异步撑高）
+    if (state.anchor) {
+      const anchor = state.anchor;
+      state.anchor = null;
+      const newTop = anchorRowTop(anchor.mid);
+      if (newTop !== null) scrollStreamTo(el.scrollTop + anchorScrollDelta(anchor.top, newTop));
       return;
     }
-    // 初次加载完成：直接定位到最新一条
+    // 初次加载完成：有阅读位置存档恢复锚行；无存档/钉底存档/锚行已不在则定位底部
     if (state.initial) {
       if (!loading) {
         state.initial = false;
-        pinAndJumpToBottom();
+        if (restoreRef.current?.channelId !== id) {
+          restoreRef.current = { channelId: id, pos: id ? loadReadingPosition(id) : undefined };
+        }
+        const restore = restoreRef.current.pos;
+        const restoreTop = restore ? anchorRowTop(restore.mid) : null;
+        if (restore && restoreTop !== null) {
+          pinnedRef.current = false;
+          setShowJumpToBottom(true);
+          scrollStreamTo(el.scrollTop + anchorScrollDelta(restore.top, restoreTop));
+        } else {
+          pinAndJumpToBottom();
+        }
       }
       return;
     }
@@ -256,7 +299,7 @@ export function ChannelDetailPage() {
     if (shouldFollowBottom(pinnedRef.current, lastIsOwn)) {
       pinAndJumpToBottom();
     }
-  }, [messages, loading, scrollStreamTo, pinAndJumpToBottom]);
+  }, [messages, loading, scrollStreamTo, pinAndJumpToBottom, anchorRowTop]);
 
   // ResizeObserver 跟随：卡片展开/图片加载撑高内容、composer 撑高压缩视口时，钉底中则跟随
   useEffect(() => {
