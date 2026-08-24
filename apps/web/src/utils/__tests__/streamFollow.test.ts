@@ -7,6 +7,8 @@ import {
   isPinnedToBottom,
   isReaderScroll,
   shouldFollowBottom,
+  captureFirstVisibleAnchor,
+  anchorScrollDelta,
 } from '../streamFollow';
 
 describe('distanceFromBottom', () => {
@@ -66,5 +68,54 @@ describe('shouldFollowBottom — 新消息到达时的跟随判定', () => {
 
   it('未钉底但最后一条是自己发的：强制跟随', () => {
     expect(shouldFollowBottom(false, true)).toBe(true);
+  });
+});
+
+describe('FOLLOW_THRESHOLD_PX — #290（清单 #27）阈值收紧', () => {
+  it('收紧到 24px 量级', () => {
+    expect(FOLLOW_THRESHOLD_PX).toBe(24);
+  });
+
+  it('向上翻 80px 以内阅读上文不再判钉底', () => {
+    const s = { scrollTop: 1000 - 80 - 50, scrollHeight: 1000, clientHeight: 80 }; // 距底 50
+    expect(isPinnedToBottom(s)).toBe(false);
+  });
+});
+
+describe('captureFirstVisibleAnchor — #290（清单 #22）行锚点捕获', () => {
+  const rows = [
+    { mid: 'm1', top: -120, bottom: -20 },  // 完全在视口上方
+    { mid: 'm2', top: -10, bottom: 60 },    // 首条可见（部分露出）
+    { mid: 'm3', top: 62, bottom: 150 },
+  ];
+
+  it('取首条底部越过视口顶的行（部分露出也算可见）', () => {
+    expect(captureFirstVisibleAnchor(rows)).toEqual({ mid: 'm2', top: -10 });
+  });
+
+  it('支持自定义视口顶（读者已向下滚动时）', () => {
+    expect(captureFirstVisibleAnchor(rows, 70)).toEqual({ mid: 'm3', top: 62 });
+  });
+
+  it('空列表返回 null', () => {
+    expect(captureFirstVisibleAnchor([])).toBeNull();
+  });
+
+  it('全部行都在视口上方时返回 null', () => {
+    expect(captureFirstVisibleAnchor(rows, 999)).toBeNull();
+  });
+});
+
+describe('anchorScrollDelta — #290（清单 #22）位移补偿量', () => {
+  it('prepend 后锚行下移 300px → scrollTop 补偿 +300', () => {
+    expect(anchorScrollDelta(-10, 290)).toBe(300);
+  });
+
+  it('锚行位置不变 → 补偿 0', () => {
+    expect(anchorScrollDelta(42, 42)).toBe(0);
+  });
+
+  it('锚行上移（加载期间内容收缩）→ 负补偿', () => {
+    expect(anchorScrollDelta(100, 60)).toBe(-40);
   });
 });

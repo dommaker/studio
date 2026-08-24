@@ -3,6 +3,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { RequirementChainPanel } from '../RequirementChainPanel';
 import { requirementApi, type RequirementChain } from '../../../api/requirements';
 
@@ -10,7 +11,25 @@ vi.mock('../../../api/requirements', () => ({
   requirementApi: { getChain: vi.fn() },
 }));
 
+// #290（清单 #24）：WU 节点负责人走 AssigneeLabel（Link + useAssigneeDisplay），默认「查无」
+vi.mock('../../../api/monitoring', () => ({
+  monitoringApi: {
+    getAgentSummary: vi.fn().mockResolvedValue({ data: { agents: [], summary: { total: 0, idle: 0, active: 0, error: 0, terminated: 0 } } }),
+    getAgentInstance: vi.fn().mockRejectedValue(new Error('404')),
+  },
+}));
+vi.mock('../../../api/channel', () => ({
+  channelApi: { listAllAgents: vi.fn().mockResolvedValue({ data: { data: [] } }) },
+}));
+
 beforeEach(() => vi.clearAllMocks());
+
+const renderPanel = (reqId: string | null, onClose: () => void) =>
+  render(
+    <MemoryRouter>
+      <RequirementChainPanel reqId={reqId} onClose={onClose} />
+    </MemoryRouter>,
+  );
 
 const chainFixture: RequirementChain = {
   requirement: {
@@ -31,7 +50,7 @@ const chainFixture: RequirementChain = {
 describe('RequirementChainPanel', () => {
   it('renders requirement info and workunit chain from getChain', async () => {
     vi.mocked(requirementApi.getChain).mockResolvedValue({ data: { data: chainFixture } } as unknown as Awaited<ReturnType<typeof requirementApi.getChain>>);
-    render(<RequirementChainPanel reqId="REQ-0042" onClose={() => {}} />);
+    renderPanel('REQ-0042', () => {});
     await waitFor(() => screen.getByText(/忘记密码流程修复/));
     expect(requirementApi.getChain).toHaveBeenCalledWith('REQ-0042');
     expect(screen.getAllByText(/REQ-0042/).length).toBeGreaterThan(0);
@@ -41,14 +60,14 @@ describe('RequirementChainPanel', () => {
 
   it('shows error state when the chain request fails', async () => {
     vi.mocked(requirementApi.getChain).mockRejectedValue(new Error('not found'));
-    render(<RequirementChainPanel reqId="REQ-9999" onClose={() => {}} />);
+    renderPanel('REQ-9999', () => {});
     await waitFor(() => screen.getByText(/失败|错误|not found/i));
   });
 
   it('calls onClose when the close control is clicked', async () => {
     vi.mocked(requirementApi.getChain).mockResolvedValue({ data: { data: chainFixture } } as unknown as Awaited<ReturnType<typeof requirementApi.getChain>>);
     const onClose = vi.fn();
-    render(<RequirementChainPanel reqId="REQ-0042" onClose={onClose} />);
+    renderPanel('REQ-0042', onClose);
     await waitFor(() => screen.getByText(/忘记密码流程修复/));
     const btn = screen.getByRole('button', { name: /关闭|✕/ });
     fireEvent.click(btn);
@@ -56,7 +75,7 @@ describe('RequirementChainPanel', () => {
   });
 
   it('does not fetch when reqId is null', () => {
-    render(<RequirementChainPanel reqId={null} onClose={() => {}} />);
+    renderPanel(null, () => {});
     expect(requirementApi.getChain).not.toHaveBeenCalled();
   });
 });

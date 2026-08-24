@@ -2,7 +2,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
-const { mockWuGet, mockListTokenEvents, mockListExecSteps, mockReviewPassed, mockReviewRejected, mockGetChain, mockGetOverhead, mockStreamChunks, mockResume, mockClose, mockChannelGet } = vi.hoisted(() => ({
+const { mockWuGet, mockListTokenEvents, mockListExecSteps, mockReviewPassed, mockReviewRejected, mockGetChain, mockGetOverhead, mockStreamChunks, mockResume, mockClose, mockChannelGet, mockGetAgentSummary, mockGetAgentInstance, mockListAllAgents } = vi.hoisted(() => ({
   mockWuGet: vi.fn(),
   mockListTokenEvents: vi.fn(),
   mockListExecSteps: vi.fn(),
@@ -14,6 +14,9 @@ const { mockWuGet, mockListTokenEvents, mockListExecSteps, mockReviewPassed, moc
   mockResume: vi.fn(),
   mockClose: vi.fn(),
   mockChannelGet: vi.fn(),
+  mockGetAgentSummary: vi.fn(),
+  mockGetAgentInstance: vi.fn(),
+  mockListAllAgents: vi.fn(),
 }));
 
 vi.mock('../../../api/workunit', async () => {
@@ -37,7 +40,12 @@ vi.mock('../../../api/requirements', () => ({
 }));
 
 vi.mock('../../../api/monitoring', () => ({
-  monitoringApi: { getOverhead: mockGetOverhead },
+  monitoringApi: {
+    getOverhead: mockGetOverhead,
+    // #290（清单 #24）：负责人解析（AssigneeLabel → useAssigneeDisplay）
+    getAgentSummary: mockGetAgentSummary,
+    getAgentInstance: mockGetAgentInstance,
+  },
 }));
 
 // #275（#251 断点2）：WU 抽屉「#频道名」回频道入口——频道名取自 channelApi.get
@@ -45,7 +53,11 @@ vi.mock('../../../api/channel', async () => {
   const actual = await vi.importActual('../../../api/channel');
   return {
     ...actual,
-    channelApi: { ...(actual as { channelApi: object }).channelApi, get: mockChannelGet },
+    channelApi: {
+      ...(actual as { channelApi: object }).channelApi,
+      get: mockChannelGet,
+      listAllAgents: mockListAllAgents,
+    },
   };
 });
 
@@ -153,6 +165,12 @@ describe('WorkUnitDrawer', () => {
     mockGetChain.mockResolvedValue({ data: { data: CHAIN } });
     mockStreamChunks.mockReturnValue([]);
     mockChannelGet.mockResolvedValue({ data: { data: { id: 'ch-1', name: '研发', type: 'dev' } } });
+    // #290（清单 #24）：负责人解析默认「查无」——摘要空、实例档案 404、profile 列表空
+    mockGetAgentSummary.mockResolvedValue({
+      data: { agents: [], summary: { total: 0, idle: 0, active: 0, error: 0, terminated: 0 } },
+    });
+    mockGetAgentInstance.mockRejectedValue(new Error('404'));
+    mockListAllAgents.mockResolvedValue({ data: { data: [] } });
   });
 
   it('renders nothing when drawer is null', () => {
@@ -167,6 +185,35 @@ describe('WorkUnitDrawer', () => {
     expect(screen.getByText('@coder-1')).toBeTruthy();
     expect(screen.getByText('REQ-0042 ›')).toBeTruthy();
     expect(screen.getByText('7')).toBeTruthy(); // stepCount
+  });
+
+  // #290（清单 #24）：负责人行三级解析口径（与 WU 详情页同一 hook）
+  it('#290 负责人解析到角色名：显示 @角色名 并链到 /agents/:roleId', async () => {
+    mockGetAgentSummary.mockResolvedValue({
+      data: {
+        agents: [{ id: 'coder-1', roleId: 'role-coder', name: 'Coder', status: 'idle', currentWorkUnitId: null, startedAt: '2026-07-19T08:00:00Z' }],
+        summary: { total: 1, idle: 1, active: 0, error: 0, terminated: 0 },
+      },
+    });
+    renderDrawer({ kind: 'wu', id: 'WU-1017' });
+    const link = await screen.findByText('@Coder');
+    expect(link.closest('a')?.getAttribute('href')).toBe('/agents/role-coder');
+    expect(screen.queryByText('@coder-1')).toBeNull();
+  });
+
+  it('#290 负责人为离线实例：经实例档案 roleId + profile 名回退解析', async () => {
+    mockGetAgentInstance.mockResolvedValue({ data: { id: 'coder-1', roleId: 'role-coder', status: 'terminated' } });
+    mockListAllAgents.mockResolvedValue({ data: { data: [{ id: 'role-coder', name: 'Coder' }] } });
+    renderDrawer({ kind: 'wu', id: 'WU-1017' });
+    const link = await screen.findByText('@Coder');
+    expect(link.closest('a')?.getAttribute('href')).toBe('/agents/role-coder');
+  });
+
+  it('#290 负责人查无对应角色：回退短 UUID 且不可点', async () => {
+    renderDrawer({ kind: 'wu', id: 'WU-1017' });
+    const chip = await screen.findByText('@coder-1'); // 'coder-1' 截 8 位仍为其本身
+    await waitFor(() => expect(mockGetAgentInstance).toHaveBeenCalled());
+    expect(chip.closest('a')).toBeNull();
   });
 
   it('aggregates only this WorkUnit token events and marks unavailable CLI usage', async () => {
