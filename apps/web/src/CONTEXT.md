@@ -24,6 +24,9 @@ Web 前端主源码。路由、全局状态、API 客户端、UI 组件、样式
 | `useAgentRoster` | `hooks/useAgentRoster.ts` | Agent 作战视图：名册 + SSE 路由 + 轮询 |
 | `useAssigneeDisplay` / `AssigneeLabel` | `hooks/useAssigneeDisplay.ts` / `components/workunit/AssigneeLabel.tsx` | 负责人 instance id → 角色名解析（运行实例→离线实例 profile→短 UUID），WU 详情/抽屉/REQ 链路共用 |
 | `useChannelList` / `useChannelLiveExecutions` / `useDetectedProviders` | `hooks/` | 频道列表 / live 执行 / provider 探测 |
+| `deriveStreamView` | `utils/streamView.ts` | 消息流管线纯函数（#322）：消息集+折叠/筛选 UI 状态 → 渲染就绪 items（归组/过程折叠/连续合并/日期分隔/可见性） |
+| `useStreamFollow` / `useChannelCardActions` | `hooks/` | 频道流滚动状态机（#322 自 ChannelDetailPage 整块搬移）/ 卡片 action 路由（dispatch 单一入口） |
+| `ChannelLiveBars` | `components/channel/` | live 执行状态条（#322 自持有 useChannelLiveExecutions，step 事件不触达页面） |
 | `NeedsAttentionSection` | `components/monitoring/` | 监控页「需要处理」区 |
 | `ProjectMap` / `NextActionCard` | `components/pmo/ProjectMap.tsx` | PMO 地图 + 下一个该干什么 |
 | `ChannelRail` / `WorkUnitDrawer` | `components/channel/` | 左栏频道列表 / 右抽屉 WU 详情（证据/审查/执行/token/REQ） |
@@ -45,7 +48,8 @@ Web 前端主源码。路由、全局状态、API 客户端、UI 组件、样式
 - **SSE 负载消费约定·instance status_changed**（#312，ADR 2026-08-24 体检；#313 修订）：`agent.instance.status_changed` 负载带 `currentWorkUnit` 快照/`channelId`/`lastError` 系字段——`useAgentRoster` 以负载快照为准就地更新（含悬空 null），仅旧事件（无快照字段）回退 fillWorkUnit 补查；`ChannelRail` 订阅同事件就地刷状态点/lastError（按 instanceId ‖ roleId 匹配），**未匹配实例 = 新角色实例，用负载（profileId/instanceId/name/status）合成条目插头部**（#313 起轮询不再承担发现职责——SSE 连着时它不起表），online 计数从 agents 状态 useMemo 重算。两处 30s 轮询经 useGatedPoll 保留为 SSE 断开兜底。
 - **视觉体系**：`theme.css` 深色变量 + `mission-control.css` 三栏布局（mc-*）与工具类（u-*）。禁止写死浅色 Tailwind 类。规范：`docs/specs/ui/style-guide.md`。
 - **频道工作区** = 左 ChannelRail / 中对话流 / 右 WorkUnitDrawer。消息分侧：人类右气泡、agent 左文档流、系统居中。
-- **频道流滚动**（#289/#290）：程序写 scrollTop 必记 observed-top 台账（ChannelDetailPage `scrollStreamTo`），钉底/归属/跟随/行锚点判定走 `utils/streamFollow.ts` 纯函数（钉底阈值 `FOLLOW_THRESHOLD_PX=24`）；加载更早 = 行锚点补偿（`data-message-id` 首个可见行位移校正，非高度差）；阅读位置按频道持久化 localStorage（`utils/readingPosition.ts`，切频道/卸载存档，钉底存 null）；ResizeObserver 跟随撑高，离底浮「回到底部」。
+- **消息流管线**（#322）：ChannelDetailPage 只剩编排（取数 hooks 组合 + 布局）。渲染段经 `useMemo` 消费 `deriveStreamView(messages, uiState)`（`utils/streamView.ts`）——归组（`groupIntoThreads`）/过程消息折叠（`collapseProcessReplies`）/连续合并（`shouldOmitHead`）/日期分隔/completed·active·visible 可见性全部算好；折叠 UI 状态（showCompleted/expandedThreads/expandedProcGroups）留组件作输入。滚动状态机在 `hooks/useStreamFollow.ts`，卡片 action 路由在 `hooks/useChannelCardActions.ts`（dispatch 单一入口，messages 经镜像 ref 保持 identity 稳定）。`ChannelMessageItem` 已 `React.memo`，父组件稳定 props 契约（`useCallback`/镜像 ref，onToggleThread 收 anchorId）——render-count 测试断言 step 事件下既有消息项零重渲。**live 执行状态下沉**：`useChannelLiveExecutions` 由 `ChannelLiveBars` 组件自持有（原调用点在页面），`workunit.execution.step` 只重渲该组件边界。
+- **频道流滚动**（#289/#290；#322 起实现在 `hooks/useStreamFollow.ts`）：程序写 scrollTop 必记 observed-top 台账（useStreamFollow `scrollStreamTo`），钉底/归属/跟随/行锚点判定走 `utils/streamFollow.ts` 纯函数（钉底阈值 `FOLLOW_THRESHOLD_PX=24`）；加载更早 = 行锚点补偿（`data-message-id` 首个可见行位移校正，非高度差）；阅读位置按频道持久化 localStorage（`utils/readingPosition.ts`，切频道/卸载存档，钉底存 null）；ResizeObserver 跟随撑高，离底浮「回到底部」。
 - **WU 详情页**（`/workunits/:id`）= 跳转枢纽：Header -> 归属条 -> 证据台账 -> ExecutionSteps -> TranscriptViewer -> DiscussionPanel。
 - **Router basename**（#275/#291）：`main.tsx` 接 `import.meta.env.BASE_URL`（dev=`/dev/`、生产=`/`），深链/刷新依赖此对齐；路由层回归测试 `__tests__/App-basename.test.tsx`。
 - **F6 铁律**：WU 状态/证据展示一律过 `deriveDisplayState()`（`@dommaker/studio-shared`）。
