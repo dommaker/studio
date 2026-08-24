@@ -129,6 +129,61 @@ describe('useChannelMessages', () => {
     expect(result.current.messages.map(m => m.id)).toEqual(['b1', 'a1', 'r1']);
   });
 
+  // #315（ADR 2026-08-24 D1/D2）：消费端迁移读全量 message 本体，旧形状回退增量 patch
+  describe('channel.message_updated', () => {
+    function sseUpdate(data: Record<string, unknown>): WebSocketMessage {
+      return { event_id: 'ev-upd', event_type: 'channel.message_updated', timestamp: iso(99), data };
+    }
+
+    it('replaces the message in place with the full message body when present', async () => {
+      const m1 = msg('m1', { content: '旧内容', meta: '{"k1":"a"}', createdAt: iso(0) });
+      const result = await renderLoaded([m1]);
+
+      const full = { ...m1, content: '新内容', meta: { k1: 'a', k2: 'b' } };
+      act(() => handler(sseUpdate({ channelId: 'ch-1', messageId: 'm1', content: '新内容', meta: { k2: 'b' }, message: full })));
+
+      expect(result.current.messages).toHaveLength(1);
+      expect(result.current.messages[0]).toEqual(full);
+      // 无 REST 补拉：仅初值覆盖一次
+      expect(mockListMessages).toHaveBeenCalledTimes(1);
+    });
+
+    it('meta-only update keeps old meta keys via merged message.meta truth', async () => {
+      const m1 = msg('m1', { meta: '{"k1":"a"}', createdAt: iso(0) });
+      const result = await renderLoaded([m1]);
+
+      // 模拟 updateMessage 仅传 meta：顶层 meta 是增量输入原值，message.meta 才是合并真值
+      const full = { ...m1, meta: { k1: 'a', k2: 'b' } };
+      act(() => handler(sseUpdate({ channelId: 'ch-1', messageId: 'm1', meta: { k2: 'b' }, message: full })));
+
+      expect(result.current.messages[0].meta).toEqual({ k1: 'a', k2: 'b' });
+    });
+
+    it('falls back to incremental patch for legacy shape without message field', async () => {
+      const m1 = msg('m1', { content: '旧内容', meta: '{"k1":"a"}', createdAt: iso(0) });
+      const result = await renderLoaded([m1]);
+
+      act(() => handler(sseUpdate({ channelId: 'ch-1', messageId: 'm1', meta: { k2: 'b' } })));
+
+      // 与现状逐字节一致：meta 整体替换、content 无增量字段时保留
+      expect(result.current.messages[0].meta).toEqual({ k2: 'b' });
+      expect(result.current.messages[0].content).toBe('旧内容');
+    });
+
+    it('does not touch other messages when message.id has no local match', async () => {
+      const m1 = msg('m1', { createdAt: iso(0) });
+      const m2 = msg('m2', { createdAt: iso(1) });
+      const result = await renderLoaded([m1, m2]);
+
+      const ghost = msg('ghost', { content: '不存在' });
+      act(() => handler(sseUpdate({ channelId: 'ch-1', messageId: 'ghost', message: ghost })));
+
+      expect(result.current.messages.map(m => m.id)).toEqual(['m1', 'm2']);
+      expect(result.current.messages[0]).toEqual(m1);
+      expect(result.current.messages[1]).toEqual(m2);
+    });
+  });
+
   it('ignores SSE events of other channels', async () => {
     const result = await renderLoaded([]);
     const other = msg('o1', { channelId: 'ch-2', createdAt: iso(1) });

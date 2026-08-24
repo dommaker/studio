@@ -60,13 +60,20 @@ export function useChannelMessages(channelId: string | undefined) {
           setMessages(prev => insertMessage(prev, data.message!));
         }
       } else if (msg.event_type === 'channel.message_updated') {
-        const data = msg.data as { channelId?: string; messageId?: string; meta?: string | Record<string, unknown>; content?: string };
-        if (data?.channelId === channelId && data?.messageId) {
-          setMessages(prev => prev.map(m =>
-            m.id === data.messageId
-              ? { ...m, meta: data.meta ?? m.meta, content: (data.content ?? m.content) as string }
-              : m
-          ));
+        const data = msg.data as { channelId?: string; messageId?: string; meta?: string | Record<string, unknown>; content?: string; message?: ChannelMessage };
+        if (data?.channelId === channelId) {
+          // #315（ADR 2026-08-24 D1/D2）：优先读全量 message 本体——其 meta 为后端合并后
+          // 真值，消除顶层增量 meta 整体替换丢旧 key 的分叉；旧形状（无 message 字段）回退增量 patch
+          if (data.message) {
+            const full = data.message;
+            setMessages(prev => prev.map(m => (m.id === full.id ? full : m)));
+          } else if (data.messageId) {
+            setMessages(prev => prev.map(m =>
+              m.id === data.messageId
+                ? { ...m, meta: data.meta ?? m.meta, content: (data.content ?? m.content) as string }
+                : m
+            ));
+          }
         }
       }
     });
