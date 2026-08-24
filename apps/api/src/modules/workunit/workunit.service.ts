@@ -145,7 +145,7 @@ export class WorkUnitService extends WorkUnitCrudService {
     await this.fileStore.commitSnapshot(event, updated);
 
     // Publish status-change event（REQ roll-up 等订阅消费，best-effort）
-    this.publishStatusChanged(updated);
+    await this.publishStatusChanged(updated);
 
     // #126（T4）：人工确认（pending → unassigned）解除人闸——feature 单此时补展开
     // 频道默认管线第一跳（创建时落 pending 跳过展开；expandDefaultPipelineHead 幂等）。
@@ -361,7 +361,7 @@ export class WorkUnitService extends WorkUnitCrudService {
     };
     await this.fileStore.commitSnapshot(event, updated);
 
-    this.publishStatusChanged(updated);
+    await this.publishStatusChanged(updated);
 
     this.aggregateParentStatus(id).catch(err =>
       logger.warn('[WorkUnit] aggregateParentStatus failed', { workUnitId: id, error: String(err) })
@@ -413,7 +413,7 @@ export class WorkUnitService extends WorkUnitCrudService {
     };
     await this.fileStore.commitSnapshot(event, updated);
 
-    this.publishStatusChanged(updated);
+    await this.publishStatusChanged(updated);
 
     this.aggregateParentStatus(id).catch(err =>
       logger.warn('[WorkUnit] aggregateParentStatus failed', { workUnitId: id, error: String(err) })
@@ -521,7 +521,7 @@ export class WorkUnitService extends WorkUnitCrudService {
       data: updated as unknown as Record<string, unknown>,
     };
     await this.fileStore.commitSnapshot(event, updated);
-    this.publishStatusChanged(updated);
+    await this.publishStatusChanged(updated);
     return updated;
   }
 
