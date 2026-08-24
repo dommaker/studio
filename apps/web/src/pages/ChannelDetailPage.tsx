@@ -10,6 +10,7 @@ import { ChannelMessageItem } from '../components/channel/ChannelMessageItem';
 import { parseMeta } from '../utils/messageMeta';
 import { isPinnedToBottom, isReaderScroll, shouldFollowBottom, captureFirstVisibleAnchor, anchorScrollDelta, type ScrollAnchor, type MessageRowRect } from '../utils/streamFollow';
 import { loadReadingPosition, saveReadingPosition, type ReadingPosition } from '../utils/readingPosition';
+import { deriveStreamView } from '../utils/streamView';
 import { ChannelInput } from '../components/channel/ChannelInput';
 import { ChannelMemberManager } from '../components/channel/ChannelMemberManager';
 import { ChannelDefaultProjectSelect } from '../components/channel/ChannelDefaultProjectSelect';
@@ -26,57 +27,6 @@ import { knowledgeApi } from '../api/knowledge';
 import { memoryApi } from '../api/memory';
 import { distillApi } from '../api/distill';
 import { skillsApi } from '../api/skills';
-
-function isToday(d: Date) {
-  const now = new Date();
-  return d.toDateString() === now.toDateString();
-}
-function isYesterday(d: Date) {
-  const y = new Date();
-  y.setDate(y.getDate() - 1);
-  return d.toDateString() === y.toDateString();
-}
-
-/** AC-C3: Group messages into threads (anchor + replies)
- *  #279（走查 F4）：promoteIds 命中的线程回复提升到主流（agent 追问主流可见，不只在折叠线程里） */
-interface ThreadGroup {
-  anchor: ChannelMessage;
-  replies: ChannelMessage[];
-}
-
-function groupIntoThreads(messages: ChannelMessage[], promoteIds?: Set<string>): Array<ChannelMessage | ThreadGroup> {
-  const anchorMap = new Map<string, ThreadGroup>();
-  const result: Array<ChannelMessage | ThreadGroup> = [];
-
-  for (const msg of messages) {
-    if (msg.workUnitId && !msg.replyToId) {
-      // This is a thread anchor
-      const group: ThreadGroup = { anchor: msg, replies: [] };
-      anchorMap.set(msg.id, group);
-      result.push(group);
-    } else if (msg.replyToId && anchorMap.has(msg.replyToId) && !promoteIds?.has(msg.id)) {
-      // This is a thread reply
-      anchorMap.get(msg.replyToId)!.replies.push(msg);
-    } else {
-      // Regular message (no thread)
-      result.push(msg);
-    }
-  }
-
-  return result;
-}
-
-/** 线程回复渲染项：单条消息，或被折叠的连续过程消息组 */
-type ReplyItem =
-  | { kind: 'msg'; msg: ChannelMessage }
-  | { kind: 'group'; key: string; messages: ChannelMessage[] };
-
-/**
- * #277（决策 #248 D2）：连续消息合并——同作者（authorType + agentName）5 分钟内、
- * 同线程/主流内、未参与折叠的连续消息省略重复头（Slack 式）。
- * 系统播报（Studio 署名无卡）与卡片消息不参与合并（既不并入别人，别人也不并入它）。
- */
-const MERGE_WINDOW_MS = 5 * 60 * 1000;
 
 /** #279（决策 #250 D4）：闸门类 WU 类型（人工验收单）——不聚合进 NEED_INPUT 待办 chip */
 const GATE_WU_TYPES = new Set(['decision', 'spec']);
@@ -117,46 +67,6 @@ function parseRequirementRef(
   } catch {
     return null;
   }
-}
-
-function mergeable(m: ChannelMessage): boolean {
-  return !parseMeta(m.meta).cardType && !(m.authorType === 'agent' && m.agentName === 'Studio');
-}
-
-function shouldOmitHead(prev: ChannelMessage | null, cur: ChannelMessage): boolean {
-  if (!prev || !mergeable(prev) || !mergeable(cur)) return false;
-  if (prev.authorType !== cur.authorType || (prev.agentName ?? '') !== (cur.agentName ?? '')) return false;
-  return new Date(cur.createdAt).getTime() - new Date(prev.createdAt).getTime() <= MERGE_WINDOW_MS;
-}
-
-/**
- * 线程内过程消息折叠/聚合：连续 ≥3 条「过程消息」收成一组（默认折叠，点击展开）。
- * 里程碑消息不折叠：人类消息、卡片消息、等待回复（NEED_INPUT）、最后一条回复（最新状态）。
- */
-function collapseProcessReplies(
-  replies: ChannelMessage[],
-  isMilestone: (m: ChannelMessage, isLast: boolean) => boolean,
-): ReplyItem[] {
-  const items: ReplyItem[] = [];
-  let run: ChannelMessage[] = [];
-  const flush = () => {
-    if (run.length >= 3) {
-      items.push({ kind: 'group', key: `proc-${run[0].id}`, messages: run });
-    } else {
-      for (const m of run) items.push({ kind: 'msg', msg: m });
-    }
-    run = [];
-  };
-  replies.forEach((m, i) => {
-    if (isMilestone(m, i === replies.length - 1)) {
-      flush();
-      items.push({ kind: 'msg', msg: m });
-    } else {
-      run.push(m);
-    }
-  });
-  flush();
-  return items;
 }
 
 export function ChannelDetailPage() {
@@ -722,16 +632,22 @@ export function ChannelDetailPage() {
     return () => clearTimeout(timer);
   }, [highlightId]);
 
-  // 里程碑判定（不折叠）：人类消息 / 卡片消息 / 等待回复 / 最后一条回复
-  const isMilestoneReply = useCallback((m: ChannelMessage, isLast: boolean) => {
-    if (isLast || m.authorType === 'human' || isWaitingForInput(m)) return true;
-    return !!parseMeta(m.meta).cardType;
-  }, [isWaitingForInput]);
+  // 里程碑判定（不折叠）：人类消息 / 卡片消息 / 等待回复 / 最后一条回复——已迁入 deriveStreamView（#322）
 
   const openWu = useCallback((wuId: string) => setDrawer({ kind: 'wu', id: wuId }), []);
   // #284（决策 #250 D6）：analysis_confirm 接力卡「去确认」——打开即弹确认对话框
   const openWuConfirm = useCallback((wuId: string) => setDrawer({ kind: 'wu', id: wuId, autoApprove: true }), []);
   const openReq = useCallback((reqId: string) => setDrawer({ kind: 'req', id: reqId }), []);
+
+  // #322: 消息流管线——归组/过程折叠/连续合并/日期分隔/可见性走 deriveStreamView 纯函数，
+  // useMemo 消费（消息引用与 UI 状态不变则零重算）；折叠 UI 状态留组件
+  const streamView = useMemo(() => deriveStreamView(messages, {
+    showCompleted,
+    expandedThreads,
+    expandedProcGroups,
+    promotedQuestionIds,
+    isWaitingForInput,
+  }), [messages, showCompleted, expandedThreads, expandedProcGroups, promotedQuestionIds, isWaitingForInput]);
 
   if (!id) return <div className="mc-stream-empty" style={{ height: '100%' }}>Invalid channel</div>;
 
@@ -842,116 +758,70 @@ export function ChannelDetailPage() {
               </button>
             )}
 
-            {/* B2-002: Date separators + B2-006: collapse completed + AC-C3: threads */}
-            {(() => {
-              const completed = messages.filter(m => {
-                const status = parseMeta(m.meta).status;
-                return typeof status === 'string' && ['done', 'confirmed', 'rejected', 'deprecated', 'error'].includes(status);
-              });
-              const active = messages.filter(m => !completed.includes(m));
-              const visibleMessages = (showCompleted ? messages : [...active, ...completed.slice(-2)])
-                .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-
-              // Re-group visible messages into threads（#279：当前提问消息提升主流，不进折叠线程）
-              const items = groupIntoThreads(visibleMessages, promotedQuestionIds);
-
-              // 每项（线程组取 anchor）的代表消息与日期串：日期分隔/合并判定均按可见项纯比较
-              const itemMsgs = items.map(item => ('anchor' in item ? item.anchor : item));
-              const itemDateStrs = itemMsgs.map(m =>
-                new Date(m.createdAt).toLocaleDateString('zh-CN', { month: 'long', day: 'numeric' }));
-              // #277 D2：主流连续合并（日期分隔线切断；线程组以其 anchor 参与主流序列）
-              // #279：提升主流的当前提问消息不参与合并（badge/选项卡需要完整头，且不被前一条吃掉）
-              const itemCompact = itemMsgs.map((m, idx) => {
-                const showDate = idx === 0 || itemDateStrs[idx] !== itemDateStrs[idx - 1];
-                if (promotedQuestionIds.has(m.id) || promotedQuestionIds.has(itemMsgs[idx - 1]?.id ?? '')) return false;
-                return !showDate && shouldOmitHead(itemMsgs[idx - 1] ?? null, m);
-              });
-
-              const dateSep = (d: Date, dateStr: string, key: string) => (
-                <div className="mc-date" key={key}>
-                  {isToday(d) ? '今天' : isYesterday(d) ? '昨天' : dateStr}
+            {/* B2-002: Date separators + B2-006: collapse completed + AC-C3: threads
+                #322: 归组/折叠/合并/日期分隔/可见性由 deriveStreamView 算出（useMemo 消费） */}
+            {!showCompleted && streamView.completedCount > 2 && (
+              <button onClick={() => setShowCompleted(true)} className="mc-collapse-toggle">
+                显示 {streamView.completedCount - 2} 条已完成消息
+              </button>
+            )}
+            {showCompleted && streamView.completedCount > 2 && (
+              <button onClick={() => setShowCompleted(false)} className="mc-collapse-toggle">
+                收起已完成消息
+              </button>
+            )}
+            {streamView.items.map(item => {
+              if (item.kind === 'thread') {
+                const anchorId = item.anchor.id;
+                return (
+                  <div key={anchorId}>
+                    {item.showDate && (
+                      <div className="mc-date" key={item.dateKey}>
+                        {item.dateLabel}
+                      </div>
+                    )}
+                    {renderMessageItem(item.anchor, {
+                      isThreadAnchor: true,
+                      threadReplyCount: item.replyCount,
+                      isExpanded: item.expanded,
+                      onToggleThread: () => toggleThread(anchorId),
+                      compact: item.compact,
+                    })}
+                    {item.expanded && item.replyCount > 0 && (
+                      <div className="mc-thread-replies">
+                        {item.replies.map(ri => {
+                          if (ri.kind === 'msg') {
+                            return renderMessageItem(ri.message, { isThreadReply: true, compact: ri.compact });
+                          }
+                          return ri.expanded ? (
+                            <div key={ri.key}>
+                              <button onClick={() => toggleProcGroup(ri.key)} className="mc-collapse-toggle">
+                                收起 {ri.messages.length} 条过程消息
+                              </button>
+                              {ri.messages.map(reply => renderMessageItem(reply, { isThreadReply: true }))}
+                            </div>
+                          ) : (
+                            <button key={ri.key} onClick={() => toggleProcGroup(ri.key)} className="mc-collapse-toggle">
+                              ▸ {ri.messages.length} 条过程消息
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              }
+              return (
+                <div key={item.message.id}>
+                  {item.showDate && (
+                    <div className="mc-date" key={item.dateKey}>
+                      {item.dateLabel}
+                    </div>
+                  )}
+                  {renderMessageItem(item.message, { compact: item.compact })}
                 </div>
               );
-
-              return (
-                <>
-                  {!showCompleted && completed.length > 2 && (
-                    <button onClick={() => setShowCompleted(true)} className="mc-collapse-toggle">
-                      显示 {completed.length - 2} 条已完成消息
-                    </button>
-                  )}
-                  {showCompleted && completed.length > 2 && (
-                    <button onClick={() => setShowCompleted(false)} className="mc-collapse-toggle">
-                      收起已完成消息
-                    </button>
-                  )}
-                  {items.map((item, idx) => {
-                    if ('anchor' in item) {
-                      // ThreadGroup
-                      const msg = item.anchor;
-                      const d = new Date(msg.createdAt);
-                      const dateStr = d.toLocaleDateString('zh-CN', { month: 'long', day: 'numeric' });
-                      const showDate = idx === 0 || dateStr !== itemDateStrs[idx - 1];
-                      const anchorId = msg.id;
-                      const expanded = expandedThreads.has(anchorId);
-
-                      return (
-                        <div key={anchorId}>
-                          {showDate && dateSep(d, dateStr, `date-${anchorId}`)}
-                          {renderMessageItem(msg, {
-                            isThreadAnchor: true,
-                            threadReplyCount: item.replies.length,
-                            isExpanded: expanded,
-                            onToggleThread: () => toggleThread(anchorId),
-                            compact: itemCompact[idx],
-                          })}
-                          {expanded && item.replies.length > 0 && (
-                            <div className="mc-thread-replies">
-                              {(() => {
-                                // #277 D2：线程内同作者连续回复合并；折叠组切断合并，组内消息参与过折叠不省头
-                                let prevReply: ChannelMessage | null = null;
-                                return collapseProcessReplies(item.replies, isMilestoneReply).map(ri => {
-                                  if (ri.kind === 'msg') {
-                                    const compactReply = shouldOmitHead(prevReply, ri.msg);
-                                    prevReply = ri.msg;
-                                    return renderMessageItem(ri.msg, { isThreadReply: true, compact: compactReply });
-                                  }
-                                  prevReply = null;
-                                  return expandedProcGroups.has(ri.key) ? (
-                                    <div key={ri.key}>
-                                      <button onClick={() => toggleProcGroup(ri.key)} className="mc-collapse-toggle">
-                                        收起 {ri.messages.length} 条过程消息
-                                      </button>
-                                      {ri.messages.map(reply => renderMessageItem(reply, { isThreadReply: true }))}
-                                    </div>
-                                  ) : (
-                                    <button key={ri.key} onClick={() => toggleProcGroup(ri.key)} className="mc-collapse-toggle">
-                                      ▸ {ri.messages.length} 条过程消息
-                                    </button>
-                                  );
-                                });
-                              })()}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    } else {
-                      // Regular message
-                      const msg = item;
-                      const d = new Date(msg.createdAt);
-                      const dateStr = d.toLocaleDateString('zh-CN', { month: 'long', day: 'numeric' });
-                      const showDate = idx === 0 || dateStr !== itemDateStrs[idx - 1];
-                      return (
-                        <div key={msg.id}>
-                          {showDate && dateSep(d, dateStr, `date-${msg.id}`)}
-                          {renderMessageItem(msg, { compact: itemCompact[idx] })}
-                        </div>
-                      );
-                    }
-                  })}
-                </>
-              );
-            })()}
+            })}
           </div>
           {/* #289: 偏离底部时浮出「回到底部」（sticky 贴滚动视口底部，不占流内高度） */}
           {showJumpToBottom && (
