@@ -223,9 +223,13 @@ export function ChannelDetailPage() {
     return handleSend(content, message.id);
   }, [handleSend]);
 
+  // #322：稳定 props 契约——messages 渲染期镜像，findMessage identity 不随 messages 变化
+  // （memo 化的 ChannelMessageItem 不再因消息集更新拿到新函数引用；读取语义不变）
+  const messagesRef = useRef(messages);
+  messagesRef.current = messages;
   const findMessage = useCallback((msgId: string) => {
-    return messages.find(m => m.id === msgId);
-  }, [messages]);
+    return messagesRef.current.find(m => m.id === msgId);
+  }, []);
 
   // F5: 挂起集合（由 waitingWus 派生）
   const waitingWuIds = useMemo(() => new Set(waitingWus.map(w => w.wuId)), [waitingWus]);
@@ -370,9 +374,8 @@ export function ChannelDetailPage() {
     isWaitingForInput,
   }), [messages, showCompleted, expandedThreads, expandedProcGroups, promotedQuestionIds, isWaitingForInput]);
 
-  if (!id) return <div className="mc-stream-empty" style={{ height: '100%' }}>Invalid channel</div>;
-
-  const renderMessageItem = (msg: ChannelMessage, extra: Partial<Parameters<typeof ChannelMessageItem>[0]> = {}) => (
+  // #322：提升为 useCallback——消除每次渲染新建的内联 render props（memo 稳定 props 契约）
+  const renderMessageItem = useCallback((msg: ChannelMessage, extra: Partial<Parameters<typeof ChannelMessageItem>[0]> = {}) => (
     <ChannelMessageItem
       key={msg.id}
       message={msg}
@@ -390,7 +393,9 @@ export function ChannelDetailPage() {
       highlight={highlightId === msg.id}
       {...extra}
     />
-  );
+  ), [handleAction, handleReply, findMessage, id, isWaitingForInput, openWu, openWuConfirm, openReq, handleInlineReply, fileVocabulary, wuChangedFiles, highlightId]);
+
+  if (!id) return <div className="mc-stream-empty" style={{ height: '100%' }}>Invalid channel</div>;
 
   return (
     <div className="mc-ws">
@@ -505,7 +510,7 @@ export function ChannelDetailPage() {
                       isThreadAnchor: true,
                       threadReplyCount: item.replyCount,
                       isExpanded: item.expanded,
-                      onToggleThread: () => toggleThread(anchorId),
+                      onToggleThread: toggleThread,
                       compact: item.compact,
                     })}
                     {item.expanded && item.replyCount > 0 && (
