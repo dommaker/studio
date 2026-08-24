@@ -86,6 +86,26 @@ export interface QueryOpts {
   limit?: number;
 }
 
+/** 频道消息分页查询选项（#319：before = 锚点消息 id 游标，不含锚点本身） */
+export interface MessagePageOpts {
+  before?: string;         // message id（替代原 timestamp 游标——同毫秒多条不漏不重）
+  limit?: number;
+}
+
+/** 频道消息分页结果（messages 按 createdAt 升序；total = 锚点过滤后的总数） */
+export interface MessagePage {
+  messages: ChannelMessageData[];
+  total: number;
+  hasMore: boolean;
+}
+
+/** 频道消息写侧压实阈值（#319；测试注入小阈值，生产用默认） */
+export interface MessageCompactionOptions {
+  checkInterval?: number;  // 每 N 次 append 评估一次
+  minLines?: number;       // 总行数下限
+  deadRatio?: number;      // 死行占比下限（0~1）
+}
+
 export interface CountOpts {
   workUnitId?: string;
   authorType?: string;

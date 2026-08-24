@@ -6,8 +6,9 @@
  * - **真源不变**：studio-events.jsonl 事件流仍是唯一真源，账本是可重建派生索引；
  *   丢失/损坏/轮转随时从事件流重放重建（ADR 2026-08-24-cache-seam-decision-rules「真源唯一」）。
  * - **粒度**：per-WU 一行，全口径 token 字段照抄累计（读方各取所需，口径分叉不进账本）。
- *   维度只落事件 payload 自带的 triggerId/provider；rootId 维度由读方对活 WU index join
- *   （checkTreeBudget 本来就经 getIndex 拿 treeWuIds），不落会陈旧的冗余维度。
+ *   维度只落事件 payload 自带的 triggerId/provider（last-wins）；rootId/profileId
+ *   不在 payload 中，由读方对活 WU index join（checkTreeBudget 本来就经 getIndex 拿
+ *   treeWuIds；token-usage 经 assignee 解析），冗余落账只会陈旧——有意的简报偏差。
  * - **watermark 自愈**：freshness = stat(eventsFile).size === watermark.bytes（O(1) 判定）；
  *   落后 → 锁内增量补扫 rows[watermark.lines..]；行数倒退 → 判定轮转，清空重建；
  *   账本不存在 = watermark=0 = 懒回填（bootstrap 重放一次，同 daily-token-budget 模式）。

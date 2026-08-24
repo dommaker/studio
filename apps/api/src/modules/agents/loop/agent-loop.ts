@@ -1522,7 +1522,9 @@ export class AgentLoop {
     let skipResultPost = false;
     const freshnessUpdates: Partial<WorkUnitMetadata> = {};
     if (result.channelVersion && wu.channelId) {
-      const arrived = await this.fileStore.getMessagesSinceLine(wu.channelId, result.channelVersion.lineCount);
+      // #319：锚点 = 快照时最后一行消息 id（压实安全）；锚点行若已被压实抹除，
+      // getMessagesSince 保守返回全部活消息，经下方「自己消息过滤 + 2 次拦截后照发」有界消化
+      const arrived = await this.fileStore.getMessagesSince(wu.channelId, result.channelVersion.lastMessageId);
       // 本 loop 自己发的消息（如 delegate 卡片）不算「房间已变」
       const external = arrived.filter(m => !(m.authorType === 'agent' && m.agentName === this.role.name));
       const interrupts = metadata.freshnessInterrupts ?? 0;

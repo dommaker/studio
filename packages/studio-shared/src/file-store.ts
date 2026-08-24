@@ -11,7 +11,8 @@
  *       state.json       # RuntimeState
  *     channels/{id}/
  *       config.json      # Channel
- *       messages.jsonl   # ChannelMessage (append-only)
+ *       messages.jsonl   # ChannelMessage（append-only + tombstone；#319 写侧压实清死行）
+ *       messages.lock    # 消息写/压实互斥锁目录（#319）
  *     workunits/
  *       lock             # flock 文件锁目录
  *       events.jsonl     # 事件流 (append-only)
@@ -32,7 +33,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { isErrnoError } from './file-store-base';
-import { FileStoreWorkUnitBase } from './file-store-workunit';
+import { FileStoreWorkUnitBase, type FileStoreWorkUnitOptions } from './file-store-workunit';
 import { stringifyChannels } from './channels-codec';
 import { parseFrontmatter, serializeFrontmatter } from './frontmatter';
 import type {
@@ -42,6 +43,9 @@ import type {
   ChannelMessageData,
   ChannelMessageRow,
   QueryOpts,
+  MessagePageOpts,
+  MessagePage,
+  MessageCompactionOptions,
   CountOpts,
   RequirementData,
   RequirementFilter,
@@ -59,6 +63,9 @@ export type {
   ChannelMessageData,
   ChannelMessageRow,
   QueryOpts,
+  MessagePageOpts,
+  MessagePage,
+  MessageCompactionOptions,
   CountOpts,
   WorkUnitEventType,
   WorkUnitEvent,
@@ -149,9 +156,57 @@ function invalidateRemovedPath(target: string): void {
   dirCache.clear();
 }
 
+// ─── 频道消息写侧压实（#319）───
+//
+// messages.jsonl append-only：编辑 = 同 id 追加新版，删除 = 追加 tombstone 行，文件只涨不缩。
+// 写侧阈值压实：append/tombstone 每满 checkInterval 次评估一次；总行数 ≥ minLines 且死行
+// （被覆盖的旧版行 + 已删除消息的原行与 tombstone 行）占比 ≥ deadRatio 时，在 per-channel
+// 文件锁内把活消息（每 id 最新版、首现位置序，口径同 resolveActiveMessages）原子重写回文件。
+// 压实只清死行，不动任何活消息；读穿缓存靠 mtime 校验自然失效。
+// 摊销设计：逐次 append 全量解析会把读穿缓存省下的成本吃回写路径，故按计数摊销；
+// 计数是进程内存，重启清零最多延迟一轮评估，阈值检查自愈，无需持久化。
+const MESSAGE_COMPACT_CHECK_INTERVAL = 500;
+const MESSAGE_COMPACT_MIN_LINES = 5000;
+const MESSAGE_COMPACT_DEAD_RATIO = 0.3;
+
+/**
+ * JSONL 行归并（#319 收敛的唯一口径）：每 id 留最后出现的内容、挂首现位置、
+ * deleted 整条丢弃。resolveActiveMessages / 压实 / getMessagesSince 三处共用——
+ * 口径要改只改这里。
+ */
+function mergeActiveRows(rows: ChannelMessageRow[]): ChannelMessageData[] {
+  const latest = new Map<string, ChannelMessageRow>();
+  for (const row of rows) latest.set(row.id, row);
+  const active: ChannelMessageData[] = [];
+  for (const msg of latest.values()) {
+    if (msg.deleted) continue;
+    // 删除 deleted 字段以保持与 ChannelMessageData 类型一致
+    const { deleted, ...rest } = msg;
+    active.push(rest);
+  }
+  return active;
+}
+
+/** FileStore 构造选项（#319：messageCompaction 供测试注入小阈值） */
+export interface FileStoreOptions extends FileStoreWorkUnitOptions {
+  messageCompaction?: MessageCompactionOptions;
+}
+
 // ─── FileStore 类 ───
 
 export class FileStore extends FileStoreWorkUnitBase {
+  private readonly messageCompaction: Required<MessageCompactionOptions>;
+  /** 压实评估计数（按 messages.jsonl 绝对路径；挂实例——同 baseDir 不同阈值配置的实例互不串扰） */
+  private readonly messageAppendCounts = new Map<string, number>();
+
+  constructor(baseDir?: string, opts?: FileStoreOptions) {
+    super(baseDir, opts);
+    this.messageCompaction = {
+      checkInterval: opts?.messageCompaction?.checkInterval ?? MESSAGE_COMPACT_CHECK_INTERVAL,
+      minLines: opts?.messageCompaction?.minLines ?? MESSAGE_COMPACT_MIN_LINES,
+      deadRatio: opts?.messageCompaction?.deadRatio ?? MESSAGE_COMPACT_DEAD_RATIO,
+    };
+  }
 
   // ─── 读穿缓存覆盖（A1，工单 26）───
   //
@@ -498,37 +553,78 @@ export class FileStore extends FileStoreWorkUnitBase {
   // ChannelMessage (JSONL)
   // ═══════════════════════
 
-  async appendMessage(channelId: string, msg: ChannelMessageData): Promise<void> {
-    await this.appendJsonl(this.messagesPath(channelId), msg);
+  private messagesLockDir(channelId: string): string {
+    return path.join(this.baseDir, 'channels', channelId, 'messages.lock');
   }
 
   /**
-   * §4.2 发言层新鲜度检查：频道版本快照（messages.jsonl 原始行数 + 最后一行的消息 id）。
+   * 追加频道消息（#319：per-channel 文件锁 + 写侧压实检查）。
+   * 上锁原因：压实会原子重写整个 messages.jsonl，无锁时与并发 append/tombstone 竞争
+   * （压实读后写窗口内落入的新行被 rename 覆盖）会丢消息。
+   */
+  async appendMessage(channelId: string, msg: ChannelMessageData): Promise<void> {
+    await this.withLock(this.messagesLockDir(channelId), async () => {
+      await this.appendJsonl(this.messagesPath(channelId), msg);
+      await this.compactMessagesIfNeededLocked(channelId);
+    });
+  }
+
+  /**
+   * 压实评估（锁内专用：withLock 不可重入，严禁改走公共 appendMessage）。
+   * 归并走 mergeActiveRows 唯一口径——压实前后 queryMessages 结果逐条一致。
+   */
+  private async compactMessagesIfNeededLocked(channelId: string): Promise<void> {
+    const filePath = this.messagesPath(channelId);
+    const n = (this.messageAppendCounts.get(filePath) ?? 0) + 1;
+    this.messageAppendCounts.set(filePath, n);
+    if (n % this.messageCompaction.checkInterval !== 0) return;
+
+    // 锁内裸读（ADR 2026-08-24-cache-seam-decision-rules 例外条款）：压实依据必须是此刻磁盘真值
+    const rows = await super.readJsonl<ChannelMessageRow>(filePath);
+    if (rows.length < this.messageCompaction.minLines) return;
+
+    const winners = mergeActiveRows(rows);
+    if ((rows.length - winners.length) / rows.length < this.messageCompaction.deadRatio) return;
+
+    // 基类 writeJsonl 为原子写（tmp+rename），FileStore 覆盖版负责缓存失效
+    await this.writeJsonl(filePath, winners);
+  }
+
+  /**
+   * §4.2 发言层新鲜度检查：频道版本快照（messages.jsonl 最后一行的消息 id，含 tombstone 行——
+   * 删除也要被感知为「房间已变」）。
+   * #319：行号口径退役（压实会压缩行数，按原始行数下标的契约不再成立），一律以 id 为准。
    * 读取失败（频道不存在等）返回空版本 —— 调用方按「无变化」处理，绝不阻断发言。
    */
-  async getChannelVersion(channelId: string): Promise<{ lineCount: number; lastMessageId: string | null }> {
+  async getChannelVersion(channelId: string): Promise<{ lastMessageId: string | null }> {
     try {
       const rows = await this.readJsonl<ChannelMessageRow>(this.messagesPath(channelId));
-      return { lineCount: rows.length, lastMessageId: rows.length > 0 ? rows[rows.length - 1].id : null };
+      return { lastMessageId: rows.length > 0 ? rows[rows.length - 1].id : null };
     } catch {
-      return { lineCount: 0, lastMessageId: null };
+      return { lastMessageId: null };
     }
   }
 
   /**
-   * §4.2: 读取 messages.jsonl 中从 fromLine（原始行数下标）之后追加的消息（过滤 tombstone）。
-   * 与 getChannelVersion 的 lineCount 口径一致（同一 readJsonl 原始行数组）。
+   * §4.2: 读取锚点消息之后追加的活消息（过滤 tombstone，不含锚点本身）。
+   * 锚点为 null（空频道快照）返回全部活消息。
+   * 锚点 id 找不到——根因：压实可能抹除锚点行本身（tombstone 或被覆盖行），位置不可知——
+   * 保守返回全部活消息：消费方（§4.2）过滤本 loop 自己的消息且拦截 ≤2 次后照发，
+   * 代价是有界误报；反向漏报（丢掉真正的新消息）不允许。
    */
-  async getMessagesSinceLine(channelId: string, fromLine: number): Promise<ChannelMessageData[]> {
+  async getMessagesSince(channelId: string, messageId: string | null): Promise<ChannelMessageData[]> {
     try {
       const rows = await this.readJsonl<ChannelMessageRow>(this.messagesPath(channelId));
-      const result: ChannelMessageData[] = [];
-      for (const row of rows.slice(Math.max(0, fromLine))) {
-        if (row.deleted) continue;
-        const { deleted, ...rest } = row;
-        result.push(rest);
+      let from = 0;
+      if (messageId) {
+        let anchor = -1;
+        for (let i = rows.length - 1; i >= 0; i--) {
+          if (rows[i].id === messageId) { anchor = i; break; }
+        }
+        if (anchor !== -1) from = anchor + 1;
       }
-      return result;
+      // 窗口内按 id 归并（mergeActiveRows 唯一口径）：窗口内发了又删的消息不出现在增量里
+      return mergeActiveRows(rows.slice(from));
     } catch {
       return [];
     }
@@ -536,21 +632,7 @@ export class FileStore extends FileStoreWorkUnitBase {
 
   /** 解析 JSONL，按 id 去重（最新条目生效），过滤已删除 */
   private resolveActiveMessages(channelId: string): Promise<ChannelMessageData[]> {
-    return this.readJsonl<ChannelMessageRow>(this.messagesPath(channelId)).then(rows => {
-      const latest = new Map<string, ChannelMessageRow>();
-      for (const row of rows) {
-        latest.set(row.id, row);
-      }
-      const active: ChannelMessageData[] = [];
-      for (const msg of latest.values()) {
-        if (!msg.deleted) {
-          // 删除 deleted 字段以保持与 ChannelMessageData 类型一致
-          const { deleted, ...rest } = msg;
-          active.push(rest);
-        }
-      }
-      return active;
-    });
+    return this.readJsonl<ChannelMessageRow>(this.messagesPath(channelId)).then(mergeActiveRows);
   }
 
   async queryMessages(channelId: string, opts?: QueryOpts): Promise<ChannelMessageData[]> {
@@ -578,6 +660,31 @@ export class FileStore extends FileStoreWorkUnitBase {
     return filtered;
   }
 
+  /**
+   * 频道消息分页（#319 半下沉）：存储层过滤→排序→切片，路由不再全量拉回内存切。
+   * before = 锚点消息 id 游标（不含锚点；替代原 timestamp 游标——同毫秒多条消息不再漏/重）。
+   * 锚点 id 不存在（已删除/被压实抹除）→ 空页 + hasMore=false：位置不可知时不整页错发。
+   * total 语义与路由现状一致：锚点过滤后的总数。
+   */
+  async queryMessagesPage(channelId: string, opts?: MessagePageOpts): Promise<MessagePage> {
+    const resolved = await this.resolveActiveMessages(channelId);
+    // 按创建时间升序（与 queryMessages 同口径；同刻消息按文件序稳定排列）
+    resolved.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+
+    let end = resolved.length;
+    if (opts?.before) {
+      const anchor = resolved.findIndex(m => m.id === opts.before);
+      if (anchor === -1) return { messages: [], total: resolved.length, hasMore: false };
+      end = anchor;
+    }
+    const limit = opts?.limit !== undefined && opts.limit > 0 ? opts.limit : 50;
+    return {
+      messages: resolved.slice(Math.max(0, end - limit), end),
+      total: end,
+      hasMore: end > limit,
+    };
+  }
+
   async countMessages(channelId: string, opts?: CountOpts): Promise<number> {
     const resolved = await this.resolveActiveMessages(channelId);
     let filtered = resolved;
@@ -593,15 +700,20 @@ export class FileStore extends FileStoreWorkUnitBase {
   }
 
   async softDeleteMessage(channelId: string, messageId: string): Promise<void> {
-    const all = await this.readJsonl<ChannelMessageRow>(this.messagesPath(channelId));
-    const msg = all.find(m => m.id === messageId && !m.deleted);
-    if (!msg) throw new Error(`Message not found: ${messageId}`);
-    // append tombstone
-    const tombstone: ChannelMessageRow = {
-      ...msg,
-      deleted: true,
-    };
-    await this.appendJsonl(this.messagesPath(channelId), tombstone);
+    // #319：与 appendMessage 同锁——压实重写与 tombstone 追加竞争会丢 tombstone（已删消息复活）
+    await this.withLock(this.messagesLockDir(channelId), async () => {
+      // 锁内裸读（ADR 例外条款）：要删的必须是此刻磁盘最新状态，不走读穿缓存
+      const all = await super.readJsonl<ChannelMessageRow>(this.messagesPath(channelId));
+      const msg = all.find(m => m.id === messageId && !m.deleted);
+      if (!msg) throw new Error(`Message not found: ${messageId}`);
+      // append tombstone
+      const tombstone: ChannelMessageRow = {
+        ...msg,
+        deleted: true,
+      };
+      await this.appendJsonl(this.messagesPath(channelId), tombstone);
+      await this.compactMessagesIfNeededLocked(channelId);
+    });
   }
 
   /**

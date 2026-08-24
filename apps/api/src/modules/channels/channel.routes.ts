@@ -131,30 +131,24 @@ router.get('/:id/current-pmo', async (req, res) => {
 });
 
 // GET /api/v1/channels/:id/messages — paginated messages
+// #319：before = 锚点消息 id 游标（原 timestamp 游标同毫秒撞车会漏/重）；分页半下沉到存储层（queryMessagesPage 切片）
 router.get('/:id/messages', async (req, res) => {
   const { before, limit = '50' } = req.query;
   const take = Math.min(Number(limit), 100);
 
-  let messages = await fileStore.queryMessages(req.params.id);
-  if (before) {
-    const beforeTime = new Date(before as string).getTime();
-    messages = messages.filter(m => new Date(m.createdAt).getTime() < beforeTime);
-  }
-  const total = messages.length;
-
-  // Sort descending, take + 1 for hasMore
-  messages.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-  const hasMore = messages.length > take;
-  const page = messages.slice(0, take);
+  const page = await fileStore.queryMessagesPage(req.params.id, {
+    before: typeof before === 'string' && before ? before : undefined,
+    limit: take,
+  });
 
   // 解析 meta JSON，转换 createdAt 类型
-  const data = page.reverse().map(m => ({
+  const data = page.messages.map(m => ({
     ...m,
     meta: typeof m.meta === 'string' ? JSON.parse(m.meta) : m.meta,
     createdAt: new Date(m.createdAt),
   }));
 
-  res.json({ success: true, data, total, hasMore });
+  res.json({ success: true, data, total: page.total, hasMore: page.hasMore });
 });
 
 // GET /api/v1/channels/:id/file-vocabulary — #281：@文件引用只读词表

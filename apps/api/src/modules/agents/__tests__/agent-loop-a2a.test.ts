@@ -61,7 +61,7 @@ const roleA = {
 
 interface LoopInternals {
   recordResult(target: unknown, result: unknown): Promise<void>;
-  agentStep(target: unknown): Promise<{ action: string; summary: string; channelVersion?: { lineCount: number; lastMessageId: string | null } }>;
+  agentStep(target: unknown): Promise<{ action: string; summary: string; channelVersion?: { lastMessageId: string | null } }>;
 }
 
 describe('A2A P1: DELEGATE / complete 守卫 / 新鲜度检查 / 花名册', () => {
