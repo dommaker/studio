@@ -237,7 +237,7 @@ export function useStreamFollow({ channelId, messages, loading, loadMore, items,
     if (shouldFollowBottom(pinnedRef.current, lastIsOwn)) {
       pinAndJumpToBottom();
     }
-  }, [messages, loading, scrollStreamTo, pinAndJumpToBottom, anchorRowTop, virtualEnabled, messageToItemIndex, virtualizer, channelId]);
+  }, [messages, loading, scrollStreamTo, pinAndJumpToBottom, anchorRowTop, virtualEnabled, messageToItemIndex, virtualizer]);
 
   // 阅读位置恢复第二段：粗定位后锚行进入 DOM 时按存档 top 精校正一次（找到即清；
   // 锚行所在 item 必随 scrollToIndex 渲染，渲染提交后本 effect 即命中）
