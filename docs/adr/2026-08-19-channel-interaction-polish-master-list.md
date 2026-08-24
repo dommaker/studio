@@ -50,12 +50,12 @@
 | P1 | 11 | 「默认执行机器」正名挪设置区 + 403/孤儿绑定/回显修复 | 决策落地 | #251 / F12 / #259 | M | 术语分家的另一半；已绑定值不回显 Admin 同现（#259 补实） |
 | P1 | 12 | publish 回写 channelId + PMO 页「去频道」按钮复活 | 决策落地 | #251 | S | 建 PMO 不预选频道；创建频道表单加可选默认工程并去重双表单 |
 | P2 | 13 | 通知铃接后端 notifications API | 缺陷修复 | #251 / F10 | M | 现纯内存消费 SSE atHuman、刷新即丢、恒「暂无通知」；notifications 路由 x-user-id 与登录态脱节一并处理。✅ #274 已完成（e48ba208，local master，待 ship） |
-| P2 | 14 | 六条跳转断点处置 | 决策落地 | #251 / F13 | M | 含 PMO 项目页无跳频道入口（反向链路断一档） |
+| P2 | 14 | 六条跳转断点处置 | 决策落地 | #251 / F13 | M | 含 PMO 项目页无跳频道入口（反向链路断一档）。✅ 已完成（local master，待 ship）：① publish 回写 + 去频道按钮 #273（b7942f9b）② WU 抽屉回频道 ⑥ dev 深链 #275（689aa839）+ #291 ③ footer REQ›/PMO› #275 ④ 通知铃 #274（e48ba208）⑤ 执行机器三修 #286（bd8aff03） |
 | P2 | 15 | NEED_INPUT 内嵌回复假承诺/状态矛盾清理 | 缺陷修复 | #247 F4 | S | 「已回复」badge 与「等待回复」同屏并存；一屏 5 个相同回复框。与 #5 联动实施。✅ #276 已完成（786a9e45 + eb15049f 评审补漏，local master，待 ship） |
-| P2 | 16 | WU 列表统计修复：总数恒 0、pending 计入「待人工」 | 缺陷修复 | #247 F6 | S | 列表 3 条显示总数 0；pending 应单列「待确认」 |
+| P2 | 16 | WU 列表统计修复：总数恒 0、pending 计入「待人工」 | 缺陷修复 | #247 F6 | S | 列表 3 条显示总数 0；pending 应单列「待确认」。✅ #280 已完成（319be745 + 4b242088 补漏，local master，待 ship；根因=前端 PaginatedResponse 类型与后端嵌套 pagination 错位，口径修正落 deriveDisplayState 共享层） |
 | P2 | 17 | PMO description 落错字段 + progress 口径矛盾 | 缺陷修复 | #247 F13 | S | 需求描述存进 requirement、description 恒 null 显示「无描述」；0/1 WU 阻塞却 progress=100。✅ #282 已完成（efc31476，local master，待 ship） |
 | P2 | 18 | 非 Admin 403 降级 UX | 缺陷修复 | #247 F14 | S | 左栏 Agents 恒「加载中…」+ console 403 轮询刷屏；应渲染「无权限」。✅ #283 已完成（6bfad0f2，local master，待 ship） |
-| P2 | 19 | 线程回复位置不稳定 | 缺陷修复 | #247 F17 | M | 轮询增量到达时线程回复以主消息 appended 流尾，刷新后归并线程——同一消息两种位置 |
+| P2 | 19 | 线程回复位置不稳定 | 缺陷修复 | #247 F17 | M | 轮询增量到达时线程回复以主消息 appended 流尾，刷新后归并线程——同一消息两种位置。✅ #287 已完成（e98dd8f1，local master，待 ship；insertMessage 恒按 createdAt 升序归位 + 孤儿归并，hook 级测试 6 例） |
 | P2 | 20 | 人审卡片按钮一次性锁存核查 + 高危操作二次确认 | 打磨 | #246 P2 | S | 逐个卡片核查点击到状态回流间的防重复；retract/退役类接 acknowledge→confirm 两步。✅ #288 已完成（7f9bd618，local master，待 ship；需求文档卡经核查 #278 已只读化无按钮，无需锁存） |
 | P2 | 21 | observed-top 滚动台账 + ResizeObserver 跟随 + 回到底部按钮 | 决策落地 | #248 / #246 P1 | M | 程序写 scrollTop 必记账，偏离才算读者滚动；卡片展开撑高时跟随。从 #246 P1 降到 P2：顺滑度优化，不阻塞链路。✅ #289 已完成（f7033831，local master） |
 | P3 | 22 | 加载更早消息改行锚点补偿 | 打磨 | #246 P2 | S | 高度差补偿法不抗加载期间高度变化；换行锚点 + 位移补偿。✅ #290 已完成（local master；回写：锚点身份复用既有 `data-message-id` 属性，未新增 `data-mid`） |
