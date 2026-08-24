@@ -172,8 +172,9 @@ export async function resolveWorkspace(opts: {
 export async function propagateHarnessConfig(worktree: string, taskId: string, executionId: string, repoDir?: string): Promise<void> {
   try {
     // FIX #3: 复制 CLAUDE.md 到 worktree，使 buildAgentConstraintPrompt 去重逻辑生效
-    // 主 repo CLAUDE.md 含 <!-- HARNESS_CONSTRAINTS_START --> 标记，
-    // buildAgentConstraintPrompt 检测到后只注入短引用，避免全量规则重复
+    // 新落点模型（docs/adr/2026-08-21-agent-docs-placement-model.md）：去重检测认
+    // AGENTS.md PRESERVE:governance 段（git worktree checkout 自带）；CLAUDE.md 为
+    // gitignored 薄身（首行 @AGENTS.md 导入），仍需复制以便 Claude Code 读到约束。
     if (repoDir) {
       const claudeMdSrc = path.join(repoDir, 'CLAUDE.md');
       const claudeMdDst = path.join(worktree, 'CLAUDE.md');

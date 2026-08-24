@@ -46,6 +46,13 @@ export interface AgentSummary {
   };
 }
 
+/** #290（清单 #24）：RuntimeInstance 档案（离线实例兜底解析负责人角色用） */
+export interface AgentInstanceInfo {
+  id: string;
+  roleId: string;
+  status: string;
+}
+
 export interface MonitoringStats {
   workunits: {
     total: number;
@@ -170,4 +177,7 @@ export const monitoringApi = {
   /** 强制停止实例（当前任务转人工处理；AgentDashboardPage / AgentDetailPage 共用） */
   terminateInstance: (instanceId: string) =>
     api.post(`/agent-instances/${instanceId}/terminate`),
+  /** #290（清单 #24）：单个 RuntimeInstance 档案（负责人离线回退解析 roleId） */
+  getAgentInstance: (instanceId: string) =>
+    api.get<AgentInstanceInfo>(`/agent-instances/${instanceId}`),
 };

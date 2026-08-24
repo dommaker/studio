@@ -56,6 +56,22 @@ describe('MemoryProposalCard — 角色记忆人审闸口', () => {
     expect(screen.getByText(/WU-2042/)).toBeTruthy();
   });
 
+  it('锁存（#288 核查）：onAction 未回流前连击不重复触发，按钮禁用', async () => {
+    let resolve: (v: boolean) => void = () => {};
+    const onAction = vi.fn().mockImplementation(() => new Promise<boolean>(r => { resolve = r; }));
+    render(<MemoryProposalCard message={baseMessage} meta={JSON.parse(baseMessage.meta!)} onAction={onAction} />);
+    const approveBtn = screen.getByText('确认写入').closest('button')!;
+    fireEvent.click(approveBtn);
+    expect(approveBtn.disabled).toBe(true);
+    expect(screen.getByText('丢弃').closest('button')!.disabled).toBe(true);
+    fireEvent.click(approveBtn);
+    fireEvent.click(screen.getByText('丢弃'));
+    expect(onAction).toHaveBeenCalledTimes(1);
+    resolve(true);
+    expect(await screen.findByText(/已确认，已写入记忆/)).toBeTruthy();
+    expect(onAction).toHaveBeenCalledTimes(1);
+  });
+
   it('点确认写入 → onAction(messageId, memory_proposal_approve)，成功后显示已确认', async () => {
     const onAction = vi.fn().mockResolvedValue(true);
     render(<MemoryProposalCard message={baseMessage} meta={JSON.parse(baseMessage.meta!)} onAction={onAction} />);

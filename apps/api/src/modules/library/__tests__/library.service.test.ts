@@ -1,7 +1,8 @@
 /**
  * Library service 测试 — #155 T5 阅览室聚合只读层
  *
- * tmp 目录造两仓 fixture（specs/research/adr/CONTEXT.md/legacy-sdd 全齐），
+ * tmp 目录造两仓 fixture（.studio/ 下 specs/research/CONTEXT.md/legacy-sdd +
+ * 仓根 docs/adr/，全齐），
  * 覆盖：缺省聚合、project 收窄、search、legacy 标记、projectId 真值、
  * 路径穿越拒绝、单仓失败容错。PMO 项目清单用 vi.mock project.service。
  */
@@ -73,7 +74,7 @@ spec body keyword alpha。`);
   write(path.join(repoA, '.studio/research/research-a.md'), `# 调研甲
 
 research body keyword BETA。`);
-  write(path.join(repoA, '.studio/adr/adr-a.md'), `---
+  write(path.join(repoA, 'docs/adr/adr-a.md'), `---
 title: "ADR 甲"
 ---
 
@@ -113,7 +114,7 @@ describe('listLibraryDocs', () => {
 
     expect(ids).toContain('proj-a:specs/spec-a.md');
     expect(ids).toContain('proj-a:research/research-a.md');
-    expect(ids).toContain('proj-a:adr/adr-a.md');
+    expect(ids).toContain('proj-a:docs/adr/adr-a.md');
     expect(ids).toContain('proj-a:CONTEXT.md');
     expect(ids).toContain('proj-a:legacy-sdd/old-doc');
     expect(ids).toContain('proj-b:specs/spec-b.md');
@@ -129,7 +130,7 @@ describe('listLibraryDocs', () => {
 
     expect(byId.get('proj-a:specs/spec-a.md')).toMatchObject({ kind: 'spec', title: '规格甲', legacy: false });
     expect(byId.get('proj-a:research/research-a.md')).toMatchObject({ kind: 'research', title: '调研甲' });
-    expect(byId.get('proj-a:adr/adr-a.md')).toMatchObject({ kind: 'adr', title: 'ADR 甲' });
+    expect(byId.get('proj-a:docs/adr/adr-a.md')).toMatchObject({ kind: 'adr', title: 'ADR 甲' });
     expect(byId.get('proj-a:CONTEXT.md')).toMatchObject({ kind: 'context', title: '仓甲上下文' });
   });
 
@@ -215,6 +216,21 @@ describe('getLibraryDoc', () => {
     expect(await getLibraryDoc('proj-a:')).toBeNull();
     // 不在已知文档面内的路径 → null
     expect(await getLibraryDoc('proj-a:random/file.md')).toBeNull();
+  });
+
+  it('adr 文档：仓根 docs/adr/ 面读取，越出该面即 null', async () => {
+    const doc = await getLibraryDoc('proj-a:docs/adr/adr-a.md');
+
+    expect(doc).toMatchObject({
+      id: 'proj-a:docs/adr/adr-a.md',
+      title: 'ADR 甲',
+      kind: 'adr',
+      path: 'docs/adr/adr-a.md',
+    });
+    expect(doc?.content).toContain('决策正文。');
+    // 越出 docs/adr/ 面根（含仓内其他位置）一律拒绝
+    expect(await getLibraryDoc('proj-a:docs/adr/../specs/spec-a.md')).toBeNull();
+    expect(await getLibraryDoc('proj-a:docs/adr/../../package.json')).toBeNull();
   });
 
   it('路径穿越拒绝：resolve 出 .studio/ 根即 null', async () => {

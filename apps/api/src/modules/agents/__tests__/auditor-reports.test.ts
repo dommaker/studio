@@ -6,7 +6,7 @@ import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 
-const { tmpHome, tmpEvents, eventsFile, mockSave, origHomedir, origStudioHome, origStudioDataDir } = vi.hoisted(() => {
+const { tmpHome, tmpEvents, mockSave, origHomedir, origStudioHome, origStudioDataDir } = vi.hoisted(() => {
   const fs = require('node:fs');
   const path = require('node:path');
   const os = require('node:os');
@@ -60,6 +60,12 @@ afterAll(() => {
 });
 
 const snapshotFile = path.join(tmpHome, '.studio', 'auditor', 'daily-snapshots.jsonl');
+
+// FileStore.readJsonl 按 mtime(ms) 缓存：同路径毫秒级重写会命中陈旧缓存
+//（2026-08-24 ship 测试偶发：后一用例读到前一用例数据）。每用例唯一路径规避，
+// resolveStudioEventsFile 懒读 env，beforeEach 里换路径即生效。
+let eventsFile = path.join(tmpEvents, 'studio-events-0.jsonl');
+let eventsSeq = 0;
 
 function makeSnapshot(overrides: Record<string, unknown> = {}) {
   return {
@@ -148,7 +154,8 @@ describe('analyzeSessionTrends()', () => {
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
   beforeEach(() => {
-    try { fs.unlinkSync(eventsFile); } catch {}
+    eventsFile = path.join(tmpEvents, `studio-events-${++eventsSeq}.jsonl`);
+    process.env.STUDIO_EVENTS_FILE = eventsFile;
     try { fs.unlinkSync(snapshotFile); } catch {}
   });
 

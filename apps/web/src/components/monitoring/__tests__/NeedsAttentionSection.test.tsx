@@ -44,8 +44,10 @@ function mockWuByStatus(map: Record<string, { total?: number; data?: Array<Recor
   mockList.mockImplementation((params?: { status?: string }) => {
     const entry = (params?.status && map[params.status]) || { total: 0, data: [] };
     const data = entry.data ?? [];
+    const total = entry.total ?? data.length;
+    // 对齐真实 API 响应形状（formatPaginatedResponse）：总数在 pagination.total（#309）
     return Promise.resolve({
-      data: { data, total: entry.total ?? data.length, page: 1, limit: 200 },
+      data: { data, pagination: { page: 1, limit: 200, total, totalPages: Math.ceil(total / 200) } },
     });
   });
 }

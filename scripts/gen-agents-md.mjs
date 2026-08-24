@@ -2,13 +2,13 @@
 /**
  * gen-agents-md.mjs — 生成/更新根 AGENTS.md 的「模块索引」自动区段
  *
- * 摘要来源（#152 起）：`.studio/CONTEXT.md` 的模块锚点（`## <目录路径>`）。
- * 归并前读各目录散置的 CONTEXT.md；T2b/#124 落点裁决后唯一正本是
- * 业务仓 .studio/CONTEXT.md，模块级散置文件已摘除。
+ * 摘要来源：各目录散置的 `CONTEXT.md`（H1 = 目录路径，### 小节含「职责」）。
+ * #152 曾归并为 `.studio/CONTEXT.md` 单文件，实践暴露 1770 行膨胀、读写成本高，
+ * 现撤销回归散置模型（#299）。
  *
- * 聚合范围（锚点存在才提取说明，目录本身全部列出）：
- *   - apps/api/src/modules/<name> 锚点
- *   - packages/<name> 锚点（缺省时回退 packages/<name>/src 锚点）
+ * 聚合范围（CONTEXT.md 存在才提取说明，目录本身全部列出）：
+ *   - apps/api/src/modules/<name>/CONTEXT.md
+ *   - packages/<name>/CONTEXT.md（缺省时回退 packages/<name>/src/CONTEXT.md）
  *
  * 只替换 AGENTS.md 中 <!-- AUTO-GENERATED:modules --> 与
  * <!-- /AUTO-GENERATED:modules --> 标记之间的内容；标记外内容不动。
@@ -26,13 +26,13 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const AGENTS_MD = join(ROOT, 'AGENTS.md');
-const STUDIO_CONTEXT = join(ROOT, '.studio', 'CONTEXT.md');
 const BEGIN = '<!-- AUTO-GENERATED:modules -->';
 const END = '<!-- /AUTO-GENERATED:modules -->';
 
 /**
- * 把 .studio/CONTEXT.md 解析为锚点表：Map<锚点路径, 锚点正文>。
+ * 把带 `## <路径>` 锚点的文档解析为锚点表：Map<锚点路径, 锚点正文>。
  * 锚点 = 二级标题 `## <路径>`；正文到下一个二级标题（或文件尾）为止。
+ * 供 split-context-md.mjs 一次性拆分 `.studio/CONTEXT.md` 使用。
  */
 export function parseAnchors(content) {
   const anchors = new Map();
@@ -68,22 +68,28 @@ export function extractSummary(section) {
   return clean.length > 120 ? clean.slice(0, 117).trimEnd() + '...' : clean;
 }
 
+/** 读目录下的 CONTEXT.md 全文，不存在返回 null */
+function readContext(relDir) {
+  const file = join(ROOT, relDir, 'CONTEXT.md');
+  return existsSync(file) ? readFileSync(file, 'utf-8') : null;
+}
+
 /** 收集条目：{ dir, summary } */
-function collect(anchors) {
+function collect() {
   const entries = [];
 
   const modulesDir = join(ROOT, 'apps/api/src/modules');
   for (const name of readdirSync(modulesDir, { withFileTypes: true })) {
     if (!name.isDirectory() || name.name.startsWith('.') || name.name.startsWith('__')) continue;
     const dir = `apps/api/src/modules/${name.name}`;
-    entries.push({ dir, summary: extractSummary(anchors.get(dir)) });
+    entries.push({ dir, summary: extractSummary(readContext(dir)) });
   }
 
   const packagesDir = join(ROOT, 'packages');
   for (const name of readdirSync(packagesDir, { withFileTypes: true })) {
     if (!name.isDirectory() || name.name.startsWith('.') || name.name.startsWith('__')) continue;
     const dir = `packages/${name.name}`;
-    const section = anchors.has(dir) ? anchors.get(dir) : anchors.get(`${dir}/src`);
+    const section = readContext(dir) ?? readContext(`${dir}/src`);
     entries.push({ dir, summary: extractSummary(section) });
   }
 
@@ -92,13 +98,13 @@ function collect(anchors) {
 
 function buildSection(entries) {
   const rows = entries.map(
-    e => `| \`${e.dir}\` | ${e.summary ?? '（.studio/CONTEXT.md 无对应锚点，请补充）'} |`,
+    e => `| \`${e.dir}\` | ${e.summary ?? '（无 CONTEXT.md，请补充）'} |`,
   );
   return `${BEGIN}
 ## 模块索引
 
 > 本区段由 \`pnpm gen:agents-md\`（scripts/gen-agents-md.mjs）生成，请勿手改；
-> 摘要取自 .studio/CONTEXT.md 同名锚点的「职责」节；新增/变更模块后补锚点并重跑该命令。
+> 摘要取自各目录 CONTEXT.md 的「职责」节；新增/变更模块后补 CONTEXT.md 并重跑该命令。
 > AGENTS.md 全文（含 harness 生成的导读部分）用 \`pnpm agents-md:sync\` 重建，勿手改本文件。
 
 | 目录 | 说明 |
@@ -108,12 +114,7 @@ ${END}`;
 }
 
 function main() {
-  if (!existsSync(STUDIO_CONTEXT)) {
-    console.error('缺少 .studio/CONTEXT.md（#152 起模块上下文唯一正本），无法生成模块索引');
-    process.exit(1);
-  }
-  const anchors = parseAnchors(readFileSync(STUDIO_CONTEXT, 'utf-8'));
-  const entries = collect(anchors);
+  const entries = collect();
   const section = buildSection(entries);
 
   // PRESERVE 包裹版：harness 漂移比对对包裹内容免疫（见文件头注释）

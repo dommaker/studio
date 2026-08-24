@@ -55,8 +55,8 @@ describe('KnowledgeConfirmCard — #278 历史卡只读化 + retract 接线', ()
     expect(screen.queryByText('该确认入口已下线')).toBeNull();
   });
 
-  it('retract_confirm 待决卡：头部显示技能名，按钮触发 retract_confirm/retract_reject', () => {
-    const onAction = vi.fn();
+  it('retract_confirm 待决卡：头部显示技能名；确认废弃两步确认（#288），拒绝单击直达', async () => {
+    const onAction = vi.fn().mockResolvedValue(true);
     render(
       <KnowledgeConfirmCard
         message={makeMsg({ cardType: 'retract_confirm', status: 'ready', cardData: { skillId: 'skill-1', skillName: 'legacy-x' } })}
@@ -66,10 +66,12 @@ describe('KnowledgeConfirmCard — #278 历史卡只读化 + retract 接线', ()
     );
     expect(screen.getByText('legacy-x')).toBeTruthy();
     expect(screen.queryByText(/条知识/)).toBeNull();
+    // 高危操作 acknowledge→confirm：首次点击仅进入待确认态
     fireEvent.click(screen.getByText('确认废弃'));
+    expect(onAction).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByText(/再次点击确认废弃/));
+    await screen.findByText('已确认废弃');
     expect(onAction).toHaveBeenCalledWith('msg-1', 'retract_confirm');
-    fireEvent.click(screen.getByText('拒绝'));
-    expect(onAction).toHaveBeenCalledWith('msg-1', 'retract_reject');
   });
 
   it('retract_confirm 已决卡：deprecated → 已确认废弃；published → 撤回已取消', () => {

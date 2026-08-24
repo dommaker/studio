@@ -295,10 +295,8 @@ describe('NotificationService', () => {
   // ============================================
   // AC-005: getUnreadCount
   //
-  // 注意：当前 getUnreadCount 实现统计每个 id 组中非 deleted 行的用户归属，
-  // 不检查 tombstone（deleted:true 行）。markAsRead 追加 tombstone 但 original
-  // 行 remain 非 deleted，所以标记已读后 getUnreadCount 不递减。
-  // 这反映当前实现的行为，不是测试预期。
+  // #274 起 getUnreadCount 检查 tombstone（deleted:true 行）：
+  // markAsRead 追加 tombstone 后该 id 即视为已读，不计入未读数。
   // ============================================
   describe('getUnreadCount', () => {
     it('计算指定用户的非 deleted 通知数量', async () => {
@@ -322,15 +320,15 @@ describe('NotificationService', () => {
       expect(await service.getUnreadCount('user-1')).toBe(0);
     });
 
-    it('markAsRead 追加 tombstone 后 getUnreadCount 不递减（当前实现限制）', async () => {
+    it('markAsRead 追加 tombstone 后 getUnreadCount 递减（#274）', async () => {
       const n1 = await service.create({ userId: 'user-1', type: 'system', title: 'N1', content: 'C1' });
       const n2 = await service.create({ userId: 'user-1', type: 'system', title: 'N2', content: 'C2' });
 
       expect(await service.getUnreadCount('user-1')).toBe(2);
 
       await service.markAsRead(n1.id, 'user-1');
-      // getUnreadCount 遍历 nonDeleted 行，tombstone 不影响计数
-      expect(await service.getUnreadCount('user-1')).toBe(2);
+      // 有 tombstone 即已读，不计入未读数
+      expect(await service.getUnreadCount('user-1')).toBe(1);
     });
   });
 });

@@ -100,4 +100,4 @@ custom_constraints:
     description: 2026-08-14 决策：受影响测试口径对齐 studio-deploy-quick（vitest run --changed origin/master），全量留 CI/ship，避免每票 4.5min 全量空转
     promptInjection: >-
       在声明任务完成前，必须重新运行新鲜的验证命令——受改动影响的测试（vitest run --changed origin/master）+ type check，使用新鲜的输出作为完成证据，不得复用旧结果。全量测试由 CI /
-      studio-ship 兜底。
+      发布流程兜底。

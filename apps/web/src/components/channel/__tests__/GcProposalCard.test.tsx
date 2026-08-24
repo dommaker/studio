@@ -62,6 +62,22 @@ describe('GcProposalCard — GC 候选清单人审闸口', () => {
     expect(screen.getByText(/203 条已超容量上限/)).toBeTruthy();
   });
 
+  it('锁存（#288 核查）：onAction 未回流前连击不重复触发，按钮禁用', async () => {
+    let resolve: (v: boolean) => void = () => {};
+    const onAction = vi.fn().mockImplementation(() => new Promise<boolean>(r => { resolve = r; }));
+    render(<GcProposalCard message={baseMessage} meta={JSON.parse(baseMessage.meta!)} onAction={onAction} />);
+    const approveBtn = screen.getByText('确认归档').closest('button')!;
+    fireEvent.click(approveBtn);
+    expect(approveBtn.disabled).toBe(true);
+    expect(screen.getByText('全部保留').closest('button')!.disabled).toBe(true);
+    fireEvent.click(approveBtn);
+    fireEvent.click(screen.getByText('全部保留'));
+    expect(onAction).toHaveBeenCalledTimes(1);
+    resolve(true);
+    expect(await screen.findByText(/已确认，候选条目已归档/)).toBeTruthy();
+    expect(onAction).toHaveBeenCalledTimes(1);
+  });
+
   it('点确认归档 → onAction(messageId, gc_proposal_approve)，成功后显示已归档', async () => {
     const onAction = vi.fn().mockResolvedValue(true);
     render(<GcProposalCard message={baseMessage} meta={JSON.parse(baseMessage.meta!)} onAction={onAction} />);

@@ -2,7 +2,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
-const { mockWuGet, mockListTokenEvents, mockListExecSteps, mockReviewPassed, mockReviewRejected, mockGetChain, mockGetOverhead, mockStreamChunks, mockResume, mockClose } = vi.hoisted(() => ({
+const { mockWuGet, mockListTokenEvents, mockListExecSteps, mockReviewPassed, mockReviewRejected, mockGetChain, mockGetOverhead, mockStreamChunks, mockResume, mockClose, mockChannelGet, mockGetAgentSummary, mockGetAgentInstance, mockListAllAgents } = vi.hoisted(() => ({
   mockWuGet: vi.fn(),
   mockListTokenEvents: vi.fn(),
   mockListExecSteps: vi.fn(),
@@ -13,6 +13,10 @@ const { mockWuGet, mockListTokenEvents, mockListExecSteps, mockReviewPassed, moc
   mockStreamChunks: vi.fn(),
   mockResume: vi.fn(),
   mockClose: vi.fn(),
+  mockChannelGet: vi.fn(),
+  mockGetAgentSummary: vi.fn(),
+  mockGetAgentInstance: vi.fn(),
+  mockListAllAgents: vi.fn(),
 }));
 
 vi.mock('../../../api/workunit', async () => {
@@ -36,8 +40,26 @@ vi.mock('../../../api/requirements', () => ({
 }));
 
 vi.mock('../../../api/monitoring', () => ({
-  monitoringApi: { getOverhead: mockGetOverhead },
+  monitoringApi: {
+    getOverhead: mockGetOverhead,
+    // #290（清单 #24）：负责人解析（AssigneeLabel → useAssigneeDisplay）
+    getAgentSummary: mockGetAgentSummary,
+    getAgentInstance: mockGetAgentInstance,
+  },
 }));
+
+// #275（#251 断点2）：WU 抽屉「#频道名」回频道入口——频道名取自 channelApi.get
+vi.mock('../../../api/channel', async () => {
+  const actual = await vi.importActual('../../../api/channel');
+  return {
+    ...actual,
+    channelApi: {
+      ...(actual as { channelApi: object }).channelApi,
+      get: mockChannelGet,
+      listAllAgents: mockListAllAgents,
+    },
+  };
+});
 
 // WU 事件 hook（SSE）— 测试无 WebSocketProvider，置空
 vi.mock('../../../hooks/useWorkUnitEvents', () => ({
@@ -51,6 +73,7 @@ vi.mock('../../../hooks/useWorkUnitStreamEvents', () => ({
 
 import { WorkUnitDrawer } from '../WorkUnitDrawer';
 import type { DrawerState } from '../WorkUnitDrawer';
+import { MemoryRouter, Routes, Route } from 'react-router-dom';
 
 const WU = {
   id: 'WU-1017',
@@ -109,12 +132,23 @@ const CHAIN = {
 
 const renderDrawer = (drawer: DrawerState, extra: { onClose?: () => void; onOpenWu?: (id: string) => void; onOpenReq?: (id: string) => void } = {}) =>
   render(
-    <WorkUnitDrawer
-      drawer={drawer}
-      onClose={extra.onClose ?? vi.fn()}
-      onOpenWu={extra.onOpenWu ?? vi.fn()}
-      onOpenReq={extra.onOpenReq ?? vi.fn()}
-    />,
+    <MemoryRouter initialEntries={['/']}>
+      <Routes>
+        <Route
+          path="/"
+          element={
+            <WorkUnitDrawer
+              drawer={drawer}
+              onClose={extra.onClose ?? vi.fn()}
+              onOpenWu={extra.onOpenWu ?? vi.fn()}
+              onOpenReq={extra.onOpenReq ?? vi.fn()}
+            />
+          }
+        />
+        {/* #275 断点2 断言落点：抽屉内点频道链接跳频道页（页面级跳转走 react-router） */}
+        <Route path="/channels/:id" element={<div>频道页</div>} />
+      </Routes>
+    </MemoryRouter>,
   );
 
 describe('WorkUnitDrawer', () => {
@@ -130,6 +164,13 @@ describe('WorkUnitDrawer', () => {
     mockGetOverhead.mockResolvedValue({ data: OVERHEAD });
     mockGetChain.mockResolvedValue({ data: { data: CHAIN } });
     mockStreamChunks.mockReturnValue([]);
+    mockChannelGet.mockResolvedValue({ data: { data: { id: 'ch-1', name: '研发', type: 'dev' } } });
+    // #290（清单 #24）：负责人解析默认「查无」——摘要空、实例档案 404、profile 列表空
+    mockGetAgentSummary.mockResolvedValue({
+      data: { agents: [], summary: { total: 0, idle: 0, active: 0, error: 0, terminated: 0 } },
+    });
+    mockGetAgentInstance.mockRejectedValue(new Error('404'));
+    mockListAllAgents.mockResolvedValue({ data: { data: [] } });
   });
 
   it('renders nothing when drawer is null', () => {
@@ -144,6 +185,35 @@ describe('WorkUnitDrawer', () => {
     expect(screen.getByText('@coder-1')).toBeTruthy();
     expect(screen.getByText('REQ-0042 ›')).toBeTruthy();
     expect(screen.getByText('7')).toBeTruthy(); // stepCount
+  });
+
+  // #290（清单 #24）：负责人行三级解析口径（与 WU 详情页同一 hook）
+  it('#290 负责人解析到角色名：显示 @角色名 并链到 /agents/:roleId', async () => {
+    mockGetAgentSummary.mockResolvedValue({
+      data: {
+        agents: [{ id: 'coder-1', roleId: 'role-coder', name: 'Coder', status: 'idle', currentWorkUnitId: null, startedAt: '2026-07-19T08:00:00Z' }],
+        summary: { total: 1, idle: 1, active: 0, error: 0, terminated: 0 },
+      },
+    });
+    renderDrawer({ kind: 'wu', id: 'WU-1017' });
+    const link = await screen.findByText('@Coder');
+    expect(link.closest('a')?.getAttribute('href')).toBe('/agents/role-coder');
+    expect(screen.queryByText('@coder-1')).toBeNull();
+  });
+
+  it('#290 负责人为离线实例：经实例档案 roleId + profile 名回退解析', async () => {
+    mockGetAgentInstance.mockResolvedValue({ data: { id: 'coder-1', roleId: 'role-coder', status: 'terminated' } });
+    mockListAllAgents.mockResolvedValue({ data: { data: [{ id: 'role-coder', name: 'Coder' }] } });
+    renderDrawer({ kind: 'wu', id: 'WU-1017' });
+    const link = await screen.findByText('@Coder');
+    expect(link.closest('a')?.getAttribute('href')).toBe('/agents/role-coder');
+  });
+
+  it('#290 负责人查无对应角色：回退短 UUID 且不可点', async () => {
+    renderDrawer({ kind: 'wu', id: 'WU-1017' });
+    const chip = await screen.findByText('@coder-1'); // 'coder-1' 截 8 位仍为其本身
+    await waitFor(() => expect(mockGetAgentInstance).toHaveBeenCalled());
+    expect(chip.closest('a')).toBeNull();
   });
 
   it('aggregates only this WorkUnit token events and marks unavailable CLI usage', async () => {
@@ -192,6 +262,31 @@ describe('WorkUnitDrawer', () => {
     await waitFor(() => expect(screen.getByText('REQ-0042 ›')).toBeTruthy());
     fireEvent.click(screen.getByText('REQ-0042 ›'));
     expect(onOpenReq).toHaveBeenCalledWith('REQ-0042');
+  });
+
+  // #275（#251 断点2）：WU 抽屉补「#频道名」回频道入口——反向链路（WU→频道）在抽屉侧补齐
+  it('#275：WU 有 channelId → 显示「#频道名」回频道链接，点击页面级跳频道页', async () => {
+    renderDrawer({ kind: 'wu', id: 'WU-1017' });
+    const link = await screen.findByRole('button', { name: '#研发' });
+    expect(mockChannelGet).toHaveBeenCalledWith('ch-1');
+    fireEvent.click(link);
+    await screen.findByText('频道页');
+  });
+
+  it('#275：频道名拉取失败 → 退回 channelId 截短显示（链接仍可跳）', async () => {
+    mockChannelGet.mockRejectedValue(new Error('404'));
+    renderDrawer({ kind: 'wu', id: 'WU-1017' });
+    const link = await screen.findByRole('button', { name: /#ch-1/ });
+    fireEvent.click(link);
+    await screen.findByText('频道页');
+  });
+
+  it('#275：WU 无 channelId → 不渲染频道链接', async () => {
+    mockWuGet.mockResolvedValue({ data: { ...WU, channelId: null } });
+    renderDrawer({ kind: 'wu', id: 'WU-1017' });
+    await waitFor(() => expect(screen.getByText('方向稿 A/B 原型页搭建')).toBeTruthy());
+    expect(screen.queryByText('所属频道')).toBeNull();
+    expect(mockChannelGet).not.toHaveBeenCalled();
   });
 
   it('close button invokes onClose', async () => {

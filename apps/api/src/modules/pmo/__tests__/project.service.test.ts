@@ -154,6 +154,22 @@ describe('ProjectService — FileStore 迁移', () => {
       expect(data.pmoNumber).toBe('PMO-1');
     });
 
+    it('#282：description 入参落 description 字段、requirement 保持 null（创建表单「需求描述」唯一落点）', async () => {
+      mockReadDir.mockResolvedValue([]);
+      mockReadJson.mockResolvedValue(null);
+
+      const result = await projectService.create({
+        title: '带描述项目',
+        description: '需求背景与验收标准',
+      });
+
+      expect(result.description).toBe('需求背景与验收标准');
+      expect(result.requirement).toBeNull();
+      const [, data] = mockWriteJson.mock.calls[0];
+      expect(data.description).toBe('需求背景与验收标准');
+      expect(data.requirement).toBeNull();
+    });
+
     it('PMO 号递增', async () => {
       // Existing project with PM-003 → new should be PMO-4（统一编号）
       mockReadDir.mockResolvedValue([dirEnt('proj-001.json'), dirEnt('proj-002.json')]);

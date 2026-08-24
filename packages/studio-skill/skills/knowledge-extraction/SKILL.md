@@ -115,7 +115,7 @@ Step 2 识别出候选信号后，用以下标准判断是否值得提取。
 |---------|---------|------|
 | 含百分比/统计数字/accuracy 数据 | data | 写 `~/.studio/data/`，不写 knowledge/ |
 | 多步骤流程（>500 字） | skill | 提取为 Skill，不写 knowledge/ |
-| 短指令式（<100 字，"禁止..."） | rule | 写入 CLAUDE.md rules，不写 knowledge/ |
+| 短指令式（<100 字，"禁止..."） | rule | 写入仓根 `AGENTS.md` 治理契约段（原 CLAUDE.md rules），不写 knowledge/ |
 | 通用模式/教训/架构决策 | knowledge | 正常写入 knowledge/ |
 
 代码层实现：`validateKnowledgeForm()` in `knowledge-service.ts`。safeIngest 自动路由。

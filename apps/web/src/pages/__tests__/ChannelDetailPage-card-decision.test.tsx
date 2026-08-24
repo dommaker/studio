@@ -128,9 +128,15 @@ describe('ChannelDetailPage — #278 auditor_suggestion / retract_confirm 接线
     });
   });
 
-  it('retract 确认废弃 → POST /skills/:id/retract/decide {decision:confirm, messageId}', async () => {
+  it('retract 确认废弃 → 两步确认（#288）后 POST /skills/:id/retract/decide {decision:confirm, messageId}', async () => {
     renderPage();
+    // acknowledge→confirm：首次点击仅进入待确认态
     fireEvent.click(await screen.findByText('确认废弃'));
+    expect(mockApiPost).not.toHaveBeenCalledWith(
+      '/skills/skill-1/retract/decide',
+      expect.anything(),
+    );
+    fireEvent.click(await screen.findByText(/再次点击确认废弃/));
 
     await waitFor(() => {
       expect(mockApiPost).toHaveBeenCalledWith(

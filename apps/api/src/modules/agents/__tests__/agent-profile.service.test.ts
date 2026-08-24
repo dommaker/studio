@@ -613,3 +613,63 @@ describe('决策 9: create preset 预填（.agents/roles/*.yaml）', () => {
     expect(onDisk!.constraints).toEqual({ max_concurrent_tasks: 2, can_delegate: false });
   });
 });
+
+// ── #298: update 名字唯一性校验（与 create 同口径，排除自身支持幂等） ──
+
+describe('#298: update name uniqueness (与 create 同口径)', () => {
+  let tmpDir: string;
+  let fileStore: FileStore;
+  let service: AgentProfileService;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'profile-rename-test-'));
+    fileStore = new FileStore(tmpDir);
+    service = new AgentProfileService(fileStore);
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('改名为其他 profile 已占用名 -> 抛错，profile 不变', async () => {
+    const a = await service.create({ name: 'agent-a' });
+    await service.create({ name: 'agent-b' });
+
+    await expect(service.update(a.id, { name: 'agent-b' }))
+      .rejects.toThrow(/already exists|Unique constraint/i);
+
+    const unchanged = await service.getById(a.id);
+    expect(unchanged!.name).toBe('agent-a');
+  });
+
+  it('改名为自己当前名 -> 成功（幂等）', async () => {
+    const a = await service.create({ name: 'self-rename' });
+    const updated = await service.update(a.id, { name: 'self-rename' });
+    expect(updated.name).toBe('self-rename');
+  });
+
+  it('改名为 inactive profile 的名字 -> 同样拒绝（与 create 口径一致）', async () => {
+    const a = await service.create({ name: 'rename-active' });
+    const b = await service.create({ name: 'rename-inactive' });
+    await service.update(b.id, { status: 'inactive' });
+
+    await expect(service.update(a.id, { name: 'rename-inactive' }))
+      .rejects.toThrow(/already exists|Unique constraint/i);
+
+    const unchanged = await service.getById(a.id);
+    expect(unchanged!.name).toBe('rename-active');
+  });
+
+  it('name 未传的 update 调用不受影响', async () => {
+    const a = await service.create({ name: 'no-name-update', description: 'old' });
+    const updated = await service.update(a.id, { description: 'new desc' });
+    expect(updated.name).toBe('no-name-update');
+    expect(updated.description).toBe('new desc');
+  });
+
+  it('create 重复名行为回归（与 update 同口径）', async () => {
+    await service.create({ name: 'dup-name' });
+    await expect(service.create({ name: 'dup-name' }))
+      .rejects.toThrow(/already exists|Unique constraint/i);
+  });
+});

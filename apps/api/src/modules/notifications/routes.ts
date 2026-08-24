@@ -1,31 +1,47 @@
 /**
  * 通知 API 路由
+ *
+ * #274: 身份源从 x-user-id header 切换为登录态 JWT claims（req.user.id），
+ * 读写端点鉴权行为一致（requireAuth + requireNotGuest）。
+ * 挂载层（route-registry /api/v1/notifications）另有 requireAuth，此处为端点级自持。
  */
 
 import { Router, Request, Response } from 'express';
 import { NotificationService } from '@dommaker/studio-notification';
 import { FileStore, logger } from '@dommaker/studio-shared';
 import { createLazyService } from '../../utils/services.js';
-import { requireAuth, requireNotGuest } from '../../middleware/auth.js';
+import { requireAuth, requireNotGuest, AuthRequest } from '../../middleware/auth.js';
 
 const router = Router();
 
 const getNotificationService = createLazyService(() => new NotificationService(new FileStore()));
 
 /**
+ * 取登录态用户 id；缺失（鉴权放行但 user 未挂）回 500 并返回 null
+ */
+function resolveUserId(req: Request, res: Response): string | null {
+  const userId = (req as AuthRequest).user?.id ?? null;
+  if (!userId) {
+    res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Authenticated user missing' } });
+  }
+  return userId;
+}
+
+/**
  * GET /api/v1/notifications
  * 获取通知列表
  */
-router.get('/', async (req: Request, res: Response) => {
+router.get('/', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
-    const userId = (req.headers['x-user-id'] as string) || 'default-user';
+    const userId = resolveUserId(req, res);
+    if (!userId) return;
     const unreadOnly = req.query.unreadOnly === 'true';
-    
+
     const notifications = await getNotificationService().getUserNotifications(userId, {
       unreadOnly,
       limit: 50,
     });
-    
+
     res.json(notifications);
   } catch (error) {
     logger.error('Failed to get notifications', { error: String(error) });
@@ -37,9 +53,10 @@ router.get('/', async (req: Request, res: Response) => {
  * GET /api/v1/notifications/unread-count
  * 获取未读数量
  */
-router.get('/unread-count', async (req: Request, res: Response) => {
+router.get('/unread-count', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
-    const userId = (req.headers['x-user-id'] as string) || 'default-user';
+    const userId = resolveUserId(req, res);
+    if (!userId) return;
 
     const count = await getNotificationService().getUnreadCount(userId);
 
@@ -56,7 +73,8 @@ router.get('/unread-count', async (req: Request, res: Response) => {
  */
 router.post('/:id/read', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
-    const userId = (req.headers['x-user-id'] as string) || 'default-user';
+    const userId = resolveUserId(req, res);
+    if (!userId) return;
 
     await getNotificationService().markAsRead(req.params.id, userId);
 
@@ -73,7 +91,8 @@ router.post('/:id/read', requireAuth(), requireNotGuest(), async (req: Request, 
  */
 router.post('/read-all', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
-    const userId = (req.headers['x-user-id'] as string) || 'default-user';
+    const userId = resolveUserId(req, res);
+    if (!userId) return;
 
     await getNotificationService().markAllAsRead(userId);
 

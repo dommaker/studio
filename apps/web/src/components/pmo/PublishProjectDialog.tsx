@@ -43,6 +43,19 @@ export function PublishProjectDialog({ open, projectId, channels, onClose, onPub
     setAssigneeId(''); // 切换频道候选变化，指派选择随之重置回留空
   }
 
+  // #290（清单 #25）：打开时自取全量频道——props 来自 PMOPage 挂载期一次拉取，
+  // 可能滞后于新建频道（观测到选项只剩「#系统」）；拉取失败回退 props
+  const [freshChannels, setFreshChannels] = useState<Channel[] | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    channelApi.list()
+      .then(res => { if (!cancelled) setFreshChannels(res.data?.data ?? []); })
+      .catch(() => { if (!cancelled) setFreshChannels(null); });
+    return () => { cancelled = true; };
+  }, [open]);
+  const channelOptions = freshChannels ?? channels;
+
   // 弹窗打开/切换频道时解析「谁会响应」：与 AgentLoop.observe 同一口径（resolveChannelResponders）——
   // channel.members 非空 → 仅成员；为空（历史频道未回填）→ 回退 profile.channels（空 = 全频道可见）
   useEffect(() => {
@@ -52,13 +65,13 @@ export function PublishProjectDialog({ open, projectId, channels, onClose, onPub
       .then(res => {
         if (cancelled) return;
         const active = (res.data?.data || []).filter(p => p.status === 'active' && p.name !== 'studio');
-        const ch = channels.find(c => c.id === selectedChannelId);
+        const ch = channelOptions.find(c => c.id === selectedChannelId);
         setChannelAgents(resolveChannelResponders(ch, selectedChannelId, active));
       })
       .catch(() => { if (!cancelled) setChannelAgents([]); })
       .finally(() => { if (!cancelled) setAgentsLoading(false); });
     return () => { cancelled = true; };
-  }, [open, selectedChannelId, channels]);
+  }, [open, selectedChannelId, channelOptions]);
 
   const handlePublishConfirm = async () => {
     if (!projectId || !selectedChannelId) return;
@@ -87,14 +100,14 @@ export function PublishProjectDialog({ open, projectId, channels, onClose, onPub
           <button className="modal-close" onClick={onClose} aria-label="关闭">×</button>
         </div>
         <div className="modal-body">
-          {channels.length === 0 ? (
+          {channelOptions.length === 0 ? (
             <p className="u-text-3 text-sm">无可用 Channel，请先创建</p>
           ) : (
             <>
               <Select
                 value={selectedChannelId}
                 onChange={setSelectedChannelId}
-                options={channels.map(ch => ({ value: ch.id, label: ch.name }))}
+                options={channelOptions.map(ch => ({ value: ch.id, label: ch.name }))}
                 placeholder="请选择目标频道"
                 aria-label="目标频道"
                 className="input"
@@ -112,7 +125,9 @@ export function PublishProjectDialog({ open, projectId, channels, onClose, onPub
                 </p>
               ) : (
                 <p className="u-warn text-sm" style={{ marginTop: 8 }}>
-                  ⚠ 该频道没有可响应的 Agent 成员，发起后需求可能无人认领；请先在频道里添加成员
+                  {/* #290（清单 #25）：文案写明判定口径，消除与成员面板「空 = 所有 Agent 可见」的表面矛盾——
+                      空成员口径下仍无响应者，说明成员非空但无 active 成员，或所有 active Agent 都限定了其他频道 */}
+                  ⚠ 该频道没有可响应的 Agent（判定口径：频道成员为空 = 所有未限定频道的 Agent 可见；当前口径下仍无响应者），发起后需求可能无人认领
                 </p>
               )}
               {/* #177：可选指派分析角色（默认留空=自动认领，候选=频道成员，不阻塞主交互） */}
@@ -144,7 +159,7 @@ export function PublishProjectDialog({ open, projectId, channels, onClose, onPub
           </button>
           <button
             onClick={handlePublishConfirm}
-            disabled={publishing || channels.length === 0 || !selectedChannelId}
+            disabled={publishing || channelOptions.length === 0 || !selectedChannelId}
             className="btn btn-primary"
           >
             {publishing ? '发起中...' : '确认发起'}

@@ -3,8 +3,9 @@
  *
  * 跨项目 `.studio/` 文档面的聚合只读层：
  * 缺省遍历全部有 gitRepo 的 PMO 项目，读各仓 `.studio/` 下的
- * specs/、research/、adr/、CONTEXT.md；legacy-sdd/<slug>/ 三层遗产文档
- * 打 legacy: true 标记只读展示。`?project=` 收窄到单项目。
+ * specs/、research/、CONTEXT.md + 仓根 docs/adr/（ADR 例外：2026-08-21
+ * 落点模型裁决，原 .studio/adr/ 约定废止）；legacy-sdd/<slug>/ 三层遗产
+ * 文档打 legacy: true 标记只读展示。`?project=` 收窄到单项目。
  *
  * 写侧判死：library 无任何写路径——文档随仓演进，变更历史 = git 历史。
  * 单仓读失败（目录不存在/权限）不炸整体，跳过并 logger.warn。
@@ -26,13 +27,13 @@ import { projectService, type ProjectData } from '../pmo/project.service.js';
 export type LibraryKind = 'spec' | 'research' | 'adr' | 'context' | 'legacy';
 
 export interface LibraryListItem {
-  id: string;            // `${projectId}:${relPath}`（relPath 相对 .studio/；legacy 为 legacy-sdd/<slug>）
+  id: string;            // `${projectId}:${relPath}`（relPath 相对 .studio/；adr 相对仓根 docs/adr/；legacy 为 legacy-sdd/<slug>）
   title: string;
   kind: LibraryKind;
   legacy: boolean;
   projectId: string;     // PMO 项目真值 id
   pmoNumber: string;
-  path: string;          // relPath（相对 .studio/）
+  path: string;          // relPath（相对 .studio/；adr 为 docs/adr/<name>.md 相对仓根）
   status?: string;
   tags?: string[];
   updatedAt: string;
@@ -45,12 +46,13 @@ export interface LibraryDocDetail extends LibraryListItem {
   task?: string | null;
 }
 
-// ── 目录 → kind 映射（.studio/ 下的相对前缀） ──
+// ── 目录 → kind 映射 ──
+// root: 'studio' = 相对 .studio/ 根；'repo' = 相对仓根（ADR 家 = docs/adr/，#305）
 
-const KIND_DIRS: Array<{ dir: string; kind: LibraryKind }> = [
-  { dir: 'specs', kind: 'spec' },
-  { dir: 'research', kind: 'research' },
-  { dir: 'adr', kind: 'adr' },
+const KIND_DIRS: Array<{ dir: string; kind: LibraryKind; root: 'studio' | 'repo' }> = [
+  { dir: 'specs', kind: 'spec', root: 'studio' },
+  { dir: 'research', kind: 'research', root: 'studio' },
+  { dir: 'docs/adr', kind: 'adr', root: 'repo' },
 ];
 
 const LEGACY_PREFIX = 'legacy-sdd/';
@@ -108,9 +110,9 @@ async function scanProjectDocs(project: LibraryProject): Promise<Array<{ item: L
   const results: Array<{ item: LibraryListItem; body: string }> = [];
   const base = { projectId: project.id, pmoNumber: project.pmoNumber };
 
-  // specs/ research/ adr/ 下的 *.md
-  for (const { dir, kind } of KIND_DIRS) {
-    const absDir = path.join(studioRoot, dir);
+  // specs/ research/ 在 .studio/ 下，docs/adr/ 在仓根（root 字段决定基座）
+  for (const { dir, kind, root } of KIND_DIRS) {
+    const absDir = path.join(root === 'repo' ? project.gitRepo : studioRoot, dir);
     let entries: import('node:fs').Dirent[];
     try {
       entries = await fs.readdir(absDir, { withFileTypes: true });
@@ -225,7 +227,7 @@ function kindFromRelPath(relPath: string): LibraryKind | null {
 
 /**
  * 按 `projectId:relPath` 取文档详情。
- * 校验项目存在且路径 resolve 后落在该仓 .studio/ 根内（防路径穿越）。
+ * 校验项目存在且路径 resolve 后落在对应文档面根内（.studio/ 根或仓根 docs/adr/，防路径穿越）。
  */
 export async function getLibraryDoc(id: string): Promise<LibraryDocDetail | null> {
   const sep = id.indexOf(':');
@@ -267,9 +269,19 @@ export async function getLibraryDoc(id: string): Promise<LibraryDocDetail | null
   const kind = kindFromRelPath(relPath);
   if (!kind) return null;
 
-  // 防路径穿越：resolve 后必须落在该仓 .studio/ 根内
-  const abs = path.resolve(studioRoot, relPath);
-  if (!abs.startsWith(studioRoot + path.sep)) return null;
+  // 防路径穿越：resolve 后必须落在对应文档面根内。
+  // repo 面（docs/adr/）锚定面目录本身而非仓根——避免 docs/adr/../ 暴露全仓。
+  const entry = KIND_DIRS.find(d => relPath.startsWith(`${d.dir}/`));
+  let abs: string;
+  let faceRoot: string;
+  if (entry?.root === 'repo') {
+    faceRoot = path.resolve(project.gitRepo, entry.dir);
+    abs = path.resolve(faceRoot, relPath.slice(entry.dir.length + 1));
+  } else {
+    faceRoot = studioRoot;
+    abs = path.resolve(studioRoot, relPath);
+  }
+  if (!abs.startsWith(faceRoot + path.sep)) return null;
 
   const doc = await readMarkdownDoc(abs);
   if (!doc) return null;

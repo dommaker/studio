@@ -9,15 +9,12 @@ import { workspaceApi } from '../../api';
 import { channelApi, type Channel } from '../../api/channel';
 import { Select } from '../ui';
 import { toast } from '../../utils/toast';
+import { isForbidden } from '../../utils/http';
 
 interface Workspace {
   id: string;
   name: string;
   status?: string;
-}
-
-function isForbidden(err: unknown): boolean {
-  return (err as { response?: { status?: number } })?.response?.status === 403;
 }
 
 export function DefaultExecutionMachineSection() {

@@ -1,8 +1,14 @@
 // AC-E3: Convert to Task dialog — LLM suggestion + form
 // 2026-07 视觉重构（方向 A Mission Control）：深色变量重绘；交互语义零变更
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { channelApi, type AgentProfile, type ConvertSuggestion, type LocalProject } from '../../api/channel';
 import { Select } from '../ui';
+
+// #292: 标题兜底——首个非空行截断约 50 字；suggestTask 失败/为空时创建链路也无需手打标题
+function deriveDefaultTitle(content: string): string {
+  const line = content.split('\n').map(l => l.trim()).find(l => l.length > 0);
+  return (line ?? '').slice(0, 50);
+}
 
 interface Props {
   open: boolean;
@@ -14,7 +20,7 @@ interface Props {
 }
 
 export function ConvertToTaskDialog({ open, onClose, messageId, channelId, messageContent, onConverted }: Props) {
-  const [title, setTitle] = useState('');
+  const [title, setTitle] = useState(() => deriveDefaultTitle(messageContent));
   const [description, setDescription] = useState('');
   const [assigneeId, setAssigneeId] = useState('');
   const [projectPath, setProjectPath] = useState('');
@@ -23,6 +29,8 @@ export function ConvertToTaskDialog({ open, onClose, messageId, channelId, messa
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  // #292: 用户手改过标题后，suggestTask 建议返回不得再覆盖用户输入
+  const titleTouchedRef = useRef(false);
 
   // open 上升沿（或打开状态下 channelId/messageId 切换）在渲染期同步重置表单与加载态
   //（替代原 effect 顶部的同步重置；fetch 保留在 effect）
@@ -32,7 +40,8 @@ export function ConvertToTaskDialog({ open, onClose, messageId, channelId, messa
     setPrevDialogKey(dialogKey);
     if (dialogKey) {
       setLoading(true);
-      setTitle('');
+      setTitle(deriveDefaultTitle(messageContent));
+      titleTouchedRef.current = false;
       setDescription('');
       setAssigneeId('');
       setProjectPath('');
@@ -51,7 +60,7 @@ export function ConvertToTaskDialog({ open, onClose, messageId, channelId, messa
     ]).then(([agentsRes, projectsRes, suggestion]) => {
       setAgents(agentsRes);
       setProjects(projectsRes);
-      if (suggestion.title) setTitle(suggestion.title);
+      if (suggestion.title && !titleTouchedRef.current) setTitle(suggestion.title);
       if (suggestion.description) setDescription(suggestion.description);
       if (suggestion.suggestedAssigneeId) setAssigneeId(suggestion.suggestedAssigneeId);
       if (suggestion.suggestedProjectPath) setProjectPath(suggestion.suggestedProjectPath);
@@ -102,7 +111,7 @@ export function ConvertToTaskDialog({ open, onClose, messageId, channelId, messa
             <input
               type="text"
               value={title}
-              onChange={e => setTitle(e.target.value)}
+              onChange={e => { titleTouchedRef.current = true; setTitle(e.target.value); }}
               placeholder="任务标题"
               className="input"
               style={{ width: '100%' }}

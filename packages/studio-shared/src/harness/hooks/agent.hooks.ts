@@ -45,22 +45,23 @@ export function buildAgentConstraintPrompt(ctx: ConstraintContext): string {
   // 渲染走 harness renderConstraintsByTrigger（A3），按项目生效集渲染。
   const harnessConstraints = formatConstraintsForPrompt('executor', { projectRoot: projectPath });
 
-  // Runtime dedup: if CLAUDE.md already has HARNESS_CONSTRAINTS section,
-  // inject a reference instead of duplicating the full constraint text.
-  // This avoids double injection (CLAUDE.md + system prompt) per Step 8 of the plan.
+  // Runtime dedup: 约束正文已在仓内文档正本中时注入短引用而非全量正文，避免双份注入。
+  // 新模型（docs/adr/2026-08-21-agent-docs-placement-model.md）：正本 = AGENTS.md
+  // PRESERVE:governance 段；旧模型：CLAUDE.md HARNESS_CONSTRAINTS 段。
   let constraintSection: string;
-  const claudePath = join(projectPath, 'CLAUDE.md');
-  if (existsSync(claudePath)) {
+  const readSafe = (p: string): string | null => {
     try {
-      const content = readFileSync(claudePath, 'utf-8');
-      if (content.includes('<!-- HARNESS_CONSTRAINTS_START -->')) {
-        constraintSection = '## 行为约束\n遵循 CLAUDE.md 中「Governance Rules」章节的所有约束。';
-      } else {
-        constraintSection = harnessConstraints;
-      }
+      return existsSync(p) ? readFileSync(p, 'utf-8') : null;
     } catch {
-      constraintSection = harnessConstraints;
+      return null;
     }
+  };
+  const agentsContent = readSafe(join(projectPath, 'AGENTS.md'));
+  const claudeContent = readSafe(join(projectPath, 'CLAUDE.md'));
+  if (agentsContent?.includes('<!-- PRESERVE:governance -->')) {
+    constraintSection = '## 行为约束\n遵循 AGENTS.md 中「治理契约」（Governance Rules）章节的所有约束。';
+  } else if (claudeContent?.includes('<!-- HARNESS_CONSTRAINTS_START -->')) {
+    constraintSection = '## 行为约束\n遵循 CLAUDE.md 中「Governance Rules」章节的所有约束。';
   } else {
     constraintSection = harnessConstraints;
   }

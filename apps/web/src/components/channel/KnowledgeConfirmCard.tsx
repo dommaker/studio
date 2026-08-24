@@ -2,13 +2,16 @@
 // 2026-07 视觉重构（方向 A Mission Control）：mc-card 视觉重绘；交互语义零变更
 // #278（决策 #250 D2）：knowledge_confirm 产卡链已删（历史卡）→ 按钮区整区隐藏 + 卡底淡注；
 // retract_confirm 按钮接活（POST /skills/:id/retract/decide）。
+// #288（清单 P2 #20）：retract 按钮一次性锁存（pending 禁用防连击、失败重武装）；
+// 「确认废弃」为高危不可逆操作 → acknowledge→confirm 两步确认（首次进入待确认态，再次点击才执行）。
+import { useState } from 'react';
 import type { ChannelMessage } from '../../api/channel';
 import type { CardMeta } from './ChannelMessageItem';
 
 interface Props {
   message: ChannelMessage;
   meta: CardMeta;
-  onAction: (messageId: string, action: string) => void;
+  onAction: (messageId: string, action: string) => void | Promise<boolean>;
 }
 
 const TYPE_LABELS: Record<string, string> = {
@@ -20,13 +23,31 @@ const TYPE_LABELS: Record<string, string> = {
 
 export function KnowledgeConfirmCard({ message, meta, onAction }: Props) {
   const isRetract = meta.cardType === 'retract_confirm';
-  const status = meta.status as string | undefined;
+  // #288：成功后本地定终态（deprecated/published，复用既有已决态渲染分支）
+  const [done, setDone] = useState<'deprecated' | 'published' | null>(null);
+  // #288：pending 锁存——点击到 onAction 回流前按钮禁用，防连击重复触发
+  const [pending, setPending] = useState(false);
+  // #288：「确认废弃」两步确认——armed=true 表示已进入待确认态，再次点击才执行
+  const [armed, setArmed] = useState(false);
+  const status = done ?? (meta.status as string | undefined);
   const entries = meta.cardData?.entries as Array<{
     type: string;
     title: string;
     content: string;
     tags: string[];
   }> | undefined;
+
+  const act = async (action: 'retract_confirm' | 'retract_reject') => {
+    setPending(true);
+    try {
+      const ok = await onAction(message.id, action);
+      if (ok !== false) setDone(action === 'retract_confirm' ? 'deprecated' : 'published');
+    } finally {
+      // 失败重武装：pending 复位 + 退出两步确认待确认态，可重试
+      setPending(false);
+      setArmed(false);
+    }
+  };
 
   if (status === 'confirmed' || status === 'rejected' || status === 'deprecated' || status === 'published') {
     const okState = status === 'confirmed' || status === 'published';
@@ -72,14 +93,18 @@ export function KnowledgeConfirmCard({ message, meta, onAction }: Props) {
           retract_confirm 按钮接活（retract/decide 端点） */}
       {isRetract && status !== 'confirmed' && status !== 'rejected' && status !== 'deprecated' && status !== 'published' ? (
         <div className="mc-card-actions">
+          {/* #288：高危操作 acknowledge→confirm——首次点击仅进入待确认态，再次点击才执行；
+              pending 锁存禁用防连击 */}
           <button
-            onClick={() => onAction(message.id, 'retract_confirm')}
+            onClick={() => (armed ? void act('retract_confirm') : setArmed(true))}
+            disabled={pending}
             className="mc-btn mc-btn-warn"
           >
-            确认废弃
+            {armed ? '再次点击确认废弃' : '确认废弃'}
           </button>
           <button
-            onClick={() => onAction(message.id, 'retract_reject')}
+            onClick={() => { setArmed(false); void act('retract_reject'); }}
+            disabled={pending}
             className="mc-btn"
           >
             拒绝

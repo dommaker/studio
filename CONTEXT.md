@@ -1,6 +1,6 @@
 # Studio 工程级语言
 
-跨模块共享的术语与约定。模块级上下文（核心导出/注意事项，按模块锚点组织）见 `.studio/CONTEXT.md`（#152 起唯一沉淀正本）。
+跨模块共享的术语与约定。模块级上下文（职责/核心导出/注意事项）散置在各源码目录的 `CONTEXT.md`（#299 撤销 #152 归并，回归散置模型）。
 
 ## Language
 
@@ -45,18 +45,29 @@ prompt 注入段的 token 定额，职责是防注入劣化（防注入段膨胀
 _Avoid_: 2K 红线、截断保护
 
 **三层存储**:
-文档/状态归属的唯一裁决（#118 第三轮，2026-08-12）：流转态 → PMO（工单/地图/状态/依赖图的唯一系统）；项目私有冻结/缓变文档 → 业务仓 `.studio/`（入 git，唯一正本：`specs/`、`CONTEXT.md`、`adr/`、`memory/`、`research/`、`prototypes/`）；全局/跨项目 → `~/.studio/`（项目注册、跨项目知识库、配置日志）。两个读层：library = 阅览室（按项目路由聚合读，不写作正本），Monitoring 面板 = 运行读层。一个过程留痕：频道线程（讨论过程，不作正本）。归属冲突时按此裁决，不设第四存储。
+文档/状态归属的唯一裁决（#118 第三轮，2026-08-12）：流转态 → PMO（工单/地图/状态/依赖图的唯一系统）；项目私有冻结/缓变文档 → 业务仓 `.studio/`（入 git，唯一正本：`specs/`、`CONTEXT.md`、`memory/`、`research/`、`prototypes/`；**ADR 例外**：决策记录是工单无关永久导航件，归各仓 `docs/adr/`——2026-08-21 裁决，原 `.studio/adr/` 约定废止，library 聚合面适配完成（#305））；全局/跨项目 → `~/.studio/`（项目注册、跨项目知识库、配置日志）。两个读层：library = 阅览室（按项目路由聚合读，不写作正本），Monitoring 面板 = 运行读层。一个过程留痕：频道线程（讨论过程，不作正本）。归属冲突时按此裁决，不设第四存储。
 _Avoid_: 多正本、library 落正本
 
 **library（阅览室）**:
-跨项目 `.studio/` 文档面（specs/、research/、adr/、CONTEXT.md）的聚合只读层（#127 T5 / #155，2026-08-15）：缺省聚合全部有 gitRepo 的 PMO 项目，`?project=` 收窄，无写路径（变更历史 = git 历史），legacy-sdd 遗产打标记只读展示。旧称 **wiki**——凡历史文档/代码注释出现 wiki 即指 library。**概念面收敛 = 2**：library 读人写文档（业务仓 `.studio/`），knowledge 引擎管机器蒸馏知识（`~/.studio/knowledge/`），两者不混。
+跨项目 `.studio/` 文档面（specs/、research/、CONTEXT.md）+ 各仓 `docs/adr/`（ADR 例外，#305 适配）的聚合只读层（#127 T5 / #155，2026-08-15）：缺省聚合全部有 gitRepo 的 PMO 项目，`?project=` 收窄，无写路径（变更历史 = git 历史），legacy-sdd 遗产打标记只读展示。旧称 **wiki**——凡历史文档/代码注释出现 wiki 即指 library。**概念面收敛 = 2**：library 读人写文档（业务仓 `.studio/`），knowledge 引擎管机器蒸馏知识（`~/.studio/knowledge/`），两者不混。
 _Avoid_: wiki、文档中心、第三概念面
 
 **documents / wiki（墓碑）**:
 documents（document-store，#149 T11 退役）与 wiki（#155 改名 library）均已注销，不再作为概念使用：文档正本归业务仓 `.studio/`（library 只读聚合），机器知识归 knowledge 引擎。docs/ 仅为目录惯例，不构成概念。
 
+**生效范围**:
+文档落点的唯一判别轴（2026-08-21，docs/adr/2026-08-21-agent-docs-three-kinds.md）：内容对「任何 clone 这个仓的人」有效力 → 公共面，入库（AGENTS.md / docs/adr/）；只对「这台机器」有效力 → 本机面，gitignore（CLAUDE.md 薄身）。配套内容三分：**项目说明书**（结构/命令/模块索引，机器可再生）、**治理契约**（改仓必守的规矩，人写）、**本机运维簿**（本机部署/路径/事故史）——「入口文档」一词作废。
+_Avoid_: 入口文档、治理锁本机、运维细节入库
+
+**入口文档（墓碑）**:
+旧称已作废（2026-08-21 内容三分，docs/adr/2026-08-21-agent-docs-three-kinds.md）：原指 CLAUDE.md / AGENTS.md 里混居的全部 agent 导读内容，拆为项目说明书 / 治理契约 / 本机运维簿，落点判别见「生效范围」词条。凡历史文档出现「入口文档」即指此旧称。
+
+**工单绑定产物**:
+有归属工单、随工单生灭归档的产物（2026-08-21，docs/adr/2026-08-21-agent-docs-placement-model.md）：spec 归需求工单（`.studio/specs/`）、research 归 analysis 工单（`.studio/research/`）、决策结论记于工单。判别反例 = ADR：决策单关闭后仍约束未来决策者，不随工单死，故不落 `.studio/`，归 `docs/adr/`。
+_Avoid_: ADR 落 .studio/、产物无归属工单
+
 **工单类型**:
-工单的唯一分类词表（#118 第三轮，2026-08-12）：需求 / 决策单 / spec单 / 任务单 / implement / review / analysis。**增删类型 = 治理变更**，须先过治理流程（CLAUDE.md「治理变更流程」节，#166）再改词表。操作载体 = PMO 工单类型字段（单一权威）；本条目是词表的文档化；GitHub label 仅 studio 自研特例，不构成第二平面（用户工程可能是任意 git 托管，流程信息零外泄，远端只见分支名/commit 指针）。agent 只见工单不见机制：类型决定默认方法论与产出契约（见 CLAUDE.md 工单类型索引表），派单/解锁/打回等流转由机制承载。**类型认领属性（#126 T4，2026-08-15）**：扩范围类型（需求=feature / 任务单=task / spec单=spec）创建落「待确认」（pending），人工确认才进 frontier 可认领；圈内类型（implement / review / analysis / 决策单 / bug）创建即可认领——机制载体 = workunit.types.ts `PENDING_CONFIRM_TYPES` + `resolveInitialStatus`。**变体不增类型（#128 T6 / #130 T8）**：类型内的用途变体用显式 metadata 标记表达（原型单 `prototype: true`、巡检单 `inspection: true`），不隐式判定、不进词表。**触发器人闸（#130 T8，2026-08-15）**：无人在环的自动触发（定时/事件）模型调用单，建单显式 `status='pending'` 待人确认才执行（按来源不按类型，不动 PENDING_CONFIRM_TYPES；doc-semantic-review 自周五自动跑改为建单待人确认）。**WU 级 token 预算（#162 T8-E1，2026-08-15）**：任何类型工单可带显式 `metadata.tokenBudget` 数值上限，对照 `_cumulativeTokens`（billed 口径）超线即暂停待人三选（追加预算 / 现有产出收尾 / 放弃）；首个消费 = 巡检单。
+工单的唯一分类词表（#118 第三轮，2026-08-12）：需求 / 决策单 / spec单 / 任务单 / implement / review / analysis。**增删类型 = 治理变更**，须先过治理流程（AGENTS.md「治理变更流程」节，#166）再改词表。操作载体 = PMO 工单类型字段（单一权威）；本条目是词表的文档化；GitHub label 仅 studio 自研特例，不构成第二平面（用户工程可能是任意 git 托管，流程信息零外泄，远端只见分支名/commit 指针）。agent 只见工单不见机制：类型决定默认方法论与产出契约（见 AGENTS.md 工单类型索引表），派单/解锁/打回等流转由机制承载。**类型认领属性（#126 T4，2026-08-15）**：扩范围类型（需求=feature / 任务单=task / spec单=spec）创建落「待确认」（pending），人工确认才进 frontier 可认领；圈内类型（implement / review / analysis / 决策单 / bug）创建即可认领——机制载体 = workunit.types.ts `PENDING_CONFIRM_TYPES` + `resolveInitialStatus`。**变体不增类型（#128 T6 / #130 T8）**：类型内的用途变体用显式 metadata 标记表达（原型单 `prototype: true`、巡检单 `inspection: true`），不隐式判定、不进词表。**触发器人闸（#130 T8，2026-08-15）**：无人在环的自动触发（定时/事件）模型调用单，建单显式 `status='pending'` 待人确认才执行（按来源不按类型，不动 PENDING_CONFIRM_TYPES；doc-semantic-review 自周五自动跑改为建单待人确认）。**WU 级 token 预算（#162 T8-E1，2026-08-15）**：任何类型工单可带显式 `metadata.tokenBudget` 数值上限，对照 `_cumulativeTokens`（billed 口径）超线即暂停待人三选（追加预算 / 现有产出收尾 / 放弃）；首个消费 = 巡检单。
 _Avoid_: 自创类型、label 当词表载体、隐式判定变体
 
 **频道相关工程**:

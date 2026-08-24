@@ -15,13 +15,15 @@ vi.mock('react-router-dom', () => ({
   useNavigate: () => vi.fn(),
 }));
 
-const { mockWuGet, mockReqGet, mockReqGetChain, mockProjectGet, mockChannelList, mockAgentSummary, mockResume, mockClose, mockTransitionStatus, mockReviewPassed, mockReviewRejected } = vi.hoisted(() => ({
+const { mockWuGet, mockReqGet, mockReqGetChain, mockProjectGet, mockChannelList, mockAgentSummary, mockGetAgentInstance, mockListAllAgents, mockResume, mockClose, mockTransitionStatus, mockReviewPassed, mockReviewRejected } = vi.hoisted(() => ({
   mockWuGet: vi.fn(),
   mockReqGet: vi.fn(),
   mockReqGetChain: vi.fn(),
   mockProjectGet: vi.fn(),
   mockChannelList: vi.fn(),
   mockAgentSummary: vi.fn(),
+  mockGetAgentInstance: vi.fn(),
+  mockListAllAgents: vi.fn(),
   mockResume: vi.fn(),
   mockClose: vi.fn(),
   mockTransitionStatus: vi.fn(),
@@ -56,12 +58,12 @@ vi.mock('../../api/channel', () => ({
     list: mockChannelList,
     // #284：in_review analysis「通过」弹 AnalysisApproveDialog（channelId 非空时拉成员候选）
     get: vi.fn().mockResolvedValue({ data: { data: { id: 'ch-1', members: '[]' } } }),
-    listAllAgents: vi.fn().mockResolvedValue({ data: { data: [] } }),
+    listAllAgents: mockListAllAgents,
   },
 }));
 
 vi.mock('../../api/monitoring', () => ({
-  monitoringApi: { getAgentSummary: mockAgentSummary },
+  monitoringApi: { getAgentSummary: mockAgentSummary, getAgentInstance: mockGetAgentInstance },
 }));
 
 // WU 事件 hook（SSE）— 测试无 WebSocketProvider，置空
@@ -125,6 +127,9 @@ describe('WorkUnitDetailPage', () => {
     mockTransitionStatus.mockResolvedValue({ data: { ...baseWu, status: 'unassigned' } });
     mockReviewPassed.mockResolvedValue({ data: { ...baseWu, status: 'done' } });
     mockReviewRejected.mockResolvedValue({ data: { ...baseWu, status: 'active' } });
+    // #290（清单 #24）：负责人解析回退级默认「查无」——实例档案 404、profile 列表空
+    mockGetAgentInstance.mockRejectedValue(new Error('404'));
+    mockListAllAgents.mockResolvedValue({ data: { data: [] } });
   });
 
   it('加载态：WU 未返回时显示加载中', () => {
@@ -195,6 +200,18 @@ describe('WorkUnitDetailPage', () => {
     render(<WorkUnitDetailPage />);
     const chip = await screen.findByText('@inst-abc');
     expect(chip.closest('a')).toBeNull();
+  });
+
+  // #290（清单 #24）：负责人解析三级口径——运行实例 → 离线实例 profile → 短 UUID
+  it('#290 认领 agent 为离线实例：经实例档案 roleId + profile 名解析，仍链到角色页', async () => {
+    mockAgentSummary.mockResolvedValue({
+      data: { agents: [], summary: { total: 0, idle: 0, active: 0, error: 0, terminated: 0 } },
+    });
+    mockGetAgentInstance.mockResolvedValue({ data: { id: 'inst-abcdefgh1234', roleId: 'role-9', status: 'terminated' } });
+    mockListAllAgents.mockResolvedValue({ data: { data: [{ id: 'role-9', name: 'Analyst' }] } });
+    render(<WorkUnitDetailPage />);
+    const chip = await screen.findByText('@Analyst');
+    expect(chip.closest('a')?.getAttribute('href')).toBe('/agents/role-9');
   });
 
   it('证据台账：L1/L2/L3 三层徽章与评审结论', async () => {

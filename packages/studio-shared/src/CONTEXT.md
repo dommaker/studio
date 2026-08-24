@@ -1,0 +1,48 @@
+# packages/studio-shared/src
+
+### 职责
+
+本目录是 Agent-Studio 的前后端共享库，提供 CLI 框架、配置管理、常量定义、事件总线与文件存储等通用基础设施，为 apps/api 等多个上层模块提供复用的工具与类型。
+
+### 核心导出
+
+| 导出 | 文件 | 说明 |
+| --- | --- | --- |
+| `Parser`, `ParsedArgs` | cli/parser | 命令行参数解析，支持短参数、长参数、JSON 等 |
+| `formatOutput`, `Format` | cli/formatter | 输出格式化 (table/json/csv) |
+| `loadConfig`, `getConfig`, `StudioConfig` | cli/config | CLI 配置文件 (.studio/config.yaml) 加载与访问 |
+| `registerCommand`, `getCommand`, `runCommand`, `Command` | cli/command | 命令注册与执行框架 |
+| `formatError`, `createCliError`, `CliError`, `ERROR_CODES` | cli/error | 统一错误处理与格式化为字符串 |
+| `loadConfigEnv`, `AgentStudioConfig` | config | 系统级配置加载 (~/.studio/config.env) 及类型定义 |
+| `LEVEL_CONFIG`, `getLevelConfig`, `getLevelSalary` 等 | constants/levels | 全局统一的职级配置与辅助函数 |
+| `eventBus`, `StudioEventBus` | event-bus | 内存事件总线，支持通配符订阅 |
+| `AgentProfileData`, `RuntimeStateData`, `ChannelData`, `ChannelMessageData` 等 | file-store | 文件存储基础数据类型 |
+| `EvolutionProposalData`（constraintChange: message/exception/new-entry/retire——retire 为 #82 D6 退役落点） | file-store-types | E1 进化提案类型 |
+| `resolveVpsWorkspace`, `resolveWorkspacesDir` | vps-workspace（仅 /node 入口） | 'VPS' 工作区命名约定与 ~/.studio/workspaces 扫描的唯一属主（2026-08 起；worktree-resolver 与 local-workspace 均委托到此，禁止第三处手扫） |
+| `studioDir`, `studioPath`, `defaultStudioDir`, `warnIfNonProdUsesProdRoot` | config/studio-dir（`./studio-dir` 子路径入口） | 数据根解析单入口（issue #89）：STUDIO_HOME 优先，缺省 ~/.studio；全部数据区读写必须经此，禁止新增 `os.homedir() + '.studio'` 硬编码 |
+| `createSettledTracker` / `SettledTracker` | utils/settled-tracker.ts | #228 确定性等待原语（#158 先例抽取）：fire-and-forget 异步链（事件订阅消费 / best-effort 收尾）的在途登记 `track` + `waitForSettled` 等待（while 循环兜底级联），供测试替代盲等；消费方：pmo/progress-rollup、workunit.service（reviewPassed 收尾）、agents/loop/review-dispatcher、pmo/analysis-handoff |
+
+### 依赖关系
+
+**上游（本目录依赖）**
+- Node.js 内置模块: `fs`, `path`, `os`, `events`, `crypto`
+- 第三方库: `yaml`
+
+**下游（依赖本目录的模块）**
+- `apps/api` 全套模块（daemon、middleware、modules、index、cli 等）广泛引用本目录的 CLI 框架、配置管理、事件总线及 file-store 类型
+
+### 注意事项
+
+- CLI 命令注册表为全局单例，测试后需调用 `clearCommands()` 清理
+- 配置优先级：环境变量 > `~/.studio/config.env` > 默认值，且仅当环境变量未设置时才加载 config.env
+- 数据根：`studioDir()`（config/studio-dir）= `STUDIO_HOME` 或 `~/.studio`；config.env 与 `STUDIO_DATA_DIR ??=` 钉值均走它。dev 启动（scripts/dev/start.sh、apps/api dev script）默认 `STUDIO_HOME=~/.studio-dev`，prod systemd 显式 `/root/.studio`；非 production 指向缺省根时 `warnIfNonProdUsesProdRoot()` 落 warning（config/index.ts 初始化 + apps/api 入口显式调用，幂等）
+- `studioDir()` 内含 vitest 内建模块双视图兼容层（resolveHomedir）：仓库测试对 `os.homedir` 有四种互不兼容的 mock 风格，该层保证迁移后的 SUT 在旧 mock 下仍被隔离；生产两视图恒等。测试收敛到 env 隔离后可删除（见 code-review follow-up）
+- `FileStore` 使用 `flock` 目录锁（`mkdir` 原子操作）保障 claim 原子性；#169 起 withLock 持锁写 `owner.json`（pid/hostname/acquiredAt），EEXIST 时按双判据回收 stale 锁（同机死 pid / acquiredAt 或锁目录 mtime 超 30s），回收发 `lock.stale_reclaimed`、超时发 `lock.acquire_timeout`（均 warning，logger + eventBus，经 apps/api lock-events-bridge 走 dispatchMonitorAlerts 全管线）；同进程并发由进程内 per-lockDir mutex 排队不打到 mkdir
+- `file-store-workunit.ts` 锁内复合原语（#170 起）：`commitSnapshot`/`commitRemoval`/`updateMetadata`/`createSnapshotGuarded`/`reconcileIndex`；#178 增 `refreshWorkUnitLease(wuId, expectedAssigneeId, expectedClaimedAt, timeoutAt)`——WU 租约心跳的锁内 fencing 写（claimedAt 代际令牌 + assigneeId 双比对与 timeoutAt 推前同锁原子），返回 'ok'/'lost'/'missing'，事件 data 走增量（reduce 合并语义）
+- `FileStore` 的 readJson/readJsonl/readdir 走模块级读穿缓存（stat mtime 校验 + 写/删精确失效，工单 26 A1）；缓存命中返回结构克隆，调用方 mutate 返回值不会污染缓存；`readIndexFile` 保持无缓存（锁内跨进程正确性）
+- `FileStore` 的 Requirement/Evolution 段共用泛型「序号分配型条目存储」实现（`SeqEntryStoreConfig`，工单 26 A2），新增同类存储应加配置而非复制段
+- 事件总线支持通配符（`*`）模式订阅，Handler 异常不会影响其他监听器
+- 级别常量为单一数据源，其他模块不应重复定义
+- `constants/` 下各文件应保持无外部依赖（仅内部引用），便于前端复用
+- `attestation.ts` 的 `deriveDisplayState()` 是 WU 展示状态唯一派生口径（F6 铁律，前后端共用）；#126（T4）起 `pending`（待确认人闸）为第七个看板列——按所有权状态原样透传；#280 起 pending 不计 needsHuman（pending 是「待确认」人闸，活未开干，与 in_review「活已干完等审查」/ done 缺 l3「活已干完等人工验收」语义不同），未知状态仍兜底 active
+- `utils/process-io.ts` 的 `execSh`（仅 /node 入口）：#171（#54 决议）起支持 `killProcessGroup`（detached spawn + `kill(-pid, SIGKILL)` 整组直杀，墙钟/静默/maxBuffer 三条杀路径同走；#68 实测 SIGTERM 杀不死孙进程）与 `silence` 静默看门狗（判据 = 距最后一次 stdout/stderr 输出间隔，warn 每段静默恰报一次、输出复位；超 killMs 杀并 reject）。未开选项的调用方行为不变

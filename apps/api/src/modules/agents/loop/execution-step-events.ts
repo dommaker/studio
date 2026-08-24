@@ -30,7 +30,7 @@
  *
  * 容量纪律：thinking ≤3 条 ×500 字符；toolCalls ≤30 条 ×160 字符摘要；text ≤500 字符；
  * stream chunk 单条 ≤500 字符、单行 ≤10 条、前端只留当前步。
- * 完整 transcript 需要时按 claude projects 文件回放（见 .studio/CONTEXT.md 的 apps/api/src/modules/agents 锚点），不在这里复制。
+ * 完整 transcript 需要时按 claude projects 文件回放（见 apps/api/src/modules/agents/CONTEXT.md），不在这里复制。
  */
 
 import { parseStreamEvents, parseStreamLine, extractToolCalls, extractUsage, logger, type StreamEvent, type StreamContentBlock } from '@dommaker/studio-shared';

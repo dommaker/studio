@@ -46,8 +46,8 @@ export const useWorkUnitStore = create<WorkUnitState>((set, get) => ({
       const result = data as PaginatedResponse<WorkUnit>;
       set({
         workunits: result?.data ?? (result as unknown as WorkUnit[]) ?? [],
-        total: result?.total ?? 0,
-        page: result?.page ?? 1,
+        total: result?.pagination?.total ?? 0,
+        page: result?.pagination?.page ?? 1,
         loading: false,
       });
     } catch (e) {

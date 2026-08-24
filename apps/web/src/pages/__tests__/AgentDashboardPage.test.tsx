@@ -90,6 +90,16 @@ describe('AgentDashboardPage', () => {
     expect(await screen.findByText('暂无角色')).toBeDefined();
   });
 
+  // #283：非 Admin 访问 Admin-only monitoring 接口 → 「无权限」终态
+  it('monitoring 403 → 渲染「无权限」终态而非恒加载/英文错误', async () => {
+    const err = Object.assign(new Error('Request failed with status code 403'), { response: { status: 403 } });
+    mockGetAgentSummary.mockRejectedValue(err);
+    render(<AgentDashboardPage />);
+    expect(await screen.findByText(/无权限查看 Agent 运行数据/)).toBeDefined();
+    expect(screen.queryByText('加载中...')).toBeNull();
+    expect(screen.queryByText(/Request failed with status code 403/)).toBeNull();
+  });
+
   it('手动刷新按钮已移除（数据 SSE 实时 + 轮询兜底），创建角色入口保留', async () => {
     render(<AgentDashboardPage />);
     expect(screen.getByText('创建角色')).toBeDefined();

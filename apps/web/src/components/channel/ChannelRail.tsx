@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useChannelList } from '../../hooks/useChannelList';
 import { monitoringApi, type AgentSummary } from '../../api/monitoring';
+import { isForbidden } from '../../utils/http';
 import { agentDotClass } from './statusClasses';
 import { CreateChannelForm } from './CreateChannelForm';
 
@@ -21,6 +22,8 @@ interface Props {
 export function ChannelRail({ activeChannelId }: Props) {
   const { channels, loading, unreadCounts, clearUnread, createChannel } = useChannelList();
   const [agentSummary, setAgentSummary] = useState<AgentSummary | null>(null);
+  // #283：monitoring 接口 Admin-only，非 Admin 403 → 「无权限」终态并停止轮询（不再刷 403）
+  const [agentsForbidden, setAgentsForbidden] = useState(false);
   const [showNewForm, setShowNewForm] = useState(false);
   const navigate = useNavigate();
 
@@ -30,10 +33,17 @@ export function ChannelRail({ activeChannelId }: Props) {
     const load = () => {
       monitoringApi.getAgentSummary()
         .then(r => { if (alive) setAgentSummary(r.data); })
-        .catch(() => {});
+        .catch(err => {
+          if (!alive) return;
+          if (isForbidden(err)) {
+            setAgentsForbidden(true);
+            clearInterval(timer); // 403 是无权限终态：停止轮询，不再刷 403
+          }
+        });
     };
-    load();
+    // timer 先赋值再首查：catch 里的 clearInterval 不依赖微任务时序
     const timer = setInterval(load, 30000);
+    load();
     return () => { alive = false; clearInterval(timer); };
   }, []);
 
@@ -131,7 +141,11 @@ export function ChannelRail({ activeChannelId }: Props) {
         <div className="mc-sec-label">
           Agents{agentSummary ? ` · ${onlineCount}/${visibleAgents.length}` : ''}
         </div>
-        {!agentSummary && <div className="mc-rail-empty">加载中…</div>}
+        {agentsForbidden ? (
+          <div className="mc-rail-empty">无权限查看 Agent 状态（需 Admin 权限）</div>
+        ) : (
+          !agentSummary && <div className="mc-rail-empty">加载中…</div>
+        )}
         {visibleAgents.map(a => (
           <div className="mc-agent" key={a.id} title={a.lastError || undefined}>
             <span className={agentDotClass(a.status)} />

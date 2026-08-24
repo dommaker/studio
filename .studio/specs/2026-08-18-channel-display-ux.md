@@ -1,6 +1,6 @@
 # 频道展示体验与交互优化
 
-> 决策来源：`docs/decisions/2026-08-18-channel-display-ux-decisions.md`（D1-D5，已与所有者达成共识）
+> 决策来源：`docs/adr/2026-08-18-channel-display-ux-decisions.md`（D1-D5，已与所有者达成共识）
 > 参照系：deepseek-harness（dsh）web 会话展示
 
 ## Problem Statement

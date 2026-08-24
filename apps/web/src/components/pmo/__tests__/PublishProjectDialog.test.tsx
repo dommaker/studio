@@ -3,15 +3,19 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
-const { mockPublish, mockListAllAgents } = vi.hoisted(() => ({
+const { mockPublish, mockListAllAgents, mockListChannels } = vi.hoisted(() => ({
   mockPublish: vi.fn(),
   mockListAllAgents: vi.fn(),
+  mockListChannels: vi.fn(),
 }));
 vi.mock('../../../api', () => ({
   projectApi: { publish: (...args: unknown[]) => mockPublish(...args) },
 }));
 vi.mock('../../../api/channel', () => ({
-  channelApi: { listAllAgents: (...args: unknown[]) => mockListAllAgents(...args) },
+  channelApi: {
+    listAllAgents: (...args: unknown[]) => mockListAllAgents(...args),
+    list: (...args: unknown[]) => mockListChannels(...args),
+  },
 }));
 vi.mock('../../../utils/toast', () => ({
   toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() },
@@ -26,6 +30,8 @@ const CHANNELS = [
 beforeEach(() => {
   vi.clearAllMocks();
   mockPublish.mockResolvedValue({});
+  // #290（清单 #25）：弹窗打开时自取频道列表；默认与 props 一致
+  mockListChannels.mockResolvedValue({ data: { data: CHANNELS } });
   mockListAllAgents.mockResolvedValue({
     data: {
       data: [
@@ -117,5 +123,55 @@ describe('PublishProjectDialog #177 指定分析角色', () => {
     fireEvent.click(screen.getByRole('option', { name: 'dev' }));
     fireEvent.click(screen.getByText('确认发起'));
     await waitFor(() => expect(mockPublish).toHaveBeenCalledWith('proj-1', 'ch-1', 'p1'));
+  });
+});
+
+// #290（清单 #25）：空成员语义对齐 + 频道下拉选项完整性
+describe('PublishProjectDialog #290 空成员语义与频道选项', () => {
+  const EMPTY_MEMBER_CHANNEL = [{ id: 'ch-9', name: '#ops', type: 'rnd', members: '[]' }];
+
+  function renderDialogWith(channels: { id: string; name: string; type: string; members: string }[]) {
+    const utils = render(
+      <PublishProjectDialog open={false} projectId="proj-1" channels={channels} onClose={vi.fn()} onPublished={vi.fn()} />,
+    );
+    utils.rerender(
+      <PublishProjectDialog open projectId="proj-1" channels={channels} onClose={vi.fn()} onPublished={vi.fn()} />,
+    );
+    return utils;
+  }
+
+  it('频道下拉列出打开时自取的全部频道（不止 props 挂载期的滞后子集）', async () => {
+    // props 只有 #dev（模拟 PMOPage 挂载期滞后）；自取列表含新建频道 #ops
+    mockListChannels.mockResolvedValue({ data: { data: [...CHANNELS, ...EMPTY_MEMBER_CHANNEL] } });
+    renderDialogWith(CHANNELS);
+
+    fireEvent.click(await screen.findByRole('button', { name: '目标频道' }));
+    await waitFor(() => expect(screen.getByRole('option', { name: '#ops' })).toBeTruthy());
+    expect(screen.getByRole('option', { name: '#dev' })).toBeTruthy();
+  });
+
+  it('真无响应者时警告出现，且文案写明「空成员 = 所有 Agent 可见」判定口径', async () => {
+    mockListChannels.mockResolvedValue({ data: { data: EMPTY_MEMBER_CHANNEL } });
+    mockListAllAgents.mockResolvedValue({ data: { data: [] } }); // 无任何 active Agent
+    renderDialogWith(EMPTY_MEMBER_CHANNEL);
+
+    fireEvent.click(await screen.findByRole('button', { name: '目标频道' }));
+    fireEvent.click(screen.getByRole('option', { name: '#ops' }));
+    const warn = await screen.findByText(/没有可响应的 Agent/);
+    expect(warn.textContent).toContain('频道成员为空 = 所有未限定频道的 Agent 可见');
+  });
+
+  it('空成员频道但有可见 Agent 时：不警告，列出会响应的 Agent（与成员面板口径一致）', async () => {
+    mockListChannels.mockResolvedValue({ data: { data: EMPTY_MEMBER_CHANNEL } });
+    // active Agent 未限定频道（channels 为空）→ 空成员频道下全员可响应
+    mockListAllAgents.mockResolvedValue({
+      data: { data: [{ id: 'p1', name: 'dev', status: 'active', channels: '[]' }] },
+    });
+    renderDialogWith(EMPTY_MEMBER_CHANNEL);
+
+    fireEvent.click(await screen.findByRole('button', { name: '目标频道' }));
+    fireEvent.click(screen.getByRole('option', { name: '#ops' }));
+    await screen.findByText(/会响应的 Agent（1）：dev/);
+    expect(screen.queryByText(/没有可响应的 Agent/)).toBeNull();
   });
 });

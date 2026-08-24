@@ -23,7 +23,7 @@ const ALL_SKILLS: SkillEntry[] = [
   { name: 'arch-review-skill', path: 'arch-review-skill/SKILL.md', description: '对照 arch-patterns 知识库检查架构文档的概念完整性和覆盖度，识别 P0/P1 缺口。' },
   { name: 'code-review', path: 'code-review/SKILL.md', description: '对实现分支的 diff 执行两轴审查——契约轴（代码是否兑现工单 issue/AC）与规范轴（是否符合仓内标准与气味基线），两轴并列报告不合并定级。' },
   { name: 'dead-code-removal', path: 'dead-code-removal/SKILL.md', description: '彻底清理已废弃的代码概念：跨 schema、后端、前端、packages 全链路删除。' },
-  { name: 'exploration-sediment', path: 'exploration-sediment/SKILL.md', description: '调研/探索结论沉淀：把本轮调研的耐久发现写入业务仓 .studio/CONTEXT.md（注意事项/核心导出），避免下个会话重复探索。' },
+  { name: 'exploration-sediment', path: 'exploration-sediment/SKILL.md', description: '调研/探索结论沉淀：把本轮调研的耐久发现写入对应源码目录的 CONTEXT.md（注意事项/核心导出），避免下个会话重复探索。' },
   { name: 'knowledge-extraction', path: 'knowledge-extraction/SKILL.md', description: '从近期工作产物中提取可复用知识，去重后写入知识库（Loop 自动触发，也支持用户请求）。' },
   { name: 'knowledge-quality-skill', path: 'knowledge-quality-skill/SKILL.md', description: '审查知识库条目的语义质量：内容完整性、价值、跨条目矛盾、引用存活、语义重复。' },
   { name: 'knowledge-synthesis-skill', path: 'knowledge-synthesis-skill/SKILL.md', description: '从时间窗口的知识集合中产出高阶洞察：语义模式检测与经验教训综合（Loop 自动触发）。' },

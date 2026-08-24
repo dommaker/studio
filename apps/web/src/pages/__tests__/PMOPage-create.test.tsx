@@ -94,7 +94,7 @@ describe('PMO-a: 新建 PMO 表单', () => {
     await waitFor(() => {
       expect(mockCreate).toHaveBeenCalledWith({
         title: '证据链看板',
-        requirement: '展示 L1/L2/L3 证据',
+        description: '展示 L1/L2/L3 证据',
         gitRepo: '/root/projects/studio',
         deliveryPolicy: 'auto-merge',
       });
@@ -130,7 +130,7 @@ describe('PMO-a: 新建 PMO 表单', () => {
     await waitFor(() => {
       expect(mockCreate).toHaveBeenCalledWith({
         title: '多腿需求',
-        requirement: undefined,
+        description: undefined,
         gitRepos: ['/repos/app', '/repos/lib'],
         deliveryPolicy: 'branch-only',
       });
@@ -155,7 +155,7 @@ describe('PMO-a: 新建 PMO 表单', () => {
     await waitFor(() => {
       expect(mockCreate).toHaveBeenCalledWith({
         title: '无工程需求',
-        requirement: undefined,
+        description: undefined,
         deliveryPolicy: 'branch-only',
       });
     });

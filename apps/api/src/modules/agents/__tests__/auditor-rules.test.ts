@@ -296,22 +296,24 @@ describe('analyzeCircuitHealth()', () => {
   });
 });
 
-// ── analyzeCircuitHealth Circuit 5：.studio/CONTEXT.md 锚点覆盖（#152）──
+// ── analyzeCircuitHealth Circuit 5：散置 CONTEXT.md 覆盖 + 工单号密度（#299）──
 
-describe('analyzeCircuitHealth() Circuit 5 锚点覆盖', () => {
+describe('analyzeCircuitHealth() Circuit 5 散置 CONTEXT.md', () => {
   const prevRepoDir = process.env.REPO_DIR;
   let tmpRepo: string;
 
-  function setupRepo(modules: string[], anchors: string[]): void {
+  function setupRepo(modules: string[], withContext: string[], bodies?: Record<string, string>): void {
     tmpRepo = fs.mkdtempSync(path.join(tmpHome, 'c5-repo-'));
     for (const m of modules) {
-      fs.mkdirSync(path.join(tmpRepo, 'apps/api/src/modules', m), { recursive: true });
+      const dir = path.join(tmpRepo, 'apps/api/src/modules', m);
+      fs.mkdirSync(dir, { recursive: true });
+      if (withContext.includes(m)) {
+        fs.writeFileSync(
+          path.join(dir, 'CONTEXT.md'),
+          bodies?.[m] ?? `# apps/api/src/modules/${m}\n\n### 职责\n\n正文。\n`,
+        );
+      }
     }
-    fs.mkdirSync(path.join(tmpRepo, '.studio'), { recursive: true });
-    fs.writeFileSync(
-      path.join(tmpRepo, '.studio/CONTEXT.md'),
-      ['# Studio 模块上下文', ...anchors.map(a => `\n## ${a}\n\n正文`)].join('\n'),
-    );
     process.env.REPO_DIR = tmpRepo;
   }
 
@@ -320,22 +322,44 @@ describe('analyzeCircuitHealth() Circuit 5 锚点覆盖', () => {
     else process.env.REPO_DIR = prevRepoDir;
   });
 
-  it('模块目录缺锚点 → 报 low 风险 circuit_fix', async () => {
+  it('模块目录缺 CONTEXT.md → 报 low 风险 circuit_fix', async () => {
     mockGetStats.mockReturnValue({ total: 50, pattern: 20, failure: 15, trend: 15 });
-    setupRepo(['alpha', 'beta'], ['apps/api/src/modules/alpha']);
+    setupRepo(['alpha', 'beta'], ['alpha']);
     const result = await analyzeCircuitHealth(fileStoreStub);
-    const c5 = result.find(s => s.detail.includes('缺锚点'));
+    const c5 = result.find(s => s.detail.includes('缺 CONTEXT.md'));
     expect(c5).toBeDefined();
     expect(c5!.risk).toBe('low');
     expect(c5!.detail).toContain('beta');
     expect(c5!.detail).not.toContain('alpha');
   });
 
-  it('锚点齐全 → 不报 Circuit 5', async () => {
+  it('CONTEXT.md 齐全 → 不报缺失', async () => {
     mockGetStats.mockReturnValue({ total: 50, pattern: 20, failure: 15, trend: 15 });
-    setupRepo(['alpha'], ['apps/api/src/modules/alpha']);
+    setupRepo(['alpha'], ['alpha']);
     const result = await analyzeCircuitHealth(fileStoreStub);
-    expect(result.find(s => s.detail.includes('缺锚点'))).toBeUndefined();
+    expect(result.find(s => s.detail.includes('缺 CONTEXT.md'))).toBeUndefined();
+  });
+
+  it('工单号密度 >0.3/行 → 报密度告警', async () => {
+    mockGetStats.mockReturnValue({ total: 50, pattern: 20, failure: 15, trend: 15 });
+    // 5 行正文 3 个票号 = 0.6 > 0.3
+    setupRepo(['alpha'], ['alpha'], {
+      alpha: '# alpha\n\n### 注意事项\n\n- #101 改了 x\n- #102 又改了 y\n- #103 再改 z\n',
+    });
+    const result = await analyzeCircuitHealth(fileStoreStub);
+    const dense = result.find(s => s.detail.includes('密度超线'));
+    expect(dense).toBeDefined();
+    expect(dense!.risk).toBe('low');
+    expect(dense!.detail).toContain('alpha');
+  });
+
+  it('工单号密度 ≤0.3/行 → 不报密度告警', async () => {
+    mockGetStats.mockReturnValue({ total: 50, pattern: 20, failure: 15, trend: 15 });
+    // 10 行正文 1 个票号 = 0.1
+    const body = ['# alpha', '', '### 职责', '', '正文一句。', '', '### 注意事项', '', '- 共十条注意事项逐条列明第一二三五六七八九十条 #101', ''].join('\n');
+    setupRepo(['alpha'], ['alpha'], { alpha: body });
+    const result = await analyzeCircuitHealth(fileStoreStub);
+    expect(result.find(s => s.detail.includes('密度超线'))).toBeUndefined();
   });
 });
 

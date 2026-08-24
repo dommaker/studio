@@ -487,13 +487,53 @@ describe('ChannelDetailPage — #279 NEED_INPUT 待办 chip 与等待态清理',
     expect(screen.getAllByText('交给 agent 判断')).toHaveLength(1);
   });
 
-  it('点选项回答后：经 replyTo 走复活链路，同屏不再「已回复」与「等待回复」并存', async () => {
+  it('#276 点选项回答 -> 经 replyTo 走复活链路，await 成功后显示已回复（互斥）', async () => {
     renderPage();
     await waitFor(() => expect(screen.getByText('OAuth')).toBeTruthy());
     fireEvent.click(screen.getByText('OAuth'));
     await waitFor(() => expect(mockSendMessage).toHaveBeenCalledWith('OAuth', 'q-2'));
-    expect(screen.getByText(/已回复/)).toBeTruthy();
+    // await sendMessage resolve 后：needSent=true -> 已回复显示；badge 消失（互斥）
+    await waitFor(() => expect(screen.getByText(/已回复/)).toBeTruthy());
     expect(screen.queryByText('等待回复')).toBeNull();
+  });
+
+  // #276 AC3：追问再挂起后旧回复框不重复出现--#279 latestQuestionIdByWu 已结构性保证；
+  // 本票补覆盖：场景 a-1 -> q-2 提问 -> r-1 人类回复 -> q-3 追问，仅 q-3 挂回复区
+  it('#276 AC3 追问再挂起后旧回复框不重复出现（仅最新提问挂回复区）', async () => {
+    // 场景：WU-3000 经历 a-1 派发 -> q-2 首次提问 -> r-1 人类回复 -> q-3 追问
+    // 当前 WU 仍 blocked，最新提问 = q-3；q-2 已被回复过不再挂回复区
+    currentMessages = [
+      {
+        id: 'a-1', channelId: 'ch-1', authorType: 'agent' as const, agentName: 'pm',
+        content: '任务已派发', workUnitId: 'WU-3000', replyToId: null,
+        meta: '{}', createdAt: iso(0),
+      },
+      {
+        id: 'q-2', channelId: 'ch-1', authorType: 'agent' as const, agentName: 'pm',
+        content: '需要输入: 使用 OAuth 还是账号密码？', workUnitId: 'WU-3000', replyToId: 'a-1',
+        meta: { options: [{ label: 'OAuth' }, { label: '账号密码' }] } as Record<string, unknown>,
+        createdAt: iso(1),
+      },
+      {
+        id: 'r-1', channelId: 'ch-1', authorType: 'human' as const,
+        content: '用 OAuth', workUnitId: 'WU-3000', replyToId: 'q-2',
+        meta: '{}', createdAt: iso(2),
+      },
+      {
+        id: 'q-3', channelId: 'ch-1', authorType: 'agent' as const, agentName: 'pm',
+        content: '需要输入: OAuth 的回调地址是？', workUnitId: 'WU-3000', replyToId: 'q-2',
+        meta: { options: [{ label: 'http://localhost' }] } as Record<string, unknown>,
+        createdAt: iso(3),
+      },
+    ];
+    renderPage();
+    // q-3 是最新提问，提升到主流 + 挂回复区
+    await waitFor(() => expect(screen.getByText(/回调地址/)).toBeTruthy());
+    // 仅 q-3 挂「等待回复」badge 与选项卡（q-2 已被回复过不再重复挂回复区）
+    expect(screen.getAllByText('等待回复')).toHaveLength(1);
+    expect(screen.getAllByText('交给 agent 判断')).toHaveLength(1);
+    // q-2 的选项（账号密码）不渲染--避免一屏多个相同回复框
+    expect(screen.queryByText('账号密码')).toBeNull();
   });
 
   it('chip 点条目 → 滚动定位到该 WU 提问消息并高亮', async () => {

@@ -154,7 +154,8 @@ export const ChannelMemberManager: React.FC<ChannelMemberManagerProps> = ({
           {/* Current members */}
           <div style={{ maxHeight: 160, overflowY: 'auto', padding: '4px 6px' }}>
             {members.length === 0 && memberCount === 0 && (
-              <p className="mc-drawer-note" style={{ textAlign: 'center', padding: '8px 0' }}>未配置成员，显示所有 Agent</p>
+              /* #290（清单 #25）：空成员三处文案统一口径「空 = 所有 Agent 可见」（按钮 All / 说明 / 空态） */
+              <p className="mc-drawer-note" style={{ textAlign: 'center', padding: '8px 0' }}>未配置成员（空 = 所有 Agent 可见）</p>
             )}
             {members.map((m) => (
               <div key={m.id} className="mc-mention-item" style={{ justifyContent: 'space-between' }}>

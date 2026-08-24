@@ -89,7 +89,8 @@ describe('AgentDetailPage', () => {
           { id: 'wu-0', scope: '旧的首页改造', type: 'DEV', status: 'done', failureType: null, completedAt: '2026-07-30T10:00:00Z', updatedAt: '2026-07-30T10:00:00Z' },
           { id: 'wu-x', scope: '失败的迁移', type: 'OPS', status: 'done', failureType: 'timeout', completedAt: '2026-07-29T10:00:00Z', updatedAt: '2026-07-29T10:00:00Z' },
         ],
-        total: 3, page: 1, limit: 20,
+        // 对齐真实 API 响应形状（formatPaginatedResponse）：总数在 pagination.total（#309）
+        pagination: { page: 1, limit: 20, total: 3, totalPages: 1 },
       },
     });
   });

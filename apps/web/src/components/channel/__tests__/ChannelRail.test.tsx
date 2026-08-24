@@ -1,6 +1,6 @@
 // ChannelRail — Mission Control 左栏 smoke test：频道渲染/选中/未读/新建/Agent 状态
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
 const { mockUseChannelList, mockGetAgentSummary, mockNavigate } = vi.hoisted(() => ({
@@ -151,5 +151,39 @@ describe('ChannelRail', () => {
     expect(screen.queryByText('@coder-1-old')).toBeNull();
     // 汇总：online/visible = 2/2（active+idle / 非 terminated 去重后）
     expect(screen.getByText(/Agents · 2\/2/)).toBeTruthy();
+  });
+
+  // #283：非 Admin 访问 Admin-only monitoring 接口的降级体验
+  it('403 → 渲染「无权限」终态而非恒加载，并停止 30s 轮询', async () => {
+    vi.useFakeTimers();
+    try {
+      const err = Object.assign(new Error('Request failed with status code 403'), { response: { status: 403 } });
+      mockGetAgentSummary.mockRejectedValue(err);
+      renderRail();
+      await act(async () => {}); // flush 挂载首查的 rejection
+      expect(screen.getByText(/无权限查看 Agent 状态/)).toBeTruthy();
+      expect(screen.queryByText('加载中…')).toBeNull();
+      expect(mockGetAgentSummary).toHaveBeenCalledTimes(1);
+      // 403 后轮询停止：推进 2 个周期不再发请求
+      await act(async () => { vi.advanceTimersByTime(60000); });
+      expect(mockGetAgentSummary).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('非 403 错误 → 维持现状（吞错，下轮继续重试）', async () => {
+    vi.useFakeTimers();
+    try {
+      mockGetAgentSummary.mockRejectedValue(new Error('Network Error'));
+      renderRail();
+      await act(async () => {});
+      expect(screen.queryByText(/无权限/)).toBeNull();
+      expect(mockGetAgentSummary).toHaveBeenCalledTimes(1);
+      await act(async () => { vi.advanceTimersByTime(30000); });
+      expect(mockGetAgentSummary).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

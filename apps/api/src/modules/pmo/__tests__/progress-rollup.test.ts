@@ -224,6 +224,76 @@ describe('syncProjectProgress（B3a 进度回写）', () => {
   });
 });
 
+describe('#282 progress 与 WU 完成管道同源（workFinished 口径：仅 done/closed 计进度）', () => {
+  it('唯一 WU in_review（等审查，活未闭环）→ progress=0 而非 100；翻转判定仍按 TERMINAL 置 in_review', async () => {
+    const project = await createRealProject();
+    const req = await reqService.create({ title: '需求', projectId: project.id });
+    await wuService.create({ scope: 'w1', type: 'task', status: 'in_review', reqId: req.id });
+
+    await syncProjectProgress(project.id, fileStore);
+
+    const after = await projectService.get(project.id);
+    expect(after!.progress).toBe(0); // 管道 0/1 · 0%，进展不再矛盾地显示 100
+    expect(after!.status).toBe(PROJECT_STATUS.IN_REVIEW);
+  });
+
+  it('唯一 WU blocked → progress=0，状态不翻', async () => {
+    const project = await createRealProject();
+    const req = await reqService.create({ title: '需求', projectId: project.id });
+    await wuService.create({ scope: 'w1', type: 'task', status: 'blocked', reqId: req.id });
+
+    await syncProjectProgress(project.id, fileStore);
+
+    const after = await projectService.get(project.id);
+    expect(after!.progress).toBe(0);
+    expect(after!.status).toBe(PROJECT_STATUS.PENDING);
+  });
+
+  it('done + blocked 混合 → progress=50（blocked 既不计进度也不触发翻转）', async () => {
+    const project = await createRealProject();
+    const req = await reqService.create({ title: '需求', projectId: project.id });
+    await wuService.create({ scope: 'w1', type: 'task', status: 'done', reqId: req.id });
+    await wuService.create({ scope: 'w2', type: 'task', status: 'blocked', reqId: req.id });
+
+    await syncProjectProgress(project.id, fileStore);
+
+    const after = await projectService.get(project.id);
+    expect(after!.progress).toBe(50);
+    expect(after!.status).toBe(PROJECT_STATUS.PENDING);
+  });
+
+  it('done + in_review 混合 → progress=50（in_review 不计进度），状态按 TERMINAL 口径置 in_review', async () => {
+    const project = await createRealProject();
+    const req = await reqService.create({ title: '需求', projectId: project.id });
+    await wuService.create({ scope: 'w1', type: 'task', status: 'done', reqId: req.id });
+    await wuService.create({ scope: 'w2', type: 'task', status: 'in_review', reqId: req.id });
+
+    await syncProjectProgress(project.id, fileStore);
+
+    const after = await projectService.get(project.id);
+    expect(after!.progress).toBe(50);
+    expect(after!.status).toBe(PROJECT_STATUS.IN_REVIEW);
+  });
+
+  it('全完结后新派生阻塞 WU（人工补单）→ progress 从 100 回摆 50（F13 矛盾场景的去路）', async () => {
+    const project = await createRealProject();
+    await projectService.update(project.id, { status: PROJECT_STATUS.ACTIVE });
+    const req = await reqService.create({ title: '需求', projectId: project.id });
+    await wuService.create({ scope: 'w1', type: 'task', status: 'done', reqId: req.id });
+
+    await syncProjectProgress(project.id, fileStore);
+    expect((await projectService.get(project.id))!.progress).toBe(100);
+
+    // 派生物化/人工补单：已完结项目下出现在途阻塞 WU（done 是终态不可打回，真实回摆由此产生）
+    await wuService.create({ scope: 'w2', type: 'task', status: 'blocked', reqId: req.id });
+    await syncProjectProgress(project.id, fileStore);
+
+    const after = await projectService.get(project.id);
+    expect(after!.progress).toBe(50);
+    expect(after!.status).toBe(PROJECT_STATUS.IN_REVIEW); // 状态不回退，仅进度纠偏
+  });
+});
+
 describe('#115 派生链未落定不翻 completed（derivationPending）', () => {
   it('已完结 analysis 缺 analysisTasksSpawnedAt（接力未处理）→ 不翻 completed，progress 照写', async () => {
     const project = await createRealProject();

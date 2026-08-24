@@ -108,3 +108,36 @@ describe('NeedInputOptions — multiSelect 预留钩子（#250 D3）', () => {
     expect(container.querySelector('[aria-multiselectable]')).toBeNull();
   });
 });
+
+// #276（P2 #15）：发送中（disabled）防重复点击--内嵌回复状态矛盾清理
+describe('NeedInputOptions — #276 disabled 发送中防重复', () => {
+  it('disabled=true 时选项按钮禁用且不触发 onReply', () => {
+    const onReply = vi.fn();
+    render(<NeedInputOptions options={OPTIONS} disabled onReply={onReply} />);
+    fireEvent.click(screen.getByText('studio'));
+    expect(onReply).not.toHaveBeenCalled();
+    expect((screen.getByText('studio').closest('button') as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByText('交给 agent 判断') as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('disabled=true 时自定义输入与「交给 agent 判断」均禁用', () => {
+    const onReply = vi.fn();
+    render(<NeedInputOptions options={OPTIONS} disabled onReply={onReply} />);
+    fireEvent.click(screen.getByText('自定义…'));
+    // 自定义输入框展开后，输入框与回复按钮均禁用
+    const input = screen.getByLabelText('自定义回复') as HTMLInputElement;
+    expect(input.disabled).toBe(true);
+    const replyBtn = screen.getByText('回复') as HTMLButtonElement;
+    expect(replyBtn.disabled).toBe(true);
+    fireEvent.click(screen.getByText('交给 agent 判断'));
+    expect(onReply).not.toHaveBeenCalled();
+  });
+
+  it('disabled 缺省时按钮可点击（回归）', () => {
+    const onReply = vi.fn();
+    render(<NeedInputOptions options={OPTIONS} onReply={onReply} />);
+    expect((screen.getByText('studio').closest('button') as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(screen.getByText('studio'));
+    expect(onReply).toHaveBeenCalledWith('/root/projects/studio');
+  });
+});

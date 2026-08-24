@@ -231,6 +231,28 @@
 }
 .mc-loadmore:hover { text-decoration: underline; }
 
+/* #289 「回到底部」浮钮：sticky 贴滚动视口底部，零高度包装不占流内空间 */
+.mc-jump-wrap {
+  position: sticky;
+  bottom: 12px;
+  height: 0;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start; /* 防 flex stretch 把按钮压成 0 高 */
+  z-index: 5;
+}
+.mc-jump-bottom {
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+  font-size: var(--fs-sm);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+  cursor: pointer;
+}
+.mc-jump-bottom:hover { border-color: var(--accent-primary); }
+
 .mc-date {
   display: flex;
   align-items: center;

@@ -116,6 +116,8 @@ export function WorkUnitListPage() {
         {/* Stats —— F6-b：计数走派生列（双轨期与存储状态并存比对） */}
         <div className="flex gap-6 mt-4">
           <StatBadge label="总数" value={total} color="u-accent" />
+          {/* #280：pending 单列「待确认」（扩范围人闸），不再计入「待人工」 */}
+          <StatBadge label="待确认" value={workunits.filter(w => deriveWu(w).column === 'pending').length} color="u-warn" />
           <StatBadge label="待分配" value={workunits.filter(w => deriveWu(w).column === 'unassigned').length} color="u-text-3" />
           <StatBadge label="执行中" value={workunits.filter(w => deriveWu(w).column === 'active').length} color="u-accent" />
           <StatBadge label="审查中" value={workunits.filter(w => deriveWu(w).column === 'in_review').length} color="u-warn" />
