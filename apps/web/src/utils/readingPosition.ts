@@ -3,13 +3,12 @@
 // 存档语义：{mid, top} = 锚消息行 + 视口相对位置（抗重排）；null = 钉在底部；
 // 无存档（undefined）= 首次进入，定位底部。
 // jsdom 无布局，序列化/解析抽纯函数单测；组件侧只负责捕获/恢复时机。
+import type { ScrollAnchor } from './streamFollow';
 
 const KEY_PREFIX = 'studio-channel-reading-pos:';
 
-export interface ReadingPosition {
-  mid: string;
-  top: number;
-}
+/** 阅读位置存档 = 行锚点（与 streamFollow.ScrollAnchor 同一形状） */
+export type ReadingPosition = ScrollAnchor;
 
 /** 序列化存档（含 null=钉底）；返回值即 localStorage 写入内容 */
 export function serializeReadingPosition(pos: ReadingPosition | null): string {

@@ -2,8 +2,7 @@
 // assigneeId 存的是 RuntimeInstance id，解析顺序：
 //   ① 当前运行实例摘要（/monitoring/agents）按 instance id 匹配 → {name, roleId}
 //   ② 离线实例：实例档案（/agent-instances/:id）拿 roleId → profile 列表拿名字
-//   ③ legacy：assigneeId 直接是 profile id → profile 直配
-//   ④ 都查不到 → null（调用方回退渲染短 UUID）
+//   ③ 都查不到 → null（调用方回退渲染短 UUID）
 // 纯展示层解析，不改 assigneeId 存储与 API 形态。
 import { useEffect, useState } from 'react';
 import { monitoringApi, type AgentInfo } from '../api/monitoring';
@@ -37,7 +36,7 @@ function fetchProfiles(): Promise<AgentProfile[]> {
   return profilesInflight;
 }
 
-/** 解析 assigneeId → {name, roleId}；查不到返回 null（导出供单测直接驱动三分支） */
+/** 解析 assigneeId → {name, roleId}；查不到返回 null（导出供单测直接驱动分支） */
 export async function resolveAssignee(assigneeId: string): Promise<AssigneeDisplay | null> {
   // ① 运行实例摘要
   const running = (await fetchSummaryAgents()).find(a => a.id === assigneeId);
@@ -50,10 +49,7 @@ export async function resolveAssignee(assigneeId: string): Promise<AssigneeDispl
       const profile = (await fetchProfiles()).find(p => p.id === roleId);
       if (profile) return { name: profile.name, roleId };
     }
-  } catch { /* 实例不存在/接口失败 → 继续下一级回退 */ }
-  // ③ legacy：assigneeId 直接是 profile id
-  const direct = (await fetchProfiles()).find(p => p.id === assigneeId);
-  if (direct) return { name: direct.name, roleId: direct.id };
+  } catch { /* 实例不存在/接口失败 → 回退 null */ }
   return null;
 }
 

@@ -58,7 +58,7 @@
 | P2 | 19 | 线程回复位置不稳定 | 缺陷修复 | #247 F17 | M | 轮询增量到达时线程回复以主消息 appended 流尾，刷新后归并线程——同一消息两种位置 |
 | P2 | 20 | 人审卡片按钮一次性锁存核查 + 高危操作二次确认 | 打磨 | #246 P2 | S | 逐个卡片核查点击到状态回流间的防重复；retract/退役类接 acknowledge→confirm 两步。✅ #288 已完成（7f9bd618，local master，待 ship；需求文档卡经核查 #278 已只读化无按钮，无需锁存） |
 | P2 | 21 | observed-top 滚动台账 + ResizeObserver 跟随 + 回到底部按钮 | 决策落地 | #248 / #246 P1 | M | 程序写 scrollTop 必记账，偏离才算读者滚动；卡片展开撑高时跟随。从 #246 P1 降到 P2：顺滑度优化，不阻塞链路。✅ #289 已完成（f7033831，local master） |
-| P3 | 22 | 加载更早消息改行锚点补偿 | 打磨 | #246 P2 | S | 高度差补偿法不抗加载期间高度变化；换行锚点 + 位移补偿。✅ #290 已完成（local master） |
+| P3 | 22 | 加载更早消息改行锚点补偿 | 打磨 | #246 P2 | S | 高度差补偿法不抗加载期间高度变化；换行锚点 + 位移补偿。✅ #290 已完成（local master；回写：锚点身份复用既有 `data-message-id` 属性，未新增 `data-mid`） |
 | P3 | 23 | dev 深链/刷新 404 修复 | 缺陷修复 | #247 F3 / #259 | S | vite base=/dev/ × Router 无 basename；生产已通过，dev-only。✅ #291 已完成（0606ba71，local master；dev base 经 VITE_BASE 注入，非硬编码 /dev/） |
 | P3 | 24 | WU 抽屉/详情负责人显示原始 UUID | 缺陷修复 | #247 F15 | S | 应解析为角色名。✅ #290 已完成（local master；`useAssigneeDisplay` 共享 hook + `AssigneeLabel`，详情页/抽屉/REQ 链路三处收敛） |
 | P3 | 25 | 「空成员」语义矛盾 + 发起讨论频道选项单一 | 打磨 | #247 F16 | S | 警告「没有可响应成员」vs 成员面板「空=所有 Agent 可见」互相打架。✅ #290 已完成（local master；回写：前端无过滤，选项单一是 PMOPage 挂载期 channels 滞后所致，改为对话框打开时自取 `channelApi.list()`） |

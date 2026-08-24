@@ -47,23 +47,19 @@ describe('resolveAssignee — #290 负责人解析顺序', () => {
     await expect(resolveAssignee('inst-off')).resolves.toEqual({ name: 'Analyst', roleId: 'role-analyst' });
   });
 
-  it('② 实例档案 404 → 继续回退（不抛错）', async () => {
+  it('② 实例档案 404 → 回退 null（不抛错）', async () => {
     await expect(resolveAssignee('inst-gone')).resolves.toBeNull();
   });
 
-  it('③ legacy：assigneeId 直接是 profile id → profile 直配', async () => {
-    mockListAllAgents.mockResolvedValue({ data: { data: [{ id: 'profile-x', name: 'pm-01' }] } });
-    await expect(resolveAssignee('profile-x')).resolves.toEqual({ name: 'pm-01', roleId: 'profile-x' });
-  });
-
-  it('④ 三级都查不到 → null（调用方回退短 UUID）', async () => {
+  it('③ 两级都查不到 → null（调用方回退短 UUID）', async () => {
     await expect(resolveAssignee('inst-unknown')).resolves.toBeNull();
   });
 
-  it('摘要接口失败按空列表降级，仍走后续回退', async () => {
+  it('摘要接口失败按空列表降级，仍走实例档案回退', async () => {
     mockGetAgentSummary.mockRejectedValue(new Error('network'));
-    mockListAllAgents.mockResolvedValue({ data: { data: [{ id: 'profile-x', name: 'pm-01' }] } });
-    await expect(resolveAssignee('profile-x')).resolves.toEqual({ name: 'pm-01', roleId: 'profile-x' });
+    mockGetAgentInstance.mockResolvedValue({ data: { id: 'inst-off', roleId: 'role-analyst', status: 'terminated' } });
+    mockListAllAgents.mockResolvedValue({ data: { data: [{ id: 'role-analyst', name: 'Analyst' }] } });
+    await expect(resolveAssignee('inst-off')).resolves.toEqual({ name: 'Analyst', roleId: 'role-analyst' });
   });
 
   it('并发解析共享在途请求（REQ 链路一屏多节点不放大调用）', async () => {

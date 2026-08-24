@@ -8,7 +8,7 @@ import { shortWuId } from '../utils/id';
 import { ChannelMessageItem } from '../components/channel/ChannelMessageItem';
 import { parseMeta } from '../utils/messageMeta';
 import { isPinnedToBottom, isReaderScroll, shouldFollowBottom, captureFirstVisibleAnchor, anchorScrollDelta, type ScrollAnchor, type MessageRowRect } from '../utils/streamFollow';
-import { loadReadingPosition, saveReadingPosition } from '../utils/readingPosition';
+import { loadReadingPosition, saveReadingPosition, type ReadingPosition } from '../utils/readingPosition';
 import { ChannelInput } from '../components/channel/ChannelInput';
 import { ChannelMemberManager } from '../components/channel/ChannelMemberManager';
 import { ChannelDefaultProjectSelect } from '../components/channel/ChannelDefaultProjectSelect';
@@ -190,7 +190,11 @@ export function ChannelDetailPage() {
   const ownSendPendingRef = useRef(false);
   // #290（清单 #27）：阅读位置存档按 channelId 懒读（useLayoutEffect 早于 useEffect，
   // 挂载首帧被动 effect 还没跑，存档读取放在恢复分支里同步进行）
-  const restoreRef = useRef<{ channelId: string | undefined; pos: { mid: string; top: number } | null | undefined } | null>(null);
+  const restoreRef = useRef<{ channelId: string | undefined; pos: ReadingPosition | null | undefined } | null>(null);
+  // 当前消息集所属频道（渲染期镜像）：快速连切 A→B→C 时 B 的存档 cleanup 可能面对 A 的消息，
+  // 频道不符则不存档，防把 A 的阅读位置记到 B 头上（污染存档）
+  const messagesChannelRef = useRef<string | undefined>(undefined);
+  messagesChannelRef.current = messages[0]?.channelId;
 
   // 程序滚动统一入口：写入并记账
   const scrollStreamTo = useCallback((top: number) => {
@@ -248,8 +252,11 @@ export function ChannelDetailPage() {
     const currentId = id;
     scrollStateRef.current.initial = true;
     ownSendPendingRef.current = false;
+    restoreRef.current = null; // 换频道强制重读存档（防复用上次恢复的残值）
     return () => {
       if (!currentId) return;
+      // 消息仍属其他频道（快速连切，新频道数据未到达）→ 不存档
+      if (messagesChannelRef.current && messagesChannelRef.current !== currentId) return;
       saveReadingPosition(currentId, pinnedRef.current ? null : captureAnchor());
     };
   }, [id, captureAnchor]);

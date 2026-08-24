@@ -204,4 +204,19 @@ describe('ChannelDetailPage — #290 滚动锚点与阅读位置', () => {
     renderPage();
     await waitFor(() => expect(streamEl().scrollTop).toBe(2000));
   });
+
+  it('#27 快速连切时消息仍属上频道 → 不给当前频道写污染存档', async () => {
+    renderPage();
+    await waitFor(() => expect(screen.getByText('#rnd-主研发')).toBeTruthy());
+    readerScrollTo(100);
+
+    // ch-1 → ch-2：ch-1 正常存档；ch-2 的消息尚未到达（DOM 仍是 ch-1 的消息）
+    act(() => navigateTo('/channels/ch-2'));
+    expect(window.localStorage.getItem('studio-channel-reading-pos:ch-1'))
+      .toBe(JSON.stringify({ mid: 'm2', top: 10 }));
+
+    // ch-2 → ch-3：ch-2 从未加载过自己的消息，不应把 ch-1 的锚点记到 ch-2 头上
+    act(() => navigateTo('/channels/ch-3'));
+    expect(window.localStorage.getItem('studio-channel-reading-pos:ch-2')).toBeNull();
+  });
 });
