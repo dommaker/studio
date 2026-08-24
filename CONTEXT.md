@@ -59,12 +59,15 @@ documents（document-store，#149 T11 退役）与 wiki（#155 改名 library）
 文档落点的唯一判别轴（2026-08-21，docs/adr/2026-08-21-agent-docs-three-kinds.md）：内容对「任何 clone 这个仓的人」有效力 → 公共面，入库（AGENTS.md / docs/adr/）；只对「这台机器」有效力 → 本机面，gitignore（CLAUDE.md 薄身）。配套内容三分：**项目说明书**（结构/命令/模块索引，机器可再生）、**治理契约**（改仓必守的规矩，人写）、**本机运维簿**（本机部署/路径/事故史）——「入口文档」一词作废。
 _Avoid_: 入口文档、治理锁本机、运维细节入库
 
+**入口文档（墓碑）**:
+旧称已作废（2026-08-21 内容三分，docs/adr/2026-08-21-agent-docs-three-kinds.md）：原指 CLAUDE.md / AGENTS.md 里混居的全部 agent 导读内容，拆为项目说明书 / 治理契约 / 本机运维簿，落点判别见「生效范围」词条。凡历史文档出现「入口文档」即指此旧称。
+
 **工单绑定产物**:
 有归属工单、随工单生灭归档的产物（2026-08-21，docs/adr/2026-08-21-agent-docs-placement-model.md）：spec 归需求工单（`.studio/specs/`）、research 归 analysis 工单（`.studio/research/`）、决策结论记于工单。判别反例 = ADR：决策单关闭后仍约束未来决策者，不随工单死，故不落 `.studio/`，归 `docs/adr/`。
 _Avoid_: ADR 落 .studio/、产物无归属工单
 
 **工单类型**:
-工单的唯一分类词表（#118 第三轮，2026-08-12）：需求 / 决策单 / spec单 / 任务单 / implement / review / analysis。**增删类型 = 治理变更**，须先过治理流程（CLAUDE.md「治理变更流程」节，#166）再改词表。操作载体 = PMO 工单类型字段（单一权威）；本条目是词表的文档化；GitHub label 仅 studio 自研特例，不构成第二平面（用户工程可能是任意 git 托管，流程信息零外泄，远端只见分支名/commit 指针）。agent 只见工单不见机制：类型决定默认方法论与产出契约（见 CLAUDE.md 工单类型索引表），派单/解锁/打回等流转由机制承载。**类型认领属性（#126 T4，2026-08-15）**：扩范围类型（需求=feature / 任务单=task / spec单=spec）创建落「待确认」（pending），人工确认才进 frontier 可认领；圈内类型（implement / review / analysis / 决策单 / bug）创建即可认领——机制载体 = workunit.types.ts `PENDING_CONFIRM_TYPES` + `resolveInitialStatus`。**变体不增类型（#128 T6 / #130 T8）**：类型内的用途变体用显式 metadata 标记表达（原型单 `prototype: true`、巡检单 `inspection: true`），不隐式判定、不进词表。**触发器人闸（#130 T8，2026-08-15）**：无人在环的自动触发（定时/事件）模型调用单，建单显式 `status='pending'` 待人确认才执行（按来源不按类型，不动 PENDING_CONFIRM_TYPES；doc-semantic-review 自周五自动跑改为建单待人确认）。**WU 级 token 预算（#162 T8-E1，2026-08-15）**：任何类型工单可带显式 `metadata.tokenBudget` 数值上限，对照 `_cumulativeTokens`（billed 口径）超线即暂停待人三选（追加预算 / 现有产出收尾 / 放弃）；首个消费 = 巡检单。
+工单的唯一分类词表（#118 第三轮，2026-08-12）：需求 / 决策单 / spec单 / 任务单 / implement / review / analysis。**增删类型 = 治理变更**，须先过治理流程（AGENTS.md「治理变更流程」节，#166）再改词表。操作载体 = PMO 工单类型字段（单一权威）；本条目是词表的文档化；GitHub label 仅 studio 自研特例，不构成第二平面（用户工程可能是任意 git 托管，流程信息零外泄，远端只见分支名/commit 指针）。agent 只见工单不见机制：类型决定默认方法论与产出契约（见 AGENTS.md 工单类型索引表），派单/解锁/打回等流转由机制承载。**类型认领属性（#126 T4，2026-08-15）**：扩范围类型（需求=feature / 任务单=task / spec单=spec）创建落「待确认」（pending），人工确认才进 frontier 可认领；圈内类型（implement / review / analysis / 决策单 / bug）创建即可认领——机制载体 = workunit.types.ts `PENDING_CONFIRM_TYPES` + `resolveInitialStatus`。**变体不增类型（#128 T6 / #130 T8）**：类型内的用途变体用显式 metadata 标记表达（原型单 `prototype: true`、巡检单 `inspection: true`），不隐式判定、不进词表。**触发器人闸（#130 T8，2026-08-15）**：无人在环的自动触发（定时/事件）模型调用单，建单显式 `status='pending'` 待人确认才执行（按来源不按类型，不动 PENDING_CONFIRM_TYPES；doc-semantic-review 自周五自动跑改为建单待人确认）。**WU 级 token 预算（#162 T8-E1，2026-08-15）**：任何类型工单可带显式 `metadata.tokenBudget` 数值上限，对照 `_cumulativeTokens`（billed 口径）超线即暂停待人三选（追加预算 / 现有产出收尾 / 放弃）；首个消费 = 巡检单。
 _Avoid_: 自创类型、label 当词表载体、隐式判定变体
 
 **频道相关工程**:

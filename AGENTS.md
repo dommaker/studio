@@ -107,7 +107,7 @@ pnpm start  # 启动生产服务
 
 ## 发布纪律（公共面）
 
-- 长任务开发中按逻辑批次及时 `git commit`（feat/fix/chore/docs 前缀），不攒大批量未提交改动；提交直落本地 master（单票不一票一分支）。
+- 长任务开发中按逻辑批次及时 `git commit`（feat/fix/chore/docs 前缀），不攒大批量未提交改动；提交直落本地 master（不按工单开分支）。
 - 部署与发布命令由用户触发：agent 不主动执行部署/发布命令、不主动 push。
 
 ## 工单类型 → 方法论索引
@@ -123,7 +123,7 @@ pnpm start  # 启动生产服务
 | implement | tdd-implement | 先行测试 + 实现 + Phase commit（实现 commit 引用测试 sha） |
 | review | code-review（两轴：契约轴 AC 对照 → 规范轴） | 评审结论回写工单；打回 → 修复单 |
 | analysis | research（调研）/ prototype（原型） | 报告落 `.studio/research/` 并回挂来源单；原型 = `prototype/<name>` 一次性分支（不合并、不评审）+ 结论 |
-| bug | diagnosing-bugs（诊断→复现→修复→防回归；快速路，不开图不写成文单） | 复现测试先行（FAIL 复现 → 修复 → GREEN）+ 防回归测试随修复同 commit；根因在需求/设计层 → 升级转决策单/开图，诊断事实随票携带 |
+| bug | diagnosing-bugs（诊断→复现→修复→防回归；快速路，不开图不写成文单） | 复现测试先行（FAIL 复现 → 修复 → GREEN）+ 防回归测试随修复同 commit；根因在需求/设计层 → 升级转决策单/开图，诊断事实随工单携带 |
 
 ### 不触发场景
 

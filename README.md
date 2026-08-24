@@ -127,7 +127,7 @@ packages/
 | [docs/plans/](docs/plans/) | 演进计划 |
 | [docs/sdd/](docs/sdd/) | 变更规格（SDD），按变更立项 |
 | [CAPABILITIES.md](CAPABILITIES.md) | 能力清单（自动维护） |
-| [AGENTS.md](AGENTS.md) | agent 导读与模块索引（机器维护；手写指南在 CLAUDE.md） |
+| [AGENTS.md](AGENTS.md) | agent 导读、治理契约与模块索引（机器维护生成段 + 手写 PRESERVE 段） |
 | [scripts/README.md](scripts/README.md) | 脚本与运维命令细节 |
 
 ## License
