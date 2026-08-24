@@ -2,7 +2,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 
-const { mockOnEvent, mockListAllAgents, mockListChannels, mockGetAgentSummary, mockTerminateInstance, mockWuList, mockWuGet } = vi.hoisted(() => ({
+const { mockOnEvent, mockListAllAgents, mockListChannels, mockGetAgentSummary, mockTerminateInstance, mockWuList, mockWuGet, mockCtx } = vi.hoisted(() => ({
   mockOnEvent: vi.fn(),
   mockListAllAgents: vi.fn(),
   mockListChannels: vi.fn(),
@@ -10,10 +10,11 @@ const { mockOnEvent, mockListAllAgents, mockListChannels, mockGetAgentSummary, m
   mockTerminateInstance: vi.fn(),
   mockWuList: vi.fn(),
   mockWuGet: vi.fn(),
+  mockCtx: { status: 'disconnected' as string },
 }));
 
 vi.mock('../../api/websocketHooks', () => ({
-  useWebSocketContext: () => ({ onEvent: mockOnEvent }),
+  useWebSocketContext: () => ({ onEvent: mockOnEvent, status: mockCtx.status }),
 }));
 
 vi.mock('../../api/monitoring', () => ({
@@ -51,6 +52,7 @@ describe('useAgentRoster', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.clearAllMocks();
+    mockCtx.status = 'disconnected';
     mockOnEvent.mockReturnValue(() => {});
     mockListAllAgents.mockResolvedValue({ data: { data: [profile()] } });
     mockGetAgentSummary.mockResolvedValue({
@@ -116,6 +118,17 @@ describe('useAgentRoster', () => {
     expect(mockListAllAgents).toHaveBeenCalledTimes(1);
     await act(async () => { vi.advanceTimersByTime(ROSTER_POLL_INTERVAL_MS); });
     expect(mockListAllAgents).toHaveBeenCalledTimes(2);
+  });
+
+  // #313：轮询经 useGatedPoll——SSE 连接正常时不起表，fake timers 推进零周期请求
+  it('#313：SSE connected 时仅挂载首拉，推进计时器不发周期请求', async () => {
+    mockCtx.status = 'connected';
+    renderHook(() => useAgentRoster());
+    await flush();
+    expect(mockListAllAgents).toHaveBeenCalledTimes(1);
+    await act(async () => { vi.advanceTimersByTime(ROSTER_POLL_INTERVAL_MS * 4); });
+    expect(mockListAllAgents).toHaveBeenCalledTimes(1);
+    expect(mockGetAgentSummary).toHaveBeenCalledTimes(1);
   });
 
   it('SSE agent.instance.status_changed：乐观更新卡片并增量补查 WU 详情', async () => {

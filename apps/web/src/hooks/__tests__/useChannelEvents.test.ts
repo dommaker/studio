@@ -2,15 +2,16 @@
 // 核心不变式：messages 恒按 createdAt 升序——下游 groupIntoThreads 单遍归组
 // 要求 anchor 先于 reply 出现，增量到达（SSE/轮询/发送）不得破坏该顺序，
 // 否则同一线程回复在刷新前后出现两种位置（走查 F17）。
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
 import type { ChannelMessage } from '../../api/channel';
 import type { WebSocketMessage } from '../../api/websocketHooks';
 
-const { mockListMessages, mockSendMessage, mockOnEvent } = vi.hoisted(() => ({
+const { mockListMessages, mockSendMessage, mockOnEvent, mockCtx } = vi.hoisted(() => ({
   mockListMessages: vi.fn(),
   mockSendMessage: vi.fn(),
   mockOnEvent: vi.fn(),
+  mockCtx: { status: 'connected' as string },
 }));
 
 vi.mock('../../api/channel', () => ({
@@ -18,7 +19,7 @@ vi.mock('../../api/channel', () => ({
 }));
 
 vi.mock('../../api/websocketHooks', () => ({
-  useWebSocketContext: () => ({ onEvent: mockOnEvent, status: 'connected' }),
+  useWebSocketContext: () => ({ onEvent: mockOnEvent, status: mockCtx.status }),
 }));
 
 import { useChannelMessages } from '../useChannelEvents';
@@ -196,5 +197,58 @@ describe('useChannelMessages', () => {
       });
     });
     expect(result.current.messages).toHaveLength(0);
+  });
+});
+
+// #313：轮询已收敛 useGatedPoll，本 describe 钉消费方接线
+// （SSE connected 不发周期请求 / SSE 断开 10s 兜底 / 频道切换立即重拉）
+describe('useChannelMessages（#313 门禁轮询接线）', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.clearAllMocks();
+    mockCtx.status = 'connected';
+    mockOnEvent.mockReturnValue(() => {});
+    mockListMessages.mockResolvedValue({ data: { data: [], hasMore: false } });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  async function flushFirstFetch() {
+    await act(async () => {
+      await Promise.resolve();
+    });
+  }
+
+  it('SSE connected 时仅挂载首拉，fake timers 推进不发周期请求', async () => {
+    renderHook(() => useChannelMessages('ch-1'));
+    await flushFirstFetch();
+    expect(mockListMessages).toHaveBeenCalledTimes(1);
+    act(() => {
+      vi.advanceTimersByTime(60000);
+    });
+    expect(mockListMessages).toHaveBeenCalledTimes(1);
+  });
+
+  it('SSE 断开时 10s 兜底轮询', async () => {
+    mockCtx.status = 'disconnected';
+    renderHook(() => useChannelMessages('ch-1'));
+    await flushFirstFetch();
+    expect(mockListMessages).toHaveBeenCalledTimes(1);
+    act(() => {
+      vi.advanceTimersByTime(10000);
+    });
+    expect(mockListMessages).toHaveBeenCalledTimes(2);
+  });
+
+  it('频道切换立即重拉（不重复首拉）', async () => {
+    const { rerender } = renderHook(({ id }) => useChannelMessages(id), { initialProps: { id: 'ch-1' } });
+    await flushFirstFetch();
+    expect(mockListMessages).toHaveBeenCalledTimes(1);
+    rerender({ id: 'ch-2' });
+    await flushFirstFetch();
+    expect(mockListMessages).toHaveBeenCalledTimes(2);
+    expect(mockListMessages).toHaveBeenLastCalledWith('ch-2');
   });
 });

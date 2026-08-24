@@ -1,7 +1,9 @@
 // Channel SSE hook — B2: EventSource 实时推送替代 3s 轮询
-import { useState, useEffect, useCallback } from 'react';
+// #313：首拉 / SSE 断开 10s 兜底 / visibility 门禁统一收敛到 useGatedPoll
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { channelApi, type ChannelMessage, type FileRef } from '../api/channel';
 import { useWebSocketContext } from '../api/websocketHooks';
+import { useGatedPoll } from './useGatedPoll';
 
 /** #287（清单 P2 #19）：增量到达按 createdAt 升序归位 + id 去重。
  *  下游 groupIntoThreads 单遍归组要求 anchor 先于 reply 出现；一律 push 尾部会让
@@ -20,7 +22,7 @@ export function useChannelMessages(channelId: string | undefined) {
   // 初值覆盖挂载首拉；channelId undefined→defined 的上升沿由下方渲染期分支补齐
   const [loading, setLoading] = useState(!!channelId);
   const [hasMore, setHasMore] = useState(false);
-  const { onEvent, status } = useWebSocketContext();
+  const { onEvent } = useWebSocketContext();
 
   // 切换频道时渲染期置 loading（替代原 effect 内同步置位，早一帧）；
   // 旧频道消息保留到新数据到达，不做清空
@@ -43,10 +45,15 @@ export function useChannelMessages(channelId: string | undefined) {
     }
   }, [channelId]);
 
-  // Initial load（微任务触发：编译器对含 catch 的多语句 async 函数保守告警，
-  // 微任务推迟一拍，时序与直接调用逐帧等价；loading 置位由上方渲染期分支负责）
+  // #313：挂载首拉 + SSE 断开 10s 兜底 + visibility 门禁统一走 useGatedPoll
+  // （fetchMessages 自带 channelId 空值守卫）
+  useGatedPoll(fetchMessages, 10000);
+
+  // 频道切换立即重拉（挂载首跳已由 useGatedPoll 首拉覆盖，本 effect 跳过挂载）
+  const prevChannelRef = useRef(channelId);
   useEffect(() => {
-    if (!channelId) return;
+    if (prevChannelRef.current === channelId) return;
+    prevChannelRef.current = channelId;
     void Promise.resolve().then(fetchMessages);
   }, [channelId, fetchMessages]);
 
@@ -79,13 +86,6 @@ export function useChannelMessages(channelId: string | undefined) {
     });
     return unsub;
   }, [channelId, onEvent]);
-
-  // 降级：SSE 断开时每 10s 轮询兜底
-  useEffect(() => {
-    if (status === 'connected' || !channelId) return;
-    const poll = setInterval(fetchMessages, 10000);
-    return () => clearInterval(poll);
-  }, [channelId, fetchMessages, status]);
 
   const sendMessage = useCallback(async (content: string, replyToId?: string, files?: FileRef[]) => {
     if (!channelId || !content.trim()) return null;

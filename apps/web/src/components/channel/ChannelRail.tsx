@@ -1,12 +1,14 @@
 // ChannelRail — Mission Control 左栏：频道列表（未读 badge + agent 在线数）+ Agent 状态
 // 数据：useChannelList（与 ChannelListPage 同源）+ monitoringApi.getAgentSummary（真实 API）
 // #312：agent.instance.status_changed SSE 就地更新状态点/lastError，30s 轮询退位为纯兜底
+// #313：轮询收敛到 useGatedPoll（SSE 断开且 visible 才跑）；SSE 事件覆盖新实例合成，不再靠轮询发现
 // #272（决策 #251 Q7）：创建表单与 ChannelListPage 合并为单一实现 CreateChannelForm
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useChannelList } from '../../hooks/useChannelList';
-import { monitoringApi, type AgentSummary } from '../../api/monitoring';
+import { monitoringApi, type AgentSummary, type AgentInfo } from '../../api/monitoring';
 import { useWebSocketContext, type WebSocketMessage } from '../../api/websocketHooks';
+import { useGatedPoll } from '../../hooks/useGatedPoll';
 import { isForbidden } from '../../utils/http';
 import { agentDotClass } from './statusClasses';
 import { CreateChannelForm } from './CreateChannelForm';
@@ -30,27 +32,24 @@ export function ChannelRail({ activeChannelId }: Props) {
   const [showNewForm, setShowNewForm] = useState(false);
   const navigate = useNavigate();
 
-  // Agent 状态：挂载加载 + 30s 刷新（只读展示，与监控页同源）
-  useEffect(() => {
-    let alive = true;
-    const load = () => {
-      monitoringApi.getAgentSummary()
-        .then(r => { if (alive) setAgentSummary(r.data); })
-        .catch(err => {
-          if (!alive) return;
-          if (isForbidden(err)) {
-            setAgentsForbidden(true);
-            clearInterval(timer); // 403 是无权限终态：停止轮询，不再刷 403
-          }
-        });
-    };
-    // timer 先赋值再首查：catch 里的 clearInterval 不依赖微任务时序
-    const timer = setInterval(load, 30000);
-    load();
-    return () => { alive = false; clearInterval(timer); };
+  // Agent 状态：useGatedPoll（#313）——挂载首拉 + 30s 兜底（SSE 断开且 visible 才跑）
+  // #283：monitoring 接口 Admin-only，非 Admin 403 → 「无权限」终态并短路后续请求（不再刷 403）
+  const forbiddenRef = useRef(false);
+  const load = useCallback(() => {
+    if (forbiddenRef.current) return;
+    monitoringApi.getAgentSummary()
+      .then(r => setAgentSummary(r.data))
+      .catch(err => {
+        if (isForbidden(err)) {
+          forbiddenRef.current = true; // 403 是无权限终态：短路，不再刷 403
+          setAgentsForbidden(true);
+        }
+      });
   }, []);
+  useGatedPoll(load, 30000);
 
-  // #312：SSE 就地更新（轮询退位为纯兜底）。只更新已加载实例——新实例靠 30s 轮询兜底发现；
+  // #312：SSE 就地更新（轮询退位为纯兜底）。#313：未匹配已加载实例的事件 = 新角色实例，
+  // 用负载合成条目加入列表（轮询不再承担发现职责——SSE 连着时它不起表）；
   // 计数（online/visible）由 useMemo 从 agents 状态推导，事件落库即自动重算
   useEffect(() => {
     const unsub = onEvent((msg: WebSocketMessage) => {
@@ -58,6 +57,7 @@ export function ChannelRail({ activeChannelId }: Props) {
       const d = (msg.data ?? {}) as {
         profileId?: string;
         instanceId?: string;
+        name?: string;
         status?: string;
         currentWorkUnitId?: string | null;
         lastError?: string | null;
@@ -79,7 +79,19 @@ export function ChannelRail({ activeChannelId }: Props) {
             lastErrorAt: d.lastErrorAt !== undefined ? d.lastErrorAt : a.lastErrorAt,
           };
         });
-        return touched ? { ...prev, agents } : prev;
+        if (touched) return { ...prev, agents };
+        // #313：新实例合成（负载字段够渲染状态点/名字；agents 按 startedAt 降序，插头部）
+        const synth: AgentInfo = {
+          id: d.instanceId ?? d.profileId ?? '',
+          roleId: d.profileId ?? '',
+          name: d.name ?? d.profileId ?? '',
+          status: d.status ?? 'idle',
+          currentWorkUnitId: d.currentWorkUnitId ?? null,
+          startedAt: new Date().toISOString(),
+          lastError: d.lastError ?? null,
+          lastErrorAt: d.lastErrorAt ?? null,
+        };
+        return { ...prev, agents: [synth, ...prev.agents] };
       });
     });
     return unsub;

@@ -3,11 +3,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
-const { mockUseChannelList, mockGetAgentSummary, mockNavigate, mockOnEvent } = vi.hoisted(() => ({
+const { mockUseChannelList, mockGetAgentSummary, mockNavigate, mockOnEvent, mockCtx } = vi.hoisted(() => ({
   mockUseChannelList: vi.fn(),
   mockGetAgentSummary: vi.fn(),
   mockNavigate: vi.fn(),
   mockOnEvent: vi.fn(),
+  mockCtx: { status: 'disconnected' as string },
 }));
 
 vi.mock('../../../hooks/useChannelList', () => ({
@@ -15,7 +16,7 @@ vi.mock('../../../hooks/useChannelList', () => ({
 }));
 
 vi.mock('../../../api/websocketHooks', () => ({
-  useWebSocketContext: () => ({ onEvent: mockOnEvent }),
+  useWebSocketContext: () => ({ onEvent: mockOnEvent, status: mockCtx.status }),
 }));
 
 vi.mock('../../../api/monitoring', () => ({
@@ -60,6 +61,7 @@ const renderRail = (activeChannelId = 'ch-1') =>
 describe('ChannelRail', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockCtx.status = 'disconnected';
     mockUseChannelList.mockReturnValue({
       channels: CHANNELS,
       loading: false,
@@ -192,6 +194,21 @@ describe('ChannelRail', () => {
     }
   });
 
+  // #313：轮询经 useGatedPoll——SSE 连接正常时不起表，推进计时器零周期请求
+  it('#313：SSE connected 时仅首拉一次，fake timers 推进不发周期请求', async () => {
+    mockCtx.status = 'connected';
+    vi.useFakeTimers();
+    try {
+      renderRail();
+      await act(async () => {}); // flush 挂载首拉
+      expect(mockGetAgentSummary).toHaveBeenCalledTimes(1);
+      await act(async () => { vi.advanceTimersByTime(120000); });
+      expect(mockGetAgentSummary).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   // #312：SSE agent.instance.status_changed 就地更新状态点/lastError，不等 30s 轮询
   it('#312：SSE 状态事件就地更新 agent 行（状态文案 + lastError tooltip + 计数重算）', async () => {
     let handler: ((msg: unknown) => void) | null = null;
@@ -219,7 +236,8 @@ describe('ChannelRail', () => {
     expect(mockGetAgentSummary).toHaveBeenCalledTimes(1);
   });
 
-  it('#312：SSE 事件不匹配任何已加载实例 → 名册不动（新实例靠轮询兜底发现）', async () => {
+  // #313：SSE 事件不匹配任何已加载实例 = 新角色实例 → 负载合成条目加入列表（轮询不再承担发现职责）
+  it('#313：SSE 新实例事件合成进列表（名字渲染 + 计数重算），非目标事件不动名册', async () => {
     let handler: ((msg: unknown) => void) | null = null;
     mockOnEvent.mockImplementation((h: (msg: unknown) => void) => { handler = h; return () => {}; });
     renderRail();
@@ -233,7 +251,8 @@ describe('ChannelRail', () => {
       handler!({ event_type: 'workunit.status_changed', data: { workunit: { id: 'WU-1', status: 'done' } } });
     });
 
-    expect(screen.queryByText('@ghost')).toBeNull();
-    expect(screen.getByText(/Agents · 2\/2/)).toBeTruthy();
+    expect(screen.getByText('@ghost')).toBeTruthy();
+    // active 算 online → 计数 3/3（原 2/2 + ghost）
+    expect(screen.getByText(/Agents · 3\/3/)).toBeTruthy();
   });
 });

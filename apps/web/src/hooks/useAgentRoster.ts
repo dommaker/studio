@@ -1,7 +1,8 @@
 // Agent 作战视图数据 hook — 角色名册（profile × runtime 合并）+ SSE 事件路由 + 轮询兜底
 // 从 AgentDashboardPage 抽取：页面只负责组合与渲染，数据获取/实时事件/内存纪律归这里。
 // 实时：onEvent 订阅 agent.instance.status_changed / workunit.status_changed /
-//   workunit.execution.step|stream（按 currentWorkUnitId 反查归属 agent），30s 轮询兜底。
+//   workunit.execution.step|stream（按 currentWorkUnitId 反查归属 agent），
+//   30s 轮询经 useGatedPoll（#313）：SSE 断开且页面 visible 才兜底。
 // 内存纪律：每 agent 动态 ≤10 条（流式 thinking/text 逐 chunk 同 key 刷新同一行）。
 // 已知 N+1：空闲角色逐个 workunitApi.list 查「最近完成」（GET /workunits 只支持单 assigneeId，
 //   后端无批量接口，保持逐查行为）；活跃角色 currentWorkUnit 聚合字段暂缺时逐个 fillWorkUnit 补查。
@@ -16,6 +17,7 @@ import {
   type WorkUnit,
 } from '../api/workunit';
 import { useWebSocketContext, type WebSocketMessage } from '../api/websocketHooks';
+import { useGatedPoll } from './useGatedPoll';
 
 /** 卡片「最近动态」条目（SSE 实时追加，内存每 agent 最多保留 MAX_ACTIVITIES 条） */
 export interface RosterActivityItem {
@@ -176,13 +178,9 @@ export function useAgentRoster(): UseAgentRosterResult {
     }
   }, [fillWorkUnit]);
 
-  useEffect(() => {
-    // 挂载首查走静默路径（loading 初值已为 true，避免冗余的同步 setLoading 置位）；
-    // 微任务里触发：refresh 为多 await async 函数，编译器对 effect 内同步调用保守告警
-    void Promise.resolve().then(() => refresh(true));
-    const timer = setInterval(() => void refresh(true), ROSTER_POLL_INTERVAL_MS);
-    return () => clearInterval(timer);
-  }, [refresh]);
+  // #313：挂载首拉（silent，loading 初值已为 true）+ 30s 轮询统一走 useGatedPoll——
+  // SSE 断开且页面 visible 才兜底；403 短路在 refresh 内的 forbiddenRef
+  useGatedPoll(() => refresh(true), ROSTER_POLL_INTERVAL_MS);
 
   // SSE 实时：状态变更 / 执行动态（参考 useWorkUnitStreamEvents 的过滤模式：按 event_type 分流、按 workUnitId 反查归属）
   useEffect(() => {
