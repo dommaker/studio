@@ -48,7 +48,7 @@ pnpm start  # 启动生产服务
 
 ## Governance Rules
 <!-- HARNESS_CONSTRAINTS_START -->
-<!-- version: 1.1.0 -->
+<!-- version: 1.2.1 -->
 ### Iron Laws (违反将阻断)
 - **no_completion_without_verification**: 在声明任务完成前，必须重新运行新鲜的验证命令——受改动影响的测试（vitest run --changed origin/master）+ type check，使用新鲜的输出作为完成证据，不得复用旧结果。全量测试由 CI / 发布流程兜底。
 - **incremental_progress**: 一次只处理一个任务。改动涉及多个模块、超过 100 行、或影响多个文件时，必须拆分为小步骤分步执行，每步有独立 checkpoint 可回滚。不要试图一次性完成所有改动。
@@ -162,7 +162,7 @@ pnpm start  # 启动生产服务
 | `apps/api/src/modules/harness` | Harness 监控与治理 API（FL-029 / T-015）：轨迹采集分析、约束生命周期、 |
 | `apps/api/src/modules/knowledge` | 知识引擎：让系统越来越聪明。三层分离架构（Producer → Engine → Consumer）。 |
 | `apps/api/src/modules/lark` | 处理飞书机器人回调事件，包括 URL 验证（首次配置）、卡片按钮点击事件（card.action.trigger）以及其他未处理事件。提供健康检查端点。 |
-| `apps/api/src/modules/library` | 阅览室（#155 T5）：跨项目 .studio/ 文档面的聚合只读层。缺省遍历全部有 gitRepo 的 PMO 项目，读各仓 .studio/ 下的 specs/、research/、adr/、CONTEXT.md（?projec... |
+| `apps/api/src/modules/library` | 阅览室（#155 T5）：跨项目 .studio/ 文档面的聚合只读层。缺省遍历全部有 gitRepo 的 PMO 项目，读各仓 .studio/ 下的 specs/、research/、CONTEXT.md + 仓根 docs/ad... |
 | `apps/api/src/modules/mcp` | MCP（Model Context Protocol）模块 — 将 Studio 系统能力暴露为 MCP tools，供 Agent 和 UI 共享调用。 |
 | `apps/api/src/modules/monitoring` | 负责聚合 Agent Network 的监控指标，包括 Agent 摘要、统计信息、飞轮指标（M1）和封装开销（M2），通过 HTTP 路由对外暴露。 |
 | `apps/api/src/modules/notifications` | 提供通知相关的 API 路由，包括获取通知列表、查询未读数量、标记单条已读和标记全部已读，作为后台消息通知模块的 HTTP 接口层。 |
