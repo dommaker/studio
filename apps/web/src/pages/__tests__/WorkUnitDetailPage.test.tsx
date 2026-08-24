@@ -66,8 +66,10 @@ vi.mock('../../api/monitoring', () => ({
   monitoringApi: { getAgentSummary: mockAgentSummary, getAgentInstance: mockGetAgentInstance },
 }));
 
-// WU 事件 hook（SSE）— 测试无 WebSocketProvider，置空
-vi.mock('../../hooks/useWorkUnitEvents', () => ({ useWorkUnitEvents: () => {} }));
+// SSE context — 测试无 WebSocketProvider，置空（#318 后 ExecutionSteps 经此订阅步事件/重连）
+vi.mock('../../api/websocketHooks', () => ({
+  useWebSocketContext: () => ({ onEvent: () => () => {}, onReconnect: () => () => {} }),
+}));
 vi.mock('../../hooks/useWorkUnitStreamEvents', () => ({ useWorkUnitStreamEvents: () => [] }));
 
 // #174: TranscriptViewer 桩（组件自身契约在 __tests__/TranscriptViewer.test.tsx 覆盖）

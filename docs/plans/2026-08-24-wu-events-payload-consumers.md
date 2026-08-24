@@ -25,13 +25,13 @@
 - 目标：静态数据（profile、频道名）首拉；`agent.instance.status_changed` additive 补 `pmo` 快照与 `startedAt` 后就地更新实例状态（useAgentRoster 已有契约注释位）；`workunit.status_changed`（含 assigneeId/status/completedAt）就地更新历史任务已有行。
 - 缺口取舍：历史任务「最近 20 条 + total」窗口——新完成 WU 进榜/窗口排序/total 计数无事件语义支撑，**取舍：保留事件驱动的低频重拉**（防抖窗口拉长，仅历史任务区一个接口，不再整页 5 接口）。记录于此与 CONTEXT.md。
 
-### 批 4：收尾 —— hook 删除评估 + 文档沉淀
+### 批 4：收尾 —— hook 删除评估 + 文档沉淀（已完成）
 
-- `useWorkUnitEvents` 三处迁完后评估删除（预期：删，生产消费方清零，测试随迁）。
-- CONTEXT.md「SSE 负载消费约定」更新本批约定（批 4？按母计划批号接续）；两处取舍记录落 CONTEXT.md。
+- `useWorkUnitEvents` 评估结论：**删除**。三处迁完后生产消费方清零（CompanySection 仅注释提及、WorkUnitDrawer/WorkUnitDetailPage 测试仅 vestigial mock），hook 与其测试文件已删，测试 mock 清理（WorkUnitDrawer 的 onEvent 捕获改多订阅者广播——批 1 后内嵌 ExecutionSteps 也订阅，单 handler 覆盖导致决策 8 两例红，已修广播）。
+- CONTEXT.md「SSE 负载消费约定·批 4」落 web 约定 + 两处取舍；api 侧 workunit（claimable 事件负载）/ agents（instance additive）/ monitoring（current-wu-context 共享出口）三处同步。
 - 最终验证：`vitest run --changed origin/master` + typecheck。
 
-## 测试 seam（待确认）
+## 测试 seam（已确认，2026-08-24 用户拍板）
 
 1. ExecutionSteps 组件 seam：mock `onEvent` 注入 SSE 消息 + mock workunitApi，断言不重拉即出新步卡片、乱序/重复去重。
 2. workunitStore seam：直接调 store 的负载处理方法，断言行直替/插入/移除/total 近似。

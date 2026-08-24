@@ -62,14 +62,10 @@ vi.mock('../../../api/channel', async () => {
   };
 });
 
-// WU 事件 hook（SSE）— ExecutionSteps 仍消费，测试置空
-vi.mock('../../../hooks/useWorkUnitEvents', () => ({
-  useWorkUnitEvents: () => {},
-}));
-
-// SSE context — 抽屉直接订阅 workunit.status_changed / workunit.tokens（决策 8），用例手工驱动事件
+// SSE context — 抽屉直接订阅 workunit.status_changed / workunit.tokens（决策 8），用例手工驱动事件；
+// onReconnect 置空（#318 后内嵌 ExecutionSteps 经此注册重连对齐）
 vi.mock('../../../api/websocketHooks', () => ({
-  useWebSocketContext: () => ({ onEvent: mockOnEvent }),
+  useWebSocketContext: () => ({ onEvent: mockOnEvent, onReconnect: () => () => {} }),
 }));
 
 // Layer B 步内流式 hook — 由用例控制返回的实时 chunk
@@ -81,8 +77,10 @@ import { WorkUnitDrawer } from '../WorkUnitDrawer';
 import type { DrawerState } from '../WorkUnitDrawer';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 
-// 决策 8：SSE 事件捕获（mockOnEvent 注册的回调，用例手工驱动）
-let sseHandler: ((msg: { event_type: string; data?: unknown }) => void) | null = null;
+// 决策 8：SSE 事件捕获（mockOnEvent 注册的回调，用例手工驱动）。
+// #318 起内嵌 ExecutionSteps 也经 onEvent 订阅 → 多订阅者广播，不再是单一 handler 覆盖
+let sseHandlers: Array<(msg: { event_type: string; data?: unknown }) => void> = [];
+const sseHandler = (msg: { event_type: string; data?: unknown }) => sseHandlers.forEach(h => h(msg));
 
 const WU = {
   id: 'WU-1017',
@@ -163,10 +161,10 @@ const renderDrawer = (drawer: DrawerState, extra: { onClose?: () => void; onOpen
 describe('WorkUnitDrawer', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    sseHandler = null;
+    sseHandlers = [];
     mockOnEvent.mockImplementation((h: (msg: { event_type: string; data?: unknown }) => void) => {
-      sseHandler = h;
-      return () => {};
+      sseHandlers.push(h);
+      return () => { sseHandlers = sseHandlers.filter(x => x !== h); };
     });
     mockWuGet.mockResolvedValue({ data: WU });
     mockListTokenEvents.mockResolvedValue({ data: { events: TOKEN_EVENTS, total: TOKEN_EVENTS.length } });
