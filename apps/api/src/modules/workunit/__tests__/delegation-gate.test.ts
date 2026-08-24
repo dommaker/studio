@@ -6,6 +6,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { FileStore, stringifyChannels, type AgentProfileData } from '@dommaker/studio-shared';
 import { resolveStudioLogFile } from '../../../utils/studio-log-path.js';
+import { resolveTokenLedgerFile } from '../../../utils/token-ledger.js';
 import { WorkUnitService, type WorkUnitData, type WorkUnitMetadata } from '../workunit.service.js';
 import {
   checkDelegation,
@@ -267,6 +268,42 @@ describe('DelegationGate (A2A §4.1/§4.2)', () => {
       expect(result.treeTotal).toBe(overBudget);
     } finally {
       fs.rmSync(eventsFile, { force: true });
+      // #320：checkTreeBudget 走账本后会在事件文件同目录落 token-ledger.json，一并清理
+      fs.rmSync(resolveTokenLedgerFile(eventsFile), { force: true });
+    }
+  });
+
+  it('预算：checkTreeBudget 读账本而非逐行扫事件流（#320）', async () => {
+    const parent = await makeParent();
+    const eventsFile = resolveStudioLogFile('studio-events.jsonl');
+    fs.mkdirSync(path.dirname(eventsFile), { recursive: true });
+    // 事件流里的真实值只有 100 —— 若仍扫事件流会 pass
+    fs.writeFileSync(eventsFile, JSON.stringify({
+      type: 'workunit:tokens',
+      payload: JSON.stringify({ workUnitId: parent.id, injectedTokens: 0, executionTokens: 100 }),
+      createdAt: new Date().toISOString(),
+    }) + '\n');
+    // 手写账本：watermark 与事件文件对齐（新鲜，走 O(1) 直读路径），数值造假为超预算
+    const cooked = TREE_TOKEN_BUDGET + 1;
+    const ledgerFile = resolveTokenLedgerFile(eventsFile);
+    fs.writeFileSync(ledgerFile, JSON.stringify({
+      version: 1,
+      watermark: { lines: 1, bytes: fs.statSync(eventsFile).size },
+      byWorkUnit: {
+        [parent.id]: {
+          workUnitId: parent.id, events: 1, executionCount: 1,
+          injectedTokens: 0, executionTokens: cooked, totalTokens: cooked, billedTokens: 0,
+          inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0,
+        },
+      },
+    }));
+    try {
+      const result = await checkTreeBudget(parent.id, fileStore);
+      expect(result.pass).toBe(false);
+      expect(result.treeTotal).toBe(cooked);
+    } finally {
+      fs.rmSync(eventsFile, { force: true });
+      fs.rmSync(ledgerFile, { force: true });
     }
   });
 

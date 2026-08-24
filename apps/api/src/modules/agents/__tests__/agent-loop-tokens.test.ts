@@ -13,6 +13,7 @@ import { TokenEstimator } from '@dommaker/harness';
 
 import { writeWorkunitTokenEvent, WORKUNIT_TOKENS_SSE_TYPE } from '../loop/agent-loop.js';
 import { eventStore } from '../../../core/event-store.js';
+import { resolveTokenLedgerFile } from '../../../utils/token-ledger.js';
 
 function withTmpFile(fn: (eventsFile: string) => Promise<void>): Promise<void> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'workunit-tokens-'));
@@ -125,6 +126,28 @@ describe('M2: writeWorkunitTokenEvent', () => {
       expect(received).toHaveLength(1);
       expect(received[0].data).not.toHaveProperty('channelId');
       expect(received[0].data.executionTokens).toBeNull();
+    });
+  });
+
+  it('#320: 落盘后顺带更新 token 账本（写侧记账接线）', async () => {
+    await withTmpFile(async (eventsFile) => {
+      await writeWorkunitTokenEvent(eventsFile, {
+        workUnitId: 'wu-ledger',
+        executionId: 'wu-ledger-1',
+        injectedTokens: 100,
+        executionTokens: 500,
+        billedTokens: 700,
+      });
+
+      const ledger = JSON.parse(fs.readFileSync(resolveTokenLedgerFile(eventsFile), 'utf-8'));
+      expect(ledger.byWorkUnit['wu-ledger']).toMatchObject({
+        events: 1,
+        executionCount: 1,
+        injectedTokens: 100,
+        executionTokens: 500,
+        billedTokens: 700,
+      });
+      expect(ledger.watermark.lines).toBe(1);
     });
   });
 
