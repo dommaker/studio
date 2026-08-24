@@ -57,6 +57,8 @@ export interface ExecutionStepToolCall {
 export interface ExecutionStepEventPayload {
   workUnitId: string;
   executionId: string;
+  /** 来源频道（前端按频道过滤 step 的数据源；无频道 WU 缺省） */
+  channelId?: string | null;
   sessionId?: string;
   /** #94: 本步会话续用(true)/新建(false) 标记（内部状态，不上频道；缺省 = 调用方未提供） */
   sessionResumed?: boolean;
@@ -83,6 +85,8 @@ export interface ExecutionStepEventPayload {
 export interface BuildExecutionStepEventArgs {
   workUnitId: string;
   executionId: string;
+  /** 来源频道（wu.channelId 透传；null/缺省 → payload 无该键） */
+  channelId?: string | null;
   sessionId?: string;
   /** #94: 本步会话续用(true)/新建(false) 标记（undefined 时 payload 不产该键） */
   sessionResumed?: boolean;
@@ -199,6 +203,7 @@ export function buildExecutionStepEvent(args: BuildExecutionStepEventArgs): Exec
   return {
     workUnitId: args.workUnitId,
     executionId: args.executionId,
+    ...(args.channelId ? { channelId: args.channelId } : {}),
     ...(args.sessionId ? { sessionId: args.sessionId } : {}),
     ...(args.sessionResumed !== undefined ? { sessionResumed: args.sessionResumed } : {}),
     step: args.step,
@@ -296,6 +301,8 @@ export type ExecutionStreamChunkKind = 'step-start' | 'thinking' | 'text' | 'too
 export interface ExecutionStreamChunk {
   workUnitId: string;
   executionId: string;
+  /** 来源频道（前端按频道过滤；无频道 WU 缺省） */
+  channelId?: string | null;
   /** 1 基步号（与 Layer A 执行步事件同口径） */
   step: number;
   kind: ExecutionStreamChunkKind;
@@ -314,6 +321,8 @@ export interface ExecutionStreamChunk {
 export interface BuildStreamChunksArgs {
   workUnitId: string;
   executionId: string;
+  /** 来源频道（wu.channelId 透传；null/缺省 → chunk 无该键） */
+  channelId?: string | null;
   step: number;
   /** 单行 stream-json（execSh onLine 透传的原始行） */
   line: string;
@@ -335,6 +344,7 @@ export function buildExecutionStreamChunks(args: BuildStreamChunksArgs): Executi
   const base = {
     workUnitId: args.workUnitId,
     executionId: args.executionId,
+    ...(args.channelId ? { channelId: args.channelId } : {}),
     step: args.step,
     at: args.at ?? new Date().toISOString(),
   };
@@ -433,6 +443,8 @@ export async function emitExecutionStreamLine(args: BuildStreamChunksArgs): Prom
 export async function emitExecutionStreamStepStart(args: {
   workUnitId: string;
   executionId: string;
+  /** 来源频道（wu.channelId 透传；null/缺省 → chunk 无该键） */
+  channelId?: string | null;
   step: number;
   at?: string;
 }): Promise<void> {
@@ -440,6 +452,7 @@ export async function emitExecutionStreamStepStart(args: {
     await publishStreamChunks([{
       workUnitId: args.workUnitId,
       executionId: args.executionId,
+      ...(args.channelId ? { channelId: args.channelId } : {}),
       step: args.step,
       kind: 'step-start',
       at: args.at ?? new Date().toISOString(),

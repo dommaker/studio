@@ -5,15 +5,19 @@
 // agent-loop.ts re-export 保持对外导出语义不变。
 import { appendFileSync, existsSync, mkdirSync } from 'fs';
 import { parseStreamEvents, extractToolCalls, extractProviderUsage, FileStore } from '@dommaker/studio-shared';
+import { v4 as uuidv4 } from 'uuid';
 import type { ExecutionResult } from '@dommaker/studio-agent';
 import { noteTokensWritten } from './daily-token-budget.js';
 import { resolveStudioEventsFile } from '../../../utils/studio-events.js';
+import { eventStore } from '../../../core/event-store.js';
 
 /** 事件落盘共享 FileStore（appendJsonl 写入用；agent-loop 的 skill 注入度量同用此实例） */
 export const metricsFileStore = new FileStore();
 
 export interface WorkunitTokenEventArgs {
   workUnitId: string;
+  /** 来源频道（wu.channelId 透传到 SSE 信封；null/缺省 → 信封无该键，不落 jsonl） */
+  channelId?: string | null;
   executionId?: string;
   /** 注入上下文估算 tokens（调用方按 TokenEstimator.estimateText 口径估算） */
   injectedTokens: number;
@@ -96,7 +100,14 @@ export function resolveRealUsage(result: ExecutionResult, provider = 'claude'): 
  * M2: 写一条 workunit:tokens 事件（模块级函数，供 agent-loop 与单测直接调用）。
  * totalTokens = injectedTokens + (billedTokens ?? executionTokens ?? 0)
  * （B6：billed 含 cache 是账单口径；executionTokens 保持 input+output 旧语义供树预算闸门用）。
+ * SSE 负载加深（2026-08-24 计划）：落盘后顺带经 'events' 频道发 SSE 信封
+ * `workunit.tokens`（workunit. 前缀 → workunits topic），data 复用落盘的现成字段，
+ * 供 WU 抽屉 token 条事件驱动刷新（替代 REST 补拉）；best-effort，绝不影响记账流程。
  */
+
+/** SSE 信封的 event_type（workunit. 前缀 → workunits topic） */
+export const WORKUNIT_TOKENS_SSE_TYPE = 'workunit.tokens';
+
 export async function writeWorkunitTokenEvent(eventsFile: string, args: WorkunitTokenEventArgs): Promise<void> {
   const executionTokens = typeof args.executionTokens === 'number' && Number.isFinite(args.executionTokens)
     ? args.executionTokens
@@ -104,30 +115,41 @@ export async function writeWorkunitTokenEvent(eventsFile: string, args: Workunit
   const billedTokens = typeof args.billedTokens === 'number' && Number.isFinite(args.billedTokens)
     ? args.billedTokens
     : null;
+  const payload = {
+    workUnitId: args.workUnitId,
+    executionId: args.executionId,
+    injectedTokens: args.injectedTokens,
+    injectedSource: 'estimate:token-estimator',
+    executionTokens,
+    executionSource: executionTokens !== null || billedTokens !== null ? 'cli-usage' : 'unavailable',
+    totalTokens: args.injectedTokens + (billedTokens ?? executionTokens ?? 0),
+    ...(typeof args.extractionTokens === 'number' ? { extractionTokens: args.extractionTokens } : {}),
+    ...(typeof args.inputTokens === 'number' ? { inputTokens: args.inputTokens } : {}),
+    ...(typeof args.outputTokens === 'number' ? { outputTokens: args.outputTokens } : {}),
+    ...(typeof args.cacheReadTokens === 'number' ? { cacheReadTokens: args.cacheReadTokens } : {}),
+    ...(typeof args.cacheCreationTokens === 'number' ? { cacheCreationTokens: args.cacheCreationTokens } : {}),
+    ...(billedTokens !== null ? { billedTokens } : {}),
+    ...(typeof args.costUsd === 'number' ? { costUsd: args.costUsd } : {}),
+    ...(typeof args.numTurns === 'number' ? { numTurns: args.numTurns } : {}),
+    ...(args.triggerId ? { triggerId: args.triggerId } : {}),
+    ...(args.provider ? { provider: args.provider } : {}),
+  };
   await metricsFileStore.appendJsonl(eventsFile, {
     type: 'workunit:tokens',
     source: 'agent-loop',
-    payload: JSON.stringify({
-      workUnitId: args.workUnitId,
-      executionId: args.executionId,
-      injectedTokens: args.injectedTokens,
-      injectedSource: 'estimate:token-estimator',
-      executionTokens,
-      executionSource: executionTokens !== null || billedTokens !== null ? 'cli-usage' : 'unavailable',
-      totalTokens: args.injectedTokens + (billedTokens ?? executionTokens ?? 0),
-      ...(typeof args.extractionTokens === 'number' ? { extractionTokens: args.extractionTokens } : {}),
-      ...(typeof args.inputTokens === 'number' ? { inputTokens: args.inputTokens } : {}),
-      ...(typeof args.outputTokens === 'number' ? { outputTokens: args.outputTokens } : {}),
-      ...(typeof args.cacheReadTokens === 'number' ? { cacheReadTokens: args.cacheReadTokens } : {}),
-      ...(typeof args.cacheCreationTokens === 'number' ? { cacheCreationTokens: args.cacheCreationTokens } : {}),
-      ...(billedTokens !== null ? { billedTokens } : {}),
-      ...(typeof args.costUsd === 'number' ? { costUsd: args.costUsd } : {}),
-      ...(typeof args.numTurns === 'number' ? { numTurns: args.numTurns } : {}),
-      ...(args.triggerId ? { triggerId: args.triggerId } : {}),
-      ...(args.provider ? { provider: args.provider } : {}),
-    }),
+    payload: JSON.stringify(payload),
     createdAt: new Date().toISOString(),
   });
+  // SSE 负载加深：落盘成功后顺带实时推送（信封形态同 execution-step-events 的 eventStore.publish）。
+  await eventStore.publish('events', JSON.stringify({
+    event_type: WORKUNIT_TOKENS_SSE_TYPE,
+    event_id: uuidv4(),
+    timestamp: new Date().toISOString(),
+    data: {
+      ...payload,
+      ...(args.channelId ? { channelId: args.channelId } : {}),
+    },
+  })).catch(() => {}); // best-effort，与 workunit.execution.step 同一形态
   // C3: 进程内当日预算计数器累加（口径与熔断扫描一致 = billed ?? total），
   // 仅在落盘成功后计；未 bootstrap/跨天由 daily-token-budget 自重扫收敛。
   noteTokensWritten(eventsFile, billedTokens ?? (args.injectedTokens + (executionTokens ?? 0)));

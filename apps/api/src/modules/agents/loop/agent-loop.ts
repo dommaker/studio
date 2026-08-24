@@ -64,7 +64,7 @@ export {
 
 // workunit:tokens / tool:call 事件落盘已抽到 ./agent-loop-events.js（工单 28，行为不变）；
 // re-export 保持对外导出语义不变
-export { resolveRealUsage, writeWorkunitTokenEvent, resolveToolTraceFile, writeToolCallEvents } from './agent-loop-events.js';
+export { resolveRealUsage, writeWorkunitTokenEvent, resolveToolTraceFile, writeToolCallEvents, WORKUNIT_TOKENS_SSE_TYPE } from './agent-loop-events.js';
 export type { WorkunitTokenEventArgs, RealUsage } from './agent-loop-events.js';
 
 // B2 测试特征 WU 守卫 + F4 excludeAssignee 解析已抽到 ./agent-loop-guards.js（工单 28，行为不变）；
@@ -923,7 +923,7 @@ export class AgentLoop {
       // Layer B（WU 过程可视化）：步内 stream-json 行级透传 → SSE 实时过程。
       // fire-and-forget；仅 LocalExecutor 同进程有效。
       onStreamLine: (line) => {
-        void emitExecutionStreamLine({ workUnitId: wu.id, executionId, step: stepNo, line }).catch(() => {});
+        void emitExecutionStreamLine({ workUnitId: wu.id, channelId: wu.channelId, executionId, step: stepNo, line }).catch(() => {});
       },
     };
 
@@ -934,6 +934,7 @@ export class AgentLoop {
       const real = resolveRealUsage(res, taskProvider);
       void writeWorkunitTokenEvent(studioEventsJsonlPath(), {
         workUnitId: wu.id,
+        channelId: wu.channelId,
         executionId: task.executionId,
         injectedTokens: TokenEstimator.estimateText(knowledgeContext),
         executionTokens: real ? real.inputTokens + real.outputTokens : null,
@@ -962,6 +963,7 @@ export class AgentLoop {
     const emitFailedStep = (action: string, detail: string, res?: ExecutionResult) => {
       void emitExecutionStepEvent({
         workUnitId: wu.id,
+        channelId: wu.channelId,
         executionId: task.executionId,
         sessionId: effectiveSessionId ?? undefined,
         sessionResumed,
@@ -977,7 +979,7 @@ export class AgentLoop {
 
     try {
       // Layer B: step 开始信号（CLI 首行到达前抽屉即有反馈）
-      void emitExecutionStreamStepStart({ workUnitId: wu.id, executionId, step: stepNo }).catch(() => {});
+      void emitExecutionStreamStepStart({ workUnitId: wu.id, channelId: wu.channelId, executionId, step: stepNo }).catch(() => {});
       // #178（#63 决议 2）：fencing 易主时按 executionId 杀自身 CLI 进程组（finally 清除）
       this.currentExecutionId = executionId;
       // §9.6: 经 Executor 接口执行（P0 恒为 LocalExecutor → agentRunner.executeLightweight）
@@ -1162,6 +1164,7 @@ export class AgentLoop {
       // WU 详情抽屉消费；不进频道、不写 metadata 防膨胀）。fire-and-forget。
       void emitExecutionStepEvent({
         workUnitId: wu.id,
+        channelId: wu.channelId,
         executionId: task.executionId,
         sessionId: effectiveSessionId ?? undefined,
         // #94: 本步最终实际的续用形态（续用降级重试后 = false）

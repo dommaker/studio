@@ -29,7 +29,8 @@ interface SSEClient {
 const clients = new Map<string, SSEClient>();
 let eventSubStarted = false;
 
-function getTopicFromEventType(eventType: string): string {
+/** event_type → SSE topic（纯前缀映射；导出供单测锁定映射表） */
+export function getTopicFromEventType(eventType: string): string {
   if (eventType.startsWith('execution.')) return 'executions';
   if (eventType.startsWith('node.')) return 'nodes';
   if (eventType.startsWith('task.')) return 'tasks';
@@ -38,6 +39,7 @@ function getTopicFromEventType(eventType: string): string {
   if (eventType.startsWith('knowledge.')) return 'knowledge';
   if (eventType.startsWith('workunit.')) return 'workunits';
   if (eventType.startsWith('channel.')) return 'channels';
+  if (eventType.startsWith('requirement.')) return 'requirements';
   return 'all';
 }
 

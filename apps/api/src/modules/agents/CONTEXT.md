@@ -34,6 +34,7 @@ Agent 配置（profile）、运行实例（instance）、决策循环（loop）�
 - **三层超时**：步墙钟 1800s 兜底+静默看门狗（300s warn/600s 杀进程组）+maxTurns=50
 - **Idle 心跳 45s**，超时扫描 5min；**isOnline** = loop 存活+心跳新鲜（≤5min）
 - **多实例单活**：`STUDIO_AGENT_LOOP_ENABLED=false` 实例 standby；`AgentLoop.start()` 内置同角色单活守卫
+- **SSE 负载含 channelId（2026-08-24 SSE 负载加深，批 1）**：`workunit.execution.step` / `workunit.execution.stream`（含 step-start）负载与 `workunit.tokens` SSE 信封 data 均携带 `channelId`（wu.channelId 透传，无频道 WU 缺省该键）——前端按频道过滤 step/token 事件的数据源；`workunit:tokens` 落盘后顺带经 eventStore.publish 发 SSE（best-effort，不落盘二次）
 - **派单链**：WorkUnitService.create -> workunit.created -> TriggerScheduler -> AgentLoop.observe（15s 轮询兜底）-> 过滤 -> claim -> agentStep -> LocalExecutor -> spawn CLI -> recordResult -> 回帖（EventBus/SSE）
 - **F4 review 派发**：父 in_review -> 建未指派 review 子 WU 走 claim 涌现；excludeAssignee 禁自领；同父唯一性 flock 锁
 - **R3 评审契约**：评审子 WU scope = diff-only+`+code-review`；needs-info -> 转人工
