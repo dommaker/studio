@@ -6,8 +6,10 @@
  * timeout-release 扫描逻辑零改动。
  *
  * fencing：心跳写经 FileStore.refreshWorkUnitLease —— claimedAt 代际令牌 + assigneeId
- * 双比对在锁内与写入原子完成（「每次心跳前校验」落地形态）；易主（lost）/ WU 消失（missing）
- * → 停跳并回调 onLost（AgentLoop 据此杀自身 CLI 进程组、静默退出该 WU）。
+ * 双比对。#314 起每跳只做快速路 fencing + 内存缓冲（不再每跳全量重写 index/追加事件），
+ * 权威 fencing 复核与写入原子收进 flushWorkUnitLeases 的同一把锁（默认 60s 合并落盘窗口）。
+ * 易主（lost）/ WU 消失（missing）→ 停跳并回调 onLost（AgentLoop 据此杀自身 CLI 进程组、
+ * 静默退出该 WU）；落盘窗口内发现的易主最迟下一跳经索引 mtime 变化命中快速路检出。
  *
  * 单跳 IO 失败（撕裂读取等瞬态）只记日志不停跳——fencing 不漏判：真正易主时下一跳仍会命中。
  */

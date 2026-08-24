@@ -1227,3 +1227,81 @@ describe('FileStore 读穿缓存 (A1)', () => {
     expect(await store.countMessages('ch-d')).toBe(1);
   });
 });
+
+// ─── #314（D1）：getIndex 走读穿缓存 ───
+
+describe('FileStore getIndex 读穿缓存 (#314)', () => {
+  let tmpDir: string;
+  let store: FileStore;
+
+  beforeEach(() => {
+    tmpDir = createTempDir();
+    store = new FileStore(tmpDir);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  const indexPath = () => path.join(tmpDir, 'workunits', 'index.json');
+
+  function makeSnap(id: string, overrides?: Partial<WorkUnitSnapshot>): WorkUnitSnapshot {
+    const now = new Date().toISOString();
+    return {
+      id, parentId: null, type: 'task', scope: `scope-${id}`, assigneeId: null,
+      status: 'unassigned', failureType: null, retryCount: 0, timeoutAt: null,
+      channelId: null, projectPath: null, metadata: null,
+      createdAt: now, updatedAt: now, claimedAt: null, completedAt: null,
+      ...overrides,
+    };
+  }
+
+  it('index.json 未变化时重复 getIndex 不重读文件（stat 校验命中缓存）', async () => {
+    await store.upsertSnapshot(makeSnap('wu1'));
+    const readSpy = vi.spyOn(fs.promises, 'readFile');
+    const indexReads = () => readSpy.mock.calls.filter(c => String(c[0]) === indexPath()).length;
+
+    const first = await store.getIndex();
+    expect(first.map(s => s.id)).toEqual(['wu1']);
+    const readsAfterFirst = indexReads();
+    expect(readsAfterFirst).toBe(1);
+
+    await store.getIndex();
+    await store.getIndex({ status: 'unassigned' });
+    expect(indexReads()).toBe(readsAfterFirst); // 命中缓存，零新增 readFile
+  });
+
+  it('外部写入（绕过 FileStore，mtime 变化）后 getIndex 不返回陈旧缓存', async () => {
+    await store.upsertSnapshot(makeSnap('wu1'));
+    expect((await store.getIndex()).map(s => s.id)).toEqual(['wu1']); // 填充缓存
+
+    // 模拟另一进程直接改 index.json，并显式推进 mtime 避免同毫秒粒度
+    fs.writeFileSync(indexPath(), JSON.stringify([makeSnap('wu1'), makeSnap('wu2-ext')]));
+    const future = new Date(Date.now() + 5000);
+    fs.utimesSync(indexPath(), future, future);
+
+    expect((await store.getIndex()).map(s => s.id)).toEqual(['wu1', 'wu2-ext']);
+  });
+
+  it('getIndex 缓存命中返回结构克隆，调用方原地 mutate 不污染缓存', async () => {
+    await store.upsertSnapshot(makeSnap('wu1', { scope: 'pristine' }));
+    const first = await store.getIndex();
+    first[0].scope = 'mutated-by-caller';
+
+    const second = await store.getIndex();
+    expect(second[0].scope).toBe('pristine');
+  });
+
+  it('index.json 撕裂 → getIndex 仍抛带路径的错误（缓存不吞严格语义）', async () => {
+    await store.upsertSnapshot(makeSnap('wu1'));
+    expect(await store.getIndex()).toHaveLength(1); // 填充缓存
+
+    fs.mkdirSync(path.dirname(indexPath()), { recursive: true });
+    fs.writeFileSync(indexPath(), '[{"id":"wu1",');
+    const future = new Date(Date.now() + 5000);
+    fs.utimesSync(indexPath(), future, future);
+
+    await expect(store.getIndex()).rejects.toThrow(indexPath());
+  });
+});

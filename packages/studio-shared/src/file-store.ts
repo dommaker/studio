@@ -47,6 +47,7 @@ import type {
   RequirementFilter,
   EvolutionProposalData,
   EvolutionProposalFilter,
+  WorkUnitSnapshot,
 } from './file-store-types';
 
 // ─── re-export（保持原有导出面 100% 不变）───
@@ -246,6 +247,28 @@ export class FileStore extends FileStoreWorkUnitBase {
     const entries = await fs.promises.readdir(dir, { withFileTypes: true });
     cacheSet(dirCache, dir, { value: entries, mtimeMs });
     return entries;
+  }
+
+  /**
+   * #314（D1）：getIndex 的锁外只读路径走读穿缓存（复用 jsonCache，key =
+   * workunits/index.json 绝对路径；所有索引写经 writeJson 覆盖自动精确失效）。
+   * 保留 readIndexFile 的严格损坏语义（撕裂/非数组抛错，不静默当空），
+   * 命中返回结构克隆。锁内读路径不经过本方法（readIndexFile 保持裸读）。
+   */
+  protected async readIndexForQuery(): Promise<WorkUnitSnapshot[] | null> {
+    const filePath = this.indexPath;
+    const mtimeMs = await statMtimeMs(filePath);
+    if (mtimeMs === null) {
+      jsonCache.delete(filePath);
+      return null;
+    }
+    const hit = jsonCache.get(filePath);
+    if (hit && hit.mtimeMs === mtimeMs) {
+      return cloneCached(hit.value) as WorkUnitSnapshot[] | null;
+    }
+    const value = await this.readIndexFile();
+    cacheSet(jsonCache, filePath, { value, mtimeMs });
+    return cloneCached(value);
   }
 
   // ─── 路径生成 ───

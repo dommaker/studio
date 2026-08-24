@@ -481,8 +481,8 @@ export class AgentLoop {
 
   /**
    * #178（#63 决议 2）：fencing 校验 —— 步结果回写前 / 状态迁移前比对 claimedAt 代际令牌
-   * （「每次心跳前」校验由 refreshWorkUnitLease 锁内原子完成）。无租约轨道（未 start 的
-   * 测试直调等）不拦，保持既有行为。
+   * （「每次心跳前」校验由 refreshWorkUnitLease 快速路完成，落盘时锁内复核）。无租约轨道
+   * （未 start 的测试直调等）不拦，保持既有行为。
    */
   private async stillHoldsLease(wuId: string): Promise<boolean> {
     return this.wuLease.stillHolds(wuId);
