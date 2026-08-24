@@ -17,7 +17,7 @@
  */
 import * as os from 'os';
 import * as path from 'path';
-import { FileStore, parseChannels, type AgentProfileData } from '@dommaker/studio-shared';
+import { FileStore, logger, parseChannels, type AgentProfileData } from '@dommaker/studio-shared';
 import type { WorkUnitData, WorkUnitMetadata } from './workunit.service.js';
 import { parseWuMetadata } from './wu-metadata.js';
 import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
@@ -109,7 +109,11 @@ export async function checkTreeBudget(
     for (const wuId of treeWuIds) {
       treeTotal += ledger.byWorkUnit[wuId]?.executionTokens ?? 0;
     }
-  } catch { /* 同步失败 -> treeTotal=0，pass（与原全扫实现的读失败兜底一致） */ }
+  } catch (err) {
+    // 同步失败 -> treeTotal=0，pass（与原全扫实现的读失败兜底一致）；
+    // #320 review：账本锁超时等新失败路径须留痕，不静默
+    logger.warn('[DelegationGate] token 账本同步失败，树预算按 0 放行', { error: String(err) });
+  }
 
   if (treeTotal > TREE_TOKEN_BUDGET) {
     return {

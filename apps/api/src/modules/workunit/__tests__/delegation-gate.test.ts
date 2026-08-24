@@ -55,6 +55,8 @@ describe('DelegationGate (A2A §4.1/§4.2)', () => {
 
   beforeEach(async () => {
     mockSyncTokenLedger.mockReset();
+    // 缺省空账本：非预算用例走真实求和路径（不污染共享事件目录）
+    mockSyncTokenLedger.mockResolvedValue(emptyTokenLedger());
     testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'delegation-gate-'));
     fileStore = new FileStore(testDir);
     wuService = new WorkUnitService(fileStore);
