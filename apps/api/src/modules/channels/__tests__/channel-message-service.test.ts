@@ -215,6 +215,67 @@ describe('ChannelMessageService', () => {
     }
   });
 
+  // ── #317：createdAt = 诞生时刻，更新不可变 ──
+
+  it('updateMessageMeta preserves the original createdAt', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(new Date('2026-08-24T08:00:00.000Z'));
+      const msg = await service.createHumanMessage(channelId, 'Original');
+
+      vi.setSystemTime(new Date('2026-08-24T09:00:00.000Z'));
+      const updated = await service.updateMessageMeta(msg.id, { status: 'done' });
+
+      expect(updated.createdAt.toISOString()).toBe('2026-08-24T08:00:00.000Z');
+      // 落库行同样保留原值（REST 刷新路径读到的是它）
+      const stored = await fileStore.getMessageById(msg.id);
+      expect(stored!.message.createdAt).toBe('2026-08-24T08:00:00.000Z');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('updateMessage preserves the original createdAt', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(new Date('2026-08-24T08:00:00.000Z'));
+      const msg = await service.createAgentMessage(
+        channelId, 'Analyst', 'Thinking...', { meta: { status: 'thinking' } }
+      );
+
+      vi.setSystemTime(new Date('2026-08-24T09:00:00.000Z'));
+      const updated = await service.updateMessage(msg.id, {
+        content: 'Error occurred',
+        meta: { status: 'error' },
+      });
+
+      expect(updated.createdAt.toISOString()).toBe('2026-08-24T08:00:00.000Z');
+      const stored = await fileStore.getMessageById(msg.id);
+      expect(stored!.message.createdAt).toBe('2026-08-24T08:00:00.000Z');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('anchor stays before its replies in REST listing after updateMessageMeta', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(new Date('2026-08-24T08:00:00.000Z'));
+      const anchor = await service.createHumanMessage(channelId, 'anchor', undefined, 'WU-317');
+      vi.setSystemTime(new Date('2026-08-24T08:01:00.000Z'));
+      const reply = await service.createHumanMessage(channelId, 'reply', anchor.id, 'WU-317');
+
+      // anchor 被更新（如卡片决策回写）——即使更新时刻晚于 reply，归位仍按诞生时刻
+      vi.setSystemTime(new Date('2026-08-24T09:00:00.000Z'));
+      await service.updateMessageMeta(anchor.id, { status: 'confirmed' });
+
+      const { data } = await service.listByWorkUnitId('WU-317');
+      expect(data.map(m => m.id)).toEqual([anchor.id, reply.id]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   // ── deleteMessage ──
 
   it('soft-deletes message via tombstone', async () => {

@@ -162,11 +162,10 @@ export class ChannelMessageService {
     const existingMeta = typeof found.message.meta === 'string' ? JSON.parse(found.message.meta) : found.message.meta;
     const merged = { ...(typeof existingMeta === 'object' && existingMeta !== null ? existingMeta : {}), ...meta };
 
-    const now = new Date().toISOString();
+    // #317：createdAt = 诞生时刻，更新不 bump（保住「消息恒按 createdAt 升序」不变式）
     const updated: ChannelMessageData = {
       ...found.message,
       meta: JSON.stringify(merged),
-      createdAt: now,
     };
     await this.fileStore.appendMessage(found.channelId, updated);
 
@@ -196,7 +195,7 @@ export class ChannelMessageService {
       const merged = { ...(typeof existingMeta === 'object' && existingMeta !== null ? existingMeta : {}), ...updates.meta };
       patched.meta = JSON.stringify(merged);
     }
-    patched.createdAt = new Date().toISOString();
+    // #317：createdAt 不可变（同 updateMessageMeta）
     await this.fileStore.appendMessage(found.channelId, patched);
 
     const shaped = shapeMessageData(patched);
