@@ -61,3 +61,24 @@ virtualizer 只决定 items 哪段进 DOM。数据层裁剪（JS 堆内存）另
 - 新增运行时依赖 `@tanstack/react-virtual`（2026-08-24 grilling 已过人闸确认）。
 - 实施前置：D4-2 的外部能力验证未过不得动工（verify_external_capability）。
 - 数据层内存增长仍在，由 #326 跟进。
+
+## D4-2 验证结论（2026-08-24，`@tanstack/virtual-core@3.17.8`，真实 Chromium 最小复现）
+
+**ADR 预设方案可行**（全关自动校正 + 自家锚点补偿独占校正权），实测 prepend 前后
+scrollTop 逐像素相等、补偿精度 1px。实现约束：
+
+1. **补偿数据源必须用 `getMeasurements()` 按 key 查 item start**——prepend 后锚行已
+   掉出渲染窗口，DOM 查询返回 null（原 D4-1「prepend 后 DOM 查询依然成立」的假设
+   被证伪：锚行是首个可见行，但 prepend 后 scrollTop 未动、视口被新行占据，锚行在
+   视口下方数千 px 处）。补偿量 = 锚行所在 item 的 start 位移（item 内偏移不变）。
+2. **贴底/跟随必须用 `scrollToEnd()`**，不能手算 `scrollTop = totalSize - clientHeight`
+   ——动态测量下 maxOffset 是移动靶，手算贴底 `isAtEnd()=false`。
+3. **`scrollToIndex` 自带动态重算收敛**（粗定位估算误差 ~未测量行累计偏差，终态
+   ~1px），但其异步改写 scrollTop 必须全部过台账（D4-5）。
+4. `shouldAdjustScrollPositionOnItemSizeChange = () => false` 实测可完全让渡校正权；
+   备选 `anchorTo:'end'` 的 prepend 稳定性实测漂移 0，但补偿量是估计高（未测量行
+   按估计占位，上滑时边滚边修正），不采用，维持自家补偿。
+5. react 适配层（`useVirtualizer`）天然每 render 重传完整 options，无裸 core 的
+   setOptions 合并坑。
+
+复现产物：`/root/projects/.wayfinder-tmp/virtual-repro/`（scratch，不入库）。
