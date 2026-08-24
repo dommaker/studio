@@ -7,7 +7,7 @@ import { resolvePmoProjectIdForWU } from '../requirements/pmo-branch-resolver.js
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
-import { parseWuMetadata } from '../workunit/wu-metadata.js';
+import { parseWuTitle } from '../workunit/wu-metadata.js';
 
 const STUDIO_EVENTS_JSONL = resolveStudioLogFile('studio-events.jsonl');
 
@@ -151,12 +151,6 @@ function countByStatus(snapshots: Array<{ status: string; completedAt: string | 
   return snapshots.filter(s => s.status === status).length;
 }
 
-/** WU metadata.title 安全解析（损坏/缺失/非字符串 → null，调用方回落 scope） */
-function parseMetadataTitle(metadata: string | null): string | null {
-  const title = parseWuMetadata(metadata).title;
-  return typeof title === 'string' && title ? title : null;
-}
-
 export class MonitoringService {
   private fileStore: FileStore;
   private knowledge: KnowledgeMetricsSource | null;
@@ -231,7 +225,7 @@ export class MonitoringService {
       contexts.set(s.id, {
         currentWorkUnit: {
           id: s.id,
-          title: parseMetadataTitle(s.metadata) ?? s.scope,
+          title: parseWuTitle(s.metadata, s.scope),
           type: s.type,
           status: s.status,
           claimedAt: s.claimedAt,

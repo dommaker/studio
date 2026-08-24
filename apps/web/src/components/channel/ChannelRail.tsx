@@ -1,10 +1,12 @@
 // ChannelRail — Mission Control 左栏：频道列表（未读 badge + agent 在线数）+ Agent 状态
 // 数据：useChannelList（与 ChannelListPage 同源）+ monitoringApi.getAgentSummary（真实 API）
+// #312：agent.instance.status_changed SSE 就地更新状态点/lastError，30s 轮询退位为纯兜底
 // #272（决策 #251 Q7）：创建表单与 ChannelListPage 合并为单一实现 CreateChannelForm
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useChannelList } from '../../hooks/useChannelList';
 import { monitoringApi, type AgentSummary } from '../../api/monitoring';
+import { useWebSocketContext, type WebSocketMessage } from '../../api/websocketHooks';
 import { isForbidden } from '../../utils/http';
 import { agentDotClass } from './statusClasses';
 import { CreateChannelForm } from './CreateChannelForm';
@@ -21,6 +23,7 @@ interface Props {
 
 export function ChannelRail({ activeChannelId }: Props) {
   const { channels, loading, unreadCounts, clearUnread, createChannel } = useChannelList();
+  const { onEvent } = useWebSocketContext();
   const [agentSummary, setAgentSummary] = useState<AgentSummary | null>(null);
   // #283：monitoring 接口 Admin-only，非 Admin 403 → 「无权限」终态并停止轮询（不再刷 403）
   const [agentsForbidden, setAgentsForbidden] = useState(false);
@@ -46,6 +49,41 @@ export function ChannelRail({ activeChannelId }: Props) {
     load();
     return () => { alive = false; clearInterval(timer); };
   }, []);
+
+  // #312：SSE 就地更新（轮询退位为纯兜底）。只更新已加载实例——新实例靠 30s 轮询兜底发现；
+  // 计数（online/visible）由 useMemo 从 agents 状态推导，事件落库即自动重算
+  useEffect(() => {
+    const unsub = onEvent((msg: WebSocketMessage) => {
+      if (msg.event_type !== 'agent.instance.status_changed') return;
+      const d = (msg.data ?? {}) as {
+        profileId?: string;
+        instanceId?: string;
+        status?: string;
+        currentWorkUnitId?: string | null;
+        lastError?: string | null;
+        lastErrorAt?: string | null;
+      };
+      if (!d.profileId && !d.instanceId) return;
+      setAgentSummary(prev => {
+        if (!prev) return prev;
+        let touched = false;
+        const agents = prev.agents.map(a => {
+          // error 事件可能携带新建 error state 的 instanceId（≠列表里的 id），roleId 兜底匹配
+          if (a.id !== d.instanceId && a.roleId !== d.profileId) return a;
+          touched = true;
+          return {
+            ...a,
+            status: d.status ?? a.status,
+            currentWorkUnitId: d.currentWorkUnitId !== undefined ? d.currentWorkUnitId : a.currentWorkUnitId,
+            lastError: d.lastError !== undefined ? d.lastError : a.lastError,
+            lastErrorAt: d.lastErrorAt !== undefined ? d.lastErrorAt : a.lastErrorAt,
+          };
+        });
+        return touched ? { ...prev, agents } : prev;
+      });
+    });
+    return unsub;
+  }, [onEvent]);
 
   const agentStatusById = useMemo(() => {
     const m = new Map<string, string>();

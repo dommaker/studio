@@ -2,7 +2,7 @@
  * WU metadata 访问器（2026-08-06 Card 8）：WorkUnitMetadata 的容错解析 / 会话簿记清理 /
  * 合并视图三件套——schema 知识的单一出口，替代散落各模块的裸 `JSON.parse(...metadata)`。
  *
- * 窄接口刻意不放宽：只暴露 parseWuMetadata / clearSessionBookkeeping / mergedWuView。
+ * 窄接口刻意不放宽：只暴露 parseWuMetadata / parseWuTitle / clearSessionBookkeeping / mergedWuView。
  * 带特殊取值形态的点（dotted key 兼容、跨实体 metadata、窄类型断言）不收敛到这里，
  * 各自保留就地解析（见 agents/token-usage.service.ts extractRootId 等）。
  *
@@ -24,6 +24,15 @@ export function parseWuMetadata(metadata: string | null | undefined): WorkUnitMe
   } catch {
     return {};
   }
+}
+
+/**
+ * WU 展示名：metadata.title（非空字符串）优先，否则回落 scope —— getAgentSummary 快照与
+ * agent.instance.status_changed 负载（#312）的唯一对齐出口，防两处拷贝契约漂移。
+ */
+export function parseWuTitle(metadata: string | null | undefined, scope: string): string {
+  const title = parseWuMetadata(metadata).title;
+  return typeof title === 'string' && title ? title : scope;
 }
 
 /**

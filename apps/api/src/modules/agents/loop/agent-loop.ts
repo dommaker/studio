@@ -22,7 +22,7 @@ import { eventStore } from '../../../core/event-store.js';
 import { postWuSystemMessage } from '../../workunit/wu-messenger.js';
 import type { MessageMeta } from '../../channels/channel-message.service.js';
 import { withBlockedCta } from '../../workunit/blocked-cta.js';
-import { parseWuMetadata, mergedWuView } from '../../workunit/wu-metadata.js';
+import { parseWuMetadata, parseWuTitle, mergedWuView } from '../../workunit/wu-metadata.js';
 import { hasUnfinishedDeps, buildStatusById } from '../../workunit/wu-dependencies.js';
 import { resolveWorkspaceRoot } from '../../workspaces/workspace-store.js';
 import { resolvePmoBranchForWU } from '../../requirements/pmo-branch-resolver.js';
@@ -283,12 +283,14 @@ export class AgentLoop {
   /** F2: Record a startup-fatal failure to runtime state (state.json) + notify via eventBus and SSE */
   private async recordStartupFailure(message: string): Promise<void> {
     const now = new Date().toISOString();
+    let errorStateId: string | null = null;
     try {
       // Reuse this role's existing error state if any (avoid one record per retry)
       const allStates = await this.fileStore.listStates();
       const existing = allStates.find(s => s.roleId === this.role.id && s.status === 'error');
       if (existing) {
         await this.fileStore.updateState(existing.id, { lastError: message, lastErrorAt: now });
+        errorStateId = existing.id;
       } else {
         const instanceId = randomUUID();
         const state: RuntimeStateData = {
@@ -306,6 +308,7 @@ export class AgentLoop {
           lastErrorAt: now,
         };
         await this.fileStore.createState(instanceId, state);
+        errorStateId = instanceId;
       }
     } catch (err) {
       logger.warn(`[AgentLoop] Failed to record startup failure state: ${err instanceof Error ? err.message : String(err)}`);
@@ -319,6 +322,26 @@ export class AgentLoop {
       event_id: randomUUID(),
       timestamp: now,
       data: payload,
+    })).catch(() => {}); // best-effort
+
+    // #312（SSE 事件负载契约体检）：error 迁移也发 status_changed（负载形状与
+    // publishInstanceStatus 一致，带 lastError/lastErrorAt），前端错误状态点可就地更新；
+    // agent.health.failed 保留不动（additive）。无当前 WU → 快照/channelId null。
+    eventStore.publish('events', JSON.stringify({
+      event_type: 'agent.instance.status_changed',
+      event_id: randomUUID(),
+      timestamp: now,
+      data: {
+        profileId: this.role.id,
+        instanceId: errorStateId,
+        name: this.role.name,
+        status: 'error',
+        currentWorkUnitId: null,
+        currentWorkUnit: null,
+        channelId: null,
+        lastError: message,
+        lastErrorAt: now,
+      },
     })).catch(() => {}); // best-effort
   }
 
@@ -357,7 +380,7 @@ export class AgentLoop {
           });
           if (!stillAlive) continue;
           // 2026-07 PMO-flow UX（§6-2）：忙闲变化 SSE（仅状态实际变化时发一次）
-          this.publishInstanceStatus('active', target.workUnit.id);
+          void this.publishInstanceStatus('active', target.workUnit.id);
         }
 
         // #178（#63 决议 1）：持有中 WU 的 30s 租约心跳（claim 与 myActive 续跑统一入口）
@@ -505,7 +528,7 @@ export class AgentLoop {
     // #179（#66 决议 3 loop 侧）：心跳写连败计数/自裁统一走 watch 入口
     await this.updateStateWithHeartbeatWatch(update);
     // 2026-07 PMO-flow UX（§6-2）：进入 idle 发一次 SSE；45s 节流心跳重入不重复发
-    this.publishInstanceStatus('idle', null);
+    void this.publishInstanceStatus('idle', null);
   }
 
   /**
@@ -514,22 +537,42 @@ export class AgentLoop {
    * sse.routes 无 agent.* 显式映射 → 落 all topic，前端订阅 all 即收，无需改路由）。
    * 仅在 status 相对上次发布实际变化时发（lastPublishedStatus 去重）——
    * updateIdleState 的 45s 节流分支反复进入 idle 不刷屏。best-effort，绝不阻断主循环。
+   * #312（SSE 事件负载契约体检）：负载 additive 带 currentWorkUnit 快照（逐字段对齐
+   * getAgentSummary：title = metadata.title ?? scope；悬空 WU → null，裸 currentWorkUnitId
+   * 保留）+ channelId（当前 WU 所在频道，无当前 WU → null）+ lastError/lastErrorAt。
+   * WU 查询失败/不存在不阻断发布（快照 null 兜底），调用方 fire-and-forget。
    */
-  private publishInstanceStatus(status: string, currentWorkUnitId: string | null): void {
+  private async publishInstanceStatus(status: string, currentWorkUnitId: string | null): Promise<void> {
     if (!this.instance || this.lastPublishedStatus === status) return;
     this.lastPublishedStatus = status;
-    eventStore.publish('events', JSON.stringify({
-      event_type: 'agent.instance.status_changed',
-      event_id: randomUUID(),
-      timestamp: new Date().toISOString(),
-      data: {
-        profileId: this.role.id,
-        instanceId: this.instance.id,
-        name: this.role.name,
-        status,
-        currentWorkUnitId,
-      },
-    })).catch(() => {}); // best-effort
+    const instance = this.instance;
+    try {
+      const wu = currentWorkUnitId
+        ? await this.workUnitService.getById(currentWorkUnitId).catch(() => null)
+        : null;
+      eventStore.publish('events', JSON.stringify({
+        event_type: 'agent.instance.status_changed',
+        event_id: randomUUID(),
+        timestamp: new Date().toISOString(),
+        data: {
+          profileId: this.role.id,
+          instanceId: instance.id,
+          name: this.role.name,
+          status,
+          currentWorkUnitId,
+          currentWorkUnit: wu ? {
+            id: wu.id,
+            title: parseWuTitle(wu.metadata, wu.scope),
+            type: wu.type,
+            status: wu.status,
+            claimedAt: wu.claimedAt ? wu.claimedAt.toISOString() : null,
+          } : null,
+          channelId: wu?.channelId ?? null,
+          lastError: instance.lastError ?? null,
+          lastErrorAt: instance.lastErrorAt ?? null,
+        },
+      })).catch(() => {}); // best-effort
+    } catch { /* best-effort：负载构建失败绝不阻断主循环 */ }
   }
 
   /** Stop the agent loop and clean up */

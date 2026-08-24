@@ -6,7 +6,7 @@
 // 已知 N+1：空闲角色逐个 workunitApi.list 查「最近完成」（GET /workunits 只支持单 assigneeId，
 //   后端无批量接口，保持逐查行为）；活跃角色 currentWorkUnit 聚合字段暂缺时逐个 fillWorkUnit 补查。
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { monitoringApi, type AgentInfo } from '../api/monitoring';
+import { monitoringApi, type AgentInfo, type AgentCurrentWorkUnit } from '../api/monitoring';
 import { channelApi, type AgentProfile } from '../api/channel';
 import { isForbidden } from '../utils/http';
 import {
@@ -51,13 +51,19 @@ export interface UseAgentRosterResult {
 export const MAX_ACTIVITIES = 10;
 export const ROSTER_POLL_INTERVAL_MS = 30000;
 
-/** agent.instance.status_changed（§6.2）的 data 契约 */
+/** agent.instance.status_changed（§6.2）的 data 契约；#312 起 additive 带摘要快照（对齐 getAgentSummary） */
 interface AgentStatusChangedData {
   profileId?: string;
   instanceId?: string;
   name?: string;
   status?: string;
   currentWorkUnitId?: string | null;
+  /** #312：当前 WU 快照（含 WU 时非 null；悬空 WU → null；旧事件无此字段 → undefined 走补查兜底） */
+  currentWorkUnit?: AgentCurrentWorkUnit | null;
+  /** #312：当前 WU 所在频道（无当前 WU → null） */
+  channelId?: string | null;
+  lastError?: string | null;
+  lastErrorAt?: string | null;
 }
 
 function truncate(text: string, max = 60): string {
@@ -204,12 +210,19 @@ export function useAgentRoster(): UseAgentRosterResult {
               id: d.instanceId ?? base.id,
               status: d.status ?? base.status,
               currentWorkUnitId: nextWorkUnitId,
-              // 任务切换 → 清掉旧 WU 快照，等补查写回
-              currentWorkUnit: nextWorkUnitId !== base.currentWorkUnitId ? null : base.currentWorkUnit,
+              // #312：负载带快照（含 null）以负载为准；无快照字段（旧事件）才退回
+              // 原行为——任务切换清掉旧 WU 快照，等 fillWorkUnit 补查写回
+              currentWorkUnit: d.currentWorkUnit !== undefined
+                ? (d.currentWorkUnit ?? null)
+                : (nextWorkUnitId !== base.currentWorkUnitId ? null : base.currentWorkUnit),
+              channelId: d.channelId !== undefined ? d.channelId : base.channelId,
+              lastError: d.lastError !== undefined ? d.lastError : base.lastError,
+              lastErrorAt: d.lastErrorAt !== undefined ? d.lastErrorAt : base.lastErrorAt,
             },
           };
         }));
-        if (d.currentWorkUnitId) fillWorkUnit(d.profileId, d.currentWorkUnitId);
+        // #312：负载未带快照字段（旧事件/异常）才补查兜底；带快照（含悬空 null）不补查
+        if (d.currentWorkUnitId && d.currentWorkUnit === undefined) fillWorkUnit(d.profileId, d.currentWorkUnitId);
         return;
       }
       if (msg.event_type === 'workunit.status_changed') {

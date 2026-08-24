@@ -46,4 +46,7 @@ export interface RuntimeInstanceRow {
   terminatedAt: string | null;
   metadata: string | null;
   lastHeartbeat: string | null;
+  /** F2：启动失败原因（与 studio-shared RuntimeStateData 同形，#312 起随 status_changed 负载外发） */
+  lastError?: string | null;
+  lastErrorAt?: string | null;
 }

@@ -30,5 +30,5 @@ SSE 事件曾长期处于「门铃」形态：负载只够通知「有事发生�
 ## 已知待体检事件（延期，各建工单）
 
 - `channel.message_updated`：负载带消息本体。
-- `agent.instance.status_changed`：负载带摘要。
+- ~~`agent.instance.status_changed`：负载带摘要。~~ ✅ 已体检（#312，2026-08-24）：负载 additive 带 `currentWorkUnit` 快照 + `channelId` + `lastError/lastErrorAt`，发布面扩到 error；roster/ChannelRail 就地消费，30s 轮询退位纯兜底。
 - 前端共享 poll adapter（架构评审候选 8）：端点去重 + visibility 门禁 + SSE 健康联动。

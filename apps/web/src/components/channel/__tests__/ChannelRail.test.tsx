@@ -3,14 +3,19 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
-const { mockUseChannelList, mockGetAgentSummary, mockNavigate } = vi.hoisted(() => ({
+const { mockUseChannelList, mockGetAgentSummary, mockNavigate, mockOnEvent } = vi.hoisted(() => ({
   mockUseChannelList: vi.fn(),
   mockGetAgentSummary: vi.fn(),
   mockNavigate: vi.fn(),
+  mockOnEvent: vi.fn(),
 }));
 
 vi.mock('../../../hooks/useChannelList', () => ({
   useChannelList: () => mockUseChannelList(),
+}));
+
+vi.mock('../../../api/websocketHooks', () => ({
+  useWebSocketContext: () => ({ onEvent: mockOnEvent }),
 }));
 
 vi.mock('../../../api/monitoring', () => ({
@@ -185,5 +190,50 @@ describe('ChannelRail', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  // #312：SSE agent.instance.status_changed 就地更新状态点/lastError，不等 30s 轮询
+  it('#312：SSE 状态事件就地更新 agent 行（状态文案 + lastError tooltip + 计数重算）', async () => {
+    let handler: ((msg: unknown) => void) | null = null;
+    mockOnEvent.mockImplementation((h: (msg: unknown) => void) => { handler = h; return () => {}; });
+    renderRail();
+    await waitFor(() => expect(screen.getByText('@reviewer')).toBeTruthy());
+    expect(screen.getByText(/Agents · 2\/2/)).toBeTruthy();
+
+    act(() => {
+      handler!({
+        event_type: 'agent.instance.status_changed',
+        data: {
+          profileId: 'r2', instanceId: 'a2', name: 'reviewer', status: 'error',
+          currentWorkUnitId: null, currentWorkUnit: null, channelId: null,
+          lastError: 'health probe timeout', lastErrorAt: '2026-08-24T02:00:00Z',
+        },
+      });
+    });
+
+    const row = screen.getByText('@reviewer').closest('.mc-agent')!;
+    expect(row.textContent).toContain('error');
+    expect(row.getAttribute('title')).toBe('health probe timeout');
+    // error 不算 online → 计数 1/2（前端从 agents 状态重算，不等轮询）
+    expect(screen.getByText(/Agents · 1\/2/)).toBeTruthy();
+    expect(mockGetAgentSummary).toHaveBeenCalledTimes(1);
+  });
+
+  it('#312：SSE 事件不匹配任何已加载实例 → 名册不动（新实例靠轮询兜底发现）', async () => {
+    let handler: ((msg: unknown) => void) | null = null;
+    mockOnEvent.mockImplementation((h: (msg: unknown) => void) => { handler = h; return () => {}; });
+    renderRail();
+    await waitFor(() => expect(screen.getByText('@coder-1')).toBeTruthy());
+
+    act(() => {
+      handler!({
+        event_type: 'agent.instance.status_changed',
+        data: { profileId: 'r-unknown', instanceId: 'a-unknown', name: 'ghost', status: 'active', currentWorkUnitId: null, currentWorkUnit: null, channelId: null, lastError: null, lastErrorAt: null },
+      });
+      handler!({ event_type: 'workunit.status_changed', data: { workunit: { id: 'WU-1', status: 'done' } } });
+    });
+
+    expect(screen.queryByText('@ghost')).toBeNull();
+    expect(screen.getByText(/Agents · 2\/2/)).toBeTruthy();
   });
 });
