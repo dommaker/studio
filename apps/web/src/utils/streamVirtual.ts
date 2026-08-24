@@ -39,19 +39,14 @@ export function buildMessageToItemIndex(items: StreamItem[]): Map<string, number
  * prepend 锚点补偿（D4-2 验证约束 1：数据源 = virtualizer measurements 按 key 查 start，
  * 不能用 prepend 后的 DOM 查询——锚行已掉出渲染窗口）。
  * 补偿后锚行视口相对 top 保持 anchorTop 不变：
- *   scrollTop = scrollMargin + item 新 start + item 内偏移 - anchorTop
- * withinItemOffset = 锚行内容偏移 - (scrollMargin + item 旧 start)，prepend 前捕获。
+ *   scrollTop = item 新 start + item 内偏移 - anchorTop
+ * newItemStart 为滚动内容坐标（virtualizer measurements 的 start 已含 scrollMargin）；
+ * withinItemOffset = 锚行内容偏移 - item 旧 start，prepend 前捕获，prepend 下不变。
  */
 export function anchorScrollTopAfterPrepend(args: {
-  scrollMargin: number;
   newItemStart: number;
   withinItemOffset: number;
   anchorTop: number;
 }): number {
-  return args.scrollMargin + args.newItemStart + args.withinItemOffset - args.anchorTop;
-}
-
-/** 钉底判定（ADR D4-4：虚拟化下重定义为末行局部几何，不依赖总高度） */
-export function isPinnedToEnd(distanceFromEndPx: number, thresholdPx: number): boolean {
-  return distanceFromEndPx <= thresholdPx;
+  return args.newItemStart + args.withinItemOffset - args.anchorTop;
 }

@@ -7,10 +7,8 @@ import {
   streamItemKey,
   buildMessageToItemIndex,
   anchorScrollTopAfterPrepend,
-  isPinnedToEnd,
 } from '../streamVirtual';
-import { deriveStreamView, type StreamUiState, type StreamItem } from '../streamView';
-import { FOLLOW_THRESHOLD_PX } from '../streamFollow';
+import { deriveStreamView, type StreamUiState } from '../streamView';
 import type { ChannelMessage } from '../../api/channel';
 
 const t0 = new Date('2026-08-19T10:00:00.000Z').getTime();
@@ -92,29 +90,19 @@ describe('buildMessageToItemIndex', () => {
 });
 
 describe('anchorScrollTopAfterPrepend（验证约束 1：measurements 数据源，非 DOM 查询）', () => {
-  it('scrollTop = scrollMargin + item 新 start + item 内偏移 - 锚行视口相对 top', () => {
+  it('scrollTop = item 新 start + item 内偏移 - 锚行视口相对 top（start 已含 scrollMargin）', () => {
     expect(anchorScrollTopAfterPrepend({
-      scrollMargin: 40,
-      newItemStart: 9150,
+      newItemStart: 9190,
       withinItemOffset: 12,
       anchorTop: -2,
-    })).toBe(40 + 9150 + 12 - (-2));
+    })).toBe(9190 + 12 - (-2));
   });
 
   it('锚行在视口中部（top=300）时补偿后仍停在该视口位置', () => {
     const scrollTop = anchorScrollTopAfterPrepend({
-      scrollMargin: 0, newItemStart: 5000, withinItemOffset: 0, anchorTop: 300,
+      newItemStart: 5000, withinItemOffset: 0, anchorTop: 300,
     });
     // 补偿后锚行视口相对 top = (item start + within) - scrollTop = 300
     expect(5000 - scrollTop).toBe(300);
-  });
-});
-
-describe('isPinnedToEnd（ADR D4-4：末行局部几何）', () => {
-  it('距末端 ≤ 阈值 = 钉底；> 阈值 = 未钉底', () => {
-    expect(isPinnedToEnd(0, FOLLOW_THRESHOLD_PX)).toBe(true);
-    expect(isPinnedToEnd(FOLLOW_THRESHOLD_PX, FOLLOW_THRESHOLD_PX)).toBe(true);
-    expect(isPinnedToEnd(FOLLOW_THRESHOLD_PX + 1, FOLLOW_THRESHOLD_PX)).toBe(false);
-    expect(isPinnedToEnd(500, FOLLOW_THRESHOLD_PX)).toBe(false);
   });
 });

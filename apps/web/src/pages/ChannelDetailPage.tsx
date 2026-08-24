@@ -8,7 +8,8 @@ import { useChannelCardActions } from '../hooks/useChannelCardActions';
 import { useWebSocketContext } from '../api/websocketHooks';
 import { ChannelMessageItem } from '../components/channel/ChannelMessageItem';
 import { ChannelLiveBars } from '../components/channel/ChannelLiveBars';
-import { deriveStreamView } from '../utils/streamView';
+import { deriveStreamView, type StreamItem } from '../utils/streamView';
+import { buildMessageToItemIndex } from '../utils/streamVirtual';
 import { ChannelInput } from '../components/channel/ChannelInput';
 import { ChannelMemberManager } from '../components/channel/ChannelMemberManager';
 import { ChannelDefaultProjectSelect } from '../components/channel/ChannelDefaultProjectSelect';
@@ -176,38 +177,6 @@ export function ChannelDetailPage() {
     });
   }, [id, onEvent]);
 
-  // 消息流滚动状态机：#322 整块抽成 useStreamFollow（PURE_MOVE 行为零变化）——
-  // observed-top 台账 / 钉底跟随 / 行锚点补偿 / ResizeObserver 跟随 / 阅读位置存档全在 hook 内
-  const {
-    streamRef,
-    streamInnerRef,
-    handleStreamScroll,
-    showJumpToBottom,
-    pinAndJumpToBottom,
-    handleLoadMore,
-    ownSendPendingRef,
-  } = useStreamFollow({ channelId: id, messages, loading, loadMore });
-
-  const handleSend = useCallback(async (content: string, replyToId?: string, files?: FileRef[]) => {
-    setSending(true);
-    // 标记「自己发送」窗口：消息落地（本 effect 链或 SSE 先去重）时跟随分支消费并清除
-    ownSendPendingRef.current = true;
-    try {
-      // #281: files 仅在有文件引用时透传（保旧调用两参形态）
-      if (files?.length) {
-        await sendMessage(content, replyToId, files);
-      } else {
-        await sendMessage(content, replyToId);
-      }
-      setReplyTo(null);
-    } catch (err) {
-      ownSendPendingRef.current = false;
-      throw err;
-    } finally {
-      setSending(false);
-    }
-  }, [sendMessage]);
-
   // 统一卡片 action 路由：#322 抽成 useChannelCardActions（dispatch 单一入口，
   // 卡片 action 类型 → api 调用映射在 hook 内，映射断言见 hooks/__tests__/useChannelCardActions.test.ts）
   const handleAction = useChannelCardActions({ channelId: id, messages, refresh });
@@ -215,12 +184,6 @@ export function ChannelDetailPage() {
   const handleReply = useCallback((message: ChannelMessage) => {
     setReplyTo(message);
   }, []);
-
-  // F5: NEED_INPUT 卡片内嵌回复 —— 与回复按钮同链路（sendMessage + replyToId）
-  // #276（P2 #15）：返回 Promise——子组件 await 真实发送结果后才置位「已回复」（不发假承诺）
-  const handleInlineReply = useCallback((message: ChannelMessage, content: string) => {
-    return handleSend(content, message.id);
-  }, [handleSend]);
 
   // #322：稳定 props 契约——messages 渲染期镜像，findMessage identity 不随 messages 变化
   // （memo 化的 ChannelMessageItem 不再因消息集更新拿到新函数引用；读取语义不变）
@@ -347,15 +310,6 @@ export function ChannelDetailPage() {
     setHighlightId(msgId);
   }, [latestQuestionIdByWu, messages]);
 
-  useEffect(() => {
-    if (!highlightId) return;
-    const el = streamRef.current?.querySelector(`[data-message-id="${highlightId}"]`);
-    // jsdom 无 scrollIntoView 实现，?. 兜底
-    (el as HTMLElement | null)?.scrollIntoView?.({ block: 'center' });
-    const timer = setTimeout(() => setHighlightId(null), 2000);
-    return () => clearTimeout(timer);
-  }, [highlightId]);
-
   // 里程碑判定（不折叠）：人类消息 / 卡片消息 / 等待回复 / 最后一条回复——已迁入 deriveStreamView（#322）
 
   const openWu = useCallback((wuId: string) => setDrawer({ kind: 'wu', id: wuId }), []);
@@ -372,6 +326,86 @@ export function ChannelDetailPage() {
     promotedQuestionIds,
     isWaitingForInput,
   }), [messages, showCompleted, expandedThreads, expandedProcGroups, promotedQuestionIds, isWaitingForInput]);
+
+  // #325：mid→item index 映射（prepend 补偿 / 阅读位置恢复 / highlight 定位的桥）
+  const messageToItemIndex = useMemo(() => buildMessageToItemIndex(streamView.items), [streamView.items]);
+
+  // #325：滚动内容头部块（加载更早/折叠 toggle/空态）高度 → virtualizer scrollMargin
+  const streamHeadRef = useRef<HTMLDivElement>(null);
+  const [streamHeadH, setStreamHeadH] = useState(0);
+  useEffect(() => {
+    const el = streamHeadRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const update = () => setStreamHeadH(el.offsetHeight);
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  // 消息流滚动状态机：#322 整块抽成 useStreamFollow（PURE_MOVE 行为零变化）——
+  // observed-top 台账 / 钉底跟随 / 行锚点补偿 / ResizeObserver 跟随 / 阅读位置存档全在 hook 内；
+  // #325 起 virtualizer 也建在 hook 内（入参 items/messageToItemIndex/scrollMargin）
+  const {
+    streamRef,
+    streamInnerRef,
+    handleStreamScroll,
+    showJumpToBottom,
+    pinAndJumpToBottom,
+    handleLoadMore,
+    ownSendPendingRef,
+    virtualizer,
+    virtualEnabled,
+  } = useStreamFollow({
+    channelId: id,
+    messages,
+    loading,
+    loadMore,
+    items: streamView.items,
+    messageToItemIndex,
+    scrollMargin: streamHeadH,
+  });
+
+  const handleSend = useCallback(async (content: string, replyToId?: string, files?: FileRef[]) => {
+    setSending(true);
+    // 标记「自己发送」窗口：消息落地（本 effect 链或 SSE 先去重）时跟随分支消费并清除
+    ownSendPendingRef.current = true;
+    try {
+      // #281: files 仅在有文件引用时透传（保旧调用两参形态）
+      if (files?.length) {
+        await sendMessage(content, replyToId, files);
+      } else {
+        await sendMessage(content, replyToId);
+      }
+      setReplyTo(null);
+    } catch (err) {
+      ownSendPendingRef.current = false;
+      throw err;
+    } finally {
+      setSending(false);
+    }
+  }, [sendMessage, ownSendPendingRef]);
+
+  // F5: NEED_INPUT 卡片内嵌回复 —— 与回复按钮同链路（sendMessage + replyToId）
+  // #276（P2 #15）：返回 Promise——子组件 await 真实发送结果后才置位「已回复」（不发假承诺）
+  const handleInlineReply = useCallback((message: ChannelMessage, content: string) => {
+    return handleSend(content, message.id);
+  }, [handleSend]);
+
+  useEffect(() => {
+    if (!highlightId) return;
+    const el = streamRef.current?.querySelector(`[data-message-id="${highlightId}"]`);
+    if (el) {
+      // jsdom 无 scrollIntoView 实现，?. 兜底
+      (el as HTMLElement | null)?.scrollIntoView?.({ block: 'center' });
+    } else if (virtualEnabled) {
+      // #325：目标行未渲染（掉出窗口）→ 先 scrollToIndex 把它带入窗口
+      const idx = messageToItemIndex.get(highlightId);
+      if (idx != null) virtualizer.scrollToIndex(idx, { align: 'center' });
+    }
+    const timer = setTimeout(() => setHighlightId(null), 2000);
+    return () => clearTimeout(timer);
+  }, [highlightId, streamRef, virtualEnabled, messageToItemIndex, virtualizer]);
 
   // #322：提升为 useCallback——消除每次渲染新建的内联 render props（memo 稳定 props 契约）
   const renderMessageItem = useCallback((msg: ChannelMessage, extra: Partial<Parameters<typeof ChannelMessageItem>[0]> = {}) => (
@@ -393,6 +427,60 @@ export function ChannelDetailPage() {
       {...extra}
     />
   ), [handleAction, handleReply, findMessage, id, isWaitingForInput, openWu, openWuConfirm, openReq, handleInlineReply, fileVocabulary, wuChangedFiles, highlightId]);
+
+  // #325：单个 stream item 的渲染内容（日期分隔 + 消息/线程组）——外层包裹（key/测量）
+  // 由调用方决定：非虚拟化路径 = 普通 div；虚拟化路径 = data-index + measureElement 行
+  const renderStreamItem = useCallback((item: StreamItem) => {
+    if (item.kind === 'thread') {
+      return (
+        <>
+          {item.showDate && (
+            <div className="mc-date" key={item.dateKey}>
+              {item.dateLabel}
+            </div>
+          )}
+          {renderMessageItem(item.anchor, {
+            isThreadAnchor: true,
+            threadReplyCount: item.replyCount,
+            isExpanded: item.expanded,
+            onToggleThread: toggleThread,
+            compact: item.compact,
+          })}
+          {item.expanded && item.replyCount > 0 && (
+            <div className="mc-thread-replies">
+              {item.replies.map(ri => {
+                if (ri.kind === 'msg') {
+                  return renderMessageItem(ri.message, { isThreadReply: true, compact: ri.compact });
+                }
+                return ri.expanded ? (
+                  <div key={ri.key}>
+                    <button onClick={() => toggleProcGroup(ri.key)} className="mc-collapse-toggle">
+                      收起 {ri.messages.length} 条过程消息
+                    </button>
+                    {ri.messages.map(reply => renderMessageItem(reply, { isThreadReply: true }))}
+                  </div>
+                ) : (
+                  <button key={ri.key} onClick={() => toggleProcGroup(ri.key)} className="mc-collapse-toggle">
+                    ▸ {ri.messages.length} 条过程消息
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </>
+      );
+    }
+    return (
+      <>
+        {item.showDate && (
+          <div className="mc-date" key={item.dateKey}>
+            {item.dateLabel}
+          </div>
+        )}
+        {renderMessageItem(item.message, { compact: item.compact })}
+      </>
+    );
+  }, [renderMessageItem, toggleThread, toggleProcGroup]);
 
   if (!id) return <div className="mc-stream-empty" style={{ height: '100%' }}>Invalid channel</div>;
 
@@ -444,9 +532,12 @@ export function ChannelDetailPage() {
           </div>
         )}
 
-        {/* Message list */}
+        {/* Message list
+            #325：头部块（空态/加载更早/折叠 toggle）与虚拟列表 spacer 分离——
+            头部高度经 streamHeadRef 量作 virtualizer scrollMargin；
+            虚拟化路径只渲染窗口内行（spacer 撑总高 + 块平移），非虚拟化（jsdom）全量渲染 */}
         <div className="mc-stream" ref={streamRef} onScroll={handleStreamScroll}>
-          <div className="mc-stream-inner" ref={streamInnerRef}>
+          <div className="mc-stream-head" ref={streamHeadRef}>
             {loading && messages.length === 0 && (
               <div className="mc-stream-empty">加载中…</div>
             )}
@@ -464,8 +555,7 @@ export function ChannelDetailPage() {
               </button>
             )}
 
-            {/* B2-002: Date separators + B2-006: collapse completed + AC-C3: threads
-                #322: 归组/折叠/合并/日期分隔/可见性由 deriveStreamView 算出（useMemo 消费） */}
+            {/* B2-006: collapse completed toggle */}
             {!showCompleted && streamView.completedCount > 2 && (
               <button onClick={() => setShowCompleted(true)} className="mc-collapse-toggle">
                 显示 {streamView.completedCount - 2} 条已完成消息
@@ -476,58 +566,29 @@ export function ChannelDetailPage() {
                 收起已完成消息
               </button>
             )}
-            {streamView.items.map(item => {
-              if (item.kind === 'thread') {
-                const anchorId = item.anchor.id;
-                return (
-                  <div key={anchorId}>
-                    {item.showDate && (
-                      <div className="mc-date" key={item.dateKey}>
-                        {item.dateLabel}
-                      </div>
-                    )}
-                    {renderMessageItem(item.anchor, {
-                      isThreadAnchor: true,
-                      threadReplyCount: item.replyCount,
-                      isExpanded: item.expanded,
-                      onToggleThread: toggleThread,
-                      compact: item.compact,
-                    })}
-                    {item.expanded && item.replyCount > 0 && (
-                      <div className="mc-thread-replies">
-                        {item.replies.map(ri => {
-                          if (ri.kind === 'msg') {
-                            return renderMessageItem(ri.message, { isThreadReply: true, compact: ri.compact });
-                          }
-                          return ri.expanded ? (
-                            <div key={ri.key}>
-                              <button onClick={() => toggleProcGroup(ri.key)} className="mc-collapse-toggle">
-                                收起 {ri.messages.length} 条过程消息
-                              </button>
-                              {ri.messages.map(reply => renderMessageItem(reply, { isThreadReply: true }))}
-                            </div>
-                          ) : (
-                            <button key={ri.key} onClick={() => toggleProcGroup(ri.key)} className="mc-collapse-toggle">
-                              ▸ {ri.messages.length} 条过程消息
-                            </button>
-                          );
-                        })}
-                      </div>
-                    )}
+          </div>
+          <div
+            className="mc-stream-inner"
+            ref={streamInnerRef}
+            style={virtualEnabled ? { height: virtualizer.getTotalSize(), position: 'relative' } : undefined}
+          >
+            {/* B2-002: Date separators + B2-006: collapse completed + AC-C3: threads
+                #322: 归组/折叠/合并/日期分隔/可见性由 deriveStreamView 算出（useMemo 消费） */}
+            {virtualEnabled ? (
+              <div style={{ transform: `translateY(${(virtualizer.getVirtualItems()[0]?.start ?? 0) - streamHeadH}px)` }}>
+                {virtualizer.getVirtualItems().map(vi => (
+                  <div key={vi.key} data-index={vi.index} ref={virtualizer.measureElement}>
+                    {renderStreamItem(streamView.items[vi.index])}
                   </div>
-                );
-              }
-              return (
-                <div key={item.message.id}>
-                  {item.showDate && (
-                    <div className="mc-date" key={item.dateKey}>
-                      {item.dateLabel}
-                    </div>
-                  )}
-                  {renderMessageItem(item.message, { compact: item.compact })}
+                ))}
+              </div>
+            ) : (
+              streamView.items.map(item => (
+                <div key={item.kind === 'thread' ? item.anchor.id : item.message.id}>
+                  {renderStreamItem(item)}
                 </div>
-              );
-            })}
+              ))
+            )}
           </div>
           {/* #289: 偏离底部时浮出「回到底部」（sticky 贴滚动视口底部，不占流内高度） */}
           {showJumpToBottom && (
