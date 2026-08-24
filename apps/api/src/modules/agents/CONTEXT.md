@@ -40,7 +40,7 @@ Agent 配置（profile）、运行实例（instance）、决策循环（loop）�
 - **R3 评审契约**：评审子 WU scope = diff-only+`+code-review`；needs-info -> 转人工
 - **不派评审类型**：decision/spec/analysis 走人工 in_review
 - **F6 台账**：COMPLETE 前验证守卫写 l1；`POST /workunits/:id/verify` 人工重跑；`POST /workunits/:id/dispatch-review` 人工补派
-- **WU 租约心跳**：每 30s 推前 timeoutAt（now+5min），锁内 fencing（claimedAt 代际令牌+assigneeId 双比对）；易主 -> 停跳+onLost
+- **WU 租约心跳**：每 30s 推前 timeoutAt（now+5min），fencing（claimedAt 代际令牌+assigneeId 双比对）；#314 起每跳只写内存缓冲，FileStore flushWorkUnitLeases 默认 60s 窗口锁内复核 fencing 后合并落盘；易主 -> 停跳+onLost
 - **CLI 上下文溢出**：纯反应式 -> 滚动摘要落盘 -> 新会话带摘要重试 -> 再败 NEED_INPUT
 - **子 WU 不继承会话簿记**：clearSessionBookkeeping 清除 14 字段（sessionId/startedAt/sessionResumes/sessionCount/lastSessionResumed/blockReason/stepCount/consecutiveStuck/errorType/errorDetail/errorAt/_cumulativeTokens/progressLog/sessionSummary）；新增簿记字段必须同步
 - **鉴权**：POST/PUT = requireAuth()+requireNotGuest()；terminate = requireAuth()+requireAdmin()
