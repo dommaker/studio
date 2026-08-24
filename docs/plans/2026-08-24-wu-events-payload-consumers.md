@@ -17,7 +17,8 @@
 - 目标：`workunit.status_changed` 负载直替已有行；`workunit.created` 负载合成新行；与当前过滤不符的行就地移除。
 - 缺口取舍：
   - `claimable`（仅列表项有、服务端计算）——additive 加入 `workunit.status_changed` 快照（后端 `snapshotToData` 出口处补，计算逻辑复用列表路由的依赖未了结判定）。
-  - 分页 total/页边界无事件语义——**取舍：近似维护**。行插入/移除时本地 ±1 调整 total；页边界溢出不追齐，靠 SSE 断开兜底轮询（useGatedPoll 30s，#313）与重连 refetch 自愈。记录于此与 CONTEXT.md。
+  - 分页 total/页边界无事件语义——**取舍 a：近似维护**。行插入/移除时本地 ±1 调整 total；页边界不追齐。本页无轮询兜底（list 页从未接过 useGatedPoll，评审修正措辞），自愈靠 SSE 重连 refetch、过滤切换/创建/审查等操作触发的 loadWorkUnits 与路由重进首拉。
+  - **取舍 c（code-review Spec 轴补记）**：`status_changed` 未知行（不在当前页）即使新进当前过滤集也不插入——服务端过滤 + 分页下无法判定页内归属，插入会跨页重复；自愈路径同取舍 a。此缺口为服务端过滤固有，brief AC「行进出过滤集均由负载驱动」对「进集」只能覆盖「出」侧与本页内直替。
 
 ### 批 3：AgentDetailPage —— instance status_changed additive + wu 就地更新
 

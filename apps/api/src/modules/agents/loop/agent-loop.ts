@@ -33,7 +33,7 @@ import {
   notifyBudgetTripped,
 } from './daily-token-budget.js';
 import { emitExecutionStepEvent, emitExecutionStreamLine, emitExecutionStreamStepStart, emitWorkUnitFailedEvent } from './execution-step-events.js';
-import { loadCurrentWuContexts } from '../../monitoring/current-wu-context.js';
+import { loadCurrentWuContexts, type CurrentWuContext } from '../../monitoring/current-wu-context.js';
 import { CODE_WORKTREE_TYPES, runWuVerification } from './wu-verification.js';
 import { runCompletionGuards } from './completion-gates.js';
 import { parseMapOpening } from '../../pmo/map-opening.js';
@@ -325,28 +325,51 @@ export class AgentLoop {
       data: payload,
     })).catch(() => {}); // best-effort
 
-    // #312（SSE 事件负载契约体检）：error 迁移也发 status_changed（负载形状与
-    // publishInstanceStatus 一致，带 lastError/lastErrorAt），前端错误状态点可就地更新；
-    // agent.health.failed 保留不动（additive）。无当前 WU → 快照/channelId null。
+    // #312（SSE 事件负载契约体检）：error 迁移也发 status_changed（与 publishInstanceStatus
+    // 同一构造出口，带 lastError/lastErrorAt），前端错误状态点可就地更新；
+    // agent.health.failed 保留不动（additive）。无当前 WU → ctx null（快照/channelId/pmo null）。
     eventStore.publish('events', JSON.stringify({
       event_type: 'agent.instance.status_changed',
       event_id: randomUUID(),
       timestamp: now,
-      data: {
-        profileId: this.role.id,
+      data: this.buildInstanceStatusPayload({
         instanceId: errorStateId,
-        name: this.role.name,
         status: 'error',
         currentWorkUnitId: null,
-        currentWorkUnit: null,
-        channelId: null,
-        // #318（additive）：与 publishInstanceStatus 负载同形状
-        pmo: null,
+        ctx: null,
         startedAt: now,
         lastError: message,
         lastErrorAt: now,
-      },
+      }),
     })).catch(() => {}); // best-effort
+  }
+
+  /**
+   * agent.instance.status_changed 负载唯一构造出口（#312 契约 + #318 additive pmo/startedAt）——
+   * publishInstanceStatus 与 recordStartupFailure 共用，防两处拷贝契约漂移。
+   */
+  private buildInstanceStatusPayload(input: {
+    instanceId: string | null;
+    status: string;
+    currentWorkUnitId: string | null;
+    ctx: CurrentWuContext | null;
+    startedAt: string | null;
+    lastError: string | null;
+    lastErrorAt: string | null;
+  }) {
+    return {
+      profileId: this.role.id,
+      instanceId: input.instanceId,
+      name: this.role.name,
+      status: input.status,
+      currentWorkUnitId: input.currentWorkUnitId,
+      currentWorkUnit: input.ctx?.currentWorkUnit ?? null,
+      channelId: input.ctx?.channelId ?? null,
+      pmo: input.ctx?.pmo ?? null,
+      startedAt: input.startedAt,
+      lastError: input.lastError,
+      lastErrorAt: input.lastErrorAt,
+    };
   }
 
   /** Main observe→resolveTarget→agentStep→recordResult loop */
@@ -556,6 +579,7 @@ export class AgentLoop {
       // #318：WU 聚合上下文走共享出口（current-wu-context，与 getAgentSummary 同源）——
       // 负载 additive 补 pmo 快照；claimedAt 改快照原样透传（对齐 getAgentSummary 口径）。
       // projects 读取失败不阻断发布（pmo null 兜底），调用方 fire-and-forget。
+      // project.service 走动态 import：避免与 pmo/workunit 模块链形成加载期循环依赖（同 monitoring.service 的 lazy 惯例）
       const ctx = currentWorkUnitId
         ? (await loadCurrentWuContexts(this.fileStore, [currentWorkUnitId], async () => {
             const mod = await import('../../pmo/project.service.js');
@@ -566,20 +590,15 @@ export class AgentLoop {
         event_type: 'agent.instance.status_changed',
         event_id: randomUUID(),
         timestamp: new Date().toISOString(),
-        data: {
-          profileId: this.role.id,
+        data: this.buildInstanceStatusPayload({
           instanceId: instance.id,
-          name: this.role.name,
           status,
           currentWorkUnitId,
-          currentWorkUnit: ctx?.currentWorkUnit ?? null,
-          channelId: ctx?.channelId ?? null,
-          // #318（additive）：归属 PMO 快照 + instance 启动时刻（AgentDetailPage 就地更新）
-          pmo: ctx?.pmo ?? null,
+          ctx,
           startedAt: instance.startedAt ?? null,
           lastError: instance.lastError ?? null,
           lastErrorAt: instance.lastErrorAt ?? null,
-        },
+        }),
       })).catch(() => {}); // best-effort
     } catch { /* best-effort：负载构建失败绝不阻断主循环 */ }
   }
