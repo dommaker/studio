@@ -36,6 +36,10 @@ _Avoid_: 会话边界、续用链
 harness 与 studio 的执法/观测分工（#82 D8 事实层裁决，#199 定宪法表述，2026-08-16）：harness 管现场把关——单步动作合规，当场拦截；studio 管全局观测——事件流、token 账本、熔断。不可互换：整体跑偏（如循环空转烧 token）只有全局观测看得见，单步违规（如凭证 diff）只有现场把关拦得住；物理依据 = studio 步内无进程内拦截点，harness 无跨项目车队视角。宪法落点 = vision-2026.md §1 分层塔信任基座旁，随 §1 重写一并落。
 _Avoid_: 把熔断/记账塞进 harness、把 checker 塞进 studio 编排层
 
+**token 账本（token ledger）**:
+`workunit:tokens` 事件流的写侧累计派生索引（#320，2026-08-24 grilling 定稿）：事件流仍是唯一真源，账本可全量重放重建；per-WU 一行（冗余归属维度 rootId/profileId/triggerId + 全口径 token 字段照抄，读方各取所需、口径分叉不进账本），带 watermark（已入账事件偏移），读方发现落后即增量补扫自愈，账本不存在 = watermark=0 即懒回填；写侧在事件落盘点锁内 RMW（FileStore seam，docs/adr/2026-08-24-cache-seam-decision-rules.md 决策树第 1 问）。归属「全局观测」面，不做拦截。byDay 分桶等窗口查询支持待窗口型读方（/overhead）切换票再加——可重建性使加维度为零迁移操作。
+_Avoid_: 账本当真源、单维度（per-tree）累计、口径统一混进账本、为分钟级写上写合并
+
 **蒸馏**:
 从沉淀知识中提炼可复用模式的函数——知识飞轮创造复利的核心环节，studio 存在的理由之一。沉淀只是积累，蒸馏让系统变聪明。产物按类型各有落地处：skill（过程性知识）→ skills 库；约束（边界性知识）→ 目标项目自己的 harness 约束实例（公共 harness 包只提供 schema/checker/retire 机器，内容不回填）；角色偏好与执行知识 → 角色记忆文件。触发形态按事件门槛理解（攒够新原料才点火），日历 cron 在原料不足时结构性空转（#80，2026-08-10）。闭环定稿：门槛=可蒸馏性信号（同 topic 新条目≥3 或 manual 过审≥5），矿石（session-summary 沉淀）蒸馏即归档，GC 按蒸馏周期计龄不打分，执行走收尾钩子检测+人审卡+system-executor（#83 D1-D5，2026-08-14）。主链路实现：`apps/api/src/modules/distill/`（#143，2026-08-15；门槛纯函数 + distill_proposal 人审卡 + approve 执行 + runs.jsonl 运行记录）。GC 候选清单同人模块（#144；连续 3 周期零引用 → gc_proposal 人审卡 → approve 归档可恢复，manual 3 周期新生豁免，主区 >200 强制出清单）。
 _Avoid_: 知识合成、周报式合成
