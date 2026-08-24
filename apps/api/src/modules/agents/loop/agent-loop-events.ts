@@ -8,6 +8,7 @@ import { parseStreamEvents, extractToolCalls, extractProviderUsage, FileStore } 
 import { v4 as uuidv4 } from 'uuid';
 import type { ExecutionResult } from '@dommaker/studio-agent';
 import { noteTokensWritten } from './daily-token-budget.js';
+import { noteTokenLedgerWritten } from '../../../utils/token-ledger.js';
 import { resolveStudioEventsFile } from '../../../utils/studio-events.js';
 import { eventStore } from '../../../core/event-store.js';
 
@@ -153,6 +154,8 @@ export async function writeWorkunitTokenEvent(eventsFile: string, args: Workunit
   // C3: 进程内当日预算计数器累加（口径与熔断扫描一致 = billed ?? total），
   // 仅在落盘成功后计；未 bootstrap/跨天由 daily-token-budget 自重扫收敛。
   noteTokensWritten(eventsFile, billedTokens ?? (args.injectedTokens + (executionTokens ?? 0)));
+  // #320: token 账本写侧记账（失败隔离，内部 catch；账本落后由读方 watermark 补扫自愈）
+  await noteTokenLedgerWritten(eventsFile);
 }
 
 // ─── tool:call event recording ───

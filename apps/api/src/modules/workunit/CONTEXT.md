@@ -16,7 +16,7 @@ WorkUnit 核心域: 任务单元 CRUD、认领与状态机; F5 双向沟通的 N
 - `wu-closure.ts` - 系统推 WU -> closed 统一出口 closeWorkUnitWithNotice(快照 + workunit:closed 事件 + 频道说明, 各步 best-effort)。
 - `wu-messenger.ts` - WU 频道系统消息统一出口 postWuSystemMessage(走 ChannelMessageService.createAgentMessage: append + eventBus + SSE); milestone:true 解析 pmoId + atHuman:true; lazy import pmo-branch-resolver 避环。
 - `timeout-release.ts` - 超时 WU 释放回 unassigned(≥3 次转 blocked), 释放即杀原 holder 进程组(kill(-pid, SIGKILL); pid 复用按 /proc 启动时间与 startedAt ±10min 比对兜底); decision 单不进扫描。导出 `pidStartMatchesInstance` 供 agents/instance-timeout-scan 复用。
-- `delegation-gate.ts` - A2A 委派闸门(纯代码): 成员/自派生/深度1/宽度3/树8/环/重复委派校验, 预算留桩。
+- `delegation-gate.ts` - A2A 委派闸门(纯代码): 成员/自派生/深度1/宽度3/树8/环/重复委派校验 + 树预算(TREE_TOKEN_BUDGET 400K; #320 起树已耗读 token 账本 `utils/token-ledger`, 不再每次委派全扫事件流; 账本同步失败兜底 treeTotal=0/pass, 与原读失败语义一致)。
 - `merge-on-review-pass.ts` - 评审通过后自动合并: task/<wuId> --no-ff 合并回目标分支, 冲突 rebase 重试一次, 仍冲突置 blocked(转人工走 markMergeConflict); pmoBranch 走 PMO 分支交合 worktree(`<worktreesDir>/pmo-<projectId>`)。
 - `wu-metadata.ts` - metadata 访问器(零依赖叶子): parseWuMetadata(容错解析) / parseWuTitle(展示名 title??scope 唯一出口, #312 起 getAgentSummary 与 status_changed 负载共用) / clearSessionBookkeeping(16 字段会话簿记权威清单, review 子 WU 不继承) / mergedWuView(持久化 + metadataUpdates 合并视图)。
 - `wu-dependencies.ts` - 接单依赖判定(零依赖叶子): parseBlockedBy / buildStatusById / hasUnfinishedDeps / resolveClaimable。
