@@ -198,6 +198,29 @@ describe('useChannelMessages', () => {
     });
     expect(result.current.messages).toHaveLength(0);
   });
+
+  it('loadMore 以最老消息 id 为游标前插（#319 id 游标，替代 timestamp）', async () => {
+    const m3 = msg('m3', { createdAt: iso(2) });
+    const m4 = msg('m4', { createdAt: iso(3) });
+    mockListMessages.mockResolvedValue({ data: { data: [m3, m4], hasMore: true } });
+    const { result } = renderHook(() => useChannelMessages('ch-1'));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.hasMore).toBe(true);
+
+    const m1 = msg('m1', { createdAt: iso(0) });
+    const m2 = msg('m2', { createdAt: iso(1) });
+    mockListMessages.mockResolvedValue({ data: { data: [m1, m2], hasMore: false } });
+
+    let inserted: boolean | undefined;
+    await act(async () => {
+      inserted = await result.current.loadMore();
+    });
+
+    expect(mockListMessages).toHaveBeenLastCalledWith('ch-1', { before: 'm3' });
+    expect(result.current.messages.map(m => m.id)).toEqual(['m1', 'm2', 'm3', 'm4']);
+    expect(result.current.hasMore).toBe(false);
+    expect(inserted).toBe(true);
+  });
 });
 
 // #313：轮询已收敛 useGatedPoll，本 describe 钉消费方接线

@@ -43,6 +43,7 @@ export { memoryStore } from './memory-store';
 
 // 导出 FileStore (AN 运行时数据文件存储)
 export { FileStore, LockTimeoutError, parseChannels, stringifyChannels, parseFrontmatter, serializeFrontmatter, formatRequirementId, formatEvolutionId } from './file-store';
+export type { FileStoreOptions } from './file-store';
 export type {
   AgentProfileData,
   RuntimeStateData,
@@ -50,6 +51,9 @@ export type {
   ChannelMessageData,
   ChannelMessageRow,
   QueryOpts,
+  MessagePageOpts,
+  MessagePage,
+  MessageCompactionOptions,
   CountOpts,
   WorkUnitEvent,
   WorkUnitEventType,

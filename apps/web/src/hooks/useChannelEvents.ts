@@ -101,7 +101,8 @@ export function useChannelMessages(channelId: string | undefined) {
     const oldest = messages[0];
     if (!oldest) return false;
     try {
-      const res = await channelApi.listMessages(channelId, { before: oldest.createdAt });
+      // #319：游标 = 锚点消息 id（原 createdAt 时间戳同毫秒撞车会漏/重）
+      const res = await channelApi.listMessages(channelId, { before: oldest.id });
       const older = res.data.data;
       setMessages(prev => [...older, ...prev]);
       setHasMore(res.data.hasMore);

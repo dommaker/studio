@@ -126,14 +126,22 @@ describe('GET /channels/:id/messages 分页 limit（C2）', () => {
     expect(card?.meta).toEqual(cardMeta);
   });
 
-  it('before + limit 组合：窗口内仍只取最新 take 条', async () => {
-    const before = new Date(Date.now() - 5.5 * 1000).toISOString(); // 只含 msg-00..msg-04
-    const res = await fetch(`${baseUrl}/${CH}/messages?limit=2&before=${encodeURIComponent(before)}`);
+  it('before=<messageId> + limit 组合：锚点前窗口内取最新 take 条（#319 id 游标）', async () => {
+    const res = await fetch(`${baseUrl}/${CH}/messages?limit=2&before=msg-05`);
     const body: MessagesPageResponse = await res.json();
 
-    expect(body.total).toBe(5);
+    expect(body.total).toBe(5); // 锚点过滤后的总数
     expect(body.data).toHaveLength(2);
     expect(body.hasMore).toBe(true);
     expect(body.data.map(m => m.id)).toEqual(['msg-03', 'msg-04']);
+  });
+
+  it('锚点 id 不存在 → 空页、hasMore=false（#319：位置不可知不整页错发）', async () => {
+    const res = await fetch(`${baseUrl}/${CH}/messages?limit=2&before=msg-gone`);
+    const body: MessagesPageResponse = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.data).toEqual([]);
+    expect(body.hasMore).toBe(false);
   });
 });

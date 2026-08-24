@@ -131,11 +131,24 @@ export class FileStoreBase {
     await fs.promises.appendFile(filePath, JSON.stringify(data) + '\n', 'utf-8');
   }
 
-  /** 写入全部 JSONL 行（覆盖） */
+  /** 写入全部 JSONL 行（覆盖，原子写：同目录 tmp + rename，崩溃/并发读不见撕裂内容） */
   public async writeJsonl(filePath: string, data: unknown[]): Promise<void> {
     await this.ensureDir(path.dirname(filePath));
     const content = data.map(item => JSON.stringify(item)).join('\n') + (data.length > 0 ? '\n' : '');
-    await fs.promises.writeFile(filePath, content, 'utf-8');
+    const tmpPath = `${filePath}.tmp-${process.pid}-${randomUUID()}`;
+    try {
+      const fh = await fs.promises.open(tmpPath, 'w');
+      try {
+        await fh.writeFile(content, 'utf-8');
+        await fh.sync();
+      } finally {
+        await fh.close();
+      }
+      await fs.promises.rename(tmpPath, filePath);
+    } catch (err) {
+      await fs.promises.unlink(tmpPath).catch(() => {});
+      throw err;
+    }
   }
 
   /** 读取全部 JSONL 行（跳过解析失败的行） */
