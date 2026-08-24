@@ -1,10 +1,11 @@
 // ChannelMessageService integration test (FileStore)
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import { eventBus, FileStore } from '@dommaker/studio-shared';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { ChannelMessageService } from '../channel-message.service.js';
+import { eventStore } from '../../../core/event-store.js';
 
 let channelId: string;
 let tmpDir: string;
@@ -128,6 +129,90 @@ describe('ChannelMessageService', () => {
     });
     expect(updated.content).toBe('Error occurred');
     expect(updated.meta).toMatchObject({ status: 'error' });
+  });
+
+  // ── #311：channel.message_updated 负载带全量 message 本体（ADR 2026-08-24 D1/D2）──
+
+  it('updateMessageMeta: payload carries full shaped message body', async () => {
+    const msg = await service.createAgentMessage(
+      channelId, 'Auditor', 'Card body', { meta: { cardType: 'auditor_suggestion', status: 'ready' } }
+    );
+
+    const events: any[] = [];
+    const handler = (payload: any) => events.push(payload);
+    eventBus.subscribe('channel.message_updated', handler);
+
+    await service.updateMessageMeta(msg.id, { status: 'confirmed' });
+    eventBus.unsubscribe('channel.message_updated', handler);
+
+    expect(events.length).toBe(1);
+    const p = events[0];
+    expect(p.channelId).toBe(channelId);
+    expect(p.messageId).toBe(msg.id);
+    // 新增 message 字段 = 落库后完整 shaped message（meta 为合并后全量、content 原样）
+    expect(p.message).toBeDefined();
+    expect(p.message.id).toBe(msg.id);
+    expect(p.message.channelId).toBe(channelId);
+    expect(p.message.content).toBe('Card body');
+    expect(p.message.meta).toMatchObject({ cardType: 'auditor_suggestion', status: 'confirmed' });
+    // D2：既有顶层字段语义不变（meta 仍是合并后全量）
+    expect(p.meta).toMatchObject({ cardType: 'auditor_suggestion', status: 'confirmed' });
+  });
+
+  it('updateMessage: payload carries full shaped body for content-only / meta-only / both', async () => {
+    const base = await service.createAgentMessage(
+      channelId, 'Analyst', 'Thinking...', { meta: { status: 'thinking', goalId: 'g1' } }
+    );
+
+    const events: any[] = [];
+    const handler = (payload: any) => events.push(payload);
+    eventBus.subscribe('channel.message_updated', handler);
+
+    await service.updateMessage(base.id, { content: 'Half done' });
+    await service.updateMessage(base.id, { meta: { status: 'error' } });
+    await service.updateMessage(base.id, { content: 'Final', meta: { status: 'done' } });
+    eventBus.unsubscribe('channel.message_updated', handler);
+
+    expect(events.length).toBe(3);
+
+    // content-only：message 为 patch 后全量；顶层 content/meta 仍是增量（D2 不动）
+    expect(events[0].message.content).toBe('Half done');
+    expect(events[0].message.meta).toMatchObject({ status: 'thinking', goalId: 'g1' });
+    expect(events[0].content).toBe('Half done');
+    expect(events[0].meta).toBeUndefined();
+
+    // meta-only：message.meta 为合并后全量（后端真值）；顶层 meta 仍是增量
+    expect(events[1].message.content).toBe('Half done');
+    expect(events[1].message.meta).toMatchObject({ goalId: 'g1', status: 'error' });
+    expect(events[1].content).toBeUndefined();
+    expect(events[1].meta).toEqual({ status: 'error' });
+
+    // both
+    expect(events[2].message.content).toBe('Final');
+    expect(events[2].message.meta).toMatchObject({ goalId: 'g1', status: 'done' });
+    expect(events[2].content).toBe('Final');
+    expect(events[2].meta).toEqual({ status: 'done' });
+  });
+
+  it('SSE channel.message_updated payload carries the same message body', async () => {
+    const spy = vi.spyOn(eventStore, 'publish').mockResolvedValue(undefined);
+    try {
+      const msg = await service.createHumanMessage(channelId, 'SSE body');
+      spy.mockClear();
+
+      await service.updateMessageMeta(msg.id, { status: 'done' });
+
+      const call = spy.mock.calls.find(([channel]) => channel === 'events');
+      expect(call).toBeDefined();
+      const envelope = JSON.parse(call![1]);
+      expect(envelope.event_type).toBe('channel.message_updated');
+      expect(envelope.data.message).toBeDefined();
+      expect(envelope.data.message.id).toBe(msg.id);
+      expect(envelope.data.message.content).toBe('SSE body');
+      expect(envelope.data.message.meta).toMatchObject({ status: 'done' });
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   // ── deleteMessage ──

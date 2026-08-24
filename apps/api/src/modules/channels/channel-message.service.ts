@@ -171,12 +171,14 @@ export class ChannelMessageService {
     await this.fileStore.appendMessage(found.channelId, updated);
 
     const shaped = shapeMessageData(updated);
+    // #311（ADR 2026-08-24 D1/D2）：additive 挂全量 shaped message 本体，既有增量字段语义不动
     eventBus.publish('channel.message_updated', {
       channelId: found.channelId,
       messageId,
       meta: merged,
+      message: shaped,
     });
-    this.publishSSE('channel.message_updated', { channelId: found.channelId, messageId, meta: merged });
+    this.publishSSE('channel.message_updated', { channelId: found.channelId, messageId, meta: merged, message: shaped });
     return shaped;
   }
 
@@ -198,15 +200,18 @@ export class ChannelMessageService {
     await this.fileStore.appendMessage(found.channelId, patched);
 
     const shaped = shapeMessageData(patched);
+    // #311（ADR 2026-08-24 D1/D2）：additive 挂全量 shaped message 本体，既有增量字段语义不动
     eventBus.publish('channel.message_updated', {
       channelId: found.channelId,
       messageId,
       content: updates.content,
       meta: updates.meta,
+      message: shaped,
     });
     this.publishSSE('channel.message_updated', {
       channelId: found.channelId, messageId,
       content: updates.content, meta: updates.meta,
+      message: shaped,
     });
     return shaped;
   }
