@@ -56,3 +56,4 @@ Web 前端主源码。路由、全局状态、API 客户端、UI 组件、样式
 - **F6 铁律**：WU 状态/证据展示一律过 `deriveDisplayState()`（`@dommaker/studio-shared`）。
 - **UI 件**：原生 `<select>` 弃用用 `ui/Select`；`Button`+`ConfirmDialog` 替代 `window.confirm`/`alert`。站内跳转用 `useNavigate`。
 - **PMO 驾驶舱**：ProjectDetailPage = 头部 -> 进度管道（六泳道）-> 交付台账 -> 项目进展 -> 项目动态。
+- **频道翻页游标（#319，2026-08-24）**：`useChannelMessages.loadMore` 的 `before` = 最老消息 **id**（原 createdAt 时间戳，同毫秒多条会漏/重）；后端锚点 id 不存在时返回空页 + hasMore=false，loadMore 据此自然停止
