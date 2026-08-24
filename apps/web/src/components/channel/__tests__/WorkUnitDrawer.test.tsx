@@ -1,8 +1,8 @@
 // WorkUnitDrawer — 右抽屉 smoke test：WU 详情（真实 token 事件 + 全局开销红线）/ REQ 全链路
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 
-const { mockWuGet, mockListTokenEvents, mockListExecSteps, mockReviewPassed, mockReviewRejected, mockGetChain, mockGetOverhead, mockStreamChunks, mockResume, mockClose, mockChannelGet, mockGetAgentSummary, mockGetAgentInstance, mockListAllAgents } = vi.hoisted(() => ({
+const { mockWuGet, mockListTokenEvents, mockListExecSteps, mockReviewPassed, mockReviewRejected, mockGetChain, mockGetOverhead, mockStreamChunks, mockResume, mockClose, mockChannelGet, mockGetAgentSummary, mockGetAgentInstance, mockListAllAgents, mockOnEvent } = vi.hoisted(() => ({
   mockWuGet: vi.fn(),
   mockListTokenEvents: vi.fn(),
   mockListExecSteps: vi.fn(),
@@ -17,6 +17,7 @@ const { mockWuGet, mockListTokenEvents, mockListExecSteps, mockReviewPassed, moc
   mockGetAgentSummary: vi.fn(),
   mockGetAgentInstance: vi.fn(),
   mockListAllAgents: vi.fn(),
+  mockOnEvent: vi.fn(),
 }));
 
 vi.mock('../../../api/workunit', async () => {
@@ -61,9 +62,14 @@ vi.mock('../../../api/channel', async () => {
   };
 });
 
-// WU 事件 hook（SSE）— 测试无 WebSocketProvider，置空
+// WU 事件 hook（SSE）— ExecutionSteps 仍消费，测试置空
 vi.mock('../../../hooks/useWorkUnitEvents', () => ({
   useWorkUnitEvents: () => {},
+}));
+
+// SSE context — 抽屉直接订阅 workunit.status_changed / workunit.tokens（决策 8），用例手工驱动事件
+vi.mock('../../../api/websocketHooks', () => ({
+  useWebSocketContext: () => ({ onEvent: mockOnEvent }),
 }));
 
 // Layer B 步内流式 hook — 由用例控制返回的实时 chunk
@@ -74,6 +80,9 @@ vi.mock('../../../hooks/useWorkUnitStreamEvents', () => ({
 import { WorkUnitDrawer } from '../WorkUnitDrawer';
 import type { DrawerState } from '../WorkUnitDrawer';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
+
+// 决策 8：SSE 事件捕获（mockOnEvent 注册的回调，用例手工驱动）
+let sseHandler: ((msg: { event_type: string; data?: unknown }) => void) | null = null;
 
 const WU = {
   id: 'WU-1017',
@@ -154,6 +163,11 @@ const renderDrawer = (drawer: DrawerState, extra: { onClose?: () => void; onOpen
 describe('WorkUnitDrawer', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    sseHandler = null;
+    mockOnEvent.mockImplementation((h: (msg: { event_type: string; data?: unknown }) => void) => {
+      sseHandler = h;
+      return () => {};
+    });
     mockWuGet.mockResolvedValue({ data: WU });
     mockListTokenEvents.mockResolvedValue({ data: { events: TOKEN_EVENTS, total: TOKEN_EVENTS.length } });
     mockListExecSteps.mockResolvedValue({ data: { events: [], total: 0 } });
@@ -498,5 +512,61 @@ describe('WorkUnitDrawer', () => {
     renderDrawer({ kind: 'wu', id: 'WU-1017' });
     await waitFor(() => expect(screen.getByText(/加载失败/)).toBeTruthy());
     expect(screen.queryByText(/该任务不存在或已被清理/)).toBeNull();
+  });
+
+  // ── 决策 8（2026-08 SSE 负载加深）：抽屉事件化——status_changed/tokens 负载直更，无 eventTick 重拉 ──
+
+  it('决策8：workunit.status_changed 同 id → 负载直接更新详情，不再 REST 重拉', async () => {
+    renderDrawer({ kind: 'wu', id: 'WU-1017' });
+    await waitFor(() => expect(screen.getByText('方向稿 A/B 原型页搭建')).toBeTruthy());
+    expect(mockWuGet).toHaveBeenCalledTimes(1); // 仅开抽屉打底一次
+    act(() => sseHandler!({
+      event_type: 'workunit.status_changed',
+      data: { workunit: { ...WU, status: 'done', completedAt: '2026-07-19T11:00:00Z' } },
+    }));
+    await waitFor(() => expect(screen.getAllByText('已完成').length).toBeGreaterThan(0));
+    expect(mockWuGet).toHaveBeenCalledTimes(1); // 事件不触发重拉
+    expect(mockGetOverhead).toHaveBeenCalledTimes(1); // 全局聚合不随事件重拉
+  });
+
+  it('决策8：workunit.status_changed 他 id → 详情不更新', async () => {
+    renderDrawer({ kind: 'wu', id: 'WU-1017' });
+    await waitFor(() => expect(screen.getAllByText('执行中').length).toBeGreaterThan(0));
+    act(() => sseHandler!({
+      event_type: 'workunit.status_changed',
+      data: { workunit: { ...WU, id: 'WU-9999', status: 'done' } },
+    }));
+    // 仍为 active 展示（「已完成」不出现；执行中 chip 保留）
+    expect(screen.queryByText('已完成')).toBeNull();
+    expect(screen.getAllByText('执行中').length).toBeGreaterThan(0);
+  });
+
+  it('决策8：workunit.tokens 同 id → 三条 bar 聚合即时累加', async () => {
+    renderDrawer({ kind: 'wu', id: 'WU-1017' });
+    await waitFor(() => expect(screen.getByText('2 次执行', { exact: false })).toBeTruthy());
+    act(() => sseHandler!({
+      event_type: 'workunit.tokens',
+      data: { workUnitId: 'WU-1017', injectedTokens: 1000, executionTokens: 2000, billedTokens: 2000, totalTokens: 3000 },
+    }));
+    await waitFor(() => expect(screen.getByText('3 次执行', { exact: false })).toBeTruthy());
+    expect(screen.getByText('4.0k')).toBeTruthy(); // 注入 3000+1000
+    expect(screen.getByText('14.0k')).toBeTruthy(); // 合计 11000+3000
+    expect(mockListTokenEvents).toHaveBeenCalledTimes(1); // 历史打底仍只一次
+  });
+
+  it('决策8：workunit.tokens 他 id / 缺字段负载 → 聚合保持现有值（防御）', async () => {
+    renderDrawer({ kind: 'wu', id: 'WU-1017' });
+    await waitFor(() => expect(screen.getByText('2 次执行', { exact: false })).toBeTruthy());
+    act(() => sseHandler!({
+      event_type: 'workunit.tokens',
+      data: { workUnitId: 'WU-9999', injectedTokens: 5000, executionTokens: 5000, totalTokens: 10000 },
+    }));
+    act(() => sseHandler!({
+      event_type: 'workunit.tokens',
+      data: { workUnitId: 'WU-1017' }, // 缺 injected/execution/total → 不计入
+    }));
+    expect(screen.getByText('2 次执行', { exact: false })).toBeTruthy();
+    expect(screen.getByText('3.0k')).toBeTruthy();
+    expect(screen.getByText('11.0k')).toBeTruthy();
   });
 });

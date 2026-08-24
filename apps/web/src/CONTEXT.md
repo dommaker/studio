@@ -36,6 +36,9 @@ Web 前端主源码。路由、全局状态、API 客户端、UI 组件、样式
 
 - 路由用 `React.lazy` 代码分割；API token 从 `localStorage` 直读。**API seam**：端点知识只在 `api/*` 适配模块，页面/hooks 不直接拼 URL。
 - **SSE 单连接**：全应用仅根部 `WebSocketProvider` 建一个 EventSource（/events/stream），禁止开第二条。
+- **SSE 事件负载消费约定**（2026-08 负载深化批 2，决策 4-6）：`workunit.execution.step` 负载带可选 `channelId`——`useChannelLiveExecutions` 带上时按频道过滤、缺省不过滤（向后兼容）；`workunit.status_changed` 负载 = 全量 WorkUnitData（`parseLiveWuRef` 解析出 id/status/channelId/metadata/type/scope），终态清理 step 条目不限频道（防他频道残留）；ChannelDetailPage 的 waitingWus chip 与 REQ chips = 进频道一次 REST 打底 + SSE 增量维护（`status_changed` / `requirement.created|updated`），不再依赖 messages.length 触发重拉。
+- **SSE 负载消费约定·批 3**（决策 7-9）：RequirementsDocCard 纯静态渲染（5s 轮询与 executing 进度分支已删——#278 后无 `meta.status='executing'` 写入方，死代码）；WorkUnitDrawer = 开抽屉一次性 REST 打底（wu 详情/token 历史/overhead 各一次）+ `workunit.status_changed`（同 id 负载直替本地 wu）/ `workunit.tokens`（复用 `parseWorkunitTokenEvents` 防御解析，他 WU/缺字段跳过）SSE 增量，无 eventTick 防抖重拉，`getOverhead` 不随事件重拉；`useWebSocket`/`WebSocketProvider` 暴露 `onReconnect` 注册口（首次 onopen 不触发，重连 onopen 触发一次），ChannelDetailPage 重连落点 = messages `refresh`（chips 缺口靠后续 SSE 增量自愈，强制对齐留收尾批）。
+- **`useWorkUnitEvents` 剩余消费面**：AgentDetailPage / WorkUnitListPage / ExecutionSteps（抽屉已改直订阅，hook 保留，共享 poll adapter 属延期工单候选 8）。
 - **视觉体系**：`theme.css` 深色变量 + `mission-control.css` 三栏布局（mc-*）与工具类（u-*）。禁止写死浅色 Tailwind 类。规范：`docs/specs/ui/style-guide.md`。
 - **频道工作区** = 左 ChannelRail / 中对话流 / 右 WorkUnitDrawer。消息分侧：人类右气泡、agent 左文档流、系统居中。
 - **频道流滚动**（#289/#290）：程序写 scrollTop 必记 observed-top 台账（ChannelDetailPage `scrollStreamTo`），钉底/归属/跟随/行锚点判定走 `utils/streamFollow.ts` 纯函数（钉底阈值 `FOLLOW_THRESHOLD_PX=24`）；加载更早 = 行锚点补偿（`data-message-id` 首个可见行位移校正，非高度差）；阅读位置按频道持久化 localStorage（`utils/readingPosition.ts`，切频道/卸载存档，钉底存 null）；ResizeObserver 跟随撑高，离底浮「回到底部」。

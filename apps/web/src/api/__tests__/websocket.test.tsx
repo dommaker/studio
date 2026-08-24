@@ -93,4 +93,34 @@ describe('WebSocketProvider — 单连接不变量', () => {
     expect(received).toEqual(['workunit.status_changed']);
     act(() => unsub());
   });
+
+  // 决策 9（2026-08 SSE 负载加深）：断线重连 → onReconnect 注册回调一次性触发
+  it('决策9：首次 onopen 不算重连；断线后再次 onopen 触发 onReconnect 一次', () => {
+    renderProvider();
+    const calls: string[] = [];
+    act(() => {
+      ctx!.onReconnect(() => calls.push('reconnect'));
+    });
+    const es = FakeEventSource.instances[0];
+    // 首次连接：不触发
+    act(() => { es.readyState = FakeEventSource.OPEN; es.onopen?.(); });
+    expect(calls).toEqual([]);
+    // 断线（CONNECTING 态 onerror = EventSource 内建自动重连中）→ 重连成功（同一实例再次 onopen）
+    act(() => { es.readyState = FakeEventSource.CONNECTING; es.onerror?.(); });
+    act(() => { es.readyState = FakeEventSource.OPEN; es.onopen?.(); });
+    expect(calls).toEqual(['reconnect']);
+  });
+
+  it('决策9：onReconnect 返回的退订函数生效（退订后重连不再触发）', () => {
+    renderProvider();
+    const calls: string[] = [];
+    let unsub: () => void = () => {};
+    act(() => { unsub = ctx!.onReconnect(() => calls.push('reconnect')); });
+    const es = FakeEventSource.instances[0];
+    act(() => { es.readyState = FakeEventSource.OPEN; es.onopen?.(); });
+    act(() => unsub());
+    act(() => { es.readyState = FakeEventSource.CONNECTING; es.onerror?.(); });
+    act(() => { es.readyState = FakeEventSource.OPEN; es.onopen?.(); });
+    expect(calls).toEqual([]);
+  });
 });

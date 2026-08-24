@@ -4,6 +4,7 @@ import { useParams } from 'react-router-dom';
 import { useEffect, useLayoutEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useChannelMessages } from '../hooks/useChannelEvents';
 import { useChannelLiveExecutions } from '../hooks/useChannelLiveExecutions';
+import { useWebSocketContext } from '../api/websocketHooks';
 import { shortWuId } from '../utils/id';
 import { ChannelMessageItem } from '../components/channel/ChannelMessageItem';
 import { parseMeta } from '../utils/messageMeta';
@@ -17,7 +18,8 @@ import { ChannelNeedInputChip, type NeedInputTodo } from '../components/channel/
 import { ChannelRail } from '../components/channel/ChannelRail';
 import { WorkUnitDrawer, type DrawerState } from '../components/channel/WorkUnitDrawer';
 import { workunitApi } from '../api/workunit';
-import { requirementApi, type Requirement } from '../api/requirements';
+import { requirementApi, type Requirement, type RequirementStatus } from '../api/requirements';
+import { parseLiveWuRef } from '../components/workunit/execution-rows';
 import type { Channel, ChannelMessage, ChannelFileVocabulary, FileRef } from '../api/channel';
 import { channelApi } from '../api/channel';
 import { knowledgeApi } from '../api/knowledge';
@@ -78,6 +80,44 @@ const MERGE_WINDOW_MS = 5 * 60 * 1000;
 
 /** #279（决策 #250 D4）：闸门类 WU 类型（人工验收单）——不聚合进 NEED_INPUT 待办 chip */
 const GATE_WU_TYPES = new Set(['decision', 'spec']);
+
+/**
+ * WU（REST 全量或 status_changed 事件负载解析出的轻量引用）→ NEED_INPUT 待办条目。
+ * 过滤逻辑：metadata.waitingForInput && 非闸门类；不满足 → null（调用方据此增/删列表项）。
+ */
+function needInputTodoOf(wu: { id: string; type?: string | null; scope?: string | null; metadata?: string | null }): NeedInputTodo | null {
+  try {
+    const md = JSON.parse(wu.metadata || '{}');
+    if (!md.waitingForInput) return null;
+    if (GATE_WU_TYPES.has(wu.type ?? '')) return null;
+    return {
+      wuId: wu.id,
+      question: typeof md.waitingQuestion === 'string' ? md.waitingQuestion : undefined,
+      scope: wu.scope ?? undefined,
+    };
+  } catch { return null; }
+}
+
+const REQ_STATUSES = new Set<RequirementStatus>(['open', 'in-progress', 'done', 'archived']);
+
+/** requirement.created/updated SSE data → 轻量引用（坏数据 → null；channelId 可选，缺省由调用方放行） */
+function parseRequirementRef(
+  data: unknown,
+): { id: string; channelId: string | null; title?: string; status?: RequirementStatus } | null {
+  try {
+    const p = (typeof data === 'string' ? JSON.parse(data) : data) as Record<string, unknown> | null;
+    if (!p || typeof p !== 'object' || typeof p.id !== 'string') return null;
+    return {
+      id: p.id,
+      channelId: typeof p.channelId === 'string' ? p.channelId : null,
+      ...(typeof p.title === 'string' && p.title ? { title: p.title } : {}),
+      ...(typeof p.status === 'string' && REQ_STATUSES.has(p.status as RequirementStatus)
+        ? { status: p.status as RequirementStatus } : {}),
+    };
+  } catch {
+    return null;
+  }
+}
 
 function mergeable(m: ChannelMessage): boolean {
   return !parseMeta(m.meta).cardType && !(m.authorType === 'agent' && m.agentName === 'Studio');
@@ -141,37 +181,96 @@ export function ChannelDetailPage() {
     channelApi.get(id).then(r => setChannel(r.data.data)).catch(() => {});
   }, [id]);
 
-  // F5: 拉取本频道挂起中的 WorkUnit（blocked + metadata.waitingForInput）
+  // F5: 本频道挂起中的 WorkUnit（blocked + metadata.waitingForInput）——REST 打底 +
+  // workunit.status_changed SSE 增量维护（SSE 负载深化 批 2 决策 5：摘 messages.length 依赖，wu 数据直取事件负载）。
   // #279：闸门类（decision/spec 人工验收单）不聚合进待办 chip（不阻塞执行，避免红点焦虑）；
   // waitingQuestion 供 chip 下拉问题摘要
-  useEffect(() => {
+  const { onEvent, onReconnect } = useWebSocketContext();
+
+  // 具名打底函数（批 4 收尾对齐）：重连时与 messages.refresh 一并强制对齐（决策 9）
+  const reloadWaitingWus = useCallback(() => {
     if (!id) return;
     workunitApi.list({ channelId: id, status: 'blocked', limit: 100 })
       .then(r => {
-        const waiting = r.data.data.flatMap(wu => {
-          try {
-            const md = JSON.parse(wu.metadata || '{}');
-            if (!md.waitingForInput) return [];
-            if (GATE_WU_TYPES.has(wu.type)) return [];
-            return [{
-              wuId: wu.id,
-              question: typeof md.waitingQuestion === 'string' ? md.waitingQuestion : undefined,
-              scope: wu.scope,
-            }];
-          } catch { return []; }
-        });
-        setWaitingWus(waiting);
+        setWaitingWus(r.data.data.flatMap(wu => {
+          const todo = needInputTodoOf(wu);
+          return todo ? [todo] : [];
+        }));
       })
       .catch(() => {});
-  }, [id, messages.length]);
+  }, [id]);
 
-  // REQ 需求编号（vision §5.3）：拉取本频道需求（派发会自动新建，随消息刷新）
-  useEffect(() => {
+  const reloadChannelReqs = useCallback(() => {
     if (!id) return;
     requirementApi.list({ channelId: id })
       .then(r => setChannelReqs(r.data.data))
       .catch(() => {});
-  }, [id, messages.length]);
+  }, [id]);
+
+  // 决策 9（SSE 负载加深）：SSE 断线重连 → 受影响面一次性 refetch（无序号/校验机制）：
+  // 消息面 refresh + waitingWus/REQ chips 两个打底面
+  useEffect(() => {
+    return onReconnect(() => { void refresh(); reloadWaitingWus(); reloadChannelReqs(); });
+  }, [onReconnect, refresh, reloadWaitingWus, reloadChannelReqs]);
+
+  useEffect(() => {
+    reloadWaitingWus();
+  }, [reloadWaitingWus]);
+
+  useEffect(() => {
+    if (!id) return;
+    return onEvent(msg => {
+      if (msg.event_type !== 'workunit.status_changed') return;
+      const wu = parseLiveWuRef(msg.data);
+      if (!wu || wu.channelId !== id) return;
+      // 仍是 blocked 且满足过滤 → upsert；否则（迁出 blocked / waitingForInput 消失 / 变闸门类）→ 移除
+      const todo = wu.status === 'blocked' ? needInputTodoOf(wu) : null;
+      setWaitingWus(prev => {
+        const idx = prev.findIndex(w => w.wuId === wu.id);
+        if (!todo) return idx < 0 ? prev : prev.filter(w => w.wuId !== wu.id);
+        if (idx < 0) return [...prev, todo];
+        const next = [...prev];
+        next[idx] = todo;
+        return next;
+      });
+    });
+  }, [id, onEvent]);
+
+  // REQ 需求编号（vision §5.3）：本频道需求 chips；REST 打底（reloadChannelReqs，见上）+
+  // requirement.created/updated SSE 增量（批 2 决策 6：摘 messages.length 依赖；事件负载含 id/channelId/title/status）
+  useEffect(() => {
+    reloadChannelReqs();
+  }, [reloadChannelReqs]);
+
+  useEffect(() => {
+    if (!id) return;
+    return onEvent(msg => {
+      if (msg.event_type !== 'requirement.created' && msg.event_type !== 'requirement.updated') return;
+      const ref = parseRequirementRef(msg.data);
+      if (!ref) return;
+      // 负载带 channelId → 按频道过滤；缺省（防御，旧桥未带）放行
+      if (ref.channelId && ref.channelId !== id) return;
+      if (msg.event_type === 'requirement.created') {
+        // created 负载只有摘要字段，拉全量补进列表（updater 内按 id 去重）
+        requirementApi.get(ref.id)
+          .then(r => setChannelReqs(prev => (prev.some(x => x.id === ref.id) ? prev : [...prev, r.data.data])))
+          .catch(() => {});
+        return;
+      }
+      // updated：合并进已有条目；列表没有说明打底/created 未覆盖，交由重连 refetch（批 3 决策 9）
+      setChannelReqs(prev => {
+        const idx = prev.findIndex(r => r.id === ref.id);
+        if (idx < 0) return prev;
+        const next = [...prev];
+        next[idx] = {
+          ...prev[idx],
+          ...(ref.title !== undefined ? { title: ref.title } : {}),
+          ...(ref.status !== undefined ? { status: ref.status } : {}),
+        };
+        return next;
+      });
+    });
+  }, [id, onEvent]);
 
   // 消息流滚动管理（仿 QQ/微信；#289 落地 dsh observed-top 台账方案）：
   // 打开定位最新；程序写 scrollTop 必记 observedTopRef 台账，scroll 事件偏离台账才算读者滚动；
