@@ -50,5 +50,5 @@ Agent 配置（profile）、运行实例（instance）、决策循环（loop）�
 - **Auditor 零执行早退**：24h 零执行不 push 不记录不升级
 - **WU 收尾提取**：订阅 done -> 读 transcript -> LLM -> 角色记忆草稿区；与 R3 并行独立
 - `AgentLoopRegistry.mount()` 幂等不抛错；Agent 数据均 FileStore 存储；审计日志写 `~/.studio/logs/studio-events.jsonl`
-- instance 忙闲 SSE：agent.instance.status_changed，内存去重。#312（2026-08-24 SSE 负载契约体检）：负载 additive 带 `currentWorkUnit` 快照（逐字段对齐 getAgentSummary：title = metadata.title ?? scope；悬空 WU → null 裸 id 保留）+ `channelId`（当前 WU 所在频道）+ `lastError/lastErrorAt`；发布面 active/idle 扩到 error（recordStartupFailure 路径，agent.health.failed 保留），terminated 不发。#318：负载再添 additive `pmo` 快照 + `startedAt`；WU 聚合上下文走共享出口 monitoring/current-wu-context.ts（与 getAgentSummary 同源，claimedAt 快照原样透传）
+- instance 忙闲 SSE：agent.instance.status_changed，内存去重。#312（2026-08-24 SSE 负载契约体检）：负载 additive 带 `currentWorkUnit` 快照（逐字段对齐 getAgentSummary：title = metadata.title ?? scope；悬空 WU → null 裸 id 保留）+ `channelId`（当前 WU 所在频道）+ `lastError/lastErrorAt`；发布面 active/idle 扩到 error（recordStartupFailure 路径，agent.health.failed 保留），terminated 不发。#318：负载再添 additive `pmo` 快照 + `startedAt`；WU 聚合上下文走共享出口 monitoring/current-wu-context.ts（与 getAgentSummary 同源，claimedAt 快照原样透传）；负载构造唯一出口 buildInstanceStatusPayload（publishInstanceStatus / recordStartupFailure 共用）
 - A2A：ACTION: DELEGATE:@<profileName>:<scope> 建子单+发 delegate 卡片
