@@ -14,8 +14,7 @@
 ### 依赖关系
 
 **上游依赖**
-- `apps/api/src/core/event-store.js`：提供 `eventStore.subscribe` 方法
-- `@dommaker/studio-shared`：提供日志工具 `logger`
+- `@dommaker/studio-shared`：提供 `eventBus`（`eventBus.subscribe` 直订 `events:audit`，对象 payload）与日志工具 `logger`
 - `apps/api/src/modules/knowledge/knowledge-bus.service.ts`：动态导入获取 `sharedStore` 以保存审计事件
 
 **下游依赖**

@@ -14,11 +14,10 @@
 ### 依赖关系
 
 **上游（本目录依赖）：**
-- `@dommaker/studio-shared`：提供 `FileStore`、`WorkUnitSnapshot`、`logger`
+- `@dommaker/studio-shared`：提供 `FileStore`、`eventBus`、`WorkUnitSnapshot`、`logger`
 - `../channels/channel-message.service.ts`：`channelMessageService`
 - `../workunit/workunit.service.ts`：`WorkUnitService`
 - `../../utils/logger.ts`：logger
-- `../../core/event-store.ts`：`eventStore`
 - `express`、`crypto` 等标准库
 
 **下游（引用本目录）：**
