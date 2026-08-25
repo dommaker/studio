@@ -687,28 +687,94 @@ export class FileStore extends FileStoreWorkUnitBase {
   }
 
   /**
-   * 频道消息分页（#319 半下沉）：存储层过滤→排序→切片，路由不再全量拉回内存切。
+   * 频道消息分页（#319 半下沉 + #327 冷热穿透）：存储层过滤→排序→切片，路由不再全量拉回内存切。
    * before = 锚点消息 id 游标（不含锚点；替代原 timestamp 游标——同毫秒多条消息不再漏/重）。
-   * 锚点 id 不存在（已删除/被压实抹除）→ 空页 + hasMore=false：位置不可知时不整页错发。
-   * total 语义与路由现状一致：锚点过滤后的总数。
+   * 锚点 id 不存在（已删除/被压实抹除/冷热都没有）→ 空页 + hasMore=false：位置不可知时不整页错发。
+   * total 语义与路由现状一致：锚点过滤后的可见总数（热+冷有效行）。
+   *
+   * #327 穿透规则：遍历链 = 热（新→旧）接冷（月新→旧、月内 createdAt 新→旧）；
+   * 无 before（最新页）从热出，热不足 limit 不预填冷，hasMore 计入冷存在性；
+   * 锚在热而热侧不足 limit 时余量从冷续；锚在冷则整页从冷出；
+   * 跨冷热按 id 去重（thaw/崩溃残留同 id，新→旧先见为准——热侧恒遮蔽冷侧残留）。
+   * 无冷数据（无 archive 目录）时行为与 #319 现状逐条一致。
    */
   async queryMessagesPage(channelId: string, opts?: MessagePageOpts): Promise<MessagePage> {
     const resolved = await this.resolveActiveMessages(channelId);
     // 按创建时间升序（与 queryMessages 同口径；同刻消息按文件序稳定排列）
     resolved.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-
-    let end = resolved.length;
-    if (opts?.before) {
-      const anchor = resolved.findIndex(m => m.id === opts.before);
-      if (anchor === -1) return { messages: [], total: resolved.length, hasMore: false };
-      end = anchor;
-    }
     const limit = opts?.limit !== undefined && opts.limit > 0 ? opts.limit : 50;
+
+    // 冷链（新→旧）+ 有效行过滤：热侧 id 遮蔽冷侧残留，冷侧内部同 id 先见为准
+    const hotIds = new Set(resolved.map(m => m.id));
+    const seenCold = new Set<string>();
+    const cold: ChannelMessageData[] = [];
+    for (const msg of await this.readColdChain(channelId)) {
+      if (hotIds.has(msg.id) || seenCold.has(msg.id)) continue;
+      seenCold.add(msg.id);
+      cold.push(msg);
+    }
+
+    if (!opts?.before) {
+      return {
+        messages: resolved.slice(-limit),
+        total: resolved.length + cold.length,
+        hasMore: resolved.length > limit || cold.length > 0,
+      };
+    }
+
+    const anchor = resolved.findIndex(m => m.id === opts.before);
+    if (anchor !== -1) {
+      // 锚在热：链上锚点之前 = 热[0..anchor) 接整条冷链；页 = 该序列末尾 limit 条（升序）
+      const hotPage = resolved.slice(Math.max(0, anchor - limit), anchor);
+      const coldNeed = limit - hotPage.length;
+      const coldPart = coldNeed > 0 ? cold.slice(0, coldNeed).reverse() : [];
+      const olderCount = anchor + cold.length;
+      return {
+        messages: [...coldPart, ...hotPage],
+        total: olderCount,
+        hasMore: olderCount > limit,
+      };
+    }
+
+    // 锚在冷：整页从冷出
+    const coldAnchor = cold.findIndex(m => m.id === opts.before);
+    if (coldAnchor === -1) {
+      return { messages: [], total: resolved.length + cold.length, hasMore: false };
+    }
+    const older = cold.slice(coldAnchor + 1); // 新→旧
     return {
-      messages: resolved.slice(Math.max(0, end - limit), end),
-      total: end,
-      hasMore: end > limit,
+      messages: older.slice(0, limit).reverse(),
+      total: older.length,
+      hasMore: older.length > limit,
     };
+  }
+
+  /** 冷文件月清单（YYYY-MM，新→旧）；无 archive 目录 → [] */
+  private async listArchiveMonths(channelId: string): Promise<string[]> {
+    let entries: fs.Dirent[];
+    try {
+      entries = await this.readdirCached(this.archiveDir(channelId));
+    } catch (err: unknown) {
+      if (isErrnoError(err) && err.code === 'ENOENT') return [];
+      throw err;
+    }
+    return entries
+      .filter(e => e.isFile())
+      .map(e => /^messages-(\d{4}-\d{2})\.jsonl$/.exec(e.name)?.[1])
+      .filter((m): m is string => m !== undefined)
+      .sort()
+      .reverse();
+  }
+
+  /** 冷链：全部归档消息按分页遍历序（月新→旧，月内 createdAt 新→旧）。读穿缓存摊销 */
+  private async readColdChain(channelId: string): Promise<ChannelMessageData[]> {
+    const chain: ChannelMessageData[] = [];
+    for (const month of await this.listArchiveMonths(channelId)) {
+      const rows = await this.readJsonl<ChannelMessageData>(this.archiveMonthPath(channelId, month));
+      rows.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      chain.push(...rows);
+    }
+    return chain;
   }
 
   async countMessages(channelId: string, opts?: CountOpts): Promise<number> {
