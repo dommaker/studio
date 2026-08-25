@@ -238,10 +238,10 @@ describe('Message Routing (AC-B1-B4)', () => {
       expect(reply.workUnitId).toBeNull();
     });
 
-    it('throws when replyToId points to non-existent message', async () => {
-      await expect(
-        routeMessage(channelId, 'reply to nothing', 'non-existent-id'),
-      ).rejects.toThrow();
+    it('degrades (no throw) when replyToId points to non-existent message (#327: 与已归档父消息不可区分，统一降级放行)', async () => {
+      const reply = await routeMessage(channelId, 'reply to nothing', 'non-existent-id');
+      expect(reply.replyToId).toBe('non-existent-id');
+      expect(reply.workUnitId ?? null).toBeNull();
     });
   });
 
