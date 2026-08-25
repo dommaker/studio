@@ -195,3 +195,134 @@ describe('频道消息归档 sweep（#327）', () => {
     await expect(emptyStore.archiveChannelMessages()).resolves.toEqual({ archivedMessages: 0 });
   });
 });
+
+describe('queryMessagesPage 分页穿透冷热（#327 阶段4）', () => {
+  let tmpDir: string;
+  let store: FileStore;
+  const CH = 'ch-page-archive';
+
+  const archiveDir = () => path.join(tmpDir, 'channels', CH, 'archive');
+
+  beforeEach(async () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'filestore-page-test-'));
+    store = new FileStore(tmpDir, { messageArchive: { maxAgeDays: 30, now: () => NOW } });
+    await store.createChannel(makeChannel(CH));
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  /** m1(2026-06,70d) m2(2026-07,40d) m3(2026-07,39d) m4(2026-07,38d) 归档；m5(3d) m6(2d) m7(1d) 留热 */
+  async function seedHotCold() {
+    const msgs = [
+      makeMessage('m1', CH, { createdAt: daysAgo(70) }),
+      makeMessage('m2', CH, { createdAt: daysAgo(40) }),
+      makeMessage('m3', CH, { createdAt: daysAgo(39) }),
+      makeMessage('m4', CH, { createdAt: daysAgo(38) }),
+      makeMessage('m5', CH, { createdAt: daysAgo(3) }),
+      makeMessage('m6', CH, { createdAt: daysAgo(2) }),
+      makeMessage('m7', CH, { createdAt: daysAgo(1) }),
+    ];
+    for (const m of msgs) await store.appendMessage(CH, m);
+    await store.archiveChannelMessages();
+  }
+
+  it('无 before：最新页从热出（热不足 limit 不预填冷），hasMore 计入冷存在性', async () => {
+    await seedHotCold();
+    const page = await store.queryMessagesPage(CH, { limit: 5 });
+    expect(page.messages.map(m => m.id)).toEqual(['m5', 'm6', 'm7']);
+    expect(page.hasMore).toBe(true);
+    expect(page.total).toBe(7);
+  });
+
+  it('锚在热且热侧不足 limit：余量从冷续（新→旧跨月），全链翻完不重不漏', async () => {
+    await seedHotCold();
+    // 第一页（最新）：热 3 条
+    const p1 = await store.queryMessagesPage(CH, { limit: 2 });
+    expect(p1.messages.map(m => m.id)).toEqual(['m6', 'm7']);
+    expect(p1.hasMore).toBe(true);
+    // 第二页：锚 m6 在热，热侧余 1 条（m5），余量从冷续 1 条（最新冷 m4）
+    const p2 = await store.queryMessagesPage(CH, { before: 'm6', limit: 2 });
+    expect(p2.messages.map(m => m.id)).toEqual(['m4', 'm5']);
+    expect(p2.hasMore).toBe(true);
+    // 第三页：锚 m4 在冷，整页从冷出
+    const p3 = await store.queryMessagesPage(CH, { before: 'm4', limit: 2 });
+    expect(p3.messages.map(m => m.id)).toEqual(['m2', 'm3']);
+    expect(p3.hasMore).toBe(true);
+    // 第四页：冷见底
+    const p4 = await store.queryMessagesPage(CH, { before: 'm2', limit: 2 });
+    expect(p4.messages.map(m => m.id)).toEqual(['m1']);
+    expect(p4.hasMore).toBe(false);
+    // 全链恰好覆盖 7 条，无重复
+    const all = [...p1.messages, ...p2.messages, ...p3.messages, ...p4.messages].map(m => m.id);
+    expect(new Set(all).size).toBe(7);
+  });
+
+  it('锚在冷：total = 链上锚点之前的可见总数', async () => {
+    await seedHotCold();
+    const page = await store.queryMessagesPage(CH, { before: 'm3', limit: 10 });
+    expect(page.messages.map(m => m.id)).toEqual(['m1', 'm2']);
+    expect(page.total).toBe(2);
+    expect(page.hasMore).toBe(false);
+  });
+
+  it('锚不存在（冷热都没有）→ 空页 + hasMore=false（#319 契约不动）', async () => {
+    await seedHotCold();
+    const page = await store.queryMessagesPage(CH, { before: 'm-ghost', limit: 2 });
+    expect(page.messages).toEqual([]);
+    expect(page.hasMore).toBe(false);
+  });
+
+  it('跨冷热同毫秒不漏不重：同刻消息分属冷热两侧，翻页各出现一次', async () => {
+    await store.upsertSnapshot(makeWuSnapshot('wu-old', CH, { status: 'closed', closedAt: daysAgo(40), updatedAt: daysAgo(40) }));
+    const sameTs = daysAgo(5);
+    // 同 createdAt：m-cold 按 WU closedAt 规则归档，m-hot 按 createdAt 规则留热
+    await store.appendMessage(CH, makeMessage('m-cold', CH, { workUnitId: 'wu-old', createdAt: sameTs }));
+    await store.appendMessage(CH, makeMessage('m-hot', CH, { createdAt: sameTs }));
+    await store.archiveChannelMessages();
+
+    const p1 = await store.queryMessagesPage(CH, { limit: 10 });
+    expect(p1.messages.map(m => m.id)).toEqual(['m-hot']);
+    expect(p1.hasMore).toBe(true);
+    const p2 = await store.queryMessagesPage(CH, { before: 'm-hot', limit: 10 });
+    expect(p2.messages.map(m => m.id)).toEqual(['m-cold']);
+    expect(p2.hasMore).toBe(false);
+  });
+
+  it('thaw/崩溃残留同 id（冷热都有）：新→旧先见为准，不重复返回、不计入 total', async () => {
+    // 热文件有 m-x；冷文件手工造同 id 残留 + 另一条 m-y
+    await store.appendMessage(CH, makeMessage('m-x', CH, { createdAt: daysAgo(1), content: 'hot version' }));
+    fs.mkdirSync(archiveDir(), { recursive: true });
+    fs.writeFileSync(
+      path.join(archiveDir(), 'messages-2026-06.jsonl'),
+      [makeMessage('m-x', CH, { createdAt: daysAgo(60), content: 'cold residual' }),
+        makeMessage('m-y', CH, { createdAt: daysAgo(61) })]
+        .map(m => JSON.stringify(m)).join('\n') + '\n',
+    );
+
+    const p1 = await store.queryMessagesPage(CH, { limit: 10 });
+    expect(p1.messages.map(m => m.id)).toEqual(['m-x']);
+    expect(p1.messages[0].content).toBe('hot version');
+    expect(p1.total).toBe(2); // m-x（热）+ m-y（冷有效）；冷侧 m-x 残留被遮蔽
+    const p2 = await store.queryMessagesPage(CH, { before: 'm-x', limit: 10 });
+    expect(p2.messages.map(m => m.id)).toEqual(['m-y']);
+    expect(p2.hasMore).toBe(false);
+  });
+
+  it('无冷数据（无 archive 目录）时行为与 #319 现状一致', async () => {
+    const ts = daysAgo(1);
+    for (const id of ['p1', 'p2', 'p3', 'p4', 'p5']) {
+      await store.appendMessage(CH, { ...makeMessage(id, CH), createdAt: ts });
+    }
+    const page = await store.queryMessagesPage(CH, { before: 'p4', limit: 2 });
+    expect(page.messages.map(m => m.id)).toEqual(['p2', 'p3']);
+    expect(page.total).toBe(3);
+    expect(page.hasMore).toBe(true);
+
+    const missing = await store.queryMessagesPage(CH, { before: 'p-gone', limit: 2 });
+    expect(missing.messages).toEqual([]);
+    expect(missing.total).toBe(5);
+    expect(missing.hasMore).toBe(false);
+  });
+});
