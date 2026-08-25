@@ -43,3 +43,35 @@ if (realHome) {
     );
   }
 }
+
+// 隔离根清理（2026-08-25 /tmp 残留事故：mkdtemp 无清理，三周积 9.5 万个目录）。
+// 双机制：
+// 1) exit 钩子自清——正常退出的进程当场删自己的隔离根（exit 事件只跑同步代码，rmSync 合规）；
+// 2) import 时清扫 >24h 的历史隔离根——崩溃 / kill -9 时 exit 钩子不跑，靠下一个测试进程兜底收敛。
+//    24h 阈值保证不碰并发在跑的其他测试进程（单进程跑测试不可能活过 24h）。
+process.on('exit', () => {
+  try {
+    fs.rmSync(isolatedRoot, { recursive: true, force: true });
+  } catch {
+    // 退出期不抛
+  }
+});
+
+const SWEEP_AGE_MS = 24 * 60 * 60 * 1000;
+try {
+  for (const name of fs.readdirSync(tmpDir)) {
+    if (!name.startsWith('studio-test-data-')) continue;
+    if (name === path.basename(isolatedRoot)) continue;
+    try {
+      const p = path.join(tmpDir, name);
+      const st = fs.statSync(p);
+      if (st.isDirectory() && Date.now() - st.mtimeMs > SWEEP_AGE_MS) {
+        fs.rmSync(p, { recursive: true, force: true });
+      }
+    } catch {
+      // 单条目失败（竞态被别进程先删等）不阻断
+    }
+  }
+} catch {
+  // readdir 失败不阻断测试
+}
