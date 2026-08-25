@@ -42,7 +42,7 @@ app.use('/api/v1/discord/interactions', express.raw({ type: 'application/json', 
 // Deploy webhook 同样需要原始 body 做 GitHub HMAC-SHA256 校验
 app.use('/api/v1/deploy/webhook', express.raw({ type: 'application/json', limit: '1mb' }));
 
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 app.use(requestLogger);

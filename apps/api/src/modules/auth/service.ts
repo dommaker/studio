@@ -47,7 +47,7 @@ export const JWT_SECRET =
         throw new Error("JWT_SECRET required in production");
       })()
     : "dev-jwt-secret-change-in-production");
-const JWT_EXPIRES_IN_SECONDS = 7 * 24 * 60 * 60; // 7 天
+const JWT_EXPIRES_IN_SECONDS = 24 * 60 * 60; // 24h（refresh token 续期，web 拦截器自动刷新）；session/refresh 窗口仍 7 天
 const GUEST_EXPIRES_HOURS = 24;
 
 // ─── 公共接口 ───
