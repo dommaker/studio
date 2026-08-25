@@ -21,3 +21,4 @@
 - 飞书回调需返回 `challenge` 字段以通过 URL 验证
 - 按钮点击事件中 `action` 从 `event.action.value.action` 或 `event.action.value` 提取
 - 已移除会议模块，按钮点击仅记录日志并返回成功
+- **验签（2026-08-25 接线）**：/callback 校验 verification token（body.token / header.token，timingSafeEqual），`LARK_VERIFICATION_TOKEN` 未配置时 fail-closed 503；此前 verifyLarkSignature（方案错误且从未调用）已删除。
