@@ -17,9 +17,13 @@ import { getToolSchemas, executeTool } from './tools.js';
 import { toolRegistry } from './tool-registry.js';
 import { logger } from '@dommaker/studio-shared';
 import { requireAuth, requireAdmin, requireLocalhost } from '../../middleware/auth.js';
+import { mcpRateLimit } from '../../middleware/rate-limit.js';
 import adminRoutes from './admin.routes.js';
 
 const router = Router();
+
+// 限频（回环 skip——真实客户端本机 agent；公网侧纵深兜底）
+router.use(mcpRateLimit);
 
 // ─── SSE Transport ───
 

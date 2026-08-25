@@ -13,8 +13,13 @@ import { getMetrics } from './monitoring/index.js';
 import { buildRouteTable } from './route-registry.js';
 import { loadRegistry } from './modules/capabilities/routes.js';
 import { isAllowedOrigin } from './cors-origin.js';
+import { apiRateLimit } from './middleware/rate-limit.js';
 
 export const app = express();
+
+// 单跳反代（nginx/cloudflared 同机）：req.ip 取 X-Forwarded-For 真实客户端，
+// rate limit 才能按客户端分桶（此前全站共享 127.0.0.1 一个桶）
+app.set('trust proxy', 1);
 
 // 中间件
 // 2026-08-25 安全收口：HSTS / COOP 启用（站点 HTTPS-only，HTTP 仅 301）；
@@ -28,6 +33,8 @@ app.use(helmet({
 app.use(cors({
   origin: (origin, cb) => cb(null, isAllowedOrigin(origin)),
 }));
+// 通用 API 限频（回环直连 skip，见 rate-limit.ts）
+app.use('/api', apiRateLimit);
 app.use(compression({ filter: shouldCompress }));
 
 // Discord interactions 需要原始 body 进行签名验证，跳过 JSON 解析

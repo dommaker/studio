@@ -164,6 +164,22 @@ describe('auth routes', () => {
   describe('POST /register', () => {
     const validBody = { email: 'new@test.com', password: TEST_PW, name: 'New' };
 
+    beforeEach(() => {
+      // 注册默认关闭（2026-08-25 收口），本组用例显式打开
+      process.env.REGISTER_ENABLED = 'true';
+      return () => { delete process.env.REGISTER_ENABLED; };
+    });
+
+    it('returns 403 when registration disabled (default)', async () => {
+      delete process.env.REGISTER_ENABLED;
+
+      const { res } = await invokeRoute(routes, 'post', '/register', { body: validBody });
+
+      expect(res.status).toHaveBeenCalledWith(403);
+      expect(res.json).toHaveBeenCalledWith({ error: '注册已关闭' });
+      expect(authService.register).not.toHaveBeenCalled();
+    });
+
     it('returns 200 with user and tokens on success', async () => {
       vi.mocked(authService.register).mockResolvedValue({
         user: { id: 'u1', email: 'new@test.com', role: 'User' },
@@ -256,21 +272,21 @@ describe('auth routes', () => {
     });
 
     it('returns 401 when user not found', async () => {
-      vi.mocked(authService.login).mockRejectedValue(new Error('用户不存在'));
+      vi.mocked(authService.login).mockRejectedValue(new Error('邮箱或密码错误'));
 
       const { res } = await invokeRoute(routes, 'post', '/login', { body: validBody });
 
       expect(res.status).toHaveBeenCalledWith(401);
-      expect(res.json).toHaveBeenCalledWith({ error: '用户不存在' });
+      expect(res.json).toHaveBeenCalledWith({ error: '邮箱或密码错误' });
     });
 
     it('returns 401 when password is wrong', async () => {
-      vi.mocked(authService.login).mockRejectedValue(new Error('密码错误'));
+      vi.mocked(authService.login).mockRejectedValue(new Error('邮箱或密码错误'));
 
       const { res } = await invokeRoute(routes, 'post', '/login', { body: validBody });
 
       expect(res.status).toHaveBeenCalledWith(401);
-      expect(res.json).toHaveBeenCalledWith({ error: '密码错误' });
+      expect(res.json).toHaveBeenCalledWith({ error: '邮箱或密码错误' });
     });
 
     it('returns 400 on other login errors', async () => {
@@ -300,7 +316,7 @@ describe('auth routes', () => {
       });
 
       it('logs login failure', async () => {
-        vi.mocked(authService.login).mockRejectedValue(new Error('密码错误'));
+        vi.mocked(authService.login).mockRejectedValue(new Error('邮箱或密码错误'));
 
         await invokeRoute(routes, 'post', '/login', {
           body: { email: 'test@test.com', password: WRONG_PW },
@@ -308,7 +324,7 @@ describe('auth routes', () => {
 
         expect(mockAuditLog).toHaveBeenCalledWith(
           expect.objectContaining({
-            action: 'login', resource: 'session', status: 'failure', errorMessage: '密码错误',
+            action: 'login', resource: 'session', status: 'failure', errorMessage: '邮箱或密码错误',
           })
         );
       });
