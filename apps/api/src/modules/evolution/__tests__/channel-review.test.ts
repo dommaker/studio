@@ -188,10 +188,12 @@ describe('channel review flow (approve/reject EP-XXXX)', () => {
     expect(decided!.decidedAt).toBeTruthy();
     expect(decided!.appliedAt).toBeTruthy();
 
-    // 确认消息
+    // 确认消息（decide 落 applied 后才异步发帖，与状态写入存在竞态，须 waitFor——同 reject 分支模式）
+    const confirmed = await waitFor(async () =>
+      (await messagesIn('ch-sys')).some(m => m.authorType === 'agent' && m.content.includes('已批准并生效')));
+    expect(confirmed).toBe(true);
     const msgs = await messagesIn('ch-sys');
     const confirmation = msgs.find(m => m.authorType === 'agent' && m.content.includes('已批准并生效'));
-    expect(confirmation).toBeDefined();
     expect(confirmation!.content).toContain(p.id);
   });
 
@@ -209,8 +211,10 @@ describe('channel review flow (approve/reject EP-XXXX)', () => {
     // 目标文件未被改动
     expect(fs.readFileSync(paths.constraintsFile, 'utf-8')).toBe(CONSTRAINTS_FIXTURE);
 
-    const msgs = await messagesIn('ch-sys');
-    expect(msgs.some(m => m.authorType === 'agent' && m.content.includes('已拒绝'))).toBe(true);
+    // 回执消息（decide 落 rejected 后才异步发帖，与状态写入存在竞态，须 waitFor）
+    const acked = await waitFor(async () =>
+      (await messagesIn('ch-sys')).some(m => m.authorType === 'agent' && m.content.includes('已拒绝')));
+    expect(acked).toBe(true);
   });
 
   it('double-decide is rejected with an ack, status unchanged', async () => {
