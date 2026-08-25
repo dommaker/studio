@@ -37,7 +37,7 @@ isSimpleChange 总行数检查（2 文件，纯函数，TDD 流程）
 
 ### 7. 自检
 - [ ] 7 项自检全部执行
-- [ ] Terminal State → invoke code-review
+- [ ] Terminal State → 测试/类型/提交齐后才输出完成总结
 
 ## 判断标准
 
