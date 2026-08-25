@@ -22,8 +22,8 @@ import path from 'node:path';
 import os from 'node:os';
 import { performance } from 'node:perf_hooks';
 import { FileStore } from '@dommaker/studio-shared';
-// 与 file-store.ts 的 './read-metrics' 解析到同一绝对路径 → 同一模块实例（sink 生效前提）
-import { setReadMetricsSink, runWithLoopLabel } from '../../../packages/studio-shared/src/read-metrics.js';
+// 子路径 exports（studio-dir 先例）；与 file-store.ts 的 './read-metrics' 解析到同一文件 → 同一模块实例（sink 生效前提）
+import { setReadMetricsSink, runWithLoopLabel } from '@dommaker/studio-shared/read-metrics';
 import { scanTimedOutWorkUnits } from '../src/modules/workunit/timeout-release.js';
 import { scanStaleAgentInstances } from '../src/modules/agents/instance-timeout-scan.js';
 import { scanWaitingForInputReminders } from '../src/modules/workunit/waiting-input.js';
@@ -33,6 +33,9 @@ import { OpsService } from '../src/modules/agents/ops/ops.service.js';
 import { AuditorService } from '../src/modules/agents/auditor/auditor.service.js';
 import { loadWindowSignals, resolveEvolutionPaths } from '../src/modules/evolution/signals.js';
 import { triageService } from '../src/modules/agents/triage/triage.service.js';
+import { dailyReflection, type ReportState } from '../src/modules/agents/monitor/monitor-reports.js';
+import { dataLifecycle, type LifecycleState } from '../src/modules/agents/monitor/monitor-lifecycle.js';
+import { checkKnowledgeHealth } from '../src/modules/agents/monitor/monitor-system-probes.js';
 import type { BenchReadEvent, BenchRound, WorkerResult } from './read-metrics-aggregate.js';
 
 // ── 向量库同步桩（第二道）──
@@ -126,16 +129,62 @@ async function main(): Promise<void> {
   ];
 
   const rounds: BenchRound[] = [];
-  for (const loop of loops) {
-    for (let r = 0; r < ROUNDS; r++) {
-      const round: BenchRound = { loop: loop.label, round: r, wallMs: 0, events: [] };
+  const drive = async (label: string, run: () => Promise<unknown>, n: number): Promise<void> => {
+    for (let r = 0; r < n; r++) {
+      const round: BenchRound = { loop: label, round: r, wallMs: 0, events: [] };
       currentRound = round;
       const t0 = performance.now();
-      await runWithLoopLabel(loop.label, () => loop.run());
+      await runWithLoopLabel(label, run);
       round.wallMs = performance.now() - t0;
       currentRound = null;
       rounds.push(round);
     }
+  };
+  for (const loop of loops) {
+    await drive(loop.label, loop.run, ROUNDS);
+  }
+
+  // ── Monitor 日级窗口补测（review 返工）：低频轮只测 1x/50x，窗口条件强制开启 ──
+  // 与常态轮分开列 label，不混入 5 分钟轮统计。
+  const scale = process.env.STUDIO_BENCH_SCALE ?? 'unknown';
+  if (scale === '1x' || scale === '50x') {
+    const DAILY_ROUNDS = Number(process.env.STUDIO_BENCH_DAILY_ROUNDS ?? 3);
+
+    // dailyReflection：每轮重置状态强制触发（生产口径 = 距上次 >24h）
+    await drive('monitor-daily-reflection', async () => {
+      const st: ReportState = { lastDailyReflectionTs: 0 };
+      await dailyReflection(fileStore, st);
+    }, DAILY_ROUNDS);
+
+    // dataLifecycle TTL：生产窗口 = 每天 23:50–23:59（本地时）。bench 冻结 Date 到
+    // 当天 23:55 强制过窗口（仅本循环期间生效，随即恢复）；每轮重置状态强制触发。
+    // 首轮含 30d 沉淀标记 + 7d 截断的写路径（冷轮单列）；暖轮 = TTL 后的稳态。
+    const RealDate = Date;
+    const fakeNow = new RealDate();
+    fakeNow.setHours(23, 55, 0, 0);
+    const fakeMs = fakeNow.getTime();
+    class FakeDate extends RealDate {
+      constructor(...args: any[]) {
+        if (args.length === 0) super(fakeMs);
+        else super(...args as [any]);
+      }
+      static now(): number { return fakeMs; }
+    }
+    (globalThis as any).Date = FakeDate;
+    try {
+      await drive('monitor-data-lifecycle', async () => {
+        const st: LifecycleState = { lastPrecipitateRun: '', lastDataLifecycleRun: '' };
+        await dataLifecycle(fileStore, st);
+      }, DAILY_ROUNDS);
+    } finally {
+      (globalThis as any).Date = RealDate;
+    }
+
+    // knowledge decay：每轮 lastDecayRun=0 强制跑 decay + linter auto-fix（tmp 知识副本）；
+    // user-model 更新（npx harness 子进程）不属于读口测量面，预置跳过
+    await drive('monitor-knowledge-decay', async () => {
+      await checkKnowledgeHealth({ lastDecayRun: 0, lastUserModelRun: Date.now() });
+    }, DAILY_ROUNDS);
   }
 
   const stat = (p: string) => (fs.existsSync(p) ? fs.readdirSync(p).length : 0);

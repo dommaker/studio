@@ -147,6 +147,8 @@ export interface ReportMeta {
   roundsPerLoop: number;
   /** 驱动不了的循环缺口（含理由），报告显式列出 */
   gaps: string[];
+  /** 测量代码清单（brief 要求：临时注入的测量代码在报告中显式列出） */
+  measurementCode: string[];
   /** 末节：建/不建快照层建议（含拐点规模判断） */
   recommendation: string;
 }
@@ -208,6 +210,11 @@ export function renderMarkdown(summary: Summary, meta: ReportMeta): string {
   // 缺口
   lines.push('## 驱动缺口', '');
   for (const gap of meta.gaps) lines.push(`- ${gap}`);
+  lines.push('');
+
+  // 测量代码清单
+  lines.push('## 测量代码清单', '');
+  for (const item of meta.measurementCode) lines.push(`- ${item}`);
   lines.push('');
 
   // 建议

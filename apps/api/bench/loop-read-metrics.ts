@@ -1,10 +1,10 @@
 /**
  * #323 阶段一 bench 入口：周期循环读口量化测量。
  *
- * 用法：pnpm tsx bench/loop-read-metrics.ts [--rounds N] [--scales 1,10,50] [--keep]
+ * 用法：pnpm tsx bench/loop-read-metrics.ts [--rounds N] [--scales 1,10,50]
  *   --rounds  每循环轮数（默认 21 = 1 冷 + 20 暖）
  *   --scales  规模档（默认 1,10,50；以真实 ~/.studio 为 1x 模板）
- *   --keep    保留 bench tmp 根（默认运行结束保留并打印路径——合成数据全在 tmp，不碰 ~/.studio）
+ * bench tmp 根运行结束保留并打印路径（合成数据全在 tmp，不碰 ~/.studio），手工清理。
  *
  * 流程：synthesize-dataset（只读 ~/.studio → tmp 合成 1x/10x/50x）→ 每档子进程跑
  * loop-read-worker.ts（env 注入 STUDIO_HOME 等，驱动 8 个循环体各 N 轮）→
@@ -22,10 +22,22 @@ const API_ROOT = path.resolve(__dirname, '..');
 const TEMPLATE_HOME = path.join(os.homedir(), '.studio');
 
 const GAPS = [
-  'monitor 日级子项（dailyReflection / dataLifecycle TTL / knowledge decay / user-model 更新）：预置状态跳过——这些是 1/288 的低频轮，不属于常态 5 分钟轮',
+  'monitor 日级窗口已补测（1x/50x 单列 monitor-daily-reflection / monitor-data-lifecycle / monitor-knowledge-decay，窗口条件强制开启）；user-model 更新（npx harness 子进程）不属于读口测量面，未测',
   'ops-round 的 apiResponding=false 分支（自动重启/退出）与 preflight：不属于周期健康轮，未测',
   'auditor 的失败执行分支（eval case 生成 / auto resolution / Triage 升级 / 确认卡片）：合成数据全成功执行，未触发；触发型读口未计入',
   'Triage 升级被记录桩替换（安全闸：升级路径会拉 systemExecutor 跑 LLM 诊断，bench 不可触碰）；触发次数见 worker 输出 triageStubCalls',
+];
+
+const MEASUREMENT_CODE = [
+  'packages/studio-shared/src/read-metrics.ts（新增：sink + ALS 归因 + readMetricsBegin/emitReadMetric）',
+  'packages/studio-shared/src/file-store.ts（readJson / readJsonl / readdirCached / readIndexForQuery 四读口内计时埋点；锁内裸读路径未动）',
+  'packages/studio-shared/package.json（exports 增 ./read-metrics 子路径）',
+  'apps/api/bench/synthesize-dataset.ts（新增：数据合成器，只读 ~/.studio → tmp 合成 1x/10x/50x）',
+  'apps/api/bench/loop-read-worker.ts（新增：单档循环驱动 worker）',
+  'apps/api/bench/loop-read-metrics.ts（新增：bench 入口，合成 → 子进程驱动 → 聚合出报告）',
+  'apps/api/bench/read-metrics-aggregate.ts（新增：轮次聚合 + markdown 渲染纯函数）',
+  'apps/api/bench/__tests__/（新增：上述模块的单测）',
+  'apps/api/vitest.config.ts（include 增 bench/**/__tests__/**/*.test.ts）',
 ];
 
 export function parseArgs(argv: string[] = process.argv.slice(2)): { rounds: number; scales: number[] } {
@@ -73,6 +85,7 @@ async function main(): Promise<void> {
     console.log(`[bench] ${label} synthesized in ${Date.now() - t0}ms:`, synthStats[label]);
 
     const out = path.join(benchRoot, `result-${label}.json`);
+    // ops getStatus 探活 stub 端口：39100 段远离生产 3001 / dev 常用端口；+scale 防多档并发互撞
     const port = 39100 + scale;
     const env: NodeJS.ProcessEnv = {
       ...process.env,
@@ -119,6 +132,7 @@ async function main(): Promise<void> {
     generatedAt: new Date().toISOString(),
     roundsPerLoop: rounds,
     gaps: GAPS,
+    measurementCode: MEASUREMENT_CODE,
     recommendation: '（待人工分析后填写）',
   });
 

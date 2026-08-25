@@ -91,6 +91,7 @@ describe('renderMarkdown', () => {
       generatedAt: '2026-08-25T00:00:00.000Z',
       roundsPerLoop: 3,
       gaps: ['某循环：无法驱动，理由'],
+      measurementCode: ['packages/studio-shared/src/read-metrics.ts（新增）'],
       recommendation: '（建议正文）',
     });
 
@@ -102,6 +103,8 @@ describe('renderMarkdown', () => {
     expect(md).toContain('残差');
     expect(md).toContain('冷轮');
     expect(md).toContain('某循环：无法驱动，理由');
+    expect(md).toContain('测量代码清单');
+    expect(md).toContain('packages/studio-shared/src/read-metrics.ts（新增）');
     expect(md).toContain('（建议正文）');
   });
 });
