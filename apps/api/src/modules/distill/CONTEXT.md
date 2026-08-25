@@ -13,18 +13,17 @@ GC 候选清单：蒸馏运行后按周期计龄--reference/context 层连续 3 
 ### 核心导出
 
 - `distill-threshold.ts` -- 门槛检测纯函数 + 阈值常量（3/5/7/20）
-- `distill-service.ts` -- 编排（subscribe/maybePropose/approve/reject）+ prompt + 产出解析 + GC/审计方法
+- `distill-service.ts` -- 编排（subscribe/maybePropose/runGcCheck/runConstraintAudit）+ prompt + 产出解析 + 三 adapter 审批后动作（executeDistill/executeGc/executeAudit + reject 留痕）
 - `distill-landings.ts` -- 三通道落地实现：skills 提案 / 约束草案 / 角色记忆草稿
-- `distill-store.ts` / `gc-store.ts` / `audit-store.ts` -- JSONL 持久化（墓碑折叠）
-- `distill-proposal-card.ts` / `gc-proposal-card.ts` / `constraint-audit-card.ts` -- 三类提案卡发 #系统
+- `distill-runs.ts` -- 蒸馏运行记录持久化（runs.jsonl，双时间戳基线）
+- `review-adapters.ts` -- #351 三个人审提案卡 adapter（kind: distill/gc/audit），接线 review-proposal 正本
 - `gc-candidates.ts` -- GC 周期计龄纯函数 + 常量（3/200）
 - `constraint-audit.ts` -- 审计纯函数 + prompt + 判据白名单闸门
 - `distill-runtime.ts` -- 懒单例 + 启动订阅（唯一 import knowledge-singletons）
-- `distill.routes.ts` -- approve/reject/status 路由（distill/gc/audit 三组）
 
 ### 依赖关系
 
-**上游**: `@dommaker/harness`（FileKnowledgeStore）、`@dommaker/studio-shared`（FileStore/eventBus/studioPath）、`knowledge-singletons.ts`（仅 runtime）、`system-executor.ts` + `daily-token-budget.ts`、`channel-message.service.ts` + `studio-events.ts`、`evolution/applier.ts`（retireConstraintEntry）+ `harness/constraints.routes.ts`
+**上游**: `@dommaker/harness`（FileKnowledgeStore）、`@dommaker/studio-shared`（FileStore/eventBus/studioPath）、`knowledge-singletons.ts`（仅 runtime）、`system-executor.ts` + `daily-token-budget.ts`、`channel-message.service.ts` + `studio-events.ts`、`evolution/applier.ts`（retireConstraintEntry）+ `harness/constraints.routes.ts`、`review-proposal`（#351 人审提案卡正本：存取/发卡/approve/reject/status + 通用端点）
 
 **下游**: modules/skills 提案、modules/role-memory 草稿；GC；约束审计
 

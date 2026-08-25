@@ -59,6 +59,12 @@ import {
   normalizeDistillProducts,
   type DistillProposal,
 } from '../distill-service.js';
+import { approveProposal } from '../../review-proposal/service.js';
+import { getReviewProposalAdapter } from '../../review-proposal/registry.js';
+
+// #351：approve 走 review-proposal 正本生命周期（adapter 由 DistillService 构造注册）
+const approve = (id: string) => approveProposal('distill', id);
+const distillStore = () => getReviewProposalAdapter<DistillProposal>('distill')!.store;
 import { createSkillLanding, createConstraintLanding, createMemoryLanding } from '../distill-landings.js';
 import { roleMemoryRoot, roleMemoryStore } from '../../role-memory/role-memory.js';
 
@@ -104,7 +110,7 @@ function seedOre(over: Partial<KnowledgeEntry> = {}): KnowledgeEntry {
 async function propose(oreCount = 3): Promise<DistillProposal & { status: string }> {
   for (let i = 0; i < oreCount; i++) seedOre();
   await service.maybePropose({ workUnitId: 'wu-1' });
-  const proposals = await service.listProposals();
+  const proposals = await distillStore().listProposals();
   expect(proposals).toHaveLength(1);
   expect(proposals[0].status).toBe('pending');
   return proposals[0];
@@ -209,8 +215,8 @@ describe('三分路由（注入 fake landings）', () => {
     mockRunJson.mockResolvedValue({
       products: [{ type: 'skill', title: 'TDD 接缝模式', content: '过程性知识正文', tags: ['tdd'] }],
     });
-    const result = await service.approve(proposal.id);
-    expect(result.ok).toBe(true);
+    const result = await approve(proposal.id);
+    expect(result.kind).toBe('executed');
 
     // 通道调用：产物 + 原料指针
     expect(skillLanding).toHaveBeenCalledTimes(1);
@@ -244,8 +250,8 @@ describe('三分路由（注入 fake landings）', () => {
         { title: 'k', content: 'c', tags: [] },
       ],
     });
-    const result = await service.approve(proposal.id);
-    expect(result.ok).toBe(true);
+    const result = await approve(proposal.id);
+    expect(result.kind).toBe('executed');
     expect(memoryLanding).toHaveBeenCalledTimes(1);
     expect(knowledgeProducts()).toHaveLength(1);
 
@@ -266,8 +272,8 @@ describe('三分路由（注入 fake landings）', () => {
     mockRunJson.mockResolvedValue({
       products: [{ type: 'skill', title: 's', content: 'c', tags: [] }],
     });
-    const result = await service.approve(proposal.id);
-    expect(result.ok).toBe(true);
+    const result = await approve(proposal.id);
+    expect(result.kind).toBe('executed');
 
     const products = knowledgeProducts();
     expect(products).toHaveLength(1);
@@ -290,8 +296,8 @@ describe('constraint 通道（真实落盘）', () => {
         change: { action: 'add', constraintId: 'no-leap-diagnosis', level: 'guideline', message: '禁止跳级推理', description: '先验证再断言' },
       }],
     });
-    const result = await service.approve(proposal.id);
-    expect(result.ok).toBe(true);
+    const result = await approve(proposal.id);
+    expect(result.kind).toBe('executed');
     expect(knowledgeProducts()).toHaveLength(0);
 
     const drafts = await fileStore.readJsonl<Record<string, unknown>>(path.join(dataDir, 'constraint-drafts.jsonl'));
@@ -319,7 +325,7 @@ describe('constraint 通道（真实落盘）', () => {
         change: { action: 'retire', constraintId: 'old-rule' },
       }],
     });
-    await service.approve(proposal.id);
+    await approve(proposal.id);
 
     const drafts = await fileStore.readJsonl<Record<string, unknown>>(path.join(dataDir, 'constraint-drafts.jsonl'));
     expect(drafts[0].action).toBe('retire');
@@ -341,8 +347,8 @@ describe('memory 通道（真实 roleMemoryStore + mock 发卡）', () => {
     mockRunJson.mockResolvedValue({
       products: [{ type: 'preference', title: '回复用电报风', content: '砍掉废话', tags: ['style'] }],
     });
-    const result = await service.approve(proposal.id);
-    expect(result.ok).toBe(true);
+    const result = await approve(proposal.id);
+    expect(result.kind).toBe('executed');
     expect(knowledgeProducts()).toHaveLength(0);
 
     // studio 系统角色 = 唯一 profile
@@ -378,8 +384,8 @@ describe('skill 通道（真实 createSkillLanding + mock store）', () => {
     mockRunJson.mockResolvedValue({
       products: [{ type: 'skill', title: '迁移执行法', content: 'Round 分解 → 转换 → 验证', tags: ['migration'] }],
     });
-    const result = await service.approve(proposal.id);
-    expect(result.ok).toBe(true);
+    const result = await approve(proposal.id);
+    expect(result.kind).toBe('executed');
 
     expect(mockSkillCreate).toHaveBeenCalledTimes(1);
     const skillInput = mockSkillCreate.mock.calls[0][0];
@@ -413,8 +419,8 @@ describe('skill 通道（真实 createSkillLanding + mock store）', () => {
     mockRunJson.mockResolvedValue({
       products: [{ type: 'skill', title: 's', content: 'c', tags: [] }],
     });
-    const result = await service.approve(proposal.id);
-    expect(result.ok).toBe(true);
+    const result = await approve(proposal.id);
+    expect(result.kind).toBe('executed');
     expect(mockSkillCreate).not.toHaveBeenCalled();
     expect(knowledgeProducts()).toHaveLength(1);
   });

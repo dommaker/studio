@@ -19,11 +19,13 @@ import {
  *   - executed：副作用执行成功 → 正本落 executed 墓碑，data 随响应透传（如 productIds/archivedIds）
  *   - failed：执行失败 → 正本落 failed 墓碑，error 随响应返回（HTTP 500）
  *   - pending + skipped：熔断跳过（如预算耗尽）→ 不落墓碑，提案保持 pending 可重试
+ *   - aborted：前置条件不可用（如配置文件未装配）→ 不落墓碑，error 随响应返回（HTTP 500）
  */
 export type ApproveOutcome =
   | { status: 'executed'; data?: Record<string, unknown> }
   | { status: 'failed'; error: string }
-  | { status: 'pending'; skipped: string };
+  | { status: 'pending'; skipped: string }
+  | { status: 'aborted'; error: string };
 
 /** adapter 注册配置对象（ADR 决策 2 的落地形态） */
 export interface ReviewProposalAdapterConfig<P extends ReviewProposalBase> {

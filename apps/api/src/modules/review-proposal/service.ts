@@ -17,6 +17,7 @@ export type ApproveLifecycleResult =
   | { kind: 'executed'; data?: Record<string, unknown> }
   | { kind: 'failed'; error: string }
   | { kind: 'skipped'; skipped: string }
+  | { kind: 'aborted'; error: string }
   | { kind: 'invalid'; error: string };
 
 /**
@@ -54,6 +55,8 @@ export async function approveProposal(kind: string, id: string): Promise<Approve
     await adapter.store.appendStatus(id, 'failed');
     return { kind: 'failed', error: outcome.error };
   }
+  // aborted：前置条件不可用，不落墓碑（提案保持 pending，装配修复后可重试）
+  if (outcome.status === 'aborted') return { kind: 'aborted', error: outcome.error };
   // skipped：熔断不落墓碑，提案保持 pending（次日可重试）
   return { kind: 'skipped', skipped: outcome.skipped };
 }

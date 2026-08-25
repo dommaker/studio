@@ -35,6 +35,13 @@ vi.mock('../../channels/channel-message.service.js', () => ({
 }));
 
 import { DistillService, type DistillProposal } from '../distill-service.js';
+import { approveProposal, rejectProposal } from '../../review-proposal/service.js';
+import { getReviewProposalAdapter } from '../../review-proposal/registry.js';
+
+// #351：approve/reject/状态查询走 review-proposal 正本生命周期（adapter 由 DistillService 构造注册）
+const approve = (id: string) => approveProposal('distill', id);
+const reject = (id: string) => rejectProposal('distill', id);
+const distillStore = () => getReviewProposalAdapter<DistillProposal>('distill')!.store;
 
 let tmpDir: string;
 let fileStore: FileStore;
@@ -82,7 +89,7 @@ function seedOre(over: Partial<KnowledgeEntry> = {}): KnowledgeEntry {
 }
 
 async function listProposals(): Promise<Array<DistillProposal & { status: string }>> {
-  return service.listProposals();
+  return distillStore().listProposals();
 }
 
 async function readEvents(): Promise<Array<Record<string, unknown>>> {
@@ -150,8 +157,8 @@ describe('端到端：矿石 → 门槛 → 发卡 → approve → 产物入库 
         { title: '', content: '缺 title 丢弃', tags: [] },
       ],
     });
-    const result = await service.approve(proposals[0].id);
-    expect(result.ok).toBe(true);
+    const result = await approve(proposals[0].id);
+    expect(result.kind).toBe('executed');
 
     // 产物入库：sourceReferences 指向全部原料 id
     const all = store.list();
@@ -182,7 +189,7 @@ describe('端到端：矿石 → 门槛 → 发卡 → approve → 产物入库 
     expect(stages).toContain('executed');
 
     // 提案终态
-    expect((await service.getProposal(proposals[0].id))?.status).toBe('executed');
+    expect((await distillStore().getProposal(proposals[0].id))?.status).toBe('executed');
   });
 
   it('WU done 事件驱动门槛检测（fire-and-forget 不阻塞）；非 done 忽略', async () => {
@@ -206,7 +213,7 @@ describe('reject 路径：零副作用', () => {
     await service.maybePropose({});
     const proposal = (await listProposals())[0];
 
-    const result = await service.reject(proposal.id);
+    const result = await reject(proposal.id);
     expect(result.ok).toBe(true);
     expect(mockRunJson).not.toHaveBeenCalled();
 
@@ -215,7 +222,7 @@ describe('reject 路径：零副作用', () => {
     }
     expect(store.list().filter(e => e.tags.includes('distilled'))).toHaveLength(0);
     expect(await service.listRuns()).toHaveLength(0);
-    expect((await service.getProposal(proposal.id))?.status).toBe('rejected');
+    expect((await distillStore().getProposal(proposal.id))?.status).toBe('rejected');
     expect(eventStages(await readEvents())).toContain('rejected');
   });
 
@@ -223,9 +230,9 @@ describe('reject 路径：零副作用', () => {
     seedOre(); seedOre(); seedOre();
     await service.maybePropose({});
     const proposal = (await listProposals())[0];
-    await service.reject(proposal.id);
-    expect((await service.approve(proposal.id)).ok).toBe(false);
-    expect((await service.reject(proposal.id)).ok).toBe(false);
+    await reject(proposal.id);
+    expect((await approve(proposal.id)).kind).toBe('invalid');
+    expect((await reject(proposal.id)).ok).toBe(false);
   });
 });
 
@@ -236,8 +243,8 @@ describe('失败路径：不消费原料、不阻塞 WU 收尾', () => {
     const proposal = (await listProposals())[0];
 
     mockRunJson.mockRejectedValue(new Error('provider timeout'));
-    const result = await service.approve(proposal.id);
-    expect(result.ok).toBe(false);
+    const result = await approve(proposal.id);
+    expect(result.kind).toBe('failed');
 
     for (const ore of ores) {
       expect(store.get(ore.id)?.maturity).toBe('active');
@@ -246,7 +253,7 @@ describe('失败路径：不消费原料、不阻塞 WU 收尾', () => {
     const runs = await service.listRuns();
     expect(runs).toHaveLength(1);
     expect(runs[0].outcome).toBe('failed');
-    expect((await service.getProposal(proposal.id))?.status).toBe('failed');
+    expect((await distillStore().getProposal(proposal.id))?.status).toBe('failed');
     expect(eventStages(await readEvents())).toContain('failed');
   });
 
@@ -258,8 +265,8 @@ describe('失败路径：不消费原料、不阻塞 WU 收尾', () => {
     const parseErr = new SyntaxError('Unexpected token');
     parseErr.name = 'SystemExecutorJsonParseError';
     mockRunJson.mockRejectedValue(parseErr);
-    const result = await service.approve(proposal.id);
-    expect(result.ok).toBe(false);
+    const result = await approve(proposal.id);
+    expect(result.kind).toBe('failed');
     for (const ore of ores) {
       expect(store.get(ore.id)?.maturity).toBe('active');
     }
@@ -293,14 +300,14 @@ describe('token 预算熔断', () => {
     await service.maybePropose({});
     const proposal = (await listProposals())[0];
 
-    const result = await service.approve(proposal.id);
-    expect(result.ok).toBe(false);
-    expect(result.skipped).toBe('budget-exhausted');
+    const result = await approve(proposal.id);
+    expect(result.kind).toBe('skipped');
+    expect(result.kind === 'skipped' && result.skipped).toBe('budget-exhausted');
     expect(mockRunJson).not.toHaveBeenCalled();
     for (const ore of ores) {
       expect(store.get(ore.id)?.maturity).toBe('active');
     }
-    expect((await service.getProposal(proposal.id))?.status).toBe('pending');
+    expect((await distillStore().getProposal(proposal.id))?.status).toBe('pending');
     expect(await service.listRuns()).toHaveLength(0);
     const events = await readEvents();
     const skipped = events.find(e => String(e.payload).includes('budget-exhausted'));
@@ -342,7 +349,7 @@ describe('发卡降级与去重', () => {
     });
     seedOre(); seedOre(); seedOre();
     await expect(svc.maybePropose({})).resolves.toBeUndefined();
-    const proposals = await svc.listProposals();
+    const proposals = await getReviewProposalAdapter<DistillProposal>('distill')!.store.listProposals();
     expect(proposals).toHaveLength(1);
     expect(proposals[0].status).toBe('card-failed');
     expect(mockCreateCardMessage).not.toHaveBeenCalled();
@@ -356,7 +363,7 @@ describe('7 天烧钱熔断', () => {
     await service.maybePropose({});
     const proposal = (await listProposals())[0];
     mockRunJson.mockResolvedValue({ products: [{ title: 'P', content: 'C', tags: [] }] });
-    await service.approve(proposal.id);
+    await approve(proposal.id);
 
     // 新矿石到位、信号命中，但距上次运行 < 7 天 → 熔断
     seedOre(); seedOre(); seedOre();
@@ -370,7 +377,7 @@ describe('7 天烧钱熔断', () => {
     await service.maybePropose({});
     const proposal = (await listProposals())[0];
     mockRunJson.mockRejectedValue(new Error('provider down'));
-    await service.approve(proposal.id);
+    await approve(proposal.id);
 
     // 熔断时钟已推进（失败也烧了 token）→ 不再发新提案
     await service.maybePropose({});
@@ -387,8 +394,8 @@ describe('7 天烧钱熔断', () => {
     await service.maybePropose({});
     const proposal = (await listProposals())[0];
     mockRunJson.mockResolvedValue({ products: [] });
-    const result = await service.approve(proposal.id);
-    expect(result.ok).toBe(true);
+    const result = await approve(proposal.id);
+    expect(result.kind).toBe('executed');
     for (const ore of ores) {
       expect(store.get(ore.id)?.maturity).toBe('active');
     }

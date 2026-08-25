@@ -127,6 +127,14 @@ describe('approveProposal（人审 approve）', () => {
     expect((await adapter().store.getProposal('p-1'))!.status).toBe('pending');
   });
 
+  it('onApprove 返回 aborted（前置条件不可用）→ 不落墓碑，提案保持 pending', async () => {
+    onApprove.mockResolvedValue({ status: 'aborted', error: 'constraints-file-unavailable' });
+    await adapter().store.appendProposal(makeProposal('p-1'));
+    const result = await approveProposal('test', 'p-1');
+    expect(result).toEqual({ kind: 'aborted', error: 'constraints-file-unavailable' });
+    expect((await adapter().store.getProposal('p-1'))!.status).toBe('pending');
+  });
+
   it('查无提案 → invalid proposal-not-found（onApprove 不调用）', async () => {
     const result = await approveProposal('test', 'nope');
     expect(result).toEqual({ kind: 'invalid', error: 'proposal-not-found' });
