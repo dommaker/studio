@@ -160,12 +160,12 @@ export function stringifySddFrontmatter(fm: Partial<SddFrontmatter>): string {
 /**
  * 列出遗产区所有 SDD 文档目录（扫描子目录，非 flat .md 文件）。
  * 目录不存在时返回 []（归档尚未迁入不视为错误）。
+ * #321：经 FileStore 读穿缓存 readdir（目录 mtime 校验）。
  */
 export async function listLegacySddDocs(baseDir: string): Promise<string[]> {
   requireBaseDir(baseDir);
-  const fs = await import('node:fs/promises');
   try {
-    const entries = await fs.readdir(baseDir, { withFileTypes: true });
+    const entries = await store.readdir(baseDir);
     return entries.filter(e => e.isDirectory()).map(e => e.name);
   } catch {
     return [];

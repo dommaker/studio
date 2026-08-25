@@ -118,6 +118,7 @@ interface CacheEntry<T> {
 const jsonCache = new Map<string, CacheEntry<unknown>>();
 const jsonlCache = new Map<string, CacheEntry<unknown[]>>();
 const dirCache = new Map<string, CacheEntry<fs.Dirent[]>>();
+const mdCache = new Map<string, CacheEntry<{ meta: Record<string, unknown>; body: string } | null>>();
 const MAX_CACHE_ENTRIES = 1000;
 
 function cacheSet<T>(map: Map<string, CacheEntry<T>>, key: string, entry: CacheEntry<T>): void {
@@ -145,13 +146,14 @@ function cloneCached<T>(value: T): T {
 function invalidateFileKey(filePath: string): void {
   jsonCache.delete(filePath);
   jsonlCache.delete(filePath);
+  mdCache.delete(filePath);
   dirCache.clear();
 }
 
 /** 删路径失效：文件或目录（递归）下所有 key + 目录级 list 缓存 */
 function invalidateRemovedPath(target: string): void {
   const prefix = target.endsWith(path.sep) ? target : target + path.sep;
-  for (const map of [jsonCache, jsonlCache] as const) {
+  for (const map of [jsonCache, jsonlCache, mdCache] as const) {
     for (const key of map.keys()) {
       if (key === target || key.startsWith(prefix)) map.delete(key);
     }
@@ -319,6 +321,14 @@ export class FileStore extends FileStoreWorkUnitBase {
     const entries = await fs.promises.readdir(dir, { withFileTypes: true });
     cacheSet(dirCache, dir, { value: entries, mtimeMs });
     return entries;
+  }
+
+  /**
+   * readdir 读穿缓存公开入口（#321）：聚合读层（library/sdd-legacy）扫外部仓目录用。
+   * 目录 mtime 校验；目录不存在抛 ENOENT（与 fs.readdir 语义一致，调用方自行容错）。
+   */
+  public async readdir(dir: string): Promise<fs.Dirent[]> {
+    return this.readdirCached(dir);
   }
 
   /**
@@ -1223,32 +1233,58 @@ export class FileStore extends FileStoreWorkUnitBase {
   // ═══════════════════════
 
   /**
-   * 读取 markdown 文件，解析 frontmatter + body。
-   * 文件不存在返回 null。
+   * 读取 markdown 文件，解析 frontmatter + body（#321：读穿缓存，mtime 校验）。
+   * 文件不存在返回 null。命中返回结构克隆。
    */
   async readDoc(dir: string, key: string): Promise<{ meta: Record<string, unknown>; body: string } | null> {
+    const entry = await this.readDocCached(dir, key);
+    return entry ? { meta: entry.meta, body: entry.body } : null;
+  }
+
+  /**
+   * readDoc + 校验用 mtimeMs（#321）：library 聚合读层的 updatedAt 兜底链需要文件 mtime，
+   * 与缓存校验共用同一次 stat，不引入第二次。mtimeMs 即缓存校验戳——命中时等于文件当前 mtime。
+   */
+  async readDocWithMtime(dir: string, key: string): Promise<{ meta: Record<string, unknown>; body: string; mtimeMs: number } | null> {
+    return this.readDocCached(dir, key);
+  }
+
+  /** readDoc 的读穿缓存实现（mdCache，与 readJson 同一 mtime 校验模式） */
+  private async readDocCached(dir: string, key: string): Promise<{ meta: Record<string, unknown>; body: string; mtimeMs: number } | null> {
     const filePath = path.join(dir, `${key}.md`);
+    const mtimeMs = await statMtimeMs(filePath);
+    if (mtimeMs === null) {
+      mdCache.delete(filePath);
+      return null;
+    }
+    const hit = mdCache.get(filePath);
+    if (hit && hit.mtimeMs === mtimeMs) {
+      return hit.value ? { ...cloneCached(hit.value), mtimeMs } : null;
+    }
+    let doc: { meta: Record<string, unknown>; body: string } | null = null;
     try {
       const content = await fs.promises.readFile(filePath, 'utf-8');
       const parsed = parseFrontmatter(content);
       // 无 frontmatter fence → 整文件视为 body，meta 为空
-      if (!parsed) return { meta: {}, body: content.trim() };
-      return parsed;
+      doc = parsed ?? { meta: {}, body: content.trim() };
     } catch (err: unknown) {
-      if (isErrnoError(err) && err.code === 'ENOENT') return null;
-      throw err;
+      if (!isErrnoError(err) || err.code !== 'ENOENT') throw err;
+      doc = null; // stat 与 readFile 之间被删 → 按缺失处理
     }
+    cacheSet(mdCache, filePath, { value: doc, mtimeMs });
+    return doc ? { ...cloneCached(doc), mtimeMs } : null;
   }
 
   /**
    * 写入 markdown 文件（含 YAML frontmatter）。
-   * 目录不存在时自动创建。
+   * 目录不存在时自动创建。写后失效缓存。
    */
   async writeDoc(dir: string, key: string, meta: Record<string, unknown>, body: string): Promise<void> {
     const filePath = path.join(dir, `${key}.md`);
     await this.ensureDir(path.dirname(filePath));
     const content = serializeFrontmatter(meta, body);
     await fs.promises.writeFile(filePath, content, 'utf-8');
+    invalidateFileKey(filePath);
   }
 
   // ═══ 索引管理 ═══
