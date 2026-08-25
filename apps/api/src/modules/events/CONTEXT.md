@@ -24,7 +24,7 @@
 ### 依赖关系
 
 - `@dommaker/studio-shared` (FileStore) — jsonl 持久化
-- `@dommaker/studio-shared` (eventBus) — SSE pub/sub（#324：SSE 直订 eventBus，event-store 浅适配器已删除；背压 = res.write 返回 false 即断开慢客户端）
+- `@dommaker/studio-shared` (eventBus) — SSE pub/sub（#324：SSE 直订 eventBus，event-store 浅适配器已删除；背压 = res.write 返回 false 即断开慢客户端，断开时一并 clearInterval heartbeat 防 write-after-end）
 - `../agents/monitor/monitor-alerts.js` — lock-events-bridge 的告警全管线出口（#169）
 - `../skills/skill-store.js` — 模式匹配 Skill 建议 (KE-001 P5)
 
