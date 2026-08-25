@@ -240,3 +240,63 @@ describe('getLibraryDoc', () => {
     expect(await getLibraryDoc('proj-a:legacy-sdd/a/b')).toBeNull();
   });
 });
+
+// ── #321：FileStore 读穿 seam 行为 ──
+
+describe('读穿缓存（#321）', () => {
+  it('连续两次 listLibraryDocs，第二次零文档内容 readFile（stat 校验命中缓存）', async () => {
+    await listLibraryDocs({}); // 确保缓存已填充
+    const readSpy = vi.spyOn(fs.promises, 'readFile');
+    const fixtureReads = () =>
+      readSpy.mock.calls.filter(c => String(c[0]).startsWith(tmpRoot)).length;
+
+    const docs = await listLibraryDocs({});
+    expect(docs.length).toBeGreaterThan(0);
+    expect(fixtureReads()).toBe(0); // 含 legacy requirement.md，全部命中缓存
+    readSpy.mockRestore();
+  });
+
+  it('连续两次 getLibraryDoc，第二次零 readFile', async () => {
+    await getLibraryDoc('proj-a:specs/spec-a.md'); // 填充缓存
+    const readSpy = vi.spyOn(fs.promises, 'readFile');
+    const fixtureReads = () =>
+      readSpy.mock.calls.filter(c => String(c[0]).startsWith(tmpRoot)).length;
+
+    const doc = await getLibraryDoc('proj-a:specs/spec-a.md');
+    expect(doc?.title).toBe('规格甲');
+    expect(fixtureReads()).toBe(0);
+    readSpy.mockRestore();
+  });
+
+  it('外部编辑文档（绕过 API，mtime 变化）后下一次 list 反映新内容，search 命中新关键词', async () => {
+    await listLibraryDocs({}); // 填充缓存
+    const specA = path.join(repoA, '.studio/specs/spec-a.md');
+    const original = fs.readFileSync(specA, 'utf8');
+    try {
+      fs.writeFileSync(specA, `---\ntitle: "规格甲改"\nupdatedAt: "2026-08-03T00:00:00Z"\n---\n\n新关键词 zworge。`);
+      const future = new Date(Date.now() + 5000);
+      fs.utimesSync(specA, future, future);
+
+      const docs = await listLibraryDocs({});
+      expect(docs.find(d => d.id === 'proj-a:specs/spec-a.md')?.title).toBe('规格甲改');
+
+      const hit = await listLibraryDocs({ search: 'zworge' });
+      expect(hit.map(d => d.id)).toEqual(['proj-a:specs/spec-a.md']);
+    } finally {
+      // 还原 fixture 并推进 mtime，避免污染后续测试
+      fs.writeFileSync(specA, original);
+      const future = new Date(Date.now() + 6000);
+      fs.utimesSync(specA, future, future);
+    }
+  });
+
+  it('对外部项目仓零写入（list/detail 全程无 writeFile）', async () => {
+    const writeSpy = vi.spyOn(fs.promises, 'writeFile');
+    await listLibraryDocs({});
+    await getLibraryDoc('proj-a:legacy-sdd/old-doc');
+    const fixtureWrites = writeSpy.mock.calls.filter(c => String(c[0]).startsWith(tmpRoot));
+    expect(fixtureWrites).toEqual([]);
+    writeSpy.mockRestore();
+  });
+});
+

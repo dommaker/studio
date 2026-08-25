@@ -1344,6 +1344,117 @@ describe('FileStore getIndex 读穿缓存 (#314)', () => {
   });
 });
 
+// ─── #321：readDoc 走读穿缓存 ───
+
+describe('FileStore readDoc 读穿缓存 (#321)', () => {
+  let tmpDir: string;
+  let store: FileStore;
+
+  beforeEach(() => {
+    tmpDir = createTempDir();
+    store = new FileStore(tmpDir);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  const docsDir = () => path.join(tmpDir, 'docs');
+  const docPath = () => path.join(docsDir(), 'hello.md');
+
+  it('文档未变化时重复 readDoc 不重读文件（stat 校验命中缓存）', async () => {
+    await store.writeDoc(docsDir(), 'hello', { title: 'T' }, '正文 body');
+    const readSpy = vi.spyOn(fs.promises, 'readFile');
+    const docReads = () => readSpy.mock.calls.filter(c => String(c[0]) === docPath()).length;
+
+    const first = await store.readDoc(docsDir(), 'hello');
+    expect(first?.meta.title).toBe('T');
+    const readsAfterFirst = docReads();
+    expect(readsAfterFirst).toBe(1);
+
+    await store.readDoc(docsDir(), 'hello');
+    await store.readDoc(docsDir(), 'hello');
+    expect(docReads()).toBe(readsAfterFirst); // 命中缓存，零新增 readFile
+  });
+
+  it('外部写入（绕过 FileStore，mtime 变化）后 readDoc 不返回陈旧缓存', async () => {
+    await store.writeDoc(docsDir(), 'hello', { title: 'old' }, '旧正文');
+    expect((await store.readDoc(docsDir(), 'hello'))?.meta.title).toBe('old'); // 填充缓存
+
+    // 模拟另一进程直接改文件，并显式推进 mtime 避免同毫秒粒度
+    fs.writeFileSync(docPath(), '---\ntitle: "new"\n---\n\n新正文');
+    const future = new Date(Date.now() + 5000);
+    fs.utimesSync(docPath(), future, future);
+
+    const doc = await store.readDoc(docsDir(), 'hello');
+    expect(doc?.meta.title).toBe('new');
+    expect(doc?.body).toContain('新正文');
+  });
+
+  it('writeDoc 后 readDoc 立即可见（写路径失效缓存）', async () => {
+    await store.writeDoc(docsDir(), 'hello', { title: 'before' }, 'a');
+    expect((await store.readDoc(docsDir(), 'hello'))?.meta.title).toBe('before'); // 填充缓存
+
+    await store.writeDoc(docsDir(), 'hello', { title: 'after' }, 'b');
+    expect((await store.readDoc(docsDir(), 'hello'))?.meta.title).toBe('after');
+  });
+
+  it('readDoc 缓存命中返回结构克隆，调用方原地 mutate 不污染缓存', async () => {
+    await store.writeDoc(docsDir(), 'hello', { title: 'pristine' }, 'body');
+    const first = await store.readDoc(docsDir(), 'hello');
+    first!.meta.title = 'mutated-by-caller';
+    first!.body = 'mutated';
+
+    const second = await store.readDoc(docsDir(), 'hello');
+    expect(second?.meta.title).toBe('pristine');
+    expect(second?.body).not.toContain('mutated');
+  });
+
+  it('readDocWithMtime 返回校验用 mtimeMs，缓存命中与首次读取同源', async () => {
+    await store.writeDoc(docsDir(), 'hello', { title: 'T' }, 'b');
+    const first = await store.readDocWithMtime(docsDir(), 'hello');
+    expect(first?.mtimeMs).toBeGreaterThan(0);
+
+    const second = await store.readDocWithMtime(docsDir(), 'hello');
+    expect(second?.mtimeMs).toBe(first?.mtimeMs); // 命中缓存，mtimeMs 与缓存校验戳一致
+
+    // 外部推进 mtime 后重读，mtimeMs 跟随新戳
+    fs.writeFileSync(docPath(), '---\ntitle: "T2"\n---\n\nb2');
+    const future = new Date(Date.now() + 5000);
+    fs.utimesSync(docPath(), future, future);
+    const third = await store.readDocWithMtime(docsDir(), 'hello');
+    expect(third?.meta.title).toBe('T2');
+    expect(third?.mtimeMs).toBe(fs.statSync(docPath()).mtimeMs); // 与文件当前 stat 同源（utimes 浮点换算不直接等值比较）
+  });
+
+  it('readdir 读穿缓存：目录未变化重复读不重扫，外部新增文件后可见', async () => {
+    const dir = docsDir();
+    await store.writeDoc(dir, 'a', {}, 'a');
+    const readdirSpy = vi.spyOn(fs.promises, 'readdir');
+    const dirReads = () => readdirSpy.mock.calls.filter(c => String(c[0]) === dir).length;
+
+    const first = await store.readdir(dir);
+    expect(first.map(e => e.name)).toEqual(['a.md']);
+    const readsAfterFirst = dirReads();
+    expect(readsAfterFirst).toBe(1);
+
+    await store.readdir(dir);
+    expect(dirReads()).toBe(readsAfterFirst); // 命中缓存，零新增 readdir
+
+    // 外部新增文件 → 目录 mtime 变化 → 重扫可见（显式推进 mtime 避免同毫秒粒度）
+    fs.writeFileSync(path.join(dir, 'b.md'), 'b');
+    const future = new Date(Date.now() + 5000);
+    fs.utimesSync(dir, future, future);
+    const second = await store.readdir(dir);
+    expect(second.map(e => e.name).sort()).toEqual(['a.md', 'b.md']);
+  });
+
+  it('readdir 目录不存在抛 ENOENT（与 fs.readdir 语义一致）', async () => {
+    await expect(store.readdir(path.join(tmpDir, 'no-such-dir'))).rejects.toThrow(/ENOENT/);
+  });
+});
+
 // ─── #319：频道消息压实 + message-id 契约 + 分页下沉 ───
 
 describe('频道消息压实（#319）', () => {
