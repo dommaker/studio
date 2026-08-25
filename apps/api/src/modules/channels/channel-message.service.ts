@@ -215,6 +215,32 @@ export class ChannelMessageService {
     return shaped;
   }
 
+  /**
+   * #333：关联 WorkUnit 的统一更新路径（createFromMessage / convert-to-task 共用）。
+   * 与 updateMessageMeta 同口径：append 新版（createdAt 不变，#317/#332）→
+   * eventBus + SSE 双发 channel.message_updated，负载挂全量 shaped message 本体。
+   */
+  async linkWorkUnit(messageId: string, workUnitId: string): Promise<MessageRecord> {
+    const found = await this.fileStore.getMessageById(messageId);
+    if (!found) throw new Error(`Message ${messageId} not found`);
+
+    const updated: ChannelMessageData = { ...found.message, workUnitId };
+    await this.fileStore.appendMessage(found.channelId, updated);
+
+    const shaped = shapeMessageData(updated);
+    // #311（ADR 2026-08-24 D1/D2）：additive 挂全量 shaped message 本体，既有增量字段语义不动
+    eventBus.publish('channel.message_updated', {
+      channelId: found.channelId,
+      messageId,
+      workUnitId,
+      message: shaped,
+    });
+    this.publishSSE('channel.message_updated', {
+      channelId: found.channelId, messageId, workUnitId, message: shaped,
+    });
+    return shaped;
+  }
+
   async deleteMessage(messageId: string): Promise<void> {
     const found = await this.fileStore.getMessageById(messageId);
     if (!found) {

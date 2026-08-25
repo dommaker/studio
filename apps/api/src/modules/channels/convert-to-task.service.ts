@@ -5,9 +5,10 @@
  * and LLM-based suggestions for task creation (AC-E2，走 SystemExecutor /
  * studio 角色绑定的 CLI；角色未配置或调用失败时 suggest 返回空建议，非阻断).
  */
-import { logger, FileStore, type ChannelMessageData } from '@dommaker/studio-shared';
+import { logger, FileStore } from '@dommaker/studio-shared';
 import { WorkUnitService } from '../workunit/workunit.service.js';
 import type { WorkUnitData } from '../workunit/workunit.service.js';
+import { ChannelMessageService, channelMessageService } from './channel-message.service.js';
 import { resolveReqIdForDispatch } from '../requirements/req-binding.js';
 import { getSystemExecutor } from '../agents/system-executor.js';
 
@@ -30,10 +31,14 @@ export interface ConvertSuggestion {
 export class ConvertToTaskService {
   private fileStore: FileStore;
   private workUnitService: WorkUnitService;
+  private messageService: ChannelMessageService;
 
-  constructor(fileStore?: FileStore) {
+  constructor(fileStore?: FileStore, messageService?: ChannelMessageService) {
     this.fileStore = fileStore ?? new FileStore();
     this.workUnitService = new WorkUnitService(this.fileStore);
+    // #333：关联 WU 走 ChannelMessageService 统一更新路径（自带 channel.message_updated 双发）；
+    // 注入口径同 card-decision.service
+    this.messageService = messageService ?? (fileStore ? new ChannelMessageService(fileStore) : channelMessageService);
   }
 
   /**
@@ -84,13 +89,9 @@ export class ConvertToTaskService {
       },
     });
 
-    // 3. Link message to WorkUnit via FileStore (append updated copy)
-    // #332：createdAt = 诞生时刻不可变（ADR 2026-08-24），关联 WU 不 bump
-    const updatedMsg: ChannelMessageData = {
-      ...found.message,
-      workUnitId: workUnit.id,
-    };
-    await this.fileStore.appendMessage(found.channelId, updatedMsg);
+    // 3. Link message to WorkUnit —— #333：经 ChannelMessageService 统一更新路径
+    // （append 新版保留原 createdAt，自带 eventBus + SSE channel.message_updated 双发）
+    await this.messageService.linkWorkUnit(messageId, workUnit.id);
 
     return workUnit;
   }

@@ -11,7 +11,8 @@
  */
 
 import { randomUUID } from 'crypto';
-import { logger, eventBus, FileStore, type AgentProfileData, type ChannelMessageData, type WorkUnitSnapshot, type WorkUnitEvent } from '@dommaker/studio-shared';
+import { logger, eventBus, FileStore, type AgentProfileData, type WorkUnitSnapshot, type WorkUnitEvent } from '@dommaker/studio-shared';
+import { ChannelMessageService, channelMessageService } from '../channels/channel-message.service.js';
 import { resolveInitialStatus, WU_LEASE_TTL_MS } from './workunit.types.js';
 import { buildStatusById, resolveClaimable } from './wu-dependencies.js';
 import type { WorkUnitMetadata } from './workunit.service.js';
@@ -162,9 +163,13 @@ function patchSnapshot(
 
 export class WorkUnitCrudService {
   protected fileStore: FileStore;
+  protected messageService: ChannelMessageService;
 
-  constructor(fileStore?: FileStore) {
+  constructor(fileStore?: FileStore, messageService?: ChannelMessageService) {
     this.fileStore = fileStore ?? new FileStore();
+    // #333：关联 WU 走 ChannelMessageService 统一更新路径（自带 channel.message_updated 双发）；
+    // 注入口径同 card-decision.service
+    this.messageService = messageService ?? (fileStore ? new ChannelMessageService(fileStore) : channelMessageService);
   }
 
   /**
@@ -321,13 +326,9 @@ export class WorkUnitCrudService {
       },
     });
 
-    // Link message to WorkUnit (append updated copy to FileStore)
-    // #332：createdAt = 诞生时刻不可变（ADR 2026-08-24），关联 WU 不 bump
-    const updatedMsg: ChannelMessageData = {
-      ...found.message,
-      workUnitId: wu.id,
-    };
-    await this.fileStore.appendMessage(found.channelId, updatedMsg);
+    // Link message to WorkUnit —— #333：经 ChannelMessageService 统一更新路径
+    // （append 新版保留原 createdAt，自带 eventBus + SSE channel.message_updated 双发）
+    await this.messageService.linkWorkUnit(messageId, wu.id);
 
     return wu;
   }
