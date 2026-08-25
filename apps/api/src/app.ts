@@ -12,18 +12,22 @@ import { optionalAuth } from './middleware/auth.js';
 import { getMetrics } from './monitoring/index.js';
 import { buildRouteTable } from './route-registry.js';
 import { loadRegistry } from './modules/capabilities/routes.js';
+import { isAllowedOrigin } from './cors-origin.js';
 
 export const app = express();
 
 // 中间件
+// 2026-08-25 安全收口：HSTS / COOP 启用（站点 HTTPS-only，HTTP 仅 301）；
+// CSP 仍关（SPA 静态资源在 nginx 层，那里以 report-only 起步）
 app.use(helmet({
   contentSecurityPolicy: false,
   crossOriginEmbedderPolicy: false,
-  crossOriginOpenerPolicy: false,
   crossOriginResourcePolicy: false,
-  hsts: false,
 }));
-app.use(cors());
+// CORS 白名单（此前反射任意 Origin）：同源无 Origin 头不受影响
+app.use(cors({
+  origin: (origin, cb) => cb(null, isAllowedOrigin(origin)),
+}));
 app.use(compression({ filter: shouldCompress }));
 
 // Discord interactions 需要原始 body 进行签名验证，跳过 JSON 解析
