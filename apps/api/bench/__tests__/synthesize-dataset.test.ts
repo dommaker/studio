@@ -143,4 +143,17 @@ describe('synthesizeDataset', () => {
     synthesizeDataset({ templateHome, outHome, scale: 2, recentExecCount: 1 });
     expect(fs.readFileSync(path.join(templateHome, 'data', 'workunits', 'index.json'), 'utf-8')).toBe(before);
   });
+
+  it('scale>1：事件副本按 12h 偏移，全局时间单调（#335 窗口读口的早停前提）', () => {
+    synthesizeDataset({ templateHome, outHome, scale: 3, recentExecCount: 0 });
+    const lines = fs.readFileSync(path.join(outHome, 'logs', 'studio-events.jsonl'), 'utf-8')
+      .trim().split('\n').map(l => JSON.parse(l));
+    expect(lines).toHaveLength(6);
+    // 模板两行 = 2026-08-01T00:00 / 01:00；副本 k 偏移 -k*12h，最旧副本在前
+    expect(lines.map((e: any) => e.createdAt)).toEqual([
+      '2026-07-31T00:00:00.000Z', '2026-07-31T01:00:00.000Z', // k=2：-24h
+      '2026-07-31T12:00:00.000Z', '2026-07-31T13:00:00.000Z', // k=1：-12h
+      '2026-08-01T00:00:00.000Z', '2026-08-01T01:00:00.000Z', // k=0：原始
+    ]);
+  });
 });

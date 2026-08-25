@@ -6,7 +6,15 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { FileStore } from '@dommaker/studio-shared';
+
+// #335：包装窗口读口以计数调用（承载 #329「整个扫描对事件文件只读一次」的回归断言）
+vi.mock('../../../utils/studio-events-tail.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../utils/studio-events-tail.js')>();
+  return { ...actual, readStudioEventsSince: vi.fn(actual.readStudioEventsSince) };
+});
+
 import { resolveEvolutionPaths, loadWindowSignals } from '../signals.js';
+import { readStudioEventsSince } from '../../../utils/studio-events-tail.js';
 
 let tmp: string;
 let fileStore: FileStore;
@@ -14,6 +22,7 @@ let fileStore: FileStore;
 beforeEach(() => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'evo-signals-'));
   fileStore = new FileStore();
+  vi.mocked(readStudioEventsSince).mockClear();
 });
 
 afterEach(() => fs.rmSync(tmp, { recursive: true, force: true }));
@@ -79,7 +88,9 @@ describe('loadWindowSignals', () => {
     expect(sig.outcomes).toEqual([]);
   });
 
-  it('reads the studio events file only once per scan (#329)', async () => {
+  it('single scan yields both signal kinds from the same events file (#329/#335)', async () => {
+    // #329 原断言 = spy fileStore.readJsonl 只读一次；#335 起改走窗口读口，
+    // 同一断言迁移到 readStudioEventsSince 调用计数（见顶部 vi.mock 包装）。
     const now = Date.now();
     const paths = resolveEvolutionPaths({ repoRoot: tmp, eventsDir: path.join(tmp, 'events') });
     fs.mkdirSync(path.dirname(paths.traceFile), { recursive: true });
@@ -89,10 +100,10 @@ describe('loadWindowSignals', () => {
       JSON.stringify({ type: 'knowledge:outcome:success', createdAt: new Date(now - 1000).toISOString(), payload: '{}' }),
     ].join('\n') + '\n');
 
-    const spy = vi.spyOn(fileStore, 'readJsonl');
     const sig = await loadWindowSignals(paths, 24, fileStore);
 
-    expect(spy.mock.calls.filter(c => c[0] === paths.studioEventsFile)).toHaveLength(1);
+    // #329 回归：整个扫描对事件文件只读一次（#335 起经窗口读口承载）
+    expect(vi.mocked(readStudioEventsSince).mock.calls.filter(c => c[0]?.file === paths.studioEventsFile)).toHaveLength(1);
     expect(sig.toolCalls).toHaveLength(1);
     expect(sig.outcomes).toHaveLength(1);
   });

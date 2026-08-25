@@ -23,7 +23,8 @@ import { closeWorkUnitWithNotice } from '../../workunit/wu-closure.js';
 import { buildDeadLetterNotice } from '../../workunit/blocked-cta.js';
 import { parseWuMetadata } from '../../workunit/wu-metadata.js';
 import { DECISION_SPEC_TYPES } from '../../workunit/workunit.types.js';
-import { getStudioEventTime, parseStudioEventPayload, readStudioEvents } from '../../../utils/studio-events.js';
+import { getStudioEventTime, parseStudioEventPayload } from '../../../utils/studio-events.js';
+import { readStudioEventsSince } from '../../../utils/studio-events-tail.js';
 
 const FAILURE_THRESHOLD = 3;
 
@@ -57,7 +58,8 @@ export async function checkFailureTrend(_fileStore: FileStore): Promise<MonitorA
   const alerts: MonitorAlert[] = [];
   const cutoff = Date.now() - 60 * 60 * 1000;
 
-  const events = await readStudioEvents();
+  // #335：窗口读口——窗口外的行不 parse（原 readStudioEvents 全量读 + 应用层过滤）
+  const events = await readStudioEventsSince({ sinceMs: cutoff });
   let wuFailed = 0;
   let stepFailed = 0;
   let stepSucceeded = 0;

@@ -16,6 +16,7 @@
 ### 注意事项
 
 - worker 经 env 注入（`STUDIO_HOME`/`STUDIO_DATA_DIR` 等必须在 app 模块 import 前生效——多处模块级常量 import 期冻结）；父进程 `execFileSync` 子进程隔离每档。
+- 事件副本时间单调（#335）：studio-events.jsonl ×scale 时第 k 份副本时间戳偏移 `-k*12h`（createdAt/timestamp 都移），最旧副本在前——整段复制会让全局时间非单调，`readStudioEventsSince` 窗口读口的早停前提（append-only 单调）在合成数据上不成立。
 - 安全闸两道：Triage 升级换记录桩（升级路径会拉 systemExecutor 跑 LLM）；PATH 前置假 `systemd-run` 阻断 `scheduleVectorDbSync` → mcp-local-rag ingest（写共享生产 lancedb + 30min 子进程吊住事件 loop；模块内部直线调用，exports 桩拦不住，详见 knowledge/CONTEXT.md）。
 - monitor 常态轮预置跳过日级子项；日级窗口（dailyReflection/dataLifecycle/knowledge decay）单列 label 补测，窗口条件强制（状态重置 / Date 冻结到 23:55），只测 1x/50x。
 - ops-round 依赖本地 stub HTTP（端口 39100+scale）让 `apiResponding=true`，避开自动重启/退出分支。

@@ -16,6 +16,8 @@ import { FileStore } from '@dommaker/studio-shared';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
 import { parseStudioEventPayload, getStudioEventTime } from '../../utils/studio-events.js';
+// #335：窗口读口（尾部倒读 + 窗口外早停），替代 readJsonl 全量读
+import { readStudioEventsSince } from '../../utils/studio-events-tail.js';
 
 export interface EvolutionPaths {
   /** 仓库根（.harness/ 与 .agents/ 所在），默认 process.cwd() */
@@ -68,12 +70,6 @@ export interface WindowSignals {
   outcomes: OutcomeEvent[];
 }
 
-interface StudioEventRow {
-  type?: string;
-  createdAt?: string;
-  payload?: string;
-}
-
 /** 加载窗口期内的三类信号（文件缺失 → 空数组，绝不抛出）。 */
 export async function loadWindowSignals(
   paths: EvolutionPaths,
@@ -87,7 +83,8 @@ export async function loadWindowSignals(
 
   // D18: tool:call 与 knowledge:outcome 同一统一事件文件；兼容 payload 嵌套与历史扁平形态
   // #329: 整个扫描对该文件只读一次（原 toolCalls/outcomes 各读一遍，缓存命中仍重复全量 parse+filter）
-  const eventRows = await fileStore.readJsonl<StudioEventRow>(paths.studioEventsFile).catch(() => []);
+  // #335: 窗口读口——窗口外的行不 parse；调用方侧窗口过滤保留（双保险，口径不变）
+  const eventRows = await readStudioEventsSince({ file: paths.studioEventsFile, sinceMs }).catch(() => []);
   const toolCallRows = eventRows.filter(e => e && e.type === 'tool:call');
   const toolCalls: ToolCallEvent[] = [];
   for (const row of toolCallRows) {

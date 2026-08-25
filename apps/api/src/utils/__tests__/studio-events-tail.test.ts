@@ -11,6 +11,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import {
   readStudioEventsTail,
+  readStudioEventsSince,
   studioEventLevelOf,
   levelAtLeast,
 } from '../studio-events-tail.js';
@@ -138,5 +139,82 @@ describe('readStudioEventsTail', () => {
     await fs.writeFile(file, '');
     const r = await readStudioEventsTail({ file, limit: 10 });
     expect(r).toEqual({ events: [], nextCursor: null });
+  });
+});
+
+/**
+ * #335：时间窗读口（尾部倒读 + 首个窗口外行早停）。
+ * 单调前提：文件 append-only 且时间单调（writeStudioEvent 恒追加、#173 轮转保序）。
+ */
+describe('readStudioEventsSince', () => {
+  // line(n) 的 createdAt = 2026-08-01T00:00:<n>.000Z；sinceMs 取 n=4 的秒界
+  const SINCE = new Date('2026-08-01T00:00:04.000Z').getTime();
+
+  it('只返回 t >= sinceMs 的事件，按文件序（旧→新）', async () => {
+    await writeLines([line(1), line(2), line(3), line(4), line(5), line(6)]);
+    const rows = await readStudioEventsSince({ file, sinceMs: SINCE });
+    expect(rows.map((e) => e.n)).toEqual([4, 5, 6]);
+  });
+
+  it('边界含端点：t 恰好等于 sinceMs 的事件被返回', async () => {
+    await writeLines([line(3), line(4)]);
+    const rows = await readStudioEventsSince({ file, sinceMs: SINCE });
+    expect(rows.map((e) => e.n)).toEqual([4]);
+  });
+
+  it('时间非法（无 createdAt/timestamp）的行跳过且不触发停扫', async () => {
+    const noTime = JSON.stringify({ type: 't', payload: '{}', n: 99 });
+    await writeLines([line(1), line(5), noTime, line(6)]);
+    const rows = await readStudioEventsSince({ file, sinceMs: SINCE });
+    expect(rows.map((e) => e.n)).toEqual([5, 6]);
+  });
+
+  it('早停前提文档化：窗口外行更前面的窗口内行不返回（假设时间单调）', async () => {
+    // n=5 在窗口内但位于 n=2（窗口外）之前 —— 倒扫在 n=2 处停扫，n=5 不可见
+    await writeLines([line(5), line(2), line(6)]);
+    const rows = await readStudioEventsSince({ file, sinceMs: SINCE });
+    expect(rows.map((e) => e.n)).toEqual([6]);
+  });
+
+  it('兼容历史扁平事件：timestamp 为 epoch number', async () => {
+    const flat = (sec: number) =>
+      JSON.stringify({ type: 't', timestamp: new Date(`2026-08-01T00:00:${String(sec).padStart(2, '0')}.000Z`).getTime(), n: sec });
+    await writeLines([flat(1), flat(5), flat(6)]);
+    const rows = await readStudioEventsSince({ file, sinceMs: SINCE });
+    expect(rows.map((e) => e.n)).toEqual([5, 6]);
+  });
+
+  it('损坏行跳过；空行跳过', async () => {
+    await writeLines([line(1), 'broken-json', line(5), '', line(6)]);
+    const rows = await readStudioEventsSince({ file, sinceMs: SINCE });
+    expect(rows.map((e) => e.n)).toEqual([5, 6]);
+  });
+
+  it('文件不存在 → []，不抛出', async () => {
+    await expect(readStudioEventsSince({ file: path.join(dir, 'nope.jsonl'), sinceMs: SINCE }))
+      .resolves.toEqual([]);
+  });
+
+  it('空文件 → []', async () => {
+    await fs.writeFile(file, '');
+    await expect(readStudioEventsSince({ file, sinceMs: SINCE })).resolves.toEqual([]);
+  });
+
+  it('全部行都在窗口外 → []', async () => {
+    await writeLines([line(1), line(2), line(3)]);
+    await expect(readStudioEventsSince({ file, sinceMs: SINCE })).resolves.toEqual([]);
+  });
+
+  it('跨 chunk 边界（极小 chunkSize）仍正确', async () => {
+    await writeLines(Array.from({ length: 8 }, (_, i) => line(i + 1)));
+    const rows = await readStudioEventsSince({ file, sinceMs: SINCE, chunkSize: 16 });
+    expect(rows.map((e) => e.n)).toEqual([4, 5, 6, 7, 8]);
+  });
+
+  it('多字节字符跨块不污染（payload 含中文，极小 chunkSize）', async () => {
+    const cn = JSON.stringify({ type: 't', payload: '{"msg":"窗口化读口"}', createdAt: '2026-08-01T00:00:07.000Z', n: 7 });
+    await writeLines([line(1), cn, line(8)]);
+    const rows = await readStudioEventsSince({ file, sinceMs: SINCE, chunkSize: 16 });
+    expect(rows.map((e) => e.n)).toEqual([7, 8]);
   });
 });

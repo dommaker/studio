@@ -166,7 +166,10 @@ describe('MetricsService.getEfficiencyMetrics', () => {
       const trimEvents = [
         { type: 'prompt:section_trimmed', source: 'prompt-composer', payload: JSON.stringify({ section: 'knowledge', originalTokens: 1000, trimmedTokens: 600, quota: 1000 }), createdAt: iso(T - 1 * D) },
       ];
-      const allEvents = [...input.events, ...trimEvents];
+      // #335：窗口读口依赖文件时间单调（生产 = append-only 单调）——
+      // 按 createdAt 排序落盘，与生产文件形态一致（原拼接顺序把 T-10d 窗口外行夹在中间）
+      const allEvents = [...input.events, ...trimEvents]
+        .sort((a, b) => Date.parse(a.createdAt as string) - Date.parse(b.createdAt as string));
       fs.writeFileSync(eventsFile, allEvents.map(r => JSON.stringify(r)).join('\n') + '\n', 'utf-8');
 
       const fileStoreStub = {

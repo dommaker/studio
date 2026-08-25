@@ -98,12 +98,34 @@ export function synthesizeDataset(opts: SynthesizeOptions): SynthesizeStats {
   fs.writeFileSync(path.join(outWusDir, 'index.json'), JSON.stringify(outWus, null, 2));
 
   // ── studio-events.jsonl 行 ×scale ──
+  // #335：副本按 -k*12h 偏移时间戳（createdAt ISO / timestamp number|ISO），最旧副本在前——
+  // 整段复制会让全局时间非单调，窗口读口（尾部倒读 + 首个窗口外行早停）的前提不成立，
+  // 也不符合生产 append-only 单调形态。
   const eventsSrc = path.join(templateHome, 'logs', 'studio-events.jsonl');
   const eventLines = fs.existsSync(eventsSrc)
     ? fs.readFileSync(eventsSrc, 'utf-8').split('\n').filter(l => l.trim().length > 0)
     : [];
+  const COPY_SHIFT_MS = 12 * 3600_000;
+  const shiftLine = (l: string, shiftMs: number): string => {
+    if (shiftMs === 0) return l;
+    try {
+      const e = JSON.parse(l);
+      if (typeof e.createdAt === 'string') {
+        const t = Date.parse(e.createdAt);
+        if (Number.isFinite(t)) e.createdAt = new Date(t - shiftMs).toISOString();
+      }
+      if (typeof e.timestamp === 'number') e.timestamp -= shiftMs;
+      else if (typeof e.timestamp === 'string') {
+        const t = Date.parse(e.timestamp);
+        if (Number.isFinite(t)) e.timestamp = new Date(t - shiftMs).toISOString();
+      }
+      return JSON.stringify(e);
+    } catch { return l; } // 损坏行原样保留（与生产容错一致）
+  };
   const outLines: string[] = [];
-  for (let k = 0; k < scale; k++) outLines.push(...eventLines);
+  for (let k = scale - 1; k >= 0; k--) {
+    for (const l of eventLines) outLines.push(shiftLine(l, k * COPY_SHIFT_MS));
+  }
   fs.writeFileSync(path.join(outLogs, 'studio-events.jsonl'),
     outLines.length > 0 ? outLines.join('\n') + '\n' : '');
 
