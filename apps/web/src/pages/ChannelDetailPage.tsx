@@ -67,7 +67,7 @@ function parseRequirementRef(
 export function ChannelDetailPage() {
   const { id } = useParams<{ id: string }>();
   const [channel, setChannel] = useState<Channel | null>(null);
-  const { messages, loading, sendMessage, loadMore, hasMore, refresh } = useChannelMessages(id);
+  const { messages, loading, sendMessage, loadMore, hasMore, refresh, syncPruning } = useChannelMessages(id);
   const [sending, setSending] = useState(false);
   const [showCompleted, setShowCompleted] = useState(false);
   const [replyTo, setReplyTo] = useState<ChannelMessage | null>(null);
@@ -366,6 +366,17 @@ export function ChannelDetailPage() {
     scrollMargin: streamHeadH,
   });
 
+  // #326：首个可见消息 → 数据层降级/水合同步。仅虚拟化路径（jsdom 全量渲染不降级，
+  // 页面测试语义不变）；首个 virtual item 含 overscan 缓冲，作为降级锚点足够
+  const firstVirtual = virtualEnabled ? virtualizer.getVirtualItems()[0] : undefined;
+  const firstVisibleItem = firstVirtual ? streamView.items[firstVirtual.index] : undefined;
+  const firstVisibleMid = firstVisibleItem
+    ? (firstVisibleItem.kind === 'thread' ? firstVisibleItem.anchor.id : firstVisibleItem.message.id)
+    : null;
+  useEffect(() => {
+    if (virtualEnabled && firstVisibleMid) syncPruning(firstVisibleMid);
+  }, [virtualEnabled, firstVisibleMid, syncPruning]);
+
   const handleSend = useCallback(async (content: string, replyToId?: string, files?: FileRef[]) => {
     setSending(true);
     // 标记「自己发送」窗口：消息落地（本 effect 链或 SSE 先去重）时跟随分支消费并清除
@@ -428,10 +439,24 @@ export function ChannelDetailPage() {
     />
   ), [handleAction, handleReply, findMessage, id, isWaitingForInput, openWu, openWuConfirm, openReq, handleInlineReply, fileVocabulary, wuChangedFiles, highlightId]);
 
+  // #326：骨架占位行——degraded 消息（含 thread anchor）渲染为固定占位行，
+  // 保留 data-message-id（锚点捕获/阅读位置仍可按 mid 定位）；水合后原位恢复
+  const renderSkeletonRow = useCallback((mid: string, dateNode: React.ReactNode) => (
+    <>
+      {dateNode}
+      <div className="mc-msg-skeleton" data-message-id={mid}>历史消息已卸载 · 滚动经过自动加载</div>
+    </>
+  ), []);
+
   // #325：单个 stream item 的渲染内容（日期分隔 + 消息/线程组）——外层包裹（key/测量）
   // 由调用方决定：非虚拟化路径 = 普通 div；虚拟化路径 = data-index + measureElement 行
   const renderStreamItem = useCallback((item: StreamItem) => {
     if (item.kind === 'thread') {
+      if (item.anchor.degraded) {
+        return renderSkeletonRow(item.anchor.id, item.showDate && (
+          <div className="mc-date" key={item.dateKey}>{item.dateLabel}</div>
+        ));
+      }
       return (
         <>
           {item.showDate && (
@@ -477,10 +502,12 @@ export function ChannelDetailPage() {
             {item.dateLabel}
           </div>
         )}
-        {renderMessageItem(item.message, { compact: item.compact })}
+        {item.message.degraded
+          ? renderSkeletonRow(item.message.id, null)
+          : renderMessageItem(item.message, { compact: item.compact })}
       </>
     );
-  }, [renderMessageItem, toggleThread, toggleProcGroup]);
+  }, [renderMessageItem, renderSkeletonRow, toggleThread, toggleProcGroup]);
 
   if (!id) return <div className="mc-stream-empty" style={{ height: '100%' }}>Invalid channel</div>;
 
