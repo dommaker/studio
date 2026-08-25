@@ -199,26 +199,38 @@ export class MCPPermissionService {
 export const mcpPermissionService = new MCPPermissionService();
 
 /**
- * 种子默认权限：系统角色 + admin 默认允许所有工具
+ * 种子默认权限：系统角色默认允许普通工具
+ *
+ * 2026-08-25 安全收口：危险工具（DANGEROUS_TOOLS：不可逆外部副作用 + shell 面）
+ * 仅 PRIVILEGED_ROLES 默认允许，其余角色默认拒绝；且对历史已 seed 成
+ * allowed:true 的记录强制纠正为 false（seed 原本只增不改，旧部署不会自愈）。
  */
+const PRIVILEGED_ROLES = new Set(['admin', 'deploy']);
+const DANGEROUS_TOOLS = new Set(['publishPackage']);
+
 export async function seedDefaultPermissions(toolNames: string[]): Promise<void> {
   const systemRoles = ['admin', 'analyst', 'executor', 'reviewer', 'auditor', 'monitor', 'deploy', 'triage'];
   let seeded = 0;
+  let corrected = 0;
 
   const perms = await fileStore.readJson<MCPPermissionRecord[]>(PERMS_PATH) ?? [];
 
   for (const roleId of systemRoles) {
     for (const toolName of toolNames) {
+      const defaultAllowed = !(DANGEROUS_TOOLS.has(toolName) && !PRIVILEGED_ROLES.has(roleId));
       const existing = perms.find(p => p.roleId === roleId && p.toolName === toolName);
       if (!existing) {
-        perms.push({ id: randomUUID(), roleId, toolName, allowed: true });
+        perms.push({ id: randomUUID(), roleId, toolName, allowed: defaultAllowed });
         seeded++;
+      } else if (!defaultAllowed && existing.allowed) {
+        existing.allowed = false;
+        corrected++;
       }
     }
   }
 
-  if (seeded > 0) {
+  if (seeded > 0 || corrected > 0) {
     await fileStore.writeJson(PERMS_PATH, perms);
-    logger.info(`[MCP Permission] Seeded ${seeded} default permissions for ${systemRoles.length} roles`);
+    logger.info(`[MCP Permission] Seeded ${seeded} default permissions for ${systemRoles.length} roles, corrected ${corrected} dangerous-tool grants`);
   }
 }

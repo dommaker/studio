@@ -21,17 +21,23 @@ const publishPackage: RegisteredTool = {
     required: ['packagePath'],
   },
   handler: async (input) => {
-    const { execSync } = await import('child_process');
+    const { execFileSync } = await import('child_process');
     const pathMod = await import('path');
     const fsMod = await import('fs');
     const steps: Array<{ step: string; status: 'ok' | 'fail' | 'skip'; output?: string }> = [];
     const pkgPath = input.packagePath;
     const dryRun = input.dryRun === 'true';
+    // 2026-08-25 安全收口：bumpType 白名单 fail-fast（schema enum 只是文档，
+    // 任何 exec 之前先拦，防止注入 payload 触到 shell/git 参数面）
+    const bumpType = input.bumpType || 'patch';
+    if (!['patch', 'minor', 'major'].includes(bumpType)) {
+      return { success: false, error: `Invalid bumpType: ${JSON.stringify(bumpType)} (allowed: patch|minor|major)`, steps };
+    }
 
     // 0. Derive GitHub repo from git remote
     let repoUrl = '';
     try {
-      const remoteUrl = execSync('git remote get-url origin', { cwd: pkgPath, encoding: 'utf-8', stdio: 'pipe', timeout: 5_000 }).trim();
+      const remoteUrl = execFileSync('git', ['remote', 'get-url', 'origin'], { cwd: pkgPath, encoding: 'utf-8', stdio: 'pipe', timeout: 5_000 }).trim();
       const m = remoteUrl.match(/github\.com[:/]([^/]+)\/([^/\s.]+?)(?:\.git)?$/);
       if (m) repoUrl = `https://github.com/${m[1]}/${m[2]}`;
     } catch { /* no remote */ }
@@ -47,7 +53,7 @@ const publishPackage: RegisteredTool = {
 
     // 2. Check uncommitted changes
     try {
-      const stat = execSync('git status --porcelain -uno', { cwd: pkgPath, encoding: 'utf-8', stdio: 'pipe', timeout: 10_000 });
+      const stat = execFileSync('git', ['status', '--porcelain', '-uno'], { cwd: pkgPath, encoding: 'utf-8', stdio: 'pipe', timeout: 10_000 });
       const hasChanges = stat.trim().length > 0;
       if (hasChanges) {
         return { success: false, error: `Uncommitted changes in ${pkgPath}. Commit or stash before publishing.`, steps };
@@ -59,7 +65,7 @@ const publishPackage: RegisteredTool = {
 
     // 3. tsc build
     try {
-      execSync('npx tsc', { cwd: pkgPath, encoding: 'utf-8', stdio: 'pipe', timeout: 60_000 });
+      execFileSync('npx', ['tsc'], { cwd: pkgPath, encoding: 'utf-8', stdio: 'pipe', timeout: 60_000 });
       steps.push({ step: 'tsc: build', status: 'ok' });
     } catch (e: any) {
       const errMsg = e.stderr || e.message || String(e);
@@ -80,7 +86,6 @@ const publishPackage: RegisteredTool = {
     }
 
     // 5. Bump version
-    const bumpType = input.bumpType || 'patch';
     if (dryRun) {
       const [major, minor, patch] = pkgVersion.split('.').map(Number);
       let newVer: string;
@@ -95,7 +100,8 @@ const publishPackage: RegisteredTool = {
     }
 
     try {
-      const newVers = execSync(`npm version ${bumpType} --no-git-tag-version`, {
+      // execFileSync 数组参数：bumpType 已过白名单，此处再消除 shell 拼接面
+      const newVers = execFileSync('npm', ['version', bumpType, '--no-git-tag-version'], {
         cwd: pkgPath, encoding: 'utf-8', stdio: 'pipe', timeout: 10_000,
       }).trim();
       steps.push({ step: `version: ${pkgVersion} → ${newVers}`, status: 'ok' });
@@ -106,12 +112,17 @@ const publishPackage: RegisteredTool = {
     // 6. Git commit + tag
     const updatedPkg = JSON.parse(fsMod.readFileSync(pathMod.join(pkgPath, 'package.json'), 'utf-8'));
     const newVersion = updatedPkg.version;
+    // newVersion 来自仓库 package.json，进 git 参数前校验为严格 semver，防止被篡改的
+    // version 字段携带 shell/参数注入（如 `"version": "x --upload-pack=..."`）
+    if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(newVersion)) {
+      return { success: false, error: `Suspicious version in package.json: ${JSON.stringify(newVersion)}`, steps };
+    }
     const tag = `v${newVersion}`;
 
     try {
-      execSync(`git add package.json && git commit -m "release: ${tag}" && git tag ${tag}`, {
-        cwd: pkgPath, encoding: 'utf-8', stdio: 'pipe', timeout: 15_000,
-      });
+      execFileSync('git', ['add', 'package.json'], { cwd: pkgPath, encoding: 'utf-8', stdio: 'pipe', timeout: 15_000 });
+      execFileSync('git', ['commit', '-m', `release: ${tag}`], { cwd: pkgPath, encoding: 'utf-8', stdio: 'pipe', timeout: 15_000 });
+      execFileSync('git', ['tag', tag], { cwd: pkgPath, encoding: 'utf-8', stdio: 'pipe', timeout: 15_000 });
       steps.push({ step: `git: committed + tagged ${tag}`, status: 'ok' });
     } catch (e: any) {
       return { success: false, error: `git commit/tag failed: ${e.message}`, steps };
@@ -120,11 +131,11 @@ const publishPackage: RegisteredTool = {
     // 7. Git push
     try {
       const branch = (() => {
-        try { return execSync('git rev-parse --abbrev-ref HEAD', { cwd: pkgPath, encoding: 'utf-8', stdio: 'pipe', timeout: 5_000 }).trim(); }
+        try { return execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: pkgPath, encoding: 'utf-8', stdio: 'pipe', timeout: 5_000 }).trim(); }
         catch { return 'main'; }
       })();
-      execSync(`git push origin ${branch}`, { cwd: pkgPath, encoding: 'utf-8', stdio: 'pipe', timeout: 30_000 });
-      execSync(`git push origin ${tag}`, { cwd: pkgPath, encoding: 'utf-8', stdio: 'pipe', timeout: 30_000 });
+      execFileSync('git', ['push', 'origin', branch], { cwd: pkgPath, encoding: 'utf-8', stdio: 'pipe', timeout: 30_000 });
+      execFileSync('git', ['push', 'origin', tag], { cwd: pkgPath, encoding: 'utf-8', stdio: 'pipe', timeout: 30_000 });
       steps.push({ step: 'git push: main + tag', status: 'ok' });
     } catch (e: any) {
       return { success: false, error: `git push failed: ${e.message}`, steps };
@@ -132,7 +143,7 @@ const publishPackage: RegisteredTool = {
 
     // 8. npm publish
     try {
-      const pubOut = execSync('npm publish', { cwd: pkgPath, encoding: 'utf-8', stdio: 'pipe', timeout: 120_000 });
+      const pubOut = execFileSync('npm', ['publish'], { cwd: pkgPath, encoding: 'utf-8', stdio: 'pipe', timeout: 120_000 });
       steps.push({ step: `npm: published ${pkgName}@${newVersion}`, status: 'ok', output: pubOut.trim() });
     } catch (e: any) {
       const errMsg = e.stderr || e.message || String(e);
@@ -145,7 +156,7 @@ const publishPackage: RegisteredTool = {
 
     // 9. GitHub Release
     try {
-      const ghOut = execSync(`gh release create ${tag} --generate-notes`, {
+      const ghOut = execFileSync('gh', ['release', 'create', tag, '--generate-notes'], {
         cwd: pkgPath, encoding: 'utf-8', stdio: 'pipe', timeout: 30_000,
       });
       steps.push({ step: `gh release: ${tag}`, status: 'ok', output: ghOut.trim() });

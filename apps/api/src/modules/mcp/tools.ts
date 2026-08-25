@@ -95,6 +95,9 @@ export async function executeTool(
   }
 
   // Permission check — default to 'executor' for local agents (Claude CLI)
+  // 2026-08-25：roleId 自声明的可达面已收口——所有 tools/call 入口
+  // （/messages、/sse、POST /）均挂 requireLocalhost，只有本机直连调用方
+  // 能声明角色；publishPackage 等危险工具另有 seed 层默认拒绝兜底。
   const effectiveRoleId = roleId || 'executor';
   const allowed = await mcpPermissionService.isAllowed(effectiveRoleId, name);
   if (!allowed) {
