@@ -57,6 +57,9 @@ export function useStreamFollow({ channelId, messages, loading, loadMore, items,
   // 频道不符则不存档，防把 A 的阅读位置记到 B 头上（污染存档）
   const messagesChannelRef = useRef<string | undefined>(undefined);
   messagesChannelRef.current = messages[0]?.channelId;
+  // #326：消息渲染期镜像——存档/恢复时查锚行是否骨架（粗锚判定），不引入 effect 依赖
+  const messagesMirrorRef = useRef<ChannelMessage[]>(messages);
+  messagesMirrorRef.current = messages;
 
   const virtualEnabled = STREAM_VIRTUAL_ENABLED;
 
@@ -145,7 +148,11 @@ export function useStreamFollow({ channelId, messages, loading, loadMore, items,
       if (!currentId) return;
       // 消息仍属其他频道（快速连切，新频道数据未到达）→ 不存档
       if (messagesChannelRef.current && messagesChannelRef.current !== currentId) return;
-      saveReadingPosition(currentId, pinnedRef.current ? null : captureAnchor());
+      const anchor = pinnedRef.current ? null : captureAnchor();
+      // #326 粗锚：锚行是骨架（已降级）→ 存档带 coarse，恢复只做行级定位不做像素精校正
+      const anchorDegraded = anchor != null
+        && messagesMirrorRef.current.some(m => m.id === anchor.mid && m.degraded);
+      saveReadingPosition(currentId, anchor && anchorDegraded ? { ...anchor, coarse: true } : anchor);
     };
   }, [channelId, captureAnchor]);
 
@@ -211,7 +218,11 @@ export function useStreamFollow({ channelId, messages, loading, loadMore, items,
           if (restore && idx != null) {
             pinnedRef.current = false;
             setShowJumpToBottom(true);
-            pendingFineAdjustRef.current = restore;
+            // #326 粗锚：存档为粗锚或锚行当前是骨架 → 行级定位即完成，不精校正
+            // （水合由 syncPruning 随首个可见行变化自然触发）
+            const coarseRestore = restore.coarse === true
+              || messagesMirrorRef.current.some(m => m.id === restore.mid && m.degraded);
+            pendingFineAdjustRef.current = coarseRestore ? null : restore;
             virtualizer.scrollToIndex(idx, { align: 'start' });
           } else {
             // 无存档/钉底存档/锚行不在已加载集 → 定位底部（兜底语义同现状）
