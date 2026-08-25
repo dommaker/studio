@@ -28,6 +28,7 @@ export function snapshotToData(s: WorkUnitSnapshot): WorkUnitData {
     updatedAt: new Date(s.updatedAt),
     claimedAt: s.claimedAt ? new Date(s.claimedAt) : null,
     completedAt: s.completedAt ? new Date(s.completedAt) : null,
+    closedAt: s.closedAt ? new Date(s.closedAt) : null,
   };
 }
 

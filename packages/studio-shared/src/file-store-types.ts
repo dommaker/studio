@@ -139,6 +139,9 @@ export interface WorkUnitSnapshot {
   updatedAt: string;
   claimedAt: string | null;
   completedAt: string | null;
+  /** #327: 关闭时刻（ISO 8601，可选——旧快照无此字段仍可加载）。频道消息归档的计龄锚点：
+      仅 status=closed 时有值，reopen（closed→unassigned）清除为 null */
+  closedAt?: string | null;
 }
 
 export interface WorkUnitFilter {

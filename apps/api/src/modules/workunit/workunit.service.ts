@@ -128,6 +128,9 @@ export class WorkUnitService extends WorkUnitCrudService {
       ...current,
       status: newStatus,
       completedAt: (newStatus === 'done' || newStatus === 'closed') ? isoNow : current.completedAt,
+      // #327：closedAt 是归档计龄锚点——转入 closed 落锚；从 closed 迁出（reopen，状态机唯一
+      // 出口 closed→unassigned）清除，活 WU 的消息不按陈旧锚点被归档
+      closedAt: newStatus === 'closed' ? isoNow : current.status === 'closed' ? null : current.closedAt ?? null,
       // #176（决策 #57 D4）：转入 blocked 统一落死信计时基准 metadata.blockedAt
       // （24h 自动关闭与 30min 提醒均以此为锚；复活后再次 blocked 刷新）
       metadata: newStatus === 'blocked'
