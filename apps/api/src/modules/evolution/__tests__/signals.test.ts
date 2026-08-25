@@ -1,7 +1,7 @@
 /**
  * signals tests — E1 进化信号窗口
  */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -77,5 +77,23 @@ describe('loadWindowSignals', () => {
     expect(sig.constraintTraces).toEqual([]);
     expect(sig.toolCalls).toEqual([]);
     expect(sig.outcomes).toEqual([]);
+  });
+
+  it('reads the studio events file only once per scan (#329)', async () => {
+    const now = Date.now();
+    const paths = resolveEvolutionPaths({ repoRoot: tmp, eventsDir: path.join(tmp, 'events') });
+    fs.mkdirSync(path.dirname(paths.traceFile), { recursive: true });
+    fs.mkdirSync(path.dirname(paths.studioEventsFile), { recursive: true });
+    fs.writeFileSync(paths.studioEventsFile, [
+      JSON.stringify({ type: 'tool:call', timestamp: now - 1000, tool: 'Read', success: true }),
+      JSON.stringify({ type: 'knowledge:outcome:success', createdAt: new Date(now - 1000).toISOString(), payload: '{}' }),
+    ].join('\n') + '\n');
+
+    const spy = vi.spyOn(fileStore, 'readJsonl');
+    const sig = await loadWindowSignals(paths, 24, fileStore);
+
+    expect(spy.mock.calls.filter(c => c[0] === paths.studioEventsFile)).toHaveLength(1);
+    expect(sig.toolCalls).toHaveLength(1);
+    expect(sig.outcomes).toHaveLength(1);
   });
 });

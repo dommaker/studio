@@ -86,8 +86,9 @@ export async function loadWindowSignals(
     .filter(t => t && typeof t.timestamp === 'number' && t.timestamp >= sinceMs && typeof t.constraintId === 'string');
 
   // D18: tool:call 与 knowledge:outcome 同一统一事件文件；兼容 payload 嵌套与历史扁平形态
-  const toolCallRows = (await fileStore.readJsonl<Record<string, unknown>>(paths.studioEventsFile).catch(() => []))
-    .filter(e => e && e.type === 'tool:call');
+  // #329: 整个扫描对该文件只读一次（原 toolCalls/outcomes 各读一遍，缓存命中仍重复全量 parse+filter）
+  const eventRows = await fileStore.readJsonl<StudioEventRow>(paths.studioEventsFile).catch(() => []);
+  const toolCallRows = eventRows.filter(e => e && e.type === 'tool:call');
   const toolCalls: ToolCallEvent[] = [];
   for (const row of toolCallRows) {
     const p = parseStudioEventPayload(row) ?? {};
@@ -105,7 +106,7 @@ export async function loadWindowSignals(
     });
   }
 
-  const outcomeRows = (await fileStore.readJsonl<StudioEventRow>(paths.studioEventsFile).catch(() => []))
+  const outcomeRows = eventRows
     .filter(r => r && typeof r.type === 'string' && r.type.startsWith('knowledge:outcome:')
       && typeof r.createdAt === 'string' && new Date(r.createdAt).getTime() >= sinceMs);
 
