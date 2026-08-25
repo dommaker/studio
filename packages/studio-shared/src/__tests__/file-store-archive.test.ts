@@ -228,12 +228,35 @@ describe('queryMessagesPage 分页穿透冷热（#327 阶段4）', () => {
     await store.archiveChannelMessages();
   }
 
-  it('无 before：最新页从热出（热不足 limit 不预填冷），hasMore 计入冷存在性', async () => {
+  it('无 before：热页不足 limit 从冷补满（新→旧），hasMore 计入全链余量（code-review 修复）', async () => {
     await seedHotCold();
+    // 热 3 条（m5,m6,m7）+ 冷最新 2 条（m4,m3）补满 limit=5，升序返回
     const page = await store.queryMessagesPage(CH, { limit: 5 });
-    expect(page.messages.map(m => m.id)).toEqual(['m5', 'm6', 'm7']);
-    expect(page.hasMore).toBe(true);
+    expect(page.messages.map(m => m.id)).toEqual(['m3', 'm4', 'm5', 'm6', 'm7']);
+    expect(page.hasMore).toBe(true); // 冷还剩 m1, m2
     expect(page.total).toBe(7);
+    // 续翻（前端锚 = 页内最老 id）：锚 m3 在冷 → [m1, m2]，全链不漏不重
+    const p2 = await store.queryMessagesPage(CH, { before: 'm3', limit: 5 });
+    expect(p2.messages.map(m => m.id)).toEqual(['m1', 'm2']);
+    expect(p2.hasMore).toBe(false);
+  });
+
+  it('热层全空（全部已归档）：首页直接从冷出——滚动穿透、历史永远在', async () => {
+    // e1(31d)…e6(36d) 全部超龄归档，热层 0 条
+    for (let i = 1; i <= 6; i++) {
+      await store.appendMessage(CH, makeMessage(`e${i}`, CH, { createdAt: daysAgo(30 + i) }));
+    }
+    await store.archiveChannelMessages();
+
+    // 首页：冷新→旧取 4 条（e1..e4），升序返回；不再是 [] + hasMore=true 的死页
+    const p1 = await store.queryMessagesPage(CH, { limit: 4 });
+    expect(p1.messages.map(m => m.id)).toEqual(['e4', 'e3', 'e2', 'e1']);
+    expect(p1.hasMore).toBe(true);
+    expect(p1.total).toBe(6);
+    // 续翻到底
+    const p2 = await store.queryMessagesPage(CH, { before: 'e4', limit: 4 });
+    expect(p2.messages.map(m => m.id)).toEqual(['e6', 'e5']);
+    expect(p2.hasMore).toBe(false);
   });
 
   it('锚在热且热侧不足 limit：余量从冷续（新→旧跨月），全链翻完不重不漏', async () => {
@@ -274,7 +297,7 @@ describe('queryMessagesPage 分页穿透冷热（#327 阶段4）', () => {
     expect(page.hasMore).toBe(false);
   });
 
-  it('跨冷热同毫秒不漏不重：同刻消息分属冷热两侧，翻页各出现一次', async () => {
+  it('跨冷热同毫秒不漏不重：同刻消息分属冷热两侧，同页返回各出现一次', async () => {
     await store.upsertSnapshot(makeWuSnapshot('wu-old', CH, { status: 'closed', closedAt: daysAgo(40), updatedAt: daysAgo(40) }));
     const sameTs = daysAgo(5);
     // 同 createdAt：m-cold 按 WU closedAt 规则归档，m-hot 按 createdAt 规则留热
@@ -282,12 +305,11 @@ describe('queryMessagesPage 分页穿透冷热（#327 阶段4）', () => {
     await store.appendMessage(CH, makeMessage('m-hot', CH, { createdAt: sameTs }));
     await store.archiveChannelMessages();
 
+    // 热 1 条不足 limit → 冷补满：同刻两条同页各出现一次（冷侧在前），total 计 2
     const p1 = await store.queryMessagesPage(CH, { limit: 10 });
-    expect(p1.messages.map(m => m.id)).toEqual(['m-hot']);
-    expect(p1.hasMore).toBe(true);
-    const p2 = await store.queryMessagesPage(CH, { before: 'm-hot', limit: 10 });
-    expect(p2.messages.map(m => m.id)).toEqual(['m-cold']);
-    expect(p2.hasMore).toBe(false);
+    expect(p1.messages.map(m => m.id)).toEqual(['m-cold', 'm-hot']);
+    expect(p1.total).toBe(2);
+    expect(p1.hasMore).toBe(false);
   });
 
   it('thaw/崩溃残留同 id（冷热都有）：新→旧先见为准，不重复返回、不计入 total', async () => {
@@ -301,12 +323,15 @@ describe('queryMessagesPage 分页穿透冷热（#327 阶段4）', () => {
         .map(m => JSON.stringify(m)).join('\n') + '\n',
     );
 
+    // 热 1 条不足 limit → 冷补满：m-y（冷有效）+ m-x（热版本）；冷侧 m-x 残留被遮蔽
     const p1 = await store.queryMessagesPage(CH, { limit: 10 });
-    expect(p1.messages.map(m => m.id)).toEqual(['m-x']);
-    expect(p1.messages[0].content).toBe('hot version');
-    expect(p1.total).toBe(2); // m-x（热）+ m-y（冷有效）；冷侧 m-x 残留被遮蔽
-    const p2 = await store.queryMessagesPage(CH, { before: 'm-x', limit: 10 });
-    expect(p2.messages.map(m => m.id)).toEqual(['m-y']);
+    expect(p1.messages.map(m => m.id)).toEqual(['m-y', 'm-x']);
+    expect(p1.messages.find(m => m.id === 'm-x')?.content).toBe('hot version');
+    expect(p1.total).toBe(2); // m-x（热）+ m-y（冷有效）
+    expect(p1.hasMore).toBe(false);
+    // 锚在冷（m-y 是链上最老）→ 空页
+    const p2 = await store.queryMessagesPage(CH, { before: 'm-y', limit: 10 });
+    expect(p2.messages).toEqual([]);
     expect(p2.hasMore).toBe(false);
   });
 
