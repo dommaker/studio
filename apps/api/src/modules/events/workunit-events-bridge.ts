@@ -10,9 +10,12 @@
 
 import { eventBus, logger } from '@dommaker/studio-shared';
 import { v4 as uuidv4 } from 'uuid';
-import { eventStore } from '../../core/event-store.js';
 
-const FORWARDED_EVENTS = ['workunit.created', 'workunit.status_changed'] as const;
+const FORWARDED_EVENTS = [
+  'workunit.created', 'workunit.status_changed',
+  // SSE 负载加深（2026-08-24 计划）：REQ chips 改 SSE 驱动，负载 = { requirement }（含 id/title/status/channelId）
+  'requirement.created', 'requirement.updated',
+] as const;
 
 let started = false;
 
@@ -23,12 +26,12 @@ export function initWorkunitEventsBridge(): void {
 
   for (const eventType of FORWARDED_EVENTS) {
     eventBus.subscribe(eventType, (payload: unknown) => {
-      eventStore.publish('events', JSON.stringify({
+      eventBus.publish('events', {
         event_type: eventType,
         event_id: uuidv4(),
         timestamp: new Date().toISOString(),
         data: payload,
-      })).catch(() => {}); // best-effort
+      });
     });
   }
   logger.info('[Events] WorkUnit events bridge subscribed', { events: FORWARDED_EVENTS });

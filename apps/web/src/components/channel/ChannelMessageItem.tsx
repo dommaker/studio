@@ -2,7 +2,7 @@
 // 2026-07 视觉重构（方向 A Mission Control）：纯文本行 + 卡片族视觉重绘；交互语义零变更
 // #277（决策 #248 D1/D2/D3/D5）：分侧布局——人右轻气泡 / agent 左无气泡文档流 / 系统播报
 // （Studio 无卡非等待消息）居中淡色一行 / 卡片全宽不参与分侧；compact 省略重复头；双侧 @name 染 mention chip。
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { ChannelFileVocabulary, ChannelMessage } from '../../api/channel';
 import { AuthorAvatar } from './AuthorAvatar';
@@ -35,7 +35,8 @@ interface Props {
   isThreadAnchor?: boolean;
   threadReplyCount?: number;
   isExpanded?: boolean;
-  onToggleThread?: () => void;
+  /** #322：稳定 props 契约——收锚点 id（父组件直传 useCallback 的 toggleThread，不再内联闭包） */
+  onToggleThread?: (anchorId: string) => void;
   isThreadReply?: boolean;
   /** F5: 关联 WorkUnit 挂起等待人类回复（NEED_INPUT） */
   waitingForInput?: boolean;
@@ -88,7 +89,9 @@ function renderCard(
   }
 }
 
-export function ChannelMessageItem({
+// #322：React.memo 化——父组件已建立稳定 props 契约（useCallback/提升 + 镜像 ref），
+// step 事件/无关 state 变化不再重渲既有消息项（render-count 测试兜底）
+export const ChannelMessageItem = memo(function ChannelMessageItem({
   message, onAction, onReply, findMessage, channelId,
   isThreadAnchor, threadReplyCount, isExpanded, onToggleThread, isThreadReply,
   waitingForInput, onOpenWorkUnit, onOpenWorkUnitConfirm, onOpenRequirement, onInlineReply, fileVocabulary, wuChangedFiles, compact, highlight,
@@ -329,7 +332,7 @@ export function ChannelMessageItem({
             </button>
           )}
           {isThreadAnchor && threadReplyCount !== undefined && threadReplyCount > 0 && (
-            <button onClick={onToggleThread} className="mc-thread-toggle" style={{ margin: 0 }}>
+            <button onClick={() => onToggleThread?.(message.id)} className="mc-thread-toggle" style={{ margin: 0 }}>
               {isExpanded ? '▾ 收起回复' : `▸ ${threadReplyCount} 条回复`}
             </button>
           )}
@@ -349,7 +352,7 @@ export function ChannelMessageItem({
       )}
     </div>
   );
-}
+});
 
 /** 卡片 meta 类型与解析已迁至 utils/messageMeta（#264）；此处 re-export 保持既有 import 路径不变 */
 export type { CardMeta } from '../../utils/messageMeta';

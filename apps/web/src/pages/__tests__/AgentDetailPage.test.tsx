@@ -1,6 +1,6 @@
 // Contract test: AgentDetailPage — /agents/:profileId（2026-07-31 §5.3：正在执行 + 历史任务 + 统计）
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, act } from '@testing-library/react';
 import React from 'react';
 
 vi.mock('react', async () => {
@@ -8,13 +8,18 @@ vi.mock('react', async () => {
   return { ...actual, default: actual };
 });
 
-const { mockListAllAgents, mockListChannels, mockGetAgentSummary, mockWuList, mockWuGet, mockListExecSteps } = vi.hoisted(() => ({
+const { mockListAllAgents, mockListChannels, mockGetAgentSummary, mockWuList, mockWuGet, mockListExecSteps, sse } = vi.hoisted(() => ({
   mockListAllAgents: vi.fn(),
   mockListChannels: vi.fn(),
   mockGetAgentSummary: vi.fn(),
   mockWuList: vi.fn(),
   mockWuGet: vi.fn(),
   mockListExecSteps: vi.fn(),
+  // SSE 注册口捕获（#318：页面与内嵌 ExecutionSteps 都经 useWebSocketContext 订阅，广播全体）
+  sse: {
+    handlers: [] as Array<(msg: { event_type: string; data: unknown }) => void>,
+    reconnects: [] as Array<() => void>,
+  },
 }));
 
 vi.mock('react-router-dom', () => ({
@@ -39,15 +44,21 @@ vi.mock('../../api/workunit', async () => {
   };
 });
 
-// SSE：测试无 WebSocketProvider，ExecutionSteps/页面级订阅的两个 hook 置空
-vi.mock('../../hooks/useWorkUnitEvents', () => ({
-  useWorkUnitEvents: () => {},
-}));
+// SSE：测试无 WebSocketProvider，Layer B 步内流式置空；useWebSocketContext 捕获订阅回调供用例广播
 vi.mock('../../hooks/useWorkUnitStreamEvents', () => ({
   useWorkUnitStreamEvents: () => [],
 }));
 vi.mock('../../api/websocketHooks', () => ({
-  useWebSocketContext: () => ({ onEvent: () => () => {} }),
+  useWebSocketContext: () => ({
+    onEvent: (fn: (msg: { event_type: string; data: unknown }) => void) => {
+      sse.handlers.push(fn);
+      return () => { sse.handlers = sse.handlers.filter(h => h !== fn); };
+    },
+    onReconnect: (fn: () => void) => {
+      sse.reconnects.push(fn);
+      return () => { sse.reconnects = sse.reconnects.filter(h => h !== fn); };
+    },
+  }),
 }));
 
 vi.mock('../../api/index', () => ({
@@ -78,6 +89,8 @@ function mockApis({ agents = [busyInstance], profiles = [profile] }: { agents?: 
 describe('AgentDetailPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    sse.handlers.length = 0;
+    sse.reconnects.length = 0;
     mockApis();
     mockListChannels.mockResolvedValue({ data: { success: true, data: [{ id: 'ch1', name: 'backend', type: 'dev' }] } });
     mockWuGet.mockResolvedValue({ data: { id: 'wu-2', scope: '补查任务', type: 'FIX', status: 'active', claimedAt: null } });
@@ -159,5 +172,99 @@ describe('AgentDetailPage', () => {
     expect(await screen.findByText('dev-agent')).toBeDefined();
     await waitFor(() => expect(screen.getByText('当前空闲')).toBeDefined());
     expect(screen.queryByText('强制停止')).toBeNull();
+  });
+});
+
+// #318：SSE 负载直更——instance status_changed 就地更新（含 additive pmo/startedAt，旧形状回退保留）、
+// workunit.status_changed 历史行就地 + 低频防抖重拉（只历史区 1 接口）、重连一次性整页 refetch
+describe('AgentDetailPage — SSE 负载直更（#318）', () => {
+  const emitSse = (msg: { event_type: string; data: unknown }) => {
+    act(() => { sse.handlers.forEach(h => h(msg)); });
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sse.handlers.length = 0;
+    sse.reconnects.length = 0;
+    mockApis();
+    mockListChannels.mockResolvedValue({ data: { success: true, data: [{ id: 'ch1', name: 'backend', type: 'dev' }] } });
+    mockListExecSteps.mockResolvedValue({ data: { events: [], total: 0 } });
+    mockWuList.mockResolvedValue({
+      data: {
+        data: [
+          { id: 'wu-1', scope: '实现登录接口', type: 'DEV', status: 'active', failureType: null, completedAt: null, updatedAt: '2026-07-31T09:00:00Z' },
+        ],
+        pagination: { page: 1, limit: 20, total: 1, totalPages: 1 },
+      },
+    });
+  });
+
+  it('instance status_changed（profileId 匹配）→ 就地更新状态/当前 WU/pmo，不整页 load', async () => {
+    render(<AgentDetailPage />);
+    expect(await screen.findByText('PMO-7 · 用户系统')).toBeDefined();
+    emitSse({
+      event_type: 'agent.instance.status_changed',
+      data: {
+        profileId: 'p1', instanceId: 'i1', name: 'dev-agent', status: 'idle',
+        currentWorkUnitId: null, currentWorkUnit: null, channelId: null,
+        pmo: null, startedAt: '2026-07-31T08:00:00Z', lastError: null, lastErrorAt: null,
+      },
+    });
+    expect(await screen.findByText('当前空闲')).toBeDefined();
+    expect(screen.queryByText('PMO-7 · 用户系统')).toBeNull();
+    // 负载直更：不得触发整页重拉
+    expect(mockGetAgentSummary).toHaveBeenCalledTimes(1);
+    expect(mockListAllAgents).toHaveBeenCalledTimes(1);
+  });
+
+  it('旧形状负载（缺 pmo/startedAt 键）→ 回退保留原值（ADR D2）', async () => {
+    render(<AgentDetailPage />);
+    expect(await screen.findByText('PMO-7 · 用户系统')).toBeDefined();
+    emitSse({
+      event_type: 'agent.instance.status_changed',
+      data: {
+        profileId: 'p1', instanceId: 'i1', name: 'dev-agent', status: 'active',
+        currentWorkUnitId: 'wu-1',
+        currentWorkUnit: { id: 'wu-1', title: '实现登录接口', type: 'DEV', status: 'active', claimedAt: '2026-07-31T09:00:00Z' },
+        channelId: 'ch1', lastError: null, lastErrorAt: null,
+      },
+    });
+    await waitFor(() => expect(sse.handlers.length).toBeGreaterThan(0));
+    // pmo / startedAt 保留原值
+    expect(screen.getByText('PMO-7 · 用户系统')).toBeDefined();
+    expect(screen.getByText(/运行:/)).toBeDefined();
+  });
+
+  it('workunit.status_changed → 历史行与当前卡就地更新；防抖后只重拉历史区 1 接口', async () => {
+    render(<AgentDetailPage />);
+    expect((await screen.findAllByText('实现登录接口')).length).toBeGreaterThan(0);
+    expect(mockWuList).toHaveBeenCalledTimes(1);
+    emitSse({
+      event_type: 'workunit.status_changed',
+      data: {
+        workunit: {
+          id: 'wu-1', scope: '实现登录接口', type: 'DEV', status: 'in_review',
+          assigneeId: 'i1', failureType: null, completedAt: null, updatedAt: '2026-07-31T10:00:00Z',
+          metadata: null, createdAt: '2026-07-31T08:00:00Z', claimedAt: '2026-07-31T09:00:00Z',
+        },
+      },
+    });
+    // 就地更新即时可见（当前卡 + 历史行各一处）
+    await waitFor(() => expect(screen.getAllByText('in_review').length).toBeGreaterThanOrEqual(1));
+    // 不整页 load
+    expect(mockGetAgentSummary).toHaveBeenCalledTimes(1);
+    // 取舍（b）：窗口/total 无事件语义 → 低频防抖后只重拉历史区接口
+    await waitFor(() => expect(mockWuList).toHaveBeenCalledTimes(2), { timeout: 3000 });
+    expect(mockWuList).toHaveBeenLastCalledWith({ assigneeId: 'i1', limit: 20 });
+    expect(mockGetAgentSummary).toHaveBeenCalledTimes(1);
+  });
+
+  it('SSE 重连 → 一次性整页 refetch 对齐（ADR D3）', async () => {
+    render(<AgentDetailPage />);
+    expect(await screen.findByText('dev-agent')).toBeDefined();
+    await waitFor(() => expect(sse.reconnects.length).toBeGreaterThan(0));
+    expect(mockGetAgentSummary).toHaveBeenCalledTimes(1);
+    act(() => { sse.reconnects.forEach(fn => fn()); });
+    await waitFor(() => expect(mockGetAgentSummary).toHaveBeenCalledTimes(2));
   });
 });

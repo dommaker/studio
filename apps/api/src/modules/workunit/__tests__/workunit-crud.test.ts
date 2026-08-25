@@ -278,12 +278,16 @@ describe('create', () => {
 // ── createFromMessage ──
 
 describe('createFromMessage', () => {
-  async function seedMessage(content: string, workUnitId: string | null = null): Promise<ChannelMessageData> {
+  async function seedMessage(
+    content: string,
+    workUnitId: string | null = null,
+    createdAt?: string,
+  ): Promise<ChannelMessageData> {
     const msg: ChannelMessageData = {
       id: randomUUID(), channelId: 'ch-msg', workUnitId,
       authorType: 'human', agentName: null,
       content, replyToId: null, meta: '{}',
-      createdAt: new Date().toISOString(),
+      createdAt: createdAt ?? new Date().toISOString(),
     };
     await fileStore.appendMessage('ch-msg', msg);
     return msg;
@@ -324,6 +328,46 @@ describe('createFromMessage', () => {
 
     expect(wu.scope).toHaveLength(500);
     expect(wu.scope).toBe('x'.repeat(500));
+  });
+
+  it('关联后新版本消息 createdAt 保持原诞生时刻，不被 bump（#332）', async () => {
+    const originalCreatedAt = '2026-08-01T00:00:00.000Z';
+    const msg = await seedMessage('历史消息', null, originalCreatedAt);
+
+    await service.createFromMessage(msg.id);
+
+    const found = await fileStore.getMessageById(msg.id);
+    expect(found!.message.createdAt).toBe(originalCreatedAt);
+  });
+
+  it('关联后发布 channel.message_updated（eventBus + SSE 双发，负载挂全量 shaped body，#333）', async () => {
+    const msg = await seedMessage('关联我');
+
+    const events: unknown[] = [];
+    const sseEnvelopes: { data: Record<string, any> }[] = [];
+    const updatedHandler = (p: unknown) => { events.push(p); };
+    const sseHandler = (e: { event_type: string; data: Record<string, any> }) => {
+      if (e.event_type === 'channel.message_updated') sseEnvelopes.push(e);
+    };
+    eventBus.subscribe('channel.message_updated', updatedHandler);
+    eventBus.subscribe('events', sseHandler);
+    try {
+      const wu = await service.createFromMessage(msg.id);
+
+      expect(events).toHaveLength(1);
+      const p = events[0] as Record<string, any>;
+      expect(p.channelId).toBe('ch-msg');
+      expect(p.messageId).toBe(msg.id);
+      expect(p.workUnitId).toBe(wu.id);
+      expect(p.message.workUnitId).toBe(wu.id);
+
+      expect(sseEnvelopes).toHaveLength(1);
+      expect(sseEnvelopes[0].data.messageId).toBe(msg.id);
+      expect(sseEnvelopes[0].data.message.workUnitId).toBe(wu.id);
+    } finally {
+      eventBus.unsubscribe('channel.message_updated', updatedHandler);
+      eventBus.unsubscribe('events', sseHandler);
+    }
   });
 });
 
@@ -561,5 +605,66 @@ describe('unclaim', () => {
     // 事件流追加了 updated 事件
     const events = readEvents();
     expect(events.some(e => e.type === 'updated' && e.wuId === wu.id)).toBe(true);
+  });
+});
+
+// #318（SSE 负载深化 additive，ADR D2）：workunit.created / workunit.status_changed 负载附 claimable
+// 标记，口径与 GET / 列表路由一致（unassigned 且无未了结依赖才 true；其余状态恒 false 不读 index）。
+// 前端 WorkUnitListPage 据此负载直更「被阻塞」徽标，不再整页重拉。
+describe('事件负载 claimable 标记（#318 additive）', () => {
+  let createdEvents: WorkUnitData[];
+  let createdHandler: (payload: { workunit: WorkUnitData }) => void;
+
+  beforeEach(() => {
+    createdEvents = [];
+    createdHandler = (payload) => { createdEvents.push(payload.workunit); };
+    eventBus.subscribe('workunit.created', createdHandler);
+  });
+
+  afterEach(() => {
+    eventBus.unsubscribe('workunit.created', createdHandler);
+  });
+
+  it('workunit.created：unassigned 无依赖 → claimable: true', async () => {
+    const wu = await service.create({ scope: '可认领', status: 'unassigned' });
+    const evt = createdEvents.find(e => e.id === wu.id);
+    expect(evt).toBeDefined();
+    expect((evt as WorkUnitData & { claimable?: boolean })!.claimable).toBe(true);
+  });
+
+  it('workunit.created：unassigned 有未了结依赖 → claimable: false', async () => {
+    const wu = await service.create({
+      scope: '被阻塞',
+      status: 'unassigned',
+      metadata: { blockedBy: ['wu-nonexistent'] },
+    });
+    const evt = createdEvents.find(e => e.id === wu.id);
+    expect((evt as WorkUnitData & { claimable?: boolean })!.claimable).toBe(false);
+  });
+
+  it('workunit.created：pending（默认人闸）→ claimable: false', async () => {
+    const wu = await service.create({ scope: '待确认' });
+    const evt = createdEvents.find(e => e.id === wu.id);
+    expect(evt!.status).toBe('pending');
+    expect((evt as WorkUnitData & { claimable?: boolean })!.claimable).toBe(false);
+  });
+
+  it('status_changed：claim → active 时 claimable: false', async () => {
+    const wu = await service.create({ scope: '认领后事件', status: 'unassigned' });
+    statusEvents.length = 0;
+    await service.claim(wu.id, 'inst-1');
+    const evt = statusEvents.find(e => e.id === wu.id && e.status === 'active');
+    expect(evt).toBeDefined();
+    expect((evt as WorkUnitData & { claimable?: boolean })!.claimable).toBe(false);
+  });
+
+  it('status_changed：unclaim → unassigned 无依赖时 claimable: true', async () => {
+    const wu = await service.create({ scope: '释放后事件', status: 'unassigned' });
+    await service.claim(wu.id, 'inst-1');
+    statusEvents.length = 0;
+    await service.unclaim(wu.id);
+    const evt = statusEvents.find(e => e.id === wu.id && e.status === 'unassigned');
+    expect(evt).toBeDefined();
+    expect((evt as WorkUnitData & { claimable?: boolean })!.claimable).toBe(true);
   });
 });

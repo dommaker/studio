@@ -17,6 +17,8 @@ interface UseSSEOptions {
   onConnect?: () => void;
   onDisconnect?: () => void;
   onError?: (error: Event) => void;
+  /** 决策 9（2026-08 SSE 负载加深）：断线重连（onopen 且非首次连接）时触发，供消费侧一次性 refetch */
+  onReconnect?: () => void;
   reconnect?: boolean;
   reconnectInterval?: number;
   maxReconnectAttempts?: number;
@@ -28,6 +30,7 @@ export function useWebSocket(options: UseSSEOptions = {}) {
     onConnect,
     onDisconnect,
     onError,
+    onReconnect,
     reconnect = true,
     reconnectInterval = 3000,
     maxReconnectAttempts = 5,
@@ -37,11 +40,13 @@ export function useWebSocket(options: UseSSEOptions = {}) {
   const esRef = useRef<EventSource | null>(null);
   const reconnectAttempts = useRef(0);
   const reconnectTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // 首次 onopen 不算重连；之后每次 onopen（EventSource 内建自动重连成功）触发 onReconnect
+  const hasOpenedRef = useRef(false);
 
   // Stabilize callbacks with refs to avoid SSE reconnect loop
-  const callbacksRef = useRef({ onMessage, onConnect, onDisconnect, onError });
+  const callbacksRef = useRef({ onMessage, onConnect, onDisconnect, onError, onReconnect });
   useEffect(() => {
-    callbacksRef.current = { onMessage, onConnect, onDisconnect, onError };
+    callbacksRef.current = { onMessage, onConnect, onDisconnect, onError, onReconnect };
   });
 
   const sseUrl = (() => {
@@ -68,6 +73,9 @@ export function useWebSocket(options: UseSSEOptions = {}) {
       setStatus('connected');
       reconnectAttempts.current = 0;
       callbacksRef.current.onConnect?.();
+      // 决策 9：非首次 onopen = 断线重连成功 → 触发一次性 refetch 回调
+      if (hasOpenedRef.current) callbacksRef.current.onReconnect?.();
+      hasOpenedRef.current = true;
     };
 
     es.onmessage = (event) => {
@@ -110,6 +118,8 @@ interface WebSocketContextValue {
   connect: () => void;
   /** B2: 注册 SSE 事件监听器，返回取消注册函数 */
   onEvent: (handler: (msg: WebSocketMessage) => void) => () => void;
+  /** 决策 9：注册 SSE 断线重连监听器（首次连接不触发），返回取消注册函数 */
+  onReconnect: (handler: () => void) => () => void;
 }
 
 export const WebSocketContext = createContext<WebSocketContextValue | null>(null);

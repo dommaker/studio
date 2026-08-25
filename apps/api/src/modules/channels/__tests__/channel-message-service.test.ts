@@ -1,5 +1,5 @@
 // ChannelMessageService integration test (FileStore)
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import { eventBus, FileStore } from '@dommaker/studio-shared';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -128,6 +128,216 @@ describe('ChannelMessageService', () => {
     });
     expect(updated.content).toBe('Error occurred');
     expect(updated.meta).toMatchObject({ status: 'error' });
+  });
+
+  // ── #311：channel.message_updated 负载带全量 message 本体（ADR 2026-08-24 D1/D2）──
+
+  it('updateMessageMeta: payload carries full shaped message body', async () => {
+    const msg = await service.createAgentMessage(
+      channelId, 'Auditor', 'Card body', { meta: { cardType: 'auditor_suggestion', status: 'ready' } }
+    );
+
+    const events: any[] = [];
+    const handler = (payload: any) => events.push(payload);
+    eventBus.subscribe('channel.message_updated', handler);
+
+    await service.updateMessageMeta(msg.id, { status: 'confirmed' });
+    eventBus.unsubscribe('channel.message_updated', handler);
+
+    expect(events.length).toBe(1);
+    const p = events[0];
+    expect(p.channelId).toBe(channelId);
+    expect(p.messageId).toBe(msg.id);
+    // 新增 message 字段 = 落库后完整 shaped message（meta 为合并后全量、content 原样）
+    expect(p.message).toBeDefined();
+    expect(p.message.id).toBe(msg.id);
+    expect(p.message.channelId).toBe(channelId);
+    expect(p.message.content).toBe('Card body');
+    expect(p.message.meta).toMatchObject({ cardType: 'auditor_suggestion', status: 'confirmed' });
+    // D2：既有顶层字段语义不变（meta 仍是合并后全量）
+    expect(p.meta).toMatchObject({ cardType: 'auditor_suggestion', status: 'confirmed' });
+  });
+
+  it('updateMessage: payload carries full shaped body for content-only / meta-only / both', async () => {
+    const base = await service.createAgentMessage(
+      channelId, 'Analyst', 'Thinking...', { meta: { status: 'thinking', goalId: 'g1' } }
+    );
+
+    const events: any[] = [];
+    const handler = (payload: any) => events.push(payload);
+    eventBus.subscribe('channel.message_updated', handler);
+
+    await service.updateMessage(base.id, { content: 'Half done' });
+    await service.updateMessage(base.id, { meta: { status: 'error' } });
+    await service.updateMessage(base.id, { content: 'Final', meta: { status: 'done' } });
+    eventBus.unsubscribe('channel.message_updated', handler);
+
+    expect(events.length).toBe(3);
+
+    // content-only：message 为 patch 后全量；顶层 content/meta 仍是增量（D2 不动）
+    expect(events[0].message.content).toBe('Half done');
+    expect(events[0].message.meta).toMatchObject({ status: 'thinking', goalId: 'g1' });
+    expect(events[0].content).toBe('Half done');
+    expect(events[0].meta).toBeUndefined();
+
+    // meta-only：message.meta 为合并后全量（后端真值）；顶层 meta 仍是增量
+    expect(events[1].message.content).toBe('Half done');
+    expect(events[1].message.meta).toMatchObject({ goalId: 'g1', status: 'error' });
+    expect(events[1].content).toBeUndefined();
+    expect(events[1].meta).toEqual({ status: 'error' });
+
+    // both
+    expect(events[2].message.content).toBe('Final');
+    expect(events[2].message.meta).toMatchObject({ goalId: 'g1', status: 'done' });
+    expect(events[2].content).toBe('Final');
+    expect(events[2].meta).toEqual({ status: 'done' });
+  });
+
+  it('SSE channel.message_updated payload carries the same message body', async () => {
+    const spy = vi.spyOn(eventBus, 'publish').mockImplementation(() => {});
+    try {
+      const msg = await service.createHumanMessage(channelId, 'SSE body');
+      spy.mockClear();
+
+      await service.updateMessageMeta(msg.id, { status: 'done' });
+
+      const call = spy.mock.calls.find(([channel]) => channel === 'events');
+      expect(call).toBeDefined();
+      const envelope = call![1] as { event_type: string; data: { message: Record<string, unknown> } };
+      expect(envelope.event_type).toBe('channel.message_updated');
+      expect(envelope.data.message).toBeDefined();
+      expect(envelope.data.message.id).toBe(msg.id);
+      expect(envelope.data.message.content).toBe('SSE body');
+      expect(envelope.data.message.meta).toMatchObject({ status: 'done' });
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  // ── #317：createdAt = 诞生时刻，更新不可变 ──
+
+  it('updateMessageMeta preserves the original createdAt', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(new Date('2026-08-24T08:00:00.000Z'));
+      const msg = await service.createHumanMessage(channelId, 'Original');
+
+      vi.setSystemTime(new Date('2026-08-24T09:00:00.000Z'));
+      const updated = await service.updateMessageMeta(msg.id, { status: 'done' });
+
+      expect(updated.createdAt.toISOString()).toBe('2026-08-24T08:00:00.000Z');
+      // 落库行同样保留原值（REST 刷新路径读到的是它）
+      const stored = await fileStore.getMessageById(msg.id);
+      expect(stored!.message.createdAt).toBe('2026-08-24T08:00:00.000Z');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('updateMessage preserves the original createdAt', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(new Date('2026-08-24T08:00:00.000Z'));
+      const msg = await service.createAgentMessage(
+        channelId, 'Analyst', 'Thinking...', { meta: { status: 'thinking' } }
+      );
+
+      vi.setSystemTime(new Date('2026-08-24T09:00:00.000Z'));
+      const updated = await service.updateMessage(msg.id, {
+        content: 'Error occurred',
+        meta: { status: 'error' },
+      });
+
+      expect(updated.createdAt.toISOString()).toBe('2026-08-24T08:00:00.000Z');
+      const stored = await fileStore.getMessageById(msg.id);
+      expect(stored!.message.createdAt).toBe('2026-08-24T08:00:00.000Z');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('anchor stays before its replies in REST listing after updateMessageMeta', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(new Date('2026-08-24T08:00:00.000Z'));
+      const anchor = await service.createHumanMessage(channelId, 'anchor', undefined, 'WU-317');
+      vi.setSystemTime(new Date('2026-08-24T08:01:00.000Z'));
+      const reply = await service.createHumanMessage(channelId, 'reply', anchor.id, 'WU-317');
+
+      // anchor 被更新（如卡片决策回写）——即使更新时刻晚于 reply，归位仍按诞生时刻
+      vi.setSystemTime(new Date('2026-08-24T09:00:00.000Z'));
+      await service.updateMessageMeta(anchor.id, { status: 'confirmed' });
+
+      const { data } = await service.listByWorkUnitId('WU-317');
+      expect(data.map(m => m.id)).toEqual([anchor.id, reply.id]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // ── #333：linkWorkUnit —— 关联 WorkUnit 的统一更新路径 ──
+
+  it('linkWorkUnit sets workUnitId and publishes channel.message_updated with full shaped body', async () => {
+    const msg = await service.createHumanMessage(channelId, 'Link me');
+
+    const events: any[] = [];
+    const handler = (payload: any) => events.push(payload);
+    eventBus.subscribe('channel.message_updated', handler);
+
+    const updated = await service.linkWorkUnit(msg.id, 'WU-333');
+    eventBus.unsubscribe('channel.message_updated', handler);
+
+    expect(updated.workUnitId).toBe('WU-333');
+    expect(events.length).toBe(1);
+    const p = events[0];
+    expect(p.channelId).toBe(channelId);
+    expect(p.messageId).toBe(msg.id);
+    expect(p.workUnitId).toBe('WU-333');
+    // #311 口径：additive 挂全量 shaped message 本体
+    expect(p.message).toBeDefined();
+    expect(p.message.id).toBe(msg.id);
+    expect(p.message.workUnitId).toBe('WU-333');
+    expect(p.message.content).toBe('Link me');
+    // 落库行同样挂上
+    const stored = await fileStore.getMessageById(msg.id);
+    expect(stored!.message.workUnitId).toBe('WU-333');
+  });
+
+  it('linkWorkUnit SSE payload carries the same message body', async () => {
+    const spy = vi.spyOn(eventBus, 'publish').mockImplementation(() => {});
+    try {
+      const msg = await service.createHumanMessage(channelId, 'SSE link');
+      spy.mockClear();
+
+      await service.linkWorkUnit(msg.id, 'WU-333');
+
+      const call = spy.mock.calls.find(([channel]) => channel === 'events');
+      expect(call).toBeDefined();
+      const envelope = call![1] as { event_type: string; data: { message: Record<string, unknown> } };
+      expect(envelope.event_type).toBe('channel.message_updated');
+      expect(envelope.data.message).toBeDefined();
+      expect(envelope.data.message.id).toBe(msg.id);
+      expect(envelope.data.message.workUnitId).toBe('WU-333');
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('linkWorkUnit preserves the original createdAt', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(new Date('2026-08-24T08:00:00.000Z'));
+      const msg = await service.createHumanMessage(channelId, 'Original');
+
+      vi.setSystemTime(new Date('2026-08-24T09:00:00.000Z'));
+      const updated = await service.linkWorkUnit(msg.id, 'WU-333');
+
+      expect(updated.createdAt.toISOString()).toBe('2026-08-24T08:00:00.000Z');
+      const stored = await fileStore.getMessageById(msg.id);
+      expect(stored!.message.createdAt).toBe('2026-08-24T08:00:00.000Z');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   // ── deleteMessage ──

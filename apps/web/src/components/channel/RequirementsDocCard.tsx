@@ -1,11 +1,10 @@
 // RequirementsDoc inline card — B1-001/B1-003, M2 quality gate
-// 2026-07 视觉重构（方向 A Mission Control）：mc-card 视觉重绘；质量门/编辑/进度轮询逻辑零变更
+// 2026-07 视觉重构（方向 A Mission Control）：mc-card 视觉重绘
 // #278（决策 #250 D2）：requirements_doc 产卡链已删（历史卡）→ 按钮区整区隐藏 + 卡底淡注
 // 「该确认入口已下线」；质量门弹窗随「开始执行」按钮一并移除（已无可达入口）。
-import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { deriveDisplayState } from '@dommaker/studio-shared/web';
-import { requirementApi } from '../../api/requirements';
+// 2026-08（SSE 负载加深 决策 7）：删 5s 轮询 + executing 进度分支——死代码
+// （#278 后无任何后端代码写 meta.status='executing'，轮询对新卡从不触发）；
+// executing 遗产卡只保留状态 chip 静态渲染。
 import type { ChannelMessage } from '../../api/channel';
 import type { CardMeta } from './ChannelMessageItem';
 
@@ -32,43 +31,9 @@ function statusClass(status: string): string {
   return 'mc-status mc-status-pending';
 }
 
-async function fetchReqProgress(reqId: string) {
-  try {
-    const res = await requirementApi.getChain(reqId);
-    return res.data.data;
-  } catch {
-    return null;
-  }
-}
-
 export function RequirementsDocCard({ message, meta }: Props) {
   const status = meta.status || 'ready';
   const isIdle = status === 'ready';
-  const navigate = useNavigate();
-  const [progress, setProgress] = useState<{ total: number; completed: number } | null>(null);
-
-  // Poll requirement chain progress when executing
-  const reqId: string | undefined = meta.requirementId || meta.reqId;
-  useEffect(() => {
-    if (status !== 'executing' || !reqId) return;
-    const poll = () => {
-      fetchReqProgress(reqId).then(chain => {
-        if (chain) {
-          const workunits = chain.workunits || [];
-          const total = workunits.length;
-          // F6-b：进度 = 所有权口径 workFinished（活干完没），不看信任列（人确认没）
-          const completed = workunits.filter(w =>
-            deriveDisplayState({ status: w.status, metadata: w.metadata }).workFinished
-            || w.status === 'completed' || w.status === 'succeeded'
-          ).length;
-          setProgress({ total, completed });
-        }
-      });
-    };
-    poll();
-    const interval = setInterval(poll, 5000);
-    return () => clearInterval(interval);
-  }, [status, reqId]);
 
   return (
     <div className="mc-card" data-card-type="requirements_doc">
@@ -93,32 +58,7 @@ export function RequirementsDocCard({ message, meta }: Props) {
         </div>
       )}
 
-      {/* Executing state — show progress */}
-      {status === 'executing' && (
-        <div className="mc-card-actions" style={{ display: 'block' }}>
-          {progress ? (
-            <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--fs-xs)' }}>
-                <span className="mc-dim">执行进度</span>
-                <span className="mc-dim">{progress.completed}/{progress.total} 完成</span>
-              </div>
-              <div className="mc-progress">
-                <div
-                  className="mc-progress-fill"
-                  style={{ width: `${progress.total > 0 ? (progress.completed / progress.total) * 100 : 0}%` }}
-                />
-              </div>
-              <button onClick={() => navigate(`/workunits`)} className="mc-wu-link" style={{ marginTop: 6 }}>
-                查看 WorkUnits ›
-              </button>
-            </div>
-          ) : (
-            <div className="mc-drawer-note">执行已启动，正在初始化...</div>
-          )}
-        </div>
-      )}
-
-      {/* Other states */}
+      {/* Other states（executing 遗产卡无底部区块：状态 chip 已足以标识，决策 7 删除进度区） */}
       {!isIdle && status !== 'executing' && (
         <div className="mc-card-foot" style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 8 }}>
           {status === 'needs_revision' && '等待修改反馈...'}

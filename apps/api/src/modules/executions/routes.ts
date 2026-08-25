@@ -3,10 +3,9 @@
 // 基于 FileStore（executions.jsonl / tasks 目录 / AgentRegistry），不依赖已删除的 DB。
 // 计划迁移到 agent-profiles / workunit API（见 docs/vision-2026.md），迁移前请勿在此扩展新功能。
 import { Router, Request, Response } from 'express';
-import { eventStore } from '../../core/event-store.js';
 import { v4 as uuidv4 } from 'uuid';
 import * as path from 'path';
-import { FileStore, logger } from '@dommaker/studio-shared';
+import { FileStore, eventBus, logger } from '@dommaker/studio-shared';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import * as fs from 'fs';
 import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
@@ -103,13 +102,13 @@ router.post('/events', async (req: Request, res: Response) => {
     
     logger.info('Received runtime event', { event: JSON.stringify(event).substring(0, 100) });
     
-    // 发布到 EventStore（让 TaskWorker 也能接收，无需轮询）
-    await eventStore.publish('events', JSON.stringify({
+    // 发布到 eventBus（让 TaskWorker 也能接收，无需轮询）
+    eventBus.publish('events', {
       event_id: event.executionId || uuidv4(),
       event_type: event.type || event.event_type || 'runtime.event',
       timestamp: event.timestamp || new Date().toISOString(),
       data: event,
-    }));
+    });
     
     // 🆕 同步 Execution.status（根据 runtime 事件）
     // Runtime 发送的事件类型：workflow.completed, workflow.failed, workflow.started

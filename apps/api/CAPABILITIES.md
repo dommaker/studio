@@ -1,6 +1,6 @@
 # CAPABILITIES.md
 
-> 最后更新: 2026-08-04
+> 最后更新: 2026-08-25
 
 ---
 
@@ -8,7 +8,6 @@
 |------|------|------|
 | app | src/app.ts | 注册所有 API 路由（异步，启动时调用一次） |
 | studio-cli | src/cli/studio-cli.ts | Studio CLI — 统一入口（2026-05-09: Docker/tmux 已移除） |
-| event-store | src/core/event-store.ts | EventStore — EventEmitter + 内存 Map |
 | cli-adapter | src/daemon/cli-adapter.ts | CLI Adapter — translate common agent args to provider-specific spawn args |
 | cli-scanner | src/daemon/cli-scanner.ts | CLI Scanner — auto-detect available agent CLIs on the system |
 | discover-handler | src/daemon/discover-handler.ts | Discover Handler — AS-020 P6-03: Local directory scanning |

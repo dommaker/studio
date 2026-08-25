@@ -17,8 +17,9 @@ export interface StepResult {
   /** #279（决策 #250 D3）：NEED_INPUT 下一行 OPTIONS: 解析出的结构化选项，
    *  随频道提问消息 meta 发出供前端渲染选项卡；解析失败/缺失时为 undefined */
   options?: { label: string; description?: string; value?: string }[];
-  /** §4.2 发言层新鲜度检查：step 开始时捕获的频道版本（agentStep 写入，recordResult 比对） */
-  channelVersion?: { lineCount: number; lastMessageId: string | null };
+  /** §4.2 发言层新鲜度检查：step 开始时捕获的频道版本（agentStep 写入，recordResult 比对）。
+   *  #319：行号口径退役（压实会压缩行数），以最后一行消息 id 为锚 */
+  channelVersion?: { lastMessageId: string | null };
   /** Metadata fields to merge into WorkUnit.metadata (set by agentStep, written atomically by recordResult) */
   metadataUpdates?: Partial<WorkUnitMetadata>;
 }
@@ -46,4 +47,7 @@ export interface RuntimeInstanceRow {
   terminatedAt: string | null;
   metadata: string | null;
   lastHeartbeat: string | null;
+  /** F2：启动失败原因（与 studio-shared RuntimeStateData 同形，#312 起随 status_changed 负载外发） */
+  lastError?: string | null;
+  lastErrorAt?: string | null;
 }

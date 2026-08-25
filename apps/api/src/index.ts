@@ -139,6 +139,22 @@ async function start() {
       setInterval(runLogRotation, 24 * 60 * 60 * 1000);
     }).catch(err => logger.warn('[StudioLogRotation] Rotation import failed', { error: String(err) }));
 
+    // #327：频道消息按 WU 生命周期归档——超龄活消息从热文件搬入冷文件
+    // （FileStore.archiveChannelMessages，详见 studio-shared CONTEXT.md）。
+    // 与 #173/#213 同一挂载机制：启动后跑一次 + 每 24h，独立 interval 句柄。
+    import('@dommaker/studio-shared').then(({ FileStore }) => {
+      const archiveStore = new FileStore();
+      const runMessageArchive = () => archiveStore.archiveChannelMessages()
+        .then(({ archivedMessages }) => {
+          if (archivedMessages > 0) {
+            logger.info('[MessageArchive] Sweep archived aged messages', { archivedMessages });
+          }
+        })
+        .catch(err => logger.warn('[MessageArchive] Sweep failed', { error: String(err) }));
+      setTimeout(runMessageArchive, 25_000);
+      setInterval(runMessageArchive, 24 * 60 * 60 * 1000);
+    }).catch(err => logger.warn('[MessageArchive] Import failed', { error: String(err) }));
+
     // G-002: 冷启动业务规则扫描（异步，不阻塞启动）
     import('./modules/knowledge/rule-scanner.js').then(({ ruleScanner }) => {
       ruleScanner.fullScan().catch(err => logger.warn('[RuleScanner] Cold start scan failed', { error: String(err) }));

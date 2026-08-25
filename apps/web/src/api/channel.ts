@@ -11,6 +11,8 @@ export interface ChannelMessage {
   workUnitId?: string | null;
   /** #264：REST/SSE 出口为 object（shapeMessageData 已解析）；string 为存量/测试形态，消费侧双型兼容 */
   meta?: string | Record<string, unknown>;
+  /** #326：骨架标记——数据层降级产物，content/meta 大头已剥离，结构字段仍在（ADR 2026-08-25） */
+  degraded?: boolean;
   createdAt: string;
 }
 

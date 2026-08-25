@@ -2,12 +2,18 @@
 import { FileStore } from '@dommaker/studio-shared';
 import type { AuditReport, FlywheelMetrics } from '../knowledge/knowledge-service.js';
 import type { ProjectData } from '../pmo/project.service.js';
-import type { RequirementWithProject } from '../requirements/requirement.service.js';
-import { resolvePmoProjectIdForWU } from '../requirements/pmo-branch-resolver.js';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
-import { parseWuMetadata } from '../workunit/wu-metadata.js';
+// #318：WU 聚合上下文提取为共享出口（agent-loop 的 instance status_changed 负载同源）
+import {
+  loadCurrentWuContexts,
+  type CurrentWuContext,
+  type AgentCurrentWorkUnit,
+  type AgentPmoSummary,
+} from './current-wu-context.js';
+
+export type { AgentCurrentWorkUnit, AgentPmoSummary };
 
 const STUDIO_EVENTS_JSONL = resolveStudioLogFile('studio-events.jsonl');
 
@@ -66,30 +72,6 @@ export interface OverheadStats {
   extractionTokens: number;
   source: 'events' | 'insufficient-data';
   timestamp: string;
-}
-
-/** 2026-07 PMO-flow UX（§6-1）：/monitoring/agents 聚合的当前 WU 快照 */
-export interface AgentCurrentWorkUnit {
-  id: string;
-  /** metadata.title ?? scope（原样，不截断） */
-  title: string;
-  type: string;
-  status: string;
-  claimedAt: string | null;
-}
-
-/** 2026-07 PMO-flow UX（§6-1）：/monitoring/agents 聚合的归属 PMO 摘要 */
-export interface AgentPmoSummary {
-  id: string;
-  pmoNumber: string;
-  title: string;
-}
-
-/** getAgentSummary 内部聚合：单个当前 WU 的展示快照 + 归属 */
-interface CurrentWuContext {
-  currentWorkUnit: AgentCurrentWorkUnit;
-  pmo: AgentPmoSummary | null;
-  channelId: string | null;
 }
 
 /** /monitoring/agents PMO 归属聚合的可注入依赖（测试 stub 避免碰真实 ~/.studio/projects） */
@@ -151,12 +133,6 @@ function countByStatus(snapshots: Array<{ status: string; completedAt: string | 
   return snapshots.filter(s => s.status === status).length;
 }
 
-/** WU metadata.title 安全解析（损坏/缺失/非字符串 → null，调用方回落 scope） */
-function parseMetadataTitle(metadata: string | null): string | null {
-  const title = parseWuMetadata(metadata).title;
-  return typeof title === 'string' && title ? title : null;
-}
-
 export class MonitoringService {
   private fileStore: FileStore;
   private knowledge: KnowledgeMetricsSource | null;
@@ -186,61 +162,11 @@ export class MonitoringService {
 
   /**
    * 2026-07 PMO-flow UX（§6-1）：批量加载当前 WU 聚合上下文。
-   * WU 快照 / requirement / project 各读一次（FileStore JSON），内存 map 匹配——
-   * 不逐 agent 串行读文件。WU 不存在于 index（悬空 currentWorkUnitId）→ 无 map 项（调用方得 null）。
+   * #318：实现提取到 current-wu-context.ts（agent-loop 的 instance status_changed 负载同源），
+   * 本方法仅注入 fileStore 与 listProjects 委托。
    */
   private async loadCurrentWuContexts(wuIds: string[]): Promise<Map<string, CurrentWuContext>> {
-    const contexts = new Map<string, CurrentWuContext>();
-    if (wuIds.length === 0) return contexts;
-
-    const idSet = new Set(wuIds);
-    const snapshots = (await this.fileStore.getIndex()).filter(s => idSet.has(s.id));
-    if (snapshots.length === 0) return contexts;
-
-    const reqIds = new Set(snapshots.map(s => s.reqId).filter((id): id is string => !!id));
-    const [requirements, projects] = await Promise.all([
-      reqIds.size > 0
-        ? this.fileStore.listRequirements()
-        : Promise.resolve([] as RequirementWithProject[]),
-      this.listProjects().catch(() => [] as ProjectData[]),
-    ]);
-    const reqById = new Map((requirements as RequirementWithProject[]).map(r => [r.id, r]));
-    const projectById = new Map(projects.map(p => [p.id, p]));
-
-    // 决策 4 别名层镜像（RequirementService.get 口径）：REQ-\d+ 先查统一编号 PMO 别名
-    // （别名视图 projectId = PMO 自身 id），查不到再回落 legacy REQ 记录
-    const getRequirement = async (id: string): Promise<{ projectId?: string | null } | null> => {
-      if (/^REQ-\d+$/i.test(id)) {
-        const alias = projects.find(p => p.reqAlias === id.toUpperCase());
-        if (alias) return { projectId: alias.id };
-      }
-      return reqById.get(id) ?? null;
-    };
-    const resolverDeps = {
-      getProject: async (id: string) => projectById.get(id) ?? null,
-      getRequirement,
-    };
-
-    for (const s of snapshots) {
-      const projectId = await resolvePmoProjectIdForWU(
-        { reqId: s.reqId ?? null, metadata: s.metadata },
-        undefined,
-        resolverDeps,
-      );
-      const project = projectId ? projectById.get(projectId) ?? null : null;
-      contexts.set(s.id, {
-        currentWorkUnit: {
-          id: s.id,
-          title: parseMetadataTitle(s.metadata) ?? s.scope,
-          type: s.type,
-          status: s.status,
-          claimedAt: s.claimedAt,
-        },
-        pmo: project ? { id: project.id, pmoNumber: project.pmoNumber, title: project.title } : null,
-        channelId: s.channelId,
-      });
-    }
-    return contexts;
+    return loadCurrentWuContexts(this.fileStore, wuIds, () => this.listProjects());
   }
 
   async getAgentSummary(): Promise<AgentSummary> {

@@ -386,7 +386,7 @@ test_flow() {
   echo ""
   TASK1=$(create_task "$PROJECT_ID" "设计方案" "architect" "P0")
   TASK2=$(create_task "$PROJECT_ID" "实现功能" "developer" "P1")
-  TASK3=$(create_task "$PROJECT_ID" "测试验证" "tester" "P2")
+  TASK3=$(create_task "$PROJECT_ID" "代码审查" "reviewer" "P2")
   
   # 4. 完成所有任务
   echo ""

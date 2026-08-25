@@ -2,8 +2,8 @@
  * #178（#63 决议，2026-08-16）WU 租约（lease）机制：
  * - claim 写固定 5min 租约 timeoutAt（废除按 type 30/60min 默认 + metadata.timeoutAt 显式优先，
  *   「已有列值不动」一并废除——租约语义下认领即发新租约）
- * - FileStore.refreshWorkUnitLease：锁内 fencing（claimedAt 代际令牌 + assigneeId 双比对）+
- *   推前 timeoutAt，事件与索引同锁落盘
+ * - FileStore.refreshWorkUnitLease：fencing（claimedAt 代际令牌 + assigneeId 双比对）+
+ *   推前 timeoutAt；#314 起高频小写缓冲、flushWorkUnitLeases 复核 fencing 后合并落盘
  * - timeout-release 释放即杀：顺 assigneeId → 实例记录 → pid 杀原 holder 进程组
  *  （自身 pid 跳过、ESRCH 跳过、pid 复用按 /proc 启动时间与实例 startedAt 比对兜底）
  * 约定与 workunit-timeout.test.ts 一致：真实 FileStore（tmpdir）+ 真实 Service。
@@ -115,7 +115,7 @@ describe('#178: refreshWorkUnitLease（锁内 fencing + 推前 timeoutAt）', ()
     return wuService.claim(wu.id, 'inst-1');
   }
 
-  it('令牌匹配 → ok 且推前 timeoutAt（事件 + 索引同锁落盘）', async () => {
+  it('令牌匹配 → ok；#314 起缓冲至落盘窗口，flush 后推前 timeoutAt', async () => {
     const claimed = await createClaimed();
     const next = new Date(Date.now() + WU_LEASE_TTL_MS);
 
@@ -124,6 +124,11 @@ describe('#178: refreshWorkUnitLease（锁内 fencing + 推前 timeoutAt）', ()
     );
 
     expect(result).toBe('ok');
+    // #314（D2）：心跳高频小写缓冲，flush 前磁盘值不变（不再每跳全量重写）
+    const beforeFlush = (await wuService.getById(claimed.id))!;
+    expect(beforeFlush.timeoutAt!.toISOString()).toBe(claimed.timeoutAt!.toISOString());
+
+    await fileStore.flushWorkUnitLeases();
     const after = (await wuService.getById(claimed.id))!;
     expect(after.timeoutAt!.toISOString()).toBe(next.toISOString());
     // 其余字段不动

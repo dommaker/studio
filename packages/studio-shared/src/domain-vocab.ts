@@ -7,7 +7,7 @@
  */
 
 /** 阶段词表（单一事实源） */
-export const STAGE_TYPES = ['design', 'plan', 'implement', 'test', 'review', 'docs', 'refactor', 'analysis', 'general'] as const;
+export const STAGE_TYPES = ['design', 'plan', 'implement', 'review', 'docs', 'refactor', 'analysis', 'general'] as const;
 
 export type StageType = (typeof STAGE_TYPES)[number];
 

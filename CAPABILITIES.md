@@ -1,6 +1,6 @@
 # CAPABILITIES.md
 
-> 最后更新: 2026-08-24
+> 最后更新: 2026-08-25
 
 ---
 
@@ -194,3 +194,4 @@
 | ProjectCandidatesSection | apps/web/src/components/settings/ProjectCandidatesSection.tsx | 工程候选管理 section（#266，决策 #258）：归属问答候选集排除清单管理。 |
 | notification-service.test | packages/studio-notification/src/services/notification-service.test.ts | NotificationService tests — #274 写路径归属校验 |
 | AssigneeLabel | apps/web/src/components/workunit/AssigneeLabel.tsx | 负责人展示标签（#290 清单 #24）——解析到角色名则渲染 @名字 并链到 /agents/:roleId； |
+| ChannelLiveBars | apps/web/src/components/channel/ChannelLiveBars.tsx | 频道 live 执行状态条（#242；#322 live 执行状态下沉）：useChannelLiveExecutions 由本组件 |

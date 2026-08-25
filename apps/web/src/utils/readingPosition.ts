@@ -7,8 +7,10 @@ import type { ScrollAnchor } from './streamFollow';
 
 const KEY_PREFIX = 'studio-channel-reading-pos:';
 
-/** 阅读位置存档 = 行锚点（与 streamFollow.ScrollAnchor 同一形状） */
-export type ReadingPosition = ScrollAnchor;
+/** 阅读位置存档 = 行锚点（与 streamFollow.ScrollAnchor 同一形状）+
+ *  #326 可选 coarse 粗锚标记：锚行是骨架（数据层降级）时存档/恢复只做行级定位，
+ *  不做像素级精校正（占位行高上量出的 top 对水合后行高原理上无效） */
+export type ReadingPosition = ScrollAnchor & { coarse?: boolean };
 
 /** 序列化存档（含 null=钉底）；返回值即 localStorage 写入内容 */
 export function serializeReadingPosition(pos: ReadingPosition | null): string {
@@ -26,9 +28,10 @@ export function parseReadingPosition(raw: string | null): ReadingPosition | null
     const v: unknown = JSON.parse(raw);
     if (v === null) return null;
     if (typeof v === 'object' && v !== null) {
-      const { mid, top } = v as { mid?: unknown; top?: unknown };
+      const { mid, top, coarse } = v as { mid?: unknown; top?: unknown; coarse?: unknown };
       if (typeof mid === 'string' && mid.length > 0 && typeof top === 'number' && Number.isFinite(top)) {
-        return { mid, top };
+        // coarse 仅接受布尔 true（非布尔按精锚处理，字段忽略）；缺省 = 旧存档精锚
+        return coarse === true ? { mid, top, coarse: true } : { mid, top };
       }
     }
     return undefined;

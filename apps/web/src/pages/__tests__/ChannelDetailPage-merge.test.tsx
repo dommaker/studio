@@ -28,7 +28,7 @@ vi.mock('../../hooks/useChannelEvents', () => ({
 
 vi.mock('../../api/workunit', () => ({ workunitApi: { list: mockListWorkunits } }));
 vi.mock('../../api/requirements', () => ({ requirementApi: { list: mockListReqs } }));
-vi.mock('../../api/websocketHooks', () => ({ useWebSocketContext: () => ({ onEvent: mockOnEvent }) }));
+vi.mock('../../api/websocketHooks', () => ({ useWebSocketContext: () => ({ onEvent: mockOnEvent, onReconnect: () => () => {} }) }));
 
 vi.mock('../../components/channel/ChannelRail', () => ({ ChannelRail: () => <div data-testid="channel-rail" /> }));
 vi.mock('../../components/channel/WorkUnitDrawer', () => ({ WorkUnitDrawer: () => null }));

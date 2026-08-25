@@ -17,10 +17,11 @@
  */
 import * as os from 'os';
 import * as path from 'path';
-import { FileStore, parseChannels, type AgentProfileData } from '@dommaker/studio-shared';
+import { FileStore, logger, parseChannels, type AgentProfileData } from '@dommaker/studio-shared';
 import type { WorkUnitData, WorkUnitMetadata } from './workunit.service.js';
 import { parseWuMetadata } from './wu-metadata.js';
 import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
+import { syncTokenLedger } from '../../utils/token-ledger.js';
 
 /** 协作元数据（WorkUnitMetadata.collab 的具象类型） */
 export type CollabMeta = NonNullable<WorkUnitMetadata['collab']>;
@@ -85,9 +86,11 @@ export const TREE_TOKEN_BUDGET = 400_000;
 const STUDIO_EVENTS_JSONL = resolveStudioLogFile('studio-events.jsonl');
 
 /**
- * §4.3 P2 树级预算闸门：按 collab.rootId 聚合 studio-events.jsonl 的
- * workunit:tokens（executionTokens），树已耗 ≤ TREE_TOKEN_BUDGET(400K)。
- * 子 WU 预估取 0（TODO 后续基于历史均值）。文件不存在 -> treeTotal=0，pass。
+ * §4.3 P2 树级预算闸门：树已耗 ≤ TREE_TOKEN_BUDGET(400K)。
+ * 子 WU 预估取 0（TODO 后续基于历史均值）。
+ * #320：树已耗改读 token 账本（per-WU 累计，O(树内 WU 数)），不再每次委派全扫
+ * studio-events.jsonl 逐行 parse payload；账本落后由 syncTokenLedger 增量补扫自愈。
+ * 兜底语义不变：事件文件不存在/同步失败 -> treeTotal=0，pass。
  */
 export async function checkTreeBudget(
   rootId: string,
@@ -102,18 +105,15 @@ export async function checkTreeBudget(
 
   let treeTotal = 0;
   try {
-    const events = await fileStore.readJsonl<{ type: string; payload: string }>(STUDIO_EVENTS_JSONL);
-    for (const evt of events) {
-      if (evt.type !== 'workunit:tokens') continue;
-      try {
-        const payload = JSON.parse(evt.payload) as { workUnitId: string; executionTokens: number | null };
-        if (!treeWuIds.has(payload.workUnitId)) continue;
-        if (typeof payload.executionTokens === 'number') {
-          treeTotal += payload.executionTokens;
-        }
-      } catch { /* skip malformed */ }
+    const ledger = await syncTokenLedger(STUDIO_EVENTS_JSONL);
+    for (const wuId of treeWuIds) {
+      treeTotal += ledger.byWorkUnit[wuId]?.executionTokens ?? 0;
     }
-  } catch { /* 文件不存在 -> treeTotal=0，pass */ }
+  } catch (err) {
+    // 同步失败 -> treeTotal=0，pass（与原全扫实现的读失败兜底一致）；
+    // #320 review：账本锁超时等新失败路径须留痕，不静默
+    logger.warn('[DelegationGate] token 账本同步失败，树预算按 0 放行', { error: String(err) });
+  }
 
   if (treeTotal > TREE_TOKEN_BUDGET) {
     return {

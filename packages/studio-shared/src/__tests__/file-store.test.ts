@@ -339,6 +339,44 @@ describe('FileStore', () => {
     });
   });
 
+  // ═══ queryAllMessages channelIds 预过滤（#330）═══
+
+  describe('queryAllMessages channelIds 预过滤（#330）', () => {
+    beforeEach(async () => {
+      await store.createChannel(makeChannel('ch-a'));
+      await store.createChannel(makeChannel('ch-b'));
+      await store.createChannel(makeChannel('ch-c'));
+      await store.appendMessage('ch-a', makeMessage('ma1', 'ch-a', { workUnitId: 'wu-1', authorType: 'human' }));
+      await store.appendMessage('ch-b', makeMessage('mb1', 'ch-b', { workUnitId: 'wu-1', authorType: 'human' }));
+      await store.appendMessage('ch-b', makeMessage('mb2', 'ch-b', { workUnitId: 'wu-2', authorType: 'agent' }));
+      await store.appendMessage('ch-c', makeMessage('mc1', 'ch-c', { workUnitId: 'wu-3', authorType: 'human' }));
+    });
+
+    it('channelIds 预过滤：只返回集合内频道的消息', async () => {
+      const msgs = await store.queryAllMessages({ channelIds: ['ch-a', 'ch-c'] });
+      expect(msgs.map(m => m.id).sort()).toEqual(['ma1', 'mc1']);
+    });
+
+    it('不传 channelIds：跨频道全扫（既有行为不变）', async () => {
+      const msgs = await store.queryAllMessages({ workUnitId: 'wu-1' });
+      expect(msgs.map(m => m.id).sort()).toEqual(['ma1', 'mb1']);
+    });
+
+    it('channelIds 与 workUnitIds/authorType 叠加过滤', async () => {
+      const msgs = await store.queryAllMessages({
+        channelIds: ['ch-b'],
+        workUnitIds: ['wu-1', 'wu-2'],
+        authorType: 'agent',
+      });
+      expect(msgs.map(m => m.id)).toEqual(['mb2']);
+    });
+
+    it('channelIds 为空数组 → 空结果（不扫任何频道）', async () => {
+      const msgs = await store.queryAllMessages({ channelIds: [] });
+      expect(msgs).toEqual([]);
+    });
+  });
+
   // ═══ WorkUnit Event Sourcing ═══
 
   describe('WorkUnit', () => {
@@ -1225,5 +1263,411 @@ describe('FileStore 读穿缓存 (A1)', () => {
 
     await store.softDeleteMessage('ch-d', 'm1');
     expect(await store.countMessages('ch-d')).toBe(1);
+  });
+});
+
+// ─── #314（D1）：getIndex 走读穿缓存 ───
+
+describe('FileStore getIndex 读穿缓存 (#314)', () => {
+  let tmpDir: string;
+  let store: FileStore;
+
+  beforeEach(() => {
+    tmpDir = createTempDir();
+    store = new FileStore(tmpDir);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  const indexPath = () => path.join(tmpDir, 'workunits', 'index.json');
+
+  function makeSnap(id: string, overrides?: Partial<WorkUnitSnapshot>): WorkUnitSnapshot {
+    const now = new Date().toISOString();
+    return {
+      id, parentId: null, type: 'task', scope: `scope-${id}`, assigneeId: null,
+      status: 'unassigned', failureType: null, retryCount: 0, timeoutAt: null,
+      channelId: null, projectPath: null, metadata: null,
+      createdAt: now, updatedAt: now, claimedAt: null, completedAt: null,
+      ...overrides,
+    };
+  }
+
+  it('index.json 未变化时重复 getIndex 不重读文件（stat 校验命中缓存）', async () => {
+    await store.upsertSnapshot(makeSnap('wu1'));
+    const readSpy = vi.spyOn(fs.promises, 'readFile');
+    const indexReads = () => readSpy.mock.calls.filter(c => String(c[0]) === indexPath()).length;
+
+    const first = await store.getIndex();
+    expect(first.map(s => s.id)).toEqual(['wu1']);
+    const readsAfterFirst = indexReads();
+    expect(readsAfterFirst).toBe(1);
+
+    await store.getIndex();
+    await store.getIndex({ status: 'unassigned' });
+    expect(indexReads()).toBe(readsAfterFirst); // 命中缓存，零新增 readFile
+  });
+
+  it('外部写入（绕过 FileStore，mtime 变化）后 getIndex 不返回陈旧缓存', async () => {
+    await store.upsertSnapshot(makeSnap('wu1'));
+    expect((await store.getIndex()).map(s => s.id)).toEqual(['wu1']); // 填充缓存
+
+    // 模拟另一进程直接改 index.json，并显式推进 mtime 避免同毫秒粒度
+    fs.writeFileSync(indexPath(), JSON.stringify([makeSnap('wu1'), makeSnap('wu2-ext')]));
+    const future = new Date(Date.now() + 5000);
+    fs.utimesSync(indexPath(), future, future);
+
+    expect((await store.getIndex()).map(s => s.id)).toEqual(['wu1', 'wu2-ext']);
+  });
+
+  it('getIndex 缓存命中返回结构克隆，调用方原地 mutate 不污染缓存', async () => {
+    await store.upsertSnapshot(makeSnap('wu1', { scope: 'pristine' }));
+    const first = await store.getIndex();
+    first[0].scope = 'mutated-by-caller';
+
+    const second = await store.getIndex();
+    expect(second[0].scope).toBe('pristine');
+  });
+
+  it('index.json 撕裂 → getIndex 仍抛带路径的错误（缓存不吞严格语义）', async () => {
+    await store.upsertSnapshot(makeSnap('wu1'));
+    expect(await store.getIndex()).toHaveLength(1); // 填充缓存
+
+    fs.mkdirSync(path.dirname(indexPath()), { recursive: true });
+    fs.writeFileSync(indexPath(), '[{"id":"wu1",');
+    const future = new Date(Date.now() + 5000);
+    fs.utimesSync(indexPath(), future, future);
+
+    await expect(store.getIndex()).rejects.toThrow(indexPath());
+  });
+});
+
+// ─── #321：readDoc 走读穿缓存 ───
+
+describe('FileStore readDoc 读穿缓存 (#321)', () => {
+  let tmpDir: string;
+  let store: FileStore;
+
+  beforeEach(() => {
+    tmpDir = createTempDir();
+    store = new FileStore(tmpDir);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  const docsDir = () => path.join(tmpDir, 'docs');
+  const docPath = () => path.join(docsDir(), 'hello.md');
+
+  it('文档未变化时重复 readDoc 不重读文件（stat 校验命中缓存）', async () => {
+    await store.writeDoc(docsDir(), 'hello', { title: 'T' }, '正文 body');
+    const readSpy = vi.spyOn(fs.promises, 'readFile');
+    const docReads = () => readSpy.mock.calls.filter(c => String(c[0]) === docPath()).length;
+
+    const first = await store.readDoc(docsDir(), 'hello');
+    expect(first?.meta.title).toBe('T');
+    const readsAfterFirst = docReads();
+    expect(readsAfterFirst).toBe(1);
+
+    await store.readDoc(docsDir(), 'hello');
+    await store.readDoc(docsDir(), 'hello');
+    expect(docReads()).toBe(readsAfterFirst); // 命中缓存，零新增 readFile
+  });
+
+  it('外部写入（绕过 FileStore，mtime 变化）后 readDoc 不返回陈旧缓存', async () => {
+    await store.writeDoc(docsDir(), 'hello', { title: 'old' }, '旧正文');
+    expect((await store.readDoc(docsDir(), 'hello'))?.meta.title).toBe('old'); // 填充缓存
+
+    // 模拟另一进程直接改文件，并显式推进 mtime 避免同毫秒粒度
+    fs.writeFileSync(docPath(), '---\ntitle: "new"\n---\n\n新正文');
+    const future = new Date(Date.now() + 5000);
+    fs.utimesSync(docPath(), future, future);
+
+    const doc = await store.readDoc(docsDir(), 'hello');
+    expect(doc?.meta.title).toBe('new');
+    expect(doc?.body).toContain('新正文');
+  });
+
+  it('writeDoc 后 readDoc 立即可见（写路径失效缓存）', async () => {
+    await store.writeDoc(docsDir(), 'hello', { title: 'before' }, 'a');
+    expect((await store.readDoc(docsDir(), 'hello'))?.meta.title).toBe('before'); // 填充缓存
+
+    await store.writeDoc(docsDir(), 'hello', { title: 'after' }, 'b');
+    expect((await store.readDoc(docsDir(), 'hello'))?.meta.title).toBe('after');
+  });
+
+  it('readDoc 缓存命中返回结构克隆，调用方原地 mutate 不污染缓存', async () => {
+    await store.writeDoc(docsDir(), 'hello', { title: 'pristine' }, 'body');
+    const first = await store.readDoc(docsDir(), 'hello');
+    first!.meta.title = 'mutated-by-caller';
+    first!.body = 'mutated';
+
+    const second = await store.readDoc(docsDir(), 'hello');
+    expect(second?.meta.title).toBe('pristine');
+    expect(second?.body).not.toContain('mutated');
+  });
+
+  it('readDocWithMtime 返回校验用 mtimeMs，缓存命中与首次读取同源', async () => {
+    await store.writeDoc(docsDir(), 'hello', { title: 'T' }, 'b');
+    const first = await store.readDocWithMtime(docsDir(), 'hello');
+    expect(first?.mtimeMs).toBeGreaterThan(0);
+
+    const second = await store.readDocWithMtime(docsDir(), 'hello');
+    expect(second?.mtimeMs).toBe(first?.mtimeMs); // 命中缓存，mtimeMs 与缓存校验戳一致
+
+    // 外部推进 mtime 后重读，mtimeMs 跟随新戳
+    fs.writeFileSync(docPath(), '---\ntitle: "T2"\n---\n\nb2');
+    const future = new Date(Date.now() + 5000);
+    fs.utimesSync(docPath(), future, future);
+    const third = await store.readDocWithMtime(docsDir(), 'hello');
+    expect(third?.meta.title).toBe('T2');
+    expect(third?.mtimeMs).toBe(fs.statSync(docPath()).mtimeMs); // 与文件当前 stat 同源（utimes 浮点换算不直接等值比较）
+  });
+
+  it('readdir 读穿缓存：目录未变化重复读不重扫，外部新增文件后可见', async () => {
+    const dir = docsDir();
+    await store.writeDoc(dir, 'a', {}, 'a');
+    const readdirSpy = vi.spyOn(fs.promises, 'readdir');
+    const dirReads = () => readdirSpy.mock.calls.filter(c => String(c[0]) === dir).length;
+
+    const first = await store.readdir(dir);
+    expect(first.map(e => e.name)).toEqual(['a.md']);
+    const readsAfterFirst = dirReads();
+    expect(readsAfterFirst).toBe(1);
+
+    await store.readdir(dir);
+    expect(dirReads()).toBe(readsAfterFirst); // 命中缓存，零新增 readdir
+
+    // 外部新增文件 → 目录 mtime 变化 → 重扫可见（显式推进 mtime 避免同毫秒粒度）
+    fs.writeFileSync(path.join(dir, 'b.md'), 'b');
+    const future = new Date(Date.now() + 5000);
+    fs.utimesSync(dir, future, future);
+    const second = await store.readdir(dir);
+    expect(second.map(e => e.name).sort()).toEqual(['a.md', 'b.md']);
+  });
+
+  it('readdir 目录不存在抛 ENOENT（与 fs.readdir 语义一致）', async () => {
+    await expect(store.readdir(path.join(tmpDir, 'no-such-dir'))).rejects.toThrow(/ENOENT/);
+  });
+});
+
+// ─── #319：频道消息压实 + message-id 契约 + 分页下沉 ───
+
+describe('频道消息压实（#319）', () => {
+  let tmpDir: string;
+  let store: FileStore;
+  const CH = 'ch-compact';
+
+  /** 小阈值注入：每次 append 都评估，4 行起、死行占比 ≥1/3 即压实 */
+  function makeStore(opts?: { checkInterval?: number; minLines?: number; deadRatio?: number }) {
+    return new FileStore(tmpDir, {
+      messageCompaction: { checkInterval: 1, minLines: 4, deadRatio: 1 / 3, ...opts },
+    });
+  }
+
+  function rawLines(): Array<Record<string, unknown>> {
+    const fp = path.join(tmpDir, 'channels', CH, 'messages.jsonl');
+    return fs.readFileSync(fp, 'utf-8').split('\n').filter(l => l.trim()).map(l => JSON.parse(l));
+  }
+
+  beforeEach(async () => {
+    tmpDir = createTempDir();
+    store = makeStore();
+    await store.createChannel(makeChannel(CH));
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('死行占比超阈值时压实：被覆盖行与 tombstone 消失，活消息与压实前逐条一致', async () => {
+    await store.appendMessage(CH, makeMessage('m1', CH));
+    await store.appendMessage(CH, makeMessage('m2', CH));
+    await store.appendMessage(CH, makeMessage('m3', CH));
+    await store.appendMessage(CH, makeMessage('m4', CH));
+    // 编辑 m2（同 id 追加新版）+ 删除 m3（tombstone）→ 6 行，死行 3（m2 旧版、m3 原行、m3 tombstone）
+    await store.appendMessage(CH, { ...makeMessage('m2', CH), content: 'm2 edited' });
+    await store.softDeleteMessage(CH, 'm3');
+
+    const before = await store.queryMessages(CH);
+    // checkInterval=1：tombstone 落盘即评估——6 行死 3（m2 旧版、m3 原行、m3 tombstone）= 50% ≥ 1/3 → 当场压实
+    expect(rawLines().map(r => r.id)).toEqual(['m1', 'm2', 'm4']);
+
+    // 压实后续写不受影响
+    await store.appendMessage(CH, makeMessage('m5', CH));
+
+    const rows = rawLines();
+    // 活行按首现位置归并：m1、m2（新内容）、m4、m5
+    expect(rows.map(r => r.id)).toEqual(['m1', 'm2', 'm4', 'm5']);
+    expect(rows.every(r => r.deleted === undefined)).toBe(true);
+    expect(rows.find(r => r.id === 'm2')?.content).toBe('m2 edited');
+
+    const after = await store.queryMessages(CH);
+    // 压实前后可见消息逐条一致（压实只清死行），外加触发检查的那条 m5
+    expect(after.map(m => m.id)).toEqual([...before.map(m => m.id), 'm5']);
+    expect(after.find(m => m.id === 'm2')?.content).toBe('m2 edited');
+  });
+
+  it('死行占比不足阈值时不压实（文件原样）', async () => {
+    await store.appendMessage(CH, makeMessage('m1', CH));
+    await store.appendMessage(CH, makeMessage('m2', CH));
+    await store.appendMessage(CH, makeMessage('m3', CH));
+    await store.appendMessage(CH, makeMessage('m4', CH));
+    await store.appendMessage(CH, makeMessage('m5', CH));
+    await store.appendMessage(CH, { ...makeMessage('m1', CH), content: 'm1 edited' });
+    // 6 行，死行 1/6 < 1/3 → 不压
+    expect(rawLines()).toHaveLength(6);
+  });
+
+  it('压实后 getChannelVersion().lastMessageId 指向最后一条活消息', async () => {
+    await store.appendMessage(CH, makeMessage('m1', CH));
+    await store.appendMessage(CH, makeMessage('m2', CH));
+    await store.appendMessage(CH, makeMessage('m3', CH));
+    await store.softDeleteMessage(CH, 'm1');
+    await store.softDeleteMessage(CH, 'm2'); // 6 行死 4 → 压实，活行 [m3]
+    await store.appendMessage(CH, makeMessage('m4', CH));
+
+    const version = await store.getChannelVersion(CH);
+    expect(version.lastMessageId).toBe('m4');
+  });
+
+  it('压实与并发 append 互斥：不丢消息、结果完整', async () => {
+    const ids = Array.from({ length: 20 }, (_, i) => `c-${String(i).padStart(2, '0')}`);
+    // checkInterval=1 + deadRatio=0 → 达 minLines 后每次 append 都压实，最大化压实/并发交错
+    const stressed = makeStore({ deadRatio: 0 });
+    await Promise.all(ids.map(id => stressed.appendMessage(CH, makeMessage(id, CH))));
+
+    const msgs = await stressed.queryMessages(CH);
+    expect(new Set(msgs.map(m => m.id))).toEqual(new Set(ids));
+  });
+});
+
+describe('getMessagesSince / getChannelVersion message-id 契约（#319）', () => {
+  let tmpDir: string;
+  let store: FileStore;
+  const CH = 'ch-since';
+
+  beforeEach(async () => {
+    tmpDir = createTempDir();
+    store = new FileStore(tmpDir);
+    await store.createChannel(makeChannel(CH));
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('空频道 → lastMessageId 为 null；追加后指向最后一行（含 tombstone 行）', async () => {
+    expect((await store.getChannelVersion(CH)).lastMessageId).toBeNull();
+
+    await store.appendMessage(CH, makeMessage('m1', CH));
+    expect((await store.getChannelVersion(CH)).lastMessageId).toBe('m1');
+
+    await store.softDeleteMessage(CH, 'm1');
+    // tombstone 是最后一行，版本必须反映它（否则删除不会被 §4.2 感知为「房间已变」）
+    expect((await store.getChannelVersion(CH)).lastMessageId).toBe('m1');
+  });
+
+  it('锚点之后的活消息（过滤 tombstone，不含锚点本身）', async () => {
+    await store.appendMessage(CH, makeMessage('m1', CH));
+    await store.appendMessage(CH, makeMessage('m2', CH));
+    await store.appendMessage(CH, makeMessage('m3', CH));
+    await store.softDeleteMessage(CH, 'm3');
+    await store.appendMessage(CH, makeMessage('m4', CH));
+
+    const msgs = await store.getMessagesSince(CH, 'm1');
+    expect(msgs.map(m => m.id)).toEqual(['m2', 'm4']);
+    expect(msgs.every(m => !('deleted' in m))).toBe(true);
+  });
+
+  it('锚点为 null（空频道快照）→ 返回全部活消息', async () => {
+    await store.appendMessage(CH, makeMessage('m1', CH));
+    await store.appendMessage(CH, makeMessage('m2', CH));
+    const msgs = await store.getMessagesSince(CH, null);
+    expect(msgs.map(m => m.id)).toEqual(['m1', 'm2']);
+  });
+
+  it('锚点 id 已被压实抹除（tombstone 锚点）→ 保守返回全部活消息，绝不漏报', async () => {
+    await store.appendMessage(CH, makeMessage('m0', CH)); // 全程存活
+    await store.appendMessage(CH, makeMessage('m1', CH));
+    await store.softDeleteMessage(CH, 'm1'); // tombstone 成最后一行，快照锚点 = m1
+    const version = await store.getChannelVersion(CH);
+    expect(version.lastMessageId).toBe('m1');
+    await store.appendMessage(CH, makeMessage('m2', CH));
+
+    // 压实抹掉 m1（原行 + tombstone），文件只剩 [m0, m2]
+    const compacting = new FileStore(tmpDir, { messageCompaction: { checkInterval: 1, minLines: 2, deadRatio: 0 } });
+    await compacting.appendMessage(CH, makeMessage('m3', CH));
+
+    const msgs = await store.getMessagesSince(CH, version.lastMessageId);
+    // 锚点位置不可知 → 全部活消息（含锚点之前的 m0），由消费方去重；反向漏报不允许
+    expect(msgs.map(m => m.id)).toEqual(['m0', 'm2', 'm3']);
+  });
+
+  it('频道不存在 / 读取失败 → 空数组（不阻断发言语义保持）', async () => {
+    expect(await store.getMessagesSince('ch-nonexistent', 'x')).toEqual([]);
+  });
+});
+
+describe('queryMessagesPage 分页下沉 + id 游标（#319）', () => {
+  let tmpDir: string;
+  let store: FileStore;
+  const CH = 'ch-page';
+
+  /** 5 条消息，全部同一 createdAt（同毫秒撞车场景），靠 id 区分 */
+  async function seedSameTimestamp() {
+    const ts = new Date().toISOString();
+    for (const id of ['p1', 'p2', 'p3', 'p4', 'p5']) {
+      await store.appendMessage(CH, { ...makeMessage(id, CH), createdAt: ts });
+    }
+  }
+
+  beforeEach(async () => {
+    tmpDir = createTempDir();
+    store = new FileStore(tmpDir);
+    await store.createChannel(makeChannel(CH));
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('无 before：返回最新 limit 条（升序），total/hasMore 正确', async () => {
+    await seedSameTimestamp();
+    const page = await store.queryMessagesPage(CH, { limit: 2 });
+    expect(page.messages.map(m => m.id)).toEqual(['p4', 'p5']);
+    expect(page.total).toBe(5);
+    expect(page.hasMore).toBe(true);
+  });
+
+  it('before=<messageId>：锚点之前窗口（不含锚点），同毫秒消息不漏不重', async () => {
+    await seedSameTimestamp();
+    const page = await store.queryMessagesPage(CH, { before: 'p4', limit: 2 });
+    expect(page.messages.map(m => m.id)).toEqual(['p2', 'p3']);
+    expect(page.total).toBe(3); // 锚点过滤后的总数（与路由现状语义一致）
+    expect(page.hasMore).toBe(true);
+
+    const first = await store.queryMessagesPage(CH, { before: 'p2', limit: 2 });
+    expect(first.messages.map(m => m.id)).toEqual(['p1']);
+    expect(first.hasMore).toBe(false);
+  });
+
+  it('锚点 id 不存在（已删除/被压实抹除）→ 空页、hasMore=false，不整页错发', async () => {
+    await seedSameTimestamp();
+    const page = await store.queryMessagesPage(CH, { before: 'p-gone', limit: 2 });
+    expect(page.messages).toEqual([]);
+    expect(page.total).toBe(5);
+    expect(page.hasMore).toBe(false);
+  });
+
+  it('limit 大于等于可用消息数 → 全量返回、hasMore=false', async () => {
+    await seedSameTimestamp();
+    const page = await store.queryMessagesPage(CH, { before: 'p3', limit: 50 });
+    expect(page.messages.map(m => m.id)).toEqual(['p1', 'p2']);
+    expect(page.hasMore).toBe(false);
   });
 });

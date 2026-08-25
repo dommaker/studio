@@ -11,8 +11,10 @@
  */
 
 import { randomUUID } from 'crypto';
-import { logger, eventBus, FileStore, type AgentProfileData, type ChannelMessageData, type WorkUnitSnapshot, type WorkUnitEvent } from '@dommaker/studio-shared';
+import { logger, eventBus, FileStore, type AgentProfileData, type WorkUnitSnapshot, type WorkUnitEvent } from '@dommaker/studio-shared';
+import { ChannelMessageService, channelMessageService } from '../channels/channel-message.service.js';
 import { resolveInitialStatus, WU_LEASE_TTL_MS } from './workunit.types.js';
+import { buildStatusById, resolveClaimable } from './wu-dependencies.js';
 import type { WorkUnitMetadata } from './workunit.service.js';
 
 export interface CreateWorkUnitInput {
@@ -161,9 +163,13 @@ function patchSnapshot(
 
 export class WorkUnitCrudService {
   protected fileStore: FileStore;
+  protected messageService: ChannelMessageService;
 
-  constructor(fileStore?: FileStore) {
+  constructor(fileStore?: FileStore, messageService?: ChannelMessageService) {
     this.fileStore = fileStore ?? new FileStore();
+    // #333：关联 WU 走 ChannelMessageService 统一更新路径（自带 channel.message_updated 双发）；
+    // 注入口径同 card-decision.service
+    this.messageService = messageService ?? (fileStore ? new ChannelMessageService(fileStore) : channelMessageService);
   }
 
   /**
@@ -184,7 +190,7 @@ export class WorkUnitCrudService {
     await this.fileStore.commitSnapshot(event, snapshot);
 
     // Publish event for EVENT trigger consumers (AgentLoop, etc.)
-    this.publishCreated(snapshot);
+    await this.publishCreated(snapshot);
 
     const parentWu = snapshotToData(snapshot);
 
@@ -220,14 +226,25 @@ export class WorkUnitCrudService {
     const created = await this.fileStore.createSnapshotGuarded(snapshot, guard);
     if (!created) return null;
 
-    this.publishCreated(snapshot);
+    await this.publishCreated(snapshot);
     return snapshotToData(snapshot);
   }
 
+  /**
+   * #318（SSE 负载深化 additive，ADR D2）：事件负载附 claimable 标记，口径与 GET / 列表路由一致——
+   * unassigned 且无未了结依赖才 true；其余状态恒 false 且不读 index。前端列表据此负载直更「被阻塞」徽标。
+   */
+  private async resolveEventClaimable(snapshot: WorkUnitSnapshot): Promise<boolean> {
+    if (snapshot.status !== 'unassigned') return false;
+    const statusById = buildStatusById(await this.fileStore.getIndex());
+    return resolveClaimable(snapshot, statusById);
+  }
+
   /** workunit.created 发布（best-effort，不阻断主流程；create/createGuarded 共用） */
-  private publishCreated(snapshot: WorkUnitSnapshot): void {
+  private async publishCreated(snapshot: WorkUnitSnapshot): Promise<void> {
     try {
-      eventBus.publish('workunit.created', { workunit: snapshotToData(snapshot) });
+      const claimable = await this.resolveEventClaimable(snapshot);
+      eventBus.publish('workunit.created', { workunit: { ...snapshotToData(snapshot), claimable } });
     } catch (err) {
       logger.warn('[WorkUnit] Failed to publish workunit.created (non-blocking)', {
         workUnitId: snapshot.id,
@@ -309,14 +326,9 @@ export class WorkUnitCrudService {
       },
     });
 
-    // Link message to WorkUnit (append updated copy to FileStore)
-    const now = new Date().toISOString();
-    const updatedMsg: ChannelMessageData = {
-      ...found.message,
-      workUnitId: wu.id,
-      createdAt: now,
-    };
-    await this.fileStore.appendMessage(found.channelId, updatedMsg);
+    // Link message to WorkUnit —— #333：经 ChannelMessageService 统一更新路径
+    // （append 新版保留原 createdAt，自带 eventBus + SSE channel.message_updated 双发）
+    await this.messageService.linkWorkUnit(messageId, wu.id);
 
     return wu;
   }
@@ -447,7 +459,7 @@ export class WorkUnitCrudService {
     await this.update(id, { timeoutAt });
     wu.timeoutAt = timeoutAt.toISOString();
     // 认领即状态变化（unassigned → active）：补发 status_changed（WU 列表实时刷新/接力订阅消费）
-    this.publishStatusChanged(wu);
+    await this.publishStatusChanged(wu);
     return snapshotToData(wu);
   }
 
@@ -477,7 +489,7 @@ export class WorkUnitCrudService {
     await this.fileStore.commitSnapshot(event, updated);
 
     // 释放回池（→ unassigned）同样发 status_changed（列表实时刷新/重新派工可见）
-    this.publishStatusChanged(updated);
+    await this.publishStatusChanged(updated);
 
     return snapshotToData(updated);
   }
@@ -485,10 +497,12 @@ export class WorkUnitCrudService {
   /**
    * 发布 workunit.status_changed（best-effort，不阻断主流程）。
    * REQ 需求状态汇总（vision §5.3）等订阅方消费。
+   * #318：负载附 claimable（additive，见 resolveEventClaimable）。
    */
-  protected publishStatusChanged(snapshot: WorkUnitSnapshot): void {
+  protected async publishStatusChanged(snapshot: WorkUnitSnapshot): Promise<void> {
     try {
-      eventBus.publish('workunit.status_changed', { workunit: snapshotToData(snapshot) });
+      const claimable = await this.resolveEventClaimable(snapshot);
+      eventBus.publish('workunit.status_changed', { workunit: { ...snapshotToData(snapshot), claimable } });
     } catch (err) {
       logger.warn('[WorkUnit] Failed to publish workunit.status_changed (non-blocking)', {
         workUnitId: snapshot.id,

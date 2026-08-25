@@ -11,7 +11,7 @@ import type { WorkUnit } from '../api/workunit';
 import { buildMapOpeningPrefill, parseBlockedBy } from '../components/pmo/mapUtils';
 import { BlockedByList } from '../components/workunit/BlockedByList';
 import { AnalysisApproveDialog } from '../components/pmo/AnalysisApproveDialog';
-import { useWorkUnitEvents } from '../hooks/useWorkUnitEvents';
+import { useWebSocketContext } from '../api/websocketHooks';
 import { Select } from '../components/ui';
 
 /** F6：WU 展示状态唯一派生口径（铁律：禁止各自读 metadata.attestations 解释） */
@@ -74,8 +74,17 @@ export function WorkUnitListPage() {
     loadWorkUnits();
   }, [loadWorkUnits]);
 
-  // WU 事件（SSE）：创建/状态变化时刷新列表（防抖合并在 hook 内）
-  useWorkUnitEvents(() => { loadWorkUnits(); });
+  // #318：WU SSE 负载直更（替代 eventTick 整页重拉）——status_changed 直替/移除行、created 插头部；
+  // SSE 重连经 onReconnect 一次性 refetch 对齐（ADR D3）
+  const applyWorkunitEvent = useWorkUnitStore(s => s.applyWorkunitEvent);
+  const { onEvent, onReconnect } = useWebSocketContext();
+  useEffect(() => onEvent((msg) => {
+    if (msg.event_type !== 'workunit.status_changed' && msg.event_type !== 'workunit.created') return;
+    const data = msg.data as { workunit?: WorkUnit } | null;
+    if (!data?.workunit) return;
+    applyWorkunitEvent(data.workunit, { insertIfMissing: msg.event_type === 'workunit.created' });
+  }), [onEvent, applyWorkunitEvent]);
+  useEffect(() => onReconnect(() => { void loadWorkUnits(); }), [onReconnect, loadWorkUnits]);
 
   const handleCreate = async () => {
     if (!newScope.trim()) return;
@@ -383,7 +392,7 @@ function WorkUnitRow({
               </pre>
             </div>
           )}
-          {/* 执行过程（思考/工具调用/用量，SSE 步级刷新）——与频道页右抽屉同一视图 */}
+          {/* 执行过程（思考/工具调用/用量，SSE 负载直更 #318）——与频道页右抽屉同一视图 */}
           <div className="mt-2">
             <ExecutionSteps workUnitId={wu.id} />
           </div>

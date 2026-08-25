@@ -17,7 +17,6 @@ status: published
 上游：**to-tickets** 产出的子工单，或直接指派的 implement 工单。
 输入：工单（What to build + AC + 可能的原型片段/决策记录）。
 产出：实现代码 + 通过的测试 + Phase commit 序列（实现 commit 引用先行测试 commit sha）。
-下游：**code-review**（审查实现质量）。
 
 ---
 
@@ -241,7 +240,6 @@ pnpm test → 确认全部 PASS + 无回归
 | 10 | destructive 确认 | `[destructive]` 操作已显式确认后再执行 | 停下，提示用户确认破坏性操作 |
 | 11 | 纯删除任务验证 | 纯删除任务有 grep 零残留 + tsc 无新错误 + 现有测试不回归 | 补充验证 |
 | 12 | 工作区干净 | `git status --short` 无输出（无未提交变更） | 停下，确认无遗漏文件后提交 |
-| 13 | 下游路由 | 全部 Phase 完成后 invoke code-review（禁止输出总结后直接结束） | 停下，invoke code-review |
 
 全部通过后进入终端状态。
 
@@ -250,15 +248,12 @@ pnpm test → 确认全部 PASS + 无回归
 ## 终端状态
 
 <HARD-GATE>
-Phase 间的 commit 已在 ④ 中完成。全部 Phase 完成 + 全量测试 PASS + 类型检查通过后，**必须 invoke code-review**。禁止在 invoke code-review 之前输出"完成总结"或"全部完成"。
-
-跳过此步 = 绕过了草台班子最后的质量门。code-review 是硬门禁，不是可选项。
+Phase 间的 commit 已在 ④ 中完成。全部 Phase 完成 + 全量测试 PASS + 类型检查通过后，才能输出完成总结。禁止在测试未全绿、类型检查未过、提交未齐时输出"完成总结"或"全部完成"。
 </HARD-GATE>
 
-自检 #12 通过后，确认以下状态再 invoke code-review：
+输出完成总结前，确认以下状态：
 
 1. `git status --short` 无输出（工作区干净，所有变更已提交）
 2. `git log --oneline` 确认每个 Phase 有测试+实现两个 commit，实现 commit 带 `tests: <sha>` 引用
-3. 确认后 **invoke code-review**（不得在此步骤之前输出含"完成/结果/总结"的关闭语）
 
-状态不对 → 先补齐提交，再 invoke。
+状态不对 → 先补齐提交，再总结。

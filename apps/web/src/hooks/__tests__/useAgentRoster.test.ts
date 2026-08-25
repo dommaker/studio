@@ -2,7 +2,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 
-const { mockOnEvent, mockListAllAgents, mockListChannels, mockGetAgentSummary, mockTerminateInstance, mockWuList, mockWuGet } = vi.hoisted(() => ({
+const { mockOnEvent, mockListAllAgents, mockListChannels, mockGetAgentSummary, mockTerminateInstance, mockWuList, mockWuGet, mockCtx } = vi.hoisted(() => ({
   mockOnEvent: vi.fn(),
   mockListAllAgents: vi.fn(),
   mockListChannels: vi.fn(),
@@ -10,10 +10,11 @@ const { mockOnEvent, mockListAllAgents, mockListChannels, mockGetAgentSummary, m
   mockTerminateInstance: vi.fn(),
   mockWuList: vi.fn(),
   mockWuGet: vi.fn(),
+  mockCtx: { status: 'disconnected' as string },
 }));
 
 vi.mock('../../api/websocketHooks', () => ({
-  useWebSocketContext: () => ({ onEvent: mockOnEvent }),
+  useWebSocketContext: () => ({ onEvent: mockOnEvent, status: mockCtx.status }),
 }));
 
 vi.mock('../../api/monitoring', () => ({
@@ -51,6 +52,7 @@ describe('useAgentRoster', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.clearAllMocks();
+    mockCtx.status = 'disconnected';
     mockOnEvent.mockReturnValue(() => {});
     mockListAllAgents.mockResolvedValue({ data: { data: [profile()] } });
     mockGetAgentSummary.mockResolvedValue({
@@ -118,6 +120,17 @@ describe('useAgentRoster', () => {
     expect(mockListAllAgents).toHaveBeenCalledTimes(2);
   });
 
+  // #313：轮询经 useGatedPoll——SSE 连接正常时不起表，fake timers 推进零周期请求
+  it('#313：SSE connected 时仅挂载首拉，推进计时器不发周期请求', async () => {
+    mockCtx.status = 'connected';
+    renderHook(() => useAgentRoster());
+    await flush();
+    expect(mockListAllAgents).toHaveBeenCalledTimes(1);
+    await act(async () => { vi.advanceTimersByTime(ROSTER_POLL_INTERVAL_MS * 4); });
+    expect(mockListAllAgents).toHaveBeenCalledTimes(1);
+    expect(mockGetAgentSummary).toHaveBeenCalledTimes(1);
+  });
+
   it('SSE agent.instance.status_changed：乐观更新卡片并增量补查 WU 详情', async () => {
     let handler: ((msg: unknown) => void) | null = null;
     mockOnEvent.mockImplementation((h: (msg: unknown) => void) => { handler = h; return () => {}; });
@@ -136,6 +149,71 @@ describe('useAgentRoster', () => {
     expect(mockWuGet).toHaveBeenCalledWith('wu-9');
     await flush();
     expect(result.current.roles[0].runtime?.currentWorkUnit?.title).toBe('补查的任务');
+  });
+
+  // #312：负载带摘要快照 → 就地写入，fillWorkUnit 补查退役为兜底
+  it('#312：负载带 currentWorkUnit 快照 → 就地写入，不再发起 WU 详情补查', async () => {
+    let handler: ((msg: unknown) => void) | null = null;
+    mockOnEvent.mockImplementation((h: (msg: unknown) => void) => { handler = h; return () => {}; });
+    mockGetAgentSummary.mockResolvedValue({
+      data: { agents: [instance({ status: 'idle', currentWorkUnitId: null, currentWorkUnit: null })], summary: { total: 1, idle: 1, active: 0, error: 0, terminated: 0 } },
+    });
+    const { result } = renderHook(() => useAgentRoster());
+    await flush();
+
+    act(() => {
+      handler!({
+        event_type: 'agent.instance.status_changed',
+        data: {
+          profileId: 'p1', instanceId: 'i1', name: 'dev-agent', status: 'active', currentWorkUnitId: 'wu-9',
+          currentWorkUnit: { id: 'wu-9', title: '负载里的任务', type: 'DEV', status: 'active', claimedAt: '2026-08-24T01:00:00Z' },
+          channelId: 'ch1', lastError: null, lastErrorAt: null,
+        },
+      });
+    });
+    expect(result.current.roles[0].runtime?.status).toBe('active');
+    expect(result.current.roles[0].runtime?.currentWorkUnitId).toBe('wu-9');
+    expect(result.current.roles[0].runtime?.currentWorkUnit?.title).toBe('负载里的任务');
+    expect(result.current.roles[0].runtime?.channelId).toBe('ch1');
+    expect(mockWuGet).not.toHaveBeenCalled();
+  });
+
+  it('#312：负载带悬空 null 快照（WU 已删除）→ 不补查，裸 id 保留展示', async () => {
+    let handler: ((msg: unknown) => void) | null = null;
+    mockOnEvent.mockImplementation((h: (msg: unknown) => void) => { handler = h; return () => {}; });
+    mockGetAgentSummary.mockResolvedValue({
+      data: { agents: [instance({ status: 'idle', currentWorkUnitId: null, currentWorkUnit: null })], summary: { total: 1, idle: 1, active: 0, error: 0, terminated: 0 } },
+    });
+    const { result } = renderHook(() => useAgentRoster());
+    await flush();
+
+    act(() => {
+      handler!({
+        event_type: 'agent.instance.status_changed',
+        data: { profileId: 'p1', instanceId: 'i1', name: 'dev-agent', status: 'active', currentWorkUnitId: 'wu-ghost', currentWorkUnit: null, channelId: null },
+      });
+    });
+    expect(result.current.roles[0].runtime?.currentWorkUnitId).toBe('wu-ghost');
+    expect(result.current.roles[0].runtime?.currentWorkUnit).toBeNull();
+    expect(mockWuGet).not.toHaveBeenCalled();
+  });
+
+  it('#312：error 事件就地更新 lastError（不等 30s 轮询）', async () => {
+    let handler: ((msg: unknown) => void) | null = null;
+    mockOnEvent.mockImplementation((h: (msg: unknown) => void) => { handler = h; return () => {}; });
+    const { result } = renderHook(() => useAgentRoster());
+    await flush();
+
+    act(() => {
+      handler!({
+        event_type: 'agent.instance.status_changed',
+        data: { profileId: 'p1', instanceId: 'i-err', name: 'dev-agent', status: 'error', currentWorkUnitId: null, currentWorkUnit: null, channelId: null, lastError: 'health probe timeout', lastErrorAt: '2026-08-24T02:00:00Z' },
+      });
+    });
+    expect(result.current.roles[0].runtime?.status).toBe('error');
+    expect(result.current.roles[0].runtime?.lastError).toBe('health probe timeout');
+    expect(result.current.roles[0].runtime?.lastErrorAt).toBe('2026-08-24T02:00:00Z');
+    expect(result.current.roles[0].runtime?.currentWorkUnitId).toBeNull();
   });
 
   it('SSE workunit.status_changed：按 currentWorkUnitId 反查归属并更新 WU 快照', async () => {

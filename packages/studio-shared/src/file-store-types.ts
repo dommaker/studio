@@ -86,6 +86,32 @@ export interface QueryOpts {
   limit?: number;
 }
 
+/** 频道消息分页查询选项（#319：before = 锚点消息 id 游标，不含锚点本身） */
+export interface MessagePageOpts {
+  before?: string;         // message id（替代原 timestamp 游标——同毫秒多条不漏不重）
+  limit?: number;
+}
+
+/** 频道消息分页结果（messages 按 createdAt 升序；total = 锚点过滤后的总数） */
+export interface MessagePage {
+  messages: ChannelMessageData[];
+  total: number;
+  hasMore: boolean;
+}
+
+/** 频道消息写侧压实阈值（#319；测试注入小阈值，生产用默认） */
+export interface MessageCompactionOptions {
+  checkInterval?: number;  // 每 N 次 append 评估一次
+  minLines?: number;       // 总行数下限
+  deadRatio?: number;      // 死行占比下限（0~1）
+}
+
+/** 频道消息生命周期归档配置（#327；测试注入小阈值/固定 now，生产用默认） */
+export interface MessageArchiveOptions {
+  maxAgeDays?: number;     // 超龄判据：计龄锚点距今 ≥ N 天即归档（默认 30）
+  now?: () => Date;        // 计龄基准时刻（测试注入固定值）
+}
+
 export interface CountOpts {
   workUnitId?: string;
   authorType?: string;
@@ -119,6 +145,9 @@ export interface WorkUnitSnapshot {
   updatedAt: string;
   claimedAt: string | null;
   completedAt: string | null;
+  /** #327: 关闭时刻（ISO 8601，可选——旧快照无此字段仍可加载）。频道消息归档的计龄锚点：
+      仅 status=closed 时有值，reopen（closed→unassigned）清除为 null */
+  closedAt?: string | null;
 }
 
 export interface WorkUnitFilter {

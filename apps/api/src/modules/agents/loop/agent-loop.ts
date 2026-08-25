@@ -18,7 +18,6 @@ import { WorkUnitService, snapshotToData, type WorkUnitMetadata, type WorkUnitDa
 import type { AgentProfileData } from '@dommaker/studio-shared';
 import { getTriggerScheduler } from '../../triggers/trigger-registry.js';
 import { knowledgeService } from '../../knowledge/knowledge-service.js';
-import { eventStore } from '../../../core/event-store.js';
 import { postWuSystemMessage } from '../../workunit/wu-messenger.js';
 import type { MessageMeta } from '../../channels/channel-message.service.js';
 import { withBlockedCta } from '../../workunit/blocked-cta.js';
@@ -33,6 +32,7 @@ import {
   notifyBudgetTripped,
 } from './daily-token-budget.js';
 import { emitExecutionStepEvent, emitExecutionStreamLine, emitExecutionStreamStepStart, emitWorkUnitFailedEvent } from './execution-step-events.js';
+import { loadCurrentWuContexts, type CurrentWuContext } from '../../monitoring/current-wu-context.js';
 import { CODE_WORKTREE_TYPES, runWuVerification } from './wu-verification.js';
 import { runCompletionGuards } from './completion-gates.js';
 import { parseMapOpening } from '../../pmo/map-opening.js';
@@ -64,7 +64,7 @@ export {
 
 // workunit:tokens / tool:call 事件落盘已抽到 ./agent-loop-events.js（工单 28，行为不变）；
 // re-export 保持对外导出语义不变
-export { resolveRealUsage, writeWorkunitTokenEvent, resolveToolTraceFile, writeToolCallEvents } from './agent-loop-events.js';
+export { resolveRealUsage, writeWorkunitTokenEvent, resolveToolTraceFile, writeToolCallEvents, WORKUNIT_TOKENS_SSE_TYPE } from './agent-loop-events.js';
 export type { WorkunitTokenEventArgs, RealUsage } from './agent-loop-events.js';
 
 // B2 测试特征 WU 守卫 + F4 excludeAssignee 解析已抽到 ./agent-loop-guards.js（工单 28，行为不变）；
@@ -132,6 +132,12 @@ export class AgentLoop {
   private triggerId: string | null = null;
   private loopPromise: Promise<void> | null = null;
   private lastIdleHeartbeatAt = 0;
+  /** #330：事件驱动唤醒——空闲 sleep 的中断器（idleSleep 挂起期间非 null） */
+  private wakeIdle: (() => void) | null = null;
+  /** #330：最近一轮 observe 的 myActive WU id 集——channel.message_sent 唤醒过滤口径 */
+  private lastActiveWuIds = new Set<string>();
+  /** #330：channel.message_sent 订阅句柄（start 挂、stop 退） */
+  private messageSentHandler: ((payload: { message?: { authorType?: string; workUnitId?: string | null } }) => void) | null = null;
   private executor: Executor;
   /** 2026-07 PMO-flow UX（§6-2）：最后一次已发布的 instance 状态（SSE 去重——状态不变不发） */
   private lastPublishedStatus: string | null = null;
@@ -266,6 +272,18 @@ export class AgentLoop {
         scope: 'agent',
       });
 
+      // #330: 事件驱动唤醒——订阅 channel.message_sent（同进程 eventBus，先例 channel-review）。
+      // 人类消息且 workUnitId 命中当前 myActive 时打断空闲 sleep、立即跑一轮 observe；
+      // 窄过滤天然限流，不去抖。事件 fire-and-forget 无持久，15s 空闲兜底轮询保留
+      // （防未来跨进程写者与重启间隙——当前生产写消息路径全部经 channel-message.service 发事件）。
+      this.messageSentHandler = (payload) => {
+        const msg = payload?.message;
+        if (!msg || msg.authorType !== 'human' || !msg.workUnitId) return;
+        if (!this.lastActiveWuIds.has(msg.workUnitId)) return;
+        this.wakeIdle?.();
+      };
+      eventBus.subscribe('channel.message_sent', this.messageSentHandler);
+
       // Main loop (non-blocking — fire and forget like original)
       this.loopPromise = this.runLoop().catch(err =>
         logger.error(`[AgentLoop] Loop failed for ${this.role.name}: ${err.message}`)
@@ -283,12 +301,14 @@ export class AgentLoop {
   /** F2: Record a startup-fatal failure to runtime state (state.json) + notify via eventBus and SSE */
   private async recordStartupFailure(message: string): Promise<void> {
     const now = new Date().toISOString();
+    let errorStateId: string | null = null;
     try {
       // Reuse this role's existing error state if any (avoid one record per retry)
       const allStates = await this.fileStore.listStates();
       const existing = allStates.find(s => s.roleId === this.role.id && s.status === 'error');
       if (existing) {
         await this.fileStore.updateState(existing.id, { lastError: message, lastErrorAt: now });
+        errorStateId = existing.id;
       } else {
         const instanceId = randomUUID();
         const state: RuntimeStateData = {
@@ -306,6 +326,7 @@ export class AgentLoop {
           lastErrorAt: now,
         };
         await this.fileStore.createState(instanceId, state);
+        errorStateId = instanceId;
       }
     } catch (err) {
       logger.warn(`[AgentLoop] Failed to record startup failure state: ${err instanceof Error ? err.message : String(err)}`);
@@ -314,12 +335,58 @@ export class AgentLoop {
     const payload = { profileId: this.role.id, name: this.role.name, provider: this.role.provider ?? 'claude', error: message };
     eventBus.publish('agent.health.failed', payload);
     // SSE 'events' topic (same shape as channel-message.service.ts publishSSE)
-    eventStore.publish('events', JSON.stringify({
+    eventBus.publish('events', {
       event_type: 'agent.health.failed',
       event_id: randomUUID(),
       timestamp: now,
       data: payload,
-    })).catch(() => {}); // best-effort
+    });
+
+    // #312（SSE 事件负载契约体检）：error 迁移也发 status_changed（与 publishInstanceStatus
+    // 同一构造出口，带 lastError/lastErrorAt），前端错误状态点可就地更新；
+    // agent.health.failed 保留不动（additive）。无当前 WU → ctx null（快照/channelId/pmo null）。
+    eventBus.publish('events', {
+      event_type: 'agent.instance.status_changed',
+      event_id: randomUUID(),
+      timestamp: now,
+      data: this.buildInstanceStatusPayload({
+        instanceId: errorStateId,
+        status: 'error',
+        currentWorkUnitId: null,
+        ctx: null,
+        startedAt: now,
+        lastError: message,
+        lastErrorAt: now,
+      }),
+    });
+  }
+
+  /**
+   * agent.instance.status_changed 负载唯一构造出口（#312 契约 + #318 additive pmo/startedAt）——
+   * publishInstanceStatus 与 recordStartupFailure 共用，防两处拷贝契约漂移。
+   */
+  private buildInstanceStatusPayload(input: {
+    instanceId: string | null;
+    status: string;
+    currentWorkUnitId: string | null;
+    ctx: CurrentWuContext | null;
+    startedAt: string | null;
+    lastError: string | null;
+    lastErrorAt: string | null;
+  }) {
+    return {
+      profileId: this.role.id,
+      instanceId: input.instanceId,
+      name: this.role.name,
+      status: input.status,
+      currentWorkUnitId: input.currentWorkUnitId,
+      currentWorkUnit: input.ctx?.currentWorkUnit ?? null,
+      channelId: input.ctx?.channelId ?? null,
+      pmo: input.ctx?.pmo ?? null,
+      startedAt: input.startedAt,
+      lastError: input.lastError,
+      lastErrorAt: input.lastErrorAt,
+    };
   }
 
   /** Main observe→resolveTarget→agentStep→recordResult loop */
@@ -332,7 +399,7 @@ export class AgentLoop {
         if (!target) {
           // No work available → back to idle (fix: status stays correct after task completion)
           await this.updateIdleState();
-          await sleep(15_000);
+          await this.idleSleep(15_000);
           continue;
         }
 
@@ -357,7 +424,7 @@ export class AgentLoop {
           });
           if (!stillAlive) continue;
           // 2026-07 PMO-flow UX（§6-2）：忙闲变化 SSE（仅状态实际变化时发一次）
-          this.publishInstanceStatus('active', target.workUnit.id);
+          void this.publishInstanceStatus('active', target.workUnit.id);
         }
 
         // #178（#63 决议 1）：持有中 WU 的 30s 租约心跳（claim 与 myActive 续跑统一入口）
@@ -458,8 +525,8 @@ export class AgentLoop {
 
   /**
    * #178（#63 决议 2）：fencing 校验 —— 步结果回写前 / 状态迁移前比对 claimedAt 代际令牌
-   * （「每次心跳前」校验由 refreshWorkUnitLease 锁内原子完成）。无租约轨道（未 start 的
-   * 测试直调等）不拦，保持既有行为。
+   * （「每次心跳前」校验由 refreshWorkUnitLease 快速路完成，落盘时锁内复核）。无租约轨道
+   * （未 start 的测试直调等）不拦，保持既有行为。
    */
   private async stillHoldsLease(wuId: string): Promise<boolean> {
     return this.wuLease.stillHolds(wuId);
@@ -505,7 +572,7 @@ export class AgentLoop {
     // #179（#66 决议 3 loop 侧）：心跳写连败计数/自裁统一走 watch 入口
     await this.updateStateWithHeartbeatWatch(update);
     // 2026-07 PMO-flow UX（§6-2）：进入 idle 发一次 SSE；45s 节流心跳重入不重复发
-    this.publishInstanceStatus('idle', null);
+    void this.publishInstanceStatus('idle', null);
   }
 
   /**
@@ -514,22 +581,43 @@ export class AgentLoop {
    * sse.routes 无 agent.* 显式映射 → 落 all topic，前端订阅 all 即收，无需改路由）。
    * 仅在 status 相对上次发布实际变化时发（lastPublishedStatus 去重）——
    * updateIdleState 的 45s 节流分支反复进入 idle 不刷屏。best-effort，绝不阻断主循环。
+   * #312（SSE 事件负载契约体检）：负载 additive 带 currentWorkUnit 快照（逐字段对齐
+   * getAgentSummary：title = metadata.title ?? scope；悬空 WU → null，裸 currentWorkUnitId
+   * 保留）+ channelId（当前 WU 所在频道，无当前 WU → null）+ lastError/lastErrorAt。
+   * #318：负载再添 pmo 快照 + startedAt；WU 聚合上下文改走共享出口
+   * （monitoring/current-wu-context，与 getAgentSummary 同源，claimedAt 快照原样透传）。
+   * WU 查询失败/不存在不阻断发布（快照 null 兜底），调用方 fire-and-forget。
    */
-  private publishInstanceStatus(status: string, currentWorkUnitId: string | null): void {
+  private async publishInstanceStatus(status: string, currentWorkUnitId: string | null): Promise<void> {
     if (!this.instance || this.lastPublishedStatus === status) return;
     this.lastPublishedStatus = status;
-    eventStore.publish('events', JSON.stringify({
-      event_type: 'agent.instance.status_changed',
-      event_id: randomUUID(),
-      timestamp: new Date().toISOString(),
-      data: {
-        profileId: this.role.id,
-        instanceId: this.instance.id,
-        name: this.role.name,
-        status,
-        currentWorkUnitId,
-      },
-    })).catch(() => {}); // best-effort
+    const instance = this.instance;
+    try {
+      // #318：WU 聚合上下文走共享出口（current-wu-context，与 getAgentSummary 同源）——
+      // 负载 additive 补 pmo 快照；claimedAt 改快照原样透传（对齐 getAgentSummary 口径）。
+      // projects 读取失败不阻断发布（pmo null 兜底），调用方 fire-and-forget。
+      // project.service 走动态 import：避免与 pmo/workunit 模块链形成加载期循环依赖（同 monitoring.service 的 lazy 惯例）
+      const ctx = currentWorkUnitId
+        ? (await loadCurrentWuContexts(this.fileStore, [currentWorkUnitId], async () => {
+            const mod = await import('../../pmo/project.service.js');
+            return mod.projectService.list({ limit: 100000 });
+          }).catch(() => new Map())).get(currentWorkUnitId) ?? null
+        : null;
+      eventBus.publish('events', {
+        event_type: 'agent.instance.status_changed',
+        event_id: randomUUID(),
+        timestamp: new Date().toISOString(),
+        data: this.buildInstanceStatusPayload({
+          instanceId: instance.id,
+          status,
+          currentWorkUnitId,
+          ctx,
+          startedAt: instance.startedAt ?? null,
+          lastError: instance.lastError ?? null,
+          lastErrorAt: instance.lastErrorAt ?? null,
+        }),
+      });
+    } catch { /* best-effort：负载构建失败绝不阻断主循环 */ }
   }
 
   /** Stop the agent loop and clean up */
@@ -539,6 +627,12 @@ export class AgentLoop {
     if (this.triggerId) {
       getTriggerScheduler().unregisterTrigger(this.triggerId);
     }
+    // #330: 退订事件唤醒 + 中断空闲 sleep（waitForStop 不必等满 15s）
+    if (this.messageSentHandler) {
+      eventBus.unsubscribe('channel.message_sent', this.messageSentHandler);
+      this.messageSentHandler = null;
+    }
+    this.wakeIdle?.();
     if (this.instance) {
       this.fileStore.updateState(this.instance.id, {
         status: 'terminated',
@@ -552,6 +646,23 @@ export class AgentLoop {
     if (this.loopPromise) {
       try { await this.loopPromise; } catch { /* loop errors already logged */ }
     }
+  }
+
+  /** #330: 可中断的空闲 sleep——channel.message_sent 命中 myActive（或 stop）时提前返回 */
+  private idleSleep(ms: number): Promise<void> {
+    if (!this.alive) return Promise.resolve(); // stop 与进入 sleep 的竞态：已停则立即返回
+    return new Promise(resolve => {
+      const wake = () => {
+        clearTimeout(timer);
+        if (this.wakeIdle === wake) this.wakeIdle = null;
+        resolve();
+      };
+      const timer = setTimeout(() => {
+        if (this.wakeIdle === wake) this.wakeIdle = null;
+        resolve();
+      }, ms);
+      this.wakeIdle = wake;
+    });
   }
 
   /**
@@ -632,10 +743,20 @@ export class AgentLoop {
       }));
 
     const activeWuIds = myActive.map(wu => wu.id);
+    // #330: 缓存 myActive 口径供 channel.message_sent 事件唤醒过滤
+    this.lastActiveWuIds = new Set(activeWuIds);
+    // #330 扫描裁剪：只扫活跃 WU 所在频道（通常 1-2 个，原来是全频道无差别全扫）。
+    // 任一活跃 WU 无 channelId 时退全扫（该 WU 回复可能落在任意频道）。
+    // 已接受盲区：WU 换频道后旧频道里的新人类回复不再被扫到（换频道罕见，
+    // 且换频道后回复落新频道线程——WU.channelId 已更新）。
+    const channelFilter = myActive.length > 0 && myActive.every(wu => wu.channelId)
+      ? [...new Set(myActive.map(wu => wu.channelId as string))]
+      : undefined;
     const allReplies = activeWuIds.length > 0
       ? (await this.fileStore.queryAllMessages({
           workUnitIds: activeWuIds,
           authorType: 'human',
+          channelIds: channelFilter,
         })).filter(msg => {
           const wu = myActive.find(w => w.id === msg.workUnitId);
           return wu && new Date(msg.createdAt).getTime() > wu.updatedAt.getTime();
@@ -923,7 +1044,7 @@ export class AgentLoop {
       // Layer B（WU 过程可视化）：步内 stream-json 行级透传 → SSE 实时过程。
       // fire-and-forget；仅 LocalExecutor 同进程有效。
       onStreamLine: (line) => {
-        void emitExecutionStreamLine({ workUnitId: wu.id, executionId, step: stepNo, line }).catch(() => {});
+        void emitExecutionStreamLine({ workUnitId: wu.id, channelId: wu.channelId, executionId, step: stepNo, line }).catch(() => {});
       },
     };
 
@@ -934,6 +1055,7 @@ export class AgentLoop {
       const real = resolveRealUsage(res, taskProvider);
       void writeWorkunitTokenEvent(studioEventsJsonlPath(), {
         workUnitId: wu.id,
+        channelId: wu.channelId,
         executionId: task.executionId,
         injectedTokens: TokenEstimator.estimateText(knowledgeContext),
         executionTokens: real ? real.inputTokens + real.outputTokens : null,
@@ -962,6 +1084,7 @@ export class AgentLoop {
     const emitFailedStep = (action: string, detail: string, res?: ExecutionResult) => {
       void emitExecutionStepEvent({
         workUnitId: wu.id,
+        channelId: wu.channelId,
         executionId: task.executionId,
         sessionId: effectiveSessionId ?? undefined,
         sessionResumed,
@@ -977,7 +1100,7 @@ export class AgentLoop {
 
     try {
       // Layer B: step 开始信号（CLI 首行到达前抽屉即有反馈）
-      void emitExecutionStreamStepStart({ workUnitId: wu.id, executionId, step: stepNo }).catch(() => {});
+      void emitExecutionStreamStepStart({ workUnitId: wu.id, channelId: wu.channelId, executionId, step: stepNo }).catch(() => {});
       // #178（#63 决议 2）：fencing 易主时按 executionId 杀自身 CLI 进程组（finally 清除）
       this.currentExecutionId = executionId;
       // §9.6: 经 Executor 接口执行（P0 恒为 LocalExecutor → agentRunner.executeLightweight）
@@ -1162,6 +1285,7 @@ export class AgentLoop {
       // WU 详情抽屉消费；不进频道、不写 metadata 防膨胀）。fire-and-forget。
       void emitExecutionStepEvent({
         workUnitId: wu.id,
+        channelId: wu.channelId,
         executionId: task.executionId,
         sessionId: effectiveSessionId ?? undefined,
         // #94: 本步最终实际的续用形态（续用降级重试后 = false）
@@ -1448,7 +1572,9 @@ export class AgentLoop {
     let skipResultPost = false;
     const freshnessUpdates: Partial<WorkUnitMetadata> = {};
     if (result.channelVersion && wu.channelId) {
-      const arrived = await this.fileStore.getMessagesSinceLine(wu.channelId, result.channelVersion.lineCount);
+      // #319：锚点 = 快照时最后一行消息 id（压实安全）；锚点行若已被压实抹除，
+      // getMessagesSince 保守返回全部活消息，经下方「自己消息过滤 + 2 次拦截后照发」有界消化
+      const arrived = await this.fileStore.getMessagesSince(wu.channelId, result.channelVersion.lastMessageId);
       // 本 loop 自己发的消息（如 delegate 卡片）不算「房间已变」
       const external = arrived.filter(m => !(m.authorType === 'agent' && m.agentName === this.role.name));
       const interrupts = metadata.freshnessInterrupts ?? 0;

@@ -25,6 +25,7 @@ PMO-a 别名层（2026-07-28 分析文档，决策 4）：REQ 退化为 PMO 的�
 
 - 首次 @mention 派发时自动分配 REQ 编号（频道已登记杂务 PMO 时归集到杂务别名，不再每条消息新建 REQ）
 - 状态汇总走事件驱动（`workunit.status_changed`），不做轮询
+- **requirement.created/updated 已接 SSE（2026-08-24 SSE 负载加深）**：publish 负载 = `{ requirement }`（RequirementData 含 id/title/status/channelId，无需补齐），经 events 模块 workunit-events-bridge 转发到 'events' 频道，topic = requirements（sse.routes 前缀映射）
 - **鉴权（2026-07-24 收紧）**：POST /、PATCH /:id 已收 requireAuth+requireNotGuest；GET 端点保持大门层鉴权不变。
 - **B3a（决策 D2）**：Requirement 增 projectId 字段挂 PMO 项目（工程归属锚点）；studio-shared 的 RequirementData 暂未加该字段（本批改动限 apps/api/src），由本地 `RequirementWithProject` 扩展类型承载，FileStore 透传 JSON 运行时无差异。
 - **决策 4（别名层）**：别名视图 createdBy='pmo-alias' 只读；`RequirementServiceDeps` 可注入 getProjectByAlias/findChoreProject/listAliasProjects/getProjectByPmoNumber——单测务必注入中性桩（默认实现读真实 ~/.studio/projects，并行测试会被 routes 测试的真实项目串扰）。

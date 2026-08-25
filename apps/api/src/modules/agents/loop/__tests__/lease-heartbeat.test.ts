@@ -23,7 +23,8 @@ const stoppers: Array<() => void> = [];
 
 beforeEach(async () => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lease-heartbeat-'));
-  fileStore = new FileStore(tmpDir);
+  // #314（D2）：心跳写默认缓冲至 60s 落盘窗口；测试注入 0 = 每跳即落盘（即时持久化契约）
+  fileStore = new FileStore(tmpDir, { leaseFlushIntervalMs: 0 });
   wuService = new WorkUnitService(fileStore);
   channelId = `ch-lease-hb-${Date.now()}`;
   await fileStore.createChannel({

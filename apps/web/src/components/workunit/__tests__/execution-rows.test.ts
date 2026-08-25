@@ -153,11 +153,21 @@ describe('parseLiveStepRef / parseLiveWuRef — SSE data 防御解析', () => {
     expect(parseLiveStepRef(null)).toBeNull();
   });
 
+  // SSE 负载深化（决策 1/4）：step 负载补 channelId（可选；缺省/非字符串 → 不输出该字段）
+  it('parseLiveStepRef：提取 channelId（可选字段，缺省不输出）', () => {
+    expect(parseLiveStepRef({ workUnitId: 'WU-1', step: 3, channelId: 'ch-1' }))
+      .toEqual({ workUnitId: 'WU-1', step: 3, channelId: 'ch-1' });
+    expect(parseLiveStepRef({ workUnitId: 'WU-1', step: 3, channelId: null }))
+      .toEqual({ workUnitId: 'WU-1', step: 3 });
+    expect(parseLiveStepRef({ workUnitId: 'WU-1', step: 3, channelId: 42 }))
+      .toEqual({ workUnitId: 'WU-1', step: 3 });
+  });
+
   it('parseLiveWuRef：从 { workunit } 信封解析；坏数据/缺字段 → null', () => {
-    expect(parseLiveWuRef({ workunit: { id: 'WU-1', status: 'active', channelId: 'ch-1', metadata: '{}' } }))
-      .toEqual({ id: 'WU-1', status: 'active', channelId: 'ch-1', metadata: '{}' });
+    expect(parseLiveWuRef({ workunit: { id: 'WU-1', status: 'active', channelId: 'ch-1', metadata: '{}', type: 'task', scope: 's' } }))
+      .toEqual({ id: 'WU-1', status: 'active', channelId: 'ch-1', metadata: '{}', type: 'task', scope: 's' });
     expect(parseLiveWuRef({ workunit: { id: 'WU-1', status: 'done' } }))
-      .toEqual({ id: 'WU-1', status: 'done', channelId: null, metadata: null });
+      .toEqual({ id: 'WU-1', status: 'done', channelId: null, metadata: null, type: null, scope: null });
     expect(parseLiveWuRef({})).toBeNull();
     expect(parseLiveWuRef({ workunit: { status: 'active' } })).toBeNull();
     expect(parseLiveWuRef('broken')).toBeNull();

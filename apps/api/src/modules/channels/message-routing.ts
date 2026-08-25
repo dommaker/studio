@@ -143,10 +143,15 @@ export async function routeMessage(
   // Priority 1: Thread reply — inherit workUnitId from parent
   if (replyToId) {
     const found = await resolvedFs.getMessageById(replyToId);
+    // #327：父消息不在热层（已归档 = getMessageById 热只读不可见；与「彻底不存在」不可区分）
+    // → 引用降级放行：帖子成立、replyToId 保留（前端引用预览自然缺失）、
+    // workUnitId 继承失效落 null、不触发挂起复活——不整帖抛错
     if (!found) {
-      throw new Error(`Replied message ${replyToId} not found`);
+      logger.warn('[MessageRouting] Replied message not in hot tier, degrading reply (no workUnitId inheritance)', {
+        channelId, replyToId,
+      });
     }
-    const inheritedWorkUnitId = found.message.workUnitId ?? undefined;
+    const inheritedWorkUnitId = found?.message.workUnitId ?? undefined;
     const message = await channelMessageService.createHumanMessage(
       channelId,
       content,

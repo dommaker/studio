@@ -12,7 +12,7 @@ import {
 import { requirementApi, type RequirementChain } from '../../api/requirements';
 import { monitoringApi, type OverheadStats } from '../../api/monitoring';
 import { channelApi } from '../../api/channel';
-import { useWorkUnitEvents } from '../../hooks/useWorkUnitEvents';
+import { useWebSocketContext } from '../../api/websocketHooks';
 import { ExecutionSteps } from '../workunit/ExecutionSteps';
 import { BlockedActions } from '../workunit/BlockedActions';
 import { TreeTokenDrawer } from '../workunit/TreeTokenDrawer';
@@ -122,16 +122,18 @@ function WuDetail({ id, autoApprove = false, onOpenReq }: { id: string; autoAppr
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
   // #284（决策 #250 D6）：接力卡「打开即弹」一次性哨兵（ref：避免 effect 内 setState 触发 lint；
-  // 仅 id/autoApprove 变化时重新武装，SSE eventTick 重拉不重复弹）
+  // 仅 id/autoApprove 变化时重新武装，SSE 事件更新不重复弹）
   const autoPopupDoneRef = useRef(!autoApprove);
   useEffect(() => {
     autoPopupDoneRef.current = !autoApprove;
   }, [id, autoApprove]);
-  // WU 事件（SSE）：状态变化/执行步事件时重拉详情（认领/审查/完成/执行过程即时可见）
-  const [eventTick, setEventTick] = useState(0);
-  useWorkUnitEvents(() => setEventTick(t => t + 1));
+  // 决策 8（2026-08 SSE 负载加深）：SSE 事件订阅——status_changed 负载 = 全量 WorkUnit
+  // （同 workunitApi.get 形状）按 id 匹配直接替换本地 wu；workunit.tokens 复用
+  // parseWorkunitTokenEvents 防御解析（他 WU / 缺字段负载跳过，聚合保持现有值）。
+  // 替代原 eventTick（400ms 防抖）驱动的整组重拉。
+  const { onEvent } = useWebSocketContext();
 
-  // 渲染期按 id 重置（替代原 effect 内同步重置）：SSE eventTick 触发的重拉不再重置，
+  // 渲染期按 id 重置（替代原 effect 内同步重置）：SSE 事件触发的更新不重置，
   // 消除每次事件都闪"加载中…"的骨架闪烁——事件刷新静默进行，旧数据留到新数据到达
   const [prevId, setPrevId] = useState(id);
   if (prevId !== id) {
@@ -143,6 +145,7 @@ function WuDetail({ id, autoApprove = false, onOpenReq }: { id: string; autoAppr
     setNotFound(false);
   }
 
+  // 开抽屉一次性打底：WU 详情（+ 频道名 best-effort）
   useEffect(() => {
     let alive = true;
     workunitApi.get(id)
@@ -168,14 +171,37 @@ function WuDetail({ id, autoApprove = false, onOpenReq }: { id: string; autoAppr
         if (axios.isAxiosError(e) && e.response?.status === 404) setNotFound(true);
         else setError(e instanceof Error ? e.message : String(e));
       });
+    return () => { alive = false; };
+  }, [id]);
+
+  // 开抽屉一次性打底：token 度量历史（此后增量走 workunit.tokens SSE）
+  useEffect(() => {
+    let alive = true;
     workunitApi.listTokenEvents()
       .then(r => { if (alive) setTokens(parseWorkunitTokenEvents(r.data.events || [], id)); })
       .catch(() => { if (alive) setTokens([]); });
+    return () => { alive = false; };
+  }, [id]);
+
+  // 开抽屉一次性打底：全局 30 天封装开销（全局聚合，不随单 WU 事件变化，不随任何事件重拉）
+  useEffect(() => {
+    let alive = true;
     monitoringApi.getOverhead()
       .then(r => { if (alive) setOverhead(r.data); })
       .catch(() => {});
     return () => { alive = false; };
-  }, [id, eventTick]);
+  }, [id]);
+
+  // SSE 增量订阅（决策 8）
+  useEffect(() => onEvent((msg) => {
+    if (msg.event_type === 'workunit.status_changed') {
+      const data = msg.data as { workunit?: WorkUnit } | null;
+      if (data?.workunit && data.workunit.id === id) setWu(data.workunit);
+    } else if (msg.event_type === 'workunit.tokens') {
+      const [ev] = parseWorkunitTokenEvents([{ payload: msg.data }], id);
+      if (ev) setTokens(prev => [...(prev ?? []), ev]);
+    }
+  }), [onEvent, id]);
 
   if (notFound) return <div className="mc-drawer-note">该任务不存在或已被清理（id：{id}）</div>;
   if (error) return <div className="mc-drawer-note">加载失败: {error}</div>;
@@ -193,12 +219,13 @@ function WuDetail({ id, autoApprove = false, onOpenReq }: { id: string; autoAppr
   const maxBar = Math.max(totalSum, 1);
 
   /** 人工确认入口：in_review = 审查硬门（过→done；analysis 过后自动拆任务派工）；
-   *  done 缺 l3 = L3 人工验收留痕（不阻断流程）。同调 reviewPassed（服务端幂等）。 */
+   *  done 缺 l3 = L3 人工验收留痕（不阻断流程）。同调 reviewPassed（服务端幂等）。
+   *  决策 8：动作成功后用响应体直接更新本地 wu（状态变化另有 status_changed SSE 兜底） */
   const handleReviewPassed = async (summary?: string, assigneeId?: string) => {
     setConfirming(true);
     try {
-      await workunitApi.reviewPassed(id, summary, assigneeId);
-      setEventTick(t => t + 1);
+      const r = await workunitApi.reviewPassed(id, summary, assigneeId);
+      setWu(r.data);
     } finally {
       setConfirming(false);
     }
@@ -210,8 +237,8 @@ function WuDetail({ id, autoApprove = false, onOpenReq }: { id: string; autoAppr
   const handleConfirmPending = async () => {
     setConfirming(true);
     try {
-      await workunitApi.transitionStatus(id, 'unassigned');
-      setEventTick(t => t + 1);
+      const r = await workunitApi.transitionStatus(id, 'unassigned');
+      setWu(r.data);
     } finally {
       setConfirming(false);
     }
@@ -221,10 +248,10 @@ function WuDetail({ id, autoApprove = false, onOpenReq }: { id: string; autoAppr
   const handleReviewRejected = async () => {
     setConfirming(true);
     try {
-      await workunitApi.reviewRejected(id, rejectReason.trim() || undefined);
+      const r = await workunitApi.reviewRejected(id, rejectReason.trim() || undefined);
+      setWu(r.data);
       setShowRejectModal(false);
       setRejectReason('');
-      setEventTick(t => t + 1);
     } finally {
       setConfirming(false);
     }
@@ -371,8 +398,10 @@ function WuDetail({ id, autoApprove = false, onOpenReq }: { id: string; autoAppr
       )}
 
       {/* #185（决策 #87 D4）：blocked 处置组件（继续执行/关闭任务），与详情页同一组件；
-          动作成功后经 eventTick 重拉详情 */}
-      <BlockedActions wu={wu} onChanged={() => setEventTick(t => t + 1)} />
+          动作成功后重拉一次详情兜底（状态变化另有 status_changed SSE 负载直更） */}
+      <BlockedActions wu={wu} onChanged={() => {
+        workunitApi.get(id).then(r => setWu(r.data)).catch(() => {});
+      }} />
 
       {/* WU 过程可视化：执行步事件流（思考/工具调用/skill 注入/用量），SSE 步级刷新。
           频道只留里程碑，过程明细在这里；完整 transcript（会话原文）见 WU 详情页 TranscriptViewer（#174）。

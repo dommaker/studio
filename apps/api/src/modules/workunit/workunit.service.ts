@@ -128,6 +128,9 @@ export class WorkUnitService extends WorkUnitCrudService {
       ...current,
       status: newStatus,
       completedAt: (newStatus === 'done' || newStatus === 'closed') ? isoNow : current.completedAt,
+      // #327：closedAt 是归档计龄锚点——转入 closed 落锚；从 closed 迁出（reopen，状态机唯一
+      // 出口 closed→unassigned）清除，活 WU 的消息不按陈旧锚点被归档
+      closedAt: newStatus === 'closed' ? isoNow : current.status === 'closed' ? null : current.closedAt ?? null,
       // #176（决策 #57 D4）：转入 blocked 统一落死信计时基准 metadata.blockedAt
       // （24h 自动关闭与 30min 提醒均以此为锚；复活后再次 blocked 刷新）
       metadata: newStatus === 'blocked'
@@ -145,7 +148,7 @@ export class WorkUnitService extends WorkUnitCrudService {
     await this.fileStore.commitSnapshot(event, updated);
 
     // Publish status-change event（REQ roll-up 等订阅消费，best-effort）
-    this.publishStatusChanged(updated);
+    await this.publishStatusChanged(updated);
 
     // #126（T4）：人工确认（pending → unassigned）解除人闸——feature 单此时补展开
     // 频道默认管线第一跳（创建时落 pending 跳过展开；expandDefaultPipelineHead 幂等）。
@@ -156,6 +159,16 @@ export class WorkUnitService extends WorkUnitCrudService {
           parentId: updated.id,
           error: String(err),
         }),
+      );
+    }
+
+    // #327：reopen（closed → unassigned）自动解冻——该 WU 已归档消息从冷文件搬回热文件，
+    // 规则保持一条线：活 WU 的消息永远在热层。best-effort：失败记日志不阻断迁移
+    if (current.status === 'closed' && newStatus === 'unassigned') {
+      await this.fileStore.thawWorkUnitMessages(id).catch(err =>
+        logger.warn('[WorkUnit] Thaw archived messages on reopen failed (non-blocking)', {
+          workUnitId: id, error: String(err),
+        })
       );
     }
 
@@ -361,7 +374,7 @@ export class WorkUnitService extends WorkUnitCrudService {
     };
     await this.fileStore.commitSnapshot(event, updated);
 
-    this.publishStatusChanged(updated);
+    await this.publishStatusChanged(updated);
 
     this.aggregateParentStatus(id).catch(err =>
       logger.warn('[WorkUnit] aggregateParentStatus failed', { workUnitId: id, error: String(err) })
@@ -413,7 +426,7 @@ export class WorkUnitService extends WorkUnitCrudService {
     };
     await this.fileStore.commitSnapshot(event, updated);
 
-    this.publishStatusChanged(updated);
+    await this.publishStatusChanged(updated);
 
     this.aggregateParentStatus(id).catch(err =>
       logger.warn('[WorkUnit] aggregateParentStatus failed', { workUnitId: id, error: String(err) })
@@ -521,7 +534,7 @@ export class WorkUnitService extends WorkUnitCrudService {
       data: updated as unknown as Record<string, unknown>,
     };
     await this.fileStore.commitSnapshot(event, updated);
-    this.publishStatusChanged(updated);
+    await this.publishStatusChanged(updated);
     return updated;
   }
 

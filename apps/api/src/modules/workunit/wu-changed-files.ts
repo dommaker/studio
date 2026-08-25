@@ -15,10 +15,15 @@
  * 读取失败/无数据 → 空数组，绝不抛出（#249/#251：派生绝不抛出）。
  */
 import { logger } from '@dommaker/studio-shared';
-import { readStudioEvents, parseStudioEventPayload } from '../../utils/studio-events.js';
+import { parseStudioEventPayload } from '../../utils/studio-events.js';
+// #335：窗口读口（尾部倒读 + 窗口外早停），替代 readStudioEvents 全量读
+import { readStudioEventsSince } from '../../utils/studio-events-tail.js';
+
+/** #335：本模块语义即"只查近期事件"（归档后自然查不到 → chip 降级）；窗口对齐 #173 热文件保留期 */
+const EVENTS_WINDOW_MS = 30 * 24 * 3600_000;
 
 export interface WuChangedFilesDeps {
-  /** 事件来源（默认统一事件文件 readStudioEvents）；测试注入 */
+  /** 事件来源（默认 = 窗口读口 readStudioEventsSince，窗口 = EVENTS_WINDOW_MS 30d）；测试注入 */
   readEvents?: () => Promise<Array<Record<string, unknown>>>;
 }
 
@@ -28,7 +33,7 @@ export async function listWorkUnitChangedFiles(
   deps: WuChangedFilesDeps = {},
 ): Promise<string[]> {
   try {
-    const events = await (deps.readEvents ?? (() => readStudioEvents()))();
+    const events = await (deps.readEvents ?? (() => readStudioEventsSince({ sinceMs: Date.now() - EVENTS_WINDOW_MS })))();
     const sessionIds = new Set<string>();
     for (const e of events) {
       if (e.type !== 'session:start') continue;

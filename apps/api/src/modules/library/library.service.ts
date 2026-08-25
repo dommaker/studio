@@ -9,18 +9,25 @@
  *
  * 写侧判死：library 无任何写路径——文档随仓演进，变更历史 = git 历史。
  * 单仓读失败（目录不存在/权限）不炸整体，跳过并 logger.warn。
+ *
+ * #321：全部文件读路径（markdown 读 + readdir + legacy）收进 FileStore 读穿
+ * seam（mtime 校验，ADR 2026-08-24-cache-seam-decision-rules 决策树第 1 问）——
+ * 命中仅 stat 校验不重读内容；外部进程写入经 mtime 变化触发重读，无跨进程脏读。
+ * 对外部项目仓零写入（不落 _index.md 等任何索引文件）。
  */
 
 import * as path from 'node:path';
-import * as fs from 'node:fs/promises';
 import {
+  FileStore,
   logger,
-  parseFrontmatter,
   listLegacySddDocs,
   readLegacySddDoc,
 } from '@dommaker/studio-shared';
 import { legacySddDir } from '@dommaker/studio-shared/studio-dir';
 import { projectService, type ProjectData } from '../pmo/project.service.js';
+
+// FileStore 读穿缓存为模块级（按绝对路径 key），实例 baseDir 无关
+const fileStore = new FileStore();
 
 // ── Types ──
 
@@ -73,19 +80,19 @@ interface ParsedDoc {
   mtime: string;
 }
 
+/**
+ * 经 FileStore 读穿 seam 读 markdown（mtime 校验，命中零内容重读）。
+ * 保持原逐文件容错语义：任何读失败按缺文档处理（返回 null），由调用方跳过。
+ */
 async function readMarkdownDoc(absPath: string): Promise<ParsedDoc | null> {
-  let raw: string;
+  let doc: { meta: Record<string, unknown>; body: string; mtimeMs: number } | null;
   try {
-    raw = await fs.readFile(absPath, 'utf8');
+    doc = await fileStore.readDocWithMtime(path.dirname(absPath), path.basename(absPath, '.md'));
   } catch {
     return null;
   }
-  let mtime = '';
-  try {
-    mtime = (await fs.stat(absPath)).mtime.toISOString();
-  } catch { /* 读不到 mtime 留空 */ }
-  const parsed = parseFrontmatter(raw);
-  return { meta: parsed?.meta ?? {}, body: parsed?.body ?? raw, mtime };
+  if (!doc) return null;
+  return { meta: doc.meta, body: doc.body, mtime: new Date(doc.mtimeMs).toISOString() };
 }
 
 function metaUpdatedAt(meta: Record<string, unknown>, mtime: string): string {
@@ -115,7 +122,7 @@ async function scanProjectDocs(project: LibraryProject): Promise<Array<{ item: L
     const absDir = path.join(root === 'repo' ? project.gitRepo : studioRoot, dir);
     let entries: import('node:fs').Dirent[];
     try {
-      entries = await fs.readdir(absDir, { withFileTypes: true });
+      entries = await fileStore.readdir(absDir);
     } catch {
       continue; // 目录不存在 = 该仓无此面，不算失败
     }

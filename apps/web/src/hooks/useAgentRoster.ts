@@ -1,12 +1,13 @@
 // Agent 作战视图数据 hook — 角色名册（profile × runtime 合并）+ SSE 事件路由 + 轮询兜底
 // 从 AgentDashboardPage 抽取：页面只负责组合与渲染，数据获取/实时事件/内存纪律归这里。
 // 实时：onEvent 订阅 agent.instance.status_changed / workunit.status_changed /
-//   workunit.execution.step|stream（按 currentWorkUnitId 反查归属 agent），30s 轮询兜底。
+//   workunit.execution.step|stream（按 currentWorkUnitId 反查归属 agent），
+//   30s 轮询经 useGatedPoll（#313）：SSE 断开且页面 visible 才兜底。
 // 内存纪律：每 agent 动态 ≤10 条（流式 thinking/text 逐 chunk 同 key 刷新同一行）。
 // 已知 N+1：空闲角色逐个 workunitApi.list 查「最近完成」（GET /workunits 只支持单 assigneeId，
 //   后端无批量接口，保持逐查行为）；活跃角色 currentWorkUnit 聚合字段暂缺时逐个 fillWorkUnit 补查。
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { monitoringApi, type AgentInfo } from '../api/monitoring';
+import { monitoringApi, type AgentInfo, type AgentCurrentWorkUnit } from '../api/monitoring';
 import { channelApi, type AgentProfile } from '../api/channel';
 import { isForbidden } from '../utils/http';
 import {
@@ -16,6 +17,7 @@ import {
   type WorkUnit,
 } from '../api/workunit';
 import { useWebSocketContext, type WebSocketMessage } from '../api/websocketHooks';
+import { useGatedPoll } from './useGatedPoll';
 
 /** 卡片「最近动态」条目（SSE 实时追加，内存每 agent 最多保留 MAX_ACTIVITIES 条） */
 export interface RosterActivityItem {
@@ -51,13 +53,19 @@ export interface UseAgentRosterResult {
 export const MAX_ACTIVITIES = 10;
 export const ROSTER_POLL_INTERVAL_MS = 30000;
 
-/** agent.instance.status_changed（§6.2）的 data 契约 */
+/** agent.instance.status_changed（§6.2）的 data 契约；#312 起 additive 带摘要快照（对齐 getAgentSummary） */
 interface AgentStatusChangedData {
   profileId?: string;
   instanceId?: string;
   name?: string;
   status?: string;
   currentWorkUnitId?: string | null;
+  /** #312：当前 WU 快照（含 WU 时非 null；悬空 WU → null；旧事件无此字段 → undefined 走补查兜底） */
+  currentWorkUnit?: AgentCurrentWorkUnit | null;
+  /** #312：当前 WU 所在频道（无当前 WU → null） */
+  channelId?: string | null;
+  lastError?: string | null;
+  lastErrorAt?: string | null;
 }
 
 function truncate(text: string, max = 60): string {
@@ -170,13 +178,9 @@ export function useAgentRoster(): UseAgentRosterResult {
     }
   }, [fillWorkUnit]);
 
-  useEffect(() => {
-    // 挂载首查走静默路径（loading 初值已为 true，避免冗余的同步 setLoading 置位）；
-    // 微任务里触发：refresh 为多 await async 函数，编译器对 effect 内同步调用保守告警
-    void Promise.resolve().then(() => refresh(true));
-    const timer = setInterval(() => void refresh(true), ROSTER_POLL_INTERVAL_MS);
-    return () => clearInterval(timer);
-  }, [refresh]);
+  // #313：挂载首拉（silent，loading 初值已为 true）+ 30s 轮询统一走 useGatedPoll——
+  // SSE 断开且页面 visible 才兜底；403 短路在 refresh 内的 forbiddenRef
+  useGatedPoll(() => refresh(true), ROSTER_POLL_INTERVAL_MS);
 
   // SSE 实时：状态变更 / 执行动态（参考 useWorkUnitStreamEvents 的过滤模式：按 event_type 分流、按 workUnitId 反查归属）
   useEffect(() => {
@@ -204,12 +208,19 @@ export function useAgentRoster(): UseAgentRosterResult {
               id: d.instanceId ?? base.id,
               status: d.status ?? base.status,
               currentWorkUnitId: nextWorkUnitId,
-              // 任务切换 → 清掉旧 WU 快照，等补查写回
-              currentWorkUnit: nextWorkUnitId !== base.currentWorkUnitId ? null : base.currentWorkUnit,
+              // #312：负载带快照（含 null）以负载为准；无快照字段（旧事件）才退回
+              // 原行为——任务切换清掉旧 WU 快照，等 fillWorkUnit 补查写回
+              currentWorkUnit: d.currentWorkUnit !== undefined
+                ? (d.currentWorkUnit ?? null)
+                : (nextWorkUnitId !== base.currentWorkUnitId ? null : base.currentWorkUnit),
+              channelId: d.channelId !== undefined ? d.channelId : base.channelId,
+              lastError: d.lastError !== undefined ? d.lastError : base.lastError,
+              lastErrorAt: d.lastErrorAt !== undefined ? d.lastErrorAt : base.lastErrorAt,
             },
           };
         }));
-        if (d.currentWorkUnitId) fillWorkUnit(d.profileId, d.currentWorkUnitId);
+        // #312：负载未带快照字段（旧事件/异常）才补查兜底；带快照（含悬空 null）不补查
+        if (d.currentWorkUnitId && d.currentWorkUnit === undefined) fillWorkUnit(d.profileId, d.currentWorkUnitId);
         return;
       }
       if (msg.event_type === 'workunit.status_changed') {

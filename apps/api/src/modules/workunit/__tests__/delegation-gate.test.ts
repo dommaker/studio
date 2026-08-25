@@ -5,7 +5,26 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { FileStore, stringifyChannels, type AgentProfileData } from '@dommaker/studio-shared';
-import { resolveStudioLogFile } from '../../../utils/studio-log-path.js';
+import { syncTokenLedger, emptyTokenLedger, type TokenLedgerRow } from '../../../utils/token-ledger.js';
+import { vi } from 'vitest';
+
+// #320：闸门预算用例以 syncTokenLedger 为单测 seam（mock 注入账本），
+// 规避共享 studio-test-logs 目录下并行测试文件重写事件/账本文件的竞态；
+// 账本自身的文件级行为由 utils/__tests__/token-ledger.test.ts 覆盖。
+vi.mock('../../../utils/token-ledger.js', async (importOriginal) => {
+  const orig = await importOriginal<typeof import('../../../utils/token-ledger.js')>();
+  return { ...orig, syncTokenLedger: vi.fn() };
+});
+const mockSyncTokenLedger = vi.mocked(syncTokenLedger);
+
+function ledgerWithRow(wuId: string, executionTokens: number) {
+  const row: TokenLedgerRow = {
+    workUnitId: wuId, events: 1, executionCount: 1,
+    injectedTokens: 0, executionTokens, totalTokens: executionTokens, billedTokens: 0,
+    inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0,
+  };
+  return { ...emptyTokenLedger(), byWorkUnit: { [wuId]: row } };
+}
 import { WorkUnitService, type WorkUnitData, type WorkUnitMetadata } from '../workunit.service.js';
 import {
   checkDelegation,
@@ -35,6 +54,9 @@ describe('DelegationGate (A2A §4.1/§4.2)', () => {
   const profileC = makeProfile('profile-c', 'AgentC');
 
   beforeEach(async () => {
+    mockSyncTokenLedger.mockReset();
+    // 缺省空账本：非预算用例走真实求和路径（不污染共享事件目录）
+    mockSyncTokenLedger.mockResolvedValue(emptyTokenLedger());
     testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'delegation-gate-'));
     fileStore = new FileStore(testDir);
     wuService = new WorkUnitService(fileStore);
@@ -241,6 +263,7 @@ describe('DelegationGate (A2A §4.1/§4.2)', () => {
   });
 
   it('预算：checkTreeBudget 无事件文件 -> pass + treeTotal=0', async () => {
+    mockSyncTokenLedger.mockResolvedValue(emptyTokenLedger());
     const parent = await makeParent();
     const result = await checkTreeBudget(parent.id, fileStore);
     expect(result.pass).toBe(true);
@@ -249,25 +272,24 @@ describe('DelegationGate (A2A §4.1/§4.2)', () => {
 
   it('预算：checkTreeBudget 超限 -> fail + reason 含数字', async () => {
     const parent = await makeParent();
-    // 写入超预算的 token 事件
-    // P0 修复 5：模块在测试环境已隔离到 os.tmpdir()/studio-test-logs，夹具写同一路径
-    const eventsFile = resolveStudioLogFile('studio-events.jsonl');
-    fs.mkdirSync(path.dirname(eventsFile), { recursive: true });
     const overBudget = TREE_TOKEN_BUDGET + 10_000;
-    fs.writeFileSync(eventsFile, JSON.stringify({
-      type: 'workunit:tokens',
-      payload: JSON.stringify({ workUnitId: parent.id, injectedTokens: 0, executionTokens: overBudget }),
-      createdAt: new Date().toISOString(),
-    }) + '\n');
-    try {
-      const result = await checkTreeBudget(parent.id, fileStore);
-      expect(result.pass).toBe(false);
-      expect(result.reason).toContain(String(overBudget));
-      expect(result.reason).toContain(String(TREE_TOKEN_BUDGET));
-      expect(result.treeTotal).toBe(overBudget);
-    } finally {
-      fs.rmSync(eventsFile, { force: true });
-    }
+    mockSyncTokenLedger.mockResolvedValue(ledgerWithRow(parent.id, overBudget));
+    const result = await checkTreeBudget(parent.id, fileStore);
+    expect(result.pass).toBe(false);
+    expect(result.reason).toContain(String(overBudget));
+    expect(result.reason).toContain(String(TREE_TOKEN_BUDGET));
+    expect(result.treeTotal).toBe(overBudget);
+  });
+
+  it('预算：checkTreeBudget 读账本而非逐行扫事件流（#320）', async () => {
+    const parent = await makeParent();
+    // 账本里该树超预算；断言经由 syncTokenLedger 的账本取值（而非事件流全扫）
+    const cooked = TREE_TOKEN_BUDGET + 1;
+    mockSyncTokenLedger.mockResolvedValue(ledgerWithRow(parent.id, cooked));
+    const result = await checkTreeBudget(parent.id, fileStore);
+    expect(mockSyncTokenLedger).toHaveBeenCalled();
+    expect(result.pass).toBe(false);
+    expect(result.treeTotal).toBe(cooked);
   });
 
   it('readCollab / effectiveParentCollab：缺失、损坏与根默认口径', async () => {

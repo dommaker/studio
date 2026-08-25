@@ -212,7 +212,7 @@
 
 /* 消息流 */
 .mc-stream { flex: 1; overflow-y: auto; padding: 10px 14px; }
-.mc-stream-inner { max-width: 760px; margin: 0 auto; }
+.mc-stream-inner, .mc-stream-head { max-width: 760px; margin: 0 auto; }
 .mc-stream-empty {
   height: 100%;
   display: flex;
@@ -266,6 +266,17 @@
   flex: 1;
   height: 1px;
   background: var(--border-subtle);
+}
+
+/* #326：骨架占位行——数据层降级消息的固定小高度占位（水合前渲染） */
+.mc-msg-skeleton {
+  padding: 6px 12px;
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+  text-align: center;
+  border: 1px dashed var(--border-subtle);
+  border-radius: 4px;
+  margin: 4px 0;
 }
 
 .mc-collapse-toggle {
@@ -931,6 +942,7 @@
    人类侧由 .mc-bubble 75% 收口。 */
 @media (min-width: 1440px) {
   .mc-stream-inner,
+  .mc-stream-head,
   .mc-inputbar-inner { max-width: 1000px; }
   .mc-livebars-inner { max-width: 1000px; }
   .mc-card { max-width: 1000px; }

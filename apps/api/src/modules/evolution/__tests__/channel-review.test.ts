@@ -13,7 +13,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { FileStore, formatEvolutionId, type EvolutionProposalData } from '@dommaker/studio-shared';
+import { eventBus, FileStore, formatEvolutionId, type EvolutionProposalData } from '@dommaker/studio-shared';
 import { ChannelMessageService } from '../../channels/channel-message.service';
 import { EvolutionService } from '../evolution.service';
 import { initEvolutionChannelReview, parseDecisionReply, postProposalToChannel } from '../channel-review';
@@ -40,13 +40,28 @@ custom_constraints:
     description: "B0-002 已完成迁移"
 `;
 
-async function waitFor(cond: () => Promise<boolean>, timeoutMs = 3000): Promise<boolean> {
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    if (await cond()) return true;
-    await new Promise(r => setTimeout(r, 20));
-  }
-  return false;
+/**
+ * 确定性等待一个 eventBus 事件：predicate 命中即 resolve 并退订（#331）。
+ * eventBus.publish 是同步 emit，审核 handler 链是 fire-and-forget——用固定预算轮询
+ * 赌链路墙钟耗时在高负载基线下会超时 flake；改为等事件本身，事件不到 = 链路真坏。
+ */
+function onceEvent<T>(channel: string, pred: (payload: T) => boolean): Promise<T> {
+  return new Promise(resolve => {
+    const handler = (payload: T) => {
+      if (!pred(payload)) return;
+      eventBus.unsubscribe(channel, handler);
+      resolve(payload);
+    };
+    eventBus.subscribe(channel, handler);
+  });
+}
+
+/** 等待频道里一条匹配的系统回帖（createAgentMessage 落库后同步 publish，resolve 时消息已可查）。 */
+function waitForAgentReply(pred: (content: string) => boolean): Promise<void> {
+  return onceEvent<{ message?: { authorType?: string; content?: unknown } }>(
+    'channel.message_sent',
+    p => p?.message?.authorType === 'agent' && typeof p.message.content === 'string' && pred(p.message.content),
+  ).then(() => undefined);
 }
 
 async function seedProposal(patch?: Partial<EvolutionProposalData>): Promise<EvolutionProposalData> {
@@ -169,73 +184,77 @@ describe('channel review flow (approve/reject EP-XXXX)', () => {
     expect(msgs[0].content).toContain(result.created[0].id);
   });
 
-  it('human approve applies the proposal (target written + backup) and posts confirmation', async () => {
+  it('human approve applies the proposal (target written + backup) and posts confirmation', { timeout: 15000 }, async () => {
     const p = await seedProposal();
     unsubscribe = initEvolutionChannelReview(service, messageService);
 
-    await messageService.createHumanMessage('ch-sys', `approve ${p.id}`);
-    const applied = await waitFor(async () => (await service.get(p.id))?.status === 'applied');
-    expect(applied).toBe(true);
+    // 确定性同步点（#331）：decide 落 applied 后同步 publish evolution.applied（apply 已完成）；
+    // 回执帖落库后同步 publish channel.message_sent。先挂等待再触发，不错过事件。
+    const applied = onceEvent<{ proposal?: { id?: string } }>('evolution.applied', pl => pl?.proposal?.id === p.id);
+    const confirmed = waitForAgentReply(c => c.includes(p.id) && c.includes('已批准并生效'));
 
-    // 目标文件已改 + 备份已建
+    await messageService.createHumanMessage('ch-sys', `approve ${p.id}`);
+    await applied;
+
+    // 目标文件已改 + 备份已建（applied 事件发布于 apply 与状态写库之后，无需轮询）
     const raw = fs.readFileSync(paths.constraintsFile, 'utf-8');
     expect(raw).toContain('禁止 Redis（含间接依赖），违者驳回');
     const backups = fs.readdirSync(path.dirname(paths.constraintsFile)).filter(f => f.includes('.bak-'));
     expect(backups.length).toBe(1);
 
     const decided = await service.get(p.id);
+    expect(decided!.status).toBe('applied');
     expect(decided!.decidedBy).toBe('channel');
     expect(decided!.decidedAt).toBeTruthy();
     expect(decided!.appliedAt).toBeTruthy();
 
-    // 确认消息
+    // 确认回执（resolve 时消息已落库，直接断言内容）
+    await confirmed;
     const msgs = await messagesIn('ch-sys');
     const confirmation = msgs.find(m => m.authorType === 'agent' && m.content.includes('已批准并生效'));
-    expect(confirmation).toBeDefined();
     expect(confirmation!.content).toContain(p.id);
   });
 
-  it('human reject with reason marks rejected and posts ack', async () => {
+  it('human reject with reason marks rejected and posts ack', { timeout: 15000 }, async () => {
     const p = await seedProposal();
     unsubscribe = initEvolutionChannelReview(service, messageService);
 
+    // 回执在 decide 落 rejected 之后才发（channel-review.ts），await 回执即保证状态已写库
+    const acked = waitForAgentReply(c => c.includes(p.id) && c.includes('已拒绝'));
     await messageService.createHumanMessage('ch-sys', `reject ${p.id}：本期不接受`);
-    const rejected = await waitFor(async () => (await service.get(p.id))?.status === 'rejected');
-    expect(rejected).toBe(true);
+    await acked;
 
     const decided = await service.get(p.id);
+    expect(decided!.status).toBe('rejected');
     expect(decided!.rejectReason).toBe('本期不接受');
     expect(decided!.appliedAt).toBeFalsy();
     // 目标文件未被改动
     expect(fs.readFileSync(paths.constraintsFile, 'utf-8')).toBe(CONSTRAINTS_FIXTURE);
-
-    const msgs = await messagesIn('ch-sys');
-    expect(msgs.some(m => m.authorType === 'agent' && m.content.includes('已拒绝'))).toBe(true);
   });
 
-  it('double-decide is rejected with an ack, status unchanged', async () => {
+  it('double-decide is rejected with an ack, status unchanged', { timeout: 15000 }, async () => {
     const p = await seedProposal();
     unsubscribe = initEvolutionChannelReview(service, messageService);
 
+    const rejected = waitForAgentReply(c => c.includes(p.id) && c.includes('已拒绝'));
     await messageService.createHumanMessage('ch-sys', `reject ${p.id}`);
-    await waitFor(async () => (await service.get(p.id))?.status === 'rejected');
+    await rejected;
 
+    const acked = waitForAgentReply(c => c.includes('已是 rejected 状态'));
     await messageService.createHumanMessage('ch-sys', `approve ${p.id}`);
-    const acked = await waitFor(async () =>
-      (await messagesIn('ch-sys')).some(m => m.authorType === 'agent' && m.content.includes('已是 rejected 状态')));
-    expect(acked).toBe(true);
+    await acked;
+
     expect((await service.get(p.id))!.status).toBe('rejected');
     // 未生效
     expect(fs.readFileSync(paths.constraintsFile, 'utf-8')).toBe(CONSTRAINTS_FIXTURE);
   });
 
-  it('replies "not found" for unknown proposal ids; ignores non-decision chatter', async () => {
+  it('replies "not found" for unknown proposal ids; ignores non-decision chatter', { timeout: 15000 }, async () => {
     unsubscribe = initEvolutionChannelReview(service, messageService);
 
+    const notFound = waitForAgentReply(c => c.includes('未找到提案 EP-9999'));
     await messageService.createHumanMessage('ch-sys', 'approve EP-9999');
-    const acked = await waitFor(async () =>
-      (await messagesIn('ch-sys')).some(m => m.authorType === 'agent' && m.content.includes('未找到提案 EP-9999')));
-    expect(acked).toBe(true);
+    await notFound;
 
     const before = (await messagesIn('ch-sys')).length;
     await messageService.createHumanMessage('ch-sys', '今天天气不错');

@@ -41,7 +41,8 @@ export async function closeWorkUnitWithNotice(
   opts: CloseWorkUnitWithNoticeOptions,
 ): Promise<boolean> {
   const closedAt = new Date().toISOString();
-  const closed: WorkUnitSnapshot = { ...snapshot, status: 'closed', completedAt: closedAt, updatedAt: closedAt };
+  // #327：closedAt 归档计龄锚点与 completedAt 同刻落盘
+  const closed: WorkUnitSnapshot = { ...snapshot, status: 'closed', completedAt: closedAt, closedAt, updatedAt: closedAt };
 
   try {
     await fileStore.commitSnapshot({

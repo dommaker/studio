@@ -22,7 +22,8 @@
 | `FlywheelStats` (接口) | `monitoring.service.ts` | M1 飞轮指标类型，包含 quality、hitRate、freshness 等字段 |
 | `OverheadStats` (接口) | `monitoring.service.ts` | M2 封装开销指标类型，包含 injectedTokens、executionTokens 等字段 |
 | `AgentSummary` (接口) | `monitoring.service.ts` | Agent 摘要类型；agents 数组含 `roleId`（= AgentProfile.id），前端 AgentDashboard 据此合并 profile 信息（provider 等）；2026-07 PMO-flow UX 起每项另含 `currentWorkUnit{id,title,type,status,claimedAt}` / `pmo{id,pmoNumber,title}` / `channelId`（均可 null，向后兼容） |
-| `AgentCurrentWorkUnit` / `AgentPmoSummary` / `MonitoringServiceDeps` (接口) | `monitoring.service.ts` | /monitoring/agents 聚合的当前 WU 快照 / 归属 PMO 摘要 / 可注入依赖（`listProjects`，测试 stub 避免碰真实 ~/.studio/projects） |
+| `AgentCurrentWorkUnit` / `AgentPmoSummary` / `MonitoringServiceDeps` (接口) | `current-wu-context.ts` / `monitoring.service.ts` | /monitoring/agents 聚合的当前 WU 快照 / 归属 PMO 摘要 / 可注入依赖（`listProjects`，测试 stub 避免碰真实 ~/.studio/projects） |
+| `loadCurrentWuContexts` (函数) | `current-wu-context.ts` | #318 提取的共享出口：当前 WU 聚合上下文（快照 + pmo 归属链 + channelId），getAgentSummary 与 agent-loop 的 instance status_changed 负载同源，防契约漂移 |
 
 ### 依赖关系
 

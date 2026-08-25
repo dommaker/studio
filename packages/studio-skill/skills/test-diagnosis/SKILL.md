@@ -1,7 +1,7 @@
 ---
 name: test-diagnosis
 description: "测试失败时诊断根因：区分环境问题、依赖问题、代码问题三层，提供系统化 fallback 排查。"
-agentTypes: [test, bug]
+agentTypes: [bug]
 triggers: [测试失败, 诊断根因, test failure, diagnosis, 环境问题, 依赖问题, ECONNREFUSED, vi.mock, 测试超时, fixture 污染]
 status: published
 ---

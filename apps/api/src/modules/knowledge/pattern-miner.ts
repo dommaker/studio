@@ -8,12 +8,13 @@
 import { logger, FileStore } from '@dommaker/studio-shared';
 import { skillStore } from '../skills/skill-store.js';
 import { sharedStore } from './knowledge-bus.service.js';
-import { readFileSync, existsSync } from 'fs';
 import {
   resolveStudioEventsFile,
   parseStudioEventPayload,
   getStudioEventTime,
 } from '../../utils/studio-events.js';
+// #335：窗口读口（尾部倒读 + 窗口外早停），替代 readFileSync 全量读
+import { readStudioEventsSince } from '../../utils/studio-events-tail.js';
 
 // D18: tool:call trace 读自统一事件文件（~/.studio/logs/studio-events.jsonl，测试期隔离）
 const fileStore = new FileStore();
@@ -44,7 +45,7 @@ export class PatternMiner {
 
   async analyzeDaily(): Promise<number> {
     const yesterday = Date.now() - 24 * 60 * 60 * 1000;
-    const traces = this.loadTracesSince(yesterday);
+    const traces = await this.loadTracesSince(yesterday);
 
     if (traces.length < 10) {
       logger.debug('[PatternMiner] Not enough traces for pattern analysis', { traceCount: traces.length });
@@ -168,19 +169,14 @@ export class PatternMiner {
     return lines.join('\n') + '\n';
   }
 
-  private loadTracesSince(since: number): ToolTraceEvent[] {
+  private async loadTracesSince(since: number): Promise<ToolTraceEvent[]> {
     // D18: 统一事件文件；兼容 payload 嵌套（agent-loop/task-executor/mcp）与历史扁平形态
+    // #335: 窗口读口——窗口外的行不 parse（原 readFileSync 全量 + 应用层过滤）
     const filePath = resolveStudioEventsFile();
-    if (!existsSync(filePath)) return [];
 
     try {
-      const content = readFileSync(filePath, 'utf-8');
-      return content
-        .split('\n')
-        .filter(Boolean)
-        .map(line => {
-          try { return JSON.parse(line); } catch { return null; }
-        })
+      const rows = await readStudioEventsSince({ file: filePath, sinceMs: since });
+      return rows
         .filter((e: any) => e && e.type === 'tool:call')
         .map((e: any) => {
           const p = parseStudioEventPayload(e) ?? {};

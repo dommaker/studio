@@ -8,6 +8,7 @@ export type { WebSocketMessage, WebSocketStatus } from './websocketHooks';
 
 export function WebSocketProvider({ children }: { children: ReactNode }) {
   const handlersRef = useRef<Set<(msg: WebSocketMessage) => void>>(new Set());
+  const reconnectHandlersRef = useRef<Set<() => void>>(new Set());
 
   const onMessage = useCallback((msg: WebSocketMessage) => {
     handlersRef.current.forEach(h => h(msg));
@@ -18,10 +19,20 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     return () => { handlersRef.current.delete(handler); };
   }, []);
 
-  const ws = useWebSocket({ onMessage });
+  // 决策 9（2026-08 SSE 负载加深）：断线重连（onopen 且非首次）→ 广播给注册方做一次性 refetch
+  const handleReconnect = useCallback(() => {
+    reconnectHandlersRef.current.forEach(h => h());
+  }, []);
+
+  const onReconnect = useCallback((handler: () => void) => {
+    reconnectHandlersRef.current.add(handler);
+    return () => { reconnectHandlersRef.current.delete(handler); };
+  }, []);
+
+  const ws = useWebSocket({ onMessage, onReconnect: handleReconnect });
 
   return (
-    <WebSocketContext.Provider value={{ ...ws, onEvent }}>
+    <WebSocketContext.Provider value={{ ...ws, onEvent, onReconnect }}>
       {children}
     </WebSocketContext.Provider>
   );

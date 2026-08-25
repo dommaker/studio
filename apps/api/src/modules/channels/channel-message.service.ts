@@ -1,6 +1,5 @@
 // ChannelMessage Service — centralized message creation + event publishing
 import { eventBus, logger, FileStore, type ChannelMessageData } from '@dommaker/studio-shared';
-import { eventStore } from '../../core/event-store.js';
 import { v4 as uuidv4 } from 'uuid';
 
 export interface MessageMeta {
@@ -72,12 +71,13 @@ export class ChannelMessageService {
 
   /** B2: 发布 SSE 事件到 events channel（供前端 EventSource 消费） */
   private publishSSE(eventType: string, data: Record<string, unknown>) {
-    eventStore.publish('events', JSON.stringify({
+    // #324：直发 eventBus（同步 void，订阅侧各自 try/catch 兜底）
+    eventBus.publish('events', {
       event_type: eventType,
       event_id: uuidv4(),
       timestamp: new Date().toISOString(),
       data,
-    })).catch(() => {}); // best-effort
+    });
   }
 
   async createHumanMessage(
@@ -162,21 +162,22 @@ export class ChannelMessageService {
     const existingMeta = typeof found.message.meta === 'string' ? JSON.parse(found.message.meta) : found.message.meta;
     const merged = { ...(typeof existingMeta === 'object' && existingMeta !== null ? existingMeta : {}), ...meta };
 
-    const now = new Date().toISOString();
+    // #317：createdAt = 诞生时刻，更新不 bump（保住「消息恒按 createdAt 升序」不变式）
     const updated: ChannelMessageData = {
       ...found.message,
       meta: JSON.stringify(merged),
-      createdAt: now,
     };
     await this.fileStore.appendMessage(found.channelId, updated);
 
     const shaped = shapeMessageData(updated);
+    // #311（ADR 2026-08-24 D1/D2）：additive 挂全量 shaped message 本体，既有增量字段语义不动
     eventBus.publish('channel.message_updated', {
       channelId: found.channelId,
       messageId,
       meta: merged,
+      message: shaped,
     });
-    this.publishSSE('channel.message_updated', { channelId: found.channelId, messageId, meta: merged });
+    this.publishSSE('channel.message_updated', { channelId: found.channelId, messageId, meta: merged, message: shaped });
     return shaped;
   }
 
@@ -194,19 +195,48 @@ export class ChannelMessageService {
       const merged = { ...(typeof existingMeta === 'object' && existingMeta !== null ? existingMeta : {}), ...updates.meta };
       patched.meta = JSON.stringify(merged);
     }
-    patched.createdAt = new Date().toISOString();
+    // #317：createdAt 不可变（同 updateMessageMeta）
     await this.fileStore.appendMessage(found.channelId, patched);
 
     const shaped = shapeMessageData(patched);
+    // #311（ADR 2026-08-24 D1/D2）：additive 挂全量 shaped message 本体，既有增量字段语义不动
     eventBus.publish('channel.message_updated', {
       channelId: found.channelId,
       messageId,
       content: updates.content,
       meta: updates.meta,
+      message: shaped,
     });
     this.publishSSE('channel.message_updated', {
       channelId: found.channelId, messageId,
       content: updates.content, meta: updates.meta,
+      message: shaped,
+    });
+    return shaped;
+  }
+
+  /**
+   * #333：关联 WorkUnit 的统一更新路径（createFromMessage / convert-to-task 共用）。
+   * 与 updateMessageMeta 同口径：append 新版（createdAt 不变，#317/#332）→
+   * eventBus + SSE 双发 channel.message_updated，负载挂全量 shaped message 本体。
+   */
+  async linkWorkUnit(messageId: string, workUnitId: string): Promise<MessageRecord> {
+    const found = await this.fileStore.getMessageById(messageId);
+    if (!found) throw new Error(`Message ${messageId} not found`);
+
+    const updated: ChannelMessageData = { ...found.message, workUnitId };
+    await this.fileStore.appendMessage(found.channelId, updated);
+
+    const shaped = shapeMessageData(updated);
+    // #311（ADR 2026-08-24 D1/D2）：additive 挂全量 shaped message 本体，既有增量字段语义不动
+    eventBus.publish('channel.message_updated', {
+      channelId: found.channelId,
+      messageId,
+      workUnitId,
+      message: shaped,
+    });
+    this.publishSSE('channel.message_updated', {
+      channelId: found.channelId, messageId, workUnitId, message: shaped,
     });
     return shaped;
   }

@@ -7,7 +7,7 @@
 
 import { Router } from 'express';
 import { knowledgeService } from './knowledge-service.js';
-import { logger } from '@dommaker/studio-shared';
+import { eventBus, logger } from '@dommaker/studio-shared';
 import { requireAuth, requireNotGuest } from '../../middleware/auth.js';
 
 export const knowledgeServiceRoutes = Router();
@@ -301,7 +301,7 @@ knowledgeServiceRoutes.post('/merge', requireAuth(), requireNotGuest(), async (r
   }
 });
 
-// ── SSE: Bridge KnowledgeService events to general EventStore ──
+// ── SSE: Bridge KnowledgeService events to general eventBus ──
 // Knowledge events are now available at /api/v1/events/stream?topics=knowledge
 // This endpoint redirects to the general SSE stream.
 
@@ -312,9 +312,9 @@ knowledgeServiceRoutes.get('/events', (_req, res) => {
   });
 });
 
-// One-time bridge: subscribe KnowledgeService EventEmitter → EventStore
+// One-time bridge: subscribe KnowledgeService EventEmitter → eventBus（#324 直发对象，无字符串壳）
 let bridgeInitialized = false;
-export function initKnowledgeEventBridge(eventStore: { publish: (ch: string, msg: string) => Promise<void> }) {
+export function initKnowledgeEventBridge() {
   if (bridgeInitialized) return;
   bridgeInitialized = true;
 
@@ -325,12 +325,12 @@ export function initKnowledgeEventBridge(eventStore: { publish: (ch: string, msg
   }
 
   emitter.on('knowledge', (event: { type: string; data: unknown }) => {
-    eventStore.publish('events', JSON.stringify({
+    eventBus.publish('events', {
       event_type: `knowledge.${event.type}`,
       payload: event.data,
       timestamp: new Date().toISOString(),
-    })).catch((err: unknown) => logger.warn('[KnowledgeService] EventBridge publish failed', { error: String(err) }));
+    });
   });
 
-  logger.info('[KnowledgeService] Event bridge initialized → EventStore');
+  logger.info('[KnowledgeService] Event bridge initialized → eventBus');
 }

@@ -633,4 +633,147 @@ describe('FileStoreWorkUnitBase（直接单元测试）', () => {
       expect(rebuilt[0].status).toBe('closed');
     });
   });
+
+  // ═══ #314（D2）：租约心跳缓冲 + 定期合并落盘 ═══
+
+  describe('租约心跳缓冲与合并落盘（#314）', () => {
+    const claimedAt = new Date().toISOString();
+    const initialTimeout = new Date(Date.now() + 5 * 60_000).toISOString();
+
+    /** 建一个 active 持有中 WU（直接 upsert，绕过 claim 流程） */
+    async function seedClaimed(id = 'wu1'): Promise<WorkUnitSnapshot> {
+      const snap = makeWuSnapshot(id, {
+        status: 'active', assigneeId: 'inst-1', claimedAt, timeoutAt: initialTimeout,
+      });
+      await store.upsertSnapshot(snap);
+      return snap;
+    }
+
+    function readDiskIndex(): WorkUnitSnapshot[] {
+      return JSON.parse(fs.readFileSync(indexPath(), 'utf-8')) as WorkUnitSnapshot[];
+    }
+
+    function readEvents(): WorkUnitEvent[] {
+      if (!fs.existsSync(eventsPath())) return [];
+      return fs.readFileSync(eventsPath(), 'utf-8').trim().split('\n')
+        .filter(l => l.length > 0)
+        .map(l => JSON.parse(l) as WorkUnitEvent);
+    }
+
+    it('refresh 返回 ok 但只写内存：flush 前磁盘 timeoutAt/updatedAt 不变', async () => {
+      const seeded = await seedClaimed();
+      const next = new Date(Date.now() + 5 * 60_000);
+
+      const result = await store.refreshWorkUnitLease('wu1', 'inst-1', claimedAt, next);
+
+      expect(result).toBe('ok');
+      const disk = readDiskIndex()[0];
+      expect(disk.timeoutAt).toBe(initialTimeout); // 未落盘
+      expect(disk.updatedAt).toBe(seeded.updatedAt);
+
+      await store.flushWorkUnitLeases();
+      const after = readDiskIndex()[0];
+      expect(after.timeoutAt).toBe(next.toISOString());
+      expect(after.assigneeId).toBe('inst-1'); // 其余字段不动
+      expect(after.claimedAt).toBe(claimedAt);
+    });
+
+    it('落盘窗口内多跳只落一次盘、只记一条增量 updated 事件', async () => {
+      await seedClaimed();
+      const t1 = new Date(Date.now() + 5 * 60_000);
+      const t2 = new Date(Date.now() + 5 * 60_000 + 30_000);
+
+      await store.refreshWorkUnitLease('wu1', 'inst-1', claimedAt, t1);
+      await store.refreshWorkUnitLease('wu1', 'inst-1', claimedAt, t2);
+      await store.flushWorkUnitLeases();
+
+      const leaseEvents = readEvents().filter(e => e.type === 'updated' && e.wuId === 'wu1');
+      expect(leaseEvents).toHaveLength(1);
+      expect(leaseEvents[0].data).toEqual({ timeoutAt: t2.toISOString(), updatedAt: expect.any(String) });
+      expect(readDiskIndex()[0].timeoutAt).toBe(t2.toISOString());
+    });
+
+    it('flush 复核 fencing：落盘前易主 → 丢弃 dirty，新 holder 租约不被覆盖', async () => {
+      await seedClaimed();
+      await store.refreshWorkUnitLease('wu1', 'inst-1', claimedAt, new Date(Date.now() + 999_000));
+
+      // 模拟另一进程：超时释放 → inst-2 重新认领（claimedAt 换代 + 新租约）
+      const newClaimedAt = new Date().toISOString();
+      const newTimeout = new Date(Date.now() + 5 * 60_000).toISOString();
+      await store.upsertSnapshot(makeWuSnapshot('wu1', {
+        status: 'active', assigneeId: 'inst-2', claimedAt: newClaimedAt, timeoutAt: newTimeout,
+      }));
+
+      const result = await store.flushWorkUnitLeases();
+
+      expect(result).toEqual({ flushed: 0, dropped: 1 });
+      const disk = readDiskIndex()[0];
+      expect(disk.assigneeId).toBe('inst-2');
+      expect(disk.timeoutAt).toBe(newTimeout); // zombie 推前不生效
+    });
+
+    it('flush 跳过非 active WU：已完成 WU 的 updatedAt/timeoutAt 不被刷新', async () => {
+      const seeded = await seedClaimed();
+      await store.refreshWorkUnitLease('wu1', 'inst-1', claimedAt, new Date(Date.now() + 999_000));
+
+      // 持有方完成 WU（fencing 令牌未变，但状态已离开 active）
+      await store.upsertSnapshot({ ...seeded, status: 'completed' });
+
+      const result = await store.flushWorkUnitLeases();
+
+      expect(result).toEqual({ flushed: 0, dropped: 1 });
+      const disk = readDiskIndex()[0];
+      expect(disk.timeoutAt).toBe(initialTimeout);
+      expect(disk.updatedAt).toBe(seeded.updatedAt); // 不复活
+    });
+
+    it('WU 已删 → flush 丢弃，不复活条目', async () => {
+      await seedClaimed();
+      await store.refreshWorkUnitLease('wu1', 'inst-1', claimedAt, new Date(Date.now() + 999_000));
+      await store.removeSnapshot('wu1');
+
+      const result = await store.flushWorkUnitLeases();
+
+      expect(result).toEqual({ flushed: 0, dropped: 1 });
+      expect(readDiskIndex()).toEqual([]);
+    });
+
+    it('无 dirty 项时 flush 是 no-op（不写盘）', async () => {
+      await seedClaimed();
+      const before = fs.readFileSync(indexPath(), 'utf-8');
+      const result = await store.flushWorkUnitLeases();
+      expect(result).toEqual({ flushed: 0, dropped: 0 });
+      expect(fs.readFileSync(indexPath(), 'utf-8')).toBe(before);
+    });
+
+    it('leaseFlushIntervalMs: 0 → refresh 当跳即落盘（即时持久化契约）', async () => {
+      const immediate = new FileStoreWorkUnitBase(tmpDir, { leaseFlushIntervalMs: 0 });
+      await seedClaimed();
+      const next = new Date(Date.now() + 5 * 60_000);
+
+      const result = await immediate.refreshWorkUnitLease('wu1', 'inst-1', claimedAt, next);
+
+      expect(result).toBe('ok');
+      expect(readDiskIndex()[0].timeoutAt).toBe(next.toISOString()); // 无需显式 flush
+    });
+
+    it('快速路 fencing 契约不变：令牌不匹配 lost 一字不写，WU 不存在 missing', async () => {
+      await seedClaimed();
+
+      await expect(store.refreshWorkUnitLease(
+        'wu1', 'inst-1', '2000-01-01T00:00:00.000Z', new Date(),
+      )).resolves.toBe('lost');
+      await expect(store.refreshWorkUnitLease(
+        'wu1', 'inst-2', claimedAt, new Date(),
+      )).resolves.toBe('lost');
+      await expect(store.refreshWorkUnitLease(
+        'wu-gone', 'inst-1', claimedAt, new Date(),
+      )).resolves.toBe('missing');
+
+      await store.flushWorkUnitLeases(); // lost/missing 不产生 dirty 项
+      const disk = readDiskIndex()[0];
+      expect(disk.timeoutAt).toBe(initialTimeout);
+      expect(readEvents().filter(e => e.type === 'updated')).toEqual([]);
+    });
+  });
 });

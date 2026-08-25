@@ -272,6 +272,11 @@ export interface WorkUnitData {
   updatedAt: Date;
   claimedAt: Date | null;
   completedAt: Date | null;
+  /** #327（additive）：关闭时刻——归档计龄锚点。仅 closed 状态有值，reopen 清除 */
+  closedAt?: Date | null;
+  /** #318（additive，ADR D2）：可认领标记——仅事件负载（workunit.created/status_changed）与 GET / 列表项附带；
+      unassigned 且无未了结依赖才 true，其余状态恒 false；snapshotToData 本体不产此字段 */
+  claimable?: boolean;
 }
 
 /** Valid status transitions map */

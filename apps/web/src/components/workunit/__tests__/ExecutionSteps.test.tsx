@@ -1,11 +1,16 @@
 // ExecutionSteps - WU 过程可视化组件：执行步事件流 + Layer B 步内实时 chunk
 // 从 WorkUnitDrawer 抽取的复用组件，独立验证渲染契约（步事件/空态/实时/让位）
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
 
-const { mockListExecSteps, mockStreamChunks } = vi.hoisted(() => ({
+const { mockListExecSteps, mockStreamChunks, sse } = vi.hoisted(() => ({
   mockListExecSteps: vi.fn(),
   mockStreamChunks: vi.fn(),
+  // SSE 注册口捕获：组件经 useWebSocketContext 订阅后，用例经 sse.handler 注入消息、sse.reconnect 模拟重连
+  sse: {
+    handler: null as null | ((msg: { event_type: string; data: unknown }) => void),
+    reconnect: null as null | (() => void),
+  },
 }));
 
 vi.mock('../../../api/workunit', async () => {
@@ -16,9 +21,18 @@ vi.mock('../../../api/workunit', async () => {
   };
 });
 
-// SSE 事件 hook - 测试无 WebSocketProvider，置空
-vi.mock('../../../hooks/useWorkUnitEvents', () => ({
-  useWorkUnitEvents: () => {},
+// SSE 上下文 - 测试无 WebSocketProvider，捕获订阅回调供用例注入
+vi.mock('../../../api/websocketHooks', () => ({
+  useWebSocketContext: () => ({
+    onEvent: (fn: (msg: { event_type: string; data: unknown }) => void) => {
+      sse.handler = fn;
+      return () => { sse.handler = null; };
+    },
+    onReconnect: (fn: () => void) => {
+      sse.reconnect = fn;
+      return () => { sse.reconnect = null; };
+    },
+  }),
 }));
 
 // Layer B 步内流式 hook - 由用例控制返回的实时 chunk
@@ -304,5 +318,80 @@ describe('ExecutionSteps · 当前状态速览（#182）', () => {
     render(<ExecutionSteps workUnitId="WU-1" wu={glanceWu({ metadata: JSON.stringify({ stepCount: 1 }) })} />);
     await waitFor(() => expect(screen.getByText('当前状态')).toBeTruthy());
     expect(screen.queryByText('失败原因')).toBeNull();
+  });
+});
+
+// #318：workunit.execution.step SSE 负载直更——步结束事件负载就地 append，替代 eventTick 防抖重拉
+describe('ExecutionSteps — SSE 负载直更（#318）', () => {
+  // SSE data 与落盘 payload 同形（execution-step-events.ts emitExecutionStepEvent：data = payload 本体）
+  const sseStep = (step: number, overrides: Record<string, unknown> = {}) => ({
+    event_type: 'workunit.execution.step',
+    data: {
+      workUnitId: 'WU-1',
+      executionId: 'e1',
+      step,
+      action: 'progress',
+      status: 'success',
+      thinking: [`步 ${step} 的思考`],
+      toolCalls: [],
+      skills: [],
+      at: `2026-08-24T10:0${step}:00Z`,
+      ...overrides,
+    },
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sse.handler = null;
+    sse.reconnect = null;
+    mockListExecSteps.mockResolvedValue({ data: { events: [], total: 0 } });
+    mockStreamChunks.mockReturnValue([]);
+  });
+
+  it('步事件 SSE 到达 -> 无 REST 重拉即出新步卡片', async () => {
+    mockListExecSteps.mockResolvedValue({ data: { events: [stepEvent(1)], total: 1 } });
+    render(<ExecutionSteps workUnitId="WU-1" />);
+    await waitFor(() => expect(screen.getByText('#1 · progress')).toBeTruthy());
+    expect(sse.handler).toBeTruthy();
+    act(() => sse.handler!(sseStep(2)));
+    await waitFor(() => expect(screen.getByText('#2 · progress')).toBeTruthy());
+    expect(screen.getByText('思考：步 2 的思考')).toBeTruthy();
+    // 仅首拉一次：负载直更不得触发整组重拉
+    expect(mockListExecSteps).toHaveBeenCalledTimes(1);
+  });
+
+  it('乱序到达按步号升序渲染；同 step 重发去重（后者覆盖）', async () => {
+    render(<ExecutionSteps workUnitId="WU-1" />);
+    await waitFor(() => expect(sse.handler).toBeTruthy());
+    act(() => sse.handler!(sseStep(3)));
+    act(() => sse.handler!(sseStep(2)));
+    act(() => sse.handler!(sseStep(3, { thinking: ['步 3 修订思考'] })));
+    await waitFor(() => expect(screen.getByText('#3 · progress')).toBeTruthy());
+    const step2 = screen.getByText('#2 · progress');
+    const step3 = screen.getByText('#3 · progress');
+    expect(step2.compareDocumentPosition(step3) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // 去重：step 3 只有一张卡片，内容为重发版本
+    expect(screen.getAllByText('#3 · progress')).toHaveLength(1);
+    expect(screen.getByText('思考：步 3 修订思考')).toBeTruthy();
+    expect(screen.queryByText('思考：步 3 的思考')).toBeNull();
+    expect(mockListExecSteps).toHaveBeenCalledTimes(1);
+  });
+
+  it('其他 WU / 非步事件的 SSE 消息忽略', async () => {
+    render(<ExecutionSteps workUnitId="WU-1" />);
+    await waitFor(() => expect(sse.handler).toBeTruthy());
+    act(() => sse.handler!(sseStep(5, { workUnitId: 'WU-9999' })));
+    act(() => sse.handler!({ event_type: 'workunit.status_changed', data: { workunit: { id: 'WU-1' } } }));
+    await waitFor(() => expect(screen.getByText(/暂无执行过程记录/)).toBeTruthy());
+    expect(screen.queryByText('#5 · progress')).toBeNull();
+    expect(mockListExecSteps).toHaveBeenCalledTimes(1);
+  });
+
+  it('SSE 重连 -> 一次性 refetch 对齐（ADR D3：重连 refetch 不回放）', async () => {
+    render(<ExecutionSteps workUnitId="WU-1" />);
+    await waitFor(() => expect(sse.reconnect).toBeTruthy());
+    expect(mockListExecSteps).toHaveBeenCalledTimes(1);
+    act(() => sse.reconnect!());
+    await waitFor(() => expect(mockListExecSteps).toHaveBeenCalledTimes(2));
   });
 });

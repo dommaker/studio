@@ -1,15 +1,15 @@
 // Audit Event Subscriber — EventBus 审计事件持久化到 KnowledgeStore (B0-002)
-import { eventStore } from '../../core/event-store.js';
-import { logger } from '@dommaker/studio-shared';
+// #324：直订 eventBus（发布方 harness/hooks/audit.ts 本就直发对象 payload，无字符串壳）
+import { eventBus, logger } from '@dommaker/studio-shared';
 
 let started = false;
 
 export function startAuditSubscriber(): void {
   if (started) return;
 
-  eventStore.subscribe('events:audit', async (message: string) => {
+  eventBus.subscribe('events:audit', async (event: { entityType?: string; eventType?: string }) => {
+    // eventBus 精确匹配走 EventEmitter.emit，handler 抛异常会向上抛——内部 try/catch 护住
     try {
-      const event = JSON.parse(message);
       const { sharedStore } = await import('../knowledge/knowledge-bus.service.js');
       const id = `audit-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
       sharedStore.save({

@@ -16,7 +16,8 @@
 
 import { FileStore, type WorkUnitSnapshot, type WorkUnitEvent } from '@dommaker/studio-shared';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
-import { readStudioEvents } from '../../utils/studio-events.js';
+// #335：窗口读口（尾部倒读 + 窗口外早停），替代 readStudioEvents 全量读
+import { readStudioEventsSince } from '../../utils/studio-events-tail.js';
 import { buildAssigneeProfileResolver } from '../workunit/assignee-resolver.js';
 import { aggregateOverview, aggregateCacheHitRate, aggregateSectionTrim, DEFAULT_WINDOW_DAYS } from './metrics-aggregate.js';
 import type { OverviewMetrics, EfficiencyMetrics } from './metrics.types.js';
@@ -89,7 +90,8 @@ export class MetricsService {
     const [snapshots, wuEvents, events, humanMessages, states, profiles] = await Promise.all([
       this.fileStore.getIndex().catch(() => [] as WorkUnitSnapshot[]),
       this.fileStore.readJsonl<WorkUnitEvent>(opts?.wuEventsFile ?? this.defaultWuEventsFile()).catch(() => [] as WorkUnitEvent[]),
-      readStudioEvents({ file: opts?.eventsFile }),
+      // #335：窗口外事件不 parse；下游 aggregate 仍按 inWindow(windowDays) 过滤，口径不变
+      readStudioEventsSince({ file: opts?.eventsFile, sinceMs: now - windowDays * 86400_000 }).catch(() => [] as Array<Record<string, unknown>>),
       this.fileStore.queryAllMessages({ authorType: 'human' }).catch(() => [] as Array<{ createdAt?: string }>),
       this.fileStore.listStates().catch(() => [] as Array<{ id: string; roleId: string }>),
       this.fileStore.listProfiles().catch(() => [] as Array<{ id: string; name: string }>),
@@ -133,7 +135,8 @@ export class MetricsService {
 
     const [snapshots, events, states, profiles] = await Promise.all([
       this.fileStore.getIndex().catch(() => [] as WorkUnitSnapshot[]),
-      readStudioEvents({ file: opts?.eventsFile }),
+      // #335：窗口外事件不 parse；下游 aggregate 仍按 inWindow(windowDays) 过滤，口径不变
+      readStudioEventsSince({ file: opts?.eventsFile, sinceMs: now - windowDays * 86400_000 }).catch(() => [] as Array<Record<string, unknown>>),
       this.fileStore.listStates().catch(() => [] as Array<{ id: string; roleId: string }>),
       this.fileStore.listProfiles().catch(() => [] as Array<{ id: string; name: string }>),
     ]);

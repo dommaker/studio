@@ -97,8 +97,9 @@ function readStepCount(metadata?: string | null): number | undefined {
   }
 }
 
-/** workunit.execution.step SSE data → 轻量引用（坏数据 → null，跳过不编造） */
-export function parseLiveStepRef(data: unknown): { workUnitId: string; step: number; action?: string } | null {
+/** workunit.execution.step SSE data → 轻量引用（坏数据 → null，跳过不编造）。
+ *  channelId 为可选字段（SSE 负载深化 决策 1 后补；旧后端缺省 → 不输出，调用方按不过滤处理） */
+export function parseLiveStepRef(data: unknown): { workUnitId: string; step: number; channelId?: string; action?: string } | null {
   try {
     const p = (typeof data === 'string' ? JSON.parse(data) : data) as Record<string, unknown> | null;
     if (!p || typeof p !== 'object') return null;
@@ -106,6 +107,7 @@ export function parseLiveStepRef(data: unknown): { workUnitId: string; step: num
     return {
       workUnitId: p.workUnitId,
       step: p.step,
+      ...(typeof p.channelId === 'string' && p.channelId ? { channelId: p.channelId } : {}),
       ...(typeof p.action === 'string' && p.action ? { action: p.action } : {}),
     };
   } catch {
@@ -113,10 +115,11 @@ export function parseLiveStepRef(data: unknown): { workUnitId: string; step: num
   }
 }
 
-/** workunit.status_changed SSE data（{ workunit } 信封）→ 轻量引用（坏数据/缺 id/status → null） */
+/** workunit.status_changed SSE data（{ workunit } 信封）→ 轻量引用（坏数据/缺 id/status → null）。
+ *  type/scope 供 waitingWus chip 增量维护用（闸门类过滤 / 问题摘要兜底） */
 export function parseLiveWuRef(
   data: unknown,
-): { id: string; status: string; channelId: string | null; metadata: string | null } | null {
+): { id: string; status: string; channelId: string | null; metadata: string | null; type: string | null; scope: string | null } | null {
   try {
     const p = (typeof data === 'string' ? JSON.parse(data) : data) as Record<string, unknown> | null;
     const wu = p?.workunit as Record<string, unknown> | undefined;
@@ -126,6 +129,8 @@ export function parseLiveWuRef(
       status: wu.status,
       channelId: typeof wu.channelId === 'string' ? wu.channelId : null,
       metadata: typeof wu.metadata === 'string' ? wu.metadata : null,
+      type: typeof wu.type === 'string' ? wu.type : null,
+      scope: typeof wu.scope === 'string' ? wu.scope : null,
     };
   } catch {
     return null;

@@ -6,7 +6,7 @@
  * - E2: POST /channels/:id/messages/:messageId/convert-to-task/suggest
  */
 import { describe, it, expect, beforeAll, afterAll, vi, beforeEach } from 'vitest';
-import { FileStore, type ChannelMessageData } from '@dommaker/studio-shared';
+import { eventBus, FileStore, type ChannelMessageData } from '@dommaker/studio-shared';
 import { WorkUnitService } from '../../workunit/workunit.service.js';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -49,7 +49,7 @@ describe('AC-E1+E2: Convert to Task', () => {
   });
 
   /** 在 FileStore 中创建消息，返回 {channelId, msgId} */
-  async function createFsMessage(content: string, opts?: { workUnitId?: string }): Promise<{ channelId: string; msgId: string }> {
+  async function createFsMessage(content: string, opts?: { workUnitId?: string; createdAt?: string }): Promise<{ channelId: string; msgId: string }> {
     const chId = `test-ch-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     testChannelIds.push(chId);
     await fileStore.createChannel({
@@ -63,7 +63,7 @@ describe('AC-E1+E2: Convert to Task', () => {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       channelId: chId, authorType: 'human', agentName: null,
       content, replyToId: null, meta: '{}',
-      workUnitId: opts?.workUnitId ?? null, createdAt: now,
+      workUnitId: opts?.workUnitId ?? null, createdAt: opts?.createdAt ?? now,
     };
     await fileStore.appendMessage(chId, msg);
     return { channelId: chId, msgId: msg.id };
@@ -90,6 +90,48 @@ describe('AC-E1+E2: Convert to Task', () => {
       const found = await fileStore.getMessageById(msgId);
       expect(found).not.toBeNull();
       expect(found!.message.workUnitId).toBe(workUnit.id);
+    });
+
+    it('关联后新版本消息 createdAt 保持原诞生时刻，不被 bump（#332）', async () => {
+      const { channelId, msgId } = await createFsMessage('历史消息', { createdAt: '2026-08-01T00:00:00.000Z' });
+      const service = new ConvertToTaskService(fileStore);
+      const workUnit = await service.convert(channelId, msgId, {});
+      testWorkUnitIds.push(workUnit.id);
+
+      const found = await fileStore.getMessageById(msgId);
+      expect(found!.message.createdAt).toBe('2026-08-01T00:00:00.000Z');
+    });
+
+    it('关联后发布 channel.message_updated（eventBus + SSE 双发，负载挂全量 shaped body，#333）', async () => {
+      const { channelId, msgId } = await createFsMessage('convert me');
+      const service = new ConvertToTaskService(fileStore);
+
+      const events: unknown[] = [];
+      const sseEnvelopes: { data: Record<string, any> }[] = [];
+      const updatedHandler = (p: unknown) => { events.push(p); };
+      const sseHandler = (e: { event_type: string; data: Record<string, any> }) => {
+        if (e.event_type === 'channel.message_updated') sseEnvelopes.push(e);
+      };
+      eventBus.subscribe('channel.message_updated', updatedHandler);
+      eventBus.subscribe('events', sseHandler);
+      try {
+        const workUnit = await service.convert(channelId, msgId, {});
+        testWorkUnitIds.push(workUnit.id);
+
+        expect(events).toHaveLength(1);
+        const p = events[0] as Record<string, any>;
+        expect(p.channelId).toBe(channelId);
+        expect(p.messageId).toBe(msgId);
+        expect(p.workUnitId).toBe(workUnit.id);
+        expect(p.message.workUnitId).toBe(workUnit.id);
+
+        expect(sseEnvelopes).toHaveLength(1);
+        expect(sseEnvelopes[0].data.messageId).toBe(msgId);
+        expect(sseEnvelopes[0].data.message.workUnitId).toBe(workUnit.id);
+      } finally {
+        eventBus.unsubscribe('channel.message_updated', updatedHandler);
+        eventBus.unsubscribe('events', sseHandler);
+      }
     });
 
     it('message already has workUnitId → error', async () => {

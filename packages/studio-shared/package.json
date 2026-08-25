@@ -25,6 +25,10 @@
       "types": "./dist/config/studio-dir.d.ts",
       "default": "./src/config/studio-dir.ts"
     },
+    "./read-metrics": {
+      "types": "./dist/read-metrics.d.ts",
+      "default": "./src/read-metrics.ts"
+    },
     "./constants": {
       "types": "./dist/constants/levels.d.ts",
       "default": "./src/constants/levels.ts"

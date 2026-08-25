@@ -31,7 +31,7 @@ export interface AgentInfo {
   currentWorkUnit?: AgentCurrentWorkUnit | null;
   /** §6.1 聚合：当前 WU 所属 PMO */
   pmo?: AgentPmoRef | null;
-  /** §6.1 聚合：instance 所在频道 */
+  /** §6.1 聚合：instance 当前 WU 所在频道（无当前 WU → null） */
   channelId?: string | null;
 }
 

@@ -18,6 +18,8 @@ import type { FileStore } from '@dommaker/studio-shared';
 import { knowledgeService } from '../../knowledge/knowledge-service.js';
 import { skillStore } from '../../skills/skill-store.js';
 import { resolveStudioEventsFile, getStudioEventTime } from '../../../utils/studio-events.js';
+// #335：窗口读口（尾部倒读 + 窗口外早停），替代 readJsonl 全量读
+import { readStudioEventsSince } from '../../../utils/studio-events-tail.js';
 
 /** D18 事件入口统一：事件文件 = ~/.studio/logs/studio-events.jsonl（测试期隔离）。保留函数名兼容既有调用方/测试。 */
 export function studioEventsJsonl(): string {
@@ -380,7 +382,7 @@ export async function generateSuggestions(
     // Read studio events from JSONL
     let activeSessionCount = 0;
     try {
-      const allEvents = await fileStore.readJsonl<any>(studioEventsJsonl());
+      const allEvents = await readStudioEventsSince({ file: studioEventsJsonl(), sinceMs: fourWeeksAgo.getTime() });
       activeSessionCount = allEvents.filter(
         (e: any) => e.type === 'session:summary' && getStudioEventTime(e) >= fourWeeksAgo.getTime()
       ).length;
@@ -435,7 +437,7 @@ export async function generateSuggestions(
         if (skill.status === 'deprecated') {
           let recentUsage = 0;
           try {
-            const allEvents = await fileStore.readJsonl<any>(studioEventsJsonl());
+            const allEvents = await readStudioEventsSince({ file: studioEventsJsonl(), sinceMs: fourWeeksAgo.getTime() });
             recentUsage = allEvents.filter(
               (e: any) => e.type === 'skill:used'
                 && getStudioEventTime(e) >= fourWeeksAgo.getTime()

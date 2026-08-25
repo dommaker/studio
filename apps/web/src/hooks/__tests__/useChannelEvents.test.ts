@@ -2,15 +2,16 @@
 // 核心不变式：messages 恒按 createdAt 升序——下游 groupIntoThreads 单遍归组
 // 要求 anchor 先于 reply 出现，增量到达（SSE/轮询/发送）不得破坏该顺序，
 // 否则同一线程回复在刷新前后出现两种位置（走查 F17）。
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
 import type { ChannelMessage } from '../../api/channel';
 import type { WebSocketMessage } from '../../api/websocketHooks';
 
-const { mockListMessages, mockSendMessage, mockOnEvent } = vi.hoisted(() => ({
+const { mockListMessages, mockSendMessage, mockOnEvent, mockCtx } = vi.hoisted(() => ({
   mockListMessages: vi.fn(),
   mockSendMessage: vi.fn(),
   mockOnEvent: vi.fn(),
+  mockCtx: { status: 'connected' as string },
 }));
 
 vi.mock('../../api/channel', () => ({
@@ -18,7 +19,7 @@ vi.mock('../../api/channel', () => ({
 }));
 
 vi.mock('../../api/websocketHooks', () => ({
-  useWebSocketContext: () => ({ onEvent: mockOnEvent, status: 'connected' }),
+  useWebSocketContext: () => ({ onEvent: mockOnEvent, status: mockCtx.status }),
 }));
 
 import { useChannelMessages } from '../useChannelEvents';
@@ -129,6 +130,61 @@ describe('useChannelMessages', () => {
     expect(result.current.messages.map(m => m.id)).toEqual(['b1', 'a1', 'r1']);
   });
 
+  // #315（ADR 2026-08-24 D1/D2）：消费端迁移读全量 message 本体，旧形状回退增量 patch
+  describe('channel.message_updated', () => {
+    function sseUpdate(data: Record<string, unknown>): WebSocketMessage {
+      return { event_id: 'ev-upd', event_type: 'channel.message_updated', timestamp: iso(99), data };
+    }
+
+    it('replaces the message in place with the full message body when present', async () => {
+      const m1 = msg('m1', { content: '旧内容', meta: '{"k1":"a"}', createdAt: iso(0) });
+      const result = await renderLoaded([m1]);
+
+      const full = { ...m1, content: '新内容', meta: { k1: 'a', k2: 'b' } };
+      act(() => handler(sseUpdate({ channelId: 'ch-1', messageId: 'm1', content: '新内容', meta: { k2: 'b' }, message: full })));
+
+      expect(result.current.messages).toHaveLength(1);
+      expect(result.current.messages[0]).toEqual(full);
+      // 无 REST 补拉：仅初值覆盖一次
+      expect(mockListMessages).toHaveBeenCalledTimes(1);
+    });
+
+    it('meta-only update keeps old meta keys via merged message.meta truth', async () => {
+      const m1 = msg('m1', { meta: '{"k1":"a"}', createdAt: iso(0) });
+      const result = await renderLoaded([m1]);
+
+      // 模拟 updateMessage 仅传 meta：顶层 meta 是增量输入原值，message.meta 才是合并真值
+      const full = { ...m1, meta: { k1: 'a', k2: 'b' } };
+      act(() => handler(sseUpdate({ channelId: 'ch-1', messageId: 'm1', meta: { k2: 'b' }, message: full })));
+
+      expect(result.current.messages[0].meta).toEqual({ k1: 'a', k2: 'b' });
+    });
+
+    it('falls back to incremental patch for legacy shape without message field', async () => {
+      const m1 = msg('m1', { content: '旧内容', meta: '{"k1":"a"}', createdAt: iso(0) });
+      const result = await renderLoaded([m1]);
+
+      act(() => handler(sseUpdate({ channelId: 'ch-1', messageId: 'm1', meta: { k2: 'b' } })));
+
+      // 与现状逐字节一致：meta 整体替换、content 无增量字段时保留
+      expect(result.current.messages[0].meta).toEqual({ k2: 'b' });
+      expect(result.current.messages[0].content).toBe('旧内容');
+    });
+
+    it('does not touch other messages when message.id has no local match', async () => {
+      const m1 = msg('m1', { createdAt: iso(0) });
+      const m2 = msg('m2', { createdAt: iso(1) });
+      const result = await renderLoaded([m1, m2]);
+
+      const ghost = msg('ghost', { content: '不存在' });
+      act(() => handler(sseUpdate({ channelId: 'ch-1', messageId: 'ghost', message: ghost })));
+
+      expect(result.current.messages.map(m => m.id)).toEqual(['m1', 'm2']);
+      expect(result.current.messages[0]).toEqual(m1);
+      expect(result.current.messages[1]).toEqual(m2);
+    });
+  });
+
   it('ignores SSE events of other channels', async () => {
     const result = await renderLoaded([]);
     const other = msg('o1', { channelId: 'ch-2', createdAt: iso(1) });
@@ -141,5 +197,196 @@ describe('useChannelMessages', () => {
       });
     });
     expect(result.current.messages).toHaveLength(0);
+  });
+
+  it('loadMore 以最老消息 id 为游标前插（#319 id 游标，替代 timestamp）', async () => {
+    const m3 = msg('m3', { createdAt: iso(2) });
+    const m4 = msg('m4', { createdAt: iso(3) });
+    mockListMessages.mockResolvedValue({ data: { data: [m3, m4], hasMore: true } });
+    const { result } = renderHook(() => useChannelMessages('ch-1'));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.hasMore).toBe(true);
+
+    const m1 = msg('m1', { createdAt: iso(0) });
+    const m2 = msg('m2', { createdAt: iso(1) });
+    mockListMessages.mockResolvedValue({ data: { data: [m1, m2], hasMore: false } });
+
+    let inserted: boolean | undefined;
+    await act(async () => {
+      inserted = await result.current.loadMore();
+    });
+
+    expect(mockListMessages).toHaveBeenLastCalledWith('ch-1', { before: 'm3' });
+    expect(result.current.messages.map(m => m.id)).toEqual(['m1', 'm2', 'm3', 'm4']);
+    expect(result.current.hasMore).toBe(false);
+    expect(inserted).toBe(true);
+  });
+
+  // #328：refetch（兜底轮询/回 visible 补拉）合并而非替换——prepend 的历史页不被抹除
+  describe('refetch 合并语义（#328）', () => {
+    it('prepend 历史页后 refetch 保留历史、合并新消息、按 id 去重', async () => {
+      const m3 = msg('m3', { createdAt: iso(2) });
+      const m4 = msg('m4', { createdAt: iso(3) });
+      mockListMessages.mockResolvedValue({ data: { data: [m3, m4], hasMore: true } });
+      const { result } = renderHook(() => useChannelMessages('ch-1'));
+      await waitFor(() => expect(result.current.loading).toBe(false));
+
+      const m1 = msg('m1', { createdAt: iso(0) });
+      const m2 = msg('m2', { createdAt: iso(1) });
+      mockListMessages.mockResolvedValue({ data: { data: [m1, m2], hasMore: false } });
+      await act(async () => {
+        await result.current.loadMore();
+      });
+
+      // 最新一页：m3 服务端更新版 + 既有 m4 + 新到 m5
+      const m3Updated = { ...m3, content: '服务端更新' };
+      const m5 = msg('m5', { createdAt: iso(4) });
+      mockListMessages.mockResolvedValue({ data: { data: [m3Updated, m4, m5], hasMore: true } });
+      await act(async () => {
+        await result.current.refresh();
+      });
+
+      expect(result.current.messages.map(m => m.id)).toEqual(['m1', 'm2', 'm3', 'm4', 'm5']);
+      expect(result.current.messages.find(m => m.id === 'm3')!.content).toBe('服务端更新');
+    });
+
+    it('prepend 方向上 hasMore 不被最新一页的 hasMore 错误重置', async () => {
+      const m3 = msg('m3', { createdAt: iso(2) });
+      mockListMessages.mockResolvedValue({ data: { data: [m3], hasMore: true } });
+      const { result } = renderHook(() => useChannelMessages('ch-1'));
+      await waitFor(() => expect(result.current.loading).toBe(false));
+
+      // 历史已全部加载（hasMore=false），本地最老 m1 早于最新一页
+      const m1 = msg('m1', { createdAt: iso(0) });
+      mockListMessages.mockResolvedValue({ data: { data: [m1], hasMore: false } });
+      await act(async () => {
+        await result.current.loadMore();
+      });
+      expect(result.current.hasMore).toBe(false);
+
+      // 最新一页的 hasMore=true 描述头部方向，不得覆盖 prepend 方向状态
+      mockListMessages.mockResolvedValue({ data: { data: [m3], hasMore: true } });
+      await act(async () => {
+        await result.current.refresh();
+      });
+
+      expect(result.current.messages.map(m => m.id)).toEqual(['m1', 'm3']);
+      expect(result.current.hasMore).toBe(false);
+    });
+
+    it('未 prepend 时 refetch 以最新一页为准刷新 hasMore（新历史可被加载）', async () => {
+      mockListMessages.mockResolvedValue({ data: { data: [], hasMore: false } });
+      const { result } = renderHook(() => useChannelMessages('ch-1'));
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      expect(result.current.hasMore).toBe(false);
+
+      // 空频道灌入超过一页消息：最新一页 hasMore=true，合并后应可继续 loadMore
+      const m1 = msg('m1', { createdAt: iso(0) });
+      mockListMessages.mockResolvedValue({ data: { data: [m1], hasMore: true } });
+      await act(async () => {
+        await result.current.refresh();
+      });
+
+      expect(result.current.messages.map(m => m.id)).toEqual(['m1']);
+      expect(result.current.hasMore).toBe(true);
+    });
+
+    it('merge 后 loadMore 游标仍取当前列表最旧消息', async () => {
+      const m3 = msg('m3', { createdAt: iso(2) });
+      mockListMessages.mockResolvedValue({ data: { data: [m3], hasMore: true } });
+      const { result } = renderHook(() => useChannelMessages('ch-1'));
+      await waitFor(() => expect(result.current.loading).toBe(false));
+
+      const m1 = msg('m1', { createdAt: iso(0) });
+      mockListMessages.mockResolvedValue({ data: { data: [m1], hasMore: true } });
+      await act(async () => {
+        await result.current.loadMore();
+      });
+
+      // merge 只在尾部并入新消息，最旧消息不变
+      const m4 = msg('m4', { createdAt: iso(3) });
+      mockListMessages.mockResolvedValue({ data: { data: [m3, m4], hasMore: true } });
+      await act(async () => {
+        await result.current.refresh();
+      });
+      expect(result.current.messages.map(m => m.id)).toEqual(['m1', 'm3', 'm4']);
+
+      const m0 = msg('m0', { createdAt: iso(-1) });
+      mockListMessages.mockResolvedValue({ data: { data: [m0], hasMore: false } });
+      await act(async () => {
+        await result.current.loadMore();
+      });
+
+      expect(mockListMessages).toHaveBeenLastCalledWith('ch-1', { before: 'm1' });
+      expect(result.current.messages.map(m => m.id)).toEqual(['m0', 'm1', 'm3', 'm4']);
+      expect(result.current.hasMore).toBe(false);
+    });
+
+    it('频道切换后首拉仍是替换语义', async () => {
+      const a1 = msg('a1', { channelId: 'ch-1', createdAt: iso(0) });
+      mockListMessages.mockResolvedValue({ data: { data: [a1], hasMore: false } });
+      const { result, rerender } = renderHook(({ id }) => useChannelMessages(id), { initialProps: { id: 'ch-1' } });
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      expect(result.current.messages.map(m => m.id)).toEqual(['a1']);
+
+      const b1 = msg('b1', { channelId: 'ch-2', createdAt: iso(1) });
+      mockListMessages.mockResolvedValue({ data: { data: [b1], hasMore: true } });
+      rerender({ id: 'ch-2' });
+      await waitFor(() => expect(result.current.messages.map(m => m.id)).toEqual(['b1']));
+      expect(result.current.hasMore).toBe(true);
+    });
+  });
+});
+
+// #313：轮询已收敛 useGatedPoll，本 describe 钉消费方接线
+// （SSE connected 不发周期请求 / SSE 断开 10s 兜底 / 频道切换立即重拉）
+describe('useChannelMessages（#313 门禁轮询接线）', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.clearAllMocks();
+    mockCtx.status = 'connected';
+    mockOnEvent.mockReturnValue(() => {});
+    mockListMessages.mockResolvedValue({ data: { data: [], hasMore: false } });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  async function flushFirstFetch() {
+    await act(async () => {
+      await Promise.resolve();
+    });
+  }
+
+  it('SSE connected 时仅挂载首拉，fake timers 推进不发周期请求', async () => {
+    renderHook(() => useChannelMessages('ch-1'));
+    await flushFirstFetch();
+    expect(mockListMessages).toHaveBeenCalledTimes(1);
+    act(() => {
+      vi.advanceTimersByTime(60000);
+    });
+    expect(mockListMessages).toHaveBeenCalledTimes(1);
+  });
+
+  it('SSE 断开时 10s 兜底轮询', async () => {
+    mockCtx.status = 'disconnected';
+    renderHook(() => useChannelMessages('ch-1'));
+    await flushFirstFetch();
+    expect(mockListMessages).toHaveBeenCalledTimes(1);
+    act(() => {
+      vi.advanceTimersByTime(10000);
+    });
+    expect(mockListMessages).toHaveBeenCalledTimes(2);
+  });
+
+  it('频道切换立即重拉（不重复首拉）', async () => {
+    const { rerender } = renderHook(({ id }) => useChannelMessages(id), { initialProps: { id: 'ch-1' } });
+    await flushFirstFetch();
+    expect(mockListMessages).toHaveBeenCalledTimes(1);
+    rerender({ id: 'ch-2' });
+    await flushFirstFetch();
+    expect(mockListMessages).toHaveBeenCalledTimes(2);
+    expect(mockListMessages).toHaveBeenLastCalledWith('ch-2');
   });
 });

@@ -5,9 +5,9 @@ import { describe, it, expect } from 'vitest';
 import { STAGE_TYPES, normalizeToStage } from '../domain-vocab';
 
 describe('STAGE_TYPES 词表', () => {
-  it('包含全部 9 个阶段名', () => {
+  it('包含全部 8 个阶段名', () => {
     expect(STAGE_TYPES).toEqual([
-      'design', 'plan', 'implement', 'test', 'review', 'docs', 'refactor', 'analysis', 'general',
+      'design', 'plan', 'implement', 'review', 'docs', 'refactor', 'analysis', 'general',
     ]);
   });
 });

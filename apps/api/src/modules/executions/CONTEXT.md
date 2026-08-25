@@ -16,8 +16,7 @@
   - `express`：Router、Request、Response
   - `uuid`：生成唯一标识
   - `os`、`path`、`fs`：构建文件路径、读取目录
-  - `@dommaker/studio-shared`：FileStore 和 logger
-  - `../../core/event-store.js`（可能未直接使用，但 import 了 eventStore）
+  - `@dommaker/studio-shared`：FileStore、eventBus（runtime 事件经 eventBus.publish 发到 `events` 频道）和 logger
 - **下游依赖**：
   - `apps/api/src/route-registry.ts`：引用本模块的路由器并挂载到 Express 应用。
 

@@ -16,11 +16,12 @@ import { knowledgeService } from '../../knowledge/knowledge-service.js';
 import { preferenceObserver } from '../../knowledge/preference-observer.js';
 import { emitMonitorEvent } from './monitor-alerts.js';
 import {
-  readStudioEvents,
   writeStudioEvent,
   parseStudioEventPayload,
   getStudioEventTime,
 } from '../../../utils/studio-events.js';
+// #335：窗口读口（尾部倒读 + 窗口外早停），替代 readStudioEvents 全量读
+import { readStudioEventsSince } from '../../../utils/studio-events-tail.js';
 
 /** 事件字段拉平：StudioEvent（payload 嵌套）与历史扁平事件（字段在顶层）统一为平面对象 */
 function flattenEvent(e: Record<string, unknown>): Record<string, any> {
@@ -135,10 +136,10 @@ export async function dailyReflection(fileStore: FileStore, state: ReportState):
       '',
     ];
 
-    // 1. Session summary（D18：读统一事件文件；兼容 payload 嵌套与历史扁平形态）
+    // 1. Session summary（D18：读统一事件文件；兼容 payload 嵌套与历史扁平形态；#335 窗口读）
     try {
-      const allEvents = await readStudioEvents();
       const sinceMs = since.getTime();
+      const allEvents = await readStudioEventsSince({ sinceMs });
       const sessions = allEvents
         .filter(e => e.type === 'session:summary' && getStudioEventTime(e) >= sinceMs)
         .map(flattenEvent);
@@ -169,7 +170,7 @@ export async function dailyReflection(fileStore: FileStore, state: ReportState):
     // 1b. Pattern detection (7-day window, from 统一事件文件 session:summary)
     try {
       const weekAgoMs = now - 7 * 24 * 3600_000;
-      const allStudioEvents = await readStudioEvents();
+      const allStudioEvents = await readStudioEventsSince({ sinceMs: weekAgoMs });
       const summaryEvents = allStudioEvents
         .filter(e => e.type === 'session:summary' && getStudioEventTime(e) >= weekAgoMs)
         .map(e => ({ payload: e.payload || null }));
@@ -248,7 +249,7 @@ export async function dailyReflection(fileStore: FileStore, state: ReportState):
     // 4b. Knowledge consumption hit rate (24h)（D18：统一事件文件，createdAt 口径）
     try {
       const sinceMs = since.getTime();
-      const allStudioEvents = await readStudioEvents();
+      const allStudioEvents = await readStudioEventsSince({ sinceMs });
       const consumptionEvents = allStudioEvents
         .filter(e => e.type === 'knowledge:consumption' && getStudioEventTime(e) >= sinceMs)
         .map(e => ({ source: (e.source as string) || '', payload: e.payload || null }));
@@ -340,7 +341,7 @@ export async function dailyReflection(fileStore: FileStore, state: ReportState):
     if (new Date(now).getDay() === 0) {
       try {
         const weekAgoMs = now - 7 * 24 * 3600_000;
-        const allStudioEvents = await readStudioEvents();
+        const allStudioEvents = await readStudioEventsSince({ sinceMs: weekAgoMs });
         const weeklyEvents = allStudioEvents
           .filter(e => ['pattern_report', 'workflow_report'].includes(e.type as string) && getStudioEventTime(e) >= weekAgoMs)
           .sort((a, b) => getStudioEventTime(b) - getStudioEventTime(a))

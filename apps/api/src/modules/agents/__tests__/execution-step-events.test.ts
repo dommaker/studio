@@ -14,12 +14,15 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
+import { eventBus } from '@dommaker/studio-shared';
 import {
   summarizeToolInput,
   extractThinking,
   buildExecutionStepEvent,
   emitExecutionStepEvent,
   EXECUTION_STEP_EVENT_TYPE,
+  EXECUTION_STEP_SSE_TYPE,
+  EXECUTION_STREAM_SSE_TYPE,
   buildExecutionStreamChunks,
   emitExecutionStreamLine,
   emitExecutionStreamStepStart,
@@ -183,6 +186,13 @@ describe('buildExecutionStepEvent', () => {
     expect(failed.errorDetail).toBe('CLI exited with code 1: boom');
   });
 
+  it('channelId 透传（给定 → payload 携带；缺省 → 无该键）', () => {
+    const raw = streamJson([ASSISTANT([{ type: 'thinking', thinking: '想' }])]);
+    const base = { workUnitId: 'w', executionId: 'e', step: 1, rawOutput: raw };
+    expect(buildExecutionStepEvent({ ...base, channelId: 'ch-1' })!.channelId).toBe('ch-1');
+    expect(buildExecutionStepEvent(base)!).not.toHaveProperty('channelId');
+  });
+
   it('#172: 失败步无任何可解析内容也产事件（失败信号不落空）；成功步空内容仍 null', () => {
     const failed = buildExecutionStepEvent({
       workUnitId: 'w', executionId: 'e', step: 1, rawOutput: '',
@@ -215,6 +225,27 @@ describe('emitExecutionStepEvent', () => {
     const payload = JSON.parse(event.payload);
     expect(payload.workUnitId).toBe('wu-9');
     expect(payload.thinking).toEqual(['想']);
+  });
+
+  it('SSE 信封 data 携带 channelId（前端按频道过滤 step 的数据源）', async () => {
+    const received: Array<{ event_type: string; data: { channelId?: string } }> = [];
+    eventBus.subscribe('events', (envelope: { event_type: string; data: { channelId?: string } }) => {
+      if (envelope.event_type === EXECUTION_STEP_SSE_TYPE) received.push(envelope);
+    });
+
+    const ok = await emitExecutionStepEvent({
+      workUnitId: 'wu-ch',
+      executionId: 'exec-ch',
+      step: 1,
+      channelId: 'ch-9',
+      rawOutput: streamJson([ASSISTANT([{ type: 'thinking', thinking: '想' }])]),
+    });
+    expect(ok).toBe(true);
+    await new Promise(r => setTimeout(r, 20));
+
+    expect(received).toHaveLength(1);
+    expect(received[0].data.channelId).toBe('ch-9');
+    expect(received[0].data.workUnitId).toBe('wu-ch');
   });
 
   it('null 内容 → false 且不落盘；异常输入不抛出', async () => {
@@ -388,6 +419,18 @@ describe('buildExecutionStreamChunks', () => {
     expect(empty[0].text).toBeUndefined();
   });
 
+  it('channelId 透传到每个 chunk（缺省 → 无该键）', () => {
+    const line = JSON.stringify(ASSISTANT([
+      { type: 'thinking', thinking: '想' },
+      { type: 'text', text: '说' },
+    ]));
+    const withChannel = buildExecutionStreamChunks({ ...base, channelId: 'ch-1', line });
+    expect(withChannel.length).toBeGreaterThan(0);
+    expect(withChannel.every(c => c.channelId === 'ch-1')).toBe(true);
+    const without = buildExecutionStreamChunks({ ...base, line });
+    expect(without.every(c => !('channelId' in c))).toBe(true);
+  });
+
   it('单行超 10 块截断到 10（容量纪律）', () => {
     const blocks = Array.from({ length: 15 }, (_, i) => ({ type: 'text', text: `t${i}` }));
     const chunks = buildExecutionStreamChunks({ ...base, line: JSON.stringify(ASSISTANT(blocks)) });
@@ -413,6 +456,24 @@ describe('emitExecutionStreamLine / emitExecutionStreamStepStart', () => {
     await emitExecutionStreamStepStart({ workUnitId: 'wu-1', executionId: 'exec-1', step: 1 });
     // 不落盘——事件文件不应被创建（Layer A 才落盘）
     expect(fs.existsSync(eventsFile)).toBe(false);
+  });
+
+  it('SSE 信封 data 携带 channelId（step-start 与行级 chunk 同形态）', async () => {
+    const received: Array<{ event_type: string; data: { channelId?: string; kind?: string } }> = [];
+    eventBus.subscribe('events', (envelope: { event_type: string; data: { channelId?: string; kind?: string } }) => {
+      if (envelope.event_type === EXECUTION_STREAM_SSE_TYPE) received.push(envelope);
+    });
+
+    await emitExecutionStreamStepStart({ workUnitId: 'wu-1', executionId: 'exec-1', step: 1, channelId: 'ch-7' });
+    await emitExecutionStreamLine({
+      workUnitId: 'wu-1', executionId: 'exec-1', step: 1, channelId: 'ch-7',
+      line: JSON.stringify(ASSISTANT([{ type: 'text', text: 'hi' }])),
+    });
+    await new Promise(r => setTimeout(r, 20));
+
+    expect(received).toHaveLength(2);
+    expect(received[0].data).toMatchObject({ kind: 'step-start', channelId: 'ch-7' });
+    expect(received[1].data).toMatchObject({ kind: 'text', channelId: 'ch-7' });
   });
 
   it('非 JSON 行静默跳过；异常输入不抛出', async () => {

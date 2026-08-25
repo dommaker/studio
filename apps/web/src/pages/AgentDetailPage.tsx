@@ -1,15 +1,16 @@
 // AgentDetailPage — /agents/:profileId（2026-07-31 全流程串联 UX 重构 §5.3）
 // Header（角色/状态/频道/ID/强制停止）→「正在执行」大卡（当前 WU + ExecutionSteps 实时执行流）
 // →「历史任务」（assigneeId=instance.id 最近 20 条）→ 统计行
-// 数据：profile 用 channelApi.listAllAgents() 按 id 匹配；instance 用 monitoringApi.getAgentSummary() 按 roleId 取最新一条
-import { useState, useEffect, useCallback } from 'react';
+// 数据：profile 用 channelApi.listAllAgents() 按 id 匹配；instance 用 monitoringApi.getAgentSummary() 按 roleId 取最新一条；
+// #318 起事件面 SSE 负载直更（instance status_changed 就地 + 历史区防抖重拉，不再 eventTick 整页重拉）
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { monitoringApi, type AgentInfo, type AgentCurrentWorkUnit } from '../api/monitoring';
 import { channelApi, type AgentProfile } from '../api/channel';
 import { workunitApi, type WorkUnit } from '../api/workunit';
 import { ExecutionSteps } from '../components/workunit/ExecutionSteps';
 import { ConfirmDialog } from '../components/ui';
-import { useWorkUnitEvents } from '../hooks/useWorkUnitEvents';
+import { useWebSocketContext } from '../api/websocketHooks';
 import {
   deriveAgentStatus,
   AGENT_STATUS_LABELS,
@@ -18,6 +19,23 @@ import {
 } from '../utils/agentStatus';
 
 const HISTORY_LIMIT = 20;
+/** #318 取舍（b）：历史任务「最近 20 条 + total」窗口无事件语义（新完成 WU 进榜/排序/total），
+    workunit.status_changed 命中本实例时先就地更新已有行，再低频防抖只重拉历史区 1 接口对齐窗口 */
+const HISTORY_REFRESH_DEBOUNCE_MS = 800;
+
+/** agent.instance.status_changed SSE 负载（#312 + #318 additive：pmo/startedAt；缺键 = 旧形状，回退保留原值） */
+interface InstanceStatusPayload {
+  profileId?: string;
+  instanceId?: string;
+  status?: string;
+  currentWorkUnitId?: string | null;
+  currentWorkUnit?: AgentCurrentWorkUnit | null;
+  channelId?: string | null;
+  pmo?: AgentInfo['pmo'];
+  startedAt?: string;
+  lastError?: string | null;
+  lastErrorAt?: string | null;
+}
 
 export function AgentDetailPage() {
   const { profileId } = useParams<{ profileId: string }>();
@@ -98,8 +116,68 @@ export function AgentDetailPage() {
     // 微任务里触发加载：load 为多 await async 函数，编译器对 effect 内同步调用保守告警
     void Promise.resolve().then(() => load(true));
   }, [load]);
-  // WU 事件（SSE）：认领/状态变化/执行步时刷新当前任务与历史（防抖 400ms，与列表页同模式）
-  useWorkUnitEvents(useCallback(() => { void load(true); }, [load]));
+
+  // #318：SSE 负载直更（替代 useWorkUnitEvents eventTick 整页 5 接口重拉）——
+  // instance status_changed 就地更新（additive pmo/startedAt，旧形状缺键回退保留）；
+  // workunit.status_changed 就地更新当前卡状态与历史行，命中本实例再防抖重拉历史区对齐窗口；
+  // SSE 重连经 onReconnect 一次性整页 refetch（ADR D3）
+  const { onEvent, onReconnect } = useWebSocketContext();
+  const instanceIdRef = useRef<string | null>(null);
+  instanceIdRef.current = instance?.id ?? null;
+  const historyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => {
+    if (historyTimerRef.current) clearTimeout(historyTimerRef.current);
+  }, []);
+
+  useEffect(() => onEvent((msg) => {
+    if (msg.event_type === 'agent.instance.status_changed') {
+      const d = (msg.data ?? {}) as InstanceStatusPayload;
+      if (d.profileId !== profileId) return;
+      setInstance(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          status: d.status ?? prev.status,
+          currentWorkUnitId: d.currentWorkUnitId !== undefined ? d.currentWorkUnitId : prev.currentWorkUnitId,
+          currentWorkUnit: d.currentWorkUnit !== undefined ? d.currentWorkUnit : prev.currentWorkUnit,
+          channelId: d.channelId !== undefined ? d.channelId : prev.channelId,
+          pmo: d.pmo !== undefined ? d.pmo : prev.pmo,
+          startedAt: d.startedAt ?? prev.startedAt,
+          lastError: d.lastError !== undefined ? d.lastError : prev.lastError,
+          lastErrorAt: d.lastErrorAt !== undefined ? d.lastErrorAt : prev.lastErrorAt,
+        };
+      });
+      return;
+    }
+    if (msg.event_type !== 'workunit.status_changed') return;
+    const wu = (msg.data as { workunit?: WorkUnit } | null)?.workunit;
+    if (!wu) return;
+    // 当前卡状态就地更新（in_review 等迁移即时可见，instance 事件不承担步进状态）
+    setInstance(prev => prev?.currentWorkUnit?.id === wu.id
+      ? { ...prev, currentWorkUnit: { ...prev.currentWorkUnit, status: wu.status } }
+      : prev);
+    // 历史行就地更新（负载为全量快照，claimable 与本页无关不覆盖）
+    setHistory(prev => prev.some(h => h.id === wu.id)
+      ? prev.map(h => (h.id === wu.id ? { ...wu, claimable: h.claimable } : h))
+      : prev);
+    // 本实例的 WU 状态变化 → 防抖重拉历史区（窗口排序/total 对齐；不重拉整页）
+    if (wu.assigneeId && wu.assigneeId === instanceIdRef.current) {
+      if (historyTimerRef.current) clearTimeout(historyTimerRef.current);
+      historyTimerRef.current = setTimeout(() => {
+        const iid = instanceIdRef.current;
+        if (!iid) return;
+        workunitApi.list({ assigneeId: iid, limit: HISTORY_LIMIT })
+          .then(res => {
+            setHistory(res.data.data);
+            setHistoryTotal(res.data.pagination.total);
+          })
+          .catch(() => { /* best-effort：下条事件或重连自愈 */ });
+      }, HISTORY_REFRESH_DEBOUNCE_MS);
+    }
+  }), [onEvent, profileId]);
+
+  useEffect(() => onReconnect(() => { void load(true); }), [onReconnect, load]);
 
   const handleTerminate = async () => {
     setConfirmTerminate(false);

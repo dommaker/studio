@@ -29,26 +29,33 @@ const mockStore = {
 
 vi.mock('../../stores/workunitStore', () => ({
   useWorkUnitStore: Object.assign(
-    () => ({
-      workunits: mockStore.workunits,
-      total: mockStore.workunits.length,
-      loading: false,
-      error: null,
-      statusFilter: null,
-      loadWorkUnits: mockStore.loadWorkUnits,
-      createWorkUnit: mockStore.createWorkUnit,
-      reviewPassed: mockStore.reviewPassed,
-      reviewRejected: mockStore.reviewRejected,
-      confirmPending: mockStore.confirmPending,
-      setStatusFilter: mockStore.setStatusFilter,
-    }),
+    (selector?: (s: Record<string, unknown>) => unknown) => {
+      const state = {
+        workunits: mockStore.workunits,
+        total: mockStore.workunits.length,
+        loading: false,
+        error: null,
+        statusFilter: null,
+        loadWorkUnits: mockStore.loadWorkUnits,
+        createWorkUnit: mockStore.createWorkUnit,
+        reviewPassed: mockStore.reviewPassed,
+        reviewRejected: mockStore.reviewRejected,
+        confirmPending: mockStore.confirmPending,
+        setStatusFilter: mockStore.setStatusFilter,
+        applyWorkunitEvent: vi.fn(),
+      };
+      return selector ? selector(state) : state;
+    },
     { getState: vi.fn().mockReturnValue({ workunits: [], total: 0, loading: false, error: null, loadWorkUnits: vi.fn() }) }
   ),
 }));
 
-// WU 事件 hook（SSE）— 测试无 WebSocketProvider，置空
-vi.mock('../../hooks/useWorkUnitEvents', () => ({
-  useWorkUnitEvents: () => {},
+// SSE 上下文（#318 负载直更订阅口）— 测试无 WebSocketProvider，置空
+vi.mock('../../api/websocketHooks', () => ({
+  useWebSocketContext: () => ({
+    onEvent: () => () => {},
+    onReconnect: () => () => {},
+  }),
 }));
 
 import { WorkUnitListPage } from '../WorkUnitListPage';

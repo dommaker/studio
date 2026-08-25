@@ -11,7 +11,9 @@
  *       state.json       # RuntimeState
  *     channels/{id}/
  *       config.json      # Channel
- *       messages.jsonl   # ChannelMessage (append-only)
+ *       messages.jsonl   # ChannelMessage（append-only + tombstone；#319 写侧压实清死行）
+ *       messages.lock    # 消息写/压实/归档互斥锁目录（#319/#327）
+ *       archive/messages-YYYY-MM.jsonl  # 超龄消息冷文件（#327，按消息 createdAt 归月）
  *     workunits/
  *       lock             # flock 文件锁目录
  *       events.jsonl     # 事件流 (append-only)
@@ -32,9 +34,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { isErrnoError } from './file-store-base';
-import { FileStoreWorkUnitBase } from './file-store-workunit';
+import { FileStoreWorkUnitBase, type FileStoreWorkUnitOptions } from './file-store-workunit';
 import { stringifyChannels } from './channels-codec';
 import { parseFrontmatter, serializeFrontmatter } from './frontmatter';
+import { readMetricsBegin, emitReadMetric } from './read-metrics';
 import type {
   AgentProfileData,
   RuntimeStateData,
@@ -42,11 +45,16 @@ import type {
   ChannelMessageData,
   ChannelMessageRow,
   QueryOpts,
+  MessagePageOpts,
+  MessagePage,
+  MessageCompactionOptions,
+  MessageArchiveOptions,
   CountOpts,
   RequirementData,
   RequirementFilter,
   EvolutionProposalData,
   EvolutionProposalFilter,
+  WorkUnitSnapshot,
 } from './file-store-types';
 
 // ─── re-export（保持原有导出面 100% 不变）───
@@ -58,6 +66,10 @@ export type {
   ChannelMessageData,
   ChannelMessageRow,
   QueryOpts,
+  MessagePageOpts,
+  MessagePage,
+  MessageCompactionOptions,
+  MessageArchiveOptions,
   CountOpts,
   WorkUnitEventType,
   WorkUnitEvent,
@@ -107,6 +119,7 @@ interface CacheEntry<T> {
 const jsonCache = new Map<string, CacheEntry<unknown>>();
 const jsonlCache = new Map<string, CacheEntry<unknown[]>>();
 const dirCache = new Map<string, CacheEntry<fs.Dirent[]>>();
+const mdCache = new Map<string, CacheEntry<{ meta: Record<string, unknown>; body: string } | null>>();
 const MAX_CACHE_ENTRIES = 1000;
 
 function cacheSet<T>(map: Map<string, CacheEntry<T>>, key: string, entry: CacheEntry<T>): void {
@@ -134,13 +147,14 @@ function cloneCached<T>(value: T): T {
 function invalidateFileKey(filePath: string): void {
   jsonCache.delete(filePath);
   jsonlCache.delete(filePath);
+  mdCache.delete(filePath);
   dirCache.clear();
 }
 
 /** 删路径失效：文件或目录（递归）下所有 key + 目录级 list 缓存 */
 function invalidateRemovedPath(target: string): void {
   const prefix = target.endsWith(path.sep) ? target : target + path.sep;
-  for (const map of [jsonCache, jsonlCache] as const) {
+  for (const map of [jsonCache, jsonlCache, mdCache] as const) {
     for (const key of map.keys()) {
       if (key === target || key.startsWith(prefix)) map.delete(key);
     }
@@ -148,9 +162,71 @@ function invalidateRemovedPath(target: string): void {
   dirCache.clear();
 }
 
+// ─── 频道消息写侧压实（#319）───
+//
+// messages.jsonl append-only：编辑 = 同 id 追加新版，删除 = 追加 tombstone 行，文件只涨不缩。
+// 写侧阈值压实：append/tombstone 每满 checkInterval 次评估一次；总行数 ≥ minLines 且死行
+// （被覆盖的旧版行 + 已删除消息的原行与 tombstone 行）占比 ≥ deadRatio 时，在 per-channel
+// 文件锁内把活消息（每 id 最新版、首现位置序，口径同 resolveActiveMessages）原子重写回文件。
+// 压实只清死行，不动任何活消息；读穿缓存靠 mtime 校验自然失效。
+// 摊销设计：逐次 append 全量解析会把读穿缓存省下的成本吃回写路径，故按计数摊销；
+// 计数是进程内存，重启清零最多延迟一轮评估，阈值检查自愈，无需持久化。
+const MESSAGE_COMPACT_CHECK_INTERVAL = 500;
+const MESSAGE_COMPACT_MIN_LINES = 5000;
+const MESSAGE_COMPACT_DEAD_RATIO = 0.3;
+
+/**
+ * 频道消息生命周期归档（#327）：活消息超龄即从热文件（messages.jsonl）搬入冷文件
+ * （archive/messages-YYYY-MM.jsonl，按消息 createdAt 归月），热文件体积与「在跑的活」
+ * 挂钩而非频道年龄。计龄锚点：有 workUnitId → 所属 WU 的 closedAt；无 → 消息 createdAt。
+ * 与 #319 压实共用 per-channel messages.lock + 原子重写 + mergeActiveRows 归并口径。
+ */
+const MESSAGE_ARCHIVE_MAX_AGE_DAYS = 30;
+
+/**
+ * JSONL 行归并（#319 收敛的唯一口径）：每 id 留最后出现的内容、挂首现位置、
+ * deleted 整条丢弃。resolveActiveMessages / 压实 / getMessagesSince 三处共用——
+ * 口径要改只改这里。
+ */
+function mergeActiveRows(rows: ChannelMessageRow[]): ChannelMessageData[] {
+  const latest = new Map<string, ChannelMessageRow>();
+  for (const row of rows) latest.set(row.id, row);
+  const active: ChannelMessageData[] = [];
+  for (const msg of latest.values()) {
+    if (msg.deleted) continue;
+    // 删除 deleted 字段以保持与 ChannelMessageData 类型一致
+    const { deleted, ...rest } = msg;
+    active.push(rest);
+  }
+  return active;
+}
+
+/** FileStore 构造选项（#319：messageCompaction 供测试注入小阈值；#327：messageArchive 仿同模式） */
+export interface FileStoreOptions extends FileStoreWorkUnitOptions {
+  messageCompaction?: MessageCompactionOptions;
+  messageArchive?: MessageArchiveOptions;
+}
+
 // ─── FileStore 类 ───
 
 export class FileStore extends FileStoreWorkUnitBase {
+  private readonly messageCompaction: Required<MessageCompactionOptions>;
+  private readonly messageArchive: { maxAgeDays: number; now: () => Date };
+  /** 压实评估计数（按 messages.jsonl 绝对路径；挂实例——同 baseDir 不同阈值配置的实例互不串扰） */
+  private readonly messageAppendCounts = new Map<string, number>();
+
+  constructor(baseDir?: string, opts?: FileStoreOptions) {
+    super(baseDir, opts);
+    this.messageCompaction = {
+      checkInterval: opts?.messageCompaction?.checkInterval ?? MESSAGE_COMPACT_CHECK_INTERVAL,
+      minLines: opts?.messageCompaction?.minLines ?? MESSAGE_COMPACT_MIN_LINES,
+      deadRatio: opts?.messageCompaction?.deadRatio ?? MESSAGE_COMPACT_DEAD_RATIO,
+    };
+    this.messageArchive = {
+      maxAgeDays: opts?.messageArchive?.maxAgeDays ?? MESSAGE_ARCHIVE_MAX_AGE_DAYS,
+      now: opts?.messageArchive?.now ?? (() => new Date()),
+    };
+  }
 
   // ─── 读穿缓存覆盖（A1，工单 26）───
   //
@@ -158,14 +234,20 @@ export class FileStore extends FileStoreWorkUnitBase {
   // FileStoreWorkUnitBase 的方法经虚分派同样走缓存与失效。
 
   public async readJson<T>(filePath: string): Promise<T | null> {
+    const t = readMetricsBegin();
+    const t0 = t?.() ?? 0;
     const mtimeMs = await statMtimeMs(filePath);
+    const t1 = t?.() ?? 0;
     if (mtimeMs === null) {
       jsonCache.delete(filePath);
+      if (t) emitReadMetric({ file: filePath, op: 'readJson', cacheHit: false, statMs: t1 - t0, readParseMs: 0, cloneMs: 0 });
       return null;
     }
     const hit = jsonCache.get(filePath);
     if (hit && hit.mtimeMs === mtimeMs) {
-      return cloneCached(hit.value) as T | null;
+      const cached = cloneCached(hit.value) as T | null;
+      if (t) emitReadMetric({ file: filePath, op: 'readJson', cacheHit: true, statMs: t1 - t0, readParseMs: 0, cloneMs: t() - t1 });
+      return cached;
     }
     let value: unknown = null;
     try {
@@ -179,8 +261,11 @@ export class FileStore extends FileStoreWorkUnitBase {
       if (!isErrnoError(err) || err.code !== 'ENOENT') throw err;
       value = null; // stat 与 readFile 之间被删 → 按缺失处理
     }
+    const t2 = t?.() ?? 0;
     cacheSet(jsonCache, filePath, { value, mtimeMs });
-    return cloneCached(value) as T | null;
+    const cloned = cloneCached(value) as T | null;
+    if (t) emitReadMetric({ file: filePath, op: 'readJson', cacheHit: false, statMs: t1 - t0, readParseMs: t2 - t1, cloneMs: t() - t2 });
+    return cloned;
   }
 
   /** 写入 JSON 文件（原子写），写后失效缓存 */
@@ -202,14 +287,20 @@ export class FileStore extends FileStoreWorkUnitBase {
   }
 
   public async readJsonl<T>(filePath: string): Promise<T[]> {
+    const t = readMetricsBegin();
+    const t0 = t?.() ?? 0;
     const mtimeMs = await statMtimeMs(filePath);
+    const t1 = t?.() ?? 0;
     if (mtimeMs === null) {
       jsonlCache.delete(filePath);
+      if (t) emitReadMetric({ file: filePath, op: 'readJsonl', cacheHit: false, statMs: t1 - t0, readParseMs: 0, cloneMs: 0 });
       return [];
     }
     const hit = jsonlCache.get(filePath);
     if (hit && hit.mtimeMs === mtimeMs) {
-      return cloneCached(hit.value) as T[];
+      const cached = cloneCached(hit.value) as T[];
+      if (t) emitReadMetric({ file: filePath, op: 'readJsonl', cacheHit: true, statMs: t1 - t0, readParseMs: 0, cloneMs: t() - t1 });
+      return cached;
     }
     let rows: unknown[] = [];
     try {
@@ -228,24 +319,73 @@ export class FileStore extends FileStoreWorkUnitBase {
       if (!isErrnoError(err) || err.code !== 'ENOENT') throw err;
       rows = []; // stat 与 readFile 之间被删 → 按空处理
     }
+    const t2 = t?.() ?? 0;
     cacheSet(jsonlCache, filePath, { value: rows, mtimeMs });
-    return cloneCached(rows) as T[];
+    const cloned = cloneCached(rows) as T[];
+    if (t) emitReadMetric({ file: filePath, op: 'readJsonl', cacheHit: false, statMs: t1 - t0, readParseMs: t2 - t1, cloneMs: t() - t2 });
+    return cloned;
   }
 
   /** readdir（withFileTypes）读穿缓存：目录 mtime 校验，目录内容增删触发重读 */
   private async readdirCached(dir: string): Promise<fs.Dirent[]> {
+    const t = readMetricsBegin();
+    const t0 = t?.() ?? 0;
     const mtimeMs = await statMtimeMs(dir);
+    const t1 = t?.() ?? 0;
     if (mtimeMs === null) {
       dirCache.delete(dir);
-      return fs.promises.readdir(dir, { withFileTypes: true }); // 保留 ENOENT 抛错语义
+      const fallback = await fs.promises.readdir(dir, { withFileTypes: true }); // 保留 ENOENT 抛错语义
+      if (t) emitReadMetric({ file: dir, op: 'readdir', cacheHit: false, statMs: t1 - t0, readParseMs: t() - t1, cloneMs: 0 });
+      return fallback;
     }
     const hit = dirCache.get(dir);
     if (hit && hit.mtimeMs === mtimeMs) {
+      if (t) emitReadMetric({ file: dir, op: 'readdir', cacheHit: true, statMs: t1 - t0, readParseMs: 0, cloneMs: 0 });
       return hit.value;
     }
     const entries = await fs.promises.readdir(dir, { withFileTypes: true });
+    if (t) emitReadMetric({ file: dir, op: 'readdir', cacheHit: false, statMs: t1 - t0, readParseMs: t() - t1, cloneMs: 0 });
     cacheSet(dirCache, dir, { value: entries, mtimeMs });
     return entries;
+  }
+
+  /**
+   * readdir 读穿缓存公开入口（#321）：聚合读层（library/sdd-legacy）扫外部仓目录用。
+   * 目录 mtime 校验；目录不存在抛 ENOENT（与 fs.readdir 语义一致，调用方自行容错）。
+   */
+  public async readdir(dir: string): Promise<fs.Dirent[]> {
+    return this.readdirCached(dir);
+  }
+
+  /**
+   * #314（D1）：getIndex 的锁外只读路径走读穿缓存（复用 jsonCache，key =
+   * workunits/index.json 绝对路径；所有索引写经 writeJson 覆盖自动精确失效）。
+   * 保留 readIndexFile 的严格损坏语义（撕裂/非数组抛错，不静默当空），
+   * 命中返回结构克隆。锁内读路径不经过本方法（readIndexFile 保持裸读）。
+   */
+  protected async readIndexForQuery(): Promise<WorkUnitSnapshot[] | null> {
+    const filePath = this.indexPath;
+    const t = readMetricsBegin();
+    const t0 = t?.() ?? 0;
+    const mtimeMs = await statMtimeMs(filePath);
+    const t1 = t?.() ?? 0;
+    if (mtimeMs === null) {
+      jsonCache.delete(filePath);
+      if (t) emitReadMetric({ file: filePath, op: 'readIndexForQuery', cacheHit: false, statMs: t1 - t0, readParseMs: 0, cloneMs: 0 });
+      return null;
+    }
+    const hit = jsonCache.get(filePath);
+    if (hit && hit.mtimeMs === mtimeMs) {
+      const cached = cloneCached(hit.value) as WorkUnitSnapshot[] | null;
+      if (t) emitReadMetric({ file: filePath, op: 'readIndexForQuery', cacheHit: true, statMs: t1 - t0, readParseMs: 0, cloneMs: t() - t1 });
+      return cached;
+    }
+    const value = await this.readIndexFile();
+    const t2 = t?.() ?? 0;
+    cacheSet(jsonCache, filePath, { value, mtimeMs });
+    const cloned = cloneCached(value);
+    if (t) emitReadMetric({ file: filePath, op: 'readIndexForQuery', cacheHit: false, statMs: t1 - t0, readParseMs: t2 - t1, cloneMs: t() - t2 });
+    return cloned;
   }
 
   // ─── 路径生成 ───
@@ -264,6 +404,15 @@ export class FileStore extends FileStoreWorkUnitBase {
 
   private messagesPath(channelId: string): string {
     return path.join(this.baseDir, 'channels', channelId, 'messages.jsonl');
+  }
+
+  /** #327：冷文件目录（超龄消息按月归档，纯 ChannelMessageData 行，无 tombstone） */
+  private archiveDir(channelId: string): string {
+    return path.join(this.baseDir, 'channels', channelId, 'archive');
+  }
+
+  private archiveMonthPath(channelId: string, month: string): string {
+    return path.join(this.archiveDir(channelId), `messages-${month}.jsonl`);
   }
 
   private agentsDir(): string {
@@ -475,37 +624,78 @@ export class FileStore extends FileStoreWorkUnitBase {
   // ChannelMessage (JSONL)
   // ═══════════════════════
 
-  async appendMessage(channelId: string, msg: ChannelMessageData): Promise<void> {
-    await this.appendJsonl(this.messagesPath(channelId), msg);
+  private messagesLockDir(channelId: string): string {
+    return path.join(this.baseDir, 'channels', channelId, 'messages.lock');
   }
 
   /**
-   * §4.2 发言层新鲜度检查：频道版本快照（messages.jsonl 原始行数 + 最后一行的消息 id）。
+   * 追加频道消息（#319：per-channel 文件锁 + 写侧压实检查）。
+   * 上锁原因：压实会原子重写整个 messages.jsonl，无锁时与并发 append/tombstone 竞争
+   * （压实读后写窗口内落入的新行被 rename 覆盖）会丢消息。
+   */
+  async appendMessage(channelId: string, msg: ChannelMessageData): Promise<void> {
+    await this.withLock(this.messagesLockDir(channelId), async () => {
+      await this.appendJsonl(this.messagesPath(channelId), msg);
+      await this.compactMessagesIfNeededLocked(channelId);
+    });
+  }
+
+  /**
+   * 压实评估（锁内专用：withLock 不可重入，严禁改走公共 appendMessage）。
+   * 归并走 mergeActiveRows 唯一口径——压实前后 queryMessages 结果逐条一致。
+   */
+  private async compactMessagesIfNeededLocked(channelId: string): Promise<void> {
+    const filePath = this.messagesPath(channelId);
+    const n = (this.messageAppendCounts.get(filePath) ?? 0) + 1;
+    this.messageAppendCounts.set(filePath, n);
+    if (n % this.messageCompaction.checkInterval !== 0) return;
+
+    // 锁内裸读（ADR 2026-08-24-cache-seam-decision-rules 例外条款）：压实依据必须是此刻磁盘真值
+    const rows = await super.readJsonl<ChannelMessageRow>(filePath);
+    if (rows.length < this.messageCompaction.minLines) return;
+
+    const winners = mergeActiveRows(rows);
+    if ((rows.length - winners.length) / rows.length < this.messageCompaction.deadRatio) return;
+
+    // 基类 writeJsonl 为原子写（tmp+rename），FileStore 覆盖版负责缓存失效
+    await this.writeJsonl(filePath, winners);
+  }
+
+  /**
+   * §4.2 发言层新鲜度检查：频道版本快照（messages.jsonl 最后一行的消息 id，含 tombstone 行——
+   * 删除也要被感知为「房间已变」）。
+   * #319：行号口径退役（压实会压缩行数，按原始行数下标的契约不再成立），一律以 id 为准。
    * 读取失败（频道不存在等）返回空版本 —— 调用方按「无变化」处理，绝不阻断发言。
    */
-  async getChannelVersion(channelId: string): Promise<{ lineCount: number; lastMessageId: string | null }> {
+  async getChannelVersion(channelId: string): Promise<{ lastMessageId: string | null }> {
     try {
       const rows = await this.readJsonl<ChannelMessageRow>(this.messagesPath(channelId));
-      return { lineCount: rows.length, lastMessageId: rows.length > 0 ? rows[rows.length - 1].id : null };
+      return { lastMessageId: rows.length > 0 ? rows[rows.length - 1].id : null };
     } catch {
-      return { lineCount: 0, lastMessageId: null };
+      return { lastMessageId: null };
     }
   }
 
   /**
-   * §4.2: 读取 messages.jsonl 中从 fromLine（原始行数下标）之后追加的消息（过滤 tombstone）。
-   * 与 getChannelVersion 的 lineCount 口径一致（同一 readJsonl 原始行数组）。
+   * §4.2: 读取锚点消息之后追加的活消息（过滤 tombstone，不含锚点本身）。
+   * 锚点为 null（空频道快照）返回全部活消息。
+   * 锚点 id 找不到——根因：压实可能抹除锚点行本身（tombstone 或被覆盖行），位置不可知——
+   * 保守返回全部活消息：消费方（§4.2）过滤本 loop 自己的消息且拦截 ≤2 次后照发，
+   * 代价是有界误报；反向漏报（丢掉真正的新消息）不允许。
    */
-  async getMessagesSinceLine(channelId: string, fromLine: number): Promise<ChannelMessageData[]> {
+  async getMessagesSince(channelId: string, messageId: string | null): Promise<ChannelMessageData[]> {
     try {
       const rows = await this.readJsonl<ChannelMessageRow>(this.messagesPath(channelId));
-      const result: ChannelMessageData[] = [];
-      for (const row of rows.slice(Math.max(0, fromLine))) {
-        if (row.deleted) continue;
-        const { deleted, ...rest } = row;
-        result.push(rest);
+      let from = 0;
+      if (messageId) {
+        let anchor = -1;
+        for (let i = rows.length - 1; i >= 0; i--) {
+          if (rows[i].id === messageId) { anchor = i; break; }
+        }
+        if (anchor !== -1) from = anchor + 1;
       }
-      return result;
+      // 窗口内按 id 归并（mergeActiveRows 唯一口径）：窗口内发了又删的消息不出现在增量里
+      return mergeActiveRows(rows.slice(from));
     } catch {
       return [];
     }
@@ -513,21 +703,7 @@ export class FileStore extends FileStoreWorkUnitBase {
 
   /** 解析 JSONL，按 id 去重（最新条目生效），过滤已删除 */
   private resolveActiveMessages(channelId: string): Promise<ChannelMessageData[]> {
-    return this.readJsonl<ChannelMessageRow>(this.messagesPath(channelId)).then(rows => {
-      const latest = new Map<string, ChannelMessageRow>();
-      for (const row of rows) {
-        latest.set(row.id, row);
-      }
-      const active: ChannelMessageData[] = [];
-      for (const msg of latest.values()) {
-        if (!msg.deleted) {
-          // 删除 deleted 字段以保持与 ChannelMessageData 类型一致
-          const { deleted, ...rest } = msg;
-          active.push(rest);
-        }
-      }
-      return active;
-    });
+    return this.readJsonl<ChannelMessageRow>(this.messagesPath(channelId)).then(mergeActiveRows);
   }
 
   async queryMessages(channelId: string, opts?: QueryOpts): Promise<ChannelMessageData[]> {
@@ -555,6 +731,102 @@ export class FileStore extends FileStoreWorkUnitBase {
     return filtered;
   }
 
+  /**
+   * 频道消息分页（#319 半下沉 + #327 冷热穿透）：存储层过滤→排序→切片，路由不再全量拉回内存切。
+   * before = 锚点消息 id 游标（不含锚点；替代原 timestamp 游标——同毫秒多条消息不再漏/重）。
+   * 锚点 id 不存在（已删除/被压实抹除/冷热都没有）→ 空页 + hasMore=false：位置不可知时不整页错发。
+   * total 语义与路由现状一致：锚点过滤后的可见总数（热+冷有效行）。
+   *
+   * #327 穿透规则：遍历链 = 热（新→旧）接冷（月新→旧、月内 createdAt 新→旧）；
+   * 无 before（最新页）热页不足 limit 从冷链补满（热全空时首页直接出冷，历史永远在）；
+   * 锚在热而热侧不足 limit 时余量从冷续；锚在冷则整页从冷出；
+   * 跨冷热按 id 去重（thaw/崩溃残留同 id，新→旧先见为准——热侧恒遮蔽冷侧残留）。
+   * 无冷数据（无 archive 目录）时行为与 #319 现状逐条一致。
+   */
+  async queryMessagesPage(channelId: string, opts?: MessagePageOpts): Promise<MessagePage> {
+    const resolved = await this.resolveActiveMessages(channelId);
+    // 按创建时间升序（与 queryMessages 同口径；同刻消息按文件序稳定排列）
+    resolved.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+    const limit = opts?.limit !== undefined && opts.limit > 0 ? opts.limit : 50;
+
+    // 冷链（新→旧）+ 有效行过滤：热侧 id 遮蔽冷侧残留，冷侧内部同 id 先见为准
+    const hotIds = new Set(resolved.map(m => m.id));
+    const seenCold = new Set<string>();
+    const cold: ChannelMessageData[] = [];
+    for (const msg of await this.readColdChain(channelId)) {
+      if (hotIds.has(msg.id) || seenCold.has(msg.id)) continue;
+      seenCold.add(msg.id);
+      cold.push(msg);
+    }
+
+    if (!opts?.before) {
+      // 最新页：热页不足 limit 从冷链（新→旧）补满——热全空时首页直接出冷数据，
+      // 「滚动穿透、历史永远在」；与锚在热的补冷同一去重纪律（cold 已过滤热遮蔽/冷内同 id）
+      const hotPage = resolved.slice(-limit);
+      const coldNeed = limit - hotPage.length;
+      const coldPart = coldNeed > 0 ? cold.slice(0, coldNeed).reverse() : [];
+      return {
+        messages: [...coldPart, ...hotPage],
+        total: resolved.length + cold.length,
+        hasMore: resolved.length + cold.length > limit,
+      };
+    }
+
+    const anchor = resolved.findIndex(m => m.id === opts.before);
+    if (anchor !== -1) {
+      // 锚在热：链上锚点之前 = 热[0..anchor) 接整条冷链；页 = 该序列末尾 limit 条（升序）
+      const hotPage = resolved.slice(Math.max(0, anchor - limit), anchor);
+      const coldNeed = limit - hotPage.length;
+      const coldPart = coldNeed > 0 ? cold.slice(0, coldNeed).reverse() : [];
+      const olderCount = anchor + cold.length;
+      return {
+        messages: [...coldPart, ...hotPage],
+        total: olderCount,
+        hasMore: olderCount > limit,
+      };
+    }
+
+    // 锚在冷：整页从冷出
+    const coldAnchor = cold.findIndex(m => m.id === opts.before);
+    if (coldAnchor === -1) {
+      return { messages: [], total: resolved.length + cold.length, hasMore: false };
+    }
+    const older = cold.slice(coldAnchor + 1); // 新→旧
+    return {
+      messages: older.slice(0, limit).reverse(),
+      total: older.length,
+      hasMore: older.length > limit,
+    };
+  }
+
+  /** 冷文件月清单（YYYY-MM，新→旧）；无 archive 目录 → [] */
+  private async listArchiveMonths(channelId: string): Promise<string[]> {
+    let entries: fs.Dirent[];
+    try {
+      entries = await this.readdirCached(this.archiveDir(channelId));
+    } catch (err: unknown) {
+      if (isErrnoError(err) && err.code === 'ENOENT') return [];
+      throw err;
+    }
+    return entries
+      .filter(e => e.isFile())
+      .map(e => /^messages-(\d{4}-\d{2})\.jsonl$/.exec(e.name)?.[1])
+      .filter((m): m is string => m !== undefined)
+      .sort()
+      .reverse();
+  }
+
+  /** 冷链：全部归档消息按分页遍历序（月新→旧，月内 createdAt 新→旧）。读穿缓存摊销 */
+  private async readColdChain(channelId: string): Promise<ChannelMessageData[]> {
+    const chain: ChannelMessageData[] = [];
+    for (const month of await this.listArchiveMonths(channelId)) {
+      const rows = await this.readJsonl<ChannelMessageData>(this.archiveMonthPath(channelId, month));
+      rows.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      chain.push(...rows);
+    }
+    return chain;
+  }
+
   async countMessages(channelId: string, opts?: CountOpts): Promise<number> {
     const resolved = await this.resolveActiveMessages(channelId);
     let filtered = resolved;
@@ -570,28 +842,205 @@ export class FileStore extends FileStoreWorkUnitBase {
   }
 
   async softDeleteMessage(channelId: string, messageId: string): Promise<void> {
-    const all = await this.readJsonl<ChannelMessageRow>(this.messagesPath(channelId));
-    const msg = all.find(m => m.id === messageId && !m.deleted);
-    if (!msg) throw new Error(`Message not found: ${messageId}`);
-    // append tombstone
-    const tombstone: ChannelMessageRow = {
-      ...msg,
-      deleted: true,
-    };
-    await this.appendJsonl(this.messagesPath(channelId), tombstone);
+    // #319：与 appendMessage 同锁——压实重写与 tombstone 追加竞争会丢 tombstone（已删消息复活）
+    await this.withLock(this.messagesLockDir(channelId), async () => {
+      // 锁内裸读（ADR 例外条款）：要删的必须是此刻磁盘最新状态，不走读穿缓存
+      const all = await super.readJsonl<ChannelMessageRow>(this.messagesPath(channelId));
+      const msg = all.find(m => m.id === messageId && !m.deleted);
+      if (!msg) throw new Error(`Message not found: ${messageId}`);
+      // append tombstone
+      const tombstone: ChannelMessageRow = {
+        ...msg,
+        deleted: true,
+      };
+      await this.appendJsonl(this.messagesPath(channelId), tombstone);
+      await this.compactMessagesIfNeededLocked(channelId);
+    });
+  }
+
+  // ─── 消息生命周期归档（#327）───
+
+  /**
+   * 归档 sweep：逐频道把超龄活消息从热文件搬入冷文件（archive/messages-YYYY-MM.jsonl）。
+   * 定期任务（启动一次 + 每 24h，挂 index.ts 轮转调度点），非请求路径。
+   *
+   * 超龄规则：有 workUnitId → 所属 WU 的 closedAt + maxAgeDays（closedAt 缺失的遗产数据
+   * 回退 updatedAt；WU 悬空回退消息 createdAt 规则；WU 非 closed 一律保留）；
+   * 无 workUnitId → 消息 createdAt + maxAgeDays。
+   *
+   * 纪律：per-channel messages.lock 锁内操作（与并发 append/tombstone/压实互斥）；
+   * 写序先冷后热——崩溃在中间 = 同 id 冷热都有，下次 sweep 冷侧按 id 去重吸收；
+   * 无超龄消息不动热文件（不重写、不 bump mtime）；归并走 mergeActiveRows 唯一口径
+   * （顺带压实效果：死行不进冷热文件）。
+   */
+  async archiveChannelMessages(): Promise<{ archivedMessages: number }> {
+    const nowMs = this.messageArchive.now().getTime();
+    const maxAgeMs = this.messageArchive.maxAgeDays * 86_400_000;
+    // WU 计龄锚点索引（读穿缓存 mtime 校验；sweep 是离线任务，锚点滞后最多影响一轮）
+    const wuIndex = new Map((await this.getIndex()).map(s => [s.id, s]));
+
+    let entries: fs.Dirent[];
+    try {
+      entries = await fs.promises.readdir(this.channelsDir(), { withFileTypes: true });
+    } catch (err: unknown) {
+      if (isErrnoError(err) && err.code === 'ENOENT') return { archivedMessages: 0 };
+      throw err;
+    }
+
+    let archivedMessages = 0;
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      archivedMessages += await this.withLock(this.messagesLockDir(entry.name), () =>
+        this.archiveChannelMessagesLocked(entry.name, wuIndex, nowMs, maxAgeMs));
+    }
+    return { archivedMessages };
+  }
+
+  /** 单频道归档（锁内专用：withLock 不可重入，调用方须已持 messages.lock） */
+  private async archiveChannelMessagesLocked(
+    channelId: string,
+    wuIndex: Map<string, WorkUnitSnapshot>,
+    nowMs: number,
+    maxAgeMs: number,
+  ): Promise<number> {
+    const filePath = this.messagesPath(channelId);
+    // 锁内裸读（ADR 例外条款，同压实）：归档依据必须是此刻磁盘真值
+    const rows = await super.readJsonl<ChannelMessageRow>(filePath);
+    if (rows.length === 0) return 0;
+
+    const active = mergeActiveRows(rows);
+    const keep: ChannelMessageData[] = [];
+    const archive: ChannelMessageData[] = [];
+    for (const msg of active) {
+      const anchorMs = this.archiveAnchorMs(msg, wuIndex);
+      if (anchorMs !== null && nowMs - anchorMs >= maxAgeMs) archive.push(msg);
+      else keep.push(msg);
+    }
+    if (archive.length === 0) return 0; // 空操作纪律：无超龄不动热文件
+
+    // 先追加冷文件（按消息 createdAt 归月、月内升序；追加前按 id 去重——吸收崩溃残留/重复 sweep）
+    const byMonth = new Map<string, ChannelMessageData[]>();
+    for (const msg of archive) {
+      const month = msg.createdAt.slice(0, 7); // ISO 8601 前缀 YYYY-MM
+      const list = byMonth.get(month);
+      if (list) list.push(msg);
+      else byMonth.set(month, [msg]);
+    }
+    for (const [month, msgs] of byMonth) {
+      msgs.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+      const monthPath = this.archiveMonthPath(channelId, month);
+      const existingIds = new Set((await super.readJsonl<ChannelMessageData>(monthPath)).map(m => m.id));
+      for (const msg of msgs) {
+        if (existingIds.has(msg.id)) continue;
+        await this.appendJsonl(monthPath, msg);
+      }
+    }
+    // 后原子重写热文件（tmp+rename，同压实纪律；崩溃在中间 = 同 id 冷热都有，查询面按 id 去重）
+    await this.writeJsonl(filePath, keep);
+    return archive.length;
+  }
+
+  /**
+   * 单条消息的计龄锚点（epoch ms）；返回 null = 一律保留（活 WU / 锚点日期损坏）。
+   * 损坏锚点按保留处理：宁可多留一轮不丢可读性。
+   */
+  private archiveAnchorMs(msg: ChannelMessageData, wuIndex: Map<string, WorkUnitSnapshot>): number | null {
+    let anchorIso: string;
+    if (msg.workUnitId) {
+      const wu = wuIndex.get(msg.workUnitId);
+      if (wu && wu.status !== 'closed') return null; // 活 WU 的消息永远在热层
+      // 遗产 closedAt 缺失回退 updatedAt；WU 悬空（已删除/从未存在）回退 createdAt 规则
+      anchorIso = wu ? (wu.closedAt ?? wu.updatedAt) : msg.createdAt;
+    } else {
+      anchorIso = msg.createdAt;
+    }
+    const t = Date.parse(anchorIso);
+    return Number.isNaN(t) ? null : t;
+  }
+
+  /**
+   * reopen 解冻（#327）：把该 WU 的已归档消息从冷文件搬回热文件（保留原 id/createdAt），
+   * 冷文件原子重写剔除已 thaw 行。规则保持一条线：活 WU 的消息永远在热层。
+   * 低频操作（WU closed→unassigned 钩子），全频道扫描成本可接受；
+   * 无 archive 目录/无匹配行 = 零成本短路（不取锁、不动热文件）。
+   * 写序先热后冷：崩溃在中间 = 同 id 冷热都有，查询面按 id 去重（热侧遮蔽冷侧残留）。
+   */
+  async thawWorkUnitMessages(workUnitId: string): Promise<{ thawedMessages: number }> {
+    let entries: fs.Dirent[];
+    try {
+      entries = await fs.promises.readdir(this.channelsDir(), { withFileTypes: true });
+    } catch (err: unknown) {
+      if (isErrnoError(err) && err.code === 'ENOENT') return { thawedMessages: 0 };
+      throw err;
+    }
+    let thawedMessages = 0;
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const months = await this.listArchiveMonths(entry.name);
+      if (months.length === 0) continue; // 零成本短路：无冷文件不取锁
+      thawedMessages += await this.thawChannelWorkUnitMessages(entry.name, workUnitId, months);
+    }
+    return { thawedMessages };
+  }
+
+  /** 单频道解冻：锁外预检无匹配不取锁；锁内裸读重判后先 append 热、后原子重写冷 */
+  private async thawChannelWorkUnitMessages(channelId: string, workUnitId: string, months: string[]): Promise<number> {
+    // 锁外预检（读穿缓存）：该频道冷文件无此 WU 的行 → 不取锁
+    let hasMatch = false;
+    for (const month of months) {
+      const rows = await this.readJsonl<ChannelMessageData>(this.archiveMonthPath(channelId, month));
+      if (rows.some(m => m.workUnitId === workUnitId)) { hasMatch = true; break; }
+    }
+    if (!hasMatch) return 0;
+
+    return this.withLock(this.messagesLockDir(channelId), async () => {
+      // 锁内裸读重判（预检后可能有并发 sweep/thaw 改动）
+      const thawRows: ChannelMessageData[] = [];
+      const rewrittenMonths: Array<{ monthPath: string; remain: ChannelMessageData[] }> = [];
+      for (const month of months) {
+        const monthPath = this.archiveMonthPath(channelId, month);
+        const rows = await super.readJsonl<ChannelMessageData>(monthPath);
+        const remain = rows.filter(m => {
+          if (m.workUnitId === workUnitId) { thawRows.push(m); return false; }
+          return true;
+        });
+        if (remain.length !== rows.length) rewrittenMonths.push({ monthPath, remain });
+      }
+      if (thawRows.length === 0) return 0;
+
+      // 先 append 回热文件（保留原 id/createdAt，按 createdAt 升序；热侧已有同 id 不重复）
+      const hotPath = this.messagesPath(channelId);
+      const hotIds = new Set((await super.readJsonl<ChannelMessageRow>(hotPath)).map(r => r.id));
+      thawRows.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+      let appended = 0;
+      for (const msg of thawRows) {
+        if (hotIds.has(msg.id)) continue;
+        await this.appendJsonl(hotPath, msg);
+        appended++;
+      }
+      // 后原子重写冷文件剔除已 thaw 行（tmp+rename，同 sweep 纪律）
+      for (const { monthPath, remain } of rewrittenMonths) {
+        await this.writeJsonl(monthPath, remain);
+      }
+      return appended;
+    });
   }
 
   /**
    * 跨频道查询消息（扫描所有 channel 的 messages.jsonl）。
    * 支持按 workUnitId(s) 和 authorType 过滤。
+   * #330：可选 channelIds 预过滤——提供时 readdir 后跳过集合外频道（不读其文件），
+   * 供 observe 巡查只扫活跃 WU 所在频道；缺省全扫，既有调用方行为不变。
    */
-  async queryAllMessages(filter?: { workUnitIds?: string[]; workUnitId?: string; authorType?: string; agentName?: string; agentNames?: string[] }): Promise<ChannelMessageData[]> {
+  async queryAllMessages(filter?: { workUnitIds?: string[]; workUnitId?: string; authorType?: string; agentName?: string; agentNames?: string[]; channelIds?: string[] }): Promise<ChannelMessageData[]> {
     const result: ChannelMessageData[] = [];
     const dir = this.channelsDir();
     try {
       const entries = await this.readdirCached(dir);
+      const channelSet = filter?.channelIds ? new Set(filter.channelIds) : null;
       const perChannel = await Promise.all(entries.map(async entry => {
         if (!entry.isDirectory()) return [];
+        if (channelSet && !channelSet.has(entry.name)) return [];
         const active = await this.resolveActiveMessages(entry.name);
         return active.filter(msg => {
           if (filter?.workUnitId && msg.workUnitId !== filter.workUnitId) return false;
@@ -819,32 +1268,58 @@ export class FileStore extends FileStoreWorkUnitBase {
   // ═══════════════════════
 
   /**
-   * 读取 markdown 文件，解析 frontmatter + body。
-   * 文件不存在返回 null。
+   * 读取 markdown 文件，解析 frontmatter + body（#321：读穿缓存，mtime 校验）。
+   * 文件不存在返回 null。命中返回结构克隆。
    */
   async readDoc(dir: string, key: string): Promise<{ meta: Record<string, unknown>; body: string } | null> {
+    const entry = await this.readDocCached(dir, key);
+    return entry ? { meta: entry.meta, body: entry.body } : null;
+  }
+
+  /**
+   * readDoc + 校验用 mtimeMs（#321）：library 聚合读层的 updatedAt 兜底链需要文件 mtime，
+   * 与缓存校验共用同一次 stat，不引入第二次。mtimeMs 即缓存校验戳——命中时等于文件当前 mtime。
+   */
+  async readDocWithMtime(dir: string, key: string): Promise<{ meta: Record<string, unknown>; body: string; mtimeMs: number } | null> {
+    return this.readDocCached(dir, key);
+  }
+
+  /** readDoc 的读穿缓存实现（mdCache，与 readJson 同一 mtime 校验模式） */
+  private async readDocCached(dir: string, key: string): Promise<{ meta: Record<string, unknown>; body: string; mtimeMs: number } | null> {
     const filePath = path.join(dir, `${key}.md`);
+    const mtimeMs = await statMtimeMs(filePath);
+    if (mtimeMs === null) {
+      mdCache.delete(filePath);
+      return null;
+    }
+    const hit = mdCache.get(filePath);
+    if (hit && hit.mtimeMs === mtimeMs) {
+      return hit.value ? { ...cloneCached(hit.value), mtimeMs } : null;
+    }
+    let doc: { meta: Record<string, unknown>; body: string } | null = null;
     try {
       const content = await fs.promises.readFile(filePath, 'utf-8');
       const parsed = parseFrontmatter(content);
       // 无 frontmatter fence → 整文件视为 body，meta 为空
-      if (!parsed) return { meta: {}, body: content.trim() };
-      return parsed;
+      doc = parsed ?? { meta: {}, body: content.trim() };
     } catch (err: unknown) {
-      if (isErrnoError(err) && err.code === 'ENOENT') return null;
-      throw err;
+      if (!isErrnoError(err) || err.code !== 'ENOENT') throw err;
+      doc = null; // stat 与 readFile 之间被删 → 按缺失处理
     }
+    cacheSet(mdCache, filePath, { value: doc, mtimeMs });
+    return doc ? { ...cloneCached(doc), mtimeMs } : null;
   }
 
   /**
    * 写入 markdown 文件（含 YAML frontmatter）。
-   * 目录不存在时自动创建。
+   * 目录不存在时自动创建。写后失效缓存。
    */
   async writeDoc(dir: string, key: string, meta: Record<string, unknown>, body: string): Promise<void> {
     const filePath = path.join(dir, `${key}.md`);
     await this.ensureDir(path.dirname(filePath));
     const content = serializeFrontmatter(meta, body);
     await fs.promises.writeFile(filePath, content, 'utf-8');
+    invalidateFileKey(filePath);
   }
 
   // ═══ 索引管理 ═══

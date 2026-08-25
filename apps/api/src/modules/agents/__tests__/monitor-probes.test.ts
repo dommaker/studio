@@ -7,7 +7,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { FileStore } from '@dommaker/studio-shared';
 
-const { tmpDir, mockLogger, mockAgentStop, mockReaddir, mockGetStats, mockCloseWithNotice, mockReadStudioEvents } = vi.hoisted(() => {
+const { tmpDir, mockLogger, mockAgentStop, mockReaddir, mockGetStats, mockCloseWithNotice, mockReadStudioEventsSince } = vi.hoisted(() => {
   const fs = require('fs');
   const path = require('path');
   const os = require('os');
@@ -20,7 +20,7 @@ const { tmpDir, mockLogger, mockAgentStop, mockReaddir, mockGetStats, mockCloseW
     // #176（决策 #62 §3 双出声）：关闭统一出口（事件 + 频道 + 快照）打桩，探头只断言委托
     mockCloseWithNotice: vi.fn(() => Promise.resolve(true)),
     // #181（决策 #62 D2）：失败趋势改读统一事件流，readStudioEvents 打桩
-    mockReadStudioEvents: vi.fn(() => Promise.resolve([] as any[])),
+    mockReadStudioEventsSince: vi.fn(() => Promise.resolve([] as any[])),
   };
 });
 
@@ -55,8 +55,11 @@ vi.mock('../../workunit/wu-closure.js', () => ({
 }));
 
 // #181：统一事件流读取打桩（全量 mock——真模块顶层 new FileStore() 依赖 shared，不宜 importOriginal）
+// #335：读口切到窗口读（studio-events-tail.readStudioEventsSince），打桩随之迁移
+vi.mock('../../../utils/studio-events-tail.js', () => ({
+  readStudioEventsSince: mockReadStudioEventsSince,
+}));
 vi.mock('../../../utils/studio-events.js', () => ({
-  readStudioEvents: mockReadStudioEvents,
   parseStudioEventPayload: (event: { payload?: unknown }) => {
     const raw = event?.payload;
     if (raw === null || raw === undefined) return null;
@@ -111,7 +114,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockReaddir.mockResolvedValue([] as any);
   mockGetStats.mockReturnValue({}); // clearAllMocks 不清实现，显式重置
-  mockReadStudioEvents.mockResolvedValue([] as any);
+  mockReadStudioEventsSince.mockResolvedValue([] as any);
 });
 
 afterEach(() => {
@@ -125,7 +128,7 @@ function makeEvent(type: string, payload: Record<string, unknown>, createdAt = n
 
 describe('checkFailureTrend（事件流，#181）', () => {
   it('无近 1h 失败事件 → 无告警，且不再读取 data/tasks 目录', async () => {
-    mockReadStudioEvents.mockResolvedValue([
+    mockReadStudioEventsSince.mockResolvedValue([
       makeEvent('workunit:execution_step', { workUnitId: 'wu-1', status: 'success' }),
     ]);
 
@@ -134,7 +137,7 @@ describe('checkFailureTrend（事件流，#181）', () => {
   });
 
   it('≥3 次失败（workunit:failed + 失败步混合计数）→ warning', async () => {
-    mockReadStudioEvents.mockResolvedValue([
+    mockReadStudioEventsSince.mockResolvedValue([
       makeEvent('workunit:failed', { workUnitId: 'wu-a', failureType: 'stuck' }),
       makeEvent('workunit:failed', { workUnitId: 'wu-b', failureType: 'verify' }),
       makeEvent('workunit:execution_step', { workUnitId: 'wu-c', status: 'failed' }),
@@ -150,7 +153,7 @@ describe('checkFailureTrend（事件流，#181）', () => {
   });
 
   it('失败率 >50% 且样本 ≥5 → warning + critical 双出声', async () => {
-    mockReadStudioEvents.mockResolvedValue([
+    mockReadStudioEventsSince.mockResolvedValue([
       makeEvent('workunit:failed', { workUnitId: 'wu-a' }),
       makeEvent('workunit:failed', { workUnitId: 'wu-b' }),
       makeEvent('workunit:execution_step', { workUnitId: 'wu-c', status: 'failed' }),
@@ -167,7 +170,7 @@ describe('checkFailureTrend（事件流，#181）', () => {
   });
 
   it('失败 <3 且失败率 ≤50% → 无告警', async () => {
-    mockReadStudioEvents.mockResolvedValue([
+    mockReadStudioEventsSince.mockResolvedValue([
       makeEvent('workunit:execution_step', { workUnitId: 'wu-a', status: 'failed' }),
       makeEvent('workunit:execution_step', { workUnitId: 'wu-b', status: 'failed' }),
       makeEvent('workunit:execution_step', { workUnitId: 'wu-c', status: 'success' }),
@@ -180,7 +183,7 @@ describe('checkFailureTrend（事件流，#181）', () => {
 
   it('忽略 1 小时前的事件', async () => {
     const old = new Date(Date.now() - 2 * 3600_000).toISOString();
-    mockReadStudioEvents.mockResolvedValue([
+    mockReadStudioEventsSince.mockResolvedValue([
       makeEvent('workunit:failed', { workUnitId: 'wu-a' }, old),
       makeEvent('workunit:failed', { workUnitId: 'wu-b' }, old),
       makeEvent('workunit:failed', { workUnitId: 'wu-c' }, old),

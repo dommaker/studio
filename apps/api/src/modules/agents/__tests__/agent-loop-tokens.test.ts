@@ -11,7 +11,9 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { TokenEstimator } from '@dommaker/harness';
 
-import { writeWorkunitTokenEvent } from '../loop/agent-loop.js';
+import { writeWorkunitTokenEvent, WORKUNIT_TOKENS_SSE_TYPE } from '../loop/agent-loop.js';
+import { eventBus } from '@dommaker/studio-shared';
+import { resolveTokenLedgerFile } from '../../../utils/token-ledger.js';
 
 function withTmpFile(fn: (eventsFile: string) => Promise<void>): Promise<void> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'workunit-tokens-'));
@@ -73,6 +75,77 @@ describe('M2: writeWorkunitTokenEvent', () => {
       expect(payload.executionTokens).toBeNull();
       expect(payload.executionSource).toBe('unavailable');
       expect(payload.totalTokens).toBe(0);
+    });
+  });
+
+  it('落盘后顺带发布 SSE 信封 workunit.tokens（data 含 channelId 与 token 现成字段）', async () => {
+    await withTmpFile(async (eventsFile) => {
+      const received: Array<{ event_type: string; event_id: string; timestamp: string; data: Record<string, unknown> }> = [];
+      eventBus.subscribe('events', (envelope: { event_type: string }) => {
+        if (envelope.event_type === WORKUNIT_TOKENS_SSE_TYPE) received.push(envelope as (typeof received)[number]);
+      });
+
+      await writeWorkunitTokenEvent(eventsFile, {
+        workUnitId: 'wu-3',
+        channelId: 'ch-3',
+        executionId: 'wu-3-1',
+        injectedTokens: 100,
+        executionTokens: 500,
+        billedTokens: 700,
+      });
+
+      expect(received).toHaveLength(1);
+      const envelope = received[0];
+      expect(typeof envelope.event_id).toBe('string');
+      expect(typeof envelope.timestamp).toBe('string');
+      expect(envelope.data).toMatchObject({
+        workUnitId: 'wu-3',
+        channelId: 'ch-3',
+        executionId: 'wu-3-1',
+        injectedTokens: 100,
+        executionTokens: 500,
+        billedTokens: 700,
+        totalTokens: 800, // injected + billed（账单口径优先）
+      });
+      // 落盘行为不变（appendJsonl 仍是一条 workunit:tokens）
+      expect(readEvents(eventsFile)).toHaveLength(1);
+    });
+  });
+
+  it('channelId 缺省 → SSE data 无该键（无频道 WU 不编造）', async () => {
+    await withTmpFile(async (eventsFile) => {
+      const received: Array<{ data: Record<string, unknown> }> = [];
+      eventBus.subscribe('events', (envelope: { event_type: string; data: Record<string, unknown> }) => {
+        if (envelope.event_type === WORKUNIT_TOKENS_SSE_TYPE) received.push(envelope);
+      });
+
+      await writeWorkunitTokenEvent(eventsFile, { workUnitId: 'wu-4', injectedTokens: 0, executionTokens: null });
+
+      expect(received).toHaveLength(1);
+      expect(received[0].data).not.toHaveProperty('channelId');
+      expect(received[0].data.executionTokens).toBeNull();
+    });
+  });
+
+  it('#320: 落盘后顺带更新 token 账本（写侧记账接线）', async () => {
+    await withTmpFile(async (eventsFile) => {
+      await writeWorkunitTokenEvent(eventsFile, {
+        workUnitId: 'wu-ledger',
+        executionId: 'wu-ledger-1',
+        injectedTokens: 100,
+        executionTokens: 500,
+        billedTokens: 700,
+      });
+
+      const ledger = JSON.parse(fs.readFileSync(resolveTokenLedgerFile(eventsFile), 'utf-8'));
+      expect(ledger.byWorkUnit['wu-ledger']).toMatchObject({
+        events: 1,
+        executionCount: 1,
+        injectedTokens: 100,
+        executionTokens: 500,
+        billedTokens: 700,
+      });
+      expect(ledger.watermark.lines).toBe(1);
     });
   });
 

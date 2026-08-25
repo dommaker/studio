@@ -38,7 +38,7 @@ vi.mock('../../api/requirements', () => ({
 
 // #242：live 状态条走 WebSocketContext——测试环境无 Provider，置空订阅
 vi.mock('../../api/websocketHooks', () => ({
-  useWebSocketContext: () => ({ onEvent: () => () => {} }),
+  useWebSocketContext: () => ({ onEvent: () => () => {}, onReconnect: () => () => {} }),
 }));
 
 vi.mock('../../components/channel/ChannelRail', () => ({ ChannelRail: () => null }));

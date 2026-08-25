@@ -1,5 +1,5 @@
 // 公司信息 section（从 pages/Settings.tsx 抽取，工单 35-E3）：公司名称自动保存 + 无公司时创建
-// 工单 38: 公司名自动保存加防抖（500ms，仓内惯例见 LibraryPage debounceRef / useWorkUnitEvents），
+// 工单 38: 公司名自动保存加防抖（500ms，仓内惯例见 LibraryPage debounceRef），
 // 本地 draft 态保证防抖期间输入即时回显，不被受控值回退打断
 import { useEffect, useRef, useState } from 'react';
 import { companyApi } from '../../api/company';

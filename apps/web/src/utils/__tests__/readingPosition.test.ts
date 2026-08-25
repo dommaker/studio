@@ -44,6 +44,27 @@ describe('parseReadingPosition — 三态语义', () => {
   });
 });
 
+describe('粗锚（#326 数据层降级：骨架锚行存档/恢复不做像素级精校正）', () => {
+  it('粗锚存档往返（coarse: true 保留）', () => {
+    const pos = { mid: 'msg-1', top: -12.5, coarse: true as const };
+    expect(parseReadingPosition(serializeReadingPosition(pos))).toEqual(pos);
+  });
+
+  it('旧存档无 coarse 字段 → 精锚（coarse 缺省，向后兼容）', () => {
+    expect(parseReadingPosition('{"mid":"m9","top":33}')).toEqual({ mid: 'm9', top: 33 });
+  });
+
+  it('coarse 非布尔 → 按精锚处理（字段忽略，不阻断）', () => {
+    expect(parseReadingPosition('{"mid":"m9","top":33,"coarse":"yes"}')).toEqual({ mid: 'm9', top: 33 });
+  });
+
+  it('粗锚 localStorage 写读往返', () => {
+    window.localStorage.clear();
+    saveReadingPosition('ch-a', { mid: 'm1', top: 8, coarse: true });
+    expect(loadReadingPosition('ch-a')).toEqual({ mid: 'm1', top: 8, coarse: true });
+  });
+});
+
 describe('saveReadingPosition / loadReadingPosition — localStorage 直调（按频道隔离）', () => {
   beforeEach(() => {
     window.localStorage.clear();
