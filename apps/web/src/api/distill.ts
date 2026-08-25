@@ -30,12 +30,12 @@ interface StatusResponse {
 }
 
 /** 按 id 逐个查通用端点并合并成 statuses map（通用端点为单 id 形态，见 ADR 决策 4） */
-async function fetchStatuses<S extends ReviewProposalStatus>(kind: string, ids: string[]) {
+async function fetchStatuses(kind: string, ids: string[]) {
   const responses = await Promise.all(ids.map(id =>
     api.get<StatusResponse>(`/review-proposals/${kind}/${encodeURIComponent(id)}/status`),
   ));
-  const statuses: Record<string, S> = {};
-  ids.forEach((id, i) => { statuses[id] = responses[i].data.status as S; });
+  const statuses: Record<string, ReviewProposalStatus> = {};
+  ids.forEach((id, i) => { statuses[id] = responses[i].data.status; });
   return { data: { success: true, statuses } };
 }
 
@@ -45,7 +45,7 @@ export const distillApi = {
   reject: (proposalId: string) =>
     api.post(`/review-proposals/distill/${encodeURIComponent(proposalId)}/reject`),
   proposalStatus: (proposalIds: string[]) =>
-    fetchStatuses<DistillProposalStatus>('distill', proposalIds),
+    fetchStatuses('distill', proposalIds),
   // #144 GC 候选清单
   gcApprove: (gcProposalId: string) =>
     api.post<{ success: boolean; archivedIds?: string[]; error?: string }>(
@@ -54,7 +54,7 @@ export const distillApi = {
   gcReject: (gcProposalId: string) =>
     api.post(`/review-proposals/gc/${encodeURIComponent(gcProposalId)}/reject`),
   gcProposalStatus: (gcProposalIds: string[]) =>
-    fetchStatuses<GcProposalStatus>('gc', gcProposalIds),
+    fetchStatuses('gc', gcProposalIds),
   // #146 存量约束审计
   auditApprove: (auditProposalId: string) =>
     api.post<{ success: boolean; retiredIds?: string[]; error?: string }>(
@@ -63,5 +63,5 @@ export const distillApi = {
   auditReject: (auditProposalId: string) =>
     api.post(`/review-proposals/audit/${encodeURIComponent(auditProposalId)}/reject`),
   auditProposalStatus: (auditProposalIds: string[]) =>
-    fetchStatuses<AuditProposalStatus>('audit', auditProposalIds),
+    fetchStatuses('audit', auditProposalIds),
 };

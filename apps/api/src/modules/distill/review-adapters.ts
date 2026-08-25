@@ -193,22 +193,25 @@ export function registerDistillReviewAdapters(deps: {
   };
 }
 
-/** 曾被 human 驳回的 GC 候选条目 id（reject = 人判保留，不再重复提案打扰） */
-export async function rejectedGcEntryIds(store: ReviewProposalStore<GcProposal>): Promise<Set<string>> {
+/** 曾被 human 驳回的条目 id 集（reject = 人判保留，不再重复提案打扰） */
+async function rejectedIds<P extends ReviewProposalBase>(
+  store: ReviewProposalStore<P>,
+  extract: (p: P) => string[],
+): Promise<Set<string>> {
   const ids = new Set<string>();
   for (const p of await store.listProposals()) {
     if (p.status !== 'rejected') continue;
-    for (const c of p.candidates) ids.add(c.entryId);
+    for (const id of extract(p)) ids.add(id);
   }
   return ids;
 }
 
-/** 曾被 human 驳回的审计建议约束 id（reject = 人判保留，不再重复提案打扰，同 GC 口径） */
-export async function rejectedAuditConstraintIds(store: ReviewProposalStore<ConstraintAuditProposal>): Promise<Set<string>> {
-  const ids = new Set<string>();
-  for (const p of await store.listProposals()) {
-    if (p.status !== 'rejected') continue;
-    for (const s of p.suggestions) ids.add(s.constraintId);
-  }
-  return ids;
+/** 曾被 human 驳回的 GC 候选条目 id */
+export function rejectedGcEntryIds(store: ReviewProposalStore<GcProposal>): Promise<Set<string>> {
+  return rejectedIds(store, p => p.candidates.map(c => c.entryId));
+}
+
+/** 曾被 human 驳回的审计建议约束 id（同 GC 口径） */
+export function rejectedAuditConstraintIds(store: ReviewProposalStore<ConstraintAuditProposal>): Promise<Set<string>> {
+  return rejectedIds(store, p => p.suggestions.map(s => s.constraintId));
 }

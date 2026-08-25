@@ -26,6 +26,7 @@ router.post('/:kind/:id/approve', requireAuth(), requireNotGuest(), async (req, 
       if (result.error.startsWith('unknown-kind')) return res.status(404).json({ error: result.error });
       return res.status(400).json({ error: result.error });
     }
+    // failed（执行失败，已落墓碑）与 aborted（前置条件不可用，不落墓碑可重试）均 500
     return res.status(500).json({ error: result.error });
   } catch (e) {
     res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
