@@ -190,6 +190,22 @@ describe('频道消息归档 sweep（#327）', () => {
     expect(new Set([...hotIds, ...coldIds]).size).toBe(hotIds.length + coldIds.length);
   });
 
+  it('冷侧按 id 去重：冷文件已含同 id（崩溃在「先冷后热」写序中间的残留）→ 不重复追加，热侧正确清除', async () => {
+    // m1 超龄在热文件；手工预置冷文件已含 m1（模拟上次 sweep 冷追加完成、热重写前崩溃）
+    await store.appendMessage(CH, makeMessage('m1', CH, { createdAt: daysAgo(40) }));
+    await store.appendMessage(CH, makeMessage('m2', CH, { createdAt: daysAgo(1) }));
+    fs.mkdirSync(archiveDir(), { recursive: true });
+    fs.writeFileSync(coldPath('2026-07'), JSON.stringify(makeMessage('m1', CH, { createdAt: daysAgo(40) })) + '\n');
+
+    const result = await store.archiveChannelMessages();
+
+    expect(result.archivedMessages).toBe(1);
+    // existingIds 去重分支：m1 不重复追加，冷文件仍只有一行
+    expect(rawLines(coldPath('2026-07')).map(r => r.id)).toEqual(['m1']);
+    // 热侧 m1 被正确清掉，只剩未超龄的 m2
+    expect(rawLines(hotPath()).map(r => r.id)).toEqual(['m2']);
+  });
+
   it('channels 目录不存在 → no-op（archivedMessages=0，不抛错）', async () => {
     const emptyStore = new FileStore(fs.mkdtempSync(path.join(os.tmpdir(), 'filestore-archive-empty-')));
     await expect(emptyStore.archiveChannelMessages()).resolves.toEqual({ archivedMessages: 0 });
