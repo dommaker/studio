@@ -275,6 +275,71 @@ describe('ChannelMessageService', () => {
     }
   });
 
+  // ── #333：linkWorkUnit —— 关联 WorkUnit 的统一更新路径 ──
+
+  it('linkWorkUnit sets workUnitId and publishes channel.message_updated with full shaped body', async () => {
+    const msg = await service.createHumanMessage(channelId, 'Link me');
+
+    const events: any[] = [];
+    const handler = (payload: any) => events.push(payload);
+    eventBus.subscribe('channel.message_updated', handler);
+
+    const updated = await service.linkWorkUnit(msg.id, 'WU-333');
+    eventBus.unsubscribe('channel.message_updated', handler);
+
+    expect(updated.workUnitId).toBe('WU-333');
+    expect(events.length).toBe(1);
+    const p = events[0];
+    expect(p.channelId).toBe(channelId);
+    expect(p.messageId).toBe(msg.id);
+    expect(p.workUnitId).toBe('WU-333');
+    // #311 口径：additive 挂全量 shaped message 本体
+    expect(p.message).toBeDefined();
+    expect(p.message.id).toBe(msg.id);
+    expect(p.message.workUnitId).toBe('WU-333');
+    expect(p.message.content).toBe('Link me');
+    // 落库行同样挂上
+    const stored = await fileStore.getMessageById(msg.id);
+    expect(stored!.message.workUnitId).toBe('WU-333');
+  });
+
+  it('linkWorkUnit SSE payload carries the same message body', async () => {
+    const spy = vi.spyOn(eventBus, 'publish').mockImplementation(() => {});
+    try {
+      const msg = await service.createHumanMessage(channelId, 'SSE link');
+      spy.mockClear();
+
+      await service.linkWorkUnit(msg.id, 'WU-333');
+
+      const call = spy.mock.calls.find(([channel]) => channel === 'events');
+      expect(call).toBeDefined();
+      const envelope = call![1] as { event_type: string; data: { message: Record<string, unknown> } };
+      expect(envelope.event_type).toBe('channel.message_updated');
+      expect(envelope.data.message).toBeDefined();
+      expect(envelope.data.message.id).toBe(msg.id);
+      expect(envelope.data.message.workUnitId).toBe('WU-333');
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('linkWorkUnit preserves the original createdAt', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(new Date('2026-08-24T08:00:00.000Z'));
+      const msg = await service.createHumanMessage(channelId, 'Original');
+
+      vi.setSystemTime(new Date('2026-08-24T09:00:00.000Z'));
+      const updated = await service.linkWorkUnit(msg.id, 'WU-333');
+
+      expect(updated.createdAt.toISOString()).toBe('2026-08-24T08:00:00.000Z');
+      const stored = await fileStore.getMessageById(msg.id);
+      expect(stored!.message.createdAt).toBe('2026-08-24T08:00:00.000Z');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   // ── deleteMessage ──
 
   it('soft-deletes message via tombstone', async () => {

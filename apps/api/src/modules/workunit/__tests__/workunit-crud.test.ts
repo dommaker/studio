@@ -339,6 +339,36 @@ describe('createFromMessage', () => {
     const found = await fileStore.getMessageById(msg.id);
     expect(found!.message.createdAt).toBe(originalCreatedAt);
   });
+
+  it('关联后发布 channel.message_updated（eventBus + SSE 双发，负载挂全量 shaped body，#333）', async () => {
+    const msg = await seedMessage('关联我');
+
+    const events: unknown[] = [];
+    const sseEnvelopes: { data: Record<string, any> }[] = [];
+    const updatedHandler = (p: unknown) => { events.push(p); };
+    const sseHandler = (e: { event_type: string; data: Record<string, any> }) => {
+      if (e.event_type === 'channel.message_updated') sseEnvelopes.push(e);
+    };
+    eventBus.subscribe('channel.message_updated', updatedHandler);
+    eventBus.subscribe('events', sseHandler);
+    try {
+      const wu = await service.createFromMessage(msg.id);
+
+      expect(events).toHaveLength(1);
+      const p = events[0] as Record<string, any>;
+      expect(p.channelId).toBe('ch-msg');
+      expect(p.messageId).toBe(msg.id);
+      expect(p.workUnitId).toBe(wu.id);
+      expect(p.message.workUnitId).toBe(wu.id);
+
+      expect(sseEnvelopes).toHaveLength(1);
+      expect(sseEnvelopes[0].data.messageId).toBe(msg.id);
+      expect(sseEnvelopes[0].data.message.workUnitId).toBe(wu.id);
+    } finally {
+      eventBus.unsubscribe('channel.message_updated', updatedHandler);
+      eventBus.unsubscribe('events', sseHandler);
+    }
+  });
 });
 
 // ── update（patchSnapshot 边界）──
