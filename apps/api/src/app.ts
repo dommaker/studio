@@ -80,7 +80,9 @@ export async function registerRoutes(): Promise<void> {
       '/discord/interactions',
       '/deploy/webhook',     // GitHub webhook（HMAC 即认证）
       '/cso/validate',
-      '/events/stream',  // SSE
+      // 2026-08-25：/events/stream 移出白名单——此前匿名可挂流旁观全部内部事件
+      // 信封（工单内容/错误堆栈/prompt 片段）。现经 ?token= 认证（optionalAuth
+      // 支持 query token，EventSource 无法设置 Authorization 头）。
       // Public read-only endpoints (Lurk Wall bypass)
       '/channels',
       '/health',

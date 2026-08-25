@@ -1,6 +1,19 @@
 // SSE 客户端 hooks — 从 websocket.tsx 拆出（类型 / useWebSocket / context / useWebSocketContext），
 // 使 websocket.tsx 只保留 WebSocketProvider 组件导出
 import { useState, useRef, useEffect, createContext, useContext, useCallback } from 'react';
+import { useAuthStore } from '../stores/authStore';
+
+/**
+ * 构建 SSE URL（每次连接时现取 token，登录/登出后重连即生效）。
+ * 2026-08-25：/events/stream 已移出 PUBLIC_API，需 ?token= 携带 JWT
+ * （EventSource 无法设置 Authorization 头）。
+ */
+function buildSseUrl(): string {
+  const apiUrl = import.meta.env.VITE_API_URL || '/api/v1';
+  const base = apiUrl.startsWith('http') ? apiUrl : `${window.location.origin}${apiUrl}`;
+  const token = useAuthStore.getState().token;
+  return token ? `${base}/events/stream?token=${encodeURIComponent(token)}` : `${base}/events/stream`;
+}
 
 export interface WebSocketMessage {
   event_id: string;
@@ -49,12 +62,6 @@ export function useWebSocket(options: UseSSEOptions = {}) {
     callbacksRef.current = { onMessage, onConnect, onDisconnect, onError, onReconnect };
   });
 
-  const sseUrl = (() => {
-    const apiUrl = import.meta.env.VITE_API_URL || '/api/v1';
-    const base = apiUrl.startsWith('http') ? apiUrl : `${window.location.origin}${apiUrl}`;
-    return `${base}/events/stream`;
-  })();
-
   const disconnect = useCallback(() => {
     if (reconnectTimeout.current) clearTimeout(reconnectTimeout.current);
     esRef.current?.close();
@@ -66,7 +73,7 @@ export function useWebSocket(options: UseSSEOptions = {}) {
     if (esRef.current) return;
     setStatus('connecting');
 
-    const es = new EventSource(sseUrl);
+    const es = new EventSource(buildSseUrl());
     esRef.current = es;
 
     es.onopen = () => {
@@ -99,7 +106,7 @@ export function useWebSocket(options: UseSSEOptions = {}) {
       }
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sseUrl, reconnect, reconnectInterval, maxReconnectAttempts]);
+  }, [reconnect, reconnectInterval, maxReconnectAttempts]);
 
   useEffect(() => {
     connect();

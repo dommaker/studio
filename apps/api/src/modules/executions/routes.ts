@@ -9,6 +9,7 @@ import { FileStore, eventBus, logger } from '@dommaker/studio-shared';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import * as fs from 'fs';
 import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
+import { requireLocalhost } from '../../middleware/auth.js';
 
 const EXECUTIONS_JSONL = resolveStudioLogFile('executions.jsonl');
 const TASKS_DIR = studioPath('data', 'tasks');
@@ -95,8 +96,10 @@ router.get('/', async (req: Request, res: Response) => {
   }
 });
 
-// 接收外部事件（来自 agent-runtime）
-router.post('/events', async (req: Request, res: Response) => {
+// 接收外部事件（来自 agent-runtime，同机进程）
+// 2026-08-25 收紧：伪造 workflow.completed/failed 可篡改执行状态并向 SSE 注假数据，
+// 该端点无业务上需要从公网/浏览器触达的场景，限本机回环直连。
+router.post('/events', requireLocalhost(), async (req: Request, res: Response) => {
   try {
     const event = req.body;
     

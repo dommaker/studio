@@ -6,24 +6,26 @@
  */
 
 import express, { Router, Request, Response } from 'express';
+import crypto from 'crypto';
 import { logger } from '../../utils/logger.js';
 const router = express.Router();
 
 /**
- * 验证飞书签名
+ * 飞书回调验签 — 2026-08-25 接线
+ *
+ * 此前 verifyLarkSignature（HMAC 方案，与飞书实际签名方案不符）写了但从未调用，
+ * 属摆设；现按飞书事件订阅的 verification token 机制校验（v1 body.token /
+ * v2 header.token），timingSafeEqual 防时序侧信道。
+ * LARK_VERIFICATION_TOKEN 未配置时 fail-closed 503（对齐 deploy webhook：
+ * 验签材料缺失宁可拒服也不裸奔，防止"先上线后配 token"的窗口期被伪造回调）。
  */
-function verifyLarkSignature(body: string, signature: string, timestamp: string, secret: string): boolean {
-  try {
-    const crypto = require('crypto');
-    const message = timestamp + '\n' + body;
-    const hmac = crypto.createHmac('sha256', secret);
-    hmac.update(message);
-    const expectedSignature = hmac.digest('base64');
-    return signature === expectedSignature;
-  } catch (error) {
-    logger.error({ error: String(error) }, 'Lark signature verification error');
-    return false;
-  }
+const VERIFICATION_TOKEN = process.env.LARK_VERIFICATION_TOKEN || '';
+
+function verifyLarkToken(body: any): boolean {
+  if (!VERIFICATION_TOKEN) return false;
+  const token = body?.token ?? body?.header?.token ?? '';
+  if (typeof token !== 'string' || token.length !== VERIFICATION_TOKEN.length) return false;
+  return crypto.timingSafeEqual(Buffer.from(token), Buffer.from(VERIFICATION_TOKEN));
 }
 
 /**
@@ -33,7 +35,19 @@ function verifyLarkSignature(body: string, signature: string, timestamp: string,
 router.post('/callback', async (req: Request, res: Response): Promise<void> => {
   logger.info('[LARK] Callback received');
 
+  if (!VERIFICATION_TOKEN) {
+    logger.error('[LARK] LARK_VERIFICATION_TOKEN not configured — refusing callback');
+    res.status(503).json({ error: 'Lark callback not configured' });
+    return;
+  }
+
   const body = req.body;
+
+  if (!verifyLarkToken(body)) {
+    logger.warn('[LARK] Invalid verification token');
+    res.status(401).json({ error: 'Invalid verification token' });
+    return;
+  }
 
   // URL 验证（飞书首次配置时发送）
   if (body.type === 'url_verification') {

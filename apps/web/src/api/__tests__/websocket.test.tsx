@@ -35,6 +35,7 @@ vi.stubGlobal('EventSource', FakeEventSource);
 
 import { WebSocketProvider } from '../websocket';
 import { useWebSocketContext } from '../websocketHooks';
+import { useAuthStore } from '../../stores/authStore';
 
 let ctx: ReturnType<typeof useWebSocketContext> | null = null;
 
@@ -64,6 +65,17 @@ describe('WebSocketProvider — 单连接不变量', () => {
     renderProvider();
     expect(FakeEventSource.instances).toHaveLength(1);
     expect(FakeEventSource.instances[0].url).toMatch(/\/events\/stream$/);
+  });
+
+  it('登录后 SSE URL 携带 ?token=（2026-08-25 SSE 移出 PUBLIC_API，EventSource 无头可用）', () => {
+    useAuthStore.setState({ token: 'test-jwt-abc' } as any);
+    try {
+      renderProvider();
+      expect(FakeEventSource.instances).toHaveLength(1);
+      expect(FakeEventSource.instances[0].url).toContain('/events/stream?token=test-jwt-abc');
+    } finally {
+      useAuthStore.setState({ token: null } as any);
+    }
   });
 
   it('卸载时关闭唯一连接', () => {

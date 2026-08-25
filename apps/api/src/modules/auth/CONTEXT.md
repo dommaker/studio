@@ -41,4 +41,5 @@
 - 路由中应用了速率限制中间件（authRateLimit）
 - **Guest session `userId=null`**（service.ts createGuestSession 不建用户记录）→ `findSessionWithUser` 查不到用户 → guest token 实际过不了 `requireAuth()`/Lurk Wall 大门，等同匿名（2026-07-24 生产实测确认）。Lurk Wall 的"guest 可围观"实际由 PUBLIC_API 白名单前缀承载（/channels、/requirements-docs 等，无需任何 token）
 - 注册用户 role 恒为 `"User"`（service.ts:307）；`/auth/register` 不在 PUBLIC_API，生产上仅已过大门者（即 Admin）可创建用户
-- 中间件分层（middleware/auth.ts，2026-07-24 收紧）：`requireAuth+requireNotGuest` = 内容写（User+Admin）；`requireAuth+requireAdmin` = 敏感/控制；`requireLocalhost` = 内部本机端点（/api/knowledge、/mcp/messages|sse）。三者 + requireRole 在 `STUDIO_AUTH=none` 下均放行，本地免登录不受影响。全量路由审查表见 `docs/plans/2026-07-api-auth-tightening.md`
+- **optionalAuth 支持 ?token= query 兜底（2026-08-25）**：EventSource 无法设 Authorization 头，/events/stream 经 query 携带 JWT；应用层日志记 req.path 不含 query 不落 token（nginx access.log 会记完整 URI）。
+- 中间件分层（middleware/auth.ts，2026-07-24 收紧）：`requireAuth+requireNotGuest` = 内容写（User+Admin）；`requireAuth+requireAdmin` = 敏感/控制；`requireLocalhost` = 内部本机端点（/api/knowledge、/mcp/messages|sse、POST /mcp、executions/events）——2026-08-25 修复同机反代绕过：带 X-Forwarded-For/CF-Connecting-IP 头即 403（nginx/cloudflared 同机时公网流量 TCP 对端也是回环）。三者 + requireRole 在 `STUDIO_AUTH=none` 下均放行，本地免登录不受影响。全量路由审查表见 `docs/plans/2026-07-api-auth-tightening.md`
