@@ -693,7 +693,7 @@ export class FileStore extends FileStoreWorkUnitBase {
    * total 语义与路由现状一致：锚点过滤后的可见总数（热+冷有效行）。
    *
    * #327 穿透规则：遍历链 = 热（新→旧）接冷（月新→旧、月内 createdAt 新→旧）；
-   * 无 before（最新页）从热出，热不足 limit 不预填冷，hasMore 计入冷存在性；
+   * 无 before（最新页）热页不足 limit 从冷链补满（热全空时首页直接出冷，历史永远在）；
    * 锚在热而热侧不足 limit 时余量从冷续；锚在冷则整页从冷出；
    * 跨冷热按 id 去重（thaw/崩溃残留同 id，新→旧先见为准——热侧恒遮蔽冷侧残留）。
    * 无冷数据（无 archive 目录）时行为与 #319 现状逐条一致。
@@ -715,10 +715,15 @@ export class FileStore extends FileStoreWorkUnitBase {
     }
 
     if (!opts?.before) {
+      // 最新页：热页不足 limit 从冷链（新→旧）补满——热全空时首页直接出冷数据，
+      // 「滚动穿透、历史永远在」；与锚在热的补冷同一去重纪律（cold 已过滤热遮蔽/冷内同 id）
+      const hotPage = resolved.slice(-limit);
+      const coldNeed = limit - hotPage.length;
+      const coldPart = coldNeed > 0 ? cold.slice(0, coldNeed).reverse() : [];
       return {
-        messages: resolved.slice(-limit),
+        messages: [...coldPart, ...hotPage],
         total: resolved.length + cold.length,
-        hasMore: resolved.length > limit || cold.length > 0,
+        hasMore: resolved.length + cold.length > limit,
       };
     }
 
