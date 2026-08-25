@@ -4,8 +4,7 @@
 import { Router, Request, Response } from 'express';
 import { AgentRegistry } from '@dommaker/studio-agent';
 import { requireAuth, requireNotGuest, requireRole } from '../../middleware/auth.js';
-import { eventStore } from '../../core/event-store.js';
-import { logger } from '@dommaker/studio-shared';
+import { memoryStore, logger } from '@dommaker/studio-shared';
 
 const router = Router();
 
@@ -14,7 +13,8 @@ let registry: InstanceType<typeof AgentRegistry>;
 
 async function initRegistry() {
   if (!registry) {
-    registry = new AgentRegistry(eventStore);
+    // #324：event-store 已删除，KV 缓存走 studio-shared 的 memoryStore（同接口）
+    registry = new AgentRegistry(memoryStore);
   }
   return registry;
 }

@@ -18,7 +18,6 @@ import { WorkUnitService, snapshotToData, type WorkUnitMetadata, type WorkUnitDa
 import type { AgentProfileData } from '@dommaker/studio-shared';
 import { getTriggerScheduler } from '../../triggers/trigger-registry.js';
 import { knowledgeService } from '../../knowledge/knowledge-service.js';
-import { eventStore } from '../../../core/event-store.js';
 import { postWuSystemMessage } from '../../workunit/wu-messenger.js';
 import type { MessageMeta } from '../../channels/channel-message.service.js';
 import { withBlockedCta } from '../../workunit/blocked-cta.js';
@@ -318,17 +317,17 @@ export class AgentLoop {
     const payload = { profileId: this.role.id, name: this.role.name, provider: this.role.provider ?? 'claude', error: message };
     eventBus.publish('agent.health.failed', payload);
     // SSE 'events' topic (same shape as channel-message.service.ts publishSSE)
-    eventStore.publish('events', JSON.stringify({
+    eventBus.publish('events', {
       event_type: 'agent.health.failed',
       event_id: randomUUID(),
       timestamp: now,
       data: payload,
-    })).catch(() => {}); // best-effort
+    });
 
     // #312（SSE 事件负载契约体检）：error 迁移也发 status_changed（与 publishInstanceStatus
     // 同一构造出口，带 lastError/lastErrorAt），前端错误状态点可就地更新；
     // agent.health.failed 保留不动（additive）。无当前 WU → ctx null（快照/channelId/pmo null）。
-    eventStore.publish('events', JSON.stringify({
+    eventBus.publish('events', {
       event_type: 'agent.instance.status_changed',
       event_id: randomUUID(),
       timestamp: now,
@@ -341,7 +340,7 @@ export class AgentLoop {
         lastError: message,
         lastErrorAt: now,
       }),
-    })).catch(() => {}); // best-effort
+    });
   }
 
   /**
@@ -586,7 +585,7 @@ export class AgentLoop {
             return mod.projectService.list({ limit: 100000 });
           }).catch(() => new Map())).get(currentWorkUnitId) ?? null
         : null;
-      eventStore.publish('events', JSON.stringify({
+      eventBus.publish('events', {
         event_type: 'agent.instance.status_changed',
         event_id: randomUUID(),
         timestamp: new Date().toISOString(),
@@ -599,7 +598,7 @@ export class AgentLoop {
           lastError: instance.lastError ?? null,
           lastErrorAt: instance.lastErrorAt ?? null,
         }),
-      })).catch(() => {}); // best-effort
+      });
     } catch { /* best-effort：负载构建失败绝不阻断主循环 */ }
   }
 

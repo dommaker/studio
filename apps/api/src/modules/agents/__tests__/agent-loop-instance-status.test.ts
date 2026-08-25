@@ -5,12 +5,12 @@
 //       getAgentSummary：title = metadata.title ?? scope，悬空 WU → null 裸 id 保留）+
 //       channelId（当前 WU 所在频道）+ lastError/lastErrorAt；发布面扩到 error（启动失败路径）。
 // 模式同 agent-loop-need-input.test.ts：真实 FileStore（tmpdir），CLI 执行与 knowledge-service mock；
-// eventStore.publish 用 vi.spyOn 观察（单例，call-through 到内存 eventBus 无副作用）。
+// eventBus.publish 用 vi.spyOn 观察（单例，call-through 到内存订阅者无副作用）。
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { FileStore } from '@dommaker/studio-shared';
+import { FileStore, eventBus } from '@dommaker/studio-shared';
 
 const { mockExecuteLightweight } = vi.hoisted(() => ({
   mockExecuteLightweight: vi.fn(),
@@ -31,7 +31,6 @@ vi.mock('../../knowledge/knowledge-service', () => ({
 }));
 
 import { AgentLoop } from '../loop/agent-loop';
-import { eventStore } from '../../../core/event-store.js';
 
 const mockRole = {
   id: 'role-sse',
@@ -81,13 +80,7 @@ interface StatusEvent {
 
 function statusEvents(spy: ReturnType<typeof vi.spyOn>): StatusEvent[] {
   return spy.mock.calls
-    .map(call => {
-      try {
-        return JSON.parse(call[1] as string) as StatusEvent;
-      } catch {
-        return null;
-      }
-    })
+    .map(call => call[1] as StatusEvent)
     .filter((e): e is StatusEvent => e?.event_type === 'agent.instance.status_changed');
 }
 
@@ -102,7 +95,7 @@ describe('AgentLoop instance 忙闲 SSE（2026-07 §6-2）', () => {
     testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-loop-sse-'));
     fileStore = new FileStore(testDir);
     loop = new AgentLoop(mockRole, fileStore);
-    publishSpy = vi.spyOn(eventStore, 'publish');
+    publishSpy = vi.spyOn(eventBus, 'publish');
     (loop as unknown as StatusSseCapable).instance = { id: 'inst-sse-1', startedAt: '2026-08-24T02:00:00Z' };
   });
 

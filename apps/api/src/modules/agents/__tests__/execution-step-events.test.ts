@@ -14,7 +14,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { eventStore } from '../../../core/event-store.js';
+import { eventBus } from '@dommaker/studio-shared';
 import {
   summarizeToolInput,
   extractThinking,
@@ -229,9 +229,8 @@ describe('emitExecutionStepEvent', () => {
 
   it('SSE 信封 data 携带 channelId（前端按频道过滤 step 的数据源）', async () => {
     const received: Array<{ event_type: string; data: { channelId?: string } }> = [];
-    eventStore.subscribe('events', (message: string) => {
-      const parsed = JSON.parse(message);
-      if (parsed.event_type === EXECUTION_STEP_SSE_TYPE) received.push(parsed);
+    eventBus.subscribe('events', (envelope: { event_type: string; data: { channelId?: string } }) => {
+      if (envelope.event_type === EXECUTION_STEP_SSE_TYPE) received.push(envelope);
     });
 
     const ok = await emitExecutionStepEvent({
@@ -461,9 +460,8 @@ describe('emitExecutionStreamLine / emitExecutionStreamStepStart', () => {
 
   it('SSE 信封 data 携带 channelId（step-start 与行级 chunk 同形态）', async () => {
     const received: Array<{ event_type: string; data: { channelId?: string; kind?: string } }> = [];
-    eventStore.subscribe('events', (message: string) => {
-      const parsed = JSON.parse(message);
-      if (parsed.event_type === EXECUTION_STREAM_SSE_TYPE) received.push(parsed);
+    eventBus.subscribe('events', (envelope: { event_type: string; data: { channelId?: string; kind?: string } }) => {
+      if (envelope.event_type === EXECUTION_STREAM_SSE_TYPE) received.push(envelope);
     });
 
     await emitExecutionStreamStepStart({ workUnitId: 'wu-1', executionId: 'exec-1', step: 1, channelId: 'ch-7' });

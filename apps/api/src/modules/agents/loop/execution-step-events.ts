@@ -7,7 +7,7 @@
  * `workunit:execution_step` 事件：
  *   1. 落盘 studio-events.jsonl（writeStudioEvent）——REST 回放数据源
  *      （GET /api/v1/events?type=workunit:execution_step&workUnitId=<id>）；
- *   2. 经 eventStore.publish 发 SSE 信封 `workunit.execution.step`——`workunit.` 前缀
+ *   2. 经 eventBus.publish 发 SSE 信封 `workunit.execution.step`——`workunit.` 前缀
  *      自动落入 workunits topic（sse.routes 纯前缀映射，SSE 链路零改动）。
  *
  * Layer B（步内流式）：execSh onLine 把 CLI stdout 按行透传（runner-lightweight 接线），
@@ -33,9 +33,8 @@
  * 完整 transcript 需要时按 claude projects 文件回放（见 apps/api/src/modules/agents/CONTEXT.md），不在这里复制。
  */
 
-import { parseStreamEvents, parseStreamLine, extractToolCalls, extractUsage, logger, type StreamEvent, type StreamContentBlock } from '@dommaker/studio-shared';
+import { parseStreamEvents, parseStreamLine, extractToolCalls, extractUsage, eventBus, logger, type StreamEvent, type StreamContentBlock } from '@dommaker/studio-shared';
 import { v4 as uuidv4 } from 'uuid';
-import { eventStore } from '../../../core/event-store.js';
 import { writeStudioEvent } from '../../../utils/studio-events.js';
 
 export const EXECUTION_STEP_EVENT_TYPE = 'workunit:execution_step';
@@ -231,12 +230,12 @@ export async function emitExecutionStepEvent(args: BuildExecutionStepEventArgs):
     const payload = buildExecutionStepEvent(args);
     if (!payload) return false;
     await writeStudioEvent(EXECUTION_STEP_EVENT_TYPE, payload, { source: 'agent-loop' });
-    await eventStore.publish('events', JSON.stringify({
+    eventBus.publish('events', {
       event_type: EXECUTION_STEP_SSE_TYPE,
       event_id: uuidv4(),
       timestamp: payload.at,
       data: payload,
-    })).catch(() => {}); // best-effort，与 agent.health.failed 同一形态
+    }); // best-effort：外层 try/catch 兜底，与 agent.health.failed 同一形态
     return true;
   } catch (err) {
     logger.warn('[ExecutionStepEvent] emit failed', { workUnitId: args.workUnitId, error: String(err) });
@@ -417,14 +416,14 @@ function flattenToolResultText(content: unknown): string {
 }
 
 /** SSE 逐条发布（只发 SSE，不落盘；单条失败不影响后续） */
-async function publishStreamChunks(chunks: ExecutionStreamChunk[]): Promise<void> {
+function publishStreamChunks(chunks: ExecutionStreamChunk[]): void {
   for (const chunk of chunks) {
-    await eventStore.publish('events', JSON.stringify({
+    eventBus.publish('events', {
       event_type: EXECUTION_STREAM_SSE_TYPE,
       event_id: uuidv4(),
       timestamp: chunk.at,
       data: chunk,
-    })).catch(() => {}); // best-effort，与 Layer A 同一形态
+    }); // best-effort：调用方 emit* 外层 try/catch 兜底，与 Layer A 同一形态
   }
 }
 
@@ -433,7 +432,7 @@ export async function emitExecutionStreamLine(args: BuildStreamChunksArgs): Prom
   try {
     const chunks = buildExecutionStreamChunks(args);
     if (chunks.length === 0) return;
-    await publishStreamChunks(chunks);
+    publishStreamChunks(chunks);
   } catch (err) {
     logger.warn('[ExecutionStream] emit failed', { workUnitId: args.workUnitId, error: String(err) });
   }

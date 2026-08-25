@@ -11,7 +11,6 @@ import os from 'node:os';
 import { v4 as uuidv4 } from 'uuid';
 import { FileStore, eventBus, type ChannelMessageData } from '@dommaker/studio-shared';
 import { WorkUnitService, type WorkUnitData } from '../workunit.service.js';
-import { eventStore } from '../../../core/event-store.js';
 
 const { mockResolvePmoProjectId } = vi.hoisted(() => ({
   mockResolvePmoProjectId: vi.fn(),
@@ -119,8 +118,8 @@ describe('postWuSystemMessage 消息形态', () => {
   });
 
   it('eventBus + SSE 均发布 channel.message_sent（频道页实时可见 / NotificationBell）', async () => {
+    // SSE 与进程内事件同走 eventBus（#324），单一 spy 按 channel 断言
     const busSpy = vi.spyOn(eventBus, 'publish');
-    const sseSpy = vi.spyOn(eventStore, 'publish');
     const wu = await createWu();
 
     const record = await postWuSystemMessage(wu, '实时可见', { fileStore });
@@ -129,13 +128,13 @@ describe('postWuSystemMessage 消息形态', () => {
       channelId,
       message: expect.objectContaining({ id: record!.id }),
     }));
-    const sseCall = sseSpy.mock.calls.find(c => c[0] === 'events' && String(c[1]).includes('channel.message_sent'));
+    const sseCall = busSpy.mock.calls.find(c =>
+      c[0] === 'events' && (c[1] as { event_type?: string }).event_type === 'channel.message_sent');
     expect(sseCall).toBeDefined();
-    const envelope = JSON.parse(String(sseCall![1])) as { event_type: string; data: { channelId: string } };
+    const envelope = sseCall![1] as { event_type: string; data: { channelId: string } };
     expect(envelope.event_type).toBe('channel.message_sent');
     expect(envelope.data.channelId).toBe(channelId);
     busSpy.mockRestore();
-    sseSpy.mockRestore();
   });
 });
 

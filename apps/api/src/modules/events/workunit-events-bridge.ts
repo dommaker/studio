@@ -10,7 +10,6 @@
 
 import { eventBus, logger } from '@dommaker/studio-shared';
 import { v4 as uuidv4 } from 'uuid';
-import { eventStore } from '../../core/event-store.js';
 
 const FORWARDED_EVENTS = [
   'workunit.created', 'workunit.status_changed',
@@ -27,12 +26,12 @@ export function initWorkunitEventsBridge(): void {
 
   for (const eventType of FORWARDED_EVENTS) {
     eventBus.subscribe(eventType, (payload: unknown) => {
-      eventStore.publish('events', JSON.stringify({
+      eventBus.publish('events', {
         event_type: eventType,
         event_id: uuidv4(),
         timestamp: new Date().toISOString(),
         data: payload,
-      })).catch(() => {}); // best-effort
+      });
     });
   }
   logger.info('[Events] WorkUnit events bridge subscribed', { events: FORWARDED_EVENTS });

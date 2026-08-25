@@ -5,7 +5,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { ChannelMessageService } from '../channel-message.service.js';
-import { eventStore } from '../../../core/event-store.js';
 
 let channelId: string;
 let tmpDir: string;
@@ -195,7 +194,7 @@ describe('ChannelMessageService', () => {
   });
 
   it('SSE channel.message_updated payload carries the same message body', async () => {
-    const spy = vi.spyOn(eventStore, 'publish').mockResolvedValue(undefined);
+    const spy = vi.spyOn(eventBus, 'publish').mockImplementation(() => {});
     try {
       const msg = await service.createHumanMessage(channelId, 'SSE body');
       spy.mockClear();
@@ -204,7 +203,7 @@ describe('ChannelMessageService', () => {
 
       const call = spy.mock.calls.find(([channel]) => channel === 'events');
       expect(call).toBeDefined();
-      const envelope = JSON.parse(call![1]);
+      const envelope = call![1] as { event_type: string; data: { message: Record<string, unknown> } };
       expect(envelope.event_type).toBe('channel.message_updated');
       expect(envelope.data.message).toBeDefined();
       expect(envelope.data.message.id).toBe(msg.id);

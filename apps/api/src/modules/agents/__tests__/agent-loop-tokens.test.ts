@@ -12,7 +12,7 @@ import * as os from 'node:os';
 import { TokenEstimator } from '@dommaker/harness';
 
 import { writeWorkunitTokenEvent, WORKUNIT_TOKENS_SSE_TYPE } from '../loop/agent-loop.js';
-import { eventStore } from '../../../core/event-store.js';
+import { eventBus } from '@dommaker/studio-shared';
 import { resolveTokenLedgerFile } from '../../../utils/token-ledger.js';
 
 function withTmpFile(fn: (eventsFile: string) => Promise<void>): Promise<void> {
@@ -81,9 +81,8 @@ describe('M2: writeWorkunitTokenEvent', () => {
   it('落盘后顺带发布 SSE 信封 workunit.tokens（data 含 channelId 与 token 现成字段）', async () => {
     await withTmpFile(async (eventsFile) => {
       const received: Array<{ event_type: string; event_id: string; timestamp: string; data: Record<string, unknown> }> = [];
-      eventStore.subscribe('events', (message: string) => {
-        const parsed = JSON.parse(message);
-        if (parsed.event_type === WORKUNIT_TOKENS_SSE_TYPE) received.push(parsed);
+      eventBus.subscribe('events', (envelope: { event_type: string }) => {
+        if (envelope.event_type === WORKUNIT_TOKENS_SSE_TYPE) received.push(envelope as (typeof received)[number]);
       });
 
       await writeWorkunitTokenEvent(eventsFile, {
@@ -116,9 +115,8 @@ describe('M2: writeWorkunitTokenEvent', () => {
   it('channelId 缺省 → SSE data 无该键（无频道 WU 不编造）', async () => {
     await withTmpFile(async (eventsFile) => {
       const received: Array<{ data: Record<string, unknown> }> = [];
-      eventStore.subscribe('events', (message: string) => {
-        const parsed = JSON.parse(message);
-        if (parsed.event_type === WORKUNIT_TOKENS_SSE_TYPE) received.push(parsed);
+      eventBus.subscribe('events', (envelope: { event_type: string; data: Record<string, unknown> }) => {
+        if (envelope.event_type === WORKUNIT_TOKENS_SSE_TYPE) received.push(envelope);
       });
 
       await writeWorkunitTokenEvent(eventsFile, { workUnitId: 'wu-4', injectedTokens: 0, executionTokens: null });

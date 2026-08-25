@@ -12,8 +12,7 @@
  */
 
 import { Router, Request, Response } from 'express';
-import { eventStore } from '../../core/event-store.js';
-import type { EventStore } from '../../core/event-store.js';
+import { eventBus } from '@dommaker/studio-shared';
 import { v4 as uuidv4 } from 'uuid';
 import { logger } from '../../utils/logger.js';
 
@@ -47,9 +46,10 @@ function ensureEventSubscription() {
   if (eventSubStarted) return;
   eventSubStarted = true;
 
-  eventStore.subscribe('events', (message: string) => {
+  // #324：直订 eventBus（对象 payload，全程仅 sendSSE 内 1 次 JSON.stringify）
+  eventBus.subscribe('events', (event: { event_type: string; event_id?: string }) => {
+    // eventBus 精确匹配走 EventEmitter.emit，handler 抛异常会向上抛——内部 try/catch 护住
     try {
-      const event = JSON.parse(message);
       const topic = getTopicFromEventType(event.event_type);
       for (const client of clients.values()) {
         if (client.topics.has('all') || client.topics.has(topic)) {
@@ -67,15 +67,23 @@ function ensureEventSubscription() {
 function sendSSE(client: SSEClient, eventType: string, data: any, eventId?: string) {
   try {
     const id = eventId || uuidv4();
-    client.res.write(`id: ${id}\n`);
+    // 背压（#324 决策）：任一 write 返回 false（内核缓冲区满）即断开慢客户端，
+    // 不让单个慢连接拖住整个广播循环；正常客户端不受影响。
+    if (!client.res.write(`id: ${id}\n`)) return disconnectSlowClient(client);
     // 不写 `event:` 行（匿名事件）：EventSource.onmessage 只接收匿名事件，
     // 命名事件必须按类型逐个 addEventListener —— 前端统一从 data.event_type 分发。
-    client.res.write(`data: ${JSON.stringify(data)}\n\n`);
+    if (!client.res.write(`data: ${JSON.stringify(data)}\n\n`)) return disconnectSlowClient(client);
     client.lastEventId = id;
   } catch {
     // Client disconnected
     clients.delete(client.id);
   }
+}
+
+function disconnectSlowClient(client: SSEClient) {
+  clients.delete(client.id);
+  try { client.res.end(); } catch { /* already gone */ }
+  logger.warn({ clientId: client.id }, '[SSE] Slow client disconnected (backpressure)');
 }
 
 /**

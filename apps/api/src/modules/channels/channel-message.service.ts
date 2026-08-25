@@ -1,6 +1,5 @@
 // ChannelMessage Service — centralized message creation + event publishing
 import { eventBus, logger, FileStore, type ChannelMessageData } from '@dommaker/studio-shared';
-import { eventStore } from '../../core/event-store.js';
 import { v4 as uuidv4 } from 'uuid';
 
 export interface MessageMeta {
@@ -72,12 +71,13 @@ export class ChannelMessageService {
 
   /** B2: 发布 SSE 事件到 events channel（供前端 EventSource 消费） */
   private publishSSE(eventType: string, data: Record<string, unknown>) {
-    eventStore.publish('events', JSON.stringify({
+    // #324：直发 eventBus（同步 void，订阅侧各自 try/catch 兜底）
+    eventBus.publish('events', {
       event_type: eventType,
       event_id: uuidv4(),
       timestamp: new Date().toISOString(),
       data,
-    })).catch(() => {}); // best-effort
+    });
   }
 
   async createHumanMessage(

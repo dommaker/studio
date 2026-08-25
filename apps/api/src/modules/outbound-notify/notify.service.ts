@@ -1,7 +1,6 @@
 import { logger } from '../../utils/logger.js';
-import { eventStore } from '../../core/event-store.js';
+import { eventBus } from '@dommaker/studio-shared';
 import { discordNotifier, DiscordMessageOptions } from '../../utils/discord-notifier.js';
-import type { EventStore } from '../../core/event-store.js';
 
 export interface NotifyMessage {
   type: 'task-failed' | 'timeout' | 'crash' | 'zombie' | 'human-needed'
@@ -21,10 +20,7 @@ export interface NotifyMessage {
  * 使用公共的 discordNotifier 发送 Discord 消息
  */
 export class NotifyService {
-  private store: EventStore;
-
   constructor() {
-    this.store = eventStore;
     logger.info('NotifyService initialized');
   }
 
@@ -39,14 +35,14 @@ export class NotifyService {
       await discordNotifier.sendText(title, content);
     }
 
-    // 发布到通知频道
-    await this.store.publish('notifications', JSON.stringify({
+    // 发布到通知频道（#324：直发 eventBus；当前 0 订阅者，保留发布点）
+    eventBus.publish('notifications', {
       type,
       taskId: taskId || meetingId,
       message: content,
       priority,
       timestamp: new Date().toISOString(),
-    }));
+    });
 
     logger.info('Notification sent');
   }

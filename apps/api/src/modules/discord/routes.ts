@@ -6,9 +6,8 @@
  */
 
 import express, { Router, Request, Response } from 'express';
-import { FileStore, type WorkUnitSnapshot } from '@dommaker/studio-shared';
+import { FileStore, eventBus, type WorkUnitSnapshot } from '@dommaker/studio-shared';
 import { logger } from '../../utils/logger.js';
-import { eventStore } from '../../core/event-store.js';
 const router = express.Router();
 const fileStore = new FileStore();
 
@@ -213,10 +212,10 @@ router.post('/interactions', async (req: Request, res: Response): Promise<void> 
                 const { agentRunner } = await import('@dommaker/studio-agent');
                 await agentRunner.stop(match.id);
                 // Publish event
-                eventStore.publish('events:goal-execution', JSON.stringify({
+                eventBus.publish('events:goal-execution', {
                   event_type: 'goal-execution.updated',
                   data: { executionId: match.id, status: 'failed', error: 'Stopped by user via Discord' },
-                })).catch(() => {});
+                });
                 res.json({ type: ResponseType.CHANNEL_MESSAGE_WITH_SOURCE, data: { content: `✅ Stopped execution \`${match.id.slice(0, 8)}\`` } });
                 return;
               }
@@ -236,10 +235,10 @@ router.post('/interactions', async (req: Request, res: Response): Promise<void> 
             await agentRunner.stop(exec.id);
 
             // Publish event so GoalScheduler picks up the change
-            eventStore.publish('events:goal-execution', JSON.stringify({
+            eventBus.publish('events:goal-execution', {
               event_type: 'goal-execution.updated',
               data: { executionId: exec.id, status: 'failed', error: 'Stopped by user via Discord' },
-            })).catch(() => {});
+            });
 
             res.json({ type: ResponseType.CHANNEL_MESSAGE_WITH_SOURCE, data: { content: `✅ Stopped execution \`${exec.id.slice(0, 8)}\`` } });
           } catch (err: any) {
@@ -321,10 +320,10 @@ async function closeAndEmit(wuId: string, reason: string): Promise<void> {
     { type: 'closed', wuId, timestamp: now, data: updated as unknown as Record<string, unknown> },
     updated,
   );
-  eventStore.publish('events:goal-execution', JSON.stringify({
+  eventBus.publish('events:goal-execution', {
     event_type: 'goal-execution.updated',
     data: { executionId: wuId, status: 'failed', error: reason },
-  })).catch(() => {});
+  });
 }
 
 /**

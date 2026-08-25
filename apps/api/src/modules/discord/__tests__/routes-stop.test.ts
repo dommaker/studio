@@ -7,9 +7,8 @@ import express from 'express';
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 
-const { mockAgentRunnerStop, mockPublish, mockGetIndex } = vi.hoisted(() => ({
+const { mockAgentRunnerStop, mockGetIndex } = vi.hoisted(() => ({
   mockAgentRunnerStop: vi.fn(),
-  mockPublish: vi.fn(),
   mockGetIndex: vi.fn(),
 }));
 
@@ -28,10 +27,6 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => {
   }
   return { ...orig, FileStore: MockFileStore };
 });
-
-vi.mock('../../../core/event-store.js', () => ({
-  eventStore: { publish: mockPublish },
-}));
 
 vi.mock('../../../daemon/studio-daemon.js', () => ({
   daemon: { getStatus: () => [], stop: vi.fn(), start: vi.fn() },
@@ -82,7 +77,6 @@ const activeSnapshot = {
 
 beforeAll(async () => {
   mockAgentRunnerStop.mockResolvedValue(undefined);
-  mockPublish.mockResolvedValue(undefined);
   const app = express();
   // 与 app.ts 一致：interactions 端点需要 raw body 做签名校验
   app.use('/api/v1/discord/interactions', express.raw({ type: 'application/json', limit: '1mb' }));
