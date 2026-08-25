@@ -17,6 +17,18 @@ function insertMessage(prev: ChannelMessage[], msg: ChannelMessage): ChannelMess
   return [...prev.slice(0, idx), msg, ...prev.slice(idx)];
 }
 
+/** #328：refetch 合并——最新一页按 id 归并进现有列表：已存在的以服务端版本刷新，
+ *  新消息按 createdAt 有序插入，已 prepend 的历史页原样保留。 */
+function mergePage(prev: ChannelMessage[], page: ChannelMessage[]): ChannelMessage[] {
+  const fresh = new Map(page.map(m => [m.id, m]));
+  const prevIds = new Set(prev.map(m => m.id));
+  let next = prev.map(m => fresh.get(m.id) ?? m);
+  for (const m of page) {
+    if (!prevIds.has(m.id)) next = insertMessage(next, m);
+  }
+  return next;
+}
+
 export function useChannelMessages(channelId: string | undefined) {
   const [messages, setMessages] = useState<ChannelMessage[]>([]);
   // 初值覆盖挂载首拉；channelId undefined→defined 的上升沿由下方渲染期分支补齐
@@ -32,12 +44,33 @@ export function useChannelMessages(channelId: string | undefined) {
     if (channelId) setLoading(true);
   }
 
+  // #328：记录当前已完成首拉的频道——同频道 refetch 走合并，首拉/频道切换仍替换
+  const loadedChannelRef = useRef<string | null>(null);
+  // hasMore 判定需要当前列表快照（本地最老消息是否落在最新一页内），用 ref 避免
+  // fetchMessages 依赖 messages 导致频道切换 effect 随每条 SSE 消息重触发
+  const messagesRef = useRef<ChannelMessage[]>([]);
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
+
   const fetchMessages = useCallback(async () => {
     if (!channelId) return;
     try {
       const res = await channelApi.listMessages(channelId);
-      setMessages(res.data.data);
-      setHasMore(res.data.hasMore);
+      if (loadedChannelRef.current === channelId) {
+        // 合并路径：prepend 的历史页不丢；hasMore 仅当本地最老消息落在最新一页内
+        // （未 prepend 出页外）才以响应为准——页的 hasMore 描述头部方向，直接覆盖会
+        // 把已耗尽的 prepend 方向状态错误重置
+        const oldest = messagesRef.current[0];
+        setMessages(prev => mergePage(prev, res.data.data));
+        if (!oldest || res.data.data.some(m => m.id === oldest.id)) {
+          setHasMore(res.data.hasMore);
+        }
+      } else {
+        setMessages(res.data.data);
+        setHasMore(res.data.hasMore);
+        loadedChannelRef.current = channelId;
+      }
     } catch (err) {
       console.error('[Channel] Failed to fetch messages', err);
     } finally {
