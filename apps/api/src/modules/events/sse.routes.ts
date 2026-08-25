@@ -23,6 +23,8 @@ interface SSEClient {
   res: Response;
   topics: Set<string>;
   lastEventId: string;
+  /** heartbeat interval 句柄——背压断开时一并清除，防 write-after-end（#324 评审修复） */
+  heartbeat?: NodeJS.Timeout;
 }
 
 const clients = new Map<string, SSEClient>();
@@ -82,6 +84,7 @@ function sendSSE(client: SSEClient, eventType: string, data: any, eventId?: stri
 
 function disconnectSlowClient(client: SSEClient) {
   clients.delete(client.id);
+  if (client.heartbeat) clearInterval(client.heartbeat);
   try { client.res.end(); } catch { /* already gone */ }
   logger.warn({ clientId: client.id }, '[SSE] Slow client disconnected (backpressure)');
 }
@@ -121,6 +124,7 @@ router.get('/stream', (req: Request, res: Response) => {
       clients.delete(clientId);
     }
   }, 30_000);
+  client.heartbeat = heartbeat;
 
   // Cleanup on disconnect
   req.on('close', () => {

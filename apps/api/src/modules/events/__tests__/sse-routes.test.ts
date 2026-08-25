@@ -106,4 +106,23 @@ describe('SSE /stream 背压（#324）', () => {
     expect(slow.writes.length).toBe(slowWritesBefore + 1); // 仅 e-1 那次 write 过（返回 false）
     expect(normal.writes.length).toBeGreaterThan(normalWritesBefore + 2);
   });
+
+  it('慢客户端断开后 heartbeat interval 一并清除（不 write-after-end）', () => {
+    vi.useFakeTimers();
+    try {
+      const slow = connectClient();
+      slow.slow.value = true;
+      eventBus.publish('events', {
+        event_type: 'task.updated', event_id: 'e-3',
+        timestamp: '2026-08-25T00:00:02Z', data: { taskId: 't-3' },
+      });
+      expect(slow.res.end).toHaveBeenCalledTimes(1);
+
+      const writesBefore = slow.writes.length;
+      vi.advanceTimersByTime(60_000); // 两个 heartbeat 周期
+      expect(slow.writes.length).toBe(writesBefore);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
