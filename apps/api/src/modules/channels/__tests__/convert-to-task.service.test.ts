@@ -49,7 +49,7 @@ describe('AC-E1+E2: Convert to Task', () => {
   });
 
   /** 在 FileStore 中创建消息，返回 {channelId, msgId} */
-  async function createFsMessage(content: string, opts?: { workUnitId?: string }): Promise<{ channelId: string; msgId: string }> {
+  async function createFsMessage(content: string, opts?: { workUnitId?: string; createdAt?: string }): Promise<{ channelId: string; msgId: string }> {
     const chId = `test-ch-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     testChannelIds.push(chId);
     await fileStore.createChannel({
@@ -63,7 +63,7 @@ describe('AC-E1+E2: Convert to Task', () => {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       channelId: chId, authorType: 'human', agentName: null,
       content, replyToId: null, meta: '{}',
-      workUnitId: opts?.workUnitId ?? null, createdAt: now,
+      workUnitId: opts?.workUnitId ?? null, createdAt: opts?.createdAt ?? now,
     };
     await fileStore.appendMessage(chId, msg);
     return { channelId: chId, msgId: msg.id };
@@ -90,6 +90,16 @@ describe('AC-E1+E2: Convert to Task', () => {
       const found = await fileStore.getMessageById(msgId);
       expect(found).not.toBeNull();
       expect(found!.message.workUnitId).toBe(workUnit.id);
+    });
+
+    it('关联后新版本消息 createdAt 保持原诞生时刻，不被 bump（#332）', async () => {
+      const { channelId, msgId } = await createFsMessage('历史消息', { createdAt: '2026-08-01T00:00:00.000Z' });
+      const service = new ConvertToTaskService(fileStore);
+      const workUnit = await service.convert(channelId, msgId, {});
+      testWorkUnitIds.push(workUnit.id);
+
+      const found = await fileStore.getMessageById(msgId);
+      expect(found!.message.createdAt).toBe('2026-08-01T00:00:00.000Z');
     });
 
     it('message already has workUnitId → error', async () => {

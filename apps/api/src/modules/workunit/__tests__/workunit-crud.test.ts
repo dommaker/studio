@@ -278,12 +278,16 @@ describe('create', () => {
 // ── createFromMessage ──
 
 describe('createFromMessage', () => {
-  async function seedMessage(content: string, workUnitId: string | null = null): Promise<ChannelMessageData> {
+  async function seedMessage(
+    content: string,
+    workUnitId: string | null = null,
+    createdAt?: string,
+  ): Promise<ChannelMessageData> {
     const msg: ChannelMessageData = {
       id: randomUUID(), channelId: 'ch-msg', workUnitId,
       authorType: 'human', agentName: null,
       content, replyToId: null, meta: '{}',
-      createdAt: new Date().toISOString(),
+      createdAt: createdAt ?? new Date().toISOString(),
     };
     await fileStore.appendMessage('ch-msg', msg);
     return msg;
@@ -324,6 +328,16 @@ describe('createFromMessage', () => {
 
     expect(wu.scope).toHaveLength(500);
     expect(wu.scope).toBe('x'.repeat(500));
+  });
+
+  it('关联后新版本消息 createdAt 保持原诞生时刻，不被 bump（#332）', async () => {
+    const originalCreatedAt = '2026-08-01T00:00:00.000Z';
+    const msg = await seedMessage('历史消息', null, originalCreatedAt);
+
+    await service.createFromMessage(msg.id);
+
+    const found = await fileStore.getMessageById(msg.id);
+    expect(found!.message.createdAt).toBe(originalCreatedAt);
   });
 });
 

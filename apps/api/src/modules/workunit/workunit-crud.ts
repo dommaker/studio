@@ -322,11 +322,10 @@ export class WorkUnitCrudService {
     });
 
     // Link message to WorkUnit (append updated copy to FileStore)
-    const now = new Date().toISOString();
+    // #332：createdAt = 诞生时刻不可变（ADR 2026-08-24），关联 WU 不 bump
     const updatedMsg: ChannelMessageData = {
       ...found.message,
       workUnitId: wu.id,
-      createdAt: now,
     };
     await this.fileStore.appendMessage(found.channelId, updatedMsg);
 

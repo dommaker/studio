@@ -85,11 +85,10 @@ export class ConvertToTaskService {
     });
 
     // 3. Link message to WorkUnit via FileStore (append updated copy)
-    const now = new Date().toISOString();
+    // #332：createdAt = 诞生时刻不可变（ADR 2026-08-24），关联 WU 不 bump
     const updatedMsg: ChannelMessageData = {
       ...found.message,
       workUnitId: workUnit.id,
-      createdAt: now,
     };
     await this.fileStore.appendMessage(found.channelId, updatedMsg);
 
