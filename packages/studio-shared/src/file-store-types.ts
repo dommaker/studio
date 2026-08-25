@@ -106,6 +106,12 @@ export interface MessageCompactionOptions {
   deadRatio?: number;      // 死行占比下限（0~1）
 }
 
+/** 频道消息生命周期归档配置（#327；测试注入小阈值/固定 now，生产用默认） */
+export interface MessageArchiveOptions {
+  maxAgeDays?: number;     // 超龄判据：计龄锚点距今 ≥ N 天即归档（默认 30）
+  now?: () => Date;        // 计龄基准时刻（测试注入固定值）
+}
+
 export interface CountOpts {
   workUnitId?: string;
   authorType?: string;

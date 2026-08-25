@@ -12,7 +12,8 @@
  *     channels/{id}/
  *       config.json      # Channel
  *       messages.jsonl   # ChannelMessage（append-only + tombstone；#319 写侧压实清死行）
- *       messages.lock    # 消息写/压实互斥锁目录（#319）
+ *       messages.lock    # 消息写/压实/归档互斥锁目录（#319/#327）
+ *       archive/messages-YYYY-MM.jsonl  # 超龄消息冷文件（#327，按消息 createdAt 归月）
  *     workunits/
  *       lock             # flock 文件锁目录
  *       events.jsonl     # 事件流 (append-only)
@@ -46,6 +47,7 @@ import type {
   MessagePageOpts,
   MessagePage,
   MessageCompactionOptions,
+  MessageArchiveOptions,
   CountOpts,
   RequirementData,
   RequirementFilter,
@@ -66,6 +68,7 @@ export type {
   MessagePageOpts,
   MessagePage,
   MessageCompactionOptions,
+  MessageArchiveOptions,
   CountOpts,
   WorkUnitEventType,
   WorkUnitEvent,
@@ -170,6 +173,14 @@ const MESSAGE_COMPACT_MIN_LINES = 5000;
 const MESSAGE_COMPACT_DEAD_RATIO = 0.3;
 
 /**
+ * 频道消息生命周期归档（#327）：活消息超龄即从热文件（messages.jsonl）搬入冷文件
+ * （archive/messages-YYYY-MM.jsonl，按消息 createdAt 归月），热文件体积与「在跑的活」
+ * 挂钩而非频道年龄。计龄锚点：有 workUnitId → 所属 WU 的 closedAt；无 → 消息 createdAt。
+ * 与 #319 压实共用 per-channel messages.lock + 原子重写 + mergeActiveRows 归并口径。
+ */
+const MESSAGE_ARCHIVE_MAX_AGE_DAYS = 30;
+
+/**
  * JSONL 行归并（#319 收敛的唯一口径）：每 id 留最后出现的内容、挂首现位置、
  * deleted 整条丢弃。resolveActiveMessages / 压实 / getMessagesSince 三处共用——
  * 口径要改只改这里。
@@ -187,15 +198,17 @@ function mergeActiveRows(rows: ChannelMessageRow[]): ChannelMessageData[] {
   return active;
 }
 
-/** FileStore 构造选项（#319：messageCompaction 供测试注入小阈值） */
+/** FileStore 构造选项（#319：messageCompaction 供测试注入小阈值；#327：messageArchive 仿同模式） */
 export interface FileStoreOptions extends FileStoreWorkUnitOptions {
   messageCompaction?: MessageCompactionOptions;
+  messageArchive?: MessageArchiveOptions;
 }
 
 // ─── FileStore 类 ───
 
 export class FileStore extends FileStoreWorkUnitBase {
   private readonly messageCompaction: Required<MessageCompactionOptions>;
+  private readonly messageArchive: { maxAgeDays: number; now: () => Date };
   /** 压实评估计数（按 messages.jsonl 绝对路径；挂实例——同 baseDir 不同阈值配置的实例互不串扰） */
   private readonly messageAppendCounts = new Map<string, number>();
 
@@ -205,6 +218,10 @@ export class FileStore extends FileStoreWorkUnitBase {
       checkInterval: opts?.messageCompaction?.checkInterval ?? MESSAGE_COMPACT_CHECK_INTERVAL,
       minLines: opts?.messageCompaction?.minLines ?? MESSAGE_COMPACT_MIN_LINES,
       deadRatio: opts?.messageCompaction?.deadRatio ?? MESSAGE_COMPACT_DEAD_RATIO,
+    };
+    this.messageArchive = {
+      maxAgeDays: opts?.messageArchive?.maxAgeDays ?? MESSAGE_ARCHIVE_MAX_AGE_DAYS,
+      now: opts?.messageArchive?.now ?? (() => new Date()),
     };
   }
 
@@ -342,6 +359,15 @@ export class FileStore extends FileStoreWorkUnitBase {
 
   private messagesPath(channelId: string): string {
     return path.join(this.baseDir, 'channels', channelId, 'messages.jsonl');
+  }
+
+  /** #327：冷文件目录（超龄消息按月归档，纯 ChannelMessageData 行，无 tombstone） */
+  private archiveDir(channelId: string): string {
+    return path.join(this.baseDir, 'channels', channelId, 'archive');
+  }
+
+  private archiveMonthPath(channelId: string, month: string): string {
+    return path.join(this.archiveDir(channelId), `messages-${month}.jsonl`);
   }
 
   private agentsDir(): string {
@@ -714,6 +740,106 @@ export class FileStore extends FileStoreWorkUnitBase {
       await this.appendJsonl(this.messagesPath(channelId), tombstone);
       await this.compactMessagesIfNeededLocked(channelId);
     });
+  }
+
+  // ─── 消息生命周期归档（#327）───
+
+  /**
+   * 归档 sweep：逐频道把超龄活消息从热文件搬入冷文件（archive/messages-YYYY-MM.jsonl）。
+   * 定期任务（启动一次 + 每 24h，挂 index.ts 轮转调度点），非请求路径。
+   *
+   * 超龄规则：有 workUnitId → 所属 WU 的 closedAt + maxAgeDays（closedAt 缺失的遗产数据
+   * 回退 updatedAt；WU 悬空回退消息 createdAt 规则；WU 非 closed 一律保留）；
+   * 无 workUnitId → 消息 createdAt + maxAgeDays。
+   *
+   * 纪律：per-channel messages.lock 锁内操作（与并发 append/tombstone/压实互斥）；
+   * 写序先冷后热——崩溃在中间 = 同 id 冷热都有，下次 sweep 冷侧按 id 去重吸收；
+   * 无超龄消息不动热文件（不重写、不 bump mtime）；归并走 mergeActiveRows 唯一口径
+   * （顺带压实效果：死行不进冷热文件）。
+   */
+  async archiveChannelMessages(): Promise<{ archivedMessages: number }> {
+    const nowMs = this.messageArchive.now().getTime();
+    const maxAgeMs = this.messageArchive.maxAgeDays * 86_400_000;
+    // WU 计龄锚点索引（读穿缓存 mtime 校验；sweep 是离线任务，锚点滞后最多影响一轮）
+    const wuIndex = new Map((await this.getIndex()).map(s => [s.id, s]));
+
+    let entries: fs.Dirent[];
+    try {
+      entries = await fs.promises.readdir(this.channelsDir(), { withFileTypes: true });
+    } catch (err: unknown) {
+      if (isErrnoError(err) && err.code === 'ENOENT') return { archivedMessages: 0 };
+      throw err;
+    }
+
+    let archivedMessages = 0;
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      archivedMessages += await this.withLock(this.messagesLockDir(entry.name), () =>
+        this.archiveChannelMessagesLocked(entry.name, wuIndex, nowMs, maxAgeMs));
+    }
+    return { archivedMessages };
+  }
+
+  /** 单频道归档（锁内专用：withLock 不可重入，调用方须已持 messages.lock） */
+  private async archiveChannelMessagesLocked(
+    channelId: string,
+    wuIndex: Map<string, WorkUnitSnapshot>,
+    nowMs: number,
+    maxAgeMs: number,
+  ): Promise<number> {
+    const filePath = this.messagesPath(channelId);
+    // 锁内裸读（ADR 例外条款，同压实）：归档依据必须是此刻磁盘真值
+    const rows = await super.readJsonl<ChannelMessageRow>(filePath);
+    if (rows.length === 0) return 0;
+
+    const active = mergeActiveRows(rows);
+    const keep: ChannelMessageData[] = [];
+    const archive: ChannelMessageData[] = [];
+    for (const msg of active) {
+      const anchorMs = this.archiveAnchorMs(msg, wuIndex);
+      if (anchorMs !== null && nowMs - anchorMs >= maxAgeMs) archive.push(msg);
+      else keep.push(msg);
+    }
+    if (archive.length === 0) return 0; // 空操作纪律：无超龄不动热文件
+
+    // 先追加冷文件（按消息 createdAt 归月、月内升序；追加前按 id 去重——吸收崩溃残留/重复 sweep）
+    const byMonth = new Map<string, ChannelMessageData[]>();
+    for (const msg of archive) {
+      const month = msg.createdAt.slice(0, 7); // ISO 8601 前缀 YYYY-MM
+      const list = byMonth.get(month);
+      if (list) list.push(msg);
+      else byMonth.set(month, [msg]);
+    }
+    for (const [month, msgs] of byMonth) {
+      msgs.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+      const monthPath = this.archiveMonthPath(channelId, month);
+      const existingIds = new Set((await super.readJsonl<ChannelMessageData>(monthPath)).map(m => m.id));
+      for (const msg of msgs) {
+        if (existingIds.has(msg.id)) continue;
+        await this.appendJsonl(monthPath, msg);
+      }
+    }
+    // 后原子重写热文件（tmp+rename，同压实纪律；崩溃在中间 = 同 id 冷热都有，查询面按 id 去重）
+    await this.writeJsonl(filePath, keep);
+    return archive.length;
+  }
+
+  /**
+   * 单条消息的计龄锚点（epoch ms）；返回 null = 一律保留（活 WU / 锚点日期损坏）。
+   * 损坏锚点按保留处理：宁可多留一轮不丢可读性。
+   */
+  private archiveAnchorMs(msg: ChannelMessageData, wuIndex: Map<string, WorkUnitSnapshot>): number | null {
+    let anchorIso: string;
+    if (msg.workUnitId) {
+      const wu = wuIndex.get(msg.workUnitId);
+      if (wu && wu.status !== 'closed') return null; // 活 WU 的消息永远在热层
+      // 遗产 closedAt 缺失回退 updatedAt；WU 悬空（已删除/从未存在）回退 createdAt 规则
+      anchorIso = wu ? (wu.closedAt ?? wu.updatedAt) : msg.createdAt;
+    } else {
+      anchorIso = msg.createdAt;
+    }
+    const t = Date.parse(anchorIso);
+    return Number.isNaN(t) ? null : t;
   }
 
   /**
