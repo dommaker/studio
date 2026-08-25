@@ -1,3 +1,6 @@
+# 契约（#337）：角色身份不参与路由——认领路由 = WU type + excludeAssignee（决策 10，无 acceptedTypes 类型过滤）。
+# preset 实际消费 = description/persona/skills/tools/constraints 进 prompt 组装；
+# acceptedTypes 仅用于 skill 排序与递归子 WU 的 type 推导。本目录为治理内容，变更须人闸 + Governance-Approved trailer。
 id: developer
 name: Developer
 description: 代码实现、TDD 流程、单元测试编写

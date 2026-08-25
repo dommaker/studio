@@ -16,6 +16,7 @@
 | `eventBus` | `src/event-bus*` | 进程内事件总线（agent-profile.created 等触发 AgentLoopRegistry mount） |
 | `extractProviderUsage()` / `ProviderUsage` | `src/harness/provider-usage.ts` | #134 per-provider usage 提取器（harness 子路径导出）：claude modelUsage 优先 / opencode step_finish.part.tokens / codex turn.completed.usage / kimi stdout 无出口 → null；未知 provider 按 claude schema 兜底 |
 | `deriveDisplayState()` / `parseAttestations()` / `withAttestation()` | `src/attestation.ts` | F6 信任证据模型（决策 1）：l1 自动验证 / l2 agent 评审 / l3 人工确认 + 唯一派生口径 |
+| `STAGE_TYPES` / `normalizeToStage()` | `src/domain-vocab.ts` | 决策 8 阶段词表单一事实源（8 词；#337 删除死词 `test`——无任何模块创建 type=test WU，移除对 normalizeToStage 小写输入行为中性）。legacy 归一化 feature/bug→implement、task→general；未知值原样通过。词表增删 = 治理变更 |
 
 ### 约束
 
