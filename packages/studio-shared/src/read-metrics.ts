@@ -44,18 +44,16 @@ export function runWithLoopLabel<T>(label: string, fn: () => T): T {
   return loopLabelStorage.run(label, fn);
 }
 
-/** 读口计时器（sink 开启时由 readMetricsBegin 发放）。 */
-export interface ReadMetricsTimer {
-  now(): number;
-}
+/** 读口计时器（sink 开启时由 readMetricsBegin 发放）：调用即取当前毫秒时间戳。 */
+export type ReadMetricsNow = () => number;
 
 /**
  * 读口埋点起点。sink 关闭 → null（读口本次不再触碰测量路径，零开销）；
- * 开启 → 返回计时器，读口据此取各阶段时间戳后调 emitReadMetric。
+ * 开启 → 返回取时函数，读口据此取各阶段时间戳后调 emitReadMetric。
  */
-export function readMetricsBegin(): ReadMetricsTimer | null {
+export function readMetricsBegin(): ReadMetricsNow | null {
   if (sink === null) return null;
-  return { now: () => performance.now() };
+  return () => performance.now();
 }
 
 /** 记录一次读口事件（读口仅在 timer 非 null 时调用；此处仍防御性判空一次）。 */

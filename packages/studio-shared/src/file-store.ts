@@ -235,9 +235,9 @@ export class FileStore extends FileStoreWorkUnitBase {
 
   public async readJson<T>(filePath: string): Promise<T | null> {
     const t = readMetricsBegin();
-    const t0 = t?.now() ?? 0;
+    const t0 = t?.() ?? 0;
     const mtimeMs = await statMtimeMs(filePath);
-    const t1 = t?.now() ?? 0;
+    const t1 = t?.() ?? 0;
     if (mtimeMs === null) {
       jsonCache.delete(filePath);
       if (t) emitReadMetric({ file: filePath, op: 'readJson', cacheHit: false, statMs: t1 - t0, readParseMs: 0, cloneMs: 0 });
@@ -246,7 +246,7 @@ export class FileStore extends FileStoreWorkUnitBase {
     const hit = jsonCache.get(filePath);
     if (hit && hit.mtimeMs === mtimeMs) {
       const cached = cloneCached(hit.value) as T | null;
-      if (t) emitReadMetric({ file: filePath, op: 'readJson', cacheHit: true, statMs: t1 - t0, readParseMs: 0, cloneMs: t.now() - t1 });
+      if (t) emitReadMetric({ file: filePath, op: 'readJson', cacheHit: true, statMs: t1 - t0, readParseMs: 0, cloneMs: t() - t1 });
       return cached;
     }
     let value: unknown = null;
@@ -261,10 +261,10 @@ export class FileStore extends FileStoreWorkUnitBase {
       if (!isErrnoError(err) || err.code !== 'ENOENT') throw err;
       value = null; // stat 与 readFile 之间被删 → 按缺失处理
     }
-    const t2 = t?.now() ?? 0;
+    const t2 = t?.() ?? 0;
     cacheSet(jsonCache, filePath, { value, mtimeMs });
     const cloned = cloneCached(value) as T | null;
-    if (t) emitReadMetric({ file: filePath, op: 'readJson', cacheHit: false, statMs: t1 - t0, readParseMs: t2 - t1, cloneMs: t.now() - t2 });
+    if (t) emitReadMetric({ file: filePath, op: 'readJson', cacheHit: false, statMs: t1 - t0, readParseMs: t2 - t1, cloneMs: t() - t2 });
     return cloned;
   }
 
@@ -288,9 +288,9 @@ export class FileStore extends FileStoreWorkUnitBase {
 
   public async readJsonl<T>(filePath: string): Promise<T[]> {
     const t = readMetricsBegin();
-    const t0 = t?.now() ?? 0;
+    const t0 = t?.() ?? 0;
     const mtimeMs = await statMtimeMs(filePath);
-    const t1 = t?.now() ?? 0;
+    const t1 = t?.() ?? 0;
     if (mtimeMs === null) {
       jsonlCache.delete(filePath);
       if (t) emitReadMetric({ file: filePath, op: 'readJsonl', cacheHit: false, statMs: t1 - t0, readParseMs: 0, cloneMs: 0 });
@@ -299,7 +299,7 @@ export class FileStore extends FileStoreWorkUnitBase {
     const hit = jsonlCache.get(filePath);
     if (hit && hit.mtimeMs === mtimeMs) {
       const cached = cloneCached(hit.value) as T[];
-      if (t) emitReadMetric({ file: filePath, op: 'readJsonl', cacheHit: true, statMs: t1 - t0, readParseMs: 0, cloneMs: t.now() - t1 });
+      if (t) emitReadMetric({ file: filePath, op: 'readJsonl', cacheHit: true, statMs: t1 - t0, readParseMs: 0, cloneMs: t() - t1 });
       return cached;
     }
     let rows: unknown[] = [];
@@ -319,23 +319,23 @@ export class FileStore extends FileStoreWorkUnitBase {
       if (!isErrnoError(err) || err.code !== 'ENOENT') throw err;
       rows = []; // stat 与 readFile 之间被删 → 按空处理
     }
-    const t2 = t?.now() ?? 0;
+    const t2 = t?.() ?? 0;
     cacheSet(jsonlCache, filePath, { value: rows, mtimeMs });
     const cloned = cloneCached(rows) as T[];
-    if (t) emitReadMetric({ file: filePath, op: 'readJsonl', cacheHit: false, statMs: t1 - t0, readParseMs: t2 - t1, cloneMs: t.now() - t2 });
+    if (t) emitReadMetric({ file: filePath, op: 'readJsonl', cacheHit: false, statMs: t1 - t0, readParseMs: t2 - t1, cloneMs: t() - t2 });
     return cloned;
   }
 
   /** readdir（withFileTypes）读穿缓存：目录 mtime 校验，目录内容增删触发重读 */
   private async readdirCached(dir: string): Promise<fs.Dirent[]> {
     const t = readMetricsBegin();
-    const t0 = t?.now() ?? 0;
+    const t0 = t?.() ?? 0;
     const mtimeMs = await statMtimeMs(dir);
-    const t1 = t?.now() ?? 0;
+    const t1 = t?.() ?? 0;
     if (mtimeMs === null) {
       dirCache.delete(dir);
       const fallback = await fs.promises.readdir(dir, { withFileTypes: true }); // 保留 ENOENT 抛错语义
-      if (t) emitReadMetric({ file: dir, op: 'readdir', cacheHit: false, statMs: t1 - t0, readParseMs: t.now() - t1, cloneMs: 0 });
+      if (t) emitReadMetric({ file: dir, op: 'readdir', cacheHit: false, statMs: t1 - t0, readParseMs: t() - t1, cloneMs: 0 });
       return fallback;
     }
     const hit = dirCache.get(dir);
@@ -344,7 +344,7 @@ export class FileStore extends FileStoreWorkUnitBase {
       return hit.value;
     }
     const entries = await fs.promises.readdir(dir, { withFileTypes: true });
-    if (t) emitReadMetric({ file: dir, op: 'readdir', cacheHit: false, statMs: t1 - t0, readParseMs: t.now() - t1, cloneMs: 0 });
+    if (t) emitReadMetric({ file: dir, op: 'readdir', cacheHit: false, statMs: t1 - t0, readParseMs: t() - t1, cloneMs: 0 });
     cacheSet(dirCache, dir, { value: entries, mtimeMs });
     return entries;
   }
@@ -366,9 +366,9 @@ export class FileStore extends FileStoreWorkUnitBase {
   protected async readIndexForQuery(): Promise<WorkUnitSnapshot[] | null> {
     const filePath = this.indexPath;
     const t = readMetricsBegin();
-    const t0 = t?.now() ?? 0;
+    const t0 = t?.() ?? 0;
     const mtimeMs = await statMtimeMs(filePath);
-    const t1 = t?.now() ?? 0;
+    const t1 = t?.() ?? 0;
     if (mtimeMs === null) {
       jsonCache.delete(filePath);
       if (t) emitReadMetric({ file: filePath, op: 'readIndexForQuery', cacheHit: false, statMs: t1 - t0, readParseMs: 0, cloneMs: 0 });
@@ -377,14 +377,14 @@ export class FileStore extends FileStoreWorkUnitBase {
     const hit = jsonCache.get(filePath);
     if (hit && hit.mtimeMs === mtimeMs) {
       const cached = cloneCached(hit.value) as WorkUnitSnapshot[] | null;
-      if (t) emitReadMetric({ file: filePath, op: 'readIndexForQuery', cacheHit: true, statMs: t1 - t0, readParseMs: 0, cloneMs: t.now() - t1 });
+      if (t) emitReadMetric({ file: filePath, op: 'readIndexForQuery', cacheHit: true, statMs: t1 - t0, readParseMs: 0, cloneMs: t() - t1 });
       return cached;
     }
     const value = await this.readIndexFile();
-    const t2 = t?.now() ?? 0;
+    const t2 = t?.() ?? 0;
     cacheSet(jsonCache, filePath, { value, mtimeMs });
     const cloned = cloneCached(value);
-    if (t) emitReadMetric({ file: filePath, op: 'readIndexForQuery', cacheHit: false, statMs: t1 - t0, readParseMs: t2 - t1, cloneMs: t.now() - t2 });
+    if (t) emitReadMetric({ file: filePath, op: 'readIndexForQuery', cacheHit: false, statMs: t1 - t0, readParseMs: t2 - t1, cloneMs: t() - t2 });
     return cloned;
   }
 
