@@ -78,4 +78,35 @@ describe('WorkUnit closedAt（#327 归档计龄锚点）', () => {
     expect(snap.status).toBe('closed');
     expect(snap.closedAt).toBe(snap.completedAt);
   });
+
+  it('reopen（closed → unassigned）自动解冻：已归档消息搬回热文件，查询面可见', async () => {
+    const channelId = 'ch-reopen-thaw';
+    await fileStore.createChannel({
+      id: channelId, name: '#reopen-thaw', type: 'rnd',
+      defaultWorkspaceId: null, defaultPath: null,
+      discordChannelId: null, discordWebhookUrl: null, members: '[]',
+      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    });
+    const wu = await wuService.create({ scope: '解冻任务', channelId, type: 'task', status: 'active', assigneeId: 'inst-1' });
+    await fileStore.appendMessage(channelId, {
+      id: 'thaw-m1', channelId, workUnitId: wu.id, authorType: 'human', agentName: null,
+      content: 'm1', replyToId: null, meta: '{}', createdAt: new Date().toISOString(),
+    });
+    await wuService.transitionStatus(wu.id, 'closed');
+
+    // 用「未来 now」的 FileStore 跑 sweep：同一 baseDir，closedAt + 30d 已超龄 → 归档
+    const futureStore = new FileStore(tmpDir, {
+      messageArchive: { now: () => new Date(Date.now() + 40 * 86_400_000) },
+    });
+    const swept = await futureStore.archiveChannelMessages();
+    expect(swept.archivedMessages).toBe(1);
+    // 归档后热只读查询面失明
+    expect(await fileStore.queryMessages(channelId, { workUnitId: wu.id })).toEqual([]);
+
+    await wuService.transitionStatus(wu.id, 'unassigned');
+
+    // 解冻后查询面（热层）恢复可见，原始 id/createdAt 保留
+    const visible = await fileStore.queryMessages(channelId, { workUnitId: wu.id });
+    expect(visible.map(m => m.id)).toEqual(['thaw-m1']);
+  });
 });

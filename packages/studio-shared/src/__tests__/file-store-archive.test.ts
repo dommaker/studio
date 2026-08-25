@@ -326,3 +326,82 @@ describe('queryMessagesPage 分页穿透冷热（#327 阶段4）', () => {
     expect(missing.hasMore).toBe(false);
   });
 });
+
+describe('thawWorkUnitMessages reopen 解冻（#327 阶段5）', () => {
+  let tmpDir: string;
+  let store: FileStore;
+  const CH = 'ch-thaw';
+
+  const hotPath = () => path.join(tmpDir, 'channels', CH, 'messages.jsonl');
+  const coldPath = (month: string) => path.join(tmpDir, 'channels', CH, 'archive', `messages-${month}.jsonl`);
+  const rawLines = (fp: string): Array<Record<string, unknown>> =>
+    fs.readFileSync(fp, 'utf-8').split('\n').filter(l => l.trim()).map(l => JSON.parse(l));
+
+  beforeEach(async () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'filestore-thaw-test-'));
+    store = new FileStore(tmpDir, { messageArchive: { maxAgeDays: 30, now: () => NOW } });
+    await store.createChannel(makeChannel(CH));
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('该 WU 的归档消息搬回热文件（保留 id/createdAt），冷文件剔除；查询面恢复可见', async () => {
+    await store.upsertSnapshot(makeWuSnapshot('wu-1', CH, { status: 'closed', closedAt: daysAgo(40), updatedAt: daysAgo(40) }));
+    await store.appendMessage(CH, makeMessage('m1', CH, { workUnitId: 'wu-1', createdAt: daysAgo(41) }));
+    await store.appendMessage(CH, makeMessage('m2', CH, { workUnitId: 'wu-1', createdAt: daysAgo(40) }));
+    await store.appendMessage(CH, makeMessage('m3', CH, { workUnitId: 'wu-other', createdAt: daysAgo(40) })); // 悬空 WU，同批归档
+    await store.appendMessage(CH, makeMessage('m4', CH, { createdAt: daysAgo(1) })); // 留热
+    await store.archiveChannelMessages();
+    expect(rawLines(hotPath()).map(r => r.id)).toEqual(['m4']);
+
+    const result = await store.thawWorkUnitMessages('wu-1');
+
+    expect(result.thawedMessages).toBe(2);
+    // 热文件：m4 + thaw 回流的 m1/m2（保留原 id/createdAt，升序追加）
+    expect(rawLines(hotPath()).map(r => r.id)).toEqual(['m4', 'm1', 'm2']);
+    // 冷文件只剩 wu-other 的 m3
+    expect(rawLines(coldPath('2026-07')).map(r => r.id)).toEqual(['m3']);
+    // 查询面（热只读）恢复可见
+    const visible = await store.queryMessages(CH, { workUnitId: 'wu-1' });
+    expect(visible.map(m => m.id)).toEqual(['m1', 'm2']);
+    expect((await store.queryAllMessages({ workUnitId: 'wu-1' })).map(m => m.id).sort()).toEqual(['m1', 'm2']);
+  });
+
+  it('重复 thaw（热文件已含同 id）→ 不重复追加', async () => {
+    await store.upsertSnapshot(makeWuSnapshot('wu-1', CH, { status: 'closed', closedAt: daysAgo(40), updatedAt: daysAgo(40) }));
+    await store.appendMessage(CH, makeMessage('m1', CH, { workUnitId: 'wu-1', createdAt: daysAgo(40) }));
+    await store.archiveChannelMessages();
+
+    const first = await store.thawWorkUnitMessages('wu-1');
+    expect(first.thawedMessages).toBe(1);
+    // 手工把同一行塞回冷文件模拟崩溃残留，再 thaw：热侧已有 m1 → 不重复
+    fs.writeFileSync(coldPath('2026-07'), JSON.stringify(makeMessage('m1', CH, { workUnitId: 'wu-1', createdAt: daysAgo(40) })) + '\n');
+    const second = await store.thawWorkUnitMessages('wu-1');
+    expect(second.thawedMessages).toBe(0);
+    expect(rawLines(hotPath()).map(r => r.id)).toEqual(['m1']);
+  });
+
+  it('无 archive 目录 → 零成本短路（thawed=0，不抛错）', async () => {
+    await store.appendMessage(CH, makeMessage('m1', CH, { createdAt: daysAgo(1) }));
+    await expect(store.thawWorkUnitMessages('wu-1')).resolves.toEqual({ thawedMessages: 0 });
+  });
+
+  it('有归档但无该 WU 的行 → no-op（热文件不重写）', async () => {
+    await store.appendMessage(CH, makeMessage('m1', CH, { workUnitId: 'wu-other', createdAt: daysAgo(40) }));
+    await store.appendMessage(CH, makeMessage('m2', CH, { createdAt: daysAgo(1) }));
+    await store.archiveChannelMessages();
+    const mtimeBefore = fs.statSync(hotPath()).mtimeMs;
+
+    const result = await store.thawWorkUnitMessages('wu-1');
+
+    expect(result.thawedMessages).toBe(0);
+    expect(fs.statSync(hotPath()).mtimeMs).toBe(mtimeBefore);
+  });
+
+  it('channels 目录不存在 → no-op（thawed=0，不抛错）', async () => {
+    const emptyStore = new FileStore(fs.mkdtempSync(path.join(os.tmpdir(), 'filestore-thaw-empty-')));
+    await expect(emptyStore.thawWorkUnitMessages('wu-1')).resolves.toEqual({ thawedMessages: 0 });
+  });
+});
