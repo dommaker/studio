@@ -339,6 +339,44 @@ describe('FileStore', () => {
     });
   });
 
+  // ═══ queryAllMessages channelIds 预过滤（#330）═══
+
+  describe('queryAllMessages channelIds 预过滤（#330）', () => {
+    beforeEach(async () => {
+      await store.createChannel(makeChannel('ch-a'));
+      await store.createChannel(makeChannel('ch-b'));
+      await store.createChannel(makeChannel('ch-c'));
+      await store.appendMessage('ch-a', makeMessage('ma1', 'ch-a', { workUnitId: 'wu-1', authorType: 'human' }));
+      await store.appendMessage('ch-b', makeMessage('mb1', 'ch-b', { workUnitId: 'wu-1', authorType: 'human' }));
+      await store.appendMessage('ch-b', makeMessage('mb2', 'ch-b', { workUnitId: 'wu-2', authorType: 'agent' }));
+      await store.appendMessage('ch-c', makeMessage('mc1', 'ch-c', { workUnitId: 'wu-3', authorType: 'human' }));
+    });
+
+    it('channelIds 预过滤：只返回集合内频道的消息', async () => {
+      const msgs = await store.queryAllMessages({ channelIds: ['ch-a', 'ch-c'] });
+      expect(msgs.map(m => m.id).sort()).toEqual(['ma1', 'mc1']);
+    });
+
+    it('不传 channelIds：跨频道全扫（既有行为不变）', async () => {
+      const msgs = await store.queryAllMessages({ workUnitId: 'wu-1' });
+      expect(msgs.map(m => m.id).sort()).toEqual(['ma1', 'mb1']);
+    });
+
+    it('channelIds 与 workUnitIds/authorType 叠加过滤', async () => {
+      const msgs = await store.queryAllMessages({
+        channelIds: ['ch-b'],
+        workUnitIds: ['wu-1', 'wu-2'],
+        authorType: 'agent',
+      });
+      expect(msgs.map(m => m.id)).toEqual(['mb2']);
+    });
+
+    it('channelIds 为空数组 → 空结果（不扫任何频道）', async () => {
+      const msgs = await store.queryAllMessages({ channelIds: [] });
+      expect(msgs).toEqual([]);
+    });
+  });
+
   // ═══ WorkUnit Event Sourcing ═══
 
   describe('WorkUnit', () => {
