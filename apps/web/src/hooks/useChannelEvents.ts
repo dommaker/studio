@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { channelApi, type ChannelMessage, type FileRef } from '../api/channel';
 import { useWebSocketContext } from '../api/websocketHooks';
 import { useGatedPoll } from './useGatedPoll';
+import { degradeMessage, planPrune, PRUNE_KEEP_RECENT, PRUNE_DEGRADE_DISTANCE, PRUNE_HYDRATE_DISTANCE, PRUNE_HYDRATE_PAGE_LIMIT, type PruneOptions } from '../utils/messagePruning';
 
 /** #287（清单 P2 #19）：增量到达按 createdAt 升序归位 + id 去重。
  *  下游 groupIntoThreads 单遍归组要求 anchor 先于 reply 出现；一律 push 尾部会让
@@ -29,7 +30,12 @@ function mergePage(prev: ChannelMessage[], page: ChannelMessage[]): ChannelMessa
   return next;
 }
 
-export function useChannelMessages(channelId: string | undefined) {
+export interface UseChannelMessagesOptions {
+  /** #326：降级/水合阈值覆盖（测试用小参数；缺省 = messagePruning 常量） */
+  prune?: Partial<PruneOptions>;
+}
+
+export function useChannelMessages(channelId: string | undefined, options?: UseChannelMessagesOptions) {
   const [messages, setMessages] = useState<ChannelMessage[]>([]);
   // 初值覆盖挂载首拉；channelId undefined→defined 的上升沿由下方渲染期分支补齐
   const [loading, setLoading] = useState(!!channelId);
@@ -110,7 +116,8 @@ export function useChannelMessages(channelId: string | undefined) {
           } else if (data.messageId) {
             setMessages(prev => prev.map(m =>
               m.id === data.messageId
-                ? { ...m, meta: data.meta ?? m.meta, content: (data.content ?? m.content) as string }
+                // #326：patch 命中骨架 = 拿到内容即复活，清 degraded 标记（「拿到全量本体即复活」唯一规则）
+                ? { ...m, meta: data.meta ?? m.meta, content: (data.content ?? m.content) as string, degraded: false }
                 : m
             ));
           }
@@ -146,5 +153,54 @@ export function useChannelMessages(channelId: string | undefined) {
     }
   }, [channelId, hasMore, messages]);
 
-  return { messages, loading, hasMore, sendMessage, loadMore, refresh: fetchMessages };
+  // #326 数据层降级（ADR 2026-08-25）：syncPruning 由渲染侧在首个可见消息变化时调用；
+  // 降级 = 原位骨架化（planPrune 纯函数判定）；水合 = 防抖整页取数 + mergePage 归并，
+  // 不触碰 hasMore（prepend 方向状态归 loadMore 独有）
+  const pruneOptsRef = useRef(options?.prune);
+  pruneOptsRef.current = options?.prune;
+  const hydrateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hydrateInFlightRef = useRef(false);
+  // 频道切换/卸载清防抖计时器，防旧频道水合落到新频道数据上
+  useEffect(() => {
+    hydrateInFlightRef.current = false;
+    return () => {
+      if (hydrateTimerRef.current) clearTimeout(hydrateTimerRef.current);
+      hydrateTimerRef.current = null;
+    };
+  }, [channelId]);
+
+  const scheduleHydration = useCallback((before: string) => {
+    if (!channelId) return;
+    if (hydrateTimerRef.current) clearTimeout(hydrateTimerRef.current);
+    hydrateTimerRef.current = setTimeout(async () => {
+      hydrateTimerRef.current = null;
+      if (hydrateInFlightRef.current) return;
+      hydrateInFlightRef.current = true;
+      try {
+        const res = await channelApi.listMessages(channelId, { before, limit: PRUNE_HYDRATE_PAGE_LIMIT });
+        // 骨架原位复活（按 id 归并）；hasMore 不动——本路径与 prepend 方向无关
+        setMessages(prev => mergePage(prev, res.data.data));
+      } catch (err) {
+        console.error('[Channel] Failed to hydrate messages', err);
+      } finally {
+        hydrateInFlightRef.current = false;
+      }
+    }, 200);
+  }, [channelId]);
+
+  const syncPruning = useCallback((anchorMid: string | null) => {
+    const plan = planPrune(messagesRef.current, anchorMid, {
+      keepRecent: PRUNE_KEEP_RECENT,
+      degradeDistance: PRUNE_DEGRADE_DISTANCE,
+      hydrateDistance: PRUNE_HYDRATE_DISTANCE,
+      ...pruneOptsRef.current,
+    });
+    if (plan.degradeIds.length > 0) {
+      const ids = new Set(plan.degradeIds);
+      setMessages(prev => prev.map(m => (ids.has(m.id) ? degradeMessage(m) : m)));
+    }
+    if (plan.hydrateBefore) scheduleHydration(plan.hydrateBefore);
+  }, [scheduleHydration]);
+
+  return { messages, loading, hasMore, sendMessage, loadMore, refresh: fetchMessages, syncPruning };
 }
