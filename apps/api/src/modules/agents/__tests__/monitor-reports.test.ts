@@ -6,7 +6,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 const {
-  tmpHome, tmpEvents, eventsFile, mockLogger, mockUpdatePref, mockExecSync,
+  tmpHome, tmpEvents, eventsFile, mockLogger, mockUpdatePref, mockExecFileSync,
 } = vi.hoisted(() => {
   const fs = require('fs');
   const path = require('path');
@@ -21,7 +21,8 @@ const {
     eventsFile,
     mockLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
     mockUpdatePref: vi.fn(() => Promise.resolve()),
-    mockExecSync: vi.fn(() => '0'),
+    // git 段 execFileSync：返回空串 → 0 commit（等价原 execSync 返回 '0' 的口径）
+    mockExecFileSync: vi.fn(() => ''),
   };
 });
 
@@ -30,7 +31,7 @@ vi.mock('os', async (importOriginal) => {
   return { ...actual, homedir: () => tmpHome };
 });
 
-vi.mock('child_process', () => ({ execSync: mockExecSync }));
+vi.mock('child_process', () => ({ execFileSync: mockExecFileSync }));
 
 vi.mock('@dommaker/studio-shared', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@dommaker/studio-shared')>();

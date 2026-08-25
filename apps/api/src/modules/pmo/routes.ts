@@ -8,6 +8,7 @@ import { logger } from '../../utils/logger.js';
 import { requireAuth, requireNotGuest, requireRole, type AuthRequest } from '../../middleware/auth.js';  // 🆕 SEC-001 / SEC-002
 import { apiCache, CACHE_CONFIG } from '../../middleware/api-cache.js';
 import { FileStore } from '@dommaker/studio-shared';
+import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
@@ -21,6 +22,41 @@ function resolveCallerAuthorType(req: Request): string {
 
 const router = Router();
 const STUDIO_EVENTS_JSONL = resolveStudioLogFile('studio-events.jsonl');
+
+// ─── gitRepo 白名单（2026-08-25 安全收口） ───
+// gitRepo 会被下游 git 操作（deliver/merge、spec 物化、agent-loop 执行根）消费，
+// 写入前必须限制在允许的根目录之下，防任意路径入项目配置。
+
+/**
+ * 收集请求里的 gitRepo/gitRepos 候选（仅非空字符串；空串视为未传，与既有口径一致）
+ */
+function collectGitRepos(gitRepo: unknown, gitRepos: unknown): string[] {
+  const repos: string[] = [];
+  if (typeof gitRepo === 'string' && gitRepo.trim()) repos.push(gitRepo);
+  if (Array.isArray(gitRepos)) {
+    for (const r of gitRepos) if (typeof r === 'string' && r.trim()) repos.push(r);
+  }
+  return repos;
+}
+
+/**
+ * gitRepo 白名单校验：path.resolve 后必须落在允许的根目录
+ * （PMO_GIT_REPO_ROOTS 冒号分隔多根，缺省 /root/projects）之下且为已存在目录。
+ * 合法返回 null，否则返回错误消息。
+ */
+export function validateGitRepo(repo: string): string | null {
+  const roots = (process.env.PMO_GIT_REPO_ROOTS || '/root/projects')
+    .split(':').map(r => r.trim()).filter(Boolean);
+  const resolved = path.resolve(repo);
+  const allowed = roots.some(root => {
+    const r = path.resolve(root);
+    return resolved === r || resolved.startsWith(r + path.sep);
+  });
+  if (!allowed || !fs.existsSync(resolved) || !fs.statSync(resolved).isDirectory()) {
+    return `gitRepo must be an existing directory under an allowed root (${roots.join(':')}), got: ${repo}`;
+  }
+  return null;
+}
 
 // ============================================
 // Project API（GEN-005）
@@ -77,6 +113,15 @@ router.post('/project', requireAuth(), requireNotGuest(), async (req: Request, r
       return res.status(400).json({
         error: { code: 'INVALID_INPUT', message: 'gitRepos must be an array of strings' },
       });
+    }
+    // gitRepo/gitRepos 白名单校验（见文件头 validateGitRepo）
+    for (const repo of collectGitRepos(gitRepo, gitRepos)) {
+      const invalid = validateGitRepo(repo);
+      if (invalid) {
+        return res.status(400).json({
+          error: { code: 'INVALID_INPUT', message: invalid },
+        });
+      }
     }
 
     const project = await projectService.create({
@@ -217,6 +262,15 @@ router.get('/project/by-pmo/:pmoNumber', async (req: Request, res: Response) => 
  */
 router.put('/project/:id', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
+    // gitRepo/gitRepos 白名单同 POST（update 整体展开 req.body，同样可写这两个字段）
+    for (const repo of collectGitRepos(req.body?.gitRepo, req.body?.gitRepos)) {
+      const invalid = validateGitRepo(repo);
+      if (invalid) {
+        return res.status(400).json({
+          error: { code: 'INVALID_INPUT', message: invalid },
+        });
+      }
+    }
     const project = await projectService.update(req.params.id, req.body);
     res.json(project);
   } catch (error) {

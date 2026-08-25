@@ -10,7 +10,7 @@
  * 非阻塞，失败不影响 daemon 启动。
  */
 
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
 import { logger } from '@dommaker/studio-shared';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -110,7 +110,7 @@ class SessionSummaryService {
   /** rev 是否存在于仓库（git cat-file -e；失败=false） */
   private commitExists(rev: string): boolean {
     try {
-      execSync(`git cat-file -e "${rev}^{commit}"`, { cwd: REPO_DIR, stdio: 'pipe', timeout: 5_000 });
+      execFileSync('git', ['cat-file', '-e', `${rev}^{commit}`], { cwd: REPO_DIR, stdio: 'pipe', timeout: 5_000 });
       return true;
     } catch {
       return false;
@@ -134,9 +134,12 @@ class SessionSummaryService {
   private getNewCommits(sinceCommit: string): CommitInfo[] {
     try {
       // sinceCommit 为空（短仓库兜底）：全量但封顶 50 条
-      const range = sinceCommit ? `${sinceCommit}..HEAD` : '--max-count=50';
-      const out = execSync(
-        `git log ${range} --format="%H||%s" --name-only`,
+      // execFileSync 数组参数不经 shell：--format=%H||%s 作为单个 argv 元素直传 git
+      const args = sinceCommit
+        ? ['log', `${sinceCommit}..HEAD`, '--format=%H||%s', '--name-only']
+        : ['log', '--max-count=50', '--format=%H||%s', '--name-only'];
+      const out = execFileSync(
+        'git', args,
         { cwd: REPO_DIR, encoding: 'utf-8', timeout: 10_000, stdio: 'pipe' },
       );
       const result = this.parseGitLog(out);
