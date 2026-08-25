@@ -984,14 +984,18 @@ export class FileStore extends FileStoreWorkUnitBase {
   /**
    * 跨频道查询消息（扫描所有 channel 的 messages.jsonl）。
    * 支持按 workUnitId(s) 和 authorType 过滤。
+   * #330：可选 channelIds 预过滤——提供时 readdir 后跳过集合外频道（不读其文件），
+   * 供 observe 巡查只扫活跃 WU 所在频道；缺省全扫，既有调用方行为不变。
    */
-  async queryAllMessages(filter?: { workUnitIds?: string[]; workUnitId?: string; authorType?: string; agentName?: string; agentNames?: string[] }): Promise<ChannelMessageData[]> {
+  async queryAllMessages(filter?: { workUnitIds?: string[]; workUnitId?: string; authorType?: string; agentName?: string; agentNames?: string[]; channelIds?: string[] }): Promise<ChannelMessageData[]> {
     const result: ChannelMessageData[] = [];
     const dir = this.channelsDir();
     try {
       const entries = await this.readdirCached(dir);
+      const channelSet = filter?.channelIds ? new Set(filter.channelIds) : null;
       const perChannel = await Promise.all(entries.map(async entry => {
         if (!entry.isDirectory()) return [];
+        if (channelSet && !channelSet.has(entry.name)) return [];
         const active = await this.resolveActiveMessages(entry.name);
         return active.filter(msg => {
           if (filter?.workUnitId && msg.workUnitId !== filter.workUnitId) return false;

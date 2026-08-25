@@ -36,6 +36,7 @@ Agent 配置（profile）、运行实例（instance）、决策循环（loop）�
 - **多实例单活**：`STUDIO_AGENT_LOOP_ENABLED=false` 实例 standby；`AgentLoop.start()` 内置同角色单活守卫
 - **SSE 负载含 channelId（2026-08-24 SSE 负载加深，批 1）**：`workunit.execution.step` / `workunit.execution.stream`（含 step-start）负载与 `workunit.tokens` SSE 信封 data 均携带 `channelId`（wu.channelId 透传，无频道 WU 缺省该键）——前端按频道过滤 step/token 事件的数据源；`workunit:tokens` 落盘后顺带经 eventBus.publish 发 SSE（best-effort，不落盘二次）
 - **派单链**：WorkUnitService.create -> workunit.created -> TriggerScheduler -> AgentLoop.observe（15s 轮询兜底）-> 过滤 -> claim -> agentStep -> LocalExecutor -> spawn CLI -> recordResult -> 回帖（EventBus/SSE）
+- **observe 读路径优化（#330）**：observe 调 `queryAllMessages` 传 myActive WU 的 channelId 集合做频道预过滤（任一活跃 WU 无 channelId 退全扫；已接受盲区 = WU 换频道后旧频道新回复不扫）；loop start 订阅 `channel.message_sent`（eventBus 同进程，human 且 workUnitId ∈ myActive 命中即打断空闲 sleep 立即 observe，stop 退订）——空闲兜底轮询维持 15s 不变（事件 fire-and-forget 无持久，防跨进程写者/重启间隙）
 - **F4 review 派发**：父 in_review -> 建未指派 review 子 WU 走 claim 涌现；excludeAssignee 禁自领；同父唯一性 flock 锁
 - **R3 评审契约**：评审子 WU scope = diff-only+`+code-review`；needs-info -> 转人工
 - **不派评审类型**：decision/spec/analysis 走人工 in_review

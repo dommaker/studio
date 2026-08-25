@@ -132,6 +132,12 @@ export class AgentLoop {
   private triggerId: string | null = null;
   private loopPromise: Promise<void> | null = null;
   private lastIdleHeartbeatAt = 0;
+  /** #330：事件驱动唤醒——空闲 sleep 的中断器（idleSleep 挂起期间非 null） */
+  private wakeIdle: (() => void) | null = null;
+  /** #330：最近一轮 observe 的 myActive WU id 集——channel.message_sent 唤醒过滤口径 */
+  private lastActiveWuIds = new Set<string>();
+  /** #330：channel.message_sent 订阅句柄（start 挂、stop 退） */
+  private messageSentHandler: ((payload: { message?: { authorType?: string; workUnitId?: string | null } }) => void) | null = null;
   private executor: Executor;
   /** 2026-07 PMO-flow UX（§6-2）：最后一次已发布的 instance 状态（SSE 去重——状态不变不发） */
   private lastPublishedStatus: string | null = null;
@@ -266,6 +272,18 @@ export class AgentLoop {
         scope: 'agent',
       });
 
+      // #330: 事件驱动唤醒——订阅 channel.message_sent（同进程 eventBus，先例 channel-review）。
+      // 人类消息且 workUnitId 命中当前 myActive 时打断空闲 sleep、立即跑一轮 observe；
+      // 窄过滤天然限流，不去抖。事件 fire-and-forget 无持久，15s 空闲兜底轮询保留
+      // （防未来跨进程写者与重启间隙——当前生产写消息路径全部经 channel-message.service 发事件）。
+      this.messageSentHandler = (payload) => {
+        const msg = payload?.message;
+        if (!msg || msg.authorType !== 'human' || !msg.workUnitId) return;
+        if (!this.lastActiveWuIds.has(msg.workUnitId)) return;
+        this.wakeIdle?.();
+      };
+      eventBus.subscribe('channel.message_sent', this.messageSentHandler);
+
       // Main loop (non-blocking — fire and forget like original)
       this.loopPromise = this.runLoop().catch(err =>
         logger.error(`[AgentLoop] Loop failed for ${this.role.name}: ${err.message}`)
@@ -381,7 +399,7 @@ export class AgentLoop {
         if (!target) {
           // No work available → back to idle (fix: status stays correct after task completion)
           await this.updateIdleState();
-          await sleep(15_000);
+          await this.idleSleep(15_000);
           continue;
         }
 
@@ -609,6 +627,12 @@ export class AgentLoop {
     if (this.triggerId) {
       getTriggerScheduler().unregisterTrigger(this.triggerId);
     }
+    // #330: 退订事件唤醒 + 中断空闲 sleep（waitForStop 不必等满 15s）
+    if (this.messageSentHandler) {
+      eventBus.unsubscribe('channel.message_sent', this.messageSentHandler);
+      this.messageSentHandler = null;
+    }
+    this.wakeIdle?.();
     if (this.instance) {
       this.fileStore.updateState(this.instance.id, {
         status: 'terminated',
@@ -622,6 +646,23 @@ export class AgentLoop {
     if (this.loopPromise) {
       try { await this.loopPromise; } catch { /* loop errors already logged */ }
     }
+  }
+
+  /** #330: 可中断的空闲 sleep——channel.message_sent 命中 myActive（或 stop）时提前返回 */
+  private idleSleep(ms: number): Promise<void> {
+    if (!this.alive) return Promise.resolve(); // stop 与进入 sleep 的竞态：已停则立即返回
+    return new Promise(resolve => {
+      const wake = () => {
+        clearTimeout(timer);
+        if (this.wakeIdle === wake) this.wakeIdle = null;
+        resolve();
+      };
+      const timer = setTimeout(() => {
+        if (this.wakeIdle === wake) this.wakeIdle = null;
+        resolve();
+      }, ms);
+      this.wakeIdle = wake;
+    });
   }
 
   /**
@@ -702,10 +743,20 @@ export class AgentLoop {
       }));
 
     const activeWuIds = myActive.map(wu => wu.id);
+    // #330: 缓存 myActive 口径供 channel.message_sent 事件唤醒过滤
+    this.lastActiveWuIds = new Set(activeWuIds);
+    // #330 扫描裁剪：只扫活跃 WU 所在频道（通常 1-2 个，原来是全频道无差别全扫）。
+    // 任一活跃 WU 无 channelId 时退全扫（该 WU 回复可能落在任意频道）。
+    // 已接受盲区：WU 换频道后旧频道里的新人类回复不再被扫到（换频道罕见，
+    // 且换频道后回复落新频道线程——WU.channelId 已更新）。
+    const channelFilter = myActive.length > 0 && myActive.every(wu => wu.channelId)
+      ? [...new Set(myActive.map(wu => wu.channelId as string))]
+      : undefined;
     const allReplies = activeWuIds.length > 0
       ? (await this.fileStore.queryAllMessages({
           workUnitIds: activeWuIds,
           authorType: 'human',
+          channelIds: channelFilter,
         })).filter(msg => {
           const wu = myActive.find(w => w.id === msg.workUnitId);
           return wu && new Date(msg.createdAt).getTime() > wu.updatedAt.getTime();
