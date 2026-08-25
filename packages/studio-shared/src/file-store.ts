@@ -909,6 +909,74 @@ export class FileStore extends FileStoreWorkUnitBase {
   }
 
   /**
+   * reopen 解冻（#327）：把该 WU 的已归档消息从冷文件搬回热文件（保留原 id/createdAt），
+   * 冷文件原子重写剔除已 thaw 行。规则保持一条线：活 WU 的消息永远在热层。
+   * 低频操作（WU closed→unassigned 钩子），全频道扫描成本可接受；
+   * 无 archive 目录/无匹配行 = 零成本短路（不取锁、不动热文件）。
+   * 写序先热后冷：崩溃在中间 = 同 id 冷热都有，查询面按 id 去重（热侧遮蔽冷侧残留）。
+   */
+  async thawWorkUnitMessages(workUnitId: string): Promise<{ thawedMessages: number }> {
+    let entries: fs.Dirent[];
+    try {
+      entries = await fs.promises.readdir(this.channelsDir(), { withFileTypes: true });
+    } catch (err: unknown) {
+      if (isErrnoError(err) && err.code === 'ENOENT') return { thawedMessages: 0 };
+      throw err;
+    }
+    let thawedMessages = 0;
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const months = await this.listArchiveMonths(entry.name);
+      if (months.length === 0) continue; // 零成本短路：无冷文件不取锁
+      thawedMessages += await this.thawChannelWorkUnitMessages(entry.name, workUnitId, months);
+    }
+    return { thawedMessages };
+  }
+
+  /** 单频道解冻：锁外预检无匹配不取锁；锁内裸读重判后先 append 热、后原子重写冷 */
+  private async thawChannelWorkUnitMessages(channelId: string, workUnitId: string, months: string[]): Promise<number> {
+    // 锁外预检（读穿缓存）：该频道冷文件无此 WU 的行 → 不取锁
+    let hasMatch = false;
+    for (const month of months) {
+      const rows = await this.readJsonl<ChannelMessageData>(this.archiveMonthPath(channelId, month));
+      if (rows.some(m => m.workUnitId === workUnitId)) { hasMatch = true; break; }
+    }
+    if (!hasMatch) return 0;
+
+    return this.withLock(this.messagesLockDir(channelId), async () => {
+      // 锁内裸读重判（预检后可能有并发 sweep/thaw 改动）
+      const thawRows: ChannelMessageData[] = [];
+      const rewrittenMonths: Array<{ monthPath: string; remain: ChannelMessageData[] }> = [];
+      for (const month of months) {
+        const monthPath = this.archiveMonthPath(channelId, month);
+        const rows = await super.readJsonl<ChannelMessageData>(monthPath);
+        const remain = rows.filter(m => {
+          if (m.workUnitId === workUnitId) { thawRows.push(m); return false; }
+          return true;
+        });
+        if (remain.length !== rows.length) rewrittenMonths.push({ monthPath, remain });
+      }
+      if (thawRows.length === 0) return 0;
+
+      // 先 append 回热文件（保留原 id/createdAt，按 createdAt 升序；热侧已有同 id 不重复）
+      const hotPath = this.messagesPath(channelId);
+      const hotIds = new Set((await super.readJsonl<ChannelMessageRow>(hotPath)).map(r => r.id));
+      thawRows.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+      let appended = 0;
+      for (const msg of thawRows) {
+        if (hotIds.has(msg.id)) continue;
+        await this.appendJsonl(hotPath, msg);
+        appended++;
+      }
+      // 后原子重写冷文件剔除已 thaw 行（tmp+rename，同 sweep 纪律）
+      for (const { monthPath, remain } of rewrittenMonths) {
+        await this.writeJsonl(monthPath, remain);
+      }
+      return appended;
+    });
+  }
+
+  /**
    * 跨频道查询消息（扫描所有 channel 的 messages.jsonl）。
    * 支持按 workUnitId(s) 和 authorType 过滤。
    */

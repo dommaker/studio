@@ -162,6 +162,16 @@ export class WorkUnitService extends WorkUnitCrudService {
       );
     }
 
+    // #327：reopen（closed → unassigned）自动解冻——该 WU 已归档消息从冷文件搬回热文件，
+    // 规则保持一条线：活 WU 的消息永远在热层。best-effort：失败记日志不阻断迁移
+    if (current.status === 'closed' && newStatus === 'unassigned') {
+      await this.fileStore.thawWorkUnitMessages(id).catch(err =>
+        logger.warn('[WorkUnit] Thaw archived messages on reopen failed (non-blocking)', {
+          workUnitId: id, error: String(err),
+        })
+      );
+    }
+
     // Cascade: parent status aggregation on any status change that affects parent
     if (['active', 'blocked', 'done', 'closed'].includes(newStatus)) {
       this.aggregateParentStatus(id).catch(err =>
