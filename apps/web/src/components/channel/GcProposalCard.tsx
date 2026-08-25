@@ -1,6 +1,6 @@
 // GC proposal card — #144 知识库 GC 候选清单人审闸口
 // cardType 'gc_proposal'；action 'gc_proposal_approve' / 'gc_proposal_reject'
-// （由 ChannelDetailPage.handleAction 分发到 /distill/gc/approve、/distill/gc/reject）
+// （由 ChannelDetailPage.handleAction 分发到 /review-proposals/gc/:id/approve、…/reject）
 // 视觉复用 mc-card 族（仿 DistillProposalCard）。
 import { useEffect, useState } from 'react';
 import type { ChannelMessage } from '../../api/channel';

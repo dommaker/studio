@@ -3,9 +3,9 @@
 // knowledge_proposal approve → /knowledge-service/promote（draft→verified，参与注入）；
 // reject → /knowledge-service/demote（draft→archived）。
 // memory_proposal approve → /role-memory/promote（草稿→topic/索引）；reject → /role-memory/demote。
-// distill_proposal approve → /distill/approve（#143 蒸馏运行）；reject → /distill/reject（零副作用）。
-// gc_proposal approve → /distill/gc/approve（#144 GC 候选归档）；reject → /distill/gc/reject（零副作用）。
-// constraint_audit_proposal approve → /distill/audit/approve（#146 约束退役执行）；reject → /distill/audit/reject（零副作用）。
+// distill_proposal approve → /review-proposals/distill/:id/approve（#351 通用端点，蒸馏运行）；reject → …/reject（零副作用）。
+// gc_proposal approve → /review-proposals/gc/:id/approve（#144 GC 候选归档）；reject → …/reject（零副作用）。
+// constraint_audit_proposal approve → /review-proposals/audit/:id/approve（#146 约束退役执行）；reject → …/reject（零副作用）。
 // auditor_suggestion confirm/reject → POST /channels/:id/messages/:mid/card-decision（#278，采纳建未指派 task 工单；拒绝留痕）。
 // retract_confirm confirm/reject → POST /skills/:id/retract/decide（#278，confirm→deprecated / reject→published，卡片状态同步回写）。
 // 返回是否成功（卡片据此显示已审核状态）。
@@ -82,7 +82,7 @@ export function useChannelCardActions({ channelId, messages, refresh }: UseChann
       }
     }
     if (action === 'distill_proposal_approve' || action === 'distill_proposal_reject') {
-      // #143 蒸馏提案：approve → /distill/approve；reject → /distill/reject（零副作用）
+      // #143 蒸馏提案：approve → /review-proposals/distill/:id/approve（#351 通用端点）；reject → …/reject（零副作用）
       const cardData = cardDataOf();
       const proposalId = typeof cardData?.proposalId === 'string' ? cardData.proposalId : '';
       if (!proposalId) return false;
@@ -101,7 +101,7 @@ export function useChannelCardActions({ channelId, messages, refresh }: UseChann
       }
     }
     if (action === 'gc_proposal_approve' || action === 'gc_proposal_reject') {
-      // #144 GC 候选清单：approve → /distill/gc/approve（候选归档）；reject → /distill/gc/reject（零副作用）
+      // #144 GC 候选清单：approve → /review-proposals/gc/:id/approve（候选归档）；reject → …/reject（零副作用）
       const cardData = cardDataOf();
       const gcProposalId = typeof cardData?.gcProposalId === 'string' ? cardData.gcProposalId : '';
       if (!gcProposalId) return false;
@@ -119,7 +119,7 @@ export function useChannelCardActions({ channelId, messages, refresh }: UseChann
       }
     }
     if (action === 'constraint_audit_approve' || action === 'constraint_audit_reject') {
-      // #146 存量约束审计：approve → /distill/audit/approve（retire 执行，可回滚）；reject → /distill/audit/reject（零副作用）
+      // #146 存量约束审计：approve → /review-proposals/audit/:id/approve（retire 执行，可回滚）；reject → …/reject（零副作用）
       const cardData = cardDataOf();
       const auditProposalId = typeof cardData?.auditProposalId === 'string' ? cardData.auditProposalId : '';
       if (!auditProposalId) return false;

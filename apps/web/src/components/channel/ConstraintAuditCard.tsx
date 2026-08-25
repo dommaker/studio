@@ -1,6 +1,6 @@
 // ConstraintAuditCard — #146 存量约束退役建议人审闸口
 // cardType 'constraint_audit_proposal'；action 'constraint_audit_approve' / 'constraint_audit_reject'
-// （由 ChannelDetailPage.handleAction 分发到 /distill/audit/approve、/distill/audit/reject）
+// （由 ChannelDetailPage.handleAction 分发到 /review-proposals/audit/:id/approve、…/reject）
 // 视觉复用 mc-card 族（仿 GcProposalCard）。
 // #288（清单 P2 #20）：「确认退役」为高危操作 → acknowledge→confirm 两步确认
 // （首次点击仅进入待确认态，再次点击才执行；点全部保留或执行失败退出待确认态）。

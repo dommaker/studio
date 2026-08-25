@@ -1,5 +1,5 @@
 // ChannelDetailPage — 蒸馏提案人审闸口：handleAction 分发 distill_proposal approve/reject
-// 契约：approve → POST /distill/approve {proposalId}；reject → POST /distill/reject（一次整卡）
+// 契约：approve → POST /review-proposals/distill/:id/approve；reject → …/reject（#351 通用端点，一次整卡）
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
@@ -104,7 +104,7 @@ describe('ChannelDetailPage — distill_proposal 审核分发', () => {
     mockDistillReject.mockResolvedValue({ data: { success: true } });
   });
 
-  it('approve → POST /distill/approve {proposalId}，卡片显示已执行', async () => {
+  it('approve → distillApi.approve(proposalId)，卡片显示已执行', async () => {
     renderPage();
     const btn = await screen.findByText('确认蒸馏');
     fireEvent.click(btn);
@@ -130,7 +130,7 @@ describe('ChannelDetailPage — distill_proposal 审核分发', () => {
     expect(screen.queryByText(/已确认/)).not.toBeTruthy();
   });
 
-  it('reject → POST /distill/reject {proposalId}，卡片显示已拒绝', async () => {
+  it('reject → distillApi.reject(proposalId)，卡片显示已拒绝', async () => {
     renderPage();
     const btn = await screen.findByText('拒绝');
     fireEvent.click(btn);

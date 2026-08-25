@@ -1,6 +1,6 @@
 // Distill proposal card — #143 蒸馏提案人审闸口
 // cardType 'distill_proposal'；action 'distill_proposal_approve' / 'distill_proposal_reject'
-// （由 ChannelDetailPage.handleAction 分发到 /distill/approve、/distill/reject）
+// （由 ChannelDetailPage.handleAction 分发到 /review-proposals/distill/:id/approve、…/reject）
 // 视觉复用 mc-card 族（仿 MemoryProposalCard / KnowledgeProposalCard）。
 import { useEffect, useState } from 'react';
 import type { ChannelMessage } from '../../api/channel';
