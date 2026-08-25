@@ -275,7 +275,7 @@
   font-size: var(--fs-xs);
   text-align: center;
   border: 1px dashed var(--border-subtle);
-  border-radius: 6px;
+  border-radius: 4px;
   margin: 4px 0;
 }
 

@@ -116,8 +116,13 @@ export function useChannelMessages(channelId: string | undefined, options?: UseC
           } else if (data.messageId) {
             setMessages(prev => prev.map(m =>
               m.id === data.messageId
-                // #326：patch 命中骨架 = 拿到内容即复活，清 degraded 标记（「拿到全量本体即复活」唯一规则）
-                ? { ...m, meta: data.meta ?? m.meta, content: (data.content ?? m.content) as string, degraded: false }
+                // #326：patch 带 content = 拿到本体即复活清标记（「拿到全量本体即复活」唯一规则）；
+                // 仅 meta 的 patch 骨架不假复活（空正文不应渲染为全量行）
+                ? {
+                    ...m,
+                    meta: data.meta ?? m.meta,
+                    ...(data.content != null ? { content: data.content as string, degraded: false } : {}),
+                  }
                 : m
             ));
           }
@@ -174,7 +179,11 @@ export function useChannelMessages(channelId: string | undefined, options?: UseC
     if (hydrateTimerRef.current) clearTimeout(hydrateTimerRef.current);
     hydrateTimerRef.current = setTimeout(async () => {
       hydrateTimerRef.current = null;
-      if (hydrateInFlightRef.current) return;
+      // in-flight 中不丢触发：重排等其落地后再取（防同区并发重复请求）
+      if (hydrateInFlightRef.current) {
+        scheduleHydration(before);
+        return;
+      }
       hydrateInFlightRef.current = true;
       try {
         const res = await channelApi.listMessages(channelId, { before, limit: PRUNE_HYDRATE_PAGE_LIMIT });

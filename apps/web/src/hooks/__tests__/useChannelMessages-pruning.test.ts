@@ -128,7 +128,7 @@ describe('useChannelMessages 降级/水合', () => {
     expect(mockListMessages).not.toHaveBeenCalled();
   });
 
-  it('legacy message_updated patch 命中骨架 → 原位复活并清 degraded 标记', async () => {
+  it('legacy message_updated patch 命中骨架 → 带 content 才复活并清 degraded 标记', async () => {
     let handler: (m: WebSocketMessage) => void = () => {};
     mockOnEvent.mockImplementation((h: (m: WebSocketMessage) => void) => { handler = h; return () => {}; });
     const list = batch(10);
@@ -144,6 +144,43 @@ describe('useChannelMessages 降级/水合', () => {
     const m1 = result.current.messages[0];
     expect(m1.content).toBe('更新后');
     expect(m1.degraded).toBe(false);
+  });
+
+  it('legacy patch 只带 meta 不带 content → 骨架不假复活（空正文不应渲染为全量行）', async () => {
+    let handler: (m: WebSocketMessage) => void = () => {};
+    mockOnEvent.mockImplementation((h: (m: WebSocketMessage) => void) => { handler = h; return () => {}; });
+    const result = await renderLoaded(batch(10));
+    act(() => result.current.syncPruning('m8'));
+    act(() => handler({
+      event_id: 'ev-2',
+      event_type: 'channel.message_updated',
+      timestamp: iso(1),
+      data: { channelId: 'ch-1', messageId: 'm1', meta: { status: 'done' } },
+    }));
+    const m1 = result.current.messages[0];
+    expect(m1.degraded).toBe(true);
+    expect(m1.content).toBe('');
+    expect(m1.meta).toEqual({ status: 'done' });
+  });
+
+  it('水合 in-flight 期间到达的触发重排而非丢弃', async () => {
+    const list = batch(10);
+    const result = await renderLoaded(list);
+    act(() => result.current.syncPruning('m8')); // 降级 [m1..m5]
+    // 第一次水合：挂起的 promise 模拟 in-flight
+    let resolveFirst: (v: unknown) => void = () => {};
+    mockListMessages.mockImplementationOnce(() => new Promise(r => { resolveFirst = r; }));
+    act(() => result.current.syncPruning('m6'));
+    await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+    expect(mockListMessages).toHaveBeenCalledWith('ch-1', { before: 'm6', limit: 100 });
+    // in-flight 中再次触发（同游标）→ 应重排
+    mockListMessages.mockResolvedValue({ data: { data: list.slice(0, 5), hasMore: true } });
+    act(() => result.current.syncPruning('m6'));
+    await act(async () => { await vi.advanceTimersByTimeAsync(250); }); // 计时器点火时仍 in-flight
+    expect(mockListMessages.mock.calls.filter(c => c[1]?.before === 'm6')).toHaveLength(1); // 未重发
+    await act(async () => { resolveFirst({ data: { data: [], hasMore: false } }); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(250); }); // 重排的计时器点火
+    expect(mockListMessages.mock.calls.filter(c => c[1]?.before === 'm6')).toHaveLength(2);
   });
 
   it('degradeMessage 保留 meta status/cardType（折叠计数/合并判定输入）', () => {

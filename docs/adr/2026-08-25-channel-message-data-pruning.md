@@ -72,3 +72,16 @@ virtualizer range 进入降级区（防抖 ~200ms）→ 以降级区骨架 mid �
   归组不受影响）。
 - 无新增依赖、无后端改动（D4 复用现有分页端点）。
 - 已知留白：下方增长（D2）、骨架摘要（D1）、K/D 调参（D3）。
+
+## 实施回写（2026-08-25，#326 P1–P4 落地 + code-review 两轴评审后）
+
+1. **D1 修订：骨架保留 `meta` 的 `{status, cardType}` 标量子集**（实施期补定，维护者
+   计划评审确认）。`deriveStreamView` 的 `isCompleted`（meta.status）与 `mergeable`
+   （meta.cardType）依赖这两字段，全剥会使已完成折叠计数与连续合并判定失真
+   （违反 AC「折叠计数一致」）。字节量可忽略，不改变字节口径验收。
+2. **D5 修订：粗锚以 `coarse?: boolean` 字段表达**，不用 `top` 哨兵值——`top` 保持
+   有效数字语义（粗锚存档同样记录捕获时偏移，备将来参考），显式布尔比哨兵值更
+   不易误读；`parseReadingPosition` 向后兼容（缺省 = 精锚，非布尔忽略）。
+3. **D4 补充：legacy `message_updated` patch（无全量本体）仅当携带 content 时复活
+   骨架**——仅 meta 的 patch 不假复活（空正文渲染为全量行是缺陷形态）。
+4. 水合并发守卫：in-flight 期间到达的水合触发重排（等落地后再取），不丢弃。
