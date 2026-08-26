@@ -20,5 +20,5 @@
 - 安全闸两道：Triage 升级换记录桩（升级路径会拉 systemExecutor 跑 LLM）；PATH 前置假 `systemd-run` 阻断 `scheduleVectorDbSync` → mcp-local-rag ingest（写共享生产 lancedb + 30min 子进程吊住事件 loop；模块内部直线调用，exports 桩拦不住，详见 knowledge/CONTEXT.md）。
 - monitor 常态轮预置跳过日级子项；日级窗口（dailyReflection/dataLifecycle/knowledge decay）单列 label 补测，窗口条件强制（状态重置 / Date 冻结到 23:55），只测 1x/50x。
 - ops-round 依赖本地 stub HTTP（端口 39100+scale）让 `apiResponding=true`，避开自动重启/退出分支。
-- 只读引用 `~/.studio`，合成与驱动全部落在 tmp；跑完 tmp 根保留路径打印，手工清理。
+- 只读引用 `~/.studio`，合成与驱动全部落在 tmp；metrics 当次 bench root 保留（结果文件所在，启动时自清 >24h 旧根），worker 的 `bench-repo-` 目录经 `process.on('exit')` 自清（2026-08-26 /tmp 泄漏修复）。
 - #363（2026-08-26）：worker 驱动循环前跑一次 `fileStore.sweepEmptyAgentDirs()`——模拟 API 启动时的一次性存量清扫；合成数据集继承模板的历史空实例目录，不先清扫测不出目录闭环的读口收益（生产同路径在 apps/api index.ts 启动段）。

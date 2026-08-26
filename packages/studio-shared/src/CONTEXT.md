@@ -20,7 +20,7 @@
 | `EvolutionProposalData`（constraintChange: message/exception/new-entry/retire——retire 为 #82 D6 退役落点） | file-store-types | E1 进化提案类型 |
 | `resolveVpsWorkspace`, `resolveWorkspacesDir` | vps-workspace（仅 /node 入口） | 'VPS' 工作区命名约定与 ~/.studio/workspaces 扫描的唯一属主（2026-08 起；worktree-resolver 与 local-workspace 均委托到此，禁止第三处手扫） |
 | `studioDir`, `studioPath`, `defaultStudioDir`, `warnIfNonProdUsesProdRoot` | config/studio-dir（`./studio-dir` 子路径入口） | 数据根解析单入口（issue #89）：STUDIO_HOME 优先，缺省 ~/.studio；全部数据区读写必须经此，禁止新增 `os.homedir() + '.studio'` 硬编码 |
-| `createSettledTracker` / `SettledTracker` | utils/settled-tracker.ts | #228 确定性等待原语（#158 先例抽取）：fire-and-forget 异步链（事件订阅消费 / best-effort 收尾）的在途登记 `track` + `waitForSettled` 等待（while 循环兜底级联），供测试替代盲等；消费方：pmo/progress-rollup、workunit.service（reviewPassed 收尾）、agents/loop/review-dispatcher、pmo/analysis-handoff |
+| `createSettledTracker` / `SettledTracker` | utils/settled-tracker.ts | #228 确定性等待原语（#158 先例抽取）：fire-and-forget 异步链（事件订阅消费 / best-effort 收尾）的在途登记 `track` + `waitForSettled` 等待（while 循环兜底级联），供测试替代盲等；消费方：pmo/progress-rollup、workunit.service（reviewPassed 收尾）、agents/loop/review-dispatcher、pmo/analysis-handoff、pmo/map-opening、pmo/spec-materialization（后两者 2026-08-26 补：测试删目录前等在途链落定，消 /tmp 复活竞态） |
 | `setReadMetricsSink`, `runWithLoopLabel`, `readMetricsBegin`, `emitReadMetric` | read-metrics.ts | #323 读口量化测量 sink：模块级 sink 默认 null（关闭 = 读口一次 if 外零开销）；`runWithLoopLabel` 基于 AsyncLocalStorage 做循环归因（无 label → 'unlabeled'）；file-store 四读口（readJson/readJsonl/readIndexForQuery/readdirCached）内计时埋点（statMs/readParseMs/cloneMs/cacheHit），锁内裸读路径不埋 |
 
 ### 依赖关系
