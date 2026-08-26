@@ -27,6 +27,7 @@ import {
   type ReviewProposalAdapter,
 } from '../review-proposal/registry.js';
 import { submitProposal } from '../review-proposal/service.js';
+import { getErrorMessage } from '../../utils/errors.js';
 import type { ReviewProposalBase, ReviewProposalRecord } from '../review-proposal/store.js';
 
 /** 提案卡条目（γ 轨道契约：cardData.entries=[{id,title,type}]） */
@@ -76,7 +77,7 @@ async function executeKnowledgeApproval(p: ReviewProposalRecord<KnowledgeReviewP
     }
     return { status: 'executed', data: { promoted: p.entries.length } };
   } catch (e) {
-    return { status: 'failed', error: e instanceof Error ? e.message : String(e) };
+    return { status: 'failed', error: getErrorMessage(e) };
   }
 }
 

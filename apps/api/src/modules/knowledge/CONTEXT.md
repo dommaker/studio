@@ -77,6 +77,7 @@ knowledge/
 
 ### 注意事项
 
+- **分页口径统一（#359，2026-08-26）**：knowledge 全部 limit 入口（/export、/gaps/:type、/unified、/knowledge-service/search、/knowledge-service/entries）统一走 `utils/pagination.ts parsePagination`（clamp 1..100，缺省 20）。修复前三处三个口径（search clamp 50 / entries|unified clamp 100 / export 无 clamp）。缺省值变化：search 10→20、export 100→20、unified 50→20、entries 无 limit 时从不设限 → 20。
 - **#355 审核闭环接线 review-proposal 正本（2026-08-26）**：knowledge_proposal 卡生命周期（建提案/发卡/approve/reject/status）归 review-proposal 正本（kind='knowledge'，存储 `knowledge-proposals.jsonl`）；业务侧只留 `review-adapter.ts`（卡渲染 + onApprove 逐条目 promote / onReject 逐条目 demote）。审批改走通用端点 `/api/v1/review-proposals/knowledge/:proposalId/{approve,reject,status}`（整卡一次审批）；`/knowledge-service/promote|demote` 是条目生命周期端点（MonitoringPage 人工 promote 在用），保留。接线前发出的存量卡（cardData 无 proposalId）不可再审批——条目保持 draft 不注入（同 #354 存量口径）。`conversation-extraction.ts`（拆分时遗留的死拷贝，零 importer）随本票删除。
 - **知识库边界（#93，2026-08-13）**：KB = 项目级共享知识（跨角色 rule/context/signal/reference）。角色记忆（#100 的 per-role `MEMORY.md` + topic 文件体系）**不进知识库、不走 injectContext**；守卫约定 = 角色记忆条目带 `role-memory` tag，注入闸门（`isRoleMemory`）一律拦截，回归测试见 `__tests__/knowledge-service-inject-wiring.test.ts`。
 - **#93 注入修复（2026-08-13）**：rule/context 注入曾恒空——`unified-query.ts` 合成条目 `sourceReferences` 恒 `[]` 被 `hasSourceReferences` 闸门全拦。修复 = 合成端（preferenceToEntry/ruleToEntry/envToEntry）从 store 条目 id / snapshot 文件名派生真实出处；手动创建 API（entries.routes.ts POST /unified）stamp `manual:<user>` 出处。闸门语义不变：无凭证不注入。

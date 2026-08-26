@@ -12,6 +12,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
+import { parsePagination } from '../../utils/pagination.js';
 
 /** A2A §4.4 同款约定：agent 身份调用一律 403（交付权只在人） */
 function resolveCallerAuthorType(req: Request): string {
@@ -71,7 +72,8 @@ router.get('/project', async (req: Request, res: Response) => {
     const status = req.query.status as string | undefined;
     const priority = req.query.priority as string | undefined;
     const okrId = req.query.okrId as string | undefined;
-    const limit = parseInt(req.query.limit as string) || 20;
+    // #359：统一 parsePagination（clamp 1..100），缺省 20 与既有口径一致
+    const { limit } = parsePagination(req);
 
     const projects = await projectService.list({
       status,

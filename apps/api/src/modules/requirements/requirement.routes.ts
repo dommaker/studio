@@ -12,6 +12,7 @@ import { Router, type Request, type Response } from 'express';
 import { FileStore, type RequirementStatus } from '@dommaker/studio-shared';
 import { RequirementService, REQUIREMENT_STATUSES } from './requirement.service.js';
 import { requireAuth, requireNotGuest } from '../../middleware/auth.js';
+import { getErrorMessage } from '../../utils/errors.js';
 
 export function createRequirementRoutes(fileStore?: FileStore): Router {
   const router = Router();
@@ -54,7 +55,7 @@ export function createRequirementRoutes(fileStore?: FileStore): Router {
       });
       res.status(201).json({ success: true, data });
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
+      const msg = getErrorMessage(e);
       if (msg.includes('Project not found')) {
         return res.status(400).json({ success: false, error: msg });
       }
@@ -95,7 +96,7 @@ export function createRequirementRoutes(fileStore?: FileStore): Router {
       });
       res.json({ success: true, data });
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
+      const msg = getErrorMessage(e);
       if (msg.includes('Project not found')) {
         return res.status(400).json({ success: false, error: msg });
       }

@@ -73,6 +73,7 @@ import {
   getDailyTokenUsage,
 } from '../agents/loop/daily-token-budget.js';
 import { writeStudioEvent } from '../../utils/studio-events.js';
+import { getErrorMessage } from '../../utils/errors.js';
 import type { WorkUnitData } from '../workunit/workunit.service.js';
 
 export type { DistillRun } from './distill-runs.js';
@@ -435,7 +436,7 @@ export class DistillService {
       }
       return { status: 'executed', data: { productIds } };
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = getErrorMessage(err);
       logger.warn('[Distill] run failed (materials not consumed)', { proposalId, error: message });
       const run = this.buildRun(proposal, 'failed', [], { error: message });
       await this.runsStore.appendRun(run);

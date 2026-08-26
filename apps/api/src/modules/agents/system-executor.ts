@@ -17,6 +17,7 @@ import { FileStore, logger } from '@dommaker/studio-shared';
 import { execSh, resolveProviderDefinition, buildArgsFromTemplate } from '@dommaker/studio-shared/node';
 import { STUDIO_ROLE_NAME } from './agent-profile.service.js';
 import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
+import { getErrorMessage } from '../../utils/errors.js';
 
 export interface SystemExecutorOptions {
   /** 系统提示词（注入 CLI prompt 的 system 部分，通过 stdin prefix） */
@@ -54,7 +55,7 @@ export class StudioRoleNotConfiguredError extends Error {
 
 export class SystemExecutorJsonParseError extends Error {
   constructor(public readonly rawOutput: string, cause: unknown) {
-    super(`systemExecutor JSON parse failed: ${cause instanceof Error ? cause.message : String(cause)}`);
+    super(`systemExecutor JSON parse failed: ${getErrorMessage(cause)}`);
     this.name = 'SystemExecutorJsonParseError';
   }
 }

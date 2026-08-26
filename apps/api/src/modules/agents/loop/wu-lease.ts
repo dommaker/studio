@@ -12,6 +12,7 @@
 import { logger, type FileStore } from '@dommaker/studio-shared';
 import type { WorkUnitData } from '../../workunit/workunit.service.js';
 import { startLeaseHeartbeat } from './lease-heartbeat.js';
+import { getErrorMessage } from '../../../utils/errors.js';
 
 export interface WuLeaseDeps {
   fileStore: FileStore;
@@ -90,7 +91,7 @@ export class WuLeaseTracker {
       try {
         await this.deps.stopProcessGroup(executionId);
       } catch (err) {
-        logger.warn(`[WuLease] stopProcessGroup failed (non-blocking): ${err instanceof Error ? err.message : String(err)}`);
+        logger.warn(`[WuLease] stopProcessGroup failed (non-blocking): ${getErrorMessage(err)}`);
       }
     }
   }

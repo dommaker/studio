@@ -3,7 +3,7 @@ import { Router, Request, Response } from 'express';
 import { AuditService, AuditActions, AuditResources } from '@dommaker/studio-audit';
 import { logger } from '../../utils/logger.js';
 import { FileStore } from '@dommaker/studio-shared';
-import { formatPaginatedResponse } from '../../utils/pagination.js';
+import { parsePagination, formatPaginatedResponse } from '../../utils/pagination.js';
 import { createLazyService } from '../../utils/services.js';
 
 const router = Router();
@@ -26,12 +26,14 @@ const getAuditService = createLazyService(() => new AuditService(new FileStore()
  * - startTime: 开始时间 (ISO 8601)
  * - endTime: 结束时间 (ISO 8601)
  * - page: 页码 (default: 1)
- * - limit: 每页数量 (default: 50)
+ * - limit: 每页数量 (default: 20, max: 100) — #359 起统一走 parsePagination clamp
  */
 router.get('/', async (req: Request, res: Response) => {
   try {
     const service = getAuditService();
-    
+    // #359：统一 parsePagination（clamp 1..100），堵 limit=999999 直通豁口；缺省 50→20
+    const { page, limit } = parsePagination(req);
+
     const query = {
       userId: req.query.userId as string,
       roleId: req.query.roleId as string,
@@ -43,8 +45,8 @@ router.get('/', async (req: Request, res: Response) => {
       anonymousId: req.query.anonymousId as string,  // 🆕 SEC-009
       startTime: req.query.startTime ? new Date(req.query.startTime as string) : undefined,
       endTime: req.query.endTime ? new Date(req.query.endTime as string) : undefined,
-      page: req.query.page ? parseInt(req.query.page as string) : 1,
-      limit: req.query.limit ? parseInt(req.query.limit as string) : 50,
+      page,
+      limit,
     };
 
     const result = await service.query(query);

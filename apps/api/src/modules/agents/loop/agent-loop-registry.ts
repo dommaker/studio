@@ -6,6 +6,7 @@
 
 import { eventBus, logger, FileStore, type AgentProfileData } from '@dommaker/studio-shared';
 import { AgentLoop } from './agent-loop.js';
+import { getErrorMessage } from '../../../utils/errors.js';
 
 export interface MountedLoop {
   profileId: string;
@@ -50,7 +51,7 @@ export class AgentLoopRegistry {
         // start() 已把失败原因写入 runtime state（F2），这里只在 registry 标记
         : { profileId: profile.id, loop, status: 'failed', error: 'startup failed (see runtime state lastError)' };
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = getErrorMessage(err);
       logger.error(`[AgentLoopRegistry] Mount failed for ${profile.name}: ${message}`);
       entry = { profileId: profile.id, loop, status: 'failed', error: message };
     }
@@ -70,7 +71,7 @@ export class AgentLoopRegistry {
     try {
       entry.loop?.stop();
     } catch (err) {
-      logger.warn(`[AgentLoopRegistry] Stop failed for ${profileId}: ${err instanceof Error ? err.message : String(err)}`);
+      logger.warn(`[AgentLoopRegistry] Stop failed for ${profileId}: ${getErrorMessage(err)}`);
     }
     this.loops.delete(profileId);
     logger.info(`[AgentLoopRegistry] Unmounted loop for profile ${profileId}`);
@@ -99,7 +100,7 @@ export class AgentLoopRegistry {
     eventBus.subscribe('agent-profile.created', (payload: { profile: AgentProfileData }) => {
       if (payload?.profile?.status === 'active') {
         this.mount(payload.profile).catch(err =>
-          logger.warn(`[AgentLoopRegistry] Auto-mount failed: ${err instanceof Error ? err.message : String(err)}`));
+          logger.warn(`[AgentLoopRegistry] Auto-mount failed: ${getErrorMessage(err)}`));
       }
     });
 
@@ -108,7 +109,7 @@ export class AgentLoopRegistry {
       if (!profile) return;
       if (profile.status === 'active' && payload.previousStatus !== 'active') {
         this.mount(profile).catch(err =>
-          logger.warn(`[AgentLoopRegistry] Auto-mount failed: ${err instanceof Error ? err.message : String(err)}`));
+          logger.warn(`[AgentLoopRegistry] Auto-mount failed: ${getErrorMessage(err)}`));
       } else if (profile.status !== 'active' && payload.previousStatus === 'active') {
         this.unmount(profile.id);
       }

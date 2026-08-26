@@ -25,6 +25,7 @@ import { RequirementService } from '../requirements/requirement.service.js';
 import { selectProjectSnapshots, summarizeEvidence, partitionSnapshotsByLeg, type EvidenceSummary } from './evidence-summary.js';
 import { sumTokensForWorkUnits } from '../agents/token-usage.service.js';
 import { parseWuMetadata } from '../workunit/wu-metadata.js';
+import { getErrorMessage } from '../../utils/errors.js';
 
 const GIT_OP_TIMEOUT_MS = 15_000;
 const MERGE_TIMEOUT_MS = 60_000;
@@ -262,7 +263,7 @@ async function mergeBranchIntoDefault(repo: string, branch: string, message: str
     const { stdout } = await execSh(`git -C ${shq(repo)} rev-parse --abbrev-ref HEAD`, { cwd: repo, timeoutMs: GIT_OP_TIMEOUT_MS });
     currentBranch = stdout.trim();
   } catch (err) {
-    return { ok: false, reason: 'no-repo', detail: `git 仓库不可用: ${err instanceof Error ? err.message : String(err)}` };
+    return { ok: false, reason: 'no-repo', detail: `git 仓库不可用: ${getErrorMessage(err)}` };
   }
   // 交付目标 = 默认分支探测（origin/HEAD → main → master），与 worktree 机器同口径
   const { getDefaultBranch } = await import('@dommaker/studio-agent');

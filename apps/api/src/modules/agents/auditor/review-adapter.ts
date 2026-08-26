@@ -28,6 +28,7 @@ import {
 import { submitProposal } from '../../review-proposal/service.js';
 import type { ReviewProposalBase, ReviewProposalRecord } from '../../review-proposal/store.js';
 import { parseMessageMeta } from '../../../utils/message-meta.js';
+import { getErrorMessage } from '../../../utils/errors.js';
 import type { Suggestion } from './auditor-rules.js';
 
 /** 审核闭环：提案卡投放的目标频道（同旧 pushConfirmationCards / 正本 card.ts 口径） */
@@ -110,7 +111,7 @@ async function executeAuditorApproval(
     });
     return { status: 'executed', data: { workUnitId: workUnit.id } };
   } catch (e) {
-    return { status: 'failed', error: e instanceof Error ? e.message : String(e) };
+    return { status: 'failed', error: getErrorMessage(e) };
   }
 }
 

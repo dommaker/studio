@@ -18,6 +18,7 @@ import fs from 'node:fs';
 import * as path from 'node:path';
 import { FileStore, logger } from '@dommaker/studio-shared';
 import { postReviewProposalCard } from '../review-proposal/card.js';
+import { getErrorMessage } from '../../utils/errors.js';
 import {
   getReviewProposalAdapter,
   registerReviewProposalAdapter,
@@ -185,7 +186,7 @@ export function registerMemoryReviewAdapter(deps?: {
         const result = await roleMemoryStore.promote(p.roleId, [p.id]);
         return { status: 'executed', data: { promoted: result.promoted, topicsUpdated: result.topicsUpdated } };
       } catch (e) {
-        return { status: 'failed', error: e instanceof Error ? e.message : String(e) };
+        return { status: 'failed', error: getErrorMessage(e) };
       }
     },
     onReject: async p => {

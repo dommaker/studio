@@ -13,6 +13,7 @@ import { ProjectDiscoveryService } from '../projects/project-discovery.service.j
 import { getWorkspaceRecord } from '../workspaces/workspace-store.js';
 import { getChannelFileVocabulary } from './file-ref-vocabulary.js';
 import { deriveChannelCurrentPmo } from './current-pmo.js';
+import { getErrorMessage } from '../../utils/errors.js';
 
 const router = Router();
 const fileStore = new FileStore();
@@ -159,7 +160,7 @@ router.get('/:id/file-vocabulary', async (req, res) => {
     const vocabulary = await getChannelFileVocabulary(req.params.id);
     res.json({ success: true, data: vocabulary });
   } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e);
+    const msg = getErrorMessage(e);
     logger.warn('[Channel] file vocabulary failed', { channelId: req.params.id, error: msg });
     res.status(500).json({ success: false, error: msg });
   }
@@ -304,7 +305,7 @@ router.patch('/:id', requireAuth(), requireNotGuest(), async (req, res) => {
     if (!updated) return res.status(404).json({ success: false, error: 'Channel not found' });
     res.json({ success: true, data: updated });
   } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e);
+    const msg = getErrorMessage(e);
     if (msg.includes('not found')) {
       return res.status(404).json({ success: false, error: 'Channel not found' });
     }
@@ -319,7 +320,7 @@ router.patch('/:id/members', requireAuth(), requireNotGuest(), async (req, res) 
     const members = await updateChannelMembers(req.params.id, { add, remove });
     res.json({ success: true, data: { members } });
   } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e);
+    const msg = getErrorMessage(e);
     if (msg.includes('not found')) {
       return res.status(404).json({ success: false, error: msg });
     }
@@ -340,7 +341,7 @@ router.post('/:id/chore-pmo', requireAuth(), requireNotGuest(), async (req, res)
     const project = await projectService.ensureChoreProject(channel.id, channel.name);
     res.status(201).json({ success: true, data: project });
   } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e);
+    const msg = getErrorMessage(e);
     logger.warn('[Channel] ensure chore PMO failed', { channelId: req.params.id, error: msg });
     res.status(500).json({ success: false, error: msg });
   }
@@ -362,7 +363,7 @@ router.post('/:id/messages/:messageId/convert-to-task', requireAuth(), requireNo
     });
     res.status(201).json({ success: true, data: workUnit });
   } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e);
+    const msg = getErrorMessage(e);
     if (msg.includes('not found')) {
       return res.status(404).json({ success: false, error: msg });
     }

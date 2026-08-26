@@ -15,6 +15,7 @@
 
 import { eventBus, logger, FileStore } from '@dommaker/studio-shared';
 import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
+import { getErrorMessage } from '../../utils/errors.js';
 import { WorkUnitService, type WorkUnitData } from '../workunit/workunit.service.js';
 import { parseWuMetadata } from '../workunit/wu-metadata.js';
 import { readTranscript, type TranscriptEntry } from '../transcripts/transcript-archive.js';
@@ -254,7 +255,7 @@ export class WuCompletionExtractor {
       logger.warn('[WuCompletionExtractor] extraction failed (non-blocking)', { wuId: wu.id, roleId, error: String(err) });
       await this.emitEvent({
         outcome: 'failed',
-        reason: err instanceof Error ? err.message : String(err),
+        reason: getErrorMessage(err),
         workUnitId: wu.id,
         roleId,
         durationMs: Date.now() - startMs,
