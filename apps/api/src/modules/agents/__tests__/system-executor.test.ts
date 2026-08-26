@@ -96,6 +96,24 @@ describe('SystemExecutor', () => {
       expect(result.output).toBe('plain text output');
       expect(result.usage).toBeUndefined();
     });
+
+    it('stream-json 数组输出时从末位 result 事件提取 usage（#364）', async () => {
+      await ensureStudioProfile(fileStore);
+      const profiles = await fileStore.listProfiles();
+      const studio = profiles.find(p => p.name === 'studio')!;
+      await fileStore.updateProfile(studio.id, { provider: 'claude' });
+
+      mockExecSh.mockResolvedValue({
+        stdout: JSON.stringify([
+          { type: 'system', subtype: 'init', session_id: 'x' },
+          { type: 'result', subtype: 'success', is_error: false, result: '{}', usage: { input_tokens: 10, output_tokens: 5 } },
+        ]),
+        stderr: '',
+      });
+
+      const result = await executor.run('test');
+      expect(result.usage).toEqual({ inputTokens: 10, outputTokens: 5 });
+    });
   });
 
   describe('AC-1.8 runJson<T>()', () => {
@@ -111,6 +129,59 @@ describe('SystemExecutor', () => {
       const result = await executor.runJson<{ duplicates: unknown[] }>('dedup prompt');
       expect(result.duplicates).toHaveLength(1);
       expect((result.duplicates[0] as { keep: string }).keep).toBe('id1');
+    });
+
+    it('claude --output-format json --verbose 输出为 stream-json 数组时，取末位 result 事件的 .result 解析', async () => {
+      await ensureStudioProfile(fileStore);
+      const profiles = await fileStore.listProfiles();
+      const studio = profiles.find(p => p.name === 'studio')!;
+      await fileStore.updateProfile(studio.id, { provider: 'claude' });
+
+      // 真实捕获形态（/tmp/e2e-351/claude-probe.json）：单行 JSON 数组，
+      // 模型产出藏在末位 type=result 事件的 .result 字符串里
+      const modelJson = JSON.stringify({ products: [{ title: 'P1' }] });
+      mockExecSh.mockResolvedValue({
+        stdout: JSON.stringify([
+          { type: 'system', subtype: 'init', session_id: 'x' },
+          { type: 'assistant', message: { content: [{ type: 'text', text: modelJson }] } },
+          { type: 'result', subtype: 'success', is_error: false, result: modelJson, usage: { input_tokens: 10, output_tokens: 5 } },
+        ]),
+        stderr: '',
+      });
+
+      const result = await executor.runJson<{ products: unknown[] }>('distill prompt');
+      expect(result.products).toHaveLength(1);
+    });
+
+    it('单 result envelope 形态（claude 无 --verbose）同样解包 .result', async () => {
+      await ensureStudioProfile(fileStore);
+      const profiles = await fileStore.listProfiles();
+      const studio = profiles.find(p => p.name === 'studio')!;
+      await fileStore.updateProfile(studio.id, { provider: 'claude' });
+
+      // 真实捕获形态（/tmp/e2e-351/claude-probe4.json）：{type:"result", result:"<json>", usage:{…}}
+      const modelJson = JSON.stringify({ products: [] });
+      mockExecSh.mockResolvedValue({
+        stdout: JSON.stringify({ type: 'result', subtype: 'success', is_error: false, result: modelJson, usage: { input_tokens: 118, output_tokens: 47 } }),
+        stderr: '',
+      });
+
+      const result = await executor.runJson<{ products: unknown[] }>('distill prompt');
+      expect(result.products).toEqual([]);
+    });
+
+    it('stream-json 数组中无 result 事件时抛 SystemExecutorJsonParseError', async () => {
+      await ensureStudioProfile(fileStore);
+      const profiles = await fileStore.listProfiles();
+      const studio = profiles.find(p => p.name === 'studio')!;
+      await fileStore.updateProfile(studio.id, { provider: 'claude' });
+
+      mockExecSh.mockResolvedValue({
+        stdout: JSON.stringify([{ type: 'system', subtype: 'init', session_id: 'x' }]),
+        stderr: '',
+      });
+
+      await expect(executor.runJson('prompt')).rejects.toBeInstanceOf(SystemExecutorJsonParseError);
     });
 
     it('JSON parse 失败抛 SystemExecutorJsonParseError（含 rawOutput）', async () => {
