@@ -21,3 +21,4 @@
 - monitor 常态轮预置跳过日级子项；日级窗口（dailyReflection/dataLifecycle/knowledge decay）单列 label 补测，窗口条件强制（状态重置 / Date 冻结到 23:55），只测 1x/50x。
 - ops-round 依赖本地 stub HTTP（端口 39100+scale）让 `apiResponding=true`，避开自动重启/退出分支。
 - 只读引用 `~/.studio`，合成与驱动全部落在 tmp；跑完 tmp 根保留路径打印，手工清理。
+- #363（2026-08-26）：worker 驱动循环前跑一次 `fileStore.sweepEmptyAgentDirs()`——模拟 API 启动时的一次性存量清扫；合成数据集继承模板的历史空实例目录，不先清扫测不出目录闭环的读口收益（生产同路径在 apps/api index.ts 启动段）。
