@@ -6,7 +6,7 @@
 
 GC 候选清单：蒸馏运行后按周期计龄--reference/context 层连续 3 周期 `lastReferenced` 未更新 -> `gc_proposal` 卡；approve -> archived（可恢复）；reject -> 不再提案。manual 过审享 3 周期豁免；主区 >200 强制。不读墙钟。
 
-产物三分落地：蒸馏 LLM 产出自带类型分类--skill -> skills 库提案；constraint -> `constraint-drafts.jsonl`（status=pending）；preference/execution-knowledge -> 角色记忆草稿。缺/未知类型或落地失败 -> 回落知识库条目。产物都带原料指针。
+产物三分落地：蒸馏 LLM 产出自带类型分类--skill -> skills 库提案（#354 起经 review-proposal 正本 submitSkillProposal，kind='skill'）；constraint -> `constraint-drafts.jsonl`（status=pending）；preference/execution-knowledge -> 角色记忆草稿。缺/未知类型或落地失败 -> 回落知识库条目。产物都带原料指针。
 
 存量约束审计：蒸馏产出新约束 -> 审计 custom 约束，白名单闸门（target-gone / reintroduction-sealed）-> `constraint_audit_proposal` 卡；approve -> retire（复用 applier `retireConstraintEntry`，原文保留可恢复）；reject -> 零副作用。不阻塞蒸馏。
 
