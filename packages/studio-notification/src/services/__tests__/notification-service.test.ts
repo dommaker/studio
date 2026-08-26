@@ -210,6 +210,35 @@ describe('NotificationService', () => {
       expect(result[0].read).toBe(true);
       expect(result[0].readAt!.toISOString()).toBe('2026-01-01T01:00:00.000Z');
     });
+
+    // #360 特征测试：钉住边界语义，fold 收敛（3 份 -> 1 份）与共享 fold 接线前后行为不变
+    it('多次追加 tombstone 时 readAt 取首个墓碑（重复 markAllAsRead 场景）', async () => {
+      const rows = [
+        { id: 'n1', userId: 'user-1', type: 'system', title: 'N1', content: 'C1', createdAt: '2026-01-01T00:00:00.000Z' },
+        { id: 'n1', deleted: true, deletedAt: '2026-01-01T01:00:00.000Z' },
+        { id: 'n1', deleted: true, deletedAt: '2026-01-01T05:00:00.000Z' },
+      ];
+      fs.writeFileSync(jsonlPath, rows.map(r => JSON.stringify(r)).join('\n') + '\n');
+
+      const result = await service.getUserNotifications('user-1');
+
+      expect(result.length).toBe(1);
+      expect(result[0].read).toBe(true);
+      // 首个 tombstone = 用户实际首次已读时刻
+      expect(result[0].readAt!.toISOString()).toBe('2026-01-01T01:00:00.000Z');
+    });
+
+    it('孤儿 tombstone（无数据行）的通知不可见', async () => {
+      const rows = [
+        { id: 'n1', deleted: true, deletedAt: '2026-01-01T01:00:00.000Z' },
+        { id: 'n2', userId: 'user-1', type: 'system', title: 'N2', content: 'C2', createdAt: '2026-01-02T00:00:00.000Z' },
+      ];
+      fs.writeFileSync(jsonlPath, rows.map(r => JSON.stringify(r)).join('\n') + '\n');
+
+      const result = await service.getUserNotifications('user-1');
+      expect(result.length).toBe(1);
+      expect(result[0].id).toBe('n2');
+    });
   });
 
   // ============================================
