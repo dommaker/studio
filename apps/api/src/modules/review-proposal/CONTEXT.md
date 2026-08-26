@@ -11,7 +11,7 @@ JSONL + 状态墓碑折叠）、发卡（含 #系统频道解析与 card-failed 
 
 ### 核心导出
 
-- `store.ts` -- `ReviewProposalStore<P>`：append-only JSONL 提案行 + 墓碑折叠（`ReviewProposalRecord<P>`）
+- `store.ts` -- `ReviewProposalStore<P>`：append-only JSONL 提案行 + 墓碑折叠（`ReviewProposalRecord<P>`；#360 起分组折叠走共享 `foldJsonlById`，「末个状态行 = 最新状态」语义留本模块 adapter）
 - `card.ts` -- `postReviewProposalCard`：#系统 频道解析 + 发卡；失败静默 false 不抛
 - `registry.ts` -- adapter 注册表：`registerReviewProposalAdapter` / `getReviewProposalAdapter` / `ApproveOutcome`（config.store 可选注入自定义存取——仅供 #353 per-role draft.jsonl 存储形态例外，缺省正本物化单文件）
 - `service.ts` -- 生命周期：`submitProposal`（建卡+card-failed 降级）/ `approveProposal` / `rejectProposal` / `getProposalStatus`

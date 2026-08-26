@@ -14,7 +14,7 @@
 | `readIndex` / `readTopic` | `role-memory.ts` | 读索引/读 topic；不存在返回 `''`/`null` |
 | `appendDraft` | `role-memory.ts` | 追加草稿（JSONL）；kind 白名单；review 档位 auto/manual；可选 `sourceRefs` |
 | `readDraft` | `role-memory.ts` | 读 pending 草稿（foldDraftRows 折叠后只留 pending） |
-| `foldDraftRows` / `isDraftStatusRow` | `role-memory.ts` | draft.jsonl 行折叠（读侧归一，ADR 决策 3）：旧 promoted→executed；`kind:'status'` 状态行直取 |
+| `foldDraftRows` / `isDraftStatusRow` | `role-memory.ts` | draft.jsonl 行折叠（读侧归一，ADR 决策 3）：旧 promoted→executed；`kind:'status'` 状态行直取；#360 起分组折叠走共享 `foldJsonlById`，旗标/状态行取舍口径留本模块 adapter |
 | `promote` | `role-memory.ts` | 草稿 -> topic/索引 唯一合并路径 + per-role 互斥；merge 幂等 |
 | `demote` | `role-memory.ts` | 拒绝草稿：追加 rejected 墓碑行 |
 | `checkCapacity` | `role-memory.ts` | 容量检查：超限 -> 结构化提醒（不拒绝写入） |

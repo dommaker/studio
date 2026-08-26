@@ -35,6 +35,9 @@ function rowRank(row: IncidentRow): number {
 /**
  * 按 id 归并（last-wins by rank）：rank 大者胜，并列时后出现的行胜出。
  * 无 id 的行跳过。返回 id → 最新行的映射。
+ *
+ * #360 注记：不接线共享 foldJsonlById——本处是 rank 口径（updatedAt 决胜，
+ * 防 #255 轮转行复活），foldJsonlById 是行序口径，塞入会丢防复活保证。
  */
 export function foldIncidentRows<T extends IncidentRow>(rows: T[]): Map<string, T> {
   const byId = new Map<string, T>();
