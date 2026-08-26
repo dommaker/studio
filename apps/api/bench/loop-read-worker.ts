@@ -119,7 +119,9 @@ async function main(): Promise<void> {
   (ops as any)._lastGc = Date.now(); // worktree GC 为小时级，同非常态轮
 
   const auditor = new AuditorService(fileStore);
-  const evolutionPaths = resolveEvolutionPaths({ repoRoot: fs.mkdtempSync(path.join(os.tmpdir(), 'bench-repo-')) });
+  const benchRepo = fs.mkdtempSync(path.join(os.tmpdir(), 'bench-repo-'));
+  process.on('exit', () => fs.rmSync(benchRepo, { recursive: true, force: true }));
+  const evolutionPaths = resolveEvolutionPaths({ repoRoot: benchRepo });
 
   const loops: Array<{ label: string; run: () => Promise<unknown> }> = [
     { label: 'wu-timeout', run: () => scanTimedOutWorkUnits(fileStore) },

@@ -6,12 +6,17 @@
  *
  * 机制（与 setup-isolated-data 的 studio-test-data- 清理同款，泛化到全部前缀）：
  * 1) patch fs.mkdtempSync--本进程创建的临时目录全部进注册表，afterAll 统一 rmSync。
- *    vitest 模块系统下对 default/namespace 两种 import 风格均可见（probe 验证过）。
  *    注意不能用 process.on('exit')：vitest forks worker 被 pool 直接 kill，exit 事件
  *    不触发（probe 验证）--2026-08-25 版清理因此从未生效。afterAll 在 setupFiles
  *    里注册 = 文件级钩子，每个测试文件跑完清理自己进程注册的目录。
+ *
+ *    已知盲区（2026-08-26 probe 实证）：测试文件 `import * as fs` 拿 vite-node
+ *    外置的原生冻结命名空间，调用不走被补丁的 CJS 默认导出对象 → 登记不到。
+ *    此类文件必须自带显式 afterEach/afterAll rmSync（prompt-composer / skills 系列
+ *    等已按此修复）。补丁只覆盖 `import fs from 'node:fs'` 默认导入风格。
  * 2) sweepStaleMkdtempDirs--清扫 tmpdir 里超龄且符合 mkdtemp 签名（前缀-6 位随机后缀）
- *    的目录，兜底 worker 被 kill / Ctrl-C 等 afterAll 没跑的场景。靠下一个测试进程收敛。
+ *    的目录，兜底 worker 被 kill / Ctrl-C / 上述盲区等 afterAll 没清掉的场景。
+ *    靠下一个测试进程收敛。
  *
  * 签名正则只匹配「小写字母数字连字符前缀 + 恰好 6 位大小写字母数字后缀」：
  * chrome crashpad（org.chromium.Chromium.XXXX，含点）、qoder-*-cwd（3 位后缀）、
@@ -38,15 +43,20 @@ export function patchMktempCleanup(): void {
   }) as typeof fs.mkdtempSync;
 
   afterAll(() => {
-    for (const dir of registeredDirs) {
-      try {
-        fs.rmSync(dir, { recursive: true, force: true });
-      } catch {
-        // 清理失败不阻断测试
-      }
-    }
-    registeredDirs.clear();
+    flushRegisteredDirs();
   });
+}
+
+/** 删除并清空注册表里的全部目录。afterAll 委托此函数；测试可直接调用验证机制。 */
+export function flushRegisteredDirs(): void {
+  for (const dir of registeredDirs) {
+    try {
+      fs.rmSync(dir, { recursive: true, force: true });
+    } catch {
+      // 清理失败不阻断测试
+    }
+  }
+  registeredDirs.clear();
 }
 
 export function isRegisteredTmpDir(dir: string): boolean {
