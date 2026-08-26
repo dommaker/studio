@@ -8,11 +8,10 @@
  * Migrated from Prisma Skill/SkillProposal to file-based stores (D-005).
  */
 import { logger, recordDecision, FileStore } from '@dommaker/studio-shared';
-import { studioPath } from '@dommaker/studio-shared/studio-dir';
+import { randomUUID } from 'crypto';
 import { getSystemExecutor } from '../agents/system-executor.js';
-import * as path from 'path';
 import { skillStore } from './skill-store.js';
-import { proposalStore } from './proposal-store.js';
+import { getSkillReviewAdapter, submitSkillProposal } from './review-adapter.js';
 import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
 
 const STUDIO_EVENTS_JSONL = resolveStudioLogFile('studio-events.jsonl');
@@ -149,17 +148,37 @@ export class SkillExtractionService {
       metadata: JSON.stringify({ pattern: proposal.pattern, sourceGoalIds: proposal.sourceGoalIds, confidence }),
     });
 
-    const spStatus = autoPublish ? 'approved' : 'pending';
     const spSummary = autoPublish
       ? `Auto-published (confidence: ${confidence.toFixed(2)} >= 0.8)`
       : `Pending review (confidence: ${confidence.toFixed(2)} < 0.8)`;
 
-    const sp = proposalStore.create({
+    // #354：提案存取/发卡归 review-proposal 正本（kind='skill'，skill-proposals.jsonl）。
+    // autoPublish 无人工审批：提案行直接落 executed 终态（append-only，先 pending 后墓碑）。
+    const proposalBase = {
       skillId: skill.id,
-      status: spStatus,
+      name: proposal.name,
+      description: proposal.description,
+      category: proposal.category,
+      confidence,
+      sourceGoalIds: proposal.sourceGoalIds,
       proposedBy: 'system',
       summary: spSummary,
-    });
+    };
+    let proposalId: string;
+    if (autoPublish) {
+      proposalId = randomUUID();
+      const adapter = getSkillReviewAdapter();
+      await adapter.store.appendProposal({ ...proposalBase, id: proposalId, createdAt: new Date().toISOString() });
+      await adapter.store.appendStatus(proposalId, 'executed');
+    } else {
+      const submitted = await submitSkillProposal(proposalBase);
+      proposalId = submitted.proposalId;
+      if (!submitted.posted) {
+        logger.warn('[SkillExtraction] skill_review_request card not posted; proposal marked card-failed', {
+          proposalId, name: proposal.name,
+        });
+      }
+    }
 
     // S3 Gap 3c: emit skill_created for knowledge_skill_created metric
     fileStore.appendJsonl(STUDIO_EVENTS_JSONL, {
@@ -202,79 +221,20 @@ export class SkillExtractionService {
         logger.warn('[SkillExtraction] Audit recording failed (non-blocking)', { error: String(e) });
       }
     } else {
-      // pending proposal → push notification to #system channel
-      try {
-        const { channelMessageService } = await import('../channels/channel-message.service.js');
-        await channelMessageService.createCardMessage(
-          'system',
-          'knowledge_keeper',
-          `Skill pending review: **${proposal.name}**\nDescription: ${proposal.description}\nCategory: ${proposal.category}\nConfidence: ${(confidence * 100).toFixed(0)}%\nSource Goal: ${proposal.sourceGoalIds.join(', ')}`,
-          'skill_review_request',
-          { proposalId: sp.id, skillId: skill.id },
-        );
-        logger.info('[SkillExtraction] Pending review notification sent', { proposalId: sp.id, name: proposal.name });
-      } catch (e) {
-        logger.warn('[SkillExtraction] Pending notification failed (non-blocking)', { error: String(e) });
-      }
+      logger.info('[SkillExtraction] Pending review proposal submitted', { proposalId, name: proposal.name });
     }
 
-    return { skillId: skill.id, proposalId: sp.id, autoPublished: autoPublish };
+    return { skillId: skill.id, proposalId, autoPublished: autoPublish };
   }
 
-  async reviewProposal(proposalId: string, approved: boolean): Promise<boolean> {
-    const p = proposalStore.get(proposalId);
-    if (!p || p.status !== 'pending') return false;
-
-    proposalStore.update(proposalId, {
-      status: approved ? 'approved' : 'rejected',
-      reviewedAt: new Date().toISOString(),
-    });
-
-    if (approved) {
-      const skill = skillStore.get(p.skillId);
-      skillStore.update(p.skillId, { status: 'draft' });
-
-      // Generate SKILL.md file
-      try {
-        const fs = await import('fs');
-        const path = await import('path');
-        const os = await import('os');
-        const skillName = skill?.name || p.skillId;
-        const metadata = skill?.metadata ? JSON.parse(skill.metadata) : {};
-        const skillsDir = process.env.SKILLS_DIR || studioPath('skills');
-        const skillDir = path.join(skillsDir, skillName);
-        const skillFile = path.join(skillDir, 'SKILL.md');
-        if (fs.existsSync(skillFile)) {
-          logger.info('[SkillExtraction] SKILL.md already exists, skipping', { skillName, path: skillFile });
-          return true;
-        }
-        fs.mkdirSync(skillDir, { recursive: true });
-
-        const pattern = metadata.pattern || `Skill: ${skillName}\n\nTBD -- manual refinement needed.`;
-        const frontmatter = [
-          '---',
-          `name: '${skillName}'`,
-          'version: 1',
-          `agentTypes: ['executor']`,
-          `status: 'draft'`,
-          '---',
-        ].join('\n');
-        const content = `${frontmatter}\n\n${pattern}`;
-        fs.writeFileSync(path.join(skillDir, 'SKILL.md'), content, 'utf-8');
-        logger.info('[SkillExtraction] SKILL.md generated', { skillName, path: skillDir });
-      } catch (e) {
-        logger.warn('[SkillExtraction] SKILL.md generation failed (non-blocking)', { error: String(e) });
-      }
-
-    }
-    return true;
-  }
+  // 审批生命周期（reviewProposal）已删除：approve/reject 走 review-proposal 正本通用端点
+  // /api/v1/review-proposals/skill/:id/{approve,reject,status}（#354，ADR 2026-08-25 决策 4）。
 
   async getPendingProposals(companyId: string) {
-    const pendingProposals = proposalStore.list(
-      { status: 'pending' },
-      { orderBy: { field: 'proposedAt', dir: 'desc' } },
-    );
+    const adapter = getSkillReviewAdapter();
+    const pendingProposals = (await adapter.store.listProposals())
+      .filter(p => p.status === 'pending')
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
     // Filter by companyId via skill lookup
     return pendingProposals

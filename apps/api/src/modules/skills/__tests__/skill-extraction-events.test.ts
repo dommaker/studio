@@ -6,7 +6,7 @@
  * - loadSkill succeeds → emits knowledge:skill_used { skillName }
  *
  * 迁移说明（studio-prisma 移除后）：事件通过 FileStore.appendJsonl 写入
- * ~/.studio/logs/studio-events.jsonl；skillStore/proposalStore 为文件存储，
+ * ~/.studio/logs/studio-events.jsonl；skillStore 为文件存储，
  * 此处 mock 掉以隔离真实 ~/.studio。
  */
 
@@ -17,10 +17,9 @@ import * as path from 'path';
 // Set SKILLS_DIR before skill-loader module loads
 process.env.SKILLS_DIR = path.join(os.tmpdir(), 'skill-events-test');
 
-const { mockAppendJsonl, mockSkillCreate, mockProposalCreate } = vi.hoisted(() => ({
+const { mockAppendJsonl, mockSkillCreate } = vi.hoisted(() => ({
   mockAppendJsonl: vi.fn().mockResolvedValue(undefined),
   mockSkillCreate: vi.fn(),
-  mockProposalCreate: vi.fn(),
 }));
 
 vi.mock('@dommaker/studio-shared', async (importOriginal) => {
@@ -38,13 +37,10 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => {
   };
 });
 
-// 文件存储隔离：skillStore / proposalStore 不写真实 ~/.studio
+// 文件存储隔离：skillStore 不写真实 ~/.studio（#354：提案存取归 review-proposal 正本，
+// autoPublish 路径的提案行/executed 墓碑经被 mock 的 FileStore.appendJsonl 落盘，无真实 I/O）
 vi.mock('../skill-store.js', () => ({
   skillStore: { create: mockSkillCreate },
-}));
-
-vi.mock('../proposal-store.js', () => ({
-  proposalStore: { create: mockProposalCreate },
 }));
 
 // Mock fs for skill-loader file-based loading
@@ -89,7 +85,6 @@ describe('Skill event emission', () => {
     vi.clearAllMocks();
     mockAppendJsonl.mockResolvedValue(undefined);
     mockSkillCreate.mockReturnValue({ id: 'skill-1', name: 'Test Skill' });
-    mockProposalCreate.mockReturnValue({ id: 'sp-1' });
   });
 
   test('saveProposal emits knowledge:skill_created', async () => {

@@ -21,7 +21,7 @@ JSONL + 状态墓碑折叠）、发卡（含 #系统频道解析与 card-failed 
 
 **上游**: `@dommaker/studio-shared`（FileStore/logger）、`channels/channel-message.service.ts`（发卡，动态 import）、`middleware/auth.js`
 
-**下游**: modules/distill（distill/GC/审计三 adapter，kind: distill/gc/audit）；role-memory（#353，kind: memory，自定义 store 落 per-role draft.jsonl，旧 promoted 读侧归一）；后续 skills/knowledge/auditor（#354–#356）
+**下游**: modules/distill（distill/GC/审计三 adapter，kind: distill/gc/audit）；role-memory（#353，kind: memory，自定义 store 落 per-role draft.jsonl，旧 promoted 读侧归一）；skills（#354，kind: skill，默认物化 skill-proposals.jsonl，onApprove 生成 SKILL.md）；后续 knowledge/auditor（#355–#356）
 
 ### 运行时约定
 

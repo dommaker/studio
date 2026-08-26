@@ -4,13 +4,13 @@
  * 覆盖（对应 #145 AC）：
  *   - normalize 类型解析：skill/constraint/preference/execution-knowledge 直通；
  *     缺类型 / 未知类型 / 约束缺 change → 回落 knowledge（#143 行为）
- *   - skill 类 → skills 库提案（skillStore draft + proposalStore pending + sourceReferences 指针）
+ *   - skill 类 → skills 库提案（skillStore draft + 正本 submitSkillProposal，sourceReferences 指针）
  *   - constraint 类 → constraint-drafts.jsonl 变更草案（add/override/retire + ymlSnippet），不改约束文件
  *   - preference/execution-knowledge 类 → 角色记忆草稿（studio 系统角色，sourceRefs 指针）+ memory_proposal 卡
  *   - 落地通道抛错 / 未接线 → 回落知识条目，产物不丢、原料照归档
  *
  * mock 点：getSystemExecutor（LLM seam）+ channelMessageService + submitMemoryProposal（#353 正本发卡接缝）
- * + skillStore/proposalStore（路径固定 ~/.studio，不可触真实数据区）；
+ * + submitSkillProposal（#354 正本发卡接缝）+ skillStore（路径固定 ~/.studio，不可触真实数据区）；
  * 约束落盘与角色记忆走真实实现（临时 dataDir / tmpdir 重定向）。
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -25,13 +25,13 @@ const {
   mockCreateCardMessage,
   mockSubmitMemory,
   mockSkillCreate,
-  mockProposalCreate,
+  mockSubmitSkill,
 } = vi.hoisted(() => ({
   mockRunJson: vi.fn(),
   mockCreateCardMessage: vi.fn(),
   mockSubmitMemory: vi.fn(),
   mockSkillCreate: vi.fn(),
-  mockProposalCreate: vi.fn(),
+  mockSubmitSkill: vi.fn(),
 }));
 
 vi.mock('../../agents/system-executor.js', () => ({
@@ -49,12 +49,15 @@ vi.mock('../../role-memory/review-adapter.js', async (importOriginal) => {
   return { ...actual, submitMemoryProposal: mockSubmitMemory };
 });
 
+// #354：skill 落地经 skills/review-adapter.submitSkillProposal（正本发卡；其行为级测试在 skills/review-adapter.test.ts，
+// 含 skill_review_request 卡文案/cardData 断言——本文件不再重复断言卡片）。
+vi.mock('../../skills/review-adapter.js', async (importOriginal) => {
+  const actual = await importOriginal() as Record<string, unknown>;
+  return { ...actual, submitSkillProposal: mockSubmitSkill };
+});
+
 vi.mock('../../skills/skill-store.js', () => ({
   skillStore: { create: mockSkillCreate },
-}));
-
-vi.mock('../../skills/proposal-store.js', () => ({
-  proposalStore: { create: mockProposalCreate },
 }));
 
 import {
@@ -147,7 +150,7 @@ beforeEach(async () => {
     return out;
   });
   mockSkillCreate.mockReturnValue({ id: 'skill-1' });
-  mockProposalCreate.mockReturnValue({ id: 'sp-1' });
+  mockSubmitSkill.mockResolvedValue({ proposalId: 'sp-1', posted: true });
 });
 
 afterEach(() => {
@@ -382,7 +385,7 @@ describe('memory 通道（真实 roleMemoryStore + mock 发卡）', () => {
 });
 
 describe('skill 通道（真实 createSkillLanding + mock store）', () => {
-  it('skill 产物 → skillStore draft + proposalStore pending（metadata 带原料指针）+ skill_review_request 卡', async () => {
+  it('skill 产物 → skillStore draft（metadata 带原料指针）+ 正本 submitSkillProposal（#354）', async () => {
     service = new DistillService({
       store, fileStore, dataDir, eventsFile,
       landings: { skill: createSkillLanding({ fileStore, companiesDir }) },
@@ -403,16 +406,15 @@ describe('skill 通道（真实 createSkillLanding + mock store）', () => {
     const meta = JSON.parse(skillInput.metadata);
     expect(meta.sourceReferences.sort()).toEqual(proposal.materialIds.slice().sort());
 
-    expect(mockProposalCreate).toHaveBeenCalledTimes(1);
-    const proposalInput = mockProposalCreate.mock.calls[0][0];
-    expect(proposalInput.skillId).toBe('skill-1');
-    expect(proposalInput.status).toBe('pending');
-    expect(proposalInput.metadata.sourceReferences.sort()).toEqual(proposal.materialIds.slice().sort());
-
-    // 沿用 skills 通道既有人审通知卡
-    const cardCalls = mockCreateCardMessage.mock.calls.filter(c => c[3] === 'skill_review_request');
-    expect(cardCalls).toHaveLength(1);
-    expect(cardCalls[0][4]).toEqual({ proposalId: 'sp-1', skillId: 'skill-1' });
+    // #354：提案存取/发卡归 review-proposal 正本——本用例断言 submit 入参，
+    // skill_review_request 卡文案/cardData 的行为断言在 skills/__tests__/review-adapter.test.ts
+    expect(mockSubmitSkill).toHaveBeenCalledTimes(1);
+    const submitInput = mockSubmitSkill.mock.calls[0][0];
+    expect(submitInput.skillId).toBe('skill-1');
+    expect(submitInput.name).toBe('迁移执行法');
+    expect(submitInput.description).toBe('Round 分解 → 转换 → 验证');
+    expect(submitInput.proposedBy).toBe('distill');
+    expect(submitInput.sourceGoalIds.sort()).toEqual(proposal.materialIds.slice().sort());
   });
 
   it('无可用公司 → 通道返回 null → 回落知识条目', async () => {
