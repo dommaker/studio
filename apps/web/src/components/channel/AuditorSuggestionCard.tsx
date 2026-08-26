@@ -1,7 +1,7 @@
 // Auditor suggestion card — B3-005
 // 2026-07 视觉重构（方向 A Mission Control）：mc-card 视觉重绘；交互语义零变更
 // #288（清单 P2 #20）：按钮一次性锁存——点击到状态回流窗口期禁用防连击，失败重武装可重试；
-// 成功后本地定终态（对齐 MemoryProposalCard 等五卡先例范式）。
+// 成功后本地定终态（对齐 ReviewProposalCard 等提案卡先例范式）。
 import { useState } from 'react';
 import type { ChannelMessage } from '../../api/channel';
 import type { CardMeta } from './ChannelMessageItem';

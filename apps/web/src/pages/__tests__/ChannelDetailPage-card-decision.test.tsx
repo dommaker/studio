@@ -50,9 +50,6 @@ vi.mock('../../components/channel/ChannelCurrentPmoChip', () => ({ ChannelCurren
 vi.mock('../../components/channel/ChannelInput', () => ({ ChannelInput: () => null }));
 // 其他卡片与本测试无关；AuditorSuggestionCard / KnowledgeConfirmCard 用真实组件（其 API 已 mock）
 vi.mock('../../components/channel/RequirementsDocCard', () => ({ RequirementsDocCard: () => null }));
-vi.mock('../../components/channel/KnowledgeProposalCard', () => ({ KnowledgeProposalCard: () => null }));
-vi.mock('../../components/channel/MemoryProposalCard', () => ({ MemoryProposalCard: () => null }));
-vi.mock('../../components/channel/DistillProposalCard', () => ({ DistillProposalCard: () => null }));
 vi.mock('../../components/channel/ConvertToTaskDialog', () => ({ ConvertToTaskDialog: () => null }));
 
 import { ChannelDetailPage } from '../ChannelDetailPage';

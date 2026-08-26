@@ -1,11 +1,10 @@
 // 频道卡片 action 路由 hook（#322 自 ChannelDetailPage handleAction 整块搬移 + interface 收口）：
 // 对外单一 dispatch(messageId, action) 入口，内部卡片 action 类型 → api 调用映射。
-// knowledge_proposal approve → /knowledge-service/promote（draft→verified，参与注入）；
-// reject → /knowledge-service/demote（draft→archived）。
-// memory_proposal approve → /role-memory/promote（草稿→topic/索引）；reject → /role-memory/demote。
-// distill_proposal approve → /review-proposals/distill/:id/approve（#351 通用端点，蒸馏运行）；reject → …/reject（零副作用）。
-// gc_proposal approve → /review-proposals/gc/:id/approve（#144 GC 候选归档）；reject → …/reject（零副作用）。
-// constraint_audit_proposal approve → /review-proposals/audit/:id/approve（#146 约束退役执行）；reject → …/reject（零副作用）。
+// #352（ADR 2026-08-25 决策 5）：5 段人审提案同构分支坍缩为参数化调用——PROPOSAL_ACTION_INDEX
+// 由 proposalCardConfigs 派生，config.exec(cardData, decision) 承载各域副作用：
+// distill/gc/audit 走 #351 通用端点 /review-proposals/:kind/:id/{approve,reject}；
+// memory → /role-memory/promote|demote；knowledge → /knowledge-service/promote|demote
+// （memory/knowledge 待 #353/#355 后端接线后切通用端点，届时只改配置条目）。
 // auditor_suggestion confirm/reject → POST /channels/:id/messages/:mid/card-decision（#278，采纳建未指派 task 工单；拒绝留痕）。
 // retract_confirm confirm/reject → POST /skills/:id/retract/decide（#278，confirm→deprecated / reject→published，卡片状态同步回写）。
 // 返回是否成功（卡片据此显示已审核状态）。
@@ -15,10 +14,8 @@
 import { useCallback, useRef } from 'react';
 import type { ChannelMessage } from '../api/channel';
 import { channelApi } from '../api/channel';
-import { knowledgeApi } from '../api/knowledge';
-import { memoryApi } from '../api/memory';
-import { distillApi } from '../api/distill';
 import { skillsApi } from '../api/skills';
+import { PROPOSAL_ACTION_INDEX } from '../components/channel/proposalCardConfigs';
 import { parseMeta } from '../utils/messageMeta';
 
 export interface UseChannelCardActionsOptions {
@@ -34,102 +31,19 @@ export function useChannelCardActions({ channelId, messages, refresh }: UseChann
 
   const dispatch = useCallback(async (messageId: string, action: string): Promise<boolean> => {
     if (action === 'converted') { refresh(); return true; }
-    // 卡片 meta 解析（三种提案卡共用；缺 cardData → null，各分支按缺数据返回 false）
+    // 卡片 meta 解析（提案卡与 retract 卡共用；缺 cardData → null，exec/分支按缺数据返回 false）
     // #264：meta 双型兼容——线上为 object，存量/夹具为 string
     const cardDataOf = (): Record<string, any> | null => {
       const msg = messagesRef.current.find(m => m.id === messageId);
       return parseMeta(msg?.meta).cardData ?? null;
     };
-    if (action === 'knowledge_proposal_approve' || action === 'knowledge_proposal_reject') {
-      const cardData = cardDataOf();
-      const entries = cardData?.entries;
-      const entryIds: string[] = Array.isArray(entries)
-        ? entries
-            .map((e: { id?: unknown }) => e?.id)
-            .filter((id: unknown): id is string => typeof id === 'string' && id.length > 0)
-        : [];
-      if (entryIds.length === 0) return false;
-      const review = action === 'knowledge_proposal_approve'
-        ? knowledgeApi.promote
-        : knowledgeApi.demote;
+    // #352：人审提案卡参数化分发（5 段同构分支坍缩）——action → config.exec(cardData, decision)；
+    // exec false（缺数据 / approve success=false 预算熔断等）→ 不 refresh 返回 false；异常归一为 false
+    const proposal = PROPOSAL_ACTION_INDEX[action];
+    if (proposal) {
       try {
-        await Promise.all(entryIds.map(entryId => review(entryId)));
-        refresh();
-        return true;
-      } catch {
-        return false;
-      }
-    }
-    if (action === 'memory_proposal_approve' || action === 'memory_proposal_reject') {
-      const cardData = cardDataOf();
-      const roleId = typeof cardData?.roleId === 'string' ? cardData.roleId : '';
-      const entries = cardData?.entries;
-      const entryIds: string[] = Array.isArray(entries)
-        ? entries
-            .map((e: { draftId?: unknown }) => e?.draftId)
-            .filter((id: unknown): id is string => typeof id === 'string' && id.length > 0)
-        : [];
-      if (!roleId || entryIds.length === 0) return false;
-      const review = action === 'memory_proposal_approve'
-        ? memoryApi.promote
-        : memoryApi.demote;
-      try {
-        await review(roleId, entryIds);
-        refresh();
-        return true;
-      } catch {
-        return false;
-      }
-    }
-    if (action === 'distill_proposal_approve' || action === 'distill_proposal_reject') {
-      // #143 蒸馏提案：approve → /review-proposals/distill/:id/approve（#351 通用端点）；reject → …/reject（零副作用）
-      const cardData = cardDataOf();
-      const proposalId = typeof cardData?.proposalId === 'string' ? cardData.proposalId : '';
-      if (!proposalId) return false;
-      try {
-        if (action === 'distill_proposal_approve') {
-          const { data } = await distillApi.approve(proposalId);
-          // 预算熔断（skipped）/ 执行失败 → 卡片保持待审（提案仍 pending，可重试）
-          if (!data?.success) return false;
-        } else {
-          await distillApi.reject(proposalId);
-        }
-        refresh();
-        return true;
-      } catch {
-        return false;
-      }
-    }
-    if (action === 'gc_proposal_approve' || action === 'gc_proposal_reject') {
-      // #144 GC 候选清单：approve → /review-proposals/gc/:id/approve（候选归档）；reject → …/reject（零副作用）
-      const cardData = cardDataOf();
-      const gcProposalId = typeof cardData?.gcProposalId === 'string' ? cardData.gcProposalId : '';
-      if (!gcProposalId) return false;
-      try {
-        if (action === 'gc_proposal_approve') {
-          const { data } = await distillApi.gcApprove(gcProposalId);
-          if (!data?.success) return false;
-        } else {
-          await distillApi.gcReject(gcProposalId);
-        }
-        refresh();
-        return true;
-      } catch {
-        return false;
-      }
-    }
-    if (action === 'constraint_audit_approve' || action === 'constraint_audit_reject') {
-      // #146 存量约束审计：approve → /review-proposals/audit/:id/approve（retire 执行，可回滚）；reject → …/reject（零副作用）
-      const cardData = cardDataOf();
-      const auditProposalId = typeof cardData?.auditProposalId === 'string' ? cardData.auditProposalId : '';
-      if (!auditProposalId) return false;
-      try {
-        if (action === 'constraint_audit_approve') {
-          const { data } = await distillApi.auditApprove(auditProposalId);
-          if (!data?.success) return false;
-        } else {
-          await distillApi.auditReject(auditProposalId);
-        }
+        const ok = await proposal.config.exec(cardDataOf(), proposal.decision);
+        if (!ok) return false;
         refresh();
         return true;
       } catch {

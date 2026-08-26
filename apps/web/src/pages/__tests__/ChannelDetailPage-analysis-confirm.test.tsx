@@ -51,9 +51,6 @@ vi.mock('../../components/channel/ChannelDefaultProjectSelect', () => ({ Channel
 vi.mock('../../components/channel/ChannelCurrentPmoChip', () => ({ ChannelCurrentPmoChip: () => null }));
 vi.mock('../../components/channel/ChannelInput', () => ({ ChannelInput: () => null }));
 vi.mock('../../components/channel/RequirementsDocCard', () => ({ RequirementsDocCard: () => null }));
-vi.mock('../../components/channel/KnowledgeProposalCard', () => ({ KnowledgeProposalCard: () => null }));
-vi.mock('../../components/channel/MemoryProposalCard', () => ({ MemoryProposalCard: () => null }));
-vi.mock('../../components/channel/DistillProposalCard', () => ({ DistillProposalCard: () => null }));
 vi.mock('../../components/channel/ConvertToTaskDialog', () => ({ ConvertToTaskDialog: () => null }));
 
 import { ChannelDetailPage } from '../ChannelDetailPage';
