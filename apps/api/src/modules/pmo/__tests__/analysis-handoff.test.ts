@@ -86,8 +86,10 @@ beforeEach(async () => {
   });
 });
 
-afterEach(() => {
+afterEach(async () => {
   eventBus.unsubscribeAll?.('workunit.status_changed');
+  // 等在途事件链落定再删目录：否则 fire-and-forget 处理器写回会重建已删目录（/tmp 复活竞态）
+  await handoff.waitForSettled();
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
