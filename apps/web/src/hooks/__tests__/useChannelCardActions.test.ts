@@ -5,15 +5,15 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook } from '@testing-library/react';
 
 const {
-  mockPromote, mockDemote,
+  mockKnApprove, mockKnReject,
   mockMemApprove, mockMemReject,
   mockDistillApprove, mockDistillReject,
   mockGcApprove, mockGcReject,
   mockAuditApprove, mockAuditReject,
   mockCardDecision, mockRetractDecide,
 } = vi.hoisted(() => ({
-  mockPromote: vi.fn(),
-  mockDemote: vi.fn(),
+  mockKnApprove: vi.fn(),
+  mockKnReject: vi.fn(),
   mockMemApprove: vi.fn(),
   mockMemReject: vi.fn(),
   mockDistillApprove: vi.fn(),
@@ -26,7 +26,7 @@ const {
   mockRetractDecide: vi.fn(),
 }));
 
-vi.mock('../../api/knowledge', () => ({ knowledgeApi: { promote: mockPromote, demote: mockDemote } }));
+vi.mock('../../api/knowledge', () => ({ knowledgeApi: { approveProposal: mockKnApprove, rejectProposal: mockKnReject } }));
 vi.mock('../../api/memory', () => ({ memoryApi: { approve: mockMemApprove, reject: mockMemReject } }));
 vi.mock('../../api/distill', () => ({
   distillApi: {
@@ -61,8 +61,8 @@ const setup = (messages: ChannelMessage[], channelId: string | undefined = 'ch-1
 describe('useChannelCardActions — action → api 映射', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockPromote.mockResolvedValue({});
-    mockDemote.mockResolvedValue({});
+    mockKnApprove.mockResolvedValue({ data: { success: true } });
+    mockKnReject.mockResolvedValue({});
     mockMemApprove.mockResolvedValue({ data: { success: true } });
     mockMemReject.mockResolvedValue({});
     mockDistillApprove.mockResolvedValue({ data: { success: true } });
@@ -79,29 +79,31 @@ describe('useChannelCardActions — action → api 映射', () => {
     const { dispatch, refresh } = setup([msg('m1')]);
     await expect(dispatch()('m1', 'converted')).resolves.toBe(true);
     expect(refresh).toHaveBeenCalledTimes(1);
-    expect(mockPromote).not.toHaveBeenCalled();
+    expect(mockKnApprove).not.toHaveBeenCalled();
     expect(mockCardDecision).not.toHaveBeenCalled();
   });
 
-  it('knowledge_proposal_approve → knowledgeApi.promote 逐 entryId；reject → demote', async () => {
-    const messages = [msg('m1', { entries: [{ id: 'k-1' }, { id: 'k-2' }] })];
+  it('knowledge_proposal_approve → knowledgeApi.approveProposal 整卡一次（#355 通用端点）；reject → rejectProposal', async () => {
+    const messages = [msg('m1', { proposalId: 'kp-1', entries: [{ id: 'k-1' }, { id: 'k-2' }] })];
     const { dispatch, refresh } = setup(messages);
     await expect(dispatch()('m1', 'knowledge_proposal_approve')).resolves.toBe(true);
-    expect(mockPromote).toHaveBeenCalledWith('k-1');
-    expect(mockPromote).toHaveBeenCalledWith('k-2');
+    expect(mockKnApprove).toHaveBeenCalledTimes(1);
+    expect(mockKnApprove).toHaveBeenCalledWith('kp-1');
     expect(refresh).toHaveBeenCalledTimes(1);
 
     await expect(dispatch()('m1', 'knowledge_proposal_reject')).resolves.toBe(true);
-    expect(mockDemote).toHaveBeenCalledWith('k-1');
-    expect(mockDemote).toHaveBeenCalledWith('k-2');
+    expect(mockKnReject).toHaveBeenCalledTimes(1);
+    expect(mockKnReject).toHaveBeenCalledWith('kp-1');
   });
 
-  it('knowledge_proposal：entries 缺/空 → false 且不调 api', async () => {
-    const { dispatch, refresh } = setup([msg('m1', {}), msg('m2')]);
+  it('knowledge_proposal：approve success=false → false 不 refresh；proposalId 缺 → false 且不调 api', async () => {
+    const { dispatch, refresh } = setup([msg('m1', { proposalId: 'kp-1' }), msg('m2', { entries: [{ id: 'k-1' }] })]);
+    mockKnApprove.mockResolvedValue({ data: { success: false } });
     await expect(dispatch()('m1', 'knowledge_proposal_approve')).resolves.toBe(false);
-    await expect(dispatch()('m2', 'knowledge_proposal_approve')).resolves.toBe(false);
-    expect(mockPromote).not.toHaveBeenCalled();
     expect(refresh).not.toHaveBeenCalled();
+
+    await expect(dispatch()('m2', 'knowledge_proposal_approve')).resolves.toBe(false);
+    expect(mockKnApprove).toHaveBeenCalledTimes(1); // 仅 m1 调过
   });
 
   it('memory_proposal_approve → memoryApi.approve 逐 draftId（#353 通用端点）；reject → 逐 draftId reject', async () => {
@@ -180,9 +182,9 @@ describe('useChannelCardActions — action → api 映射', () => {
     expect(mockDistillApprove).not.toHaveBeenCalled();
   });
 
-  it('api 异常 → 返回 false（knowledge promote reject）', async () => {
-    mockPromote.mockRejectedValue(new Error('boom'));
-    const messages = [msg('m1', { entries: [{ id: 'k-1' }] })];
+  it('api 异常 → 返回 false（knowledge approveProposal reject）', async () => {
+    mockKnApprove.mockRejectedValue(new Error('boom'));
+    const messages = [msg('m1', { proposalId: 'kp-1', entries: [{ id: 'k-1' }] })];
     const { dispatch, refresh } = setup(messages);
     await expect(dispatch()('m1', 'knowledge_proposal_approve')).resolves.toBe(false);
     expect(refresh).not.toHaveBeenCalled();

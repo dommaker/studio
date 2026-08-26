@@ -1,9 +1,8 @@
 // 人审提案卡配置（#352，ADR 2026-08-25 决策 5）：5 张提案卡坍缩为「条目清单 + 文案」纯数据配置。
 // 壳 = ReviewProposalCard；生命周期 = useProposalReview；action 分发 = useChannelCardActions
 // 经 PROPOSAL_ACTION_INDEX 参数化调用 config.exec。
-// 端点现状：distill/gc/audit/memory 四类经 #351/#353 通用端点 /review-proposals/:kind/:id/*；
-// knowledge 保留现有域端点（knowledgeApi）——#355 后端接线后
-// 只需改本文件对应条目的 exec/fetchReviewed 即可切到通用端点（kind 字段已就位）。
+// 端点现状：5 类全部经通用端点 /review-proposals/:kind/:id/*（distill/gc/audit #351，memory #353，
+// knowledge #355）。
 import type { ReactNode } from 'react';
 import { distillApi } from '../../api/distill';
 import { knowledgeApi } from '../../api/knowledge';
@@ -15,7 +14,7 @@ export type ProposalReviewState = 'approved' | 'rejected' | 'executed' | 'failed
 export interface ProposalCardConfig {
   /** 消息 meta.cardType（渲染分发键） */
   cardType: string;
-  /** review-proposal 注册表 kind（distill/gc/audit/memory 已接通通用端点；knowledge 待 #355） */
+  /** review-proposal 注册表 kind（5 类已全部接通通用端点，#351/#353/#355） */
   kind: string;
   approveAction: string;
   rejectAction: string;
@@ -270,34 +269,23 @@ export const PROPOSAL_CARD_CONFIGS: Record<string, ProposalCardConfig> = {
     },
   },
 
-  // 2026-07 知识审核闭环（域端点 /knowledge-service/*，#355 接线后切通用端点）
+  // 2026-07 知识审核闭环（#355 已切通用端点 /review-proposals/knowledge/:proposalId/*，整卡一次审批）
   knowledge_proposal: {
     cardType: 'knowledge_proposal',
     kind: 'knowledge',
     approveAction: 'knowledge_proposal_approve',
     rejectAction: 'knowledge_proposal_reject',
     approvedState: 'approved',
-    exec: async (cardData, decision) => {
-      const entries = cardData?.entries;
-      const entryIds: string[] = Array.isArray(entries)
-        ? entries
-            .map((e: { id?: unknown }) => e?.id)
-            .filter((id: unknown): id is string => typeof id === 'string' && id.length > 0)
-        : [];
-      if (entryIds.length === 0) return false;
-      const review = decision === 'approve' ? knowledgeApi.promote : knowledgeApi.demote;
-      await Promise.all(entryIds.map(entryId => review(entryId)));
-      return true;
-    },
-    // 已审核态按条目 maturity 派生：全部非 draft/archived → approved；全部 archived → rejected；否则保持待审
+    exec: proposalExec('proposalId', knowledgeApi.approveProposal, knowledgeApi.rejectProposal),
+    // 已审核态按提案状态派生（正本词表 → 卡终态词）：executed→approved，rejected→rejected，
+    // failed→failed；pending/card-failed/unknown → 保持待审
     fetchReviewed: async cardData => {
-      const entries = cardData?.entries as KnowledgeEntry[] | undefined;
-      if (!entries?.length) return null;
-      const maturities = await Promise.all(
-        entries.map(async e => (await knowledgeApi.getEntry(e.id)).data?.maturity),
-      );
-      if (maturities.every(m => m && m !== 'draft' && m !== 'archived')) return 'approved';
-      if (maturities.every(m => m === 'archived')) return 'rejected';
+      const proposalId = typeof cardData?.proposalId === 'string' ? (cardData.proposalId as string) : '';
+      if (!proposalId) return null;
+      const { data } = await knowledgeApi.proposalStatus(proposalId);
+      if (data?.status === 'executed') return 'approved';
+      if (data?.status === 'rejected') return 'rejected';
+      if (data?.status === 'failed') return 'failed';
       return null;
     },
     initialReviewed: metaStatusReviewed,
@@ -305,6 +293,7 @@ export const PROPOSAL_CARD_CONFIGS: Record<string, ProposalCardConfig> = {
     reviewLabels: {
       approved: { text: '已通过，参与注入', cls: 'mc-status-done' },
       rejected: { text: '已拒绝，已归档', cls: 'mc-status-error' },
+      failed: { text: '审批执行失败（条目未生效）', cls: 'mc-status-error' },
     },
     pendingTitle: '知识提案 — 待审核',
     countText: cd => `${(cd?.entries as unknown[] | undefined)?.length || 0} 条知识`,

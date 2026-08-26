@@ -194,8 +194,12 @@ describe('R3: extractFromConversation', () => {
 
     await ks.extractFromConversation(MESSAGES, { workUnitId: 'wu-r3' });
 
-    expect(mockAppendJsonl).toHaveBeenCalledTimes(1);
-    const [, event] = mockAppendJsonl.mock.calls[0];
+    // #355：提案存取（review-proposal 正本 JSONL）与提取事件共用 appendJsonl——按事件类型取
+    const eventCall = mockAppendJsonl.mock.calls.find(
+      ([, event]: [string, any]) => event?.type === 'knowledge:extraction',
+    );
+    expect(eventCall).toBeTruthy();
+    const [, event] = eventCall;
     expect(event).toMatchObject({ type: 'knowledge:extraction', source: 'conversation:wu-r3' });
     const payload = JSON.parse(event.payload);
     expect(payload).toMatchObject({
@@ -368,6 +372,9 @@ describe('R3: extractFromConversation', () => {
     expect(content).toContain('session 过期未刷新导致 401');
     expect(content).toContain('登录流程统一走 auth-service');
     expect(cardData.workUnitId).toBe('wu-card');
+    // #355：提案卡经 review-proposal 正本——cardData 增 proposalId（通用端点审批接线用）
+    expect(typeof cardData.proposalId).toBe('string');
+    expect(cardData.proposalId).toBeTruthy();
     // 卡片携带各条目 id/标题/类型（approve → promote 用）
     expect(cardData.entries).toHaveLength(2);
     expect(cardData.entries[0]).toMatchObject({

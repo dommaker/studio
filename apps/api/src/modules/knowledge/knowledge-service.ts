@@ -17,7 +17,7 @@
  *   knowledge-metrics.ts          — Measure 纯函数内核 + 度量类型
  *   trend-data.ts                 — trends 数据层（writeTrendData）
  *   knowledge-form-gate.ts        — 知识形态门禁（validateKnowledgeForm）
- *   conversation-extractor.ts     — R3 会话提取管道 + 提案卡
+ *   conversation-extractor.ts     — R3 会话提取管道（提案卡 #355 起归 review-adapter.ts → review-proposal 正本）
  *   knowledge-semantic-search.ts  — mcp-local-rag 语义检索支撑
  *
  * @see docs/specs/arch/knowledge-service.md
@@ -56,7 +56,8 @@ export type { FlywheelMetrics, HealthReport, AuditReport, AuditFinding, Accuracy
 // trends 数据层与形态门禁已抽到 trend-data.ts / knowledge-form-gate.ts（工单 29），
 // 此处 re-export 保持对外导出语义不变
 import { writeTrendData } from './trend-data.js';
-import { buildConversationTranscript, ingestConversationEntry, postKnowledgeProposalCard } from './conversation-extractor.js';
+import { buildConversationTranscript, ingestConversationEntry } from './conversation-extractor.js';
+import { registerKnowledgeReviewAdapter, submitKnowledgeProposal } from './review-adapter.js';
 export { writeTrendData } from './trend-data.js';
 export { validateKnowledgeForm } from './knowledge-form-gate.js';
 export type { FormValidationResult } from './knowledge-form-gate.js';
@@ -371,9 +372,10 @@ export class KnowledgeService {
       const entryIds = ingested.map(e => e.id);
       if (ingested.length > 0) {
         scheduleVectorDbSync();
-        // 审核闭环：入库即发提案卡到 #系统（人在频道 approve/reject → promote/demote）。
-        // best-effort：频道缺失/发卡失败静默跳过，绝不阻断提取链路。
-        await postKnowledgeProposalCard(ingested, { workUnitId: ctx?.workUnitId, source });
+        // 审核闭环：入库即建提案发审核卡到 #系统（#355 起走 review-proposal 正本，
+        // 人在频道 approve/reject → 通用端点 → adapter onApprove/onReject → promote/demote）。
+        // best-effort：频道缺失/发卡失败落 card-failed 墓碑静默跳过，绝不阻断提取链路。
+        await submitKnowledgeProposal(ingested, { workUnitId: ctx?.workUnitId, source });
       }
 
       logger.info('[KnowledgeService] extractFromConversation completed', {
@@ -987,7 +989,7 @@ export class KnowledgeService {
    */
   async createResolution(input: CreateResolutionInput): Promise<void> {
     try {
-      // 动态 import：与 postKnowledgeProposalCard 同款，避免模块加载期循环依赖
+      // 动态 import：避免模块加载期循环依赖
       const { resolutionService } = await import('./resolution.service.js');
       await resolutionService.createResolution(input);
     } catch {
@@ -1174,3 +1176,7 @@ export const knowledgeService = new KnowledgeService({
   query: new UnifiedQuery(sharedStore),
   eventEmitter: new EventEmitter(),
 });
+
+// #355：knowledge 人审提案 adapter 运行时装配（kind='knowledge'，review-proposal 正本）。
+// 模块加载即注册，保证重启后存量 pending 提案可经通用端点审批（同 kind 重复注册幂等）。
+registerKnowledgeReviewAdapter();

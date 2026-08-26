@@ -23,7 +23,7 @@ vi.mock('../../../api/memory', () => ({
   memoryApi: { approve: vi.fn(), reject: vi.fn(), status: vi.fn() },
 }));
 vi.mock('../../../api/knowledge', () => ({
-  knowledgeApi: { promote: vi.fn(), demote: vi.fn(), getEntry: vi.fn() },
+  knowledgeApi: { approveProposal: vi.fn(), rejectProposal: vi.fn(), proposalStatus: vi.fn() },
 }));
 
 const CARD_TYPES = [
@@ -54,7 +54,7 @@ describe('PROPOSAL_CARD_CONFIGS 完整性', () => {
     expect(typeof c.renderContent).toBe('function');
   });
 
-  it('distill 家族 + memory kind 对齐注册表（distill/gc/audit/memory，#351/#353）；knowledge 待 #355', () => {
+  it('distill 家族 + memory/knowledge kind 对齐注册表（distill/gc/audit #351，memory #353，knowledge #355）', () => {
     expect(PROPOSAL_CARD_CONFIGS.distill_proposal.kind).toBe('distill');
     expect(PROPOSAL_CARD_CONFIGS.gc_proposal.kind).toBe('gc');
     expect(PROPOSAL_CARD_CONFIGS.constraint_audit_proposal.kind).toBe('audit');
@@ -115,7 +115,7 @@ describe('distill 家族 fetchReviewed（statuses?.[id] 派生）', () => {
   });
 });
 
-describe('memory（通用端点，#353）/knowledge（域端点，#355 前）exec 与派生', () => {
+describe('memory（#353）/knowledge（#355）通用端点 exec 与派生', () => {
   it('memory：空 entries → false；approve → 逐 draftId approve，任一 success=false → false 保持待审', async () => {
     const cfg = PROPOSAL_CARD_CONFIGS.memory_proposal;
     await expect(cfg.exec({ roleId: 'r1', entries: [] }, 'approve')).resolves.toBe(false);
@@ -150,21 +150,36 @@ describe('memory（通用端点，#353）/knowledge（域端点，#355 前）exe
     await expect(cfg.fetchReviewed!(cd)).resolves.toBeNull();
   });
 
-  it('knowledge：approve → 逐条 promote；派生按 maturity（全非 draft/archived → approved，全 archived → rejected）', async () => {
+  it('knowledge（#355 通用端点）：approve → 整卡一次 approveProposal；success=false → false；缺 proposalId → false', async () => {
     const cfg = PROPOSAL_CARD_CONFIGS.knowledge_proposal;
-    vi.mocked(knowledgeApi.promote).mockResolvedValue({} as never);
-    await expect(cfg.exec({ entries: [{ id: 'e1' }, { id: 'e2' }] }, 'approve')).resolves.toBe(true);
-    expect(knowledgeApi.promote).toHaveBeenCalledTimes(2);
+    vi.mocked(knowledgeApi.approveProposal).mockResolvedValue({ data: { success: true } } as never);
+    await expect(
+      cfg.exec({ proposalId: 'kp1', entries: [{ id: 'e1' }, { id: 'e2' }] }, 'approve'),
+    ).resolves.toBe(true);
+    expect(knowledgeApi.approveProposal).toHaveBeenCalledTimes(1);
+    expect(knowledgeApi.approveProposal).toHaveBeenCalledWith('kp1');
 
-    vi.mocked(knowledgeApi.getEntry)
-      .mockResolvedValueOnce({ data: { maturity: 'verified' } } as never)
-      .mockResolvedValueOnce({ data: { maturity: 'verified' } } as never);
-    await expect(cfg.fetchReviewed!({ entries: [{ id: 'e1' }, { id: 'e2' }] })).resolves.toBe('approved');
+    vi.mocked(knowledgeApi.approveProposal).mockResolvedValue({ data: { success: false } } as never);
+    await expect(cfg.exec({ proposalId: 'kp1' }, 'approve')).resolves.toBe(false);
 
-    vi.mocked(knowledgeApi.getEntry)
-      .mockResolvedValueOnce({ data: { maturity: 'archived' } } as never)
-      .mockResolvedValueOnce({ data: { maturity: 'archived' } } as never);
-    await expect(cfg.fetchReviewed!({ entries: [{ id: 'e1' }, { id: 'e2' }] })).resolves.toBe('rejected');
+    await expect(cfg.exec({ entries: [{ id: 'e1' }] }, 'approve')).resolves.toBe(false);
+
+    vi.mocked(knowledgeApi.rejectProposal).mockResolvedValue({} as never);
+    await expect(cfg.exec({ proposalId: 'kp1' }, 'reject')).resolves.toBe(true);
+    expect(knowledgeApi.rejectProposal).toHaveBeenCalledWith('kp1');
+  });
+
+  it('knowledge：派生按提案状态（executed→approved，rejected→rejected，failed→failed，pending/unknown→null）', async () => {
+    const cfg = PROPOSAL_CARD_CONFIGS.knowledge_proposal;
+    vi.mocked(knowledgeApi.proposalStatus).mockResolvedValue({ data: { status: 'executed' } } as never);
+    await expect(cfg.fetchReviewed!({ proposalId: 'kp1' })).resolves.toBe('approved');
+    vi.mocked(knowledgeApi.proposalStatus).mockResolvedValue({ data: { status: 'rejected' } } as never);
+    await expect(cfg.fetchReviewed!({ proposalId: 'kp1' })).resolves.toBe('rejected');
+    vi.mocked(knowledgeApi.proposalStatus).mockResolvedValue({ data: { status: 'failed' } } as never);
+    await expect(cfg.fetchReviewed!({ proposalId: 'kp1' })).resolves.toBe('failed');
+    vi.mocked(knowledgeApi.proposalStatus).mockResolvedValue({ data: { status: 'pending' } } as never);
+    await expect(cfg.fetchReviewed!({ proposalId: 'kp1' })).resolves.toBeNull();
+    await expect(cfg.fetchReviewed!({})).resolves.toBeNull();
   });
 
   it('meta.status 直读：approved/rejected 直渲，其余 null', () => {

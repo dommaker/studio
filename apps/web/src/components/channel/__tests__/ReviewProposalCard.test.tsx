@@ -17,13 +17,13 @@ vi.mock('../../../api/memory', () => ({
   memoryApi: { status: vi.fn() },
 }));
 vi.mock('../../../api/knowledge', () => ({
-  knowledgeApi: { getEntry: vi.fn() },
+  knowledgeApi: { proposalStatus: vi.fn() },
 }));
 const mockProposalStatus = distillApi.proposalStatus as ReturnType<typeof vi.fn>;
 const mockGcProposalStatus = distillApi.gcProposalStatus as ReturnType<typeof vi.fn>;
 const mockAuditProposalStatus = distillApi.auditProposalStatus as ReturnType<typeof vi.fn>;
 const mockMemStatus = memoryApi.status as ReturnType<typeof vi.fn>;
-const mockGetEntry = knowledgeApi.getEntry as ReturnType<typeof vi.fn>;
+const mockKnStatus = knowledgeApi.proposalStatus as ReturnType<typeof vi.fn>;
 
 const msg = (id: string, content: string, meta: Record<string, unknown>): ChannelMessage => ({
   id,
@@ -362,6 +362,7 @@ const knowledgeMessage = msg('msg-kp-1', '知识提案 — 待人工审核', {
   cardType: 'knowledge_proposal',
   status: 'ready',
   cardData: {
+    proposalId: 'kp-1',
     workUnitId: 'WU-2042',
     entries: [
       { id: 'k-1', title: 'session 过期未刷新导致 401', type: 'pitfall' },
@@ -372,8 +373,8 @@ const knowledgeMessage = msg('msg-kp-1', '知识提案 — 待人工审核', {
 
 describe('ReviewProposalCard — knowledge_proposal（原 KnowledgeProposalCard）', () => {
   beforeEach(() => {
-    mockGetEntry.mockReset();
-    mockGetEntry.mockResolvedValue({ data: { maturity: 'draft' } });
+    mockKnStatus.mockReset();
+    mockKnStatus.mockResolvedValue({ data: { success: true, status: 'pending' } });
   });
 
   it('renders 条目标题/类型 + 通过/拒绝按钮', () => {
@@ -439,24 +440,22 @@ describe('ReviewProposalCard — knowledge_proposal（原 KnowledgeProposalCard�
     expect(screen.queryByText('拒绝')).not.toBeTruthy();
   });
 
-  it('maturity 派生：条目全部 verified → 刷新后也显示已通过', async () => {
-    mockGetEntry.mockResolvedValue({ data: { maturity: 'verified' } });
+  it('提案状态派生（#355 通用端点）：executed → 刷新后显示已通过', async () => {
+    mockKnStatus.mockResolvedValue({ data: { success: true, status: 'executed' } });
     renderCard(knowledgeMessage, vi.fn());
     expect(await screen.findByText(/已通过/)).toBeTruthy();
     expect(screen.queryByText('拒绝')).not.toBeTruthy();
   });
 
-  it('maturity 派生：条目全部 archived → 显示已拒绝；混合状态保持待审', async () => {
-    mockGetEntry.mockResolvedValue({ data: { maturity: 'archived' } });
+  it('提案状态派生：rejected → 已拒绝；pending → 保持待审', async () => {
+    mockKnStatus.mockResolvedValue({ data: { success: true, status: 'rejected' } });
     const { unmount } = renderCard(knowledgeMessage, vi.fn());
     expect(await screen.findByText(/已拒绝/)).toBeTruthy();
     unmount();
 
-    mockGetEntry
-      .mockResolvedValueOnce({ data: { maturity: 'draft' } })
-      .mockResolvedValueOnce({ data: { maturity: 'verified' } });
+    mockKnStatus.mockResolvedValue({ data: { success: true, status: 'pending' } });
     renderCard(knowledgeMessage, vi.fn());
-    await waitFor(() => expect(mockGetEntry).toHaveBeenCalledTimes(4));
+    await waitFor(() => expect(mockKnStatus).toHaveBeenCalledTimes(2));
     expect(screen.getByText('通过')).toBeTruthy();
   });
 });

@@ -2,8 +2,7 @@
 // 对外单一 dispatch(messageId, action) 入口，内部卡片 action 类型 → api 调用映射。
 // #352（ADR 2026-08-25 决策 5）：5 段人审提案同构分支坍缩为参数化调用——PROPOSAL_ACTION_INDEX
 // 由 proposalCardConfigs 派生，config.exec(cardData, decision) 承载各域副作用：
-// distill/gc/audit/memory 走通用端点 /review-proposals/:kind/:id/{approve,reject}（#351/#353）；
-// knowledge → /knowledge-service/promote|demote（待 #355 后端接线后切通用端点，届时只改配置条目）。
+// distill/gc/audit/memory/knowledge 全部走通用端点 /review-proposals/:kind/:id/{approve,reject}（#351/#353/#355）。
 // auditor_suggestion confirm/reject → POST /channels/:id/messages/:mid/card-decision（#278，采纳建未指派 task 工单；拒绝留痕）。
 // retract_confirm confirm/reject → POST /skills/:id/retract/decide（#278，confirm→deprecated / reject→published，卡片状态同步回写）。
 // 返回是否成功（卡片据此显示已审核状态）。

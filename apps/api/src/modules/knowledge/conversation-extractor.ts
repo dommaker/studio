@@ -1,21 +1,19 @@
 /**
- * conversation-extractor — R3 会话提取管道 + 审核闭环提案卡。
+ * conversation-extractor — R3 会话提取管道。
  *
  * 从 knowledge-service.ts 抽出（工单 29，纯搬运不改逻辑）：
  * - buildConversationTranscript：会话消息 → 紧凑 transcript
  * - ingestConversationEntry：单条 LLM 提取结果过形态门禁/质量门入库（proposal）
- * - postKnowledgeProposalCard：提取产物聚合发 knowledge_proposal 卡到 #系统 频道
  *
  * 均由 KnowledgeService.extractFromConversation 编排调用；deps 已参数化，
  * 不依赖 KnowledgeService 实例。
+ * （审核闭环提案卡 #355 起归 review-adapter.ts → review-proposal 正本，本文件不再发卡。）
  */
 
 import type { KnowledgeLinter, KnowledgeIngest, KnowledgeSubsystem } from '@dommaker/harness';
-import { FileStore, logger } from '@dommaker/studio-shared';
+import { logger } from '@dommaker/studio-shared';
 import { validateKnowledgeForm } from './knowledge-form-gate.js';
 import { writeTrendData } from './trend-data.js';
-
-const fileStore = new FileStore();
 
 /** R3: 会话提取 transcript 上限（字符）。提取输入独立度量，不占 2K 注入红线，但仍控制单次调用规模。 */
 const CONVERSATION_TRANSCRIPT_MAX_CHARS = 12_000;
@@ -108,51 +106,5 @@ export function ingestConversationEntry(
   } catch (e) {
     logger.warn('[KnowledgeService] Failed to ingest conversation entry', { error: String(e) });
     return null;
-  }
-}
-
-/** 审核闭环：提案卡投放的目标频道（ensureDefaultChannels 启动播种） */
-const SYSTEM_CHANNEL_NAME = '#系统';
-
-/**
- * 审核闭环（2026-07 knowledge-review-loop）：提取产物入库后，聚合本次条目发一张
- * cardType='knowledge_proposal' 卡片到 #系统 频道。人在频道 approve → promote
- * （draft→verified，参与注入）；reject → demote（draft→archived）。
- *
- * 契约（γ 轨道依赖，不得偏离）：cardType='knowledge_proposal'；
- * cardData.entries=[{id,title,type}]；cardData.workUnitId 为来源 WorkUnit。
- * 无条目 / 频道缺失 / 发卡失败均静默跳过（提取链路绝不被通知阻断）。
- */
-export async function postKnowledgeProposalCard(
-  entries: Array<{ id: string; title: string; type: string }>,
-  ctx: { workUnitId?: string; source: string },
-): Promise<void> {
-  if (entries.length === 0) return;
-  try {
-    const channel = (await fileStore.listChannels({ name: SYSTEM_CHANNEL_NAME }))[0] ?? null;
-    if (!channel) return; // 频道未播种 → 静默跳过（与 auditor postToSystemChannel 同款降级）
-
-    const { channelMessageService } = await import('../channels/channel-message.service.js');
-    const content = [
-      '## 📚 知识提案 — 待人工审核',
-      '',
-      ...entries.map((e, i) => `${i + 1}. **${e.title}**（${e.type}）`),
-      '',
-      `来源 WorkUnit: ${ctx.workUnitId ?? 'unknown'}`,
-      '审核通过后参与知识注入；拒绝则归档，不再注入。',
-    ].join('\n');
-
-    await channelMessageService.createCardMessage(
-      channel.id,
-      'KK',
-      content,
-      'knowledge_proposal',
-      { entries, workUnitId: ctx.workUnitId ?? null, source: ctx.source },
-    );
-    logger.info('[KnowledgeService] knowledge_proposal card posted', {
-      channel: SYSTEM_CHANNEL_NAME, entryCount: entries.length, workUnitId: ctx.workUnitId,
-    });
-  } catch (e) {
-    logger.warn('[KnowledgeService] Failed to post knowledge_proposal card', { error: String(e) });
   }
 }
