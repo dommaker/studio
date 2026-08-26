@@ -21,7 +21,7 @@ JSONL + 状态墓碑折叠）、发卡（含 #系统频道解析与 card-failed 
 
 **上游**: `@dommaker/studio-shared`（FileStore/logger）、`channels/channel-message.service.ts`（发卡，动态 import）、`middleware/auth.js`
 
-**下游**: modules/distill（distill/GC/审计三 adapter，kind: distill/gc/audit）；role-memory（#353，kind: memory，自定义 store 落 per-role draft.jsonl，旧 promoted 读侧归一）；skills（#354，kind: skill，默认物化 skill-proposals.jsonl，onApprove 生成 SKILL.md）；knowledge（#355，kind: knowledge，默认物化 knowledge-proposals.jsonl，onApprove 逐条目 promote / onReject 逐条目 demote，knowledge-service 模块加载即注册）；后续 auditor（#356）
+**下游**: modules/distill（distill/GC/审计三 adapter，kind: distill/gc/audit）；role-memory（#353，kind: memory，自定义 store 落 per-role draft.jsonl，旧 promoted 读侧归一）；skills（#354，kind: skill，默认物化 skill-proposals.jsonl，onApprove 生成 SKILL.md）；knowledge（#355，kind: knowledge，默认物化 knowledge-proposals.jsonl，onApprove 逐条目 promote / onReject 逐条目 demote，knowledge-service 模块加载即注册）；agents/auditor（#356，kind: auditor，默认物化 auditor-proposals.jsonl，onApprove 建未指派 task 工单——自旧 channels/card-decision.service 搬入，卡片作者经 payload.author 透传保持 Auditor，auditor.service 模块加载即注册）
 
 ### 运行时约定
 

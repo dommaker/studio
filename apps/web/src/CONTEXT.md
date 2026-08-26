@@ -26,7 +26,7 @@ Web 前端主源码。路由、全局状态、API 客户端、UI 组件、样式
 | `useChannelList` / `useChannelLiveExecutions` / `useDetectedProviders` | `hooks/` | 频道列表 / live 执行 / provider 探测 |
 | `deriveStreamView` | `utils/streamView.ts` | 消息流管线纯函数（#322）：消息集+折叠/筛选 UI 状态 → 渲染就绪 items（归组/过程折叠/连续合并/日期分隔/可见性） |
 | `useStreamFollow` / `useChannelCardActions` | `hooks/` | 频道流滚动状态机（#322 自 ChannelDetailPage 整块搬移）/ 卡片 action 路由（dispatch 单一入口；#352 起人审提案分支经 PROPOSAL_ACTION_INDEX 参数化调用 proposalCardConfigs.exec） |
-| `useProposalReview` / `ReviewProposalCard` | `hooks/useProposalReview.ts` / `components/channel/ReviewProposalCard.tsx` | 人审提案卡合一（#352，ADR 2026-08-25 决策 5）：5 卡坍缩为壳 + `proposalCardConfigs` 纯数据配置；reviewed/pending/armed 生命周期 + 挂载期派生已审态单点化 |
+| `useProposalReview` / `ReviewProposalCard` | `hooks/useProposalReview.ts` / `components/channel/ReviewProposalCard.tsx` | 人审提案卡合一（#352，ADR 2026-08-25 决策 5）：6 卡坍缩为壳 + `proposalCardConfigs` 纯数据配置（#356 auditor_suggestion 并入，AuditorSuggestionCard 删除）；reviewed/pending/armed 生命周期 + 挂载期派生已审态单点化 |
 | `ChannelLiveBars` | `components/channel/` | live 执行状态条（#322 自持有 useChannelLiveExecutions，step 事件不触达页面） |
 | `NeedsAttentionSection` | `components/monitoring/` | 监控页「需要处理」区 |
 | `ProjectMap` / `NextActionCard` | `components/pmo/ProjectMap.tsx` | PMO 地图 + 下一个该干什么 |
