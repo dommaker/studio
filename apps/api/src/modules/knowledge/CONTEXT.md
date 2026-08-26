@@ -23,7 +23,6 @@
 | `knowledge-types` | `knowledge-types.ts` | KnowledgeService 的 Studio 侧类型 + `KnowledgeServiceDeps` + `ENTRY_TYPE_MAP`（knowledge-service.ts 拆出，门面 re-export） |
 | `knowledge-data-layer` | `knowledge-data-layer.ts` | 数据层：`writeTrendData`（data/trends 趋势写入）+ resolution 影子库 FileStore helpers + 共享 `fileStore`/`STUDIO_EVENTS_JSONL`（knowledge-service.ts 拆出） |
 | `knowledge-forms` | `knowledge-forms.ts` | 知识形态门禁 `validateKnowledgeForm`（knowledge/data/skill/rule，代码层判断不调 LLM）（knowledge-service.ts 拆出，门面 re-export） |
-| `inject-context` | `inject-context.ts` | injectContext 注入闸门与预算：R3 提案闸门（isInjectableMaturity）、来源凭证、2K `INJECT_TOKEN_BUDGET`、注入优先级、`KNOWLEDGE_QUERY_GUIDANCE`、stripFormat（knowledge-service.ts 拆出，门面 re-export） |
 | `conversation-extractor` | `conversation-extractor.ts` | R3 会话提取：transcript 构建 + 单条入库 proposal 闸门（knowledge-service.ts 拆出；提案卡 #355 起归 review-adapter） |
 | `review-adapter` | `review-adapter.ts` | #355：knowledge 人审提案 adapter（kind='knowledge'），接线 review-proposal 正本——聚合卡渲染（knowledge_proposal 旧文案，cardData 旧形状 + proposalId）+ onApprove 逐条目 promote / onReject 逐条目 demote；存取物化 <dataDir>/knowledge-proposals.jsonl；knowledge-service.ts 模块加载即注册 |
 | `knowledge-metrics` | `knowledge-metrics.ts` | R1/M1 事件流度量纯函数：computeOutcomeMetrics（hitRate/improvement）+ scanKnowledgeEvents（审计计数）（knowledge-service.ts 拆出） |
@@ -49,7 +48,6 @@ knowledge/
 ├── knowledge-types.ts         # KnowledgeService 类型 + ENTRY_TYPE_MAP（knowledge-service 拆出）
 ├── knowledge-data-layer.ts    # trends/resolutions 数据层 + 共享 fileStore（knowledge-service 拆出）
 ├── knowledge-forms.ts         # 知识形态门禁 validateKnowledgeForm（knowledge-service 拆出）
-├── inject-context.ts          # injectContext 注入闸门/2K 预算/检索指引（knowledge-service 拆出）
 ├── knowledge-search-helpers.ts # 关键词/RAG 降级检索 helpers（knowledge-service 拆出）
 ├── knowledge-service.routes.ts # KnowledgeService HTTP API + SSE
 ├── knowledge-query.service.ts # 5 类缺口查询（query/getStats）
@@ -82,7 +80,7 @@ knowledge/
 - **#355 审核闭环接线 review-proposal 正本（2026-08-26）**：knowledge_proposal 卡生命周期（建提案/发卡/approve/reject/status）归 review-proposal 正本（kind='knowledge'，存储 `knowledge-proposals.jsonl`）；业务侧只留 `review-adapter.ts`（卡渲染 + onApprove 逐条目 promote / onReject 逐条目 demote）。审批改走通用端点 `/api/v1/review-proposals/knowledge/:proposalId/{approve,reject,status}`（整卡一次审批）；`/knowledge-service/promote|demote` 是条目生命周期端点（MonitoringPage 人工 promote 在用），保留。接线前发出的存量卡（cardData 无 proposalId）不可再审批——条目保持 draft 不注入（同 #354 存量口径）。`conversation-extraction.ts`（拆分时遗留的死拷贝，零 importer）随本票删除。
 - **知识库边界（#93，2026-08-13）**：KB = 项目级共享知识（跨角色 rule/context/signal/reference）。角色记忆（#100 的 per-role `MEMORY.md` + topic 文件体系）**不进知识库、不走 injectContext**；守卫约定 = 角色记忆条目带 `role-memory` tag，注入闸门（`isRoleMemory`）一律拦截，回归测试见 `__tests__/knowledge-service-inject-wiring.test.ts`。
 - **#93 注入修复（2026-08-13）**：rule/context 注入曾恒空——`unified-query.ts` 合成条目 `sourceReferences` 恒 `[]` 被 `hasSourceReferences` 闸门全拦。修复 = 合成端（preferenceToEntry/ruleToEntry/envToEntry）从 store 条目 id / snapshot 文件名派生真实出处；手动创建 API（entries.routes.ts POST /unified）stamp `manual:<user>` 出处。闸门语义不变：无凭证不注入。
-- 另知：`inject-context.ts` 当前零 importer（knowledge-service.ts 底部自持同一份 R3 闸门/来源凭证/INJECT_TOKEN_BUDGET/injectPriority 拷贝），属拆分后未清理的死模块（未修，2026-08-11 发现）。
+- **inject-context.ts 已删（#357，2026-08-26）**：拆分后未接线的死副本（R3 闸门/来源凭证/INJECT_TOKEN_BUDGET/injectPriority/KNOWLEDGE_QUERY_GUIDANCE/stripFormat）。处置结论 = 反向删副本：活实现一直在 knowledge-service.ts 底部（测试全从该门面导入），接线抽出版对 1182 行热文件零收益，故删抽出版、保留 knowledge-service 自持。
 - **测试稳定性（2026-08-04 已修）**：`__tests__/knowledge-bus-sync.test.ts` 的「失败后恢复 → recovered」用例原为预存 flake，根因非定时器节奏——是该用例对 `@dommaker/studio-shared` 重复 `vi.doMock` 两次，import 偶发绑定先注册的 factory（`logger.info` 为不可见 `vi.fn()`），致 recovered/synced 断言抖动。已收敛为单一注册点（`mockDeps` 增 `loggerInfo` 参数），100 轮复跑零失败。
 - **knowledge-service.ts 类体不再拆分（2026-08-04 决议，接受现状 1143 行）**：模块级代码已全部抽至上述 7 个模块；KnowledgeService 类体（约 1021 行）整体保留，因 `__tests__/knowledge-service.test.ts` 锁定 prototype 恰好 35 个方法（含 5 个 private，TS private 运行时挂 prototype），任何拆类都会打破该测试。后续若要拆类，须先获批准放宽该断言（如改为 ≥35 或只锁 public 集合）。
 - Producer（preference-observer 等）直写 KnowledgeStore（FileStore 存储；Prisma 已全量移除）

@@ -40,7 +40,6 @@ vi.mock('../output-capture.js', () => ({
   emitSessionEnd: vi.fn(),
   emitToolCall: vi.fn(),
   emitFileChange: vi.fn(),
-  recordExecutionError: vi.fn(),
   getConstraintMeta: vi.fn().mockResolvedValue({ hash: 'abc', size: 100 }),
 }));
 

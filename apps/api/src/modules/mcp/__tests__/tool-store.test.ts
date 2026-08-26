@@ -39,13 +39,6 @@ describe('tool-store', () => {
     expect(store.getCompaniesDir()).toBe(path.join(tmpHome, '.studio', 'data', 'companies'));
   });
 
-  it('generateId 返回唯一字符串', () => {
-    const a = store.generateId();
-    const b = store.generateId();
-    expect(typeof a).toBe('string');
-    expect(a).not.toBe(b);
-  });
-
   it('writeEntity + getEntity 往返一致（自动建目录）', async () => {
     const dir = path.join(tmpHome, '.studio', 'data', 'tasks');
     await store.writeEntity(dir, 't1', { id: 't1', name: 'Task' });

@@ -6,9 +6,9 @@
  */
 
 import type { RegisteredTool } from './tool-registry.js';
+import { generateId } from '@dommaker/studio-shared';
 import {
   getTasksDir,
-  generateId,
   getEntity,
   listJsonFiles,
   writeEntity,
@@ -77,7 +77,7 @@ const createTask: RegisteredTool = {
     required: ['projectId', 'name', 'assignee'],
   },
   handler: async (input) => {
-    const id = `task_${generateId()}`;
+    const id = generateId('task');
     const now = new Date().toISOString();
     const task: TaskData = {
       id,

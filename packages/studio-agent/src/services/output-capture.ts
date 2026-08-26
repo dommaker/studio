@@ -57,22 +57,6 @@ export async function collectOutputFiles(worktree: string): Promise<string[]> {
 }
 
 /**
- * 解析 JSON envelope 并返回文本内容
- */
-export function parseJsonEnvelope(stdout: string, taskId: string, executionId: string): { text: string; isError: boolean } {
-  let text = stdout;
-  let isError = false;
-  try {
-    const envelope = JSON.parse(stdout);
-    if (envelope.is_error) { isError = true; text = ''; }
-    if (envelope.result) text = envelope.result;
-  } catch (e) {
-    logger.error('[OutputCapture] Failed to parse JSON envelope', { taskId, executionId, error: String(e) });
-  }
-  return { text, isError };
-}
-
-/**
  * 记录 session 指标到 StudioEvent
  */
 export async function recordSessionMetrics(opts: {
@@ -203,24 +187,6 @@ export async function emitFileChange(filePath: string, sessionId: string, execut
       createdAt: new Date().toISOString(),
     });
   } catch { /* non-blocking */ }
-}
-
-/**
- * [DEPRECATED] GoalExecution 已迁移至 WorkUnit
- * 保留签名兼容 caller，实际记录不再写入已删除的 GoalExecution 表
- */
-export async function recordExecutionError(_opts: {
-  executionId: string;
-  errMsg: string;
-  errStack?: string;
-  stderrText: string;
-  stdoutText?: string;
-  sessionCount: number;
-  cumulativeSessionMs: number;
-  signal?: string;
-  code?: number;
-}): Promise<void> {
-  logger.warn('[OutputCapture] recordExecutionError deprecated, GoalExecution table removed');
 }
 
 // 约束 metadata 缓存

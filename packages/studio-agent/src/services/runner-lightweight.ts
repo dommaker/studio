@@ -19,7 +19,6 @@ import { resolveWorkspace, propagateHarnessConfig } from './worktree-resolver.js
 import {
   emitSessionStart,
   emitSessionEnd,
-  recordExecutionError,
 } from './output-capture.js';
 import { processSessionOutput } from './runner-output.js';
 import {
@@ -183,13 +182,6 @@ export async function executeLightweightSession(state: RunnerExecutionState, tas
     } catch (execErr) {
       const errMsg = execErr instanceof Error ? execErr.message : String(execErr);
       const stdoutText = execErr?.stdout?.toString().slice(0, 2000) || '';
-      const stderrText = execErr?.stderr?.toString().slice(0, 500) || '';
-
-      await recordExecutionError({
-        executionId: task.executionId, errMsg, errStack: execErr?.stack?.slice(0, 2000),
-        stderrText, stdoutText, sessionCount: 1, cumulativeSessionMs: Date.now() - sessionStart,
-        signal: execErr?.signal, code: execErr?.code,
-      });
 
       await emitSessionEnd(sessionId, task.executionId, 1, sessionExtras);
 

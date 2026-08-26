@@ -90,6 +90,24 @@ describe('api interceptor', () => {
 
       expect(captured[0].headers.Authorization).toBeUndefined();
     });
+
+    it('parses full zustand persist format {state:{token,...},version:0}', async () => {
+      store['auth-storage'] = JSON.stringify({
+        state: { token: 'abc', refreshToken: 'def', user: { id: '1' }, session: null, guestId: null },
+        version: 0,
+      });
+      const { api } = await import('../index.js');
+
+      const captured: InternalAxiosRequestConfig[] = [];
+      api.defaults.adapter = async (config) => {
+        captured.push(config);
+        return { data: {}, status: 200, statusText: 'OK', headers: {}, config };
+      };
+
+      await api.get('/tasks');
+
+      expect(captured[0].headers.Authorization).toBe('Bearer abc');
+    });
   });
 
   describe('response interceptor — 401 refresh flow', () => {
@@ -197,6 +215,33 @@ describe('api interceptor', () => {
         expect.anything()
       );
     });
+
+    it('does not refresh again when the retried request also 401s (_retry dedup)', async () => {
+      setAuthStorage('old-token', 'valid-refresh');
+      const { api } = await import('../index.js');
+
+      // Every call (original + retry) fails with 401
+      api.defaults.adapter = async (config) => {
+        const err = new Error('Unauthorized') as AxiosError;
+        err.response = { status: 401, data: { error: 'Unauthorized' } };
+        err.config = config;
+        throw err;
+      };
+
+      let refreshCount = 0;
+      vi.spyOn(axios, 'post').mockImplementation(async (url: string) => {
+        if (url.includes('/auth/refresh')) {
+          refreshCount++;
+          return { data: { accessToken: 'new-token', refreshToken: 'new-refresh' } } as AxiosResponse;
+        }
+        throw new Error('unexpected post');
+      });
+
+      await expect(api.get('/tasks')).rejects.toThrow();
+      // Original 401 triggers exactly one refresh; the retried request carries
+      // _retry=true so its 401 must NOT trigger a second refresh.
+      expect(refreshCount).toBe(1);
+    });
   });
 
   describe('response interceptor — concurrent 401 queuing', () => {
@@ -237,6 +282,45 @@ describe('api interceptor', () => {
       expect(res2.data.ok).toBeDefined();
       // Only one refresh call should have been made
       expect(refreshCount).toBe(1);
+    });
+  });
+
+  describe('refreshToken export', () => {
+    it('is exported', async () => {
+      const { refreshToken } = await import('../index.js');
+      expect(typeof refreshToken).toBe('function');
+    });
+
+    it('calls POST /auth/refresh with refreshToken param and returns tokens', async () => {
+      const { refreshToken } = await import('../index.js');
+
+      const postSpy = vi.spyOn(axios, 'post').mockResolvedValue({
+        data: { accessToken: 'new-access', refreshToken: 'new-refresh' },
+      } as AxiosResponse);
+
+      const result = await refreshToken('my-refresh-token');
+
+      expect(postSpy).toHaveBeenCalledWith(
+        expect.stringContaining('/auth/refresh'),
+        { refreshToken: 'my-refresh-token' }
+      );
+      expect(result).toEqual({ accessToken: 'new-access', refreshToken: 'new-refresh' });
+    });
+
+    it('uses standalone axios, not the api instance', async () => {
+      const { api, refreshToken } = await import('../index.js');
+
+      // If refreshToken went through the api instance, this adapter would run
+      const adapterSpy = vi.fn();
+      api.defaults.adapter = adapterSpy;
+
+      vi.spyOn(axios, 'post').mockResolvedValue({
+        data: { accessToken: 'a', refreshToken: 'b' },
+      } as AxiosResponse);
+
+      await refreshToken('token');
+
+      expect(adapterSpy).not.toHaveBeenCalled();
     });
   });
 });

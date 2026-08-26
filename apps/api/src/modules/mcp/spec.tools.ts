@@ -5,9 +5,9 @@
  */
 
 import type { RegisteredTool } from './tool-registry.js';
+import { generateId } from '@dommaker/studio-shared';
 import {
   getSpecReviewsDir,
-  generateId,
   getEntity,
   listJsonFiles,
   writeEntity,
@@ -54,7 +54,7 @@ const createSpec: RegisteredTool = {
     required: ['title', 'changes', 'changeType'],
   },
   handler: async (input) => {
-    const id = `spec_${generateId()}`;
+    const id = generateId('spec');
     const now = new Date().toISOString();
     const review: SpecReviewData = {
       id,
