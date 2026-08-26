@@ -1,10 +1,11 @@
-// 人审提案卡配置（#352，ADR 2026-08-25 决策 5）：5 张提案卡坍缩为「条目清单 + 文案」纯数据配置。
+// 人审提案卡配置（#352，ADR 2026-08-25 决策 5）：6 张提案卡坍缩为「条目清单 + 文案」纯数据配置。
 // 壳 = ReviewProposalCard；生命周期 = useProposalReview；action 分发 = useChannelCardActions
 // 经 PROPOSAL_ACTION_INDEX 参数化调用 config.exec。
-// 端点现状：5 类全部经通用端点 /review-proposals/:kind/:id/*（distill/gc/audit #351，memory #353，
-// knowledge #355）。
+// 端点现状：6 类全部经通用端点 /review-proposals/:kind/:id/*（distill/gc/audit #351，memory #353，
+// knowledge #355，auditor #356）。
 import type { ReactNode } from 'react';
 import { distillApi } from '../../api/distill';
+import { auditorApi } from '../../api/auditor';
 import { knowledgeApi } from '../../api/knowledge';
 import { memoryApi } from '../../api/memory';
 
@@ -14,7 +15,7 @@ export type ProposalReviewState = 'approved' | 'rejected' | 'executed' | 'failed
 export interface ProposalCardConfig {
   /** 消息 meta.cardType（渲染分发键） */
   cardType: string;
-  /** review-proposal 注册表 kind（5 类已全部接通通用端点，#351/#353/#355） */
+  /** review-proposal 注册表 kind（6 类已全部接通通用端点，#351/#353/#355/#356） */
   kind: string;
   approveAction: string;
   rejectAction: string;
@@ -102,6 +103,18 @@ const AUDIT_CATEGORY_LABELS: Record<string, string> = {
 /** meta.status 直读（memory/knowledge 共有行为） */
 const metaStatusReviewed: ProposalCardConfig['initialReviewed'] = s =>
   s === 'approved' || s === 'rejected' ? s : null;
+
+/** auditor 存量卡 meta.status 直读（#356 前旧卡终态词 confirmed/rejected，读侧归一为 approved/rejected） */
+const auditorMetaStatusReviewed: ProposalCardConfig['initialReviewed'] = s =>
+  s === 'confirmed' ? 'approved' : s === 'rejected' ? 'rejected' : null;
+
+/** auditor 卡 type → 人类可读标签（自旧 AuditorSuggestionCard TYPE_LABELS 原样搬入） */
+const AUDITOR_TYPE_LABELS: Record<string, string> = {
+  param_tuning: '参数调优',
+  prompt_optimization: 'Prompt 优化',
+  skill_weight: 'Skill 权重',
+  skill_status: 'Skill 发布',
+};
 
 interface MemoryEntry {
   draftId: string;
@@ -356,6 +369,63 @@ export const PROPOSAL_CARD_CONFIGS: Record<string, ProposalCardConfig> = {
           <div className="mc-time" style={{ marginBottom: 6 }}>
             确认后走 retire 执行（retired 元数据留痕，可回滚）；拒绝则全部保留且后续不再提案。
           </div>
+        </>
+      );
+    },
+  },
+
+  // B3-005 审计建议（#356 已切通用端点 /review-proposals/auditor/:proposalId/*，采纳建未指派 task 工单）
+  auditor_suggestion: {
+    cardType: 'auditor_suggestion',
+    kind: 'auditor',
+    approveAction: 'auditor_suggestion_approve',
+    rejectAction: 'auditor_suggestion_reject',
+    approvedState: 'approved',
+    exec: proposalExec('proposalId', auditorApi.approveProposal, auditorApi.rejectProposal),
+    // 已审核态按提案状态派生（正本词表 → 卡终态词）：executed→approved，rejected→rejected，
+    // failed→failed；pending/card-failed/unknown → 保持待审
+    fetchReviewed: async cardData => {
+      const proposalId = typeof cardData?.proposalId === 'string' ? (cardData.proposalId as string) : '';
+      if (!proposalId) return null;
+      const { data } = await auditorApi.proposalStatus(proposalId);
+      if (data?.status === 'executed') return 'approved';
+      if (data?.status === 'rejected') return 'rejected';
+      if (data?.status === 'failed') return 'failed';
+      return null;
+    },
+    initialReviewed: auditorMetaStatusReviewed,
+    reviewedTitle: '审计建议',
+    reviewLabels: {
+      approved: { text: '已确认执行', cls: 'mc-status-done' },
+      rejected: { text: '已拒绝', cls: 'mc-status-error' },
+      failed: { text: '审批执行失败（工单未创建）', cls: 'mc-status-error' },
+    },
+    pendingTitle: '审计建议 — 待确认',
+    countText: cd => `${(cd?.suggestions as unknown[] | undefined)?.length || 0} 条建议`,
+    approveLabel: '确认执行',
+    rejectLabel: '拒绝',
+    renderContent: cd => {
+      const suggestions = cd?.suggestions as Array<{
+        type: string; risk: string; agentType?: string; detail: string;
+      }> | undefined;
+      return (
+        <>
+          {suggestions?.map((s, i) => (
+            <div key={i} style={entryRowStyle}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span className="mc-card-body" style={{ fontWeight: 600 }}>
+                  {AUDITOR_TYPE_LABELS[s.type] || s.type}
+                </span>
+                {s.risk === 'high' && (
+                  <span className="mc-status mc-status-error">高风险</span>
+                )}
+              </div>
+              <p className="mc-card-dim" style={{ marginTop: 2 }}>{s.detail}</p>
+              {s.agentType && (
+                <span className="mc-time">Agent: {s.agentType}</span>
+              )}
+            </div>
+          ))}
         </>
       );
     },

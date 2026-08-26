@@ -31,7 +31,7 @@ export async function submitProposal<P extends ReviewProposalBase>(
   await adapter.store.appendProposal(proposal);
   const { content, cardData } = adapter.renderCardContent(proposal);
   const posted = await postReviewProposalCard(
-    { cardType: adapter.cardType, content, cardData, logTag: adapter.kind },
+    { cardType: adapter.cardType, content, cardData, logTag: adapter.kind, author: adapter.author },
     { fileStore: adapter.fileStore },
   );
   if (!posted) await adapter.store.appendStatus(proposal.id, 'card-failed');

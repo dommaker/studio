@@ -1,5 +1,6 @@
 // ReviewProposalCard — #352 人审提案卡合一壳（ADR 2026-08-25 决策 5）
-// 5 张卡（distill/gc/memory/knowledge/constraint_audit）坍缩为本壳 + proposalCardConfigs 纯数据配置；
+// 6 张卡（distill/gc/memory/knowledge/constraint_audit/auditor_suggestion，#356 并入）坍缩为本壳
+// + proposalCardConfigs 纯数据配置；
 // 生命周期单点化在 useProposalReview。卡间 diff 只剩条目清单与文案（配置 renderContent/labels）。
 // 视觉复用 mc-card 族，DOM class/文案/按钮行为逐字保持旧卡。
 import type { ChannelMessage } from '../../api/channel';

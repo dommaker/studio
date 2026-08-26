@@ -44,6 +44,8 @@ export interface ReviewProposalAdapterConfig<P extends ReviewProposalBase> {
    * 存量历史行不改写）注入自备 store；其余域一律走默认物化。
    */
   store?: ReviewProposalStore<P>;
+  /** 卡片作者（缺省 'KK'；auditor 卡保持历史作者 'Auditor'，#356） */
+  author?: string;
   /** 卡片内容渲染：提案 → 正文 + cardData */
   renderCardContent(proposal: P): { content: string; cardData: Record<string, unknown> };
   /** approve 后动作（唯一必须的业务副作用）；入参为审批前记录（status=pending） */

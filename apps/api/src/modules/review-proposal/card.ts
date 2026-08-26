@@ -20,6 +20,8 @@ export interface ReviewProposalCardPayload {
   cardData: Record<string, unknown>;
   /** 日志标签（缺省 = cardType） */
   logTag?: string;
+  /** 卡片作者（缺省 'KK'；业务方历史作者经此透传，如 auditor 卡 'Auditor'） */
+  author?: string;
 }
 
 /**
@@ -38,7 +40,7 @@ export async function postReviewProposalCard(
     const { channelMessageService } = await import('../channels/channel-message.service.js');
     await channelMessageService.createCardMessage(
       channel.id,
-      'KK',
+      card.author ?? 'KK',
       card.content,
       card.cardType,
       card.cardData,

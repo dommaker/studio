@@ -78,34 +78,14 @@ export async function pushConfirmationCards(fileStore: FileStore, suggestions: S
   if (suggestions.length === 0) return;
 
   try {
+    // #356：发卡归 review-proposal 正本（建提案 append-only → 发卡 → 失败落 card-failed 墓碑）。
+    // posted=false（频道缺失/发卡失败）时同旧口径跳过铃铛通知。
+    const { submitAuditorSuggestionProposal } = await import('./review-adapter.js');
+    const { posted } = await submitAuditorSuggestionProposal(suggestions, { fileStore });
+    if (!posted) return;
+
+    // Push bell notifications to all users
     const channel = (await fileStore.listChannels({ name: SYSTEM_CHANNEL_NAME }))[0] ?? null;
-    if (!channel) {
-      return;
-    }
-
-    const { channelMessageService } = await import('../../channels/channel-message.service.js');
-
-    // 1. Push cards to #系统 channel
-    const content = [
-      '## 🔧 审计建议 — 待人工确认',
-      '',
-      ...suggestions.map((s, i) => {
-        const icon = s.type === 'param_tuning' ? '⚙️' : s.type === 'circuit_fix' ? '🔴' : '📝';
-        return `${i + 1}. ${icon} **${s.detail}**`;
-      }),
-      '',
-      '请确认是否执行以上建议。',
-    ].join('\n');
-
-    await channelMessageService.createCardMessage(
-      channel.id,
-      'Auditor',
-      content,
-      'auditor_suggestion',
-      { suggestions, status: 'ready' },
-    );
-
-    // 2. Push bell notifications to all users
     try {
       const notifService = new NotificationService(fileStore);
       // Read users from FileStore
@@ -122,7 +102,7 @@ export async function pushConfirmationCards(fileStore: FileStore, suggestions: S
           type: 'auditor_suggestion',
           title: `审计建议 (${suggestions.length} 项)`,
           content: suggestions.map(s => s.detail).join(' | '),
-          link: `/channels/${channel.id}`,
+          link: `/channels/${channel?.id ?? ''}`,
         });
       }
       logger.info('[AuditorService] Push notifications sent', { users: userIds.length, suggestions: suggestions.length });

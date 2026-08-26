@@ -51,7 +51,6 @@ vi.mock('../../components/channel/ChannelInput', () => ({ ChannelInput: () => nu
 // 其他卡片与本测试无关；ReviewProposalCard 用真实组件（#352 合一壳，无 API 副作用）
 vi.mock('../../components/channel/RequirementsDocCard', () => ({ RequirementsDocCard: () => null }));
 vi.mock('../../components/channel/KnowledgeConfirmCard', () => ({ KnowledgeConfirmCard: () => null }));
-vi.mock('../../components/channel/AuditorSuggestionCard', () => ({ AuditorSuggestionCard: () => null }));
 vi.mock('../../components/channel/ConvertToTaskDialog', () => ({ ConvertToTaskDialog: () => null }));
 
 import { ChannelDetailPage } from '../ChannelDetailPage';

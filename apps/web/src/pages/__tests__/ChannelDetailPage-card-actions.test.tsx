@@ -1,5 +1,5 @@
-// ChannelDetailPage — #278（决策 #250 D2）：auditor_suggestion / retract_confirm 死按钮接线
-// 契约：auditor_apply_* → POST /channels/:id/messages/:mid/card-decision {decision}；
+// ChannelDetailPage — auditor_suggestion / retract_confirm 卡按钮接线
+// 契约：auditor_suggestion_* → POST /review-proposals/auditor/:proposalId/{approve,reject}（#356 通用端点）；
 //       retract_* → POST /skills/:skillId/retract/decide {decision, messageId}。成功后 refresh()。
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
@@ -48,7 +48,7 @@ vi.mock('../../components/channel/ChannelMemberManager', () => ({ ChannelMemberM
 vi.mock('../../components/channel/ChannelDefaultProjectSelect', () => ({ ChannelDefaultProjectSelect: () => null }));
 vi.mock('../../components/channel/ChannelCurrentPmoChip', () => ({ ChannelCurrentPmoChip: () => null }));
 vi.mock('../../components/channel/ChannelInput', () => ({ ChannelInput: () => null }));
-// 其他卡片与本测试无关；AuditorSuggestionCard / KnowledgeConfirmCard 用真实组件（其 API 已 mock）
+// 其他卡片与本测试无关；ReviewProposalCard（auditor_suggestion 已并入合一壳）/ KnowledgeConfirmCard 用真实组件（其 API 已 mock）
 vi.mock('../../components/channel/RequirementsDocCard', () => ({ RequirementsDocCard: () => null }));
 vi.mock('../../components/channel/ConvertToTaskDialog', () => ({ ConvertToTaskDialog: () => null }));
 
@@ -62,6 +62,7 @@ const MESSAGES = [
       cardType: 'auditor_suggestion',
       status: 'ready',
       cardData: {
+        proposalId: 'ap-1',
         suggestions: [
           { type: 'param_tuning', risk: 'low', agentType: 'developer', detail: '调低重试上限到 2' },
         ],
@@ -90,7 +91,7 @@ const renderPage = () =>
     </MemoryRouter>,
   );
 
-describe('ChannelDetailPage — #278 auditor_suggestion / retract_confirm 接线', () => {
+describe('ChannelDetailPage — auditor_suggestion（#356 通用端点）/ retract_confirm 接线', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockApiGet.mockResolvedValue({ data: { data: { id: 'ch-sys', name: '系统', type: 'system', members: '[]' } } });
@@ -99,29 +100,23 @@ describe('ChannelDetailPage — #278 auditor_suggestion / retract_confirm 接线
     mockListReqs.mockResolvedValue({ data: { data: [] } });
   });
 
-  it('auditor 采纳 → POST card-decision {decision:confirm} + refresh', async () => {
+  it('auditor 采纳 → POST /review-proposals/auditor/ap-1/approve + refresh', async () => {
     renderPage();
     fireEvent.click(await screen.findByText('确认执行'));
 
     await waitFor(() => {
-      expect(mockApiPost).toHaveBeenCalledWith(
-        '/channels/ch-sys/messages/msg-aud-1/card-decision',
-        { decision: 'confirm' },
-      );
+      expect(mockApiPost).toHaveBeenCalledWith('/review-proposals/auditor/ap-1/approve');
     });
     expect(mockRefresh).toHaveBeenCalled();
   });
 
-  it('auditor 拒绝 → POST card-decision {decision:reject}', async () => {
+  it('auditor 拒绝 → POST /review-proposals/auditor/ap-1/reject', async () => {
     renderPage();
     const auditorCard = (await screen.findByText('审计建议 — 待确认')).closest('.mc-card')!;
     fireEvent.click(auditorCard.querySelectorAll('button')[1]);
 
     await waitFor(() => {
-      expect(mockApiPost).toHaveBeenCalledWith(
-        '/channels/ch-sys/messages/msg-aud-1/card-decision',
-        { decision: 'reject' },
-      );
+      expect(mockApiPost).toHaveBeenCalledWith('/review-proposals/auditor/ap-1/reject');
     });
   });
 

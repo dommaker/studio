@@ -1,9 +1,9 @@
 // 频道卡片 action 路由 hook（#322 自 ChannelDetailPage handleAction 整块搬移 + interface 收口）：
 // 对外单一 dispatch(messageId, action) 入口，内部卡片 action 类型 → api 调用映射。
-// #352（ADR 2026-08-25 决策 5）：5 段人审提案同构分支坍缩为参数化调用——PROPOSAL_ACTION_INDEX
+// #352（ADR 2026-08-25 决策 5）：人审提案同构分支坍缩为参数化调用——PROPOSAL_ACTION_INDEX
 // 由 proposalCardConfigs 派生，config.exec(cardData, decision) 承载各域副作用：
-// distill/gc/audit/memory/knowledge 全部走通用端点 /review-proposals/:kind/:id/{approve,reject}（#351/#353/#355）。
-// auditor_suggestion confirm/reject → POST /channels/:id/messages/:mid/card-decision（#278，采纳建未指派 task 工单；拒绝留痕）。
+// distill/gc/audit/memory/knowledge/auditor 全部走通用端点 /review-proposals/:kind/:id/{approve,reject}
+// （#351/#353/#355/#356）。
 // retract_confirm confirm/reject → POST /skills/:id/retract/decide（#278，confirm→deprecated / reject→published，卡片状态同步回写）。
 // 返回是否成功（卡片据此显示已审核状态）。
 //
@@ -11,7 +11,6 @@
 // 支撑 #322 消息项 memo 的稳定 props 契约）；dispatch 体行为零变化。
 import { useCallback, useRef } from 'react';
 import type { ChannelMessage } from '../api/channel';
-import { channelApi } from '../api/channel';
 import { skillsApi } from '../api/skills';
 import { PROPOSAL_ACTION_INDEX } from '../components/channel/proposalCardConfigs';
 import { parseMeta } from '../utils/messageMeta';
@@ -42,18 +41,6 @@ export function useChannelCardActions({ channelId, messages, refresh }: UseChann
       try {
         const ok = await proposal.config.exec(cardDataOf(), proposal.decision);
         if (!ok) return false;
-        refresh();
-        return true;
-      } catch {
-        return false;
-      }
-    }
-    // #278（决策 #250 D2）：auditor_suggestion 卡接 card-decision 端点（human-only）。
-    // 采纳 = 本频道建未指派 task 工单；拒绝 = 仅留痕。状态由后端回写 meta.status + SSE 推送。
-    if (action === 'auditor_apply_confirm' || action === 'auditor_apply_reject') {
-      if (!channelId) return false;
-      try {
-        await channelApi.cardDecision(channelId, messageId, action === 'auditor_apply_confirm' ? 'confirm' : 'reject');
         refresh();
         return true;
       } catch {

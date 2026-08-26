@@ -16,6 +16,7 @@ import * as rules from './auditor-rules.js';
 import type { Suggestion } from './auditor-rules.js';
 import * as execution from './auditor-execution.js';
 import * as reports from './auditor-reports.js';
+import { registerAuditorReviewAdapter } from './review-adapter.js';
 
 const AUDIT_INTERVAL_MS = 24 * 60 * 60 * 1000; // Daily
 
@@ -292,3 +293,6 @@ export class AuditorService {
 }
 
 export const auditorService = new AuditorService();
+
+// #356：模块加载即注册 auditor 提案 adapter（重启后存量 pending 提案可经通用端点审批）
+registerAuditorReviewAdapter();

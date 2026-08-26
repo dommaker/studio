@@ -10,7 +10,8 @@ const {
   mockDistillApprove, mockDistillReject,
   mockGcApprove, mockGcReject,
   mockAuditApprove, mockAuditReject,
-  mockCardDecision, mockRetractDecide,
+  mockAudApprove, mockAudReject,
+  mockRetractDecide,
 } = vi.hoisted(() => ({
   mockKnApprove: vi.fn(),
   mockKnReject: vi.fn(),
@@ -22,7 +23,8 @@ const {
   mockGcReject: vi.fn(),
   mockAuditApprove: vi.fn(),
   mockAuditReject: vi.fn(),
-  mockCardDecision: vi.fn(),
+  mockAudApprove: vi.fn(),
+  mockAudReject: vi.fn(),
   mockRetractDecide: vi.fn(),
 }));
 
@@ -35,8 +37,8 @@ vi.mock('../../api/distill', () => ({
     auditApprove: mockAuditApprove, auditReject: mockAuditReject,
   },
 }));
+vi.mock('../../api/auditor', () => ({ auditorApi: { approveProposal: mockAudApprove, rejectProposal: mockAudReject } }));
 vi.mock('../../api/skills', () => ({ skillsApi: { retractDecide: mockRetractDecide } }));
-vi.mock('../../api/channel', () => ({ channelApi: { cardDecision: mockCardDecision } }));
 
 import { useChannelCardActions } from '../useChannelCardActions';
 import type { ChannelMessage } from '../../api/channel';
@@ -71,7 +73,8 @@ describe('useChannelCardActions — action → api 映射', () => {
     mockGcReject.mockResolvedValue({});
     mockAuditApprove.mockResolvedValue({ data: { success: true } });
     mockAuditReject.mockResolvedValue({});
-    mockCardDecision.mockResolvedValue({});
+    mockAudApprove.mockResolvedValue({ data: { success: true } });
+    mockAudReject.mockResolvedValue({});
     mockRetractDecide.mockResolvedValue({});
   });
 
@@ -80,7 +83,7 @@ describe('useChannelCardActions — action → api 映射', () => {
     await expect(dispatch()('m1', 'converted')).resolves.toBe(true);
     expect(refresh).toHaveBeenCalledTimes(1);
     expect(mockKnApprove).not.toHaveBeenCalled();
-    expect(mockCardDecision).not.toHaveBeenCalled();
+    expect(mockAudApprove).not.toHaveBeenCalled();
   });
 
   it('knowledge_proposal_approve → knowledgeApi.approveProposal 整卡一次（#355 通用端点）；reject → rejectProposal', async () => {
@@ -159,12 +162,19 @@ describe('useChannelCardActions — action → api 映射', () => {
     expect(mockAuditReject).toHaveBeenCalledWith('a-1');
   });
 
-  it('auditor_apply_confirm/reject → channelApi.cardDecision(confirm/reject)', async () => {
-    const { dispatch } = setup([msg('m1')]);
-    await expect(dispatch()('m1', 'auditor_apply_confirm')).resolves.toBe(true);
-    expect(mockCardDecision).toHaveBeenCalledWith('ch-1', 'm1', 'confirm');
-    await expect(dispatch()('m1', 'auditor_apply_reject')).resolves.toBe(true);
-    expect(mockCardDecision).toHaveBeenCalledWith('ch-1', 'm1', 'reject');
+  it('auditor_suggestion_approve/reject → auditorApi.approveProposal/rejectProposal（#356 通用端点整卡一次）', async () => {
+    const messages = [msg('m1', { proposalId: 'ap-1' })];
+    const { dispatch } = setup(messages);
+    await expect(dispatch()('m1', 'auditor_suggestion_approve')).resolves.toBe(true);
+    expect(mockAudApprove).toHaveBeenCalledWith('ap-1');
+    await expect(dispatch()('m1', 'auditor_suggestion_reject')).resolves.toBe(true);
+    expect(mockAudReject).toHaveBeenCalledWith('ap-1');
+  });
+
+  it('auditor_suggestion：proposalId 缺（存量卡）→ false 且不调 api', async () => {
+    const { dispatch } = setup([msg('m1', { suggestions: [] })]);
+    await expect(dispatch()('m1', 'auditor_suggestion_approve')).resolves.toBe(false);
+    expect(mockAudApprove).not.toHaveBeenCalled();
   });
 
   it('retract_confirm/reject → skillsApi.retractDecide(skillId, decision, messageId)', async () => {

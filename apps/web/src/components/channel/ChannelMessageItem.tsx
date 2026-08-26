@@ -13,7 +13,6 @@ import { renderWithMentions } from '../../utils/mentions';
 import { RequirementsDocCard } from './RequirementsDocCard';
 import { KnowledgeConfirmCard } from './KnowledgeConfirmCard';
 import { ReviewProposalCard } from './ReviewProposalCard';
-import { AuditorSuggestionCard } from './AuditorSuggestionCard';
 import { AnalysisConfirmCard } from './AnalysisConfirmCard';
 import { ConvertToTaskDialog } from './ConvertToTaskDialog';
 import { NeedInputOptions } from './NeedInputOptions';
@@ -71,10 +70,9 @@ function renderCard(
     case 'distill_proposal': // #143 蒸馏提案人审闸口
     case 'gc_proposal': // #144 知识库 GC 候选清单人审闸口
     case 'constraint_audit_proposal': // #146 存量约束退役建议人审闸口
-      // #352（ADR 2026-08-25 决策 5）：5 张人审提案卡合一为 ReviewProposalCard 壳 + proposalCardConfigs 配置
+    case 'auditor_suggestion': // B3-005 审计建议（#356 起并入合一壳）
+      // #352（ADR 2026-08-25 决策 5）：人审提案卡合一为 ReviewProposalCard 壳 + proposalCardConfigs 配置
       return <ReviewProposalCard message={message} meta={meta} onAction={onAction} />;
-    case 'auditor_suggestion':
-      return <AuditorSuggestionCard message={message} meta={meta} onAction={onAction} />;
     case 'analysis_confirm': // #284（决策 #250 D6）analysis 接力卡
       return <AnalysisConfirmCard message={message} meta={meta} onOpenConfirm={onOpenWorkUnitConfirm} />;
     default:

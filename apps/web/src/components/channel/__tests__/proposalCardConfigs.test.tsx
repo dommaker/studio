@@ -5,6 +5,7 @@ import { PROPOSAL_CARD_CONFIGS, PROPOSAL_ACTION_INDEX } from '../proposalCardCon
 import { distillApi } from '../../../api/distill';
 import { memoryApi } from '../../../api/memory';
 import { knowledgeApi } from '../../../api/knowledge';
+import { auditorApi } from '../../../api/auditor';
 
 vi.mock('../../../api/distill', () => ({
   distillApi: {
@@ -25,6 +26,9 @@ vi.mock('../../../api/memory', () => ({
 vi.mock('../../../api/knowledge', () => ({
   knowledgeApi: { approveProposal: vi.fn(), rejectProposal: vi.fn(), proposalStatus: vi.fn() },
 }));
+vi.mock('../../../api/auditor', () => ({
+  auditorApi: { approveProposal: vi.fn(), rejectProposal: vi.fn(), proposalStatus: vi.fn() },
+}));
 
 const CARD_TYPES = [
   'distill_proposal',
@@ -32,12 +36,13 @@ const CARD_TYPES = [
   'memory_proposal',
   'knowledge_proposal',
   'constraint_audit_proposal',
+  'auditor_suggestion',
 ];
 
 beforeEach(() => vi.clearAllMocks());
 
 describe('PROPOSAL_CARD_CONFIGS 完整性', () => {
-  it('恰好覆盖 5 类提案卡', () => {
+  it('恰好覆盖 6 类提案卡', () => {
     expect(Object.keys(PROPOSAL_CARD_CONFIGS).sort()).toEqual([...CARD_TYPES].sort());
   });
 
@@ -54,18 +59,19 @@ describe('PROPOSAL_CARD_CONFIGS 完整性', () => {
     expect(typeof c.renderContent).toBe('function');
   });
 
-  it('distill 家族 + memory/knowledge kind 对齐注册表（distill/gc/audit #351，memory #353，knowledge #355）', () => {
+  it('distill 家族 + memory/knowledge/auditor kind 对齐注册表（distill/gc/audit #351，memory #353，knowledge #355，auditor #356）', () => {
     expect(PROPOSAL_CARD_CONFIGS.distill_proposal.kind).toBe('distill');
     expect(PROPOSAL_CARD_CONFIGS.gc_proposal.kind).toBe('gc');
     expect(PROPOSAL_CARD_CONFIGS.constraint_audit_proposal.kind).toBe('audit');
     expect(PROPOSAL_CARD_CONFIGS.memory_proposal.kind).toBe('memory');
     expect(PROPOSAL_CARD_CONFIGS.knowledge_proposal.kind).toBe('knowledge');
+    expect(PROPOSAL_CARD_CONFIGS.auditor_suggestion.kind).toBe('auditor');
   });
 });
 
 describe('PROPOSAL_ACTION_INDEX', () => {
-  it('10 个 action 全部映射到配置与决策方向', () => {
-    expect(Object.keys(PROPOSAL_ACTION_INDEX)).toHaveLength(10);
+  it('12 个 action 全部映射到配置与决策方向', () => {
+    expect(Object.keys(PROPOSAL_ACTION_INDEX)).toHaveLength(12);
     for (const c of Object.values(PROPOSAL_CARD_CONFIGS)) {
       expect(PROPOSAL_ACTION_INDEX[c.approveAction]).toEqual({ config: c, decision: 'approve' });
       expect(PROPOSAL_ACTION_INDEX[c.rejectAction]).toEqual({ config: c, decision: 'reject' });
@@ -187,5 +193,46 @@ describe('memory（#353）/knowledge（#355）通用端点 exec 与派生', () =
     expect(ir('approved')).toBe('approved');
     expect(ir('rejected')).toBe('rejected');
     expect(ir('pending')).toBeNull();
+  });
+});
+
+describe('auditor（#356 通用端点）exec 与派生', () => {
+  it('approve → 整卡一次 approveProposal；success=false → false；缺 proposalId → false；reject → rejectProposal', async () => {
+    const cfg = PROPOSAL_CARD_CONFIGS.auditor_suggestion;
+    vi.mocked(auditorApi.approveProposal).mockResolvedValue({ data: { success: true } } as never);
+    await expect(
+      cfg.exec({ proposalId: 'ap1', suggestions: [{ type: 'param_tuning' }] }, 'approve'),
+    ).resolves.toBe(true);
+    expect(auditorApi.approveProposal).toHaveBeenCalledTimes(1);
+    expect(auditorApi.approveProposal).toHaveBeenCalledWith('ap1');
+
+    vi.mocked(auditorApi.approveProposal).mockResolvedValue({ data: { success: false } } as never);
+    await expect(cfg.exec({ proposalId: 'ap1' }, 'approve')).resolves.toBe(false);
+
+    await expect(cfg.exec({ suggestions: [] }, 'approve')).resolves.toBe(false);
+
+    vi.mocked(auditorApi.rejectProposal).mockResolvedValue({} as never);
+    await expect(cfg.exec({ proposalId: 'ap1' }, 'reject')).resolves.toBe(true);
+    expect(auditorApi.rejectProposal).toHaveBeenCalledWith('ap1');
+  });
+
+  it('派生按提案状态（executed→approved，rejected→rejected，failed→failed，pending/unknown→null）', async () => {
+    const cfg = PROPOSAL_CARD_CONFIGS.auditor_suggestion;
+    vi.mocked(auditorApi.proposalStatus).mockResolvedValue({ data: { status: 'executed' } } as never);
+    await expect(cfg.fetchReviewed!({ proposalId: 'ap1' })).resolves.toBe('approved');
+    vi.mocked(auditorApi.proposalStatus).mockResolvedValue({ data: { status: 'rejected' } } as never);
+    await expect(cfg.fetchReviewed!({ proposalId: 'ap1' })).resolves.toBe('rejected');
+    vi.mocked(auditorApi.proposalStatus).mockResolvedValue({ data: { status: 'failed' } } as never);
+    await expect(cfg.fetchReviewed!({ proposalId: 'ap1' })).resolves.toBe('failed');
+    vi.mocked(auditorApi.proposalStatus).mockResolvedValue({ data: { status: 'pending' } } as never);
+    await expect(cfg.fetchReviewed!({ proposalId: 'ap1' })).resolves.toBeNull();
+    await expect(cfg.fetchReviewed!({})).resolves.toBeNull();
+  });
+
+  it('存量卡 meta.status 直读：confirmed→approved / rejected→rejected，其余 null', () => {
+    const ir = PROPOSAL_CARD_CONFIGS.auditor_suggestion.initialReviewed!;
+    expect(ir('confirmed')).toBe('approved');
+    expect(ir('rejected')).toBe('rejected');
+    expect(ir('ready')).toBeNull();
   });
 });
