@@ -14,7 +14,7 @@ Web 前端主源码。路由、全局状态、API 客户端、UI 组件、样式
 | `monitoringApi` | `api/monitoring.ts` | 监控/飞轮指标/开销 + terminateInstance |
 | `workunitApi` | `api/workunit.ts` | WU 全生命周期 + token/步事件解析 + 流式文案格式化 |
 | `requirementApi` | `api/requirements.ts` | 需求 CRUD + 关联 WU 链 |
-| `knowledgeApi` | `api/knowledge.ts` | 知识审核 + 知识库浏览 |
+| `knowledgeApi` | `api/knowledge.ts` | 知识审核 + 知识库浏览；knowledge_proposal 卡审批走 review-proposal 通用端点（kind='knowledge'，#355），promote/demote 为条目生命周期端点（非提案场景） |
 | `memoryApi` / `distillApi` | `api/*.ts` | 角色记忆 / 蒸馏人审闸口（均走 review-proposal 通用端点 `/review-proposals/:kind/:id/*`，#351/#353） |
 | `companyApi` / `okrApi` / `notifyApi` / `harnessApi` | `api/*.ts` | 公司 / PMO OKR / 通知配置 / 质量门 |
 | `transcriptsApi` / `eventsApi` | `api/*.ts` | WU transcript 只读 / 事件检索 |
