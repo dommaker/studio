@@ -25,7 +25,7 @@
  * 同 PMO 的物化按 projectId 串行化（无 pmoId 按 WU id）。
  */
 
-import { eventBus, logger, type FileStore } from '@dommaker/studio-shared';
+import { eventBus, logger, createSettledTracker, type FileStore } from '@dommaker/studio-shared';
 import { WorkUnitService, type WorkUnitData, type WorkUnitMetadata } from '../workunit/workunit.service.js';
 import { parseWuMetadata } from '../workunit/wu-metadata.js';
 import { ChannelMessageService } from '../channels/channel-message.service.js';
@@ -80,6 +80,8 @@ export function parseSpecTasks(summary: string): SpecTaskSpec[] {
 export class SpecMaterialization {
   private subscribed = false;
   private messageService: ChannelMessageService;
+  /** #228 测试可观测性（纯增量，同 analysis-handoff）：在途事件链登记，见 waitForSettled */
+  private readonly settled = createSettledTracker();
 
   constructor(
     private fileStore: FileStore,
@@ -94,13 +96,21 @@ export class SpecMaterialization {
     if (this.subscribed) return;
     this.subscribed = true;
 
-    eventBus.subscribe('workunit.status_changed', async (payload: { workunit: WorkUnitData }) => {
+    eventBus.subscribe('workunit.status_changed', (payload: { workunit: WorkUnitData }) => {
       const wu = payload.workunit;
       if (!wu || wu.type !== 'spec' || wu.status !== 'done') return;
-      await this.onSpecDone(wu.id).catch(err =>
+      this.settled.track(this.onSpecDone(wu.id).catch(err =>
         logger.warn('[SpecMaterialization] onSpecDone failed', { wuId: wu.id, error: String(err) }),
-      );
+      ));
     });
+  }
+
+  /**
+   * 等待本实例已触发的全部事件链落定（测试用确定性信号，替代盲等轮询；
+   * 同 analysis-handoff.waitForSettled）。
+   */
+  async waitForSettled(): Promise<void> {
+    await this.settled.waitForSettled();
   }
 
   private async onSpecDone(wuId: string): Promise<void> {

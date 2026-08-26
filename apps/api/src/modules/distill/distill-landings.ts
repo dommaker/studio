@@ -1,13 +1,14 @@
 /**
  * distill-landings (#145) — 蒸馏产物三分落地的三个通道实现（运行时装配见 distill-runtime）。
  *
- *   - skill（过程性知识）→ skills 库提案：skillStore draft + proposalStore pending +
- *     skill_review_request 人审卡（沿用 skills 通道既有机制，审批走 /api/v1/skills/proposals/:id/*）
+ *   - skill（过程性知识）→ skills 库提案：skillStore draft + review-proposal 正本提案
+ *     （#354：submitSkillProposal，kind='skill'；skill_review_request 人审卡由正本投放，
+ *     审批走通用端点 /api/v1/review-proposals/skill/:id/*）
  *   - constraint（边界性知识）→ custom-constraints.yml 变更草案落盘（constraint-drafts.jsonl，
  *     add/override/retire 的具体 diff，不直接改约束文件）——#82 D6 派单通道未就绪的简化形态，
  *     派单接线后补（草案 status=pending 等派单）
  *   - preference / execution-knowledge → 角色记忆草稿（studio 系统角色，review=manual）+
- *     memory_proposal 人审卡（复用 #99 appendDraft 接线与 #101 人审卡）
+ *     memory_proposal 人审卡（#353：经 review-proposal 正本 submitMemoryProposal）
  *
  * 三类产物都带 sourceReferences 原料指针（skill→metadata、constraint→草案记录、memory→sourceRefs）。
  * 通道返回落地产物 id；返回 null / 抛错 → DistillService 回落知识条目（产物不丢）。
@@ -18,14 +19,11 @@ import { randomUUID } from 'node:crypto';
 import yaml from 'js-yaml';
 import { logger, type FileStore } from '@dommaker/studio-shared';
 import { skillStore } from '../skills/skill-store.js';
-import { proposalStore } from '../skills/proposal-store.js';
-import { roleMemoryStore, type MemoryKind } from '../role-memory/role-memory.js';
-import { postMemoryProposalCard } from '../role-memory/memory-proposal-card.js';
+import { submitSkillProposal } from '../skills/review-adapter.js';
+import { type MemoryKind } from '../role-memory/role-memory.js';
+import { submitMemoryProposal } from '../role-memory/review-adapter.js';
 import { ensureStudioProfile } from '../agents/agent-profile.service.js';
 import type { DistillLanding } from './distill-service.js';
-
-/** 人审卡投放的目标频道（ensureDefaultChannels 启动播种），同 distill-proposal-card 口径 */
-const SYSTEM_CHANNEL_NAME = '#系统';
 
 /** companies 目录取第一家可用公司 id（skill 记录必填 companyId；无公司 → null，调用方回落）。
  *  TODO(#145 后续)：多公司环境下「第一家」语义粗糙，公司归属解析待显式化（蒸馏无公司上下文）。 */
@@ -41,8 +39,9 @@ function firstCompanyId(companiesDir: string): string | null {
 }
 
 /**
- * skill 通道：蒸馏产物 → skills 库提案（draft skill + pending proposal + 人审卡）。
- * 镜像 skill-extraction.saveProposal 的落地形态；蒸馏产物一律走人工审批（无置信度自动发布）。
+ * skill 通道：蒸馏产物 → skills 库提案（draft skill + 正本 pending 提案 + 人审卡）。
+ * #354：提案存取/发卡归 review-proposal 正本（submitSkillProposal，kind='skill'）；
+ * 蒸馏产物一律走人工审批（无置信度自动发布）。发卡失败由正本落 card-failed 墓碑，不抛。
  */
 export function createSkillLanding(opts: { fileStore: FileStore; companiesDir: string }): DistillLanding {
   return async (product, ctx) => {
@@ -65,32 +64,16 @@ export function createSkillLanding(opts: { fileStore: FileStore; companiesDir: s
         distillRunId: ctx.runId,
       }),
     });
-    const proposal = proposalStore.create({
+    const { proposalId } = await submitSkillProposal({
       skillId: skill.id,
-      status: 'pending',
+      name: product.title,
+      description: product.content,
+      sourceGoalIds: ctx.materialIds,
       proposedBy: 'distill',
       summary: `蒸馏产物待审：${product.title}`,
-      metadata: { sourceReferences: ctx.materialIds, distillProposalId: ctx.proposalId },
     });
 
-    // 沿用 skills 通道既有人审通知（同 skill-extraction 的 skill_review_request 卡；失败静默）
-    try {
-      const channel = (await opts.fileStore.listChannels({ name: SYSTEM_CHANNEL_NAME }))[0] ?? null;
-      if (channel) {
-        const { channelMessageService } = await import('../channels/channel-message.service.js');
-        await channelMessageService.createCardMessage(
-          channel.id,
-          'knowledge_keeper',
-          `Skill pending review: **${product.title}**\nDescription: ${product.content}\nSource: 知识蒸馏（原料 ${ctx.materialIds.length} 条）`,
-          'skill_review_request',
-          { proposalId: proposal.id, skillId: skill.id },
-        );
-      }
-    } catch (e) {
-      logger.warn('[Distill] skill_review_request card failed (non-blocking)', { error: String(e) });
-    }
-
-    return proposal.id;
+    return proposalId;
   };
 }
 
@@ -158,21 +141,20 @@ export function createConstraintLanding(opts: { fileStore: FileStore; dataDir: s
 
 /**
  * memory 通道：preference / execution-knowledge 产物 → studio 系统角色记忆草稿（review=manual）
- * + memory_proposal 人审卡（#99 appendDraft + #101 人审卡接线）。roleId = studio 系统角色
- * （ensureStudioProfile 幂等解析）——蒸馏是系统级沉淀，锚在系统角色记忆。
+ * + memory_proposal 人审卡（#353：经 review-proposal 正本 submitMemoryProposal）。roleId = studio
+ * 系统角色（ensureStudioProfile 幂等解析）——蒸馏是系统级沉淀，锚在系统角色记忆。
  */
 export function createMemoryLanding(opts: { fileStore: FileStore }): DistillLanding {
   return async (product, ctx) => {
     const kind: MemoryKind = product.type === 'preference' ? 'preference' : 'execution-knowledge';
     const profile = await ensureStudioProfile(opts.fileStore);
-    const entry = await roleMemoryStore.appendDraft(profile.id, {
+    const entries = await submitMemoryProposal(profile.id, [{
       kind,
       title: product.title,
       content: product.content,
       review: 'manual',
       sourceRefs: ctx.materialIds,
-    });
-    await postMemoryProposalCard([entry], { source: 'distill' });
-    return entry.id;
+    }], { source: 'distill' });
+    return entries[0]?.id ?? null;
   };
 }

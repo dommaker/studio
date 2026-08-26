@@ -27,6 +27,14 @@ const LOCK_RETRY_INTERVAL_MS = 10;
 const DEFAULT_LOCK_TIMEOUT_MS = 5000;
 /** stale 兜底判据阈值（#64 决议 2）：acquiredAt / 锁目录 mtime 距今超此值即回收 */
 const STALE_LOCK_AGE_MS = 30_000;
+/**
+ * 无属主裸锁的回收阈值：持锁方在 mkdir 获锁后、owner.json 落盘前被杀
+ * （测试进程被池杀 / 宕机）会留下无 owner.json 的裸锁。mkdir→owner.json
+ * 窗口仅一次小文件原子写，裸锁超此阈值即认定持锁方已死，无需等 30s
+ * 超龄兜底——此前裸锁按 30s 兜底等待，期间每个并发同步耗满 5s 锁超时
+ * （agent-loop-a2a 测试间歇红 / CI flaky，2026-08-26 实证）。
+ */
+const OWNERLESS_LOCK_AGE_MS = 2_000;
 
 /** 锁内属主文件 owner.json（#64 决议 1：mkdir 获锁后写入锁目录） */
 interface LockOwner {
@@ -268,7 +276,9 @@ export class FileStoreBase {
    * stale 双判据（#64 决议 2），满足其一即回收（删整个锁目录）并告警：
    * - pid_dead：owner.hostname 与本机相同且 pid 已死（ESRCH）；hostname 不同不走此判据；
    * - age：owner.acquiredAt 距今超 STALE_LOCK_AGE_MS；
-   *   读不到 owner.json（窗口期 crash 残留/旧版裸锁）按锁目录 mtime 走同一超龄判据。
+   *   读不到 owner.json（获锁后写 owner 前被杀的裸锁 / 旧版残留）按锁目录
+   *   mtime 走 OWNERLESS_LOCK_AGE_MS 短阈值——写 owner 窗口仅一次小文件原子写，
+   *   超龄裸锁认定持锁方已死，即时回收不毒化并发同步（2026-08-26）。
    * 返回是否发生了回收。
    */
   private async tryReclaimStaleLock(lockDir: string): Promise<boolean> {
@@ -283,7 +293,7 @@ export class FileStoreBase {
     } else {
       try {
         const stat = await fs.promises.stat(lockDir);
-        if (Date.now() - stat.mtimeMs > STALE_LOCK_AGE_MS) criterion = 'age';
+        if (Date.now() - stat.mtimeMs > OWNERLESS_LOCK_AGE_MS) criterion = 'age';
       } catch {
         return false; // 锁目录已被对方释放，不算回收，回到正常 mkdir 竞争
       }

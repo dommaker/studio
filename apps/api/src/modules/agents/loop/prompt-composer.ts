@@ -29,6 +29,7 @@ import { postWuSystemMessage } from '../../workunit/wu-messenger.js';
 import type { WorkUnitData, WorkUnitMetadata } from '../../workunit/workunit.service.js';
 import { buildContinuePrompt, buildReplyPrompt } from './agent-loop-parsers.js';
 import { metricsFileStore } from './agent-loop-events.js';
+import { getErrorMessage } from '../../../utils/errors.js';
 
 /**
  * #91（#88 决策 2）：注入段分段软定额（替代单池 2K 优先级制）。
@@ -750,7 +751,7 @@ async function buildMemorySection(roleId: string, tokenBudget: number): Promise<
     // 读盘失败（非 ENOENT 的 IO/权限等异常）：空段兜底，只记日志，不阻断 prompt 组装
     logger.warn('[prompt-composer] role memory index read failed (non-blocking)', {
       roleId,
-      error: err instanceof Error ? err.message : String(err),
+      error: getErrorMessage(err),
     });
     return { section: '', tokens: 0, originalTokens: 0 };
   }

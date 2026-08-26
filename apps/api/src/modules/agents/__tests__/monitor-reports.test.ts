@@ -1,12 +1,12 @@
 /**
  * monitor-reports — 轨迹评估 / 每日洞察 / 交互模式观察（D18: 统一事件文件）
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 
 const {
-  tmpHome, tmpEvents, eventsFile, mockLogger, mockUpdatePref, mockExecSync,
+  tmpHome, tmpEvents, eventsFile, mockLogger, mockUpdatePref, mockExecFileSync,
 } = vi.hoisted(() => {
   const fs = require('fs');
   const path = require('path');
@@ -21,7 +21,8 @@ const {
     eventsFile,
     mockLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
     mockUpdatePref: vi.fn(() => Promise.resolve()),
-    mockExecSync: vi.fn(() => '0'),
+    // git 段 execFileSync：返回空串 → 0 commit（等价原 execSync 返回 '0' 的口径）
+    mockExecFileSync: vi.fn(() => ''),
   };
 });
 
@@ -30,7 +31,12 @@ vi.mock('os', async (importOriginal) => {
   return { ...actual, homedir: () => tmpHome };
 });
 
-vi.mock('child_process', () => ({ execSync: mockExecSync }));
+vi.mock('child_process', () => ({ execFileSync: mockExecFileSync }));
+
+// 显式清理：hoisted 里的 require('fs') 走原生模块，mkdtemp-cleanup 补丁登记不到
+afterAll(() => {
+  for (const d of [tmpHome, tmpEvents]) fs.rmSync(d, { recursive: true, force: true });
+});
 
 vi.mock('@dommaker/studio-shared', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@dommaker/studio-shared')>();

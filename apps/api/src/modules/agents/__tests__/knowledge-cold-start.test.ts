@@ -39,6 +39,11 @@ vi.mock('os', async (importOriginal) => {
   return { ...actual, homedir: mockHomedir };
 });
 
+// 显式清理：hoisted 里的 require('fs') 走原生模块，mkdtemp-cleanup 补丁登记不到
+afterAll(() => {
+  for (const d of [tmpHome, tmpProject]) fs.rmSync(d, { recursive: true, force: true });
+});
+
 vi.mock('@dommaker/studio-shared', () => ({ logger: mockLogger }));
 
 vi.mock('@dommaker/harness', () => ({

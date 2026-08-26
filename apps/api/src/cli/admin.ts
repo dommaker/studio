@@ -4,6 +4,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { STUDIO_DIR, ensureDir } from './shared.js';
+import { getErrorMessage } from '../utils/errors.js';
 
 export async function studioDaemonStart() {
   const rawArgs = process.argv.slice(3);
@@ -65,7 +66,7 @@ export async function studioDaemonStart() {
       console.log(`  Repos: ${repos.length} git repos found`);
     }
   } catch (err) {
-    console.warn(`  Warning: Repo scan failed: ${err instanceof Error ? err.message : String(err)}`);
+    console.warn(`  Warning: Repo scan failed: ${getErrorMessage(err)}`);
   }
 
   // 4. Write workspace.json

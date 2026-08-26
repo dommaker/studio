@@ -160,8 +160,12 @@ export function optionalAuth() {
     authReq.anonymousId = generateAnonymousId(ip, ua);
     
     try {
-      const token = parseAuthHeader(req);
-      
+      // 2026-08-25：EventSource 无法设置 Authorization 头，/events/stream 经
+      // ?token= 携带 JWT。req.path 不含 query，应用层访问日志（request-logger
+      // 记 req.path）不落 token；nginx access.log 会记完整 URI，单用户部署可接受。
+      const queryToken = typeof (req as any).query?.token === 'string' ? (req as any).query.token : null;
+      const token = parseAuthHeader(req) || queryToken;
+
       if (!token) {
         return next();
       }
@@ -347,16 +351,28 @@ export function requireAdmin() {
 }
 
 /**
- * 本机回环检查 — 2026-07 API 鉴权收紧
+ * 本机回环检查 — 2026-07 API 鉴权收紧 / 2026-08-25 修复同机反代绕过
  *
- * 仅放行 127.0.0.1 / ::1（含 ::ffff: 映射），其余 403。
+ * 仅放行 127.0.0.1 / ::1（含 ::ffff: 映射）的**直连**请求，其余 403。
  * 用于"假定本机调用方、无凭证"的端点（/api/knowledge 内部知识 API、
- * /api/v1/mcp/messages|sse）：经反向代理（Cloudflare 等）的公网流量
- * socket 对端是代理边缘 IP 天然被拦；本机 daemon/CLI 脚本走回环不受影响。
+ * /api/v1/mcp/messages|sse）。
+ *
+ * 2026-08-25 修复：原先只查 TCP 对端，但 nginx/cloudflared 与 API 同机时，
+ * 公网流量的 socket 对端也是 127.0.0.1，导致恒放行。现加判：请求带
+ * X-Forwarded-For / CF-Connecting-IP 头即视为经代理的转发流量，一律 403
+ * （本机 daemon/CLI 直连不会携带这些头，nginx/Cloudflare 边缘必带）。
  * 与认证模式无关（网络层检查），STUDIO_AUTH=none 下同样生效。
  */
 export function requireLocalhost() {
   return async (req: Request, res: Response, next: NextFunction) => {
+    // 经代理转发的流量一律拒绝（同机反代下 TCP 对端也是回环，单靠 IP 判不出）
+    if (req.headers['x-forwarded-for'] || req.headers['cf-connecting-ip']) {
+      return res.status(403).json({
+        error: '该端点仅允许本机调用',
+        code: 'LOCALHOST_ONLY',
+      });
+    }
+
     const ip = req.ip ?? req.socket?.remoteAddress ?? '';
     const normalized = ip.startsWith('::ffff:') ? ip.slice(7) : ip;
 

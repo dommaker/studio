@@ -80,6 +80,15 @@ export async function setup() {
 
   // B1 测试数据隔离：e2e server 使用独立临时数据根，禁止写生产 ~/.studio/data
   const isolatedRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'studio-e2e-data-'));
+  // 2026-08-26 /tmp 残留事故补漏：teardown 只杀 server 不删隔离根，e2e 每跑一次漏一个目录。
+  // exit 钩子兜底（vitest 主进程退出时必跑；kill -9 场景由 setup-isolated-data 的 sweep 收敛）。
+  process.on('exit', () => {
+    try {
+      fs.rmSync(isolatedRoot, { recursive: true, force: true });
+    } catch {
+      // 退出期不抛
+    }
+  });
 
   serverProcess = spawn(
     // 方案 B：直接 spawn tsx，去掉 npx 包装层（npx→npm exec→sh 链不转发信号）

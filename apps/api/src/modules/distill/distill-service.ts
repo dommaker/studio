@@ -4,8 +4,14 @@
  * 链路：WU 收尾钩子（workunit.status_changed → done）顺带跑门槛检测（distill-threshold
  * 纯函数，零 LLM 成本）→ 命中则发 distill_proposal 人审卡到 #系统 频道（原料清单+预期产出）
  * → approve 后由 system-executor 执行一次蒸馏调用 → 产出入库为知识条目（sourceReferences
- * 指向全部原料 id），原料矿石 maturity=archived 移出主区 → 运行记录落数据区（distill-store），
+ * 指向全部原料 id），原料矿石 maturity=archived 移出主区 → 运行记录落数据区（distill-runs），
  * 全链路事件写 studio-events.jsonl（type=knowledge:distill）。
+ *
+ * #351：人审提案卡生命周期（提案存取/发卡/approve/reject/状态查询）收敛到
+ * review-proposal 正本；本 service 只做业务触发（maybePropose/runGcCheck/runConstraintAudit）
+ * 与审批后动作（executeDistill/executeGc/executeAudit + reject 事件留痕），
+ * 经 registerDistillReviewAdapters 注册三个 adapter（kind: distill/gc/audit）。
+ * 人审端点 = 通用端点 /api/v1/review-proposals/:kind/:id/{approve,reject,status}。
  *
  * 降级口径：
  *   - reject 零副作用（原料不动、无产物、无运行记录）
@@ -18,8 +24,8 @@
  * fire-and-forget，绝不阻塞 WU 收尾）。
  *
  * #144 GC 候选清单：每次蒸馏运行落盘后 runGcCheck 按蒸馏周期计龄（gc-candidates 纯函数，
- * 不读墙钟）生成候选清单发 gc_proposal 人审卡；approveGc 候选 maturity=archived（可恢复），
- * rejectGc 零副作用且人判保留条目后续不再提案。零候选不发卡。
+ * 不读墙钟）生成候选清单发 gc_proposal 人审卡；executeGc 候选 maturity=archived（可恢复），
+ * reject 零副作用且人判保留条目后续不再提案。零候选不发卡。
  *
  * #145 三分落地：蒸馏 LLM 产出自带类型分类——skill（过程性知识）→ skills 库提案；
  * constraint（边界性知识）→ constraint-drafts.jsonl 变更草案（D6 派单通道未就绪的简化落盘形态）；
@@ -28,8 +34,8 @@
  *
  * #146 存量约束审计：蒸馏运行产出新约束（landings.constraint 非空）→ 顺带审计存量 custom
  * 约束（#139 判据「是否还有可被违反的未来场景」，constraint-audit 纯函数 + 判据白名单闸门）
- * → 退役建议清单发 constraint_audit_proposal 人审卡；approveAudit 走 retire 执行
- * （custom-constraints.yml 条目内 retired 元数据段，#82 D6 落点，可恢复），rejectAudit
+ * → 退役建议清单发 constraint_audit_proposal 人审卡；executeAudit 走 retire 执行
+ * （custom-constraints.yml 条目内 retired 元数据段，#82 D6 落点，可恢复），reject
  * 零副作用且人判保留约束不再进审计输入。零建议不发卡；审计永不阻塞蒸馏主链路。
  */
 import { randomUUID } from 'node:crypto';
@@ -37,18 +43,20 @@ import fs from 'node:fs';
 import { eventBus, logger, FileStore } from '@dommaker/studio-shared';
 import type { KnowledgeStore, KnowledgeEntry, SourceRef } from '@dommaker/harness';
 import { evaluateDistillThreshold, EXITED_MATURITY } from './distill-threshold.js';
+import { DistillRunsStore, type DistillRun, type DistillRunLandings } from './distill-runs.js';
 import {
-  DistillStore,
+  registerDistillReviewAdapters,
+  rejectedAuditConstraintIds,
+  rejectedGcEntryIds,
+  type ConstraintAuditProposal,
   type DistillProposal,
-  type DistillProposalRecord,
-  type DistillProposalStatus,
-  type DistillRun,
-  type DistillRunLandings,
-} from './distill-store.js';
-import { postDistillProposalCard } from './distill-proposal-card.js';
+  type DistillReviewAdapters,
+  type GcProposal,
+} from './review-adapters.js';
+import { submitProposal } from '../review-proposal/service.js';
+import type { ApproveOutcome } from '../review-proposal/registry.js';
+import type { ReviewProposalRecord } from '../review-proposal/store.js';
 import { generateGcCandidates } from './gc-candidates.js';
-import { GcStore, type GcProposal, type GcProposalRecord, type GcProposalStatus } from './gc-store.js';
-import { postGcProposalCard } from './gc-proposal-card.js';
 import {
   CONSTRAINT_AUDIT_SYSTEM_PROMPT,
   buildConstraintAuditPrompt,
@@ -57,13 +65,6 @@ import {
   readPackageDeps,
   type AuditSuggestion,
 } from './constraint-audit.js';
-import {
-  ConstraintAuditStore,
-  type ConstraintAuditProposal,
-  type ConstraintAuditProposalRecord,
-  type ConstraintAuditStatus,
-} from './audit-store.js';
-import { postConstraintAuditCard } from './constraint-audit-card.js';
 import { retireConstraintEntry } from '../evolution/applier.js';
 import { getSystemExecutor } from '../agents/system-executor.js';
 import {
@@ -72,13 +73,13 @@ import {
   getDailyTokenUsage,
 } from '../agents/loop/daily-token-budget.js';
 import { writeStudioEvent } from '../../utils/studio-events.js';
+import { getErrorMessage } from '../../utils/errors.js';
 import type { WorkUnitData } from '../workunit/workunit.service.js';
 
-export type { DistillProposal, DistillProposalRecord, DistillProposalStatus, DistillRun } from './distill-store.js';
-export type { GcProposal, GcProposalRecord, GcProposalStatus } from './gc-store.js';
+export type { DistillRun } from './distill-runs.js';
 export type { GcCandidate } from './gc-candidates.js';
-export type { ConstraintAuditProposal, ConstraintAuditProposalRecord, ConstraintAuditStatus } from './audit-store.js';
 export type { AuditSuggestion, AuditCategory, CustomConstraintInfo } from './constraint-audit.js';
+export type { ConstraintAuditProposal, DistillProposal, GcProposal } from './review-adapters.js';
 
 /**
  * 蒸馏 prompt（单一来源）：矿石 → 带类型分类的蒸馏产物。结构参考 MEMORY_EXTRACTION_SYSTEM_PROMPT，
@@ -117,7 +118,7 @@ const MAX_PRODUCTS = 5;
 export interface DistillServiceDeps {
   store: KnowledgeStore;
   fileStore: FileStore;
-  /** 数据区目录（proposals.jsonl + runs.jsonl）；运行时装配 studioPath('distill') */
+  /** 数据区目录（三类提案 jsonl + runs.jsonl）；运行时装配 studioPath('distill') */
   dataDir: string;
   /** studio-events.jsonl 路径（预算统计与事件落盘共用） */
   eventsFile: string;
@@ -167,14 +168,6 @@ export interface DistillLandings {
   constraint?: DistillLanding;
   /** preference 与 execution-knowledge 共用（角色记忆草稿通道） */
   memory?: DistillLanding;
-}
-
-export interface DistillApproveResult {
-  ok: boolean;
-  productIds?: string[];
-  error?: string;
-  /** 预算熔断跳过：提案保持 pending，可次日重试 */
-  skipped?: 'budget-exhausted';
 }
 
 /** LLM 产出的原始产物形态（宽松解析，normalize 把关） */
@@ -252,14 +245,25 @@ export function buildDistillPrompt(materials: KnowledgeEntry[]): string {
 
 export class DistillService {
   private subscribed = false;
-  private distillStore: DistillStore;
-  private gcStore: GcStore;
-  private auditStore: ConstraintAuditStore;
+  private runsStore: DistillRunsStore;
+  private reviewAdapters: DistillReviewAdapters;
 
   constructor(private deps: DistillServiceDeps) {
-    this.distillStore = new DistillStore(deps.fileStore, deps.dataDir);
-    this.gcStore = new GcStore(deps.fileStore, deps.dataDir);
-    this.auditStore = new ConstraintAuditStore(deps.fileStore, deps.dataDir);
+    this.runsStore = new DistillRunsStore(deps.fileStore, deps.dataDir);
+    // #351：三个人审提案卡 adapter 注册到 review-proposal 正本（kind: distill/gc/audit）。
+    // 构造即注册：通用端点经注册表分发到本实例的审批后动作；重复构造后者生效（测试多实例幂等）。
+    this.reviewAdapters = registerDistillReviewAdapters({
+      fileStore: deps.fileStore,
+      dataDir: deps.dataDir,
+      effects: {
+        executeDistill: p => this.executeDistill(p),
+        onDistillRejected: p => this.onDistillRejected(p),
+        executeGc: p => this.executeGc(p),
+        onGcRejected: p => this.onGcRejected(p),
+        executeAudit: p => this.executeAudit(p),
+        onAuditRejected: p => this.onAuditRejected(p),
+      },
+    });
   }
 
   /** 订阅 workunit.status_changed（done → 门槛检测）。幂等。 */
@@ -284,8 +288,8 @@ export class DistillService {
   async maybePropose(trigger: { workUnitId?: string }): Promise<void> {
     try {
       const baseline = {
-        lastRunAt: await this.distillStore.lastRunAt(),
-        lastConsumedAt: await this.distillStore.lastConsumedAt(),
+        lastRunAt: await this.runsStore.lastRunAt(),
+        lastConsumedAt: await this.runsStore.lastConsumedAt(),
       };
       const entries = this.deps.store.list();
       const result = evaluateDistillThreshold(entries, baseline);
@@ -295,7 +299,7 @@ export class DistillService {
       }
 
       // 去重：已有 pending 提案等人审 → 不重复发卡
-      const pending = await this.distillStore.findPending();
+      const pending = await this.reviewAdapters.distill.store.findPending();
       if (pending) {
         logger.info('[Distill] skip: pending proposal exists', { proposalId: pending.id, workUnitId: trigger.workUnitId });
         return;
@@ -313,12 +317,10 @@ export class DistillService {
         },
         ...(trigger.workUnitId ? { triggerWorkUnitId: trigger.workUnitId } : {}),
       };
-      await this.distillStore.appendProposal(proposal);
 
-      // 发卡失败静默跳过（#101 降级口径）：标记 card-failed，不阻塞后续提案
-      const posted = await postDistillProposalCard(proposal, { fileStore: this.deps.fileStore });
+      // 发卡失败静默跳过（#101 降级口径）：正本落 card-failed 墓碑，不阻塞后续提案
+      const { posted } = await submitProposal(this.reviewAdapters.distill, proposal);
       if (!posted) {
-        await this.distillStore.appendStatus(proposal.id, 'card-failed');
         await this.emitEvent({ stage: 'card-failed', proposalId: proposal.id, materialCount: proposal.materialIds.length });
         return;
       }
@@ -339,20 +341,19 @@ export class DistillService {
   }
 
   /**
-   * approve：预算守卫 → 收集原料 → system-executor 一次蒸馏调用 → 产物入库
-   * （sourceReferences 指向全部原料 id）→ 原料归档 → 运行记录 + 事件。
+   * adapter.onApprove（kind=distill）：预算守卫 → 收集原料 → system-executor 一次蒸馏调用 →
+   * 产物入库（sourceReferences 指向全部原料 id）→ 原料归档 → 运行记录 + 事件。
+   * 墓碑（executed/failed）由 review-proposal 正本按返回 outcome 落；
    * LLM/解析失败：原料不消费，落 failed 运行记录（同样触发 7 天熔断）。
    */
-  async approve(proposalId: string): Promise<DistillApproveResult> {
-    const proposal = await this.distillStore.getProposal(proposalId);
-    if (!proposal) return { ok: false, error: 'proposal-not-found' };
-    if (proposal.status !== 'pending') return { ok: false, error: `proposal-not-pending:${proposal.status}` };
+  async executeDistill(proposal: ReviewProposalRecord<DistillProposal>): Promise<ApproveOutcome> {
+    const proposalId = proposal.id;
 
     // 熔断：每日 token 预算超限 → 跳过执行（不消费、不报错；提案保持 pending 可次日重试）
     if (await this.isBudgetExhausted()) {
       logger.warn('[Distill] approve skipped: daily token budget exhausted', { proposalId });
       await this.emitEvent({ stage: 'skipped', reason: 'budget-exhausted', proposalId });
-      return { ok: false, skipped: 'budget-exhausted' };
+      return { status: 'pending', skipped: 'budget-exhausted' };
     }
 
     // 以库内最新状态为准（提案后原料可能已被其它路径归档/删除）
@@ -360,9 +361,8 @@ export class DistillService {
       .map(id => this.deps.store.get(id))
       .filter((e): e is KnowledgeEntry => !!e && !EXITED_MATURITY.has(e.maturity));
     if (materials.length === 0) {
-      await this.distillStore.appendStatus(proposalId, 'failed');
       await this.emitEvent({ stage: 'failed', reason: 'no-materials', proposalId });
-      return { ok: false, error: 'no-materials' };
+      return { status: 'failed', error: 'no-materials' };
     }
 
     const startMs = Date.now();
@@ -414,8 +414,7 @@ export class DistillService {
       }
 
       const run = this.buildRun(proposal, 'executed', productIds, { id: runId, landings });
-      await this.distillStore.appendRun(run);
-      await this.distillStore.appendStatus(proposalId, 'executed');
+      await this.runsStore.appendRun(run);
       this.deps.onProductsSaved?.(productIds);
 
       logger.info('[Distill] run executed', {
@@ -435,65 +434,41 @@ export class DistillService {
       if ((run.landings?.constraint.length ?? 0) > 0) {
         await this.runConstraintAudit(run);
       }
-      return { ok: true, productIds };
+      return { status: 'executed', data: { productIds } };
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = getErrorMessage(err);
       logger.warn('[Distill] run failed (materials not consumed)', { proposalId, error: message });
       const run = this.buildRun(proposal, 'failed', [], { error: message });
-      await this.distillStore.appendRun(run);
-      await this.distillStore.appendStatus(proposalId, 'failed');
+      await this.runsStore.appendRun(run);
       await this.emitEvent({ stage: 'failed', reason: message, proposalId, durationMs: Date.now() - startMs });
       // 失败运行不构成蒸馏周期（同 #143 消费基线「失败不推进」口径）→ 不触发 GC
-      return { ok: false, error: message };
+      return { status: 'failed', error: message };
     }
   }
 
-  /** reject：零副作用——原料不动、无产物、无运行记录，仅提案终态 + 事件 */
-  async reject(proposalId: string): Promise<{ ok: boolean; error?: string }> {
-    const proposal = await this.distillStore.getProposal(proposalId);
-    if (!proposal) return { ok: false, error: 'proposal-not-found' };
-    if (proposal.status !== 'pending') return { ok: false, error: `proposal-not-pending:${proposal.status}` };
-
-    await this.distillStore.appendStatus(proposalId, 'rejected');
-    logger.info('[Distill] proposal rejected (no side effects)', { proposalId });
-    await this.emitEvent({ stage: 'rejected', proposalId, materialCount: proposal.materialIds.length });
-    return { ok: true };
-  }
-
-  /** 卡片刷新派生已审态（同 role-memory draft-status 口径） */
-  async getProposalStatuses(ids: string[]): Promise<Record<string, DistillProposalStatus | 'unknown'>> {
-    const proposals = await this.distillStore.listProposals();
-    const byId = new Map(proposals.map(p => [p.id, p.status]));
-    const statuses: Record<string, DistillProposalStatus | 'unknown'> = {};
-    for (const id of ids) statuses[id] = byId.get(id) ?? 'unknown';
-    return statuses;
+  /** adapter.onReject（kind=distill）：零副作用——原料不动、无产物、无运行记录，仅事件留痕 */
+  async onDistillRejected(proposal: ReviewProposalRecord<DistillProposal>): Promise<void> {
+    logger.info('[Distill] proposal rejected (no side effects)', { proposalId: proposal.id });
+    await this.emitEvent({ stage: 'rejected', proposalId: proposal.id, materialCount: proposal.materialIds.length });
   }
 
   // ── 测试与路由只读出口 ──
 
-  async getProposal(id: string): Promise<DistillProposalRecord | null> {
-    return this.distillStore.getProposal(id);
-  }
-
-  async listProposals(): Promise<DistillProposalRecord[]> {
-    return this.distillStore.listProposals();
-  }
-
   async listRuns(): Promise<DistillRun[]> {
-    return this.distillStore.listRuns();
+    return this.runsStore.listRuns();
   }
 
   // ── #144 GC 候选清单与人审归档 ──
 
   /**
-   * 蒸馏运行后的 GC 检查（approve 内部调用 + 测试直驱）：按蒸馏周期计龄生成候选清单，
+   * 蒸馏运行后的 GC 检查（executeDistill 内部调用 + 测试直驱）：按蒸馏周期计龄生成候选清单，
    * 非零则建 GC 提案 + 发 gc_proposal 人审卡；零候选不发卡。永不抛（不阻塞蒸馏主链路）。
    * 去重口径：已有 pending GC 提案不重复发卡；曾被 reject 的条目（人判保留）不再提案。
    */
   async runGcCheck(triggerRun: DistillRun): Promise<void> {
     try {
       // 蒸馏周期 = 执行成功的运行（失败运行不构成周期，同 #143 消费基线「失败不推进」口径）
-      const runs = await this.distillStore.listRuns();
+      const runs = await this.runsStore.listRuns();
       const cycles = runs.filter(r => r.outcome === 'executed').map(r => r.executedAt);
       const result = generateGcCandidates(this.deps.store.list(), cycles);
       if (result.candidates.length === 0) {
@@ -502,7 +477,7 @@ export class DistillService {
       }
 
       // 人判保留（reject）的条目不再重复提案打扰
-      const rejected = await this.gcStore.rejectedEntryIds();
+      const rejected = await rejectedGcEntryIds(this.reviewAdapters.gc.store);
       const candidates = result.candidates.filter(c => !rejected.has(c.entryId));
       if (candidates.length === 0) {
         logger.debug('[Distill] GC: all candidates previously rejected by human', { runId: triggerRun.id });
@@ -510,7 +485,7 @@ export class DistillService {
       }
 
       // 已有 pending GC 提案等人审 → 不重复发卡
-      const pending = await this.gcStore.findPending();
+      const pending = await this.reviewAdapters.gc.store.findPending();
       if (pending) {
         logger.info('[Distill] GC skip: pending proposal exists', { gcProposalId: pending.id, runId: triggerRun.id });
         return;
@@ -524,12 +499,10 @@ export class DistillService {
         forced: result.forced,
         mainAreaCount: result.mainAreaCount,
       };
-      await this.gcStore.appendProposal(proposal);
 
-      // 发卡失败静默跳过（#101 降级口径）：标记 card-failed，不阻塞蒸馏主链路
-      const posted = await postGcProposalCard(proposal, { fileStore: this.deps.fileStore });
+      // 发卡失败静默跳过（#101 降级口径）：正本落 card-failed 墓碑，不阻塞蒸馏主链路
+      const { posted } = await submitProposal(this.reviewAdapters.gc, proposal);
       if (!posted) {
-        await this.gcStore.appendStatus(proposal.id, 'card-failed');
         await this.emitEvent({ stage: 'gc-card-failed', gcProposalId: proposal.id, candidateCount: candidates.length });
         return;
       }
@@ -551,14 +524,12 @@ export class DistillService {
   }
 
   /**
-   * approve GC 清单：候选条目 maturity=archived 移出主区（可恢复——FileKnowledgeStore
-   * 归档不搬文件，改回 active 即恢复）。人审期间已被其它路径退出主区的条目跳过。
+   * adapter.onApprove（kind=gc）：候选条目 maturity=archived 移出主区（可恢复——
+   * FileKnowledgeStore 归档不搬文件，改回 active 即恢复）。人审期间已被其它路径
+   * 退出主区的条目跳过。
    */
-  async approveGc(gcProposalId: string): Promise<{ ok: boolean; archivedIds?: string[]; error?: string }> {
-    const proposal = await this.gcStore.getProposal(gcProposalId);
-    if (!proposal) return { ok: false, error: 'gc-proposal-not-found' };
-    if (proposal.status !== 'pending') return { ok: false, error: `gc-proposal-not-pending:${proposal.status}` };
-
+  async executeGc(proposal: ReviewProposalRecord<GcProposal>): Promise<ApproveOutcome> {
+    const gcProposalId = proposal.id;
     const archivedIds: string[] = [];
     for (const c of proposal.candidates) {
       const entry = this.deps.store.get(c.entryId);
@@ -567,7 +538,6 @@ export class DistillService {
       archivedIds.push(c.entryId);
     }
 
-    await this.gcStore.appendStatus(gcProposalId, 'executed');
     if (archivedIds.length > 0) this.deps.onProductsSaved?.(archivedIds); // 知识库变动 → 向量库同步
     logger.info('[Distill] GC executed', { gcProposalId, archivedCount: archivedIds.length });
     await this.emitEvent({
@@ -576,44 +546,21 @@ export class DistillService {
       archivedIds,
       candidateCount: proposal.candidates.length,
     });
-    return { ok: true, archivedIds };
+    return { status: 'executed', data: { archivedIds } };
   }
 
-  /** reject GC 清单：零副作用——条目全部保留，仅提案终态 + 事件；被拒条目后续运行不再提案 */
-  async rejectGc(gcProposalId: string): Promise<{ ok: boolean; error?: string }> {
-    const proposal = await this.gcStore.getProposal(gcProposalId);
-    if (!proposal) return { ok: false, error: 'gc-proposal-not-found' };
-    if (proposal.status !== 'pending') return { ok: false, error: `gc-proposal-not-pending:${proposal.status}` };
-
-    await this.gcStore.appendStatus(gcProposalId, 'rejected');
-    logger.info('[Distill] GC proposal rejected (entries kept)', { gcProposalId });
+  /** adapter.onReject（kind=gc）：零副作用——条目全部保留，仅事件留痕；被拒条目后续运行不再提案 */
+  async onGcRejected(proposal: ReviewProposalRecord<GcProposal>): Promise<void> {
+    logger.info('[Distill] GC proposal rejected (entries kept)', { gcProposalId: proposal.id });
     await this.emitEvent({
-      stage: 'gc-rejected', gcProposalId, candidateCount: proposal.candidates.length,
+      stage: 'gc-rejected', gcProposalId: proposal.id, candidateCount: proposal.candidates.length,
     });
-    return { ok: true };
-  }
-
-  /** GC 卡片刷新派生已审态（同蒸馏提案口径） */
-  async getGcProposalStatuses(ids: string[]): Promise<Record<string, GcProposalStatus | 'unknown'>> {
-    const proposals = await this.gcStore.listProposals();
-    const byId = new Map(proposals.map(p => [p.id, p.status]));
-    const statuses: Record<string, GcProposalStatus | 'unknown'> = {};
-    for (const id of ids) statuses[id] = byId.get(id) ?? 'unknown';
-    return statuses;
-  }
-
-  async getGcProposal(id: string): Promise<GcProposalRecord | null> {
-    return this.gcStore.getProposal(id);
-  }
-
-  async listGcProposals(): Promise<GcProposalRecord[]> {
-    return this.gcStore.listProposals();
   }
 
   // ── #146 存量约束审计（挂蒸馏事件：新约束入库才触发） ──
 
   /**
-   * 蒸馏运行后的存量约束审计（approve 内部在产出新约束时调用 + 测试直驱）：
+   * 蒸馏运行后的存量约束审计（executeDistill 内部在产出新约束时调用 + 测试直驱）：
    * 读 custom-constraints.yml active 条目 → LLM 按「是否还有可被违反的未来场景」判据
    * 出退役建议 → 判据白名单闸门过滤（constraint-audit.normalizeAuditSuggestions）→
    * 非零则建审计提案 + 发 constraint_audit_proposal 人审卡；零建议不发卡（零噪音）。
@@ -633,19 +580,19 @@ export class DistillService {
         return;
       }
       // 人判保留（reject）的约束剔除出审计输入，不再重复提案打扰
-      const rejected = await this.auditStore.rejectedConstraintIds();
+      const rejected = await rejectedAuditConstraintIds(this.reviewAdapters.audit.store);
       const auditables = active.filter(c => !rejected.has(c.id));
       if (auditables.length === 0) {
         logger.debug('[Distill] constraint audit skip: all constraints human-kept', { runId: triggerRun.id });
         return;
       }
       // 已有 pending 审计提案等人审 → 不重复发卡（不进 LLM，零成本）
-      const pending = await this.auditStore.findPending();
+      const pending = await this.reviewAdapters.audit.store.findPending();
       if (pending) {
         logger.info('[Distill] constraint audit skip: pending proposal exists', { auditProposalId: pending.id, runId: triggerRun.id });
         return;
       }
-      // 预算守卫（与蒸馏 approve 同口径）：耗尽 → 跳过审计，不报错不提案
+      // 预算守卫（与蒸馏 executeDistill 同口径）：耗尽 → 跳过审计，不报错不提案
       if (await this.isBudgetExhausted()) {
         logger.warn('[Distill] constraint audit skipped: daily token budget exhausted', { runId: triggerRun.id });
         return;
@@ -668,12 +615,10 @@ export class DistillService {
         suggestions,
         auditedCount: auditables.length,
       };
-      await this.auditStore.appendProposal(proposal);
 
-      // 发卡失败静默跳过（#101 降级口径）：标记 card-failed，不阻塞蒸馏主链路
-      const posted = await postConstraintAuditCard(proposal, { fileStore: this.deps.fileStore });
+      // 发卡失败静默跳过（#101 降级口径）：正本落 card-failed 墓碑，不阻塞蒸馏主链路
+      const { posted } = await submitProposal(this.reviewAdapters.audit, proposal);
       if (!posted) {
-        await this.auditStore.appendStatus(proposal.id, 'card-failed');
         await this.emitEvent({ stage: 'audit-card-failed', auditProposalId: proposal.id, suggestionCount: suggestions.length });
         return;
       }
@@ -694,18 +639,17 @@ export class DistillService {
   }
 
   /**
-   * approve 审计清单：逐条走 retire 执行——custom-constraints.yml 既有条目内追加
-   * retired 元数据段（#82 D6 统一落点，复用 E1 applier retireConstraintEntry；
+   * adapter.onApprove（kind=audit）：逐条走 retire 执行——custom-constraints.yml 既有条目内
+   * 追加 retired 元数据段（#82 D6 统一落点，复用 E1 applier retireConstraintEntry；
    * 规则原文保留，可恢复：POST /api/v1/harness/constraints/:id/rollback 删段即恢复）。
    * 人审期间已被其它路径退役/删除、或文本定位失败的条目跳过（幂等），
    * 跳过名单随返回值与事件给出（skippedIds），人审可见哪些建议未真正执行。
+   * constraintsFile 未装配 → aborted（不落墓碑，装配修复后可重试）。
    */
-  async approveAudit(auditProposalId: string): Promise<{ ok: boolean; retiredIds?: string[]; skippedIds?: string[]; error?: string }> {
-    const proposal = await this.auditStore.getProposal(auditProposalId);
-    if (!proposal) return { ok: false, error: 'audit-proposal-not-found' };
-    if (proposal.status !== 'pending') return { ok: false, error: `audit-proposal-not-pending:${proposal.status}` };
+  async executeAudit(proposal: ReviewProposalRecord<ConstraintAuditProposal>): Promise<ApproveOutcome> {
+    const auditProposalId = proposal.id;
     const file = this.deps.constraintsFile;
-    if (!file) return { ok: false, error: 'constraints-file-unavailable' };
+    if (!file) return { status: 'aborted', error: 'constraints-file-unavailable' };
 
     let content = fs.existsSync(file) ? fs.readFileSync(file, 'utf-8') : '';
     const now = new Date().toISOString();
@@ -727,7 +671,6 @@ export class DistillService {
       fs.writeFileSync(file, content, 'utf-8');
     }
 
-    await this.auditStore.appendStatus(auditProposalId, 'executed');
     logger.info('[Distill] constraint audit executed', { auditProposalId, retiredCount: retiredIds.length, skippedCount: skippedIds.length });
     await this.emitEvent({
       stage: 'audit-executed',
@@ -736,38 +679,15 @@ export class DistillService {
       skippedIds,
       suggestionCount: proposal.suggestions.length,
     });
-    return { ok: true, retiredIds, skippedIds };
+    return { status: 'executed', data: { retiredIds, skippedIds } };
   }
 
-  /** reject 审计清单：零副作用——约束全部保留，仅提案终态 + 事件；被拒约束后续不再进审计输入 */
-  async rejectAudit(auditProposalId: string): Promise<{ ok: boolean; error?: string }> {
-    const proposal = await this.auditStore.getProposal(auditProposalId);
-    if (!proposal) return { ok: false, error: 'audit-proposal-not-found' };
-    if (proposal.status !== 'pending') return { ok: false, error: `audit-proposal-not-pending:${proposal.status}` };
-
-    await this.auditStore.appendStatus(auditProposalId, 'rejected');
-    logger.info('[Distill] constraint audit rejected (constraints kept)', { auditProposalId });
+  /** adapter.onReject（kind=audit）：零副作用——约束全部保留，仅事件留痕；被拒约束后续不再进审计输入 */
+  async onAuditRejected(proposal: ReviewProposalRecord<ConstraintAuditProposal>): Promise<void> {
+    logger.info('[Distill] constraint audit rejected (constraints kept)', { auditProposalId: proposal.id });
     await this.emitEvent({
-      stage: 'audit-rejected', auditProposalId, suggestionCount: proposal.suggestions.length,
+      stage: 'audit-rejected', auditProposalId: proposal.id, suggestionCount: proposal.suggestions.length,
     });
-    return { ok: true };
-  }
-
-  /** 审计卡片刷新派生已审态（同蒸馏提案口径） */
-  async getAuditProposalStatuses(ids: string[]): Promise<Record<string, ConstraintAuditStatus | 'unknown'>> {
-    const proposals = await this.auditStore.listProposals();
-    const byId = new Map(proposals.map(p => [p.id, p.status]));
-    const statuses: Record<string, ConstraintAuditStatus | 'unknown'> = {};
-    for (const id of ids) statuses[id] = byId.get(id) ?? 'unknown';
-    return statuses;
-  }
-
-  async getAuditProposal(id: string): Promise<ConstraintAuditProposalRecord | null> {
-    return this.auditStore.getProposal(id);
-  }
-
-  async listAuditProposals(): Promise<ConstraintAuditProposalRecord[]> {
-    return this.auditStore.listProposals();
   }
 
   /** 每日 token 预算熔断判定（与 WuCompletionExtractor 同口径） */

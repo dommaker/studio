@@ -51,5 +51,5 @@
 
 - tools.ts 是门面，不包含 tool 定义。新增 tool 在对应域 *.tools.ts 中添加，并在 tools.ts 的 allTools 数组中展开（注册顺序即数组顺序）。
 - 风险级别按工具名前缀自动分配（create/store/extract/approve/assign/update 等 → medium，delete/drop/truncate → high，其余 → low）。
-- 权限模型默认 executor（本地 Agent）可调用所有 tool。
-- **HTTP 端点鉴权分层（2026-07-24 收紧）**：`GET /tools`、`GET /health` 保持公开（Lurk）；`POST /tools/:name` → `requireAuth+requireAdmin`（roleId 自声明 + executor seed 默认全允许，此前在 PUBLIC_API 前缀下匿名可执行任意 tool 含 devops/git）；`POST /messages`、`GET /sse` → `requireLocalhost`（真实客户端为本机 agent，`STUDIO_MCP_URL` 默认 localhost SSE）；`/admin/*` → `requireAuth+requireAdmin`（此前裸奔，注释谎称由 route-registry 提供 requireAuth）。permission.service 的 RBAC 是 agent 角色维度，与 HTTP 用户鉴权是两层。
+- 权限模型默认 executor（本地 Agent）可调用普通 tool；**危险工具收口（2026-08-25）**：publishPackage 仅 admin/deploy 默认允许，其余系统角色 seed 为 allowed:false，且历史过度授权记录启动时强制纠正（permission.service.ts seedDefaultPermissions，旧 seed 只增不改不会自愈）。publishPackage 本体同步收口：bumpType 白名单 fail-fast + 全部 execFileSync 数组参数 + git tag 前 semver 校验。
+- **HTTP 端点鉴权分层（2026-07-24 收紧；2026-08-25 补洞）**：`GET /tools`、`GET /health` 保持公开（Lurk）；`POST /tools/:name` → `requireAuth+requireAdmin`；`POST /messages`、`GET /sse`、**`POST /`（完整 JSON-RPC 面，2026-08-25 补挂）** → `requireLocalhost`（真实客户端为本机 agent，`STUDIO_MCP_URL` 默认 localhost SSE）；`/admin/*` → `requireAuth+requireAdmin`。permission.service 的 RBAC 是 agent 角色维度，与 HTTP 用户鉴权是两层。**requireLocalhost 语义（2026-08-25 修复）**：拒绝携带 X-Forwarded-For/CF-Connecting-IP 的请求——同机反代下公网流量 TCP 对端也是 127.0.0.1，单靠 IP 判不出，须靠转发头识别（middleware/auth.ts）。

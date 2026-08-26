@@ -24,7 +24,7 @@
  * AnalysisHandoff 一致（eventBus 进程内，best-effort）。
  */
 
-import { eventBus, logger, type FileStore } from '@dommaker/studio-shared';
+import { eventBus, logger, createSettledTracker, type FileStore } from '@dommaker/studio-shared';
 import { WorkUnitService, type WorkUnitData, type WorkUnitMetadata } from '../workunit/workunit.service.js';
 import { parseWuMetadata } from '../workunit/wu-metadata.js';
 import { ChannelMessageService } from '../channels/channel-message.service.js';
@@ -57,6 +57,8 @@ export function parseMapOpening(summary: string): { destination?: string; fog: s
 export class MapOpening {
   private subscribed = false;
   private messageService: ChannelMessageService;
+  /** #228 测试可观测性（纯增量，同 analysis-handoff）：在途事件链登记，见 waitForSettled */
+  private readonly settled = createSettledTracker();
 
   constructor(
     private fileStore: FileStore,
@@ -71,13 +73,21 @@ export class MapOpening {
     if (this.subscribed) return;
     this.subscribed = true;
 
-    eventBus.subscribe('workunit.status_changed', async (payload: { workunit: WorkUnitData }) => {
+    eventBus.subscribe('workunit.status_changed', (payload: { workunit: WorkUnitData }) => {
       const wu = payload.workunit;
       if (!wu || wu.type !== 'analysis' || wu.status !== 'done') return;
-      await this.onAnalysisDone(wu.id).catch(err =>
+      this.settled.track(this.onAnalysisDone(wu.id).catch(err =>
         logger.warn('[MapOpening] onAnalysisDone failed', { wuId: wu.id, error: String(err) }),
-      );
+      ));
     });
+  }
+
+  /**
+   * 等待本实例已触发的全部事件链落定（测试用确定性信号，替代盲等轮询；
+   * 同 analysis-handoff.waitForSettled）。
+   */
+  async waitForSettled(): Promise<void> {
+    await this.settled.waitForSettled();
   }
 
   private async onAnalysisDone(wuId: string): Promise<void> {

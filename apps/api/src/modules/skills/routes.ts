@@ -7,7 +7,7 @@
 import { Router, Request, Response } from 'express';
 import { logger } from '../../utils/logger.js';
 import { skillStore } from './skill-store.js';
-import { proposalStore } from './proposal-store.js';
+import { getSkillReviewAdapter } from './review-adapter.js';
 import { promoteSkill } from './skill-promotion.js';
 import { channelMessageService } from '../channels/channel-message.service.js';
 import { requireAuth, requireNotGuest } from '../../middleware/auth.js';
@@ -37,10 +37,18 @@ router.get('/', async (req: Request, res: Response) => {
       orderBy: { field: 'updatedAt', dir: 'desc' },
     });
 
-    // Attach pending proposals
+    // Attach pending proposals（#354：提案存取归 review-proposal 正本，kind='skill'）
+    const allProposals = await getSkillReviewAdapter().store.listProposals();
+    const pendingBySkill = new Map<string, string[]>();
+    for (const p of allProposals) {
+      if (p.status !== 'pending') continue;
+      const ids = pendingBySkill.get(p.skillId) ?? [];
+      ids.push(p.id);
+      pendingBySkill.set(p.skillId, ids);
+    }
     const withProposals = skills.map(s => ({
       ...s,
-      proposals: proposalStore.list({ skillId: s.id, status: 'pending' }, { take: 1 }).map(p => ({ id: p.id })),
+      proposals: (pendingBySkill.get(s.id) ?? []).slice(0, 1).map(id => ({ id })),
     }));
 
     res.json({ data: withProposals, total, page: Number(page), limit: Number(limit) });
@@ -83,10 +91,21 @@ router.get('/:id', async (req: Request, res: Response) => {
     const skill = skillStore.get(req.params.id);
     if (!skill) return res.status(404).json({ error: 'Skill not found' });
 
-    const proposals = proposalStore.list(
-      { skillId: skill.id },
-      { orderBy: { field: 'proposedAt', dir: 'desc' }, take: 10 },
-    );
+    // #354：提案存取归 review-proposal 正本（append-only 词表 pending|executed|rejected|failed|card-failed）；
+    // 响应形状沿用旧 ProposalRecord 字段名（proposedAt←createdAt，reviewedAt←statusAt）
+    const proposals = (await getSkillReviewAdapter().store.listProposals())
+      .filter(p => p.skillId === skill.id)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .slice(0, 10)
+      .map(p => ({
+        id: p.id,
+        skillId: p.skillId,
+        status: p.status,
+        proposedBy: p.proposedBy,
+        summary: p.summary ?? null,
+        proposedAt: p.createdAt,
+        reviewedAt: p.status === 'pending' ? null : p.statusAt,
+      }));
 
     res.json({ data: { ...skill, proposals } });
   } catch (error) {

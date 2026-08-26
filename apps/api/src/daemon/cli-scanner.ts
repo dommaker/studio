@@ -6,7 +6,7 @@
  * Uses `which` to find path, provider version command to get version string.
  */
 
-import { execSync } from 'child_process';
+import { execFileSync, execSync } from 'child_process';
 import { listScanProviders, resolveProviderDefinition, type ProviderId } from '@dommaker/studio-shared/node';
 
 /** Known agent CLI providers (from the provider registry, built-ins + user config) */
@@ -27,12 +27,13 @@ export function detectProvider(name: ProviderName): DetectedRuntime | null {
   const def = resolveProviderDefinition(name);
   for (const binary of def.binaries) {
     try {
-      const cliPath = execSync(`which ${binary}`, { encoding: 'utf-8', stdio: 'pipe' }).trim();
+      // execFileSync 数组参数不经 shell（2026-08-25 安全收口）
+      const cliPath = execFileSync('which', [binary], { encoding: 'utf-8', stdio: 'pipe' }).trim();
       if (!cliPath) continue;
 
       let version = 'unknown';
       try {
-        version = execSync(`${binary} ${def.versionArgs.join(' ')}`, {
+        version = execFileSync(binary, def.versionArgs, {
           encoding: 'utf-8',
           stdio: 'pipe',
           timeout: 5_000,
@@ -40,7 +41,7 @@ export function detectProvider(name: ProviderName): DetectedRuntime | null {
       } catch {
         // version command may not be supported; try -v
         try {
-          version = execSync(`${binary} -v`, {
+          version = execFileSync(binary, ['-v'], {
             encoding: 'utf-8',
             stdio: 'pipe',
             timeout: 5_000,

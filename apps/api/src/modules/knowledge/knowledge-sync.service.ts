@@ -9,7 +9,7 @@
  *   3. Heal:     过期知识 → 标记 freshness、触发重分析
  */
 
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
 import { logger } from '@dommaker/studio-shared';
 import { sharedStore, sharedLifecycle, upsertKnowledge, knowledgeBus } from './knowledge-bus.service.js';
 import type { KnowledgeSource } from './knowledge-bus.service.js';
@@ -218,10 +218,13 @@ class KnowledgeSyncService {
           filesChecked++;
           try {
             const since = lastUpdated.toISOString().slice(0, 19).replace('T', ' ');
-            const result = execSync(
-              `git log --since="${since}" --oneline -- "${filePattern}" 2>/dev/null | head -1`,
+            // execFileSync 数组参数不经 shell；git 失败走 catch 兜底（原 2>/dev/null 语义），
+            // 取第一行非空行替代原 `| head -1`
+            const out = execFileSync(
+              'git', ['log', `--since=${since}`, '--oneline', '--', filePattern],
               { cwd: baseDir, encoding: 'utf-8', stdio: 'pipe', timeout: 10_000 },
-            ).trim();
+            );
+            const result = out.split('\n').map(l => l.trim()).find(l => l.length > 0) ?? '';
             if (result) changedFiles.push(filePattern);
           } catch { gitErrors++; }
         }

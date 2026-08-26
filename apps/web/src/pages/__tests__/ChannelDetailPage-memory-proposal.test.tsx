@@ -1,18 +1,18 @@
 // ChannelDetailPage — 角色记忆人审闸口：handleAction 分发 memory_proposal approve/reject
-// 契约：approve → POST /role-memory/promote {roleId, entryIds}；reject → POST /role-memory/demote（一次整卡）
+// 契约（#353 通用端点）：approve → POST /review-proposals/memory/:draftId/approve（逐草稿）；reject → 同 reject
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 
-const { mockSendMessage, mockListWorkunits, mockListReqs, mockApiGet, mockApiPost, mockRefresh, mockMemoryPromote, mockMemoryDemote } = vi.hoisted(() => ({
+const { mockSendMessage, mockListWorkunits, mockListReqs, mockApiGet, mockApiPost, mockRefresh, mockMemoryApprove, mockMemoryReject } = vi.hoisted(() => ({
   mockSendMessage: vi.fn(),
   mockListWorkunits: vi.fn(),
   mockListReqs: vi.fn(),
   mockApiGet: vi.fn(),
   mockApiPost: vi.fn(),
   mockRefresh: vi.fn(),
-  mockMemoryPromote: vi.fn(),
-  mockMemoryDemote: vi.fn(),
+  mockMemoryApprove: vi.fn(),
+  mockMemoryReject: vi.fn(),
 }));
 
 vi.mock('../../api', () => ({
@@ -20,7 +20,7 @@ vi.mock('../../api', () => ({
 }));
 
 vi.mock('../../api/memory', () => ({
-  memoryApi: { promote: mockMemoryPromote, demote: mockMemoryDemote },
+  memoryApi: { approve: mockMemoryApprove, reject: mockMemoryReject, status: vi.fn().mockResolvedValue({ data: { success: true, statuses: {} } }) },
 }));
 
 vi.mock('../../hooks/useChannelEvents', () => ({
@@ -53,11 +53,9 @@ vi.mock('../../components/channel/ChannelMemberManager', () => ({ ChannelMemberM
 vi.mock('../../components/channel/ChannelDefaultProjectSelect', () => ({ ChannelDefaultProjectSelect: () => null }));
 vi.mock('../../components/channel/ChannelCurrentPmoChip', () => ({ ChannelCurrentPmoChip: () => null }));
 vi.mock('../../components/channel/ChannelInput', () => ({ ChannelInput: () => null }));
-// 其他卡片与本测试无关；MemoryProposalCard 用真实组件（无 API 副作用）
+// 其他卡片与本测试无关；ReviewProposalCard 用真实组件（#352 合一壳，无 API 副作用）
 vi.mock('../../components/channel/RequirementsDocCard', () => ({ RequirementsDocCard: () => null }));
 vi.mock('../../components/channel/KnowledgeConfirmCard', () => ({ KnowledgeConfirmCard: () => null }));
-vi.mock('../../components/channel/KnowledgeProposalCard', () => ({ KnowledgeProposalCard: () => null }));
-vi.mock('../../components/channel/AuditorSuggestionCard', () => ({ AuditorSuggestionCard: () => null }));
 vi.mock('../../components/channel/ConvertToTaskDialog', () => ({ ConvertToTaskDialog: () => null }));
 
 import { ChannelDetailPage } from '../ChannelDetailPage';
@@ -98,29 +96,31 @@ describe('ChannelDetailPage — memory_proposal 审核分发', () => {
     mockListWorkunits.mockResolvedValue({ data: { data: [] } });
     mockListReqs.mockResolvedValue({ data: { data: [] } });
     mockApiPost.mockResolvedValue({ data: { success: true } });
-    mockMemoryPromote.mockResolvedValue({ data: { success: true } });
-    mockMemoryDemote.mockResolvedValue({ data: { success: true } });
+    mockMemoryApprove.mockResolvedValue({ data: { success: true } });
+    mockMemoryReject.mockResolvedValue({ data: { success: true } });
   });
 
-  it('approve → POST /role-memory/promote {roleId, entryIds}，卡片显示已确认', async () => {
+  it('approve → 逐 draftId POST 通用端点 approve，卡片显示已确认', async () => {
     renderPage();
     const btn = await screen.findByText('确认写入');
     fireEvent.click(btn);
 
     await waitFor(() => {
-      expect(mockMemoryPromote).toHaveBeenCalledWith('role-1', ['d-1', 'd-2']);
+      expect(mockMemoryApprove).toHaveBeenCalledWith('d-1');
+      expect(mockMemoryApprove).toHaveBeenCalledWith('d-2');
     });
     expect(await screen.findByText(/已确认/)).toBeTruthy();
     expect(mockRefresh).toHaveBeenCalled();
   });
 
-  it('reject → POST /role-memory/demote {roleId, entryIds}，卡片显示已丢弃', async () => {
+  it('reject → 逐 draftId POST 通用端点 reject，卡片显示已丢弃', async () => {
     renderPage();
     const btn = await screen.findByText('丢弃');
     fireEvent.click(btn);
 
     await waitFor(() => {
-      expect(mockMemoryDemote).toHaveBeenCalledWith('role-1', ['d-1', 'd-2']);
+      expect(mockMemoryReject).toHaveBeenCalledWith('d-1');
+      expect(mockMemoryReject).toHaveBeenCalledWith('d-2');
     });
     expect(await screen.findByText(/已丢弃/)).toBeTruthy();
   });

@@ -10,6 +10,7 @@ import { Router, Request, Response } from 'express';
 import { logger } from '@dommaker/studio-shared';
 import { requireAuth } from '../../middleware/auth.js';
 import { readTranscript } from './transcript-archive.js';
+import { parsePagination } from '../../utils/pagination.js';
 
 const router = Router();
 
@@ -20,7 +21,7 @@ function isValidWorkUnitId(id: string): boolean {
 
 /**
  * GET /:workUnitId
- * Query: offset（默认 0）、limit（默认 20，上限 50）
+ * Query: offset（默认 0）、limit（默认 20，上限 100 — #359 起统一 parsePagination，原上限 50）
  * 响应：{ workUnitId, total, offset, limit, entries }
  */
 router.get('/:workUnitId', requireAuth(), async (req: Request, res: Response) => {
@@ -31,7 +32,7 @@ router.get('/:workUnitId', requireAuth(), async (req: Request, res: Response) =>
     }
 
     const offset = Math.max(parseInt(String(req.query.offset || '0'), 10) || 0, 0);
-    const limit = Math.min(Math.max(parseInt(String(req.query.limit || '20'), 10) || 20, 1), 50);
+    const { limit } = parsePagination(req);
 
     const all = await readTranscript(workUnitId);
     const entries = all.slice(offset, offset + limit);

@@ -9,7 +9,7 @@
  *   - 未知 id / 非决策消息
  *   - parseDecisionReply 解析
  */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, afterAll } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -90,6 +90,11 @@ async function messagesIn(channelId: string) {
   return fileStore.queryMessages(channelId);
 }
 
+const nochanDirs: string[] = [];
+afterAll(() => {
+  for (const d of nochanDirs) fs.rmSync(d, { recursive: true, force: true });
+});
+
 beforeEach(async () => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'evolution-channel-test-'));
   fileStore = new FileStore(tmpDir);
@@ -155,7 +160,9 @@ describe('postProposalToChannel', () => {
   });
 
   it('skips posting when no channel exists (proposal still queryable)', async () => {
-    const emptyStore = new FileStore(fs.mkdtempSync(path.join(os.tmpdir(), 'evolution-nochan-')));
+    const emptyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'evolution-nochan-'));
+    nochanDirs.push(emptyDir);
+    const emptyStore = new FileStore(emptyDir);
     const p = await seedProposal();
     const posted = await postProposalToChannel(emptyStore, p, messageService);
     expect(posted).toBe(false);

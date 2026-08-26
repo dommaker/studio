@@ -12,18 +12,29 @@ import { optionalAuth } from './middleware/auth.js';
 import { getMetrics } from './monitoring/index.js';
 import { buildRouteTable } from './route-registry.js';
 import { loadRegistry } from './modules/capabilities/routes.js';
+import { isAllowedOrigin } from './cors-origin.js';
+import { apiRateLimit } from './middleware/rate-limit.js';
 
 export const app = express();
 
+// 单跳反代（nginx/cloudflared 同机）：req.ip 取 X-Forwarded-For 真实客户端，
+// rate limit 才能按客户端分桶（此前全站共享 127.0.0.1 一个桶）
+app.set('trust proxy', 1);
+
 // 中间件
+// 2026-08-25 安全收口：HSTS / COOP 启用（站点 HTTPS-only，HTTP 仅 301）；
+// CSP 仍关（SPA 静态资源在 nginx 层，那里以 report-only 起步）
 app.use(helmet({
   contentSecurityPolicy: false,
   crossOriginEmbedderPolicy: false,
-  crossOriginOpenerPolicy: false,
   crossOriginResourcePolicy: false,
-  hsts: false,
 }));
-app.use(cors());
+// CORS 白名单（此前反射任意 Origin）：同源无 Origin 头不受影响
+app.use(cors({
+  origin: (origin, cb) => cb(null, isAllowedOrigin(origin)),
+}));
+// 通用 API 限频（回环直连 skip，见 rate-limit.ts）
+app.use('/api', apiRateLimit);
 app.use(compression({ filter: shouldCompress }));
 
 // Discord interactions 需要原始 body 进行签名验证，跳过 JSON 解析
@@ -31,7 +42,7 @@ app.use('/api/v1/discord/interactions', express.raw({ type: 'application/json', 
 // Deploy webhook 同样需要原始 body 做 GitHub HMAC-SHA256 校验
 app.use('/api/v1/deploy/webhook', express.raw({ type: 'application/json', limit: '1mb' }));
 
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 app.use(requestLogger);
@@ -80,7 +91,9 @@ export async function registerRoutes(): Promise<void> {
       '/discord/interactions',
       '/deploy/webhook',     // GitHub webhook（HMAC 即认证）
       '/cso/validate',
-      '/events/stream',  // SSE
+      // 2026-08-25：/events/stream 移出白名单——此前匿名可挂流旁观全部内部事件
+      // 信封（工单内容/错误堆栈/prompt 片段）。现经 ?token= 认证（optionalAuth
+      // 支持 query token，EventSource 无法设置 Authorization 头）。
       // Public read-only endpoints (Lurk Wall bypass)
       '/channels',
       '/health',

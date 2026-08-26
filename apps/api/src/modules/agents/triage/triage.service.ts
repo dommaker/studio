@@ -6,6 +6,7 @@ import type { SystemTriageResult } from '../../triage/error-class.js';
 import type { TriageIncidentInput, TriageLogEntry } from '../types.js';
 import { appendIncidentUpdate } from './incident-store.js';
 import { resolveStudioLogFile } from '../../../utils/studio-log-path.js';
+import { getErrorMessage } from '../../../utils/errors.js';
 
 const MAX_TRIAGE_TIME_MS = 10 * 60_000; // 10 min
 const MAX_FIX_ATTEMPTS = 3;
@@ -110,7 +111,7 @@ class TriageService {
         return await this.escalate(incidentId, triageLog, classifyResult.triage);
       }
     } catch (err) {
-      const errMsg = err instanceof Error ? err.message : String(err);
+      const errMsg = getErrorMessage(err);
       logger.error('[TriageService] Fatal error', { incidentId, error: errMsg });
       return await this.forceEscalate(incidentId, triageLog, `Fatal: ${errMsg}`);
     }

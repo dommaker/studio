@@ -22,6 +22,7 @@ import { postProposalToChannel } from './channel-review.js';
 import { generateEvolutionProposals, type GenerationResult } from './generator.js';
 import { resolveEvolutionPaths, type EvolutionPaths } from './signals.js';
 import { channelMessageService, type ChannelMessageService } from '../channels/channel-message.service.js';
+import { getErrorMessage } from '../../utils/errors.js';
 
 export class EvolutionError extends Error {
   code: 'NOT_FOUND' | 'CONFLICT' | 'APPLY_FAILED';
@@ -138,7 +139,7 @@ export class EvolutionService {
       applyResult = await applyProposal(proposal, this.paths);
     } catch (err) {
       logger.error('[Evolution] apply failed', { id, error: String(err) });
-      throw new EvolutionError('APPLY_FAILED', `${id} approved but apply failed: ${err instanceof Error ? err.message : String(err)}`);
+      throw new EvolutionError('APPLY_FAILED', `${id} approved but apply failed: ${getErrorMessage(err)}`);
     }
     proposal = await this.fileStore.updateEvolutionProposal(id, {
       status: 'applied',

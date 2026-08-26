@@ -31,7 +31,6 @@ import {
   collectOutputFiles,
   emitSessionStart,
   emitSessionEnd,
-  recordExecutionError,
 } from './output-capture.js';
 import {
   buildPrompt,
@@ -299,17 +298,6 @@ export async function executeSessionLoop(state: RunnerExecutionState, task: Agen
         const stderrText = execErr?.stderr?.toString().slice(0, 500) || '';
 
         cumulativeSessionMs += Date.now() - sessionStart;
-        await recordExecutionError({
-          executionId: task.executionId,
-          errMsg,
-          errStack,
-          stderrText,
-          stdoutText,
-          sessionCount,
-          cumulativeSessionMs,
-          signal: execErr?.signal,
-          code: execErr?.code,
-        });
 
         // Emit session:end on failure path — without this, failed sessions leak (163 starts / 74 ends)
         await emitSessionEnd(sessionId, task.executionId, sessionCount, sessionExtras);

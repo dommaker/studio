@@ -7,7 +7,7 @@ Agent 配置（profile）、运行实例（instance）、决策循环（loop）�
 ### 目录结构
 
 - `loop/` - 决策循环与 WU 执行链（agent-loop 拆分、executor、completion-gates、wu-verification、execution-step-events、review-contract、lease-heartbeat、context-overflow）
-- `auditor/` - Auditor Agent（service/rules/execution/reports）
+- `auditor/` - Auditor Agent（service/rules/execution/reports/review-adapter）
 - `monitor/` - Monitor Agent（service/probes/system-probes/alerts/reports/lifecycle）
 - `ops/` - 进程级守护（ops.service/ops-rules/system-health）
 - `knowledge/` - 知识维护 Agent（curator/cold-start/extraction/maintenance）
@@ -17,10 +17,10 @@ Agent 配置（profile）、运行实例（instance）、决策循环（loop）�
 ### 核心导出
 
 - `monitor/` - monitor.service（门面，5min 轮询健康监控+渐进告警）、monitor-probes（WU 级探测：失败趋势/停滞/超时/池停滞/评审停滞/僵尸认领守卫）、monitor-system-probes（系统/知识级探测与自修复）、monitor-alerts（告警分发/Triage 升级，指纹冷却去重 w4h/c1h）、monitor-reports（轨迹评估/每日洞察/交互观察）、monitor-lifecycle（知识沉淀闸门+每日 TTL 清理）
-- `auditor/` - auditor.service（门面，24h 日审跨任务审计）、auditor-rules（错误归类/技能建议/用户模型质量/知识健康）、auditor-execution（低风险自动应用/确认卡片/Resolution/Triage 升级）、auditor-reports（行为趋势/七日趋势/tier 反馈）
+- `auditor/` - auditor.service（门面，24h 日审跨任务审计）、auditor-rules（错误归类/技能建议/用户模型质量/知识健康）、auditor-execution（低风险自动应用/确认卡片经 review-proposal 正本发卡/Resolution/Triage 升级）、auditor-reports（行为趋势/七日趋势/tier 反馈）、review-adapter（#356：auditor_suggestion 卡接线 review-proposal 正本，kind=auditor，onApprove 建未指派 task 工单——自旧 channels/card-decision.service 搬入；审批走通用端点 /review-proposals/auditor/:id/*）
 - `knowledge/` - knowledge-curator.service（门面，冷启动+每日维护）、knowledge-extraction（提取 prompt 单一来源）、knowledge-cold-start（四源导入 docs/code/git/manual）、knowledge-maintenance（语义去重/质量评估/过期验证/矛盾审查）
-- `loop/` - agent-loop（循环编排，拆分后仅保留类逻辑+re-export）、agent-loop.types（类型契约，纯类型零运行时）、agent-loop-parsers（输出解析+prompt 模板纯函数）、agent-loop-events（tokens/tool:call 落盘，provider 分流 usage；#320 起 workunit:tokens 落盘后顺带 `noteTokenLedgerWritten` 更新 token 账本 `utils/token-ledger`，失败隔离）、agent-loop-guards（测试 WU 守卫+excludeAssignee）、lease-heartbeat（WU 租约心跳 30s，fencing 校验）、context-overflow（溢出识别+滚动摘要）、executor（Executor 接口，LocalExecutor 委托 agentRunner）、execution-step-events（步级事件落盘+步内流式 SSE）、wu-verification（自动验证可复用实现）、completion-gates（收口守卫链：提交/子任务/验证/软观测）、review-contract（verdict 语义单一来源 pass/reject/needs-info）
-- 根目录 - default-triggers（9 个系统 trigger：inspection-scan/dispatch-reconciliation/doc-semantic-review 等）、agent-loop.ts（门面，决策循环编排+re-export）、agent-output-parser（ACTION 协议解析/审查结论/任务拆分/动态间隔）、prompt-composer（prompt 组装，分段软定额截断）、agent-loop-workspace（worktree 解析/归属链/PMO 分支）、session-resume（续用判定+上限 MAX_SESSIONS_PER_WU=5）、agent-targeting（Observations->Target 解析）、default-provider（provider 默认选取）、instance-timeout-scan（心跳过期 5min 扫描+pid 复核）、dispatch-reconciliation（派工/评审断链 5min 对账）、workunit-token-events（tokens/tool:call 事件写入）、agent-loop-utils（进程存活/git 根/worktrees 工具）、wu-test-guards（测试特征 WU 判定）、agent-loop-instance-state（实例状态：启动失败/idle 心跳/忙闲 SSE）、agent-loop-record-result（recordResult：提交/子任务/验证+状态迁移+里程碑）、agent-loop-step-guards（前置守卫：测试 WU 关闭/token 预算熔断）
+- `loop/` - agent-loop（循环编排，拆分后仅保留类逻辑+re-export；#363：原 start() 同角色 terminated 启动清理已拆除，回收归 instance-timeout-scan）、agent-loop.types（类型契约，纯类型零运行时）、agent-loop-parsers（输出解析+prompt 模板纯函数）、agent-loop-events（tokens/tool:call 落盘，provider 分流 usage；#320 起 workunit:tokens 落盘后顺带 `noteTokenLedgerWritten` 更新 token 账本 `utils/token-ledger`，失败隔离）、agent-loop-guards（测试 WU 守卫+excludeAssignee）、lease-heartbeat（WU 租约心跳 30s，fencing 校验）、context-overflow（溢出识别+滚动摘要）、executor（Executor 接口，LocalExecutor 委托 agentRunner）、execution-step-events（步级事件落盘+步内流式 SSE）、wu-verification（自动验证可复用实现）、completion-gates（收口守卫链：提交/子任务/验证/软观测）、review-contract（verdict 语义单一来源 pass/reject/needs-info）
+- 根目录 - default-triggers（9 个系统 trigger：inspection-scan/dispatch-reconciliation/doc-semantic-review 等）、agent-loop.ts（门面，决策循环编排+re-export）、agent-output-parser（ACTION 协议解析/审查结论/任务拆分/动态间隔）、prompt-composer（prompt 组装，分段软定额截断）、agent-loop-workspace（worktree 解析/归属链/PMO 分支）、session-resume（续用判定+上限 MAX_SESSIONS_PER_WU=5）、agent-targeting（Observations->Target 解析）、default-provider（provider 默认选取）、instance-timeout-scan（心跳过期 5min 扫描+pid 复核；#363：统一回收 terminated 实例——跨角色 deleteState 连带判空删目录，闭环实例目录生命周期）、dispatch-reconciliation（派工/评审断链 5min 对账）、workunit-token-events（tokens/tool:call 事件写入）、agent-loop-utils（进程存活/git 根/worktrees 工具）、wu-test-guards（测试特征 WU 判定）、agent-loop-instance-state（实例状态：启动失败/idle 心跳/忙闲 SSE）、agent-loop-record-result（recordResult：提交/子任务/验证+状态迁移+里程碑）、agent-loop-step-guards（前置守卫：测试 WU 关闭/token 预算熔断）
 
 ### 依赖关系
 
@@ -45,6 +45,7 @@ Agent 配置（profile）、运行实例（instance）、决策循环（loop）�
 - **CLI 上下文溢出**：纯反应式 -> 滚动摘要落盘 -> 新会话带摘要重试 -> 再败 NEED_INPUT
 - **子 WU 不继承会话簿记**：clearSessionBookkeeping 清除 14 字段（sessionId/startedAt/sessionResumes/sessionCount/lastSessionResumed/blockReason/stepCount/consecutiveStuck/errorType/errorDetail/errorAt/_cumulativeTokens/progressLog/sessionSummary）；新增簿记字段必须同步
 - **鉴权**：POST/PUT = requireAuth()+requireNotGuest()；terminate = requireAuth()+requireAdmin()
+- **SystemExecutor 输出形态（#364）**：claude 模板固定带 `--verbose`，`--output-format json --verbose` stdout 是单行 stream-json 事件数组（产出与 usage 在末位 `type=result` 事件），非单 envelope；`extractResultEnvelope` 统一归一两种形态，mock CLI 输出时必须按真实形态（数组）写，否则测试绿生产哑
 - **频道发声**：里程碑+异常+每步简报+认领消息+步失败消息；认领/失败消息不过新鲜度检查
 - **认领门槛**：纯显式，三门槛：assigneeId 排他+excludeAssignee+blockedBy 依赖门禁
 - **失败步埋点**：recordOutcomeEvent 落 knowledge:outcome:failure/success

@@ -1,7 +1,7 @@
 /**
  * monitor-lifecycle — G31 知识沉淀闸门 + 数据 TTL 清理
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, afterAll } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -25,6 +25,11 @@ const { tmpHome, tmpEvents, eventsFile, mockLogger, mockUnlinkSync } = vi.hoiste
 vi.mock('os', async (importOriginal) => {
   const actual = await importOriginal<typeof import('os')>();
   return { ...actual, homedir: () => tmpHome };
+});
+
+// 显式清理：hoisted 里的 require('fs') 走原生模块，mkdtemp-cleanup 补丁登记不到
+afterAll(() => {
+  for (const d of [tmpHome, tmpEvents]) fs.rmSync(d, { recursive: true, force: true });
 });
 
 // unlinkSync 置为 no-op：dataLifecycle 会清理 process.cwd()/.harness/logs 下真实 traces 备份，

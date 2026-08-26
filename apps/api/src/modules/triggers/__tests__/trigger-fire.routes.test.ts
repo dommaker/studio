@@ -68,6 +68,7 @@ describe('trigger manual fire + costs', () => {
   let server: Server;
   let base: string;
   let eventsFile: string;
+  let eventsTmpDir: string;
 
   beforeAll(async () => {
     const app = express();
@@ -81,13 +82,15 @@ describe('trigger manual fire + costs', () => {
     base = `http://127.0.0.1:${port}/triggers`;
 
     // costs 端点走 STUDIO_EVENTS_JSONL 覆盖（与 agent-loop 同一测试隔离约定）
-    eventsFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'trigger-fire-test-')), 'events.jsonl');
+    eventsTmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'trigger-fire-test-'));
+    eventsFile = path.join(eventsTmpDir, 'events.jsonl');
     process.env.STUDIO_EVENTS_JSONL = eventsFile;
   });
 
   afterAll(async () => {
     delete process.env.STUDIO_EVENTS_JSONL;
     await new Promise<void>(resolve => server.close(() => resolve()));
+    fs.rmSync(eventsTmpDir, { recursive: true, force: true });
   });
 
   beforeEach(() => {

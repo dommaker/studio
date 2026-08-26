@@ -1,5 +1,6 @@
 // ChannelDetailPage — 知识审核闭环：handleAction 分发 knowledge_proposal approve/reject
-// 契约：approve → POST /knowledge-service/promote；reject → POST /knowledge-service/demote（逐条目）
+// 契约（#355 通用端点）：approve → POST /review-proposals/knowledge/:proposalId/approve（整卡一次）；
+// reject → POST /review-proposals/knowledge/:proposalId/reject
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
@@ -47,10 +48,9 @@ vi.mock('../../components/channel/ChannelMemberManager', () => ({ ChannelMemberM
 vi.mock('../../components/channel/ChannelDefaultProjectSelect', () => ({ ChannelDefaultProjectSelect: () => null }));
 vi.mock('../../components/channel/ChannelCurrentPmoChip', () => ({ ChannelCurrentPmoChip: () => null }));
 vi.mock('../../components/channel/ChannelInput', () => ({ ChannelInput: () => null }));
-// 其他卡片与本测试无关；KnowledgeProposalCard 用真实组件（无 API 副作用）
+// 其他卡片与本测试无关；ReviewProposalCard 用真实组件（#352 合一壳，无 API 副作用）
 vi.mock('../../components/channel/RequirementsDocCard', () => ({ RequirementsDocCard: () => null }));
 vi.mock('../../components/channel/KnowledgeConfirmCard', () => ({ KnowledgeConfirmCard: () => null }));
-vi.mock('../../components/channel/AuditorSuggestionCard', () => ({ AuditorSuggestionCard: () => null }));
 vi.mock('../../components/channel/ConvertToTaskDialog', () => ({ ConvertToTaskDialog: () => null }));
 
 import { ChannelDetailPage } from '../ChannelDetailPage';
@@ -62,6 +62,7 @@ const STRING_META_MESSAGE = {
     cardType: 'knowledge_proposal',
     status: 'ready',
     cardData: {
+      proposalId: 'kp-1',
       workUnitId: 'WU-2042',
       entries: [
         { id: 'k-1', title: 'session 过期未刷新导致 401', type: 'pitfall' },
@@ -100,41 +101,38 @@ describe('ChannelDetailPage — knowledge_proposal 审核分发', () => {
     mockApiPost.mockResolvedValue({ data: { success: true } });
   });
 
-  it('approve → 对卡片每个条目 POST /knowledge-service/promote，卡片显示已审核', async () => {
+  it('approve → 整卡一次 POST /review-proposals/knowledge/:proposalId/approve，卡片显示已审核', async () => {
     renderPage();
     const btn = await screen.findByText('通过');
     fireEvent.click(btn);
 
     await waitFor(() => {
-      expect(mockApiPost).toHaveBeenCalledWith('/knowledge-service/promote', { entryId: 'k-1' });
-      expect(mockApiPost).toHaveBeenCalledWith('/knowledge-service/promote', { entryId: 'k-2' });
+      expect(mockApiPost).toHaveBeenCalledWith('/review-proposals/knowledge/kp-1/approve');
     });
     expect(await screen.findByText(/已通过/)).toBeTruthy();
     expect(mockRefresh).toHaveBeenCalled();
   });
 
-  it('reject → 对卡片每个条目 POST /knowledge-service/demote，卡片显示已拒绝', async () => {
+  it('reject → 整卡一次 POST /review-proposals/knowledge/:proposalId/reject，卡片显示已拒绝', async () => {
     renderPage();
     const btn = await screen.findByText('拒绝');
     fireEvent.click(btn);
 
     await waitFor(() => {
-      expect(mockApiPost).toHaveBeenCalledWith('/knowledge-service/demote', { entryId: 'k-1' });
-      expect(mockApiPost).toHaveBeenCalledWith('/knowledge-service/demote', { entryId: 'k-2' });
+      expect(mockApiPost).toHaveBeenCalledWith('/review-proposals/knowledge/kp-1/reject');
     });
     expect(await screen.findByText(/已拒绝/)).toBeTruthy();
   });
 
   // #264：线上 meta 为 object（回归点 48d883d9）——approve/reject 必须同样拿到 cardData 生效
-  it('object meta（线上形态）：卡片渲染 + approve 拿到 cardData 分发 promote', async () => {
+  it('object meta（线上形态）：卡片渲染 + approve 拿到 cardData 分发通用端点', async () => {
     currentMessages = [OBJECT_META_MESSAGE];
     renderPage();
     const btn = await screen.findByText('通过');
     fireEvent.click(btn);
 
     await waitFor(() => {
-      expect(mockApiPost).toHaveBeenCalledWith('/knowledge-service/promote', { entryId: 'k-1' });
-      expect(mockApiPost).toHaveBeenCalledWith('/knowledge-service/promote', { entryId: 'k-2' });
+      expect(mockApiPost).toHaveBeenCalledWith('/review-proposals/knowledge/kp-1/approve');
     });
     expect(await screen.findByText(/已通过/)).toBeTruthy();
     expect(mockRefresh).toHaveBeenCalled();

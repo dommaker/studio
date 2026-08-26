@@ -28,7 +28,7 @@
 import fs from 'node:fs';
 import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { FileStore, parseFrontmatter, serializeFrontmatter } from '@dommaker/studio-shared';
+import { FileStore, foldJsonlById, parseFrontmatter, serializeFrontmatter } from '@dommaker/studio-shared';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import { isTestEnv, testTmpRoot } from '../../utils/studio-log-path.js';
 
@@ -101,15 +101,80 @@ export interface MemoryDraftEntry {
 }
 
 /** 草稿行（含 promote/reject 墓碑标记；append-only 下追加墓碑行而非改写原行） */
-interface MemoryDraftRow extends MemoryDraftEntry {
+export interface MemoryDraftRow extends MemoryDraftEntry {
   promoted?: boolean;
   promotedAt?: string;
   rejected?: boolean;
   rejectedAt?: string;
 }
 
-/** 草稿条目审核状态（getDraftStatus 返回值；'unknown' = id 不存在） */
-export type MemoryDraftStatus = 'pending' | 'promoted' | 'rejected' | 'unknown';
+/**
+ * review-proposal 正本状态墓碑行（#353 接线后由 adapter 追加到条目所属角色的 draft.jsonl）。
+ * 与条目行同文件混存；`kind:'status'` 为判别字段（条目行 kind 白名单不含 'status'）。
+ */
+export interface MemoryDraftStatusRow {
+  kind: 'status';
+  id: string;
+  status: MemoryDraftReviewStatus;
+  at: string;
+}
+
+/** draft.jsonl 行 = 条目/墓碑行 | 正本状态行 */
+export type MemoryDraftLine = MemoryDraftRow | MemoryDraftStatusRow;
+
+/**
+ * 草稿审核状态词表 = review-proposal 正本唯一口径（#353，ADR 决策 3）。
+ * 旧 `promoted` 与 `executed` 语义相同（approve 副作用执行成功），读侧归一为 executed。
+ */
+export type MemoryDraftReviewStatus = 'pending' | 'executed' | 'rejected' | 'failed' | 'card-failed';
+
+/** foldDraftRows 输出：最新条目数据 + 折叠后的审核状态 */
+export interface DraftFold {
+  entry: MemoryDraftRow;
+  status: MemoryDraftReviewStatus;
+  statusAt: string;
+}
+
+export function isDraftStatusRow(row: MemoryDraftLine): row is MemoryDraftStatusRow {
+  return (row as MemoryDraftStatusRow).kind === 'status';
+}
+
+/**
+ * draft.jsonl 行折叠（读侧归一，ADR 决策 3；存量历史行不改写）：
+ * 条目行按 id 取最新；旧墓碑 promoted→executed / rejected→rejected；正本状态行直取；
+ * 缺省 pending。后写覆盖先写（append-only 时序）。
+ */
+export function foldDraftRows(rows: MemoryDraftLine[]): Map<string, DraftFold> {
+  // #360：byId 分组折叠走共享 foldJsonlById（作废判据 = kind:'status' 状态行）。
+  // 状态口径留 adapter（后写覆盖先写，append-only 时序）：
+  //   最新行是状态行 → 直取；最新行是条目行 → 旧墓碑旗标（promoted→executed /
+  //   rejected→rejected）优先，无旗标回落末个状态行；缺省 pending。
+  // 孤儿状态行（无条目行）不产出。旗标只增不改（promote/demote 重写整行），
+  // 故最新条目行旗标 = 该 id 历史旗标口径。
+  const result = new Map<string, DraftFold>();
+  for (const group of foldJsonlById(rows, isDraftStatusRow).values()) {
+    const entry = group.data;
+    if (entry === null || isDraftStatusRow(entry)) continue;
+    const lastStatus = group.tombstones[group.tombstones.length - 1];
+    let status: MemoryDraftReviewStatus = 'pending';
+    let statusAt = entry.createdAt;
+    if (isDraftStatusRow(group.latest)) {
+      status = group.latest.status;
+      statusAt = group.latest.at;
+    } else if (entry.promoted) {
+      status = 'executed';
+      statusAt = entry.promotedAt ?? entry.createdAt;
+    } else if (entry.rejected) {
+      status = 'rejected';
+      statusAt = entry.rejectedAt ?? entry.createdAt;
+    } else if (lastStatus !== undefined && isDraftStatusRow(lastStatus)) {
+      status = lastStatus.status;
+      statusAt = lastStatus.at;
+    }
+    result.set(entry.id, { entry, status, statusAt });
+  }
+  return result;
+}
 
 /** appendDraft 入参（id/review/createdAt 缺省自动生成；review 缺省 manual） */
 export interface AppendDraftInput {
@@ -318,38 +383,20 @@ export class RoleMemoryStore {
   }
 
   /**
-   * 读取 pending 草稿条目。append-only 墓碑语义：按 id 去重取最新行，再排除已 promote。
-   * （原条目行 + promote 墓碑行并存于 JSONL，须按最新状态归并，否则已 promote 条目仍被当作 pending。）
+   * 读取 pending 草稿条目。append-only 墓碑语义：foldDraftRows 折叠（读侧归一），
+   * 只留 status=pending 的条目（旧 promoted/rejected 墓碑与正本 status 行同样排除）。
    */
   async readDraft(roleId: string): Promise<MemoryDraftEntry[]> {
     const rid = sanitizeRoleId(roleId);
-    const rows = await store.readJsonl<MemoryDraftRow>(this.draftPath(rid));
+    const rows = await store.readJsonl<MemoryDraftLine>(this.draftPath(rid));
     return this.resolvePending(rows);
   }
 
-  /** 按 id 归并（后写覆盖先写）后返回未 promote 且未 rejected 的行。 */
-  private resolvePending(rows: MemoryDraftRow[]): MemoryDraftRow[] {
-    const latest = new Map<string, MemoryDraftRow>();
-    for (const r of rows) latest.set(r.id, r);
-    return [...latest.values()].filter(r => !r.promoted && !r.rejected);
-  }
-
-  /**
-   * 查询草稿条目状态（供 #101 卡片刷新/重进频道后派生已审态，对齐 KnowledgeProposalCard
-   * 按 maturity 派生的机制）：按 id 归并取最新行，promoted→'promoted'、rejected→'rejected'、
-   * 否则 'pending'；id 不存在 → 'unknown'。
-   */
-  async getDraftStatus(roleId: string, entryIds: string[]): Promise<Record<string, MemoryDraftStatus>> {
-    const rid = sanitizeRoleId(roleId);
-    const rows = await store.readJsonl<MemoryDraftRow>(this.draftPath(rid));
-    const latest = new Map<string, MemoryDraftRow>();
-    for (const r of rows) latest.set(r.id, r);
-    const result: Record<string, MemoryDraftStatus> = {};
-    for (const id of entryIds) {
-      const row = latest.get(id);
-      result[id] = !row ? 'unknown' : row.promoted ? 'promoted' : row.rejected ? 'rejected' : 'pending';
-    }
-    return result;
+  /** 折叠后返回仍 pending 的条目行。 */
+  private resolvePending(rows: MemoryDraftLine[]): MemoryDraftRow[] {
+    return [...foldDraftRows(rows).values()]
+      .filter(f => f.status === 'pending')
+      .map(f => f.entry);
   }
 
   // ── promote 合并（单路径 + 同角色互斥）──
@@ -363,7 +410,7 @@ export class RoleMemoryStore {
     const rid = sanitizeRoleId(roleId);
     const ids = new Set(entryIds);
     return this.withRoleLock(rid, async () => {
-      const rows = await store.readJsonl<MemoryDraftRow>(this.draftPath(rid));
+      const rows = await store.readJsonl<MemoryDraftLine>(this.draftPath(rid));
       const toPromote = this.resolvePending(rows).filter(r => ids.has(r.id));
       if (toPromote.length === 0) {
         return { roleId: rid, promoted: 0, topicsUpdated: [] };
@@ -405,7 +452,7 @@ export class RoleMemoryStore {
     const rid = sanitizeRoleId(roleId);
     const ids = new Set(entryIds);
     return this.withRoleLock(rid, async () => {
-      const rows = await store.readJsonl<MemoryDraftRow>(this.draftPath(rid));
+      const rows = await store.readJsonl<MemoryDraftLine>(this.draftPath(rid));
       const toReject = this.resolvePending(rows).filter(r => ids.has(r.id));
       if (toReject.length === 0) {
         return { roleId: rid, demoted: 0 };

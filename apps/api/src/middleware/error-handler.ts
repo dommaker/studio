@@ -16,25 +16,6 @@ export function errorHandler(
     query: req.query,
   }, 'Unhandled error');
 
-  // Prisma 错误
-  if (error.code === 'P2002') {
-    return res.status(409).json({
-      error: {
-        code: 'DUPLICATE_ENTRY',
-        message: 'A record with this value already exists',
-      },
-    });
-  }
-
-  if (error.code === 'P2025') {
-    return res.status(404).json({
-      error: {
-        code: 'NOT_FOUND',
-        message: 'Record not found',
-      },
-    });
-  }
-
   // 验证错误
   if (error.name === 'ValidationError') {
     return res.status(400).json({

@@ -1,7 +1,7 @@
 /**
  * D11 skill promote 门禁（draft → published）。
  *
- * 现状链路：提案 approve（skill-extraction.service reviewProposal）→ 磁盘 SKILL.md
+ * 现状链路：提案 approve（#354 起经 review-proposal 正本 adapter onApprove，skills/review-adapter.ts）→ 磁盘 SKILL.md
  * frontmatter status=draft + 索引 status=draft；promote（routes POST /:id/publish）
  * 是进入匹配池的唯一闸门。匹配池（manifest-loader.loadManifest / skill-selector /
  * skill-loader.loadSkillFromDisk）只认磁盘 frontmatter：status 缺省或 published 才参与。

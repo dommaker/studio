@@ -6,6 +6,17 @@
  */
 
 import rateLimit from 'express-rate-limit';
+import type { Request } from 'express';
+
+/**
+ * 回环直连（本机 daemon/脚本，对端 127.0.0.1）不参与限频——它们共享
+ * 同一个 IP 桶，限频会误伤内部调用。公网流量经 nginx 单跳代理，
+ * req.ip 为真实客户端（需 app.set('trust proxy', 1)）。
+ */
+export const isLoopbackIp = (ip: string | undefined): boolean =>
+  ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
+
+export const skipLoopback = (req: Request): boolean => isLoopbackIp(req.ip);
 
 /**
  * MCP tools 速率限制
@@ -17,6 +28,7 @@ export const mcpRateLimit = rateLimit({
   standardHeaders: true, // 返回 RateLimit-* headers
   legacyHeaders: false,
   // 不使用自定义 keyGenerator，使用默认的 IP 限制
+  skip: skipLoopback,
   message: {
     error: 'Too many requests, please try again later',
     retryAfter: '60s',
@@ -32,6 +44,7 @@ export const apiRateLimit = rateLimit({
   max: 120,
   standardHeaders: true,
   legacyHeaders: false,
+  skip: skipLoopback,
   message: {
     error: 'Too many requests, please try again later',
   },

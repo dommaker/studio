@@ -27,6 +27,7 @@ import { resolveWorkspaceRoot } from '../../workspaces/workspace-store.js';
 import { resolvePmoBranchForWU } from '../../requirements/pmo-branch-resolver.js';
 import { resolveStudioLogFile } from '../../../utils/studio-log-path.js';
 import { writeStudioEvent } from '../../../utils/studio-events.js';
+import { getErrorMessage } from '../../../utils/errors.js';
 import {
   tokenBudgetGuardEnabled, resolveDailyTokenBudget, getDailyTokenUsage,
   notifyBudgetTripped,
@@ -187,12 +188,8 @@ export class AgentLoop {
 
       const allStates = await this.fileStore.listStates();
 
-      // 2026-07-30 走查修复：清理该 roleId 的 terminated 历史实例（防累积）
-      // 每次 API 重启都创建新 idle 实例，旧 terminated state.json 不清理会无限累积
-      // （~/.studio/data/agents/<id>/state.json 残留，监控/频道侧栏显示历史噪音）
-      for (const s of allStates.filter(s => s.roleId === this.role.id && s.status === 'terminated')) {
-        await this.fileStore.deleteState(s.id).catch(() => {});
-      }
+      // #363：terminated 历史实例的回收已从此处拆除（原 2026-07-30 同角色启动清理），
+      // 统一由 instance-timeout-scan 承担（跨角色，每 5min，连带判空删目录闭环）。
 
       // F2: recovery — a successful probe clears previous error states for this role
       for (const s of allStates.filter(s => s.roleId === this.role.id && s.status === 'error')) {
@@ -291,7 +288,7 @@ export class AgentLoop {
       return true;
     } catch (err) {
       // F2: any other startup-fatal failure is also surfaced
-      const message = err instanceof Error ? err.message : String(err);
+      const message = getErrorMessage(err);
       logger.error(`[AgentLoop] Startup failed for ${this.role.name}: ${message}`);
       await this.recordStartupFailure(message).catch(() => {});
       return false;
@@ -329,7 +326,7 @@ export class AgentLoop {
         errorStateId = instanceId;
       }
     } catch (err) {
-      logger.warn(`[AgentLoop] Failed to record startup failure state: ${err instanceof Error ? err.message : String(err)}`);
+      logger.warn(`[AgentLoop] Failed to record startup failure state: ${getErrorMessage(err)}`);
     }
 
     const payload = { profileId: this.role.id, name: this.role.name, provider: this.role.provider ?? 'claude', error: message };
@@ -437,7 +434,7 @@ export class AgentLoop {
         await this.releaseLeaseIfForfeited(target.workUnit.id);
         await sleep(dynamicInterval(result));
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
+        const message = getErrorMessage(err);
         logger.error(`[AgentLoop] Loop iteration error: ${message}`);
         await sleep(15_000);
       }
@@ -461,7 +458,7 @@ export class AgentLoop {
     await postWuSystemMessage(workUnit, `『${this.role.name}』已认领任务，开始执行`, {
       agentName: this.role.name,
       fileStore: this.fileStore,
-    }).catch(err => logger.warn(`[AgentLoop] Failed to announce claim for ${workUnit.id}: ${err instanceof Error ? err.message : String(err)}`));
+    }).catch(err => logger.warn(`[AgentLoop] Failed to announce claim for ${workUnit.id}: ${getErrorMessage(err)}`));
     return true;
   }
 
@@ -494,7 +491,7 @@ export class AgentLoop {
       this.consecutiveHeartbeatFailures++;
       logger.warn(`[AgentLoop] Heartbeat/state write failed (${this.consecutiveHeartbeatFailures}/${HEARTBEAT_FAIL_LIMIT})`, {
         instanceId: this.instance.id,
-        error: err instanceof Error ? err.message : String(err),
+        error: getErrorMessage(err),
       });
       if (this.consecutiveHeartbeatFailures >= HEARTBEAT_FAIL_LIMIT) {
         await this.selfTerminateOnHeartbeatFailure();
@@ -517,7 +514,7 @@ export class AgentLoop {
       try {
         await this.executor.stopProcessGroup?.(executionId);
       } catch (err) {
-        logger.warn(`[AgentLoop] stopProcessGroup failed (non-blocking): ${err instanceof Error ? err.message : String(err)}`);
+        logger.warn(`[AgentLoop] stopProcessGroup failed (non-blocking): ${getErrorMessage(err)}`);
       }
     }
     this.alive = false;
@@ -882,7 +879,7 @@ export class AgentLoop {
             });
             pmoBaseBranch = pmoResolution.branch;
           } catch (err) {
-            logger.warn(`[AgentLoop] PMO branch ensure failed, falling back to default base: ${err instanceof Error ? err.message : String(err)}`, { traceId });
+            logger.warn(`[AgentLoop] PMO branch ensure failed, falling back to default base: ${getErrorMessage(err)}`, { traceId });
           }
         }
         const info = await ensureWuWorktree({
@@ -910,7 +907,7 @@ export class AgentLoop {
         }
         workspaceRoot = info.worktreePath;
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
+        const message = getErrorMessage(err);
         logger.error(`[AgentLoop] Worktree creation failed for ${wu.id}: ${message}`, { traceId });
         // 会话签发在 worktree 解析之后（#94），此处尚无会话簿记需重置
         return {
@@ -1314,7 +1311,7 @@ export class AgentLoop {
         try {
           void knowledgeService.extractFromConversation?.(conversation, { workUnitId: wu.id })
             ?.catch((err: unknown) =>
-              logger.warn(`[AgentLoop] extractFromConversation failed: ${err instanceof Error ? err.message : String(err)}`)
+              logger.warn(`[AgentLoop] extractFromConversation failed: ${getErrorMessage(err)}`)
             );
         } catch { /* non-blocking */ }
       }
@@ -1373,7 +1370,7 @@ export class AgentLoop {
       // 真正抛出的异常（如 spawn 失败），保持 need_input 语义。
       // 首 step 抛异常：会话未建立，重置避免下步 --resume 空 id
       if (newSessionId) this.resetUnestablishedSession(metadataUpdates);
-      const message = err instanceof Error ? err.message : String(err);
+      const message = getErrorMessage(err);
       logger.error(`[AgentLoop] agentStep execute failed: ${message}`, { traceId });
       this.recordOutcomeEvent(wu, false, message, 'execution_failed', injectedKnowledgeIds);
       // #172: spawn 异常等抛出路径的失败步同样落 execution_step（status=failed）
@@ -1416,7 +1413,7 @@ export class AgentLoop {
       }
       return root;
     } catch (err) {
-      logger.warn(`[AgentLoop] Workspace resolution failed for ${workspaceId}: ${err instanceof Error ? err.message : String(err)}`);
+      logger.warn(`[AgentLoop] Workspace resolution failed for ${workspaceId}: ${getErrorMessage(err)}`);
       return null;
     }
   }

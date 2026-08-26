@@ -50,23 +50,3 @@ export const logger: Logger = {
     }
   },
 };
-
-/**
- * 创建带上下文的 logger
- */
-export function createLogger(context: string): Logger {
-  return {
-    info(message: string, data?: Record<string, any>) {
-      logger.info(`[${context}] ${message}`, data);
-    },
-    error(message: string, data?: Record<string, any>) {
-      logger.error(`[${context}] ${message}`, data);
-    },
-    debug(message: string, data?: Record<string, any>) {
-      logger.debug(`[${context}] ${message}`, data);
-    },
-    warn(message: string, data?: Record<string, any>) {
-      logger.warn(`[${context}] ${message}`, data);
-    },
-  };
-}

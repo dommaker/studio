@@ -33,7 +33,15 @@ vi.mock('../../channels/channel-message.service.js', () => ({
   channelMessageService: { createCardMessage: mockCreateCardMessage },
 }));
 
-import { DistillService } from '../distill-service.js';
+import { DistillService, type DistillProposal, type GcProposal } from '../distill-service.js';
+import { approveProposal, rejectProposal } from '../../review-proposal/service.js';
+import { getReviewProposalAdapter } from '../../review-proposal/registry.js';
+
+// #351：GC 提案的 approve/reject/状态查询走 review-proposal 正本生命周期
+const approveGc = (id: string) => approveProposal('gc', id);
+const rejectGc = (id: string) => rejectProposal('gc', id);
+const gcStore = () => getReviewProposalAdapter<GcProposal>('gc')!.store;
+const distillStore = () => getReviewProposalAdapter<DistillProposal>('distill')!.store;
 
 let tmpDir: string;
 let fileStore: FileStore;
@@ -103,12 +111,12 @@ function eventStages(events: Array<Record<string, unknown>>): string[] {
 /** 跑一次完整蒸馏（矿石 → 提案 → approve → 产物），返回提案 id */
 async function runDistill(): Promise<void> {
   await service.maybePropose({});
-  const proposal = (await service.listProposals()).at(-1)!;
+  const proposal = (await distillStore().listProposals()).at(-1)!;
   mockRunJson.mockResolvedValue({
     products: [{ title: '蒸馏产物', content: '模式正文', tags: ['pattern'] }],
   });
-  const result = await service.approve(proposal.id);
-  expect(result.ok).toBe(true);
+  const result = await approveProposal('distill', proposal.id);
+  expect(result.kind).toBe('executed');
 }
 
 beforeEach(async () => {
@@ -173,22 +181,22 @@ describe('端到端：蒸馏运行 → GC 候选清单卡 → approve → archiv
     expect(content).toContain('连续 3 个蒸馏周期零引用');
 
     // 提案落盘 pending + 事件
-    const gcProposal = (await service.listGcProposals())[0];
+    const gcProposal = (await gcStore().listProposals())[0];
     expect(gcProposal.status).toBe('pending');
     expect(gcProposal.runId).toBeTruthy();
     expect(eventStages(await readEvents())).toContain('gc-proposal-posted');
 
     // approve → 候选 archived（其余不动）
-    const result = await service.approveGc(gcProposal.id);
-    expect(result.ok).toBe(true);
-    expect(result.archivedIds).toEqual(['stale-ref']);
+    const result = await approveGc(gcProposal.id);
+    expect(result.kind).toBe('executed');
+    expect(result.kind === 'executed' && result.data?.archivedIds).toEqual(['stale-ref']);
     expect(store.get(staleRef.id)?.maturity).toBe('archived');
     expect(store.get(freshRef.id)?.maturity).toBe('active');
     expect(store.get(ruleEntry.id)?.maturity).toBe('active');
     // 蒸馏产物（reference 层，刚产出不过线）仍在主区
     expect(store.list().filter(e => e.tags.includes('distilled'))[0]?.maturity).toBe('active');
     expect(eventStages(await readEvents())).toContain('gc-executed');
-    expect((await service.getGcProposal(gcProposal.id))?.status).toBe('executed');
+    expect((await gcStore().getProposal(gcProposal.id))?.status).toBe('executed');
   });
 
   it('主区 >200 条强制出清单（周期不足也出）', async () => {
@@ -226,7 +234,7 @@ describe('零候选不发卡', () => {
     await runDistill();
 
     expect(mockCreateCardMessage).toHaveBeenCalledTimes(1); // 仅 distill_proposal
-    expect(await service.listGcProposals()).toHaveLength(0);
+    expect(await gcStore().listProposals()).toHaveLength(0);
     expect(eventStages(await readEvents())).not.toContain('gc-proposal-posted');
   });
 
@@ -246,7 +254,7 @@ describe('零候选不发卡', () => {
     await runDistill();
 
     expect(mockCreateCardMessage).toHaveBeenCalledTimes(1); // 仅 distill_proposal
-    expect(await service.listGcProposals()).toHaveLength(0);
+    expect(await gcStore().listProposals()).toHaveLength(0);
   });
 });
 
@@ -261,8 +269,8 @@ describe('reject 与人判保留', () => {
     seedOre('ore-3', new Date().toISOString());
 
     await runDistill();
-    const gcProposal = (await service.listGcProposals())[0];
-    const result = await service.rejectGc(gcProposal.id);
+    const gcProposal = (await gcStore().listProposals())[0];
+    const result = await rejectGc(gcProposal.id);
     expect(result.ok).toBe(true);
     expect(store.get(stale.id)?.maturity).toBe('active'); // 保留
     expect(eventStages(await readEvents())).toContain('gc-rejected');
@@ -274,7 +282,7 @@ describe('reject 与人判保留', () => {
       outcome: 'executed', signals: { topicTags: [], manualCount: 0 }, materialIds: [], productIds: [],
     });
     expect(mockCreateCardMessage.mock.calls.length).toBe(cardsBefore);
-    expect(await service.listGcProposals()).toHaveLength(1); // 没有新提案
+    expect(await gcStore().listProposals()).toHaveLength(1); // 没有新提案
   });
 });
 
@@ -293,7 +301,7 @@ describe('降级与去重', () => {
       outcome: 'executed', signals: { topicTags: [], manualCount: 0 }, materialIds: [], productIds: [],
     });
     expect(mockCreateCardMessage.mock.calls.length).toBe(cardsBefore);
-    expect(await service.listGcProposals()).toHaveLength(1);
+    expect(await gcStore().listProposals()).toHaveLength(1);
   });
 
   it('发卡失败静默：提案 card-failed，不抛、不影响蒸馏结果', async () => {
@@ -304,13 +312,13 @@ describe('降级与去重', () => {
     seedOre('ore-3', new Date().toISOString());
 
     await service.maybePropose({});
-    const proposal = (await service.listProposals()).at(-1)!;
+    const proposal = (await distillStore().listProposals()).at(-1)!;
     mockRunJson.mockResolvedValue({ products: [{ title: 'P', content: 'C', tags: [] }] });
     mockCreateCardMessage.mockRejectedValueOnce(new Error('channel write failed')); // GC 卡失败
-    const result = await service.approve(proposal.id);
-    expect(result.ok).toBe(true); // 蒸馏主链路不受影响
+    const result = await approveProposal('distill', proposal.id);
+    expect(result.kind).toBe('executed'); // 蒸馏主链路不受影响
 
-    const gcProposal = (await service.listGcProposals())[0];
+    const gcProposal = (await gcStore().listProposals())[0];
     expect(gcProposal.status).toBe('card-failed');
     expect(eventStages(await readEvents())).toContain('gc-card-failed');
   });
@@ -324,14 +332,14 @@ describe('降级与去重', () => {
     seedOre('ore-3', new Date().toISOString());
 
     await runDistill();
-    const gcProposal = (await service.listGcProposals())[0];
+    const gcProposal = (await gcStore().listProposals())[0];
     expect(gcProposal.candidates.map(c => c.entryId).sort()).toEqual(['stale-c1', 'stale-c2']);
 
     // 人审期间 a 被其它路径归档
     store.update(a.id, { maturity: 'archived' });
-    const result = await service.approveGc(gcProposal.id);
-    expect(result.ok).toBe(true);
-    expect(result.archivedIds).toEqual(['stale-c2']);
+    const result = await approveGc(gcProposal.id);
+    expect(result.kind).toBe('executed');
+    expect(result.kind === 'executed' && result.data?.archivedIds).toEqual(['stale-c2']);
     expect(store.get(b.id)?.maturity).toBe('archived');
   });
 
@@ -343,9 +351,9 @@ describe('降级与去重', () => {
     seedOre('ore-3', new Date().toISOString());
 
     await runDistill();
-    const gcProposal = (await service.listGcProposals())[0];
-    await service.rejectGc(gcProposal.id);
-    expect((await service.approveGc(gcProposal.id)).ok).toBe(false);
-    expect((await service.rejectGc(gcProposal.id)).ok).toBe(false);
+    const gcProposal = (await gcStore().listProposals())[0];
+    await rejectGc(gcProposal.id);
+    expect((await approveGc(gcProposal.id)).kind).toBe('invalid');
+    expect((await rejectGc(gcProposal.id)).ok).toBe(false);
   });
 });

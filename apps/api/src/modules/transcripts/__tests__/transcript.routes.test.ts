@@ -5,7 +5,7 @@
  * getHandlers/invokeRoute helper 直接驱动 router。
  * STUDIO_AUTH=none 下 requireAuth 放行，不测 401。
  *
- * Covers: GET /:workUnitId — 分页 slice / total / 默认参数 / limit 上限 / 非法 id 400 / 空文件 200
+ * Covers: GET /:workUnitId — 分页 slice / total / 默认参数 / limit 上限（#359 起 50→100）/ 非法 id 400 / 空文件 200
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Router } from 'express';
@@ -122,8 +122,8 @@ describe('GET /:workUnitId (#174)', () => {
     expect(body.entries[0].step).toBe(2);
   });
 
-  it('limit 上限截断为 50', async () => {
-    mockReadJsonl.mockResolvedValueOnce(Array.from({ length: 60 }, (_, i) => entry(i + 1)));
+  it('limit 上限截断为 100（#359：统一走 parsePagination clamp 1..100，原上限 50）', async () => {
+    mockReadJsonl.mockResolvedValueOnce(Array.from({ length: 120 }, (_, i) => entry(i + 1)));
 
     const { res } = await invokeRoute(routes, 'get', '/:workUnitId', {
       params: { workUnitId: 'wu-1' },
@@ -131,9 +131,9 @@ describe('GET /:workUnitId (#174)', () => {
     });
 
     const body = res.json.mock.calls[0][0];
-    expect(body.limit).toBe(50);
-    expect(body.entries).toHaveLength(50);
-    expect(body.total).toBe(60);
+    expect(body.limit).toBe(100);
+    expect(body.entries).toHaveLength(100);
+    expect(body.total).toBe(120);
   });
 
   it('非法 workUnitId（含 /）→ 400 不读盘', async () => {

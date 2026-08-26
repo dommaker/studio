@@ -2,7 +2,7 @@
  * 通知服务
  */
 
-import { FileStore, logger, generateId as sharedGenerateId } from '@dommaker/studio-shared';
+import { FileStore, foldJsonlById, logger, generateId as sharedGenerateId } from '@dommaker/studio-shared';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 
 export interface CreateNotificationInput {
@@ -27,6 +27,20 @@ interface NotificationRow {
   deletedAt?: string;
 }
 
+/**
+ * notifications.jsonl 折叠产物：一个 id 的当前通知态（#360 收敛，语义与原三份手写 fold 逐条一致）。
+ * 墓碑 = `{ id, deleted: true, deletedAt }` 稀疏行，语义是「已读标记」而非删除：
+ * 已读通知保留可见；全墓碑（孤儿墓碑行）的 id 不可见。
+ */
+interface FoldedNotification {
+  /** 最新非 deleted 行（数据载体：userId/type/title/content 均取自它） */
+  data: NotificationRow;
+  /** 组内存在 deleted 行即已读 */
+  read: boolean;
+  /** 首个 deleted 行的 deletedAt（多次追加墓碑时取首个 = 实际首次已读时刻） */
+  readAt: Date | null;
+}
+
 export class NotificationService {
   constructor(private fileStore: FileStore) {}
 
@@ -49,18 +63,32 @@ export class NotificationService {
   }
 
   /**
+   * append-only 行折叠（#360）：按 id 分组，最新非 deleted 行作数据载体，
+   * 首个 deleted 行作已读标记。getUserNotifications / markAsRead /
+   * markAllAsRead / getUnreadCount 共用本口径，杜绝 #274 式漏判墓碑的分叉复写。
+   * 分组与最新行取舍走共享 foldJsonlById；墓碑 = 已读标记（非删除）的语义
+   * 留在本 adapter：data 作载体、首墓碑作 readAt。
+   */
+  private foldRows(rows: NotificationRow[]): Map<string, FoldedNotification> {
+    const folded = new Map<string, FoldedNotification>();
+    for (const group of foldJsonlById(rows, row => row.deleted === true).values()) {
+      if (group.data === null) continue; // 全墓碑（孤儿墓碑行）不可见
+      const firstTombstone = group.tombstones[0];
+      folded.set(group.data.id, {
+        data: group.data,
+        read: firstTombstone !== undefined,
+        readAt: firstTombstone?.deletedAt ? new Date(firstTombstone.deletedAt) : null,
+      });
+    }
+    return folded;
+  }
+
+  /**
    * 获取用户通知列表
    */
   async getUserNotifications(userId: string, options?: { unreadOnly?: boolean; limit?: number }) {
     const rows = await this.fileStore.readJsonl<NotificationRow>(NOTIFICATIONS_JSONL);
-
-    // Group rows by id to build latest state per notification
-    const byId = new Map<string, NotificationRow[]>();
-    for (const row of rows) {
-      const existing = byId.get(row.id) || [];
-      existing.push(row);
-      byId.set(row.id, existing);
-    }
+    const folded = this.foldRows(rows);
 
     const results: Array<{
       id: string;
@@ -74,27 +102,19 @@ export class NotificationService {
       readAt: Date | null;
     }> = [];
 
-    for (const [, entries] of byId) {
-      // Latest non-deleted entry carries the notification data
-      const nonDeleted = entries.filter(e => !e.deleted);
-      if (nonDeleted.length === 0) continue;
-
-      const lastData = nonDeleted[nonDeleted.length - 1];
-      if (lastData.userId !== userId) continue;
-
-      const hasTombstone = entries.some(e => e.deleted === true);
-      const tombstone = entries.find(e => e.deleted === true);
+    for (const entry of folded.values()) {
+      if (entry.data.userId !== userId) continue;
 
       results.push({
-        id: lastData.id,
-        userId: lastData.userId!,
-        type: lastData.type!,
-        title: lastData.title!,
-        content: lastData.content!,
-        link: lastData.link || null,
-        createdAt: new Date(lastData.createdAt!),
-        read: hasTombstone,
-        readAt: hasTombstone && tombstone?.deletedAt ? new Date(tombstone.deletedAt) : null,
+        id: entry.data.id,
+        userId: entry.data.userId!,
+        type: entry.data.type!,
+        title: entry.data.title!,
+        content: entry.data.content!,
+        link: entry.data.link || null,
+        createdAt: new Date(entry.data.createdAt!),
+        read: entry.read,
+        readAt: entry.readAt,
       });
     }
 
@@ -114,12 +134,8 @@ export class NotificationService {
    */
   async markAsRead(notificationId: string, userId: string) {
     const rows = await this.fileStore.readJsonl<NotificationRow>(NOTIFICATIONS_JSONL);
-
-    const entries = rows.filter(r => r.id === notificationId);
-    const nonDeleted = entries.filter(e => !e.deleted);
-    if (nonDeleted.length === 0) return;
-    const lastData = nonDeleted[nonDeleted.length - 1];
-    if (lastData.userId !== userId) return;
+    const entry = this.foldRows(rows).get(notificationId);
+    if (!entry || entry.data.userId !== userId) return;
 
     await this.fileStore.appendJsonl(NOTIFICATIONS_JSONL, {
       id: notificationId,
@@ -133,24 +149,9 @@ export class NotificationService {
    */
   async markAllAsRead(userId: string) {
     const rows = await this.fileStore.readJsonl<NotificationRow>(NOTIFICATIONS_JSONL);
-
-    // Resolve active notifications for user
-    const byId = new Map<string, NotificationRow[]>();
-    for (const row of rows) {
-      const existing = byId.get(row.id) || [];
-      existing.push(row);
-      byId.set(row.id, existing);
-    }
-
-    const activeIds: string[] = [];
-    for (const [id, entries] of byId) {
-      const nonDeleted = entries.filter(e => !e.deleted);
-      if (nonDeleted.length === 0) continue;
-      const lastData = nonDeleted[nonDeleted.length - 1];
-      if (lastData.userId === userId) {
-        activeIds.push(id);
-      }
-    }
+    const activeIds = [...this.foldRows(rows).values()]
+      .filter(entry => entry.data.userId === userId)
+      .map(entry => entry.data.id);
 
     for (const id of activeIds) {
       await this.fileStore.appendJsonl(NOTIFICATIONS_JSONL, {
@@ -166,22 +167,11 @@ export class NotificationService {
    */
   async getUnreadCount(userId: string): Promise<number> {
     const rows = await this.fileStore.readJsonl<NotificationRow>(NOTIFICATIONS_JSONL);
-
-    const byId = new Map<string, NotificationRow[]>();
-    for (const row of rows) {
-      const existing = byId.get(row.id) || [];
-      existing.push(row);
-      byId.set(row.id, existing);
-    }
-
     let count = 0;
-    for (const [, entries] of byId) {
-      const nonDeleted = entries.filter(e => !e.deleted);
-      if (nonDeleted.length === 0) continue;
-      const lastData = nonDeleted[nonDeleted.length - 1];
-      if (lastData.userId !== userId) continue;
+    for (const entry of this.foldRows(rows).values()) {
+      if (entry.data.userId !== userId) continue;
       // #274 修复：有 tombstone 即已读，不计入未读数（此前漏判，恒计全部）
-      if (entries.some(e => e.deleted === true)) continue;
+      if (entry.read) continue;
       count++;
     }
     return count;

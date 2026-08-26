@@ -2,6 +2,7 @@
 // 共享口径：层标签、证据行格式 `{kind} · {by 前 8 位} · {时间}`、存量空态文案、l2.summary 评审结论行；
 // variant 只承载真实差异：外层标记（mc-kv vs card）与 verdict 呈现（✓/✗ 前缀 vs 通过/拒绝徽章）
 import type { AttestationEntry, WuAttestations } from '@dommaker/studio-shared/web';
+import { formatShortTime } from '../../utils/datetime';
 
 const LEVELS = ['l1', 'l2', 'l3'] as const;
 
@@ -22,7 +23,7 @@ interface Props {
 
 /** 证据行共用部分：`{kind} · {by 前 8 位} · {时间}`（verdict 呈现由 variant 决定） */
 function formatEntryLine(entry: AttestationEntry): string {
-  return `${entry.kind} · ${entry.by.slice(0, 8)} · ${formatTime(entry.at)}`;
+  return `${entry.kind} · ${entry.by.slice(0, 8)} · ${formatShortTime(entry.at)}`;
 }
 
 export function EvidenceLedger({ attestations, variant }: Props) {
@@ -85,12 +86,4 @@ export function EvidenceLedger({ attestations, variant }: Props) {
       )}
     </div>
   );
-}
-
-function formatTime(iso: string): string {
-  try {
-    return new Date(iso).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
-  } catch {
-    return iso;
-  }
 }

@@ -390,6 +390,36 @@ describe('STUDIO_AUTH env var', () => {
       expect((req as any).user).toEqual({ id: 'local', role: 'Admin', name: 'Local User' });
       expect(next).toHaveBeenCalled();
     });
+
+    // 2026-08-25：?token= query 兜底（SSE EventSource 无法设 Authorization 头）
+    it('STUDIO_AUTH=on: 有效 ?token= 解析出用户（EventSource 场景）', async () => {
+      process.env.STUDIO_AUTH = 'on';
+      const { default: jwt } = await import('jsonwebtoken');
+      const { JWT_SECRET } = await import('../../modules/auth/service.js');
+      const token = jwt.sign({ sid: 'sess-1', uid: 'user-1' }, JWT_SECRET);
+      (req as any).query = { token };
+      mockReadJson
+        .mockResolvedValueOnce([{ id: 'sess-1', userId: 'user-1', expiresAt: new Date(Date.now() + 3600_000).toISOString() }])
+        .mockResolvedValueOnce([{ id: 'user-1', role: 'User', name: 'U' }]);
+
+      const mw = optionalAuth();
+      await mw(req as Request, res as Response, next);
+
+      expect((req as any).user?.id).toBe('user-1');
+      expect(next).toHaveBeenCalled();
+    });
+
+    it('STUDIO_AUTH=on: 无效 ?token= 按匿名处理（不 500、不注入 user）', async () => {
+      process.env.STUDIO_AUTH = 'on';
+      (req as any).query = { token: 'garbage-token' };
+
+      const mw = optionalAuth();
+      await mw(req as Request, res as Response, next);
+
+      expect((req as any).user).toBeUndefined();
+      expect(next).toHaveBeenCalled();
+      expect(res.status).not.toHaveBeenCalled();
+    });
   });
 
   describe('requireAuth', () => {
@@ -537,5 +567,39 @@ describe('requireLocalhost', () => {
 
     expect(res.status).toHaveBeenCalledWith(403);
     expect(next).not.toHaveBeenCalled();
+  });
+
+  // 2026-08-25：同机反代下公网流量 TCP 对端也是 127.0.0.1，必须靠转发头识别
+  it('returns 403 for loopback TCP peer carrying X-Forwarded-For (同机 nginx 反代的公网流量)', async () => {
+    (req as any).ip = '127.0.0.1';
+    req.headers = { 'x-forwarded-for': '203.0.113.10' };
+    const middleware = requireLocalhost();
+    await middleware(req as Request, res as Response, next);
+
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({ code: 'LOCALHOST_ONLY' }),
+    );
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('returns 403 for loopback TCP peer carrying CF-Connecting-IP (cloudflared 隧道流量)', async () => {
+    (req as any).ip = '127.0.0.1';
+    req.headers = { 'cf-connecting-ip': '203.0.113.10' };
+    const middleware = requireLocalhost();
+    await middleware(req as Request, res as Response, next);
+
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('still calls next() for direct loopback call without forwarding headers (本机 daemon/CLI)', async () => {
+    (req as any).ip = '::ffff:127.0.0.1';
+    req.headers = {};
+    const middleware = requireLocalhost();
+    await middleware(req as Request, res as Response, next);
+
+    expect(next).toHaveBeenCalled();
+    expect(res.status).not.toHaveBeenCalled();
   });
 });

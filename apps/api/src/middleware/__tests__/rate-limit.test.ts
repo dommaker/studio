@@ -59,6 +59,30 @@ describe('refreshRateLimit', () => {
   });
 });
 
+describe('loopback skip（2026-08-25 收口）', () => {
+  // Call order in rate-limit.ts: mcpRateLimit, apiRateLimit, authRateLimit, refreshRateLimit
+  const mcpConfig = mockRateLimit.mock.calls[0][0];
+  const apiConfig = mockRateLimit.mock.calls[1][0];
+
+  it('mcpRateLimit / apiRateLimit 挂 skip（回环直连不限频）', () => {
+    expect(typeof mcpConfig.skip).toBe('function');
+    expect(typeof apiConfig.skip).toBe('function');
+  });
+
+  it('authRateLimit / refreshRateLimit 不挂 skip（认证端点一律限频）', () => {
+    expect(authConfig.skip).toBeUndefined();
+    expect(refreshConfig.skip).toBeUndefined();
+  });
+
+  it('skipLoopback 判定：回环三种写法 skip，公网 IP 不 skip', () => {
+    const skip = apiConfig.skip;
+    expect(skip({ ip: '127.0.0.1' })).toBe(true);
+    expect(skip({ ip: '::1' })).toBe(true);
+    expect(skip({ ip: '::ffff:127.0.0.1' })).toBe(true);
+    expect(skip({ ip: '203.0.113.9' })).toBe(false);
+  });
+});
+
 describe('consistency with express-rate-limit style', () => {
   it('all rate limiters have standardHeaders=true', () => {
     allConfigs.forEach((c) => expect(c.standardHeaders).toBe(true));

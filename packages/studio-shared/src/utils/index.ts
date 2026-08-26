@@ -1,10 +1,8 @@
-export { logger, createLogger } from './logger';
+export { logger } from './logger';
 export type { Logger } from './logger';
 export { generateId } from './id';
-export { parseSpecMarkdown, loadSpecFile } from './spec-parser';
-export type { SpecContent, ApiEndpoint, SchemaDefinition, AcceptanceCriterion } from './spec-parser';
-export { execSh, resolveSessionId, readSessionIdFile, readProgress, writeProgress, readPhaseBridge } from './process-io';
-export type { ExecShOptions, SessionIdOptions, ProgressReport, PhaseBridge } from './process-io';
+export { execSh, resolveSessionId, readSessionIdFile, readPhaseBridge } from './process-io';
+export type { ExecShOptions, SessionIdOptions, PhaseBridge } from './process-io';
 export { toKebab, parseSddFrontmatter, stringifySddFrontmatter, listLegacySddDocs, readLegacySddDoc, findLegacySddDocById, findLegacySddDocs } from './sdd-legacy';
 export type { SddFrontmatter, LegacySddLayer } from './sdd-legacy';
 export { resolvePromptOverridesDir, readPromptOverride, renderWithOverride } from './prompt-overrides';

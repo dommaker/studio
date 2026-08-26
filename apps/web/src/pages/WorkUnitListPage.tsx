@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { deriveDisplayState, type DerivedWuState } from '@dommaker/studio-shared/web';
+import { deriveDisplayState, WU_STATUS_COLORS, WU_STATUS_LABELS, WU_TYPE_LABELS, type DerivedWuState } from '@dommaker/studio-shared/web';
 import { useWorkUnitStore } from '../stores/workunitStore';
 import { DiscussionPanel } from '../components/DiscussionPanel';
 import { ExecutionSteps } from '../components/workunit/ExecutionSteps';
@@ -13,37 +13,11 @@ import { BlockedByList } from '../components/workunit/BlockedByList';
 import { AnalysisApproveDialog } from '../components/pmo/AnalysisApproveDialog';
 import { useWebSocketContext } from '../api/websocketHooks';
 import { Select } from '../components/ui';
+import { formatShortTime } from '../utils/datetime';
 
 /** F6：WU 展示状态唯一派生口径（铁律：禁止各自读 metadata.attestations 解释） */
 const deriveWu = (wu: { status: string; metadata?: string | null }): DerivedWuState =>
   deriveDisplayState({ status: wu.status, metadata: wu.metadata });
-
-const statusLabels: Record<string, string> = {
-  pending: '待确认',
-  unassigned: '待分配',
-  active: '执行中',
-  in_review: '审查中',
-  done: '已完成',
-  closed: '已关闭',
-  blocked: '阻塞',
-};
-
-const statusColors: Record<string, string> = {
-  pending: 'u-warn-dim u-warn',
-  unassigned: 'u-surface-2 u-text-3',
-  active: 'u-accent-dim u-accent',
-  in_review: 'u-warn-dim u-warn',
-  done: 'u-ok-dim u-ok',
-  closed: 'u-ok-dim u-ok',
-  blocked: 'u-err-dim u-err',
-};
-
-const typeLabels: Record<string, string> = {
-  task: '任务',
-  monitor: '监控',
-  analysis: '分析',
-  discussion: '讨论',
-};
 
 const STATUS_OPTIONS = ['all', 'pending', 'unassigned', 'active', 'in_review', 'done', 'closed', 'blocked'] as const;
 
@@ -100,11 +74,6 @@ export function WorkUnitListPage() {
     }
   };
 
-  const formatTime = (ts: string | null) => {
-    if (!ts) return '-';
-    return new Date(ts).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
-  };
-
   return (
     <div className="h-full flex flex-col" style={{ background: 'var(--bg-primary)' }}>
       {/* Header */}
@@ -156,7 +125,7 @@ export function WorkUnitListPage() {
                     className="px-3 py-2 rounded u-surface u-text border u-border-2 outline-none"
                     value={newType}
                     onChange={setNewType}
-                    options={Object.entries(typeLabels).map(([v, l]) => ({ value: v, label: l }))}
+                    options={Object.entries(WU_TYPE_LABELS).map(([v, l]) => ({ value: v, label: l }))}
                   />
                 </div>
                 <button
@@ -182,7 +151,7 @@ export function WorkUnitListPage() {
                 }`}
                 onClick={() => { setHumanOnly(false); setStatusFilter(s === 'all' ? null : s); }}
               >
-                {s === 'all' ? '全部' : statusLabels[s] ?? s}
+                {s === 'all' ? '全部' : WU_STATUS_LABELS[s] ?? s}
               </button>
             ))}
             <button
@@ -219,7 +188,7 @@ export function WorkUnitListPage() {
                   onReviewPassed={(summary, assigneeId) => reviewPassed(wu.id, summary, assigneeId)}
                   onReviewRejected={(reason) => reviewRejected(wu.id, reason)}
                   onConfirmPending={() => confirmPending(wu.id)}
-                  formatTime={formatTime}
+                  formatTime={formatShortTime}
                 />
               ))}
             </div>
@@ -274,8 +243,8 @@ function WorkUnitRow({
       >
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <span className={`text-xs px-2 py-0.5 rounded ${statusColors[derived.column] || 'u-surface-2 u-text-3'}`}>
-              {statusLabels[derived.column] ?? derived.column}
+            <span className={`text-xs px-2 py-0.5 rounded ${WU_STATUS_COLORS[derived.column] || 'u-surface-2 u-text-3'}`}>
+              {WU_STATUS_LABELS[derived.column] ?? derived.column}
             </span>
             {/* #116：被阻塞徽标，悬停 title 列依赖 id（客户端不知各依赖状态，口径保持中性；
                 未了结判定与可点击清单见行内展开 BlockedByList） */}
@@ -288,7 +257,7 @@ function WorkUnitRow({
               </span>
             )}
             <SelfReviewBadge wu={wu} />
-            <span className="text-xs u-text-2">{typeLabels[wu.type] ?? wu.type}</span>
+            <span className="text-xs u-text-2">{WU_TYPE_LABELS[wu.type] ?? wu.type}</span>
             {wu.reqId && (
               <span className="text-xs px-2 py-0.5 rounded u-accent-dim u-accent" title="REQ 需求编号">
                 {wu.reqId}

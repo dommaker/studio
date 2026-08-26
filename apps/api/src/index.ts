@@ -18,8 +18,12 @@ import { bootstrapHarness } from '@dommaker/studio-shared';
 import * as fs from 'fs';
 import * as path from 'path';
 import { studioDir as resolveStudioDir, warnIfNonProdUsesProdRoot } from '@dommaker/studio-shared/studio-dir';
+import { resolveListenHost } from './utils/listen-host.js';
 
 const PORT = process.env.PORT || 3001;
+// 2026-08-25 安全收口：默认只绑回环（服务器模式经 nginx 同机反代，npm 自托管
+// 模式只允许本机）；none 免登录模式绑非回环会被 resolveListenHost 拒启。
+const HOST = resolveListenHost(process.env);
 
 // 软护栏：非 production 指向生产缺省根时启动落 warning（幂等，显式触发不靠间接 import 链）
 warnIfNonProdUsesProdRoot();
@@ -337,6 +341,15 @@ async function start() {
       ensureDefaultChannels()
     ).catch(e => logger.warn('Channel init unavailable', { error: String(e) }));
 
+    // ── #363: 存量空实例目录一次性清扫（启动时跑，幂等）──
+    // 历史死实例目录只删 state.json 不删目录 → 空目录无界累积；闭环后此处每启动
+    // 重跑无副作用（无空目录时 removed=0）。
+    try {
+      const { FileStore } = await import('@dommaker/studio-shared');
+      const swept = await new FileStore().sweepEmptyAgentDirs();
+      if (swept.removed > 0) logger.info(`[Startup] Swept ${swept.removed} empty agent instance dir(s) (#363)`);
+    } catch (e) { logger.warn('Empty agent dir sweep failed (non-blocking)', { error: String(e) }); }
+
     // ── Agent Timeout Scan（超时释放 handler）──
     const { registerExecuteHandler } = await import('./modules/triggers/trigger-action.js');
     registerExecuteHandler('agent-timeout-scan', async () => {
@@ -416,14 +429,14 @@ async function start() {
     server.on('error', (err: any) => {
       if (err?.code === 'EADDRINUSE') {
         logger.warn(`Port ${PORT} in use, retrying in 3s...`);
-        setTimeout(() => { server.close(); server.listen(PORT); }, 3000);
+        setTimeout(() => { server.close(); server.listen(Number(PORT), HOST); }, 3000);
       } else {
         logger.error('Server listen error', { code: err?.code, message: err?.message, port: PORT });
       }
     });
     logger.info('Attempting server.listen...');
-    server.listen(PORT, () => {
-      logger.info(`Server running on port ${PORT}`);
+    server.listen(Number(PORT), HOST, () => {
+      logger.info(`Server running on ${HOST}:${PORT}`);
       logger.info(`API: http://localhost:${PORT}/api/v1`);
     });
 

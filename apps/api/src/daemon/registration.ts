@@ -6,6 +6,7 @@
  */
 
 import type { WorkspaceConfig } from './workspace-config.js';
+import { getErrorMessage } from '../utils/errors.js';
 
 export interface RepoInfo {
   path: string;
@@ -81,7 +82,7 @@ export async function registerWorkspace(
       workspaceId: data.workspaceId || data.id,
     };
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = getErrorMessage(err);
     return {
       success: false,
       error: `Registration request failed: ${message}`,

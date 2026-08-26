@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAgentRoster, type RosterRole, type RosterActivityItem } from '../hooks/useAgentRoster';
 import { type WorkUnit } from '../api/workunit';
+import { formatFullTime } from '../utils/datetime';
 import { ConfirmDialog } from '../components/ui';
 import {
   deriveAgentStatus,
@@ -271,7 +272,7 @@ function RoleCard({ role, activities, lastDone, channelNames, onTerminate }: {
                 <div><span className="u-text-2">Instance ID:</span> <span className="u-text-3">{runtime.id}</span></div>
                 <div><span className="u-text-2">Runtime Status:</span> <span className="u-text-3">{runtime.status}</span></div>
                 <div><span className="u-text-2">Current WorkUnit:</span> <span className="u-text-3">{runtime.currentWorkUnitId ?? 'none'}</span></div>
-                <div><span className="u-text-2">Started:</span> <span className="u-text-3">{new Date(runtime.startedAt).toLocaleString('zh-CN')}</span></div>
+                <div><span className="u-text-2">Started:</span> <span className="u-text-3">{formatFullTime(runtime.startedAt)}</span></div>
               </>
             )}
             {lastError && (
@@ -279,7 +280,7 @@ function RoleCard({ role, activities, lastDone, channelNames, onTerminate }: {
                 <span className="u-text-2">Last Error:</span>{' '}
                 <span className="u-warn">{lastError}</span>
                 {runtime?.lastErrorAt && (
-                  <span className="u-text-2"> ({new Date(runtime.lastErrorAt).toLocaleString('zh-CN')})</span>
+                  <span className="u-text-2"> ({formatFullTime(runtime.lastErrorAt)})</span>
                 )}
               </div>
             )}

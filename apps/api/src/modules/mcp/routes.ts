@@ -17,9 +17,13 @@ import { getToolSchemas, executeTool } from './tools.js';
 import { toolRegistry } from './tool-registry.js';
 import { logger } from '@dommaker/studio-shared';
 import { requireAuth, requireAdmin, requireLocalhost } from '../../middleware/auth.js';
+import { mcpRateLimit } from '../../middleware/rate-limit.js';
 import adminRoutes from './admin.routes.js';
 
 const router = Router();
+
+// 限频（回环 skip——真实客户端本机 agent；公网侧纵深兜底）
+router.use(mcpRateLimit);
 
 // ─── SSE Transport ───
 
@@ -91,8 +95,10 @@ router.post('/messages', requireLocalhost(), async (req: Request, res: Response)
 /**
  * POST /api/v1/mcp
  * JSON-RPC 2.0 端点（完整 MCP 协议）
+ * 2026-08-25 收紧：与 /messages 同级限回环——tools/call 经此端点等价于
+ * 执行任意 tool，roleId 自声明模型只允许本机可信调用方（daemon/CLI）。
  */
-router.post('/', async (req: Request, res: Response) => {
+router.post('/', requireLocalhost(), async (req: Request, res: Response) => {
   try {
     const response = await mcpServer.handleRequest(req.body);
     res.json(response);

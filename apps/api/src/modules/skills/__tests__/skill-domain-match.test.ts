@@ -6,7 +6,7 @@
  *   > scope 匹配 > 其余 published（热度/名称序）；全量产出不封顶（调用方按预算截断）
  * - parseSkillHintsFromScope：从 scope 解析 +skill名（决策 11，自 message-routing 迁入）
  */
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, afterAll, vi } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -14,6 +14,8 @@ import * as os from 'os';
 // Isolated test skills dir（SKILLS_DIR 在模块加载时读取，必须先设再 import）
 const testSkillsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'domain-match-test-'));
 process.env.SKILLS_DIR = testSkillsDir;
+// 显式清理：`import * as fs` 走原生命名空间，mkdtemp-cleanup 补丁登记不到（见其头注）
+afterAll(() => { fs.rmSync(testSkillsDir, { recursive: true, force: true }); });
 
 const { mockLogger } = vi.hoisted(() => ({
   mockLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },

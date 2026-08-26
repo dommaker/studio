@@ -10,10 +10,7 @@ import axios from 'axios';
 import { workunitApi, type WorkUnit } from '../../api/workunit';
 import { Button } from '../ui/Button';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
-
-function parseMeta(metadata: string | null): { title?: string; waitingForInput?: boolean } {
-  try { return JSON.parse(metadata || '{}'); } catch { return {}; }
-}
+import { parseWuMeta } from '../../utils/wuMeta';
 
 /** 错误文案提取：优先服务端 error 信封的 message（409 拒绝原因对人可读） */
 function errorMessage(e: unknown): string {
@@ -36,7 +33,7 @@ export function BlockedActions({ wu, onChanged }: Props) {
   const [error, setError] = useState('');
 
   if (wu.status !== 'blocked') return null;
-  const meta = parseMeta(wu.metadata);
+  const meta = parseWuMeta<{ title?: string; waitingForInput?: boolean }>(wu.metadata);
   const title = meta.title || wu.scope;
   // D3 分类型显示：NEED_INPUT 型只给「关闭任务」，继续执行入口 = 频道回复（带指导授权）
   const needInput = meta.waitingForInput === true;

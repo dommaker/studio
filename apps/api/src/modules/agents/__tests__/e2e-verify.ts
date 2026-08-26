@@ -15,6 +15,7 @@ import { AgentLoop, parseAgentOutput, resolveTarget, dynamicInterval } from '../
 import { agentRunner } from '@dommaker/studio-agent';
 import type { AgentTask, ExecutionResult } from '@dommaker/studio-agent';
 import type { WorkUnit, AgentProfile, ChannelMessage } from '@prisma/client';
+import { getErrorMessage } from '../../../utils/errors.js';
 
 const LOG_PREFIX = '[E2E-Verify]';
 
@@ -138,7 +139,7 @@ async function verifyAssumption2() {
     log('Assumption 2 result: Session resume completed (check output for context continuity)');
     return result1.success && result2.success;
   } catch (err) {
-    log(`  ✗ Error: ${err instanceof Error ? err.message : String(err)}`);
+    log(`  ✗ Error: ${getErrorMessage(err)}`);
     return false;
   }
 }
@@ -230,7 +231,7 @@ async function verifyAssumption3() {
     log(`Assumption 3 result: ${success ? 'PASS' : 'FAIL'}`);
     return success;
   } catch (err) {
-    log(`  ✗ Error: ${err instanceof Error ? err.message : String(err)}`);
+    log(`  ✗ Error: ${getErrorMessage(err)}`);
     return false;
   } finally {
     // Cleanup
@@ -241,7 +242,7 @@ async function verifyAssumption3() {
       await prisma.agentProfile.delete({ where: { id: role.id } });
       log('  Cleaned up test data');
     } catch (cleanupErr) {
-      log(`  Cleanup error: ${cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr)}`);
+      log(`  Cleanup error: ${getErrorMessage(cleanupErr)}`);
     }
   }
 }

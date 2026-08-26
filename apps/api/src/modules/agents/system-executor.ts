@@ -17,6 +17,7 @@ import { FileStore, logger } from '@dommaker/studio-shared';
 import { execSh, resolveProviderDefinition, buildArgsFromTemplate } from '@dommaker/studio-shared/node';
 import { STUDIO_ROLE_NAME } from './agent-profile.service.js';
 import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
+import { getErrorMessage } from '../../utils/errors.js';
 
 export interface SystemExecutorOptions {
   /** 系统提示词（注入 CLI prompt 的 system 部分，通过 stdin prefix） */
@@ -54,7 +55,7 @@ export class StudioRoleNotConfiguredError extends Error {
 
 export class SystemExecutorJsonParseError extends Error {
   constructor(public readonly rawOutput: string, cause: unknown) {
-    super(`systemExecutor JSON parse failed: ${cause instanceof Error ? cause.message : String(cause)}`);
+    super(`systemExecutor JSON parse failed: ${getErrorMessage(cause)}`);
     this.name = 'SystemExecutorJsonParseError';
   }
 }
@@ -113,17 +114,16 @@ export class SystemExecutor {
       maxBuffer: opts.maxBuffer,
     });
 
-    // 5. 解析 JSON envelope.usage
+    // 5. 解析 JSON envelope.usage（claude --verbose 时为事件数组，归一到 result 事件，#364）
     let usage: { inputTokens: number; outputTokens: number } | undefined;
-    try {
-      const envelope = JSON.parse(stdout);
-      if (envelope.usage) {
-        usage = {
-          inputTokens: envelope.usage.input_tokens ?? 0,
-          outputTokens: envelope.usage.output_tokens ?? 0,
-        };
-      }
-    } catch { /* 非 JSON 输出，usage 保持 undefined */ }
+    const envelope = SystemExecutor.extractResultEnvelope(stdout);
+    const usageRaw = envelope?.usage as { input_tokens?: number; output_tokens?: number } | undefined;
+    if (usageRaw) {
+      usage = {
+        inputTokens: usageRaw.input_tokens ?? 0,
+        outputTokens: usageRaw.output_tokens ?? 0,
+      };
+    }
 
     const result: SystemExecutorResult = {
       output: stdout,
@@ -150,9 +150,47 @@ export class SystemExecutor {
   async runJson<T>(prompt: string, options?: SystemExecutorOptions): Promise<T> {
     const result = await this.run(prompt, options);
     try {
-      return JSON.parse(result.output) as T;
+      const parsed: unknown = JSON.parse(result.output);
+      // claude --output-format json --verbose：stdout 是 stream-json 事件数组，
+      // 模型产出在末位 type=result 事件的 .result 字符串里（#364）
+      if (Array.isArray(parsed)) {
+        const envelope = SystemExecutor.extractResultEnvelope(result.output);
+        if (typeof envelope?.result !== 'string') {
+          throw new Error('no result event in stream-json array output');
+        }
+        return JSON.parse(envelope.result) as T;
+      }
+      // claude 无 --verbose / 其他 envelope 形态：{type:"result", result:"<json>"} 同样解包
+      if (parsed && typeof parsed === 'object' && (parsed as { type?: unknown }).type === 'result'
+        && typeof (parsed as { result?: unknown }).result === 'string') {
+        return JSON.parse((parsed as { result: string }).result) as T;
+      }
+      return parsed as T;
     } catch (err) {
       throw new SystemExecutorJsonParseError(result.output, err);
+    }
+  }
+
+  /**
+   * 归一 stdout 到 result envelope（#364）：
+   * - stream-json 事件数组（claude --output-format json --verbose）→ 末位 type=result 事件；
+   * - 单 envelope 对象 → 原样；非 JSON / 无 result 事件 → null。
+   */
+  private static extractResultEnvelope(stdout: string): Record<string, unknown> | null {
+    try {
+      const parsed: unknown = JSON.parse(stdout);
+      if (Array.isArray(parsed)) {
+        for (let i = parsed.length - 1; i >= 0; i--) {
+          const e = parsed[i];
+          if (e && typeof e === 'object' && (e as { type?: unknown }).type === 'result') {
+            return e as Record<string, unknown>;
+          }
+        }
+        return null;
+      }
+      return parsed && typeof parsed === 'object' ? parsed as Record<string, unknown> : null;
+    } catch {
+      return null;
     }
   }
 

@@ -11,6 +11,9 @@
 // F6 信任证据模型（纯逻辑：parseAttestations / deriveDisplayState 等）
 export * from './attestation';
 
+// WU 展示词表（纯常量：状态/类型 → 文案与配色，#358 收口 7 份散装拷贝）
+export * from './wu-display';
+
 // 监控探针阈值常量（纯常量，无 Node 依赖；Web 下钻口径与 api 探针同源）
 export * from './constants/monitoring';
 

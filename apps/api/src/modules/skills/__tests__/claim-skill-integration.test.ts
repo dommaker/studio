@@ -3,7 +3,7 @@
  * → 决策 7 重构：claim 不再自动加载 skill（匹配挪到 agent-loop step 时）。
  * 本文件保留为 claim 基础行为冒烟：claim 成功/无匹配不抛错/乐观锁失败抛错。
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -11,6 +11,8 @@ import * as os from 'os';
 // Isolated test skills dir
 const testSkillsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'claim-skill-test-'));
 process.env.SKILLS_DIR = testSkillsDir;
+// 显式清理：`import * as fs` 走原生命名空间，mkdtemp-cleanup 补丁登记不到（见其头注）
+afterAll(() => { fs.rmSync(testSkillsDir, { recursive: true, force: true }); });
 
 // Create test SKILL.md files with description in frontmatter
 const SKILL_DESCRIPTIONS: Record<string, string> = {

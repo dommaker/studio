@@ -133,11 +133,8 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
   // Channel routes (B1-001)
   const { default: channelRoutes } = await import('./modules/channels/channel.routes.js') as { default: Router };
 
-  // Role memory review routes (#101: memory_proposal approve/reject → promote/demote)
-  const { default: roleMemoryRoutes } = await import('./modules/role-memory/role-memory.routes.js') as { default: Router };
-
-  // Distill review routes (#143: distill_proposal approve/reject → 蒸馏运行/零副作用)
-  const { default: distillRoutes } = await import('./modules/distill/distill.routes.js') as { default: Router };
+  // Review proposal routes (#351: 人审提案卡通用端点，kind 走注册表分发；取代 #143/#144/#146 专有端点)
+  const { default: reviewProposalRoutes } = await import('./modules/review-proposal/routes.js') as { default: Router };
 
   // Workspace routes (AS-020 P2)
   const { default: workspaceRoutes } = await import('./modules/workspaces/workspace.routes.js') as { default: Router };
@@ -251,8 +248,7 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     { path: '/api/v1/notify', router: notifyRoutes, middleware: admin, comment: 'DD-009: 出站推送（内部调用）' },
     { path: '/api/v1/knowledge', router: knowledgeRoutes, middleware: auth },
     { path: '/api/v1/knowledge-service', router: knowledgeServiceRoutes, middleware: auth, comment: 'KnowledgeService HTTP API + SSE' },
-    { path: '/api/v1/role-memory', router: roleMemoryRoutes, middleware: auth, comment: '#101: 角色记忆人审闸口 approve/reject' },
-    { path: '/api/v1/distill', router: distillRoutes, middleware: auth, comment: '#143: 蒸馏提案人审闸口 approve/reject' },
+    { path: '/api/v1/review-proposals', router: reviewProposalRoutes, middleware: auth, comment: '#351: 人审提案卡通用端点（distill/gc/audit/memory 经注册表分发；#353 起取代 /role-memory 专有端点）' },
     { path: '/api/knowledge', router: knowledgeInternalRoutes, middleware: localhost, comment: 'Internal knowledge extraction API (2026-07 收紧：本机回环限定，此前全匿名可写/盗用 LLM)' },
     { path: '/api/v1/library', router: libraryRoutes, comment: 'T5 #155: library 阅览室——跨项目 .studio/ 聚合只读层' },
 

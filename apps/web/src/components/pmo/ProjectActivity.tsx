@@ -1,19 +1,8 @@
 // 项目动态 — PMO 驾驶舱底部紧凑时间线
 // 条目由 buildProjectTimeline（pipelineUtils）从 WU 时间戳 + deliveredAt 拼装，倒序 ≤20 条
 import { useNavigate } from 'react-router-dom';
+import { WU_STATUS_LABELS } from '@dommaker/studio-shared/web';
 import { formatTimelineTime, type ProjectTimelineEntry } from './pipelineUtils';
-
-const WU_STATUS_LABELS: Record<string, string> = {
-  pending: '待确认',
-  unassigned: '待分配',
-  active: '执行中',
-  in_review: '审查中',
-  done: '已完成',
-  closed: '已关闭',
-  blocked: '阻塞',
-  failed: '失败',
-  completed: '已完成',
-};
 
 function EntryText({ entry }: { entry: ProjectTimelineEntry }) {
   const navigate = useNavigate();

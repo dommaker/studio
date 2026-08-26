@@ -1,13 +1,15 @@
 import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest';
 import { detectProvider, scanAllProviders, hasDocker, KNOWN_PROVIDERS } from '../cli-scanner';
 
-// Mock child_process.execSync
+// Mock child_process（detectProvider 走 execFileSync，hasDocker 走 execSync）
 vi.mock('child_process', () => ({
   execSync: vi.fn(),
+  execFileSync: vi.fn(),
 }));
 
-import { execSync } from 'child_process';
+import { execSync, execFileSync } from 'child_process';
 const mockExecSync = vi.mocked(execSync);
+const mockExecFileSync = vi.mocked(execFileSync);
 
 describe('cli-scanner', () => {
   beforeEach(() => {
@@ -20,7 +22,7 @@ describe('cli-scanner', () => {
 
   describe('detectProvider', () => {
     test('returns runtime info when CLI is found', () => {
-      mockExecSync
+      mockExecFileSync
         .mockReturnValueOnce('/usr/local/bin/claude\n') // which
         .mockReturnValueOnce('claude 1.2.3\n');          // --version
 
@@ -33,7 +35,7 @@ describe('cli-scanner', () => {
     });
 
     test('returns null when CLI is not found (which fails)', () => {
-      mockExecSync.mockImplementation(() => {
+      mockExecFileSync.mockImplementation(() => {
         throw new Error('not found');
       });
 
@@ -42,7 +44,7 @@ describe('cli-scanner', () => {
     });
 
     test('returns version "unknown" when --version fails and -v fails', () => {
-      mockExecSync
+      mockExecFileSync
         .mockReturnValueOnce('/usr/local/bin/codex\n') // which
         .mockImplementationOnce(() => { throw new Error('no --version'); }) // --version
         .mockImplementationOnce(() => { throw new Error('no -v'); });       // -v
@@ -56,7 +58,7 @@ describe('cli-scanner', () => {
     });
 
     test('tries -v fallback when --version fails', () => {
-      mockExecSync
+      mockExecFileSync
         .mockReturnValueOnce('/usr/local/bin/opencode\n') // which
         .mockImplementationOnce(() => { throw new Error('no --version'); }) // --version
         .mockReturnValueOnce('opencode v0.5.0\n');                         // -v
@@ -70,7 +72,7 @@ describe('cli-scanner', () => {
     });
 
     test('detects kimi via its registry definition', () => {
-      mockExecSync
+      mockExecFileSync
         .mockReturnValueOnce('/root/.kimi-code/bin/kimi\n') // which
         .mockReturnValueOnce('0.27.0\n');                    // --version
 
@@ -83,7 +85,7 @@ describe('cli-scanner', () => {
     });
 
     test('returns null when which returns empty string', () => {
-      mockExecSync.mockReturnValueOnce('');
+      mockExecFileSync.mockReturnValueOnce('');
 
       const result = detectProvider('openclaw');
       expect(result).toBeNull();
@@ -94,16 +96,16 @@ describe('cli-scanner', () => {
     test('returns array of detected providers', () => {
       // First provider found, others not
       let callCount = 0;
-      mockExecSync.mockImplementation((cmd: string) => {
+      mockExecFileSync.mockImplementation(((cmd: string, args?: readonly string[]) => {
         callCount++;
-        if (typeof cmd === 'string' && cmd.startsWith('which claude')) {
+        if (cmd === 'which' && args?.[0] === 'claude') {
           return '/usr/local/bin/claude\n';
         }
-        if (typeof cmd === 'string' && cmd === 'claude --version') {
+        if (cmd === 'claude' && args?.includes('--version')) {
           return 'claude 1.0.0\n';
         }
         throw new Error('not found');
-      });
+      }) as typeof execFileSync);
 
       const results = scanAllProviders();
       expect(results).toHaveLength(1);
@@ -111,7 +113,7 @@ describe('cli-scanner', () => {
     });
 
     test('returns empty array when no providers found', () => {
-      mockExecSync.mockImplementation(() => {
+      mockExecFileSync.mockImplementation(() => {
         throw new Error('not found');
       });
 
@@ -120,14 +122,14 @@ describe('cli-scanner', () => {
     });
 
     test('scans all known providers', () => {
-      mockExecSync.mockImplementation(() => {
+      mockExecFileSync.mockImplementation(() => {
         throw new Error('not found');
       });
 
       scanAllProviders();
       // Each provider triggers 1 `which` call (and throws, so no --version calls)
-      const whichCalls = mockExecSync.mock.calls.filter(
-        (call) => typeof call[0] === 'string' && call[0].startsWith('which'),
+      const whichCalls = mockExecFileSync.mock.calls.filter(
+        (call) => call[0] === 'which',
       );
       expect(whichCalls.length).toBe(KNOWN_PROVIDERS.length);
     });

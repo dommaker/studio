@@ -1,8 +1,11 @@
 /**
- * Process I/O utilities — spawn, session-id persistence, file bridge
+ * Process I/O utilities — spawn, session-id persistence, phase bridge
  *
  * Node.js only (uses child_process, fs, crypto).
- * Import via: import { execSh, resolveSessionId, readProgress } from '@dommaker/studio-shared/node'
+ * Import via: import { execSh, resolveSessionId } from '@dommaker/studio-shared/node'
+ *
+ * 注：.progress.json 的读取与 ProgressReport 类型唯一属主在
+ * studio-agent services/output-capture.ts（#357 双头收口，此处旧版已删）。
  */
 import { spawn, type ChildProcess } from 'child_process';
 import * as path from 'path';
@@ -49,14 +52,6 @@ export interface SilenceWatchdogOptions {
 
 export interface SessionIdOptions {
   sessionIdFile?: string;
-}
-
-export interface ProgressReport {
-  phase: string;
-  step: string;
-  status: 'running' | 'completed' | 'failed' | 'paused';
-  timestamp: string;
-  metadata?: Record<string, unknown>;
 }
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -264,34 +259,6 @@ export function readSessionIdFile(worktree: string, opts?: SessionIdOptions): st
   } catch {
     return null;
   }
-}
-
-// ─── Progress File ──────────────────────────────────────────────
-
-/**
- * Read .progress.json from a worktree. Returns null if missing or corrupt.
- * Default path: <worktree>/.progress.json
- */
-export function readProgress(worktree: string): ProgressReport | null {
-  try {
-    const raw = fs.readFileSync(path.join(worktree, '.progress.json'), 'utf-8');
-    return JSON.parse(raw) as ProgressReport;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Atomic write to .progress.json (tmp + rename). Default path: <worktree>/.progress.json
- */
-export function writeProgress(worktree: string, report: ProgressReport): void {
-  const file = path.join(worktree, '.progress.json');
-  const dir = path.dirname(file);
-  fs.mkdirSync(dir, { recursive: true });
-
-  const tmpFile = file + '.' + crypto.randomBytes(4).toString('hex') + '.tmp';
-  fs.writeFileSync(tmpFile, JSON.stringify(report, null, 2), 'utf-8');
-  fs.renameSync(tmpFile, file);
 }
 
 // ─── Phase Bridge ───────────────────────────────────────────────

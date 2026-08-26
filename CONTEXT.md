@@ -103,8 +103,12 @@ _Avoid_: 按 mid 精确取（需新后端端点）、骨架特例更新
 _Avoid_: 骨架锚行强行精校正、粗锚以外的第三兜底
 
 **系统状态快照**:
-周期循环群共享的一致性系统状态视图（#323 grilling 定稿，2026-08-25）：定位 = 跨多文件的聚合 memo（docs/adr/2026-08-24-cache-seam-decision-rules.md 决策树第 3 问）——磁盘文件真源仍归 FileStore seam，快照层只存加工结果，不抄文件内容（真源唯一）。消费面 = 周期循环群（cron 触发器 + Monitor 探针 + Ops/Auditor 周期任务），不含事件订阅链下游 rollup（推式消费形态，另议）。磁盘重复读已由 #314 mtime 读穿消解，本概念剩余价值 = 口径统一 + 各循环重复全量归约的 CPU 去重；刷新语义（周期对齐 vs 事件失效）与超时判定可容忍的快照滞后度属实现阶段设计，未定。
-_Avoid_: 快照层抄文件内容当第二真源、塞进 FileStore seam、服务事件订阅链
+周期循环群共享的一致性系统状态视图（#323 grilling 定稿，2026-08-25）：定位 = 跨多文件的聚合 memo（docs/adr/2026-08-24-cache-seam-decision-rules.md 决策树第 3 问）——磁盘文件真源仍归 FileStore seam，快照层只存加工结果，不抄文件内容（真源唯一）。消费面 = 周期循环群（cron 触发器 + Monitor 探针 + Ops/Auditor 周期任务），不含事件订阅链下游 rollup（推式消费形态，另议）。磁盘重复读已由 #314 mtime 读穿消解，本概念剩余价值 = 口径统一 + 各循环重复全量归约的 CPU 去重；刷新语义（周期对齐 vs 事件失效）与超时判定可容忍的快照滞后度属实现阶段设计，未定。**适用面排除（#363 grilling，2026-08-25）**：校验成本 = 重建成本的场景不适用——memo 的 mtime 校验若需 stat 全部底层文件（如 agent-state 每实例一文件的 fan-out 形态），校验即全扫，memo 杠杆为零；该形态的正解是数据生命周期闭环（判空删目录），不是快照。
+_Avoid_: 快照层抄文件内容当第二真源、塞进 FileStore seam、服务事件订阅链、对 fan-out 散文件形态套 memo
+
+**人审提案卡**:
+「pending 提案 → 发审核卡到 #系统 → 人审 approve/reject → 墓碑终态」生命周期的统一称谓与唯一实现归属（2026-08-25 grilling 定稿，docs/adr/2026-08-25-review-proposal-lifecycle-module.md）：此前该生命周期在 distill 内部逐字复印 3 份、跨模块 4 份近亲（role-memory/skills/knowledge/auditor）、前端 5 张卡再复印，状态词汇表漂移成 3 套。唯一正本 = `apps/api/src/modules/review-proposal`——提案存取（append-only JSONL + 墓碑折叠）、发卡（含 #系统频道解析与 card-failed 降级落墓碑）、approve/reject、状态查询全收；业务方只做 adapter，注册配置对象 `{ kind, store 命名空间, renderCardContent, onApprove, onReject? }`。状态词表唯一口径 = `pending | executed | rejected | failed | card-failed`（role-memory 的 `promoted` 读取时归一为 `executed`，历史行不改写）。HTTP 面 = 通用端点 `/api/review-proposals/:kind/:id/{approve,reject,status}`；前端 = 单一 ReviewProposalCard + useProposalReview hook，各卡只剩条目清单与文案。卡片状态不实时推送（打开时查一次），实时化归 SSE 契约层改造（架构评审候选 2）。新提案类型必须走正本，禁止再抄第 N+1 份。
+_Avoid_: 各业务自抄生命周期、新建专有审批端点、promoted/executed 并存、重写历史 JSONL
 
 ## 大文件治理
 

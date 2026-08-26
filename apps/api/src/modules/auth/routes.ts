@@ -60,6 +60,12 @@ router.post("/guest-session", async (req, res) => {
  * 🆕 SEC-010: 记录审计日志
  */
 router.post("/register", authRateLimit, async (req, res) => {
+  // 2026-08-25 收口：单租户自托管口径，注册默认关闭，
+  // REGISTER_ENABLED=true 显式开放（现有用户不受影响）
+  if (process.env.REGISTER_ENABLED !== "true") {
+    res.status(403).json({ error: "注册已关闭" });
+    return;
+  }
   try {
     const result = await authService.register(req.body);
 
@@ -142,7 +148,7 @@ router.post("/login", authRateLimit, async (req, res) => {
       })
       .catch((e) => logger.error("Audit log error", { error: String(e) }));
 
-    if (err.message === "用户不存在" || err.message === "密码错误") {
+    if (err.message === "邮箱或密码错误") {
       res.status(401).json({ error: err.message });
     } else {
       res.status(400).json({ error: err.message });

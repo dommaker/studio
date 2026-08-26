@@ -1,6 +1,6 @@
 # CAPABILITIES.md
 
-> 最后更新: 2026-08-25
+> 最后更新: 2026-08-26
 
 ---
 
@@ -97,12 +97,11 @@
 | useTheme | apps/web/src/contexts/useTheme.ts | 使用主题 Hook |
 
 | completion-extraction | apps/api/src/modules/role-memory/completion-extraction.ts | completion-extraction (#99) — WU 收尾批量提取钩子 |
-| memory-proposal-card | apps/api/src/modules/role-memory/memory-proposal-card.ts | memory-proposal-card (#101) — 角色记忆草稿的人审提案卡。 |
-| role-memory.routes | apps/api/src/modules/role-memory/role-memory.routes.ts | role-memory.routes (#101) — 角色记忆人审闸口的 approve/reject 端点。 |
+
 | role-memory | apps/api/src/modules/role-memory/role-memory.ts | role-memory (#98) — 角色记忆存储服务 |
 | transcript-archive | apps/api/src/modules/transcripts/transcript-archive.ts | transcript-archive — transcript 归档器（#97，#88 子票） |
 | distill | apps/api/src/modules/distill/ | 蒸馏主链路最小闭环（#143）：门槛检测纯函数 + distill_proposal 人审卡 + approve 执行 + runs.jsonl 运行记录 |
-| DistillProposalCard | apps/web/src/components/channel/DistillProposalCard.tsx | distill_proposal 人审卡（#143）：原料清单 + 确认蒸馏/拒绝 |
+
 | App | apps/web/src/App.tsx | App.tsx - Agent Studio - 路由重构 |
 | AuthModal | apps/web/src/components/AuthModal.tsx | 隐形认证 — 仅通过手势触发（双击 ⚡ 或 Ctrl+Enter） |
 
@@ -118,18 +117,17 @@
 | TopNav | apps/web/src/components/TopNav.tsx | TopNav.tsx - 顶部导航栏组件（L1 核心功能） |
 | TriageBanner | apps/web/src/components/TriageBanner.tsx | Triage Global Banner — B2-005: 页面顶部常驻告警横幅 |
 | WorkspaceStatusBar | apps/web/src/components/WorkspaceStatusBar.tsx | WorkspaceStatusBar |
-| AuditorSuggestionCard | apps/web/src/components/channel/AuditorSuggestionCard.tsx | Auditor suggestion card — B3-005 |
+
 | AuthorAvatar | apps/web/src/components/channel/AuthorAvatar.tsx | AuthorAvatar — 频道消息作者头像：人类 = 品牌色 + 用户名首字（用户传了 avatar 图则用图）； |
 | ChannelInput | apps/web/src/components/channel/ChannelInput.tsx | Channel message input — AC-C1: @mention autocomplete + AC-C2: reply mode |
 | ChannelMemberManager | apps/web/src/components/channel/ChannelMemberManager.tsx | Channel Member Manager — AC-B frontend gap |
 | ChannelMessageItem | apps/web/src/components/channel/ChannelMessageItem.tsx | Channel message renderer — AC-C2: reply button + AC-C3: thread + AC-E3: Convert to Task |
 | ChannelRail | apps/web/src/components/channel/ChannelRail.tsx | ChannelRail — Mission Control 左栏：频道列表（未读 badge + agent 在线数）+ Agent 状态 |
-| ConstraintAuditCard | apps/web/src/components/channel/ConstraintAuditCard.tsx | ConstraintAuditCard — #146 存量约束退役建议人审闸口 |
+
 | ConvertToTaskDialog | apps/web/src/components/channel/ConvertToTaskDialog.tsx | AC-E3: Convert to Task dialog — LLM suggestion + form |
-| GcProposalCard | apps/web/src/components/channel/GcProposalCard.tsx | GC proposal card — #144 知识库 GC 候选清单人审闸口 |
+
 | KnowledgeConfirmCard | apps/web/src/components/channel/KnowledgeConfirmCard.tsx | Knowledge confirm / retract card — B1-008/B1-010 |
-| KnowledgeProposalCard | apps/web/src/components/channel/KnowledgeProposalCard.tsx | Knowledge proposal card — 2026-07 知识审核闭环（vision §4 提取→待审→注入，§6 人在频道审核） |
-| MemoryProposalCard | apps/web/src/components/channel/MemoryProposalCard.tsx | Memory proposal card — #101 角色记忆人审闸口 |
+
 | RequirementsDocCard | apps/web/src/components/channel/RequirementsDocCard.tsx | RequirementsDoc inline card — B1-001/B1-003, M2 quality gate |
 | WorkUnitDrawer | apps/web/src/components/channel/WorkUnitDrawer.tsx | WorkUnitDrawer — Mission Control 右抽屉：WorkUnit 详情 / REQ 全链路 |
 | GapCards | apps/web/src/components/knowledge/GapCards.tsx | 知识库页面六类 Gap 明细卡片（2026-08 工单 34 从 pages/KnowledgePage.tsx 抽出，纯展示无逻辑变更） |
@@ -195,3 +193,14 @@
 | notification-service.test | packages/studio-notification/src/services/notification-service.test.ts | NotificationService tests — #274 写路径归属校验 |
 | AssigneeLabel | apps/web/src/components/workunit/AssigneeLabel.tsx | 负责人展示标签（#290 清单 #24）——解析到角色名则渲染 @名字 并链到 /agents/:roleId； |
 | ChannelLiveBars | apps/web/src/components/channel/ChannelLiveBars.tsx | 频道 live 执行状态条（#242；#322 live 执行状态下沉）：useChannelLiveExecutions 由本组件 |
+| service | apps/api/src/modules/auth/service.ts | 认证服务 - Auth Service |
+| card | apps/api/src/modules/review-proposal/card.ts | review-proposal/card (#351) — 人审提案卡投放 #系统 频道（唯一正本） |
+| registry | apps/api/src/modules/review-proposal/registry.ts | review-proposal/registry (#351) — 人审提案卡 adapter 注册表（kind → adapter） |
+| service | apps/api/src/modules/review-proposal/service.ts | review-proposal/service (#351) — 人审提案卡生命周期（唯一正本） |
+| store | apps/api/src/modules/review-proposal/store.ts | review-proposal/store (#351) — 人审提案卡通用存取（append-only JSONL + 状态墓碑折叠） |
+| review-adapter | apps/api/src/modules/agents/auditor/review-adapter.ts | review-adapter (#356) — auditor_suggestion 提案卡 adapter（接线 review-proposal 正本） |
+| review-adapter | apps/api/src/modules/knowledge/review-adapter.ts | review-adapter (#355) — knowledge 提案审批 adapter（接线 review-proposal 正本） |
+| review-adapter | apps/api/src/modules/role-memory/review-adapter.ts | review-adapter (#353) — role-memory 人审提案 adapter（接线 review-proposal 正本） |
+| review-adapter | apps/api/src/modules/skills/review-adapter.ts | review-adapter (#354) — skills 提案审批 adapter（接线 review-proposal 正本） |
+| ReviewProposalCard | apps/web/src/components/channel/ReviewProposalCard.tsx | ReviewProposalCard — #352 人审提案卡合一壳（ADR 2026-08-25 决策 5） |
+| proposalCardConfigs | apps/web/src/components/channel/proposalCardConfigs.tsx | 人审提案卡配置（#352，ADR 2026-08-25 决策 5）：6 张提案卡坍缩为「条目清单 + 文案」纯数据配置。 |

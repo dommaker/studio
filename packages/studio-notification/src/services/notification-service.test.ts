@@ -3,13 +3,17 @@
  * markAsRead 必须校验通知归属：跨用户标记不得生效（此前 tombstone 只按 id 追加，
  * 任何登录用户可把他人通知标已读）。
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 
 const { tmpRoot } = vi.hoisted(() => ({
   tmpRoot: { value: '' },
 }));
+
+afterAll(() => {
+  if (tmpRoot.value) fs.rmSync(tmpRoot.value, { recursive: true, force: true });
+});
 
 // NOTIFICATIONS_JSONL 在被测模块加载时求值，临时目录必须先于加载创建
 vi.mock('@dommaker/studio-shared/studio-dir', async () => {

@@ -15,6 +15,7 @@ import { logger } from '@dommaker/studio-shared';
 import { sharedStore } from './knowledge-bus.service.js';
 import { getSystemExecutor } from '../agents/system-executor.js';
 import { requireAuth, requireNotGuest } from '../../middleware/auth.js';
+import { parsePagination } from '../../utils/pagination.js';
 
 export const entriesRoutes = Router();
 
@@ -25,14 +26,14 @@ export const entriesRoutes = Router();
 
 /**
  * GET /api/v1/knowledge/export
- * Query: format=md|json, types=guideline,pitfall (comma-separated), limit=100
+ * Query: format=md|json, types=guideline,pitfall (comma-separated), limit（默认 20，上限 100 — #359 起统一 parsePagination，原缺省 100 无 clamp）
  */
 entriesRoutes.get('/export', async (req, res) => {
   try {
     const { sharedStore } = await import('./knowledge-bus.service.js');
     const format = (req.query.format as string) === 'json' ? 'json' : 'md';
     const types = req.query.types ? (req.query.types as string).split(',').filter(Boolean) : undefined;
-    const limit = req.query.limit ? parseInt(req.query.limit as string) : 100;
+    const { limit } = parsePagination(req);
 
     const entries = sharedStore.list({ types: types as any }).slice(0, limit);
     const content = format === 'json'
@@ -136,7 +137,8 @@ entriesRoutes.get('/gaps/:type', async (req, res) => {
       type: type as any,
       topic: req.query.topic as string,
       category: req.query.category as string,
-      limit: parseInt(req.query.limit as string) || 20,
+      // #359：统一 parsePagination（clamp 1..100），缺省 20 与既有口径一致
+      limit: parsePagination(req).limit,
     });
     return res.json({ type, data, total: data.length });
   } catch (error) {
@@ -174,7 +176,7 @@ async function getUnifiedQuery() {
 
 /**
  * GET /unified — unified knowledge browser
- * Query params: consumptionMode, tags, origin, maturity, limit, offset, sortBy
+ * Query params: consumptionMode, tags, origin, maturity, limit（默认 20，上限 100 — #359 起统一 parsePagination，原缺省 50）, offset, sortBy
  */
 entriesRoutes.get('/unified', async (req, res) => {
   try {
@@ -185,7 +187,7 @@ entriesRoutes.get('/unified', async (req, res) => {
       origins: req.query.origin ? String(req.query.origin).split(',') : undefined,
       maturity: req.query.maturity ? String(req.query.maturity).split(',') : undefined,
       excludeTags: ['low_quality'],
-      limit: req.query.limit ? Math.min(Number(req.query.limit), 100) : 50,
+      limit: parsePagination(req).limit,
       offset: req.query.offset ? Number(req.query.offset) : 0,
       sortBy: req.query.sortBy as any || 'lastReferenced',
       sources: ['store' as const],

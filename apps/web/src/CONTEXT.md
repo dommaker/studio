@@ -14,8 +14,8 @@ Web 前端主源码。路由、全局状态、API 客户端、UI 组件、样式
 | `monitoringApi` | `api/monitoring.ts` | 监控/飞轮指标/开销 + terminateInstance |
 | `workunitApi` | `api/workunit.ts` | WU 全生命周期 + token/步事件解析 + 流式文案格式化 |
 | `requirementApi` | `api/requirements.ts` | 需求 CRUD + 关联 WU 链 |
-| `knowledgeApi` | `api/knowledge.ts` | 知识审核 + 知识库浏览 |
-| `memoryApi` / `distillApi` | `api/*.ts` | 角色记忆 / 蒸馏人审闸口 |
+| `knowledgeApi` | `api/knowledge.ts` | 知识审核 + 知识库浏览；knowledge_proposal 卡审批走 review-proposal 通用端点（kind='knowledge'，#355），promote/demote 为条目生命周期端点（非提案场景） |
+| `memoryApi` / `distillApi` | `api/*.ts` | 角色记忆 / 蒸馏人审闸口（均走 review-proposal 通用端点 `/review-proposals/:kind/:id/*`，#351/#353） |
 | `companyApi` / `okrApi` / `notifyApi` / `harnessApi` | `api/*.ts` | 公司 / PMO OKR / 通知配置 / 质量门 |
 | `transcriptsApi` / `eventsApi` | `api/*.ts` | WU transcript 只读 / 事件检索 |
 | `WebSocketProvider` | `api/websocket.tsx` | SSE Context Provider，根部唯一 EventSource |
@@ -25,7 +25,10 @@ Web 前端主源码。路由、全局状态、API 客户端、UI 组件、样式
 | `useAssigneeDisplay` / `AssigneeLabel` | `hooks/useAssigneeDisplay.ts` / `components/workunit/AssigneeLabel.tsx` | 负责人 instance id → 角色名解析（运行实例→离线实例 profile→短 UUID），WU 详情/抽屉/REQ 链路共用 |
 | `useChannelList` / `useChannelLiveExecutions` / `useDetectedProviders` | `hooks/` | 频道列表 / live 执行 / provider 探测 |
 | `deriveStreamView` | `utils/streamView.ts` | 消息流管线纯函数（#322）：消息集+折叠/筛选 UI 状态 → 渲染就绪 items（归组/过程折叠/连续合并/日期分隔/可见性） |
-| `useStreamFollow` / `useChannelCardActions` | `hooks/` | 频道流滚动状态机（#322 自 ChannelDetailPage 整块搬移）/ 卡片 action 路由（dispatch 单一入口） |
+| `formatShortTime` / `formatFullTime` | `utils/datetime.ts` | zh-CN 时间格式唯一出口（#358：6 处 formatTime 拷贝 + 6 处内联 toLocaleString 收口）；短格式空值回 `-` |
+| `parseWuMeta` | `utils/wuMeta.ts` | WU metadata JSON 解析唯一出口（#358：4 处逐字 try/catch 拷贝收口，模式对齐 #264 messageMeta） |
+| `useStreamFollow` / `useChannelCardActions` | `hooks/` | 频道流滚动状态机（#322 自 ChannelDetailPage 整块搬移）/ 卡片 action 路由（dispatch 单一入口；#352 起人审提案分支经 PROPOSAL_ACTION_INDEX 参数化调用 proposalCardConfigs.exec） |
+| `useProposalReview` / `ReviewProposalCard` | `hooks/useProposalReview.ts` / `components/channel/ReviewProposalCard.tsx` | 人审提案卡合一（#352，ADR 2026-08-25 决策 5）：6 卡坍缩为壳 + `proposalCardConfigs` 纯数据配置（#356 auditor_suggestion 并入，AuditorSuggestionCard 删除）；reviewed/pending/armed 生命周期 + 挂载期派生已审态单点化 |
 | `ChannelLiveBars` | `components/channel/` | live 执行状态条（#322 自持有 useChannelLiveExecutions，step 事件不触达页面） |
 | `NeedsAttentionSection` | `components/monitoring/` | 监控页「需要处理」区 |
 | `ProjectMap` / `NextActionCard` | `components/pmo/ProjectMap.tsx` | PMO 地图 + 下一个该干什么 |
@@ -39,7 +42,7 @@ Web 前端主源码。路由、全局状态、API 客户端、UI 组件、样式
 ### 运行时约定
 
 - 路由用 `React.lazy` 代码分割；API token 从 `localStorage` 直读。**API seam**：端点知识只在 `api/*` 适配模块，页面/hooks 不直接拼 URL。
-- **SSE 单连接**：全应用仅根部 `WebSocketProvider` 建一个 EventSource（/events/stream），禁止开第二条。
+- **SSE 单连接**：全应用仅根部 `WebSocketProvider` 建一个 EventSource（/events/stream），禁止开第二条。**2026-08-25**：/events/stream 已移出 PUBLIC_API，URL 经 `?token=` 携带 JWT（buildSseUrl 每次连接现取 authStore token，EventSource 无法设 Authorization 头）。
 - **SSE 事件负载消费约定**（2026-08 负载深化批 2，决策 4-6）：`workunit.execution.step` 负载带可选 `channelId`——`useChannelLiveExecutions` 带上时按频道过滤、缺省不过滤（向后兼容）；`workunit.status_changed` 负载 = 全量 WorkUnitData（`parseLiveWuRef` 解析出 id/status/channelId/metadata/type/scope），终态清理 step 条目不限频道（防他频道残留）；ChannelDetailPage 的 waitingWus chip 与 REQ chips = 进频道一次 REST 打底 + SSE 增量维护（`status_changed` / `requirement.created|updated`），不再依赖 messages.length 触发重拉。
 - **SSE 负载消费约定·批 3**（决策 7-9）：RequirementsDocCard 纯静态渲染（5s 轮询与 executing 进度分支已删——#278 后无 `meta.status='executing'` 写入方，死代码）；WorkUnitDrawer = 开抽屉一次性 REST 打底（wu 详情/token 历史/overhead 各一次）+ `workunit.status_changed`（同 id 负载直替本地 wu）/ `workunit.tokens`（复用 `parseWorkunitTokenEvents` 防御解析，他 WU/缺字段跳过）SSE 增量，无 eventTick 防抖重拉，`getOverhead` 不随事件重拉；`useWebSocket`/`WebSocketProvider` 暴露 `onReconnect` 注册口（首次 onopen 不触发，重连 onopen 触发一次），ChannelDetailPage 重连落点 = messages `refresh`（chips 缺口靠后续 SSE 增量自愈，强制对齐留收尾批）。
 - **SSE 负载消费约定·批 4**（#318，#313 follow-up）：`useWorkUnitEvents` 门铃 hook 已删——三处剩余消费面全部改负载直更。ExecutionSteps：`workunit.execution.step` 负载经 `parseExecutionStepEvents` 就地 append（executionId-step 去重后者覆盖、步号升序、首拉在途事件暂存并入），重连一次性 refetch；WorkUnitListPage：store `applyWorkunitEvent`——`status_changed` 直替/移除行（未知行不插入防跨页重复）、`created` 插头部，过滤不符就地移除/不插入，旧形状负载缺 `claimable` 保留原值（ADR D2 回退）；**取舍 a**：分页 total 本地 ±1 近似维护，页边界不追齐——本页无轮询兜底，自愈靠 SSE 重连 refetch、过滤切换/创建/审查等操作触发的 loadWorkUnits 与路由重进首拉；**取舍 c**：`status_changed` 未知行（不在当前页）即使新进过滤集也不插入（服务端过滤 + 分页下无法判定页内归属，插入会跨页重复），同靠上述路径自愈；AgentDetailPage：`agent.instance.status_changed`（profileId 匹配）就地更新（additive `pmo`/`startedAt`，旧形状缺键回退保留），`workunit.status_changed` 就地更新当前卡状态与历史行；**取舍 b**：历史任务「最近 20 条 + total」窗口无事件语义——命中本实例时 800ms 防抖只重拉历史区 1 接口对齐，不再整页 5 接口。后端 additive：`workunit.created/status_changed` 负载附 `claimable`（口径同 GET / 列表路由：unassigned 且无未了结依赖才 true，其余恒 false 不读 index）。

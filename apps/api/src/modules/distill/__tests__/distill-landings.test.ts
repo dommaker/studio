@@ -4,13 +4,13 @@
  * 覆盖（对应 #145 AC）：
  *   - normalize 类型解析：skill/constraint/preference/execution-knowledge 直通；
  *     缺类型 / 未知类型 / 约束缺 change → 回落 knowledge（#143 行为）
- *   - skill 类 → skills 库提案（skillStore draft + proposalStore pending + sourceReferences 指针）
+ *   - skill 类 → skills 库提案（skillStore draft + 正本 submitSkillProposal，sourceReferences 指针）
  *   - constraint 类 → constraint-drafts.jsonl 变更草案（add/override/retire + ymlSnippet），不改约束文件
  *   - preference/execution-knowledge 类 → 角色记忆草稿（studio 系统角色，sourceRefs 指针）+ memory_proposal 卡
  *   - 落地通道抛错 / 未接线 → 回落知识条目，产物不丢、原料照归档
  *
- * mock 点：getSystemExecutor（LLM seam）+ channelMessageService + postMemoryProposalCard
- * + skillStore/proposalStore（路径固定 ~/.studio，不可触真实数据区）；
+ * mock 点：getSystemExecutor（LLM seam）+ channelMessageService + submitMemoryProposal（#353 正本发卡接缝）
+ * + submitSkillProposal（#354 正本发卡接缝）+ skillStore（路径固定 ~/.studio，不可触真实数据区）；
  * 约束落盘与角色记忆走真实实现（临时 dataDir / tmpdir 重定向）。
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -23,15 +23,15 @@ import { FileKnowledgeStore, type KnowledgeEntry } from '@dommaker/harness';
 const {
   mockRunJson,
   mockCreateCardMessage,
-  mockPostMemoryCard,
+  mockSubmitMemory,
   mockSkillCreate,
-  mockProposalCreate,
+  mockSubmitSkill,
 } = vi.hoisted(() => ({
   mockRunJson: vi.fn(),
   mockCreateCardMessage: vi.fn(),
-  mockPostMemoryCard: vi.fn(),
+  mockSubmitMemory: vi.fn(),
   mockSkillCreate: vi.fn(),
-  mockProposalCreate: vi.fn(),
+  mockSubmitSkill: vi.fn(),
 }));
 
 vi.mock('../../agents/system-executor.js', () => ({
@@ -42,16 +42,22 @@ vi.mock('../../channels/channel-message.service.js', () => ({
   channelMessageService: { createCardMessage: mockCreateCardMessage },
 }));
 
-vi.mock('../../role-memory/memory-proposal-card.js', () => ({
-  postMemoryProposalCard: mockPostMemoryCard,
-}));
+// #353：memory 落地经 review-adapter.submitMemoryProposal（正本发卡；其行为级测试在 role-memory/review-adapter.test.ts）。
+// mock 实现保留「条目落 draft.jsonl」写盘副作用（真实 roleMemoryStore），剔除发卡。
+vi.mock('../../role-memory/review-adapter.js', async (importOriginal) => {
+  const actual = await importOriginal() as Record<string, unknown>;
+  return { ...actual, submitMemoryProposal: mockSubmitMemory };
+});
+
+// #354：skill 落地经 skills/review-adapter.submitSkillProposal（正本发卡；其行为级测试在 skills/review-adapter.test.ts，
+// 含 skill_review_request 卡文案/cardData 断言——本文件不再重复断言卡片）。
+vi.mock('../../skills/review-adapter.js', async (importOriginal) => {
+  const actual = await importOriginal() as Record<string, unknown>;
+  return { ...actual, submitSkillProposal: mockSubmitSkill };
+});
 
 vi.mock('../../skills/skill-store.js', () => ({
   skillStore: { create: mockSkillCreate },
-}));
-
-vi.mock('../../skills/proposal-store.js', () => ({
-  proposalStore: { create: mockProposalCreate },
 }));
 
 import {
@@ -59,6 +65,12 @@ import {
   normalizeDistillProducts,
   type DistillProposal,
 } from '../distill-service.js';
+import { approveProposal } from '../../review-proposal/service.js';
+import { getReviewProposalAdapter } from '../../review-proposal/registry.js';
+
+// #351：approve 走 review-proposal 正本生命周期（adapter 由 DistillService 构造注册）
+const approve = (id: string) => approveProposal('distill', id);
+const distillStore = () => getReviewProposalAdapter<DistillProposal>('distill')!.store;
 import { createSkillLanding, createConstraintLanding, createMemoryLanding } from '../distill-landings.js';
 import { roleMemoryRoot, roleMemoryStore } from '../../role-memory/role-memory.js';
 
@@ -104,7 +116,7 @@ function seedOre(over: Partial<KnowledgeEntry> = {}): KnowledgeEntry {
 async function propose(oreCount = 3): Promise<DistillProposal & { status: string }> {
   for (let i = 0; i < oreCount; i++) seedOre();
   await service.maybePropose({ workUnitId: 'wu-1' });
-  const proposals = await service.listProposals();
+  const proposals = await distillStore().listProposals();
   expect(proposals).toHaveLength(1);
   expect(proposals[0].status).toBe('pending');
   return proposals[0];
@@ -132,9 +144,13 @@ beforeEach(async () => {
   });
   service = new DistillService({ store, fileStore, dataDir, eventsFile });
   mockCreateCardMessage.mockResolvedValue({ id: 'msg-1' });
-  mockPostMemoryCard.mockResolvedValue(undefined);
+  mockSubmitMemory.mockImplementation(async (roleId: string, inputs: Array<Record<string, unknown>>) => {
+    const out = [];
+    for (const input of inputs) out.push(await roleMemoryStore.appendDraft(roleId, input as never));
+    return out;
+  });
   mockSkillCreate.mockReturnValue({ id: 'skill-1' });
-  mockProposalCreate.mockReturnValue({ id: 'sp-1' });
+  mockSubmitSkill.mockResolvedValue({ proposalId: 'sp-1', posted: true });
 });
 
 afterEach(() => {
@@ -209,8 +225,8 @@ describe('三分路由（注入 fake landings）', () => {
     mockRunJson.mockResolvedValue({
       products: [{ type: 'skill', title: 'TDD 接缝模式', content: '过程性知识正文', tags: ['tdd'] }],
     });
-    const result = await service.approve(proposal.id);
-    expect(result.ok).toBe(true);
+    const result = await approve(proposal.id);
+    expect(result.kind).toBe('executed');
 
     // 通道调用：产物 + 原料指针
     expect(skillLanding).toHaveBeenCalledTimes(1);
@@ -244,8 +260,8 @@ describe('三分路由（注入 fake landings）', () => {
         { title: 'k', content: 'c', tags: [] },
       ],
     });
-    const result = await service.approve(proposal.id);
-    expect(result.ok).toBe(true);
+    const result = await approve(proposal.id);
+    expect(result.kind).toBe('executed');
     expect(memoryLanding).toHaveBeenCalledTimes(1);
     expect(knowledgeProducts()).toHaveLength(1);
 
@@ -266,8 +282,8 @@ describe('三分路由（注入 fake landings）', () => {
     mockRunJson.mockResolvedValue({
       products: [{ type: 'skill', title: 's', content: 'c', tags: [] }],
     });
-    const result = await service.approve(proposal.id);
-    expect(result.ok).toBe(true);
+    const result = await approve(proposal.id);
+    expect(result.kind).toBe('executed');
 
     const products = knowledgeProducts();
     expect(products).toHaveLength(1);
@@ -290,8 +306,8 @@ describe('constraint 通道（真实落盘）', () => {
         change: { action: 'add', constraintId: 'no-leap-diagnosis', level: 'guideline', message: '禁止跳级推理', description: '先验证再断言' },
       }],
     });
-    const result = await service.approve(proposal.id);
-    expect(result.ok).toBe(true);
+    const result = await approve(proposal.id);
+    expect(result.kind).toBe('executed');
     expect(knowledgeProducts()).toHaveLength(0);
 
     const drafts = await fileStore.readJsonl<Record<string, unknown>>(path.join(dataDir, 'constraint-drafts.jsonl'));
@@ -319,7 +335,7 @@ describe('constraint 通道（真实落盘）', () => {
         change: { action: 'retire', constraintId: 'old-rule' },
       }],
     });
-    await service.approve(proposal.id);
+    await approve(proposal.id);
 
     const drafts = await fileStore.readJsonl<Record<string, unknown>>(path.join(dataDir, 'constraint-drafts.jsonl'));
     expect(drafts[0].action).toBe('retire');
@@ -341,8 +357,8 @@ describe('memory 通道（真实 roleMemoryStore + mock 发卡）', () => {
     mockRunJson.mockResolvedValue({
       products: [{ type: 'preference', title: '回复用电报风', content: '砍掉废话', tags: ['style'] }],
     });
-    const result = await service.approve(proposal.id);
-    expect(result.ok).toBe(true);
+    const result = await approve(proposal.id);
+    expect(result.kind).toBe('executed');
     expect(knowledgeProducts()).toHaveLength(0);
 
     // studio 系统角色 = 唯一 profile
@@ -358,17 +374,18 @@ describe('memory 通道（真实 roleMemoryStore + mock 发卡）', () => {
     expect(drafts[0].review).toBe('manual');
     expect(drafts[0].sourceRefs?.sort()).toEqual(proposal.materialIds.slice().sort());
 
-    // memory_proposal 卡（#101 通道）
-    expect(mockPostMemoryCard).toHaveBeenCalledTimes(1);
-    const [entries, ctx] = mockPostMemoryCard.mock.calls[0];
-    expect(entries).toHaveLength(1);
-    expect(entries[0].id).toBe(drafts[0].id);
+    // memory 落地经正本 submit（#353）：系统角色 + 条目入参 + source
+    expect(mockSubmitMemory).toHaveBeenCalledTimes(1);
+    const [submitRoleId, inputs, ctx] = mockSubmitMemory.mock.calls[0];
+    expect(submitRoleId).toBe(profiles[0].id);
+    expect(inputs).toHaveLength(1);
+    expect(inputs[0]).toMatchObject({ kind: 'preference', title: '回复用电报风', review: 'manual' });
     expect(ctx.source).toBe('distill');
   });
 });
 
 describe('skill 通道（真实 createSkillLanding + mock store）', () => {
-  it('skill 产物 → skillStore draft + proposalStore pending（metadata 带原料指针）+ skill_review_request 卡', async () => {
+  it('skill 产物 → skillStore draft（metadata 带原料指针）+ 正本 submitSkillProposal（#354）', async () => {
     service = new DistillService({
       store, fileStore, dataDir, eventsFile,
       landings: { skill: createSkillLanding({ fileStore, companiesDir }) },
@@ -378,8 +395,8 @@ describe('skill 通道（真实 createSkillLanding + mock store）', () => {
     mockRunJson.mockResolvedValue({
       products: [{ type: 'skill', title: '迁移执行法', content: 'Round 分解 → 转换 → 验证', tags: ['migration'] }],
     });
-    const result = await service.approve(proposal.id);
-    expect(result.ok).toBe(true);
+    const result = await approve(proposal.id);
+    expect(result.kind).toBe('executed');
 
     expect(mockSkillCreate).toHaveBeenCalledTimes(1);
     const skillInput = mockSkillCreate.mock.calls[0][0];
@@ -389,16 +406,15 @@ describe('skill 通道（真实 createSkillLanding + mock store）', () => {
     const meta = JSON.parse(skillInput.metadata);
     expect(meta.sourceReferences.sort()).toEqual(proposal.materialIds.slice().sort());
 
-    expect(mockProposalCreate).toHaveBeenCalledTimes(1);
-    const proposalInput = mockProposalCreate.mock.calls[0][0];
-    expect(proposalInput.skillId).toBe('skill-1');
-    expect(proposalInput.status).toBe('pending');
-    expect(proposalInput.metadata.sourceReferences.sort()).toEqual(proposal.materialIds.slice().sort());
-
-    // 沿用 skills 通道既有人审通知卡
-    const cardCalls = mockCreateCardMessage.mock.calls.filter(c => c[3] === 'skill_review_request');
-    expect(cardCalls).toHaveLength(1);
-    expect(cardCalls[0][4]).toEqual({ proposalId: 'sp-1', skillId: 'skill-1' });
+    // #354：提案存取/发卡归 review-proposal 正本——本用例断言 submit 入参，
+    // skill_review_request 卡文案/cardData 的行为断言在 skills/__tests__/review-adapter.test.ts
+    expect(mockSubmitSkill).toHaveBeenCalledTimes(1);
+    const submitInput = mockSubmitSkill.mock.calls[0][0];
+    expect(submitInput.skillId).toBe('skill-1');
+    expect(submitInput.name).toBe('迁移执行法');
+    expect(submitInput.description).toBe('Round 分解 → 转换 → 验证');
+    expect(submitInput.proposedBy).toBe('distill');
+    expect(submitInput.sourceGoalIds.sort()).toEqual(proposal.materialIds.slice().sort());
   });
 
   it('无可用公司 → 通道返回 null → 回落知识条目', async () => {
@@ -413,8 +429,8 @@ describe('skill 通道（真实 createSkillLanding + mock store）', () => {
     mockRunJson.mockResolvedValue({
       products: [{ type: 'skill', title: 's', content: 'c', tags: [] }],
     });
-    const result = await service.approve(proposal.id);
-    expect(result.ok).toBe(true);
+    const result = await approve(proposal.id);
+    expect(result.kind).toBe('executed');
     expect(mockSkillCreate).not.toHaveBeenCalled();
     expect(knowledgeProducts()).toHaveLength(1);
   });

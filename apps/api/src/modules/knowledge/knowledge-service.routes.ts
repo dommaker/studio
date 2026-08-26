@@ -9,6 +9,7 @@ import { Router } from 'express';
 import { knowledgeService } from './knowledge-service.js';
 import { eventBus, logger } from '@dommaker/studio-shared';
 import { requireAuth, requireNotGuest } from '../../middleware/auth.js';
+import { parsePagination } from '../../utils/pagination.js';
 
 export const knowledgeServiceRoutes = Router();
 
@@ -34,7 +35,8 @@ knowledgeServiceRoutes.get('/search', async (req, res) => {
   try {
     const q = req.query.q as string;
     if (!q) return res.status(400).json({ error: 'q is required' });
-    const limit = req.query.limit ? Math.min(Number(req.query.limit), 50) : 10;
+    // #359：统一 parsePagination（clamp 1..100），缺省 10→20、上限 50→100
+    const { limit } = parsePagination(req);
     const results = await knowledgeService.search(q, { limit });
     res.json({ results, total: results.length });
   } catch (e: any) {
@@ -50,7 +52,8 @@ knowledgeServiceRoutes.get('/entries', async (req, res) => {
     if (req.query.tags) filter.tags = String(req.query.tags).split(',');
     // 审核闭环：监控页待审列表数据源（maturity=draft）
     if (req.query.maturity) filter.maturity = String(req.query.maturity).split(',');
-    if (req.query.limit) filter.limit = Math.min(Number(req.query.limit), 100);
+    // #359：统一 parsePagination（clamp 1..100），缺省从不设限 → 20
+    filter.limit = parsePagination(req).limit;
     if (req.query.offset) filter.offset = Number(req.query.offset);
     const entries = await knowledgeService.list(filter as any);
     res.json({ entries, total: entries.length });

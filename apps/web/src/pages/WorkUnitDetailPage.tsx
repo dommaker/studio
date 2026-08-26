@@ -4,7 +4,7 @@
 // → 执行过程（复用 ExecutionSteps，自带 REST 回放 + 实时流）→ 会话原文（#174 TranscriptViewer）→ 讨论区（复用 DiscussionPanel）
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { deriveDisplayState, parseAttestations } from '@dommaker/studio-shared/web';
+import { deriveDisplayState, parseAttestations, WU_STATUS_COLORS, WU_STATUS_LABELS, WU_TYPE_LABELS } from '@dommaker/studio-shared/web';
 import { workunitApi, type Opportunity, type WorkUnit } from '../api/workunit';
 import { requirementApi } from '../api/requirements';
 import { projectApi } from '../api/index';
@@ -22,33 +22,8 @@ import { OpportunitiesPanel } from '../components/workunit/OpportunitiesPanel';
 import { BlockedByList } from '../components/workunit/BlockedByList';
 import { parseBlockedBy, buildMapOpeningPrefill } from '../components/pmo/mapUtils';
 import { AnalysisApproveDialog } from '../components/pmo/AnalysisApproveDialog';
-
-const statusLabels: Record<string, string> = {
-  pending: '待确认',
-  unassigned: '待分配',
-  active: '执行中',
-  in_review: '审查中',
-  done: '已完成',
-  closed: '已关闭',
-  blocked: '阻塞',
-};
-
-const statusColors: Record<string, string> = {
-  pending: 'u-warn-dim u-warn',
-  unassigned: 'u-surface-2 u-text-3',
-  active: 'u-accent-dim u-accent',
-  in_review: 'u-warn-dim u-warn',
-  done: 'u-ok-dim u-ok',
-  closed: 'u-ok-dim u-ok',
-  blocked: 'u-err-dim u-err',
-};
-
-const typeLabels: Record<string, string> = {
-  task: '任务',
-  monitor: '监控',
-  analysis: '分析',
-  discussion: '讨论',
-};
+import { formatShortTime } from '../utils/datetime';
+import { parseWuMeta } from '../utils/wuMeta';
 
 interface PmoInfo {
   id: string;
@@ -56,13 +31,9 @@ interface PmoInfo {
   title: string;
 }
 
-function parseMeta(metadata: string | null): Record<string, unknown> {
-  try { return JSON.parse(metadata || '{}') as Record<string, unknown>; } catch { return {}; }
-}
-
 /** 归属条 PMO 解析（2026-08 归因统一）：① 创建期归因戳 metadata.pmoId（‖ deprecated legacy ownershipProjectId 同级）直查；② 否则 reqId → requirement.projectId（REQ 别名视图 projectId = PMO 自身 id） */
 async function resolvePmo(wu: WorkUnit): Promise<PmoInfo | null> {
-  const meta = parseMeta(wu.metadata);
+  const meta = parseWuMeta(wu.metadata);
   const stamp = meta.pmoId ?? meta.ownershipProjectId;
   let projectId = typeof stamp === 'string' && stamp ? stamp : null;
   if (!projectId && wu.reqId) {
@@ -137,7 +108,7 @@ export function WorkUnitDetailPage() {
     else navigate('/workunits');
   };
 
-  const meta = wu ? parseMeta(wu.metadata) : {};
+  const meta = wu ? parseWuMeta(wu.metadata) : {};
   // #116：依赖（blockedBy）与验收标准（ac）展示数据
   const blockedByIds = wu ? parseBlockedBy(wu.metadata) : [];
   const acList = Array.isArray(meta.ac)
@@ -187,10 +158,10 @@ export function WorkUnitDetailPage() {
             {wu && derived && (
               <>
                 <span className="text-xs px-2 py-0.5 rounded u-surface-2 u-text-2 flex-shrink-0">
-                  {typeLabels[wu.type] ?? wu.type}
+                  {WU_TYPE_LABELS[wu.type] ?? wu.type}
                 </span>
-                <span className={`text-xs px-2 py-0.5 rounded flex-shrink-0 ${statusColors[derived.column] || 'u-surface-2 u-text-3'}`}>
-                  {statusLabels[derived.column] ?? derived.column}
+                <span className={`text-xs px-2 py-0.5 rounded flex-shrink-0 ${WU_STATUS_COLORS[derived.column] || 'u-surface-2 u-text-3'}`}>
+                  {WU_STATUS_LABELS[derived.column] ?? derived.column}
                 </span>
                 <SelfReviewBadge wu={wu} />
               </>
@@ -212,9 +183,9 @@ export function WorkUnitDetailPage() {
         </div>
         {wu && (
           <p className="page-subtitle">
-            创建 {formatTime(wu.createdAt)}
-            {wu.claimedAt && ` · 认领 ${formatTime(wu.claimedAt)}`}
-            {wu.completedAt && ` · 完成 ${formatTime(wu.completedAt)}`}
+            创建 {formatShortTime(wu.createdAt)}
+            {wu.claimedAt && ` · 认领 ${formatShortTime(wu.claimedAt)}`}
+            {wu.completedAt && ` · 完成 ${formatShortTime(wu.completedAt)}`}
           </p>
         )}
         {wu?.failureType && (
@@ -412,9 +383,4 @@ export function WorkUnitDetailPage() {
       )}
     </div>
   );
-}
-
-function formatTime(ts: string | null): string {
-  if (!ts) return '-';
-  return new Date(ts).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
 }

@@ -34,8 +34,16 @@ vi.mock('../../channels/channel-message.service.js', () => ({
   channelMessageService: { createCardMessage: mockCreateCardMessage },
 }));
 
-import { DistillService } from '../distill-service.js';
-import type { DistillRun } from '../distill-store.js';
+import { DistillService, type ConstraintAuditProposal, type DistillProposal } from '../distill-service.js';
+import type { DistillRun } from '../distill-runs.js';
+import { approveProposal, rejectProposal } from '../../review-proposal/service.js';
+import { getReviewProposalAdapter } from '../../review-proposal/registry.js';
+
+// #351：审计提案的 approve/reject/状态查询走 review-proposal 正本生命周期
+const approveAudit = (id: string) => approveProposal('audit', id);
+const rejectAudit = (id: string) => rejectProposal('audit', id);
+const auditStore = () => getReviewProposalAdapter<ConstraintAuditProposal>('audit')!.store;
+const distillStore = () => getReviewProposalAdapter<DistillProposal>('distill')!.store;
 
 let tmpDir: string;
 let fileStore: FileStore;
@@ -153,7 +161,7 @@ describe('触发：蒸馏产出新约束 → 存量审计 → 退役建议人审
   it('端到端：approve 蒸馏（constraint 落地）→ 审计 LLM 出建议 → 提案 + 卡 + 事件', async () => {
     seedOre(); seedOre(); seedOre();
     await service.maybePropose({});
-    const proposal = (await service.listProposals())[0];
+    const proposal = (await distillStore().listProposals())[0];
 
     mockRunJson
       .mockResolvedValueOnce({ // 蒸馏调用：产出一条约束产物
@@ -163,12 +171,12 @@ describe('触发：蒸馏产出新约束 → 存量审计 → 退役建议人审
         suggestions: [{ constraintId: 'prisma_schema_needs_migration', category: 'target-gone', rationale: 'schema.prisma 已从代码库删除' }],
       });
 
-    const result = await service.approve(proposal.id);
-    expect(result.ok).toBe(true);
+    const result = await approveProposal('distill', proposal.id);
+    expect(result.kind).toBe('executed');
     expect(mockRunJson).toHaveBeenCalledTimes(2);
 
     // 审计提案落盘 + 发卡（第二张卡 = constraint_audit_proposal）
-    const audits = await service.listAuditProposals();
+    const audits = await auditStore().listProposals();
     expect(audits).toHaveLength(1);
     expect(audits[0].status).toBe('pending');
     expect(audits[0].suggestions).toEqual([
@@ -184,7 +192,7 @@ describe('触发：蒸馏产出新约束 → 存量审计 → 退役建议人审
   it('直驱 runConstraintAudit：零建议 → 不出卡不落事件（零噪音口径）', async () => {
     mockRunJson.mockResolvedValue({ suggestions: [] });
     await service.runConstraintAudit(makeConstraintRun());
-    expect(await service.listAuditProposals()).toHaveLength(0);
+    expect(await auditStore().listProposals()).toHaveLength(0);
     expect(mockCreateCardMessage).not.toHaveBeenCalled();
     expect(eventStages(await readEvents())).not.toContain('audit-proposal-posted');
   });
@@ -194,24 +202,24 @@ describe('不触发：蒸馏未产出新约束 → 不跑审计', () => {
   it('蒸馏产物全是 knowledge → 无审计 LLM 调用、无审计提案', async () => {
     seedOre(); seedOre(); seedOre();
     await service.maybePropose({});
-    const proposal = (await service.listProposals())[0];
+    const proposal = (await distillStore().listProposals())[0];
 
     mockRunJson.mockResolvedValue({ products: [{ title: 'P', content: 'C', tags: [] }] });
-    const result = await service.approve(proposal.id);
-    expect(result.ok).toBe(true);
+    const result = await approveProposal('distill', proposal.id);
+    expect(result.kind).toBe('executed');
     expect(mockRunJson).toHaveBeenCalledTimes(1); // 只有蒸馏调用
-    expect(await service.listAuditProposals()).toHaveLength(0);
+    expect(await auditStore().listProposals()).toHaveLength(0);
     expect(mockCreateCardMessage).toHaveBeenCalledTimes(1); // 只有 distill_proposal 卡
   });
 
   it('蒸馏运行失败 → 不触发审计', async () => {
     seedOre(); seedOre(); seedOre();
     await service.maybePropose({});
-    const proposal = (await service.listProposals())[0];
+    const proposal = (await distillStore().listProposals())[0];
     mockRunJson.mockRejectedValue(new Error('provider down'));
-    await service.approve(proposal.id);
+    await approveProposal('distill', proposal.id);
     expect(mockRunJson).toHaveBeenCalledTimes(1);
-    expect(await service.listAuditProposals()).toHaveLength(0);
+    expect(await auditStore().listProposals()).toHaveLength(0);
   });
 });
 
@@ -221,7 +229,7 @@ describe('approve：走 retire 执行（retired 元数据段，规则原文保�
       suggestions: [{ constraintId: 'prisma_schema_needs_migration', category: 'target-gone', rationale: 'schema.prisma 已从代码库删除' }],
     });
     await service.runConstraintAudit(makeConstraintRun());
-    const audits = await service.listAuditProposals();
+    const audits = await auditStore().listProposals();
     expect(audits).toHaveLength(1);
     return audits[0].id;
   }
@@ -229,9 +237,9 @@ describe('approve：走 retire 执行（retired 元数据段，规则原文保�
   it('approve → custom-constraints.yml 条目内追加 retired 段（原文保留），提案 executed + 事件', async () => {
     const auditId = await seedPendingAudit();
 
-    const result = await service.approveAudit(auditId);
-    expect(result.ok).toBe(true);
-    expect(result.retiredIds).toEqual(['prisma_schema_needs_migration']);
+    const result = await approveAudit(auditId);
+    expect(result.kind).toBe('executed');
+    expect(result.kind === 'executed' && result.data?.retiredIds).toEqual(['prisma_schema_needs_migration']);
 
     // 落盘形态：retired 元数据段（at/reason 含判据），规则原文保留
     const raw = yaml.load(fs.readFileSync(constraintsFile, 'utf-8')) as {
@@ -243,7 +251,7 @@ describe('approve：走 retire 执行（retired 元数据段，规则原文保�
     expect(entry.message).toContain('schema.prisma'); // 原文保留（可恢复）
     expect(raw.custom_constraints.no_redis_import.retired).toBeUndefined(); // 未建议的不动
 
-    expect((await service.getAuditProposal(auditId))?.status).toBe('executed');
+    expect((await auditStore().getProposal(auditId))?.status).toBe('executed');
     expect(eventStages(await readEvents())).toContain('audit-executed');
   });
 
@@ -255,18 +263,19 @@ describe('approve：走 retire 执行（retired 元数据段，规则原文保�
       '    message: "修改 schema.prisma 必须同时创建 migration 文件"\n    retired:\n      at: "2026-08-14T00:00:00.000Z"\n      reason: "其它路径已退役"',
     ), 'utf-8');
 
-    const result = await service.approveAudit(auditId);
-    expect(result.ok).toBe(true);
-    expect(result.retiredIds).toEqual([]);
-    expect(result.skippedIds).toEqual(['prisma_schema_needs_migration']); // 跳过名单人审可见
-    expect((await service.getAuditProposal(auditId))?.status).toBe('executed');
+    const result = await approveAudit(auditId);
+    expect(result.kind).toBe('executed');
+    const data = result.kind === 'executed' ? result.data : undefined;
+    expect(data?.retiredIds).toEqual([]);
+    expect(data?.skippedIds).toEqual(['prisma_schema_needs_migration']); // 跳过名单人审可见
+    expect((await auditStore().getProposal(auditId))?.status).toBe('executed');
   });
 
   it('已终态提案重复 approve → 拒绝', async () => {
     const auditId = await seedPendingAudit();
-    await service.approveAudit(auditId);
-    expect((await service.approveAudit(auditId)).ok).toBe(false);
-    expect((await service.approveAudit('nope')).ok).toBe(false);
+    await approveAudit(auditId);
+    expect((await approveAudit(auditId)).kind).toBe('invalid');
+    expect((await approveAudit('nope')).kind).toBe('invalid');
   });
 });
 
@@ -277,12 +286,12 @@ describe('reject：零副作用 + 人判保留不再提案', () => {
       suggestions: [{ constraintId: 'prisma_schema_needs_migration', category: 'target-gone', rationale: '对象消失' }],
     });
     await service.runConstraintAudit(makeConstraintRun());
-    const auditId = (await service.listAuditProposals())[0].id;
+    const auditId = (await auditStore().listProposals())[0].id;
 
-    const result = await service.rejectAudit(auditId);
+    const result = await rejectAudit(auditId);
     expect(result.ok).toBe(true);
     expect(fs.readFileSync(constraintsFile, 'utf-8')).toBe(before); // 零副作用
-    expect((await service.getAuditProposal(auditId))?.status).toBe('rejected');
+    expect((await auditStore().getProposal(auditId))?.status).toBe('rejected');
     expect(eventStages(await readEvents())).toContain('audit-rejected');
 
     // 人判保留：后续运行即使 LLM 再建议该约束，也被剔除出审计输入 → 不出卡
@@ -294,7 +303,7 @@ describe('reject：零副作用 + 人判保留不再提案', () => {
     // LLM 收到的审计输入应只剩 no_redis_import（prisma 已人判保留）
     const auditPrompt = mockRunJson.mock.calls[0]?.[0] as string;
     expect(auditPrompt).not.toContain('prisma_schema_needs_migration');
-    expect(await service.listAuditProposals()).toHaveLength(1);
+    expect(await auditStore().listProposals()).toHaveLength(1);
   });
 });
 
@@ -307,7 +316,7 @@ describe('防再引入保护（#139 草案判据）', () => {
       ],
     });
     await service.runConstraintAudit(makeConstraintRun());
-    expect(await service.listAuditProposals()).toHaveLength(0);
+    expect(await auditStore().listProposals()).toHaveLength(0);
     expect(mockCreateCardMessage).not.toHaveBeenCalled();
   });
 });
@@ -316,7 +325,7 @@ describe('降级与去重', () => {
   it('LLM 异常 → 永不抛、无提案、不出卡', async () => {
     mockRunJson.mockRejectedValue(new Error('provider timeout'));
     await expect(service.runConstraintAudit(makeConstraintRun())).resolves.toBeUndefined();
-    expect(await service.listAuditProposals()).toHaveLength(0);
+    expect(await auditStore().listProposals()).toHaveLength(0);
   });
 
   it('预算耗尽 → 跳过审计（零 LLM 调用）', async () => {
@@ -329,7 +338,7 @@ describe('降级与去重', () => {
     });
     await service.runConstraintAudit(makeConstraintRun());
     expect(mockRunJson).not.toHaveBeenCalled();
-    expect(await service.listAuditProposals()).toHaveLength(0);
+    expect(await auditStore().listProposals()).toHaveLength(0);
   });
 
   it('未装配 constraintsFile → 跳过审计（零 LLM 调用）', async () => {
@@ -344,7 +353,7 @@ describe('降级与去重', () => {
     });
     await service.runConstraintAudit(makeConstraintRun());
     await service.runConstraintAudit(makeConstraintRun('run-c2'));
-    expect(await service.listAuditProposals()).toHaveLength(1);
+    expect(await auditStore().listProposals()).toHaveLength(1);
     expect(mockRunJson).toHaveBeenCalledTimes(1); // 第二次不进 LLM
   });
 
@@ -354,7 +363,7 @@ describe('降级与去重', () => {
       suggestions: [{ constraintId: 'prisma_schema_needs_migration', category: 'target-gone', rationale: '对象消失' }],
     });
     await service.runConstraintAudit(makeConstraintRun());
-    const audits = await service.listAuditProposals();
+    const audits = await auditStore().listProposals();
     expect(audits).toHaveLength(1);
     expect(audits[0].status).toBe('card-failed');
     expect(eventStages(await readEvents())).toContain('audit-card-failed');

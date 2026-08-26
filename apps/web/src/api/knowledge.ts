@@ -1,7 +1,10 @@
 // Knowledge API — 知识审核闭环 + 知识库浏览：
 // 1) 知识审核闭环（2026-07）：GET /knowledge-service/entries?maturity=draft（与 audit.byMaturity.draft 同库口径）
-//    approve → POST /knowledge-service/promote（draft→verified，参与注入）
-//    reject  → POST /knowledge-service/demote（draft→archived）
+//    knowledge_proposal 卡审批（#355 起走 review-proposal 正本通用端点，kind='knowledge'）：
+//    approve → POST /review-proposals/knowledge/:proposalId/approve（adapter 逐条目 promote，draft→verified）
+//    reject  → POST /review-proposals/knowledge/:proposalId/reject（adapter 逐条目 demote，draft→archived）
+//    刷新后已审态派生 → GET /review-proposals/knowledge/:proposalId/status
+//    promote/demote 为条目生命周期端点（MonitoringPage 人工 promote 等非提案场景在用），保留。
 // 2) 知识库浏览（KnowledgePage）：listResolutions/listGaps/listUnified/createUnifiedEntry/search
 //
 // #149（2026-08-15）：document-store 退役——项目文档接口（listByProject/getDetail/archive）
@@ -17,6 +20,9 @@ export interface KnowledgeEntryItem {
   tags?: string[];
 }
 
+/** 提案状态（与 review-proposal 正本状态词表对齐；unknown = 查无此提案） */
+export type KnowledgeProposalStatus = 'pending' | 'executed' | 'rejected' | 'failed' | 'card-failed' | 'unknown';
+
 export const knowledgeApi = {
   /** proposal 待审列表（maturity=draft，按服务端默认排序） */
   listPendingReview: (limit = 50) =>
@@ -25,8 +31,17 @@ export const knowledgeApi = {
     }),
   promote: (entryId: string) => api.post('/knowledge-service/promote', { entryId }),
   demote: (entryId: string) => api.post('/knowledge-service/demote', { entryId }),
-  /** 单条目查询（卡片已审核态按 maturity 派生的数据源） */
-  getEntry: (id: string) => api.get<KnowledgeEntryItem>(`/knowledge-service/entries/${id}`),
+  /** knowledge_proposal 卡审批（通用端点，proposalId 取自 cardData） */
+  approveProposal: (proposalId: string) =>
+    api.post<{ success: boolean; promoted?: number; error?: string }>(
+      `/review-proposals/knowledge/${encodeURIComponent(proposalId)}/approve`,
+    ),
+  rejectProposal: (proposalId: string) =>
+    api.post(`/review-proposals/knowledge/${encodeURIComponent(proposalId)}/reject`),
+  proposalStatus: (proposalId: string) =>
+    api.get<{ success: boolean; status: KnowledgeProposalStatus }>(
+      `/review-proposals/knowledge/${encodeURIComponent(proposalId)}/status`,
+    ),
 
   /** 解法库浏览（KnowledgePage 解法库 tab；pending + canonical 口径） */
   listResolutions: () =>

@@ -41,6 +41,7 @@ import * as path from 'node:path';
 import type { WorkUnitService, WorkUnitData } from './workunit.service.js';
 import { postWuSystemMessage } from './wu-messenger.js';
 import { parseWuMetadata } from './wu-metadata.js';
+import { getErrorMessage } from '../../utils/errors.js';
 
 /** worktrees 根目录（与 agent-loop.resolveWorktreesDir 同口径：WORKTREES_DIR > ~/worktrees） */
 function resolveWorktreesDir(): string {
@@ -214,7 +215,7 @@ export async function mergeWorktreeBranchOnReviewPass(
       });
     } catch (err) {
       // 集成交合建不起来（如 PMO 分支被意外检出）→ 转人工，不静默回落错目标
-      const message = err instanceof Error ? err.message : String(err);
+      const message = getErrorMessage(err);
       await wuService.markMergeConflict(wu.id, []);
       await postSystemMessage(
         fileStore,

@@ -26,10 +26,6 @@ export function getCompaniesDir(): string {
 
 // ─── 通用 FileStore 工具 ───
 
-export function generateId(): string {
-  return `${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
-}
-
 async function ensureDir(dir: string): Promise<void> {
   await fs.promises.mkdir(dir, { recursive: true });
 }

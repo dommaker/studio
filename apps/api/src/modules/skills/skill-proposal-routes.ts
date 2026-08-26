@@ -3,9 +3,11 @@
  *
  * GET  /api/v1/skills/proposals — 获取待审批的 Skill 提案
  * POST /api/v1/skills/proposals/scan — 触发扫描提取
- * POST /api/v1/skills/proposals/:id/approve — 审批通过
- * POST /api/v1/skills/proposals/:id/reject — 审批拒绝
  * POST /api/v1/skills/proposals/extract/:executionId — 从指定执行提取
+ * POST /api/v1/skills/proposals/:id/retract — KK 撤回 Skill（见下方注释）
+ *
+ * #354（ADR 2026-08-25 决策 4）：专有审批端点 /:id/approve|reject 已删除，
+ * 审批走 review-proposal 正本通用端点 /api/v1/review-proposals/skill/:id/{approve,reject,status}。
  */
 
 import { Router, Request, Response } from 'express';
@@ -86,40 +88,6 @@ router.post('/extract/:executionId', requireAuth(), requireNotGuest(), async (re
   } catch (error) {
     logger.error('[Skill Proposals] Extraction failed', { error: String(error) });
     return res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Extraction failed' } });
-  }
-});
-
-/**
- * POST /api/v1/skills/proposals/:id/approve
- */
-router.post('/:id/approve', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-    const success = await skillExtractionService.reviewProposal(id, true);
-    if (!success) {
-      return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Proposal not found or already reviewed' } });
-    }
-    return res.json({ success: true, status: 'approved' });
-  } catch (error) {
-    logger.error('[Skill Proposals] Approve failed', { error: String(error) });
-    return res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Approve failed' } });
-  }
-});
-
-/**
- * POST /api/v1/skills/proposals/:id/reject
- */
-router.post('/:id/reject', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-    const success = await skillExtractionService.reviewProposal(id, false);
-    if (!success) {
-      return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Proposal not found or already reviewed' } });
-    }
-    return res.json({ success: true, status: 'rejected' });
-  } catch (error) {
-    logger.error('[Skill Proposals] Reject failed', { error: String(error) });
-    return res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Reject failed' } });
   }
 });
 

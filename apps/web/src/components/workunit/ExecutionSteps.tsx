@@ -12,9 +12,11 @@ import {
   type ExecutionStepEvent,
   type WorkUnit,
 } from '../../api/workunit';
-import { deriveDisplayState } from '@dommaker/studio-shared/web';
+import { deriveDisplayState, WU_STATUS_LABELS } from '@dommaker/studio-shared/web';
 import { useWebSocketContext } from '../../api/websocketHooks';
 import { useWorkUnitStreamEvents } from '../../hooks/useWorkUnitStreamEvents';
+import { formatShortTime } from '../../utils/datetime';
+import { parseWuMeta } from '../../utils/wuMeta';
 import {
   deriveLiveToolRows,
   derivePersistedToolRows,
@@ -60,26 +62,11 @@ const STEP_LIMIT = 15;
 const REVIEW_STEP_LIMIT = 30;
 const BUDGET_HINT_RATIO = 0.8;
 
-// 状态文案与 WorkUnitDrawer 同口径（大白话，不用行话）
-const WU_STATUS_LABELS: Record<string, string> = {
-  pending: '待确认',
-  unassigned: '待分配',
-  active: '执行中',
-  in_review: '审查中',
-  done: '已完成',
-  closed: '已关闭',
-  blocked: '阻塞',
-};
-
 /** WU metadata JSON 解析（只消费速览需要的字段，其余透传；坏 JSON → 空对象） */
 interface GlanceMeta {
   stepCount?: number;
   /** #95 成功步环形簿记：[{step, action, summary, at}]，取最后一条当「最近进展」 */
   progressLog?: unknown;
-}
-
-function parseGlanceMeta(metadata: string | null): GlanceMeta {
-  try { return JSON.parse(metadata || '{}'); } catch { return {}; }
 }
 
 /** progressLog 最后一条带 summary 的条目（畸形条目跳过） */
@@ -152,7 +139,7 @@ export function ExecutionSteps({ workUnitId, wu }: { workUnitId: string; wu?: Wo
     <>
       {/* #182（决策 #61）「当前状态速览」置顶节：传 wu 才渲染（抽屉/详情页），五要素全部取现有字段 + #172 失败步事件 */}
       {wu && (() => {
-        const meta = parseGlanceMeta(wu.metadata);
+        const meta = parseWuMeta<GlanceMeta>(wu.metadata);
         const maxEventStep = (steps ?? []).reduce((m, s) => Math.max(m, s.step), 0);
         const maxLiveStep = liveChunks.reduce((m, c) => Math.max(m, c.step), 0);
         const currentStepNo = Math.max(typeof meta.stepCount === 'number' ? meta.stepCount : 0, maxEventStep, maxLiveStep);
@@ -245,7 +232,7 @@ export function ExecutionSteps({ workUnitId, wu }: { workUnitId: string; wu?: Wo
           <div className="mc-kv">
             <span className="mc-kv-k">#{s.step}{s.action ? ` · ${s.action}` : ''}{s.status === 'failed' ? ' · ✗ 失败' : ''}</span>
             <span className="mc-kv-v">
-              {formatTime(s.at)}
+              {formatShortTime(s.at)}
               {s.usage ? ` · ${formatTokens(s.usage.inputTokens + s.usage.outputTokens)} tok` : ''}
             </span>
           </div>
@@ -268,12 +255,4 @@ export function ExecutionSteps({ workUnitId, wu }: { workUnitId: string; wu?: Wo
 
 function formatTokens(n: number): string {
   return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
-}
-
-function formatTime(iso: string): string {
-  try {
-    return new Date(iso).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
-  } catch {
-    return iso;
-  }
 }

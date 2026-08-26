@@ -109,6 +109,9 @@ export class FileStoreWorkUnitBase extends FileStoreBase {
    * 事件流 → 快照 Map 归约（rebuildIndex 与 reconcileIndex 共用）。
    * #170（决策 #65-3）：data.deleted === true 的 closed 事件 = 删除墓碑——
    * 快照从归约结果移除（delete/GC 路径经 commitRemoval 落墓碑，对账/重建不复活已删 WU）。
+   *
+   * #360 注记：不接线共享 foldJsonlById——本处是事件归约 merge 语义（字段级
+   * 合并累进快照），foldJsonlById 是「每组取最新一行」覆盖语义，口径不同。
    */
   private reduceEventsToSnapshots(events: WorkUnitEvent[]): Map<string, WorkUnitSnapshot> {
     const snapshotMap = new Map<string, WorkUnitSnapshot>();

@@ -47,7 +47,7 @@ export const JWT_SECRET =
         throw new Error("JWT_SECRET required in production");
       })()
     : "dev-jwt-secret-change-in-production");
-const JWT_EXPIRES_IN_SECONDS = 7 * 24 * 60 * 60; // 7 天
+const JWT_EXPIRES_IN_SECONDS = 24 * 60 * 60; // 24h（refresh token 续期，web 拦截器自动刷新）；session/refresh 窗口仍 7 天
 const GUEST_EXPIRES_HOURS = 24;
 
 // ─── 公共接口 ───
@@ -243,11 +243,12 @@ export async function getOrCreateSession(input: SessionInput): Promise<AuthResul
 
 export async function login(input: LoginInput): Promise<AuthResult> {
   const user = await findUserByEmail(input.email);
-  if (!user) throw new Error("用户不存在");
+  // 统一失败文案：不区分"用户不存在"与"密码错误"，防邮箱枚举（2026-08-25 收口）
+  if (!user) throw new Error("邮箱或密码错误");
   if (!user.passwordHash) throw new Error("该用户未设置密码，请使用其他方式登录");
 
   const pwResult = verifyPassword(input.password, user.passwordHash);
-  if (!pwResult.valid) throw new Error("密码错误");
+  if (!pwResult.valid) throw new Error("邮箱或密码错误");
 
   // 旧格式静默升级为 bcrypt
   if (pwResult.needsRehash) {

@@ -38,6 +38,7 @@ import { FileStoreWorkUnitBase, type FileStoreWorkUnitOptions } from './file-sto
 import { stringifyChannels } from './channels-codec';
 import { parseFrontmatter, serializeFrontmatter } from './frontmatter';
 import { readMetricsBegin, emitReadMetric } from './read-metrics';
+import { foldJsonlById } from './jsonl-fold';
 import type {
   AgentProfileData,
   RuntimeStateData,
@@ -187,15 +188,15 @@ const MESSAGE_ARCHIVE_MAX_AGE_DAYS = 30;
  * JSONL 行归并（#319 收敛的唯一口径）：每 id 留最后出现的内容、挂首现位置、
  * deleted 整条丢弃。resolveActiveMessages / 压实 / getMessagesSince 三处共用——
  * 口径要改只改这里。
+ * #360：分组折叠走共享 foldJsonlById（作废判据 = deleted 标记行，墓碑收尾即
+ * voided），本函数只保留 channels 特有的「剥 deleted 字段」投影。
  */
 function mergeActiveRows(rows: ChannelMessageRow[]): ChannelMessageData[] {
-  const latest = new Map<string, ChannelMessageRow>();
-  for (const row of rows) latest.set(row.id, row);
   const active: ChannelMessageData[] = [];
-  for (const msg of latest.values()) {
-    if (msg.deleted) continue;
+  for (const group of foldJsonlById(rows, row => row.deleted === true).values()) {
+    if (group.voided) continue; // 墓碑行收尾：整条丢弃
     // 删除 deleted 字段以保持与 ChannelMessageData 类型一致
-    const { deleted, ...rest } = msg;
+    const { deleted, ...rest } = group.latest;
     active.push(rest);
   }
   return active;
@@ -537,7 +538,9 @@ export class FileStore extends FileStoreWorkUnitBase {
     await this.writeJson(this.statePath(agentId), { ...existing, ...patch });
   }
 
-  /** 删除 RuntimeState（state.json）。保留同目录 profile.json。 */
+  /** 删除 RuntimeState（state.json）。保留同目录 profile.json；
+   *  #363：删后目录判空——为空才连目录一起删（目录闭环，防死实例空目录无界累积；
+   *  agents/<id>/ 是 profile 与 state 共享 namespace，有任何其他文件绝不碰）。 */
   async deleteState(agentId: string): Promise<void> {
     const statePath = this.statePath(agentId);
     try {
@@ -547,6 +550,43 @@ export class FileStore extends FileStoreWorkUnitBase {
       throw err;
     }
     invalidateFileKey(statePath);
+    await this.removeAgentDirIfEmpty(path.dirname(statePath));
+  }
+
+  /** #363：agents/<id>/ 判空删除——空才 rmdir，返回是否删了；
+   *  ENOENT（已被删）/ENOTEMPTY（判空后被写入的竞态）容错 */
+  private async removeAgentDirIfEmpty(dir: string): Promise<boolean> {
+    try {
+      const entries = await fs.promises.readdir(dir);
+      if (entries.length > 0) return false;
+      await fs.promises.rmdir(dir);
+    } catch (err: unknown) {
+      if (isErrnoError(err) && (err.code === 'ENOENT' || err.code === 'ENOTEMPTY')) return false;
+      throw err;
+    }
+    invalidateRemovedPath(dir);
+    return true;
+  }
+
+  /**
+   * #363：一次性存量清扫——删 agents/ 下所有空实例目录（与 deleteState 同判空条件）。
+   * 幂等：无空目录时 removed=0；agents/ 不存在不抛错。
+   */
+  async sweepEmptyAgentDirs(): Promise<{ removed: number }> {
+    const dir = this.agentsDir();
+    let entries: fs.Dirent[];
+    try {
+      entries = await fs.promises.readdir(dir, { withFileTypes: true });
+    } catch (err: unknown) {
+      if (isErrnoError(err) && err.code === 'ENOENT') return { removed: 0 };
+      throw err;
+    }
+    let removed = 0;
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      if (await this.removeAgentDirIfEmpty(path.join(dir, entry.name))) removed++;
+    }
+    return { removed };
   }
 
   async createState(agentId: string, data: RuntimeStateData): Promise<void> {
@@ -1065,16 +1105,10 @@ export class FileStore extends FileStoreWorkUnitBase {
       const entries = await this.readdirCached(dir);
       const perChannel = await Promise.all(entries.map(async entry => {
         if (!entry.isDirectory()) return null;
-        const rows = await this.readJsonl<ChannelMessageRow>(this.messagesPath(entry.name));
-        const latest = new Map<string, ChannelMessageRow>();
-        for (const row of rows) latest.set(row.id, row);
-        for (const msg of latest.values()) {
-          if (msg.id === messageId && !msg.deleted) {
-            const { deleted, ...rest } = msg;
-            return { channelId: entry.name, message: rest };
-          }
-        }
-        return null;
+        // #360：与 queryMessages 同走 mergeActiveRows 唯一归并口径（原为 inline 重复折叠）
+        const active = mergeActiveRows(await this.readJsonl<ChannelMessageRow>(this.messagesPath(entry.name)));
+        const msg = active.find(m => m.id === messageId);
+        return msg ? { channelId: entry.name, message: msg } : null;
       }));
       // 保持原串行语义：按 readdir 顺序返回首个命中
       return perChannel.find(r => r !== null) ?? null;

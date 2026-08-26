@@ -142,10 +142,10 @@ describe('login', () => {
     expect(result.refreshToken).toBeTruthy();
   });
   it('throws for unknown email', async () => {
-    await expect(login({ email: 'unknown@test.com', password: TEST_PW })).rejects.toThrow('用户不存在');
+    await expect(login({ email: 'unknown@test.com', password: TEST_PW })).rejects.toThrow('邮箱或密码错误');
   });
   it('throws for wrong password', async () => {
-    await expect(login({ email: TEST_EMAIL, password: MOCK_WRONG_PW })).rejects.toThrow('密码错误');
+    await expect(login({ email: TEST_EMAIL, password: MOCK_WRONG_PW })).rejects.toThrow('邮箱或密码错误');
   });
 });
 

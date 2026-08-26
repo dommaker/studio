@@ -1,7 +1,7 @@
 /**
  * evolution.service tests — E1 提案决策路径（不触发频道发帖）
  */
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, afterAll, vi } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -20,6 +20,9 @@ vi.mock('os', async (importOriginal) => {
   const actual = await importOriginal<typeof import('os')>();
   return { ...actual, homedir: () => hoistedHome.dir };
 });
+
+// 显式清理：hoisted 里的 require('fs') 走原生模块，mkdtemp-cleanup 补丁登记不到
+afterAll(() => fs.rmSync(hoistedHome.dir, { recursive: true, force: true }));
 
 let workDir: string;
 let fileStore: FileStore;

@@ -90,6 +90,17 @@ custom_constraints:
       - 安全回滚：删除 worktree 即可放弃改动
       - 并行开发：多个任务可同时在不同 worktree 中进行
     promptInjection: 高风险改动（新功能、跨模块、基础设施）应在 worktree 中进行。配置修改、单文件 fix 可直接编辑。
+  public_repo_sanitization:
+    id: public_repo_sanitization
+    level: iron_law
+    rule: PUBLIC REPO MUST BE SANITIZED BEFORE COMMIT
+    message: 本仓为公开仓库，提交前必须脱敏自查
+    trigger:
+      - code_implementation
+    description: 公开仓一旦推入敏感信息即永久泄露（git 历史难以彻底清除）。规则只列敏感类别与检查动作，不列举具体敏感资产，避免规则本身成为侦察情报。出处：2026-08-26 会话决策（公开仓安全脱敏硬规则）
+    promptInjection: >-
+      本仓为公开仓库，任何写入内容（代码、文档、注释、测试数据、commit
+      message）提交前必须脱敏自查：禁止写入凭证/密钥、内部基础设施信息（主机名、内网域名、IP、部署路径、运维流程细节）、私有仓库内容、个人隐私数据。从私有配置仓复制配置或文档时必须重新逐行审查。规则文本本身也不得列举具体敏感值。
   no_completion_without_verification:
     id: no_completion_without_verification
     level: iron_law

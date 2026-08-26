@@ -1,7 +1,7 @@
 /**
  * monitor-probes — 任务/WorkUnit 级探测
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, afterAll } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -23,6 +23,9 @@ const { tmpDir, mockLogger, mockAgentStop, mockReaddir, mockGetStats, mockCloseW
     mockReadStudioEventsSince: vi.fn(() => Promise.resolve([] as any[])),
   };
 });
+
+// 显式清理：hoisted 里的 require('fs') 走原生模块，mkdtemp-cleanup 补丁登记不到
+afterAll(() => { fs.rmSync(tmpDir, { recursive: true, force: true }); });
 
 vi.mock('fs', async (importOriginal) => {
   const actual = await importOriginal<typeof import('fs')>();

@@ -51,12 +51,11 @@ vi.mock('../output-capture.js', () => ({
   emitSessionEnd: vi.fn(),
   emitToolCall: vi.fn(),
   emitFileChange: vi.fn(),
-  recordExecutionError: vi.fn(),
   getConstraintMeta: vi.fn().mockResolvedValue({ hash: 'abc', size: 100 }),
 }));
 
 import { executeSessionLoop, type RunnerExecutionState } from '../runner-execution.js';
-import { emitSessionStart, emitSessionEnd, recordExecutionError } from '../output-capture.js';
+import { emitSessionStart, emitSessionEnd } from '../output-capture.js';
 import type { AgentTask } from '../types.js';
 
 /** 最小 stream-json stdout（result 事件 → success） */
@@ -178,7 +177,6 @@ describe('executeSessionLoop', () => {
     expect(result.success).toBe(false);
     expect(result.error).toContain('Max sessions (1) exhausted');
     expect(result.failureLog).toContain('## Session 1 Failure');
-    expect(recordExecutionError).toHaveBeenCalledTimes(1);
     expect(emitSessionEnd).toHaveBeenCalledTimes(1);
     expect(state.runningProcesses.size).toBe(0);
   });

@@ -396,7 +396,7 @@ test.describe('B3-005: Auditor 建议卡片', () => {
   });
 
   test('卡片组件导入无编译错误', async ({ page }) => {
-    // Navigate to any channel page — if AuditorSuggestionCard imports
+    // Navigate to any channel page — if card component imports
     // fail to resolve, the whole page will error out (white screen)
     await page.goto(`${BASE}/channels`);
     await page.waitForLoadState('domcontentloaded');

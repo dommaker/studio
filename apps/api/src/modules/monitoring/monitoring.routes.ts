@@ -2,6 +2,7 @@
 import { Router, type Request, type Response } from 'express';
 import { MonitoringService } from './monitoring.service.js';
 import { MetricsService } from './metrics.service.js';
+import { getErrorMessage } from '../../utils/errors.js';
 
 const router = Router();
 const service = new MonitoringService();
@@ -13,7 +14,7 @@ router.get('/agents', async (_req: Request, res: Response) => {
     const result = await service.getAgentSummary();
     res.json(result);
   } catch (error) {
-    const msg = error instanceof Error ? error.message : String(error);
+    const msg = getErrorMessage(error);
     res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: msg } });
   }
 });
@@ -24,7 +25,7 @@ router.get('/stats', async (_req: Request, res: Response) => {
     const result = await service.getStats();
     res.json(result);
   } catch (error) {
-    const msg = error instanceof Error ? error.message : String(error);
+    const msg = getErrorMessage(error);
     res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: msg } });
   }
 });
@@ -35,7 +36,7 @@ router.get('/flywheel', async (_req: Request, res: Response) => {
     const result = await service.getFlywheelStats();
     res.json(result);
   } catch (error) {
-    const msg = error instanceof Error ? error.message : String(error);
+    const msg = getErrorMessage(error);
     res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: msg } });
   }
 });
@@ -46,7 +47,7 @@ router.get('/overhead', async (_req: Request, res: Response) => {
     const result = await service.getOverheadStats();
     res.json(result);
   } catch (error) {
-    const msg = error instanceof Error ? error.message : String(error);
+    const msg = getErrorMessage(error);
     res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: msg } });
   }
 });
@@ -62,7 +63,7 @@ router.get('/overview', async (req: Request, res: Response) => {
     const result = await metricsService.getOverviewMetrics({ windowDays });
     res.json(result);
   } catch (error) {
-    const msg = error instanceof Error ? error.message : String(error);
+    const msg = getErrorMessage(error);
     res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: msg } });
   }
 });
@@ -78,7 +79,7 @@ router.get('/efficiency', async (req: Request, res: Response) => {
     const result = await metricsService.getEfficiencyMetrics({ windowDays });
     res.json(result);
   } catch (error) {
-    const msg = error instanceof Error ? error.message : String(error);
+    const msg = getErrorMessage(error);
     res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: msg } });
   }
 });

@@ -5,7 +5,7 @@
  * 不写 metadata.matchedSkills、不发 updated 事件、不再回读 instance/profile 解析职能域
  * （matchedSkills 由 agent-loop 在 step 时经 metadataUpdates 原子写入）。
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -13,6 +13,8 @@ import * as os from 'os';
 // Isolated test skills dir（SKILLS_DIR 在模块加载时读取，必须先设再 import）
 const testSkillsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'claim-persist-test-'));
 process.env.SKILLS_DIR = testSkillsDir;
+// 显式清理：`import * as fs` 走原生命名空间，mkdtemp-cleanup 补丁登记不到（见其头注）
+afterAll(() => { fs.rmSync(testSkillsDir, { recursive: true, force: true }); });
 
 fs.mkdirSync(path.join(testSkillsDir, 'feature-dev'), { recursive: true });
 fs.writeFileSync(

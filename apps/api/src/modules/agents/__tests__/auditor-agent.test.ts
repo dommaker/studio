@@ -413,6 +413,8 @@ describe('AuditorService B3-005', () => {
       const meta = typeof card!.meta === 'string' ? JSON.parse(card!.meta) : (card!.meta ?? {});
       expect(meta.cardType).toBe('auditor_suggestion');
       expect(meta.status).toBe('ready');
+      // #356：发卡归 review-proposal 正本——cardData 增 proposalId（通用端点审批接线用）
+      expect(meta.cardData.proposalId).toBeTruthy();
       expect(meta.cardData.suggestions).toHaveLength(1);
       expect(meta.cardData.suggestions[0].type).toBe('param_tuning');
     });

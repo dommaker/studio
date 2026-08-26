@@ -168,7 +168,7 @@ export class WorkUnitCrudService {
   constructor(fileStore?: FileStore, messageService?: ChannelMessageService) {
     this.fileStore = fileStore ?? new FileStore();
     // #333：关联 WU 走 ChannelMessageService 统一更新路径（自带 channel.message_updated 双发）；
-    // 注入口径同 card-decision.service
+    // 注入口径：可注入；缺省 fileStore 新建 ChannelMessageService，无 fileStore 用单例
     this.messageService = messageService ?? (fileStore ? new ChannelMessageService(fileStore) : channelMessageService);
   }
 

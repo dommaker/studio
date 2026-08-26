@@ -62,6 +62,18 @@ function tsxBin(): string {
 
 async function main(): Promise<void> {
   const { rounds, scales } = parseArgs();
+
+  // 历史 bench root 收敛：当次结果保留（下方 "bench root kept"），>24h 的旧根清掉
+  const tmpRoot = os.tmpdir();
+  const staleMs = 24 * 60 * 60 * 1000;
+  for (const name of fs.readdirSync(tmpRoot)) {
+    if (!name.startsWith('loop-read-bench-')) continue;
+    const p = path.join(tmpRoot, name);
+    try {
+      if (Date.now() - fs.statSync(p).mtimeMs > staleMs) fs.rmSync(p, { recursive: true, force: true });
+    } catch { /* 竞态不阻断 */ }
+  }
+
   const benchRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'loop-read-bench-'));
   console.log(`[bench] root: ${benchRoot}`);
   console.log(`[bench] template: ${TEMPLATE_HOME} (read-only)`);

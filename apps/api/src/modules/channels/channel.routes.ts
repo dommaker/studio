@@ -8,17 +8,16 @@ import { projectService } from '../pmo/project.service.js';
 import { apiCache, CACHE_CONFIG } from '../../middleware/api-cache.js';
 import { requireAuth, requireNotGuest } from '../../middleware/auth.js';
 import { ConvertToTaskService } from './convert-to-task.service.js';
-import { CardDecisionService } from './card-decision.service.js';
 import { WorkUnitService } from '../workunit/workunit.service.js';
 import { ProjectDiscoveryService } from '../projects/project-discovery.service.js';
 import { getWorkspaceRecord } from '../workspaces/workspace-store.js';
 import { getChannelFileVocabulary } from './file-ref-vocabulary.js';
 import { deriveChannelCurrentPmo } from './current-pmo.js';
+import { getErrorMessage } from '../../utils/errors.js';
 
 const router = Router();
 const fileStore = new FileStore();
 const convertToTaskService = new ConvertToTaskService(fileStore);
-const cardDecisionService = new CardDecisionService(fileStore, channelMessageService);
 const workUnitService = new WorkUnitService(fileStore);
 const projectDiscoveryService = new ProjectDiscoveryService();
 
@@ -161,7 +160,7 @@ router.get('/:id/file-vocabulary', async (req, res) => {
     const vocabulary = await getChannelFileVocabulary(req.params.id);
     res.json({ success: true, data: vocabulary });
   } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e);
+    const msg = getErrorMessage(e);
     logger.warn('[Channel] file vocabulary failed', { channelId: req.params.id, error: msg });
     res.status(500).json({ success: false, error: msg });
   }
@@ -306,7 +305,7 @@ router.patch('/:id', requireAuth(), requireNotGuest(), async (req, res) => {
     if (!updated) return res.status(404).json({ success: false, error: 'Channel not found' });
     res.json({ success: true, data: updated });
   } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e);
+    const msg = getErrorMessage(e);
     if (msg.includes('not found')) {
       return res.status(404).json({ success: false, error: 'Channel not found' });
     }
@@ -321,7 +320,7 @@ router.patch('/:id/members', requireAuth(), requireNotGuest(), async (req, res) 
     const members = await updateChannelMembers(req.params.id, { add, remove });
     res.json({ success: true, data: { members } });
   } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e);
+    const msg = getErrorMessage(e);
     if (msg.includes('not found')) {
       return res.status(404).json({ success: false, error: msg });
     }
@@ -342,7 +341,7 @@ router.post('/:id/chore-pmo', requireAuth(), requireNotGuest(), async (req, res)
     const project = await projectService.ensureChoreProject(channel.id, channel.name);
     res.status(201).json({ success: true, data: project });
   } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e);
+    const msg = getErrorMessage(e);
     logger.warn('[Channel] ensure chore PMO failed', { channelId: req.params.id, error: msg });
     res.status(500).json({ success: false, error: msg });
   }
@@ -364,37 +363,11 @@ router.post('/:id/messages/:messageId/convert-to-task', requireAuth(), requireNo
     });
     res.status(201).json({ success: true, data: workUnit });
   } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e);
+    const msg = getErrorMessage(e);
     if (msg.includes('not found')) {
       return res.status(404).json({ success: false, error: msg });
     }
     if (msg.includes('already')) {
-      return res.status(400).json({ success: false, error: msg });
-    }
-    throw e;
-  }
-});
-
-// POST /api/v1/channels/:id/messages/:messageId/card-decision — #278（决策 #250 D2）
-// auditor_suggestion 卡的人审决策端点（human-only；不复活已删的通用 actions 端点——AC-A5）。
-// 采纳 = 本频道建 type:task 未指派工单（正文 = 建议详情 + 原卡链接）；拒绝 = 仅留痕。
-// 状态经 updateMessageMeta 回写 meta.status 并由 SSE channel.message_updated 推送。
-router.post('/:id/messages/:messageId/card-decision', requireAuth(), requireNotGuest(), async (req, res) => {
-  const { id: channelId, messageId } = req.params;
-  const { decision } = req.body;
-  if (decision !== 'confirm' && decision !== 'reject') {
-    return res.status(400).json({ success: false, error: "decision must be 'confirm' or 'reject'" });
-  }
-
-  try {
-    const result = await cardDecisionService.decide(channelId, messageId, decision);
-    res.json({ success: true, data: result });
-  } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e);
-    if (msg.includes('not found')) {
-      return res.status(404).json({ success: false, error: msg });
-    }
-    if (msg.includes('already') || msg.includes('not support')) {
       return res.status(400).json({ success: false, error: msg });
     }
     throw e;

@@ -13,14 +13,17 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
+import { FileStore } from '@dommaker/studio-shared';
 import {
   roleMemoryRoot,
   roleMemoryDir,
   sanitizeRoleId,
   sanitizeTopicSlug,
   resolveTopicSlug,
+  foldDraftRows,
   RoleMemoryStore,
   type MemoryDraftEntry,
+  type MemoryDraftLine,
 } from '../role-memory.js';
 
 // 本测试进程的隔离根目录（os.tmpdir()/studio-test-role-memory/<per-进程子目录>，#135）：不写生产 ~/.studio；
@@ -312,20 +315,33 @@ describe('demote（拒绝 → 墓碑，append-only，#101 reject 闸口）', () 
   });
 });
 
-describe('getDraftStatus（卡片刷新派生已审态，#101）', () => {
-  it('pending / promoted / rejected / unknown 四态归并正确', async () => {
+describe('draft.jsonl 读侧归一（#353，ADR 决策 3）', () => {
+  it('正本 kind:status 状态行 = 终态墓碑：readDraft 排除，promote/demote 不再命中', async () => {
     const roleId = freshRoleId();
-    const pending = await store.appendDraft(roleId, { kind: 'execution-knowledge', title: 'P', content: 'p' });
-    const promoted = await store.appendDraft(roleId, { kind: 'execution-knowledge', title: 'A', content: 'a' });
-    const rejected = await store.appendDraft(roleId, { kind: 'preference', title: 'R', content: 'r' });
-    await store.promote(roleId, [promoted.id]);
-    await store.demote(roleId, [rejected.id]);
+    const e = await store.appendDraft(roleId, { kind: 'execution-knowledge', title: 'S', content: 's' });
+    // 模拟 review-proposal 正本落的状态行（ executed / rejected 之外的终态同样排除）
+    const fs2 = new FileStore();
+    await fs2.appendJsonl(path.join(roleMemoryDir(roleId), 'draft.jsonl'), {
+      kind: 'status', id: e.id, status: 'card-failed', at: new Date().toISOString(),
+    });
 
-    const statuses = await store.getDraftStatus(roleId, [pending.id, promoted.id, rejected.id, 'no-such-id']);
-    expect(statuses[pending.id]).toBe('pending');
-    expect(statuses[promoted.id]).toBe('promoted');
-    expect(statuses[rejected.id]).toBe('rejected');
-    expect(statuses['no-such-id']).toBe('unknown');
+    expect(await store.readDraft(roleId)).toHaveLength(0);
+    await expect(store.promote(roleId, [e.id])).resolves.toMatchObject({ promoted: 0 });
+    await expect(store.demote(roleId, [e.id])).resolves.toMatchObject({ demoted: 0 });
+  });
+
+  it('foldDraftRows：旧 promoted 墓碑归一为 executed（历史行不改写）；plain 行 pending', async () => {
+    const roleId = freshRoleId();
+    const p = await store.appendDraft(roleId, { kind: 'execution-knowledge', title: 'P', content: 'p' });
+    const a = await store.appendDraft(roleId, { kind: 'execution-knowledge', title: 'A', content: 'a' });
+    await store.promote(roleId, [a.id]); // 写旧形态 promoted 墓碑行
+
+    const rows = await new FileStore().readJsonl<MemoryDraftLine>(path.join(roleMemoryDir(roleId), 'draft.jsonl'));
+    const fold = foldDraftRows(rows);
+    expect(fold.get(p.id)?.status).toBe('pending');
+    expect(fold.get(a.id)?.status).toBe('executed'); // promoted 读侧归一
+    // 存量行未改写：仍无 kind:'status' 行
+    expect(rows.some(r => (r as { kind?: string }).kind === 'status')).toBe(false);
   });
 });
 

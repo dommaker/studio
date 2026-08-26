@@ -44,13 +44,12 @@ vi.mock('../output-capture.js', () => ({
   emitSessionEnd: vi.fn(),
   emitToolCall: vi.fn(),
   emitFileChange: vi.fn(),
-  recordExecutionError: vi.fn(),
   getConstraintMeta: vi.fn().mockResolvedValue({ hash: 'abc', size: 100 }),
 }));
 
 import { executeLightweightSession } from '../runner-lightweight.js';
 import type { RunnerExecutionState } from '../runner-execution.js';
-import { recordExecutionError, emitSessionStart, emitSessionEnd } from '../output-capture.js';
+import { emitSessionStart, emitSessionEnd } from '../output-capture.js';
 import type { AgentTask } from '../types.js';
 
 function buildStreamStdout(result: unknown): string {
@@ -224,7 +223,6 @@ describe('executeLightweightSession', () => {
     expect(result.success).toBe(false);
     expect(result.error).toBe('cli gone');
     expect(result.failureLog).toBe('partial');
-    expect(recordExecutionError).toHaveBeenCalledTimes(1);
     expect(emitSessionEnd).toHaveBeenCalledTimes(1);
     expect(state.runningProcesses.size).toBe(0);
   });

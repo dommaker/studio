@@ -6,6 +6,7 @@ import type { MouseEvent as ReactMouseEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useWebSocketContext } from '../api/websocketHooks';
 import { api } from '../api';
+import { formatShortTime } from '../utils/datetime';
 
 interface Notification {
   id: string;
@@ -51,7 +52,6 @@ function parseLinkTargets(link: string | null): { workUnitId: string | null; pmo
 
 function fromBackend(n: BackendNotification): Notification {
   const targets = parseLinkTargets(n.link);
-  const created = new Date(n.createdAt);
   return {
     id: n.id,
     backendId: n.id,
@@ -59,7 +59,7 @@ function fromBackend(n: BackendNotification): Notification {
     agentName: 'System',
     title: n.title || null,
     content: (n.content || '').slice(0, 80),
-    time: created.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }),
+    time: formatShortTime(n.createdAt),
     read: n.read,
     workUnitId: targets.workUnitId,
     pmoId: targets.pmoId,
