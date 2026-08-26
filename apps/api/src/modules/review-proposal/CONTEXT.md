@@ -13,7 +13,7 @@ JSONL + 状态墓碑折叠）、发卡（含 #系统频道解析与 card-failed 
 
 - `store.ts` -- `ReviewProposalStore<P>`：append-only JSONL 提案行 + 墓碑折叠（`ReviewProposalRecord<P>`）
 - `card.ts` -- `postReviewProposalCard`：#系统 频道解析 + 发卡；失败静默 false 不抛
-- `registry.ts` -- adapter 注册表：`registerReviewProposalAdapter` / `getReviewProposalAdapter` / `ApproveOutcome`
+- `registry.ts` -- adapter 注册表：`registerReviewProposalAdapter` / `getReviewProposalAdapter` / `ApproveOutcome`（config.store 可选注入自定义存取——仅供 #353 per-role draft.jsonl 存储形态例外，缺省正本物化单文件）
 - `service.ts` -- 生命周期：`submitProposal`（建卡+card-failed 降级）/ `approveProposal` / `rejectProposal` / `getProposalStatus`
 - `routes.ts` -- 通用端点 `/api/v1/review-proposals/:kind/:id/{approve,reject,status}`，kind 走注册表分发
 
@@ -21,7 +21,7 @@ JSONL + 状态墓碑折叠）、发卡（含 #系统频道解析与 card-failed 
 
 **上游**: `@dommaker/studio-shared`（FileStore/logger）、`channels/channel-message.service.ts`（发卡，动态 import）、`middleware/auth.js`
 
-**下游**: modules/distill（distill/GC/审计三 adapter，kind: distill/gc/audit）；后续 role-memory/skills/knowledge/auditor（#353–#356）
+**下游**: modules/distill（distill/GC/审计三 adapter，kind: distill/gc/audit）；role-memory（#353，kind: memory，自定义 store 落 per-role draft.jsonl，旧 promoted 读侧归一）；后续 skills/knowledge/auditor（#354–#356）
 
 ### 运行时约定
 
