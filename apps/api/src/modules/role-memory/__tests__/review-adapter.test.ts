@@ -65,14 +65,6 @@ afterAll(() => {
   }
 });
 
-/** 直接往 draft.jsonl 塞原始行（构造存量历史形态：旧墓碑行 / 正本状态行） */
-async function seedRows(roleId: string, rows: MemoryDraftLine[]): Promise<void> {
-  const fs2 = new FileStore();
-  for (const row of rows) {
-    await fs2.appendJsonl(path.join(TEST_ROOT, roleId, 'draft.jsonl'), row);
-  }
-}
-
 describe('foldDraftRows — draft.jsonl 读侧归一（ADR 决策 3）', () => {
   it('plain 条目行 → pending；旧 promoted 墓碑 → executed；旧 rejected 墓碑 → rejected', () => {
     const rows: MemoryDraftLine[] = [
