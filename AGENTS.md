@@ -48,7 +48,7 @@ pnpm start  # 启动生产服务
 
 ## Governance Rules
 <!-- HARNESS_CONSTRAINTS_START -->
-<!-- version: 1.2.1 -->
+<!-- version: 1.2.2 -->
 ### Iron Laws (违反将阻断)
 - **no_completion_without_verification**: 在声明任务完成前，必须重新运行新鲜的验证命令——受改动影响的测试（vitest run --changed origin/master）+ type check，使用新鲜的输出作为完成证据，不得复用旧结果。全量测试由 CI / 发布流程兜底。
 - **incremental_progress**: 一次只处理一个任务。改动涉及多个模块、超过 100 行、或影响多个文件时，必须拆分为小步骤分步执行，每步有独立 checkpoint 可回滚。不要试图一次性完成所有改动。
