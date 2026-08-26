@@ -34,12 +34,12 @@ pnpm start  # 启动生产服务
 
 ## 约束与治理
 
-- 未检测到 harness 治理配置，可运行 `harness init` 初始化
+- 治理配置：`.harness/config.yml`（preset: standard）
 
 ## 知识入口
 
 - `.harness/knowledge/`：项目知识库，用 `harness knowledge` 查询
-- 各源码目录的 `CONTEXT.md` 是权威模块文档（现有 42 个），改动代码时同步更新
+- 各源码目录的 `CONTEXT.md` 是权威模块文档（现有 44 个），改动代码时同步更新
 
 <!-- PRESERVE:governance -->
 ## 治理契约

@@ -1,6 +1,6 @@
 # CAPABILITIES.md
 
-> 最后更新: 2026-08-25
+> 最后更新: 2026-08-26
 
 ---
 
@@ -195,3 +195,8 @@
 | notification-service.test | packages/studio-notification/src/services/notification-service.test.ts | NotificationService tests — #274 写路径归属校验 |
 | AssigneeLabel | apps/web/src/components/workunit/AssigneeLabel.tsx | 负责人展示标签（#290 清单 #24）——解析到角色名则渲染 @名字 并链到 /agents/:roleId； |
 | ChannelLiveBars | apps/web/src/components/channel/ChannelLiveBars.tsx | 频道 live 执行状态条（#242；#322 live 执行状态下沉）：useChannelLiveExecutions 由本组件 |
+| service | apps/api/src/modules/auth/service.ts | 认证服务 - Auth Service |
+| card | apps/api/src/modules/review-proposal/card.ts | review-proposal/card (#351) — 人审提案卡投放 #系统 频道（唯一正本） |
+| registry | apps/api/src/modules/review-proposal/registry.ts | review-proposal/registry (#351) — 人审提案卡 adapter 注册表（kind → adapter） |
+| service | apps/api/src/modules/review-proposal/service.ts | review-proposal/service (#351) — 人审提案卡生命周期（唯一正本） |
+| store | apps/api/src/modules/review-proposal/store.ts | review-proposal/store (#351) — 人审提案卡通用存取（append-only JSONL + 状态墓碑折叠） |
