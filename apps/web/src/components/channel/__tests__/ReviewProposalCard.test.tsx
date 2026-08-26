@@ -14,7 +14,7 @@ vi.mock('../../../api/distill', () => ({
   distillApi: { proposalStatus: vi.fn(), gcProposalStatus: vi.fn(), auditProposalStatus: vi.fn() },
 }));
 vi.mock('../../../api/memory', () => ({
-  memoryApi: { draftStatus: vi.fn() },
+  memoryApi: { status: vi.fn() },
 }));
 vi.mock('../../../api/knowledge', () => ({
   knowledgeApi: { getEntry: vi.fn() },
@@ -22,7 +22,7 @@ vi.mock('../../../api/knowledge', () => ({
 const mockProposalStatus = distillApi.proposalStatus as ReturnType<typeof vi.fn>;
 const mockGcProposalStatus = distillApi.gcProposalStatus as ReturnType<typeof vi.fn>;
 const mockAuditProposalStatus = distillApi.auditProposalStatus as ReturnType<typeof vi.fn>;
-const mockDraftStatus = memoryApi.draftStatus as ReturnType<typeof vi.fn>;
+const mockMemStatus = memoryApi.status as ReturnType<typeof vi.fn>;
 const mockGetEntry = knowledgeApi.getEntry as ReturnType<typeof vi.fn>;
 
 const msg = (id: string, content: string, meta: Record<string, unknown>): ChannelMessage => ({
@@ -266,8 +266,8 @@ const memoryMessage = msg('msg-mp-1', '角色记忆提案 — 待确认', {
 
 describe('ReviewProposalCard — memory_proposal（原 MemoryProposalCard）', () => {
   beforeEach(() => {
-    mockDraftStatus.mockReset();
-    mockDraftStatus.mockResolvedValue({ data: { success: true, statuses: { 'd-1': 'pending', 'd-2': 'pending' } } });
+    mockMemStatus.mockReset();
+    mockMemStatus.mockResolvedValue({ data: { success: true, statuses: { 'd-1': 'pending', 'd-2': 'pending' } } });
   });
 
   it('renders 标题/文件路径/人类可读标签 + 确认写入/丢弃按钮，无内部分类词', () => {
@@ -333,24 +333,24 @@ describe('ReviewProposalCard — memory_proposal（原 MemoryProposalCard）', (
     expect(screen.queryByText('丢弃')).not.toBeTruthy();
   });
 
-  it('刷新后按草稿状态派生已审态：全部 promoted → 已确认（无按钮）', async () => {
-    mockDraftStatus.mockResolvedValue({ data: { success: true, statuses: { 'd-1': 'promoted', 'd-2': 'promoted' } } });
+  it('刷新后按提案状态派生已审态：全部 executed（旧 promoted 读侧归一）→ 已确认（无按钮）', async () => {
+    mockMemStatus.mockResolvedValue({ data: { success: true, statuses: { 'd-1': 'executed', 'd-2': 'executed' } } });
     renderCard(memoryMessage, vi.fn());
     expect(await screen.findByText(/已确认/)).toBeTruthy();
     expect(screen.queryByText('丢弃')).not.toBeTruthy();
-    expect(mockDraftStatus).toHaveBeenCalledWith('role-1', ['d-1', 'd-2']);
+    expect(mockMemStatus).toHaveBeenCalledWith(['d-1', 'd-2']);
   });
 
-  it('刷新后按草稿状态派生已审态：全部 rejected → 已丢弃', async () => {
-    mockDraftStatus.mockResolvedValue({ data: { success: true, statuses: { 'd-1': 'rejected', 'd-2': 'rejected' } } });
+  it('刷新后按提案状态派生已审态：全部 rejected → 已丢弃', async () => {
+    mockMemStatus.mockResolvedValue({ data: { success: true, statuses: { 'd-1': 'rejected', 'd-2': 'rejected' } } });
     renderCard(memoryMessage, vi.fn());
     expect(await screen.findByText(/已丢弃/)).toBeTruthy();
   });
 
   it('派生接口失败 → 静默保持待审（按钮仍在）', async () => {
-    mockDraftStatus.mockRejectedValue(new Error('network'));
+    mockMemStatus.mockRejectedValue(new Error('network'));
     renderCard(memoryMessage, vi.fn());
-    await waitFor(() => expect(mockDraftStatus).toHaveBeenCalled());
+    await waitFor(() => expect(mockMemStatus).toHaveBeenCalled());
     expect(screen.getByText('确认写入')).toBeTruthy();
     expect(screen.queryByText(/已确认/)).not.toBeTruthy();
   });

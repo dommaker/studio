@@ -20,7 +20,7 @@ vi.mock('../../../api/distill', () => ({
   },
 }));
 vi.mock('../../../api/memory', () => ({
-  memoryApi: { promote: vi.fn(), demote: vi.fn(), draftStatus: vi.fn() },
+  memoryApi: { approve: vi.fn(), reject: vi.fn(), status: vi.fn() },
 }));
 vi.mock('../../../api/knowledge', () => ({
   knowledgeApi: { promote: vi.fn(), demote: vi.fn(), getEntry: vi.fn() },
@@ -54,7 +54,7 @@ describe('PROPOSAL_CARD_CONFIGS 完整性', () => {
     expect(typeof c.renderContent).toBe('function');
   });
 
-  it('distill 家族 kind 对齐 #351 注册表（distill/gc/audit）；memory/knowledge 待 #353/#355', () => {
+  it('distill 家族 + memory kind 对齐注册表（distill/gc/audit/memory，#351/#353）；knowledge 待 #355', () => {
     expect(PROPOSAL_CARD_CONFIGS.distill_proposal.kind).toBe('distill');
     expect(PROPOSAL_CARD_CONFIGS.gc_proposal.kind).toBe('gc');
     expect(PROPOSAL_CARD_CONFIGS.constraint_audit_proposal.kind).toBe('audit');
@@ -115,26 +115,38 @@ describe('distill 家族 fetchReviewed（statuses?.[id] 派生）', () => {
   });
 });
 
-describe('memory/knowledge exec 与派生（域端点，#353/#355 前）', () => {
-  it('memory：缺 roleId 或空 entries → false；approve → promote(roleId, draftIds)', async () => {
+describe('memory（通用端点，#353）/knowledge（域端点，#355 前）exec 与派生', () => {
+  it('memory：空 entries → false；approve → 逐 draftId approve，任一 success=false → false 保持待审', async () => {
     const cfg = PROPOSAL_CARD_CONFIGS.memory_proposal;
-    await expect(cfg.exec({ entries: [{ draftId: 'd1' }] }, 'approve')).resolves.toBe(false);
     await expect(cfg.exec({ roleId: 'r1', entries: [] }, 'approve')).resolves.toBe(false);
-    vi.mocked(memoryApi.promote).mockResolvedValue({} as never);
+    vi.mocked(memoryApi.approve).mockResolvedValue({ data: { success: true } } as never);
     await expect(
       cfg.exec({ roleId: 'r1', entries: [{ draftId: 'd1' }, { draftId: 'd2' }] }, 'approve'),
     ).resolves.toBe(true);
-    expect(memoryApi.promote).toHaveBeenCalledWith('r1', ['d1', 'd2']);
+    expect(memoryApi.approve).toHaveBeenCalledWith('d1');
+    expect(memoryApi.approve).toHaveBeenCalledWith('d2');
+
+    vi.mocked(memoryApi.approve)
+      .mockResolvedValueOnce({ data: { success: true } } as never)
+      .mockResolvedValueOnce({ data: { success: false } } as never);
+    await expect(
+      cfg.exec({ roleId: 'r1', entries: [{ draftId: 'd1' }, { draftId: 'd2' }] }, 'approve'),
+    ).resolves.toBe(false);
   });
 
-  it('memory 派生：全部 promoted → approved；全部 rejected → rejected；混合 → null', async () => {
+  it('memory：reject → 逐 draftId reject；派生：全部 executed → approved；全部 rejected → rejected；混合 → null', async () => {
     const cfg = PROPOSAL_CARD_CONFIGS.memory_proposal;
     const cd = { roleId: 'r1', entries: [{ draftId: 'd1' }, { draftId: 'd2' }] };
-    vi.mocked(memoryApi.draftStatus).mockResolvedValue({ data: { statuses: { d1: 'promoted', d2: 'promoted' } } } as never);
+    vi.mocked(memoryApi.reject).mockResolvedValue({} as never);
+    await expect(cfg.exec(cd, 'reject')).resolves.toBe(true);
+    expect(memoryApi.reject).toHaveBeenCalledWith('d1');
+    expect(memoryApi.reject).toHaveBeenCalledWith('d2');
+
+    vi.mocked(memoryApi.status).mockResolvedValue({ data: { statuses: { d1: 'executed', d2: 'executed' } } } as never);
     await expect(cfg.fetchReviewed!(cd)).resolves.toBe('approved');
-    vi.mocked(memoryApi.draftStatus).mockResolvedValue({ data: { statuses: { d1: 'rejected', d2: 'rejected' } } } as never);
+    vi.mocked(memoryApi.status).mockResolvedValue({ data: { statuses: { d1: 'rejected', d2: 'rejected' } } } as never);
     await expect(cfg.fetchReviewed!(cd)).resolves.toBe('rejected');
-    vi.mocked(memoryApi.draftStatus).mockResolvedValue({ data: { statuses: { d1: 'promoted', d2: 'draft' } } } as never);
+    vi.mocked(memoryApi.status).mockResolvedValue({ data: { statuses: { d1: 'executed', d2: 'pending' } } } as never);
     await expect(cfg.fetchReviewed!(cd)).resolves.toBeNull();
   });
 

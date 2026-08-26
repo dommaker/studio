@@ -6,7 +6,7 @@ import { renderHook } from '@testing-library/react';
 
 const {
   mockPromote, mockDemote,
-  mockMemPromote, mockMemDemote,
+  mockMemApprove, mockMemReject,
   mockDistillApprove, mockDistillReject,
   mockGcApprove, mockGcReject,
   mockAuditApprove, mockAuditReject,
@@ -14,8 +14,8 @@ const {
 } = vi.hoisted(() => ({
   mockPromote: vi.fn(),
   mockDemote: vi.fn(),
-  mockMemPromote: vi.fn(),
-  mockMemDemote: vi.fn(),
+  mockMemApprove: vi.fn(),
+  mockMemReject: vi.fn(),
   mockDistillApprove: vi.fn(),
   mockDistillReject: vi.fn(),
   mockGcApprove: vi.fn(),
@@ -27,7 +27,7 @@ const {
 }));
 
 vi.mock('../../api/knowledge', () => ({ knowledgeApi: { promote: mockPromote, demote: mockDemote } }));
-vi.mock('../../api/memory', () => ({ memoryApi: { promote: mockMemPromote, demote: mockMemDemote } }));
+vi.mock('../../api/memory', () => ({ memoryApi: { approve: mockMemApprove, reject: mockMemReject } }));
 vi.mock('../../api/distill', () => ({
   distillApi: {
     approve: mockDistillApprove, reject: mockDistillReject,
@@ -63,8 +63,8 @@ describe('useChannelCardActions — action → api 映射', () => {
     vi.clearAllMocks();
     mockPromote.mockResolvedValue({});
     mockDemote.mockResolvedValue({});
-    mockMemPromote.mockResolvedValue({});
-    mockMemDemote.mockResolvedValue({});
+    mockMemApprove.mockResolvedValue({ data: { success: true } });
+    mockMemReject.mockResolvedValue({});
     mockDistillApprove.mockResolvedValue({ data: { success: true } });
     mockDistillReject.mockResolvedValue({});
     mockGcApprove.mockResolvedValue({ data: { success: true } });
@@ -104,19 +104,25 @@ describe('useChannelCardActions — action → api 映射', () => {
     expect(refresh).not.toHaveBeenCalled();
   });
 
-  it('memory_proposal_approve → memoryApi.promote(roleId, draftIds)；reject → demote', async () => {
+  it('memory_proposal_approve → memoryApi.approve 逐 draftId（#353 通用端点）；reject → 逐 draftId reject', async () => {
     const messages = [msg('m1', { roleId: 'r-1', entries: [{ draftId: 'd-1' }, { draftId: 'd-2' }] })];
     const { dispatch } = setup(messages);
     await expect(dispatch()('m1', 'memory_proposal_approve')).resolves.toBe(true);
-    expect(mockMemPromote).toHaveBeenCalledWith('r-1', ['d-1', 'd-2']);
+    expect(mockMemApprove).toHaveBeenCalledWith('d-1');
+    expect(mockMemApprove).toHaveBeenCalledWith('d-2');
     await expect(dispatch()('m1', 'memory_proposal_reject')).resolves.toBe(true);
-    expect(mockMemDemote).toHaveBeenCalledWith('r-1', ['d-1', 'd-2']);
+    expect(mockMemReject).toHaveBeenCalledWith('d-1');
+    expect(mockMemReject).toHaveBeenCalledWith('d-2');
   });
 
-  it('memory_proposal：缺 roleId → false', async () => {
-    const { dispatch } = setup([msg('m1', { entries: [{ draftId: 'd-1' }] })]);
+  it('memory_proposal：空 entries → false；approve success=false → false 不 refresh', async () => {
+    const { dispatch, refresh } = setup([msg('m1', { roleId: 'r-1', entries: [] }), msg('m2', { entries: [{ draftId: 'd-1' }] })]);
     await expect(dispatch()('m1', 'memory_proposal_approve')).resolves.toBe(false);
-    expect(mockMemPromote).not.toHaveBeenCalled();
+    expect(mockMemApprove).not.toHaveBeenCalled();
+
+    mockMemApprove.mockResolvedValue({ data: { success: false } });
+    await expect(dispatch()('m2', 'memory_proposal_approve')).resolves.toBe(false);
+    expect(refresh).not.toHaveBeenCalled();
   });
 
   it('distill_proposal_approve → distillApi.approve；success=false → 返回 false 不 refresh；reject → distillApi.reject', async () => {

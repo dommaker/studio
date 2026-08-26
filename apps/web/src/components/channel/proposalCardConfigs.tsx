@@ -1,8 +1,8 @@
 // 人审提案卡配置（#352，ADR 2026-08-25 决策 5）：5 张提案卡坍缩为「条目清单 + 文案」纯数据配置。
 // 壳 = ReviewProposalCard；生命周期 = useProposalReview；action 分发 = useChannelCardActions
 // 经 PROPOSAL_ACTION_INDEX 参数化调用 config.exec。
-// 端点现状：distill/gc/audit 三类经 distillApi 走 #351 通用端点 /review-proposals/:kind/:id/*；
-// memory/knowledge 保留现有域端点（memoryApi/knowledgeApi）——#353/#355 后端接线后
+// 端点现状：distill/gc/audit/memory 四类经 #351/#353 通用端点 /review-proposals/:kind/:id/*；
+// knowledge 保留现有域端点（knowledgeApi）——#355 后端接线后
 // 只需改本文件对应条目的 exec/fetchReviewed 即可切到通用端点（kind 字段已就位）。
 import type { ReactNode } from 'react';
 import { distillApi } from '../../api/distill';
@@ -15,7 +15,7 @@ export type ProposalReviewState = 'approved' | 'rejected' | 'executed' | 'failed
 export interface ProposalCardConfig {
   /** 消息 meta.cardType（渲染分发键） */
   cardType: string;
-  /** review-proposal 注册表 kind（distill/gc/audit 已接通通用端点；memory/knowledge 待 #353/#355） */
+  /** review-proposal 注册表 kind（distill/gc/audit/memory 已接通通用端点；knowledge 待 #355） */
   kind: string;
   approveAction: string;
   rejectAction: string;
@@ -204,7 +204,7 @@ export const PROPOSAL_CARD_CONFIGS: Record<string, ProposalCardConfig> = {
     },
   },
 
-  // #101 角色记忆（域端点 /role-memory/*，#353 接线后切通用端点）
+  // #101 角色记忆（#353 已切通用端点 /review-proposals/memory/:draftId/*，逐草稿审批）
   memory_proposal: {
     cardType: 'memory_proposal',
     kind: 'memory',
@@ -212,26 +212,29 @@ export const PROPOSAL_CARD_CONFIGS: Record<string, ProposalCardConfig> = {
     rejectAction: 'memory_proposal_reject',
     approvedState: 'approved',
     exec: async (cardData, decision) => {
-      const roleId = typeof cardData?.roleId === 'string' ? cardData.roleId : '';
       const entries = cardData?.entries;
       const entryIds: string[] = Array.isArray(entries)
         ? entries
             .map((e: { draftId?: unknown }) => e?.draftId)
             .filter((id: unknown): id is string => typeof id === 'string' && id.length > 0)
         : [];
-      if (!roleId || entryIds.length === 0) return false;
-      const review = decision === 'approve' ? memoryApi.promote : memoryApi.demote;
-      await review(roleId, entryIds);
+      if (entryIds.length === 0) return false;
+      if (decision === 'approve') {
+        const results = await Promise.all(entryIds.map(id => memoryApi.approve(id)));
+        // 任一 success=false（执行失败等）→ 保持待审且不 refresh（同 distill 家族口径）
+        if (results.some(r => !r.data?.success)) return false;
+      } else {
+        await Promise.all(entryIds.map(id => memoryApi.reject(id)));
+      }
       return true;
     },
-    // 已审核态按草稿墓碑状态派生：全部 promoted → approved；全部 rejected → rejected；否则保持待审
+    // 已审核态按提案状态派生：全部 executed（旧 promoted 读侧归一）→ approved；全部 rejected → rejected；否则保持待审
     fetchReviewed: async cardData => {
-      const roleId = typeof cardData?.roleId === 'string' ? cardData.roleId : '';
       const entries = cardData?.entries as MemoryEntry[] | undefined;
-      if (!roleId || !entries?.length) return null;
-      const { data } = await memoryApi.draftStatus(roleId, entries.map(e => e.draftId));
+      if (!entries?.length) return null;
+      const { data } = await memoryApi.status(entries.map(e => e.draftId));
       const statuses = entries.map(e => data?.statuses?.[e.draftId]);
-      if (statuses.every(s => s === 'promoted')) return 'approved';
+      if (statuses.every(s => s === 'executed')) return 'approved';
       if (statuses.every(s => s === 'rejected')) return 'rejected';
       return null;
     },
