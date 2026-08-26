@@ -28,7 +28,7 @@
 import fs from 'node:fs';
 import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { FileStore, parseFrontmatter, serializeFrontmatter } from '@dommaker/studio-shared';
+import { FileStore, foldJsonlById, parseFrontmatter, serializeFrontmatter } from '@dommaker/studio-shared';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import { isTestEnv, testTmpRoot } from '../../utils/studio-log-path.js';
 
@@ -145,21 +145,33 @@ export function isDraftStatusRow(row: MemoryDraftLine): row is MemoryDraftStatus
  * 缺省 pending。后写覆盖先写（append-only 时序）。
  */
 export function foldDraftRows(rows: MemoryDraftLine[]): Map<string, DraftFold> {
-  const entries = new Map<string, MemoryDraftRow>();
-  const statuses = new Map<string, { status: MemoryDraftReviewStatus; at: string }>();
-  for (const row of rows) {
-    if (isDraftStatusRow(row)) {
-      statuses.set(row.id, { status: row.status, at: row.at });
-      continue;
-    }
-    entries.set(row.id, row);
-    if (row.promoted) statuses.set(row.id, { status: 'executed', at: row.promotedAt ?? row.createdAt });
-    else if (row.rejected) statuses.set(row.id, { status: 'rejected', at: row.rejectedAt ?? row.createdAt });
-  }
+  // #360：byId 分组折叠走共享 foldJsonlById（作废判据 = kind:'status' 状态行）。
+  // 状态口径留 adapter（后写覆盖先写，append-only 时序）：
+  //   最新行是状态行 → 直取；最新行是条目行 → 旧墓碑旗标（promoted→executed /
+  //   rejected→rejected）优先，无旗标回落末个状态行；缺省 pending。
+  // 孤儿状态行（无条目行）不产出。旗标只增不改（promote/demote 重写整行），
+  // 故最新条目行旗标 = 该 id 历史旗标口径。
   const result = new Map<string, DraftFold>();
-  for (const [id, entry] of entries) {
-    const s = statuses.get(id);
-    result.set(id, { entry, status: s?.status ?? 'pending', statusAt: s?.at ?? entry.createdAt });
+  for (const group of foldJsonlById(rows, isDraftStatusRow).values()) {
+    const entry = group.data;
+    if (entry === null || isDraftStatusRow(entry)) continue;
+    const lastStatus = group.tombstones[group.tombstones.length - 1];
+    let status: MemoryDraftReviewStatus = 'pending';
+    let statusAt = entry.createdAt;
+    if (isDraftStatusRow(group.latest)) {
+      status = group.latest.status;
+      statusAt = group.latest.at;
+    } else if (entry.promoted) {
+      status = 'executed';
+      statusAt = entry.promotedAt ?? entry.createdAt;
+    } else if (entry.rejected) {
+      status = 'rejected';
+      statusAt = entry.rejectedAt ?? entry.createdAt;
+    } else if (lastStatus !== undefined && isDraftStatusRow(lastStatus)) {
+      status = lastStatus.status;
+      statusAt = lastStatus.at;
+    }
+    result.set(entry.id, { entry, status, statusAt });
   }
   return result;
 }

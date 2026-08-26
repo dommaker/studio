@@ -7,7 +7,7 @@
  *   - appendProposal 自带 pending 墓碑；listProposals 折叠墓碑取每提案最新状态
  * 状态词表唯一口径 = pending | executed | rejected | failed | card-failed（distill 超集）。
  */
-import type { FileStore } from '@dommaker/studio-shared';
+import { foldJsonlById, type FileStore } from '@dommaker/studio-shared';
 
 export type ReviewProposalStatus = 'pending' | 'executed' | 'rejected' | 'failed' | 'card-failed';
 
@@ -46,21 +46,23 @@ export class ReviewProposalStore<P extends ReviewProposalBase> {
   /** 折叠墓碑：每提案取最新状态 */
   async listProposals(): Promise<ReviewProposalRecord<P>[]> {
     const lines = await this.fileStore.readJsonl<ProposalLine<P>>(this.filePath);
-    const proposals = new Map<string, P>();
-    const statuses = new Map<string, { status: ReviewProposalStatus; at: string }>();
-    for (const line of lines) {
-      if (line.kind === 'proposal') {
-        const { kind: _kind, ...proposal } = line;
-        proposals.set(proposal.id, proposal as unknown as P);
-      } else if (line.kind === 'status') {
-        statuses.set(line.id, { status: line.status, at: line.at });
-      }
+    // #360：byId 分组折叠走共享 foldJsonlById（作废判据 = kind:'status' 状态行）。
+    // 「状态行不丢提案」语义留 adapter：data = 最新 proposal 行；末个状态行 =
+    // 最新状态（原 statuses.set 后写胜口径）；孤儿状态行（无 proposal 行）不产出。
+    const records: ReviewProposalRecord<P>[] = [];
+    for (const group of foldJsonlById(lines, line => line.kind === 'status').values()) {
+      const data = group.data;
+      if (data === null || data.kind !== 'proposal') continue;
+      const { kind: _kind, ...proposal } = data;
+      const last = group.tombstones[group.tombstones.length - 1];
+      const statusLine = last !== undefined && last.kind === 'status' ? last : undefined;
+      records.push({
+        ...(proposal as unknown as P),
+        status: statusLine?.status ?? 'pending',
+        statusAt: statusLine?.at ?? proposal.createdAt,
+      });
     }
-    return [...proposals.values()].map(p => ({
-      ...p,
-      status: statuses.get(p.id)?.status ?? 'pending',
-      statusAt: statuses.get(p.id)?.at ?? p.createdAt,
-    }));
+    return records;
   }
 
   async getProposal(id: string): Promise<ReviewProposalRecord<P> | null> {
