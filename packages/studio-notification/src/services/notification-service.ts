@@ -2,7 +2,7 @@
  * 通知服务
  */
 
-import { FileStore, logger, generateId as sharedGenerateId } from '@dommaker/studio-shared';
+import { FileStore, foldJsonlById, logger, generateId as sharedGenerateId } from '@dommaker/studio-shared';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 
 export interface CreateNotificationInput {
@@ -66,24 +66,18 @@ export class NotificationService {
    * append-only 行折叠（#360）：按 id 分组，最新非 deleted 行作数据载体，
    * 首个 deleted 行作已读标记。getUserNotifications / markAsRead /
    * markAllAsRead / getUnreadCount 共用本口径，杜绝 #274 式漏判墓碑的分叉复写。
+   * 分组与最新行取舍走共享 foldJsonlById；墓碑 = 已读标记（非删除）的语义
+   * 留在本 adapter：data 作载体、首墓碑作 readAt。
    */
   private foldRows(rows: NotificationRow[]): Map<string, FoldedNotification> {
-    const byId = new Map<string, NotificationRow[]>();
-    for (const row of rows) {
-      const existing = byId.get(row.id) || [];
-      existing.push(row);
-      byId.set(row.id, existing);
-    }
-
     const folded = new Map<string, FoldedNotification>();
-    for (const [id, entries] of byId) {
-      const nonDeleted = entries.filter(e => !e.deleted);
-      if (nonDeleted.length === 0) continue; // 全墓碑（孤儿墓碑行）不可见
-      const tombstone = entries.find(e => e.deleted === true);
-      folded.set(id, {
-        data: nonDeleted[nonDeleted.length - 1],
-        read: tombstone !== undefined,
-        readAt: tombstone?.deletedAt ? new Date(tombstone.deletedAt) : null,
+    for (const group of foldJsonlById(rows, row => row.deleted === true).values()) {
+      if (group.data === null) continue; // 全墓碑（孤儿墓碑行）不可见
+      const firstTombstone = group.tombstones[0];
+      folded.set(group.data.id, {
+        data: group.data,
+        read: firstTombstone !== undefined,
+        readAt: firstTombstone?.deletedAt ? new Date(firstTombstone.deletedAt) : null,
       });
     }
     return folded;
