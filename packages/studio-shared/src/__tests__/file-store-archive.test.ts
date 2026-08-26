@@ -7,13 +7,18 @@
  * - 热+冷 == 归档前全量（逐条一致，含顺序）；冷文件按月落 `archive/messages-YYYY-MM.jsonl`，纯 ChannelMessageData 行
  * - 幂等（连跑两次不重复）；空操作不重写热文件；与并发 append 互斥（复用 messages.lock）
  */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, afterAll } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { FileStore, type ChannelData, type ChannelMessageData, type WorkUnitSnapshot } from '../file-store';
 
 const NOW = new Date('2026-08-25T00:00:00.000Z');
+
+const emptyDirs: string[] = [];
+afterAll(() => {
+  for (const d of emptyDirs) fs.rmSync(d, { recursive: true, force: true });
+});
 const DAY_MS = 86_400_000;
 const daysAgo = (n: number) => new Date(NOW.getTime() - n * DAY_MS).toISOString();
 
@@ -207,7 +212,9 @@ describe('频道消息归档 sweep（#327）', () => {
   });
 
   it('channels 目录不存在 → no-op（archivedMessages=0，不抛错）', async () => {
-    const emptyStore = new FileStore(fs.mkdtempSync(path.join(os.tmpdir(), 'filestore-archive-empty-')));
+    const emptyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'filestore-archive-empty-'));
+    emptyDirs.push(emptyDir);
+    const emptyStore = new FileStore(emptyDir);
     await expect(emptyStore.archiveChannelMessages()).resolves.toEqual({ archivedMessages: 0 });
   });
 });
@@ -442,7 +449,9 @@ describe('thawWorkUnitMessages reopen 解冻（#327 阶段5）', () => {
   });
 
   it('channels 目录不存在 → no-op（thawed=0，不抛错）', async () => {
-    const emptyStore = new FileStore(fs.mkdtempSync(path.join(os.tmpdir(), 'filestore-thaw-empty-')));
+    const emptyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'filestore-thaw-empty-'));
+    emptyDirs.push(emptyDir);
+    const emptyStore = new FileStore(emptyDir);
     await expect(emptyStore.thawWorkUnitMessages('wu-1')).resolves.toEqual({ thawedMessages: 0 });
   });
 });

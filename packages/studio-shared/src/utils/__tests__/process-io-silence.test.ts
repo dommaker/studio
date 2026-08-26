@@ -6,13 +6,18 @@
  *      （#68 实测 SIGTERM 只杀直接子进程，孤儿继续烧 token 26s~36min）
  *   3. 有持续输出的健康长命令不被静默看门狗误杀（健康步内静默 p99=215s，输出即续命）
  */
-import { describe, test, expect } from 'vitest';
+import { describe, test, expect, afterAll } from 'vitest';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { execSh } from '../process-io';
 
 const baseOpts = { cwd: '/tmp', timeoutMs: 30_000 };
+
+const tmpDirs: string[] = [];
+afterAll(() => {
+  for (const d of tmpDirs) fs.rmSync(d, { recursive: true, force: true });
+});
 
 function isAlive(pid: number): boolean {
   try {
@@ -64,7 +69,9 @@ describe('execSh 静默看门狗（#171）', () => {
   });
 
   test('静默杀 = 杀进程组：孙进程（后台 sleep）一并死亡，不留孤儿', async () => {
-    const pidFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'exec-sh-silence-')), 'child.pid');
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'exec-sh-silence-'));
+    tmpDirs.push(tmpDir);
+    const pidFile = path.join(tmpDir, 'child.pid');
     // bash 起后台孙进程 sleep 并 wait —— 全组无输出 → 触发静默杀
     await expect(
       execSh(`sleep 60 & echo $! > "${pidFile}"; wait`, {
@@ -80,7 +87,9 @@ describe('execSh 静默看门狗（#171）', () => {
   });
 
   test('墙钟 timeout 同样杀进程组（1800s 兜底路径同一杀法）', async () => {
-    const pidFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'exec-sh-timeout-')), 'child.pid');
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'exec-sh-timeout-'));
+    tmpDirs.push(tmpDir);
+    const pidFile = path.join(tmpDir, 'child.pid');
     await expect(
       execSh(`sleep 60 & echo $! > "${pidFile}"; wait`, {
         cwd: '/tmp',
