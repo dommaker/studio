@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { deriveDisplayState } from '@dommaker/studio-shared/web';
 import { Modal } from '../ui/Modal';
 import { requirementApi, type RequirementChain } from '../../api/requirements';
+import { formatFullTime } from '../../utils/datetime';
 import { AssigneeLabel } from '../workunit/AssigneeLabel';
 
 const reqStatusLabels: Record<string, string> = {
@@ -73,7 +74,7 @@ export function RequirementChainPanel({ reqId, onClose }: Props) {
               </span>
             </div>
             <div className="text-xs u-text-3 mt-1">
-              {req.id} · 创建于 {new Date(req.createdAt).toLocaleString('zh-CN')} · 来源 {req.createdBy}
+              {req.id} · 创建于 {formatFullTime(req.createdAt)} · 来源 {req.createdBy}
             </div>
             {req.description && <p className="text-sm u-text-2 mt-2">{req.description}</p>}
             {req.docs && req.docs.length > 0 && (

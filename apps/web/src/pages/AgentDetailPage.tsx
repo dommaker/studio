@@ -17,6 +17,7 @@ import {
   AGENT_STATUS_COLORS,
   formatUptime,
 } from '../utils/agentStatus';
+import { formatFullTime } from '../utils/datetime';
 
 const HISTORY_LIMIT = 20;
 /** #318 取舍（b）：历史任务「最近 20 条 + total」窗口无事件语义（新完成 WU 进榜/排序/total），
@@ -241,7 +242,7 @@ export function AgentDetailPage() {
         <div className="flex gap-6 mt-3 text-xs u-text-2 flex-wrap">
           <span>Profile ID: <span className="u-text-3">{profileId}</span></span>
           {instance && <span>Instance ID: <span className="u-text-3">{instance.id}</span></span>}
-          {instance && <span>Started: <span className="u-text-3">{new Date(instance.startedAt).toLocaleString('zh-CN')}</span></span>}
+          {instance && <span>Started: <span className="u-text-3">{formatFullTime(instance.startedAt)}</span></span>}
           {instance && <span>运行: <span className="u-text-3">{formatUptime(instance.startedAt)}</span></span>}
         </div>
       </div>
@@ -324,9 +325,7 @@ export function AgentDetailPage() {
                         <span className="u-text truncate flex-1">{w.scope}</span>
                         <span className="u-text-2 shrink-0">{w.status}</span>
                         <span className="u-text-3 shrink-0">
-                          {w.completedAt
-                            ? new Date(w.completedAt).toLocaleString('zh-CN')
-                            : new Date(w.updatedAt).toLocaleString('zh-CN')}
+                          {formatFullTime(w.completedAt ? w.completedAt : w.updatedAt)}
                         </span>
                       </Link>
                     ))}

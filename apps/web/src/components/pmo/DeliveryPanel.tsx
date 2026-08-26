@@ -9,6 +9,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { projectApi, type DeliveryStatus, type DeliveryGap } from '../../api';
 import { workunitApi } from '../../api/workunit';
+import { formatFullTime } from '../../utils/datetime';
 import { toast } from '../../utils/toast';
 import { AnalysisApproveDialog } from './AnalysisApproveDialog';
 import { buildMapOpeningPrefill } from './mapUtils';
@@ -213,7 +214,7 @@ export function DeliveryPanel({ projectId, delivery, onRefresh }: DeliveryPanelP
       {/* 已交付记录（时间 / 人 / commit 短哈希） */}
       {delivery.deliveredAt && (
         <div className="text-xs u-ok u-ok-dim rounded p-2 mb-2">
-          已交付: {new Date(delivery.deliveredAt).toLocaleString('zh-CN')}
+          已交付: {formatFullTime(delivery.deliveredAt)}
           {delivery.deliveredBy && ` · ${delivery.deliveredBy}`}
           {delivery.deliverCommit && ` · ${delivery.deliverCommit.slice(0, 7)}`}
         </div>

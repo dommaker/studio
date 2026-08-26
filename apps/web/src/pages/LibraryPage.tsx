@@ -6,6 +6,7 @@
  */
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { LIBRARY_DOC_STATUS_COLORS, LIBRARY_DOC_STATUS_LABELS } from '@dommaker/studio-shared/web';
 import { libraryApi, projectApi } from '../api';
 import { companyApi } from '../api/company';
 import { maintenanceApi, type TriggerCosts } from '../api/maintenance';
@@ -36,20 +37,6 @@ const kindLabels: Record<string, string> = {
   adr: 'ADR',
   context: '上下文',
   legacy: '遗产',
-};
-
-const statusLabels: Record<string, string> = {
-  draft: '草稿',
-  confirmed: '已确认',
-  done: '已完成',
-  stale: '已过期',
-};
-
-const statusColors: Record<string, string> = {
-  draft: 'u-warn-dim',
-  confirmed: 'u-ok-dim',
-  done: 'u-surface-2 u-text-3',
-  stale: 'u-surface-2 u-text-3',
 };
 
 export function LibraryPage() {
@@ -212,9 +199,9 @@ export function LibraryPage() {
                       </span>
                       {doc.status && (
                         <span
-                          className={`text-xs px-2 py-0.5 rounded-full ${statusColors[doc.status] || 'u-surface-2 u-text-3'}`}
+                          className={`text-xs px-2 py-0.5 rounded-full ${LIBRARY_DOC_STATUS_COLORS[doc.status] || 'u-surface-2 u-text-3'}`}
                         >
-                          {statusLabels[doc.status] || doc.status}
+                          {LIBRARY_DOC_STATUS_LABELS[doc.status] || doc.status}
                         </span>
                       )}
                       {(doc.tags || []).map((tag, i) => (

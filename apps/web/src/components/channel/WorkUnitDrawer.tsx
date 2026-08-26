@@ -20,8 +20,10 @@ import { SelfReviewBadge } from '../workunit/SelfReviewBadge';
 import { EvidenceLedger } from '../workunit/EvidenceLedger';
 import { AnalysisApproveDialog } from '../pmo/AnalysisApproveDialog';
 import { buildMapOpeningPrefill } from '../pmo/mapUtils';
-import { deriveDisplayState, parseAttestations } from '@dommaker/studio-shared/web';
+import { deriveDisplayState, parseAttestations, WU_STATUS_LABELS } from '@dommaker/studio-shared/web';
 import { AssigneeLabel } from '../workunit/AssigneeLabel';
+import { formatShortTime } from '../../utils/datetime';
+import { parseWuMeta } from '../../utils/wuMeta';
 
 export type DrawerState =
   // #284（决策 #250 D6）：autoApprove = analysis_confirm 接力卡「去确认」的「打开即弹」入参
@@ -34,16 +36,6 @@ const REQ_STATUS_LABELS: Record<string, string> = {
   'in-progress': '进行中',
   done: '已完成',
   archived: '已归档',
-};
-
-const WU_STATUS_LABELS: Record<string, string> = {
-  pending: '待确认',
-  unassigned: '待分配',
-  active: '执行中',
-  in_review: '审查中',
-  done: '已完成',
-  closed: '已关闭',
-  blocked: '阻塞',
 };
 
 /** wu 状态 → 状态 chip 修饰类（active=执行中 pulse / blocked=待确认 / done|closed=完成 / 其余=待定） */
@@ -77,10 +69,6 @@ interface WuMeta {
   waitingForInput?: boolean;
   waitingQuestion?: string;
   [key: string]: unknown;
-}
-
-function parseMeta(metadata: string | null): WuMeta {
-  try { return JSON.parse(metadata || '{}'); } catch { return {}; }
 }
 
 export function WorkUnitDrawer({ drawer, onClose, onOpenWu, onOpenReq }: Props) {
@@ -207,7 +195,7 @@ function WuDetail({ id, autoApprove = false, onOpenReq }: { id: string; autoAppr
   if (error) return <div className="mc-drawer-note">加载失败: {error}</div>;
   if (!wu) return <div className="mc-drawer-note">加载中…</div>;
 
-  const meta = parseMeta(wu.metadata);
+  const meta = parseWuMeta<WuMeta>(wu.metadata);
   const title = meta.title || wu.scope;
   // F6 派生（铁律：needsHuman/证据判断一律过 deriveDisplayState，不自行读 attestations 字段）
   const derived = deriveDisplayState({ status: wu.status, metadata: wu.metadata });
@@ -300,9 +288,9 @@ function WuDetail({ id, autoApprove = false, onOpenReq }: { id: string; autoAppr
         <div className="mc-kv"><span className="mc-kv-k">已执行步数</span><span className="mc-kv-v">{meta.stepCount}</span></div>
       )}
       <div className="mc-kv"><span className="mc-kv-k">重试次数</span><span className="mc-kv-v">{wu.retryCount}</span></div>
-      <div className="mc-kv"><span className="mc-kv-k">创建</span><span className="mc-kv-v">{formatTime(wu.createdAt)}</span></div>
-      {wu.claimedAt && <div className="mc-kv"><span className="mc-kv-k">认领</span><span className="mc-kv-v">{formatTime(wu.claimedAt)}</span></div>}
-      {wu.completedAt && <div className="mc-kv"><span className="mc-kv-k">完成</span><span className="mc-kv-v">{formatTime(wu.completedAt)}</span></div>}
+      <div className="mc-kv"><span className="mc-kv-k">创建</span><span className="mc-kv-v">{formatShortTime(wu.createdAt)}</span></div>
+      {wu.claimedAt && <div className="mc-kv"><span className="mc-kv-k">认领</span><span className="mc-kv-v">{formatShortTime(wu.claimedAt)}</span></div>}
+      {wu.completedAt && <div className="mc-kv"><span className="mc-kv-k">完成</span><span className="mc-kv-v">{formatShortTime(wu.completedAt)}</span></div>}
 
       {/* F6 证据台账：L1 自动验证 / L2 Agent 评审 / L3 人工验收 三层留痕（共享 EvidenceLedger，卡片变体见 WorkUnitDetailPage）。
           语义：L2 是流程硬门（过了即推进）；L3 是人工背书台账，不阻断流程（done 缺 l3 时展示回审查列）。 */}
@@ -526,7 +514,7 @@ function ReqChain({ id, onOpenWu }: { id: string; onOpenWu: (wuId: string) => vo
         <span className="mc-drawer-subject-title">{req.title}</span>
       </div>
       <div className="mc-kv"><span className="mc-kv-k">编号</span><span className="mc-kv-v">{req.id}</span></div>
-      <div className="mc-kv"><span className="mc-kv-k">创建</span><span className="mc-kv-v">{formatTime(req.createdAt)}</span></div>
+      <div className="mc-kv"><span className="mc-kv-k">创建</span><span className="mc-kv-v">{formatShortTime(req.createdAt)}</span></div>
       <div className="mc-kv"><span className="mc-kv-k">来源</span><span className="mc-kv-v">{req.createdBy}</span></div>
       {req.description && <p className="mc-drawer-desc">{req.description}</p>}
       {req.docs && req.docs.length > 0 && (
@@ -558,12 +546,4 @@ function ReqChain({ id, onOpenWu }: { id: string; onOpenWu: (wuId: string) => vo
       ))}
     </div>
   );
-}
-
-function formatTime(iso: string): string {
-  try {
-    return new Date(iso).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
-  } catch {
-    return iso;
-  }
 }

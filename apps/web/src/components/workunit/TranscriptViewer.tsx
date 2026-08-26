@@ -3,6 +3,7 @@
 // 样式沿用 ExecutionSteps 的 mc-* 类名习惯，不引入新依赖。
 import { useState } from 'react';
 import { transcriptsApi, type TranscriptEntry } from '../../api/transcript';
+import { formatShortTime } from '../../utils/datetime';
 
 const PAGE_SIZE = 20;
 
@@ -50,7 +51,7 @@ export function TranscriptViewer({ workUnitId }: { workUnitId: string }) {
             <div key={`${e.step}-${i}`} style={{ marginBottom: 8 }}>
               <div className="mc-kv">
                 <span className="mc-kv-k">#{e.step}{e.action ? ` · ${e.action}` : ''}</span>
-                <span className="mc-kv-v">{formatTime(e.createdAt)}</span>
+                <span className="mc-kv-v">{formatShortTime(e.createdAt)}</span>
               </div>
               {e.rawOutput && (
                 <div className="mc-drawer-note" style={{ fontFamily: 'monospace', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
@@ -68,12 +69,4 @@ export function TranscriptViewer({ workUnitId }: { workUnitId: string }) {
       )}
     </div>
   );
-}
-
-function formatTime(iso: string): string {
-  try {
-    return new Date(iso).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
-  } catch {
-    return iso;
-  }
 }

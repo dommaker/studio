@@ -7,6 +7,7 @@
  */
 import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { LIBRARY_DOC_STATUS_COLORS, LIBRARY_DOC_STATUS_LABELS } from '@dommaker/studio-shared/web';
 import { libraryApi } from '../api';
 
 const MarkdownBody = lazy(() => import('../components/knowledge/MarkdownBody'));
@@ -27,20 +28,6 @@ interface LibraryDocDetail {
   tags?: string[];
   updatedAt: string;
 }
-
-const statusLabels: Record<string, string> = {
-  draft: '草稿',
-  confirmed: '已确认',
-  done: '已完成',
-  stale: '已过期',
-};
-
-const statusColors: Record<string, string> = {
-  draft: 'u-warn-dim',
-  confirmed: 'u-ok-dim',
-  done: 'u-surface-2 u-text-3',
-  stale: 'u-surface-2 u-text-3',
-};
 
 export function LibraryDocPage() {
   const { id } = useParams<{ id: string }>();
@@ -139,9 +126,9 @@ export function LibraryDocPage() {
           </span>
           {doc.status && (
             <span
-              className={`text-xs px-2 py-0.5 rounded-full ${statusColors[doc.status] || 'u-surface-2 u-text-3'}`}
+              className={`text-xs px-2 py-0.5 rounded-full ${LIBRARY_DOC_STATUS_COLORS[doc.status] || 'u-surface-2 u-text-3'}`}
             >
-              {statusLabels[doc.status] || doc.status}
+              {LIBRARY_DOC_STATUS_LABELS[doc.status] || doc.status}
             </span>
           )}
           <span className="text-xs u-text-3">
