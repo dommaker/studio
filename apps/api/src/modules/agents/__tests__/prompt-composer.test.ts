@@ -9,7 +9,7 @@
  * - base prompt 不再引用不存在的 AGENTS.generated.md
  * - #119 段序：稳定前缀 persona → roster → skills → map → memory → knowledge；尾组 base → contract → handoff → hint
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, afterAll } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
@@ -17,6 +17,8 @@ import * as os from 'node:os';
 // SKILLS_DIR 在 manifest-loader 模块加载时读取 —— 必须先设再 import prompt-composer
 const testSkillsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'prompt-composer-skills-'));
 process.env.SKILLS_DIR = testSkillsDir;
+// 显式清理：本文件 `import * as fs` 走原生命名空间，mkdtemp-cleanup 补丁登记不到（见其头注）
+afterAll(() => { fs.rmSync(testSkillsDir, { recursive: true, force: true }); });
 
 const { mockInjectContext, mockAppendJsonl, mockProjectGet, mockReadIndex, mockPostWuSystemMessage } = vi.hoisted(() => ({
   mockInjectContext: vi.fn().mockResolvedValue({ prompt: '## 系统约束\n- test rule', injectedIds: ['rule-1'] }),
@@ -134,6 +136,8 @@ describe('#91: composeStepPrompt 分段软定额 + 池内余量共享 + trim 埋
     testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'prompt-composer-fs-'));
     fileStore = new FileStore(testDir);
   });
+
+  afterEach(() => { if (testDir) fs.rmSync(testDir, { recursive: true, force: true }); });
 
   it('九段软定额表：persona 300 / roster 400 / skills 600 / map 800 / memory 300 / knowledge 1000 / files 400（#285）/ contract 200 / handoff 800', () => {
     expect(SECTION_QUOTAS).toEqual({
@@ -334,6 +338,7 @@ describe('#92: skills 硬预裁剪 + MANIFEST 指针', () => {
 
   afterEach(() => {
     clearSkills();
+    if (testDir) fs.rmSync(testDir, { recursive: true, force: true });
   });
 
   it('AC1: 不匹配 wuType 的 skill 索引行不进 prompt（scope 文本匹配与 rest 热度一并被硬预裁剪）', async () => {
@@ -457,6 +462,8 @@ describe('#111 T5: PMO 地图段完整渲染（destination + 近 N 条决策 + �
     testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'prompt-composer-pmo-map-'));
     fileStore = new FileStore(testDir);
   });
+
+  afterEach(() => { if (testDir) fs.rmSync(testDir, { recursive: true, force: true }); });
 
   it('有地图 → destination 一行 + 决策新→旧 + 开放雾（open/in-discussion）清单，resolved 雾不列', async () => {
     const { knowledgeContext } = await composeWithMap({
@@ -623,6 +630,8 @@ describe('#95: handoff 前序进展段', () => {
     fileStore = new FileStore(testDir);
   });
 
+  afterEach(() => { if (testDir) fs.rmSync(testDir, { recursive: true, force: true }); });
+
   it('续用不命中（isNewSession）+ stepCount>0 → prompt 含前序进展段（progressLog 逐条渲染）', async () => {
     const { prompt } = await composeStepPrompt(
       { wu: makeWu(), metadata: meta() as any, isNewSession: true },
@@ -706,6 +715,8 @@ describe('#95: waitingQuestion 回放（仅新会话）', () => {
     fileStore = new FileStore(testDir);
   });
 
+  afterEach(() => { if (testDir) fs.rmSync(testDir, { recursive: true, force: true }); });
+
   it('新会话 + 人类回复 → 回放问题（并入人类回复段）', async () => {
     const { prompt } = await composeStepPrompt(
       {
@@ -777,6 +788,8 @@ describe('#100: 角色记忆索引常驻注入（memory 段 = per-role MEMORY.md
     testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'prompt-composer-memory-'));
     fileStore = new FileStore(testDir);
   });
+
+  afterEach(() => { if (testDir) fs.rmSync(testDir, { recursive: true, force: true }); });
 
   it('AC1/AC2: 索引存在 → memory 段注入 readIndex 全文（topic 路径 + 一句话摘要行原样保留）+ 段首协议行说明按需语义', async () => {
     const index = '# Role Memory Index\n\n- [auth-flow](topics/auth-flow.md) — OAuth 授权走 PKCE 且不回退账号密码\n- [build-cache](topics/build-cache.md) — pnpm 损坏时用 vitest/tsc-gate 直跑';
@@ -862,6 +875,7 @@ describe('#119: 契约段生成器（按 WU type）+ 段序稳定性重排', () 
 
   afterEach(() => {
     clearSkills();
+    if (testDir) fs.rmSync(testDir, { recursive: true, force: true });
   });
 
   it('AC 段序：稳定前缀 persona → roster → skills → map → memory → knowledge，map 不进 prompt 尾部', async () => {
@@ -1028,6 +1042,8 @@ describe('#161 T7-E2: processCheckHint 注入→消费→清除回路', () => {
     fileStore = new FileStore(testDir);
   });
 
+  afterEach(() => { if (testDir) fs.rmSync(testDir, { recursive: true, force: true }); });
+
   it('processCheckHint 在场 → 注入「## 过程检查提醒」段（hint 组内），consumedHintUpdates 清除', async () => {
     const { prompt, consumedHintUpdates } = await composeStepPrompt(
       {
@@ -1094,6 +1110,8 @@ describe('#285（决策 #257 D1/D2/D4/D6/D7/D9）：files 段「## 引用文件�
     testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'prompt-composer-files-'));
     fileStore = new FileStore(testDir);
   });
+
+  afterEach(() => { if (testDir) fs.rmSync(testDir, { recursive: true, force: true }); });
 
   it('段内容：绝对路径 = repo/path（尾斜杠归一防双斜杠），本工程内标相对路径，跨仓标「位于本工程之外」，段尾固定行逐字', async () => {
     const { knowledgeContext } = await composeStepPrompt(
