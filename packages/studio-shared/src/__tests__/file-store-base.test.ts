@@ -320,6 +320,23 @@ describe('FileStoreBase（直接单元测试）', () => {
       expect(events).toHaveLength(1); // 未新增回收事件
     });
 
+    it('裸锁超 OWNERLESS_LOCK_AGE_MS（2s）即回收：不等 30s 超龄兜底（2026-08-26 a2a flaky 根因）', async () => {
+      // 持锁方在 mkdir 后、写 owner.json 前被杀 → 裸锁残留；
+      // 旧语义要等 30s 兜底，期间并发同步全部耗满锁超时
+      fs.mkdirSync(lockDir(), { recursive: true });
+      const past = new Date(Date.now() - 3_000);
+      fs.utimesSync(lockDir(), past, past);
+      const { events, off } = collectLockEvents('lock.stale_reclaimed');
+      try {
+        await expect(store.withLock(lockDir(), async () => 'acquired', 3000)).resolves.toBe('acquired');
+        expect(events).toHaveLength(1);
+        expect(events[0]).toMatchObject({ criterion: 'age', ownerPid: null, ownerAcquiredAt: null });
+        expect(fs.existsSync(lockDir())).toBe(false); // 获锁-释放正常闭环
+      } finally {
+        off();
+      }
+    });
+
     it('活 pid 且未超龄的锁不被误回收：超时抛 LockTimeoutError，发 lock.acquire_timeout 携带 owner', async () => {
       writeOwner({ pid: process.pid, hostname: os.hostname(), acquiredAt: Date.now() });
       const reclaimed = collectLockEvents('lock.stale_reclaimed');
