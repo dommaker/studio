@@ -31,7 +31,8 @@
 ### 注意事项
 
 - **类型消费走 dist**：package.json `types` 指向 `dist/*.d.ts`（runtime 入口才是 src），改本包类型后须 `pnpm --filter @dommaker/studio-shared build` 重建 dist，否则下游 tsc-gate 报 TS2339（新字段不可见）。
-- **FileStore 目录布局**（`~/.studio/data/`）：`agents/{id}/profile.json` + `agents/{id}/state.json`（Agent 身份与运行时实例，永久存在仅可显式 DELETE）；channels/workunits 等同理按域分目录。其他相关路径：`~/.studio/providers.json`（provider 覆盖）、`~/.studio/workspaces/{id}.json`（workspace 记录，内嵌 runtimes）。
+- **FileStore 目录布局**（`~/.studio/data/`）：`agents/{id}/profile.json` + `agents/{id}/state.json`（Agent 身份与运行时实例，共享同一目录 namespace）；channels/workunits 等同理按域分目录。其他相关路径：`~/.studio/providers.json`（provider 覆盖）、`~/.studio/workspaces/{id}.json`（workspace 记录，内嵌 runtimes）。
+- **实例目录生命周期闭环（#363，2026-08-26）**：历史死实例只删 state.json 不删目录 → `agents/` 下空目录无界累积（实测 753 目录里 735 是空的，`listStates`/`listProfiles` 每轮空扫全部目录）。闭环三件：① `deleteState` 删 state.json 后判空删目录——目录为空才 rmdir，有 profile.json 或任何其他文件绝不碰（共享 namespace）；② `sweepEmptyAgentDirs()` 一次性存量清扫（同判空条件，幂等，挂载点 = apps/api index.ts 启动段）；③ terminated 实例回收统一归 instance-timeout-scan（apps/api 侧，每 5min 跨角色），agent-loop 的同角色启动清理已拆除。
 - provider 注册表是"装了哪些 CLI"的唯一权威定义：daemon 扫描（`apps/api/src/daemon/cli-scanner.ts`）、本地扫描（`local-workspace.ts`）、spawn（`cli-adapter.ts`）、健康探针（`agent-loop.ts`）全部从这里取定义，新增 CLI 只需 `~/.studio/providers.json`。
 - FileStore 写操作全部原子写（tmp+rename），跨进程并发经 `withLock()`（mkdir 锁）。
 - **读穿缓存 seam（工单 26 A1 + #321 扩展）**：`jsonCache`/`jsonlCache`/`dirCache`/`mdCache` 四个模块级缓存（按绝对路径 key，mtimeMs 校验，跨进程外部写靠 mtime 兜底失效；命中返回结构克隆）。`readDoc`/`readDocWithMtime`（#321：markdown frontmatter+body，后者带校验用 mtimeMs 供调用方兜底链复用同一次 stat）与公开 `readdir`（目录 mtime 校验，ENOENT 抛错语义同 fs）都住这个 seam——聚合只读层（library、sdd-legacy）读外部仓走这里，不得再裸 `fs`。写路径（`writeJson`/`writeDoc`/`appendJsonl` 等）经 `invalidateFileKey` 精确失效 + 清 dirCache。**例外：锁内读保持裸读（#314 D1，ADR 2026-08-24-cache-seam-decision-rules 例外条款），给锁外路径加缓存时不得顺手换掉锁内读。**

@@ -7,6 +7,10 @@
  *    （dispatchMonitorAlerts 既有出口）；
  *  - pid 死 / 无 pid / pid 已被复用 → 照常 terminate。
  *
+ * #363（决策 3）：terminated 实例统一回收——每轮扫描末尾对全部 terminated 实例
+ * deleteState（连带判空删目录），跨角色、不再依赖「某角色恰好启动」；
+ * agent-loop 的同角色启动清理已随之拆除。
+ *
  * 从 apps/api/src/index.ts 内联 handler 抽出，便于服务级测试。
  */
 import { logger, type FileStore } from '@dommaker/studio-shared';
@@ -22,6 +26,8 @@ export interface ScanStaleInstancesResult {
   terminated: number;
   /** 心跳过期但 pid 活 → 跳过 terminate 的实例数（疑似 FileStore 故障） */
   skippedAlive: number;
+  /** #363：本轮回收的 terminated 历史实例数（state.json + 判空删目录） */
+  reclaimed: number;
 }
 
 /** pid 存活判定：ESRCH = 死；EPERM = 活（他用户进程，无信号权限） */
@@ -71,5 +77,17 @@ export async function scanStaleAgentInstances(
       logger.warn(`[AgentTimeout] Failed to terminate ${inst.id}: ${err}`);
     }
   }
-  return { stale: stale.length, terminated, skippedAlive };
+  // #363（决策 3）：terminated 实例统一回收（跨角色）——原同角色启动清理已拆除，
+  // 回收统一由本扫描承担；deleteState 连带判空删目录，实例目录生命周期闭环。
+  // 本轮刚 terminate 的实例不在快照的 terminated 口径里，下一轮回收（5min 内）。
+  let reclaimed = 0;
+  for (const inst of allStates.filter(s => s.status === 'terminated')) {
+    try {
+      await fileStore.deleteState(inst.id);
+      reclaimed++;
+    } catch (err) {
+      logger.warn(`[AgentTimeout] Failed to reclaim terminated instance ${inst.id}: ${err}`);
+    }
+  }
+  return { stale: stale.length, terminated, skippedAlive, reclaimed };
 }

@@ -187,12 +187,8 @@ export class AgentLoop {
 
       const allStates = await this.fileStore.listStates();
 
-      // 2026-07-30 走查修复：清理该 roleId 的 terminated 历史实例（防累积）
-      // 每次 API 重启都创建新 idle 实例，旧 terminated state.json 不清理会无限累积
-      // （~/.studio/data/agents/<id>/state.json 残留，监控/频道侧栏显示历史噪音）
-      for (const s of allStates.filter(s => s.roleId === this.role.id && s.status === 'terminated')) {
-        await this.fileStore.deleteState(s.id).catch(() => {});
-      }
+      // #363：terminated 历史实例的回收已从此处拆除（原 2026-07-30 同角色启动清理），
+      // 统一由 instance-timeout-scan 承担（跨角色，每 5min，连带判空删目录闭环）。
 
       // F2: recovery — a successful probe clears previous error states for this role
       for (const s of allStates.filter(s => s.roleId === this.role.id && s.status === 'error')) {

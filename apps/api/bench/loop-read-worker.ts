@@ -97,6 +97,10 @@ async function main(): Promise<void> {
   const dataDir = path.join(HOME, 'data');
   const fileStore = new FileStore(dataDir);
 
+  // #363：模拟 API 启动时的一次性存量清扫——合成数据集继承模板的历史空实例目录，
+  // 清扫后才测得出目录闭环的读口收益（生产同路径在 index.ts 启动段）。
+  await fileStore.sweepEmptyAgentDirs();
+
   // ops getStatus 探活 stub：/api/v1/channels → 200（apiResponding=true，避开重启/退出分支）
   const stub = http.createServer((_req, res) => { res.statusCode = 200; res.end('[]'); });
   await new Promise<void>(resolve => stub.listen(OPS_PORT, '127.0.0.1', resolve));

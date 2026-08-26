@@ -100,3 +100,46 @@ describe('#179: agent-timeout-scan terminate 前 pid 复核', () => {
     expect(mockDispatch).not.toHaveBeenCalled();
   });
 });
+
+describe('#363: terminated 实例统一回收（跨角色，清理职责收进 scan）', () => {
+  it('terminated 实例被回收：state.json 与空实例目录一并消失（跨角色）', async () => {
+    await fileStore.createState('term-a', makeState('term-a', { roleId: 'role-1', status: 'terminated' }));
+    await fileStore.createState('term-b', makeState('term-b', { roleId: 'role-2', status: 'terminated' }));
+    await fileStore.createState('live', makeState('live', { roleId: 'role-3', lastHeartbeat: FRESH_HB }));
+
+    const result = await scanStaleAgentInstances(fileStore);
+
+    expect(result.reclaimed).toBe(2);
+    expect(await fileStore.getState('term-a')).toBeNull();
+    expect(await fileStore.getState('term-b')).toBeNull();
+    // 目录闭环：空实例目录一并删除
+    expect(fs.existsSync(path.join(tmpDir, 'agents', 'term-a'))).toBe(false);
+    expect(fs.existsSync(path.join(tmpDir, 'agents', 'term-b'))).toBe(false);
+    // 活实例不动
+    expect((await fileStore.getState('live'))!.status).toBe('active');
+    expect(fs.existsSync(path.join(tmpDir, 'agents', 'live'))).toBe(true);
+  });
+
+  it('terminated 实例目录内有 profile.json → state 回收、目录保留', async () => {
+    await fileStore.createProfile({
+      id: 'term-profile', name: 'p', description: null, channels: '[]',
+      status: 'active', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    });
+    await fileStore.createState('term-profile', makeState('term-profile', { status: 'terminated' }));
+
+    const result = await scanStaleAgentInstances(fileStore);
+
+    expect(result.reclaimed).toBe(1);
+    expect(await fileStore.getState('term-profile')).toBeNull();
+    expect(fs.existsSync(path.join(tmpDir, 'agents', 'term-profile', 'profile.json'))).toBe(true);
+  });
+
+  it('无 terminated 实例 → reclaimed=0（幂等）', async () => {
+    await fileStore.createState('live', makeState('live', { lastHeartbeat: FRESH_HB }));
+
+    const result = await scanStaleAgentInstances(fileStore);
+
+    expect(result.reclaimed).toBe(0);
+    expect((await fileStore.getState('live'))!.status).toBe('active');
+  });
+});

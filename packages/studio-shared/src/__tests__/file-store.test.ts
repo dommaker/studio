@@ -212,6 +212,75 @@ describe('FileStore', () => {
       const profile = await store.getProfile('agent1');
       expect(profile).not.toBeNull();
     });
+
+    // #363: agent 实例目录生命周期闭环 —— deleteState 判空删目录 + 存量清扫
+
+    it('#363 deleteState 后实例目录为空 → 目录一并删除', async () => {
+      await store.createState('agent1', makeState('agent1'));
+      const dir = path.join(tmpDir, 'agents', 'agent1');
+      expect(fs.existsSync(dir)).toBe(true);
+
+      await store.deleteState('agent1');
+
+      expect(fs.existsSync(dir)).toBe(false);
+      expect(fs.existsSync(path.join(tmpDir, 'agents'))).toBe(true); // agents/ 本体不动
+    });
+
+    it('#363 deleteState 目录内有 profile.json → 只删 state.json，目录保留', async () => {
+      await store.createProfile(makeProfile('agent1'));
+      await store.createState('agent1', makeState('agent1'));
+
+      await store.deleteState('agent1');
+
+      const dir = path.join(tmpDir, 'agents', 'agent1');
+      expect(fs.existsSync(dir)).toBe(true);
+      expect(fs.existsSync(path.join(dir, 'state.json'))).toBe(false);
+      expect(fs.existsSync(path.join(dir, 'profile.json'))).toBe(true);
+    });
+
+    it('#363 deleteState 目录内有其他文件 → 目录保留（共享 namespace 绝不碰他物）', async () => {
+      await store.createState('agent1', makeState('agent1'));
+      const dir = path.join(tmpDir, 'agents', 'agent1');
+      fs.writeFileSync(path.join(dir, 'stray.txt'), 'x');
+
+      await store.deleteState('agent1');
+
+      expect(fs.existsSync(dir)).toBe(true);
+      expect(fs.existsSync(path.join(dir, 'stray.txt'))).toBe(true);
+    });
+
+    it('#363 sweepEmptyAgentDirs 删空目录、保留有内容目录', async () => {
+      await store.createState('has-state', makeState('has-state'));
+      await store.createProfile(makeProfile('has-profile'));
+      const agentsDir = path.join(tmpDir, 'agents');
+      fs.mkdirSync(path.join(agentsDir, 'empty-1'), { recursive: true });
+      fs.mkdirSync(path.join(agentsDir, 'empty-2'), { recursive: true });
+
+      const result = await store.sweepEmptyAgentDirs();
+
+      expect(result.removed).toBe(2);
+      expect(fs.existsSync(path.join(agentsDir, 'empty-1'))).toBe(false);
+      expect(fs.existsSync(path.join(agentsDir, 'empty-2'))).toBe(false);
+      expect(fs.existsSync(path.join(agentsDir, 'has-state'))).toBe(true);
+      expect(fs.existsSync(path.join(agentsDir, 'has-profile'))).toBe(true);
+    });
+
+    it('#363 sweepEmptyAgentDirs 幂等：二次清扫 removed=0', async () => {
+      const agentsDir = path.join(tmpDir, 'agents');
+      fs.mkdirSync(path.join(agentsDir, 'empty-1'), { recursive: true });
+
+      const first = await store.sweepEmptyAgentDirs();
+      const second = await store.sweepEmptyAgentDirs();
+
+      expect(first.removed).toBe(1);
+      expect(second.removed).toBe(0);
+    });
+
+    it('#363 sweepEmptyAgentDirs agents 目录不存在 → removed=0 不抛错', async () => {
+      fs.rmSync(path.join(tmpDir, 'agents'), { recursive: true, force: true });
+      const result = await store.sweepEmptyAgentDirs();
+      expect(result.removed).toBe(0);
+    });
   });
 
   // ═══ Channel ═══
