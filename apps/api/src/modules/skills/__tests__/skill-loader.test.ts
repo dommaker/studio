@@ -3,7 +3,7 @@
  *
  * #73: File-driven loading
  */
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, afterAll, vi } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -11,6 +11,8 @@ import * as os from 'os';
 // Isolate from real skill files on disk
 const testSkillsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-test-'));
 process.env.SKILLS_DIR = testSkillsDir;
+// 显式清理：`import * as fs` 走原生命名空间，mkdtemp-cleanup 补丁登记不到（见其头注）
+afterAll(() => { fs.rmSync(testSkillsDir, { recursive: true, force: true }); });
 
 // Create flat skill file: <SKILLS_DIR>/<skillName>/SKILL.md
 function createSkillFile(skillName: string, content: string) {

@@ -5,11 +5,11 @@
  *    （monitor:alert 事件 + notifyAlert 通知出口，warning 级）
  *  - 幂等：重复 init 不重复注册
  */
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterAll } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 
-const { eventsFile, mockNotifyAlert } = vi.hoisted(() => {
+const { eventsFile, tmpEventsDir, mockNotifyAlert } = vi.hoisted(() => {
   const fs = require('fs');
   const path = require('path');
   const os = require('os');
@@ -17,8 +17,11 @@ const { eventsFile, mockNotifyAlert } = vi.hoisted(() => {
   const eventsFile = path.join(tmpEvents, 'studio-events.jsonl');
   // D18: 统一事件文件按测试文件隔离（resolveStudioEventsFile 懒读 env）
   process.env.STUDIO_EVENTS_FILE = eventsFile;
-  return { eventsFile, mockNotifyAlert: vi.fn(() => Promise.resolve()) };
+  return { eventsFile, tmpEventsDir: tmpEvents, mockNotifyAlert: vi.fn(() => Promise.resolve()) };
 });
+
+// 显式清理：hoisted 里的 require('fs') 走原生模块，mkdtemp-cleanup 补丁登记不到
+afterAll(() => { fs.rmSync(tmpEventsDir, { recursive: true, force: true }); });
 
 vi.mock('../../../utils/notifier.js', () => ({
   notifyAlert: mockNotifyAlert,

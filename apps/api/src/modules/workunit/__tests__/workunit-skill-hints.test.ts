@@ -8,7 +8,7 @@
  * - 决策 7：排序器全量产出，不再封顶 3（由调用方按预算截断）
  * - 未知 / 非 published / consumers:[loop] 的 hint 跳过并记日志
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -16,6 +16,8 @@ import * as os from 'os';
 // Isolated test skills dir（SKILLS_DIR 在模块加载时读取，必须先设再 import）
 const testSkillsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-hints-test-'));
 process.env.SKILLS_DIR = testSkillsDir;
+// 显式清理：`import * as fs` 走原生命名空间，mkdtemp-cleanup 补丁登记不到（见其头注）
+afterAll(() => { fs.rmSync(testSkillsDir, { recursive: true, force: true }); });
 
 function writeSkill(name: string, frontmatter: string) {
   fs.mkdirSync(path.join(testSkillsDir, name), { recursive: true });

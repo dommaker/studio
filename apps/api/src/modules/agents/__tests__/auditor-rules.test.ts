@@ -28,6 +28,11 @@ vi.mock('os', async (importOriginal) => {
   return { ...actual, homedir: () => tmpHome };
 });
 
+// 显式清理：hoisted 里的 require('fs') 走原生模块，mkdtemp-cleanup 补丁登记不到
+afterAll(() => {
+  for (const d of [tmpHome, tmpEvents]) fs.rmSync(d, { recursive: true, force: true });
+});
+
 vi.mock('@dommaker/studio-shared', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@dommaker/studio-shared')>();
   return { ...actual, logger: mockLogger };

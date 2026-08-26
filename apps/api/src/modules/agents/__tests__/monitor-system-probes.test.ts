@@ -1,7 +1,7 @@
 /**
  * monitor-system-probes — 系统/知识级探测与自修复
  */
-import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
+import { describe, it, expect, vi, beforeEach, beforeAll, afterAll } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -40,6 +40,11 @@ vi.mock('os', async (importOriginal) => {
 });
 
 vi.mock('child_process', () => ({ execSync: mockExecSync }));
+
+// 显式清理：hoisted 里的 require('fs') 走原生模块，mkdtemp-cleanup 补丁登记不到
+afterAll(() => {
+  for (const d of [tmpWorktrees, tmpRepo]) fs.rmSync(d, { recursive: true, force: true });
+});
 
 vi.mock('@dommaker/studio-shared', () => ({ logger: mockLogger }));
 

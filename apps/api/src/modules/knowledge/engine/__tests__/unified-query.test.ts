@@ -3,7 +3,7 @@
  * Post studio-prisma removal: "prisma"-sourced entries are rebuilt from
  * KnowledgeStore (preference/rule) + ~/.studio/snapshots/*.json (env).
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, afterAll } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -11,6 +11,8 @@ import * as os from 'os';
 // Mock knowledge-singletons.js — the only export the SUT imports from it is
 // UNIFIED_KNOWLEDGE_DIR (default store baseDir); keep it off the real home dir.
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'uq-test-'));
+// 显式清理：`import * as fs` 走原生命名空间，mkdtemp-cleanup 补丁登记不到（见其头注）
+afterAll(() => { fs.rmSync(tempDir, { recursive: true, force: true }); });
 vi.mock('../../knowledge-singletons.js', () => ({
   UNIFIED_KNOWLEDGE_DIR: tempDir,
 }));

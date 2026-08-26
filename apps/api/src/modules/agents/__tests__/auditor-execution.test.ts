@@ -3,7 +3,7 @@
  * applyLowRiskSuggestions / pushConfirmationCards / autoCreateResolutions /
  * escalateToTriage / generateEvalCases
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, afterAll } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -24,6 +24,9 @@ vi.mock('os', async (importOriginal) => {
   const actual = await importOriginal<typeof import('os')>();
   return { ...actual, homedir: () => tmpHome };
 });
+
+// 显式清理：hoisted 里的 require('fs') 走原生模块，mkdtemp-cleanup 补丁登记不到
+afterAll(() => { fs.rmSync(tmpHome, { recursive: true, force: true }); });
 
 vi.mock('../triage/triage.service.js', () => ({
   triageService: { handleAlert: mockHandleAlert },

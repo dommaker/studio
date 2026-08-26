@@ -6,7 +6,7 @@
  *   未声明 triggers 的 skill 保持 description 匹配
  * - consumers 含 'loop' 的 hub-service skill 不参与 selectSkills / selectSkillsWithDomain
  */
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, afterAll, vi } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -14,6 +14,8 @@ import * as os from 'os';
 // Isolated test skills dir（SKILLS_DIR 在模块加载时读取，必须先设再 import）
 const testSkillsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'triggers-test-'));
 process.env.SKILLS_DIR = testSkillsDir;
+// 显式清理：`import * as fs` 走原生命名空间，mkdtemp-cleanup 补丁登记不到（见其头注）
+afterAll(() => { fs.rmSync(testSkillsDir, { recursive: true, force: true }); });
 
 // importOriginal：skill-selector 还依赖 normalizeToStage，不能整包替换
 vi.mock('@dommaker/studio-shared', async (importOriginal) => {

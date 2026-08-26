@@ -11,7 +11,7 @@
  * - +skill 显式点名 step 时从 wu.scope 解析（parseSkillHintsFromScope），排最高优先级
  * - 决策 13：`## 你的角色` 段（persona ?? description，为空省略）
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, afterAll } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
@@ -21,6 +21,8 @@ const testSkillsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-loop-skills-'
 process.env.SKILLS_DIR = testSkillsDir;
 // 事件文件隔离：skill 注入度量会写 STUDIO_EVENTS_JSONL，指向临时文件避免污染生产事件流
 process.env.STUDIO_EVENTS_JSONL = path.join(testSkillsDir, 'studio-events.jsonl');
+// 显式清理：`import * as fs` 走原生命名空间，mkdtemp-cleanup 补丁登记不到（见其头注）
+afterAll(() => { fs.rmSync(testSkillsDir, { recursive: true, force: true }); });
 
 const SKILL_BODY = '## 执行步骤\n\n1. 读需求\n2. 写代码\n3. 跑测试';
 const SKILL_FIXTURE = `---\nname: feature-dev\ndescription: "功能开发流程"\nagentTypes: [feature]\ntriggers: [登录, 认证, 会话, 鉴权, 令牌]\nstatus: published\n---\n\n${SKILL_BODY}\n`;

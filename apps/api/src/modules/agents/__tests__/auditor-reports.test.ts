@@ -57,6 +57,7 @@ afterAll(() => {
   if (origStudioDataDir === undefined) delete process.env.STUDIO_DATA_DIR;
   else process.env.STUDIO_DATA_DIR = origStudioDataDir;
   fs.rmSync(tmpHome, { recursive: true, force: true });
+  fs.rmSync(tmpEvents, { recursive: true, force: true });
 });
 
 const snapshotFile = path.join(tmpHome, '.studio', 'auditor', 'daily-snapshots.jsonl');
