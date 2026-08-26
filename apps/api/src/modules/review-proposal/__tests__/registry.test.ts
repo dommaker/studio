@@ -56,6 +56,16 @@ describe('review-proposal registry', () => {
     expect(getReviewProposalAdapter('nope')).toBeUndefined();
   });
 
+  it('config.store 提供时优先使用，不物化默认 <dataDir>/<namespace>.jsonl（#353 per-role 存储例外）', async () => {
+    const { ReviewProposalStore } = await import('../store.js');
+    const custom = new ReviewProposalStore<TestProposal>(new FileStore(tmpDir), path.join(tmpDir, 'custom.jsonl'));
+    const adapter = registerReviewProposalAdapter({ ...makeConfig('test', tmpDir), store: custom });
+    expect(adapter.store).toBe(custom);
+    await adapter.store.appendProposal({ id: 'p-1', createdAt: new Date().toISOString() });
+    expect(fs.existsSync(path.join(tmpDir, 'custom.jsonl'))).toBe(true);
+    expect(fs.existsSync(path.join(tmpDir, 'test-proposals.jsonl'))).toBe(false);
+  });
+
   it('同 kind 重复注册 → 后注册生效（运行时装配幂等）', () => {
     const first = registerReviewProposalAdapter(makeConfig('test', tmpDir));
     const second = registerReviewProposalAdapter(makeConfig('test', tmpDir));

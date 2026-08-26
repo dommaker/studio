@@ -7,7 +7,7 @@
  *     add/override/retire 的具体 diff，不直接改约束文件）——#82 D6 派单通道未就绪的简化形态，
  *     派单接线后补（草案 status=pending 等派单）
  *   - preference / execution-knowledge → 角色记忆草稿（studio 系统角色，review=manual）+
- *     memory_proposal 人审卡（复用 #99 appendDraft 接线与 #101 人审卡）
+ *     memory_proposal 人审卡（#353：经 review-proposal 正本 submitMemoryProposal）
  *
  * 三类产物都带 sourceReferences 原料指针（skill→metadata、constraint→草案记录、memory→sourceRefs）。
  * 通道返回落地产物 id；返回 null / 抛错 → DistillService 回落知识条目（产物不丢）。
@@ -19,8 +19,8 @@ import yaml from 'js-yaml';
 import { logger, type FileStore } from '@dommaker/studio-shared';
 import { skillStore } from '../skills/skill-store.js';
 import { proposalStore } from '../skills/proposal-store.js';
-import { roleMemoryStore, type MemoryKind } from '../role-memory/role-memory.js';
-import { postMemoryProposalCard } from '../role-memory/memory-proposal-card.js';
+import { type MemoryKind } from '../role-memory/role-memory.js';
+import { submitMemoryProposal } from '../role-memory/review-adapter.js';
 import { ensureStudioProfile } from '../agents/agent-profile.service.js';
 import type { DistillLanding } from './distill-service.js';
 
@@ -158,21 +158,20 @@ export function createConstraintLanding(opts: { fileStore: FileStore; dataDir: s
 
 /**
  * memory 通道：preference / execution-knowledge 产物 → studio 系统角色记忆草稿（review=manual）
- * + memory_proposal 人审卡（#99 appendDraft + #101 人审卡接线）。roleId = studio 系统角色
- * （ensureStudioProfile 幂等解析）——蒸馏是系统级沉淀，锚在系统角色记忆。
+ * + memory_proposal 人审卡（#353：经 review-proposal 正本 submitMemoryProposal）。roleId = studio
+ * 系统角色（ensureStudioProfile 幂等解析）——蒸馏是系统级沉淀，锚在系统角色记忆。
  */
 export function createMemoryLanding(opts: { fileStore: FileStore }): DistillLanding {
   return async (product, ctx) => {
     const kind: MemoryKind = product.type === 'preference' ? 'preference' : 'execution-knowledge';
     const profile = await ensureStudioProfile(opts.fileStore);
-    const entry = await roleMemoryStore.appendDraft(profile.id, {
+    const entries = await submitMemoryProposal(profile.id, [{
       kind,
       title: product.title,
       content: product.content,
       review: 'manual',
       sourceRefs: ctx.materialIds,
-    });
-    await postMemoryProposalCard([entry], { source: 'distill' });
-    return entry.id;
+    }], { source: 'distill' });
+    return entries[0]?.id ?? null;
   };
 }

@@ -23,7 +23,7 @@ import { appendTranscriptStep, transcriptsDir } from '../../transcripts/transcri
 import { roleMemoryRoot, roleMemoryStore } from '../role-memory.js';
 import { resetDailyTokenBudgetState } from '../../agents/loop/daily-token-budget.js';
 
-const { mockRun, mockPostCard } = vi.hoisted(() => ({ mockRun: vi.fn(), mockPostCard: vi.fn() }));
+const { mockRun, mockSubmit } = vi.hoisted(() => ({ mockRun: vi.fn(), mockSubmit: vi.fn() }));
 
 vi.mock('../../agents/system-executor.js', () => ({
   getSystemExecutor: () => ({ run: mockRun }),
@@ -35,9 +35,11 @@ vi.mock('../../agents/system-executor.js', () => ({
   },
 }));
 
-// #101 两档路由：manual 档发卡经 postMemoryProposalCard（发卡逻辑单测在 memory-proposal-card.test.ts）
-vi.mock('../memory-proposal-card.js', () => ({
-  postMemoryProposalCard: mockPostCard,
+// #353 两档路由：manual 档经 review-adapter.submitMemoryProposal 发卡（正本生命周期行为级测试在 review-adapter.test.ts）。
+// mock 实现保留「条目落 draft.jsonl」的写盘副作用（发卡副作用剔除），让草稿 pending 断言仍走真实存储。
+vi.mock('../review-adapter.js', () => ({
+  submitMemoryProposal: mockSubmit,
+  registerMemoryReviewAdapter: vi.fn(),
 }));
 
 import { WuCompletionExtractor, buildTranscriptText, normalizeDraftInput, MEMORY_EXTRACTION_SYSTEM_PROMPT } from '../completion-extraction.js';
@@ -88,6 +90,12 @@ beforeEach(async () => {
   eventBus.unsubscribeAll?.('workunit.status_changed');
   extractor = new WuCompletionExtractor(fileStore, wuService, eventsFile);
   extractor.subscribeToEvents();
+  // mock submit 保留写盘副作用（条目落 draft.jsonl = pending 提案），剔除发卡
+  mockSubmit.mockImplementation(async (roleId: string, inputs: Array<Record<string, unknown>>) => {
+    const out = [];
+    for (const input of inputs) out.push(await roleMemoryStore.appendDraft(roleId, input as never));
+    return out;
+  });
   createdRoleIds = [];
   createdWuIds = [];
 });
@@ -327,7 +335,7 @@ describe('两档路由（#101：auto→promote / manual→卡）', () => {
     const topic = await roleMemoryStore.readTopic(roleId, 'testing-command');
     expect(topic?.body).toContain('pnpm test:api');
     expect(await roleMemoryStore.readDraft(roleId)).toHaveLength(0);
-    expect(mockPostCard).not.toHaveBeenCalled();
+    expect(mockSubmit).not.toHaveBeenCalled();
   });
 
   it('AC2-1: manual 条目发 memory_proposal 卡（不自动 promote），草稿留 pending', async () => {
@@ -344,13 +352,13 @@ describe('两档路由（#101：auto→promote / manual→卡）', () => {
     });
 
     emitStatus(wu, 'done');
-    const ok = await waitFor(async () => mockPostCard.mock.calls.length === 1);
+    const ok = await waitFor(async () => mockSubmit.mock.calls.length === 1);
     expect(ok).toBe(true);
 
     // 发卡（不自动进索引）；草稿仍 pending 待 approve
-    const [entries, ctx] = mockPostCard.mock.calls[0];
-    expect(entries).toHaveLength(1);
-    expect(entries[0].review).toBe('manual');
+    const [, inputs, ctx] = mockSubmit.mock.calls[0];
+    expect(inputs).toHaveLength(1);
+    expect(inputs[0].review).toBe('manual');
     expect(ctx.workUnitId).toBe(wu.id);
     expect(await roleMemoryStore.readIndex(roleId)).toBe('');
     expect(await roleMemoryStore.readDraft(roleId)).toHaveLength(1);
@@ -373,14 +381,14 @@ describe('两档路由（#101：auto→promote / manual→卡）', () => {
     });
 
     emitStatus(wu, 'done');
-    const ok = await waitFor(async () => mockPostCard.mock.calls.length === 1);
+    const ok = await waitFor(async () => mockSubmit.mock.calls.length === 1);
     expect(ok).toBe(true);
 
     const index = await roleMemoryStore.readIndex(roleId);
     expect(index).toContain('auto-fact');
     expect(index).not.toContain('manual-lesson');
-    const manualEntries = mockPostCard.mock.calls[0][0];
-    expect(manualEntries).toHaveLength(1);
-    expect(manualEntries[0].title).toBe('Manual Lesson');
+    const manualInputs = mockSubmit.mock.calls[0][1];
+    expect(manualInputs).toHaveLength(1);
+    expect(manualInputs[0].title).toBe('Manual Lesson');
   });
 });

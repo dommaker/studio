@@ -38,6 +38,12 @@ export interface ReviewProposalAdapterConfig<P extends ReviewProposalBase> {
   /** 数据区目录 */
   dataDir: string;
   fileStore: FileStore;
+  /**
+   * 自定义存取（可选）：缺省由正本物化 <dataDir>/<storeNamespace>.jsonl。
+   * 仅供存储形态例外域（#353 role-memory：ADR 决策 3 保留 per-role draft.jsonl，
+   * 存量历史行不改写）注入自备 store；其余域一律走默认物化。
+   */
+  store?: ReviewProposalStore<P>;
   /** 卡片内容渲染：提案 → 正文 + cardData */
   renderCardContent(proposal: P): { content: string; cardData: Record<string, unknown> };
   /** approve 后动作（唯一必须的业务副作用）；入参为审批前记录（status=pending） */
@@ -60,7 +66,7 @@ export function registerReviewProposalAdapter<P extends ReviewProposalBase>(
 ): ReviewProposalAdapter<P> {
   const adapter: ReviewProposalAdapter<P> = {
     ...config,
-    store: new ReviewProposalStore<P>(
+    store: config.store ?? new ReviewProposalStore<P>(
       config.fileStore,
       path.join(config.dataDir, `${config.storeNamespace}.jsonl`),
     ),

@@ -9,7 +9,7 @@
  *   - preference/execution-knowledge 类 → 角色记忆草稿（studio 系统角色，sourceRefs 指针）+ memory_proposal 卡
  *   - 落地通道抛错 / 未接线 → 回落知识条目，产物不丢、原料照归档
  *
- * mock 点：getSystemExecutor（LLM seam）+ channelMessageService + postMemoryProposalCard
+ * mock 点：getSystemExecutor（LLM seam）+ channelMessageService + submitMemoryProposal（#353 正本发卡接缝）
  * + skillStore/proposalStore（路径固定 ~/.studio，不可触真实数据区）；
  * 约束落盘与角色记忆走真实实现（临时 dataDir / tmpdir 重定向）。
  */
@@ -23,13 +23,13 @@ import { FileKnowledgeStore, type KnowledgeEntry } from '@dommaker/harness';
 const {
   mockRunJson,
   mockCreateCardMessage,
-  mockPostMemoryCard,
+  mockSubmitMemory,
   mockSkillCreate,
   mockProposalCreate,
 } = vi.hoisted(() => ({
   mockRunJson: vi.fn(),
   mockCreateCardMessage: vi.fn(),
-  mockPostMemoryCard: vi.fn(),
+  mockSubmitMemory: vi.fn(),
   mockSkillCreate: vi.fn(),
   mockProposalCreate: vi.fn(),
 }));
@@ -42,9 +42,12 @@ vi.mock('../../channels/channel-message.service.js', () => ({
   channelMessageService: { createCardMessage: mockCreateCardMessage },
 }));
 
-vi.mock('../../role-memory/memory-proposal-card.js', () => ({
-  postMemoryProposalCard: mockPostMemoryCard,
-}));
+// #353：memory 落地经 review-adapter.submitMemoryProposal（正本发卡；其行为级测试在 role-memory/review-adapter.test.ts）。
+// mock 实现保留「条目落 draft.jsonl」写盘副作用（真实 roleMemoryStore），剔除发卡。
+vi.mock('../../role-memory/review-adapter.js', async (importOriginal) => {
+  const actual = await importOriginal() as Record<string, unknown>;
+  return { ...actual, submitMemoryProposal: mockSubmitMemory };
+});
 
 vi.mock('../../skills/skill-store.js', () => ({
   skillStore: { create: mockSkillCreate },
@@ -138,7 +141,11 @@ beforeEach(async () => {
   });
   service = new DistillService({ store, fileStore, dataDir, eventsFile });
   mockCreateCardMessage.mockResolvedValue({ id: 'msg-1' });
-  mockPostMemoryCard.mockResolvedValue(undefined);
+  mockSubmitMemory.mockImplementation(async (roleId: string, inputs: Array<Record<string, unknown>>) => {
+    const out = [];
+    for (const input of inputs) out.push(await roleMemoryStore.appendDraft(roleId, input as never));
+    return out;
+  });
   mockSkillCreate.mockReturnValue({ id: 'skill-1' });
   mockProposalCreate.mockReturnValue({ id: 'sp-1' });
 });
@@ -364,11 +371,12 @@ describe('memory 通道（真实 roleMemoryStore + mock 发卡）', () => {
     expect(drafts[0].review).toBe('manual');
     expect(drafts[0].sourceRefs?.sort()).toEqual(proposal.materialIds.slice().sort());
 
-    // memory_proposal 卡（#101 通道）
-    expect(mockPostMemoryCard).toHaveBeenCalledTimes(1);
-    const [entries, ctx] = mockPostMemoryCard.mock.calls[0];
-    expect(entries).toHaveLength(1);
-    expect(entries[0].id).toBe(drafts[0].id);
+    // memory 落地经正本 submit（#353）：系统角色 + 条目入参 + source
+    expect(mockSubmitMemory).toHaveBeenCalledTimes(1);
+    const [submitRoleId, inputs, ctx] = mockSubmitMemory.mock.calls[0];
+    expect(submitRoleId).toBe(profiles[0].id);
+    expect(inputs).toHaveLength(1);
+    expect(inputs[0]).toMatchObject({ kind: 'preference', title: '回复用电报风', review: 'manual' });
     expect(ctx.source).toBe('distill');
   });
 });

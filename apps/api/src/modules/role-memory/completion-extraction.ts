@@ -20,7 +20,7 @@ import { parseWuMetadata } from '../workunit/wu-metadata.js';
 import { readTranscript, type TranscriptEntry } from '../transcripts/transcript-archive.js';
 import { roleMemoryStore } from './role-memory.js';
 import type { AppendDraftInput, MemoryDraftEntry } from './role-memory.js';
-import { postMemoryProposalCard } from './memory-proposal-card.js';
+import { registerMemoryReviewAdapter, submitMemoryProposal } from './review-adapter.js';
 import { getSystemExecutor, StudioRoleNotConfiguredError } from '../agents/system-executor.js';
 import {
   tokenBudgetGuardEnabled,
@@ -210,32 +210,34 @@ export class WuCompletionExtractor {
       };
       const rawEntries = Array.isArray(parsed?.entries) ? parsed.entries.slice(0, MAX_ENTRIES) : [];
 
-      const drafted: MemoryDraftEntry[] = [];
+      // 两档路由（#101）：auto=操作型事实直接落草稿并 promote 进索引（不产卡）；
+      // manual=规律/教训/偏好经 review-proposal 正本发卡人审（#353：submitMemoryProposal
+      // 逐条落 draft.jsonl（条目行即提案行）+ 聚合一张 memory_proposal 卡；approve→promote / reject→demote）。
+      const auto: MemoryDraftEntry[] = [];
+      const manualInputs: AppendDraftInput[] = [];
       for (const raw of rawEntries) {
         const input = normalizeDraftInput(raw);
         if (!input) continue;
-        drafted.push(await roleMemoryStore.appendDraft(roleId, input));
+        if (input.review === 'auto') auto.push(await roleMemoryStore.appendDraft(roleId, input));
+        else manualInputs.push(input);
       }
 
-      // 两档路由（#101）：auto=操作型事实直接 promote 进索引（不产卡）；
-      // manual=规律/教训/偏好发 memory_proposal 卡人审（approve→promote / reject→demote）。
-      const auto = drafted.filter(e => e.review === 'auto');
-      const manual = drafted.filter(e => e.review === 'manual');
       if (auto.length > 0) {
         await roleMemoryStore.promote(roleId, auto.map(e => e.id));
       }
-      if (manual.length > 0) {
-        await postMemoryProposalCard(manual, { workUnitId: wu.id, source: 'wu-completion' });
-      }
+      const manual = manualInputs.length > 0
+        ? await submitMemoryProposal(roleId, manualInputs, { workUnitId: wu.id, source: 'wu-completion' })
+        : [];
+      const entryCount = auto.length + manual.length;
 
       logger.info('[WuCompletionExtractor] extraction completed', {
-        wuId: wu.id, roleId, entryCount: drafted.length, autoCount: auto.length, manualCount: manual.length, totalTokens, durationMs,
+        wuId: wu.id, roleId, entryCount, autoCount: auto.length, manualCount: manual.length, totalTokens, durationMs,
       });
       await this.emitEvent({
         outcome: 'completed',
         workUnitId: wu.id,
         roleId,
-        entryCount: drafted.length,
+        entryCount,
         autoCount: auto.length,
         manualCount: manual.length,
         promptTokens,
@@ -284,5 +286,7 @@ export function initWuCompletionExtraction(fileStore?: FileStore): WuCompletionE
     _extractor = new WuCompletionExtractor(fs, new WorkUnitService(fs));
   }
   _extractor.subscribeToEvents();
+  // #353：memory 人审提案 adapter 注册（review-proposal 正本通用端点 kind='memory' 分发前提）
+  registerMemoryReviewAdapter({ fileStore });
   return _extractor;
 }
