@@ -3,21 +3,16 @@
  *
  * 覆盖：路径解析（测试隔离）、空 payload 拒收、正常写入形态、
  * 读 API、payload 解析、事件时间兼容（createdAt / timestamp）。
+ *
+ * #361：实现下沉 @dommaker/studio-shared（utils/studio-events.ts 变薄壳转发）。
+ * 写口内部 logger/FileStore 均为共享包相对导入，包级 mock 拦不到 —— 拒收
+ * 告警断言改 spy 真实 console（共享 logger 为 console 实现）。
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-vi.mock('@dommaker/studio-shared', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@dommaker/studio-shared')>();
-  return {
-    ...actual,
-    logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
-  };
-});
-
-import { logger } from '@dommaker/studio-shared';
 import {
   resolveStudioEventsFile,
   isEmptyEventPayload,
@@ -107,14 +102,19 @@ describe('writeStudioEvent + readStudioEvents', () => {
     ['undefined', undefined],
     ['"{}" 字符串', '{}'],
     ['空串', ''],
-  ])('空 payload（%s）拒绝落盘并 logger.warn', async (_label, payload) => {
-    const ok = await writeStudioEvent('knowledge:consumption', payload, { source: 'test', file });
-    expect(ok).toBe(false);
-    expect(logger.warn).toHaveBeenCalledWith(
-      expect.stringContaining('empty-payload'),
-      expect.objectContaining({ type: 'knowledge:consumption', source: 'test' }),
-    );
-    expect(fs.existsSync(file)).toBe(false); // 一行都不写
+  ])('空 payload（%s）拒绝落盘并 console.warn（#361 前 logger.warn）', async (_label, payload) => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const ok = await writeStudioEvent('knowledge:consumption', payload, { source: 'test', file });
+      expect(ok).toBe(false);
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('empty-payload'),
+        expect.stringContaining('knowledge:consumption'),
+      );
+      expect(fs.existsSync(file)).toBe(false); // 一行都不写
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 
   it('type 缺失拒绝落盘', async () => {

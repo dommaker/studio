@@ -18,6 +18,8 @@ export interface SkillDefinition {
   requires?: string[];
   /** 关联的 tool name（可选） */
   tools?: string[];
+  /** 执行档位（fast/standard/…；frontmatter 可选字段，缺省 standard） */
+  tier?: string;
   /** 注入到 Agent prompt 的内容 */
   prompt: string;
 }

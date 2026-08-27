@@ -202,7 +202,17 @@ describe('processSessionOutput', () => {
       streamUsage: { inputTokens: 7, outputTokens: 3, cacheReadTokens: 0, cacheCreationTokens: 0, model: '' },
     });
     expect(mockEmitSessionEnd).toHaveBeenCalledTimes(1);
-    expect(mockEmitSessionEnd).toHaveBeenCalledWith('sess-1', 'exec-1', 2);
+    // #361: sessionExtras 未传时为 undefined（payload 形态与 start 保持单一）
+    expect(mockEmitSessionEnd).toHaveBeenCalledWith('sess-1', 'exec-1', 2, undefined);
+  });
+
+  test('#361: ctx.sessionExtras 透传给 session:end（修 end/start 双 payload 形态）', async () => {
+    const stdout = JSON.stringify({ type: 'result', result: 'ok', is_error: false });
+    const sessionExtras = { workUnitId: 'wu-9', transcriptPath: '/t/wu-9.jsonl' };
+
+    await processSessionOutput(stdout, { ...baseCtx(), sessionExtras });
+
+    expect(mockEmitSessionEnd).toHaveBeenCalledWith('sess-1', 'exec-1', 2, sessionExtras);
   });
 
   test('is_error result → isError 为 true，事件/指标仍照常落盘', async () => {

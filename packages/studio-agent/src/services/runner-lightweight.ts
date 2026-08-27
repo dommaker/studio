@@ -155,6 +155,7 @@ export async function executeLightweightSession(state: RunnerExecutionState, tas
         agentRole,
         promptSize: task.prompt.length,
         provider, // #134: usage 提取按 provider 分流
+        sessionExtras, // #361: session:end 与 session:start 携带同一份 extras（单形态）
       });
 
       if (isError) {

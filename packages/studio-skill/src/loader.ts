@@ -32,6 +32,7 @@ interface SkillFrontmatter {
   tools?: string[];
   required?: string[];
   status?: string;
+  tier?: string;
   version?: number;
 }
 
@@ -50,6 +51,7 @@ function frontmatterToSkillDefinition(meta: SkillFrontmatter, prompt: string): S
     agentTypes: meta.agentTypes || [],
     tools: meta.tools,
     requires: meta.required,
+    tier: meta.tier,
     prompt,
   };
 }

@@ -9,13 +9,19 @@ const mockAppendJsonl = vi.hoisted(() => vi.fn());
 const mockSkillStoreFindFirst = vi.hoisted(() => vi.fn());
 const mockSkillStoreCreate = vi.hoisted(() => vi.fn());
 
-vi.mock('@dommaker/studio-shared', () => ({
-  FileStore: vi.fn().mockImplementation(function () { return {
-    readJsonl: mockReadJsonl,
-    appendJsonl: mockAppendJsonl,
-  }; }),
-  logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
-}));
+vi.mock('@dommaker/studio-shared', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@dommaker/studio-shared')>();
+  // #361：utils 薄壳转发的实现住共享包 —— 必须 spread actual（否则 re-export 出的
+  // 函数全为 undefined）；FileStore 仍以假实现喂数，隔离真实 ~/.studio。
+  return {
+    ...actual,
+    FileStore: vi.fn().mockImplementation(function () { return {
+      readJsonl: mockReadJsonl,
+      appendJsonl: mockAppendJsonl,
+    }; }),
+    logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
+  };
+});
 
 vi.mock('../../utils/logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },

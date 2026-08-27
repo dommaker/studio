@@ -12,18 +12,21 @@ import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
+/**
+ * #361：writeStudioEvent/readStudioEvents 实现下沉 @dommaker/studio-shared
+ * （内部 FileStore/logger 为相对导入，包级 mock 拦不到）——本文件改为真实写口 +
+ * STUDIO_EVENTS_FILE 指向 tmp 隔离文件，POST 系断言从磁盘行读取。
+ */
 // ── Hoisted mocks ─────────────────────────────────────────────────────
-const mockAppendJsonl = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
-const mockReadJsonl = vi.hoisted(() => vi.fn().mockResolvedValue([]));
 const mockGenerateSessionSummary = vi.hoisted(() => vi.fn().mockResolvedValue({}));
 
-vi.mock('@dommaker/studio-shared', () => ({
-  logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
-  FileStore: vi.fn().mockImplementation(function () { return {
-    appendJsonl: mockAppendJsonl,
-    readJsonl: mockReadJsonl,
-  }; }),
-}));
+vi.mock('@dommaker/studio-shared', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@dommaker/studio-shared')>();
+  return {
+    ...actual,
+    logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
+  };
+});
 
 vi.mock('../session-summary-generator.js', () => ({
   generateSessionSummary: mockGenerateSessionSummary,
@@ -90,9 +93,22 @@ async function invokeRoute(
 // ── Tests ─────────────────────────────────────────────────────────────
 
 describe('POST / (create event)', () => {
-  beforeEach(() => {
+  let tmpDir: string;
+  let eventsFile: string;
+
+  const writtenRows = async (): Promise<Array<Record<string, unknown>>> =>
+    (await fs.readFile(eventsFile, 'utf-8')).trim().split('\n').map((l) => JSON.parse(l));
+
+  beforeEach(async () => {
     vi.clearAllMocks();
-    mockAppendJsonl.mockResolvedValue(undefined);
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'event-routes-post-'));
+    eventsFile = path.join(tmpDir, 'studio-events.jsonl');
+    process.env.STUDIO_EVENTS_FILE = eventsFile;
+  });
+
+  afterEach(async () => {
+    delete process.env.STUDIO_EVENTS_FILE;
+    await fs.rm(tmpDir, { recursive: true, force: true });
   });
 
   it('creates event with type and source, returns 201', async () => {
@@ -104,9 +120,11 @@ describe('POST / (create event)', () => {
     expect(res.json).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'test.event', source: 'test-suite' })
     );
-    expect(mockAppendJsonl).toHaveBeenCalledOnce();
-    const stored = mockAppendJsonl.mock.calls[0][1];
-    expect(stored.payload).toBe(JSON.stringify({ key: 'value' }));
+    const rows = await writtenRows();
+    expect(rows).toHaveLength(1);
+    expect(rows[0].type).toBe('test.event');
+    expect(rows[0].source).toBe('test-suite');
+    expect(rows[0].payload).toBe(JSON.stringify({ key: 'value' }));
   });
 
   it('returns 400 when type missing', async () => {
@@ -116,7 +134,6 @@ describe('POST / (create event)', () => {
 
     expect(res.status).toHaveBeenCalledWith(400);
     expect(res.json).toHaveBeenCalledWith({ error: 'type and source are required' });
-    expect(mockAppendJsonl).not.toHaveBeenCalled();
   });
 
   it('returns 400 when source missing', async () => {
@@ -134,8 +151,8 @@ describe('POST / (create event)', () => {
     });
 
     expect(res.status).toHaveBeenCalledWith(201);
-    const stored = mockAppendJsonl.mock.calls[0][1];
-    expect(stored.payload).toBe('raw-string');
+    const rows = await writtenRows();
+    expect(rows[0].payload).toBe('raw-string');
   });
 
   it('D18: 空 payload（缺失 / {} / null）拒绝落盘 → 400', async () => {
@@ -147,7 +164,6 @@ describe('POST / (create event)', () => {
 
       expect(res.status).toHaveBeenCalledWith(400);
       expect(res.json).toHaveBeenCalledWith({ error: 'payload must be a non-empty object' });
-      expect(mockAppendJsonl).not.toHaveBeenCalled();
     }
   });
 
@@ -157,11 +173,13 @@ describe('POST / (create event)', () => {
     });
 
     expect(res.status).toHaveBeenCalledWith(400);
-    expect(mockAppendJsonl).not.toHaveBeenCalled();
+    await expect(fs.access(eventsFile)).rejects.toBeTruthy();
   });
 
-  it('returns 500 on FileStore error', async () => {
-    mockAppendJsonl.mockRejectedValueOnce(new Error('Disk full'));
+  it('returns 500 when 写盘失败（事件路径指向普通文件，mkdir ENOTDIR）', async () => {
+    const blocker = path.join(tmpDir, 'blocker');
+    await fs.writeFile(blocker, 'not a dir');
+    process.env.STUDIO_EVENTS_FILE = path.join(blocker, 'events.jsonl');
 
     const { res } = await invokeRoute(routes, 'post', '/', {
       body: { type: 'err', source: 'test', payload: { key: 'x' } },
@@ -381,9 +399,22 @@ describe('GET / (query events)', () => {
 });
 
 describe('POST /agent-events (batch ingest)', () => {
-  beforeEach(() => {
+  let tmpDir: string;
+  let eventsFile: string;
+
+  const writtenRows = async (): Promise<Array<Record<string, unknown>>> =>
+    (await fs.readFile(eventsFile, 'utf-8')).trim().split('\n').map((l) => JSON.parse(l));
+
+  beforeEach(async () => {
     vi.clearAllMocks();
-    mockAppendJsonl.mockResolvedValue(undefined);
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'event-routes-agent-'));
+    eventsFile = path.join(tmpDir, 'studio-events.jsonl');
+    process.env.STUDIO_EVENTS_FILE = eventsFile;
+  });
+
+  afterEach(async () => {
+    delete process.env.STUDIO_EVENTS_FILE;
+    await fs.rm(tmpDir, { recursive: true, force: true });
   });
 
   const validEvents = () => [
@@ -398,7 +429,8 @@ describe('POST /agent-events (batch ingest)', () => {
 
     expect(res.status).toHaveBeenCalledWith(201);
     expect(res.json).toHaveBeenCalledWith({ ingested: 2 });
-    expect(mockAppendJsonl).toHaveBeenCalledTimes(2);
+    const rows = await writtenRows();
+    expect(rows.map((r) => r.type)).toEqual(['session:start', 'tool:call']);
   });
 
   it('returns 400 when body is not array', async () => {
@@ -430,7 +462,6 @@ describe('POST /agent-events (batch ingest)', () => {
 
     expect(res.status).toHaveBeenCalledWith(400);
     expect(res.json).toHaveBeenCalledWith({ error: 'Max 500 events per batch' });
-    expect(mockAppendJsonl).not.toHaveBeenCalled();
   });
 
   it('validates required fields on each event', async () => {
@@ -456,7 +487,6 @@ describe('POST /agent-events (batch ingest)', () => {
         ]),
       })
     );
-    expect(mockAppendJsonl).not.toHaveBeenCalled();
   });
 
   it('merges agent payload with sessionId', async () => {
@@ -466,9 +496,10 @@ describe('POST /agent-events (batch ingest)', () => {
 
     await invokeRoute(routes, 'post', '/agent-events', { body: events });
 
-    const stored = mockAppendJsonl.mock.calls[0][1];
-    expect(stored.payload).toContain('"sessionId":"s1"');
-    expect(stored.payload).toContain('"foo":"bar"');
+    const rows = await writtenRows();
+    expect(rows[0].source).toBe('a1');
+    expect(String(rows[0].payload)).toContain('"sessionId":"s1"');
+    expect(String(rows[0].payload)).toContain('"foo":"bar"');
   });
 
   it('calls generateSessionSummary for session:end events', async () => {
@@ -492,8 +523,10 @@ describe('POST /agent-events (batch ingest)', () => {
     expect(mockGenerateSessionSummary).not.toHaveBeenCalled();
   });
 
-  it('returns 500 on FileStore error', async () => {
-    mockAppendJsonl.mockRejectedValueOnce(new Error('IO error'));
+  it('returns 500 when 写盘失败（事件路径指向普通文件，mkdir ENOTDIR）', async () => {
+    const blocker = path.join(tmpDir, 'blocker');
+    await fs.writeFile(blocker, 'not a dir');
+    process.env.STUDIO_EVENTS_FILE = path.join(blocker, 'events.jsonl');
 
     const { res } = await invokeRoute(routes, 'post', '/agent-events', {
       body: validEvents(),

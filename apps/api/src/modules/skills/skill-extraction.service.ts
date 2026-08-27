@@ -7,15 +7,11 @@
  *
  * Migrated from Prisma Skill/SkillProposal to file-based stores (D-005).
  */
-import { logger, recordDecision, FileStore } from '@dommaker/studio-shared';
+import { logger, recordDecision, FileStore, writeStudioEvent } from '@dommaker/studio-shared';
 import { randomUUID } from 'crypto';
 import { getSystemExecutor } from '../agents/system-executor.js';
 import { skillStore } from './skill-store.js';
 import { getSkillReviewAdapter, submitSkillProposal } from './review-adapter.js';
-import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
-
-const STUDIO_EVENTS_JSONL = resolveStudioLogFile('studio-events.jsonl');
-const fileStore = new FileStore();
 
 export interface ExtractedSkillProposal {
   id: string;
@@ -181,12 +177,11 @@ export class SkillExtractionService {
     }
 
     // S3 Gap 3c: emit skill_created for knowledge_skill_created metric
-    fileStore.appendJsonl(STUDIO_EVENTS_JSONL, {
-      type: 'knowledge:skill_created',
-      source: 'skill-extraction',
-      payload: JSON.stringify({ skillName: proposal.name, skillId: skill.id }),
-      createdAt: new Date().toISOString(),
-    }).catch(() => {});
+    // #361: 直写 appendJsonl 改统一入口 writeStudioEvent（知识事件默认 debug 级）
+    void writeStudioEvent('knowledge:skill_created', {
+      skillName: proposal.name,
+      skillId: skill.id,
+    }, { source: 'skill-extraction' });
 
     if (autoPublish) {
       logger.info('[SkillExtraction] Auto-published skill', {
