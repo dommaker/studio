@@ -120,6 +120,7 @@ export function useStreamFollow({ channelId, messages, loading, loadMore, items,
   // 该窗口内必被踩掉（issue #339 实测根因）。故改为：收敛（scrollState 清空）后一次性落地。
   // 收敛发生在 rAF 回调、不触发 React 提交，every-render effect 观察不到，须自驱 rAF 轮询。
   const fineAdjustRafRef = useRef<number | null>(null);
+  const fineAdjustMissingFramesRef = useRef(0);
   const stopFineAdjustPoll = useCallback(() => {
     if (fineAdjustRafRef.current != null) {
       cancelAnimationFrame(fineAdjustRafRef.current);
@@ -128,20 +129,30 @@ export function useStreamFollow({ channelId, messages, loading, loadMore, items,
   }, []);
   const startFineAdjustPoll = useCallback(() => {
     stopFineAdjustPoll();
+    fineAdjustMissingFramesRef.current = 0;
     const step = () => {
       fineAdjustRafRef.current = null;
       const pending = pendingFineAdjustRef.current;
       if (!pending) return; // 已放弃（读者滚动/换频道/回底）
+      const el = streamRef.current;
       const settled = virtualizerScrollSettled(virtualizer);
-      const decision = planFineAdjust({ pending, settled, anchorTop: settled ? anchorRowTop(pending.mid) : null });
+      const anchorTop = settled && el ? anchorRowTop(pending.mid) : null;
+      if (settled && anchorTop === null) fineAdjustMissingFramesRef.current += 1;
+      else fineAdjustMissingFramesRef.current = 0;
+      // 决策分支（wait/abandon/apply/宽限/读者在途）全在 planFineAdjust 纯函数，接线保持机械
+      const decision = planFineAdjust({
+        pending,
+        settled,
+        anchorTop,
+        settledMissingFrames: fineAdjustMissingFramesRef.current,
+        readerScrollInFlight: !!el && isReaderScroll(el.scrollTop, observedTopRef.current),
+      });
       if (decision.action === 'wait') {
         fineAdjustRafRef.current = requestAnimationFrame(step);
         return;
       }
       pendingFineAdjustRef.current = null;
-      const el = streamRef.current;
-      // 未归类滚动在途（读者滚动事件尚未派发）→ 不拽回读者，放弃本次校正
-      if (decision.action === 'apply' && el && !isReaderScroll(el.scrollTop, observedTopRef.current)) {
+      if (decision.action === 'apply' && el) {
         scrollStreamTo(el.scrollTop + decision.delta);
       }
     };
@@ -292,9 +303,8 @@ export function useStreamFollow({ channelId, messages, loading, loadMore, items,
     }
   }, [messages, loading, scrollStreamTo, pinAndJumpToBottom, anchorRowTop, virtualEnabled, messageToItemIndex, virtualizer, startFineAdjustPoll]);
 
-  // 阅读位置恢复第二段的落地时机已迁入 startFineAdjustPoll 的 rAF 轮询（#339），
-  // 旧的 every-render layout effect 删除：它在锚行首次进 DOM 即落地，正落在
-  // scrollToIndex 的 reconcile 收敛窗口内，落地即被后续改写踩掉。
+  // 旧 every-render 精校正 effect 已删除（#339）：锚行首次进 DOM 即落地，正落在
+  // scrollToIndex 的 reconcile 收敛窗口内，落地即被后续改写踩掉——现由上方 rAF 轮询接管。
 
   // ResizeObserver 跟随：卡片展开/图片加载撑高内容、composer 撑高压缩视口时，钉底中则跟随
   // （虚拟化下 spacer 高 = totalSize，行测量落地/新行追加同样触发 inner 尺寸变化，语义不变）

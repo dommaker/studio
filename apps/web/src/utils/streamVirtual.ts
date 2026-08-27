@@ -2,8 +2,7 @@
 // jsdom 无布局不可测 virtualizer 本体，虚拟化相关判定/映射/补偿数学全部抽纯函数在此单测；
 // hook/组件侧只负责接线（useStreamFollow 建 virtualizer、ChannelDetailPage 渲染窗口）。
 import type { StreamItem } from './streamView';
-import type { ScrollAnchor } from './streamFollow';
-import { anchorScrollDelta } from './streamFollow';
+import { anchorScrollDelta, type ScrollAnchor } from './streamFollow';
 
 /**
  * 测试 seam：jsdom 无布局（vitest MODE=test）时关闭虚拟化、渲染全量——
@@ -75,19 +74,32 @@ export type FineAdjustDecision =
   | { action: 'apply'; delta: number };
 
 /**
- * 精校正落地/放弃决策（纯函数）：
+ * 收敛后锚行缺席的宽限帧数：首个 settle 观察帧可能早于锚行所在 React 提交一拍
+ * （scroll 事件在渲染步内先于 rAF 派发，virtualizer notify 触发的提交经宏任务在
+ * 下一轮任务相才落地），单帧缺席即放弃会误杀精校正；连续缺席超宽限才视为
+ * 永久缺失（折叠 thread 内回复/过滤吃掉），保持粗定位落位。
+ */
+export const FINE_ADJUST_MISSING_GRACE_FRAMES = 10;
+
+/**
+ * 精校正落地/放弃决策（纯函数，#339；分支矩阵在此全量可测，hook 侧只机械接线）：
  * - 收敛前一律 wait——reconcile 循环仍在改写 scrollTop，此刻校正落地必被踩掉（#339 根因）；
- * - 收敛后锚行不进 DOM → abandon——收敛意味着窗口已稳定（settle 帧晚于 React 提交），
- *   缺失是永久的（折叠 thread 内回复/过滤吃掉），保持粗定位落位；
- * - 否则 apply——delta 加到 scrollTop 上锚行即回到存档 top（复用 anchorScrollDelta 语义）。
+ * - 未归类滚动在途（读者滚动事件尚未派发）→ abandon——读者意图优先，不拽回；
+ * - 收敛后锚行在 DOM → apply——delta 加到 scrollTop 上锚行即回到存档 top（复用 anchorScrollDelta 语义）；
+ * - 收敛后锚行缺席 → 宽限期内 wait，超过 FINE_ADJUST_MISSING_GRACE_FRAMES 连续缺席才 abandon。
  */
 export function planFineAdjust(args: {
   pending: ScrollAnchor;
   settled: boolean;
-  /** 锚行当前视口相对 top；null = 不在 DOM */
+  /** 锚行当前视口相对 top；未收敛时调用方传 null（本函数先按 settled 短路，null 此时无语义），收敛后 null = 不在 DOM */
   anchorTop: number | null;
+  /** 收敛且锚行缺席的连续帧数（调用方逐帧累计，非收敛帧清零） */
+  settledMissingFrames: number;
+  /** 未归类滚动在途（实际 scrollTop 偏离程序写入台账） */
+  readerScrollInFlight: boolean;
 }): FineAdjustDecision {
   if (!args.settled) return { action: 'wait' };
-  if (args.anchorTop === null) return { action: 'abandon' };
-  return { action: 'apply', delta: anchorScrollDelta(args.pending.top, args.anchorTop) };
+  if (args.readerScrollInFlight) return { action: 'abandon' };
+  if (args.anchorTop !== null) return { action: 'apply', delta: anchorScrollDelta(args.pending.top, args.anchorTop) };
+  return args.settledMissingFrames < FINE_ADJUST_MISSING_GRACE_FRAMES ? { action: 'wait' } : { action: 'abandon' };
 }
