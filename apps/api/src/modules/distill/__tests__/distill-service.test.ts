@@ -160,14 +160,12 @@ describe('端到端：矿石 → 门槛 → 发卡 → approve → 产物入库 
     const result = await approve(proposals[0].id);
     expect(result.kind).toBe('executed');
 
-    // #365：蒸馏是重 prompt + 思考型模型（实测 21-27s），必须显式放宽超时，不吃 SystemExecutor 默认 30s。
-    // 字面量断言而非引用常量：避免循环断言锁不住具体值
+    // #369：蒸馏是重 prompt 源，120s 默认超时由 SystemExecutor 按源注册表提供（调用点不再显式传）
     expect(mockRunJson).toHaveBeenCalledWith(
       expect.any(String),
       expect.objectContaining({
         systemPrompt: DISTILL_SYSTEM_PROMPT,
         eventSource: 'knowledge-distill',
-        timeoutMs: 120_000,
       }),
     );
 

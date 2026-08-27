@@ -85,7 +85,7 @@ ${(diff || '').substring(0, 3000)}
 从这个任务执行中识别隐含的设计决策。这个任务做出了什么技术选择？`;
 
       const llmStart = Date.now();
-      const result = await getSystemExecutor().runJson<{ decisions: any[] }>(prompt, { systemPrompt: EXTRACT_SYSTEM_PROMPT });
+      const result = await getSystemExecutor().runJson<{ decisions: any[] }>(prompt, { systemPrompt: EXTRACT_SYSTEM_PROMPT, eventSource: 'decision-chain-extraction' });
       const llmMs = Date.now() - llmStart;
 
       if (!result.decisions?.length) return 0;

@@ -168,7 +168,7 @@ describe('R3: extractFromConversation', () => {
     const [transcript, runOpts] = mockRun.mock.calls[0];
     expect(transcript).toContain('[user] 实现登录功能，注意上次 session 过期的坑');
     expect(transcript).toContain('[assistant] 已完成：登录功能 + session 过期根因修复');
-    expect(runOpts).toEqual({ systemPrompt: 'shared-extraction-system-prompt' });
+    expect(runOpts).toEqual({ systemPrompt: 'shared-extraction-system-prompt', eventSource: 'conversation-extraction' });
 
     // 入库：proposal（draft）+ signal 消费模式 + 来源追溯
     expect(ingest.ingestEntry).toHaveBeenCalledTimes(2);

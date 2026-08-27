@@ -354,6 +354,7 @@ export class KnowledgeService {
       const startMs = Date.now();
       const execResult = await getSystemExecutor().run(transcript, {
         systemPrompt: getExtractFromTextSystemPrompt(),
+        eventSource: 'conversation-extraction',
       });
       const durationMs = Date.now() - startMs;
       const result = JSON.parse(execResult.output) as { entries?: Array<{ type?: string; title?: string; content?: string; tags?: string[] }> };

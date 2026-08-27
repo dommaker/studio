@@ -331,5 +331,54 @@ describe('SystemExecutor', () => {
         expect.objectContaining({ timeoutMs: 30_000 }),
       );
     });
+
+    // #369：按 eventSource 注册表解析默认超时
+    it('eventSource 命中注册表时用表内默认超时（重 prompt 源 120s）', async () => {
+      await ensureStudioProfile(fileStore);
+      const profiles = await fileStore.listProfiles();
+      const studio = profiles.find(p => p.name === 'studio')!;
+      await fileStore.updateProfile(studio.id, { provider: 'claude' });
+
+      mockExecSh.mockResolvedValue({ stdout: '{}', stderr: '' });
+
+      await executor.run('test', { eventSource: 'knowledge-maintenance' });
+
+      expect(mockExecSh).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ timeoutMs: 120_000 }),
+      );
+    });
+
+    it('eventSource 未命中注册表时走 30s 默认', async () => {
+      await ensureStudioProfile(fileStore);
+      const profiles = await fileStore.listProfiles();
+      const studio = profiles.find(p => p.name === 'studio')!;
+      await fileStore.updateProfile(studio.id, { provider: 'claude' });
+
+      mockExecSh.mockResolvedValue({ stdout: '{}', stderr: '' });
+
+      await executor.run('test', { eventSource: 'some-light-source' });
+
+      expect(mockExecSh).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ timeoutMs: 30_000 }),
+      );
+    });
+
+    it('显式 timeoutMs 优先于注册表', async () => {
+      await ensureStudioProfile(fileStore);
+      const profiles = await fileStore.listProfiles();
+      const studio = profiles.find(p => p.name === 'studio')!;
+      await fileStore.updateProfile(studio.id, { provider: 'claude' });
+
+      mockExecSh.mockResolvedValue({ stdout: '{}', stderr: '' });
+
+      await executor.run('test', { eventSource: 'knowledge-distill', timeoutMs: 15_000 });
+
+      expect(mockExecSh).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ timeoutMs: 15_000 }),
+      );
+    });
   });
 });

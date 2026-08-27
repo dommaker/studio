@@ -115,12 +115,6 @@ const MATERIAL_CONTENT_MAX_CHARS = 800;
 /** 单次蒸馏最多产出的条目数（与 prompt 约定一致） */
 const MAX_PRODUCTS = 5;
 
-/**
- * 蒸馏/约束审计的 LLM 超时（#365）：重 prompt + 思考型模型实测 21-27s，
- * SystemExecutor 默认 30s 贴地，缓存 miss / 负载波动即超时 → 显式放宽。
- */
-export const DISTILL_LLM_TIMEOUT_MS = 120_000;
-
 export interface DistillServiceDeps {
   store: KnowledgeStore;
   fileStore: FileStore;
@@ -376,7 +370,8 @@ export class DistillService {
     try {
       const parsed = await getSystemExecutor().runJson<{ products?: unknown }>(
         buildDistillPrompt(materials),
-        { systemPrompt: DISTILL_SYSTEM_PROMPT, eventSource: 'knowledge-distill', timeoutMs: DISTILL_LLM_TIMEOUT_MS },
+        // 重 prompt 源：120s 由 SystemExecutor 按源注册表提供（#369）
+        { systemPrompt: DISTILL_SYSTEM_PROMPT, eventSource: 'knowledge-distill' },
       );
       const products = normalizeDistillProducts(parsed);
       const now = new Date().toISOString();
@@ -606,7 +601,7 @@ export class DistillService {
 
       const parsed = await getSystemExecutor().runJson<{ suggestions?: unknown }>(
         buildConstraintAuditPrompt(auditables, { packageDeps: this.deps.packageJsonFile ? readPackageDeps(this.deps.packageJsonFile) : [] }),
-        { systemPrompt: CONSTRAINT_AUDIT_SYSTEM_PROMPT, eventSource: 'constraint-audit', timeoutMs: DISTILL_LLM_TIMEOUT_MS },
+        { systemPrompt: CONSTRAINT_AUDIT_SYSTEM_PROMPT, eventSource: 'constraint-audit' },
       );
       const suggestions = normalizeAuditSuggestions(parsed, new Set(auditables.map(c => c.id)));
       if (suggestions.length === 0) {

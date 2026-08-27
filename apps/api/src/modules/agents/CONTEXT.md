@@ -46,6 +46,7 @@ Agent 配置（profile）、运行实例（instance）、决策循环（loop）�
 - **子 WU 不继承会话簿记**：clearSessionBookkeeping 清除 14 字段（sessionId/startedAt/sessionResumes/sessionCount/lastSessionResumed/blockReason/stepCount/consecutiveStuck/errorType/errorDetail/errorAt/_cumulativeTokens/progressLog/sessionSummary）；新增簿记字段必须同步
 - **鉴权**：POST/PUT = requireAuth()+requireNotGuest()；terminate = requireAuth()+requireAdmin()
 - **SystemExecutor 输出形态（#364）**：claude 模板固定带 `--verbose`，`--output-format json --verbose` stdout 是单行 stream-json 事件数组（产出与 usage 在末位 `type=result` 事件），非单 envelope；`extractResultEnvelope` 统一归一两种形态，mock CLI 输出时必须按真实形态（数组）写，否则测试绿生产哑
+- **SystemExecutor 按源超时（#369）**：`run()` 超时解析 = 显式 `timeoutMs` > `DEFAULT_TIMEOUT_BY_EVENT_SOURCE[eventSource]` > 30s 全局默认；注册表收编重 prompt 源 knowledge-distill / constraint-audit / knowledge-maintenance =120s（依据 #365 实测蒸馏 21-27s 撞 30s）。新调用点必须带 eventSource（同时是 system:tokens 成本聚合键）；轻源不进表走裸 30s，durationMs 遥测贴上限再评估
 - **频道发声**：里程碑+异常+每步简报+认领消息+步失败消息；认领/失败消息不过新鲜度检查
 - **认领门槛**：纯显式，三门槛：assigneeId 排他+excludeAssignee+blockedBy 依赖门禁
 - **失败步埋点**：recordOutcomeEvent 落 knowledge:outcome:failure/success

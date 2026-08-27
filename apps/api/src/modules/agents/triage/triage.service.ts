@@ -378,6 +378,7 @@ class TriageService {
         ].join('\n');
         const execResult = await getSystemExecutor().run(diagPrompt, {
           systemPrompt: '你是 SRE 故障诊断专家。简短回答，给出可执行的修复建议。',
+          eventSource: 'triage-diagnosis',
         });
         llmDiagnosis = execResult.output;
         logger.info('[TriageService] LLM fallback diagnosis', { incidentType, diagnosis: llmDiagnosis.slice(0, 200) });

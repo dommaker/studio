@@ -100,7 +100,7 @@ entriesRoutes.post('/ask', requireAuth(), requireNotGuest(), async (req, res) =>
     const systemPrompt = '你是知识库问答助手。根据提供的知识条目回答用户问题。回答必须基于知识条目内容，不要编造。引用时标注来源编号如 [1] [2]。';
     const userPrompt = `知识条目：\n${context}\n\n---\n\n用户问题：${question}`;
 
-    const answer = (await getSystemExecutor().run(userPrompt, { systemPrompt })).output;
+    const answer = (await getSystemExecutor().run(userPrompt, { systemPrompt, eventSource: 'knowledge-qa' })).output;
 
     // 4. Return answer + source references
     const sources = entries.map((e: any) => ({

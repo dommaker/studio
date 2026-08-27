@@ -147,7 +147,7 @@ Return JSON only: {"title":"...","description":"...","suggestedAssigneeId":"..."
       description?: string;
       suggestedAssigneeId?: string;
       suggestedProjectPath?: string;
-    }>(messageContent, { systemPrompt, timeoutMs: 15_000 });
+    }>(messageContent, { systemPrompt, timeoutMs: 15_000, eventSource: 'convert-to-task' });
 
     return {
       title: parsed.title || undefined,
