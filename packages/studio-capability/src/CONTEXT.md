@@ -24,3 +24,4 @@
 
 - 能力数据存储在 `~/.studio/capabilities/{name}.json`，文件命名需唯一
 - 所有时间戳使用 ISO 字符串格式（`createdAt`/`updatedAt`）
+- `scanAll()`（#362，2026-08-27）：枚举单点化到 `FileStore.listJsonInDir`，外层 catch-all 返回 [] 契约保留；差异 = 不再顺手 mkdir capabilities 目录（写路径 create() 自建）、并发读、走读穿缓存
