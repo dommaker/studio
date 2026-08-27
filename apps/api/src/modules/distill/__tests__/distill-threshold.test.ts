@@ -31,6 +31,7 @@ function entry(over: Partial<DistillThresholdEntry> = {}): DistillThresholdEntry
     tags: ['session-summary'],
     created: daysAgo(1),
     maturity: 'active',
+    origin: 'agent', // FileKnowledgeStore 落库同语义：缺失视为 agent 沉淀
     ...over,
   };
 }
@@ -126,6 +127,28 @@ const cases: Case[] = [
     expectFire: false,
     expectReason: 'no-signal',
   },
+  // ── #366 来源限定：topic 只认会话沉淀（agent）/人工单发（human），系统灌入不算模式聚集 ──
+  {
+    name: '同 tag 全 system 来源（冷启动灌入形态）→ topic 不点火',
+    entries: oreGroup('t-a', TOPIC_MIN_NEW, { origin: 'system' }),
+    lastRunAt: null,
+    expectFire: false,
+    expectReason: 'no-signal',
+  },
+  {
+    name: '同 tag 全 external 来源（批量导入形态）→ topic 不点火',
+    entries: oreGroup('t-a', TOPIC_MIN_NEW + 2, { origin: 'external' }),
+    lastRunAt: null,
+    expectFire: false,
+    expectReason: 'no-signal',
+  },
+  {
+    name: '同 tag 全 human 来源 → 照常点火（人工单发是自然产出）',
+    entries: oreGroup('t-a', TOPIC_MIN_NEW, { origin: 'human' }),
+    lastRunAt: null,
+    expectFire: true,
+    expectTopicTags: ['t-a'],
+  },
   {
     name: '上次运行之前的旧条目不认定为「新」',
     entries: oreGroup('t-a', TOPIC_MIN_NEW, { created: daysAgo(10) }),
@@ -218,5 +241,46 @@ describe('evaluateDistillThreshold — 原料清单语义', () => {
   it('lastRunAt 为非法字符串 → 视为从未运行（不炸）', () => {
     const r = evaluateDistillThreshold(oreGroup('t-a', TOPIC_MIN_NEW), { lastRunAt: 'not-a-date', lastConsumedAt: 'not-a-date' }, NOW);
     expect(r.fire).toBe(true);
+  });
+});
+
+describe('evaluateDistillThreshold — #366 来源限定（topic 信号）', () => {
+  it('来源过滤是条目级：同 tag 混源时 system 条目不凑数、不进组', () => {
+    const agents = oreGroup('t-a', TOPIC_MIN_NEW);
+    const injected = oreGroup('t-a', 5, { origin: 'system' });
+    const r = evaluateDistillThreshold([...agents, ...injected], { lastRunAt: null, lastConsumedAt: null }, NOW);
+    expect(r.fire).toBe(true);
+    // t-a 组只剩可计的 agent；5 条 system 不计数也不入组
+    expect(r.signals.topicGroups.map(g => g.tag)).toEqual(['t-a']);
+    expect(new Set(r.signals.topicGroups[0].entryIds)).toEqual(new Set(agents.map(a => a.id)));
+    for (const e of injected) expect(r.materialIds).not.toContain(e.id);
+    expect(new Set(r.materialIds)).toEqual(new Set(agents.map(a => a.id)));
+  });
+
+  it(`白名单来源差一口：${TOPIC_MIN_NEW - 1} 条 agent + 大量 system 同 tag → 不点火`, () => {
+    const entries = [
+      ...oreGroup('t-a', TOPIC_MIN_NEW - 1),
+      ...oreGroup('t-a', 10, { origin: 'system' }),
+    ];
+    const r = evaluateDistillThreshold(entries, { lastRunAt: null, lastConsumedAt: null }, NOW);
+    expect(r.fire).toBe(false);
+    expect(r.reason).toBe('no-signal');
+  });
+
+  it('origin 缺省/未知值 → 不参与 topic 计数（fail-closed）', () => {
+    const noOrigin = oreGroup('t-a', TOPIC_MIN_NEW - 1).map(e => ({ ...e, origin: undefined }));
+    const legacy = oreGroup('t-a', TOPIC_MIN_NEW).map(e => ({ ...e, origin: 'merge' as DistillThresholdEntry['origin'] }));
+    const r1 = evaluateDistillThreshold(noOrigin as DistillThresholdEntry[], { lastRunAt: null, lastConsumedAt: null }, NOW);
+    const r2 = evaluateDistillThreshold(legacy, { lastRunAt: null, lastConsumedAt: null }, NOW);
+    expect(r1.fire).toBe(false);
+    expect(r2.fire).toBe(false);
+  });
+
+  it('manual 信号不受来源限定：system 来源过审条目 ≥ MANUAL_MIN_NEW 照常点火', () => {
+    const entries = Array.from({ length: MANUAL_MIN_NEW }, (_, i) =>
+      entry({ maturity: 'verified', origin: 'system', tags: [`manual-${i}`] }));
+    const r = evaluateDistillThreshold(entries, { lastRunAt: null, lastConsumedAt: null }, NOW);
+    expect(r.fire).toBe(true);
+    expect(r.signals.manualEntryIds).toHaveLength(MANUAL_MIN_NEW);
   });
 });

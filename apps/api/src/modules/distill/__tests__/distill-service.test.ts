@@ -218,6 +218,20 @@ describe('端到端：矿石 → 门槛 → 发卡 → approve → 产物入库 
   });
 });
 
+describe('#366 冷启动灌入防御', () => {
+  it('批量同 tag 的 system 来源条目经真实 store 全链路 → 不发卡、无事件、原料不动', async () => {
+    for (let i = 0; i < 5; i++) {
+      seedOre({ tags: ['deploy-checklist'], origin: 'system', title: `[Import] batch ${i}` });
+    }
+    await service.maybePropose({});
+
+    expect(await listProposals()).toHaveLength(0);
+    expect(mockCreateCardMessage).not.toHaveBeenCalled();
+    expect(await readEvents()).toHaveLength(0);
+    expect(store.list().filter(e => e.tags.includes('deploy-checklist'))).toHaveLength(5);
+  });
+});
+
 describe('reject 路径：零副作用', () => {
   it('reject → 原料不动、无产物、无运行记录；提案 rejected + 事件落盘', async () => {
     const ores = [seedOre(), seedOre(), seedOre()];

@@ -5,8 +5,11 @@
  *
  * 信号口径：
  *   主信号（任一命中）：
- *     - topic：同一 tag 下「新条目」≥ TOPIC_MIN_NEW（3）——重复出现的模式 = 可提炼
- *     - manual：manual 人审通过（maturity verified/proven）的「新条目」≥ MANUAL_MIN_NEW（5）
+ *     - topic：同一 tag 下「新条目」≥ TOPIC_MIN_NEW（3）——重复出现的模式 = 可提炼。
+ *       来源限定（#366）：只统计会话沉淀（origin=agent）与人工单发（origin=human）条目；
+ *       系统灌入/批量导入（system/external）及未知来源不算「模式自然聚集」，也不入组
+ *     - manual：manual 人审通过（maturity verified/proven）的「新条目」≥ MANUAL_MIN_NEW（5），
+ *       不限来源——过审本身即人背书，与来源解耦
  *   辅条件（必须）：距上次蒸馏运行 ≥ COOLDOWN_DAYS（7）——纯烧钱熔断，限单周最大 LLM 开销
  *
  * 「新条目」= created 严格晚于上次「消费原料」的运行（lastConsumedAt）；从未消费 → 全部算新。
@@ -24,6 +27,12 @@ const COOLDOWN_MS = COOLDOWN_DAYS * 24 * 3600 * 1000;
 export const EXITED_MATURITY = new Set(['archived', 'deprecated']);
 /** manual 人审通过的 maturity 口径（promote 路径：draft→verified→proven）；GC 新生豁免同口径（#144） */
 export const MANUAL_APPROVED_MATURITY = new Set(['verified', 'proven']);
+/**
+ * topic 计数的来源白名单（#366）：只认会话沉淀（agent）与人工单发（human）。
+ * system/external 及未知值（存量库存在 'merge' 等类型外历史值）一律不计数——
+ * 批量打标/灌入误触蒸馏的修复闸门；漏触发有 manual 信号与提案卡人审兜底，故 fail-closed。
+ */
+export const TOPIC_ELIGIBLE_ORIGINS = new Set(['agent', 'human']);
 
 export interface DistillThresholdEntry {
   id: string;
@@ -31,6 +40,8 @@ export interface DistillThresholdEntry {
   /** ISO 8601 创建时间 */
   created: string;
   maturity: string;
+  /** 条目来源（KnowledgeEntry.origin；#366 起参与 topic 计数需在 TOPIC_ELIGIBLE_ORIGINS 内） */
+  origin?: string;
 }
 
 export interface DistillTopicGroup {
@@ -92,9 +103,11 @@ export function evaluateDistillThreshold(
     .filter(e => !Number.isFinite(lastConsumedMs) || parseTime(e.created) > lastConsumedMs)
     .sort(byCreatedThenId);
 
-  // topic 信号：按 tag 分组，每组 ≥ TOPIC_MIN_NEW 命中
+  // topic 信号：来源白名单过滤（#366）后按 tag 分组，每组 ≥ TOPIC_MIN_NEW 命中。
+  // 条目级过滤：不可计条目不凑数、不进组（避免批量灌入条目混入原料清单）
   const byTag = new Map<string, DistillThresholdEntry[]>();
   for (const e of fresh) {
+    if (!e.origin || !TOPIC_ELIGIBLE_ORIGINS.has(e.origin)) continue;
     for (const tag of e.tags) {
       const group = byTag.get(tag);
       if (group) group.push(e);
