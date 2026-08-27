@@ -33,3 +33,4 @@ GC 候选清单：蒸馏运行后按周期计龄--reference/context 层连续 3 
 - 蒸馏即消费：approve 成功且产物 >=1 -> 原料 archived；空产出不消费。失败不阻塞（maybePropose 永不抛，失败推进熔断不推进消费基线）。
 - 预算守卫：approve 时查 daily-token-budget；耗尽跳过，提案保持 pending。审计 LLM 同守卫。
 - approve 非事务：崩溃可能留半成品（原料部分归档），重跑由新提案覆盖。
+- topic 来源白名单（#366）：门槛 topic 信号只计 `origin=agent/human` 条目；system（蒸馏产物/规则扫描/历史冷启动灌入）/external/未知来源不凑数不入组——批量同 tag 误触蒸馏的闸门，漏触发由 manual 信号与卡审兜底。「只认创建时自带 tag」未做（需 tag 来源持久化）。
