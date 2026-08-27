@@ -77,6 +77,9 @@ export class SystemExecutorJsonParseError extends Error {
 
 const DEFAULT_EVENTS_FILE = resolveStudioLogFile('studio-events.jsonl');
 
+/** system:tokens 事件 source 缺省值（#370）：事件 payload / 成功打点 / 失败 warn 三处共用 */
+const DEFAULT_EVENT_SOURCE = 'system-executor';
+
 export class SystemExecutor {
   constructor(
     private fileStore: FileStore,
@@ -159,7 +162,10 @@ export class SystemExecutor {
         eventSource: opts.eventSource,
       });
     } catch (err) {
-      logger.warn('[SystemExecutor] writeSystemTokenEvent failed', { error: String(err) });
+      logger.warn('[SystemExecutor] writeSystemTokenEvent failed', {
+        error: String(err),
+        eventSource: opts.eventSource ?? DEFAULT_EVENT_SOURCE,
+      });
     }
 
     return result;
@@ -222,7 +228,7 @@ export class SystemExecutor {
     const metricsFs = new FileStore();
     await metricsFs.appendJsonl(this.eventsFile, {
       type: 'system:tokens',
-      source: args.eventSource ?? 'system-executor',
+      source: args.eventSource ?? DEFAULT_EVENT_SOURCE,
       payload: JSON.stringify({
         provider: args.provider,
         inputTokens: args.usage?.inputTokens ?? null,
@@ -231,6 +237,12 @@ export class SystemExecutor {
         promptSignature: args.promptSignature,
       }),
       createdAt: new Date().toISOString(),
+    });
+    // #370：成功打点——"跑了且写成了"有迹可查（失败路径有 warn，成功路径此前完全静默）
+    logger.info('[SystemExecutor] system:tokens event written', {
+      eventSource: args.eventSource ?? DEFAULT_EVENT_SOURCE,
+      provider: args.provider,
+      durationMs: args.durationMs,
     });
   }
 }
