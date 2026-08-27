@@ -7,6 +7,8 @@ import {
   streamItemKey,
   buildMessageToItemIndex,
   anchorScrollTopAfterPrepend,
+  virtualizerScrollSettled,
+  planFineAdjust,
 } from '../streamVirtual';
 import { deriveStreamView, type StreamUiState } from '../streamView';
 import type { ChannelMessage } from '../../api/channel';
@@ -104,5 +106,45 @@ describe('anchorScrollTopAfterPrepend（验证约束 1：measurements 数据源�
     });
     // 补偿后锚行视口相对 top = (item start + within) - scrollTop = 300
     expect(5000 - scrollTop).toBe(300);
+  });
+});
+
+describe('virtualizerScrollSettled（#339 收敛判定，virtual-core 3.17.8 内部字段锚定）', () => {
+  it('scrollState 为 null/undefined/缺失 → 已收敛（含未开始滚动与 5s 上限截断后的终态）', () => {
+    expect(virtualizerScrollSettled({ scrollState: null })).toBe(true);
+    expect(virtualizerScrollSettled({})).toBe(true);
+    expect(virtualizerScrollSettled(null)).toBe(true);
+    expect(virtualizerScrollSettled(undefined)).toBe(true);
+  });
+
+  it('scrollState 非空（reconcile 循环在跑）→ 未收敛', () => {
+    expect(virtualizerScrollSettled({ scrollState: { index: 7, align: 'start', startedAt: 1, stableFrames: 0 } })).toBe(false);
+  });
+});
+
+describe('planFineAdjust（#339 精校正第二段决策）', () => {
+  const pending = { mid: 'm9', top: 3333 };
+
+  it('收敛前一律 wait——锚行已进 DOM 也不落地（reconcile 仍在改写 scrollTop，落地即被踩掉 = issue #339 根因）', () => {
+    expect(planFineAdjust({ pending, settled: false, anchorTop: 83 })).toEqual({ action: 'wait' });
+    expect(planFineAdjust({ pending, settled: false, anchorTop: null })).toEqual({ action: 'wait' });
+  });
+
+  it('收敛后锚行进 DOM → apply：delta = 当前 top - 存档 top，加到 scrollTop 上锚行回到存档 top', () => {
+    const d = planFineAdjust({ pending, settled: true, anchorTop: 83 });
+    if (d.action !== 'apply') throw new Error(`expected apply, got ${d.action}`);
+    expect(d.delta).toBe(83 - 3333);
+    // 落点验证：scroll 后锚行视口相对 top = anchorTop - delta = 存档 top（浏览器 clamp 前的数学目标）
+    expect(83 - d.delta).toBe(3333);
+
+    // 首行部分露出（负 top）同构成立
+    const d2 = planFineAdjust({ pending: { mid: 'm1', top: -40 }, settled: true, anchorTop: 0 });
+    if (d2.action !== 'apply') throw new Error(`expected apply, got ${d2.action}`);
+    expect(d2.delta).toBe(40);
+    expect(0 - d2.delta).toBe(-40);
+  });
+
+  it('收敛后锚行仍不在 DOM（折叠 thread 内回复/过滤吃掉）→ abandon，保持粗定位落位', () => {
+    expect(planFineAdjust({ pending, settled: true, anchorTop: null })).toEqual({ action: 'abandon' });
   });
 });

@@ -5,7 +5,8 @@
 // #325（ADR 2026-08-24 channel-stream-virtualization）：虚拟化接入——virtualizer 建在本 hook，
 // 一切 virtualizer 滚动写入经自定义 scrollToFn 过台账（D4-5）；自动测量校正全关（D4-2 校正权独占）；
 // prepend 补偿数据源 = measurements 按 key 查 start（验证约束 1，不做 prepend 后 DOM 查询）；
-// 阅读位置恢复两段式（scrollToIndex 粗定位 → 锚行落地后 DOM 精校正）。
+// 阅读位置恢复两段式（scrollToIndex 粗定位 → reconcile 收敛后 DOM 精校正；
+// #339：收敛前校正会被 scrollToIndex 的 reconcile rAF 循环改写踩掉，必须等收敛后落地）。
 // 钉底/跟随仍走元素几何（spacer 高 = totalSize，距底 = 末行局部几何，等价 ADR D4-4 语义）；
 // STREAM_VIRTUAL_ENABLED=false（jsdom）时整条虚拟化路径不激活，行为与 #290 现状逐字节一致。
 // 几何判定复用 utils/streamFollow 纯函数；阅读位置序列化复用 utils/readingPosition。
@@ -15,7 +16,7 @@ import type { ChannelMessage } from '../api/channel';
 import type { StreamItem } from '../utils/streamView';
 import { isPinnedToBottom, isReaderScroll, shouldFollowBottom, captureFirstVisibleAnchor, anchorScrollDelta, type ScrollAnchor, type MessageRowRect } from '../utils/streamFollow';
 import { loadReadingPosition, saveReadingPosition, type ReadingPosition } from '../utils/readingPosition';
-import { STREAM_VIRTUAL_ENABLED, streamItemKey, anchorScrollTopAfterPrepend } from '../utils/streamVirtual';
+import { STREAM_VIRTUAL_ENABLED, streamItemKey, anchorScrollTopAfterPrepend, virtualizerScrollSettled, planFineAdjust } from '../utils/streamVirtual';
 
 /** 行高估计：消息行普遍 60~300，取 120（估计偏差只影响未测量区滚动条比例与粗定位收敛轮数） */
 const ESTIMATED_ROW_PX = 120;
@@ -114,9 +115,45 @@ export function useStreamFollow({ channelId, messages, loading, loadMore, items,
     return row.getBoundingClientRect().top - el.getBoundingClientRect().top;
   }, []);
 
+  // 阅读位置恢复第二段（#339）：scrollToIndex 会置 virtualizer 内部 scrollState 并跑 rAF
+  // reconcile 循环，测量落地期间反复把 scrollTop 改写回 align-start 目标——精校正落地于
+  // 该窗口内必被踩掉（issue #339 实测根因）。故改为：收敛（scrollState 清空）后一次性落地。
+  // 收敛发生在 rAF 回调、不触发 React 提交，every-render effect 观察不到，须自驱 rAF 轮询。
+  const fineAdjustRafRef = useRef<number | null>(null);
+  const stopFineAdjustPoll = useCallback(() => {
+    if (fineAdjustRafRef.current != null) {
+      cancelAnimationFrame(fineAdjustRafRef.current);
+      fineAdjustRafRef.current = null;
+    }
+  }, []);
+  const startFineAdjustPoll = useCallback(() => {
+    stopFineAdjustPoll();
+    const step = () => {
+      fineAdjustRafRef.current = null;
+      const pending = pendingFineAdjustRef.current;
+      if (!pending) return; // 已放弃（读者滚动/换频道/回底）
+      const settled = virtualizerScrollSettled(virtualizer);
+      const decision = planFineAdjust({ pending, settled, anchorTop: settled ? anchorRowTop(pending.mid) : null });
+      if (decision.action === 'wait') {
+        fineAdjustRafRef.current = requestAnimationFrame(step);
+        return;
+      }
+      pendingFineAdjustRef.current = null;
+      const el = streamRef.current;
+      // 未归类滚动在途（读者滚动事件尚未派发）→ 不拽回读者，放弃本次校正
+      if (decision.action === 'apply' && el && !isReaderScroll(el.scrollTop, observedTopRef.current)) {
+        scrollStreamTo(el.scrollTop + decision.delta);
+      }
+    };
+    fineAdjustRafRef.current = requestAnimationFrame(step);
+  }, [stopFineAdjustPoll, virtualizer, anchorRowTop, scrollStreamTo]);
+  // 卸载取消在途轮询（换频道不清：下一帧见 pending 为空自然退出）
+  useEffect(() => stopFineAdjustPoll, [stopFineAdjustPoll]);
+
   const pinAndJumpToBottom = useCallback(() => {
     const el = streamRef.current;
     if (!el) return;
+    pendingFineAdjustRef.current = null; // 回底（按钮/自发消息跟随）= 离开存档位置，放弃未落地的精校正
     pinnedRef.current = true;
     setShowJumpToBottom(false);
     // 写超出值由浏览器 clamp 到最大偏移；spacer 高 = totalSize，落点即末行底（等价 D4-4 末行语义）
@@ -128,6 +165,7 @@ export function useStreamFollow({ channelId, messages, loading, loadMore, items,
     const el = streamRef.current;
     if (!el) return;
     if (isReaderScroll(el.scrollTop, observedTopRef.current)) {
+      pendingFineAdjustRef.current = null; // 读者滚动意图优先：放弃未落地的精校正（#339）
       const pinned = isPinnedToBottom(el);
       pinnedRef.current = pinned;
       setShowJumpToBottom(!pinned);
@@ -227,6 +265,7 @@ export function useStreamFollow({ channelId, messages, loading, loadMore, items,
               || messagesMirrorRef.current.some(m => m.id === restore.mid && m.degraded);
             pendingFineAdjustRef.current = coarseRestore ? null : restore;
             virtualizer.scrollToIndex(idx, { align: 'start' });
+            if (pendingFineAdjustRef.current) startFineAdjustPoll();
           } else {
             // 无存档/钉底存档/锚行不在已加载集 → 定位底部（兜底语义同现状）
             pinAndJumpToBottom();
@@ -251,20 +290,11 @@ export function useStreamFollow({ channelId, messages, loading, loadMore, items,
     if (shouldFollowBottom(pinnedRef.current, lastIsOwn)) {
       pinAndJumpToBottom();
     }
-  }, [messages, loading, scrollStreamTo, pinAndJumpToBottom, anchorRowTop, virtualEnabled, messageToItemIndex, virtualizer]);
+  }, [messages, loading, scrollStreamTo, pinAndJumpToBottom, anchorRowTop, virtualEnabled, messageToItemIndex, virtualizer, startFineAdjustPoll]);
 
-  // 阅读位置恢复第二段：粗定位后锚行进入 DOM 时按存档 top 精校正一次（找到即清；
-  // 锚行所在 item 必随 scrollToIndex 渲染，渲染提交后本 effect 即命中）
-  useLayoutEffect(() => {
-    const pending = pendingFineAdjustRef.current;
-    if (!pending || !virtualEnabled) return;
-    const el = streamRef.current;
-    if (!el) return;
-    const top = anchorRowTop(pending.mid);
-    if (top === null) return; // scrollToIndex 收敛中，下轮渲染再试
-    pendingFineAdjustRef.current = null;
-    scrollStreamTo(el.scrollTop + anchorScrollDelta(pending.top, top));
-  });
+  // 阅读位置恢复第二段的落地时机已迁入 startFineAdjustPoll 的 rAF 轮询（#339），
+  // 旧的 every-render layout effect 删除：它在锚行首次进 DOM 即落地，正落在
+  // scrollToIndex 的 reconcile 收敛窗口内，落地即被后续改写踩掉。
 
   // ResizeObserver 跟随：卡片展开/图片加载撑高内容、composer 撑高压缩视口时，钉底中则跟随
   // （虚拟化下 spacer 高 = totalSize，行测量落地/新行追加同样触发 inner 尺寸变化，语义不变）
