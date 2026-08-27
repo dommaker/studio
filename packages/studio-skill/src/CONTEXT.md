@@ -8,7 +8,7 @@
 
 | 导出 | 文件 | 说明 |
 | --- | --- | --- |
-| `SkillDefinition` | `types.ts` | Skill 类型定义，包含 id、name、description、agentTypes、requires、tools、prompt |
+| `SkillDefinition` | `types.ts` | Skill 类型定义，包含 id、name、description、agentTypes、requires、tools、tier（#361 起透传 frontmatter，缺省 standard）、prompt |
 | `LoadOptions` | `loader.ts` | `load()` 的参数接口：agentType、exclude |
 | `SkillLoader` | `loader.ts` | 技能加载器类，支持缓存（5 分钟 TTL）和懒加载 |
 | `skillLoader` | `loader.ts` | `SkillLoader` 的单例实例 |
@@ -28,5 +28,6 @@
 - `SkillLoader.load()` 为同步方法，首次调用时扫描 `~/.studio/skills/<skillName>/SKILL.md` 目录，结果缓存 5 分钟后自动刷新。
 - 技能目录路径可通过环境变量 `SKILLS_DIR` 覆盖，便于测试隔离。
 - Frontmatter 解析统一委托 `@dommaker/studio-shared` 的 `parseFrontmatter`（简易行正则，不依赖 YAML 库），本包仅做 `SkillFrontmatter` 类型适配。
+- **磁盘加载唯一属主（#361，2026-08-27）**：`loadSingle(skillName)` 是 apps/api 侧按名加载 skill 的唯一入口——api skill-loader.ts 已删除自有的第三份 frontmatter 解析器与 loadSkillFromDisk，只留会话级缓存与 skill_used 事件发射；新增解析口径变更只改本包。
 - `SkillLoader` 实例 `skillLoader` 是全局单例，导出时直接实例化，内部 `customSkillsProvided` 标记未在源码完整展现，但用于区分是否已手动注册自定义技能。
 - seed 升级台账 = `<SKILLS_DIR>/.builtin-hashes.json`（name→内容 hash 中央文件，skill 目录与仓库逐字节一致）；seed 时机 = API 启动（`apps/api/src/index.ts`，有变更才重生成 MANIFEST）；仓库移除的 skill 本地留置转用户自有，用户删除的内置 skill 下次启动重建。

@@ -23,15 +23,15 @@ skills 模块负责技能（Skill）的完整生命周期管理，包括基于�
 | selectSkillsWithDomain, parseSkillHintsFromScope | skill-selector.ts | 决策 7/8/11：相关度排序器（显式 +hints > 域匹配（阶段词表归一化）> scope 匹配 > 其余按热度/名称序），全量不封顶（调用方按预算截断）；+skill 从 scope 解析 |
 | selectSkillsForInjection | skill-selector.ts | #92（#88）：skills 索引硬预裁剪 —— 只返回 hint（+skill 点名）+ 域匹配两类（按 name 去重、hint 置顶）；scope 文本匹配与 rest 热度不进注入段（段尾 MANIFEST 指针按需兜底）。复用 selectSkillsWithDomain 的 active/hint/域匹配口径（normalizeToStage 归一化） |
 | SkillRecord, SkillCreateInput, SkillUpdateInput | skill-store.ts | 技能元数据的类型定义及文件型 CRUD |
-| LoadedSkill, SessionSkillState, LoadSkillOptions | skill-loader.ts | 技能加载相关的类型定义 |
+| LoadedSkill, SessionSkillState, LoadSkillOptions | skill-loader.ts | 技能加载相关的类型定义；#361 起磁盘加载归 `@dommaker/studio-skill` 包加载器（loadSingle），本文件只留会话级 load 缓存 + skill_used 事件发射（第三份 frontmatter 解析器已删） |
 | aggregateSkillUsage, scanSkillDemotions, approveDemotion, rejectDemotion, DemotionProposalStore | skill-demotion.ts | §10.6 降级通路：skill_used 事件 + WU 终态聚合 → 降级提案（只提案不自动生效；approve 改 frontmatter status，正文逐字节保留）；提案存 ~/.studio/data/skills/demotion-proposals.json |
 | router | skill-demotion-routes.ts | 降级提案列表（?scan=true 触发扫描）/ 审批路由，挂载至 /api/v1/skills/demotion-proposals（先于 /api/v1/skills 注册） |
 
 ### 依赖关系
 
 **上游（本目录依赖）**
-- `@dommaker/studio-shared`（多个文件：logger、FileStore、modelGateway、recordDecision）
-- `@dommaker/studio-skill`（skill-loader.ts 中的 SkillTier 类型）
+- `@dommaker/studio-shared`（多个文件：logger、FileStore、modelGateway、recordDecision；#361 起 writeStudioEvent 经 utils 薄壳）
+- `@dommaker/studio-skill`（skill-loader.ts 的 skillLoader.loadSingle 磁盘加载；SkillTier 类型）
 - `express`（routes.ts、skill-proposal-routes.ts 中的 Router）
 - Node.js 内置模块：fs、path、os、crypto
 - `../channels/channel-message.service.js`（skill-proposal-routes.ts 的 retract 路由使用）

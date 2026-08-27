@@ -22,6 +22,9 @@
 | `studioDir`, `studioPath`, `defaultStudioDir`, `warnIfNonProdUsesProdRoot` | config/studio-dir（`./studio-dir` 子路径入口） | 数据根解析单入口（issue #89）：STUDIO_HOME 优先，缺省 ~/.studio；全部数据区读写必须经此，禁止新增 `os.homedir() + '.studio'` 硬编码 |
 | `createSettledTracker` / `SettledTracker` | utils/settled-tracker.ts | #228 确定性等待原语（#158 先例抽取）：fire-and-forget 异步链（事件订阅消费 / best-effort 收尾）的在途登记 `track` + `waitForSettled` 等待（while 循环兜底级联），供测试替代盲等；消费方：pmo/progress-rollup、workunit.service（reviewPassed 收尾）、agents/loop/review-dispatcher、pmo/analysis-handoff、pmo/map-opening、pmo/spec-materialization（后两者 2026-08-26 补：测试删目录前等在途链落定，消 /tmp 复活竞态） |
 | `setReadMetricsSink`, `runWithLoopLabel`, `readMetricsBegin`, `emitReadMetric` | read-metrics.ts | #323 读口量化测量 sink：模块级 sink 默认 null（关闭 = 读口一次 if 外零开销）；`runWithLoopLabel` 基于 AsyncLocalStorage 做循环归因（无 label → 'unlabeled'）；file-store 四读口（readJson/readJsonl/readIndexForQuery/readdirCached）内计时埋点（statMs/readParseMs/cloneMs/cacheHit），锁内裸读路径不埋 |
+| `writeStudioEvent`, `readStudioEvents`, `parseStudioEventPayload`, `getStudioEventTime`, `resolveStudioEventsFile`, `isEmptyEventPayload`, `defaultStudioEventLevel` | studio-events.ts | #361 D18 事件唯一写口（自 apps/api utils 下沉）：StudioEvent envelope `{ type, source?, payload(JSON string), createdAt, level? }`；空 payload 拒收、永不抛出、knowledge:*/tool:call 缺省 debug 级；apps/api utils/studio-events.ts 是兼容薄壳，packages 直用本入口。消费方：studio-agent output-capture 5 emit、api 30+ 模块 |
+| `isTestEnv`, `testTmpRoot`, `resolveStudioLogsDir`, `resolveStudioLogFile` | log-path.ts | #361 测试/生产日志路径隔离规则唯一属主（自 apps/api utils 下沉）：VITEST/NODE_ENV=test → os.tmpdir()/studio-test-logs，生产 → ~/.studio/logs；apps/api utils/studio-log-path.ts 为兼容薄壳 |
+| `matchResolutionPatterns`, `isActionableMaturity`, `formatRkbHint` | resolutions.ts | #361 RKB 匹配核心（原 studio-agent runner-output 与 api resolution.service 逐字重复段收一）：regex(i) 失败回退小写子串包含、verified/canonical 成熟度闸门、RKB hint markdown 格式化；文档扫描与 fix 提取口径留在各调用方 |
 
 ### 依赖关系
 
