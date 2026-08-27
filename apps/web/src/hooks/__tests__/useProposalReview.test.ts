@@ -105,6 +105,26 @@ describe('useProposalReview — 审核生命周期单一实现', () => {
     expect(result2.current.reviewed).toBe('executed');
   });
 
+  it('#367：act 返回 false 后按提案状态重派生一次——命中终态即时收敛，null/抛错保持待审', async () => {
+    const fetchReviewed = vi.fn().mockResolvedValue('failed');
+    const config = makeConfig({ fetchReviewed });
+    const { result } = setup(config, { onAction: vi.fn().mockResolvedValue(false) });
+    await act(async () => { await result.current.act('approve'); });
+    expect(result.current.reviewed).toBe('failed');
+
+    const fetchNull = vi.fn().mockResolvedValue(null);
+    const cfg2 = makeConfig({ fetchReviewed: fetchNull });
+    const { result: r2 } = setup(cfg2, { onAction: vi.fn().mockResolvedValue(false) });
+    await act(async () => { await r2.current.act('reject'); });
+    expect(r2.current.reviewed).toBeNull();
+
+    const fetchBoom = vi.fn().mockRejectedValue(new Error('network'));
+    const cfg3 = makeConfig({ fetchReviewed: fetchBoom });
+    const { result: r3 } = setup(cfg3, { onAction: vi.fn().mockResolvedValue(false) });
+    await act(async () => { await r3.current.act('approve'); });
+    expect(r3.current.reviewed).toBeNull();
+  });
+
   it('act 期间 pending 锁存；执行完毕（含失败）armed 复位（#288 失败重武装）', async () => {
     let resolve: (v: boolean) => void = () => {};
     const onAction = vi.fn().mockImplementation(() => new Promise<boolean>(r => { resolve = r; }));
