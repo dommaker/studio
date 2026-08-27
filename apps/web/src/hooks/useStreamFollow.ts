@@ -137,8 +137,11 @@ export function useStreamFollow({ channelId, messages, loading, loadMore, items,
   }, []);
 
   // 切换频道：下一批消息到达时按存档恢复阅读位置（无存档/钉底则定位底部）；
-  // cleanup（切走/卸载，此时 DOM 仍是旧频道消息）存档旧频道阅读位置——钉底存 null，否则记首个可见行
-  useEffect(() => {
+  // cleanup（切走/卸载，此时 DOM 仍是旧频道消息）存档旧频道阅读位置——钉底存 null，否则记首个可见行。
+  // 必须挂 layout effect（#340）：卸载时 React 删除遍历先跑组件自身 layout destroy、
+  // 后遍历子树（ref detach + DOM 移除），layout cleanup 里 streamRef 仍指向文档内节点，
+  // captureAnchor 才量得到；passive cleanup 时 ref 已 detach，存档恒为 null。
+  useLayoutEffect(() => {
     const currentId = channelId;
     scrollStateRef.current.initial = true;
     ownSendPendingRef.current = false;

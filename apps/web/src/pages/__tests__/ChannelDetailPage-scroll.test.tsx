@@ -204,6 +204,42 @@ describe('ChannelDetailPage — #290 滚动锚点与阅读位置', () => {
     await waitFor(() => expect(streamEl().scrollTop).toBe(2000));
   });
 
+  // ── #340：unmount（SPA 离开频道）路径存档 ──
+  // 修复前：存档 cleanup 挂 passive useEffect，React 卸载时先 detach ref 后 flush
+  // passive cleanup → captureAnchor 返回 null，存档恒为 null。
+
+  it('#340 非钉底阅读位置离开（unmount）存档非 null 锚点', async () => {
+    const { unmount } = renderPage();
+    await waitFor(() => expect(screen.getByText('#rnd-主研发')).toBeTruthy());
+    readerScrollTo(100); // 读者上翻，脱离钉底
+
+    unmount();
+    expect(window.localStorage.getItem('studio-channel-reading-pos:ch-1'))
+      .toBe(JSON.stringify({ mid: 'm2', top: 10 }));
+  });
+
+  it('#340 钉底状态离开（unmount）存 null', async () => {
+    const { unmount } = renderPage();
+    await waitFor(() => expect(screen.getByText('#rnd-主研发')).toBeTruthy());
+    // 不模拟读者滚动：保持钉底
+
+    unmount();
+    expect(window.localStorage.getItem('studio-channel-reading-pos:ch-1')).toBe('null');
+  });
+
+  it('#340 unmount 存档 → 重进频道恢复到离开时的锚行（往返）', async () => {
+    const first = renderPage();
+    await waitFor(() => expect(screen.getByText('#rnd-主研发')).toBeTruthy());
+    readerScrollTo(100); // 读者上翻，脱离钉底
+
+    first.unmount();
+    // 存档时 m2 在 top=10；重进时 m2 被挤到 310 → 恢复后 scrollTop = 0 + (310-10)
+    rectMap.m2 = { top: 310, bottom: 390 };
+    renderPage();
+    await waitFor(() => expect(streamEl().scrollTop).toBe(300));
+    await waitFor(() => expect(screen.getByText('↓ 回到底部')).toBeTruthy());
+  });
+
   it('#27 快速连切时消息仍属上频道 → 不给当前频道写污染存档', async () => {
     renderPage();
     await waitFor(() => expect(screen.getByText('#rnd-主研发')).toBeTruthy());
