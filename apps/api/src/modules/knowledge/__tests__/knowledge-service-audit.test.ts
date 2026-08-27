@@ -74,14 +74,14 @@ describe('KnowledgeService M1: getAuditReport from fixture events + store', () =
   it('computes eventCounts / entries / topReferenced / extractionActivity from real sources', async () => {
     const now = Date.now();
     const lines = [
+      // 窗口外（40 天前）应被忽略——须排在最旧（文件头）：#342 窗口读口倒扫早停的前提是 append-only 单调
+      consumptionLine(new Date(now - 40 * DAYS)),
       consumptionLine(new Date(now - 1 * 3600_000)),
       consumptionLine(new Date(now - 2 * 3600_000)),
       outcomeLine(true, new Date(now - 1 * DAYS)),
       outcomeLine(false, new Date(now - 2 * DAYS)),
       extractionLine(1200, new Date(now - 3 * 3600_000)),
       extractionLine(800, new Date(now - 1 * 3600_000)),
-      // 窗口外（40 天前）应被忽略
-      consumptionLine(new Date(now - 40 * DAYS)),
       // 噪音事件应被忽略
       JSON.stringify({ type: 'agent_session', source: 'agent-executor', payload: '{}', createdAt: new Date(now).toISOString() }),
     ];

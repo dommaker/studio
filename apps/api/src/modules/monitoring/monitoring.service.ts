@@ -4,7 +4,8 @@ import type { AuditReport, FlywheelMetrics } from '../knowledge/knowledge-servic
 import type { ProjectData } from '../pmo/project.service.js';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
+// #342：窗口读口（尾部倒读 + 窗口外早停）——getOverheadStats 事件读切到此读口
+import { readStudioEventsSince } from '../../utils/studio-events-tail.js';
 // #318：WU 聚合上下文提取为共享出口（agent-loop 的 instance status_changed 负载同源）
 import {
   loadCurrentWuContexts,
@@ -14,8 +15,6 @@ import {
 } from './current-wu-context.js';
 
 export type { AgentCurrentWorkUnit, AgentPmoSummary };
-
-const STUDIO_EVENTS_JSONL = resolveStudioLogFile('studio-events.jsonl');
 
 /** M2 成本红线（vision §3）：知识/约束注入 ≤ 2K tokens/任务 */
 export const INJECTED_TOKEN_BUDGET = 2_000;
@@ -283,13 +282,19 @@ export class MonitoringService {
    * 窗口内无 workunit:tokens 事件 → 显式 0/null + source='insufficient-data'（不编造）。
    */
   async getOverheadStats(opts?: { eventsFile?: string; windowDays?: number }): Promise<OverheadStats> {
+    // #342：窗口读（默认 30d，与 aggregateOverheadEvents 窗口口径一致）——窗口外行不 parse，
+    // 读成本随窗口行数而非文件总量；文件不存在由读口返 []，其他 IO 错误降级为数据不足。
+    const now = Date.now();
     let rows: any[] = [];
     try {
-      rows = await this.fileStore.readJsonl<any>(opts?.eventsFile ?? STUDIO_EVENTS_JSONL);
+      rows = await readStudioEventsSince({
+        file: opts?.eventsFile,
+        sinceMs: now - (opts?.windowDays ?? 30) * 86_400_000,
+      });
     } catch {
-      rows = []; // 事件文件不存在/不可读 → 数据不足
+      rows = [];
     }
-    return aggregateOverheadEvents(rows, { windowDays: opts?.windowDays });
+    return aggregateOverheadEvents(rows, { windowDays: opts?.windowDays, now });
   }
 }
 

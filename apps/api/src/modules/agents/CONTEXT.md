@@ -54,5 +54,6 @@ Agent 配置（profile）、运行实例（instance）、决策循环（loop）�
 - **Auditor 零执行早退**：24h 零执行不 push 不记录不升级
 - **WU 收尾提取**：订阅 done -> 读 transcript -> LLM -> 角色记忆草稿区；与 R3 并行独立
 - `AgentLoopRegistry.mount()` 幂等不抛错；Agent 数据均 FileStore 存储；审计日志写 `~/.studio/logs/studio-events.jsonl`
+- **token 视图读口窗口化（#342，2026-08-27）**：token-usage.service 三个事件读点（getAgentTokenUsage / aggregateTreeTokens / sumTokensForWorkUnits）切 `readStudioEventsSince` 窗口读（30d = #173 事件热保留期，先例 #335 wu-changed-files）；**totals / 树聚合 rootTotal / PMO 台账求和口径从「文件全量」收敛为 30d 窗口内**——生产热文件本就 ≈30d（轮转切冷包），差异仅在轮转滞后时段可见；NaT（无 createdAt/timestamp）行不再计入累计（读口统一跳过，#335 auditor 口径修正同款）；getAgentTokenUsage 的 30s 缓存与 `opts.now` 注入口径不变（sinceMs 由同一 now 派生，测试确定）
 - instance 忙闲 SSE：agent.instance.status_changed，内存去重。#312（2026-08-24 SSE 负载契约体检）：负载 additive 带 `currentWorkUnit` 快照（逐字段对齐 getAgentSummary：title = metadata.title ?? scope；悬空 WU → null 裸 id 保留）+ `channelId`（当前 WU 所在频道）+ `lastError/lastErrorAt`；发布面 active/idle 扩到 error（recordStartupFailure 路径，agent.health.failed 保留），terminated 不发。#318：负载再添 additive `pmo` 快照 + `startedAt`；WU 聚合上下文走共享出口 monitoring/current-wu-context.ts（与 getAgentSummary 同源，claimedAt 快照原样透传）；负载构造唯一出口 buildInstanceStatusPayload（publishInstanceStatus / recordStartupFailure 共用）
 - A2A：ACTION: DELEGATE:@<profileName>:<scope> 建子单+发 delegate 卡片

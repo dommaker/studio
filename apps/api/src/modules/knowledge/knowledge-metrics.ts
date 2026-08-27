@@ -7,11 +7,11 @@
  * getAuditReport/getAnalystAccuracy/getStats）仅做薄封装。
  */
 
-import { FileStore } from '@dommaker/studio-shared';
 import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
+// #342：窗口读口（尾部倒读 + 窗口外早停）——事件流扫描切到此读口
+import { readStudioEventsSince } from '../../utils/studio-events-tail.js';
 
 const STUDIO_EVENTS_JSONL = resolveStudioLogFile('studio-events.jsonl');
-const fileStore = new FileStore();
 
 // ── Measure types ──
 
@@ -270,7 +270,8 @@ export async function computeOutcomeMetrics(opts?: { eventsFile?: string; window
 
   let rows: any[] = [];
   try {
-    rows = await fileStore.readJsonl<any>(eventsFile);
+    // #342：窗口读，sinceMs = windowStart（与下方窗口过滤同口径）——窗口外行不 parse
+    rows = await readStudioEventsSince({ file: eventsFile, sinceMs: windowStart });
   } catch {
     rows = []; // 事件文件不存在/不可读 → 数据不足
   }
@@ -335,7 +336,8 @@ export async function scanKnowledgeEvents(opts?: { eventsFile?: string; windowDa
 
   let rows: any[] = [];
   try {
-    rows = await fileStore.readJsonl<any>(eventsFile);
+    // #342：窗口读，sinceMs = windowStart（与下方窗口过滤同口径）——窗口外行不 parse
+    rows = await readStudioEventsSince({ file: eventsFile, sinceMs: windowStart });
   } catch {
     rows = []; // 事件文件不存在/不可读 → 数据不足
   }
