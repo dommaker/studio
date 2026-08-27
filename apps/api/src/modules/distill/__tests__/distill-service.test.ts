@@ -34,7 +34,7 @@ vi.mock('../../channels/channel-message.service.js', () => ({
   channelMessageService: { createCardMessage: mockCreateCardMessage },
 }));
 
-import { DistillService, type DistillProposal } from '../distill-service.js';
+import { DISTILL_SYSTEM_PROMPT, DistillService, type DistillProposal } from '../distill-service.js';
 import { approveProposal, rejectProposal } from '../../review-proposal/service.js';
 import { getReviewProposalAdapter } from '../../review-proposal/registry.js';
 
@@ -159,6 +159,17 @@ describe('端到端：矿石 → 门槛 → 发卡 → approve → 产物入库 
     });
     const result = await approve(proposals[0].id);
     expect(result.kind).toBe('executed');
+
+    // #365：蒸馏是重 prompt + 思考型模型（实测 21-27s），必须显式放宽超时，不吃 SystemExecutor 默认 30s。
+    // 字面量断言而非引用常量：避免循环断言锁不住具体值
+    expect(mockRunJson).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        systemPrompt: DISTILL_SYSTEM_PROMPT,
+        eventSource: 'knowledge-distill',
+        timeoutMs: 120_000,
+      }),
+    );
 
     // 产物入库：sourceReferences 指向全部原料 id
     const all = store.list();

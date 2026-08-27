@@ -174,6 +174,11 @@ describe('触发：蒸馏产出新约束 → 存量审计 → 退役建议人审
     const result = await approveProposal('distill', proposal.id);
     expect(result.kind).toBe('executed');
     expect(mockRunJson).toHaveBeenCalledTimes(2);
+    // #365：审计是重 prompt + 思考型模型，同蒸馏口径显式放宽超时（字面量避免循环断言）
+    expect(mockRunJson.mock.calls[1][1]).toMatchObject({
+      eventSource: 'constraint-audit',
+      timeoutMs: 120_000,
+    });
 
     // 审计提案落盘 + 发卡（第二张卡 = constraint_audit_proposal）
     const audits = await auditStore().listProposals();
