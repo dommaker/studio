@@ -29,6 +29,7 @@ Web 前端主源码。路由、全局状态、API 客户端、UI 组件、样式
 | `deriveStreamView` | `utils/streamView.ts` | 消息流管线纯函数（#322）：消息集+折叠/筛选 UI 状态 → 渲染就绪 items（归组/过程折叠/连续合并/日期分隔/可见性） |
 | `formatShortTime` / `formatFullTime` | `utils/datetime.ts` | zh-CN 时间格式唯一出口（#358：6 处 formatTime 拷贝 + 6 处内联 toLocaleString 收口）；短格式空值回 `-` |
 | `parseWuMeta` | `utils/wuMeta.ts` | WU metadata JSON 解析唯一出口（#358：4 处逐字 try/catch 拷贝收口，模式对齐 #264 messageMeta） |
+| `fanOut` | `utils/fanOut.ts` | 并行扇出统一口径（#349：PMO 徽章统计 / fog 决策单 / roster 空闲卡最近完成 / BlockedByList 四处手写 allSettled+try-catch 收口）：单条失败隔离不炸整批 + 结果按输入 index 对齐，无并发上限；调用方自带归并策略（丢弃/兜底 null/兜底行），取消仍留调用侧。注意：items 为无类型 axios 响应链（any）时泛型 T 退化 unknown，调用侧需显式标注元素类型 |
 | `useStreamFollow` / `useChannelCardActions` | `hooks/` | 频道流滚动状态机（#322 自 ChannelDetailPage 整块搬移）/ 卡片 action 路由（dispatch 单一入口；#352 起人审提案分支经 PROPOSAL_ACTION_INDEX 参数化调用 proposalCardConfigs.exec） |
 | `useProposalReview` / `ReviewProposalCard` | `hooks/useProposalReview.ts` / `components/channel/ReviewProposalCard.tsx` | 人审提案卡合一（#352，ADR 2026-08-25 决策 5）：6 卡坍缩为壳 + `proposalCardConfigs` 纯数据配置（#356 auditor_suggestion 并入，AuditorSuggestionCard 删除）；reviewed/pending/armed 生命周期 + 挂载期派生已审态单点化；act 执行未全绿时按提案状态重派生一次，命中终态即时收敛；memory 卡 exec 逐草稿结算含 not-pending 同向终态幂等跳过 + failed 终态标签（#367，正本闸门不可逆） |
 | `ChannelLiveBars` | `components/channel/` | live 执行状态条（#322 自持有 useChannelLiveExecutions，step 事件不触达页面） |
