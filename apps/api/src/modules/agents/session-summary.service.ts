@@ -223,6 +223,8 @@ class SessionSummaryService {
             title: `[Session Fix] ${c.message.slice(0, 120)}`,
             content: `Commit: ${c.hash.slice(0, 8)}\nMessage: ${c.message}\nFiles: ${c.files.join(', ')}\nPattern: ${gap}\nTriggers: ${trigger}`,
             tags: ['session-summary'],
+            // #371：钦定矿石——会话沉淀计入蒸馏 topic 信号（recordPattern 默认 system）
+            origin: 'agent',
           });
           count++;
         } catch (e) {
@@ -247,6 +249,7 @@ class SessionSummaryService {
           title: `[Session Feature] ${c.message.slice(0, 120)}`,
           content: `Commit: ${c.hash.slice(0, 8)}\nMessage: ${c.message}\nFiles: ${c.files.join(', ')}`,
           tags: ['session-summary'],
+          origin: 'agent', // #371：同上，钦定矿石
         });
       }
     } catch {

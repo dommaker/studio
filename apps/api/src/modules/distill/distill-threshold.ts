@@ -7,7 +7,11 @@
  *   主信号（任一命中）：
  *     - topic：同一 tag 下「新条目」≥ TOPIC_MIN_NEW（3）——重复出现的模式 = 可提炼。
  *       来源限定（#366）：只统计会话沉淀（origin=agent）与人工单发（origin=human）条目；
- *       系统灌入/批量导入（system/external）及未知来源不算「模式自然聚集」，也不入组
+ *       系统灌入/批量导入（system/external）及未知来源不算「模式自然聚集」，也不入组。
+ *       来源标定口径（#371 裁决）：机器流一律 system——monitor 告警、knowledge-sync
+ *       遥测/design-doc、pattern-miner 挖掘产物、resolution 落盘均非「模式重复出现」；
+ *       钦定矿石 session-summary 显式 origin=agent 计入。recordPattern 缺省 system
+ *       （fail-closed），新写入路径漏标来源不会误触信号
  *     - manual：manual 人审通过（maturity verified/proven）的「新条目」≥ MANUAL_MIN_NEW（5），
  *       不限来源——过审本身即人背书，与来源解耦
  *   辅条件（必须）：距上次蒸馏运行 ≥ COOLDOWN_DAYS（7）——纯烧钱熔断，限单周最大 LLM 开销

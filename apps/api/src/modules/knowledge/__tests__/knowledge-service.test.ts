@@ -150,6 +150,24 @@ describe('KnowledgeService Phase 1A: Produce', () => {
       );
     });
 
+    it('#371: origin 缺省 system（fail-closed）——机器流不借兜底挤进蒸馏 topic 信号', async () => {
+      const { ks, ingest } = createKS();
+      await ks.recordPattern({ type: 'pattern', title: 'Machine flow entry', content: 'content here', tags: ['monitor'] });
+      expect(ingest.ingestEntry).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ origin: 'system' }),
+      );
+    });
+
+    it('#371: 显式 origin 透传——session-summary 钦定矿石声明 agent 计入信号', async () => {
+      const { ks, ingest } = createKS();
+      await ks.recordPattern({ type: 'pattern', title: 'Session ore', content: 'content here', tags: ['session-summary'], origin: 'agent' });
+      expect(ingest.ingestEntry).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ origin: 'agent' }),
+      );
+    });
+
     it('rejects triage entry without root_cause', async () => {
       const { ks, ingest } = createKS();
       const entry: PatternEntry = {

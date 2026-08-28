@@ -18,7 +18,7 @@
  */
 
 import { FileKnowledgeStore, KnowledgeIngest, KnowledgeLifecycle, KnowledgeQuery, KnowledgeInjector, KnowledgeLinter, ReferenceTracker } from '@dommaker/harness';
-import type { KnowledgeEntry, KnowledgeSubsystem, MaturityLevel } from '@dommaker/harness';
+import type { KnowledgeEntry, KnowledgeOrigin, KnowledgeSubsystem, MaturityLevel } from '@dommaker/harness';
 import { FileStore, logger } from '@dommaker/studio-shared';
 import { execFile, execFileSync } from 'child_process';
 import * as path from 'path';
@@ -233,6 +233,13 @@ export interface QualityGateIngestInput {
   layer?: 'system' | 'project' | 'tech';
   maturity?: MaturityLevel;
   consumptionMode?: KnowledgeEntry['consumptionMode'];
+  /**
+   * 条目来源（#371）：缺省 'system'（fail-closed）。蒸馏 topic 信号只认
+   * agent/human origin（#366 白名单），机器流漏标来源不得再借 harness ingest
+   * 的 'agent' 兜底挤进「会话沉淀」；真会话沉淀（session-summary）由调用方
+   * 显式声明 origin:'agent'。
+   */
+  origin?: KnowledgeOrigin;
 }
 
 /**
@@ -275,6 +282,7 @@ export function ingestWithQualityGate(
       maturity: input.maturity ?? 'active',
       tags,
       consumptionMode: input.consumptionMode ?? 'signal',
+      origin: input.origin ?? 'system',
     },
   );
 

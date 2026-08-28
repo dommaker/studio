@@ -157,6 +157,23 @@ describe('ResolutionService', () => {
     });
   });
 
+  describe('#371: origin 标定', () => {
+    it('createResolution 落盘 frontmatter 带 origin: system（缺省会被 harness store 兜底 agent 误入蒸馏 topic 信号）', async () => {
+      const created = await resolutionService.createResolution({
+        pattern: 'origin-tagging.*test',
+        errorClass: 'test_error',
+        layer: 'L3_tool_behavior',
+        title: 'Origin Tagged Resolution',
+        fix: 'Do the right fix',
+        tags: ['test'],
+      });
+      expect(created).not.toBeNull();
+      const knowledgeDir = path.join(os.homedir(), '.studio', 'knowledge');
+      const raw = fs.readFileSync(path.join(knowledgeDir, `resolution-${created!.id}.md`), 'utf-8');
+      expect(raw).toMatch(/^origin: "?system"?\s*$/m);
+    });
+  });
+
   describe('R5: ensureSeedResolutions 启动幂等（title+内容 hash 判重）', () => {
     function countSeedFiles(): number {
       const knowledgeDir = path.join(os.homedir(), '.studio', 'knowledge');

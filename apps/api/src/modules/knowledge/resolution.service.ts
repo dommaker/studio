@@ -93,6 +93,9 @@ async function writeResolution(data: {
     maturity: data.status || 'pending',
     verifyCount: data.verifyCount || 0,
     tags: data.tags || [],
+    // #371：自动解析落盘非会话沉淀，标 system 不计入蒸馏 topic 信号
+    // （frontmatter 缺 origin 会被 harness store 兜底成 'agent'）
+    origin: 'system',
     createdAt: data.createdAt || new Date().toISOString(),
     updatedAt: data.updatedAt || new Date().toISOString(),
   };

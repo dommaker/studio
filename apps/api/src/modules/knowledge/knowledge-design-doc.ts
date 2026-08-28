@@ -41,7 +41,8 @@ export async function upsertKnowledge(params: {
     // 无已有条目 → 创建
     const result = sharedIngest.ingestEntry(
       { type: type as any, title, content, tags: [scope, 'design-doc'] },
-      { source: `design:${source}:${scope}`, layer: 'tech', maturity: 'verified', tags: [scope, 'design-doc'] },
+      // #371：分析归档大文档非模式矿石，标 system 不计入蒸馏 topic 信号
+      { source: `design:${source}:${scope}`, layer: 'tech', maturity: 'verified', tags: [scope, 'design-doc'], origin: 'system' },
     );
     scheduleVectorDbSync();
     logger.info('[KnowledgeDesignDoc] Created design-entry', { scope, entryId: result.id, title });
