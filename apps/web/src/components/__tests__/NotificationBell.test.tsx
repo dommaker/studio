@@ -36,6 +36,7 @@ vi.mock('../../api/websocketHooks', () => ({
 vi.mock('../../api', () => ({ api: mockApi }));
 
 import { NotificationBell } from '../NotificationBell';
+import { useNotificationStore } from '../../stores/notificationStore';
 
 interface BackendNotification {
   id: string;
@@ -93,6 +94,8 @@ async function renderLoaded(rows: BackendNotification[]) {
 
 beforeEach(() => {
   sseHandlers.clear();
+  // store 是模块单例，跨用例重置通知列表
+  useNotificationStore.setState({ notifications: [] });
   mockNavigate.mockClear();
   mockApi.get.mockReset();
   mockApi.post.mockReset();

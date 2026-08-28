@@ -1,70 +1,12 @@
 // Notification Bell — B2-003 通知中心；#274 接后端 notifications API（JWT 身份）
 // 2026-07 §5.7: 通知可点击跳转 —— 本体按 WU > PMO > 频道优先级，另附 WU/PMO 直跳小按钮
 // 数据源 = 后端持久化通知（刷新不丢）+ SSE atHuman 实时增量（无后端 id，已读仅本地）
+// 列表与已读动作住 stores/notificationStore（读态跨组件共享：频道页进页 markChannelRead）
 import { useState, useCallback, useRef, useEffect } from 'react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useWebSocketContext } from '../api/websocketHooks';
-import { api } from '../api';
-import { formatShortTime } from '../utils/datetime';
-
-interface Notification {
-  id: string;
-  /** 后端通知 id；null = SSE 实时条目（未持久化，已读仅本地） */
-  backendId: string | null;
-  channelId: string | null;
-  agentName: string;
-  title: string | null;
-  content: string;
-  time: string;
-  read: boolean;
-  /** 关联 WorkUnit（无则 null）——决定「WU」按钮与本体跳转优先级 */
-  workUnitId: string | null;
-  /** meta.pmoId（老消息可能没有，防御性取 null）——决定「PMO」按钮 */
-  pmoId: string | null;
-}
-
-/** 后端 GET /notifications 返回项（NotificationService.getUserNotifications） */
-interface BackendNotification {
-  id: string;
-  userId: string;
-  type: string;
-  title: string;
-  content: string;
-  link: string | null;
-  createdAt: string | Date;
-  read: boolean;
-  readAt: string | Date | null;
-}
-
-/** 从后端通知 link 解析跳转目标：/workunits/:id、/pmo/project/:id、/channels/:id */
-function parseLinkTargets(link: string | null): { workUnitId: string | null; pmoId: string | null; channelId: string | null } {
-  const result = { workUnitId: null, pmoId: null, channelId: null };
-  if (!link) return result;
-  const wu = /\/workunits\/([^/?#]+)/.exec(link);
-  if (wu) result.workUnitId = wu[1];
-  const pmo = /\/pmo\/project\/([^/?#]+)/.exec(link);
-  if (pmo) result.pmoId = pmo[1];
-  const ch = /\/channels\/([^/?#]+)/.exec(link);
-  if (ch) result.channelId = ch[1];
-  return result;
-}
-
-function fromBackend(n: BackendNotification): Notification {
-  const targets = parseLinkTargets(n.link);
-  return {
-    id: n.id,
-    backendId: n.id,
-    channelId: targets.channelId,
-    agentName: 'System',
-    title: n.title || null,
-    content: (n.content || '').slice(0, 80),
-    time: formatShortTime(n.createdAt),
-    read: n.read,
-    workUnitId: targets.workUnitId,
-    pmoId: targets.pmoId,
-  };
-}
+import { useNotificationStore, type Notification } from '../stores/notificationStore';
 
 /** channel.message_sent SSE payload（服务端 shapeMessageData 已把 meta 解析为对象） */
 interface ChannelMessageSentData {
@@ -82,7 +24,11 @@ interface ChannelMessageSentData {
 }
 
 export function NotificationBell() {
-  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const notifications = useNotificationStore(s => s.notifications);
+  const loadFromBackend = useNotificationStore(s => s.loadFromBackend);
+  const pushSse = useNotificationStore(s => s.pushSse);
+  const markRead = useNotificationStore(s => s.markRead);
+  const markAllRead = useNotificationStore(s => s.markAllRead);
   const [open, setOpen] = useState(false);
   const { onEvent } = useWebSocketContext();
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -92,16 +38,8 @@ export function NotificationBell() {
 
   // #274: 挂载时拉后端持久化通知（按当前登录身份过滤，Bearer 由 axios 拦截器注入）
   useEffect(() => {
-    let cancelled = false;
-    api.get('/notifications')
-      .then(res => {
-        if (cancelled) return;
-        const rows = (res.data as BackendNotification[]) ?? [];
-        setNotifications(prev => [...prev.filter(n => n.backendId === null), ...rows.map(fromBackend)]);
-      })
-      .catch(() => { /* 拉取失败不阻塞铃铛，保留空态/SSE 增量 */ });
-    return () => { cancelled = true; };
-  }, []);
+    void loadFromBackend();
+  }, [loadFromBackend]);
 
   // B2-004 标题闪烁定时器：收进 ref 管理——开新闪前必清旧闪（修：10s 内多条 @human
   // 旧 interval 被覆盖引用导致永久泄漏闪烁）；未读归零/卸载即停（修：全部已读后仍闪到超时）
@@ -142,7 +80,7 @@ export function NotificationBell() {
         const data = msg.data as ChannelMessageSentData | undefined;
         if (data?.message?.meta?.atHuman) {
           const m = data.message;
-          setNotifications(prev => [{
+          pushSse({
             id: m.id || msg.event_id,
             backendId: null,
             channelId: data.channelId,
@@ -153,7 +91,7 @@ export function NotificationBell() {
             read: false,
             workUnitId: m.workUnitId ?? null,
             pmoId: m.meta?.pmoId ?? null,
-          }, ...prev.slice(0, 49)]);
+          });
 
           // B2-004: Title flash for @human
           startFlash(m.agentName || 'Agent');
@@ -161,7 +99,7 @@ export function NotificationBell() {
       }
     });
     return () => { unsub(); };
-  }, [onEvent, startFlash]);
+  }, [onEvent, startFlash, pushSse]);
 
   // Close on outside click
   useEffect(() => {
@@ -175,20 +113,7 @@ export function NotificationBell() {
     return () => document.removeEventListener('mousedown', handler);
   }, [open]);
 
-  const markAllRead = useCallback(() => {
-    setNotifications(prev => prev.map(n => ({ ...n, read: true })));
-    api.post('/notifications/read-all').catch(() => { /* 本地已乐观更新 */ });
-  }, []);
-
-  const markRead = useCallback((id: string) => {
-    const target = notifications.find(x => x.id === id);
-    setNotifications(prev => prev.map(x => x.id === id ? { ...x, read: true } : x));
-    if (target?.backendId) {
-      api.post(`/notifications/${target.backendId}/read`).catch(() => { /* 本地已乐观更新 */ });
-    }
-  }, [notifications]);
-
-  // 点通知本体：跳转优先级 WU 详情 > PMO 详情 > 频道
+  // 点通知本体：标记已读（store 动作内含后端同步），跳转优先级 WU 详情 > PMO 详情 > 频道
   const openNotification = useCallback((n: Notification) => {
     markRead(n.id);
     if (n.workUnitId) navigate(`/workunits/${n.workUnitId}`);

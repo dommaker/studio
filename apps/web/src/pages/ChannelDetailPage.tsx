@@ -18,6 +18,7 @@ import { ChannelNeedInputChip, type NeedInputTodo } from '../components/channel/
 import { ChannelRail } from '../components/channel/ChannelRail';
 import { WorkUnitDrawer, type DrawerState } from '../components/channel/WorkUnitDrawer';
 import { workunitApi } from '../api/workunit';
+import { useNotificationStore } from '../stores/notificationStore';
 import { fanOut } from '../utils/fanOut';
 import { requirementApi, type Requirement, type RequirementStatus } from '../api/requirements';
 import { parseLiveWuRef } from '../components/workunit/execution-rows';
@@ -86,6 +87,12 @@ export function ChannelDetailPage() {
     if (!id) return;
     channelApi.get(id).then(r => setChannel(r.data.data)).catch(() => {});
   }, [id]);
+
+  // 打开频道即读：本频道未读通知（SSE @human 实时条目 + link 指向本频道的后端通知）标记已读
+  const markChannelRead = useNotificationStore(s => s.markChannelRead);
+  useEffect(() => {
+    if (id) markChannelRead(id);
+  }, [id, markChannelRead]);
 
   // F5: 本频道挂起中的 WorkUnit（blocked + metadata.waitingForInput）——REST 打底 +
   // workunit.status_changed SSE 增量维护（SSE 负载深化 批 2 决策 5：摘 messages.length 依赖，wu 数据直取事件负载）。

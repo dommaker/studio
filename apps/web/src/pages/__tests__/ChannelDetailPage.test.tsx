@@ -4,12 +4,13 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 
-const { mockSendMessage, mockListWorkunits, mockListReqs, mockGetReq, mockApiGet, mockDrawerSpy, mockOnEvent, mockOnReconnect, mockRefresh } = vi.hoisted(() => ({
+const { mockSendMessage, mockListWorkunits, mockListReqs, mockGetReq, mockApiGet, mockApiPost, mockDrawerSpy, mockOnEvent, mockOnReconnect, mockRefresh } = vi.hoisted(() => ({
   mockSendMessage: vi.fn(),
   mockListWorkunits: vi.fn(),
   mockListReqs: vi.fn(),
   mockGetReq: vi.fn(),
   mockApiGet: vi.fn(),
+  mockApiPost: vi.fn(),
   mockDrawerSpy: vi.fn(),
   mockOnEvent: vi.fn(),
   mockOnReconnect: vi.fn(),
@@ -17,7 +18,7 @@ const { mockSendMessage, mockListWorkunits, mockListReqs, mockGetReq, mockApiGet
 }));
 
 vi.mock('../../api', () => ({
-  api: { get: mockApiGet },
+  api: { get: mockApiGet, post: mockApiPost },
 }));
 
 vi.mock('../../hooks/useChannelEvents', () => ({
@@ -79,6 +80,7 @@ vi.mock('../../components/channel/KnowledgeConfirmCard', () => ({ KnowledgeConfi
 vi.mock('../../components/channel/ConvertToTaskDialog', () => ({ ConvertToTaskDialog: () => null }));
 
 import { ChannelDetailPage } from '../ChannelDetailPage';
+import { useNotificationStore } from '../../stores/notificationStore';
 import type { ChannelMessage } from '../../api/channel';
 import type { DrawerState } from '../../components/channel/WorkUnitDrawer';
 
@@ -159,6 +161,9 @@ describe('ChannelDetailPage — Mission Control 三栏', () => {
     vi.clearAllMocks();
     currentMessages = MESSAGES;
     sseHandlers = [];
+    // 通知 store 是模块单例，跨用例重置
+    useNotificationStore.setState({ notifications: [] });
+    mockApiPost.mockResolvedValue({ data: { success: true } });
     mockApiGet.mockResolvedValue({ data: { data: { id: 'ch-1', name: 'rnd-主研发', type: 'rnd', members: '[]' } } });
     // 同一 list 接口服务两种查询：blocked（NEED_INPUT 挂起集合）/ active（#242 live 状态条，默认无执行中）
     mockListWorkunits.mockImplementation((params?: { status?: string }) => Promise.resolve(
@@ -171,6 +176,24 @@ describe('ChannelDetailPage — Mission Control 三栏', () => {
     reconnectHandlers = [];
     mockListReqs.mockResolvedValue({ data: { data: REQS } });
     mockSendMessage.mockResolvedValue({});
+  });
+
+  it('打开频道即读：本频道未读通知标记已读（后端条目 POST 同步），其他频道不动', async () => {
+    useNotificationStore.setState({
+      notifications: [
+        { id: 'n-ch1', backendId: 'n-ch1', channelId: 'ch-1', agentName: 'System', title: '审计建议', content: 'x', time: '10:00', read: false, workUnitId: null, pmoId: null },
+        { id: 'sse-ch1', backendId: null, channelId: 'ch-1', agentName: 'pmo', title: null, content: '@human', time: '10:01', read: false, workUnitId: null, pmoId: null },
+        { id: 'n-ch2', backendId: 'n-ch2', channelId: 'ch-2', agentName: 'System', title: '别频道', content: 'y', time: '10:02', read: false, workUnitId: null, pmoId: null },
+      ],
+    });
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText('#rnd-主研发')).toBeTruthy());
+
+    const byId = Object.fromEntries(useNotificationStore.getState().notifications.map(n => [n.id, n.read]));
+    expect(byId).toEqual({ 'n-ch1': true, 'sse-ch1': true, 'n-ch2': false });
+    expect(mockApiPost).toHaveBeenCalledTimes(1);
+    expect(mockApiPost).toHaveBeenCalledWith('/notifications/n-ch1/read');
   });
 
   it('决策9：SSE 断线重连 → 当前频道一次性 refetch（messages refresh + waitingWus/REQ chips 打底面对齐）', async () => {
