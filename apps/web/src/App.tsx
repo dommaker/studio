@@ -34,7 +34,6 @@ const PageLoader = () => (
 import { ThemeProvider } from './contexts/ThemeContext';
 import { TopNav } from './components/TopNav';
 import { Sidebar } from './components/SidebarNew';
-import { useAgentStore, useRuntimeStore } from './stores';
 import { useAuthStore } from './stores/authStore';
 import { LandingPage } from './components/LandingPage';
 import { WebSocketProvider } from './api/websocket';
@@ -46,8 +45,6 @@ import './styles/theme.css';
 
 export default function App() {
   const location = useLocation();
-  const { loadAgents } = useAgentStore();
-  const { loadExecutions } = useRuntimeStore();
   const isGuest = useAuthStore((s) => s.isGuest());
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated());
 
@@ -56,12 +53,6 @@ export default function App() {
   // AC-2.2/2.3: studio 角色 provider=null + 无用户角色 弹框提醒
   const [studioRoleSetupOpen, setStudioRoleSetupOpen] = useState(false);
   const [firstRoleSetupOpen, setFirstRoleSetupOpen] = useState(false);
-
-  // 初始化
-  useEffect(() => {
-    loadAgents();
-    loadExecutions();
-  }, [loadAgents, loadExecutions]);
 
   // AC-2.1~2.3: 启动时检测 studio 角色 provider + 是否有已配置 provider 的用户角色
   useEffect(() => {

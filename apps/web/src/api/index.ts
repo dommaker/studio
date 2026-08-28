@@ -129,27 +129,6 @@ api.interceptors.response.use(
   }
 );
 
-// Agent API（仅 list 有调用方：stores/agentStore.ts）
-export const agentApi = {
-  list: (params?: { category?: string; page?: number; limit?: number }) =>
-    api.get('/agents', { params }),
-};
-
-// Workflow Runtime API（已迁移到本地模块，Workflow CRUD 已删除）
-export const runtimeWorkflowApi = {
-  execute: (workflowId: string, inputs: Record<string, unknown>, options?: Record<string, unknown>) =>
-    api.post('/executions', { workflowId, parameters: { inputs, ...options } }),
-  getStatus: (executionId: string) => api.get(`/executions/${executionId}`),
-  listExecutions: (options?: { page?: number; limit?: number }) =>
-    api.get('/executions', { params: options }),
-  getExecution: (id: string) => api.get(`/executions/${id}`),
-  // 项目
-  listProjects: () => api.get('/pmo/project'),
-  createProject: (data: { name: string; path: string; type?: string; description?: string }) =>
-    api.post('/pmo/project', data),
-  deleteProject: (id: string) => api.delete(`/pmo/project/${id}`),
-};
-
 // Auth API - 认证系统
 export const authApi = {
   createGuestSession: (guestId: string) =>

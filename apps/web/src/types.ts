@@ -18,28 +18,6 @@ export interface BaseExecutionPhase {
   completedAt?: string;
 }
 
-// 执行记录（后端 API 返回的数据结构，合并了原 Execution 和 Execution）
-export interface Execution {
-  id: string;
-  workflowName?: string;
-  status: ExecutionStatus;
-  input?: string;
-  output?: string;
-  error?: string;
-  startedAt?: string;
-  completedAt?: string;
-  // 阶段记录（后端字段名为 steps，类型为 Phase 相关）
-  steps?: StatsPhase[] | Record<string, RuntimePhase>;
-  nodeExecutions?: NodeExecution[];
-  // UI 状态
-  currentStep?: number;
-  totalSteps?: number;
-  // 项目信息
-  projectId?: string;
-  projectName?: string;
-  requirement?: string;
-}
-
 export interface NodeExecution {
   id: string;
   nodeId: string;
@@ -70,14 +48,6 @@ export interface ExecutionState {
   completedAt?: string;
   error?: string;
 }
-
-// 统计阶段（含耗时统计，用于执行统计展示）
-export interface StatsPhase extends BaseExecutionPhase {
-  duration?: number;
-}
-
-// 运行时阶段（最精简，用于运行时状态追踪）
-export type RuntimePhase = BaseExecutionPhase;
 
 export interface ThinkingMessage {
   id: string;
@@ -208,46 +178,6 @@ export interface Agent {
   tags?: string[];
   timeout?: number;
   createdAt?: string;
-}
-
-export interface AgentMetadata {
-  id: string;
-  name: string;
-  description?: string;
-  version?: string;
-  category?: string;
-  icon?: string;
-  capabilities?: string[];
-  config?: Record<string, unknown>;
-  inputSchema?: JSONSchema;
-  outputSchema?: JSONSchema;
-}
-
-export interface JSONSchema {
-  type?: string;
-  properties?: Record<string, JSONSchemaProperty>;
-  required?: string[];
-  additionalProperties?: boolean;
-  title?: string;
-  description?: string;
-  // Allow common schema properties
-  default?: unknown;
-  enum?: string[];
-  minimum?: number;
-  maximum?: number;
-  pattern?: string;
-  format?: string;
-  maxLength?: number;
-}
-
-export interface JSONSchemaProperty {
-  type: string;
-  description?: string;
-  default?: unknown;
-  enum?: string[];
-  minimum?: number;
-  maximum?: number;
-  pattern?: string;
 }
 
 export interface Workflow {

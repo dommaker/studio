@@ -10,12 +10,7 @@ vi.mock('react', async () => {
   return { ...actual, default: actual };
 });
 
-// stores：认证态固定为已登录非 Guest（否则 App 落 LandingPage 围墙）
-vi.mock('../stores', () => ({
-  useAgentStore: () => ({ loadAgents: vi.fn() }),
-  useRuntimeStore: () => ({ loadExecutions: vi.fn() }),
-}));
-
+// authStore：认证态固定为已登录非 Guest（否则 App 落 LandingPage 围墙）
 vi.mock('../stores/authStore', () => ({
   useAuthStore: (selector: (s: unknown) => unknown) =>
     selector({ isGuest: () => false, isAuthenticated: () => true }),
