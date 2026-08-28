@@ -1,8 +1,9 @@
 // Agent 作战视图数据 hook — 角色名册（profile × runtime 合并）+ 执行动态流（#346 瘦身后）
 // 数据面已上移 rosterStore（#346）：三端点拉取/TTL 去重、agent.instance.status_changed 与
 // workunit.status_changed 的 SSE 就地更新、30s 兜底轮询（useGatedPoll）全在 store + useRosterStoreSync；
-// 本 hook 只保留作战视图私有面：执行动态（execution.step/stream → activities）、空闲卡「最近完成」
-// （lastDone，已知 N+1：GET /workunits 只支持单 assigneeId，后端无批量接口）、当前 WU 快照补查写回。
+// 本 hook 只保留作战视图私有面：执行动态（execution.step/stream → rosterActivityStore，#348 状态下沉——
+// chunk 只重渲订阅对应切片的 RoleCard，不掀页面）、空闲卡「最近完成」（lastDone，已知 N+1：
+// GET /workunits 只支持单 assigneeId，后端无批量接口）、当前 WU 快照补查写回。
 // 内存纪律：每 agent 动态 ≤10 条（流式 thinking/text 逐 chunk 同 key 刷新同一行）。
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { monitoringApi, type AgentInfo } from '../api/monitoring';
@@ -19,15 +20,11 @@ import {
   useRosterStore,
   ROSTER_POLL_INTERVAL_MS,
 } from '../stores/rosterStore';
+import {
+  useRosterActivityStore,
+  type RosterActivityItem,
+} from '../stores/rosterActivityStore';
 import { useRosterStoreSync } from './useRosterStoreSync';
-
-/** 卡片「最近动态」条目（SSE 实时追加，内存每 agent 最多保留 MAX_ACTIVITIES 条） */
-export interface RosterActivityItem {
-  /** 去重键：相同键的新条目替换旧条目（流式 thinking/text 逐 chunk 刷新同一行） */
-  key?: string;
-  at: string;
-  text: string;
-}
 
 export interface RosterRole {
   profile: AgentProfile;
@@ -36,8 +33,6 @@ export interface RosterRole {
 
 export interface UseAgentRosterResult {
   roles: RosterRole[];
-  /** roleId → 动态列表（按时间升序，末尾最新） */
-  activities: Record<string, RosterActivityItem[]>;
   /** roleId → 空闲角色最近完成的 WU */
   lastDone: Record<string, WorkUnit | null>;
   /** channelId → 频道名（卡片频道链接展示用） */
@@ -51,8 +46,6 @@ export interface UseAgentRosterResult {
   /** 强制停止实例（POST terminate 后强制重拉；失败写入 error，不抛出） */
   terminate: (instanceId: string) => Promise<void>;
 }
-
-export const MAX_ACTIVITIES = 10;
 
 function truncate(text: string, max = 60): string {
   return text.length > max ? `${text.slice(0, max)}…` : text;
@@ -71,13 +64,6 @@ function stepActivityText(d: Record<string, unknown>): string {
   return `第${step}步`;
 }
 
-/** 追加动态：同 key 替换尾条（流式 chunk 刷新同一行），超出上限丢最旧 */
-export function pushActivity(list: RosterActivityItem[], item: RosterActivityItem): RosterActivityItem[] {
-  const last = list[list.length - 1];
-  const next = last?.key && last.key === item.key ? [...list.slice(0, -1), item] : [...list, item];
-  return next.length > MAX_ACTIVITIES ? next.slice(next.length - MAX_ACTIVITIES) : next;
-}
-
 export function useAgentRoster(): UseAgentRosterResult {
   // 数据面接线：SSE 状态事件 → store + 兜底轮询 + 重连对齐（store 化后唯一接线点）
   useRosterStoreSync();
@@ -89,7 +75,6 @@ export function useAgentRoster(): UseAgentRosterResult {
   const storeError = useRosterStore((s) => s.error);
   const { onEvent } = useWebSocketContext();
 
-  const [activities, setActivities] = useState<Record<string, RosterActivityItem[]>>({});
   const [lastDone, setLastDone] = useState<Record<string, WorkUnit | null>>({});
   // terminate 等动作失败单独记（数据面错误在 store.error）；store 错误优先展示
   const [actionError, setActionError] = useState<string | null>(null);
@@ -148,13 +133,14 @@ export function useAgentRoster(): UseAgentRosterResult {
     });
   }, [loadedAt, forbidden]);
 
-  // SSE 实时：仅执行动态（step/stream）；状态面事件由 useRosterStoreSync 路由进 store
+  // SSE 实时：仅执行动态（step/stream）；状态面事件由 useRosterStoreSync 路由进 store。
+  // chunk 落 rosterActivityStore（#348 状态下沉），本页不因此重渲；卸载即清（页面私有实时面）
   useEffect(() => {
     const findRoleByWorkUnit = (workUnitId: string) =>
       rolesRef.current.find((r) =>
         r.runtime?.currentWorkUnitId === workUnitId || r.runtime?.currentWorkUnit?.id === workUnitId);
     const appendActivity = (roleId: string, item: RosterActivityItem) =>
-      setActivities((prev) => ({ ...prev, [roleId]: pushActivity(prev[roleId] ?? [], item) }));
+      useRosterActivityStore.getState().appendActivity(roleId, item);
 
     const unsub = onEvent((msg: WebSocketMessage) => {
       if (msg.event_type === 'workunit.execution.step') {
@@ -187,6 +173,9 @@ export function useAgentRoster(): UseAgentRosterResult {
     return unsub;
   }, [onEvent]);
 
+  // #348：动态是页面私有实时面——卸载清空 store，防跨挂载残留
+  useEffect(() => () => useRosterActivityStore.getState().resetActivities(), []);
+
   const refresh = useCallback(async (silent = false) => {
     // silent（轮询/兜底路径）走 TTL 门禁；显式刷新强制
     await useRosterStore.getState().ensureFresh({ maxAgeMs: silent ? ROSTER_POLL_INTERVAL_MS : 0 });
@@ -202,5 +191,5 @@ export function useAgentRoster(): UseAgentRosterResult {
   }, []);
 
   const loading = loadedAt === null && !forbidden && !storeError;
-  return { roles, activities, lastDone, channelNames, loading, error, forbidden, refresh, terminate };
+  return { roles, lastDone, channelNames, loading, error, forbidden, refresh, terminate };
 }

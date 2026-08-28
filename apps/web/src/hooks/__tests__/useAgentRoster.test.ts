@@ -30,8 +30,9 @@ vi.mock('../../api/workunit', async () => {
   return { ...actual, workunitApi: { list: mockWuList, get: mockWuGet } };
 });
 
-import { useAgentRoster, MAX_ACTIVITIES } from '../useAgentRoster';
+import { useAgentRoster } from '../useAgentRoster';
 import { useRosterStore, ROSTER_POLL_INTERVAL_MS } from '../../stores/rosterStore';
+import { useRosterActivityStore, MAX_ACTIVITIES } from '../../stores/rosterActivityStore';
 
 const profile = (overrides: Record<string, unknown> = {}) => ({
   id: 'p1', name: 'dev-agent', description: 'writes code', status: 'active', provider: 'claude', isOnline: true,
@@ -68,6 +69,8 @@ describe('useAgentRoster', () => {
       loadedAt: null, channelsLoadedOnce: false, agentsLoadedOnce: false,
       inflight: null, lastToken: null,
     });
+    // #348：执行动态 store 同为模块级单例，每测重置
+    useRosterActivityStore.getState().resetActivities();
     handlers = [];
     mockOnEvent.mockImplementation((h: (msg: unknown) => void) => { handlers.push(h); return () => {}; });
     mockListAllAgents.mockResolvedValue({ data: { data: [profile()] } });
@@ -229,32 +232,34 @@ describe('useAgentRoster', () => {
   });
 
   it('SSE workunit.execution.step：追加动态（工具调用优先文案）', async () => {
-    const { result } = renderHook(() => useAgentRoster());
+    renderHook(() => useAgentRoster());
     await flush();
 
     emitEvent({
       event_type: 'workunit.execution.step',
       data: { workUnitId: 'wu-1', executionId: 'e1', step: 3, action: 'progress', toolCalls: [{ tool: 'Edit', summary: 'src/auth.ts' }], at: '2026-08-06T00:00:00Z' },
     });
-    expect(result.current.activities.p1).toHaveLength(1);
-    expect(result.current.activities.p1[0].text).toBe('🔧 Edit src/auth.ts');
-    expect(result.current.activities.p1[0].key).toBe('step:3');
+    // #348：动态下沉 rosterActivityStore，hook 返回值不再带 activities
+    const { activities } = useRosterActivityStore.getState();
+    expect(activities.p1).toHaveLength(1);
+    expect(activities.p1![0].text).toBe('🔧 Edit src/auth.ts');
+    expect(activities.p1![0].key).toBe('step:3');
   });
 
   it('SSE workunit.execution.stream：共享 formatter 出文案，同 key 刷新同一行，上限截断', async () => {
-    const { result } = renderHook(() => useAgentRoster());
+    renderHook(() => useAgentRoster());
     await flush();
 
     // 同一步的 thinking chunk 同 key 替换尾条
     emitEvent({ event_type: 'workunit.execution.stream', data: { workUnitId: 'wu-1', executionId: 'e1', step: 2, kind: 'thinking', text: '先读', at: 't1' } });
     emitEvent({ event_type: 'workunit.execution.stream', data: { workUnitId: 'wu-1', executionId: 'e1', step: 2, kind: 'thinking', text: '先读现有实现', at: 't2' } });
-    expect(result.current.activities.p1).toHaveLength(1);
-    expect(result.current.activities.p1[0].text).toBe('思考：先读现有实现');
+    expect(useRosterActivityStore.getState().activities.p1).toHaveLength(1);
+    expect(useRosterActivityStore.getState().activities.p1![0].text).toBe('思考：先读现有实现');
 
     // tool chunk 无 key 逐条追加；result 也出文案（✓/✗）
     emitEvent({ event_type: 'workunit.execution.stream', data: { workUnitId: 'wu-1', executionId: 'e1', step: 2, kind: 'tool', tool: 'Read', summary: 'a.ts', at: 't3' } });
     emitEvent({ event_type: 'workunit.execution.stream', data: { workUnitId: 'wu-1', executionId: 'e1', step: 2, kind: 'result', text: '', at: 't4' } });
-    expect(result.current.activities.p1.map((a) => a.text)).toEqual([
+    expect(useRosterActivityStore.getState().activities.p1!.map((a) => a.text)).toEqual([
       '思考：先读现有实现',
       '🔧 Read a.ts',
       '✓ 回合结束',
@@ -264,14 +269,27 @@ describe('useAgentRoster', () => {
     for (let s = 3; s < 3 + MAX_ACTIVITIES; s++) {
       emitEvent({ event_type: 'workunit.execution.stream', data: { workUnitId: 'wu-1', executionId: 'e1', step: s, kind: 'text', text: `step${s}`, at: `t${s}` } });
     }
-    expect(result.current.activities.p1).toHaveLength(MAX_ACTIVITIES);
-    expect(result.current.activities.p1[0].text).not.toBe('思考：先读现有实现');
+    expect(useRosterActivityStore.getState().activities.p1).toHaveLength(MAX_ACTIVITIES);
+    expect(useRosterActivityStore.getState().activities.p1![0].text).not.toBe('思考：先读现有实现');
 
     // 其他 WU 的事件不落卡；坏 chunk 跳过
     emitEvent({ event_type: 'workunit.execution.stream', data: { workUnitId: 'wu-elsewhere', executionId: 'e9', step: 1, kind: 'text', text: '别人的', at: 'x' } });
     emitEvent({ event_type: 'workunit.execution.stream', data: { broken: true } });
-    expect(result.current.activities.p1).toHaveLength(MAX_ACTIVITIES);
-    expect(result.current.activities.p1.every((a) => a.text !== '别人的')).toBe(true);
+    expect(useRosterActivityStore.getState().activities.p1).toHaveLength(MAX_ACTIVITIES);
+    expect(useRosterActivityStore.getState().activities.p1!.every((a) => a.text !== '别人的')).toBe(true);
+  });
+
+  // #348：动态是页面私有实时面——unmount 清空 store，防跨挂载残留
+  it('unmount 清空执行动态 store', async () => {
+    const { unmount } = renderHook(() => useAgentRoster());
+    await flush();
+    emitEvent({
+      event_type: 'workunit.execution.step',
+      data: { workUnitId: 'wu-1', executionId: 'e1', step: 1, action: 'start', at: '2026-08-06T00:00:00Z' },
+    });
+    expect(useRosterActivityStore.getState().activities.p1).toHaveLength(1);
+    unmount();
+    expect(useRosterActivityStore.getState().activities).toEqual({});
   });
 
   it('terminate：POST 后静默重拉；失败写入 error 不抛出', async () => {
