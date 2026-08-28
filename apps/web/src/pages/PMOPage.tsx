@@ -7,6 +7,7 @@ import { okrApi, type OkrKeyResult } from '../api/pmo';
 import { channelApi, type Channel } from '../api/channel';
 import { requirementApi } from '../api/requirements';
 import { deriveDisplayState } from '@dommaker/studio-shared/web';
+import { fanOut } from '../utils/fanOut';
 import { CreateOkrDialog } from '../components/pmo/CreateOkrDialog';
 import { CreateProjectDialog } from '../components/pmo/CreateProjectDialog';
 import { PublishProjectDialog } from '../components/pmo/PublishProjectDialog';
@@ -156,18 +157,18 @@ export function PMOPage({ companyId }: PMOPageProps) {
     let cancelled = false;
 
     const withAlias = projects.filter((p): p is Project & { reqAlias: string } => !!p.reqAlias);
-    Promise.allSettled(withAlias.map(async p => {
+    fanOut(withAlias, async p => {
       const res = await requirementApi.getChain(p.reqAlias);
       const wus = res.data?.data?.workunits ?? [];
       // 完成口径 = workFinished 所有权口径（F6 铁律）
       const finished = wus.filter(w =>
         deriveDisplayState({ status: w.status, metadata: w.metadata }).workFinished).length;
       return { id: p.id, finished, total: wus.length };
-    })).then(results => {
+    }).then(results => {
       if (cancelled) return;
       const next: Record<string, { finished: number; total: number }> = {};
       for (const r of results) {
-        if (r.status === 'fulfilled') next[r.value.id] = { finished: r.value.finished, total: r.value.total };
+        if (r.ok) next[r.value.id] = { finished: r.value.finished, total: r.value.total };
       }
       setWuStats(next);
     });

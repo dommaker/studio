@@ -24,6 +24,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { projectApi, type DeliveryStatus } from '../api';
 import { requirementApi, type RequirementChainWorkUnit } from '../api/requirements';
 import { workunitApi } from '../api/workunit';
+import { fanOut } from '../utils/fanOut';
 import { maintenanceApi } from '../api/maintenance';
 import { useRosterStore } from '../stores/rosterStore';
 import { PmoNumberBadge } from '../components/PmoNumberBadge';
@@ -35,6 +36,7 @@ import {
   toNextActionCandidate,
   type NextActionCandidate,
   type PmoMap,
+  type FogItem,
 } from '../components/pmo/mapUtils';
 import { DeliveryPanel } from '../components/pmo/DeliveryPanel';
 import { VscodeGuideDialog, CloudIdeGuideDialog } from '../components/pmo/IdeGuideDialogs';
@@ -139,18 +141,14 @@ export function ProjectDetailPage() {
       // 🆕 #114 T8：地图区决策单状态（fog.wuId 互挂的 decision WU 逐个 best-effort 拉；
       // 拉不到的徽章按待认领兜底，见 mapUtils.resolveFogBadge）
       if (projectData.map) {
-        const entries = await Promise.all(
-          projectData.map.fog
-            .filter(f => f.wuId)
-            .map(async f => {
-              try {
-                const res = await workunitApi.get(f.wuId!);
-                return [f.wuId!, res.data?.status] as const;
-              } catch { return null; }
-            }),
-        );
+        // 显式标注 FogItem[]：projectData 为无类型 axios 响应（any），经 fanOut 泛型边界会推成 unknown
+        const fogEntries: FogItem[] = projectData.map.fog.filter(f => f.wuId);
+        const results = await fanOut(fogEntries, f => workunitApi.get(f.wuId!));
         const statusMap: Record<string, string> = {};
-        for (const e of entries) if (e && e[1]) statusMap[e[0]] = e[1];
+        for (let i = 0; i < fogEntries.length; i++) {
+          const r = results[i];
+          if (r.ok && r.value.data?.status) statusMap[fogEntries[i].wuId!] = r.value.data.status;
+        }
         setDecisionStatusByWuId(statusMap);
       }
 

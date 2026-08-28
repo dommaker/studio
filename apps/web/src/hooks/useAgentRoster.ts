@@ -14,6 +14,7 @@ import {
   type WorkUnit,
 } from '../api/workunit';
 import { useWebSocketContext, type WebSocketMessage } from '../api/websocketHooks';
+import { fanOut } from '../utils/fanOut';
 import {
   useRosterStore,
   ROSTER_POLL_INTERVAL_MS,
@@ -131,17 +132,17 @@ export function useAgentRoster(): UseAgentRosterResult {
     // ② 空闲卡的「最近完成」：按 instance.id 查 assigneeId，取最近一条 done/completed
     const idle = current.filter((r): r is RosterRole & { runtime: NonNullable<RosterRole['runtime']> } =>
       r.runtime !== null && !r.runtime.currentWorkUnitId);
-    void Promise.all(idle.map(async (r) => {
-      try {
-        const res = await workunitApi.list({ assigneeId: r.runtime.id, limit: 20 });
-        const done = res.data.data
-          .filter((w) => w.status === 'done' || w.status === 'completed')
-          .sort((x, y) => (y.completedAt ?? y.updatedAt).localeCompare(x.completedAt ?? x.updatedAt))[0] ?? null;
-        return [r.profile.id, done] as const;
-      } catch {
-        return [r.profile.id, null] as const;
-      }
-    })).then((entries) => {
+    void fanOut(idle, async (r) => {
+      const res = await workunitApi.list({ assigneeId: r.runtime.id, limit: 20 });
+      return res.data.data
+        .filter((w) => w.status === 'done' || w.status === 'completed')
+        .sort((x, y) => (y.completedAt ?? y.updatedAt).localeCompare(x.completedAt ?? x.updatedAt))[0] ?? null;
+    }).then((results) => {
+      // 失败口径（fanOut 统一）：该角色查询失败 → null（卡面无最近完成）
+      const entries = idle.map((r, i): [string, WorkUnit | null] => {
+        const e = results[i];
+        return e.ok ? [r.profile.id, e.value] : [r.profile.id, null];
+      });
       // 拉取期间又有新数据落地则放弃本次写回（等下轮 loadedAt 变更重算）
       if (loadedAtRef.current === loadedAt) setLastDone(Object.fromEntries(entries));
     });

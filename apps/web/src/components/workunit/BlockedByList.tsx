@@ -4,6 +4,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { workunitApi } from '../../api/workunit';
+import { fanOut } from '../../utils/fanOut';
 import { DEP_STATUS_LABEL, parseBlockedBy } from '../pmo/mapUtils';
 
 /** 了结口径（#109）：done/closed 终态才算了结；其余（含拉取失败）一律未了结 */
@@ -32,10 +33,10 @@ export function BlockedByList({ metadata }: { metadata: string | null }) {
     if (depIds.length === 0) return;
     let alive = true;
     // 依赖状态逐个 best-effort 拉取（后端无批量接口；数量受 blockedBy 清单约束，实践为个位数）
-    Promise.allSettled(depIds.map(id => workunitApi.get(id))).then(results => {
+    fanOut(depIds, id => workunitApi.get(id)).then(results => {
       if (!alive) return;
       setDeps(results.map((r, i) => {
-        if (r.status !== 'fulfilled') return { id: depIds[i], title: depIds[i], status: null };
+        if (!r.ok) return { id: depIds[i], title: depIds[i], status: null };
         const wu = r.value.data;
         let title = wu.scope;
         try {
