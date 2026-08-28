@@ -7,6 +7,7 @@ import * as path from 'path';
 
 const {
   tmpWorktrees, tmpRepo, mockLoadavg, mockCpus, mockExecSync,
+  mockReadDiskUsage, mockReadMemoryUsage, mockCountZombies,
   mockLogger, mockHandleAlert, mockEmitEvent, mockHealthScore,
   mockRunDecayCycle, mockStoreList, mockRunSyncCycle, mockRunDailyMaintenance,
 } = vi.hoisted(() => {
@@ -23,6 +24,9 @@ const {
     mockLoadavg: vi.fn<[number, number, number]>(() => [0, 0, 0]),
     mockCpus: vi.fn(() => Array(2).fill({ model: 'test' })),
     mockExecSync: vi.fn(() => ''),
+    mockReadDiskUsage: vi.fn(),
+    mockReadMemoryUsage: vi.fn(),
+    mockCountZombies: vi.fn(() => 0),
     mockLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
     mockHandleAlert: vi.fn(() => Promise.resolve()),
     mockEmitEvent: vi.fn(),
@@ -40,6 +44,13 @@ vi.mock('os', async (importOriginal) => {
 });
 
 vi.mock('child_process', () => ({ execSync: mockExecSync }));
+
+// B4 #344: 系统探测委托 ops proc-probes 单出口，mock 掉 /proc 读取
+vi.mock('../ops/proc-probes.js', () => ({
+  readDiskUsage: mockReadDiskUsage,
+  readMemoryUsage: mockReadMemoryUsage,
+  countZombieProcesses: mockCountZombies,
+}));
 
 // 显式清理：hoisted 里的 require('fs') 走原生模块，mkdtemp-cleanup 补丁登记不到
 afterAll(() => {
@@ -84,14 +95,17 @@ import {
   knowledgeMaintenanceEnabled,
 } from '../monitor/monitor-system-probes.js';
 
-const DF_OK = '/dev/sda1 100G 50G 50G 50% /';
-const DF_FULL = '/dev/sda1 100G 95G 5G 95% /';
-
-function stubExecSync(dfOutput: string) {
+function stubProbes(diskUsePercent: number) {
+  mockReadDiskUsage.mockReturnValue({
+    totalBytes: 100 * 1024 ** 3,
+    availBytes: 100 * 1024 ** 3 * (1 - diskUsePercent / 100),
+    usedBytes: 100 * 1024 ** 3 * (diskUsePercent / 100),
+    usePercent: diskUsePercent,
+  });
+  mockReadMemoryUsage.mockReturnValue({ totalKb: 16_000_000, freeKb: 8_000_000, usedKb: 8_000_000 });
+  mockCountZombies.mockReturnValue(0);
+  // checkKnowledgeHealth 的 npx harness 用户模型更新仍走 execSync（24h 一次，非本轮探测）
   mockExecSync.mockImplementation((cmd: string) => {
-    if (cmd.includes('df -h')) return dfOutput;
-    if (cmd.includes('free -m')) return 'Mem: 16000 8000 8000';
-    if (cmd.includes('ps aux')) return '0';
     if (cmd.includes('npx harness')) return '{}';
     return '';
   });
@@ -106,7 +120,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockLoadavg.mockReturnValue([0, 0, 0]);
   mockCpus.mockReturnValue(Array(2).fill({ model: 'test' }));
-  stubExecSync(DF_OK);
+  stubProbes(50);
 });
 
 describe('systemHealthCheck', () => {
@@ -131,18 +145,43 @@ describe('systemHealthCheck', () => {
   });
 
   it('flags disk usage > 90% as resource_critical warning', async () => {
-    stubExecSync(DF_FULL);
+    stubProbes(95);
     const anomalies = await systemHealthCheck();
     const disk = anomalies.filter(a => a.message?.includes('Disk usage'));
     expect(disk).toHaveLength(1);
     expect(disk[0]).toMatchObject({ type: 'resource_critical', severity: 'warning' });
     expect(disk[0].message).toContain('95%');
   });
+
+  it('flags memory usage > 95% as resource_critical critical', async () => {
+    mockReadMemoryUsage.mockReturnValue({ totalKb: 16_000_000, freeKb: 400_000, usedKb: 15_600_000 });
+    const anomalies = await systemHealthCheck();
+    const mem = anomalies.filter(a => a.message?.includes('Memory usage'));
+    expect(mem).toHaveLength(1);
+    expect(mem[0]).toMatchObject({ type: 'resource_critical', severity: 'critical' });
+    expect(mem[0].message).toContain('98%');
+  });
+
+  it('flags zombie processes as zombie warning', async () => {
+    mockCountZombies.mockReturnValue(2);
+    const anomalies = await systemHealthCheck();
+    expect(anomalies).toContainEqual(expect.objectContaining({
+      type: 'zombie',
+      severity: 'warning',
+      message: '2 zombie processes detected',
+      details: { zombieCount: 2 },
+    }));
+  });
+
+  it('AC #344: systemHealthCheck 全程零同步子进程（不触碰 child_process）', async () => {
+    await systemHealthCheck();
+    expect(mockExecSync).not.toHaveBeenCalled();
+  });
 });
 
 describe('systemTriageCheck confirm window', () => {
   it('escalates to Triage only after 3 consecutive confirmations', async () => {
-    stubExecSync(DF_FULL); // persistent resource_critical (disk) anomaly
+    stubProbes(95); // persistent resource_critical (disk) anomaly
     mockLoadavg.mockReturnValue([0, 0, 0]); // avoid CPU contributing resource_critical
 
     await systemTriageCheck(); // count 1
@@ -159,10 +198,10 @@ describe('systemTriageCheck confirm window', () => {
 
   it('logs "resolved" and does not escalate when anomaly disappears before 3 confirmations', async () => {
     mockLoadavg.mockReturnValue([0, 0, 0]);
-    stubExecSync(DF_FULL);
+    stubProbes(95);
     await systemTriageCheck(); // count 1（未达确认阈值）
 
-    stubExecSync(DF_OK); // anomaly resolved
+    stubProbes(50); // anomaly resolved
     await systemTriageCheck();
 
     expect(mockLogger.info).toHaveBeenCalledWith(

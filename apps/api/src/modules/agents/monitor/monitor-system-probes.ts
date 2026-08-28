@@ -21,6 +21,7 @@ import { KnowledgeLinter, KnowledgeHealthScorer, ReferenceTracker } from '@domma
 import { sharedStore, sharedLifecycle } from '../../knowledge/knowledge-bus.service.js';
 import { knowledgeSync } from '../../knowledge/knowledge-sync.service.js';
 import { emitMonitorEvent } from './monitor-alerts.js';
+import { readDiskUsage, readMemoryUsage, countZombieProcesses } from '../ops/proc-probes.js';
 
 const WORKTREES_DIR = process.env.WORKTREES_DIR || path.join(os.homedir(), 'worktrees');
 
@@ -216,7 +217,7 @@ export async function systemHealthCheck(): Promise<TriageIncidentInput[]> {
   const anomalies: TriageIncidentInput[] = [];
 
   try {
-    const { execSync } = await import('child_process');
+    // 磁盘/内存/僵尸探测走 proc-probes 单出口（零子进程，ops 同源）——B4 #344
 
     // 1. Internal process health check (no curl - avoids port mismatch)
     try {
@@ -248,44 +249,38 @@ export async function systemHealthCheck(): Promise<TriageIncidentInput[]> {
       });
     }
 
-    // 2. Disk usage
+    // 2. Disk usage（statfs，/proc 口径同 ops.getStatus）
     try {
-      const df = execSync('df -h / | tail -1', { timeout: 3000, encoding: 'utf-8' }).trim();
-      const parts = df.split(/\s+/);
-      const usePercent = parseInt(parts[4]); // Use% column
-      if (usePercent > 90) {
+      const usePercent = readDiskUsage('/')?.usePercent ?? null;
+      if (usePercent !== null && usePercent > 90) {
         anomalies.push({
           type: 'resource_critical',
           severity: 'warning',
           message: `Disk usage ${usePercent}%`,
-          details: { usagePercent: usePercent, dfOutput: df },
+          details: { usagePercent: usePercent },
         });
       }
     } catch { /* ignore */ }
 
-    // 3. Memory usage
+    // 3. Memory usage（MemTotal - MemAvailable，/proc 口径同 ops.getStatus）
     try {
-      const free = execSync('free -m | grep Mem', { timeout: 3000, encoding: 'utf-8' }).trim();
-      const parts = free.split(/\s+/);
-      const total = parseInt(parts[1]);
-      const used = parseInt(parts[2]);
-      if (total > 0) {
-        const memPercent = Math.round((used / total) * 100);
+      const mem = readMemoryUsage();
+      if (mem.totalKb !== null && mem.usedKb !== null && mem.totalKb > 0) {
+        const memPercent = Math.round((mem.usedKb / mem.totalKb) * 100);
         if (memPercent > 95) {
           anomalies.push({
             type: 'resource_critical',
             severity: 'critical',
             message: `Memory usage ${memPercent}%`,
-            details: { usagePercent: memPercent, freeOutput: free },
+            details: { usagePercent: memPercent },
           });
         }
       }
     } catch { /* ignore */ }
 
-    // 4. Zombie processes
+    // 4. Zombie processes（/proc/*/stat state=Z）
     try {
-      const zombies = execSync("ps aux | awk '$8 ~ /Z/ {print}' | wc -l", { timeout: 3000, encoding: 'utf-8' }).trim();
-      const zCount = parseInt(zombies);
+      const zCount = countZombieProcesses();
       if (zCount > 0) {
         anomalies.push({
           type: 'zombie',
