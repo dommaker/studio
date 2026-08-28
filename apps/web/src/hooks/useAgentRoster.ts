@@ -1,15 +1,12 @@
-// Agent 作战视图数据 hook — 角色名册（profile × runtime 合并）+ SSE 事件路由 + 轮询兜底
-// 从 AgentDashboardPage 抽取：页面只负责组合与渲染，数据获取/实时事件/内存纪律归这里。
-// 实时：onEvent 订阅 agent.instance.status_changed / workunit.status_changed /
-//   workunit.execution.step|stream（按 currentWorkUnitId 反查归属 agent），
-//   30s 轮询经 useGatedPoll（#313）：SSE 断开且页面 visible 才兜底。
+// Agent 作战视图数据 hook — 角色名册（profile × runtime 合并）+ 执行动态流（#346 瘦身后）
+// 数据面已上移 rosterStore（#346）：三端点拉取/TTL 去重、agent.instance.status_changed 与
+// workunit.status_changed 的 SSE 就地更新、30s 兜底轮询（useGatedPoll）全在 store + useRosterStoreSync；
+// 本 hook 只保留作战视图私有面：执行动态（execution.step/stream → activities）、空闲卡「最近完成」
+// （lastDone，已知 N+1：GET /workunits 只支持单 assigneeId，后端无批量接口）、当前 WU 快照补查写回。
 // 内存纪律：每 agent 动态 ≤10 条（流式 thinking/text 逐 chunk 同 key 刷新同一行）。
-// 已知 N+1：空闲角色逐个 workunitApi.list 查「最近完成」（GET /workunits 只支持单 assigneeId，
-//   后端无批量接口，保持逐查行为）；活跃角色 currentWorkUnit 聚合字段暂缺时逐个 fillWorkUnit 补查。
-import { useState, useEffect, useRef, useCallback } from 'react';
-import { monitoringApi, type AgentInfo, type AgentCurrentWorkUnit } from '../api/monitoring';
-import { channelApi, type AgentProfile } from '../api/channel';
-import { isForbidden } from '../utils/http';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { monitoringApi, type AgentInfo } from '../api/monitoring';
+import type { AgentProfile } from '../api/channel';
 import {
   workunitApi,
   parseExecutionStreamChunk,
@@ -17,7 +14,11 @@ import {
   type WorkUnit,
 } from '../api/workunit';
 import { useWebSocketContext, type WebSocketMessage } from '../api/websocketHooks';
-import { useGatedPoll } from './useGatedPoll';
+import {
+  useRosterStore,
+  ROSTER_POLL_INTERVAL_MS,
+} from '../stores/rosterStore';
+import { useRosterStoreSync } from './useRosterStoreSync';
 
 /** 卡片「最近动态」条目（SSE 实时追加，内存每 agent 最多保留 MAX_ACTIVITIES 条） */
 export interface RosterActivityItem {
@@ -44,29 +45,13 @@ export interface UseAgentRosterResult {
   error: string | null;
   /** #283：monitoring 接口 Admin-only，非 Admin 403 → true（页面渲染「无权限」终态，轮询停止） */
   forbidden: boolean;
-  /** 手动重拉（silent=true 不闪 loading；30s 轮询与 SSE 外的兜底） */
+  /** 手动重拉（force）；30s 轮询与 SSE 兜底已由 useRosterStoreSync 接管 */
   refresh: (silent?: boolean) => Promise<void>;
-  /** 强制停止实例（POST terminate 后静默重拉；失败写入 error，不抛出） */
+  /** 强制停止实例（POST terminate 后强制重拉；失败写入 error，不抛出） */
   terminate: (instanceId: string) => Promise<void>;
 }
 
 export const MAX_ACTIVITIES = 10;
-export const ROSTER_POLL_INTERVAL_MS = 30000;
-
-/** agent.instance.status_changed（§6.2）的 data 契约；#312 起 additive 带摘要快照（对齐 getAgentSummary） */
-interface AgentStatusChangedData {
-  profileId?: string;
-  instanceId?: string;
-  name?: string;
-  status?: string;
-  currentWorkUnitId?: string | null;
-  /** #312：当前 WU 快照（含 WU 时非 null；悬空 WU → null；旧事件无此字段 → undefined 走补查兜底） */
-  currentWorkUnit?: AgentCurrentWorkUnit | null;
-  /** #312：当前 WU 所在频道（无当前 WU → null） */
-  channelId?: string | null;
-  lastError?: string | null;
-  lastErrorAt?: string | null;
-}
 
 function truncate(text: string, max = 60): string {
   return text.length > max ? `${text.slice(0, max)}…` : text;
@@ -93,96 +78,76 @@ export function pushActivity(list: RosterActivityItem[], item: RosterActivityIte
 }
 
 export function useAgentRoster(): UseAgentRosterResult {
+  // 数据面接线：SSE 状态事件 → store + 兜底轮询 + 重连对齐（store 化后唯一接线点）
+  useRosterStoreSync();
+  const profiles = useRosterStore((s) => s.profiles);
+  const agents = useRosterStore((s) => s.agents);
+  const channels = useRosterStore((s) => s.channels);
+  const loadedAt = useRosterStore((s) => s.loadedAt);
+  const forbidden = useRosterStore((s) => s.forbidden);
+  const storeError = useRosterStore((s) => s.error);
   const { onEvent } = useWebSocketContext();
-  const [roles, setRoles] = useState<RosterRole[]>([]);
+
   const [activities, setActivities] = useState<Record<string, RosterActivityItem[]>>({});
   const [lastDone, setLastDone] = useState<Record<string, WorkUnit | null>>({});
-  const [channelNames, setChannelNames] = useState<Record<string, string>>({});
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  // #283：403 是无权限终态——ref 供 refresh 闭包短路（30s 轮询不再发请求、不刷 403），state 供页面渲染「无权限」
-  const [forbidden, setForbidden] = useState(false);
-  const forbiddenRef = useRef(false);
+  // terminate 等动作失败单独记（数据面错误在 store.error）；store 错误优先展示
+  const [actionError, setActionError] = useState<string | null>(null);
+  const error = storeError ?? actionError;
+
+  // profile × runtime 按 roleId 合并（同一角色可能多条历史 state，agents 已按 startedAt 降序取最新）
+  const roles = useMemo<RosterRole[]>(() => {
+    const runtimeByRole = new Map<string, AgentInfo>();
+    for (const a of agents) {
+      if (!runtimeByRole.has(a.roleId)) runtimeByRole.set(a.roleId, a);
+    }
+    return profiles.map((p) => ({ profile: p, runtime: runtimeByRole.get(p.id) ?? null }));
+  }, [profiles, agents]);
+
+  const channelNames = useMemo(
+    () => Object.fromEntries(channels.map((c) => [c.id, c.name])),
+    [channels],
+  );
+
+  // 首拉增强（useGatedPoll 挂载首拉已含 ensureFresh；此处补作战视图私有面，按 role 最新 runtime 口径）：
+  // ① 后端聚合字段暂缺的卡逐个补查当前 WU 详情写回 store；② 空闲卡「最近完成」N+1（保持既有行为：
+  // GET /workunits 只支持单 assigneeId，后端无批量接口）
   const rolesRef = useRef<RosterRole[]>([]);
   useEffect(() => {
     rolesRef.current = roles;
   }, [roles]);
-
-  /** 增量补查某 WU 详情并写回对应卡片的 currentWorkUnit（后端聚合字段暂缺/SSE 切换任务时） */
-  const fillWorkUnit = useCallback((roleId: string, workUnitId: string) => {
-    workunitApi.get(workUnitId)
-      .then((r) => {
-        const wu = r.data;
-        setRoles((prev) => prev.map((role) => {
-          if (role.profile.id !== roleId || !role.runtime) return role;
-          if (role.runtime.currentWorkUnitId !== workUnitId) return role;
-          return {
-            ...role,
-            runtime: {
-              ...role.runtime,
-              currentWorkUnit: { id: wu.id, title: wu.scope, type: wu.type, status: wu.status, claimedAt: wu.claimedAt },
-            },
-          };
-        }));
-      })
-      .catch(() => { /* best-effort：详情查不到时保留裸 ID 展示 */ });
-  }, []);
-
-  const refresh = useCallback(async (silent = false) => {
-    if (forbiddenRef.current) return;
-    if (!silent) setLoading(true);
-    try {
-      const [profilesRes, summaryRes, channelsRes] = await Promise.all([
-        channelApi.listAllAgents(),
-        monitoringApi.getAgentSummary(),
-        channelApi.list(),
-      ]);
-      // 运行时状态按 roleId 合并（同一角色可能有多条历史 state，接口已按 startedAt 降序，取最新一条）
-      const runtimeByRole = new Map<string, AgentInfo>();
-      for (const a of summaryRes.data.agents) {
-        if (!runtimeByRole.has(a.roleId)) runtimeByRole.set(a.roleId, a);
+  const loadedAtRef = useRef(loadedAt);
+  useEffect(() => {
+    loadedAtRef.current = loadedAt;
+  }, [loadedAt]);
+  useEffect(() => {
+    if (loadedAt === null || forbidden) return;
+    const current = rolesRef.current;
+    // ① 快照补查（best-effort：详情查不到时保留裸 ID 展示）
+    for (const r of current) {
+      if (r.runtime?.currentWorkUnitId && !r.runtime.currentWorkUnit) {
+        useRosterStore.getState().backfillCurrentWorkUnit(r.runtime.id, r.runtime.currentWorkUnitId);
       }
-      const merged = profilesRes.data.data.map((p) => ({ profile: p, runtime: runtimeByRole.get(p.id) ?? null }));
-      setRoles(merged);
-      setChannelNames(Object.fromEntries((channelsRes.data.data ?? []).map((c) => [c.id, c.name])));
-      // 后端聚合字段暂缺时逐卡补查当前 WU 详情
-      for (const r of merged) {
-        if (r.runtime?.currentWorkUnitId && !r.runtime.currentWorkUnit) {
-          fillWorkUnit(r.profile.id, r.runtime.currentWorkUnitId);
-        }
-      }
-      // 空闲卡的「最近完成」：按 instance.id 查 assigneeId，取最近一条 done/completed
-      const idle = merged.filter((r): r is RosterRole & { runtime: AgentInfo } =>
-        r.runtime !== null && !r.runtime.currentWorkUnitId);
-      const doneEntries = await Promise.all(idle.map(async (r) => {
-        try {
-          const res = await workunitApi.list({ assigneeId: r.runtime.id, limit: 20 });
-          const done = res.data.data
-            .filter((w) => w.status === 'done' || w.status === 'completed')
-            .sort((a, b) => (b.completedAt ?? b.updatedAt).localeCompare(a.completedAt ?? a.updatedAt))[0] ?? null;
-          return [r.profile.id, done] as const;
-        } catch {
-          return [r.profile.id, null] as const;
-        }
-      }));
-      setLastDone(Object.fromEntries(doneEntries));
-    } catch (e: unknown) {
-      if (isForbidden(e)) {
-        forbiddenRef.current = true;
-        setForbidden(true);
-      } else {
-        setError(e instanceof Error ? e.message : 'Failed to load agents');
-      }
-    } finally {
-      setLoading(false);
     }
-  }, [fillWorkUnit]);
+    // ② 空闲卡的「最近完成」：按 instance.id 查 assigneeId，取最近一条 done/completed
+    const idle = current.filter((r): r is RosterRole & { runtime: NonNullable<RosterRole['runtime']> } =>
+      r.runtime !== null && !r.runtime.currentWorkUnitId);
+    void Promise.all(idle.map(async (r) => {
+      try {
+        const res = await workunitApi.list({ assigneeId: r.runtime.id, limit: 20 });
+        const done = res.data.data
+          .filter((w) => w.status === 'done' || w.status === 'completed')
+          .sort((x, y) => (y.completedAt ?? y.updatedAt).localeCompare(x.completedAt ?? x.updatedAt))[0] ?? null;
+        return [r.profile.id, done] as const;
+      } catch {
+        return [r.profile.id, null] as const;
+      }
+    })).then((entries) => {
+      // 拉取期间又有新数据落地则放弃本次写回（等下轮 loadedAt 变更重算）
+      if (loadedAtRef.current === loadedAt) setLastDone(Object.fromEntries(entries));
+    });
+  }, [loadedAt, forbidden]);
 
-  // #313：挂载首拉（silent，loading 初值已为 true）+ 30s 轮询统一走 useGatedPoll——
-  // SSE 断开且页面 visible 才兜底；403 短路在 refresh 内的 forbiddenRef
-  useGatedPoll(() => refresh(true), ROSTER_POLL_INTERVAL_MS);
-
-  // SSE 实时：状态变更 / 执行动态（参考 useWorkUnitStreamEvents 的过滤模式：按 event_type 分流、按 workUnitId 反查归属）
+  // SSE 实时：仅执行动态（step/stream）；状态面事件由 useRosterStoreSync 路由进 store
   useEffect(() => {
     const findRoleByWorkUnit = (workUnitId: string) =>
       rolesRef.current.find((r) =>
@@ -191,61 +156,6 @@ export function useAgentRoster(): UseAgentRosterResult {
       setActivities((prev) => ({ ...prev, [roleId]: pushActivity(prev[roleId] ?? [], item) }));
 
     const unsub = onEvent((msg: WebSocketMessage) => {
-      if (msg.event_type === 'agent.instance.status_changed') {
-        const d = (msg.data ?? {}) as AgentStatusChangedData;
-        if (!d.profileId) return;
-        setRoles((prev) => prev.map((role) => {
-          if (role.profile.id !== d.profileId) return role;
-          const base: AgentInfo = role.runtime ?? {
-            id: d.instanceId ?? '', roleId: role.profile.id, name: d.name ?? role.profile.name,
-            status: 'idle', currentWorkUnitId: null, startedAt: new Date().toISOString(),
-          };
-          const nextWorkUnitId = d.currentWorkUnitId !== undefined ? d.currentWorkUnitId : base.currentWorkUnitId;
-          return {
-            ...role,
-            runtime: {
-              ...base,
-              id: d.instanceId ?? base.id,
-              status: d.status ?? base.status,
-              currentWorkUnitId: nextWorkUnitId,
-              // #312：负载带快照（含 null）以负载为准；无快照字段（旧事件）才退回
-              // 原行为——任务切换清掉旧 WU 快照，等 fillWorkUnit 补查写回
-              currentWorkUnit: d.currentWorkUnit !== undefined
-                ? (d.currentWorkUnit ?? null)
-                : (nextWorkUnitId !== base.currentWorkUnitId ? null : base.currentWorkUnit),
-              channelId: d.channelId !== undefined ? d.channelId : base.channelId,
-              lastError: d.lastError !== undefined ? d.lastError : base.lastError,
-              lastErrorAt: d.lastErrorAt !== undefined ? d.lastErrorAt : base.lastErrorAt,
-            },
-          };
-        }));
-        // #312：负载未带快照字段（旧事件/异常）才补查兜底；带快照（含悬空 null）不补查
-        if (d.currentWorkUnitId && d.currentWorkUnit === undefined) fillWorkUnit(d.profileId, d.currentWorkUnitId);
-        return;
-      }
-      if (msg.event_type === 'workunit.status_changed') {
-        const wu = (msg.data as { workunit?: Partial<WorkUnit> } | null)?.workunit;
-        if (!wu?.id) return;
-        setRoles((prev) => prev.map((role) => {
-          const cur = role.runtime?.currentWorkUnit;
-          if (!role.runtime || (cur?.id !== wu.id && role.runtime.currentWorkUnitId !== wu.id)) return role;
-          const next = cur ?? { id: wu.id, title: '', type: '', status: '', claimedAt: null };
-          return {
-            ...role,
-            runtime: {
-              ...role.runtime,
-              currentWorkUnit: {
-                id: next.id,
-                title: typeof wu.scope === 'string' ? wu.scope : next.title,
-                type: typeof wu.type === 'string' ? wu.type : next.type,
-                status: typeof wu.status === 'string' ? wu.status : next.status,
-                claimedAt: next.claimedAt,
-              },
-            },
-          };
-        }));
-        return;
-      }
       if (msg.event_type === 'workunit.execution.step') {
         const d = (msg.data ?? {}) as Record<string, unknown>;
         if (typeof d.workUnitId !== 'string') return;
@@ -274,16 +184,22 @@ export function useAgentRoster(): UseAgentRosterResult {
       }
     });
     return unsub;
-  }, [onEvent, fillWorkUnit]);
+  }, [onEvent]);
+
+  const refresh = useCallback(async (silent = false) => {
+    // silent（轮询/兜底路径）走 TTL 门禁；显式刷新强制
+    await useRosterStore.getState().ensureFresh({ maxAgeMs: silent ? ROSTER_POLL_INTERVAL_MS : 0 });
+  }, []);
 
   const terminate = useCallback(async (instanceId: string) => {
     try {
       await monitoringApi.terminateInstance(instanceId);
-      await refresh(true);
+      await useRosterStore.getState().ensureFresh({ maxAgeMs: 0 });
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Failed to terminate agent');
+      setActionError(e instanceof Error ? e.message : 'Failed to terminate agent');
     }
-  }, [refresh]);
+  }, []);
 
+  const loading = loadedAt === null && !forbidden && !storeError;
   return { roles, activities, lastDone, channelNames, loading, error, forbidden, refresh, terminate };
 }

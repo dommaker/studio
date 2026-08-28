@@ -66,6 +66,17 @@ vi.mock('../../api/index', () => ({
 }));
 
 import { AgentDetailPage } from '../../pages/AgentDetailPage';
+import { useRosterStore } from '../../stores/rosterStore';
+
+// #346：页面数据面读 rosterStore（模块级单例）——每测重置，避免 TTL 缓存跨测串味
+function resetRosterStore() {
+  useRosterStore.setState({
+    profiles: [], agents: [], channels: [],
+    loading: false, error: null, forbidden: false,
+    loadedAt: null, channelsLoadedOnce: false, agentsLoadedOnce: false,
+    inflight: null, lastToken: null,
+  });
+}
 
 const profile = {
   id: 'p1', name: 'dev-agent', description: 'writes code', status: 'active', provider: 'claude', isOnline: true,
@@ -89,6 +100,7 @@ function mockApis({ agents = [busyInstance], profiles = [profile] }: { agents?: 
 describe('AgentDetailPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    resetRosterStore();
     sse.handlers.length = 0;
     sse.reconnects.length = 0;
     mockApis();
@@ -184,6 +196,7 @@ describe('AgentDetailPage — SSE 负载直更（#318）', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    resetRosterStore();
     sse.handlers.length = 0;
     sse.reconnects.length = 0;
     mockApis();

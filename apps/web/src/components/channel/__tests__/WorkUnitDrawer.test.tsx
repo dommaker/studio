@@ -58,6 +58,9 @@ vi.mock('../../../api/channel', async () => {
       ...(actual as { channelApi: object }).channelApi,
       get: mockChannelGet,
       listAllAgents: mockListAllAgents,
+      // #346：rosterStore.ensureFresh 会拉 channelApi.list——必须 stub 掉，
+      // 否则真实 axios 请求跨测悬挂落地，把 TTL 锚点打进下一测（store 化前无此调用）
+      list: vi.fn().mockRejectedValue(new Error('not mocked here')),
     },
   };
 });
@@ -75,6 +78,7 @@ vi.mock('../../../hooks/useWorkUnitStreamEvents', () => ({
 
 import { WorkUnitDrawer } from '../WorkUnitDrawer';
 import type { DrawerState } from '../WorkUnitDrawer';
+import { useRosterStore } from '../../../stores/rosterStore';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 
 // 决策 8：SSE 事件捕获（mockOnEvent 注册的回调，用例手工驱动）。
@@ -161,6 +165,13 @@ const renderDrawer = (drawer: DrawerState, extra: { onClose?: () => void; onOpen
 describe('WorkUnitDrawer', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // #346：负责人解析面读 rosterStore（模块级单例），每测重置避免 TTL 缓存跨测串味
+    useRosterStore.setState({
+      profiles: [], agents: [], channels: [],
+      loading: false, error: null, forbidden: false,
+      loadedAt: null, channelsLoadedOnce: false, agentsLoadedOnce: false,
+      inflight: null, lastToken: null,
+    });
     sseHandlers = [];
     mockOnEvent.mockImplementation((h: (msg: { event_type: string; data?: unknown }) => void) => {
       sseHandlers.push(h);

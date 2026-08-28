@@ -1,16 +1,18 @@
 // AgentDetailPage — /agents/:profileId（2026-07-31 全流程串联 UX 重构 §5.3）
 // Header（角色/状态/频道/ID/强制停止）→「正在执行」大卡（当前 WU + ExecutionSteps 实时执行流）
 // →「历史任务」（assigneeId=instance.id 最近 20 条）→ 统计行
-// 数据：profile 用 channelApi.listAllAgents() 按 id 匹配；instance 用 monitoringApi.getAgentSummary() 按 roleId 取最新一条；
-// #318 起事件面 SSE 负载直更（instance status_changed 就地 + 历史区防抖重拉，不再 eventTick 整页重拉）
-import { useState, useEffect, useCallback, useRef } from 'react';
+// #346：profile/instance/channelName 读 rosterStore（三端点 TTL 去重 + SSE 就地更新单份 + useGatedPoll 兜底
+// 在 store/useRosterStoreSync）；本页只保留页面私有面：历史任务窗口（workunit.status_changed 防抖重拉对齐）
+// 与当前 WU 快照缺失时的单实例补查（写回 store 共享）。
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { monitoringApi, type AgentInfo, type AgentCurrentWorkUnit } from '../api/monitoring';
-import { channelApi, type AgentProfile } from '../api/channel';
+import { monitoringApi } from '../api/monitoring';
 import { workunitApi, type WorkUnit } from '../api/workunit';
 import { ExecutionSteps } from '../components/workunit/ExecutionSteps';
 import { ConfirmDialog } from '../components/ui';
 import { useWebSocketContext } from '../api/websocketHooks';
+import { useRosterStore } from '../stores/rosterStore';
+import { useRosterStoreSync } from '../hooks/useRosterStoreSync';
 import {
   deriveAgentStatus,
   AGENT_STATUS_LABELS,
@@ -24,140 +26,96 @@ const HISTORY_LIMIT = 20;
     workunit.status_changed 命中本实例时先就地更新已有行，再低频防抖只重拉历史区 1 接口对齐窗口 */
 const HISTORY_REFRESH_DEBOUNCE_MS = 800;
 
-/** agent.instance.status_changed SSE 负载（#312 + #318 additive：pmo/startedAt；缺键 = 旧形状，回退保留原值） */
-interface InstanceStatusPayload {
-  profileId?: string;
-  instanceId?: string;
-  status?: string;
-  currentWorkUnitId?: string | null;
-  currentWorkUnit?: AgentCurrentWorkUnit | null;
-  channelId?: string | null;
-  pmo?: AgentInfo['pmo'];
-  startedAt?: string;
-  lastError?: string | null;
-  lastErrorAt?: string | null;
-}
-
 export function AgentDetailPage() {
   const { profileId } = useParams<{ profileId: string }>();
-  const [profile, setProfile] = useState<AgentProfile | null>(null);
-  const [instance, setInstance] = useState<AgentInfo | null>(null);
+  // 数据面接线：SSE 状态事件 → store + 兜底轮询 + 重连对齐（store 化后唯一接线点）
+  useRosterStoreSync();
+  const profiles = useRosterStore((s) => s.profiles);
+  const agents = useRosterStore((s) => s.agents);
+  const channels = useRosterStore((s) => s.channels);
+  const loadedAt = useRosterStore((s) => s.loadedAt);
+  const storeError = useRosterStore((s) => s.error);
   const [history, setHistory] = useState<WorkUnit[]>([]);
   const [historyTotal, setHistoryTotal] = useState(0);
-  const [channelName, setChannelName] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // terminate 等动作失败单独记（数据面错误在 store.error）
+  const [actionError, setActionError] = useState<string | null>(null);
   // 强制停止二次确认（ui/ConfirmDialog，替代原生 window.confirm）
   const [confirmTerminate, setConfirmTerminate] = useState(false);
 
-  const load = useCallback(async (silent = false) => {
-    if (!profileId) return;
-    if (!silent) setLoading(true);
-    try {
-      const [profilesRes, summaryRes] = await Promise.all([
-        channelApi.listAllAgents(),
-        monitoringApi.getAgentSummary(),
-      ]);
-      const p = profilesRes.data.data.find((x) => x.id === profileId) ?? null;
-      setProfile(p);
-      // 同一角色可能有多条历史 state，接口已按 startedAt 降序，取最新一条
-      const inst = summaryRes.data.agents.find((a) => a.roleId === profileId) ?? null;
-      let currentWorkUnit: AgentCurrentWorkUnit | null = inst?.currentWorkUnit ?? null;
-      // 后端聚合字段暂缺时按裸 ID 补查 WU 详情
-      if (inst?.currentWorkUnitId && !currentWorkUnit) {
-        try {
-          const wuRes = await workunitApi.get(inst.currentWorkUnitId);
-          const wu = wuRes.data;
-          currentWorkUnit = { id: wu.id, title: wu.scope, type: wu.type, status: wu.status, claimedAt: wu.claimedAt };
-        } catch {
-          currentWorkUnit = null;
-        }
-      }
-      setInstance(inst ? { ...inst, currentWorkUnit } : null);
-      // 所属频道名（缓存查询，查不到显示"频道"）
-      if (inst?.channelId) {
-        try {
-          const chRes = await channelApi.list();
-          setChannelName(chRes.data.data.find((c) => c.id === inst.channelId)?.name ?? null);
-        } catch {
-          setChannelName(null);
-        }
-      } else {
-        setChannelName(null);
-      }
-      // 历史任务：认领后 assigneeId = instance.id
-      if (inst) {
-        try {
-          const hisRes = await workunitApi.list({ assigneeId: inst.id, limit: HISTORY_LIMIT });
-          setHistory(hisRes.data.data);
-          setHistoryTotal(hisRes.data.pagination.total);
-        } catch {
-          setHistory([]);
-          setHistoryTotal(0);
-        }
-      } else {
-        setHistory([]);
-        setHistoryTotal(0);
-      }
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Failed to load agent');
-    } finally {
-      setLoading(false);
-    }
+  const profile = useMemo(() => profiles.find((x) => x.id === profileId) ?? null, [profiles, profileId]);
+  // 同一角色可能有多条历史 state，接口已按 startedAt 降序，取最新一条
+  const instance = useMemo(() => agents.find((a) => a.roleId === profileId) ?? null, [agents, profileId]);
+  const instanceId = instance?.id ?? null;
+  const instanceIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    instanceIdRef.current = instanceId;
+  }, [instanceId]);
+  const error = storeError ?? actionError;
+  // loadedAt === null：首次数据尚未落地（403 终态/false 均已落地）
+  const loading = loadedAt === null && !storeError;
+
+  // 页面进入：TTL 门禁拉取（路由切换 TTL 内零重拉，#346 验收）
+  useEffect(() => {
+    void useRosterStore.getState().ensureFresh();
   }, [profileId]);
 
-  // profileId 切换时在渲染期同步置回加载态（替代原 load(false) 内、由 effect 触发的同步 setLoading）
-  const [prevProfileId, setPrevProfileId] = useState(profileId);
-  if (prevProfileId !== profileId) {
-    setPrevProfileId(profileId);
-    setLoading(true);
-  }
-
+  // 后端聚合字段暂缺时按裸 ID 补查 WU 详情（store action：写回后 roster 左栏/仪表盘同享快照）
   useEffect(() => {
-    // 微任务里触发加载：load 为多 await async 函数，编译器对 effect 内同步调用保守告警
-    void Promise.resolve().then(() => load(true));
-  }, [load]);
+    if (!instance?.currentWorkUnitId || instance.currentWorkUnit) return;
+    useRosterStore.getState().backfillCurrentWorkUnit(instance.id, instance.currentWorkUnitId);
+  }, [instance]);
 
-  // #318：SSE 负载直更（替代 useWorkUnitEvents eventTick 整页 5 接口重拉）——
-  // instance status_changed 就地更新（additive pmo/startedAt，旧形状缺键回退保留）；
-  // workunit.status_changed 就地更新当前卡状态与历史行，命中本实例再防抖重拉历史区对齐窗口；
-  // SSE 重连经 onReconnect 一次性整页 refetch（ADR D3）
-  const { onEvent, onReconnect } = useWebSocketContext();
-  const instanceIdRef = useRef<string | null>(null);
-  instanceIdRef.current = instance?.id ?? null;
+  // 所属频道名（store 缓存切片，查不到显示"频道"）
+  const channelName = useMemo(() => {
+    if (!instance?.channelId) return null;
+    return channels.find((c) => c.id === instance.channelId)?.name ?? null;
+  }, [channels, instance]);
+
+  // 历史任务窗口（页面私有）：认领后 assigneeId = instance.id。
+  // 实例切换（instanceId 变化才触发，SSE 就地更新不重拉历史区）：渲染期同步清窗口，effect 再拉新
+  const loadHistory = useCallback(async (id: string) => {
+    try {
+      const hisRes = await workunitApi.list({ assigneeId: id, limit: HISTORY_LIMIT });
+      setHistory(hisRes.data.data);
+      setHistoryTotal(hisRes.data.pagination.total);
+    } catch {
+      setHistory([]);
+      setHistoryTotal(0);
+    }
+  }, []);
+
+  const [histInstanceId, setHistInstanceId] = useState(instanceId);
+  if (histInstanceId !== instanceId) {
+    setHistInstanceId(instanceId);
+    setHistory([]);
+    setHistoryTotal(0);
+  }
+  useEffect(() => {
+    // 微任务里触发：loadHistory 为 async（setState 在 await 后），lint 对 effect 直调保守告警
+    if (!instanceId) return;
+    void Promise.resolve().then(() => loadHistory(instanceId));
+  }, [instanceId, loadHistory]);
+
   const historyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
   useEffect(() => () => {
     if (historyTimerRef.current) clearTimeout(historyTimerRef.current);
   }, []);
 
+  // #318：workunit.status_changed 就地更新历史行 + 命中本实例防抖重拉历史区；
+  // agent.instance.status_changed 与当前卡状态面已由 store 统一处理，本页不再重复订阅
+  const { onEvent, onReconnect } = useWebSocketContext();
+
+  // SSE 重连：store 数据面对齐由 useRosterStoreSync 负责（强制 ensureFresh）；
+  // 历史任务窗口是页面私有面，断线期间的 status_changed 无事件语义，重连时重拉对齐（ADR D3）
+  useEffect(() => onReconnect?.(() => {
+    const iid = instanceIdRef.current;
+    if (iid) void loadHistory(iid);
+  }), [onReconnect, loadHistory]);
+
   useEffect(() => onEvent((msg) => {
-    if (msg.event_type === 'agent.instance.status_changed') {
-      const d = (msg.data ?? {}) as InstanceStatusPayload;
-      if (d.profileId !== profileId) return;
-      setInstance(prev => {
-        if (!prev) return prev;
-        return {
-          ...prev,
-          status: d.status ?? prev.status,
-          currentWorkUnitId: d.currentWorkUnitId !== undefined ? d.currentWorkUnitId : prev.currentWorkUnitId,
-          currentWorkUnit: d.currentWorkUnit !== undefined ? d.currentWorkUnit : prev.currentWorkUnit,
-          channelId: d.channelId !== undefined ? d.channelId : prev.channelId,
-          pmo: d.pmo !== undefined ? d.pmo : prev.pmo,
-          startedAt: d.startedAt ?? prev.startedAt,
-          lastError: d.lastError !== undefined ? d.lastError : prev.lastError,
-          lastErrorAt: d.lastErrorAt !== undefined ? d.lastErrorAt : prev.lastErrorAt,
-        };
-      });
-      return;
-    }
     if (msg.event_type !== 'workunit.status_changed') return;
     const wu = (msg.data as { workunit?: WorkUnit } | null)?.workunit;
     if (!wu) return;
-    // 当前卡状态就地更新（in_review 等迁移即时可见，instance 事件不承担步进状态）
-    setInstance(prev => prev?.currentWorkUnit?.id === wu.id
-      ? { ...prev, currentWorkUnit: { ...prev.currentWorkUnit, status: wu.status } }
-      : prev);
     // 历史行就地更新（负载为全量快照，claimable 与本页无关不覆盖）
     setHistory(prev => prev.some(h => h.id === wu.id)
       ? prev.map(h => (h.id === wu.id ? { ...wu, claimable: h.claimable } : h))
@@ -176,18 +134,16 @@ export function AgentDetailPage() {
           .catch(() => { /* best-effort：下条事件或重连自愈 */ });
       }, HISTORY_REFRESH_DEBOUNCE_MS);
     }
-  }), [onEvent, profileId]);
-
-  useEffect(() => onReconnect(() => { void load(true); }), [onReconnect, load]);
+  }), [onEvent]);
 
   const handleTerminate = async () => {
     setConfirmTerminate(false);
     if (!instance) return;
     try {
       await monitoringApi.terminateInstance(instance.id);
-      await load(true);
+      await useRosterStore.getState().ensureFresh({ maxAgeMs: 0 });
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Failed to terminate agent');
+      setActionError(e instanceof Error ? e.message : 'Failed to terminate agent');
     }
   };
 

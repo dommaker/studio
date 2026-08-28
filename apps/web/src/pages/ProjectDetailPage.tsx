@@ -23,9 +23,9 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { projectApi, type DeliveryStatus } from '../api';
 import { requirementApi, type RequirementChainWorkUnit } from '../api/requirements';
-import { monitoringApi, type AgentInfo } from '../api/monitoring';
 import { workunitApi } from '../api/workunit';
 import { maintenanceApi } from '../api/maintenance';
+import { useRosterStore } from '../stores/rosterStore';
 import { PmoNumberBadge } from '../components/PmoNumberBadge';
 import { ProjectPipeline } from '../components/pmo/ProjectPipeline';
 import { ProjectActivity } from '../components/pmo/ProjectActivity';
@@ -85,8 +85,9 @@ export function ProjectDetailPage() {
   const [error, setError] = useState<string | null>(null);
 
   // 🆕 AC-5: 进度管道（REQ chain WU + agent 名册）/ 原始需求折叠
+  // #346：agent 名册读 rosterStore（TTL 缓存共享；非 Admin 403 时 agents 保持空列表，对齐旧 catch(() => null) 行为）
   const [chainWus, setChainWus] = useState<RequirementChainWorkUnit[]>([]);
-  const [agents, setAgents] = useState<AgentInfo[]>([]);
+  const agents = useRosterStore((s) => s.agents);
   const [chainLoading, setChainLoading] = useState(false);
   const [requirementExpanded, setRequirementExpanded] = useState(false);
   
@@ -157,12 +158,10 @@ export function ProjectDetailPage() {
       if (projectData.reqAlias) {
         setChainLoading(true);
         try {
-          const [chainRes, agentsRes] = await Promise.all([
-            requirementApi.getChain(projectData.reqAlias),
-            monitoringApi.getAgentSummary().catch(() => null),
-          ]);
+          // #346：agent 名册走 rosterStore TTL 缓存（ensureFresh 永不 reject，错误落 store 状态）
+          void useRosterStore.getState().ensureFresh();
+          const chainRes = await requirementApi.getChain(projectData.reqAlias);
           setChainWus(chainRes.data?.data?.workunits ?? []);
-          setAgents(agentsRes?.data?.agents ?? []);
         } catch {
           setChainWus([]);
         } finally {

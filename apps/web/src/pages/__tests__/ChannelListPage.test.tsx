@@ -3,9 +3,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
-const { mockUseChannelList, mockGetAgentSummary } = vi.hoisted(() => ({
+const { mockUseChannelList, mockGetAgentSummary, mockOnEvent } = vi.hoisted(() => ({
   mockUseChannelList: vi.fn(),
   mockGetAgentSummary: vi.fn(),
+  mockOnEvent: vi.fn(),
 }));
 
 vi.mock('../../hooks/useChannelList', () => ({
@@ -18,10 +19,21 @@ vi.mock('../../api/monitoring', () => ({
 
 // #272：创建表单（CreateChannelForm）加载本地工程发现候选——单测置空即可
 vi.mock('../../api/channel', () => ({
-  channelApi: { discoverProjects: vi.fn().mockResolvedValue({ data: { success: true, data: [] } }) },
+  channelApi: {
+    discoverProjects: vi.fn().mockResolvedValue({ data: { success: true, data: [] } }),
+    // #346：rosterStore.ensureFresh 三端点切片——本套件只关心 agents，其余 stub 失败即可
+    listAllAgents: vi.fn().mockRejectedValue(new Error('not mocked here')),
+    list: vi.fn().mockRejectedValue(new Error('not mocked here')),
+  },
+}));
+
+// #346：页面挂 useRosterStoreSync → useWebSocketContext 必须可解析
+vi.mock('../../api/websocketHooks', () => ({
+  useWebSocketContext: () => ({ onEvent: mockOnEvent, status: 'disconnected' }),
 }));
 
 import { ChannelListPage } from '../ChannelListPage';
+import { useRosterStore } from '../../stores/rosterStore';
 import type { ChannelListItem } from '../../hooks/useChannelList';
 
 const renderPage = () =>
@@ -34,6 +46,14 @@ const renderPage = () =>
 describe('工单 38: ChannelListPage 创建频道 loading', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // #346：Agent 状态栏走 rosterStore（模块级单例），每测重置
+    useRosterStore.setState({
+      profiles: [], agents: [], channels: [],
+      loading: false, error: null, forbidden: false,
+      loadedAt: null, channelsLoadedOnce: false, agentsLoadedOnce: false,
+      inflight: null, lastToken: null,
+    });
+    mockOnEvent.mockReturnValue(() => {});
     mockGetAgentSummary.mockResolvedValue({ data: { agents: [] } });
   });
 

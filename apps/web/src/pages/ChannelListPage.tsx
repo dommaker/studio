@@ -2,11 +2,12 @@
 // 2026-07 视觉重构（方向 A Mission Control）：数据逻辑收敛到 useChannelList（与 ChannelRail 同源），
 // Agent 状态栏改接 monitoringApi 真实数据；路由与创建频道能力保留
 // #272（决策 #251 Q7）：创建表单与 ChannelRail 合并为单一实现 CreateChannelForm
+// #346：Agent 状态栏读 rosterStore（TTL 缓存 + SSE 就地更新单份），本页不再直连 getAgentSummary
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useChannelList, type ChannelListItem } from '../hooks/useChannelList';
-import { monitoringApi, type AgentSummary } from '../api/monitoring';
-import { isForbidden } from '../utils/http';
+import { useRosterStore } from '../stores/rosterStore';
+import { useRosterStoreSync } from '../hooks/useRosterStoreSync';
 import { agentDotClass } from '../components/channel/statusClasses';
 import { CreateChannelForm } from '../components/channel/CreateChannelForm';
 
@@ -18,9 +19,10 @@ const TYPE_LABELS: Record<string, string> = {
 
 export function ChannelListPage() {
   const { channels, loading, unreadCounts, clearUnread, createChannel } = useChannelList();
-  const [agentSummary, setAgentSummary] = useState<AgentSummary | null>(null);
-  // #283：monitoring 接口 Admin-only，非 Admin 403 → 「无权限」终态
-  const [agentsForbidden, setAgentsForbidden] = useState(false);
+  useRosterStoreSync();
+  const agents = useRosterStore((s) => s.agents);
+  const agentsLoadedOnce = useRosterStore((s) => s.agentsLoadedOnce);
+  const agentsForbidden = useRosterStore((s) => s.forbidden);
   const [showNewForm, setShowNewForm] = useState(false);
   const navigate = useNavigate();
 
@@ -32,15 +34,6 @@ export function ChannelListPage() {
       navigate(`/channels/${rnd.id}`, { replace: true });
     }
   }, [channels, loading, navigate]);
-
-  // Agent 状态栏：真实监控数据（与 Mission Control 左栏同源）
-  useEffect(() => {
-    let alive = true;
-    monitoringApi.getAgentSummary()
-      .then(r => { if (alive) setAgentSummary(r.data); })
-      .catch(err => { if (alive && isForbidden(err)) setAgentsForbidden(true); });
-    return () => { alive = false; };
-  }, []);
 
   return (
     <div className="flex h-full" style={{ background: 'var(--bg-primary)' }}>
@@ -103,15 +96,15 @@ export function ChannelListPage() {
         </div>
       </div>
 
-      {/* Right: Agent status bar（真实监控数据） */}
+      {/* Right: Agent status bar（真实监控数据，#346 起与 Mission Control 左栏同源 rosterStore） */}
       <div style={{ width: 224, borderLeft: '1px solid var(--border-subtle)', padding: '32px 16px', background: 'var(--bg-secondary)' }}>
         <h2 className="mc-sec-label" style={{ padding: '0 0 8px' }}>Agent 状态</h2>
         {agentsForbidden ? (
           <div className="mc-drawer-note">无权限查看 Agent 状态（需 Admin 权限）</div>
         ) : (
-          !agentSummary && <div className="mc-drawer-note">加载中…</div>
+          !agentsLoadedOnce && <div className="mc-drawer-note">加载中…</div>
         )}
-        {agentSummary?.agents.map(a => (
+        {agents.map(a => (
           <div className="mc-agent" key={a.id} style={{ padding: '4px 0' }} title={a.lastError || undefined}>
             <span className={agentDotClass(a.status)} />
             <span className="mc-agent-name">@{a.name}</span>

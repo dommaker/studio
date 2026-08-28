@@ -14,10 +14,11 @@ vi.mock('../../../api/monitoring', () => ({
   monitoringApi: { getAgentSummary: mockGetAgentSummary, getAgentInstance: mockGetAgentInstance },
 }));
 vi.mock('../../../api/channel', () => ({
-  channelApi: { listAllAgents: mockListAllAgents },
+  channelApi: { listAllAgents: mockListAllAgents, list: vi.fn().mockRejectedValue(new Error('not mocked here')) },
 }));
 
 import { AssigneeLabel } from '../AssigneeLabel';
+import { useRosterStore } from '../../../stores/rosterStore';
 
 const renderLabel = (assigneeId: string) =>
   render(
@@ -29,6 +30,13 @@ const renderLabel = (assigneeId: string) =>
 describe('AssigneeLabel — #290 负责人标签渲染', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // #346：解析面读 rosterStore（模块级单例），每测重置避免 TTL 缓存跨测串味
+    useRosterStore.setState({
+      profiles: [], agents: [], channels: [],
+      loading: false, error: null, forbidden: false,
+      loadedAt: null, channelsLoadedOnce: false, agentsLoadedOnce: false,
+      inflight: null, lastToken: null,
+    });
     mockGetAgentSummary.mockResolvedValue({
       data: { agents: [], summary: { total: 0, idle: 0, active: 0, error: 0, terminated: 0 } },
     });

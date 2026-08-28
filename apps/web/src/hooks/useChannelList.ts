@@ -1,8 +1,12 @@
 // 频道列表数据 hook —— ChannelListPage 与 Mission Control 左栏 ChannelRail 共用
-// 数据来源与 B2-011 未读 SSE 逻辑单源化，避免两处实现漂移
+// 数据来源与 B2-011 未读 SSE 逻辑单源化，避免两处实现漂移。
+// #346：channels 切片上移 rosterStore（TTL 缓存 + 路由切换零重拉），本 hook 只保留
+// 未读计数（SSE channel.message_sent）与创建频道（写回 store）；loading 只看频道切片自身
+// （channelsLoadedOnce），不被 Admin-only 的 agents 慢请求/403 拖住。
 import { useState, useEffect, useCallback } from 'react';
-import { channelApi } from '../api/channel';
+import { channelApi, type Channel } from '../api/channel';
 import { useWebSocketContext } from '../api/websocketHooks';
+import { useRosterStore } from '../stores/rosterStore';
 
 export interface ChannelListItem {
   id: string;
@@ -23,17 +27,16 @@ export interface CreateChannelInput {
 }
 
 export function useChannelList() {
-  const [channels, setChannels] = useState<ChannelListItem[]>([]);
-  const [loading, setLoading] = useState(true);
+  const channels = useRosterStore((s) => s.channels);
+  const channelsLoadedOnce = useRosterStore((s) => s.channelsLoadedOnce);
   // B2-011: per-channel unread counters
   const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
   const { onEvent } = useWebSocketContext();
 
+  // #346：TTL 门禁拉取（频道切片）。实时面（SSE 状态事件/兜底轮询）由使用方页面挂
+  // useRosterStoreSync 统一接线——本 hook 可能与页面同时挂载，在此重复挂会双订阅/双计时器
   useEffect(() => {
-    channelApi.list()
-      .then(r => setChannels(r.data.data || []))
-      .catch(() => {})
-      .finally(() => setLoading(false));
+    void useRosterStore.getState().ensureFresh();
   }, []);
 
   // B2-011: SSE track unread messages per channel
@@ -65,10 +68,12 @@ export function useChannelList() {
       ...(agents.length > 0 ? { agents } : {}),
       ...(input.defaultPath ? { defaultPath: input.defaultPath } : {}),
     });
-    const ch = res.data.data as ChannelListItem;
-    setChannels(prev => [...prev, ch]);
+    const ch = res.data.data as Channel;
+    useRosterStore.getState().appendChannel(ch);
     return ch;
   }, []);
 
-  return { channels, loading, unreadCounts, clearUnread, createChannel };
+  // TTL 内重挂载：channels 已在缓存里，不再闪「加载中」（#346 验收：路由切换 TTL 内零重拉）；
+  // 频道切片失败（非 403）也置 channelsLoadedOnce → loading 终结为空列表（对齐旧 catch(() => {}) 行为）
+  return { channels, loading: !channelsLoadedOnce, unreadCounts, clearUnread, createChannel };
 }

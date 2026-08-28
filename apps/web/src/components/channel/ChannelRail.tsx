@@ -1,15 +1,13 @@
 // ChannelRail — Mission Control 左栏：频道列表（未读 badge + agent 在线数）+ Agent 状态
-// 数据：useChannelList（与 ChannelListPage 同源）+ monitoringApi.getAgentSummary（真实 API）
-// #312：agent.instance.status_changed SSE 就地更新状态点/lastError，30s 轮询退位为纯兜底
-// #313：轮询收敛到 useGatedPoll（SSE 断开且 visible 才跑）；SSE 事件覆盖新实例合成，不再靠轮询发现
+// 数据：useChannelList（与 ChannelListPage 同源，#346 起频道走 rosterStore）+ rosterStore.agents
+// #312/#313：agent.instance.status_changed SSE 就地更新与轮询兜底已收敛到 rosterStore +
+//   useRosterStoreSync（#346），本组件只订阅 selector 并派生视图（visibleAgents / 在线计数）
 // #272（决策 #251 Q7）：创建表单与 ChannelListPage 合并为单一实现 CreateChannelForm
-import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useChannelList } from '../../hooks/useChannelList';
-import { monitoringApi, type AgentSummary, type AgentInfo } from '../../api/monitoring';
-import { useWebSocketContext, type WebSocketMessage } from '../../api/websocketHooks';
-import { useGatedPoll } from '../../hooks/useGatedPoll';
-import { isForbidden } from '../../utils/http';
+import { useRosterStore } from '../../stores/rosterStore';
+import { useRosterStoreSync } from '../../hooks/useRosterStoreSync';
 import { agentDotClass } from './statusClasses';
 import { CreateChannelForm } from './CreateChannelForm';
 
@@ -25,96 +23,31 @@ interface Props {
 
 export function ChannelRail({ activeChannelId }: Props) {
   const { channels, loading, unreadCounts, clearUnread, createChannel } = useChannelList();
-  const { onEvent } = useWebSocketContext();
-  const [agentSummary, setAgentSummary] = useState<AgentSummary | null>(null);
-  // #283：monitoring 接口 Admin-only，非 Admin 403 → 「无权限」终态并停止轮询（不再刷 403）
-  const [agentsForbidden, setAgentsForbidden] = useState(false);
+  useRosterStoreSync();
+  const agents = useRosterStore((s) => s.agents);
+  const agentsLoadedOnce = useRosterStore((s) => s.agentsLoadedOnce);
+  const agentsForbidden = useRosterStore((s) => s.forbidden);
   const [showNewForm, setShowNewForm] = useState(false);
   const navigate = useNavigate();
 
-  // Agent 状态：useGatedPoll（#313）——挂载首拉 + 30s 兜底（SSE 断开且 visible 才跑）
-  // #283：monitoring 接口 Admin-only，非 Admin 403 → 「无权限」终态并短路后续请求（不再刷 403）
-  const forbiddenRef = useRef(false);
-  const load = useCallback(() => {
-    if (forbiddenRef.current) return;
-    monitoringApi.getAgentSummary()
-      .then(r => setAgentSummary(r.data))
-      .catch(err => {
-        if (isForbidden(err)) {
-          forbiddenRef.current = true; // 403 是无权限终态：短路，不再刷 403
-          setAgentsForbidden(true);
-        }
-      });
-  }, []);
-  useGatedPoll(load, 30000);
-
-  // #312：SSE 就地更新（轮询退位为纯兜底）。#313：未匹配已加载实例的事件 = 新角色实例，
-  // 用负载合成条目加入列表（轮询不再承担发现职责——SSE 连着时它不起表）；
-  // 计数（online/visible）由 useMemo 从 agents 状态推导，事件落库即自动重算
-  useEffect(() => {
-    const unsub = onEvent((msg: WebSocketMessage) => {
-      if (msg.event_type !== 'agent.instance.status_changed') return;
-      const d = (msg.data ?? {}) as {
-        profileId?: string;
-        instanceId?: string;
-        name?: string;
-        status?: string;
-        currentWorkUnitId?: string | null;
-        lastError?: string | null;
-        lastErrorAt?: string | null;
-      };
-      if (!d.profileId && !d.instanceId) return;
-      setAgentSummary(prev => {
-        if (!prev) return prev;
-        let touched = false;
-        const agents = prev.agents.map(a => {
-          // error 事件可能携带新建 error state 的 instanceId（≠列表里的 id），roleId 兜底匹配
-          if (a.id !== d.instanceId && a.roleId !== d.profileId) return a;
-          touched = true;
-          return {
-            ...a,
-            status: d.status ?? a.status,
-            currentWorkUnitId: d.currentWorkUnitId !== undefined ? d.currentWorkUnitId : a.currentWorkUnitId,
-            lastError: d.lastError !== undefined ? d.lastError : a.lastError,
-            lastErrorAt: d.lastErrorAt !== undefined ? d.lastErrorAt : a.lastErrorAt,
-          };
-        });
-        if (touched) return { ...prev, agents };
-        // #313：新实例合成（负载字段够渲染状态点/名字；agents 按 startedAt 降序，插头部）
-        const synth: AgentInfo = {
-          id: d.instanceId ?? d.profileId ?? '',
-          roleId: d.profileId ?? '',
-          name: d.name ?? d.profileId ?? '',
-          status: d.status ?? 'idle',
-          currentWorkUnitId: d.currentWorkUnitId ?? null,
-          startedAt: new Date().toISOString(),
-          lastError: d.lastError ?? null,
-          lastErrorAt: d.lastErrorAt ?? null,
-        };
-        return { ...prev, agents: [synth, ...prev.agents] };
-      });
-    });
-    return unsub;
-  }, [onEvent]);
-
   const agentStatusById = useMemo(() => {
     const m = new Map<string, string>();
-    agentSummary?.agents.forEach(a => m.set(a.id, a.status));
+    agents.forEach(a => m.set(a.id, a.status));
     return m;
-  }, [agentSummary]);
+  }, [agents]);
 
   // 可见 Agent 列表：按 roleId 去重（取最新一条，agents 已按 startedAt 降序）+ 过滤 terminated
   // terminated 是历史运行实例残留，频道侧栏只展示当前活跃角色（与 AgentDashboardPage 同模式）
   const visibleAgents = useMemo(() => {
     const seen = new Set<string>();
-    return (agentSummary?.agents ?? []).filter(a => {
+    return agents.filter(a => {
       if (a.status === 'terminated') return false;
       const key = a.roleId || a.id;
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
     });
-  }, [agentSummary]);
+  }, [agents]);
 
   const onlineCount = visibleAgents.filter(a => a.status === 'idle' || a.status === 'active').length;
 
@@ -189,12 +122,12 @@ export function ChannelRail({ activeChannelId }: Props) {
 
       <div className="mc-agents">
         <div className="mc-sec-label">
-          Agents{agentSummary ? ` · ${onlineCount}/${visibleAgents.length}` : ''}
+          Agents{agentsLoadedOnce ? ` · ${onlineCount}/${visibleAgents.length}` : ''}
         </div>
         {agentsForbidden ? (
           <div className="mc-rail-empty">无权限查看 Agent 状态（需 Admin 权限）</div>
         ) : (
-          !agentSummary && <div className="mc-rail-empty">加载中…</div>
+          !agentsLoadedOnce && <div className="mc-rail-empty">加载中…</div>
         )}
         {visibleAgents.map(a => (
           <div className="mc-agent" key={a.id} title={a.lastError || undefined}>
