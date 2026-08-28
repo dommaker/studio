@@ -1,6 +1,6 @@
 // AgentDashboardPage — #348 render-count 测试：模拟 workunit.execution.stream chunk 到达，
 // 断言静态卡壳零重渲（Link 探针按 /agents/:id 分卡计数——每张卡必渲角色名链接，卡重渲则计数必增；
-// 活跃卡动态更新证明页面确有重渲、memo 未拦死整页）。
+// 目标卡动态刷新证明 chunk 确实到达，且经卡片自订的 rosterActivityStore 切片只重渲该卡）。
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, act } from '@testing-library/react';
 import React from 'react';
@@ -108,7 +108,7 @@ describe('AgentDashboardPage — #348 stream chunk 掀不掀静态卡', () => {
     emitStreamChunk('准备动手修改');
     expect(await screen.findByText(/思考：准备动手修改/)).toBeDefined();
 
-    // 页面确实重渲了：目标卡 p1 计数增长（activities 变化破自身 memo）
+    // 目标卡重渲来自它自订的 store 切片（chunk 不再掀页面整树）——计数增长 = 订阅链路生效
     expect(linkRenderCount['/agents/p1']).toBeGreaterThan(baseP1);
     // 静态卡壳 p2 零重渲
     expect(linkRenderCount['/agents/p2']).toBe(baseP2);
