@@ -10,7 +10,7 @@ const { mockExec, mockExecFile } = vi.hoisted(() => ({
 
 vi.mock('child_process', () => ({ exec: mockExec, execFile: mockExecFile }));
 
-import { execAsync, execFileAsync } from '../monitor/exec-async.js';
+import { execAsync, execFileAsync } from '../exec-async.js';
 
 describe('exec-async (#374)', () => {
   it('execAsync：成功 resolve stdout，opts 透传', async () => {
