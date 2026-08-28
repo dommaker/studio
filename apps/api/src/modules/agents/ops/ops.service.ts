@@ -158,20 +158,23 @@ export class OpsService {
       }
     }
 
-    // 5. Disk space
+    // 5. Disk space（statfs 口径，委托 proc-probes 单出口——#374 去同步 df 子进程）
     try {
-      const output = execSync("df -h / | tail -1 | awk '{print $5, $4}'", { encoding: 'utf-8', stdio: 'pipe' }).trim();
-      const [usePercent, avail] = output.split(/\s+/);
-      const pct = parseInt(usePercent);
-      if (pct > this.rules.checks.disk_threshold_critical) {
+      const disk = readDiskUsage('/');
+      if (!disk || disk.usePercent === null) throw new Error('statfs unavailable');
+      const usePercent = `${disk.usePercent}%`;
+      const fmtAvail = (bytes: number) =>
+        bytes >= 1024 ** 3 ? `${Math.round(bytes / 1024 ** 3)}G` : `${Math.round(bytes / 1024 ** 2)}M`;
+      const avail = fmtAvail(disk.availBytes);
+      if (disk.usePercent > this.rules.checks.disk_threshold_critical) {
         add({ name: 'disk-space', passed: false, critical: true, message: `❌ Disk ${usePercent} full (${avail} available)` });
-      } else if (pct > this.rules.checks.disk_threshold_warn) {
+      } else if (disk.usePercent > this.rules.checks.disk_threshold_warn) {
         add({ name: 'disk-space', passed: true, message: `⚠️ Disk ${usePercent} (${avail} available)`, critical: false });
       } else {
         add({ name: 'disk-space', passed: true, message: `Disk ${usePercent} (${avail} available)`, critical: false });
       }
     } catch {
-      add({ name: 'disk-space', passed: true, message: 'Disk check skipped (df unavailable)', critical: false });
+      add({ name: 'disk-space', passed: true, message: 'Disk check skipped (statfs unavailable)', critical: false });
     }
 
     const passed = criticalFailures.length === 0;

@@ -6,7 +6,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 const {
-  tmpWorktrees, tmpRepo, mockLoadavg, mockCpus, mockExecSync,
+  tmpWorktrees, tmpRepo, mockLoadavg, mockCpus, mockExecSync, mockExec,
   mockReadDiskUsage, mockReadMemoryUsage, mockCountZombies,
   mockLogger, mockHandleAlert, mockEmitEvent, mockHealthScore,
   mockRunDecayCycle, mockStoreList, mockRunSyncCycle, mockRunDailyMaintenance,
@@ -24,6 +24,8 @@ const {
     mockLoadavg: vi.fn<[number, number, number]>(() => [0, 0, 0]),
     mockCpus: vi.fn(() => Array(2).fill({ model: 'test' })),
     mockExecSync: vi.fn(() => ''),
+    // #374: gcStaleWorktrees / checkKnowledgeHealth 已改异步 exec，回调式 mock
+    mockExec: vi.fn((_cmd: string, _opts: unknown, cb: (err: Error | null, stdout: string) => void) => cb(null, '')),
     mockReadDiskUsage: vi.fn(),
     mockReadMemoryUsage: vi.fn(),
     mockCountZombies: vi.fn(() => 0),
@@ -43,7 +45,7 @@ vi.mock('os', async (importOriginal) => {
   return { ...actual, loadavg: mockLoadavg, cpus: mockCpus };
 });
 
-vi.mock('child_process', () => ({ execSync: mockExecSync }));
+vi.mock('child_process', () => ({ execSync: mockExecSync, exec: mockExec }));
 
 // B4 #344: 系统探测委托 ops proc-probes 单出口，mock 掉 /proc 读取
 vi.mock('../ops/proc-probes.js', () => ({
@@ -104,10 +106,9 @@ function stubProbes(diskUsePercent: number) {
   });
   mockReadMemoryUsage.mockReturnValue({ totalKb: 16_000_000, freeKb: 8_000_000, usedKb: 8_000_000 });
   mockCountZombies.mockReturnValue(0);
-  // checkKnowledgeHealth 的 npx harness 用户模型更新仍走 execSync（24h 一次，非本轮探测）
-  mockExecSync.mockImplementation((cmd: string) => {
-    if (cmd.includes('npx harness')) return '{}';
-    return '';
+  // #374: checkKnowledgeHealth 的 npx harness 用户模型更新走异步 exec（24h 一次，非本轮探测）
+  mockExec.mockImplementation((_cmd: string, _opts: unknown, cb: (err: Error | null, stdout: string) => void) => {
+    cb(null, '{}');
   });
 }
 
@@ -265,6 +266,39 @@ describe('checkKnowledgeHealth', () => {
     expect(mockEmitEvent).not.toHaveBeenCalled();
     expect(mockRunDecayCycle).not.toHaveBeenCalled();
   });
+
+  it('AC #374: 用户模型更新走异步 exec（30s timeout 语义不变），execSync 零调用', async () => {
+    mockExec.mockImplementation((_cmd: string, _opts: unknown, cb: (err: Error | null, stdout: string) => void) => {
+      cb(null, '{"newSessions":3,"changes":[]}');
+    });
+    const state = { lastDecayRun: Date.now(), lastUserModelRun: 0 }; // 24h 门控命中
+
+    await checkKnowledgeHealth(state);
+
+    expect(mockExec).toHaveBeenCalledWith(
+      expect.stringContaining('npx harness update-user-model'),
+      { timeout: 30_000 },
+      expect.any(Function),
+    );
+    expect(mockExecSync).not.toHaveBeenCalled();
+    expect(mockLogger.info).toHaveBeenCalledWith(
+      '[MonitorService] User model updated',
+      expect.objectContaining({ newSessions: 3 }),
+    );
+  });
+
+  it('AC #374: 用户模型更新失败（超时等）→ warn non-blocking 不抛出', async () => {
+    mockExec.mockImplementation((_cmd: string, _opts: unknown, cb: (err: Error | null, stdout: string) => void) => {
+      cb(new Error('Command failed: npx harness'), '');
+    });
+    const state = { lastDecayRun: Date.now(), lastUserModelRun: 0 };
+
+    await expect(checkKnowledgeHealth(state)).resolves.toBeUndefined();
+    expect(mockLogger.warn).toHaveBeenCalledWith(
+      '[MonitorService] User model update failed (non-blocking)',
+      expect.anything(),
+    );
+  });
 });
 
 describe('knowledgeMaintenanceEnabled (B7 开关)', () => {
@@ -315,6 +349,33 @@ describe('gcStaleWorktrees', () => {
     expect(fs.existsSync(oldDir)).toBe(false);
     expect(fs.existsSync(freshDir)).toBe(true);
     // REPO_DIR 无 .git → 不执行 git worktree prune
-    expect(mockExecSync.mock.calls.filter(c => String(c[0]).includes('worktree prune'))).toHaveLength(0);
+    expect(mockExec.mock.calls.filter(c => String(c[0]).includes('worktree prune'))).toHaveLength(0);
+  });
+
+  it('AC #374: REPO_DIR 含 .git 时异步执行 git worktree prune（cwd/timeout 语义不变）', async () => {
+    const gitDir = path.join(tmpRepo, '.git');
+    fs.mkdirSync(gitDir);
+    try {
+      await gcStaleWorktrees();
+      expect(mockExec).toHaveBeenCalledWith('git worktree prune', { cwd: tmpRepo, timeout: 5000 }, expect.any(Function));
+      expect(mockExecSync).not.toHaveBeenCalled();
+    } finally {
+      fs.rmSync(gitDir, { recursive: true, force: true });
+    }
+  });
+
+  it('AC #374: prune 失败不阻塞 monitor 循环，warn 日志不变', async () => {
+    const gitDir = path.join(tmpRepo, '.git');
+    fs.mkdirSync(gitDir);
+    mockExec.mockImplementation((_cmd: string, _opts: unknown, cb: (err: Error | null, stdout: string) => void) => {
+      cb(new Error('git boom'), '');
+    });
+    try {
+      await expect(gcStaleWorktrees()).resolves.toBeUndefined();
+      expect(mockLogger.warn).toHaveBeenCalledWith('[MonitorService] gcStaleWorktrees failed', expect.anything());
+    } finally {
+      fs.rmSync(gitDir, { recursive: true, force: true });
+      mockExec.mockImplementation((_cmd: string, _opts: unknown, cb: (err: Error | null, stdout: string) => void) => cb(null, ''));
+    }
   });
 });

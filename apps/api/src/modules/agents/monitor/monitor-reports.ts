@@ -15,6 +15,7 @@ import type { FileStore } from '@dommaker/studio-shared';
 import { knowledgeService } from '../../knowledge/knowledge-service.js';
 import { preferenceObserver } from '../../knowledge/preference-observer.js';
 import { emitMonitorEvent } from './monitor-alerts.js';
+import { execFileAsync } from './exec-async.js';
 import {
   writeStudioEvent,
   parseStudioEventPayload,
@@ -222,18 +223,17 @@ export async function dailyReflection(fileStore: FileStore, state: ReportState):
 
     // 2. Git commits
     try {
-      const { execFileSync } = await import('child_process');
       const repoDir = process.env.REPO_DIR || '/root/projects/studio';
-      // execFileSync 数组参数不经 shell；git 失败走 catch 兜底（原 2>/dev/null 语义），
-      // 行计数/末行改在 JS 里做（原 `| wc -l` / `| tail -1`）
-      const gitLogOut = execFileSync(
+      // execFile 数组参数不经 shell；git 失败走 catch 兜底（原 2>/dev/null 语义），
+      // 行计数/末行改在 JS 里做（原 `| wc -l` / `| tail -1`）；#374 异步化不阻塞事件循环
+      const gitLogOut = await execFileAsync(
         'git', ['log', `--since=${since.toISOString()}`, '--oneline', '--no-merges'],
-        { cwd: repoDir, timeout: 5000, encoding: 'utf-8' }
+        { cwd: repoDir, timeout: 5000 }
       );
       const gitLog = String(gitLogOut.split('\n').filter(l => l.trim()).length);
-      const diffOut = execFileSync(
+      const diffOut = await execFileAsync(
         'git', ['diff', '--stat', 'HEAD', '@{24 hours ago}'],
-        { cwd: repoDir, timeout: 5000, encoding: 'utf-8' }
+        { cwd: repoDir, timeout: 5000 }
       );
       const diffLines = diffOut.split('\n').map(l => l.trim()).filter(Boolean);
       const fileCount = diffLines[diffLines.length - 1] ?? '';

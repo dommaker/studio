@@ -13,6 +13,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { execAsync } from './exec-async.js';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import { logger } from '@dommaker/studio-shared';
 import type { TriageIncidentInput } from '../types.js';
@@ -58,8 +59,7 @@ export async function gcStaleWorktrees(): Promise<void> {
     // Prune git worktree references that point to deleted directories
     const repoDir = process.env.REPO_DIR || path.join(os.homedir(), 'projects');
     if (fs.existsSync(path.join(repoDir, '.git'))) {
-      const { execSync } = await import('child_process');
-      execSync('git worktree prune', { cwd: repoDir, timeout: 5000, stdio: 'pipe' });
+      await execAsync('git worktree prune', { cwd: repoDir, timeout: 5000 });
     }
 
     // Clean worktree dirs that are older than 24h
@@ -194,10 +194,9 @@ export async function checkKnowledgeHealth(state: KnowledgeCycleState): Promise<
     if (Date.now() - state.lastUserModelRun > 24 * 60 * 60_000) {
       state.lastUserModelRun = Date.now();
       try {
-        const { execSync } = await import('child_process');
-        const result = execSync('npx harness update-user-model --days 1 --json 2>/dev/null || echo "{}"', {
-          encoding: 'utf-8', stdio: 'pipe', timeout: 30_000,
-        }).trim();
+        const result = (
+          await execAsync('npx harness update-user-model --days 1 --json 2>/dev/null || echo "{}"', { timeout: 30_000 })
+        ).trim();
         if (result && result !== '{}') {
           const data = JSON.parse(result);
           logger.info('[MonitorService] User model updated', { newSessions: (data as any).newSessions, changes: (data as any).changes?.length });

@@ -6,7 +6,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 const {
-  tmpHome, tmpEvents, eventsFile, mockLogger, mockUpdatePref, mockExecFileSync,
+  tmpHome, tmpEvents, eventsFile, mockLogger, mockUpdatePref, mockExecFileSync, mockExecFile,
 } = vi.hoisted(() => {
   const fs = require('fs');
   const path = require('path');
@@ -21,7 +21,8 @@ const {
     eventsFile,
     mockLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
     mockUpdatePref: vi.fn(() => Promise.resolve()),
-    // git 段 execFileSync：返回空串 → 0 commit（等价原 execSync 返回 '0' 的口径）
+    // git 段 execFileAsync（#374 起）：返回空串 → 0 commit
+    mockExecFile: vi.fn((_cmd: string, _args: string[], _opts: unknown, cb: (err: Error | null, out: string) => void) => cb(null, '')),
     mockExecFileSync: vi.fn(() => ''),
   };
 });
@@ -31,7 +32,7 @@ vi.mock('os', async (importOriginal) => {
   return { ...actual, homedir: () => tmpHome };
 });
 
-vi.mock('child_process', () => ({ execFileSync: mockExecFileSync }));
+vi.mock('child_process', () => ({ execFileSync: mockExecFileSync, execFile: mockExecFile }));
 
 // 显式清理：hoisted 里的 require('fs') 走原生模块，mkdtemp-cleanup 补丁登记不到
 afterAll(() => {
