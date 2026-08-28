@@ -12,7 +12,7 @@
 
 import { Router } from 'express';
 import { logger } from '@dommaker/studio-shared';
-import { sharedStore } from './knowledge-bus.service.js';
+import { sharedStore } from './knowledge-singletons.js';
 import { getSystemExecutor } from '../agents/system-executor.js';
 import { requireAuth, requireNotGuest } from '../../middleware/auth.js';
 import { parsePagination } from '../../utils/pagination.js';
@@ -30,7 +30,7 @@ export const entriesRoutes = Router();
  */
 entriesRoutes.get('/export', async (req, res) => {
   try {
-    const { sharedStore } = await import('./knowledge-bus.service.js');
+    const { sharedStore } = await import('./knowledge-singletons.js');
     const format = (req.query.format as string) === 'json' ? 'json' : 'md';
     const types = req.query.types ? (req.query.types as string).split(',').filter(Boolean) : undefined;
     const { limit } = parsePagination(req);
@@ -212,7 +212,7 @@ entriesRoutes.post('/unified', requireAuth(), requireNotGuest(), async (req, res
       return;
     }
 
-    const { sharedStore } = await import('./knowledge-bus.service.js');
+    const { sharedStore } = await import('./knowledge-singletons.js');
     const id = `manual-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
     const now = new Date().toISOString();
     // #93：人工创建本身就是出处凭证——不 stamp 的话 hasSourceReferences 闸门会永远拦住该条目

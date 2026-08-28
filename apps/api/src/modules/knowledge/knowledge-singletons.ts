@@ -1,8 +1,10 @@
 /**
  * knowledge-singletons — 知识子系统共享单例的唯一所有者 (R4 收敛, 断点 H)
  *
- * 此前这些单例散落在 @deprecated 的 knowledge-bus.service.ts 中，
- * 导致「已废弃模块持有全部共享状态」的倒挂。本模块接管所有权：
+ * #343：sharedStore 已包 MtimeMemoKnowledgeStore（mtime 校验聚合 memo，
+ * 缓存 seam ADR「外部包存储栈」条款）；原 @deprecated KnowledgeBus 兼容壳
+ * （knowledge-bus.service.ts）已删除，消费者直连本模块。
+ * 本模块接管所有权：
  *   - 统一存储路径 UNIFIED_KNOWLEDGE_DIR（运行时知识库唯一 = ~/.studio/knowledge）
  *   - sharedStore / sharedLifecycle / sharedIngest / sharedQuery / sharedInjector / sharedLinter
  *   - 消费事件链（recordReference → knowledge:consumption 事件）
@@ -23,6 +25,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
+import { MtimeMemoKnowledgeStore } from './knowledge-store-memo.js';
 
 const STUDIO_EVENTS_JSONL = resolveStudioLogFile('studio-events.jsonl');
 const fileStore = new FileStore();
@@ -42,7 +45,12 @@ try {
 } catch { /* no orphans — good */ }
 
 // Singleton store + lifecycle + ingest — shared by all knowledge consumers
-export const sharedStore = new FileKnowledgeStore({ baseDir: UNIFIED_KNOWLEDGE_DIR });
+// #343：sharedStore 包 mtime 校验聚合 memo（缓存 seam ADR「外部包存储栈」条款）。
+// 底层 FileKnowledgeStore 的 list() = readIndex + 逐条目 readFileSync（N+1 同步读），
+// injectContext 每执行步四连扫（queryEntries×2 + getIndexes + count）；memo 后
+// 稳态每步读口 = 4 次 memo 查（readdir+stat 指纹校验，无文件重读），本进程写穿透失效。
+const rawKnowledgeStore = new FileKnowledgeStore({ baseDir: UNIFIED_KNOWLEDGE_DIR });
+export const sharedStore = new MtimeMemoKnowledgeStore(rawKnowledgeStore);
 export const sharedLifecycle = new KnowledgeLifecycle(sharedStore, {
   autoPromoteSources: ['triage', 'auditor', 'evolution', 'analyst'],
 });

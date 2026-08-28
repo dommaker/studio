@@ -6,7 +6,7 @@
  * 2. 失败重试：指数退避 cap 120s，cap 10 次；P4 修订——空输出 = flock 锁竞争静默重排
  *    （不告警不计失败），真实失败每个 episode 只 warn 一次（带 stderr 尾部），重试走
  *    debug，放弃 error 一次，恢复 info 一次
- * 3. R4: 函数所有权在 knowledge-singletons.ts，knowledge-bus.service.js 保持兼容 re-export
+ * 3. R4: 函数所有权在 knowledge-singletons.ts，（#343 起 KnowledgeBus 兼容壳已删除，函数所有权在 knowledge-singletons.ts）
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
@@ -17,6 +17,9 @@ function mockDeps(execFileMock: ReturnType<typeof vi.fn>, loggerWarn?: ReturnTyp
     FileStore: class {
       appendJsonl = vi.fn().mockResolvedValue(undefined);
     },
+    // #361 薄壳转发后 knowledge-singletons 经 utils/studio-log-path re-export 取用；
+    // 模块加载期即调用，partial mock 必须提供
+    resolveStudioLogFile: (name: string) => `/tmp/test-studio-logs/${name}`,
   }));
   vi.doMock('@dommaker/harness', () => ({
     FileKnowledgeStore: class { list() { return []; } },
@@ -196,15 +199,5 @@ describe('scheduleVectorDbSync (B48-2E)', () => {
     for (let i = 4; i < gaps.length; i++) {
       expect(gaps[i]).toBe(120_000 + 5_000);
     }
-  });
-
-  it('R4: knowledge-bus.service.js re-exports the same scheduleVectorDbSync (compat)', async () => {
-    const execFileMock = vi.fn().mockReturnValue({ pid: 123 });
-    mockDeps(execFileMock);
-    const singletons = await import('../knowledge-singletons.js');
-    const bus = await import('../knowledge-bus.service.js');
-    expect(bus.scheduleVectorDbSync).toBe(singletons.scheduleVectorDbSync);
-    expect(bus.isVectorDbSyncing).toBe(singletons.isVectorDbSyncing);
-    expect(bus.sharedStore).toBe(singletons.sharedStore);
   });
 });

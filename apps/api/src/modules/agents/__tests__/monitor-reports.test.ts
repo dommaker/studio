@@ -51,7 +51,7 @@ vi.mock('../../knowledge/preference-observer.js', () => ({
   preferenceObserver: { updateFromPatternReport: mockUpdatePref },
 }));
 
-vi.mock('../../knowledge/knowledge-bus.service.js', () => ({
+vi.mock('../../knowledge/knowledge-singletons.js', () => ({
   sharedStore: { list: vi.fn(() => []) },
 }));
 

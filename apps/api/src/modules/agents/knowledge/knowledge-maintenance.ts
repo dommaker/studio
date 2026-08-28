@@ -11,7 +11,7 @@
 
 import { logger } from '@dommaker/studio-shared';
 import { getSystemExecutor } from '../system-executor.js';
-import { sharedStore } from '../../knowledge/knowledge-bus.service.js';
+import { sharedStore } from '../../knowledge/knowledge-singletons.js';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import * as os from 'os';

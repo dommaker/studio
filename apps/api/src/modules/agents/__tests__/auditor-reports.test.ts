@@ -37,7 +37,7 @@ const { tmpHome, tmpEvents, mockSave, origHomedir, origStudioHome, origStudioDat
   };
 });
 
-vi.mock('../../knowledge/knowledge-bus.service.js', () => ({
+vi.mock('../../knowledge/knowledge-singletons.js', () => ({
   sharedStore: { save: mockSave, list: vi.fn(() => []) },
 }));
 

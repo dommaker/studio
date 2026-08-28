@@ -10,7 +10,7 @@
  * 子路由以只读方式引用（ESM live binding 保证读到加载后的模块）。
  */
 
-import { UNIFIED_KNOWLEDGE_DIR } from '../knowledge/knowledge-bus.service.js';
+import { UNIFIED_KNOWLEDGE_DIR } from '../knowledge/knowledge-singletons.js';
 import type {
   TraceCollector as TraceCollectorType,
   TraceAnalyzer as TraceAnalyzerType,

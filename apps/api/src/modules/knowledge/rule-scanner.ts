@@ -6,7 +6,7 @@
 
 import { logger } from '@dommaker/studio-shared';
 import { getEffectiveConstraints } from '@dommaker/harness';
-import { sharedStore } from './knowledge-bus.service.js';
+import { sharedStore } from './knowledge-singletons.js';
 import { readFileSync, existsSync, readdirSync } from 'fs';
 import path from 'path';
 import * as os from 'os';

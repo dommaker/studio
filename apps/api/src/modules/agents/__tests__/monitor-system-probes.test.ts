@@ -65,7 +65,7 @@ vi.mock('@dommaker/harness', () => ({
   ReferenceTracker: class {},
 }));
 
-vi.mock('../../knowledge/knowledge-bus.service.js', () => ({
+vi.mock('../../knowledge/knowledge-singletons.js', () => ({
   sharedStore: { list: mockStoreList },
   sharedLifecycle: { tryPromote: vi.fn(() => null), runDecayCycle: mockRunDecayCycle },
 }));

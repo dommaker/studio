@@ -18,7 +18,7 @@ import { logger } from '@dommaker/studio-shared';
 import type { TriageIncidentInput } from '../types.js';
 import { triageService } from '../triage/triage.service.js';
 import { KnowledgeLinter, KnowledgeHealthScorer, ReferenceTracker } from '@dommaker/harness';
-import { sharedStore, sharedLifecycle } from '../../knowledge/knowledge-bus.service.js';
+import { sharedStore, sharedLifecycle } from '../../knowledge/knowledge-singletons.js';
 import { knowledgeSync } from '../../knowledge/knowledge-sync.service.js';
 import { emitMonitorEvent } from './monitor-alerts.js';
 import { readDiskUsage, readMemoryUsage, countZombieProcesses } from '../ops/proc-probes.js';

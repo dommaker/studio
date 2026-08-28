@@ -59,7 +59,7 @@ export class PreferenceObserver {
   // ── lazy import to avoid circular deps ──
 
   private async getStore() {
-    const { sharedStore } = await import('./knowledge-bus.service.js');
+    const { sharedStore } = await import('./knowledge-singletons.js');
     return { store: sharedStore };
   }
 

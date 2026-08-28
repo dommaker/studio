@@ -33,7 +33,7 @@ vi.mock('../system-executor.js', () => ({
   getSystemExecutor: () => ({ runJson: mockRunJson }),
 }));
 
-vi.mock('../../knowledge/knowledge-bus.service.js', () => ({
+vi.mock('../../knowledge/knowledge-singletons.js', () => ({
   sharedStore: { list: mockStoreList, get: mockStoreGet, update: mockStoreUpdate },
 }));
 

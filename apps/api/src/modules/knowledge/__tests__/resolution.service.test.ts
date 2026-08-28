@@ -37,12 +37,12 @@ vi.mock('os', async (importOriginal) => {
   };
 });
 
-vi.mock('../knowledge-bus.service.js', () => ({
+vi.mock('../knowledge-singletons.js', () => ({
   scheduleVectorDbSync: vi.fn(),
 }));
 
 import { resolutionService } from '../resolution.service.js';
-import { scheduleVectorDbSync } from '../knowledge-bus.service.js';
+import { scheduleVectorDbSync } from '../knowledge-singletons.js';
 
 // os.homedir() 已被 mock 指向 tmpDir，STUDIO_HOME 也在 hoisted 块钉到 tmpDir/.studio
 // —— resolution.service 的 KNOWLEDGE_DIR 与本测试的写入/清理路径都落在

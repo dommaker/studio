@@ -2,9 +2,10 @@
  * #137 验收 — KnowledgeSync 零值 cycle 止血
  *
  * 全零 cycle（0 stale / 0 unmonitored / 0 healed）只写日志，不落 knowledge 条目；
- * 非零 cycle 照常落 severity=warning 条目，行为不变。
+ * 非零 cycle 照常落 trend 条目，行为不变。
  *
  * 夹具同 knowledge-sync-staleness.test.ts：tmp git repo + tmp FileKnowledgeStore。
+ * #343：KnowledgeBus 删除，recordPattern 断言走 knowledgeService mock。
  */
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import * as fs from 'fs';
@@ -12,7 +13,11 @@ import * as path from 'path';
 import * as os from 'os';
 import { execSync } from 'child_process';
 
-vi.mock('../knowledge-bus.service.js', async () => {
+const { recordPattern } = vi.hoisted(() => ({
+  recordPattern: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock('../knowledge-singletons.js', async () => {
   const fsMod = await import('fs');
   const pathMod = await import('path');
   const osMod = await import('os');
@@ -21,20 +26,25 @@ vi.mock('../knowledge-bus.service.js', async () => {
   const harness = await vi.importActual<any>('@dommaker/harness');
   const { FileKnowledgeStore, KnowledgeIngest } = harness;
   const sharedStore = new FileKnowledgeStore({ baseDir: tmpDir });
-  const recordPattern = vi.fn().mockResolvedValue(undefined);
 
-  (globalThis as any).__ksyncCycleTest = { tmpDir, sharedStore, recordPattern };
+  (globalThis as any).__ksyncCycleTest = { tmpDir, sharedStore };
 
   return {
     UNIFIED_KNOWLEDGE_DIR: tmpDir,
     sharedStore,
     sharedIngest: new KnowledgeIngest(sharedStore),
     sharedLifecycle: { recordReference: vi.fn() },
-    upsertKnowledge: vi.fn(),
-    knowledgeBus: { recordPattern },
     scheduleVectorDbSync: vi.fn(),
   };
 });
+
+// #343：KnowledgeBus 删除，recordPattern 走 knowledgeService 单一路径
+vi.mock('../knowledge-design-doc.js', () => ({
+  upsertKnowledge: vi.fn(),
+}));
+vi.mock('../knowledge-service.js', () => ({
+  knowledgeService: { recordPattern },
+}));
 
 import { knowledgeSync } from '../knowledge-sync.service.js';
 
@@ -51,10 +61,9 @@ describe('#137: zero-value sync cycle does not persist a knowledge entry', () =>
   let repoDir: string;
   let storeDir: string;
   let sharedStore: any;
-  let recordPattern: ReturnType<typeof vi.fn>;
 
   beforeAll(() => {
-    ({ tmpDir: storeDir, sharedStore, recordPattern } = (globalThis as any).__ksyncCycleTest);
+    ({ tmpDir: storeDir, sharedStore } = (globalThis as any).__ksyncCycleTest);
 
     repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ksync-cycle-repo-'));
     git(repoDir, 'init -q');
@@ -78,7 +87,7 @@ describe('#137: zero-value sync cycle does not persist a knowledge entry', () =>
     expect(recordPattern).not.toHaveBeenCalled();
   });
 
-  it('non-zero cycle still persists a warning entry (behavior unchanged)', async () => {
+  it('non-zero cycle still persists a trend entry (behavior unchanged)', async () => {
     const SCOPE = 'i137-watched-scope';
     knowledgeSync.registerScope(SCOPE, {
       files: ['src/watched.ts'],
@@ -110,9 +119,8 @@ describe('#137: zero-value sync cycle does not persist a knowledge entry', () =>
     expect(result.stale.length).toBeGreaterThan(0);
     expect(recordPattern).toHaveBeenCalledTimes(1);
     expect(recordPattern).toHaveBeenCalledWith(expect.objectContaining({
-      source: 'monitor',
       type: 'trend',
-      severity: 'warning',
+      tags: ['monitor'],
     }));
   });
 });

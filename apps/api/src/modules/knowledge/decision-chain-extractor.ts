@@ -8,7 +8,7 @@
 import { logger, FileStore } from '@dommaker/studio-shared';
 import { getSystemExecutor } from '../agents/system-executor.js';
 import { randomUUID } from 'crypto';
-import { sharedStore } from './knowledge-bus.service.js';
+import { sharedStore } from './knowledge-singletons.js';
 import type { KnowledgeEntry } from '@dommaker/harness';
 
 const fileStore = new FileStore();

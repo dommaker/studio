@@ -19,7 +19,8 @@ const systemHealth: RegisteredTool = {
     required: [],
   },
   handler: async () => {
-    const { sharedStore, checkDocumentFreshness } = await import('../knowledge/knowledge-bus.service.js');
+    const { sharedStore } = await import('../knowledge/knowledge-singletons.js');
+    const { checkDocumentFreshness } = await import('../knowledge/knowledge-design-doc.js');
     const fsMod = await import('fs');
     const osMod = await import('os');
 

@@ -7,7 +7,7 @@
 
 import { logger, FileStore } from '@dommaker/studio-shared';
 import { skillStore } from '../skills/skill-store.js';
-import { sharedStore } from './knowledge-bus.service.js';
+import { sharedStore } from './knowledge-singletons.js';
 import {
   resolveStudioEventsFile,
   parseStudioEventPayload,

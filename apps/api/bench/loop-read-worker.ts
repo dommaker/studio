@@ -44,11 +44,9 @@ import type { BenchReadEvent, BenchRound, WorkerResult } from './read-metrics-ag
 // 吊住事件 loop）。第一道隔离在父进程（PATH 前置假 systemd-run，模块内部直线调用也能拦住）；
 // 此处再桩 exports（覆盖模块间调用点），双保险。bench 绝不触碰共享向量库。
 import * as knowledgeSingletons from '../src/modules/knowledge/knowledge-singletons.js';
-import * as knowledgeBus from '../src/modules/knowledge/knowledge-bus.service.js';
 // tsx(CJS interop) 下 exports 可变、桩生效；vitest(ESM) 下 namespace 只读 → 跳过
 // （bench 测试只测 bucketOfFor 纯函数；运行期隔离由父进程假 systemd-run 保证）
 try { (knowledgeSingletons as any).scheduleVectorDbSync = () => {}; } catch { /* ESM readonly */ }
-try { (knowledgeBus as any).scheduleVectorDbSync = () => {}; } catch { /* ESM readonly */ }
 
 const HOME = process.env.STUDIO_HOME!;
 const OUT = process.env.STUDIO_BENCH_OUT!;

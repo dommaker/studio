@@ -11,7 +11,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { performance } from 'node:perf_hooks';
 
-export type ReadOp = 'readJson' | 'readJsonl' | 'readIndexForQuery' | 'readdir';
+export type ReadOp = 'readJson' | 'readJsonl' | 'readIndexForQuery' | 'readdir' | 'knowledgeRead';
 
 export interface ReadMetricEvent {
   /** 循环归因标签（runWithLoopLabel 设置；无 → 'unlabeled'） */

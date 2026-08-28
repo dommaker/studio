@@ -13,7 +13,7 @@ const { mockList } = vi.hoisted(() => ({
   mockList: vi.fn().mockReturnValue([]),
 }));
 
-vi.mock('../knowledge-bus.service.js', () => ({
+vi.mock('../knowledge-singletons.js', () => ({
   sharedStore: { list: mockList },
 }));
 

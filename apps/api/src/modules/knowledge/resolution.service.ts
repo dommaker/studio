@@ -8,7 +8,7 @@
  */
 
 import { logger, FileStore, generateId, isActionableMaturity, matchResolutionPatterns } from '@dommaker/studio-shared';
-import { scheduleVectorDbSync } from './knowledge-bus.service.js';
+import { scheduleVectorDbSync } from './knowledge-singletons.js';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';

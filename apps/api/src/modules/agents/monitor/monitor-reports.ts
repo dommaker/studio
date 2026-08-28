@@ -335,11 +335,10 @@ export async function dailyReflection(fileStore: FileStore, state: ReportState):
     } catch { /* best-effort: audit module may not be available */ }
 
     // 5b. Knowledge index snapshot (for KR4 30d survival rate)
+    // #343 review：走 sharedStore 直通路径，不再裸建 FileKnowledgeStore 实例
     try {
-      const { FileKnowledgeStore } = await import('@dommaker/harness') as any;
-      const knowledgeDir = studioPath('knowledge');
-      const store = new FileKnowledgeStore({ baseDir: knowledgeDir });
-      store.snapshot();
+      const { sharedStore } = await import('../../knowledge/knowledge-singletons.js');
+      sharedStore.snapshot();
     } catch { /* best-effort */ }
 
     // B9-025: Weekly profile report (every Sunday)
@@ -366,7 +365,7 @@ export async function dailyReflection(fileStore: FileStore, state: ReportState):
           if (sorted.length > 0) {
             lines.push('', '### 周交互画像');
             lines.push(`- Top 模式: ${sorted.slice(0, 3).map(([t, c]) => `${t}(${c})`).join(', ')}`);
-            const { sharedStore } = await import('../../knowledge/knowledge-bus.service.js');
+            const { sharedStore } = await import('../../knowledge/knowledge-singletons.js');
             const prefEntries = sharedStore.list({ tags: ['preference', 'user-default'] });
             const prefData = prefEntries.length > 0 ? JSON.parse((prefEntries[0] as any).content || '{}') : {};
             const preferredRaw = prefData.preferredPatternTypes;

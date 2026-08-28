@@ -58,7 +58,7 @@
 | env-snapper | src/modules/knowledge/env-snapper.ts | EnvSnapper (G-003) — 系统环境自动快照 |
 | eval-case-generator | src/modules/knowledge/eval-case-generator.ts | EvalCaseGenerator — Better-Harness hill-climbing 吸收 |
 | evolution-scheduler | src/modules/knowledge/evolution-scheduler.ts | Knowledge Evolution Scheduler |
-| knowledge-bus.service | src/modules/knowledge/knowledge-bus.service.ts | KnowledgeBus — Agent 间共享知识总线 (H1, 2026-05-21) |
+| knowledge-singletons | src/modules/knowledge/knowledge-singletons.ts | 知识共享单例唯一所有者 + 向量库同步 + 统一质量门（#343 起 KnowledgeBus 兼容壳删除） |
 | knowledge-query.service | src/modules/knowledge/knowledge-query.service.ts | KnowledgeQueryService (S8) — 统一知识检索入口 |
 | knowledge-service.routes | src/modules/knowledge/knowledge-service.routes.ts | KnowledgeService HTTP API + SSE |
 | knowledge-service | src/modules/knowledge/knowledge-service.ts | KnowledgeService — Unified knowledge capability layer |

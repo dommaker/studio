@@ -48,6 +48,26 @@ mtime 校验的读穿缓存是跨进程安全的，但 FileStore 的**锁内读�
 裸读：持锁场景要求读到的是「此刻最新」，不引入任何缓存层间接性，正确性论证只看
 一处。这是刻意例外而非疏漏——给锁外只读路径加缓存时，不得顺手把锁内读也换掉。
 
+## 增补：外部包引入的存储栈视同磁盘真源（2026-08-28，#343）
+
+决策树第 1 问的「FileStore 读穿 seam」以数据经 studio-shared FileStore 门面管理为前提。
+外部包自带的存储栈（例：harness `FileKnowledgeStore` 管理 `~/.studio/knowledge`，npm
+固定版本，不在本仓改）不经该门面，但真源同样是磁盘文件 → **同样过决策树**，只是
+第 1 问落不进 FileStore seam，按以下方式降级落地：
+
+- **落点 = 第 3 问聚合 memo**：贴着存储栈的组装单例放（#343 = knowledge-singletons
+  的 `sharedStore`，包装类 `knowledge-store-memo.ts`），不在调用方各自包缓存。
+- **失效口径 = 借用第 1 问的机制**：本进程写穿透失效（save/update/delete 同步清
+  memo）+ mtime/size 目录指纹校验兜底跨进程外部写——与 FileStore 读穿 seam 同一
+  信任级别；残余风险同量级（外部同毫秒等长改写不可见）。
+- **语义基线**：包装后对外行为与底层 store 等价——命中返回深克隆，保持底层
+  「每次读返回全新对象」的既有契约（调用方会原地改嵌套数组）；显式磁盘核对路径
+  （readEntriesFromDisk 一类）直通不缓存。
+
+参照案例：#343 知识库——`injectContext` 每执行步 4 次全库同步扫描（N+1
+readFileSync），memo 后稳态每步 = 指纹校验 + memo 查，零文件重读。长期方向
+（另票）：知识库收进 FileStore seam 后，本条款对该数据不再适用。
+
 ## 参照案例：#314 WU index
 
 - `getIndex`（锁外只读，25+ 调用方）→ 收回 FileStore 读穿 seam（决策树第 1 问），

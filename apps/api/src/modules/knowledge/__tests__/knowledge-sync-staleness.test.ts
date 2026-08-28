@@ -14,7 +14,7 @@ import * as os from 'os';
 import { execSync } from 'child_process';
 
 // knowledge-sync.service 的存储依赖隔离到 tmp 目录（真实 FileKnowledgeStore）
-vi.mock('../knowledge-bus.service.js', async () => {
+vi.mock('../knowledge-singletons.js', async () => {
   const fsMod = await import('fs');
   const pathMod = await import('path');
   const osMod = await import('os');
@@ -34,11 +34,17 @@ vi.mock('../knowledge-bus.service.js', async () => {
     sharedStore,
     sharedIngest: new KnowledgeIngest(sharedStore),
     sharedLifecycle: { recordReference: vi.fn() },
-    upsertKnowledge: vi.fn(),
-    knowledgeBus: { recordPattern: vi.fn().mockResolvedValue(undefined) },
     scheduleVectorDbSync: vi.fn(),
   };
 });
+
+// #343：KnowledgeBus 删除，upsertKnowledge 迁至 knowledge-design-doc
+vi.mock('../knowledge-design-doc.js', () => ({
+  upsertKnowledge: vi.fn(),
+}));
+vi.mock('../knowledge-service.js', () => ({
+  knowledgeService: { recordPattern: vi.fn().mockResolvedValue(undefined) },
+}));
 
 import { knowledgeSync } from '../knowledge-sync.service.js';
 
