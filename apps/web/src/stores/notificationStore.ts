@@ -19,6 +19,8 @@ export interface Notification {
   workUnitId: string | null;
   /** meta.pmoId（老消息可能没有，防御性取 null）——决定「PMO」按钮 */
   pmoId: string | null;
+  /** 频道消息 id（仅 SSE 实时条目有）——点击跳频道时带 ?highlight= 直达该消息 */
+  messageId: string | null;
 }
 
 /** 后端 GET /notifications 返回项（NotificationService.getUserNotifications） */
@@ -60,6 +62,7 @@ function fromBackend(n: BackendNotification): Notification {
     read: n.read,
     workUnitId: targets.workUnitId,
     pmoId: targets.pmoId,
+    messageId: null, // 后端 link 只到 /channels/:id，无消息粒度
   };
 }
 

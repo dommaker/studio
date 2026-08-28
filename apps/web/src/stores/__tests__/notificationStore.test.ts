@@ -15,7 +15,7 @@ function sseItem(overrides: Partial<Notification> = {}): Notification {
   return {
     id: 'sse-1', backendId: null, channelId: 'ch-1', agentName: 'pmo',
     title: null, content: '实时消息', time: '10:00', read: false,
-    workUnitId: null, pmoId: null,
+    workUnitId: null, pmoId: null, messageId: 'sse-1',
     ...overrides,
   };
 }

@@ -147,9 +147,9 @@ const emitReconnect = () => { reconnectHandlers.forEach(h => h()); };
 /** #242 夹具：本频道 active WU 列表响应（deriveLiveExecutions 初始数据源） */
 const activeWuList = (wus: Array<{ id: string; metadata: string | null }>) => ({ data: { data: wus } });
 
-const renderPage = () =>
+const renderPage = (entry = '/channels/ch-1') =>
   render(
-    <MemoryRouter initialEntries={['/channels/ch-1']}>
+    <MemoryRouter initialEntries={[entry]}>
       <Routes>
         <Route path="/channels/:id" element={<ChannelDetailPage />} />
       </Routes>
@@ -181,9 +181,9 @@ describe('ChannelDetailPage — Mission Control 三栏', () => {
   it('打开频道即读：本频道未读通知标记已读（后端条目 POST 同步），其他频道不动', async () => {
     useNotificationStore.setState({
       notifications: [
-        { id: 'n-ch1', backendId: 'n-ch1', channelId: 'ch-1', agentName: 'System', title: '审计建议', content: 'x', time: '10:00', read: false, workUnitId: null, pmoId: null },
-        { id: 'sse-ch1', backendId: null, channelId: 'ch-1', agentName: 'pmo', title: null, content: '@human', time: '10:01', read: false, workUnitId: null, pmoId: null },
-        { id: 'n-ch2', backendId: 'n-ch2', channelId: 'ch-2', agentName: 'System', title: '别频道', content: 'y', time: '10:02', read: false, workUnitId: null, pmoId: null },
+        { id: 'n-ch1', backendId: 'n-ch1', channelId: 'ch-1', agentName: 'System', title: '审计建议', content: 'x', time: '10:00', read: false, workUnitId: null, pmoId: null, messageId: null },
+        { id: 'sse-ch1', backendId: null, channelId: 'ch-1', agentName: 'pmo', title: null, content: '@human', time: '10:01', read: false, workUnitId: null, pmoId: null, messageId: 'm-x' },
+        { id: 'n-ch2', backendId: 'n-ch2', channelId: 'ch-2', agentName: 'System', title: '别频道', content: 'y', time: '10:02', read: false, workUnitId: null, pmoId: null, messageId: null },
       ],
     });
 
@@ -194,6 +194,16 @@ describe('ChannelDetailPage — Mission Control 三栏', () => {
     expect(byId).toEqual({ 'n-ch1': true, 'sse-ch1': true, 'n-ch2': false });
     expect(mockApiPost).toHaveBeenCalledTimes(1);
     expect(mockApiPost).toHaveBeenCalledWith('/notifications/n-ch1/read');
+  });
+
+  it('?highlight=<mid> 直达消息：滚动定位并高亮（通知中心点击跳转入参）', async () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    renderPage('/channels/ch-1?highlight=m-1');
+    await waitFor(() => {
+      const el = document.querySelector('[data-message-id="m-1"]');
+      expect(el?.className).toContain('mc-msg-highlight');
+    });
+    expect(Element.prototype.scrollIntoView).toHaveBeenCalled();
   });
 
   it('决策9：SSE 断线重连 → 当前频道一次性 refetch（messages refresh + waitingWus/REQ chips 打底面对齐）', async () => {

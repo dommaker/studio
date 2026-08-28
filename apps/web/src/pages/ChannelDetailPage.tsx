@@ -1,6 +1,6 @@
 // Channel Detail Page — Mission Control 三栏（左频道栏 / 中对话流 / 右抽屉）
 // 对话流逻辑与 B1-001/Phase 2 一致：日期分隔、已完成折叠、线程分组、NEED_INPUT 回复链路，零语义变更
-import { useParams } from 'react-router-dom';
+import { useParams, useSearchParams } from 'react-router-dom';
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useChannelMessages } from '../hooks/useChannelEvents';
 import { useStreamFollow } from '../hooks/useStreamFollow';
@@ -313,6 +313,24 @@ export function ChannelDetailPage() {
     }
     setHighlightId(msgId);
   }, [latestQuestionIdByWu, messages]);
+
+  // 通知中心点击直达（?highlight=<mid>）：复用上方高亮定位机制，滚动到该消息并高亮 2s。
+  // 每个 mid 只消费一次（防消息流更新反复重置高亮）；目标未加载（异步首拉未完成）时等下一轮
+  // messages——老消息掉出首页分页则静默不定位（已知留白，对齐 locateWaitingQuestion 同约束）
+  const [searchParams] = useSearchParams();
+  const highlightConsumedRef = useRef<string | null>(null);
+  useEffect(() => {
+    const mid = searchParams.get('highlight');
+    if (!mid || highlightConsumedRef.current === mid) return;
+    const target = messages.find(m => m.id === mid);
+    if (!target) return;
+    highlightConsumedRef.current = mid;
+    if (target.replyToId) {
+      const anchorId = target.replyToId;
+      setExpandedThreads(prev => new Set(prev).add(anchorId));
+    }
+    setHighlightId(mid);
+  }, [searchParams, messages]);
 
   // 里程碑判定（不折叠）：人类消息 / 卡片消息 / 等待回复 / 最后一条回复——已迁入 deriveStreamView（#322）
 

@@ -91,6 +91,7 @@ export function NotificationBell() {
             read: false,
             workUnitId: m.workUnitId ?? null,
             pmoId: m.meta?.pmoId ?? null,
+            messageId: m.id ?? null,
           });
 
           // B2-004: Title flash for @human
@@ -113,12 +114,13 @@ export function NotificationBell() {
     return () => document.removeEventListener('mousedown', handler);
   }, [open]);
 
-  // 点通知本体：标记已读（store 动作内含后端同步），跳转优先级 WU 详情 > PMO 详情 > 频道
+  // 点通知本体：标记已读（store 动作内含后端同步），跳转优先级 WU 详情 > PMO 详情 > 频道；
+  // 频道分支带 ?highlight=<messageId> 直达消息（仅 SSE 条目有 messageId，后端 link 无消息粒度）
   const openNotification = useCallback((n: Notification) => {
     markRead(n.id);
     if (n.workUnitId) navigate(`/workunits/${n.workUnitId}`);
     else if (n.pmoId) navigate(`/pmo/project/${n.pmoId}`);
-    else if (n.channelId) navigate(`/channels/${n.channelId}`);
+    else if (n.channelId) navigate(`/channels/${n.channelId}${n.messageId ? `?highlight=${n.messageId}` : ''}`);
     setOpen(false);
   }, [markRead, navigate]);
 

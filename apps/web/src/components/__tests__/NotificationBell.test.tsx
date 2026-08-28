@@ -198,13 +198,13 @@ describe('§5.7 SSE 实时 atHuman 增量（保留）', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/pmo/project/proj-2');
   });
 
-  it('既无 workUnitId 也无 pmoId：点本体跳频道', async () => {
+  it('既无 workUnitId 也无 pmoId：点本体跳频道并直达消息（?highlight=<mid>）', async () => {
     await renderLoaded([]);
     emitAtHuman({ id: 'm3', agentName: 'coder', content: '请review', meta: { atHuman: true } });
     openDropdown();
 
     fireEvent.click(screen.getByText('请review'));
-    expect(mockNavigate).toHaveBeenCalledWith('/channels/ch-1');
+    expect(mockNavigate).toHaveBeenCalledWith('/channels/ch-1?highlight=m3');
   });
 
   it('SSE 与后端通知并存：角标合并计数', async () => {
