@@ -4,7 +4,7 @@
 // reload() 供刷新按钮/事件路径复用（保留旧数据重拉，error 即清）；setData 供 SSE 就地更新等本地修补。
 // best-effort 子拉取（失败静默）由消费方在 fetcher 内自行 catch 落 null。
 import {
-  useCallback, useEffect, useRef, useState,
+  useCallback, useEffect, useMemo, useRef, useState,
   type DependencyList, type Dispatch, type SetStateAction,
 } from 'react';
 
@@ -70,5 +70,9 @@ export function useAsyncData<T>(fetcher: () => Promise<T>, deps: DependencyList)
     return () => { alive = false; };
   }, [seq]);
 
-  return { data, loading, error, reload, setData };
+  // 返回值 useMemo 稳身份：消费方可把它直接放进 effect deps（SSE 订阅类）而不逐帧重订阅
+  return useMemo(
+    () => ({ data, loading, error, reload, setData }),
+    [data, loading, error, reload, setData],
+  );
 }

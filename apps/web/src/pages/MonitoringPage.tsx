@@ -13,7 +13,14 @@ type MonitoringTab = 'overview' | 'events';
 export function MonitoringPage() {
   const [activeTab, setActiveTab] = useState<MonitoringTab>('overview');
   // #350 useAsyncData 收一次性拉取样板：主面板错误上屏；M1/M2 等区块独立加载、失败静默（fetcher 内 catch 落 null）
-  const statsQ = useAsyncData(() => monitoringApi.getStats().then(r => r.data), []);
+  const statsQ = useAsyncData(
+    () => monitoringApi.getStats().then(r => r.data)
+      .catch((e: unknown) => {
+        // 非 Error 抛出也落原文案（hook 默认是 'Failed to load'）
+        throw new Error(e instanceof Error ? e.message : 'Failed to load stats');
+      }),
+    [],
+  );
   const flywheelQ = useAsyncData(() => monitoringApi.getFlywheel().then(r => r.data).catch(() => null), []);
   const overheadQ = useAsyncData(() => monitoringApi.getOverhead().then(r => r.data).catch(() => null), []);
   const evidenceQ = useAsyncData(() => monitoringApi.getOverview().then(r => r.data.evidence).catch(() => null), []);

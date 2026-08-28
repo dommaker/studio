@@ -96,7 +96,7 @@ export function KnowledgePage() {
       });
       setShowManualEntry(false);
       setManualForm({ type: 'guideline', title: '', content: '', consumptionMode: 'reference', tags: '' });
-      tabQ.reload(); // 提交后事件路径刷新（手动条目落在 unified 视图）
+      tabQ.reload(); // 提交后事件路径刷新（新建表单仅在 unified 视图打开）
     } catch (err) {
       // 工单 38: 失败不再静默——toast 反馈且保留表单内容，用户可修正后重试
       console.error('Failed to create entry:', err);
@@ -125,7 +125,8 @@ export function KnowledgePage() {
   const gapData = tabQ.data?.kind === 'gap' ? tabQ.data.items : [];
   const costs = costsQ.data;
 
-  const tabs: Array<{ id: ActiveTab; icon: string; label: string }> = [    { id: 'unified', icon: '🔗', label: '统一视图' },
+  const tabs: Array<{ id: ActiveTab; icon: string; label: string }> = [
+    { id: 'unified', icon: '🔗', label: '统一视图' },
     ...(Object.entries(gapLabels) as [GapTab, string][]).map(([id, label]) => ({
       id, icon: gapIcons[id], label,
     })),
