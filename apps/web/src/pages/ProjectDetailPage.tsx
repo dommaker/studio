@@ -19,7 +19,7 @@
  * 一并摘除。
  */
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { projectApi, type DeliveryStatus } from '../api';
 import { requirementApi, type RequirementChainWorkUnit } from '../api/requirements';
@@ -27,6 +27,7 @@ import { workunitApi } from '../api/workunit';
 import { fanOut } from '../utils/fanOut';
 import { maintenanceApi } from '../api/maintenance';
 import { useRosterStore } from '../stores/rosterStore';
+import { useAsyncData } from '../hooks/useAsyncData';
 import { PmoNumberBadge } from '../components/PmoNumberBadge';
 import { ProjectPipeline } from '../components/pmo/ProjectPipeline';
 import { ProjectActivity } from '../components/pmo/ProjectActivity';
@@ -81,102 +82,89 @@ const PROJECT_STEPS = [
 export function ProjectDetailPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const navigate = useNavigate();
-  
-  const [project, setProject] = useState<Project | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+
+  // #350 useAsyncData 收一次性拉取样板：主拉取错误上屏（工单 38 口径）；projectId 切换渲染期重置。
+  // 子拉取拆为并行 best-effort hook（原来在 loadData 内串行 await），失败静默落 null 不阻塞页面。
+  const projectQ = useAsyncData<Project>(async () => {
+    if (!projectId) throw new Error('Failed to load project');
+    try {
+      return (await projectApi.get(projectId)).data as Project;
+    } catch (err) {
+      const msg = (err as { response?: { data?: { error?: { message?: string } } } })
+        .response?.data?.error?.message;
+      throw new Error(msg || 'Failed to load project');
+    }
+  }, [projectId]);
+  const project = projectQ.data;
+  const loading = projectQ.loading;
+  const error = projectQ.error;
+
+  // 🆕 PMO-b: 交付台账（管道时间线 / 进展卡 / 证据警告条共用；交互在 DeliveryPanel，经 onRefresh 刷新）
+  const deliveryQ = useAsyncData(async () => {
+    if (!projectId) return null;
+    try {
+      return (await projectApi.getDelivery(projectId)).data as DeliveryStatus;
+    } catch { return null; }
+  }, [projectId]);
+  const delivery = deliveryQ.data;
 
   // 🆕 AC-5: 进度管道（REQ chain WU + agent 名册）/ 原始需求折叠
   // #346：agent 名册读 rosterStore（TTL 缓存共享；非 Admin 403 时 agents 保持空列表，对齐旧 catch(() => null) 行为）
-  const [chainWus, setChainWus] = useState<RequirementChainWorkUnit[]>([]);
   const agents = useRosterStore((s) => s.agents);
-  const [chainLoading, setChainLoading] = useState(false);
-  const [requirementExpanded, setRequirementExpanded] = useState(false);
-  
+  const chainQ = useAsyncData<RequirementChainWorkUnit[] | null>(async () => {
+    if (!project?.reqAlias) return null;
+    // #346：agent 名册走 rosterStore TTL 缓存（ensureFresh 永不 reject，错误落 store 状态）
+    void useRosterStore.getState().ensureFresh();
+    try {
+      return (await requirementApi.getChain(project.reqAlias)).data?.data?.workunits ?? [];
+    } catch { return []; }
+  }, [project]);
+  const chainWus = chainQ.data ?? [];
+  const chainLoading = chainQ.loading;
+
   // 弹窗状态
   const [showVscodeGuide, setShowVscodeGuide] = useState(false);
   const [showCloudIdeGuide, setShowCloudIdeGuide] = useState(false);
   const [copySuccess, setCopySuccess] = useState(false);
+  const [requirementExpanded, setRequirementExpanded] = useState(false);
 
-  // 🆕 PMO-b: 交付台账（delivery 数据由页面持有：管道时间线 / 进展卡 / 证据警告条共用；
-  // 交互（缺口行动 / 交付合并）在 DeliveryPanel 内，经 onRefresh 回调刷新）
-  const [delivery, setDelivery] = useState<DeliveryStatus | null>(null);
-
-  // 🆕 #114 T8：地图区决策单状态（fog.wuId → WU status）+ 顶部「下一个该干什么」
-  const [decisionStatusByWuId, setDecisionStatusByWuId] = useState<Record<string, string>>({});
-  const [nextAction, setNextAction] = useState<NextActionCandidate | null>(null);
-
-  // projectId 切换时在渲染期同步置回加载态（替代原 loadData 内、由 effect 触发的同步 setLoading）
-  const [prevProjectId, setPrevProjectId] = useState(projectId);
-  if (prevProjectId !== projectId) {
-    setPrevProjectId(projectId);
-    setLoading(true);
-  }
-
-  const loadData = useCallback(async () => {
+  // 🆕 #114 T8：「下一个该干什么」——可认领 + 依赖已清的第一张
+  //（列表 API claimable 标记 + metadata.pmoId 归属过滤，排序细则见 mapUtils.pickNextAction）
+  const nextActionQ = useAsyncData(async () => {
+    if (!project) return null;
     try {
-      // 加载项目详情（必须成功）
-      const projectRes = await projectApi.get(projectId!);
-      const projectData = projectRes.data;
-      setProject(projectData);
-      setLoading(false);
+      const unassignedRes = await workunitApi.list({ status: 'unassigned', limit: 100 });
+      const candidates = (unassignedRes.data?.data ?? [])
+        .map(w => toNextActionCandidate(w, project.id))
+        .filter((c): c is NextActionCandidate => c !== null);
+      const fogOrder = project.map?.fog.map(f => f.id) ?? [];
+      return pickNextAction(candidates, fogOrder);
+    } catch { return null; }
+  }, [project]);
+  const nextAction = nextActionQ.data;
 
-      // 🆕 PMO-b: 加载交付台账（best-effort，不阻塞页面）
-      try {
-        const deliveryRes = await projectApi.getDelivery(projectId!);
-        setDelivery(deliveryRes.data);
-      } catch { setDelivery(null); }
-
-      // 🆕 #114 T8：「下一个该干什么」——可认领 + 依赖已清的第一张
-      //（列表 API claimable 标记 + metadata.pmoId 归属过滤，排序细则见 mapUtils.pickNextAction）
-      try {
-        const unassignedRes = await workunitApi.list({ status: 'unassigned', limit: 100 });
-        const candidates = (unassignedRes.data?.data ?? [])
-          .map(w => toNextActionCandidate(w, projectData.id))
-          .filter((c): c is NextActionCandidate => c !== null);
-        const fogOrder = projectData.map?.fog.map(f => f.id) ?? [];
-        setNextAction(pickNextAction(candidates, fogOrder));
-      } catch { setNextAction(null); }
-
-      // 🆕 #114 T8：地图区决策单状态（fog.wuId 互挂的 decision WU 逐个 best-effort 拉；
-      // 拉不到的徽章按待认领兜底，见 mapUtils.resolveFogBadge）
-      if (projectData.map) {
-        // 显式标注 FogItem[]：projectData 为无类型 axios 响应（any），经 fanOut 泛型边界会推成 unknown
-        const fogEntries: FogItem[] = projectData.map.fog.filter(f => f.wuId);
-        const results = await fanOut(fogEntries, f => workunitApi.get(f.wuId!));
-        const statusMap: Record<string, string> = {};
-        for (let i = 0; i < fogEntries.length; i++) {
-          const r = results[i];
-          if (r.ok && r.value.data?.status) statusMap[fogEntries[i].wuId!] = r.value.data.status;
-        }
-        setDecisionStatusByWuId(statusMap);
-      }
-
-      // 🆕 AC-5: 进度管道数据（best-effort）——REQ 链路 WU（chain 自带 type/时间戳，§10 消 N+1）+ agent 名册
-      if (projectData.reqAlias) {
-        setChainLoading(true);
-        try {
-          // #346：agent 名册走 rosterStore TTL 缓存（ensureFresh 永不 reject，错误落 store 状态）
-          void useRosterStore.getState().ensureFresh();
-          const chainRes = await requirementApi.getChain(projectData.reqAlias);
-          setChainWus(chainRes.data?.data?.workunits ?? []);
-        } catch {
-          setChainWus([]);
-        } finally {
-          setChainLoading(false);
-        }
-      }
-    } catch (err) {
-      setError(err.response?.data?.error?.message || 'Failed to load project');
-      setLoading(false);
+  // 🆕 #114 T8：地图区决策单状态（fog.wuId 互挂的 decision WU 逐个 best-effort 拉；
+  // 拉不到的徽章按待认领兜底，见 mapUtils.resolveFogBadge）
+  const fogStatusQ = useAsyncData(async () => {
+    if (!project?.map) return null;
+    // 显式标注 FogItem[]：project 为无类型 axios 响应（any），经 fanOut 泛型边界会推成 unknown
+    const fogEntries: FogItem[] = project.map.fog.filter(f => f.wuId);
+    const results = await fanOut(fogEntries, f => workunitApi.get(f.wuId!));
+    const statusMap: Record<string, string> = {};
+    for (let i = 0; i < fogEntries.length; i++) {
+      const r = results[i];
+      if (r.ok && r.value.data?.status) statusMap[fogEntries[i].wuId!] = r.value.data.status;
     }
-  }, [projectId]);
+    return statusMap;
+  }, [project]);
+  const decisionStatusByWuId = fogStatusQ.data ?? {};
 
-  useEffect(() => {
-    if (!projectId) return;
-    // 微任务里触发加载：loadData 为多 await async 函数，编译器对 effect 内同步调用保守告警
-    void Promise.resolve().then(loadData);
-  }, [projectId, loadData]);
+  // 🆕 F6-c: 重新拉台账 + 全量数据（缺口行动/交付成功后由 DeliveryPanel 回调）；
+  // project 重拉落地后 chain/nextAction/fogStatus 依 [project] 身份自动级联重拉
+  const refreshDelivery = () => {
+    deliveryQ.reload();
+    projectQ.reload();
+  };
 
   // 复制路径
   const handleCopyPath = async () => {
@@ -185,17 +173,6 @@ export function ProjectDetailPage() {
     await navigator.clipboard.writeText(path);
     setCopySuccess(true);
     setTimeout(() => setCopySuccess(false), 2000);
-  };
-
-  // 🆕 F6-c: 重新拉台账 + 全量数据（缺口行动/交付成功后由 DeliveryPanel 回调）
-  const refreshDelivery = async () => {
-    if (!projectId) return;
-    try {
-      const deliveryRes = await projectApi.getDelivery(projectId);
-      setDelivery(deliveryRes.data);
-    } catch { /* best-effort */ }
-    setLoading(true);
-    loadData();
   };
 
   // 项目进展百分比（老 Task 链路已删除，统一取 project.progress）

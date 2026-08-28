@@ -4,7 +4,7 @@
 // #346：profile/instance/channelName 读 rosterStore（三端点 TTL 去重 + SSE 就地更新单份 + useGatedPoll 兜底
 // 在 store/useRosterStoreSync）；本页只保留页面私有面：历史任务窗口（workunit.status_changed 防抖重拉对齐）
 // 与当前 WU 快照缺失时的单实例补查（写回 store 共享）。
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { monitoringApi } from '../api/monitoring';
 import { workunitApi, type WorkUnit } from '../api/workunit';
@@ -13,6 +13,7 @@ import { ConfirmDialog } from '../components/ui';
 import { useWebSocketContext } from '../api/websocketHooks';
 import { useRosterStore } from '../stores/rosterStore';
 import { useRosterStoreSync } from '../hooks/useRosterStoreSync';
+import { useAsyncData } from '../hooks/useAsyncData';
 import {
   deriveAgentStatus,
   AGENT_STATUS_LABELS,
@@ -35,8 +36,6 @@ export function AgentDetailPage() {
   const channels = useRosterStore((s) => s.channels);
   const loadedAt = useRosterStore((s) => s.loadedAt);
   const storeError = useRosterStore((s) => s.error);
-  const [history, setHistory] = useState<WorkUnit[]>([]);
-  const [historyTotal, setHistoryTotal] = useState(0);
   // terminate 等动作失败单独记（数据面错误在 store.error）
   const [actionError, setActionError] = useState<string | null>(null);
   // 强制停止二次确认（ui/ConfirmDialog，替代原生 window.confirm）
@@ -72,29 +71,14 @@ export function AgentDetailPage() {
   }, [channels, instance]);
 
   // 历史任务窗口（页面私有）：认领后 assigneeId = instance.id。
-  // 实例切换（instanceId 变化才触发，SSE 就地更新不重拉历史区）：渲染期同步清窗口，effect 再拉新
-  const loadHistory = useCallback(async (id: string) => {
-    try {
-      const hisRes = await workunitApi.list({ assigneeId: id, limit: HISTORY_LIMIT });
-      setHistory(hisRes.data.data);
-      setHistoryTotal(hisRes.data.pagination.total);
-    } catch {
-      setHistory([]);
-      setHistoryTotal(0);
-    }
-  }, []);
-
-  const [histInstanceId, setHistInstanceId] = useState(instanceId);
-  if (histInstanceId !== instanceId) {
-    setHistInstanceId(instanceId);
-    setHistory([]);
-    setHistoryTotal(0);
-  }
-  useEffect(() => {
-    // 微任务里触发：loadHistory 为 async（setState 在 await 后），lint 对 effect 直调保守告警
-    if (!instanceId) return;
-    void Promise.resolve().then(() => loadHistory(instanceId));
-  }, [instanceId, loadHistory]);
+  // #350 useAsyncData：instanceId 变化渲染期清窗口重拉（SSE 就地更新不重拉历史区，语义不变）
+  const historyQ = useAsyncData(async () => {
+    if (!instanceId) return null;
+    const hisRes = await workunitApi.list({ assigneeId: instanceId, limit: HISTORY_LIMIT });
+    return { items: hisRes.data.data, total: hisRes.data.pagination.total };
+  }, [instanceId]);
+  const history = historyQ.data?.items ?? [];
+  const historyTotal = historyQ.data?.total ?? 0;
 
   const historyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => {
@@ -108,33 +92,25 @@ export function AgentDetailPage() {
   // SSE 重连：store 数据面对齐由 useRosterStoreSync 负责（强制 ensureFresh）；
   // 历史任务窗口是页面私有面，断线期间的 status_changed 无事件语义，重连时重拉对齐（ADR D3）
   useEffect(() => onReconnect?.(() => {
-    const iid = instanceIdRef.current;
-    if (iid) void loadHistory(iid);
-  }), [onReconnect, loadHistory]);
+    if (instanceIdRef.current) historyQ.reload();
+  }), [onReconnect, historyQ]);
 
   useEffect(() => onEvent((msg) => {
     if (msg.event_type !== 'workunit.status_changed') return;
     const wu = (msg.data as { workunit?: WorkUnit } | null)?.workunit;
     if (!wu) return;
     // 历史行就地更新（负载为全量快照，claimable 与本页无关不覆盖）
-    setHistory(prev => prev.some(h => h.id === wu.id)
-      ? prev.map(h => (h.id === wu.id ? { ...wu, claimable: h.claimable } : h))
+    historyQ.setData(prev => prev && prev.items.some(h => h.id === wu.id)
+      ? { ...prev, items: prev.items.map(h => (h.id === wu.id ? { ...wu, claimable: h.claimable } : h)) }
       : prev);
     // 本实例的 WU 状态变化 → 防抖重拉历史区（窗口排序/total 对齐；不重拉整页）
     if (wu.assigneeId && wu.assigneeId === instanceIdRef.current) {
       if (historyTimerRef.current) clearTimeout(historyTimerRef.current);
       historyTimerRef.current = setTimeout(() => {
-        const iid = instanceIdRef.current;
-        if (!iid) return;
-        workunitApi.list({ assigneeId: iid, limit: HISTORY_LIMIT })
-          .then(res => {
-            setHistory(res.data.data);
-            setHistoryTotal(res.data.pagination.total);
-          })
-          .catch(() => { /* best-effort：下条事件或重连自愈 */ });
+        if (instanceIdRef.current) historyQ.reload();
       }, HISTORY_REFRESH_DEBOUNCE_MS);
     }
-  }), [onEvent]);
+  }), [onEvent, historyQ]);
 
   const handleTerminate = async () => {
     setConfirmTerminate(false);

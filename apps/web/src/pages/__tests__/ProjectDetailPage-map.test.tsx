@@ -129,7 +129,8 @@ describe('#114：PMO 地图区 + 下一个该干什么', { testTimeout: 15000 },
   it('依赖图：拆写模型等拆读模型（已完成的不再拦路）', async () => {
     renderDetail();
     await waitFor(() => expect(screen.getByText('🔗 任务单依赖')).toBeTruthy());
-    expect(screen.getByRole('button', { name: '拆写模型' })).toBeTruthy();
+    // #350 chain 改由 project 落地后级联重拉：依赖图内容晚一帧落地，断言等它
+    await waitFor(() => expect(screen.getByRole('button', { name: '拆写模型' })).toBeTruthy());
     expect(screen.getByText(/拆读模型（已完成）/)).toBeTruthy();
   });
 
@@ -137,7 +138,8 @@ describe('#114：PMO 地图区 + 下一个该干什么', { testTimeout: 15000 },
     renderDetail();
 
     await waitFor(() => expect(screen.getByText('👉 下一个该干什么')).toBeTruthy());
-    expect(screen.getByRole('button', { name: '待决问题 PMO-11: 队列方案？' })).toBeTruthy();
+    // #350 nextAction 改由 project 落地后级联重拉：候选项晚一帧落地，断言等它
+    await waitFor(() => expect(screen.getByRole('button', { name: '待决问题 PMO-11: 队列方案？' })).toBeTruthy());
     expect(screen.getByText('先拍板这个待决问题')).toBeTruthy();
     expect(screen.queryByText('别的项目的活')).toBeNull();
   });

@@ -1,10 +1,10 @@
 // NeedsAttentionSection — #184 监控页概览 Tab 顶部「需要处理」区（#62 D4 + #60 IA：行动信号 > 健康度量 > 参考资料）
 // 首屏回答「现在有没有事需要我管」：告警收件箱 / 卡住计数（可下钻）/ 近 24h 失败趋势。
 // 自含数据加载：三部分各自独立取数，任一部分失败只显示该部分「加载失败」，不影响页面其余区块。
-import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { eventsApi, type StudioEventItem } from '../../api/events';
 import { workunitApi } from '../../api/workunit';
+import { useAsyncData } from '../../hooks/useAsyncData';
 import { formatAge, POOL_STAGNATION_WARN_MS } from '@dommaker/studio-shared/web';
 
 const HOUR = 3600_000;
@@ -135,33 +135,11 @@ async function loadFailures(now: number, since48: string): Promise<FailureStats>
   return { n: r.n, rate: r.rate, trend };
 }
 
-interface PartState<T> {
-  data: T | null;
-  error: boolean;
-}
-
 export function NeedsAttentionSection() {
-  const [loading, setLoading] = useState(true);
-  const [alerts, setAlerts] = useState<PartState<AlertItem[]>>({ data: null, error: false });
-  const [stuck, setStuck] = useState<PartState<StuckCounts>>({ data: null, error: false });
-  const [failure, setFailure] = useState<PartState<FailureStats>>({ data: null, error: false });
-
-  useEffect(() => {
-    const now = Date.now();
-    const since24 = new Date(now - 24 * HOUR).toISOString();
-    const since48 = new Date(now - 48 * HOUR).toISOString();
-    // 三部分独立加载，互不阻塞；setState 全部在 promise 回调里
-    loadAlerts(since24)
-      .then(data => setAlerts({ data, error: false }))
-      .catch(() => setAlerts({ data: null, error: true }))
-      .finally(() => setLoading(false));
-    loadStuck(now)
-      .then(data => setStuck({ data, error: false }))
-      .catch(() => setStuck({ data: null, error: true }));
-    loadFailures(now, since48)
-      .then(data => setFailure({ data, error: false }))
-      .catch(() => setFailure({ data: null, error: true }));
-  }, []);
+  // #350 useAsyncData 收一次性拉取样板：三部分独立取数，各自 data/error/loading，互不阻塞
+  const alerts = useAsyncData(() => loadAlerts(new Date(Date.now() - 24 * HOUR).toISOString()), []);
+  const stuck = useAsyncData(() => loadStuck(Date.now()), []);
+  const failure = useAsyncData(() => loadFailures(Date.now(), new Date(Date.now() - 48 * HOUR).toISOString()), []);
 
   const stuckTotal = stuck.data ? stuck.data.blocked + stuck.data.staleUnassigned + stuck.data.stalledActive : 0;
   const allClear =
@@ -171,7 +149,7 @@ export function NeedsAttentionSection() {
   return (
     <div className="card p-4 mt-4">
       <h2 className="mc-block-label" style={{ margin: '0 0 10px' }}>需要处理</h2>
-      {loading ? (
+      {alerts.loading || stuck.loading || failure.loading ? (
         <div className="text-sm u-text-2">加载中...</div>
       ) : allClear ? (
         <div className="text-sm u-ok">现在没有需要你处理的事</div>

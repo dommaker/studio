@@ -1,59 +1,52 @@
 // MonitoringPage — Agent Network MVP-6；#180 Tab 化「概览 / 事件检索」（#60 决策 Q3a）
-import { useState, useEffect, useCallback } from 'react';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { monitoringApi, type MonitoringStats, type FlywheelStats, type OverheadStats, type EvidenceStats, type EfficiencyStats } from '../api/monitoring';
-import { knowledgeApi, type KnowledgeEntryItem } from '../api/knowledge';
+import { monitoringApi } from '../api/monitoring';
+import { knowledgeApi } from '../api/knowledge';
 import { EventSearchPanel } from '../components/monitoring/EventSearchPanel';
 import { NeedsAttentionSection } from '../components/monitoring/NeedsAttentionSection';
+import { useAsyncData } from '../hooks/useAsyncData';
 import { formatAge } from '@dommaker/studio-shared/web';
 
 type MonitoringTab = 'overview' | 'events';
 
 export function MonitoringPage() {
   const [activeTab, setActiveTab] = useState<MonitoringTab>('overview');
-  const [data, setData] = useState<MonitoringStats | null>(null);
-  const [flywheel, setFlywheel] = useState<FlywheelStats | null>(null);
-  const [overhead, setOverhead] = useState<OverheadStats | null>(null);
-  const [evidence, setEvidence] = useState<EvidenceStats | null>(null);
-  const [efficiency, setEfficiency] = useState<EfficiencyStats | null>(null);
+  // #350 useAsyncData 收一次性拉取样板：主面板错误上屏；M1/M2 等区块独立加载、失败静默（fetcher 内 catch 落 null）
+  const statsQ = useAsyncData(() => monitoringApi.getStats().then(r => r.data), []);
+  const flywheelQ = useAsyncData(() => monitoringApi.getFlywheel().then(r => r.data).catch(() => null), []);
+  const overheadQ = useAsyncData(() => monitoringApi.getOverhead().then(r => r.data).catch(() => null), []);
+  const evidenceQ = useAsyncData(() => monitoringApi.getOverview().then(r => r.data.evidence).catch(() => null), []);
+  const efficiencyQ = useAsyncData(() => monitoringApi.getEfficiency().then(r => r.data).catch(() => null), []);
   // 审核闭环：proposal 待审列表（maturity=draft，与 proposalsPendingReview 计数同库口径）
-  const [proposals, setProposals] = useState<KnowledgeEntryItem[] | null>(null);
+  const proposalsQ = useAsyncData(() => knowledgeApi.listPendingReview().then(r => r.data.entries).catch(() => null), []);
   const [approvingIds, setApprovingIds] = useState<Set<string>>(new Set());
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(() => {
-    // promise 链写法：setState 全部在回调里，符合 set-state-in-effect 规则的外部同步口径
-    monitoringApi.getStats()
-      .then((res) => {
-        setData(res.data);
-      })
-      .catch((e: unknown) => {
-        setError(e instanceof Error ? e.message : 'Failed to load stats');
-      })
-      .finally(() => {
-        setLoading(false);
-      });
-    // M1/M2 区块独立加载，失败不影响主面板
-    monitoringApi.getFlywheel().then(r => setFlywheel(r.data)).catch(() => setFlywheel(null));
-    monitoringApi.getOverhead().then(r => setOverhead(r.data)).catch(() => setOverhead(null));
-    // F6 证据台账独立加载，失败不影响主面板
-    monitoringApi.getOverview().then(r => setEvidence(r.data.evidence)).catch(() => setEvidence(null));
-    // #120 输入缓存命中率 + 段 trim 率独立加载，失败不影响主面板
-    monitoringApi.getEfficiency().then(r => setEfficiency(r.data)).catch(() => setEfficiency(null));
-    // 待审列表独立加载，失败不阻塞其他区块
-    knowledgeApi.listPendingReview().then(r => setProposals(r.data.entries)).catch(() => setProposals(null));
-  }, []);
+  const data = statsQ.data;
+  const loading = statsQ.loading;
+  const error = statsQ.error;
+  const flywheel = flywheelQ.data;
+  const overhead = overheadQ.data;
+  const evidence = evidenceQ.data;
+  const efficiency = efficiencyQ.data;
+  const proposals = proposalsQ.data;
 
-  useEffect(() => { load(); }, [load]);
+  const refresh = () => {
+    statsQ.reload();
+    flywheelQ.reload();
+    overheadQ.reload();
+    evidenceQ.reload();
+    efficiencyQ.reload();
+    proposalsQ.reload();
+  };
 
   // 一键 approve：draft → verified（参与注入）；成功后移出列表
   const approveProposal = async (entryId: string) => {
     setApprovingIds(prev => new Set(prev).add(entryId));
     try {
       await knowledgeApi.promote(entryId);
-      setProposals(prev => prev ? prev.filter(p => p.id !== entryId) : prev);
-      monitoringApi.getFlywheel().then(r => setFlywheel(r.data)).catch(() => {});
+      proposalsQ.setData(prev => (prev ? prev.filter(p => p.id !== entryId) : prev));
+      flywheelQ.reload();
     } catch { /* 保留在列表中，可重试 */ } finally {
       setApprovingIds(prev => {
         const next = new Set(prev);
@@ -72,7 +65,7 @@ export function MonitoringPage() {
             <p className="page-subtitle">Agent Network 运营度量</p>
           </div>
           <div className="flex gap-2">
-            <button className="btn btn-secondary" onClick={load}>刷新</button>
+            <button className="btn btn-secondary" onClick={refresh}>刷新</button>
             <Link to="/" className="btn btn-secondary">返回</Link>
           </div>
         </div>
