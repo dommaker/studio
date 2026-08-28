@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@dommaker/harness':
-        specifier: ^1.2.2
-        version: 1.2.2
+        specifier: ^1.2.3
+        version: 1.2.3
       tsx:
         specifier: ^4.22.3
         version: 4.23.1
@@ -40,8 +40,8 @@ importers:
   apps/api:
     dependencies:
       '@dommaker/harness':
-        specifier: ^1.2.2
-        version: 1.2.2
+        specifier: ^1.2.3
+        version: 1.2.3
       '@dommaker/studio-agent':
         specifier: workspace:*
         version: link:../../packages/studio-agent
@@ -252,8 +252,8 @@ importers:
   packages/studio-agent:
     dependencies:
       '@dommaker/harness':
-        specifier: ^1.2.2
-        version: 1.2.2
+        specifier: ^1.2.3
+        version: 1.2.3
       '@dommaker/studio-shared':
         specifier: workspace:*
         version: link:../studio-shared
@@ -299,8 +299,8 @@ importers:
   packages/studio-capability:
     dependencies:
       '@dommaker/harness':
-        specifier: ^1.2.2
-        version: 1.2.2
+        specifier: ^1.2.3
+        version: 1.2.3
       '@dommaker/studio-shared':
         specifier: workspace:*
         version: link:../studio-shared
@@ -334,8 +334,8 @@ importers:
   packages/studio-shared:
     dependencies:
       '@dommaker/harness':
-        specifier: ^1.2.2
-        version: 1.2.2
+        specifier: ^1.2.3
+        version: 1.2.3
       yaml:
         specifier: 2.3.0
         version: 2.3.0
@@ -366,8 +366,8 @@ importers:
   packages/studio-spec:
     dependencies:
       '@dommaker/harness':
-        specifier: ^1.2.2
-        version: 1.2.2
+        specifier: ^1.2.3
+        version: 1.2.3
       '@dommaker/studio-shared':
         specifier: workspace:*
         version: link:../studio-shared
@@ -520,8 +520,8 @@ packages:
     resolution: {integrity: sha512-QxULHAm7cNu72w97JUNCBFODFaXpbDg+dP8b/oWFAZ2MTRppA3U00Y2L1HqaS4J6yBqxwa/Y3nMBaxVKbB/NsA==}
     engines: {node: '>=20.19.0'}
 
-  '@dommaker/harness@1.2.2':
-    resolution: {integrity: sha512-ouFu1XNtzg741YIJ7y43nig/bi/Xm/X9m+wD+NxKhyxrMiT2LJkBHwXbqql0ZPnY0VlltS/H4YSZgR4zCQ2JCQ==}
+  '@dommaker/harness@1.2.3':
+    resolution: {integrity: sha512-GYxo7Txym/tIyrMnshDbHT1URueRTWi2F899/y2+6Ev+AT1ycXP97/MTexrSvWaIb0ECzUX5Xx4L5vnQv5DYMQ==}
     engines: {node: '>=18.0.0'}
     hasBin: true
 
@@ -1810,8 +1810,8 @@ packages:
   fast-uri@3.1.4:
     resolution: {integrity: sha512-8JnbkQ4juDyvYs4mgFGQqg4yCYtFDtUtmp2QIQq11ZZe5CFQ5wcqm1rqDgAh/QdMySuBnPzMUiJUNZG5N/AiQw==}
 
-  fastq@1.20.1:
-    resolution: {integrity: sha512-GGToxJ/w1x32s/D2EKND7kTil4n8OVk/9mycTc4VDza13lOvpUZTGX3mFSCtV9ksdGBVzvsyAVLM6mHFThxXxw==}
+  fastq@1.20.2:
+    resolution: {integrity: sha512-UpGiiODyCGprM8EPP6JodP6jC9Rws6TCuiDOD+nn0CJhR8guI3g/ozo4ugL0vJ+Yz1UtJuuRPqvQuybVOF1VQA==}
 
   fdir@6.5.0:
     resolution: {integrity: sha512-tIbYtZbucOs0BRGqPJkshJUYdL+SDH7dVM8gjy+ERp3WAUjLEFJE+02kanyHtwjWOnwrKYBiwAmM0p4kLJAnXg==}
@@ -2056,6 +2056,10 @@ packages:
 
   js-yaml@4.3.1:
     resolution: {integrity: sha512-CY6crGq313MX8GkwvB7tzgp99vjQxY1++5y10/BKN/GUfHqWaOGQMNZkBvqSzsZKWk/ijwHlWzzkLulsGHhjWQ==}
+    hasBin: true
+
+  js-yaml@4.3.2:
+    resolution: {integrity: sha512-SFNOvSJ+Dgf/9An904Yx+CgSlIPCkIpao4qo51lpee25TIRejdH3rhR4EZMGoNx3/TP3O+wzWuiTFl4sqbltzA==}
     hasBin: true
 
   jsdom@29.1.1:
@@ -3383,12 +3387,12 @@ snapshots:
 
   '@csstools/css-tokenizer@4.0.0': {}
 
-  '@dommaker/harness@1.2.2':
+  '@dommaker/harness@1.2.3':
     dependencies:
       chalk: 4.1.2
       commander: 12.1.0
       fast-glob: 3.3.3
-      js-yaml: 4.3.1
+      js-yaml: 4.3.2
 
   '@emnapi/core@1.11.1':
     dependencies:
@@ -3584,7 +3588,7 @@ snapshots:
   '@nodelib/fs.walk@1.2.8':
     dependencies:
       '@nodelib/fs.scandir': 2.1.5
-      fastq: 1.20.1
+      fastq: 1.20.2
 
   '@opentelemetry/api@1.9.1': {}
 
@@ -4657,7 +4661,7 @@ snapshots:
 
   fast-uri@3.1.4: {}
 
-  fastq@1.20.1:
+  fastq@1.20.2:
     dependencies:
       reusify: 1.1.0
 
@@ -4889,6 +4893,10 @@ snapshots:
       argparse: 2.0.1
 
   js-yaml@4.3.1:
+    dependencies:
+      argparse: 2.0.1
+
+  js-yaml@4.3.2:
     dependencies:
       argparse: 2.0.1
 
