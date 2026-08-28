@@ -9,6 +9,7 @@ import { distillApi } from '../../api/distill';
 import { auditorApi } from '../../api/auditor';
 import { knowledgeApi } from '../../api/knowledge';
 import { memoryApi } from '../../api/memory';
+import { fanOut } from '../../utils/fanOut';
 
 /** 卡片已审终态词（distill 家族 = 提案状态 executed/rejected/failed；memory/knowledge = approved/rejected） */
 export type ProposalReviewState = 'approved' | 'rejected' | 'executed' | 'failed';
@@ -242,19 +243,17 @@ export const PROPOSAL_CARD_CONFIGS: Record<string, ProposalCardConfig> = {
       // #367 逐草稿结算：同向终态（approve↔executed / reject↔rejected）幂等跳过计成功，
       // 其余失败只判本条——部分失败后重试可审完剩余 pending，不因已审兄弟草稿的 400 崩掉整批
       const doneStatus = decision === 'approve' ? 'executed' : 'rejected';
-      const results = await Promise.all(entryIds.map(async id => {
-        try {
-          if (decision === 'approve') {
-            const { data } = await memoryApi.approve(id);
-            return !!data?.success;
-          }
-          await memoryApi.reject(id);
-          return true;
-        } catch (e) {
-          return notPendingAs(e, doneStatus);
+      const results = await fanOut(entryIds, async id => {
+        if (decision === 'approve') {
+          const { data } = await memoryApi.approve(id);
+          return !!data?.success;
         }
-      }));
-      return results.every(Boolean);
+        await memoryApi.reject(id);
+        return true;
+      });
+      // 失败口径（fanOut 统一）：单条异常经 notPendingAs 分类——同向终态幂等跳过计成功，其余计失败
+      // （ok 需显式 === true：repo 非 strict，boolean 判别式 truthy 判断不收窄 false 分支，见 utils/fanOut.ts）
+      return results.every(r => (r.ok === true ? r.value : notPendingAs(r.error, doneStatus)));
     },
     // 已审核态按提案状态派生：全部 executed（旧 promoted 读侧归一）→ approved；全部 rejected → rejected；
     // #367 无一 pending 且含 failed → failed 终态收敛（failed 正本不可逆，纯重试无法让卡进 approved）

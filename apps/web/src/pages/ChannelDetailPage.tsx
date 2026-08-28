@@ -18,6 +18,7 @@ import { ChannelNeedInputChip, type NeedInputTodo } from '../components/channel/
 import { ChannelRail } from '../components/channel/ChannelRail';
 import { WorkUnitDrawer, type DrawerState } from '../components/channel/WorkUnitDrawer';
 import { workunitApi } from '../api/workunit';
+import { fanOut } from '../utils/fanOut';
 import { requirementApi, type Requirement, type RequirementStatus } from '../api/requirements';
 import { parseLiveWuRef } from '../components/workunit/execution-rows';
 import type { Channel, ChannelMessage, ChannelFileVocabulary, FileRef } from '../api/channel';
@@ -254,18 +255,14 @@ export function ChannelDetailPage() {
     let cancelled = false;
     for (const wuId of pending) wuFilesFetchedRef.current.add(wuId);
     void (async () => {
-      const entries = await Promise.all(pending.map(async (wuId): Promise<[string, string[]]> => {
-        try {
-          const res = await workunitApi.getChangedFiles(wuId);
-          return [wuId, res.data?.data?.files ?? []];
-        } catch {
-          return [wuId, []]; // 静默降级：该 WU 走候选集词表
-        }
-      }));
+      const results = await fanOut(pending, wuId => workunitApi.getChangedFiles(wuId));
       if (!cancelled) {
         setWuChangedFiles(prev => {
           const next = { ...prev };
-          for (const [wuId, files] of entries) next[wuId] = files;
+          for (let i = 0; i < pending.length; i++) {
+            const r = results[i];
+            next[pending[i]] = r.ok ? r.value.data?.data?.files ?? [] : []; // 失败静默降级：该 WU 走候选集词表
+          }
           return next;
         });
       }
