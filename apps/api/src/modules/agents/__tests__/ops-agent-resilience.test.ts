@@ -3,11 +3,35 @@
  *
  * AC-2: checkProxyHealth() with SYN-SENT detection + restart rate limit (3/hour)
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { createOpsService, OpsService } from '../ops/ops.service.js';
+
+const { mockReadDiskUsage, mockReadMemoryUsage, mockLoadRaw } = vi.hoisted(() => ({
+  mockReadDiskUsage: vi.fn(),
+  mockReadMemoryUsage: vi.fn(),
+  mockLoadRaw: vi.fn(() => '?'),
+}));
+
+// #344: getStatus 探测委托 proc-probes 单出口，mock 掉 /proc 读取以固定格式断言
+vi.mock('../ops/proc-probes.js', () => ({
+  readDiskUsage: mockReadDiskUsage,
+  readMemoryUsage: mockReadMemoryUsage,
+  readLoadAvgRaw: mockLoadRaw,
+}));
+
+beforeEach(() => {
+  mockReadDiskUsage.mockReturnValue({
+    totalBytes: 100 * 1024 ** 3,
+    availBytes: 50 * 1024 ** 3,
+    usedBytes: 50 * 1024 ** 3,
+    usePercent: 50,
+  });
+  mockReadMemoryUsage.mockReturnValue({ totalKb: 16_384_000, freeKb: 8_192_000, usedKb: 8_192_000 });
+  mockLoadRaw.mockReturnValue('0.10 0.20 0.30 2/100 12345');
+});
 
 describe('OpsService proxy health (AC-2)', () => {
   // ============================================================
@@ -100,6 +124,15 @@ describe('OpsService proxy health (AC-2)', () => {
       expect(status.memory).toHaveProperty('total');
       expect(status.memory).toHaveProperty('used');
       expect(status.memory).toHaveProperty('free');
+    });
+
+    it('AC #344: getStatus 输出格式逐字段保真（G/M/% 字符串，委托 proc-probes）', async () => {
+      const ops = createOpsService(19999);
+      const status = await ops.getStatus();
+      expect(status.disk).toEqual({ used: '50G', avail: '50G', usePercent: '50%' });
+      expect(status.memory).toEqual({ total: '16000M', used: '8000M', free: '8000M' });
+      expect(status.cpu).toEqual({ load: '0.10 0.20 0.30 2/100 12345' });
+      expect(typeof status.processes).toBe('number');
     });
   });
 });
