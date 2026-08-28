@@ -14,12 +14,12 @@
  * 从 apps/api/src/index.ts 内联 handler 抽出，便于服务级测试。
  */
 import { logger, type FileStore } from '@dommaker/studio-shared';
-import { AgentInstanceService } from './agent-instance.service.js';
+import { AgentInstanceService, INSTANCE_ALIVE_TIMEOUT_MS } from './agent-instance.service.js';
 import { dispatchMonitorAlerts, filterCooldownAlerts } from './monitor/monitor-alerts.js';
 import { pidStartMatchesInstance } from '../workunit/timeout-release.js';
 
-/** 实例心跳超时阈值（与原内联 handler 一致：5min） */
-export const AGENT_TIMEOUT_MS = 5 * 60 * 1000;
+/** 实例心跳超时阈值（与在线判定同一 5min 窗口，单源 INSTANCE_ALIVE_TIMEOUT_MS） */
+export const AGENT_TIMEOUT_MS = INSTANCE_ALIVE_TIMEOUT_MS;
 
 export interface ScanStaleInstancesResult {
   stale: number;

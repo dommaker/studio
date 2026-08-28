@@ -1,14 +1,71 @@
 /**
- * AgentInstance Service — RuntimeInstance CRUD
+ * AgentInstance Service — RuntimeInstance 生命周期 + 实例态聚合查询
  *
  * AS-026: AC-1 CRUD API
  * Storage: FileStore (迁移步骤 3)
+ *
+ * terminate 编排（unclaim + blockForManualRelease）有两个生产调用方：
+ * agent-instance.routes（管理端强制停止）与 instance-timeout-scan（心跳超时回收）。
+ * summarizeRoleStates：isOnline / 每角色最新 error 的聚合查询（原 agent-profile
+ * list() 内联 fan-out 收口），存活窗口 INSTANCE_ALIVE_TIMEOUT_MS 单源，
+ * instance-timeout-scan 的 AGENT_TIMEOUT_MS 与之同源。
  */
 
 import { FileStore, type RuntimeStateData } from '@dommaker/studio-shared';
 import { WorkUnitService } from '../workunit/workunit.service.js';
 
 const VALID_STATUSES = ['idle', 'active', 'terminated'] as const;
+
+/** 实例存活判定窗口：心跳/启动时间距今超过该值即离线。scan 超时阈值与在线判定共用。 */
+export const INSTANCE_ALIVE_TIMEOUT_MS = 5 * 60 * 1000;
+
+/** F2：按角色聚合的最新启动失败（status=error 且有 lastError） */
+export interface RoleInstanceError {
+  lastError: string;
+  lastErrorAt: string | null;
+}
+
+export interface RoleInstanceStateSummary {
+  /** 在线角色 id 集合：status idle/active 且心跳新鲜（无心跳时按 startedAt 宽限） */
+  onlineRoleIds: Set<string>;
+  latestErrorByRole: Map<string, RoleInstanceError>;
+}
+
+/**
+ * 按角色聚合 RuntimeState 查询：一次 listStates 同时产出在线判定集与最新 error，
+ * 调用方（agent-profile list、roster 类聚合）不再各自全量扫描、各自复制 5min 阈值。
+ */
+export async function summarizeRoleStates(
+  fileStore: FileStore,
+  agentIds: string[],
+): Promise<RoleInstanceStateSummary> {
+  const onlineThreshold = Date.now() - INSTANCE_ALIVE_TIMEOUT_MS;
+  const wanted = new Set(agentIds);
+  const allStates = await fileStore.listStates();
+
+  const onlineRoleIds = new Set<string>();
+  const latestErrorByRole = new Map<string, RoleInstanceError>();
+  for (const s of allStates) {
+    if (!wanted.has(s.roleId)) continue;
+
+    if (
+      (s.status === 'active' || s.status === 'idle') &&
+      (s.lastHeartbeat
+        ? new Date(s.lastHeartbeat).getTime() >= onlineThreshold
+        : new Date(s.startedAt).getTime() >= onlineThreshold)
+    ) {
+      onlineRoleIds.add(s.roleId);
+    }
+
+    if (s.status === 'error' && s.lastError) {
+      const prev = latestErrorByRole.get(s.roleId);
+      if (!prev || (s.lastErrorAt ?? '') > (prev.lastErrorAt ?? '')) {
+        latestErrorByRole.set(s.roleId, { lastError: s.lastError, lastErrorAt: s.lastErrorAt ?? null });
+      }
+    }
+  }
+  return { onlineRoleIds, latestErrorByRole };
+}
 
 export interface CreateInstanceInput {
   roleId: string;
