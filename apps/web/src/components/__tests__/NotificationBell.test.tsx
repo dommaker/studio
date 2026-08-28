@@ -9,11 +9,20 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import type { WebSocketMessage } from '../../api/websocket';
 
-const { mockNavigate, sseHandlers, mockApi } = vi.hoisted(() => ({
-  mockNavigate: vi.fn(),
-  sseHandlers: new Set<(msg: unknown) => void>(),
-  mockApi: { get: vi.fn(), post: vi.fn() },
-}));
+const { mockNavigate, sseHandlers, mockApi, stableOnEvent } = vi.hoisted(() => {
+  const handlers = new Set<(msg: unknown) => void>();
+  return {
+    mockNavigate: vi.fn(),
+    sseHandlers: handlers,
+    mockApi: { get: vi.fn(), post: vi.fn() },
+    // 真实 onEvent 是 useCallback([]) 稳定引用（websocket.tsx）；不稳定会导致
+    // NotificationBell 的 [onEvent] effect 每次渲染重跑，cleanup 清掉 flash 定时器
+    stableOnEvent: (handler: (msg: unknown) => void) => {
+      handlers.add(handler);
+      return () => { handlers.delete(handler); };
+    },
+  };
+});
 
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual('react-router-dom');
@@ -21,12 +30,7 @@ vi.mock('react-router-dom', async () => {
 });
 
 vi.mock('../../api/websocketHooks', () => ({
-  useWebSocketContext: () => ({
-    onEvent: (handler: (msg: unknown) => void) => {
-      sseHandlers.add(handler);
-      return () => { sseHandlers.delete(handler); };
-    },
-  }),
+  useWebSocketContext: () => ({ onEvent: stableOnEvent }),
 }));
 
 vi.mock('../../api', () => ({ api: mockApi }));
@@ -228,5 +232,53 @@ describe('§5.7 SSE 实时 atHuman 增量（保留）', () => {
     fireEvent.click(screen.getByText('PMO'));
     expect(mockNavigate).toHaveBeenCalledTimes(1);
     expect(mockNavigate).toHaveBeenCalledWith('/pmo/project/proj-5');
+  });
+});
+
+describe('B2-004 标题闪烁（flash 定时器生命周期）', () => {
+  // fake timers 下 waitFor 会卡，用 act 刷 microtask 代替
+  async function renderLoadedFlush(rows: BackendNotification[]) {
+    mockList(rows);
+    render(<NotificationBell />);
+    await act(async () => {});
+  }
+
+  it('全部已读 → 标题停止闪烁并恢复原样', async () => {
+    vi.useFakeTimers();
+    try {
+      await renderLoadedFlush([]);
+      const original = document.title;
+      emitAtHuman({ id: 'f1', agentName: 'pmo', content: '闪', meta: { atHuman: true } });
+      act(() => { vi.advanceTimersByTime(1000); });
+      expect(document.title).not.toBe(original); // 确认在闪
+
+      openDropdown();
+      fireEvent.click(screen.getByText('全部已读'));
+
+      expect(document.title).toBe(original);
+      act(() => { vi.advanceTimersByTime(20000); });
+      expect(document.title).toBe(original); // 不再闪
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('10s 内连续两条 @human：旧 interval 被清理，超时后标题稳定', async () => {
+    vi.useFakeTimers();
+    try {
+      await renderLoadedFlush([]);
+      const original = document.title;
+      emitAtHuman({ id: 'f2', agentName: 'pmo', content: '第一条', meta: { atHuman: true } });
+      act(() => { vi.advanceTimersByTime(500); });
+      emitAtHuman({ id: 'f3', agentName: 'coder', content: '第二条', meta: { atHuman: true } });
+
+      // 两条消息的 10s 超时都过期后，标题必须稳定（有泄漏 interval 则会继续交替）
+      act(() => { vi.advanceTimersByTime(20000); });
+      expect(document.title).toBe(original);
+      act(() => { vi.advanceTimersByTime(5000); });
+      expect(document.title).toBe(original);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

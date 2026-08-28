@@ -103,11 +103,40 @@ export function NotificationBell() {
     return () => { cancelled = true; };
   }, []);
 
+  // B2-004 标题闪烁定时器：收进 ref 管理——开新闪前必清旧闪（修：10s 内多条 @human
+  // 旧 interval 被覆盖引用导致永久泄漏闪烁）；未读归零/卸载即停（修：全部已读后仍闪到超时）
+  const flashIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const flashTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const savedTitleRef = useRef<string | null>(null);
+
+  const stopFlash = useCallback(() => {
+    if (flashIntervalRef.current) { clearInterval(flashIntervalRef.current); flashIntervalRef.current = null; }
+    if (flashTimeoutRef.current) { clearTimeout(flashTimeoutRef.current); flashTimeoutRef.current = null; }
+    if (savedTitleRef.current !== null) { document.title = savedTitleRef.current; savedTitleRef.current = null; }
+  }, []);
+
+  const startFlash = useCallback((agentName: string) => {
+    stopFlash();
+    const original = document.title;
+    savedTitleRef.current = original;
+    let on = true;
+    flashIntervalRef.current = setInterval(() => {
+      document.title = on ? `🔴 @${agentName} 需要你 - Agent Studio` : original;
+      on = !on;
+    }, 1000);
+    flashTimeoutRef.current = setTimeout(stopFlash, 10000);
+  }, [stopFlash]);
+
+  // 未读归零（单条/全部已读）即停闪
+  useEffect(() => {
+    if (unread === 0) stopFlash();
+  }, [unread, stopFlash]);
+
+  // 卸载清闪
+  useEffect(() => stopFlash, [stopFlash]);
+
   // Listen for @human messages via SSE（实时增量，刷新即丢，由后端通知承担持久面）
   useEffect(() => {
-    let flashTimer: ReturnType<typeof setInterval> | null = null;
-    const originalTitle = document.title;
-
     const unsub = onEvent((msg) => {
       if (msg.event_type === 'channel.message_sent') {
         const data = msg.data as ChannelMessageSentData | undefined;
@@ -127,24 +156,12 @@ export function NotificationBell() {
           }, ...prev.slice(0, 49)]);
 
           // B2-004: Title flash for @human
-          let on = true;
-          flashTimer = setInterval(() => {
-            document.title = on ? `🔴 @${m.agentName || 'Agent'} 需要你 - Agent Studio` : originalTitle;
-            on = !on;
-          }, 1000);
-          setTimeout(() => {
-            if (flashTimer) { clearInterval(flashTimer); flashTimer = null; }
-            document.title = originalTitle;
-          }, 10000);
+          startFlash(m.agentName || 'Agent');
         }
       }
     });
-    return () => {
-      unsub();
-      if (flashTimer) clearInterval(flashTimer);
-      document.title = originalTitle;
-    };
-  }, [onEvent]);
+    return () => { unsub(); };
+  }, [onEvent, startFlash]);
 
   // Close on outside click
   useEffect(() => {
