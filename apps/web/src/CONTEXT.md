@@ -26,6 +26,7 @@ Web 前端主源码。路由、全局状态、API 客户端、UI 组件、样式
 | `useRosterStoreSync` | `hooks/useRosterStoreSync.ts` | rosterStore 实时接线（#346）：引用计数单例 SSE 路由 + useGatedPoll(ensureFresh) 兜底 + 重连强制对齐 |
 | `useAgentRoster` | `hooks/useAgentRoster.ts` | Agent 作战视图私有面：roles 派生 + 执行动态 SSE 写入（execution.step/stream→rosterActivityStore，#348）+ 空闲卡最近完成 N+1 + 快照补查；数据面全在 rosterStore |
 | `rosterActivityStore` / `useRosterActivities` | `stores/rosterActivityStore.ts` | 执行动态 store（#348）：step/stream chunk 按 roleId 切片（pushActivity 同 key 刷新尾条、上限 10 条），卡片级订阅 + 卸载 reset（页面私有实时面，不跨挂载残留） |
+| `useNotificationStore` | `stores/notificationStore.ts` | 通知中心共享 store：后端持久面（loadFromBackend，SSE 条目保留）+ SSE atHuman 增量（pushSse，cap 50）+ 已读动作（markRead/markAllRead/markChannelRead，本地乐观 + 后端条目 POST 同步）；Notification.messageId 仅 SSE 条目有 |
 | `RoleCard` | `components/monitoring/RoleCard.tsx` | AgentDashboard 作战卡（#348 自页面下沉）：memo + 自订动态切片，chunk 只重渲对应卡、静态卡壳零重渲 |
 | `useAssigneeDisplay` / `AssigneeLabel` | `hooks/useAssigneeDisplay.ts` / `components/workunit/AssigneeLabel.tsx` | 负责人 instance id → 角色名解析（运行实例→离线实例 profile→短 UUID），WU 详情/抽屉/REQ 链路共用 |
 | `useChannelList` / `useChannelLiveExecutions` / `useDetectedProviders` | `hooks/` | 频道列表 / live 执行 / provider 探测 |
@@ -69,3 +70,4 @@ Web 前端主源码。路由、全局状态、API 客户端、UI 组件、样式
 - **UI 件**：原生 `<select>` 弃用用 `ui/Select`；`Button`+`ConfirmDialog` 替代 `window.confirm`/`alert`。站内跳转用 `useNavigate`。
 - **PMO 驾驶舱**：ProjectDetailPage = 头部 -> 进度管道（六泳道）-> 交付台账 -> 项目进展 -> 项目动态。
 - **频道翻页游标（#319，2026-08-24）**：`useChannelMessages.loadMore` 的 `before` = 最老消息 **id**（原 createdAt 时间戳，同毫秒多条会漏/重）；后端锚点 id 不存在时返回空页 + hasMore=false，loadMore 据此自然停止
+- **通知中心**（B2-003/B2-004；2026-08-28 三票修复）：列表与已读动作住 `stores/notificationStore`（读态跨组件共享前提——NotificationBell 只是视图）。**打开频道即读**：ChannelDetailPage 进页 `markChannelRead(id)`，只清 channelId 匹配（link 解析）的未读，其他频道/类型不动。**点击直达消息**：频道分支跳转带 `?highlight=<messageId>`，页面消费一次后交既有 highlightId 机制滚动定位+高亮 2s（目标在折叠线程先展开；掉出首页分页的老消息静默不定位——已知留白）；跳转优先级 WU > PMO > 频道不变（§5.7），后端通知 link 无消息粒度故仅 SSE 条目可直达。**标题闪烁定时器**与读态挂钩：startFlash 开新必清旧（曾闭包单变量被覆盖导致 interval 永久泄漏闪烁），未读归零/卸载即停（曾纯 10s 定时、全部已读后照闪）。
