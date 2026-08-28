@@ -11,7 +11,8 @@
  *       来源标定口径（#371 裁决）：机器流一律 system——monitor 告警、knowledge-sync
  *       遥测/design-doc、pattern-miner 挖掘产物、resolution 落盘均非「模式重复出现」；
  *       钦定矿石 session-summary 显式 origin=agent 计入。recordPattern 缺省 system
- *       （fail-closed），新写入路径漏标来源不会误触信号
+ *       （fail-closed），经该门面的写入路径漏标来源不会误触信号（绕过门面直调
+ *       store 的写入仍须显式标定）
  *     - manual：manual 人审通过（maturity verified/proven）的「新条目」≥ MANUAL_MIN_NEW（5），
  *       不限来源——过审本身即人背书，与来源解耦
  *   辅条件（必须）：距上次蒸馏运行 ≥ COOLDOWN_DAYS（7）——纯烧钱熔断，限单周最大 LLM 开销
