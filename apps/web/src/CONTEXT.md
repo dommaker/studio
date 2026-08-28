@@ -20,7 +20,7 @@ Web 前端主源码。路由、全局状态、API 客户端、UI 组件、样式
 | `transcriptsApi` / `eventsApi` | `api/*.ts` | WU transcript 只读 / 事件检索 |
 | `WebSocketProvider` | `api/websocket.tsx` | SSE Context Provider，根部唯一 EventSource |
 | `useGatedPoll` | `hooks/useGatedPoll.ts` | 共享门禁轮询（#313）：挂载首拉 + 仅当（visible ∧ SSE≠connected）按 interval 轮询 + 回 visible 立即补拉 |
-| `useAsyncData` | `hooks/useAsyncData.ts` | 一次性拉取共享 hook（#350，与 useGatedPoll 互补）：data/loading/error + `reload()`（重拉保留旧数据、即清 error）+ `setData`（SSE 就地更新等本地修补）；deps 渲染期重置 + 微任务推迟首拉 + alive 守卫拒迟到响应 |
+| `useAsyncData` | `hooks/useAsyncData.ts` | 一次性拉取共享 hook（#350，与 useGatedPoll 互补）：data/loading/error + `reload()`（重拉保留旧数据、即清 error）+ `setData`（SSE 就地更新等本地修补）；deps 渲染期重置 + 微任务推迟首拉 + alive 守卫拒迟到响应；返回值 useMemo 稳身份，可直接进 effect deps（SSE 订阅类） |
 | `useWorkUnitStreamEvents` | `hooks/` | WU 步内流式订阅（Layer B） |
 | `rosterStore` | `stores/rosterStore.ts` | roster 数据面（#346）：三端点 TTL 缓存 + single-flight 去重、instance/workunit status_changed SSE 就地更新唯一一份（未匹配合成条目）、快照补查写回；切片独立（summary 403 → forbidden，profiles/channels 照常） |
 | `useRosterStoreSync` | `hooks/useRosterStoreSync.ts` | rosterStore 实时接线（#346）：引用计数单例 SSE 路由 + useGatedPoll(ensureFresh) 兜底 + 重连强制对齐 |
