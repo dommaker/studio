@@ -257,8 +257,8 @@ export class AgentProfileService {
     }
 
     // isOnline + 每角色最新启动失败：实例态聚合收口在 agent-instance.service（一次 listStates 产出双聚合）
-    const agentIds = profiles.map(p => p.id);
-    const { onlineRoleIds, latestErrorByRole } = await summarizeRoleStates(this.fileStore, agentIds);
+    const roleIds = profiles.map(p => p.id);
+    const { onlineRoleIds, latestErrorByRole } = await summarizeRoleStates(this.fileStore, roleIds);
 
     const data: AgentProfileWithOnline[] = profiles.map(p => ({
       ...p,

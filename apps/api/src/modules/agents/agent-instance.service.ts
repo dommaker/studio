@@ -33,14 +33,14 @@ export interface RoleInstanceStateSummary {
 
 /**
  * 按角色聚合 RuntimeState 查询：一次 listStates 同时产出在线判定集与最新 error，
- * 调用方（agent-profile list、roster 类聚合）不再各自全量扫描、各自复制 5min 阈值。
+ * 调用方（agent-profile list）不再自己全量扫描、自己复制 5min 阈值。
  */
 export async function summarizeRoleStates(
   fileStore: FileStore,
-  agentIds: string[],
+  roleIds: string[],
 ): Promise<RoleInstanceStateSummary> {
   const onlineThreshold = Date.now() - INSTANCE_ALIVE_TIMEOUT_MS;
-  const wanted = new Set(agentIds);
+  const wanted = new Set(roleIds);
   const allStates = await fileStore.listStates();
 
   const onlineRoleIds = new Set<string>();
