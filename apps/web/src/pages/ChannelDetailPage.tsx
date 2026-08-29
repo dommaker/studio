@@ -683,7 +683,7 @@ export function ChannelDetailPage() {
           <div className="mc-act-overlay-panel">
             <button
               type="button"
-              className="mc-act-overlay-close"
+              className="mc-drawer-close mc-act-overlay-close"
               aria-label="关闭频道动态"
               onClick={() => setActRailOpen(false)}
             >

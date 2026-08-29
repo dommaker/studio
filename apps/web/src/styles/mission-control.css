@@ -930,40 +930,33 @@
     right: 0;
     bottom: 0;
     z-index: 300;
-    box-shadow: -8px 0 24px rgba(0, 0, 0, 0.4);
+    box-shadow: var(--shadow-lg);
   }
 }
 
-/* 频道动态覆盖抽屉：右侧滑出（面板 300px 贴右），backdrop 点击 / × 关闭 */
+/* 频道动态覆盖抽屉：右侧滑出（面板 300px 贴右），backdrop 点击 / × 关闭。
+   遮罩对齐 .modal-overlay 定值（全站唯一遮罩口径，不另造第三档）；
+   style-guide §2.5 不动效——无进出场动画，直出 */
 .mc-act-overlay { position: fixed; inset: 0; z-index: 250; }
-.mc-act-overlay-backdrop { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.5); }
+.mc-act-overlay-backdrop { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.7); }
 .mc-act-overlay-panel {
   position: absolute;
   top: 0;
   right: 0;
   bottom: 0;
   width: 300px;
-  animation: mc-act-slide-in 0.2s ease-out;
 }
 .mc-act-overlay-panel .mc-act-rail { width: 100%; height: 100%; }
+/* 视觉复用 .mc-drawer-close（× 样式单点），此处只管定位 */
 .mc-act-overlay-close {
   position: absolute;
   top: 6px;
   right: 6px;
   z-index: 1;
-  color: var(--text-secondary);
-  font-size: 16px;
-  line-height: 1;
-  padding: 4px 8px;
-  border-radius: 3px;
-}
-.mc-act-overlay-close:hover { color: var(--text-primary); background: var(--bg-hover); }
-@keyframes mc-act-slide-in {
-  from { transform: translateX(100%); }
-  to { transform: translateX(0); }
 }
 
-/* <768：REQ/WU 抽屉全屏化（占满视口 + 左上返回，与 spec §4.4 详情页返回同形态） */
+/* <768：REQ/WU 抽屉全屏化（占满视口 + 左上返回，与 spec §4.4 详情页返回同形态）。
+   14px / 6×12 为 spec §4.4 显式定值，优先于 style-guide 字号/间距档（同 ui/BackButton 注） */
 .mc-drawer-back {
   display: none;
   color: var(--accent-primary);
