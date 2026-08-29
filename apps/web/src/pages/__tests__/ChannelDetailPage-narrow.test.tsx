@@ -141,11 +141,12 @@ describe('ChannelDetailPage — #395 窄屏降级', () => {
     expect(screen.queryByRole('dialog', { name: '频道动态' })).not.toBeInTheDocument();
   });
 
-  it('覆盖抽屉内点 REQ：覆盖层收起 + 详情抽屉打开（不叠加两层）', () => {
+  it('覆盖抽屉内点 REQ：覆盖层收起 + 详情抽屉打开（不叠加两层）', async () => {
     mockMatchMedia(900);
     renderPage();
     fireEvent.click(screen.getByRole('button', { name: '打开频道动态' }));
-    fireEvent.click(screen.getByTestId('rail-req-REQ-0042'));
+    // channelReqs 走 REST 异步打底，等链路卡渲染
+    fireEvent.click(await screen.findByTestId('rail-req-REQ-0042'));
     expect(screen.queryByRole('dialog', { name: '频道动态' })).not.toBeInTheDocument();
     const drawer = screen.getByTestId('wu-drawer');
     expect(drawer.dataset.kind).toBe('req');

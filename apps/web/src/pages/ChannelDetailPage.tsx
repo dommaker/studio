@@ -18,6 +18,7 @@ import { ChannelNeedInputChip, type NeedInputTodo } from '../components/channel/
 import { ChannelRail } from '../components/channel/ChannelRail';
 import { ChannelActivityRail } from '../components/channel/ChannelActivityRail';
 import { WorkUnitDrawer, type DrawerState } from '../components/channel/WorkUnitDrawer';
+import { useMediaQuery } from '../hooks/useMediaQuery';
 import { workunitApi } from '../api/workunit';
 import { useNotificationStore } from '../stores/notificationStore';
 import { fanOut } from '../utils/fanOut';
@@ -84,6 +85,12 @@ export function ChannelDetailPage() {
   const [channelReqs, setChannelReqs] = useState<Requirement[]>([]);
   // Mission Control 右抽屉：WorkUnit 详情 / REQ 全链路
   const [drawer, setDrawer] = useState<DrawerState>(null);
+  // #395（spec §4.6）窄屏降级断点：<768 左栏并入全局 Sidebar（本页卸载内联 ChannelRail）；
+  // <1024 右栏卸载 → 顶栏「频道动态」入口 + 覆盖滑出抽屉（actRailOpen）。
+  // matchMedia 缺失（jsdom）回落宽屏：内联三栏齐挂、覆盖层不开
+  const mdUp = useMediaQuery('(min-width: 768px)', true);
+  const lgUp = useMediaQuery('(min-width: 1024px)', true);
+  const [actRailOpen, setActRailOpen] = useState(false);
   // #242 live 执行状态条：#322 下沉至 ChannelLiveBars 自持有 useChannelLiveExecutions，
   // step 事件不再触发本页整树重渲（见渲染段 <ChannelLiveBars>）
 
@@ -343,6 +350,12 @@ export function ChannelDetailPage() {
   const openWuConfirm = useCallback((wuId: string) => setDrawer({ kind: 'wu', id: wuId, autoApprove: true }), []);
   const openReq = useCallback((reqId: string) => setDrawer({ kind: 'req', id: reqId }), []);
 
+  // #395：覆盖态频道动态里点 REQ/WU → 收起覆盖层再开详情抽屉（窄屏不叠加两层）；
+  // 窗口拉宽回 ≥1024 时覆盖层状态一并复位（防再收窄时莫名重开）
+  const openWuFromRailOverlay = useCallback((wuId: string) => { setActRailOpen(false); openWu(wuId); }, [openWu]);
+  const openReqFromRailOverlay = useCallback((reqId: string) => { setActRailOpen(false); openReq(reqId); }, [openReq]);
+  useEffect(() => { if (lgUp) setActRailOpen(false); }, [lgUp]);
+
   // #322: 消息流管线——归组/过程折叠/连续合并/日期分隔/可见性走 deriveStreamView 纯函数，
   // useMemo 消费（消息引用与 UI 状态不变则零重算）；折叠 UI 状态留组件
   const streamView = useMemo(() => deriveStreamView(messages, {
@@ -539,8 +552,8 @@ export function ChannelDetailPage() {
 
   return (
     <div className="mc-ws">
-      {/* 左栏：频道列表 + Agent 状态 */}
-      <ChannelRail activeChannelId={id} />
+      {/* 左栏：频道列表 + Agent 状态（#395：<768 卸载，并入全局 Sidebar） */}
+      {mdUp && <ChannelRail activeChannelId={id} />}
 
       {/* 中栏：对话流 */}
       <main className="mc-main">
@@ -550,6 +563,15 @@ export function ChannelDetailPage() {
             {channel?.type === 'rnd' ? '研发频道' : channel?.type === 'decision' ? '决策频道' : '系统频道'}
           </span>
           <div className="mc-topbar-actions">
+            {/* #395（spec §4.6）：<1024 右栏抽屉入口（≥1024 CSS 隐藏，内联右栏在岗） */}
+            <button
+              type="button"
+              className="mc-btn mc-act-open"
+              aria-label="打开频道动态"
+              onClick={() => setActRailOpen(true)}
+            >
+              频道动态
+            </button>
             {/* #279（决策 #250 D4）：NEED_INPUT 待办 chip（只聚合等待回复，闸门类不聚合） */}
             <ChannelNeedInputChip items={waitingWus} onLocate={locateWaitingQuestion} />
             {/* #272（决策 #251 Q6）：当前 PMO chip（派生不落库，点击跳项目页） */}
@@ -640,15 +662,44 @@ export function ChannelDetailPage() {
         <ChannelInput onSend={handleSend} sending={sending} replyTo={replyTo} onCancelReply={() => setReplyTo(null)} channelId={id} />
       </main>
 
-      {/* 右栏：频道动态 REQ 链路卡（#394，spec §4.1–4.3）；REQ/WU 点击仍走下方覆盖抽屉 */}
-      <ChannelActivityRail
-        channelId={id}
-        reqs={channelReqs}
-        messages={messages}
-        waitingWus={waitingWus}
-        onOpenWu={openWu}
-        onOpenReq={openReq}
-      />
+      {/* 右栏：频道动态 REQ 链路卡（#394，spec §4.1–4.3）；REQ/WU 点击仍走下方覆盖抽屉。
+          #395：仅 ≥1024 内联挂载（<1024 走下方覆盖抽屉，避免藏而不卸的取数浪费） */}
+      {lgUp && (
+        <ChannelActivityRail
+          channelId={id}
+          reqs={channelReqs}
+          messages={messages}
+          waitingWus={waitingWus}
+          onOpenWu={openWu}
+          onOpenReq={openReq}
+        />
+      )}
+
+      {/* #395（spec §4.6）：<1024 频道动态覆盖抽屉——右侧滑出，backdrop/× 可关，
+          点 REQ/WU 收起覆盖层后开详情抽屉（不叠加两层） */}
+      {!lgUp && actRailOpen && (
+        <div className="mc-act-overlay" role="dialog" aria-label="频道动态">
+          <div className="mc-act-overlay-backdrop" onClick={() => setActRailOpen(false)} />
+          <div className="mc-act-overlay-panel">
+            <button
+              type="button"
+              className="mc-act-overlay-close"
+              aria-label="关闭频道动态"
+              onClick={() => setActRailOpen(false)}
+            >
+              ×
+            </button>
+            <ChannelActivityRail
+              channelId={id}
+              reqs={channelReqs}
+              messages={messages}
+              waitingWus={waitingWus}
+              onOpenWu={openWuFromRailOverlay}
+              onOpenReq={openReqFromRailOverlay}
+            />
+          </div>
+        </div>
+      )}
 
       {/* 右抽屉：WorkUnit 详情 / REQ 全链路 */}
       <WorkUnitDrawer

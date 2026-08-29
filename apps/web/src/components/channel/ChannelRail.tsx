@@ -19,9 +19,11 @@ const TYPE_LABELS: Record<string, string> = {
 
 interface Props {
   activeChannelId?: string;
+  // #395：并入全局 Sidebar（<768）时选中频道/创建完成需收起 sidebar overlay——导航后回调
+  onNavigate?: () => void;
 }
 
-export function ChannelRail({ activeChannelId }: Props) {
+export function ChannelRail({ activeChannelId, onNavigate }: Props) {
   const { channels, loading, unreadCounts, clearUnread, createChannel } = useChannelList();
   useRosterStoreSync();
   const agents = useRosterStore((s) => s.agents);
@@ -70,6 +72,7 @@ export function ChannelRail({ activeChannelId }: Props) {
   const handleSelect = (id: string) => {
     clearUnread(id);
     if (id !== activeChannelId) navigate(`/channels/${id}`);
+    onNavigate?.();
   };
 
   return (
@@ -88,7 +91,7 @@ export function ChannelRail({ activeChannelId }: Props) {
       {showNewForm && (
         <CreateChannelForm
           createChannel={createChannel}
-          onCreated={ch => { setShowNewForm(false); navigate(`/channels/${ch.id}`); }}
+          onCreated={ch => { setShowNewForm(false); navigate(`/channels/${ch.id}`); onNavigate?.(); }}
           onCancel={() => setShowNewForm(false)}
         />
       )}

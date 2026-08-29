@@ -10,10 +10,10 @@ describe('useMediaQuery', () => {
 
   it('matchMedia 不可用时回落 defaultMatches（宽屏语义：min-width true / max-width false）', () => {
     // jsdom 默认无 matchMedia
-    const { result: min } = renderHook(() => useMediaQuery('(min-width: 1024px)', true));
-    expect(min.result.current).toBe(true);
-    const { result: max } = renderHook(() => useMediaQuery('(max-width: 767px)', false));
-    expect(max.result.current).toBe(false);
+    const wide = renderHook(() => useMediaQuery('(min-width: 1024px)', true));
+    expect(wide.result.current).toBe(true);
+    const narrow = renderHook(() => useMediaQuery('(max-width: 767px)', false));
+    expect(narrow.result.current).toBe(false);
   });
 
   it('按视口宽度求值：宽屏命中 min-width，窄屏命中 max-width', () => {
@@ -23,7 +23,7 @@ describe('useMediaQuery', () => {
     uninstallMatchMedia();
     mockMatchMedia(700);
     const { result: narrow } = renderHook(() => useMediaQuery('(max-width: 767px)', false));
-    expect(narrow.result.current).toBe(true);
+    expect(narrow.current).toBe(true);
   });
 
   it('setWidth 跨过断点 → change 事件驱动重算', () => {

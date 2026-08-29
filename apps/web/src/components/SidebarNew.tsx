@@ -1,8 +1,12 @@
 // Sidebar.tsx - 侧边栏组件（最新设计）
 // #393 菜单精简（spec §2）：主项仅 4 个（频道/PMO/WorkUnit/Agent），
 // 知识库/阅览室/监控/设置/审计日志收进「更多」展开组
+// #395（spec §4.6）：<768 频道左栏（ChannelRail）并入本 sidebar——频道路由下渲染于主导航之下，
+// 640–767 随静态 sidebar 常驻、<640 随 sidebar overlay 一起滑出；选频道后 onClose 收起 overlay
 import { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
+import { useMediaQuery } from '../hooks/useMediaQuery';
+import { ChannelRail } from './channel/ChannelRail';
 import '../styles/theme.css';
 
 interface SidebarProps {
@@ -33,6 +37,9 @@ const MORE_ITEMS: NavItem[] = [
 
 export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
   const location = useLocation();
+  // #395：<768 频道左栏并入（matchMedia 缺失回落宽屏 = 不并入）；activeChannelId 取自路由
+  const narrow = useMediaQuery('(max-width: 767px)', false);
+  const channelMatch = /^\/channels\/([^/]+)$/.exec(location.pathname);
 
   const isActive = (path: string) => location.pathname.startsWith(path);
   const moreActive = MORE_ITEMS.some(item => isActive(item.to));
@@ -122,6 +129,12 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
         </button>
         {moreOpen && MORE_ITEMS.map(renderItem)}
       </nav>
+
+      {/* #395（spec §4.6）：<768 频道左栏并入——工作区内联 ChannelRail 此时已卸载，
+          此处为唯一实例；onNavigate 关掉 overlay（静态档 onClose 无副作用） */}
+      {narrow && channelMatch && (
+        <ChannelRail activeChannelId={channelMatch[1]} onNavigate={onClose} />
+      )}
 
       {/* 底部状态 */}
       <div className="mt-auto p-4 text-xs" style={{ borderTop: '1px solid var(--border-subtle)' }}>

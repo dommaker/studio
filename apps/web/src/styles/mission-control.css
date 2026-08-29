@@ -909,17 +909,83 @@
   word-break: break-all;
 }
 
-/* ---------- 窄屏降级：rail 可隐藏 ---------- */
-@media (max-width: 900px) {
-  .mc-rail { display: none; }
-}
-@media (max-width: 1100px) {
-  .mc-drawer { width: 300px; }
-}
-/* #394 过渡折叠（spec §4.6 收起顺序：右栏先收）：<1024 右栏隐藏；
-   顶栏「频道动态」入口按钮 + 滑出抽屉归 #395 */
+/* ---------- #395 窄屏/移动端降级（spec §4.6）：断点统一 Tailwind 档 lg 1024 / md 768 / sm 640 ----------
+   收起顺序（信息优先级序）：右栏先收（<1024 → 顶栏「频道动态」入口 + 覆盖滑出抽屉）
+   → 左栏再收（<768 → JS 卸载内联 ChannelRail，并入全局 Sidebar，见 SidebarNew）
+   → 全局 sidebar 最后收（<640 汉堡，responsive.css 现状）。
+   900/1100 自定断点随本档删除（900 藏左栏由 767 档接管；1100 抽屉收窄因覆盖式失去意义）；
+   1440 放宽档本已不存在（#394 删 760/1000 双档时取消），保持不新增。
+   左/右栏「挂不挂」由 JS 断点（useMediaQuery）控制，本段只管入口显隐与覆盖形态。 */
+
+/* 「频道动态」顶栏入口：≥1024 隐藏（内联右栏在岗），<1024 出现 */
+.mc-act-open { display: none; }
+
 @media (max-width: 1023px) {
-  .mc-act-rail { display: none; }
+  .mc-act-open { display: inline-flex; align-items: center; }
+
+  /* REQ/WU 就地抽屉转覆盖式（承 spec §4.3）：不再挤压两栏中栏；≥1024 维持流内 336px 栏 */
+  .mc-drawer {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 300;
+    box-shadow: -8px 0 24px rgba(0, 0, 0, 0.4);
+  }
+}
+
+/* 频道动态覆盖抽屉：右侧滑出（面板 300px 贴右），backdrop 点击 / × 关闭 */
+.mc-act-overlay { position: fixed; inset: 0; z-index: 250; }
+.mc-act-overlay-backdrop { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.5); }
+.mc-act-overlay-panel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 300px;
+  animation: mc-act-slide-in 0.2s ease-out;
+}
+.mc-act-overlay-panel .mc-act-rail { width: 100%; height: 100%; }
+.mc-act-overlay-close {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 1;
+  color: var(--text-secondary);
+  font-size: 16px;
+  line-height: 1;
+  padding: 4px 8px;
+  border-radius: 3px;
+}
+.mc-act-overlay-close:hover { color: var(--text-primary); background: var(--bg-hover); }
+@keyframes mc-act-slide-in {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
+/* <768：REQ/WU 抽屉全屏化（占满视口 + 左上返回，与 spec §4.4 详情页返回同形态） */
+.mc-drawer-back {
+  display: none;
+  color: var(--accent-primary);
+  font-size: 14px;
+  padding: 6px 12px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+.mc-drawer-back:hover { background: var(--bg-hover); }
+@media (max-width: 767px) {
+  .mc-drawer { width: 100%; }
+  .mc-drawer-back { display: inline-flex; align-items: center; }
+}
+
+/* <768 ChannelRail 并入全局 Sidebar（SidebarNew 内渲染，工作区内联实例已卸载）：
+   去固定宽/右边框/底色，贴 sidebar 流；flex:1 吃剩余高，底部状态条不动 */
+.sidebar .mc-rail {
+  width: auto;
+  border-right: none;
+  border-top: 1px solid var(--border-subtle);
+  background: transparent;
+  flex: 1;
 }
 
 /* ---------- 右栏：频道动态 REQ 链路卡（#394，spec §4.1–4.3，#381 定稿变体 B） ---------- */

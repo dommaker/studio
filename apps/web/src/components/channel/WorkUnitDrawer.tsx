@@ -76,6 +76,8 @@ export function WorkUnitDrawer({ drawer, onClose, onOpenWu, onOpenReq }: Props) 
   return (
     <aside className="mc-drawer" aria-label="详情抽屉">
       <div className="mc-drawer-head">
+        {/* #395（spec §4.6）：<768 抽屉全屏化的左上返回（≥768 CSS 隐藏，DOM 常驻） */}
+        <button className="mc-drawer-back" aria-label="返回" onClick={onClose}>← 返回</button>
         <h3 className="mc-drawer-title">
           {drawer.kind === 'wu' ? drawer.id : `${drawer.id} 全链路`}
         </h3>
