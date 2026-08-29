@@ -201,18 +201,26 @@ body {
   border-radius: 4px;
 }
 
-/* 可点卡片 = 交互边界，走 --border-strong（WCAG 1.4.11 ≥3:1，#380/#392）；
-   消费方现状均为 `card … cursor-pointer` 组合（LibraryPage/PMOPage/ProjectCard），装饰卡片不动 */
-.card.cursor-pointer {
-  border-color: var(--border-strong);
-}
-
 .card:hover {
   border-color: var(--border-default);
 }
 
 .card-glow:hover {
   border-color: var(--border-emphasis);
+}
+
+/* 可点卡片 = 交互边界，走 --border-strong（WCAG 1.4.11 ≥3:1，#380/#392），装饰卡片不动。
+   两种消费形态：类同元素（LibraryPage/PMOPage/ProjectCard 的 `card … cursor-pointer`）；
+   行卡结构（WorkUnitListPage：cursor-pointer 在直接子 div 上）。
+   规则置于 .card:hover 之后并显式覆盖 hover——同优先级后者胜，防 hover 态掉回 default（<3:1） */
+.card.cursor-pointer,
+.card:has(> .cursor-pointer) {
+  border-color: var(--border-strong);
+}
+
+.card.cursor-pointer:hover,
+.card:has(> .cursor-pointer):hover {
+  border-color: var(--border-strong);
 }
 
 /* === 按钮组件 === */
@@ -698,7 +706,7 @@ body {
 }
 
 .hero-title {
-  font-size: var(--fs-stat);
+  font-size: var(--fs-title);
   font-weight: 600;
   color: var(--text-primary);
   margin-bottom: 8px;
