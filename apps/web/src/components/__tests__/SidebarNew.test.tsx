@@ -1,0 +1,55 @@
+// #393 左侧菜单精简：4 主项（频道/PMO/WorkUnit/Agent）+「更多」收纳 5 项
+import { describe, it, expect } from 'vitest';
+import { render, screen, fireEvent } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
+
+import { Sidebar } from '../SidebarNew';
+
+const renderSidebar = (initialPath = '/channels/ch-1') =>
+  render(
+    <MemoryRouter initialEntries={[initialPath]}>
+      <Sidebar />
+    </MemoryRouter>,
+  );
+
+describe('Sidebar — #393 菜单精简', () => {
+  it('主项仅 4 个：频道 / PMO / WorkUnit / Agent', () => {
+    renderSidebar();
+    for (const label of ['频道', 'PMO', 'WorkUnit', 'Agent']) {
+      expect(screen.getByRole('link', { name: new RegExp(label) })).toBeTruthy();
+    }
+    // 收纳项折叠态不可达
+    for (const label of ['知识库', '阅览室', '监控', '设置', '审计日志']) {
+      expect(screen.queryByRole('link', { name: new RegExp(label) })).toBeNull();
+    }
+  });
+
+  it('展开「更多」后 5 个收纳项全部可达', () => {
+    renderSidebar();
+    fireEvent.click(screen.getByRole('button', { name: /更多/ }));
+    const expected: Array<[string, string]> = [
+      ['知识库', '/knowledge'],
+      ['阅览室', '/library'],
+      ['监控', '/monitoring'],
+      ['设置', '/settings'],
+      ['审计日志', '/audit-logs'],
+    ];
+    for (const [label, href] of expected) {
+      const link = screen.getByRole('link', { name: new RegExp(label) });
+      expect(link.getAttribute('href')).toBe(href);
+    }
+  });
+
+  it('当前路由落在收纳项时「更多」呈激活态', () => {
+    renderSidebar('/monitoring');
+    const moreBtn = screen.getByRole('button', { name: /更多/ });
+    // 激活态与主项一致：accent 色文字
+    expect(moreBtn.style.color).toBe('var(--accent-primary)');
+  });
+
+  it('当前路由不在收纳项时「更多」非激活态', () => {
+    renderSidebar('/pmo');
+    const moreBtn = screen.getByRole('button', { name: /更多/ });
+    expect(moreBtn.style.color).not.toBe('var(--accent-primary)');
+  });
+});
