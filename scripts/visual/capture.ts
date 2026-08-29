@@ -33,9 +33,9 @@ async function exchangeToken(apiUrl: string, refreshToken: string): Promise<Auth
     body: JSON.stringify({ refreshToken }),
   });
   if (!res.ok) throw new Error(`refresh 换 token 失败：HTTP ${res.status}`);
-  const data = await res.json() as { token?: string; refreshToken?: string };
-  if (!data.token || !data.refreshToken) throw new Error('refresh 响应缺 token 字段');
-  return { token: data.token, refreshToken: data.refreshToken };
+  const data = await res.json() as { accessToken?: string; refreshToken?: string };
+  if (!data.accessToken || !data.refreshToken) throw new Error('refresh 响应缺 token 字段');
+  return { token: data.accessToken, refreshToken: data.refreshToken };
 }
 
 /** 带参页面目标 id 运行时发现：各列表 API 取第一条。响应形态各模块不一，逐路径探测 */
@@ -58,7 +58,7 @@ async function discoverParams(apiUrl: string, token: string): Promise<Partial<Re
   };
 
   const [channels, pmo, workunits, agents] = await Promise.all([
-    get('/channels'), get('/pmo/project'), get('/workunits'), get('/agents'),
+    get('/channels'), get('/pmo/project'), get('/workunits'), get('/agent-profiles'),
   ]);
   return {
     channelId: firstId(channels, 'data'),
@@ -90,7 +90,8 @@ async function main(): Promise<void> {
   const outDir = resolve(RUNS_DIR, runName);
   mkdirSync(outDir, { recursive: true });
 
-  const browser = await chromium.launch();
+  // 默认用 playwright 自带 chromium；环境缺浏览器时 VISUAL_BROWSER_CHANNEL=chrome 走系统 Chrome
+  const browser = await chromium.launch({ channel: process.env.VISUAL_BROWSER_CHANNEL || undefined });
   let shot = 0;
   try {
     for (const width of WIDTHS) {
@@ -119,8 +120,15 @@ async function main(): Promise<void> {
         const page = await context.newPage();
         await page.clock.setFixedTime(FIXED_TIME);
         await page.goto(path.replace(/^\//, ''), { waitUntil: 'domcontentloaded' });
-        await page.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => { /* SSE 长连接常驻，networkidle 兜底超时即可 */ });
-        await page.waitForTimeout(1500); // 渲染沉降，两轮一致即可
+        await page.waitForLoadState('networkidle', { timeout: 3000 }).catch(() => { /* SSE 长连接常驻，networkidle 兜底超时即可 */ });
+        // 等加载态消失（首轮 diff 归因：major 全部来自"加载中/Loading..."竞态）。
+        // 频道页右侧栏常驻"加载中…"（无实例空态），超时可接受——两轮等同样时长，结果仍一致
+        await page.waitForFunction(
+          () => !document.body.innerText.includes('加载中') && !document.body.innerText.includes('Loading'),
+          null,
+          { timeout: 4000 },
+        ).catch(() => { /* 常驻加载态页兜底 */ });
+        await page.waitForTimeout(800); // 渲染沉降，两轮一致即可
         await page.addStyleTag({ content: HIDE_DYNAMIC_CSS });
 
         await page.screenshot({

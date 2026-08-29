@@ -60,6 +60,8 @@ test-results/
 # Spec source (ignored; docs/adr/ 豁免——决策记录是公共面永久导航件，须常规追踪，2026-08-21)
 docs/*
 !docs/adr/
+# docs/visual-reports/ 豁免——#390 决议：截图 diff 报告入 git 作改版验收凭据（#391）
+!docs/visual-reports/
 
 # Scratch workspace (ignored)
 .scratch/

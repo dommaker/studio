@@ -45,7 +45,9 @@ function diffOne(dirA: string, dirB: string, name: string, outDir: string): Diff
 
   const totalPixels = imgA.width * imgA.height;
   const diff = new PNG({ width: imgA.width, height: imgA.height });
-  const diffPixels = pixelmatch(imgA.data, imgB.data, diff.data, imgA.width, imgA.height, { threshold: 0.1 });
+  // diffMask：纯差异掩码（透明底 + 红色差异像素），不含灰底原图——
+  // 公开仓脱敏（public_repo_sanitization）：灰底版可辨认底图数据内容，掩码只暴露变化形状
+  const diffPixels = pixelmatch(imgA.data, imgB.data, diff.data, imgA.width, imgA.height, { threshold: 0.1, diffMask: true });
   const diffRatio = diffPixels / totalPixels;
   const entry: DiffEntry = { file: name, page, width, diffRatio, diffPixels, totalPixels, status: classify(diffRatio) };
   if (diffPixels > 0) {
@@ -56,10 +58,19 @@ function diffOne(dirA: string, dirB: string, name: string, outDir: string): Diff
   return entry;
 }
 
-function main(): void {
-  const args = process.argv.slice(2);
+/** CLI 参数解析：位置参数 runA runB + 可选 --out <目录>（顺序无关） */
+export function parseArgs(args: string[]): { runA?: string; runB?: string; out?: string } {
   const outIdx = args.indexOf('--out');
-  const [runA, runB] = args.filter((_, i) => i !== outIdx && i !== outIdx + 1);
+  const positional = outIdx < 0 ? args : args.filter((_, i) => i !== outIdx && i !== outIdx + 1);
+  return {
+    runA: positional[0],
+    runB: positional[1],
+    out: outIdx >= 0 ? args[outIdx + 1] : undefined,
+  };
+}
+
+function main(): void {
+  const { runA, runB, out } = parseArgs(process.argv.slice(2));
   if (!runA || !runB) {
     console.error('用法：npx tsx scripts/visual/diff.ts <runA> <runB> [--out <报告目录>]');
     process.exit(1);
@@ -68,7 +79,7 @@ function main(): void {
   const dirA = resolveRunDir(runA);
   const dirB = resolveRunDir(runB);
   const date = new Date().toISOString().slice(0, 10).replaceAll('-', '');
-  const outDir = outIdx >= 0 ? resolve(args[outIdx + 1]) : resolve(REPORTS_DIR, `${date}-${runA}-vs-${runB}`);
+  const outDir = out ? resolve(out) : resolve(REPORTS_DIR, `${date}-${runA}-vs-${runB}`);
   mkdirSync(outDir, { recursive: true });
 
   const entries: DiffEntry[] = [];
