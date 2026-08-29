@@ -30,6 +30,7 @@ Agent 配置（profile）、运行实例（instance）、决策循环（loop）�
 
 ### 注意事项
 
+- **路由分叉坑（#391 实测）**：`/api/v1/agents` 的 GET / 由 legacy `routes.ts`（agents-registry，响应条目**无 id 字段**）处理；前端 profile 列表走 `/api/v1/agent-profiles`（agent-profile.routes.ts，有 id）。发现 profileId 勿用 `/agents`
 - **AgentProfile 持久化**：`~/.studio/data/agents/{id}/profile.json` + `state.json`；原子写+mkdir 锁，仅可显式 DELETE；保留名 `studio`
 - **prompt 注入 = index-on-demand**：skills 只注入 name+description+triggers+指针，正文不注入；知识分层（rule/context 全量、signal 索引、reference 报条数）；分段软定额+池内余量共享截断（persona 300/roster 400/skills 600/map 800/memory 300/knowledge 1000/files 400/contract 200/handoff 800）；段序 persona->roster->skills->map->memory->knowledge->files->base->contract->handoff->hint
 - **三层超时**：步墙钟 1800s 兜底+静默看门狗（300s warn/600s 杀进程组）+maxTurns=50
