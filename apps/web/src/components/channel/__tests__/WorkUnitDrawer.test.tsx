@@ -201,6 +201,16 @@ describe('WorkUnitDrawer', () => {
     expect(container.firstChild).toBeNull();
   });
 
+  // #395（spec §4.6）：<768 抽屉全屏化的左上返回（≥768 由 CSS 隐藏，DOM 常驻）；点击 = 关抽屉
+  it('头部「← 返回」按钮：渲染且点击调 onClose', async () => {
+    const onClose = vi.fn();
+    renderDrawer({ kind: 'wu', id: 'WU-1017' }, { onClose });
+    const back = screen.getByRole('button', { name: '返回' });
+    expect(back.className).toContain('mc-drawer-back');
+    fireEvent.click(back);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
   it('shows WorkUnit detail with status, owner, REQ link and step count', async () => {
     renderDrawer({ kind: 'wu', id: 'WU-1017' });
     await waitFor(() => expect(screen.getByText('方向稿 A/B 原型页搭建')).toBeTruthy());
