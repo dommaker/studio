@@ -1,4 +1,4 @@
-// Channel Detail Page — Mission Control 三栏（左频道栏 / 中对话流 / 右抽屉）
+// Channel Detail Page — Mission Control 三栏（左频道栏 / 中对话流 / 右频道动态栏 #394 + 覆盖抽屉）
 // 对话流逻辑与 B1-001/Phase 2 一致：日期分隔、已完成折叠、线程分组、NEED_INPUT 回复链路，零语义变更
 import { useParams, useSearchParams } from 'react-router-dom';
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
@@ -16,6 +16,7 @@ import { ChannelDefaultProjectSelect } from '../components/channel/ChannelDefaul
 import { ChannelCurrentPmoChip } from '../components/channel/ChannelCurrentPmoChip';
 import { ChannelNeedInputChip, type NeedInputTodo } from '../components/channel/ChannelNeedInputChip';
 import { ChannelRail } from '../components/channel/ChannelRail';
+import { ChannelActivityRail } from '../components/channel/ChannelActivityRail';
 import { WorkUnitDrawer, type DrawerState } from '../components/channel/WorkUnitDrawer';
 import { workunitApi } from '../api/workunit';
 import { useNotificationStore } from '../stores/notificationStore';
@@ -79,7 +80,7 @@ export function ChannelDetailPage() {
   // F5: NEED_INPUT 挂起中的 WorkUnit 集合（等待人类回复）；
   // #279（决策 #250 D4）：扩为对象集（chip 聚合要 WU 标识 + 问题摘要），闸门类（decision/spec）不聚合
   const [waitingWus, setWaitingWus] = useState<NeedInputTodo[]>([]);
-  // REQ 需求编号（vision §5.3）：本频道需求 chips；全链路改右抽屉呈现
+  // REQ 需求编号（vision §5.3）：本频道需求集；#394 起喂右栏「频道动态」REQ 链路卡（原中栏 chips 条移除）
   const [channelReqs, setChannelReqs] = useState<Requirement[]>([]);
   // Mission Control 右抽屉：WorkUnit 详情 / REQ 全链路
   const [drawer, setDrawer] = useState<DrawerState>(null);
@@ -567,23 +568,6 @@ export function ChannelDetailPage() {
             #322：hook 下沉 ChannelLiveBars 自持有，step 事件只重渲该组件边界 */}
         <ChannelLiveBars channelId={id} onOpenWorkUnit={openWu} />
 
-        {/* REQ 需求编号 chips（vision §5.3）— 点击打开右抽屉全链路 */}
-        {channelReqs.length > 0 && (
-          <div className="mc-reqs">
-            <span className="mc-reqs-label">REQ</span>
-            {channelReqs.map(req => (
-              <button
-                key={req.id}
-                onClick={() => openReq(req.id)}
-                className="mc-req-chip"
-                title={`${req.id} · ${req.title} · ${req.status}`}
-              >
-                {req.id} · {req.title} · <span className="mc-req-status">{req.status}</span>
-              </button>
-            ))}
-          </div>
-        )}
-
         {/* Message list
             #325：头部块（空态/加载更早/折叠 toggle）与虚拟列表 spacer 分离——
             头部高度经 streamHeadRef 量作 virtualizer scrollMargin；
@@ -656,7 +640,17 @@ export function ChannelDetailPage() {
         <ChannelInput onSend={handleSend} sending={sending} replyTo={replyTo} onCancelReply={() => setReplyTo(null)} channelId={id} />
       </main>
 
-      {/* 右栏：抽屉（WorkUnit 详情 / REQ 全链路） */}
+      {/* 右栏：频道动态 REQ 链路卡（#394，spec §4.1–4.3）；REQ/WU 点击仍走下方覆盖抽屉 */}
+      <ChannelActivityRail
+        channelId={id}
+        reqs={channelReqs}
+        messages={messages}
+        waitingWus={waitingWus}
+        onOpenWu={openWu}
+        onOpenReq={openReq}
+      />
+
+      {/* 右抽屉：WorkUnit 详情 / REQ 全链路 */}
       <WorkUnitDrawer
         drawer={drawer}
         onClose={() => setDrawer(null)}

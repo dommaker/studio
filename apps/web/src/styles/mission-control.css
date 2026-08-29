@@ -1,6 +1,6 @@
 /* ============================================================
    Mission Control — 方向 A 主界面样式（docs/plans/2026-07-ui-visual-directions.md §3）
-   三栏：左频道栏 / 中对话流 / 右抽屉。全部消费 theme.css 的 CSS 变量（深浅色均可用）。
+   三栏：左频道栏（200px）/ 中对话流（弹性左对齐，#394 spec §4.1）/ 右频道动态栏（300px，#394）+ 覆盖式右抽屉。全部消费 theme.css 的 CSS 变量（深浅色均可用）。
    动效：仅执行中状态点 pulse（mc-dot-busy / mc-status-running）。
    ============================================================ */
 
@@ -28,7 +28,7 @@
 
 /* ---------- 左栏：频道列表 ---------- */
 .mc-rail {
-  width: 224px;
+  width: 200px; /* #394（spec §4.1）：左栏频道列表 224→200 */
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
@@ -106,7 +106,9 @@
   gap: 8px;
   width: 100%;
   text-align: left;
-  padding: 5px 8px;
+  /* #394（spec §4.1）：13px base / 行距放开 */
+  padding: 6px 8px;
+  font-size: var(--fs-base);
   border-radius: 3px;
   color: var(--text-secondary);
   border: 1px solid transparent;
@@ -121,7 +123,9 @@
   border-color: var(--border-default);
 }
 .mc-chan-hash { color: var(--accent-primary); flex-shrink: 0; }
-.mc-chan-name { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+/* #394（spec §4.1）：名称 500 字重；未读（有 badge）加粗抬色 */
+.mc-chan-name { flex: 1; overflow: hidden; text-overflow: ellipsis; font-weight: 500; }
+.mc-chan:has(.mc-chan-badge) .mc-chan-name { font-weight: 600; color: var(--text-primary); }
 .mc-chan-meta { font-size: var(--fs-xs); color: var(--text-muted); flex-shrink: 0; }
 .mc-chan-badge {
   font-size: var(--fs-xs);
@@ -170,7 +174,7 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 8px 14px;
+  padding: 8px var(--space-6); /* #394（spec §4.1）：中栏 padding 32px */
   border-bottom: 1px solid var(--border-subtle);
   background: var(--bg-secondary);
 }
@@ -185,34 +189,12 @@
 .mc-topbar-type { color: var(--text-secondary); font-size: var(--fs-sm); flex-shrink: 0; }
 .mc-topbar-actions { margin-left: auto; display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
 
-/* REQ chips 条 */
-.mc-reqs {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 14px;
-  border-bottom: 1px solid var(--border-subtle);
-  overflow-x: auto;
-}
-.mc-reqs-label { color: var(--text-muted); font-size: var(--fs-xs); flex-shrink: 0; }
-.mc-req-chip {
-  font-size: var(--fs-sm);
-  color: var(--accent-primary);
-  background: var(--accent-dim);
-  border: 1px solid var(--accent-border);
-  border-radius: 999px;
-  padding: 2px 10px;
-  white-space: nowrap;
-  max-width: 260px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.mc-req-chip:hover { border-color: var(--accent-primary); }
-.mc-req-status { color: var(--text-secondary); }
+/* #394：REQ chips 条随 REQ 呈现挪右栏链路卡（spec §4.2）删除 */
 
 /* 消息流 */
-.mc-stream { flex: 1; overflow-y: auto; padding: 10px 14px; }
-.mc-stream-inner, .mc-stream-head { max-width: 760px; margin: 0 auto; }
+/* #394（spec §4.1）：Linear 式弹性中栏——max-width 无上限、左对齐、padding 32px；
+   取消 760/1000 双档居中（原 .mc-stream-inner/.mc-inputbar-inner 限宽与文末 #239 媒体查询一并移除） */
+.mc-stream { flex: 1; overflow-y: auto; padding: var(--space-6); }
 .mc-stream-empty {
   height: 100%;
   display: flex;
@@ -225,7 +207,7 @@
 }
 .mc-loadmore {
   display: block;
-  margin: 0 auto 10px;
+  margin: 0 0 10px; /* #394：中栏左对齐，不再居中 */
   color: var(--accent-primary);
   font-size: var(--fs-sm);
 }
@@ -336,7 +318,7 @@
   border-top-right-radius: 3px;
   padding: 6px 12px;
 }
-/* D1 agent 消息：左侧无气泡文档流，占内容列宽（大屏 1000px 上限见文末 #239 媒体查询） */
+/* D1 agent 消息：左侧无气泡文档流，占内容列宽（#394 起中栏弹性无上限，760/1000 双档取消） */
 .mc-msg-agent { text-align: left; }
 /* D3 系统播报：居中淡色小字，与左右对话流明确区隔；无头无动作，仅正文（+可选 footer 链接居中） */
 .mc-msg-system { text-align: center; }
@@ -404,7 +386,7 @@
   border-radius: 4px;
   padding: 8px 10px;
   margin-bottom: 8px;
-  max-width: 560px;
+  /* #394（spec §4.1）：卡片随弹性中栏吃满内容列宽（原 560px 限宽与 #239 大屏 1000 档取消） */
 }
 .mc-card:hover { border-color: var(--border-default); }
 .mc-card-head {
@@ -632,8 +614,7 @@
 }
 
 /* 底部输入条 */
-.mc-inputbar { border-top: 1px solid var(--border-subtle); padding: 8px 14px; background: var(--bg-secondary); position: relative; }
-.mc-inputbar-inner { max-width: 760px; margin: 0 auto; }
+.mc-inputbar { border-top: 1px solid var(--border-subtle); padding: var(--space-3) var(--space-6); background: var(--bg-secondary); position: relative; } /* #394（spec §4.1）：padding 32px */
 .mc-input-reply {
   display: flex;
   align-items: center;
@@ -850,9 +831,9 @@
 .mc-chain-node-title { color: var(--text-secondary); font-size: var(--fs-sm); margin-top: 2px; }
 .mc-chain-arrow { text-align: center; color: var(--text-muted); font-size: var(--fs-xs); margin-bottom: 8px; }
 
-/* ---------- #242 频道 live 执行状态条（与消息流同宽约束，含 #239 大屏断点） ---------- */
-.mc-livebars { padding: 6px 14px 0; }
-.mc-livebars-inner { max-width: 760px; margin: 0 auto; display: flex; flex-direction: column; gap: 4px; }
+/* ---------- #242 频道 live 执行状态条（#394：随弹性中栏吃满，原 760/1000 同宽约束取消） ---------- */
+.mc-livebars { padding: 6px var(--space-6) 0; }
+.mc-livebars-inner { display: flex; flex-direction: column; gap: 4px; }
 .mc-livebar {
   display: flex;
   align-items: center;
@@ -935,18 +916,149 @@
 @media (max-width: 1100px) {
   .mc-drawer { width: 300px; }
 }
-
-/* ---------- #239 D3: 大屏（≥1440px）布局放宽 ---------- */
-/* 消息流/输入框 760→1000，卡片 560→吃满消息流；小屏维持现状。
-   #277 D1 起 agent 文档流吃满内容列宽（原 .mc-msg-body 760px 克制上限随分侧移除），
-   人类侧由 .mc-bubble 75% 收口。 */
-@media (min-width: 1440px) {
-  .mc-stream-inner,
-  .mc-stream-head,
-  .mc-inputbar-inner { max-width: 1000px; }
-  .mc-livebars-inner { max-width: 1000px; }
-  .mc-card { max-width: 1000px; }
+/* #394 过渡折叠（spec §4.6 收起顺序：右栏先收）：<1024 右栏隐藏；
+   顶栏「频道动态」入口按钮 + 滑出抽屉归 #395 */
+@media (max-width: 1023px) {
+  .mc-act-rail { display: none; }
 }
+
+/* ---------- 右栏：频道动态 REQ 链路卡（#394，spec §4.1–4.3，#381 定稿变体 B） ---------- */
+.mc-act-rail {
+  width: 300px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--bg-secondary);
+  border-left: 1px solid var(--border-subtle);
+}
+.mc-act-rail-title {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  padding: var(--space-3) var(--space-3) var(--space-2);
+  border-bottom: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+}
+.mc-act-rail-body { flex: 1; overflow-y: auto; padding: var(--space-3) 0; min-height: 0; }
+.mc-act-empty { padding: var(--space-2) var(--space-3); color: var(--text-muted); font-size: var(--fs-xs); }
+
+/* REQ 链路卡 */
+.mc-act-card {
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  margin: 0 var(--space-3) var(--space-3);
+  padding: var(--space-3);
+  background: var(--bg-tertiary);
+}
+.mc-act-card-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  width: 100%;
+  text-align: left;
+}
+.mc-act-card-head:hover .mc-act-card-title { color: var(--accent-primary); }
+.mc-act-card-id { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--text-muted); flex-shrink: 0; }
+.mc-act-card-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.mc-act-card-status { font-size: var(--fs-xs); color: var(--text-muted); flex-shrink: 0; }
+
+/* 四站 stepper（讨论→REQ→WU n/m→交付）：圆点+标签节点，连续细线贯穿；
+   done = accent 实心，current = accent 描边+标签加粗，upcoming = muted 空心 */
+.mc-act-stepper { display: flex; align-items: center; margin-top: var(--space-2); }
+.mc-act-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 3px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+button.mc-act-step:hover { background: var(--bg-hover); }
+.mc-act-step-dot { width: 8px; height: 8px; border-radius: 50%; box-sizing: border-box; flex-shrink: 0; }
+.mc-act-step-label { font-size: var(--fs-xs); white-space: nowrap; }
+.mc-act-step-done .mc-act-step-dot { background: var(--accent-primary); }
+.mc-act-step-done .mc-act-step-label { color: var(--text-primary); }
+.mc-act-step-current .mc-act-step-dot {
+  border: 2px solid var(--accent-primary);
+  background: transparent;
+  box-shadow: 0 0 6px var(--accent-glow);
+}
+.mc-act-step-current .mc-act-step-label { color: var(--accent-primary); font-weight: 600; }
+.mc-act-step-upcoming .mc-act-step-dot { border: 1px solid var(--text-muted); background: transparent; }
+.mc-act-step-upcoming .mc-act-step-label { color: var(--text-muted); }
+.mc-act-step-line { flex: 1; min-width: 8px; height: 1px; margin: 0 2px; background: var(--border-default); }
+.mc-act-step-line-reached { background: var(--accent-border); }
+
+/* 卡 meta 行：PMO badge + assignee 链接（↗ = 跳页离开会话流，spec §4.3 混合交互） */
+.mc-act-card-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+.mc-act-pmo-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--fs-xs);
+  color: var(--accent-primary);
+  background: var(--accent-dim);
+  border: 1px solid var(--accent-border);
+  border-radius: 3px;
+  padding: 1px 7px;
+}
+.mc-act-pmo-badge:hover { border-color: var(--accent-primary); }
+.mc-act-agent-link {
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+  border-radius: 3px;
+  padding: 1px 4px;
+}
+.mc-act-agent-link:hover { color: var(--accent-primary); background: var(--bg-hover); }
+
+/* 卡下动态区 + 动态条目行 */
+.mc-act-card-acts { margin-top: var(--space-2); border-top: 1px dashed var(--border-subtle); padding-top: var(--space-1); }
+.mc-act-card-acts .mc-act-row { padding-left: 0; padding-right: 0; }
+.mc-act-group-label {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  padding: var(--space-2) var(--space-3) var(--space-1);
+}
+.mc-act-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  width: 100%;
+  text-align: left;
+  padding: 3px var(--space-3);
+}
+.mc-act-row:hover { background: var(--bg-hover); }
+.mc-act-dot { flex-shrink: 0; width: 7px; height: 7px; border-radius: 50%; align-self: center; }
+.mc-act-dot-req { background: var(--accent-primary); }
+.mc-act-dot-wu { background: var(--info); }
+.mc-act-dot-card { background: var(--chart-2); }
+.mc-act-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-sm);
+  color: var(--text-primary);
+}
+.mc-act-time { flex-shrink: 0; font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--text-muted); }
 
 /* ============================================================
    语义工具类 —— 替代写死浅色 Tailwind 类（bg-white/text-gray-* 等），
