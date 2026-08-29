@@ -1,8 +1,8 @@
 // ChannelRail — Mission Control 左栏：频道列表（未读 badge + agent 在线数）+ Agent 状态
-// 数据：useChannelList（与 ChannelListPage 同源，#346 起频道走 rosterStore）+ rosterStore.agents
+// 数据：useChannelList（与 ChannelHomeRedirect 同源，#346 起频道走 rosterStore）+ rosterStore.agents
 // #312/#313：agent.instance.status_changed SSE 就地更新与轮询兜底已收敛到 rosterStore +
 //   useRosterStoreSync（#346），本组件只订阅 selector 并派生视图（visibleAgents / 在线计数）
-// #272（决策 #251 Q7）：创建表单与 ChannelListPage 合并为单一实现 CreateChannelForm
+// #272（决策 #251 Q7）：创建表单合并为单一实现 CreateChannelForm
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useChannelList } from '../../hooks/useChannelList';

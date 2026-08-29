@@ -259,10 +259,12 @@
     display: none !important;
   }
   
-  /* 桌面端 Sidebar 正常显示 */
+  /* 桌面端 Sidebar 正常显示（#393：256 → 176，spec §4.1；补 flex-direction: column——
+     原为 row 默认值，底部状态条与 nav 横排，窄化后横向溢出） */
   .sidebar {
     position: static;
-    width: 256px;
+    width: 176px;
+    flex-direction: column;
     transform: none;
     flex-shrink: 0;
     display: flex;

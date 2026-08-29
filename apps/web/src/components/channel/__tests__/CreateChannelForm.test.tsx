@@ -1,5 +1,5 @@
 /**
- * #272（决策 #251 Q3/Q7）：创建频道表单单一实现（ChannelListPage / ChannelRail 共用）。
+ * #272（决策 #251 Q3/Q7）：创建频道表单单一实现（ChannelHomeRedirect / ChannelRail 共用）。
  * 可选「默认工程」（本地 repo，可留空）；选中随创建落 channel.defaultPath；
  * 提交中防连点；失败内联报错；不含「默认执行机器」（Admin 概念，不进创建表单）。
  */

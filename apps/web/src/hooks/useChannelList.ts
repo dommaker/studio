@@ -1,4 +1,4 @@
-// 频道列表数据 hook —— ChannelListPage 与 Mission Control 左栏 ChannelRail 共用
+// 频道列表数据 hook —— ChannelHomeRedirect（#393）与 Mission Control 左栏 ChannelRail 共用
 // 数据来源与 B2-011 未读 SSE 逻辑单源化，避免两处实现漂移。
 // #346：channels 切片上移 rosterStore（TTL 缓存 + 路由切换零重拉），本 hook 只保留
 // 未读计数（SSE channel.message_sent）与创建频道（写回 store）；loading 只看频道切片自身

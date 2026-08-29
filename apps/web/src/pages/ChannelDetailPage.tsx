@@ -24,6 +24,7 @@ import { requirementApi, type Requirement, type RequirementStatus } from '../api
 import { parseLiveWuRef } from '../components/workunit/execution-rows';
 import type { Channel, ChannelMessage, ChannelFileVocabulary, FileRef } from '../api/channel';
 import { channelApi } from '../api/channel';
+import { saveLastChannelId } from '../utils/lastChannel';
 
 /** #279（决策 #250 D4）：闸门类 WU 类型（人工验收单）——不聚合进 NEED_INPUT 待办 chip */
 const GATE_WU_TYPES = new Set(['decision', 'spec']);
@@ -68,6 +69,8 @@ function parseRequirementRef(
 
 export function ChannelDetailPage() {
   const { id } = useParams<{ id: string }>();
+  // #393：记录最近访问频道（/ 与 /channels 重定向落点，spec §2）
+  useEffect(() => { if (id) saveLastChannelId(id); }, [id]);
   const [channel, setChannel] = useState<Channel | null>(null);
   const { messages, loading, sendMessage, loadMore, hasMore, refresh, syncPruning } = useChannelMessages(id);
   const [sending, setSending] = useState(false);

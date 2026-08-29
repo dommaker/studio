@@ -1,4 +1,4 @@
-// useChannelList — 频道列表数据 hook（ChannelListPage 与 ChannelRail 共用）
+// useChannelList — 频道列表数据 hook（ChannelHomeRedirect 与 ChannelRail 共用）
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
 

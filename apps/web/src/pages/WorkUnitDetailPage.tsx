@@ -3,7 +3,7 @@
 // → 证据台账 L1/L2/L3（与 WorkUnitDrawer 同一数据路径：deriveDisplayState / parseAttestations）
 // → 执行过程（复用 ExecutionSteps，自带 REST 回放 + 实时流）→ 会话原文（#174 TranscriptViewer）→ 讨论区（复用 DiscussionPanel）
 import { useEffect, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import { deriveDisplayState, parseAttestations, WU_STATUS_COLORS, WU_STATUS_LABELS, WU_TYPE_LABELS } from '@dommaker/studio-shared/web';
 import { workunitApi, type Opportunity, type WorkUnit } from '../api/workunit';
 import { requirementApi } from '../api/requirements';
@@ -20,6 +20,7 @@ import { TreeTokenDrawer } from '../components/workunit/TreeTokenDrawer';
 import { EvidenceLedger } from '../components/workunit/EvidenceLedger';
 import { OpportunitiesPanel } from '../components/workunit/OpportunitiesPanel';
 import { BlockedByList } from '../components/workunit/BlockedByList';
+import { BackButton } from '../components/ui';
 import { parseBlockedBy, buildMapOpeningPrefill } from '../components/pmo/mapUtils';
 import { AnalysisApproveDialog } from '../components/pmo/AnalysisApproveDialog';
 import { formatShortTime } from '../utils/datetime';
@@ -53,7 +54,6 @@ async function resolvePmo(wu: WorkUnit): Promise<PmoInfo | null> {
 
 export function WorkUnitDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const navigate = useNavigate();
   const [wu, setWu] = useState<WorkUnit | null>(null);
   const [error, setError] = useState('');
   const [pmo, setPmo] = useState<PmoInfo | null>(null);
@@ -101,13 +101,6 @@ export function WorkUnitDetailPage() {
     return () => { alive = false; };
   }, [id, actionTick]);
 
-  const handleBack = () => {
-    // 有站内历史则后退，否则回 /workunits（深链直达场景）
-    const idx = (window.history.state as { idx?: unknown } | null)?.idx;
-    if (typeof idx === 'number' && idx > 0) navigate(-1);
-    else navigate('/workunits');
-  };
-
   const meta = wu ? parseWuMeta(wu.metadata) : {};
   // #116：依赖（blockedBy）与验收标准（ac）展示数据
   const blockedByIds = wu ? parseBlockedBy(wu.metadata) : [];
@@ -153,6 +146,8 @@ export function WorkUnitDetailPage() {
     <div className="h-full flex flex-col" style={{ background: 'var(--bg-primary)' }}>
       {/* Header */}
       <div className="px-8 py-6" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+        {/* #393 §4.4：详情页统一左上返回（直开回落 /workunits） */}
+        <div className="mb-4"><BackButton fallback="/workunits" /></div>
         <div className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-2 min-w-0">
             {wu && derived && (
@@ -178,7 +173,6 @@ export function WorkUnitDetailPage() {
                 Token 开销
               </button>
             )}
-            <button className="btn btn-secondary flex-shrink-0" onClick={handleBack}>返回</button>
           </div>
         </div>
         {wu && (

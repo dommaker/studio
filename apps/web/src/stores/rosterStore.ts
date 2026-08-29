@@ -55,7 +55,7 @@ interface RosterState {
   loadedAt: number | null;
   /** channels 切片已结算过至少一次（useChannelList 的 loading 只看频道自己，不被慢的 summary 拖住） */
   channelsLoadedOnce: boolean;
-  /** agents 切片已结算过至少一次（ChannelRail/ChannelListPage 的「加载中」只看 summary 自己） */
+  /** agents 切片已结算过至少一次（ChannelRail 等的「加载中」只看 summary 自己） */
   agentsLoadedOnce: boolean;
   /** 进行中的 ensureFresh（single-flight 去重锚点） */
   inflight: Promise<void> | null;

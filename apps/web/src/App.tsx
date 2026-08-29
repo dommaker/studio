@@ -1,7 +1,7 @@
 // App.tsx - Agent Studio - 路由重构
 import { useState, useEffect, lazy, Suspense } from 'react';
 import { Routes, Route, useLocation, Navigate } from 'react-router-dom';
-const ChannelListPage = lazy(() => import('./pages/ChannelListPage').then(m => ({ default: m.ChannelListPage })));
+const ChannelHomeRedirect = lazy(() => import('./pages/ChannelHomeRedirect').then(m => ({ default: m.ChannelHomeRedirect })));
 const TriageBanner = lazy(() => import('./components/TriageBanner').then(m => ({ default: m.TriageBanner })));
 
 // 路由级代码分割 - 懒加载页面组件
@@ -165,7 +165,7 @@ export default function App() {
               path="/"
               element={
                 <Suspense fallback={<PageLoader />}>
-                  <ChannelListPage />
+                  <ChannelHomeRedirect />
                 </Suspense>
               }
             />
@@ -173,7 +173,7 @@ export default function App() {
             <Route path="/goals" element={<Navigate to="/workunits" replace />} />
             <Route path="/settings" element={<Suspense fallback={<PageLoader />}><Settings /></Suspense>} />
             <Route path="/audit-logs" element={<Suspense fallback={<PageLoader />}><AuditLogsPage /></Suspense>} />
-            <Route path="/channels" element={<Suspense fallback={<PageLoader />}><ChannelListPage /></Suspense>} />
+            <Route path="/channels" element={<Suspense fallback={<PageLoader />}><ChannelHomeRedirect /></Suspense>} />
             <Route path="/channels/:id" element={<Suspense fallback={<PageLoader />}><ChannelDetailPage /></Suspense>} />
             <Route path="/pmo" element={<Suspense fallback={<PageLoader />}><PMOPage /></Suspense>} />
             <Route path="/pmo/project/:projectId" element={<Suspense fallback={<PageLoader />}><ProjectDetailPage /></Suspense>} />

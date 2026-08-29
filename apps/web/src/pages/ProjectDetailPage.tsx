@@ -43,6 +43,7 @@ import { DeliveryPanel } from '../components/pmo/DeliveryPanel';
 import { VscodeGuideDialog, CloudIdeGuideDialog } from '../components/pmo/IdeGuideDialogs';
 import { ProjectProgressCard } from '../components/pmo/ProjectProgressCard';
 import { ManualTaskButton } from '../components/ui/ManualTaskButton';
+import { BackButton } from '../components/ui';
 import { buildProjectTimeline, type PipelineWorkUnit } from '../components/pmo/pipelineUtils';
 
 interface Project {
@@ -203,12 +204,8 @@ export function ProjectDetailPage() {
     <div className="p-6 max-w-5xl mx-auto">
       {/* Header */}
       <div className="mb-6">
-        <button
-          onClick={() => navigate('/pmo')}
-          className="btn btn-ghost btn-sm mb-2"
-        >
-          ← 返回
-        </button>
+        {/* #393 §4.4：详情页统一左上返回（直开回落 /pmo） */}
+        <div className="mb-2"><BackButton fallback="/pmo" /></div>
         <div className="flex items-center gap-3 mb-2">
           <PmoNumberBadge pmoNumber={project.pmoNumber} status={project.status as 'pending' | 'active' | 'in_review' | 'completed' | 'cancelled'} size="lg" />
           <h1 className="page-title">{project.title}</h1>

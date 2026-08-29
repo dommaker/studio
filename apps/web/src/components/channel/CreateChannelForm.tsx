@@ -1,4 +1,4 @@
-// #272（决策 #251 Q3/Q7）：创建频道表单单一实现 —— ChannelListPage 与 ChannelRail 共用。
+// #272（决策 #251 Q3/Q7）：创建频道表单单一实现 —— ChannelHomeRedirect（#393 零频道空态）与 ChannelRail 共用。
 // 可选「默认工程」（本地 repo，/projects/discover 候选，可留空 → 落 channel.defaultPath）；
 // 「默认执行机器」（远程 Workspace，Admin 概念）不进创建表单。
 // 提交中 loading 防连点（工单 38 行为保留）；失败内联报错。
@@ -17,7 +17,8 @@ interface CreateChannelFormProps {
   /** 来自 useChannelList 的创建动作（单源：频道列表缓存同步在 hook 内） */
   createChannel: (input: CreateChannelInput) => Promise<ChannelListItem>;
   onCreated: (channel: ChannelListItem) => void;
-  onCancel: () => void;
+  /** 缺省不渲染取消按钮（#393 零频道空态无去处可回，不出死按钮） */
+  onCancel?: () => void;
 }
 
 export function CreateChannelForm({ createChannel, onCreated, onCancel }: CreateChannelFormProps) {
@@ -93,7 +94,7 @@ export function CreateChannelForm({ createChannel, onCreated, onCancel }: Create
           aria-label="频道类型"
         />
         <Button size="sm" loading={creating} loadingLabel="创建中..." onClick={handleCreate}>创建</Button>
-        <button className="mc-btn" onClick={onCancel}>取消</button>
+        {onCancel && <button className="mc-btn" onClick={onCancel}>取消</button>}
       </div>
       {error && <div className="mc-newchan-error">{error}</div>}
     </div>

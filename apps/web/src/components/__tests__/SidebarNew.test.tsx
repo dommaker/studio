@@ -1,7 +1,7 @@
 // #393 左侧菜单精简：4 主项（频道/PMO/WorkUnit/Agent）+「更多」收纳 5 项
 import { describe, it, expect } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Link } from 'react-router-dom';
 
 import { Sidebar } from '../SidebarNew';
 
@@ -51,5 +51,17 @@ describe('Sidebar — #393 菜单精简', () => {
     renderSidebar('/pmo');
     const moreBtn = screen.getByRole('button', { name: /更多/ });
     expect(moreBtn.style.color).not.toBe('var(--accent-primary)');
+  });
+
+  it('站内跳转进收纳路由：「更多」自动展开（sidebar 常驻不卸载）', () => {
+    render(
+      <MemoryRouter initialEntries={['/channels/ch-1']}>
+        <Sidebar />
+        <Link to="/settings">跳设置</Link>
+      </MemoryRouter>,
+    );
+    expect(screen.queryByRole('link', { name: /知识库/ })).toBeNull();
+    fireEvent.click(screen.getByRole('link', { name: '跳设置' }));
+    expect(screen.getByRole('link', { name: /知识库/ })).toBeTruthy();
   });
 });

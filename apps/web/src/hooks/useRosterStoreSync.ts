@@ -3,7 +3,7 @@
 // ② useGatedPoll(ensureFresh) 兜底（#313：SSE 断开且页面 visible 才轮询，TTL 门禁保证多消费方挂载也至多
 //    一个 TTL 窗口一次真实拉取）；③ SSE 重连一次性强制对齐（SSE 负载契约 ADR D3：断线期间 missed events 不回放，
 //    重连时 REST refetch 打底）。
-// 引用计数单例：ChannelRail / useAgentRoster / ChannelListPage 等都可能挂载，首个挂载注册监听、
+// 引用计数单例：ChannelRail / useAgentRoster 等都可能挂载，首个挂载注册监听、
 // 最后一个卸载退订；重复挂载不放大订阅与请求（provider 的 onEvent 引用稳定）。
 import { useEffect, useRef } from 'react';
 import { useWebSocketContext, type WebSocketMessage } from '../api/websocketHooks';

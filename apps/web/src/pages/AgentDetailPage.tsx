@@ -9,7 +9,7 @@ import { Link, useParams } from 'react-router-dom';
 import { monitoringApi } from '../api/monitoring';
 import { workunitApi, type WorkUnit } from '../api/workunit';
 import { ExecutionSteps } from '../components/workunit/ExecutionSteps';
-import { ConfirmDialog } from '../components/ui';
+import { ConfirmDialog, BackButton } from '../components/ui';
 import { useWebSocketContext } from '../api/websocketHooks';
 import { useRosterStore } from '../stores/rosterStore';
 import { useRosterStoreSync } from '../hooks/useRosterStoreSync';
@@ -137,6 +137,8 @@ export function AgentDetailPage() {
   return (
     <div className="h-full flex flex-col" style={{ background: 'var(--bg-primary)' }}>
       <div className="px-8 py-6" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+        {/* #393 §4.4：详情页统一左上返回（直开回落 /agents） */}
+        <div className="mb-4"><BackButton fallback="/agents" /></div>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3 flex-wrap">
             <h1 className="page-title">{profile?.name ?? 'Agent 详情'}</h1>
@@ -168,7 +170,6 @@ export function AgentDetailPage() {
                 强制停止
               </button>
             )}
-            <Link to="/agents" className="btn btn-secondary">返回 /agents</Link>
           </div>
         </div>
         <div className="flex gap-6 mt-3 text-xs u-text-2 flex-wrap">

@@ -9,6 +9,7 @@ import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { LIBRARY_DOC_STATUS_COLORS, LIBRARY_DOC_STATUS_LABELS } from '@dommaker/studio-shared/web';
 import { libraryApi } from '../api';
+import { BackButton } from '../components/ui';
 
 const MarkdownBody = lazy(() => import('../components/knowledge/MarkdownBody'));
 
@@ -103,12 +104,8 @@ export function LibraryDocPage() {
       {/* Header */}
       <div className="px-8 py-6" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
         <div className="flex items-center gap-3 mb-4">
-          <button
-            onClick={() => navigate('/library')}
-            className="btn btn-ghost btn-sm"
-          >
-            ← 返回
-          </button>
+          {/* #393 §4.4：详情页统一左上返回（直开回落 /library） */}
+          <BackButton fallback="/library" />
         </div>
 
         <h1 className="page-title">
