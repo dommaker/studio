@@ -31,6 +31,8 @@ vi.mock('../../api/requirements', () => ({ requirementApi: { list: mockListReqs 
 vi.mock('../../api/websocketHooks', () => ({ useWebSocketContext: () => ({ onEvent: mockOnEvent, onReconnect: () => () => {} }) }));
 
 vi.mock('../../components/channel/ChannelRail', () => ({ ChannelRail: () => <div data-testid="channel-rail" /> }));
+// #394：右栏「频道动态」——与本测试无关，隔离其 chain/PMO/agent API 依赖
+vi.mock('../../components/channel/ChannelActivityRail', () => ({ ChannelActivityRail: () => null }));
 vi.mock('../../components/channel/WorkUnitDrawer', () => ({ WorkUnitDrawer: () => null }));
 vi.mock('../../components/channel/ChannelMemberManager', () => ({ ChannelMemberManager: () => null }));
 vi.mock('../../components/channel/ChannelDefaultProjectSelect', () => ({ ChannelDefaultProjectSelect: () => null }));

@@ -4,7 +4,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 
-const { mockSendMessage, mockListWorkunits, mockListReqs, mockGetReq, mockApiGet, mockApiPost, mockDrawerSpy, mockOnEvent, mockOnReconnect, mockRefresh } = vi.hoisted(() => ({
+const { mockSendMessage, mockListWorkunits, mockListReqs, mockGetReq, mockApiGet, mockApiPost, mockDrawerSpy, mockOnEvent, mockOnReconnect, mockRefresh, mockActivityRailSpy } = vi.hoisted(() => ({
   mockSendMessage: vi.fn(),
   mockListWorkunits: vi.fn(),
   mockListReqs: vi.fn(),
@@ -15,6 +15,7 @@ const { mockSendMessage, mockListWorkunits, mockListReqs, mockGetReq, mockApiGet
   mockOnEvent: vi.fn(),
   mockOnReconnect: vi.fn(),
   mockRefresh: vi.fn(),
+  mockActivityRailSpy: vi.fn(),
 }));
 
 vi.mock('../../api', () => ({
@@ -49,6 +50,20 @@ vi.mock('../../api/websocketHooks', () => ({
 // 左栏/右抽屉/顶栏控件：保留接口，隔离其内部 API 依赖
 vi.mock('../../components/channel/ChannelRail', () => ({
   ChannelRail: ({ activeChannelId }: { activeChannelId?: string }) => <div data-testid="channel-rail" data-active={activeChannelId} />,
+}));
+
+// #394：右栏「频道动态」REQ 链路卡——保留接口（props spy），隔离其 chain/PMO/agent API 依赖
+vi.mock('../../components/channel/ChannelActivityRail', () => ({
+  ChannelActivityRail: (props: { reqs: { id: string }[]; onOpenReq: (id: string) => void; onOpenWu: (id: string) => void }) => {
+    mockActivityRailSpy(props);
+    return (
+      <div data-testid="activity-rail">
+        {props.reqs.map(r => (
+          <button key={r.id} data-testid={`rail-req-${r.id}`} onClick={() => props.onOpenReq(r.id)}>{r.id}</button>
+        ))}
+      </div>
+    );
+  },
 }));
 
 vi.mock('../../components/channel/WorkUnitDrawer', () => ({
@@ -139,6 +154,10 @@ let currentMessages: ChannelMessage[] = MESSAGES;
 type SseHandler = (msg: { event_type: string; data?: unknown }) => void;
 let sseHandlers: SseHandler[] = [];
 const emitSse = (msg: { event_type: string; data?: unknown }) => { sseHandlers.forEach(h => h(msg)); };
+// #394：REQ 呈现挪右栏——经 activity-rail mock 的 props spy 观察 channelReqs 状态
+const railProps = () => mockActivityRailSpy.mock.calls.at(-1)?.[0] as { reqs: { id: string; title: string; status: string }[] } | undefined;
+const railReqIds = () => (railProps()?.reqs ?? []).map(r => r.id);
+const railReq = (id: string) => (railProps()?.reqs ?? []).find(r => r.id === id);
 
 // 决策 9：onReconnect 注册的重连处理器（用例手工触发）
 let reconnectHandlers: Array<() => void> = [];
@@ -223,6 +242,8 @@ describe('ChannelDetailPage — Mission Control 三栏', () => {
   it('renders three-column IA: rail + main stream + input; drawer closed initially', async () => {
     renderPage();
     expect(screen.getByTestId('channel-rail').getAttribute('data-active')).toBe('ch-1');
+    // #394：三栏 = 左频道栏 + 中对话流 + 右频道动态栏
+    expect(screen.getByTestId('activity-rail')).toBeTruthy();
     await waitFor(() => expect(screen.getByText('#rnd-主研发')).toBeTruthy());
     expect(screen.getByTestId('channel-input')).toBeTruthy();
     expect(screen.getByTestId('member-manager')).toBeTruthy();
@@ -232,10 +253,12 @@ describe('ChannelDetailPage — Mission Control 三栏', () => {
     expect(screen.queryByTestId('wu-drawer')).toBeNull();
   });
 
-  it('REQ chip opens the req drawer (replacing the old Modal)', async () => {
+  it('#394：REQ 呈现挪右栏链路卡——中栏 chips 条移除；右栏 onOpenReq 开 req 抽屉', async () => {
     renderPage();
-    await waitFor(() => expect(screen.getByText(/REQ-0042 · 主界面视觉方向稿/)).toBeTruthy());
-    fireEvent.click(screen.getByText(/REQ-0042 · 主界面视觉方向稿/));
+    // 右栏收到本频道 REQ 集；中栏不再有 mc-reqs chips
+    await waitFor(() => expect(screen.getByTestId('rail-req-REQ-0042')).toBeTruthy());
+    expect(document.querySelector('.mc-reqs')).toBeNull();
+    fireEvent.click(screen.getByTestId('rail-req-REQ-0042'));
     const drawer = screen.getByTestId('wu-drawer');
     expect(drawer.getAttribute('data-kind')).toBe('req');
     expect(drawer.getAttribute('data-id')).toBe('REQ-0042');
@@ -691,23 +714,23 @@ describe('ChannelDetailPage — SSE 负载深化批 2：waitingWus / REQ chips �
     expect(screen.queryByText(/待回复 ·/)).toBeNull();
   });
 
-  it('requirement.created → chip 实时新增（经 get 补全全量）；他频道 created 忽略', async () => {
+  it('requirement.created → 右栏 REQ 实时新增（经 get 补全全量）；他频道 created 忽略', async () => {
     renderPage();
-    await waitFor(() => expect(screen.getByText(/REQ-0042 · 主界面视觉方向稿/)).toBeTruthy());
+    await waitFor(() => expect(railReqIds()).toContain('REQ-0042'));
     act(() => emitSse({ event_type: 'requirement.created', data: { id: 'REQ-0043', channelId: 'ch-1', title: '新需求', status: 'open' } }));
-    await waitFor(() => expect(screen.getByText(/REQ-0043 · 新需求/)).toBeTruthy());
+    await waitFor(() => expect(railReqIds()).toContain('REQ-0043'));
     expect(mockGetReq).toHaveBeenCalledWith('REQ-0043');
     act(() => emitSse({ event_type: 'requirement.created', data: { id: 'REQ-0099', channelId: 'ch-other', title: '他频道需求', status: 'open' } }));
-    expect(screen.queryByText(/REQ-0099/)).toBeNull();
+    expect(railReqIds()).not.toContain('REQ-0099');
     expect(mockGetReq).not.toHaveBeenCalledWith('REQ-0099');
   });
 
-  it('requirement.updated → 本频道 chip title/status 增量合并；他频道 updated 忽略', async () => {
+  it('requirement.updated → 本频道 REQ title/status 增量合并；他频道 updated 忽略', async () => {
     renderPage();
-    await waitFor(() => expect(screen.getByTitle('REQ-0042 · 主界面视觉方向稿 · in-progress')).toBeTruthy());
+    await waitFor(() => expect(railReq('REQ-0042')?.status).toBe('in-progress'));
     act(() => emitSse({ event_type: 'requirement.updated', data: { id: 'REQ-0042', channelId: 'ch-1', status: 'done' } }));
-    await waitFor(() => expect(screen.getByTitle('REQ-0042 · 主界面视觉方向稿 · done')).toBeTruthy());
+    await waitFor(() => expect(railReq('REQ-0042')?.status).toBe('done'));
     act(() => emitSse({ event_type: 'requirement.updated', data: { id: 'REQ-0042', channelId: 'ch-other', title: '篡改标题' } }));
-    expect(screen.getByTitle('REQ-0042 · 主界面视觉方向稿 · done')).toBeTruthy();
+    expect(railReq('REQ-0042')?.title).toBe('主界面视觉方向稿');
   });
 });
