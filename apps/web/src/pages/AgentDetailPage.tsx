@@ -175,7 +175,7 @@ export function AgentDetailPage() {
           <span>Profile ID: <span className="u-text-3">{profileId}</span></span>
           {instance && <span>Instance ID: <span className="u-text-3">{instance.id}</span></span>}
           {instance && <span>Started: <span className="u-text-3">{formatFullTime(instance.startedAt)}</span></span>}
-          {instance && <span>运行: <span className="u-text-3">{formatUptime(instance.startedAt)}</span></span>}
+          {instance && <span>运行: <span className="u-text-3" data-visual-ignore>{formatUptime(instance.startedAt)}</span></span>}
         </div>
       </div>
 
@@ -208,7 +208,7 @@ export function AgentDetailPage() {
                       </Link>
                       <span className="text-xs px-2 py-0.5 rounded u-surface-2 u-text-2">{wu.status}</span>
                       {wu.claimedAt && (
-                        <span className="text-xs u-text-3">已耗时 {formatUptime(wu.claimedAt)}</span>
+                        <span className="text-xs u-text-3" data-visual-ignore>已耗时 {formatUptime(wu.claimedAt)}</span>
                       )}
                     </div>
                     <div className="flex items-center gap-3 mt-1 text-xs u-text-2 flex-wrap">

@@ -141,7 +141,7 @@ export function NotificationBell() {
       >
         <span className="text-lg">🔔</span>
         {unread > 0 && (
-          <span className="absolute -top-0.5 -right-0.5 u-err-bg u-on-accent text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
+          <span data-visual-ignore className="absolute -top-0.5 -right-0.5 u-err-bg u-on-accent text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
             {unread > 9 ? '9+' : unread}
           </span>
         )}
@@ -183,7 +183,7 @@ export function NotificationBell() {
                     <span className="text-xs font-medium u-text">
                       {n.title ? n.title : `@${n.agentName}`}
                     </span>
-                    <span className="text-[10px] u-text-3 ml-auto">{n.time}</span>
+                    <span className="text-[10px] u-text-3 ml-auto" data-visual-ignore>{n.time}</span>
                     {n.workUnitId && (
                       <button
                         type="button"

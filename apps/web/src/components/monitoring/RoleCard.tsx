@@ -108,7 +108,7 @@ export const RoleCard = memo(function RoleCard({ role, lastDone, channelNames, o
                   </Link>
                 )}
               </div>
-              <div className="mt-1 text-xs u-text-3 truncate" title={latestActivity?.text}>
+              <div className="mt-1 text-xs u-text-3 truncate" title={latestActivity?.text} data-visual-ignore>
                 {latestActivity ? `${latestActivity.text} · ${formatRelativeTime(latestActivity.at)}` : '暂无动态'}
               </div>
             </>
@@ -138,7 +138,7 @@ export const RoleCard = memo(function RoleCard({ role, lastDone, channelNames, o
 
         {/* 右段：运行时长 + 强制停止 */}
         <div className="flex items-center gap-2 shrink-0">
-          {runtime && <span className="text-xs u-text-2">运行: {formatUptime(runtime.startedAt)}</span>}
+          {runtime && <span className="text-xs u-text-2" data-visual-ignore>运行: {formatUptime(runtime.startedAt)}</span>}
           {runtime && runtime.status !== 'terminated' && (
             <button
               className="text-xs px-2 py-1 rounded u-err-dim u-err u-hover-bg"
@@ -162,7 +162,7 @@ export const RoleCard = memo(function RoleCard({ role, lastDone, channelNames, o
                 {[...activities].reverse().map((a, i) => (
                   <div key={i} className="text-xs u-text-3 flex justify-between gap-2">
                     <span className="truncate" title={a.text}>{a.text}</span>
-                    <span className="shrink-0">{formatRelativeTime(a.at)}</span>
+                    <span className="shrink-0" data-visual-ignore>{formatRelativeTime(a.at)}</span>
                   </div>
                 ))}
               </div>
