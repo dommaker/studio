@@ -274,10 +274,10 @@ function WorkUnitRow({
             </Link>
           </div>
           <div className="flex items-center gap-4 mt-1 text-xs u-text-2">
-            <span>ID: {wu.id.slice(0, 8)}...</span>
-            {wu.assigneeId && <span>Agent: {wu.assigneeId.slice(0, 8)}...</span>}
-            <span>创建: {formatTime(wu.createdAt)}</span>
-            {wu.claimedAt && <span>Claim: {formatTime(wu.claimedAt)}</span>}
+            <span className="font-mono">ID: {wu.id.slice(0, 8)}...</span>
+            {wu.assigneeId && <span className="font-mono">Agent: {wu.assigneeId.slice(0, 8)}...</span>}
+            <span>创建: <span className="font-mono">{formatTime(wu.createdAt)}</span></span>
+            {wu.claimedAt && <span>Claim: <span className="font-mono">{formatTime(wu.claimedAt)}</span></span>}
           </div>
         </div>
 
@@ -322,16 +322,16 @@ function WorkUnitRow({
             onSetupClick={() => navigate('/setup/roles')}
           />
           <div className="grid grid-cols-2 gap-2 mt-2 text-xs">
-            <div><span className="u-text-2">ID:</span> <span className="u-text-3">{wu.id}</span></div>
+            <div><span className="u-text-2">ID:</span> <span className="u-text-3 font-mono">{wu.id}</span></div>
             <div><span className="u-text-2">Type:</span> <span className="u-text-3">{wu.type}</span></div>
-            <div><span className="u-text-2">Assignee:</span> <span className="u-text-3">{wu.assigneeId ?? 'none'}</span></div>
-            <div><span className="u-text-2">Channel:</span> <span className="u-text-3">{wu.channelId ?? 'none'}</span></div>
-            <div><span className="u-text-2">REQ:</span> <span className="u-text-3">{wu.reqId ?? 'none'}</span></div>
+            <div><span className="u-text-2">Assignee:</span> <span className="u-text-3 font-mono">{wu.assigneeId ?? 'none'}</span></div>
+            <div><span className="u-text-2">Channel:</span> <span className="u-text-3 font-mono">{wu.channelId ?? 'none'}</span></div>
+            <div><span className="u-text-2">REQ:</span> <span className="u-text-3 font-mono">{wu.reqId ?? 'none'}</span></div>
             <div><span className="u-text-2">Retry:</span> <span className="u-text-3">{wu.retryCount}</span></div>
             <div><span className="u-text-2">Failure:</span> <span className="u-text-3">{wu.failureType ?? 'none'}</span></div>
-            <div className="col-span-2"><span className="u-text-2">Updated:</span> <span className="u-text-3">{formatTime(wu.updatedAt)}</span></div>
+            <div className="col-span-2"><span className="u-text-2">Updated:</span> <span className="u-text-3 font-mono">{formatTime(wu.updatedAt)}</span></div>
             {wu.completedAt && (
-              <div className="col-span-2"><span className="u-text-2">Completed:</span> <span className="u-text-3">{formatTime(wu.completedAt)}</span></div>
+              <div className="col-span-2"><span className="u-text-2">Completed:</span> <span className="u-text-3 font-mono">{formatTime(wu.completedAt)}</span></div>
             )}
           </div>
           {/* #284（决策 #250 D1/F7）：pending 人闸确认入口补齐到行展开态（与频道抽屉同行为：
@@ -418,7 +418,7 @@ function WorkUnitRow({
 function StatBadge({ label, value, color }: { label: string; value: number; color: string }) {
   return (
     <div className="flex items-center gap-2">
-      <span className={`font-bold ${color}`} style={{ fontSize: 'var(--fs-stat)' }}>{value}</span>
+      <span className={`font-mono font-bold ${color}`} style={{ fontSize: 'var(--fs-stat)' }}>{value}</span>
       <span className="text-sm u-text-3">{label}</span>
     </div>
   );

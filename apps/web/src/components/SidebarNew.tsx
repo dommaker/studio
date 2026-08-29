@@ -53,7 +53,7 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
           padding: '0.5rem',
           background: 'transparent',
           border: 'none',
-          fontSize: '1.5rem',
+          fontSize: 'var(--fs-stat)',
           color: 'var(--text-primary)',
           cursor: 'pointer',
         }}

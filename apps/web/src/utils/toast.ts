@@ -62,8 +62,8 @@ function show(message: string, type: ToastType, options?: ToastOptions): void {
     border: 1px solid ${colors.border};
     box-shadow: var(--shadow-md);
     color: var(--text-primary);
-    font-size: 14px;
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    font-size: var(--fs-base);
+    font-family: var(--font-sans);
     animation: toast-slide-in 0.3s ease-out;
     cursor: pointer;
     max-width: 100%;
@@ -81,7 +81,7 @@ function show(message: string, type: ToastType, options?: ToastOptions): void {
     border-radius: 50%;
     background: ${colors.bg};
     color: ${colors.text};
-    font-size: 12px;
+    font-size: var(--fs-sm);
     font-weight: 700;
   `;
   iconEl.textContent = icon;

@@ -172,9 +172,9 @@ export function AgentDetailPage() {
           </div>
         </div>
         <div className="flex gap-6 mt-3 text-xs u-text-2 flex-wrap">
-          <span>Profile ID: <span className="u-text-3">{profileId}</span></span>
-          {instance && <span>Instance ID: <span className="u-text-3">{instance.id}</span></span>}
-          {instance && <span>Started: <span className="u-text-3">{formatFullTime(instance.startedAt)}</span></span>}
+          <span>Profile ID: <span className="u-text-3 font-mono">{profileId}</span></span>
+          {instance && <span>Instance ID: <span className="u-text-3 font-mono">{instance.id}</span></span>}
+          {instance && <span>Started: <span className="u-text-3 font-mono">{formatFullTime(instance.startedAt)}</span></span>}
           {instance && <span>运行: <span className="u-text-3" data-visual-ignore>{formatUptime(instance.startedAt)}</span></span>}
         </div>
       </div>
@@ -256,7 +256,7 @@ export function AgentDetailPage() {
                         <span className="px-2 py-0.5 rounded u-surface-2 u-text-2 shrink-0">{w.type}</span>
                         <span className="u-text truncate flex-1">{w.scope}</span>
                         <span className="u-text-2 shrink-0">{w.status}</span>
-                        <span className="u-text-3 shrink-0">
+                        <span className="u-text-3 shrink-0 font-mono">
                           {formatFullTime(w.completedAt ? w.completedAt : w.updatedAt)}
                         </span>
                       </Link>
@@ -285,7 +285,7 @@ export function AgentDetailPage() {
 function StatBadge({ label, value, color }: { label: string; value: number; color: string }) {
   return (
     <div className="flex items-center gap-2">
-      <span className={`font-bold ${color}`} style={{ fontSize: 'var(--fs-stat)' }}>{value}</span>
+      <span className={`font-mono font-bold ${color}`} style={{ fontSize: 'var(--fs-stat)' }}>{value}</span>
       <span className="text-sm u-text-3">{label}</span>
     </div>
   );

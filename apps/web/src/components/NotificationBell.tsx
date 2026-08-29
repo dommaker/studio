@@ -141,7 +141,7 @@ export function NotificationBell() {
       >
         <span className="text-lg">🔔</span>
         {unread > 0 && (
-          <span data-visual-ignore className="absolute -top-0.5 -right-0.5 u-err-bg u-on-accent text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
+          <span data-visual-ignore className="absolute -top-0.5 -right-0.5 u-err-bg u-on-accent text-[var(--fs-xs)] font-bold rounded-full min-w-4 h-4 px-0.5 flex items-center justify-center">
             {unread > 9 ? '9+' : unread}
           </span>
         )}
@@ -183,12 +183,12 @@ export function NotificationBell() {
                     <span className="text-xs font-medium u-text">
                       {n.title ? n.title : `@${n.agentName}`}
                     </span>
-                    <span className="text-[10px] u-text-3 ml-auto" data-visual-ignore>{n.time}</span>
+                    <span className="text-[var(--fs-xs)] u-text-3 ml-auto font-mono" data-visual-ignore>{n.time}</span>
                     {n.workUnitId && (
                       <button
                         type="button"
                         onClick={e => openTarget(e, n, `/workunits/${n.workUnitId}`)}
-                        className="text-[10px] px-1.5 py-0.5 rounded border u-accent-border u-accent-dim flex-shrink-0"
+                        className="text-[var(--fs-xs)] px-1.5 py-0.5 rounded border u-accent-border u-accent-dim flex-shrink-0"
                         title="打开 WorkUnit 详情"
                       >
                         WU
@@ -198,7 +198,7 @@ export function NotificationBell() {
                       <button
                         type="button"
                         onClick={e => openTarget(e, n, `/pmo/project/${n.pmoId}`)}
-                        className="text-[10px] px-1.5 py-0.5 rounded border u-accent-border u-accent-dim flex-shrink-0"
+                        className="text-[var(--fs-xs)] px-1.5 py-0.5 rounded border u-accent-border u-accent-dim flex-shrink-0"
                         title="打开 PMO 详情"
                       >
                         PMO

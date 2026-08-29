@@ -74,7 +74,7 @@ export function RequirementChainPanel({ reqId, onClose }: Props) {
               </span>
             </div>
             <div className="text-xs u-text-3 mt-1">
-              {req.id} · 创建于 {formatFullTime(req.createdAt)} · 来源 {req.createdBy}
+              <span className="font-mono">{req.id}</span> · 创建于 <span className="font-mono">{formatFullTime(req.createdAt)}</span> · 来源 {req.createdBy}
             </div>
             {req.description && <p className="text-sm u-text-2 mt-2">{req.description}</p>}
             {req.docs && req.docs.length > 0 && (

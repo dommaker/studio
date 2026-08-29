@@ -136,7 +136,7 @@ export function LibraryDocPage() {
           </span>
           {doc.updatedAt && (
             <span className="text-xs u-text-3">
-              更新于 {formatDate(doc.updatedAt)}
+              更新于 <span className="font-mono">{formatDate(doc.updatedAt)}</span>
             </span>
           )}
         </div>

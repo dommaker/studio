@@ -214,7 +214,7 @@ export function LibraryPage() {
                       ))}
                     </div>
                   </div>
-                  <span className="text-xs ml-4 whitespace-nowrap u-text-3">
+                  <span className="text-xs ml-4 whitespace-nowrap u-text-3 font-mono">
                     {formatDate(doc.updatedAt)}
                   </span>
                 </div>

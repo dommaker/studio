@@ -151,19 +151,19 @@ export const AuditLogsPage: React.FC = () => {
       {stats && (
         <div className="grid grid-cols-4 gap-4 mb-6">
           <div className="u-accent-dim rounded p-4">
-            <div style={{ fontSize: 'var(--fs-stat)' }} className="font-bold u-accent">{stats.totalLogs}</div>
+            <div style={{ fontSize: 'var(--fs-stat)' }} className="font-mono font-bold u-accent">{stats.totalLogs}</div>
             <div className="text-sm u-accent">{'总日志数'}</div>
           </div>
           <div className="u-ok-dim rounded p-4">
-            <div style={{ fontSize: 'var(--fs-stat)' }} className="font-bold u-ok">{stats.successCount}</div>
+            <div style={{ fontSize: 'var(--fs-stat)' }} className="font-mono font-bold u-ok">{stats.successCount}</div>
             <div className="text-sm u-ok">{'成功操作'}</div>
           </div>
           <div className="u-err-dim rounded p-4">
-            <div style={{ fontSize: 'var(--fs-stat)' }} className="font-bold u-err">{stats.failureCount}</div>
+            <div style={{ fontSize: 'var(--fs-stat)' }} className="font-mono font-bold u-err">{stats.failureCount}</div>
             <div className="text-sm u-err">{'失败操作'}</div>
           </div>
           <div className="u-accent-dim rounded p-4">
-            <div style={{ fontSize: 'var(--fs-stat)' }} className="font-bold u-accent">
+            <div style={{ fontSize: 'var(--fs-stat)' }} className="font-mono font-bold u-accent">
               {stats.successCount > 0 ? ((stats.successCount / stats.totalLogs) * 100).toFixed(1) : 0}%
             </div>
             <div className="text-sm u-accent">{'成功率'}</div>
@@ -262,7 +262,7 @@ export const AuditLogsPage: React.FC = () => {
             ) : (
               logs.map(log => (
                 <tr key={log.id} className="border-b u-border u-hover-bg cursor-pointer" onClick={() => setSelectedLog(log)}>
-                  <td className="py-3 px-4 text-sm">
+                  <td className="py-3 px-4 text-sm font-mono">
                     {new Date(log.createdAt).toLocaleString()}
                   </td>
                   <td className="py-3 px-4">
@@ -340,7 +340,7 @@ export const AuditLogsPage: React.FC = () => {
                 </div>
                 <div>
                   <label className="text-sm u-text-2">{'时间'}</label>
-                  <div className="text-sm">{new Date(selectedLog.createdAt).toLocaleString()}</div>
+                  <div className="font-mono text-sm">{new Date(selectedLog.createdAt).toLocaleString()}</div>
                 </div>
                 <div>
                   <label className="text-sm u-text-2">{'操作'}</label>

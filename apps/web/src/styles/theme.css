@@ -5,7 +5,7 @@
 
 /* === 主题切换 === */
 /* 默认深色主题 —— 方向 A「Mission Control 控制台」（docs/plans/2026-07-ui-visual-directions.md §2）
-   近纯黑 #050507 / 全等宽 / 12.5px 基准高密度 / 动效最少（仅执行中状态点 pulse）/ 磷光青绿 #2ee6a8 */
+   近纯黑 #050507 / 正文 sans + mono 限定代码/ID/时间戳/统计数字（#380）/ 13px 基准高密度 / 动效最少（仅执行中状态点 pulse）/ 磷光青绿 #2ee6a8 */
 :root {
   /* 背景 - 近纯黑，层级靠明度微差 */
   --bg-primary: #050507;
@@ -15,11 +15,12 @@
   --bg-hover: #101014;
   --bg-active: #0e1512;
 
-  /* 文字（2026-08 提对比度：secondary/tertiary/muted 原值在近黑底上仅 2.5–5.3:1，弱化文字看不清） */
+  /* 文字（2026-08 提对比度：secondary/tertiary/muted 原值在近黑底上仅 2.5–5.3:1，弱化文字看不清；
+     #380/#392 muted 再抬到 AA 达标线 #767e87 ≈4.95:1） */
   --text-primary: #d7dde3;
   --text-secondary: #8b949f;
   --text-tertiary: #7a838e;
-  --text-muted: #6e7782;
+  --text-muted: #767e87;
 
   /* 品牌色 - 磷光青绿（终端感） */
   --accent-primary: #2ee6a8;
@@ -56,6 +57,9 @@
   /* 边框 */
   --border-subtle: rgba(255, 255, 255, 0.07);
   --border-default: rgba(255, 255, 255, 0.14);
+  /* 交互边界（.input/.select-trigger/可点卡片，WCAG 1.4.11 ≥3:1，#380）：
+     复合 ≈ #5d5d5e，对 #050507 3.10:1 / 对 #0d0d10 3.19:1（#392 色对校验定值） */
+  --border-strong: rgba(255, 255, 255, 0.35);
   --border-emphasis: rgba(46, 230, 168, 0.3);
 
   /* 阴影 */
@@ -64,16 +68,25 @@
   --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.6);
   --shadow-glow: 0 0 20px var(--accent-glow);
 
-  /* 字体：标题/正文/数据全部等宽（系统 mono 栈） */
+  /* 字体（#380/#392）：正文/标题/UI chrome = 比例 sans；mono 限定代码、ID、时间戳、日志、统计数字 */
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
 
-  /* 密度：紧 —— 12.5px 基准、行高 1.45 */
-  --fs-base: 12.5px;
-  --fs-sm: 11.5px;
-  --fs-xs: 10.5px;
-  --fs-title: 13.5px;
-  --fs-stat: 18px; /* 统计卡大数字专用（数据展示，非标题） */
-  --lh-base: 1.45;
+  /* 密度：紧 —— 13px 基准、行高 1.4（#380 字号阶梯，双主题同值；密度靠行高+间距回收，不压字号） */
+  --fs-base: 13px;
+  --fs-sm: 12px;
+  --fs-xs: 11px;
+  --fs-title: 16px;
+  --fs-stat: 22px; /* 统计卡大数字专用（数据展示，非标题），配 --font-mono 使用 */
+  --lh-base: 1.4;
+
+  /* 间距档位（#380；只立基线约定，全站间距重构归各 implement 工单） */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
 
   /* 主题标识 */
   --theme-name: 'dark';
@@ -92,11 +105,11 @@
   --bg-hover: #f0f3f6;
   --bg-active: #e4ebf1;
   
-  /* 文字 */
+  /* 文字（#380/#392：muted #8c959f→#59636e，白底 6.1:1，AA 达标线） */
   --text-primary: #1f2328;
   --text-secondary: #57606a;
   --text-tertiary: #6e7781;
-  --text-muted: #8c959f;
+  --text-muted: #59636e;
   
   /* 品牌色 - 保持青蓝色 */
   --accent-primary: #0078d4;
@@ -133,6 +146,8 @@
   /* 边框 */
   --border-subtle: rgba(0, 0, 0, 0.06);
   --border-default: rgba(0, 0, 0, 0.1);
+  /* 交互边界（WCAG 1.4.11 ≥3:1）：对白底 3.69:1 / 对最暗输入底 #eaeef2 3.16:1（#392 色对校验定值） */
+  --border-strong: #858585;
   --border-emphasis: rgba(0, 120, 212, 0.3);
   
   /* 阴影 */
@@ -141,16 +156,16 @@
   --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.12);
   --shadow-glow: 0 0 20px var(--accent-glow);
 
-  /* 字体：等宽栈（A 方向全局等宽；浅色主题同样生效） */
+  /* 字体：mono 栈（--font-sans 在 :root 统一定义；浅色同栈） */
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
 
-  /* 密度 token（浅色同值） */
-  --fs-base: 12.5px;
-  --fs-sm: 11.5px;
-  --fs-xs: 10.5px;
-  --fs-title: 13.5px;
-  --fs-stat: 18px;
-  --lh-base: 1.45;
+  /* 密度 token（浅色同值，#380） */
+  --fs-base: 13px;
+  --fs-sm: 12px;
+  --fs-xs: 11px;
+  --fs-title: 16px;
+  --fs-stat: 22px;
+  --lh-base: 1.4;
 
   /* 主题标识 */
   --theme-name: 'light';
@@ -168,7 +183,7 @@
 body {
   background: var(--bg-primary);
   color: var(--text-primary);
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
   font-size: var(--fs-base);
   line-height: var(--lh-base);
 }
@@ -184,6 +199,12 @@ body {
   background: var(--bg-elevated);
   border: 1px solid var(--border-subtle);
   border-radius: 4px;
+}
+
+/* 可点卡片 = 交互边界，走 --border-strong（WCAG 1.4.11 ≥3:1，#380/#392）；
+   消费方现状均为 `card … cursor-pointer` 组合（LibraryPage/PMOPage/ProjectCard），装饰卡片不动 */
+.card.cursor-pointer {
+  border-color: var(--border-strong);
 }
 
 .card:hover {
@@ -310,7 +331,7 @@ body {
 /* === 输入组件 === */
 .input {
   background: var(--bg-tertiary);
-  border: 1px solid var(--border-default);
+  border: 1px solid var(--border-strong);
   border-radius: 3px;
   padding: 7px 10px;
   font-size: var(--fs-base);
@@ -338,7 +359,7 @@ body {
   justify-content: space-between;
   gap: 8px;
   background: var(--bg-tertiary);
-  border: 1px solid var(--border-default);
+  border: 1px solid var(--border-strong);
   border-radius: 3px;
   padding: 7px 10px;
   font-family: inherit;
@@ -634,7 +655,7 @@ body {
   background: none;
   border: none;
   cursor: pointer;
-  font-size: 20px;
+  font-size: var(--fs-title);
   padding: 4px;
 }
 
@@ -677,7 +698,7 @@ body {
 }
 
 .hero-title {
-  font-size: 20px;
+  font-size: var(--fs-stat);
   font-weight: 600;
   color: var(--text-primary);
   margin-bottom: 8px;
@@ -723,7 +744,7 @@ body {
   border-radius: 4px;
   background: var(--accent-dim);
   margin-bottom: 8px;
-  font-size: 16px;
+  font-size: var(--fs-title);
 }
 
 .feature-title {
@@ -806,8 +827,9 @@ body {
   color: var(--text-tertiary);
 }
 
+/* 装饰图标（emoji glyph），非文本字号；随 stat 档缩放（#392 硬编码字号归队） */
 .empty-icon {
-  font-size: 48px;
+  font-size: calc(var(--fs-stat) * 2);
   margin-bottom: 16px;
   opacity: 0.5;
 }
@@ -844,7 +866,7 @@ body {
   border-radius: 8px !important;
   padding: 0 !important;
   color: var(--text-primary) !important;
-  font-size: 13px !important;
+  font-size: var(--fs-base) !important;
   box-shadow: var(--shadow-md) !important;
   /* 让节点内容居中 */
   display: flex !important;
@@ -1002,7 +1024,7 @@ body {
 .react-flow__attribution {
   background: var(--bg-tertiary);
   color: var(--text-muted);
-  font-size: 10px;
+  font-size: var(--fs-xs);
 }
 
 .react-flow__attribution a {
@@ -1021,281 +1043,6 @@ body {
   }
 }
 
-/* === 数据看板页面样式 === */
-.data-board-page {
-  padding: 24px;
-  max-width: 1200px;
-  margin: 0 auto;
-}
-
-.data-board-page .page-header {
-  margin-bottom: 24px;
-}
-
-.data-board-page .page-header h1 {
-  font-size: 28px;
-  font-weight: 700;
-  color: var(--text-primary);
-  margin: 0;
-}
-
-.data-board-page .stats-section {
-  margin-bottom: 32px;
-}
-
-.data-board-page .stats-section h2 {
-  color: var(--text-primary);
-  font-size: 18px;
-  margin-bottom: 16px;
-}
-
-.data-board-page .stats-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 16px;
-}
-
-.data-board-page .stat-card {
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-subtle);
-  border-radius: 12px;
-  padding: 20px;
-  display: flex;
-  align-items: center;
-  gap: 16px;
-}
-
-.data-board-page .stat-icon {
-  font-size: 32px;
-}
-
-.data-board-page .stat-content .stat-value {
-  font-size: 28px;
-  font-weight: 700;
-  color: var(--text-primary);
-}
-
-.data-board-page .stat-content .stat-label {
-  color: var(--text-secondary);
-  font-size: 13px;
-}
-
-.data-board-page .stat-card.running {
-  border-color: var(--accent-primary);
-}
-
-.data-board-page .stat-card.success {
-  border-color: var(--success);
-}
-
-.data-board-page .stat-card.today {
-  border-color: var(--warning);
-}
-
-.data-board-page .success-rate {
-  margin-top: 16px;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.data-board-page .rate-label {
-  color: var(--text-secondary);
-  font-size: 14px;
-  min-width: 60px;
-}
-
-.data-board-page .rate-bar {
-  flex: 1;
-  height: 8px;
-  background: var(--bg-tertiary);
-  border-radius: 4px;
-  overflow: hidden;
-}
-
-.data-board-page .rate-fill {
-  height: 100%;
-  background: var(--success);
-}
-
-.data-board-page .rate-value {
-  color: var(--text-primary);
-  font-weight: 600;
-  min-width: 40px;
-  text-align: right;
-}
-
-.data-board-page .role-section {
-  margin-bottom: 32px;
-}
-
-.data-board-page .role-section h2 {
-  color: var(--text-primary);
-  font-size: 18px;
-  margin-bottom: 16px;
-}
-
-.data-board-page .role-overview {
-  display: flex;
-  gap: 24px;
-  margin-bottom: 20px;
-}
-
-.data-board-page .role-stat {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.data-board-page .role-stat-value {
-  font-size: 24px;
-  font-weight: 700;
-  color: var(--text-primary);
-}
-
-.data-board-page .role-stat-value.active {
-  color: var(--success);
-}
-
-.data-board-page .role-stat-label {
-  color: var(--text-secondary);
-  font-size: 13px;
-}
-
-.data-board-page .top-performers h3 {
-  color: var(--text-primary);
-  font-size: 16px;
-  margin-bottom: 12px;
-}
-
-.data-board-page .performers-list {
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-subtle);
-  border-radius: 12px;
-  overflow: hidden;
-}
-
-.data-board-page .performer-item {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--border-subtle);
-}
-
-.data-board-page .performer-item:last-child {
-  border-bottom: none;
-}
-
-.data-board-page .performer-item .rank {
-  color: var(--accent-primary);
-  font-weight: 600;
-  min-width: 30px;
-}
-
-.data-board-page .performer-item .performer-name {
-  flex: 1;
-  color: var(--text-primary);
-  font-weight: 500;
-}
-
-.data-board-page .performer-item .performer-score {
-  color: var(--warning);
-}
-
-.data-board-page .performer-item .performer-tasks {
-  color: var(--text-secondary);
-  font-size: 13px;
-}
-
-.data-board-page .trend-section {
-  margin-bottom: 32px;
-}
-
-.data-board-page .trend-section h2 {
-  color: var(--text-primary);
-  font-size: 18px;
-  margin-bottom: 16px;
-}
-
-.data-board-page .trend-chart {
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-subtle);
-  border-radius: 12px;
-  padding: 24px;
-}
-
-.data-board-page .trend-bars {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-end;
-  height: 200px;
-  gap: 16px;
-}
-
-.data-board-page .trend-bar-group {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-}
-
-.data-board-page .bar-container {
-  display: flex;
-  gap: 4px;
-  align-items: flex-end;
-  height: 160px;
-}
-
-.data-board-page .bar {
-  width: 20px;
-  border-radius: 4px 4px 0 0;
-  min-height: 4px;
-}
-
-.data-board-page .bar.income {
-  background: var(--success);
-}
-
-.data-board-page .bar.expense {
-  background: var(--error);
-}
-
-.data-board-page .bar-label {
-  color: var(--text-secondary);
-  font-size: 11px;
-}
-
-.data-board-page .trend-legend {
-  display: flex;
-  justify-content: center;
-  gap: 24px;
-  margin-top: 16px;
-}
-
-.data-board-page .legend-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--text-secondary);
-  font-size: 13px;
-}
-
-.data-board-page .legend-color {
-  width: 12px;
-  height: 12px;
-  border-radius: 2px;
-}
-
-.data-board-page .legend-color.income {
-  background: var(--success);
-}
-
-.data-board-page .legend-color.expense {
-  background: var(--error);
-}
-
 /* === 通用样式 === */
 .loading, .error, .empty-state {
   text-align: center;
@@ -1305,11 +1052,5 @@ body {
 
 .error {
   color: var(--error);
-}
-
-@media (max-width: 768px) {
-  .data-board-page .stats-grid {
-    grid-template-columns: 1fr;
-  }
 }
 

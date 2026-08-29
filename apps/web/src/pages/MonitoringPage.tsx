@@ -218,8 +218,7 @@ export function MonitoringPage() {
                         </span>
                         <span className="text-xs u-text-3">{formatAge(p.created)}</span>
                         <button
-                          className="btn btn-secondary"
-                          style={{ padding: '2px 10px', fontSize: 12 }}
+                          className="btn btn-secondary btn-sm"
                           disabled={approvingIds.has(p.id)}
                           onClick={() => approveProposal(p.id)}
                         >

@@ -68,7 +68,7 @@ function CopyablePre({ children }: { children?: ReactNode }) {
           position: 'absolute',
           top: 10,
           right: 6,
-          fontSize: 11,
+          fontSize: 'var(--fs-xs)',
           padding: '2px 8px',
           borderRadius: 4,
           border: '1px solid var(--border-subtle)',

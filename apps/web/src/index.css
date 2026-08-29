@@ -14,12 +14,12 @@ html, body, #root {
 }
 
 body {
-  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace);
+  font-family: var(--font-sans, system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   background-color: var(--bg-primary, #050507);
   color: var(--text-primary, #d7dde3);
-  line-height: 1.45;
+  line-height: var(--lh-base, 1.4);
 }
 
 button {
