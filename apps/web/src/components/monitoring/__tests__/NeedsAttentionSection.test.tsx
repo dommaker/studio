@@ -1,6 +1,6 @@
 // Contract test: NeedsAttentionSection — #184 监控页「需要处理」区（#62 D4 + #60 IA：行动信号优先）
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import React from 'react';
 
 const { mockSearch, mockList } = vi.hoisted(() => ({
@@ -98,6 +98,72 @@ describe('NeedsAttentionSection — 告警收件箱', () => {
     render(<NeedsAttentionSection />);
     expect(await screen.findByText('有告警')).toBeDefined();
     expect(screen.queryByText('现在没有需要你处理的事')).toBeNull();
+  });
+});
+
+describe('NeedsAttentionSection — 告警分组（#398 §7.3）', () => {
+  const alert = (level: string, message: string, msAgo: number) => ({
+    type: 'monitor:alert', level, payload: JSON.stringify({ message }), createdAt: iso(msAgo),
+  });
+
+  it('同签名告警归并为一行：级别 pill + 文案 + ×N + 最近发生时间', async () => {
+    mockEventsByType({
+      'monitor:alert': [
+        alert('warning', '未认领池滞留：最老任务已滞留 5h', 5 * HOUR),
+        alert('warning', '未认领池滞留：最老任务已滞留 6h', 2 * HOUR),
+        alert('warning', '未认领池滞留：最老任务已滞留 7h', HOUR),
+      ],
+    });
+    render(<NeedsAttentionSection />);
+    // 文案取最近一条原文，只出现一次
+    expect(await screen.findByText('未认领池滞留：最老任务已滞留 7h')).toBeDefined();
+    expect(screen.queryByText('未认领池滞留：最老任务已滞留 5h')).toBeNull();
+    expect(screen.getByText('×3')).toBeDefined();
+    expect(screen.getByText('1 小时前')).toBeDefined();
+  });
+
+  it('22px 主数字 = 待处理告警组数', async () => {
+    mockEventsByType({
+      'monitor:alert': [
+        alert('warning', '滞留 5h', HOUR),
+        alert('warning', '滞留 6h', 2 * HOUR),
+        alert('critical', '心跳过期', 3 * HOUR),
+      ],
+    });
+    render(<NeedsAttentionSection />);
+    expect(await screen.findByText('心跳过期')).toBeDefined();
+    // 组数 2 作为主数字渲染（告警组数徽标）
+    expect(screen.getByTestId('alert-group-count').textContent).toBe('2');
+  });
+
+  it('组数 >3 默认折叠为「还有 N 类」，点击展开全部', async () => {
+    mockEventsByType({
+      'monitor:alert': [
+        alert('warning', '甲类故障 1', HOUR),
+        alert('warning', '乙类故障 2', 2 * HOUR),
+        alert('warning', '丙类故障 3', 3 * HOUR),
+        alert('critical', '丁类故障 4', 4 * HOUR),
+      ],
+    });
+    render(<NeedsAttentionSection />);
+    expect(await screen.findByText('丁类故障 4')).toBeDefined();
+    // 排序 = critical 优先 + 最近时间降序 → 可见 3 组为丁/甲/乙，丙（最旧）收起
+    expect(screen.queryByText('丙类故障 3')).toBeNull();
+    const toggle = screen.getByText(/还有 1 类/);
+    fireEvent.click(toggle);
+    expect(await screen.findByText('丙类故障 3')).toBeDefined();
+  });
+
+  it('组数 ≤3 不出现折叠开关', async () => {
+    mockEventsByType({
+      'monitor:alert': [
+        alert('warning', '甲类故障', HOUR),
+        alert('warning', '乙类故障', 2 * HOUR),
+      ],
+    });
+    render(<NeedsAttentionSection />);
+    expect(await screen.findByText('甲类故障')).toBeDefined();
+    expect(screen.queryByText(/还有 \d+ 类/)).toBeNull();
   });
 });
 
