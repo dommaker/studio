@@ -1151,6 +1151,9 @@ button.mc-act-step:hover { background: var(--bg-hover); }
 .u-warn-bg { background: var(--warning); color: var(--bg-primary); }
 .u-warn-dim { background: var(--warning-dim); color: var(--warning); }
 .u-warn-border { border-color: var(--warning-border); }
+/* 异常橙（#397/redesign §6.5：异常与待评审黄解耦；仅这两档有消费方，YAGNI 不补 -bg/-border） */
+.u-anomaly { color: var(--anomaly); }
+.u-anomaly-dim { background: var(--anomaly-dim); color: var(--anomaly); }
 .u-on-accent { color: var(--bg-primary); }
 .u-ph::placeholder { color: var(--text-muted); }
 

@@ -1,201 +1,114 @@
-// AgentDashboard 作战卡（#348 自 AgentDashboardPage 下沉）：三段式——左=状态 pill/角色名/CLI badge；
-// 中=当前 WU + PMO/频道链接 + 最近动态；右=运行时长 + 强制停止。
-// 动态订阅卡片自持（useRosterActivities 按 roleId 切片）：stream chunk 只重渲本卡，
-// 他卡静态壳零重渲；memo + 稳定 props 让轮询驱动的页面重渲也跳过未变卡（#322 三件套）。
-import { memo, useState } from 'react';
+// AgentDashboard 信息全卡（#397，redesign-2026-08 §6 定稿变体 B）：四层构成自上而下层级递减——
+// ① 头行：状态 pill（色底+色字）+ 角色名（链角色详情）+ CLI chip + 运行时长（mono）；
+// ② 视觉锚点：当前 WU 标题（链 WU 详情）+ 类型 chip + 已耗时，次行 PMO · #频道；空闲/未启动/异常各有空态；
+// ③ 最近动态 3 条迷你列表，每条可点（有当前 WU → WU 详情，无 → 角色详情）；
+// ④ 错误行（⚠ lastError，与卡片状态同色）。
+// 状态色经 data-status + --st 驱动（§6.5 单义）；阻塞/异常整卡上色、空闲/未启动压扁由 CSS 承担。
+// 渲染边界（#348 契约不变）：动态订阅卡片自持（useRosterActivities 按 roleId 切片）——stream chunk
+// 只重渲本卡，他卡静态壳零重渲；memo + 稳定 props 让轮询驱动的页面重渲也跳过未变卡（#322 三件套）。
+// 「强制停止」不在卡面（§6.1 无操作位），能力保留在 AgentDetailPage 头部。
+import { memo } from 'react';
 import { Link } from 'react-router-dom';
-import { useRosterActivities, type RosterActivityItem } from '../../stores/rosterActivityStore';
+import { useRosterActivities } from '../../stores/rosterActivityStore';
 import type { RosterRole } from '../../hooks/useAgentRoster';
-import { type WorkUnit } from '../../api/workunit';
-import { formatFullTime } from '../../utils/datetime';
+import type { WorkUnit } from '../../api/workunit';
 import {
-  deriveAgentStatus,
-  AGENT_STATUS_LABELS,
-  AGENT_STATUS_COLORS,
+  resolveCardStatusKey,
+  CARD_STATUS_LABELS,
   formatUptime,
   formatRelativeTime,
 } from '../../utils/agentStatus';
 
-export const RoleCard = memo(function RoleCard({ role, lastDone, channelNames, onTerminate }: {
+export const RoleCard = memo(function RoleCard({ role, lastDone, channelNames }: {
   role: RosterRole;
   /** 空闲角色最近完成的 WU（页面按 roleId 切片传入，引用稳定） */
   lastDone: WorkUnit | null;
   channelNames: Record<string, string>;
-  onTerminate: (instanceId: string) => void;
 }) {
-  const [expanded, setExpanded] = useState(false);
-  const activities: RosterActivityItem[] = useRosterActivities(role.profile.id);
+  const activities = useRosterActivities(role.profile.id);
   const { profile, runtime } = role;
   const isSystemRole = profile.name === 'studio';
   const wu = runtime?.currentWorkUnit ?? null;
-  const statusKey: keyof typeof AGENT_STATUS_LABELS | 'disabled' = profile.status !== 'active'
-    ? 'disabled'
-    : deriveAgentStatus(runtime?.status ?? null, wu?.status);
-  const pillClass = statusKey === 'disabled' ? 'u-surface-2 u-text-3' : AGENT_STATUS_COLORS[statusKey];
-  const pillLabel = statusKey === 'disabled' ? '已停用' : AGENT_STATUS_LABELS[statusKey];
-  const busy = runtime?.status === 'active' && (wu || runtime.currentWorkUnitId);
+  const statusKey = resolveCardStatusKey(profile.status, runtime?.status ?? null, wu?.status);
+  const busy = runtime?.status === 'active' && Boolean(wu || runtime.currentWorkUnitId);
   const lastError = runtime?.lastError ?? profile.lastError;
-  const latestActivity = activities[activities.length - 1] ?? null;
+  const recent = [...activities].reverse().slice(0, 3);
+  // 动态条目落点（§6.1）：有当前 WU（含快照未补查回的裸 ID）→ WU 详情；否则 → 角色详情（交互不断链）
+  const wuId = wu?.id ?? runtime?.currentWorkUnitId ?? null;
+  const activityTarget = wuId ? `/workunits/${wuId}` : `/agents/${profile.id}`;
 
   return (
-    <div className="rounded-lg" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)' }}>
-      <div
-        className="p-3 cursor-pointer flex items-start justify-between gap-4"
-        onClick={() => setExpanded(!expanded)}
-      >
-        {/* 左段：状态 pill + 角色名 + CLI badge */}
-        <div className="shrink-0" style={{ width: 180 }}>
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className={`text-xs px-2 py-0.5 rounded ${pillClass}`}>{pillLabel}</span>
-            <Link
-              to={`/agents/${profile.id}`}
-              className="font-medium u-text u-hover-accent"
-              onClick={(e) => e.stopPropagation()}
-            >
-              {profile.name}
-            </Link>
-            {isSystemRole && (
-              <span className="text-xs px-2 py-0.5 rounded u-surface-2 u-text-3">系统</span>
+    <article className="card agd-card" data-testid="agent-card" data-status={statusKey}>
+      {/* ① 头行 */}
+      <header className="agd-head">
+        <span className="agd-pill">{CARD_STATUS_LABELS[statusKey]}</span>
+        <Link to={`/agents/${profile.id}`} className="agd-name u-text u-hover-accent agd-ellipsis">
+          {profile.name}
+        </Link>
+        {isSystemRole && <span className="agd-chip">系统</span>}
+        <span className="agd-chip" title="背后的 CLI">{profile.provider ?? '未配置'}</span>
+        {runtime && <span className="agd-num u-text-3" data-visual-ignore>{formatUptime(runtime.startedAt)}</span>}
+      </header>
+
+      {/* ② 视觉锚点：在做什么 / 空态 */}
+      {busy ? (
+        <div>
+          <div className="agd-wu-row">
+            {wu ? (
+              <Link to={`/workunits/${wu.id}`} className="agd-wu u-text u-hover-accent agd-ellipsis">
+                {wu.title || wu.id}
+              </Link>
+            ) : (
+              <span className="agd-wu u-text-3 agd-ellipsis">WorkUnit: {runtime!.currentWorkUnitId}</span>
+            )}
+            {wu?.type && <span className="agd-chip">{wu.type}</span>}
+            {wu?.claimedAt && (
+              <span className="agd-num u-text-3" data-visual-ignore>已耗时 {formatUptime(wu.claimedAt)}</span>
             )}
           </div>
-          <div className="mt-1">
-            <span className="text-xs px-2 py-0.5 rounded u-surface-2 u-text-2" title="背后的 CLI">
-              CLI: {profile.provider ?? '未配置'}
-            </span>
-          </div>
-        </div>
-
-        {/* 中段（主视觉）：当前 WU / PMO / 频道 / 最近动态；空闲时等待派活 + 最近完成 */}
-        <div className="flex-1 min-w-0">
-          {busy ? (
-            <>
-              <div className="flex items-center gap-2 flex-wrap">
-                {wu?.type && (
-                  <span className="text-xs px-2 py-0.5 rounded u-surface-2 u-text-2">{wu.type}</span>
-                )}
-                {wu ? (
-                  <Link
-                    to={`/workunits/${wu.id}`}
-                    className="text-sm u-text u-hover-accent truncate"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    {wu.title || wu.id}
-                  </Link>
-                ) : (
-                  <span className="text-sm u-text-3 truncate">WorkUnit: {runtime!.currentWorkUnitId}</span>
-                )}
-                {wu?.claimedAt && (
-                  <span className="text-xs u-text-3">已耗时 {formatUptime(wu.claimedAt)}</span>
-                )}
-              </div>
-              <div className="flex items-center gap-2 mt-1 text-xs u-text-2 flex-wrap">
-                {runtime?.pmo && (
-                  <Link
-                    to={`/pmo/project/${runtime.pmo.id}`}
-                    className="u-text-2 u-hover-accent truncate"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    {runtime.pmo.pmoNumber} · {runtime.pmo.title}
-                  </Link>
-                )}
-                {runtime?.channelId && (
-                  <Link
-                    to={`/channels/${runtime.channelId}`}
-                    className="u-text-2 u-hover-accent"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    #{channelNames[runtime.channelId] ?? '频道'}
-                  </Link>
-                )}
-              </div>
-              <div className="mt-1 text-xs u-text-3 truncate" title={latestActivity?.text} data-visual-ignore>
-                {latestActivity ? `${latestActivity.text} · ${formatRelativeTime(latestActivity.at)}` : '暂无动态'}
-              </div>
-            </>
-          ) : (
-            <>
-              <div className="text-sm u-text-2">空闲 · 等待派活</div>
-              {lastDone && (
-                <div className="mt-1 text-xs u-text-3 truncate">
-                  最近完成：
-                  <Link
-                    to={`/workunits/${lastDone.id}`}
-                    className="u-text-2 u-hover-accent"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    {lastDone.scope}
-                  </Link>
-                </div>
+          {(runtime?.pmo || runtime?.channelId) && (
+            <div className="agd-sub u-text-2 agd-ellipsis">
+              {runtime?.pmo && (
+                <Link to={`/pmo/project/${runtime.pmo.id}`} className="u-hover-accent">
+                  {runtime.pmo.pmoNumber} · {runtime.pmo.title}
+                </Link>
               )}
-            </>
-          )}
-          {lastError && (
-            <div className="mt-1 text-xs u-warn truncate" title={lastError}>
-              ⚠ {lastError}
+              {runtime?.pmo && runtime?.channelId && ' · '}
+              {runtime?.channelId && (
+                <Link to={`/channels/${runtime.channelId}`} className="u-hover-accent">
+                  #{channelNames[runtime.channelId] ?? '频道'}
+                </Link>
+              )}
             </div>
           )}
         </div>
-
-        {/* 右段：运行时长 + 强制停止 */}
-        <div className="flex items-center gap-2 shrink-0">
-          {runtime && <span className="text-xs u-text-2" data-visual-ignore>运行: {formatUptime(runtime.startedAt)}</span>}
-          {runtime && runtime.status !== 'terminated' && (
-            <button
-              className="text-xs px-2 py-1 rounded u-err-dim u-err u-hover-bg"
-              onClick={(e) => { e.stopPropagation(); onTerminate(runtime.id); }}
-            >
-              强制停止
-            </button>
+      ) : (
+        <div className="agd-idle u-text-3 agd-ellipsis">
+          {!runtime ? '未启动' : runtime.status === 'error' ? '实例异常，未在任务上' : '空闲 · 等待派活'}
+          {/* §6.1：「最近完成」链接只属于空闲空态（异常/未启动不拼） */}
+          {runtime?.status === 'idle' && lastDone && (
+            <>
+              {' · 最近完成 '}
+              <Link to={`/workunits/${lastDone.id}`} className="u-text-2 u-hover-accent">{lastDone.scope}</Link>
+            </>
           )}
-          <span className="u-text-2 text-sm">{expanded ? '▾' : '▸'}</span>
-        </div>
-      </div>
-
-      {expanded && (
-        <div className="px-3 pb-3 text-sm" style={{ borderTop: '1px solid var(--border-subtle)' }}>
-          <div className="mt-2">
-            <div className="text-xs u-text-2 mb-1">最近动态</div>
-            {activities.length === 0 ? (
-              <div className="text-xs u-text-3">暂无动态</div>
-            ) : (
-              <div className="space-y-0.5">
-                {[...activities].reverse().map((a, i) => (
-                  <div key={i} className="text-xs u-text-3 flex justify-between gap-2">
-                    <span className="truncate" title={a.text}>{a.text}</span>
-                    <span className="shrink-0" data-visual-ignore>{formatRelativeTime(a.at)}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-          <div className="grid grid-cols-2 gap-2 mt-2 text-xs">
-            <div><span className="u-text-2">Profile ID:</span> <span className="u-text-3">{profile.id}</span></div>
-            <div><span className="u-text-2">CLI Provider:</span> <span className="u-text-3">{profile.provider ?? '未配置'}</span></div>
-            <div><span className="u-text-2">Profile Status:</span> <span className="u-text-3">{profile.status}</span></div>
-            <div><span className="u-text-2">Online:</span> <span className="u-text-3">{profile.isOnline ? '是' : '否'}</span></div>
-            {profile.description && (
-              <div className="col-span-2"><span className="u-text-2">描述:</span> <span className="u-text-3">{profile.description}</span></div>
-            )}
-            {runtime && (
-              <>
-                <div><span className="u-text-2">Instance ID:</span> <span className="u-text-3">{runtime.id}</span></div>
-                <div><span className="u-text-2">Runtime Status:</span> <span className="u-text-3">{runtime.status}</span></div>
-                <div><span className="u-text-2">Current WorkUnit:</span> <span className="u-text-3">{runtime.currentWorkUnitId ?? 'none'}</span></div>
-                <div><span className="u-text-2">Started:</span> <span className="u-text-3">{formatFullTime(runtime.startedAt)}</span></div>
-              </>
-            )}
-            {lastError && (
-              <div className="col-span-2">
-                <span className="u-text-2">Last Error:</span>{' '}
-                <span className="u-warn">{lastError}</span>
-                {runtime?.lastErrorAt && (
-                  <span className="u-text-2"> ({formatFullTime(runtime.lastErrorAt)})</span>
-                )}
-              </div>
-            )}
-          </div>
         </div>
       )}
-    </div>
+
+      {/* ③ 最近动态 3 条（新→旧），每条可点 */}
+      {recent.length > 0 && (
+        <div className="agd-activity">
+          {recent.map((a, i) => (
+            <Link key={a.key ?? i} to={activityTarget} className="agd-activity-row" title={a.text}>
+              <span className="agd-activity-text u-text-2 agd-ellipsis">{a.text}</span>
+              <span className="agd-num u-text-3" data-visual-ignore>{formatRelativeTime(a.at)}</span>
+            </Link>
+          ))}
+        </div>
+      )}
+
+      {/* ④ 错误行（与卡片同色） */}
+      {lastError && <div className="agd-error" title={lastError}>⚠ {lastError}</div>}
+    </article>
   );
 });

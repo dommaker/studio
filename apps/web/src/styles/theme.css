@@ -39,6 +39,10 @@
   --error: #ef4444;
   --error-dim: rgba(239, 68, 68, 0.08);
   --error-border: rgba(239, 68, 68, 0.25);
+  /* 异常橙（#397/redesign §6.5：异常与待评审黄解耦，状态色单义） */
+  --anomaly: #f0883e;
+  --anomaly-dim: rgba(240, 136, 62, 0.08);
+  --anomaly-border: rgba(240, 136, 62, 0.25);
   --info: #3b82f6;
   --info-dim: rgba(59, 130, 246, 0.08);
   --info-border: rgba(59, 130, 246, 0.25);
@@ -128,6 +132,10 @@
   --error: #cf222e;
   --error-dim: rgba(207, 34, 46, 0.08);
   --error-border: rgba(207, 34, 46, 0.25);
+  /* 异常橙（#397/redesign §6.5；浅色压暗至白底 AA 可读） */
+  --anomaly: #bc4c00;
+  --anomaly-dim: rgba(188, 76, 0, 0.08);
+  --anomaly-border: rgba(188, 76, 0, 0.25);
   --info: #0550ae;
   --info-dim: rgba(5, 80, 174, 0.08);
   --info-border: rgba(5, 80, 174, 0.25);
