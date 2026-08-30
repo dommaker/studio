@@ -11,7 +11,7 @@ Web 前端主源码。路由、全局状态、API 客户端、UI 组件、样式
 | `App` | `App.tsx` | 根组件：路由/主题/布局/懒加载；频道工作区满高三栏 |
 | `api` | `api/index.ts` | axios 实例，Bearer token + 401 自动刷新 |
 | `channelApi` | `api/channel.ts` | 频道 CRUD、消息、Agent 配置 |
-| `monitoringApi` | `api/monitoring.ts` | 监控/飞轮指标/开销 + terminateInstance |
+| `monitoringApi` | `api/monitoring.ts` | 监控/飞轮指标/开销 + terminateInstance；getOverview 声明 evidence+roles+humanIntervention 三段（#398） |
 | `workunitApi` | `api/workunit.ts` | WU 全生命周期 + token/步事件解析 + 流式文案格式化 |
 | `requirementApi` | `api/requirements.ts` | 需求 CRUD + 关联 WU 链 |
 | `knowledgeApi` | `api/knowledge.ts` | 知识审核 + 知识库浏览；knowledge_proposal 卡审批走 review-proposal 通用端点（kind='knowledge'，#355），promote/demote 为条目生命周期端点（非提案场景） |
@@ -40,7 +40,8 @@ Web 前端主源码。路由、全局状态、API 客户端、UI 组件、样式
 | `useStreamFollow` / `useChannelCardActions` | `hooks/` | 频道流滚动状态机（#322 自 ChannelDetailPage 整块搬移）/ 卡片 action 路由（dispatch 单一入口；#352 起人审提案分支经 PROPOSAL_ACTION_INDEX 参数化调用 proposalCardConfigs.exec） |
 | `useProposalReview` / `ReviewProposalCard` | `hooks/useProposalReview.ts` / `components/channel/ReviewProposalCard.tsx` | 人审提案卡合一（#352，ADR 2026-08-25 决策 5）：6 卡坍缩为壳 + `proposalCardConfigs` 纯数据配置（#356 auditor_suggestion 并入，AuditorSuggestionCard 删除）；reviewed/pending/armed 生命周期 + 挂载期派生已审态单点化；act 执行未全绿时按提案状态重派生一次，命中终态即时收敛；memory 卡 exec 逐草稿结算含 not-pending 同向终态幂等跳过 + failed 终态标签（#367，正本闸门不可逆） |
 | `ChannelLiveBars` | `components/channel/` | live 执行状态条（#322 自持有 useChannelLiveExecutions，step 事件不触达页面） |
-| `NeedsAttentionSection` | `components/monitoring/` | 监控页「需要处理」区 |
+| `NeedsAttentionSection` | `components/monitoring/` | 监控页「需要处理」区；#398 告警按归一化 message 签名分组（`alertGrouping.ts`：数字/hex id 占位归一，×N + 最近时间，>3 组折叠「还有 N 类」，纯前端不动探针口径） |
+| `MonitorSection` / `charts` | `components/monitoring/MonitorSection.tsx` / `charts.tsx` | #398 监控页区块容器（§7.5：术语标题 + 白话副标题 + 可选 22px 主数字 --fs-stat+mono）与手搓图表三件套（UsageBar 预算用量条 / DayBars byDay 柱 / HBars 横条，零图表库，样式 `mc-*` 在 mission-control.css，承 #396 先例） |
 | `ProjectMap` / `NextActionCard` | `components/pmo/ProjectMap.tsx` | PMO 地图 + 下一个该干什么 |
 | `ChannelRail` / `WorkUnitDrawer` | `components/channel/` | 左栏频道列表（#395 可选 `onNavigate`：并入 Sidebar 时选频道收起 overlay）/ 右抽屉 WU 详情（证据/审查/执行/token/REQ；#395 <768 全屏化带「← 返回」） |
 | `ChannelActivityRail` / `activityRail` | `components/channel/` | #394 右栏「频道动态」（spec §4.1–4.3）：REQ 链路卡（四站 stepper 讨论→REQ→WU n/m→交付，纯函数 `deriveChainSteps`）+ 动态归属分流（`attributeActivity`，无归属落「其他动态」）；混合交互：REQ/WU→就地抽屉，PMO/Agent→↗ 跳页（PMO 链 chain.projectId→req.projectId→频道 current-pmo 兜底，项目记录拉不到不渲染 badge 防死按钮；agent 经 resolveAssignee 取名） |
