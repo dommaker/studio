@@ -135,10 +135,11 @@
 .wu-exec-stat-num {
   font-family: var(--font-mono);
   font-size: var(--fs-stat);
-  line-height: 1.1;
   color: var(--text-primary);
   font-variant-numeric: tabular-nums;
 }
+/* 状态徽章在 stat 列内左对齐顶端（布局入类，style-guide §2.2） */
+.wu-exec-badge { align-self: flex-start; }
 .wu-exec-note { margin-top: var(--space-2); font-size: var(--fs-sm); color: var(--text-secondary); }
 .wu-exec-note-k { color: var(--text-muted); margin-right: 6px; }
 .wu-exec-fail { margin-top: var(--space-2); font-size: var(--fs-sm); color: var(--error); }
@@ -210,10 +211,10 @@
 .wu-flow-skills { margin-top: 4px; font-size: var(--fs-xs); color: var(--text-muted); }
 
 /* ---------- Token 开销图表化（§5.4） ---------- */
-/* 左栏事实行：总耗 + 迷你预算占比条，整行可点 */
+/* 左栏事实行（整行含行标可点，自身即 wu-detail-fact 行）：mono 总耗 + 迷你预算占比条 */
 .wu-token-fact {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: var(--space-2);
   background: none;
   border: none;
@@ -221,7 +222,6 @@
   font: inherit;
   cursor: pointer;
   min-width: 0;
-  flex: 1;
 }
 .wu-token-fact:hover .wu-token-fact-v { color: var(--accent-primary); }
 .wu-token-fact-v {
@@ -234,9 +234,10 @@
   flex: 1;
   max-width: 72px;
   height: 4px;
-  border-radius: 2px;
+  border-radius: 3px;
   background: var(--bg-tertiary);
   overflow: hidden;
+  align-self: center;
 }
 .wu-token-minibar-used { display: block; height: 100%; background: var(--accent-primary); }
 
@@ -280,7 +281,7 @@
   flex-shrink: 0;
 }
 .wu-token-legend { margin-top: var(--space-3); display: flex; gap: var(--space-4); font-size: var(--fs-xs); color: var(--text-muted); }
-.wu-token-legend-swatch { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 5px; }
+.wu-token-legend-swatch { display: inline-block; width: 8px; height: 8px; border-radius: 3px; margin-right: 5px; }
 
 /* ---------- 窄屏降级（§4.6 Tailwind 断点档）：<768 两栏塌单栏，左栏全宽置顶 ---------- */
 @media (max-width: 767px) {

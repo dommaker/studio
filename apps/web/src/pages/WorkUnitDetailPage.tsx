@@ -240,8 +240,8 @@ export function WorkUnitDetailPage() {
                   {wu.failureType && (
                     <FactRow k="失败类型"><span className="u-err">{wu.failureType}</span></FactRow>
                   )}
-                  {/* §5.4：Token 行 = 图表面板入口（mono 总耗 + 迷你预算占比条，整行可点） */}
-                  <FactRow k="Token"><TreeTokenEntry workUnitId={wu.id} /></FactRow>
+                  {/* §5.4：Token 行 = 图表面板入口（mono 总耗 + 迷你预算占比条，整行含行标可点） */}
+                  <TreeTokenEntry workUnitId={wu.id} />
                 </div>
               </div>
             </section>

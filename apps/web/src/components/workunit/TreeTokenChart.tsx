@@ -5,6 +5,7 @@
 // 数据 = workunitApi.getTreeTokens，TreeTokenEntry 内拉取一次，事实行与面板共享。
 // 头栏「Token 开销」按钮已撤（#396）；TreeTokenDrawer 素表格弹框仍服务频道抽屉。
 import { useEffect, useState } from 'react';
+import { deriveDisplayState, type WuDisplayColumn } from '@dommaker/studio-shared/web';
 import { workunitApi, type TreeTokenReport } from '../../api/workunit';
 import { Modal } from '../ui/Modal';
 import { formatStepTokens } from '../../utils/executionSteps';
@@ -14,24 +15,34 @@ function formatTokens(n: number | null): string {
   return formatStepTokens(n);
 }
 
-/** 状态 → 色点（展示用直映射，与生命周期站点语义无关，不过 deriveDisplayState） */
-function statusDotColor(status: string): string {
-  switch (status) {
-    case 'done': return 'var(--accent-primary)';
-    case 'in_review': return 'var(--warning)';
-    case 'active':
-    case 'unassigned': return 'var(--info)';
-    case 'blocked': return 'var(--error)';
-    default: return 'var(--text-muted)'; // closed 等
-  }
-}
-
-/** 左栏「关键事实」卡 Token 行：总耗 + 迷你预算占比条，整行可点 */
-export function TreeTokenFactRow({ report, onOpen }: { report: TreeTokenReport | null; onOpen: () => void }) {
+/** 预算口径：总预算 = 树总耗 + 剩余；usedPct 供事实行迷你条与面板占比条共用 */
+function budgetStats(report: TreeTokenReport | null): { budget: number; usedPct: number } {
   const budget = report ? report.rootTotal + report.budgetRemaining : 0;
   const usedPct = report && budget > 0 ? (report.rootTotal / budget) * 100 : 0;
+  return { budget, usedPct };
+}
+
+/** 派生列 → 状态色点（F6 铁律：状态解释一律过 deriveDisplayState；节点无 metadata，按存储状态派生） */
+const COLUMN_DOT: Record<WuDisplayColumn, string> = {
+  done: 'var(--accent-primary)',
+  in_review: 'var(--warning)',
+  active: 'var(--info)',
+  unassigned: 'var(--info)',
+  pending: 'var(--warning)',
+  blocked: 'var(--error)',
+  closed: 'var(--text-muted)',
+};
+
+function statusDotColor(status: string): string {
+  return COLUMN_DOT[deriveDisplayState({ status }).column];
+}
+
+/** 左栏「关键事实」卡 Token 行（整行可点，含行标）：mono 总耗 + 迷你预算占比条 */
+export function TreeTokenFactRow({ report, onOpen }: { report: TreeTokenReport | null; onOpen: () => void }) {
+  const { budget, usedPct } = budgetStats(report);
   return (
-    <button className="wu-token-fact" onClick={onOpen} title="查看协作树 Token 开销图表">
+    <button className="wu-detail-fact wu-token-fact" onClick={onOpen} title="查看协作树 Token 开销图表">
+      <span className="wu-detail-fact-k">Token</span>
       <span className="wu-token-fact-v">{report ? formatTokens(report.rootTotal) : '-'}</span>
       {report && budget > 0 && (
         <span className="wu-token-minibar">
@@ -46,8 +57,7 @@ export function TreeTokenFactRow({ report, onOpen }: { report: TreeTokenReport |
 export function TreeTokenPanel({ report, onClose }: { report: TreeTokenReport | null; onClose: () => void }) {
   const nodes = report ? [...report.nodes].sort((a, b) => (b.totalTokens ?? 0) - (a.totalTokens ?? 0)) : [];
   const maxTotal = nodes.reduce((m, n) => Math.max(m, n.totalTokens ?? 0), 0);
-  const budget = report ? report.rootTotal + report.budgetRemaining : 0;
-  const usedPct = report && budget > 0 ? (report.rootTotal / budget) * 100 : 0;
+  const { budget, usedPct } = budgetStats(report);
 
   return (
     <Modal open onClose={onClose} maxWidth="640px" title="协作树 Token 开销">

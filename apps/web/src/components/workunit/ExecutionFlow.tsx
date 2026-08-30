@@ -131,7 +131,7 @@ export function ExecutionFlow({ workUnitId, wu }: { workUnitId: string; wu: Work
       <div className="wu-exec-stats">
         <div className="wu-exec-stat">
           <span className="wu-exec-stat-k">状态</span>
-          <span className={`text-xs px-2 py-0.5 rounded ${WU_STATUS_COLORS[column] || 'u-surface-2 u-text-3'}`} style={{ alignSelf: 'flex-start' }}>
+          <span className={`text-xs px-2 py-0.5 rounded wu-exec-badge ${WU_STATUS_COLORS[column] || 'u-surface-2 u-text-3'}`}>
             {WU_STATUS_LABELS[column] ?? column}
           </span>
         </div>
