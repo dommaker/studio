@@ -1,5 +1,6 @@
 // 页面截图采集 CLI（#391）：12 页 × 1920/1440/1280 三档默认态，一轮一个 run 目录
 // 用法：VISUAL_REFRESH_TOKEN=<token> npx tsx scripts/visual/capture.ts --name <run>
+//   --widths    逗号分隔覆盖宽度档（如 1024,768,640,375 窄屏走查，#395；须在 config HEIGHTS 登记高度）
 //   --base-url  前端地址（默认 http://localhost:13000/dev/，dev:start 的形态）
 //   --api-url   API 地址（默认 http://localhost:13001）
 //   输出：.studio/visual/<run>/<page>-<width>.png（.studio/* 已 gitignore，不入库）
@@ -17,10 +18,32 @@ import { chromium, type Page } from 'playwright';
 import { pathToFileURL } from 'node:url';
 import { PAGES, WIDTHS, HEIGHTS, RUNS_DIR, FIXED_TIME, shotFileName, type PageParam } from './config';
 
-/** §10.4 交互态补拍注册表：key = 页面名，value = [状态名, 交互动作] 列表 */
-const PREPARE: Record<string, Array<[string, (page: Page) => Promise<void>]>> = {
-  // 例：'knowledge': [['select-open', async page => { await page.getByRole('combobox').click(); }]],
+/** §10.4 交互态补拍注册表：key = 页面名，value = [状态名, 交互动作] 列表；
+    动作返回 false 表示该状态下不拍（如窄屏态入口在宽屏 CSS 隐藏） */
+const PREPARE: Record<string, Array<[string, (page: Page) => Promise<boolean>]>> = {
+  // <1024 窄屏走查（#395 §4.6）：顶栏「频道动态」入口开右侧覆盖抽屉；≥1024 入口 CSS 隐藏 → 跳拍
+  'channel-detail': [
+    ['act-open', async page => {
+      const btn = page.getByLabel('打开频道动态');
+      if (!(await btn.isVisible())) return false;
+      await btn.click();
+      await page.getByRole('dialog', { name: '频道动态' }).waitFor({ state: 'visible', timeout: 3000 });
+      return true;
+    }],
+  ],
 };
+
+/** --widths 参数解析：未传 → 默认 WIDTHS；逗号分隔，每档须在 HEIGHTS 登记视口高度 */
+export function parseWidths(arg: string | undefined): number[] {
+  if (!arg) return [...WIDTHS];
+  const widths = arg.split(',').map(s => Number(s.trim()));
+  for (const w of widths) {
+    if (!Number.isInteger(w) || !(w in HEIGHTS)) {
+      throw new Error(`未知宽度档 ${w}（--widths ${arg}）：需在 config.ts HEIGHTS 登记对应视口高度`);
+    }
+  }
+  return widths;
+}
 
 const HIDE_DYNAMIC_CSS = '[data-visual-ignore]{visibility:hidden!important}';
 
@@ -81,6 +104,7 @@ async function main(): Promise<void> {
   }
   const baseUrl = (opt('base-url') ?? 'http://localhost:13000/dev/').replace(/\/?$/, '/');
   const apiUrl = opt('api-url') ?? 'http://localhost:13001';
+  const widths = parseWidths(opt('widths'));
   const refreshToken = process.env.VISUAL_REFRESH_TOKEN;
   if (!refreshToken) throw new Error('缺 VISUAL_REFRESH_TOKEN 环境变量（dev 数据根既有用户的 refreshToken）');
 
@@ -94,7 +118,7 @@ async function main(): Promise<void> {
   const browser = await chromium.launch({ channel: process.env.VISUAL_BROWSER_CHANNEL || undefined });
   let shot = 0;
   try {
-    for (const width of WIDTHS) {
+    for (const width of widths) {
       const context = await browser.newContext({
         viewport: { width, height: HEIGHTS[width] },
         reducedMotion: 'reduce',
@@ -139,7 +163,7 @@ async function main(): Promise<void> {
 
         // §10.4 交互态补拍扩展位：PREPARE 注册了该页状态时逐个执行并加拍
         for (const [state, prepare] of PREPARE[target.name] ?? []) {
-          await prepare(page);
+          if (!(await prepare(page))) continue;
           await page.addStyleTag({ content: HIDE_DYNAMIC_CSS });
           await page.screenshot({
             path: join(outDir, shotFileName(`${target.name}-${state}`, width)),

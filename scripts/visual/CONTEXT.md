@@ -9,7 +9,7 @@ pixelmatch 逐像素 diff 产 markdown 报告。用法与约定见本目录 READ
 
 - `config.ts`：`PAGES`（12 页清单，#379 基线）/ `WIDTHS` / `RUNS_DIR`（.studio/visual，gitignored）/ `REPORTS_DIR`（docs/visual-reports，入 git）/ `FIXED_TIME` / `shotFileName`
 - `report.ts`：`pairShots` / `classify` / `renderMarkdown`（纯函数，报告渲染唯一出口）
-- `capture.ts`：采集 CLI；`firstId`（列表 API 响应逐路径探测取首条 id）
+- `capture.ts`：采集 CLI；`firstId`（列表 API 响应逐路径探测取首条 id）/ `parseWidths`（--widths 窄屏档覆盖，#395；档位高度须在 config HEIGHTS 登记）
 - `diff.ts`：diff CLI；`parseShotName`
 
 ## 注意事项

@@ -29,8 +29,11 @@ export const PAGES: PageTarget[] = [
 
 export const WIDTHS = [1920, 1440, 1280] as const;
 
-/** 截图高度：宽度档对应的常见视口高 */
-export const HEIGHTS: Record<number, number> = { 1920: 1080, 1440: 900, 1280: 800 };
+/** 截图高度：宽度档对应的常见视口高；1024/768/640/375 为 #395 窄屏走查档（--widths 启用） */
+export const HEIGHTS: Record<number, number> = {
+  1920: 1080, 1440: 900, 1280: 800,
+  1024: 768, 768: 1024, 640: 960, 375: 812,
+};
 
 /** 截图 run 输出根（.studio/* 已 gitignore，满足"基线 PNG 不入 git"） */
 export const RUNS_DIR = '.studio/visual';
