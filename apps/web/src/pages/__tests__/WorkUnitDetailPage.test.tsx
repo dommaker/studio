@@ -1,4 +1,4 @@
-// Contract test: WorkUnitDetailPage — /workunits/:id 枢纽页（2026-07 agents-pmo-flow-ux §5.4）
+// Contract test: WorkUnitDetailPage — /workunits/:id（#396 重构：四站 stepper + 左右分栏 + ExecutionFlow + Token 图表化）
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import React from 'react';
@@ -15,7 +15,7 @@ vi.mock('react-router-dom', () => ({
   useNavigate: () => vi.fn(),
 }));
 
-const { mockWuGet, mockReqGet, mockReqGetChain, mockProjectGet, mockChannelList, mockAgentSummary, mockGetAgentInstance, mockListAllAgents, mockResume, mockClose, mockTransitionStatus, mockReviewPassed, mockReviewRejected } = vi.hoisted(() => ({
+const { mockWuGet, mockReqGet, mockReqGetChain, mockProjectGet, mockChannelList, mockAgentSummary, mockGetAgentInstance, mockListAllAgents, mockResume, mockClose, mockTransitionStatus, mockReviewPassed, mockReviewRejected, mockGetTreeTokens } = vi.hoisted(() => ({
   mockWuGet: vi.fn(),
   mockReqGet: vi.fn(),
   mockReqGetChain: vi.fn(),
@@ -29,20 +29,27 @@ const { mockWuGet, mockReqGet, mockReqGetChain, mockProjectGet, mockChannelList,
   mockTransitionStatus: vi.fn(),
   mockReviewPassed: vi.fn(),
   mockReviewRejected: vi.fn(),
+  mockGetTreeTokens: vi.fn(),
 }));
 
-vi.mock('../../api/workunit', () => ({
-  workunitApi: {
-    get: mockWuGet,
-    listExecutionStepEvents: vi.fn().mockResolvedValue({ data: { events: [], total: 0 } }),
-    getMessages: vi.fn().mockResolvedValue({ data: { data: [] } }),
-    resume: mockResume,
-    close: mockClose,
-    transitionStatus: mockTransitionStatus,
-    reviewPassed: mockReviewPassed,
-    reviewRejected: mockReviewRejected,
-  },
-}));
+vi.mock('../../api/workunit', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../api/workunit')>();
+  return {
+    ...actual,
+    workunitApi: {
+      ...actual.workunitApi,
+      get: mockWuGet,
+      listExecutionStepEvents: vi.fn().mockResolvedValue({ data: { events: [], total: 0 } }),
+      getMessages: vi.fn().mockResolvedValue({ data: { data: [] } }),
+      resume: mockResume,
+      close: mockClose,
+      transitionStatus: mockTransitionStatus,
+      reviewPassed: mockReviewPassed,
+      reviewRejected: mockReviewRejected,
+      getTreeTokens: mockGetTreeTokens,
+    },
+  };
+});
 
 vi.mock('../../api/requirements', () => ({
   requirementApi: { get: mockReqGet, getChain: mockReqGetChain },
@@ -66,11 +73,10 @@ vi.mock('../../api/monitoring', () => ({
   monitoringApi: { getAgentSummary: mockAgentSummary, getAgentInstance: mockGetAgentInstance },
 }));
 
-// SSE context — 测试无 WebSocketProvider，置空（#318 后 ExecutionSteps 经此订阅步事件/重连）
+// SSE context — 测试无 WebSocketProvider，置空（ExecutionFlow 经此订阅步事件/重连）
 vi.mock('../../api/websocketHooks', () => ({
   useWebSocketContext: () => ({ onEvent: () => () => {}, onReconnect: () => () => {} }),
 }));
-vi.mock('../../hooks/useWorkUnitStreamEvents', () => ({ useWorkUnitStreamEvents: () => [] }));
 
 // #174: TranscriptViewer 桩（组件自身契约在 __tests__/TranscriptViewer.test.tsx 覆盖）
 vi.mock('../../components/workunit/TranscriptViewer', () => ({
@@ -108,6 +114,15 @@ const baseWu = {
   completedAt: '2026-07-30T12:00:00Z',
 };
 
+const treeTokenReport = {
+  rootId: 'wu-1',
+  rootTotal: 12000,
+  budgetRemaining: 8000,
+  nodes: [
+    { workUnitId: 'wu-1', profileName: 'coder-01', status: 'done', injectedTokens: 5000, executionTokens: 7000, totalTokens: 12000 },
+  ],
+};
+
 describe('WorkUnitDetailPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -129,6 +144,7 @@ describe('WorkUnitDetailPage', () => {
     mockTransitionStatus.mockResolvedValue({ data: { ...baseWu, status: 'unassigned' } });
     mockReviewPassed.mockResolvedValue({ data: { ...baseWu, status: 'done' } });
     mockReviewRejected.mockResolvedValue({ data: { ...baseWu, status: 'active' } });
+    mockGetTreeTokens.mockResolvedValue({ data: treeTokenReport });
     // #290（清单 #24）：负责人解析回退级默认「查无」——实例档案 404、profile 列表空
     mockGetAgentInstance.mockRejectedValue(new Error('404'));
     mockListAllAgents.mockResolvedValue({ data: { data: [] } });
@@ -146,29 +162,71 @@ describe('WorkUnitDetailPage', () => {
     expect(await screen.findByText(/加载失败: Not Found/)).toBeDefined();
   });
 
-  it('Header：标题取 metadata.title，含类型 chip / 状态 pill / 时间信息', async () => {
+  it('Header：标题取 metadata.title，含类型 chip / 状态 pill；头栏不再有「Token 开销」按钮（入口挪左栏事实行）', async () => {
     render(<WorkUnitDetailPage />);
     expect(await screen.findByText('登录功能开发')).toBeDefined();
     expect(screen.getByText('任务')).toBeDefined();
-    expect(screen.getAllByText('已完成').length).toBeGreaterThan(0); // #182：状态 pill 与速览节各出现一次
-    expect(screen.getByText(/创建 07\/30/)).toBeDefined();
-    expect(screen.getByText(/认领/)).toBeDefined();
-    expect(screen.getByText(/完成 07\/30/)).toBeDefined();
+    expect(screen.getAllByText('已完成').length).toBeGreaterThan(0);
+    expect(screen.queryByRole('button', { name: 'Token 开销' })).toBeNull();
   });
 
-  it('归属条：四种 chip 全部解析成功时齐备且链接正确', async () => {
+  it('四站 stepper：待领取→进行中→待验收→完成全渲染；done WU 各站时间戳正确（待验收口径 = l2.at）', async () => {
     render(<WorkUnitDetailPage />);
-    // PMO chip（创建期戳 metadata.pmoId 直查）→ /pmo/project/:id
-    const pmoLink = await screen.findByText('PM-0007 · 登录项目');
+    await screen.findByText('登录功能开发');
+    expect(screen.getByText('待领取')).toBeDefined();
+    expect(screen.getByText('进行中')).toBeDefined();
+    expect(screen.getByText('待验收')).toBeDefined();
+    expect(screen.getByText('完成')).toBeDefined();
+    // 待领取=创建 09:00 / 进行中=认领 09:30 / 待验收=l2.at 11:00 / 完成=completedAt 12:00
+    expect(screen.getAllByText('07/30 09:00').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('07/30 09:30').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('07/30 11:00').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('07/30 12:00').length).toBeGreaterThan(0);
+  });
+
+  it('生命周期关键事件 = stepper 下横排 chip（证据 L1/L2/L3 事件）', async () => {
+    render(<WorkUnitDetailPage />);
+    await screen.findByText('登录功能开发');
+    expect(screen.getByText('L1 自动验证通过')).toBeDefined();
+    expect(screen.getByText('L2 Agent 评审通过')).toBeDefined();
+    expect(screen.getByText('L3 人工验收通过')).toBeDefined();
+  });
+
+  it('分栏骨架：左栏 关键事实→证据台账，右栏 执行过程→会话原文（节标题有序）', async () => {
+    const { container } = render(<WorkUnitDetailPage />);
+    await screen.findByText('登录功能开发');
+    const titles = [...container.querySelectorAll('.wu-detail-sec-title')].map(el => el.textContent);
+    expect(titles).toEqual(['关键事实', '证据台账', '执行过程', '会话原文']);
+    expect(container.querySelector('.wu-detail-rail')).not.toBeNull();
+    expect(container.querySelector('.wu-detail-content')).not.toBeNull();
+  });
+
+  it('关键事实卡：PMO/REQ/频道/认领人/时间/Token 行齐备且链接正确', async () => {
+    render(<WorkUnitDetailPage />);
+    // PMO 行（创建期戳 metadata.pmoId 直查）→ /pmo/project/:id
+    const pmoLink = await screen.findByText('PM-0007');
     expect(pmoLink.closest('a')?.getAttribute('href')).toBe('/pmo/project/proj-1');
-    // REQ chip → 打开 RequirementChainPanel（非链接）
+    // REQ 行 → 打开 RequirementChainPanel（非链接）
     expect(screen.getByText('REQ-0042')).toBeDefined();
-    // 频道 chip → /channels/:channelId
+    // 频道行 → /channels/:channelId
     const channelLink = await screen.findByText('# 主频道');
     expect(channelLink.closest('a')?.getAttribute('href')).toBe('/channels/ch-1');
-    // 认领 agent chip → /agents/:roleId
+    // 认领人行 → /agents/:roleId
     const agentLink = await screen.findByText('@coder-01');
     expect(agentLink.closest('a')?.getAttribute('href')).toBe('/agents/role-1');
+    // 时间行 + Token 行（mono 总耗，整行可点开图表面板）
+    expect(screen.getByText('创建')).toBeDefined();
+    expect(screen.getByText('认领')).toBeDefined();
+    expect(screen.getByText('Token')).toBeDefined();
+    expect(await screen.findByRole('button', { name: /12\.0k/ })).toBeDefined();
+  });
+
+  it('Token 事实行点击打开图表面板（双 stat + 堆叠条）', async () => {
+    render(<WorkUnitDetailPage />);
+    fireEvent.click(await screen.findByRole('button', { name: /12\.0k/ }));
+    expect(await screen.findByText('协作树 Token 开销')).toBeDefined();
+    expect(screen.getByText('树总耗')).toBeDefined();
+    expect(screen.getByText('预算剩余')).toBeDefined();
   });
 
   it('PMO 解析回落：metadata 无 pmoId 时经 reqId → requirement.projectId 解析', async () => {
@@ -179,20 +237,23 @@ describe('WorkUnitDetailPage', () => {
       Promise.resolve({ data: { id: pid, pmoNumber: 'PM-0009', title: '回落项目' } }),
     );
     render(<WorkUnitDetailPage />);
-    const pmoLink = await screen.findByText('PM-0009 · 回落项目');
+    const pmoLink = await screen.findByText('PM-0009');
     expect(pmoLink.closest('a')?.getAttribute('href')).toBe('/pmo/project/proj-2');
     expect(mockReqGet).toHaveBeenCalledWith('REQ-0042');
     expect(mockProjectGet).toHaveBeenCalledWith('proj-2');
   });
 
-  it('归属条：无 reqId/channelId/assigneeId/PMO 时整条不显示', async () => {
+  it('关键事实卡：无 reqId/channelId/assigneeId/PMO 时归属行不渲染（创建/Token 行仍在）', async () => {
     mockWuGet.mockResolvedValue({
       data: { ...baseWu, reqId: null, channelId: null, assigneeId: null, metadata: '{}' },
     });
     render(<WorkUnitDetailPage />);
     await screen.findByText('实现登录功能'); // scope 兜底标题（metadata 无 title）
     await waitFor(() => expect(mockAgentSummary).not.toHaveBeenCalled());
-    expect(screen.queryByText('归属')).toBeNull();
+    expect(screen.queryByText('PMO')).toBeNull();
+    expect(screen.queryByText('认领人')).toBeNull();
+    expect(screen.queryByText('频道')).toBeNull();
+    expect(screen.getByText('创建')).toBeDefined();
   });
 
   it('认领 agent 匹配不到：显示 instance id 前 8 位且不可点', async () => {
@@ -216,13 +277,15 @@ describe('WorkUnitDetailPage', () => {
     expect(chip.closest('a')?.getAttribute('href')).toBe('/agents/role-9');
   });
 
-  it('证据台账：L1/L2/L3 三层徽章与评审结论', async () => {
+  it('证据台账：L1/L2/L3 三层紧凑行（drawer 变体）与评审结论', async () => {
     render(<WorkUnitDetailPage />);
-    expect(await screen.findByText('证据台账')).toBeDefined();
+    expect((await screen.findAllByText('证据台账')).length).toBeGreaterThan(0);
     expect(screen.getByText('L1 自动验证')).toBeDefined();
     expect(screen.getByText('L2 Agent 评审')).toBeDefined();
     expect(screen.getByText('L3 人工验收')).toBeDefined();
-    expect(screen.getAllByText('✓ 通过').length).toBe(3);
+    expect(screen.getByText(/✓ verify · profile-a/)).toBeDefined();
+    expect(screen.getByText(/✓ agent-review · profile-b/)).toBeDefined();
+    expect(screen.getByText(/✓ human-confirm · human-cc/)).toBeDefined();
     expect(screen.getByText('评审结论：LGTM')).toBeDefined();
   });
 
@@ -245,7 +308,7 @@ describe('WorkUnitDetailPage', () => {
     expect(await screen.findByText('登录需求')).toBeDefined();
   });
 
-  it('#185（决策 #87 D4）：blocked 卡住型 WU 显示处置组件（继续执行/关闭任务），点继续执行调 resume 并重拉', async () => {
+  it('#185（决策 #87 D4）：blocked 卡住型 WU 显示处置组件（继续执行/关闭任务），点继续执行调 resume 并重拉；stepper 下出阻塞 chip', async () => {
     mockWuGet.mockResolvedValue({
       data: {
         ...baseWu,
@@ -255,6 +318,8 @@ describe('WorkUnitDetailPage', () => {
       },
     });
     render(<WorkUnitDetailPage />);
+    // 关键事件 chip：阻塞
+    expect(await screen.findByText('阻塞')).toBeDefined();
     const resumeBtn = await screen.findByRole('button', { name: '继续执行' });
     expect(screen.getByRole('button', { name: '关闭任务' })).toBeDefined();
     fireEvent.click(resumeBtn);
@@ -263,7 +328,7 @@ describe('WorkUnitDetailPage', () => {
     await waitFor(() => expect(mockWuGet.mock.calls.length).toBeGreaterThanOrEqual(2));
   });
 
-  it('#185（决策 #87 D3）：blocked NEED_INPUT 型不显示「继续执行」，仅「关闭任务」', async () => {
+  it('#185（决策 #87 D3）：blocked NEED_INPUT 型不显示「继续执行」，仅「关闭任务」；挂起 chip 带问题 detail', async () => {
     mockWuGet.mockResolvedValue({
       data: {
         ...baseWu,
@@ -275,6 +340,7 @@ describe('WorkUnitDetailPage', () => {
     render(<WorkUnitDetailPage />);
     await screen.findByRole('button', { name: '关闭任务' });
     expect(screen.queryByRole('button', { name: '继续执行' })).toBeNull();
+    expect(screen.getByText('挂起等待输入')).toBeDefined();
   });
 
   it('#116：metadata.blockedBy/ac 非空 → 依赖清单（含各自状态与「找不到这张单」）+ 验收标准', async () => {
@@ -310,19 +376,41 @@ describe('WorkUnitDetailPage', () => {
     expect(screen.getByText('AC2 类型检查零错误')).toBeDefined();
   });
 
-  it('#116：无 blockedBy / ac → 不渲染「依赖与验收」卡', async () => {
+  it('#116：无 blockedBy / ac → 不渲染「依赖与验收」节', async () => {
     render(<WorkUnitDetailPage />);
     await screen.findByText('登录功能开发');
     expect(screen.queryByText('依赖与验收')).toBeNull();
   });
 
+  it('#163 T8-E2：metadata.opportunities 非空 → 左栏「巡检机会」节渲染', async () => {
+    mockWuGet.mockResolvedValue({
+      data: {
+        ...baseWu,
+        metadata: JSON.stringify({
+          title: '登录功能开发',
+          opportunities: [{ id: 'opp-1', problem: '重复拷贝', suggestion: '收口为工具函数', status: 'pending' }],
+        }),
+      },
+    });
+    render(<WorkUnitDetailPage />);
+    expect(await screen.findByText('巡检机会')).toBeDefined();
+  });
+
+  it('闸门动作节按状态条件渲染：done WU 不渲染', async () => {
+    render(<WorkUnitDetailPage />);
+    await screen.findByText('登录功能开发');
+    expect(screen.queryByText('闸门动作')).toBeNull();
+  });
+
   // #284（决策 #250 D1/F7-F9）：详情页（「新页面打开」落点）补齐闸门入口，与列表行/抽屉一致
-  it('#284：pending → 「确认（进待认领）」调 transitionStatus(unassigned) 并重拉详情', async () => {
+  it('#284：pending → 闸门动作节出「确认（进待认领）」调 transitionStatus(unassigned) 并重拉详情；人闸 chip 上 stepper 下', async () => {
     mockWuGet.mockResolvedValue({
       data: { ...baseWu, status: 'pending', completedAt: null, metadata: JSON.stringify({ title: '登录功能开发' }) },
     });
     render(<WorkUnitDetailPage />);
-    fireEvent.click(await screen.findByText('确认（进待认领）'));
+    expect(await screen.findByText('闸门动作')).toBeDefined();
+    expect(screen.getByText(/待确认人闸/)).toBeDefined();
+    fireEvent.click(screen.getByText('确认（进待认领）'));
     await waitFor(() => expect(mockTransitionStatus).toHaveBeenCalledWith('wu-1', 'unassigned'));
     await waitFor(() => expect(mockWuGet.mock.calls.length).toBeGreaterThanOrEqual(2));
   });
