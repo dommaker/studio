@@ -23,6 +23,7 @@ import {
   type ToolRow,
   type ToolRowState,
 } from './execution-rows';
+import { formatStepTokens, lastProgressEntry, mergeStepEvents } from '../../utils/executionSteps';
 
 // #240: 工具行四态 → 状态点/可读标签（运行中 pulse 黄点 / 成功绿 / 失败红 / 已中断灰）
 const TOOL_STATE_DOT: Record<ToolRowState, string> = {
@@ -67,27 +68,6 @@ interface GlanceMeta {
   stepCount?: number;
   /** #95 成功步环形簿记：[{step, action, summary, at}]，取最后一条当「最近进展」 */
   progressLog?: unknown;
-}
-
-/** progressLog 最后一条带 summary 的条目（畸形条目跳过） */
-function lastProgressEntry(log: unknown): { step?: number; summary: string } | null {
-  if (!Array.isArray(log)) return null;
-  for (let i = log.length - 1; i >= 0; i--) {
-    const e = log[i] as { step?: unknown; summary?: unknown } | null;
-    if (e && typeof e.summary === 'string' && e.summary) {
-      return { step: typeof e.step === 'number' ? e.step : undefined, summary: e.summary };
-    }
-  }
-  return null;
-}
-
-/** #318：步事件并集合并——按 executionId-step 去重（后到的覆盖），按步号升序；SSE 负载 append 与 REST 打底/重连 refetch 共用 */
-function mergeStepEvents(base: ExecutionStepEvent[], incoming: ExecutionStepEvent[]): ExecutionStepEvent[] {
-  if (incoming.length === 0) return base;
-  const byKey = new Map<string, ExecutionStepEvent>();
-  for (const s of base) byKey.set(`${s.executionId}-${s.step}`, s);
-  for (const s of incoming) byKey.set(`${s.executionId}-${s.step}`, s);
-  return [...byKey.values()].sort((a, b) => a.step - b.step || a.at.localeCompare(b.at));
 }
 
 export function ExecutionSteps({ workUnitId, wu }: { workUnitId: string; wu?: WorkUnit }) {
@@ -176,7 +156,7 @@ export function ExecutionSteps({ workUnitId, wu }: { workUnitId: string; wu?: Wo
             )}
             <div className="mc-kv">
               <span className="mc-kv-k">累计 token</span>
-              <span className="mc-kv-v">{steps === null ? '—' : formatTokens(totalTokens)}</span>
+              <span className="mc-kv-v">{steps === null ? '—' : formatStepTokens(totalTokens)}</span>
             </div>
             {currentStepNo / stepLimit >= BUDGET_HINT_RATIO && (
               <div className="mc-drawer-note">已接近步数上限：再超限将自动转人工审查</div>
@@ -233,7 +213,7 @@ export function ExecutionSteps({ workUnitId, wu }: { workUnitId: string; wu?: Wo
             <span className="mc-kv-k">#{s.step}{s.action ? ` · ${s.action}` : ''}{s.status === 'failed' ? ' · ✗ 失败' : ''}</span>
             <span className="mc-kv-v">
               {formatShortTime(s.at)}
-              {s.usage ? ` · ${formatTokens(s.usage.inputTokens + s.usage.outputTokens)} tok` : ''}
+              {s.usage ? ` · ${formatStepTokens(s.usage.inputTokens + s.usage.outputTokens)} tok` : ''}
             </span>
           </div>
           {s.thinking.map((t, i) => (
@@ -253,6 +233,3 @@ export function ExecutionSteps({ workUnitId, wu }: { workUnitId: string; wu?: Wo
   );
 }
 
-function formatTokens(n: number): string {
-  return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
-}

@@ -1,7 +1,9 @@
-// WorkUnitDetailPage — /workunits/:id WU 详情页（全站跳转枢纽，2026-07 agents-pmo-flow-ux §5.4）
-// 自上而下：Header（类型+状态+标题+时间+failureType）→ 归属条（PMO/REQ/频道/认领 agent 四回跳）
-// → 证据台账 L1/L2/L3（与 WorkUnitDrawer 同一数据路径：deriveDisplayState / parseAttestations）
-// → 执行过程（复用 ExecutionSteps，自带 REST 回放 + 实时流）→ 会话原文（#174 TranscriptViewer）→ 讨论区（复用 DiscussionPanel）
+// WorkUnitDetailPage — /workunits/:id WU 详情页（#396 重构，spec redesign-2026-08 §5 定稿变体 C）
+// 骨架：Header（← 返回 + 类型/状态徽章 + 标题）→ 四站 stepper（待领取→进行中→待验收→完成，
+// 生命周期关键事件 = stepper 下一行横排 chip）→ 左右两栏。
+// 分栏标准（§5.1 核心决议）：左栏 260px = 判断/操作的输入（关键事实→证据台账→依赖与验收→巡检机会→闸门动作，
+// 后三节按数据条件渲染）；右栏 = 过程/记录（执行过程 ExecutionFlow → 会话原文 → 讨论区）。
+// 数据获取/派生/mutation handler 逻辑沿用重构前实现；「待验收」站时间戳口径见 utils/wuLifecycle.ts 注释（§5.6.2）。
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { deriveDisplayState, parseAttestations, WU_STATUS_COLORS, WU_STATUS_LABELS, WU_TYPE_LABELS } from '@dommaker/studio-shared/web';
@@ -10,21 +12,24 @@ import { requirementApi } from '../api/requirements';
 import { projectApi } from '../api/index';
 import { channelApi } from '../api/channel';
 import { AssigneeLabel } from '../components/workunit/AssigneeLabel';
-import { ExecutionSteps } from '../components/workunit/ExecutionSteps';
+import { ExecutionFlow } from '../components/workunit/ExecutionFlow';
 import { BlockedActions } from '../components/workunit/BlockedActions';
 import { TranscriptViewer } from '../components/workunit/TranscriptViewer';
 import { DiscussionPanel } from '../components/DiscussionPanel';
 import { RequirementChainPanel } from '../components/requirement/RequirementChainPanel';
 import { SelfReviewBadge } from '../components/workunit/SelfReviewBadge';
-import { TreeTokenDrawer } from '../components/workunit/TreeTokenDrawer';
 import { EvidenceLedger } from '../components/workunit/EvidenceLedger';
 import { OpportunitiesPanel } from '../components/workunit/OpportunitiesPanel';
 import { BlockedByList } from '../components/workunit/BlockedByList';
+import { StationStepper, LifecycleEventChips } from '../components/workunit/StationStepper';
+import { TreeTokenEntry } from '../components/workunit/TreeTokenChart';
 import { BackButton } from '../components/ui';
 import { parseBlockedBy, buildMapOpeningPrefill } from '../components/pmo/mapUtils';
 import { AnalysisApproveDialog } from '../components/pmo/AnalysisApproveDialog';
+import { buildLifecycle } from '../utils/wuLifecycle';
 import { formatShortTime } from '../utils/datetime';
 import { parseWuMeta } from '../utils/wuMeta';
+import '../styles/wu-detail.css';
 
 interface PmoInfo {
   id: string;
@@ -52,6 +57,16 @@ async function resolvePmo(wu: WorkUnit): Promise<PmoInfo | null> {
   } catch { return null; }
 }
 
+/** 关键事实卡行：label + 值（值超长截断） */
+function FactRow({ k, children }: { k: string; children: React.ReactNode }) {
+  return (
+    <div className="wu-detail-fact">
+      <span className="wu-detail-fact-k">{k}</span>
+      <span className="wu-detail-fact-v">{children}</span>
+    </div>
+  );
+}
+
 export function WorkUnitDetailPage() {
   const { id } = useParams<{ id: string }>();
   const [wu, setWu] = useState<WorkUnit | null>(null);
@@ -59,7 +74,6 @@ export function WorkUnitDetailPage() {
   const [pmo, setPmo] = useState<PmoInfo | null>(null);
   const [channelName, setChannelName] = useState<string | null>(null);
   const [chainReqId, setChainReqId] = useState<string | null>(null);
-  const [showTreeTokens, setShowTreeTokens] = useState(false);
   // #185：blocked 处置动作成功后 +1 触发重拉详情
   const [actionTick, setActionTick] = useState(0);
   // #284（决策 #250 D1/F7-F9）：闸门入口补齐——pending 确认 / in_review 通过+拒绝（拒绝带原因）
@@ -86,7 +100,7 @@ export function WorkUnitDetailPage() {
         if (!alive) return;
         const unit = r.data;
         setWu(unit);
-        // 归属解析全部 best-effort 并行：解析不到就不显示对应 chip，不阻塞页面
+        // 归属解析全部 best-effort 并行：解析不到就不显示对应行，不阻塞页面
         resolvePmo(unit).then(p => { if (alive) setPmo(p); });
         if (unit.channelId) {
           channelApi.list()
@@ -107,6 +121,9 @@ export function WorkUnitDetailPage() {
   const acList = Array.isArray(meta.ac)
     ? (meta.ac as unknown[]).filter((x): x is string => typeof x === 'string' && x.length > 0)
     : [];
+  const opportunities = Array.isArray(meta.opportunities) && (meta.opportunities as Opportunity[]).length > 0
+    ? (meta.opportunities as Opportunity[])
+    : null;
   // #163 T8-E2: 采纳/忽略机会后重拉 WU（走与首屏相同的 workunitApi.get 路径，只刷新 wu 本体）
   const reloadWu = () => {
     if (!id) return;
@@ -141,115 +158,107 @@ export function WorkUnitDetailPage() {
   // F6 派生（铁律：徽章/证据判断一律过 deriveDisplayState，不自行解释 attestations）
   const derived = wu ? deriveDisplayState({ status: wu.status, metadata: wu.metadata }) : null;
   const attestations = wu ? parseAttestations(wu.metadata) : undefined;
+  const life = wu && derived ? buildLifecycle(wu, derived, meta, attestations) : null;
+  const hasGate = wu !== null && (wu.status === 'pending' || wu.status === 'in_review' || wu.status === 'blocked');
 
   return (
-    <div className="h-full flex flex-col" style={{ background: 'var(--bg-primary)' }}>
-      {/* Header */}
-      <div className="px-8 py-6" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-        {/* #393 §4.4：详情页统一左上返回（直开回落 /workunits） */}
-        <div className="mb-4"><BackButton fallback="/workunits" /></div>
-        <div className="flex items-center justify-between gap-4">
-          <div className="flex items-center gap-2 min-w-0">
-            {wu && derived && (
-              <>
-                <span className="text-xs px-2 py-0.5 rounded u-surface-2 u-text-2 flex-shrink-0">
-                  {WU_TYPE_LABELS[wu.type] ?? wu.type}
-                </span>
-                <span className={`text-xs px-2 py-0.5 rounded flex-shrink-0 ${WU_STATUS_COLORS[derived.column] || 'u-surface-2 u-text-3'}`}>
-                  {WU_STATUS_LABELS[derived.column] ?? derived.column}
-                </span>
-                <SelfReviewBadge wu={wu} />
-              </>
-            )}
-            <h1 className="page-title truncate">{wu ? title : 'WorkUnit 详情'}</h1>
-          </div>
-          <div className="flex items-center gap-2 flex-shrink-0">
-            {wu && (
-              <button
-                className="btn btn-secondary"
-                onClick={() => setShowTreeTokens(true)}
-                title="查看整条协作树各节点的 Token 消耗与预算剩余"
-              >
-                Token 开销
-              </button>
-            )}
-          </div>
+    <div className="wu-detail">
+      {/* Header：← 返回（§4.4 统一组件）+ 类型/状态徽章 + 标题 */}
+      <div className="wu-detail-header">
+        <div className="wu-detail-header-back"><BackButton fallback="/workunits" /></div>
+        <div className="flex items-center gap-2 min-w-0">
+          {wu && derived && (
+            <>
+              <span className="text-xs px-2 py-0.5 rounded u-surface-2 u-text-2 flex-shrink-0">
+                {WU_TYPE_LABELS[wu.type] ?? wu.type}
+              </span>
+              <span className={`text-xs px-2 py-0.5 rounded flex-shrink-0 ${WU_STATUS_COLORS[derived.column] || 'u-surface-2 u-text-3'}`}>
+                {WU_STATUS_LABELS[derived.column] ?? derived.column}
+              </span>
+              <SelfReviewBadge wu={wu} />
+            </>
+          )}
+          <h1 className="page-title truncate">{wu ? title : 'WorkUnit 详情'}</h1>
         </div>
-        {wu && (
-          <p className="page-subtitle">
-            创建 {formatShortTime(wu.createdAt)}
-            {wu.claimedAt && ` · 认领 ${formatShortTime(wu.claimedAt)}`}
-            {wu.completedAt && ` · 完成 ${formatShortTime(wu.completedAt)}`}
-          </p>
-        )}
-        {wu?.failureType && (
-          <div className="mt-2 text-xs u-err">失败类型：{wu.failureType}</div>
-        )}
       </div>
 
-      <div className="flex-1 overflow-auto px-8 pb-8">
-        <div className="max-w-5xl">
-          {error ? (
-            <div className="mt-4 p-3 rounded u-err-dim u-err text-sm">加载失败: {error}</div>
-          ) : !wu || !derived ? (
-            <div className="text-center py-20 u-text-2">加载中...</div>
-          ) : (
-            <>
-              {/* 归属条（核心，四个跳转） */}
-              {(pmo || wu.reqId || wu.channelId || wu.assigneeId) && (
-                <div
-                  className="card mt-4 p-3 flex items-center gap-2 flex-wrap"
-                >
-                  <span className="text-xs u-text-3">归属</span>
+      {/* 四站 stepper 全页共享定位条 + 生命周期关键事件 chip 行（无事件不占行） */}
+      {life && (
+        <div className="wu-detail-stepperwrap">
+          <StationStepper stations={life.stations} />
+          <LifecycleEventChips events={life.events} />
+        </div>
+      )}
+
+      {error ? (
+        <div className="wu-detail-body-single">
+          <div className="p-3 rounded u-err-dim u-err text-sm">加载失败: {error}</div>
+        </div>
+      ) : !wu || !derived || !life ? (
+        <div className="wu-detail-body-single text-center py-20 u-text-2">加载中...</div>
+      ) : (
+        <div className="wu-detail-body">
+          {/* 左栏 260px = 判断/操作的输入 */}
+          <aside className="wu-detail-rail">
+            <section className="wu-detail-sec">
+              <h3 className="wu-detail-sec-title">关键事实</h3>
+              <div className="wu-detail-card">
+                <div className="wu-detail-facts">
                   {pmo && (
-                    <Link
-                      to={`/pmo/project/${pmo.id}`}
-                      className="text-xs px-2 py-0.5 rounded u-accent-dim u-accent u-hover-bg"
-                      title="所属 PMO 项目"
-                    >
-                      {pmo.pmoNumber} · {pmo.title}
-                    </Link>
+                    <FactRow k="PMO">
+                      <Link to={`/pmo/project/${pmo.id}`} className="u-accent" title={`所属 PMO 项目：${pmo.title}`}>
+                        {pmo.pmoNumber}
+                      </Link>
+                    </FactRow>
                   )}
                   {wu.reqId && (
-                    <button
-                      className="text-xs px-2 py-0.5 rounded u-accent-dim u-accent u-hover-bg"
-                      title="查看 REQ 全链路"
-                      onClick={() => setChainReqId(wu.reqId ?? null)}
-                    >
-                      {wu.reqId}
-                    </button>
+                    <FactRow k="REQ">
+                      <button className="u-accent wu-detail-fact-btn" title="查看 REQ 全链路" onClick={() => setChainReqId(wu.reqId ?? null)}>
+                        {wu.reqId}
+                      </button>
+                    </FactRow>
                   )}
                   {wu.channelId && (
-                    <Link
-                      to={`/channels/${wu.channelId}`}
-                      className="text-xs px-2 py-0.5 rounded u-surface-2 u-text-3 u-hover-bg"
-                      title="所在频道"
-                    >
-                      # {channelName ?? `${wu.channelId.slice(0, 8)}...`}
-                    </Link>
+                    <FactRow k="频道">
+                      <Link to={`/channels/${wu.channelId}`} className="u-text-2" title="所在频道">
+                        # {channelName ?? `${wu.channelId.slice(0, 8)}...`}
+                      </Link>
+                    </FactRow>
                   )}
                   {wu.assigneeId && (
-                    <AssigneeLabel
-                      assigneeId={wu.assigneeId}
-                      className="text-xs px-2 py-0.5 rounded u-surface-2 u-text-3 u-hover-bg"
-                    />
+                    <FactRow k="认领人">
+                      <AssigneeLabel assigneeId={wu.assigneeId} className="u-text-2" />
+                    </FactRow>
                   )}
+                  <FactRow k="创建"><span className="wu-detail-time">{formatShortTime(wu.createdAt)}</span></FactRow>
+                  {wu.claimedAt && (
+                    <FactRow k="认领"><span className="wu-detail-time">{formatShortTime(wu.claimedAt)}</span></FactRow>
+                  )}
+                  {wu.completedAt && (
+                    <FactRow k="完成"><span className="wu-detail-time">{formatShortTime(wu.completedAt)}</span></FactRow>
+                  )}
+                  {wu.failureType && (
+                    <FactRow k="失败类型"><span className="u-err">{wu.failureType}</span></FactRow>
+                  )}
+                  {/* §5.4：Token 行 = 图表面板入口（mono 总耗 + 迷你预算占比条，整行可点） */}
+                  <FactRow k="Token"><TreeTokenEntry workUnitId={wu.id} /></FactRow>
                 </div>
-              )}
+              </div>
+            </section>
 
-              {/* #163 T8-E2 巡检机会清单（metadata.opportunities 非空数组才渲染） */}
-              {Array.isArray(meta.opportunities) && (meta.opportunities as Opportunity[]).length > 0 && (
-                <OpportunitiesPanel
-                  workUnitId={wu.id}
-                  opportunities={meta.opportunities as Opportunity[]}
-                  onChanged={reloadWu}
-                />
-              )}
+            {/* F6 证据台账：L1/L2/L3（drawer 紧凑变体适配窄栏；自带 mc-block-label 由 CSS 隐藏，区标题统一） */}
+            <section className="wu-detail-sec">
+              <h3 className="wu-detail-sec-title">证据台账</h3>
+              <div className="wu-detail-card">
+                <EvidenceLedger attestations={attestations} variant="drawer" />
+              </div>
+            </section>
 
-              {/* #116：依赖与验收（blockedBy 依赖清单含各自状态 + ac 验收标准；两者皆无则不渲染） */}
-              {(blockedByIds.length > 0 || acList.length > 0) && (
-                <div className="card mt-4 p-3">
-                  <h3 className="text-sm font-medium u-text-2 mb-2">依赖与验收</h3>
+            {/* #116：依赖与验收（blockedBy 依赖清单含各自状态 + ac 验收标准；两者皆无则不渲染） */}
+            {(blockedByIds.length > 0 || acList.length > 0) && (
+              <section className="wu-detail-sec">
+                <h3 className="wu-detail-sec-title">依赖与验收</h3>
+                <div className="wu-detail-card">
                   <BlockedByList metadata={wu.metadata} />
                   {acList.length > 0 && (
                     <div className={blockedByIds.length > 0 ? 'mt-2' : ''}>
@@ -260,71 +269,78 @@ export function WorkUnitDetailPage() {
                     </div>
                   )}
                 </div>
-              )}
+              </section>
+            )}
 
-              {/* F6 证据台账：L1 自动验证 / L2 Agent 评审 / L3 人工验收（共享 EvidenceLedger，数据路径同 WorkUnitDrawer） */}
-              <EvidenceLedger attestations={attestations} variant="card" />
-
-              {/* #284（决策 #250 D1/F7-F9）：闸门类人审入口补齐详情页（「新页面打开」落点此前无任何审查操作），
-                  与列表行/频道抽屉三处一致——pending 确认（进待认领）；in_review 通过/拒绝（拒绝带原因） */}
-              {wu.status === 'pending' && (
-                <div className="card mt-4 p-3">
-                  <button
-                    className="btn btn-primary"
-                    disabled={confirming}
-                    title="待确认人闸：扩范围单创建落待确认，确认后进入待认领（agent 可见可认领）"
-                    onClick={handleConfirmPending}
-                  >
-                    {confirming ? '提交中…' : '确认（进待认领）'}
-                  </button>
+            {/* #163 T8-E2 巡检机会清单（metadata.opportunities 非空数组才渲染） */}
+            {opportunities && (
+              <section className="wu-detail-sec">
+                <h3 className="wu-detail-sec-title">巡检机会</h3>
+                <div className="wu-detail-card">
+                  <OpportunitiesPanel workUnitId={wu.id} opportunities={opportunities} onChanged={reloadWu} />
                 </div>
-              )}
-              {wu.status === 'in_review' && (
-                <div className="card mt-4 p-3 flex gap-2">
-                  <button
-                    className="btn btn-primary"
-                    disabled={confirming}
-                    title="审查硬门：通过→done（analysis 通过后按 TASK 拆分自动派工）"
-                    onClick={handleApprove}
-                  >
-                    {confirming ? '提交中…' : '通过（审查闸门）'}
-                  </button>
-                  <button
-                    className="btn btn-danger"
-                    disabled={confirming}
-                    title="审查硬门：拒绝→返工（附原因供 agent 修正）"
-                    onClick={() => setShowRejectModal(true)}
-                  >
-                    拒绝
-                  </button>
+              </section>
+            )}
+
+            {/* 闸门动作（#284 pending 确认 / in_review 通过+拒绝；#185 blocked 处置）——整节按状态条件渲染 */}
+            {hasGate && (
+              <section className="wu-detail-sec">
+                <h3 className="wu-detail-sec-title">闸门动作</h3>
+                <div className="wu-detail-card">
+                  {wu.status === 'pending' && (
+                    <button
+                      className="btn btn-primary"
+                      disabled={confirming}
+                      title="待确认人闸：扩范围单创建落待确认，确认后进入待认领（agent 可见可认领）"
+                      onClick={handleConfirmPending}
+                    >
+                      {confirming ? '提交中…' : '确认（进待认领）'}
+                    </button>
+                  )}
+                  {wu.status === 'in_review' && (
+                    <div className="flex gap-2">
+                      <button
+                        className="btn btn-primary"
+                        disabled={confirming}
+                        title="审查硬门：通过→done（analysis 通过后按 TASK 拆分自动派工）"
+                        onClick={handleApprove}
+                      >
+                        {confirming ? '提交中…' : '通过（审查闸门）'}
+                      </button>
+                      <button
+                        className="btn btn-danger"
+                        disabled={confirming}
+                        title="审查硬门：拒绝→返工（附原因供 agent 修正）"
+                        onClick={() => setShowRejectModal(true)}
+                      >
+                        拒绝
+                      </button>
+                    </div>
+                  )}
+                  <BlockedActions wu={wu} onChanged={() => setActionTick(t => t + 1)} />
                 </div>
-              )}
+              </section>
+            )}
+          </aside>
 
-              {/* #185（决策 #87 D4）：blocked 处置（继续执行/关闭任务），与 WorkUnitDrawer 同一组件；
-                  动作成功后经 actionTick 重拉详情 */}
-              <BlockedActions wu={wu} onChanged={() => setActionTick(t => t + 1)} />
-
-              {/* 执行过程（思考/工具调用/用量；组件自带 REST 回放 + SSE 实时流，页面不接 SSE）。
-                  #182：传 wu 启用置顶「当前状态速览」节（决策 #61，与 WorkUnitDrawer 同组件复用） */}
-              <div
-                className="card mt-4 p-3"
-              >
-                <ExecutionSteps workUnitId={wu.id} wu={wu} />
+          {/* 右栏 = 过程/记录纯叙事流：执行过程 → 会话原文 → 讨论区 */}
+          <div className="wu-detail-content">
+            <section className="wu-detail-sec">
+              <h3 className="wu-detail-sec-title">执行过程</h3>
+              <div className="wu-detail-card">
+                <ExecutionFlow workUnitId={wu.id} wu={wu} />
               </div>
-
-              {/* 会话原文（#174）：归档 transcript 只读查看，默认折叠按需加载 */}
-              <div
-                className="card mt-4 p-3"
-              >
-                <TranscriptViewer workUnitId={wu.id} />
-              </div>
-
-              {/* 讨论区（WU 级消息，无需频道上下文） */}
+            </section>
+            {/* 会话原文/讨论区：组件自带功能头（折叠 toggle / 讨论空间标题栏），不再叠区标题（§5.5 节容器规格由组件外壳承担） */}
+            <section className="wu-detail-sec">
+              <TranscriptViewer workUnitId={wu.id} />
+            </section>
+            <section className="wu-detail-sec">
               <DiscussionPanel workUnitId={wu.id} />
-            </>
-          )}
+            </section>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* REQ 全链路弹窗（复用 RequirementChainPanel） */}
       {chainReqId && <RequirementChainPanel reqId={chainReqId} onClose={() => setChainReqId(null)} />}
@@ -369,11 +385,6 @@ export function WorkUnitDetailPage() {
             </div>
           </div>
         </div>
-      )}
-
-      {/* AC-5.6: 协作树 Token 开销弹窗 */}
-      {showTreeTokens && wu && (
-        <TreeTokenDrawer workUnitId={wu.id} onClose={() => setShowTreeTokens(false)} />
       )}
     </div>
   );

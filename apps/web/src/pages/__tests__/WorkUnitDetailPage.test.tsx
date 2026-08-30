@@ -85,6 +85,8 @@ vi.mock('../../components/workunit/TranscriptViewer', () => ({
 }));
 
 import { WorkUnitDetailPage } from '../WorkUnitDetailPage';
+import { formatShortTime } from '../../utils/datetime';
+import { useRosterStore } from '../../stores/rosterStore';
 
 const baseWu = {
   id: 'wu-1',
@@ -126,6 +128,13 @@ const treeTokenReport = {
 describe('WorkUnitDetailPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // #346：AssigneeLabel 解析面读 rosterStore（模块级单例），每测重置避免 TTL 缓存跨测串味
+    useRosterStore.setState({
+      profiles: [], agents: [], channels: [],
+      loading: false, error: null, forbidden: false,
+      loadedAt: null, channelsLoadedOnce: false, agentsLoadedOnce: false,
+      inflight: null, lastToken: null,
+    });
     mockWuGet.mockResolvedValue({ data: baseWu });
     mockProjectGet.mockResolvedValue({ data: { id: 'proj-1', pmoNumber: 'PM-0007', title: '登录项目' } });
     mockReqGet.mockResolvedValue({ data: { success: true, data: { id: 'REQ-0042', projectId: 'proj-2' } } });
@@ -176,12 +185,13 @@ describe('WorkUnitDetailPage', () => {
     expect(screen.getByText('待领取')).toBeDefined();
     expect(screen.getByText('进行中')).toBeDefined();
     expect(screen.getByText('待验收')).toBeDefined();
-    expect(screen.getByText('完成')).toBeDefined();
-    // 待领取=创建 09:00 / 进行中=认领 09:30 / 待验收=l2.at 11:00 / 完成=completedAt 12:00
-    expect(screen.getAllByText('07/30 09:00').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('07/30 09:30').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('07/30 11:00').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('07/30 12:00').length).toBeGreaterThan(0);
+    // 站标签「完成」与关键事实卡「完成」行同名，按站 class 甄别
+    expect(screen.getAllByText('完成').some(el => el.className.includes('wu-st-label'))).toBe(true);
+    // 待领取=创建 09:00 / 进行中=认领 09:30 / 待验收=l2.at 11:00 / 完成=completedAt 12:00（断言经 formatShortTime 派生，TZ 无关）
+    expect(screen.getAllByText(formatShortTime('2026-07-30T09:00:00Z')).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(formatShortTime('2026-07-30T09:30:00Z')).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(formatShortTime('2026-07-30T11:00:00Z')).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(formatShortTime('2026-07-30T12:00:00Z')).length).toBeGreaterThan(0);
   });
 
   it('生命周期关键事件 = stepper 下横排 chip（证据 L1/L2/L3 事件）', async () => {
@@ -192,13 +202,17 @@ describe('WorkUnitDetailPage', () => {
     expect(screen.getByText('L3 人工验收通过')).toBeDefined();
   });
 
-  it('分栏骨架：左栏 关键事实→证据台账，右栏 执行过程→会话原文（节标题有序）', async () => {
+  it('分栏骨架：左栏 关键事实→证据台账，右栏 执行过程→会话原文→讨论区（节标题有序；会话原文/讨论区组件自带功能头）', async () => {
     const { container } = render(<WorkUnitDetailPage />);
     await screen.findByText('登录功能开发');
     const titles = [...container.querySelectorAll('.wu-detail-sec-title')].map(el => el.textContent);
-    expect(titles).toEqual(['关键事实', '证据台账', '执行过程', '会话原文']);
+    expect(titles).toEqual(['关键事实', '证据台账', '执行过程']);
     expect(container.querySelector('.wu-detail-rail')).not.toBeNull();
     expect(container.querySelector('.wu-detail-content')).not.toBeNull();
+    // 右栏序：执行过程（stat 行）→ 会话原文（#174 桩）→ 讨论区
+    expect(screen.getByText('累计 token')).toBeDefined();
+    expect(screen.getByTestId('transcript-viewer')).toBeDefined();
+    expect(screen.getByText('讨论空间')).toBeDefined();
   });
 
   it('关键事实卡：PMO/REQ/频道/认领人/时间/Token 行齐备且链接正确', async () => {
@@ -283,9 +297,9 @@ describe('WorkUnitDetailPage', () => {
     expect(screen.getByText('L1 自动验证')).toBeDefined();
     expect(screen.getByText('L2 Agent 评审')).toBeDefined();
     expect(screen.getByText('L3 人工验收')).toBeDefined();
-    expect(screen.getByText(/✓ verify · profile-a/)).toBeDefined();
-    expect(screen.getByText(/✓ agent-review · profile-b/)).toBeDefined();
-    expect(screen.getByText(/✓ human-confirm · human-cc/)).toBeDefined();
+    expect(screen.getByText(/✓ verify · /)).toBeDefined();
+    expect(screen.getByText(/✓ agent-review · /)).toBeDefined();
+    expect(screen.getByText(/✓ human-confirm · /)).toBeDefined();
     expect(screen.getByText('评审结论：LGTM')).toBeDefined();
   });
 
@@ -318,8 +332,9 @@ describe('WorkUnitDetailPage', () => {
       },
     });
     render(<WorkUnitDetailPage />);
-    // 关键事件 chip：阻塞
-    expect(await screen.findByText('阻塞')).toBeDefined();
+    // 关键事件 chip：阻塞（与状态 pill 同名，按 chip class 甄别）
+    const blockedTexts = await screen.findAllByText('阻塞');
+    expect(blockedTexts.some(el => el.closest('.wu-chip'))).toBe(true);
     const resumeBtn = await screen.findByRole('button', { name: '继续执行' });
     expect(screen.getByRole('button', { name: '关闭任务' })).toBeDefined();
     fireEvent.click(resumeBtn);

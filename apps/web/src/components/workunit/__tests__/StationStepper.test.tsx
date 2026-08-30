@@ -3,7 +3,12 @@ import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import React from 'react';
 import { StationStepper, LifecycleEventChips } from '../StationStepper';
+import { formatShortTime } from '../../../utils/datetime';
 import type { WuStation, WuKeyEvent } from '../../../utils/wuLifecycle';
+
+const t1 = formatShortTime('2026-07-30T09:00:00Z');
+const t2 = formatShortTime('2026-07-30T09:30:00Z');
+const t3 = formatShortTime('2026-07-30T10:00:00Z');
 
 const stations: WuStation[] = [
   { id: 'claim', label: '待领取', time: '2026-07-30T09:00:00Z', state: 'done' },
@@ -19,8 +24,8 @@ describe('StationStepper', () => {
     expect(screen.getByText('进行中')).toBeDefined();
     expect(screen.getByText('待验收')).toBeDefined();
     expect(screen.getByText('完成')).toBeDefined();
-    expect(screen.getByText('07/30 09:00')).toBeDefined();
-    expect(screen.getByText('07/30 09:30')).toBeDefined();
+    expect(screen.getByText(t1)).toBeDefined();
+    expect(screen.getByText(t2)).toBeDefined();
     expect(screen.getAllByText('-').length).toBe(2);
   });
 
@@ -47,7 +52,7 @@ describe('LifecycleEventChips', () => {
     expect(blocked?.className).toContain('wu-ev-danger');
     expect(blocked?.getAttribute('title')).toBe('stuck');
     expect(screen.getByText('L2 Agent 评审通过').closest('.wu-chip')?.className).toContain('wu-ev-accent');
-    expect(screen.getByText('07/30 10:00')).toBeDefined();
+    expect(screen.getByText(t3)).toBeDefined();
   });
 
   it('无事件不渲染（不占行）', () => {

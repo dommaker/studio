@@ -5,17 +5,17 @@ import React from 'react';
 
 const { mockListSteps } = vi.hoisted(() => ({ mockListSteps: vi.fn() }));
 
-vi.mock('../../api/workunit', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../api/workunit')>();
+vi.mock('../../../api/workunit', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../api/workunit')>();
   return { ...actual, workunitApi: { ...actual.workunitApi, listExecutionStepEvents: mockListSteps } };
 });
 
-vi.mock('../../api/websocketHooks', () => ({
+vi.mock('../../../api/websocketHooks', () => ({
   useWebSocketContext: () => ({ onEvent: () => () => {}, onReconnect: () => () => {} }),
 }));
 
 import { ExecutionFlow } from '../ExecutionFlow';
-import type { WorkUnit } from '../../api/workunit';
+import type { WorkUnit } from '../../../api/workunit';
 
 const baseWu: WorkUnit = {
   id: 'wu-1',
@@ -62,9 +62,9 @@ describe('ExecutionFlow', () => {
     render(<ExecutionFlow workUnitId="wu-1" wu={baseWu} />);
     expect(await screen.findByText('读代码')).toBeDefined();
     expect(screen.getByText('状态')).toBeDefined();
-    expect(screen.getByText('进行中')).toBeDefined();
+    expect(screen.getByText('执行中')).toBeDefined();
     expect(screen.getByText('进度')).toBeDefined();
-    expect(screen.getByText(/第 2 步/)).toBeDefined();
+    expect(screen.getAllByText(/第 2 步/).length).toBeGreaterThan(0);
     expect(screen.getByText(/上限 15/)).toBeDefined();
     // 1500 + 3000 = 4500 → 4.5k
     expect(screen.getByText('累计 token')).toBeDefined();

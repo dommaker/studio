@@ -5,8 +5,8 @@ import React from 'react';
 
 const { mockGetTreeTokens } = vi.hoisted(() => ({ mockGetTreeTokens: vi.fn() }));
 
-vi.mock('../../api/workunit', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../api/workunit')>();
+vi.mock('../../../api/workunit', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../api/workunit')>();
   return { ...actual, workunitApi: { ...actual.workunitApi, getTreeTokens: mockGetTreeTokens } };
 });
 
@@ -50,9 +50,9 @@ describe('TreeTokenChart', () => {
     fireEvent.click(await screen.findByRole('button', { name: /12\.0k/ }));
     await screen.findByText('树总耗');
     const ids = [...container.querySelectorAll('.wu-token-row-id')].map(el => el.textContent);
-    expect(ids).toEqual(['wu-aaaa', 'wu-bbbb']);
-    expect(container.querySelectorAll('.wu-token-seg-inj').length).toBe(2);
-    expect(container.querySelectorAll('.wu-token-seg-exec').length).toBe(2);
+    expect(ids).toEqual(['wu-aaaa1', 'wu-bbbb2']);
+    expect(container.querySelectorAll('.wu-token-rows .wu-token-seg-inj').length).toBe(2);
+    expect(container.querySelectorAll('.wu-token-rows .wu-token-seg-exec').length).toBe(2);
     expect(screen.getByText('注入')).toBeDefined();
     expect(screen.getByText('执行')).toBeDefined();
     expect(screen.getByText('coder-01')).toBeDefined();
