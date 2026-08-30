@@ -157,6 +157,38 @@ export interface SectionTrimStats {
   source: 'events' | 'insufficient-data';
 }
 
+/** #398：角色效率（/monitoring/overview 的 roles 段；镜像后端 metrics.types.ts RoleMetrics） */
+export interface RoleMetrics {
+  roles: Array<{
+    profileId: string;
+    profileName: string;
+    /** 窗口内认领数（claimed 事件归因） */
+    claims: number;
+    /** 窗口内完成数（completed 快照归因） */
+    completions: number;
+    /** 平均执行时长（小时，认领→完成；无 → null） */
+    avgDurationHours: number | null;
+    /** NEED_INPUT 次数：澄清期（waitingReason='ownership'，开工前问归属） */
+    needInputClarify: number;
+    /** NEED_INPUT 次数：执行期（执行中 agent 提问） */
+    needInputExecution: number;
+  }>;
+}
+
+/** #398：人工干预（/monitoring/overview 的 humanIntervention 段；镜像后端 HumanInterventionMetrics） */
+export interface HumanInterventionMetrics {
+  /** 窗口内完成的 WU 数（分母） */
+  completedWorkUnits: number;
+  /** NEED_INPUT 挂起次数 */
+  needInputCount: number;
+  /** review 驳回次数（含 dispatcher 自动驳回，数据源无法区分） */
+  reviewRejections: number;
+  /** 合并冲突转人工次数 */
+  mergeConflicts: number;
+  /** 北极星：每完成 WU 的平均人工干预次数；无完成 → null 不编造 */
+  avgPerCompletedWu: number | null;
+}
+
 /** #120：/monitoring/efficiency —— 输入缓存命中率 + 段 trim 率 */
 export interface EfficiencyStats {
   windowDays: number;
@@ -170,8 +202,8 @@ export const monitoringApi = {
   getStats: () => api.get<MonitoringStats>('/monitoring/stats'),
   getFlywheel: () => api.get<FlywheelStats>('/monitoring/flywheel'),
   getOverhead: () => api.get<OverheadStats>('/monitoring/overhead'),
-  /** F6：概览（只消费 evidence 段，其余字段不声明不依赖） */
-  getOverview: () => api.get<{ evidence: EvidenceStats }>('/monitoring/overview'),
+  /** F6：概览（#398 起消费 evidence + roles + humanIntervention 三段，其余字段不声明不依赖） */
+  getOverview: () => api.get<{ evidence: EvidenceStats; roles: RoleMetrics; humanIntervention: HumanInterventionMetrics }>('/monitoring/overview'),
   /** #120：输入缓存命中率（步/WU/角色/天）+ 段 trim 率（按段） */
   getEfficiency: () => api.get<EfficiencyStats>('/monitoring/efficiency'),
   /** 强制停止实例（当前任务转人工处理；AgentDashboardPage / AgentDetailPage 共用） */
