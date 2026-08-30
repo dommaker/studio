@@ -121,9 +121,15 @@ export function TreeTokenEntry({ workUnitId }: { workUnitId: string }) {
   const [report, setReport] = useState<TreeTokenReport | null>(null);
   const [showPanel, setShowPanel] = useState(false);
 
+  // 渲染期按 workUnitId 重置（站内通行的渲染期调整模式；effect 内同步 setState 会触发 react-hooks 级联渲染告警）
+  const [prevId, setPrevId] = useState(workUnitId);
+  if (prevId !== workUnitId) {
+    setPrevId(workUnitId);
+    setReport(null);
+  }
+
   useEffect(() => {
     let alive = true;
-    setReport(null);
     workunitApi.getTreeTokens(workUnitId)
       .then(res => { if (alive) setReport(res.data); })
       .catch(() => { /* best-effort：失败时行内显示 '-'，不阻塞页面 */ });

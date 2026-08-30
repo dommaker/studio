@@ -85,8 +85,9 @@ export function ExecutionFlow({ workUnitId, wu }: { workUnitId: string; wu: Work
   if (prevWorkUnitId !== workUnitId) {
     setPrevWorkUnitId(workUnitId);
     setSteps(null);
-    pendingRef.current = [];
   }
+  // ref 不碰渲染期（react-hooks/globals）：暂存槽随 workUnitId 切换在 effect 清空
+  useEffect(() => { pendingRef.current = []; }, [workUnitId]);
 
   useEffect(() => onEvent((msg) => {
     if (msg.event_type !== 'workunit.execution.step') return;
