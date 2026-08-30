@@ -35,6 +35,7 @@ export function MonitoringPage() {
   const flywheel = flywheelQ.data;
   const overhead = overheadQ.data;
   const efficiency = efficiencyQ.data;
+  const cacheHit = efficiency?.cacheHitRate ?? null;
   const proposals = proposalsQ.data;
 
   const refresh = () => {
@@ -226,33 +227,33 @@ export function MonitoringPage() {
               </MonitorSection>
 
               {/* #120: 输入缓存命中率；§7.3 图表化 = byDay 柱 + byRole 横条（时间序列仅 byDay 一组可用，§7.1） */}
-              {efficiency && (
+              {cacheHit && (
                 <MonitorSection
                   title="输入缓存命中率"
                   subtitle="重复内容有没有被缓存省下 token"
-                  stat={efficiency.cacheHitRate.source === 'events'
-                    ? (efficiency.cacheHitRate.overall.hitRatePct !== null ? `${efficiency.cacheHitRate.overall.hitRatePct}%` : 'N/A')
+                  stat={cacheHit.source === 'events'
+                    ? (cacheHit.overall.hitRatePct !== null ? `${cacheHit.overall.hitRatePct}%` : 'N/A')
                     : undefined}
                   statTestId="cache-stat"
                 >
-                  {efficiency.cacheHitRate.source === 'events' ? (
+                  {cacheHit.source === 'events' ? (
                     <>
-                      {efficiency.cacheHitRate.byDay.length > 0 && (
+                      {cacheHit.byDay.length > 0 && (
                         <div>
                           <div className="text-sm u-text-3 mb-1">按天</div>
-                          <DayBars data={efficiency.cacheHitRate.byDay.map(d => ({ day: d.day, value: d.hitRatePct }))} />
+                          <DayBars data={cacheHit.byDay.map(d => ({ day: d.day, value: d.hitRatePct }))} />
                         </div>
                       )}
-                      {efficiency.cacheHitRate.byRole.length > 0 && (
+                      {cacheHit.byRole.length > 0 && (
                         <div className="mt-3">
                           <div className="text-sm u-text-3 mb-1">按角色</div>
-                          <HBars data={efficiency.cacheHitRate.byRole.map(r => ({ label: r.profileName, value: r.hitRatePct }))} />
+                          <HBars data={cacheHit.byRole.map(r => ({ label: r.profileName, value: r.hitRatePct }))} />
                         </div>
                       )}
                       <div className="mt-2 text-xs u-text-2">
-                        缓存读取 {efficiency.cacheHitRate.overall.cacheReadTokens} / 输入 {efficiency.cacheHitRate.overall.inputTokens} tokens
-                        · 覆盖率 {efficiency.cacheHitRate.coveragePct}%
-                        {efficiency.cacheHitRate.coveragePct < 100 && '（部分执行无 CLI usage 回报，命中率口径不含这些事件）'}
+                        缓存读取 {cacheHit.overall.cacheReadTokens} / 输入 {cacheHit.overall.inputTokens} tokens
+                        · 覆盖率 {cacheHit.coveragePct}%
+                        {cacheHit.coveragePct < 100 && '（部分执行无 CLI usage 回报，命中率口径不含这些事件）'}
                       </div>
                     </>
                   ) : (
@@ -266,7 +267,7 @@ export function MonitoringPage() {
                 <MonitorSection title="角色效率" subtitle="每个角色认领、完成了多少任务、平均多久">
                   <table className="w-full text-sm">
                     <thead>
-                      <tr className="text-xs u-text-3" style={{ textAlign: 'left' }}>
+                      <tr className="text-xs u-text-3 text-left">
                         <th className="py-1 font-normal">角色</th>
                         <th className="py-1 font-normal">认领</th>
                         <th className="py-1 font-normal">完成</th>

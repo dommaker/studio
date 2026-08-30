@@ -1178,12 +1178,12 @@ button.mc-act-step:hover { background: var(--bg-hover); }
 .mc-daybars { display: flex; align-items: flex-end; gap: var(--space-2); }
 .mc-daybars-col { display: flex; flex-direction: column; align-items: center; gap: 2px; flex: 1; min-width: 0; }
 .mc-daybars-slot { height: 64px; width: 100%; display: flex; align-items: flex-end; }
-.mc-daybars-fill { display: block; width: 100%; min-height: 1px; border-radius: 2px 2px 0 0; background: var(--chart-1); }
+.mc-daybars-fill { display: block; width: 100%; min-height: 1px; border-radius: 3px 3px 0 0; background: var(--accent-primary); }
 .mc-daybars-label { font-size: var(--fs-xs); color: var(--text-muted); }
 
 .mc-hbars { display: flex; flex-direction: column; gap: var(--space-2); }
 .mc-hbars-row { display: flex; align-items: center; gap: var(--space-2); font-size: var(--fs-sm); }
 .mc-hbars-label { color: var(--text-secondary); width: 96px; flex-shrink: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mc-hbars-track { flex: 1; height: 8px; border-radius: 4px; background: var(--bg-tertiary); overflow: hidden; }
-.mc-hbars-fill { display: block; height: 100%; background: var(--chart-2); }
+.mc-hbars-fill { display: block; height: 100%; background: var(--accent-primary); }
 .mc-hbars-value { color: var(--text-primary); width: 40px; text-align: right; flex-shrink: 0; }
