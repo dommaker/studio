@@ -247,8 +247,13 @@
     transition: all 0.3s ease;
   }
   
-  /* 隐藏桌面 Sidebar */
-  aside:not(.sidebar-mobile-overlay) {
+  /* WU 详情页右栏：≤639 隐藏（#395 修 aside 兜底误藏时保留原行为——原 aside:not(.sidebar-mobile-overlay)
+     规则已删：sidebar-mobile-overlay 类无组件使用，(0,1,1) 优先级压过单类 display，把 ≤639 全部
+     aside 误藏：sidebar 汉堡打不开、频道动态覆盖抽屉/REQ-WU 全屏抽屉面板不可见。sidebar 自身走
+     transform 离场机制，见下「Sidebar 移动端样式」段）。
+     注意非单调：640–767 由 wu-detail.css 塌单栏全宽可见、≤639 此处隐藏——有意降级（窄屏下限能看），
+     非 bug；若要让 ≤639 也能看右栏，去掉本规则即可 */
+  .wu-detail-rail {
     display: none;
   }
 }
