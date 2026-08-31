@@ -1,7 +1,12 @@
 // AC-E3: Convert to Task dialog — LLM suggestion + form
 // 2026-07 视觉重构（方向 A Mission Control）：深色变量重绘；交互语义零变更
-import { useState, useEffect, useRef } from 'react';
-import { channelApi, type AgentProfile, type ConvertSuggestion, type LocalProject } from '../../api/channel';
+// #403：agent 候选读 rosterStore×channelDataStore 客户端切片（同 ChannelInput 口径，
+// 不再打 /agent-profiles?channelId——打开弹层时触发切片拉取，TTL 内与其他消费方共享）
+import { useState, useEffect, useMemo, useRef } from 'react';
+import type { AgentProfile, ConvertSuggestion, LocalProject } from '../../api/channel';
+import { channelApi } from '../../api/channel';
+import { useRosterStore, activeAgentsOf } from '../../stores/rosterStore';
+import { useChannelDataStore } from '../../stores/channelDataStore';
 import { Select } from '../ui';
 
 // #292: 标题兜底——首个非空行截断约 50 字；suggestTask 失败/为空时创建链路也无需手打标题
@@ -24,13 +29,23 @@ export function ConvertToTaskDialog({ open, onClose, messageId, channelId, messa
   const [description, setDescription] = useState('');
   const [assigneeId, setAssigneeId] = useState('');
   const [projectPath, setProjectPath] = useState('');
-  const [agents, setAgents] = useState<AgentProfile[]>([]);
   const [projects, setProjects] = useState<LocalProject[]>([]);
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   // #292: 用户手改过标题后，suggestTask 建议返回不得再覆盖用户输入
   const titleTouchedRef = useRef(false);
+
+  // #403：agent 候选 = rosterStore 全量 active 切片 ∩ 频道成员面（channelDataStore）；
+  // 缺键（未拉到，含失败）→ 暂无候选；空 = 所有 Agent 可见
+  const profiles = useRosterStore((s) => s.profiles);
+  const channelMembers = useChannelDataStore((s) => (channelId ? s.members[channelId] : undefined));
+  const agents = useMemo(() => {
+    const active = activeAgentsOf(profiles);
+    if (!channelId) return active;
+    if (!channelMembers) return [] as AgentProfile[];
+    return channelMembers.length === 0 ? active : active.filter((a) => channelMembers.includes(a.id));
+  }, [channelId, profiles, channelMembers]);
 
   // open 上升沿（或打开状态下 channelId/messageId 切换）在渲染期同步重置表单与加载态
   //（替代原 effect 顶部的同步重置；fetch 保留在 effect）
@@ -49,16 +64,16 @@ export function ConvertToTaskDialog({ open, onClose, messageId, channelId, messa
     }
   }
 
-  // Fetch agents + projects + LLM suggestion on open
+  // Fetch projects + LLM suggestion on open（agent 切片拉取触发另起，见上）
   useEffect(() => {
     if (!open) return;
+    void useRosterStore.getState().ensureFresh();
+    if (channelId) void useChannelDataStore.getState().ensureMembers(channelId);
 
     Promise.all([
-      channelApi.listAgents(channelId).then(r => r.data.data).catch(() => []),
       channelApi.discoverProjects().then(r => r.data.data).catch(() => []),
       channelApi.suggestTask(channelId, messageId).then(r => r.data.data).catch(() => ({} as ConvertSuggestion)),
-    ]).then(([agentsRes, projectsRes, suggestion]) => {
-      setAgents(agentsRes);
+    ]).then(([projectsRes, suggestion]) => {
       setProjects(projectsRes);
       if (suggestion.title && !titleTouchedRef.current) setTitle(suggestion.title);
       if (suggestion.description) setDescription(suggestion.description);

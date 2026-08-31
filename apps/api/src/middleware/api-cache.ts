@@ -31,7 +31,10 @@ export function apiCache(ttl: number = CACHE_CONFIG.medium) {
       res.setHeader('X-Cache', 'MISS');
       const originalJson = res.json.bind(res);
       res.json = (data: any) => {
-        cache.set(cacheKey, { data: JSON.stringify(data), expiresAt: Date.now() + ttl * 1000 });
+        // 错误响应（≥400）不缓存：瞬时失败不得在 TTL 窗口内钉死端点（#403）
+        if (res.statusCode < 400) {
+          cache.set(cacheKey, { data: JSON.stringify(data), expiresAt: Date.now() + ttl * 1000 });
+        }
         return originalJson(data);
       };
       next();

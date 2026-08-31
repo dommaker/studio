@@ -16,6 +16,7 @@ vi.mock('../../../api/channel', () => ({
 }));
 
 import { ChannelInput } from '../ChannelInput';
+import { useRosterStore } from '../../../stores/rosterStore';
 
 const mockAgents = [
   { id: 'a1', name: 'dev-agent', description: null, status: 'active' },
@@ -39,6 +40,8 @@ describe('ChannelInput mention', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockListAgents.mockResolvedValue({ data: { data: mockAgents } });
+    // #403：agent 列表改读 rosterStore 客户端切片——seed 正本 + fresh TTL 锚点（ensureFresh 零请求）
+    useRosterStore.setState({ profiles: mockAgents, loadedAt: Date.now(), inflight: null, forbidden: false, lastToken: null });
   });
 
   it('输入 @ 弹候选，@dev 过滤，@ 后空格不弹', async () => {

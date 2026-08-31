@@ -1,24 +1,24 @@
 // Channel Member Manager — AC-B frontend gap
 // 2026-07 视觉重构（方向 A Mission Control）：深色变量重绘；成员管理逻辑零变更
-import React, { useEffect, useState, useRef } from 'react';
-import { channelApi, type AgentProfile } from '../../api/channel';
+// #403（ADR 2026-08-31 决策 2/3）：成员 ID 列表读 channelDataStore（页面拉频道记录时写穿水合，
+// 面板修改成功后本地写穿，不做多端实时）；agent 档案读 rosterStore 客户端切片
+// （listAllAgents 是全量正本，不再打 /agent-profiles?status=active）；两分支合并。
+// useDetectedProviders 懒挂载：成员面板首次展开才请求 /workspaces/runtimes（ADR 决策 4）。
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { channelApi } from '../../api/channel';
 import { useDetectedProviders, buildProviderOptions } from '../../hooks/useDetectedProviders';
+import { useRosterStore, activeAgentsOf } from '../../stores/rosterStore';
+import { useChannelDataStore } from '../../stores/channelDataStore';
 import { Select } from '../ui';
 
 interface ChannelMemberManagerProps {
   channelId: string;
-  membersJson?: string;
 }
 
-export const ChannelMemberManager: React.FC<ChannelMemberManagerProps> = ({
-  channelId,
-  membersJson = '[]',
-}) => {
-  const [memberIds, setMemberIds] = useState<string[]>(() => {
-    try { return JSON.parse(membersJson); } catch { return []; }
-  });
-  const [members, setMembers] = useState<AgentProfile[]>([]);
-  const [allAgents, setAllAgents] = useState<AgentProfile[]>([]);
+export const ChannelMemberManager: React.FC<ChannelMemberManagerProps> = ({ channelId }) => {
+  // 缺键 = 未拉到（页面水合或 store 兜底拉取到位前短暂为空，对齐旧 membersJson 异步到达语义）
+  const memberIds = useChannelDataStore((s) => s.members[channelId]);
+  const profiles = useRosterStore((s) => s.profiles);
   const [isOpen, setIsOpen] = useState(false);
   const [newAgentName, setNewAgentName] = useState('');
   const [newAgentDesc, setNewAgentDesc] = useState('');
@@ -28,17 +28,9 @@ export const ChannelMemberManager: React.FC<ChannelMemberManagerProps> = ({
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
-  const { detected, loading: providersLoading, noneDetected } = useDetectedProviders();
+  // 懒挂载：面板首次展开才发 /workspaces/runtimes（服务端同步重扫 CLI，进页即扫最坏数十秒）
+  const { detected, loading: providersLoading, noneDetected } = useDetectedProviders({ enabled: isOpen });
   const providerOptions = buildProviderOptions(detected, providersLoading || noneDetected);
-
-  // membersJson 是异步加载的 — 初始 '[]' 只是占位，props 到达/切换频道时必须重新同步，
-  // 否则刷新页面或切换频道后成员列表停留在初始空值（state 初始化器只跑一次）。
-  // 渲染期调整模式：membersJson 变化时同步重解析，避免一帧旧值闪烁
-  const [prevMembersJson, setPrevMembersJson] = useState(membersJson);
-  if (prevMembersJson !== membersJson) {
-    setPrevMembersJson(membersJson);
-    try { setMemberIds(JSON.parse(membersJson)); } catch { setMemberIds([]); }
-  }
 
   // 切换频道时收起弹层与创建表单，避免把上个频道的上下文带过去（渲染期调整）
   const [prevChannelId, setPrevChannelId] = useState(channelId);
@@ -56,20 +48,28 @@ export const ChannelMemberManager: React.FC<ChannelMemberManagerProps> = ({
     ? providerOverride
     : providerOptions.find((o) => !o.disabled)?.value ?? '';
 
-  // Load member profiles and all available agents
+  // #403：roster 全量正本（TTL/单飞去重）+ 本频道成员面兜底拉取（页面已水合则 TTL 内零请求）
   useEffect(() => {
-    if (memberIds.length > 0) {
-      channelApi.listAgents().then((res) => {
-        const agents = res.data.data;
-        setAllAgents(agents);
-        setMembers(agents.filter((a) => memberIds.includes(a.id)));
-      });
-    } else {
-      channelApi.listAgents().then((res) => {
-        setAllAgents(res.data.data);
-      });
-    }
-  }, [memberIds]);
+    void useRosterStore.getState().ensureFresh();
+  }, []);
+
+  useEffect(() => {
+    if (!channelId) return;
+    void useChannelDataStore.getState().ensureMembers(channelId);
+  }, [channelId]);
+
+  // 两分支合并：全量 active 为底本（activeAgentsOf 对齐服务端默认排除 studio 语义）；
+  // memberIds 空 = 所有 Agent 可见（成员区展示空态）
+  const allAgents = useMemo(() => activeAgentsOf(profiles), [profiles]);
+  const members = useMemo(
+    () => (memberIds && memberIds.length > 0 ? allAgents.filter((a) => memberIds.includes(a.id)) : []),
+    [allAgents, memberIds],
+  );
+  const availableAgents = useMemo(
+    () => allAgents.filter((a) => !(memberIds ?? []).includes(a.id)),
+    [allAgents, memberIds],
+  );
+  const memberCount = memberIds?.length ?? 0;
 
   // Close on outside click
   useEffect(() => {
@@ -83,10 +83,12 @@ export const ChannelMemberManager: React.FC<ChannelMemberManagerProps> = ({
     return () => document.removeEventListener('mousedown', handleClick);
   }, [isOpen]);
 
+  // 写穿以调用完成时刻的 store 最新值为基（不从渲染闭包取 memberIds——await 期间可能已被并发修改）
   const handleAdd = async (agentId: string) => {
     try {
       await channelApi.updateMembers(channelId, { add: [agentId] });
-      setMemberIds((prev) => [...new Set([...prev, agentId])]);
+      const cur = useChannelDataStore.getState().members[channelId] ?? [];
+      useChannelDataStore.getState().setMembers(channelId, [...new Set([...cur, agentId])]);
     } catch (e) {
       console.error('Failed to add member', e);
     }
@@ -95,8 +97,8 @@ export const ChannelMemberManager: React.FC<ChannelMemberManagerProps> = ({
   const handleRemove = async (agentId: string) => {
     try {
       await channelApi.updateMembers(channelId, { remove: [agentId] });
-      setMemberIds((prev) => prev.filter((id) => id !== agentId));
-      setMembers((prev) => prev.filter((m) => m.id !== agentId));
+      const cur = useChannelDataStore.getState().members[channelId] ?? [];
+      useChannelDataStore.getState().setMembers(channelId, cur.filter((id) => id !== agentId));
     } catch (e) {
       console.error('Failed to remove member', e);
     }
@@ -116,7 +118,8 @@ export const ChannelMemberManager: React.FC<ChannelMemberManagerProps> = ({
       const newAgent = res.data;
       // 创建即加入本频道（成员关系事实源 = channel.members）
       await channelApi.updateMembers(channelId, { add: [newAgent.id] });
-      setMemberIds((prev) => [...new Set([...prev, newAgent.id])]);
+      const cur = useChannelDataStore.getState().members[channelId] ?? [];
+      useChannelDataStore.getState().setMembers(channelId, [...new Set([...cur, newAgent.id])]);
       setNewAgentName('');
       setNewAgentDesc('');
       setProviderOverride('');
@@ -128,9 +131,6 @@ export const ChannelMemberManager: React.FC<ChannelMemberManagerProps> = ({
       setCreating(false);
     }
   };
-
-  const availableAgents = allAgents.filter((a) => !memberIds.includes(a.id));
-  const memberCount = memberIds.length;
 
   return (
     <div style={{ position: 'relative' }} ref={panelRef}>

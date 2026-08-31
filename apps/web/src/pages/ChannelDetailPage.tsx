@@ -21,10 +21,11 @@ import { WorkUnitDrawer, type DrawerState } from '../components/channel/WorkUnit
 import { useMediaQuery } from '../hooks/useMediaQuery';
 import { workunitApi } from '../api/workunit';
 import { useNotificationStore } from '../stores/notificationStore';
+import { useChannelDataStore, parseChannelMembers } from '../stores/channelDataStore';
 import { fanOut } from '../utils/fanOut';
 import { requirementApi, type Requirement, type RequirementStatus } from '../api/requirements';
 import { parseLiveWuRef } from '../components/workunit/execution-rows';
-import type { Channel, ChannelMessage, ChannelFileVocabulary, FileRef } from '../api/channel';
+import type { Channel, ChannelMessage, FileRef } from '../api/channel';
 import { channelApi } from '../api/channel';
 import { saveLastChannelId } from '../utils/lastChannel';
 
@@ -96,7 +97,11 @@ export function ChannelDetailPage() {
 
   useEffect(() => {
     if (!id) return;
-    channelApi.get(id).then(r => setChannel(r.data.data)).catch(() => {});
+    channelApi.get(id).then(r => {
+      setChannel(r.data.data);
+      // #403：成员面写穿（页面本就拉频道记录，白捡的成员数据源；store 缺拉取时自行兜底）
+      useChannelDataStore.getState().setMembers(id, parseChannelMembers(r.data.data.members));
+    }).catch(() => {});
   }, [id]);
 
   // 打开频道即读：本频道未读通知（SSE @human 实时条目 + link 指向本频道的后端通知）标记已读
@@ -132,10 +137,19 @@ export function ChannelDetailPage() {
   }, [id]);
 
   // 决策 9（SSE 负载加深）：SSE 断线重连 → 受影响面一次性 refetch（无序号/校验机制）：
-  // 消息面 refresh + waitingWus/REQ chips 两个打底面
+  // 消息面 refresh + waitingWus/REQ chips 两个打底面 + #403 频道数据面三切片强刷
   useEffect(() => {
-    return onReconnect(() => { void refresh(); reloadWaitingWus(); reloadChannelReqs(); });
-  }, [onReconnect, refresh, reloadWaitingWus, reloadChannelReqs]);
+    return onReconnect(() => {
+      void refresh();
+      reloadWaitingWus();
+      reloadChannelReqs();
+      if (!id) return;
+      const channelData = useChannelDataStore.getState();
+      void channelData.ensureVocabulary(id, { maxAgeMs: 0 });
+      void channelData.ensureCurrentPmo(id, { maxAgeMs: 0 });
+      void channelData.ensureMembers(id, { maxAgeMs: 0 });
+    });
+  }, [onReconnect, refresh, reloadWaitingWus, reloadChannelReqs, id]);
 
   useEffect(() => {
     reloadWaitingWus();
@@ -174,6 +188,8 @@ export function ChannelDetailPage() {
       if (!ref) return;
       // 负载带 channelId → 按频道过滤；缺省（防御，旧桥未带）放行
       if (ref.channelId && ref.channelId !== id) return;
+      // #403 白捡触发器（ADR 决策 3）：REQ 变更可能改变 current-pmo 派生 → 失效强刷（零成本接线）
+      if (id) useChannelDataStore.getState().invalidateCurrentPmo(id);
       if (msg.event_type === 'requirement.created') {
         // created 负载只有摘要字段，拉全量补进列表（updater 内按 id 去重）
         requirementApi.get(ref.id)
@@ -243,21 +259,12 @@ export function ChannelDetailPage() {
     return !!msg.workUnitId && waitingWuIds.has(msg.workUnitId) && latestQuestionIdByWu.get(msg.workUnitId) === msg.id;
   }, [waitingWuIds, latestQuestionIdByWu]);
 
-  // #285: agent 消息 inline-code 文件 chip 词表（channelId 变化时拉一次；失败静默降级，不渲染 chip）
-  // 携带 channelId 防跨频道串词表（切换频道后旧词表不传给新频道）
-  const [fileVocabulary, setFileVocabulary] = useState<{ channelId: string; data: ChannelFileVocabulary } | null>(null);
+  // #285: agent 消息 inline-code 文件 chip 词表——#403 起读 channelDataStore（与 ChannelInput
+  // 共享一份拉取；按 channelId 键控无跨频道串词表）；失败静默降级，不渲染 chip
+  const fileVocabulary = useChannelDataStore((s) => (id ? s.vocabulary[id] : undefined));
   useEffect(() => {
     if (!id) return;
-    let cancelled = false;
-    void (async () => {
-      try {
-        const res = await channelApi.getFileVocabulary(id);
-        if (!cancelled && res.data?.data) setFileVocabulary({ channelId: id, data: res.data.data });
-      } catch {
-        // 静默降级：词表拿不到则 agent 正文维持纯文本现状
-      }
-    })();
-    return () => { cancelled = true; };
+    void useChannelDataStore.getState().ensureVocabulary(id);
   }, [id]);
 
   // #285 AC4: 文件 chip 第一优先词表 = 各 agent 消息所属 WU 的产出/修改文件集
@@ -471,7 +478,7 @@ export function ChannelDetailPage() {
       onOpenWorkUnitConfirm={openWuConfirm}
       onOpenRequirement={openReq}
       onInlineReply={handleInlineReply}
-      fileVocabulary={fileVocabulary && fileVocabulary.channelId === id ? fileVocabulary.data : undefined}
+      fileVocabulary={fileVocabulary}
       wuChangedFiles={msg.workUnitId ? wuChangedFiles[msg.workUnitId] : undefined}
       highlight={highlightId === msg.id}
       {...extra}
@@ -576,7 +583,8 @@ export function ChannelDetailPage() {
             <ChannelNeedInputChip items={waitingWus} onLocate={locateWaitingQuestion} />
             {/* #272（决策 #251 Q6）：当前 PMO chip（派生不落库，点击跳项目页） */}
             <ChannelCurrentPmoChip channelId={id} />
-            <ChannelMemberManager channelId={id} membersJson={channel?.members} />
+            {/* #403：成员面进 channelDataStore（组件自取 + 频道记录到位时写穿水合），不再透传 membersJson */}
+            <ChannelMemberManager channelId={id} />
             {/* #272（决策 #251 Q2'）：默认工程 = 本地 repo 下拉（落 defaultPath）；
                 默认执行机器（远程 Workspace）挪设置区由 #286 承接 */}
             <ChannelDefaultProjectSelect

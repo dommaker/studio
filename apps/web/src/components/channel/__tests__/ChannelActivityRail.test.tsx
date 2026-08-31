@@ -29,6 +29,7 @@ vi.mock('react-router-dom', () => ({
 }));
 
 import { ChannelActivityRail } from '../ChannelActivityRail';
+import { useChannelDataStore } from '../../../stores/channelDataStore';
 import type { Requirement } from '../../../api/requirements';
 import type { ChannelMessage } from '../../../api/channel';
 
@@ -66,6 +67,8 @@ function renderRail(over: Partial<Parameters<typeof ChannelActivityRail>[0]> = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // #403：rail 的 current-pmo 走 channelDataStore——每测重置（数据 + 模块级 TTL 簿记）
+  useChannelDataStore.getState().__resetForTests();
   mockGetCurrentPmo.mockResolvedValue({ data: { data: null } });
   mockResolveAssignee.mockResolvedValue(null);
 });

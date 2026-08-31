@@ -733,4 +733,16 @@ describe('ChannelDetailPage — SSE 负载深化批 2：waitingWus / REQ chips �
     act(() => emitSse({ event_type: 'requirement.updated', data: { id: 'REQ-0042', channelId: 'ch-other', title: '篡改标题' } }));
     expect(railReq('REQ-0042')?.title).toBe('主界面视觉方向稿');
   });
+
+  it('#403: requirement.created/updated → current-pmo 失效强刷；他频道事件不触发', async () => {
+    renderPage();
+    await waitFor(() => expect(railReqIds()).toContain('REQ-0042'));
+    const pmoCalls = () => mockApiGet.mock.calls.filter(([url]) => String(url).endsWith('/current-pmo')).length;
+    // chip/rail 均为本文件替身：挂载期无 pmo 拉取
+    expect(pmoCalls()).toBe(0);
+    act(() => emitSse({ event_type: 'requirement.updated', data: { id: 'REQ-0042', channelId: 'ch-1', status: 'done' } }));
+    await waitFor(() => expect(pmoCalls()).toBe(1));
+    act(() => emitSse({ event_type: 'requirement.created', data: { id: 'REQ-0043', channelId: 'ch-other', title: '他频道' } }));
+    expect(pmoCalls()).toBe(1);
+  });
 });

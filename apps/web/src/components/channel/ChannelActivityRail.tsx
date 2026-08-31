@@ -5,7 +5,8 @@
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { requirementApi, type Requirement, type RequirementChain } from '../../api/requirements';
-import { channelApi, type ChannelMessage, type ChannelCurrentPmo } from '../../api/channel';
+import { useChannelDataStore } from '../../stores/channelDataStore';
+import type { ChannelMessage, ChannelCurrentPmo } from '../../api/channel';
 import { projectApi } from '../../api';
 import { resolveAssignee, type AssigneeDisplay } from '../../hooks/useAssigneeDisplay';
 import type { NeedInputTodo } from './ChannelNeedInputChip';
@@ -47,15 +48,11 @@ function useReqChains(reqs: Requirement[]): Record<string, RequirementChain> {
   return chains;
 }
 
-/** 频道当前 PMO（PMO badge 兜底链末级；派生为 null 则不渲染 badge） */
+/** 频道当前 PMO（PMO badge 兜底链末级；#403 起读 channelDataStore，与顶栏 chip 共享一份拉取） */
 function useCurrentPmo(channelId: string): ChannelCurrentPmo | null {
-  const [pmo, setPmo] = useState<ChannelCurrentPmo | null>(null);
+  const pmo = useChannelDataStore((s) => s.currentPmo[channelId] ?? null);
   useEffect(() => {
-    let alive = true;
-    channelApi.getCurrentPmo(channelId)
-      .then(res => { if (alive) setPmo(res.data.data ?? null); })
-      .catch(() => {});
-    return () => { alive = false; };
+    void useChannelDataStore.getState().ensureCurrentPmo(channelId);
   }, [channelId]);
   return pmo;
 }

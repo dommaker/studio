@@ -22,15 +22,18 @@ Web 前端主源码。路由、全局状态、API 客户端、UI 组件、样式
 | `useGatedPoll` | `hooks/useGatedPoll.ts` | 共享门禁轮询（#313）：挂载首拉 + 仅当（visible ∧ SSE≠connected）按 interval 轮询 + 回 visible 立即补拉 |
 | `useAsyncData` | `hooks/useAsyncData.ts` | 一次性拉取共享 hook（#350，与 useGatedPoll 互补）：data/loading/error + `reload()`（重拉保留旧数据、即清 error）+ `setData`（SSE 就地更新等本地修补）；deps 渲染期重置 + 微任务推迟首拉 + alive 守卫拒迟到响应；返回值 useMemo 稳身份，可直接进 effect deps（SSE 订阅类） |
 | `useWorkUnitStreamEvents` | `hooks/` | WU 步内流式订阅（Layer B） |
-| `rosterStore` | `stores/rosterStore.ts` | roster 数据面（#346）：三端点 TTL 缓存 + single-flight 去重、instance/workunit status_changed SSE 就地更新唯一一份（未匹配合成条目）、快照补查写回；切片独立（summary 403 → forbidden，profiles/channels 照常） |
-| `useRosterStoreSync` | `hooks/useRosterStoreSync.ts` | rosterStore 实时接线（#346）：引用计数单例 SSE 路由 + useGatedPoll(ensureFresh) 兜底 + 重连强制对齐 |
+| `rosterStore` | `stores/rosterStore.ts` | roster 数据面（#346）：三端点 TTL 缓存 + single-flight 去重（#403 起纪律走 `stores/fetchDiscipline.ts` 底座；含 `activeAgentsOf` 客户端切片助手——全量正本 → status=active 切片，默认排除 studio）、instance/workunit status_changed SSE 就地更新唯一一份（未匹配合成条目）、快照补查写回；切片独立（summary 403 → forbidden，profiles/channels 照常） |
+| `fetchDiscipline` | `stores/fetchDiscipline.ts` | 取数纪律底座（#403，ADR 2026-08-31 决策 6）：`createFetchGate`（seq 守卫）+ `disciplinedFetch`（TTL 锚点 / single-flight 并入 / force 不并入在途 / bypassTtl 只跳 TTL / inflight 只清自己）。只抽数取纪律不抽数据存法——rosterStore（全局单份）与 channelDataStore（per-key map）各自组合 |
+| `useDataPlaneSync` | `hooks/useDataPlaneSync.ts` | 数据面接线底座（#403）：引用计数单例 SSE 路由（handleEvent 须引用稳定）+ onReconnect 强刷（maxAgeMs 0，single-flight 收敛）+ useGatedPoll 兜底；useRosterStoreSync 迁移其上（只剩 roster 事件路由），新数据面 store 接线一律复用，禁止逐 store 复印机制 |
+| `channelDataStore` | `stores/channelDataStore.ts` | 频道数据面 store（#403，ADR 2026-08-31）：per-channelId 三切片——文件词表（FIFO 驻留上限 10）/ current-pmo / 成员 ID 列表（源自频道记录：页面水合写穿 + 面板修改成功本地写穿）；纪律走 fetchDiscipline，(slice, channelId) 粒度各自 TTL 30s / 单飞 / seq。新鲜度 = TTL + 白捡触发器（requirement.created/updated → invalidateCurrentPmo），无 SSE 失效事件；agent 档案不进本 store（rosterStore.listAllAgents 是全量正本，「members 为空 → 全部 active」回退在消费方） |
+| `useRosterStoreSync` | `hooks/useRosterStoreSync.ts` | rosterStore 实时接线（#346；#403 起机制抽至 useDataPlaneSync，本文件只剩 roster 事件路由与参数） |
 | `useAgentRoster` | `hooks/useAgentRoster.ts` | Agent 作战视图私有面：roles 派生 + 执行动态 SSE 写入（execution.step/stream→rosterActivityStore，#348）+ 空闲卡最近完成 N+1 + 快照补查；数据面全在 rosterStore |
 | `rosterActivityStore` / `useRosterActivities` | `stores/rosterActivityStore.ts` | 执行动态 store（#348）：step/stream chunk 按 roleId 切片（pushActivity 同 key 刷新尾条、上限 10 条），卡片级订阅 + 卸载 reset（页面私有实时面，不跨挂载残留） |
 | `useNotificationStore` | `stores/notificationStore.ts` | 通知中心共享 store：后端持久面（loadFromBackend，SSE 条目保留）+ SSE atHuman 增量（pushSse，cap 50）+ 已读动作（markRead/markAllRead/markChannelRead，本地乐观 + 后端条目 POST 同步）；Notification.messageId 仅 SSE 条目有 |
 | `RoleCard` | `components/monitoring/RoleCard.tsx` | AgentDashboard 信息全卡（#397，redesign §6 变体 B）：四层构成（pill 头行→WU 锚点→可点动态 3 条→错误行），状态色经 data-status+--st（`styles/agent-dashboard.css`）；memo + 自订动态切片，chunk 只重渲对应卡、静态卡壳零重渲（#348 契约） |
 | `CreateRoleModal` | `components/monitoring/CreateRoleModal.tsx` | 创建角色弹框（#397 §6.4，替代跳 /setup/roles）：勾选 /workspaces/runtimes + 命名 → channelApi.createAgent；保存=关弹框+onCreated 就地刷新，不跳页 |
 | `useAssigneeDisplay` / `AssigneeLabel` | `hooks/useAssigneeDisplay.ts` / `components/workunit/AssigneeLabel.tsx` | 负责人 instance id → 角色名解析（运行实例→离线实例 profile→短 UUID），WU 详情/抽屉/REQ 链路共用 |
-| `useChannelList` / `useChannelLiveExecutions` / `useDetectedProviders` | `hooks/` | 频道列表 / live 执行 / provider 探测 |
+| `useChannelList` / `useChannelLiveExecutions` / `useDetectedProviders` | `hooks/` | 频道列表 / live 执行 / provider 探测（#403 起支持 `{ enabled }` 懒挂载：false 不发请求，展开才扫且每次挂载只扫一次） |
 | `ChannelHomeRedirect` / `lastChannel` | `pages/ChannelHomeRedirect.tsx` / `utils/lastChannel.ts` | #393：`/` 与 `/channels` 重定向进频道工作区（频道列表页已删除，spec §2）；落点 = 最近访问（ChannelDetailPage 进页写 localStorage）→ rnd → 首频道 → 零频道空态内联 CreateChannelForm |
 | `BackButton` | `components/ui/BackButton.tsx` | #393 详情页统一左上「← 返回」（spec §4.4）：history.state.idx>0 → navigate(-1)，直开/书签回落 fallback 列表页；PMO 项目/Agent/WU/阅览室文档/Workspace 五页接入 |
 | `deriveStreamView` | `utils/streamView.ts` | 消息流管线纯函数（#322）：消息集+折叠/筛选 UI 状态 → 渲染就绪 items（归组/过程折叠/连续合并/日期分隔/可见性） |
