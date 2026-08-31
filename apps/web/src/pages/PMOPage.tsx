@@ -6,8 +6,6 @@ import { companyApi } from '../api/company';
 import { okrApi, type OkrKeyResult } from '../api/pmo';
 import { channelApi, type Channel } from '../api/channel';
 import { requirementApi } from '../api/requirements';
-import { deriveDisplayState } from '@dommaker/studio-shared/web';
-import { fanOut } from '../utils/fanOut';
 import { useAsyncData } from '../hooks/useAsyncData';
 import { CreateOkrDialog } from '../components/pmo/CreateOkrDialog';
 import { CreateProjectDialog } from '../components/pmo/CreateProjectDialog';
@@ -72,7 +70,7 @@ export function PMOPage({ companyId }: PMOPageProps) {
   const channelsQ = useAsyncData(() => channelApi.list().then(r => r.data?.data || []).catch(() => []), []);
   const channels: Channel[] = channelsQ.data ?? [];
 
-  // 🆕 AC-6: 卡片徽章数据（WU 完成度；批量并行、失败静默不显示）
+  // 🆕 AC-6: 卡片徽章数据（WU 完成度；#387 单请求批量、失败静默不显示）
   // #149（2026-08-15）：文档计数徽章随 document-store 退役移除
   const [wuStats, setWuStats] = useState<Record<string, { finished: number; total: number }>>({});
 
@@ -96,7 +94,8 @@ export function PMOPage({ companyId }: PMOPageProps) {
   const okrs = useMemo(() => pmoQ.data?.okrs ?? [], [pmoQ.data]);
   const projects = useMemo(() => pmoQ.data?.projects ?? [], [pmoQ.data]);
 
-  // 🆕 AC-6: 列表加载后对可见项目批量并行查徽章数据（每项目一次 chain；失败静默）
+  // 🆕 AC-6: 列表加载后单请求批量拉徽章数据（#387 chain-stats；finished 口径 workFinished
+  // 服务端同源计算；失败静默不显示）
   // projects 变空时在渲染期同步清空徽章（派生重置，替代原 effect 顶部的同步清空）
   const projectsEmpty = projects.length === 0;
   const [prevProjectsEmpty, setPrevProjectsEmpty] = useState(projectsEmpty);
@@ -114,21 +113,21 @@ export function PMOPage({ companyId }: PMOPageProps) {
     let cancelled = false;
 
     const withAlias = projects.filter((p): p is Project & { reqAlias: string } => !!p.reqAlias);
-    fanOut(withAlias, async p => {
-      const res = await requirementApi.getChain(p.reqAlias);
-      const wus = res.data?.data?.workunits ?? [];
-      // 完成口径 = workFinished 所有权口径（F6 铁律）
-      const finished = wus.filter(w =>
-        deriveDisplayState({ status: w.status, metadata: w.metadata }).workFinished).length;
-      return { id: p.id, finished, total: wus.length };
-    }).then(results => {
+    if (withAlias.length === 0) {
+      setWuStats({});
+      return;
+    }
+    requirementApi.chainStats(withAlias.map(p => p.reqAlias)).then(res => {
       if (cancelled) return;
+      // 服务端按 reqAlias 键返回，回填成 ProjectCard 消费的 project.id 键；缺 key（需求不存在）→ 不显示
+      const stats = res.data?.data ?? {};
       const next: Record<string, { finished: number; total: number }> = {};
-      for (const r of results) {
-        if (r.ok) next[r.value.id] = { finished: r.value.finished, total: r.value.total };
+      for (const p of withAlias) {
+        const s = stats[p.reqAlias];
+        if (s) next[p.id] = s;
       }
       setWuStats(next);
-    });
+    }).catch(() => { /* 失败静默：徽章不显示（卡片照常渲染） */ });
 
     return () => { cancelled = true; };
   }, [projects]);

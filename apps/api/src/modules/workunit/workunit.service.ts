@@ -99,6 +99,31 @@ export class WorkUnitService extends WorkUnitCrudService {
   }
 
   /**
+   * #387 批量聚合：每 assignee 最近一条完成 WU（done/completed，按 completedAt ?? updatedAt
+   * 降序取首条；无完成记录 → null）。一次索引读取替掉 roster 空闲卡逐实例
+   * GET /workunits?assigneeId= 的 N+1。口径注：全量扫描，不沿用前端 limit=20 先截后滤
+   * （那会漏掉 20 条之外更早的完成单）。
+   */
+  async lastDoneByAssignee(assigneeIds: readonly string[]): Promise<Record<string, WorkUnitData | null>> {
+    const snapshots = await this.fileStore.getIndex();
+    const lastByAssignee = new Map<string, WorkUnitSnapshot>();
+    for (const s of snapshots) {
+      if (!s.assigneeId || (s.status !== 'done' && s.status !== 'completed')) continue;
+      if (!assigneeIds.includes(s.assigneeId)) continue;
+      const cur = lastByAssignee.get(s.assigneeId);
+      if (!cur || (s.completedAt ?? s.updatedAt).localeCompare(cur.completedAt ?? cur.updatedAt) > 0) {
+        lastByAssignee.set(s.assigneeId, s);
+      }
+    }
+    const result: Record<string, WorkUnitData | null> = {};
+    for (const id of assigneeIds) {
+      const found = lastByAssignee.get(id);
+      result[id] = found ? snapshotToData(found) : null;
+    }
+    return result;
+  }
+
+  /**
    * Transition WorkUnit status with state machine validation.
    * @throws Error if transition is not allowed
    */

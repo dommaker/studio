@@ -240,6 +240,13 @@ export const workunitApi = {
 
   get: (id: string) => api.get<WorkUnit>(`/workunits/${id}`),
 
+  /** #387 批量聚合：每 assignee 最近一条完成 WU（roster 空闲卡「最近完成」，替代逐实例 list 的 N+1） */
+  lastDone: (assigneeIds: string[]) =>
+    api.get<{ success: boolean; data: Record<string, WorkUnit | null> }>(
+      '/workunits/last-done',
+      { params: { assigneeIds: assigneeIds.join(',') } },
+    ),
+
   create: (data: {
     scope: string;
     type?: string;

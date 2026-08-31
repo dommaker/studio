@@ -3,6 +3,7 @@
  *
  * Endpoints:
  *   GET    /api/v1/workunits          — list（#109：列表项附 claimable 可认领标记）
+ *   GET    /api/v1/workunits/last-done — 批量最近完成（#387：每 assignee 一条 done/completed，roster 空闲卡用）
  *   POST   /api/v1/workunits          — create
  *   GET    /api/v1/workunits/:id      — get by id
  *   PUT    /api/v1/workunits/:id      — update
@@ -141,6 +142,31 @@ router.post('/from-message', requireAuth(), requireNotGuest(), async (req: Reque
       return res.status(409).json({ error: { code: 'ALREADY_CONVERTED', message: msg } });
     }
     res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: msg } });
+  }
+});
+
+/**
+ * GET /last-done?assigneeIds=a,b,c — #387 批量聚合：每 assignee 最近一条完成 WU
+ * （done/completed，completedAt ?? updatedAt 降序取首条；无完成记录 → null）。
+ * roster 空闲卡「最近完成」专用，消逐实例 GET /workunits?assigneeId= 的 N+1。
+ */
+router.get('/last-done', async (req: Request, res: Response) => {
+  try {
+    const raw = req.query.assigneeIds;
+    const ids = typeof raw === 'string'
+      ? raw.split(',').map(s => s.trim()).filter(s => s.length > 0)
+      : [];
+    if (ids.length === 0) {
+      return res.status(400).json({
+        error: { code: 'INVALID_INPUT', message: 'assigneeIds is required (comma-separated ids)' },
+      });
+    }
+    const data = await service.lastDoneByAssignee(ids.slice(0, 100));
+    res.json({ success: true, data });
+  } catch (error) {
+    res.status(500).json({
+      error: { code: 'INTERNAL_ERROR', message: getErrorMessage(error) },
+    });
   }
 });
 

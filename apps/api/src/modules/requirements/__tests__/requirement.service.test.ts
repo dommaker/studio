@@ -12,6 +12,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { eventBus, FileStore } from '@dommaker/studio-shared';
 import { RequirementService, deriveTitle, TERMINAL_WORKUNIT_STATUSES } from '../requirement.service.js';
+import type { ProjectData } from '../../pmo/project.service.js';
 import { initRequirementRollup } from '../rollup.js';
 import { WorkUnitService } from '../../workunit/workunit.service.js';
 
@@ -233,6 +234,37 @@ describe('RequirementService (vision §5.3)', () => {
 
     it('returns null for unknown id', async () => {
       expect(await service.getChain('REQ-9999')).toBeNull();
+    });
+  });
+
+  describe('getChainStats (#387 批量徽章统计)', () => {
+    it('finished 口径 = workFinished（done/closed 算，其余不算）；跨需求不串', async () => {
+      const req = await service.create({ title: '统计需求' });
+      await workUnitService.create({ scope: '甲', reqId: req.id, status: 'done' });
+      await workUnitService.create({ scope: '乙', reqId: req.id, status: 'closed' });
+      await workUnitService.create({ scope: '丙', reqId: req.id, status: 'active' });
+      await workUnitService.create({ scope: '丁', reqId: req.id, status: 'in_review' });
+      await workUnitService.create({ scope: '别家', reqId: null });
+
+      const stats = await service.getChainStats([req.id]);
+      expect(stats[req.id]).toEqual({ finished: 2, total: 4 });
+    });
+
+    it('无 WU 的既有需求 → {finished:0,total:0}；别名需求同口径；不存在的需求 → key 缺省', async () => {
+      const legacy = await service.create({ title: '空链需求' });
+      const aliasService = new RequirementService(fileStore, {
+        getProjectByAlias: async () => null,
+        findChoreProject: async () => null,
+        listAliasProjects: async () => [
+          { id: 'proj-1', reqAlias: 'REQ-8001', title: '别名项目' } as ProjectData,
+        ],
+        getProjectByPmoNumber: async () => null,
+      });
+
+      const stats = await aliasService.getChainStats([legacy.id, 'REQ-8001', 'REQ-9999']);
+      expect(stats[legacy.id]).toEqual({ finished: 0, total: 0 });
+      expect(stats['REQ-8001']).toEqual({ finished: 0, total: 0 });
+      expect(stats['REQ-9999']).toBeUndefined();
     });
   });
 

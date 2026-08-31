@@ -162,6 +162,28 @@ describe('Requirement API (vision §5.3)', () => {
     expect(status).toBe(404);
   });
 
+  // #387 批量徽章统计：单请求出每需求 {finished,total}（消 PMO 页逐项目 getChain 的 N+1）
+  it('GET /chain-stats 批量统计；不存在的需求 key 缺省', async () => {
+    const r1 = (await api('POST', '/', { title: '统计甲' })).json.data;
+    const r2 = (await api('POST', '/', { title: '统计乙' })).json.data;
+    const wuService = new WorkUnitService(fileStore);
+    await wuService.create({ scope: '完', reqId: r1.id, status: 'done' });
+    await wuService.create({ scope: '活', reqId: r1.id, status: 'active' });
+    await wuService.create({ scope: '空', reqId: r2.id, status: 'unassigned' });
+
+    const { status, json } = await api('GET', `/chain-stats?reqIds=${r1.id},${r2.id},REQ-99999`);
+    expect(status).toBe(200);
+    expect(json.success).toBe(true);
+    expect(json.data[r1.id]).toEqual({ finished: 1, total: 2 });
+    expect(json.data[r2.id]).toEqual({ finished: 0, total: 1 });
+    expect(json.data['REQ-99999']).toBeUndefined();
+  });
+
+  it('GET /chain-stats 缺 reqIds → 400', async () => {
+    const { status } = await api('GET', '/chain-stats');
+    expect(status).toBe(400);
+  });
+
   // B3a 工程归属链（决策 D2）：projectId 挂接 —— PMO 项目写真实 ~/.studio/projects
   // （workspace-binding.test.ts 同款约定），用例结束统一删除。
   describe('B3a: projectId 挂接', () => {

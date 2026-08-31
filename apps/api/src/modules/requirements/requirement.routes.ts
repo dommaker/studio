@@ -3,6 +3,7 @@
  *
  * Endpoints:
  *   GET   /api/v1/requirements           — list（status/channelId 过滤）
+ *   GET   /api/v1/requirements/chain-stats — 批量徽章统计（#387：每需求 {finished,total}，PMO 卡片用）
  *   POST  /api/v1/requirements           — 手动创建
  *   GET   /api/v1/requirements/:id       — get by id
  *   PATCH /api/v1/requirements/:id       — 更新 status/title/docs/description
@@ -60,6 +61,27 @@ export function createRequirementRoutes(fileStore?: FileStore): Router {
         return res.status(400).json({ success: false, error: msg });
       }
       throw e;
+    }
+  });
+
+  /**
+   * GET /chain-stats?reqIds=REQ-1,REQ-2 — #387 批量徽章统计：每需求 {finished,total}
+   * （finished = workFinished 口径，服务端同源计算）。PMO 卡片专用，消逐项目
+   * getChain 的 N+1；不存在的需求不出现在结果里（前端徽章静默缺省）。
+   */
+  router.get('/chain-stats', async (req: Request, res: Response) => {
+    const raw = req.query.reqIds;
+    const ids = typeof raw === 'string'
+      ? raw.split(',').map(s => s.trim()).filter(s => s.length > 0)
+      : [];
+    if (ids.length === 0) {
+      return res.status(400).json({ success: false, error: 'reqIds is required (comma-separated ids)' });
+    }
+    try {
+      const data = await service.getChainStats(ids.slice(0, 100));
+      res.json({ success: true, data });
+    } catch (e: unknown) {
+      res.status(500).json({ success: false, error: getErrorMessage(e) });
     }
   });
 

@@ -19,6 +19,7 @@ import {
   FileStore,
   formatRequirementId,
   logger,
+  deriveDisplayState,
   type RequirementData,
   type RequirementStatus,
 } from '@dommaker/studio-shared';
@@ -279,6 +280,37 @@ export class RequirementService {
         completedAt: s.completedAt,
       })),
     };
+  }
+
+  /**
+   * #387 批量徽章统计（PMO 卡片「任务 x/y」）：每需求 { finished, total }。
+   * finished 口径 = deriveDisplayState().workFinished（F6 铁律：指标只经唯一派生函数，
+   * 与前端原口径同源）。一次索引读取替掉前端逐项目 getChain 的 N+1；别名经一次
+   * 全量扫描解析。查无此需求 → 结果不含该 key（前端徽章静默缺省，同原 404 口径）。
+   */
+  async getChainStats(reqIds: readonly string[]): Promise<Record<string, { finished: number; total: number }>> {
+    const snapshots = await this.fileStore.getIndex();
+    const aliasProjects = await this.listAliasProjects();
+    const aliases = new Set(
+      aliasProjects
+        .map(p => p.reqAlias)
+        .filter((a): a is string => typeof a === 'string' && a.length > 0)
+        .map(a => a.toUpperCase()),
+    );
+    const result: Record<string, { finished: number; total: number }> = {};
+    for (const reqId of reqIds) {
+      const own = snapshots.filter(s => s.reqId === reqId);
+      if (own.length === 0) {
+        const exists = aliases.has(reqId.toUpperCase())
+          || (await this.fileStore.getRequirement(reqId)) !== null;
+        if (!exists) continue;
+      }
+      result[reqId] = {
+        finished: own.filter(s => deriveDisplayState({ status: s.status, metadata: s.metadata }).workFinished).length,
+        total: own.length,
+      };
+    }
+    return result;
   }
 
   /**

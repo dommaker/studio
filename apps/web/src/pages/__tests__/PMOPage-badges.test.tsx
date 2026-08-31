@@ -4,12 +4,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
-const { mockGet, mockPost, mockChannelList, mockListAllAgents, mockGetChain, mockProjectList } = vi.hoisted(() => ({
+const { mockGet, mockPost, mockChannelList, mockListAllAgents, mockChainStats, mockProjectList } = vi.hoisted(() => ({
   mockGet: vi.fn(),
   mockPost: vi.fn(),
   mockChannelList: vi.fn(),
   mockListAllAgents: vi.fn(),
-  mockGetChain: vi.fn(),
+  mockChainStats: vi.fn(),
   mockProjectList: vi.fn(),
 }));
 
@@ -21,7 +21,7 @@ vi.mock('../../api/channel', () => ({
   channelApi: { list: mockChannelList, listAllAgents: mockListAllAgents },
 }));
 vi.mock('../../api/requirements', () => ({
-  requirementApi: { getChain: mockGetChain },
+  requirementApi: { chainStats: mockChainStats },
 }));
 
 import { PMOPage } from '../PMOPage';
@@ -49,18 +49,9 @@ describe('AC-6: PMO 卡片徽章', () => {
       if (url.includes('/pmo/okr')) return Promise.resolve({ data: { data: [] } });
       return Promise.resolve({ data: { data: [] } });
     });
-    // p1：3 个 WU，done + closed 算完成（workFinished 口径），active 不算
-    mockGetChain.mockResolvedValue({
-      data: {
-        data: {
-          requirement: { id: 'REQ-0001', title: 'Alpha' },
-          workunits: [
-            { id: 'wu-1', title: '甲', status: 'done', assigneeId: null, metadata: null },
-            { id: 'wu-2', title: '乙', status: 'active', assigneeId: null, metadata: null },
-            { id: 'wu-3', title: '丙', status: 'closed', assigneeId: null, metadata: null },
-          ],
-        },
-      },
+    // #387：徽章统计走批量端点一次拉全（done/closed 算完成的 workFinished 口径在服务端）
+    mockChainStats.mockResolvedValue({
+      data: { data: { 'REQ-0001': { finished: 2, total: 3 } } },
     });
   });
 
@@ -70,15 +61,15 @@ describe('AC-6: PMO 卡片徽章', () => {
     await waitFor(() => {
       expect(screen.getByText('任务 2/3')).toBeTruthy();
     });
-    // chain 只对有别名的 p1 调一次
-    expect(mockGetChain).toHaveBeenCalledTimes(1);
-    expect(mockGetChain).toHaveBeenCalledWith('REQ-0001');
+    // 单请求批量：全部别名一次拉取
+    expect(mockChainStats).toHaveBeenCalledTimes(1);
+    expect(mockChainStats).toHaveBeenCalledWith(['REQ-0001']);
     // 徽章只出现一份（p2 无徽章）
     expect(screen.getAllByText(/任务 \d+\/\d+/)).toHaveLength(1);
   });
 
-  it('chain 失败：静默不显示徽章，卡片照常渲染', async () => {
-    mockGetChain.mockRejectedValue(new Error('boom'));
+  it('批量统计失败：静默不显示徽章，卡片照常渲染', async () => {
+    mockChainStats.mockRejectedValue(new Error('boom'));
     renderPMO();
 
     await waitFor(() => {
@@ -86,7 +77,7 @@ describe('AC-6: PMO 卡片徽章', () => {
     });
     // 等一拍让徽章 effect 落定
     await waitFor(() => {
-      expect(mockGetChain).toHaveBeenCalled();
+      expect(mockChainStats).toHaveBeenCalled();
     });
     expect(screen.queryByText(/WU \d+\/\d+/)).toBeNull();
   });
