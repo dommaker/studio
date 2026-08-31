@@ -38,4 +38,5 @@
 - 杂务 PMO：`isChore + channelId` 联合标识，`ensureChoreProject` find-or-create。
 - 多腿项目：`POST /project` 接受 `gitRepos: string[]`，每个工程落一条 `deliveries[]` 腿。
 - 鉴权：6 条写端点 requireAuth+requireNotGuest，DELETE project/okr requireRole('Admin')。
+- **未归属 WU（#402 决策）**：无 reqId 且 pmoId 归因戳解析为 null 的 WU——不计入任何项目的交付统计，但 API 层可过滤/计数/列清单。trigger 系统维护单等合法无归属，创建入口不强制归因（best-effort 落戳）。
 - **gitRepo 白名单（2026-08-25 收口）**：`POST /project` 与 `PUT /project/:id` 校验 `gitRepo`/`gitRepos`——resolve 后须落在允许根（env `PMO_GIT_REPO_ROOTS` 冒号分隔，缺省 `/root/projects`）且为已存在目录，否则 400 INVALID_INPUT。写入口仅此两处（`updateStatus` 不触 gitRepo）。
