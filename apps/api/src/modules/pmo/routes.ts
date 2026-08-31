@@ -7,11 +7,9 @@ import { syncProjectProgress } from './progress-rollup.js';
 import { logger } from '../../utils/logger.js';
 import { requireAuth, requireNotGuest, requireRole, type AuthRequest } from '../../middleware/auth.js';  // 🆕 SEC-001 / SEC-002
 import { apiCache, CACHE_CONFIG } from '../../middleware/api-cache.js';
-import { FileStore } from '@dommaker/studio-shared';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
 import { parsePagination } from '../../utils/pagination.js';
 
 /** A2A §4.4 同款约定：agent 身份调用一律 403（交付权只在人） */
@@ -22,7 +20,6 @@ function resolveCallerAuthorType(req: Request): string {
 }
 
 const router = Router();
-const STUDIO_EVENTS_JSONL = resolveStudioLogFile('studio-events.jsonl');
 
 // ─── gitRepo 白名单（2026-08-25 安全收口） ───
 // gitRepo 会被下游 git 操作（deliver/merge、spec 物化、agent-loop 执行根）消费，
@@ -502,34 +499,6 @@ router.delete('/okr/:id', requireRole('Admin'), async (req: Request, res: Respon
     logger.error({ error }, 'Failed to delete OKR');
     res.status(500).json({
       error: { code: 'INTERNAL_ERROR', message: 'Failed to delete OKR' },
-    });
-  }
-});
-
-// ============================================
-// O3g: Pipeline Health Dashboard API
-// ============================================
-
-/**
- * GET /api/v1/pmo/health — pipeline health dashboard
- */
-router.get('/health', async (_req: Request, res: Response) => {
-  try {
-    const fileStore = new FileStore();
-    const snapshots = await fileStore.getIndex();
-    const activeWorkUnits = snapshots.filter(s => s.status === 'active').length;
-    const pendingWorkUnits = snapshots.filter(s => s.status === 'unassigned').length;
-    const recentEvents = await fileStore.readJsonl<any>(STUDIO_EVENTS_JSONL);
-    res.json({
-      activeWorkUnits,
-      pendingWorkUnits,
-      recentActivity: recentEvents.length,
-      ok: activeWorkUnits > 0 || pendingWorkUnits > 0,
-    });
-  } catch (error) {
-    logger.error({ error }, 'Failed to get pipeline health');
-    res.status(500).json({
-      error: { code: 'INTERNAL_ERROR', message: 'Failed to get pipeline health' },
     });
   }
 });
