@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { firstId, parseWidths } from '../capture';
+import { firstId, parseWidths, parseTier, fillPath } from '../capture';
 
 describe('firstId（列表 API 响应逐路径探测取第一条 id）', () => {
   it('命中 {data: [...]} 形态', () => {
@@ -29,5 +29,34 @@ describe('parseWidths（--widths 覆盖默认宽度档，#395 窄屏走查）', 
   it('未登记高度的档位 → 抛错', () => {
     expect(() => parseWidths('1024,999')).toThrow(/999/);
     expect(() => parseWidths('abc')).toThrow();
+  });
+});
+
+describe('parseTier（#400：--tier B 走 B 档未认证页）', () => {
+  it('未传参 → A 档（认证页）', () => {
+    expect(parseTier(undefined)).toBe('A');
+  });
+
+  it('--tier B → B 档', () => {
+    expect(parseTier('B')).toBe('B');
+  });
+
+  it('未知档 → 抛错', () => {
+    expect(() => parseTier('C')).toThrow(/C/);
+  });
+});
+
+describe('fillPath（带参路径替换，libraryDocId 含 / 与 : 需 encodeURIComponent）', () => {
+  it('无参页原样返回', () => {
+    expect(fillPath({ name: 'channels', path: '/channels' }, {})).toBe('/channels');
+  });
+
+  it('普通 id 直接替换', () => {
+    expect(fillPath({ name: 'channel-detail', path: '/channels/:channelId', param: 'channelId' }, { channelId: 'ch_1' })).toBe('/channels/ch_1');
+  });
+
+  it('含 / 与 : 的 id → encodeURIComponent（react-router 会 decode 回原文）', () => {
+    const target = { name: 'library-doc', path: '/library/:libraryDocId', param: 'libraryDocId' } as const;
+    expect(fillPath(target, { libraryDocId: 'proj_1:research/a.md' })).toBe('/library/proj_1%3Aresearch%2Fa.md');
   });
 });
