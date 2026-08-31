@@ -27,6 +27,8 @@ const { mockGetWorkspace, mockCreateAgent } = vi.hoisted(() => ({
 
 vi.mock('react-router-dom', () => ({
   useParams: () => ({ id: 'ws-1' }),
+  // #393 后本页渲染 BackButton（内部 useNavigate），mock 工厂必须补全，否则 render 期抛错空 body
+  useNavigate: () => vi.fn(),
   Link: ({ children, to }: { children: React.ReactNode; to: string }) =>
     React.createElement('a', { href: to }, children),
 }));
