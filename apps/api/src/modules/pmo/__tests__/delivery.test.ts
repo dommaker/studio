@@ -101,9 +101,9 @@ describe('getDeliveryStatus（PMO-b 台账）', () => {
     expect(s2!.evidence.selfReviewCount).toBe(1);
     // gaps 明细：只含已完成且有缺口的 WU，missing 顺序 l1→l2→l3，标题回退 scope
     expect(s2!.gaps).toEqual([{ id: gaps.id, title: 's', type: 'task', missing: ['l1', 'l3'] }]);
-    expect(s2!.missing.join(' ')).toContain('1 个 WorkUnit 未完成');
-    expect(s2!.missing.join(' ')).toContain('L1 自动验证');
-    expect(s2!.missing.join(' ')).toContain('L3 人工确认');
+    expect(s2!.missing.join(' ')).toContain('1 个任务未完成');
+    expect(s2!.missing.join(' ')).toContain('缺自动验证');
+    expect(s2!.missing.join(' ')).toContain('缺人工确认');
   });
 
   it('analysis/review 类 WU 豁免 L2（dispatcher 不派评审，验收闸是人工 L3）；缺 L3 仍不可交付', async () => {
@@ -156,7 +156,7 @@ describe('getDeliveryStatus（PMO-b 台账）', () => {
 
     const s2 = await getDeliveryStatus('proj-1', undefined, makeDeps({ snapshots: [] }));
     expect(s2!.deliverable).toBe(false);
-    expect(s2!.missing).toContain('无关联 WorkUnit');
+    expect(s2!.missing).toContain('无关联任务');
   });
 
   it('legacy WU（无 attestations）= 证据缺口（台账诚实——没评审就是没评审）', async () => {
@@ -173,7 +173,7 @@ describe('getDeliveryStatus（PMO-b 台账）', () => {
     const other = wu({ reqId: null, metadataObj: { pmoId: 'proj-2', attestations: {} } });
     const s = await getDeliveryStatus('proj-1', undefined, makeDeps({ reqs: [], snapshots: [ready, other] }));
     expect(s!.wu).toEqual({ total: 1, finished: 1, inFlight: 0, byStatus: { unassigned: 0, active: 0, inReview: 0, blocked: 0 } }); // proj-2 的 WU 不计入
-    expect(s!.missing).not.toContain('无关联 WorkUnit');
+    expect(s!.missing).not.toContain('无关联任务');
     expect(s!.deliverable).toBe(true);
   });
 
@@ -184,8 +184,8 @@ describe('getDeliveryStatus（PMO-b 台账）', () => {
     expect(s!.wu.total).toBe(1);
     expect(s!.deliverable).toBe(false);
     expect(s!.evidence.l1Missing).toEqual([gaps.id]); // task 类型缺 l1
-    expect(s!.missing.join(' ')).toContain('L1 自动验证');
-    expect(s!.missing).not.toContain('无关联 WorkUnit');
+    expect(s!.missing.join(' ')).toContain('缺自动验证');
+    expect(s!.missing).not.toContain('无关联任务');
   });
 });
 

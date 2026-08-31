@@ -109,7 +109,7 @@ describe('getDeliveryStatus 多腿台账（#113 T7）', () => {
     // 整体 = 全腿 deliverable 才翻转
     expect(s!.deliverable).toBe(false);
     // 整体 missing 带腿前缀（人话清单定位到腿）
-    expect(s!.missing.some(m => m.startsWith('[PMO-11-b]') && m.includes('L1 自动验证'))).toBe(true);
+    expect(s!.missing.some(m => m.startsWith('[PMO-11-b]') && m.includes('缺自动验证'))).toBe(true);
     expect(s!.missing.some(m => m.startsWith('[PMO-11-a]'))).toBe(false);
   });
 
@@ -142,7 +142,7 @@ describe('getDeliveryStatus 多腿台账（#113 T7）', () => {
 
     const s2 = await getDeliveryStatus('proj-1', undefined, makeDeps({ snapshots: [] }));
     expect(s2!.deliverable).toBe(false);
-    expect(s2!.missing).toContain('无关联 WorkUnit');
+    expect(s2!.missing).toContain('无关联任务');
   });
 
   it('单腿（无 deliveries / 合成单腿）不输出 legs 字段（回归硬要求）', async () => {

@@ -136,11 +136,12 @@ async function buildLedger(
   const tokens = await sumTokens(new Set(snapshots.map(s => s.id))).catch(() => 0);
 
   const missing: string[] = [];
-  if (snapshots.length === 0) missing.push('无关联 WorkUnit');
-  if (inFlight > 0) missing.push(`${inFlight} 个 WorkUnit 未完成`);
-  if (l1Missing.length > 0) missing.push(`${l1Missing.length} 个代码类 WorkUnit 缺 L1 自动验证（${l1Missing.slice(0, 3).join(', ')}${l1Missing.length > 3 ? '…' : ''}）`);
-  if (l2Missing.length > 0) missing.push(`${l2Missing.length} 个 WorkUnit 缺 L2 agent 评审（${l2Missing.slice(0, 3).join(', ')}${l2Missing.length > 3 ? '…' : ''}）`);
-  if (l3Missing.length > 0) missing.push(`${l3Missing.length} 个 WorkUnit 缺 L3 人工确认（${l3Missing.slice(0, 3).join(', ')}${l3Missing.length > 3 ? '…' : ''}）`);
+  // 界面文案对齐 #385 词表：WU→任务、L1/L2/L3 编号转白话（自动验证/Agent 评审/人工确认）；插值为 WU 编号本身除外
+  if (snapshots.length === 0) missing.push('无关联任务');
+  if (inFlight > 0) missing.push(`${inFlight} 个任务未完成`);
+  if (l1Missing.length > 0) missing.push(`${l1Missing.length} 个代码类任务缺自动验证（${l1Missing.slice(0, 3).join(', ')}${l1Missing.length > 3 ? '…' : ''}）`);
+  if (l2Missing.length > 0) missing.push(`${l2Missing.length} 个任务缺 Agent 评审（${l2Missing.slice(0, 3).join(', ')}${l2Missing.length > 3 ? '…' : ''}）`);
+  if (l3Missing.length > 0) missing.push(`${l3Missing.length} 个任务缺人工确认（${l3Missing.slice(0, 3).join(', ')}${l3Missing.length > 3 ? '…' : ''}）`);
 
   return { summary, missing, gaps, tokens };
 }
