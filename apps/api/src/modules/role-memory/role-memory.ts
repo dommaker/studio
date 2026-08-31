@@ -14,6 +14,11 @@
  * promote 合并走单一代码路径（唯一写 topic + 索引的方法）且 per-role 进程内互斥
  * （Map<roleId, Promise> 链式锁，单进程模型，不引入 Redis）。
  *
+ * 读路径（#404，缓存 seam 决策树第 1 问）：索引/topic 正文/目录清单全部走 FileStore
+ * 读穿 seam（readDoc/mdCache + store.readdir/dirCache，mtime 校验），模块内无裸 fs 读；
+ * 命中返回结构克隆（#343 语义基线，调用方原地改返回对象不污染缓存）。写路径不动
+ * （mergeIntoTopic/rebuildIndex 裸 writeFile），失效靠 mtime 校验兜底。
+ *
  * 容量上限 + GC：超限只提醒（checkCapacity 返回结构化 signal），不落新人罪（不拒绝写入）、
  * 不自动删。GC 最简 = 超限提醒人合并 topic / 淘汰草稿。
  * 与 KnowledgeSync「零值 trend 止血 + GC」的合并：#88 中该子项属 #83（知识飞轮 GC，
@@ -28,7 +33,7 @@
 import fs from 'node:fs';
 import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { FileStore, foldJsonlById, parseFrontmatter, serializeFrontmatter } from '@dommaker/studio-shared';
+import { FileStore, foldJsonlById, serializeFrontmatter } from '@dommaker/studio-shared';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import { isTestEnv, testTmpRoot } from '../../utils/studio-log-path.js';
 
@@ -296,41 +301,39 @@ export class RoleMemoryStore {
 
   // ── 读索引（供 #100 注入）──
 
-  /** 读取 MEMORY.md 索引全文。不存在返回 ''（不抛出，供注入兜底）。 */
+  /**
+   * 读取 MEMORY.md 索引全文。不存在返回 ''（不抛出，供注入兜底）。
+   * #404：走 FileStore 读穿 seam（readDoc/mdCache，mtime 校验）——MEMORY.md 无 frontmatter，
+   * readDoc 返回 { meta:{}, body: 整文.trim() }；唯一消费方 buildMemorySection 自身 trim，
+   * 行为等价。命中返回克隆（字符串不可变，天然安全）。
+   */
   async readIndex(roleId: string): Promise<string> {
     const rid = sanitizeRoleId(roleId);
-    try {
-      return await fs.promises.readFile(this.indexPath(rid), 'utf-8');
-    } catch (err: unknown) {
-      if (isErrnoCode(err, 'ENOENT')) return '';
-      throw err;
-    }
+    const doc = await store.readDoc(roleMemoryDir(rid), 'MEMORY');
+    return doc?.body ?? '';
   }
 
   // ── 读 topic ──
 
-  /** 读取单个 topic 文档（frontmatter + 正文）。不存在返回 null。 */
+  /**
+   * 读取单个 topic 文档（frontmatter + 正文）。不存在返回 null。
+   * #404：走 FileStore 读穿 seam（readDoc/mdCache，mtime 校验）；无 frontmatter 时
+   * readDoc 给 meta={} + body=整文.trim()，与旧裸读 + parseFrontmatter 的兜底分支等价。
+   * 命中返回结构克隆（#343 语义基线：调用方原地改返回对象不污染缓存）。
+   */
   async readTopic(roleId: string, slug: string): Promise<TopicDoc | null> {
     const rid = sanitizeRoleId(roleId);
     const safeSlug = sanitizeTopicSlug(slug);
-    let raw: string;
-    try {
-      raw = await fs.promises.readFile(this.topicPath(rid, safeSlug), 'utf-8');
-    } catch (err: unknown) {
-      if (isErrnoCode(err, 'ENOENT')) return null;
-      throw err;
-    }
-    const parsed = parseFrontmatter(raw);
-    if (!parsed) {
-      return { slug: safeSlug, title: safeSlug, summary: '', kind: null, updatedAt: '', body: raw.trim() };
-    }
+    const doc = await store.readDoc(this.topicsDir(rid), safeSlug);
+    if (!doc) return null;
+    const { meta } = doc;
     return {
       slug: safeSlug,
-      title: typeof parsed.meta.title === 'string' ? parsed.meta.title : safeSlug,
-      summary: typeof parsed.meta.summary === 'string' ? parsed.meta.summary : '',
-      kind: MEMORY_KINDS.has(String(parsed.meta.kind)) ? (parsed.meta.kind as MemoryKind) : null,
-      updatedAt: typeof parsed.meta.updatedAt === 'string' ? parsed.meta.updatedAt : '',
-      body: parsed.body,
+      title: typeof meta.title === 'string' ? meta.title : safeSlug,
+      summary: typeof meta.summary === 'string' ? meta.summary : '',
+      kind: MEMORY_KINDS.has(String(meta.kind)) ? (meta.kind as MemoryKind) : null,
+      updatedAt: typeof meta.updatedAt === 'string' ? meta.updatedAt : '',
+      body: doc.body,
     };
   }
 
@@ -339,7 +342,8 @@ export class RoleMemoryStore {
     const dir = this.topicsDir(roleId);
     let entries: fs.Dirent[];
     try {
-      entries = await fs.promises.readdir(dir, { withFileTypes: true });
+      // #404：目录清单走 FileStore 读穿 seam（dirCache，目录 mtime 校验；ENOENT 语义不变）
+      entries = await store.readdir(dir);
     } catch (err: unknown) {
       if (isErrnoCode(err, 'ENOENT')) return [];
       throw err;
@@ -472,20 +476,13 @@ export class RoleMemoryStore {
    */
   private async mergeIntoTopic(roleId: string, slug: string, entries: MemoryDraftRow[]): Promise<void> {
     const filePath = this.topicPath(roleId, slug);
-    let meta: Record<string, unknown> = {};
-    let body = '';
-    try {
-      const raw = await fs.promises.readFile(filePath, 'utf-8');
-      const parsed = parseFrontmatter(raw);
-      if (parsed) {
-        meta = parsed.meta;
-        body = parsed.body;
-      } else {
-        body = raw.trim();
-      }
-    } catch (err: unknown) {
-      if (!isErrnoCode(err, 'ENOENT')) throw err;
-    }
+    // #404：旧正文读取走 FileStore 读穿 seam（readDoc/mdCache）。此处虽在 withRoleLock 内，
+    // 但锁是模块自有 per-role 互斥（非 #314 D1 的 FileStore 锁内读例外场景）：读穿缓存
+    // mtime 校验与同锁串行写兼容， miss/写后重读由 mtime 变化保证。
+    // readDoc 命中返回结构克隆，meta 可直接原地改。
+    const doc = await store.readDoc(this.topicsDir(roleId), slug);
+    const meta: Record<string, unknown> = doc?.meta ?? {};
+    let body = doc?.body ?? '';
 
     const existingHeadings = new Set(
       body.split('\n').filter(l => l.startsWith('## ')).map(l => l.slice(3)),
