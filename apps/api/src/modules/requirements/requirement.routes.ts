@@ -18,6 +18,8 @@ import { getErrorMessage } from '../../utils/errors.js';
 export function createRequirementRoutes(fileStore?: FileStore): Router {
   const router = Router();
   const service = new RequirementService(fileStore);
+  // #387: 单次批量 id 上限（PMO 单页 ≤ 20 项目，留余量；超出静默截断）
+  const MAX_BATCH_IDS = 100;
 
   /** GET / — list requirements（status/channelId 过滤） */
   router.get('/', async (req: Request, res: Response) => {
@@ -78,7 +80,7 @@ export function createRequirementRoutes(fileStore?: FileStore): Router {
       return res.status(400).json({ success: false, error: 'reqIds is required (comma-separated ids)' });
     }
     try {
-      const data = await service.getChainStats(ids.slice(0, 100));
+      const data = await service.getChainStats(ids.slice(0, MAX_BATCH_IDS));
       res.json({ success: true, data });
     } catch (e: unknown) {
       res.status(500).json({ success: false, error: getErrorMessage(e) });

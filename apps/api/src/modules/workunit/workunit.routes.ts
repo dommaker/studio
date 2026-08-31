@@ -47,6 +47,8 @@ import { requireAuth, requireNotGuest, type AuthRequest } from '../../middleware
 const router = Router();
 const fileStore = new FileStore();
 const service = new WorkUnitService(fileStore);
+// #387: 单次批量 id 上限（调用方单页规模 ≤ 数十，留余量；超出静默截断）
+const MAX_BATCH_IDS = 100;
 
 /**
  * A2A §4.4: 调用方 authorType 识别（body.authorType 优先，其次 x-author-type header）。
@@ -161,7 +163,7 @@ router.get('/last-done', async (req: Request, res: Response) => {
         error: { code: 'INVALID_INPUT', message: 'assigneeIds is required (comma-separated ids)' },
       });
     }
-    const data = await service.lastDoneByAssignee(ids.slice(0, 100));
+    const data = await service.lastDoneByAssignee(ids.slice(0, MAX_BATCH_IDS));
     res.json({ success: true, data });
   } catch (error) {
     res.status(500).json({

@@ -27,5 +27,6 @@ PMO-a 别名层（2026-07-28 分析文档，决策 4）：REQ 退化为 PMO 的�
 - 状态汇总走事件驱动（`workunit.status_changed`），不做轮询
 - **requirement.created/updated 已接 SSE（2026-08-24 SSE 负载加深）**：publish 负载 = `{ requirement }`（RequirementData 含 id/title/status/channelId，无需补齐），经 events 模块 workunit-events-bridge 转发到 'events' 频道，topic = requirements（sse.routes 前缀映射）
 - **鉴权（2026-07-24 收紧）**：POST /、PATCH /:id 已收 requireAuth+requireNotGuest；GET 端点保持大门层鉴权不变。
+- **批量徽章统计(#387)**：GET /chain-stats?reqIds= 每需求 {finished,total}，finished = deriveDisplayState().workFinished（F6 唯一口径服务端同源）；getChainStats 一次索引扫描 + 别名一次 listAliasProjects 全量扫描解析，查无此需求不出 key（同原 404 口径）。PMO 卡片「任务 x/y」专用，消逐项目 getChain 的 N+1；单次 id 上限 MAX_BATCH_IDS=100。GET 只读，大门层鉴权不变。
 - **B3a（决策 D2）**：Requirement 增 projectId 字段挂 PMO 项目（工程归属锚点）；studio-shared 的 RequirementData 暂未加该字段（本批改动限 apps/api/src），由本地 `RequirementWithProject` 扩展类型承载，FileStore 透传 JSON 运行时无差异。#402：update 解绑（projectId: null）不拦截，但已挂项目且存在无 pmoId 戳关联 WU 时记对账 warn（affectedWorkUnits）——有戳 WU 经戳兜底仍归属原项目（逐 WU 归属口径见 pmo/evidence-summary.ts）。
 - **决策 4（别名层）**：别名视图 createdBy='pmo-alias' 只读；`RequirementServiceDeps` 可注入 getProjectByAlias/findChoreProject/listAliasProjects/getProjectByPmoNumber——单测务必注入中性桩（默认实现读真实 ~/.studio/projects，并行测试会被 routes 测试的真实项目串扰）。
