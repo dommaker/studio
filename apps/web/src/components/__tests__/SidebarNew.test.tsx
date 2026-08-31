@@ -28,9 +28,9 @@ const renderSidebar = (initialPath = '/channels/ch-1') =>
   );
 
 describe('Sidebar — #393 菜单精简', () => {
-  it('主项仅 4 个：频道 / PMO / WorkUnit / Agent', () => {
+  it('主项仅 4 个：频道 / PMO / 任务 / Agent', () => {
     renderSidebar();
-    for (const label of ['频道', 'PMO', 'WorkUnit', 'Agent']) {
+    for (const label of ['频道', 'PMO', '任务', 'Agent']) {
       expect(screen.getByRole('link', { name: new RegExp(label) })).toBeTruthy();
     }
     // 收纳项折叠态不可达

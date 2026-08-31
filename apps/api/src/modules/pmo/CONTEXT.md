@@ -19,7 +19,7 @@
 | `selectProjectSnapshots` / `summarizeEvidence` / `matchWuToLeg` / `partitionSnapshotsByLeg` / `CODE_TYPES` | `evidence-summary.ts` | 共享证据口径：快照派生 l1/l2/l3 + deliverable 判定 + WU->腿归属 |
 | `AnalysisHandoff` / `initAnalysisHandoff` / `waitForSettled` | `analysis-handoff.ts` | analysis->in_review 分流确认（有频道=人工确认卡，无频道+trigger=直转）+ 建 task 子 WU |
 | `DecisionResolution` / `initDecisionResolution` | `decision-resolution.ts` | 决策单状态推进 + 落 decisions[] + 雾消解 + 全清自动建 spec 单 |
-| `MapOpening` / `initMapOpening` / `parseMapOpening` | `map-opening.ts` | analysis done -> 初始化探路地图 + 逐条建 decision 单（提取 DESTINATION:/FOG: 清单） |
+| `MapOpening` / `initMapOpening` / `parseMapOpening` | `map-opening.ts` | analysis done -> 初始化探路地图 + 逐条建 decision 单（提取 DESTINATION:/FOG: 清单，#401 起兼容中文别名 目标：/待决：） |
 | `SpecMaterialization` / `initSpecMaterialization` / `parseSpecTasks` | `spec-materialization.ts` | spec done -> 批量建 task 子 WU（提取 TASK:/AC:/BLOCKEDBY:/LEG: 清单） |
 | `getDeliveryStatus` / `deliverProject` | `delivery.ts` | 交付台账（证据齐缺 + gaps）+ auto-merge 交付（逐腿独立合并） |
 | 默认导出 Express Router | `routes.ts` | REST 路由（`/project`、`/objective`、`/key-result` 等） |

@@ -164,13 +164,13 @@ describe('ChannelMessageItem — F5 waiting badge', () => {
 describe('ChannelMessageItem — §5.7 WU/PMO 直跳', () => {
   it('有 workUnitId 时渲染 ↗，点击跳 /workunits/:id', () => {
     render(<ChannelMessageItem message={baseMessage} onAction={vi.fn()} />);
-    fireEvent.click(screen.getByTitle('新页面打开 WorkUnit 详情'));
+    fireEvent.click(screen.getByTitle('新页面打开任务详情'));
     expect(mockNavigate).toHaveBeenCalledWith('/workunits/wu-1');
   });
 
   it('无 workUnitId 时不渲染 ↗', () => {
     render(<ChannelMessageItem message={{ ...baseMessage, workUnitId: null }} onAction={vi.fn()} />);
-    expect(screen.queryByTitle('新页面打开 WorkUnit 详情')).not.toBeInTheDocument();
+    expect(screen.queryByTitle('新页面打开任务详情')).not.toBeInTheDocument();
   });
 
   it('meta.pmoId 存在时渲染 PMO chip，点击跳 /pmo/project/:id', () => {
@@ -316,7 +316,7 @@ describe('ChannelMessageItem — #267 NEED_INPUT 结构化选项卡（meta.optio
 describe('ChannelMessageItem — #241 footer WU 链接截短显示', () => {  it('长 UUID 截短为前 8 位 + …，title 保留全量 id', () => {
     const uuid = '160eeee8-aaaa-bbbb-cccc-dddddddddddd';
     render(<ChannelMessageItem message={{ ...baseMessage, workUnitId: uuid }} onAction={vi.fn()} onOpenWorkUnit={vi.fn()} />);
-    const link = screen.getByTitle(`打开 WorkUnit 详情：${uuid}`);
+    const link = screen.getByTitle(`打开任务详情：${uuid}`);
     expect(link.textContent).toBe('160eeee8… ›');
   });
 

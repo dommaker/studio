@@ -87,11 +87,11 @@ export function RequirementChainPanel({ reqId, onClose }: Props) {
             )}
           </div>
 
-          {/* WorkUnit 列表 */}
+          {/* 任务列表 */}
           <div>
-            <div className="text-xs u-text-3 mb-2">WorkUnit（{chain.workunits.length}）</div>
+            <div className="text-xs u-text-3 mb-2">任务（{chain.workunits.length}）</div>
             {chain.workunits.length === 0 ? (
-              <div className="text-sm u-text-3">暂无关联 WorkUnit</div>
+              <div className="text-sm u-text-3">暂无关联任务</div>
             ) : (
               <ul className="space-y-1.5">
                 {chain.workunits.map(wu => {

@@ -80,8 +80,8 @@ export function WorkUnitListPage() {
       <div className="px-8 py-6" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="page-title">WorkUnit</h1>
-            <p className="page-subtitle">Agent Network 工作单元 — 创建、分配、审查</p>
+            <h1 className="page-title">任务</h1>
+            <p className="page-subtitle">创建、分配、审查全部任务</p>
           </div>
           <div className="flex gap-2">
             <button className="btn btn-primary" onClick={() => setShowCreate(!showCreate)}>
@@ -176,8 +176,8 @@ export function WorkUnitListPage() {
           ) : workunits.length === 0 ? (
             <div className="text-center py-20 u-text-2">
               <div className="text-4xl mb-4">📋</div>
-              <p>暂无 WorkUnit</p>
-              <p className="text-sm mt-2">点击"新建"创建第一个工作单元</p>
+              <p>暂无任务</p>
+              <p className="text-sm mt-2">点击"新建"创建第一个任务</p>
             </div>
           ) : (
             <div className="space-y-2 mt-4">
@@ -268,7 +268,7 @@ function WorkUnitRow({
             <Link
               to={`/workunits/${wu.id}`}
               className="font-medium u-text truncate u-hover-accent"
-              title="打开 WorkUnit 详情页"
+              title="打开任务详情页"
               onClick={e => e.stopPropagation()}
             >
               {wu.scope}

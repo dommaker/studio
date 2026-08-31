@@ -114,20 +114,20 @@ describe('parseBlockedBy：metadata 依赖解析', () => {
   });
 });
 
-describe('buildMapOpeningPrefill：analysis 确认弹窗清单预填（#106 M7）', () => {
-  it('analysisDestination + analysisFog → DESTINATION:/FOG: 逐行还原', () => {
+describe('buildMapOpeningPrefill：analysis 确认弹窗清单预填（#106 M7；#401 起中文别名键）', () => {
+  it('analysisDestination + analysisFog → 目标：/待决： 逐行还原', () => {
     const metadata = JSON.stringify({
       analysisDestination: '三仓特性联动上线',
       analysisFog: ['存储选型用哪个？', '部署形态先单机还是分布式？'],
     });
     expect(buildMapOpeningPrefill(metadata)).toBe(
-      'DESTINATION: 三仓特性联动上线\nFOG: 存储选型用哪个？\nFOG: 部署形态先单机还是分布式？',
+      '目标：三仓特性联动上线\n待决：存储选型用哪个？\n待决：部署形态先单机还是分布式？',
     );
   });
 
-  it('只有 analysisFog → 无 DESTINATION 行；空白项剔除', () => {
+  it('只有 analysisFog → 无目标行；空白项剔除', () => {
     const metadata = JSON.stringify({ analysisFog: ['队列方案？', '  ', 42] });
-    expect(buildMapOpeningPrefill(metadata)).toBe('FOG: 队列方案？');
+    expect(buildMapOpeningPrefill(metadata)).toBe('待决：队列方案？');
   });
 
   it('无清单 / 坏 JSON / null → 空串（非探路型，弹窗空手填）', () => {

@@ -602,11 +602,13 @@ body {
 }
 
 /* === 模态框 === */
+/* 遮罩 0.7（#401 复核：ticket 观察的 ~90% 实为 blur 叠加近纯黑底的观感，透明度本就在建议区间 70-80%）；
+   blur 4px→2px（#401）——保留层次隔离感，背景内容依稀可辨，减轻压迫感 */
 .modal-overlay {
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.7);
-  backdrop-filter: blur(4px);
+  backdrop-filter: blur(2px);
   display: flex;
   align-items: center;
   justify-content: center;

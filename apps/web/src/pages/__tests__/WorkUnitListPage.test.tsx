@@ -89,7 +89,7 @@ describe('WorkUnitListPage', () => {
 
   it('renders page title', () => {
     render(<WorkUnitListPage />);
-    expect(screen.getByText('WorkUnit')).toBeDefined();
+    expect(screen.getByText('任务')).toBeDefined();
   });
 
   it('renders create toggle button', () => {
@@ -99,7 +99,7 @@ describe('WorkUnitListPage', () => {
 
   it('shows empty state when no workunits', () => {
     render(<WorkUnitListPage />);
-    expect(screen.getByText('暂无 WorkUnit')).toBeDefined();
+    expect(screen.getByText('暂无任务')).toBeDefined();
   });
 
   // #184：监控页「需要处理」下钻链接（/workunits?status=blocked）初始化状态筛选
@@ -207,17 +207,17 @@ describe('WorkUnitListPage — analysis 确认弹窗（#106 M7）', () => {
 
     fireEvent.click(screen.getByText('通过'));
 
-    // 预填 = DESTINATION:/FOG: 逐行还原（map-opening 契约格式）
-    const textarea = screen.getByPlaceholderText(/DESTINATION/) as HTMLTextAreaElement;
+    // 预填 = 目标：/待决： 逐行还原（map-opening 契约中文别名，#401）
+    const textarea = screen.getByPlaceholderText(/目标/) as HTMLTextAreaElement;
     expect(textarea.value).toBe(
-      'DESTINATION: 三仓特性联动上线\nFOG: 存储选型用哪个？\nFOG: 部署形态先单机还是分布式？',
+      '目标：三仓特性联动上线\n待决：存储选型用哪个？\n待决：部署形态先单机还是分布式？',
     );
 
     // 人审改：删掉一条雾
-    fireEvent.change(textarea, { target: { value: 'FOG: 存储选型用哪个？' } });
+    fireEvent.change(textarea, { target: { value: '待决：存储选型用哪个？' } });
     fireEvent.click(screen.getByText('确认通过'));
 
-    expect(mockStore.reviewPassed).toHaveBeenCalledWith('wu-a1', 'FOG: 存储选型用哪个？', undefined);
+    expect(mockStore.reviewPassed).toHaveBeenCalledWith('wu-a1', '待决：存储选型用哪个？', undefined);
   });
 
   it('analysis 无清单 metadata → 弹窗空文本（空手填或直接通过 = 非探路型）', () => {
@@ -225,7 +225,7 @@ describe('WorkUnitListPage — analysis 确认弹窗（#106 M7）', () => {
     render(<WorkUnitListPage />);
 
     fireEvent.click(screen.getByText('通过'));
-    const textarea = screen.getByPlaceholderText(/DESTINATION/) as HTMLTextAreaElement;
+    const textarea = screen.getByPlaceholderText(/目标/) as HTMLTextAreaElement;
     expect(textarea.value).toBe('');
 
     fireEvent.click(screen.getByText('确认通过'));
@@ -238,7 +238,7 @@ describe('WorkUnitListPage — analysis 确认弹窗（#106 M7）', () => {
 
     fireEvent.click(screen.getByText('通过'));
 
-    expect(screen.queryByPlaceholderText(/DESTINATION/)).toBeNull();
+    expect(screen.queryByPlaceholderText(/目标/)).toBeNull();
     expect(mockStore.reviewPassed).toHaveBeenCalledWith('wu-t1', undefined, undefined);
   });
 });

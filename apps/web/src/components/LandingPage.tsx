@@ -56,7 +56,7 @@ export function LandingPage() {
             { icon: '🔍', label: '多立场审查', desc: '安全/性能/架构' },
             { icon: '📚', label: '阅览室沉淀', desc: '自动归档知识' },
             { icon: '📊', label: '周报审计', desc: '趋势+异常检测' },
-            { icon: '🚨', label: '自动修复', desc: 'Triage 自愈' },
+            { icon: '🚨', label: '自动修复', desc: '出错自动分诊处理' },
           ].map((f) => (
             <div
               key={f.label}
@@ -72,7 +72,7 @@ export function LandingPage() {
         {/* 状态指示（无文字，仅色点） */}
         <div className="flex items-center justify-center gap-2 mb-16">
           <span className="w-1.5 h-1.5 rounded-full u-ok-bg" title="运行中" />
-          <span className="text-xs u-text-2">running</span>
+          <span className="text-xs u-text-2">运行中</span>
         </div>
       </div>
 

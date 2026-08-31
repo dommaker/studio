@@ -458,11 +458,11 @@ describe('WorkUnitDetailPage', () => {
     render(<WorkUnitDetailPage />);
 
     fireEvent.click(await screen.findByText('通过（审查闸门）'));
-    const textarea = await screen.findByPlaceholderText(/DESTINATION/) as HTMLTextAreaElement;
-    expect(textarea.value).toBe('DESTINATION: 目标\nFOG: 问题1');
+    const textarea = await screen.findByPlaceholderText(/目标/) as HTMLTextAreaElement;
+    expect(textarea.value).toBe('目标：目标\n待决：问题1');
     expect(mockReviewPassed).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByText('确认通过'));
-    await waitFor(() => expect(mockReviewPassed).toHaveBeenCalledWith('wu-1', 'DESTINATION: 目标\nFOG: 问题1', undefined));
+    await waitFor(() => expect(mockReviewPassed).toHaveBeenCalledWith('wu-1', '目标：目标\n待决：问题1', undefined));
   });
 });

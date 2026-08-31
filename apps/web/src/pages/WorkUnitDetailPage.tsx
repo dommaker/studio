@@ -178,7 +178,7 @@ export function WorkUnitDetailPage() {
               <SelfReviewBadge wu={wu} />
             </>
           )}
-          <h1 className="page-title truncate">{wu ? title : 'WorkUnit 详情'}</h1>
+          <h1 className="page-title truncate">{wu ? title : '任务详情'}</h1>
         </div>
       </div>
 

@@ -65,7 +65,7 @@ export function BlockedByList({ metadata }: { metadata: string | null }) {
               <Link
                 to={`/workunits/${d.id}`}
                 className="u-text u-hover-accent truncate"
-                title={`打开依赖 WorkUnit 详情页（${d.id}）`}
+                title={`打开依赖任务详情页（${d.id}）`}
                 onClick={e => e.stopPropagation()}
               >
                 {d.title}

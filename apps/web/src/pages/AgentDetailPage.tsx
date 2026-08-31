@@ -229,7 +229,7 @@ export function AgentDetailPage() {
                     </div>
                   </>
                 ) : (
-                  <div className="py-6 text-center u-text-3 text-sm">当前空闲</div>
+                  <div className="pb-2 text-xs u-text-3">当前空闲</div>
                 )}
               </div>
 

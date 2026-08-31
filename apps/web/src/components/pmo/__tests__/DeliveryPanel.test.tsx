@@ -215,15 +215,15 @@ describe('DeliveryPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '人工确认' }));
 
-    const textarea = await screen.findByPlaceholderText(/DESTINATION/) as HTMLTextAreaElement;
+    const textarea = await screen.findByPlaceholderText(/目标/) as HTMLTextAreaElement;
     expect(mockWuGet).toHaveBeenCalledWith('wu-a1');
-    expect(textarea.value).toBe('FOG: 存储选型用哪个？');
+    expect(textarea.value).toBe('待决：存储选型用哪个？');
     expect(mockReviewPassed).not.toHaveBeenCalled();
 
-    fireEvent.change(textarea, { target: { value: 'FOG: 改后的待决问题？' } });
+    fireEvent.change(textarea, { target: { value: '待决：改后的待决问题？' } });
     fireEvent.click(screen.getByText('确认通过'));
 
-    await waitFor(() => expect(mockReviewPassed).toHaveBeenCalledWith('wu-a1', 'FOG: 改后的待决问题？', undefined));
+    await waitFor(() => expect(mockReviewPassed).toHaveBeenCalledWith('wu-a1', '待决：改后的待决问题？', undefined));
     await waitFor(() => expect(mockToastSuccess).toHaveBeenCalledWith('人工确认已补齐'));
     expect(onRefresh).toHaveBeenCalled();
   });

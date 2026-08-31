@@ -293,7 +293,7 @@ export const ChannelMessageItem = memo(function ChannelMessageItem({
       {(message.workUnitId || reqId || pmoId || (isThreadAnchor && threadReplyCount !== undefined && threadReplyCount > 0)) && (
         <div className="mc-card-foot">
           {message.workUnitId && onOpenWorkUnit && (
-            <button className="mc-wu-link" onClick={() => onOpenWorkUnit(message.workUnitId!)} title={`打开 WorkUnit 详情：${message.workUnitId}`}>
+            <button className="mc-wu-link" onClick={() => onOpenWorkUnit(message.workUnitId!)} title={`打开任务详情：${message.workUnitId}`}>
               {shortWuId(message.workUnitId)} ›
             </button>
           )}
@@ -301,8 +301,8 @@ export const ChannelMessageItem = memo(function ChannelMessageItem({
             <button
               className="mc-wu-link"
               onClick={() => navigate(`/workunits/${message.workUnitId}`)}
-              title="新页面打开 WorkUnit 详情"
-              aria-label="新页面打开 WorkUnit 详情"
+              title="新页面打开任务详情"
+              aria-label="新页面打开任务详情"
             >
               ↗
             </button>

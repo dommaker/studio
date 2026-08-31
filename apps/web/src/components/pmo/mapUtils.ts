@@ -98,8 +98,9 @@ export function parseBlockedBy(metadata?: string | null): string[] {  if (!metad
 
 /**
  * #106 M7：analysis 确认弹窗的待决问题清单预填——agent COMPLETE 时落档的
- * metadata.analysisDestination/analysisFog 还原为 map-opening 契约行
- * （DESTINATION:/FOG: 逐行）。人审改后作为 reviewPassed 的 summary 回传。
+ * metadata.analysisDestination/analysisFog 还原为 map-opening 契约行。
+ * #401：预填用中文别名（目标：/待决：，人话化）；后端 parseMapOpening 中英键通吃，
+ * agent 产出的英文键（DESTINATION:/FOG:）不受影响。人审改后作为 reviewPassed 的 summary 回传。
  * 无清单 → 空串（弹窗显示占位提示，人手填或直接通过 = 非探路型不开图）。
  */
 export function buildMapOpeningPrefill(metadata?: string | null): string {
@@ -108,11 +109,11 @@ export function buildMapOpeningPrefill(metadata?: string | null): string {
     const v = JSON.parse(metadata) as { analysisDestination?: unknown; analysisFog?: unknown };
     const lines: string[] = [];
     if (typeof v.analysisDestination === 'string' && v.analysisDestination.trim()) {
-      lines.push(`DESTINATION: ${v.analysisDestination.trim()}`);
+      lines.push(`目标：${v.analysisDestination.trim()}`);
     }
     if (Array.isArray(v.analysisFog)) {
       for (const q of v.analysisFog) {
-        if (typeof q === 'string' && q.trim()) lines.push(`FOG: ${q.trim()}`);
+        if (typeof q === 'string' && q.trim()) lines.push(`待决：${q.trim()}`);
       }
     }
     return lines.join('\n');

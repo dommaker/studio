@@ -127,7 +127,7 @@ export function LibraryPage() {
               const r = await maintenanceApi.fireTrigger('doc-semantic-review');
               if (r.workUnit?.id) {
                 navigate(`/workunits/${r.workUnit.id}`);
-                return '已创建审查任务，可在 WorkUnit 列表查看';
+                return '已创建审查任务，可在任务列表查看';
               }
               return '已创建审查任务';
             }}

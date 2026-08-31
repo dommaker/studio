@@ -83,7 +83,7 @@ export function DefaultExecutionMachineSection() {
       <h2 className="mc-block-label" style={{ margin: 0 }}>🖥️ 默认执行机器</h2>
       <p className="text-sm u-text-2">
         每个频道的任务在哪台机器跑（远程 Workspace，决定执行目录的解析）；
-        与频道顶栏的「默认工程」（本地 repo）是两个概念。不绑定时按归属链自动解析。
+        与频道顶栏的「默认工程」（本地 repo）是两个概念。不绑定时按频道与需求的归属关系自动解析。
       </p>
       <div className="card p-4 space-y-3">
         {loading ? (

@@ -7,6 +7,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { auditLogApi, type AuditLog, type AuditLogStats } from '../api/auditLogs';
 import { Select } from '../components/ui';
+import { formatFullTime } from '../utils/datetime';
 
 export const AuditLogsPage: React.FC = () => {
   const [logs, setLogs] = useState<AuditLog[]>([]);
@@ -263,7 +264,7 @@ export const AuditLogsPage: React.FC = () => {
               logs.map(log => (
                 <tr key={log.id} className="border-b u-border u-hover-bg cursor-pointer" onClick={() => setSelectedLog(log)}>
                   <td className="py-3 px-4 text-sm font-mono">
-                    {new Date(log.createdAt).toLocaleString()}
+                    {formatFullTime(log.createdAt)}
                   </td>
                   <td className="py-3 px-4">
                     {getActionBadge(log.action)}
@@ -340,7 +341,7 @@ export const AuditLogsPage: React.FC = () => {
                 </div>
                 <div>
                   <label className="text-sm u-text-2">{'时间'}</label>
-                  <div className="font-mono text-sm">{new Date(selectedLog.createdAt).toLocaleString()}</div>
+                  <div className="font-mono text-sm">{formatFullTime(selectedLog.createdAt)}</div>
                 </div>
                 <div>
                   <label className="text-sm u-text-2">{'操作'}</label>

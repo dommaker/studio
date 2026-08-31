@@ -405,7 +405,7 @@ function WuDetail({ id, autoApprove = false, onOpenReq }: { id: string; autoAppr
         </>
       )}
 
-      <div className="mc-block-label">token 开销（本 WorkUnit）</div>
+      <div className="mc-block-label">token 开销（本任务）</div>
       {tokens === null && <div className="mc-drawer-note">加载中…</div>}
       {tokens !== null && tokens.length === 0 && (
         <div className="mc-drawer-note">窗口内无 token 度量事件</div>
@@ -528,8 +528,8 @@ function ReqChain({ id, onOpenWu }: { id: string; onOpenWu: (wuId: string) => vo
         </>
       )}
 
-      <div className="mc-block-label">WorkUnit 链路（{chain.workunits.length}）</div>
-      {chain.workunits.length === 0 && <div className="mc-drawer-note">暂无关联 WorkUnit</div>}
+      <div className="mc-block-label">任务链路（{chain.workunits.length}）</div>
+      {chain.workunits.length === 0 && <div className="mc-drawer-note">暂无关联任务</div>}
       {chain.workunits.map((wu, i) => (
         <div key={wu.id}>
           {i > 0 && <div className="mc-chain-arrow">↓</div>}
