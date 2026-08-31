@@ -32,6 +32,13 @@ import type { DeliveryLeg } from './project.service.js';
  */
 export const parseWuMetaPmoId = parseWuPmoId;
 
+/**
+ * 证据/归约口径消费的最小 WU 字段集（#410）：summarizeEvidence / partitionSnapshotsByLeg /
+ * progress-rollup 完结判定都只读这四个字段——memo（progress-rollup 按事件负载维护的
+ * 进程内聚合）与全量 WorkUnitSnapshot 均可喂入，口径不重新解释。
+ */
+export type EvidenceWuInput = Pick<WorkUnitSnapshot, 'id' | 'status' | 'type' | 'metadata'>;
+
 /** 代码类 WU（与 agent-loop CODE_WORKTREE_TYPES 同集——有专属 worktree 才跑自动验证） */
 export const CODE_TYPES = new Set(['task', 'bug', 'feature', 'refactor']);
 
@@ -58,8 +65,9 @@ export interface EvidenceSummary {
 
 /**
  * REQ id → 已绑定 PMO 项目 id 映射（projectId 为 null/undefined 的 REQ 不入映射）。
+ * #410 起导出：progress-rollup 的 REQ 归属缓存与本模块归属过滤共用同一构建口径。
  */
-function buildReqProjectMap(
+export function buildReqProjectMap(
   requirements: Array<{ id: string; projectId?: string | null }>,
 ): Map<string, string> {
   const map = new Map<string, string>();
@@ -99,7 +107,7 @@ export function selectProjectSnapshots(
 }
 
 /** 逐快照过 deriveDisplayState 派生证据齐缺（唯一口径，禁止各自解释 attestations） */
-export function summarizeEvidence(snapshots: WorkUnitSnapshot[]): EvidenceSummary {
+export function summarizeEvidence(snapshots: EvidenceWuInput[]): EvidenceSummary {
   const byStatus = { unassigned: 0, active: 0, inReview: 0, blocked: 0 };
   let finished = 0;
   const l1Missing: string[] = [];
@@ -165,12 +173,12 @@ export function matchWuToLeg(metadata: string | null | undefined, leg: DeliveryL
  * 多腿分桶：WU 归首个命中的腿（数组序）；全部不命中 = 未分腿公共 WU（shared）。
  * 公共 WU 保守计入每条腿的台账与判定——证据缺口不允许从任何一条腿的交付闸逃逸。
  */
-export function partitionSnapshotsByLeg(
+export function partitionSnapshotsByLeg<T extends EvidenceWuInput>(
   legs: DeliveryLeg[],
-  snapshots: WorkUnitSnapshot[],
-): { perLeg: WorkUnitSnapshot[][]; shared: WorkUnitSnapshot[] } {
-  const perLeg: WorkUnitSnapshot[][] = legs.map(() => []);
-  const shared: WorkUnitSnapshot[] = [];
+  snapshots: T[],
+): { perLeg: T[][]; shared: T[] } {
+  const perLeg: T[][] = legs.map(() => []);
+  const shared: T[] = [];
   for (const s of snapshots) {
     const idx = legs.findIndex(leg => matchWuToLeg(s.metadata, leg));
     if (idx >= 0) perLeg[idx].push(s);
