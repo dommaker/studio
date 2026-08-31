@@ -114,7 +114,6 @@ async function main(): Promise<void> {
   (monitor as any).lifecycleState.lastDataLifecycleRun = today;
 
   const ops = new OpsService(OPS_PORT, fileStore);
-  (ops as any)._lastGc = Date.now(); // worktree GC 为小时级，同非常态轮
 
   const auditor = new AuditorService(fileStore);
   const benchRepo = fs.mkdtempSync(path.join(os.tmpdir(), 'bench-repo-'));

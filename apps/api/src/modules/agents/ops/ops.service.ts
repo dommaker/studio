@@ -9,7 +9,6 @@ import { execSync, exec } from 'child_process';
 import { promisify } from 'util';
 import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
 import { logger, FileStore } from '@dommaker/studio-shared';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import { loadRules, type OpsRules } from './ops-rules.js';
@@ -297,14 +296,8 @@ export class OpsService {
         } catch { /* non-blocking */ }
       }
       // Cloudflared tunnel check + auto-restart (if enabled)
-      // C2: Worktree GC (hourly — dogfood creates many worktrees)
-      const lastGC = (this as any)._lastGc || 0;
-      if (Date.now() - lastGC > 60 * 60 * 1000) {
-        const cleaned = await this.cleanupWorktrees();
-        if (cleaned > 0) logger.info('[OpsService] Worktree GC cleaned', { cleaned });
-        (this as any)._lastGc = Date.now();
-      }
-
+      // #409: worktree GC 已归一到 monitor-system-probes.gcStaleWorktrees（5-min 轮，全异步），
+      // 此处原 hourly cleanupWorktrees 挂载点整体删除（healthCheck 路径不再有同步 exec 的 GC）。
       if (process.env.CLOUDFLARED_ENABLED === 'true' && !this.isCloudflaredRunning()) {
         logger.warn('[OpsService] Cloudflared not running, restarting...');
         try {
@@ -478,44 +471,6 @@ export class OpsService {
       const { stdout } = await execAsync('ps aux | grep "[t]sx" | grep -v grep | wc -l', { timeout: 5_000 });
       return parseInt(stdout.trim(), 10) || 0;
     } catch { return 0; }
-  }
-
-  /**
-   * C2: Worktree GC — 清理超过 7 天的旧 worktree
-   *
-   * 目录口径与 agent-loop.resolveWorktreesDir 一致（WORKTREES_DIR > ~/worktrees），
-   * 即 WU worktree 的实际创建位置；此前默认 ~/.studio/worktrees 是扫空目录的死 GC。
-   */
-  async cleanupWorktrees(maxAgeDays = 7): Promise<number> {
-    const worktreesDir = process.env.WORKTREES_DIR || path.join(os.homedir(), 'worktrees');
-    let cleaned = 0;
-    try {
-      if (!fs.existsSync(worktreesDir)) return 0;
-      const entries = fs.readdirSync(worktreesDir, { withFileTypes: true });
-      const cutoff = Date.now() - maxAgeDays * 24 * 60 * 60 * 1000;
-
-      for (const entry of entries) {
-        if (!entry.isDirectory()) continue;
-        const fullPath = path.join(worktreesDir, entry.name);
-        try {
-          const stat = fs.statSync(fullPath);
-          if (stat.mtimeMs < cutoff) {
-            // Remove from git first, then delete directory
-            try {
-              execSync(`git worktree remove --force "${fullPath}" 2>/dev/null || true`, {
-                cwd: process.env.REPO_DIR || process.cwd(), stdio: 'pipe', timeout: 10_000,
-              });
-            } catch { /* git cleanup best-effort */ }
-            fs.rmSync(fullPath, { recursive: true, force: true });
-            cleaned++;
-            logger.info('[OpsService] Cleaned old worktree', { path: fullPath, age: Math.round((Date.now() - stat.mtimeMs) / 86400000) + 'd' });
-          }
-        } catch { /* skip problematic entries */ }
-      }
-    } catch (e: any) {
-      logger.warn('[OpsService] Worktree GC failed', { error: String(e) });
-    }
-    return cleaned;
   }
 
   /**

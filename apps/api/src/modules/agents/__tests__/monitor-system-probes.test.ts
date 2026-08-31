@@ -16,7 +16,7 @@ const {
   const os = require('os');
   const tmpWorktrees = fs.mkdtempSync(path.join(os.tmpdir(), 'monitor-sysprobes-wt-'));
   const tmpRepo = fs.mkdtempSync(path.join(os.tmpdir(), 'monitor-sysprobes-repo-'));
-  // WORKTREES_DIR 在模块加载期读取，必须在 import 被测模块前注入
+  // WORKTREES_DIR/REPO_DIR 按调用时解析（#409），hoisted 注入仍保留以隔离真实目录
   process.env.WORKTREES_DIR = tmpWorktrees;
   process.env.REPO_DIR = tmpRepo; // 无 .git → 跳过 git worktree prune
   return {
@@ -382,12 +382,13 @@ describe('runCircuitCheckAndRepair', () => {
 });
 
 describe('gcStaleWorktrees', () => {
-  it('removes worktree dirs older than 24h and keeps fresh ones', async () => {
+  it('removes worktree dirs older than 7d and keeps fresh ones', async () => {
     const oldDir = path.join(tmpWorktrees, 'old-wt');
     const freshDir = path.join(tmpWorktrees, 'fresh-wt');
     fs.mkdirSync(oldDir, { recursive: true });
     fs.mkdirSync(freshDir, { recursive: true });
-    const oldSec = (Date.now() - 48 * 3600_000) / 1000;
+    // 8 天前 mtime（超过 7d 阈值）
+    const oldSec = (Date.now() - 8 * 24 * 3600_000) / 1000;
     fs.utimesSync(oldDir, oldSec, oldSec);
 
     await gcStaleWorktrees();
@@ -396,6 +397,18 @@ describe('gcStaleWorktrees', () => {
     expect(fs.existsSync(freshDir)).toBe(true);
     // REPO_DIR 无 .git → 不执行 git worktree prune
     expect(mockExec.mock.calls.filter(c => String(c[0]).includes('worktree prune'))).toHaveLength(0);
+  });
+
+  // #409 阈值裁决：7d（24h 有误删暂停中 WU worktree 的风险，取更稳的值）
+  it('keeps worktree dirs younger than 7d（不误删暂停中的 WU worktree）', async () => {
+    const pausedDir = path.join(tmpWorktrees, 'paused-wt');
+    fs.mkdirSync(pausedDir, { recursive: true });
+    const twoDaysAgoSec = (Date.now() - 2 * 24 * 3600_000) / 1000;
+    fs.utimesSync(pausedDir, twoDaysAgoSec, twoDaysAgoSec);
+
+    await gcStaleWorktrees();
+
+    expect(fs.existsSync(pausedDir)).toBe(true);
   });
 
   it('AC #374: REPO_DIR 含 .git 时异步执行 git worktree prune（cwd/timeout 语义不变）', async () => {

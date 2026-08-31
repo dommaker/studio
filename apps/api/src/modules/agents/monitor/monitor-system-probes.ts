@@ -24,7 +24,11 @@ import { knowledgeSync } from '../../knowledge/knowledge-sync.service.js';
 import { emitMonitorEvent } from './monitor-alerts.js';
 import { readDiskUsage, readMemoryUsage, countZombieProcesses } from '../ops/proc-probes.js';
 
-const WORKTREES_DIR = process.env.WORKTREES_DIR || path.join(os.homedir(), 'worktrees');
+// worktree GC 目录口径：WORKTREES_DIR > ~/worktrees，与 agent-loop.resolveWorktreesDir
+// 创建侧一致。按调用时解析（非模块加载期），保证 env 覆盖/HOME 变更当轮生效。
+function resolveWorktreesDir(): string {
+  return process.env.WORKTREES_DIR || path.join(os.homedir(), 'worktrees');
+}
 
 // 系统健康确认窗口计数器（3 checks × 60s window）
 const systemHealthCounters = new Map<string, { count: number; firstSeen: number }>();
@@ -54,6 +58,11 @@ export function knowledgeMaintenanceEnabled(env: NodeJS.ProcessEnv = process.env
 /**
  * GC: clean up stale git worktrees and orphaned task directories.
  * Non-blocking — runs as part of the 5-min check loop.
+ *
+ * #409 双实现归一：OpsService.cleanupWorktrees 已删，本函数是唯一入口。
+ * 阈值 7d（24h 有误删暂停中 WU worktree 的风险，删除是破坏性操作，取更稳的值）；
+ * 不调 git worktree remove —— 每轮先跑的 git worktree prune 会在下一轮清掉
+ * 被删目录的注册引用，元数据最终一致，无需为当轮清引用引入同步 exec。
  */
 export async function gcStaleWorktrees(): Promise<void> {
   try {
@@ -63,17 +72,18 @@ export async function gcStaleWorktrees(): Promise<void> {
       await execAsync('git worktree prune', { cwd: repoDir, timeout: 5000 });
     }
 
-    // Clean worktree dirs that are older than 24h
-    if (fs.existsSync(WORKTREES_DIR)) {
-      const cutoff = Date.now() - 24 * 60 * 60 * 1000;
-      const entries = fs.readdirSync(WORKTREES_DIR);
+    // Clean worktree dirs that are older than 7d
+    const worktreesDir = resolveWorktreesDir();
+    if (fs.existsSync(worktreesDir)) {
+      const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+      const entries = fs.readdirSync(worktreesDir);
       for (const entry of entries) {
-        const wtPath = path.join(WORKTREES_DIR, entry);
+        const wtPath = path.join(worktreesDir, entry);
         try {
           const stat = fs.statSync(wtPath);
           if (stat.isDirectory() && stat.mtimeMs < cutoff) {
             fs.rmSync(wtPath, { recursive: true, force: true });
-            logger.info('[MonitorService] GC removed stale worktree', { path: wtPath, age: Math.round((Date.now() - stat.mtimeMs) / 3600000) + 'h' });
+            logger.info('[MonitorService] GC removed stale worktree', { path: wtPath, age: Math.round((Date.now() - stat.mtimeMs) / 86400000) + 'd' });
           }
         } catch { /* skip */ }
       }
