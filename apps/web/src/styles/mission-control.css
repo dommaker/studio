@@ -652,12 +652,14 @@
 .mc-mention-popup {
   position: absolute;
   bottom: 100%;
-  left: 14px;
+  /* #375：锚在满宽 .mc-inputbar（水平 padding = --space-6）上，left 取同一档，弹框左缘与输入框左缘精确对齐 */
+  left: var(--space-6);
   margin-bottom: 4px;
   width: 224px;
+  padding: 2px;
   background: var(--bg-elevated);
   border: 1px solid var(--border-default);
-  border-radius: 4px;
+  border-radius: 3px;
   box-shadow: var(--shadow-lg);
   z-index: 50;
   /* #270：max-height 按可用空间 clamp，超出滚动 */
@@ -671,13 +673,18 @@
   width: 100%;
   text-align: left;
   padding: 6px 10px;
+  border-radius: 3px;
   font-size: var(--fs-sm);
   color: var(--text-primary);
 }
-.mc-mention-item:hover, .mc-mention-item-active { background: var(--accent-dim); color: var(--accent-primary); }
+/* #375：hover/键盘 active 分层对齐 select-option 语言——hover 用 --bg-hover，键盘选中态用 --bg-active + accent 文本，高亮清晰可见；
+   active 用双类选择器（0-2-0）压住 .mc-ws button 全局重置（0-1-1），否则键盘选中态背景被 background:none 吞掉 */
+.mc-mention-item:hover { background: var(--bg-hover); }
+.mc-mention-item.mc-mention-item-active, .mc-mention-item.mc-mention-item-active:hover { background: var(--bg-active); color: var(--accent-primary); }
 .mc-mention-desc { margin-left: auto; color: var(--text-muted); font-size: var(--fs-xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* #281: @弹框统一分组（上 Agents 下 Files） */
-.mc-mention-group { padding: 4px 10px 2px; font-size: var(--fs-xs); color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+/* #281: @弹框统一分组（上 Agents 下 Files）；#375：组间细分隔线，组头降档 --text-tertiary 与项正文拉开层级 */
+.mc-mention-group { padding: 6px 10px 2px; font-size: var(--fs-xs); color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.04em; }
+.mc-mention-group:not(:first-child) { border-top: 1px solid var(--border-subtle); margin-top: 2px; }
 .mc-mention-repo { margin-left: auto; color: var(--text-muted); font-size: var(--fs-xs); }
 
 /* ---------- 右栏：抽屉 ---------- */
