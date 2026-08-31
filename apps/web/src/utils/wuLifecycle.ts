@@ -3,6 +3,7 @@
 // 铁律沿用：站序由 deriveDisplayState 的 column 驱动，不自行解释 attestations（证据只作事件/时间戳展示）。
 import type { DerivedWuState, WuAttestations, WuDisplayColumn } from '@dommaker/studio-shared/web';
 import type { WorkUnit } from '../api/workunit';
+import { EVIDENCE_LAYER_LABELS } from './evidence';
 
 export type WuStationId = 'claim' | 'progress' | 'review' | 'done';
 export type WuStationState = 'done' | 'current' | 'upcoming';
@@ -91,12 +92,8 @@ export function buildLifecycle(
     });
   }
   // 证据层事件（时间戳真实存在，是最可靠的事件源）
-  // 标签白话对齐 #385 词表（正本 pmo/pipelineUtils.EVIDENCE_LAYER_LABELS），L1/L2/L3 编号不上界面
-  const levels: Array<['l1' | 'l2' | 'l3', string]> = [
-    ['l1', '自动验证'],
-    ['l2', 'Agent 评审'],
-    ['l3', '人工确认'],
-  ];
+  // 标签正本 utils/evidence.EVIDENCE_LAYER_LABELS（#385 词表，L1/L2/L3 编号不上界面）
+  const levels = Object.entries(EVIDENCE_LAYER_LABELS) as Array<['l1' | 'l2' | 'l3', string]>;
   for (const [key, name] of levels) {
     const e = attestations?.[key];
     if (!e) continue;
