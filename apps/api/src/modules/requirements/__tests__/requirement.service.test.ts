@@ -6,11 +6,11 @@
  * （requirement.updated 事件）、getChain 形状、maybeRollUpToDone 汇总、
  * initRequirementRollup 事件订阅（workunit.status_changed → done）。
  */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { eventBus, FileStore } from '@dommaker/studio-shared';
+import { eventBus, FileStore, logger } from '@dommaker/studio-shared';
 import { RequirementService, deriveTitle, TERMINAL_WORKUNIT_STATUSES } from '../requirement.service.js';
 import type { ProjectData } from '../../pmo/project.service.js';
 import { initRequirementRollup } from '../rollup.js';
@@ -196,6 +196,42 @@ describe('RequirementService (vision §5.3)', () => {
       await expect(svc.update(req.id, { projectId: 'proj-gone' }))
         .rejects.toThrow('Project not found: proj-gone');
       expect((await svc.get(req.id))!.projectId).toBe('proj-ok');
+    });
+
+    it('#402 解绑兜底提示：解绑已挂项目且有无戳关联 WU → 记 warn（含受影响 WU 数）', async () => {
+      const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {});
+      try {
+        const req = await svc.create({ title: '需求', projectId: 'proj-ok' });
+        await workUnitService.create({ scope: '无戳单', reqId: req.id });
+        await workUnitService.create({ scope: '有戳单', reqId: req.id, metadata: { pmoId: 'proj-ok' } });
+
+        await svc.update(req.id, { projectId: null });
+
+        expect(warnSpy).toHaveBeenCalledWith(
+          expect.stringContaining('unbind'),
+          expect.objectContaining({ reqId: req.id, projectId: 'proj-ok', affectedWorkUnits: 1 }),
+        );
+      } finally {
+        warnSpy.mockRestore();
+      }
+    });
+
+    it('#402 解绑时全部关联 WU 有戳 / 无关联 WU → 不记 warn', async () => {
+      const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {});
+      try {
+        const stamped = await svc.create({ title: '全有戳', projectId: 'proj-ok' });
+        await workUnitService.create({ scope: '有戳单', reqId: stamped.id, metadata: { pmoId: 'proj-ok' } });
+        await svc.update(stamped.id, { projectId: null });
+
+        const empty = await svc.create({ title: '无关联', projectId: 'proj-ok' });
+        await svc.update(empty.id, { projectId: null });
+
+        const unbindWarns = warnSpy.mock.calls
+          .filter(c => typeof c[0] === 'string' && c[0].includes('unbind'));
+        expect(unbindWarns).toHaveLength(0);
+      } finally {
+        warnSpy.mockRestore();
+      }
     });
 
     it('projectId 缺省校验走真实 projectService（默认 deps）', async () => {

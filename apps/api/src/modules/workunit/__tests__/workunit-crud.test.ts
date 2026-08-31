@@ -277,6 +277,52 @@ describe('create', () => {
 
 // ── createFromMessage ──
 
+describe('#402 创建期父戳继承', () => {
+  it('带 parentId 且显式 metadata 无归因戳 → 从父 WU 继承 canonical pmoId', async () => {
+    const parent = await service.create({ scope: '父单', metadata: { pmoId: 'proj-1' } });
+    const child = await service.create({ scope: '子单', parentId: parent.id, metadata: { title: 'x' } });
+    const snap = await findSnapshot(child.id);
+    expect(JSON.parse(snap!.metadata!)).toMatchObject({ title: 'x', pmoId: 'proj-1' });
+  });
+
+  it('父为 legacy ownershipProjectId → 归一为 pmoId 继承', async () => {
+    const parent = await service.create({ scope: '父单', metadata: { ownershipProjectId: 'proj-1' } });
+    const child = await service.create({ scope: '子单', parentId: parent.id });
+    const snap = await findSnapshot(child.id);
+    const meta = JSON.parse(snap!.metadata!);
+    expect(meta).toMatchObject({ pmoId: 'proj-1' });
+    expect(meta.ownershipProjectId).toBeUndefined();
+  });
+
+  it('显式 pmoId 优先，不被父戳覆盖', async () => {
+    const parent = await service.create({ scope: '父单', metadata: { pmoId: 'proj-1' } });
+    const child = await service.create({ scope: '子单', parentId: parent.id, metadata: { pmoId: 'proj-2' } });
+    const snap = await findSnapshot(child.id);
+    expect(JSON.parse(snap!.metadata!).pmoId).toBe('proj-2');
+  });
+
+  it('父无归因戳 → 不加 pmoId；无 parentId → 不加 pmoId', async () => {
+    const parent = await service.create({ scope: '父单' });
+    const child = await service.create({ scope: '子单', parentId: parent.id });
+    expect((await findSnapshot(child.id))!.metadata).toBeNull();
+    const loose = await service.create({ scope: '散单', metadata: { title: 'x' } });
+    expect(JSON.parse((await findSnapshot(loose.id))!.metadata!)).not.toHaveProperty('pmoId');
+  });
+
+  it('createGuarded 同样继承（guard 通过时）', async () => {
+    const parent = await service.create({ scope: '父单', metadata: { pmoId: 'proj-1' } });
+    const child = await service.createGuarded({ scope: '子单', parentId: parent.id }, () => true);
+    const snap = await findSnapshot(child!.id);
+    expect(JSON.parse(snap!.metadata!)).toMatchObject({ pmoId: 'proj-1' });
+  });
+
+  it('悬挂 parentId（父不存在）→ 正常建单，不继承', async () => {
+    const child = await service.create({ scope: '子单', parentId: 'wu-missing' });
+    expect(child.id).toBeTruthy();
+    expect((await findSnapshot(child.id))!.metadata).toBeNull();
+  });
+});
+
 describe('createFromMessage', () => {
   async function seedMessage(
     content: string,

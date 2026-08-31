@@ -80,6 +80,20 @@ describe('adoptInspectionOpportunity', () => {
     expect(await readOpps(source.id)).toEqual(opportunities);
   });
 
+  it('#402 归因补全：源单 reqId 继承到 feature 子单（REQ 链可见）', async () => {
+    const source = await service.create({
+      type: 'analysis',
+      scope: '全仓巡检',
+      status: 'in_review',
+      reqId: 'REQ-0007',
+      metadata: { inspection: true, opportunities: OPPS },
+    });
+
+    const { workUnit } = await adoptInspectionOpportunity(service, source.id, 'opp-1');
+
+    expect(workUnit.reqId).toBe('REQ-0007');
+  });
+
   it('重复采纳同一条目 → 拒绝（already resolved）', async () => {
     const source = await seedInspectionWu();
     await adoptInspectionOpportunity(service, source.id, 'opp-1');

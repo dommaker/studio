@@ -1,6 +1,6 @@
 /**
  * evidence-summary 共享证据口径单测：
- * 归属选择（reqId → pmoId 回退）+ 三层证据齐缺派生（l1 限代码类 / l2 豁免 review/analysis / l3 全员）。
+ * 归属选择（#402 逐 WU 并集口径：reqId 绑定优先 → pmoId 戳兜底）+ 三层证据齐缺派生（l1 限代码类 / l2 豁免 review/analysis / l3 全员）。
  */
 import { describe, it, expect } from 'vitest';
 import type { WorkUnitSnapshot } from '@dommaker/studio-shared';
@@ -43,18 +43,32 @@ describe('selectProjectSnapshots', () => {
     expect(s.map(x => x.id)).toEqual([mine.id]);
   });
 
-  it('reqId 归属为空时回退 metadata.pmoId（analysis 派生链）', () => {
+  it('reqId 归属为空时按 metadata.pmoId 戳归属（analysis 派生链）', () => {
     const mine = wu({ reqId: null, metadataObj: { pmoId: 'proj-1' } });
     const other = wu({ reqId: null, metadataObj: { pmoId: 'proj-2' } });
     const s = selectProjectSnapshots('proj-1', [], [mine, other]);
     expect(s.map(x => x.id)).toEqual([mine.id]);
   });
 
-  it('reqId 有命中时不走 pmoId 回退（避免双口径混计）', () => {
+  it('#402 并集：reqId 链命中时不再丢弃 pmoId 戳 WU（逐 WU 归属，两条路径都计入）', () => {
     const byReq = wu({ reqId: 'REQ-1' });
     const byPmo = wu({ reqId: null, metadataObj: { pmoId: 'proj-1' } });
     const s = selectProjectSnapshots('proj-1', [{ id: 'REQ-1', projectId: 'proj-1' }], [byReq, byPmo]);
-    expect(s.map(x => x.id)).toEqual([byReq.id]);
+    expect(s.map(x => x.id)).toEqual([byReq.id, byPmo.id]);
+  });
+
+  it('#402 逐 WU 归属：reqId 绑定优先于 pmoId 戳，单个 WU 不双计', () => {
+    const reqs = [{ id: 'REQ-1', projectId: 'proj-1' }, { id: 'REQ-2', projectId: 'proj-2' }] as const;
+    const conflicting = wu({ reqId: 'REQ-2', metadataObj: { pmoId: 'proj-1' } });
+    expect(selectProjectSnapshots('proj-1', [...reqs], [conflicting])).toEqual([]);
+    expect(selectProjectSnapshots('proj-2', [...reqs], [conflicting]).map(x => x.id)).toEqual([conflicting.id]);
+  });
+
+  it('#402 reqId 指向未绑定 REQ（projectId null）→ 回落 pmoId 戳（legacy 同位名同容错）', () => {
+    const orphan = wu({ reqId: 'REQ-3', metadataObj: { pmoId: 'proj-1' } });
+    const legacy = wu({ reqId: 'REQ-3', metadataObj: { ownershipProjectId: 'proj-1' } });
+    const reqs = [{ id: 'REQ-3', projectId: null }];
+    expect(selectProjectSnapshots('proj-1', reqs, [orphan, legacy]).map(x => x.id)).toEqual([orphan.id, legacy.id]);
   });
 
   it('两种口径都无命中 → 空', () => {

@@ -24,6 +24,7 @@ import {
   type RequirementStatus,
 } from '@dommaker/studio-shared';
 import { projectService, type ProjectData } from '../pmo/project.service.js';
+import { parseWuPmoId } from './wu-pmo-attribution.js';
 
 export const REQUIREMENT_STATUSES: RequirementStatus[] = ['open', 'in-progress', 'done', 'archived'];
 
@@ -227,6 +228,23 @@ export class RequirementService {
   async update(id: string, input: UpdateRequirementInput): Promise<RequirementWithProject> {
     if (/^REQ-\d+$/i.test(id) && (await this.getProjectByAlias(id.toUpperCase()))) {
       throw new Error(`Requirement ${id} is a read-only PMO alias — update the PMO project instead`);
+    }
+    // #402 解绑兜底提示：解绑后 reqId→REQ 绑定路径即断，无 pmoId 戳的关联 WU 将从
+    // 项目台账消失——记 warn 供对账，不拦截（解绑 = 解除挂接语义；有戳 WU 经戳兜底
+    // 仍归属原项目，逐 WU 归属口径见 pmo/evidence-summary.ts）
+    if (input.projectId === null) {
+      const existing = (await this.fileStore.getRequirement(id)) as RequirementWithProject | null;
+      if (existing?.projectId) {
+        const unattributed = (await this.fileStore.getIndex())
+          .filter(s => s.reqId === id && !parseWuPmoId(s.metadata));
+        if (unattributed.length > 0) {
+          logger.warn('[Requirement] Project unbind leaves reqId-linked WUs without attribution', {
+            reqId: id,
+            projectId: existing.projectId,
+            affectedWorkUnits: unattributed.length,
+          });
+        }
+      }
     }
     const patch: Partial<RequirementWithProject> = {};
     if (input.title !== undefined) patch.title = input.title;

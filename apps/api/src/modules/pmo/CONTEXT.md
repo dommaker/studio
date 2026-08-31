@@ -16,7 +16,7 @@
 | `resolveDeliveries` / `PmoMap` / `DeliveryLeg` / `LEG_STATUS` | `project.service.ts` | 探路地图 + 多交付腿模型（pending->active->in_review->completed->delivered） |
 | `parsePmoNumberFromCommand` / `PROJECT_STATUS` | `project.service.ts` | 命令解析 PMO 号 + 项目状态枚举 |
 | `initPmoProgressRollup` / `syncProjectProgress` / `waitForPmoProgressRollupSettled` | `progress-rollup.ts` | 订阅 WU 状态变化回写 progress + 状态翻转；#282 起 progress 分子 = workFinished（done/closed，与 WU 完成管道同源），翻转判定仍按 TERMINAL（派生链未落定不翻 completed） |
-| `selectProjectSnapshots` / `summarizeEvidence` / `matchWuToLeg` / `partitionSnapshotsByLeg` / `CODE_TYPES` | `evidence-summary.ts` | 共享证据口径：快照派生 l1/l2/l3 + deliverable 判定 + WU->腿归属 |
+| `selectProjectSnapshots` / `summarizeEvidence` / `matchWuToLeg` / `partitionSnapshotsByLeg` / `CODE_TYPES` | `evidence-summary.ts` | 共享证据口径：快照派生 l1/l2/l3 + deliverable 判定 + WU->腿归属；归属 = #402 逐 WU 解析（reqId 绑定优先 -> pmoId 戳兜底 -> 未归属，单 WU 不双计，REQ 链命中不丢弃戳归属 WU） |
 | `AnalysisHandoff` / `initAnalysisHandoff` / `waitForSettled` | `analysis-handoff.ts` | analysis->in_review 分流确认（有频道=人工确认卡，无频道+trigger=直转）+ 建 task 子 WU |
 | `DecisionResolution` / `initDecisionResolution` | `decision-resolution.ts` | 决策单状态推进 + 落 decisions[] + 雾消解 + 全清自动建 spec 单 |
 | `MapOpening` / `initMapOpening` / `parseMapOpening` | `map-opening.ts` | analysis done -> 初始化探路地图 + 逐条建 decision 单（提取 DESTINATION:/FOG: 清单，#401 起兼容中文别名 目标：/待决：） |
@@ -38,5 +38,5 @@
 - 杂务 PMO：`isChore + channelId` 联合标识，`ensureChoreProject` find-or-create。
 - 多腿项目：`POST /project` 接受 `gitRepos: string[]`，每个工程落一条 `deliveries[]` 腿。
 - 鉴权：6 条写端点 requireAuth+requireNotGuest，DELETE project/okr requireRole('Admin')。
-- **未归属 WU（#402 决策）**：无 reqId 且 pmoId 归因戳解析为 null 的 WU——不计入任何项目的交付统计，但 API 层可过滤/计数/列清单。trigger 系统维护单等合法无归属，创建入口不强制归因（best-effort 落戳）。
+- **未归属 WU（#402 决策）**：无 reqId 且 pmoId 归因戳解析为 null 的 WU——不计入任何项目的交付统计，但 API 层可过滤/计数/列清单。trigger 系统维护单等合法无归属，创建入口不强制归因（best-effort 落戳）。#402 存量不 backfill（生产 REQ.projectId 全空、戳覆盖极低，无可推导补差集，同 #376 存量决策）；REQ 解绑不拦截（解绑语义），无戳关联 WU 失去归属时 requirement.service 记 warn 供对账。
 - **gitRepo 白名单（2026-08-25 收口）**：`POST /project` 与 `PUT /project/:id` 校验 `gitRepo`/`gitRepos`——resolve 后须落在允许根（env `PMO_GIT_REPO_ROOTS` 冒号分隔，缺省 `/root/projects`）且为已存在目录，否则 400 INVALID_INPUT。写入口仅此两处（`updateStatus` 不触 gitRepo）。

@@ -15,6 +15,7 @@ import { logger, eventBus, FileStore, type AgentProfileData, type WorkUnitSnapsh
 import { ChannelMessageService, channelMessageService } from '../channels/channel-message.service.js';
 import { resolveInitialStatus, WU_LEASE_TTL_MS } from './workunit.types.js';
 import { buildStatusById, resolveClaimable } from './wu-dependencies.js';
+import { parseWuPmoId } from '../requirements/wu-pmo-attribution.js';
 import type { WorkUnitMetadata } from './workunit.service.js';
 
 export interface CreateWorkUnitInput {
@@ -173,9 +174,25 @@ export class WorkUnitCrudService {
   }
 
   /**
+   * #402 归因传播：带 parentId 的建单，显式 metadata 未带归因戳（pmoId ‖ legacy
+   * ownershipProjectId 同级）时从父 WU 继承，legacy 归一为 canonical pmoId。
+   * 创建期一次性落档语义不变——只在建单瞬间补齐可推导归属，此后不再改写；
+   * 显式传入优先，父缺失/无戳则不动（无归属 WU 合法存在，不伪造）。
+   */
+  private async inheritParentPmoId(input: CreateWorkUnitInput): Promise<CreateWorkUnitInput> {
+    if (!input.parentId) return input;
+    if (parseWuPmoId(input.metadata ? JSON.stringify(input.metadata) : null)) return input;
+    const parent = (await this.fileStore.getIndex()).find(s => s.id === input.parentId);
+    const stamp = parent ? parseWuPmoId(parent.metadata) : null;
+    if (!stamp) return input;
+    return { ...input, metadata: { ...input.metadata, pmoId: stamp } };
+  }
+
+  /**
    * Create a new WorkUnit.
    */
   async create(input: CreateWorkUnitInput): Promise<WorkUnitData> {
+    input = await this.inheritParentPmoId(input);
     const id = randomUUID();
     const now = new Date();
     const snapshot = inputToSnapshot(id, input, now);
@@ -219,6 +236,7 @@ export class WorkUnitCrudService {
     input: CreateWorkUnitInput,
     guard: (snapshots: WorkUnitSnapshot[]) => boolean,
   ): Promise<WorkUnitData | null> {
+    input = await this.inheritParentPmoId(input);
     const id = randomUUID();
     const now = new Date();
     const snapshot = inputToSnapshot(id, input, now);
