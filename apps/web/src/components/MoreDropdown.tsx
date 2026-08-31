@@ -1,4 +1,5 @@
 // MoreDropdown.tsx - "更多"下拉菜单组件（L4 高级功能）
+// 左侧 sidebar「更多」收纳项已并入本下拉（知识库/阅览室/监控 + 原有审计日志/PMO/设置）
 import { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import '../styles/theme.css';
@@ -10,6 +11,9 @@ interface DropdownItem {
 }
 
 const MORE_ITEMS: DropdownItem[] = [
+  { to: '/knowledge', icon: '📚', label: '知识库' },
+  { to: '/library', icon: '📖', label: '阅览室' },
+  { to: '/monitoring', icon: '📈', label: '监控' },
   { to: '/audit-logs', icon: '🔍', label: '审计日志' },
   { to: '/pmo', icon: '📊', label: 'PMO' },
 ];
