@@ -9,7 +9,7 @@ const {
   tmpWorktrees, tmpRepo, mockLoadavg, mockCpus, mockExecSync, mockExec,
   mockReadDiskUsage, mockReadMemoryUsage, mockCountZombies,
   mockLogger, mockHandleAlert, mockEmitEvent, mockHealthScore,
-  mockRunDecayCycle, mockStoreList, mockRunSyncCycle, mockRunDailyMaintenance,
+  mockRunDecayCycle, mockTryPromote, mockStoreList, mockRunSyncCycle, mockRunDailyMaintenance,
 } = vi.hoisted(() => {
   const fs = require('fs');
   const path = require('path');
@@ -34,6 +34,7 @@ const {
     mockEmitEvent: vi.fn(),
     mockHealthScore: vi.fn(() => ({ score: 100, details: [] as any[] })),
     mockRunDecayCycle: vi.fn(() => [] as any[]),
+    mockTryPromote: vi.fn((): any => null),
     mockStoreList: vi.fn(() => [] as any[]),
     mockRunSyncCycle: vi.fn(async () => ({ stale: [] as any[], unmonitored: [] as any[], healed: 0 })),
     mockRunDailyMaintenance: vi.fn(async () => ({})),
@@ -69,7 +70,7 @@ vi.mock('@dommaker/harness', () => ({
 
 vi.mock('../../knowledge/knowledge-singletons.js', () => ({
   sharedStore: { list: mockStoreList },
-  sharedLifecycle: { tryPromote: vi.fn(() => null), runDecayCycle: mockRunDecayCycle },
+  sharedLifecycle: { tryPromote: mockTryPromote, runDecayCycle: mockRunDecayCycle },
 }));
 
 vi.mock('../../knowledge/knowledge-sync.service.js', () => ({
@@ -216,7 +217,7 @@ describe('systemTriageCheck confirm window', () => {
 describe('checkKnowledgeHealth', () => {
   it('score < 60 escalates to Triage + emits monitor:alert, and runs daily decay cycle', async () => {
     mockHealthScore.mockReturnValue({ score: 50, details: ['d1'] });
-    const state = { lastDecayRun: 0, lastUserModelRun: 0 };
+    const state = { lastDecayRun: 0, lastUserModelRun: 0, lastPromotionRun: 0 };
 
     await checkKnowledgeHealth(state);
 
@@ -238,7 +239,7 @@ describe('checkKnowledgeHealth', () => {
 
   it('B7: LLM daily maintenance is OFF by default (token burn guard)', async () => {
     delete process.env.STUDIO_KNOWLEDGE_MAINTENANCE;
-    const state = { lastDecayRun: 0, lastUserModelRun: 0 };
+    const state = { lastDecayRun: 0, lastUserModelRun: 0, lastPromotionRun: 0 };
 
     await checkKnowledgeHealth(state);
 
@@ -248,7 +249,7 @@ describe('checkKnowledgeHealth', () => {
 
   it('B7: STUDIO_KNOWLEDGE_MAINTENANCE=on re-enables LLM daily maintenance', async () => {
     vi.stubEnv('STUDIO_KNOWLEDGE_MAINTENANCE', 'on');
-    const state = { lastDecayRun: 0, lastUserModelRun: 0 };
+    const state = { lastDecayRun: 0, lastUserModelRun: 0, lastPromotionRun: 0 };
 
     await checkKnowledgeHealth(state);
 
@@ -258,7 +259,7 @@ describe('checkKnowledgeHealth', () => {
 
   it('score ≥ 60 does not escalate; decay cycle skipped when ran < 24h ago', async () => {
     mockHealthScore.mockReturnValue({ score: 90, details: [] });
-    const state = { lastDecayRun: Date.now(), lastUserModelRun: Date.now() };
+    const state = { lastDecayRun: Date.now(), lastUserModelRun: Date.now(), lastPromotionRun: Date.now() };
 
     await checkKnowledgeHealth(state);
 
@@ -271,7 +272,7 @@ describe('checkKnowledgeHealth', () => {
     mockExec.mockImplementation((_cmd: string, _opts: unknown, cb: (err: Error | null, stdout: string) => void) => {
       cb(null, '{"newSessions":3,"changes":[]}');
     });
-    const state = { lastDecayRun: Date.now(), lastUserModelRun: 0 }; // 24h 门控命中
+    const state = { lastDecayRun: Date.now(), lastUserModelRun: 0, lastPromotionRun: Date.now() }; // 24h 门控命中
 
     await checkKnowledgeHealth(state);
 
@@ -298,6 +299,51 @@ describe('checkKnowledgeHealth', () => {
       '[MonitorService] User model update failed (non-blocking)',
       expect.anything(),
     );
+  });
+});
+
+describe('知识晋升节奏 (#408: promotion 从 5min 循环拆到日级门控)', () => {
+  it('稳态轮（晋升闸未到期）不做全库扫描，tryPromote 零调用', async () => {
+    const state = { lastDecayRun: Date.now(), lastUserModelRun: Date.now(), lastPromotionRun: Date.now() };
+
+    await checkKnowledgeHealth(state);
+
+    expect(mockStoreList).not.toHaveBeenCalled();
+    expect(mockTryPromote).not.toHaveBeenCalled();
+  });
+
+  it('晋升闸到期 → 扫描 excludeArchived 全库，仅 draft/verified 逐条 tryPromote（语义锁定）', async () => {
+    mockStoreList.mockReturnValueOnce([
+      { id: 'e-draft', maturity: 'draft' },
+      { id: 'e-verified', maturity: 'verified' },
+      { id: 'e-active', maturity: 'active' },
+    ] as any[]);
+    mockTryPromote.mockReturnValueOnce({ entryId: 'e-draft', from: 'draft', to: 'verified', reason: 'Promotion: draft → verified' });
+    const state = { lastDecayRun: Date.now(), lastUserModelRun: Date.now(), lastPromotionRun: 0 };
+
+    await checkKnowledgeHealth(state);
+
+    expect(mockStoreList).toHaveBeenCalledWith({ excludeArchived: false });
+    expect(mockTryPromote).toHaveBeenCalledTimes(2);
+    expect(mockTryPromote).toHaveBeenNthCalledWith(1, 'e-draft');
+    expect(mockTryPromote).toHaveBeenNthCalledWith(2, 'e-verified');
+    expect(state.lastPromotionRun).toBeGreaterThan(0);
+    expect(mockLogger.info).toHaveBeenCalledWith('[MonitorService] Knowledge promoted', expect.objectContaining({
+      entryId: 'e-draft', from: 'draft', to: 'verified',
+    }));
+    expect(mockLogger.info).toHaveBeenCalledWith('[MonitorService] Knowledge promotion cycle completed', { promoted: 1, scanned: 2 });
+  });
+
+  it('晋升扫描后 24h 内的下一轮不重扫（稳态不再每轮全库归约）', async () => {
+    mockStoreList.mockReturnValueOnce([{ id: 'e-draft', maturity: 'draft' }] as any[]);
+    const state = { lastDecayRun: Date.now(), lastUserModelRun: Date.now(), lastPromotionRun: 0 };
+
+    await checkKnowledgeHealth(state);
+    expect(mockTryPromote).toHaveBeenCalledTimes(1);
+
+    await checkKnowledgeHealth(state);
+    expect(mockTryPromote).toHaveBeenCalledTimes(1);
+    expect(mockStoreList).toHaveBeenCalledTimes(1);
   });
 });
 

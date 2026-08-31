@@ -31,7 +31,7 @@ export class MonitorService {
   private circuitCheckInterval: NodeJS.Timeout | null = null;
   private fileStore: FileStore;
   // 实例级周期状态（传入各子模块，保持拆分前的 per-instance 语义）
-  private readonly knowledgeCycleState: systemProbes.KnowledgeCycleState = { lastDecayRun: 0, lastUserModelRun: 0 };
+  private readonly knowledgeCycleState: systemProbes.KnowledgeCycleState = { lastDecayRun: 0, lastUserModelRun: 0, lastPromotionRun: 0 };
   private readonly reportState: reports.ReportState = { lastDailyReflectionTs: 0 };
   private readonly lifecycleState: lifecycle.LifecycleState = { lastPrecipitateRun: '', lastDataLifecycleRun: '' };
 

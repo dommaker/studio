@@ -6,7 +6,7 @@
  *   - B1-008: 系统健康探测（内存/磁盘/僵尸进程/CPU/存储）
  *   - 系统异常 3 次确认窗口 → Triage
  *   - worktree GC
- *   - P2a: 知识库健康评分 / 晋升 / 24h 衰减循环 / 用户模型更新
+ *   - P2a: 知识库健康评分（5min）/ 晋升 + 24h 衰减循环 + 用户模型更新（24h 门控）
  *   - Circuit check → KnowledgeSync 自修复
  */
 
@@ -37,6 +37,7 @@ const SYSTEM_HEALTH_CONFIRM_WINDOW_MS = 60 * 1000; // 60s between checks (Monito
 export interface KnowledgeCycleState {
   lastDecayRun: number;
   lastUserModelRun: number;
+  lastPromotionRun: number;
 }
 
 /**
@@ -86,6 +87,7 @@ export async function gcStaleWorktrees(): Promise<void> {
 /**
  * P2a: Knowledge base health check + decay cycle
  * - Health score: every 5 min (Monitor cycle), escalates to Triage if < 60
+ * - Promotion scan: once per 24h (#408 晋升是日/周级语义，移出 5min 循环)
  * - Decay cycle: once per 24h, runs maturity decay + linter auto-fix
  */
 
@@ -141,20 +143,24 @@ export async function checkKnowledgeHealth(state: KnowledgeCycleState): Promise<
       });
     }
 
-    // P2.5: Promotion cycle (every 5 min) — scan all draft/verified entries for promotion
-    const allEntries = sharedStore.list({ excludeArchived: false }).filter(e => e.maturity === 'draft' || e.maturity === 'verified');
-    let promoted = 0;
-    for (const entry of allEntries) {
-      try {
-        const result = sharedLifecycle.tryPromote(entry.id);
-        if (result) {
-          promoted++;
-          logger.info('[MonitorService] Knowledge promoted', { entryId: entry.id, from: result.from, to: result.to, reason: result.reason });
-        }
-      } catch { /* individual entry failure is non-blocking */ }
-    }
-    if (promoted > 0) {
-      logger.info('[MonitorService] Knowledge promotion cycle completed', { promoted, scanned: allEntries.length });
+    // P2.5: Promotion cycle — 日级门控（#408：晋升是日/周级语义，原挂 5min 循环造成
+    // 稳态每轮全库归约；扫描范围/晋升判定本身不变，语义由 monitor-system-probes.test.ts 锁定）
+    if (Date.now() - state.lastPromotionRun > 24 * 60 * 60_000) {
+      const allEntries = sharedStore.list({ excludeArchived: false }).filter(e => e.maturity === 'draft' || e.maturity === 'verified');
+      let promoted = 0;
+      for (const entry of allEntries) {
+        try {
+          const result = sharedLifecycle.tryPromote(entry.id);
+          if (result) {
+            promoted++;
+            logger.info('[MonitorService] Knowledge promoted', { entryId: entry.id, from: result.from, to: result.to, reason: result.reason });
+          }
+        } catch { /* individual entry failure is non-blocking */ }
+      }
+      state.lastPromotionRun = Date.now();
+      if (promoted > 0) {
+        logger.info('[MonitorService] Knowledge promotion cycle completed', { promoted, scanned: allEntries.length });
+      }
     }
 
     // Daily cycle: decay + lint + LLM maintenance

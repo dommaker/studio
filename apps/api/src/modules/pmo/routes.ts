@@ -8,7 +8,6 @@ import { logger } from '../../utils/logger.js';
 import { requireAuth, requireNotGuest, requireRole, type AuthRequest } from '../../middleware/auth.js';  // 🆕 SEC-001 / SEC-002
 import { apiCache, CACHE_CONFIG } from '../../middleware/api-cache.js';
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
 import { parsePagination } from '../../utils/pagination.js';
 
