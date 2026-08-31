@@ -139,9 +139,9 @@ describe('buildLifecycle.events（关键事件 chip）', () => {
       },
     };
     const { events } = build(wu, meta);
-    expect(events.find(e => e.id === 'l1')).toMatchObject({ label: 'L1 自动验证通过', tone: 'accent', time: ATTEST.l1.at });
-    expect(events.find(e => e.id === 'l2')).toMatchObject({ label: 'L2 Agent 评审通过（自评）', tone: 'accent' });
-    expect(events.find(e => e.id === 'l3')).toMatchObject({ label: 'L3 人工验收否决', tone: 'danger' });
+    expect(events.find(e => e.id === 'l1')).toMatchObject({ label: '自动验证通过', tone: 'accent', time: ATTEST.l1.at });
+    expect(events.find(e => e.id === 'l2')).toMatchObject({ label: 'Agent 评审通过（自评）', tone: 'accent' });
+    expect(events.find(e => e.id === 'l3')).toMatchObject({ label: '人工确认否决', tone: 'danger' });
   });
 
   it('无事态 WU → events 为空（chip 行不占位）', () => {

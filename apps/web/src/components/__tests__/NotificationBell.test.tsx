@@ -181,7 +181,7 @@ describe('§5.7 SSE 实时 atHuman 增量（保留）', () => {
     emitAtHuman({ id: 'm1', agentName: 'pmo', content: 'WU 完成', workUnitId: 'wu-1', meta: { atHuman: true, pmoId: 'proj-1' } });
     openDropdown();
 
-    expect(screen.getByText('WU')).toBeInTheDocument();
+    expect(screen.getByText('任务')).toBeInTheDocument();
     expect(screen.getByText('PMO')).toBeInTheDocument();
 
     fireEvent.click(screen.getByText('WU 完成'));
@@ -219,7 +219,7 @@ describe('§5.7 SSE 实时 atHuman 增量（保留）', () => {
     emitAtHuman({ id: 'm5', agentName: 'pmo', content: 'WU 完成', workUnitId: 'wu-9', meta: { atHuman: true, pmoId: 'proj-9' } });
 
     openDropdown();
-    fireEvent.click(screen.getByText('WU'));
+    fireEvent.click(screen.getByText('任务'));
 
     expect(mockNavigate).toHaveBeenCalledTimes(1);
     expect(mockNavigate).toHaveBeenCalledWith('/workunits/wu-9');

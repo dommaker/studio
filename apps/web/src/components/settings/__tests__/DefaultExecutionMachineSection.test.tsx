@@ -43,11 +43,11 @@ describe('#286: DefaultExecutionMachineSection 默认执行机器', () => {
     mockUpdateChannel.mockResolvedValue({ data: { success: true, data: {} } });
   });
 
-  it('正名呈现「默认执行机器」并说明语义（WU 在哪台机器跑）', async () => {
+  it('正名呈现「默认执行机器」并说明语义（任务在哪台机器跑）', async () => {
     render(<DefaultExecutionMachineSection />);
 
     expect(screen.getByText(/默认执行机器/)).toBeTruthy();
-    expect(screen.getByText(/WU 在哪台机器跑/)).toBeTruthy();
+    expect(screen.getByText(/任务在哪台机器跑/)).toBeTruthy();
   });
 
   it('已绑定值正确回显：channel.defaultWorkspaceId 对应的机器名出现在该频道的选择器上', async () => {

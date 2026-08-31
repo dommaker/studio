@@ -180,18 +180,18 @@ export function NotificationBell() {
                 >
                   <div className="flex items-center gap-2">
                     {!n.read && <span className="w-1.5 h-1.5 u-accent-bg rounded-full flex-shrink-0" />}
-                    <span className="text-xs font-medium u-text">
+                    <span className="text-xs font-medium u-text flex-1 min-w-0 truncate">
                       {n.title ? n.title : `@${n.agentName}`}
                     </span>
-                    <span className="text-[var(--fs-xs)] u-text-3 ml-auto font-mono" data-visual-ignore>{n.time}</span>
+                    <span className="text-[var(--fs-xs)] u-text-3 ml-auto font-mono flex-shrink-0" data-visual-ignore>{n.time}</span>
                     {n.workUnitId && (
                       <button
                         type="button"
                         onClick={e => openTarget(e, n, `/workunits/${n.workUnitId}`)}
                         className="text-[var(--fs-xs)] px-1.5 py-0.5 rounded border u-accent-border u-accent-dim flex-shrink-0"
-                        title="打开 WorkUnit 详情"
+                        title="打开任务详情"
                       >
-                        WU
+                        任务
                       </button>
                     )}
                     {n.pmoId && (

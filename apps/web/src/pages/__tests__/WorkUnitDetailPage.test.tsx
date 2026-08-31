@@ -197,9 +197,9 @@ describe('WorkUnitDetailPage', () => {
   it('生命周期关键事件 = stepper 下横排 chip（证据 L1/L2/L3 事件）', async () => {
     render(<WorkUnitDetailPage />);
     await screen.findByText('登录功能开发');
-    expect(screen.getByText('L1 自动验证通过')).toBeDefined();
-    expect(screen.getByText('L2 Agent 评审通过')).toBeDefined();
-    expect(screen.getByText('L3 人工验收通过')).toBeDefined();
+    expect(screen.getByText('自动验证通过')).toBeDefined();
+    expect(screen.getByText('Agent 评审通过')).toBeDefined();
+    expect(screen.getByText('人工确认通过')).toBeDefined();
   });
 
   it('分栏骨架：左栏 关键事实→证据台账，右栏 执行过程→会话原文→讨论区（节标题有序；会话原文/讨论区组件自带功能头）', async () => {
@@ -294,9 +294,9 @@ describe('WorkUnitDetailPage', () => {
   it('证据台账：L1/L2/L3 三层紧凑行（drawer 变体）与评审结论', async () => {
     render(<WorkUnitDetailPage />);
     expect((await screen.findAllByText('证据台账')).length).toBeGreaterThan(0);
-    expect(screen.getByText('L1 自动验证')).toBeDefined();
-    expect(screen.getByText('L2 Agent 评审')).toBeDefined();
-    expect(screen.getByText('L3 人工验收')).toBeDefined();
+    expect(screen.getByText('自动验证')).toBeDefined();
+    expect(screen.getByText('Agent 评审')).toBeDefined();
+    expect(screen.getByText('人工确认')).toBeDefined();
     expect(screen.getByText(/✓ verify · /)).toBeDefined();
     expect(screen.getByText(/✓ agent-review · /)).toBeDefined();
     expect(screen.getByText(/✓ human-confirm · /)).toBeDefined();
@@ -306,7 +306,7 @@ describe('WorkUnitDetailPage', () => {
   it('证据台账：存量 WU（无 attestations）显示未介入说明', async () => {
     mockWuGet.mockResolvedValue({ data: { ...baseWu, metadata: '{}' } });
     render(<WorkUnitDetailPage />);
-    expect(await screen.findByText('存量 WU，证据模型未介入（按存储状态展示）')).toBeDefined();
+    expect(await screen.findByText('存量任务，证据模型未介入（按存储状态展示）')).toBeDefined();
   });
 
   it('#174: 执行过程 section 之后挂 TranscriptViewer（传 WU id）', async () => {
@@ -418,14 +418,14 @@ describe('WorkUnitDetailPage', () => {
   });
 
   // #284（决策 #250 D1/F7-F9）：详情页（「新页面打开」落点）补齐闸门入口，与列表行/抽屉一致
-  it('#284：pending → 闸门动作节出「确认（进待认领）」调 transitionStatus(unassigned) 并重拉详情；人闸 chip 上 stepper 下', async () => {
+  it('#284：pending → 闸门动作节出「确认（进待领取）」调 transitionStatus(unassigned) 并重拉详情；人闸 chip 上 stepper 下', async () => {
     mockWuGet.mockResolvedValue({
       data: { ...baseWu, status: 'pending', completedAt: null, metadata: JSON.stringify({ title: '登录功能开发' }) },
     });
     render(<WorkUnitDetailPage />);
     expect(await screen.findByText('闸门动作')).toBeDefined();
     expect(screen.getByText(/待确认人闸/)).toBeDefined();
-    fireEvent.click(screen.getByText('确认（进待认领）'));
+    fireEvent.click(screen.getByText('确认（进待领取）'));
     await waitFor(() => expect(mockTransitionStatus).toHaveBeenCalledWith('wu-1', 'unassigned'));
     await waitFor(() => expect(mockWuGet.mock.calls.length).toBeGreaterThanOrEqual(2));
   });

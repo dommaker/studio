@@ -291,10 +291,10 @@ export function WorkUnitDetailPage() {
                     <button
                       className="btn btn-primary"
                       disabled={confirming}
-                      title="待确认人闸：扩范围单创建落待确认，确认后进入待认领（agent 可见可认领）"
+                      title="待确认人闸：扩范围单创建落待确认，确认后进入待领取（agent 可见可领取）"
                       onClick={handleConfirmPending}
                     >
-                      {confirming ? '提交中…' : '确认（进待认领）'}
+                      {confirming ? '提交中…' : '确认（进待领取）'}
                     </button>
                   )}
                   {wu.status === 'in_review' && (

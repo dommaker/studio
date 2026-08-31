@@ -18,9 +18,9 @@ describe('EvidenceLedger drawer 变体', () => {
   it('三层标签 + ✓/✗ 前缀行 + 评审结论；缺失层显示 —', () => {
     render(<EvidenceLedger attestations={baseAttestations} variant="drawer" />);
     expect(screen.getByText('证据台账')).toBeTruthy();
-    expect(screen.getByText('L1 自动验证')).toBeTruthy();
-    expect(screen.getByText('L2 Agent 评审')).toBeTruthy();
-    expect(screen.getByText('L3 人工验收')).toBeTruthy();
+    expect(screen.getByText('自动验证')).toBeTruthy();
+    expect(screen.getByText('Agent 评审')).toBeTruthy();
+    expect(screen.getByText('人工确认')).toBeTruthy();
     expect(screen.getByText(/✓ verify · profile-/)).toBeTruthy();
     expect(screen.getByText(/✓ agent-review · 76d96d35/)).toBeTruthy();
     expect(screen.getByText('评审结论：实现正确')).toBeTruthy();
@@ -39,8 +39,8 @@ describe('EvidenceLedger drawer 变体', () => {
 
   it('存量 WU（attestations undefined）显示未介入说明', () => {
     render(<EvidenceLedger attestations={undefined} variant="drawer" />);
-    expect(screen.getByText('存量 WU，证据模型未介入（按存储状态展示）')).toBeTruthy();
-    expect(screen.queryByText('L1 自动验证')).toBeNull();
+    expect(screen.getByText('存量任务，证据模型未介入（按存储状态展示）')).toBeTruthy();
+    expect(screen.queryByText('自动验证')).toBeNull();
   });
 });
 
@@ -56,9 +56,9 @@ describe('EvidenceLedger card 变体', () => {
       />
     );
     expect(screen.getByText('证据台账')).toBeTruthy();
-    expect(screen.getByText('L1 自动验证')).toBeTruthy();
-    expect(screen.getByText('L2 Agent 评审')).toBeTruthy();
-    expect(screen.getByText('L3 人工验收')).toBeTruthy();
+    expect(screen.getByText('自动验证')).toBeTruthy();
+    expect(screen.getByText('Agent 评审')).toBeTruthy();
+    expect(screen.getByText('人工确认')).toBeTruthy();
     expect(screen.getAllByText('✓ 通过').length).toBe(2);
     expect(screen.getByText('✗ 拒绝')).toBeTruthy();
     expect(screen.getByText(/agent-review · 76d96d35/)).toBeTruthy();
@@ -68,7 +68,7 @@ describe('EvidenceLedger card 变体', () => {
 
   it('存量 WU（attestations undefined）显示未介入说明', () => {
     render(<EvidenceLedger attestations={undefined} variant="card" />);
-    expect(screen.getByText('存量 WU，证据模型未介入（按存储状态展示）')).toBeTruthy();
-    expect(screen.queryByText('L1 自动验证')).toBeNull();
+    expect(screen.getByText('存量任务，证据模型未介入（按存储状态展示）')).toBeTruthy();
+    expect(screen.queryByText('自动验证')).toBeNull();
   });
 });

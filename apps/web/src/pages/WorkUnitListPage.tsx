@@ -243,23 +243,24 @@ function WorkUnitRow({
       >
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <span className={`text-xs px-2 py-0.5 rounded ${WU_STATUS_COLORS[derived.column] || 'u-surface-2 u-text-3'}`}>
+            {/* #400 验收修复：badge 行 shrink-0+nowrap，防长标题把状态/类型徽标挤成竖排 */}
+            <span className={`text-xs px-2 py-0.5 rounded shrink-0 whitespace-nowrap ${WU_STATUS_COLORS[derived.column] || 'u-surface-2 u-text-3'}`}>
               {WU_STATUS_LABELS[derived.column] ?? derived.column}
             </span>
             {/* #116：被阻塞徽标，悬停 title 列依赖 id（客户端不知各依赖状态，口径保持中性；
                 未了结判定与可点击清单见行内展开 BlockedByList） */}
             {depBlocked && (
               <span
-                className="text-xs px-2 py-0.5 rounded u-warn-dim u-warn"
+                className="text-xs px-2 py-0.5 rounded u-warn-dim u-warn shrink-0 whitespace-nowrap"
                 title={depIds.length > 0 ? `依赖：${depIds.join(', ')}` : '依赖未了结'}
               >
                 被阻塞
               </span>
             )}
             <SelfReviewBadge wu={wu} />
-            <span className="text-xs u-text-2">{WU_TYPE_LABELS[wu.type] ?? wu.type}</span>
+            <span className="text-xs u-text-2 shrink-0 whitespace-nowrap">{WU_TYPE_LABELS[wu.type] ?? wu.type}</span>
             {wu.reqId && (
-              <span className="text-xs px-2 py-0.5 rounded u-accent-dim u-accent" title="REQ 需求编号">
+              <span className="text-xs px-2 py-0.5 rounded u-accent-dim u-accent shrink-0 whitespace-nowrap" title="REQ 需求编号">
                 {wu.reqId}
               </span>
             )}
@@ -277,7 +278,7 @@ function WorkUnitRow({
             <span className="font-mono">ID: {wu.id.slice(0, 8)}...</span>
             {wu.assigneeId && <span className="font-mono">Agent: {wu.assigneeId.slice(0, 8)}...</span>}
             <span>创建: <span className="font-mono">{formatTime(wu.createdAt)}</span></span>
-            {wu.claimedAt && <span>Claim: <span className="font-mono">{formatTime(wu.claimedAt)}</span></span>}
+            {wu.claimedAt && <span>领取: <span className="font-mono">{formatTime(wu.claimedAt)}</span></span>}
           </div>
         </div>
 
@@ -340,10 +341,10 @@ function WorkUnitRow({
             <div className="mt-2">
               <button
                 className="text-xs px-2 py-1 rounded u-ok-dim u-ok u-hover-bg"
-                title="待确认人闸：扩范围单创建落待确认，确认后进入待认领（agent 可见可认领）"
+                title="待确认人闸：扩范围单创建落待确认，确认后进入待领取（agent 可见可领取）"
                 onClick={onConfirmPending}
               >
-                确认（进待认领）
+                确认（进待领取）
               </button>
             </div>
           )}

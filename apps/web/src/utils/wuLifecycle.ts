@@ -74,7 +74,7 @@ export function buildLifecycle(
 
   const events: WuKeyEvent[] = [];
   if (wu.status === 'pending') {
-    events.push({ id: 'gate-pending', label: '待确认人闸（确认后进待认领）', time: wu.createdAt, tone: 'warn' });
+    events.push({ id: 'gate-pending', label: '待确认人闸（确认后进待领取）', time: wu.createdAt, tone: 'warn' });
   }
   if (derived.column === 'blocked') {
     events.push({ id: 'blocked', label: '阻塞', detail: wu.failureType ?? undefined, time: wu.updatedAt, tone: 'danger' });
@@ -91,10 +91,11 @@ export function buildLifecycle(
     });
   }
   // 证据层事件（时间戳真实存在，是最可靠的事件源）
+  // 标签白话对齐 #385 词表（正本 pmo/pipelineUtils.EVIDENCE_LAYER_LABELS），L1/L2/L3 编号不上界面
   const levels: Array<['l1' | 'l2' | 'l3', string]> = [
-    ['l1', 'L1 自动验证'],
-    ['l2', 'L2 Agent 评审'],
-    ['l3', 'L3 人工验收'],
+    ['l1', '自动验证'],
+    ['l2', 'Agent 评审'],
+    ['l3', '人工确认'],
   ];
   for (const [key, name] of levels) {
     const e = attestations?.[key];

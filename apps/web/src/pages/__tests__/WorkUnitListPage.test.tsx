@@ -251,12 +251,12 @@ describe('WorkUnitListPage — pending 人闸入口（#284）', () => {
     mockSearchParamsValue.value = '';
   });
 
-  it('pending 行展开态 → 「确认（进待认领）」→ confirmPending(id)', async () => {
+  it('pending 行展开态 → 「确认（进待领取）」→ confirmPending(id)', async () => {
     mockStore.workunits = [makeWu({ id: 'wu-p1', type: 'task', status: 'pending' })];
     render(<WorkUnitListPage />);
 
     fireEvent.click(screen.getByText('ID: wu-p1...')); // 行内展开
-    fireEvent.click(await screen.findByText('确认（进待认领）'));
+    fireEvent.click(await screen.findByText('确认（进待领取）'));
 
     expect(mockStore.confirmPending).toHaveBeenCalledWith('wu-p1');
   });
@@ -267,7 +267,7 @@ describe('WorkUnitListPage — pending 人闸入口（#284）', () => {
 
     fireEvent.click(screen.getByText('ID: wu-a9...'));
     await waitFor(() => expect(screen.getByText(/Assignee/)).toBeDefined()); // 展开已生效
-    expect(screen.queryByText('确认（进待认领）')).toBeNull();
+    expect(screen.queryByText('确认（进待领取）')).toBeNull();
   });
 });
 
