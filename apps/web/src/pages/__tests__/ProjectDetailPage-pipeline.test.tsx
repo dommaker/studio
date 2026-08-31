@@ -136,11 +136,11 @@ describe('AC-5: PMO 驾驶舱', { testTimeout: 15000 }, () => {
     expect(screen.getByText('原始需求')).toBeTruthy();
     expect(screen.getByText('做一个驾驶舱页面，展示进度管道与文档')).toBeTruthy();
 
-    // stepper 四阶段；active 为当前阶段（高亮 pill）
+    // stepper 四阶段（#399 §8.3 项目阶段专用词：讨论→开发→验收→交付）；active 为当前阶段（高亮 pill）
     expect(screen.getByText('讨论')).toBeTruthy();
-    expect(screen.getByText('待验收')).toBeTruthy();
-    expect(screen.getByText('已交付')).toBeTruthy();
-    const current = screen.getByText('进行中', { selector: 'span.rounded-full' });
+    expect(screen.getByText('验收')).toBeTruthy();
+    expect(screen.getByText('交付')).toBeTruthy();
+    const current = screen.getByText('开发', { selector: 'span.rounded-full' });
     expect(current.className).toContain('u-accent-bg');
 
     // 去频道按钮（channelId 存在时）
@@ -151,27 +151,27 @@ describe('AC-5: PMO 驾驶舱', { testTimeout: 15000 }, () => {
     renderDetail();
 
     await waitFor(() => {
-      expect(screen.getByText('1/3 WU 完成 · 33%')).toBeTruthy();
+      expect(screen.getByText('1/3 任务完成 · 33%')).toBeTruthy();
     });
 
-    // 五泳道计数
-    expect(screen.getByText('待认领 (1)')).toBeTruthy();
-    expect(screen.getByText('执行中 (1)')).toBeTruthy();
-    expect(screen.getByText('评审中 (0)')).toBeTruthy();
+    // 五泳道计数（#399 §8.3 词表：待领取/进行中/待验收/完成）
+    expect(screen.getByText('待领取 (1)')).toBeTruthy();
+    expect(screen.getByText('进行中 (1)')).toBeTruthy();
+    expect(screen.getByText('待验收 (0)')).toBeTruthy();
     expect(screen.getByText('阻塞 (0)')).toBeTruthy();
-    expect(screen.getByText('已完成 (1)')).toBeTruthy();
+    expect(screen.getByText('完成 (1)')).toBeTruthy();
 
-    // wu-1 小卡：类型 chip / 状态 / L1-L3 证据徽章 / 名册解析的认领人 / 耗时（25h → 1d1h）
+    // wu-1 小卡：类型 chip / 状态 / 证据徽章白话词表（自动验证/Agent 评审/人工确认）/ 名册解析的认领人 / 耗时（25h → 1d1h）
     expect(screen.getByText('设计管道 UI')).toBeTruthy();
-    expect(screen.getByText('L1✓')).toBeTruthy();
-    expect(screen.getByText('L2✓')).toBeTruthy();
-    expect(screen.getByText('L3✓')).toBeTruthy();
+    expect(screen.getByText('自动验证✓')).toBeTruthy();
+    expect(screen.getByText('Agent 评审✓')).toBeTruthy();
+    expect(screen.getByText('人工确认✓')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'dev' })).toBeTruthy();
     expect(screen.getByText('⏱ 1d1h')).toBeTruthy();
 
-    // wu-3 未认领
+    // wu-3 未领取
     expect(screen.getByText('写测试')).toBeTruthy();
-    expect(screen.getByText('未认领')).toBeTruthy();
+    expect(screen.getByText('未领取')).toBeTruthy();
   });
 
   it('WU 小卡点击 → /workunits/:id；认领人点击 → /agents/:roleId；去频道 → /channels/:id', async () => {
@@ -206,19 +206,19 @@ describe('AC-5: PMO 驾驶舱', { testTimeout: 15000 }, () => {
     expect(screen.queryByRole('button', { name: /去频道/ })).toBeNull();
   });
 
-  it('项目动态：认领/完成/新增条目拼装，标题可点跳 WU 详情', async () => {
+  it('项目动态：领取/完成/新增条目拼装，标题可点跳 WU 详情', async () => {
     renderDetail();
     await waitFor(() => expect(screen.getByText(/项目动态/)).toBeTruthy());
 
-    // 「dev 认领了「设计管道 UI」」（文本跨节点，按 li textContent 断言）
+    // 「dev 领取了「设计管道 UI」」（文本跨节点，按 li textContent 断言）
     await waitFor(() => {
       const li = screen.getByText((_, el) =>
-        el?.tagName === 'LI' && (el.textContent ?? '').includes('dev 认领了 「设计管道 UI」'));
+        el?.tagName === 'LI' && (el.textContent ?? '').includes('dev 领取了 「设计管道 UI」'));
       expect(li).toBeTruthy();
     });
-    // 完成条目带状态
+    // 完成条目（done 正词即「完成」，不再赘述（已完成）后缀）
     expect(screen.getByText((_, el) =>
-      el?.tagName === 'LI' && (el.textContent ?? '').includes('「设计管道 UI」 完成（已完成）'))).toBeTruthy();
+      el?.tagName === 'LI' && (el.textContent ?? '').includes('「设计管道 UI」 完成'))).toBeTruthy();
     // 新增条目
     expect(screen.getByText((_, el) =>
       el?.tagName === 'LI' && (el.textContent ?? '').includes('新增 「写测试」'))).toBeTruthy();
@@ -235,7 +235,7 @@ describe('AC-5: PMO 驾驶舱', { testTimeout: 15000 }, () => {
     renderDetail();
 
     await waitFor(() => {
-      expect(screen.getByText('暂无 WorkUnit 产出')).toBeTruthy();
+      expect(screen.getByText('暂无任务产出')).toBeTruthy();
     });
     expect(screen.getByText('暂无动态')).toBeTruthy();
   });
@@ -245,7 +245,7 @@ describe('AC-5: PMO 驾驶舱', { testTimeout: 15000 }, () => {
     renderDetail();
 
     await waitFor(() => {
-      expect(screen.getByText('暂无 WorkUnit 产出')).toBeTruthy();
+      expect(screen.getByText('暂无任务产出')).toBeTruthy();
     });
     expect(screen.getByText('驾驶舱项目')).toBeTruthy();
   });

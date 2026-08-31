@@ -99,16 +99,17 @@ describe('DeliveryPanel', () => {
 
     expect(screen.getByText('📦 交付')).toBeTruthy();
     expect(screen.getByText('🔄 进行中 2/3')).toBeTruthy();
-    expect(screen.getByText('WU: 2/3 完成')).toBeTruthy();
-    expect(screen.getByText('L2: 缺 1')).toBeTruthy();
+    // #399 §8.3 词表：WU→任务；证据三级白话
+    expect(screen.getByText('任务: 2/3 完成')).toBeTruthy();
+    expect(screen.getByText('Agent 评审: 缺 1')).toBeTruthy();
     expect(screen.getByText('实现交付台账')).toBeTruthy();
-    expect(screen.getByText('缺 L2 agent 评审')).toBeTruthy();
+    expect(screen.getByText('缺 Agent 评审')).toBeTruthy();
     expect(screen.getByRole('button', { name: '派发评审' })).toBeTruthy();
   });
 
-  it('「查看 WU ›」跳转 /workunits/:id', () => {
+  it('「查看任务 ›」跳转 /workunits/:id', () => {
     renderPanel();
-    fireEvent.click(screen.getByRole('button', { name: '查看 WU ›' }));
+    fireEvent.click(screen.getByRole('button', { name: '查看任务 ›' }));
     expect(mockNavigate).toHaveBeenCalledWith('/workunits/wu-3');
   });
 
@@ -121,7 +122,7 @@ describe('DeliveryPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '重跑验证' }));
 
     await waitFor(() => expect(mockVerify).toHaveBeenCalledWith('wu-1'));
-    await waitFor(() => expect(mockToastSuccess).toHaveBeenCalledWith('验证通过，L1 已补齐'));
+    await waitFor(() => expect(mockToastSuccess).toHaveBeenCalledWith('验证通过，自动验证已补齐'));
     expect(onRefresh).toHaveBeenCalled();
   });
 
@@ -187,7 +188,7 @@ describe('DeliveryPanel', () => {
 
     await waitFor(() => expect(mockDispatchReview).toHaveBeenCalledWith('wu-1'));
     await waitFor(() =>
-      expect(mockToastSuccess).toHaveBeenCalledWith('已创建评审 WorkUnit，待 agent 认领'));
+      expect(mockToastSuccess).toHaveBeenCalledWith('已创建评审任务，待 agent 领取'));
     expect(onRefresh).toHaveBeenCalled();
   });
 
@@ -198,7 +199,7 @@ describe('DeliveryPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '人工确认' }));
 
     await waitFor(() => expect(mockReviewPassed).toHaveBeenCalledWith('wu-1', undefined, undefined));
-    await waitFor(() => expect(mockToastSuccess).toHaveBeenCalledWith('已确认，L3 已补齐'));
+    await waitFor(() => expect(mockToastSuccess).toHaveBeenCalledWith('人工确认已补齐'));
     expect(onRefresh).toHaveBeenCalled();
   });
 
@@ -223,7 +224,7 @@ describe('DeliveryPanel', () => {
     fireEvent.click(screen.getByText('确认通过'));
 
     await waitFor(() => expect(mockReviewPassed).toHaveBeenCalledWith('wu-a1', 'FOG: 改后的待决问题？', undefined));
-    await waitFor(() => expect(mockToastSuccess).toHaveBeenCalledWith('已确认，L3 已补齐'));
+    await waitFor(() => expect(mockToastSuccess).toHaveBeenCalledWith('人工确认已补齐'));
     expect(onRefresh).toHaveBeenCalled();
   });
 

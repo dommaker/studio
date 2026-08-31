@@ -79,6 +79,6 @@ Web 前端主源码。路由、全局状态、API 客户端、UI 组件、样式
 - **Router basename**（#275/#291）：`main.tsx` 接 `import.meta.env.BASE_URL`（dev=`/dev/`、生产=`/`），深链/刷新依赖此对齐；路由层回归测试 `__tests__/App-basename.test.tsx`。
 - **F6 铁律**：WU 状态/证据展示一律过 `deriveDisplayState()`（`@dommaker/studio-shared`）。
 - **UI 件**：原生 `<select>` 弃用用 `ui/Select`；`Button`+`ConfirmDialog` 替代 `window.confirm`/`alert`。站内跳转用 `useNavigate`。
-- **PMO 驾驶舱**：ProjectDetailPage = 头部 -> 进度管道（六泳道）-> 交付台账 -> 项目进展 -> 项目动态。
+- **PMO 驾驶舱**：ProjectDetailPage = 头部 -> 进度管道（六泳道）-> 交付台账 -> 项目进展 -> 项目动态。#399（spec §8）：项目进展六卡已删，状态计数唯一表达 = 泳道头「桶名 (n)」（0 桶不染整泳道色、桶名 muted）；进展卡 = progress 条 + %（--fs-stat mono）+「已完成 n/m」+ Token meta（全周期累计）+ --fs-xs muted 口径副标题，证据警告条原位（白话：自动验证/Agent 评审/人工确认，PMO 域唯一出口 `pipelineUtils.EVIDENCE_LAYER_LABELS`，DeliveryPanel 台账/缺口行与管道证据徽章同源）；stepper = 项目阶段专用词 讨论→开发→验收→交付（与 WU 状态词 待领取/进行中/待验收/完成 分家）；本页界面无 WU/L1/L2/L3 字样（编号除外）；项目动态「领取了」取代「认领了」，完成条目 done/completed 不再赘述（已完成）后缀。
 - **频道翻页游标（#319，2026-08-24）**：`useChannelMessages.loadMore` 的 `before` = 最老消息 **id**（原 createdAt 时间戳，同毫秒多条会漏/重）；后端锚点 id 不存在时返回空页 + hasMore=false，loadMore 据此自然停止
 - **通知中心**（B2-003/B2-004；2026-08-28 三票修复）：列表与已读动作住 `stores/notificationStore`（读态跨组件共享前提——NotificationBell 只是视图）。**打开频道即读**：ChannelDetailPage 进页 `markChannelRead(id)`，只清 channelId 匹配（link 解析）的未读，其他频道/类型不动。**点击直达消息**：频道分支跳转带 `?highlight=<messageId>`，页面消费一次后交既有 highlightId 机制滚动定位+高亮 2s（目标在折叠线程先展开；掉出首页分页的老消息静默不定位——已知留白）；跳转优先级 WU > PMO > 频道不变（§5.7），后端通知 link 无消息粒度故仅 SSE 条目可直达。**标题闪烁定时器**与读态挂钩：startFlash 开新必清旧（曾闭包单变量被覆盖导致 interval 永久泄漏闪烁），未读归零/卸载即停（曾纯 10s 定时、全部已读后照闪）。

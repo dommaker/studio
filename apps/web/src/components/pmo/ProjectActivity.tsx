@@ -21,9 +21,13 @@ function EntryText({ entry }: { entry: ProjectTimelineEntry }) {
     case 'created':
       return <span>新增 {title}</span>;
     case 'claimed':
-      return <span>{entry.actorName ?? 'agent'} 认领了 {title}</span>;
-    case 'completed':
-      return <span>{title} 完成（{WU_STATUS_LABELS[entry.status ?? ''] ?? entry.status}）</span>;
+      // #399 §8.3 词表：认领 → 领取
+      return <span>{entry.actorName ?? 'agent'} 领取了 {title}</span>;
+    case 'completed': {
+      // #399 §8.3 词表：done/completed 正词即「完成」，与动词重复时不赘述；其他终结态保留区分（已关闭/失败）
+      const label = WU_STATUS_LABELS[entry.status ?? ''] ?? entry.status;
+      return <span>{title} 完成{label && label !== '已完成' ? `（${label}）` : ''}</span>;
+    }
     case 'delivered':
       return <span className="u-ok">✓ 项目已交付</span>;
   }

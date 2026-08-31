@@ -43,10 +43,10 @@ export function ProjectCard({ project, wuStats, channels, handlePublishClick }: 
                   · {project.deliveryPolicy}
                 </span>
               )}
-              {/* 🆕 AC-6: WU 完成度徽章（数据缺失/为 0 不显示） */}
+              {/* 🆕 AC-6: 任务完成度徽章（#399 §8.3：WU→「任务」；数据缺失/为 0 不显示） */}
               {wuStats[project.id] && wuStats[project.id].total > 0 && (
                 <span className="ml-2 px-1.5 py-0.5 rounded u-surface-2 u-text-2">
-                  WU {wuStats[project.id].finished}/{wuStats[project.id].total}
+                  任务 {wuStats[project.id].finished}/{wuStats[project.id].total}
                 </span>
               )}
             </div>

@@ -2,8 +2,16 @@
 // 组件见 ProjectPipeline.tsx / ProjectActivity.tsx；数据流见 ProjectDetailPage
 import { deriveDisplayState } from '@dommaker/studio-shared/web';
 
-/** 进度管道六泳道（pending = #126 待确认人闸：扩范围单创建落点，人工确认才进待认领） */
+/** 进度管道六泳道（pending = #126 待确认人闸：扩范围单创建落点，人工确认才进待领取） */
 export type PipelineLane = 'pending' | 'unassigned' | 'active' | 'in_review' | 'blocked' | 'done';
+
+/** 交付证据三层白话词表（#399 §8.3：L1/L2/L3 不上界面；缺层文案 = `缺${label}`）。PMO 域唯一出口 */
+export const EVIDENCE_LAYER_LABELS = {
+  l1: '自动验证',
+  l2: 'Agent 评审',
+  l3: '人工确认',
+} as const;
+export type EvidenceLayer = keyof typeof EVIDENCE_LAYER_LABELS;
 
 /** 管道 WU：REQ chain 条目（§10 起 chain 自带 type/时间戳，不再 N+1 详情补全） */
 export interface PipelineWorkUnit {
@@ -20,8 +28,8 @@ export interface PipelineWorkUnit {
 }
 
 /**
- * WU → 泳道。F6 铁律：分列只准看 deriveDisplayState 派生列（done 缺 L3 回「评审中」等人工确认）。
- * failed/completed 不在门模型状态词表内（防御性归并）：终结态直接进「已完成」列。
+ * WU → 泳道。F6 铁律：分列只准看 deriveDisplayState 派生列（done 缺 L3 回「待验收」列等人工确认）。
+ * failed/completed 不在门模型状态词表内（防御性归并）：终结态直接进「完成」列。
  */
 export function laneOfWorkUnit(wu: Pick<PipelineWorkUnit, 'status' | 'metadata'>): PipelineLane {
   if (wu.status === 'failed' || wu.status === 'completed') return 'done';
@@ -29,7 +37,7 @@ export function laneOfWorkUnit(wu: Pick<PipelineWorkUnit, 'status' | 'metadata'>
   return column === 'done' || column === 'closed' ? 'done' : column;
 }
 
-/** 五泳道分组（保持输入顺序，chain 已按 createdAt 升序） */
+/** 泳道分组（保持输入顺序，chain 已按 createdAt 升序） */
 export function groupWorkUnitsByLane(wus: PipelineWorkUnit[]): Record<PipelineLane, PipelineWorkUnit[]> {
   const lanes: Record<PipelineLane, PipelineWorkUnit[]> = {
     pending: [],

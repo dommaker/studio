@@ -72,12 +72,12 @@ interface Project {
   OKR?: { id: string; title: string; quarter: string };
 }
 
-// 🆕 AC-5: 项目状态 stepper（讨论 → 进行中 → 待验收 → 已交付；delivered 归并到 completed）
+// 🆕 AC-5: 项目状态 stepper（#399 §8.3 项目阶段专用词：讨论→开发→验收→交付，与 WU 状态词分开；delivered 归并到 completed）
 const PROJECT_STEPS = [
   { key: 'pending', label: '讨论' },
-  { key: 'active', label: '进行中' },
-  { key: 'in_review', label: '待验收' },
-  { key: 'completed', label: '已交付' },
+  { key: 'active', label: '开发' },
+  { key: 'in_review', label: '验收' },
+  { key: 'completed', label: '交付' },
 ] as const;
 
 export function ProjectDetailPage() {
