@@ -70,6 +70,7 @@ const baseDelivery: DeliveryStatus = {
   deliverable: false,
   missing: ['wu-3 缺 L2 agent 评审'],
   tokens: 1234,
+  archived: false,
   gaps: [{ id: 'wu-3', title: '实现交付台账', type: 'task', missing: ['l2'] }],
   deliveredAt: null,
   deliveredBy: null,
@@ -111,6 +112,29 @@ describe('DeliveryPanel', () => {
     renderPanel();
     fireEvent.click(screen.getByRole('button', { name: '查看任务 ›' }));
     expect(mockNavigate).toHaveBeenCalledWith('/workunits/wu-3');
+  });
+
+  it('#376 归档口径：archived 零任务 → 「任务明细已归档」替代「无关联任务」', () => {
+    renderPanel({
+      ...baseDelivery,
+      archived: true,
+      wu: { total: 0, finished: 0, inFlight: 0, byStatus: { unassigned: 0, active: 0, inReview: 0, blocked: 0 } },
+      missing: ['无关联任务'],
+      gaps: [],
+    });
+    expect(screen.getByText(/任务明细已归档/)).toBeTruthy();
+    expect(screen.queryByText('无关联任务')).toBeNull();
+  });
+
+  it('#376 归档口径：非 archived 零任务 → 仍显示「无关联任务」', () => {
+    renderPanel({
+      ...baseDelivery,
+      wu: { total: 0, finished: 0, inFlight: 0, byStatus: { unassigned: 0, active: 0, inReview: 0, blocked: 0 } },
+      missing: ['无关联任务'],
+      gaps: [],
+    });
+    expect(screen.getByText('无关联任务')).toBeTruthy();
+    expect(screen.queryByText(/任务明细已归档/)).toBeNull();
   });
 
   // ---- handleGapAction 状态码 → toast 矩阵 ----

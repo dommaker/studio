@@ -83,6 +83,7 @@ const deliveryAutoMergePending = {
   deliverable: false,
   missing: ['WU-3 缺 L2 agent 评审'],
   tokens: 1234,
+  archived: false,
   gaps: [
     { id: 'wu-3', title: '实现交付台账', type: 'task', missing: ['l2'] as Array<'l1' | 'l2' | 'l3'> },
   ],

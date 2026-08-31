@@ -150,9 +150,11 @@ export function DeliveryPanel({ projectId, delivery, onRefresh }: DeliveryPanelP
         <span>自评: {delivery.evidence.selfReviewCount}</span>
       </div>
 
-      {/* 无任务时的非缺口提示 */}
+      {/* 无任务时的非缺口提示；#376 归档态（终态项目历史任务数据已清理）换成归档说明 */}
       {delivery.wu.total === 0 && (
-        <div className="text-xs u-text-3 mb-2">无关联任务</div>
+        <div className="text-xs u-text-3 mb-2">
+          {delivery.archived ? '任务明细已归档：历史任务数据已清理，计数不可考' : '无关联任务'}
+        </div>
       )}
 
       {/* 🆕 F6-c: 缺口行动清单（已完成但证据有缺口的 WU，逐行给补齐动作） */}

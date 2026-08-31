@@ -159,6 +159,42 @@ describe('getDeliveryStatus（PMO-b 台账）', () => {
     expect(s2!.missing).toContain('无关联任务');
   });
 
+  it('#376 归档口径：completed 零 WU → archived=true；cancelled/在途零 WU → archived=false；completed 有 WU → archived=false', async () => {
+    // completed + 零 WU：progress 是历史快照，实时重算为空集 → 归档标志
+    const s1 = await getDeliveryStatus('proj-1', undefined, makeDeps({
+      project: project({ status: 'completed', progress: 100, completedAt: '2026-07-30T00:00:00Z' }),
+      snapshots: [],
+    }));
+    expect(s1!.archived).toBe(true);
+
+    // 已交付的 completed 项目（deliveredAt 落档）+ 零 WU → 同样归档
+    const s2 = await getDeliveryStatus('proj-1', undefined, makeDeps({
+      project: project({ status: 'completed', progress: 100, deliveredAt: '2026-07-30T01:00:00Z' }),
+      snapshots: [],
+    }));
+    expect(s2!.archived).toBe(true);
+
+    // deliveredAt 不是终态代理（deliverProject 不翻 status；in_review → cancelled 合法）：
+    // cancelled + deliveredAt + 零 WU → 不置标志（评审回归：误触发路径）
+    const s2b = await getDeliveryStatus('proj-1', undefined, makeDeps({
+      project: project({ status: 'cancelled', deliveredAt: '2026-07-30T01:00:00Z' }),
+      snapshots: [],
+    }));
+    expect(s2b!.archived).toBe(false);
+
+    // 在途项目零 WU：真无任务，不是归档 → 不置标志
+    const s3 = await getDeliveryStatus('proj-1', undefined, makeDeps({ snapshots: [] }));
+    expect(s3!.archived).toBe(false);
+
+    // completed 但仍有 WU 在册：实时口径有效 → 不置标志
+    const ready = wu({ metadataObj: { attestations: { l1: att('verify'), l2: att('agent-review'), l3: att('human-confirm') } } });
+    const s4 = await getDeliveryStatus('proj-1', undefined, makeDeps({
+      project: project({ status: 'completed', progress: 100, completedAt: '2026-07-30T00:00:00Z' }),
+      snapshots: [ready],
+    }));
+    expect(s4!.archived).toBe(false);
+  });
+
   it('legacy WU（无 attestations）= 证据缺口（台账诚实——没评审就是没评审）', async () => {
     const legacy = wu({ metadataObj: {} });
     const s = await getDeliveryStatus('proj-1', undefined, makeDeps({ snapshots: [legacy] }));

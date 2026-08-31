@@ -248,6 +248,8 @@ export interface DeliveryStatus {
   missing: string[];
   /** 项目 WU 链路 token 总消耗 */
   tokens: number;
+  /** #376 归档口径：终态项目实时重算零 WU（历史任务数据已清理，计数不可考） */
+  archived: boolean;
   /** 已完成但证据有缺口的 WU 明细 */
   gaps: DeliveryGap[];
   deliveredAt: string | null;

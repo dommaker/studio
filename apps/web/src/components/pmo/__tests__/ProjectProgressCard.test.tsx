@@ -17,6 +17,7 @@ const baseDelivery: DeliveryStatus = {
   deliverable: false,
   missing: [],
   tokens: 1234567,
+  archived: false,
   gaps: [],
   deliveredAt: null,
   deliveredBy: null,
@@ -86,5 +87,38 @@ describe('ProjectProgressCard（#399 §8.2 新构成）', () => {
   it('in_review 且证据未齐 → 自动翻转说明条保留', () => {
     renderCard({ projectStatus: 'in_review' });
     expect(screen.getByText('交付证据补齐后，项目将自动标记完成')).toBeTruthy();
+  });
+
+  it('#376 归档口径：archived → 归档提示取代「已完成 n/m」、Token meta 与口径副标题（100% 快照照显）', () => {
+    renderCard({
+      progress: 100,
+      projectStatus: 'completed',
+      delivery: {
+        ...baseDelivery,
+        archived: true,
+        wu: { total: 0, finished: 0, inFlight: 0, byStatus: { unassigned: 0, active: 0, inReview: 0, blocked: 0 } },
+        tokens: 0,
+      },
+    });
+
+    expect(screen.getByText('100%')).toBeTruthy();
+    expect(screen.getByText('· 任务明细已归档')).toBeTruthy();
+    expect(
+      screen.getByText('任务明细已归档：百分比为完成时快照，完成数与 Token 为实时重算口径，历史任务数据已清理'),
+    ).toBeTruthy();
+    expect(screen.queryByText(/已完成 \d+\/\d+/)).toBeNull();
+    expect(screen.queryByText(/tokens（全周期累计）/)).toBeNull();
+    expect(screen.queryByText('完成数 = 已交付的任务，验收中的不计入')).toBeNull();
+  });
+
+  it('#376 归档口径：非 archived 零任务项目不显示归档提示', () => {
+    renderCard({
+      delivery: {
+        ...baseDelivery,
+        wu: { total: 0, finished: 0, inFlight: 0, byStatus: { unassigned: 0, active: 0, inReview: 0, blocked: 0 } },
+        tokens: 0,
+      },
+    });
+    expect(screen.queryByText(/任务明细已归档/)).toBeNull();
   });
 });

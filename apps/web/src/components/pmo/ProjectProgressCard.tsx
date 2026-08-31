@@ -19,6 +19,9 @@ interface ProjectProgressCardProps {
 }
 
 export function ProjectProgressCard({ progress, delivery, projectStatus }: ProjectProgressCardProps) {
+  // #376 归档口径：终态项目实时重算零 WU（progress 是完成时历史快照，任务数据已清理），
+  // 「已完成 0/0 · 0 tokens」是归档分叉假象 → 显示归档提示取代实时计数
+  const archived = delivery?.archived === true;
   // 证据缺口摘要（缺的层为 0 不显示；§8.3 白话词表 EVIDENCE_LAYER_LABELS）
   const gaps = delivery
     ? [
@@ -50,16 +53,24 @@ export function ProjectProgressCard({ progress, delivery, projectStatus }: Proje
           </div>
         </div>
         <span className="font-mono font-bold u-text" style={{ fontSize: 'var(--fs-stat)' }}>{progress}%</span>
-        {delivery && (
+        {delivery && !archived && (
           <span className="text-sm u-text-2 flex-shrink-0">
             · 已完成 {delivery.wu.finished}/{delivery.wu.total} · 💰 {formatTokens(delivery.tokens)} tokens（全周期累计）
           </span>
         )}
+        {archived && (
+          <span className="text-sm u-text-3 flex-shrink-0">· 任务明细已归档</span>
+        )}
       </div>
-      {/* 口径副标题：可见小字，不用 tooltip（§8.2） */}
-      {delivery && (
+      {/* 口径副标题：可见小字，不用 tooltip（§8.2）；归档态换成快照口径说明 */}
+      {delivery && !archived && (
         <p className="u-text-3 mt-1 mb-3" style={{ fontSize: 'var(--fs-xs)' }}>
           完成数 = 已交付的任务，验收中的不计入
+        </p>
+      )}
+      {archived && (
+        <p className="u-text-3 mt-1 mb-3" style={{ fontSize: 'var(--fs-xs)' }}>
+          任务明细已归档：百分比为完成时快照，完成数与 Token 为实时重算口径，历史任务数据已清理
         </p>
       )}
 
