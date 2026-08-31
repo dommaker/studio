@@ -158,9 +158,9 @@ export function MonitoringPage() {
                   statTestId="evidence-stat"
                 >
                   <div className="grid grid-cols-4 gap-3">
-                    <StatCard label="L1 自动验证" value={evidence.l1Approved} color="u-ok" />
-                    <StatCard label="L2 agent 评审" value={evidence.l2Approved} color="u-ok" />
-                    <StatCard label="L3 人工确认" value={evidence.l3Approved} color="u-ok" />
+                    <StatCard label="自动验证" value={evidence.l1Approved} color="u-ok" />
+                    <StatCard label="Agent 评审" value={evidence.l2Approved} color="u-ok" />
+                    <StatCard label="人工确认" value={evidence.l3Approved} color="u-ok" />
                     <StatCard label="待人工确认" value={evidence.needsHuman} color="u-err" />
                     <StatCard label="双轨偏差" value={evidence.derivedMismatch} color="u-warn" />
                   </div>

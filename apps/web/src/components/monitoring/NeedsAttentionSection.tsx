@@ -12,7 +12,7 @@ import { groupAlertsBySignature, type AlertItem } from './alertGrouping';
 import { MonitorSection } from './MonitorSection';
 
 const HOUR = 3600_000;
-/** 待认领滞留阈值（对齐 #181 池滞留探针，正本在 studio-shared/constants/monitoring） */
+/** 待领取滞留阈值（对齐 #181 池滞留探针，正本在 studio-shared/constants/monitoring） */
 const STALE_UNASSIGNED_MS = POOL_STAGNATION_WARN_MS;
 /** 翻页防御上限（limit 200/页） */
 const MAX_PAGES = 5;
@@ -202,7 +202,7 @@ export function NeedsAttentionSection() {
               )}
               {stuck.data.staleUnassigned > 0 && (
                 <Link to="/workunits?status=unassigned" className="u-warn u-hover-accent">
-                  待认领滞留 {stuck.data.staleUnassigned} 个
+                  待领取滞留 {stuck.data.staleUnassigned} 个
                 </Link>
               )}
               {stuck.data.stalledActive > 0 && (

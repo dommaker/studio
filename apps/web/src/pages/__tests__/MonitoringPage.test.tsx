@@ -198,9 +198,9 @@ describe('MonitoringPage', () => {
     render(<MonitoringPage />);
     await openMetrics();
     await screen.findByText('证据台账（信任分层）');
-    expect(screen.getByText('L1 自动验证')).toBeDefined();
-    expect(screen.getByText('L2 agent 评审')).toBeDefined();
-    expect(screen.getByText('L3 人工确认')).toBeDefined();
+    expect(screen.getByText('自动验证')).toBeDefined();
+    expect(screen.getByText('Agent 评审')).toBeDefined();
+    expect(screen.getByText('人工确认')).toBeDefined();
     expect(screen.getByText('待人工确认')).toBeDefined();
     expect(screen.getByText('双轨偏差')).toBeDefined();
     expect(screen.queryByText('自评（L2）')).toBeNull();

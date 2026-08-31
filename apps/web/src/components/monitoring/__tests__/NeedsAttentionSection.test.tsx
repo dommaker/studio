@@ -190,7 +190,7 @@ describe('NeedsAttentionSection — 卡住计数', () => {
     const blocked = await screen.findByText(/阻塞 4 个/);
     expect(blocked.closest('a')?.getAttribute('href')).toBe('/workunits?status=blocked');
 
-    const stale = screen.getByText(/待认领滞留 1 个/);
+    const stale = screen.getByText(/待领取滞留 1 个/);
     expect(stale.closest('a')?.getAttribute('href')).toBe('/workunits?status=unassigned');
 
     const stalled = screen.getByText(/执行中停滞 1 个/);
@@ -201,7 +201,7 @@ describe('NeedsAttentionSection — 卡住计数', () => {
     mockWuByStatus({ blocked: { total: 2 } });
     render(<NeedsAttentionSection />);
     expect(await screen.findByText(/阻塞 2 个/)).toBeDefined();
-    expect(screen.queryByText(/待认领滞留/)).toBeNull();
+    expect(screen.queryByText(/待领取滞留/)).toBeNull();
     expect(screen.queryByText(/执行中停滞/)).toBeNull();
   });
 });

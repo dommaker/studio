@@ -335,10 +335,10 @@ function WuDetail({ id, autoApprove = false, onOpenReq }: { id: string; autoAppr
           <button
             className="mc-wu-link"
             disabled={confirming}
-            title="流程已由 Agent 评审推进完成；此确认为 L3 人工验收留痕，不阻断流程，确认后出审查列"
+            title="流程已由 Agent 评审推进完成；此确认为人工确认留痕，不阻断流程，确认后出审查列"
             onClick={handleApprove}
           >
-            {confirming ? '提交中…' : '人工验收确认（L3 留痕）'}
+            {confirming ? '提交中…' : '人工确认（留痕）'}
           </button>
         </div>
       )}

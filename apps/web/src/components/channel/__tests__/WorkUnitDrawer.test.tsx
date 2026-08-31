@@ -364,10 +364,10 @@ describe('WorkUnitDrawer', () => {
     renderDrawer({ kind: 'wu', id: 'WU-1017' });
     await waitFor(() => expect(screen.getByText('证据台账')).toBeTruthy());
     expect(screen.getByText(/证据模型未介入/)).toBeTruthy();
-    expect(screen.queryByText(/人工验收确认/)).toBeNull();
+    expect(screen.queryByText(/人工确认（留痕）/)).toBeNull();
   });
 
-  it('证据台账：done 缺 l3 → 三层留痕 + L3 人工验收确认按钮（点击调 reviewPassed）', async () => {
+  it('证据台账：done 缺 l3 → 三层留痕 + 人工确认按钮（点击调 reviewPassed）', async () => {
     mockWuGet.mockResolvedValue({
       data: {
         ...WU,
@@ -384,7 +384,7 @@ describe('WorkUnitDrawer', () => {
     renderDrawer({ kind: 'wu', id: 'WU-1017' });
     await waitFor(() => expect(screen.getByText(/评审结论：实现正确/)).toBeTruthy());
     expect(screen.getByText(/✓ agent-review · 76d96d3/)).toBeTruthy();
-    const btn = screen.getByText('人工验收确认（L3 留痕）');
+    const btn = screen.getByText('人工确认（留痕）');
     fireEvent.click(btn);
     await waitFor(() => expect(mockReviewPassed).toHaveBeenCalledWith('WU-1017', undefined, undefined));
   });

@@ -265,13 +265,16 @@ PASS：/workunits、/agents/:id、/audit-logs、/knowledge、/library、/library
 ## 交互态点名清单（§10.4）
 
 已拍并检查：modal 7 实例（创建角色/拒绝原因×2/确认分析结论/日志详情/StudioRoleSetupModal/AuthModal）、Select 下拉、NotificationBell 下拉+未读角标、MoreDropdown、数据变体（超长 scope truncate / audit-logs 空态 / audit-logs 满屏 7 列满态）。
-未拍 2 项（记录不阻塞）：FirstRoleSetupModal（与已拍 StudioRoleSetupModal 同构 400px .modal，触发需清空全部角色 provider，不动共享 dev 数据）；ConfirmDialog 强制停止（420px 纯确认框，需运行中实例，不在 §10.4 点名清单）。OAuthCallback 无稳定帧（裸访问立即重定向 landing），B 档以 landing 画面兜底。
+未拍 3 项（记录不阻塞）：FirstRoleSetupModal（与已拍 StudioRoleSetupModal 同构 400px .modal，触发需清空全部角色 provider，不动共享 dev 数据）；WorkUnitDrawer 拒绝原因（与列表/详情页同构 24rem 第三实例，触发链 = 频道消息卡 → 抽屉 → 拒绝，长且脆）；ConfirmDialog 强制停止（420px 纯确认框，需运行中实例，不在 §10.4 点名清单）。OAuthCallback 无稳定帧（裸访问立即重定向 landing），B 档以 landing 画面兜底。
+modal 口径说明：§10.1「560/400/672px」中 560px 是 theme.css `.modal` base max-width，实际实例全部 override（24rem×4、28rem、400px×2、672px），无 560px 实例可拍。
+B 档凭据说明：B 档页无改版前基线（#379 基线仅认证 12 页），故无 diff 条目；凭据 = 本归因段记录 + `.studio/visual/post-redesign-b/` PNG（本地）。
 
 ## 破版与行话修复（本票清零，随附 commit）
 
 1. **workunits 列表 badge 竖排**（破版，三档复现）：长标题把状态/类型徽标挤成单字竖排 → `shrink-0 whitespace-nowrap`（WorkUnitListPage + SelfReviewBadge）。
 2. **NotificationBell 超长标题未截断**（破版）：标题换行 4 行挤爆条目 → `flex-1 min-w-0 truncate`（时间戳 `shrink-0`）；条目跳转钮「WU」→「任务」。
-3. **行话清零**：「待认领」→「待领取」（WorkUnitListPage/WorkUnitDetailPage/WorkUnitDrawer/wuLifecycle）；「Claim:」→「领取：」；settings「每个频道的 WU」→「任务」；证据台账层标签 L1/L2/L3 → 白话（自动验证/Agent 评审/人工确认，EvidenceLedger 同源 `EVIDENCE_LAYER_LABELS`、wuLifecycle 同步）；「存量 WU」→「存量任务」；PMO 交付台账 missing 文案去 WU/L 编号（api `delivery.ts`）。
+3. **行话清零**：「待认领」→「待领取」（WorkUnitListPage/WorkUnitDetailPage/WorkUnitDrawer/wuLifecycle/NeedsAttentionSection「待领取滞留」）；「Claim:」→「领取：」；settings「每个频道的 WU」→「任务」（顺手删 cwd 缩写）；证据台账层标签 L1/L2/L3 → 白话（自动验证/Agent 评审/人工确认）：EvidenceLedger + wuLifecycle + 监控页证据 StatCard + 「人工验收确认（L3 留痕）」按钮/title（WorkUnitDrawer/WorkUnitListPage）；`EVIDENCE_LAYER_LABELS` 正本上移至 `utils/evidence.ts`（消费方跨 pmo/workunit/utils 三域，pipelineUtils 重出口）；「存量 WU」→「存量任务」；bell 条目「打开 WorkUnit 详情」→「打开任务详情」；PMO 交付台账 missing 文案去 WU/L 编号（api `delivery.ts`）。
+   code-review 复核后补：词表残留经两轴评审（Standards/Spec）扫出第二轮 4 处（上述监控页 StatCard、留痕按钮、待领取滞留、EVIDENCE_LAYER_LABELS 同源上移）已随修复 commit 清零；决策单域「待认领」（mapUtils 徽章等）语义独立，不在 WU 状态词表适用范围。
 4. **硬编码字号盘点清零**：#388 §5 清单项已全部修复（text-[10px]、toast、React Flow !important、attribution 等均已 token 化，死 CSS `.data-board-*` 已删）；残留均有出处——responsive.css 移动档 rem（§10.4 移动档不在范围）+ 16px iOS 防缩放（有意）、agent-dashboard.css 14px（spec §6.1 显式定值）、mission-control.css（§4 重构区）。无转票项。
 
 ## 转独立小票（#401）

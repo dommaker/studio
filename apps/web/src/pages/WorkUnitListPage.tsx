@@ -304,7 +304,7 @@ function WorkUnitRow({
           {wu.status === 'done' && derived.needsHuman && (
             <button
               className="text-xs px-2 py-1 rounded u-ok-dim u-ok u-hover-bg"
-              title="流程已由 Agent 评审推进完成；此确认为 L3 人工验收留痕，不阻断流程，确认后出审查列"
+              title="流程已由 Agent 评审推进完成；此确认为人工确认留痕，不阻断流程，确认后出审查列"
               onClick={e => { e.stopPropagation(); handleApprove(); }}
             >
               确认
