@@ -13,7 +13,6 @@
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { studioPath } from './config/studio-dir';
 
 /** 是否测试环境（vitest 设置 VITEST=true；CI/脚本常用 NODE_ENV=test） */
 export function isTestEnv(env: NodeJS.ProcessEnv = process.env): boolean {
@@ -36,14 +35,17 @@ export function testTmpRoot(name: string): string {
 }
 
 /**
- * 日志根目录：测试 → os.tmpdir()/studio-test-logs；生产 → ~/.studio/logs。
- * 注意：生产日志都落在 ~/.studio/logs 下，测试隔离目录是平铺的，
+ * 日志根目录：测试 → os.tmpdir()/studio-test-logs；生产 → STUDIO_HOME/logs 或 ~/.studio/logs。
+ * 显式 env 参数是唯一事实来源（生产分支不走 studioDir() 读真实 process.env：
+ * 测试进程全局 setup 注入的 STUDIO_HOME 会泄漏进显式 production 的结果）。
+ * 注意：生产日志都落在数据根 logs 下，测试隔离目录是平铺的，
  * 调用方保持原有文件名拼接即可（文件名格式不变）。
  */
 export function resolveStudioLogsDir(env: NodeJS.ProcessEnv = process.env): string {
-  return isTestEnv(env)
-    ? path.join(os.tmpdir(), 'studio-test-logs')
-    : studioPath('logs');
+  if (isTestEnv(env)) return path.join(os.tmpdir(), 'studio-test-logs');
+  return env.STUDIO_HOME
+    ? path.join(env.STUDIO_HOME, 'logs')
+    : path.join(os.homedir(), '.studio', 'logs');
 }
 
 /** 解析 ~/.studio/logs 下某日志文件的实际路径（测试时改写到隔离目录，文件名不变） */
