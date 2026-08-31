@@ -65,13 +65,13 @@ describe('KnowledgeService R1: getFlywheelMetrics from outcome events', () => {
   it('computes hitRate = tasks with ≥1 consumed knowledge / total tasks with outcomes', async () => {
     const now = Date.now();
     const lines = [
+      // 窗口外（40 天前）应被忽略——须排在最旧（文件头）：#342 窗口读口倒扫早停的前提是 append-only 单调
+      outcomeLine(true, ['k-old'], new Date(now - 40 * DAYS)),
       outcomeLine(true, ['k-1'], new Date(now - 1 * 3600_000)),        // hit
       outcomeLine(false, [], new Date(now - 2 * 3600_000)),            // miss
       outcomeLine(true, ['k-2', 'k-3'], new Date(now - 3 * 3600_000)), // hit
       // 噪音：非 outcome 事件应被忽略
       JSON.stringify({ type: 'knowledge:consumption', source: 'prompt-inject', payload: '{}', createdAt: new Date(now - 3600_000).toISOString() }),
-      // 窗口外（40 天前）应被忽略
-      outcomeLine(true, ['k-old'], new Date(now - 40 * DAYS)),
     ];
 
     await withTmpEvents(lines, async (eventsFile) => {

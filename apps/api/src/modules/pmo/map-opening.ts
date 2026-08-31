@@ -10,6 +10,8 @@
  *   可选 body.summary，#110 已穿透端点入参）。逐行约定格式（兼容中文冒号）：
  *     DESTINATION: <目的地>   —— 首条生效；缺省回退项目 title
  *     FOG: <待决问题>         —— 每行一条 fog 条目（上限 MAP_OPENING_FOG_MAX 条）
+ *   #401：中文别名「目标：」= DESTINATION、「待决：」= FOG（人机共享契约——
+ *   agent 产出仍用英文键，UI 预填/占位符用中文键，人改哪边都能解析）。
  *   无 FOG 行 = 无待决问题清单 → 不炸、不初始化、不落哨兵（F6-b 人工补确认会重发
  *   status_changed(done)，后续补填清单仍可开图）。
  *
@@ -34,18 +36,18 @@ import { projectService, type PmoMap, type ProjectData } from './project.service
 export const MAP_OPENING_FOG_MAX = 12;
 
 /**
- * 从人工确认文本提取开图要素。逐行解析，兼容中英文冒号；
- * 非约定行原样忽略（确认文本可同时写其他结论）。
+ * 从人工确认文本提取开图要素。逐行解析，兼容中英文冒号与中文别名
+ * （目标：= DESTINATION、待决：= FOG，#401）；非约定行原样忽略（确认文本可同时写其他结论）。
  */
 export function parseMapOpening(summary: string): { destination?: string; fog: string[] } {
   let destination: string | undefined;
   const fog: string[] = [];
   for (const line of summary.split('\n')) {
-    const m = line.match(/^\s*(DESTINATION|FOG)\s*[:：]\s*(.+?)\s*$/i);
+    const m = line.match(/^\s*(DESTINATION|FOG|目标|待决)\s*[:：]\s*(.+?)\s*$/i);
     if (!m) continue;
     const [, key, value] = m;
     if (!value) continue;
-    if (key.toUpperCase() === 'DESTINATION') {
+    if (key.toUpperCase() === 'DESTINATION' || key === '目标') {
       if (destination === undefined) destination = value;
     } else if (fog.length < MAP_OPENING_FOG_MAX) {
       fog.push(value);

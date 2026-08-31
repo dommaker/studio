@@ -90,6 +90,8 @@ describe('SessionSummary checkpoint 失效回退（P5b）', () => {
     expect(mockLoggerWarn.mock.calls.some(c => (c[0] as string).includes('Git log failed'))).toBe(false);
     // fix commit 的 pattern 被提取
     expect(mockRecordPattern.mock.calls.some(c => (c[0] as { title: string }).title.includes('修复登录超时'))).toBe(true);
+    // #371：钦定矿石——session-summary 所有 recordPattern 显式 origin:'agent'（计入蒸馏 topic 信号）
+    expect(mockRecordPattern.mock.calls.every(c => (c[0] as { origin?: string }).origin === 'agent')).toBe(true);
     // checkpoint 自愈：写入仓库中真实存在的 hash
     const cp = JSON.parse(fs.readFileSync(CHECKPOINT_FILE, 'utf-8'));
     execSync(`git -C "${tmpRepo}" cat-file -e "${cp.lastCommit}^{commit}"`);

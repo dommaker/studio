@@ -100,7 +100,7 @@ export function RolesSetup() {
     <div className="h-full flex flex-col" style={{ background: 'var(--bg-primary)' }}>
       <div className="px-8 py-6" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
         <h1 className="page-title">角色初始化向导</h1>
-        <p className="page-subtitle">从已注册的节点 runtime 创建 AgentProfile。</p>
+        <p className="page-subtitle">从节点上检测到的执行环境批量创建 Agent 角色。</p>
       </div>
 
       <div className="flex-1 overflow-auto px-8 pb-8">

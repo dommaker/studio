@@ -125,11 +125,14 @@ knowledgeServiceRoutes.get('/entries/stats', async (_req, res) => {
 
 knowledgeServiceRoutes.post('/pattern', requireAuth(), requireNotGuest(), async (req, res) => {
   try {
-    const { type, title, content, tags } = req.body;
+    const { type, title, content, tags, origin } = req.body;
     if (!type || !title || !content) {
       return res.status(400).json({ error: 'type, title, content required' });
     }
-    await knowledgeService.recordPattern({ type, title, content, tags: tags || [] });
+    // #371：origin 白名单内人工声明（human/agent 计入蒸馏 topic 信号）；缺省走
+    // recordPattern 的 system fail-closed，API 不得自封 system/external
+    const declared = origin === 'human' || origin === 'agent' ? origin : undefined;
+    await knowledgeService.recordPattern({ type, title, content, tags: tags || [], origin: declared });
     res.status(201).json({ success: true });
   } catch (e: any) {
     logger.error('[KnowledgeService API]', { path: req.path, error: String(e) });

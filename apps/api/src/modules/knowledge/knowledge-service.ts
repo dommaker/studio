@@ -32,6 +32,7 @@ import type {
   QueryFilter,
   MaturityLevel,
   KnowledgeSubsystem,
+  KnowledgeOrigin,
 } from '@dommaker/harness';
 import { TokenEstimator } from '@dommaker/harness';
 import { FileStore, logger } from '@dommaker/studio-shared';
@@ -121,6 +122,12 @@ export interface PatternEntry {
   content: string;
   tags: string[];
   maturity?: MaturityLevel;
+  /**
+   * 条目来源（#371）：缺省 'system'。蒸馏 topic 信号只认 agent/human（#366），
+   * 机器流（monitor/knowledge-sync/auditor/triage/模板兜底）落默认即可；
+   * 真会话沉淀（session-summary）必须显式 origin:'agent' 才计入信号。
+   */
+  origin?: KnowledgeOrigin;
 }
 
 export interface IncidentEntry {
@@ -354,6 +361,7 @@ export class KnowledgeService {
       const startMs = Date.now();
       const execResult = await getSystemExecutor().run(transcript, {
         systemPrompt: getExtractFromTextSystemPrompt(),
+        eventSource: 'conversation-extraction',
       });
       const durationMs = Date.now() - startMs;
       const result = JSON.parse(execResult.output) as { entries?: Array<{ type?: string; title?: string; content?: string; tags?: string[] }> };
@@ -437,6 +445,7 @@ export class KnowledgeService {
           layer: 'project',
           maturity: 'active',
           consumptionMode: 'signal',
+          origin: entry.origin ?? 'system',
         },
       );
     } catch {
@@ -459,6 +468,7 @@ export class KnowledgeService {
           maturity: 'active',
           tags: ['incident', entry.severity],
           consumptionMode: 'signal',
+          origin: 'system',
         },
       );
       scheduleVectorDbSync();

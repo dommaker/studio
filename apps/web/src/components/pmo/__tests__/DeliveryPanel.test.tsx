@@ -70,6 +70,7 @@ const baseDelivery: DeliveryStatus = {
   deliverable: false,
   missing: ['wu-3 缺 L2 agent 评审'],
   tokens: 1234,
+  archived: false,
   gaps: [{ id: 'wu-3', title: '实现交付台账', type: 'task', missing: ['l2'] }],
   deliveredAt: null,
   deliveredBy: null,
@@ -99,17 +100,41 @@ describe('DeliveryPanel', () => {
 
     expect(screen.getByText('📦 交付')).toBeTruthy();
     expect(screen.getByText('🔄 进行中 2/3')).toBeTruthy();
-    expect(screen.getByText('WU: 2/3 完成')).toBeTruthy();
-    expect(screen.getByText('L2: 缺 1')).toBeTruthy();
+    // #399 §8.3 词表：WU→任务；证据三级白话
+    expect(screen.getByText('任务: 2/3 完成')).toBeTruthy();
+    expect(screen.getByText('Agent 评审: 缺 1')).toBeTruthy();
     expect(screen.getByText('实现交付台账')).toBeTruthy();
-    expect(screen.getByText('缺 L2 agent 评审')).toBeTruthy();
+    expect(screen.getByText('缺 Agent 评审')).toBeTruthy();
     expect(screen.getByRole('button', { name: '派发评审' })).toBeTruthy();
   });
 
-  it('「查看 WU ›」跳转 /workunits/:id', () => {
+  it('「查看任务 ›」跳转 /workunits/:id', () => {
     renderPanel();
-    fireEvent.click(screen.getByRole('button', { name: '查看 WU ›' }));
+    fireEvent.click(screen.getByRole('button', { name: '查看任务 ›' }));
     expect(mockNavigate).toHaveBeenCalledWith('/workunits/wu-3');
+  });
+
+  it('#376 归档口径：archived 零任务 → 「任务明细已归档」替代「无关联任务」', () => {
+    renderPanel({
+      ...baseDelivery,
+      archived: true,
+      wu: { total: 0, finished: 0, inFlight: 0, byStatus: { unassigned: 0, active: 0, inReview: 0, blocked: 0 } },
+      missing: ['无关联任务'],
+      gaps: [],
+    });
+    expect(screen.getByText(/任务明细已归档/)).toBeTruthy();
+    expect(screen.queryByText('无关联任务')).toBeNull();
+  });
+
+  it('#376 归档口径：非 archived 零任务 → 仍显示「无关联任务」', () => {
+    renderPanel({
+      ...baseDelivery,
+      wu: { total: 0, finished: 0, inFlight: 0, byStatus: { unassigned: 0, active: 0, inReview: 0, blocked: 0 } },
+      missing: ['无关联任务'],
+      gaps: [],
+    });
+    expect(screen.getByText('无关联任务')).toBeTruthy();
+    expect(screen.queryByText(/任务明细已归档/)).toBeNull();
   });
 
   // ---- handleGapAction 状态码 → toast 矩阵 ----
@@ -121,7 +146,7 @@ describe('DeliveryPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '重跑验证' }));
 
     await waitFor(() => expect(mockVerify).toHaveBeenCalledWith('wu-1'));
-    await waitFor(() => expect(mockToastSuccess).toHaveBeenCalledWith('验证通过，L1 已补齐'));
+    await waitFor(() => expect(mockToastSuccess).toHaveBeenCalledWith('验证通过，自动验证已补齐'));
     expect(onRefresh).toHaveBeenCalled();
   });
 
@@ -187,7 +212,7 @@ describe('DeliveryPanel', () => {
 
     await waitFor(() => expect(mockDispatchReview).toHaveBeenCalledWith('wu-1'));
     await waitFor(() =>
-      expect(mockToastSuccess).toHaveBeenCalledWith('已创建评审 WorkUnit，待 agent 认领'));
+      expect(mockToastSuccess).toHaveBeenCalledWith('已创建评审任务，待 agent 领取'));
     expect(onRefresh).toHaveBeenCalled();
   });
 
@@ -198,7 +223,7 @@ describe('DeliveryPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '人工确认' }));
 
     await waitFor(() => expect(mockReviewPassed).toHaveBeenCalledWith('wu-1', undefined, undefined));
-    await waitFor(() => expect(mockToastSuccess).toHaveBeenCalledWith('已确认，L3 已补齐'));
+    await waitFor(() => expect(mockToastSuccess).toHaveBeenCalledWith('人工确认已补齐'));
     expect(onRefresh).toHaveBeenCalled();
   });
 
@@ -214,16 +239,16 @@ describe('DeliveryPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '人工确认' }));
 
-    const textarea = await screen.findByPlaceholderText(/DESTINATION/) as HTMLTextAreaElement;
+    const textarea = await screen.findByPlaceholderText(/目标/) as HTMLTextAreaElement;
     expect(mockWuGet).toHaveBeenCalledWith('wu-a1');
-    expect(textarea.value).toBe('FOG: 存储选型用哪个？');
+    expect(textarea.value).toBe('待决：存储选型用哪个？');
     expect(mockReviewPassed).not.toHaveBeenCalled();
 
-    fireEvent.change(textarea, { target: { value: 'FOG: 改后的待决问题？' } });
+    fireEvent.change(textarea, { target: { value: '待决：改后的待决问题？' } });
     fireEvent.click(screen.getByText('确认通过'));
 
-    await waitFor(() => expect(mockReviewPassed).toHaveBeenCalledWith('wu-a1', 'FOG: 改后的待决问题？', undefined));
-    await waitFor(() => expect(mockToastSuccess).toHaveBeenCalledWith('已确认，L3 已补齐'));
+    await waitFor(() => expect(mockReviewPassed).toHaveBeenCalledWith('wu-a1', '待决：改后的待决问题？', undefined));
+    await waitFor(() => expect(mockToastSuccess).toHaveBeenCalledWith('人工确认已补齐'));
     expect(onRefresh).toHaveBeenCalled();
   });
 

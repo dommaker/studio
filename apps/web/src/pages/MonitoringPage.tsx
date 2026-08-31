@@ -1,59 +1,58 @@
 // MonitoringPage — Agent Network MVP-6；#180 Tab 化「概览 / 事件检索」（#60 决策 Q3a）
-import { useState, useEffect, useCallback } from 'react';
+// #398 重构（spec redesign-2026-08 §7）：首屏 = 行动面（需要处理 + 知识提案待审）；
+// 度量降下方「健康度量」默认折叠分区。删 WU 状态分布/Agent 状态/最近 24h/段 trim 四区块（§7.3）。
+// 文案按 §7.5：术语标题 + 大白话副标题 + 每区一个 22px 主数字。不扩监控 API。
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { monitoringApi, type MonitoringStats, type FlywheelStats, type OverheadStats, type EvidenceStats, type EfficiencyStats } from '../api/monitoring';
-import { knowledgeApi, type KnowledgeEntryItem } from '../api/knowledge';
+import { monitoringApi } from '../api/monitoring';
+import { knowledgeApi } from '../api/knowledge';
 import { EventSearchPanel } from '../components/monitoring/EventSearchPanel';
 import { NeedsAttentionSection } from '../components/monitoring/NeedsAttentionSection';
+import { MonitorSection } from '../components/monitoring/MonitorSection';
+import { UsageBar, DayBars, HBars } from '../components/monitoring/charts';
+import { useAsyncData } from '../hooks/useAsyncData';
 import { formatAge } from '@dommaker/studio-shared/web';
 
 type MonitoringTab = 'overview' | 'events';
 
 export function MonitoringPage() {
   const [activeTab, setActiveTab] = useState<MonitoringTab>('overview');
-  const [data, setData] = useState<MonitoringStats | null>(null);
-  const [flywheel, setFlywheel] = useState<FlywheelStats | null>(null);
-  const [overhead, setOverhead] = useState<OverheadStats | null>(null);
-  const [evidence, setEvidence] = useState<EvidenceStats | null>(null);
-  const [efficiency, setEfficiency] = useState<EfficiencyStats | null>(null);
+  // 健康度量分区默认折叠（§7.2：度量区整体降为下方分区）
+  const [metricsOpen, setMetricsOpen] = useState(false);
+  // #350 useAsyncData 收一次性拉取样板：各区块独立加载、失败静默（fetcher 内 catch 落 null，区块内提示）
+  const overviewQ = useAsyncData(() => monitoringApi.getOverview().then(r => r.data).catch(() => null), []);
+  const flywheelQ = useAsyncData(() => monitoringApi.getFlywheel().then(r => r.data).catch(() => null), []);
+  const overheadQ = useAsyncData(() => monitoringApi.getOverhead().then(r => r.data).catch(() => null), []);
+  const efficiencyQ = useAsyncData(() => monitoringApi.getEfficiency().then(r => r.data).catch(() => null), []);
   // 审核闭环：proposal 待审列表（maturity=draft，与 proposalsPendingReview 计数同库口径）
-  const [proposals, setProposals] = useState<KnowledgeEntryItem[] | null>(null);
+  const proposalsQ = useAsyncData(() => knowledgeApi.listPendingReview().then(r => r.data.entries).catch(() => null), []);
   const [approvingIds, setApprovingIds] = useState<Set<string>>(new Set());
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(() => {
-    // promise 链写法：setState 全部在回调里，符合 set-state-in-effect 规则的外部同步口径
-    monitoringApi.getStats()
-      .then((res) => {
-        setData(res.data);
-      })
-      .catch((e: unknown) => {
-        setError(e instanceof Error ? e.message : 'Failed to load stats');
-      })
-      .finally(() => {
-        setLoading(false);
-      });
-    // M1/M2 区块独立加载，失败不影响主面板
-    monitoringApi.getFlywheel().then(r => setFlywheel(r.data)).catch(() => setFlywheel(null));
-    monitoringApi.getOverhead().then(r => setOverhead(r.data)).catch(() => setOverhead(null));
-    // F6 证据台账独立加载，失败不影响主面板
-    monitoringApi.getOverview().then(r => setEvidence(r.data.evidence)).catch(() => setEvidence(null));
-    // #120 输入缓存命中率 + 段 trim 率独立加载，失败不影响主面板
-    monitoringApi.getEfficiency().then(r => setEfficiency(r.data)).catch(() => setEfficiency(null));
-    // 待审列表独立加载，失败不阻塞其他区块
-    knowledgeApi.listPendingReview().then(r => setProposals(r.data.entries)).catch(() => setProposals(null));
-  }, []);
+  const overview = overviewQ.data;
+  const evidence = overview?.evidence ?? null;
+  const roles = overview?.roles.roles ?? null;
+  const intervention = overview?.humanIntervention ?? null;
+  const flywheel = flywheelQ.data;
+  const overhead = overheadQ.data;
+  const efficiency = efficiencyQ.data;
+  const cacheHit = efficiency?.cacheHitRate ?? null;
+  const proposals = proposalsQ.data;
 
-  useEffect(() => { load(); }, [load]);
+  const refresh = () => {
+    overviewQ.reload();
+    flywheelQ.reload();
+    overheadQ.reload();
+    efficiencyQ.reload();
+    proposalsQ.reload();
+  };
 
   // 一键 approve：draft → verified（参与注入）；成功后移出列表
   const approveProposal = async (entryId: string) => {
     setApprovingIds(prev => new Set(prev).add(entryId));
     try {
       await knowledgeApi.promote(entryId);
-      setProposals(prev => prev ? prev.filter(p => p.id !== entryId) : prev);
-      monitoringApi.getFlywheel().then(r => setFlywheel(r.data)).catch(() => {});
+      proposalsQ.setData(prev => (prev ? prev.filter(p => p.id !== entryId) : prev));
+      flywheelQ.reload();
     } catch { /* 保留在列表中，可重试 */ } finally {
       setApprovingIds(prev => {
         const next = new Set(prev);
@@ -72,7 +71,7 @@ export function MonitoringPage() {
             <p className="page-subtitle">Agent Network 运营度量</p>
           </div>
           <div className="flex gap-2">
-            <button className="btn btn-secondary" onClick={load}>刷新</button>
+            <button className="btn btn-secondary" onClick={refresh}>刷新</button>
             <Link to="/" className="btn btn-secondary">返回</Link>
           </div>
         </div>
@@ -101,80 +100,84 @@ export function MonitoringPage() {
       ) : (
       <div className="flex-1 overflow-auto px-8 pb-8">
         <div className="max-w-5xl">
-          {error && (
-            <div className="mt-4 p-3 rounded u-err-dim u-err text-sm">{error}</div>
-          )}
+          {/* 行动面（§7.2 首屏）：需要处理（#184 独立加载）+ 知识提案待审（全页唯一可操作列表，上移） */}
+          <div className="space-y-4 mt-4">
+            <NeedsAttentionSection />
 
-          {/* #184「需要处理」区：独立加载，不依赖主 stats 的 loading 状态 */}
-          <NeedsAttentionSection />
-
-          {loading && !data ? (
-            <div className="text-center py-20 u-text-2">加载中...</div>
-          ) : data ? (
-            <div className="space-y-6 mt-4">
-              {/* WorkUnit 状态分布 */}
-              <Section title="WorkUnit 状态分布">
-                <div className="grid grid-cols-4 gap-3">
-                  <StatCard label="总数" value={data.workunits.total} color="u-accent" />
-                  <StatCard label="待分配" value={data.workunits.unassigned} color="u-text-3" />
-                  <StatCard label="执行中" value={data.workunits.active} color="u-accent" />
-                  <StatCard label="审查中" value={data.workunits.in_review} color="u-warn" />
-                  <StatCard label="已完成" value={data.workunits.done} color="u-ok" />
-                  <StatCard label="阻塞" value={data.workunits.blocked} color="u-err" />
-                  <StatCard label="已关闭" value={data.workunits.closed} color="u-ok" />
+            <MonitorSection
+              title="知识提案待审"
+              subtitle="Agent 提炼的新知识，等你确认"
+              stat={proposals === null ? undefined : proposals.length}
+              statTestId="proposals-stat"
+            >
+              {proposals === null ? (
+                <div className="text-sm u-text-2">待审列表不可用</div>
+              ) : proposals.length === 0 ? (
+                <div className="text-sm u-text-2">无待审提案（提取产物以 draft 入库，审核通过后才参与注入）</div>
+              ) : (
+                <div className="space-y-2">
+                  {proposals.map(p => (
+                    <div key={p.id} className="flex items-center gap-3 text-sm">
+                      <span className="u-text" style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {p.title}
+                      </span>
+                      <span className="text-xs u-text-3">{formatAge(p.created)}</span>
+                      <button
+                        className="btn btn-secondary btn-sm"
+                        disabled={approvingIds.has(p.id)}
+                        onClick={() => approveProposal(p.id)}
+                      >
+                        {approvingIds.has(p.id) ? '处理中…' : '通过'}
+                      </button>
+                    </div>
+                  ))}
                 </div>
-              </Section>
+              )}
+            </MonitorSection>
+          </div>
 
-              {/* Agent 状态 */}
-              <Section title="Agent 状态">
-                <div className="grid grid-cols-4 gap-3">
-                  <StatCard label="总数" value={data.agents.total} color="u-accent" />
-                  <StatCard label="空闲" value={data.agents.idle} color="u-text-3" />
-                  <StatCard label="执行中" value={data.agents.active} color="u-accent" />
-                  <StatCard label="已终止" value={data.agents.terminated} color="u-err" />
-                </div>
-                {/* Agent 利用率 */}
-                <div className="mt-3">
-                  <span className="text-sm u-text-3">利用率: </span>
-                  <span className="text-sm font-bold u-accent">
-                    {data.agents.total > 0
-                      ? `${Math.round((data.agents.active / data.agents.total) * 100)}%`
-                      : 'N/A'}
-                  </span>
-                  <span className="text-xs u-text-2 ml-2">
-                    ({data.agents.active} / {data.agents.total})
-                  </span>
-                </div>
-              </Section>
+          {/* 健康度量（§7.2：度量区降为下方分区，默认折叠） */}
+          <div className="mt-6">
+            <button
+              className="flex items-center gap-2 u-text-2 u-hover-accent"
+              aria-expanded={metricsOpen}
+              onClick={() => setMetricsOpen(v => !v)}
+            >
+              <span className="text-xs">{metricsOpen ? '▾' : '▸'}</span>
+              <span className="mc-block-label" style={{ margin: 0 }}>健康度量</span>
+            </button>
 
-              {/* 最近 24h */}
-              <Section title="最近 24 小时">
-                <div className="grid grid-cols-2 gap-3">
-                  <StatCard label="完成" value={data.recent.completedLast24h} color="u-ok" />
-                  <StatCard label="失败/阻塞" value={data.recent.failedLast24h} color="u-err" />
-                </div>
-              </Section>
-
-              {/* F6 证据台账（决策 1）：信任分层达成 + 双轨比对 */}
+            {metricsOpen && (
+            <div className="space-y-4 mt-3">
+              {/* F6 证据台账（决策 1）：信任分层达成 + 双轨比对；§7.3 stat 减卡 7→5 */}
               {evidence && (
-                <Section title="证据台账（信任分层）">
+                <MonitorSection
+                  title="证据台账（信任分层）"
+                  subtitle="每个任务有多少人/机器确认过"
+                  stat={evidence.engaged > 0 ? `${Math.round((evidence.l3Approved / evidence.engaged) * 100)}%` : 'N/A'}
+                  statTestId="evidence-stat"
+                >
                   <div className="grid grid-cols-4 gap-3">
-                    <StatCard label="L1 自动验证" value={evidence.l1Approved} color="u-ok" />
-                    <StatCard label="L2 agent 评审" value={evidence.l2Approved} color="u-ok" />
-                    <StatCard label="L3 人工确认" value={evidence.l3Approved} color="u-ok" />
-                    <StatCard label="自评（L2）" value={evidence.selfReviewCount} color="u-warn" />
+                    <StatCard label="自动验证" value={evidence.l1Approved} color="u-ok" />
+                    <StatCard label="Agent 评审" value={evidence.l2Approved} color="u-ok" />
+                    <StatCard label="人工确认" value={evidence.l3Approved} color="u-ok" />
                     <StatCard label="待人工确认" value={evidence.needsHuman} color="u-err" />
                     <StatCard label="双轨偏差" value={evidence.derivedMismatch} color="u-warn" />
-                    <StatCard label="已介入 WU" value={evidence.engaged} color="u-accent" />
                   </div>
                   <p className="text-xs u-text-3 mt-2">
+                    主数字 = 已验收任务占比（L3 人工确认 ÷ 已介入 {evidence.engaged} 个任务）；
                     双轨偏差 = 派生列与存储状态不一致的 WU 数（验证期指标，持续为 0 才可停止手写 in_review）
                   </p>
-                </Section>
+                </MonitorSection>
               )}
 
-              {/* M1: 飞轮指标 */}
-              <Section title="飞轮指标">
+              {/* M1: 飞轮指标；§7.3 stat 减卡到 hitRate / improvement / 待审 */}
+              <MonitorSection
+                title="飞轮指标"
+                subtitle="系统有没有越用越聪明"
+                stat={flywheel ? `${flywheel.hitRate}%` : undefined}
+                statTestId="flywheel-stat"
+              >
                 {flywheel ? (
                   <>
                     <div className="grid grid-cols-4 gap-3">
@@ -184,15 +187,11 @@ export function MonitoringPage() {
                         value={`${flywheel.improvement > 0 ? '+' : ''}${flywheel.improvement}pp`}
                         color={flywheel.improvement > 0 ? 'u-ok' : flywheel.improvement < 0 ? 'u-err' : 'u-text-3'}
                       />
-                      <StatCard label="质量分" value={flywheel.quality} color="u-accent" />
-                      <StatCard label="新鲜度" value={`${flywheel.freshness}%`} color="u-ok" />
                       <StatCard
                         label="proposal 待审"
                         value={flywheel.proposalsPendingReview}
                         color={flywheel.proposalsPendingReview > 0 ? 'u-warn' : 'u-text-3'}
                       />
-                      <StatCard label={`提取次数 (${flywheel.windowDays}d)`} value={flywheel.extraction.count30d} color="u-accent" />
-                      <StatCard label={`提取 tokens (${flywheel.windowDays}d)`} value={flywheel.extraction.totalTokens30d} color="u-accent" />
                     </div>
                     {flywheel.source === 'insufficient-data' && (
                       <div className="mt-2 text-xs u-text-2">事件数据不足：hitRate / 成功率变化为 0 占位而非实测</div>
@@ -201,191 +200,118 @@ export function MonitoringPage() {
                 ) : (
                   <div className="text-sm u-text-2">飞轮指标不可用</div>
                 )}
-              </Section>
+              </MonitorSection>
 
-              {/* 审核闭环：proposal 待审列表（计数升级为列表：标题/年龄/一键 approve） */}
-              <Section title="知识提案待审">
-                {proposals === null ? (
-                  <div className="text-sm u-text-2">待审列表不可用</div>
-                ) : proposals.length === 0 ? (
-                  <div className="text-sm u-text-2">无待审提案（提取产物以 draft 入库，审核通过后才参与注入）</div>
-                ) : (
-                  <div className="space-y-2">
-                    {proposals.map(p => (
-                      <div key={p.id} className="flex items-center gap-3 text-sm">
-                        <span className="u-text" style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {p.title}
-                        </span>
-                        <span className="text-xs u-text-3">{formatAge(p.created)}</span>
-                        <button
-                          className="btn btn-secondary"
-                          style={{ padding: '2px 10px', fontSize: 12 }}
-                          disabled={approvingIds.has(p.id)}
-                          onClick={() => approveProposal(p.id)}
-                        >
-                          {approvingIds.has(p.id) ? '处理中…' : '通过'}
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </Section>
-
-              {/* M2: 封装开销 */}
-              <Section title="封装开销">
+              {/* M2: 封装开销 → §7.3 图表化为预算用量条（承 §5.4 Token 面板模式） */}
+              <MonitorSection
+                title="注入预算占用"
+                subtitle="每次执行任务，背景注入占了多少上下文预算"
+                stat={overhead && overhead.source === 'events' ? `${overhead.injectedBudgetUsedPct}%` : undefined}
+                statTestId="overhead-stat"
+              >
                 {overhead && overhead.source === 'events' ? (
                   <>
-                    <div className="grid grid-cols-4 gap-3">
-                      <StatCard
-                        label={`平均注入 tokens (红线 ${overhead.injectedBudget})`}
-                        value={overhead.avgInjectedTokens}
-                        color={budgetColor(overhead.injectedBudgetUsedPct)}
-                      />
-                      <StatCard
-                        label="注入预算占用"
-                        value={`${overhead.injectedBudgetUsedPct}%`}
-                        color={budgetColor(overhead.injectedBudgetUsedPct)}
-                      />
-                      <StatCard
-                        label={`封装开销比 (红线 ${Math.round(overhead.overheadBudget * 100)}%)`}
-                        value={overhead.avgOverheadRatio !== null ? `${Math.round(overhead.avgOverheadRatio * 1000) / 10}%` : 'N/A'}
-                        color={overhead.avgOverheadRatio !== null
-                          ? budgetColor((overhead.avgOverheadRatio / overhead.overheadBudget) * 100)
-                          : 'u-text-3'}
-                      />
-                      <StatCard
-                        label="平均执行 tokens"
-                        value={overhead.avgExecutionTokens ?? 'N/A'}
-                        color="u-accent"
-                      />
-                      <StatCard label={`提取 tokens (${overhead.windowDays}d)`} value={overhead.extractionTokens} color="u-accent" />
-                      <StatCard label="统计执行数" value={overhead.executions} color="u-text-3" />
-                    </div>
+                    <UsageBar
+                      usedPct={overhead.injectedBudgetUsedPct}
+                      caption={`平均注入 ${overhead.avgInjectedTokens} / 红线 ${overhead.injectedBudget} tokens（统计 ${overhead.executions} 次执行，覆盖率 ${overhead.executionCoveragePct}%）`}
+                    />
                     <div className="mt-2 text-xs u-text-2">
-                      开销比 = 注入估算 / 执行 tokens（仅统计 CLI 回报 usage 的执行，覆盖率 {overhead.executionCoveragePct}%）；提取开销单独核算，不计入注入红线
+                      开销比 = 注入估算 / 执行 tokens：{overhead.avgOverheadRatio !== null ? `${Math.round(overhead.avgOverheadRatio * 1000) / 10}%` : 'N/A'}
+                      （红线 {Math.round(overhead.overheadBudget * 100)}%，仅统计 CLI 回报 usage 的执行）；
+                      平均执行 {overhead.avgExecutionTokens ?? 'N/A'} tokens；提取开销单独核算（{overhead.extractionTokens} tokens / {overhead.windowDays}d），不计入注入红线
                     </div>
                   </>
                 ) : (
                   <div className="text-sm u-text-2">暂无 workunit:tokens 事件，开销数据不足</div>
                 )}
-              </Section>
+              </MonitorSection>
 
-              {/* #120: 输入缓存命中率（步/WU/角色/天；趋势面，现序即基线） */}
-              {efficiency && (
-                <Section title="输入缓存命中率">
-                  {efficiency.cacheHitRate.source === 'events' ? (
+              {/* #120: 输入缓存命中率；§7.3 图表化 = byDay 柱 + byRole 横条（时间序列仅 byDay 一组可用，§7.1） */}
+              {cacheHit && (
+                <MonitorSection
+                  title="输入缓存命中率"
+                  subtitle="重复内容有没有被缓存省下 token"
+                  stat={cacheHit.source === 'events'
+                    ? (cacheHit.overall.hitRatePct !== null ? `${cacheHit.overall.hitRatePct}%` : 'N/A')
+                    : undefined}
+                  statTestId="cache-stat"
+                >
+                  {cacheHit.source === 'events' ? (
                     <>
-                      <div className="grid grid-cols-4 gap-3">
-                        <StatCard
-                          label="命中率"
-                          value={efficiency.cacheHitRate.overall.hitRatePct !== null
-                            ? `${efficiency.cacheHitRate.overall.hitRatePct}%`
-                            : 'N/A'}
-                          color="u-accent"
-                        />
-                        <StatCard label="缓存读取 tokens" value={efficiency.cacheHitRate.overall.cacheReadTokens} color="u-accent" />
-                        <StatCard label="输入 tokens" value={efficiency.cacheHitRate.overall.inputTokens} color="u-accent" />
-                        <StatCard label="覆盖事件" value={efficiency.cacheHitRate.overall.events} color="u-text-3" />
-                        <StatCard label="WU 数" value={efficiency.cacheHitRate.overall.workUnits} color="u-text-3" />
-                        <StatCard label="覆盖率" value={`${efficiency.cacheHitRate.coveragePct}%`} color="u-text-3" />
-                      </div>
-                      {efficiency.cacheHitRate.byDay.length > 0 && (
-                        <div className="mt-3">
-                          <div className="text-sm u-text-3 mb-1">按天趋势</div>
-                          <div className="flex flex-wrap gap-2">
-                            {efficiency.cacheHitRate.byDay.map(d => (
-                              <div key={d.day} className="px-2 py-1 rounded" style={{ border: '1px solid var(--border-subtle)' }}>
-                                <span className="text-xs u-text-3">{d.day.slice(5)}</span>{' '}
-                                <span className="text-sm font-bold u-accent">{d.hitRatePct !== null ? `${d.hitRatePct}%` : 'N/A'}</span>
-                              </div>
-                            ))}
-                          </div>
+                      {cacheHit.byDay.length > 0 && (
+                        <div>
+                          <div className="text-sm u-text-3 mb-1">按天</div>
+                          <DayBars data={cacheHit.byDay.map(d => ({ day: d.day, value: d.hitRatePct }))} />
                         </div>
                       )}
-                      {efficiency.cacheHitRate.byRole.length > 0 && (
+                      {cacheHit.byRole.length > 0 && (
                         <div className="mt-3">
                           <div className="text-sm u-text-3 mb-1">按角色</div>
-                          <div className="space-y-1">
-                            {efficiency.cacheHitRate.byRole.map(r => (
-                              <div key={r.profileId} className="flex items-center justify-between text-sm">
-                                <span className="u-text">{r.profileName}</span>
-                                <span className="font-bold u-accent">{r.hitRatePct !== null ? `${r.hitRatePct}%` : 'N/A'}</span>
-                              </div>
-                            ))}
-                          </div>
+                          <HBars data={cacheHit.byRole.map(r => ({ label: r.profileName, value: r.hitRatePct }))} />
                         </div>
                       )}
-                      {efficiency.cacheHitRate.byWorkUnit.length > 0 && (
-                        <div className="mt-3">
-                          <div className="text-sm u-text-3 mb-1">按 WU（事件数降序，top 5）</div>
-                          <div className="space-y-1">
-                            {efficiency.cacheHitRate.byWorkUnit.slice(0, 5).map(w => (
-                              <div key={w.workUnitId} className="flex items-center justify-between text-sm">
-                                <span className="u-text" style={{ maxWidth: '60%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{w.workUnitId}</span>
-                                <span className="font-bold u-accent">{w.hitRatePct !== null ? `${w.hitRatePct}%` : 'N/A'}</span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                      {efficiency.cacheHitRate.coveragePct < 100 && (
-                        <div className="mt-2 text-xs u-text-2">覆盖率 &lt;100%：部分执行无 CLI usage 回报，命中率口径不含这些事件</div>
-                      )}
+                      <div className="mt-2 text-xs u-text-2">
+                        缓存读取 {cacheHit.overall.cacheReadTokens} / 输入 {cacheHit.overall.inputTokens} tokens
+                        · 覆盖率 {cacheHit.coveragePct}%
+                        {cacheHit.coveragePct < 100 && '（部分执行无 CLI usage 回报，命中率口径不含这些事件）'}
+                      </div>
                     </>
                   ) : (
                     <div className="text-sm u-text-2">暂无带缓存字段的 workunit:tokens 事件，命中率数据不足</div>
                   )}
-                </Section>
+                </MonitorSection>
               )}
 
-              {/* #120: 段 trim 率（按段计数） */}
-              {efficiency && (
-                <Section title="段 trim 率">
-                  {efficiency.sectionTrim.source === 'events' ? (
-                    <>
-                      <div className="grid grid-cols-4 gap-3">
-                        <StatCard label="trim 事件总数" value={efficiency.sectionTrim.totals.trimEvents} color="u-accent" />
-                        <StatCard label="原始 tokens" value={efficiency.sectionTrim.totals.totalOriginalTokens} color="u-text-3" />
-                        <StatCard label="裁剪后 tokens" value={efficiency.sectionTrim.totals.totalTrimmedTokens} color="u-text-3" />
-                      </div>
-                      <div className="mt-3">
-                        <div className="text-sm u-text-3 mb-1">按段计数</div>
-                        <div className="space-y-1">
-                          {efficiency.sectionTrim.bySection.map(s => (
-                            <div key={s.section} className="flex items-center justify-between text-sm">
-                              <span className="u-text">{s.section}</span>
-                              <span className="text-xs u-text-3">trim {s.trimCount} 次 · 平均裁 {s.avgTrimPct}%</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    </>
-                  ) : (
-                    <div className="text-sm u-text-2">暂无 prompt:section_trimmed 事件，trim 数据不足</div>
-                  )}
-                </Section>
+              {/* §7.3 新引入：角色效率表格（claims/完成/均时/NEED_INPUT 拆分） */}
+              {roles && roles.length > 0 && (
+                <MonitorSection title="角色效率" subtitle="每个角色认领、完成了多少任务、平均多久">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-xs u-text-3 text-left">
+                        <th className="py-1 font-normal">角色</th>
+                        <th className="py-1 font-normal">认领</th>
+                        <th className="py-1 font-normal">完成</th>
+                        <th className="py-1 font-normal">平均时长</th>
+                        <th className="py-1 font-normal">提问（澄清/执行）</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {roles.map(r => (
+                        <tr key={r.profileId} style={{ borderTop: '1px solid var(--border-subtle)' }}>
+                          <td className="py-1 u-text">{r.profileName}</td>
+                          <td className="py-1 font-mono">{r.claims}</td>
+                          <td className="py-1 font-mono">{r.completions}</td>
+                          <td className="py-1 font-mono">{r.avgDurationHours !== null ? `${Math.round(r.avgDurationHours * 10) / 10}h` : 'N/A'}</td>
+                          <td className="py-1 font-mono">{r.needInputClarify} / {r.needInputExecution}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </MonitorSection>
+              )}
+
+              {/* §7.3 新引入：人工干预北极星卡 */}
+              {intervention && (
+                <MonitorSection
+                  title="人工干预"
+                  subtitle="每完成一个任务，平均需要人插手几次"
+                  stat={intervention.avgPerCompletedWu !== null ? Math.round(intervention.avgPerCompletedWu * 100) / 100 : 'N/A'}
+                  statTestId="intervention-stat"
+                >
+                  <div className="text-xs u-text-2">
+                    窗口内完成 {intervention.completedWorkUnits} 个任务
+                    · NEED_INPUT 挂起 {intervention.needInputCount} 次
+                    · review 驳回 {intervention.reviewRejections} 次
+                    · 合并冲突转人工 {intervention.mergeConflicts} 次
+                  </div>
+                </MonitorSection>
               )}
             </div>
-          ) : null}
+            )}
+          </div>
         </div>
       </div>
       )}
-    </div>
-  );
-}
-
-/** 阈值着色：绿 = 预算内，黄 = 接近红线（≥70%），红 = 越线（>100%） */
-function budgetColor(usedPct: number): string {
-  if (usedPct > 100) return 'u-err';
-  if (usedPct >= 70) return 'u-warn';
-  return 'u-ok';
-}
-
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div className="card p-4">
-      <h2 className="mc-block-label" style={{ margin: '0 0 10px' }}>{title}</h2>
-      {children}
     </div>
   );
 }

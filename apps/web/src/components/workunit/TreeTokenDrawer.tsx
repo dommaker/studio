@@ -56,7 +56,7 @@ export function TreeTokenDrawer({ workUnitId, onClose }: Props) {
           <table className="tree-token-table">
             <thead>
               <tr>
-                <th>WorkUnit</th>
+                <th>任务</th>
                 <th>角色</th>
                 <th>状态</th>
                 <th>注入</th>

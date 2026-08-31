@@ -74,7 +74,7 @@ export function RequirementChainPanel({ reqId, onClose }: Props) {
               </span>
             </div>
             <div className="text-xs u-text-3 mt-1">
-              {req.id} · 创建于 {formatFullTime(req.createdAt)} · 来源 {req.createdBy}
+              <span className="font-mono">{req.id}</span> · 创建于 <span className="font-mono">{formatFullTime(req.createdAt)}</span> · 来源 {req.createdBy}
             </div>
             {req.description && <p className="text-sm u-text-2 mt-2">{req.description}</p>}
             {req.docs && req.docs.length > 0 && (
@@ -87,11 +87,11 @@ export function RequirementChainPanel({ reqId, onClose }: Props) {
             )}
           </div>
 
-          {/* WorkUnit 列表 */}
+          {/* 任务列表 */}
           <div>
-            <div className="text-xs u-text-3 mb-2">WorkUnit（{chain.workunits.length}）</div>
+            <div className="text-xs u-text-3 mb-2">任务（{chain.workunits.length}）</div>
             {chain.workunits.length === 0 ? (
-              <div className="text-sm u-text-3">暂无关联 WorkUnit</div>
+              <div className="text-sm u-text-3">暂无关联任务</div>
             ) : (
               <ul className="space-y-1.5">
                 {chain.workunits.map(wu => {

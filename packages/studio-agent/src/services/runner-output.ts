@@ -22,6 +22,9 @@ import {
   extractResult,
   extractUsage,
   extractProviderUsage,
+  isActionableMaturity,
+  matchResolutionPatterns,
+  formatRkbHint,
 } from '@dommaker/studio-shared';
 import type { StreamEvent } from '@dommaker/studio-shared';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
@@ -31,6 +34,7 @@ import {
   emitToolCall,
   emitFileChange,
   getConstraintMeta,
+  type SessionEventExtras,
 } from './output-capture.js';
 
 const fileStore = new FileStore();
@@ -52,6 +56,11 @@ export interface ProcessSessionOutputContext {
   promptSize: number;
   /** #134: 执行 CLI 的 provider——usage 提取按 provider 分流（缺省 claude，行为不变）。 */
   provider?: string;
+  /**
+   * #361: session:start 的 extras 原样透传给本路径发射的 session:end —— 此前成功
+   * 路径的 end 丢失 workUnitId/transcriptPath，同一事件两种 payload 形态。
+   */
+  sessionExtras?: SessionEventExtras;
 }
 
 export interface ProcessedSessionOutput {
@@ -119,7 +128,7 @@ export async function processSessionOutput(
     streamUsage,
   });
 
-  await emitSessionEnd(ctx.sessionId, ctx.executionId, ctx.sessionCount);
+  await emitSessionEnd(ctx.sessionId, ctx.executionId, ctx.sessionCount, ctx.sessionExtras);
 
   return { text, isError, streamUsage, events };
 }
@@ -208,6 +217,9 @@ export function hasRecentActivity(worktreePath: string, thresholdMs = 3 * 60 * 1
 /**
  * RKB: query known resolutions for a session error message.
  * 返回可注入下一轮 prompt 的 resolutionHint；无匹配或查询失败返回 ''（调用方保留旧值）。
+ *
+ * #361: 匹配核心（regex 失败回退子串、成熟度闸门、hint 格式化）下沉
+ * studio-shared/resolutions —— 与 apps/api resolution.service 的逐字重复实现收一。
  */
 
 /** RKB 知识条目（~/.studio/knowledge/resolution-* 文档的 meta 摘要） */
@@ -228,7 +240,7 @@ export async function queryResolutionHints(errMsg: string): Promise<string> {
     const resolutions: ResolutionEntry[] = [];
     for (const key of resKeys) {
       const doc = await fileStore.readDoc(knowledgeDir, key);
-      if (doc && (doc.meta.maturity === 'verified' || doc.meta.maturity === 'canonical')) {
+      if (doc && isActionableMaturity(doc.meta.maturity)) {
         resolutions.push({
           id: key.replace('resolution-', ''),
           pattern: (doc.meta.pattern || '') as string,
@@ -240,21 +252,9 @@ export async function queryResolutionHints(errMsg: string): Promise<string> {
       }
     }
     resolutions.sort((a, b) => (b.verifyCount || 0) - (a.verifyCount || 0));
-    const matched: string[] = [];
-    const lowerMsg = errMsg.toLowerCase();
-    for (const r of resolutions) {
-      try {
-        if (new RegExp(r.pattern, 'i').test(errMsg)) {
-          matched.push(`- **${r.title}**: ${r.fix}`);
-        }
-      } catch {
-        if (lowerMsg.includes(r.pattern.toLowerCase())) {
-          matched.push(`- **${r.title}**: ${r.fix}`);
-        }
-      }
-    }
+    const matched = matchResolutionPatterns(resolutions, errMsg);
     if (matched.length > 0) {
-      return '## \u5df2\u77e5\u89e3\u6cd5 (RKB)\n\u4ee5\u4e0b\u89e3\u6cd5\u66fe\u5728\u7c7b\u4f3c\u9519\u8bef\u4e0a\u9a8c\u8bc1\u6709\u6548\uff1a\n' + matched.join('\n');
+      return formatRkbHint(matched);
     }
   } catch { /* non-blocking */ }
   return '';

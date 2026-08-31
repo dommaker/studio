@@ -117,3 +117,26 @@ describe('KnowledgeService routes — GET /entries maturity 过滤', () => {
     expect(entries.some(e => e.title === 'Zeta 已审核通过条目')).toBe(false);
   });
 });
+
+describe('KnowledgeService routes — POST /pattern origin 标定（#371）', () => {
+  it('origin: human 显式声明 → 落库 human，计入蒸馏 topic/manual 信号口径', async () => {
+    const res = await api('POST', '/pattern', {
+      type: 'pattern', title: '人工单发 origin 测试条目', content: '足够长的内容以通过质量门禁检查', tags: ['test'], origin: 'human',
+    });
+    expect(res.status).toBe(201);
+    const saved = sharedStore.list({}).find((e: any) => e.title === '人工单发 origin 测试条目');
+    expect(saved?.origin).toBe('human');
+  });
+
+  it('origin 缺省/越权值 → 落库 system（fail-closed，不计入 topic 信号）', async () => {
+    await api('POST', '/pattern', {
+      type: 'pattern', title: '缺省来源之磁盘巡检脚本记录', content: '足够长的内容以通过质量门禁检查', tags: ['test'],
+    });
+    await api('POST', '/pattern', {
+      type: 'pattern', title: '数据库迁移回滚演练步骤手册', content: '足够长的内容以通过质量门禁检查', tags: ['test'], origin: 'system',
+    });
+    expect(sharedStore.list({}).find((e: any) => e.title === '缺省来源之磁盘巡检脚本记录')?.origin).toBe('system');
+    // API 不得自封 system/external——非白名单值被丢弃后走缺省，仍为 system
+    expect(sharedStore.list({}).find((e: any) => e.title === '数据库迁移回滚演练步骤手册')?.origin).toBe('system');
+  });
+});

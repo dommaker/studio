@@ -27,8 +27,12 @@ import { TREE_TOKEN_BUDGET } from '../workunit/delegation-gate.js';
 import { readCollab } from '../workunit/delegation-gate.js';
 import { buildAssigneeProfileResolver } from '../workunit/assignee-resolver.js';
 import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
+// #342：窗口读口（尾部倒读 + 窗口外早停）——三个事件读点切到此读口
+import { readStudioEventsSince } from '../../utils/studio-events-tail.js';
 
 const STUDIO_EVENTS_JSONL = resolveStudioLogFile('studio-events.jsonl');
+/** #342：事件读窗口 30d——对齐 #173 事件热保留期（#335 先例：wu-changed-files 同款 30d） */
+const EVENTS_WINDOW_MS = 30 * 86_400_000;
 
 /** 30s 内存缓存——该接口要扫 jsonl + WU 索引，轻量缓存避免连打 */
 const CACHE_TTL_MS = 30_000;
@@ -157,9 +161,10 @@ async function computeAgentTokenUsage(
 
   let rows: Array<Record<string, unknown>> = [];
   try {
-    rows = await fileStore.readJsonl<Record<string, unknown>>(eventsFile);
+    // #342：窗口读 30d（now 可注入，测试确定性）——totals 口径从「文件全量」收敛为窗口内
+    rows = await readStudioEventsSince({ file: eventsFile, sinceMs: now - EVENTS_WINDOW_MS });
   } catch {
-    rows = []; // 事件文件不存在/不可读 → 全零
+    rows = []; // 事件文件不可读 → 全零
   }
 
   const attributedWuIds = new Set<string>();
@@ -263,7 +268,8 @@ export async function aggregateTreeTokens(
   // 2. 读 events 聚合每 WU 的 tokens
   const perWuTokens = new Map<string, { injected: number; execution: number }>();
   try {
-    const events = await fileStore.readJsonl<Record<string, unknown>>(eventsFile);
+    // #342：窗口读 30d（树聚合口径对齐事件热保留期）
+    const events = await readStudioEventsSince({ file: eventsFile, sinceMs: Date.now() - EVENTS_WINDOW_MS });
     for (const evt of events) {
       if (evt?.type !== 'workunit:tokens') continue;
       let payload: Record<string, unknown>;
@@ -339,13 +345,14 @@ export async function sumTokensForWorkUnits(
 ): Promise<number> {
   if (workUnitIds.size === 0) return 0;
   const eventsFile = opts?.eventsFile ?? STUDIO_EVENTS_JSONL;
-  const fileStore = opts?.fileStore ?? new FileStore();
+  // 注：opts.fileStore 仅为历史签名兼容保留（#342 后事件读不经 FileStore）
 
   let rows: Array<Record<string, unknown>> = [];
   try {
-    rows = await fileStore.readJsonl<Record<string, unknown>>(eventsFile);
+    // #342：窗口读 30d（台账求和口径对齐事件热保留期）
+    rows = await readStudioEventsSince({ file: eventsFile, sinceMs: Date.now() - EVENTS_WINDOW_MS });
   } catch {
-    return 0; // 事件文件不存在/不可读 → 0
+    return 0; // 事件文件不可读 → 0
   }
 
   let sum = 0;

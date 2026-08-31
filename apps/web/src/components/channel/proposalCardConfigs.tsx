@@ -3,11 +3,13 @@
 // 经 PROPOSAL_ACTION_INDEX 参数化调用 config.exec。
 // 端点现状：6 类全部经通用端点 /review-proposals/:kind/:id/*（distill/gc/audit #351，memory #353，
 // knowledge #355，auditor #356）。
+import axios from 'axios';
 import type { ReactNode } from 'react';
 import { distillApi } from '../../api/distill';
 import { auditorApi } from '../../api/auditor';
 import { knowledgeApi } from '../../api/knowledge';
 import { memoryApi } from '../../api/memory';
+import { fanOut } from '../../utils/fanOut';
 
 /** 卡片已审终态词（distill 家族 = 提案状态 executed/rejected/failed；memory/knowledge = approved/rejected） */
 export type ProposalReviewState = 'approved' | 'rejected' | 'executed' | 'failed';
@@ -123,6 +125,13 @@ interface MemoryEntry {
   kind?: string;
 }
 
+/** #367 正本 not-pending 闸门判定：对非 pending 提案，approve/reject 回 400 { error: 'proposal-not-pending:<status>' }。
+ *  状态不可逆（failed/executed 永远无法再审），重试时同向终态按「已处理」计，其余算失败。 */
+function notPendingAs(e: unknown, status: string): boolean {
+  return axios.isAxiosError(e) &&
+    (e.response?.data as { error?: string } | undefined)?.error === `proposal-not-pending:${status}`;
+}
+
 interface KnowledgeEntry {
   id: string;
   title: string;
@@ -231,16 +240,23 @@ export const PROPOSAL_CARD_CONFIGS: Record<string, ProposalCardConfig> = {
             .filter((id: unknown): id is string => typeof id === 'string' && id.length > 0)
         : [];
       if (entryIds.length === 0) return false;
-      if (decision === 'approve') {
-        const results = await Promise.all(entryIds.map(id => memoryApi.approve(id)));
-        // 任一 success=false（执行失败等）→ 保持待审且不 refresh（同 distill 家族口径）
-        if (results.some(r => !r.data?.success)) return false;
-      } else {
-        await Promise.all(entryIds.map(id => memoryApi.reject(id)));
-      }
-      return true;
+      // #367 逐草稿结算：同向终态（approve↔executed / reject↔rejected）幂等跳过计成功，
+      // 其余失败只判本条——部分失败后重试可审完剩余 pending，不因已审兄弟草稿的 400 崩掉整批
+      const doneStatus = decision === 'approve' ? 'executed' : 'rejected';
+      const results = await fanOut(entryIds, async id => {
+        if (decision === 'approve') {
+          const { data } = await memoryApi.approve(id);
+          return !!data?.success;
+        }
+        await memoryApi.reject(id);
+        return true;
+      });
+      // 失败口径（fanOut 统一）：单条异常经 notPendingAs 分类——同向终态幂等跳过计成功，其余计失败
+      // （ok 需显式 === true：repo 非 strict，boolean 判别式 truthy 判断不收窄 false 分支，见 utils/fanOut.ts）
+      return results.every(r => (r.ok === true ? r.value : notPendingAs(r.error, doneStatus)));
     },
-    // 已审核态按提案状态派生：全部 executed（旧 promoted 读侧归一）→ approved；全部 rejected → rejected；否则保持待审
+    // 已审核态按提案状态派生：全部 executed（旧 promoted 读侧归一）→ approved；全部 rejected → rejected；
+    // #367 无一 pending 且含 failed → failed 终态收敛（failed 正本不可逆，纯重试无法让卡进 approved）
     fetchReviewed: async cardData => {
       const entries = cardData?.entries as MemoryEntry[] | undefined;
       if (!entries?.length) return null;
@@ -248,6 +264,13 @@ export const PROPOSAL_CARD_CONFIGS: Record<string, ProposalCardConfig> = {
       const statuses = entries.map(e => data?.statuses?.[e.draftId]);
       if (statuses.every(s => s === 'executed')) return 'approved';
       if (statuses.every(s => s === 'rejected')) return 'rejected';
+      if (
+        statuses.length > 0 &&
+        statuses.some(s => s === 'failed') &&
+        statuses.every(s => s === 'executed' || s === 'rejected' || s === 'failed')
+      ) {
+        return 'failed';
+      }
       return null;
     },
     initialReviewed: metaStatusReviewed,
@@ -255,6 +278,7 @@ export const PROPOSAL_CARD_CONFIGS: Record<string, ProposalCardConfig> = {
     reviewLabels: {
       approved: { text: '已确认，已写入记忆', cls: 'mc-status-done' },
       rejected: { text: '已丢弃，未写入', cls: 'mc-status-error' },
+      failed: { text: '部分条目写入失败，需人工跟进', cls: 'mc-status-error' },
     },
     pendingTitle: '角色记忆提案 — 待确认',
     countText: cd => `${(cd?.entries as unknown[] | undefined)?.length || 0} 条`,

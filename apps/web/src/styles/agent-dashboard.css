@@ -1,0 +1,153 @@
+/* ============================================================
+   #397 Agent 仪表盘信息全卡（redesign-2026-08 §6 定稿变体 B）
+   状态色单义（§6.5）：data-status 驱动 --st，同状态必同色——pill、
+   整卡上色（阻塞/异常）、错误行全部消费同一 --st；accent 绿只编码
+   可交互（链接 hover），内容文字不彩色。
+   ============================================================ */
+
+/* 状态色映射（跟随 data-status） */
+.agd-card[data-status="running"]    { --st: var(--accent-primary); }
+.agd-card[data-status="in_review"]  { --st: var(--warning); }
+.agd-card[data-status="blocked"]    { --st: var(--error); }
+.agd-card[data-status="error"]      { --st: var(--anomaly); }
+.agd-card[data-status="idle"],
+.agd-card[data-status="none"],
+.agd-card[data-status="terminated"],
+.agd-card[data-status="disabled"]   { --st: var(--text-muted); }
+
+/* ---------- §6.2 栅格 ---------- */
+.agd-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+
+/* ---------- §6.1 卡片（容器复用 .card：--bg-elevated + --border-subtle + 4px 圆角） ---------- */
+.agd-card {
+  padding: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+/* 阻塞/异常整卡上状态色：边界 + 4% 底色，一眼从墙里跳出来 */
+.agd-card[data-status="blocked"],
+.agd-card[data-status="error"] {
+  border-color: color-mix(in srgb, var(--st) 45%, transparent);
+  background: color-mix(in srgb, var(--st) 4%, var(--bg-elevated));
+}
+/* 空闲/未启动/终止/停用卡压扁不抢视觉：紧凑 padding + 弱化 */
+.agd-card[data-status="idle"],
+.agd-card[data-status="none"],
+.agd-card[data-status="terminated"],
+.agd-card[data-status="disabled"] {
+  padding: var(--space-2) var(--space-3);
+  opacity: .8;
+}
+
+/* 头行：状态 pill（色底+色字）+ 角色名 + CLI chip + 运行时长（mono） */
+.agd-head { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
+.agd-pill {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px; /* tag 全圆角档（style-guide §2.4） */
+  color: var(--st);
+  background: color-mix(in srgb, var(--st) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--st) 40%, transparent);
+  flex-shrink: 0;
+}
+.agd-name { font-weight: 600; font-size: var(--fs-title); }
+.agd-num { font-family: var(--font-mono); font-size: var(--fs-xs); flex-shrink: 0; }
+.agd-head .agd-num { margin-left: auto; }
+
+.agd-chip {
+  font-size: var(--fs-xs);
+  padding: 1px 6px;
+  border-radius: 999px; /* tag 全圆角档（style-guide §2.4） */
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.agd-ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+
+/* 视觉锚点：当前 WU 标题 = 卡内最大最重的一行 */
+.agd-wu-row { display: flex; align-items: baseline; gap: var(--space-2); min-width: 0; }
+.agd-wu-row .agd-ellipsis { flex: 0 1 auto; }
+/* 14px 为 spec §6.1 显式定值（角色名 16 → WU 14 → 次行小字的层级递减），
+   优先于 style-guide 字号阶梯（同 mission-control.css BackButton 注） */
+.agd-wu { font-size: 14px; font-weight: 600; }
+.agd-sub { font-size: var(--fs-xs); margin-top: 2px; }
+.agd-idle { font-size: var(--fs-sm); }
+
+/* 最近动态 3 条：每条 = 链接，悬停底色 + 下划线；点击进当前 WU 详情（无 WU → 角色详情） */
+.agd-activity {
+  border-top: 1px solid var(--border-subtle);
+  padding-top: var(--space-2);
+  display: flex;
+  flex-direction: column;
+}
+.agd-activity-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--fs-xs);
+  padding: 3px 6px;
+  margin: 0 -6px;
+  border-radius: 4px;
+  text-decoration: none;
+}
+a.agd-activity-row:hover { background: var(--bg-hover); }
+a.agd-activity-row:hover .agd-activity-text {
+  color: var(--accent-primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* 错误行（⚠ lastError）：与卡片状态同色（颜色只编码状态，整卡一个色域） */
+.agd-error {
+  font-size: var(--fs-xs);
+  color: var(--st);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------- §6.3 页头统计筛选 chip（数字色 = 对应卡面状态色） ---------- */
+.agd-stat-filter {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 3px; /* 按钮档（style-guide §2.4） */
+  padding: 4px 10px;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+.agd-stat-filter:hover { background: var(--bg-hover); }
+.agd-stat-filter-on {
+  border-color: var(--border-strong);
+  background: var(--bg-active);
+}
+
+/* ---------- §6.4 创建角色弹框（CreateRoleModal） ---------- */
+.agd-cr-list { display: flex; flex-direction: column; gap: var(--space-2); }
+.agd-cr-item {
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  padding: 10px 12px;
+}
+.agd-cr-item-on { border-color: var(--border-strong); }
+.agd-cr-item-head { display: flex; align-items: center; gap: var(--space-2); cursor: pointer; }
+.agd-cr-fields {
+  display: grid;
+  grid-template-columns: 1fr 2fr;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  margin-left: 24px;
+}

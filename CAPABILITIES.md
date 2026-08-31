@@ -1,6 +1,6 @@
 # CAPABILITIES.md
 
-> 最后更新: 2026-08-26
+> 最后更新: 2026-08-31
 
 ---
 
@@ -157,7 +157,7 @@
 | AgentDetailPage | apps/web/src/pages/AgentDetailPage.tsx | AgentDetailPage — /agents/:profileId（2026-07-31 全流程串联 UX 重构 §5.3） |
 | AuditLogsPage | apps/web/src/pages/AuditLogsPage.tsx | 审计日志页面 - AR-012 |
 | ChannelDetailPage | apps/web/src/pages/ChannelDetailPage.tsx | 线程内过程消息折叠/聚合：连续 ≥3 条「过程消息」收成一组（默认折叠，点击展开）。 |
-| ChannelListPage | apps/web/src/pages/ChannelListPage.tsx | Channel List Page — B2: 首页 = 频道列表 + Agent 状态栏 |
+
 | ForgotPasswordPage | apps/web/src/pages/ForgotPasswordPage.tsx | 忘记密码页面 — 输入邮箱，发送重置链接 |
 | KnowledgePage | apps/web/src/pages/KnowledgePage.tsx | 知识库页面 — 累积知识浏览 |
 | MonitoringPage | apps/web/src/pages/MonitoringPage.tsx | MonitoringPage — Agent Network MVP-6 |
@@ -204,3 +204,16 @@
 | review-adapter | apps/api/src/modules/skills/review-adapter.ts | review-adapter (#354) — skills 提案审批 adapter（接线 review-proposal 正本） |
 | ReviewProposalCard | apps/web/src/components/channel/ReviewProposalCard.tsx | ReviewProposalCard — #352 人审提案卡合一壳（ADR 2026-08-25 决策 5） |
 | proposalCardConfigs | apps/web/src/components/channel/proposalCardConfigs.tsx | 人审提案卡配置（#352，ADR 2026-08-25 决策 5）：6 张提案卡坍缩为「条目清单 + 文案」纯数据配置。 |
+| ChannelActivityRail | apps/web/src/components/channel/ChannelActivityRail.tsx | #394 频道动态右栏（spec §4.1–4.3，#381 定稿变体 B）——300px REQ 链路卡栏： |
+| activityRail | apps/web/src/components/channel/activityRail.ts | 四站 stepper「讨论 → REQ → WU n/m → 交付」状态推导： |
+| CreateRoleModal | apps/web/src/components/monitoring/CreateRoleModal.tsx | 创建角色弹框（#397，redesign §6.4：弹框不跳页——上下文不丢） |
+| MonitorSection | apps/web/src/components/monitoring/MonitorSection.tsx | MonitorSection — #398 监控页区块容器（spec §7.5 文案定稿模式） |
+| RoleCard | apps/web/src/components/monitoring/RoleCard.tsx | AgentDashboard 信息全卡（#397，redesign-2026-08 §6 定稿变体 B）：四层构成自上而下层级递减—— |
+| alertGrouping | apps/web/src/components/monitoring/alertGrouping.ts | alertGrouping — #398 监控页「需要处理」告警分组（spec §7.3） |
+| charts | apps/web/src/components/monitoring/charts.tsx | charts — #398 监控页图表小组件（spec §7.4：div/CSS 手搓，零图表库，承 #396 TreeTokenChart 先例） |
+| BackButton | apps/web/src/components/ui/BackButton.tsx | #393 全站详情页统一返回按钮（spec §4.4）：左上「← 返回」（14px / 6×12 padding） |
+| ExecutionFlow | apps/web/src/components/workunit/ExecutionFlow.tsx | ExecutionFlow — #396 WU 详情页「执行过程」重设计（spec §5.3）：stat 摘要行 + 纵向 step 链。 |
+| StationStepper | apps/web/src/components/workunit/StationStepper.tsx | StationStepper / LifecycleEventChips — #396 WU 详情页顶部共享定位条（spec §5.1/§5.3） |
+| TreeTokenChart | apps/web/src/components/workunit/TreeTokenChart.tsx | TreeTokenChart — #396 WU 详情页 Token 开销图表化（spec §5.4，零图表库手搓） |
+| ChannelHomeRedirect | apps/web/src/pages/ChannelHomeRedirect.tsx | #393 频道首页重定向 — `/` 与 `/channels` 唯一入口（频道列表页已删除，spec §2） |
+| mockMatchMedia | apps/web/src/test/mockMatchMedia.ts | #395：jsdom 无 window.matchMedia 实现——按给定视口宽度求值 (min|max)-width 媒体查询， |

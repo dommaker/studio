@@ -1,7 +1,7 @@
 // App.tsx - Agent Studio - 路由重构
 import { useState, useEffect, lazy, Suspense } from 'react';
 import { Routes, Route, useLocation, Navigate } from 'react-router-dom';
-const ChannelListPage = lazy(() => import('./pages/ChannelListPage').then(m => ({ default: m.ChannelListPage })));
+const ChannelHomeRedirect = lazy(() => import('./pages/ChannelHomeRedirect').then(m => ({ default: m.ChannelHomeRedirect })));
 const TriageBanner = lazy(() => import('./components/TriageBanner').then(m => ({ default: m.TriageBanner })));
 
 // 路由级代码分割 - 懒加载页面组件
@@ -34,7 +34,6 @@ const PageLoader = () => (
 import { ThemeProvider } from './contexts/ThemeContext';
 import { TopNav } from './components/TopNav';
 import { Sidebar } from './components/SidebarNew';
-import { useAgentStore, useRuntimeStore } from './stores';
 import { useAuthStore } from './stores/authStore';
 import { LandingPage } from './components/LandingPage';
 import { WebSocketProvider } from './api/websocket';
@@ -46,8 +45,6 @@ import './styles/theme.css';
 
 export default function App() {
   const location = useLocation();
-  const { loadAgents } = useAgentStore();
-  const { loadExecutions } = useRuntimeStore();
   const isGuest = useAuthStore((s) => s.isGuest());
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated());
 
@@ -56,12 +53,6 @@ export default function App() {
   // AC-2.2/2.3: studio 角色 provider=null + 无用户角色 弹框提醒
   const [studioRoleSetupOpen, setStudioRoleSetupOpen] = useState(false);
   const [firstRoleSetupOpen, setFirstRoleSetupOpen] = useState(false);
-
-  // 初始化
-  useEffect(() => {
-    loadAgents();
-    loadExecutions();
-  }, [loadAgents, loadExecutions]);
 
   // AC-2.1~2.3: 启动时检测 studio 角色 provider + 是否有已配置 provider 的用户角色
   useEffect(() => {
@@ -174,7 +165,7 @@ export default function App() {
               path="/"
               element={
                 <Suspense fallback={<PageLoader />}>
-                  <ChannelListPage />
+                  <ChannelHomeRedirect />
                 </Suspense>
               }
             />
@@ -182,7 +173,7 @@ export default function App() {
             <Route path="/goals" element={<Navigate to="/workunits" replace />} />
             <Route path="/settings" element={<Suspense fallback={<PageLoader />}><Settings /></Suspense>} />
             <Route path="/audit-logs" element={<Suspense fallback={<PageLoader />}><AuditLogsPage /></Suspense>} />
-            <Route path="/channels" element={<Suspense fallback={<PageLoader />}><ChannelListPage /></Suspense>} />
+            <Route path="/channels" element={<Suspense fallback={<PageLoader />}><ChannelHomeRedirect /></Suspense>} />
             <Route path="/channels/:id" element={<Suspense fallback={<PageLoader />}><ChannelDetailPage /></Suspense>} />
             <Route path="/pmo" element={<Suspense fallback={<PageLoader />}><PMOPage /></Suspense>} />
             <Route path="/pmo/project/:projectId" element={<Suspense fallback={<PageLoader />}><ProjectDetailPage /></Suspense>} />

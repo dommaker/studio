@@ -6,7 +6,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 const {
-  tmpWorktrees, tmpRepo, mockLoadavg, mockCpus, mockExecSync,
+  tmpWorktrees, tmpRepo, mockLoadavg, mockCpus, mockExecSync, mockExec,
+  mockReadDiskUsage, mockReadMemoryUsage, mockCountZombies,
   mockLogger, mockHandleAlert, mockEmitEvent, mockHealthScore,
   mockRunDecayCycle, mockStoreList, mockRunSyncCycle, mockRunDailyMaintenance,
 } = vi.hoisted(() => {
@@ -23,6 +24,11 @@ const {
     mockLoadavg: vi.fn<[number, number, number]>(() => [0, 0, 0]),
     mockCpus: vi.fn(() => Array(2).fill({ model: 'test' })),
     mockExecSync: vi.fn(() => ''),
+    // #374: gcStaleWorktrees / checkKnowledgeHealth 已改异步 exec，回调式 mock
+    mockExec: vi.fn((_cmd: string, _opts: unknown, cb: (err: Error | null, stdout: string) => void) => cb(null, '')),
+    mockReadDiskUsage: vi.fn(),
+    mockReadMemoryUsage: vi.fn(),
+    mockCountZombies: vi.fn(() => 0),
     mockLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
     mockHandleAlert: vi.fn(() => Promise.resolve()),
     mockEmitEvent: vi.fn(),
@@ -39,7 +45,14 @@ vi.mock('os', async (importOriginal) => {
   return { ...actual, loadavg: mockLoadavg, cpus: mockCpus };
 });
 
-vi.mock('child_process', () => ({ execSync: mockExecSync }));
+vi.mock('child_process', () => ({ execSync: mockExecSync, exec: mockExec }));
+
+// B4 #344: 系统探测委托 ops proc-probes 单出口，mock 掉 /proc 读取
+vi.mock('../ops/proc-probes.js', () => ({
+  readDiskUsage: mockReadDiskUsage,
+  readMemoryUsage: mockReadMemoryUsage,
+  countZombieProcesses: mockCountZombies,
+}));
 
 // 显式清理：hoisted 里的 require('fs') 走原生模块，mkdtemp-cleanup 补丁登记不到
 afterAll(() => {
@@ -54,7 +67,7 @@ vi.mock('@dommaker/harness', () => ({
   ReferenceTracker: class {},
 }));
 
-vi.mock('../../knowledge/knowledge-bus.service.js', () => ({
+vi.mock('../../knowledge/knowledge-singletons.js', () => ({
   sharedStore: { list: mockStoreList },
   sharedLifecycle: { tryPromote: vi.fn(() => null), runDecayCycle: mockRunDecayCycle },
 }));
@@ -84,16 +97,18 @@ import {
   knowledgeMaintenanceEnabled,
 } from '../monitor/monitor-system-probes.js';
 
-const DF_OK = '/dev/sda1 100G 50G 50G 50% /';
-const DF_FULL = '/dev/sda1 100G 95G 5G 95% /';
-
-function stubExecSync(dfOutput: string) {
-  mockExecSync.mockImplementation((cmd: string) => {
-    if (cmd.includes('df -h')) return dfOutput;
-    if (cmd.includes('free -m')) return 'Mem: 16000 8000 8000';
-    if (cmd.includes('ps aux')) return '0';
-    if (cmd.includes('npx harness')) return '{}';
-    return '';
+function stubProbes(diskUsePercent: number) {
+  mockReadDiskUsage.mockReturnValue({
+    totalBytes: 100 * 1024 ** 3,
+    availBytes: 100 * 1024 ** 3 * (1 - diskUsePercent / 100),
+    usedBytes: 100 * 1024 ** 3 * (diskUsePercent / 100),
+    usePercent: diskUsePercent,
+  });
+  mockReadMemoryUsage.mockReturnValue({ totalKb: 16_000_000, freeKb: 8_000_000, usedKb: 8_000_000 });
+  mockCountZombies.mockReturnValue(0);
+  // #374: checkKnowledgeHealth 的 npx harness 用户模型更新走异步 exec（24h 一次，非本轮探测）
+  mockExec.mockImplementation((_cmd: string, _opts: unknown, cb: (err: Error | null, stdout: string) => void) => {
+    cb(null, '{}');
   });
 }
 
@@ -106,7 +121,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockLoadavg.mockReturnValue([0, 0, 0]);
   mockCpus.mockReturnValue(Array(2).fill({ model: 'test' }));
-  stubExecSync(DF_OK);
+  stubProbes(50);
 });
 
 describe('systemHealthCheck', () => {
@@ -131,18 +146,43 @@ describe('systemHealthCheck', () => {
   });
 
   it('flags disk usage > 90% as resource_critical warning', async () => {
-    stubExecSync(DF_FULL);
+    stubProbes(95);
     const anomalies = await systemHealthCheck();
     const disk = anomalies.filter(a => a.message?.includes('Disk usage'));
     expect(disk).toHaveLength(1);
     expect(disk[0]).toMatchObject({ type: 'resource_critical', severity: 'warning' });
     expect(disk[0].message).toContain('95%');
   });
+
+  it('flags memory usage > 95% as resource_critical critical', async () => {
+    mockReadMemoryUsage.mockReturnValue({ totalKb: 16_000_000, freeKb: 400_000, usedKb: 15_600_000 });
+    const anomalies = await systemHealthCheck();
+    const mem = anomalies.filter(a => a.message?.includes('Memory usage'));
+    expect(mem).toHaveLength(1);
+    expect(mem[0]).toMatchObject({ type: 'resource_critical', severity: 'critical' });
+    expect(mem[0].message).toContain('98%');
+  });
+
+  it('flags zombie processes as zombie warning', async () => {
+    mockCountZombies.mockReturnValue(2);
+    const anomalies = await systemHealthCheck();
+    expect(anomalies).toContainEqual(expect.objectContaining({
+      type: 'zombie',
+      severity: 'warning',
+      message: '2 zombie processes detected',
+      details: { zombieCount: 2 },
+    }));
+  });
+
+  it('AC #344: systemHealthCheck 全程零同步子进程（不触碰 child_process）', async () => {
+    await systemHealthCheck();
+    expect(mockExecSync).not.toHaveBeenCalled();
+  });
 });
 
 describe('systemTriageCheck confirm window', () => {
   it('escalates to Triage only after 3 consecutive confirmations', async () => {
-    stubExecSync(DF_FULL); // persistent resource_critical (disk) anomaly
+    stubProbes(95); // persistent resource_critical (disk) anomaly
     mockLoadavg.mockReturnValue([0, 0, 0]); // avoid CPU contributing resource_critical
 
     await systemTriageCheck(); // count 1
@@ -159,10 +199,10 @@ describe('systemTriageCheck confirm window', () => {
 
   it('logs "resolved" and does not escalate when anomaly disappears before 3 confirmations', async () => {
     mockLoadavg.mockReturnValue([0, 0, 0]);
-    stubExecSync(DF_FULL);
+    stubProbes(95);
     await systemTriageCheck(); // count 1（未达确认阈值）
 
-    stubExecSync(DF_OK); // anomaly resolved
+    stubProbes(50); // anomaly resolved
     await systemTriageCheck();
 
     expect(mockLogger.info).toHaveBeenCalledWith(
@@ -226,6 +266,39 @@ describe('checkKnowledgeHealth', () => {
     expect(mockEmitEvent).not.toHaveBeenCalled();
     expect(mockRunDecayCycle).not.toHaveBeenCalled();
   });
+
+  it('AC #374: 用户模型更新走异步 exec（30s timeout 语义不变），execSync 零调用', async () => {
+    mockExec.mockImplementation((_cmd: string, _opts: unknown, cb: (err: Error | null, stdout: string) => void) => {
+      cb(null, '{"newSessions":3,"changes":[]}');
+    });
+    const state = { lastDecayRun: Date.now(), lastUserModelRun: 0 }; // 24h 门控命中
+
+    await checkKnowledgeHealth(state);
+
+    expect(mockExec).toHaveBeenCalledWith(
+      expect.stringContaining('npx harness update-user-model'),
+      { timeout: 30_000 },
+      expect.any(Function),
+    );
+    expect(mockExecSync).not.toHaveBeenCalled();
+    expect(mockLogger.info).toHaveBeenCalledWith(
+      '[MonitorService] User model updated',
+      expect.objectContaining({ newSessions: 3 }),
+    );
+  });
+
+  it('AC #374: 用户模型更新失败（超时等）→ warn non-blocking 不抛出', async () => {
+    mockExec.mockImplementation((_cmd: string, _opts: unknown, cb: (err: Error | null, stdout: string) => void) => {
+      cb(new Error('Command failed: npx harness'), '');
+    });
+    const state = { lastDecayRun: Date.now(), lastUserModelRun: 0 };
+
+    await expect(checkKnowledgeHealth(state)).resolves.toBeUndefined();
+    expect(mockLogger.warn).toHaveBeenCalledWith(
+      '[MonitorService] User model update failed (non-blocking)',
+      expect.anything(),
+    );
+  });
 });
 
 describe('knowledgeMaintenanceEnabled (B7 开关)', () => {
@@ -276,6 +349,33 @@ describe('gcStaleWorktrees', () => {
     expect(fs.existsSync(oldDir)).toBe(false);
     expect(fs.existsSync(freshDir)).toBe(true);
     // REPO_DIR 无 .git → 不执行 git worktree prune
-    expect(mockExecSync.mock.calls.filter(c => String(c[0]).includes('worktree prune'))).toHaveLength(0);
+    expect(mockExec.mock.calls.filter(c => String(c[0]).includes('worktree prune'))).toHaveLength(0);
+  });
+
+  it('AC #374: REPO_DIR 含 .git 时异步执行 git worktree prune（cwd/timeout 语义不变）', async () => {
+    const gitDir = path.join(tmpRepo, '.git');
+    fs.mkdirSync(gitDir);
+    try {
+      await gcStaleWorktrees();
+      expect(mockExec).toHaveBeenCalledWith('git worktree prune', { cwd: tmpRepo, timeout: 5000 }, expect.any(Function));
+      expect(mockExecSync).not.toHaveBeenCalled();
+    } finally {
+      fs.rmSync(gitDir, { recursive: true, force: true });
+    }
+  });
+
+  it('AC #374: prune 失败不阻塞 monitor 循环，warn 日志不变', async () => {
+    const gitDir = path.join(tmpRepo, '.git');
+    fs.mkdirSync(gitDir);
+    mockExec.mockImplementation((_cmd: string, _opts: unknown, cb: (err: Error | null, stdout: string) => void) => {
+      cb(new Error('git boom'), '');
+    });
+    try {
+      await expect(gcStaleWorktrees()).resolves.toBeUndefined();
+      expect(mockLogger.warn).toHaveBeenCalledWith('[MonitorService] gcStaleWorktrees failed', expect.anything());
+    } finally {
+      fs.rmSync(gitDir, { recursive: true, force: true });
+      mockExec.mockImplementation((_cmd: string, _opts: unknown, cb: (err: Error | null, stdout: string) => void) => cb(null, ''));
+    }
   });
 });

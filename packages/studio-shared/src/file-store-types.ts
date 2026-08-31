@@ -43,6 +43,8 @@ export interface RuntimeStateData {
   pid?: number;            // process.pid for dead-instance detection
   lastError?: string | null;   // F2: last startup-fatal error (e.g. health probe failure)
   lastErrorAt?: string | null; // ISO 8601
+  /** #362: 更新统一口径②——updateState 自动补（历史数据缺省）。ISO 8601 */
+  updatedAt?: string;
 }
 
 export interface ChannelData {

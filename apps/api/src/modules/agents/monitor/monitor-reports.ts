@@ -15,6 +15,7 @@ import type { FileStore } from '@dommaker/studio-shared';
 import { knowledgeService } from '../../knowledge/knowledge-service.js';
 import { preferenceObserver } from '../../knowledge/preference-observer.js';
 import { emitMonitorEvent } from './monitor-alerts.js';
+import { execFileAsync } from './exec-async.js';
 import {
   writeStudioEvent,
   parseStudioEventPayload,
@@ -222,18 +223,17 @@ export async function dailyReflection(fileStore: FileStore, state: ReportState):
 
     // 2. Git commits
     try {
-      const { execFileSync } = await import('child_process');
       const repoDir = process.env.REPO_DIR || '/root/projects/studio';
-      // execFileSync 数组参数不经 shell；git 失败走 catch 兜底（原 2>/dev/null 语义），
-      // 行计数/末行改在 JS 里做（原 `| wc -l` / `| tail -1`）
-      const gitLogOut = execFileSync(
+      // execFile 数组参数不经 shell；git 失败走 catch 兜底（原 2>/dev/null 语义），
+      // 行计数/末行改在 JS 里做（原 `| wc -l` / `| tail -1`）；#374 异步化不阻塞事件循环
+      const gitLogOut = await execFileAsync(
         'git', ['log', `--since=${since.toISOString()}`, '--oneline', '--no-merges'],
-        { cwd: repoDir, timeout: 5000, encoding: 'utf-8' }
+        { cwd: repoDir, timeout: 5000 }
       );
       const gitLog = String(gitLogOut.split('\n').filter(l => l.trim()).length);
-      const diffOut = execFileSync(
+      const diffOut = await execFileAsync(
         'git', ['diff', '--stat', 'HEAD', '@{24 hours ago}'],
-        { cwd: repoDir, timeout: 5000, encoding: 'utf-8' }
+        { cwd: repoDir, timeout: 5000 }
       );
       const diffLines = diffOut.split('\n').map(l => l.trim()).filter(Boolean);
       const fileCount = diffLines[diffLines.length - 1] ?? '';
@@ -335,11 +335,10 @@ export async function dailyReflection(fileStore: FileStore, state: ReportState):
     } catch { /* best-effort: audit module may not be available */ }
 
     // 5b. Knowledge index snapshot (for KR4 30d survival rate)
+    // #343 review：走 sharedStore 直通路径，不再裸建 FileKnowledgeStore 实例
     try {
-      const { FileKnowledgeStore } = await import('@dommaker/harness') as any;
-      const knowledgeDir = studioPath('knowledge');
-      const store = new FileKnowledgeStore({ baseDir: knowledgeDir });
-      store.snapshot();
+      const { sharedStore } = await import('../../knowledge/knowledge-singletons.js');
+      sharedStore.snapshot();
     } catch { /* best-effort */ }
 
     // B9-025: Weekly profile report (every Sunday)
@@ -366,7 +365,7 @@ export async function dailyReflection(fileStore: FileStore, state: ReportState):
           if (sorted.length > 0) {
             lines.push('', '### 周交互画像');
             lines.push(`- Top 模式: ${sorted.slice(0, 3).map(([t, c]) => `${t}(${c})`).join(', ')}`);
-            const { sharedStore } = await import('../../knowledge/knowledge-bus.service.js');
+            const { sharedStore } = await import('../../knowledge/knowledge-singletons.js');
             const prefEntries = sharedStore.list({ tags: ['preference', 'user-default'] });
             const prefData = prefEntries.length > 0 ? JSON.parse((prefEntries[0] as any).content || '{}') : {};
             const preferredRaw = prefData.preferredPatternTypes;

@@ -1,0 +1,297 @@
+/* ============================================================
+   #396 WorkUnit 详情页（spec redesign-2026-08 §5 定稿变体 C）
+   作用域 .wu-detail-* —— 四站 stepper / 左右分栏 / 执行过程 step 链 / Token 图表化。
+   颜色全走 token（style-guide §2.1 硬规则）；字号/间距/圆角指档（§2.3/§2.4/§3）。
+   ============================================================ */
+
+.wu-detail {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+/* ---------- 页头：← 返回 + 徽章 + 标题 ---------- */
+.wu-detail-header {
+  padding: var(--space-4) var(--space-6);
+  border-bottom: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+}
+.wu-detail-header-back { margin-bottom: var(--space-4); }
+
+/* ---------- 四站 stepper（全页共享定位条）+ 关键事件 chip 行 ---------- */
+.wu-detail-stepperwrap { flex-shrink: 0; border-bottom: 1px solid var(--border-subtle); }
+.wu-stepper-bar {
+  display: flex;
+  align-items: flex-start;
+  padding: var(--space-4) var(--space-6) var(--space-2);
+}
+.wu-bstep { display: flex; flex-direction: column; gap: 3px; flex-shrink: 0; }
+.wu-bstep-head { display: flex; align-items: center; gap: 6px; }
+.wu-st-dot { width: 9px; height: 9px; border-radius: 50%; box-sizing: border-box; flex-shrink: 0; }
+.wu-st-done .wu-st-dot { background: var(--accent-primary); }
+.wu-st-current .wu-st-dot {
+  border: 2px solid var(--accent-primary);
+  background: transparent;
+  box-shadow: 0 0 6px var(--accent-glow);
+}
+.wu-st-upcoming .wu-st-dot { border: 1px solid var(--text-muted); background: transparent; }
+.wu-st-label { font-size: var(--fs-sm); white-space: nowrap; }
+.wu-st-done .wu-st-label { color: var(--text-primary); }
+.wu-st-current .wu-st-label { color: var(--accent-primary); font-weight: 600; }
+.wu-st-upcoming .wu-st-label { color: var(--text-muted); }
+.wu-st-time {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+/* 连线贯穿：已达成站之后的线 accent 高亮 */
+.wu-bstep-line { flex: 1; min-width: 24px; height: 1px; margin: 10px var(--space-2) 0; background: var(--border-default); }
+.wu-bstep-line-reached { background: var(--accent-border); }
+
+/* 生命周期关键事件 = 横排 chip（色点 + 文字 + mono 时间），无事件不占行 */
+.wu-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding: 0 var(--space-6) var(--space-3);
+}
+.wu-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+.wu-chip-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+.wu-ev-accent .wu-chip-dot { background: var(--accent-primary); }
+.wu-ev-warn .wu-chip-dot { background: var(--warning); }
+.wu-ev-danger .wu-chip-dot { background: var(--error); }
+.wu-chip-time {
+  margin-left: 2px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- 两栏骨架：左 260px 判断/操作输入，右 过程/记录 ---------- */
+.wu-detail-body { flex: 1; display: flex; min-height: 0; }
+.wu-detail-body-single { flex: 1; overflow-y: auto; padding: var(--space-4) var(--space-6); }
+.wu-detail-rail {
+  width: 260px;
+  flex-shrink: 0;
+  overflow-y: auto;
+  padding: var(--space-4) var(--space-3) 80px;
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border-subtle);
+}
+.wu-detail-content { flex: 1; overflow-y: auto; padding: var(--space-4) var(--space-6) 80px; min-width: 0; }
+
+/* ---------- 节容器统一（§5.5）：区标题 12px muted 500 + 卡片 border-subtle/bg-secondary/radius 4/padding 16，卡间距 16 ---------- */
+.wu-detail-sec { margin-top: var(--space-4); }
+.wu-detail-rail .wu-detail-sec:first-child,
+.wu-detail-content .wu-detail-sec:first-child { margin-top: 0; }
+.wu-detail-sec-title {
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  color: var(--text-muted);
+  margin: 0 0 var(--space-2);
+}
+.wu-detail-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  padding: var(--space-4);
+}
+/* 证据台账 drawer 变体自带 mc-block-label：隐藏，区标题统一由 wu-detail-sec-title 承担（仅窄栏卡片作用域） */
+.wu-detail-rail .wu-detail-card .mc-block-label { display: none; }
+
+/* ---------- 关键事实卡行 ---------- */
+.wu-detail-facts { display: flex; flex-direction: column; gap: 6px; }
+.wu-detail-fact { display: flex; align-items: baseline; gap: var(--space-2); font-size: var(--fs-sm); }
+.wu-detail-fact-k { flex-shrink: 0; width: 56px; font-size: var(--fs-xs); color: var(--text-muted); }
+.wu-detail-fact-v { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; display: flex; align-items: center; }
+.wu-detail-fact-btn { background: none; border: none; padding: 0; font: inherit; cursor: pointer; }
+.wu-detail-time {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- 执行过程：stat 摘要行 + 纵向 step 链（§5.3） ---------- */
+.wu-exec-stats { display: flex; align-items: flex-end; flex-wrap: wrap; gap: var(--space-6); }
+.wu-exec-stat { display: flex; flex-direction: column; gap: 3px; }
+.wu-exec-stat-k { font-size: var(--fs-xs); color: var(--text-muted); }
+.wu-exec-stat-v { font-size: var(--fs-base); font-weight: 500; color: var(--text-primary); }
+.wu-exec-dim { color: var(--text-muted); font-weight: 400; font-size: var(--fs-sm); }
+.wu-exec-stat-num {
+  font-family: var(--font-mono);
+  font-size: var(--fs-stat);
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+/* 状态徽章在 stat 列内左对齐顶端（布局入类，style-guide §2.2） */
+.wu-exec-badge { align-self: flex-start; }
+.wu-exec-note { margin-top: var(--space-2); font-size: var(--fs-sm); color: var(--text-secondary); }
+.wu-exec-note-k { color: var(--text-muted); margin-right: 6px; }
+.wu-exec-fail { margin-top: var(--space-2); font-size: var(--fs-sm); color: var(--error); }
+
+/* 纵向 step 链：步骤号圆节点 + 贯穿竖线 */
+.wu-flow { margin-top: var(--space-4); }
+.wu-flow-step { position: relative; padding: 0 0 var(--space-5) 34px; }
+.wu-flow-step::before {
+  content: '';
+  position: absolute;
+  left: 11px;
+  top: 25px;
+  bottom: 0;
+  width: 1px;
+  background: var(--border-default);
+}
+.wu-flow-step:last-child::before { display: none; }
+.wu-flow-num {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 23px;
+  height: 23px;
+  border-radius: 50%;
+  box-sizing: border-box;
+  border: 1px solid var(--accent-border);
+  color: var(--accent-primary);
+  background: var(--bg-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.wu-flow-failed .wu-flow-num { border-color: var(--error); color: var(--error); }
+.wu-flow-head { display: flex; align-items: baseline; gap: var(--space-2); min-height: 23px; }
+.wu-flow-action { font-size: var(--fs-base); font-weight: 500; color: var(--text-primary); }
+.wu-flow-failtag {
+  font-size: var(--fs-xs);
+  color: var(--error);
+  border: 1px solid var(--error-border);
+  border-radius: 3px;
+  padding: 0 5px;
+  flex-shrink: 0;
+}
+.wu-flow-meta {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.wu-flow-err { margin-top: 4px; font-size: var(--fs-sm); color: var(--error); }
+/* thinking 弱显可折叠 */
+.wu-flow-thinking { margin-top: 4px; }
+.wu-flow-thinking > summary { cursor: pointer; font-size: var(--fs-xs); color: var(--text-muted); list-style: none; }
+.wu-flow-thinking > summary::before { content: '▸ '; }
+.wu-flow-thinking[open] > summary::before { content: '▾ '; }
+.wu-flow-thinking-body { margin-top: 2px; font-size: var(--fs-sm); color: var(--text-muted); }
+/* tool 调用成行：mono 工具名 + 摘要 */
+.wu-flow-tool { display: flex; align-items: baseline; gap: 6px; margin-top: 3px; font-size: var(--fs-sm); }
+.wu-flow-tool-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent-primary); align-self: center; flex-shrink: 0; }
+.wu-flow-tool-dot-fail { background: var(--error); }
+.wu-flow-tool-name { font-family: var(--font-mono); font-size: var(--fs-sm); color: var(--text-primary); flex-shrink: 0; }
+.wu-flow-tool-sum { color: var(--text-secondary); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wu-flow-text { margin-top: 4px; font-size: var(--fs-sm); color: var(--text-secondary); }
+.wu-flow-skills { margin-top: 4px; font-size: var(--fs-xs); color: var(--text-muted); }
+
+/* ---------- Token 开销图表化（§5.4） ---------- */
+/* 左栏事实行（整行含行标可点，自身即 wu-detail-fact 行）：mono 总耗 + 迷你预算占比条 */
+.wu-token-fact {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+  min-width: 0;
+}
+.wu-token-fact:hover .wu-token-fact-v { color: var(--accent-primary); }
+.wu-token-fact-v {
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+.wu-token-minibar {
+  flex: 1;
+  max-width: 72px;
+  height: 4px;
+  border-radius: 3px;
+  background: var(--bg-tertiary);
+  overflow: hidden;
+  align-self: center;
+}
+.wu-token-minibar-used { display: block; height: 100%; background: var(--accent-primary); }
+
+/* 面板：双 stat 复用 wu-exec-* ；预算占比条 */
+.wu-token-budget { margin-top: var(--space-4); }
+.wu-token-budget-bar { height: 6px; border-radius: 3px; background: var(--bg-tertiary); overflow: hidden; }
+.wu-token-budget-used { display: block; height: 100%; background: var(--accent-primary); }
+.wu-token-budget-caption { margin-top: var(--space-1); font-size: var(--fs-xs); color: var(--text-muted); }
+
+/* per-node 水平堆叠条：注入 = accent，执行 = --chart-2（对比紫），按总耗降序 */
+.wu-token-rows { margin-top: var(--space-4); display: flex; flex-direction: column; gap: var(--space-2); }
+.wu-token-row { display: flex; align-items: center; gap: var(--space-2); }
+.wu-token-row-id {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  width: 68px;
+  flex-shrink: 0;
+}
+.wu-token-row-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.wu-token-row-name {
+  font-size: var(--fs-sm);
+  color: var(--text-primary);
+  width: 88px;
+  flex-shrink: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wu-token-row-bar { flex: 1; height: 14px; background: var(--bg-tertiary); border-radius: 3px; overflow: hidden; }
+.wu-token-row-fill { display: flex; height: 100%; }
+.wu-token-seg-inj { display: block; height: 100%; background: var(--accent-primary); }
+.wu-token-seg-exec { display: block; height: 100%; background: var(--chart-2); }
+.wu-token-row-v {
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  width: 52px;
+  text-align: right;
+  flex-shrink: 0;
+}
+.wu-token-legend { margin-top: var(--space-3); display: flex; gap: var(--space-4); font-size: var(--fs-xs); color: var(--text-muted); }
+.wu-token-legend-swatch { display: inline-block; width: 8px; height: 8px; border-radius: 3px; margin-right: 5px; }
+
+/* ---------- 窄屏降级（§4.6 Tailwind 断点档）：<768 两栏塌单栏，左栏全宽置顶 ---------- */
+@media (max-width: 767px) {
+  .wu-detail-body { flex-direction: column; overflow-y: auto; }
+  .wu-detail-rail {
+    width: 100%;
+    overflow-y: visible;
+    border-right: none;
+    border-bottom: 1px solid var(--border-subtle);
+    padding-bottom: var(--space-4);
+  }
+  .wu-detail-content { overflow-y: visible; }
+}

@@ -10,7 +10,7 @@ export function startAuditSubscriber(): void {
   eventBus.subscribe('events:audit', async (event: { entityType?: string; eventType?: string }) => {
     // eventBus 精确匹配走 EventEmitter.emit，handler 抛异常会向上抛——内部 try/catch 护住
     try {
-      const { sharedStore } = await import('../knowledge/knowledge-bus.service.js');
+      const { sharedStore } = await import('../knowledge/knowledge-singletons.js');
       const id = `audit-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
       sharedStore.save({
         id,

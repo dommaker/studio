@@ -1,6 +1,7 @@
 // Select — 主题感知下拉选择，原生 <select> 的 drop-in 替代
 // 原生 select 的弹出面板由 OS 绘制、无法适配深色主题；本组件触发器视觉对齐 .input，
-// 选项面板 portal 到 document.body（fixed 定位，不被 modal-body 等 overflow 容器裁剪）。
+// 选项面板 portal 到 document.body（fixed 定位，不被 modal-body 等 overflow 容器裁剪）；
+// 面板 min-width 对齐触发器宽度、内容更宽时允许自然撑开（#401，窄触发器下长选项不再被 ellipsis 截断）。
 // 样式类 .select-* 见 theme.css，颜色全部消费变量（docs/specs/ui/style-guide.md §4）。
 import { useEffect, useRef, useState } from 'react';
 import type { CSSProperties, KeyboardEvent } from 'react';
@@ -171,7 +172,7 @@ export function Select(props: SelectProps) {
           ref={panelRef}
           className="select-panel"
           role="listbox"
-          style={{ top: pos.top, left: pos.left, width: pos.width }}
+          style={{ top: pos.top, left: pos.left, minWidth: pos.width }}
         >
           {options.map((o, i) => (
             <div

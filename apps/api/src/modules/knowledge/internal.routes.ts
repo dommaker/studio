@@ -14,8 +14,8 @@
 
 import { Router } from 'express';
 import { logger } from '@dommaker/studio-shared';
-import { upsertKnowledge } from './knowledge-bus.service.js';
-import type { KnowledgeSource } from './knowledge-bus.service.js';
+import { upsertKnowledge } from './knowledge-design-doc.js';
+import type { KnowledgeSource } from './knowledge-design-doc.js';
 import { knowledgeSync } from './knowledge-sync.service.js';
 
 export const internalRoutes = Router();

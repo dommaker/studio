@@ -15,7 +15,7 @@
 
 **上游依赖**
 - `@dommaker/studio-shared`：提供 `eventBus`（`eventBus.subscribe` 直订 `events:audit`，对象 payload）与日志工具 `logger`
-- `apps/api/src/modules/knowledge/knowledge-bus.service.ts`：动态导入获取 `sharedStore` 以保存审计事件
+- `apps/api/src/modules/knowledge/knowledge-singletons.ts`：动态导入获取 `sharedStore` 以保存审计事件
 
 **下游依赖**
 - `apps/api/src/index.ts`：启动时调用本模块的 `startAuditSubscriber`

@@ -7,8 +7,8 @@
  * Storage: ~/.studio/knowledge/resolution-{id}.md (frontmatter + body)
  */
 
-import { logger, FileStore, generateId } from '@dommaker/studio-shared';
-import { scheduleVectorDbSync } from './knowledge-bus.service.js';
+import { logger, FileStore, generateId, isActionableMaturity, matchResolutionPatterns } from '@dommaker/studio-shared';
+import { scheduleVectorDbSync } from './knowledge-singletons.js';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -93,6 +93,9 @@ async function writeResolution(data: {
     maturity: data.status || 'pending',
     verifyCount: data.verifyCount || 0,
     tags: data.tags || [],
+    // #371：自动解析落盘非会话沉淀，标 system 不计入蒸馏 topic 信号
+    // （frontmatter 缺 origin 会被 harness store 兜底成 'agent'）
+    origin: 'system',
     createdAt: data.createdAt || new Date().toISOString(),
     updatedAt: data.updatedAt || new Date().toISOString(),
   };
@@ -124,42 +127,13 @@ export class ResolutionService {
     try {
       const all = await scanResolutions();
       const candidates = all.filter((r: any) =>
-        (r.maturity === 'verified' || r.maturity === 'canonical') &&
+        isActionableMaturity(r.maturity) &&
         (!errorClass || r.errorClass === errorClass)
       );
 
-      const matched: Resolution[] = [];
-      const lowerMsg = errorMessage.toLowerCase();
-
-      for (const row of candidates) {
-        const pattern = row.pattern;
-        let isMatch = false;
-
-        try {
-          const re = new RegExp(pattern, 'i');
-          if (re.test(errorMessage)) isMatch = true;
-        } catch {
-          if (lowerMsg.includes(pattern.toLowerCase())) isMatch = true;
-        }
-
-        if (isMatch) {
-          matched.push({
-            id: row.id,
-            pattern: row.pattern,
-            errorClass: row.errorClass,
-            layer: row.layer as Resolution['layer'],
-            title: row.title,
-            fix: row.fix,
-            status: row.maturity as Resolution['status'],
-            verifyCount: row.verifyCount,
-            verifiedAt: row.verifiedAt,
-            sourceGoalId: row.sourceGoalId,
-            tags: row.tags,
-            createdAt: row.createdAt,
-            updatedAt: row.updatedAt,
-          });
-        }
-      }
+      // #361: 匹配核心（regex 失败回退子串）下沉 studio-shared，与 studio-agent
+      // queryResolutionHints 的逐字重复实现收一。
+      const matched: Resolution[] = matchResolutionPatterns(candidates, errorMessage);
 
       const promptSnippet = matched.length > 0
         ? matched.map((r, i) =>

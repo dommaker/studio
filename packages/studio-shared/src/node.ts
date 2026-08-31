@@ -15,3 +15,7 @@ export * from './llm/index';
 export * from './harness/index';
 export * from './constants/levels';
 export type { ConstraintLevel, ConstraintContext, ConstraintResult } from '@dommaker/harness';
+// #361 事件写口唯一入口 + 日志路径隔离 + RKB 匹配核心（自 apps/api 下沉）
+export * from './studio-events';
+export * from './log-path';
+export * from './resolutions';

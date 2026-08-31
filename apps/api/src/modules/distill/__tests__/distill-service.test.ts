@@ -34,7 +34,7 @@ vi.mock('../../channels/channel-message.service.js', () => ({
   channelMessageService: { createCardMessage: mockCreateCardMessage },
 }));
 
-import { DistillService, type DistillProposal } from '../distill-service.js';
+import { DISTILL_SYSTEM_PROMPT, DistillService, type DistillProposal } from '../distill-service.js';
 import { approveProposal, rejectProposal } from '../../review-proposal/service.js';
 import { getReviewProposalAdapter } from '../../review-proposal/registry.js';
 
@@ -160,6 +160,15 @@ describe('端到端：矿石 → 门槛 → 发卡 → approve → 产物入库 
     const result = await approve(proposals[0].id);
     expect(result.kind).toBe('executed');
 
+    // #369：蒸馏是重 prompt 源，120s 默认超时由 SystemExecutor 按源注册表提供（调用点不再显式传）
+    expect(mockRunJson).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        systemPrompt: DISTILL_SYSTEM_PROMPT,
+        eventSource: 'knowledge-distill',
+      }),
+    );
+
     // 产物入库：sourceReferences 指向全部原料 id
     const all = store.list();
     const products = all.filter(e => e.tags.includes('distilled'));
@@ -204,6 +213,20 @@ describe('端到端：矿石 → 门槛 → 发卡 → approve → 产物入库 
     const fired = await waitFor(async () => (await listProposals()).length === 1);
     expect(fired).toBe(true);
     expect(mockCreateCardMessage).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('#366 冷启动灌入防御', () => {
+  it('批量同 tag 的 system 来源条目经真实 store 全链路 → 不发卡、无事件、原料不动', async () => {
+    for (let i = 0; i < 5; i++) {
+      seedOre({ tags: ['deploy-checklist'], origin: 'system', title: `[Import] batch ${i}` });
+    }
+    await service.maybePropose({});
+
+    expect(await listProposals()).toHaveLength(0);
+    expect(mockCreateCardMessage).not.toHaveBeenCalled();
+    expect(await readEvents()).toHaveLength(0);
+    expect(store.list().filter(e => e.tags.includes('deploy-checklist'))).toHaveLength(5);
   });
 });
 

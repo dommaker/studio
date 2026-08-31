@@ -7,15 +7,11 @@
  *
  * Migrated from Prisma Skill/SkillProposal to file-based stores (D-005).
  */
-import { logger, recordDecision, FileStore } from '@dommaker/studio-shared';
+import { logger, recordDecision, FileStore, writeStudioEvent } from '@dommaker/studio-shared';
 import { randomUUID } from 'crypto';
 import { getSystemExecutor } from '../agents/system-executor.js';
 import { skillStore } from './skill-store.js';
 import { getSkillReviewAdapter, submitSkillProposal } from './review-adapter.js';
-import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
-
-const STUDIO_EVENTS_JSONL = resolveStudioLogFile('studio-events.jsonl');
-const fileStore = new FileStore();
 
 export interface ExtractedSkillProposal {
   id: string;
@@ -181,12 +177,11 @@ export class SkillExtractionService {
     }
 
     // S3 Gap 3c: emit skill_created for knowledge_skill_created metric
-    fileStore.appendJsonl(STUDIO_EVENTS_JSONL, {
-      type: 'knowledge:skill_created',
-      source: 'skill-extraction',
-      payload: JSON.stringify({ skillName: proposal.name, skillId: skill.id }),
-      createdAt: new Date().toISOString(),
-    }).catch(() => {});
+    // #361: 直写 appendJsonl 改统一入口 writeStudioEvent（知识事件默认 debug 级）
+    void writeStudioEvent('knowledge:skill_created', {
+      skillName: proposal.name,
+      skillId: skill.id,
+    }, { source: 'skill-extraction' });
 
     if (autoPublish) {
       logger.info('[SkillExtraction] Auto-published skill', {
@@ -260,7 +255,7 @@ Similar successful executions: ${similar.map((s, i) => `\n${i + 1}. ${s.acs}`).j
 
 Output JSON: {"hasPattern": bool, "name": "pattern name", "description": "description", "category": "code_gen|testing|review|refactor|config|docs", "pattern": "injectable Agent prompt template", "confidence": 0.8}`;
 
-    const r = await getSystemExecutor().runJson<{ hasPattern: boolean; name?: string; description?: string; category?: string; pattern?: string; confidence?: number }>(prompt, { systemPrompt: 'You are a Skill extraction analyst.' });
+    const r = await getSystemExecutor().runJson<{ hasPattern: boolean; name?: string; description?: string; category?: string; pattern?: string; confidence?: number }>(prompt, { systemPrompt: 'You are a Skill extraction analyst.', eventSource: 'skill-extraction' });
 
     if (!r.hasPattern || !r.name) return null;
     return { id: '', skillId: '', companyId, name: r.name, description: r.description || '', category: r.category || 'general', pattern: r.pattern || '', sourceGoalIds: [], confidence: r.confidence || 0.5, status: 'pending', createdAt: new Date() };

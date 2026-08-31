@@ -2,7 +2,8 @@
  * system.tools 单元测试（T3 拆分新增，pre-commit TDD 门禁）。
  *
  * 覆盖 systemHealth / emitEvent。
- * knowledge-bus.service 被 mock；D18 后 STUDIO_EVENTS_FILE 指向临时文件隔离事件写入。
+ * knowledge-singletons / knowledge-design-doc 被 mock；D18 后 STUDIO_EVENTS_FILE
+ * 指向临时文件隔离事件写入。
  */
 import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
 import fs from 'node:fs';
@@ -12,8 +13,10 @@ import os from 'node:os';
 const mockList = vi.fn();
 const mockFreshness = vi.fn();
 
-vi.mock('../../knowledge/knowledge-bus.service.js', () => ({
+vi.mock('../../knowledge/knowledge-singletons.js', () => ({
   sharedStore: { list: mockList },
+}));
+vi.mock('../../knowledge/knowledge-design-doc.js', () => ({
   checkDocumentFreshness: mockFreshness,
 }));
 

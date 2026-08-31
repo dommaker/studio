@@ -10,12 +10,7 @@ vi.mock('react', async () => {
   return { ...actual, default: actual };
 });
 
-// stores：认证态固定为已登录非 Guest（否则 App 落 LandingPage 围墙）
-vi.mock('../stores', () => ({
-  useAgentStore: () => ({ loadAgents: vi.fn() }),
-  useRuntimeStore: () => ({ loadExecutions: vi.fn() }),
-}));
-
+// authStore：认证态固定为已登录非 Guest（否则 App 落 LandingPage 围墙）
 vi.mock('../stores/authStore', () => ({
   useAuthStore: (selector: (s: unknown) => unknown) =>
     selector({ isGuest: () => false, isAuthenticated: () => true }),
@@ -39,8 +34,8 @@ vi.mock('../components/setup/StudioRoleSetupModal', () => ({ StudioRoleSetupModa
 vi.mock('../components/setup/FirstRoleSetupModal', () => ({ FirstRoleSetupModal: () => null }));
 
 // 只替身本测试命中的三个懒加载页面，其余页面不会触发 import
-vi.mock('../pages/ChannelListPage', () => ({
-  ChannelListPage: () => <div data-testid="channel-list-page" />,
+vi.mock('../pages/ChannelHomeRedirect', () => ({
+  ChannelHomeRedirect: () => <div data-testid="channel-home-redirect" />,
 }));
 vi.mock('../pages/ChannelDetailPage', () => ({
   ChannelDetailPage: () => <div data-testid="channel-detail-page" />,
@@ -75,9 +70,9 @@ describe('#291 basename 深链路由', () => {
     expect(screen.queryByTestId('not-found-page')).not.toBeInTheDocument();
   });
 
-  it('dev：/dev/ 入口渲染频道列表页而非 404', async () => {
+  it('dev：/dev/ 入口渲染频道首页重定向而非 404（#393 频道列表页已删除）', async () => {
     renderAt('/dev/', '/dev/');
-    expect(await screen.findByTestId('channel-list-page')).toBeInTheDocument();
+    expect(await screen.findByTestId('channel-home-redirect')).toBeInTheDocument();
     expect(screen.queryByTestId('not-found-page')).not.toBeInTheDocument();
   });
 

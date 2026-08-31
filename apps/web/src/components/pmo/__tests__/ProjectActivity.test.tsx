@@ -41,25 +41,30 @@ describe('ProjectActivity', () => {
     expect(screen.getByRole('button', { name: '「设计」' })).toBeInTheDocument();
   });
 
-  it('claimed 条目带 actorName -> "dev 认领了"', () => {
+  it('claimed 条目带 actorName -> "dev 领取了"（#399 词表：认领→领取）', () => {
     const { container } = render(
       <ProjectActivity entries={[entry({ id: 'cl1', kind: 'claimed', at: '2026-07-31T11:00:00', actorName: 'dev' })]} />,
     );
-    expect(container.textContent).toContain('dev 认领了');
+    expect(container.textContent).toContain('dev 领取了');
   });
 
   it('claimed 无 actorName -> 回退 "agent"', () => {
     const { container } = render(
       <ProjectActivity entries={[entry({ id: 'cl1', kind: 'claimed', at: '2026-07-31T11:00:00', actorName: null })]} />,
     );
-    expect(container.textContent).toContain('agent 认领了');
+    expect(container.textContent).toContain('agent 领取了');
   });
 
-  it('completed 条目渲染 "完成（状态）"', () => {
+  it('completed 条目：done/completed 正词即「完成」，不再赘述（已完成）后缀；其他终结态保留区分', () => {
     const { container } = render(
-      <ProjectActivity entries={[entry({ id: 'cp1', kind: 'completed', at: '2026-07-31T12:00:00', status: 'done' })]} />,
+      <ProjectActivity entries={[
+        entry({ id: 'cp1', kind: 'completed', at: '2026-07-31T12:00:00', status: 'done' }),
+        entry({ id: 'cp2', kind: 'completed', at: '2026-07-31T12:30:00', status: 'closed', title: '收尾' }),
+      ]} />,
     );
-    expect(container.textContent).toContain('完成（已完成）');
+    expect(container.textContent).toContain('「设计」 完成');
+    expect(container.textContent).not.toContain('（已完成）');
+    expect(container.textContent).toContain('「收尾」 完成（已关闭）');
   });
 
   it('delivered 条目渲染 "✓ 项目已交付"，无 button', () => {

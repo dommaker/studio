@@ -188,6 +188,19 @@ describe('MapOpening（#112 开图机制）', () => {
     expect(map.fog[0].question).toBe('存储选型？');
   });
 
+  it('#401：中文别名「目标：/待决：」与英文 DESTINATION:/FOG: 同效', async () => {
+    const project = await createProject();
+    const wu = await createAnalysisWu(project, '目标：把 X 做起来\n待决：存储选型？\n待决：部署形态？');
+
+    await emitDone(wu);
+    const ok = await waitFor(async () => (await decisionWus()).length === 2);
+    expect(ok).toBe(true);
+
+    const map = (await projectService.get(project.id))!.map!;
+    expect(map.destination).toBe('把 X 做起来');
+    expect(map.fog.map(f => f.question)).toEqual(['存储选型？', '部署形态？']);
+  });
+
   it('无待决问题清单（无 FOG 行）：不炸、不初始化、不落哨兵', async () => {
     const project = await createProject();
     const wu = await createAnalysisWu(project, '结论没问题，可以开工');

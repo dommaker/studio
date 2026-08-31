@@ -370,6 +370,7 @@ export class DistillService {
     try {
       const parsed = await getSystemExecutor().runJson<{ products?: unknown }>(
         buildDistillPrompt(materials),
+        // 重 prompt 源：120s 由 SystemExecutor 按源注册表提供（#369）
         { systemPrompt: DISTILL_SYSTEM_PROMPT, eventSource: 'knowledge-distill' },
       );
       const products = normalizeDistillProducts(parsed);

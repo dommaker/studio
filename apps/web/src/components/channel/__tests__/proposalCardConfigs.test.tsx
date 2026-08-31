@@ -121,6 +121,12 @@ describe('distill 家族 fetchReviewed（statuses?.[id] 派生）', () => {
   });
 });
 
+/** #367 正本 not-pending 400 错误模拟（axios.isAxiosError 靠 error.isAxiosError 属性判定） */
+const notPendingErr = (status: string) => ({
+  isAxiosError: true,
+  response: { status: 400, data: { error: `proposal-not-pending:${status}` } },
+});
+
 describe('memory（#353）/knowledge（#355）通用端点 exec 与派生', () => {
   it('memory：空 entries → false；approve → 逐 draftId approve，任一 success=false → false 保持待审', async () => {
     const cfg = PROPOSAL_CARD_CONFIGS.memory_proposal;
@@ -153,6 +159,60 @@ describe('memory（#353）/knowledge（#355）通用端点 exec 与派生', () =
     vi.mocked(memoryApi.status).mockResolvedValue({ data: { statuses: { d1: 'rejected', d2: 'rejected' } } } as never);
     await expect(cfg.fetchReviewed!(cd)).resolves.toBe('rejected');
     vi.mocked(memoryApi.status).mockResolvedValue({ data: { statuses: { d1: 'executed', d2: 'pending' } } } as never);
+    await expect(cfg.fetchReviewed!(cd)).resolves.toBeNull();
+  });
+
+  // #367 逐草稿审批幂等：部分失败后重试，已达同向终态的草稿按已处理跳过，不崩整批
+  it('memory (#367)：重试遇已 executed 草稿（400 proposal-not-pending:executed）视为跳过，剩余 pending 草稿照常 approve → true', async () => {
+    const cfg = PROPOSAL_CARD_CONFIGS.memory_proposal;
+    vi.mocked(memoryApi.approve).mockImplementation(async (id: string) => {
+      if (id === 'd-done') throw notPendingErr('executed');
+      return { data: { success: true } } as never;
+    });
+    const cd = { roleId: 'r1', entries: [{ draftId: 'd-done' }, { draftId: 'd-new' }] };
+    await expect(cfg.exec(cd, 'approve')).resolves.toBe(true);
+    expect(memoryApi.approve).toHaveBeenCalledWith('d-new');
+  });
+
+  it('memory (#367)：reject 对称——已 rejected 草稿跳过；异向终态（如 executed）不算成功 → false', async () => {
+    const cfg = PROPOSAL_CARD_CONFIGS.memory_proposal;
+    const cd = { roleId: 'r1', entries: [{ draftId: 'd-rejected' }, { draftId: 'd2' }] };
+    vi.mocked(memoryApi.reject).mockImplementation(async (id: string) => {
+      if (id === 'd-rejected') throw notPendingErr('rejected');
+      return {} as never;
+    });
+    await expect(cfg.exec(cd, 'reject')).resolves.toBe(true);
+
+    vi.mocked(memoryApi.reject).mockImplementation(async (id: string) => {
+      if (id === 'd-rejected') throw notPendingErr('executed');
+      return {} as never;
+    });
+    await expect(cfg.exec(cd, 'reject')).resolves.toBe(false);
+  });
+
+  it('memory (#367)：approve 遇非同向终态（failed/rejected）仍算失败 → false 保持待审', async () => {
+    const cfg = PROPOSAL_CARD_CONFIGS.memory_proposal;
+    for (const flavor of ['failed', 'rejected']) {
+      vi.mocked(memoryApi.approve).mockClear();
+      vi.mocked(memoryApi.approve).mockImplementation(async (id: string) => {
+        if (id === 'd-failed') throw notPendingErr(flavor);
+        return { data: { success: true } } as never;
+      });
+      const cd = { roleId: 'r1', entries: [{ draftId: 'd-failed' }, { draftId: 'd-new' }] };
+      await expect(cfg.exec(cd, 'approve')).resolves.toBe(false);
+      // 不崩整批：剩余 pending 草稿仍被调用
+      expect(memoryApi.approve).toHaveBeenCalledWith('d-new');
+    }
+  });
+
+  it('memory (#367)：派生收敛——无一 pending 且含 failed → failed 终态；仍有 pending → null 待审', async () => {
+    const cfg = PROPOSAL_CARD_CONFIGS.memory_proposal;
+    const cd = { roleId: 'r1', entries: [{ draftId: 'd1' }, { draftId: 'd2' }] };
+    vi.mocked(memoryApi.status).mockResolvedValue({ data: { statuses: { d1: 'executed', d2: 'failed' } } } as never);
+    await expect(cfg.fetchReviewed!(cd)).resolves.toBe('failed');
+    vi.mocked(memoryApi.status).mockResolvedValue({ data: { statuses: { d1: 'failed', d2: 'failed' } } } as never);
+    await expect(cfg.fetchReviewed!(cd)).resolves.toBe('failed');
+    vi.mocked(memoryApi.status).mockResolvedValue({ data: { statuses: { d1: 'pending', d2: 'failed' } } } as never);
     await expect(cfg.fetchReviewed!(cd)).resolves.toBeNull();
   });
 

@@ -84,7 +84,7 @@ export function DiscussionPanel({ workUnitId }: { workUnitId: string }) {
                 <span className={`font-medium ${msg.authorType === 'agent' ? 'u-accent' : 'u-accent'}`}>
                   {msg.authorType === 'agent' ? (msg.agentName || 'Agent') : 'Human'}
                 </span>
-                <span className="u-text-2">
+                <span className="u-text-2 font-mono">
                   {new Date(msg.createdAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
                 </span>
               </div>

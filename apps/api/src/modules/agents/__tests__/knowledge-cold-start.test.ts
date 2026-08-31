@@ -53,7 +53,7 @@ vi.mock('@dommaker/harness', () => ({
   }),
 }));
 
-vi.mock('../../knowledge/knowledge-bus.service.js', () => ({ sharedStore: {} }));
+vi.mock('../../knowledge/knowledge-singletons.js', () => ({ sharedStore: {} }));
 
 vi.mock('../../../utils/discord-notifier.js', () => ({
   discordNotifier: { sendText: mockDiscordSendText },

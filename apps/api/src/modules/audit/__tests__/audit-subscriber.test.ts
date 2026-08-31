@@ -24,7 +24,7 @@ describe('audit-subscriber', () => {
         at: '2026-08-25T00:00:00Z',
       };
       eventBus.publish('events:audit', event);
-      // handler 内 dynamic import knowledge-bus.service，等一拍
+      // handler 内 dynamic import knowledge-singletons，等一拍
       await new Promise(r => setTimeout(r, 50));
 
       expect(saveSpy).toHaveBeenCalledTimes(1);

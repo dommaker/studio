@@ -11,8 +11,10 @@
 
 import { execFileSync } from 'child_process';
 import { logger } from '@dommaker/studio-shared';
-import { sharedStore, sharedLifecycle, upsertKnowledge, knowledgeBus } from './knowledge-bus.service.js';
-import type { KnowledgeSource } from './knowledge-bus.service.js';
+import { sharedStore, sharedLifecycle } from './knowledge-singletons.js';
+import { upsertKnowledge } from './knowledge-design-doc.js';
+import type { KnowledgeSource } from './knowledge-design-doc.js';
+import { knowledgeService } from './knowledge-service.js';
 
 // ── Scope Registry ──
 // scope → associated source files (glob patterns). When any of these files change, the scope is stale.
@@ -48,7 +50,7 @@ const DEFAULT_SCOPE_REGISTRY: Record<string, ScopeConfig> = {
   'knowledge-circuit': {
     // R5: 原 harness/src/knowledge/{lifecycle,ingest}.ts 已移除（npm 依赖，见上方说明）；
     // knowledge-singletons.ts 为 R4 后共享单例/向量同步/质量门所在地。
-    files: ['apps/api/src/modules/knowledge/knowledge-bus.service.ts', 'apps/api/src/modules/knowledge/knowledge-singletons.ts', 'apps/api/src/modules/knowledge/knowledge-sync.service.ts', 'apps/api/src/modules/agents/monitor/monitor.service.ts'],
+    files: ['apps/api/src/modules/knowledge/knowledge-singletons.ts', 'apps/api/src/modules/knowledge/knowledge-sync.service.ts', 'apps/api/src/modules/agents/monitor/monitor.service.ts'],
     title: 'Knowledge Circuit Self-Check',
     knowledgeType: 'architecture',
   },
@@ -58,12 +60,12 @@ const DEFAULT_SCOPE_REGISTRY: Record<string, ScopeConfig> = {
     knowledgeType: 'architecture',
   },
   'knowledge-types': {
-    files: ['apps/api/src/modules/knowledge/knowledge-bus.service.ts', 'apps/api/src/modules/knowledge/knowledge-sync.service.ts'],
+    files: ['apps/api/src/modules/knowledge/knowledge-singletons.ts', 'apps/api/src/modules/knowledge/knowledge-sync.service.ts'],
     title: 'Knowledge Types: Pattern vs Document',
     knowledgeType: 'architecture',
   },
   'knowledgestore-bp': {
-    files: ['apps/api/src/modules/knowledge/knowledge-bus.service.ts', 'apps/api/src/modules/knowledge/knowledge-singletons.ts', 'apps/api/src/modules/knowledge/knowledge-sync.service.ts', 'apps/api/src/modules/agents/monitor/monitor.service.ts'],
+    files: ['apps/api/src/modules/knowledge/knowledge-singletons.ts', 'apps/api/src/modules/knowledge/knowledge-sync.service.ts', 'apps/api/src/modules/agents/monitor/monitor.service.ts'],
     title: 'KnowledgeStore Breakpoint Fixes',
     knowledgeType: 'architecture',
   },
@@ -172,13 +174,13 @@ class KnowledgeSyncService {
     });
 
     // Write capture event to knowledge store (meta-knowledge)
-    knowledgeBus.recordPattern({
-      source: 'analyst',
+    // #343：KnowledgeBus 删除，recordPattern 走 KnowledgeService 单一路径。
+    // tags[0] 保留原 source 归因（recordPattern 以 tags[0] 作 source）。
+    knowledgeService.recordPattern({
       type: 'trend',
       title: `KnowledgeSync capture: ${scope} (${result.action})`,
       content: `Scope: ${scope}\nAction: ${result.action}\nEntry: ${result.entryId}\nContent size: ${content.length}B\nDuration: ${durationMs}ms`,
-      severity: 'info',
-      timestamp: Date.now(),
+      tags: ['analyst'],
     }).catch(() => {});
 
     return { scope, ...result };
@@ -343,8 +345,7 @@ class KnowledgeSyncService {
     // Write sync cycle event to knowledge store — only when something happened (#137:
     // all-zero cycles are pure noise, ~40% of trend entries; log-only for those)
     if (stale.length > 0 || unmonitored.length > 0) {
-      knowledgeBus.recordPattern({
-        source: 'monitor',
+      knowledgeService.recordPattern({
         type: 'trend',
         title: `KnowledgeSync cycle: ${stale.length} stale, ${unmonitored.length} unmonitored, ${healed.length} healed`,
         content: [
@@ -355,8 +356,7 @@ class KnowledgeSyncService {
           stale.length > 0 ? `Stale scopes: ${stale.map(s => s.scope).join(', ')}` : '',
           unmonitored.length > 0 ? `Unmonitored: ${unmonitored.map(u => `${u.scope}(${u.reason})`).join(', ')}` : '',
         ].filter(Boolean).join('\n'),
-        severity: 'warning',
-        timestamp: Date.now(),
+        tags: ['monitor'],
       }).catch(() => {});
     }
 

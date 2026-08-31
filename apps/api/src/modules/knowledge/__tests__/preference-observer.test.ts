@@ -11,7 +11,7 @@ let observer: InstanceType<typeof import('../preference-observer.js').Preference
 // Mock sharedStore — 内存 KV，隔离于真实文件系统
 const storeEntries = new Map<string, any>();
 
-vi.mock('../knowledge-bus.service.js', () => ({
+vi.mock('../knowledge-singletons.js', () => ({
   sharedStore: {
     list: (filter?: { tags?: string[] }) => {
       if (!filter?.tags) return Array.from(storeEntries.values());

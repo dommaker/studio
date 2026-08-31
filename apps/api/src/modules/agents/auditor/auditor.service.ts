@@ -82,7 +82,7 @@ export class AuditorService {
       }
 
       // 3. 最近 24h 的审计事件统计 (KnowledgeStore)
-      const { sharedStore: auditStore } = await import('../../knowledge/knowledge-bus.service.js');
+      const { sharedStore: auditStore } = await import('../../knowledge/knowledge-singletons.js');
       const auditEntries = auditStore.list({ tags: ['audit'] });
       const auditCount = auditEntries.filter((e: any) =>
         new Date(e.created).getTime() >= yesterday.getTime()

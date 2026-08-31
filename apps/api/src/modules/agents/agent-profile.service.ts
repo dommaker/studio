@@ -13,6 +13,7 @@ import path from 'node:path';
 import yaml from 'js-yaml';
 import { eventBus, FileStore, parseChannels, stringifyChannels, type AgentProfileData } from '@dommaker/studio-shared';
 import { resolveDefaultProvider } from './default-provider.js';
+import { summarizeRoleStates } from './agent-instance.service.js';
 
 /** 保留角色名：系统内置 studio 角色专用，用户不可创建/改名/删除 */
 export const STUDIO_ROLE_NAME = 'studio';
@@ -255,36 +256,15 @@ export class AgentProfileService {
       profiles = profiles.filter(p => p.provider === provider);
     }
 
-    // Add isOnline field (check RuntimeState via FileStore)
-    // Online 语义 = loop 存活：status idle/active 且心跳新鲜（刚启动未及首次心跳时按 startedAt 宽限）。
-    // 阈值与 agent-timeout-scan 一致（5 分钟）— 空闲 loop 不再误显示为离线。
-    const ONLINE_TIMEOUT_MS = 5 * 60 * 1000;
-    const onlineThreshold = Date.now() - ONLINE_TIMEOUT_MS;
-    const agentIds = profiles.map(p => p.id);
-    const allStates = await this.fileStore.listStates();
-    const aliveStates = allStates.filter(s =>
-      (s.status === 'active' || s.status === 'idle') && agentIds.includes(s.roleId) &&
-      (s.lastHeartbeat
-        ? new Date(s.lastHeartbeat).getTime() >= onlineThreshold
-        : new Date(s.startedAt).getTime() >= onlineThreshold)
-    );
-    const onlineSet = new Set(aliveStates.map(ri => ri.roleId));
-
-    // F2: surface latest startup failure per profile (status === 'error' states only)
-    const errorByRole = new Map<string, { lastError: string; lastErrorAt: string | null }>();
-    for (const s of allStates) {
-      if (s.status !== 'error' || !s.lastError || !agentIds.includes(s.roleId)) continue;
-      const prev = errorByRole.get(s.roleId);
-      if (!prev || (s.lastErrorAt ?? '') > (prev.lastErrorAt ?? '')) {
-        errorByRole.set(s.roleId, { lastError: s.lastError, lastErrorAt: s.lastErrorAt ?? null });
-      }
-    }
+    // isOnline + 每角色最新启动失败：实例态聚合收口在 agent-instance.service（一次 listStates 产出双聚合）
+    const roleIds = profiles.map(p => p.id);
+    const { onlineRoleIds, latestErrorByRole } = await summarizeRoleStates(this.fileStore, roleIds);
 
     const data: AgentProfileWithOnline[] = profiles.map(p => ({
       ...p,
-      isOnline: onlineSet.has(p.id),
-      lastError: errorByRole.get(p.id)?.lastError ?? null,
-      lastErrorAt: errorByRole.get(p.id)?.lastErrorAt ?? null,
+      isOnline: onlineRoleIds.has(p.id),
+      lastError: latestErrorByRole.get(p.id)?.lastError ?? null,
+      lastErrorAt: latestErrorByRole.get(p.id)?.lastErrorAt ?? null,
     }));
 
     // Sort by createdAt descending (same as Prisma orderBy: { createdAt: 'desc' })

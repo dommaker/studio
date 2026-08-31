@@ -41,7 +41,7 @@ _Avoid_: 把熔断/记账塞进 harness、把 checker 塞进 studio 编排层
 _Avoid_: 账本当真源、单维度（per-tree）累计、口径统一混进账本、为分钟级写上写合并、冗余落会陈旧的 rootId/profileId
 
 **蒸馏**:
-从沉淀知识中提炼可复用模式的函数——知识飞轮创造复利的核心环节，studio 存在的理由之一。沉淀只是积累，蒸馏让系统变聪明。产物按类型各有落地处：skill（过程性知识）→ skills 库；约束（边界性知识）→ 目标项目自己的 harness 约束实例（公共 harness 包只提供 schema/checker/retire 机器，内容不回填）；角色偏好与执行知识 → 角色记忆文件。触发形态按事件门槛理解（攒够新原料才点火），日历 cron 在原料不足时结构性空转（#80，2026-08-10）。闭环定稿：门槛=可蒸馏性信号（同 topic 新条目≥3 或 manual 过审≥5），矿石（session-summary 沉淀）蒸馏即归档，GC 按蒸馏周期计龄不打分，执行走收尾钩子检测+人审卡+system-executor（#83 D1-D5，2026-08-14）。主链路实现：`apps/api/src/modules/distill/`（#143，2026-08-15；门槛纯函数 + distill_proposal 人审卡 + approve 执行 + runs.jsonl 运行记录）。GC 候选清单同人模块（#144；连续 3 周期零引用 → gc_proposal 人审卡 → approve 归档可恢复，manual 3 周期新生豁免，主区 >200 强制出清单）。
+从沉淀知识中提炼可复用模式的函数——知识飞轮创造复利的核心环节，studio 存在的理由之一。沉淀只是积累，蒸馏让系统变聪明。产物按类型各有落地处：skill（过程性知识）→ skills 库；约束（边界性知识）→ 目标项目自己的 harness 约束实例（公共 harness 包只提供 schema/checker/retire 机器，内容不回填）；角色偏好与执行知识 → 角色记忆文件。触发形态按事件门槛理解（攒够新原料才点火），日历 cron 在原料不足时结构性空转（#80，2026-08-10）。闭环定稿：门槛=可蒸馏性信号（同 topic 新条目≥3 或 manual 过审≥5），矿石（session-summary 沉淀）蒸馏即归档，GC 按蒸馏周期计龄不打分，执行走收尾钩子检测+人审卡+system-executor（#83 D1-D5，2026-08-14）。主链路实现：`apps/api/src/modules/distill/`（#143，2026-08-15；门槛纯函数 + distill_proposal 人审卡 + approve 执行 + runs.jsonl 运行记录）。GC 候选清单同人模块（#144；连续 3 周期零引用 → gc_proposal 人审卡 → approve 归档可恢复，manual 3 周期新生豁免，主区 >200 强制出清单）。信号来源口径（#366/#371，2026-08-28）：topic 计数只认「同 tag 聚集蕴含模式真实重复出现」的条目——origin=agent（会话沉淀，钦定矿石 session-summary 显式声明）与 origin=human（人工单发）；机器流一律 origin=system 不计入：monitor 告警（聚集=告警多≠可提炼模式）、knowledge-sync 遥测/design-doc 归档、pattern-miner 统计挖掘产物、resolution 自动落盘。recordPattern 缺省 system（fail-closed），经该门面的写入路径漏标来源不会误触信号（绕过门面直调 store 的写入仍须显式标定，读侧 harness 兜底 agent 仅剩该暴露面）。
 _Avoid_: 知识合成、周报式合成
 
 **注入预算**:
@@ -82,6 +82,26 @@ _Avoid_: 全量扫描工程当候选、把候选集当权限边界
 「哪个 repo」与「在哪跑」是两个概念，术语自此分家（#251 Q2'，2026-08-19；#272 落地）：**默认工程** = 本地 repo 路径，落 `channel.defaultPath`，顶栏下拉数据源 = `/projects/discover` 本地工程发现（非 Admin 可用），归属链 rung 在文件引用之后、执行机器之前（`source=channel-default-path`）；**默认执行机器** = 远程 Workspace（`channel.defaultWorkspaceId`），Admin 概念，正名挪设置区（#286）。旧顶栏「默认工程」下拉绑的是 Workspace，系语义张冠李戴，已拆除。
 _Avoid_: 用 defaultWorkspaceId 表达工程归属、顶栏混摆两个概念
 
+**频道工作区**:
+频道域的唯一页面形态（#377 map charting 决议，2026-08-28）：三栏 = 左频道列表 / 中会话流 / 右「频道动态」。旧频道列表页（max-w-lg 居中）删除，`/` 与 `/channels` 重定向进工作区并记住最近访问频道。风格 = Slack/Discord 式三栏骨架 + Linear 式克制密度。改版实施前的现状描述见 `apps/web/src/CONTEXT.md`。
+_Avoid_: 频道列表页与工作区双形态并存
+
+**频道动态**:
+频道工作区右栏内容（#377）：「这个频道正在发生什么」的时间线/链路流——消息、WU 状态变化、REQ 推进等条目按时间/链路组织，点击跳对应详情（阅览室文档 / PMO / WU / 角色详情）。明确不做 tab 切换（右栏窄，tab 不适用）。具体形态归 #381 原型票。
+_Avoid_: tab 面板、静态状态堆叠
+
+**流转（两义分家）**:
+「流转信息」按场景分两个词（#377 Q7 决议）：频道域 = **流转链路**——一条需求从频道讨论 → REQ → 拆 WU → 交付的端到端链路（「正在做的事情的链路」）；WU 详情 = **流转时间线**——单 WU 生命周期（待领取→进行中→待验收→完成 + 挂起/恢复等事件）。两者数据源与形态不同，不混用。
+_Avoid_: 一个词两种用法、频道右栏放单 WU 时间线
+
+**项目阶段**:
+项目级生命周期四词（#385 决议，2026-08-29）：**讨论→开发→验收→交付**，PMO 项目页 stepper 专用。与 WU 状态词（待领取/进行中/待验收/完成）刻意不同词——同名不同义曾是「三处进度表达互相矛盾」观感的来源。
+_Avoid_: 项目阶段复用 WU 状态词（进行中/待验收）
+
+**界面文案用词**:
+面向人的 UI 文案规矩（#385 决议，2026-08-29）：禁用内部缩写——WU 一律写「任务」（REQ-</WU-> 编号本身除外，编号是身份不是术语）；WU 状态呈现用词表正词（待领取/进行中/待验收/完成，不用待认领/执行中/评审中/已完成）；交付证据三级写白话——**自动验证 / Agent 评审 / 人工确认**（内部编号 L1/L2/L3 不上界面）。与 #384 监控页「黑话改人话」决议同源。**全称同缩写（#401 决议，2026-08-31）**：界面上的全称「WorkUnit」同样一律写「任务」（侧栏导航、/workunits h1、空态、title 文案），仅代码标识符（组件名/变量/路由路径）保留 WorkUnit；PMO/Agent 作产品级专名保留英文。
+_Avoid_: 界面出现 WU/L1/L2/L3 字样、状态名一词多写
+
 **文件引用（频道）**:
 频道消息里指向频道相关工程内文件的结构化轻引用（#249，2026-08-19）：只记「哪个工程 + 仓内路径」，agent 按需读文件本体；不含内容快照、无行范围。归属语义 = 用户显式指向的工程信号：全部引用同仓时参与工程归属（位于需求继承之后、频道默认工程之前），跨仓不参与、按只读预期。mention 仍是纯文本不结构化（#254 备查）。
 _Avoid_: 附件/上传语义、内容快照、引用当权限授权
@@ -103,12 +123,20 @@ _Avoid_: 按 mid 精确取（需新后端端点）、骨架特例更新
 _Avoid_: 骨架锚行强行精校正、粗锚以外的第三兜底
 
 **系统状态快照**:
-周期循环群共享的一致性系统状态视图（#323 grilling 定稿，2026-08-25）：定位 = 跨多文件的聚合 memo（docs/adr/2026-08-24-cache-seam-decision-rules.md 决策树第 3 问）——磁盘文件真源仍归 FileStore seam，快照层只存加工结果，不抄文件内容（真源唯一）。消费面 = 周期循环群（cron 触发器 + Monitor 探针 + Ops/Auditor 周期任务），不含事件订阅链下游 rollup（推式消费形态，另议）。磁盘重复读已由 #314 mtime 读穿消解，本概念剩余价值 = 口径统一 + 各循环重复全量归约的 CPU 去重；刷新语义（周期对齐 vs 事件失效）与超时判定可容忍的快照滞后度属实现阶段设计，未定。**适用面排除（#363 grilling，2026-08-25）**：校验成本 = 重建成本的场景不适用——memo 的 mtime 校验若需 stat 全部底层文件（如 agent-state 每实例一文件的 fan-out 形态），校验即全扫，memo 杠杆为零；该形态的正解是数据生命周期闭环（判空删目录），不是快照。
+周期循环群共享的一致性系统状态视图（#323 grilling 定稿，2026-08-25）：定位 = 跨多文件的聚合 memo（docs/adr/2026-08-24-cache-seam-decision-rules.md 决策树第 3 问）——磁盘文件真源仍归 FileStore seam，快照层只存加工结果，不抄文件内容（真源唯一）。消费面 = 周期循环群（cron 触发器 + Monitor 探针 + Ops/Auditor 周期任务），不含事件订阅链下游 rollup（推式消费形态，另议）。磁盘重复读已由 #314 mtime 读穿消解，本概念剩余价值 = 口径统一 + 各循环重复全量归约的 CPU 去重；**已结案不建**（#323 阶段一量化，2026-08-25 关单：读口收敛后快照层杠杆不成立），词条保留作「曾考虑而否决」记录，未来评审勿再提。**适用面排除（#363 grilling，2026-08-25）**：校验成本 = 重建成本的场景不适用——memo 的 mtime 校验若需 stat 全部底层文件（如 agent-state 每实例一文件的 fan-out 形态），校验即全扫，memo 杠杆为零；该形态的正解是数据生命周期闭环（判空删目录），不是快照。
 _Avoid_: 快照层抄文件内容当第二真源、塞进 FileStore seam、服务事件订阅链、对 fan-out 散文件形态套 memo
 
 **人审提案卡**:
 「pending 提案 → 发审核卡到 #系统 → 人审 approve/reject → 墓碑终态」生命周期的统一称谓与唯一实现归属（2026-08-25 grilling 定稿，docs/adr/2026-08-25-review-proposal-lifecycle-module.md）：此前该生命周期在 distill 内部逐字复印 3 份、跨模块 4 份近亲（role-memory/skills/knowledge/auditor）、前端 5 张卡再复印，状态词汇表漂移成 3 套。唯一正本 = `apps/api/src/modules/review-proposal`——提案存取（append-only JSONL + 墓碑折叠）、发卡（含 #系统频道解析与 card-failed 降级落墓碑）、approve/reject、状态查询全收；业务方只做 adapter，注册配置对象 `{ kind, store 命名空间, renderCardContent, onApprove, onReject? }`。状态词表唯一口径 = `pending | executed | rejected | failed | card-failed`（role-memory 的 `promoted` 读取时归一为 `executed`，历史行不改写）。HTTP 面 = 通用端点 `/api/review-proposals/:kind/:id/{approve,reject,status}`；前端 = 单一 ReviewProposalCard + useProposalReview hook，各卡只剩条目清单与文案。卡片状态不实时推送（打开时查一次），实时化归 SSE 契约层改造（架构评审候选 2）。新提案类型必须走正本，禁止再抄第 N+1 份。
 _Avoid_: 各业务自抄生命周期、新建专有审批端点、promoted/executed 并存、重写历史 JSONL
+
+**数据面 store**:
+前端某域运行时数据的唯一管家（#346 rosterStore 首创；2026-08-31 架构评审第三轮 N2 grilling 扩为模式，docs/adr/2026-08-31-channel-data-plane-store.md）：统一拉取 + 短 TTL + SSE 就地维护 + 断线重连强对齐，组件全是订阅者——不各自拉取、同域数据不住第二份（agent 列表即读 rosterStore 正本，不进频道数据面）。新域数据面一律照此模式建，禁止退回组件各自拉取。
+_Avoid_: 组件各自拉取、同端点多份 state、store 间复制同一份数据
+
+**取数纪律**:
+数据面 store 共享的取数机制统称（2026-08-31 N2 grilling 定稿抽共用底座）：TTL 锚点、single-flight + seq 守卫（晚到旧响应不回写）、断线重连强制重拉、useGatedPoll 断推兜底、引用计数接线。只抽纪律、不抽数据存法——全局单份（rosterStore）与 per-key map（频道数据面）形状各自保留。第三个使用者（REQ chain 数据面）已在排队。
+_Avoid_: 逐 store 复印机制（人审提案卡漂移前科）、把数据存法也抽象进去
 
 ## 大文件治理
 

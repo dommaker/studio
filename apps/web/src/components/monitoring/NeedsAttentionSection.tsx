@@ -1,23 +1,23 @@
 // NeedsAttentionSection — #184 监控页概览 Tab 顶部「需要处理」区（#62 D4 + #60 IA：行动信号 > 健康度量 > 参考资料）
 // 首屏回答「现在有没有事需要我管」：告警收件箱 / 卡住计数（可下钻）/ 近 24h 失败趋势。
+// #398（spec §7.3）：告警按归一化 message 签名分组（×N + 最近发生时间，>3 组折叠），纯前端不动探针口径。
 // 自含数据加载：三部分各自独立取数，任一部分失败只显示该部分「加载失败」，不影响页面其余区块。
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { eventsApi, type StudioEventItem } from '../../api/events';
 import { workunitApi } from '../../api/workunit';
+import { useAsyncData } from '../../hooks/useAsyncData';
 import { formatAge, POOL_STAGNATION_WARN_MS } from '@dommaker/studio-shared/web';
+import { groupAlertsBySignature, type AlertItem } from './alertGrouping';
+import { MonitorSection } from './MonitorSection';
 
 const HOUR = 3600_000;
-/** 待认领滞留阈值（对齐 #181 池滞留探针，正本在 studio-shared/constants/monitoring） */
+/** 待领取滞留阈值（对齐 #181 池滞留探针，正本在 studio-shared/constants/monitoring） */
 const STALE_UNASSIGNED_MS = POOL_STAGNATION_WARN_MS;
 /** 翻页防御上限（limit 200/页） */
 const MAX_PAGES = 5;
-
-interface AlertItem {
-  level: 'warning' | 'critical';
-  message: string;
-  createdAt?: string;
-}
+/** 告警分组展示上限：超过折叠为「还有 N 类」（§7.3） */
+const ALERT_GROUP_LIMIT = 3;
 
 interface StuckCounts {
   blocked: number;
@@ -135,65 +135,56 @@ async function loadFailures(now: number, since48: string): Promise<FailureStats>
   return { n: r.n, rate: r.rate, trend };
 }
 
-interface PartState<T> {
-  data: T | null;
-  error: boolean;
-}
-
 export function NeedsAttentionSection() {
-  const [loading, setLoading] = useState(true);
-  const [alerts, setAlerts] = useState<PartState<AlertItem[]>>({ data: null, error: false });
-  const [stuck, setStuck] = useState<PartState<StuckCounts>>({ data: null, error: false });
-  const [failure, setFailure] = useState<PartState<FailureStats>>({ data: null, error: false });
+  // #350 useAsyncData 收一次性拉取样板：三部分独立取数，各自 data/error/loading，互不阻塞
+  const alerts = useAsyncData(() => loadAlerts(new Date(Date.now() - 24 * HOUR).toISOString()), []);
+  const stuck = useAsyncData(() => loadStuck(Date.now()), []);
+  const failure = useAsyncData(() => loadFailures(Date.now(), new Date(Date.now() - 48 * HOUR).toISOString()), []);
+  const [showAllGroups, setShowAllGroups] = useState(false);
 
-  useEffect(() => {
-    const now = Date.now();
-    const since24 = new Date(now - 24 * HOUR).toISOString();
-    const since48 = new Date(now - 48 * HOUR).toISOString();
-    // 三部分独立加载，互不阻塞；setState 全部在 promise 回调里
-    loadAlerts(since24)
-      .then(data => setAlerts({ data, error: false }))
-      .catch(() => setAlerts({ data: null, error: true }))
-      .finally(() => setLoading(false));
-    loadStuck(now)
-      .then(data => setStuck({ data, error: false }))
-      .catch(() => setStuck({ data: null, error: true }));
-    loadFailures(now, since48)
-      .then(data => setFailure({ data, error: false }))
-      .catch(() => setFailure({ data: null, error: true }));
-  }, []);
-
+  const groups = alerts.data ? groupAlertsBySignature(alerts.data) : [];
+  const visibleGroups = showAllGroups ? groups : groups.slice(0, ALERT_GROUP_LIMIT);
   const stuckTotal = stuck.data ? stuck.data.blocked + stuck.data.staleUnassigned + stuck.data.stalledActive : 0;
   const allClear =
     !alerts.error && !stuck.error && !failure.error &&
-    (alerts.data?.length ?? 0) === 0 && stuckTotal === 0 && (failure.data?.n ?? 0) === 0;
+    groups.length === 0 && stuckTotal === 0 && (failure.data?.n ?? 0) === 0;
+  const loading = alerts.loading || stuck.loading || failure.loading;
 
   return (
-    <div className="card p-4 mt-4">
-      <h2 className="mc-block-label" style={{ margin: '0 0 10px' }}>需要处理</h2>
+    <MonitorSection
+      title="需要处理"
+      subtitle="系统发现、需要人处理的事"
+      stat={loading ? undefined : groups.length}
+      statTestId="alert-group-count"
+    >
       {loading ? (
         <div className="text-sm u-text-2">加载中...</div>
       ) : allClear ? (
         <div className="text-sm u-ok">现在没有需要你处理的事</div>
       ) : (
         <div className="space-y-3">
-          {/* 告警收件箱：monitor:alert 的 message 本身即大白话（#181 巡检探针产出） */}
+          {/* 告警收件箱：按归一化 message 签名分组（§7.3）；message 本身即大白话（#181 巡检探针产出） */}
           {alerts.error ? (
             <div className="text-sm u-err">告警加载失败</div>
-          ) : alerts.data && alerts.data.length > 0 ? (
+          ) : groups.length > 0 ? (
             <div>
-              <div className="text-sm u-text-3 mb-1">告警（{alerts.data.length}）</div>
               <div className="space-y-1">
-                {alerts.data.map((a, i) => (
+                {visibleGroups.map((g, i) => (
                   <div key={i} className="flex items-center gap-2 text-sm">
-                    <span className={`text-xs px-2 py-0.5 rounded ${a.level === 'critical' ? 'u-err-dim u-err' : 'u-warn-dim u-warn'}`}>
-                      {a.level === 'critical' ? '严重' : '警告'}
+                    <span className={`text-xs px-2 py-0.5 rounded ${g.level === 'critical' ? 'u-err-dim u-err' : 'u-warn-dim u-warn'}`}>
+                      {g.level === 'critical' ? '严重' : '警告'}
                     </span>
-                    <span className="u-text" style={{ flex: 1, minWidth: 0 }}>{a.message}</span>
-                    <span className="text-xs u-text-3">{formatAge(a.createdAt)}</span>
+                    <span className="u-text" style={{ flex: 1, minWidth: 0 }}>{g.message}</span>
+                    {g.count > 1 && <span className="text-xs font-bold u-text-2">×{g.count}</span>}
+                    <span className="text-xs u-text-3">{formatAge(g.latestAt)}</span>
                   </div>
                 ))}
               </div>
+              {groups.length > ALERT_GROUP_LIMIT && (
+                <button className="text-xs u-text-3 u-hover-accent mt-1" onClick={() => setShowAllGroups(v => !v)}>
+                  {showAllGroups ? '收起' : `还有 ${groups.length - ALERT_GROUP_LIMIT} 类`}
+                </button>
+              )}
             </div>
           ) : (
             <div className="text-sm u-text-2">暂无告警</div>
@@ -211,7 +202,7 @@ export function NeedsAttentionSection() {
               )}
               {stuck.data.staleUnassigned > 0 && (
                 <Link to="/workunits?status=unassigned" className="u-warn u-hover-accent">
-                  待认领滞留 {stuck.data.staleUnassigned} 个
+                  待领取滞留 {stuck.data.staleUnassigned} 个
                 </Link>
               )}
               {stuck.data.stalledActive > 0 && (
@@ -243,6 +234,6 @@ export function NeedsAttentionSection() {
           ) : null}
         </div>
       )}
-    </div>
+    </MonitorSection>
   );
 }

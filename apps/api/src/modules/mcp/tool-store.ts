@@ -7,7 +7,6 @@
  */
 
 import { FileStore } from '@dommaker/studio-shared';
-import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 
@@ -25,25 +24,12 @@ export function getCompaniesDir(): string {
 }
 
 // ─── 通用 FileStore 工具 ───
-
-async function ensureDir(dir: string): Promise<void> {
-  await fs.promises.mkdir(dir, { recursive: true });
-}
+//
+// #362 单点化：枚举/读/写全部委托 FileStore 原语（listJsonInDir / readJson / writeJson），
+// 不再自持 readdir + .json 过滤副本。writeJson 自带 ensureDir，无需本地建目录。
 
 export async function listJsonFiles<T>(dir: string): Promise<T[]> {
-  try {
-    const entries = await fs.promises.readdir(dir, { withFileTypes: true });
-    const files = entries.filter(e => e.isFile() && e.name.endsWith('.json'));
-    const results: T[] = [];
-    for (const f of files) {
-      const data = await fileStore.readJson<T>(path.join(dir, f.name));
-      if (data) results.push(data);
-    }
-    return results;
-  } catch (err: unknown) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return [];
-    throw err;
-  }
+  return fileStore.listJsonInDir<T>(dir);
 }
 
 export async function getEntity<T>(dir: string, id: string): Promise<T | null> {
@@ -51,6 +37,5 @@ export async function getEntity<T>(dir: string, id: string): Promise<T | null> {
 }
 
 export async function writeEntity(dir: string, id: string, data: unknown): Promise<void> {
-  await ensureDir(dir);
   await fileStore.writeJson(path.join(dir, `${id}.json`), data);
 }

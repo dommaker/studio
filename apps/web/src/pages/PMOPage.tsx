@@ -1,5 +1,5 @@
 // PMOPage - PMO 管理主页面（项目 + OKR；三个弹窗已抽至 components/pmo/，工单 33）
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Link, useSearchParams, useNavigate } from 'react-router-dom';
 import { projectApi } from '../api';
 import { companyApi } from '../api/company';
@@ -7,27 +7,12 @@ import { okrApi, type OkrKeyResult } from '../api/pmo';
 import { channelApi, type Channel } from '../api/channel';
 import { requirementApi } from '../api/requirements';
 import { deriveDisplayState } from '@dommaker/studio-shared/web';
+import { fanOut } from '../utils/fanOut';
+import { useAsyncData } from '../hooks/useAsyncData';
 import { CreateOkrDialog } from '../components/pmo/CreateOkrDialog';
 import { CreateProjectDialog } from '../components/pmo/CreateProjectDialog';
 import { PublishProjectDialog } from '../components/pmo/PublishProjectDialog';
 import { ProjectCard } from '../components/pmo/ProjectCard';
-
-interface OKRObjective {
-  id: string;
-  title: string;
-  description?: string;
-}
-
-interface OKR {
-  id: string;
-  title: string;
-  quarter: string;
-  status: string;
-  progress: number;
-  projectCount: number;
-  objectives?: OKRObjective[];
-  keyResults?: OkrKeyResult[];
-}
 
 interface Project {
   id: string;
@@ -52,40 +37,8 @@ interface PMOPageProps {
 export function PMOPage({ companyId }: PMOPageProps) {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const [okrs, setOKRs] = useState<OKR[]>([]);
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [loading, setLoading] = useState(true);
-  // 工单 38: loadData 失败反馈（页面内错误条 + 重试，原先仅 console.error 静默）
-  const [loadError, setLoadError] = useState<string | null>(null);
-
-  // 🆕 AC-6: 卡片徽章数据（WU 完成度；批量并行、失败静默不显示）
-  // #149（2026-08-15）：文档计数徽章随 document-store 退役移除
-  const [wuStats, setWuStats] = useState<Record<string, { finished: number; total: number }>>({});
-
-  // 🆕 B8: OKR 创建弹窗（组件见 components/pmo/CreateOkrDialog）
-  const [showOKRDialog, setShowOKRDialog] = useState(false);
-
-  const tabParam = searchParams.get('tab');
-  const defaultTab = tabParam === 'okr' ? 'okr' : 'projects';
-  const [activeTab, setActiveTab] = useState<'projects' | 'okr'>(defaultTab);
-
-  // AC-6: Publish dialog state（组件见 components/pmo/PublishProjectDialog）
-  const [channels, setChannels] = useState<Channel[]>([]);
-  const [showPublishDialog, setShowPublishDialog] = useState(false);
-  const [publishProjectId, setPublishProjectId] = useState<string | null>(null);
-
-  // 🆕 PMO-a: 新建 PMO 弹窗（组件见 components/pmo/CreateProjectDialog）
-  const [showCreateForm, setShowCreateForm] = useState(false);
-
-  // companyId 切换时在渲染期同步置回加载态并清错误（替代原 loadData 内、由 effect 触发的同步 setState）
-  const [prevCompanyId, setPrevCompanyId] = useState(companyId);
-  if (prevCompanyId !== companyId) {
-    setPrevCompanyId(companyId);
-    setLoading(true);
-    setLoadError(null);
-  }
-
-  const loadData = useCallback(async () => {
+  // #350 useAsyncData 收一次性拉取样板：companyId 切换渲染期重置 + loading/error 归一（工单 38 错误条口径保留）
+  const pmoQ = useAsyncData(async () => {
     try {
       let actualCompanyId = companyId;
       if (!actualCompanyId) {
@@ -104,39 +57,44 @@ export function PMOPage({ companyId }: PMOPageProps) {
           : Promise.resolve({ data: { data: [] } }),
       ]);
 
-      setOKRs(okrRes.data?.data || []);
-      setProjects(projectsRes.data?.data || []);
+      return {
+        okrs: okrRes.data?.data || [],
+        projects: (projectsRes.data?.data || []) as Project[],
+      };
     } catch (err) {
       console.error('Failed to load PMO data:', err);
-      setLoadError('加载 PMO 数据失败，请重试');
-    } finally {
-      setLoading(false);
+      throw new Error('加载 PMO 数据失败，请重试');
     }
   }, [companyId]);
+  const reload = pmoQ.reload;
 
-  const loadChannels = useCallback(async () => {
-    try {
-      const res = await channelApi.list();
-      setChannels(res.data?.data || []);
-    } catch {
-      // best-effort: channels may not be available
-    }
-  }, []);
+  // AC-6: Publish dialog 频道列表（best-effort，失败静默）
+  const channelsQ = useAsyncData(() => channelApi.list().then(r => r.data?.data || []).catch(() => []), []);
+  const channels: Channel[] = channelsQ.data ?? [];
 
-  useEffect(() => {
-    // 微任务里触发加载：loadData 为多 await async 函数，编译器对 effect 内同步调用保守告警
-    void Promise.resolve().then(() => {
-      loadData();
-      loadChannels();
-    });
-  }, [loadData, loadChannels]);
+  // 🆕 AC-6: 卡片徽章数据（WU 完成度；批量并行、失败静默不显示）
+  // #149（2026-08-15）：文档计数徽章随 document-store 退役移除
+  const [wuStats, setWuStats] = useState<Record<string, { finished: number; total: number }>>({});
 
-  // 手动刷新路径（重试按钮 / 弹窗 onCreated）：在事件处理器里同步置加载态，保持原 loadData 行为
-  const handleReload = useCallback(() => {
-    setLoading(true);
-    setLoadError(null);
-    loadData();
-  }, [loadData]);
+  // 🆕 B8: OKR 创建弹窗（组件见 components/pmo/CreateOkrDialog）
+  const [showOKRDialog, setShowOKRDialog] = useState(false);
+
+  const tabParam = searchParams.get('tab');
+  const defaultTab = tabParam === 'okr' ? 'okr' : 'projects';
+  const [activeTab, setActiveTab] = useState<'projects' | 'okr'>(defaultTab);
+
+  // AC-6: Publish dialog state（组件见 components/pmo/PublishProjectDialog）
+  const [showPublishDialog, setShowPublishDialog] = useState(false);
+  const [publishProjectId, setPublishProjectId] = useState<string | null>(null);
+
+  // 🆕 PMO-a: 新建 PMO 弹窗（组件见 components/pmo/CreateProjectDialog）
+  const [showCreateForm, setShowCreateForm] = useState(false);
+
+  const loading = pmoQ.loading;
+  const loadError = pmoQ.error;
+  // 派生数组 useMemo 稳身份：wuStats effect 依赖 projects，避免 data 未落地时逐帧换引用
+  const okrs = useMemo(() => pmoQ.data?.okrs ?? [], [pmoQ.data]);
+  const projects = useMemo(() => pmoQ.data?.projects ?? [], [pmoQ.data]);
 
   // 🆕 AC-6: 列表加载后对可见项目批量并行查徽章数据（每项目一次 chain；失败静默）
   // projects 变空时在渲染期同步清空徽章（派生重置，替代原 effect 顶部的同步清空）
@@ -156,18 +114,18 @@ export function PMOPage({ companyId }: PMOPageProps) {
     let cancelled = false;
 
     const withAlias = projects.filter((p): p is Project & { reqAlias: string } => !!p.reqAlias);
-    Promise.allSettled(withAlias.map(async p => {
+    fanOut(withAlias, async p => {
       const res = await requirementApi.getChain(p.reqAlias);
       const wus = res.data?.data?.workunits ?? [];
       // 完成口径 = workFinished 所有权口径（F6 铁律）
       const finished = wus.filter(w =>
         deriveDisplayState({ status: w.status, metadata: w.metadata }).workFinished).length;
       return { id: p.id, finished, total: wus.length };
-    })).then(results => {
+    }).then(results => {
       if (cancelled) return;
       const next: Record<string, { finished: number; total: number }> = {};
       for (const r of results) {
-        if (r.status === 'fulfilled') next[r.value.id] = { finished: r.value.finished, total: r.value.total };
+        if (r.ok) next[r.value.id] = { finished: r.value.finished, total: r.value.total };
       }
       setWuStats(next);
     });
@@ -220,7 +178,7 @@ export function PMOPage({ companyId }: PMOPageProps) {
         {!loading && loadError && (
           <div className="mb-3 p-3 rounded u-err-dim u-err text-sm flex items-center justify-between">
             <span>{loadError}</span>
-            <button onClick={handleReload} className="btn btn-secondary btn-sm">重试</button>
+            <button onClick={reload} className="btn btn-secondary btn-sm">重试</button>
           </div>
         )}
         {loading ? (
@@ -296,7 +254,7 @@ export function PMOPage({ companyId }: PMOPageProps) {
                     </div>
                     <div className="flex items-center gap-3">
                       <div className="text-right">
-                        <div style={{ fontSize: 'var(--fs-stat)' }} className="font-bold u-ok">
+                        <div style={{ fontSize: 'var(--fs-stat)' }} className="font-mono font-bold u-ok">
                           {Math.round(okr.progress * 100)}%
                         </div>
                         <div className="text-xs u-text-3">
@@ -337,14 +295,14 @@ export function PMOPage({ companyId }: PMOPageProps) {
         open={showOKRDialog}
         companyId={companyId}
         onClose={() => setShowOKRDialog(false)}
-        onCreated={handleReload}
+        onCreated={reload}
       />
 
       {/* 🆕 PMO-a: 新建 PMO 弹窗（style-guide §4.3 标准结构） */}
       <CreateProjectDialog
         open={showCreateForm}
         onClose={() => setShowCreateForm(false)}
-        onCreated={handleReload}
+        onCreated={reload}
       />
 
       {/* AC-6: 发起需求讨论弹窗（选择目标频道） */}

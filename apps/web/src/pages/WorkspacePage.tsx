@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { workspaceApi } from '../api';
 import { channelApi } from '../api/channel';
+import { BackButton } from '../components/ui';
 
 interface Runtime {
   id: string;
@@ -85,6 +86,8 @@ export function WorkspacePage() {
 
   return (
     <div className="p-4 max-w-3xl mx-auto">
+      {/* #393 §4.4：详情页统一左上返回（无 workspace 列表页，直开回落 /settings——本页无站内入口，workspace 管理属设置域） */}
+      <div className="mb-2"><BackButton fallback="/settings" /></div>
       <h1 className="text-xl font-bold mb-1">{workspace.name}</h1>
       <p className="text-sm u-text-2 mb-4">
         {workspace.workspaceRoot} · {workspace.status}

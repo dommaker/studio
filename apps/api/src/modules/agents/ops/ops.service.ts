@@ -5,15 +5,19 @@
  * 缺口：启动阶段独立于 Monitor/Auditor 运行，保护 Monitor 管不到的部分
  */
 
-import { execSync } from 'child_process';
+import { execSync, exec } from 'child_process';
+import { promisify } from 'util';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { logger, FileStore } from '@dommaker/studio-shared';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import { loadRules, type OpsRules } from './ops-rules.js';
+import { readDiskUsage, readMemoryUsage, readLoadAvgRaw } from './proc-probes.js';
 import { hashPassword } from '../../auth/service.js';
 import { resolveStudioLogFile } from '../../../utils/studio-log-path.js';
+
+const execAsync = promisify(exec);
 
 export interface PreflightResult {
   passed: boolean;
@@ -154,20 +158,23 @@ export class OpsService {
       }
     }
 
-    // 5. Disk space
+    // 5. Disk space（statfs 口径，委托 proc-probes 单出口——#374 去同步 df 子进程）
     try {
-      const output = execSync("df -h / | tail -1 | awk '{print $5, $4}'", { encoding: 'utf-8', stdio: 'pipe' }).trim();
-      const [usePercent, avail] = output.split(/\s+/);
-      const pct = parseInt(usePercent);
-      if (pct > this.rules.checks.disk_threshold_critical) {
+      const disk = readDiskUsage('/');
+      if (!disk || disk.usePercent === null) throw new Error('statfs unavailable');
+      const usePercent = `${disk.usePercent}%`;
+      const fmtAvail = (bytes: number) =>
+        bytes >= 1024 ** 3 ? `${Math.round(bytes / 1024 ** 3)}G` : `${Math.round(bytes / 1024 ** 2)}M`;
+      const avail = fmtAvail(disk.availBytes);
+      if (disk.usePercent > this.rules.checks.disk_threshold_critical) {
         add({ name: 'disk-space', passed: false, critical: true, message: `❌ Disk ${usePercent} full (${avail} available)` });
-      } else if (pct > this.rules.checks.disk_threshold_warn) {
+      } else if (disk.usePercent > this.rules.checks.disk_threshold_warn) {
         add({ name: 'disk-space', passed: true, message: `⚠️ Disk ${usePercent} (${avail} available)`, critical: false });
       } else {
         add({ name: 'disk-space', passed: true, message: `Disk ${usePercent} (${avail} available)`, critical: false });
       }
     } catch {
-      add({ name: 'disk-space', passed: true, message: 'Disk check skipped (df unavailable)', critical: false });
+      add({ name: 'disk-space', passed: true, message: 'Disk check skipped (statfs unavailable)', critical: false });
     }
 
     const passed = criticalFailures.length === 0;
@@ -316,41 +323,14 @@ export class OpsService {
   }
 
   async getStatus(): Promise<HealthStatus> {
-    // Read /proc directly (no execSync blocking)
-    const fs = require('fs');
+    // 磁盘/内存/loadavg 探测走 proc-probes 单出口（零子进程，monitor 同源）
+    const disk = readDiskUsage('/');
+    const mem = readMemoryUsage();
+    const cpuRaw = readLoadAvgRaw();
 
-    // Disk: use statfs (no shell needed, reads kernel data instantly)
-    let diskUsed = '?', diskAvail = '?', diskUsePct = '?';
-    try {
-      const s = fs.statfsSync('/');
-      const total = s.blocks * s.bsize;
-      const avail = s.bavail * s.bsize;
-      const used = total - avail;
-      diskUsed = String(Math.round(used / (1024 * 1024 * 1024)));
-      diskAvail = String(Math.round(avail / (1024 * 1024 * 1024)));
-      diskUsePct = total > 0 ? String(Math.round((used / total) * 100)) : '?';
-    } catch {}
-
-    // Memory: parse /proc/meminfo line by line
-    let memTotal = '?', memFree = '?', memUsed = '?';
-    try {
-      const meminfo = fs.readFileSync('/proc/meminfo', 'utf-8');
-      const totalMatch = meminfo.match(/^MemTotal:\s+(\d+)/m);
-      const freeMatch = meminfo.match(/^MemAvailable:\s+(\d+)/m);
-      if (totalMatch) {
-        const totalKb = parseInt(totalMatch[1]);
-        memTotal = String(Math.round(totalKb / 1024));
-        if (freeMatch) {
-          const freeKb = parseInt(freeMatch[1]);
-          memFree = String(Math.round(freeKb / 1024));
-          memUsed = String(Math.round((totalKb - freeKb) / 1024));
-        }
-      }
-    } catch {}
-
-    // CPU load
-    let cpuRaw = '?';
-    try { cpuRaw = fs.readFileSync('/proc/loadavg', 'utf-8').trim(); } catch {}
+    const fmtGb = (bytes: number | null) => bytes === null ? '?' : String(Math.round(bytes / (1024 * 1024 * 1024)));
+    const fmtMb = (kb: number | null) => kb === null ? '?' : String(Math.round(kb / 1024));
+    const fmtPct = (pct: number | null) => pct === null ? '?' : String(pct);
 
     let apiResponding = false;
     try {
@@ -367,11 +347,11 @@ export class OpsService {
     } catch { apiResponding = false; }
 
     return {
-      disk: { used: diskUsed + 'G', avail: diskAvail + 'G', usePercent: diskUsePct + '%' },
-      memory: { total: memTotal + 'M', used: memUsed + 'M', free: memFree + 'M' },
+      disk: { used: fmtGb(disk?.usedBytes ?? null) + 'G', avail: fmtGb(disk?.availBytes ?? null) + 'G', usePercent: fmtPct(disk?.usePercent ?? null) + '%' },
+      memory: { total: fmtMb(mem.totalKb) + 'M', used: fmtMb(mem.usedKb) + 'M', free: fmtMb(mem.freeKb) + 'M' },
       cpu: { load: cpuRaw },
       apiResponding,
-      processes: this.countProcesses(),
+      processes: await this.countProcesses(),
       timestamp: new Date().toISOString(),
     };
   }
@@ -396,13 +376,12 @@ export class OpsService {
         this.proxyRestartWindowStart = Date.now();
       }
 
-      // Detect SYN-SENT connections on proxy port
-      const { execSync } = await import('child_process');
-      const output = execSync(
+      // Detect SYN-SENT connections on proxy port（async exec，不阻塞事件循环）
+      const { stdout } = await execAsync(
         `ss -tnp 2>/dev/null | grep ":${PROXY_PORT}" | grep "SYN-SENT" | wc -l`,
-        { encoding: 'utf-8', timeout: 5_000, stdio: 'pipe' },
-      ).trim();
-      const synSentCount = parseInt(output, 10) || 0;
+        { timeout: 5_000 },
+      );
+      const synSentCount = parseInt(stdout.trim(), 10) || 0;
 
       if (synSentCount < 2) {
         // Proxy healthy (or acceptable transient state) — reset stale counter
@@ -434,9 +413,7 @@ export class OpsService {
         attempt: this.proxyRestartCount,
         maxPerHour: MAX_RESTARTS_PER_HOUR,
       });
-      execSync('systemctl restart ss-local 2>/dev/null || true', {
-        encoding: 'utf-8', timeout: 10_000, stdio: 'pipe',
-      });
+      await execAsync('systemctl restart ss-local 2>/dev/null || true', { timeout: 10_000 });
     } catch (e: any) {
       logger.warn('[OpsService] Proxy health check failed', { error: String(e) });
     }
@@ -496,11 +473,10 @@ export class OpsService {
     return count;
   }
 
-  private countProcesses(): number {
+  private async countProcesses(): Promise<number> {
     try {
-      return parseInt(execSync('ps aux | grep "[t]sx" | grep -v grep | wc -l', {
-        encoding: 'utf-8', stdio: 'pipe',
-      }).trim(), 10);
+      const { stdout } = await execAsync('ps aux | grep "[t]sx" | grep -v grep | wc -l', { timeout: 5_000 });
+      return parseInt(stdout.trim(), 10) || 0;
     } catch { return 0; }
   }
 

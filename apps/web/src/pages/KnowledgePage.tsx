@@ -5,11 +5,12 @@
  * （R4: 行为模式写链路已整体删除，tab/标题残尸清理，共 7 个 tab）
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { knowledgeApi, type KnowledgeGapType, type KnowledgeSearchResult, type UnifiedEntry } from '../api/knowledge';
-import { maintenanceApi, type TriggerCosts } from '../api/maintenance';
+import { maintenanceApi } from '../api/maintenance';
 import { toast } from '../utils/toast';
+import { useAsyncData } from '../hooks/useAsyncData';
 import { Select, ManualTaskButton, Button } from '../components/ui';
 import {
   PreferenceCard, BusinessRuleCard, EnvSnapshotCard,
@@ -40,23 +41,23 @@ type ActiveTab = GapTab | 'unified';
 /** Gap tab 条目：六类缺口形状各异（卡片自行解读字段），仅 id 用于列表 key */
 type GapItem = { id?: string } & Record<string, unknown>;
 
+/** #350 useAsyncData 单通道按 tab 取数：unified / gap 两形态一次只拉激活 tab（对齐原 effect 分派） */
+type TabPayload =
+  | { kind: 'unified'; entries: UnifiedEntry[]; total: number }
+  | { kind: 'gap'; items: GapItem[] };
+
 export function KnowledgePage() {
   const navigate = useNavigate();
 
   // Tab state
   const [activeTab, setActiveTab] = useState<ActiveTab>('unified');
-  const [gapData, setGapData] = useState<GapItem[]>([]);
-  const [gapLoading, setGapLoading] = useState(false);
 
   // S11: Unified search state
   const [globalSearch, setGlobalSearch] = useState('');
   const [searchResults, setSearchResults] = useState<KnowledgeSearchResult[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
 
-  // AS-022: Unified knowledge view state
-  const [unifiedEntries, setUnifiedEntries] = useState<UnifiedEntry[]>([]);
-  const [unifiedTotal, setUnifiedTotal] = useState(0);
-  const [unifiedLoading, setUnifiedLoading] = useState(false);
+  // AS-022: Unified knowledge view state（mode/offset 是用户输入，进 fetcher deps 驱动重拉）
   const [unifiedMode, setUnifiedMode] = useState('');
   const [unifiedOffset, setUnifiedOffset] = useState(0);
   const [showManualEntry, setShowManualEntry] = useState(false);
@@ -64,50 +65,25 @@ export function KnowledgePage() {
   // 工单 38: 新建条目提交中状态——Button loading 态防连点重复提交
   const [manualSaving, setManualSaving] = useState(false);
 
+  // #350 useAsyncData 收一次性拉取样板：tab/mode/offset 变化渲染期重置重拉；
   // 手动任务成本（近 30 天 token；失败静默，不阻塞页面）
-  const [costs, setCosts] = useState<TriggerCosts | null>(null);
-  useEffect(() => {
-    maintenanceApi.getCosts().then(setCosts).catch(() => setCosts(null));
-  }, []);
-
-  const loadGapData = useCallback(async (type: string) => {
-    setGapLoading(true);
-    try {
-      if (type === 'resolution') {
-        const res = await knowledgeApi.listResolutions();
-        setGapData((res.data.resolutions || []) as unknown as GapItem[]);
-      } else {
-        const res = await knowledgeApi.listGaps(type as KnowledgeGapType);
-        setGapData((res.data.data || []) as GapItem[]);
-      }
-    } catch { setGapData([]); }
-    finally { setGapLoading(false); }
-  }, []);
-
-  // AS-022: Load unified knowledge entries
-  const loadUnified = useCallback(async () => {
-    setUnifiedLoading(true);
-    try {
+  const tabQ = useAsyncData(async (): Promise<TabPayload> => {
+    if (activeTab === 'unified') {
       const res = await knowledgeApi.listUnified({
         limit: 50,
         offset: unifiedOffset,
         consumptionMode: unifiedMode || undefined,
       });
-      setUnifiedEntries(res.data.entries || []);
-      setUnifiedTotal(res.data.total || 0);
-    } catch { setUnifiedEntries([]); }
-    finally { setUnifiedLoading(false); }
-  }, [unifiedMode, unifiedOffset]);
-
-  useEffect(() => {
-    // 微任务触发 loader：两个 loader 首行均同步置 loading，直接在 effect 体内调用
-    // 会触发 set-state-in-effect；微任务推迟一拍，时序与原实现逐帧等价。
-    // loader 保持原样——handleManualEntry 提交后复用 loadUnified 做事件路径刷新
-    void Promise.resolve().then(() => {
-      if (activeTab === 'unified') loadUnified();
-      else loadGapData(activeTab);
-    });
-  }, [activeTab, loadGapData, loadUnified]);
+      return { kind: 'unified', entries: res.data.entries || [], total: res.data.total || 0 };
+    }
+    if (activeTab === 'resolution') {
+      const res = await knowledgeApi.listResolutions();
+      return { kind: 'gap', items: (res.data.resolutions || []) as unknown as GapItem[] };
+    }
+    const res = await knowledgeApi.listGaps(activeTab as KnowledgeGapType);
+    return { kind: 'gap', items: (res.data.data || []) as GapItem[] };
+  }, [activeTab, unifiedOffset, unifiedMode]);
+  const costsQ = useAsyncData(() => maintenanceApi.getCosts().catch(() => null), []);
 
   // AS-022: Submit manual entry
   const handleManualEntry = async () => {
@@ -120,7 +96,7 @@ export function KnowledgePage() {
       });
       setShowManualEntry(false);
       setManualForm({ type: 'guideline', title: '', content: '', consumptionMode: 'reference', tags: '' });
-      loadUnified();
+      tabQ.reload(); // 提交后事件路径刷新（新建表单仅在 unified 视图打开）
     } catch (err) {
       // 工单 38: 失败不再静默——toast 反馈且保留表单内容，用户可修正后重试
       console.error('Failed to create entry:', err);
@@ -140,6 +116,14 @@ export function KnowledgePage() {
     } catch { setSearchResults([]); }
     finally { setSearchLoading(false); }
   }, [globalSearch]);
+
+  // 派生面（render 沿用原名）：unified / gap 形态按激活 tab 只有一侧有数据
+  const unifiedLoading = tabQ.loading;
+  const unifiedEntries = tabQ.data?.kind === 'unified' ? tabQ.data.entries : [];
+  const unifiedTotal = tabQ.data?.kind === 'unified' ? tabQ.data.total : 0;
+  const gapLoading = tabQ.loading;
+  const gapData = tabQ.data?.kind === 'gap' ? tabQ.data.items : [];
+  const costs = costsQ.data;
 
   const tabs: Array<{ id: ActiveTab; icon: string; label: string }> = [
     { id: 'unified', icon: '🔗', label: '统一视图' },

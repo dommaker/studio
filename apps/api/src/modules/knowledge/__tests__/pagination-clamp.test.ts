@@ -17,7 +17,7 @@ const mockList = vi.hoisted(() => vi.fn());
 const mockGapQuery = vi.hoisted(() => vi.fn());
 const mockListEntries = vi.hoisted(() => vi.fn());
 
-vi.mock('../knowledge-bus.service.js', () => ({
+vi.mock('../knowledge-singletons.js', () => ({
   sharedStore: { list: mockSharedStoreList },
 }));
 vi.mock('../knowledge-service.js', () => ({

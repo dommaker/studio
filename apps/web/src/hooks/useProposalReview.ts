@@ -44,7 +44,16 @@ export function useProposalReview({ config, meta, messageId, onAction }: UseProp
     setPending(true);
     try {
       const ok = await onAction(messageId, decision === 'approve' ? config.approveAction : config.rejectAction);
-      if (ok !== false) setReviewed(decision === 'approve' ? config.approvedState : 'rejected');
+      if (ok !== false) {
+        setReviewed(decision === 'approve' ? config.approvedState : 'rejected');
+      } else if (config.fetchReviewed) {
+        // #367 执行未全绿（如 memory 逐草稿部分失败）：按提案状态重派生一次，命中终态即时收敛；
+        // null/抛错保持待审
+        try {
+          const state = await config.fetchReviewed(cardData);
+          if (state) setReviewed(state);
+        } catch { /* 派生失败保持待审 */ }
+      }
     } finally {
       setPending(false);
       // #288：执行完毕（含失败重武装）退出两步确认待确认态

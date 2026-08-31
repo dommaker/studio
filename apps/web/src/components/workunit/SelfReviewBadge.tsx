@@ -20,7 +20,7 @@ export function SelfReviewBadge({ wu }: { wu: { status: string; type?: string; m
   if (!isSelfReview) return null;
   return (
     <span
-      className="text-xs px-2 py-0.5 rounded u-warn-dim u-warn"
+      className="text-xs px-2 py-0.5 rounded u-warn-dim u-warn shrink-0 whitespace-nowrap"
       title="本任务由实现者自评（频道内无其他可评审成员）——建议人工复核"
     >
       自评

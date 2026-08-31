@@ -17,28 +17,28 @@ vi.mock('../../../api/channel', () => ({
 
 import { AnalysisApproveDialog } from '../AnalysisApproveDialog';
 
-const PREFILL = 'DESTINATION: 三仓特性联动上线\nFOG: 存储选型用哪个？\nFOG: 部署形态先单机还是分布式？';
+const PREFILL = '目标：三仓特性联动上线\n待决：存储选型用哪个？\n待决：部署形态先单机还是分布式？';
 
 describe('AnalysisApproveDialog', () => {
   it('预填文本进 textarea；人审改后确认 → onConfirm 回传改后文本', () => {
     const onConfirm = vi.fn();
     render(<AnalysisApproveDialog prefill={PREFILL} onConfirm={onConfirm} onCancel={vi.fn()} />);
 
-    const textarea = screen.getByPlaceholderText(/DESTINATION/) as HTMLTextAreaElement;
+    const textarea = screen.getByPlaceholderText(/目标/) as HTMLTextAreaElement;
     expect(textarea.value).toBe(PREFILL);
 
     // 人审改：删掉一条雾
-    fireEvent.change(textarea, { target: { value: 'FOG: 存储选型用哪个？' } });
+    fireEvent.change(textarea, { target: { value: '待决：存储选型用哪个？' } });
     fireEvent.click(screen.getByText('确认通过'));
 
-    expect(onConfirm).toHaveBeenCalledWith('FOG: 存储选型用哪个？', undefined);
+    expect(onConfirm).toHaveBeenCalledWith('待决：存储选型用哪个？', undefined);
   });
 
   it('空预填（无清单 metadata）→ 空文本，直接确认 → onConfirm 回传空串（非探路型不开图）', () => {
     const onConfirm = vi.fn();
     render(<AnalysisApproveDialog prefill="" onConfirm={onConfirm} onCancel={vi.fn()} />);
 
-    const textarea = screen.getByPlaceholderText(/DESTINATION/) as HTMLTextAreaElement;
+    const textarea = screen.getByPlaceholderText(/目标/) as HTMLTextAreaElement;
     expect(textarea.value).toBe('');
 
     fireEvent.click(screen.getByText('确认通过'));

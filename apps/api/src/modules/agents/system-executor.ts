@@ -5,7 +5,7 @@
  * -> buildArgsFromTemplate -> execSh -> 解析 JSON envelope.usage -> 写 system:tokens 事件。
  *
  * 不走 Executor/AgentTask/agentRunner（那是 AgentLoop 的重型抽象，含 sessionId/状态机）。
- * systemExecutor 是轻量 spawn（30s 超时/无状态），直接 execSh。
+ * systemExecutor 是轻量 spawn（无状态），直接 execSh；超时按源解析（见 DEFAULT_TIMEOUT_BY_EVENT_SOURCE）。
  *
  * 失败由调用方 catch（fire-and-forget 模式由调用方决定）。
  */
@@ -30,9 +30,24 @@ export interface SystemExecutorOptions {
   timeoutMs?: number;
   /** 输出缓冲（默认 5MB） */
   maxBuffer?: number;
-  /** system:tokens 事件的 source 标记（默认 'system-executor'；调用方传入可按任务聚合成本，如 'knowledge-maintenance'） */
+  /** system:tokens 事件的 source 标记（默认 'system-executor'；调用方传入可按任务聚合成本，如 'knowledge-maintenance'）。
+   *  同时作为按源默认超时注册表（DEFAULT_TIMEOUT_BY_EVENT_SOURCE）的键。 */
   eventSource?: string;
 }
+
+/** 全局兜底超时：未打 eventSource 或不在注册表的调用点走此值 */
+const DEFAULT_TIMEOUT_MS = 30_000;
+
+/**
+ * 按 eventSource 的默认超时（#369）：已知重 prompt 源脱离全局默认，调用点不再逐个硬编码。
+ * 显式传 timeoutMs 时优先于本表。实测依据（#365）：蒸馏 prompt 思考型模型 21-27s 撞 30s；
+ * constraint-audit / knowledge-maintenance 同为全库批量重 prompt，同量级暴露，同口径放宽。
+ */
+export const DEFAULT_TIMEOUT_BY_EVENT_SOURCE: Readonly<Record<string, number>> = {
+  'knowledge-distill': 120_000,
+  'constraint-audit': 120_000,
+  'knowledge-maintenance': 120_000,
+};
 
 export interface SystemExecutorResult {
   /** CLI stdout（纯文本或 JSON 字符串） */
@@ -62,6 +77,9 @@ export class SystemExecutorJsonParseError extends Error {
 
 const DEFAULT_EVENTS_FILE = resolveStudioLogFile('studio-events.jsonl');
 
+/** system:tokens 事件 source 缺省值（#370）：事件 payload / 成功打点 / 失败 warn 三处共用 */
+const DEFAULT_EVENT_SOURCE = 'system-executor';
+
 export class SystemExecutor {
   constructor(
     private fileStore: FileStore,
@@ -70,10 +88,13 @@ export class SystemExecutor {
 
   async run(prompt: string, options?: SystemExecutorOptions): Promise<SystemExecutorResult> {
     const opts = {
-      timeoutMs: 30_000,
       maxBuffer: 5 * 1024 * 1024,
       ...options,
     };
+    // 超时解析：显式 timeoutMs > 按源注册表 > 全局默认（#369）
+    const effectiveTimeoutMs = opts.timeoutMs
+      ?? DEFAULT_TIMEOUT_BY_EVENT_SOURCE[opts.eventSource ?? '']
+      ?? DEFAULT_TIMEOUT_MS;
     const startMs = Date.now();
 
     // 1. 读 studio 角色 provider
@@ -110,7 +131,7 @@ export class SystemExecutor {
         IS_SANDBOX: process.env.IS_SANDBOX ?? '1',
         ...(opts.allowedTools ? { CLAUDE_ALLOWED_TOOLS: opts.allowedTools } : {}),
       },
-      timeoutMs: opts.timeoutMs,
+      timeoutMs: effectiveTimeoutMs,
       maxBuffer: opts.maxBuffer,
     });
 
@@ -141,7 +162,10 @@ export class SystemExecutor {
         eventSource: opts.eventSource,
       });
     } catch (err) {
-      logger.warn('[SystemExecutor] writeSystemTokenEvent failed', { error: String(err) });
+      logger.warn('[SystemExecutor] writeSystemTokenEvent failed', {
+        error: String(err),
+        eventSource: opts.eventSource ?? DEFAULT_EVENT_SOURCE,
+      });
     }
 
     return result;
@@ -204,7 +228,7 @@ export class SystemExecutor {
     const metricsFs = new FileStore();
     await metricsFs.appendJsonl(this.eventsFile, {
       type: 'system:tokens',
-      source: args.eventSource ?? 'system-executor',
+      source: args.eventSource ?? DEFAULT_EVENT_SOURCE,
       payload: JSON.stringify({
         provider: args.provider,
         inputTokens: args.usage?.inputTokens ?? null,
@@ -213,6 +237,12 @@ export class SystemExecutor {
         promptSignature: args.promptSignature,
       }),
       createdAt: new Date().toISOString(),
+    });
+    // #370：成功打点——"跑了且写成了"有迹可查（失败路径有 warn，成功路径此前完全静默）
+    logger.info('[SystemExecutor] system:tokens event written', {
+      eventSource: args.eventSource ?? DEFAULT_EVENT_SOURCE,
+      provider: args.provider,
+      durationMs: args.durationMs,
     });
   }
 }

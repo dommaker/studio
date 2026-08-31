@@ -148,6 +148,11 @@ describe('FileStore', () => {
       expect(active).toHaveLength(1);
       expect(active[0].id).toBe('p1');
     });
+
+    it('should throw on duplicate-create profile (#362 统一口径①)', async () => {
+      await store.createProfile(makeProfile('p1'));
+      await expect(store.createProfile(makeProfile('p1'))).rejects.toThrow('AgentProfile already exists');
+    });
   });
 
   // ═══ RuntimeState ═══
@@ -171,6 +176,16 @@ describe('FileStore', () => {
       const loaded = await store.getState('agent1');
       expect(loaded?.status).toBe('active');
       expect(loaded?.sessionId).toBe('session-123');
+    });
+
+    it('updateState 自动补 updatedAt（#362 统一口径②）', async () => {
+      // makeState 不含 updatedAt：创建后原样落盘，更新后必须出现
+      await store.createState('agent1', makeState('agent1'));
+      expect((await store.getState('agent1'))?.updatedAt).toBeUndefined();
+      await new Promise(resolve => setTimeout(resolve, 10));
+      await store.updateState('agent1', { status: 'active' });
+      const loaded = await store.getState('agent1');
+      expect(loaded?.updatedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
     });
 
     it('should throw on updating non-existent state', async () => {
@@ -325,6 +340,31 @@ describe('FileStore', () => {
       await store.createChannel(makeChannel('ch2', '#team-a-archived-1712345678000'));
       const list = await store.listChannels({ excludeArchived: false });
       expect(list).toHaveLength(2);
+    });
+
+    it('should throw on duplicate-create channel (#362 统一口径①)', async () => {
+      await store.createChannel(makeChannel('ch1'));
+      await expect(store.createChannel(makeChannel('ch1'))).rejects.toThrow('Channel already exists');
+    });
+  });
+
+  // ═══ 扁平目录 JSON 清单原语（#362）═══
+
+  describe('listJsonInDir', () => {
+    it('目录不存在返回 []，不建目录', async () => {
+      const dir = path.join(tmpDir, 'no-such-flat-dir');
+      expect(await store.listJsonInDir(dir)).toEqual([]);
+      expect(fs.existsSync(dir)).toBe(false);
+    });
+
+    it('只收 *.json，损坏文件跳过、保序返回', async () => {
+      const dir = path.join(tmpDir, 'flat');
+      fs.mkdirSync(dir);
+      fs.writeFileSync(path.join(dir, 'b.json'), JSON.stringify({ id: 'b' }));
+      fs.writeFileSync(path.join(dir, 'a.json'), '{corrupt');
+      fs.writeFileSync(path.join(dir, 'note.txt'), 'x');
+      fs.writeFileSync(path.join(dir, 'c.json'), JSON.stringify({ id: 'c' }));
+      expect(await store.listJsonInDir<{ id: string }>(dir)).toEqual([{ id: 'b' }, { id: 'c' }]);
     });
   });
 

@@ -1,4 +1,4 @@
-// Contract test: MonitoringPage — MVP-6
+// Contract test: MonitoringPage — MVP-6 + #398 重构（spec §7：行动面首屏 / 区块裁决 / 图表化 / §7.5 文案）
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import React from 'react';
@@ -13,15 +13,14 @@ vi.mock('react-router-dom', () => ({
   useNavigate: () => vi.fn(),
 }));
 
+const { mockGetOverview, mockGetEfficiency } = vi.hoisted(() => ({
+  mockGetOverview: vi.fn(),
+  mockGetEfficiency: vi.fn(),
+}));
+
 vi.mock('../../api/monitoring', () => ({
   monitoringApi: {
-    getStats: vi.fn().mockResolvedValue({
-      data: {
-        workunits: { total: 10, unassigned: 3, active: 2, in_review: 1, done: 3, blocked: 1, closed: 0 },
-        agents: { total: 4, idle: 2, active: 1, terminated: 1 },
-        recent: { completedLast24h: 5, failedLast24h: 1 },
-      },
-    }),
+    getOverview: mockGetOverview,
     getFlywheel: vi.fn().mockResolvedValue({
       data: {
         quality: 42, hitRate: 67, improvement: 10, freshness: 80,
@@ -43,34 +42,7 @@ vi.mock('../../api/monitoring', () => ({
         timestamp: '2026-07-19T00:00:00Z',
       },
     }),
-    getOverview: vi.fn().mockResolvedValue({
-      data: {
-        evidence: {
-          engaged: 6, l1Approved: 5, l2Approved: 4, l3Approved: 2,
-          selfReviewCount: 1, needsHuman: 3, derivedMismatch: 0,
-          derivedByColumn: { done: 3, in_review: 2, active: 1 },
-        },
-      },
-    }),
-    // #120 输入缓存命中率 + 段 trim 率（空数据形态，独立加载不阻塞主面板）
-    getEfficiency: vi.fn().mockResolvedValue({
-      data: {
-        windowDays: 30,
-        generatedAt: '2026-08-14T00:00:00Z',
-        cacheHitRate: {
-          description: '', windowDays: 30,
-          overall: { cacheReadTokens: 0, inputTokens: 0, hitRatePct: null, events: 0, workUnits: 0 },
-          steps: [], byWorkUnit: [], byRole: [], byDay: [],
-          coveragePct: 0, source: 'insufficient-data',
-        },
-        sectionTrim: {
-          description: '', windowDays: 30,
-          bySection: [],
-          totals: { trimEvents: 0, totalOriginalTokens: 0, totalTrimmedTokens: 0 },
-          source: 'insufficient-data',
-        },
-      },
-    }),
+    getEfficiency: mockGetEfficiency,
   },
 }));
 
@@ -81,15 +53,6 @@ const { mockListPendingReview, mockPromote } = vi.hoisted(() => ({
 }));
 vi.mock('../../api/knowledge', () => ({
   knowledgeApi: { listPendingReview: mockListPendingReview, promote: mockPromote, demote: vi.fn() },
-}));
-
-// 手动任务（健康巡检按钮 + 成本小字）
-vi.mock('../../api/maintenance', () => ({
-  maintenanceApi: {
-    getCosts: vi.fn().mockResolvedValue({ days: 30, byTrigger: {}, bySource: {} }),
-    fireTrigger: vi.fn(),
-    runKnowledgeMaintenance: vi.fn(),
-  },
 }));
 
 // #180 事件检索 Tab 数据源（GET /events）
@@ -105,9 +68,61 @@ vi.mock('../../components/monitoring/NeedsAttentionSection', () => ({
 
 import { MonitoringPage } from '../MonitoringPage';
 
+/** 默认 overview 响应：evidence + roles + humanIntervention 三段（#398 起消费） */
+function defaultOverview() {
+  return {
+    data: {
+      evidence: {
+        engaged: 6, l1Approved: 5, l2Approved: 4, l3Approved: 2,
+        selfReviewCount: 1, needsHuman: 3, derivedMismatch: 0,
+        derivedByColumn: { done: 3, in_review: 2, active: 1 },
+      },
+      roles: {
+        roles: [
+          { profileId: 'p-1', profileName: 'Analyst', claims: 8, completions: 5, avgDurationHours: 1.26, needInputClarify: 2, needInputExecution: 1 },
+          { profileId: 'p-2', profileName: 'Executor', claims: 10, completions: 7, avgDurationHours: null, needInputClarify: 0, needInputExecution: 4 },
+        ],
+      },
+      humanIntervention: {
+        completedWorkUnits: 12, needInputCount: 7, reviewRejections: 3, mergeConflicts: 2,
+        avgPerCompletedWu: 1.0,
+      },
+    },
+  };
+}
+
+/** #120 输入缓存命中率（默认空数据形态；source='events' 形态见专项用例） */
+function emptyEfficiency() {
+  return {
+    data: {
+      windowDays: 30,
+      generatedAt: '2026-08-14T00:00:00Z',
+      cacheHitRate: {
+        description: '', windowDays: 30,
+        overall: { cacheReadTokens: 0, inputTokens: 0, hitRatePct: null, events: 0, workUnits: 0 },
+        steps: [], byWorkUnit: [], byRole: [], byDay: [],
+        coveragePct: 0, source: 'insufficient-data',
+      },
+      sectionTrim: {
+        description: '', windowDays: 30,
+        bySection: [],
+        totals: { trimEvents: 0, totalOriginalTokens: 0, totalTrimmedTokens: 0 },
+        source: 'insufficient-data',
+      },
+    },
+  };
+}
+
+/** 展开「健康度量」默认折叠分区 */
+async function openMetrics() {
+  fireEvent.click(await screen.findByText('健康度量'));
+}
+
 describe('MonitoringPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockGetOverview.mockResolvedValue(defaultOverview());
+    mockGetEfficiency.mockResolvedValue(emptyEfficiency());
     mockListPendingReview.mockResolvedValue({
       data: {
         entries: [
@@ -125,61 +140,174 @@ describe('MonitoringPage', () => {
     expect(screen.getByText('监控')).toBeDefined();
   });
 
-  it('renders section headers', async () => {
+  // ── #398 行动面（§7.2 首屏）──
+
+  it('首屏行动面：「需要处理」在「知识提案待审」之前，均在健康度量之上', async () => {
     render(<MonitoringPage />);
-    expect(await screen.findByText('WorkUnit 状态分布')).toBeDefined();
-    expect(screen.getByText('Agent 状态')).toBeDefined();
-    expect(screen.getByText('最近 24 小时')).toBeDefined();
+    const needsAttention = await screen.findByText('需要处理');
+    const proposals = await screen.findByText('知识提案待审');
+    expect(needsAttention.compareDocumentPosition(proposals) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // 行动区不需要展开即可见（健康度量默认折叠，其区块此时不可见）
+    expect(screen.queryByText('证据台账（信任分层）')).toBeNull();
   });
 
-  it('displays stat values', async () => {
+  it('知识提案待审：22px 主数字 = 待审提案数，附白话副标题', async () => {
     render(<MonitoringPage />);
-    expect(await screen.findByText('10')).toBeDefined(); // total workunits
+    expect(await screen.findByText('知识提案待审')).toBeDefined();
+    expect(screen.getByTestId('proposals-stat').textContent).toBe('2');
+    expect(screen.getByText('Agent 提炼的新知识，等你确认')).toBeDefined();
   });
 
-  it('renders M1 飞轮指标 block with real values', async () => {
+  // ── #398 区块裁决（§7.3）：删除四区块 ──
+
+  it('删除区块不再出现（展开健康度量后也没有）', async () => {
     render(<MonitoringPage />);
-    expect(await screen.findByText('飞轮指标')).toBeDefined();
-    expect(screen.getByText('67%')).toBeDefined(); // hitRate
-    expect(screen.getByText('+10pp')).toBeDefined(); // improvement
-    expect(screen.getByText('proposal 待审')).toBeDefined();
+    await openMetrics();
+    await screen.findByText('证据台账（信任分层）');
+    expect(screen.queryByText('WorkUnit 状态分布')).toBeNull();
+    expect(screen.queryByText('Agent 状态')).toBeNull();
+    expect(screen.queryByText('最近 24 小时')).toBeNull();
+    expect(screen.queryByText('段 trim 率')).toBeNull();
+    // 旧「封装开销」改名「注入预算占用」
+    expect(screen.queryByText('封装开销')).toBeNull();
   });
 
-  it('renders M2 封装开销 block with threshold-colored values', async () => {
+  // ── #398 健康度量分区（§7.2 默认折叠）──
+
+  it('健康度量默认折叠，点击展开后各区块出现（§7.5 文案：标题+副标题+主数字）', async () => {
     render(<MonitoringPage />);
-    expect(await screen.findByText('封装开销')).toBeDefined();
-    expect(screen.getByText('800')).toBeDefined(); // avgInjectedTokens
-    expect(screen.getByText('40%')).toBeDefined(); // injectedBudgetUsedPct
-    expect(screen.getByText('2.5%')).toBeDefined(); // avgOverheadRatio
+    const toggle = await screen.findByText('健康度量');
+    expect(toggle.closest('button')?.getAttribute('aria-expanded')).toBe('false');
+    expect(screen.queryByText('飞轮指标')).toBeNull();
+
+    await openMetrics();
+    expect(screen.getByText('飞轮指标')).toBeDefined();
+    expect(screen.getByText('系统有没有越用越聪明')).toBeDefined();
+    expect(screen.getByText('证据台账（信任分层）')).toBeDefined();
+    expect(screen.getByText('每个任务有多少人/机器确认过')).toBeDefined();
+    expect(screen.getByText('注入预算占用')).toBeDefined();
+    expect(screen.getByText('每次执行任务，背景注入占了多少上下文预算')).toBeDefined();
+    expect(screen.getByText('输入缓存命中率')).toBeDefined();
+    expect(screen.getByText('角色效率')).toBeDefined();
+    expect(screen.getByText('每个角色认领、完成了多少任务、平均多久')).toBeDefined();
+    expect(screen.getByText('人工干预')).toBeDefined();
+    expect(screen.getByText('每完成一个任务，平均需要人插手几次')).toBeDefined();
   });
 
-  it('renders F6 证据台账 block（信任分层 + 双轨偏差）', async () => {
+  it('证据台账减卡：核心 5 张在，自评/已介入卡移除；主数字 = 已验收占比（L3 ÷ 已介入）', async () => {
     render(<MonitoringPage />);
-    expect(await screen.findByText('证据台账（信任分层）')).toBeDefined();
-    expect(screen.getByText('L1 自动验证')).toBeDefined();
-    expect(screen.getByText('L2 agent 评审')).toBeDefined();
-    expect(screen.getByText('L3 人工确认')).toBeDefined();
+    await openMetrics();
+    await screen.findByText('证据台账（信任分层）');
+    expect(screen.getByText('自动验证')).toBeDefined();
+    expect(screen.getByText('Agent 评审')).toBeDefined();
+    expect(screen.getByText('人工确认')).toBeDefined();
     expect(screen.getByText('待人工确认')).toBeDefined();
     expect(screen.getByText('双轨偏差')).toBeDefined();
-    expect(screen.getByText('自评（L2）')).toBeDefined();
-    expect(screen.getByText('6')).toBeDefined(); // engaged（已介入 WU，页面唯一）
+    expect(screen.queryByText('自评（L2）')).toBeNull();
+    expect(screen.queryByText('已介入 WU')).toBeNull();
+    // 2/6 = 33%
+    expect(screen.getByTestId('evidence-stat').textContent).toBe('33%');
   });
 
-  // ── 审核闭环：待审区从纯计数升级为列表（标题/年龄/approve） ──
+  it('飞轮指标减卡：hitRate / improvement / 待审三张在，质量分/新鲜度/提取移除；主数字 = 命中率', async () => {
+    render(<MonitoringPage />);
+    await openMetrics();
+    await screen.findByText('飞轮指标');
+    expect(screen.getByText('知识命中率')).toBeDefined();
+    expect(screen.getByText('+10pp')).toBeDefined();
+    expect(screen.getByText('proposal 待审')).toBeDefined();
+    expect(screen.queryByText('质量分')).toBeNull();
+    expect(screen.queryByText('新鲜度')).toBeNull();
+    expect(screen.queryByText(/提取次数/)).toBeNull();
+    expect(screen.getByTestId('flywheel-stat').textContent).toBe('67%');
+  });
+
+  it('注入预算占用图表化：主数字 + 预算用量条（caption 含平均注入/红线）', async () => {
+    render(<MonitoringPage />);
+    await openMetrics();
+    await screen.findByText('注入预算占用');
+    expect(screen.getByTestId('overhead-stat').textContent).toBe('40%');
+    expect(screen.getByTestId('usage-bar-fill').style.width).toBe('40%');
+    expect(screen.getByText(/平均注入 800 \/ 红线 2000 tokens/)).toBeDefined();
+    expect(screen.getByText(/开销比 = 注入估算 \/ 执行 tokens：2.5%/)).toBeDefined();
+  });
+
+  it('输入缓存命中率：insufficient-data 形态显示数据不足文案', async () => {
+    render(<MonitoringPage />);
+    await openMetrics();
+    expect(await screen.findByText(/命中率数据不足/)).toBeDefined();
+  });
+
+  it('输入缓存命中率图表化：byDay 柱 + byRole 横条（events 形态）', async () => {
+    mockGetEfficiency.mockResolvedValue({
+      data: {
+        windowDays: 30,
+        generatedAt: '2026-08-14T00:00:00Z',
+        cacheHitRate: {
+          description: '', windowDays: 30,
+          overall: { cacheReadTokens: 1200, inputTokens: 3000, hitRatePct: 29, events: 8, workUnits: 2 },
+          steps: [], byWorkUnit: [],
+          byRole: [
+            { profileId: 'p-1', profileName: 'Analyst', cacheReadTokens: 800, inputTokens: 2000, hitRatePct: 29, events: 5 },
+          ],
+          byDay: [
+            { day: '2026-08-13', cacheReadTokens: 400, inputTokens: 1000, hitRatePct: 29, events: 3 },
+          ],
+          coveragePct: 80, source: 'events',
+        },
+        sectionTrim: emptyEfficiency().data.sectionTrim,
+      },
+    });
+    render(<MonitoringPage />);
+    await openMetrics();
+    await screen.findByText('输入缓存命中率');
+    expect(screen.getByTestId('cache-stat').textContent).toBe('29%');
+    expect(screen.getByText('按天')).toBeDefined();
+    expect(screen.getByText('08-13')).toBeDefined();
+    expect(screen.getByText('按角色')).toBeDefined();
+    expect(screen.getAllByText('Analyst').length).toBeGreaterThan(0); // HBars 行（角色效率表亦有同名行）
+    // 覆盖率 <100% → 口径说明
+    expect(screen.getByText(/覆盖率 80%/)).toBeDefined();
+  });
+
+  it('角色效率表：认领/完成/平均时长/NEED_INPUT 拆分（无均时 → N/A）', async () => {
+    render(<MonitoringPage />);
+    await openMetrics();
+    await screen.findByText('角色效率');
+    expect(screen.getByText('认领')).toBeDefined();
+    expect(screen.getByText('完成')).toBeDefined();
+    expect(screen.getByText('平均时长')).toBeDefined();
+    expect(screen.getByText('提问（澄清/执行）')).toBeDefined();
+    expect(screen.getByText('Executor')).toBeDefined();
+    expect(screen.getByText('1.3h')).toBeDefined(); // 1.26 四舍五入
+    expect(screen.getByText('N/A')).toBeDefined(); // Executor 无均时
+    expect(screen.getByText('2 / 1')).toBeDefined();
+    expect(screen.getByText('0 / 4')).toBeDefined();
+  });
+
+  it('人工干预北极星卡：主数字 = 每 WU 平均干预次数 + 分母与细分小字', async () => {
+    render(<MonitoringPage />);
+    await openMetrics();
+    await screen.findByText('人工干预');
+    expect(screen.getByTestId('intervention-stat').textContent).toBe('1');
+    expect(screen.getByText(/窗口内完成 12 个任务/)).toBeDefined();
+    expect(screen.getByText(/NEED_INPUT 挂起 7 次/)).toBeDefined();
+    expect(screen.getByText(/review 驳回 3 次/)).toBeDefined();
+    expect(screen.getByText(/合并冲突转人工 2 次/)).toBeDefined();
+  });
+
+  // ── 审核闭环：待审列表（标题/年龄/approve）──
 
   it('renders 待审提案列表：标题 + 年龄 + approve 按钮', async () => {
     render(<MonitoringPage />);
-    expect(await screen.findByText('知识提案待审')).toBeDefined();
     expect(await screen.findByText('session 过期未刷新导致 401')).toBeDefined();
     expect(screen.getByText('登录流程统一走 auth-service')).toBeDefined();
-    // 年龄（2 小时前 / 1 天前）
     expect(screen.getByText(/2 小时前/)).toBeDefined();
     expect(screen.getByText(/1 天前/)).toBeDefined();
-    // 每行一个 approve 按钮
     expect(screen.getAllByText('通过').length).toBe(2);
   });
 
-  it('approve → 调 /promote 并把该条目移出列表', async () => {
+  it('approve → 调 /promote 并把该条目移出列表，主数字同步减一', async () => {
     render(<MonitoringPage />);
     const buttons = await screen.findAllByText('通过');
     fireEvent.click(buttons[0]);
@@ -190,15 +318,16 @@ describe('MonitoringPage', () => {
       expect(screen.queryByText('session 过期未刷新导致 401')).toBeNull();
     });
     expect(screen.getByText('登录流程统一走 auth-service')).toBeDefined();
+    expect(screen.getByTestId('proposals-stat').textContent).toBe('1');
   });
 
-  // ── #180 事件检索 Tab（#60 决策 Q3a：概览 / 事件检索） ──
+  // ── #180 事件检索 Tab（#60 决策 Q3a：概览 / 事件检索）──
 
   it('渲染「概览 / 事件检索」Tab，默认概览', async () => {
     render(<MonitoringPage />);
     expect(screen.getByText('概览')).toBeDefined();
     expect(screen.getByText('事件检索')).toBeDefined();
-    expect(await screen.findByText('WorkUnit 状态分布')).toBeDefined();
+    expect(await screen.findByText('知识提案待审')).toBeDefined();
     // 默认不触发事件检索
     expect(mockEventSearch).not.toHaveBeenCalled();
   });
@@ -240,7 +369,6 @@ describe('MonitoringPage', () => {
     expect(await screen.findByText('workunit:failed')).toBeDefined();
     expect(screen.getByText('警告')).toBeDefined();
     expect(screen.getByText(/Verify FAILED: tsc/)).toBeDefined();
-    // nextCursor null → 无「加载更多」
     expect(screen.queryByText('加载更多')).toBeNull();
   });
 
@@ -280,14 +408,5 @@ describe('MonitoringPage', () => {
     fireEvent.click(screen.getByText('事件检索'));
     fireEvent.click(screen.getByText('查询'));
     expect(await screen.findByText(/查询失败/)).toBeDefined();
-  });
-
-  // ── #184 概览 Tab 顶部「需要处理」区（#62 D4：首屏回答"有没有事需要我管"） ──
-
-  it('概览 Tab 顶部出现「需要处理」区（位于 WorkUnit 状态分布之前）', async () => {
-    render(<MonitoringPage />);
-    const needsAttention = await screen.findByText('需要处理');
-    const firstSection = await screen.findByText('WorkUnit 状态分布');
-    expect(needsAttention.compareDocumentPosition(firstSection) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });

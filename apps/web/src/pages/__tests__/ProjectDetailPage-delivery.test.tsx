@@ -83,6 +83,7 @@ const deliveryAutoMergePending = {
   deliverable: false,
   missing: ['WU-3 缺 L2 agent 评审'],
   tokens: 1234,
+  archived: false,
   gaps: [
     { id: 'wu-3', title: '实现交付台账', type: 'task', missing: ['l2'] as Array<'l1' | 'l2' | 'l3'> },
   ],
@@ -151,15 +152,16 @@ describe('PMO-b/F6-c: 交付区块', () => {
     expect(screen.getByText('🔄 进行中 2/3')).toBeTruthy();
     expect(screen.getByText(/自动合并/)).toBeTruthy();
     expect(screen.getByText(/分支: PMO-11/)).toBeTruthy();
-    expect(screen.getByText('WU: 2/3 完成')).toBeTruthy();
-    expect(screen.getByText('L1: ✓')).toBeTruthy();
-    expect(screen.getByText('L2: 缺 1')).toBeTruthy();
-    expect(screen.getByText('L3: ✓')).toBeTruthy();
+    // #399 §8.3 词表：WU→任务；证据三级白话（自动验证/Agent 评审/人工确认）
+    expect(screen.getByText('任务: 2/3 完成')).toBeTruthy();
+    expect(screen.getByText('自动验证: ✓')).toBeTruthy();
+    expect(screen.getByText('Agent 评审: 缺 1')).toBeTruthy();
+    expect(screen.getByText('人工确认: ✓')).toBeTruthy();
     expect(screen.getByText('自评: 2')).toBeTruthy();
-    // 缺口行动清单：在途提示 + WU 行（标题/type/缺层文案/行动按钮）
-    expect(screen.getByText('1 个 WorkUnit 仍在途')).toBeTruthy();
+    // 缺口行动清单：在途提示 + 任务行（标题/type/缺层白话文案/行动按钮）
+    expect(screen.getByText('1 个任务仍在途')).toBeTruthy();
     expect(screen.getByText('实现交付台账')).toBeTruthy();
-    expect(screen.getByText('缺 L2 agent 评审')).toBeTruthy();
+    expect(screen.getByText('缺 Agent 评审')).toBeTruthy();
     expect(screen.getByRole('button', { name: '派发评审' })).toBeTruthy();
   });
 
@@ -258,7 +260,7 @@ describe('PMO-b/F6-c: 交付区块', () => {
       expect(screen.getByText('⏳ 待验收:证据还差 1 项')).toBeTruthy();
     });
     expect(screen.getByText('撰写发布说明')).toBeTruthy();
-    expect(screen.getByText('缺 L3 人工确认')).toBeTruthy();
+    expect(screen.getByText('缺人工确认')).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: '人工确认' }));
 
@@ -266,7 +268,7 @@ describe('PMO-b/F6-c: 交付区块', () => {
       expect(mockReviewPassed).toHaveBeenCalledWith('wu-9', undefined, undefined);
     });
     // toast + 刷新（初次加载 1 次 + 行动后 refreshDelivery 再拉 1 次）
-    await screen.findByText('已确认，L3 已补齐');
+    await screen.findByText('人工确认已补齐');
     await waitFor(() => {
       expect(mockGetDelivery.mock.calls.length).toBeGreaterThanOrEqual(2);
     });
@@ -289,13 +291,13 @@ describe('PMO-b/F6-c: 交付区块', () => {
     await waitFor(() => {
       expect(mockVerify).toHaveBeenCalledWith('wu-1');
     });
-    await screen.findByText('验证通过，L1 已补齐');
+    await screen.findByText('验证通过，自动验证已补齐');
     await waitFor(() => {
       expect(mockGetDelivery.mock.calls.length).toBeGreaterThanOrEqual(2);
     });
   });
 
-  it('status=completed 且证据未齐：时间线下显示琥珀警告条（缺 0 的层不显示）', async () => {
+  it('status=completed 且证据未齐：进展卡内显示琥珀警告条（白话词表，缺 0 的层不显示）', async () => {
     mockGetProject.mockResolvedValue({ data: { ...mockProject, status: 'completed' } });
     mockGetDelivery.mockResolvedValue({
       data: {
@@ -316,13 +318,13 @@ describe('PMO-b/F6-c: 交付区块', () => {
           (_, el) =>
             el?.tagName === 'DIV' &&
             el.textContent ===
-              '⚠️ 项目已标记完成，但交付证据未齐（L1 缺 2 · L3 缺 1）——在上方交付卡补齐后才算真正交付',
+              '⚠️ 项目已标记完成，但交付证据未齐（2 个任务缺自动验证 · 1 个缺人工确认）——在上方交付卡补齐后才算真正交付',
         ),
       ).toBeTruthy();
     });
   });
 
-  it('tasks 为空时统计卡走 WU 口径六卡（含 delivery.tokens）', async () => {
+  it('#399 §8.2：六卡删除，进展卡 = progress + 已完成 n/m + Token meta（全周期累计）+ 口径副标题', async () => {
     mockGetDelivery.mockResolvedValue({
       data: {
         ...deliveryAutoMergePending,
@@ -338,21 +340,21 @@ describe('PMO-b/F6-c: 交付区块', () => {
     renderDetail();
 
     await waitFor(() => {
-      expect(screen.getByText('👀 待验收')).toBeTruthy();
+      expect(screen.getByText('📈 项目进展')).toBeTruthy();
     });
 
-    // 「🔄 进行中」与时间线节点文案撞车，用 getAllByText + 值匹配消歧
-    const expectCard = (label: string, value: string) => {
-      const labelEl = screen
-        .getAllByText(label)
-        .find(el => el.previousElementSibling?.textContent === value);
-      expect(labelEl, `统计卡 ${label}=${value}`).toBeTruthy();
-    };
-    expectCard('✅ 完成', '4');
-    expectCard('👀 待验收', '1');
-    expectCard('🔄 进行中', '1');
-    expectCard('⏳ 待领取', '2');
-    expectCard('🚫 阻塞', '1');
-    expectCard('💰 Token', (1234567).toLocaleString());
+    // 六卡已删（状态计数唯一表达 = 泳道头）
+    expect(screen.queryByText('✅ 完成')).toBeNull();
+    expect(screen.queryByText('👀 待验收')).toBeNull();
+    expect(screen.queryByText('🚫 阻塞')).toBeNull();
+    expect(screen.queryByText('💰 Token')).toBeNull();
+
+    // 新构成：% 走 --fs-stat + mono；同行 n/m 与 Token meta（全周期累计）；--fs-xs muted 副标题
+    const pct = screen.getByText(`${mockProject.progress}%`);
+    expect(pct.style.fontSize).toBe('var(--fs-stat)');
+    expect(pct.className).toContain('font-mono');
+    expect(screen.getByText(/已完成 4\/8/)).toBeTruthy();
+    expect(screen.getByText(/1\.2M tokens（全周期累计）/)).toBeTruthy();
+    expect(screen.getByText('完成数 = 已交付的任务，验收中的不计入')).toBeTruthy();
   });
 });

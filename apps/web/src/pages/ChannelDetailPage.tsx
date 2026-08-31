@@ -1,6 +1,6 @@
-// Channel Detail Page — Mission Control 三栏（左频道栏 / 中对话流 / 右抽屉）
+// Channel Detail Page — Mission Control 三栏（左频道栏 / 中对话流 / 右频道动态栏 #394 + 覆盖抽屉）
 // 对话流逻辑与 B1-001/Phase 2 一致：日期分隔、已完成折叠、线程分组、NEED_INPUT 回复链路，零语义变更
-import { useParams } from 'react-router-dom';
+import { useParams, useSearchParams } from 'react-router-dom';
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useChannelMessages } from '../hooks/useChannelEvents';
 import { useStreamFollow } from '../hooks/useStreamFollow';
@@ -16,12 +16,17 @@ import { ChannelDefaultProjectSelect } from '../components/channel/ChannelDefaul
 import { ChannelCurrentPmoChip } from '../components/channel/ChannelCurrentPmoChip';
 import { ChannelNeedInputChip, type NeedInputTodo } from '../components/channel/ChannelNeedInputChip';
 import { ChannelRail } from '../components/channel/ChannelRail';
+import { ChannelActivityRail } from '../components/channel/ChannelActivityRail';
 import { WorkUnitDrawer, type DrawerState } from '../components/channel/WorkUnitDrawer';
+import { useMediaQuery } from '../hooks/useMediaQuery';
 import { workunitApi } from '../api/workunit';
+import { useNotificationStore } from '../stores/notificationStore';
+import { fanOut } from '../utils/fanOut';
 import { requirementApi, type Requirement, type RequirementStatus } from '../api/requirements';
 import { parseLiveWuRef } from '../components/workunit/execution-rows';
 import type { Channel, ChannelMessage, ChannelFileVocabulary, FileRef } from '../api/channel';
 import { channelApi } from '../api/channel';
+import { saveLastChannelId } from '../utils/lastChannel';
 
 /** #279（决策 #250 D4）：闸门类 WU 类型（人工验收单）——不聚合进 NEED_INPUT 待办 chip */
 const GATE_WU_TYPES = new Set(['decision', 'spec']);
@@ -66,6 +71,8 @@ function parseRequirementRef(
 
 export function ChannelDetailPage() {
   const { id } = useParams<{ id: string }>();
+  // #393：记录最近访问频道（/ 与 /channels 重定向落点，spec §2）
+  useEffect(() => { if (id) saveLastChannelId(id); }, [id]);
   const [channel, setChannel] = useState<Channel | null>(null);
   const { messages, loading, sendMessage, loadMore, hasMore, refresh, syncPruning } = useChannelMessages(id);
   const [sending, setSending] = useState(false);
@@ -74,10 +81,16 @@ export function ChannelDetailPage() {
   // F5: NEED_INPUT 挂起中的 WorkUnit 集合（等待人类回复）；
   // #279（决策 #250 D4）：扩为对象集（chip 聚合要 WU 标识 + 问题摘要），闸门类（decision/spec）不聚合
   const [waitingWus, setWaitingWus] = useState<NeedInputTodo[]>([]);
-  // REQ 需求编号（vision §5.3）：本频道需求 chips；全链路改右抽屉呈现
+  // REQ 需求编号（vision §5.3）：本频道需求集；#394 起喂右栏「频道动态」REQ 链路卡（原中栏 chips 条移除）
   const [channelReqs, setChannelReqs] = useState<Requirement[]>([]);
   // Mission Control 右抽屉：WorkUnit 详情 / REQ 全链路
   const [drawer, setDrawer] = useState<DrawerState>(null);
+  // #395（spec §4.6）窄屏降级断点：<768 左栏并入全局 Sidebar（本页卸载内联 ChannelRail）；
+  // <1024 右栏卸载 → 顶栏「频道动态」入口 + 覆盖滑出抽屉（actRailOpen）。
+  // matchMedia 缺失（jsdom）回落宽屏：内联三栏齐挂、覆盖层不开
+  const mdUp = useMediaQuery('(min-width: 768px)', true);
+  const lgUp = useMediaQuery('(min-width: 1024px)', true);
+  const [actRailOpen, setActRailOpen] = useState(false);
   // #242 live 执行状态条：#322 下沉至 ChannelLiveBars 自持有 useChannelLiveExecutions，
   // step 事件不再触发本页整树重渲（见渲染段 <ChannelLiveBars>）
 
@@ -85,6 +98,12 @@ export function ChannelDetailPage() {
     if (!id) return;
     channelApi.get(id).then(r => setChannel(r.data.data)).catch(() => {});
   }, [id]);
+
+  // 打开频道即读：本频道未读通知（SSE @human 实时条目 + link 指向本频道的后端通知）标记已读
+  const markChannelRead = useNotificationStore(s => s.markChannelRead);
+  useEffect(() => {
+    if (id) markChannelRead(id);
+  }, [id, markChannelRead]);
 
   // F5: 本频道挂起中的 WorkUnit（blocked + metadata.waitingForInput）——REST 打底 +
   // workunit.status_changed SSE 增量维护（SSE 负载深化 批 2 决策 5：摘 messages.length 依赖，wu 数据直取事件负载）。
@@ -254,18 +273,14 @@ export function ChannelDetailPage() {
     let cancelled = false;
     for (const wuId of pending) wuFilesFetchedRef.current.add(wuId);
     void (async () => {
-      const entries = await Promise.all(pending.map(async (wuId): Promise<[string, string[]]> => {
-        try {
-          const res = await workunitApi.getChangedFiles(wuId);
-          return [wuId, res.data?.data?.files ?? []];
-        } catch {
-          return [wuId, []]; // 静默降级：该 WU 走候选集词表
-        }
-      }));
+      const results = await fanOut(pending, wuId => workunitApi.getChangedFiles(wuId));
       if (!cancelled) {
         setWuChangedFiles(prev => {
           const next = { ...prev };
-          for (const [wuId, files] of entries) next[wuId] = files;
+          for (let i = 0; i < pending.length; i++) {
+            const r = results[i];
+            next[pending[i]] = r.ok ? r.value.data?.data?.files ?? [] : []; // 失败静默降级：该 WU 走候选集词表
+          }
           return next;
         });
       }
@@ -310,12 +325,36 @@ export function ChannelDetailPage() {
     setHighlightId(msgId);
   }, [latestQuestionIdByWu, messages]);
 
+  // 通知中心点击直达（?highlight=<mid>）：复用上方高亮定位机制，滚动到该消息并高亮 2s。
+  // 每个 mid 只消费一次（防消息流更新反复重置高亮）；目标未加载（异步首拉未完成）时等下一轮
+  // messages——老消息掉出首页分页则静默不定位（已知留白，对齐 locateWaitingQuestion 同约束）
+  const [searchParams] = useSearchParams();
+  const highlightConsumedRef = useRef<string | null>(null);
+  useEffect(() => {
+    const mid = searchParams.get('highlight');
+    if (!mid || highlightConsumedRef.current === mid) return;
+    const target = messages.find(m => m.id === mid);
+    if (!target) return;
+    highlightConsumedRef.current = mid;
+    if (target.replyToId) {
+      const anchorId = target.replyToId;
+      setExpandedThreads(prev => new Set(prev).add(anchorId));
+    }
+    setHighlightId(mid);
+  }, [searchParams, messages]);
+
   // 里程碑判定（不折叠）：人类消息 / 卡片消息 / 等待回复 / 最后一条回复——已迁入 deriveStreamView（#322）
 
   const openWu = useCallback((wuId: string) => setDrawer({ kind: 'wu', id: wuId }), []);
   // #284（决策 #250 D6）：analysis_confirm 接力卡「去确认」——打开即弹确认对话框
   const openWuConfirm = useCallback((wuId: string) => setDrawer({ kind: 'wu', id: wuId, autoApprove: true }), []);
   const openReq = useCallback((reqId: string) => setDrawer({ kind: 'req', id: reqId }), []);
+
+  // #395：覆盖态频道动态里点 REQ/WU → 收起覆盖层再开详情抽屉（窄屏不叠加两层）；
+  // 窗口拉宽回 ≥1024 时覆盖层状态一并复位（防再收窄时莫名重开）
+  const openWuFromRailOverlay = useCallback((wuId: string) => { setActRailOpen(false); openWu(wuId); }, [openWu]);
+  const openReqFromRailOverlay = useCallback((reqId: string) => { setActRailOpen(false); openReq(reqId); }, [openReq]);
+  useEffect(() => { if (lgUp) setActRailOpen(false); }, [lgUp]);
 
   // #322: 消息流管线——归组/过程折叠/连续合并/日期分隔/可见性走 deriveStreamView 纯函数，
   // useMemo 消费（消息引用与 UI 状态不变则零重算）；折叠 UI 状态留组件
@@ -513,8 +552,8 @@ export function ChannelDetailPage() {
 
   return (
     <div className="mc-ws">
-      {/* 左栏：频道列表 + Agent 状态 */}
-      <ChannelRail activeChannelId={id} />
+      {/* 左栏：频道列表 + Agent 状态（#395：<768 卸载，并入全局 Sidebar） */}
+      {mdUp && <ChannelRail activeChannelId={id} />}
 
       {/* 中栏：对话流 */}
       <main className="mc-main">
@@ -524,6 +563,15 @@ export function ChannelDetailPage() {
             {channel?.type === 'rnd' ? '研发频道' : channel?.type === 'decision' ? '决策频道' : '系统频道'}
           </span>
           <div className="mc-topbar-actions">
+            {/* #395（spec §4.6）：<1024 右栏抽屉入口（≥1024 CSS 隐藏，内联右栏在岗） */}
+            <button
+              type="button"
+              className="mc-btn mc-act-open"
+              aria-label="打开频道动态"
+              onClick={() => setActRailOpen(true)}
+            >
+              频道动态
+            </button>
             {/* #279（决策 #250 D4）：NEED_INPUT 待办 chip（只聚合等待回复，闸门类不聚合） */}
             <ChannelNeedInputChip items={waitingWus} onLocate={locateWaitingQuestion} />
             {/* #272（决策 #251 Q6）：当前 PMO chip（派生不落库，点击跳项目页） */}
@@ -541,23 +589,6 @@ export function ChannelDetailPage() {
         {/* #242: live 执行状态条——有 WU 执行中时显示，点击打开对应 WU 抽屉（过程明细仍在抽屉）；
             #322：hook 下沉 ChannelLiveBars 自持有，step 事件只重渲该组件边界 */}
         <ChannelLiveBars channelId={id} onOpenWorkUnit={openWu} />
-
-        {/* REQ 需求编号 chips（vision §5.3）— 点击打开右抽屉全链路 */}
-        {channelReqs.length > 0 && (
-          <div className="mc-reqs">
-            <span className="mc-reqs-label">REQ</span>
-            {channelReqs.map(req => (
-              <button
-                key={req.id}
-                onClick={() => openReq(req.id)}
-                className="mc-req-chip"
-                title={`${req.id} · ${req.title} · ${req.status}`}
-              >
-                {req.id} · {req.title} · <span className="mc-req-status">{req.status}</span>
-              </button>
-            ))}
-          </div>
-        )}
 
         {/* Message list
             #325：头部块（空态/加载更早/折叠 toggle）与虚拟列表 spacer 分离——
@@ -631,7 +662,46 @@ export function ChannelDetailPage() {
         <ChannelInput onSend={handleSend} sending={sending} replyTo={replyTo} onCancelReply={() => setReplyTo(null)} channelId={id} />
       </main>
 
-      {/* 右栏：抽屉（WorkUnit 详情 / REQ 全链路） */}
+      {/* 右栏：频道动态 REQ 链路卡（#394，spec §4.1–4.3）；REQ/WU 点击仍走下方覆盖抽屉。
+          #395：仅 ≥1024 内联挂载（<1024 走下方覆盖抽屉，避免藏而不卸的取数浪费） */}
+      {lgUp && (
+        <ChannelActivityRail
+          channelId={id}
+          reqs={channelReqs}
+          messages={messages}
+          waitingWus={waitingWus}
+          onOpenWu={openWu}
+          onOpenReq={openReq}
+        />
+      )}
+
+      {/* #395（spec §4.6）：<1024 频道动态覆盖抽屉——右侧滑出，backdrop/× 可关，
+          点 REQ/WU 收起覆盖层后开详情抽屉（不叠加两层） */}
+      {!lgUp && actRailOpen && (
+        <div className="mc-act-overlay" role="dialog" aria-label="频道动态">
+          <div className="mc-act-overlay-backdrop" onClick={() => setActRailOpen(false)} />
+          <div className="mc-act-overlay-panel">
+            <button
+              type="button"
+              className="mc-drawer-close mc-act-overlay-close"
+              aria-label="关闭频道动态"
+              onClick={() => setActRailOpen(false)}
+            >
+              ×
+            </button>
+            <ChannelActivityRail
+              channelId={id}
+              reqs={channelReqs}
+              messages={messages}
+              waitingWus={waitingWus}
+              onOpenWu={openWuFromRailOverlay}
+              onOpenReq={openReqFromRailOverlay}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* 右抽屉：WorkUnit 详情 / REQ 全链路 */}
       <WorkUnitDrawer
         drawer={drawer}
         onClose={() => setDrawer(null)}

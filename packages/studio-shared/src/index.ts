@@ -47,6 +47,12 @@ export type { FileStoreOptions } from './file-store';
 // 导出 JSONL append-only 折叠（#360：byId 分组 + 业务侧墓碑判据）
 export { foldJsonlById } from './jsonl-fold';
 export type { JsonlFoldGroup } from './jsonl-fold';
+
+// #361 事件写口唯一入口 + 日志路径测试隔离（自 apps/api 下沉，packages 可达）
+export * from './studio-events';
+export * from './log-path';
+// #361 RKB 已知解法匹配核心（runner-output / resolution.service 双实现收一）
+export * from './resolutions';
 export type {
   AgentProfileData,
   RuntimeStateData,

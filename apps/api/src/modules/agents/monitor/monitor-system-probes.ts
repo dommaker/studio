@@ -13,14 +13,16 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { execAsync } from './exec-async.js';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import { logger } from '@dommaker/studio-shared';
 import type { TriageIncidentInput } from '../types.js';
 import { triageService } from '../triage/triage.service.js';
 import { KnowledgeLinter, KnowledgeHealthScorer, ReferenceTracker } from '@dommaker/harness';
-import { sharedStore, sharedLifecycle } from '../../knowledge/knowledge-bus.service.js';
+import { sharedStore, sharedLifecycle } from '../../knowledge/knowledge-singletons.js';
 import { knowledgeSync } from '../../knowledge/knowledge-sync.service.js';
 import { emitMonitorEvent } from './monitor-alerts.js';
+import { readDiskUsage, readMemoryUsage, countZombieProcesses } from '../ops/proc-probes.js';
 
 const WORKTREES_DIR = process.env.WORKTREES_DIR || path.join(os.homedir(), 'worktrees');
 
@@ -57,8 +59,7 @@ export async function gcStaleWorktrees(): Promise<void> {
     // Prune git worktree references that point to deleted directories
     const repoDir = process.env.REPO_DIR || path.join(os.homedir(), 'projects');
     if (fs.existsSync(path.join(repoDir, '.git'))) {
-      const { execSync } = await import('child_process');
-      execSync('git worktree prune', { cwd: repoDir, timeout: 5000, stdio: 'pipe' });
+      await execAsync('git worktree prune', { cwd: repoDir, timeout: 5000 });
     }
 
     // Clean worktree dirs that are older than 24h
@@ -193,10 +194,9 @@ export async function checkKnowledgeHealth(state: KnowledgeCycleState): Promise<
     if (Date.now() - state.lastUserModelRun > 24 * 60 * 60_000) {
       state.lastUserModelRun = Date.now();
       try {
-        const { execSync } = await import('child_process');
-        const result = execSync('npx harness update-user-model --days 1 --json 2>/dev/null || echo "{}"', {
-          encoding: 'utf-8', stdio: 'pipe', timeout: 30_000,
-        }).trim();
+        const result = (
+          await execAsync('npx harness update-user-model --days 1 --json 2>/dev/null || echo "{}"', { timeout: 30_000 })
+        ).trim();
         if (result && result !== '{}') {
           const data = JSON.parse(result);
           logger.info('[MonitorService] User model updated', { newSessions: (data as any).newSessions, changes: (data as any).changes?.length });
@@ -216,7 +216,7 @@ export async function systemHealthCheck(): Promise<TriageIncidentInput[]> {
   const anomalies: TriageIncidentInput[] = [];
 
   try {
-    const { execSync } = await import('child_process');
+    // 磁盘/内存/僵尸探测走 proc-probes 单出口（零子进程，ops 同源）——B4 #344
 
     // 1. Internal process health check (no curl - avoids port mismatch)
     try {
@@ -248,44 +248,38 @@ export async function systemHealthCheck(): Promise<TriageIncidentInput[]> {
       });
     }
 
-    // 2. Disk usage
+    // 2. Disk usage（statfs，/proc 口径同 ops.getStatus）
     try {
-      const df = execSync('df -h / | tail -1', { timeout: 3000, encoding: 'utf-8' }).trim();
-      const parts = df.split(/\s+/);
-      const usePercent = parseInt(parts[4]); // Use% column
-      if (usePercent > 90) {
+      const usePercent = readDiskUsage('/')?.usePercent ?? null;
+      if (usePercent !== null && usePercent > 90) {
         anomalies.push({
           type: 'resource_critical',
           severity: 'warning',
           message: `Disk usage ${usePercent}%`,
-          details: { usagePercent: usePercent, dfOutput: df },
+          details: { usagePercent: usePercent },
         });
       }
     } catch { /* ignore */ }
 
-    // 3. Memory usage
+    // 3. Memory usage（MemTotal - MemAvailable，/proc 口径同 ops.getStatus）
     try {
-      const free = execSync('free -m | grep Mem', { timeout: 3000, encoding: 'utf-8' }).trim();
-      const parts = free.split(/\s+/);
-      const total = parseInt(parts[1]);
-      const used = parseInt(parts[2]);
-      if (total > 0) {
-        const memPercent = Math.round((used / total) * 100);
+      const mem = readMemoryUsage();
+      if (mem.totalKb !== null && mem.usedKb !== null && mem.totalKb > 0) {
+        const memPercent = Math.round((mem.usedKb / mem.totalKb) * 100);
         if (memPercent > 95) {
           anomalies.push({
             type: 'resource_critical',
             severity: 'critical',
             message: `Memory usage ${memPercent}%`,
-            details: { usagePercent: memPercent, freeOutput: free },
+            details: { usagePercent: memPercent },
           });
         }
       }
     } catch { /* ignore */ }
 
-    // 4. Zombie processes
+    // 4. Zombie processes（/proc/*/stat state=Z）
     try {
-      const zombies = execSync("ps aux | awk '$8 ~ /Z/ {print}' | wc -l", { timeout: 3000, encoding: 'utf-8' }).trim();
-      const zCount = parseInt(zombies);
+      const zCount = countZombieProcesses();
       if (zCount > 0) {
         anomalies.push({
           type: 'zombie',

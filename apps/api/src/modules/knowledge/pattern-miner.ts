@@ -7,7 +7,7 @@
 
 import { logger, FileStore } from '@dommaker/studio-shared';
 import { skillStore } from '../skills/skill-store.js';
-import { sharedStore } from './knowledge-bus.service.js';
+import { sharedStore } from './knowledge-singletons.js';
 import {
   resolveStudioEventsFile,
   parseStudioEventPayload,
@@ -277,7 +277,8 @@ export class PatternMiner {
       referencedBy: [],
       executionResults: [],
       consumptionMode: 'signal',
-      origin: 'agent',
+      // #371：统计挖掘批量产物非会话沉淀，标 system 不计入蒸馏 topic 信号
+      origin: 'system',
     } as any);
     return 1;
   }

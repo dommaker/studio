@@ -13,12 +13,14 @@ import { formatFullTime } from '../../utils/datetime';
 import { toast } from '../../utils/toast';
 import { AnalysisApproveDialog } from './AnalysisApproveDialog';
 import { buildMapOpeningPrefill } from './mapUtils';
+import { EVIDENCE_LAYER_LABELS } from './pipelineUtils';
 
-// 🆕 F6-c: 缺口层 → 人话文案
+// 🆕 F6-c: 缺口层 → 人话文案（#399 §8.3 词表：自动验证 / Agent 评审 / 人工确认，L1/L2/L3 不上界面）
+// 「缺」与 Latin 开头的 Agent 评审间留空格，CJK 词直连
 const GAP_LAYER_LABELS: Record<'l1' | 'l2' | 'l3', string> = {
-  l1: '缺 L1 自动验证',
-  l2: '缺 L2 agent 评审',
-  l3: '缺 L3 人工确认',
+  l1: `缺${EVIDENCE_LAYER_LABELS.l1}`,
+  l2: `缺 ${EVIDENCE_LAYER_LABELS.l2}`,
+  l3: `缺${EVIDENCE_LAYER_LABELS.l3}`,
 };
 
 export interface DeliveryPanelProps {
@@ -61,7 +63,7 @@ export function DeliveryPanel({ projectId, delivery, onRefresh }: DeliveryPanelP
       if (action === 'verify') {
         const res = await workunitApi.verify(gap.id);
         if (res.data?.verified) {
-          toast.success('验证通过，L1 已补齐');
+          toast.success('验证通过，自动验证已补齐');
           await onRefresh();
         } else {
           const failedCmds = (res.data?.failed || []).map((f: { command: string }) => f.command).join('；');
@@ -69,11 +71,11 @@ export function DeliveryPanel({ projectId, delivery, onRefresh }: DeliveryPanelP
         }
       } else if (action === 'dispatchReview') {
         await workunitApi.dispatchReview(gap.id);
-        toast.success('已创建评审 WorkUnit，待 agent 认领');
+        toast.success('已创建评审任务，待 agent 领取');
         await onRefresh();
       } else {
         await workunitApi.reviewPassed(gap.id, summary, assigneeId);
-        toast.success('已确认，L3 已补齐');
+        toast.success('人工确认已补齐');
         await onRefresh();
       }
     } catch (err) {
@@ -137,27 +139,29 @@ export function DeliveryPanel({ projectId, delivery, onRefresh }: DeliveryPanelP
         )}
       </div>
 
-      {/* 台账概览：策略 / 分支 / WU 完成度 / 证据三层 / 自评 */}
+      {/* 台账概览：策略 / 分支 / 任务完成度 / 证据三层（白话词表）/ 自评 */}
       <div className="text-sm u-text-2 flex flex-wrap gap-x-4 gap-y-1 mb-2">
         <span>交付策略: {delivery.policy === 'auto-merge' ? '自动合并' : '分支交付'}</span>
         <span>分支: {delivery.branch || '—'}</span>
-        <span>WU: {delivery.wu.finished}/{delivery.wu.total} 完成</span>
-        <span>L1: {delivery.evidence.l1Missing.length === 0 ? '✓' : `缺 ${delivery.evidence.l1Missing.length}`}</span>
-        <span>L2: {delivery.evidence.l2Missing.length === 0 ? '✓' : `缺 ${delivery.evidence.l2Missing.length}`}</span>
-        <span>L3: {delivery.evidence.l3Missing.length === 0 ? '✓' : `缺 ${delivery.evidence.l3Missing.length}`}</span>
+        <span>任务: {delivery.wu.finished}/{delivery.wu.total} 完成</span>
+        <span>{EVIDENCE_LAYER_LABELS.l1}: {delivery.evidence.l1Missing.length === 0 ? '✓' : `缺 ${delivery.evidence.l1Missing.length}`}</span>
+        <span>{EVIDENCE_LAYER_LABELS.l2}: {delivery.evidence.l2Missing.length === 0 ? '✓' : `缺 ${delivery.evidence.l2Missing.length}`}</span>
+        <span>{EVIDENCE_LAYER_LABELS.l3}: {delivery.evidence.l3Missing.length === 0 ? '✓' : `缺 ${delivery.evidence.l3Missing.length}`}</span>
         <span>自评: {delivery.evidence.selfReviewCount}</span>
       </div>
 
-      {/* 无 WU 时的非缺口提示 */}
+      {/* 无任务时的非缺口提示；#376 归档态（终态项目历史任务数据已清理）换成归档说明 */}
       {delivery.wu.total === 0 && (
-        <div className="text-xs u-text-3 mb-2">无关联 WorkUnit</div>
+        <div className="text-xs u-text-3 mb-2">
+          {delivery.archived ? '任务明细已归档：历史任务数据已清理，计数不可考' : '无关联任务'}
+        </div>
       )}
 
       {/* 🆕 F6-c: 缺口行动清单（已完成但证据有缺口的 WU，逐行给补齐动作） */}
       {!delivery.deliverable && delivery.gaps.length > 0 && (
         <div className="mb-2">
           {delivery.wu.inFlight > 0 && (
-            <div className="text-xs u-text-3 mb-1">{delivery.wu.inFlight} 个 WorkUnit 仍在途</div>
+            <div className="text-xs u-text-3 mb-1">{delivery.wu.inFlight} 个任务仍在途</div>
           )}
           <div className="space-y-1">
             {delivery.gaps.map(gap => (
@@ -175,7 +179,7 @@ export function DeliveryPanel({ projectId, delivery, onRefresh }: DeliveryPanelP
                     onClick={() => navigate(`/workunits/${gap.id}`)}
                     className="btn btn-sm u-surface-2 u-text-2 u-hover-bg"
                   >
-                    查看 WU ›
+                    查看任务 ›
                   </button>
                   {gap.missing.includes('l1') && (
                     <button

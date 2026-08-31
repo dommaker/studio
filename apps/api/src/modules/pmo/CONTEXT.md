@@ -19,9 +19,9 @@
 | `selectProjectSnapshots` / `summarizeEvidence` / `matchWuToLeg` / `partitionSnapshotsByLeg` / `CODE_TYPES` | `evidence-summary.ts` | 共享证据口径：快照派生 l1/l2/l3 + deliverable 判定 + WU->腿归属 |
 | `AnalysisHandoff` / `initAnalysisHandoff` / `waitForSettled` | `analysis-handoff.ts` | analysis->in_review 分流确认（有频道=人工确认卡，无频道+trigger=直转）+ 建 task 子 WU |
 | `DecisionResolution` / `initDecisionResolution` | `decision-resolution.ts` | 决策单状态推进 + 落 decisions[] + 雾消解 + 全清自动建 spec 单 |
-| `MapOpening` / `initMapOpening` / `parseMapOpening` | `map-opening.ts` | analysis done -> 初始化探路地图 + 逐条建 decision 单（提取 DESTINATION:/FOG: 清单） |
+| `MapOpening` / `initMapOpening` / `parseMapOpening` | `map-opening.ts` | analysis done -> 初始化探路地图 + 逐条建 decision 单（提取 DESTINATION:/FOG: 清单，#401 起兼容中文别名 目标：/待决：） |
 | `SpecMaterialization` / `initSpecMaterialization` / `parseSpecTasks` | `spec-materialization.ts` | spec done -> 批量建 task 子 WU（提取 TASK:/AC:/BLOCKEDBY:/LEG: 清单） |
-| `getDeliveryStatus` / `deliverProject` | `delivery.ts` | 交付台账（证据齐缺 + gaps）+ auto-merge 交付（逐腿独立合并） |
+| `getDeliveryStatus` / `deliverProject` | `delivery.ts` | 交付台账（证据齐缺 + gaps）+ auto-merge 交付（逐腿独立合并）；#376 起响应带 `archived`（终态项目实时重算零 WU = 历史任务数据已清理，前端显示归档提示而非全 0） |
 | 默认导出 Express Router | `routes.ts` | REST 路由（`/project`、`/objective`、`/key-result` 等） |
 
 ### 依赖关系
@@ -38,4 +38,5 @@
 - 杂务 PMO：`isChore + channelId` 联合标识，`ensureChoreProject` find-or-create。
 - 多腿项目：`POST /project` 接受 `gitRepos: string[]`，每个工程落一条 `deliveries[]` 腿。
 - 鉴权：6 条写端点 requireAuth+requireNotGuest，DELETE project/okr requireRole('Admin')。
+- **未归属 WU（#402 决策）**：无 reqId 且 pmoId 归因戳解析为 null 的 WU——不计入任何项目的交付统计，但 API 层可过滤/计数/列清单。trigger 系统维护单等合法无归属，创建入口不强制归因（best-effort 落戳）。
 - **gitRepo 白名单（2026-08-25 收口）**：`POST /project` 与 `PUT /project/:id` 校验 `gitRepo`/`gitRepos`——resolve 后须落在允许根（env `PMO_GIT_REPO_ROOTS` 冒号分隔，缺省 `/root/projects`）且为已存在目录，否则 400 INVALID_INPUT。写入口仅此两处（`updateStatus` 不触 gitRepo）。

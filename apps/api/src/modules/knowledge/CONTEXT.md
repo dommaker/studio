@@ -15,8 +15,8 @@
 
 | 模块 | 路径 | 职责 |
 |------|------|------|
-| `knowledgeBus` | `knowledge-bus.service.ts` | 兼容层（thin compat，R4 收敛）— 共享知识总线 write/search API |
 | `knowledge-singletons` | `knowledge-singletons.ts` | 共享单例唯一所有者（sharedStore 等）+ 向量库同步 + 统一质量门（R4） |
+| `MtimeMemoKnowledgeStore` | `knowledge-store-memo.ts` | sharedStore 的 mtime 校验聚合 memo 包装（#343，缓存 seam ADR 外部包条款）：mtime+size 指纹兜底跨进程外部写 + 本进程写穿透失效；命中深克隆保持「每次读全新对象」契约；readEntriesFromDisk/snapshot 直通不缓存 |
 | `UnifiedQuery` | `engine/unified-query.ts` | 双存储统一查询（Prisma + KnowledgeStore），knowledgeService 的 query 引擎（R4 修复接线） |
 | `knowledgeService.injectContext` | `knowledge-service.ts` | 统一 prompt 注入入口（absorbed from prompt-builder）；E2：有注入时附「何时查知识库」指引（`KNOWLEDGE_QUERY_GUIDANCE`）；#91：maxTokens 由 prompt-composer 按分段定额传入（knowledge 1000 + 池余量），`knowledge:inject-trimmed` 事件补 originalTokens/keptTokens 尺寸字段，返回值带 `usage` 供 `prompt:section_trimmed` 埋点 |
 | `knowledgeService.semanticSearch` | `knowledge-service.ts` | mcp-local-rag 语义检索；E2：可用性探测（进程内缓存 5min）+ 失败降级关键词检索，不再静默返回 [] |
@@ -36,8 +36,9 @@
 knowledge/
 ├── engine/                    # 存储/查询层
 │   └── unified-query.ts       # 双存储统一查询
-├── knowledge-bus.service.ts   # 兼容层：KnowledgeBus 类 + 单例 re-export（R4）
-├── knowledge-singletons.ts    # 共享单例/向量库同步/统一质量门（R4 收敛）
+├── knowledge-singletons.ts    # 共享单例/向量库同步/统一质量门（R4 收敛；sharedStore 已包 memo）
+├── knowledge-store-memo.ts    # MtimeMemoKnowledgeStore：sharedStore 的 mtime 校验聚合 memo（#343）
+├── knowledge-design-doc.ts    # 设计时知识沉淀：upsertKnowledge + checkDocumentFreshness（#343 起自 KnowledgeBus 迁出）
 ├── knowledge-service.ts       # 统一知识能力层（KnowledgeService 编排 + 单例接线；工单 29 拆分后聚焦编排）
 ├── knowledge-metrics.ts       # Measure 纯函数内核：飞轮度量/健康/审计 + 度量类型（工单 29 拆出）
 ├── trend-data.ts              # trends 数据层 writeTrendData（工单 29 拆出）
@@ -52,7 +53,7 @@ knowledge/
 ├── knowledge-service.routes.ts # KnowledgeService HTTP API + SSE
 ├── knowledge-query.service.ts # 5 类缺口查询（query/getStats）
 ├── knowledge-sync.service.ts  # 自动同步 + 新鲜度检测
-├── resolution.service.ts      # 解法库（独立子系统）
+├── resolution.service.ts      # 解法库（独立子系统）；#361 起错误匹配核心（regex 回退子串）下沉 studio-shared/resolutions.ts，与 runner-output queryResolutionHints 共用
 ├── evolution-scheduler.ts     # 周期任务调度（G-005 模式挖掘 + eval spring cleaning）
 ├── improver-scheduler.service.ts # 自文档化调度器（refreshStaleContext + runArchDocs）
 ├── preference-observer.ts     # Producer: 用户偏好
@@ -82,7 +83,8 @@ knowledge/
 - **知识库边界（#93，2026-08-13）**：KB = 项目级共享知识（跨角色 rule/context/signal/reference）。角色记忆（#100 的 per-role `MEMORY.md` + topic 文件体系）**不进知识库、不走 injectContext**；守卫约定 = 角色记忆条目带 `role-memory` tag，注入闸门（`isRoleMemory`）一律拦截，回归测试见 `__tests__/knowledge-service-inject-wiring.test.ts`。
 - **#93 注入修复（2026-08-13）**：rule/context 注入曾恒空——`unified-query.ts` 合成条目 `sourceReferences` 恒 `[]` 被 `hasSourceReferences` 闸门全拦。修复 = 合成端（preferenceToEntry/ruleToEntry/envToEntry）从 store 条目 id / snapshot 文件名派生真实出处；手动创建 API（entries.routes.ts POST /unified）stamp `manual:<user>` 出处。闸门语义不变：无凭证不注入。
 - **inject-context.ts 已删（#357，2026-08-26）**：拆分后未接线的死副本（R3 闸门/来源凭证/INJECT_TOKEN_BUDGET/injectPriority/KNOWLEDGE_QUERY_GUIDANCE/stripFormat）。处置结论 = 反向删副本：活实现一直在 knowledge-service.ts 底部（测试全从该门面导入），接线抽出版对 1182 行热文件零收益，故删抽出版、保留 knowledge-service 自持。
-- **测试稳定性（2026-08-04 已修）**：`__tests__/knowledge-bus-sync.test.ts` 的「失败后恢复 → recovered」用例原为预存 flake，根因非定时器节奏——是该用例对 `@dommaker/studio-shared` 重复 `vi.doMock` 两次，import 偶发绑定先注册的 factory（`logger.info` 为不可见 `vi.fn()`），致 recovered/synced 断言抖动。已收敛为单一注册点（`mockDeps` 增 `loggerInfo` 参数），100 轮复跑零失败。
+- **测试稳定性（2026-08-04 已修）**：`__tests__/knowledge-vector-sync.test.ts`（原 knowledge-bus-sync.test.ts，#343 改名）的「失败后恢复 → recovered」用例原为预存 flake，根因非定时器节奏——是该用例对 `@dommaker/studio-shared` 重复 `vi.doMock` 两次，import 偶发绑定先注册的 factory（`logger.info` 为不可见 `vi.fn()`），致 recovered/synced 断言抖动。已收敛为单一注册点（`mockDeps` 增 `loggerInfo` 参数），100 轮复跑零失败。
+- **#343 知识库存储栈过缓存 seam（2026-08-28）**：`sharedStore` = `MtimeMemoKnowledgeStore`（mtime+size 指纹校验聚合 memo）——此前 FileKnowledgeStore `list()` = readIndex + 逐条目 readFileSync（N+1 同步读），injectContext 每执行步 4 次全库扫描（queryEntries×2+getIndexes+count）。memo 后稳态每步 = 指纹 stat 校验 + memo 查（recordReference 同日去重保证跨步指纹稳定）。语义基线：命中深克隆（调用方如 recordOutcome 原地改嵌套数组，不得污染 memo）；读口埋点 op=`knowledgeRead`（bench 分桶 `knowledge`）。KnowledgeBus 兼容类已删：`upsertKnowledge`/`checkDocumentFreshness`/`KnowledgeSource` 迁 `knowledge-design-doc.ts`；`knowledgeBus.search`（search.routes）→ `knowledgeService.search` + 路由层补发 `knowledge:search_hit`（monitor-reports 指标消费）；测试改名 `knowledge-vector-sync.test.ts`（原 knowledge-bus-sync）/ `knowledge-quality-gate-events.test.ts`（原 knowledge-bus-events，直测 ingestWithQualityGate）。ADR 增补见 docs/adr/2026-08-24-cache-seam-decision-rules.md「外部包存储栈」条款。
 - **knowledge-service.ts 类体不再拆分（2026-08-04 决议，接受现状 1143 行）**：模块级代码已全部抽至上述 7 个模块；KnowledgeService 类体（约 1021 行）整体保留，因 `__tests__/knowledge-service.test.ts` 锁定 prototype 恰好 35 个方法（含 5 个 private，TS private 运行时挂 prototype），任何拆类都会打破该测试。后续若要拆类，须先获批准放宽该断言（如改为 ≥35 或只锁 public 集合）。
 - Producer（preference-observer 等）直写 KnowledgeStore（FileStore 存储；Prisma 已全量移除）
 - Resolution 和 Incident 是独立子系统，不纳入统一查询
@@ -93,3 +95,4 @@ knowledge/
 - **document-store 退役（#149，2026-08-15）**：`~/.studio/data/documents`（DocRecord FileStore）整体退役——角色已由业务仓 `.studio/` 与知识引擎 unified entries 接管，生产数据为零（24 个文件全是 p1/c1 测试夹具，已归档为 `~/.studio/data/documents.retired-20260815.tar.gz`）。摘除面：document-store.ts、documents.routes.ts（文档 CRUD/审核）、evolution.service.ts + evolution.routes.ts（知识进化引擎 §12.12，持久化只落在该目录；evolution-scheduler 保留模式挖掘/eval cleaning）、import.routes.ts（冷启动导入，execute 写该目录）、mcp/knowledge.tools.ts（5 个 MCP 知识工具全是该目录 CRUD）、internal /upsert 的 Document 投影、search 的 document 源；web 侧 KnowledgeDocGrid/DocReaderDrawer/KnowledgeImportPage/PMO 文档计数徽章同步摘除。
 - **#90 outcome 事件 errorType（2026-08-13）**：`ExecutionOutcome` 增 `errorType?`（knowledge-service.ts 门面内联定义与 knowledge-types.ts 同构两处）；`recordOutcome` payload 携带 errorType（success 时 undefined 被 JSON.stringify 丢弃）。失败步（success=false + errorType=execution_failed）由 agent-loop `recordOutcomeEvent` 落 `knowledge:outcome:failure`，供失败分析/门禁消费。
 - **#323 bench 发现（2026-08-25）**：knowledge 任何写入（recordPattern/ingest/resolution 等）都会 `scheduleVectorDbSync` → `execFile('systemd-run', …)` 起 mcp-local-rag ingest 写共享生产 lancedb（`~/.cache/mcp-local-rag/lancedb`）+ 30min 超时子进程吊住宿主进程事件 loop。模块内部直线调用（`ingestWithQualityGate` 体内），exports 桩拦不住；bench/隔离环境要阻断须在 PATH 前置假 `systemd-run`（apps/api/bench/loop-read-metrics.ts 有现成做法）。
+- **#371 origin 标定 fail-closed（2026-08-28）**：`recordPattern` 增 `origin?`（PatternEntry 透传，`ingestWithQualityGate` 落 `ingestEntry` options），缺省从 harness 的 `'agent'` 兜底翻转为 `'system'`——蒸馏 topic 信号只认 agent/human（#366），机器流（monitor 告警/knowledge-sync 遥测与 design-doc/pattern-miner 挖掘/resolution 落盘，resolution 经 writeDoc frontmatter 补 `origin: system`）漏标来源不得借兜底挤进「会话沉淀」；真会话沉淀由调用方显式 `origin: 'agent'`（现仅 session-summary）；HTTP 人工写入口 `POST /knowledge-service/pattern` 接受白名单内 `origin: human|agent` 自声明，缺省 system。`recordIncident` 同步显式 system。覆盖面限于经 recordPattern/质量门面的写入——绕过门面直调 `sharedStore.save` 的路径（如 pattern-miner 形态）仍须自标，读侧 harness 兜底 agent 仅剩该暴露面。存量 44 条一次性重标：studio-config/bin/knowledge-relabel-origins-371（幂等，签名规则 = 文件名 resolution-*/frontmatter design-doc/pattern-miner/title 机器前缀，真分析产物 ARC/PIT 不动）。

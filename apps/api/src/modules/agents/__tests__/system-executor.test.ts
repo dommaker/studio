@@ -7,7 +7,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { FileStore } from '@dommaker/studio-shared';
+import { FileStore, logger } from '@dommaker/studio-shared';
 
 // Mock @dommaker/studio-shared/node 的 execSh + provider helpers
 const { mockExecSh } = vi.hoisted(() => ({
@@ -261,6 +261,88 @@ describe('SystemExecutor', () => {
     });
   });
 
+  describe('#370 写入打点与告警', () => {
+    async function withStudioClaude(): Promise<void> {
+      await ensureStudioProfile(fileStore);
+      const profiles = await fileStore.listProfiles();
+      const studio = profiles.find(p => p.name === 'studio')!;
+      await fileStore.updateProfile(studio.id, { provider: 'claude' });
+    }
+
+    it('写入成功后产生一行含 eventSource/provider/durationMs 的日志（显式与缺省 source）', async () => {
+      await withStudioClaude();
+      mockExecSh.mockResolvedValue({ stdout: '{}', stderr: '' });
+
+      const infoSpy = vi.spyOn(logger, 'info');
+      try {
+        await executor.run('test', { eventSource: 'knowledge-maintenance' });
+        expect(infoSpy).toHaveBeenCalledTimes(1);
+        expect(infoSpy).toHaveBeenCalledWith(
+          '[SystemExecutor] system:tokens event written',
+          expect.objectContaining({
+            eventSource: 'knowledge-maintenance',
+            provider: 'claude',
+            durationMs: expect.any(Number),
+          }),
+        );
+
+        // 缺省 eventSource → 'system-executor'
+        infoSpy.mockClear();
+        await executor.run('test');
+        expect(infoSpy).toHaveBeenCalledTimes(1);
+        expect(infoSpy).toHaveBeenCalledWith(
+          '[SystemExecutor] system:tokens event written',
+          expect.objectContaining({ eventSource: 'system-executor', provider: 'claude' }),
+        );
+      } finally {
+        infoSpy.mockRestore();
+      }
+    });
+
+    it('写入失败 warn 带 eventSource（缺省 system-executor），且不影响 run 结果', async () => {
+      await withStudioClaude();
+      const stdout = JSON.stringify({ ok: true });
+      mockExecSh.mockResolvedValue({ stdout, stderr: '' });
+
+      // eventsFile 指向目录 → appendJsonl EISDIR，模拟写入静默失败
+      const dirAsEventsFile = path.join(tmpDir, 'events-is-a-dir');
+      fs.mkdirSync(dirAsEventsFile);
+      const badExecutor = new SystemExecutor(fileStore, dirAsEventsFile);
+
+      const warnSpy = vi.spyOn(logger, 'warn');
+      try {
+        const result = await badExecutor.run('test');
+        expect(result.output).toBe(stdout);
+        expect(warnSpy).toHaveBeenCalledWith(
+          '[SystemExecutor] writeSystemTokenEvent failed',
+          expect.objectContaining({ eventSource: 'system-executor', error: expect.any(String) }),
+        );
+      } finally {
+        warnSpy.mockRestore();
+      }
+    });
+
+    it('写入失败 warn 的 eventSource 取调用方传入值', async () => {
+      await withStudioClaude();
+      mockExecSh.mockResolvedValue({ stdout: '{}', stderr: '' });
+
+      const dirAsEventsFile = path.join(tmpDir, 'events-is-a-dir-2');
+      fs.mkdirSync(dirAsEventsFile);
+      const badExecutor = new SystemExecutor(fileStore, dirAsEventsFile);
+
+      const warnSpy = vi.spyOn(logger, 'warn');
+      try {
+        await badExecutor.run('test', { eventSource: 'knowledge-distill' });
+        expect(warnSpy).toHaveBeenCalledWith(
+          '[SystemExecutor] writeSystemTokenEvent failed',
+          expect.objectContaining({ eventSource: 'knowledge-distill' }),
+        );
+      } finally {
+        warnSpy.mockRestore();
+      }
+    });
+  });
+
   describe('AC-1.9 SystemExecutorOptions', () => {
     it('传 cwd 时作为 execSh 的 cwd', async () => {
       await ensureStudioProfile(fileStore);
@@ -329,6 +411,55 @@ describe('SystemExecutor', () => {
       expect(mockExecSh).toHaveBeenCalledWith(
         expect.any(String),
         expect.objectContaining({ timeoutMs: 30_000 }),
+      );
+    });
+
+    // #369：按 eventSource 注册表解析默认超时
+    it('eventSource 命中注册表时用表内默认超时（重 prompt 源 120s）', async () => {
+      await ensureStudioProfile(fileStore);
+      const profiles = await fileStore.listProfiles();
+      const studio = profiles.find(p => p.name === 'studio')!;
+      await fileStore.updateProfile(studio.id, { provider: 'claude' });
+
+      mockExecSh.mockResolvedValue({ stdout: '{}', stderr: '' });
+
+      await executor.run('test', { eventSource: 'knowledge-maintenance' });
+
+      expect(mockExecSh).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ timeoutMs: 120_000 }),
+      );
+    });
+
+    it('eventSource 未命中注册表时走 30s 默认', async () => {
+      await ensureStudioProfile(fileStore);
+      const profiles = await fileStore.listProfiles();
+      const studio = profiles.find(p => p.name === 'studio')!;
+      await fileStore.updateProfile(studio.id, { provider: 'claude' });
+
+      mockExecSh.mockResolvedValue({ stdout: '{}', stderr: '' });
+
+      await executor.run('test', { eventSource: 'some-light-source' });
+
+      expect(mockExecSh).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ timeoutMs: 30_000 }),
+      );
+    });
+
+    it('显式 timeoutMs 优先于注册表', async () => {
+      await ensureStudioProfile(fileStore);
+      const profiles = await fileStore.listProfiles();
+      const studio = profiles.find(p => p.name === 'studio')!;
+      await fileStore.updateProfile(studio.id, { provider: 'claude' });
+
+      mockExecSh.mockResolvedValue({ stdout: '{}', stderr: '' });
+
+      await executor.run('test', { eventSource: 'knowledge-distill', timeoutMs: 15_000 });
+
+      expect(mockExecSh).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ timeoutMs: 15_000 }),
       );
     });
   });

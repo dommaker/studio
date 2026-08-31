@@ -2,17 +2,17 @@
  * Output Capture — 进度读取 + 输出文件收集 + session 指标记录
  *
  * P11-02: Extracted from agent-executor.ts
+ * #361: 事件落盘收一 — 5 个同构 emit 全部经 @dommaker/studio-shared 的
+ * writeStudioEvent 唯一入口写入（StudioEvent envelope 形态）。此前自抄
+ * appendJsonl 且在模块加载期固化 studioPath('logs') 直连路径，绕过
+ * STUDIO_EVENTS_FILE 测试隔离 → vitest 下 runner 事件落生产 logs。
  */
 
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import * as fsSync from 'fs';
-import { logger, FileStore } from '@dommaker/studio-shared';
+import { logger, writeStudioEvent } from '@dommaker/studio-shared';
 import { parseSessionMetrics } from '@dommaker/studio-shared/harness';
-import { studioPath } from '@dommaker/studio-shared/studio-dir';
-
-const STUDIO_EVENTS_JSONL = studioPath('logs', 'studio-events.jsonl');
-const fileStore = new FileStore();
 
 // .progress.json 结构
 export interface ProgressReport {
@@ -57,7 +57,7 @@ export async function collectOutputFiles(worktree: string): Promise<string[]> {
 }
 
 /**
- * 记录 session 指标到 StudioEvent
+ * 记录 session 指标到 StudioEvent（agent_session）
  */
 export async function recordSessionMetrics(opts: {
   stdout: string;
@@ -86,9 +86,7 @@ export async function recordSessionMetrics(opts: {
           modelName: opts.streamUsage.model || parsed.modelName,
         }
       : parsed;
-    await fileStore.appendJsonl(STUDIO_EVENTS_JSONL, {
-      type: 'agent_session',
-      source: 'agent-executor',
+    await writeStudioEvent('agent_session', {
       executionId: opts.executionId,
       agentRole: opts.agentRole,
       modelName: metrics.modelName,
@@ -106,17 +104,18 @@ export async function recordSessionMetrics(opts: {
       serviceTier: metrics.serviceTier,
       constraintHash: opts.constraintHash,
       constraintSize: opts.constraintSize,
-      payload: JSON.stringify({ stdout: opts.stdout.slice(0, 2000) }),
-      createdAt: new Date().toISOString(),
-    });
+      stdout: opts.stdout.slice(0, 2000),
+    }, { source: 'agent-executor' });
   } catch (metricErr) {
     logger.warn('[OutputCapture] Failed to record session metrics', { error: String(metricErr) });
   }
 }
 
 /**
- * #174: session:start/end 附加字段（WU 归属 + transcript 归档路径）
+ * #174/#361: session:start/end 附加字段（WU 归属 + transcript 归档路径）
  * 有值才并入 payload；undefined 的键不出现（JSON.stringify 语义），无 extras 时行为不变。
+ * session:start 与 session:end 必须携带同一份 extras —— 此前成功路径的 end 经
+ * processSessionOutput 发射时丢失 extras，同一事件出现两种 payload 形态。
  */
 export interface SessionEventExtras {
   workUnitId?: string;
@@ -127,66 +126,42 @@ export interface SessionEventExtras {
  * 发射 session:start 事件
  */
 export async function emitSessionStart(sessionId: string, executionId: string, sessionCount: number, extras?: SessionEventExtras): Promise<void> {
-  try {
-    await fileStore.appendJsonl(STUDIO_EVENTS_JSONL, {
-      type: 'session:start',
-      source: 'agent-executor',
-      payload: JSON.stringify({
-        sessionId, agentId: executionId, executionId, sessionCount,
-        ...(extras?.workUnitId ? { workUnitId: extras.workUnitId } : {}),
-        ...(extras?.transcriptPath ? { transcriptPath: extras.transcriptPath } : {}),
-      }),
-      createdAt: new Date().toISOString(),
-    });
-  } catch { /* non-blocking */ }
+  await writeStudioEvent('session:start', {
+    sessionId,
+    agentId: executionId,
+    executionId,
+    sessionCount,
+    ...(extras?.workUnitId ? { workUnitId: extras.workUnitId } : {}),
+    ...(extras?.transcriptPath ? { transcriptPath: extras.transcriptPath } : {}),
+  }, { source: 'agent-executor' });
 }
 
 /**
  * 发射 session:end 事件
  */
 export async function emitSessionEnd(sessionId: string, executionId: string, sessionCount: number, extras?: SessionEventExtras): Promise<void> {
-  try {
-    await fileStore.appendJsonl(STUDIO_EVENTS_JSONL, {
-      type: 'session:end',
-      source: 'agent-executor',
-      payload: JSON.stringify({
-        sessionId, agentId: executionId, executionId, sessionCount,
-        ...(extras?.workUnitId ? { workUnitId: extras.workUnitId } : {}),
-        ...(extras?.transcriptPath ? { transcriptPath: extras.transcriptPath } : {}),
-      }),
-      createdAt: new Date().toISOString(),
-    });
-  } catch { /* non-blocking */ }
+  await writeStudioEvent('session:end', {
+    sessionId,
+    agentId: executionId,
+    executionId,
+    sessionCount,
+    ...(extras?.workUnitId ? { workUnitId: extras.workUnitId } : {}),
+    ...(extras?.transcriptPath ? { transcriptPath: extras.transcriptPath } : {}),
+  }, { source: 'agent-executor' });
 }
 
 /**
  * 发射 tool:call 事件 — 记录 agent 调用的工具及参数
  */
 export async function emitToolCall(toolName: string, input: unknown, sessionId: string, executionId: string): Promise<void> {
-  try {
-    await fileStore.appendJsonl(STUDIO_EVENTS_JSONL, {
-      type: 'tool:call',
-      source: 'agent-executor',
-      executionId,
-      payload: JSON.stringify({ tool: toolName, input, sessionId }),
-      createdAt: new Date().toISOString(),
-    });
-  } catch { /* non-blocking */ }
+  await writeStudioEvent('tool:call', { tool: toolName, input, sessionId, executionId }, { source: 'agent-executor' });
 }
 
 /**
  * 发射 file:change 事件 — 记录 agent 修改的文件路径
  */
 export async function emitFileChange(filePath: string, sessionId: string, executionId: string): Promise<void> {
-  try {
-    await fileStore.appendJsonl(STUDIO_EVENTS_JSONL, {
-      type: 'file:change',
-      source: 'agent-executor',
-      executionId,
-      payload: JSON.stringify({ path: filePath, sessionId }),
-      createdAt: new Date().toISOString(),
-    });
-  } catch { /* non-blocking */ }
+  await writeStudioEvent('file:change', { path: filePath, sessionId, executionId }, { source: 'agent-executor' });
 }
 
 // 约束 metadata 缓存

@@ -16,7 +16,7 @@ vi.mock('@dommaker/harness', async (importOriginal) => {
   return { ...actual, getEffectiveConstraints: mockGetEffective };
 });
 
-vi.mock('../knowledge-bus.service.js', () => ({
+vi.mock('../knowledge-singletons.js', () => ({
   sharedStore: { list: vi.fn().mockReturnValue([]) },
 }));
 

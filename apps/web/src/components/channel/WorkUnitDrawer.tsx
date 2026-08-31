@@ -76,6 +76,8 @@ export function WorkUnitDrawer({ drawer, onClose, onOpenWu, onOpenReq }: Props) 
   return (
     <aside className="mc-drawer" aria-label="详情抽屉">
       <div className="mc-drawer-head">
+        {/* #395（spec §4.6）：<768 抽屉全屏化的左上返回（≥768 CSS 隐藏，DOM 常驻） */}
+        <button className="mc-drawer-back" aria-label="返回" onClick={onClose}>← 返回</button>
         <h3 className="mc-drawer-title">
           {drawer.kind === 'wu' ? drawer.id : `${drawer.id} 全链路`}
         </h3>
@@ -300,10 +302,10 @@ function WuDetail({ id, autoApprove = false, onOpenReq }: { id: string; autoAppr
           <button
             className="mc-wu-link"
             disabled={confirming}
-            title="待确认人闸：扩范围单创建落待确认，确认后进入待认领（agent 可见可认领）"
+            title="待确认人闸：扩范围单创建落待确认，确认后进入待领取（agent 可见可领取）"
             onClick={handleConfirmPending}
           >
-            {confirming ? '提交中…' : '确认（进待认领）'}
+            {confirming ? '提交中…' : '确认（进待领取）'}
           </button>
         </div>
       )}
@@ -333,10 +335,10 @@ function WuDetail({ id, autoApprove = false, onOpenReq }: { id: string; autoAppr
           <button
             className="mc-wu-link"
             disabled={confirming}
-            title="流程已由 Agent 评审推进完成；此确认为 L3 人工验收留痕，不阻断流程，确认后出审查列"
+            title="流程已由 Agent 评审推进完成；此确认为人工确认留痕，不阻断流程，确认后出审查列"
             onClick={handleApprove}
           >
-            {confirming ? '提交中…' : '人工验收确认（L3 留痕）'}
+            {confirming ? '提交中…' : '人工确认（留痕）'}
           </button>
         </div>
       )}
@@ -403,7 +405,7 @@ function WuDetail({ id, autoApprove = false, onOpenReq }: { id: string; autoAppr
         </>
       )}
 
-      <div className="mc-block-label">token 开销（本 WorkUnit）</div>
+      <div className="mc-block-label">token 开销（本任务）</div>
       {tokens === null && <div className="mc-drawer-note">加载中…</div>}
       {tokens !== null && tokens.length === 0 && (
         <div className="mc-drawer-note">窗口内无 token 度量事件</div>
@@ -526,8 +528,8 @@ function ReqChain({ id, onOpenWu }: { id: string; onOpenWu: (wuId: string) => vo
         </>
       )}
 
-      <div className="mc-block-label">WorkUnit 链路（{chain.workunits.length}）</div>
-      {chain.workunits.length === 0 && <div className="mc-drawer-note">暂无关联 WorkUnit</div>}
+      <div className="mc-block-label">任务链路（{chain.workunits.length}）</div>
+      {chain.workunits.length === 0 && <div className="mc-drawer-note">暂无关联任务</div>}
       {chain.workunits.map((wu, i) => (
         <div key={wu.id}>
           {i > 0 && <div className="mc-chain-arrow">↓</div>}

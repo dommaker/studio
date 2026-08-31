@@ -7,6 +7,7 @@ import {
   formatDuration,
   buildProjectTimeline,
   formatTimelineTime,
+  EVIDENCE_LAYER_LABELS,
   type PipelineWorkUnit,
 } from '../pipelineUtils';
 
@@ -23,6 +24,12 @@ const wu = (over: Partial<PipelineWorkUnit>): PipelineWorkUnit => ({
   status: over.status ?? 'unassigned',
   assigneeId: over.assigneeId ?? null,
   ...over,
+});
+
+describe('EVIDENCE_LAYER_LABELS', () => {
+  it('#399 §8.3 白话词表（L1/L2/L3 不上界面）', () => {
+    expect(EVIDENCE_LAYER_LABELS).toEqual({ l1: '自动验证', l2: 'Agent 评审', l3: '人工确认' });
+  });
 });
 
 describe('laneOfWorkUnit', () => {

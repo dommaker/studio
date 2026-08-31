@@ -79,18 +79,10 @@ export class CapabilityService {
     return sharedGenerateId('cap');
   }
 
-  /** 扫描 capabilities 目录，读取所有能力文件 */
+  /** 扫描 capabilities 目录，读取所有能力文件（#362：枚举单点化到 FileStore.listJsonInDir） */
   private async scanAll(): Promise<CapabilityData[]> {
     try {
-      await fs.promises.mkdir(CAPABILITIES_DIR, { recursive: true });
-      const entries = await fs.promises.readdir(CAPABILITIES_DIR, { withFileTypes: true });
-      const results: CapabilityData[] = [];
-      for (const entry of entries) {
-        if (!entry.isFile() || !entry.name.endsWith('.json')) continue;
-        const data = await this.fileStore.readJson<CapabilityData>(path.join(CAPABILITIES_DIR, entry.name));
-        if (data) results.push(data);
-      }
-      return results;
+      return await this.fileStore.listJsonInDir<CapabilityData>(CAPABILITIES_DIR);
     } catch {
       return [];
     }

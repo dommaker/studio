@@ -127,7 +127,7 @@ export function LibraryPage() {
               const r = await maintenanceApi.fireTrigger('doc-semantic-review');
               if (r.workUnit?.id) {
                 navigate(`/workunits/${r.workUnit.id}`);
-                return '已创建审查任务，可在 WorkUnit 列表查看';
+                return '已创建审查任务，可在任务列表查看';
               }
               return '已创建审查任务';
             }}
@@ -214,7 +214,7 @@ export function LibraryPage() {
                       ))}
                     </div>
                   </div>
-                  <span className="text-xs ml-4 whitespace-nowrap u-text-3">
+                  <span className="text-xs ml-4 whitespace-nowrap u-text-3 font-mono">
                     {formatDate(doc.updatedAt)}
                   </span>
                 </div>

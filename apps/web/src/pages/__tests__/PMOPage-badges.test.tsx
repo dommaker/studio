@@ -64,17 +64,17 @@ describe('AC-6: PMO 卡片徽章', () => {
     });
   });
 
-  it('有 reqAlias 的项目显示 WU x/y 徽章；无别名不显示', async () => {
+  it('有 reqAlias 的项目显示任务 x/y 徽章；无别名不显示', async () => {
     renderPMO();
 
     await waitFor(() => {
-      expect(screen.getByText('WU 2/3')).toBeTruthy();
+      expect(screen.getByText('任务 2/3')).toBeTruthy();
     });
     // chain 只对有别名的 p1 调一次
     expect(mockGetChain).toHaveBeenCalledTimes(1);
     expect(mockGetChain).toHaveBeenCalledWith('REQ-0001');
     // 徽章只出现一份（p2 无徽章）
-    expect(screen.getAllByText(/WU \d+\/\d+/)).toHaveLength(1);
+    expect(screen.getAllByText(/任务 \d+\/\d+/)).toHaveLength(1);
   });
 
   it('chain 失败：静默不显示徽章，卡片照常渲染', async () => {

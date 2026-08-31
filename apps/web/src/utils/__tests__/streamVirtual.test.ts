@@ -7,6 +7,9 @@ import {
   streamItemKey,
   buildMessageToItemIndex,
   anchorScrollTopAfterPrepend,
+  virtualizerScrollSettled,
+  planFineAdjust,
+  FINE_ADJUST_MISSING_GRACE_FRAMES,
 } from '../streamVirtual';
 import { deriveStreamView, type StreamUiState } from '../streamView';
 import type { ChannelMessage } from '../../api/channel';
@@ -104,5 +107,55 @@ describe('anchorScrollTopAfterPrepend（验证约束 1：measurements 数据源�
     });
     // 补偿后锚行视口相对 top = (item start + within) - scrollTop = 300
     expect(5000 - scrollTop).toBe(300);
+  });
+});
+
+describe('virtualizerScrollSettled（#339 收敛判定，virtual-core 3.17.8 内部字段锚定）', () => {
+  it('scrollState 为 null/undefined/缺失 → 已收敛（含未开始滚动与 5s 上限截断后的终态）', () => {
+    expect(virtualizerScrollSettled({ scrollState: null })).toBe(true);
+    expect(virtualizerScrollSettled({})).toBe(true);
+    expect(virtualizerScrollSettled(null)).toBe(true);
+    expect(virtualizerScrollSettled(undefined)).toBe(true);
+  });
+
+  it('scrollState 非空（reconcile 循环在跑）→ 未收敛', () => {
+    expect(virtualizerScrollSettled({ scrollState: { index: 7, align: 'start', startedAt: 1, stableFrames: 0 } })).toBe(false);
+  });
+});
+
+describe('planFineAdjust（#339 精校正第二段决策——全部分支在此可测，hook 只机械接线）', () => {
+  const pending = { mid: 'm9', top: 3333 };
+  const base = { pending, settled: true, anchorTop: 83 as number | null, settledMissingFrames: 0, readerScrollInFlight: false };
+
+  it('收敛前一律 wait——锚行已进 DOM 也不落地（reconcile 仍在改写 scrollTop，落地即被踩掉 = issue #339 根因）', () => {
+    expect(planFineAdjust({ ...base, settled: false, anchorTop: null, readerScrollInFlight: true })).toEqual({ action: 'wait' });
+  });
+
+  it('未归类滚动在途（读者滚动事件尚未派发）→ abandon：读者意图优先，行已在 DOM 也不拽回', () => {
+    expect(planFineAdjust({ ...base, readerScrollInFlight: true })).toEqual({ action: 'abandon' });
+  });
+
+  it('收敛后锚行进 DOM → apply：delta = 当前 top - 存档 top，加到 scrollTop 上锚行回到存档 top', () => {
+    const d = planFineAdjust(base);
+    if (d.action !== 'apply') throw new Error(`expected apply, got ${d.action}`);
+    expect(d.delta).toBe(83 - 3333);
+    // 落点验证：scroll 后锚行视口相对 top = anchorTop - delta = 存档 top（浏览器 clamp 前的数学目标）
+    expect(83 - d.delta).toBe(3333);
+
+    // 首行部分露出（负 top）同构成立
+    const d2 = planFineAdjust({ ...base, pending: { mid: 'm1', top: -40 }, anchorTop: 0 });
+    if (d2.action !== 'apply') throw new Error(`expected apply, got ${d2.action}`);
+    expect(d2.delta).toBe(40);
+    expect(0 - d2.delta).toBe(-40);
+  });
+
+  it('收敛后锚行缺席：宽限期内 wait（settle 观察帧可能早于锚行 React 提交一拍），连续缺席超宽限才 abandon', () => {
+    expect(planFineAdjust({ ...base, anchorTop: null, settledMissingFrames: 1 })).toEqual({ action: 'wait' });
+    expect(planFineAdjust({ ...base, anchorTop: null, settledMissingFrames: FINE_ADJUST_MISSING_GRACE_FRAMES - 1 })).toEqual({ action: 'wait' });
+    expect(planFineAdjust({ ...base, anchorTop: null, settledMissingFrames: FINE_ADJUST_MISSING_GRACE_FRAMES })).toEqual({ action: 'abandon' });
+  });
+
+  it('缺席中途锚行出现 → 正常 apply（宽限计数清零是调用方职责，纯函数只看当帧）', () => {
+    expect(planFineAdjust({ ...base, anchorTop: 120, settledMissingFrames: 3 })).toEqual({ action: 'apply', delta: 120 - 3333 });
   });
 });

@@ -4,49 +4,32 @@
 //   ② 离线实例：实例档案（/agent-instances/:id）拿 roleId → profile 列表拿名字
 //   ③ 都查不到 → null（调用方回退渲染短 UUID）
 // 纯展示层解析，不改 assigneeId 存储与 API 形态。
+// #346：①②的批量面（summary/profiles）改读 rosterStore——TTL 缓存 + single-flight 去重
+// 取代原模块作用域 inflight 共享（locality 归位 store）；30s 内的轻微陈旧是 TTL 缓存的既定取舍。
+// 离线实例档案（/agent-instances/:id）是单实例点查，保持直连 API。
 import { useEffect, useState } from 'react';
-import { monitoringApi, type AgentInfo } from '../api/monitoring';
-import { channelApi, type AgentProfile } from '../api/channel';
+import { monitoringApi } from '../api/monitoring';
+import { useRosterStore } from '../stores/rosterStore';
 
 export interface AssigneeDisplay {
   name: string;
   roleId: string;
 }
 
-// 在途请求共享：REQ 链路一屏多个负责人节点同时挂载时共用同一次请求，
-// 请求落地即清（不缓存结果）——下次挂载拿新数据，避免长期缓存过期
-let summaryInflight: Promise<AgentInfo[]> | null = null;
-let profilesInflight: Promise<AgentProfile[]> | null = null;
-
-function fetchSummaryAgents(): Promise<AgentInfo[]> {
-  if (!summaryInflight) {
-    summaryInflight = monitoringApi.getAgentSummary()
-      .then(r => r.data.agents, () => [] as AgentInfo[])
-      .finally(() => { summaryInflight = null; });
-  }
-  return summaryInflight;
-}
-
-function fetchProfiles(): Promise<AgentProfile[]> {
-  if (!profilesInflight) {
-    profilesInflight = channelApi.listAllAgents()
-      .then(r => r.data?.data ?? [], () => [] as AgentProfile[])
-      .finally(() => { profilesInflight = null; });
-  }
-  return profilesInflight;
-}
-
 /** 解析 assigneeId → {name, roleId}；查不到返回 null（导出供单测直接驱动分支） */
 export async function resolveAssignee(assigneeId: string): Promise<AssigneeDisplay | null> {
+  // ensureFresh 永不 reject（错误落 store 状态）；forbidden/失败时 agents/profiles 保持空 → 走 ② 回退
+  await useRosterStore.getState().ensureFresh();
+  const { agents, profiles } = useRosterStore.getState();
   // ① 运行实例摘要
-  const running = (await fetchSummaryAgents()).find(a => a.id === assigneeId);
+  const running = agents.find(a => a.id === assigneeId);
   if (running) return { name: running.name, roleId: running.roleId };
   // ② 离线实例：档案 roleId → profile 名
   try {
     const inst = await monitoringApi.getAgentInstance(assigneeId);
     const roleId = inst.data?.roleId;
     if (roleId) {
-      const profile = (await fetchProfiles()).find(p => p.id === roleId);
+      const profile = profiles.find(p => p.id === roleId);
       if (profile) return { name: profile.name, roleId };
     }
   } catch { /* 实例不存在/接口失败 → 回退 null */ }

@@ -111,7 +111,7 @@ searchRoutes.get('/search', apiCache(CACHE_CONFIG.short), async (req, res) => {
 
     // Search interaction patterns (KnowledgeStore)
     if (searchTypes.includes('pattern')) {
-      const { sharedStore } = await import('./knowledge-bus.service.js');
+      const { sharedStore } = await import('./knowledge-singletons.js');
       const patterns = sharedStore.list({ tags: ['pattern', 'active'] })
         .filter((e: any) => {
           const d = JSON.parse(e.content || '{}');
@@ -136,15 +136,27 @@ searchRoutes.get('/search', apiCache(CACHE_CONFIG.short), async (req, res) => {
     // AS-019: Search KnowledgeStore entries (file-based knowledge)
     if (searchTypes.includes('knowledge') || searchTypes.includes('store')) {
       try {
-        const { knowledgeBus } = await import('./knowledge-bus.service.js');
-        const kbResults = knowledgeBus.search(String(q), { limit: takeLimit });
+        const { knowledgeService } = await import('./knowledge-service.js');
+        const kbResults = await knowledgeService.search(String(q), { mode: 'keyword', limit: takeLimit });
         for (const r of kbResults) {
           results.push({
             type: 'knowledge',
-            id: r.id,
-            title: r.title,
-            snippet: r.matchContext.slice(0, 200),
+            id: r.entry.id,
+            title: r.entry.title,
+            snippet: (r.highlights[0] ?? '').slice(0, 200),
             score: r.score,
+          });
+        }
+        // knowledge:search_hit 埋点保持（monitor-reports 知识指标消费；#343 前
+        // 由 KnowledgeBus.search 内联发射，现统一在唯一消费入口补齐）
+        if (kbResults.length > 0) {
+          const { appendKnowledgeEvent } = await import('./knowledge-singletons.js');
+          const avgScore = kbResults.reduce((s, r) => s + r.score, 0) / kbResults.length;
+          appendKnowledgeEvent('knowledge:search_hit', {
+            query: String(q).slice(0, 200),
+            hitCount: kbResults.length,
+            avgScore: Math.round(avgScore * 100) / 100,
+            entryIds: kbResults.map(r => r.entry.id),
           });
         }
       } catch { /* non-blocking */ }

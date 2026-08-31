@@ -30,7 +30,9 @@ vi.mock('../../api/workunit', async () => {
   return { ...actual, workunitApi: { list: mockWuList, get: mockWuGet } };
 });
 
-import { useAgentRoster, MAX_ACTIVITIES, ROSTER_POLL_INTERVAL_MS } from '../useAgentRoster';
+import { useAgentRoster } from '../useAgentRoster';
+import { useRosterStore, ROSTER_POLL_INTERVAL_MS } from '../../stores/rosterStore';
+import { useRosterActivityStore, MAX_ACTIVITIES } from '../../stores/rosterActivityStore';
 
 const profile = (overrides: Record<string, unknown> = {}) => ({
   id: 'p1', name: 'dev-agent', description: 'writes code', status: 'active', provider: 'claude', isOnline: true,
@@ -48,12 +50,29 @@ async function flush() {
   await act(async () => {});
 }
 
+// #346：roster 有两条订阅（useRosterStoreSync → store + 本 hook → activities），
+// provider 是多播扇出——测试按同语义广播给全部 handler
+let handlers: Array<(msg: unknown) => void> = [];
+function emitEvent(msg: unknown) {
+  act(() => { handlers.forEach((h) => h(msg)); });
+}
+
 describe('useAgentRoster', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.clearAllMocks();
     mockCtx.status = 'disconnected';
-    mockOnEvent.mockReturnValue(() => {});
+    // #346：数据面上移 rosterStore（模块级单例），每测重置避免跨测串味
+    useRosterStore.setState({
+      profiles: [], agents: [], channels: [],
+      loading: false, error: null, forbidden: false,
+      loadedAt: null, channelsLoadedOnce: false, agentsLoadedOnce: false,
+      inflight: null, lastToken: null,
+    });
+    // #348：执行动态 store 同为模块级单例，每测重置
+    useRosterActivityStore.getState().resetActivities();
+    handlers = [];
+    mockOnEvent.mockImplementation((h: (msg: unknown) => void) => { handlers.push(h); return () => {}; });
     mockListAllAgents.mockResolvedValue({ data: { data: [profile()] } });
     mockGetAgentSummary.mockResolvedValue({
       data: { agents: [instance()], summary: { total: 1, idle: 0, active: 1, error: 0, terminated: 0 } },
@@ -132,8 +151,6 @@ describe('useAgentRoster', () => {
   });
 
   it('SSE agent.instance.status_changed：乐观更新卡片并增量补查 WU 详情', async () => {
-    let handler: ((msg: unknown) => void) | null = null;
-    mockOnEvent.mockImplementation((h: (msg: unknown) => void) => { handler = h; return () => {}; });
     mockGetAgentSummary.mockResolvedValue({
       data: { agents: [instance({ status: 'idle', currentWorkUnitId: null, currentWorkUnit: null })], summary: { total: 1, idle: 1, active: 0, error: 0, terminated: 0 } },
     });
@@ -141,9 +158,7 @@ describe('useAgentRoster', () => {
     await flush();
     expect(result.current.roles[0].runtime?.currentWorkUnitId).toBeNull();
 
-    act(() => {
-      handler!({ event_type: 'agent.instance.status_changed', data: { profileId: 'p1', instanceId: 'i1', name: 'dev-agent', status: 'active', currentWorkUnitId: 'wu-9' } });
-    });
+    emitEvent({ event_type: 'agent.instance.status_changed', data: { profileId: 'p1', instanceId: 'i1', name: 'dev-agent', status: 'active', currentWorkUnitId: 'wu-9' } });
     expect(result.current.roles[0].runtime?.status).toBe('active');
     expect(result.current.roles[0].runtime?.currentWorkUnitId).toBe('wu-9');
     expect(mockWuGet).toHaveBeenCalledWith('wu-9');
@@ -153,23 +168,19 @@ describe('useAgentRoster', () => {
 
   // #312：负载带摘要快照 → 就地写入，fillWorkUnit 补查退役为兜底
   it('#312：负载带 currentWorkUnit 快照 → 就地写入，不再发起 WU 详情补查', async () => {
-    let handler: ((msg: unknown) => void) | null = null;
-    mockOnEvent.mockImplementation((h: (msg: unknown) => void) => { handler = h; return () => {}; });
     mockGetAgentSummary.mockResolvedValue({
       data: { agents: [instance({ status: 'idle', currentWorkUnitId: null, currentWorkUnit: null })], summary: { total: 1, idle: 1, active: 0, error: 0, terminated: 0 } },
     });
     const { result } = renderHook(() => useAgentRoster());
     await flush();
 
-    act(() => {
-      handler!({
-        event_type: 'agent.instance.status_changed',
-        data: {
-          profileId: 'p1', instanceId: 'i1', name: 'dev-agent', status: 'active', currentWorkUnitId: 'wu-9',
-          currentWorkUnit: { id: 'wu-9', title: '负载里的任务', type: 'DEV', status: 'active', claimedAt: '2026-08-24T01:00:00Z' },
-          channelId: 'ch1', lastError: null, lastErrorAt: null,
-        },
-      });
+    emitEvent({
+      event_type: 'agent.instance.status_changed',
+      data: {
+        profileId: 'p1', instanceId: 'i1', name: 'dev-agent', status: 'active', currentWorkUnitId: 'wu-9',
+        currentWorkUnit: { id: 'wu-9', title: '负载里的任务', type: 'DEV', status: 'active', claimedAt: '2026-08-24T01:00:00Z' },
+        channelId: 'ch1', lastError: null, lastErrorAt: null,
+      },
     });
     expect(result.current.roles[0].runtime?.status).toBe('active');
     expect(result.current.roles[0].runtime?.currentWorkUnitId).toBe('wu-9');
@@ -179,19 +190,15 @@ describe('useAgentRoster', () => {
   });
 
   it('#312：负载带悬空 null 快照（WU 已删除）→ 不补查，裸 id 保留展示', async () => {
-    let handler: ((msg: unknown) => void) | null = null;
-    mockOnEvent.mockImplementation((h: (msg: unknown) => void) => { handler = h; return () => {}; });
     mockGetAgentSummary.mockResolvedValue({
       data: { agents: [instance({ status: 'idle', currentWorkUnitId: null, currentWorkUnit: null })], summary: { total: 1, idle: 1, active: 0, error: 0, terminated: 0 } },
     });
     const { result } = renderHook(() => useAgentRoster());
     await flush();
 
-    act(() => {
-      handler!({
-        event_type: 'agent.instance.status_changed',
-        data: { profileId: 'p1', instanceId: 'i1', name: 'dev-agent', status: 'active', currentWorkUnitId: 'wu-ghost', currentWorkUnit: null, channelId: null },
-      });
+    emitEvent({
+      event_type: 'agent.instance.status_changed',
+      data: { profileId: 'p1', instanceId: 'i1', name: 'dev-agent', status: 'active', currentWorkUnitId: 'wu-ghost', currentWorkUnit: null, channelId: null },
     });
     expect(result.current.roles[0].runtime?.currentWorkUnitId).toBe('wu-ghost');
     expect(result.current.roles[0].runtime?.currentWorkUnit).toBeNull();
@@ -199,16 +206,12 @@ describe('useAgentRoster', () => {
   });
 
   it('#312：error 事件就地更新 lastError（不等 30s 轮询）', async () => {
-    let handler: ((msg: unknown) => void) | null = null;
-    mockOnEvent.mockImplementation((h: (msg: unknown) => void) => { handler = h; return () => {}; });
     const { result } = renderHook(() => useAgentRoster());
     await flush();
 
-    act(() => {
-      handler!({
-        event_type: 'agent.instance.status_changed',
-        data: { profileId: 'p1', instanceId: 'i-err', name: 'dev-agent', status: 'error', currentWorkUnitId: null, currentWorkUnit: null, channelId: null, lastError: 'health probe timeout', lastErrorAt: '2026-08-24T02:00:00Z' },
-      });
+    emitEvent({
+      event_type: 'agent.instance.status_changed',
+      data: { profileId: 'p1', instanceId: 'i-err', name: 'dev-agent', status: 'error', currentWorkUnitId: null, currentWorkUnit: null, channelId: null, lastError: 'health probe timeout', lastErrorAt: '2026-08-24T02:00:00Z' },
     });
     expect(result.current.roles[0].runtime?.status).toBe('error');
     expect(result.current.roles[0].runtime?.lastError).toBe('health probe timeout');
@@ -217,81 +220,76 @@ describe('useAgentRoster', () => {
   });
 
   it('SSE workunit.status_changed：按 currentWorkUnitId 反查归属并更新 WU 快照', async () => {
-    let handler: ((msg: unknown) => void) | null = null;
-    mockOnEvent.mockImplementation((h: (msg: unknown) => void) => { handler = h; return () => {}; });
     const { result } = renderHook(() => useAgentRoster());
     await flush();
 
-    act(() => {
-      handler!({ event_type: 'workunit.status_changed', data: { workunit: { id: 'wu-1', scope: '实现登录接口 v2', status: 'in_review' } } });
-    });
+    emitEvent({ event_type: 'workunit.status_changed', data: { workunit: { id: 'wu-1', scope: '实现登录接口 v2', status: 'in_review' } } });
     expect(result.current.roles[0].runtime?.currentWorkUnit?.status).toBe('in_review');
     expect(result.current.roles[0].runtime?.currentWorkUnit?.title).toBe('实现登录接口 v2');
     // 不属于任何卡片的 WU 不动名册
-    act(() => {
-      handler!({ event_type: 'workunit.status_changed', data: { workunit: { id: 'wu-elsewhere', status: 'done' } } });
-    });
+    emitEvent({ event_type: 'workunit.status_changed', data: { workunit: { id: 'wu-elsewhere', status: 'done' } } });
     expect(result.current.roles[0].runtime?.currentWorkUnit?.id).toBe('wu-1');
   });
 
   it('SSE workunit.execution.step：追加动态（工具调用优先文案）', async () => {
-    let handler: ((msg: unknown) => void) | null = null;
-    mockOnEvent.mockImplementation((h: (msg: unknown) => void) => { handler = h; return () => {}; });
-    const { result } = renderHook(() => useAgentRoster());
+    renderHook(() => useAgentRoster());
     await flush();
 
-    act(() => {
-      handler!({
-        event_type: 'workunit.execution.step',
-        data: { workUnitId: 'wu-1', executionId: 'e1', step: 3, action: 'progress', toolCalls: [{ tool: 'Edit', summary: 'src/auth.ts' }], at: '2026-08-06T00:00:00Z' },
-      });
+    emitEvent({
+      event_type: 'workunit.execution.step',
+      data: { workUnitId: 'wu-1', executionId: 'e1', step: 3, action: 'progress', toolCalls: [{ tool: 'Edit', summary: 'src/auth.ts' }], at: '2026-08-06T00:00:00Z' },
     });
-    expect(result.current.activities.p1).toHaveLength(1);
-    expect(result.current.activities.p1[0].text).toBe('🔧 Edit src/auth.ts');
-    expect(result.current.activities.p1[0].key).toBe('step:3');
+    // #348：动态下沉 rosterActivityStore，hook 返回值不再带 activities
+    const { activities } = useRosterActivityStore.getState();
+    expect(activities.p1).toHaveLength(1);
+    expect(activities.p1![0].text).toBe('🔧 Edit src/auth.ts');
+    expect(activities.p1![0].key).toBe('step:3');
   });
 
   it('SSE workunit.execution.stream：共享 formatter 出文案，同 key 刷新同一行，上限截断', async () => {
-    let handler: ((msg: unknown) => void) | null = null;
-    mockOnEvent.mockImplementation((h: (msg: unknown) => void) => { handler = h; return () => {}; });
-    const { result } = renderHook(() => useAgentRoster());
+    renderHook(() => useAgentRoster());
     await flush();
 
     // 同一步的 thinking chunk 同 key 替换尾条
-    act(() => {
-      handler!({ event_type: 'workunit.execution.stream', data: { workUnitId: 'wu-1', executionId: 'e1', step: 2, kind: 'thinking', text: '先读', at: 't1' } });
-      handler!({ event_type: 'workunit.execution.stream', data: { workUnitId: 'wu-1', executionId: 'e1', step: 2, kind: 'thinking', text: '先读现有实现', at: 't2' } });
-    });
-    expect(result.current.activities.p1).toHaveLength(1);
-    expect(result.current.activities.p1[0].text).toBe('思考：先读现有实现');
+    emitEvent({ event_type: 'workunit.execution.stream', data: { workUnitId: 'wu-1', executionId: 'e1', step: 2, kind: 'thinking', text: '先读', at: 't1' } });
+    emitEvent({ event_type: 'workunit.execution.stream', data: { workUnitId: 'wu-1', executionId: 'e1', step: 2, kind: 'thinking', text: '先读现有实现', at: 't2' } });
+    expect(useRosterActivityStore.getState().activities.p1).toHaveLength(1);
+    expect(useRosterActivityStore.getState().activities.p1![0].text).toBe('思考：先读现有实现');
 
     // tool chunk 无 key 逐条追加；result 也出文案（✓/✗）
-    act(() => {
-      handler!({ event_type: 'workunit.execution.stream', data: { workUnitId: 'wu-1', executionId: 'e1', step: 2, kind: 'tool', tool: 'Read', summary: 'a.ts', at: 't3' } });
-      handler!({ event_type: 'workunit.execution.stream', data: { workUnitId: 'wu-1', executionId: 'e1', step: 2, kind: 'result', text: '', at: 't4' } });
-    });
-    expect(result.current.activities.p1.map((a) => a.text)).toEqual([
+    emitEvent({ event_type: 'workunit.execution.stream', data: { workUnitId: 'wu-1', executionId: 'e1', step: 2, kind: 'tool', tool: 'Read', summary: 'a.ts', at: 't3' } });
+    emitEvent({ event_type: 'workunit.execution.stream', data: { workUnitId: 'wu-1', executionId: 'e1', step: 2, kind: 'result', text: '', at: 't4' } });
+    expect(useRosterActivityStore.getState().activities.p1!.map((a) => a.text)).toEqual([
       '思考：先读现有实现',
       '🔧 Read a.ts',
       '✓ 回合结束',
     ]);
 
     // 超上限丢最旧（不同 step → 不同 key → 逐条追加）
-    act(() => {
-      for (let s = 3; s < 3 + MAX_ACTIVITIES; s++) {
-        handler!({ event_type: 'workunit.execution.stream', data: { workUnitId: 'wu-1', executionId: 'e1', step: s, kind: 'text', text: `step${s}`, at: `t${s}` } });
-      }
-    });
-    expect(result.current.activities.p1).toHaveLength(MAX_ACTIVITIES);
-    expect(result.current.activities.p1[0].text).not.toBe('思考：先读现有实现');
+    for (let s = 3; s < 3 + MAX_ACTIVITIES; s++) {
+      emitEvent({ event_type: 'workunit.execution.stream', data: { workUnitId: 'wu-1', executionId: 'e1', step: s, kind: 'text', text: `step${s}`, at: `t${s}` } });
+    }
+    expect(useRosterActivityStore.getState().activities.p1).toHaveLength(MAX_ACTIVITIES);
+    expect(useRosterActivityStore.getState().activities.p1![0].text).not.toBe('思考：先读现有实现');
 
     // 其他 WU 的事件不落卡；坏 chunk 跳过
-    act(() => {
-      handler!({ event_type: 'workunit.execution.stream', data: { workUnitId: 'wu-elsewhere', executionId: 'e9', step: 1, kind: 'text', text: '别人的', at: 'x' } });
-      handler!({ event_type: 'workunit.execution.stream', data: { broken: true } });
+    emitEvent({ event_type: 'workunit.execution.stream', data: { workUnitId: 'wu-elsewhere', executionId: 'e9', step: 1, kind: 'text', text: '别人的', at: 'x' } });
+    emitEvent({ event_type: 'workunit.execution.stream', data: { broken: true } });
+    expect(useRosterActivityStore.getState().activities.p1).toHaveLength(MAX_ACTIVITIES);
+    expect(useRosterActivityStore.getState().activities.p1!.every((a) => a.text !== '别人的')).toBe(true);
+  });
+
+  // #348：动态是页面私有实时面——unmount 清空 store，防跨挂载残留
+  it('unmount 清空执行动态 store', async () => {
+    const { unmount } = renderHook(() => useAgentRoster());
+    await flush();
+    emitEvent({
+      event_type: 'workunit.execution.step',
+      data: { workUnitId: 'wu-1', executionId: 'e1', step: 1, action: 'start', at: '2026-08-06T00:00:00Z' },
     });
-    expect(result.current.activities.p1).toHaveLength(MAX_ACTIVITIES);
-    expect(result.current.activities.p1.every((a) => a.text !== '别人的')).toBe(true);
+    expect(useRosterActivityStore.getState().activities.p1).toHaveLength(1);
+    unmount();
+    expect(useRosterActivityStore.getState().activities).toEqual({});
   });
 
   it('terminate：POST 后静默重拉；失败写入 error 不抛出', async () => {
@@ -309,8 +307,9 @@ describe('useAgentRoster', () => {
   it('unmount 退订并清掉轮询计时器', async () => {
     const unsub = vi.fn();
     mockOnEvent.mockReturnValue(unsub);
+    // #346：两条订阅——useRosterStoreSync（状态事件→store）+ 本 hook（execution.step/stream→activities）
     renderHook(() => useAgentRoster()).unmount();
-    expect(unsub).toHaveBeenCalledTimes(1);
+    expect(unsub).toHaveBeenCalledTimes(2);
     await act(async () => { vi.advanceTimersByTime(ROSTER_POLL_INTERVAL_MS * 2); });
     expect(mockListAllAgents).toHaveBeenCalledTimes(1);
   });

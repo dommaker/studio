@@ -31,7 +31,7 @@ Harness 监控与治理 API（FL-029 / T-015）：轨迹采集分析、约束生
 ### 依赖关系
 
 - 依赖 `@dommaker/harness`（懒加载，不可用时端点降级 503）
-- 依赖 `@dommaker/studio-shared`（logger）、`../knowledge/knowledge-bus.service.js`（UNIFIED_KNOWLEDGE_DIR）
+- 依赖 `@dommaker/studio-shared`（logger）、`../knowledge/knowledge-singletons.js`（UNIFIED_KNOWLEDGE_DIR）
 - 被 `apps/api/src/route-registry.ts` 引用（/api/v1/harness = requireAuth+requireAdmin；/api/v1/cso 仅挂 cso.routes 的 /validate，公开不变）
 
 ### 注意事项

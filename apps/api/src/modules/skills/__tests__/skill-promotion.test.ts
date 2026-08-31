@@ -15,11 +15,16 @@ process.env.SKILLS_DIR = testSkillsDir;
 // 显式清理：`import * as fs` 走原生命名空间，mkdtemp-cleanup 补丁登记不到（见其头注）
 afterAll(() => { fs.rmSync(testSkillsDir, { recursive: true, force: true }); });
 
-vi.mock('@dommaker/studio-shared', () => ({
-  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
-  FileStore: vi.fn(),
-  recordDecision: vi.fn(),
-}));
+vi.mock('@dommaker/studio-shared', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@dommaker/studio-shared')>();
+  // #361：utils 薄壳转发（log-path 等）需要 actual 里的真实函数，spread 后覆盖隔离项
+  return {
+    ...actual,
+    logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
+    FileStore: vi.fn(),
+    recordDecision: vi.fn(),
+  };
+});
 
 const { validateSkillForPromotion, promoteSkill, extractReferencedPaths } = await import('../skill-promotion.js');
 const { loadManifest, invalidateManifestCache } = await import('../manifest-loader.js');

@@ -1,4 +1,4 @@
-// useChannelList — 频道列表数据 hook（ChannelListPage 与 ChannelRail 共用）
+// useChannelList — 频道列表数据 hook（ChannelHomeRedirect 与 ChannelRail 共用）
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
 
@@ -17,6 +17,7 @@ vi.mock('../../api/websocketHooks', () => ({
 }));
 
 import { useChannelList } from '../useChannelList';
+import { useRosterStore } from '../../stores/rosterStore';
 import type { ChannelListItem } from '../useChannelList';
 
 const CHANNELS = [
@@ -27,6 +28,13 @@ const CHANNELS = [
 describe('useChannelList', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // #346：channels 切片在 rosterStore（模块级单例），每测重置
+    useRosterStore.setState({
+      profiles: [], agents: [], channels: [],
+      loading: false, error: null, forbidden: false,
+      loadedAt: null, channelsLoadedOnce: false, agentsLoadedOnce: false,
+      inflight: null, lastToken: null,
+    });
     mockGet.mockResolvedValue({ data: { data: CHANNELS } });
     mockOnEvent.mockReturnValue(() => {});
   });

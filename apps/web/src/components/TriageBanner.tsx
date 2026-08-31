@@ -40,7 +40,7 @@ export function TriageBanner() {
   const hasCritical = visible.some(a => a.severity === 'critical');
 
   return (
-    <div className={`px-4 py-2 text-sm text-center ${
+    <div data-visual-ignore className={`px-4 py-2 text-sm text-center ${
       hasCritical ? 'u-err-bg u-on-accent' : 'u-warn-dim u-warn border-b u-warn-border'
     }`}>
       <div className="flex items-center justify-center gap-2 max-w-3xl mx-auto">

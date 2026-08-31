@@ -4,17 +4,27 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // ── Mocks ──
-const mockReadJsonl = vi.hoisted(() => vi.fn());
 const mockAppendJsonl = vi.hoisted(() => vi.fn());
+// #342：读口切到窗口读（studio-events-tail.readStudioEventsSince），打桩随之迁移
+const mockReadStudioEventsSince = vi.hoisted(() => vi.fn());
 const mockSkillStoreFindFirst = vi.hoisted(() => vi.fn());
 const mockSkillStoreCreate = vi.hoisted(() => vi.fn());
 
-vi.mock('@dommaker/studio-shared', () => ({
-  FileStore: vi.fn().mockImplementation(function () { return {
-    readJsonl: mockReadJsonl,
-    appendJsonl: mockAppendJsonl,
-  }; }),
-  logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
+vi.mock('@dommaker/studio-shared', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@dommaker/studio-shared')>();
+  // #361：utils 薄壳转发的实现住共享包 —— 必须 spread actual（否则 re-export 出的
+  // 函数全为 undefined）；FileStore 仍以假实现喂数（appendJsonl），隔离真实 ~/.studio。
+  return {
+    ...actual,
+    FileStore: vi.fn().mockImplementation(function () { return {
+      appendJsonl: mockAppendJsonl,
+    }; }),
+    logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
+  };
+});
+
+vi.mock('../../../utils/studio-events-tail.js', () => ({
+  readStudioEventsSince: mockReadStudioEventsSince,
 }));
 
 vi.mock('../../utils/logger.js', () => ({
@@ -195,7 +205,7 @@ describe('SessionSummaryGenerator', () => {
 
   describe('generateSessionSummary', () => {
     it('returns null when no events found', async () => {
-      mockReadJsonl.mockResolvedValueOnce([]);
+      mockReadStudioEventsSince.mockResolvedValueOnce([]);
 
       const { generateSessionSummary } = await import('../session-summary-generator.js');
       const result = await generateSessionSummary('session-nonexistent');
@@ -231,7 +241,7 @@ describe('SessionSummaryGenerator', () => {
         },
       ];
 
-      mockReadJsonl.mockResolvedValue(events);
+      mockReadStudioEventsSince.mockResolvedValue(events);
 
       const { generateSessionSummary } = await import('../session-summary-generator.js');
       const result = await generateSessionSummary('s1');
@@ -261,7 +271,7 @@ describe('SessionSummaryGenerator', () => {
         },
       ];
 
-      mockReadJsonl.mockResolvedValue(events);
+      mockReadStudioEventsSince.mockResolvedValue(events);
 
       const { generateSessionSummary } = await import('../session-summary-generator.js');
       const result = await generateSessionSummary('s1');
@@ -271,8 +281,8 @@ describe('SessionSummaryGenerator', () => {
       expect(result!.toolsUsed).toEqual([]);
     });
 
-    it('returns null when readJsonl throws', async () => {
-      mockReadJsonl.mockRejectedValueOnce(new Error('read failed'));
+    it('returns null when event read fails', async () => {
+      mockReadStudioEventsSince.mockRejectedValueOnce(new Error('read failed'));
 
       const { generateSessionSummary } = await import('../session-summary-generator.js');
       const result = await generateSessionSummary('s1');
@@ -290,7 +300,7 @@ describe('SessionSummaryGenerator', () => {
         },
       ];
 
-      mockReadJsonl.mockResolvedValue(events);
+      mockReadStudioEventsSince.mockResolvedValue(events);
 
       const { generateSessionSummary } = await import('../session-summary-generator.js');
       const result = await generateSessionSummary('s1');

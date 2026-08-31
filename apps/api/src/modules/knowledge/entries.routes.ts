@@ -12,7 +12,7 @@
 
 import { Router } from 'express';
 import { logger } from '@dommaker/studio-shared';
-import { sharedStore } from './knowledge-bus.service.js';
+import { sharedStore } from './knowledge-singletons.js';
 import { getSystemExecutor } from '../agents/system-executor.js';
 import { requireAuth, requireNotGuest } from '../../middleware/auth.js';
 import { parsePagination } from '../../utils/pagination.js';
@@ -30,7 +30,7 @@ export const entriesRoutes = Router();
  */
 entriesRoutes.get('/export', async (req, res) => {
   try {
-    const { sharedStore } = await import('./knowledge-bus.service.js');
+    const { sharedStore } = await import('./knowledge-singletons.js');
     const format = (req.query.format as string) === 'json' ? 'json' : 'md';
     const types = req.query.types ? (req.query.types as string).split(',').filter(Boolean) : undefined;
     const { limit } = parsePagination(req);
@@ -100,7 +100,7 @@ entriesRoutes.post('/ask', requireAuth(), requireNotGuest(), async (req, res) =>
     const systemPrompt = '你是知识库问答助手。根据提供的知识条目回答用户问题。回答必须基于知识条目内容，不要编造。引用时标注来源编号如 [1] [2]。';
     const userPrompt = `知识条目：\n${context}\n\n---\n\n用户问题：${question}`;
 
-    const answer = (await getSystemExecutor().run(userPrompt, { systemPrompt })).output;
+    const answer = (await getSystemExecutor().run(userPrompt, { systemPrompt, eventSource: 'knowledge-qa' })).output;
 
     // 4. Return answer + source references
     const sources = entries.map((e: any) => ({
@@ -212,7 +212,7 @@ entriesRoutes.post('/unified', requireAuth(), requireNotGuest(), async (req, res
       return;
     }
 
-    const { sharedStore } = await import('./knowledge-bus.service.js');
+    const { sharedStore } = await import('./knowledge-singletons.js');
     const id = `manual-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
     const now = new Date().toISOString();
     // #93：人工创建本身就是出处凭证——不 stamp 的话 hasSourceReferences 闸门会永远拦住该条目

@@ -41,10 +41,10 @@ describe('ProjectPipeline', () => {
 
   it('空 WU 列表显示暂无产出', () => {
     render(<ProjectPipeline workunits={[]} agents={[]} />);
-    expect(screen.getByText('暂无 WorkUnit 产出')).toBeInTheDocument();
+    expect(screen.getByText('暂无任务产出')).toBeInTheDocument();
   });
 
-  it('渲染总进度条与五泳道计数', () => {
+  it('渲染总进度条与五泳道计数（#399 词表：待领取/进行中/待验收/完成）', () => {
     render(
       <ProjectPipeline
         workunits={[
@@ -55,10 +55,25 @@ describe('ProjectPipeline', () => {
         agents={[]}
       />,
     );
-    expect(screen.getByText(/1\/3 WU 完成/)).toBeInTheDocument();
-    expect(screen.getByText(/待认领 \(1\)/)).toBeInTheDocument();
-    expect(screen.getByText(/执行中 \(1\)/)).toBeInTheDocument();
-    expect(screen.getByText(/已完成 \(1\)/)).toBeInTheDocument();
+    expect(screen.getByText(/1\/3 任务完成/)).toBeInTheDocument();
+    expect(screen.getByText(/待领取 \(1\)/)).toBeInTheDocument();
+    expect(screen.getByText(/进行中 \(1\)/)).toBeInTheDocument();
+    expect(screen.getByText(/完成 \(1\)/)).toBeInTheDocument();
+  });
+
+  it('#399 §8.1：0 桶 muted 自然呈现——泳道不染状态色、桶名 muted；非 0 桶维持色语义', () => {
+    render(<ProjectPipeline workunits={[wu({ id: 'a', title: '任务A', status: 'blocked' })]} agents={[]} />);
+
+    // 非 0 阻塞泳道：红语义保留
+    const blockedHead = screen.getByText(/阻塞 \(1\)/);
+    expect(blockedHead.className).toContain('u-err');
+    expect(blockedHead.parentElement!.className).toContain('u-err-dim');
+
+    // 0 桶泳道：不加整泳道染色，桶名 muted
+    const emptyHead = screen.getByText(/待验收 \(0\)/);
+    expect(emptyHead.className).toContain('u-text-3');
+    expect(emptyHead.className).not.toContain('u-warn');
+    expect(emptyHead.parentElement!.className).not.toContain('u-warn-dim');
   });
 
   it('WU 卡片标题渲染', () => {
@@ -86,9 +101,9 @@ describe('ProjectPipeline', () => {
     expect(screen.getByText('@inst-123')).toBeInTheDocument();
   });
 
-  it('无 assigneeId -> 显示未认领', () => {
+  it('无 assigneeId -> 显示未领取', () => {
     render(<ProjectPipeline workunits={[wu({ id: 'a', title: '任务', status: 'unassigned', assigneeId: null })]} agents={[]} />);
-    expect(screen.getByText('未认领')).toBeInTheDocument();
+    expect(screen.getByText('未领取')).toBeInTheDocument();
   });
 
   it('WU 卡片点击 navigate /workunits/:id', () => {

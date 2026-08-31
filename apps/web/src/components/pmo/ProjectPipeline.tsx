@@ -5,28 +5,30 @@ import { deriveDisplayState } from '@dommaker/studio-shared/web';
 import type { AgentInfo } from '../../api/monitoring';
 import {
   computePipelineProgress,
+  EVIDENCE_LAYER_LABELS,
   formatDuration,
   groupWorkUnitsByLane,
   type PipelineLane,
   type PipelineWorkUnit,
 } from './pipelineUtils';
 
+// #399 §8.3 词表正词：待领取/进行中/待验收/完成（pending「待确认」词表无对应词，暂保留）
 const LANE_DEFS: Array<{ key: PipelineLane; label: string; headClass: string; laneClass: string }> = [
   { key: 'pending', label: '待确认', headClass: 'u-warn', laneClass: 'u-warn-dim' },
-  { key: 'unassigned', label: '待认领', headClass: 'u-text-2', laneClass: 'u-surface-2' },
-  { key: 'active', label: '执行中', headClass: 'u-accent', laneClass: 'u-accent-dim' },
-  { key: 'in_review', label: '评审中', headClass: 'u-warn', laneClass: 'u-warn-dim' },
+  { key: 'unassigned', label: '待领取', headClass: 'u-text-2', laneClass: 'u-surface-2' },
+  { key: 'active', label: '进行中', headClass: 'u-accent', laneClass: 'u-accent-dim' },
+  { key: 'in_review', label: '待验收', headClass: 'u-warn', laneClass: 'u-warn-dim' },
   { key: 'blocked', label: '阻塞', headClass: 'u-err', laneClass: 'u-err-dim' },
-  { key: 'done', label: '已完成', headClass: 'u-ok', laneClass: 'u-ok-dim' },
+  { key: 'done', label: '完成', headClass: 'u-ok', laneClass: 'u-ok-dim' },
 ];
 
-// 状态 chip 配色与 RequirementChainPanel / 任务看板一致
+// 状态 chip 文案同泳道词表（配色与 RequirementChainPanel / 任务看板一致）
 const STATUS_LABELS: Record<string, string> = {
   pending: '待确认',
-  unassigned: '待分配',
-  active: '执行中',
-  in_review: '审查中',
-  done: '已完成',
+  unassigned: '待领取',
+  active: '进行中',
+  in_review: '待验收',
+  done: '完成',
   closed: '已关闭',
   blocked: '阻塞',
 };
@@ -66,13 +68,13 @@ function WuCard({ wu, agent }: { wu: PipelineWorkUnit; agent?: AgentInfo }) {
         <span className={`text-xs px-1.5 py-0.5 rounded ${STATUS_COLORS[derived.column] ?? 'u-surface-2 u-text-2'}`}>
           {STATUS_LABELS[derived.column] ?? derived.column}
         </span>
-        {/* L1/L2/L3 证据徽章：approved 亮绿，缺失灰底 */}
-        {(['l1', 'l2', 'l3'] as const).map(level => (
+        {/* 证据徽章（§8.3 白话词表 EVIDENCE_LAYER_LABELS）：approved 亮绿，缺失灰底 */}
+        {(['l1', 'l2', 'l3'] as const).map(key => (
           <span
-            key={level}
-            className={`text-xs px-1 py-0.5 rounded ${derived.evidence[level] ? 'u-ok-dim u-ok' : 'u-surface-2 u-text-3'}`}
+            key={key}
+            className={`text-xs px-1 py-0.5 rounded ${derived.evidence[key] ? 'u-ok-dim u-ok' : 'u-surface-2 u-text-3'}`}
           >
-            {level.toUpperCase()}{derived.evidence[level] ? '✓' : ''}
+            {EVIDENCE_LAYER_LABELS[key]}{derived.evidence[key] ? '✓' : ''}
           </span>
         ))}
       </div>
@@ -89,7 +91,7 @@ function WuCard({ wu, agent }: { wu: PipelineWorkUnit; agent?: AgentInfo }) {
             {agent.name}
           </button>
         ) : (
-          <span className="truncate">{wu.assigneeId ? `@${wu.assigneeId.slice(0, 8)}` : '未认领'}</span>
+          <span className="truncate">{wu.assigneeId ? `@${wu.assigneeId.slice(0, 8)}` : '未领取'}</span>
         )}
         {duration && <span className="flex-shrink-0">⏱ {duration}</span>}
       </div>
@@ -103,14 +105,14 @@ export function ProjectPipeline({ workunits, agents, loading }: Props) {
   }
   const progress = computePipelineProgress(workunits);
   if (progress.total === 0) {
-    return <div className="text-sm u-text-3">暂无 WorkUnit 产出</div>;
+    return <div className="text-sm u-text-3">暂无任务产出</div>;
   }
   const lanes = groupWorkUnitsByLane(workunits);
   const agentById = new Map(agents.map(a => [a.id, a]));
 
   return (
     <div>
-      {/* 总进度条（x/y WU 完成，workFinished 所有权口径） */}
+      {/* 总进度条（x/y 任务完成，workFinished 所有权口径） */}
       <div className="flex items-center gap-3 mb-3">
         <div className="flex-1">
           <div className="h-3 u-surface-2 rounded-full overflow-hidden">
@@ -121,24 +123,28 @@ export function ProjectPipeline({ workunits, agents, loading }: Props) {
           </div>
         </div>
         <span className="text-sm u-text-2 flex-shrink-0">
-          {progress.finished}/{progress.total} WU 完成 · {progress.percent}%
+          {progress.finished}/{progress.total} 任务完成 · {progress.percent}%
         </span>
       </div>
 
-      {/* 五泳道 */}
+      {/* 泳道（泳道头计数 = 全页唯一状态计数表达；§8.1：0 桶 muted 自然呈现，不加整泳道染色） */}
       <div className="grid grid-cols-5 gap-2">
-        {LANE_DEFS.map(lane => (
-          <div key={lane.key} className={`p-2 rounded-lg ${lane.laneClass}`}>
-            <div className={`text-xs mb-2 ${lane.headClass}`}>
-              {lane.label} ({lanes[lane.key].length})
+        {LANE_DEFS.map(lane => {
+          const items = lanes[lane.key];
+          const empty = items.length === 0;
+          return (
+            <div key={lane.key} className={`p-2 rounded-lg ${empty ? '' : lane.laneClass}`}>
+              <div className={`text-xs mb-2 ${empty ? 'u-text-3' : lane.headClass}`}>
+                {lane.label} ({items.length})
+              </div>
+              <div className="space-y-2">
+                {items.map(wu => (
+                  <WuCard key={wu.id} wu={wu} agent={wu.assigneeId ? agentById.get(wu.assigneeId) : undefined} />
+                ))}
+              </div>
             </div>
-            <div className="space-y-2">
-              {lanes[lane.key].map(wu => (
-                <WuCard key={wu.id} wu={wu} agent={wu.assigneeId ? agentById.get(wu.assigneeId) : undefined} />
-              ))}
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

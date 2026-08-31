@@ -20,7 +20,7 @@
  */
 import { FileStore, type WorkUnitSnapshot } from '@dommaker/studio-shared';
 import { execSh } from '@dommaker/studio-shared/node';
-import { projectService, resolveDeliveries, resolveDeliveryPolicy, LEG_STATUS, type DeliveryLeg, type DeliveryLegStatus, type DeliveryPolicy, type ProjectData } from './project.service.js';
+import { projectService, resolveDeliveries, resolveDeliveryPolicy, LEG_STATUS, PROJECT_STATUS, type DeliveryLeg, type DeliveryLegStatus, type DeliveryPolicy, type ProjectData } from './project.service.js';
 import { RequirementService } from '../requirements/requirement.service.js';
 import { selectProjectSnapshots, summarizeEvidence, partitionSnapshotsByLeg, type EvidenceSummary } from './evidence-summary.js';
 import { sumTokensForWorkUnits } from '../agents/token-usage.service.js';
@@ -57,6 +57,13 @@ export interface DeliveryStatus {
   missing: string[];
   /** 项目 WU 链路 token 总消耗（studio-events.jsonl 的 workunit:tokens 事件求和，best-effort） */
   tokens: number;
+  /**
+   * #376 归档口径：completed 项目实时重算零 WU = true。
+   * progress 是 rollup 写入后不回看的历史快照，WU 存储清理/重建后快照为空集，
+   * 「100% + 六卡全 0」是归档分叉而非在途真相——前端据此显示归档提示而非全 0。
+   * 谓词只看 COMPLETED（deliveredAt 不翻 status，不作终态代理，见实现处注释）。
+   */
+  archived: boolean;
   /** 已完成但证据有缺口的 WU 明细（供前端渲染行动清单；missing 顺序固定 l1→l2→l3） */
   gaps: Array<{ id: string; title: string; type: string; missing: Array<'l1' | 'l2' | 'l3'> }>;
   deliveredAt: string | null;
@@ -136,11 +143,12 @@ async function buildLedger(
   const tokens = await sumTokens(new Set(snapshots.map(s => s.id))).catch(() => 0);
 
   const missing: string[] = [];
-  if (snapshots.length === 0) missing.push('无关联 WorkUnit');
-  if (inFlight > 0) missing.push(`${inFlight} 个 WorkUnit 未完成`);
-  if (l1Missing.length > 0) missing.push(`${l1Missing.length} 个代码类 WorkUnit 缺 L1 自动验证（${l1Missing.slice(0, 3).join(', ')}${l1Missing.length > 3 ? '…' : ''}）`);
-  if (l2Missing.length > 0) missing.push(`${l2Missing.length} 个 WorkUnit 缺 L2 agent 评审（${l2Missing.slice(0, 3).join(', ')}${l2Missing.length > 3 ? '…' : ''}）`);
-  if (l3Missing.length > 0) missing.push(`${l3Missing.length} 个 WorkUnit 缺 L3 人工确认（${l3Missing.slice(0, 3).join(', ')}${l3Missing.length > 3 ? '…' : ''}）`);
+  // 界面文案对齐 #385 词表：WU→任务、L1/L2/L3 编号转白话（自动验证/Agent 评审/人工确认）；插值为 WU 编号本身除外
+  if (snapshots.length === 0) missing.push('无关联任务');
+  if (inFlight > 0) missing.push(`${inFlight} 个任务未完成`);
+  if (l1Missing.length > 0) missing.push(`${l1Missing.length} 个代码类任务缺自动验证（${l1Missing.slice(0, 3).join(', ')}${l1Missing.length > 3 ? '…' : ''}）`);
+  if (l2Missing.length > 0) missing.push(`${l2Missing.length} 个任务缺 Agent 评审（${l2Missing.slice(0, 3).join(', ')}${l2Missing.length > 3 ? '…' : ''}）`);
+  if (l3Missing.length > 0) missing.push(`${l3Missing.length} 个任务缺人工确认（${l3Missing.slice(0, 3).join(', ')}${l3Missing.length > 3 ? '…' : ''}）`);
 
   return { summary, missing, gaps, tokens };
 }
@@ -226,6 +234,12 @@ export async function getDeliveryStatus(
     deliverable,
     missing,
     tokens: ledger.tokens,
+    // #376：completed + 实时重算零 WU = 归档分叉（progress 历史快照 vs 存储已清理）。
+    // 谓词只看 COMPLETED（状态机唯一终点）：deliveredAt 不是终态代理——deliverProject
+    // 只落档不翻 status，且 in_review → cancelled 合法，带上它会误标 cancelled/在途项目。
+    // 已知边界：零任务直接 completed 的项目同样命中（无从分辨「从未有过 WU」与
+    // 「WU 已清理」），属保守误报——归档提示文案两种情形都成立。
+    archived: snapshots.length === 0 && project.status === PROJECT_STATUS.COMPLETED,
     gaps: ledger.gaps,
     deliveredAt: project.deliveredAt ?? null,
     deliveredBy: project.deliveredBy ?? null,

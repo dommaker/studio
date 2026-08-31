@@ -1,5 +1,5 @@
 // Agent 卡片状态推导与时间格式化（2026-07-31 全流程串联 UX 重构 §5.2/§5.3）
-// 纯函数抽出以便单测；配色沿用原 AgentDashboardPage pill 语义（绿=执行、灰=空闲/未启动、黄=异常/待评审、红=阻塞/终止）
+// 纯函数抽出以便单测；状态色遵循 redesign §6.5 单义规则（绿=执行 / 黄=待评审 / 红=阻塞 / 橙=异常 / 灰=空闲·停用）
 
 /** 卡片状态键：active 实例按当前 WU.status 细分 */
 export type AgentStatusKey =
@@ -11,6 +11,9 @@ export type AgentStatusKey =
   | 'terminated' // 已终止
   | 'none';      // 未启动（无 instance）
 
+/** 卡面状态键 = AgentStatusKey + disabled（profile 被停用，覆盖 instance 维度） */
+export type CardStatusKey = AgentStatusKey | 'disabled';
+
 export const AGENT_STATUS_LABELS: Record<AgentStatusKey, string> = {
   running: '执行中',
   in_review: '待评审',
@@ -21,13 +24,18 @@ export const AGENT_STATUS_LABELS: Record<AgentStatusKey, string> = {
   none: '未启动',
 };
 
+export const CARD_STATUS_LABELS: Record<CardStatusKey, string> = {
+  ...AGENT_STATUS_LABELS,
+  disabled: '已停用',
+};
+
 export const AGENT_STATUS_COLORS: Record<AgentStatusKey, string> = {
   running: 'u-accent-dim u-accent',
   in_review: 'u-warn-dim u-warn',
   blocked: 'u-err-dim u-err',
   idle: 'u-surface-2 u-text-3',
-  error: 'u-warn-dim u-warn',
-  terminated: 'u-err-dim u-err',
+  error: 'u-anomaly-dim u-anomaly', // §6.5：异常=橙，与待评审黄解耦
+  terminated: 'u-surface-2 u-text-3', // §6.5：红只编码阻塞，终止归灰
   none: 'u-surface-2 u-text-3',
 };
 
@@ -49,6 +57,37 @@ export function deriveAgentStatus(
   if (instanceStatus === 'error') return 'error';
   if (instanceStatus === 'terminated') return 'terminated';
   return 'none';
+}
+
+/** 卡面状态统一口径（#397 §6.3：卡片 pill / 页头筛选 chip / 排序三处同源）：profile 停用优先于 instance 维度 */
+export function resolveCardStatusKey(
+  profileStatus: string | null | undefined,
+  instanceStatus: string | null | undefined,
+  currentWorkUnitStatus?: string | null,
+): CardStatusKey {
+  if (profileStatus !== 'active') return 'disabled';
+  return deriveAgentStatus(instanceStatus, currentWorkUnitStatus);
+}
+
+/** §6.2 注意力排序：阻塞/异常 → 待评审 → 执行中 → 空闲 → 未启动/终止/停用 */
+export const AGENT_STATUS_RANK: Record<CardStatusKey, number> = {
+  blocked: 0,
+  error: 0,
+  in_review: 1,
+  running: 2,
+  idle: 3,
+  none: 4,
+  terminated: 4,
+  disabled: 4,
+};
+
+/** §6.3 页头筛选维度；'off' 聚合 未启动/已终止/已停用；'all' 不过滤 */
+export type StatusFilter = 'all' | 'running' | 'in_review' | 'blocked' | 'error' | 'idle' | 'off';
+
+export function matchesStatusFilter(key: CardStatusKey, filter: StatusFilter): boolean {
+  if (filter === 'all') return true;
+  if (filter === 'off') return key === 'none' || key === 'terminated' || key === 'disabled';
+  return key === filter;
 }
 
 /** 运行时长 / 已耗时：从 startedAt（或 claimedAt）起算，"5m" / "2h 30m" / "1d 4h" */

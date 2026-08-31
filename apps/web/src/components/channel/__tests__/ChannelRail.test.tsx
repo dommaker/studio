@@ -25,7 +25,12 @@ vi.mock('../../../api/monitoring', () => ({
 
 // #272：创建表单（CreateChannelForm）加载本地工程发现候选——单测置空即可
 vi.mock('../../../api/channel', () => ({
-  channelApi: { discoverProjects: vi.fn().mockResolvedValue({ data: { success: true, data: [] } }) },
+  channelApi: {
+    discoverProjects: vi.fn().mockResolvedValue({ data: { success: true, data: [] } }),
+    // #346：rosterStore.ensureFresh 三端点切片——本套件只关心 agents，profiles/channels stub 失败即可
+    listAllAgents: vi.fn().mockRejectedValue(new Error('not mocked here')),
+    list: vi.fn().mockRejectedValue(new Error('not mocked here')),
+  },
 }));
 
 vi.mock('react-router-dom', async () => {
@@ -34,6 +39,7 @@ vi.mock('react-router-dom', async () => {
 });
 
 import { ChannelRail } from '../ChannelRail';
+import { useRosterStore } from '../../../stores/rosterStore';
 import type { ChannelListItem } from '../../../hooks/useChannelList';
 
 const CHANNELS = [
@@ -62,6 +68,13 @@ describe('ChannelRail', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockCtx.status = 'disconnected';
+    // #346：agent 数据走 rosterStore（模块级单例），每测重置
+    useRosterStore.setState({
+      profiles: [], agents: [], channels: [],
+      loading: false, error: null, forbidden: false,
+      loadedAt: null, channelsLoadedOnce: false, agentsLoadedOnce: false,
+      inflight: null, lastToken: null,
+    });
     mockUseChannelList.mockReturnValue({
       channels: CHANNELS,
       loading: false,

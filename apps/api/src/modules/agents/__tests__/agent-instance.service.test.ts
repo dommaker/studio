@@ -5,7 +5,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { FileStore, type RuntimeStateData } from '@dommaker/studio-shared';
 
-import { AgentInstanceService } from '../agent-instance.service';
+import { AgentInstanceService, summarizeRoleStates } from '../agent-instance.service';
 import { WorkUnitService } from '../../workunit/workunit.service.js';
 
 function createTempDir(): string {
@@ -199,5 +199,98 @@ describe('AgentInstanceService', () => {
     it('should throw when instance not found', async () => {
       await expect(service.terminate('nonexistent')).rejects.toThrow('Instance not found');
     });
+  });
+});
+
+describe('summarizeRoleStates', () => {
+  let fileStore: FileStore;
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = createTempDir();
+    fileStore = new FileStore(tmpDir);
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  function mkState(overrides: Partial<RuntimeStateData>): RuntimeStateData {
+    return {
+      id: 'st-1',
+      roleId: 'role-1',
+      sessionId: null,
+      status: 'idle',
+      currentWorkUnitId: null,
+      startedAt: new Date().toISOString(),
+      terminatedAt: null,
+      lastHeartbeat: null,
+      metadata: null,
+      ...overrides,
+    };
+  }
+
+  it('active with fresh heartbeat → online', async () => {
+    await fileStore.createState('st-1', mkState({ status: 'active', lastHeartbeat: new Date().toISOString() }));
+
+    const { onlineRoleIds, latestErrorByRole } = await summarizeRoleStates(fileStore, ['role-1']);
+
+    expect(onlineRoleIds.has('role-1')).toBe(true);
+    expect(latestErrorByRole.size).toBe(0);
+  });
+
+  it('刚启动未及首次心跳：idle + fresh startedAt → online（宽限）', async () => {
+    await fileStore.createState('st-1', mkState({ lastHeartbeat: null }));
+
+    const { onlineRoleIds } = await summarizeRoleStates(fileStore, ['role-1']);
+
+    expect(onlineRoleIds.has('role-1')).toBe(true);
+  });
+
+  it('heartbeat stale → offline', async () => {
+    const stale = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+    await fileStore.createState('st-1', mkState({ status: 'active', lastHeartbeat: stale }));
+
+    const { onlineRoleIds } = await summarizeRoleStates(fileStore, ['role-1']);
+
+    expect(onlineRoleIds.has('role-1')).toBe(false);
+  });
+
+  it('terminated/error 状态即便心跳新鲜也不算 online', async () => {
+    await fileStore.createState('st-1', mkState({ id: 'st-1', status: 'terminated' }));
+    await fileStore.createState('st-2', mkState({ id: 'st-2', status: 'error', lastError: 'boom', lastErrorAt: new Date().toISOString() }));
+
+    const { onlineRoleIds } = await summarizeRoleStates(fileStore, ['role-1']);
+
+    expect(onlineRoleIds.has('role-1')).toBe(false);
+  });
+
+  it('同角色多条 error 按 lastErrorAt 取最新', async () => {
+    const older = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    const newer = new Date().toISOString();
+    await fileStore.createState('st-1', mkState({ id: 'st-1', status: 'error', lastError: 'older failure', lastErrorAt: older }));
+    await fileStore.createState('st-2', mkState({ id: 'st-2', status: 'error', lastError: 'newer failure', lastErrorAt: newer }));
+
+    const { latestErrorByRole } = await summarizeRoleStates(fileStore, ['role-1']);
+
+    expect(latestErrorByRole.get('role-1')).toEqual({ lastError: 'newer failure', lastErrorAt: newer });
+  });
+
+  it('error 状态缺 lastError 不进聚合', async () => {
+    await fileStore.createState('st-1', mkState({ status: 'error', lastError: null, lastErrorAt: null }));
+
+    const { latestErrorByRole } = await summarizeRoleStates(fileStore, ['role-1']);
+
+    expect(latestErrorByRole.size).toBe(0);
+  });
+
+  it('roleId 不在 agentIds 内的 state 不进任何聚合', async () => {
+    await fileStore.createState('st-1', mkState({ roleId: 'role-other', status: 'active', lastHeartbeat: new Date().toISOString() }));
+    await fileStore.createState('st-2', mkState({ roleId: 'role-other', status: 'error', lastError: 'boom', lastErrorAt: new Date().toISOString() }));
+
+    const { onlineRoleIds, latestErrorByRole } = await summarizeRoleStates(fileStore, ['role-1']);
+
+    expect(onlineRoleIds.size).toBe(0);
+    expect(latestErrorByRole.size).toBe(0);
   });
 });

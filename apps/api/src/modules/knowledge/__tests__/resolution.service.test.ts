@@ -37,12 +37,12 @@ vi.mock('os', async (importOriginal) => {
   };
 });
 
-vi.mock('../knowledge-bus.service.js', () => ({
+vi.mock('../knowledge-singletons.js', () => ({
   scheduleVectorDbSync: vi.fn(),
 }));
 
 import { resolutionService } from '../resolution.service.js';
-import { scheduleVectorDbSync } from '../knowledge-bus.service.js';
+import { scheduleVectorDbSync } from '../knowledge-singletons.js';
 
 // os.homedir() 已被 mock 指向 tmpDir，STUDIO_HOME 也在 hoisted 块钉到 tmpDir/.studio
 // —— resolution.service 的 KNOWLEDGE_DIR 与本测试的写入/清理路径都落在
@@ -154,6 +154,23 @@ describe('ResolutionService', () => {
       } finally {
         fs.rmSync(indexPath, { force: true });
       }
+    });
+  });
+
+  describe('#371: origin 标定', () => {
+    it('createResolution 落盘 frontmatter 带 origin: system（缺省会被 harness store 兜底 agent 误入蒸馏 topic 信号）', async () => {
+      const created = await resolutionService.createResolution({
+        pattern: 'origin-tagging.*test',
+        errorClass: 'test_error',
+        layer: 'L3_tool_behavior',
+        title: 'Origin Tagged Resolution',
+        fix: 'Do the right fix',
+        tags: ['test'],
+      });
+      expect(created).not.toBeNull();
+      const knowledgeDir = path.join(os.homedir(), '.studio', 'knowledge');
+      const raw = fs.readFileSync(path.join(knowledgeDir, `resolution-${created!.id}.md`), 'utf-8');
+      expect(raw).toMatch(/^origin: "?system"?\s*$/m);
     });
   });
 

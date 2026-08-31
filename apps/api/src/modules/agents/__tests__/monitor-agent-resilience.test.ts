@@ -38,13 +38,13 @@ vi.mock('@dommaker/harness', () => ({
   CheckpointValidator: { getInstance: () => ({ validate: () => [] }) },
 }));
 
-vi.mock('../../knowledge/knowledge-bus.service.js', () => ({
+vi.mock('../../knowledge/knowledge-singletons.js', () => ({
   sharedStore: { list: vi.fn(() => []), save: vi.fn(), update: vi.fn(), delete: vi.fn() },
   sharedLifecycle: { recordReference: vi.fn() },
   sharedIngest: { ingestEntry: vi.fn() },
   sharedLinter: { validateEntry: vi.fn(() => []) },
   UNIFIED_KNOWLEDGE_DIR: '/tmp/test-knowledge',
-  knowledgeBus: { search: vi.fn(() => []) },
+
 }));
 
 vi.mock('../../knowledge/knowledge-service.js', () => ({ knowledgeService: {} }));

@@ -26,6 +26,8 @@ vi.mock('react-router-dom', () => ({
   Link: ({ children, to, ...rest }: { children: React.ReactNode; to: string; [k: string]: unknown }) =>
     React.createElement('a', { href: to, ...rest }, children),
   useParams: () => ({ profileId: 'p1' }),
+  // #393：BackButton（统一返回）在页面内使用 useNavigate
+  useNavigate: () => vi.fn(),
 }));
 
 vi.mock('../../api/monitoring', () => ({
@@ -66,6 +68,17 @@ vi.mock('../../api/index', () => ({
 }));
 
 import { AgentDetailPage } from '../../pages/AgentDetailPage';
+import { useRosterStore } from '../../stores/rosterStore';
+
+// #346：页面数据面读 rosterStore（模块级单例）——每测重置，避免 TTL 缓存跨测串味
+function resetRosterStore() {
+  useRosterStore.setState({
+    profiles: [], agents: [], channels: [],
+    loading: false, error: null, forbidden: false,
+    loadedAt: null, channelsLoadedOnce: false, agentsLoadedOnce: false,
+    inflight: null, lastToken: null,
+  });
+}
 
 const profile = {
   id: 'p1', name: 'dev-agent', description: 'writes code', status: 'active', provider: 'claude', isOnline: true,
@@ -89,6 +102,7 @@ function mockApis({ agents = [busyInstance], profiles = [profile] }: { agents?: 
 describe('AgentDetailPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    resetRosterStore();
     sse.handlers.length = 0;
     sse.reconnects.length = 0;
     mockApis();
@@ -116,7 +130,8 @@ describe('AgentDetailPage', () => {
     expect(screen.getAllByText('#backend')[0].closest('a')?.getAttribute('href')).toBe('/channels/ch1');
     expect(screen.getByText('p1')).toBeDefined();
     expect(screen.getByText('i1')).toBeDefined();
-    expect(screen.getByText('返回 /agents').closest('a')?.getAttribute('href')).toBe('/agents');
+    // #393 §4.4：统一左上「← 返回」（BackButton，直开回落 /agents）
+    expect(screen.getByRole('button', { name: '← 返回' })).toBeDefined();
     expect(screen.getByText('强制停止')).toBeDefined();
   });
 
@@ -184,6 +199,7 @@ describe('AgentDetailPage — SSE 负载直更（#318）', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    resetRosterStore();
     sse.handlers.length = 0;
     sse.reconnects.length = 0;
     mockApis();
