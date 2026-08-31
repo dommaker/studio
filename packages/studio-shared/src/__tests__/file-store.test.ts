@@ -1453,6 +1453,75 @@ describe('FileStore getIndex 读穿缓存 (#314)', () => {
   });
 });
 
+// ─── #406：getIndex filter 下推（克隆在过滤之前）───
+
+describe('FileStore getIndex filter 下推 (#406)', () => {
+  let tmpDir: string;
+  let store: FileStore;
+
+  beforeEach(() => {
+    tmpDir = createTempDir();
+    store = new FileStore(tmpDir);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  const indexPath = () => path.join(tmpDir, 'workunits', 'index.json');
+
+  function makeSnap(id: string, overrides?: Partial<WorkUnitSnapshot>): WorkUnitSnapshot {
+    const now = new Date().toISOString();
+    return {
+      id, parentId: null, type: 'task', scope: `scope-${id}`, assigneeId: null,
+      status: 'unassigned', failureType: null, retryCount: 0, timeoutAt: null,
+      channelId: null, projectPath: null, metadata: null,
+      createdAt: now, updatedAt: now, claimedAt: null, completedAt: null,
+      ...overrides,
+    };
+  }
+
+  it('命中路径先按 filter 选行再克隆（structuredClone 只见命中子集）', async () => {
+    await store.upsertSnapshot(makeSnap('wu1', { status: 'active' }));
+    await store.upsertSnapshot(makeSnap('wu2', { status: 'unassigned' }));
+    await store.upsertSnapshot(makeSnap('wu3', { status: 'active' }));
+    await store.getIndex(); // 填充缓存
+
+    const cloneSpy = vi.spyOn(globalThis, 'structuredClone');
+    const active = await store.getIndex({ status: 'active' });
+    expect(active.map(s => s.id)).toEqual(['wu1', 'wu3']);
+
+    const clonedArrays = cloneSpy.mock.calls.map(c => c[0]).filter(v => Array.isArray(v));
+    expect(clonedArrays).toHaveLength(1);
+    expect(clonedArrays[0].map((s: WorkUnitSnapshot) => s.id)).toEqual(['wu1', 'wu3']);
+  });
+
+  it('filter 命中行仍为结构克隆，mutate 不污染缓存', async () => {
+    await store.upsertSnapshot(makeSnap('wu1', { status: 'active', scope: 'pristine' }));
+    await store.upsertSnapshot(makeSnap('wu2', { status: 'unassigned' }));
+    await store.getIndex(); // 填充缓存
+
+    const active = await store.getIndex({ status: 'active' });
+    active[0].scope = 'mutated-by-caller';
+
+    expect((await store.getIndex({ status: 'active' }))[0].scope).toBe('pristine');
+    const all = await store.getIndex();
+    expect(all.find(s => s.id === 'wu1')!.scope).toBe('pristine');
+  });
+
+  it('撕裂 index + filter 查询 → 仍抛带路径的错误（严格语义不因下推丢失）', async () => {
+    await store.upsertSnapshot(makeSnap('wu1'));
+    await store.getIndex(); // 填充缓存
+
+    fs.writeFileSync(indexPath(), '[{"id":"wu1",');
+    const future = new Date(Date.now() + 5000);
+    fs.utimesSync(indexPath(), future, future);
+
+    await expect(store.getIndex({ status: 'active' })).rejects.toThrow(indexPath());
+  });
+});
+
 // ─── #321：readDoc 走读穿缓存 ───
 
 describe('FileStore readDoc 读穿缓存 (#321)', () => {

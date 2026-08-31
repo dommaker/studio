@@ -37,7 +37,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { isErrnoError } from './file-store-base';
-import { FileStoreWorkUnitBase, type FileStoreWorkUnitOptions } from './file-store-workunit';
+import { FileStoreWorkUnitBase, applyFilter, type FileStoreWorkUnitOptions } from './file-store-workunit';
 import { stringifyChannels } from './channels-codec';
 import { parseFrontmatter, serializeFrontmatter } from './frontmatter';
 import { readMetricsBegin, emitReadMetric } from './read-metrics';
@@ -59,6 +59,7 @@ import type {
   EvolutionProposalData,
   EvolutionProposalFilter,
   WorkUnitSnapshot,
+  WorkUnitFilter,
 } from './file-store-types';
 
 // ─── re-export（保持原有导出面 100% 不变）───
@@ -395,8 +396,11 @@ export class FileStore extends FileStoreWorkUnitBase {
    * workunits/index.json 绝对路径；所有索引写经 writeJson 覆盖自动精确失效）。
    * 保留 readIndexFile 的严格损坏语义（撕裂/非数组抛错，不静默当空），
    * 命中返回结构克隆。锁内读路径不经过本方法（readIndexFile 保持裸读）。
+   * #406：filter 下推——命中路径在共享缓存数组上按引用选行、只克隆命中行
+   * （monitor 等带 status 过滤的读口不再为丢弃的行付克隆税）；无 filter 时
+   * 全量克隆，与 #314 行为一致。下推只动本锁外读穿路径，锁内裸读不经此 seam。
    */
-  protected async readIndexForQuery(): Promise<WorkUnitSnapshot[] | null> {
+  protected async readIndexForQuery(filter?: WorkUnitFilter): Promise<WorkUnitSnapshot[] | null> {
     const filePath = this.indexPath;
     const t = readMetricsBegin();
     const t0 = t?.() ?? 0;
@@ -409,14 +413,16 @@ export class FileStore extends FileStoreWorkUnitBase {
     }
     const hit = jsonCache.get(filePath);
     if (hit && hit.mtimeMs === mtimeMs) {
-      const cached = cloneCached(hit.value) as WorkUnitSnapshot[] | null;
+      // 共享缓存数组上按引用选行（applyFilter 不 mutate），克隆只发生在命中子集上
+      const matched = hit.value === null ? null : applyFilter(hit.value as WorkUnitSnapshot[], filter);
+      const cached = cloneCached(matched) as WorkUnitSnapshot[] | null;
       if (t) emitReadMetric({ file: filePath, op: 'readIndexForQuery', cacheHit: true, statMs: t1 - t0, readParseMs: 0, cloneMs: t() - t1 });
       return cached;
     }
     const value = await this.readIndexFile();
     const t2 = t?.() ?? 0;
     cacheSet(jsonCache, filePath, { value, mtimeMs });
-    const cloned = cloneCached(value);
+    const cloned = cloneCached(value === null ? null : applyFilter(value, filter)) as WorkUnitSnapshot[] | null;
     if (t) emitReadMetric({ file: filePath, op: 'readIndexForQuery', cacheHit: false, statMs: t1 - t0, readParseMs: t2 - t1, cloneMs: t() - t2 });
     return cloned;
   }

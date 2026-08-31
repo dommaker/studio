@@ -91,18 +91,18 @@ export class FileStoreWorkUnitBase extends FileStoreBase {
   }
 
   /**
-   * getIndex 的读路径 seam（#314 D1）：基类缺省 = readIndexFile 裸读；
+   * getIndex 的读路径 seam（#314 D1）：基类缺省 = readIndexFile 裸读 + 按 filter 选行；
    * 门面 FileStore 覆盖为 mtime 校验的读穿缓存（锁外只读场景跨进程安全）。
    * 锁内读路径（claim/upsert/flush/updateMetadata/createSnapshotGuarded/reconcile）
-   * 永远直调 readIndexFile，不经本 seam。
+   * 永远直调 readIndexFile，不经本 seam（#314 D1 例外条款不受下推影响）。
    */
-  protected async readIndexForQuery(): Promise<WorkUnitSnapshot[] | null> {
-    return this.readIndexFile();
+  protected async readIndexForQuery(filter?: WorkUnitFilter): Promise<WorkUnitSnapshot[] | null> {
+    const snapshots = await this.readIndexFile();
+    return snapshots === null ? null : applyFilter(snapshots, filter);
   }
 
   async getIndex(filter?: WorkUnitFilter): Promise<WorkUnitSnapshot[]> {
-    const snapshots = (await this.readIndexForQuery()) ?? [];
-    return applyFilter(snapshots, filter);
+    return (await this.readIndexForQuery(filter)) ?? [];
   }
 
   /**
@@ -487,7 +487,8 @@ function parseMetadataTolerant(metadata: string | null): Record<string, unknown>
   }
 }
 
-function applyFilter(snapshots: WorkUnitSnapshot[], filter?: WorkUnitFilter): WorkUnitSnapshot[] {
+/** getIndex/filter 下推共用的快照选行口径（#406）：seam 与门面缓存命中路径共用，改口径只改这里 */
+export function applyFilter(snapshots: WorkUnitSnapshot[], filter?: WorkUnitFilter): WorkUnitSnapshot[] {
   if (!filter) return snapshots;
   return snapshots.filter(s => {
     if (filter.status && s.status !== filter.status) return false;
