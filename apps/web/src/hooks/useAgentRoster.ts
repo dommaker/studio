@@ -79,13 +79,25 @@ export function useAgentRoster(): UseAgentRosterResult {
   const [actionError, setActionError] = useState<string | null>(null);
   const error = storeError ?? actionError;
 
-  // profile × runtime 按 roleId 合并（同一角色可能多条历史 state，agents 已按 startedAt 降序取最新）
+  // 名册镜像：roles memo 内同步更新（SSE 路由/首拉 effect 读最新派生；memo 自身用它作 #414 身份锚点）
+  const rolesRef = useRef<RosterRole[]>([]);
+  // profile × runtime 按 roleId 合并（同一角色可能多条历史 state，agents 已按 startedAt 降序取最新）。
+  // #414：包装对象按 roleId 保身份——profile 与 runtime 引用均未变的角色复用上次包装，
+  // status_changed 数组级替换不再击穿 RoleCard memo（卡片浅比较 role prop，未变卡零重渲）
   const roles = useMemo<RosterRole[]>(() => {
     const runtimeByRole = new Map<string, AgentInfo>();
     for (const a of agents) {
       if (!runtimeByRole.has(a.roleId)) runtimeByRole.set(a.roleId, a);
     }
-    return profiles.map((p) => ({ profile: p, runtime: runtimeByRole.get(p.id) ?? null }));
+    const prevById = new Map(rolesRef.current.map((r) => [r.profile.id, r]));
+    const next = profiles.map((p) => {
+      const runtime = runtimeByRole.get(p.id) ?? null;
+      const prev = prevById.get(p.id);
+      if (prev && prev.profile === p && prev.runtime === runtime) return prev;
+      return { profile: p, runtime };
+    });
+    rolesRef.current = next;
+    return next;
   }, [profiles, agents]);
 
   const channelNames = useMemo(
@@ -95,10 +107,6 @@ export function useAgentRoster(): UseAgentRosterResult {
 
   // 首拉增强（useGatedPoll 挂载首拉已含 ensureFresh；此处补作战视图私有面，按 role 最新 runtime 口径）：
   // ① 后端聚合字段暂缺的卡逐个补查当前 WU 详情写回 store；② 空闲卡「最近完成」批量拉取（#387）
-  const rolesRef = useRef<RosterRole[]>([]);
-  useEffect(() => {
-    rolesRef.current = roles;
-  }, [roles]);
   const loadedAtRef = useRef(loadedAt);
   useEffect(() => {
     loadedAtRef.current = loadedAt;

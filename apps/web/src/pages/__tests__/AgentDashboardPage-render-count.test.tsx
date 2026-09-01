@@ -1,6 +1,7 @@
 // AgentDashboardPage — #348 render-count 测试：模拟 workunit.execution.stream chunk 到达，
 // 断言静态卡壳零重渲（Link 探针按 /agents/:id 分卡计数——每张卡必渲角色名链接，卡重渲则计数必增；
 // 目标卡动态刷新证明 chunk 确实到达，且经卡片自订的 rosterActivityStore 切片只重渲该卡）。
+// #414 追加 agent.instance.status_changed 面：roles 派生按 roleId 保包装对象身份后，静态卡壳同样零重渲。
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, act } from '@testing-library/react';
 import React from 'react';
@@ -60,14 +61,20 @@ const instance = (roleId: string, instanceId: string, wuId: string, wuTitle: str
 });
 
 type SseHandler = (msg: { event_type: string; data?: unknown }) => void;
-let sseHandler: SseHandler | null = null;
+let sseHandlers: SseHandler[] = [];
+
+// 订阅方不止一路（roster store sync 与 activity 各一），必须广播到所有 handler——
+// 只捕获最后一个会测不到 store 链路（#414 triage 复现时踩过）
+const broadcastSse = (msg: { event_type: string; data?: unknown }) => {
+  act(() => {
+    for (const h of sseHandlers) h(msg);
+  });
+};
 
 const emitStreamChunk = (text: string) => {
-  act(() => {
-    sseHandler!({
-      event_type: 'workunit.execution.stream',
-      data: { workUnitId: 'wu-1', executionId: 'e1', step: 2, kind: 'thinking', text, at: new Date().toISOString() },
-    });
+  broadcastSse({
+    event_type: 'workunit.execution.stream',
+    data: { workUnitId: 'wu-1', executionId: 'e1', step: 2, kind: 'thinking', text, at: new Date().toISOString() },
   });
 };
 
@@ -75,8 +82,8 @@ describe('AgentDashboardPage — #348 stream chunk 掀不掀静态卡', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     for (const k of Object.keys(linkRenderCount)) delete linkRenderCount[k];
-    sseHandler = null;
-    mockOnEvent.mockImplementation((h: SseHandler) => { sseHandler = h; return () => {}; });
+    sseHandlers = [];
+    mockOnEvent.mockImplementation((h: SseHandler) => { sseHandlers.push(h); return () => {}; });
     mockTerminateInstance.mockResolvedValue({});
     mockListAllAgents.mockResolvedValue({ data: { data: [profile('p1', 'dev-agent'), profile('p2', 'ops-agent')] } });
     mockGetAgentSummary.mockResolvedValue({
@@ -111,6 +118,35 @@ describe('AgentDashboardPage — #348 stream chunk 掀不掀静态卡', () => {
     // 目标卡重渲来自它自订的 store 切片（chunk 不再掀页面整树）——计数增长 = 订阅链路生效
     expect(linkRenderCount['/agents/p1']).toBeGreaterThan(baseP1);
     // 静态卡壳 p2 零重渲
+    expect(linkRenderCount['/agents/p2']).toBe(baseP2);
+  });
+
+  it('agent.instance.status_changed 只重渲目标卡，静态卡壳零重渲（#414）', async () => {
+    render(<AgentDashboardPage />);
+    expect(await screen.findByText('实现登录接口')).toBeDefined();
+    expect(screen.getByText('清理定时任务')).toBeDefined();
+
+    // 竞态加固（同上）：冲刷 passive effect，名册镜像落定后再取渲染基数
+    await act(async () => {});
+    const baseP1 = linkRenderCount['/agents/p1'];
+    const baseP2 = linkRenderCount['/agents/p2'];
+    expect(baseP1).toBeGreaterThan(0);
+    expect(baseP2).toBeGreaterThan(0);
+
+    // p1 状态面事件：runtime 对象整体换血（携带 WU 快照，不触发补查）
+    broadcastSse({
+      event_type: 'agent.instance.status_changed',
+      data: {
+        profileId: 'p1', instanceId: 'i1', name: 'dev-agent', status: 'active',
+        currentWorkUnitId: 'wu-9',
+        currentWorkUnit: { id: 'wu-9', title: '修复登出死循环', type: 'DEV', status: 'active', claimedAt: new Date().toISOString() },
+        channelId: null, pmo: null,
+      },
+    });
+    // 目标卡消费新 runtime（WU 标题换血）——事件确实到达并落进 store
+    expect(await screen.findByText('修复登出死循环')).toBeDefined();
+    expect(linkRenderCount['/agents/p1']).toBeGreaterThan(baseP1);
+    // 未变角色（p2 的 runtime 对象引用未动）——roles 派生复用包装对象，memo 跳过
     expect(linkRenderCount['/agents/p2']).toBe(baseP2);
   });
 });
