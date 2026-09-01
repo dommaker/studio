@@ -227,6 +227,68 @@ describe('deriveChannelSuggestions（推导骨架）', () => {
     expect(after.suggestions.find(s => s.id === 'redispatch-review')).toBeUndefined();
   });
 
+  // ─── #445：认领动作片（unassigned 断链补救） ───
+
+  it('unassigned 当前工单 + 频道无在线 loop → 出「认领」动作片（无人接管，立即出）', async () => {
+    const parent = await createParent({ status: 'unassigned' });
+
+    const r = await deriveChannelSuggestions(CHANNEL_ID, { fileStore });
+    expect(r.currentWuId).toBe(parent.id);
+    expect(r.suggestions).toEqual([{
+      id: 'claim-wu',
+      kind: 'action',
+      params: { wuId: parent.id, wuTitle: '登录功能' },
+    }]);
+  });
+
+  it('双向覆盖反向：unassigned + 有在线成员 loop 且宽限内 → 不出认领片（涌现认领大概率在途）', async () => {
+    await createParent({ status: 'unassigned' }); // updatedAt = now，宽限内
+    await setMembers(['profile-exec']);
+    await onlineLoop('profile-exec');
+
+    const r = await deriveChannelSuggestions(CHANNEL_ID, { fileStore });
+    expect(r.suggestions).toEqual([]);
+  });
+
+  it('unassigned + 有在线 loop 但已超宽限（loop 迟迟未认领）→ 出认领片', async () => {
+    const graceMin = SUGGESTION_TIMING.unassignedClaimGraceMs / 60_000;
+    const parent = await createParent({ status: 'unassigned', ageMin: graceMin + 5 });
+    await setMembers(['profile-exec']);
+    await onlineLoop('profile-exec');
+
+    const r = await deriveChannelSuggestions(CHANNEL_ID, { fileStore });
+    expect(r.suggestions).toEqual([{
+      id: 'claim-wu',
+      kind: 'action',
+      params: { wuId: parent.id, wuTitle: '登录功能' },
+    }]);
+  });
+
+  it('契约（#445 AC1/AC3）：动作片 wuId 经认领即发声原语（REST claim 端点同一路径）认领生效 → 片消失 + 发声', async () => {
+    const parent = await createParent({ status: 'unassigned' });
+
+    const before = await deriveChannelSuggestions(CHANNEL_ID, { fileStore });
+    const action = before.suggestions.find(s => s.id === 'claim-wu');
+    expect(action).toBeDefined();
+
+    // 与 REST claim 端点同一原语：直调 claimWorkUnitAndAnnounce（人工引导片认领路径）
+    const { claimWorkUnitAndAnnounce } = await import('../../workunit/claim-announce.js');
+    const claimed = await claimWorkUnitAndAnnounce(action!.params.wuId, 'user-1', '守夜人', { wuService, fileStore });
+    expect(claimed.status).toBe('active');
+    expect(claimed.assigneeId).toBe('user-1');
+    // 认领即发声（本文件对 wu-messenger 做间谍包装：断言出口调用形态）
+    const { postWuSystemMessage } = await import('../../workunit/wu-messenger.js');
+    expect(postWuSystemMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ id: parent.id }),
+      '『守夜人』已认领任务，开始执行',
+      expect.objectContaining({ agentName: '守夜人' }),
+    );
+
+    // 动作生效、状态流转（unassigned → active）→ 前置条件转假 → 动作片消失
+    const after = await deriveChannelSuggestions(CHANNEL_ID, { fileStore });
+    expect(after.suggestions.find(s => s.id === 'claim-wu')).toBeUndefined();
+  });
+
   it('in_review 宽限内无子单但无在线 loop → 不出片（无接管两向的另一向）', async () => {
     await createParent();
     await setMembers(['profile-reviewer']);
@@ -263,7 +325,7 @@ describe('deriveChannelSuggestions（推导骨架）', () => {
     expect(r.suggestions).toEqual([]);
   });
 
-  it('当前 WU 派生列为 active/unassigned/blocked/pending/done/closed → 不出状态说明（本票只有自动评审在途一条）', async () => {
+  it('当前 WU 派生列为 active/blocked/pending/done/closed → 不出状态说明（unassigned 现为 #445 认领动作片位置，见上方用例）', async () => {
     await createParent({ status: 'active' });
     const r = await deriveChannelSuggestions(CHANNEL_ID, { fileStore });
     expect(r.suggestions).toEqual([]);

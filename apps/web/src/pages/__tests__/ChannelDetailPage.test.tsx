@@ -4,7 +4,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 
-const { mockSendMessage, mockListWorkunits, mockListReqs, mockGetReq, mockApiGet, mockApiPost, mockDrawerSpy, mockOnEvent, mockOnReconnect, mockRefresh, mockActivityRailSpy, mockDispatchReview } = vi.hoisted(() => ({
+const { mockSendMessage, mockListWorkunits, mockListReqs, mockGetReq, mockApiGet, mockApiPost, mockDrawerSpy, mockOnEvent, mockOnReconnect, mockRefresh, mockActivityRailSpy, mockDispatchReview, mockClaim } = vi.hoisted(() => ({
   mockSendMessage: vi.fn(),
   mockListWorkunits: vi.fn(),
   mockListReqs: vi.fn(),
@@ -17,6 +17,7 @@ const { mockSendMessage, mockListWorkunits, mockListReqs, mockGetReq, mockApiGet
   mockRefresh: vi.fn(),
   mockActivityRailSpy: vi.fn(),
   mockDispatchReview: vi.fn(),
+  mockClaim: vi.fn(),
 }));
 
 vi.mock('../../api', () => ({
@@ -35,7 +36,7 @@ vi.mock('../../hooks/useChannelEvents', () => ({
 }));
 
 vi.mock('../../api/workunit', () => ({
-  workunitApi: { list: mockListWorkunits, dispatchReview: mockDispatchReview },
+  workunitApi: { list: mockListWorkunits, dispatchReview: mockDispatchReview, claim: mockClaim },
 }));
 
 vi.mock('../../api/requirements', () => ({
@@ -1102,6 +1103,92 @@ describe('ChannelDetailPage — #444 确定性动作片：补派评审', () => {
     fireEvent.click(await screen.findByText('补派评审：《登录功能》'));
     fireEvent.click(await screen.findByRole('button', { name: '确认补派' }));
     await screen.findByText(/已有未完结的评审子 WU/);
+    expect(suggestionsCalls()).toBe(1); // 未成功不重拉
+  });
+});
+
+// #445（spec #441 情境引导 04）：认领动作片——当前工单 unassigned 且无在线 loop（或超宽限）时
+// 后端产出 claim-wu action 建议；点击 → 一次确认 → 直调 claim 端点（认领即发声原语，
+// 与 loop 自动认领同一路径），不经消息路由；生效后重拉建议，片随状态流转消失
+describe('ChannelDetailPage — #445 认领动作片', () => {
+  const CHANNEL = { data: { data: { id: 'ch-1', name: 'rnd-主研发', type: 'rnd', members: '[]' } } };
+  const ACTION_SUGGESTION = {
+    data: {
+      data: {
+        currentWuId: 'WU-4001',
+        suggestions: [{
+          id: 'claim-wu', kind: 'action',
+          params: { wuId: 'WU-4001', wuTitle: '登录功能' },
+        }],
+      },
+    },
+  };
+  const EMPTY_SUGGESTION = { data: { data: { currentWuId: 'WU-4001', suggestions: [] } } };
+  let suggestionFetchCount = 0;
+  const suggestionsCalls = () =>
+    mockApiGet.mock.calls.filter(([url]) => String(url).endsWith('/suggestions')).length;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    currentMessages = MESSAGES;
+    sseHandlers = [];
+    suggestionFetchCount = 0;
+    useNotificationStore.setState({ notifications: [] });
+    // 首次拉取回认领动作片；认领生效后的重拉回空（已 active，前置条件转假）
+    mockApiGet.mockImplementation((url: string) => Promise.resolve(
+      String(url).endsWith('/suggestions')
+        ? (++suggestionFetchCount === 1 ? ACTION_SUGGESTION : EMPTY_SUGGESTION)
+        : CHANNEL,
+    ));
+    mockListWorkunits.mockImplementation((params?: { status?: string }) => Promise.resolve(
+      params?.status === 'active' ? activeWuList([]) : { data: { data: [] } },
+    ));
+    mockOnEvent.mockImplementation((cb: SseHandler) => { sseHandlers.push(cb); return () => {}; });
+    mockOnReconnect.mockImplementation((cb: () => void) => { reconnectHandlers.push(cb); return () => {}; });
+    reconnectHandlers = [];
+    mockListReqs.mockResolvedValue({ data: { data: [] } });
+    mockSendMessage.mockResolvedValue({});
+    mockClaim.mockResolvedValue({ data: { id: 'WU-4001', status: 'active' } });
+  });
+
+  it('端点回 claim-wu action 建议 → 渲染可点动作片，文案带工单上下文、说清点击后果', async () => {
+    renderPage();
+    const chip = await screen.findByText('认领工单：《登录功能》');
+    expect(chip.closest('button')).not.toBeNull();
+    expect(screen.getByText(/点击确认后会把它认领给你/)).toBeTruthy();
+  });
+
+  it('点击 → 确认弹窗（说清会发生什么）；确认 → 直调 claim 端点（前端不带身份），不走消息路由；生效后片消失', async () => {
+    renderPage();
+    fireEvent.click(await screen.findByText('认领工单：《登录功能》'));
+    // 一次确认：弹窗确认前不调接口
+    expect(mockClaim).not.toHaveBeenCalled();
+    expect(screen.getByText(/频道里会发一条认领说明/)).toBeTruthy();
+    fireEvent.click(await screen.findByRole('button', { name: '确认认领' }));
+    // 直调 claim 端点（认领人由服务端按会话用户解析）；不经 @mention 消息路由
+    await waitFor(() => expect(mockClaim).toHaveBeenCalledWith('WU-4001'));
+    expect(mockClaim).toHaveBeenCalledTimes(1);
+    expect(mockSendMessage).not.toHaveBeenCalled();
+    // 认领生效、状态回扫（重拉端点回空）→ 片消失
+    await waitFor(() => expect(screen.queryByText('认领工单：《登录功能》')).toBeNull());
+    expect(suggestionsCalls()).toBe(2);
+  });
+
+  it('点击后取消 → 不调接口、不发消息、片保留', async () => {
+    renderPage();
+    fireEvent.click(await screen.findByText('认领工单：《登录功能》'));
+    fireEvent.click(await screen.findByRole('button', { name: '取消' }));
+    expect(mockClaim).not.toHaveBeenCalled();
+    expect(mockSendMessage).not.toHaveBeenCalled();
+    expect(screen.getByText('认领工单：《登录功能》')).toBeTruthy();
+  });
+
+  it('claim 失败（如已被他人认领 409）→ 错误文案进弹窗，不静默', async () => {
+    mockClaim.mockRejectedValue(new Error('Claim failed'));
+    renderPage();
+    fireEvent.click(await screen.findByText('认领工单：《登录功能》'));
+    fireEvent.click(await screen.findByRole('button', { name: '确认认领' }));
+    await screen.findByText(/Claim failed/);
     expect(suggestionsCalls()).toBe(1); // 未成功不重拉
   });
 });

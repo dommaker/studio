@@ -30,6 +30,23 @@ describe('suggestionActions（动作片 → 确定性接口注册表）', () => 
     expect(msg).toMatch(/审查/);
   });
 
+  it('claim-wu → 直调 POST /workunits/:id/claim（认领即发声端点，与 loop 自动认领同原语路径；认领人由服务端按会话用户解析，前端不带身份）', async () => {
+    mockApiPost.mockResolvedValue({ data: {} });
+    const def = getSuggestionAction('claim-wu');
+    expect(def).not.toBeNull();
+    await def!.run('WU-1');
+    expect(mockApiPost).toHaveBeenCalledTimes(1);
+    expect(mockApiPost).toHaveBeenCalledWith('/workunits/WU-1/claim', {});
+  });
+
+  it('claim-wu 确认文案带工单上下文、说清会发生什么（认领到名下 + 频道发认领说明）', () => {
+    const def = getSuggestionAction('claim-wu')!;
+    const msg = def.confirmMessage('登录功能');
+    expect(msg).toContain('登录功能');
+    expect(msg).toMatch(/认领/);
+    expect(msg).toMatch(/频道/);
+  });
+
   it('未知动作 id → null（fail-closed：后端给了前端不认识的动作，不执行也不编造）', () => {
     expect(getSuggestionAction('nope')).toBeNull();
   });
