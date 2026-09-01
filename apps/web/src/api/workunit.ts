@@ -265,8 +265,9 @@ export const workunitApi = {
 
   delete: (id: string) => api.delete(`/workunits/${id}`),
 
-  claim: (id: string, agentId: string) =>
-    api.post<WorkUnit>(`/workunits/${id}/claim`, { agentId }),
+  /** #445：agentId 可省略——缺省由服务端按会话用户解析（人工引导片认领，身份诚实归因） */
+  claim: (id: string, agentId?: string) =>
+    api.post<WorkUnit>(`/workunits/${id}/claim`, agentId ? { agentId } : {}),
 
   unclaim: (id: string) =>
     api.post<WorkUnit>(`/workunits/${id}/unclaim`),

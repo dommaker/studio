@@ -39,6 +39,7 @@ import { aggregateTreeTokens } from '../agents/token-usage.service.js';
 import { CODE_WORKTREE_TYPES, resolveVerifyCommands, runWuVerification } from '../agents/loop/wu-verification.js';
 import { channelMessageService } from '../channels/channel-message.service.js';
 import { resumeBlockedWorkUnitFromWeb, closeBlockedWorkUnitFromWeb } from './waiting-input.js';
+import { claimWorkUnitAndAnnounce } from './claim-announce.js';
 import { listWorkUnitChangedFiles } from './wu-changed-files.js';
 import { getErrorMessage } from '../../utils/errors.js';
 import { parsePagination, formatPaginatedResponse } from '../../utils/pagination.js';
@@ -303,17 +304,22 @@ router.delete('/:id', requireAuth(), requireNotGuest(), async (req: Request, res
   }
 });
 
-/** POST /:id/claim — claim WorkUnit（flock 悲观互斥锁） */
+/** POST /:id/claim — claim WorkUnit（flock 悲观互斥锁）；#445：认领即发声原语接入（与 loop 自动认领同路径） */
 router.post('/:id/claim', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
-    const { agentId } = req.body;
-    if (!agentId || typeof agentId !== 'string') {
+    // #445：agentId 可省略——缺省 = 当前登录用户（人工引导片认领，身份诚实归因会话用户）；
+    // 显式传入保持旧契约（认领给指定 id）。requireAuth 保证 req.user 存在（none 模式注入 local）。
+    const bodyAgentId = typeof req.body?.agentId === 'string' && req.body.agentId ? req.body.agentId : undefined;
+    const claimerId = bodyAgentId ?? req.user?.id;
+    if (!claimerId) {
       return res.status(400).json({
         error: { code: 'INVALID_INPUT', message: 'agentId is required' },
       });
     }
+    // 发声署名：人工认领署用户显示名；显式 agentId 旧契约无法廉价解析角色名 → 退化为 id
+    const claimerName = bodyAgentId ?? req.user?.name ?? req.user?.email ?? claimerId;
 
-    const wu = await service.claim(req.params.id, agentId);
+    const wu = await claimWorkUnitAndAnnounce(req.params.id, claimerId, claimerName, { wuService: service, fileStore });
     res.json(wu);
   } catch (error) {
     const msg = getErrorMessage(error);

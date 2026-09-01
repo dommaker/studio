@@ -24,6 +24,15 @@ const ACTIONS: Record<string, SuggestionActionDef> = {
       `立即为《${wuTitle}》创建一张审查工单，交给频道里的成员审查；不会新建普通工单，也不会在频道里发消息。`,
     run: wuId => workunitApi.dispatchReview(wuId),
   },
+  // #445：认领动作片 —— 直调 claim 端点（认领即发声原语，与 loop 自动认领同一路径）；
+  // 前端不带身份：认领人由服务端按会话用户解析（诚实归因，不可伪造）
+  'claim-wu': {
+    title: '认领工单',
+    confirmLabel: '确认认领',
+    confirmMessage: wuTitle =>
+      `把《${wuTitle}》认领到你的名下，由你接着处理；频道里会发一条认领说明，告诉大家这张工单已经有人接手。`,
+    run: wuId => workunitApi.claim(wuId),
+  },
 };
 
 /** 查动作定义；未注册 → null（fail-closed） */

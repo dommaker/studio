@@ -67,7 +67,7 @@ vi.mock('../wu-messenger.js', async (importOriginal) => {
 
 import { postWuSystemMessage } from '../wu-messenger.js';
 import { claimWorkUnitAndAnnounce } from '../claim-announce.js';
-import { AgentLoop } from '../agents/loop/agent-loop.js';
+import { AgentLoop } from '../../agents/loop/agent-loop.js';
 
 const nowIso = () => new Date().toISOString();
 

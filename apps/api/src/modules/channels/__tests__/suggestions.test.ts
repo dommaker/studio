@@ -2,7 +2,7 @@
  * #443（spec #441 情境引导 02）：频道建议推导骨架 + 只读状态说明端到端。
  *
  * 推导模块测试范式照抄 waiting-input / dispatch-reconciliation：tmpdir 真实 FileStore +
- * 真实 WorkUnitService，零 mock（推导本票不发声，无 wu-messenger 出口可间谍）。
+ * 真实 WorkUnitService；wu-messenger 发声出口做间谍包装（#444 补派契约 / #445 认领契约断言用）。
  * 核心断言 = 不变量：出「等待自动评审」只读说明 ⟺ 自动化在途前置条件成立
  * （子单租约活 / 成员 loop 在线 / 派单在飞宽限内）；无接管、超宽限断链、事实缺失 → 不出。
  *

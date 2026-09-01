@@ -11,7 +11,8 @@
  *
  * fail-closed：每条建议带前置条件，不满足/拿不准不出。本模块交付两种形态：
  * status（自动评审在途的只读说明，#443）与 action（断链「补派评审」直调
- * dispatch-review，#444）；prompt 形态后端化见 #446。
+ * dispatch-review，#444；无人认领「认领」直调 claim 端点认领即发声原语，#445）；
+ * prompt 形态后端化见 #446。
  * 顶层容错：任何一步失败 → 空结果 + warn，派生绝不抛出（同 current-pmo 原则）。
  */
 import { logger, parseChannels, deriveDisplayState, FileStore, type WorkUnitSnapshot } from '@dommaker/studio-shared';
@@ -27,6 +28,9 @@ import { parseWuMetadata } from '../workunit/wu-metadata.js';
 export const SUGGESTION_TIMING = {
   /** 评审派单在飞宽限：父 WU 转入 in_review 后该窗口内未见子单仍视为「自动化在途」（对齐对账扫描 5min 周期档） */
   reviewDispatchInFlightGraceMs: 5 * 60 * 1000,
+  /** 无人认领宽限（#445）：WU unassigned 且有在线成员 loop 时，该窗口内不出认领片
+   *  （claim 轮询 15s 节奏下在线 loop 大概率已涌现认领；对齐对账扫描 5min 档，不发明新量级） */
+  unassignedClaimGraceMs: 5 * 60 * 1000,
 } as const;
 
 /** 建议三形态（#441）：status 只读说明 / action 确定性动作 / prompt 预填建议 */
@@ -121,6 +125,32 @@ export async function deriveChannelSuggestions(
     const current = pickCurrentWuSnapshot(channelWus);
     if (!current) return EMPTY;
 
+    const meta = parseWuMetadata(current.metadata);
+    const wuTitle = meta.title ?? current.scope ?? current.id;
+    const memberIds = parseChannels(channel.members);
+
+    // #445（spec #441 动作形态第二种）：当前工单 unassigned → 「认领」动作片，
+    // 点击经确认直调 claim 端点（认领即发声原语，与 loop 自动认领同一路径）。
+    // 出片守卫与端点同口径：端点唯一确定性拒绝 = status !== 'unassigned'（409），故只看裸 status。
+    // 双向：有在线成员 loop 且未超宽限 → 不出（涌现认领大概率在途，不催人工）；
+    //       无在线 loop（无人接管）或已超宽限（loop 迟迟未认领）→ 出。
+    // 生效即消失：claim 成功 → active，前置条件转假。
+    if (current.status === 'unassigned') {
+      const online = await hasOnlineMemberLoop(fileStore, memberIds);
+      const ageMs = now.getTime() - Date.parse(current.updatedAt);
+      if (online && ageMs < SUGGESTION_TIMING.unassignedClaimGraceMs) {
+        return { currentWuId: current.id, suggestions: [] };
+      }
+      return {
+        currentWuId: current.id,
+        suggestions: [{
+          id: 'claim-wu',
+          kind: 'action',
+          params: { wuId: current.id, wuTitle },
+        }],
+      };
+    }
+
     const { column, evidence } = deriveDisplayState({ status: current.status, metadata: current.metadata });
     // 自动评审在途（status）与断链补派（action）都只挂在 in_review 列；其余列不出片
     if (column !== 'in_review' || !isAutoReviewable(current)) {
@@ -128,8 +158,6 @@ export async function deriveChannelSuggestions(
     }
 
     const child = findUnfinishedReviewChild(channelWus, current.id);
-    const meta = parseWuMetadata(current.metadata);
-    const wuTitle = meta.title ?? current.scope ?? current.id;
 
     // #444（spec #441 动作形态第一种）：断链 = 无未完结 review 子单且转入已超宽限
     // （自动化该派未派）→ 出「补派评审」动作片，前端点击经确认后直调 dispatch-review
@@ -148,7 +176,6 @@ export async function deriveChannelSuggestions(
       };
     }
 
-    const memberIds = parseChannels(channel.members);
     const online = await hasOnlineMemberLoop(fileStore, memberIds);
 
     // 自动化在途 = 有未完结子单且（子单租约活 或 有在线 loop 会认领）

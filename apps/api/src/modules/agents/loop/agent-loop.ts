@@ -15,6 +15,7 @@ import type { AgentTask, ExecutionResult } from '@dommaker/studio-agent';
 import { ensureWuWorktree, ensureBranchExists, getDefaultBranch } from '@dommaker/studio-agent';
 import { LocalExecutor, type Executor } from './executor.js';
 import { WorkUnitService, snapshotToData, type WorkUnitMetadata, type WorkUnitData } from '../../workunit/workunit.service.js';
+import { claimWorkUnitAndAnnounce } from '../../workunit/claim-announce.js';
 import type { AgentProfileData } from '@dommaker/studio-shared';
 import { getTriggerScheduler } from '../../triggers/trigger-registry.js';
 import { knowledgeService } from '../../knowledge/knowledge-service.js';
@@ -447,18 +448,19 @@ export class AgentLoop {
    * 后的再认领走同一路径同样发声，与「已释放回池」消息配对成完整叙事。
    * 系统通知待遇：不过 §4.2 发言层新鲜度检查、不带里程碑 meta；
    * 发帖失败只记日志，绝不阻断认领后的执行。
+   * #445（spec #441）：原语提升为 workunit/claim-announce（REST claim 端点同路径），
+   * 本方法仅为 loop 语义的薄封装（失败 → false 走重试）。
    * @returns 认领是否成功（竞争失败 → false，调用方走重试）
    */
   private async claimAndAnnounce(workUnit: WorkUnitData): Promise<boolean> {
     try {
-      await this.workUnitService.claim(workUnit.id, this.instance!.id);
+      await claimWorkUnitAndAnnounce(workUnit.id, this.instance!.id, this.role.name, {
+        wuService: this.workUnitService,
+        fileStore: this.fileStore,
+      });
     } catch {
       return false;
     }
-    await postWuSystemMessage(workUnit, `『${this.role.name}』已认领任务，开始执行`, {
-      agentName: this.role.name,
-      fileStore: this.fileStore,
-    }).catch(err => logger.warn(`[AgentLoop] Failed to announce claim for ${workUnit.id}: ${getErrorMessage(err)}`));
     return true;
   }
 
