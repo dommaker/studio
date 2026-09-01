@@ -50,6 +50,7 @@ vi.mock('../../api/monitoring', () => ({
 }));
 
 import { ProjectDetailPage } from '../ProjectDetailPage';
+import { useRequirementChainStore } from '../../stores/requirementChainStore';
 
 const attestMeta = JSON.stringify({
   attestations: {
@@ -110,6 +111,8 @@ const renderDetail = () =>
 describe('AC-5: PMO 驾驶舱', { testTimeout: 15000 }, () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // #412：chain 走 requirementChainStore（模块级 TTL 簿记）——同 reqAlias 跨测缓存会污染用例，每测重置
+    useRequirementChainStore.getState().__resetForTests();
     mockGetProject.mockResolvedValue({ data: mockProject });
     mockApiGet.mockImplementation((url: string) => {
       if (url.includes('/tasks')) return Promise.resolve({ data: [] });

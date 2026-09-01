@@ -39,10 +39,17 @@ import { LandingPage } from './components/LandingPage';
 import { WebSocketProvider } from './api/websocket';
 import { channelApi } from './api/channel';
 import { useRosterStore } from './stores/rosterStore';
+import { useRequirementChainStoreSync } from './hooks/useRequirementChainStoreSync';
 import { StudioRoleSetupModal } from './components/setup/StudioRoleSetupModal';
 import { FirstRoleSetupModal } from './components/setup/FirstRoleSetupModal';
 import { isStudioRoleSetupDismissed, isFirstRoleSetupDismissed } from './components/setup/dismissed';
 import './styles/theme.css';
+
+// #412：REQ chain 数据面 SSE 接线（App 级单点、零渲染；useWebSocketContext 依赖 Provider，故置于 Provider 内）
+function RequirementChainSync() {
+  useRequirementChainStoreSync();
+  return null;
+}
 
 export default function App() {
   const location = useLocation();
@@ -143,6 +150,8 @@ export default function App() {
     <ThemeProvider>
     <WebSocketProvider>
     <div className="h-screen flex flex-col" style={{ background: 'var(--bg-primary)' }}>
+      {/* #412：REQ chain 数据面 SSE 接线（App 级单点，hook 需 WebSocketProvider 上下文） */}
+      <RequirementChainSync />
       {/* AC-2.2: studio 角色 provider=null 弹框 */}
       <StudioRoleSetupModal
         open={studioRoleSetupOpen}

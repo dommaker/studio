@@ -79,6 +79,7 @@ vi.mock('../../../hooks/useWorkUnitStreamEvents', () => ({
 import { WorkUnitDrawer } from '../WorkUnitDrawer';
 import type { DrawerState } from '../WorkUnitDrawer';
 import { useRosterStore } from '../../../stores/rosterStore';
+import { useRequirementChainStore } from '../../../stores/requirementChainStore';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 
 // 决策 8：SSE 事件捕获（mockOnEvent 注册的回调，用例手工驱动）。
@@ -165,6 +166,8 @@ const renderDrawer = (drawer: DrawerState, extra: { onClose?: () => void; onOpen
 describe('WorkUnitDrawer', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // #412：REQ 链路读 requirementChainStore（模块级 TTL 簿记），每测重置避免缓存跨测串味
+    useRequirementChainStore.getState().__resetForTests();
     // #346：负责人解析面读 rosterStore（模块级单例），每测重置避免 TTL 缓存跨测串味
     useRosterStore.setState({
       profiles: [], agents: [], channels: [],

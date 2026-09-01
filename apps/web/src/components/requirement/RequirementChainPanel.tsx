@@ -1,8 +1,9 @@
-// REQ 全链路面板（vision §5.3）— 展示 GET /requirements/:id/chain
-import { useEffect, useState } from 'react';
+// REQ 全链路面板（vision §5.3）— #412 起链路读 requirementChainStore
+// （同 chain 与右栏/抽屉/项目页共享单份缓存；workunit.status_changed 就地更新，重开弹窗 TTL 内零重拉）
+import { useEffect } from 'react';
 import { deriveDisplayState } from '@dommaker/studio-shared/web';
 import { Modal } from '../ui/Modal';
-import { requirementApi, type RequirementChain } from '../../api/requirements';
+import { useRequirementChainStore } from '../../stores/requirementChainStore';
 import { formatFullTime } from '../../utils/datetime';
 import { AssigneeLabel } from '../workunit/AssigneeLabel';
 
@@ -37,22 +38,13 @@ interface Props {
 }
 
 export function RequirementChainPanel({ reqId, onClose }: Props) {
-  const [chain, setChain] = useState<RequirementChain | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  // reqId 切换时在渲染期同步清空旧链路（替代原 effect 顶部的同步重置）
-  const [prevReqId, setPrevReqId] = useState(reqId);
-  if (prevReqId !== reqId) {
-    setPrevReqId(reqId);
-    setChain(null);
-    setError(null);
-  }
+  // #412：selector 按 reqId 取数，切换弹窗对象即换键（旧链路不残留，无需渲染期重置）
+  const chain = useRequirementChainStore((s) => (reqId ? s.chains[reqId] : undefined));
+  const error = useRequirementChainStore((s) => (reqId ? s.errors[reqId] : undefined));
 
   useEffect(() => {
     if (!reqId) return;
-    requirementApi.getChain(reqId)
-      .then(r => setChain(r.data.data))
-      .catch(e => setError(e instanceof Error ? e.message : String(e)));
+    void useRequirementChainStore.getState().ensureChain(reqId);
   }, [reqId]);
 
   if (!reqId) return null;

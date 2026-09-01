@@ -19,14 +19,14 @@
  * 一并摘除。
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { projectApi, type DeliveryStatus } from '../api';
-import { requirementApi, type RequirementChainWorkUnit } from '../api/requirements';
 import { workunitApi } from '../api/workunit';
 import { fanOut } from '../utils/fanOut';
 import { maintenanceApi } from '../api/maintenance';
 import { useRosterStore } from '../stores/rosterStore';
+import { useRequirementChainStore } from '../stores/requirementChainStore';
 import { useAsyncData } from '../hooks/useAsyncData';
 import { PmoNumberBadge } from '../components/PmoNumberBadge';
 import { ProjectPipeline } from '../components/pmo/ProjectPipeline';
@@ -112,16 +112,19 @@ export function ProjectDetailPage() {
   // 🆕 AC-5: 进度管道（REQ chain WU + agent 名册）/ 原始需求折叠
   // #346：agent 名册读 rosterStore（TTL 缓存共享；非 Admin 403 时 agents 保持空列表，对齐旧 catch(() => null) 行为）
   const agents = useRosterStore((s) => s.agents);
-  const chainQ = useAsyncData<RequirementChainWorkUnit[] | null>(async () => {
-    if (!project?.reqAlias) return null;
+  // #412：chain 读 requirementChainStore（同 reqAlias 与右栏/抽屉/面板共享缓存；status_changed 就地更新）。
+  // 失败语义对齐旧 catch(() => [])：errors 有值 → 空管道且不再显示 loading
+  const reqAlias = project?.reqAlias ?? null;
+  const chainData = useRequirementChainStore((s) => (reqAlias ? s.chains[reqAlias] : undefined));
+  const chainError = useRequirementChainStore((s) => (reqAlias ? s.errors[reqAlias] : undefined));
+  useEffect(() => {
+    if (!reqAlias) return;
+    void useRequirementChainStore.getState().ensureChain(reqAlias);
     // #346：agent 名册走 rosterStore TTL 缓存（ensureFresh 永不 reject，错误落 store 状态）
     void useRosterStore.getState().ensureFresh();
-    try {
-      return (await requirementApi.getChain(project.reqAlias)).data?.data?.workunits ?? [];
-    } catch { return []; }
-  }, [project]);
-  const chainWus = chainQ.data ?? [];
-  const chainLoading = chainQ.loading;
+  }, [reqAlias]);
+  const chainWus = chainData?.workunits ?? [];
+  const chainLoading = !!reqAlias && !chainError && !chainData;
 
   // 弹窗状态
   const [showVscodeGuide, setShowVscodeGuide] = useState(false);

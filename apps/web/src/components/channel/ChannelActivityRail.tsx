@@ -4,7 +4,8 @@
 // PMO/Agent → ↗ 跳页（/pmo/project/:id、/agents/:roleId），PMO 数据链兜底，无则不渲染 badge（无死按钮）。
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { requirementApi, type Requirement, type RequirementChain } from '../../api/requirements';
+import { type Requirement, type RequirementChain } from '../../api/requirements';
+import { useRequirementChainStore } from '../../stores/requirementChainStore';
 import { useChannelDataStore } from '../../stores/channelDataStore';
 import type { ChannelMessage, ChannelCurrentPmo } from '../../api/channel';
 import { projectApi } from '../../api';
@@ -27,25 +28,26 @@ interface Props {
   onOpenReq: (reqId: string) => void;
 }
 
-/** 每 REQ 拉一次 /requirements/:id/chain（stepper 计数 + WU→REQ 归属 + PMO 锚点）；失败静默略过该卡节点 */
+/** 每 REQ 的链路数据读 #412 requirementChainStore（同 chain 会话内单份缓存 + status_changed 就地更新，
+ * 与抽屉/面板/项目页共享）；组件只按当前 REQ 集合触发 ensure，失败静默略过该卡节点 */
 function useReqChains(reqs: Requirement[]): Record<string, RequirementChain> {
-  const [chains, setChains] = useState<Record<string, RequirementChain>>({});
+  const chainsMap = useRequirementChainStore((s) => s.chains);
   const idsKey = reqs.map(r => r.id).join(',');
   useEffect(() => {
-    if (!idsKey) { setChains({}); return; }
-    let alive = true;
-    const list = idsKey.split(',');
-    Promise.all(list.map(id =>
-      requirementApi.getChain(id).then(r => r.data.data).catch(() => null),
-    )).then(results => {
-      if (!alive) return;
-      const next: Record<string, RequirementChain> = {};
-      results.forEach((c, i) => { if (c) next[list[i]] = c; });
-      setChains(next);
-    });
-    return () => { alive = false; };
+    if (!idsKey) return;
+    // REQ 集合变化只 ensure 新集合：缓存内的 chain 零请求（旧实现 idsKey 一变全量重拉）
+    for (const id of idsKey.split(',')) {
+      void useRequirementChainStore.getState().ensureChain(id);
+    }
   }, [idsKey]);
-  return chains;
+  return useMemo(() => {
+    const next: Record<string, RequirementChain> = {};
+    for (const r of reqs) {
+      const c = chainsMap[r.id];
+      if (c) next[r.id] = c;
+    }
+    return next;
+  }, [chainsMap, reqs]);
 }
 
 /** 频道当前 PMO（PMO badge 兜底链末级；#403 起读 channelDataStore，与顶栏 chip 共享一份拉取） */

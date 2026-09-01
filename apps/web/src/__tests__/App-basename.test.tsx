@@ -37,6 +37,10 @@ vi.mock('../stores/rosterStore', () => {
 vi.mock('../api/websocket', () => ({
   WebSocketProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
+// #412：chain 数据面接线依赖真实 SSE context（passthrough provider 不提供），本测试只测路由，替身掉
+vi.mock('../hooks/useRequirementChainStoreSync', () => ({
+  useRequirementChainStoreSync: () => {},
+}));
 vi.mock('../contexts/ThemeContext', () => ({
   ThemeProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
