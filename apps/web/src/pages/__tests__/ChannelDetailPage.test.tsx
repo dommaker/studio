@@ -766,20 +766,37 @@ describe('ChannelDetailPage — SSE 负载深化批 2：waitingWus / REQ chips �
 });
 
 // #440 Phase 1：频道建议 prompt 片——WU 状态流转后出现对应建议，点击经 prefill 填入输入框，dismiss 会话级
-describe('ChannelDetailPage — #440 建议 prompt 片', () => {
-  const wuStatusChanged = (wu: Record<string, unknown>) => ({
-    event_type: 'workunit.status_changed',
-    data: { workunit: wu },
+// #447（spec #441 收尾）：前端静态建议映射（wuSuggestions）与 pickCurrentWu 本地副本已删——
+// 引导片唯一来源 = GET /channels/:id/suggestions；前端只剩渲染与交互（预填/dismiss/确认弹窗）。
+// 三形态渲染与点击行为见 #443/#444/#446 各 describe；本块锁「无静态兜底」与 dismiss 台账语义。
+describe('ChannelDetailPage — #447 引导片唯一来源 = 建议端点', () => {
+  const CHANNEL = { data: { data: { id: 'ch-1', name: 'rnd-主研发', type: 'rnd', members: '[]' } } };
+  const PROMPT_SUGGESTION = (wuId: string) => ({
+    data: {
+      data: {
+        currentWuId: wuId,
+        suggestions: [{
+          id: 'transcribe-review-checklist', kind: 'prompt',
+          params: { wuId, wuTitle: '登录功能' },
+          text: '@reviewer 把《登录功能》的验收标准转写成审查清单',
+        }],
+      },
+    },
   });
-  const inputPrefill = () => screen.getByTestId('channel-input').getAttribute('data-prefill');
+  const EMPTY = { data: { data: { currentWuId: null, suggestions: [] } } };
+  let suggestionPayload: unknown = EMPTY;
+  const suggestionsCalls = () =>
+    mockApiGet.mock.calls.filter(([url]) => String(url).endsWith('/suggestions')).length;
 
   beforeEach(() => {
     vi.clearAllMocks();
     currentMessages = MESSAGES;
     sseHandlers = [];
+    suggestionPayload = EMPTY;
     useNotificationStore.setState({ notifications: [] });
-    mockApiGet.mockResolvedValue({ data: { data: { id: 'ch-1', name: 'rnd-主研发', type: 'rnd', members: '[]' } } });
-    // 三种查询分流：active（live 条）/ blocked（待回复 chip）/ 无 status（#440 channelWus 打底）
+    mockApiGet.mockImplementation((url: string) => Promise.resolve(
+      String(url).endsWith('/suggestions') ? suggestionPayload : CHANNEL,
+    ));
     mockListWorkunits.mockImplementation((params?: { status?: string }) => Promise.resolve(
       params?.status === 'active' ? activeWuList([]) : { data: { data: [] } },
     ));
@@ -790,153 +807,116 @@ describe('ChannelDetailPage — #440 建议 prompt 片', () => {
     mockSendMessage.mockResolvedValue({});
   });
 
-  it('无 WU → 不出现建议片', async () => {
+  it('端点无建议 → 不出现引导片（前端不再按 WU 状态自行映射出片，无静态兜底）', async () => {
     renderPage();
     await waitFor(() => expect(screen.getByText('#rnd-主研发')).toBeTruthy());
+    await waitFor(() => expect(suggestionsCalls()).toBe(1));
+    expect(document.querySelector('.mc-suggest')).toBeNull();
+    // SSE 状态流转只触发端点重拉，出不出片由后端推导决定（空负载 → 仍无片）
+    act(() => emitSse({
+      event_type: 'workunit.status_changed',
+      data: { workunit: { id: 'WU-4001', status: 'in_review', channelId: 'ch-1', type: 'task', metadata: '{}' } },
+    }));
+    await waitFor(() => expect(suggestionsCalls()).toBe(2));
     expect(document.querySelector('.mc-suggest')).toBeNull();
   });
 
-  it('WU 状态流转为 in_review → 出现审查建议 chip', async () => {
+  it('dismiss 会话级：同片重拉不复活；端点产出新片（新 dismissKey）→ 重新出现', async () => {
+    suggestionPayload = PROMPT_SUGGESTION('WU-4001');
     renderPage();
-    await waitFor(() => expect(screen.getByText('#rnd-主研发')).toBeTruthy());
-    expect(document.querySelector('.mc-suggest')).toBeNull();
-    act(() => emitSse(wuStatusChanged({
-      id: 'WU-4001', status: 'in_review', channelId: 'ch-1', type: 'task', metadata: '{}',
-    })));
-    await waitFor(() => expect(screen.getByText(/把 AC 转写成审查清单/)).toBeTruthy());
-  });
-
-  it('点击建议片 → prefill 透传到输入框', async () => {
-    renderPage();
-    await waitFor(() => expect(screen.getByText('#rnd-主研发')).toBeTruthy());
-    act(() => emitSse(wuStatusChanged({
-      id: 'WU-4001', status: 'in_review', channelId: 'ch-1', type: 'task', metadata: '{}',
-    })));
-    const chip = await screen.findByText(/把 AC 转写成审查清单/);
-    expect(inputPrefill()).toBe('');
-    fireEvent.click(chip);
-    await waitFor(() => expect(inputPrefill()).toContain('@reviewer'));
-    expect(Number(screen.getByTestId('channel-input').getAttribute('data-prefill-nonce'))).toBeGreaterThan(0);
-  });
-
-  it('dismiss 后同 WU 同状态不再浮现；状态再流转（新 key）重新出现', async () => {
-    renderPage();
-    await waitFor(() => expect(screen.getByText('#rnd-主研发')).toBeTruthy());
-    act(() => emitSse(wuStatusChanged({
-      id: 'WU-4001', status: 'active', channelId: 'ch-1', type: 'task', metadata: '{}',
-    })));
-    await waitFor(() => expect(document.querySelector('.mc-suggest')).toBeTruthy());
+    const chip = await screen.findByText(/转写审查清单/);
+    expect(chip).toBeTruthy();
     fireEvent.click(screen.getByLabelText('关闭建议'));
     expect(document.querySelector('.mc-suggest')).toBeNull();
-    // 同 key 重发不复活
-    act(() => emitSse(wuStatusChanged({
-      id: 'WU-4001', status: 'active', channelId: 'ch-1', type: 'task', metadata: '{}',
-    })));
+    // 同片重拉（同 dismissKey ep:WU-4001:transcribe-review-checklist）→ 不复活
+    act(() => emitSse({
+      event_type: 'workunit.status_changed',
+      data: { workunit: { id: 'WU-4001', status: 'in_review', channelId: 'ch-1', type: 'task', metadata: '{}' } },
+    }));
+    await waitFor(() => expect(suggestionsCalls()).toBe(2));
     expect(document.querySelector('.mc-suggest')).toBeNull();
-    // 流转到 in_review（新 key）→ 新建议出现
-    act(() => emitSse(wuStatusChanged({
-      id: 'WU-4001', status: 'in_review', channelId: 'ch-1', type: 'task', metadata: '{}',
-    })));
-    await waitFor(() => expect(screen.getByText(/把 AC 转写成审查清单/)).toBeTruthy());
-  });
-
-  it('blocked + waitingForInput → 不出建议片（NeedInputOptions 已覆盖该交互）', async () => {
-    renderPage();
-    await waitFor(() => expect(screen.getByText('#rnd-主研发')).toBeTruthy());
-    act(() => emitSse(wuStatusChanged({
-      id: 'WU-4002', status: 'blocked', channelId: 'ch-1', type: 'task',
-      metadata: JSON.stringify({ waitingForInput: true, waitingQuestion: '选哪个？' }),
-    })));
-    await waitFor(() => expect(screen.getByText('待回复 · 1')).toBeTruthy());
-    expect(document.querySelector('.mc-suggest')).toBeNull();
-  });
-
-  // #442 止血：in_review 且活跃 review 子工单在途（自动评审已派）→ 不出审查建议片，防重复派单。
-  // 先发子工单再发父单，保证父单 updatedAt 最新被 pickCurrentWu 拣中（currentWu = 父单）
-  it('in_review + 活跃 review 子工单在途 → 不出建议片（#442 防重复派单）', async () => {
-    renderPage();
-    await waitFor(() => expect(screen.getByText('#rnd-主研发')).toBeTruthy());
-    act(() => emitSse(wuStatusChanged({
-      id: 'WU-4002', status: 'active', channelId: 'ch-1', type: 'review', parentId: 'WU-4001', metadata: '{}',
-    })));
-    act(() => emitSse(wuStatusChanged({
-      id: 'WU-4001', status: 'in_review', channelId: 'ch-1', type: 'task', metadata: '{}',
-    })));
-    expect(screen.queryByText(/把 AC 转写成审查清单/)).toBeNull();
-    expect(document.querySelector('.mc-suggest')).toBeNull();
-  });
-
-  it('in_review + review 子工单已终态 → 仍出建议片（无在途评审，不算重复派单）', async () => {
-    renderPage();
-    await waitFor(() => expect(screen.getByText('#rnd-主研发')).toBeTruthy());
-    act(() => emitSse(wuStatusChanged({
-      id: 'WU-4002', status: 'done', channelId: 'ch-1', type: 'review', parentId: 'WU-4001', metadata: '{}',
-    })));
-    act(() => emitSse(wuStatusChanged({
-      id: 'WU-4001', status: 'in_review', channelId: 'ch-1', type: 'task', metadata: '{}',
-    })));
-    await waitFor(() => expect(screen.getByText(/把 AC 转写成审查清单/)).toBeTruthy());
+    // 状况变化后端点产出新片（新 wuId → 新 dismissKey）→ 重新出现
+    suggestionPayload = PROMPT_SUGGESTION('WU-4002');
+    act(() => emitSse({
+      event_type: 'workunit.status_changed',
+      data: { workunit: { id: 'WU-4002', status: 'in_review', channelId: 'ch-1', type: 'task', metadata: '{}' } },
+    }));
+    await waitFor(() => expect(screen.getByText(/转写审查清单/)).toBeTruthy());
   });
 });
 
-// #440 Phase 2：频道阶段条——复用 StationStepper/buildLifecycle，数据源 = channelWus（与建议片同面）
-describe('ChannelDetailPage — #440 阶段条', () => {
+// #440 Phase 2：频道阶段条——复用 StationStepper/buildLifecycle，deriveDisplayState 同口径；
+// #447 起「频道当前工单」拣选唯一正本在后端建议端点（pickCurrentWu 前端副本已删），
+// 阶段条与引导片同源消费端点 currentWuId（WU 数据本体仍取自 channelWus 面）
+describe('ChannelDetailPage — #440 阶段条（#447 起 currentWuId 由建议端点驱动）', () => {
+  const CHANNEL = { data: { data: { id: 'ch-1', name: 'rnd-主研发', type: 'rnd', members: '[]' } } };
+  const WU_5001 = {
+    id: 'WU-5001', parentId: null, dependsOn: '', type: 'task', scope: 's',
+    assigneeId: null, status: 'active', failureType: null, retryCount: 0,
+    timeoutAt: null, channelId: 'ch-1', metadata: null,
+    createdAt: iso(-30), updatedAt: iso(-5), claimedAt: iso(-20), completedAt: null,
+  };
+  let suggestionPayload: unknown = { data: { data: { currentWuId: 'WU-5001', suggestions: [] } } };
+  const suggestionsCalls = () =>
+    mockApiGet.mock.calls.filter(([url]) => String(url).endsWith('/suggestions')).length;
+  const stageBarSteps = () => [...screen.getByLabelText('工单阶段').querySelectorAll('.wu-bstep')];
+
   beforeEach(() => {
     vi.clearAllMocks();
     currentMessages = MESSAGES;
     sseHandlers = [];
+    suggestionPayload = { data: { data: { currentWuId: 'WU-5001', suggestions: [] } } };
     useNotificationStore.setState({ notifications: [] });
-    mockApiGet.mockResolvedValue({ data: { data: { id: 'ch-1', name: 'rnd-主研发', type: 'rnd', members: '[]' } } });
-    mockListWorkunits.mockImplementation((params?: { status?: string }) => Promise.resolve(
-      params?.status === 'active' ? activeWuList([]) : { data: { data: [] } },
+    mockApiGet.mockImplementation((url: string) => Promise.resolve(
+      String(url).endsWith('/suggestions') ? suggestionPayload : CHANNEL,
     ));
-    mockOnEvent.mockImplementation((cb: SseHandler) => { sseHandlers.push(cb); return () => {}; });
-    mockOnReconnect.mockImplementation((cb: () => void) => { reconnectHandlers.push(cb); return () => {}; });
-    reconnectHandlers = [];
-    mockListReqs.mockResolvedValue({ data: { data: [] } });
-    mockSendMessage.mockResolvedValue({});
-  });
-
-  it('频道有非终态 WU → 顶部渲染阶段条（当前站 = 进行中）', async () => {
     mockListWorkunits.mockImplementation((params?: { status?: string }) => Promise.resolve(
       params?.status === 'active'
         ? activeWuList([])
         : params?.status === 'blocked'
           ? { data: { data: [] } }
-          : {
-              data: {
-                data: [{
-                  id: 'WU-5001', parentId: null, dependsOn: '', type: 'task', scope: 's',
-                  assigneeId: null, status: 'active', failureType: null, retryCount: 0,
-                  timeoutAt: null, channelId: 'ch-1', metadata: null,
-                  createdAt: iso(-30), updatedAt: iso(-5), claimedAt: iso(-20), completedAt: null,
-                }],
-              },
-            },
+          : { data: { data: [WU_5001] } },
     ));
+    mockOnEvent.mockImplementation((cb: SseHandler) => { sseHandlers.push(cb); return () => {}; });
+    mockOnReconnect.mockImplementation((cb: () => void) => { reconnectHandlers.push(cb); return () => {}; });
+    reconnectHandlers = [];
+    mockListReqs.mockResolvedValue({ data: { data: [] } });
+    mockSendMessage.mockResolvedValue({});
+  });
+
+  it('端点 currentWuId 命中本频道 WU → 顶部渲染阶段条（当前站 = 进行中）', async () => {
     renderPage();
     await waitFor(() => expect(screen.getByLabelText('工单阶段')).toBeTruthy());
-    const steps = [...screen.getByLabelText('工单阶段').querySelectorAll('.wu-bstep')];
+    const steps = stageBarSteps();
     expect(steps).toHaveLength(4);
     expect(steps[1].className).toContain('wu-st-current');
   });
 
-  it('无 WU → 不渲染阶段条', async () => {
+  it('端点 currentWuId=null → 不渲染阶段条（频道有 WU 也不自行拣选——拣选口径单源在后端）', async () => {
+    suggestionPayload = { data: { data: { currentWuId: null, suggestions: [] } } };
     renderPage();
     await waitFor(() => expect(screen.getByText('#rnd-主研发')).toBeTruthy());
+    await waitFor(() => expect(suggestionsCalls()).toBe(1));
     expect(screen.queryByLabelText('工单阶段')).toBeNull();
   });
 
-  it('WU 状态流转（SSE）→ 阶段条当前站随展示列移动', async () => {
+  it('端点 currentWuId 指向 channelWus 外的 WU（时序 skew）→ 不渲染阶段条（fail-closed 不编造）', async () => {
+    suggestionPayload = { data: { data: { currentWuId: 'WU-9999', suggestions: [] } } };
     renderPage();
     await waitFor(() => expect(screen.getByText('#rnd-主研发')).toBeTruthy());
+    await waitFor(() => expect(suggestionsCalls()).toBe(1));
+    expect(screen.queryByLabelText('工单阶段')).toBeNull();
+  });
+
+  it('WU 状态流转（SSE）→ channelWus upsert + 端点重拉 → 阶段条当前站随展示列移动', async () => {
+    renderPage();
+    await waitFor(() => expect(screen.getByLabelText('工单阶段')).toBeTruthy());
+    expect(stageBarSteps()[1].className).toContain('wu-st-current');
     act(() => emitSse({
       event_type: 'workunit.status_changed',
-      data: { workunit: { id: 'WU-5002', status: 'in_review', channelId: 'ch-1', type: 'task', metadata: '{}' } },
+      data: { workunit: { id: 'WU-5001', status: 'in_review', channelId: 'ch-1', type: 'task', metadata: '{}' } },
     }));
-    await waitFor(() => expect(screen.getByLabelText('工单阶段')).toBeTruthy());
-    const steps = [...screen.getByLabelText('工单阶段').querySelectorAll('.wu-bstep')];
-    expect(steps[2].className).toContain('wu-st-current');
+    await waitFor(() => expect(stageBarSteps()[2].className).toContain('wu-st-current'));
   });
 });
 

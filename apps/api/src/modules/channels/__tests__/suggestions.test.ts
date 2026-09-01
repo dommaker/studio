@@ -453,6 +453,155 @@ describe('deriveChannelSuggestions（推导骨架）', () => {
     const r = await deriveChannelSuggestions('ch-not-exist', { fileStore });
     expect(r).toEqual({ currentWuId: null, suggestions: [] });
   });
+
+  // ─── #447：「出片 ⟺ 前置条件成立」双向不变量全状态覆盖 ───
+  // 状态列（deriveDisplayState 派生列）× 自动化在途/断链 全组合表驱动：
+  // 在途 = 自动化信号成立（租约活 / 在线成员 loop / 宽限内）→ 不出催促片（最多只读说明）；
+  // 断链 = 无接管 / 超宽限 → 有对应补救片型则出，无片型的列 fail-closed 空白（spec：拿不准不出）。
+  describe('#447 全状态不变量矩阵（出片 ⟺ 前置条件成立）', () => {
+    /** 把某 WU 快照租约改为活（loop 心跳中）/ 死（租约过期无接管） */
+    async function setLease(wuId: string, alive: boolean) {
+      const s = (await fileStore.getIndex()).find(x => x.id === wuId)!;
+      await fileStore.upsertSnapshot(alive
+        ? { ...s, assigneeId: 'inst-dev', claimedAt: nowIso(), timeoutAt: minutesAhead(5) }
+        : { ...s, assigneeId: 'inst-dev', claimedAt: minutesAgo(30), timeoutAt: minutesAgo(1) });
+    }
+
+    const ids = (list: ChannelSuggestion[]) => list.map(s => s.id).sort();
+
+    interface MatrixCase {
+      name: string;
+      arrange: () => Promise<void>;
+      /** 期望出片 id 集（排序后比较）；空数组 = 不出片 */
+      expect: string[];
+    }
+
+    const reviewGraceMin = SUGGESTION_TIMING.reviewDispatchInFlightGraceMs / 60_000;
+    const claimGraceMin = SUGGESTION_TIMING.unassignedClaimGraceMs / 60_000;
+
+    const cases: MatrixCase[] = [
+      // ── unassigned：认领动作片 ⟺ 无接管（无在线 loop）或超宽限 ──
+      {
+        name: 'unassigned × 在途（在线成员 loop 且宽限内）→ 不出片（涌现认领大概率在途）',
+        arrange: async () => {
+          await createParent({ status: 'unassigned' });
+          await setMembers(['profile-exec']);
+          await onlineLoop('profile-exec');
+        },
+        expect: [],
+      },
+      {
+        name: 'unassigned × 断链（无在线 loop，无人接管）→ 出认领动作片',
+        arrange: async () => { await createParent({ status: 'unassigned' }); },
+        expect: ['claim-wu'],
+      },
+      {
+        name: 'unassigned × 断链（在线 loop 但已超宽限，迟迟未认领）→ 出认领动作片',
+        arrange: async () => {
+          await createParent({ status: 'unassigned', ageMin: claimGraceMin + 5 });
+          await setMembers(['profile-exec']);
+          await onlineLoop('profile-exec');
+        },
+        expect: ['claim-wu'],
+      },
+      // ── active：无片型（活正在干）——在途/断链都不出（断链无确定性补救可给，fail-closed 空白） ──
+      {
+        name: 'active × 在途（本 WU 租约活，loop 在处理）→ 不出片',
+        arrange: async () => {
+          const wu = await createParent({ status: 'active' });
+          await setLease(wu.id, true);
+        },
+        expect: [],
+      },
+      {
+        name: 'active × 断链（租约过期无接管）→ 不出片（无对应片型，拿不准不出）',
+        arrange: async () => {
+          const wu = await createParent({ status: 'active' });
+          await setLease(wu.id, false);
+        },
+        expect: [],
+      },
+      // ── in_review：状态说明 ⟺ 在途；补派动作片 ⟺ 断链；僵死子单 fail-closed ──
+      {
+        name: 'in_review × 在途（未完结子单租约活）→ 只出只读状态说明',
+        arrange: async () => {
+          const parent = await createParent();
+          await createReviewChild(parent.id, { leaseFresh: true });
+        },
+        expect: ['auto-review-in-flight'],
+      },
+      {
+        name: 'in_review × 在途（无子单、宽限内、在线 loop，派单在飞）→ 状态说明 + 可选转写清单片',
+        arrange: async () => {
+          await createParent();
+          await setMembers(['profile-reviewer']);
+          await onlineLoop('profile-reviewer');
+        },
+        expect: ['auto-review-in-flight', 'transcribe-review-checklist'],
+      },
+      {
+        name: 'in_review × 断链（超宽限仍无子单，该派未派）→ 出补派评审动作片',
+        arrange: async () => { await createParent({ ageMin: reviewGraceMin + 5 }); },
+        expect: ['redispatch-review'],
+      },
+      {
+        name: 'in_review × 断链（子单僵死：租约过期无接管）→ 不出片（补派必 409，非本动作可修）',
+        arrange: async () => {
+          const parent = await createParent({ ageMin: reviewGraceMin + 5 });
+          const child = await createReviewChild(parent.id, { leaseFresh: true });
+          await setLease(child.id, false);
+        },
+        expect: [],
+      },
+      // ── blocked：诊断 prompt 片 ⟺ 无接管（租约不活）且非人闸挂起 ──
+      {
+        name: 'blocked × 在途（本 WU 租约活，loop 在处理）→ 不出诊断片',
+        arrange: async () => {
+          const wu = await createParent({ status: 'blocked' });
+          await setLease(wu.id, true);
+        },
+        expect: [],
+      },
+      {
+        name: 'blocked × 断链（租约不活无接管）→ 出诊断阻塞 prompt 片',
+        arrange: async () => { await createParent({ status: 'blocked' }); },
+        expect: ['diagnose-blocked'],
+      },
+      // ── pending / done（列）/ closed：人闸与终态无片型，在途/断链都不出 ──
+      {
+        name: 'pending × 在途（在线 loop）→ 不出片（待确认人闸，人决定）',
+        arrange: async () => {
+          await createParent({ status: 'pending' });
+          await setMembers(['profile-exec']);
+          await onlineLoop('profile-exec');
+        },
+        expect: [],
+      },
+      {
+        name: 'pending × 断链（无在线 loop）→ 不出片',
+        arrange: async () => { await createParent({ status: 'pending' }); },
+        expect: [],
+      },
+      {
+        name: 'done（列 = done，无 attestations）× 断链 → 不出片（终态）',
+        arrange: async () => { await createParent({ status: 'done' }); },
+        expect: [],
+      },
+      {
+        name: 'closed × 断链 → 不出片（终态）',
+        arrange: async () => { await createParent({ status: 'closed' }); },
+        expect: [],
+      },
+    ];
+
+    for (const c of cases) {
+      it(c.name, async () => {
+        await c.arrange();
+        const r = await deriveChannelSuggestions(CHANNEL_ID, { fileStore });
+        expect(ids(r.suggestions)).toEqual([...c.expect].sort());
+      });
+    }
+  });
 });
 
 // ─── 路由：GET /:id/suggestions ───

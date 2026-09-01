@@ -14,6 +14,13 @@ exports[`renderSuggestionCopy（文案模板机制） > claim-wu：快照锁定 
 }
 `;
 
+exports[`renderSuggestionCopy（文案模板机制） > diagnose-blocked（无 blockReason 变体）：快照锁定 + hint 不含原因从句 1`] = `
+{
+  "hint": "这张工单被阻塞了；点击会把诊断指令预填到输入框，可修改后再发送",
+  "label": "诊断阻塞：《登录功能》",
+}
+`;
+
 exports[`renderSuggestionCopy（文案模板机制） > diagnose-blocked：快照锁定 + 带工单标题与阻塞原因上下文 + hint 说清点击后果 1`] = `
 {
   "hint": "这张工单被阻塞了（自动验证未通过（3 个用例））；点击会把诊断指令预填到输入框，可修改后再发送",

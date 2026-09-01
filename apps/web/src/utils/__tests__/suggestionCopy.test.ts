@@ -61,6 +61,19 @@ describe('renderSuggestionCopy（文案模板机制）', () => {
     expect(copy).toMatchSnapshot();
   });
 
+  // #447 快照全量锁定：diagnose-blocked 无阻塞原因变体（hint 不带原因从句，不编造）
+  it('diagnose-blocked（无 blockReason 变体）：快照锁定 + hint 不含原因从句', () => {
+    const copy = renderSuggestionCopy({
+      id: 'diagnose-blocked',
+      kind: 'prompt',
+      params: { wuId: 'WU-1', wuTitle: '登录功能' },
+      text: '@developer 诊断《登录功能》的阻塞原因并给出修复方案',
+    });
+    expect(copy).not.toBeNull();
+    expect(copy!.hint).not.toContain('（自动验证未通过');
+    expect(copy).toMatchSnapshot();
+  });
+
   // #446：prompt 形态——前置门禁窗口的可选介入；label 标注「可选」（spec 用户故事 7）
   it('transcribe-review-checklist：可选标注 + 快照锁定 + 带工单上下文 + hint 说清点击后果', () => {
     const copy = renderSuggestionCopy({
