@@ -2,7 +2,7 @@
 // 对话流逻辑与 B1-001/Phase 2 一致：日期分隔、已完成折叠、线程分组、NEED_INPUT 回复链路，零语义变更
 import { useParams, useSearchParams } from 'react-router-dom';
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
-import { formatChannelName } from '@dommaker/studio-shared/web';
+import { deriveDisplayState, formatChannelName } from '@dommaker/studio-shared/web';
 import { useChannelMessages } from '../hooks/useChannelEvents';
 import { useStreamFollow } from '../hooks/useStreamFollow';
 import { useChannelCardActions } from '../hooks/useChannelCardActions';
@@ -12,6 +12,7 @@ import { ChannelLiveBars } from '../components/channel/ChannelLiveBars';
 import { deriveStreamView, type StreamItem } from '../utils/streamView';
 import { buildMessageToItemIndex } from '../utils/streamVirtual';
 import { ChannelInput } from '../components/channel/ChannelInput';
+import { SuggestionChips } from '../components/channel/SuggestionChips';
 import { ChannelMemberManager } from '../components/channel/ChannelMemberManager';
 import { ChannelDefaultProjectSelect } from '../components/channel/ChannelDefaultProjectSelect';
 import { ChannelCurrentPmoChip } from '../components/channel/ChannelCurrentPmoChip';
@@ -21,6 +22,9 @@ import { ChannelActivityRail } from '../components/channel/ChannelActivityRail';
 import { WorkUnitDrawer, type DrawerState } from '../components/channel/WorkUnitDrawer';
 import { useMediaQuery } from '../hooks/useMediaQuery';
 import { workunitApi } from '../api/workunit';
+import type { WorkUnit } from '../api/workunit';
+import { pickCurrentWu, suggestionsForWu } from '../utils/wuSuggestions';
+import { parseWuMeta } from '../utils/wuMeta';
 import { useNotificationStore } from '../stores/notificationStore';
 import { useUnreadStore } from '../stores/unreadStore';
 import { useChannelDataStore, parseChannelMembers } from '../stores/channelDataStore';
@@ -86,6 +90,12 @@ export function ChannelDetailPage() {
   const [waitingWus, setWaitingWus] = useState<NeedInputTodo[]>([]);
   // REQ 需求编号（vision §5.3）：本频道需求集；#394 起喂右栏「频道动态」REQ 链路卡（原中栏 chips 条移除）
   const [channelReqs, setChannelReqs] = useState<Requirement[]>([]);
+  // #440：本频道 WU 全集——建议 prompt 片 + 阶段条的共用数据源
+  // （REST 打底 + status_changed SSE upsert + 决策 9 重连对齐）
+  const [channelWus, setChannelWus] = useState<WorkUnit[]>([]);
+  // #440：建议片 dismiss 台账（会话级，key = `${wuId}:${展示列}`）+ 输入框 prefill 通道
+  const [dismissedSuggestionKeys, setDismissedSuggestionKeys] = useState<Set<string>>(new Set());
+  const [inputPrefill, setInputPrefill] = useState<{ text: string; nonce: number } | undefined>(undefined);
   // Mission Control 右抽屉：WorkUnit 详情 / REQ 全链路
   const [drawer, setDrawer] = useState<DrawerState>(null);
   // #395（spec §4.6）窄屏降级断点：<768 左栏并入全局 Sidebar（本页卸载内联 ChannelRail）；
@@ -145,6 +155,14 @@ export function ChannelDetailPage() {
       .catch(() => {});
   }, [id]);
 
+  // #440：channelWus 打底（建议片/阶段条数据源；失败静默——两片只是引导，不阻断频道使用）
+  const reloadChannelWus = useCallback(() => {
+    if (!id) return;
+    workunitApi.list({ channelId: id, limit: 100 })
+      .then(r => setChannelWus(r.data.data))
+      .catch(() => {});
+  }, [id]);
+
   // 决策 9（SSE 负载加深）：SSE 断线重连 → 受影响面一次性 refetch（无序号/校验机制）：
   // 消息面 refresh + waitingWus/REQ chips 两个打底面 + #403 频道数据面三切片强刷
   useEffect(() => {
@@ -152,17 +170,22 @@ export function ChannelDetailPage() {
       void refresh();
       reloadWaitingWus();
       reloadChannelReqs();
+      reloadChannelWus();
       if (!id) return;
       const channelData = useChannelDataStore.getState();
       void channelData.ensureVocabulary(id, { maxAgeMs: 0 });
       void channelData.ensureCurrentPmo(id, { maxAgeMs: 0 });
       void channelData.ensureMembers(id, { maxAgeMs: 0 });
     });
-  }, [onReconnect, refresh, reloadWaitingWus, reloadChannelReqs, id]);
+  }, [onReconnect, refresh, reloadWaitingWus, reloadChannelReqs, reloadChannelWus, id]);
 
   useEffect(() => {
     reloadWaitingWus();
   }, [reloadWaitingWus]);
+
+  useEffect(() => {
+    reloadChannelWus();
+  }, [reloadChannelWus]);
 
   useEffect(() => {
     if (!id) return;
@@ -178,6 +201,30 @@ export function ChannelDetailPage() {
         if (idx < 0) return [...prev, todo];
         const next = [...prev];
         next[idx] = todo;
+        return next;
+      });
+      // #440：channelWus 同步 upsert（轻量负载只带 id/status/metadata/type/scope，其余字段保留旧值；
+      // 新 WU 以默认值补全，时间戳类字段等下次打底/重连对齐）
+      setChannelWus(prev => {
+        const idx = prev.findIndex(w => w.id === wu.id);
+        const nowIso = new Date().toISOString();
+        if (idx < 0) {
+          return [...prev, {
+            id: wu.id, parentId: null, dependsOn: '', type: wu.type ?? 'task', scope: wu.scope ?? '',
+            assigneeId: null, status: wu.status, failureType: null, retryCount: 0, timeoutAt: null,
+            channelId: wu.channelId, metadata: wu.metadata, createdAt: nowIso, updatedAt: nowIso,
+            claimedAt: null, completedAt: null,
+          }];
+        }
+        const next = [...prev];
+        next[idx] = {
+          ...next[idx],
+          status: wu.status,
+          metadata: wu.metadata ?? next[idx].metadata,
+          type: wu.type ?? next[idx].type,
+          scope: wu.scope ?? next[idx].scope,
+          updatedAt: nowIso,
+        };
         return next;
       });
     });
@@ -239,6 +286,19 @@ export function ChannelDetailPage() {
 
   // F5: 挂起集合（由 waitingWus 派生）
   const waitingWuIds = useMemo(() => new Set(waitingWus.map(w => w.wuId)), [waitingWus]);
+
+  // #440：当前工单 → 建议 prompt 片（dismiss key = wuId:展示列，同 key 不复活；状态流转即新 key）
+  const currentWu = useMemo(() => pickCurrentWu(channelWus), [channelWus]);
+  const currentWuColumn = useMemo(
+    () => (currentWu ? deriveDisplayState({ status: currentWu.status, metadata: currentWu.metadata }).column : null),
+    [currentWu],
+  );
+  const suggestionKey = currentWu && currentWuColumn ? `${currentWu.id}:${currentWuColumn}` : null;
+  const visibleSuggestions = useMemo(() => {
+    if (!currentWu || !currentWuColumn || !suggestionKey) return [];
+    if (dismissedSuggestionKeys.has(suggestionKey)) return [];
+    return suggestionsForWu(currentWuColumn, parseWuMeta(currentWu.metadata));
+  }, [currentWu, currentWuColumn, suggestionKey, dismissedSuggestionKeys]);
 
   // #279（走查 F4）：每个挂起 WU 的「当前提问消息」= 该 WU 最新一条非人类消息。
   // badge/回复区只落在这一条（同 WU 多消息不再一屏多个回复框）；chip 定位也用它
@@ -675,8 +735,17 @@ export function ChannelDetailPage() {
           )}
         </div>
 
+        {/* #440：建议 prompt 片（WU 状态流转后的下一步指令引导；点击填入输入框，会话级 dismiss） */}
+        {visibleSuggestions.length > 0 && suggestionKey && (
+          <SuggestionChips
+            suggestions={visibleSuggestions}
+            onPick={(text) => setInputPrefill(p => ({ text, nonce: (p?.nonce ?? 0) + 1 }))}
+            onDismiss={() => setDismissedSuggestionKeys(prev => new Set(prev).add(suggestionKey))}
+          />
+        )}
+
         {/* Input */}
-        <ChannelInput onSend={handleSend} sending={sending} replyTo={replyTo} onCancelReply={() => setReplyTo(null)} channelId={id} />
+        <ChannelInput onSend={handleSend} sending={sending} replyTo={replyTo} onCancelReply={() => setReplyTo(null)} channelId={id} prefill={inputPrefill} />
       </main>
 
       {/* 右栏：频道动态 REQ 链路卡（#394，spec §4.1–4.3）；REQ/WU 点击仍走下方覆盖抽屉。

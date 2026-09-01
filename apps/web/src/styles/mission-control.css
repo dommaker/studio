@@ -615,6 +615,30 @@
 
 /* 底部输入条 */
 .mc-inputbar { border-top: 1px solid var(--border-subtle); padding: var(--space-3) var(--space-6); background: var(--bg-secondary); position: relative; } /* #394（spec §4.1）：padding 32px */
+
+/* #440：建议 prompt 片（输入框上方；mono 小卡 + dismiss） */
+.mc-suggest {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: var(--space-2) var(--space-6) 0;
+  background: var(--bg-secondary);
+}
+.mc-suggest-chip {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: 3px;
+  padding: 3px 8px;
+  cursor: pointer;
+  text-align: left;
+}
+.mc-suggest-chip:hover { color: var(--accent-primary); border-color: var(--accent-primary); }
+.mc-suggest-dismiss { margin-left: auto; }
+
 .mc-input-reply {
   display: flex;
   align-items: center;

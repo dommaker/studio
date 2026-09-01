@@ -15,6 +15,8 @@ interface Props {
   replyTo?: ChannelMessage | null;
   onCancelReply?: () => void;
   channelId?: string;
+  /** #440：外部填入口（建议片点击 → 填入输入框）。nonce 变化才写入，同 nonce 不覆盖用户编辑 */
+  prefill?: { text: string; nonce: number };
 }
 
 /** 文件候选展示上限（词表可能数千条，弹框只给补全头部） */
@@ -25,7 +27,7 @@ function repoBasename(repo: string): string {
   return repo.split('/').filter(Boolean).pop() ?? repo;
 }
 
-export function ChannelInput({ onSend, sending, replyTo, onCancelReply, channelId }: Props) {
+export function ChannelInput({ onSend, sending, replyTo, onCancelReply, channelId, prefill }: Props) {
   const [content, setContent] = useState('');
   // 光标位置由 onChange/onSelect 事件写入 state（渲染期禁读 ref）。
   // 顺带修复旧缺陷：原实现 memo 只依赖 content，光标点击移动不重算 mention 解析
@@ -51,6 +53,24 @@ export function ChannelInput({ onSend, sending, replyTo, onCancelReply, channelI
   useEffect(() => {
     void useRosterStore.getState().ensureFresh();
   }, []);
+
+  // #440：prefill 通道——nonce 变化才把 text 写入（同 nonce 重渲染不覆盖用户编辑）；
+  // 写入后聚焦并把光标置尾，沿用 mention 插入的 setTimeout 聚焦模式
+  const lastPrefillNonceRef = useRef(0);
+  useEffect(() => {
+    if (!prefill || prefill.nonce === lastPrefillNonceRef.current) return;
+    lastPrefillNonceRef.current = prefill.nonce;
+    setContent(prefill.text);
+    setCursorPos(prefill.text.length);
+    setMentionDismissedAt(null);
+    setTimeout(() => {
+      const el = textareaRef.current;
+      if (el) {
+        el.setSelectionRange(prefill.text.length, prefill.text.length);
+        el.focus();
+      }
+    }, 0);
+  }, [prefill]);
 
   useEffect(() => {
     if (!channelId) return;
