@@ -234,6 +234,8 @@ export const workunitApi = {
     status?: string;
     assigneeId?: string;
     channelId?: string;
+    /** #405：归属维度服务端过滤（#428 API）；false = 未归属（无 reqId 且归因戳为 null） */
+    attributed?: boolean;
     page?: number;
     limit?: number;
   }) => api.get<PaginatedResponse<WorkUnit>>('/workunits', { params }),

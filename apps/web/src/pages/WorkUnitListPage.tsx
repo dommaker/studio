@@ -26,6 +26,7 @@ export function WorkUnitListPage() {
     workunits, total, loading, error,
     loadWorkUnits, createWorkUnit, reviewPassed, reviewRejected, confirmPending,
     statusFilter, setStatusFilter,
+    unattributedOnly, unattributedTotal, setUnattributedOnly, loadUnattributedCount,
   } = useWorkUnitStore();
 
   const [showCreate, setShowCreate] = useState(false);
@@ -46,7 +47,9 @@ export function WorkUnitListPage() {
 
   useEffect(() => {
     loadWorkUnits();
-  }, [loadWorkUnits]);
+    // #405：未归属计数徽标（服务端 total 口径；过滤态下由 loadWorkUnits 顺带同步）
+    void loadUnattributedCount();
+  }, [loadWorkUnits, loadUnattributedCount]);
 
   // #318：WU SSE 负载直更（替代 eventTick 整页重拉）——status_changed 直替/移除行、created 插头部；
   // SSE 重连经 onReconnect 一次性 refetch 对齐（ADR D3）
@@ -58,7 +61,7 @@ export function WorkUnitListPage() {
     if (!data?.workunit) return;
     applyWorkunitEvent(data.workunit, { insertIfMissing: msg.event_type === 'workunit.created' });
   }), [onEvent, applyWorkunitEvent]);
-  useEffect(() => onReconnect(() => { void loadWorkUnits(); }), [onReconnect, loadWorkUnits]);
+  useEffect(() => onReconnect(() => { void loadWorkUnits(); void loadUnattributedCount(); }), [onReconnect, loadWorkUnits, loadUnattributedCount]);
 
   const handleCreate = async () => {
     if (!newScope.trim()) return;
@@ -162,6 +165,17 @@ export function WorkUnitListPage() {
               title="活已干完但人还没确认（手写审查中 + done 缺人工确认）"
             >
               待人工
+            </button>
+            {/* #405：未归属过滤（服务端 attributed=false，#428）+ 服务端 total 计数徽标。
+                与状态 pill 同为服务端维度可交集组合；取消即恢复原列表 */}
+            <button
+              className={`text-xs px-3 py-1 rounded-full transition-colors ${
+                unattributedOnly ? 'u-accent-dim u-accent' : 'u-surface-2 u-text-3 u-hover-bg'
+              }`}
+              onClick={() => { setHumanOnly(false); setUnattributedOnly(!unattributedOnly); }}
+              title="无 reqId 且无 PMO 归因戳的任务（不计入任何项目交付统计，仅作归因覆盖率信号）"
+            >
+              未归属{unattributedTotal !== null && <span className="font-mono"> {unattributedTotal}</span>}
             </button>
           </div>
 
