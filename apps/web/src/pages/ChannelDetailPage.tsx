@@ -13,6 +13,7 @@ import { deriveStreamView, type StreamItem } from '../utils/streamView';
 import { buildMessageToItemIndex } from '../utils/streamVirtual';
 import { ChannelInput } from '../components/channel/ChannelInput';
 import { SuggestionChips } from '../components/channel/SuggestionChips';
+import { ChannelStageBar } from '../components/channel/ChannelStageBar';
 import { ChannelMemberManager } from '../components/channel/ChannelMemberManager';
 import { ChannelDefaultProjectSelect } from '../components/channel/ChannelDefaultProjectSelect';
 import { ChannelCurrentPmoChip } from '../components/channel/ChannelCurrentPmoChip';
@@ -666,6 +667,9 @@ export function ChannelDetailPage() {
         {/* #242: live 执行状态条——有 WU 执行中时显示，点击打开对应 WU 抽屉（过程明细仍在抽屉）；
             #322：hook 下沉 ChannelLiveBars 自持有，step 事件只重渲该组件边界 */}
         <ChannelLiveBars channelId={id} onOpenWorkUnit={openWu} />
+
+        {/* #440 Phase 2：频道当前 WU 阶段条（与 WU 详情页同一 deriveDisplayState 口径；无 WU 不占位） */}
+        <ChannelStageBar wu={currentWu} />
 
         {/* Message list
             #325：头部块（空态/加载更早/折叠 toggle）与虚拟列表 spacer 分离——

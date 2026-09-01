@@ -616,6 +616,13 @@
 /* 底部输入条 */
 .mc-inputbar { border-top: 1px solid var(--border-subtle); padding: var(--space-3) var(--space-6); background: var(--bg-secondary); position: relative; } /* #394（spec §4.1）：padding 32px */
 
+/* #440 Phase 2：频道当前 WU 阶段条（复用 wu-detail.css 的 wu-stepper-bar 类，这里只给定位容器） */
+.mc-stagebar {
+  padding: var(--space-2) var(--space-6);
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-secondary);
+}
+
 /* #440：建议 prompt 片（输入框上方；mono 小卡 + dismiss） */
 .mc-suggest {
   display: flex;
