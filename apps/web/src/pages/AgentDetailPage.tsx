@@ -137,8 +137,8 @@ export function AgentDetailPage() {
   };
 
   return (
-    <div className="h-full flex flex-col" style={{ background: 'var(--bg-primary)' }}>
-      <div className="px-8 py-6" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+    <div className="h-full flex flex-col u-page-bg">
+      <div className="u-page-head">
         {/* #393 §4.4：详情页统一左上返回（直开回落 /agents） */}
         <div className="mb-4"><BackButton fallback="/agents" /></div>
         <div className="flex items-center justify-between">

@@ -100,9 +100,9 @@ export function LibraryDocPage() {
     : [{ label: '', body: doc.content }];
 
   return (
-    <div className="h-full flex flex-col" style={{ background: 'var(--bg-primary)' }}>
+    <div className="h-full flex flex-col u-page-bg">
       {/* Header */}
-      <div className="px-8 py-6" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+      <div className="u-page-head">
         <div className="flex items-center gap-3 mb-4">
           {/* #393 §4.4：详情页统一左上返回（直开回落 /library） */}
           <BackButton fallback="/library" />

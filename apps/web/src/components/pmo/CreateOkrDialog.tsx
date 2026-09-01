@@ -137,7 +137,7 @@ export function CreateOkrDialog({ open, companyId, onClose, onCreated }: CreateO
               </button>
             </div>
             {krs.map((kr, idx) => (
-              <div key={kr.id} className="p-3 rounded mb-2" style={{ background: 'var(--bg-secondary)' }}>
+              <div key={kr.id} className="p-3 rounded mb-2 u-surface-0">
                 <div className="flex items-center gap-2 mb-2">
                   <span className="text-xs font-bold u-text-3">
                     KR{idx + 1}

@@ -43,11 +43,11 @@ export function ManualTaskButton({ label, onRun, costTokens, costNote, className
         {running ? '运行中…' : label}
       </button>
       {costNote != null ? (
-        <span className="text-xs whitespace-nowrap" style={{ color: 'var(--text-tertiary)' }}>
+        <span className="text-xs whitespace-nowrap u-text-3">
           {costNote}
         </span>
       ) : costTokens != null && (
-        <span className="text-xs whitespace-nowrap" style={{ color: 'var(--text-tertiary)' }}>
+        <span className="text-xs whitespace-nowrap u-text-3">
           近 30 天 ≈{formatTokens(costTokens)} tokens
         </span>
       )}

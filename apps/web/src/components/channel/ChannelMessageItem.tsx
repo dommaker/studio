@@ -161,6 +161,7 @@ export const ChannelMessageItem = memo(function ChannelMessageItem({
   // #277 D3：系统播报判定——Studio 署名、无卡片、非 NEED_INPUT 等待中（等待中的提问保留 agent 形态供回复）
   const isSystem = !isHuman && !card && !waitingForInput && message.agentName === 'Studio';
   // #277 D1：分侧类——卡片全宽不参与分侧
+  // mc-msg-card：无样式规则，测试 DOM 钩子（ChannelMessageItem.test.tsx 断言用，#431 定性保留，删类会红测试）
   const sideClass = card ? 'mc-msg-card' : isSystem ? 'mc-msg-system' : isHuman ? 'mc-msg-human' : 'mc-msg-agent';
 
   const actionButtons = (
@@ -190,7 +191,7 @@ export const ChannelMessageItem = memo(function ChannelMessageItem({
 
   return (
     <div
-      className={`mc-msg ${isThreadReply ? 'mc-msg-reply' : ''} ${compact ? 'mc-msg-compact' : ''} ${sideClass}${highlight ? ' mc-msg-highlight' : ''}`}
+      className={`mc-msg ${compact ? 'mc-msg-compact' : ''} ${sideClass}${highlight ? ' mc-msg-highlight' : ''}`}
       data-message-id={message.id}
     >
       {/* Quote block (reply reference) */}

@@ -78,9 +78,9 @@ export function WorkUnitListPage() {
   };
 
   return (
-    <div className="h-full flex flex-col" style={{ background: 'var(--bg-primary)' }}>
+    <div className="h-full flex flex-col u-page-bg">
       {/* Header */}
-      <div className="px-8 py-6" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+      <div className="u-page-head">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="page-title">任务</h1>
@@ -328,7 +328,7 @@ function WorkUnitRow({
       </div>
 
       {expanded && (
-        <div className="px-3 pb-3 text-sm" style={{ borderTop: '1px solid var(--border-subtle)' }}>
+        <div className="px-3 pb-3 text-sm border-t u-border">
           {/* AC-2.4: in_review + 无 reviewer -> 提醒横幅 */}
           <ReviewHint
             status={wu.status}

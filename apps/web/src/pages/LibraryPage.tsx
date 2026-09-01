@@ -116,9 +116,9 @@ export function LibraryPage() {
   };
 
   return (
-    <div className="h-full flex flex-col" style={{ background: 'var(--bg-primary)' }}>
+    <div className="h-full flex flex-col u-page-bg">
       {/* Header */}
-      <div className="px-8 py-6" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+      <div className="u-page-head">
         <div className="flex items-center justify-between">
           <h1 className="page-title">阅览室</h1>
           <ManualTaskButton

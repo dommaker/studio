@@ -53,14 +53,14 @@ export function RequirementsDocCard({ message, meta }: Props) {
 
       {/* #278（决策 #250 D2）：历史卡只读化——按钮区整区隐藏 + 卡底淡注 */}
       {isIdle && (
-        <div className="mc-card-foot mc-card-dim" style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 8 }}>
+        <div className="mc-card-foot mc-card-dim border-t u-border" style={{ paddingTop: 8 }}>
           该确认入口已下线
         </div>
       )}
 
       {/* Other states（executing 遗产卡无底部区块：状态 chip 已足以标识，决策 7 删除进度区） */}
       {!isIdle && status !== 'executing' && (
-        <div className="mc-card-foot" style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 8 }}>
+        <div className="mc-card-foot border-t u-border" style={{ paddingTop: 8 }}>
           {status === 'needs_revision' && '等待修改反馈...'}
           {status === 'done' && '需求已完成'}
           {status === 'error' && `错误: ${meta.error || '未知'}`}

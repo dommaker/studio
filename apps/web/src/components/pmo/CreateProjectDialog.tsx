@@ -143,7 +143,7 @@ export function CreateProjectDialog({ open, onClose, onCreated }: CreateProjectD
                   discoveredProjects.map(p => (
                     <label
                       key={p.path}
-                      className="flex items-center gap-2 text-sm u-text-1"
+                      className="flex items-center gap-2 text-sm u-text"
                       style={{ cursor: 'pointer', padding: '4px 0' }}
                     >
                       <input
@@ -161,8 +161,7 @@ export function CreateProjectDialog({ open, onClose, onCreated }: CreateProjectD
                   工程扫描失败（需要管理员权限）。
                   <button
                     onClick={loadDiscoveredProjects}
-                    className="u-accent"
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, font: 'inherit' }}
+                    className="u-accent u-btn-reset"
                   >
                     重试
                   </button>

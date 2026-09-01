@@ -62,8 +62,8 @@ export function MonitoringPage() {
   };
 
   return (
-    <div className="h-full flex flex-col" style={{ background: 'var(--bg-primary)' }}>
-      <div className="px-8 py-6" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+    <div className="h-full flex flex-col u-page-bg">
+      <div className="u-page-head">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="page-title">监控</h1>
@@ -76,7 +76,7 @@ export function MonitoringPage() {
       </div>
 
       {/* #180：概览 / 事件检索 Tab（IA：行动信号 > 健康度量 > 参考资料） */}
-      <div className="px-8 pt-3 flex gap-1" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+      <div className="px-8 pt-3 flex gap-1 border-b u-border">
         {([['overview', '概览'], ['events', '事件检索']] as Array<[MonitoringTab, string]>).map(([id, label]) => (
           <button
             key={id}
@@ -275,7 +275,7 @@ export function MonitoringPage() {
                     </thead>
                     <tbody>
                       {roles.map(r => (
-                        <tr key={r.profileId} style={{ borderTop: '1px solid var(--border-subtle)' }}>
+                        <tr key={r.profileId} className="border-t u-border">
                           <td className="py-1 u-text">{r.profileName}</td>
                           <td className="py-1 font-mono">{r.claims}</td>
                           <td className="py-1 font-mono">{r.completions}</td>

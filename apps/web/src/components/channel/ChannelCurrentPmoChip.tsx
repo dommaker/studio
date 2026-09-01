@@ -26,6 +26,7 @@ export const ChannelCurrentPmoChip: React.FC<ChannelCurrentPmoChipProps> = ({ ch
     : pmo.title;
 
   return (
+    // mc-pmo-chip：无独立样式规则，测试 querySelector 钩子（ChannelCurrentPmoChip.test.tsx，#431 定性保留，删类会红测试）
     <button
       type="button"
       className="mc-btn mc-pmo-chip"

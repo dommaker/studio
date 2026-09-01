@@ -77,7 +77,7 @@ export function KnowledgeConfirmCard({ message, meta, onAction }: Props) {
 
       {/* Entries */}
       {entries?.map((entry, i) => (
-        <div key={i} style={{ marginBottom: 6, borderBottom: '1px solid var(--border-subtle)', paddingBottom: 6 }}>
+        <div key={i} className="border-b u-border" style={{ marginBottom: 6, paddingBottom: 6 }}>
           <p className="mc-card-body" style={{ fontWeight: 600 }}>{entry.title}</p>
           <p className="mc-card-dim" style={{ marginTop: 2 }}>{entry.content}</p>
           <div style={{ display: 'flex', gap: 4, marginTop: 4, flexWrap: 'wrap' }}>
@@ -111,7 +111,7 @@ export function KnowledgeConfirmCard({ message, meta, onAction }: Props) {
           </button>
         </div>
       ) : !isRetract ? (
-        <div className="mc-card-foot mc-card-dim" style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 8 }}>
+        <div className="mc-card-foot mc-card-dim border-t u-border" style={{ paddingTop: 8 }}>
           该确认入口已下线
         </div>
       ) : null}

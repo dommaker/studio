@@ -10,8 +10,7 @@ function EntryText({ entry }: { entry: ProjectTimelineEntry }) {
   const title = entry.wuId ? (
     <button
       onClick={() => navigate(`/workunits/${entry.wuId}`)}
-      className="u-accent"
-      style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, font: 'inherit' }}
+      className="u-accent u-btn-reset"
     >
       「{entry.title}」
     </button>

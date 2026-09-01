@@ -24,7 +24,7 @@ export function ForgotPasswordPage() {
   };
 
   return (
-    <div className="min-h-screen u-text flex items-center justify-center px-4" style={{ background: "var(--bg-primary)" }}>
+    <div className="min-h-screen u-text flex items-center justify-center px-4 u-page-bg">
       <div className="card p-6 w-full max-w-sm" style={{ borderRadius: 6, boxShadow: 'var(--shadow-lg)' }}>
         <h1 className="text-lg font-bold mb-1">重置密码</h1>
         <p className="text-xs u-text-3 mb-4">输入注册邮箱，我们将发送重置链接</p>

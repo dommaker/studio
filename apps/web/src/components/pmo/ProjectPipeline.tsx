@@ -85,8 +85,7 @@ function WuCard({ wu, agent }: { wu: PipelineWorkUnit; agent?: AgentInfo }) {
               e.stopPropagation();
               navigate(`/agents/${agent.roleId}`);
             }}
-            className="u-accent truncate"
-            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, font: 'inherit' }}
+            className="u-accent truncate u-btn-reset"
           >
             {agent.name}
           </button>

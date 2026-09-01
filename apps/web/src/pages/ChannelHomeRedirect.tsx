@@ -23,7 +23,7 @@ export function ChannelHomeRedirect() {
 
   // 零频道兜底：无列表页可回，原地提供创建入口
   return (
-    <div className="flex h-full items-start justify-center" style={{ background: 'var(--bg-primary)' }}>
+    <div className="flex h-full items-start justify-center u-page-bg">
       <div className="w-full max-w-lg px-6 py-8">
         <h1 className="page-title">暂无频道</h1>
         <p className="page-subtitle">创建第一个频道开始使用</p>

@@ -102,10 +102,10 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
       )}
 
       {/* 底部状态 */}
-      <div className="mt-auto p-4 text-xs" style={{ borderTop: '1px solid var(--border-subtle)' }}>
+      <div className="mt-auto p-4 text-xs border-t u-border">
         <div className="flex items-center gap-2">
           <span className="w-2 h-2 rounded-full" style={{ background: 'var(--success)' }} />
-          <span style={{ color: 'var(--text-muted)' }}>就绪</span>
+          <span className="u-text-3">就绪</span>
         </div>
       </div>
     </aside>

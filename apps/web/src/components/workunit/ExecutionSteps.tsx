@@ -44,7 +44,7 @@ function ToolRowView({ row }: { row: ToolRow }) {
   const [open, setOpen] = useState(false);
   const stateLabel = TOOL_STATE_LABEL[row.state];
   return (
-    <div className="mc-toolrow-wrap">
+    <div>
       <button type="button" className="mc-toolrow" aria-expanded={open} onClick={() => setOpen(o => !o)}>
         <span className={`mc-dot ${TOOL_STATE_DOT[row.state]}`} role="img" aria-label={stateLabel} title={stateLabel} />
         <span className="mc-toolrow-label">{row.tool}{row.summary ? ` ${row.summary}` : ''}</span>

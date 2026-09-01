@@ -144,7 +144,7 @@ export const ChannelMemberManager: React.FC<ChannelMemberManagerProps> = ({ chan
 
       {isOpen && (
         <div className="mc-mention-popup" style={{ left: 'auto', right: 0, bottom: 'auto', top: '100%', marginTop: 4, width: 288, maxHeight: 'none' }}>
-          <div style={{ padding: '8px 10px', borderBottom: '1px solid var(--border-subtle)' }}>
+          <div className="border-b u-border" style={{ padding: '8px 10px' }}>
             <h3 className="mc-card-body" style={{ fontWeight: 600 }}>频道成员</h3>
             {memberCount === 0 && (
               <p className="mc-drawer-note">空 = 所有 Agent 可见</p>
@@ -181,7 +181,7 @@ export const ChannelMemberManager: React.FC<ChannelMemberManagerProps> = ({ chan
 
           {/* Add existing agent */}
           {availableAgents.length > 0 && (
-            <div style={{ borderTop: '1px solid var(--border-subtle)', padding: '4px 6px' }}>
+            <div className="border-t u-border" style={{ padding: '4px 6px' }}>
               <p className="mc-drawer-note" style={{ padding: '0 4px' }}>添加 Agent</p>
               {availableAgents.map((a) => (
                 <button
@@ -197,7 +197,7 @@ export const ChannelMemberManager: React.FC<ChannelMemberManagerProps> = ({ chan
           )}
 
           {/* Create new agent */}
-          <div style={{ borderTop: '1px solid var(--border-subtle)', padding: 8 }}>
+          <div className="border-t u-border" style={{ padding: 8 }}>
             {showCreateForm ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 <input

@@ -153,9 +153,9 @@ export function KnowledgePage() {
   };
 
   return (
-    <div className="h-full flex flex-col" style={{ background: 'var(--bg-primary)' }}>
+    <div className="h-full flex flex-col u-page-bg">
       {/* Header */}
-      <div className="px-8 py-6" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+      <div className="u-page-head">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="page-title">知识库</h1>
@@ -216,7 +216,7 @@ export function KnowledgePage() {
           {searchLoading && <div className="text-center py-2 text-sm u-text-3">搜索中...</div>}
 
           {/* Tab bar */}
-          <div className="flex gap-1 mb-6 overflow-x-auto pb-1" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+          <div className="flex gap-1 mb-6 overflow-x-auto pb-1 border-b u-border">
             {tabs.map(tab => (
               <button key={tab.id} onClick={() => setActiveTab(tab.id)}
                 className={`px-4 py-2 text-sm rounded-t-lg whitespace-nowrap transition ${activeTab === tab.id ? 'u-surface u-accent' : 'u-text-3'}`}

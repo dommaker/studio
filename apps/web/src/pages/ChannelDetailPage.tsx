@@ -676,6 +676,7 @@ export function ChannelDetailPage() {
             头部高度经 streamHeadRef 量作 virtualizer scrollMargin；
             虚拟化路径只渲染窗口内行（spacer 撑总高 + 块平移），非虚拟化（jsdom）全量渲染 */}
         <div className="mc-stream" ref={streamRef} onScroll={handleStreamScroll}>
+          {/* mc-stream-head：滚动测量容器（streamHeadRef 挂点），无样式需求，结构化 hook（#431 定性保留） */}
           <div className="mc-stream-head" ref={streamHeadRef}>
             {loading && messages.length === 0 && (
               <div className="mc-stream-empty">加载中…</div>

@@ -155,15 +155,15 @@ export function Settings() {
 
   if (loading) {
     return (
-      <div className="h-full flex items-center justify-center" style={{ background: 'var(--bg-primary)' }}>
+      <div className="h-full flex items-center justify-center u-page-bg">
         <div className="loading-spinner"></div>
       </div>
     );
   }
 
   return (
-    <div className="h-full flex flex-col" style={{ background: 'var(--bg-primary)' }}>
-      <div className="px-8 py-6" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+    <div className="h-full flex flex-col u-page-bg">
+      <div className="u-page-head">
         <h1 className="page-title">⚙️ 设置</h1>
         <p className="page-subtitle">配置通知、算力接入与偏好</p>
       </div>

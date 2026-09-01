@@ -149,7 +149,7 @@ export default function App() {
   return (
     <ThemeProvider>
     <WebSocketProvider>
-    <div className="h-screen flex flex-col" style={{ background: 'var(--bg-primary)' }}>
+    <div className="h-screen flex flex-col u-page-bg">
       {/* #412：REQ chain 数据面 SSE 接线（App 级单点，hook 需 WebSocketProvider 上下文） */}
       <RequirementChainSync />
       {/* AC-2.2: studio 角色 provider=null 弹框 */}
@@ -188,10 +188,9 @@ export default function App() {
         <div
           className={
             /^\/channels\/[^/]+$/.test(location.pathname)
-              ? 'flex-1 flex flex-col overflow-hidden min-h-0'
-              : 'flex-1 overflow-auto'
+              ? 'flex-1 flex flex-col overflow-hidden min-h-0 u-page-bg'
+              : 'flex-1 overflow-auto u-page-bg'
           }
-          style={{ background: 'var(--bg-primary)' }}
         >
           <Routes>
             <Route

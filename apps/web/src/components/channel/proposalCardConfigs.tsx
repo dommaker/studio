@@ -77,8 +77,8 @@ function proposalFetchReviewed(
   };
 }
 
-/** 条目样式行（5 卡共用的清单行骨架：marginBottom + 底部分隔线） */
-const entryRowStyle = { marginBottom: 6, borderBottom: '1px solid var(--border-subtle)', paddingBottom: 6 } as const;
+/** 条目样式行（5 卡共用的清单行骨架：底部分隔线 + 上下呼吸，#431 内联→类） */
+const entryRowCls = 'mb-1.5 border-b u-border pb-1.5';
 
 /** memory 卡 kind → 人类可读标签（不暴露 execution-knowledge / preference 内部分类词） */
 const MEMORY_KIND_LABELS: Record<string, string> = {
@@ -167,14 +167,14 @@ export const PROPOSAL_CARD_CONFIGS: Record<string, ProposalCardConfig> = {
       return (
         <>
           {signalParts.length > 0 && (
-            <div className="mc-time" style={{ marginBottom: 6 }}>命中信号：{signalParts.join('；')}</div>
+            <div className="mc-time mb-1.5">命中信号：{signalParts.join('；')}</div>
           )}
           {materials?.map(m => (
-            <div key={m.id} style={entryRowStyle}>
-              <span className="mc-card-body" style={{ fontWeight: 600 }}>{m.title}</span>
+            <div key={m.id} className={entryRowCls}>
+              <span className="mc-card-body font-semibold">{m.title}</span>
             </div>
           ))}
-          <div className="mc-time" style={{ marginBottom: 6 }}>
+          <div className="mc-time mb-1.5">
             预期产出：1–5 条蒸馏知识条目；确认后原料归档移出主区，拒绝则零副作用。
           </div>
         </>
@@ -206,18 +206,18 @@ export const PROPOSAL_CARD_CONFIGS: Record<string, ProposalCardConfig> = {
       const mainAreaCount = cd?.mainAreaCount as number | undefined;
       return (
         <>
-          <div className="mc-time" style={{ marginBottom: 6 }}>
+          <div className="mc-time mb-1.5">
             {forced
               ? `主区 ${mainAreaCount ?? '—'} 条已超容量上限（200），强制出清单。`
               : '按蒸馏周期计龄：连续 3 个蒸馏周期零引用进候选。'}
           </div>
           {candidates?.map(c => (
-            <div key={c.entryId} style={entryRowStyle}>
-              <span className="mc-card-body" style={{ fontWeight: 600 }}>{c.title}</span>
+            <div key={c.entryId} className={entryRowCls}>
+              <span className="mc-card-body font-semibold">{c.title}</span>
               <div className="mc-time">{c.reason}</div>
             </div>
           ))}
-          <div className="mc-time" style={{ marginBottom: 6 }}>
+          <div className="mc-time mb-1.5">
             确认后候选条目归档移出主区（可恢复）；拒绝则全部保留且后续不再提案。
           </div>
         </>
@@ -290,16 +290,16 @@ export const PROPOSAL_CARD_CONFIGS: Record<string, ProposalCardConfig> = {
       return (
         <>
           {entries?.map(e => (
-            <div key={e.draftId} style={entryRowStyle}>
-              <span className="mc-card-body" style={{ fontWeight: 600 }}>{e.title}</span>
-              <span className="mc-status mc-status-pending" style={{ marginLeft: 6 }}>{MEMORY_KIND_LABELS[e.kind || ''] || e.kind}</span>
+            <div key={e.draftId} className={entryRowCls}>
+              <span className="mc-card-body font-semibold">{e.title}</span>
+              <span className="mc-status mc-status-pending ml-1.5">{MEMORY_KIND_LABELS[e.kind || ''] || e.kind}</span>
               {e.topicPath && (
-                <div className="mc-time" style={{ marginBottom: 2 }}>将写入：{e.topicPath}</div>
+                <div className="mc-time mb-0.5">将写入：{e.topicPath}</div>
               )}
             </div>
           ))}
           {workUnitId && (
-            <div className="mc-time" style={{ marginBottom: 6 }}>来源 WorkUnit: {workUnitId}</div>
+            <div className="mc-time mb-1.5">来源 WorkUnit: {workUnitId}</div>
           )}
         </>
       );
@@ -342,13 +342,13 @@ export const PROPOSAL_CARD_CONFIGS: Record<string, ProposalCardConfig> = {
       return (
         <>
           {entries?.map(e => (
-            <div key={e.id} style={entryRowStyle}>
-              <span className="mc-card-body" style={{ fontWeight: 600 }}>{e.title}</span>
-              <span className="mc-status mc-status-pending" style={{ marginLeft: 6 }}>{KNOWLEDGE_TYPE_LABELS[e.type] || e.type}</span>
+            <div key={e.id} className={entryRowCls}>
+              <span className="mc-card-body font-semibold">{e.title}</span>
+              <span className="mc-status mc-status-pending ml-1.5">{KNOWLEDGE_TYPE_LABELS[e.type] || e.type}</span>
             </div>
           ))}
           {workUnitId && (
-            <div className="mc-time" style={{ marginBottom: 6 }}>来源 WorkUnit: {workUnitId}</div>
+            <div className="mc-time mb-1.5">来源 WorkUnit: {workUnitId}</div>
           )}
         </>
       );
@@ -380,17 +380,17 @@ export const PROPOSAL_CARD_CONFIGS: Record<string, ProposalCardConfig> = {
       const auditedCount = cd?.auditedCount as number | undefined;
       return (
         <>
-          <div className="mc-time" style={{ marginBottom: 6 }}>
+          <div className="mc-time mb-1.5">
             蒸馏产出新约束，顺带审计存量约束 {auditedCount ?? '—'} 条（判据：是否还有可被违反的未来场景）。
           </div>
           {suggestions?.map(s => (
-            <div key={s.constraintId} style={entryRowStyle}>
-              <span className="mc-card-body" style={{ fontWeight: 600 }}>{s.constraintId}</span>
-              <span className="mc-time" style={{ marginLeft: 6 }}>{AUDIT_CATEGORY_LABELS[s.category] ?? s.category}</span>
+            <div key={s.constraintId} className={entryRowCls}>
+              <span className="mc-card-body font-semibold">{s.constraintId}</span>
+              <span className="mc-time ml-1.5">{AUDIT_CATEGORY_LABELS[s.category] ?? s.category}</span>
               <div className="mc-time">{s.rationale}</div>
             </div>
           ))}
-          <div className="mc-time" style={{ marginBottom: 6 }}>
+          <div className="mc-time mb-1.5">
             确认后走 retire 执行（retired 元数据留痕，可回滚）；拒绝则全部保留且后续不再提案。
           </div>
         </>
@@ -435,16 +435,16 @@ export const PROPOSAL_CARD_CONFIGS: Record<string, ProposalCardConfig> = {
       return (
         <>
           {suggestions?.map((s, i) => (
-            <div key={i} style={entryRowStyle}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span className="mc-card-body" style={{ fontWeight: 600 }}>
+            <div key={i} className={entryRowCls}>
+              <div className="flex items-center gap-1.5">
+                <span className="mc-card-body font-semibold">
                   {AUDITOR_TYPE_LABELS[s.type] || s.type}
                 </span>
                 {s.risk === 'high' && (
                   <span className="mc-status mc-status-error">高风险</span>
                 )}
               </div>
-              <p className="mc-card-dim" style={{ marginTop: 2 }}>{s.detail}</p>
+              <p className="mc-card-dim mt-0.5">{s.detail}</p>
               {s.agentType && (
                 <span className="mc-time">Agent: {s.agentType}</span>
               )}

@@ -54,7 +54,7 @@ export function ConfirmDialog({
         </>
       }
     >
-      <div className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+      <div className="text-sm u-text-2">
         {message}
       </div>
     </Modal>

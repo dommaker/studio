@@ -34,7 +34,7 @@ export function ResetPasswordPage() {
 
   if (!token) {
     return (
-      <div className="min-h-screen u-text flex items-center justify-center px-4" style={{ background: "var(--bg-primary)" }}>
+      <div className="min-h-screen u-text flex items-center justify-center px-4 u-page-bg">
         <div className="card p-6 w-full max-w-sm text-center" style={{ borderRadius: 6, boxShadow: 'var(--shadow-lg)' }}>
           <p className="u-err text-sm mb-4">重置链接无效</p>
           <a href="/forgot-password" className="text-xs u-text-2 u-hover-text">重新发送重置链接</a>
@@ -44,7 +44,7 @@ export function ResetPasswordPage() {
   }
 
   return (
-    <div className="min-h-screen u-text flex items-center justify-center px-4" style={{ background: "var(--bg-primary)" }}>
+    <div className="min-h-screen u-text flex items-center justify-center px-4 u-page-bg">
       <div className="card p-6 w-full max-w-sm" style={{ borderRadius: 6, boxShadow: 'var(--shadow-lg)' }}>
         <h1 className="text-lg font-bold mb-4">设置新密码</h1>
 

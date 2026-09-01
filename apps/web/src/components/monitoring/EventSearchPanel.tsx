@@ -119,7 +119,7 @@ export function EventSearchPanel() {
           ) : (
             <div className="space-y-2">
               {events.map((ev, i) => (
-                <div key={`${ev.createdAt ?? ''}-${i}`} className="text-sm" style={{ borderBottom: '1px solid var(--border-subtle)', paddingBottom: 8 }}>
+                <div key={`${ev.createdAt ?? ''}-${i}`} className="text-sm border-b u-border" style={{ paddingBottom: 8 }}>
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-xs u-text-3">{formatTime(ev.createdAt)}</span>
                     {ev.level && ev.level !== 'info' && (

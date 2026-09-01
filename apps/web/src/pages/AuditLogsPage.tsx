@@ -139,9 +139,9 @@ export const AuditLogsPage: React.FC = () => {
   }
 
   return (
-    <div className="h-full flex flex-col" style={{ background: 'var(--bg-primary)' }}>
+    <div className="h-full flex flex-col u-page-bg">
       {/* Header */}
-      <div className="px-8 py-6" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+      <div className="u-page-head">
         <h1 className="page-title">📋 {'审计日志'}</h1>
         <p className="page-subtitle">{'查看系统操作记录'}</p>
       </div>

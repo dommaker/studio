@@ -12,6 +12,7 @@ function usageColor(usedPct: number): string {
 /** 预算用量条：槽 + 百分比填充（封顶 100%）+ 可选说明小字 */
 export function UsageBar({ usedPct, caption }: { usedPct: number; caption?: string }) {
   return (
+    // mc-usage-bar：容器类为结构化 hook——样式挂在 mc-usage-bar-track/-fill 上，容器本身无规则（#431 定性保留）
     <div className="mc-usage-bar">
       <div className="mc-usage-bar-track">
         <span

@@ -246,8 +246,7 @@ export function ProjectDetailPage() {
               {project.requirement.length > 120 && (
                 <button
                   onClick={() => setRequirementExpanded(v => !v)}
-                  className="text-xs u-accent"
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+                  className="text-xs u-accent u-btn-reset"
                 >
                   {requirementExpanded ? '收起' : '展开'}
                 </button>

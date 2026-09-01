@@ -139,9 +139,9 @@ export function PMOPage({ companyId }: PMOPageProps) {
   };
 
   return (
-    <div className="h-full flex flex-col" style={{ background: 'var(--bg-primary)' }}>
+    <div className="h-full flex flex-col u-page-bg">
       {/* Header */}
-      <div className="px-8 py-6" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+      <div className="u-page-head">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="page-title">📊 PMO 管理</h1>
@@ -152,7 +152,7 @@ export function PMOPage({ companyId }: PMOPageProps) {
 
       {/* Tabs */}
       <div className="px-8 py-4">
-        <div className="flex gap-2 p-1 rounded" style={{ background: 'var(--bg-secondary)' }}>
+        <div className="flex gap-2 p-1 rounded u-surface-0">
           <button
             onClick={() => setActiveTab('projects')}
             className={`flex-1 py-2 px-4 rounded text-sm font-medium ${activeTab === 'projects' ? 'u-surface u-accent' : 'u-text-2'}`}

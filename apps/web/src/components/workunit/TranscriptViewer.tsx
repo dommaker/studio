@@ -37,7 +37,7 @@ export function TranscriptViewer({ workUnitId }: { workUnitId: string }) {
 
   return (
     <div>
-      <button className="mc-block-label" style={{ cursor: 'pointer', border: 'none', background: 'none', padding: 0 }} onClick={toggle}>
+      <button className="mc-block-label u-btn-reset" onClick={toggle}>
         {expanded ? '▾' : '▸'} 会话原文 / Transcript
       </button>
       {expanded && (

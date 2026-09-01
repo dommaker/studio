@@ -41,8 +41,7 @@ export function MoreDropdown() {
     <Link
       key={item.to}
       to={item.to}
-      className="block px-4 py-2 text-sm transition-colors flex items-center gap-2 u-hover-bg"
-      style={{ color: 'var(--text-primary)' }}
+      className="block px-4 py-2 text-sm transition-colors flex items-center gap-2 u-hover-bg u-text"
       onClick={() => setIsOpen(false)}
     >
       <span>{item.icon}</span>
@@ -54,8 +53,7 @@ export function MoreDropdown() {
     <div ref={dropdownRef} className="relative">
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="btn btn-ghost flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors"
-        style={{ color: 'var(--text-secondary)' }}
+        className="btn btn-ghost flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors u-text-2"
       >
         <span>🗂</span>
         <span className="hidden sm:inline">更多</span>
@@ -72,17 +70,17 @@ export function MoreDropdown() {
         >
           {/* 高级功能 */}
           <div className="px-2 pb-1">
-            <span className="text-xs font-medium px-2" style={{ color: 'var(--text-tertiary)' }}>
+            <span className="text-xs font-medium px-2 u-text-3">
               高级功能
             </span>
           </div>
           {MORE_ITEMS.map(renderItem)}
 
-          <div className="my-1 mx-2" style={{ borderTop: '1px solid var(--border-subtle)' }} />
+          <div className="my-1 mx-2 border-t u-border" />
 
           {/* 配置功能 */}
           <div className="px-2 pb-1">
-            <span className="text-xs font-medium px-2" style={{ color: 'var(--text-tertiary)' }}>
+            <span className="text-xs font-medium px-2 u-text-3">
               配置
             </span>
           </div>

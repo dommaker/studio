@@ -48,8 +48,8 @@ export function AgentDashboardPage() {
   const toggleFilter = (f: StatusFilter) => setStatFilter((prev) => (prev === f ? 'all' : f));
 
   return (
-    <div className="h-full flex flex-col" style={{ background: 'var(--bg-primary)' }}>
-      <div className="px-8 py-6" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+    <div className="h-full flex flex-col u-page-bg">
+      <div className="u-page-head">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="page-title">Agent 管理</h1>
