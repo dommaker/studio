@@ -1,0 +1,18 @@
+/* AgentDetailPage 布局（#433 信息密度重构）：
+   内容最大宽 1400 收敛 1920 空区；≥1280 双栏（左主栏 2fr / 右统计栏 1fr），<1280 单栏堆叠 */
+.agent-detail-wrap {
+  max-width: 1400px;
+}
+
+.agent-detail-grid {
+  display: grid;
+  gap: var(--space-4);
+  margin-top: var(--space-4);
+}
+
+@media (min-width: 1280px) {
+  .agent-detail-grid {
+    grid-template-columns: 2fr 1fr;
+    align-items: start;
+  }
+}

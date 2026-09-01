@@ -4,6 +4,7 @@ import {
   deriveAgentStatus,
   resolveCardStatusKey,
   AGENT_STATUS_COLORS,
+  CARD_STATUS_COLORS,
   AGENT_STATUS_RANK,
   matchesStatusFilter,
   formatUptime,
@@ -90,6 +91,11 @@ describe('AGENT_STATUS_COLORS（§6.5 状态色单义）', () => {
   it('已终止归灰（红只编码阻塞）', () => {
     expect(AGENT_STATUS_COLORS.terminated).toBe(AGENT_STATUS_COLORS.idle);
     expect(AGENT_STATUS_COLORS.terminated).not.toContain('u-err');
+  });
+
+  it('CARD_STATUS_COLORS：继承全部实例色 + disabled 归灰（#433）', () => {
+    expect(CARD_STATUS_COLORS.running).toBe(AGENT_STATUS_COLORS.running);
+    expect(CARD_STATUS_COLORS.disabled).toBe(AGENT_STATUS_COLORS.idle);
   });
 });
 
