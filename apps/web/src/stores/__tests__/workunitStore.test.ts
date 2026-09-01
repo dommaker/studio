@@ -255,4 +255,24 @@ describe('workunitStore 未归属过滤（#405）', () => {
     useWorkUnitStore.getState().applyWorkunitEvent(row('wu-2', { status: 'active' }), { insertIfMissing: true });
     expect(useWorkUnitStore.getState().workunits.map(w => w.id)).toEqual(['wu-2']);
   });
+
+  it('组合过滤下徽标不被交集计数污染（code-review 回归：徽标 = 未归属总数，非 未归属∩状态）', async () => {
+    // 先开未归属过滤：徽标 = 服务端总数 42
+    (workunitApi.list as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      data: { data: [row('wu-o1')], pagination: { total: 42, page: 1, limit: 20, totalPages: 3 } },
+    });
+    await useWorkUnitStore.getState().setUnattributedOnly(true);
+    expect(useWorkUnitStore.getState().unattributedTotal).toBe(42);
+
+    // 再叠加状态过滤：交集查询 total=3 不得覆盖徽标
+    (workunitApi.list as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      data: { data: [row('wu-o2')], pagination: { total: 3, page: 1, limit: 20, totalPages: 1 } },
+    });
+    useWorkUnitStore.getState().setStatusFilter('active');
+    await new Promise(resolve => setTimeout(resolve, 0)); // 等 loadWorkUnits 落完
+
+    const s = useWorkUnitStore.getState();
+    expect(s.unattributedTotal).toBe(42); // 徽标保持未归属总数
+    expect(s.total).toBe(3); // 列表计数是交集（各自口径正确）
+  });
 });

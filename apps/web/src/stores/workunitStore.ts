@@ -87,8 +87,10 @@ export const useWorkUnitStore = create<WorkUnitState>((set, get) => ({
         workunits: result?.data ?? (result as unknown as WorkUnit[]) ?? [],
         total: result?.pagination?.total ?? 0,
         page: result?.pagination?.page ?? 1,
-        // #405：过滤态下本次查询的 total 即未归属总数，顺带同步徽标
-        ...(unattributedOnly ? { unattributedTotal: result?.pagination?.total ?? 0 } : {}),
+        // #405：仅无 status/type 过滤时本次 total 才是未归属总数，可同步徽标；
+        // 交集过滤下 total 是交集计数，不能覆盖徽标（徽标由 loadUnattributedCount 维护）
+        ...(unattributedOnly && !(params?.status ?? statusFilter) && !(params?.type ?? typeFilter)
+          ? { unattributedTotal: result?.pagination?.total ?? 0 } : {}),
         loading: false,
       });
     } catch (e) {
