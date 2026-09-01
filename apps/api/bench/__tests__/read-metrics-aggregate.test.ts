@@ -108,3 +108,98 @@ describe('renderMarkdown', () => {
     expect(md).toContain('（建议正文）');
   });
 });
+
+// ── #411：分段归因（读口 / harness / exec / 其他）───
+
+function seg(kind: 'exec' | 'harness', name: string, ms: number) {
+  return { kind, name, ms };
+}
+
+const workerSegments: WorkerResult = {
+  scale: '1x',
+  meta: { rounds: 3, templateWorkUnits: 45, eventLines: 100, agentDirs: 10 },
+  rounds: [
+    {
+      loop: 'monitor-round', round: 0, wallMs: 300,
+      events: [ev('wu-index', { hit: false, readParseMs: 10 })],
+      segments: [seg('exec', 'git worktree prune', 30), seg('harness', 'FileKnowledgeStore.list', 50)],
+    },
+    {
+      loop: 'monitor-round', round: 1, wallMs: 50,
+      events: [ev('wu-index')],
+      segments: [
+        seg('exec', 'git worktree prune', 10),
+        seg('exec', 'npx harness update-user-model', 5),
+        seg('harness', 'FileKnowledgeStore.list', 8),
+      ],
+    },
+    {
+      loop: 'monitor-round', round: 2, wallMs: 70,
+      events: [ev('wu-index')],
+      segments: [
+        seg('exec', 'git worktree prune', 20),
+        seg('exec', 'npx harness update-user-model', 5),
+        seg('harness', 'KnowledgeLinter.run', 4),
+      ],
+    },
+  ],
+};
+
+describe('summarize 分段归因（#411）', () => {
+  it('exec/harness 段按轮合计取 P50；exec 按命令名分列区分两类命令', () => {
+    const row = summarize([workerSegments]).rows.find(r => r.loop === 'monitor-round')!;
+    expect(row).toBeDefined();
+
+    // exec 每轮合计 [15, 25] → nearest-rank P50 = 15
+    expect(row.warm.execMsP50).toBeCloseTo(15, 5);
+    // harness 每轮合计 [8, 4] → sorted [4, 8] → P50 = 4
+    expect(row.warm.harnessMsP50).toBeCloseTo(4, 5);
+
+    // exec 按命令名：git worktree prune 每轮 [10,20] → P50=10；npx harness 每轮 [5,5] → P50=5
+    expect(row.warm.execByName['git worktree prune']).toMatchObject({ countPerRound: 1, msP50: 10 });
+    expect(row.warm.execByName['npx harness update-user-model']).toMatchObject({ countPerRound: 1, msP50: 5 });
+  });
+
+  it('无 segments 的旧协议轮次（可省字段）聚合为 0，不炸', () => {
+    const row = summarize([worker1x]).rows.find(r => r.loop === 'monitor-round' && r.scale === '1x')!;
+    expect(row.warm.execMsP50).toBe(0);
+    expect(row.warm.harnessMsP50).toBe(0);
+    expect(row.warm.execByName).toEqual({});
+  });
+});
+
+describe('renderMarkdown 分段归因（#411）', () => {
+  it('报告含分段归因表（读口/harness/exec/其他）与 exec 命令明细，口径说明更新', () => {
+    const summary = summarize([workerSegments]);
+    const md = renderMarkdown(summary, {
+      generatedAt: '2026-09-01T00:00:00.000Z',
+      roundsPerLoop: 3,
+      gaps: [],
+      measurementCode: [],
+      recommendation: '',
+    });
+
+    expect(md).toContain('分段归因');
+    expect(md).toContain('harness');
+    // exec 命令明细区分两类命令
+    expect(md).toContain('git worktree prune');
+    expect(md).toContain('npx harness update-user-model');
+    // 口径说明覆盖新分段定义（harness 自耗时 = 扣除嵌套读口）
+    expect(md).toMatch(/harness[^\n]*调用级/);
+    expect(md).toMatch(/上报自耗时[^\n]*读口耗时/);
+    expect(md).toMatch(/exec[^\n]*子进程/);
+    expect(md).toContain('并发口径注意');
+  });
+
+  it('无 exec 事件时不输出 exec 命令明细空表', () => {
+    const summary = summarize([worker1x]);
+    const md = renderMarkdown(summary, {
+      generatedAt: '2026-09-01T00:00:00.000Z',
+      roundsPerLoop: 3,
+      gaps: [],
+      measurementCode: [],
+      recommendation: '',
+    });
+    expect(md).not.toContain('exec 命令明细');
+  });
+});

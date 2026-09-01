@@ -3,7 +3,9 @@
  *
  * 输入 = 各规模档 worker 产出的逐轮事件流；输出：
  *   - 每循环×每规模档：读口调用次数（按存储源分桶）、stat/readParse/clone 各阶段 P50/P95、
- *     轮 wall P50/P95、读口合计 P50、归约残差（wall − 读口合计，含非读口开销）占比
+ *     轮 wall P50/P95、读口合计 P50、归约残差（wall − 读口合计）占比
+ *   - #411 分段归因：exec（子进程，按命令名分列）/ harness（存储栈调用级）段每轮合计 P50，
+ *     其他（残差）= wall P50 − 读口/harness/exec 三段 P50 之和
  *   - 首轮（round 0）冷缓存单列，暖轮（round ≥1）聚合
  */
 import fs from 'node:fs';
@@ -19,11 +21,20 @@ export interface BenchReadEvent {
   cloneMs: number;
 }
 
+/** #411 非读口段事件（exec 子进程 / harness 存储栈调用级 span） */
+export interface BenchSegmentEvent {
+  kind: 'exec' | 'harness';
+  name: string;
+  ms: number;
+}
+
 export interface BenchRound {
   loop: string;
   round: number;
   wallMs: number;
   events: BenchReadEvent[];
+  /** #411 段事件（旧协议结果 JSON 可省略，聚合按空处理） */
+  segments?: BenchSegmentEvent[];
 }
 
 export interface WorkerResult {
@@ -53,6 +64,12 @@ export interface LoopScaleRow {
     readMsP50: number; readMsP95: number;
     /** 归约残差占比（%）：(wallP50 − readMsP50) / wallP50，含非读口开销 */
     residualPct: number;
+    /** #411：exec 子进程段每轮合计 P50 */
+    execMsP50: number;
+    /** #411：harness 存储栈调用级段每轮合计 P50 */
+    harnessMsP50: number;
+    /** #411：exec 按命令名分列（次数/轮 + 每轮该命令合计的 P50） */
+    execByName: Record<string, { countPerRound: number; msP50: number }>;
     buckets: Record<string, BucketSummary>;
   };
 }
@@ -96,11 +113,25 @@ export function summarize(results: WorkerResult[]): Summary {
       const readMsOf = (r: BenchRound) => r.events.reduce((s, e) => s + e.statMs + e.readParseMs + e.cloneMs, 0);
       const coldReadMs = readMsOf(cold);
 
+      // #411 段合计：每轮内按 kind 求和；exec 再按命令名求和（区分 git worktree prune / npx harness 等）
+      const segTotalOf = (r: BenchRound, kind: BenchSegmentEvent['kind']) =>
+        (r.segments ?? []).filter(s => s.kind === kind).reduce((s, e) => s + e.ms, 0);
+
       const walls = sortedCopy(warm.map(r => r.wallMs));
       const readCounts = sortedCopy(warm.map(r => r.events.length));
       const readMss = sortedCopy(warm.map(readMsOf));
+      const execMss = sortedCopy(warm.map(r => segTotalOf(r, 'exec')));
+      const harnessMss = sortedCopy(warm.map(r => segTotalOf(r, 'harness')));
       const wallP50 = quantile(walls, 0.5);
       const readMsP50 = quantile(readMss, 0.5);
+
+      const execNames = [...new Set(warm.flatMap(r => (r.segments ?? []).filter(s => s.kind === 'exec').map(s => s.name)))].sort();
+      const execByName: LoopScaleRow['warm']['execByName'] = {};
+      for (const name of execNames) {
+        const perRound = warm.map(r => (r.segments ?? []).filter(s => s.kind === 'exec' && s.name === name).reduce((s, e) => s + e.ms, 0));
+        const cnt = warm.reduce((s, r) => s + (r.segments ?? []).filter(x => x.kind === 'exec' && x.name === name).length, 0);
+        execByName[name] = { countPerRound: warm.length > 0 ? cnt / warm.length : 0, msP50: quantile(sortedCopy(perRound), 0.5) };
+      }
 
       const buckets: Record<string, BucketSummary> = {};
       const bucketNames = [...new Set(warm.flatMap(r => r.events.map(e => e.bucket)))].sort();
@@ -130,6 +161,9 @@ export function summarize(results: WorkerResult[]): Summary {
           readMsP50,
           readMsP95: quantile(readMss, 0.95),
           residualPct: wallP50 > 0 ? Math.max(0, (wallP50 - readMsP50) / wallP50) * 100 : 0,
+          execMsP50: quantile(execMss, 0.5),
+          harnessMsP50: quantile(harnessMss, 0.5),
+          execByName,
           buckets,
         },
       });
@@ -163,6 +197,13 @@ export function renderMarkdown(summary: Summary, meta: ReportMeta): string {
   lines.push(`- 生成时间：${meta.generatedAt}`);
   lines.push(`- 口径：每循环每档 ${meta.roundsPerLoop} 轮，首轮冷缓存单列，暖轮（≥2）聚合；耗时单位 ms`);
   lines.push('- 归约残差 = 轮 wall − 该轮读口耗时合计（含非读口开销：业务计算、写路径、execSync 探测等）');
+  lines.push('- 分段归因口径（#411）：读口 = FileStore 四读口 + knowledgeRead（memo 指纹 stat/clone 与 miss 时穿透 harness 存储栈的磁读）；'
+    + 'harness = @dommaker/harness 存储栈调用级打点（FileKnowledgeStore 方法 + lifecycle/ingest/query/injector/linter facade，嵌套只记顶层），'
+    + '上报自耗时 = span 全时长 − 嵌套在其中的读口耗时（与读口段按构造不相交）；'
+    + 'exec = execAsync/execFileAsync 子进程（按命令前 3 token 分列）；'
+    + '其他（残差）= wall P50 − 读口/harness/exec 三段 P50 之和，含业务纯计算与未打点 I/O（inline 构造的 harness 对象纯 CPU 段也在此列）');
+  lines.push('- 并发口径注意：并发读口循环（如 agent-timeout 的 listStates Promise.all）逐事件耗时可远大于 wall，'
+    + '此类循环的读口列与「其他（残差）」可为负——以 wall 为准');
   lines.push('');
 
   // 数据集画像
@@ -183,6 +224,30 @@ export function renderMarkdown(summary: Summary, meta: ReportMeta): string {
     lines.push(`| ${row.loop} | ${row.scale} | ${row.warm.readCountP50} | ${fmt(row.warm.readMsP50)} | ${fmt(row.warm.readMsP95)} | ${fmt(row.warm.wallP50)} | ${fmt(row.warm.wallP95)} | ${row.warm.residualPct.toFixed(0)}% |`);
   }
   lines.push('');
+
+  // 分段归因（#411）：读口 / harness / exec / 其他（残差），暖轮 P50
+  lines.push('## 分段归因（暖轮 P50，ms）', '');
+  lines.push('| 循环 | 档位 | 读口 | harness | exec | 其他（残差） | wall P50 |');
+  lines.push('|---|---|---|---|---|---|---|');
+  for (const row of summary.rows) {
+    const other = row.warm.wallP50 - row.warm.readMsP50 - row.warm.harnessMsP50 - row.warm.execMsP50;
+    lines.push(`| ${row.loop} | ${row.scale} | ${fmt(row.warm.readMsP50)} | ${fmt(row.warm.harnessMsP50)} | ${fmt(row.warm.execMsP50)} | ${fmt(other)} | ${fmt(row.warm.wallP50)} |`);
+  }
+  lines.push('');
+
+  // exec 命令明细（#411：至少区分 git worktree prune / npx harness 两类命令）
+  const hasExec = summary.rows.some(r => Object.keys(r.warm.execByName).length > 0);
+  if (hasExec) {
+    lines.push('### exec 命令明细（暖轮）', '');
+    lines.push('| 循环 | 档位 | 命令 | 次/轮 | 耗时 P50 |');
+    lines.push('|---|---|---|---|---|');
+    for (const row of summary.rows) {
+      for (const [name, e] of Object.entries(row.warm.execByName)) {
+        lines.push(`| ${row.loop} | ${row.scale} | ${name} | ${e.countPerRound.toFixed(1)} | ${fmt(e.msP50)} |`);
+      }
+    }
+    lines.push('');
+  }
 
   // 冷轮
   lines.push('## 冷轮（首轮，缓存全冷）', '');

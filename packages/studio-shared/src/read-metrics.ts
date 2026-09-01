@@ -37,6 +37,108 @@ export function setReadMetricsSink(next: ReadMetricsSink | null): void {
   sink = next;
 }
 
+// ── #411 段事件（非读口段：exec 子进程 / harness 存储栈调用级 span）───
+//
+// 与读口事件平行的兄弟事件类型（brief 允许二选一；选兄弟类型——exec/harness 只有一段
+// 耗时，硬套 stat/readParse/clone 三段会污染「读口合计」口径）。归因机制与读口共用
+// loopLabelStorage（ALS），bench 报告据此给每个循环出分段归因。
+
+export type SegmentKind = 'exec' | 'harness';
+
+export interface SegmentMetricEvent {
+  /** 循环归因标签（runWithLoopLabel 设置；无 → 'unlabeled'） */
+  loop: string;
+  kind: SegmentKind;
+  /**
+   * 段名。exec = 命令行前 3 个 token（'git worktree prune' / 'npx harness update-user-model'）；
+   * harness = 调用级入口（'FileKnowledgeStore.list' / 'KnowledgeLifecycle.runDecayCycle'）。
+   */
+  name: string;
+  ms: number;
+}
+
+export type SegmentMetricsSink = (event: SegmentMetricEvent) => void;
+
+let segmentSink: SegmentMetricsSink | null = null;
+
+/** 设置/关闭段测量 sink（null = 关闭，默认）。 */
+export function setSegmentMetricsSink(next: SegmentMetricsSink | null): void {
+  segmentSink = next;
+}
+
+// 段嵌套（与 loop label 各自独立的 ALS，互不干扰）：facade 内嵌 store 调用只记顶层；
+// ctx.nestedReadMs 由 emitReadMetric 累加嵌套读口耗时，span 关闭时扣除 → 上报自耗时，
+// 与读口段按构造不相交（否则 auditor/decay 等读密集 facade 的段与读口双重计入，残差为负）。
+interface SegmentSpanCtx { nestedReadMs: number }
+const segmentSpanStorage = new AsyncLocalStorage<{ depth: number; ctx: SegmentSpanCtx }>();
+
+/** 测量绝不影响业务：sink 抛异常一律吞掉。 */
+function safeEmitSegment(event: SegmentMetricEvent): void {
+  try {
+    segmentSink?.(event);
+  } catch { /* 测量路径永不外泄 */ }
+}
+
+/**
+ * 调用级段 span。sink 关闭 → fn() 原样直调（零开销、返回值/异常/promise 身份不变）；
+ * 开启 → 计时到同步返回 / promise settle / throw 为止，emit 一个段事件，耗时为
+ * 自耗时（span 全时长 − 嵌套在其中的读口事件耗时，见 emitReadMetric）。
+ * 嵌套调用（如 facade 内的 store 方法）只记最外层一个事件（深度延传，内层静默）。
+ */
+export function runSegmentSpan<T>(kind: SegmentKind, name: string, fn: () => T): T {
+  if (segmentSink === null) return fn();
+  const outer = segmentSpanStorage.getStore();
+  if (outer && outer.depth > 0) return segmentSpanStorage.run({ depth: outer.depth + 1, ctx: outer.ctx }, fn);
+  const ctx: SegmentSpanCtx = { nestedReadMs: 0 };
+  const t0 = performance.now();
+  return segmentSpanStorage.run({ depth: 1, ctx }, () => {
+    try {
+      const result = fn();
+      if (typeof (result as PromiseLike<unknown>)?.then === 'function') {
+        // 挂 then 只为计时，不包不换 promise——原 promise 的消费方行为完全不变
+        const emit = () => safeEmitSegment({
+          loop: loopLabelStorage.getStore() ?? 'unlabeled', kind, name,
+          ms: Math.max(0, performance.now() - t0 - ctx.nestedReadMs),
+        });
+        (result as PromiseLike<unknown>).then(emit, emit);
+      } else {
+        safeEmitSegment({
+          loop: loopLabelStorage.getStore() ?? 'unlabeled', kind, name,
+          ms: Math.max(0, performance.now() - t0 - ctx.nestedReadMs),
+        });
+      }
+      return result;
+    } catch (e) {
+      safeEmitSegment({
+        loop: loopLabelStorage.getStore() ?? 'unlabeled', kind, name,
+        ms: Math.max(0, performance.now() - t0 - ctx.nestedReadMs),
+      });
+      throw e;
+    }
+  });
+}
+
+/**
+ * 对象方法调用级 span 包装（#411 harness 段装配入口）：列内自有方法逐个包 span，
+ * 未列方法与自有字段原样保留（lifecycle.store 等实例字段不丢）；方法缺席即跳过
+ * （harness npm 版本容忍，同 onReference 特征检测先例）。
+ */
+export function wrapWithSegmentSpan<T extends object>(
+  obj: T,
+  label: string,
+  methods: readonly string[],
+  kind: SegmentKind = 'harness',
+): T {
+  for (const m of methods) {
+    const orig = (obj as Record<string, unknown>)[m];
+    if (typeof orig !== 'function') continue;
+    (obj as Record<string, unknown>)[m] = function (this: unknown, ...args: unknown[]) {
+      return runSegmentSpan(kind, `${label}.${m}`, () => (orig as (...a: unknown[]) => unknown).apply(this, args));
+    };
+  }
+  return obj;
+}
+
 const loopLabelStorage = new AsyncLocalStorage<string>();
 
 /** 在 label 归因上下文内执行 fn（返回值原样透传，含 Promise）。 */
@@ -56,9 +158,13 @@ export function readMetricsBegin(): ReadMetricsNow | null {
   return () => performance.now();
 }
 
-/** 记录一次读口事件（读口仅在 timer 非 null 时调用；此处仍防御性判空一次）。 */
+/** 记录一次读口事件（读口仅在 timer 非 null 时调用；此处仍防御性判空一次）。
+ *  #411：若当前处于顶层段 span 内，读口耗时同步累加进 span 的嵌套扣减账
+ *  （runSegmentSpan 关闭时扣除）——harness 段上报自耗时，与读口段不相交。 */
 export function emitReadMetric(event: Omit<ReadMetricEvent, 'loop'>): void {
   const current = sink;
   if (current === null) return;
   current({ loop: loopLabelStorage.getStore() ?? 'unlabeled', ...event });
+  const span = segmentSpanStorage.getStore();
+  if (span) span.ctx.nestedReadMs += event.statMs + event.readParseMs + event.cloneMs;
 }

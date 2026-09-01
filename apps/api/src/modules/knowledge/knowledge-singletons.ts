@@ -20,6 +20,7 @@
 import { FileKnowledgeStore, KnowledgeIngest, KnowledgeLifecycle, KnowledgeQuery, KnowledgeInjector, KnowledgeLinter, ReferenceTracker } from '@dommaker/harness';
 import type { KnowledgeEntry, KnowledgeOrigin, KnowledgeSubsystem, MaturityLevel } from '@dommaker/harness';
 import { FileStore, logger } from '@dommaker/studio-shared';
+import { wrapWithSegmentSpan } from '@dommaker/studio-shared/read-metrics';
 import { execFile, execFileSync } from 'child_process';
 import * as path from 'path';
 import * as os from 'os';
@@ -49,20 +50,61 @@ try {
 // 底层 FileKnowledgeStore 的 list() = readIndex + 逐条目 readFileSync（N+1 同步读），
 // injectContext 每执行步四连扫（queryEntries×2 + getIndexes + count）；memo 后
 // 稳态每步读口 = 4 次 memo 查（readdir+stat 指纹校验，无文件重读），本进程写穿透失效。
-const rawKnowledgeStore = new FileKnowledgeStore({ baseDir: UNIFIED_KNOWLEDGE_DIR });
+//
+// #411：harness 段计时（bench 分段归因 读口/harness/exec/其他）——调用侧包装，harness 包
+// 本体不动。包装点 = 装配层的 rawKnowledgeStore（memo 之下，仅写方法 + 直通方法）+ 五个
+// facade 单例方法面；嵌套（facade 内 store 调用）只记顶层，且 span 上报自耗时（扣除嵌套
+// 读口）。sink 关闭（默认）时仅多一层直调，行为零变化。注意 memo 自身开销（指纹
+// stat/clone）与其 miss 穿透的磁读都已在读口 knowledgeRead 事件内，故不包 memo 实例、
+// 也不包 raw store 的 get/list/readIndex——避免与读口段双重计入（详见测试锁定的口径）。
+const HARNESS_SPAN_STORE_METHODS = [
+  'save', 'delete', 'update', 'rebuildIndex',
+  // 直通方法（不经 memo readThrough，无读口事件）——span 即净增量
+  'readEntriesFromDisk', 'snapshot', 'getSnapshot', 'getSurvivalRate',
+  // get/list/readIndex 不包：三者只可能经 memo readThrough 的 load() 触达，其时长已
+  // 完整计入 knowledgeRead 的 readParseMs（读口段），包了必然双重计入（实测 auditor/
+  // decay 残差为负）；getBaseDir 不包：纯路径拼接且被 memo 每次读调用
+] as const;
+const HARNESS_SPAN_LIFECYCLE_METHODS = [
+  'recordReference', 'checkPromotion', 'checkEntryDecay', 'runDecayCycle', 'tryPromote',
+  'checkSkillCandidate', 'checkSkillCandidateRevocation', 'getExecutionSuccessRate', 'getHumanSuccessRate',
+  // onReference 不包：启动期一次性回调注册，非调用级热路径
+] as const;
+const HARNESS_SPAN_INGEST_METHODS = ['ingestEntry', 'ingestBatch', 'ingestExternal'] as const;
+const HARNESS_SPAN_QUERY_METHODS = ['query', 'search', 'queryByMode', 'consume'] as const;
+const HARNESS_SPAN_INJECTOR_METHODS = ['inject'] as const;
+const HARNESS_SPAN_LINTER_METHODS = ['run'] as const;
+
+const rawKnowledgeStore = wrapWithSegmentSpan(
+  new FileKnowledgeStore({ baseDir: UNIFIED_KNOWLEDGE_DIR }),
+  'FileKnowledgeStore',
+  HARNESS_SPAN_STORE_METHODS,
+);
 export const sharedStore = new MtimeMemoKnowledgeStore(rawKnowledgeStore);
-export const sharedLifecycle = new KnowledgeLifecycle(sharedStore, {
-  autoPromoteSources: ['triage', 'auditor', 'evolution', 'analyst'],
-});
-export const sharedIngest = new KnowledgeIngest(sharedStore);
+export const sharedLifecycle = wrapWithSegmentSpan(
+  new KnowledgeLifecycle(sharedStore, {
+    autoPromoteSources: ['triage', 'auditor', 'evolution', 'analyst'],
+  }),
+  'KnowledgeLifecycle',
+  HARNESS_SPAN_LIFECYCLE_METHODS,
+);
+export const sharedIngest = wrapWithSegmentSpan(new KnowledgeIngest(sharedStore), 'KnowledgeIngest', HARNESS_SPAN_INGEST_METHODS);
 // KE-002 P3: budget-aware query + injector (replaces naive store.list)
 // 注意：KnowledgeQuery 仅提供 query/queryByMode/consume 预算查询，
 // 注入链路（queryEntries/getIndexes/count/listEntries）请使用
 // engine/unified-query.ts 的 UnifiedQuery（见 knowledge-service.ts 单例装配）。
-export const sharedQuery = new KnowledgeQuery(sharedStore, sharedLifecycle);
-export const sharedInjector = new KnowledgeInjector(sharedQuery);
+export const sharedQuery = wrapWithSegmentSpan(
+  new KnowledgeQuery(sharedStore, sharedLifecycle),
+  'KnowledgeQuery',
+  HARNESS_SPAN_QUERY_METHODS,
+);
+export const sharedInjector = wrapWithSegmentSpan(new KnowledgeInjector(sharedQuery), 'KnowledgeInjector', HARNESS_SPAN_INJECTOR_METHODS);
 // GAP-01: shared linter for ingest validation
-export const sharedLinter = new KnowledgeLinter(sharedStore, new ReferenceTracker(sharedStore));
+export const sharedLinter = wrapWithSegmentSpan(
+  new KnowledgeLinter(sharedStore, new ReferenceTracker(sharedStore)),
+  'KnowledgeLinter',
+  HARNESS_SPAN_LINTER_METHODS,
+);
 
 // D6 flywheel: emit consumption events on every recordReference() call
 // (same-day dedup already handled by lifecycle, so max 1 event per contributor per entry per day)
