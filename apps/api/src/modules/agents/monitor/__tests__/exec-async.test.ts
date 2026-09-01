@@ -60,11 +60,20 @@ describe('exec-async exec 段计时（#411）', () => {
     expect(events[1]).toMatchObject({ kind: 'exec', name: 'npx harness update-user-model' });
   });
 
-  it('sink 开启：execFileAsync 上报 exec 段事件（cmd+args 拼 3 token）', async () => {
+  it('sink 开启：execFileAsync 上报 exec 段事件（flag 前截断，args 不进段名）', async () => {
     mockExecFile.mockImplementation((_cmd: string, _args: string[], _opts: unknown, cb: (err: Error | null, out: string) => void) => cb(null, ''));
     await execFileAsync('git', ['log', '--oneline', '-n', '5']);
     expect(events).toHaveLength(1);
-    expect(events[0]).toMatchObject({ kind: 'exec', name: 'git log --oneline' });
+    expect(events[0]).toMatchObject({ kind: 'exec', name: 'git log' });
+  });
+
+  it('sink 开启：易变 flag 参数不进段名——git log --since=<时间戳> 稳定归并为一组', async () => {
+    mockExecFile.mockImplementation((_cmd: string, _args: string[], _opts: unknown, cb: (err: Error | null, out: string) => void) => cb(null, ''));
+    await execFileAsync('git', ['log', '--since=2026-09-01T00:00:00.000Z', '--json']);
+    await execFileAsync('git', ['log', '--since=2026-09-01T00:05:00.000Z', '--json']);
+    expect(events).toHaveLength(2);
+    expect(events[0].name).toBe('git log');
+    expect(events[1].name).toBe('git log');
   });
 
   it('sink 关闭（默认）：行为与事件面零变化', async () => {

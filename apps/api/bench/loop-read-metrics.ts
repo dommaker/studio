@@ -32,7 +32,7 @@ const MEASUREMENT_CODE = [
   'packages/studio-shared/src/read-metrics.ts（新增：sink + ALS 归因 + readMetricsBegin/emitReadMetric；#411 增段事件 SegmentMetricEvent + runSegmentSpan + wrapWithSegmentSpan）',
   'packages/studio-shared/src/file-store.ts（readJson / readJsonl / readdirCached / readIndexForQuery 四读口内计时埋点；锁内裸读路径未动）',
   'packages/studio-shared/package.json（exports 增 ./read-metrics 子路径）',
-  'apps/api/src/modules/agents/monitor/exec-async.ts（#411：execAsync/execFileAsync 内 exec 段计时上报，命令名前 3 token）',
+  'apps/api/src/modules/agents/monitor/exec-async.ts（#411：execAsync/execFileAsync 内 exec 段计时上报，段名取到首个 flag 前）',
   'apps/api/src/modules/knowledge/knowledge-singletons.ts（#411：装配层包装 rawKnowledgeStore + 五 facade 方法为 harness 段 span，嵌套只记顶层）',
   'apps/api/bench/synthesize-dataset.ts（新增：数据合成器，只读 ~/.studio → tmp 合成 1x/10x/50x）',
   'apps/api/bench/loop-read-worker.ts（新增：单档循环驱动 worker；#411 增段事件采集 + user-model 门控放开）',

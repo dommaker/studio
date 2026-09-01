@@ -7,16 +7,22 @@
  * 成功 resolve stdout 字符串；非零退出/超时 reject（err 为 exec 错误，含 stderr）。
  *
  * #411：monitor 轮子进程唯一出口在此加 exec 段计时上报（sink 关闭时原 promise 直返，
- * 零行为变化）。段名取命令前 3 个 token（'git worktree prune' / 'npx harness update-user-model'），
- * shell 语法尾巴（2>/dev/null || …）不进段名，报告按名分组。
+ * 零行为变化）。段名取到首个 flag 前的 token（'git worktree prune' /
+ * 'npx harness update-user-model'），shell 语法尾巴与易变 flag 参数不进段名，报告按名分组。
  */
 
 import { exec, execFile } from 'child_process';
 import { runSegmentSpan } from '@dommaker/studio-shared/read-metrics';
 
-/** exec 段名：命令前 3 个 token（bench 报告按名分组的粒度，brief 给例即此量级）。 */
+/** exec 段名：取到首个 flag（`-` 开头 token）为止、上限 4 个 token。flag 参数（如
+ *  `git log --since=<时间戳>` 的易变时间戳）不进段名，报告按命令身份稳定分组。 */
 function execSpanName(full: string): string {
-  return full.trim().split(/\s+/).slice(0, 3).join(' ');
+  const out: string[] = [];
+  for (const token of full.trim().split(/\s+/)) {
+    if (token.startsWith('-') || out.length >= 4) break;
+    out.push(token);
+  }
+  return out.join(' ');
 }
 
 export const execAsync = (

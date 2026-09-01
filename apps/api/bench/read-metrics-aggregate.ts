@@ -68,7 +68,7 @@ export interface LoopScaleRow {
     execMsP50: number;
     /** #411：harness 存储栈调用级段每轮合计 P50 */
     harnessMsP50: number;
-    /** #411：exec 按命令名分列（次数/轮 + 每轮该命令合计的 P50） */
+    /** #411：exec 按命令名分列（次/轮 + 单次耗时 P50，flag 参数不进分组键） */
     execByName: Record<string, { countPerRound: number; msP50: number }>;
     buckets: Record<string, BucketSummary>;
   };
@@ -113,24 +113,39 @@ export function summarize(results: WorkerResult[]): Summary {
       const readMsOf = (r: BenchRound) => r.events.reduce((s, e) => s + e.statMs + e.readParseMs + e.cloneMs, 0);
       const coldReadMs = readMsOf(cold);
 
-      // #411 段合计：每轮内按 kind 求和；exec 再按命令名求和（区分 git worktree prune / npx harness 等）
-      const segTotalOf = (r: BenchRound, kind: BenchSegmentEvent['kind']) =>
-        (r.segments ?? []).filter(s => s.kind === kind).reduce((s, e) => s + e.ms, 0);
+      // #411 段合计：每轮内按 kind 求和 + exec 按命令名求和（一趟分组，避免重复过滤形状）
+      const execTotals: number[] = [];
+      const harnessTotals: number[] = [];
+      const execPerName = new Map<string, { totals: number[]; count: number }>();
+      for (const r of warm) {
+        let execMs = 0, harnessMs = 0;
+        for (const s of r.segments ?? []) {
+          if (s.kind === 'exec') {
+            execMs += s.ms;
+            const agg = execPerName.get(s.name) ?? { totals: [], count: 0 };
+            agg.totals.push(s.ms);
+            agg.count++;
+            execPerName.set(s.name, agg);
+          } else {
+            harnessMs += s.ms;
+          }
+        }
+        execTotals.push(execMs);
+        harnessTotals.push(harnessMs);
+      }
 
       const walls = sortedCopy(warm.map(r => r.wallMs));
       const readCounts = sortedCopy(warm.map(r => r.events.length));
       const readMss = sortedCopy(warm.map(readMsOf));
-      const execMss = sortedCopy(warm.map(r => segTotalOf(r, 'exec')));
-      const harnessMss = sortedCopy(warm.map(r => segTotalOf(r, 'harness')));
       const wallP50 = quantile(walls, 0.5);
       const readMsP50 = quantile(readMss, 0.5);
 
-      const execNames = [...new Set(warm.flatMap(r => (r.segments ?? []).filter(s => s.kind === 'exec').map(s => s.name)))].sort();
       const execByName: LoopScaleRow['warm']['execByName'] = {};
-      for (const name of execNames) {
-        const perRound = warm.map(r => (r.segments ?? []).filter(s => s.kind === 'exec' && s.name === name).reduce((s, e) => s + e.ms, 0));
-        const cnt = warm.reduce((s, r) => s + (r.segments ?? []).filter(x => x.kind === 'exec' && x.name === name).length, 0);
-        execByName[name] = { countPerRound: warm.length > 0 ? cnt / warm.length : 0, msP50: quantile(sortedCopy(perRound), 0.5) };
+      for (const [name, agg] of [...execPerName.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+        execByName[name] = {
+          countPerRound: warm.length > 0 ? agg.count / warm.length : 0,
+          msP50: quantile(sortedCopy(agg.totals), 0.5),
+        };
       }
 
       const buckets: Record<string, BucketSummary> = {};
@@ -161,8 +176,8 @@ export function summarize(results: WorkerResult[]): Summary {
           readMsP50,
           readMsP95: quantile(readMss, 0.95),
           residualPct: wallP50 > 0 ? Math.max(0, (wallP50 - readMsP50) / wallP50) * 100 : 0,
-          execMsP50: quantile(execMss, 0.5),
-          harnessMsP50: quantile(harnessMss, 0.5),
+          execMsP50: quantile(sortedCopy(execTotals), 0.5),
+          harnessMsP50: quantile(sortedCopy(harnessTotals), 0.5),
           execByName,
           buckets,
         },
@@ -196,11 +211,11 @@ export function renderMarkdown(summary: Summary, meta: ReportMeta): string {
   lines.push('# 周期循环读口量化测量报告（#323 阶段一）', '');
   lines.push(`- 生成时间：${meta.generatedAt}`);
   lines.push(`- 口径：每循环每档 ${meta.roundsPerLoop} 轮，首轮冷缓存单列，暖轮（≥2）聚合；耗时单位 ms`);
-  lines.push('- 归约残差 = 轮 wall − 该轮读口耗时合计（含非读口开销：业务计算、写路径、execSync 探测等）');
+  lines.push('- 归约残差（总览表「残差占比」列口径）= 轮 wall − 该轮读口耗时合计；完整分段归因见下方「分段归因」节');
   lines.push('- 分段归因口径（#411）：读口 = FileStore 四读口 + knowledgeRead（memo 指纹 stat/clone 与 miss 时穿透 harness 存储栈的磁读）；'
     + 'harness = @dommaker/harness 存储栈调用级打点（FileKnowledgeStore 方法 + lifecycle/ingest/query/injector/linter facade，嵌套只记顶层），'
     + '上报自耗时 = span 全时长 − 嵌套在其中的读口耗时（与读口段按构造不相交）；'
-    + 'exec = execAsync/execFileAsync 子进程（按命令前 3 token 分列）；'
+    + 'exec = execAsync/execFileAsync 子进程（按命令身份分列，flag 参数不进分组键）；'
     + '其他（残差）= wall P50 − 读口/harness/exec 三段 P50 之和，含业务纯计算与未打点 I/O（inline 构造的 harness 对象纯 CPU 段也在此列）');
   lines.push('- 并发口径注意：并发读口循环（如 agent-timeout 的 listStates Promise.all）逐事件耗时可远大于 wall，'
     + '此类循环的读口列与「其他（残差）」可为负——以 wall 为准');

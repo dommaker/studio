@@ -50,8 +50,9 @@ export interface SegmentMetricEvent {
   loop: string;
   kind: SegmentKind;
   /**
-   * 段名。exec = 命令行前 3 个 token（'git worktree prune' / 'npx harness update-user-model'）；
-   * harness = 调用级入口（'FileKnowledgeStore.list' / 'KnowledgeLifecycle.runDecayCycle'）。
+   * 段名。exec = 到首个 flag 前的命令 token（'git worktree prune' /
+   * 'npx harness update-user-model'）；harness = 调用级入口
+   * （'FileKnowledgeStore.readEntriesFromDisk' / 'KnowledgeLifecycle.runDecayCycle'）。
    */
   name: string;
   ms: number;
@@ -88,31 +89,25 @@ function safeEmitSegment(event: SegmentMetricEvent): void {
 export function runSegmentSpan<T>(kind: SegmentKind, name: string, fn: () => T): T {
   if (segmentSink === null) return fn();
   const outer = segmentSpanStorage.getStore();
-  if (outer && outer.depth > 0) return segmentSpanStorage.run({ depth: outer.depth + 1, ctx: outer.ctx }, fn);
+  if (outer) return segmentSpanStorage.run({ depth: outer.depth + 1, ctx: outer.ctx }, fn);
   const ctx: SegmentSpanCtx = { nestedReadMs: 0 };
   const t0 = performance.now();
+  const emit = () => safeEmitSegment({
+    loop: loopLabelStorage.getStore() ?? 'unlabeled', kind, name,
+    ms: Math.max(0, performance.now() - t0 - ctx.nestedReadMs),
+  });
   return segmentSpanStorage.run({ depth: 1, ctx }, () => {
     try {
       const result = fn();
       if (typeof (result as PromiseLike<unknown>)?.then === 'function') {
         // 挂 then 只为计时，不包不换 promise——原 promise 的消费方行为完全不变
-        const emit = () => safeEmitSegment({
-          loop: loopLabelStorage.getStore() ?? 'unlabeled', kind, name,
-          ms: Math.max(0, performance.now() - t0 - ctx.nestedReadMs),
-        });
         (result as PromiseLike<unknown>).then(emit, emit);
       } else {
-        safeEmitSegment({
-          loop: loopLabelStorage.getStore() ?? 'unlabeled', kind, name,
-          ms: Math.max(0, performance.now() - t0 - ctx.nestedReadMs),
-        });
+        emit();
       }
       return result;
     } catch (e) {
-      safeEmitSegment({
-        loop: loopLabelStorage.getStore() ?? 'unlabeled', kind, name,
-        ms: Math.max(0, performance.now() - t0 - ctx.nestedReadMs),
-      });
+      emit();
       throw e;
     }
   });
@@ -160,7 +155,9 @@ export function readMetricsBegin(): ReadMetricsNow | null {
 
 /** 记录一次读口事件（读口仅在 timer 非 null 时调用；此处仍防御性判空一次）。
  *  #411：若当前处于顶层段 span 内，读口耗时同步累加进 span 的嵌套扣减账
- *  （runSegmentSpan 关闭时扣除）——harness 段上报自耗时，与读口段不相交。 */
+ *  （runSegmentSpan 关闭时扣除）——harness 段上报自耗时，与读口段不相交。
+ *  不变量：读口事件与扣减账联动——读 sink 关闭时事件本身不存在，扣减也不发生，
+ *  两口径恒一致（单独开 segment sink 不会产生「扣了但读口看不见」的负差）。 */
 export function emitReadMetric(event: Omit<ReadMetricEvent, 'loop'>): void {
   const current = sink;
   if (current === null) return;

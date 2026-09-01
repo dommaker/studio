@@ -1,9 +1,9 @@
 # 周期循环读口量化测量报告（#323 阶段一）
 
-- 生成时间：2026-09-01T13:14:23.678Z
+- 生成时间：2026-09-01T14:18:08.261Z
 - 口径：每循环每档 21 轮，首轮冷缓存单列，暖轮（≥2）聚合；耗时单位 ms
-- 归约残差 = 轮 wall − 该轮读口耗时合计（含非读口开销：业务计算、写路径、execSync 探测等）
-- 分段归因口径（#411）：读口 = FileStore 四读口 + knowledgeRead（memo 指纹 stat/clone 与 miss 时穿透 harness 存储栈的磁读）；harness = @dommaker/harness 存储栈调用级打点（FileKnowledgeStore 方法 + lifecycle/ingest/query/injector/linter facade，嵌套只记顶层），上报自耗时 = span 全时长 − 嵌套在其中的读口耗时（与读口段按构造不相交）；exec = execAsync/execFileAsync 子进程（按命令前 3 token 分列）；其他（残差）= wall P50 − 读口/harness/exec 三段 P50 之和，含业务纯计算与未打点 I/O（inline 构造的 harness 对象纯 CPU 段也在此列）
+- 归约残差（总览表「残差占比」列口径）= 轮 wall − 该轮读口耗时合计；完整分段归因见下方「分段归因」节
+- 分段归因口径（#411）：读口 = FileStore 四读口 + knowledgeRead（memo 指纹 stat/clone 与 miss 时穿透 harness 存储栈的磁读）；harness = @dommaker/harness 存储栈调用级打点（FileKnowledgeStore 方法 + lifecycle/ingest/query/injector/linter facade，嵌套只记顶层），上报自耗时 = span 全时长 − 嵌套在其中的读口耗时（与读口段按构造不相交）；exec = execAsync/execFileAsync 子进程（按命令身份分列，flag 参数不进分组键）；其他（残差）= wall P50 − 读口/harness/exec 三段 P50 之和，含业务纯计算与未打点 I/O（inline 构造的 harness 对象纯 CPU 段也在此列）
 - 并发口径注意：并发读口循环（如 agent-timeout 的 listStates Promise.all）逐事件耗时可远大于 wall，此类循环的读口列与「其他（残差）」可为负——以 wall 为准
 
 ## 数据集画像
@@ -16,58 +16,57 @@
 
 | 循环 | 档位 | 读次数/轮 | 读口合计 P50 | 读口合计 P95 | wall P50 | wall P95 | 残差占比 |
 |---|---|---|---|---|---|---|---|
-| agent-timeout | 1x | 16 | 8.7 | 20.0 | 1.3 | 5.0 | 0% |
-| auditor-round | 1x | 18 | 180 | 193 | 220 | 232 | 18% |
-| dispatch-reconciliation | 1x | 3 | 0.69 | 1.1 | 0.79 | 1.2 | 12% |
-| evolution-scan | 1x | 1 | 0.07 | 0.15 | 0.73 | 1.1 | 90% |
-| monitor-daily-reflection | 1x | 6 | 148 | 157 | 545 | 571 | 73% |
-| monitor-data-lifecycle | 1x | 3 | 1.5 | 1.6 | 3.3 | 3.8 | 53% |
-| monitor-knowledge-decay | 1x | 689 | 897 | 1069 | 946 | 1120 | 5% |
-| monitor-round | 1x | 213 | 168 | 194 | 193 | 225 | 13% |
-| ops-round | 1x | 0 | 0.00 | 0.00 | 51.3 | 64.5 | 100% |
-| workunit-input-reminder | 1x | 1 | 0.25 | 1.2 | 0.29 | 1.3 | 15% |
-| wu-timeout | 1x | 1 | 0.31 | 0.37 | 0.36 | 0.47 | 14% |
+| agent-timeout | 1x | 16 | 9.1 | 26.1 | 1.4 | 3.7 | 0% |
+| auditor-round | 1x | 18 | 155 | 166 | 192 | 206 | 19% |
+| dispatch-reconciliation | 1x | 3 | 0.73 | 0.80 | 0.84 | 1.0 | 13% |
+| evolution-scan | 1x | 1 | 0.06 | 0.10 | 0.57 | 0.67 | 90% |
+| monitor-daily-reflection | 1x | 6 | 151 | 176 | 597 | 611 | 75% |
+| monitor-data-lifecycle | 1x | 3 | 3.1 | 3.4 | 6.6 | 8.0 | 54% |
+| monitor-knowledge-decay | 1x | 689 | 932 | 950 | 973 | 1004 | 4% |
+| monitor-round | 1x | 213 | 161 | 174 | 188 | 203 | 14% |
+| ops-round | 1x | 0 | 0.00 | 0.00 | 47.9 | 51.3 | 100% |
+| workunit-input-reminder | 1x | 1 | 0.24 | 1.1 | 0.29 | 1.1 | 16% |
+| wu-timeout | 1x | 1 | 0.29 | 0.38 | 0.34 | 0.43 | 15% |
 
 ## 分段归因（暖轮 P50，ms）
 
 | 循环 | 档位 | 读口 | harness | exec | 其他（残差） | wall P50 |
 |---|---|---|---|---|---|---|
-| agent-timeout | 1x | 8.7 | 0.00 | 0.00 | -7.32 | 1.3 |
-| auditor-round | 1x | 180 | 17.8 | 0.00 | 22.9 | 220 |
-| dispatch-reconciliation | 1x | 0.69 | 0.00 | 0.00 | 0.10 | 0.79 |
-| evolution-scan | 1x | 0.07 | 0.00 | 0.00 | 0.66 | 0.73 |
-| monitor-daily-reflection | 1x | 148 | 1.6 | 4.1 | 392 | 545 |
-| monitor-data-lifecycle | 1x | 1.5 | 0.00 | 0.00 | 1.7 | 3.3 |
-| monitor-knowledge-decay | 1x | 897 | 37.6 | 3.7 | 6.9 | 946 |
-| monitor-round | 1x | 168 | 10.5 | 4.3 | 9.8 | 193 |
-| ops-round | 1x | 0.00 | 0.00 | 0.00 | 51.3 | 51.3 |
-| workunit-input-reminder | 1x | 0.25 | 0.00 | 0.00 | 0.04 | 0.29 |
-| wu-timeout | 1x | 0.31 | 0.00 | 0.00 | 0.05 | 0.36 |
+| agent-timeout | 1x | 9.1 | 0.00 | 0.00 | -7.75 | 1.4 |
+| auditor-round | 1x | 155 | 14.9 | 0.00 | 21.8 | 192 |
+| dispatch-reconciliation | 1x | 0.73 | 0.00 | 0.00 | 0.11 | 0.84 |
+| evolution-scan | 1x | 0.06 | 0.00 | 0.00 | 0.51 | 0.57 |
+| monitor-daily-reflection | 1x | 151 | 1.8 | 3.8 | 441 | 597 |
+| monitor-data-lifecycle | 1x | 3.1 | 0.00 | 0.00 | 3.6 | 6.6 |
+| monitor-knowledge-decay | 1x | 932 | 30.8 | 3.7 | 6.5 | 973 |
+| monitor-round | 1x | 161 | 10.0 | 4.4 | 12.2 | 188 |
+| ops-round | 1x | 0.00 | 0.00 | 0.00 | 47.9 | 47.9 |
+| workunit-input-reminder | 1x | 0.24 | 0.00 | 0.00 | 0.04 | 0.29 |
+| wu-timeout | 1x | 0.29 | 0.00 | 0.00 | 0.05 | 0.34 |
 
 ### exec 命令明细（暖轮）
 
 | 循环 | 档位 | 命令 | 次/轮 | 耗时 P50 |
 |---|---|---|---|---|
-| monitor-daily-reflection | 1x | git log --since=2026-08-31T13:14:18.940Z | 0.5 | 0.00 |
-| monitor-daily-reflection | 1x | git log --since=2026-08-31T13:14:19.511Z | 0.5 | 0.00 |
+| monitor-daily-reflection | 1x | git log | 1.0 | 3.8 |
 | monitor-knowledge-decay | 1x | npx harness update-user-model | 1.0 | 3.7 |
-| monitor-round | 1x | git worktree prune | 1.0 | 4.3 |
+| monitor-round | 1x | git worktree prune | 1.0 | 4.4 |
 
 ## 冷轮（首轮，缓存全冷）
 
 | 循环 | 档位 | 读次数 | 读口合计 | wall |
 |---|---|---|---|---|
-| agent-timeout | 1x | 16 | 21.7 | 3.8 |
-| auditor-round | 1x | 18 | 173 | 256 |
-| dispatch-reconciliation | 1x | 3 | 0.75 | 1.8 |
-| evolution-scan | 1x | 2 | 3.9 | 7.9 |
-| monitor-daily-reflection | 1x | 5 | 151 | 579 |
-| monitor-data-lifecycle | 1x | 4 | 8.9 | 12.6 |
-| monitor-knowledge-decay | 1x | 689 | 853 | 905 |
-| monitor-round | 1x | 311 | 609 | 659 |
-| ops-round | 1x | 0 | 0.00 | 76.5 |
-| workunit-input-reminder | 1x | 1 | 0.28 | 0.58 |
-| wu-timeout | 1x | 1 | 2.4 | 3.9 |
+| agent-timeout | 1x | 16 | 21.4 | 3.8 |
+| auditor-round | 1x | 18 | 164 | 231 |
+| dispatch-reconciliation | 1x | 3 | 0.71 | 1.8 |
+| evolution-scan | 1x | 2 | 2.4 | 5.4 |
+| monitor-daily-reflection | 1x | 5 | 135 | 549 |
+| monitor-data-lifecycle | 1x | 4 | 6.1 | 19.6 |
+| monitor-knowledge-decay | 1x | 689 | 936 | 990 |
+| monitor-round | 1x | 311 | 617 | 665 |
+| ops-round | 1x | 0 | 0.00 | 64.9 |
+| workunit-input-reminder | 1x | 1 | 0.29 | 0.61 |
+| wu-timeout | 1x | 1 | 1.8 | 2.9 |
 
 ## 分桶明细（暖轮，按存储源）
 
@@ -75,55 +74,55 @@
 
 | 档位 | 存储源 | 次数/轮 | 命中率 | stat P50/P95 | readParse P50/P95 | clone P50/P95 |
 |---|---|---|---|---|---|---|
-| 1x | agent-state | 15.0 | 47% | 0.58/1.7 | 0.00/0.00 | 0.00/0.01 |
-| 1x | agents-dir | 1.0 | 100% | 0.05/1.7 | 0.00/0.00 | 0.00/0.00 |
+| 1x | agent-state | 15.0 | 47% | 0.57/2.7 | 0.00/0.00 | 0.00/0.01 |
+| 1x | agents-dir | 1.0 | 100% | 0.05/0.10 | 0.00/0.00 | 0.00/0.00 |
 
 ### auditor-round
 
 | 档位 | 存储源 | 次数/轮 | 命中率 | stat P50/P95 | readParse P50/P95 | clone P50/P95 |
 |---|---|---|---|---|---|---|
-| 1x | channels | 12.0 | 83% | 0.08/0.31 | 0.00/0.09 | 0.01/0.02 |
-| 1x | knowledge | 5.0 | 0% | 0.95/1.3 | 2.4/163 | 0.06/1.7 |
-| 1x | wu-index | 1.0 | 100% | 0.11/0.40 | 0.00/0.00 | 0.26/0.31 |
+| 1x | channels | 12.0 | 83% | 0.07/0.23 | 0.00/0.08 | 0.01/0.02 |
+| 1x | knowledge | 5.0 | 0% | 0.86/1.2 | 2.1/139 | 0.05/1.4 |
+| 1x | wu-index | 1.0 | 100% | 0.10/0.13 | 0.00/0.00 | 0.24/0.31 |
 
 ### dispatch-reconciliation
 
 | 档位 | 存储源 | 次数/轮 | 命中率 | stat P50/P95 | readParse P50/P95 | clone P50/P95 |
 |---|---|---|---|---|---|---|
-| 1x | wu-index | 3.0 | 100% | 0.04/0.08 | 0.00/0.00 | 0.19/0.28 |
+| 1x | wu-index | 3.0 | 100% | 0.05/0.06 | 0.00/0.00 | 0.20/0.23 |
 
 ### evolution-scan
 
 | 档位 | 存储源 | 次数/轮 | 命中率 | stat P50/P95 | readParse P50/P95 | clone P50/P95 |
 |---|---|---|---|---|---|---|
-| 1x | other | 1.0 | 0% | 0.07/0.15 | 0.00/0.00 | 0.00/0.00 |
+| 1x | other | 1.0 | 0% | 0.06/0.10 | 0.00/0.00 | 0.00/0.00 |
 
 ### monitor-daily-reflection
 
 | 档位 | 存储源 | 次数/轮 | 命中率 | stat P50/P95 | readParse P50/P95 | clone P50/P95 |
 |---|---|---|---|---|---|---|
-| 1x | channels | 4.0 | 75% | 0.08/0.11 | 0.00/0.11 | 0.01/0.03 |
-| 1x | knowledge | 2.0 | 0% | 0.94/1.00 | 1.6/151 | 0.04/1.4 |
+| 1x | channels | 4.0 | 75% | 0.08/0.10 | 0.00/0.12 | 0.01/0.02 |
+| 1x | knowledge | 2.0 | 0% | 0.99/1.1 | 1.5/171 | 0.03/1.4 |
 
 ### monitor-data-lifecycle
 
 | 档位 | 存储源 | 次数/轮 | 命中率 | stat P50/P95 | readParse P50/P95 | clone P50/P95 |
 |---|---|---|---|---|---|---|
-| 1x | studio-events | 2.0 | 0% | 0.04/0.05 | 0.40/0.44 | 0.19/0.22 |
-| 1x | wu-index | 1.0 | 100% | 0.03/0.06 | 0.00/0.00 | 0.20/0.21 |
+| 1x | studio-events | 2.0 | 0% | 0.12/0.18 | 0.71/1.0 | 0.44/0.52 |
+| 1x | wu-index | 1.0 | 100% | 0.04/0.06 | 0.00/0.00 | 0.30/0.38 |
 
 ### monitor-knowledge-decay
 
 | 档位 | 存储源 | 次数/轮 | 命中率 | stat P50/P95 | readParse P50/P95 | clone P50/P95 |
 |---|---|---|---|---|---|---|
-| 1x | knowledge | 689.0 | 70% | 0.75/1.2 | 0.00/0.99 | 0.02/0.04 |
+| 1x | knowledge | 689.0 | 70% | 0.77/1.1 | 0.00/0.96 | 0.02/0.04 |
 
 ### monitor-round
 
 | 档位 | 存储源 | 次数/轮 | 命中率 | stat P50/P95 | readParse P50/P95 | clone P50/P95 |
 |---|---|---|---|---|---|---|
-| 1x | knowledge | 206.0 | 100% | 0.73/1.1 | 0.00/0.00 | 0.02/0.04 |
-| 1x | wu-index | 7.0 | 100% | 0.05/0.48 | 0.00/0.00 | 0.01/0.25 |
+| 1x | knowledge | 206.0 | 100% | 0.71/1.0 | 0.00/0.00 | 0.02/0.03 |
+| 1x | wu-index | 7.0 | 100% | 0.05/0.32 | 0.00/0.00 | 0.01/0.26 |
 
 ### ops-round
 
@@ -134,13 +133,13 @@
 
 | 档位 | 存储源 | 次数/轮 | 命中率 | stat P50/P95 | readParse P50/P95 | clone P50/P95 |
 |---|---|---|---|---|---|---|
-| 1x | wu-index | 1.0 | 100% | 0.06/0.94 | 0.00/0.00 | 0.19/0.29 |
+| 1x | wu-index | 1.0 | 100% | 0.04/0.74 | 0.00/0.00 | 0.18/0.29 |
 
 ### wu-timeout
 
 | 档位 | 存储源 | 次数/轮 | 命中率 | stat P50/P95 | readParse P50/P95 | clone P50/P95 |
 |---|---|---|---|---|---|---|
-| 1x | wu-index | 1.0 | 100% | 0.06/0.07 | 0.00/0.00 | 0.24/0.30 |
+| 1x | wu-index | 1.0 | 100% | 0.05/0.07 | 0.00/0.00 | 0.23/0.28 |
 
 ## 驱动缺口
 
@@ -154,7 +153,7 @@
 - packages/studio-shared/src/read-metrics.ts（新增：sink + ALS 归因 + readMetricsBegin/emitReadMetric；#411 增段事件 SegmentMetricEvent + runSegmentSpan + wrapWithSegmentSpan）
 - packages/studio-shared/src/file-store.ts（readJson / readJsonl / readdirCached / readIndexForQuery 四读口内计时埋点；锁内裸读路径未动）
 - packages/studio-shared/package.json（exports 增 ./read-metrics 子路径）
-- apps/api/src/modules/agents/monitor/exec-async.ts（#411：execAsync/execFileAsync 内 exec 段计时上报，命令名前 3 token）
+- apps/api/src/modules/agents/monitor/exec-async.ts（#411：execAsync/execFileAsync 内 exec 段计时上报，段名取到首个 flag 前）
 - apps/api/src/modules/knowledge/knowledge-singletons.ts（#411：装配层包装 rawKnowledgeStore + 五 facade 方法为 harness 段 span，嵌套只记顶层）
 - apps/api/bench/synthesize-dataset.ts（新增：数据合成器，只读 ~/.studio → tmp 合成 1x/10x/50x）
 - apps/api/bench/loop-read-worker.ts（新增：单档循环驱动 worker；#411 增段事件采集 + user-model 门控放开）
