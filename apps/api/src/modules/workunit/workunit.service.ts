@@ -19,6 +19,8 @@ import { parseWuMetadata } from './wu-metadata.js';
 import { resolveValidTransitions, type WorkUnitMetadata, type ReviewAttestationSource } from './workunit.types.js';
 import { snapshotToData } from './workunit.mappers.js';
 import { WorkUnitCrudService, type WorkUnitData } from './workunit-crud.js';
+// #428：未归属口径的戳解析复用 requirements 的零依赖叶子（无循环依赖风险，见该文件头注释）
+import { parseWuPmoId } from '../requirements/wu-pmo-attribution.js';
 
 // re-export：保持既有消费方（agent-loop / routes / 测试等）从 workunit.service 导入的路径不变
 export { snapshotToData } from './workunit.mappers.js';
@@ -67,10 +69,13 @@ export class WorkUnitService extends WorkUnitCrudService {
     parentId?: string;
     failureType?: string;
     timedOutBefore?: Date;
+    // #428（#402 决策 4）：归属维度过滤。false = 未归属（无 reqId 且 pmoId 归因戳
+    // 解析为 null，口径同 #402 决策 1 / #405 AC）；true = 反向；undefined = 不过滤
+    attributed?: boolean;
     page?: number;
     limit?: number;
   }): Promise<{ data: WorkUnitData[]; total: number }> {
-    const { type, status, assigneeId, channelId, parentId, failureType, timedOutBefore, page = 1, limit = 20 } = options ?? {};
+    const { type, status, assigneeId, channelId, parentId, failureType, timedOutBefore, attributed, page = 1, limit = 20 } = options ?? {};
 
     let snapshots = await this.fileStore.getIndex();
 
@@ -84,6 +89,10 @@ export class WorkUnitService extends WorkUnitCrudService {
     if (timedOutBefore) {
       const cutoff = timedOutBefore.getTime();
       snapshots = snapshots.filter(s => s.timeoutAt && new Date(s.timeoutAt).getTime() <= cutoff);
+    }
+    if (attributed !== undefined) {
+      // #428：已归属 = 有 reqId 或归因戳（canonical pmoId ‖ legacy ownershipProjectId）非 null
+      snapshots = snapshots.filter(s => (!!s.reqId || parseWuPmoId(s.metadata) !== null) === attributed);
     }
 
     // Sort by createdAt desc

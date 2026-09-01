@@ -63,7 +63,7 @@ function resolveCallerAuthorType(req: Request): string {
 /** GET / — list WorkUnits */
 router.get('/', async (req: Request, res: Response) => {
   try {
-    const { type, status, assigneeId, channelId, parentId } = req.query;
+    const { type, status, assigneeId, channelId, parentId, attributed } = req.query;
     const { page, limit } = parsePagination(req);
 
     const result = await service.list({
@@ -72,6 +72,8 @@ router.get('/', async (req: Request, res: Response) => {
       assigneeId: assigneeId as string,
       channelId: channelId as string,
       parentId: parentId as string,
+      // #428：attributed=true/false 显式布尔；其他值（含缺省）= undefined 不过滤
+      attributed: attributed === 'true' ? true : attributed === 'false' ? false : undefined,
       page,
       limit,
     });
