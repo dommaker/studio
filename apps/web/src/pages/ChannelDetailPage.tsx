@@ -12,7 +12,7 @@ import { ChannelLiveBars } from '../components/channel/ChannelLiveBars';
 import { deriveStreamView, type StreamItem } from '../utils/streamView';
 import { buildMessageToItemIndex } from '../utils/streamVirtual';
 import { ChannelInput } from '../components/channel/ChannelInput';
-import { SuggestionChips } from '../components/channel/SuggestionChips';
+import { SuggestionChips, type SuggestionChipItem } from '../components/channel/SuggestionChips';
 import { ChannelStageBar } from '../components/channel/ChannelStageBar';
 import { ChannelMemberManager } from '../components/channel/ChannelMemberManager';
 import { ChannelDefaultProjectSelect } from '../components/channel/ChannelDefaultProjectSelect';
@@ -25,6 +25,7 @@ import { useMediaQuery } from '../hooks/useMediaQuery';
 import { workunitApi } from '../api/workunit';
 import type { WorkUnit } from '../api/workunit';
 import { pickCurrentWu, suggestionsForWu } from '../utils/wuSuggestions';
+import { renderSuggestionCopy } from '../utils/suggestionCopy';
 import { parseWuMeta } from '../utils/wuMeta';
 import { useNotificationStore } from '../stores/notificationStore';
 import { useUnreadStore } from '../stores/unreadStore';
@@ -32,12 +33,15 @@ import { useChannelDataStore, parseChannelMembers } from '../stores/channelDataS
 import { fanOut } from '../utils/fanOut';
 import { requirementApi, type Requirement, type RequirementStatus } from '../api/requirements';
 import { parseLiveWuRef } from '../components/workunit/execution-rows';
-import type { Channel, ChannelMessage, FileRef } from '../api/channel';
+import type { Channel, ChannelMessage, ChannelSuggestion, FileRef } from '../api/channel';
 import { channelApi } from '../api/channel';
 import { saveLastChannelId } from '../utils/lastChannel';
 
 /** #279（决策 #250 D4）：闸门类 WU 类型（人工验收单）——不聚合进 NEED_INPUT 待办 chip */
 const GATE_WU_TYPES = new Set(['decision', 'spec']);
+
+/** #443：带 dismiss 台账 key 的引导片（端点片 = `ep:{wuId}:{suggestionId}`；静态片 = `${wuId}:${展示列}`） */
+type DismissibleChip = SuggestionChipItem & { dismissKey: string };
 
 /**
  * WU（REST 全量或 status_changed 事件负载解析出的轻量引用）→ NEED_INPUT 待办条目。
@@ -108,6 +112,9 @@ export function ChannelDetailPage() {
   // #440：建议片 dismiss 台账（会话级，key = `${wuId}:${展示列}`）+ 输入框 prefill 通道
   const [dismissedSuggestionKeys, setDismissedSuggestionKeys] = useState<Set<string>>(new Set());
   const [inputPrefill, setInputPrefill] = useState<{ text: string; nonce: number } | undefined>(undefined);
+  // #443（spec #441）：端点派生建议（GET /channels/:id/suggestions）——只读状态说明等，
+  // 与 #440 静态映射片合并渲染（静态映射 #447 删）
+  const [channelSuggestions, setChannelSuggestions] = useState<ChannelSuggestion[]>([]);
   // Mission Control 右抽屉：WorkUnit 详情 / REQ 全链路
   const [drawer, setDrawer] = useState<DrawerState>(null);
   // #395（spec §4.6）窄屏降级断点：<768 左栏并入全局 Sidebar（本页卸载内联 ChannelRail）；
@@ -175,6 +182,21 @@ export function ChannelDetailPage() {
       .catch(() => {});
   }, [id]);
 
+  // #443：端点派生建议打底（fail-closed：负载畸形/条目缺字段 → 空集，不渲染不编造；失败静默）
+  const reloadSuggestions = useCallback(() => {
+    if (!id) return;
+    channelApi.getSuggestions(id)
+      .then(r => {
+        const raw: unknown = r.data?.data?.suggestions;
+        const list = Array.isArray(raw) ? raw : [];
+        setChannelSuggestions(list.filter((s): s is ChannelSuggestion =>
+          !!s && typeof s.id === 'string' && typeof s.kind === 'string'
+          && !!s.params && typeof s.params === 'object',
+        ));
+      })
+      .catch(() => {});
+  }, [id]);
+
   // 决策 9（SSE 负载加深）：SSE 断线重连 → 受影响面一次性 refetch（无序号/校验机制）：
   // 消息面 refresh + waitingWus/REQ chips 两个打底面 + #403 频道数据面三切片强刷
   useEffect(() => {
@@ -183,13 +205,14 @@ export function ChannelDetailPage() {
       reloadWaitingWus();
       reloadChannelReqs();
       reloadChannelWus();
+      reloadSuggestions();
       if (!id) return;
       const channelData = useChannelDataStore.getState();
       void channelData.ensureVocabulary(id, { maxAgeMs: 0 });
       void channelData.ensureCurrentPmo(id, { maxAgeMs: 0 });
       void channelData.ensureMembers(id, { maxAgeMs: 0 });
     });
-  }, [onReconnect, refresh, reloadWaitingWus, reloadChannelReqs, reloadChannelWus, id]);
+  }, [onReconnect, refresh, reloadWaitingWus, reloadChannelReqs, reloadChannelWus, reloadSuggestions, id]);
 
   useEffect(() => {
     reloadWaitingWus();
@@ -198,6 +221,10 @@ export function ChannelDetailPage() {
   useEffect(() => {
     reloadChannelWus();
   }, [reloadChannelWus]);
+
+  useEffect(() => {
+    reloadSuggestions();
+  }, [reloadSuggestions]);
 
   useEffect(() => {
     if (!id) return;
@@ -240,8 +267,11 @@ export function ChannelDetailPage() {
         };
         return next;
       });
+      // #443：状态变化后端点派生建议重拉（复用既有事件，不新增事件类型；推导输入含 loop 心跳等
+      // 无事件信号，由后端宽限期吸收，前端不做实时）
+      reloadSuggestions();
     });
-  }, [id, onEvent]);
+  }, [id, onEvent, reloadSuggestions]);
 
   // REQ 需求编号（vision §5.3）：本频道需求 chips；REST 打底（reloadChannelReqs，见上）+
   // requirement.created/updated SSE 增量（批 2 决策 6：摘 messages.length 依赖；#415 负载 = { requirement } 全量，就地 upsert 零补拉）
@@ -314,6 +344,18 @@ export function ChannelDetailPage() {
     if (dismissedSuggestionKeys.has(suggestionKey)) return [];
     return suggestionsForWu(currentWuColumn, { ...parseWuMeta(currentWu.metadata), hasActiveReview: currentWuHasActiveReview });
   }, [currentWu, currentWuColumn, suggestionKey, dismissedSuggestionKeys, currentWuHasActiveReview]);
+
+  // #443：端点派生建议 → 文案模板渲染成引导片（未知模板 id → 跳过，fail-closed）
+  const endpointChips = useMemo<DismissibleChip[]>(() => channelSuggestions.flatMap(s => {
+    const copy = renderSuggestionCopy(s);
+    if (!copy) return [];
+    return [{ id: s.id, kind: s.kind, label: copy.label, hint: copy.hint, dismissKey: `ep:${s.params.wuId ?? ''}:${s.id}` }];
+  }), [channelSuggestions]);
+  // 引导片合并面 = 端点派生片 + #440 静态 prompt 片（#447 静态映射删除后只剩端点片）
+  const visibleChips = useMemo<DismissibleChip[]>(() => [
+    ...endpointChips.filter(c => !dismissedSuggestionKeys.has(c.dismissKey)),
+    ...visibleSuggestions.map(s => ({ ...s, dismissKey: suggestionKey ?? s.id })),
+  ], [endpointChips, dismissedSuggestionKeys, visibleSuggestions, suggestionKey]);
 
   // #279（走查 F4）：每个挂起 WU 的「当前提问消息」= 该 WU 最新一条非人类消息。
   // badge/回复区只落在这一条（同 WU 多消息不再一屏多个回复框）；chip 定位也用它
@@ -754,12 +796,16 @@ export function ChannelDetailPage() {
           )}
         </div>
 
-        {/* #440：建议 prompt 片（WU 状态流转后的下一步指令引导；点击填入输入框，会话级 dismiss） */}
-        {visibleSuggestions.length > 0 && suggestionKey && (
+        {/* #440 + #443：引导片（#440 静态 prompt 建议 + 端点派生只读状态说明合并渲染；prompt 点击填入输入框，status 只读；会话级 dismiss） */}
+        {visibleChips.length > 0 && (
           <SuggestionChips
-            suggestions={visibleSuggestions}
+            suggestions={visibleChips}
             onPick={(text) => setInputPrefill(p => ({ text, nonce: (p?.nonce ?? 0) + 1 }))}
-            onDismiss={() => setDismissedSuggestionKeys(prev => new Set(prev).add(suggestionKey))}
+            onDismiss={() => setDismissedSuggestionKeys(prev => {
+              const next = new Set(prev);
+              for (const c of visibleChips) next.add(c.dismissKey);
+              return next;
+            })}
           />
         )}
 

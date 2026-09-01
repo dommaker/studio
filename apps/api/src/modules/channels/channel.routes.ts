@@ -13,6 +13,7 @@ import { ProjectDiscoveryService } from '../projects/project-discovery.service.j
 import { getWorkspaceRecord } from '../workspaces/workspace-store.js';
 import { getChannelFileVocabulary } from './file-ref-vocabulary.js';
 import { deriveChannelCurrentPmo } from './current-pmo.js';
+import { deriveChannelSuggestions } from './suggestions.js';
 import { getErrorMessage } from '../../utils/errors.js';
 
 const router = Router();
@@ -127,6 +128,16 @@ router.get('/:id/current-pmo', async (req, res) => {
   if (!channel) return res.status(404).json({ success: false, error: 'Channel not found' });
   const pmo = await deriveChannelCurrentPmo(req.params.id);
   res.json({ success: true, data: pmo });
+});
+
+// GET /api/v1/channels/:id/suggestions — #443（spec #441 情境引导 02）：频道建议派生端点。
+// 不落库、按当前事实现算；fail-closed（前置不满足/拿不准不出）。本票只交付 status
+// 只读状态说明形态（自动评审在途）；action/prompt 形态见 #444/#445/#446（见 suggestions.ts）。
+router.get('/:id/suggestions', async (req, res) => {
+  const channel = await fileStore.getChannel(req.params.id);
+  if (!channel) return res.status(404).json({ success: false, error: 'Channel not found' });
+  const data = await deriveChannelSuggestions(req.params.id, { fileStore });
+  res.json({ success: true, data });
 });
 
 // GET /api/v1/channels/:id/messages — paginated messages
