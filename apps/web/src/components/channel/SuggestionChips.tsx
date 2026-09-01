@@ -21,7 +21,8 @@ export function SuggestionChips({ suggestions, onPick, onDismiss }: Props) {
           className="mc-suggest-chip"
           onClick={() => onPick(s.text)}
         >
-          {s.text}
+          {s.label ?? s.text}
+          {s.hint ? <span className="mc-suggest-hint">{s.hint}</span> : null}
         </button>
       ))}
       <button

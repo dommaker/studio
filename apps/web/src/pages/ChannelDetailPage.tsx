@@ -215,14 +215,14 @@ export function ChannelDetailPage() {
         next[idx] = todo;
         return next;
       });
-      // #440：channelWus 同步 upsert（轻量负载只带 id/status/metadata/type/scope，其余字段保留旧值；
+      // #440：channelWus 同步 upsert（轻量负载只带 id/status/metadata/type/scope/parentId，其余字段保留旧值；
       // 新 WU 以默认值补全，时间戳类字段等下次打底/重连对齐）
       setChannelWus(prev => {
         const idx = prev.findIndex(w => w.id === wu.id);
         const nowIso = new Date().toISOString();
         if (idx < 0) {
           return [...prev, {
-            id: wu.id, parentId: null, dependsOn: '', type: wu.type ?? 'task', scope: wu.scope ?? '',
+            id: wu.id, parentId: wu.parentId, dependsOn: '', type: wu.type ?? 'task', scope: wu.scope ?? '',
             assigneeId: null, status: wu.status, failureType: null, retryCount: 0, timeoutAt: null,
             channelId: wu.channelId, metadata: wu.metadata, createdAt: nowIso, updatedAt: nowIso,
             claimedAt: null, completedAt: null,
@@ -235,6 +235,7 @@ export function ChannelDetailPage() {
           metadata: wu.metadata ?? next[idx].metadata,
           type: wu.type ?? next[idx].type,
           scope: wu.scope ?? next[idx].scope,
+          parentId: wu.parentId ?? next[idx].parentId,
           updatedAt: nowIso,
         };
         return next;
@@ -299,12 +300,20 @@ export function ChannelDetailPage() {
     () => (currentWu ? deriveDisplayState({ status: currentWu.status, metadata: currentWu.metadata }).column : null),
     [currentWu],
   );
+  // #442：当前工单是否已有活跃 review 子工单（判据与后端 dispatch-reconciliation 同款）——
+  // 在途则不出「转写审查清单」建议片，防自动评审在途时重复派单
+  const currentWuHasActiveReview = useMemo(
+    () => currentWu
+      ? channelWus.some(w => w.parentId === currentWu.id && w.type === 'review' && w.status !== 'done' && w.status !== 'closed')
+      : false,
+    [channelWus, currentWu],
+  );
   const suggestionKey = currentWu && currentWuColumn ? `${currentWu.id}:${currentWuColumn}` : null;
   const visibleSuggestions = useMemo(() => {
     if (!currentWu || !currentWuColumn || !suggestionKey) return [];
     if (dismissedSuggestionKeys.has(suggestionKey)) return [];
-    return suggestionsForWu(currentWuColumn, parseWuMeta(currentWu.metadata));
-  }, [currentWu, currentWuColumn, suggestionKey, dismissedSuggestionKeys]);
+    return suggestionsForWu(currentWuColumn, { ...parseWuMeta(currentWu.metadata), hasActiveReview: currentWuHasActiveReview });
+  }, [currentWu, currentWuColumn, suggestionKey, dismissedSuggestionKeys, currentWuHasActiveReview]);
 
   // #279（走查 F4）：每个挂起 WU 的「当前提问消息」= 该 WU 最新一条非人类消息。
   // badge/回复区只落在这一条（同 WU 多消息不再一屏多个回复框）；chip 定位也用它

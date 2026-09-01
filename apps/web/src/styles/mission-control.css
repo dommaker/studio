@@ -651,6 +651,14 @@
   text-align: left;
 }
 .mc-suggest-chip:hover { color: var(--accent-primary); border-color: var(--accent-primary); }
+/* #442：可选建议片的说明小字（可选语义 + 点击后果）；片体为 mono 例外，说明回到 sans */
+.mc-suggest-hint {
+  display: block;
+  font-family: var(--font-sans);
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  margin-top: 2px;
+}
 .mc-suggest-dismiss { margin-left: auto; }
 
 .mc-input-reply {
