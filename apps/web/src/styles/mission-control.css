@@ -300,6 +300,9 @@
   user-select: none;
 }
 .mc-avatar-human { background: var(--accent-primary); color: var(--bg-primary); }
+/* #440：agent identicon 图形头像（SVG 填满圆形容器，色源 --chart-1..9 在组件内联 fill） */
+.mc-avatar-ident { overflow: hidden; background: var(--bg-elevated); padding: 0; }
+.mc-avatar-ident svg { display: block; width: 100%; height: 100%; }
 .mc-time { color: var(--text-muted); font-size: var(--fs-xs); }
 .mc-msg-body { color: var(--text-primary); white-space: pre-wrap; word-break: break-word; }
 /* #271: agent 消息内的 Markdown 容器覆盖 pre-wrap，软换行按 Markdown 语义折叠为空格 */

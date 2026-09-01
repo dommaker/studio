@@ -10,6 +10,7 @@ import { formatChannelName } from '@dommaker/studio-shared/web';
 import { monitoringApi } from '../api/monitoring';
 import { workunitApi, type WorkUnit } from '../api/workunit';
 import { ExecutionSteps } from '../components/workunit/ExecutionSteps';
+import { AgentAvatar } from '../components/channel/AgentAvatar';
 import { ConfirmDialog, BackButton } from '../components/ui';
 import { useWebSocketContext } from '../api/websocketHooks';
 import { useRosterStore } from '../stores/rosterStore';
@@ -142,6 +143,8 @@ export function AgentDetailPage() {
         <div className="mb-4"><BackButton fallback="/agents" /></div>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3 flex-wrap">
+            {/* #440 Phase 4：per-agent identicon 头像（与频道消息气泡同一生成逻辑） */}
+            {profile && <AgentAvatar name={profile.name} size={28} />}
             <h1 className="page-title">{profile?.name ?? 'Agent 详情'}</h1>
             {profile && (
               <span className="text-xs px-2 py-0.5 rounded u-surface-2 u-text-2" title="背后的 CLI">

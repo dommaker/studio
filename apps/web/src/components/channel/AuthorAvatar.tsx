@@ -1,13 +1,8 @@
 // AuthorAvatar — 频道消息作者头像：人类 = 品牌色 + 用户名首字（用户传了 avatar 图则用图）；
-// Agent = 名字 hash 稳定色 + 首字（同一角色恒定同色，无需后端加字段）。纯展示组件，无数据请求。
+// Agent = identicon 式确定性图形（#440：AgentAvatar，图样逻辑在 utils/avatar 纯函数，
+// 同一角色恒定同图，无需后端加字段）。纯展示组件，无数据请求。
 import { useAuthStore } from '../../stores/authStore';
-
-/** 名字 → 稳定 hue（简单散列，同一名称跨会话恒定同色） */
-function nameHue(name: string): number {
-  let h = 0;
-  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
-  return h % 360;
-}
+import { AgentAvatar } from './AgentAvatar';
 
 /** 首字（Array.from 兼容 emoji/CJK 代理对） */
 function initialOf(name: string): string {
@@ -29,14 +24,5 @@ export function AuthorAvatar({ isHuman, agentName }: { isHuman: boolean; agentNa
     );
   }
 
-  const name = agentName || 'Agent';
-  return (
-    <span
-      className="mc-avatar"
-      style={{ background: `hsl(${nameHue(name)}, 55%, 38%)` }}
-      title={name}
-    >
-      {initialOf(name)}
-    </span>
-  );
+  return <AgentAvatar name={agentName || 'Agent'} />;
 }
