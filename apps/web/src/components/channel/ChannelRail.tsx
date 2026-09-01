@@ -5,6 +5,7 @@
 // #272（决策 #251 Q7）：创建表单合并为单一实现 CreateChannelForm
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { formatChannelName } from '@dommaker/studio-shared/web';
 import { useChannelList } from '../../hooks/useChannelList';
 import { useRosterStore } from '../../stores/rosterStore';
 import { useRosterStoreSync } from '../../hooks/useRosterStoreSync';
@@ -111,7 +112,8 @@ export function ChannelRail({ activeChannelId, onNavigate }: Props) {
               onClick={() => handleSelect(ch.id)}
             >
               <span className="mc-chan-hash">#</span>
-              <span className="mc-chan-name">{ch.name}</span>
+              {/* #429：数据本身含前导 #，formatChannelName 归一为单前缀后去掉 glyph 位（# 由上一 span 承担） */}
+              <span className="mc-chan-name">{formatChannelName(ch.name).slice(1)}</span>
               <span className="mc-chan-meta">
                 {counts ? `${counts.online}/${counts.total}` : (TYPE_LABELS[ch.type] || ch.type)}
               </span>
