@@ -16,6 +16,7 @@
 ## 注意事项
 
 - 认证走 `POST /api/v1/auth/refresh`（响应字段 `accessToken`），**refresh token 会轮换**——连跑两轮必须每轮重新取最新 token。
+- **token 获取**（#432 踩坑）：登录/注册响应的 `session.refreshToken` 字段为 null，token 不下发——正确取法是 `POST /api/v1/auth/login` 后直读 `<STUDIO_HOME>/sessions.json` 取该用户最新一行的 `refreshToken`。重复 login 会使旧 session 的 token 失效（401）。
 - 前端 profile 列表 API 是 `/api/v1/agent-profiles`；`/api/v1/agents` 的 GET / 是 legacy agents-registry 路由（响应无 id 字段），勿用于发现 profileId。
 - capture/diff 两 CLI 都有 `isMain` 守卫（`import.meta.url === pathToFileURL(process.argv[1]).href`），单测 import 不会触发执行。
 - 频道消息流 SSE 新消息导致的 diff 属可归因面（决议：不追零 diff，追可归因）。
