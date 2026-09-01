@@ -467,3 +467,68 @@ describe('WorkUnitDetailPage', () => {
     await waitFor(() => expect(mockReviewPassed).toHaveBeenCalledWith('wu-1', '目标：目标\n待决：问题1', undefined));
   });
 });
+
+// #440 Phase 3：WU 详情页标题下 meta strip（涉及角色 / AC 数 / 当前阶段；缺项不占位）
+describe('WorkUnitDetailPage — #440 meta strip', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useRosterStore.setState({
+      profiles: [], agents: [], channels: [],
+      loading: false, error: null, forbidden: false,
+      loadedAt: null, channelsLoadedOnce: false, agentsLoadedOnce: false,
+      inflight: null, lastToken: null,
+    });
+    mockWuGet.mockResolvedValue({ data: baseWu });
+    mockProjectGet.mockResolvedValue({ data: { id: 'proj-1', pmoNumber: 'PM-0007', title: '登录项目' } });
+    mockReqGet.mockResolvedValue({ data: { success: true, data: { id: 'REQ-0042', projectId: 'proj-2' } } });
+    mockChannelList.mockResolvedValue({ data: { success: true, data: [{ id: 'ch-1', name: '主频道' }] } });
+    mockAgentSummary.mockResolvedValue({
+      data: {
+        agents: [{ id: 'inst-abcdefgh1234', roleId: 'role-1', name: 'coder-01', status: 'idle', currentWorkUnitId: null, startedAt: '2026-07-30T08:00:00Z' }],
+        summary: { total: 1, idle: 1, active: 0, error: 0, terminated: 0 },
+      },
+    });
+    mockReqGetChain.mockResolvedValue({
+      data: { success: true, data: { requirement: { id: 'REQ-0042', seq: 42, title: '登录需求', status: 'in-progress', createdAt: '2026-07-29T09:00:00Z', createdBy: 'manual' }, workunits: [] } },
+    });
+    mockGetTreeTokens.mockResolvedValue({ data: treeTokenReport });
+    mockGetAgentInstance.mockRejectedValue(new Error('404'));
+    mockListAllAgents.mockResolvedValue({ data: { data: [] } });
+  });
+
+  const stripOf = async () => {
+    render(<WorkUnitDetailPage />);
+    await screen.findByText('登录功能开发');
+    return document.querySelector('.wu-detail-meta');
+  };
+
+  it('渲染涉及角色（解析到角色名）与当前阶段；baseWu 无 ac → AC 数不占位', async () => {
+    const strip = await stripOf();
+    expect(strip).toBeTruthy();
+    expect(strip!.textContent).toContain('涉及角色');
+    expect(strip!.textContent).toContain('@coder-01');
+    expect(strip!.textContent).toContain('当前阶段');
+    expect(strip!.textContent).toContain('完成');
+    expect(strip!.textContent).not.toContain('AC 数');
+  });
+
+  it('有 metadata.ac → AC 数渲染聚合计数', async () => {
+    mockWuGet.mockResolvedValue({
+      data: {
+        ...baseWu,
+        metadata: JSON.stringify({ title: '登录功能开发', ac: ['AC1', 'AC2', 'AC3'] }),
+      },
+    });
+    const strip = await stripOf();
+    expect(strip!.textContent).toContain('AC 数');
+    expect(strip!.textContent).toContain('3');
+  });
+
+  it('无认领人 → 涉及角色不占位（其余项仍在）', async () => {
+    mockWuGet.mockResolvedValue({ data: { ...baseWu, assigneeId: null } });
+    const strip = await stripOf();
+    expect(strip).toBeTruthy();
+    expect(strip!.textContent).not.toContain('涉及角色');
+    expect(strip!.textContent).toContain('当前阶段');
+  });
+});

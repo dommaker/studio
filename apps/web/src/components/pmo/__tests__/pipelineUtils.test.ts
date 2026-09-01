@@ -7,6 +7,7 @@ import {
   formatDuration,
   buildProjectTimeline,
   formatTimelineTime,
+  projectChainMeta,
   EVIDENCE_LAYER_LABELS,
   type PipelineWorkUnit,
 } from '../pipelineUtils';
@@ -162,5 +163,39 @@ describe('formatTimelineTime', () => {
     // 不带 Z 的 ISO 按本地时区解析，不受测试机 TZ 影响
     expect(formatTimelineTime('2026-07-05T14:03:00')).toBe('07-05 14:03');
     expect(formatTimelineTime('bogus')).toBe('');
+  });
+});
+
+// #440 Phase 3：PMO 项目页 meta strip 派生（涉及角色 / AC 数聚合；无数据 → null 不占位）
+describe('projectChainMeta', () => {
+  const wu = (over: Partial<PipelineWorkUnit>): PipelineWorkUnit => ({
+    id: 'WU-1', title: 't', status: 'active', assigneeId: null, ...over,
+  });
+
+  it('涉及角色 = chain WUs assignee 去重并按名册解名；查不到回退短 id', () => {
+    const out = projectChainMeta([
+      wu({ id: 'WU-1', assigneeId: 'inst-aaaa1111' }),
+      wu({ id: 'WU-2', assigneeId: 'inst-bbbb2222' }),
+      wu({ id: 'WU-3', assigneeId: 'inst-aaaa1111' }), // 重复
+      wu({ id: 'WU-4', assigneeId: null }),
+    ], { 'inst-aaaa1111': 'coder-01' });
+    expect(out.roles).toBe('coder-01、@inst-bbb');
+  });
+
+  it('AC 数 = 各 WU metadata.ac 聚合；坏 metadata 不炸、非字符串条不计', () => {
+    const out = projectChainMeta([
+      wu({ id: 'WU-1', metadata: JSON.stringify({ ac: ['a1', 'a2'] }) }),
+      wu({ id: 'WU-2', metadata: JSON.stringify({ ac: ['a3', 42, ''] }) }),
+      wu({ id: 'WU-3', metadata: 'not-json' }),
+      wu({ id: 'WU-4' }),
+    ], {});
+    expect(out.acCount).toBe(3);
+  });
+
+  it('无认领人 / 无 AC → 对应项 null（调用方省略不占位）', () => {
+    const out = projectChainMeta([wu({ id: 'WU-1' })], {});
+    expect(out.roles).toBeNull();
+    expect(out.acCount).toBeNull();
+    expect(projectChainMeta([], {})).toEqual({ roles: null, acCount: null });
   });
 });
