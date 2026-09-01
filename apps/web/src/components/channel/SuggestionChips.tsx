@@ -2,13 +2,10 @@
 // 点击 → onPick(text)（由页面经 ChannelInput prefill 填入，不自动发送——人过目后按 Enter）；
 // × dismiss 由调用方记账（会话级，key = wuId:column），本组件纯展示。
 // 建议列表由 utils/wuSuggestions 静态映射产出（MVP），后端推导另开票。
-interface Suggestion {
-  id: string;
-  text: string;
-}
+import type { WuSuggestion } from '../../utils/wuSuggestions';
 
 interface Props {
-  suggestions: Suggestion[];
+  suggestions: WuSuggestion[];
   onPick: (text: string) => void;
   onDismiss: () => void;
 }

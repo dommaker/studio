@@ -636,13 +636,14 @@
   background: var(--bg-secondary);
 }
 .mc-suggest-chip {
+  /* mono 为例外立例：#440 issue 原文明确要求「等宽字体小卡片」（@指令语义近代码），spec 覆盖 style-guide §1 */
   font-family: var(--font-mono);
   font-size: var(--fs-xs);
   color: var(--text-secondary);
   background: var(--bg-elevated);
   border: 1px solid var(--border-subtle);
   border-radius: 3px;
-  padding: 3px 8px;
+  padding: var(--space-1) var(--space-2);
   cursor: pointer;
   text-align: left;
 }
