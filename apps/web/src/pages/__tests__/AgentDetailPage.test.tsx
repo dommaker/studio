@@ -284,3 +284,34 @@ describe('AgentDetailPage — SSE 负载直更（#318）', () => {
     await waitFor(() => expect(mockGetAgentSummary).toHaveBeenCalledTimes(2));
   });
 });
+
+// #440 Phase 4：agent profile 页标题区渲染 per-agent identicon 头像（与频道消息气泡同一生成逻辑）
+describe('AgentDetailPage — #440 agent 头像', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetRosterStore();
+    sse.handlers.length = 0;
+    sse.reconnects.length = 0;
+    mockApis();
+    mockListChannels.mockResolvedValue({ data: { success: true, data: [{ id: 'ch1', name: 'backend', type: 'dev' }] } });
+    mockWuGet.mockResolvedValue({ data: { id: 'wu-2', scope: '补查任务', type: 'FIX', status: 'active', claimedAt: null } });
+    mockListExecSteps.mockResolvedValue({ data: { events: [], total: 0 } });
+    mockWuList.mockResolvedValue({ data: { data: [], pagination: { page: 1, limit: 20, total: 0, totalPages: 1 } } });
+  });
+
+  it('标题区显示 identicon 头像（title = 角色名），与频道气泡同图', async () => {
+    render(<AgentDetailPage />);
+    await screen.findByText('dev-agent');
+    const avatar = document.querySelector('.mc-avatar-ident') as HTMLElement;
+    expect(avatar).toBeTruthy();
+    expect(avatar.getAttribute('title')).toBe('dev-agent');
+    expect(avatar.querySelector('svg')).toBeTruthy();
+  });
+
+  it('角色不存在 → 空态不渲染头像', async () => {
+    mockApis({ agents: [], profiles: [] });
+    render(<AgentDetailPage />);
+    await screen.findByText('未找到该角色');
+    expect(document.querySelector('.mc-avatar-ident')).toBeNull();
+  });
+});

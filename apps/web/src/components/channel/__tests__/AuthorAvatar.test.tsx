@@ -47,29 +47,28 @@ describe('AuthorAvatar', () => {
     expect(img.title).toBe('李四');
   });
 
-  it('Agent -> hash 稳定色背景 + agentName 首字（非人类样式）', () => {
+  it('Agent -> identicon 图形头像（#440：同名恒同图，不同名可区分；不再是色块+首字）', () => {
     const { container, rerender } = render(<AuthorAvatar isHuman={false} agentName="Pat" />);
-    const el = container.querySelector('.mc-avatar') as HTMLElement;
+    const el = container.querySelector('.mc-avatar-ident') as HTMLElement;
     expect(el).toBeTruthy();
     expect(el.classList.contains('mc-avatar-human')).toBe(false);
-    expect(el.textContent).toBe('P');
-    const bg1 = el.style.background;
+    expect(el.getAttribute('title')).toBe('Pat');
+    const html1 = el.innerHTML;
 
-    // 同名 -> 同色（稳定 hue）
+    // 同名 -> 同图（确定性 hash）
     rerender(<AuthorAvatar isHuman={false} agentName="Pat" />);
-    const el2 = container.querySelector('.mc-avatar') as HTMLElement;
-    expect(el2.style.background).toBe(bg1);
+    expect((container.querySelector('.mc-avatar-ident') as HTMLElement).innerHTML).toBe(html1);
 
-    // 换名 -> 换色（不同 hash）
+    // 换名 -> 换图（不同 hash）
     rerender(<AuthorAvatar isHuman={false} agentName="Hank" />);
-    const el3 = container.querySelector('.mc-avatar') as HTMLElement;
-    expect(el3.textContent).toBe('H');
-    expect(el3.style.background).not.toBe(bg1);
+    const el3 = container.querySelector('.mc-avatar-ident') as HTMLElement;
+    expect(el3.getAttribute('title')).toBe('Hank');
+    expect(el3.innerHTML).not.toBe(html1);
   });
 
-  it('Agent 无 agentName -> 回退 "Agent" 首字 A', () => {
+  it('Agent 无 agentName -> 回退 "Agent"', () => {
     const { container } = render(<AuthorAvatar isHuman={false} />);
-    expect(container.querySelector('.mc-avatar')!.textContent).toBe('A');
+    expect(container.querySelector('.mc-avatar-ident')!.getAttribute('title')).toBe('Agent');
   });
 
   it('CJK 与 emoji 代理对：取 Array.from 首码点（不崩）', () => {
