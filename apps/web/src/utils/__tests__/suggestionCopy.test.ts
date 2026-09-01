@@ -46,11 +46,43 @@ describe('renderSuggestionCopy（文案模板机制）', () => {
     expect(copy).toMatchSnapshot();
   });
 
+  // #446：prompt 形态——阻塞诊断片文案；hint 带阻塞原因上下文 + 说清点击后果（预填可编辑再发送）
+  it('diagnose-blocked：快照锁定 + 带工单标题与阻塞原因上下文 + hint 说清点击后果', () => {
+    const copy = renderSuggestionCopy({
+      id: 'diagnose-blocked',
+      kind: 'prompt',
+      params: { wuId: 'WU-1', wuTitle: '登录功能', blockReason: '自动验证未通过（3 个用例）' },
+      text: '@developer 诊断《登录功能》的阻塞原因并给出修复方案',
+    });
+    expect(copy).not.toBeNull();
+    expect(copy!.label).toContain('登录功能');
+    expect(copy!.hint).toContain('自动验证未通过');
+    expect(copy!.hint).toMatch(/预填/); // 必须说清「点了会发生什么」
+    expect(copy).toMatchSnapshot();
+  });
+
+  // #446：prompt 形态——前置门禁窗口的可选介入；label 标注「可选」（spec 用户故事 7）
+  it('transcribe-review-checklist：可选标注 + 快照锁定 + 带工单上下文 + hint 说清点击后果', () => {
+    const copy = renderSuggestionCopy({
+      id: 'transcribe-review-checklist',
+      kind: 'prompt',
+      params: { wuId: 'WU-1', wuTitle: '登录功能' },
+      text: '@reviewer 把《登录功能》的验收标准转写成审查清单',
+    });
+    expect(copy).not.toBeNull();
+    expect(copy!.label).toContain('可选');
+    expect(copy!.label).toContain('登录功能');
+    expect(copy!.hint).toMatch(/预填/);
+    expect(copy).toMatchSnapshot();
+  });
+
   it('全部已注册模板输出均无内部术语', () => {
     const samples: ChannelSuggestion[] = [
       { id: 'auto-review-in-flight', kind: 'status', params: { wuId: 'WU-1', wuTitle: '登录功能' } },
       { id: 'redispatch-review', kind: 'action', params: { wuId: 'WU-1', wuTitle: '登录功能' } },
       { id: 'claim-wu', kind: 'action', params: { wuId: 'WU-1', wuTitle: '登录功能' } },
+      { id: 'diagnose-blocked', kind: 'prompt', params: { wuId: 'WU-1', wuTitle: '登录功能', blockReason: '自动验证未通过（3 个用例）' } },
+      { id: 'transcribe-review-checklist', kind: 'prompt', params: { wuId: 'WU-1', wuTitle: '登录功能' } },
     ];
     for (const s of samples) {
       const copy = renderSuggestionCopy(s);

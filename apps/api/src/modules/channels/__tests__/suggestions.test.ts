@@ -23,6 +23,7 @@ import {
   SUGGESTION_TIMING,
   type ChannelSuggestion,
 } from '../suggestions.js';
+import { detectMention } from '../message-routing.js';
 
 // #444 契约测试会真跑 dispatchReviewNow（自评兜底路径发频道系统消息）——
 // 按范式仅对发声出口（wu-messenger）做 importOriginal 间谍包装
@@ -289,8 +290,101 @@ describe('deriveChannelSuggestions（推导骨架）', () => {
     expect(after.suggestions.find(s => s.id === 'claim-wu')).toBeUndefined();
   });
 
-  it('in_review 宽限内无子单但无在线 loop → 不出片（无接管两向的另一向）', async () => {
-    await createParent();
+  // ─── #446：prompt 建议片（诊断阻塞 + 前置门禁转写清单） ───
+
+  it('blocked 当前工单（无 waitingForInput、租约不活）→ 出「诊断阻塞」prompt 片，带标题与阻塞原因上下文', async () => {
+    const parent = await createParent({ status: 'blocked' });
+    await fileStore.updateMetadata(parent.id, latest => ({
+      ...latest, blockReason: 'verify-failed: 自动验证未通过（3 个用例）',
+    }));
+
+    const r = await deriveChannelSuggestions(CHANNEL_ID, { fileStore });
+    expect(r.currentWuId).toBe(parent.id);
+    expect(r.suggestions).toEqual([{
+      id: 'diagnose-blocked',
+      kind: 'prompt',
+      // blockReason 剥机器类型前缀（verify-failed: 等）后入 params——片上文案说人话
+      params: { wuId: parent.id, wuTitle: '登录功能', blockReason: '自动验证未通过（3 个用例）' },
+      text: expect.stringContaining('@developer'),
+    }]);
+  });
+
+  it('blocked 无 blockReason → 出诊断片，params 不含 blockReason 键（不编造原因）', async () => {
+    const parent = await createParent({ status: 'blocked' });
+
+    const r = await deriveChannelSuggestions(CHANNEL_ID, { fileStore });
+    expect(r.suggestions).toEqual([{
+      id: 'diagnose-blocked',
+      kind: 'prompt',
+      params: { wuId: parent.id, wuTitle: '登录功能' },
+      text: expect.stringContaining('@developer'),
+    }]);
+  });
+
+  it('契约（#446 AC3）：诊断阻塞片预填文案经 @mention 路由解析出目标角色 developer', async () => {
+    await createParent({ status: 'blocked' });
+
+    const r = await deriveChannelSuggestions(CHANNEL_ID, { fileStore });
+    const prompt = r.suggestions.find(s => s.id === 'diagnose-blocked');
+    expect(prompt?.kind).toBe('prompt');
+    expect(typeof prompt?.text).toBe('string');
+    expect(detectMention(prompt!.text!)).toBe('developer');
+  });
+
+  it('双向：blocked + waitingForInput（人闸挂起）→ 不出诊断片（NeedInputOptions 内嵌回复覆盖）', async () => {
+    const parent = await createParent({ status: 'blocked' });
+    await fileStore.updateMetadata(parent.id, latest => ({ ...latest, waitingForInput: true }));
+
+    const r = await deriveChannelSuggestions(CHANNEL_ID, { fileStore });
+    expect(r.suggestions).toEqual([]);
+  });
+
+  it('双向：blocked + 当前 WU 租约仍活（loop 在处理）→ 不出诊断片', async () => {
+    const parent = await createParent({ status: 'blocked' });
+    const s = (await fileStore.getIndex()).find(x => x.id === parent.id)!;
+    await fileStore.upsertSnapshot({ ...s, assigneeId: 'inst-dev', claimedAt: nowIso(), timeoutAt: minutesAhead(5) });
+
+    const r = await deriveChannelSuggestions(CHANNEL_ID, { fileStore });
+    expect(r.suggestions).toEqual([]);
+  });
+
+  it('in_review 前置门禁窗口（无子单未超宽限）+ 有在线 loop → 状态片与可选「转写审查清单」prompt 片并存', async () => {
+    const parent = await createParent(); // updatedAt = now，宽限内
+    await setMembers(['profile-reviewer']);
+    await onlineLoop('profile-reviewer');
+
+    const r = await deriveChannelSuggestions(CHANNEL_ID, { fileStore });
+    expect(r.currentWuId).toBe(parent.id);
+    expect(r.suggestions).toEqual([
+      { id: 'auto-review-in-flight', kind: 'status', params: { wuId: parent.id, wuTitle: '登录功能' } },
+      {
+        id: 'transcribe-review-checklist', kind: 'prompt',
+        params: { wuId: parent.id, wuTitle: '登录功能' },
+        text: expect.stringContaining('@reviewer'),
+      },
+    ]);
+  });
+
+  it('契约（#446 AC3）：转写清单片预填文案经 @mention 路由解析出目标角色 reviewer', async () => {
+    await createParent(); // in_review，宽限内，无子单 → 前置门禁窗口
+
+    const r = await deriveChannelSuggestions(CHANNEL_ID, { fileStore });
+    const prompt = r.suggestions.find(s => s.id === 'transcribe-review-checklist');
+    expect(prompt?.kind).toBe('prompt');
+    expect(typeof prompt?.text).toBe('string');
+    expect(detectMention(prompt!.text!)).toBe('reviewer');
+  });
+
+  it('双向：评审在途（未完结 review 子单）→ 不出转写清单片', async () => {
+    const parent = await createParent();
+    await createReviewChild(parent.id, { leaseFresh: true });
+
+    const r = await deriveChannelSuggestions(CHANNEL_ID, { fileStore });
+    expect(r.suggestions.find(s => s.id === 'transcribe-review-checklist')).toBeUndefined();
+  });
+
+  it('in_review 宽限内无子单但无在线 loop → 不出状态片（无接管 fail-closed）；仍出可选转写清单片（#446：窗口内经消息路由人工介入可行）', async () => {
+    const parent = await createParent();
     await setMembers(['profile-reviewer']);
     // 有成员但 loop 心跳过期（离线）
     await fileStore.createState('inst-profile-reviewer', {
@@ -300,7 +394,12 @@ describe('deriveChannelSuggestions（推导骨架）', () => {
     });
 
     const r = await deriveChannelSuggestions(CHANNEL_ID, { fileStore });
-    expect(r.suggestions).toEqual([]);
+    expect(r.suggestions.find(s => s.kind === 'status')).toBeUndefined();
+    expect(r.suggestions).toEqual([{
+      id: 'transcribe-review-checklist', kind: 'prompt',
+      params: { wuId: parent.id, wuTitle: '登录功能' },
+      text: expect.stringContaining('@reviewer'),
+    }]);
   });
 
   it('review 子单已终态（done）→ 不算在途；超宽限 → 出补派动作片（可重派）', async () => {
@@ -462,6 +561,31 @@ describe('channel routes（#443）：GET /:id/suggestions', () => {
       id: 'redispatch-review',
       kind: 'action',
       params: { wuId: parent.id, wuTitle: '登录功能' },
+    }]);
+  });
+
+  it('blocked 当前工单 → data 携带 prompt 形态建议（#446 diagnose-blocked，含预填指令 text）', async () => {
+    const res = await fetch(baseUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'ch-suggestions-blocked', type: 'rnd' }),
+    });
+    const channel = (await res.json()).data;
+
+    const parent = await wuService.create({
+      type: 'task', scope: '实现登录功能', channelId: channel.id, status: 'blocked',
+      metadata: { title: '登录功能', blockReason: 'stuck: 连续 3 步无进展' },
+    });
+
+    const r = await fetch(`${baseUrl}/${channel.id}/suggestions`);
+    expect(r.status).toBe(200);
+    const body = await r.json();
+    expect(body.data.currentWuId).toBe(parent.id);
+    expect(body.data.suggestions).toEqual([{
+      id: 'diagnose-blocked',
+      kind: 'prompt',
+      params: { wuId: parent.id, wuTitle: '登录功能', blockReason: '连续 3 步无进展' },
+      text: expect.stringContaining('@developer'),
     }]);
   });
 });

@@ -1021,6 +1021,74 @@ describe('ChannelDetailPage — #443 端点驱动只读状态说明', () => {
   });
 });
 
+// #446（spec #441 情境引导 05）：prompt 建议片——本质是发给 agent 的自然语言任务；
+// 点击预填进输入框（指令本体由后端 text 字段承载），人可编辑后发送，走既有 @mention 消息路由
+describe('ChannelDetailPage — #446 prompt 建议片（预填进输入框，不自动发送）', () => {
+  const CHANNEL = { data: { data: { id: 'ch-1', name: 'rnd-主研发', type: 'rnd', members: '[]' } } };
+  const PROMPT_TEXT = '@reviewer 把《登录功能》的验收标准转写成审查清单';
+  const PROMPT_SUGGESTION = {
+    data: {
+      data: {
+        currentWuId: 'WU-4001',
+        suggestions: [{
+          id: 'transcribe-review-checklist', kind: 'prompt',
+          params: { wuId: 'WU-4001', wuTitle: '登录功能' },
+          text: PROMPT_TEXT,
+        }],
+      },
+    },
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    currentMessages = MESSAGES;
+    sseHandlers = [];
+    useNotificationStore.setState({ notifications: [] });
+    mockApiGet.mockImplementation((url: string) => Promise.resolve(
+      String(url).endsWith('/suggestions') ? PROMPT_SUGGESTION : CHANNEL,
+    ));
+    mockListWorkunits.mockImplementation((params?: { status?: string }) => Promise.resolve(
+      params?.status === 'active' ? activeWuList([]) : { data: { data: [] } },
+    ));
+    mockOnEvent.mockImplementation((cb: SseHandler) => { sseHandlers.push(cb); return () => {}; });
+    mockOnReconnect.mockImplementation((cb: () => void) => { reconnectHandlers.push(cb); return () => {}; });
+    reconnectHandlers = [];
+    mockListReqs.mockResolvedValue({ data: { data: [] } });
+    mockSendMessage.mockResolvedValue({});
+  });
+
+  it('端点回 prompt 建议 → 渲染可点片：可选标注 + 工单上下文 + hint 说清点击后果', async () => {
+    renderPage();
+    const chip = await screen.findByText('可选：转写审查清单：《登录功能》');
+    expect(chip.closest('button')).not.toBeNull();
+    expect(screen.getByText(/预填到输入框/)).toBeTruthy();
+  });
+
+  it('点击 → 预填指令本体进输入框（可编辑），不自动发送、不走接口', async () => {
+    renderPage();
+    fireEvent.click(await screen.findByText('可选：转写审查清单：《登录功能》'));
+    expect(screen.getByTestId('channel-input').getAttribute('data-prefill')).toBe(PROMPT_TEXT);
+    expect(Number(screen.getByTestId('channel-input').getAttribute('data-prefill-nonce'))).toBeGreaterThan(0);
+    // 不自动发送：人过目编辑后按 Enter，发送走既有 @mention 消息路由（输入框既有路径）
+    expect(mockSendMessage).not.toHaveBeenCalled();
+    expect(mockApiPost).not.toHaveBeenCalled();
+  });
+
+  it('prompt 片缺 text（畸形负载）→ 不渲染（fail-closed，不点空指令）', async () => {
+    mockApiGet.mockImplementation((url: string) => Promise.resolve(
+      String(url).endsWith('/suggestions')
+        ? { data: { data: { currentWuId: 'WU-4001', suggestions: [{ id: 'transcribe-review-checklist', kind: 'prompt', params: { wuId: 'WU-4001', wuTitle: '登录功能' } }] } } }
+        : CHANNEL,
+    ));
+    renderPage();
+    await waitFor(() => expect(screen.getByText('#rnd-主研发')).toBeTruthy());
+    await waitFor(() => expect(
+      mockApiGet.mock.calls.some(([url]) => String(url).endsWith('/suggestions')),
+    ).toBe(true));
+    expect(screen.queryByText(/转写审查清单/)).toBeNull();
+  });
+});
+
 // #444（spec #441 情境引导 03）：确定性动作片「补派评审」——断链时后端产出 action 建议；
 // 点击 → 一次确认 → 直调 dispatch-review 端点（与自动派发同原语），不经消息路由；
 // 生效后重拉建议，片随前置条件转假消失

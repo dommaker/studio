@@ -14,9 +14,23 @@ exports[`renderSuggestionCopy（文案模板机制） > claim-wu：快照锁定 
 }
 `;
 
+exports[`renderSuggestionCopy（文案模板机制） > diagnose-blocked：快照锁定 + 带工单标题与阻塞原因上下文 + hint 说清点击后果 1`] = `
+{
+  "hint": "这张工单被阻塞了（自动验证未通过（3 个用例））；点击会把诊断指令预填到输入框，可修改后再发送",
+  "label": "诊断阻塞：《登录功能》",
+}
+`;
+
 exports[`renderSuggestionCopy（文案模板机制） > redispatch-review：快照锁定 + 带工单上下文 + hint 说清点击后果 1`] = `
 {
   "hint": "这张工单的自动审查迟迟没有开始；点击确认后会立即创建审查工单，交给频道里的成员审查",
   "label": "补派评审：《登录功能》",
+}
+`;
+
+exports[`renderSuggestionCopy（文案模板机制） > transcribe-review-checklist：可选标注 + 快照锁定 + 带工单上下文 + hint 说清点击后果 1`] = `
+{
+  "hint": "自动审查开始前，可以先让审查员把验收标准转写成审查清单；点击会把这句话预填到输入框，可修改后再发送",
+  "label": "可选：转写审查清单：《登录功能》",
 }
 `;
