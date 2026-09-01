@@ -20,9 +20,23 @@ describe('renderSuggestionCopy（文案模板机制）', () => {
     expect(copy).toMatchSnapshot();
   });
 
+  // #444：动作片文案——说清点了会发生什么（spec 用户故事 5/6/9/10）
+  it('redispatch-review：快照锁定 + 带工单上下文 + hint 说清点击后果', () => {
+    const copy = renderSuggestionCopy({
+      id: 'redispatch-review',
+      kind: 'action',
+      params: { wuId: 'WU-1', wuTitle: '登录功能' },
+    });
+    expect(copy).not.toBeNull();
+    expect(copy!.label).toContain('登录功能');
+    expect(copy!.hint).toMatch(/点击/); // 必须说清「点了会发生什么」
+    expect(copy).toMatchSnapshot();
+  });
+
   it('全部已注册模板输出均无内部术语', () => {
     const samples: ChannelSuggestion[] = [
       { id: 'auto-review-in-flight', kind: 'status', params: { wuId: 'WU-1', wuTitle: '登录功能' } },
+      { id: 'redispatch-review', kind: 'action', params: { wuId: 'WU-1', wuTitle: '登录功能' } },
     ];
     for (const s of samples) {
       const copy = renderSuggestionCopy(s);

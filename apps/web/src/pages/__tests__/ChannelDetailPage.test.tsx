@@ -4,7 +4,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 
-const { mockSendMessage, mockListWorkunits, mockListReqs, mockGetReq, mockApiGet, mockApiPost, mockDrawerSpy, mockOnEvent, mockOnReconnect, mockRefresh, mockActivityRailSpy } = vi.hoisted(() => ({
+const { mockSendMessage, mockListWorkunits, mockListReqs, mockGetReq, mockApiGet, mockApiPost, mockDrawerSpy, mockOnEvent, mockOnReconnect, mockRefresh, mockActivityRailSpy, mockDispatchReview } = vi.hoisted(() => ({
   mockSendMessage: vi.fn(),
   mockListWorkunits: vi.fn(),
   mockListReqs: vi.fn(),
@@ -16,6 +16,7 @@ const { mockSendMessage, mockListWorkunits, mockListReqs, mockGetReq, mockApiGet
   mockOnReconnect: vi.fn(),
   mockRefresh: vi.fn(),
   mockActivityRailSpy: vi.fn(),
+  mockDispatchReview: vi.fn(),
 }));
 
 vi.mock('../../api', () => ({
@@ -34,7 +35,7 @@ vi.mock('../../hooks/useChannelEvents', () => ({
 }));
 
 vi.mock('../../api/workunit', () => ({
-  workunitApi: { list: mockListWorkunits },
+  workunitApi: { list: mockListWorkunits, dispatchReview: mockDispatchReview },
 }));
 
 vi.mock('../../api/requirements', () => ({
@@ -1016,5 +1017,91 @@ describe('ChannelDetailPage — #443 端点驱动只读状态说明', () => {
     await waitFor(() => expect(screen.getByText('#rnd-主研发')).toBeTruthy());
     await waitFor(() => expect(suggestionsCalls()).toBe(1));
     expect(screen.queryByText(/等待自动评审/)).toBeNull();
+  });
+});
+
+// #444（spec #441 情境引导 03）：确定性动作片「补派评审」——断链时后端产出 action 建议；
+// 点击 → 一次确认 → 直调 dispatch-review 端点（与自动派发同原语），不经消息路由；
+// 生效后重拉建议，片随前置条件转假消失
+describe('ChannelDetailPage — #444 确定性动作片：补派评审', () => {
+  const CHANNEL = { data: { data: { id: 'ch-1', name: 'rnd-主研发', type: 'rnd', members: '[]' } } };
+  const ACTION_SUGGESTION = {
+    data: {
+      data: {
+        currentWuId: 'WU-4001',
+        suggestions: [{
+          id: 'redispatch-review', kind: 'action',
+          params: { wuId: 'WU-4001', wuTitle: '登录功能' },
+        }],
+      },
+    },
+  };
+  const EMPTY_SUGGESTION = { data: { data: { currentWuId: 'WU-4001', suggestions: [] } } };
+  let suggestionFetchCount = 0;
+  const suggestionsCalls = () =>
+    mockApiGet.mock.calls.filter(([url]) => String(url).endsWith('/suggestions')).length;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    currentMessages = MESSAGES;
+    sseHandlers = [];
+    suggestionFetchCount = 0;
+    useNotificationStore.setState({ notifications: [] });
+    // 首次拉取回动作片；动作生效后的重拉回空（子单已建出，前置条件转假）
+    mockApiGet.mockImplementation((url: string) => Promise.resolve(
+      String(url).endsWith('/suggestions')
+        ? (++suggestionFetchCount === 1 ? ACTION_SUGGESTION : EMPTY_SUGGESTION)
+        : CHANNEL,
+    ));
+    mockListWorkunits.mockImplementation((params?: { status?: string }) => Promise.resolve(
+      params?.status === 'active' ? activeWuList([]) : { data: { data: [] } },
+    ));
+    mockOnEvent.mockImplementation((cb: SseHandler) => { sseHandlers.push(cb); return () => {}; });
+    mockOnReconnect.mockImplementation((cb: () => void) => { reconnectHandlers.push(cb); return () => {}; });
+    reconnectHandlers = [];
+    mockListReqs.mockResolvedValue({ data: { data: [] } });
+    mockSendMessage.mockResolvedValue({});
+    mockDispatchReview.mockResolvedValue({ data: { data: { reviewWorkUnitId: 'WU-4009' } } });
+  });
+
+  it('端点回 action 建议 → 渲染可点动作片，文案带工单上下文、说清点击后果', async () => {
+    renderPage();
+    const chip = await screen.findByText('补派评审：《登录功能》');
+    expect(chip.closest('button')).not.toBeNull();
+    expect(screen.getByText(/点击确认后会立即创建审查工单/)).toBeTruthy();
+  });
+
+  it('点击 → 确认弹窗（说清会发生什么）；确认 → 直调 dispatch-review，不走消息路由；生效后片消失', async () => {
+    renderPage();
+    fireEvent.click(await screen.findByText('补派评审：《登录功能》'));
+    // 一次确认：弹窗确认前不调接口
+    expect(mockDispatchReview).not.toHaveBeenCalled();
+    expect(screen.getByText(/不会新建普通工单，也不会在频道里发消息/)).toBeTruthy();
+    fireEvent.click(await screen.findByRole('button', { name: '确认补派' }));
+    // 直调 dispatch-review 端点（同原语）；不经 @mention 消息路由、不产生频道噪音
+    await waitFor(() => expect(mockDispatchReview).toHaveBeenCalledWith('WU-4001'));
+    expect(mockDispatchReview).toHaveBeenCalledTimes(1);
+    expect(mockSendMessage).not.toHaveBeenCalled();
+    // 动作生效、状态回扫（重拉端点回空）→ 片消失
+    await waitFor(() => expect(screen.queryByText('补派评审：《登录功能》')).toBeNull());
+    expect(suggestionsCalls()).toBe(2);
+  });
+
+  it('点击后取消 → 不调接口、不发消息、片保留', async () => {
+    renderPage();
+    fireEvent.click(await screen.findByText('补派评审：《登录功能》'));
+    fireEvent.click(await screen.findByRole('button', { name: '取消' }));
+    expect(mockDispatchReview).not.toHaveBeenCalled();
+    expect(mockSendMessage).not.toHaveBeenCalled();
+    expect(screen.getByText('补派评审：《登录功能》')).toBeTruthy();
+  });
+
+  it('dispatch-review 失败（如与自动化抢建 409）→ 错误文案进弹窗，不静默', async () => {
+    mockDispatchReview.mockRejectedValue(new Error('Review child already in flight — 已有未完结的评审子 WU'));
+    renderPage();
+    fireEvent.click(await screen.findByText('补派评审：《登录功能》'));
+    fireEvent.click(await screen.findByRole('button', { name: '确认补派' }));
+    await screen.findByText(/已有未完结的评审子 WU/);
+    expect(suggestionsCalls()).toBe(1); // 未成功不重拉
   });
 });

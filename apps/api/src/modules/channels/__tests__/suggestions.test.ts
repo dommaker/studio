@@ -17,11 +17,19 @@ import express from 'express';
 import type { Server } from 'node:http';
 import { FileStore } from '@dommaker/studio-shared';
 import { WorkUnitService, type WorkUnitData } from '../../workunit/workunit.service.js';
+import { ReviewDispatcher } from '../../agents/loop/review-dispatcher.js';
 import {
   deriveChannelSuggestions,
   SUGGESTION_TIMING,
   type ChannelSuggestion,
 } from '../suggestions.js';
+
+// #444 契约测试会真跑 dispatchReviewNow（自评兜底路径发频道系统消息）——
+// 按范式仅对发声出口（wu-messenger）做 importOriginal 间谍包装
+vi.mock('../../workunit/wu-messenger.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../workunit/wu-messenger.js')>()),
+  postWuSystemMessage: vi.fn().mockResolvedValue(undefined),
+}));
 
 // 数据根前置：vi.hoisted 先于一切 import 求值（current-pmo.test.ts 同款）
 const { envRoot } = vi.hoisted(() => {
@@ -153,14 +161,70 @@ describe('deriveChannelSuggestions（推导骨架）', () => {
     expect(statusOf(r.suggestions)).toBeDefined();
   });
 
-  it('in_review 超过宽限仍无子单 → 不出片（断链，补救动作片是 #444 的范围）', async () => {
+  it('in_review 超过宽限仍无子单（断链 = 自动化该派未派）→ 出「补派评审」动作片（#444）', async () => {
     const graceMin = SUGGESTION_TIMING.reviewDispatchInFlightGraceMs / 60_000;
-    await createParent({ ageMin: graceMin + 5 });
+    const parent = await createParent({ ageMin: graceMin + 5 });
     await setMembers(['profile-reviewer']);
     await onlineLoop('profile-reviewer');
 
     const r = await deriveChannelSuggestions(CHANNEL_ID, { fileStore });
+    expect(r.currentWuId).toBe(parent.id);
+    expect(r.suggestions).toEqual([{
+      id: 'redispatch-review',
+      kind: 'action',
+      params: { wuId: parent.id, wuTitle: '登录功能' },
+    }]);
+  });
+
+  it('双向覆盖反向：活跃 review 子单在途 → 不出补派动作片', async () => {
+    const graceMin = SUGGESTION_TIMING.reviewDispatchInFlightGraceMs / 60_000;
+    const parent = await createParent({ ageMin: graceMin + 5 });
+    await createReviewChild(parent.id, { leaseFresh: true });
+
+    const r = await deriveChannelSuggestions(CHANNEL_ID, { fileStore });
+    expect(r.suggestions.find(s => s.kind === 'action')).toBeUndefined();
+  });
+
+  it('断链但 l2 已达成（done 缺 l3 派生 in_review 列）→ 不出动作片（端点必拒，fail-closed）', async () => {
+    const graceMin = SUGGESTION_TIMING.reviewDispatchInFlightGraceMs / 60_000;
+    const parent = await createParent({ status: 'done', ageMin: graceMin + 5 });
+    await fileStore.updateMetadata(parent.id, latest => ({
+      ...latest,
+      attestations: { l2: { verdict: 'approved', by: 'reviewer', at: nowIso(), kind: 'agent-review' } },
+    }));
+
+    const r = await deriveChannelSuggestions(CHANNEL_ID, { fileStore });
     expect(r.suggestions).toEqual([]);
+  });
+
+  it('子单存在但僵死（租约过期无接管）→ 不出补派动作片（补派会被同父唯一性 409，非本动作可修）', async () => {
+    const graceMin = SUGGESTION_TIMING.reviewDispatchInFlightGraceMs / 60_000;
+    const parent = await createParent({ ageMin: graceMin + 5 });
+    const child = await createReviewChild(parent.id, { leaseFresh: true });
+    const s = (await fileStore.getIndex()).find(x => x.id === child.id)!;
+    await fileStore.upsertSnapshot({ ...s, timeoutAt: minutesAgo(1) });
+
+    const r = await deriveChannelSuggestions(CHANNEL_ID, { fileStore });
+    expect(r.suggestions.find(s => s.kind === 'action')).toBeUndefined();
+  });
+
+  it('契约（#444 AC2/AC3）：动作片 wuId 直调 dispatchReviewNow（自动派发同原语）建出 review 子单；生效后动作片消失', async () => {
+    const graceMin = SUGGESTION_TIMING.reviewDispatchInFlightGraceMs / 60_000;
+    const parent = await createParent({ ageMin: graceMin + 5 });
+
+    const before = await deriveChannelSuggestions(CHANNEL_ID, { fileStore });
+    const action = before.suggestions.find(s => s.id === 'redispatch-review');
+    expect(action).toBeDefined();
+
+    // 与 ReviewDispatcher 自动派发同一原语：直调 dispatchReviewNow（ dispatch-review 端点的服务层）
+    const dispatcher = new ReviewDispatcher(fileStore, wuService);
+    const child = await dispatcher.dispatchReviewNow(action!.params.wuId);
+    expect(child.type).toBe('review');
+    expect(child.parentId).toBe(parent.id);
+
+    // 动作生效、状态流转（子单建出）→ 前置条件转假 → 动作片消失
+    const after = await deriveChannelSuggestions(CHANNEL_ID, { fileStore });
+    expect(after.suggestions.find(s => s.id === 'redispatch-review')).toBeUndefined();
   });
 
   it('in_review 宽限内无子单但无在线 loop → 不出片（无接管两向的另一向）', async () => {
@@ -177,13 +241,17 @@ describe('deriveChannelSuggestions（推导骨架）', () => {
     expect(r.suggestions).toEqual([]);
   });
 
-  it('review 子单已终态（done）→ 不算在途；超宽限 → 不出片', async () => {
+  it('review 子单已终态（done）→ 不算在途；超宽限 → 出补派动作片（可重派）', async () => {
     const graceMin = SUGGESTION_TIMING.reviewDispatchInFlightGraceMs / 60_000;
     const parent = await createParent({ ageMin: graceMin + 5 });
     await createReviewChild(parent.id, { status: 'done' });
 
     const r = await deriveChannelSuggestions(CHANNEL_ID, { fileStore });
-    expect(r.suggestions).toEqual([]);
+    expect(r.suggestions).toEqual([{
+      id: 'redispatch-review',
+      kind: 'action',
+      params: { wuId: parent.id, wuTitle: '登录功能' },
+    }]);
   });
 
   it('不可自动评审类型（decision/spec/analysis/review）in_review → 不出片', async () => {
@@ -306,5 +374,32 @@ describe('channel routes（#443）：GET /:id/suggestions', () => {
       kind: 'status',
       params: { wuId: parent.id, wuTitle: '登录功能' },
     });
+  });
+
+  it('in_review 超宽限无子单（断链）→ data 携带 action 形态建议（#444 redispatch-review，结构化 params）', async () => {
+    const res = await fetch(baseUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'ch-suggestions-broken', type: 'rnd' }),
+    });
+    const channel = (await res.json()).data;
+
+    const graceMin = SUGGESTION_TIMING.reviewDispatchInFlightGraceMs / 60_000;
+    const parent = await wuService.create({
+      type: 'task', scope: '实现登录功能', channelId: channel.id, status: 'in_review',
+      metadata: { title: '登录功能' },
+    });
+    const snap = (await fileStore.getIndex()).find(x => x.id === parent.id)!;
+    await fileStore.upsertSnapshot({ ...snap, updatedAt: minutesAgo(graceMin + 5) });
+
+    const r = await fetch(`${baseUrl}/${channel.id}/suggestions`);
+    expect(r.status).toBe(200);
+    const body = await r.json();
+    expect(body.data.currentWuId).toBe(parent.id);
+    expect(body.data.suggestions).toEqual([{
+      id: 'redispatch-review',
+      kind: 'action',
+      params: { wuId: parent.id, wuTitle: '登录功能' },
+    }]);
   });
 });

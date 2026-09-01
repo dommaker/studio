@@ -6,3 +6,10 @@ exports[`renderSuggestionCopy（文案模板机制） > auto-review-in-flight：
   "label": "等待自动评审：《登录功能》",
 }
 `;
+
+exports[`renderSuggestionCopy（文案模板机制） > redispatch-review：快照锁定 + 带工单上下文 + hint 说清点击后果 1`] = `
+{
+  "hint": "这张工单的自动审查迟迟没有开始；点击确认后会立即创建审查工单，交给频道里的成员审查",
+  "label": "补派评审：《登录功能》",
+}
+`;
