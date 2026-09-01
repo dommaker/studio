@@ -27,13 +27,15 @@ vi.mock('@dommaker/harness', async (importOriginal) => {
       }
     },
     FailureRecorder: class {
-      constructor(_opts: unknown) {}
+      constructor(_opts: unknown) { recorderOpts = _opts; }
       async record(record: unknown) {
         return record;
       }
     },
   };
 });
+
+let recorderOpts: unknown = null;
 
 let tmpHome: string;
 let prevHome: string | undefined;
@@ -97,5 +99,9 @@ describe('diagnostics.routes', () => {
     expect(ok.json.data.level).toBe('L1');
     expect(ok.json.data.message).toBe('boom');
     expect(typeof ok.json.data.timestamp).toBe('number');
+
+    // #425：logFile 取 harness 公开常量，不再硬编码字面量
+    const { DEFAULT_FAILURE_LOG_FILE } = await import('@dommaker/harness');
+    expect(recorderOpts).toEqual({ logFile: DEFAULT_FAILURE_LOG_FILE });
   });
 });
