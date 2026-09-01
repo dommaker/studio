@@ -150,18 +150,18 @@ export function PMOPage({ companyId }: PMOPageProps) {
         </div>
       </div>
 
-      {/* Tabs */}
+      {/* Tabs — #432 B8：左对齐自适应宽（参照 KnowledgePage tab bar），不均分全宽 */}
       <div className="px-8 py-4">
-        <div className="flex gap-2 p-1 rounded u-surface-0">
+        <div className="inline-flex gap-2 p-1 rounded u-surface-0">
           <button
             onClick={() => setActiveTab('projects')}
-            className={`flex-1 py-2 px-4 rounded text-sm font-medium ${activeTab === 'projects' ? 'u-surface u-accent' : 'u-text-2'}`}
+            className={`py-2 px-4 rounded text-sm font-medium ${activeTab === 'projects' ? 'u-surface u-accent' : 'u-text-2'}`}
           >
             📁 项目 ({projects.length})
           </button>
           <button
             onClick={() => setActiveTab('okr')}
-            className={`flex-1 py-2 px-4 rounded text-sm font-medium ${activeTab === 'okr' ? 'u-surface u-accent' : 'u-text-2'}`}
+            className={`py-2 px-4 rounded text-sm font-medium ${activeTab === 'okr' ? 'u-surface u-accent' : 'u-text-2'}`}
           >
             🎯 OKR ({okrs.length})
           </button>

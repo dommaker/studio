@@ -1,6 +1,6 @@
 /**
  * ProjectPipeline tests - PMO 进度管道
- * 覆盖：loading / 空态 / 进度条+五泳道计数 / WU 卡片标题 / agent 名册解析 / assigneeId 回退
+ * 覆盖：loading / 空态 / 进度条+泳道计数 / 泳道列数对齐 / WU 卡片标题 / agent 名册解析 / assigneeId 回退
  */
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
@@ -44,7 +44,7 @@ describe('ProjectPipeline', () => {
     expect(screen.getByText('暂无任务产出')).toBeInTheDocument();
   });
 
-  it('渲染总进度条与五泳道计数（#399 词表：待领取/进行中/待验收/完成）', () => {
+  it('渲染总进度条与泳道计数（#399 词表：待领取/进行中/待验收/完成）', () => {
     render(
       <ProjectPipeline
         workunits={[
@@ -59,6 +59,30 @@ describe('ProjectPipeline', () => {
     expect(screen.getByText(/待领取 \(1\)/)).toBeInTheDocument();
     expect(screen.getByText(/进行中 \(1\)/)).toBeInTheDocument();
     expect(screen.getByText(/完成 \(1\)/)).toBeInTheDocument();
+  });
+
+  it('#432 B0-1：泳道 grid 列数与实际泳道数（6）对齐，第 6 条「完成」不掉行', () => {
+    render(<ProjectPipeline workunits={[wu({ id: 'a', title: '任务A', status: 'done' })]} agents={[]} />);
+    const grid = screen.getByText(/完成 \(1\)/).closest('.grid');
+    expect(grid).not.toBeNull();
+    expect(grid!.className).not.toContain('grid-cols-5');
+    expect((grid as HTMLElement).style.gridTemplateColumns).toContain('repeat(6');
+  });
+
+  it('#432 B2：进度条 token 化——中间态 u-accent-bg、100% u-ok-bg，无写死蓝色', () => {
+    const { container, rerender } = render(
+      <ProjectPipeline
+        workunits={[wu({ id: 'a', title: '任务A', status: 'active' }), wu({ id: 'b', title: '任务B', status: 'done' })]}
+        agents={[]}
+      />,
+    );
+    const fill = container.querySelector('.h-3 > div') as HTMLElement;
+    expect(fill.className).toContain('u-accent-bg');
+    expect(fill.className).not.toMatch(/from-blue|to-blue/);
+
+    rerender(<ProjectPipeline workunits={[wu({ id: 'a', title: '任务A', status: 'done' })]} agents={[]} />);
+    const fillDone = container.querySelector('.h-3 > div') as HTMLElement;
+    expect(fillDone.className).toContain('u-ok-bg');
   });
 
   it('#399 §8.1：0 桶 muted 自然呈现——泳道不染状态色、桶名 muted；非 0 桶维持色语义', () => {
