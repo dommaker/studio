@@ -4,7 +4,7 @@
  * Task/GoalExecution 完成 → PassesGate → Review → FailureRecorder
  */
 
-import { PassesGate, getTraceCollector, createFailureRecorder, ErrorType, FailureLevel } from '@dommaker/harness';
+import { PassesGate, getTraceCollector, createFailureRecorder, ErrorType, FailureLevel, DEFAULT_FAILURE_LOG_FILE } from '@dommaker/harness';
 import type { TestResult, HookDefinition } from '@dommaker/harness';
 
 /** 任务完成前：测试门控 */
@@ -45,8 +45,8 @@ export async function afterReview(params?: {
   } else {
     collector.recordFail('review_gate', 'guideline', traceBase);
 
-    // 审查失败 → 写入 FailureRecorder
-    const recorder = createFailureRecorder({ logFile: '.harness/logs/failures.log' });
+    // 审查失败 → 写入 FailureRecorder（#425：logFile 取 harness 公开常量）
+    const recorder = createFailureRecorder({ logFile: DEFAULT_FAILURE_LOG_FILE });
     recorder.record({
       type: ErrorType.GATE_FAILED,
       level: FailureLevel.L2,

@@ -58,8 +58,9 @@ diagnosticsRoutes.post('/failures', async (req: Request, res: Response) => {
 
     await loadHarness();
     // S3 修复：传必需 logFile 参数 + 传 FailureRecord 而非 Error
+    // #425：logFile 取 harness 公开常量（口径归一，harness#76）
     const recorder = new harnessModule!.FailureRecorder({
-      logFile: '.harness/logs/failures.log',
+      logFile: harnessModule!.DEFAULT_FAILURE_LOG_FILE,
     });
 
     const record: import('@dommaker/harness').FailureRecord = {
