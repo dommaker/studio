@@ -5,14 +5,12 @@ import { MetaStrip } from '../MetaStrip';
 
 describe('MetaStrip', () => {
   it('渲染 label: value 项', () => {
-    render(<MetaStrip items={[
+    const { container } = render(<MetaStrip items={[
       { key: 'stage', label: '当前阶段', value: '进行中' },
       { key: 'ac', label: 'AC 数', value: 3 },
     ]} />);
-    expect(screen.getByText('当前阶段:')).toBeTruthy();
-    expect(screen.getByText('进行中')).toBeTruthy();
-    expect(screen.getByText('AC 数:')).toBeTruthy();
-    expect(screen.getByText('3')).toBeTruthy();
+    expect(container.textContent).toContain('当前阶段: 进行中');
+    expect(container.textContent).toContain('AC 数: 3');
   });
 
   it('空值项（null/undefined/空串）省略不渲染', () => {
@@ -22,10 +20,10 @@ describe('MetaStrip', () => {
       { key: 'eta', label: '预计耗时', value: '' },
       { key: 'stage', label: '当前阶段', value: '待验收' },
     ]} />);
-    expect(screen.queryByText('涉及角色:')).toBeNull();
-    expect(screen.queryByText('AC 数:')).toBeNull();
-    expect(screen.queryByText('预计耗时:')).toBeNull();
-    expect(screen.getByText('当前阶段:')).toBeTruthy();
+    expect(screen.queryByText(/涉及角色/)).toBeNull();
+    expect(screen.queryByText(/AC 数/)).toBeNull();
+    expect(screen.queryByText(/预计耗时/)).toBeNull();
+    expect(screen.getByText(/当前阶段/)).toBeTruthy();
   });
 
   it('全部为空 → 整体不渲染（不占位）', () => {

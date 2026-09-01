@@ -44,7 +44,8 @@ import { VscodeGuideDialog, CloudIdeGuideDialog } from '../components/pmo/IdeGui
 import { ProjectProgressCard } from '../components/pmo/ProjectProgressCard';
 import { ManualTaskButton } from '../components/ui/ManualTaskButton';
 import { BackButton } from '../components/ui';
-import { buildProjectTimeline, type PipelineWorkUnit } from '../components/pmo/pipelineUtils';
+import { MetaStrip } from '../components/ui/MetaStrip';
+import { buildProjectTimeline, projectChainMeta, type PipelineWorkUnit } from '../components/pmo/pipelineUtils';
 
 interface Project {
   id: string;
@@ -191,6 +192,14 @@ export function ProjectDetailPage() {
     agentNameById,
   });
 
+  // #440 Phase 3：meta strip 派生（涉及角色 / AC 数 = chain WUs 聚合；当前阶段 = PROJECT_STEPS 词）
+  const chainMeta = projectChainMeta(chainWus, agentNameById);
+  const projectStageLabel = (() => {
+    if (!project) return null;
+    const statusKey = project.status === 'delivered' ? 'completed' : project.status;
+    return PROJECT_STEPS.find(x => x.key === statusKey)?.label ?? null;
+  })();
+
   if (loading) {
     return <div className="flex items-center justify-center h-64"><div className="u-text-2">加载中...</div></div>;
   }
@@ -219,18 +228,16 @@ export function ProjectDetailPage() {
             OKR: {project.OKR.title} ({project.OKR.quarter})
           </div>
         )}
-        {/* 🆕 PMO-a: REQ 别名 / 分支 / 交付策略（有值才显示） */}
-        {(project.reqAlias || project.gitBranch || project.deliveryPolicy) && (
-          <div className="text-sm u-text-2 mt-1 flex flex-wrap gap-x-4 gap-y-1">
-            {project.reqAlias && <span>REQ 别名: {project.reqAlias}</span>}
-            {project.gitBranch && <span>分支: {project.gitBranch}</span>}
-            {project.deliveryPolicy && (
-              <span>
-                交付策略: {project.deliveryPolicy === 'auto-merge' ? '自动合并' : '分支交付'}
-              </span>
-            )}
-          </div>
-        )}
+        {/* 🆕 PMO-a + #440 Phase 3：meta strip——REQ 别名 / 分支 / 交付策略 / 涉及角色 / AC 数 / 当前阶段（有值才显示，缺项不占位） */}
+        <MetaStrip items={[
+          { key: 'req', label: 'REQ 别名', value: project.reqAlias },
+          { key: 'branch', label: '分支', value: project.gitBranch },
+          { key: 'delivery', label: '交付策略', value: project.deliveryPolicy
+              ? (project.deliveryPolicy === 'auto-merge' ? '自动合并' : '分支交付') : null },
+          { key: 'roles', label: '涉及角色', value: chainMeta.roles },
+          { key: 'ac', label: 'AC 数', value: chainMeta.acCount },
+          { key: 'stage', label: '当前阶段', value: projectStageLabel },
+        ]} />
         {/* 🆕 AC-5: 原始需求描述（可折叠，>120 字默认收起） */}
         {project.requirement && (
           <div className="mt-2 p-2 rounded u-surface-2">

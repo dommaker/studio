@@ -225,8 +225,8 @@ describe('WorkUnitDetailPage', () => {
     // 频道行 → /channels/:channelId
     const channelLink = await screen.findByText('#主频道');
     expect(channelLink.closest('a')?.getAttribute('href')).toBe('/channels/ch-1');
-    // 认领人行 → /agents/:roleId
-    const agentLink = await screen.findByText('@coder-01');
+    // 认领人行 → /agents/:roleId（#440 meta strip 也渲染同名链接，取其一断 href）
+    const [agentLink] = await screen.findAllByText('@coder-01');
     expect(agentLink.closest('a')?.getAttribute('href')).toBe('/agents/role-1');
     // 时间行 + Token 行（mono 总耗，整行可点开图表面板）
     expect(screen.getByText('创建')).toBeDefined();
@@ -275,7 +275,8 @@ describe('WorkUnitDetailPage', () => {
       data: { agents: [], summary: { total: 0, idle: 0, active: 0, error: 0, terminated: 0 } },
     });
     render(<WorkUnitDetailPage />);
-    const chip = await screen.findByText('@inst-abc');
+    // #440：meta strip 与事实卡各渲染一份短 id，取其一断不可点
+    const [chip] = await screen.findAllByText('@inst-abc');
     expect(chip.closest('a')).toBeNull();
   });
 
@@ -287,7 +288,8 @@ describe('WorkUnitDetailPage', () => {
     mockGetAgentInstance.mockResolvedValue({ data: { id: 'inst-abcdefgh1234', roleId: 'role-9', status: 'terminated' } });
     mockListAllAgents.mockResolvedValue({ data: { data: [{ id: 'role-9', name: 'Analyst' }] } });
     render(<WorkUnitDetailPage />);
-    const chip = await screen.findByText('@Analyst');
+    // #440：meta strip 与事实卡各渲染一份，取其一断链接
+    const [chip] = await screen.findAllByText('@Analyst');
     expect(chip.closest('a')?.getAttribute('href')).toBe('/agents/role-9');
   });
 
@@ -503,7 +505,10 @@ describe('WorkUnitDetailPage — #440 meta strip', () => {
   };
 
   it('渲染涉及角色（解析到角色名）与当前阶段；baseWu 无 ac → AC 数不占位', async () => {
-    const strip = await stripOf();
+    render(<WorkUnitDetailPage />);
+    // 认领人解析是异步三级口径（#290），等它落到角色名
+    await screen.findAllByText('@coder-01');
+    const strip = document.querySelector('.wu-detail-meta');
     expect(strip).toBeTruthy();
     expect(strip!.textContent).toContain('涉及角色');
     expect(strip!.textContent).toContain('@coder-01');
