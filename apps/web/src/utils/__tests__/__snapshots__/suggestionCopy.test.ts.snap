@@ -1,0 +1,8 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`renderSuggestionCopy（文案模板机制） > auto-review-in-flight：快照锁定 + 带工单标题上下文 + 说清「无需操作」 1`] = `
+{
+  "hint": "系统正在自动审查这张工单，无需操作；有结果后这里会更新",
+  "label": "等待自动评审：《登录功能》",
+}
+`;

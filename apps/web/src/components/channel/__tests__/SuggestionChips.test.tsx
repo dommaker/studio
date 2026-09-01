@@ -51,4 +51,32 @@ describe('SuggestionChips', () => {
     const { container } = render(<SuggestionChips suggestions={[]} onPick={() => {}} onDismiss={() => {}} />);
     expect(container.firstChild).toBeNull();
   });
+
+  // #443（spec #441）：三形态渲染骨架——status 只读状态说明：不可点、无发送语义
+  it('status 形态：只读状况说明，非按钮、点击不上送、无 prefill 语义', () => {
+    const onPick = vi.fn();
+    const suggestions = [{
+      id: 'auto-review-in-flight',
+      kind: 'status' as const,
+      label: '等待自动评审：《登录功能》',
+      hint: '系统正在自动审查这张工单，无需操作；有结果后这里会更新',
+    }];
+    render(<SuggestionChips suggestions={suggestions} onPick={onPick} onDismiss={() => {}} />);
+    const note = screen.getByText('等待自动评审：《登录功能》');
+    expect(note.closest('button')).toBeNull(); // 不可点：不是按钮、不包在按钮里
+    fireEvent.click(note);
+    expect(onPick).not.toHaveBeenCalled(); // 无发送语义
+    expect(screen.getByText(/无需操作/)).toBeTruthy();
+  });
+
+  // action 形态骨架（#444 起由后端产出）：可点、点击走 onAction 而非 prefill
+  it('action 形态：点击上送整条建议给 onAction（直调确定性接口，不经输入框）', () => {
+    const onPick = vi.fn();
+    const onAction = vi.fn();
+    const actionItem = { id: 'redispatch-review', kind: 'action' as const, label: '补派评审' };
+    render(<SuggestionChips suggestions={[actionItem]} onPick={onPick} onAction={onAction} onDismiss={() => {}} />);
+    fireEvent.click(screen.getByText('补派评审'));
+    expect(onAction).toHaveBeenCalledWith(actionItem);
+    expect(onPick).not.toHaveBeenCalled();
+  });
 });

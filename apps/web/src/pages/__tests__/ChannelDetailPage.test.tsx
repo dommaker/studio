@@ -937,3 +937,84 @@ describe('ChannelDetailPage — #440 阶段条', () => {
     expect(steps[2].className).toContain('wu-st-current');
   });
 });
+
+// #443（spec #441 情境引导 02）：端点驱动的只读状态说明——频道建议改由
+// GET /channels/:id/suggestions 驱动；workunit.status_changed SSE 后重拉（不新增事件类型）；
+// status 形态只读、不可点、无发送语义
+describe('ChannelDetailPage — #443 端点驱动只读状态说明', () => {
+  const CHANNEL = { data: { data: { id: 'ch-1', name: 'rnd-主研发', type: 'rnd', members: '[]' } } };
+  const STATUS_SUGGESTION = {
+    data: {
+      data: {
+        currentWuId: 'WU-4001',
+        suggestions: [{
+          id: 'auto-review-in-flight', kind: 'status',
+          params: { wuId: 'WU-4001', wuTitle: '登录功能' },
+        }],
+      },
+    },
+  };
+  const suggestionsCalls = () =>
+    mockApiGet.mock.calls.filter(([url]) => String(url).endsWith('/suggestions')).length;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    currentMessages = MESSAGES;
+    sseHandlers = [];
+    useNotificationStore.setState({ notifications: [] });
+    mockApiGet.mockImplementation((url: string) => Promise.resolve(
+      String(url).endsWith('/suggestions') ? STATUS_SUGGESTION : CHANNEL,
+    ));
+    mockListWorkunits.mockImplementation((params?: { status?: string }) => Promise.resolve(
+      params?.status === 'active' ? activeWuList([]) : { data: { data: [] } },
+    ));
+    mockOnEvent.mockImplementation((cb: SseHandler) => { sseHandlers.push(cb); return () => {}; });
+    mockOnReconnect.mockImplementation((cb: () => void) => { reconnectHandlers.push(cb); return () => {}; });
+    reconnectHandlers = [];
+    mockListReqs.mockResolvedValue({ data: { data: [] } });
+    mockSendMessage.mockResolvedValue({});
+  });
+
+  it('端点回 status 建议 → 渲染只读状况说明：可见、非按钮、点击不进输入框', async () => {
+    renderPage();
+    const note = await screen.findByText('等待自动评审：《登录功能》');
+    expect(note.closest('button')).toBeNull();
+    fireEvent.click(note);
+    expect(screen.getByTestId('channel-input').getAttribute('data-prefill')).toBe('');
+    expect(Number(screen.getByTestId('channel-input').getAttribute('data-prefill-nonce'))).toBe(0);
+  });
+
+  it('挂载拉取一次；本频道 workunit.status_changed SSE → 重拉；他频道事件不重拉（不新增事件类型）', async () => {
+    renderPage();
+    await waitFor(() => expect(suggestionsCalls()).toBe(1));
+    act(() => emitSse({
+      event_type: 'workunit.status_changed',
+      data: { workunit: { id: 'WU-4001', status: 'in_review', channelId: 'ch-1', type: 'task', metadata: '{}' } },
+    }));
+    await waitFor(() => expect(suggestionsCalls()).toBe(2));
+    act(() => emitSse({
+      event_type: 'workunit.status_changed',
+      data: { workunit: { id: 'WU-9', status: 'in_review', channelId: 'ch-other', type: 'task', metadata: '{}' } },
+    }));
+    await new Promise(r => setTimeout(r, 20));
+    expect(suggestionsCalls()).toBe(2);
+  });
+
+  it('端点负载畸形（缺 suggestions 数组）→ 不出片不炸（fail-closed）', async () => {
+    mockApiGet.mockResolvedValue(CHANNEL); // 所有 GET 都回频道对象
+    renderPage();
+    await waitFor(() => expect(screen.getByText('#rnd-主研发')).toBeTruthy());
+    await waitFor(() => expect(suggestionsCalls()).toBe(1));
+    expect(screen.queryByText(/等待自动评审/)).toBeNull();
+  });
+
+  it('端点请求失败 → 静默不出片（引导只是引导，不阻断频道使用）', async () => {
+    mockApiGet.mockImplementation((url: string) => (
+      String(url).endsWith('/suggestions') ? Promise.reject(new Error('boom')) : Promise.resolve(CHANNEL)
+    ));
+    renderPage();
+    await waitFor(() => expect(screen.getByText('#rnd-主研发')).toBeTruthy());
+    await waitFor(() => expect(suggestionsCalls()).toBe(1));
+    expect(screen.queryByText(/等待自动评审/)).toBeNull();
+  });
+});
