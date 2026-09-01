@@ -256,8 +256,8 @@ export const AuditLogsPage: React.FC = () => {
           <tbody>
             {logs.length === 0 ? (
               <tr>
-                <td colSpan={7} className="text-center py-8 u-text-2">
-                  {'暂无审计日志'}
+                <td colSpan={7}>
+                  <div className="empty-state">{'暂无审计日志'}</div>
                 </td>
               </tr>
             ) : (

@@ -104,7 +104,7 @@ export function DiscussionPanel({ workUnitId }: { workUnitId: string }) {
           disabled={sending}
         />
         <button
-          className="text-xs px-2 py-1 rounded u-accent-dim u-accent u-hover-bg disabled:opacity-50"
+          className="btn btn-secondary btn-sm"
           onClick={handleSend}
           disabled={sending || !input.trim()}
         >

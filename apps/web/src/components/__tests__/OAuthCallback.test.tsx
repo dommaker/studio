@@ -47,7 +47,7 @@ describe('OAuthCallback', () => {
   it('renders spinner', () => {
     window.location.hash = '#token=x';
     const { container } = renderCb();
-    expect(container.querySelector('.animate-spin')).not.toBeNull();
+    expect(container.querySelector('.loading-spinner')).not.toBeNull();
   });
 
   describe('error query param', () => {

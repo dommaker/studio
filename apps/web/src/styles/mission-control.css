@@ -1167,7 +1167,8 @@ button.mc-act-step:hover { background: var(--bg-hover); }
    ============================================================ */
 .u-surface { background: var(--bg-elevated); }
 .u-surface-2 { background: var(--bg-tertiary); }
-.u-hover-bg:hover { background: var(--bg-hover); }
+.u-hover-bg:hover,
+.u-hover-bg:focus-visible { background: var(--bg-hover); }
 .u-hover-text:hover { color: var(--text-primary); }
 .u-hover-accent:hover { color: var(--accent-primary); }
 .u-text { color: var(--text-primary); }

@@ -111,7 +111,7 @@ export function MonitoringPage() {
               {proposals === null ? (
                 <div className="text-sm u-text-2">待审列表不可用</div>
               ) : proposals.length === 0 ? (
-                <div className="text-sm u-text-2">无待审提案（提取产物以 draft 入库，审核通过后才参与注入）</div>
+                <div className="empty-state text-sm">无待审提案（提取产物以 draft 入库，审核通过后才参与注入）</div>
               ) : (
                 <div className="space-y-2">
                   {proposals.map(p => (

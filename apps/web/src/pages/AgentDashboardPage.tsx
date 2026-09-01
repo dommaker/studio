@@ -85,8 +85,8 @@ export function AgentDashboardPage() {
         ) : loading && roles.length === 0 ? (
           <div className="text-center py-20 u-text-2">加载中...</div>
         ) : roles.length === 0 ? (
-          <div className="text-center py-20 u-text-2">
-            <div className="text-4xl mb-4">🤖</div>
+          <div className="empty-state">
+            <div className="empty-icon">🤖</div>
             <p>暂无角色</p>
             <p className="text-sm mt-2">点击右上角"创建角色"，从检测到的 CLI 创建第一个 Agent</p>
           </div>

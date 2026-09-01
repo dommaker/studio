@@ -42,7 +42,8 @@ describe('EventSearchPanel', () => {
       },
     });
     render(<EventSearchPanel />);
-    fireEvent.change(screen.getByLabelText('级别'), { target: { value: 'warning' } });
+    fireEvent.click(screen.getByLabelText('级别'));
+    fireEvent.click(await screen.findByRole('option', { name: '仅警告和严重' }));
     fireEvent.change(screen.getByPlaceholderText('关键词（可选）'), { target: { value: 'boom' } });
     fireEvent.click(screen.getByText('查询'));
 

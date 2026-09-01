@@ -11,6 +11,7 @@ import { libraryApi, projectApi } from '../api';
 import { companyApi } from '../api/company';
 import { maintenanceApi, type TriggerCosts } from '../api/maintenance';
 import { ManualTaskButton } from '../components/ui';
+import { Select } from '../components/ui/Select';
 
 interface LibraryDoc {
   id: string;
@@ -143,19 +144,16 @@ export function LibraryPage() {
             onChange={(e) => setSearch(e.target.value)}
             className="input flex-1"
           />
-          <select
+          <Select
             value={projectId}
-            onChange={(e) => setProjectId(e.target.value)}
-            className="input"
+            onChange={setProjectId}
+            options={[
+              { value: '', label: '全部项目' },
+              ...projects.map((p) => ({ value: p.id, label: `${p.pmoNumber} ${p.title}` })),
+            ]}
             style={{ width: 220 }}
-          >
-            <option value="">全部项目</option>
-            {projects.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.pmoNumber} {p.title}
-              </option>
-            ))}
-          </select>
+            aria-label="项目筛选"
+          />
         </div>
       </div>
 
@@ -163,7 +161,7 @@ export function LibraryPage() {
       <div className="flex-1 overflow-auto px-8 pb-8 pt-6">
         {loading ? (
           <div className="flex items-center justify-center h-64">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 u-border-2" />
+            <div className="loading-spinner" />
           </div>
         ) : docs.length === 0 ? (
           <div className="flex items-center justify-center h-64">

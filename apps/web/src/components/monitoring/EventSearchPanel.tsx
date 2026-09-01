@@ -6,6 +6,7 @@
  */
 import { useState } from 'react';
 import { eventsApi, type StudioEventItem, type StudioEventLevel } from '../../api/events';
+import { Select } from '../ui/Select';
 
 const LEVEL_OPTIONS: Array<{ value: StudioEventLevel; label: string }> = [
   { value: 'info', label: '信息及以上' },
@@ -71,16 +72,12 @@ export function EventSearchPanel() {
       {/* 检索条件 */}
       <div className="card p-4">
         <div className="flex flex-wrap items-center gap-3">
-          <select
-            className="btn btn-secondary"
+          <Select
             value={level}
-            onChange={(e) => setLevel(e.target.value as StudioEventLevel)}
+            onChange={(v) => setLevel(v as StudioEventLevel)}
+            options={LEVEL_OPTIONS}
             aria-label="级别"
-          >
-            {LEVEL_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>{o.label}</option>
-            ))}
-          </select>
+          />
           <input
             className="btn btn-secondary"
             style={{ minWidth: 220 }}

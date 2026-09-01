@@ -90,10 +90,9 @@ describe('LibraryPage（#155 T5 阅览室）', () => {
   it('项目下拉变更后带 project 参数重新拉取', async () => {
     renderPage();
 
-    const select = await screen.findByRole('combobox');
-    await waitFor(() => expect(screen.getByText('PMO-1 项目甲')).toBeTruthy());
-
-    fireEvent.change(select, { target: { value: 'proj-a' } });
+    const trigger = await screen.findByLabelText('项目筛选');
+    fireEvent.click(trigger);
+    fireEvent.click(await screen.findByRole('option', { name: /PMO-1 项目甲/ }));
 
     await waitFor(
       () => expect(mockLibraryList).toHaveBeenCalledWith({ project: 'proj-a' }),
