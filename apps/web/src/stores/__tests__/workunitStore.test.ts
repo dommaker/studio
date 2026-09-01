@@ -163,3 +163,96 @@ describe('workunitStore applyWorkunitEvent — SSE 负载驱动行更新（#318�
     expect(useWorkUnitStore.getState().workunits).toHaveLength(0);
   });
 });
+
+// #405：未归属过滤（消费 #428 attributed=false 服务端过滤）——
+// 请求带参、徽标计数取服务端 total（非当前页近似）、SSE 增量不混入不符行
+describe('workunitStore 未归属过滤（#405）', () => {
+  const row = (id: string, overrides: Record<string, unknown> = {}) =>
+    ({ id, scope: `scope-${id}`, type: 'task', status: 'active', metadata: null, ...overrides }) as unknown as import('../../api/workunit').WorkUnit;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useWorkUnitStore.setState({
+      workunits: [],
+      total: 0,
+      page: 1,
+      limit: 20,
+      statusFilter: null,
+      typeFilter: null,
+      unattributedOnly: false,
+      unattributedTotal: null,
+      loading: false,
+      error: null,
+    });
+  });
+
+  it('setUnattributedOnly(true)：请求带 attributed=false，徽标计数取 pagination.total（服务端口径）', async () => {
+    (workunitApi.list as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      data: {
+        data: [row('wu-o1')],
+        pagination: { total: 42, page: 1, limit: 20, totalPages: 3 },
+      },
+    });
+
+    await useWorkUnitStore.getState().setUnattributedOnly(true);
+
+    expect(workunitApi.list).toHaveBeenCalledWith(expect.objectContaining({ attributed: false }));
+    const s = useWorkUnitStore.getState();
+    expect(s.unattributedOnly).toBe(true);
+    expect(s.unattributedTotal).toBe(42); // 服务端 total，非当前页条数 1
+  });
+
+  it('setUnattributedOnly(false)：取消过滤，请求不带 attributed，恢复原列表行为', async () => {
+    useWorkUnitStore.setState({ unattributedOnly: true });
+
+    await useWorkUnitStore.getState().setUnattributedOnly(false);
+
+    expect(workunitApi.list).toHaveBeenCalledWith(expect.objectContaining({ attributed: undefined }));
+    expect(useWorkUnitStore.getState().unattributedOnly).toBe(false);
+  });
+
+  it('loadUnattributedCount：limit=1 轻量查询取服务端 total 作徽标', async () => {
+    (workunitApi.list as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      data: { data: [row('wu-x')], pagination: { total: 42, page: 1, limit: 1, totalPages: 42 } },
+    });
+
+    await useWorkUnitStore.getState().loadUnattributedCount();
+
+    expect(workunitApi.list).toHaveBeenCalledWith(expect.objectContaining({ attributed: false, limit: 1 }));
+    expect(useWorkUnitStore.getState().unattributedTotal).toBe(42);
+  });
+
+  it('unattributedOnly 时 SSE created：有 reqId / 有戳（含 legacy）的行不插入，未归属行插入', () => {
+    useWorkUnitStore.setState({ unattributedOnly: true, workunits: [], total: 0 });
+
+    useWorkUnitStore.getState().applyWorkunitEvent(row('wu-a', { reqId: 'REQ-1' }), { insertIfMissing: true });
+    useWorkUnitStore.getState().applyWorkunitEvent(row('wu-b', { metadata: JSON.stringify({ pmoId: 'PMO-1' }) }), { insertIfMissing: true });
+    useWorkUnitStore.getState().applyWorkunitEvent(row('wu-c', { metadata: JSON.stringify({ ownershipProjectId: 'PMO-2' }) }), { insertIfMissing: true });
+    expect(useWorkUnitStore.getState().workunits).toHaveLength(0);
+
+    useWorkUnitStore.getState().applyWorkunitEvent(row('wu-d'), { insertIfMissing: true });
+    const s = useWorkUnitStore.getState();
+    expect(s.workunits.map(w => w.id)).toEqual(['wu-d']);
+    expect(s.total).toBe(1);
+  });
+
+  it('unattributedOnly 时行变更后获得归属 -> 移除且 total-1', () => {
+    useWorkUnitStore.setState({ unattributedOnly: true, workunits: [row('wu-1')], total: 5 });
+
+    useWorkUnitStore.getState().applyWorkunitEvent(row('wu-1', { reqId: 'REQ-9' }), { insertIfMissing: false });
+
+    const s = useWorkUnitStore.getState();
+    expect(s.workunits).toHaveLength(0);
+    expect(s.total).toBe(4);
+  });
+
+  it('unattributedOnly 与 statusFilter 组合（交集语义）', () => {
+    useWorkUnitStore.setState({ unattributedOnly: true, statusFilter: 'active', workunits: [], total: 0 });
+
+    useWorkUnitStore.getState().applyWorkunitEvent(row('wu-1', { status: 'done' }), { insertIfMissing: true });
+    expect(useWorkUnitStore.getState().workunits).toHaveLength(0);
+
+    useWorkUnitStore.getState().applyWorkunitEvent(row('wu-2', { status: 'active' }), { insertIfMissing: true });
+    expect(useWorkUnitStore.getState().workunits.map(w => w.id)).toEqual(['wu-2']);
+  });
+});
