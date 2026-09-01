@@ -848,6 +848,33 @@ describe('ChannelDetailPage — #440 建议 prompt 片', () => {
     await waitFor(() => expect(screen.getByText('待回复 · 1')).toBeTruthy());
     expect(document.querySelector('.mc-suggest')).toBeNull();
   });
+
+  // #442 止血：in_review 且活跃 review 子工单在途（自动评审已派）→ 不出审查建议片，防重复派单。
+  // 先发子工单再发父单，保证父单 updatedAt 最新被 pickCurrentWu 拣中（currentWu = 父单）
+  it('in_review + 活跃 review 子工单在途 → 不出建议片（#442 防重复派单）', async () => {
+    renderPage();
+    await waitFor(() => expect(screen.getByText('#rnd-主研发')).toBeTruthy());
+    act(() => emitSse(wuStatusChanged({
+      id: 'WU-4002', status: 'active', channelId: 'ch-1', type: 'review', parentId: 'WU-4001', metadata: '{}',
+    })));
+    act(() => emitSse(wuStatusChanged({
+      id: 'WU-4001', status: 'in_review', channelId: 'ch-1', type: 'task', metadata: '{}',
+    })));
+    expect(screen.queryByText(/把 AC 转写成审查清单/)).toBeNull();
+    expect(document.querySelector('.mc-suggest')).toBeNull();
+  });
+
+  it('in_review + review 子工单已终态 → 仍出建议片（无在途评审，不算重复派单）', async () => {
+    renderPage();
+    await waitFor(() => expect(screen.getByText('#rnd-主研发')).toBeTruthy());
+    act(() => emitSse(wuStatusChanged({
+      id: 'WU-4002', status: 'done', channelId: 'ch-1', type: 'review', parentId: 'WU-4001', metadata: '{}',
+    })));
+    act(() => emitSse(wuStatusChanged({
+      id: 'WU-4001', status: 'in_review', channelId: 'ch-1', type: 'task', metadata: '{}',
+    })));
+    await waitFor(() => expect(screen.getByText(/把 AC 转写成审查清单/)).toBeTruthy());
+  });
 });
 
 // #440 Phase 2：频道阶段条——复用 StationStepper/buildLifecycle，数据源 = channelWus（与建议片同面）

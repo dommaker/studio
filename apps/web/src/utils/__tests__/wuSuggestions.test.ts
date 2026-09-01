@@ -13,10 +13,22 @@ const wu = (over: Partial<WorkUnit>): WorkUnit => ({
 });
 
 describe('suggestionsForWu — 按展示列静态映射（MVP，后端推导另开票）', () => {
-  it('in_review → 审查建议（@reviewer AC 转审查清单）', () => {
+  it('in_review → 可选的审查建议：标注「可选」+ 说明点击后果，预填文本不变（#442 止血）', () => {
     const list = suggestionsForWu('in_review', {});
-    expect(list.length).toBeGreaterThan(0);
-    expect(list.some(s => s.text.includes('@reviewer') && s.text.includes('审查清单'))).toBe(true);
+    expect(list).toHaveLength(1);
+    const s = list[0];
+    // 预填文本（发给 agent 的指令本体）不被展示文案污染
+    expect(s.text).toBe('@reviewer 把 AC 转写成审查清单');
+    // 展示文案标注「可选」——语义 = 前置门禁场景的人工介入，而非"下一步该做的事"
+    expect(s.label).toContain('可选');
+    expect(s.label).toContain(s.text);
+    // hint 说清点了会发生什么（预填进输入框、可改再发），且无内部术语
+    expect(s.hint).toBeTruthy();
+    expect(s.hint).toContain('预填');
+  });
+
+  it('in_review + 已有活跃 review 子工单 → 不出片（自动评审在途，防重复派单）', () => {
+    expect(suggestionsForWu('in_review', { hasActiveReview: true })).toEqual([]);
   });
 
   it('unassigned → 认领建议（@developer）', () => {

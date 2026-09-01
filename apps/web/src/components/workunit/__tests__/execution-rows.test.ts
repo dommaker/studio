@@ -165,11 +165,19 @@ describe('parseLiveStepRef / parseLiveWuRef — SSE data 防御解析', () => {
 
   it('parseLiveWuRef：从 { workunit } 信封解析；坏数据/缺字段 → null', () => {
     expect(parseLiveWuRef({ workunit: { id: 'WU-1', status: 'active', channelId: 'ch-1', metadata: '{}', type: 'task', scope: 's' } }))
-      .toEqual({ id: 'WU-1', status: 'active', channelId: 'ch-1', metadata: '{}', type: 'task', scope: 's' });
+      .toEqual({ id: 'WU-1', status: 'active', channelId: 'ch-1', metadata: '{}', type: 'task', scope: 's', parentId: null });
     expect(parseLiveWuRef({ workunit: { id: 'WU-1', status: 'done' } }))
-      .toEqual({ id: 'WU-1', status: 'done', channelId: null, metadata: null, type: null, scope: null });
+      .toEqual({ id: 'WU-1', status: 'done', channelId: null, metadata: null, type: null, scope: null, parentId: null });
     expect(parseLiveWuRef({})).toBeNull();
     expect(parseLiveWuRef({ workunit: { status: 'active' } })).toBeNull();
     expect(parseLiveWuRef('broken')).toBeNull();
+  });
+
+  // #442：parentId 供频道建议片判「活跃 review 子工单」用（SSE 负载 = 全量 WorkUnitData，含 parentId）
+  it('parseLiveWuRef：提取 parentId（可选；缺省/非字符串 → null）', () => {
+    expect(parseLiveWuRef({ workunit: { id: 'WU-2', status: 'unassigned', parentId: 'WU-1' } })?.parentId).toBe('WU-1');
+    expect(parseLiveWuRef({ workunit: { id: 'WU-2', status: 'unassigned', parentId: null } })?.parentId).toBeNull();
+    expect(parseLiveWuRef({ workunit: { id: 'WU-2', status: 'unassigned' } })?.parentId).toBeNull();
+    expect(parseLiveWuRef({ workunit: { id: 'WU-2', status: 'unassigned', parentId: 42 } })?.parentId).toBeNull();
   });
 });

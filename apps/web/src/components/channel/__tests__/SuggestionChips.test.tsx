@@ -30,6 +30,23 @@ describe('SuggestionChips', () => {
     expect(onDismiss).toHaveBeenCalledTimes(1);
   });
 
+  // #442：in_review 片收窄——label 标注「可选」、hint 说明点击后果；预填内容（text）不污染
+  it('label/hint 存在时：渲染 label 与说明小字，点击仍上送 text', () => {
+    const onPick = vi.fn();
+    const suggestions = [{
+      id: 'review-checklist',
+      text: '@reviewer 把 AC 转写成审查清单',
+      label: '可选：@reviewer 把 AC 转写成审查清单',
+      hint: '自动评审通常已在进行，不点也会继续；点了会把这句话预填到输入框，可修改后再发送',
+    }];
+    render(<SuggestionChips suggestions={suggestions} onPick={onPick} onDismiss={() => {}} />);
+    expect(screen.getByText('可选：@reviewer 把 AC 转写成审查清单')).toBeTruthy();
+    expect(screen.getByText(/预填到输入框/)).toBeTruthy();
+    fireEvent.click(screen.getByText('可选：@reviewer 把 AC 转写成审查清单'));
+    expect(onPick).toHaveBeenCalledWith('@reviewer 把 AC 转写成审查清单');
+    expect(onPick).toHaveBeenCalledTimes(1);
+  });
+
   it('空建议列表 → 整体不渲染', () => {
     const { container } = render(<SuggestionChips suggestions={[]} onPick={() => {}} onDismiss={() => {}} />);
     expect(container.firstChild).toBeNull();
