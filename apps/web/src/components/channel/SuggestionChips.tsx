@@ -1,8 +1,8 @@
 // SuggestionChips — #440 Phase 1：频道输入框上方的建议 prompt 片；
 // #443（spec #441）扩为三形态渲染骨架：
 //   status（只读状况说明，非按钮、点击无发送语义）/ action（确定性动作，点击走 onAction
-//   直调后端，不经输入框——#444 起由后端产出）/ prompt（缺省；点击 → onPick(text) 预填，
-//   由页面经 ChannelInput prefill 填入，不自动发送——人过目后按 Enter）。
+//   直调后端，不经输入框——#444 起由后端产出「补派评审」）/ prompt（缺省；点击 → onPick(text)
+//   预填，由页面经 ChannelInput prefill 填入，不自动发送——人过目后按 Enter）。
 // × dismiss 由调用方记账（会话级），本组件纯展示。
 // 数据来源：#443 起端点派生建议（GET /channels/:id/suggestions，经 suggestionCopy 模板渲染）
 // 与 #440 静态映射（wuSuggestions，#447 删）合并喂入；组件本身不感知来源。
@@ -23,7 +23,7 @@ export interface SuggestionChipItem {
 interface Props {
   suggestions: SuggestionChipItem[];
   onPick: (text: string) => void;
-  /** action 形态点击（直调确定性接口骨架）；无产出方时可不传（#444 接线） */
+  /** action 形态点击（直调确定性接口骨架）；无产出方时可不传（#444 已接线补派评审） */
   onAction?: (item: SuggestionChipItem) => void;
   onDismiss: () => void;
 }

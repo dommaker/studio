@@ -9,8 +9,9 @@
  * 状态列口径复用 shared 包 deriveDisplayState；「频道当前工单」拣选（原前端 wuSuggestions
  * pickCurrentWu）随本模块后端化（前端本地副本由 #447 删除，口径单源在本模块）。
  *
- * fail-closed：每条建议带前置条件，不满足/拿不准不出。本票只交付 status 形态
- * （自动评审在途的只读说明）；action 形态见 #444/#445，prompt 形态后端化见 #446。
+ * fail-closed：每条建议带前置条件，不满足/拿不准不出。本模块交付两种形态：
+ * status（自动评审在途的只读说明，#443）与 action（断链「补派评审」直调
+ * dispatch-review，#444）；prompt 形态后端化见 #446。
  * 顶层容错：任何一步失败 → 空结果 + warn，派生绝不抛出（同 current-pmo 原则）。
  */
 import { logger, parseChannels, deriveDisplayState, FileStore, type WorkUnitSnapshot } from '@dommaker/studio-shared';
@@ -120,30 +121,47 @@ export async function deriveChannelSuggestions(
     const current = pickCurrentWuSnapshot(channelWus);
     if (!current) return EMPTY;
 
-    const { column } = deriveDisplayState({ status: current.status, metadata: current.metadata });
-    // 本票只交付「自动评审在途」一条 status 形态；其余列不出片
+    const { column, evidence } = deriveDisplayState({ status: current.status, metadata: current.metadata });
+    // 自动评审在途（status）与断链补派（action）都只挂在 in_review 列；其余列不出片
     if (column !== 'in_review' || !isAutoReviewable(current)) {
       return { currentWuId: current.id, suggestions: [] };
     }
 
     const child = findUnfinishedReviewChild(channelWus, current.id);
+    const meta = parseWuMetadata(current.metadata);
+    const wuTitle = meta.title ?? current.scope ?? current.id;
+
+    // #444（spec #441 动作形态第一种）：断链 = 无未完结 review 子单且转入已超宽限
+    // （自动化该派未派）→ 出「补派评审」动作片，前端点击经确认后直调 dispatch-review
+    // 端点（与 ReviewDispatcher 自动派发同原语 dispatchReviewNow）。fail-closed：
+    //   - l2 已达成不出（端点必拒——不出点了必失败的动作）；
+    //   - 子单存在但僵死（租约过期无接管）不出——补派会被同父唯一性 409，非本动作可修。
+    if (!child && now.getTime() - Date.parse(current.updatedAt) >= SUGGESTION_TIMING.reviewDispatchInFlightGraceMs) {
+      if (evidence.l2) return { currentWuId: current.id, suggestions: [] };
+      return {
+        currentWuId: current.id,
+        suggestions: [{
+          id: 'redispatch-review',
+          kind: 'action',
+          params: { wuId: current.id, wuTitle },
+        }],
+      };
+    }
+
     const memberIds = parseChannels(channel.members);
     const online = await hasOnlineMemberLoop(fileStore, memberIds);
 
     // 自动化在途 = 有未完结子单且（子单租约活 或 有在线 loop 会认领）
-    //           或 无子单但转入在宽限内且有在线 loop（路径 A 派单在飞）
-    const inFlight = child
-      ? leaseAlive(child, now) || online
-      : online && now.getTime() - Date.parse(current.updatedAt) < SUGGESTION_TIMING.reviewDispatchInFlightGraceMs;
-    if (!inFlight) return { currentWuId: current.id, suggestions: [] }; // 无接管/断链：fail-closed 不出
+    //           或 无子单但在宽限内且有在线 loop（路径 A 派单在飞；无子单且超宽限已在上方动作分支拦截）
+    const inFlight = child ? leaseAlive(child, now) || online : online;
+    if (!inFlight) return { currentWuId: current.id, suggestions: [] }; // 无接管/拿不准：fail-closed 不出
 
-    const meta = parseWuMetadata(current.metadata);
     return {
       currentWuId: current.id,
       suggestions: [{
         id: 'auto-review-in-flight',
         kind: 'status',
-        params: { wuId: current.id, wuTitle: meta.title ?? current.scope ?? current.id },
+        params: { wuId: current.id, wuTitle },
       }],
     };
   } catch (err) {

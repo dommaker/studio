@@ -26,6 +26,9 @@ import { workunitApi } from '../api/workunit';
 import type { WorkUnit } from '../api/workunit';
 import { pickCurrentWu, suggestionsForWu } from '../utils/wuSuggestions';
 import { renderSuggestionCopy } from '../utils/suggestionCopy';
+import { getSuggestionAction } from '../utils/suggestionActions';
+import { ConfirmDialog } from '../components/ui/ConfirmDialog';
+import axios from 'axios';
 import { parseWuMeta } from '../utils/wuMeta';
 import { useNotificationStore } from '../stores/notificationStore';
 import { useUnreadStore } from '../stores/unreadStore';
@@ -39,6 +42,15 @@ import { saveLastChannelId } from '../utils/lastChannel';
 
 /** #279（决策 #250 D4）：闸门类 WU 类型（人工验收单）——不聚合进 NEED_INPUT 待办 chip */
 const GATE_WU_TYPES = new Set(['decision', 'spec']);
+
+/** #444：动作片执行错误文案——优先服务端 error 信封 message（409 拒绝原因对人可读） */
+function suggestionActionErrorMessage(e: unknown): string {
+  if (axios.isAxiosError(e)) {
+    const msg = (e.response?.data as { error?: { message?: string } } | undefined)?.error?.message;
+    if (msg) return msg;
+  }
+  return e instanceof Error ? e.message : String(e);
+}
 
 /** #443：带 dismiss 台账 key 的引导片（端点片 = `ep:{wuId}:{suggestionId}`；静态片 = `${wuId}:${展示列}`） */
 type DismissibleChip = SuggestionChipItem & { dismissKey: string };
@@ -356,6 +368,39 @@ export function ChannelDetailPage() {
     ...endpointChips.filter(c => !dismissedSuggestionKeys.has(c.dismissKey)),
     ...visibleSuggestions.map(s => ({ ...s, dismissKey: suggestionKey ?? s.id })),
   ], [endpointChips, dismissedSuggestionKeys, visibleSuggestions, suggestionKey]);
+
+  // #444：确定性动作片（补派评审等）——点击 → 一次确认 → 直调确定性接口（与自动化同原语），
+  // 不经消息路由；生效后重拉建议，前置条件转假片消失/更新。失败原因内联进弹窗，不静默。
+  const [pendingSuggestionAction, setPendingSuggestionAction] = useState<{ id: string; wuId: string; wuTitle: string } | null>(null);
+  const [suggestionActionError, setSuggestionActionError] = useState<string | null>(null);
+  const [suggestionActionRunning, setSuggestionActionRunning] = useState(false);
+
+  const handleSuggestionAction = useCallback((item: SuggestionChipItem) => {
+    const def = getSuggestionAction(item.id);
+    if (!def) return; // fail-closed：未注册动作不执行
+    const s = channelSuggestions.find(x => x.id === item.id);
+    if (!s?.params.wuId) return; // 缺工单上下文不执行
+    setSuggestionActionError(null);
+    setPendingSuggestionAction({ id: item.id, wuId: s.params.wuId, wuTitle: s.params.wuTitle ?? s.params.wuId });
+  }, [channelSuggestions]);
+
+  const runSuggestionAction = useCallback(async () => {
+    if (!pendingSuggestionAction) return;
+    const def = getSuggestionAction(pendingSuggestionAction.id);
+    if (!def) return;
+    setSuggestionActionRunning(true);
+    try {
+      await def.run(pendingSuggestionAction.wuId);
+      setPendingSuggestionAction(null);
+      reloadSuggestions(); // 状态回扫：子单建出 → 前置条件转假 → 片消失/更新
+    } catch (e) {
+      setSuggestionActionError(suggestionActionErrorMessage(e));
+    } finally {
+      setSuggestionActionRunning(false);
+    }
+  }, [pendingSuggestionAction, reloadSuggestions]);
+
+  const pendingActionDef = pendingSuggestionAction ? getSuggestionAction(pendingSuggestionAction.id) : null;
 
   // #279（走查 F4）：每个挂起 WU 的「当前提问消息」= 该 WU 最新一条非人类消息。
   // badge/回复区只落在这一条（同 WU 多消息不再一屏多个回复框）；chip 定位也用它
@@ -796,16 +841,38 @@ export function ChannelDetailPage() {
           )}
         </div>
 
-        {/* #440 + #443：引导片（#440 静态 prompt 建议 + 端点派生只读状态说明合并渲染；prompt 点击填入输入框，status 只读；会话级 dismiss） */}
+        {/* #440 + #443/#444：引导片（#440 静态 prompt 建议 + 端点派生 status/action 片合并渲染；
+            prompt 点击填入输入框，status 只读，action 点击走下方确认弹窗直调确定性接口；会话级 dismiss） */}
         {visibleChips.length > 0 && (
           <SuggestionChips
             suggestions={visibleChips}
             onPick={(text) => setInputPrefill(p => ({ text, nonce: (p?.nonce ?? 0) + 1 }))}
+            onAction={handleSuggestionAction}
             onDismiss={() => setDismissedSuggestionKeys(prev => {
               const next = new Set(prev);
               for (const c of visibleChips) next.add(c.dismissKey);
               return next;
             })}
+          />
+        )}
+
+        {/* #444：动作片一次确认——文案说清点了会发生什么；失败原因内联进弹窗不静默 */}
+        {pendingSuggestionAction && pendingActionDef && (
+          <ConfirmDialog
+            open
+            title={pendingActionDef.title}
+            confirmLabel={pendingActionDef.confirmLabel}
+            loading={suggestionActionRunning}
+            message={
+              <>
+                {pendingActionDef.confirmMessage(pendingSuggestionAction.wuTitle)}
+                {suggestionActionError && (
+                  <div className="text-xs u-err" style={{ marginTop: 8 }}>{suggestionActionError}</div>
+                )}
+              </>
+            }
+            onConfirm={() => { void runSuggestionAction(); }}
+            onCancel={() => setPendingSuggestionAction(null)}
           />
         )}
 
