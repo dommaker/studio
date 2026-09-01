@@ -15,7 +15,7 @@
 }
 
 /* #431：:where() 降权（0-1-1 → 0-0-1）。原 0-1-1 吞掉了作用域内 20 条单类按钮规则的
-   background/border/color/padding 等声明（清单 = .studio/research/2026-08-31-style-hygiene.md §2），
+   background/border/color/padding 等声明（清单与裁决见 #431 及 docs/visual-reports/20260901-431-*），
    降权后这些规则首次生效；cursor:pointer 仍由本重置承担（TW v4 preflight 已不含 button cursor）。 */
 :where(.mc-ws) button {
   font: inherit;
@@ -1236,7 +1236,7 @@ button.mc-act-step:hover { background: var(--bg-hover); }
 .mc-hbars-value { color: var(--text-primary); width: 40px; text-align: right; flex-shrink: 0; }
 
 /* ============================================================
-   共享结构类（#431：逐字内联重复收敛，清单 = .studio/research/2026-08-31-style-hygiene.md §1.B）
+   共享结构类（#431：逐字内联重复收敛）
    ============================================================ */
 /* 页面骨架底（§4.7：全站页面根/壳容器，替代逐字 style={{ background: 'var(--bg-primary)' }}） */
 .u-page-bg { background: var(--bg-primary); }

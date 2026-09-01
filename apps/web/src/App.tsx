@@ -186,11 +186,11 @@ export default function App() {
 
         {/* Mission Control：频道工作区为满高三栏（各栏独立滚动），其余页面保持文档流滚动 */}
         <div
-          className={
+          className={`u-page-bg ${
             /^\/channels\/[^/]+$/.test(location.pathname)
-              ? 'flex-1 flex flex-col overflow-hidden min-h-0 u-page-bg'
-              : 'flex-1 overflow-auto u-page-bg'
-          }
+              ? 'flex-1 flex flex-col overflow-hidden min-h-0'
+              : 'flex-1 overflow-auto'
+          }`}
         >
           <Routes>
             <Route
