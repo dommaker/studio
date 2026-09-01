@@ -78,6 +78,8 @@ export interface ChannelSuggestion {
   id: string;
   kind: 'status' | 'action' | 'prompt';
   params: Record<string, string>;
+  /** prompt 形态专用（#446）：预填进输入框的指令本体（发给 agent 的自然语言任务，走既有 @mention 消息路由） */
+  text?: string;
 }
 
 export interface ChannelSuggestions {

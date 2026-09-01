@@ -358,10 +358,11 @@ export function ChannelDetailPage() {
   }, [currentWu, currentWuColumn, suggestionKey, dismissedSuggestionKeys, currentWuHasActiveReview]);
 
   // #443：端点派生建议 → 文案模板渲染成引导片（未知模板 id → 跳过，fail-closed）
+  // #446：prompt 形态的预填指令本体由后端 text 字段承载，透传给 SuggestionChips（点击 → onPick(text)）
   const endpointChips = useMemo<DismissibleChip[]>(() => channelSuggestions.flatMap(s => {
     const copy = renderSuggestionCopy(s);
     if (!copy) return [];
-    return [{ id: s.id, kind: s.kind, label: copy.label, hint: copy.hint, dismissKey: `ep:${s.params.wuId ?? ''}:${s.id}` }];
+    return [{ id: s.id, kind: s.kind, text: s.text, label: copy.label, hint: copy.hint, dismissKey: `ep:${s.params.wuId ?? ''}:${s.id}` }];
   }), [channelSuggestions]);
   // 引导片合并面 = 端点派生片 + #440 静态 prompt 片（#447 静态映射删除后只剩端点片）
   const visibleChips = useMemo<DismissibleChip[]>(() => [
