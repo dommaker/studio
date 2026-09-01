@@ -1,16 +1,16 @@
-// SuggestionChips — #440 Phase 1：频道输入框上方的建议 prompt 片；
+// SuggestionChips — #440 Phase 1：频道输入框上方的建议片；
 // #443（spec #441）扩为三形态渲染骨架：
 //   status（只读状况说明，非按钮、点击无发送语义）/ action（确定性动作，点击走 onAction
 //   直调后端，不经输入框——#444 起由后端产出「补派评审」）/ prompt（缺省；点击 → onPick(text)
 //   预填，由页面经 ChannelInput prefill 填入，不自动发送——人过目后按 Enter）。
 // × dismiss 由调用方记账（会话级），本组件纯展示。
-// 数据来源：#443 起端点派生建议（GET /channels/:id/suggestions，经 suggestionCopy 模板渲染）
-// 与 #440 静态映射（wuSuggestions，#447 删）合并喂入；组件本身不感知来源。
+// 数据来源：唯一来源 = 端点派生建议（GET /channels/:id/suggestions，经 suggestionCopy 模板渲染）；
+// #440 静态映射（wuSuggestions）已于 #447 删除，组件本身不感知来源。
 
-/** 引导片条目：三形态并集（WuSuggestion 静态片天然兼容——kind 缺省即 prompt） */
+/** 引导片条目：三形态并集（kind 缺省 = prompt） */
 export interface SuggestionChipItem {
   id: string;
-  /** 缺省 = prompt（#440 存量形态） */
+  /** 缺省 = prompt */
   kind?: 'status' | 'action' | 'prompt';
   /** prompt 形态：点击后预填进输入框的内容（发给 agent 的指令本体），不被展示文案污染 */
   text?: string;

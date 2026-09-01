@@ -2,7 +2,7 @@
 // 对话流逻辑与 B1-001/Phase 2 一致：日期分隔、已完成折叠、线程分组、NEED_INPUT 回复链路，零语义变更
 import { useParams, useSearchParams } from 'react-router-dom';
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
-import { deriveDisplayState, formatChannelName } from '@dommaker/studio-shared/web';
+import { formatChannelName } from '@dommaker/studio-shared/web';
 import { useChannelMessages } from '../hooks/useChannelEvents';
 import { useStreamFollow } from '../hooks/useStreamFollow';
 import { useChannelCardActions } from '../hooks/useChannelCardActions';
@@ -24,12 +24,10 @@ import { WorkUnitDrawer, type DrawerState } from '../components/channel/WorkUnit
 import { useMediaQuery } from '../hooks/useMediaQuery';
 import { workunitApi } from '../api/workunit';
 import type { WorkUnit } from '../api/workunit';
-import { pickCurrentWu, suggestionsForWu } from '../utils/wuSuggestions';
 import { renderSuggestionCopy } from '../utils/suggestionCopy';
 import { getSuggestionAction } from '../utils/suggestionActions';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import axios from 'axios';
-import { parseWuMeta } from '../utils/wuMeta';
 import { useNotificationStore } from '../stores/notificationStore';
 import { useUnreadStore } from '../stores/unreadStore';
 import { useChannelDataStore, parseChannelMembers } from '../stores/channelDataStore';
@@ -52,7 +50,7 @@ function suggestionActionErrorMessage(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
-/** #443：带 dismiss 台账 key 的引导片（端点片 = `ep:{wuId}:{suggestionId}`；静态片 = `${wuId}:${展示列}`） */
+/** #443：带 dismiss 台账 key 的引导片（key = `ep:{wuId}:{suggestionId}`，端点派生片唯一来源 #447） */
 type DismissibleChip = SuggestionChipItem & { dismissKey: string };
 
 /**
@@ -118,15 +116,16 @@ export function ChannelDetailPage() {
   const [waitingWus, setWaitingWus] = useState<NeedInputTodo[]>([]);
   // REQ 需求编号（vision §5.3）：本频道需求集；#394 起喂右栏「频道动态」REQ 链路卡（原中栏 chips 条移除）
   const [channelReqs, setChannelReqs] = useState<Requirement[]>([]);
-  // #440：本频道 WU 全集——建议 prompt 片 + 阶段条的共用数据源
-  // （REST 打底 + status_changed SSE upsert + 决策 9 重连对齐）
+  // #440：本频道 WU 全集——阶段条 WU 数据本体 + 各卡片数据源
+  // （REST 打底 + status_changed SSE upsert + 决策 9 重连对齐；「当前工单」拣选 #447 起由建议端点裁决）
   const [channelWus, setChannelWus] = useState<WorkUnit[]>([]);
-  // #440：建议片 dismiss 台账（会话级，key = `${wuId}:${展示列}`）+ 输入框 prefill 通道
+  // #440：建议片 dismiss 台账（会话级，key = `ep:{wuId}:{suggestionId}`，同 key 不复活）+ 输入框 prefill 通道
   const [dismissedSuggestionKeys, setDismissedSuggestionKeys] = useState<Set<string>>(new Set());
   const [inputPrefill, setInputPrefill] = useState<{ text: string; nonce: number } | undefined>(undefined);
-  // #443（spec #441）：端点派生建议（GET /channels/:id/suggestions）——只读状态说明等，
-  // 与 #440 静态映射片合并渲染（静态映射 #447 删）
+  // #443（spec #441）：端点派生建议（GET /channels/:id/suggestions）——引导片唯一来源（#447 静态映射已删）；
+  // currentWuId = 后端拣选的「频道当前工单」（阶段条与引导片同源消费，口径单源在后端）
   const [channelSuggestions, setChannelSuggestions] = useState<ChannelSuggestion[]>([]);
+  const [currentWuId, setCurrentWuId] = useState<string | null>(null);
   // Mission Control 右抽屉：WorkUnit 详情 / REQ 全链路
   const [drawer, setDrawer] = useState<DrawerState>(null);
   // #395（spec §4.6）窄屏降级断点：<768 左栏并入全局 Sidebar（本页卸载内联 ChannelRail）；
@@ -194,7 +193,8 @@ export function ChannelDetailPage() {
       .catch(() => {});
   }, [id]);
 
-  // #443：端点派生建议打底（fail-closed：负载畸形/条目缺字段 → 空集，不渲染不编造；失败静默）
+  // #443：端点派生建议打底（fail-closed：负载畸形/条目缺字段 → 空集，不渲染不编造；失败静默）。
+  // #447：currentWuId 同源消费（阶段条「当前工单」唯一口径）；非字符串 → null
   const reloadSuggestions = useCallback(() => {
     if (!id) return;
     channelApi.getSuggestions(id)
@@ -205,6 +205,8 @@ export function ChannelDetailPage() {
           !!s && typeof s.id === 'string' && typeof s.kind === 'string'
           && !!s.params && typeof s.params === 'object',
         ));
+        const rawWuId: unknown = r.data?.data?.currentWuId;
+        setCurrentWuId(typeof rawWuId === 'string' ? rawWuId : null);
       })
       .catch(() => {});
   }, [id]);
@@ -336,26 +338,13 @@ export function ChannelDetailPage() {
   // F5: 挂起集合（由 waitingWus 派生）
   const waitingWuIds = useMemo(() => new Set(waitingWus.map(w => w.wuId)), [waitingWus]);
 
-  // #440：当前工单 → 建议 prompt 片（dismiss key = wuId:展示列，同 key 不复活；状态流转即新 key）
-  const currentWu = useMemo(() => pickCurrentWu(channelWus), [channelWus]);
-  const currentWuColumn = useMemo(
-    () => (currentWu ? deriveDisplayState({ status: currentWu.status, metadata: currentWu.metadata }).column : null),
-    [currentWu],
+  // #447（spec #441 收尾）：「频道当前工单」拣选唯一正本 = 后端建议端点 currentWuId
+  // （前端静态映射 wuSuggestions 与 pickCurrentWu 本地副本已删，杜绝前后端口径分叉）。
+  // 阶段条 WU 本体取自 channelWus；端点 id 命中不了本频道列表（时序 skew）→ null 不渲染（fail-closed 不编造）
+  const currentWu = useMemo(
+    () => channelWus.find(w => w.id === currentWuId) ?? null,
+    [channelWus, currentWuId],
   );
-  // #442：当前工单是否已有活跃 review 子工单（判据与后端 dispatch-reconciliation 同款）——
-  // 在途则不出「转写审查清单」建议片，防自动评审在途时重复派单
-  const currentWuHasActiveReview = useMemo(
-    () => currentWu
-      ? channelWus.some(w => w.parentId === currentWu.id && w.type === 'review' && w.status !== 'done' && w.status !== 'closed')
-      : false,
-    [channelWus, currentWu],
-  );
-  const suggestionKey = currentWu && currentWuColumn ? `${currentWu.id}:${currentWuColumn}` : null;
-  const visibleSuggestions = useMemo(() => {
-    if (!currentWu || !currentWuColumn || !suggestionKey) return [];
-    if (dismissedSuggestionKeys.has(suggestionKey)) return [];
-    return suggestionsForWu(currentWuColumn, { ...parseWuMeta(currentWu.metadata), hasActiveReview: currentWuHasActiveReview });
-  }, [currentWu, currentWuColumn, suggestionKey, dismissedSuggestionKeys, currentWuHasActiveReview]);
 
   // #443：端点派生建议 → 文案模板渲染成引导片（未知模板 id → 跳过，fail-closed）
   // #446：prompt 形态的预填指令本体由后端 text 字段承载，透传给 SuggestionChips（点击 → onPick(text)）
@@ -364,11 +353,11 @@ export function ChannelDetailPage() {
     if (!copy) return [];
     return [{ id: s.id, kind: s.kind, text: s.text, label: copy.label, hint: copy.hint, dismissKey: `ep:${s.params.wuId ?? ''}:${s.id}` }];
   }), [channelSuggestions]);
-  // 引导片合并面 = 端点派生片 + #440 静态 prompt 片（#447 静态映射删除后只剩端点片）
-  const visibleChips = useMemo<DismissibleChip[]>(() => [
-    ...endpointChips.filter(c => !dismissedSuggestionKeys.has(c.dismissKey)),
-    ...visibleSuggestions.map(s => ({ ...s, dismissKey: suggestionKey ?? s.id })),
-  ], [endpointChips, dismissedSuggestionKeys, visibleSuggestions, suggestionKey]);
+  // #447：引导片 = 端点派生片（唯一来源；dismiss 台账按 dismissKey 过滤，会话级）
+  const visibleChips = useMemo<DismissibleChip[]>(
+    () => endpointChips.filter(c => !dismissedSuggestionKeys.has(c.dismissKey)),
+    [endpointChips, dismissedSuggestionKeys],
+  );
 
   // #444：确定性动作片（补派评审等）——点击 → 一次确认 → 直调确定性接口（与自动化同原语），
   // 不经消息路由；生效后重拉建议，前置条件转假片消失/更新。失败原因内联进弹窗，不静默。
@@ -770,7 +759,8 @@ export function ChannelDetailPage() {
             #322：hook 下沉 ChannelLiveBars 自持有，step 事件只重渲该组件边界 */}
         <ChannelLiveBars channelId={id} onOpenWorkUnit={openWu} />
 
-        {/* #440 Phase 2：频道当前 WU 阶段条（与 WU 详情页同一 deriveDisplayState 口径；无 WU 不占位） */}
+        {/* #440 Phase 2：频道当前 WU 阶段条（与 WU 详情页同一 deriveDisplayState 口径；无 WU 不占位）。
+            #447：currentWu = 建议端点 currentWuId × channelWus（拣选口径单源在后端） */}
         <ChannelStageBar wu={currentWu} />
 
         {/* Message list
@@ -842,8 +832,8 @@ export function ChannelDetailPage() {
           )}
         </div>
 
-        {/* #440 + #443/#444：引导片（#440 静态 prompt 建议 + 端点派生 status/action 片合并渲染；
-            prompt 点击填入输入框，status 只读，action 点击走下方确认弹窗直调确定性接口；会话级 dismiss） */}
+        {/* #443–#447：引导片（唯一来源 = 建议端点派生片；prompt 点击填入输入框，status 只读，
+            action 点击走下方确认弹窗直调确定性接口；会话级 dismiss） */}
         {visibleChips.length > 0 && (
           <SuggestionChips
             suggestions={visibleChips}
