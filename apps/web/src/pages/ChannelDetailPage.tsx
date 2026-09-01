@@ -21,6 +21,7 @@ import { WorkUnitDrawer, type DrawerState } from '../components/channel/WorkUnit
 import { useMediaQuery } from '../hooks/useMediaQuery';
 import { workunitApi } from '../api/workunit';
 import { useNotificationStore } from '../stores/notificationStore';
+import { useUnreadStore } from '../stores/unreadStore';
 import { useChannelDataStore, parseChannelMembers } from '../stores/channelDataStore';
 import { fanOut } from '../utils/fanOut';
 import { requirementApi, type Requirement, type RequirementStatus } from '../api/requirements';
@@ -109,6 +110,13 @@ export function ChannelDetailPage() {
   useEffect(() => {
     if (id) markChannelRead(id);
   }, [id, markChannelRead]);
+
+  // #413「正在看」语义：本页是频道查看的权威视角——active 写入 unreadStore（active 频道
+  // 不涨未读徽章 + 进页即清零）；卸载/切走回 null，此后消息恢复累加
+  useEffect(() => {
+    useUnreadStore.getState().setActiveChannel(id ?? null);
+    return () => useUnreadStore.getState().setActiveChannel(null);
+  }, [id]);
 
   // F5: 本频道挂起中的 WorkUnit（blocked + metadata.waitingForInput）——REST 打底 +
   // workunit.status_changed SSE 增量维护（SSE 负载深化 批 2 决策 5：摘 messages.length 依赖，wu 数据直取事件负载）。

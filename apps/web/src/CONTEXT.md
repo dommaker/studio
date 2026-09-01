@@ -30,6 +30,7 @@ Web 前端主源码。路由、全局状态、API 客户端、UI 组件、样式
 | `useAgentRoster` | `hooks/useAgentRoster.ts` | Agent 作战视图私有面：roles 派生 + 执行动态 SSE 写入（execution.step/stream→rosterActivityStore，#348）+ 空闲卡最近完成 N+1 + 快照补查；数据面全在 rosterStore |
 | `rosterActivityStore` / `useRosterActivities` | `stores/rosterActivityStore.ts` | 执行动态 store（#348）：step/stream chunk 按 roleId 切片（pushActivity 同 key 刷新尾条、上限 10 条），卡片级订阅 + 卸载 reset（页面私有实时面，不跨挂载残留） |
 | `useNotificationStore` | `stores/notificationStore.ts` | 通知中心共享 store：后端持久面（loadFromBackend，SSE 条目保留）+ SSE atHuman 增量（pushSse，cap 50）+ 已读动作（markRead/markAllRead/markChannelRead，本地乐观 + 后端条目 POST 同步）；Notification.messageId 仅 SSE 条目有 |
+| `unreadStore` / `useUnreadStoreSync` | `stores/unreadStore.ts` / `hooks/useUnreadStoreSync.ts` | 频道未读面共享 store（#413）：per-channel 计数 + `activeChannelId`「正在看」语义（ChannelDetailPage 写入/卸载清空；active 频道不计、进页即清零）；SSE channel.message_sent 接线引用计数单例（useChannelList 消费方共享一份，纯实时面无 REST 底故无轮询/重连强刷） |
 | `RoleCard` | `components/monitoring/RoleCard.tsx` | AgentDashboard 信息全卡（#397，redesign §6 变体 B）：四层构成（pill 头行→WU 锚点→可点动态 3 条→错误行），状态色经 data-status+--st（`styles/agent-dashboard.css`）；memo + 自订动态切片，chunk 只重渲对应卡、静态卡壳零重渲（#348 契约） |
 | `CreateRoleModal` | `components/monitoring/CreateRoleModal.tsx` | 创建角色弹框（#397 §6.4，替代跳 /setup/roles）：勾选 /workspaces/runtimes + 命名 → channelApi.createAgent；保存=关弹框+onCreated 就地刷新，不跳页 |
 | `useAssigneeDisplay` / `AssigneeLabel` | `hooks/useAssigneeDisplay.ts` / `components/workunit/AssigneeLabel.tsx` | 负责人 instance id → 角色名解析（运行实例→离线实例 profile→短 UUID），WU 详情/抽屉/REQ 链路共用 |
