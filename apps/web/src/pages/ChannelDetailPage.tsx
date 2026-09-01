@@ -58,19 +58,30 @@ function needInputTodoOf(wu: { id: string; type?: string | null; scope?: string 
 
 const REQ_STATUSES = new Set<RequirementStatus>(['open', 'in-progress', 'done', 'archived']);
 
-/** requirement.created/updated SSE data → 轻量引用（坏数据 → null；channelId 可选，缺省由调用方放行） */
-function parseRequirementRef(
-  data: unknown,
-): { id: string; channelId: string | null; title?: string; status?: RequirementStatus } | null {
+/** requirement.created/updated SSE data（{ requirement } 信封，同 workunit.status_changed 的 { workunit }）
+ *  → 全量 Requirement（#415：service 发布完整对象，与 REST get 同源 → 就地 upsert 零补拉，ADR D1）。
+ *  必填字段缺失/坏数据 → null，跳过不编造；channelId 可选，缺省由调用方放行。 */
+function parseRequirementPayload(data: unknown): Requirement | null {
   try {
     const p = (typeof data === 'string' ? JSON.parse(data) : data) as Record<string, unknown> | null;
-    if (!p || typeof p !== 'object' || typeof p.id !== 'string') return null;
+    const req = p?.requirement as Record<string, unknown> | undefined;
+    if (!req || typeof req.id !== 'string' || !req.id) return null;
+    if (typeof req.seq !== 'number' || !Number.isFinite(req.seq)) return null;
+    if (typeof req.title !== 'string' || typeof req.createdAt !== 'string' || typeof req.createdBy !== 'string') return null;
+    if (typeof req.status !== 'string' || !REQ_STATUSES.has(req.status as RequirementStatus)) return null;
     return {
-      id: p.id,
-      channelId: typeof p.channelId === 'string' ? p.channelId : null,
-      ...(typeof p.title === 'string' && p.title ? { title: p.title } : {}),
-      ...(typeof p.status === 'string' && REQ_STATUSES.has(p.status as RequirementStatus)
-        ? { status: p.status as RequirementStatus } : {}),
+      id: req.id,
+      seq: req.seq,
+      title: req.title,
+      status: req.status as RequirementStatus,
+      // channelId 缺省不落 key（legacy 记录可能无此字段）——updated 全量合并时不抹掉已有条目已知的归属
+      ...(typeof req.channelId === 'string' ? { channelId: req.channelId } : {}),
+      createdAt: req.createdAt,
+      createdBy: req.createdBy,
+      ...(Array.isArray(req.docs) ? { docs: req.docs.filter((d): d is string => typeof d === 'string') } : {}),
+      ...(typeof req.description === 'string' ? { description: req.description } : {}),
+      ...((typeof req.projectId === 'string' || req.projectId === null)
+        ? { projectId: req.projectId as string | null } : {}),
     };
   } catch {
     return null;
@@ -232,7 +243,7 @@ export function ChannelDetailPage() {
   }, [id, onEvent]);
 
   // REQ 需求编号（vision §5.3）：本频道需求 chips；REST 打底（reloadChannelReqs，见上）+
-  // requirement.created/updated SSE 增量（批 2 决策 6：摘 messages.length 依赖；事件负载含 id/channelId/title/status）
+  // requirement.created/updated SSE 增量（批 2 决策 6：摘 messages.length 依赖；#415 负载 = { requirement } 全量，就地 upsert 零补拉）
   useEffect(() => {
     reloadChannelReqs();
   }, [reloadChannelReqs]);
@@ -241,29 +252,23 @@ export function ChannelDetailPage() {
     if (!id) return;
     return onEvent(msg => {
       if (msg.event_type !== 'requirement.created' && msg.event_type !== 'requirement.updated') return;
-      const ref = parseRequirementRef(msg.data);
-      if (!ref) return;
-      // 负载带 channelId → 按频道过滤；缺省（防御，旧桥未带）放行
-      if (ref.channelId && ref.channelId !== id) return;
+      const req = parseRequirementPayload(msg.data);
+      if (!req) return;
+      // 负载带 channelId → 按频道过滤；缺省（防御）放行
+      if (req.channelId && req.channelId !== id) return;
       // #403 白捡触发器（ADR 决策 3）：REQ 变更可能改变 current-pmo 派生 → 失效强刷（零成本接线）
       if (id) useChannelDataStore.getState().invalidateCurrentPmo(id);
       if (msg.event_type === 'requirement.created') {
-        // created 负载只有摘要字段，拉全量补进列表（updater 内按 id 去重）
-        requirementApi.get(ref.id)
-          .then(r => setChannelReqs(prev => (prev.some(x => x.id === ref.id) ? prev : [...prev, r.data.data])))
-          .catch(() => {});
+        // 负载即全量（与 REST get 同源）→ 就地 upsert（updater 内按 id 去重），零补拉（#415）
+        setChannelReqs(prev => (prev.some(x => x.id === req.id) ? prev : [...prev, req]));
         return;
       }
-      // updated：合并进已有条目；列表没有说明打底/created 未覆盖，交由重连 refetch（批 3 决策 9）
+      // updated：负载全量覆盖已有条目；列表没有说明打底/created 未覆盖，交由重连 refetch（批 3 决策 9）
       setChannelReqs(prev => {
-        const idx = prev.findIndex(r => r.id === ref.id);
+        const idx = prev.findIndex(r => r.id === req.id);
         if (idx < 0) return prev;
         const next = [...prev];
-        next[idx] = {
-          ...prev[idx],
-          ...(ref.title !== undefined ? { title: ref.title } : {}),
-          ...(ref.status !== undefined ? { status: ref.status } : {}),
-        };
+        next[idx] = { ...prev[idx], ...req };
         return next;
       });
     });

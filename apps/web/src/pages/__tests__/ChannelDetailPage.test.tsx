@@ -162,7 +162,7 @@ type SseHandler = (msg: { event_type: string; data?: unknown }) => void;
 let sseHandlers: SseHandler[] = [];
 const emitSse = (msg: { event_type: string; data?: unknown }) => { sseHandlers.forEach(h => h(msg)); };
 // #394：REQ 呈现挪右栏——经 activity-rail mock 的 props spy 观察 channelReqs 状态
-const railProps = () => mockActivityRailSpy.mock.calls.at(-1)?.[0] as { reqs: { id: string; title: string; status: string }[] } | undefined;
+const railProps = () => mockActivityRailSpy.mock.calls.at(-1)?.[0] as { reqs: { id: string; title: string; status: string; projectId?: string | null }[] } | undefined;
 const railReqIds = () => (railProps()?.reqs ?? []).map(r => r.id);
 const railReq = (id: string) => (railProps()?.reqs ?? []).find(r => r.id === id);
 
@@ -658,7 +658,6 @@ describe('ChannelDetailPage — SSE 负载深化批 2：waitingWus / REQ chips �
     ));
     mockOnEvent.mockImplementation((cb: SseHandler) => { sseHandlers.push(cb); return () => {}; });
     mockListReqs.mockResolvedValue({ data: { data: REQS } });
-    mockGetReq.mockResolvedValue({ data: { data: REQ_0043 } });
     mockSendMessage.mockResolvedValue({});
   });
 
@@ -722,24 +721,33 @@ describe('ChannelDetailPage — SSE 负载深化批 2：waitingWus / REQ chips �
     expect(screen.queryByText(/待回复 ·/)).toBeNull();
   });
 
-  it('requirement.created → 右栏 REQ 实时新增（经 get 补全全量）；他频道 created 忽略', async () => {
+  it('requirement.created → 右栏 REQ 就地新增（负载全量零补拉，#415）；他频道 created 忽略', async () => {
     renderPage();
     await waitFor(() => expect(railReqIds()).toContain('REQ-0042'));
-    act(() => emitSse({ event_type: 'requirement.created', data: { id: 'REQ-0043', channelId: 'ch-1', title: '新需求', status: 'open' } }));
+    act(() => emitSse({ event_type: 'requirement.created', data: { requirement: { ...REQ_0043, channelId: 'ch-1', projectId: 'p-1' } } }));
     await waitFor(() => expect(railReqIds()).toContain('REQ-0043'));
-    expect(mockGetReq).toHaveBeenCalledWith('REQ-0043');
-    act(() => emitSse({ event_type: 'requirement.created', data: { id: 'REQ-0099', channelId: 'ch-other', title: '他频道需求', status: 'open' } }));
+    // #415：负载即全量（与 REST get 同源）→ 不再撬起补拉
+    expect(mockGetReq).not.toHaveBeenCalled();
+    expect(railReq('REQ-0043')?.status).toBe('open');
+    act(() => emitSse({ event_type: 'requirement.created', data: { requirement: { ...REQ_0043, id: 'REQ-0099', channelId: 'ch-other', title: '他频道需求' } } }));
     expect(railReqIds()).not.toContain('REQ-0099');
-    expect(mockGetReq).not.toHaveBeenCalledWith('REQ-0099');
+    // 重复 created（桥重发/乱序）按 id 去重
+    act(() => emitSse({ event_type: 'requirement.created', data: { requirement: { ...REQ_0043, channelId: 'ch-1' } } }));
+    expect(railReqIds().filter(id => id === 'REQ-0043')).toHaveLength(1);
   });
 
-  it('requirement.updated → 本频道 REQ title/status 增量合并；他频道 updated 忽略', async () => {
+  it('requirement.updated → 本频道 REQ 全量负载覆盖合并；他频道 updated 忽略；列表没有不撬拉', async () => {
     renderPage();
     await waitFor(() => expect(railReq('REQ-0042')?.status).toBe('in-progress'));
-    act(() => emitSse({ event_type: 'requirement.updated', data: { id: 'REQ-0042', channelId: 'ch-1', status: 'done' } }));
+    act(() => emitSse({ event_type: 'requirement.updated', data: { requirement: { ...REQS[0], status: 'done', projectId: 'p-2' } } }));
     await waitFor(() => expect(railReq('REQ-0042')?.status).toBe('done'));
-    act(() => emitSse({ event_type: 'requirement.updated', data: { id: 'REQ-0042', channelId: 'ch-other', title: '篡改标题' } }));
+    expect(railReq('REQ-0042')?.projectId).toBe('p-2');
+    act(() => emitSse({ event_type: 'requirement.updated', data: { requirement: { ...REQS[0], channelId: 'ch-other', title: '篡改标题' } } }));
     expect(railReq('REQ-0042')?.title).toBe('主界面视觉方向稿');
+    // 列表没有的条目：忽略（交由重连 refetch 打底），不补拉
+    act(() => emitSse({ event_type: 'requirement.updated', data: { requirement: { ...REQ_0043, channelId: 'ch-1' } } }));
+    expect(railReqIds()).not.toContain('REQ-0043');
+    expect(mockGetReq).not.toHaveBeenCalled();
   });
 
   it('#403: requirement.created/updated → current-pmo 失效强刷；他频道事件不触发', async () => {
@@ -748,9 +756,9 @@ describe('ChannelDetailPage — SSE 负载深化批 2：waitingWus / REQ chips �
     const pmoCalls = () => mockApiGet.mock.calls.filter(([url]) => String(url).endsWith('/current-pmo')).length;
     // chip/rail 均为本文件替身：挂载期无 pmo 拉取
     expect(pmoCalls()).toBe(0);
-    act(() => emitSse({ event_type: 'requirement.updated', data: { id: 'REQ-0042', channelId: 'ch-1', status: 'done' } }));
+    act(() => emitSse({ event_type: 'requirement.updated', data: { requirement: { ...REQS[0], status: 'done' } } }));
     await waitFor(() => expect(pmoCalls()).toBe(1));
-    act(() => emitSse({ event_type: 'requirement.created', data: { id: 'REQ-0043', channelId: 'ch-other', title: '他频道' } }));
+    act(() => emitSse({ event_type: 'requirement.created', data: { requirement: { ...REQ_0043, id: 'REQ-0099', channelId: 'ch-other', title: '他频道' } } }));
     expect(pmoCalls()).toBe(1);
   });
 });

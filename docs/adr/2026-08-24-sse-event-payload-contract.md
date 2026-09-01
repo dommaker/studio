@@ -24,11 +24,12 @@ SSE 事件曾长期处于「门铃」形态：负载只够通知「有事发生�
 
 - `workunit.status_changed`：已合规（17 字段全量快照）——问题在消费侧不读负载，本批修消费侧。
 - `workunit.execution.step` / `stream`：补 `channelId`（归属身份缺失）。
-- `requirement.created` / `updated`：接入 SSE 桥（原只发进程内 eventBus），负载含 channelId/title/status。
+- `requirement.created` / `updated`：接入 SSE 桥（原只发进程内 eventBus），负载 = `{ requirement }` 信封全量对象（id/seq/title/status/channelId/createdAt/createdBy 等全字段，与 REST get 同源）。
 - `workunit:tokens` → `workunit.tokens`：写 jsonl 处顺带发 SSE（原只落盘不推送）。
 
 ## 已知待体检事件（延期，各建工单）
 
 - ~~`channel.message_updated`：负载带消息本体。~~ ✅ 已体检（#311 生产侧 commit 6deefd83 + #315 消费端迁移，2026-08）：两发射点 additive 挂 `message` 全量本体，消费端以 `message` 为准就地更新。
 - ~~`agent.instance.status_changed`：负载带摘要。~~ ✅ 已体检（#312，2026-08-24）：负载 additive 带 `currentWorkUnit` 快照 + `channelId` + `lastError/lastErrorAt`，发布面扩到 error；roster/ChannelRail 就地消费，30s 轮询退位纯兜底。
+- ~~requirement.\* 消费端解析错位~~ ✅ #415（2026-09）：信封自桥接入起即 `{ requirement }` 全量，前端 `parseRequirementRef` 读顶层平铺字段从不匹配——事件被静默丢弃且补拉是死代码（两侧测试各测各的假设掩盖了错位）。修前端解信封就地 upsert 零补拉；notificationStore 接 onReconnect（D3 最后一个漏网消费面）。边界记录：atHuman 通知不持久化（后端唯一通知写入方 auditor），断线漏接的 SSE 条目 refetch 找不回，持久化另票。
 - 前端共享 poll adapter（架构评审候选 8）：端点去重 + visibility 门禁 + SSE 健康联动。

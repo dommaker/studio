@@ -30,7 +30,7 @@ export function NotificationBell() {
   const markRead = useNotificationStore(s => s.markRead);
   const markAllRead = useNotificationStore(s => s.markAllRead);
   const [open, setOpen] = useState(false);
-  const { onEvent } = useWebSocketContext();
+  const { onEvent, onReconnect } = useWebSocketContext();
   const dropdownRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
 
@@ -40,6 +40,11 @@ export function NotificationBell() {
   useEffect(() => {
     void loadFromBackend();
   }, [loadFromBackend]);
+
+  // #415（ADR D3）：notificationStore 是最后一个未接重连的消费面——断线重连 → 持久面一次性
+  // refetch 打底对齐。注意边界：atHuman 走 SSE 不落后端通知（后端唯一写入方是 auditor），
+  // 断线期间漏接的 SSE 条目 refetch 找不回；其持久化是独立票，本处只保证持久面对齐。
+  useEffect(() => onReconnect(() => { void loadFromBackend(); }), [onReconnect, loadFromBackend]);
 
   // B2-004 标题闪烁定时器：收进 ref 管理——开新闪前必清旧闪（修：10s 内多条 @human
   // 旧 interval 被覆盖引用导致永久泄漏闪烁）；未读归零/卸载即停（修：全部已读后仍闪到超时）
