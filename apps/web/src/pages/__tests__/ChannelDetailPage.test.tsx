@@ -86,7 +86,14 @@ vi.mock('../../components/channel/ChannelCurrentPmoChip', () => ({
 }));
 
 vi.mock('../../components/channel/ChannelInput', () => ({
-  ChannelInput: () => <div data-testid="channel-input" />,
+  // #440：prefill 通道（建议片点击 → 填入输入框）经 data 属性透出供断言
+  ChannelInput: (props: { prefill?: { text: string; nonce: number } }) => (
+    <div
+      data-testid="channel-input"
+      data-prefill={props.prefill?.text ?? ''}
+      data-prefill-nonce={props.prefill?.nonce ?? 0}
+    />
+  ),
 }));
 
 // 卡片子组件与本测试无关
@@ -234,8 +241,9 @@ describe('ChannelDetailPage — Mission Control 三栏', () => {
     const reqCallsBefore = mockListReqs.mock.calls.length;
     act(() => emitReconnect());
     expect(mockRefresh).toHaveBeenCalledTimes(1);
-    // chips 两个打底面也强制对齐（批 4 收尾：reloadWaitingWus/reloadChannelReqs 挂进重连回调）
-    expect(mockListWorkunits.mock.calls.length).toBe(wuCallsBefore + 1);
+    // chips 打底面强制对齐（批 4 收尾：reloadWaitingWus/reloadChannelReqs 挂进重连回调；
+    // #440 起新增 channelWus 面（建议片/阶段条数据源）→ workunit list 调用 +2）
+    expect(mockListWorkunits.mock.calls.length).toBe(wuCallsBefore + 2);
     expect(mockListReqs.mock.calls.length).toBe(reqCallsBefore + 1);
   });
 
@@ -744,5 +752,92 @@ describe('ChannelDetailPage — SSE 负载深化批 2：waitingWus / REQ chips �
     await waitFor(() => expect(pmoCalls()).toBe(1));
     act(() => emitSse({ event_type: 'requirement.created', data: { id: 'REQ-0043', channelId: 'ch-other', title: '他频道' } }));
     expect(pmoCalls()).toBe(1);
+  });
+});
+
+// #440 Phase 1：频道建议 prompt 片——WU 状态流转后出现对应建议，点击经 prefill 填入输入框，dismiss 会话级
+describe('ChannelDetailPage — #440 建议 prompt 片', () => {
+  const wuStatusChanged = (wu: Record<string, unknown>) => ({
+    event_type: 'workunit.status_changed',
+    data: { workunit: wu },
+  });
+  const inputPrefill = () => screen.getByTestId('channel-input').getAttribute('data-prefill');
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    currentMessages = MESSAGES;
+    sseHandlers = [];
+    useNotificationStore.setState({ notifications: [] });
+    mockApiGet.mockResolvedValue({ data: { data: { id: 'ch-1', name: 'rnd-主研发', type: 'rnd', members: '[]' } } });
+    // 三种查询分流：active（live 条）/ blocked（待回复 chip）/ 无 status（#440 channelWus 打底）
+    mockListWorkunits.mockImplementation((params?: { status?: string }) => Promise.resolve(
+      params?.status === 'active' ? activeWuList([]) : { data: { data: [] } },
+    ));
+    mockOnEvent.mockImplementation((cb: SseHandler) => { sseHandlers.push(cb); return () => {}; });
+    mockOnReconnect.mockImplementation((cb: () => void) => { reconnectHandlers.push(cb); return () => {}; });
+    reconnectHandlers = [];
+    mockListReqs.mockResolvedValue({ data: { data: [] } });
+    mockSendMessage.mockResolvedValue({});
+  });
+
+  it('无 WU → 不出现建议片', async () => {
+    renderPage();
+    await waitFor(() => expect(screen.getByText('#rnd-主研发')).toBeTruthy());
+    expect(document.querySelector('.mc-suggest')).toBeNull();
+  });
+
+  it('WU 状态流转为 in_review → 出现审查建议 chip', async () => {
+    renderPage();
+    await waitFor(() => expect(screen.getByText('#rnd-主研发')).toBeTruthy());
+    expect(document.querySelector('.mc-suggest')).toBeNull();
+    act(() => emitSse(wuStatusChanged({
+      id: 'WU-4001', status: 'in_review', channelId: 'ch-1', type: 'task', metadata: '{}',
+    })));
+    await waitFor(() => expect(screen.getByText(/把 AC 转写成审查清单/)).toBeTruthy());
+  });
+
+  it('点击建议片 → prefill 透传到输入框', async () => {
+    renderPage();
+    await waitFor(() => expect(screen.getByText('#rnd-主研发')).toBeTruthy());
+    act(() => emitSse(wuStatusChanged({
+      id: 'WU-4001', status: 'in_review', channelId: 'ch-1', type: 'task', metadata: '{}',
+    })));
+    const chip = await screen.findByText(/把 AC 转写成审查清单/);
+    expect(inputPrefill()).toBe('');
+    fireEvent.click(chip);
+    await waitFor(() => expect(inputPrefill()).toContain('@reviewer'));
+    expect(Number(screen.getByTestId('channel-input').getAttribute('data-prefill-nonce'))).toBeGreaterThan(0);
+  });
+
+  it('dismiss 后同 WU 同状态不再浮现；状态再流转（新 key）重新出现', async () => {
+    renderPage();
+    await waitFor(() => expect(screen.getByText('#rnd-主研发')).toBeTruthy());
+    act(() => emitSse(wuStatusChanged({
+      id: 'WU-4001', status: 'active', channelId: 'ch-1', type: 'task', metadata: '{}',
+    })));
+    await waitFor(() => expect(document.querySelector('.mc-suggest')).toBeTruthy());
+    fireEvent.click(screen.getByLabelText('关闭建议'));
+    expect(document.querySelector('.mc-suggest')).toBeNull();
+    // 同 key 重发不复活
+    act(() => emitSse(wuStatusChanged({
+      id: 'WU-4001', status: 'active', channelId: 'ch-1', type: 'task', metadata: '{}',
+    })));
+    expect(document.querySelector('.mc-suggest')).toBeNull();
+    // 流转到 in_review（新 key）→ 新建议出现
+    act(() => emitSse(wuStatusChanged({
+      id: 'WU-4001', status: 'in_review', channelId: 'ch-1', type: 'task', metadata: '{}',
+    })));
+    await waitFor(() => expect(screen.getByText(/把 AC 转写成审查清单/)).toBeTruthy());
+  });
+
+  it('blocked + waitingForInput → 不出建议片（NeedInputOptions 已覆盖该交互）', async () => {
+    renderPage();
+    await waitFor(() => expect(screen.getByText('#rnd-主研发')).toBeTruthy());
+    act(() => emitSse(wuStatusChanged({
+      id: 'WU-4002', status: 'blocked', channelId: 'ch-1', type: 'task',
+      metadata: JSON.stringify({ waitingForInput: true, waitingQuestion: '选哪个？' }),
+    })));
+    await waitFor(() => expect(screen.getByText('待回复 · 1')).toBeTruthy());
+    expect(document.querySelector('.mc-suggest')).toBeNull();
   });
 });
