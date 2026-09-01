@@ -119,7 +119,7 @@ export async function evaluateTrajectory(fileStore: FileStore): Promise<void> {
 /**
  * 每天聚合所有数据源 → 输出每日开发洞察
  * GAP-15: 去掉 23:50 时间窗口，改为"距上次 >24h 则运行"
- * 数据源: session:summary + pipelineRun + routing.jsonl + git log + KnowledgeBus
+ * 数据源: session:summary + pipelineRun + git log + KnowledgeBus
  * 输出: #系统 channel 卡片 + Discord discord-alert 频道
  */
 export async function dailyReflection(fileStore: FileStore, state: ReportState): Promise<void> {

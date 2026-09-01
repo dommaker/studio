@@ -39,7 +39,6 @@
     "doc:sync-check": "bash scripts/check-doc-sync.sh",
     "gen:agents-md": "node scripts/gen-agents-md.mjs",
     "agents-md:sync": "npx harness sync-docs --agents && node scripts/gen-agents-md.mjs",
-    "doc:diff": "npx tsx scripts/tools/arch-doc-diff.ts",
     "postinstall": "node scripts/harness-sync.js",
     "prepare": "node scripts/harness-sync.js"
   },

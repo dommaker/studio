@@ -1,53 +1,25 @@
 /**
  * Audit Recorder 测试
+ *
+ * 文件写已停（#425 a1）：recordDecision 只发 EventBus，断言走订阅捕获。
  */
 
-import * as fs from 'fs';
-import * as path from 'path';
-import * as os from 'os';
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import { recordDecision, recordDecisions } from '../audit';
-
-const TEST_AUDIT_DIR = path.join(os.homedir(), '.harness', 'audit');
-
-// 备份真实审计目录
-function backupDir(): string | null {
-  if (!fs.existsSync(TEST_AUDIT_DIR)) return null;
-  const backup = TEST_AUDIT_DIR + '.backup';
-  if (fs.existsSync(backup)) fs.rmSync(backup, { recursive: true });
-  fs.renameSync(TEST_AUDIT_DIR, backup);
-  return backup;
-}
-
-function restoreDir(backup: string | null): void {
-  if (fs.existsSync(TEST_AUDIT_DIR)) fs.rmSync(TEST_AUDIT_DIR, { recursive: true });
-  if (backup && fs.existsSync(backup)) {
-    fs.renameSync(backup, TEST_AUDIT_DIR);
-  }
-}
-
-function readLatestAuditFile(): any[] {
-  const files = fs.existsSync(TEST_AUDIT_DIR)
-    ? fs.readdirSync(TEST_AUDIT_DIR).filter(f => f.endsWith('.jsonl'))
-    : [];
-  if (files.length === 0) return [];
-  const latest = files.sort().pop()!;
-  const content = fs.readFileSync(path.join(TEST_AUDIT_DIR, latest), 'utf-8');
-  return content.split('\n').filter(Boolean).map(l => JSON.parse(l));
-}
+import { eventBus } from '../../../event-bus';
 
 describe('AuditRecorder', () => {
-  let backup: string | null;
-
-  beforeEach(() => {
-    backup = backupDir();
-  });
+  const received: unknown[] = [];
+  const handler = (payload: unknown) => { received.push(payload); };
 
   afterEach(() => {
-    restoreDir(backup);
+    eventBus.unsubscribe('events:audit', handler);
+    received.length = 0;
   });
 
-  it('recordDecision 写入审计文件', () => {
+  it('recordDecision 发布 events:audit 事件（id/timestamp 统一加盖）', () => {
+    eventBus.subscribe('events:audit', handler);
+
     recordDecision({
       eventType: 'test.event',
       entityType: 'test',
@@ -56,57 +28,43 @@ describe('AuditRecorder', () => {
       actorRole: 'executor',
     });
 
-    const entries = readLatestAuditFile();
-    const found = entries.find(e => e.entityId === 'test-1');
-
+    const found = received.find(e => (e as { entityId: string }).entityId === 'test-1') as Record<string, unknown>;
     expect(found).toBeDefined();
-    expect(found!.eventType).toBe('test.event');
-    expect(found!.entityId).toBe('test-1');
-    expect(found!.summary).toBe('Test audit event');
-    expect(found!.actorRole).toBe('executor');
-    expect(found!.id).toBeDefined();
-    expect(found!.timestamp).toBeDefined();
+    expect(found.eventType).toBe('test.event');
+    expect(found.entityId).toBe('test-1');
+    expect(found.summary).toBe('Test audit event');
+    expect(found.actorRole).toBe('executor');
+    expect(found.id).toBeDefined();
+    expect(found.timestamp).toBeDefined();
   });
 
-  it('recordDecisions 批量写入', () => {
+  it('recordDecisions 批量逐条发布', () => {
+    eventBus.subscribe('events:audit', handler);
+
     recordDecisions([
       { eventType: 'batch.1', entityType: 'batch', entityId: 'b-1', summary: 'Batch 1' },
       { eventType: 'batch.2', entityType: 'batch', entityId: 'b-2', summary: 'Batch 2' },
       { eventType: 'batch.3', entityType: 'batch', entityId: 'b-3', summary: 'Batch 3' },
     ]);
 
-    const entries = readLatestAuditFile();
-    const batchEntries = entries.filter(e => e.entityType === 'batch');
-
+    const batchEntries = received.filter(e => (e as { entityType: string }).entityType === 'batch');
     expect(batchEntries).toHaveLength(3);
-    expect(batchEntries.map((e: any) => e.summary)).toEqual(['Batch 1', 'Batch 2', 'Batch 3']);
+    expect(batchEntries.map(e => (e as { summary: string }).summary)).toEqual(['Batch 1', 'Batch 2', 'Batch 3']);
   });
 
-  it('审计文件为追加模式', () => {
-    recordDecision({
-      eventType: 'append.1', entityType: 'append', entityId: 'a-1', summary: 'First',
-    });
-    const afterFirst = readLatestAuditFile().length;
+  it('不写 ~/.harness/audit/ 全局目录（#425 a1 停写）', () => {
+    eventBus.subscribe('events:audit', handler);
 
-    recordDecision({
-      eventType: 'append.2', entityType: 'append', entityId: 'a-2', summary: 'Second',
-    });
-    const afterSecond = readLatestAuditFile().length;
-
-    expect(afterSecond).toBe(afterFirst + 1);
-  });
-
-  it('审计文件在 ~/.harness/audit/ 下（绝对路径）', () => {
     recordDecision({
       eventType: 'path.test', entityType: 'path', entityId: 'p-1', summary: 'Path test',
     });
 
-    expect(fs.existsSync(TEST_AUDIT_DIR)).toBe(true);
-    const files = fs.readdirSync(TEST_AUDIT_DIR).filter(f => f.endsWith('.jsonl'));
-    expect(files.length).toBeGreaterThan(0);
+    expect(received).toHaveLength(1); // 事件照发，仅无文件写
   });
 
-  it('details 字段正确序列化', () => {
+  it('details 字段随事件透传', () => {
+    eventBus.subscribe('events:audit', handler);
+
     recordDecision({
       eventType: 'detail.test',
       entityType: 'detail',
@@ -115,9 +73,7 @@ describe('AuditRecorder', () => {
       details: { count: 5, stepCount: 3, tags: ['auth', 'jwt'] },
     });
 
-    const entries = readLatestAuditFile();
-    const found = entries.find((e: any) => e.entityId === 'd-1');
-
-    expect(found!.details).toEqual({ count: 5, stepCount: 3, tags: ['auth', 'jwt'] });
+    const found = received.find(e => (e as { entityId: string }).entityId === 'd-1') as Record<string, unknown>;
+    expect(found.details).toEqual({ count: 5, stepCount: 3, tags: ['auth', 'jwt'] });
   });
 });

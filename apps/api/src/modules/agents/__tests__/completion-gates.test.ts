@@ -12,11 +12,10 @@ import {
   parseWuGitLog,
   loadCompletionCheckersConfig,
   type CompletionCheckerFns,
-  type CompletionCheckersConfig,
   type CompletionGuardDeps,
-  type SoftCheckCommitInput,
   type SoftCheckEvent,
 } from '../loop/completion-gates';
+import type { CommitInput, CompletionCheckersConfig } from '@dommaker/harness';
 import type { WorkUnitData, WorkUnitMetadata } from '../../workunit/workunit.service.js';
 
 const COMMIT_HINT = '有未提交改动，请先 git add/commit 再报告完成';
@@ -287,13 +286,13 @@ describe('completion-gates: 默认 git 探针（真实实现，失败静默跳�
 // ─── T7-E2（#161）软观测段：mock git/配置/harness 函数，纯 ctx 驱动 ───
 describe('completion-gates: T7-E2 软观测段', () => {
   const SOFT_META: WorkUnitMetadata = { worktreePath: '/repo/wt', worktreeBaseBranch: 'main' };
-  const COMMITS: SoftCheckCommitInput[] = [
+  const COMMITS: CommitInput[] = [
     { sha: 'aaaaaaa1', subject: 'phase(x): a', body: '', files: ['src/a.ts'], isMerge: false },
   ];
 
   function makeSoftDeps(
     fnsOverrides: Partial<CompletionCheckerFns> | null,
-    opts: { commits?: SoftCheckCommitInput[] | null; config?: CompletionCheckersConfig } = {},
+    opts: { commits?: CommitInput[] | null; config?: CompletionCheckersConfig } = {},
   ) {
     const fns: CompletionCheckerFns = {
       verifyTddChain: vi.fn().mockReturnValue({

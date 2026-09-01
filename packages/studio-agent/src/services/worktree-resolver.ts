@@ -185,6 +185,8 @@ export async function propagateHarnessConfig(worktree: string, taskId: string, e
 
     const harnessDir = path.join(worktree, '.harness');
     if (!fsSync.existsSync(harnessDir)) {
+      // 模板缺失 = 静默跳过（templates/node-api/.harness fallback 死分支已删——
+      // 模板从未含 .harness，cp 吞错永远空转，#425 b2）
       const templateDir = path.resolve(process.cwd(), '.harness');
       if (fsSync.existsSync(templateDir)) {
         fsSync.mkdirSync(harnessDir, { recursive: true });
@@ -193,14 +195,6 @@ export async function propagateHarnessConfig(worktree: string, taskId: string, e
           if (fsSync.existsSync(src)) {
             fsSync.copyFileSync(src, path.join(harnessDir, f));
           }
-        }
-      } else {
-        const harnessPkgDir = path.dirname(require.resolve('@dommaker/harness/package.json'));
-        const nodeApiTpl = path.join(harnessPkgDir, 'templates', 'node-api');
-        if (fsSync.existsSync(nodeApiTpl)) {
-          await execSh(`cp -r "${nodeApiTpl}/.harness" "${harnessDir}" 2>/dev/null || true`, {
-            cwd: worktree, timeoutMs: 5000,
-          });
         }
       }
     }
