@@ -3,7 +3,6 @@
 // 度量降下方「健康度量」默认折叠分区。删 WU 状态分布/Agent 状态/最近 24h/段 trim 四区块（§7.3）。
 // 文案按 §7.5：术语标题 + 大白话副标题 + 每区一个 22px 主数字。不扩监控 API。
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
 import { monitoringApi } from '../api/monitoring';
 import { knowledgeApi } from '../api/knowledge';
 import { EventSearchPanel } from '../components/monitoring/EventSearchPanel';
@@ -72,7 +71,6 @@ export function MonitoringPage() {
           </div>
           <div className="flex gap-2">
             <button className="btn btn-secondary" onClick={refresh}>刷新</button>
-            <Link to="/" className="btn btn-secondary">返回</Link>
           </div>
         </div>
       </div>

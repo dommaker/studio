@@ -1,7 +1,7 @@
 // REQ 全链路面板（vision §5.3）— #412 起链路读 requirementChainStore
 // （同 chain 与右栏/抽屉/项目页共享单份缓存；workunit.status_changed 就地更新，重开弹窗 TTL 内零重拉）
 import { useEffect } from 'react';
-import { deriveDisplayState } from '@dommaker/studio-shared/web';
+import { deriveDisplayState, WU_STATUS_LABELS, WU_STATUS_COLORS } from '@dommaker/studio-shared/web';
 import { Modal } from '../ui/Modal';
 import { useRequirementChainStore } from '../../stores/requirementChainStore';
 import { formatFullTime } from '../../utils/datetime';
@@ -12,24 +12,6 @@ const reqStatusLabels: Record<string, string> = {
   'in-progress': '进行中',
   done: '已完成',
   archived: '已归档',
-};
-
-const wuStatusLabels: Record<string, string> = {
-  unassigned: '待分配',
-  active: '执行中',
-  in_review: '审查中',
-  done: '已完成',
-  closed: '已关闭',
-  blocked: '阻塞',
-};
-
-const wuStatusColors: Record<string, string> = {
-  unassigned: 'u-surface-2 u-text-2',
-  active: 'u-accent-dim u-accent',
-  in_review: 'u-warn-dim u-warn',
-  done: 'u-ok-dim u-ok',
-  closed: 'u-ok-dim u-ok',
-  blocked: 'u-err-dim u-err',
 };
 
 interface Props {
@@ -91,8 +73,8 @@ export function RequirementChainPanel({ reqId, onClose }: Props) {
                   const column = deriveDisplayState({ status: wu.status, metadata: wu.metadata }).column;
                   return (
                   <li key={wu.id} className="flex items-center gap-2 text-sm">
-                    <span className={`text-xs px-2 py-0.5 rounded flex-shrink-0 ${wuStatusColors[column] ?? 'u-surface-2 u-text-2'}`}>
-                      {wuStatusLabels[column] ?? column}
+                    <span className={`text-xs px-2 py-0.5 rounded flex-shrink-0 ${WU_STATUS_COLORS[column] ?? 'u-surface-2 u-text-3'}`}>
+                      {WU_STATUS_LABELS[column] ?? column}
                     </span>
                     <span className="truncate" style={{ color: 'var(--text-primary)' }}>{wu.title}</span>
                     {wu.assigneeId && (

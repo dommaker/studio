@@ -2,6 +2,7 @@
 // 对话流逻辑与 B1-001/Phase 2 一致：日期分隔、已完成折叠、线程分组、NEED_INPUT 回复链路，零语义变更
 import { useParams, useSearchParams } from 'react-router-dom';
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
+import { formatChannelName } from '@dommaker/studio-shared/web';
 import { useChannelMessages } from '../hooks/useChannelEvents';
 import { useStreamFollow } from '../hooks/useStreamFollow';
 import { useChannelCardActions } from '../hooks/useChannelCardActions';
@@ -573,7 +574,7 @@ export function ChannelDetailPage() {
       {/* 中栏：对话流 */}
       <main className="mc-main">
         <div className="mc-topbar">
-          <h1 className="mc-topbar-name">#{channel?.name || id.slice(0, 8)}</h1>
+          <h1 className="mc-topbar-name">{formatChannelName(channel?.name || id.slice(0, 8))}</h1>
           <span className="mc-topbar-type">
             {channel?.type === 'rnd' ? '研发频道' : channel?.type === 'decision' ? '决策频道' : '系统频道'}
           </span>

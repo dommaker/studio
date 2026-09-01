@@ -6,6 +6,7 @@
 // 与当前 WU 快照缺失时的单实例补查（写回 store 共享）。
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { Link, useParams } from 'react-router-dom';
+import { formatChannelName } from '@dommaker/studio-shared/web';
 import { monitoringApi } from '../api/monitoring';
 import { workunitApi, type WorkUnit } from '../api/workunit';
 import { ExecutionSteps } from '../components/workunit/ExecutionSteps';
@@ -157,7 +158,7 @@ export function AgentDetailPage() {
             )}
             {instance?.channelId && (
               <Link to={`/channels/${instance.channelId}`} className="text-xs u-text-2 u-hover-accent">
-                #{channelName ?? '频道'}
+                {formatChannelName(channelName ?? '频道')}
               </Link>
             )}
           </div>
@@ -220,7 +221,7 @@ export function AgentDetailPage() {
                       )}
                       {instance?.channelId && (
                         <Link to={`/channels/${instance.channelId}`} className="u-text-2 u-hover-accent">
-                          #{channelName ?? '频道'}
+                          {formatChannelName(channelName ?? '频道')}
                         </Link>
                       )}
                     </div>

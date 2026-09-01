@@ -90,7 +90,6 @@ export function WorkUnitListPage() {
             <button className="btn btn-primary" onClick={() => setShowCreate(!showCreate)}>
               {showCreate ? '取消' : '+ 新建'}
             </button>
-            <Link to="/" className="btn btn-secondary">返回</Link>
           </div>
         </div>
 
@@ -99,9 +98,9 @@ export function WorkUnitListPage() {
           <StatBadge label="总数" value={total} color="u-accent" />
           {/* #280：pending 单列「待确认」（扩范围人闸），不再计入「待人工」 */}
           <StatBadge label="待确认" value={workunits.filter(w => deriveWu(w).column === 'pending').length} color="u-warn" />
-          <StatBadge label="待分配" value={workunits.filter(w => deriveWu(w).column === 'unassigned').length} color="u-text-3" />
-          <StatBadge label="执行中" value={workunits.filter(w => deriveWu(w).column === 'active').length} color="u-accent" />
-          <StatBadge label="审查中" value={workunits.filter(w => deriveWu(w).column === 'in_review').length} color="u-warn" />
+          <StatBadge label={WU_STATUS_LABELS.unassigned} value={workunits.filter(w => deriveWu(w).column === 'unassigned').length} color="u-text-3" />
+          <StatBadge label={WU_STATUS_LABELS.active} value={workunits.filter(w => deriveWu(w).column === 'active').length} color="u-accent" />
+          <StatBadge label={WU_STATUS_LABELS.in_review} value={workunits.filter(w => deriveWu(w).column === 'in_review').length} color="u-warn" />
           <StatBadge label="待人工" value={workunits.filter(w => deriveWu(w).needsHuman).length} color="u-err" />
         </div>
       </div>
@@ -162,7 +161,7 @@ export function WorkUnitListPage() {
                 humanOnly ? 'u-err-dim u-err' : 'u-surface-2 u-text-3 u-hover-bg'
               }`}
               onClick={() => setHumanOnly(!humanOnly)}
-              title="活已干完但人还没确认（手写审查中 + done 缺人工确认）"
+              title="活已干完但人还没确认（手写待验收 + done 缺人工确认）"
             >
               待人工
             </button>

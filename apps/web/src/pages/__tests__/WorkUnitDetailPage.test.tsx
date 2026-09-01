@@ -175,7 +175,7 @@ describe('WorkUnitDetailPage', () => {
     render(<WorkUnitDetailPage />);
     expect(await screen.findByText('登录功能开发')).toBeDefined();
     expect(screen.getByText('任务')).toBeDefined();
-    expect(screen.getAllByText('已完成').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('完成').length).toBeGreaterThan(0);
     expect(screen.queryByRole('button', { name: 'Token 开销' })).toBeNull();
   });
 
@@ -223,7 +223,7 @@ describe('WorkUnitDetailPage', () => {
     // REQ 行 → 打开 RequirementChainPanel（非链接）
     expect(screen.getByText('REQ-0042')).toBeDefined();
     // 频道行 → /channels/:channelId
-    const channelLink = await screen.findByText('# 主频道');
+    const channelLink = await screen.findByText('#主频道');
     expect(channelLink.closest('a')?.getAttribute('href')).toBe('/channels/ch-1');
     // 认领人行 → /agents/:roleId
     const agentLink = await screen.findByText('@coder-01');
@@ -380,10 +380,11 @@ describe('WorkUnitDetailPage', () => {
     });
     render(<WorkUnitDetailPage />);
 
-    // 依赖行：标题 + 跳详情页链接；done 依赖状态 chip（Header pill 之外新增一处）
+    // 依赖行：标题 + 跳详情页链接；done 依赖状态 chip（Header pill 为正词「完成」，依赖 chip 走 DEP_STATUS_LABEL 方言「已完成」）
     const depLink = await screen.findByText('依赖任务一');
     expect(depLink.closest('a')?.getAttribute('href')).toBe('/workunits/wu-dep-1');
-    expect(screen.getAllByText('已完成').length).toBeGreaterThanOrEqual(2);
+    expect(screen.getAllByText('完成').length).toBeGreaterThanOrEqual(1); // Header 状态 pill
+    expect(screen.getAllByText('已完成').length).toBeGreaterThanOrEqual(1); // 依赖 chip（DEP_STATUS_LABEL 方言，不在 #429 范围）
     // 缺失 id 保守按未了结展示
     expect(screen.getByText('找不到这张单')).toBeDefined();
     // ac 验收标准逐条展示

@@ -259,7 +259,7 @@ describe('ExecutionSteps · 当前状态速览（#182）', () => {
     render(<ExecutionSteps workUnitId="WU-1" wu={glanceWu()} />);
     await waitFor(() => expect(screen.getByText('当前状态')).toBeTruthy());
     expect(screen.getByText('状态')).toBeTruthy();
-    expect(screen.getByText('执行中')).toBeTruthy();
+    expect(screen.getByText('进行中')).toBeTruthy();
     expect(screen.getByText('进度')).toBeTruthy();
     expect(screen.getByText('第 7 步 / 上限 15 步')).toBeTruthy();
     expect(screen.getByText('最近进展')).toBeTruthy();

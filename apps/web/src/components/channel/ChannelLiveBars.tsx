@@ -23,7 +23,7 @@ export function ChannelLiveBars({ channelId, onOpenWorkUnit }: Props) {
             onClick={() => onOpenWorkUnit(e.workUnitId)}
             title={`打开 ${e.workUnitId} 执行详情`}
           >
-            <span className="mc-status mc-status-running"><span className="mc-dot" />执行中</span>
+            <span className="mc-status mc-status-running"><span className="mc-dot" />进行中</span>
             <span>
               {shortWuId(e.workUnitId)} 正在执行
               {e.step !== undefined ? ` · 第 ${e.step} 步` : ''}

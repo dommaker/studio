@@ -5,7 +5,6 @@
 // §6.3 页头统计行 = 快速筛选 chip（与卡面状态同口径同色，点击过滤/再点取消；「在线」正交维度移出）；
 // §6.4 创建角色 = 弹框不跳页（保存=关弹框就地刷新名册）。
 import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
 import { useAgentRoster, type RosterRole } from '../hooks/useAgentRoster';
 import { RoleCard } from '../components/monitoring/RoleCard';
 import { CreateRoleModal } from '../components/monitoring/CreateRoleModal';
@@ -58,7 +57,6 @@ export function AgentDashboardPage() {
           </div>
           <div className="flex gap-2">
             <button className="btn btn-primary" onClick={() => setCreateOpen(true)}>创建角色</button>
-            <Link to="/" className="btn btn-secondary">返回</Link>
           </div>
         </div>
 

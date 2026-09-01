@@ -62,7 +62,7 @@ describe('ExecutionFlow', () => {
     render(<ExecutionFlow workUnitId="wu-1" wu={baseWu} />);
     expect(await screen.findByText('读代码')).toBeDefined();
     expect(screen.getByText('状态')).toBeDefined();
-    expect(screen.getByText('执行中')).toBeDefined();
+    expect(screen.getByText('进行中')).toBeDefined();
     expect(screen.getByText('进度')).toBeDefined();
     expect(screen.getAllByText(/第 2 步/).length).toBeGreaterThan(0);
     expect(screen.getByText(/上限 15/)).toBeDefined();

@@ -6,7 +6,7 @@
 // 数据获取/派生/mutation handler 逻辑沿用重构前实现；「待验收」站时间戳口径见 utils/wuLifecycle.ts 注释（§5.6.2）。
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { deriveDisplayState, parseAttestations, WU_STATUS_COLORS, WU_STATUS_LABELS, WU_TYPE_LABELS } from '@dommaker/studio-shared/web';
+import { deriveDisplayState, parseAttestations, WU_STATUS_COLORS, WU_STATUS_LABELS, WU_TYPE_LABELS, formatChannelName } from '@dommaker/studio-shared/web';
 import { workunitApi, type Opportunity, type WorkUnit } from '../api/workunit';
 import { requirementApi } from '../api/requirements';
 import { projectApi } from '../api/index';
@@ -221,7 +221,7 @@ export function WorkUnitDetailPage() {
                   {wu.channelId && (
                     <FactRow k="频道">
                       <Link to={`/channels/${wu.channelId}`} className="u-text-2" title="所在频道">
-                        # {channelName ?? `${wu.channelId.slice(0, 8)}...`}
+                        {formatChannelName(channelName ?? `${wu.channelId.slice(0, 8)}...`)}
                       </Link>
                     </FactRow>
                   )}

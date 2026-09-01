@@ -20,7 +20,7 @@ import { SelfReviewBadge } from '../workunit/SelfReviewBadge';
 import { EvidenceLedger } from '../workunit/EvidenceLedger';
 import { AnalysisApproveDialog } from '../pmo/AnalysisApproveDialog';
 import { buildMapOpeningPrefill } from '../pmo/mapUtils';
-import { deriveDisplayState, parseAttestations, WU_STATUS_LABELS } from '@dommaker/studio-shared/web';
+import { deriveDisplayState, parseAttestations, WU_STATUS_LABELS, formatChannelName } from '@dommaker/studio-shared/web';
 import { AssigneeLabel } from '../workunit/AssigneeLabel';
 import { formatShortTime } from '../../utils/datetime';
 import { parseWuMeta } from '../../utils/wuMeta';
@@ -280,7 +280,7 @@ function WuDetail({ id, autoApprove = false, onOpenReq }: { id: string; autoAppr
               onClick={() => navigate(`/channels/${wu.channelId}`)}
               title="回频道（需求讨论现场）"
             >
-              #{channelName ?? `${wu.channelId.slice(0, 8)}…`}
+              {formatChannelName(channelName ?? `${wu.channelId.slice(0, 8)}…`)}
             </button>
           </span>
         </div>

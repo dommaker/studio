@@ -1,6 +1,6 @@
 // PMOPage - PMO 管理主页面（项目 + OKR；三个弹窗已抽至 components/pmo/，工单 33）
 import { useState, useEffect, useMemo } from 'react';
-import { Link, useSearchParams, useNavigate } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { projectApi } from '../api';
 import { companyApi } from '../api/company';
 import { okrApi, type OkrKeyResult } from '../api/pmo';
@@ -147,9 +147,6 @@ export function PMOPage({ companyId }: PMOPageProps) {
             <h1 className="page-title">📊 PMO 管理</h1>
             <p className="page-subtitle">项目组合 + OKR 管理</p>
           </div>
-          <Link to="/" className="btn btn-secondary">
-            ← 返回首页
-          </Link>
         </div>
       </div>
 

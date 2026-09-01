@@ -9,6 +9,7 @@
 // 「强制停止」不在卡面（§6.1 无操作位），能力保留在 AgentDetailPage 头部。
 import { memo } from 'react';
 import { Link } from 'react-router-dom';
+import { formatChannelName } from '@dommaker/studio-shared/web';
 import { useRosterActivities } from '../../stores/rosterActivityStore';
 import type { RosterRole } from '../../hooks/useAgentRoster';
 import type { WorkUnit } from '../../api/workunit';
@@ -76,7 +77,7 @@ export const RoleCard = memo(function RoleCard({ role, lastDone, channelNames }:
               {runtime?.pmo && runtime?.channelId && ' · '}
               {runtime?.channelId && (
                 <Link to={`/channels/${runtime.channelId}`} className="u-hover-accent">
-                  #{channelNames[runtime.channelId] ?? '频道'}
+                  {formatChannelName(channelNames[runtime.channelId] ?? '频道')}
                 </Link>
               )}
             </div>
