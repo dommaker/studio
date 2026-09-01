@@ -841,3 +841,64 @@ describe('ChannelDetailPage — #440 建议 prompt 片', () => {
     expect(document.querySelector('.mc-suggest')).toBeNull();
   });
 });
+
+// #440 Phase 2：频道阶段条——复用 StationStepper/buildLifecycle，数据源 = channelWus（与建议片同面）
+describe('ChannelDetailPage — #440 阶段条', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    currentMessages = MESSAGES;
+    sseHandlers = [];
+    useNotificationStore.setState({ notifications: [] });
+    mockApiGet.mockResolvedValue({ data: { data: { id: 'ch-1', name: 'rnd-主研发', type: 'rnd', members: '[]' } } });
+    mockListWorkunits.mockImplementation((params?: { status?: string }) => Promise.resolve(
+      params?.status === 'active' ? activeWuList([]) : { data: { data: [] } },
+    ));
+    mockOnEvent.mockImplementation((cb: SseHandler) => { sseHandlers.push(cb); return () => {}; });
+    mockOnReconnect.mockImplementation((cb: () => void) => { reconnectHandlers.push(cb); return () => {}; });
+    reconnectHandlers = [];
+    mockListReqs.mockResolvedValue({ data: { data: [] } });
+    mockSendMessage.mockResolvedValue({});
+  });
+
+  it('频道有非终态 WU → 顶部渲染阶段条（当前站 = 进行中）', async () => {
+    mockListWorkunits.mockImplementation((params?: { status?: string }) => Promise.resolve(
+      params?.status === 'active'
+        ? activeWuList([])
+        : params?.status === 'blocked'
+          ? { data: { data: [] } }
+          : {
+              data: {
+                data: [{
+                  id: 'WU-5001', parentId: null, dependsOn: '', type: 'task', scope: 's',
+                  assigneeId: null, status: 'active', failureType: null, retryCount: 0,
+                  timeoutAt: null, channelId: 'ch-1', metadata: null,
+                  createdAt: iso(-30), updatedAt: iso(-5), claimedAt: iso(-20), completedAt: null,
+                }],
+              },
+            },
+    ));
+    renderPage();
+    await waitFor(() => expect(screen.getByLabelText('工单阶段')).toBeTruthy());
+    const steps = [...screen.getByLabelText('工单阶段').querySelectorAll('.wu-bstep')];
+    expect(steps).toHaveLength(4);
+    expect(steps[1].className).toContain('wu-st-current');
+  });
+
+  it('无 WU → 不渲染阶段条', async () => {
+    renderPage();
+    await waitFor(() => expect(screen.getByText('#rnd-主研发')).toBeTruthy());
+    expect(screen.queryByLabelText('工单阶段')).toBeNull();
+  });
+
+  it('WU 状态流转（SSE）→ 阶段条当前站随展示列移动', async () => {
+    renderPage();
+    await waitFor(() => expect(screen.getByText('#rnd-主研发')).toBeTruthy());
+    act(() => emitSse({
+      event_type: 'workunit.status_changed',
+      data: { workunit: { id: 'WU-5002', status: 'in_review', channelId: 'ch-1', type: 'task', metadata: '{}' } },
+    }));
+    await waitFor(() => expect(screen.getByLabelText('工单阶段')).toBeTruthy());
+    const steps = [...screen.getByLabelText('工单阶段').querySelectorAll('.wu-bstep')];
+    expect(steps[2].className).toContain('wu-st-current');
+  });
+});
