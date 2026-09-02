@@ -16,7 +16,7 @@ Web 前端主源码。路由、全局状态、API 客户端、UI 组件、样式
 | `requirementApi` | `api/requirements.ts` | 需求 CRUD + 关联 WU 链 |
 | `knowledgeApi` | `api/knowledge.ts` | 知识审核 + 知识库浏览；knowledge_proposal 卡审批走 review-proposal 通用端点（kind='knowledge'，#355），promote/demote 为条目生命周期端点（非提案场景） |
 | `memoryApi` / `distillApi` | `api/*.ts` | 角色记忆 / 蒸馏人审闸口（均走 review-proposal 通用端点 `/review-proposals/:kind/:id/*`，#351/#353） |
-| `companyApi` / `okrApi` / `notifyApi` / `harnessApi` | `api/*.ts` | 公司 / PMO OKR / 通知配置 / 质量门 |
+| `companyApi` / `okrApi` / `harnessApi` | `api/*.ts` | 公司 / PMO OKR / 质量门 |
 | `transcriptsApi` / `eventsApi` | `api/*.ts` | WU transcript 只读 / 事件检索 |
 | `WebSocketProvider` | `api/websocket.tsx` | SSE Context Provider，根部唯一 EventSource |
 | `useGatedPoll` | `hooks/useGatedPoll.ts` | 共享门禁轮询（#313）：挂载首拉 + 仅当（visible ∧ SSE≠connected）按 interval 轮询 + 回 visible 立即补拉 |
@@ -38,6 +38,7 @@ Web 前端主源码。路由、全局状态、API 客户端、UI 组件、样式
 | `ChannelHomeRedirect` / `lastChannel` | `pages/ChannelHomeRedirect.tsx` / `utils/lastChannel.ts` | #393：`/` 与 `/channels` 重定向进频道工作区（频道列表页已删除，spec §2）；落点 = 最近访问（ChannelDetailPage 进页写 localStorage）→ rnd → 首频道 → 零频道空态内联 CreateChannelForm |
 | `BackButton` | `components/ui/BackButton.tsx` | #393 详情页统一左上「← 返回」（spec §4.4）：history.state.idx>0 → navigate(-1)，直开/书签回落 fallback 列表页；PMO 项目/Agent/WU/阅览室文档/Workspace 五页接入 |
 | `deriveStreamView` | `utils/streamView.ts` | 消息流管线纯函数（#322）：消息集+折叠/筛选 UI 状态 → 渲染就绪 items（归组/过程折叠/连续合并/日期分隔/可见性） |
+| `digestContent` / `CONSUMPTION_MODE_CHART` / `UnifiedEntryContent` | `utils/knowledgeContent.ts` / `components/knowledge/UnifiedEntryContent.tsx` | #435 B7：知识库统一视图内容消化——content 为 JSON 对象 → 键值列表，其余文本 >200 字符截断+展开/收起，不直出存储层原文；consumptionMode 徽标改 --chart-* 类别色文字+中性底（rule=2 紫 / signal=7 青 / context=1 蓝，§6.5 类别不占状态色），无映射归中性 |
 | `formatShortTime` / `formatFullTime` | `utils/datetime.ts` | zh-CN 时间格式唯一出口（#358：6 处 formatTime 拷贝 + 6 处内联 toLocaleString 收口）；短格式空值回 `-` |
 | `parseWuMeta` | `utils/wuMeta.ts` | WU metadata JSON 解析唯一出口（#358：4 处逐字 try/catch 拷贝收口，模式对齐 #264 messageMeta） |
 | `fanOut` | `utils/fanOut.ts` | 并行扇出统一口径（#349：PMO 徽章统计 / fog 决策单 / roster 空闲卡最近完成 / BlockedByList / memory 逐草稿结算 / WU 产出文件集 六处手写 allSettled+try-catch 收口）：单条失败隔离不炸整批 + 结果按输入 index 对齐，无并发上限；调用方自带归并策略（丢弃/兜底 null/兜底行），取消仍留调用侧。注意：① items 为无类型 axios 响应链（any）时泛型 T 退化 unknown，调用侧需显式标注元素类型；② repo 非 strict，false 分支取 error 需 `entry.ok === true`（见 fanOut.ts 内注） |

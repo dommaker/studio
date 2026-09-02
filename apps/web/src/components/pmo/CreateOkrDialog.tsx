@@ -65,7 +65,8 @@ export function CreateOkrDialog({ open, companyId, onClose, onCreated }: CreateO
     }
 
     try {
-      const actualCompanyId = companyId || localStorage.getItem('companyId');
+      // #434：localStorage companyId 兜底随设置页公司节一并移除，companyId 一律由调用方传入
+      const actualCompanyId = companyId;
       if (!actualCompanyId) {
         toast.warning('请先选择公司');
         return;

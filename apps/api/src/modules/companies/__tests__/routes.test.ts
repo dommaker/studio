@@ -54,10 +54,20 @@ afterAll(async () => {
 });
 
 describe('companies routes', () => {
-  it('GET / 空目录返回空列表', async () => {
+  it('GET / 空目录自动创建默认公司（#434 服务端兜底，幂等）', async () => {
     const { status, json } = await req('GET', '/');
     expect(status).toBe(200);
-    expect(json.data).toEqual([]);
+    expect(json.data.length).toBe(1);
+    expect(json.data[0].name).toBe('我的工作空间');
+    expect(json.data[0].id).toMatch(/^company_/);
+
+    const file = path.join(tmpHome, '.studio', 'data', 'companies', `${json.data[0].id}.json`);
+    expect(fs.existsSync(file)).toBe(true);
+
+    // 再次 GET 不重复创建
+    const again = await req('GET', '/');
+    expect(again.json.data.length).toBe(1);
+    expect(again.json.data[0].id).toBe(json.data[0].id);
   });
 
   it('POST / 创建公司并写入 FileStore', async () => {
