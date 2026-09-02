@@ -1,7 +1,7 @@
 // Channel message renderer — AC-C2: reply button + AC-C3: thread + AC-E3: Convert to Task
 // 2026-07 视觉重构（方向 A Mission Control）：纯文本行 + 卡片族视觉重绘；交互语义零变更
 // #277（决策 #248 D1/D2/D3/D5）：分侧布局——人右轻气泡 / agent 左无气泡文档流 / 系统播报
-// （Studio 无卡非等待消息）居中淡色一行 / 卡片全宽不参与分侧；compact 省略重复头；双侧 @name 染 mention chip。
+// （Studio 无卡非等待消息）淡色小字一行（#437 起左对齐随文档流，不再居中）/ 卡片全宽不参与分侧；compact 省略重复头；双侧 @name 染 mention chip。
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { ChannelFileVocabulary, ChannelMessage } from '../../api/channel';

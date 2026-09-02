@@ -1,5 +1,5 @@
 // #277（决策 #248 D1/D2/D3/D5）：消息分侧布局——人右轻气泡 / agent 左文档流 /
-// 系统播报（Studio）居中淡色一行 / 卡片全宽；mention chip 双侧正则染色；
+// 系统播报（Studio）淡色小字一行（#437 起左对齐随文档流，不再居中）/ 卡片全宽；mention chip 双侧正则染色；
 // compact（5min 同作者连续合并）省略重复头但保留动作。
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
@@ -93,7 +93,7 @@ describe('ChannelMessageItem — 头部规则（#277 D2）', () => {
   });
 });
 
-describe('ChannelMessageItem — 系统播报居中（#277 D3）', () => {
+describe('ChannelMessageItem — 系统播报形态（#277 D3；#437 起左对齐）', () => {
   const studioMsg = (extra: Partial<ChannelMessage> = {}): ChannelMessage => ({
     ...base,
     agentName: 'Studio',

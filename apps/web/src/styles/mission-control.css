@@ -326,14 +326,14 @@
 }
 /* D1 agent 消息：左侧无气泡文档流，占内容列宽（#394 起中栏弹性无上限，760/1000 双档取消） */
 .mc-msg-agent { text-align: left; }
-/* D3 系统播报：居中淡色小字，与左右对话流明确区隔；无头无动作，仅正文（+可选 footer 链接居中） */
-.mc-msg-system { text-align: center; }
+/* D3 系统播报：淡色小字，与左右对话流明确区隔；无头无动作，仅正文（+可选 footer 链接） */
+/* #437：居中装置是 760px 限宽栏语境的设计；#394 取消限宽后播报漂屏中，改左对齐随主流文档流，
+   区隔 = 淡色小字 + 无头两层信号；footer 链接随正文左对齐（居中 override 一并删除） */
 .mc-msg-system .mc-msg-body {
   color: var(--text-muted);
   font-size: var(--fs-xs);
   white-space: pre-wrap;
 }
-.mc-msg-system .mc-card-foot { justify-content: center; }
 /* D2 compact（连续合并）：省略重复头，动作浮于消息右上，hover/focus 显化（沿用 .mc-msg-actions 弱化态） */
 .mc-msg-compact { position: relative; }
 .mc-msg-compact > .mc-msg-actions-compact {
