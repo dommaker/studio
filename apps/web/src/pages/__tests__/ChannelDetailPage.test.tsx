@@ -24,16 +24,32 @@ vi.mock('../../api', () => ({
   api: { get: mockApiGet, post: mockApiPost },
 }));
 
-vi.mock('../../hooks/useChannelEvents', () => ({
-  useChannelMessages: () => ({
-    messages: currentMessages,
-    loading: false,
-    hasMore: false,
-    sendMessage: mockSendMessage,
-    loadMore: vi.fn(),
-    refresh: mockRefresh,
-  }),
-}));
+vi.mock('../../hooks/useChannelEvents', async () => {
+  const { useState, useRef } = await import('react');
+  return {
+    useChannelMessages: () => {
+      // #439：mock 自持 messages/hasMore 状态——loadMore 翻页（prepend 历史页/到底）能驱动
+      // 页面重渲染，供「highlight 目标掉出首页分页」用例走通 capped 游标循环。
+      // 同时保留原契约：用例在挂载后重赋值 currentMessages + rerender 时跟随外部快照
+      // （lastExternal 哨兵区分外部重赋值与内部 prepend，只跟前者）
+      const [msgs, setMsgs] = useState(currentMessages);
+      const [more, setMore] = useState(currentHasMore);
+      const lastExternal = useRef(currentMessages);
+      if (lastExternal.current !== currentMessages) {
+        lastExternal.current = currentMessages;
+        setMsgs(currentMessages);
+      }
+      return {
+        messages: msgs,
+        loading: false,
+        hasMore: more,
+        sendMessage: mockSendMessage,
+        loadMore: () => mockLoadMore(setMsgs, setMore),
+        refresh: mockRefresh,
+      };
+    },
+  };
+});
 
 vi.mock('../../api/workunit', () => ({
   workunitApi: { list: mockListWorkunits, dispatchReview: mockDispatchReview, claim: mockClaim },
@@ -105,6 +121,7 @@ vi.mock('../../components/channel/ConvertToTaskDialog', () => ({ ConvertToTaskDi
 
 import { ChannelDetailPage } from '../ChannelDetailPage';
 import { useNotificationStore } from '../../stores/notificationStore';
+import { toast } from '../../utils/toast';
 import type { ChannelMessage } from '../../api/channel';
 import type { DrawerState } from '../../components/channel/WorkUnitDrawer';
 
@@ -158,6 +175,11 @@ const REQS = [
 // useChannelEvents mock 的当前消息集（默认 MESSAGES，单测可替换为 PROCESS_MESSAGES 等夹具）
 let currentMessages: ChannelMessage[] = MESSAGES;
 
+// #439：mock 的 hasMore 初值 / loadMore spy。loadMore 实现签名 (setMsgs, setMore) => Promise<boolean>，
+// 由用例决定 prepend 哪些历史消息、翻页后是否到底（setMore(false)）与返回值（是否真实前插）
+let currentHasMore = false;
+const mockLoadMore = vi.fn();
+
 // #242：onEvent 注册的 SSE 处理器（用例手工驱动事件）；
 // 批 2（决策 5/6）后页面有多个订阅方（live 状态条 / waitingWus chip / REQ chips）→ 收集全部处理器统一派发
 type SseHandler = (msg: { event_type: string; data?: unknown }) => void;
@@ -185,9 +207,15 @@ const renderPage = (entry = '/channels/ch-1') =>
   );
 
 describe('ChannelDetailPage — Mission Control 三栏', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
     currentMessages = MESSAGES;
+    currentHasMore = false;
+    // toast.dismiss() 是 200ms 动画后异步移除——有残留时等其落定，防跨用例 toast 文本污染断言
+    toast.dismiss();
+    if (document.getElementById('toast-container')?.childElementCount) {
+      await new Promise(r => setTimeout(r, 250));
+    }
     sseHandlers = [];
     // 通知 store 是模块单例，跨用例重置
     useNotificationStore.setState({ notifications: [] });
@@ -232,6 +260,60 @@ describe('ChannelDetailPage — Mission Control 三栏', () => {
       expect(el?.className).toContain('mc-msg-highlight');
     });
     expect(Element.prototype.scrollIntoView).toHaveBeenCalled();
+  });
+
+  it('#439：highlight 目标掉出首页分页 → 沿翻页游标加载所在页后定位高亮', async () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    const oldMsg: ChannelMessage = {
+      id: 'm-old', channelId: 'ch-1', authorType: 'agent' as const, agentName: 'Auditor',
+      content: '审计建议卡（老消息）', workUnitId: null, replyToId: null,
+      meta: '{}', createdAt: iso(-50),
+    };
+    currentHasMore = true;
+    mockLoadMore.mockImplementation(async (setMsgs: (fn: (prev: ChannelMessage[]) => ChannelMessage[]) => void, setMore: (v: boolean) => void) => {
+      setMsgs(prev => [oldMsg, ...prev]);
+      setMore(false);
+      return true;
+    });
+
+    renderPage('/channels/ch-1?highlight=m-old');
+
+    await waitFor(() => {
+      const el = document.querySelector('[data-message-id="m-old"]');
+      expect(el?.className).toContain('mc-msg-highlight');
+    });
+    expect(mockLoadMore).toHaveBeenCalledTimes(1);
+    // 目标已定位，无降级反馈
+    expect(document.getElementById('toast-container')?.textContent ?? '').not.toContain('无法定位');
+  });
+
+  it('#439：翻页到底仍无目标 → toast 可见反馈，不静默', async () => {
+    currentHasMore = true;
+    // 翻一页后到底（hasMore → false），目标始终不存在
+    mockLoadMore.mockImplementation(async (_setMsgs: unknown, setMore: (v: boolean) => void) => {
+      setMore(false);
+      return true;
+    });
+
+    renderPage('/channels/ch-1?highlight=m-ghost');
+
+    await waitFor(() => {
+      expect(document.getElementById('toast-container')?.textContent).toContain('无法定位');
+    });
+    expect(mockLoadMore).toHaveBeenCalledTimes(1);
+  });
+
+  it('#439：翻页上限（10 页）后停止并 toast 反馈——不无限翻页', async () => {
+    currentHasMore = true;
+    mockLoadMore.mockImplementation(async () => true); // 历史永远翻不完，但目标不存在
+
+    renderPage('/channels/ch-1?highlight=m-ghost');
+
+    // 先钉住页数上限（循环跑满 10 页才停），再查反馈——避免读到上一用例残留的 toast
+    await waitFor(() => expect(mockLoadMore).toHaveBeenCalledTimes(10));
+    await waitFor(() => {
+      expect(document.getElementById('toast-container')?.textContent).toContain('无法定位');
+    });
   });
 
   it('决策9：SSE 断线重连 → 当前频道一次性 refetch（messages refresh + waitingWus/REQ chips 打底面对齐）', async () => {

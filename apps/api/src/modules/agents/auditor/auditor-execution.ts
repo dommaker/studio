@@ -74,18 +74,29 @@ export async function applyLowRiskSuggestions(suggestions: Suggestion[]): Promis
 
 // ── Push Confirmation Cards (B3-005) ──
 
+/**
+ * 通知 link（#439）：有卡消息 id 时带 `?highlight=<mid>` 直达锚点（前端通知点击
+ * 拼同款 query 消费，见 NotificationBell/ChannelDetailPage）；反查不到降级频道粒度。
+ */
+export function buildAuditorNotificationLink(channelId: string, cardMessageId: string | null): string {
+  return `/channels/${channelId}${cardMessageId ? `?highlight=${cardMessageId}` : ''}`;
+}
+
 export async function pushConfirmationCards(fileStore: FileStore, suggestions: Suggestion[]): Promise<void> {
   if (suggestions.length === 0) return;
 
   try {
     // #356：发卡归 review-proposal 正本（建提案 append-only → 发卡 → 失败落 card-failed 墓碑）。
     // posted=false（频道缺失/发卡失败）时同旧口径跳过铃铛通知。
-    const { submitAuditorSuggestionProposal } = await import('./review-adapter.js');
-    const { posted } = await submitAuditorSuggestionProposal(suggestions, { fileStore });
+    const { submitAuditorSuggestionProposal, findAuditorCardMessageId } = await import('./review-adapter.js');
+    const { proposalId, posted } = await submitAuditorSuggestionProposal(suggestions, { fileStore });
     if (!posted) return;
 
     // Push bell notifications to all users
     const channel = (await fileStore.listChannels({ name: SYSTEM_CHANNEL_NAME }))[0] ?? null;
+    // #439：反查刚投放的卡消息 id 作 ?highlight 锚点；查不到（删除/归档竞态）降级频道粒度，不阻断通知
+    const cardMessageId = channel ? await findAuditorCardMessageId(fileStore, channel.id, proposalId) : null;
+    const link = buildAuditorNotificationLink(channel?.id ?? '', cardMessageId);
     try {
       const notifService = new NotificationService(fileStore);
       // Read users from FileStore
@@ -102,7 +113,7 @@ export async function pushConfirmationCards(fileStore: FileStore, suggestions: S
           type: 'auditor_suggestion',
           title: `审计建议 (${suggestions.length} 项)`,
           content: suggestions.map(s => s.detail).join(' | '),
-          link: `/channels/${channel?.id ?? ''}`,
+          link,
         });
       }
       logger.info('[AuditorService] Push notifications sent', { users: userIds.length, suggestions: suggestions.length });

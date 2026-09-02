@@ -35,10 +35,18 @@ beforeEach(() => {
 
 describe('parseLinkTargets', () => {
   it('从 link 解析 WU/PMO/频道 id；null link 全 null', () => {
-    expect(parseLinkTargets(null)).toEqual({ workUnitId: null, pmoId: null, channelId: null });
-    expect(parseLinkTargets('/workunits/wu-1')).toEqual({ workUnitId: 'wu-1', pmoId: null, channelId: null });
-    expect(parseLinkTargets('/pmo/project/p-1')).toEqual({ workUnitId: null, pmoId: 'p-1', channelId: null });
-    expect(parseLinkTargets('/channels/ch-9')).toEqual({ workUnitId: null, pmoId: null, channelId: 'ch-9' });
+    expect(parseLinkTargets(null)).toEqual({ workUnitId: null, pmoId: null, channelId: null, messageId: null });
+    expect(parseLinkTargets('/workunits/wu-1')).toEqual({ workUnitId: 'wu-1', pmoId: null, channelId: null, messageId: null });
+    expect(parseLinkTargets('/pmo/project/p-1')).toEqual({ workUnitId: null, pmoId: 'p-1', channelId: null, messageId: null });
+    expect(parseLinkTargets('/channels/ch-9')).toEqual({ workUnitId: null, pmoId: null, channelId: 'ch-9', messageId: null });
+  });
+
+  it('#439：频道 link 带 ?highlight=<mid> 时解析出 messageId', () => {
+    expect(parseLinkTargets('/channels/ch-9?highlight=m-1'))
+      .toEqual({ workUnitId: null, pmoId: null, channelId: 'ch-9', messageId: 'm-1' });
+    // 非频道链接上的 highlight 不解析（避免 WU/PMO 链接误带）
+    expect(parseLinkTargets('/workunits/wu-1?highlight=m-1'))
+      .toEqual({ workUnitId: 'wu-1', pmoId: null, channelId: null, messageId: null });
   });
 });
 
@@ -53,6 +61,18 @@ describe('loadFromBackend', () => {
     expect(list.map(n => n.id)).toEqual(['sse-1', 'n1']);
     expect(list[1].channelId).toBe('ch-1');
     expect(list[1].read).toBe(false);
+  });
+
+  it('#439：后端 link 带 ?highlight=<mid> 时 messageId 透出（点击可直达消息）', async () => {
+    mockApi.get.mockResolvedValue({
+      data: [{ ...backendRow, id: 'n2', link: '/channels/ch-1?highlight=m-42' }],
+    });
+
+    await useNotificationStore.getState().loadFromBackend();
+
+    const n = useNotificationStore.getState().notifications[0];
+    expect(n.channelId).toBe('ch-1');
+    expect(n.messageId).toBe('m-42');
   });
 
   it('拉取失败不抛错，保留现有列表', async () => {

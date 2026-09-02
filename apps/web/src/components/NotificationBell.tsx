@@ -120,7 +120,7 @@ export function NotificationBell() {
   }, [open]);
 
   // 点通知本体：标记已读（store 动作内含后端同步），跳转优先级 WU 详情 > PMO 详情 > 频道；
-  // 频道分支带 ?highlight=<messageId> 直达消息（仅 SSE 条目有 messageId，后端 link 无消息粒度）
+  // 频道分支带 ?highlight=<messageId> 直达消息（SSE 条目自带 messageId；#439 起后端条目经 link 的 ?highlight= 解析获得）
   const openNotification = useCallback((n: Notification) => {
     markRead(n.id);
     if (n.workUnitId) navigate(`/workunits/${n.workUnitId}`);

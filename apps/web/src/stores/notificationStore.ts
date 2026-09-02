@@ -19,7 +19,7 @@ export interface Notification {
   workUnitId: string | null;
   /** meta.pmoId（老消息可能没有，防御性取 null）——决定「PMO」按钮 */
   pmoId: string | null;
-  /** 频道消息 id（仅 SSE 实时条目有）——点击跳频道时带 ?highlight= 直达该消息 */
+  /** 频道消息 id——点击跳频道时带 ?highlight= 直达该消息。SSE 实时条目自带；#439 起后端条目经 link 的 ?highlight= 解析获得（无则 null） */
   messageId: string | null;
 }
 
@@ -36,16 +36,29 @@ interface BackendNotification {
   readAt: string | Date | null;
 }
 
-/** 从后端通知 link 解析跳转目标：/workunits/:id、/pmo/project/:id、/channels/:id */
-export function parseLinkTargets(link: string | null): { workUnitId: string | null; pmoId: string | null; channelId: string | null } {
-  const result = { workUnitId: null, pmoId: null, channelId: null };
+/** 通知 link 解析出的跳转目标（#439：频道 link 可带 ?highlight=<消息 id> 直达锚点） */
+export interface LinkTargets {
+  workUnitId: string | null;
+  pmoId: string | null;
+  channelId: string | null;
+  messageId: string | null;
+}
+
+/** 从后端通知 link 解析跳转目标：/workunits/:id、/pmo/project/:id、/channels/:id（#439：频道 link 可带 ?highlight=<消息 id> 直达锚点） */
+export function parseLinkTargets(link: string | null): LinkTargets {
+  const result: LinkTargets = { workUnitId: null, pmoId: null, channelId: null, messageId: null };
   if (!link) return result;
   const wu = /\/workunits\/([^/?#]+)/.exec(link);
   if (wu) result.workUnitId = wu[1];
   const pmo = /\/pmo\/project\/([^/?#]+)/.exec(link);
   if (pmo) result.pmoId = pmo[1];
   const ch = /\/channels\/([^/?#]+)/.exec(link);
-  if (ch) result.channelId = ch[1];
+  if (ch) {
+    result.channelId = ch[1];
+    // #439：highlight 锚点仅在频道链接上有意义（与 ChannelDetailPage ?highlight 消费口径一致）
+    const hl = /[?&]highlight=([^&#]+)/.exec(link);
+    if (hl) result.messageId = decodeURIComponent(hl[1]);
+  }
   return result;
 }
 
@@ -62,7 +75,7 @@ function fromBackend(n: BackendNotification): Notification {
     read: n.read,
     workUnitId: targets.workUnitId,
     pmoId: targets.pmoId,
-    messageId: null, // 后端 link 只到 /channels/:id，无消息粒度
+    messageId: targets.messageId, // #439：后端 link 可带 ?highlight=<mid> 消息粒度（无则 null）
   };
 }
 

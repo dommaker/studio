@@ -37,7 +37,7 @@ import { FileStore } from '@dommaker/studio-shared';
 import { ChannelMessageService } from '../../../channels/channel-message.service.js';
 import { clearReviewProposalAdapters } from '../../../review-proposal/registry.js';
 import { approveProposal, rejectProposal, getProposalStatus } from '../../../review-proposal/service.js';
-import { registerAuditorReviewAdapter, submitAuditorSuggestionProposal } from '../review-adapter.js';
+import { registerAuditorReviewAdapter, submitAuditorSuggestionProposal, findAuditorCardMessageId } from '../review-adapter.js';
 import type { Suggestion } from '../auditor-rules.js';
 
 const SUGGESTIONS: Suggestion[] = [
@@ -208,5 +208,32 @@ describe('reject — 仅留痕（墓碑归正本，零业务副作用）', () =>
     expect(result).toMatchObject({ ok: true });
     expect(await getProposalStatus('auditor', proposalId)).toMatchObject({ ok: true, status: 'rejected' });
     expect((await fileStore.getIndex()).filter(s => s.channelId === channelId)).toHaveLength(0);
+  });
+});
+
+describe('findAuditorCardMessageId — 按提案 id 反查卡消息（#439 通知 link 消息粒度）', () => {
+  const msg = (id: string, proposalId?: string) => ({
+    id,
+    meta: proposalId ? JSON.stringify({ cardData: { proposalId } }) : undefined,
+  });
+
+  it('按 meta.cardData.proposalId 命中卡消息，返回其 id', async () => {
+    const fileStore = {
+      queryMessages: vi.fn(async () => [msg('m-1', 'p-x'), msg('m-2', 'p-1')]),
+    };
+    await expect(findAuditorCardMessageId(fileStore as any, 'ch-1', 'p-1')).resolves.toBe('m-2');
+    expect(fileStore.queryMessages).toHaveBeenCalledWith('ch-1');
+  });
+
+  it('无匹配（卡被删/归档/存量卡无 proposalId）→ null，不抛', async () => {
+    const fileStore = {
+      queryMessages: vi.fn(async () => [msg('m-1', 'p-x'), msg('m-2')]),
+    };
+    await expect(findAuditorCardMessageId(fileStore as any, 'ch-1', 'p-1')).resolves.toBeNull();
+  });
+
+  it('空频道 → null', async () => {
+    const fileStore = { queryMessages: vi.fn(async () => []) };
+    await expect(findAuditorCardMessageId(fileStore as any, 'ch-1', 'p-1')).resolves.toBeNull();
   });
 });

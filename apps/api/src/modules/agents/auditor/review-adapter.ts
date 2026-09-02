@@ -58,6 +58,23 @@ function renderAuditorCard(p: AuditorReviewProposal): { content: string; cardDat
 }
 
 /**
+ * 按提案 id 反查卡消息 id（meta.cardData.proposalId 匹配）。
+ * 查不到（卡被删/已归档/存量卡无 proposalId）返回 null——调用方降级处理，不阻断主链路。
+ * 消费方：executeAuditorApproval（原卡链接）+ pushConfirmationCards 通知 link 消息粒度（#439）。
+ */
+export async function findAuditorCardMessageId(
+  fileStore: FileStore,
+  channelId: string,
+  proposalId: string,
+): Promise<string | null> {
+  const cardMessage = (await fileStore.queryMessages(channelId)).find(m => {
+    const cardData = parseMessageMeta(m.meta).cardData as { proposalId?: unknown } | undefined;
+    return cardData?.proposalId === proposalId;
+  });
+  return cardMessage?.id ?? null;
+}
+
+/**
  * approve 后动作：本频道（#系统）建 type:task 未指派工单——
  * 自旧 card-decision.service confirm 分支原样搬入（正文 = 建议详情 + 原卡链接，
  * metadata.creationMode='card-decision'，unassigned 待认领走既有执行链）。
@@ -74,10 +91,7 @@ async function executeAuditorApproval(
     if (!channel) return { status: 'aborted', error: 'system-channel-missing' };
 
     // 反查卡消息（取原卡链接用）；查不到不阻断（见 docstring 根因说明）
-    const cardMessage = (await fileStore.queryMessages(channel.id)).find(m => {
-      const cardData = parseMessageMeta(m.meta).cardData as { proposalId?: unknown } | undefined;
-      return cardData?.proposalId === p.id;
-    });
+    const cardMessageId = await findAuditorCardMessageId(fileStore, channel.id, p.id);
 
     const suggestions = p.suggestions;
     const detailLines = suggestions.map(s =>
@@ -88,7 +102,7 @@ async function executeAuditorApproval(
       '',
       ...detailLines,
       '',
-      cardMessage ? `原卡：频道 ${channel.id} 消息 ${cardMessage.id}` : '原卡：消息已删除或归档',
+      cardMessageId ? `原卡：频道 ${channel.id} 消息 ${cardMessageId}` : '原卡：消息已删除或归档',
     ].join('\n');
     const scopeSource = detailLines.map(l => l.replace(/^- \[[^\]]*\]\s*/, '')).join('；');
 
@@ -102,7 +116,7 @@ async function executeAuditorApproval(
       workspaceId: channel.defaultWorkspaceId ?? null,
       metadata: {
         creationMode: 'card-decision',
-        ...(cardMessage ? { originalMessageId: cardMessage.id } : {}),
+        ...(cardMessageId ? { originalMessageId: cardMessageId } : {}),
         description,
       },
     });
