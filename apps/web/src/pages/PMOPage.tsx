@@ -56,6 +56,7 @@ export function PMOPage({ companyId }: PMOPageProps) {
       ]);
 
       return {
+        companyId: actualCompanyId,
         okrs: okrRes.data?.data || [],
         projects: (projectsRes.data?.data || []) as Project[],
       };
@@ -286,10 +287,10 @@ export function PMOPage({ companyId }: PMOPageProps) {
         )}
       </div>
 
-      {/* 🆕 B8: 创建 OKR 弹窗 (支持 KR 编辑) */}
+      {/* 🆕 B8: 创建 OKR 弹窗 (支持 KR 编辑)；#434：路由不传 prop 时用查询解析出的 companyId */}
       <CreateOkrDialog
         open={showOKRDialog}
-        companyId={companyId}
+        companyId={companyId ?? pmoQ.data?.companyId}
         onClose={() => setShowOKRDialog(false)}
         onCreated={reload}
       />
