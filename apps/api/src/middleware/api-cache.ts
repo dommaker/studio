@@ -12,7 +12,8 @@ const CACHE_CONFIG = {
 };
 
 function generateCacheKey(req: Request): string {
-  return `api:cache:${req.path}:${JSON.stringify(req.query)}`;
+  // #448：key 含 baseUrl（挂载点），写路由才能按资源路径前缀精确失效（clearCache）
+  return `api:cache:${req.baseUrl}${req.path}:${JSON.stringify(req.query)}`;
 }
 
 export function apiCache(ttl: number = CACHE_CONFIG.medium) {

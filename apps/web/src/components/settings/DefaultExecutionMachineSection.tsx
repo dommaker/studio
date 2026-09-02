@@ -11,6 +11,7 @@ import { channelApi, type Channel } from '../../api/channel';
 import { Select } from '../ui';
 import { toast } from '../../utils/toast';
 import { isForbidden } from '../../utils/http';
+import { useAuthStore } from '../../stores/authStore';
 
 interface Workspace {
   id: string;
@@ -38,8 +39,15 @@ export function DefaultExecutionMachineSection() {
         toast.error('加载频道列表失败');
       }
       try {
-        const wsRes = await workspaceApi.list();
-        if (!cancelled) setWorkspaces(wsRes.data?.data ?? []);
+        // #448 问题3：已知非 Admin 时 /workspaces 列表注定 403（Admin-only），
+        // 不发请求直接走降级呈现；角色未知（未登录/初始化中）保持原请求路径
+        const role = useAuthStore.getState().user?.role;
+        if (role && role !== 'Admin') {
+          if (!cancelled) setForbidden(true);
+        } else {
+          const wsRes = await workspaceApi.list();
+          if (!cancelled) setWorkspaces(wsRes.data?.data ?? []);
+        }
       } catch (err) {
         if (cancelled) return;
         if (isForbidden(err)) {

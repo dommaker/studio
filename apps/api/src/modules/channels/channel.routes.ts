@@ -5,7 +5,7 @@ import { logger, FileStore } from '@dommaker/studio-shared';
 import { channelMessageService } from './channel-message.service.js';
 import { routeMessage } from './message-routing.js';
 import { projectService } from '../pmo/project.service.js';
-import { apiCache, CACHE_CONFIG } from '../../middleware/api-cache.js';
+import { apiCache, CACHE_CONFIG, clearCache } from '../../middleware/api-cache.js';
 import { requireAuth, requireNotGuest } from '../../middleware/auth.js';
 import { ConvertToTaskService } from './convert-to-task.service.js';
 import { WorkUnitService } from '../workunit/workunit.service.js';
@@ -107,6 +107,8 @@ router.post('/', requireAuth(), requireNotGuest(), async (req, res) => {
     // Reload channel to get final members
     const finalChannel = await fileStore.getChannel(channel.id);
     logger.info('[Channel] Created', { id: channel.id, name: channelName, agents: createdAgentIds.length });
+    // #448 问题1：写后失效 channels 列表缓存（30s apiCache）
+    await clearCache(req.baseUrl);
     res.status(201).json({ success: true, data: finalChannel });
   } catch (e: any) {
     throw e;
@@ -245,6 +247,8 @@ router.delete('/:id', requireAuth(), requireNotGuest(), async (req, res) => {
   // Delete channel
   await fileStore.deleteChannel(channel.id);
   logger.info('[Channel] Deleted with fallback', { deletedId: channel.id, fallbackId: rndChannel.id });
+  // #448 问题1：写后失效 channels 列表缓存（30s apiCache）
+  await clearCache(req.baseUrl);
   res.json({ success: true, data: { deleted: true, fallbackChannelId: rndChannel.id } });
 });
 
@@ -257,6 +261,8 @@ router.put('/:id/archive', requireAuth(), requireNotGuest(), async (req, res) =>
   const archivedName = `${channel.name}-archived-${Date.now()}`;
   await fileStore.updateChannel(channel.id, { name: archivedName });
   logger.info('[Channel] Archived', { channelId: channel.id, oldName: channel.name });
+  // #448 问题1：写后失效 channels 列表缓存（30s apiCache）
+  await clearCache(req.baseUrl);
   res.json({ success: true, data: { archived: true, newName: archivedName } });
 });
 
@@ -271,6 +277,8 @@ router.put('/:id/restore', requireAuth(), requireNotGuest(), async (req, res) =>
   const restoredName = channel.name.replace(/-archived-\d+$/, '');
   await fileStore.updateChannel(channel.id, { name: restoredName });
   logger.info('[Channel] Restored', { channelId: channel.id, restoredName });
+  // #448 问题1：写后失效 channels 列表缓存（30s apiCache）
+  await clearCache(req.baseUrl);
   res.json({ success: true, data: { restored: true, name: restoredName } });
 });
 
@@ -314,6 +322,8 @@ router.patch('/:id', requireAuth(), requireNotGuest(), async (req, res) => {
     await fileStore.updateChannel(id, data as Partial<import('@dommaker/studio-shared').ChannelData>);
     const updated = await fileStore.getChannel(id);
     if (!updated) return res.status(404).json({ success: false, error: 'Channel not found' });
+    // #448 问题1：写后失效 channels 列表缓存（30s apiCache）
+    await clearCache(req.baseUrl);
     res.json({ success: true, data: updated });
   } catch (e: unknown) {
     const msg = getErrorMessage(e);
@@ -329,6 +339,8 @@ router.patch('/:id/members', requireAuth(), requireNotGuest(), async (req, res) 
   const { add, remove } = req.body;
   try {
     const members = await updateChannelMembers(req.params.id, { add, remove });
+    // #448 问题1：members 在列表载荷中，写后失效 channels 列表缓存（30s apiCache）
+    await clearCache(req.baseUrl);
     res.json({ success: true, data: { members } });
   } catch (e: unknown) {
     const msg = getErrorMessage(e);

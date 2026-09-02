@@ -87,7 +87,10 @@ export function CreateOkrDialog({ open, companyId, onClose, onCreated }: CreateO
       onCreated();
     } catch (err) {
       console.error('Failed to create OKR:', err);
-      toast.error('创建 OKR 失败');
+      // #448 问题2：撞重等错误带服务端 error.message → 展示具体原因；无 message 回退通用文案
+      const serverMsg = (err as { response?: { data?: { error?: { message?: string } } } })
+        ?.response?.data?.error?.message;
+      toast.error(serverMsg ? `创建 OKR 失败：${serverMsg}` : '创建 OKR 失败');
     } finally {
       setCreating(false);
     }

@@ -3,23 +3,41 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { FirstRoleSetupModal } from '../FirstRoleSetupModal';
 import { isFirstRoleSetupDismissed } from '../dismissed';
 
+const { mockUseDetectedProviders } = vi.hoisted(() => ({
+  mockUseDetectedProviders: vi.fn(),
+}));
+
 // 2026-07：provider 选项改由运行环境扫描驱动，测试中固定回退态（4 个内置 CLI 全量可选）
 vi.mock('../../../hooks/useDetectedProviders', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../hooks/useDetectedProviders')>();
   return {
     ...actual,
-    useDetectedProviders: () => ({ detected: [], loading: false, noneDetected: true }),
+    useDetectedProviders: (options?: { enabled?: boolean }) => {
+      mockUseDetectedProviders(options);
+      return { detected: [], loading: false, noneDetected: true };
+    },
   };
 });
 
 describe('FirstRoleSetupModal (AC-2.3)', () => {
   beforeEach(() => {
     sessionStorage.clear();
+    vi.clearAllMocks();
   });
 
   it('open=false 时不渲染', () => {
     render(<FirstRoleSetupModal open={false} onClose={() => {}} onCreate={() => {}} />);
     expect(screen.queryByText('请创建角色')).toBeNull();
+  });
+
+  // #448 问题3：弹框关着不扫运行环境（/workspaces/runtimes 注定 403 / 进页即扫数十秒）
+  it('open=false 时 useDetectedProviders enabled=false（不发请求）；open=true 才启用', () => {
+    render(<FirstRoleSetupModal open={false} onClose={() => {}} onCreate={() => {}} />);
+    expect(mockUseDetectedProviders).toHaveBeenCalledWith({ enabled: false });
+
+    vi.clearAllMocks();
+    render(<FirstRoleSetupModal open={true} onClose={() => {}} onCreate={() => {}} />);
+    expect(mockUseDetectedProviders).toHaveBeenCalledWith({ enabled: true });
   });
 
   it('open=true 时渲染弹框 + name/description/provider 表单', () => {

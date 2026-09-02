@@ -25,7 +25,8 @@ export function FirstRoleSetupModal({ open, onClose, onCreate }: FirstRoleSetupM
   const [description, setDescription] = useState('');
   // 用户显式选择的 CLI；空 = 未选过（或选择已失效），由下方派生值回退默认
   const [providerOverride, setProviderOverride] = useState<string>('');
-  const { detected, loading: providersLoading, noneDetected } = useDetectedProviders();
+  // #448 问题3：弹框关着不扫运行环境（App 根无条件挂载本组件，enabled=false 时才不发请求）
+  const { detected, loading: providersLoading, noneDetected } = useDetectedProviders({ enabled: open });
   // 扫描进行中同样回退全量可选，避免加载窗口期无可选项
   const providerOptions = buildProviderOptions(detected, providersLoading || noneDetected);
 

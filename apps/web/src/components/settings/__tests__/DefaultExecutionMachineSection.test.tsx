@@ -1,6 +1,6 @@
 // #286（决策 #251 Q2'）：设置区「默认执行机器」section 三修——
 // 回显（已绑定值正确呈现）、非 Admin 403 降级（不无限加载）、孤儿绑定清理（失效提示 + 解绑）
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
 const { mockListWorkspaces, mockListChannels, mockUpdateChannel } = vi.hoisted(() => ({
@@ -21,6 +21,7 @@ vi.mock('../../../api/channel', () => ({
 }));
 
 import { DefaultExecutionMachineSection } from '../DefaultExecutionMachineSection';
+import { useAuthStore } from '../../../stores/authStore';
 
 const CH_BOUND = { id: 'ch-1', name: '研发', type: 'rnd', defaultWorkspaceId: 'ws-vps' };
 const CH_FREE = { id: 'ch-2', name: '决策', type: 'decision', defaultWorkspaceId: null };
@@ -114,5 +115,37 @@ describe('#286: DefaultExecutionMachineSection 默认执行机器', () => {
     await waitFor(() => expect(screen.getByTestId('exec-machine-select-ch-1')).toBeTruthy());
     expect(screen.getByTestId('exec-machine-select-ch-1').textContent).toContain('无');
     expect(screen.queryByText(/绑定已失效/)).toBeNull();
+  });
+});
+
+describe('#448 问题3: 非 Admin 角色短路 workspaces 请求', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockListChannels.mockResolvedValue({ data: { success: true, data: [CH_BOUND, CH_FREE] } });
+    mockListWorkspaces.mockResolvedValue({ data: { success: true, data: WS_LIST } });
+  });
+
+  afterEach(() => {
+    // 复位角色，不影响 #286 用例（user=null = 角色未知，按原路径请求）
+    useAuthStore.setState({ user: null });
+  });
+
+  it('User 角色：不发 workspaceApi.list（注定 403），直接降级只读呈现', async () => {
+    useAuthStore.setState({ user: { id: 'u1', email: 'u@example.com', role: 'User' } });
+    render(<DefaultExecutionMachineSection />);
+
+    await waitFor(() => expect(screen.getByText(/无权限/)).toBeTruthy());
+    expect(mockListWorkspaces).not.toHaveBeenCalled();
+    // 频道列表照常加载，绑定值只读回显
+    expect(mockListChannels).toHaveBeenCalled();
+    expect(screen.getByText(/ws-vps/)).toBeTruthy();
+    expect(screen.queryByText('加载中…')).toBeNull();
+  });
+
+  it('Admin 角色：照常发 workspaceApi.list', async () => {
+    useAuthStore.setState({ user: { id: 'a1', email: 'a@example.com', role: 'Admin' } });
+    render(<DefaultExecutionMachineSection />);
+
+    await waitFor(() => expect(mockListWorkspaces).toHaveBeenCalled());
   });
 });
