@@ -16,6 +16,8 @@ import {
   PreferenceCard, BusinessRuleCard, EnvSnapshotCard,
   DecisionChainCard, InteractionPatternCard, ResolutionCard,
 } from '../components/knowledge/GapCards';
+import { UnifiedEntryContent } from '../components/knowledge/UnifiedEntryContent';
+import { CONSUMPTION_MODE_CHART } from '../utils/knowledgeContent';
 import type {
   PreferenceGap, BusinessRuleGap, EnvSnapshotGap,
   DecisionChainGap, InteractionGap, ResolutionGap,
@@ -148,7 +150,8 @@ export function KnowledgePage() {
       case 'resolution':
         return <ResolutionCard item={item as ResolutionGap} />;
       default:
-        return <pre className="text-xs u-text-3">{JSON.stringify(item, null, 2)}</pre>;
+        // 六类 GapTab 全覆盖后此分支不可达；兜底同样消化呈现，不裸 JSON.stringify
+        return <UnifiedEntryContent content={JSON.stringify(item)} />;
     }
   };
 
@@ -178,7 +181,7 @@ export function KnowledgePage() {
         <div className="max-w-5xl">
           {/* S11: Unified search across all knowledge types */}
           <div className="mt-4 mb-4 flex gap-2">
-            <input type="text" placeholder="全局搜索知识（解法 / 行为模式 / 交互模式）..."
+            <input type="text" placeholder="全局搜索知识（解法 / 交互模式 / 规则）..."
               value={globalSearch}
               onChange={e => setGlobalSearch(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && handleGlobalSearch()}
@@ -287,11 +290,11 @@ export function KnowledgePage() {
                   {unifiedEntries.map((entry, i) => (
                     <div key={entry.id || i} className="card p-4">
                       <div className="flex items-center gap-2 mb-2">
-                        <span className={`text-xs px-2 py-0.5 rounded ${
-                          entry.consumptionMode === 'rule' ? 'u-err-bg' :
-                            entry.consumptionMode === 'context' ? 'u-accent-bg' :
-                              entry.consumptionMode === 'signal' ? 'u-warn-bg' : 'u-surface-2 u-text-3'
-                        }`}>
+                        {/* #435：类别维度不占状态色（§6.5）——chart 类别色文字 + 中性底，无映射归中性 */}
+                        <span className="text-xs px-2 py-0.5 rounded u-surface-2 u-text-3"
+                          style={CONSUMPTION_MODE_CHART[entry.consumptionMode ?? ''] != null
+                            ? { color: `var(--chart-${CONSUMPTION_MODE_CHART[entry.consumptionMode ?? '']})` }
+                            : undefined}>
                           {entry.consumptionMode}
                         </span>
                         <span className="text-xs px-2 py-0.5 rounded u-surface-2 u-text-3">
@@ -299,9 +302,7 @@ export function KnowledgePage() {
                         </span>
                         <span className="font-medium text-sm u-text">{entry.title}</span>
                       </div>
-                      <p className="text-xs mb-2 u-text-3">
-                        {entry.content?.slice(0, 200)}{entry.content?.length > 200 ? '...' : ''}
-                      </p>
+                      <UnifiedEntryContent content={entry.content} />
                       {entry.tags?.length > 0 && (
                         <div className="flex gap-1 flex-wrap">
                           {entry.tags.map((tag: string) => (
