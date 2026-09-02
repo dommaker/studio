@@ -7,6 +7,7 @@
 import * as os from 'os';
 import { execSync } from 'child_process';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
+import { countZombieProcesses } from './proc-probes.js';
 
 // ─── 类型 ───
 
@@ -119,11 +120,8 @@ async function collectDb(): Promise<SystemHealthSnapshot['db']> {
     connected = false;
   }
   try {
-    const output = execSync("ps aux | grep -c '[d]efunct'", {
-      encoding: 'utf-8',
-      timeout: 5000,
-    }).trim();
-    zombieProcesses = parseInt(output, 10) || 0;
+    // 僵尸计数走 proc-probes 单出口（/proc 直读，零子进程——#418，原 ps aux | grep -c '[d]efunct'）
+    zombieProcesses = countZombieProcesses();
   } catch {
     zombieProcesses = 0;
   }

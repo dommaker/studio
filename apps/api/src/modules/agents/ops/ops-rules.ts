@@ -13,7 +13,7 @@ import { studioPath } from '@dommaker/studio-shared/studio-dir';
 export interface OpsRules {
   version: number;
   checks: {
-    /** 进程名匹配模式（ps aux grep） */
+    /** 进程清理匹配模式：JS 正则，对 ps aux 渲染口径的整条命令行匹配（#418 起走 /proc 直读，原为 grep BRE） */
     processes_to_clean: string[];
     /** 磁盘告警阈值 (百分比) */
     disk_threshold_warn: number;

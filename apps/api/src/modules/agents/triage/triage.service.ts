@@ -7,6 +7,7 @@ import type { TriageIncidentInput, TriageLogEntry } from '../types.js';
 import { appendIncidentUpdate } from './incident-store.js';
 import { resolveStudioLogFile } from '../../../utils/studio-log-path.js';
 import { getErrorMessage } from '../../../utils/errors.js';
+import { countProcessesByCmdline, listZombieProcesses } from '../ops/proc-probes.js';
 
 const MAX_TRIAGE_TIME_MS = 10 * 60_000; // 10 min
 const MAX_FIX_ATTEMPTS = 3;
@@ -156,13 +157,14 @@ class TriageService {
         findings.push('Memory check: failed');
       }
 
-      // Process list (zombies)
+      // Process list (zombies)（/proc 直读，零子进程——#418）
       try {
-        const { execSync } = await import('child_process');
-        const zombies = execSync("ps aux | grep -w Z | head -5", { timeout: 3000, encoding: 'utf-8' }).trim();
-        if (zombies) findings.push(`Zombies: ${zombies}`);
+        const zombies = listZombieProcesses().slice(0, 5);
+        if (zombies.length > 0) {
+          findings.push(`Zombies: ${zombies.map(z => `${z.pid} (${z.comm})`).join(', ')}`);
+        }
       } catch {
-        // No zombies is normal (grep returns non-zero)
+        // No zombies is normal
       }
 
       // Cross-execution pattern diagnosis (Phase 3: Auditor)
@@ -193,10 +195,9 @@ class TriageService {
         }
 
         try {
-          const { execSync } = await import('child_process');
-          // Active claude processes
-          const claude = execSync('ps aux | grep -c "[c]laude" 2>/dev/null || echo "0"', { timeout: 3000, encoding: 'utf-8' }).trim();
-          findings.push(`Claude procs: ${claude}`);
+          // Active claude processes（/proc 直读，零子进程——#418）
+          const claudeCount = countProcessesByCmdline('claude');
+          findings.push(`Claude procs: ${claudeCount}`);
         } catch {
           findings.push('Claude procs: unknown');
         }

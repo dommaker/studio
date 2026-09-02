@@ -5,7 +5,7 @@ import { describe, it, expect, afterAll } from 'vitest';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { readDiskUsage, readMemoryUsage, readLoadAvgRaw, countZombieProcesses } from '../proc-probes.js';
+import { readDiskUsage, readMemoryUsage, readLoadAvgRaw, countZombieProcesses, readProcessCmdline, countProcessesByCmdline, listPidsByCmdline, listZombieProcesses } from '../proc-probes.js';
 
 const tmpDirs: string[] = [];
 function makeTmp(prefix: string): string {
@@ -95,5 +95,93 @@ describe('countZombieProcesses', () => {
     expect(readDiskUsage('/')).not.toBeNull();
     expect(countZombieProcesses()).toBeGreaterThanOrEqual(0);
     expect(readLoadAvgRaw()).toMatch(/^\d/);
+  });
+});
+
+describe('readProcessCmdline', () => {
+  it('NUL 分段以空格连接（ps aux 渲染口径），空/缺失 → null', () => {
+    const procDir = makeTmp('proc-probes-cmdline-');
+    const write = (pid: string, content: string | null) => {
+      fs.mkdirSync(path.join(procDir, pid), { recursive: true });
+      if (content !== null) fs.writeFileSync(path.join(procDir, pid, 'cmdline'), content);
+    };
+    write('10', 'cloudflared\0tunnel\0--url\0http://localhost:13001\0');
+    write('11', '');        // 僵尸：空 cmdline
+    write('12', null);      // 内核线程：无 cmdline
+    expect(readProcessCmdline(procDir, '10')).toBe('cloudflared tunnel --url http://localhost:13001');
+    expect(readProcessCmdline(procDir, '11')).toBeNull();
+    expect(readProcessCmdline(procDir, '12')).toBeNull();
+  });
+});
+
+describe('countProcessesByCmdline', () => {
+  it('子串命中整条渲染命令行即计数，忽略非数字目录/无 cmdline 项', () => {
+    const procDir = makeTmp('proc-probes-count-');
+    const write = (pid: string, cmdline: string) => {
+      fs.mkdirSync(path.join(procDir, pid), { recursive: true });
+      fs.writeFileSync(path.join(procDir, pid, 'cmdline'), cmdline);
+    };
+    write('20', 'cloudflared\0tunnel\0--url\0x');
+    write('21', 'tail\0-f\0/tmp/cloudflared.log');
+    write('22', 'claude\0--print\0hi');
+    write('23', 'node\0/root/x/claude-harness/main.js');
+    write('24', 'sleep\0100');
+    fs.mkdirSync(path.join(procDir, '25'));   // cmdline 缺失 → 忽略
+    fs.mkdirSync(path.join(procDir, 'acpi')); // 非数字 → 忽略
+    expect(countProcessesByCmdline('cloudflared', procDir)).toBe(2);
+    expect(countProcessesByCmdline('claude', procDir)).toBe(2);
+    expect(countProcessesByCmdline('not-running-xyz', procDir)).toBe(0);
+  });
+
+  it('procDir 不存在 → 0；默认参数直读真实 /proc', () => {
+    expect(countProcessesByCmdline('x', path.join(makeTmp('proc-probes-count2-'), 'absent'))).toBe(0);
+    expect(countProcessesByCmdline('definitely-not-a-process-418')).toBeGreaterThanOrEqual(0);
+  });
+});
+
+describe('listPidsByCmdline', () => {
+  it('多 pattern 正则（含 .* 元字符）任一命中即列 pid，与原 grep BRE 口径一致', () => {
+    const procDir = makeTmp('proc-probes-pids-');
+    const write = (pid: string, cmdline: string) => {
+      fs.mkdirSync(path.join(procDir, pid), { recursive: true });
+      fs.writeFileSync(path.join(procDir, pid, 'cmdline'), cmdline);
+    };
+    write('30', 'node\0dist/index.js\0--port\013001');
+    write('31', 'tsx\0apps/api/src/main.ts');
+    write('32', 'cloudflared\0tunnel');
+    write('33', 'vim\0notes.txt');
+    expect(listPidsByCmdline(['tsx', 'node.*index', 'cloudflared'], procDir)).toEqual(['30', '31', '32']);
+  });
+
+  it('非法 pattern 跳过不炸；无命中 → []', () => {
+    const procDir = makeTmp('proc-probes-pids2-');
+    fs.mkdirSync(path.join(procDir, '40'), { recursive: true });
+    fs.writeFileSync(path.join(procDir, '40', 'cmdline'), 'sleep\0100');
+    expect(listPidsByCmdline(['[', 'sleep'], procDir)).toEqual(['40']);
+    expect(listPidsByCmdline(['zzz-xyz'], procDir)).toEqual([]);
+    expect(listPidsByCmdline(['['], path.join(makeTmp('proc-probes-pids3-'), 'absent'))).toEqual([]);
+  });
+});
+
+describe('listZombieProcesses', () => {
+  it('state=Z 列 pid+comm（comm 含 ")" 取段正确），非 Z 不列', () => {
+    const procDir = makeTmp('proc-probes-zl-');
+    const write = (pid: string, stat: string) => {
+      fs.mkdirSync(path.join(procDir, pid), { recursive: true });
+      fs.writeFileSync(path.join(procDir, pid, 'stat'), stat);
+    };
+    write('50', '50 (node) Z 1 1 0 0 -1 0');
+    write('51', '51 (bash) S 1 1 0 0 -1 0');
+    write('52', '52 (chrome:Renderer) Z 1 1 0 0 -1 0');
+    write('53', '53 (weird ) proc) Z 1 1 0 0 -1 0');
+    expect(listZombieProcesses(procDir)).toEqual([
+      { pid: '50', comm: 'node' },
+      { pid: '52', comm: 'chrome:Renderer' },
+      { pid: '53', comm: 'weird ) proc' },
+    ]);
+  });
+
+  it('procDir 不存在 → []', () => {
+    expect(listZombieProcesses(path.join(makeTmp('proc-probes-zl2-'), 'absent'))).toEqual([]);
   });
 });

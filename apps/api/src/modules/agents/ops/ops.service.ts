@@ -12,7 +12,7 @@ import * as path from 'path';
 import { logger, FileStore } from '@dommaker/studio-shared';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import { loadRules, type OpsRules } from './ops-rules.js';
-import { readDiskUsage, readMemoryUsage, readLoadAvgRaw } from './proc-probes.js';
+import { readDiskUsage, readMemoryUsage, readLoadAvgRaw, countProcessesByCmdline, listPidsByCmdline } from './proc-probes.js';
 import { hashPassword } from '../../auth/service.js';
 import { resolveStudioLogFile } from '../../../utils/studio-log-path.js';
 
@@ -344,7 +344,7 @@ export class OpsService {
       memory: { total: fmtMb(mem.totalKb) + 'M', used: fmtMb(mem.usedKb) + 'M', free: fmtMb(mem.freeKb) + 'M' },
       cpu: { load: cpuRaw },
       apiResponding,
-      processes: await this.countProcesses(),
+      processes: this.countProcesses(),
       timestamp: new Date().toISOString(),
     };
   }
@@ -441,11 +441,9 @@ export class OpsService {
   // ============================================
 
   private isCloudflaredRunning(): boolean {
+    // /proc 直读，零子进程——#418（原 ps aux | grep "[c]loudflared tunnel" | wc -l）
     try {
-      const out = execSync('ps aux | grep "[c]loudflared tunnel" | grep -v grep | wc -l', {
-        encoding: 'utf-8', stdio: 'pipe',
-      }).trim();
-      return parseInt(out, 10) > 0;
+      return countProcessesByCmdline('cloudflared tunnel') > 0;
     } catch { return false; }
   }
 
@@ -453,23 +451,20 @@ export class OpsService {
     let count = 0;
     const patterns = this.rules.checks.processes_to_clean;
     try {
-      const grepPattern = patterns.map(p => `[${p.slice(0,1)}]${p.slice(1)}`).join('\\|');
-      const cmd = `ps aux | grep "${grepPattern}" | grep -v grep | awk '{print $2}'`;
-      const procs = execSync(cmd, { encoding: 'utf-8', stdio: 'pipe' }).trim();
-      if (procs) {
-        const pids = procs.split('\n').filter(Boolean);
-        for (const pid of pids) {
-          try { execSync(`kill -9 ${pid.trim()} 2>/dev/null`, { stdio: 'pipe' }); count++; } catch { /* already dead */ }
-        }
+      // 探测走 /proc 直读（零子进程——#418，原 ps aux | grep BRE | awk '{print $2}'），
+      // kill 改 process.kill（同 SIGKILL；ESRCH/EPERM 与原 kill -9 失败口径一致）
+      const pids = listPidsByCmdline(patterns);
+      for (const pid of pids) {
+        try { process.kill(parseInt(pid, 10), 'SIGKILL'); count++; } catch { /* already dead */ }
       }
     } catch { /* no stale processes */ }
     return count;
   }
 
-  private async countProcesses(): Promise<number> {
+  private countProcesses(): number {
+    // /proc 直读，零子进程——#418（原 execAsync ps aux | grep "[t]sx" | wc -l）
     try {
-      const { stdout } = await execAsync('ps aux | grep "[t]sx" | grep -v grep | wc -l', { timeout: 5_000 });
-      return parseInt(stdout.trim(), 10) || 0;
+      return countProcessesByCmdline('tsx');
     } catch { return 0; }
   }
 
