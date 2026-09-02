@@ -24,3 +24,4 @@
 - 拍前沉降三要件（#400 踩坑）：等 guest splash 消失（auth 水合，`user:null` 播种态会先渲 splash）+ 等「加载中/Loading」文案消失 + 等 `.animate-spin` 消失；settings 页串行拉 ~10 个慢 API（/workspaces/runtimes 单发 ~2.5s），waitSettled 超时给 20s。
 - buildPrepare 的 `modal-studio-role-setup` 态会把 studio 角色 provider 翻牌 null 再 reload 触发自动弹框，紧随的 `restore-studio-provider` 态负责还原——两态勿拆散；交互态截图前不再重复注入 HIDE_DYNAMIC_CSS（会盖掉 prepare 里的角标揭开样式）。
 - /audit-logs、/workspaces/:id、/setup/roles 的 API 均 requireAdmin——采集账号须 Admin（注册后改 users.json role 生效即时，FileStore 每请求读盘）。
+- **guest token 过不了 Lurk Wall**（#450 踩坑）：App.tsx `isGuest` 直接渲染 LandingPage，guest-session token 种 localStorage 也只见 splash——浏览器实测（含行高采样类一次性脚本）必须用注册用户（login 响应 `session.token` 可直接种 `auth-storage`，无须走 refresh）。注册若已关闭，按本目录先例直改 `<STUDIO_HOME>/users.json` 加账号（bcryptjs hashSync(12)，users.json 每请求读盘即时生效）。headless 浏览器在本机内存吃紧时 launch 即被 SIGTERM——重试循环等内存窗口即可，非脚本问题。
