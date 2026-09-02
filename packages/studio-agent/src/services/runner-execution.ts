@@ -100,16 +100,12 @@ export async function executeSessionLoop(state: RunnerExecutionState, task: Agen
     // Iron Laws check
     await beforeAgentExecute({
       operation: 'code_implementation',
-      hasWorktree: true,
       worktreePath: worktree,
       taskDescription: task.prompt,
       hasVerificationEvidence: true,
       hasRequirement: true,
       hasSingleTask: true,
-      hasRequirementReview: true,
-      hasExternalCapabilityVerification: true,
       hasTest: true,
-      hasTwoStageReview: true,
       hasRootCauseInvestigation: true,
       hasFailingTest: true,
     });

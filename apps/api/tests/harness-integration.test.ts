@@ -17,10 +17,6 @@ const PASSING_CTX = {
   hasVerificationEvidence: true,
   hasSingleTask: true,
   hasRequirement: true,
-  hasRequirementReview: true,
-  hasTwoStageReview: true,
-  hasWorktree: true,
-  completionClaimText: '142 tests passed, coverage 87%',
   taskDescription: 'Test task',
 };
 
