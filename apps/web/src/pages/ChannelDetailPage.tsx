@@ -595,6 +595,7 @@ export function ChannelDetailPage() {
     handleStreamScroll,
     showJumpToBottom,
     pinAndJumpToBottom,
+    unpinFromBottom,
     handleLoadMore,
     ownSendPendingRef,
     virtualizer,
@@ -648,6 +649,9 @@ export function ChannelDetailPage() {
 
   useEffect(() => {
     if (!highlightId) return;
+    // #439 走查修复：定位跳转 = 离开底部的导航意图，先解钉——否则钉底跟随在后续
+    // messages 变化（翻页 prepend/水合归并）时把视口拽回底部，与定位滚动振荡
+    unpinFromBottom();
     const el = streamRef.current?.querySelector(`[data-message-id="${highlightId}"]`);
     if (el) {
       // jsdom 无 scrollIntoView 实现，?. 兜底
@@ -659,7 +663,7 @@ export function ChannelDetailPage() {
     }
     const timer = setTimeout(() => setHighlightId(null), 2000);
     return () => clearTimeout(timer);
-  }, [highlightId, streamRef, virtualEnabled, messageToItemIndex, virtualizer]);
+  }, [highlightId, streamRef, virtualEnabled, messageToItemIndex, virtualizer, unpinFromBottom]);
 
   // #322：提升为 useCallback——消除每次渲染新建的内联 render props（memo 稳定 props 契约）
   const renderMessageItem = useCallback((msg: ChannelMessage, extra: Partial<Parameters<typeof ChannelMessageItem>[0]> = {}) => (
@@ -683,13 +687,15 @@ export function ChannelDetailPage() {
   ), [handleAction, handleReply, findMessage, id, isWaitingForInput, openWu, openWuConfirm, openReq, handleInlineReply, fileVocabulary, wuChangedFiles, highlightId]);
 
   // #326：骨架占位行——degraded 消息（含 thread anchor）渲染为固定占位行，
-  // 保留 data-message-id（锚点捕获/阅读位置仍可按 mid 定位）；水合后原位恢复
+  // 保留 data-message-id（锚点捕获/阅读位置仍可按 mid 定位）；水合后原位恢复。
+  // #439 走查修复：highlight 目标为骨架时同样给 mc-msg-highlight——否则 ?highlight 直达
+  // 老消息（掉出 PRUNE_KEEP_RECENT 被降级）定位成功但高亮不可见；水合后原位恢复为全量行。
   const renderSkeletonRow = useCallback((mid: string, dateNode: React.ReactNode) => (
     <>
       {dateNode}
-      <div className="mc-msg-skeleton" data-message-id={mid}>历史消息已卸载 · 滚动经过自动加载</div>
+      <div className={`mc-msg-skeleton${highlightId === mid ? ' mc-msg-highlight' : ''}`} data-message-id={mid}>历史消息已卸载 · 滚动经过自动加载</div>
     </>
-  ), []);
+  ), [highlightId]);
 
   // #325：单个 stream item 的渲染内容（日期分隔 + 消息/线程组）——外层包裹（key/测量）
   // 由调用方决定：非虚拟化路径 = 普通 div；虚拟化路径 = data-index + measureElement 行

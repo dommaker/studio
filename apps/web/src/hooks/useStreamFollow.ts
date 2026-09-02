@@ -321,12 +321,22 @@ export function useStreamFollow({ channelId, messages, loading, loadMore, items,
     return () => ro.disconnect();
   }, [scrollStreamTo]);
 
+  // #439 走查修复：显式定位跳转（?highlight 直达 / chip 定位提问）= 离开底部的导航意图——
+  // 不解钉的话，钉底跟随 effect（messages 任何变化即 pinAndJumpToBottom）会把视口拽回底部，
+  // 与定位滚动振荡（实测：翻页定位老消息时视口在目标与底部之间来回跳）。幂等。
+  const unpinFromBottom = useCallback(() => {
+    pendingFineAdjustRef.current = null; // 离开存档位置，放弃未落地的精校正（同 pinAndJumpToBottom 语义）
+    pinnedRef.current = false;
+    setShowJumpToBottom(true);
+  }, []);
+
   return {
     streamRef,
     streamInnerRef,
     handleStreamScroll,
     showJumpToBottom,
     pinAndJumpToBottom,
+    unpinFromBottom,
     handleLoadMore,
     ownSendPendingRef,
     // #325：渲染段窗口化消费（virtualEnabled=false 时忽略，全量渲染）
