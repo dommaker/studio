@@ -14,6 +14,7 @@ VISUAL_REFRESH_TOKEN=<token> npx tsx scripts/visual/capture.ts --name <run>
 #        --tier B  未认证 B 档页（spec §10.2：landing/forgot/reset/auth-callback，
 #                  默认 1920/1440 两档；不种 auth、不需要 token）
 # 缺浏览器二进制时：VISUAL_BROWSER_CHANNEL=chrome 走系统 Chrome
+# 注意：token 交换发生在浏览器启动之前——启动失败也会烧掉该 refresh token，重跑前须重取
 ```
 
 输出 `.studio/visual/<run>/<page>-<width>.png`（A 档 17 页 × 1920/1440/1280，gitignored）。
