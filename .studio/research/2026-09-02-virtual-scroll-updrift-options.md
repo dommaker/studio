@@ -87,3 +87,33 @@ ADR 当时未评估此默认路径（评估对象是 `anchorTo:'end'` 备选）�
 - 本报告不含任何实现改动；prototype 若需要，走一次性分支不合并。
 - B12 后半（通知点击直达老消息静默不定位）为另一条留白，不在本票。
 - 数据层裁剪（#326 已完成）、消息摘要投影（#416 在途）不涉及。
+
+---
+
+## 附录（#450 实施回写，2026-09-02）：方案 A 行高采样与分型表定档
+
+**采样口径**：#系统 长频道（total 2373 条），全量历史（loadMore 到底）+ 已完成展开 + 线程默认折叠态，1440×900 视口，系统 Chrome headless 实测 DOM 行高（虚拟行 = `div[data-index]`，按行首消息 id 去重）。实测 2370 个虚拟行，覆盖率 99.9%。
+
+**各类型行高分布**（px）：
+
+| 类型 | n | min | p25 | med | mean | p75 | max | 常量120 mean\|Δ\| |
+|------|----|-----|-----|-----|------|-----|-----|------|
+| 系统播报（Studio 无卡） | 2327 | 46 | 46 | 46 | 52 | 62 | 91 | 68.2 |
+| agent 文档流 | 39 | 269 | 332 | 332 | 324 | 332 | 361 | 203.8 |
+| 人类气泡 | 2 | 55 | — | 88 | 88 | — | 120 | 32.6 |
+| 人类气泡 compact | 1 | 32 | — | 32 | 32 | — | 32 | 87.8 |
+| 卡片（distill_proposal 长卡） | 1 | 821 | — | 821 | 821 | — | 821 | 701.1 |
+
+- 系统播报细分：1 行 46.2（65%）、2 行 61.6（35%）、3 行 75.6（<1%）。
+- 日期分隔附加高度：同类有/无 `showDate` 中位差 = 29.4（system n=14）。
+- 本频道无折叠线程（`mc-thread-toggle`）、骨架行（`mc-msg-skeleton`）、展开线程样本；threadToggle / procGroupCollapsed / skeleton 三档为 CSS 推导值（thread-toggle ≈ fs-xs 行+margin 24；collapse-toggle = padding6+行20+border2+margin8 = 36；skeleton ≈ 40）。
+- 已知未入分型：`isWaitingForInput` 运行时态（等待中的 Studio 提问保留 agent 形态，纯函数按 system 档低估，可接受类内方差）。
+
+**分型表取值**（`ROW_HEIGHT_ESTIMATE`，streamVirtual.ts）：date 30 / skeleton 40 / system 46 / human 88 / agent 332 / card 820 / compactDelta −24 / threadToggle 24 / procGroupCollapsed 36。
+
+**同口径对比（AC：估计偏差均值可量化下降）**：
+
+| 口径 | mean \|Δ\| | P90 \|Δ\| | totalSize 失真 |
+|------|-----------|-----------|----------------|
+| 常量 120 | 70.7px | 74px | +112% |
+| 分型表 | **5.7px（−92%）** | 16px | −9% |

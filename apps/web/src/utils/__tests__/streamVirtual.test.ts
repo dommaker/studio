@@ -10,6 +10,8 @@ import {
   virtualizerScrollSettled,
   planFineAdjust,
   FINE_ADJUST_MISSING_GRACE_FRAMES,
+  ROW_HEIGHT_ESTIMATE,
+  estimateStreamItemSize,
 } from '../streamVirtual';
 import { deriveStreamView, type StreamUiState } from '../streamView';
 import type { ChannelMessage } from '../../api/channel';
@@ -157,5 +159,98 @@ describe('planFineAdjust（#339 精校正第二段决策——全部分支在此
 
   it('缺席中途锚行出现 → 正常 apply（宽限计数清零是调用方职责，纯函数只看当帧）', () => {
     expect(planFineAdjust({ ...base, anchorTop: 120, settledMissingFrames: 3 })).toEqual({ action: 'apply', delta: 120 - 3333 });
+  });
+});
+
+describe('estimateStreamItemSize（#450 分型静态估计：分类逻辑全量可测，档位值见报告附录采样）', () => {
+  const E = ROW_HEIGHT_ESTIMATE;
+  const first = (msgs: ChannelMessage[], over: Partial<StreamUiState> = {}) =>
+    deriveStreamView(msgs, ui(over)).items;
+
+  it('agent 文档流（非 Studio 无卡）非 compact → agent 档', () => {
+    const [item] = first([msg('m1')]);
+    expect(estimateStreamItemSize(item)).toBe(E.date + E.agent); // 首行 showDate
+  });
+
+  it('showDate 附加日期分隔；非首行不带日期', () => {
+    const [i1, i2] = first([msg('m1'), msg('m2', { authorType: 'human', agentName: undefined, createdAt: iso(30) })]);
+    expect(estimateStreamItemSize(i1)).toBe(E.date + E.agent);
+    // 人类消息不参与前一条 agent 的合并（authorType 不同）→ 非 compact，同日无日期
+    expect(estimateStreamItemSize(i2)).toBe(E.human);
+  });
+
+  it('连续合并 compact → compactDelta 扣减（同作者 5 分钟内）', () => {
+    const [, i2] = first([msg('m1'), msg('m2', { createdAt: iso(1) })]);
+    expect(i2.kind).toBe('message');
+    if (i2.kind !== 'message') return;
+    expect(i2.compact).toBe(true);
+    expect(estimateStreamItemSize(i2)).toBe(E.agent + E.compactDelta);
+  });
+
+  it('人类气泡 → human 档；compact 人类气泡 → human + compactDelta', () => {
+    const [i1, i2] = first([
+      msg('h1', { authorType: 'human', agentName: undefined }),
+      msg('h2', { authorType: 'human', agentName: undefined, createdAt: iso(1) }),
+    ]);
+    expect(estimateStreamItemSize(i1)).toBe(E.date + E.human); // 首行 showDate + 非 compact
+    expect(estimateStreamItemSize(i2)).toBe(E.human + E.compactDelta);
+  });
+
+  it('系统播报（Studio 署名无卡）→ system 档', () => {
+    const [item] = first([msg('s1', { agentName: 'Studio' })]);
+    expect(estimateStreamItemSize(item)).toBe(E.date + E.system);
+  });
+
+  it('卡片消息 → card 档（cardType 优先于作者分型）', () => {
+    const [item] = first([msg('c1', { meta: JSON.stringify({ cardType: 'wu_done' }) })]);
+    expect(estimateStreamItemSize(item)).toBe(E.date + E.card);
+  });
+
+  it('degraded 骨架 → skeleton 档（content 已剥离，一律固定占位）', () => {
+    const [item] = first([msg('d1', { degraded: true })]);
+    expect(estimateStreamItemSize(item)).toBe(E.date + E.skeleton);
+  });
+
+  it('thread 折叠态 = anchor 档 + 回复 toggle；无回复不加 toggle', () => {
+    const [t2] = threadView(2).items;
+    expect(estimateStreamItemSize(t2)).toBe(E.date + E.agent + E.threadToggle);
+    const solo = deriveStreamView([msg('a9', { workUnitId: 'wu-9' })], ui()).items[0];
+    expect(estimateStreamItemSize(solo)).toBe(E.date + E.agent);
+  });
+
+  it('thread anchor 为卡片/系统播报时按对应档计', () => {
+    const [t] = deriveStreamView(
+      [msg('a1', { workUnitId: 'wu-1', agentName: 'Studio' }), msg('r1', { replyToId: 'a1', createdAt: iso(1) })],
+      ui(),
+    ).items;
+    expect(estimateStreamItemSize(t)).toBe(E.date + E.system + E.threadToggle);
+    const [tc] = deriveStreamView(
+      [msg('a2', { workUnitId: 'wu-2', meta: JSON.stringify({ cardType: 'wu_done' }) }), msg('r2', { replyToId: 'a2', createdAt: iso(1) })],
+      ui(),
+    ).items;
+    expect(estimateStreamItemSize(tc)).toBe(E.date + E.card + E.threadToggle);
+  });
+
+  it('thread 展开态 = anchor + 逐条回复（msg 按档、折叠过程组按按钮档）', () => {
+    // 5 条连续 agent 回复：r1-r4 非里程碑折进 proc-group（折叠），r5 最后一条里程碑单列
+    const [t] = threadView(5, { expandedThreads: new Set(['a1']) }).items;
+    if (t.kind !== 'thread') throw new Error('expected thread');
+    expect(t.replies.map(r => r.kind)).toEqual(['proc-group', 'msg']);
+    expect(estimateStreamItemSize(t)).toBe(E.date + E.agent + E.procGroupCollapsed + E.agent);
+  });
+
+  it('展开线程内的过程组再展开 = 组内消息逐条全量计（不省头）', () => {
+    const view = threadView(5, { expandedThreads: new Set(['a1']), expandedProcGroups: new Set(['proc-r1']) });
+    const [t] = view.items;
+    if (t.kind !== 'thread') throw new Error('expected thread');
+    expect(estimateStreamItemSize(t)).toBe(E.date + E.agent + 4 * E.agent + E.agent);
+  });
+
+  it('thread anchor degraded → skeleton 档（折叠态含日期）', () => {
+    const [t] = deriveStreamView(
+      [msg('a1', { workUnitId: 'wu-1', degraded: true }), msg('r1', { replyToId: 'a1', createdAt: iso(1) })],
+      ui(),
+    ).items;
+    expect(estimateStreamItemSize(t)).toBe(E.date + E.skeleton);
   });
 });

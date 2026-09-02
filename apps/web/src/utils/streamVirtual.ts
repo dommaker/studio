@@ -2,6 +2,8 @@
 // jsdom 无布局不可测 virtualizer 本体，虚拟化相关判定/映射/补偿数学全部抽纯函数在此单测；
 // hook/组件侧只负责接线（useStreamFollow 建 virtualizer、ChannelDetailPage 渲染窗口）。
 import type { StreamItem } from './streamView';
+import type { ChannelMessage } from '../api/channel';
+import { parseMeta } from './messageMeta';
 import { anchorScrollDelta, type ScrollAnchor } from './streamFollow';
 
 /**
@@ -13,6 +15,70 @@ export const STREAM_VIRTUAL_ENABLED = import.meta.env.MODE !== 'test';
 /** 虚拟行 key：thread 取 anchor.id、message 取 message.id（prepend 下稳定，measurements 按 key 存续） */
 export function streamItemKey(item: StreamItem): string {
   return item.kind === 'thread' ? item.anchor.id : item.message.id;
+}
+
+// ── #450（#438 方案 A）：estimateSize 分型静态估计 ──────────────
+// 值 = #系统 长频道实测行高分布各档中位（采样口径见
+// .studio/research/2026-09-02-virtual-scroll-updrift-options.md 附录）；
+// 静态常量表——动态更新估计值本身会成为漂移源（报告 §3-B 证伪），禁止随测量改写。
+export const ROW_HEIGHT_ESTIMATE = {
+  /** 日期分隔（showDate 行内前置元素，附加高度；实测中位差 29.4） */
+  date: 30,
+  /** #326 骨架占位行（CSS 推导；采样时频道无降级行，无实测样本） */
+  skeleton: 40,
+  /** 系统播报（Studio 署名无卡，淡色小字一行；实测 med 46：1 行 46.2 占 65%、2 行 61.6 占 35%） */
+  system: 46,
+  /** 人类气泡（实测 n=2 中位；内容行数驱动，类内方差大） */
+  human: 88,
+  /** agent 文档流（Markdown 正文；实测 med 332，n=39，p25~p75 紧致 332） */
+  agent: 332,
+  /** 卡片消息（全宽含 footer 动作区；实测 n=1 = 821 长卡，按 820 取整，类内方差大） */
+  card: 820,
+  /** 连续合并省头（compact）扣减 = mc-msg-head 头行高（实测 human 55→32 ≈ -23）；系统播报不参与合并 */
+  compactDelta: -24,
+  /** 折叠线程 anchor 卡内「N 条回复」toggle 附加（CSS 推导；采样频道无折叠线程样本） */
+  threadToggle: 24,
+  /** 展开线程内折叠过程组按钮（▸ N 条过程消息；CSS 推导 = mc-collapse-toggle 行高） */
+  procGroupCollapsed: 36,
+} as const;
+
+/** 单条消息的渲染行高档（thread 内回复同样走此分型；isThreadReply/锚卡差异忽略，归入类内方差） */
+function estimateMessagePx(m: ChannelMessage, compact: boolean): number {
+  if (m.degraded) return ROW_HEIGHT_ESTIMATE.skeleton;
+  if (parseMeta(m.meta).cardType) return ROW_HEIGHT_ESTIMATE.card;
+  if (m.authorType === 'human') return ROW_HEIGHT_ESTIMATE.human + (compact ? ROW_HEIGHT_ESTIMATE.compactDelta : 0);
+  // 系统播报判定同 ChannelMessageItem（isSystem 还含 !waitingForInput，运行时态此处不可得——
+  // 等待中的 Studio 提问按 system 档低估，属可接受类内方差）；显式 agent 守卫防分型规则漂移
+  if (m.authorType === 'agent' && m.agentName === 'Studio') return ROW_HEIGHT_ESTIMATE.system;
+  return ROW_HEIGHT_ESTIMATE.agent + (compact ? ROW_HEIGHT_ESTIMATE.compactDelta : 0);
+}
+
+/**
+ * estimateSize 分型实现（#450）：按 item 类型给静态估计值，替代常量 120。
+ * 目的 = 降低估计偏差 |Δ| 均值，减小库校正补偿量级与滚动条比例失真；不消除首测位移（报告 §3-A）。
+ * 校正机制（prepend 补偿 / 恢复两段式 / 钉底 / 库默认校正谓词）不在本函数触及面。
+ */
+export function estimateStreamItemSize(item: StreamItem): number {
+  const date = item.showDate ? ROW_HEIGHT_ESTIMATE.date : 0;
+  if (item.kind === 'message') {
+    return date + estimateMessagePx(item.message, item.compact);
+  }
+  if (item.anchor.degraded) return date + ROW_HEIGHT_ESTIMATE.skeleton;
+  let height = date + estimateMessagePx(item.anchor, item.compact);
+  if (!item.expanded) {
+    return height + (item.replyCount > 0 ? ROW_HEIGHT_ESTIMATE.threadToggle : 0);
+  }
+  for (const reply of item.replies) {
+    if (reply.kind === 'msg') {
+      height += estimateMessagePx(reply.message, reply.compact);
+    } else {
+      // 折叠过程组 = 单个按钮行；展开 = 组内消息逐条全量渲染（不省头）
+      height += reply.expanded
+        ? reply.messages.reduce((sum, m) => sum + estimateMessagePx(m, false), 0)
+        : ROW_HEIGHT_ESTIMATE.procGroupCollapsed;
+    }
+  }
+  return height;
 }
 
 /**

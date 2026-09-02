@@ -7,6 +7,8 @@
 // #449（#438 方案 C）：D4-2 的 `shouldAdjustScrollPositionOnItemSizeChange=()=>false` 覆写已删，
 // 启用 virtual-core 3.17.8 库默认校正谓词（首测且行 top 在视口上方 → 补偿 scrollTop），
 // 消除向上滚入未测量区的「边滚边修正」漂移；库补偿写入统一过 scrollToFn 台账，D4-5 纪律不变；
+// #450（#438 方案 A）：estimateSize 分型静态估计替代常量 120（档位值 = #系统 实测分布，
+// 纯函数 estimateStreamItemSize 在 utils/streamVirtual），降低估计偏差与滚动条比例失真；
 // prepend 补偿数据源 = measurements 按 key 查 start（验证约束 1，不做 prepend 后 DOM 查询）；
 // 阅读位置恢复两段式（scrollToIndex 粗定位 → reconcile 收敛后 DOM 精校正；
 // #339：收敛前校正会被 scrollToIndex 的 reconcile rAF 循环改写踩掉，必须等收敛后落地）。
@@ -19,10 +21,7 @@ import type { ChannelMessage } from '../api/channel';
 import type { StreamItem } from '../utils/streamView';
 import { isPinnedToBottom, isReaderScroll, shouldFollowBottom, captureFirstVisibleAnchor, anchorScrollDelta, type ScrollAnchor, type MessageRowRect } from '../utils/streamFollow';
 import { loadReadingPosition, saveReadingPosition, type ReadingPosition } from '../utils/readingPosition';
-import { STREAM_VIRTUAL_ENABLED, streamItemKey, anchorScrollTopAfterPrepend, virtualizerScrollSettled, planFineAdjust } from '../utils/streamVirtual';
-
-/** 行高估计：消息行普遍 60~300，取 120（估计偏差只影响未测量区滚动条比例与粗定位收敛轮数） */
-const ESTIMATED_ROW_PX = 120;
+import { STREAM_VIRTUAL_ENABLED, streamItemKey, anchorScrollTopAfterPrepend, virtualizerScrollSettled, planFineAdjust, estimateStreamItemSize } from '../utils/streamVirtual';
 
 export interface UseStreamFollowOptions {
   channelId: string | undefined;
@@ -82,10 +81,14 @@ export function useStreamFollow({ channelId, messages, loading, loadMore, items,
     scrollStreamTo(offset + adjustments);
   }, [scrollStreamTo]);
   const getItemKey = useCallback((index: number) => streamItemKey(items[index]), [items]);
+  // #450（#438 方案 A）：estimateSize 分型静态估计——按 item 类型给值替代常量 120
+  // （档位值 = #系统 长频道实测行高分布，见 streamVirtual.ROW_HEIGHT_ESTIMATE 注释与报告附录）；
+  // useCallback 依赖 items 与 getItemKey 同步重建，估计值本身是静态表、不随测量更新（报告 §3-B 证伪动态估计）。
+  const estimateSize = useCallback((index: number) => estimateStreamItemSize(items[index]), [items]);
   const virtualizer = useVirtualizer<HTMLDivElement, HTMLDivElement>({
     count: items.length,
     getScrollElement: () => streamRef.current,
-    estimateSize: () => ESTIMATED_ROW_PX,
+    estimateSize,
     getItemKey,
     overscan: 8,
     scrollMargin,
