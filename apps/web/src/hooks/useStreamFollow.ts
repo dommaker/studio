@@ -3,7 +3,10 @@
 // 新消息仅在钉底中或自己发送时跟随；ResizeObserver 跟随卡片展开等撑高；离底浮出「回到底部」；
 // #290（清单 #22/#27）：加载更早走行锚点补偿（不依赖总高度差）；阅读位置按频道持久化（localStorage）。
 // #325（ADR 2026-08-24 channel-stream-virtualization）：虚拟化接入——virtualizer 建在本 hook，
-// 一切 virtualizer 滚动写入经自定义 scrollToFn 过台账（D4-5）；自动测量校正全关（D4-2 校正权独占）；
+// 一切 virtualizer 滚动写入经自定义 scrollToFn 过台账（D4-5）；
+// #449（#438 方案 C）：D4-2 的 `shouldAdjustScrollPositionOnItemSizeChange=()=>false` 覆写已删，
+// 启用 virtual-core 3.17.8 库默认校正谓词（首测且行 top 在视口上方 → 补偿 scrollTop），
+// 消除向上滚入未测量区的「边滚边修正」漂移；库补偿写入统一过 scrollToFn 台账，D4-5 纪律不变；
 // prepend 补偿数据源 = measurements 按 key 查 start（验证约束 1，不做 prepend 后 DOM 查询）；
 // 阅读位置恢复两段式（scrollToIndex 粗定位 → reconcile 收敛后 DOM 精校正；
 // #339：收敛前校正会被 scrollToIndex 的 reconcile rAF 循环改写踩掉，必须等收敛后落地）。
@@ -89,10 +92,8 @@ export function useStreamFollow({ channelId, messages, loading, loadMore, items,
     enabled: virtualEnabled,
     scrollToFn,
   });
-  // D4-2 校正权独占：prepend 补偿/跟随/恢复全走自家逻辑，virtualizer 自动测量校正全关
-  useEffect(() => {
-    virtualizer.shouldAdjustScrollPositionOnItemSizeChange = () => false;
-  }, [virtualizer]);
+  // #449：此处原有 D4-2 校正权独占覆写（shouldAdjustScrollPositionOnItemSizeChange=()=>false），
+  // 已删——库默认谓词即补偿「首测且行 top 在视口上方」，与自家 prepend 补偿/恢复两段式互补。
 
   // 捕获首个可见消息行作锚点（视口相对坐标；几何判定走 streamFollow 纯函数）
   const captureAnchor = useCallback((): ScrollAnchor | null => {

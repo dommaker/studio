@@ -78,6 +78,9 @@ scrollTop 逐像素相等、补偿精度 1px。实现约束：
 4. `shouldAdjustScrollPositionOnItemSizeChange = () => false` 实测可完全让渡校正权；
    备选 `anchorTo:'end'` 的 prepend 稳定性实测漂移 0，但补偿量是估计高（未测量行
    按估计占位，上滑时边滚边修正），不采用，维持自家补偿。
+   **（2026-09-02 #449 重新标定：该覆写已删，启用库默认首测校正谓词——
+   首测且行 top 在视口上方即补偿 scrollTop，消除向上滚动漂移；prepend 自家补偿
+   与两段式恢复不变。依据 `.studio/research/2026-09-02-virtual-scroll-updrift-options.md` 方案 C。）**
 5. react 适配层（`useVirtualizer`）天然每 render 重传完整 options，无裸 core 的
    setOptions 合并坑。
 
