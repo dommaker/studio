@@ -117,7 +117,7 @@ export function parseLiveStepRef(data: unknown): { workUnitId: string; step: num
 
 /** workunit.status_changed SSE data（{ workunit } 信封）→ 轻量引用（坏数据/缺 id/status → null）。
  *  type/scope 供 waitingWus chip 增量维护用（闸门类过滤 / 问题摘要兜底）；
- *  parentId 供 #442 频道建议片判「活跃 review 子工单」用（负载 = 全量 WorkUnitData，含 parentId） */
+ *  parentId 仅作负载透传（负载 = 全量 WorkUnitData，含 parentId；#447 静态建议映射退役后前端暂无消费方） */
 export function parseLiveWuRef(
   data: unknown,
 ): { id: string; status: string; channelId: string | null; metadata: string | null; type: string | null; scope: string | null; parentId: string | null } | null {
