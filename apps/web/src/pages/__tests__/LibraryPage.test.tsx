@@ -1,4 +1,5 @@
 // #155 T5: LibraryPage 阅览室 — 聚合列表 + 搜索 + 项目筛选 + legacy 徽标
+// #436 B11：内容区收 max-w-5xl（§4.7 内容档）+ 类型筛选（kind 前端过滤）
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
@@ -109,5 +110,40 @@ describe('LibraryPage（#155 T5 阅览室）', () => {
       () => expect(mockLibraryList).toHaveBeenCalledWith({ search: '规格' }),
       { timeout: 1000 },
     );
+  });
+
+  describe('#436 B11 密度与类型筛选', () => {
+    it('内容区收 max-w-5xl（§4.7 内容档）', async () => {
+      const { container } = renderPage();
+      await screen.findByText('规格甲');
+      expect(container.querySelector('.max-w-5xl')).not.toBeNull();
+    });
+
+    it('类型筛选：选定 kind 后列表只显示该类型文档', async () => {
+      renderPage();
+      await screen.findByText('规格甲');
+      expect(screen.getByText('遗产文档')).toBeTruthy();
+
+      fireEvent.click(screen.getByRole('button', { name: '类型筛选' }));
+      fireEvent.click(await screen.findByRole('option', { name: '遗产' }));
+
+      await waitFor(() => {
+        expect(screen.queryByText('规格甲')).toBeNull();
+        expect(screen.getByText('遗产文档')).toBeTruthy();
+      });
+    });
+
+    it('类型筛选回到「全部类型」后恢复全量', async () => {
+      renderPage();
+      await screen.findByText('规格甲');
+
+      fireEvent.click(screen.getByRole('button', { name: '类型筛选' }));
+      fireEvent.click(await screen.findByRole('option', { name: '遗产' }));
+      await waitFor(() => expect(screen.queryByText('规格甲')).toBeNull());
+
+      fireEvent.click(screen.getByRole('button', { name: '类型筛选' }));
+      fireEvent.click(await screen.findByRole('option', { name: '全部类型' }));
+      await waitFor(() => expect(screen.getByText('规格甲')).toBeTruthy());
+    });
   });
 });

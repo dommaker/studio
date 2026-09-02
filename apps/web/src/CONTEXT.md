@@ -61,6 +61,7 @@ Web 前端主源码。路由、全局状态、API 客户端、UI 组件、样式
 | `SuggestionChips` / `ChannelStageBar` / `AgentAvatar` | `components/channel/` | #440：建议片（点击经 ChannelInput `prefill={text,nonce}` 通道填入，dismiss 会话级）/ 频道顶部阶段条（复用 buildLifecycle+StationStepper，deriveDisplayState 同口径）/ per-agent identicon 确定性头像（图样在 utils/avatar）。#443：SuggestionChips 扩为三形态渲染骨架——status 只读（非按钮无发送语义，`.mc-suggest-status`）/ action（onAction 直调骨架，#444 起有产出方：补派评审经页面 ConfirmDialog 一次确认后 `getSuggestionAction` 直调，生效后重拉建议片随前置条件转假消失，失败原因内联进弹窗）/ prompt（缺省）。#446：端点 prompt 片透传后端 `text` 进 SuggestionChips（点击 → onPick(text) 预填进输入框，人可编辑后发送走既有 @mention 消息路由，不自动发送；prompt 片缺 text → 不渲染，fail-closed 不点空指令）。#447：引导片唯一来源 = 端点派生片（静态映射已删），dismiss 台账 key = `ep:{wuId}:{suggestionId}`；阶段条 currentWu = 端点 currentWuId × channelWus（命中不了不渲染，fail-closed） |
 | `MetaStrip` | `components/ui/MetaStrip.tsx` | #440 标题下密排元信息条：label:value 项，空值省略、全空不占位（WU 详情页 / PMO 项目页共用） |
 | `avatarPattern` / `avatarCellAt` | `utils/avatar.ts` | #440 identicon 纯函数：name 双 hash → --chart-1..9 选色 + 5x5 网格左 3 列点阵（右两列镜像），同名恒同图 |
+| `stripDuplicateH1` | `utils/stripDuplicateH1.ts` | #436 C9：阅览室文档页标题去重——正文首个内容行是与 doc.title 重复的 ATX H1 时剥除（仅首行、仅 `# ` 形态，mid-doc/Setext/`#`无空格不动；保守方向漏剥），LibraryDocPage 侧接入，MarkdownBody 组件不动 |
 
 ### 依赖关系
 
