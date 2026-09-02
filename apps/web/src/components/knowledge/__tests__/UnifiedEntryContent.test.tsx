@@ -34,3 +34,26 @@ describe('UnifiedEntryContent', () => {
     expect(container).toBeTruthy();
   });
 });
+
+describe('UnifiedEntryContent JSON 折叠（review 跟进：长内容截断+展开覆盖 JSON 分支）', () => {
+  const bigJson = JSON.stringify(Object.fromEntries(
+    Array.from({ length: 9 }, (_, i) => [`field${i}`, `v${i}`])
+  ));
+
+  it('字段 >6 默认收起前 6 个，展开全部后收起往返', () => {
+    render(<UnifiedEntryContent content={bigJson} />);
+    expect(screen.getByText('field5')).toBeTruthy();
+    expect(screen.queryByText('field6')).toBeNull();
+    fireEvent.click(screen.getByText('展开全部 9 字段'));
+    expect(screen.getByText('field8')).toBeTruthy();
+    fireEvent.click(screen.getByText('收起'));
+    expect(screen.queryByText('field6')).toBeNull();
+  });
+
+  it('字段 ≤6 全部直出，无展开钮', () => {
+    render(<UnifiedEntryContent content='{"a":"1","b":"2"}' />);
+    expect(screen.getByText('a')).toBeTruthy();
+    expect(screen.getByText('b')).toBeTruthy();
+    expect(screen.queryByText(/展开全部/)).toBeNull();
+  });
+});

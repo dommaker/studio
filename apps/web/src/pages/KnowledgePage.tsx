@@ -287,14 +287,14 @@ export function KnowledgePage() {
                 <div className="text-center py-8 u-text-3">暂无数据</div>
               ) : (
                 <div className="space-y-3">
-                  {unifiedEntries.map((entry, i) => (
+                  {unifiedEntries.map((entry, i) => {
+                    // #435：类别维度不占状态色（§6.5）——chart 类别色文字 + 中性底，无映射归中性
+                    const chartIdx = CONSUMPTION_MODE_CHART[entry.consumptionMode ?? ''];
+                    return (
                     <div key={entry.id || i} className="card p-4">
                       <div className="flex items-center gap-2 mb-2">
-                        {/* #435：类别维度不占状态色（§6.5）——chart 类别色文字 + 中性底，无映射归中性 */}
                         <span className="text-xs px-2 py-0.5 rounded u-surface-2 u-text-3"
-                          style={CONSUMPTION_MODE_CHART[entry.consumptionMode ?? ''] != null
-                            ? { color: `var(--chart-${CONSUMPTION_MODE_CHART[entry.consumptionMode ?? '']})` }
-                            : undefined}>
+                          style={chartIdx != null ? { color: `var(--chart-${chartIdx})` } : undefined}>
                           {entry.consumptionMode}
                         </span>
                         <span className="text-xs px-2 py-0.5 rounded u-surface-2 u-text-3">
@@ -313,7 +313,8 @@ export function KnowledgePage() {
                         </div>
                       )}
                     </div>
-                  ))}
+                    );
+                  })}
                   {unifiedTotal > unifiedOffset + 50 && (
                     <div className="text-center mt-4">
                       <button onClick={() => setUnifiedOffset(unifiedOffset + 50)} className="btn btn-secondary">加载更多</button>
