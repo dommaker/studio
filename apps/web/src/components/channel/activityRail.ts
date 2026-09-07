@@ -1,5 +1,5 @@
-// #394 频道动态右栏（spec §4.2）纯函数：四站 stepper 推导 / 动态条目构建 / REQ 归属分流
-// 数据源只读现成面：messages（卡片 / agent WU 消息）、channelReqs、waitingWus、/requirements/:id/chain
+// #394 频道动态右栏（spec §4.2）纯函数：四站 stepper 推导 / 消息摘要投影（#416）/ 动态条目构建 / REQ 归属分流
+// 数据源只读现成面：messages 经 projectActivityMessages 投影后进入、channelReqs、waitingWus、/requirements/:id/chain
 import type { ChannelMessage } from '../../api/channel';
 import type { Requirement, RequirementChainWorkUnit } from '../../api/requirements';
 import { parseMeta } from '../../utils/messageMeta';
@@ -70,14 +70,11 @@ function firstLine(s: string, max = 60): string {
   return line.length > max ? `${line.slice(0, max)}…` : line;
 }
 
-/** 频道动态条目：卡片消息 / agent WU 消息 / REQ / NEED_INPUT 待办，按时间倒序 */
-export function buildChannelActivity(input: {
-  messages: ChannelMessage[];
-  reqs: Requirement[];
-  waitingWus: NeedInputTodo[];
-}): ChannelActivityItem[] {
+/** #416 消息摘要投影：全量消息 → 右栏真正消费的最小条目集（card / agent WU 消息）。
+ *  保序不排序（排序归 buildChannelActivity）；与旧 buildChannelActivity 内联提取逻辑同口径 */
+export function projectActivityMessages(messages: ChannelMessage[]): ChannelActivityItem[] {
   const items: ChannelActivityItem[] = [];
-  for (const m of input.messages) {
+  for (const m of messages) {
     const ct = metaCardType(m.meta);
     if (ct) {
       items.push({
@@ -97,6 +94,27 @@ export function buildChannelActivity(input: {
       });
     }
   }
+  return items;
+}
+
+/** #416 投影等值比较：逐条同值 → 调用方可复用旧引用（memo 边界不破裂） */
+export function activityMessageItemsEqual(a: ChannelActivityItem[], b: ChannelActivityItem[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i];
+    const y = b[i];
+    if (x.id !== y.id || x.kind !== y.kind || x.text !== y.text || x.at !== y.at || x.wuId !== y.wuId) return false;
+  }
+  return true;
+}
+
+/** 频道动态条目：消息摘要投影（#416）/ REQ / NEED_INPUT 待办，按时间倒序 */
+export function buildChannelActivity(input: {
+  messageItems: ChannelActivityItem[];
+  reqs: Requirement[];
+  waitingWus: NeedInputTodo[];
+}): ChannelActivityItem[] {
+  const items: ChannelActivityItem[] = [...input.messageItems];
   for (const r of input.reqs) {
     items.push({
       id: `req-${r.id}`,

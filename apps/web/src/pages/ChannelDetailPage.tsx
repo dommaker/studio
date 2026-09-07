@@ -5,6 +5,7 @@ import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { formatChannelName } from '@dommaker/studio-shared/web';
 import { useChannelMessages } from '../hooks/useChannelEvents';
 import { useStreamFollow } from '../hooks/useStreamFollow';
+import { useActivityMessageItems } from '../hooks/useActivityMessageItems';
 import { useChannelCardActions } from '../hooks/useChannelCardActions';
 import { useWebSocketContext } from '../api/websocketHooks';
 import { ChannelMessageItem } from '../components/channel/ChannelMessageItem';
@@ -483,6 +484,10 @@ export function ChannelDetailPage() {
     });
   }, []);
 
+  // #416：右栏消息摘要投影——右栏只消费 card/agent WU 条目集（不再收全量 messages）；
+  // 无关增量（人类插话等）投影等值 → 引用保持 → memo 化的右栏整栏零重渲
+  const activityMessageItems = useActivityMessageItems(messages);
+
   // #279（决策 #250 D4）：chip 点条目 → 滚动定位到该 WU 当前提问消息并高亮（2s 后消退）。
   // 提问消息若还埋在折叠线程里（数据时序边界），先把所属线程展开
   const [highlightId, setHighlightId] = useState<string | null>(null);
@@ -919,7 +924,7 @@ export function ChannelDetailPage() {
         <ChannelActivityRail
           channelId={id}
           reqs={channelReqs}
-          messages={messages}
+          messageItems={activityMessageItems}
           waitingWus={waitingWus}
           onOpenWu={openWu}
           onOpenReq={openReq}
@@ -943,7 +948,7 @@ export function ChannelDetailPage() {
             <ChannelActivityRail
               channelId={id}
               reqs={channelReqs}
-              messages={messages}
+              messageItems={activityMessageItems}
               waitingWus={waitingWus}
               onOpenWu={openWuFromRailOverlay}
               onOpenReq={openReqFromRailOverlay}

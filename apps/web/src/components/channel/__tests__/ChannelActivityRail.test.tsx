@@ -32,7 +32,7 @@ import { ChannelActivityRail } from '../ChannelActivityRail';
 import { useChannelDataStore } from '../../../stores/channelDataStore';
 import { useRequirementChainStore } from '../../../stores/requirementChainStore';
 import type { Requirement } from '../../../api/requirements';
-import type { ChannelMessage } from '../../../api/channel';
+import type { ChannelActivityItem } from '../activityRail';
 
 function req(id: string, over: Partial<Requirement> = {}): Requirement {
   return {
@@ -56,7 +56,7 @@ function renderRail(over: Partial<Parameters<typeof ChannelActivityRail>[0]> = {
   const props = {
     channelId: 'ch1',
     reqs: [] as Requirement[],
-    messages: [] as ChannelMessage[],
+    messageItems: [] as ChannelActivityItem[],
     waitingWus: [],
     onOpenWu: vi.fn(),
     onOpenReq: vi.fn(),
@@ -174,18 +174,16 @@ describe('ChannelActivityRail — Agent 链接（§4.3）', () => {
 });
 
 describe('ChannelActivityRail — 动态归属与其他动态（§4.2）', () => {
-  function agentMsg(id: string, wuId: string | null): ChannelMessage {
-    return {
-      id, channelId: 'ch1', authorType: 'agent', content: `内容${id}`,
-      createdAt: '2026-08-10T00:00:00Z', ...(wuId ? { workUnitId: wuId } : {}),
-    } as ChannelMessage;
+  // #416：右栏改消费消息摘要投影（页面侧 projectActivityMessages 产物），测试直接构造条目
+  function wuItem(id: string, wuId: string): ChannelActivityItem {
+    return { id, kind: 'wu', text: `内容${id}`, at: '2026-08-10T00:00:00Z', wuId };
   }
 
   it('WU 消息经 chain 归属挂到 REQ 卡下；无归属落「其他动态」；条目点击开对应抽屉', async () => {
     mockGetChain.mockResolvedValue(chain(null, [{ id: 'wu-a', status: 'active' }]));
     const props = renderRail({
       reqs: [req('REQ-0001')],
-      messages: [agentMsg('m1', 'wu-a'), agentMsg('m2', 'wu-zzz')],
+      messageItems: [wuItem('m1', 'wu-a'), wuItem('m2', 'wu-zzz')],
     });
 
     const card = (await screen.findByText('REQ-0001')).closest('.mc-act-card') as HTMLElement;
@@ -221,7 +219,7 @@ describe('ChannelActivityRail — #412 chain 数据面 store（请求去重 + �
     const props = {
       channelId: 'ch1',
       reqs: [req('REQ-0001')],
-      messages: [] as ChannelMessage[],
+      messageItems: [] as ChannelActivityItem[],
       waitingWus: [],
       onOpenWu: vi.fn(),
       onOpenReq: vi.fn(),
@@ -243,7 +241,7 @@ describe('ChannelActivityRail — #412 chain 数据面 store（请求去重 + �
     const props = {
       channelId: 'ch1',
       reqs: [req('REQ-0001')],
-      messages: [] as ChannelMessage[],
+      messageItems: [] as ChannelActivityItem[],
       waitingWus: [],
       onOpenWu: vi.fn(),
       onOpenReq: vi.fn(),

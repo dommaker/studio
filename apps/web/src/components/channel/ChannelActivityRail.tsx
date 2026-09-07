@@ -2,12 +2,15 @@
 // 每 REQ 一卡（卡头 + 四站 stepper + PMO/Agent meta + 卡下最近动态），无归属动态落「其他动态」。
 // 交互混合模型：REQ/WU → 就地右抽屉（onOpenReq/onOpenWu，不离开会话流）；
 // PMO/Agent → ↗ 跳页（/pmo/project/:id、/agents/:roleId），PMO 数据链兜底，无则不渲染 badge（无死按钮）。
-import { Fragment, useEffect, useMemo, useState } from 'react';
+// #416 渲染边界：整栏 memo（props 全稳定即零重渲）+ 卡内静态部分（ReqCardStatic memo，
+// 卡头/stepper/meta）与动态行区分离——message_sent 下静态部分零重渲；消息面只收
+// 「消息摘要投影」messageItems（useActivityMessageItems 产物，无关增量引用不变），不再碰全量消息。
+import { Fragment, memo, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { type Requirement, type RequirementChain } from '../../api/requirements';
 import { useRequirementChainStore } from '../../stores/requirementChainStore';
 import { useChannelDataStore } from '../../stores/channelDataStore';
-import type { ChannelMessage, ChannelCurrentPmo } from '../../api/channel';
+import type { ChannelCurrentPmo } from '../../api/channel';
 import { projectApi } from '../../api';
 import { resolveAssignee, type AssigneeDisplay } from '../../hooks/useAssigneeDisplay';
 import type { NeedInputTodo } from './ChannelNeedInputChip';
@@ -22,7 +25,8 @@ import {
 interface Props {
   channelId: string;
   reqs: Requirement[];
-  messages: ChannelMessage[];
+  /** #416 消息摘要投影（card / agent WU 消息条目集），页面侧 useActivityMessageItems 产出，引用稳定 */
+  messageItems: ChannelActivityItem[];
   waitingWus: NeedInputTodo[];
   onOpenWu: (wuId: string) => void;
   onOpenReq: (reqId: string) => void;
@@ -124,8 +128,82 @@ function ActivityRow({ item, onOpenWu, onOpenReq }: {
   );
 }
 
-export function ChannelActivityRail({ channelId, reqs, messages, waitingWus, onOpenWu, onOpenReq }: Props) {
+/** #416 卡内静态部分（卡头 + 四站 stepper + PMO/Agent meta）memo 边界：
+ *  props 全稳定时相关动态到达只重渲卡下动态行区，本组件零重渲；
+ *  deriveChainSteps 留在渲染体——memo 边界即 memo 化，不再叠 useMemo */
+const ReqCardStatic = memo(function ReqCardStatic({ req, chain, projectId, projectLabel, assigneeNames, onOpenWu, onOpenReq }: {
+  req: Requirement;
+  chain: RequirementChain | undefined;
+  projectId: string | null;
+  projectLabel: string | undefined;
+  assigneeNames: Record<string, AssigneeDisplay>;
+  onOpenWu: (wuId: string) => void;
+  onOpenReq: (reqId: string) => void;
+}) {
   const navigate = useNavigate();
+  const wus = chain?.workunits ?? [];
+  const steps = deriveChainSteps(req, wus);
+  const assignees = [...new Set(wus.map(w => w.assigneeId).filter((x): x is string => !!x))];
+  return (
+    <>
+      <button className="mc-act-card-head" onClick={() => onOpenReq(req.id)}
+        title={`${req.id} · ${req.title} · ${req.status}`}>
+        <span className="mc-act-card-id">{req.id}</span>
+        <span className="mc-act-card-title">{req.title}</span>
+        <span className="mc-act-card-status">{req.status}</span>
+      </button>
+      {/* 四站 stepper：REQ/WU 站可点（就地抽屉）；连线随「已进入的阶段」着色 */}
+      <div className="mc-act-stepper">
+        {steps.map((s, i) => {
+          const stepClick = s.key === 'req'
+            ? () => onOpenReq(req.id)
+            : s.key === 'wu' && s.wuId
+              ? () => onOpenWu(s.wuId!)
+              : undefined;
+          const inner = (
+            <>
+              <span className="mc-act-step-dot" />
+              <span className="mc-act-step-label">{s.label}</span>
+            </>
+          );
+          return (
+            <Fragment key={s.key}>
+              {i > 0 && (
+                <span className={`mc-act-step-line${s.state !== 'upcoming' ? ' mc-act-step-line-reached' : ''}`} />
+              )}
+              {stepClick ? (
+                <button className={`mc-act-step mc-act-step-${s.state}`} onClick={stepClick}>{inner}</button>
+              ) : (
+                <span className={`mc-act-step mc-act-step-${s.state}`}>{inner}</span>
+              )}
+            </Fragment>
+          );
+        })}
+      </div>
+      {(projectId && projectLabel) || assignees.some(aid => assigneeNames[aid]) ? (
+        <div className="mc-act-card-meta">
+          {/* 项目记录拉不到（已删）→ 不渲染 badge，避免死按钮 */}
+          {projectId && projectLabel && (
+            <button className="mc-act-pmo-badge"
+              onClick={() => navigate(`/pmo/project/${projectId}`)}
+              title={projectLabel}>
+              {projectLabel} ↗
+            </button>
+          )}
+          {assignees.map(aid => assigneeNames[aid] && (
+            <button key={aid} className="mc-act-agent-link"
+              onClick={() => navigate(`/agents/${assigneeNames[aid].roleId}`)}
+              title={`Agent · ${assigneeNames[aid].name}`}>
+              @{assigneeNames[aid].name} ↗
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </>
+  );
+});
+
+export const ChannelActivityRail = memo(function ChannelActivityRail({ channelId, reqs, messageItems, waitingWus, onOpenWu, onOpenReq }: Props) {
   const chains = useReqChains(reqs);
   const channelPmo = useCurrentPmo(channelId);
 
@@ -164,8 +242,8 @@ export function ChannelActivityRail({ channelId, reqs, messages, waitingWus, onO
   }, [chains]);
 
   const items = useMemo(
-    () => buildChannelActivity({ messages, reqs, waitingWus }),
-    [messages, reqs, waitingWus],
+    () => buildChannelActivity({ messageItems, reqs, waitingWus }),
+    [messageItems, reqs, waitingWus],
   );
   const attributed = useMemo(() => attributeActivity(items, wuToReq), [items, wuToReq]);
 
@@ -174,67 +252,19 @@ export function ChannelActivityRail({ channelId, reqs, messages, waitingWus, onO
       <div className="mc-act-rail-title">频道动态</div>
       <div className="mc-act-rail-body">
         {reqs.map(req => {
-          const chain = chains[req.id];
-          const wus = chain?.workunits ?? [];
-          const steps = deriveChainSteps(req, wus);
           const projectId = projectIdByReq.get(req.id) ?? null;
-          const assignees = [...new Set(wus.map(w => w.assigneeId).filter((x): x is string => !!x))];
           const cardActs = attributed.byReq[req.id] ?? [];
           return (
             <div className="mc-act-card" key={req.id}>
-              <button className="mc-act-card-head" onClick={() => onOpenReq(req.id)}
-                title={`${req.id} · ${req.title} · ${req.status}`}>
-                <span className="mc-act-card-id">{req.id}</span>
-                <span className="mc-act-card-title">{req.title}</span>
-                <span className="mc-act-card-status">{req.status}</span>
-              </button>
-              {/* 四站 stepper：REQ/WU 站可点（就地抽屉）；连线随「已进入的阶段」着色 */}
-              <div className="mc-act-stepper">
-                {steps.map((s, i) => {
-                  const stepClick = s.key === 'req'
-                    ? () => onOpenReq(req.id)
-                    : s.key === 'wu' && s.wuId
-                      ? () => onOpenWu(s.wuId!)
-                      : undefined;
-                  const inner = (
-                    <>
-                      <span className="mc-act-step-dot" />
-                      <span className="mc-act-step-label">{s.label}</span>
-                    </>
-                  );
-                  return (
-                    <Fragment key={s.key}>
-                      {i > 0 && (
-                        <span className={`mc-act-step-line${s.state !== 'upcoming' ? ' mc-act-step-line-reached' : ''}`} />
-                      )}
-                      {stepClick ? (
-                        <button className={`mc-act-step mc-act-step-${s.state}`} onClick={stepClick}>{inner}</button>
-                      ) : (
-                        <span className={`mc-act-step mc-act-step-${s.state}`}>{inner}</span>
-                      )}
-                    </Fragment>
-                  );
-                })}
-              </div>
-              {(projectId && projectLabels[projectId]) || assignees.some(aid => assigneeNames[aid]) ? (
-                <div className="mc-act-card-meta">
-                  {/* 项目记录拉不到（已删）→ 不渲染 badge，避免死按钮 */}
-                  {projectId && projectLabels[projectId] && (
-                    <button className="mc-act-pmo-badge"
-                      onClick={() => navigate(`/pmo/project/${projectId}`)}
-                      title={projectLabels[projectId]}>
-                      {projectLabels[projectId]} ↗
-                    </button>
-                  )}
-                  {assignees.map(aid => assigneeNames[aid] && (
-                    <button key={aid} className="mc-act-agent-link"
-                      onClick={() => navigate(`/agents/${assigneeNames[aid].roleId}`)}
-                      title={`Agent · ${assigneeNames[aid].name}`}>
-                      @{assigneeNames[aid].name} ↗
-                    </button>
-                  ))}
-                </div>
-              ) : null}
+              <ReqCardStatic
+                req={req}
+                chain={chains[req.id]}
+                projectId={projectId}
+                projectLabel={projectId ? projectLabels[projectId] : undefined}
+                assigneeNames={assigneeNames}
+                onOpenWu={onOpenWu}
+                onOpenReq={onOpenReq}
+              />
               {cardActs.length > 0 && (
                 <div className="mc-act-card-acts">
                   {cardActs.slice(0, 3).map(it => (
@@ -259,4 +289,4 @@ export function ChannelActivityRail({ channelId, reqs, messages, waitingWus, onO
       </div>
     </aside>
   );
-}
+});
