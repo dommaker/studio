@@ -28,6 +28,7 @@
 - 只读层：无任何写端点；文档变更走各仓 git，不走 API
 - **#321 读路径已收进 FileStore 读穿 seam**：markdown 读走 `FileStore.readDocWithMtime`、目录列举走 `FileStore.readdir`（均为 mtime 校验的读穿缓存，ADR 2026-08-24-cache-seam-decision-rules 决策树第 1 问）；命中仅 stat 不重读内容，外部进程写入经 mtime 变化触发重读。模块内不得再引入裸 `fs` 读文档内容；对外部项目仓零写入（不落 `_index.md` 等索引文件）
 - benchmark（2026-08-25，dev 规模 P×D ≈ 2×114）：温缓存 list 无 search ≈ 7-10ms，温 search ≈ 13ms，远 < 100ms 阈值 → 聚合 memo 层判定 YAGNI；上量后复查流程挂 #334
+- #334 生产复测（2026-09-07，生产真实数据 P×D = 2×134）：温缓存 list 无 search p50 ≈ 9ms / p95 ≈ 13ms（n=30）、温 search p50 ≈ 12ms、进程冷启动首次 ≈ 511ms，library 面文档字节 3.9MB（mdCache 驻留上界 ≈ 2x）→ 仍远 < 100ms 阈值，memo YAGNI 维持，#334 已关闭；下次复测触发 = 项目数/文档面上量。复测方法：生产 read-gate 挡匿名与 guest token（HTTP 直连 401），走 in-process 等价测量——studio-prod checkout 内 tsx 直调 `listLibraryDocs`（同代码同数据目录）
 - title 兜底链：frontmatter title → 首个 H1 → 文件名；updatedAt 兜底链：frontmatter updatedAt → 文件 mtime
 - 单仓读失败（目录不存在/权限）不炸整体，跳过并 `logger.warn`
 - 前端 id 整段 `encodeURIComponent` 传入（含 `:` 与 `/`），路由侧 decode 后按首个冒号切分 projectId/relPath
