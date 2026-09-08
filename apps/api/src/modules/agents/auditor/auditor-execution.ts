@@ -17,7 +17,7 @@ import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import { logger, FileStore } from '@dommaker/studio-shared';
 import { NotificationService } from '@dommaker/studio-notification';
 import { skillStore } from '../../skills/skill-store.js';
-import { classifyError } from './auditor-rules.js';
+import { classifyError, userModelStateFile } from './auditor-rules.js';
 import type { Suggestion } from './auditor-rules.js';
 
 const SYSTEM_CHANNEL_NAME = '#系统';
@@ -42,9 +42,7 @@ export async function applyLowRiskSuggestions(suggestions: Suggestion[]): Promis
       } else if (s.type === 'model_weight_tune') {
         // Update user model state: mark concept trend as stable
         const fs = await import('fs');
-        const path = await import('path');
-        const os = await import('os');
-        const stateFile = path.join(os.homedir(), '.claude', 'user-model-state.json');
+        const stateFile = userModelStateFile();
         if (fs.existsSync(stateFile)) {
           const state = JSON.parse(fs.readFileSync(stateFile, 'utf-8'));
           const concept = s.data?.concept as string;
