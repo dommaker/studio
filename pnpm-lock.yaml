@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@dommaker/harness':
-        specifier: ^1.4.0
-        version: 1.4.0
+        specifier: ^1.5.0
+        version: 1.5.0
       tsx:
         specifier: ^4.22.3
         version: 4.23.1
@@ -52,8 +52,8 @@ importers:
   apps/api:
     dependencies:
       '@dommaker/harness':
-        specifier: ^1.4.0
-        version: 1.4.0
+        specifier: ^1.5.0
+        version: 1.5.0
       '@dommaker/studio-agent':
         specifier: workspace:*
         version: link:../../packages/studio-agent
@@ -264,8 +264,8 @@ importers:
   packages/studio-agent:
     dependencies:
       '@dommaker/harness':
-        specifier: ^1.4.0
-        version: 1.4.0
+        specifier: ^1.5.0
+        version: 1.5.0
       '@dommaker/studio-shared':
         specifier: workspace:*
         version: link:../studio-shared
@@ -311,8 +311,8 @@ importers:
   packages/studio-capability:
     dependencies:
       '@dommaker/harness':
-        specifier: ^1.4.0
-        version: 1.4.0
+        specifier: ^1.5.0
+        version: 1.5.0
       '@dommaker/studio-shared':
         specifier: workspace:*
         version: link:../studio-shared
@@ -346,8 +346,8 @@ importers:
   packages/studio-shared:
     dependencies:
       '@dommaker/harness':
-        specifier: ^1.4.0
-        version: 1.4.0
+        specifier: ^1.5.0
+        version: 1.5.0
       yaml:
         specifier: 2.3.0
         version: 2.3.0
@@ -378,8 +378,8 @@ importers:
   packages/studio-spec:
     dependencies:
       '@dommaker/harness':
-        specifier: ^1.4.0
-        version: 1.4.0
+        specifier: ^1.5.0
+        version: 1.5.0
       '@dommaker/studio-shared':
         specifier: workspace:*
         version: link:../studio-shared
@@ -532,8 +532,8 @@ packages:
     resolution: {integrity: sha512-QxULHAm7cNu72w97JUNCBFODFaXpbDg+dP8b/oWFAZ2MTRppA3U00Y2L1HqaS4J6yBqxwa/Y3nMBaxVKbB/NsA==}
     engines: {node: '>=20.19.0'}
 
-  '@dommaker/harness@1.4.0':
-    resolution: {integrity: sha512-HQzGcyKlfY/dzVJaNe7hglEInJI7pkPieCxuDRFBS9BWXH1znmZr2gGbRQooDer0NMzzsR7u0QEvpY1id3U6VQ==}
+  '@dommaker/harness@1.5.0':
+    resolution: {integrity: sha512-o2LXkPRUv5Yf3mlTMBAdQS6vKD0OXwm4ZKHKOQtey3A1ziOv7WvvKKl02B+RE30OUaJ2lrVot7wbTRCyxXNqYg==}
     engines: {node: '>=18.0.0'}
     hasBin: true
 
@@ -1825,8 +1825,8 @@ packages:
   fast-uri@3.1.4:
     resolution: {integrity: sha512-8JnbkQ4juDyvYs4mgFGQqg4yCYtFDtUtmp2QIQq11ZZe5CFQ5wcqm1rqDgAh/QdMySuBnPzMUiJUNZG5N/AiQw==}
 
-  fastq@1.20.2:
-    resolution: {integrity: sha512-UpGiiODyCGprM8EPP6JodP6jC9Rws6TCuiDOD+nn0CJhR8guI3g/ozo4ugL0vJ+Yz1UtJuuRPqvQuybVOF1VQA==}
+  fastq@1.20.3:
+    resolution: {integrity: sha512-XKv5nnLs6nLF71NgiKJLIZFLkPyIEuOselLG7ujZnGrRfQK8HpvY+WqKhAJUAdLomwVHErVS4LfxFlPq0/FTAw==}
 
   fdir@6.5.0:
     resolution: {integrity: sha512-tIbYtZbucOs0BRGqPJkshJUYdL+SDH7dVM8gjy+ERp3WAUjLEFJE+02kanyHtwjWOnwrKYBiwAmM0p4kLJAnXg==}
@@ -3406,7 +3406,7 @@ snapshots:
 
   '@csstools/css-tokenizer@4.0.0': {}
 
-  '@dommaker/harness@1.4.0':
+  '@dommaker/harness@1.5.0':
     dependencies:
       chalk: 4.1.2
       commander: 12.1.0
@@ -3607,7 +3607,7 @@ snapshots:
   '@nodelib/fs.walk@1.2.8':
     dependencies:
       '@nodelib/fs.scandir': 2.1.5
-      fastq: 1.20.2
+      fastq: 1.20.3
 
   '@opentelemetry/api@1.9.1': {}
 
@@ -4684,7 +4684,7 @@ snapshots:
 
   fast-uri@3.1.4: {}
 
-  fastq@1.20.2:
+  fastq@1.20.3:
     dependencies:
       reusify: 1.1.0
 
