@@ -279,7 +279,8 @@ export function ChannelInput({ onSend, sending, replyTo, onCancelReply, channelI
 
         <div className="mc-input-hint">
           <span>{popupOpen ? '↑↓ 选择 Enter 确认 Esc 取消' : '@mention Agent · 回复引用 · Enter 发送'}</span>
-          <span>{content.length} 字</span>
+          {/* ⑦ 无输入时不渲染计数器（「0 字」零信号） */}
+          {content.length > 0 && <span>{content.length} 字</span>}
         </div>
       </div>
 

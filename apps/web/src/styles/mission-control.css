@@ -310,6 +310,13 @@
 .mc-msg-body { color: var(--text-primary); white-space: pre-wrap; word-break: break-word; }
 /* #271: agent 消息内的 Markdown 容器覆盖 pre-wrap，软换行按 Markdown 语义折叠为空格 */
 .mc-md { white-space: normal; }
+/* ③ 播报卡层级（docs/plans/2026-09-channel-visual-polish.md）：节标题提层级（accent/加重 + 上间距），
+   正文/bullet 现字号不动、行高微松。mc-md 仅频道 agent 文档流使用（MarkdownBody 其他消费方不带此类），
+   作用域天然隔离，不动 MarkdownBody 的通用类 */
+.mc-md h2 { color: var(--accent-primary); }
+.mc-md h3 { color: var(--text-primary); }
+.mc-md h2, .mc-md h3 { margin-top: var(--space-4); }
+.mc-md p, .mc-md li { line-height: 1.7; }
 
 /* ---------- #277（决策 #248 D1/D2/D3/D5）：分侧布局 + 系统播报 + mention chip + 连续合并 ---------- */
 /* D1 人类消息：右侧轻气泡（头像 + 时间戳在右，不署名） */
@@ -626,11 +633,19 @@
    docs/plans/2026-09-channel-workbar.md）：stepper 复用 wu-detail.css 的 wu-stepper-bar 类，这里只给定位容器 */
 .mc-workbar {
   padding: var(--space-2) var(--space-6);
-  border-bottom: 1px solid var(--border-subtle);
+  /* ① 与消息流拉开分隔：hairline 提一档（状态区 ≠ 消息），docs/plans/2026-09-channel-visual-polish.md */
+  border-bottom: 1px solid var(--border-default);
   background: var(--bg-secondary);
 }
 .mc-workbar-main { display: flex; align-items: center; gap: 12px; }
-.mc-workbar-stepper { flex: 1; min-width: 0; }
+/* ① stepper 不再全宽撑满：紧凑左对齐 + 合理 max-width（wu-detail.css 全局类不动，WU 详情页不受影响） */
+.mc-workbar-stepper { flex: 0 1 auto; min-width: 0; max-width: 640px; }
+.mc-workbar .wu-stepper-bar { padding: 0; }
+.mc-workbar .wu-bstep-line { flex: 0 0 32px; min-width: 0; background: var(--border-strong); }
+.mc-workbar .wu-bstep-line-reached { background: var(--accent-border); }
+/* ① 当前站强化：点径加大 + 发光保留；时间戳再弱化一档（不抢站名） */
+.mc-workbar .wu-st-current .wu-st-dot { width: 12px; height: 12px; box-shadow: 0 0 8px var(--accent-glow); }
+.mc-workbar .wu-st-time { opacity: 0.7; }
 .mc-workbar-selflive,
 .mc-workbar-chip {
   display: flex;
@@ -744,7 +759,8 @@
   display: flex;
   justify-content: space-between;
   margin-top: 4px;
-  color: var(--text-muted);
+  /* ⑦ 辅助行提亮一档到可读（仍为次级） */
+  color: var(--text-secondary);
   font-size: var(--fs-xs);
 }
 .mc-mention-popup {
@@ -1205,6 +1221,11 @@ button.mc-act-step:hover { background: var(--bg-hover); }
   color: var(--text-primary);
 }
 .mc-act-time { flex-shrink: 0; font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--text-muted); }
+/* ② 信号分级（docs/plans/2026-09-channel-visual-polish.md）：signal 提权（warning 色点 + 正常字色），
+   routine 例行播报降权（更暗一档） */
+.mc-act-row-signal .mc-act-dot { background: var(--warning); }
+.mc-act-row-routine .mc-act-dot { opacity: 0.55; }
+.mc-act-row-routine .mc-act-text { color: var(--text-muted); }
 
 /* ============================================================
    语义工具类 —— 替代写死浅色 Tailwind 类（bg-white/text-gray-* 等），
