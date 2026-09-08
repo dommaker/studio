@@ -1,0 +1,106 @@
+/* ============================================================
+   WorkUnit 列表页（/workunits）— 2026-09 UI 丝滑化 Step 2
+   （docs/plans/2026-09-ui-smoothness.md）
+   无边框行列表：行间细分隔线 + 左侧 3px 状态色条 + hover/展开微底色；
+   统计 chip 可点击筛选（视觉对齐 agent-dashboard .agd-stat-filter）。
+   全部消费 theme.css CSS 变量（深浅色均可用），状态色与 WU_STATUS_COLORS 语义一致。
+   ============================================================ */
+
+/* ---------- 统计 chip（点击过滤 / 再点取消回全部） ---------- */
+.wu-stat {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 3px; /* 按钮档（style-guide §2.4） */
+  padding: 4px 10px;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+.wu-stat:hover { background: var(--bg-hover); }
+.wu-stat-on { border-color: var(--border-strong); background: var(--bg-active); }
+.wu-stat-num { font-size: var(--fs-stat); }
+
+/* #405：未归属 = 低调小 chip（归因覆盖率信号，非主筛选维度） */
+.wu-unattr {
+  align-self: center;
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  padding: 2px 6px;
+  cursor: pointer;
+}
+.wu-unattr:hover { background: var(--bg-hover); }
+.wu-unattr-on { border-color: var(--border-strong); background: var(--bg-active); color: var(--text-secondary); }
+
+/* ---------- 行列表 ---------- */
+.wu-row {
+  border-bottom: 1px solid var(--border-subtle);
+  border-left: 3px solid transparent;
+  transition: background 0.12s ease;
+}
+.wu-row:hover { background: var(--bg-hover); }
+.wu-row-open,
+.wu-row-open:hover { background: var(--bg-active); }
+
+/* 左侧状态色条 + 状态点按派生列着色（pending/in_review=warn、active=accent、done/closed=ok、blocked=err） */
+.wu-row[data-status='pending']    { border-left-color: var(--warning); }
+.wu-row[data-status='unassigned'] { border-left-color: var(--text-muted); }
+.wu-row[data-status='active']     { border-left-color: var(--accent-primary); }
+.wu-row[data-status='in_review']  { border-left-color: var(--warning); }
+.wu-row[data-status='done'],
+.wu-row[data-status='closed']     { border-left-color: var(--success); }
+.wu-row[data-status='blocked']    { border-left-color: var(--error); }
+
+.wu-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--text-muted);
+}
+.wu-row[data-status='pending'] .wu-dot,
+.wu-row[data-status='in_review'] .wu-dot { background: var(--warning); }
+.wu-row[data-status='active'] .wu-dot { background: var(--accent-primary); }
+.wu-row[data-status='done'] .wu-dot,
+.wu-row[data-status='closed'] .wu-dot { background: var(--success); }
+.wu-row[data-status='blocked'] .wu-dot { background: var(--error); }
+
+.wu-status {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+/* 弱化 chip：类型 / REQ / 被阻塞 */
+.wu-chip {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  border: 1px solid var(--border-subtle);
+  border-radius: 3px;
+  padding: 0 6px;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.wu-chip-warn { color: var(--warning); border-color: var(--warning-border); }
+
+/* ---------- 展开区 ---------- */
+.wu-sec {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+.wu-toggle {
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+.wu-toggle:hover { color: var(--accent-primary); }
