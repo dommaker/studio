@@ -221,8 +221,9 @@ describe('ChannelActivityRail — 动态归属与其他动态（§4.2）', () =>
       ],
       waitingWus: [{ wuId: 'wu-9', question: '确认方案？' }],
     });
-    // 两条 daily_reflection 折叠为一条（代表 = 最新 m2），追加 ×2
-    expect(await screen.findByText('daily_reflection 卡片 · 洞察 8-10 ×2')).toBeTruthy();
+    // 两条 daily_reflection 折叠为一条（代表 = 最新 m2），×N 为独立元素（不被 ellipsis 吞）
+    expect(await screen.findByText('daily_reflection 卡片 · 洞察 8-10')).toBeTruthy();
+    expect(screen.getByText('×2')).toBeTruthy();
     expect(screen.queryByText(/洞察 8-09/)).toBeNull();
     // pinned 待办提权：signal 类落在行上
     const waitRow = (await screen.findByText(/等待人工回复/)).closest('.mc-act-row') as HTMLElement;

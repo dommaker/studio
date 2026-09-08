@@ -1221,6 +1221,8 @@ button.mc-act-step:hover { background: var(--bg-hover); }
   color: var(--text-primary);
 }
 .mc-act-time { flex-shrink: 0; font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--text-muted); }
+/* 折叠计数（×N）：独立槽位不被 text ellipsis 吞掉 */
+.mc-act-count { flex-shrink: 0; font-size: var(--fs-xs); color: var(--text-muted); }
 /* ② 信号分级（docs/plans/2026-09-channel-visual-polish.md）：signal 提权（warning 色点 + 正常字色），
    routine 例行播报降权（更暗一档） */
 .mc-act-row-signal .mc-act-dot { background: var(--warning); }

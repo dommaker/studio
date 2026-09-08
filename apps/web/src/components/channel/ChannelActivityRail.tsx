@@ -126,7 +126,9 @@ function ActivityRow({ row, onOpenWu, onOpenReq }: {
   return (
     <button className={`mc-act-row mc-act-row-${tone}`} onClick={handleClick} title={item.text}>
       <span className={`mc-act-dot mc-act-dot-${item.kind}`} />
-      <span className="mc-act-text">{item.text}{count > 1 ? ` ×${count}` : ''}</span>
+      <span className="mc-act-text">{item.text}</span>
+      {/* 折叠计数独立元素：text 槽 ellipsis 截断，×N 必须始终可见（「标题 ×N」的 N 是折叠信息量） */}
+      {count > 1 && <span className="mc-act-count">×{count}</span>}
       <span className="mc-act-time">{item.pinned ? '待回复' : item.at ? fmtRelTime(item.at) : ''}</span>
     </button>
   );
