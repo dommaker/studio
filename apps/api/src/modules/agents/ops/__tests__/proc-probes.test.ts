@@ -49,16 +49,20 @@ describe('readMemoryUsage', () => {
 
 describe('readDiskUsage', () => {
   it('statfs 字段口径：used=total-bavail，usePercent 取整', () => {
-    const dir = makeTmp('proc-probes-disk-');
-    const usage = readDiskUsage(dir);
+    // 注入固定 statfs 快照：真实 fs 的 bavail 在并发写负载下逐块（4096B）漂移，
+    // 对活盘做两次独立 statfsSync 比较会偶发不等——本用例校验字段映射与取整
+    // 公式（used=total-bavail），而非实时盘空闲恒定。
+    // bsize=4096, blocks=1000, bavail=313 → total=4_096_000, avail=1_282_048,
+    // used=2_813_952, used/total=68.7% → round=69（覆盖取整边界）
+    const snapshot = {
+      type: 0xef51, bsize: 4096, blocks: 1000, bfree: 400, bavail: 313, files: 0, ffree: 0,
+    } as unknown as fs.StatsFs;
+    const usage = readDiskUsage('/', () => snapshot);
     expect(usage).not.toBeNull();
-    const s = fs.statfsSync(dir);
-    const total = s.blocks * s.bsize;
-    const avail = s.bavail * s.bsize;
-    expect(usage!.totalBytes).toBe(total);
-    expect(usage!.availBytes).toBe(avail);
-    expect(usage!.usedBytes).toBe(total - avail);
-    expect(usage!.usePercent).toBe(Math.round(((total - avail) / total) * 100));
+    expect(usage!.totalBytes).toBe(4_096_000);
+    expect(usage!.availBytes).toBe(1_282_048);
+    expect(usage!.usedBytes).toBe(2_813_952);
+    expect(usage!.usePercent).toBe(69);
   });
 
   it('路径不存在 → null', () => {

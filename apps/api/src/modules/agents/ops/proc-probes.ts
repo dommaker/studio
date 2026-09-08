@@ -17,9 +17,12 @@ export interface DiskUsage {
   usePercent: number | null;
 }
 
-export function readDiskUsage(root: string = '/'): DiskUsage | null {
+export function readDiskUsage(
+  root: string = '/',
+  statfsSync: (path: string) => fs.StatsFs = (p) => fs.statfsSync(p),
+): DiskUsage | null {
   try {
-    const s = fs.statfsSync(root);
+    const s = statfsSync(root);
     const total = s.blocks * s.bsize;
     const avail = s.bavail * s.bsize;
     const used = total - avail;
