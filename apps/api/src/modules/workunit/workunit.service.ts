@@ -19,6 +19,8 @@ import { parseWuMetadata } from './wu-metadata.js';
 import { resolveValidTransitions, type WorkUnitMetadata, type ReviewAttestationSource } from './workunit.types.js';
 import { snapshotToData } from './workunit.mappers.js';
 import { WorkUnitCrudService, type WorkUnitData } from './workunit-crud.js';
+// #428：未归属口径的戳解析复用 requirements 的零依赖叶子（无循环依赖风险，见该文件头注释）
+import { parseWuPmoId } from '../requirements/wu-pmo-attribution.js';
 
 // re-export：保持既有消费方（agent-loop / routes / 测试等）从 workunit.service 导入的路径不变
 export { snapshotToData } from './workunit.mappers.js';
@@ -51,8 +53,7 @@ export class WorkUnitService extends WorkUnitCrudService {
    * Get a WorkUnit by id. Returns null if not found.
    */
   async getById(id: string): Promise<WorkUnitData | null> {
-    const snapshots = await this.fileStore.getIndex();
-    const found = snapshots.find(s => s.id === id);
+    const found = (await this.fileStore.getIndex({ id }))[0];
     return found ? snapshotToData(found) : null;
   }
 
@@ -67,10 +68,13 @@ export class WorkUnitService extends WorkUnitCrudService {
     parentId?: string;
     failureType?: string;
     timedOutBefore?: Date;
+    // #428（#402 决策 4）：归属维度过滤。false = 未归属（无 reqId 且 pmoId 归因戳
+    // 解析为 null，口径同 #402 决策 1 / #405 AC）；true = 反向；undefined = 不过滤
+    attributed?: boolean;
     page?: number;
     limit?: number;
   }): Promise<{ data: WorkUnitData[]; total: number }> {
-    const { type, status, assigneeId, channelId, parentId, failureType, timedOutBefore, page = 1, limit = 20 } = options ?? {};
+    const { type, status, assigneeId, channelId, parentId, failureType, timedOutBefore, attributed, page = 1, limit = 20 } = options ?? {};
 
     let snapshots = await this.fileStore.getIndex();
 
@@ -84,6 +88,10 @@ export class WorkUnitService extends WorkUnitCrudService {
     if (timedOutBefore) {
       const cutoff = timedOutBefore.getTime();
       snapshots = snapshots.filter(s => s.timeoutAt && new Date(s.timeoutAt).getTime() <= cutoff);
+    }
+    if (attributed !== undefined) {
+      // #428：已归属 = 有 reqId 或归因戳（canonical pmoId ‖ legacy ownershipProjectId）非 null
+      snapshots = snapshots.filter(s => (!!s.reqId || parseWuPmoId(s.metadata) !== null) === attributed);
     }
 
     // Sort by createdAt desc
@@ -99,12 +107,36 @@ export class WorkUnitService extends WorkUnitCrudService {
   }
 
   /**
+   * #387 批量聚合：每 assignee 最近一条完成 WU（done/completed，按 completedAt ?? updatedAt
+   * 降序取首条；无完成记录 → null）。一次索引读取替掉 roster 空闲卡逐实例
+   * GET /workunits?assigneeId= 的 N+1。口径注：全量扫描，不沿用前端 limit=20 先截后滤
+   * （那会漏掉 20 条之外更早的完成单）。
+   */
+  async lastDoneByAssignee(assigneeIds: readonly string[]): Promise<Record<string, WorkUnitData | null>> {
+    const snapshots = await this.fileStore.getIndex();
+    const lastByAssignee = new Map<string, WorkUnitSnapshot>();
+    for (const s of snapshots) {
+      if (!s.assigneeId || (s.status !== 'done' && s.status !== 'completed')) continue;
+      if (!assigneeIds.includes(s.assigneeId)) continue;
+      const cur = lastByAssignee.get(s.assigneeId);
+      if (!cur || (s.completedAt ?? s.updatedAt).localeCompare(cur.completedAt ?? cur.updatedAt) > 0) {
+        lastByAssignee.set(s.assigneeId, s);
+      }
+    }
+    const result: Record<string, WorkUnitData | null> = {};
+    for (const id of assigneeIds) {
+      const found = lastByAssignee.get(id);
+      result[id] = found ? snapshotToData(found) : null;
+    }
+    return result;
+  }
+
+  /**
    * Transition WorkUnit status with state machine validation.
    * @throws Error if transition is not allowed
    */
   async transitionStatus(id: string, newStatus: string): Promise<WorkUnitData> {
-    const snapshots = await this.fileStore.getIndex();
-    const current = snapshots.find(s => s.id === id);
+    const current = (await this.fileStore.getIndex({ id }))[0];
     if (!current) {
       throw new Error('WorkUnit not found');
     }
@@ -193,8 +225,7 @@ export class WorkUnitService extends WorkUnitCrudService {
    * （人工直推 done 抢跑评审链，迟到的评审结论无处落账的补票口），同不改状态、不触发合并。
    */
   async reviewPassed(id: string, attestation?: ReviewAttestationSource, options?: { defaultTaskAssigneeId?: string }): Promise<WorkUnitData> {
-    const snapshots = await this.fileStore.getIndex();
-    const current = snapshots.find(s => s.id === id);
+    const current = (await this.fileStore.getIndex({ id }))[0];
     if (!current) throw new Error('WorkUnit not found');
     if (current.status !== 'in_review') {
       // F6-b 豁免：done + human-confirm → 只补台账 l3
@@ -317,8 +348,7 @@ export class WorkUnitService extends WorkUnitCrudService {
     source: 'override' | 'convention';
     failure?: { command: string; tail: string };
   }): Promise<WorkUnitData> {
-    const snapshots = await this.fileStore.getIndex();
-    const current = snapshots.find(s => s.id === id);
+    const current = (await this.fileStore.getIndex({ id }))[0];
     if (!current) throw new Error('WorkUnit not found');
 
     const now = new Date().toISOString();
@@ -346,8 +376,7 @@ export class WorkUnitService extends WorkUnitCrudService {
     return snapshotToData(updated);
   }
   async markMergeConflict(id: string, conflictFiles: string[]): Promise<WorkUnitData> {
-    const snapshots = await this.fileStore.getIndex();
-    const current = snapshots.find(s => s.id === id);
+    const current = (await this.fileStore.getIndex({ id }))[0];
     if (!current) throw new Error('WorkUnit not found');
 
     const metadata: WorkUnitMetadata = parseWuMetadata(current.metadata);
@@ -392,8 +421,7 @@ export class WorkUnitService extends WorkUnitCrudService {
    * 终态（done/closed）WU 不动——工作已收口，无可释放（terminate 与完成的竞态防护）。
    */
   async blockForManualRelease(id: string, reason: string): Promise<WorkUnitData> {
-    const snapshots = await this.fileStore.getIndex();
-    const current = snapshots.find(s => s.id === id);
+    const current = (await this.fileStore.getIndex({ id }))[0];
     if (!current) throw new Error('WorkUnit not found');
 
     if (current.status === 'done' || current.status === 'closed') {
@@ -441,8 +469,7 @@ export class WorkUnitService extends WorkUnitCrudService {
    * F6（决策 1）：attestation 入参带来源时写台账（verdict=rejected 留痕；返工后重审 approved 覆盖）。
    */
   async reviewRejected(id: string, reason?: string, attestation?: ReviewAttestationSource): Promise<WorkUnitData> {
-    const snapshots = await this.fileStore.getIndex();
-    const current = snapshots.find(s => s.id === id);
+    const current = (await this.fileStore.getIndex({ id }))[0];
     if (!current) throw new Error('WorkUnit not found');
     if (current.status !== 'in_review') {
       throw new Error(`Cannot review: current status is ${current.status}, expected in_review`);

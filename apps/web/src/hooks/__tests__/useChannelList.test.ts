@@ -18,6 +18,7 @@ vi.mock('../../api/websocketHooks', () => ({
 
 import { useChannelList } from '../useChannelList';
 import { useRosterStore } from '../../stores/rosterStore';
+import { useUnreadStore } from '../../stores/unreadStore';
 import type { ChannelListItem } from '../useChannelList';
 
 const CHANNELS = [
@@ -37,6 +38,8 @@ describe('useChannelList', () => {
     });
     mockGet.mockResolvedValue({ data: { data: CHANNELS } });
     mockOnEvent.mockReturnValue(() => {});
+    // #413：未读面在 unreadStore（模块级单例），每测重置
+    useUnreadStore.setState({ unreadCounts: {}, activeChannelId: null });
   });
 
   it('loads channel list on mount', async () => {
@@ -90,6 +93,45 @@ describe('useChannelList', () => {
     expect(result.current.unreadCounts['ch-1']).toBe(1);
 
     act(() => result.current.clearUnread('ch-1'));
+    expect(result.current.unreadCounts['ch-1']).toBeUndefined();
+  });
+
+  // #413 验收①：断点跨越（<768 内联 ChannelRail 卸载、SidebarNew 挂另一实例）计数不丢——
+  // 未读面在 unreadStore（实例私有 state 时会清零重建）
+  it('unread counts survive hook unmount/remount across breakpoint crossing', async () => {
+    let handler: ((msg: unknown) => void) | null = null;
+    mockOnEvent.mockImplementation((h: (msg: unknown) => void) => { handler = h; return () => {}; });
+    const first = renderHook(() => useChannelList());
+    await waitFor(() => expect(first.result.current.loading).toBe(false));
+
+    act(() => {
+      handler!({ event_type: 'channel.message_sent', data: { channelId: 'ch-1', message: { authorType: 'agent' } } });
+    });
+    expect(first.result.current.unreadCounts['ch-1']).toBe(1);
+    first.unmount();
+
+    const second = renderHook(() => useChannelList());
+    await waitFor(() => expect(second.result.current.loading).toBe(false));
+    expect(second.result.current.unreadCounts['ch-1']).toBe(1);
+
+    // 重挂后 SSE 增量继续落在同一份计数上（单例订阅重挂即恢复）
+    act(() => {
+      handler!({ event_type: 'channel.message_sent', data: { channelId: 'ch-1', message: { authorType: 'agent' } } });
+    });
+    expect(second.result.current.unreadCounts['ch-1']).toBe(2);
+  });
+
+  // #413 验收②：active 频道（正在查看）不涨未读徽章——排除逻辑在 store action
+  it('does not accumulate unread for the active channel', async () => {
+    let handler: ((msg: unknown) => void) | null = null;
+    mockOnEvent.mockImplementation((h: (msg: unknown) => void) => { handler = h; return () => {}; });
+    const { result } = renderHook(() => useChannelList());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    act(() => useUnreadStore.getState().setActiveChannel('ch-1'));
+    act(() => {
+      handler!({ event_type: 'channel.message_sent', data: { channelId: 'ch-1', message: { authorType: 'agent' } } });
+    });
     expect(result.current.unreadCounts['ch-1']).toBeUndefined();
   });
 

@@ -187,4 +187,26 @@ describe('PMO-a: 新建 PMO 表单', () => {
       expect(screen.getByText('暂无项目，点击上方「新建 PMO」创建')).toBeTruthy();
     });
   });
+
+  it('#434：路由不传 companyId prop 时，创建 OKR 用页面解析出的 companyId（不再走 localStorage）', async () => {
+    render(
+      <MemoryRouter>
+        <PMOPage />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => expect(screen.getByText('既有项目')).toBeTruthy());
+
+    fireEvent.click(screen.getByText(/🎯 OKR/));
+    fireEvent.click(screen.getByText('+ 创建 OKR'));
+    fireEvent.change(screen.getByPlaceholderText('管线效率提升 Q2'), { target: { value: '回归 OKR' } });
+    fireEvent.click(screen.getByText('创建'));
+
+    await waitFor(() => {
+      expect(mockPost).toHaveBeenCalledWith('/pmo/okr', expect.objectContaining({
+        companyId: 'co-1',
+        title: '回归 OKR',
+      }));
+    });
+  });
 });

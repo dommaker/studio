@@ -23,7 +23,7 @@ import os from 'node:os';
 import { performance } from 'node:perf_hooks';
 import { FileStore } from '@dommaker/studio-shared';
 // 子路径 exports（studio-dir 先例）；与 file-store.ts 的 './read-metrics' 解析到同一文件 → 同一模块实例（sink 生效前提）
-import { setReadMetricsSink, runWithLoopLabel } from '@dommaker/studio-shared/read-metrics';
+import { setReadMetricsSink, setSegmentMetricsSink, runWithLoopLabel } from '@dommaker/studio-shared/read-metrics';
 import { scanTimedOutWorkUnits } from '../src/modules/workunit/timeout-release.js';
 import { scanStaleAgentInstances } from '../src/modules/agents/instance-timeout-scan.js';
 import { scanWaitingForInputReminders } from '../src/modules/workunit/waiting-input.js';
@@ -83,6 +83,10 @@ setReadMetricsSink(e => {
     cloneMs: e.cloneMs,
   });
 });
+// #411：exec / harness 段事件（非读口段）进同轮 segments，聚合侧出分段归因
+setSegmentMetricsSink(e => {
+  currentRound?.segments?.push({ kind: e.kind, name: e.name, ms: e.ms });
+});
 
 // ── Triage 安全闸（见文件头注释）──
 const triageCalls: unknown[] = [];
@@ -104,7 +108,8 @@ async function main(): Promise<void> {
   await new Promise<void>(resolve => stub.listen(OPS_PORT, '127.0.0.1', resolve));
 
   // monitor：把日级/小时级周期项预置为「刚跑过」，测常态 5 分钟轮
-  // （dailyReflection/dataLifecycle/knowledge decay/user-model 更新 = 1/288 轮，不属于常态轮）
+  // （dailyReflection/dataLifecycle/knowledge decay/user-model 更新 = 1/288 轮，不属于常态轮；
+  // user-model 更新的 exec 段测量在下方 monitor-knowledge-decay 日级窗口轮内放开，与生产门控一致）
   const monitor = new MonitorService(fileStore);
   const today = new Date().toISOString().split('T')[0];
   (monitor as any).knowledgeCycleState.lastDecayRun = Date.now();
@@ -114,7 +119,6 @@ async function main(): Promise<void> {
   (monitor as any).lifecycleState.lastDataLifecycleRun = today;
 
   const ops = new OpsService(OPS_PORT, fileStore);
-  (ops as any)._lastGc = Date.now(); // worktree GC 为小时级，同非常态轮
 
   const auditor = new AuditorService(fileStore);
   const benchRepo = fs.mkdtempSync(path.join(os.tmpdir(), 'bench-repo-'));
@@ -135,7 +139,7 @@ async function main(): Promise<void> {
   const rounds: BenchRound[] = [];
   const drive = async (label: string, run: () => Promise<unknown>, n: number): Promise<void> => {
     for (let r = 0; r < n; r++) {
-      const round: BenchRound = { loop: label, round: r, wallMs: 0, events: [] };
+      const round: BenchRound = { loop: label, round: r, wallMs: 0, events: [], segments: [] };
       currentRound = round;
       const t0 = performance.now();
       await runWithLoopLabel(label, run);
@@ -185,9 +189,10 @@ async function main(): Promise<void> {
     }
 
     // knowledge decay：每轮 lastDecayRun=0 强制跑 decay + linter auto-fix（tmp 知识副本）；
-    // user-model 更新（npx harness 子进程）不属于读口测量面，预置跳过
+    // #411：lastUserModelRun=0 同步放开 user-model 更新（npx harness 子进程，父进程假 npx
+    // 桩住）——生产即日级窗口内与 decay 同轮执行，exec 段在此实测该命令耗时
     await drive('monitor-knowledge-decay', async () => {
-      await checkKnowledgeHealth({ lastDecayRun: 0, lastUserModelRun: Date.now() });
+      await checkKnowledgeHealth({ lastDecayRun: 0, lastUserModelRun: 0 });
     }, DAILY_ROUNDS);
   }
 

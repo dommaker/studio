@@ -44,10 +44,23 @@ import { skillStore } from '../../skills/skill-store.js';
 import {
   applyLowRiskSuggestions,
   pushConfirmationCards,
+  buildAuditorNotificationLink,
   autoCreateResolutions,
   escalateToTriage,
   generateEvalCases,
 } from '../auditor/auditor-execution.js';
+
+// ── buildAuditorNotificationLink（#439）──
+
+describe('buildAuditorNotificationLink()', () => {
+  it('有卡消息 id 时 link 带 ?highlight=<mid> 直达锚点', () => {
+    expect(buildAuditorNotificationLink('ch-1', 'm-1')).toBe('/channels/ch-1?highlight=m-1');
+  });
+
+  it('无卡消息 id 时降级为频道粒度链接', () => {
+    expect(buildAuditorNotificationLink('ch-1', null)).toBe('/channels/ch-1');
+  });
+});
 
 // ── applyLowRiskSuggestions ──
 
@@ -123,11 +136,75 @@ describe('applyLowRiskSuggestions()', () => {
 
 // ── pushConfirmationCards ──
 
+const { mockSubmitProposal } = vi.hoisted(() => ({
+  mockSubmitProposal: vi.fn(async () => ({ proposalId: 'p-439', posted: true })),
+}));
+
+// 只替换提案提交入口；findAuditorCardMessageId 等保留真实实现（走 mock fileStore）
+vi.mock('../auditor/review-adapter.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../auditor/review-adapter.js')>();
+  return { ...actual, submitAuditorSuggestionProposal: mockSubmitProposal };
+});
+
 describe('pushConfirmationCards()', () => {
   it('returns immediately for empty suggestions without touching fileStore', async () => {
     const listChannels = vi.fn();
     await pushConfirmationCards({ listChannels } as any, []);
     expect(listChannels).not.toHaveBeenCalled();
+  });
+
+  // #439：通知 link 携带消息粒度（?highlight=<卡消息 id>），点通知可直达卡消息
+  describe('通知 link 消息粒度（#439）', () => {
+    // studio-dir 走 'node:os' 视图，'os' 命名空间 mock 管不到它——用 STUDIO_HOME 隔离数据根
+    const studioHome = path.join(tmpHome, '.studio');
+    const usersDir = path.join(studioHome, 'data', 'users');
+    let savedStudioHome: string | undefined;
+    const mkFileStore = (messages: Array<{ id: string; meta?: string }>) => {
+      const appendJsonl = vi.fn(async () => {});
+      return {
+        appendJsonl,
+        fileStore: {
+          listChannels: vi.fn(async () => [{ id: 'ch-sys', name: '#系统' }]),
+          queryMessages: vi.fn(async () => messages),
+          appendJsonl,
+        },
+      };
+    };
+    const notificationLinks = (appendJsonl: ReturnType<typeof vi.fn>) =>
+      appendJsonl.mock.calls.map(c => (c[1] as { link?: string })?.link).filter(Boolean);
+
+    beforeEach(() => {
+      mockSubmitProposal.mockClear();
+      savedStudioHome = process.env.STUDIO_HOME;
+      process.env.STUDIO_HOME = studioHome;
+      fs.mkdirSync(usersDir, { recursive: true });
+      fs.writeFileSync(path.join(usersDir, 'u-439.json'), '{}');
+    });
+
+    afterEach(() => {
+      if (savedStudioHome === undefined) delete process.env.STUDIO_HOME;
+      else process.env.STUDIO_HOME = savedStudioHome;
+    });
+
+    it('卡消息反查命中 → 通知 link 带 ?highlight=<mid>', async () => {
+      const { fileStore, appendJsonl } = mkFileStore([
+        { id: 'm-card', meta: JSON.stringify({ cardData: { proposalId: 'p-439' } }) },
+      ]);
+      await pushConfirmationCards(fileStore as any, [
+        { type: 'param_tuning', risk: 'high', detail: 'd' },
+      ] as any);
+
+      expect(notificationLinks(appendJsonl)).toContain('/channels/ch-sys?highlight=m-card');
+    });
+
+    it('卡消息反查不到 → 降级为频道粒度链接，通知照发', async () => {
+      const { fileStore, appendJsonl } = mkFileStore([]);
+      await pushConfirmationCards(fileStore as any, [
+        { type: 'param_tuning', risk: 'high', detail: 'd' },
+      ] as any);
+
+      expect(notificationLinks(appendJsonl)).toContain('/channels/ch-sys');
+    });
   });
 });
 

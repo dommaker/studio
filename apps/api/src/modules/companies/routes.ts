@@ -57,13 +57,34 @@ const COMPANY_SIZE_CONFIG = {
   large: { name: '大型公司', roleLimit: 30 },
 };
 
+async function createCompany(name: string): Promise<CompanyRecord> {
+  const id = generateId('company');
+  const now = new Date().toISOString();
+  const company: CompanyRecord = { id, name, size: 'custom', createdAt: now, updatedAt: now };
+  await ensureDir(COMPANIES_DIR);
+  await fileStore.writeJson(companyPath(id), company);
+
+  // 🆕 AS-016: 自动创建默认 OKR
+  const { okrService } = await import('../pmo/okr.service.js');
+  try {
+    await okrService.createDefaultOKR(company.id);
+  } catch (okrError) {
+    // OKR 创建失败不影响公司创建
+    logger.warn({ companyId: company.id, okrError }, 'Failed to create default OKR');
+  }
+  return company;
+}
+
 /**
  * GET /api/v1/companies
- * 获取公司列表
+ * 获取公司列表；空库时自动创建默认公司（#434：设置页公司节删除后，创建兜底挪到服务端）
  */
 router.get('/', async (req: Request, res: Response) => {
   try {
-    const companies = await listCompanies();
+    let companies = await listCompanies();
+    if (companies.length === 0) {
+      companies = [await createCompany('我的工作空间')];
+    }
     companies.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
     res.json({ data: companies });
   } catch (error) {
@@ -81,22 +102,7 @@ router.get('/', async (req: Request, res: Response) => {
 router.post('/', async (req: Request, res: Response) => {
   try {
     const { name } = req.body;
-
-    const id = generateId('company');
-    const now = new Date().toISOString();
-    const company: CompanyRecord = { id, name, size: 'custom', createdAt: now, updatedAt: now };
-    await ensureDir(COMPANIES_DIR);
-    await fileStore.writeJson(companyPath(id), company);
-
-    // 🆕 AS-016: 自动创建默认 OKR
-    const { okrService } = await import('../pmo/okr.service.js');
-    try {
-      await okrService.createDefaultOKR(company.id);
-    } catch (okrError) {
-      // OKR 创建失败不影响公司创建
-      logger.warn({ companyId: company.id, okrError }, 'Failed to create default OKR');
-    }
-
+    const company = await createCompany(name);
     res.status(201).json(company);
   } catch (error) {
     logger.error({ error }, 'Failed to create company');

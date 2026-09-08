@@ -69,6 +69,24 @@ export interface ChannelCurrentPmo {
   gitRepos: string[];
 }
 
+/**
+ * #443（spec #441 情境引导 02）：频道建议派生端点形状。
+ * 后端只回结构化数据（id = 文案模板锚 + params = 模板参数），文案由前端
+ * suggestionCopy 模板注册表渲染；kind 三态：status 只读说明 / action 确定性动作 / prompt 预填建议。
+ */
+export interface ChannelSuggestion {
+  id: string;
+  kind: 'status' | 'action' | 'prompt';
+  params: Record<string, string>;
+  /** prompt 形态专用（#446）：预填进输入框的指令本体（发给 agent 的自然语言任务，走既有 @mention 消息路由） */
+  text?: string;
+}
+
+export interface ChannelSuggestions {
+  currentWuId: string | null;
+  suggestions: ChannelSuggestion[];
+}
+
 export const channelApi = {
   list: () =>
     api.get<{ success: boolean; data: Channel[] }>('/channels'),
@@ -101,6 +119,10 @@ export const channelApi = {
   /** #272: 顶栏「当前 PMO」chip 派生（最近挂接 REQ 所属 PMO / 杂务 PMO；无 → data=null） */
   getCurrentPmo: (channelId: string) =>
     api.get<{ success: boolean; data: ChannelCurrentPmo | null }>(`/channels/${channelId}/current-pmo`),
+
+  /** #443: 频道建议派生（fail-closed，按当前事实现算；无建议 → suggestions=[]） */
+  getSuggestions: (channelId: string) =>
+    api.get<{ success: boolean; data: ChannelSuggestions }>(`/channels/${channelId}/suggestions`),
 
   listAgents: (channelId?: string, options?: { includeSystem?: boolean }) =>
     api.get<{ data: AgentProfile[]; pagination: { total: number } }>('/agent-profiles', {

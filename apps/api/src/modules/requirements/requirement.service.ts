@@ -19,10 +19,12 @@ import {
   FileStore,
   formatRequirementId,
   logger,
+  deriveDisplayState,
   type RequirementData,
   type RequirementStatus,
 } from '@dommaker/studio-shared';
 import { projectService, type ProjectData } from '../pmo/project.service.js';
+import { parseWuPmoId } from './wu-pmo-attribution.js';
 
 export const REQUIREMENT_STATUSES: RequirementStatus[] = ['open', 'in-progress', 'done', 'archived'];
 
@@ -227,6 +229,23 @@ export class RequirementService {
     if (/^REQ-\d+$/i.test(id) && (await this.getProjectByAlias(id.toUpperCase()))) {
       throw new Error(`Requirement ${id} is a read-only PMO alias — update the PMO project instead`);
     }
+    // #402 解绑兜底提示：解绑后 reqId→REQ 绑定路径即断，无 pmoId 戳的关联 WU 将从
+    // 项目台账消失——记 warn 供对账，不拦截（解绑 = 解除挂接语义；有戳 WU 经戳兜底
+    // 仍归属原项目，逐 WU 归属口径见 pmo/evidence-summary.ts）
+    if (input.projectId === null) {
+      const existing = (await this.fileStore.getRequirement(id)) as RequirementWithProject | null;
+      if (existing?.projectId) {
+        const unattributed = (await this.fileStore.getIndex())
+          .filter(s => s.reqId === id && !parseWuPmoId(s.metadata));
+        if (unattributed.length > 0) {
+          logger.warn('[Requirement] Project unbind leaves reqId-linked WUs without attribution', {
+            reqId: id,
+            projectId: existing.projectId,
+            affectedWorkUnits: unattributed.length,
+          });
+        }
+      }
+    }
     const patch: Partial<RequirementWithProject> = {};
     if (input.title !== undefined) patch.title = input.title;
     if (input.status !== undefined) patch.status = input.status;
@@ -279,6 +298,37 @@ export class RequirementService {
         completedAt: s.completedAt,
       })),
     };
+  }
+
+  /**
+   * #387 批量徽章统计（PMO 卡片「任务 x/y」）：每需求 { finished, total }。
+   * finished 口径 = deriveDisplayState().workFinished（F6 铁律：指标只经唯一派生函数，
+   * 与前端原口径同源）。一次索引读取替掉前端逐项目 getChain 的 N+1；别名经一次
+   * 全量扫描解析。查无此需求 → 结果不含该 key（前端徽章静默缺省，同原 404 口径）。
+   */
+  async getChainStats(reqIds: readonly string[]): Promise<Record<string, { finished: number; total: number }>> {
+    const snapshots = await this.fileStore.getIndex();
+    const aliasProjects = await this.listAliasProjects();
+    const aliases = new Set(
+      aliasProjects
+        .map(p => p.reqAlias)
+        .filter((a): a is string => typeof a === 'string' && a.length > 0)
+        .map(a => a.toUpperCase()),
+    );
+    const result: Record<string, { finished: number; total: number }> = {};
+    for (const reqId of reqIds) {
+      const own = snapshots.filter(s => s.reqId === reqId);
+      if (own.length === 0) {
+        const exists = aliases.has(reqId.toUpperCase())
+          || (await this.fileStore.getRequirement(reqId)) !== null;
+        if (!exists) continue;
+      }
+      result[reqId] = {
+        finished: own.filter(s => deriveDisplayState({ status: s.status, metadata: s.metadata }).workFinished).length,
+        total: own.length,
+      };
+    }
+    return result;
   }
 
   /**

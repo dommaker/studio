@@ -141,11 +141,11 @@ export class MemoryProposalStore extends ReviewProposalStore<MemoryDraftEntry> {
     }));
   }
 
-  /** 记忆根目录下的角色目录清单（根目录不存在 → []） */
+  /** 记忆根目录下的角色目录清单（根目录不存在 → []）。#404：走 FileStore 读穿 seam（dirCache，目录 mtime 校验）。 */
   private async roleIds(): Promise<string[]> {
     let dirents: fs.Dirent[];
     try {
-      dirents = await fs.promises.readdir(roleMemoryRoot(), { withFileTypes: true });
+      dirents = await this.fs.readdir(roleMemoryRoot());
     } catch (err: unknown) {
       if (isErrnoCode(err, 'ENOENT')) return [];
       throw err;

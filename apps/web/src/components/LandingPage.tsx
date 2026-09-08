@@ -31,7 +31,7 @@ export function LandingPage() {
   }, []);
 
   return (
-    <div className="min-h-screen u-text flex flex-col items-center justify-center px-4" style={{ background: 'var(--bg-primary)' }}>
+    <div className="min-h-screen u-text flex flex-col items-center justify-center px-4 u-page-bg">
       <div className="text-center max-w-2xl">
         {/* 品牌 */}
         <div

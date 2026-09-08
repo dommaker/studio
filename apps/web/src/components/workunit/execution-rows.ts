@@ -116,10 +116,11 @@ export function parseLiveStepRef(data: unknown): { workUnitId: string; step: num
 }
 
 /** workunit.status_changed SSE data（{ workunit } 信封）→ 轻量引用（坏数据/缺 id/status → null）。
- *  type/scope 供 waitingWus chip 增量维护用（闸门类过滤 / 问题摘要兜底） */
+ *  type/scope 供 waitingWus chip 增量维护用（闸门类过滤 / 问题摘要兜底）；
+ *  parentId 仅作负载透传（负载 = 全量 WorkUnitData，含 parentId；#447 静态建议映射退役后前端暂无消费方） */
 export function parseLiveWuRef(
   data: unknown,
-): { id: string; status: string; channelId: string | null; metadata: string | null; type: string | null; scope: string | null } | null {
+): { id: string; status: string; channelId: string | null; metadata: string | null; type: string | null; scope: string | null; parentId: string | null } | null {
   try {
     const p = (typeof data === 'string' ? JSON.parse(data) : data) as Record<string, unknown> | null;
     const wu = p?.workunit as Record<string, unknown> | undefined;
@@ -131,6 +132,7 @@ export function parseLiveWuRef(
       metadata: typeof wu.metadata === 'string' ? wu.metadata : null,
       type: typeof wu.type === 'string' ? wu.type : null,
       scope: typeof wu.scope === 'string' ? wu.scope : null,
+      parentId: typeof wu.parentId === 'string' ? wu.parentId : null,
     };
   } catch {
     return null;

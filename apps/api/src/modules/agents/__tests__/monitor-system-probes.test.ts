@@ -9,14 +9,14 @@ const {
   tmpWorktrees, tmpRepo, mockLoadavg, mockCpus, mockExecSync, mockExec,
   mockReadDiskUsage, mockReadMemoryUsage, mockCountZombies,
   mockLogger, mockHandleAlert, mockEmitEvent, mockHealthScore,
-  mockRunDecayCycle, mockStoreList, mockRunSyncCycle, mockRunDailyMaintenance,
+  mockRunDecayCycle, mockTryPromote, mockStoreList, mockRunSyncCycle, mockRunDailyMaintenance,
 } = vi.hoisted(() => {
   const fs = require('fs');
   const path = require('path');
   const os = require('os');
   const tmpWorktrees = fs.mkdtempSync(path.join(os.tmpdir(), 'monitor-sysprobes-wt-'));
   const tmpRepo = fs.mkdtempSync(path.join(os.tmpdir(), 'monitor-sysprobes-repo-'));
-  // WORKTREES_DIR 在模块加载期读取，必须在 import 被测模块前注入
+  // WORKTREES_DIR/REPO_DIR 按调用时解析（#409），hoisted 注入仍保留以隔离真实目录
   process.env.WORKTREES_DIR = tmpWorktrees;
   process.env.REPO_DIR = tmpRepo; // 无 .git → 跳过 git worktree prune
   return {
@@ -34,6 +34,7 @@ const {
     mockEmitEvent: vi.fn(),
     mockHealthScore: vi.fn(() => ({ score: 100, details: [] as any[] })),
     mockRunDecayCycle: vi.fn(() => [] as any[]),
+    mockTryPromote: vi.fn((): any => null),
     mockStoreList: vi.fn(() => [] as any[]),
     mockRunSyncCycle: vi.fn(async () => ({ stale: [] as any[], unmonitored: [] as any[], healed: 0 })),
     mockRunDailyMaintenance: vi.fn(async () => ({})),
@@ -69,7 +70,7 @@ vi.mock('@dommaker/harness', () => ({
 
 vi.mock('../../knowledge/knowledge-singletons.js', () => ({
   sharedStore: { list: mockStoreList },
-  sharedLifecycle: { tryPromote: vi.fn(() => null), runDecayCycle: mockRunDecayCycle },
+  sharedLifecycle: { tryPromote: mockTryPromote, runDecayCycle: mockRunDecayCycle },
 }));
 
 vi.mock('../../knowledge/knowledge-sync.service.js', () => ({
@@ -216,7 +217,7 @@ describe('systemTriageCheck confirm window', () => {
 describe('checkKnowledgeHealth', () => {
   it('score < 60 escalates to Triage + emits monitor:alert, and runs daily decay cycle', async () => {
     mockHealthScore.mockReturnValue({ score: 50, details: ['d1'] });
-    const state = { lastDecayRun: 0, lastUserModelRun: 0 };
+    const state = { lastDecayRun: 0, lastUserModelRun: 0, lastPromotionRun: 0 };
 
     await checkKnowledgeHealth(state);
 
@@ -238,7 +239,7 @@ describe('checkKnowledgeHealth', () => {
 
   it('B7: LLM daily maintenance is OFF by default (token burn guard)', async () => {
     delete process.env.STUDIO_KNOWLEDGE_MAINTENANCE;
-    const state = { lastDecayRun: 0, lastUserModelRun: 0 };
+    const state = { lastDecayRun: 0, lastUserModelRun: 0, lastPromotionRun: 0 };
 
     await checkKnowledgeHealth(state);
 
@@ -248,7 +249,7 @@ describe('checkKnowledgeHealth', () => {
 
   it('B7: STUDIO_KNOWLEDGE_MAINTENANCE=on re-enables LLM daily maintenance', async () => {
     vi.stubEnv('STUDIO_KNOWLEDGE_MAINTENANCE', 'on');
-    const state = { lastDecayRun: 0, lastUserModelRun: 0 };
+    const state = { lastDecayRun: 0, lastUserModelRun: 0, lastPromotionRun: 0 };
 
     await checkKnowledgeHealth(state);
 
@@ -258,7 +259,7 @@ describe('checkKnowledgeHealth', () => {
 
   it('score ≥ 60 does not escalate; decay cycle skipped when ran < 24h ago', async () => {
     mockHealthScore.mockReturnValue({ score: 90, details: [] });
-    const state = { lastDecayRun: Date.now(), lastUserModelRun: Date.now() };
+    const state = { lastDecayRun: Date.now(), lastUserModelRun: Date.now(), lastPromotionRun: Date.now() };
 
     await checkKnowledgeHealth(state);
 
@@ -271,7 +272,7 @@ describe('checkKnowledgeHealth', () => {
     mockExec.mockImplementation((_cmd: string, _opts: unknown, cb: (err: Error | null, stdout: string) => void) => {
       cb(null, '{"newSessions":3,"changes":[]}');
     });
-    const state = { lastDecayRun: Date.now(), lastUserModelRun: 0 }; // 24h 门控命中
+    const state = { lastDecayRun: Date.now(), lastUserModelRun: 0, lastPromotionRun: Date.now() }; // 24h 门控命中
 
     await checkKnowledgeHealth(state);
 
@@ -298,6 +299,51 @@ describe('checkKnowledgeHealth', () => {
       '[MonitorService] User model update failed (non-blocking)',
       expect.anything(),
     );
+  });
+});
+
+describe('知识晋升节奏 (#408: promotion 从 5min 循环拆到日级门控)', () => {
+  it('稳态轮（晋升闸未到期）不做全库扫描，tryPromote 零调用', async () => {
+    const state = { lastDecayRun: Date.now(), lastUserModelRun: Date.now(), lastPromotionRun: Date.now() };
+
+    await checkKnowledgeHealth(state);
+
+    expect(mockStoreList).not.toHaveBeenCalled();
+    expect(mockTryPromote).not.toHaveBeenCalled();
+  });
+
+  it('晋升闸到期 → 扫描 excludeArchived 全库，仅 draft/verified 逐条 tryPromote（语义锁定）', async () => {
+    mockStoreList.mockReturnValueOnce([
+      { id: 'e-draft', maturity: 'draft' },
+      { id: 'e-verified', maturity: 'verified' },
+      { id: 'e-active', maturity: 'active' },
+    ] as any[]);
+    mockTryPromote.mockReturnValueOnce({ entryId: 'e-draft', from: 'draft', to: 'verified', reason: 'Promotion: draft → verified' });
+    const state = { lastDecayRun: Date.now(), lastUserModelRun: Date.now(), lastPromotionRun: 0 };
+
+    await checkKnowledgeHealth(state);
+
+    expect(mockStoreList).toHaveBeenCalledWith({ excludeArchived: false });
+    expect(mockTryPromote).toHaveBeenCalledTimes(2);
+    expect(mockTryPromote).toHaveBeenNthCalledWith(1, 'e-draft');
+    expect(mockTryPromote).toHaveBeenNthCalledWith(2, 'e-verified');
+    expect(state.lastPromotionRun).toBeGreaterThan(0);
+    expect(mockLogger.info).toHaveBeenCalledWith('[MonitorService] Knowledge promoted', expect.objectContaining({
+      entryId: 'e-draft', from: 'draft', to: 'verified',
+    }));
+    expect(mockLogger.info).toHaveBeenCalledWith('[MonitorService] Knowledge promotion cycle completed', { promoted: 1, scanned: 2 });
+  });
+
+  it('晋升扫描后 24h 内的下一轮不重扫（稳态不再每轮全库归约）', async () => {
+    mockStoreList.mockReturnValueOnce([{ id: 'e-draft', maturity: 'draft' }] as any[]);
+    const state = { lastDecayRun: Date.now(), lastUserModelRun: Date.now(), lastPromotionRun: 0 };
+
+    await checkKnowledgeHealth(state);
+    expect(mockTryPromote).toHaveBeenCalledTimes(1);
+
+    await checkKnowledgeHealth(state);
+    expect(mockTryPromote).toHaveBeenCalledTimes(1);
+    expect(mockStoreList).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -336,12 +382,13 @@ describe('runCircuitCheckAndRepair', () => {
 });
 
 describe('gcStaleWorktrees', () => {
-  it('removes worktree dirs older than 24h and keeps fresh ones', async () => {
+  it('removes worktree dirs older than 7d and keeps fresh ones', async () => {
     const oldDir = path.join(tmpWorktrees, 'old-wt');
     const freshDir = path.join(tmpWorktrees, 'fresh-wt');
     fs.mkdirSync(oldDir, { recursive: true });
     fs.mkdirSync(freshDir, { recursive: true });
-    const oldSec = (Date.now() - 48 * 3600_000) / 1000;
+    // 8 天前 mtime（超过 7d 阈值）
+    const oldSec = (Date.now() - 8 * 24 * 3600_000) / 1000;
     fs.utimesSync(oldDir, oldSec, oldSec);
 
     await gcStaleWorktrees();
@@ -350,6 +397,18 @@ describe('gcStaleWorktrees', () => {
     expect(fs.existsSync(freshDir)).toBe(true);
     // REPO_DIR 无 .git → 不执行 git worktree prune
     expect(mockExec.mock.calls.filter(c => String(c[0]).includes('worktree prune'))).toHaveLength(0);
+  });
+
+  // #409 阈值裁决：7d（24h 有误删暂停中 WU worktree 的风险，取更稳的值）
+  it('keeps worktree dirs younger than 7d（不误删暂停中的 WU worktree）', async () => {
+    const pausedDir = path.join(tmpWorktrees, 'paused-wt');
+    fs.mkdirSync(pausedDir, { recursive: true });
+    const twoDaysAgoSec = (Date.now() - 2 * 24 * 3600_000) / 1000;
+    fs.utimesSync(pausedDir, twoDaysAgoSec, twoDaysAgoSec);
+
+    await gcStaleWorktrees();
+
+    expect(fs.existsSync(pausedDir)).toBe(true);
   });
 
   it('AC #374: REPO_DIR 含 .git 时异步执行 git worktree prune（cwd/timeout 语义不变）', async () => {

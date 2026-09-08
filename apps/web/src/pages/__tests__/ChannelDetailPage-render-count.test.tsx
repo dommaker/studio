@@ -4,7 +4,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, act } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 
-const { mockSendMessage, mockListWorkunits, mockListReqs, mockApiGet, mockOnEvent, mockRefresh, mdRenderCount } = vi.hoisted(() => ({
+const { mockSendMessage, mockListWorkunits, mockListReqs, mockApiGet, mockOnEvent, mockRefresh, mdRenderCount, mockRailSpy } = vi.hoisted(() => ({
   mockSendMessage: vi.fn(),
   mockListWorkunits: vi.fn(),
   mockListReqs: vi.fn(),
@@ -14,6 +14,7 @@ const { mockSendMessage, mockListWorkunits, mockListReqs, mockApiGet, mockOnEven
   // 否则 dispatch 每次重建、memo 被测试假件自己打破
   mockRefresh: vi.fn(),
   mdRenderCount: { n: 0 },
+  mockRailSpy: vi.fn(),
 }));
 
 vi.mock('../../api', () => ({ api: { get: mockApiGet } }));
@@ -39,6 +40,14 @@ vi.mock('../../components/knowledge/MarkdownBody', () => ({
 }));
 
 vi.mock('../../components/channel/ChannelRail', () => ({ ChannelRail: () => <div data-testid="channel-rail" /> }));
+// #416：右栏本体渲染边界由 ChannelActivityRail-render-count.test.tsx 覆盖；
+// 本文件只经 props spy 观察页面传入的 messageItems 投影引用稳定性
+vi.mock('../../components/channel/ChannelActivityRail', () => ({
+  ChannelActivityRail: (props: { messageItems?: unknown }) => {
+    mockRailSpy(props);
+    return <div data-testid="activity-rail" />;
+  },
+}));
 vi.mock('../../components/channel/WorkUnitDrawer', () => ({ WorkUnitDrawer: () => null }));
 vi.mock('../../components/channel/ChannelMemberManager', () => ({ ChannelMemberManager: () => null }));
 vi.mock('../../components/channel/ChannelDefaultProjectSelect', () => ({ ChannelDefaultProjectSelect: () => null }));
@@ -108,5 +117,48 @@ describe('ChannelDetailPage — #322 消息项 memo：step 事件零重渲', () 
     await waitFor(() => expect(screen.getByText(/第 2 步 · progress/)).toBeTruthy());
     // ……但既有消息项（含 MarkdownBody 解析）零重渲
     expect(mdRenderCount.n).toBe(before);
+  });
+});
+
+describe('ChannelDetailPage — #416 右栏消息摘要投影：无关 message_sent 不掀动右栏', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sseHandlers = [];
+    // m1 带 WU（进投影），m2 普通 agent 消息（不进投影）
+    currentMessages = [msg('m1', { workUnitId: 'WU-1018', createdAt: iso(0) }), msg('m2', { createdAt: iso(10) })];
+    mockApiGet.mockResolvedValue({ data: { data: { id: 'ch-1', name: 'rnd', type: 'rnd', members: '[]' } } });
+    mockListWorkunits.mockResolvedValue({ data: { data: [] } });
+    mockListReqs.mockResolvedValue({ data: { data: [] } });
+    mockOnEvent.mockImplementation((cb: SseHandler) => { sseHandlers.push(cb); return () => {}; });
+    mockSendMessage.mockResolvedValue({});
+  });
+
+  it('人类消息到达（与右栏无关）+ 页面重渲 → 传入右栏的 messageItems 引用不变', async () => {
+    renderPage();
+    await waitFor(() => expect(screen.getByText('内容-m2')).toBeTruthy());
+    await waitFor(() => expect(mockRailSpy).toHaveBeenCalled());
+    const firstItems = (mockRailSpy.mock.calls.at(-1)?.[0] as { messageItems: unknown }).messageItems;
+    expect(Array.isArray(firstItems)).toBe(true);
+
+    // 无关 message_sent：人类插话 append 进消息面
+    act(() => {
+      currentMessages = [...currentMessages, msg('m3', { authorType: 'human', content: '人类插话', createdAt: iso(20) })];
+    });
+    // 触发一次页面重渲（waitingWus 状态变更），让 mocked hook 重新读到新 messages
+    const railCallsBefore = mockRailSpy.mock.calls.length;
+    act(() => emitSse({
+      event_type: 'workunit.status_changed',
+      data: {
+        workunit: {
+          id: 'WU-2020', status: 'blocked', channelId: 'ch-1',
+          metadata: JSON.stringify({ waitingForInput: true, waitingQuestion: '选哪个方案？' }),
+        },
+      },
+    }));
+
+    await waitFor(() => expect(mockRailSpy.mock.calls.length).toBeGreaterThan(railCallsBefore));
+    const lastItems = (mockRailSpy.mock.calls.at(-1)?.[0] as { messageItems: unknown }).messageItems;
+    // 投影内容未变 → 引用保持 → memo 化的右栏整栏零重渲
+    expect(lastItems).toBe(firstItems);
   });
 });

@@ -1,13 +1,11 @@
 // PMOPage - PMO 管理主页面（项目 + OKR；三个弹窗已抽至 components/pmo/，工单 33）
 import { useState, useEffect, useMemo } from 'react';
-import { Link, useSearchParams, useNavigate } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { projectApi } from '../api';
 import { companyApi } from '../api/company';
 import { okrApi, type OkrKeyResult } from '../api/pmo';
 import { channelApi, type Channel } from '../api/channel';
 import { requirementApi } from '../api/requirements';
-import { deriveDisplayState } from '@dommaker/studio-shared/web';
-import { fanOut } from '../utils/fanOut';
 import { useAsyncData } from '../hooks/useAsyncData';
 import { CreateOkrDialog } from '../components/pmo/CreateOkrDialog';
 import { CreateProjectDialog } from '../components/pmo/CreateProjectDialog';
@@ -58,6 +56,7 @@ export function PMOPage({ companyId }: PMOPageProps) {
       ]);
 
       return {
+        companyId: actualCompanyId,
         okrs: okrRes.data?.data || [],
         projects: (projectsRes.data?.data || []) as Project[],
       };
@@ -72,7 +71,7 @@ export function PMOPage({ companyId }: PMOPageProps) {
   const channelsQ = useAsyncData(() => channelApi.list().then(r => r.data?.data || []).catch(() => []), []);
   const channels: Channel[] = channelsQ.data ?? [];
 
-  // 🆕 AC-6: 卡片徽章数据（WU 完成度；批量并行、失败静默不显示）
+  // 🆕 AC-6: 卡片徽章数据（WU 完成度；#387 单请求批量、失败静默不显示）
   // #149（2026-08-15）：文档计数徽章随 document-store 退役移除
   const [wuStats, setWuStats] = useState<Record<string, { finished: number; total: number }>>({});
 
@@ -96,7 +95,8 @@ export function PMOPage({ companyId }: PMOPageProps) {
   const okrs = useMemo(() => pmoQ.data?.okrs ?? [], [pmoQ.data]);
   const projects = useMemo(() => pmoQ.data?.projects ?? [], [pmoQ.data]);
 
-  // 🆕 AC-6: 列表加载后对可见项目批量并行查徽章数据（每项目一次 chain；失败静默）
+  // 🆕 AC-6: 列表加载后单请求批量拉徽章数据（#387 chain-stats；finished 口径 workFinished
+  // 服务端同源计算；失败静默不显示）
   // projects 变空时在渲染期同步清空徽章（派生重置，替代原 effect 顶部的同步清空）
   const projectsEmpty = projects.length === 0;
   const [prevProjectsEmpty, setPrevProjectsEmpty] = useState(projectsEmpty);
@@ -114,21 +114,21 @@ export function PMOPage({ companyId }: PMOPageProps) {
     let cancelled = false;
 
     const withAlias = projects.filter((p): p is Project & { reqAlias: string } => !!p.reqAlias);
-    fanOut(withAlias, async p => {
-      const res = await requirementApi.getChain(p.reqAlias);
-      const wus = res.data?.data?.workunits ?? [];
-      // 完成口径 = workFinished 所有权口径（F6 铁律）
-      const finished = wus.filter(w =>
-        deriveDisplayState({ status: w.status, metadata: w.metadata }).workFinished).length;
-      return { id: p.id, finished, total: wus.length };
-    }).then(results => {
+    if (withAlias.length === 0) {
+      setWuStats({});
+      return;
+    }
+    requirementApi.chainStats(withAlias.map(p => p.reqAlias)).then(res => {
       if (cancelled) return;
+      // 服务端按 reqAlias 键返回，回填成 ProjectCard 消费的 project.id 键；缺 key（需求不存在）→ 不显示
+      const stats = res.data?.data ?? {};
       const next: Record<string, { finished: number; total: number }> = {};
-      for (const r of results) {
-        if (r.ok) next[r.value.id] = { finished: r.value.finished, total: r.value.total };
+      for (const p of withAlias) {
+        const s = stats[p.reqAlias];
+        if (s) next[p.id] = s;
       }
       setWuStats(next);
-    });
+    }).catch(() => { /* 失败静默：徽章不显示（卡片照常渲染） */ });
 
     return () => { cancelled = true; };
   }, [projects]);
@@ -140,32 +140,29 @@ export function PMOPage({ companyId }: PMOPageProps) {
   };
 
   return (
-    <div className="h-full flex flex-col" style={{ background: 'var(--bg-primary)' }}>
+    <div className="h-full flex flex-col u-page-bg">
       {/* Header */}
-      <div className="px-8 py-6" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+      <div className="u-page-head">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="page-title">📊 PMO 管理</h1>
             <p className="page-subtitle">项目组合 + OKR 管理</p>
           </div>
-          <Link to="/" className="btn btn-secondary">
-            ← 返回首页
-          </Link>
         </div>
       </div>
 
-      {/* Tabs */}
+      {/* Tabs — #432 B8：左对齐自适应宽（参照 KnowledgePage tab bar），不均分全宽 */}
       <div className="px-8 py-4">
-        <div className="flex gap-2 p-1 rounded" style={{ background: 'var(--bg-secondary)' }}>
+        <div className="inline-flex gap-2 p-1 rounded u-surface-0">
           <button
             onClick={() => setActiveTab('projects')}
-            className={`flex-1 py-2 px-4 rounded text-sm font-medium ${activeTab === 'projects' ? 'u-surface u-accent' : 'u-text-2'}`}
+            className={`py-2 px-4 rounded text-sm font-medium ${activeTab === 'projects' ? 'u-surface u-accent' : 'u-text-2'}`}
           >
             📁 项目 ({projects.length})
           </button>
           <button
             onClick={() => setActiveTab('okr')}
-            className={`flex-1 py-2 px-4 rounded text-sm font-medium ${activeTab === 'okr' ? 'u-surface u-accent' : 'u-text-2'}`}
+            className={`py-2 px-4 rounded text-sm font-medium ${activeTab === 'okr' ? 'u-surface u-accent' : 'u-text-2'}`}
           >
             🎯 OKR ({okrs.length})
           </button>
@@ -290,10 +287,10 @@ export function PMOPage({ companyId }: PMOPageProps) {
         )}
       </div>
 
-      {/* 🆕 B8: 创建 OKR 弹窗 (支持 KR 编辑) */}
+      {/* 🆕 B8: 创建 OKR 弹窗 (支持 KR 编辑)；#434：路由不传 prop 时用查询解析出的 companyId */}
       <CreateOkrDialog
         open={showOKRDialog}
-        companyId={companyId}
+        companyId={companyId ?? pmoQ.data?.companyId}
         onClose={() => setShowOKRDialog(false)}
         onCreated={reload}
       />

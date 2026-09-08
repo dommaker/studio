@@ -15,24 +15,17 @@ async function getMergedConstraints() {
   return getHarness()?.mergedConstraints ?? null;
 }
 
-export async function beforeAgentExecute(ctx: ConstraintContext & {
-  hasWorktree?: boolean;
-  worktreePath?: string;
-}): Promise<void> {
+export async function beforeAgentExecute(ctx: ConstraintContext): Promise<void> {
   await runHook('beforeAgentExecute', async () => {
     await checkBeforeExecution({
       operation: 'code_implementation',
       taskDescription: ctx.taskDescription,
       projectPath: ctx.projectPath,
-      hasWorktree: ctx.hasWorktree,
       worktreePath: ctx.worktreePath,
       hasVerificationEvidence: (ctx as any).hasVerificationEvidence,
       hasRequirement: (ctx as any).hasRequirement,
       hasSingleTask: (ctx as any).hasSingleTask,
-      hasRequirementReview: (ctx as any).hasRequirementReview,
-      hasExternalCapabilityVerification: (ctx as any).hasExternalCapabilityVerification,
       hasTest: (ctx as any).hasTest,
-      hasTwoStageReview: (ctx as any).hasTwoStageReview,
       hasRootCauseInvestigation: (ctx as any).hasRootCauseInvestigation,
       hasFailingTest: (ctx as any).hasFailingTest,
     }, await getMergedConstraints());

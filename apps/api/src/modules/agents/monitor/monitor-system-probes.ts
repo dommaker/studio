@@ -6,7 +6,7 @@
  *   - B1-008: 系统健康探测（内存/磁盘/僵尸进程/CPU/存储）
  *   - 系统异常 3 次确认窗口 → Triage
  *   - worktree GC
- *   - P2a: 知识库健康评分 / 晋升 / 24h 衰减循环 / 用户模型更新
+ *   - P2a: 知识库健康评分（5min）/ 晋升 + 24h 衰减循环 + 用户模型更新（24h 门控）
  *   - Circuit check → KnowledgeSync 自修复
  */
 
@@ -24,7 +24,11 @@ import { knowledgeSync } from '../../knowledge/knowledge-sync.service.js';
 import { emitMonitorEvent } from './monitor-alerts.js';
 import { readDiskUsage, readMemoryUsage, countZombieProcesses } from '../ops/proc-probes.js';
 
-const WORKTREES_DIR = process.env.WORKTREES_DIR || path.join(os.homedir(), 'worktrees');
+// worktree GC 目录口径：WORKTREES_DIR > ~/worktrees，与 agent-loop.resolveWorktreesDir
+// 创建侧一致。按调用时解析（非模块加载期），保证 env 覆盖/HOME 变更当轮生效。
+function resolveWorktreesDir(): string {
+  return process.env.WORKTREES_DIR || path.join(os.homedir(), 'worktrees');
+}
 
 // 系统健康确认窗口计数器（3 checks × 60s window）
 const systemHealthCounters = new Map<string, { count: number; firstSeen: number }>();
@@ -37,6 +41,7 @@ const SYSTEM_HEALTH_CONFIRM_WINDOW_MS = 60 * 1000; // 60s between checks (Monito
 export interface KnowledgeCycleState {
   lastDecayRun: number;
   lastUserModelRun: number;
+  lastPromotionRun: number;
 }
 
 /**
@@ -53,6 +58,11 @@ export function knowledgeMaintenanceEnabled(env: NodeJS.ProcessEnv = process.env
 /**
  * GC: clean up stale git worktrees and orphaned task directories.
  * Non-blocking — runs as part of the 5-min check loop.
+ *
+ * #409 双实现归一：OpsService.cleanupWorktrees 已删，本函数是唯一入口。
+ * 阈值 7d（24h 有误删暂停中 WU worktree 的风险，删除是破坏性操作，取更稳的值）；
+ * 不调 git worktree remove —— 每轮先跑的 git worktree prune 会在下一轮清掉
+ * 被删目录的注册引用，元数据最终一致，无需为当轮清引用引入同步 exec。
  */
 export async function gcStaleWorktrees(): Promise<void> {
   try {
@@ -62,17 +72,18 @@ export async function gcStaleWorktrees(): Promise<void> {
       await execAsync('git worktree prune', { cwd: repoDir, timeout: 5000 });
     }
 
-    // Clean worktree dirs that are older than 24h
-    if (fs.existsSync(WORKTREES_DIR)) {
-      const cutoff = Date.now() - 24 * 60 * 60 * 1000;
-      const entries = fs.readdirSync(WORKTREES_DIR);
+    // Clean worktree dirs that are older than 7d
+    const worktreesDir = resolveWorktreesDir();
+    if (fs.existsSync(worktreesDir)) {
+      const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+      const entries = fs.readdirSync(worktreesDir);
       for (const entry of entries) {
-        const wtPath = path.join(WORKTREES_DIR, entry);
+        const wtPath = path.join(worktreesDir, entry);
         try {
           const stat = fs.statSync(wtPath);
           if (stat.isDirectory() && stat.mtimeMs < cutoff) {
             fs.rmSync(wtPath, { recursive: true, force: true });
-            logger.info('[MonitorService] GC removed stale worktree', { path: wtPath, age: Math.round((Date.now() - stat.mtimeMs) / 3600000) + 'h' });
+            logger.info('[MonitorService] GC removed stale worktree', { path: wtPath, age: Math.round((Date.now() - stat.mtimeMs) / 86400000) + 'd' });
           }
         } catch { /* skip */ }
       }
@@ -86,6 +97,7 @@ export async function gcStaleWorktrees(): Promise<void> {
 /**
  * P2a: Knowledge base health check + decay cycle
  * - Health score: every 5 min (Monitor cycle), escalates to Triage if < 60
+ * - Promotion scan: once per 24h (#408 晋升是日/周级语义，移出 5min 循环)
  * - Decay cycle: once per 24h, runs maturity decay + linter auto-fix
  */
 
@@ -141,20 +153,24 @@ export async function checkKnowledgeHealth(state: KnowledgeCycleState): Promise<
       });
     }
 
-    // P2.5: Promotion cycle (every 5 min) — scan all draft/verified entries for promotion
-    const allEntries = sharedStore.list({ excludeArchived: false }).filter(e => e.maturity === 'draft' || e.maturity === 'verified');
-    let promoted = 0;
-    for (const entry of allEntries) {
-      try {
-        const result = sharedLifecycle.tryPromote(entry.id);
-        if (result) {
-          promoted++;
-          logger.info('[MonitorService] Knowledge promoted', { entryId: entry.id, from: result.from, to: result.to, reason: result.reason });
-        }
-      } catch { /* individual entry failure is non-blocking */ }
-    }
-    if (promoted > 0) {
-      logger.info('[MonitorService] Knowledge promotion cycle completed', { promoted, scanned: allEntries.length });
+    // P2.5: Promotion cycle — 日级门控（#408：晋升是日/周级语义，原挂 5min 循环造成
+    // 稳态每轮全库归约；扫描范围/晋升判定本身不变，语义由 monitor-system-probes.test.ts 锁定）
+    if (Date.now() - state.lastPromotionRun > 24 * 60 * 60_000) {
+      const allEntries = sharedStore.list({ excludeArchived: false }).filter(e => e.maturity === 'draft' || e.maturity === 'verified');
+      let promoted = 0;
+      for (const entry of allEntries) {
+        try {
+          const result = sharedLifecycle.tryPromote(entry.id);
+          if (result) {
+            promoted++;
+            logger.info('[MonitorService] Knowledge promoted', { entryId: entry.id, from: result.from, to: result.to, reason: result.reason });
+          }
+        } catch { /* individual entry failure is non-blocking */ }
+      }
+      state.lastPromotionRun = Date.now();
+      if (promoted > 0) {
+        logger.info('[MonitorService] Knowledge promotion cycle completed', { promoted, scanned: allEntries.length });
+      }
     }
 
     // Daily cycle: decay + lint + LLM maintenance

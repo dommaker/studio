@@ -2,6 +2,24 @@
 import { create } from 'zustand';
 import { workunitApi, type PaginatedResponse, type WorkUnit } from '../api/workunit';
 
+/**
+ * #405：未归属判定 —— 无 reqId 且归因戳（canonical pmoId ‖ legacy ownershipProjectId）
+ * 解析为 null。与 #428 服务端 parseWuPmoId 同口径（applyWorkunitEvent 的 SSE 增量
+ * 匹配用；服务端过滤才是权威，本地判定只防增量事件混入）。
+ */
+function isUnattributedWu(wu: WorkUnit): boolean {
+  if (wu.reqId) return false;
+  if (!wu.metadata) return true;
+  try {
+    const meta = JSON.parse(wu.metadata) as { pmoId?: unknown; ownershipProjectId?: unknown };
+    const stamp = (typeof meta.pmoId === 'string' && meta.pmoId) ||
+      (typeof meta.ownershipProjectId === 'string' && meta.ownershipProjectId);
+    return !stamp;
+  } catch {
+    return true; // 坏 JSON 按无戳处理（同服务端 parseWuPmoId 容错语义）
+  }
+}
+
 interface WorkUnitState {
   workunits: WorkUnit[];
   total: number;
@@ -9,6 +27,10 @@ interface WorkUnitState {
   limit: number;
   statusFilter: string | null;
   typeFilter: string | null;
+  /** #405：未归属过滤开关（服务端 attributed=false，与 status/type 过滤交集组合） */
+  unattributedOnly: boolean;
+  /** #405：未归属 WU 总数徽标（服务端 total 口径，非当前页近似）；null = 未拉取 */
+  unattributedTotal: number | null;
   loading: boolean;
   error: string | null;
 
@@ -30,6 +52,10 @@ interface WorkUnitState {
   confirmPending: (id: string) => Promise<void>;
   setStatusFilter: (status: string | null) => void;
   setTypeFilter: (type: string | null) => void;
+  /** #405：切换未归属过滤（重置到第 1 页并重拉；on 时顺带同步徽标计数） */
+  setUnattributedOnly: (on: boolean) => void;
+  /** #405：轻量拉取未归属总数徽标（limit=1 只取 pagination.total，best-effort 失败留旧值） */
+  loadUnattributedCount: () => Promise<void>;
 }
 
 export const useWorkUnitStore = create<WorkUnitState>((set, get) => ({
@@ -39,16 +65,20 @@ export const useWorkUnitStore = create<WorkUnitState>((set, get) => ({
   limit: 20,
   statusFilter: null,
   typeFilter: null,
+  unattributedOnly: false,
+  unattributedTotal: null,
   loading: false,
   error: null,
 
   loadWorkUnits: async (params) => {
     set({ loading: true, error: null });
     try {
-      const { statusFilter, typeFilter, page, limit } = get();
+      const { statusFilter, typeFilter, unattributedOnly, page, limit } = get();
       const { data } = await workunitApi.list({
         status: params?.status ?? statusFilter ?? undefined,
         type: params?.type ?? typeFilter ?? undefined,
+        // #405：未归属过滤走服务端（#428 attributed 参数）
+        attributed: unattributedOnly ? false : undefined,
         page: params?.page ?? page,
         limit,
       });
@@ -57,6 +87,10 @@ export const useWorkUnitStore = create<WorkUnitState>((set, get) => ({
         workunits: result?.data ?? (result as unknown as WorkUnit[]) ?? [],
         total: result?.pagination?.total ?? 0,
         page: result?.pagination?.page ?? 1,
+        // #405：仅无 status/type 过滤时本次 total 才是未归属总数，可同步徽标；
+        // 交集过滤下 total 是交集计数，不能覆盖徽标（徽标由 loadUnattributedCount 维护）
+        ...(unattributedOnly && !(params?.status ?? statusFilter) && !(params?.type ?? typeFilter)
+          ? { unattributedTotal: result?.pagination?.total ?? 0 } : {}),
         loading: false,
       });
     } catch (e) {
@@ -65,9 +99,11 @@ export const useWorkUnitStore = create<WorkUnitState>((set, get) => ({
   },
 
   applyWorkunitEvent: (wu, { insertIfMissing }) => {
-    const { workunits, total, statusFilter, typeFilter } = get();
+    const { workunits, total, statusFilter, typeFilter, unattributedOnly } = get();
     const matches = (statusFilter === null || wu.status === statusFilter)
-      && (typeFilter === null || wu.type === typeFilter);
+      && (typeFilter === null || wu.type === typeFilter)
+      // #405：未归属过滤态下 SSE 增量不把已归属行混入（服务端口径的本地镜像判定）
+      && (!unattributedOnly || isUnattributedWu(wu));
     const idx = workunits.findIndex(w => w.id === wu.id);
     if (idx >= 0) {
       if (!matches) {
@@ -115,5 +151,20 @@ export const useWorkUnitStore = create<WorkUnitState>((set, get) => ({
   setTypeFilter: (type) => {
     set({ typeFilter: type, page: 1 });
     get().loadWorkUnits({ type: type ?? undefined, page: 1 });
+  },
+
+  setUnattributedOnly: (on) => {
+    set({ unattributedOnly: on, page: 1 });
+    get().loadWorkUnits({ page: 1 });
+  },
+
+  loadUnattributedCount: async () => {
+    try {
+      const { data } = await workunitApi.list({ attributed: false, page: 1, limit: 1 });
+      const result = data as PaginatedResponse<WorkUnit>;
+      set({ unattributedTotal: result?.pagination?.total ?? 0 });
+    } catch {
+      // best-effort：徽标留旧值（null = 不显示数字），下次加载/重连自愈
+    }
   },
 }));

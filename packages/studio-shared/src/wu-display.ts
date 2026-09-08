@@ -3,22 +3,29 @@
  * 及随附 statusColors/typeLabels；阅览室文档词表逐字同构随本模块一并收口）。
  * 挂 deriveDisplayState 旁：展示列由 deriveDisplayState().column 派生，本模块只负责 列/状态 → 文案/配色 映射。
  * 未知状态调用方兜底原样显示（labels[col] ?? col），表内容即渲染契约。
- * 注意：RequirementChainPanel / ProjectPipeline / mapUtils.DEP_STATUS_LABEL 存在有意方言
- * （pending 缺省、unassigned 配色 u-text-2、依赖图大白话文案）——行为对齐另议，不在 #358 范围。
+ * 注意：ProjectPipeline / mapUtils.DEP_STATUS_LABEL 存在有意方言
+ * （依赖图大白话文案）——行为对齐另议，不在 #358/#429 范围。
+ * （#429 起 RequirementChainPanel 已收口消费本模块，不再是方言。）
  */
 
-/** WU 状态（含派生列）→ 中文文案。failed/completed 为原始状态值（ProjectActivity 时间线条目直接消费）。 */
+/** WU 状态（含派生列）→ 中文文案。failed/completed 为原始状态值（ProjectActivity 时间线条目直接消费）。
+ *  #429 B3：unassigned/active/in_review/done 收口为 #399 §8.3 正词（待领取/进行中/待验收/完成）。 */
 export const WU_STATUS_LABELS: Record<string, string> = {
   pending: '待确认',
-  unassigned: '待分配',
-  active: '执行中',
-  in_review: '审查中',
-  done: '已完成',
+  unassigned: '待领取',
+  active: '进行中',
+  in_review: '待验收',
+  done: '完成',
   closed: '已关闭',
   blocked: '阻塞',
   failed: '失败',
-  completed: '已完成',
+  completed: '完成',
 };
+
+/** 频道名渲染唯一出口（#429 B1）：数据本身可能含前导 `#`，统一归一为恰好一个 `#` 前缀，禁止 UI 盲拼。 */
+export function formatChannelName(name: string): string {
+  return `#${name.replace(/^#+\s*/, '')}`;
+}
 
 /** WU 状态 → chip 配色（u-* 工具类，定义在 apps/web 样式层） */
 export const WU_STATUS_COLORS: Record<string, string> = {

@@ -26,6 +26,7 @@ export function WorkUnitListPage() {
     workunits, total, loading, error,
     loadWorkUnits, createWorkUnit, reviewPassed, reviewRejected, confirmPending,
     statusFilter, setStatusFilter,
+    unattributedOnly, unattributedTotal, setUnattributedOnly, loadUnattributedCount,
   } = useWorkUnitStore();
 
   const [showCreate, setShowCreate] = useState(false);
@@ -46,7 +47,9 @@ export function WorkUnitListPage() {
 
   useEffect(() => {
     loadWorkUnits();
-  }, [loadWorkUnits]);
+    // #405：未归属计数徽标（服务端 total 口径；过滤态下由 loadWorkUnits 顺带同步）
+    void loadUnattributedCount();
+  }, [loadWorkUnits, loadUnattributedCount]);
 
   // #318：WU SSE 负载直更（替代 eventTick 整页重拉）——status_changed 直替/移除行、created 插头部；
   // SSE 重连经 onReconnect 一次性 refetch 对齐（ADR D3）
@@ -58,7 +61,7 @@ export function WorkUnitListPage() {
     if (!data?.workunit) return;
     applyWorkunitEvent(data.workunit, { insertIfMissing: msg.event_type === 'workunit.created' });
   }), [onEvent, applyWorkunitEvent]);
-  useEffect(() => onReconnect(() => { void loadWorkUnits(); }), [onReconnect, loadWorkUnits]);
+  useEffect(() => onReconnect(() => { void loadWorkUnits(); void loadUnattributedCount(); }), [onReconnect, loadWorkUnits, loadUnattributedCount]);
 
   const handleCreate = async () => {
     if (!newScope.trim()) return;
@@ -75,9 +78,9 @@ export function WorkUnitListPage() {
   };
 
   return (
-    <div className="h-full flex flex-col" style={{ background: 'var(--bg-primary)' }}>
+    <div className="h-full flex flex-col u-page-bg">
       {/* Header */}
-      <div className="px-8 py-6" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+      <div className="u-page-head">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="page-title">任务</h1>
@@ -87,7 +90,6 @@ export function WorkUnitListPage() {
             <button className="btn btn-primary" onClick={() => setShowCreate(!showCreate)}>
               {showCreate ? '取消' : '+ 新建'}
             </button>
-            <Link to="/" className="btn btn-secondary">返回</Link>
           </div>
         </div>
 
@@ -96,9 +98,9 @@ export function WorkUnitListPage() {
           <StatBadge label="总数" value={total} color="u-accent" />
           {/* #280：pending 单列「待确认」（扩范围人闸），不再计入「待人工」 */}
           <StatBadge label="待确认" value={workunits.filter(w => deriveWu(w).column === 'pending').length} color="u-warn" />
-          <StatBadge label="待分配" value={workunits.filter(w => deriveWu(w).column === 'unassigned').length} color="u-text-3" />
-          <StatBadge label="执行中" value={workunits.filter(w => deriveWu(w).column === 'active').length} color="u-accent" />
-          <StatBadge label="审查中" value={workunits.filter(w => deriveWu(w).column === 'in_review').length} color="u-warn" />
+          <StatBadge label={WU_STATUS_LABELS.unassigned} value={workunits.filter(w => deriveWu(w).column === 'unassigned').length} color="u-text-3" />
+          <StatBadge label={WU_STATUS_LABELS.active} value={workunits.filter(w => deriveWu(w).column === 'active').length} color="u-accent" />
+          <StatBadge label={WU_STATUS_LABELS.in_review} value={workunits.filter(w => deriveWu(w).column === 'in_review').length} color="u-warn" />
           <StatBadge label="待人工" value={workunits.filter(w => deriveWu(w).needsHuman).length} color="u-err" />
         </div>
       </div>
@@ -159,9 +161,20 @@ export function WorkUnitListPage() {
                 humanOnly ? 'u-err-dim u-err' : 'u-surface-2 u-text-3 u-hover-bg'
               }`}
               onClick={() => setHumanOnly(!humanOnly)}
-              title="活已干完但人还没确认（手写审查中 + done 缺人工确认）"
+              title="活已干完但人还没确认（手写待验收 + done 缺人工确认）"
             >
               待人工
+            </button>
+            {/* #405：未归属过滤（服务端 attributed=false，#428）+ 服务端 total 计数徽标。
+                与状态 pill 同为服务端维度可交集组合；取消即恢复原列表 */}
+            <button
+              className={`text-xs px-3 py-1 rounded-full transition-colors ${
+                unattributedOnly ? 'u-accent-dim u-accent' : 'u-surface-2 u-text-3 u-hover-bg'
+              }`}
+              onClick={() => { setHumanOnly(false); setUnattributedOnly(!unattributedOnly); }}
+              title="无 reqId 且无 PMO 归因戳的任务（不计入任何项目交付统计，仅作归因覆盖率信号）"
+            >
+              未归属{unattributedTotal !== null && <span className="font-mono"> {unattributedTotal}</span>}
             </button>
           </div>
 
@@ -174,8 +187,8 @@ export function WorkUnitListPage() {
           {loading && workunits.length === 0 ? (
             <div className="text-center py-20 u-text-2">加载中...</div>
           ) : workunits.length === 0 ? (
-            <div className="text-center py-20 u-text-2">
-              <div className="text-4xl mb-4">📋</div>
+            <div className="empty-state">
+              <div className="empty-icon">📋</div>
               <p>暂无任务</p>
               <p className="text-sm mt-2">点击"新建"创建第一个任务</p>
             </div>
@@ -315,7 +328,7 @@ function WorkUnitRow({
       </div>
 
       {expanded && (
-        <div className="px-3 pb-3 text-sm" style={{ borderTop: '1px solid var(--border-subtle)' }}>
+        <div className="px-3 pb-3 text-sm border-t u-border">
           {/* AC-2.4: in_review + 无 reviewer -> 提醒横幅 */}
           <ReviewHint
             status={wu.status}

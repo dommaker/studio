@@ -153,6 +153,7 @@ export interface WorkUnitSnapshot {
 }
 
 export interface WorkUnitFilter {
+  id?: string;
   status?: string;
   type?: string;
   assigneeId?: string;

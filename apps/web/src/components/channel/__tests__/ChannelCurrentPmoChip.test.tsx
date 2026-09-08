@@ -22,6 +22,7 @@ vi.mock('../../../api/channel', () => ({
 }));
 
 import { channelApi } from '../../../api/channel';
+import { useChannelDataStore } from '../../../stores/channelDataStore';
 
 const renderChip = (channelId = 'ch-1') =>
   render(
@@ -33,6 +34,8 @@ const renderChip = (channelId = 'ch-1') =>
 describe('ChannelCurrentPmoChip（#272 当前 PMO chip）', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // #403：chip 读 channelDataStore——每测重置（数据 + 模块级 TTL 簿记）
+    useChannelDataStore.getState().__resetForTests();
   });
 
   it('派生结果为 null → 不渲染', async () => {

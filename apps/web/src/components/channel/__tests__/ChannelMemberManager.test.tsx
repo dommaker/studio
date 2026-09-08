@@ -1,17 +1,21 @@
 // ChannelMemberManager — AC-B: Channel member management UI
+// #403：成员面/agent 列表改走 store（channelDataStore.members + rosterStore.profiles 客户端切片），
+// membersJson prop 退役——成员数据经由 store seed（页面频道记录写穿水合同口径）。
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
 
-const { mockListAgents, mockUpdateMembers, mockCreateAgent } = vi.hoisted(() => ({
+const { mockListAgents, mockUpdateMembers, mockCreateAgent, mockChannelGet } = vi.hoisted(() => ({
   mockListAgents: vi.fn(),
   mockUpdateMembers: vi.fn(),
   mockCreateAgent: vi.fn(),
+  mockChannelGet: vi.fn(),
 }));
 
 vi.mock('../../../api/channel', () => ({
   channelApi: {
     listAgents: mockListAgents,
+    get: mockChannelGet,
     updateMembers: mockUpdateMembers,
     createAgent: mockCreateAgent,
   },
@@ -27,6 +31,8 @@ vi.mock('../../../hooks/useDetectedProviders', async (importOriginal) => {
 });
 
 import { ChannelMemberManager } from '../ChannelMemberManager';
+import { useChannelDataStore } from '../../../stores/channelDataStore';
+import { useRosterStore } from '../../../stores/rosterStore';
 
 const mockAgentList = [
   { id: 'a1', name: 'dev-agent', description: 'does code', status: 'active' },
@@ -34,12 +40,21 @@ const mockAgentList = [
   { id: 'a3', name: 'review-agent', description: null, status: 'active' },
 ];
 
+function seedStores(memberIds?: string[]) {
+  // roster 正本 + fresh TTL 锚点（ensureFresh 零请求）；成员面经 setMembers 写穿（同页面水合路径）
+  useChannelDataStore.getState().__resetForTests();
+  useRosterStore.setState({ profiles: mockAgentList, loadedAt: Date.now(), inflight: null, forbidden: false, lastToken: null });
+  if (memberIds) useChannelDataStore.getState().setMembers('ch-1', memberIds);
+}
+
 describe('ChannelMemberManager', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockListAgents.mockResolvedValue({ data: { data: mockAgentList } });
+    mockChannelGet.mockResolvedValue({ data: { success: true, data: { id: 'ch-1', members: '[]' } } });
     mockUpdateMembers.mockResolvedValue({ data: { members: [] } });
-    mockCreateAgent.mockResolvedValue({ id: 'new-a', name: 'new-agent', description: null, status: 'active' });
+    mockCreateAgent.mockResolvedValue({ data: { id: 'new-a', name: 'new-agent', description: null, status: 'active' } });
+    seedStores();
   });
 
   it('renders toggle button', () => {
@@ -52,8 +67,9 @@ describe('ChannelMemberManager', () => {
     expect(screen.getByText('All')).toBeTruthy();
   });
 
-  it('shows member count when membersJson has ids', () => {
-    render(<ChannelMemberManager channelId="ch-1" membersJson='["a1","a2"]' />);
+  it('shows member count when store members has ids', () => {
+    seedStores(['a1', 'a2']);
+    render(<ChannelMemberManager channelId="ch-1" />);
     expect(screen.getByText('2 agents')).toBeTruthy();
   });
 
@@ -64,7 +80,8 @@ describe('ChannelMemberManager', () => {
   });
 
   it('shows current members in panel', async () => {
-    render(<ChannelMemberManager channelId="ch-1" membersJson='["a1"]' />);
+    seedStores(['a1']);
+    render(<ChannelMemberManager channelId="ch-1" />);
     fireEvent.click(screen.getByTitle('Channel 成员管理'));
     await waitFor(() => {
       expect(screen.getByText('@dev-agent')).toBeTruthy();
@@ -72,7 +89,8 @@ describe('ChannelMemberManager', () => {
   });
 
   it('shows available agents to add', async () => {
-    render(<ChannelMemberManager channelId="ch-1" membersJson='["a1"]' />);
+    seedStores(['a1']);
+    render(<ChannelMemberManager channelId="ch-1" />);
     fireEvent.click(screen.getByTitle('Channel 成员管理'));
     await waitFor(() => {
       expect(screen.getByText('@pm-agent')).toBeTruthy();
@@ -89,17 +107,20 @@ describe('ChannelMemberManager', () => {
     expect(screen.getByText('取消')).toBeTruthy();
   });
 
-  it('syncs memberIds when membersJson arrives asynchronously (refresh bug)', () => {
-    // 页面刷新时 channel 异步加载：首渲 membersJson 为 undefined，数据后到
-    const { rerender } = render(<ChannelMemberManager channelId="ch-1" membersJson={undefined} />);
+  it('syncs member ids when store members arrive asynchronously (refresh bug)', () => {
+    // 页面刷新时频道记录异步加载：首渲 store 成员面为空，数据后到（写穿水合）
+    const { rerender } = render(<ChannelMemberManager channelId="ch-1" />);
     expect(screen.getByText('All')).toBeTruthy();
-    rerender(<ChannelMemberManager channelId="ch-1" membersJson='["a1","a2"]' />);
+    act(() => {
+      useChannelDataStore.getState().setMembers('ch-1', ['a1', 'a2']);
+    });
+    rerender(<ChannelMemberManager channelId="ch-1" />);
     expect(screen.getByText('2 agents')).toBeTruthy();
   });
 
   it('creates agent and joins the channel in one action', async () => {
-    mockCreateAgent.mockResolvedValue({ data: { id: 'new-a', name: 'new-agent', description: null, status: 'active' } });
-    render(<ChannelMemberManager channelId="ch-1" membersJson="[]" />);
+    seedStores([]);
+    render(<ChannelMemberManager channelId="ch-1" />);
     fireEvent.click(screen.getByTitle('Channel 成员管理'));
     fireEvent.click(screen.getByText('+ 创建新 Agent'));
     fireEvent.change(screen.getByPlaceholderText('Agent 名称'), { target: { value: '新成员' } });
@@ -108,11 +129,14 @@ describe('ChannelMemberManager', () => {
       expect(mockCreateAgent).toHaveBeenCalledWith(expect.objectContaining({ name: '新成员', channels: ['ch-1'] }));
       expect(mockUpdateMembers).toHaveBeenCalledWith('ch-1', { add: ['new-a'] });
     });
+    // 成功后成员面本地写穿（mention 过滤等订阅方即时跟上）
+    expect(useChannelDataStore.getState().members['ch-1']).toEqual(['new-a']);
   });
 
   it('shows inline error when create fails', async () => {
+    seedStores([]);
     mockCreateAgent.mockRejectedValue(new Error('provider unavailable'));
-    render(<ChannelMemberManager channelId="ch-1" membersJson="[]" />);
+    render(<ChannelMemberManager channelId="ch-1" />);
     fireEvent.click(screen.getByTitle('Channel 成员管理'));
     fireEvent.click(screen.getByText('+ 创建新 Agent'));
     fireEvent.change(screen.getByPlaceholderText('Agent 名称'), { target: { value: 'x' } });
@@ -122,13 +146,25 @@ describe('ChannelMemberManager', () => {
     });
   });
 
-  it('handles empty membersJson gracefully', () => {
-    render(<ChannelMemberManager channelId="ch-1" membersJson="invalid" />);
+  it('store 成员面为 []（空 = 所有 Agent 可见）→ All', () => {
+    seedStores([]);
+    render(<ChannelMemberManager channelId="ch-1" />);
     expect(screen.getByText('All')).toBeTruthy();
   });
 
-  it('handles empty array membersJson', () => {
-    render(<ChannelMemberManager channelId="ch-1" membersJson="[]" />);
+  it('store 成员面缺键（未拉到）→ All，不抛错', () => {
+    render(<ChannelMemberManager channelId="ch-1" />);
     expect(screen.getByText('All')).toBeTruthy();
+  });
+
+  it('添加成员成功 → store 成员面写穿', async () => {
+    seedStores(['a1']);
+    render(<ChannelMemberManager channelId="ch-1" />);
+    fireEvent.click(screen.getByTitle('Channel 成员管理'));
+    fireEvent.click(await screen.findByText('@pm-agent'));
+    await waitFor(() => {
+      expect(mockUpdateMembers).toHaveBeenCalledWith('ch-1', { add: ['a2'] });
+    });
+    expect(useChannelDataStore.getState().members['ch-1']).toEqual(['a1', 'a2']);
   });
 });

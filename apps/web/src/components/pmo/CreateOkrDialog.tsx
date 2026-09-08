@@ -65,7 +65,8 @@ export function CreateOkrDialog({ open, companyId, onClose, onCreated }: CreateO
     }
 
     try {
-      const actualCompanyId = companyId || localStorage.getItem('companyId');
+      // #434：localStorage companyId 兜底随设置页公司节一并移除，companyId 一律由调用方传入
+      const actualCompanyId = companyId;
       if (!actualCompanyId) {
         toast.warning('请先选择公司');
         return;
@@ -86,7 +87,10 @@ export function CreateOkrDialog({ open, companyId, onClose, onCreated }: CreateO
       onCreated();
     } catch (err) {
       console.error('Failed to create OKR:', err);
-      toast.error('创建 OKR 失败');
+      // #448 问题2：撞重等错误带服务端 error.message → 展示具体原因；无 message 回退通用文案
+      const serverMsg = (err as { response?: { data?: { error?: { message?: string } } } })
+        ?.response?.data?.error?.message;
+      toast.error(serverMsg ? `创建 OKR 失败：${serverMsg}` : '创建 OKR 失败');
     } finally {
       setCreating(false);
     }
@@ -137,7 +141,7 @@ export function CreateOkrDialog({ open, companyId, onClose, onCreated }: CreateO
               </button>
             </div>
             {krs.map((kr, idx) => (
-              <div key={kr.id} className="p-3 rounded mb-2" style={{ background: 'var(--bg-secondary)' }}>
+              <div key={kr.id} className="p-3 rounded mb-2 u-surface-0">
                 <div className="flex items-center gap-2 mb-2">
                   <span className="text-xs font-bold u-text-3">
                     KR{idx + 1}

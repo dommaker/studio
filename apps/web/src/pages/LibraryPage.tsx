@@ -1,7 +1,7 @@
 /**
  * #155 T5: Library 阅览室 — 跨项目 .studio/ 聚合只读层
  *
- * 功能：搜索、项目筛选、文档列表（legacy 遗产文档打「遗产」徽标）。
+ * 功能：搜索、项目/类型筛选、文档列表（legacy 遗产文档打「遗产」徽标）。
  * 只读：无图谱、无编辑——文档随各仓演进，变更历史 = git 历史。
  */
 import { useState, useEffect, useCallback, useRef } from 'react';
@@ -11,6 +11,7 @@ import { libraryApi, projectApi } from '../api';
 import { companyApi } from '../api/company';
 import { maintenanceApi, type TriggerCosts } from '../api/maintenance';
 import { ManualTaskButton } from '../components/ui';
+import { Select } from '../components/ui/Select';
 
 interface LibraryDoc {
   id: string;
@@ -45,6 +46,8 @@ export function LibraryPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [projectId, setProjectId] = useState('');
+  // #436 B11：类型筛选（前端过滤已拉取列表，零后端改动）
+  const [kind, setKind] = useState('');
   const [projects, setProjects] = useState<ProjectOption[]>([]);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -114,10 +117,13 @@ export function LibraryPage() {
     });
   };
 
+  // 类型筛选：前端过滤；kind 为空 = 全部
+  const visibleDocs = kind ? docs.filter((d) => d.kind === kind) : docs;
+
   return (
-    <div className="h-full flex flex-col" style={{ background: 'var(--bg-primary)' }}>
+    <div className="h-full flex flex-col u-page-bg">
       {/* Header */}
-      <div className="px-8 py-6" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+      <div className="u-page-head">
         <div className="flex items-center justify-between">
           <h1 className="page-title">阅览室</h1>
           <ManualTaskButton
@@ -143,37 +149,45 @@ export function LibraryPage() {
             onChange={(e) => setSearch(e.target.value)}
             className="input flex-1"
           />
-          <select
+          <Select
             value={projectId}
-            onChange={(e) => setProjectId(e.target.value)}
-            className="input"
+            onChange={setProjectId}
+            options={[
+              { value: '', label: '全部项目' },
+              ...projects.map((p) => ({ value: p.id, label: `${p.pmoNumber} ${p.title}` })),
+            ]}
             style={{ width: 220 }}
-          >
-            <option value="">全部项目</option>
-            {projects.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.pmoNumber} {p.title}
-              </option>
-            ))}
-          </select>
+            aria-label="项目筛选"
+          />
+          <Select
+            value={kind}
+            onChange={setKind}
+            options={[
+              { value: '', label: '全部类型' },
+              ...Object.entries(kindLabels).map(([value, label]) => ({ value, label })),
+            ]}
+            style={{ width: 140 }}
+            aria-label="类型筛选"
+          />
         </div>
       </div>
 
-      {/* Content */}
+      {/* Content（#436 B11：收 max-w-5xl 对齐 §4.7 内容档） */}
       <div className="flex-1 overflow-auto px-8 pb-8 pt-6">
+        <div className="max-w-5xl">
         {loading ? (
           <div className="flex items-center justify-center h-64">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 u-border-2" />
+            <div className="loading-spinner" />
           </div>
-        ) : docs.length === 0 ? (
+        ) : visibleDocs.length === 0 ? (
           <div className="flex items-center justify-center h-64">
             <p className="u-text-3">
-              {search || projectId ? '没有匹配的文档' : '暂无文档'}
+              {search || projectId || kind ? '没有匹配的文档' : '暂无文档'}
             </p>
           </div>
         ) : (
           <div className="space-y-3">
-            {docs.map((doc) => (
+            {visibleDocs.map((doc) => (
               <div
                 key={doc.id}
                 onClick={() => navigate(`/library/${encodeURIComponent(doc.id)}`)}
@@ -222,6 +236,7 @@ export function LibraryPage() {
             ))}
           </div>
         )}
+        </div>
       </div>
     </div>
   );

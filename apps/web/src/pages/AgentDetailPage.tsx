@@ -1,26 +1,33 @@
 // AgentDetailPage — /agents/:profileId（2026-07-31 全流程串联 UX 重构 §5.3）
 // Header（角色/状态/频道/ID/强制停止）→「正在执行」大卡（当前 WU + ExecutionSteps 实时执行流）
 // →「历史任务」（assigneeId=instance.id 最近 20 条）→ 统计行
+// #433 信息密度重构：内容区 ≥1280 双栏（左 正在执行+历史任务 / 右 统计卡，样式 agent-detail.css），
+// ID 短显+复制（shortWuId/copyText），状态词走 CARD_STATUS_LABELS/WU_STATUS_LABELS 正词，空态消费 .empty-state。
 // #346：profile/instance/channelName 读 rosterStore（三端点 TTL 去重 + SSE 就地更新单份 + useGatedPoll 兜底
 // 在 store/useRosterStoreSync）；本页只保留页面私有面：历史任务窗口（workunit.status_changed 防抖重拉对齐）
 // 与当前 WU 快照缺失时的单实例补查（写回 store 共享）。
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { Link, useParams } from 'react-router-dom';
+import { formatChannelName, WU_STATUS_LABELS } from '@dommaker/studio-shared/web';
 import { monitoringApi } from '../api/monitoring';
 import { workunitApi, type WorkUnit } from '../api/workunit';
 import { ExecutionSteps } from '../components/workunit/ExecutionSteps';
+import { AgentAvatar } from '../components/channel/AgentAvatar';
 import { ConfirmDialog, BackButton } from '../components/ui';
 import { useWebSocketContext } from '../api/websocketHooks';
 import { useRosterStore } from '../stores/rosterStore';
 import { useRosterStoreSync } from '../hooks/useRosterStoreSync';
 import { useAsyncData } from '../hooks/useAsyncData';
 import {
-  deriveAgentStatus,
-  AGENT_STATUS_LABELS,
-  AGENT_STATUS_COLORS,
+  resolveCardStatusKey,
+  CARD_STATUS_LABELS,
+  CARD_STATUS_COLORS,
   formatUptime,
 } from '../utils/agentStatus';
 import { formatFullTime } from '../utils/datetime';
+import { shortWuId } from '../utils/id';
+import { copyText } from '../utils/clipboard';
+import '../styles/agent-detail.css';
 
 const HISTORY_LIMIT = 20;
 /** #318 取舍（b）：历史任务「最近 20 条 + total」窗口无事件语义（新完成 WU 进榜/排序/total），
@@ -124,9 +131,11 @@ export function AgentDetailPage() {
   };
 
   const wu = instance?.currentWorkUnit ?? null;
-  const statusKey = profile?.status !== 'active'
-    ? null
-    : deriveAgentStatus(instance?.status ?? null, wu?.status);
+  // #433：状态 pill 与仪表盘卡面 pill 同词同色（#397 口径）；profile 停用由 resolveCardStatusKey 归一为「已停用」
+  const statusKey = profile
+    ? resolveCardStatusKey(profile.status, instance?.status ?? null, wu?.status)
+    : null;
+  const statusPillColor = statusKey ? CARD_STATUS_COLORS[statusKey] : '';
   const stats = {
     total: historyTotal,
     done: history.filter((w) => w.status === 'done' || w.status === 'completed' || w.status === 'closed').length,
@@ -135,29 +144,28 @@ export function AgentDetailPage() {
   };
 
   return (
-    <div className="h-full flex flex-col" style={{ background: 'var(--bg-primary)' }}>
-      <div className="px-8 py-6" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+    <div className="h-full flex flex-col u-page-bg">
+      <div className="u-page-head">
         {/* #393 §4.4：详情页统一左上返回（直开回落 /agents） */}
         <div className="mb-4"><BackButton fallback="/agents" /></div>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3 flex-wrap">
+            {/* #440 Phase 4：per-agent identicon 头像（与频道消息气泡同一生成逻辑） */}
+            {profile && <AgentAvatar name={profile.name} size={28} />}
             <h1 className="page-title">{profile?.name ?? 'Agent 详情'}</h1>
+            {statusKey && (
+              <span className={`text-xs px-2 py-0.5 rounded ${statusPillColor}`}>
+                {CARD_STATUS_LABELS[statusKey]}
+              </span>
+            )}
             {profile && (
               <span className="text-xs px-2 py-0.5 rounded u-surface-2 u-text-2" title="背后的 CLI">
                 CLI: {profile.provider ?? '未配置'}
               </span>
             )}
-            {statusKey && (
-              <span className={`text-xs px-2 py-0.5 rounded ${AGENT_STATUS_COLORS[statusKey]}`}>
-                {AGENT_STATUS_LABELS[statusKey]}
-              </span>
-            )}
-            {profile?.status !== 'active' && profile && (
-              <span className="text-xs px-2 py-0.5 rounded u-surface-2 u-text-3">已停用</span>
-            )}
             {instance?.channelId && (
               <Link to={`/channels/${instance.channelId}`} className="text-xs u-text-2 u-hover-accent">
-                #{channelName ?? '频道'}
+                {formatChannelName(channelName ?? '频道')}
               </Link>
             )}
           </div>
@@ -173,15 +181,15 @@ export function AgentDetailPage() {
           </div>
         </div>
         <div className="flex gap-6 mt-3 text-xs u-text-2 flex-wrap">
-          <span>Profile ID: <span className="u-text-3 font-mono">{profileId}</span></span>
-          {instance && <span>Instance ID: <span className="u-text-3 font-mono">{instance.id}</span></span>}
+          {profileId && <IdWithCopy label="Profile ID" value={profileId} />}
+          {instance && <IdWithCopy label="Instance ID" value={instance.id} />}
           {instance && <span>Started: <span className="u-text-3 font-mono">{formatFullTime(instance.startedAt)}</span></span>}
           {instance && <span>运行: <span className="u-text-3" data-visual-ignore>{formatUptime(instance.startedAt)}</span></span>}
         </div>
       </div>
 
       <div className="flex-1 overflow-auto px-8 pb-8">
-        <div className="max-w-5xl">
+        <div className="agent-detail-wrap">
           {error && (
             <div className="mt-4 p-3 rounded u-err-dim u-err text-sm">{error}</div>
           )}
@@ -194,78 +202,84 @@ export function AgentDetailPage() {
               <p className="text-sm mt-2"><Link to="/agents" className="u-accent">返回 /agents</Link></p>
             </div>
           ) : (
-            <>
-              {/* 正在执行 */}
-              <div className="mt-4 rounded-lg p-3" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)' }}>
-                <div className="mc-block-label">正在执行</div>
-                {wu ? (
-                  <>
-                    <div className="flex items-center gap-2 flex-wrap">
-                      {wu.type && (
-                        <span className="text-xs px-2 py-0.5 rounded u-surface-2 u-text-2">{wu.type}</span>
-                      )}
-                      <Link to={`/workunits/${wu.id}`} className="text-sm u-text u-hover-accent">
-                        {wu.title || wu.id}
-                      </Link>
-                      <span className="text-xs px-2 py-0.5 rounded u-surface-2 u-text-2">{wu.status}</span>
-                      {wu.claimedAt && (
-                        <span className="text-xs u-text-3" data-visual-ignore>已耗时 {formatUptime(wu.claimedAt)}</span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-3 mt-1 text-xs u-text-2 flex-wrap">
-                      {instance?.pmo && (
-                        <Link to={`/pmo/project/${instance.pmo.id}`} className="u-text-2 u-hover-accent">
-                          {instance.pmo.pmoNumber} · {instance.pmo.title}
+            /* #433：≥1280 双栏（左主栏 / 右统计栏），<1280 单栏堆叠 */
+            <div className="agent-detail-grid">
+              <div>
+                {/* 正在执行 */}
+                <div className="card p-3">
+                  <div className="mc-block-label">正在执行</div>
+                  {wu ? (
+                    <>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {wu.type && (
+                          <span className="text-xs px-2 py-0.5 rounded u-surface-2 u-text-2">{wu.type}</span>
+                        )}
+                        <Link to={`/workunits/${wu.id}`} className="text-sm u-text u-hover-accent">
+                          {wu.title || wu.id}
                         </Link>
-                      )}
-                      {instance?.channelId && (
-                        <Link to={`/channels/${instance.channelId}`} className="u-text-2 u-hover-accent">
-                          #{channelName ?? '频道'}
+                        <span className="text-xs px-2 py-0.5 rounded u-surface-2 u-text-2">{WU_STATUS_LABELS[wu.status] ?? wu.status}</span>
+                        {wu.claimedAt && (
+                          <span className="text-xs u-text-3" data-visual-ignore>已耗时 {formatUptime(wu.claimedAt)}</span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-3 mt-1 text-xs u-text-2 flex-wrap">
+                        {instance?.pmo && (
+                          <Link to={`/pmo/project/${instance.pmo.id}`} className="u-text-2 u-hover-accent">
+                            {instance.pmo.pmoNumber} · {instance.pmo.title}
+                          </Link>
+                        )}
+                        {instance?.channelId && (
+                          <Link to={`/channels/${instance.channelId}`} className="u-text-2 u-hover-accent">
+                            {formatChannelName(channelName ?? '频道')}
+                          </Link>
+                        )}
+                      </div>
+                      <div className="mt-2">
+                        <ExecutionSteps workUnitId={wu.id} />
+                      </div>
+                    </>
+                  ) : (
+                    <div className="empty-state">空闲 · 等待派活</div>
+                  )}
+                </div>
+
+                {/* 历史任务 */}
+                <div className="card mt-4">
+                  <div className="mc-block-label px-3 pt-3">历史任务</div>
+                  {history.length === 0 ? (
+                    <div className="empty-state">暂无历史任务</div>
+                  ) : (
+                    <div className="pb-2">
+                      {history.map((w) => (
+                        <Link
+                          key={w.id}
+                          to={`/workunits/${w.id}`}
+                          className="flex items-center gap-3 px-3 py-2 u-hover-bg text-xs"
+                        >
+                          <span className="px-2 py-0.5 rounded u-surface-2 u-text-2 shrink-0">{w.type}</span>
+                          <span className="u-text truncate flex-1">{w.scope}</span>
+                          <span className="u-text-2 shrink-0">{WU_STATUS_LABELS[w.status] ?? w.status}</span>
+                          <span className="u-text-3 shrink-0 font-mono">
+                            {formatFullTime(w.completedAt ? w.completedAt : w.updatedAt)}
+                          </span>
                         </Link>
-                      )}
+                      ))}
                     </div>
-                    <div className="mt-2">
-                      <ExecutionSteps workUnitId={wu.id} />
-                    </div>
-                  </>
-                ) : (
-                  <div className="pb-2 text-xs u-text-3">当前空闲</div>
-                )}
+                  )}
+                </div>
               </div>
 
-              {/* 统计行（由历史列表推导） */}
-              <div className="flex gap-6 mt-4">
-                <StatBadge label="历史总数" value={stats.total} color="u-accent" />
-                <StatBadge label="完成" value={stats.done} color="u-ok" />
-                <StatBadge label="在途" value={stats.inFlight} color="u-accent" />
-                <StatBadge label="失败" value={stats.failed} color="u-err" />
+              {/* 统计栏（由历史列表推导） */}
+              <div className="card p-3">
+                <div className="mc-block-label">统计</div>
+                <div className="flex flex-col gap-2 mt-2">
+                  <StatBadge label="历史总数" value={stats.total} color="u-accent" />
+                  <StatBadge label="完成" value={stats.done} color="u-ok" />
+                  <StatBadge label="在途" value={stats.inFlight} color="u-accent" />
+                  <StatBadge label="失败" value={stats.failed} color="u-err" />
+                </div>
               </div>
-
-              {/* 历史任务 */}
-              <div className="mt-4 rounded-lg" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)' }}>
-                <div className="mc-block-label px-3 pt-3">历史任务</div>
-                {history.length === 0 ? (
-                  <div className="px-3 pb-3 text-xs u-text-3">暂无历史任务</div>
-                ) : (
-                  <div className="pb-2">
-                    {history.map((w) => (
-                      <Link
-                        key={w.id}
-                        to={`/workunits/${w.id}`}
-                        className="flex items-center gap-3 px-3 py-2 u-hover-bg text-xs"
-                      >
-                        <span className="px-2 py-0.5 rounded u-surface-2 u-text-2 shrink-0">{w.type}</span>
-                        <span className="u-text truncate flex-1">{w.scope}</span>
-                        <span className="u-text-2 shrink-0">{w.status}</span>
-                        <span className="u-text-3 shrink-0 font-mono">
-                          {formatFullTime(w.completedAt ? w.completedAt : w.updatedAt)}
-                        </span>
-                      </Link>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </>
+            </div>
           )}
         </div>
       </div>
@@ -280,6 +294,32 @@ export function AgentDetailPage() {
         onCancel={() => setConfirmTerminate(false)}
       />
     </div>
+  );
+}
+
+/** #433：ID 短显（shortWuId，title 承载全量）+ 复制钮（copyText 复制全量原值，「✓ 已复制」反馈 2s） */
+function IdWithCopy({ label, value }: { label: string; value: string }) {
+  const [copied, setCopied] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+  }, []);
+  return (
+    <span>
+      {label}: <span className="u-text-3 font-mono" title={value}>{shortWuId(value)}</span>
+      <button
+        className="u-btn-reset u-text-3 u-hover-accent ml-1"
+        onClick={() => {
+          void copyText(value).then(() => {
+            setCopied(true);
+            if (timerRef.current) clearTimeout(timerRef.current);
+            timerRef.current = setTimeout(() => setCopied(false), 2000);
+          });
+        }}
+      >
+        {copied ? '✓ 已复制' : '复制'}
+      </button>
+    </span>
   );
 }
 

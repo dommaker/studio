@@ -20,6 +20,17 @@ import { getCollector, getAnalyzer } from './runtime.js';
 export const tracesRoutes = Router();
 
 /**
+ * traces.log 坏行计数 > 0 时打 warn（harness#82 后读入口不再抛错，
+ * 坏行信号只剩 harness#100 透传的 skippedLines，端点日志是唯一保底可见面）。
+ * 计数是文件级口径（坏行无 timestamp 可归窗），不要按响应条数反推。
+ */
+function warnSkippedLines(skippedLines: number, endpoint: string): void {
+  if (skippedLines > 0) {
+    logger.warn('Trace log has skipped corrupted lines', { skippedLines, endpoint });
+  }
+}
+
+/**
  * GET /api/v1/harness/traces
  * Query execution traces
  */
@@ -95,7 +106,9 @@ tracesRoutes.get('/analysis', async (req: Request, res: Response) => {
     if (!a) return res.status(503).json({ error: 'Harness not available' });
 
     const hours = Number(req.query.hours) || 24;
-    const summaries = a.analyzeRecent(hours);
+    // harness#100 报告入口：带坏行计数（兼容签名 analyzeRecent 会丢计数）
+    const { summaries, skippedLines } = a.analyzeRecentReport(hours);
+    warnSkippedLines(skippedLines, '/analysis');
     const anomalies = a.detectAnomalies(summaries);
 
     return res.json({
@@ -103,6 +116,7 @@ tracesRoutes.get('/analysis', async (req: Request, res: Response) => {
       anomalies,
       totalSummaries: summaries.length,
       totalAnomalies: anomalies.length,
+      skippedLines,
     });
   } catch (error) {
     logger.error('Failed to analyze traces', { error: String(error) });
@@ -120,10 +134,11 @@ tracesRoutes.get('/analysis/anomalies', async (req: Request, res: Response) => {
     if (!a) return res.status(503).json({ error: 'Harness not available' });
 
     const hours = Number(req.query.hours) || 24;
-    const summaries = a.analyzeRecent(hours);
+    const { summaries, skippedLines } = a.analyzeRecentReport(hours);
+    warnSkippedLines(skippedLines, '/analysis/anomalies');
     const anomalies = a.detectAnomalies(summaries);
 
-    return res.json({ data: anomalies, total: anomalies.length });
+    return res.json({ data: anomalies, total: anomalies.length, skippedLines });
   } catch (error) {
     logger.error('Failed to get anomalies', { error: String(error) });
     return res.status(500).json({ error: 'Failed to get anomalies' });

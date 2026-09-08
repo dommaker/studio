@@ -8,13 +8,18 @@
  * result=bypassed 随 bypass 记录 API 删除改为 400）
  * HOME 指向临时目录隔离 knowledge-bus 链路。
  */
-import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from 'vitest';
 import express from 'express';
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { logger } from '@dommaker/studio-shared';
+
+// 坏行计数由测试逐例控制；mock 只提供新报告入口 analyzeRecentReport，
+// 旧入口 analyzeRecent 故意不 mock——路由若仍走旧入口会直接 TypeError，防假绿
+let mockSkippedLines = 0;
 
 vi.mock('@dommaker/harness', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@dommaker/harness')>();
@@ -29,8 +34,11 @@ vi.mock('@dommaker/harness', async (importOriginal) => {
     },
     TraceAnalyzer: class {
       constructor(_collector: unknown) {}
-      analyzeRecent() {
-        return [{ constraintId: 'c1', passes: 1, fails: 0 }];
+      analyzeRecentReport() {
+        return {
+          summaries: [{ constraintId: 'c1', passCount: 1, failCount: 0 }],
+          skippedLines: mockSkippedLines,
+        };
       }
       detectAnomalies() {
         return [{ constraintId: 'c1', type: 'high-failure-rate' }];
@@ -74,6 +82,11 @@ afterAll(async () => {
   fs.rmSync(tmpHome, { recursive: true, force: true });
 });
 
+afterEach(() => {
+  mockSkippedLines = 0;
+  vi.restoreAllMocks();
+});
+
 describe('traces.routes', () => {
   it('GET /traces returns data + total', async () => {
     const res = await api('GET', '/traces');
@@ -108,18 +121,63 @@ describe('traces.routes', () => {
     expect(res.json.error).toContain('no longer supported');
   });
 
-  it('GET /analysis returns summaries + anomalies', async () => {
+  it('GET /analysis returns summaries + anomalies + skippedLines', async () => {
     const res = await api('GET', '/analysis?hours=1');
     expect(res.status).toBe(200);
     expect(res.json.totalSummaries).toBe(1);
     expect(res.json.totalAnomalies).toBe(1);
     expect(res.json.summaries).toHaveLength(1);
     expect(res.json.anomalies).toHaveLength(1);
+    expect(res.json.skippedLines).toBe(0);
   });
 
-  it('GET /analysis/anomalies returns anomaly list', async () => {
+  it('GET /analysis/anomalies returns anomaly list + skippedLines', async () => {
     const res = await api('GET', '/analysis/anomalies');
     expect(res.status).toBe(200);
-    expect(res.json).toEqual({ data: [{ constraintId: 'c1', type: 'high-failure-rate' }], total: 1 });
+    expect(res.json).toEqual({
+      data: [{ constraintId: 'c1', type: 'high-failure-rate' }],
+      total: 1,
+      skippedLines: 0,
+    });
+  });
+
+  describe('skippedLines > 0 (corrupted traces.log lines, #451)', () => {
+    it('GET /analysis returns partial results + skippedLines and logs a warn', async () => {
+      mockSkippedLines = 1;
+      const warn = vi.spyOn(logger, 'warn').mockImplementation(() => {});
+
+      const res = await api('GET', '/analysis?hours=1');
+      expect(res.status).toBe(200);
+      expect(res.json.summaries).toEqual([{ constraintId: 'c1', passCount: 1, failCount: 0 }]);
+      expect(res.json.skippedLines).toBe(1);
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining('skipped'),
+        expect.objectContaining({ skippedLines: 1 }),
+      );
+    });
+
+    it('GET /analysis/anomalies passes skippedLines through and warns on the same chain', async () => {
+      mockSkippedLines = 2;
+      const warn = vi.spyOn(logger, 'warn').mockImplementation(() => {});
+
+      const res = await api('GET', '/analysis/anomalies');
+      expect(res.status).toBe(200);
+      expect(res.json.data).toEqual([{ constraintId: 'c1', type: 'high-failure-rate' }]);
+      expect(res.json.total).toBe(1);
+      expect(res.json.skippedLines).toBe(2);
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining('skipped'),
+        expect.objectContaining({ skippedLines: 2 }),
+      );
+    });
+
+    it('logs no warn when nothing was skipped (zero noise)', async () => {
+      mockSkippedLines = 0;
+      const warn = vi.spyOn(logger, 'warn').mockImplementation(() => {});
+
+      await api('GET', '/analysis');
+      await api('GET', '/analysis/anomalies');
+      expect(warn).not.toHaveBeenCalled();
+    });
   });
 });

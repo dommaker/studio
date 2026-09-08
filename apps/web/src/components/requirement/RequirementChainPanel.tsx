@@ -1,8 +1,9 @@
-// REQ 全链路面板（vision §5.3）— 展示 GET /requirements/:id/chain
-import { useEffect, useState } from 'react';
-import { deriveDisplayState } from '@dommaker/studio-shared/web';
+// REQ 全链路面板（vision §5.3）— #412 起链路读 requirementChainStore
+// （同 chain 与右栏/抽屉/项目页共享单份缓存；workunit.status_changed 就地更新，重开弹窗 TTL 内零重拉）
+import { useEffect } from 'react';
+import { deriveDisplayState, WU_STATUS_LABELS, WU_STATUS_COLORS } from '@dommaker/studio-shared/web';
 import { Modal } from '../ui/Modal';
-import { requirementApi, type RequirementChain } from '../../api/requirements';
+import { useRequirementChainStore } from '../../stores/requirementChainStore';
 import { formatFullTime } from '../../utils/datetime';
 import { AssigneeLabel } from '../workunit/AssigneeLabel';
 
@@ -13,46 +14,19 @@ const reqStatusLabels: Record<string, string> = {
   archived: '已归档',
 };
 
-const wuStatusLabels: Record<string, string> = {
-  unassigned: '待分配',
-  active: '执行中',
-  in_review: '审查中',
-  done: '已完成',
-  closed: '已关闭',
-  blocked: '阻塞',
-};
-
-const wuStatusColors: Record<string, string> = {
-  unassigned: 'u-surface-2 u-text-2',
-  active: 'u-accent-dim u-accent',
-  in_review: 'u-warn-dim u-warn',
-  done: 'u-ok-dim u-ok',
-  closed: 'u-ok-dim u-ok',
-  blocked: 'u-err-dim u-err',
-};
-
 interface Props {
   reqId: string | null;
   onClose: () => void;
 }
 
 export function RequirementChainPanel({ reqId, onClose }: Props) {
-  const [chain, setChain] = useState<RequirementChain | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  // reqId 切换时在渲染期同步清空旧链路（替代原 effect 顶部的同步重置）
-  const [prevReqId, setPrevReqId] = useState(reqId);
-  if (prevReqId !== reqId) {
-    setPrevReqId(reqId);
-    setChain(null);
-    setError(null);
-  }
+  // #412：selector 按 reqId 取数，切换弹窗对象即换键（旧链路不残留，无需渲染期重置）
+  const chain = useRequirementChainStore((s) => (reqId ? s.chains[reqId] : undefined));
+  const error = useRequirementChainStore((s) => (reqId ? s.errors[reqId] : undefined));
 
   useEffect(() => {
     if (!reqId) return;
-    requirementApi.getChain(reqId)
-      .then(r => setChain(r.data.data))
-      .catch(e => setError(e instanceof Error ? e.message : String(e)));
+    void useRequirementChainStore.getState().ensureChain(reqId);
   }, [reqId]);
 
   if (!reqId) return null;
@@ -68,7 +42,7 @@ export function RequirementChainPanel({ reqId, onClose }: Props) {
           {/* Requirement 信息 */}
           <div>
             <div className="flex items-center gap-2">
-              <span className="font-medium" style={{ color: 'var(--text-primary)' }}>{req.title}</span>
+              <span className="font-medium u-text">{req.title}</span>
               <span className="text-xs px-2 py-0.5 rounded u-accent-dim u-accent">
                 {reqStatusLabels[req.status] ?? req.status}
               </span>
@@ -99,10 +73,10 @@ export function RequirementChainPanel({ reqId, onClose }: Props) {
                   const column = deriveDisplayState({ status: wu.status, metadata: wu.metadata }).column;
                   return (
                   <li key={wu.id} className="flex items-center gap-2 text-sm">
-                    <span className={`text-xs px-2 py-0.5 rounded flex-shrink-0 ${wuStatusColors[column] ?? 'u-surface-2 u-text-2'}`}>
-                      {wuStatusLabels[column] ?? column}
+                    <span className={`text-xs px-2 py-0.5 rounded flex-shrink-0 ${WU_STATUS_COLORS[column] ?? 'u-surface-2 u-text-3'}`}>
+                      {WU_STATUS_LABELS[column] ?? column}
                     </span>
-                    <span className="truncate" style={{ color: 'var(--text-primary)' }}>{wu.title}</span>
+                    <span className="truncate u-text">{wu.title}</span>
                     {wu.assigneeId && (
                       <AssigneeLabel assigneeId={wu.assigneeId} className="text-xs u-text-3 flex-shrink-0" />
                     )}

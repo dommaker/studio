@@ -2,8 +2,8 @@
 // 数据面已上移 rosterStore（#346）：三端点拉取/TTL 去重、agent.instance.status_changed 与
 // workunit.status_changed 的 SSE 就地更新、30s 兜底轮询（useGatedPoll）全在 store + useRosterStoreSync；
 // 本 hook 只保留作战视图私有面：执行动态（execution.step/stream → rosterActivityStore，#348 状态下沉——
-// chunk 只重渲订阅对应切片的 RoleCard，不掀页面）、空闲卡「最近完成」（lastDone，已知 N+1：
-// GET /workunits 只支持单 assigneeId，后端无批量接口）、当前 WU 快照补查写回。
+// chunk 只重渲订阅对应切片的 RoleCard，不掀页面）、空闲卡「最近完成」（lastDone，#387 批量端点一次拉全）、
+// 当前 WU 快照补查写回。
 // 内存纪律：每 agent 动态 ≤10 条（流式 thinking/text 逐 chunk 同 key 刷新同一行）。
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { monitoringApi, type AgentInfo } from '../api/monitoring';
@@ -15,7 +15,6 @@ import {
   type WorkUnit,
 } from '../api/workunit';
 import { useWebSocketContext, type WebSocketMessage } from '../api/websocketHooks';
-import { fanOut } from '../utils/fanOut';
 import {
   useRosterStore,
   ROSTER_POLL_INTERVAL_MS,
@@ -80,13 +79,25 @@ export function useAgentRoster(): UseAgentRosterResult {
   const [actionError, setActionError] = useState<string | null>(null);
   const error = storeError ?? actionError;
 
-  // profile × runtime 按 roleId 合并（同一角色可能多条历史 state，agents 已按 startedAt 降序取最新）
+  // 名册镜像：roles memo 内同步更新（SSE 路由/首拉 effect 读最新派生；memo 自身用它作 #414 身份锚点）
+  const rolesRef = useRef<RosterRole[]>([]);
+  // profile × runtime 按 roleId 合并（同一角色可能多条历史 state，agents 已按 startedAt 降序取最新）。
+  // #414：包装对象按 roleId 保身份——profile 与 runtime 引用均未变的角色复用上次包装，
+  // status_changed 数组级替换不再击穿 RoleCard memo（卡片浅比较 role prop，未变卡零重渲）
   const roles = useMemo<RosterRole[]>(() => {
     const runtimeByRole = new Map<string, AgentInfo>();
     for (const a of agents) {
       if (!runtimeByRole.has(a.roleId)) runtimeByRole.set(a.roleId, a);
     }
-    return profiles.map((p) => ({ profile: p, runtime: runtimeByRole.get(p.id) ?? null }));
+    const prevById = new Map(rolesRef.current.map((r) => [r.profile.id, r]));
+    const next = profiles.map((p) => {
+      const runtime = runtimeByRole.get(p.id) ?? null;
+      const prev = prevById.get(p.id);
+      if (prev && prev.profile === p && prev.runtime === runtime) return prev;
+      return { profile: p, runtime };
+    });
+    rolesRef.current = next;
+    return next;
   }, [profiles, agents]);
 
   const channelNames = useMemo(
@@ -95,12 +106,7 @@ export function useAgentRoster(): UseAgentRosterResult {
   );
 
   // 首拉增强（useGatedPoll 挂载首拉已含 ensureFresh；此处补作战视图私有面，按 role 最新 runtime 口径）：
-  // ① 后端聚合字段暂缺的卡逐个补查当前 WU 详情写回 store；② 空闲卡「最近完成」N+1（保持既有行为：
-  // GET /workunits 只支持单 assigneeId，后端无批量接口）
-  const rolesRef = useRef<RosterRole[]>([]);
-  useEffect(() => {
-    rolesRef.current = roles;
-  }, [roles]);
+  // ① 后端聚合字段暂缺的卡逐个补查当前 WU 详情写回 store；② 空闲卡「最近完成」批量拉取（#387）
   const loadedAtRef = useRef(loadedAt);
   useEffect(() => {
     loadedAtRef.current = loadedAt;
@@ -114,22 +120,23 @@ export function useAgentRoster(): UseAgentRosterResult {
         useRosterStore.getState().backfillCurrentWorkUnit(r.runtime.id, r.runtime.currentWorkUnitId);
       }
     }
-    // ② 空闲卡的「最近完成」：按 instance.id 查 assigneeId，取最近一条 done/completed
+    // ② 空闲卡的「最近完成」：#387 批量端点一次拉全（后端按 completedAt ?? updatedAt
+    // 取各 assignee 最近一条 done/completed，且全量扫描不再有旧 limit=20 先截后滤的漏单）。
+    // 批量失败 → 全部 null（卡面无最近完成）；拉取期间又有新数据落地则放弃本次写回。
     const idle = current.filter((r): r is RosterRole & { runtime: NonNullable<RosterRole['runtime']> } =>
       r.runtime !== null && !r.runtime.currentWorkUnitId);
-    void fanOut(idle, async (r) => {
-      const res = await workunitApi.list({ assigneeId: r.runtime.id, limit: 20 });
-      return res.data.data
-        .filter((w) => w.status === 'done' || w.status === 'completed')
-        .sort((x, y) => (y.completedAt ?? y.updatedAt).localeCompare(x.completedAt ?? x.updatedAt))[0] ?? null;
-    }).then((results) => {
-      // 失败口径（fanOut 统一）：该角色查询失败 → null（卡面无最近完成）
-      const entries = idle.map((r, i): [string, WorkUnit | null] => {
-        const e = results[i];
-        return e.ok ? [r.profile.id, e.value] : [r.profile.id, null];
-      });
-      // 拉取期间又有新数据落地则放弃本次写回（等下轮 loadedAt 变更重算）
-      if (loadedAtRef.current === loadedAt) setLastDone(Object.fromEntries(entries));
+    if (idle.length === 0) {
+      setLastDone({});
+      return;
+    }
+    void workunitApi.lastDone(idle.map(r => r.runtime.id)).then((res) => {
+      if (loadedAtRef.current !== loadedAt) return;
+      const data = res.data?.data ?? {};
+      const entries = idle.map((r): [string, WorkUnit | null] => [r.profile.id, data[r.runtime.id] ?? null]);
+      setLastDone(Object.fromEntries(entries));
+    }).catch(() => {
+      if (loadedAtRef.current !== loadedAt) return;
+      setLastDone(Object.fromEntries(idle.map((r): [string, WorkUnit | null] => [r.profile.id, null])));
     });
   }, [loadedAt, forbidden]);
 

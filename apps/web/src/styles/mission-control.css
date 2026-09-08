@@ -14,7 +14,10 @@
   overflow: hidden;
 }
 
-.mc-ws button {
+/* #431：:where() 降权（0-1-1 → 0-0-1）。原 0-1-1 吞掉了作用域内 20 条单类按钮规则的
+   background/border/color/padding 等声明（清单与裁决见 #431 及 docs/visual-reports/20260901-431-*），
+   降权后这些规则首次生效；cursor:pointer 仍由本重置承担（TW v4 preflight 已不含 button cursor）。 */
+:where(.mc-ws) button {
   font: inherit;
   color: inherit;
   background: none;
@@ -300,6 +303,9 @@
   user-select: none;
 }
 .mc-avatar-human { background: var(--accent-primary); color: var(--bg-primary); }
+/* #440：agent identicon 图形头像（SVG 填满圆形容器，色源 --chart-1..9 在组件内联 fill） */
+.mc-avatar-ident { overflow: hidden; background: var(--bg-elevated); padding: 0; }
+.mc-avatar-ident svg { display: block; width: 100%; height: 100%; }
 .mc-time { color: var(--text-muted); font-size: var(--fs-xs); }
 .mc-msg-body { color: var(--text-primary); white-space: pre-wrap; word-break: break-word; }
 /* #271: agent 消息内的 Markdown 容器覆盖 pre-wrap，软换行按 Markdown 语义折叠为空格 */
@@ -314,20 +320,20 @@
   max-width: 75%;
   background: var(--accent-dim);
   border: 1px solid var(--accent-border);
-  border-radius: 10px;
+  border-radius: 4px;
   border-top-right-radius: 3px;
   padding: 6px 12px;
 }
 /* D1 agent 消息：左侧无气泡文档流，占内容列宽（#394 起中栏弹性无上限，760/1000 双档取消） */
 .mc-msg-agent { text-align: left; }
-/* D3 系统播报：居中淡色小字，与左右对话流明确区隔；无头无动作，仅正文（+可选 footer 链接居中） */
-.mc-msg-system { text-align: center; }
+/* D3 系统播报：淡色小字，与左右对话流明确区隔；无头无动作，仅正文（+可选 footer 链接） */
+/* #437：居中装置是 760px 限宽栏语境的设计；#394 取消限宽后播报漂屏中，改左对齐随主流文档流，
+   区隔 = 淡色小字 + 无头两层信号；footer 链接随正文左对齐（居中 override 一并删除） */
 .mc-msg-system .mc-msg-body {
   color: var(--text-muted);
   font-size: var(--fs-xs);
   white-space: pre-wrap;
 }
-.mc-msg-system .mc-card-foot { justify-content: center; }
 /* D2 compact（连续合并）：省略重复头，动作浮于消息右上，hover/focus 显化（沿用 .mc-msg-actions 弱化态） */
 .mc-msg-compact { position: relative; }
 .mc-msg-compact > .mc-msg-actions-compact {
@@ -615,6 +621,49 @@
 
 /* 底部输入条 */
 .mc-inputbar { border-top: 1px solid var(--border-subtle); padding: var(--space-3) var(--space-6); background: var(--bg-secondary); position: relative; } /* #394（spec §4.1）：padding 32px */
+
+/* #440 Phase 2：频道当前 WU 阶段条（复用 wu-detail.css 的 wu-stepper-bar 类，这里只给定位容器） */
+.mc-stagebar {
+  padding: var(--space-2) var(--space-6);
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-secondary);
+}
+
+/* #440：建议 prompt 片（输入框上方；mono 小卡 + dismiss） */
+.mc-suggest {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: var(--space-2) var(--space-6) 0;
+  background: var(--bg-secondary);
+}
+.mc-suggest-chip {
+  /* mono 为例外立例：#440 issue 原文明确要求「等宽字体小卡片」（@指令语义近代码），spec 覆盖 style-guide §1 */
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: 3px;
+  padding: var(--space-1) var(--space-2);
+  cursor: pointer;
+  text-align: left;
+}
+.mc-suggest-chip:hover { color: var(--accent-primary); border-color: var(--accent-primary); }
+/* #443：status 形态只读状况说明——非交互，无 hover 强调、无指针手势（区别可点 prompt/action 片） */
+.mc-suggest-status { cursor: default; }
+.mc-suggest-status:hover { color: var(--text-secondary); border-color: var(--border-subtle); }
+/* #442：可选建议片的说明小字（可选语义 + 点击后果）；片体为 mono 例外，说明回到 sans */
+.mc-suggest-hint {
+  display: block;
+  font-family: var(--font-sans);
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+.mc-suggest-dismiss { margin-left: auto; }
+
 .mc-input-reply {
   display: flex;
   align-items: center;
@@ -678,7 +727,7 @@
   color: var(--text-primary);
 }
 /* #375：hover/键盘 active 分层对齐 select-option 语言——hover 用 --bg-hover，键盘选中态用 --bg-active + accent 文本，高亮清晰可见；
-   active 用双类选择器（0-2-0）压住 .mc-ws button 全局重置（0-1-1），否则键盘选中态背景被 background:none 吞掉 */
+   （历史：双类选择器原为压住 .mc-ws button 全局重置，#431 重置已 :where() 降权，双类保留作冗余，后续可简化） */
 .mc-mention-item:hover { background: var(--bg-hover); }
 .mc-mention-item.mc-mention-item-active, .mc-mention-item.mc-mention-item-active:hover { background: var(--bg-active); color: var(--accent-primary); }
 .mc-mention-desc { margin-left: auto; color: var(--text-muted); font-size: var(--fs-xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1132,7 +1181,10 @@ button.mc-act-step:hover { background: var(--bg-hover); }
    ============================================================ */
 .u-surface { background: var(--bg-elevated); }
 .u-surface-2 { background: var(--bg-tertiary); }
-.u-hover-bg:hover { background: var(--bg-hover); }
+/* 档位序列：-0 = --bg-secondary（比 elevated 暗一档，#431 补全——PMOPage tab 容器 / CreateOkrDialog KR 行等「父级下一档」分层） */
+.u-surface-0 { background: var(--bg-secondary); }
+.u-hover-bg:hover,
+.u-hover-bg:focus-visible { background: var(--bg-hover); }
 .u-hover-text:hover { color: var(--text-primary); }
 .u-hover-accent:hover { color: var(--accent-primary); }
 .u-text { color: var(--text-primary); }
@@ -1153,7 +1205,6 @@ button.mc-act-step:hover { background: var(--bg-hover); }
 .u-err { color: var(--error); }
 .u-err-bg { background: var(--error); color: var(--bg-primary); }
 .u-err-dim { background: var(--error-dim); color: var(--error); }
-.u-err-border { border-color: var(--error-border); }
 .u-warn { color: var(--warning); }
 .u-warn-bg { background: var(--warning); color: var(--bg-primary); }
 .u-warn-dim { background: var(--warning-dim); color: var(--warning); }
@@ -1194,3 +1245,14 @@ button.mc-act-step:hover { background: var(--bg-hover); }
 .mc-hbars-track { flex: 1; height: 8px; border-radius: 4px; background: var(--bg-tertiary); overflow: hidden; }
 .mc-hbars-fill { display: block; height: 100%; background: var(--accent-primary); }
 .mc-hbars-value { color: var(--text-primary); width: 40px; text-align: right; flex-shrink: 0; }
+
+/* ============================================================
+   共享结构类（#431：逐字内联重复收敛）
+   ============================================================ */
+/* 页面骨架底（§4.7：全站页面根/壳容器，替代逐字 style={{ background: 'var(--bg-primary)' }}） */
+.u-page-bg { background: var(--bg-primary); }
+/* 页头条（§4.7：--space-5/--space-6 padding + 底 hairline，替代逐字 px-8 py-6 + 内联 borderBottom） */
+.u-page-head { padding: var(--space-5) var(--space-6); border-bottom: 1px solid var(--border-subtle); }
+/* 裸按钮重置（§4.5：无 btn 体系外壳的文字/图标钮；font/color 继承由 Tailwind preflight 兜底，故不含——
+   保留类上 mc-block-label/u-accent/text-* 等排类的字体颜色决议权） */
+.u-btn-reset { background: none; border: none; cursor: pointer; padding: 0; }

@@ -328,7 +328,7 @@ describe('ChannelMessageItem — #241 footer WU 链接截短显示', () => {  it
 
 describe('ChannelMessageItem — #278 D5 机制派生回执 = 系统播报形态（视觉归 #248 D3）', () => {
   // 机制派生回执（analysis 拆任务清单 / 开图结果 / 「不自动派生」提示）：
-  // 后端 createAgentMessage(channelId, 'Studio', ...) 无卡非等待 → 居中淡色小字 mc-msg-system
+  // 后端 createAgentMessage(channelId, 'Studio', ...) 无卡非等待 → 淡色小字 mc-msg-system（#437 起左对齐随文档流）
   const receipt = (content: string): ChannelMessage => ({
     ...baseMessage,
     agentName: 'Studio',

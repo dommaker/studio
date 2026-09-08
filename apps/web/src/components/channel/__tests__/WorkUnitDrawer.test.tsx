@@ -79,6 +79,7 @@ vi.mock('../../../hooks/useWorkUnitStreamEvents', () => ({
 import { WorkUnitDrawer } from '../WorkUnitDrawer';
 import type { DrawerState } from '../WorkUnitDrawer';
 import { useRosterStore } from '../../../stores/rosterStore';
+import { useRequirementChainStore } from '../../../stores/requirementChainStore';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 
 // 决策 8：SSE 事件捕获（mockOnEvent 注册的回调，用例手工驱动）。
@@ -165,6 +166,8 @@ const renderDrawer = (drawer: DrawerState, extra: { onClose?: () => void; onOpen
 describe('WorkUnitDrawer', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // #412：REQ 链路读 requirementChainStore（模块级 TTL 簿记），每测重置避免缓存跨测串味
+    useRequirementChainStore.getState().__resetForTests();
     // #346：负责人解析面读 rosterStore（模块级单例），每测重置避免 TTL 缓存跨测串味
     useRosterStore.setState({
       profiles: [], agents: [], channels: [],
@@ -214,7 +217,7 @@ describe('WorkUnitDrawer', () => {
   it('shows WorkUnit detail with status, owner, REQ link and step count', async () => {
     renderDrawer({ kind: 'wu', id: 'WU-1017' });
     await waitFor(() => expect(screen.getByText('方向稿 A/B 原型页搭建')).toBeTruthy());
-    expect(screen.getAllByText('执行中').length).toBeGreaterThan(0); // #182：状态 chip 与速览节各出现一次
+    expect(screen.getAllByText('进行中').length).toBeGreaterThan(0); // #182：状态 chip 与速览节各出现一次
     expect(screen.getByText('@coder-1')).toBeTruthy();
     expect(screen.getByText('REQ-0042 ›')).toBeTruthy();
     expect(screen.getByText('7')).toBeTruthy(); // stepCount
@@ -543,21 +546,21 @@ describe('WorkUnitDrawer', () => {
       event_type: 'workunit.status_changed',
       data: { workunit: { ...WU, status: 'done', completedAt: '2026-07-19T11:00:00Z' } },
     }));
-    await waitFor(() => expect(screen.getAllByText('已完成').length).toBeGreaterThan(0));
+    await waitFor(() => expect(screen.getAllByText('完成').length).toBeGreaterThan(0));
     expect(mockWuGet).toHaveBeenCalledTimes(1); // 事件不触发重拉
     expect(mockGetOverhead).toHaveBeenCalledTimes(1); // 全局聚合不随事件重拉
   });
 
   it('决策8：workunit.status_changed 他 id → 详情不更新', async () => {
     renderDrawer({ kind: 'wu', id: 'WU-1017' });
-    await waitFor(() => expect(screen.getAllByText('执行中').length).toBeGreaterThan(0));
+    await waitFor(() => expect(screen.getAllByText('进行中').length).toBeGreaterThan(0));
     act(() => sseHandler!({
       event_type: 'workunit.status_changed',
       data: { workunit: { ...WU, id: 'WU-9999', status: 'done' } },
     }));
-    // 仍为 active 展示（「已完成」不出现；执行中 chip 保留）
-    expect(screen.queryByText('已完成')).toBeNull();
-    expect(screen.getAllByText('执行中').length).toBeGreaterThan(0);
+    // 仍为 active 展示（「完成」不出现；进行中 chip 保留）
+    expect(screen.queryByText('完成')).toBeNull();
+    expect(screen.getAllByText('进行中').length).toBeGreaterThan(0);
   });
 
   it('决策8：workunit.tokens 同 id → 三条 bar 聚合即时累加', async () => {

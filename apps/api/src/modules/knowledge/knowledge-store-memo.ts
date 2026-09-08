@@ -5,7 +5,7 @@
  * 真源是磁盘文件，但管理它的存储栈来自外部包（harness FileKnowledgeStore，npm 固定版本），
  * 进不了 studio-shared FileStore 读穿 seam → 决策树第 3 问「聚合 memo」，贴着
  * knowledge-singletons 的 sharedStore 组装点放置。失效口径（写在构造处）：
- *   - 本进程写穿透：save/update/delete/rebuildIndex 同步失效全部 memo；
+ *   - 本进程写穿透：save/saveAll/update/delete/rebuildIndex 同步失效全部 memo；
  *   - 跨进程外部写：每次读前重算指纹（readdir + 逐文件 stat，mtimeMs+size），
  *     指纹不变 → memo 有效；有变 → 全量重扫。残余风险与 FileStore seam 的 mtime
  *     兜底同量级：外部同毫秒且等长改写不可见（本进程写不受此限）。
@@ -51,6 +51,12 @@ export class MtimeMemoKnowledgeStore implements KnowledgeStore {
 
   save(entry: KnowledgeEntry): void {
     this.underlying.save(entry);
+    this.invalidate();
+  }
+
+  /** harness#107 批量写：与 save 同一写穿透口径——整批落盘后统一失效 */
+  saveAll(entries: KnowledgeEntry[]): void {
+    this.underlying.saveAll(entries);
     this.invalidate();
   }
 

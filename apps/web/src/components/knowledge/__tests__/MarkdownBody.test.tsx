@@ -22,11 +22,12 @@ describe('MarkdownBody', () => {
     expect(screen.getByRole('heading', { level: 1, name: '标题一' })).toBeInTheDocument();
     expect(container.querySelector('strong')?.textContent).toBe('加粗');
     expect(container.querySelectorAll('ul li')).toHaveLength(2);
-    // 行内代码：行内 chip（--bg-tertiary 背景），不在 pre 内
+    // 行内代码：行内 chip（u-surface-2 类 = --bg-tertiary 背景，#431 内联→类），不在 pre 内
     const inline = screen.getByText('useState');
     expect(inline.tagName).toBe('CODE');
     expect(inline.closest('pre')).toBeNull();
-    expect(inline.getAttribute('style')).toContain('--bg-tertiary');
+    expect(inline.className).toContain('u-surface-2');
+    expect(inline.getAttribute('style')).toBeNull();
   });
 
   it('GFM：表格渲染为 table 元素（th/td 带分隔线）', () => {

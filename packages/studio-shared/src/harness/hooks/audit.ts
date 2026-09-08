@@ -1,14 +1,10 @@
 /**
  * Audit Recorder — 决策级审计事件记录
  *
- * L1: recordDecision() 写入 ~/.harness/audit/{date}.jsonl（追加不可变）
- *     + 发布 EventBus 事件，由 API 层异步写入 DB DecisionAudit 表
- * L2/L3 由 Auditor 角色消费。
+ * recordDecision() 发布 EventBus 事件，由 API 层异步写入 DB DecisionAudit 表
+ * （L1 全局文件 ~/.harness/audit/ 已停写——无活跃读方，#425 a1；L2/L3 由 Auditor 角色消费）。
  */
 
-import * as fs from 'fs';
-import * as path from 'path';
-import * as os from 'os';
 import { eventBus } from '../../event-bus';
 
 export interface AuditEvent {
@@ -22,37 +18,15 @@ export interface AuditEvent {
   actorRole?: string;
 }
 
-// 惰性求值：避免模块加载时调用 os.homedir()（前端 bundle 不具备 Node polyfill）
-function getAuditDir(): string {
-  return path.join(os.homedir(), '.harness', 'audit');
-}
-
-function getAuditFile(): string {
-  const date = new Date().toISOString().slice(0, 10);
-  return path.join(getAuditDir(), `${date}.jsonl`);
-}
-
-function ensureDir(): void {
-  const dir = getAuditDir();
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
-}
-
 /**
- * 写入审计文件 + 发布 EventBus 事件供 DB 持久化
+ * 发布审计事件供 DB 持久化（id/timestamp 在此统一加盖）
  */
 export function recordDecision(event: AuditEvent): void {
-  ensureDir();
-
   const entry = {
     ...event,
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     timestamp: new Date().toISOString(),
   };
-
-  // 文件存储（L1，追加不可变）
-  fs.appendFileSync(getAuditFile(), JSON.stringify(entry) + '\n', 'utf-8');
 
   // EventBus 事件（异步，DB 持久化由 API 层 audit-subscriber 处理）
   eventBus.publish('events:audit', entry);

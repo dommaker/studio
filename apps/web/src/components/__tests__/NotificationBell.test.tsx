@@ -9,17 +9,24 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import type { WebSocketMessage } from '../../api/websocket';
 
-const { mockNavigate, sseHandlers, mockApi, stableOnEvent } = vi.hoisted(() => {
+const { mockNavigate, sseHandlers, reconnectHandlers, mockApi, stableOnEvent, stableOnReconnect } = vi.hoisted(() => {
   const handlers = new Set<(msg: unknown) => void>();
+  const reconnects = new Set<() => void>();
   return {
     mockNavigate: vi.fn(),
     sseHandlers: handlers,
+    reconnectHandlers: reconnects,
     mockApi: { get: vi.fn(), post: vi.fn() },
     // 真实 onEvent 是 useCallback([]) 稳定引用（websocket.tsx）；不稳定会导致
     // NotificationBell 的 [onEvent] effect 每次渲染重跑，cleanup 清掉 flash 定时器
     stableOnEvent: (handler: (msg: unknown) => void) => {
       handlers.add(handler);
       return () => { handlers.delete(handler); };
+    },
+    // #415：onReconnect 同为稳定注册（websocket.tsx）——重连处理器经此手工触发
+    stableOnReconnect: (handler: () => void) => {
+      reconnects.add(handler);
+      return () => { reconnects.delete(handler); };
     },
   };
 });
@@ -30,7 +37,7 @@ vi.mock('react-router-dom', async () => {
 });
 
 vi.mock('../../api/websocketHooks', () => ({
-  useWebSocketContext: () => ({ onEvent: stableOnEvent }),
+  useWebSocketContext: () => ({ onEvent: stableOnEvent, onReconnect: stableOnReconnect }),
 }));
 
 vi.mock('../../api', () => ({ api: mockApi }));
@@ -82,6 +89,13 @@ function emitAtHuman(message: FakeMessage, channelId = 'ch-1') {
   });
 }
 
+/** #415：手工触发重连（真实 EventSource 非首次 onopen 才回调） */
+function emitReconnect() {
+  act(() => {
+    reconnectHandlers.forEach(h => h());
+  });
+}
+
 function openDropdown() {
   fireEvent.click(screen.getByTitle('通知中心'));
 }
@@ -94,6 +108,7 @@ async function renderLoaded(rows: BackendNotification[]) {
 
 beforeEach(() => {
   sseHandlers.clear();
+  reconnectHandlers.clear();
   // store 是模块单例，跨用例重置通知列表
   useNotificationStore.setState({ notifications: [] });
   mockNavigate.mockClear();
@@ -235,6 +250,29 @@ describe('§5.7 SSE 实时 atHuman 增量（保留）', () => {
     fireEvent.click(screen.getByText('PMO'));
     expect(mockNavigate).toHaveBeenCalledTimes(1);
     expect(mockNavigate).toHaveBeenCalledWith('/pmo/project/proj-5');
+  });
+});
+
+describe('#415 断线重连 → 持久面一次性 refetch（ADR D3）', () => {
+  it('重连触发 loadFromBackend：后端行刷新对齐，SSE 增量条目（backendId null）保留', async () => {
+    await renderLoaded(backendRows());
+    emitAtHuman({ id: 'm-r', agentName: 'pmo', content: '实时条目', meta: { atHuman: true } });
+    // 重连期间持久面新增 n3 → refetch 后对齐
+    mockList(backendRows([{ id: 'n3', title: '断线期间落库', content: '新告警', link: '/channels/ch-9', read: false }]));
+    emitReconnect();
+    await waitFor(() => expect(mockApi.get).toHaveBeenCalledTimes(2));
+    openDropdown();
+    expect(screen.getByText('断线期间落库')).toBeInTheDocument();
+    // SSE 条目不在后端持久面，refetch 不丢它
+    expect(screen.getByText('实时条目')).toBeInTheDocument();
+  });
+
+  it('重连 refetch 失败不崩溃：保留现有列表', async () => {
+    await renderLoaded(backendRows());
+    mockApi.get.mockRejectedValue(new Error('network'));
+    emitReconnect();
+    openDropdown();
+    expect(screen.getByText('审计建议 (2 项)')).toBeInTheDocument();
   });
 });
 

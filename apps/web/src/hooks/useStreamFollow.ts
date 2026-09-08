@@ -3,7 +3,12 @@
 // 新消息仅在钉底中或自己发送时跟随；ResizeObserver 跟随卡片展开等撑高；离底浮出「回到底部」；
 // #290（清单 #22/#27）：加载更早走行锚点补偿（不依赖总高度差）；阅读位置按频道持久化（localStorage）。
 // #325（ADR 2026-08-24 channel-stream-virtualization）：虚拟化接入——virtualizer 建在本 hook，
-// 一切 virtualizer 滚动写入经自定义 scrollToFn 过台账（D4-5）；自动测量校正全关（D4-2 校正权独占）；
+// 一切 virtualizer 滚动写入经自定义 scrollToFn 过台账（D4-5）；
+// #449（#438 方案 C）：D4-2 的 `shouldAdjustScrollPositionOnItemSizeChange=()=>false` 覆写已删，
+// 启用 virtual-core 3.17.8 库默认校正谓词（首测且行 top 在视口上方 → 补偿 scrollTop），
+// 消除向上滚入未测量区的「边滚边修正」漂移；库补偿写入统一过 scrollToFn 台账，D4-5 纪律不变；
+// #450（#438 方案 A）：estimateSize 分型静态估计替代常量 120（档位值 = #系统 实测分布，
+// 纯函数 estimateStreamItemSize 在 utils/streamVirtual），降低估计偏差与滚动条比例失真；
 // prepend 补偿数据源 = measurements 按 key 查 start（验证约束 1，不做 prepend 后 DOM 查询）；
 // 阅读位置恢复两段式（scrollToIndex 粗定位 → reconcile 收敛后 DOM 精校正；
 // #339：收敛前校正会被 scrollToIndex 的 reconcile rAF 循环改写踩掉，必须等收敛后落地）。
@@ -16,10 +21,7 @@ import type { ChannelMessage } from '../api/channel';
 import type { StreamItem } from '../utils/streamView';
 import { isPinnedToBottom, isReaderScroll, shouldFollowBottom, captureFirstVisibleAnchor, anchorScrollDelta, type ScrollAnchor, type MessageRowRect } from '../utils/streamFollow';
 import { loadReadingPosition, saveReadingPosition, type ReadingPosition } from '../utils/readingPosition';
-import { STREAM_VIRTUAL_ENABLED, streamItemKey, anchorScrollTopAfterPrepend, virtualizerScrollSettled, planFineAdjust } from '../utils/streamVirtual';
-
-/** 行高估计：消息行普遍 60~300，取 120（估计偏差只影响未测量区滚动条比例与粗定位收敛轮数） */
-const ESTIMATED_ROW_PX = 120;
+import { STREAM_VIRTUAL_ENABLED, streamItemKey, anchorScrollTopAfterPrepend, virtualizerScrollSettled, planFineAdjust, estimateStreamItemSize } from '../utils/streamVirtual';
 
 export interface UseStreamFollowOptions {
   channelId: string | undefined;
@@ -79,20 +81,22 @@ export function useStreamFollow({ channelId, messages, loading, loadMore, items,
     scrollStreamTo(offset + adjustments);
   }, [scrollStreamTo]);
   const getItemKey = useCallback((index: number) => streamItemKey(items[index]), [items]);
+  // #450（#438 方案 A）：estimateSize 分型静态估计——按 item 类型给值替代常量 120
+  // （档位值 = #系统 长频道实测行高分布，见 streamVirtual.ROW_HEIGHT_ESTIMATE 注释与报告附录）；
+  // useCallback 依赖 items 与 getItemKey 同步重建，估计值本身是静态表、不随测量更新（报告 §3-B 证伪动态估计）。
+  const estimateSize = useCallback((index: number) => estimateStreamItemSize(items[index]), [items]);
   const virtualizer = useVirtualizer<HTMLDivElement, HTMLDivElement>({
     count: items.length,
     getScrollElement: () => streamRef.current,
-    estimateSize: () => ESTIMATED_ROW_PX,
+    estimateSize,
     getItemKey,
     overscan: 8,
     scrollMargin,
     enabled: virtualEnabled,
     scrollToFn,
   });
-  // D4-2 校正权独占：prepend 补偿/跟随/恢复全走自家逻辑，virtualizer 自动测量校正全关
-  useEffect(() => {
-    virtualizer.shouldAdjustScrollPositionOnItemSizeChange = () => false;
-  }, [virtualizer]);
+  // #449：此处原有 D4-2 校正权独占覆写（shouldAdjustScrollPositionOnItemSizeChange=()=>false），
+  // 已删——库默认谓词即补偿「首测且行 top 在视口上方」，与自家 prepend 补偿/恢复两段式互补。
 
   // 捕获首个可见消息行作锚点（视口相对坐标；几何判定走 streamFollow 纯函数）
   const captureAnchor = useCallback((): ScrollAnchor | null => {
@@ -320,12 +324,22 @@ export function useStreamFollow({ channelId, messages, loading, loadMore, items,
     return () => ro.disconnect();
   }, [scrollStreamTo]);
 
+  // #439 走查修复：显式定位跳转（?highlight 直达 / chip 定位提问）= 离开底部的导航意图——
+  // 不解钉的话，钉底跟随 effect（messages 任何变化即 pinAndJumpToBottom）会把视口拽回底部，
+  // 与定位滚动振荡（实测：翻页定位老消息时视口在目标与底部之间来回跳）。幂等。
+  const unpinFromBottom = useCallback(() => {
+    pendingFineAdjustRef.current = null; // 离开存档位置，放弃未落地的精校正（同 pinAndJumpToBottom 语义）
+    pinnedRef.current = false;
+    setShowJumpToBottom(true);
+  }, []);
+
   return {
     streamRef,
     streamInnerRef,
     handleStreamScroll,
     showJumpToBottom,
     pinAndJumpToBottom,
+    unpinFromBottom,
     handleLoadMore,
     ownSendPendingRef,
     // #325：渲染段窗口化消费（virtualEnabled=false 时忽略，全量渲染）

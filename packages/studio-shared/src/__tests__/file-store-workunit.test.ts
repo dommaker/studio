@@ -119,6 +119,16 @@ describe('FileStoreWorkUnitBase（直接单元测试）', () => {
       expect(await store.getIndex({ status: 'active', channelId: 'ch2' })).toEqual([]);
     });
 
+    it('getIndex 支持 id 点读过滤（及与其他字段 AND 组合）', async () => {
+      await store.upsertSnapshot(makeWuSnapshot('wu1', { status: 'active', channelId: 'ch1' }));
+      await store.upsertSnapshot(makeWuSnapshot('wu2', { status: 'active' }));
+
+      expect((await store.getIndex({ id: 'wu1' })).map(s => s.id)).toEqual(['wu1']);
+      expect(await store.getIndex({ id: 'missing' })).toEqual([]);
+      expect((await store.getIndex({ id: 'wu1', status: 'active' })).map(s => s.id)).toEqual(['wu1']);
+      expect(await store.getIndex({ id: 'wu1', status: 'unassigned' })).toEqual([]);
+    });
+
     it('index.json 撕裂 → getIndex 抛出带路径的错误（不静默当空）', async () => {
       writeTornIndex();
       await expect(store.getIndex()).rejects.toThrow(indexPath());

@@ -13,6 +13,7 @@ vi.mock('../../api/websocketHooks', () => ({
   useWebSocketContext: () => ({
     status: state.status,
     onEvent: () => () => {},
+    onReconnect: () => () => {}, // NotificationBell 注册重连 refetch（#415）
   }),
 }));
 

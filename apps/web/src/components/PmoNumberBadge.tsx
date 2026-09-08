@@ -1,14 +1,14 @@
 /**
  * PMO 号显示组件 - GEN-005
  * 
- * 显示格式：PM-001（带颜色状态）
+ * 原样显示 PMO 编号（PMO-<n>，带颜色状态），不拼前缀 —— #432 C1
  */
 
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 
 interface PmoNumberBadgeProps {
-  pmoNumber: string;  // PM-001
+  pmoNumber: string;  // PMO-1
   status?: 'pending' | 'active' | 'in_review' | 'completed' | 'cancelled';
   size?: 'sm' | 'md' | 'lg';
   onClick?: () => void;
@@ -43,8 +43,7 @@ export function PmoNumberBadge({
       onClick={onClick}
       title={`PMO 号: ${pmoNumber} | 状态: ${status}`}
     >
-      <span className="mr-1">PM-</span>
-      <span className="font-bold">{pmoNumber.replace('PM-', '')}</span>
+      <span className="font-bold">{pmoNumber}</span>
     </span>
   );
 }

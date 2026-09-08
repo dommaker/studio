@@ -102,6 +102,23 @@ git checkout -b feat/<slug>
 
 **探索是实现的一部分**：没有上下文地图工件，实现者自行读代码定位。探索收敛后开工；发现与工单描述明显不符的现状 → 停下报告，不静默改需求。
 
+### ①.5 实现契约（RED 前置，HARD-GATE）
+
+写第一行测试代码**之前**，先为本次改动锁定实现契约，三行声明（写进工单回复或 TaskCreate description）：
+
+```
+实现契约：
+- Invariant：<本改动必须建立/保持的不变量，一句话，如"同一时刻一个 WU 只有一个 in_progress 认领者">
+- Failure mode：<违反/失败时的可观察行为——具体错误码、异常类型、状态回退，如"重复认领返回 409 CONFLICT">
+- Test evidence：<用哪个测试证明，如"workunit.claim.test.ts 的 '并发认领仅一个成功' 用例">
+```
+
+契约的用途：RED 阶段写的每个 FAIL 测试必须能挂到某条契约上（证明 invariant 或触发 failure mode）；挂不上的测试 = 超出契约范围，删。契约写不出（说不清不变量或失败行为）= 工单 AC 不够具体 → 停下报告，退回上游，不凭猜测开工。
+
+<HARD-GATE>
+未产出实现契约（三行齐全）不得进入 RED 阶段。
+</HARD-GATE>
+
 ```
 TaskCreate(subject="AC1: ...", description="RED: 写 FAIL 测试 | GREEN: 实现 ...")
 
@@ -229,6 +246,7 @@ pnpm test → 确认全部 PASS + 无回归
 | # | 检查项 | 通过标准 | 不通过动作 |
 |---|--------|---------|-----------|
 | 1 | 分支检查 | `git branch --show-current` 不是 master/main | 退回 ⓪，创建分支后重新开始 |
+| 1.5 | 实现契约 | Invariant / Failure mode / Test evidence 三行齐全，且每个 FAIL 测试可挂到契约 | 退回 ①.5 补契约；写不出 → 停下报告上游 |
 | 2 | 测试全部 PASS | `pnpm test` 0 failures | 修复实现（不改测试） |
 | 3 | 无回归 | 相关模块测试不挂 | 排查影响面 |
 | 4 | 增量类型检查 | 修改文件 tsc 无错误 | 修复类型问题 |

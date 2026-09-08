@@ -9,6 +9,7 @@ import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { LIBRARY_DOC_STATUS_COLORS, LIBRARY_DOC_STATUS_LABELS } from '@dommaker/studio-shared/web';
 import { libraryApi } from '../api';
+import { stripDuplicateH1 } from '../utils/stripDuplicateH1';
 import { BackButton } from '../components/ui';
 
 const MarkdownBody = lazy(() => import('../components/knowledge/MarkdownBody'));
@@ -71,7 +72,7 @@ export function LibraryDocPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 u-border-2" />
+        <div className="loading-spinner" />
       </div>
     );
   }
@@ -91,18 +92,20 @@ export function LibraryDocPage() {
   }
 
   // legacy 遗产文档：requirement/design/task 三段；普通文档仅 content 一段
-  const sections: Array<{ label: string; body: string }> = doc.legacy
+  // #436 C9：页头恒渲染 doc.title，正文首个 H1 与标题重复时剥除，标题全页只出现一次
+  const sections: Array<{ label: string; body: string }> = (doc.legacy
     ? [
         { label: '需求', body: doc.requirement ?? doc.content },
         ...(doc.design ? [{ label: '设计', body: doc.design }] : []),
         ...(doc.task ? [{ label: '任务', body: doc.task }] : []),
       ]
-    : [{ label: '', body: doc.content }];
+    : [{ label: '', body: doc.content }]
+  ).map((s) => ({ ...s, body: stripDuplicateH1(s.body, doc.title) }));
 
   return (
-    <div className="h-full flex flex-col" style={{ background: 'var(--bg-primary)' }}>
+    <div className="h-full flex flex-col u-page-bg">
       {/* Header */}
-      <div className="px-8 py-6" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+      <div className="u-page-head">
         <div className="flex items-center gap-3 mb-4">
           {/* #393 §4.4：详情页统一左上返回（直开回落 /library） */}
           <BackButton fallback="/library" />

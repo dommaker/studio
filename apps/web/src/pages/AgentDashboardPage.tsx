@@ -5,7 +5,6 @@
 // §6.3 页头统计行 = 快速筛选 chip（与卡面状态同口径同色，点击过滤/再点取消；「在线」正交维度移出）；
 // §6.4 创建角色 = 弹框不跳页（保存=关弹框就地刷新名册）。
 import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
 import { useAgentRoster, type RosterRole } from '../hooks/useAgentRoster';
 import { RoleCard } from '../components/monitoring/RoleCard';
 import { CreateRoleModal } from '../components/monitoring/CreateRoleModal';
@@ -49,8 +48,8 @@ export function AgentDashboardPage() {
   const toggleFilter = (f: StatusFilter) => setStatFilter((prev) => (prev === f ? 'all' : f));
 
   return (
-    <div className="h-full flex flex-col" style={{ background: 'var(--bg-primary)' }}>
-      <div className="px-8 py-6" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+    <div className="h-full flex flex-col u-page-bg">
+      <div className="u-page-head">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="page-title">Agent 管理</h1>
@@ -58,7 +57,6 @@ export function AgentDashboardPage() {
           </div>
           <div className="flex gap-2">
             <button className="btn btn-primary" onClick={() => setCreateOpen(true)}>创建角色</button>
-            <Link to="/" className="btn btn-secondary">返回</Link>
           </div>
         </div>
 
@@ -87,8 +85,8 @@ export function AgentDashboardPage() {
         ) : loading && roles.length === 0 ? (
           <div className="text-center py-20 u-text-2">加载中...</div>
         ) : roles.length === 0 ? (
-          <div className="text-center py-20 u-text-2">
-            <div className="text-4xl mb-4">🤖</div>
+          <div className="empty-state">
+            <div className="empty-icon">🤖</div>
             <p>暂无角色</p>
             <p className="text-sm mt-2">点击右上角"创建角色"，从检测到的 CLI 创建第一个 Agent</p>
           </div>

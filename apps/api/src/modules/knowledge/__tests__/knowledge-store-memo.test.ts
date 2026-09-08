@@ -122,6 +122,16 @@ describe('MtimeMemoKnowledgeStore', () => {
     expect(store.list({}).map(e => e.id)).not.toContain('kb2');
   });
 
+  it('write-through: saveAll batch is immediately visible and busts the memo once', () => {
+    const spy = vi.spyOn(raw, 'list');
+    store.list({});
+    store.saveAll([makeEntry({ id: 'kb10' }), makeEntry({ id: 'kb11' })]);
+    const ids = store.list({}).map(e => e.id);
+    expect(ids).toContain('kb10');
+    expect(ids).toContain('kb11');
+    expect(spy).toHaveBeenCalledTimes(2);
+  });
+
   it('write-through: rebuildIndex picks up hand-written files', () => {
     const orphan = makeEntry({ id: 'kb9' });
     const frontmatter = [

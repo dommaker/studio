@@ -9,6 +9,7 @@ import * as fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
+import { countProcessesByCmdline } from '../agents/ops/proc-probes.js';
 
 interface SnapshotData {
   hostname: string;
@@ -236,12 +237,10 @@ export class EnvSnapper {
       }
     } catch { /* optional */ }
 
-    // cloudflared 检测
+    // cloudflared 检测（/proc 直读，零子进程——#418）
     let tunnelType: string | undefined;
     try {
-      const { execSync } = require('child_process');
-      const ps = execSync('ps aux | grep cloudflared | grep -v grep || echo ""', { timeout: 3000 }).toString().trim();
-      tunnelType = ps ? 'cloudflared' : undefined;
+      tunnelType = countProcessesByCmdline('cloudflared') > 0 ? 'cloudflared' : undefined;
     } catch { /* optional */ }
 
     const knownLimitations = this.getDefaultLimitations();

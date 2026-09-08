@@ -1,6 +1,6 @@
 // #394 ChannelActivityRail — 频道动态右栏：REQ 链路卡（四站 stepper）+ 混合交互（REQ/WU 抽屉、PMO/Agent ↗ 跳页）
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within, act } from '@testing-library/react';
 import type { ReactNode } from 'react';
 
 const { mockGetChain, mockGetCurrentPmo, mockProjectGet, mockResolveAssignee, mockNavigate } = vi.hoisted(() => ({
@@ -29,8 +29,10 @@ vi.mock('react-router-dom', () => ({
 }));
 
 import { ChannelActivityRail } from '../ChannelActivityRail';
+import { useChannelDataStore } from '../../../stores/channelDataStore';
+import { useRequirementChainStore } from '../../../stores/requirementChainStore';
 import type { Requirement } from '../../../api/requirements';
-import type { ChannelMessage } from '../../../api/channel';
+import type { ChannelActivityItem } from '../activityRail';
 
 function req(id: string, over: Partial<Requirement> = {}): Requirement {
   return {
@@ -54,7 +56,7 @@ function renderRail(over: Partial<Parameters<typeof ChannelActivityRail>[0]> = {
   const props = {
     channelId: 'ch1',
     reqs: [] as Requirement[],
-    messages: [] as ChannelMessage[],
+    messageItems: [] as ChannelActivityItem[],
     waitingWus: [],
     onOpenWu: vi.fn(),
     onOpenReq: vi.fn(),
@@ -66,6 +68,10 @@ function renderRail(over: Partial<Parameters<typeof ChannelActivityRail>[0]> = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // #403：rail 的 current-pmo 走 channelDataStore——每测重置（数据 + 模块级 TTL 簿记）
+  useChannelDataStore.getState().__resetForTests();
+  // #412：rail 的 chain 走 requirementChainStore——每测重置（模块级 TTL 簿记跨测残留）
+  useRequirementChainStore.getState().__resetForTests();
   mockGetCurrentPmo.mockResolvedValue({ data: { data: null } });
   mockResolveAssignee.mockResolvedValue(null);
 });
@@ -168,18 +174,16 @@ describe('ChannelActivityRail — Agent 链接（§4.3）', () => {
 });
 
 describe('ChannelActivityRail — 动态归属与其他动态（§4.2）', () => {
-  function agentMsg(id: string, wuId: string | null): ChannelMessage {
-    return {
-      id, channelId: 'ch1', authorType: 'agent', content: `内容${id}`,
-      createdAt: '2026-08-10T00:00:00Z', ...(wuId ? { workUnitId: wuId } : {}),
-    } as ChannelMessage;
+  // #416：右栏改消费消息摘要投影（页面侧 projectActivityMessages 产物），测试直接构造条目
+  function wuItem(id: string, wuId: string): ChannelActivityItem {
+    return { id, kind: 'wu', text: `内容${id}`, at: '2026-08-10T00:00:00Z', wuId };
   }
 
   it('WU 消息经 chain 归属挂到 REQ 卡下；无归属落「其他动态」；条目点击开对应抽屉', async () => {
     mockGetChain.mockResolvedValue(chain(null, [{ id: 'wu-a', status: 'active' }]));
     const props = renderRail({
       reqs: [req('REQ-0001')],
-      messages: [agentMsg('m1', 'wu-a'), agentMsg('m2', 'wu-zzz')],
+      messageItems: [wuItem('m1', 'wu-a'), wuItem('m2', 'wu-zzz')],
     });
 
     const card = (await screen.findByText('REQ-0001')).closest('.mc-act-card') as HTMLElement;
@@ -206,5 +210,70 @@ describe('ChannelActivityRail — 动态归属与其他动态（§4.2）', () =>
   it('无 REQ 且无动态 → 空态', async () => {
     renderRail();
     expect(await screen.findByText(/暂无/)).toBeTruthy();
+  });
+});
+
+describe('ChannelActivityRail — #412 chain 数据面 store（请求去重 + 右栏新鲜度）', () => {
+  it('同 chain 会话内请求去重：卸载重挂 TTL 内零重拉', async () => {
+    mockGetChain.mockResolvedValue(chain(null, [{ id: 'wu-a', status: 'active' }]));
+    const props = {
+      channelId: 'ch1',
+      reqs: [req('REQ-0001')],
+      messageItems: [] as ChannelActivityItem[],
+      waitingWus: [],
+      onOpenWu: vi.fn(),
+      onOpenReq: vi.fn(),
+    };
+    const first = render(<ChannelActivityRail {...props} />);
+    await screen.findByText('WU 0/1');
+    expect(mockGetChain).toHaveBeenCalledTimes(1);
+
+    first.unmount();
+    render(<ChannelActivityRail {...props} />);
+    await screen.findByText('WU 0/1');
+    // 旧实现每次挂载逐 REQ 重拉；store 化后缓存命中零请求
+    expect(mockGetChain).toHaveBeenCalledTimes(1);
+  });
+
+  it('REQ 集合变化只 ensure 新增 REQ：已缓存 chain 零重拉（旧 idsKey 全量重拉不复发）', async () => {
+    mockGetChain.mockImplementation((id: string) =>
+      Promise.resolve(chain(null, [{ id: `wu-${id}`, status: 'active' }])));
+    const props = {
+      channelId: 'ch1',
+      reqs: [req('REQ-0001')],
+      messageItems: [] as ChannelActivityItem[],
+      waitingWus: [],
+      onOpenWu: vi.fn(),
+      onOpenReq: vi.fn(),
+    };
+    const view = render(<ChannelActivityRail {...props} />);
+    await screen.findByText('WU 0/1');
+    expect(mockGetChain).toHaveBeenCalledTimes(1);
+
+    view.rerender(<ChannelActivityRail {...props} reqs={[req('REQ-0001'), req('REQ-0002')]} />);
+    await screen.findByText('REQ-0002');
+    await waitFor(() => expect(mockGetChain).toHaveBeenCalledTimes(2));
+    expect(mockGetChain).toHaveBeenLastCalledWith('REQ-0002');
+  });
+
+  it('status_changed 后右栏 stepper 就地更新（WU n/m、交付站亮起），零请求', async () => {
+    mockGetChain.mockResolvedValue(chain(null, [{ id: 'wu-a', status: 'active' }, { id: 'wu-b', status: 'done' }]));
+    renderRail({ reqs: [req('REQ-0001')] });
+    const card = (await screen.findByText('REQ-0001')).closest('.mc-act-card') as HTMLElement;
+    expect(await within(card).findByText('WU 1/2')).toBeTruthy();
+    expect(within(card).getByText('交付').closest('.mc-act-step')!.className).toContain('mc-act-step-upcoming');
+    expect(mockGetChain).toHaveBeenCalledTimes(1);
+
+    // 与 App 级 sync 同一入口：store action 就地推导（旧实现 chain 不随事件更新，stepper 持续陈旧）
+    act(() => {
+      useRequirementChainStore.getState().applyWorkunitStatusChanged({
+        id: 'wu-a', reqId: 'REQ-0001', status: 'done', scope: '任务wu-a', assigneeId: null,
+        completedAt: '2026-08-01T02:00:00Z',
+      });
+    });
+
+    expect(within(card).getByText('WU 2/2')).toBeTruthy();
+    expect(within(card).getByText('交付').closest('.mc-act-step')!.className).toContain('mc-act-step-current');
+    expect(mockGetChain).toHaveBeenCalledTimes(1); // 未重拉
   });
 });

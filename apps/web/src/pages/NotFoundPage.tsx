@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 
 export function NotFoundPage() {
   return (
-    <div className="h-full flex flex-col items-center justify-center" style={{ background: 'var(--bg-primary)' }}>
+    <div className="h-full flex flex-col items-center justify-center u-page-bg">
       <div className="text-6xl mb-4">🔍</div>
       <h1 className="page-title">404</h1>
       <p className="page-subtitle mb-6">页面不存在或已被移除</p>

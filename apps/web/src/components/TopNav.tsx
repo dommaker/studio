@@ -56,7 +56,7 @@ export function TopNav({ onMenuClick }: TopNavProps) {
         {/* SSE 连接状态 */}
         <div className="flex items-center gap-2 text-sm hide-mobile">
           <span className={`status-dot ${connected ? 'status-online' : 'status-offline'}`} />
-          <span style={{ color: 'var(--text-secondary)' }}>
+          <span className="u-text-2">
             {connected ? '已连接' : '未连接'}
           </span>
         </div>

@@ -5,7 +5,7 @@ import { logger, FileStore } from '@dommaker/studio-shared';
 import { channelMessageService } from './channel-message.service.js';
 import { routeMessage } from './message-routing.js';
 import { projectService } from '../pmo/project.service.js';
-import { apiCache, CACHE_CONFIG } from '../../middleware/api-cache.js';
+import { apiCache, CACHE_CONFIG, clearCache } from '../../middleware/api-cache.js';
 import { requireAuth, requireNotGuest } from '../../middleware/auth.js';
 import { ConvertToTaskService } from './convert-to-task.service.js';
 import { WorkUnitService } from '../workunit/workunit.service.js';
@@ -13,6 +13,7 @@ import { ProjectDiscoveryService } from '../projects/project-discovery.service.j
 import { getWorkspaceRecord } from '../workspaces/workspace-store.js';
 import { getChannelFileVocabulary } from './file-ref-vocabulary.js';
 import { deriveChannelCurrentPmo } from './current-pmo.js';
+import { deriveChannelSuggestions } from './suggestions.js';
 import { getErrorMessage } from '../../utils/errors.js';
 
 const router = Router();
@@ -106,6 +107,8 @@ router.post('/', requireAuth(), requireNotGuest(), async (req, res) => {
     // Reload channel to get final members
     const finalChannel = await fileStore.getChannel(channel.id);
     logger.info('[Channel] Created', { id: channel.id, name: channelName, agents: createdAgentIds.length });
+    // #448 问题1：写后失效 channels 列表缓存（30s apiCache）
+    await clearCache(req.baseUrl);
     res.status(201).json({ success: true, data: finalChannel });
   } catch (e: any) {
     throw e;
@@ -127,6 +130,16 @@ router.get('/:id/current-pmo', async (req, res) => {
   if (!channel) return res.status(404).json({ success: false, error: 'Channel not found' });
   const pmo = await deriveChannelCurrentPmo(req.params.id);
   res.json({ success: true, data: pmo });
+});
+
+// GET /api/v1/channels/:id/suggestions — #443（spec #441 情境引导 02）：频道建议派生端点。
+// 不落库、按当前事实现算；fail-closed（前置不满足/拿不准不出）。本票只交付 status
+// 只读状态说明形态（自动评审在途）；action/prompt 形态见 #444/#445/#446（见 suggestions.ts）。
+router.get('/:id/suggestions', async (req, res) => {
+  const channel = await fileStore.getChannel(req.params.id);
+  if (!channel) return res.status(404).json({ success: false, error: 'Channel not found' });
+  const data = await deriveChannelSuggestions(req.params.id, { fileStore });
+  res.json({ success: true, data });
 });
 
 // GET /api/v1/channels/:id/messages — paginated messages
@@ -234,6 +247,8 @@ router.delete('/:id', requireAuth(), requireNotGuest(), async (req, res) => {
   // Delete channel
   await fileStore.deleteChannel(channel.id);
   logger.info('[Channel] Deleted with fallback', { deletedId: channel.id, fallbackId: rndChannel.id });
+  // #448 问题1：写后失效 channels 列表缓存（30s apiCache）
+  await clearCache(req.baseUrl);
   res.json({ success: true, data: { deleted: true, fallbackChannelId: rndChannel.id } });
 });
 
@@ -246,6 +261,8 @@ router.put('/:id/archive', requireAuth(), requireNotGuest(), async (req, res) =>
   const archivedName = `${channel.name}-archived-${Date.now()}`;
   await fileStore.updateChannel(channel.id, { name: archivedName });
   logger.info('[Channel] Archived', { channelId: channel.id, oldName: channel.name });
+  // #448 问题1：写后失效 channels 列表缓存（30s apiCache）
+  await clearCache(req.baseUrl);
   res.json({ success: true, data: { archived: true, newName: archivedName } });
 });
 
@@ -260,6 +277,8 @@ router.put('/:id/restore', requireAuth(), requireNotGuest(), async (req, res) =>
   const restoredName = channel.name.replace(/-archived-\d+$/, '');
   await fileStore.updateChannel(channel.id, { name: restoredName });
   logger.info('[Channel] Restored', { channelId: channel.id, restoredName });
+  // #448 问题1：写后失效 channels 列表缓存（30s apiCache）
+  await clearCache(req.baseUrl);
   res.json({ success: true, data: { restored: true, name: restoredName } });
 });
 
@@ -303,6 +322,8 @@ router.patch('/:id', requireAuth(), requireNotGuest(), async (req, res) => {
     await fileStore.updateChannel(id, data as Partial<import('@dommaker/studio-shared').ChannelData>);
     const updated = await fileStore.getChannel(id);
     if (!updated) return res.status(404).json({ success: false, error: 'Channel not found' });
+    // #448 问题1：写后失效 channels 列表缓存（30s apiCache）
+    await clearCache(req.baseUrl);
     res.json({ success: true, data: updated });
   } catch (e: unknown) {
     const msg = getErrorMessage(e);
@@ -318,6 +339,8 @@ router.patch('/:id/members', requireAuth(), requireNotGuest(), async (req, res) 
   const { add, remove } = req.body;
   try {
     const members = await updateChannelMembers(req.params.id, { add, remove });
+    // #448 问题1：members 在列表载荷中，写后失效 channels 列表缓存（30s apiCache）
+    await clearCache(req.baseUrl);
     res.json({ success: true, data: { members } });
   } catch (e: unknown) {
     const msg = getErrorMessage(e);

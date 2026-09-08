@@ -35,7 +35,7 @@ export function ProjectMap({ map, decisionStatusByWuId, chainWus }: ProjectMapPr
       {/* 目标 */}
       <div className="mb-4">
         <div className="mc-card-label mb-1">🎯 目标</div>
-        <div className="text-sm u-text-1">{map.destination}</div>
+        <div className="text-sm u-text">{map.destination}</div>
       </div>
 
       {/* 待决问题清单（状态徽章四态：待认领/讨论中/待确认/已定） */}
@@ -54,13 +54,12 @@ export function ProjectMap({ map, decisionStatusByWuId, chainWus }: ProjectMapPr
                   {item.wuId ? (
                     <button
                       onClick={() => navigate(`/workunits/${item.wuId}`)}
-                      className="text-sm u-text-1 u-hover-bg"
-                      style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, font: 'inherit', textAlign: 'left' }}
+                      className="text-sm u-text u-hover-bg u-btn-reset text-left"
                     >
                       {item.question}
                     </button>
                   ) : (
-                    <span className="text-sm u-text-1">{item.question}</span>
+                    <span className="text-sm u-text">{item.question}</span>
                   )}
                 </li>
               );
@@ -81,8 +80,7 @@ export function ProjectMap({ map, decisionStatusByWuId, chainWus }: ProjectMapPr
                 <span className="text-xs u-text-3" style={{ flexShrink: 0 }}>{formatTimelineTime(d.resolvedAt)}</span>
                 <button
                   onClick={() => navigate(`/workunits/${d.wuId}`)}
-                  className="text-sm u-text-1 u-hover-bg"
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, font: 'inherit', textAlign: 'left' }}
+                  className="text-sm u-text u-hover-bg u-btn-reset text-left"
                 >
                   {d.summary || '（未填写结论）'}
                 </button>
@@ -103,8 +101,7 @@ export function ProjectMap({ map, decisionStatusByWuId, chainWus }: ProjectMapPr
               <li key={row.id}>
                 <button
                   onClick={() => navigate(`/workunits/${row.id}`)}
-                  className="text-sm u-text-1 u-hover-bg"
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, font: 'inherit' }}
+                  className="text-sm u-text u-hover-bg u-btn-reset"
                 >
                   {row.title}
                 </button>
@@ -141,8 +138,7 @@ export function NextActionCard({ action }: { action: NextActionCandidate | null 
         <div className="flex items-center gap-2 flex-wrap">
           <button
             onClick={() => navigate(`/workunits/${action.id}`)}
-            className="text-sm u-accent u-hover-bg"
-            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, font: 'inherit' }}
+            className="text-sm u-accent u-hover-bg u-btn-reset"
           >
             {action.title}
           </button>

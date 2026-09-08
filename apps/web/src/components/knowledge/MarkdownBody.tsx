@@ -124,7 +124,7 @@ function createComponents({ codeCopy, renderInlineCode, mentions }: ComponentsOp
         if (custom != null) return <>{custom}</>;
       }
       return (
-        <code className="px-1 py-0.5 rounded text-xs font-mono" style={{ background: 'var(--bg-tertiary)' }}>
+        <code className="px-1 py-0.5 rounded text-xs font-mono u-surface-2">
           {children}
         </code>
       );
@@ -139,16 +139,16 @@ function createComponents({ codeCopy, renderInlineCode, mentions }: ComponentsOp
       ),
     table: ({ children }) => <table className="w-full text-xs my-2 border-collapse">{children}</table>,
     th: ({ children }) => (
-      <th className="px-2 py-1 text-left u-text-2" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+      <th className="px-2 py-1 text-left u-text-2 border-b u-border">
         {children}
       </th>
     ),
     td: ({ children }) => (
-      <td className="px-2 py-1" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+      <td className="px-2 py-1 border-b u-border">
         {children}
       </td>
     ),
-    hr: () => <hr className="my-3" style={{ border: 0, borderTop: '1px solid var(--border-subtle)' }} />,
+    hr: () => <hr className="my-3 border-0 border-t u-border" />,
     img: ({ src, alt }) => <img src={src} alt={alt ?? ''} className="max-w-full rounded my-2" />,
   };
 }

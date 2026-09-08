@@ -1,4 +1,5 @@
 // MoreDropdown.tsx - "更多"下拉菜单组件（L4 高级功能）
+// 左侧 sidebar「更多」收纳项已并入本下拉（知识库/阅览室/监控 + 审计日志/设置；PMO 为 sidebar 四主项之一，不重复收纳）
 import { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import '../styles/theme.css';
@@ -10,8 +11,10 @@ interface DropdownItem {
 }
 
 const MORE_ITEMS: DropdownItem[] = [
+  { to: '/knowledge', icon: '📚', label: '知识库' },
+  { to: '/library', icon: '📖', label: '阅览室' },
+  { to: '/monitoring', icon: '📈', label: '监控' },
   { to: '/audit-logs', icon: '🔍', label: '审计日志' },
-  { to: '/pmo', icon: '📊', label: 'PMO' },
 ];
 
 const CONFIG_ITEMS: DropdownItem[] = [
@@ -38,11 +41,8 @@ export function MoreDropdown() {
     <Link
       key={item.to}
       to={item.to}
-      className="block px-4 py-2 text-sm transition-colors flex items-center gap-2"
-      style={{ color: 'var(--text-primary)' }}
+      className="block px-4 py-2 text-sm transition-colors flex items-center gap-2 u-hover-bg u-text"
       onClick={() => setIsOpen(false)}
-      onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-hover)')}
-      onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
     >
       <span>{item.icon}</span>
       <span>{item.label}</span>
@@ -53,10 +53,9 @@ export function MoreDropdown() {
     <div ref={dropdownRef} className="relative">
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="btn btn-ghost flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors"
-        style={{ color: 'var(--text-secondary)' }}
+        className="btn btn-ghost flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors u-text-2"
       >
-        <span>📈</span>
+        <span>🗂</span>
         <span className="hidden sm:inline">更多</span>
         <span className="text-xs">{isOpen ? '▼' : '▶'}</span>
       </button>
@@ -71,17 +70,17 @@ export function MoreDropdown() {
         >
           {/* 高级功能 */}
           <div className="px-2 pb-1">
-            <span className="text-xs font-medium px-2" style={{ color: 'var(--text-tertiary)' }}>
+            <span className="text-xs font-medium px-2 u-text-3">
               高级功能
             </span>
           </div>
           {MORE_ITEMS.map(renderItem)}
 
-          <div className="my-1 mx-2" style={{ borderTop: '1px solid var(--border-subtle)' }} />
+          <div className="my-1 mx-2 border-t u-border" />
 
           {/* 配置功能 */}
           <div className="px-2 pb-1">
-            <span className="text-xs font-medium px-2" style={{ color: 'var(--text-tertiary)' }}>
+            <span className="text-xs font-medium px-2 u-text-3">
               配置
             </span>
           </div>

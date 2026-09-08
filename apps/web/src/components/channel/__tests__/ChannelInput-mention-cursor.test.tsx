@@ -20,6 +20,7 @@ vi.mock('../../../api/channel', () => ({
 }));
 
 import { ChannelInput } from '../ChannelInput';
+import { useRosterStore } from '../../../stores/rosterStore';
 
 const mockAgents = [
   { id: 'a1', name: 'dev-agent', description: null, status: 'active' },
@@ -30,6 +31,8 @@ describe('ChannelInput mention 光标重算（f7f05269）', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockListAgents.mockResolvedValue({ data: { data: mockAgents } });
+    // #403：agent 列表改读 rosterStore 客户端切片——seed 正本 + fresh TTL 锚点（ensureFresh 零请求）
+    useRosterStore.setState({ profiles: mockAgents, loadedAt: Date.now(), inflight: null, forbidden: false, lastToken: null });
   });
 
   it('光标移出 @query 弹层关闭，移回重算后重新出现', async () => {

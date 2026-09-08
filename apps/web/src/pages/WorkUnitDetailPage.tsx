@@ -6,7 +6,7 @@
 // 数据获取/派生/mutation handler 逻辑沿用重构前实现；「待验收」站时间戳口径见 utils/wuLifecycle.ts 注释（§5.6.2）。
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { deriveDisplayState, parseAttestations, WU_STATUS_COLORS, WU_STATUS_LABELS, WU_TYPE_LABELS } from '@dommaker/studio-shared/web';
+import { deriveDisplayState, parseAttestations, WU_STATUS_COLORS, WU_STATUS_LABELS, WU_TYPE_LABELS, formatChannelName } from '@dommaker/studio-shared/web';
 import { workunitApi, type Opportunity, type WorkUnit } from '../api/workunit';
 import { requirementApi } from '../api/requirements';
 import { projectApi } from '../api/index';
@@ -24,6 +24,7 @@ import { BlockedByList } from '../components/workunit/BlockedByList';
 import { StationStepper, LifecycleEventChips } from '../components/workunit/StationStepper';
 import { TreeTokenEntry } from '../components/workunit/TreeTokenChart';
 import { BackButton } from '../components/ui';
+import { MetaStrip } from '../components/ui/MetaStrip';
 import { parseBlockedBy, buildMapOpeningPrefill } from '../components/pmo/mapUtils';
 import { AnalysisApproveDialog } from '../components/pmo/AnalysisApproveDialog';
 import { buildLifecycle } from '../utils/wuLifecycle';
@@ -182,6 +183,18 @@ export function WorkUnitDetailPage() {
         </div>
       </div>
 
+      {/* #440 Phase 3：标题下 meta strip（涉及角色 / AC 数 / 当前阶段；缺项不占位） */}
+      {wu && derived && (
+        <MetaStrip
+          className="wu-detail-meta"
+          items={[
+            { key: 'role', label: '涉及角色', value: wu.assigneeId ? <AssigneeLabel assigneeId={wu.assigneeId} className="u-hover-accent" /> : null },
+            { key: 'ac', label: 'AC 数', value: acList.length > 0 ? acList.length : null },
+            { key: 'stage', label: '当前阶段', value: WU_STATUS_LABELS[derived.column] ?? derived.column },
+          ]}
+        />
+      )}
+
       {/* 四站 stepper 全页共享定位条 + 生命周期关键事件 chip 行（无事件不占行） */}
       {life && (
         <div className="wu-detail-stepperwrap">
@@ -221,7 +234,7 @@ export function WorkUnitDetailPage() {
                   {wu.channelId && (
                     <FactRow k="频道">
                       <Link to={`/channels/${wu.channelId}`} className="u-text-2" title="所在频道">
-                        # {channelName ?? `${wu.channelId.slice(0, 8)}...`}
+                        {formatChannelName(channelName ?? `${wu.channelId.slice(0, 8)}...`)}
                       </Link>
                     </FactRow>
                   )}

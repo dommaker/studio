@@ -6,6 +6,7 @@
  */
 import { useState } from 'react';
 import { eventsApi, type StudioEventItem, type StudioEventLevel } from '../../api/events';
+import { Select } from '../ui/Select';
 
 const LEVEL_OPTIONS: Array<{ value: StudioEventLevel; label: string }> = [
   { value: 'info', label: '信息及以上' },
@@ -71,16 +72,12 @@ export function EventSearchPanel() {
       {/* 检索条件 */}
       <div className="card p-4">
         <div className="flex flex-wrap items-center gap-3">
-          <select
-            className="btn btn-secondary"
+          <Select
             value={level}
-            onChange={(e) => setLevel(e.target.value as StudioEventLevel)}
+            onChange={(v) => setLevel(v as StudioEventLevel)}
+            options={LEVEL_OPTIONS}
             aria-label="级别"
-          >
-            {LEVEL_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>{o.label}</option>
-            ))}
-          </select>
+          />
           <input
             className="btn btn-secondary"
             style={{ minWidth: 220 }}
@@ -122,7 +119,7 @@ export function EventSearchPanel() {
           ) : (
             <div className="space-y-2">
               {events.map((ev, i) => (
-                <div key={`${ev.createdAt ?? ''}-${i}`} className="text-sm" style={{ borderBottom: '1px solid var(--border-subtle)', paddingBottom: 8 }}>
+                <div key={`${ev.createdAt ?? ''}-${i}`} className="text-sm border-b u-border" style={{ paddingBottom: 8 }}>
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-xs u-text-3">{formatTime(ev.createdAt)}</span>
                     {ev.level && ev.level !== 'info' && (

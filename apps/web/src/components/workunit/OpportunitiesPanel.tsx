@@ -55,7 +55,7 @@ export function OpportunitiesPanel({ workUnitId, opportunities, onChanged }: Pro
             <li key={opp.id} className="p-2 rounded u-surface-2">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <div className="text-sm u-text-1">{opp.problem}</div>
+                  <div className="text-sm u-text">{opp.problem}</div>
                   <div className="text-xs u-text-2 mt-0.5">建议：{opp.suggestion}</div>
                   {opp.estimate && (
                     <div className="text-xs u-text-3 mt-0.5">预估：{opp.estimate}</div>

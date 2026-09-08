@@ -135,8 +135,8 @@ _Avoid_: 各业务自抄生命周期、新建专有审批端点、promoted/execu
 _Avoid_: 组件各自拉取、同端点多份 state、store 间复制同一份数据
 
 **取数纪律**:
-数据面 store 共享的取数机制统称（2026-08-31 N2 grilling 定稿抽共用底座）：TTL 锚点、single-flight + seq 守卫（晚到旧响应不回写）、断线重连强制重拉、useGatedPoll 断推兜底、引用计数接线。只抽纪律、不抽数据存法——全局单份（rosterStore）与 per-key map（频道数据面）形状各自保留。第三个使用者（REQ chain 数据面）已在排队。
-_Avoid_: 逐 store 复印机制（人审提案卡漂移前科）、把数据存法也抽象进去
+数据面 store 共享的取数机制统称（2026-08-31 N2 grilling 定稿抽共用底座）：TTL 锚点、single-flight + seq 守卫（晚到旧响应不回写）、断线重连强制重拉、useGatedPoll 断推兜底、引用计数接线。只抽纪律、不抽数据存法——全局单份（rosterStore）与 per-key map（频道数据面）形状各自保留。第三个使用者已落地（#412 REQ chain 数据面 = requirementChainStore，per-reqId map，App 级单点接线 useRequirementChainStoreSync；workunit.status_changed 负载带全量 WU 快照 → 本地推导链增量：已知 WU 就地 patch 零请求，未知 WU 但 reqId 命中缓存 → 失效强刷一次）。
+_Avoid_: 逐 store 复印机制（人审提案卡漂移前科）、把数据存法也抽象进去、为状态变化重拉已缓存 chain
 
 ## 大文件治理
 

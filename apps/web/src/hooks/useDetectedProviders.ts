@@ -1,7 +1,7 @@
 // 运行环境 CLI 探测 hook — 2026-07 频道角色修复
 // 数据源：GET /workspaces/runtimes（服务端聚合前会对本机做 best-effort 重扫，
 // 扫描实现见 apps/api/src/modules/workspaces/local-workspace.ts → daemon/cli-scanner.ts）
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 
 export interface DetectedProvider {
@@ -22,16 +22,20 @@ interface RuntimesResponse {
  * 当前运行环境已安装的 agent CLI 列表。
  * - detected：扫到的 provider（内置顺序优先，用户扩展的按字母序附后），附版本号
  * - noneDetected：一个都没扫到（未安装/扫描失败）——调用方应回退到全量可选，避免卡死用户
+ * - enabled=false 不发起请求（#403 懒挂载：成员面板首次展开才扫，不再进页即扫）；
+ *   loading 保持 true，展开后发起且每次挂载只扫一次
  */
-export function useDetectedProviders() {
+export function useDetectedProviders(options?: { enabled?: boolean }) {
+  const enabled = options?.enabled ?? true;
   const [detected, setDetected] = useState<DetectedProvider[]>([]);
   const [loading, setLoading] = useState(true);
+  const requestedRef = useRef(false);
 
   useEffect(() => {
-    let cancelled = false;
+    if (!enabled || requestedRef.current) return;
+    requestedRef.current = true;
     api.get<RuntimesResponse>('/workspaces/runtimes')
       .then((res) => {
-        if (cancelled) return;
         const byProvider = new Map<string, DetectedProvider>();
         for (const rt of res.data.runtimes ?? []) {
           if (!rt?.provider || byProvider.has(rt.provider)) continue;
@@ -50,17 +54,13 @@ export function useDetectedProviders() {
             .map((p) => byProvider.get(p)!),
         ];
         setDetected(ordered);
+        setLoading(false);
       })
       .catch(() => {
-        if (!cancelled) setDetected([]);
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
+        setDetected([]);
+        setLoading(false);
       });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  }, [enabled]);
 
   return { detected, loading, noneDetected: !loading && detected.length === 0 };
 }

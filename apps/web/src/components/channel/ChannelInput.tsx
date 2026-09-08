@@ -4,8 +4,10 @@
 // 频道词表（git ls-files）路径后缀精确匹配补全，选中插入纯路径文本（mention 正则不动），
 // 发送时携带结构化 files=[{repo, path}]（仅保留正文仍含其路径的引用，防陈旧）。
 import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
-import { channelApi, type AgentProfile, type ChannelMessage, type FileRef } from '../../api/channel';
+import type { AgentProfile, ChannelMessage, FileRef } from '../../api/channel';
 import { useImeEnterGuard } from '../../hooks/useImeEnterGuard';
+import { useRosterStore, activeAgentsOf } from '../../stores/rosterStore';
+import { useChannelDataStore } from '../../stores/channelDataStore';
 
 interface Props {
   onSend: (content: string, replyToId?: string, files?: FileRef[]) => void;
@@ -13,6 +15,8 @@ interface Props {
   replyTo?: ChannelMessage | null;
   onCancelReply?: () => void;
   channelId?: string;
+  /** #440：外部填入口（建议片点击 → 填入输入框）。nonce 变化才写入，同 nonce 不覆盖用户编辑 */
+  prefill?: { text: string; nonce: number };
 }
 
 /** 文件候选展示上限（词表可能数千条，弹框只给补全头部） */
@@ -23,38 +27,66 @@ function repoBasename(repo: string): string {
   return repo.split('/').filter(Boolean).pop() ?? repo;
 }
 
-export function ChannelInput({ onSend, sending, replyTo, onCancelReply, channelId }: Props) {
+export function ChannelInput({ onSend, sending, replyTo, onCancelReply, channelId, prefill }: Props) {
   const [content, setContent] = useState('');
   // 光标位置由 onChange/onSelect 事件写入 state（渲染期禁读 ref）。
   // 顺带修复旧缺陷：原实现 memo 只依赖 content，光标点击移动不重算 mention 解析
   const [cursorPos, setCursorPos] = useState(0);
-  const [agents, setAgents] = useState<AgentProfile[]>([]);
   const [mentionIdx, setMentionIdx] = useState(0);
   // #270：Esc dismiss 状态——记录被 Esc 关掉的 mention 起点；继续输入（onChange）时复位。
   // 无此状态时弹框由残留 @query 推导永远关不掉，与「Esc 取消」提示矛盾。
   const [mentionDismissedAt, setMentionDismissedAt] = useState<number | null>(null);
-  // #281：频道文件词表（候选集 = 频道相关工程）+ 已选文件引用台账
-  const [vocabRepos, setVocabRepos] = useState<{ repo: string; files: string[] }[]>([]);
+  // #281：频道文件词表（候选集 = 频道相关工程，#403 起读 channelDataStore）+ 已选文件引用台账
+  const vocabRepos = useChannelDataStore((s) => (channelId ? s.vocabulary[channelId]?.repos : undefined));
   const [fileRefs, setFileRefs] = useState<FileRef[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const activeMentionItemRef = useRef<HTMLButtonElement>(null);
   // #270：IME 合成守卫（isComposing / keyCode 229 / compositionend 后 10ms 兜底）
   const { handleCompositionEnd, isImeEvent } = useImeEnterGuard();
 
-  // AC-B4: Fetch agents filtered by channel membership (falls back to all active if no channelId)
-  useEffect(() => {
-    channelApi.listAgents(channelId)
-      .then(res => setAgents(res.data.data))
-      .catch(() => setAgents([]));
-  }, [channelId]);
+  // #403：agent 列表读 rosterStore 客户端切片（listAllAgents 全量正本；ADR 决策 2，不再打
+  // /agent-profiles?channelId）。成员面（channel.members）读 channelDataStore：
+  // 缺键（未拉到，含失败）→ 不献候选（对齐旧 listAgents 失败路径）；空 = 所有 Agent 可见。
+  const profiles = useRosterStore((s) => s.profiles);
+  const memberIds = useChannelDataStore((s) => (channelId ? s.members[channelId] : undefined));
 
-  // #281: 拉取频道文件词表（只读端点；失败降级为无文件候选，不影响 agent 组）
+  useEffect(() => {
+    void useRosterStore.getState().ensureFresh();
+  }, []);
+
+  // #440：prefill 通道——nonce 变化才把 text 写入（同 nonce 重渲染不覆盖用户编辑）；
+  // 写入后聚焦并把光标置尾，沿用 mention 插入的 setTimeout 聚焦模式
+  const lastPrefillNonceRef = useRef(0);
+  useEffect(() => {
+    if (!prefill || prefill.nonce === lastPrefillNonceRef.current) return;
+    lastPrefillNonceRef.current = prefill.nonce;
+    setContent(prefill.text);
+    setCursorPos(prefill.text.length);
+    setMentionDismissedAt(null);
+    setTimeout(() => {
+      const el = textareaRef.current;
+      if (el) {
+        el.setSelectionRange(prefill.text.length, prefill.text.length);
+        el.focus();
+      }
+    }, 0);
+  }, [prefill]);
+
   useEffect(() => {
     if (!channelId) return;
-    channelApi.getFileVocabulary(channelId)
-      .then(res => setVocabRepos(res.data.data.repos))
-      .catch(() => setVocabRepos([]));
+    const store = useChannelDataStore.getState();
+    void store.ensureVocabulary(channelId);
+    void store.ensureMembers(channelId);
   }, [channelId]);
+
+  const agents = useMemo(() => {
+    const active = activeAgentsOf(profiles);
+    // 无频道上下文 → 全部 active（旧 AC-B4 回退）；成员面未拉到（含拉取失败）→ 暂无候选；
+    // 空 = 所有 Agent 可见 → 全部 active（对齐服务端空 members 回退）
+    if (!channelId) return active;
+    if (!memberIds) return [] as AgentProfile[];
+    return memberIds.length === 0 ? active : active.filter((a) => memberIds.includes(a.id));
+  }, [channelId, profiles, memberIds]);
 
   // Parse if we're in a mention: last @word before cursor
   const mentionState = useMemo(() => {
@@ -74,12 +106,13 @@ export function ChannelInput({ onSend, sending, replyTo, onCancelReply, channelI
     return agents.filter(a => a.name.toLowerCase().includes(q));
   }, [mentionState, agents]);
 
-  // #281: 文件候选 = 词表路径后缀精确匹配（#248 D9），空 query 不献候选（防全量刷屏）
+  // #281: 文件候选 = 词表路径后缀精确匹配（#248 D9），空 query 不献候选（防全量刷屏）；
+  // 词表缺键（未拉到/失败）→ 无文件候选（静默降级，不影响 agent 组）
   const filteredFiles = useMemo(() => {
     if (!mentionState || !mentionState.query) return [];
     const q = mentionState.query.toLowerCase();
     const out: FileRef[] = [];
-    for (const r of vocabRepos) {
+    for (const r of vocabRepos ?? []) {
       for (const p of r.files) {
         if (p.toLowerCase().endsWith(q)) out.push({ repo: r.repo, path: p });
         if (out.length >= FILE_CANDIDATE_CAP) return out;
@@ -87,7 +120,6 @@ export function ChannelInput({ onSend, sending, replyTo, onCancelReply, channelI
     }
     return out;
   }, [mentionState, vocabRepos]);
-
   // #270：弹框可见性 = 有候选 且 未被 Esc dismiss（不再由残留 @query 单独推导）
   const popupOpen = (filteredAgents.length > 0 || filteredFiles.length > 0)
     && mentionDismissedAt !== mentionState?.start;

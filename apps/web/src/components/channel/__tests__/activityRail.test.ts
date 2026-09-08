@@ -2,9 +2,11 @@
 import { describe, it, expect } from 'vitest';
 import {
   deriveChainSteps,
+  projectActivityMessages,
   buildChannelActivity,
   attributeActivity,
   fmtRelTime,
+  type ChannelActivityItem,
 } from '../activityRail';
 import type { Requirement, RequirementChainWorkUnit } from '../../../api/requirements';
 import type { ChannelMessage } from '../../../api/channel';
@@ -77,34 +79,51 @@ function msg(id: string, over: Partial<ChannelMessage> = {}): ChannelMessage {
   } as ChannelMessage;
 }
 
-describe('buildChannelActivity — 动态条目', () => {
+describe('projectActivityMessages — #416 消息摘要投影（全量消息 → 右栏最小条目集）', () => {
   it('卡片消息（meta.cardType，string meta）→ card 条目，带 wuId', () => {
-    const items = buildChannelActivity({
-      messages: [msg('m1', { meta: JSON.stringify({ cardType: 'analysis_confirm' }), workUnitId: 'wu-1', content: '第一行\n第二行' })],
-      reqs: [], waitingWus: [],
-    });
+    const items = projectActivityMessages([
+      msg('m1', { meta: JSON.stringify({ cardType: 'analysis_confirm' }), workUnitId: 'wu-1', content: '第一行\n第二行' }),
+    ]);
     expect(items).toHaveLength(1);
     expect(items[0]).toMatchObject({ id: 'm1', kind: 'card', wuId: 'wu-1' });
     expect(items[0].text).toContain('analysis_confirm');
     expect(items[0].text).not.toContain('第二行');
   });
 
-  it('agent WU 消息 → wu 条目；人类消息与普通 agent 消息（无 WU）不进动态', () => {
-    const items = buildChannelActivity({
-      messages: [
-        msg('m1', { workUnitId: 'wu-1' }),
-        msg('m2', { authorType: 'human', workUnitId: 'wu-1' }),
-        msg('m3'),
-      ],
-      reqs: [], waitingWus: [],
-    });
+  it('agent WU 消息 → wu 条目；人类消息与普通 agent 消息（无 WU）不进投影', () => {
+    const items = projectActivityMessages([
+      msg('m1', { workUnitId: 'wu-1' }),
+      msg('m2', { authorType: 'human', workUnitId: 'wu-1' }),
+      msg('m3'),
+    ]);
     expect(items.map(i => i.id)).toEqual(['m1']);
     expect(items[0].kind).toBe('wu');
   });
 
-  it('REQ 与 NEED_INPUT 待办进动态；整体按时间倒序', () => {
+  it('坏 meta（非 JSON）静默跳过 card 判定，不炸', () => {
+    const items = projectActivityMessages([
+      msg('m1', { meta: '{bad json', workUnitId: 'wu-1' }),
+    ]);
+    expect(items[0].kind).toBe('wu');
+  });
+
+  it('保序不排序：输出顺序 = 消息数组顺序（排序归 buildChannelActivity）', () => {
+    const items = projectActivityMessages([
+      msg('m1', { workUnitId: 'wu-1', createdAt: '2026-08-10T00:00:00Z' }),
+      msg('m2', { workUnitId: 'wu-2', createdAt: '2026-08-09T00:00:00Z' }),
+    ]);
+    expect(items.map(i => i.id)).toEqual(['m1', 'm2']);
+  });
+});
+
+describe('buildChannelActivity — 动态条目（#416 起消费消息摘要投影）', () => {
+  const wuItem = (id: string, over: Partial<ChannelActivityItem> = {}): ChannelActivityItem => ({
+    id, kind: 'wu', text: `动态${id}`, at: '2026-08-10T00:00:00Z', wuId: 'wu-1', ...over,
+  });
+
+  it('消息投影条目直挂；REQ 与 NEED_INPUT 待办进动态；整体按时间倒序', () => {
     const items = buildChannelActivity({
-      messages: [msg('m1', { workUnitId: 'wu-1', createdAt: '2026-08-10T00:00:00Z' })],
+      messageItems: [wuItem('m1')],
       reqs: [req({ createdAt: '2026-08-01T00:00:00Z' })],
       waitingWus: [{ wuId: 'wu-9', question: '选哪个方案？' }],
     });
@@ -117,12 +136,8 @@ describe('buildChannelActivity — 动态条目', () => {
     expect(items[2].reqId).toBe('REQ-0001');
   });
 
-  it('坏 meta（非 JSON）静默跳过 card 判定，不炸', () => {
-    const items = buildChannelActivity({
-      messages: [msg('m1', { meta: '{bad json', workUnitId: 'wu-1' })],
-      reqs: [], waitingWus: [],
-    });
-    expect(items[0].kind).toBe('wu');
+  it('空投影 + 空 REQ + 空待办 → 空集', () => {
+    expect(buildChannelActivity({ messageItems: [], reqs: [], waitingWus: [] })).toEqual([]);
   });
 });
 

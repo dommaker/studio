@@ -5,11 +5,13 @@
 // - 孤儿绑定（绑定值指向已删除 workspace）→ 失效提示 + 一键解除绑定（PATCH ''）
 // - 已绑定值正确回显：channels 数据加载完成后才渲染选择器，杜绝旧版 useState 初值只跑一次的回显 bug
 import { useEffect, useState } from 'react';
+import { formatChannelName } from '@dommaker/studio-shared/web';
 import { workspaceApi } from '../../api';
 import { channelApi, type Channel } from '../../api/channel';
 import { Select } from '../ui';
 import { toast } from '../../utils/toast';
 import { isForbidden } from '../../utils/http';
+import { useAuthStore } from '../../stores/authStore';
 
 interface Workspace {
   id: string;
@@ -37,8 +39,15 @@ export function DefaultExecutionMachineSection() {
         toast.error('加载频道列表失败');
       }
       try {
-        const wsRes = await workspaceApi.list();
-        if (!cancelled) setWorkspaces(wsRes.data?.data ?? []);
+        // #448 问题3：已知非 Admin 时 /workspaces 列表注定 403（Admin-only），
+        // 不发请求直接走降级呈现；角色未知（未登录/初始化中）保持原请求路径
+        const role = useAuthStore.getState().user?.role;
+        if (role && role !== 'Admin') {
+          if (!cancelled) setForbidden(true);
+        } else {
+          const wsRes = await workspaceApi.list();
+          if (!cancelled) setWorkspaces(wsRes.data?.data ?? []);
+        }
       } catch (err) {
         if (cancelled) return;
         if (isForbidden(err)) {
@@ -96,7 +105,7 @@ export function DefaultExecutionMachineSection() {
             </p>
             {(channels ?? []).map((c) => (
               <div key={c.id} className="flex items-center justify-between gap-3">
-                <span className="text-sm font-medium truncate">#{c.name}</span>
+                <span className="text-sm font-medium truncate">{formatChannelName(c.name)}</span>
                 <span className="text-xs u-text-2 truncate">{c.defaultWorkspaceId ?? '无'}</span>
               </div>
             ))}
@@ -106,7 +115,7 @@ export function DefaultExecutionMachineSection() {
             isOrphan(c) ? (
               <div key={c.id} className="flex items-center justify-between gap-3">
                 <div className="min-w-0">
-                  <span className="text-sm font-medium truncate">#{c.name}</span>
+                  <span className="text-sm font-medium truncate">{formatChannelName(c.name)}</span>
                   <span className="text-xs block truncate" style={{ color: 'var(--error)' }}>
                     绑定已失效（执行机器 {c.defaultWorkspaceId} 已删除）
                   </span>
@@ -120,7 +129,7 @@ export function DefaultExecutionMachineSection() {
               </div>
             ) : (
               <div key={c.id} className="flex items-center justify-between gap-3">
-                <span className="text-sm font-medium truncate">#{c.name}</span>
+                <span className="text-sm font-medium truncate">{formatChannelName(c.name)}</span>
                 <Select
                   value={c.defaultWorkspaceId ?? ''}
                   onChange={(v) => bind(c.id, v)}
@@ -130,7 +139,7 @@ export function DefaultExecutionMachineSection() {
                   ]}
                   placeholder="无"
                   data-testid={`exec-machine-select-${c.id}`}
-                  title={`#${c.name} 的默认执行机器`}
+                  title={`${formatChannelName(c.name)} 的默认执行机器`}
                 />
               </div>
             ),

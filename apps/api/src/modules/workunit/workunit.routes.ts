@@ -3,6 +3,7 @@
  *
  * Endpoints:
  *   GET    /api/v1/workunits          — list（#109：列表项附 claimable 可认领标记）
+ *   GET    /api/v1/workunits/last-done — 批量最近完成（#387：每 assignee 一条 done/completed，roster 空闲卡用）
  *   POST   /api/v1/workunits          — create
  *   GET    /api/v1/workunits/:id      — get by id
  *   PUT    /api/v1/workunits/:id      — update
@@ -38,6 +39,7 @@ import { aggregateTreeTokens } from '../agents/token-usage.service.js';
 import { CODE_WORKTREE_TYPES, resolveVerifyCommands, runWuVerification } from '../agents/loop/wu-verification.js';
 import { channelMessageService } from '../channels/channel-message.service.js';
 import { resumeBlockedWorkUnitFromWeb, closeBlockedWorkUnitFromWeb } from './waiting-input.js';
+import { claimWorkUnitAndAnnounce } from './claim-announce.js';
 import { listWorkUnitChangedFiles } from './wu-changed-files.js';
 import { getErrorMessage } from '../../utils/errors.js';
 import { parsePagination, formatPaginatedResponse } from '../../utils/pagination.js';
@@ -46,6 +48,8 @@ import { requireAuth, requireNotGuest, type AuthRequest } from '../../middleware
 const router = Router();
 const fileStore = new FileStore();
 const service = new WorkUnitService(fileStore);
+// #387: 单次批量 id 上限（调用方单页规模 ≤ 数十，留余量；超出静默截断）
+const MAX_BATCH_IDS = 100;
 
 /**
  * A2A §4.4: 调用方 authorType 识别（body.authorType 优先，其次 x-author-type header）。
@@ -60,7 +64,7 @@ function resolveCallerAuthorType(req: Request): string {
 /** GET / — list WorkUnits */
 router.get('/', async (req: Request, res: Response) => {
   try {
-    const { type, status, assigneeId, channelId, parentId } = req.query;
+    const { type, status, assigneeId, channelId, parentId, attributed } = req.query;
     const { page, limit } = parsePagination(req);
 
     const result = await service.list({
@@ -69,6 +73,8 @@ router.get('/', async (req: Request, res: Response) => {
       assigneeId: assigneeId as string,
       channelId: channelId as string,
       parentId: parentId as string,
+      // #428：attributed=true/false 显式布尔；其他值（含缺省）= undefined 不过滤
+      attributed: attributed === 'true' ? true : attributed === 'false' ? false : undefined,
       page,
       limit,
     });
@@ -141,6 +147,31 @@ router.post('/from-message', requireAuth(), requireNotGuest(), async (req: Reque
       return res.status(409).json({ error: { code: 'ALREADY_CONVERTED', message: msg } });
     }
     res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: msg } });
+  }
+});
+
+/**
+ * GET /last-done?assigneeIds=a,b,c — #387 批量聚合：每 assignee 最近一条完成 WU
+ * （done/completed，completedAt ?? updatedAt 降序取首条；无完成记录 → null）。
+ * roster 空闲卡「最近完成」专用，消逐实例 GET /workunits?assigneeId= 的 N+1。
+ */
+router.get('/last-done', async (req: Request, res: Response) => {
+  try {
+    const raw = req.query.assigneeIds;
+    const ids = typeof raw === 'string'
+      ? raw.split(',').map(s => s.trim()).filter(s => s.length > 0)
+      : [];
+    if (ids.length === 0) {
+      return res.status(400).json({
+        error: { code: 'INVALID_INPUT', message: 'assigneeIds is required (comma-separated ids)' },
+      });
+    }
+    const data = await service.lastDoneByAssignee(ids.slice(0, MAX_BATCH_IDS));
+    res.json({ success: true, data });
+  } catch (error) {
+    res.status(500).json({
+      error: { code: 'INTERNAL_ERROR', message: getErrorMessage(error) },
+    });
   }
 });
 
@@ -273,17 +304,22 @@ router.delete('/:id', requireAuth(), requireNotGuest(), async (req: Request, res
   }
 });
 
-/** POST /:id/claim — claim WorkUnit（flock 悲观互斥锁） */
+/** POST /:id/claim — claim WorkUnit（flock 悲观互斥锁）；#445：认领即发声原语接入（与 loop 自动认领同路径） */
 router.post('/:id/claim', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
-    const { agentId } = req.body;
-    if (!agentId || typeof agentId !== 'string') {
+    // #445：agentId 可省略——缺省 = 当前登录用户（人工引导片认领，身份诚实归因会话用户）；
+    // 显式传入保持旧契约（认领给指定 id）。requireAuth 保证 req.user 存在（none 模式注入 local）。
+    const bodyAgentId = typeof req.body?.agentId === 'string' && req.body.agentId ? req.body.agentId : undefined;
+    const claimerId = bodyAgentId ?? req.user?.id;
+    if (!claimerId) {
       return res.status(400).json({
         error: { code: 'INVALID_INPUT', message: 'agentId is required' },
       });
     }
+    // 发声署名：人工认领署用户显示名；显式 agentId 旧契约无法廉价解析角色名 → 退化为 id
+    const claimerName = bodyAgentId ?? req.user?.name ?? req.user?.email ?? claimerId;
 
-    const wu = await service.claim(req.params.id, agentId);
+    const wu = await claimWorkUnitAndAnnounce(req.params.id, claimerId, claimerName, { wuService: service, fileStore });
     res.json(wu);
   } catch (error) {
     const msg = getErrorMessage(error);

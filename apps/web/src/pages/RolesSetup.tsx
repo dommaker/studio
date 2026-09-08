@@ -90,15 +90,15 @@ export function RolesSetup() {
 
   if (loading) {
     return (
-      <div className="h-full flex items-center justify-center u-text-2" style={{ background: 'var(--bg-primary)' }}>
+      <div className="h-full flex items-center justify-center u-text-2 u-page-bg">
         加载中...
       </div>
     );
   }
 
   return (
-    <div className="h-full flex flex-col" style={{ background: 'var(--bg-primary)' }}>
-      <div className="px-8 py-6" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+    <div className="h-full flex flex-col u-page-bg">
+      <div className="u-page-head">
         <h1 className="page-title">角色初始化向导</h1>
         <p className="page-subtitle">从节点上检测到的执行环境批量创建 Agent 角色。</p>
       </div>

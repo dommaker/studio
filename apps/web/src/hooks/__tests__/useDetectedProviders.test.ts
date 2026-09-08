@@ -112,4 +112,32 @@ describe('useDetectedProviders', () => {
     // 状态应停留在初始值（loading=true, no crash）
     expect(result.current.loading).toBe(true);
   });
+
+  it('enabled=false 不发起请求，loading 保持 true（#403 懒挂载）', () => {
+    mockGet.mockReturnValue(new Promise(() => {})); // 永不 resolve
+    const { result } = renderHook(() => useDetectedProviders({ enabled: false }));
+    expect(mockGet).not.toHaveBeenCalled();
+    expect(result.current.loading).toBe(true);
+    expect(result.current.noneDetected).toBe(false);
+  });
+
+  it('enabled 翻 true 后发起且每次挂载只扫一次；收起再展开不重发（#403）', async () => {
+    mockGet.mockResolvedValue({
+      data: { runtimes: [{ provider: 'claude', version: '1.0.0', workspaceName: 'VPS', nodeId: 'n1' }] },
+    });
+    const { result, rerender } = renderHook(
+      ({ enabled }: { enabled: boolean }) => useDetectedProviders({ enabled }),
+      { initialProps: { enabled: false } },
+    );
+    expect(mockGet).not.toHaveBeenCalled();
+    rerender({ enabled: true });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.detected).toHaveLength(1);
+    expect(mockGet).toHaveBeenCalledTimes(1);
+    // 面板收起再展开：不重发（结果已在本地态）
+    rerender({ enabled: false });
+    rerender({ enabled: true });
+    expect(mockGet).toHaveBeenCalledTimes(1);
+    expect(result.current.detected).toHaveLength(1);
+  });
 });

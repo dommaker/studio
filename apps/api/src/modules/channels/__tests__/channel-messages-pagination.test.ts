@@ -130,7 +130,7 @@ describe('GET /channels/:id/messages 分页 limit（C2）', () => {
     const res = await fetch(`${baseUrl}/${CH}/messages?limit=2&before=msg-05`);
     const body: MessagesPageResponse = await res.json();
 
-    expect(body.total).toBe(5); // 锚点过滤后的总数
+    expect(body.total).toBe(11); // 候选 8 统一口径：热+冷原始行数（原「锚点过滤后的总数」随分支漂移，退役）
     expect(body.data).toHaveLength(2);
     expect(body.hasMore).toBe(true);
     expect(body.data.map(m => m.id)).toEqual(['msg-03', 'msg-04']);

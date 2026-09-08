@@ -2,9 +2,12 @@
  * PMO 证据台账共享口径（2026-07-30 抽取）：delivery.ts 台账与 progress-rollup.ts
  * 状态翻转共用同一份证据判定，禁止两处各自解释 attestations（铁律同 deriveDisplayState）。
  *
- * 归属口径：先按 Requirement.projectId 关联 reqId 集合过滤；为空则回退按创建期
+ * 归属口径（#402 逐 WU 并集，2026-08-31 起）：每个 WU 独立解析归属——
+ * reqId 解析到已绑定项目的 REQ 则归该项目（显式业务关联权威），否则按创建期
  * 归因戳归属（metadata.pmoId ‖ deprecated legacy ownershipProjectId 同级，pmoId 优先——
- * analysis 派生链的 task WU 无 reqId，仅戳溯源；parser 见 requirements/wu-pmo-attribution.ts）。
+ * analysis 派生链的 task WU 无 reqId，仅戳溯源；parser 见 requirements/wu-pmo-attribution.ts）；
+ * 两者皆无 = 未归属，不进任何项目台账。单 WU 只归一个项目（reqId 优先，不双计），
+ * REQ 链命中不再丢弃同项目的戳归属 WU。
  *
  * 证据口径：
  *   - l1 只对代码类 WU（task/bug/feature/refactor）要求；
@@ -28,6 +31,13 @@ import type { DeliveryLeg } from './project.service.js';
  * 2026-08 归因统一后口径放宽为 pmoId ‖ legacy ownershipProjectId 同级（pmoId 优先）。
  */
 export const parseWuMetaPmoId = parseWuPmoId;
+
+/**
+ * 证据/归约口径消费的最小 WU 字段集（#410）：summarizeEvidence / partitionSnapshotsByLeg /
+ * progress-rollup 完结判定都只读这四个字段——memo（progress-rollup 按事件负载维护的
+ * 进程内聚合）与全量 WorkUnitSnapshot 均可喂入，口径不重新解释。
+ */
+export type EvidenceWuInput = Pick<WorkUnitSnapshot, 'id' | 'status' | 'type' | 'metadata'>;
 
 /** 代码类 WU（与 agent-loop CODE_WORKTREE_TYPES 同集——有专属 worktree 才跑自动验证） */
 export const CODE_TYPES = new Set(['task', 'bug', 'feature', 'refactor']);
@@ -54,27 +64,50 @@ export interface EvidenceSummary {
 }
 
 /**
- * 项目关联 WU 归属：先按 Requirement.projectId 关联 reqId 集合过滤；
- * 为空则回退按创建期归因戳（pmoId ‖ legacy ownershipProjectId）归属（analysis 派生链），
- * 口径与 progress-rollup 一致。
+ * REQ id → 已绑定 PMO 项目 id 映射（projectId 为 null/undefined 的 REQ 不入映射）。
+ * #410 起导出：progress-rollup 的 REQ 归属缓存与本模块归属过滤共用同一构建口径。
+ */
+export function buildReqProjectMap(
+  requirements: Array<{ id: string; projectId?: string | null }>,
+): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const r of requirements) {
+    if (r.projectId) map.set(r.id, r.projectId);
+  }
+  return map;
+}
+
+/**
+ * 逐 WU 归属解析（#402）：reqId 绑定优先，否则创建期归因戳（pmoId ‖ legacy），
+ * 都无 → null（未归属）。单 WU 归属唯一，跨项目台账不双计。
+ */
+function resolveWuProjectId(
+  s: Pick<WorkUnitSnapshot, 'reqId' | 'metadata'>,
+  reqProjectById: Map<string, string>,
+): string | null {
+  if (s.reqId) {
+    const bound = reqProjectById.get(s.reqId);
+    if (bound) return bound;
+  }
+  return parseWuPmoId(s.metadata);
+}
+
+/**
+ * 项目关联 WU 归属：逐 WU 解析（reqId 绑定优先 → pmoId 戳兜底），归该项目者计入。
+ * #402 前为「reqId 集过滤为空才回退戳」的集合级回退，REQ 链命中即丢弃戳归属 WU
+ * （交付统计偏少）；现口径与 progress-rollup 一致。
  */
 export function selectProjectSnapshots(
   projectId: string,
   requirements: Array<{ id: string; projectId?: string | null }>,
   index: WorkUnitSnapshot[],
 ): WorkUnitSnapshot[] {
-  const reqIds = new Set(requirements.filter(r => r.projectId === projectId).map(r => r.id));
-  let snapshots = index.filter(s => s.reqId && reqIds.has(s.reqId));
-  if (snapshots.length === 0) {
-    // analysis 派生链（analysis-handoff）：task WU 无 reqId，仅创建期戳溯源
-    // （2026-08 归因统一：parseWuPmoId = pmoId ‖ legacy ownershipProjectId 同级，pmoId 优先）
-    snapshots = index.filter(s => parseWuPmoId(s.metadata) === projectId);
-  }
-  return snapshots;
+  const reqProjectById = buildReqProjectMap(requirements);
+  return index.filter(s => resolveWuProjectId(s, reqProjectById) === projectId);
 }
 
 /** 逐快照过 deriveDisplayState 派生证据齐缺（唯一口径，禁止各自解释 attestations） */
-export function summarizeEvidence(snapshots: WorkUnitSnapshot[]): EvidenceSummary {
+export function summarizeEvidence(snapshots: EvidenceWuInput[]): EvidenceSummary {
   const byStatus = { unassigned: 0, active: 0, inReview: 0, blocked: 0 };
   let finished = 0;
   const l1Missing: string[] = [];
@@ -140,12 +173,12 @@ export function matchWuToLeg(metadata: string | null | undefined, leg: DeliveryL
  * 多腿分桶：WU 归首个命中的腿（数组序）；全部不命中 = 未分腿公共 WU（shared）。
  * 公共 WU 保守计入每条腿的台账与判定——证据缺口不允许从任何一条腿的交付闸逃逸。
  */
-export function partitionSnapshotsByLeg(
+export function partitionSnapshotsByLeg<T extends EvidenceWuInput>(
   legs: DeliveryLeg[],
-  snapshots: WorkUnitSnapshot[],
-): { perLeg: WorkUnitSnapshot[][]; shared: WorkUnitSnapshot[] } {
-  const perLeg: WorkUnitSnapshot[][] = legs.map(() => []);
-  const shared: WorkUnitSnapshot[] = [];
+  snapshots: T[],
+): { perLeg: T[][]; shared: T[] } {
+  const perLeg: T[][] = legs.map(() => []);
+  const shared: T[] = [];
   for (const s of snapshots) {
     const idx = legs.findIndex(leg => matchWuToLeg(s.metadata, leg));
     if (idx >= 0) perLeg[idx].push(s);

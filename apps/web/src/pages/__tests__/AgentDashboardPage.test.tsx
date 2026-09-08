@@ -10,7 +10,7 @@ vi.mock('react', async () => {
   return { ...actual, default: actual };
 });
 
-const { mockListAllAgents, mockListChannels, mockCreateAgent, mockGetAgentSummary, mockTerminateInstance, mockWuList, mockWuGet, mockOnEvent, mockNavigate, mockApiGet } = vi.hoisted(() => ({
+const { mockListAllAgents, mockListChannels, mockCreateAgent, mockGetAgentSummary, mockTerminateInstance, mockWuList, mockWuGet, mockWuLastDone, mockOnEvent, mockNavigate, mockApiGet } = vi.hoisted(() => ({
   mockListAllAgents: vi.fn(),
   mockListChannels: vi.fn(),
   mockCreateAgent: vi.fn(),
@@ -18,6 +18,7 @@ const { mockListAllAgents, mockListChannels, mockCreateAgent, mockGetAgentSummar
   mockTerminateInstance: vi.fn(),
   mockWuList: vi.fn(),
   mockWuGet: vi.fn(),
+  mockWuLastDone: vi.fn(),
   mockOnEvent: vi.fn(),
   mockNavigate: vi.fn(),
   mockApiGet: vi.fn(),
@@ -39,7 +40,7 @@ vi.mock('../../api/channel', () => ({
 
 vi.mock('../../api/workunit', async () => {
   const actual = await vi.importActual('../../api/workunit');
-  return { ...actual, workunitApi: { list: mockWuList, get: mockWuGet } };
+  return { ...actual, workunitApi: { list: mockWuList, get: mockWuGet, lastDone: mockWuLastDone } };
 });
 
 // CreateRoleModal 的 runtime 清单走裸 api 实例（spread 实际模块，保留 authApi 等同模块导出给 authStore 等链路）
@@ -97,6 +98,7 @@ describe('AgentDashboardPage', () => {
     mockListChannels.mockResolvedValue({ data: { success: true, data: [{ id: 'ch1', name: 'backend', type: 'dev' }] } });
     mockWuList.mockResolvedValue({ data: { data: [], total: 0, page: 1, limit: 20 } });
     mockWuGet.mockResolvedValue({ data: { id: 'wu-9', scope: '补查的任务', type: 'DEV', status: 'active', claimedAt: null } });
+    mockWuLastDone.mockResolvedValue({ data: { data: {} } });
     mockApiGet.mockResolvedValue({ data: { runtimes: [] } });
   });
 
@@ -211,22 +213,16 @@ describe('AgentDashboardPage', () => {
     expect(c2.querySelector('[data-testid="agent-card"]')?.getAttribute('data-status')).toBe('blocked');
   });
 
-  it('§6.1 空闲空态：等待派活 + 最近完成链接（assigneeId 查询取 done）', async () => {
+  it('§6.1 空闲空态：等待派活 + 最近完成链接（#387 批量端点取 done）', async () => {
     mockApis({ agents: [instance({ status: 'idle', currentWorkUnitId: null, currentWorkUnit: null, pmo: null, channelId: null })] });
-    mockWuList.mockResolvedValue({
-      data: {
-        data: [
-          { id: 'wu-old', scope: '旧任务', type: 'DEV', status: 'done', completedAt: '2026-07-30T00:00:00Z', updatedAt: '2026-07-30T00:00:00Z' },
-          { id: 'wu-new', scope: '修好的首页', type: 'FIX', status: 'done', completedAt: '2026-07-31T00:00:00Z', updatedAt: '2026-07-31T00:00:00Z' },
-        ],
-        total: 2, page: 1, limit: 20,
-      },
+    mockWuLastDone.mockResolvedValue({
+      data: { data: { i1: { id: 'wu-new', scope: '修好的首页', type: 'FIX', status: 'done', completedAt: '2026-07-31T00:00:00Z', updatedAt: '2026-07-31T00:00:00Z' } } },
     });
     render(<AgentDashboardPage />);
     expect(await screen.findByText(/空闲 · 等待派活/)).toBeDefined();
     const done = await screen.findByText('修好的首页');
     expect(done.closest('a')?.getAttribute('href')).toBe('/workunits/wu-new');
-    expect(mockWuList).toHaveBeenCalledWith({ assigneeId: 'i1', limit: 20 });
+    expect(mockWuLastDone).toHaveBeenCalledWith(['i1']);
   });
 
   it('§6.1 无 instance → 未启动 pill + 未启动空态', async () => {

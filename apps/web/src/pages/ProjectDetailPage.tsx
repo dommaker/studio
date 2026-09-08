@@ -19,14 +19,14 @@
  * 一并摘除。
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { projectApi, type DeliveryStatus } from '../api';
-import { requirementApi, type RequirementChainWorkUnit } from '../api/requirements';
 import { workunitApi } from '../api/workunit';
 import { fanOut } from '../utils/fanOut';
 import { maintenanceApi } from '../api/maintenance';
 import { useRosterStore } from '../stores/rosterStore';
+import { useRequirementChainStore } from '../stores/requirementChainStore';
 import { useAsyncData } from '../hooks/useAsyncData';
 import { PmoNumberBadge } from '../components/PmoNumberBadge';
 import { ProjectPipeline } from '../components/pmo/ProjectPipeline';
@@ -44,7 +44,8 @@ import { VscodeGuideDialog, CloudIdeGuideDialog } from '../components/pmo/IdeGui
 import { ProjectProgressCard } from '../components/pmo/ProjectProgressCard';
 import { ManualTaskButton } from '../components/ui/ManualTaskButton';
 import { BackButton } from '../components/ui';
-import { buildProjectTimeline, type PipelineWorkUnit } from '../components/pmo/pipelineUtils';
+import { MetaStrip } from '../components/ui/MetaStrip';
+import { buildProjectTimeline, projectChainMeta, type PipelineWorkUnit } from '../components/pmo/pipelineUtils';
 
 interface Project {
   id: string;
@@ -112,16 +113,19 @@ export function ProjectDetailPage() {
   // 🆕 AC-5: 进度管道（REQ chain WU + agent 名册）/ 原始需求折叠
   // #346：agent 名册读 rosterStore（TTL 缓存共享；非 Admin 403 时 agents 保持空列表，对齐旧 catch(() => null) 行为）
   const agents = useRosterStore((s) => s.agents);
-  const chainQ = useAsyncData<RequirementChainWorkUnit[] | null>(async () => {
-    if (!project?.reqAlias) return null;
+  // #412：chain 读 requirementChainStore（同 reqAlias 与右栏/抽屉/面板共享缓存；status_changed 就地更新）。
+  // 失败语义对齐旧 catch(() => [])：errors 有值 → 空管道且不再显示 loading
+  const reqAlias = project?.reqAlias ?? null;
+  const chainData = useRequirementChainStore((s) => (reqAlias ? s.chains[reqAlias] : undefined));
+  const chainError = useRequirementChainStore((s) => (reqAlias ? s.errors[reqAlias] : undefined));
+  useEffect(() => {
+    if (!reqAlias) return;
+    void useRequirementChainStore.getState().ensureChain(reqAlias);
     // #346：agent 名册走 rosterStore TTL 缓存（ensureFresh 永不 reject，错误落 store 状态）
     void useRosterStore.getState().ensureFresh();
-    try {
-      return (await requirementApi.getChain(project.reqAlias)).data?.data?.workunits ?? [];
-    } catch { return []; }
-  }, [project]);
-  const chainWus = chainQ.data ?? [];
-  const chainLoading = chainQ.loading;
+  }, [reqAlias]);
+  const chainWus = chainData?.workunits ?? [];
+  const chainLoading = !!reqAlias && !chainError && !chainData;
 
   // 弹窗状态
   const [showVscodeGuide, setShowVscodeGuide] = useState(false);
@@ -188,6 +192,14 @@ export function ProjectDetailPage() {
     agentNameById,
   });
 
+  // #440 Phase 3：meta strip 派生（涉及角色 / AC 数 = chain WUs 聚合；当前阶段 = PROJECT_STEPS 词）
+  const chainMeta = projectChainMeta(chainWus, agentNameById);
+  const projectStageLabel = (() => {
+    if (!project) return null;
+    const statusKey = project.status === 'delivered' ? 'completed' : project.status;
+    return PROJECT_STEPS.find(x => x.key === statusKey)?.label ?? null;
+  })();
+
   if (loading) {
     return <div className="flex items-center justify-center h-64"><div className="u-text-2">加载中...</div></div>;
   }
@@ -216,18 +228,16 @@ export function ProjectDetailPage() {
             OKR: {project.OKR.title} ({project.OKR.quarter})
           </div>
         )}
-        {/* 🆕 PMO-a: REQ 别名 / 分支 / 交付策略（有值才显示） */}
-        {(project.reqAlias || project.gitBranch || project.deliveryPolicy) && (
-          <div className="text-sm u-text-2 mt-1 flex flex-wrap gap-x-4 gap-y-1">
-            {project.reqAlias && <span>REQ 别名: {project.reqAlias}</span>}
-            {project.gitBranch && <span>分支: {project.gitBranch}</span>}
-            {project.deliveryPolicy && (
-              <span>
-                交付策略: {project.deliveryPolicy === 'auto-merge' ? '自动合并' : '分支交付'}
-              </span>
-            )}
-          </div>
-        )}
+        {/* 🆕 PMO-a + #440 Phase 3：meta strip——REQ 别名 / 分支 / 交付策略 / 涉及角色 / AC 数 / 当前阶段（有值才显示，缺项不占位） */}
+        <MetaStrip items={[
+          { key: 'req', label: 'REQ 别名', value: project.reqAlias },
+          { key: 'branch', label: '分支', value: project.gitBranch },
+          { key: 'delivery', label: '交付策略', value: project.deliveryPolicy
+              ? (project.deliveryPolicy === 'auto-merge' ? '自动合并' : '分支交付') : null },
+          { key: 'roles', label: '涉及角色', value: chainMeta.roles },
+          { key: 'ac', label: 'AC 数', value: chainMeta.acCount },
+          { key: 'stage', label: '当前阶段', value: projectStageLabel },
+        ]} />
         {/* 🆕 AC-5: 原始需求描述（可折叠，>120 字默认收起） */}
         {project.requirement && (
           <div className="mt-2 p-2 rounded u-surface-2">
@@ -236,8 +246,7 @@ export function ProjectDetailPage() {
               {project.requirement.length > 120 && (
                 <button
                   onClick={() => setRequirementExpanded(v => !v)}
-                  className="text-xs u-accent"
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+                  className="text-xs u-accent u-btn-reset"
                 >
                   {requirementExpanded ? '收起' : '展开'}
                 </button>

@@ -1,5 +1,5 @@
 // App.tsx - Agent Studio - 路由重构
-import { useState, useEffect, lazy, Suspense } from 'react';
+import { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import { Routes, Route, useLocation, Navigate } from 'react-router-dom';
 const ChannelHomeRedirect = lazy(() => import('./pages/ChannelHomeRedirect').then(m => ({ default: m.ChannelHomeRedirect })));
 const TriageBanner = lazy(() => import('./components/TriageBanner').then(m => ({ default: m.TriageBanner })));
@@ -27,7 +27,7 @@ const ResetPasswordPage = lazy(() => import('./pages/ResetPasswordPage').then(m 
 
 const PageLoader = () => (
   <div className="flex items-center justify-center h-full">
-    <div className="animate-spin rounded-full h-8 w-8 border-b-2 u-border-2 "></div>
+    <div className="loading-spinner" />
   </div>
 );
 
@@ -38,10 +38,18 @@ import { useAuthStore } from './stores/authStore';
 import { LandingPage } from './components/LandingPage';
 import { WebSocketProvider } from './api/websocket';
 import { channelApi } from './api/channel';
+import { useRosterStore } from './stores/rosterStore';
+import { useRequirementChainStoreSync } from './hooks/useRequirementChainStoreSync';
 import { StudioRoleSetupModal } from './components/setup/StudioRoleSetupModal';
 import { FirstRoleSetupModal } from './components/setup/FirstRoleSetupModal';
 import { isStudioRoleSetupDismissed, isFirstRoleSetupDismissed } from './components/setup/dismissed';
 import './styles/theme.css';
+
+// #412：REQ chain 数据面 SSE 接线（App 级单点、零渲染；useWebSocketContext 依赖 Provider，故置于 Provider 内）
+function RequirementChainSync() {
+  useRequirementChainStoreSync();
+  return null;
+}
 
 export default function App() {
   const location = useLocation();
@@ -55,25 +63,46 @@ export default function App() {
   const [firstRoleSetupOpen, setFirstRoleSetupOpen] = useState(false);
 
   // AC-2.1~2.3: 启动时检测 studio 角色 provider + 是否有已配置 provider 的用户角色
+  // #403：agent 列表读 rosterStore 客户端切片（listAllAgents 全量正本，ADR 决策 2）——
+  // ensureFresh 触发首拉（TTL/单飞与其他消费方收敛），profiles 切片成功落库后一次性评估
+  const profiles = useRosterStore((s) => s.profiles);
+  const profilesLoadedOnce = useRosterStore((s) => s.profilesLoadedOnce);
+  const token = useAuthStore((s) => s.token);
+  const bootEvaluatedRef = useRef(false);
+  const bootTokenRef = useRef<string | null>(null);
+
   useEffect(() => {
     if (!isAuthenticated) return;
-    channelApi.listAgents(undefined, { includeSystem: true })
-      .then((res) => {
-        const profiles = res.data.data;
-        const studio = profiles.find(p => p.name === 'studio');
-        // AC-2.2: studio provider=null 且未 dismiss -> 弹框
-        if (studio && !studio.provider && !isStudioRoleSetupDismissed()) {
-          setStudioRoleSetupOpen(true);
-        }
-        // AC-2.3（F2，2026-07-28）: 无任何 provider 非空的 active 用户角色且未 dismiss -> 弹框
-        // （内置三角色 seed 已退役；角色存在但 provider 为空 = 没有可用执行体，同样需要引导）
-        const hasConfiguredRole = profiles.some(p => p.name !== 'studio' && p.status === 'active' && !!p.provider);
-        if (!hasConfiguredRole && !isFirstRoleSetupDismissed()) {
-          setFirstRoleSetupOpen(true);
-        }
-      })
-      .catch(() => { /* 静默，不阻塞 UI */ });
+    void useRosterStore.getState().ensureFresh();
   }, [isAuthenticated]);
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      bootEvaluatedRef.current = false;
+      bootTokenRef.current = token;
+      return;
+    }
+    // 换号（token 变）重置一次性评估：新账号切片由 ensureFresh 的 tokenChanged 逻辑保证重拉
+    if (bootTokenRef.current !== token) {
+      bootTokenRef.current = token;
+      bootEvaluatedRef.current = false;
+    }
+    if (bootEvaluatedRef.current) return;
+    // profiles 切片成功落库才评估（对齐旧 listAgents .then 时机：切片失败静默不评，等后续拉取成功）
+    if (!profilesLoadedOnce) return;
+    bootEvaluatedRef.current = true;
+    const studio = profiles.find(p => p.name === 'studio');
+    // AC-2.2: studio provider=null 且未 dismiss -> 弹框
+    if (studio && !studio.provider && !isStudioRoleSetupDismissed()) {
+      setStudioRoleSetupOpen(true);
+    }
+    // AC-2.3（F2，2026-07-28）: 无任何 provider 非空的 active 用户角色且未 dismiss -> 弹框
+    // （内置三角色 seed 已退役；角色存在但 provider 为空 = 没有可用执行体，同样需要引导）
+    const hasConfiguredRole = profiles.some(p => p.name !== 'studio' && p.status === 'active' && !!p.provider);
+    if (!hasConfiguredRole && !isFirstRoleSetupDismissed()) {
+      setFirstRoleSetupOpen(true);
+    }
+  }, [isAuthenticated, profiles, profilesLoadedOnce, token]);
 
   // OAuth callback: bypass guest wall (user is returning from OAuth provider)
   if (location.pathname === '/auth/callback') {
@@ -120,16 +149,20 @@ export default function App() {
   return (
     <ThemeProvider>
     <WebSocketProvider>
-    <div className="h-screen flex flex-col" style={{ background: 'var(--bg-primary)' }}>
+    <div className="h-screen flex flex-col u-page-bg">
+      {/* #412：REQ chain 数据面 SSE 接线（App 级单点，hook 需 WebSocketProvider 上下文） */}
+      <RequirementChainSync />
       {/* AC-2.2: studio 角色 provider=null 弹框 */}
       <StudioRoleSetupModal
         open={studioRoleSetupOpen}
         onClose={() => setStudioRoleSetupOpen(false)}
         onSave={async (provider) => {
           try {
-            const res = await channelApi.listAgents(undefined, { includeSystem: true });
-            const studio = res.data.data.find(p => p.name === 'studio');
+            // #403：studio 身份来自 boot 已拉好的 rosterStore 切片（弹框只能由检测到 studio 才打开），
+            // 保存后强刷切片防 store 残留 provider=null 触发重弹
+            const studio = useRosterStore.getState().profiles.find(p => p.name === 'studio');
             if (studio) await channelApi.updateAgent(studio.id, { provider });
+            await useRosterStore.getState().ensureFresh({ maxAgeMs: 0 });
           } catch { /* best-effort */ }
         }}
       />
@@ -153,12 +186,11 @@ export default function App() {
 
         {/* Mission Control：频道工作区为满高三栏（各栏独立滚动），其余页面保持文档流滚动 */}
         <div
-          className={
+          className={`u-page-bg ${
             /^\/channels\/[^/]+$/.test(location.pathname)
               ? 'flex-1 flex flex-col overflow-hidden min-h-0'
               : 'flex-1 overflow-auto'
-          }
-          style={{ background: 'var(--bg-primary)' }}
+          }`}
         >
           <Routes>
             <Route

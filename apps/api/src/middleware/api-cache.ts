@@ -12,7 +12,8 @@ const CACHE_CONFIG = {
 };
 
 function generateCacheKey(req: Request): string {
-  return `api:cache:${req.path}:${JSON.stringify(req.query)}`;
+  // #448：key 含 baseUrl（挂载点），写路由才能按资源路径前缀精确失效（clearCache）
+  return `api:cache:${req.baseUrl}${req.path}:${JSON.stringify(req.query)}`;
 }
 
 export function apiCache(ttl: number = CACHE_CONFIG.medium) {
@@ -31,7 +32,10 @@ export function apiCache(ttl: number = CACHE_CONFIG.medium) {
       res.setHeader('X-Cache', 'MISS');
       const originalJson = res.json.bind(res);
       res.json = (data: any) => {
-        cache.set(cacheKey, { data: JSON.stringify(data), expiresAt: Date.now() + ttl * 1000 });
+        // 错误响应（≥400）不缓存：瞬时失败不得在 TTL 窗口内钉死端点（#403）
+        if (res.statusCode < 400) {
+          cache.set(cacheKey, { data: JSON.stringify(data), expiresAt: Date.now() + ttl * 1000 });
+        }
         return originalJson(data);
       };
       next();

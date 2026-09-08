@@ -25,6 +25,10 @@ const mockStore = {
   loadWorkUnits: vi.fn(),
   createWorkUnit: vi.fn(),
   setStatusFilter: vi.fn(),
+  setUnattributedOnly: vi.fn(),
+  loadUnattributedCount: vi.fn(),
+  unattributedOnly: false,
+  unattributedTotal: null as number | null,
 };
 
 vi.mock('../../stores/workunitStore', () => ({
@@ -36,12 +40,16 @@ vi.mock('../../stores/workunitStore', () => ({
         loading: false,
         error: null,
         statusFilter: null,
+        unattributedOnly: mockStore.unattributedOnly,
+        unattributedTotal: mockStore.unattributedTotal,
         loadWorkUnits: mockStore.loadWorkUnits,
         createWorkUnit: mockStore.createWorkUnit,
         reviewPassed: mockStore.reviewPassed,
         reviewRejected: mockStore.reviewRejected,
         confirmPending: mockStore.confirmPending,
         setStatusFilter: mockStore.setStatusFilter,
+        setUnattributedOnly: mockStore.setUnattributedOnly,
+        loadUnattributedCount: mockStore.loadUnattributedCount,
         applyWorkunitEvent: vi.fn(),
       };
       return selector ? selector(state) : state;
@@ -336,5 +344,48 @@ describe('WorkUnitListPage — claimable 置灰与被阻塞徽标（#116）', ()
 
     await waitFor(() => expect(screen.getByText('依赖任务一')).toBeDefined());
     expect(mockDepGet).toHaveBeenCalledWith('wu-dep-1');
+  });
+});
+
+// #405：未归属 pill —— 服务端过滤开关 + 服务端 total 计数徽标（消费 #428 API）
+describe('WorkUnitListPage — 未归属 pill（#405）', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockStore.workunits = [];
+    mockStore.unattributedOnly = false;
+    mockStore.unattributedTotal = null;
+    mockSearchParamsValue.value = '';
+  });
+
+  it('渲染未归属 pill，徽标数字 = store 的服务端 total', () => {
+    mockStore.unattributedTotal = 42;
+    render(<WorkUnitListPage />);
+
+    const pill = screen.getByRole('button', { name: /未归属/ });
+    expect(pill.textContent).toContain('42');
+  });
+
+  it('点击未归属 pill → setUnattributedOnly(true)；过滤态再点 → false（取消恢复）', () => {
+    const { unmount } = render(<WorkUnitListPage />);
+
+    fireEvent.click(screen.getByRole('button', { name: /未归属/ }));
+    expect(mockStore.setUnattributedOnly).toHaveBeenCalledWith(true);
+
+    // mock store 非响应式：置过滤态后重渲染再点
+    unmount();
+    mockStore.unattributedOnly = true;
+    render(<WorkUnitListPage />);
+    fireEvent.click(screen.getByRole('button', { name: /未归属/ }));
+    expect(mockStore.setUnattributedOnly).toHaveBeenCalledWith(false);
+  });
+
+  it('unattributedTotal 为 null（未拉取）时 pill 不带数字', () => {
+    render(<WorkUnitListPage />);
+    expect(screen.getByRole('button', { name: '未归属' })).toBeDefined();
+  });
+
+  it('挂载时拉取未归属计数（loadUnattributedCount）', () => {
+    render(<WorkUnitListPage />);
+    expect(mockStore.loadUnattributedCount).toHaveBeenCalled();
   });
 });

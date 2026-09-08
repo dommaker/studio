@@ -24,8 +24,8 @@ export function ForgotPasswordPage() {
   };
 
   return (
-    <div className="min-h-screen u-text flex items-center justify-center px-4" style={{ background: "var(--bg-primary)" }}>
-      <div className="u-surface border u-border rounded-xl p-6 w-full max-w-sm shadow-2xl">
+    <div className="min-h-screen u-text flex items-center justify-center px-4 u-page-bg">
+      <div className="card p-6 w-full max-w-sm" style={{ borderRadius: 6, boxShadow: 'var(--shadow-lg)' }}>
         <h1 className="text-lg font-bold mb-1">重置密码</h1>
         <p className="text-xs u-text-3 mb-4">输入注册邮箱，我们将发送重置链接</p>
 
@@ -34,7 +34,7 @@ export function ForgotPasswordPage() {
             <p className="u-ok text-sm mb-4">如果该邮箱已注册，重置密码链接已发送</p>
             <a
               href="/login"
-              className="block w-full text-center px-4 py-2.5 u-surface-2 rounded-lg u-text text-sm u-hover-bg transition-colors"
+              className="btn btn-secondary w-full"
             >
               返回登录
             </a>
@@ -47,13 +47,13 @@ export function ForgotPasswordPage() {
               onChange={(e) => { setEmail(e.target.value); setError(''); }}
               placeholder="your@email.com"
               autoFocus
-              className="w-full px-4 py-2.5 u-surface border u-border-2 rounded-lg u-text text-sm u-ph mb-3"
+              className="input w-full mb-3"
             />
             {error && <p className="u-err text-xs mb-3">{error}</p>}
             <button
               type="submit"
               disabled={loading || !email.trim()}
-              className="w-full px-4 py-2.5 u-surface-2 rounded-lg u-text text-sm u-hover-bg disabled:opacity-50 transition-colors mb-2"
+              className="btn btn-primary w-full mb-2"
             >
               {loading ? '发送中...' : '发送重置链接'}
             </button>

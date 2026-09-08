@@ -2,7 +2,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 
-const { mockOnEvent, mockListAllAgents, mockListChannels, mockGetAgentSummary, mockTerminateInstance, mockWuList, mockWuGet, mockCtx } = vi.hoisted(() => ({
+const { mockOnEvent, mockListAllAgents, mockListChannels, mockGetAgentSummary, mockTerminateInstance, mockWuList, mockWuGet, mockWuLastDone, mockCtx } = vi.hoisted(() => ({
   mockOnEvent: vi.fn(),
   mockListAllAgents: vi.fn(),
   mockListChannels: vi.fn(),
@@ -10,6 +10,7 @@ const { mockOnEvent, mockListAllAgents, mockListChannels, mockGetAgentSummary, m
   mockTerminateInstance: vi.fn(),
   mockWuList: vi.fn(),
   mockWuGet: vi.fn(),
+  mockWuLastDone: vi.fn(),
   mockCtx: { status: 'disconnected' as string },
 }));
 
@@ -27,7 +28,7 @@ vi.mock('../../api/channel', () => ({
 
 vi.mock('../../api/workunit', async () => {
   const actual = await vi.importActual('../../api/workunit');
-  return { ...actual, workunitApi: { list: mockWuList, get: mockWuGet } };
+  return { ...actual, workunitApi: { list: mockWuList, get: mockWuGet, lastDone: mockWuLastDone } };
 });
 
 import { useAgentRoster } from '../useAgentRoster';
@@ -80,6 +81,7 @@ describe('useAgentRoster', () => {
     mockListChannels.mockResolvedValue({ data: { data: [{ id: 'ch1', name: 'backend' }] } });
     mockWuList.mockResolvedValue({ data: { data: [], total: 0, page: 1, limit: 20 } });
     mockWuGet.mockResolvedValue({ data: { id: 'wu-9', scope: '补查的任务', type: 'DEV', status: 'active', claimedAt: null } });
+    mockWuLastDone.mockResolvedValue({ data: { data: {} } });
     mockTerminateInstance.mockResolvedValue({});
   });
 
@@ -96,10 +98,10 @@ describe('useAgentRoster', () => {
     expect(result.current.roles[0].runtime?.id).toBe('i1');
     expect(result.current.roles[0].runtime?.currentWorkUnit?.title).toBe('实现登录接口');
     expect(result.current.channelNames).toEqual({ ch1: 'backend' });
-    expect(mockWuList).not.toHaveBeenCalled();
+    expect(mockWuLastDone).not.toHaveBeenCalled();
   });
 
-  it('空闲角色：按 instance.id 查 assigneeId 取最近完成；聚合字段暂缺时 fillWorkUnit 补查', async () => {
+  it('空闲角色：批量端点一次拉最近完成；聚合字段暂缺时 fillWorkUnit 补查', async () => {
     mockListAllAgents.mockResolvedValue({ data: { data: [profile(), profile({ id: 'p2', name: 'ops-agent' })] } });
     mockGetAgentSummary.mockResolvedValue({
       data: {
@@ -110,25 +112,38 @@ describe('useAgentRoster', () => {
         summary: { total: 2, idle: 1, active: 1, error: 0, terminated: 0 },
       },
     });
-    mockWuList.mockResolvedValue({
-      data: {
-        data: [
-          { id: 'wu-old', scope: '旧任务', type: 'DEV', status: 'done', completedAt: '2026-07-30T00:00:00Z', updatedAt: '2026-07-30T00:00:00Z' },
-          { id: 'wu-new', scope: '修好的首页', type: 'FIX', status: 'done', completedAt: '2026-07-31T00:00:00Z', updatedAt: '2026-07-31T00:00:00Z' },
-        ],
-        total: 2, page: 1, limit: 20,
-      },
+    // #387：单请求批量返回（按 instance.id 键）
+    mockWuLastDone.mockResolvedValue({
+      data: { data: { i1: { id: 'wu-new', scope: '修好的首页', type: 'FIX', status: 'done', completedAt: '2026-07-31T00:00:00Z', updatedAt: '2026-07-31T00:00:00Z' } } },
     });
     const { result } = renderHook(() => useAgentRoster());
     await flush();
-    // 空闲的 p1：最近完成取 done 里最新一条
-    expect(mockWuList).toHaveBeenCalledWith({ assigneeId: 'i1', limit: 20 });
+    // 空闲的 p1：批量端点拿最近完成；忙碌的 p2 不入批量名单
+    expect(mockWuLastDone).toHaveBeenCalledTimes(1);
+    expect(mockWuLastDone).toHaveBeenCalledWith(['i1']);
     expect(result.current.lastDone.p1?.id).toBe('wu-new');
     expect(result.current.lastDone.p2).toBeUndefined();
     // 忙碌的 p2：聚合字段暂缺 → 补查 wu-9 写回
     expect(mockWuGet).toHaveBeenCalledWith('wu-9');
     await flush();
     expect(result.current.roles[1].runtime?.currentWorkUnit?.title).toBe('补查的任务');
+  });
+
+  it('#387 批量最近完成失败：空闲卡全部置 null（卡面无最近完成）', async () => {
+    mockListAllAgents.mockResolvedValue({ data: { data: [profile(), profile({ id: 'p2', name: 'ops-agent' })] } });
+    mockGetAgentSummary.mockResolvedValue({
+      data: {
+        agents: [
+          instance({ id: 'i1', status: 'idle', currentWorkUnitId: null, currentWorkUnit: null }),
+          instance({ id: 'i2', roleId: 'p2', name: 'ops-agent', status: 'idle', currentWorkUnitId: null, currentWorkUnit: null }),
+        ],
+        summary: { total: 2, idle: 2, active: 0, error: 0, terminated: 0 },
+      },
+    });
+    mockWuLastDone.mockRejectedValue(new Error('boom'));
+    const { result } = renderHook(() => useAgentRoster());
+    await flush();
+    expect(result.current.lastDone).toEqual({ p1: null, p2: null });
   });
 
   it('30s 轮询兜底：到点静默重拉', async () => {

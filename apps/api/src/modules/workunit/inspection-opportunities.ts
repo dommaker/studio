@@ -67,6 +67,7 @@ export async function adoptInspectionOpportunity(
     scope,
     status: 'unassigned', // 采纳动作即人工闸（T4 单层人闸），显式跳过 PENDING_CONFIRM_TYPES 默认
     parentId: wuId,
+    reqId: wu.reqId ?? null, // #402 归因补全：源单 REQ 关联继承（pmoId 戳由 create 父戳继承兜底）
     metadata: {
       creationMode: 'inspection-adopt',
       sourceInspectionWuId: wuId,

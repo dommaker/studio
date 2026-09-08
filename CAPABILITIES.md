@@ -1,6 +1,6 @@
 # CAPABILITIES.md
 
-> 最后更新: 2026-08-31
+> 最后更新: 2026-09-02
 
 ---
 
@@ -106,17 +106,16 @@
 | AuthModal | apps/web/src/components/AuthModal.tsx | 隐形认证 — 仅通过手势触发（双击 ⚡ 或 Ctrl+Enter） |
 
 | DiscussionPanel | apps/web/src/components/DiscussionPanel.tsx | DiscussionPanel — WorkUnit 讨论空间（MVP-4） |
-| JoinComputeDialog | apps/web/src/components/JoinComputeDialog.tsx | JoinComputeDialog |
+
 | LandingPage | apps/web/src/components/LandingPage.tsx | Lurk Wall: 个人网站展示页 — 不提示登录，不显示入口 |
 | MoreDropdown | apps/web/src/components/MoreDropdown.tsx | MoreDropdown.tsx - "更多"下拉菜单组件（L4 高级功能） |
 | NotificationBell | apps/web/src/components/NotificationBell.tsx | Notification Bell — B2-003: 通知中心 |
 | OAuthCallback | apps/web/src/components/OAuthCallback.tsx | OAuth callback handler. |
 | PmoNumberBadge | apps/web/src/components/PmoNumberBadge.tsx | PMO 号显示组件 - GEN-005 |
 | SidebarNew | apps/web/src/components/SidebarNew.tsx | Sidebar.tsx - 侧边栏组件（最新设计） |
-| TokenManager | apps/web/src/components/TokenManager.tsx | TokenManager |
+
 | TopNav | apps/web/src/components/TopNav.tsx | TopNav.tsx - 顶部导航栏组件（L1 核心功能） |
 | TriageBanner | apps/web/src/components/TriageBanner.tsx | Triage Global Banner — B2-005: 页面顶部常驻告警横幅 |
-| WorkspaceStatusBar | apps/web/src/components/WorkspaceStatusBar.tsx | WorkspaceStatusBar |
 
 | AuthorAvatar | apps/web/src/components/channel/AuthorAvatar.tsx | AuthorAvatar — 频道消息作者头像：人类 = 品牌色 + 用户名首字（用户传了 avatar 图则用图）； |
 | ChannelInput | apps/web/src/components/channel/ChannelInput.tsx | Channel message input — AC-C1: @mention autocomplete + AC-C2: reply mode |
@@ -133,11 +132,7 @@
 | GapCards | apps/web/src/components/knowledge/GapCards.tsx | 知识库页面六类 Gap 明细卡片（2026-08 工单 34 从 pages/KnowledgePage.tsx 抽出，纯展示无逻辑变更） |
 | MarkdownBody | apps/web/src/components/knowledge/MarkdownBody.tsx | Markdown 正文渲染 — WikiDocPage 正文方案（2026-07-31 §10 任务 4b） |
 | RequirementChainPanel | apps/web/src/components/requirement/RequirementChainPanel.tsx | REQ 全链路面板（vision §5.3）— 展示 GET /requirements/:id/chain |
-| CompanySection | apps/web/src/components/settings/CompanySection.tsx | 公司信息 section（从 pages/Settings.tsx 抽取，工单 35-E3）：公司名称自动保存 + 无公司时创建 |
-| ComputeSection | apps/web/src/components/settings/ComputeSection.tsx | 算力接入 section（从 pages/Settings.tsx 抽取，工单 35-E3）：Workspace 状态 + 加入算力弹窗 + Token 管理 |
-| KnowledgeEntrySection | apps/web/src/components/settings/KnowledgeEntrySection.tsx | 公司知识库入口 section（从 pages/Settings.tsx 抽取，工单 35-E3） |
-| NotifyChannelSection | apps/web/src/components/settings/NotifyChannelSection.tsx | 通知渠道 section（从 pages/Settings.tsx 抽取，工单 35-E3）：Discord/企微/Telegram 三段合并为数据驱动 |
-| NotifySyncStatusHint | apps/web/src/components/settings/NotifySyncStatusHint.tsx | 通知配置同步状态提示（从 pages/Settings.tsx 抽取，工单 35-E3） |
+
 | ThemeSettings | apps/web/src/components/settings/ThemeSettings.tsx | 主题设置 section（从 pages/Settings.tsx 抽取，工单 35-E3） |
 | FirstRoleSetupModal | apps/web/src/components/setup/FirstRoleSetupModal.tsx | AC-2.3（F2，2026-07-28）: 无已配置 provider 的用户角色时弹框提醒 |
 | StudioRoleSetupModal | apps/web/src/components/setup/StudioRoleSetupModal.tsx | AC-2.2: studio 角色 provider=null 弹框提醒 |
@@ -196,6 +191,7 @@
 | service | apps/api/src/modules/auth/service.ts | 认证服务 - Auth Service |
 | card | apps/api/src/modules/review-proposal/card.ts | review-proposal/card (#351) — 人审提案卡投放 #系统 频道（唯一正本） |
 | registry | apps/api/src/modules/review-proposal/registry.ts | review-proposal/registry (#351) — 人审提案卡 adapter 注册表（kind → adapter） |
+| routes | apps/api/src/modules/review-proposal/routes.ts | review-proposal/routes (#351) — 人审提案卡通用端点（approve/reject/status，kind 走注册表分发） |
 | service | apps/api/src/modules/review-proposal/service.ts | review-proposal/service (#351) — 人审提案卡生命周期（唯一正本） |
 | store | apps/api/src/modules/review-proposal/store.ts | review-proposal/store (#351) — 人审提案卡通用存取（append-only JSONL + 状态墓碑折叠） |
 | review-adapter | apps/api/src/modules/agents/auditor/review-adapter.ts | review-adapter (#356) — auditor_suggestion 提案卡 adapter（接线 review-proposal 正本） |
@@ -216,4 +212,9 @@
 | StationStepper | apps/web/src/components/workunit/StationStepper.tsx | StationStepper / LifecycleEventChips — #396 WU 详情页顶部共享定位条（spec §5.1/§5.3） |
 | TreeTokenChart | apps/web/src/components/workunit/TreeTokenChart.tsx | TreeTokenChart — #396 WU 详情页 Token 开销图表化（spec §5.4，零图表库手搓） |
 | ChannelHomeRedirect | apps/web/src/pages/ChannelHomeRedirect.tsx | #393 频道首页重定向 — `/` 与 `/channels` 唯一入口（频道列表页已删除，spec §2） |
+| AgentAvatar | apps/web/src/components/channel/AgentAvatar.tsx | AgentAvatar — #440 Phase 4：per-agent identicon 式确定性头像。 |
+| ChannelStageBar | apps/web/src/components/channel/ChannelStageBar.tsx | ChannelStageBar — #440 Phase 2：频道详情页顶部的工单阶段条。 |
+| SuggestionChips | apps/web/src/components/channel/SuggestionChips.tsx | SuggestionChips — #440 Phase 1：频道输入框上方的建议片； |
+| UnifiedEntryContent | apps/web/src/components/knowledge/UnifiedEntryContent.tsx | #435 B7：统一视图条目内容消化呈现——JSON 结构化键值列表；文本超 200 字符截断 + 展开/收起， |
+| MetaStrip | apps/web/src/components/ui/MetaStrip.tsx | MetaStrip — #440 Phase 3：详情页标题下密排元信息条。 |
 | mockMatchMedia | apps/web/src/test/mockMatchMedia.ts | #395：jsdom 无 window.matchMedia 实现——按给定视口宽度求值 (min|max)-width 媒体查询， |

@@ -10,7 +10,7 @@
  *
  * 不测内部实现细节（FileStore 读写原语由 studio-shared 单测覆盖）。
  */
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { FileStore } from '@dommaker/studio-shared';
@@ -393,5 +393,92 @@ describe('容量检查（超限提醒，不自动删、不落新人罪）', () =
     expect(check.overLimit).toBe(true);
     // 仍能继续写（不拒绝新记忆）
     await expect(small.appendDraft(roleId, { kind: 'preference', title: 'C', content: 'c' })).resolves.toBeTruthy();
+  });
+});
+
+describe('FileStore 读穿 seam（#404：裸 fs 读收进 mdCache/dirCache，mtime 校验）', () => {
+  const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+
+  it('readIndex 命中缓存：内容不变时重复读不再触发 readFile', async () => {
+    const roleId = freshRoleId('seam-index');
+    const e = await store.appendDraft(roleId, { kind: 'execution-knowledge', title: 'Seam idx', content: 'c', topicSlug: 'seam-idx' });
+    await store.promote(roleId, [e.id]);
+    await store.readIndex(roleId); // 首次读填充缓存
+
+    const spy = vi.spyOn(fs.promises, 'readFile');
+    try {
+      const a = await store.readIndex(roleId);
+      const b = await store.readIndex(roleId);
+      expect(a).toBe(b);
+      expect(a).toContain('[seam-idx](topics/seam-idx.md)');
+      expect(spy).not.toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('readTopic 命中缓存：内容不变时重复读不再触发 readFile', async () => {
+    const roleId = freshRoleId('seam-topic');
+    const e = await store.appendDraft(roleId, { kind: 'execution-knowledge', title: 'Seam topic', content: 'seam-content', topicSlug: 'seam-topic' });
+    await store.promote(roleId, [e.id]);
+    await store.readTopic(roleId, 'seam-topic'); // 首次读填充缓存
+
+    const spy = vi.spyOn(fs.promises, 'readFile');
+    try {
+      const a = await store.readTopic(roleId, 'seam-topic');
+      const b = await store.readTopic(roleId, 'seam-topic');
+      expect(a?.body).toContain('seam-content');
+      expect(b).toEqual(a);
+      expect(spy).not.toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('topic 目录清单命中缓存：第二次 checkCapacity 不再 readdir', async () => {
+    const roleId = freshRoleId('seam-dir');
+    const e = await store.appendDraft(roleId, { kind: 'execution-knowledge', title: 'Seam dir', content: 'c', topicSlug: 'seam-dir' });
+    await store.promote(roleId, [e.id]);
+    await store.checkCapacity(roleId); // 首次填充 dirCache
+
+    const spy = vi.spyOn(fs.promises, 'readdir');
+    try {
+      const check = await store.checkCapacity(roleId);
+      expect(check.overLimit).toBe(false);
+      expect(spy).not.toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('命中返回结构克隆：调用方原地改返回对象不污染后续读（#343 语义基线）', async () => {
+    const roleId = freshRoleId('seam-clone');
+    const e = await store.appendDraft(roleId, { kind: 'execution-knowledge', title: 'Clone me', content: 'clone-content', topicSlug: 'clone-me' });
+    await store.promote(roleId, [e.id]);
+
+    const first = await store.readTopic(roleId, 'clone-me');
+    expect(first).not.toBeNull();
+    first!.body = 'tampered';
+    first!.title = 'tampered';
+
+    const second = await store.readTopic(roleId, 'clone-me');
+    expect(second?.body).toContain('clone-content');
+    expect(second?.title).toBe('Clone me');
+  });
+
+  it('外部裸写（绕过 FileStore）经 mtime 校验可见，不脏读', async () => {
+    const roleId = freshRoleId('seam-mtime');
+    const e = await store.appendDraft(roleId, { kind: 'execution-knowledge', title: 'Mtime check', content: 'content-before', topicSlug: 'mtime-check' });
+    await store.promote(roleId, [e.id]);
+    const before = await store.readTopic(roleId, 'mtime-check'); // 填充缓存
+    expect(before?.body).toContain('content-before');
+
+    await sleep(5); // 保证 mtime 变化（与 seam 同一信任级别）
+    const filePath = path.join(roleMemoryDir(roleId), 'topics', 'mtime-check.md');
+    fs.writeFileSync(filePath, fs.readFileSync(filePath, 'utf-8').replaceAll('content-before', 'content-after'), 'utf-8');
+
+    const after = await store.readTopic(roleId, 'mtime-check');
+    expect(after?.body).toContain('content-after');
+    expect(after?.body).not.toContain('content-before');
   });
 });

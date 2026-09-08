@@ -1,7 +1,7 @@
 // 工程候选管理 section（#266，决策 #258）：归属问答候选集排除清单管理。
 // 候选工程列表项可标记/取消「不再作为候选」；保存走 PUT /projects/exclude 全量替换，
 // 服务端保存后主动 invalidateCache，归属问答即时使用新清单。
-// 组件形态仿 CompanySection/ComputeSection。
+// #434 后设置页仅存三节之一（默认执行机器/工程候选/主题），均即时保存无保存栏。
 import { useEffect, useState } from 'react';
 import { projectsApi, type LocalProject } from '../../api/projects';
 import { toast } from '../../utils/toast';

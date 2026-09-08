@@ -175,7 +175,7 @@ describe('WorkUnitDetailPage', () => {
     render(<WorkUnitDetailPage />);
     expect(await screen.findByText('登录功能开发')).toBeDefined();
     expect(screen.getByText('任务')).toBeDefined();
-    expect(screen.getAllByText('已完成').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('完成').length).toBeGreaterThan(0);
     expect(screen.queryByRole('button', { name: 'Token 开销' })).toBeNull();
   });
 
@@ -223,10 +223,10 @@ describe('WorkUnitDetailPage', () => {
     // REQ 行 → 打开 RequirementChainPanel（非链接）
     expect(screen.getByText('REQ-0042')).toBeDefined();
     // 频道行 → /channels/:channelId
-    const channelLink = await screen.findByText('# 主频道');
+    const channelLink = await screen.findByText('#主频道');
     expect(channelLink.closest('a')?.getAttribute('href')).toBe('/channels/ch-1');
-    // 认领人行 → /agents/:roleId
-    const agentLink = await screen.findByText('@coder-01');
+    // 认领人行 → /agents/:roleId（#440 meta strip 也渲染同名链接，取其一断 href）
+    const [agentLink] = await screen.findAllByText('@coder-01');
     expect(agentLink.closest('a')?.getAttribute('href')).toBe('/agents/role-1');
     // 时间行 + Token 行（mono 总耗，整行可点开图表面板）
     expect(screen.getByText('创建')).toBeDefined();
@@ -275,7 +275,8 @@ describe('WorkUnitDetailPage', () => {
       data: { agents: [], summary: { total: 0, idle: 0, active: 0, error: 0, terminated: 0 } },
     });
     render(<WorkUnitDetailPage />);
-    const chip = await screen.findByText('@inst-abc');
+    // #440：meta strip 与事实卡各渲染一份短 id，取其一断不可点
+    const [chip] = await screen.findAllByText('@inst-abc');
     expect(chip.closest('a')).toBeNull();
   });
 
@@ -287,7 +288,8 @@ describe('WorkUnitDetailPage', () => {
     mockGetAgentInstance.mockResolvedValue({ data: { id: 'inst-abcdefgh1234', roleId: 'role-9', status: 'terminated' } });
     mockListAllAgents.mockResolvedValue({ data: { data: [{ id: 'role-9', name: 'Analyst' }] } });
     render(<WorkUnitDetailPage />);
-    const chip = await screen.findByText('@Analyst');
+    // #440：meta strip 与事实卡各渲染一份，取其一断链接
+    const [chip] = await screen.findAllByText('@Analyst');
     expect(chip.closest('a')?.getAttribute('href')).toBe('/agents/role-9');
   });
 
@@ -380,10 +382,11 @@ describe('WorkUnitDetailPage', () => {
     });
     render(<WorkUnitDetailPage />);
 
-    // 依赖行：标题 + 跳详情页链接；done 依赖状态 chip（Header pill 之外新增一处）
+    // 依赖行：标题 + 跳详情页链接；done 依赖状态 chip（Header pill 为正词「完成」，依赖 chip 走 DEP_STATUS_LABEL 方言「已完成」）
     const depLink = await screen.findByText('依赖任务一');
     expect(depLink.closest('a')?.getAttribute('href')).toBe('/workunits/wu-dep-1');
-    expect(screen.getAllByText('已完成').length).toBeGreaterThanOrEqual(2);
+    expect(screen.getAllByText('完成').length).toBeGreaterThanOrEqual(1); // Header 状态 pill
+    expect(screen.getAllByText('已完成').length).toBeGreaterThanOrEqual(1); // 依赖 chip（DEP_STATUS_LABEL 方言，不在 #429 范围）
     // 缺失 id 保守按未了结展示
     expect(screen.getByText('找不到这张单')).toBeDefined();
     // ac 验收标准逐条展示
@@ -464,5 +467,73 @@ describe('WorkUnitDetailPage', () => {
 
     fireEvent.click(screen.getByText('确认通过'));
     await waitFor(() => expect(mockReviewPassed).toHaveBeenCalledWith('wu-1', '目标：目标\n待决：问题1', undefined));
+  });
+});
+
+// #440 Phase 3：WU 详情页标题下 meta strip（涉及角色 / AC 数 / 当前阶段；缺项不占位）
+describe('WorkUnitDetailPage — #440 meta strip', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useRosterStore.setState({
+      profiles: [], agents: [], channels: [],
+      loading: false, error: null, forbidden: false,
+      loadedAt: null, channelsLoadedOnce: false, agentsLoadedOnce: false,
+      inflight: null, lastToken: null,
+    });
+    mockWuGet.mockResolvedValue({ data: baseWu });
+    mockProjectGet.mockResolvedValue({ data: { id: 'proj-1', pmoNumber: 'PM-0007', title: '登录项目' } });
+    mockReqGet.mockResolvedValue({ data: { success: true, data: { id: 'REQ-0042', projectId: 'proj-2' } } });
+    mockChannelList.mockResolvedValue({ data: { success: true, data: [{ id: 'ch-1', name: '主频道' }] } });
+    mockAgentSummary.mockResolvedValue({
+      data: {
+        agents: [{ id: 'inst-abcdefgh1234', roleId: 'role-1', name: 'coder-01', status: 'idle', currentWorkUnitId: null, startedAt: '2026-07-30T08:00:00Z' }],
+        summary: { total: 1, idle: 1, active: 0, error: 0, terminated: 0 },
+      },
+    });
+    mockReqGetChain.mockResolvedValue({
+      data: { success: true, data: { requirement: { id: 'REQ-0042', seq: 42, title: '登录需求', status: 'in-progress', createdAt: '2026-07-29T09:00:00Z', createdBy: 'manual' }, workunits: [] } },
+    });
+    mockGetTreeTokens.mockResolvedValue({ data: treeTokenReport });
+    mockGetAgentInstance.mockRejectedValue(new Error('404'));
+    mockListAllAgents.mockResolvedValue({ data: { data: [] } });
+  });
+
+  const stripOf = async () => {
+    render(<WorkUnitDetailPage />);
+    await screen.findByText('登录功能开发');
+    return document.querySelector('.wu-detail-meta');
+  };
+
+  it('渲染涉及角色（解析到角色名）与当前阶段；baseWu 无 ac → AC 数不占位', async () => {
+    render(<WorkUnitDetailPage />);
+    // 认领人解析是异步三级口径（#290），等它落到角色名
+    await screen.findAllByText('@coder-01');
+    const strip = document.querySelector('.wu-detail-meta');
+    expect(strip).toBeTruthy();
+    expect(strip!.textContent).toContain('涉及角色');
+    expect(strip!.textContent).toContain('@coder-01');
+    expect(strip!.textContent).toContain('当前阶段');
+    expect(strip!.textContent).toContain('完成');
+    expect(strip!.textContent).not.toContain('AC 数');
+  });
+
+  it('有 metadata.ac → AC 数渲染聚合计数', async () => {
+    mockWuGet.mockResolvedValue({
+      data: {
+        ...baseWu,
+        metadata: JSON.stringify({ title: '登录功能开发', ac: ['AC1', 'AC2', 'AC3'] }),
+      },
+    });
+    const strip = await stripOf();
+    expect(strip!.textContent).toContain('AC 数');
+    expect(strip!.textContent).toContain('3');
+  });
+
+  it('无认领人 → 涉及角色不占位（其余项仍在）', async () => {
+    mockWuGet.mockResolvedValue({ data: { ...baseWu, assigneeId: null } });
+    const strip = await stripOf();
+    expect(strip).toBeTruthy();
+    expect(strip!.textContent).not.toContain('涉及角色');
+    expect(strip!.textContent).toContain('当前阶段');
   });
 });

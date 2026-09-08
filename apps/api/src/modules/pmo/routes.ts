@@ -6,12 +6,9 @@ import { getDeliveryStatus, deliverProject } from './delivery.js';
 import { syncProjectProgress } from './progress-rollup.js';
 import { logger } from '../../utils/logger.js';
 import { requireAuth, requireNotGuest, requireRole, type AuthRequest } from '../../middleware/auth.js';  // 🆕 SEC-001 / SEC-002
-import { apiCache, CACHE_CONFIG } from '../../middleware/api-cache.js';
-import { FileStore } from '@dommaker/studio-shared';
+import { apiCache, CACHE_CONFIG, clearCache } from '../../middleware/api-cache.js';
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
-import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
 import { parsePagination } from '../../utils/pagination.js';
 
 /** A2A §4.4 同款约定：agent 身份调用一律 403（交付权只在人） */
@@ -22,7 +19,6 @@ function resolveCallerAuthorType(req: Request): string {
 }
 
 const router = Router();
-const STUDIO_EVENTS_JSONL = resolveStudioLogFile('studio-events.jsonl');
 
 // ─── gitRepo 白名单（2026-08-25 安全收口） ───
 // gitRepo 会被下游 git 操作（deliver/merge、spec 物化、agent-loop 执行根）消费，
@@ -443,11 +439,17 @@ router.post('/okr', requireAuth(), requireNotGuest(), async (req: Request, res: 
       quarter,
     });
 
+    // #448 问题1：写后失效 OKR 列表缓存（30s apiCache）
+    await clearCache(`${req.baseUrl}/okr`);
     res.status(201).json(okr);
   } catch (error) {
+    const message = (error as Error).message;
+    // #448 问题2：每季度唯一约束撞重是客户端冲突（409），非服务器错误；
+    // 按 message 映射 status 的先例见本文件 publish 路由
+    const isConflict = message.includes('already exists');
     logger.error({ error }, 'Failed to create OKR');
-    res.status(500).json({
-      error: { code: 'INTERNAL_ERROR', message: (error as Error).message },
+    res.status(isConflict ? 409 : 500).json({
+      error: { code: isConflict ? 'CONFLICT' : 'INTERNAL_ERROR', message },
     });
   }
 });
@@ -478,6 +480,8 @@ router.put('/okr/:id', requireAuth(), requireNotGuest(), async (req: Request, re
     const okrId = req.params.id;
 
     const updated = await okrService.update(okrId, updates);
+    // #448 问题1：写后失效 OKR 列表缓存（30s apiCache）
+    await clearCache(`${req.baseUrl}/okr`);
     res.json(updated);
   } catch (error) {
     logger.error({ error }, 'Failed to update OKR');
@@ -497,39 +501,13 @@ router.delete('/okr/:id', requireRole('Admin'), async (req: Request, res: Respon
     const okrId = req.params.id;
 
     const result = await okrService.delete(okrId);
+    // #448 问题1：写后失效 OKR 列表缓存（30s apiCache）
+    await clearCache(`${req.baseUrl}/okr`);
     res.json(result);
   } catch (error) {
     logger.error({ error }, 'Failed to delete OKR');
     res.status(500).json({
       error: { code: 'INTERNAL_ERROR', message: 'Failed to delete OKR' },
-    });
-  }
-});
-
-// ============================================
-// O3g: Pipeline Health Dashboard API
-// ============================================
-
-/**
- * GET /api/v1/pmo/health — pipeline health dashboard
- */
-router.get('/health', async (_req: Request, res: Response) => {
-  try {
-    const fileStore = new FileStore();
-    const snapshots = await fileStore.getIndex();
-    const activeWorkUnits = snapshots.filter(s => s.status === 'active').length;
-    const pendingWorkUnits = snapshots.filter(s => s.status === 'unassigned').length;
-    const recentEvents = await fileStore.readJsonl<any>(STUDIO_EVENTS_JSONL);
-    res.json({
-      activeWorkUnits,
-      pendingWorkUnits,
-      recentActivity: recentEvents.length,
-      ok: activeWorkUnits > 0 || pendingWorkUnits > 0,
-    });
-  } catch (error) {
-    logger.error({ error }, 'Failed to get pipeline health');
-    res.status(500).json({
-      error: { code: 'INTERNAL_ERROR', message: 'Failed to get pipeline health' },
     });
   }
 });

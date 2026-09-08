@@ -305,11 +305,11 @@ describe('queryMessagesPage 分页穿透冷热（#327 阶段4）', () => {
     expect(new Set(all).size).toBe(7);
   });
 
-  it('锚在冷：total = 链上锚点之前的可见总数', async () => {
+  it('锚在冷：total 统一为「热+冷原始行数」（候选 8 口径，原「比锚点旧的数量」退役）', async () => {
     await seedHotCold();
     const page = await store.queryMessagesPage(CH, { before: 'm3', limit: 10 });
     expect(page.messages.map(m => m.id)).toEqual(['m1', 'm2']);
-    expect(page.total).toBe(2);
+    expect(page.total).toBe(7); // 热 3 + 冷原始行 4（三分支同口径；前端不消费 total）
     expect(page.hasMore).toBe(false);
   });
 
@@ -335,7 +335,7 @@ describe('queryMessagesPage 分页穿透冷热（#327 阶段4）', () => {
     expect(p1.hasMore).toBe(false);
   });
 
-  it('thaw/崩溃残留同 id（冷热都有）：新→旧先见为准，不重复返回、不计入 total', async () => {
+  it('thaw/崩溃残留同 id（冷热都有）：新→旧先见为准，不重复返回；total 按原始行计入残留（候选 8 口径）', async () => {
     // 热文件有 m-x；冷文件手工造同 id 残留 + 另一条 m-y
     await store.appendMessage(CH, makeMessage('m-x', CH, { createdAt: daysAgo(1), content: 'hot version' }));
     fs.mkdirSync(archiveDir(), { recursive: true });
@@ -350,7 +350,7 @@ describe('queryMessagesPage 分页穿透冷热（#327 阶段4）', () => {
     const p1 = await store.queryMessagesPage(CH, { limit: 10 });
     expect(p1.messages.map(m => m.id)).toEqual(['m-y', 'm-x']);
     expect(p1.messages.find(m => m.id === 'm-x')?.content).toBe('hot version');
-    expect(p1.total).toBe(2); // m-x（热）+ m-y（冷有效）
+    expect(p1.total).toBe(3); // 热 1 + 冷原始行 2（候选 8：m-x 残留行计入 total——虚高方向安全，页面/翻页不受影响）
     expect(p1.hasMore).toBe(false);
     // 锚在冷（m-y 是链上最老）→ 空页
     const p2 = await store.queryMessagesPage(CH, { before: 'm-y', limit: 10 });
@@ -365,7 +365,7 @@ describe('queryMessagesPage 分页穿透冷热（#327 阶段4）', () => {
     }
     const page = await store.queryMessagesPage(CH, { before: 'p4', limit: 2 });
     expect(page.messages.map(m => m.id)).toEqual(['p2', 'p3']);
-    expect(page.total).toBe(3);
+    expect(page.total).toBe(5); // 候选 8 统一口径：热 5 + 冷 0（原锚在热分支返回「比锚点旧的数量」=3 退役）
     expect(page.hasMore).toBe(true);
 
     const missing = await store.queryMessagesPage(CH, { before: 'p-gone', limit: 2 });

@@ -232,7 +232,7 @@ constraintsRoutes.post('/check-constraints', async (req: Request, res: Response)
     const loaded = await loadHarness();
     if (!loaded) return res.status(503).json({ error: 'Harness not available' });
 
-    const { operation, taskDescription, projectPath, hasRequirement, hasRequirementReview } = req.body;
+    const { operation, taskDescription, projectPath, hasRequirement } = req.body;
     if (!operation) return res.status(400).json({ error: 'operation is required' });
 
     // Use checkConstraints (checkConstraintsSafe removed in harness 0.13.0)
@@ -241,7 +241,6 @@ constraintsRoutes.post('/check-constraints', async (req: Request, res: Response)
       taskDescription,
       projectPath,
       hasRequirement: hasRequirement !== false,
-      hasRequirementReview: hasRequirementReview !== false,
     });
 
     return res.json({ data: result });

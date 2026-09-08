@@ -30,7 +30,7 @@ export function NotificationBell() {
   const markRead = useNotificationStore(s => s.markRead);
   const markAllRead = useNotificationStore(s => s.markAllRead);
   const [open, setOpen] = useState(false);
-  const { onEvent } = useWebSocketContext();
+  const { onEvent, onReconnect } = useWebSocketContext();
   const dropdownRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
 
@@ -40,6 +40,11 @@ export function NotificationBell() {
   useEffect(() => {
     void loadFromBackend();
   }, [loadFromBackend]);
+
+  // #415（ADR D3）：notificationStore 是最后一个未接重连的消费面——断线重连 → 持久面一次性
+  // refetch 打底对齐。注意边界：atHuman 走 SSE 不落后端通知（后端唯一写入方是 auditor），
+  // 断线期间漏接的 SSE 条目 refetch 找不回；其持久化是独立票，本处只保证持久面对齐。
+  useEffect(() => onReconnect(() => { void loadFromBackend(); }), [onReconnect, loadFromBackend]);
 
   // B2-004 标题闪烁定时器：收进 ref 管理——开新闪前必清旧闪（修：10s 内多条 @human
   // 旧 interval 被覆盖引用导致永久泄漏闪烁）；未读归零/卸载即停（修：全部已读后仍闪到超时）
@@ -115,7 +120,7 @@ export function NotificationBell() {
   }, [open]);
 
   // 点通知本体：标记已读（store 动作内含后端同步），跳转优先级 WU 详情 > PMO 详情 > 频道；
-  // 频道分支带 ?highlight=<messageId> 直达消息（仅 SSE 条目有 messageId，后端 link 无消息粒度）
+  // 频道分支带 ?highlight=<messageId> 直达消息（SSE 条目自带 messageId；#439 起后端条目经 link 的 ?highlight= 解析获得）
   const openNotification = useCallback((n: Notification) => {
     markRead(n.id);
     if (n.workUnitId) navigate(`/workunits/${n.workUnitId}`);

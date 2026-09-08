@@ -37,11 +37,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { isErrnoError } from './file-store-base';
-import { FileStoreWorkUnitBase, type FileStoreWorkUnitOptions } from './file-store-workunit';
+import { FileStoreWorkUnitBase, applyFilter, type FileStoreWorkUnitOptions } from './file-store-workunit';
 import { stringifyChannels } from './channels-codec';
 import { parseFrontmatter, serializeFrontmatter } from './frontmatter';
 import { readMetricsBegin, emitReadMetric } from './read-metrics';
 import { foldJsonlById } from './jsonl-fold';
+import { iterateJsonlLinesBackward, readJsonlTail } from './jsonl-tail';
 import type {
   AgentProfileData,
   RuntimeStateData,
@@ -59,6 +60,7 @@ import type {
   EvolutionProposalData,
   EvolutionProposalFilter,
   WorkUnitSnapshot,
+  WorkUnitFilter,
 } from './file-store-types';
 
 // ─── re-export（保持原有导出面 100% 不变）───
@@ -395,8 +397,11 @@ export class FileStore extends FileStoreWorkUnitBase {
    * workunits/index.json 绝对路径；所有索引写经 writeJson 覆盖自动精确失效）。
    * 保留 readIndexFile 的严格损坏语义（撕裂/非数组抛错，不静默当空），
    * 命中返回结构克隆。锁内读路径不经过本方法（readIndexFile 保持裸读）。
+   * #406：filter 下推——命中路径在共享缓存数组上按引用选行、只克隆命中行
+   * （monitor 等带 status 过滤的读口不再为丢弃的行付克隆税）；无 filter 时
+   * 全量克隆，与 #314 行为一致。下推只动本锁外读穿路径，锁内裸读不经此 seam。
    */
-  protected async readIndexForQuery(): Promise<WorkUnitSnapshot[] | null> {
+  protected async readIndexForQuery(filter?: WorkUnitFilter): Promise<WorkUnitSnapshot[] | null> {
     const filePath = this.indexPath;
     const t = readMetricsBegin();
     const t0 = t?.() ?? 0;
@@ -409,14 +414,16 @@ export class FileStore extends FileStoreWorkUnitBase {
     }
     const hit = jsonCache.get(filePath);
     if (hit && hit.mtimeMs === mtimeMs) {
-      const cached = cloneCached(hit.value) as WorkUnitSnapshot[] | null;
+      // 共享缓存数组上按引用选行（applyFilter 不 mutate），克隆只发生在命中子集上
+      const matched = hit.value === null ? null : applyFilter(hit.value as WorkUnitSnapshot[], filter);
+      const cached = cloneCached(matched) as WorkUnitSnapshot[] | null;
       if (t) emitReadMetric({ file: filePath, op: 'readIndexForQuery', cacheHit: true, statMs: t1 - t0, readParseMs: 0, cloneMs: t() - t1 });
       return cached;
     }
     const value = await this.readIndexFile();
     const t2 = t?.() ?? 0;
     cacheSet(jsonCache, filePath, { value, mtimeMs });
-    const cloned = cloneCached(value);
+    const cloned = cloneCached(value === null ? null : applyFilter(value, filter)) as WorkUnitSnapshot[] | null;
     if (t) emitReadMetric({ file: filePath, op: 'readIndexForQuery', cacheHit: false, statMs: t1 - t0, readParseMs: t2 - t1, cloneMs: t() - t2 });
     return cloned;
   }
@@ -761,12 +768,15 @@ export class FileStore extends FileStoreWorkUnitBase {
    * §4.2 发言层新鲜度检查：频道版本快照（messages.jsonl 最后一行的消息 id，含 tombstone 行——
    * 删除也要被感知为「房间已变」）。
    * #319：行号口径退役（压实会压缩行数，按原始行数下标的契约不再成立），一律以 id 为准。
+   * 候选 2：改走尾部倒读（readJsonlTail limit=1），不再为取最后一行全量读+全量克隆；
+   * 损坏行跳过（语义变化点：末行损坏时回退到上一完整行的 id，而非整体判读取失败——
+   * 与 events 尾读同一容错口径，调用方按版本未变处理，安全方向）。
    * 读取失败（频道不存在等）返回空版本 —— 调用方按「无变化」处理，绝不阻断发言。
    */
   async getChannelVersion(channelId: string): Promise<{ lastMessageId: string | null }> {
     try {
-      const rows = await this.readJsonl<ChannelMessageRow>(this.messagesPath(channelId));
-      return { lastMessageId: rows.length > 0 ? rows[rows.length - 1].id : null };
+      const { rows } = await readJsonlTail({ file: this.messagesPath(channelId), limit: 1 });
+      return { lastMessageId: rows.length > 0 ? (rows[0].id as string) : null };
     } catch {
       return { lastMessageId: null };
     }
@@ -778,22 +788,35 @@ export class FileStore extends FileStoreWorkUnitBase {
    * 锚点 id 找不到——根因：压实可能抹除锚点行本身（tombstone 或被覆盖行），位置不可知——
    * 保守返回全部活消息：消费方（§4.2）过滤本 loop 自己的消息且拦截 ≤2 次后照发，
    * 代价是有界误报；反向漏报（丢掉真正的新消息）不允许。
+   * 候选 2：改走尾部倒读早停——锚点是本 loop 最近见过的消息、稳态靠近文件尾，
+   * 倒扫几行即停；锚点丢失（压实后偶发）才全扫，成本由压实周期性封顶（grilling Q3）。
+   * 直读磁盘不进 jsonlCache（尾读即 FileStore seam 的增量读口，真源唯一，grilling Q4）。
    */
   async getMessagesSince(channelId: string, messageId: string | null): Promise<ChannelMessageData[]> {
+    let handle: fs.promises.FileHandle | null = null;
     try {
-      const rows = await this.readJsonl<ChannelMessageRow>(this.messagesPath(channelId));
-      let from = 0;
-      if (messageId) {
-        let anchor = -1;
-        for (let i = rows.length - 1; i >= 0; i--) {
-          if (rows[i].id === messageId) { anchor = i; break; }
+      handle = await fs.promises.open(this.messagesPath(channelId), 'r');
+      const stat = await handle.stat();
+      if (stat.size === 0) return [];
+
+      const collected: ChannelMessageRow[] = []; // 收集顺序 = 新→旧
+      for await (const { text } of iterateJsonlLinesBackward(handle, stat.size)) {
+        let row: ChannelMessageRow;
+        try {
+          row = JSON.parse(text) as ChannelMessageRow;
+        } catch {
+          continue; // 损坏行跳过（同 events 尾读容错口径）
         }
-        if (anchor !== -1) from = anchor + 1;
+        if (messageId && row.id === messageId) break; // 锚点本身不含
+        collected.push(row);
       }
+      collected.reverse(); // 恢复文件序（旧→新）
       // 窗口内按 id 归并（mergeActiveRows 唯一口径）：窗口内发了又删的消息不出现在增量里
-      return mergeActiveRows(rows.slice(from));
+      return mergeActiveRows(collected);
     } catch {
       return [];
+    } finally {
+      await handle?.close();
     }
   }
 
@@ -831,40 +854,44 @@ export class FileStore extends FileStoreWorkUnitBase {
    * 频道消息分页（#319 半下沉 + #327 冷热穿透）：存储层过滤→排序→切片，路由不再全量拉回内存切。
    * before = 锚点消息 id 游标（不含锚点；替代原 timestamp 游标——同毫秒多条消息不再漏/重）。
    * 锚点 id 不存在（已删除/被压实抹除/冷热都没有）→ 空页 + hasMore=false：位置不可知时不整页错发。
-   * total 语义与路由现状一致：锚点过滤后的可见总数（热+冷有效行）。
    *
    * #327 穿透规则：遍历链 = 热（新→旧）接冷（月新→旧、月内 createdAt 新→旧）；
    * 无 before（最新页）热页不足 limit 从冷链补满（热全空时首页直接出冷，历史永远在）；
    * 锚在热而热侧不足 limit 时余量从冷续；锚在冷则整页从冷出；
    * 跨冷热按 id 去重（thaw/崩溃残留同 id，新→旧先见为准——热侧恒遮蔽冷侧残留）。
    * 无冷数据（无 archive 目录）时行为与 #319 现状逐条一致。
+   *
+   * 候选 8（冷链惰性分页）：冷侧不再逐月全量物化——按遍历序逐月读，
+   * 页凑满 + hasMore 判定（多收 1 条）即停，后续冷月不读；hasMore 不再依赖全量计数。
+   * total 统一为「热 + 冷原始行数」三分支同口径（原语义随分支漂移：无锚=全链总数、
+   * 锚在冷=比锚点旧的数量；前端不消费 total）：冷行数走字节快扫数 LF，不 parse/clone/sort，
+   * thaw/崩溃残留行计入会虚高（方向安全，偏多不丢）。
    */
   async queryMessagesPage(channelId: string, opts?: MessagePageOpts): Promise<MessagePage> {
     const resolved = await this.resolveActiveMessages(channelId);
     // 按创建时间升序（与 queryMessages 同口径；同刻消息按文件序稳定排列）
     resolved.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
     const limit = opts?.limit !== undefined && opts.limit > 0 ? opts.limit : 50;
-
-    // 冷链（新→旧）+ 有效行过滤：热侧 id 遮蔽冷侧残留，冷侧内部同 id 先见为准
     const hotIds = new Set(resolved.map(m => m.id));
-    const seenCold = new Set<string>();
-    const cold: ChannelMessageData[] = [];
-    for (const msg of await this.readColdChain(channelId)) {
-      if (hotIds.has(msg.id) || seenCold.has(msg.id)) continue;
-      seenCold.add(msg.id);
-      cold.push(msg);
-    }
+    const coldLineCount = await this.countColdLines(channelId);
+    const total = resolved.length + coldLineCount;
 
     if (!opts?.before) {
-      // 最新页：热页不足 limit 从冷链（新→旧）补满——热全空时首页直接出冷数据，
-      // 「滚动穿透、历史永远在」；与锚在热的补冷同一去重纪律（cold 已过滤热遮蔽/冷内同 id）
+      // 最新页：热页不足 limit 从冷链（新→旧）补满——热全空时首页直接出冷数据
       const hotPage = resolved.slice(-limit);
       const coldNeed = limit - hotPage.length;
-      const coldPart = coldNeed > 0 ? cold.slice(0, coldNeed).reverse() : [];
+      const coldPart: ChannelMessageData[] = [];
+      if (resolved.length <= limit) {
+        // 热不超页才需要冷：补页 + 多收 1 条判 hasMore（热已超页则 hasMore 恒 true，不读冷）
+        for await (const msg of this.iterateColdMessages(channelId, hotIds)) {
+          coldPart.push(msg);
+          if (coldPart.length > coldNeed) break;
+        }
+      }
       return {
-        messages: [...coldPart, ...hotPage],
-        total: resolved.length + cold.length,
-        hasMore: resolved.length + cold.length > limit,
+        messages: [...coldPart.slice(0, coldNeed).reverse(), ...hotPage],
+        total,
+        hasMore: resolved.length > limit || coldPart.length > coldNeed,
       };
     }
 
@@ -873,26 +900,68 @@ export class FileStore extends FileStoreWorkUnitBase {
       // 锚在热：链上锚点之前 = 热[0..anchor) 接整条冷链；页 = 该序列末尾 limit 条（升序）
       const hotPage = resolved.slice(Math.max(0, anchor - limit), anchor);
       const coldNeed = limit - hotPage.length;
-      const coldPart = coldNeed > 0 ? cold.slice(0, coldNeed).reverse() : [];
-      const olderCount = anchor + cold.length;
+      const coldPart: ChannelMessageData[] = [];
+      if (anchor <= limit) {
+        // anchor > limit 时锚前热消息已超 limit，hasMore 恒 true 且无需补冷
+        for await (const msg of this.iterateColdMessages(channelId, hotIds)) {
+          coldPart.push(msg);
+          if (coldPart.length > coldNeed) break;
+        }
+      }
       return {
-        messages: [...coldPart, ...hotPage],
-        total: olderCount,
-        hasMore: olderCount > limit,
+        messages: [...coldPart.slice(0, coldNeed).reverse(), ...hotPage],
+        total,
+        hasMore: anchor > limit || coldPart.length > coldNeed,
       };
     }
 
-    // 锚在冷：整页从冷出
-    const coldAnchor = cold.findIndex(m => m.id === opts.before);
-    if (coldAnchor === -1) {
-      return { messages: [], total: resolved.length + cold.length, hasMore: false };
+    // 锚在冷（或不存在）：惰性扫冷找到锚后多收 limit+1 条即停；
+    // 扫完未命中 = 锚不存在 → 空页 + hasMore=false
+    const older: ChannelMessageData[] = [];
+    let anchorFound = false;
+    for await (const msg of this.iterateColdMessages(channelId, hotIds)) {
+      if (!anchorFound) {
+        if (msg.id === opts.before) anchorFound = true;
+        continue;
+      }
+      older.push(msg);
+      if (older.length > limit) break;
     }
-    const older = cold.slice(coldAnchor + 1); // 新→旧
+    if (!anchorFound) {
+      return { messages: [], total, hasMore: false };
+    }
     return {
       messages: older.slice(0, limit).reverse(),
-      total: older.length,
+      total,
       hasMore: older.length > limit,
     };
+  }
+
+  /**
+   * 冷链惰性遍历（新→旧，候选 8）：逐月读（读穿缓存摊销），月内 createdAt 降序；
+   * 热侧 id 遮蔽冷侧残留 + 冷内同 id 先见为准。调用方 break 即停——后面的冷月不读，
+   * 分页成本与页深成正比而非与全历史成正比。
+   */
+  private async *iterateColdMessages(channelId: string, hotIds: Set<string>): AsyncGenerator<ChannelMessageData> {
+    const seenCold = new Set<string>();
+    for (const month of await this.listArchiveMonths(channelId)) {
+      const rows = await this.readJsonl<ChannelMessageData>(this.archiveMonthPath(channelId, month));
+      rows.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      for (const msg of rows) {
+        if (hotIds.has(msg.id) || seenCold.has(msg.id)) continue;
+        seenCold.add(msg.id);
+        yield msg;
+      }
+    }
+  }
+
+  /** 冷文件原始总行数（含被热遮蔽/重复残留行）：字节快扫数 LF，不 parse/clone（候选 8 total 口径） */
+  private async countColdLines(channelId: string): Promise<number> {
+    let total = 0;
+    for (const month of await this.listArchiveMonths(channelId)) {
+      total += await this.countFileLines(this.archiveMonthPath(channelId, month));
+    }
+    return total;
   }
 
   /** 冷文件月清单（YYYY-MM，新→旧）；无 archive 目录 → [] */
@@ -912,15 +981,32 @@ export class FileStore extends FileStoreWorkUnitBase {
       .reverse();
   }
 
-  /** 冷链：全部归档消息按分页遍历序（月新→旧，月内 createdAt 新→旧）。读穿缓存摊销 */
-  private async readColdChain(channelId: string): Promise<ChannelMessageData[]> {
-    const chain: ChannelMessageData[] = [];
-    for (const month of await this.listArchiveMonths(channelId)) {
-      const rows = await this.readJsonl<ChannelMessageData>(this.archiveMonthPath(channelId, month));
-      rows.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-      chain.push(...rows);
+  /** 单文件行数（字节快扫数 LF；末字节非 LF 时 +1）：不 parse/clone，文件不存在 → 0 */
+  private async countFileLines(filePath: string): Promise<number> {
+    let handle: fs.promises.FileHandle | null = null;
+    try {
+      handle = await fs.promises.open(filePath, 'r');
+      const stat = await handle.stat();
+      if (stat.size === 0) return 0;
+      let lines = 0;
+      let lastByte = -1;
+      let pos = 0;
+      const chunk = Buffer.alloc(Math.min(stat.size, 64 * 1024));
+      while (pos < stat.size) {
+        const len = Math.min(chunk.length, stat.size - pos);
+        // 本包 @types/node 钉版与 TS 5.7+ lib 泛型不兼容，Buffer 即 Uint8Array 子类（同 jsonl-tail）
+        await handle.read(chunk as Uint8Array, 0, len, pos);
+        for (let i = 0; i < len; i++) if (chunk[i] === 0x0a) lines++;
+        lastByte = chunk[len - 1];
+        pos += len;
+      }
+      return lastByte === 0x0a ? lines : lines + 1;
+    } catch (e: any) {
+      if (e?.code === 'ENOENT') return 0;
+      throw e;
+    } finally {
+      await handle?.close();
     }
-    return chain;
   }
 
   async countMessages(channelId: string, opts?: CountOpts): Promise<number> {

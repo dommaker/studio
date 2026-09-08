@@ -11,6 +11,7 @@ const { mockExec, mockExecFile } = vi.hoisted(() => ({
 vi.mock('child_process', () => ({ exec: mockExec, execFile: mockExecFile }));
 
 import { execAsync, execFileAsync } from '../exec-async.js';
+import { setSegmentMetricsSink, type SegmentMetricEvent } from '@dommaker/studio-shared/read-metrics';
 
 describe('exec-async (#374)', () => {
   it('execAsync：成功 resolve stdout，opts 透传', async () => {
@@ -33,5 +34,52 @@ describe('exec-async (#374)', () => {
   it('execFileAsync：git 失败 reject（走调用方 best-effort catch）', async () => {
     mockExecFile.mockImplementation((_cmd: string, _args: string[], _opts: unknown, cb: (err: Error | null, out: string) => void) => cb(new Error('git fail'), ''));
     await expect(execFileAsync('git', ['diff'])).rejects.toThrow('git fail');
+  });
+});
+
+describe('exec-async exec 段计时（#411）', () => {
+  let events: SegmentMetricEvent[];
+  beforeEach(() => {
+    events = [];
+    setSegmentMetricsSink(e => events.push(e));
+  });
+  afterEach(() => {
+    setSegmentMetricsSink(null);
+  });
+
+  it('sink 开启：execAsync 上报 exec 段事件，命令名取前 3 个 token，成功/失败都发', async () => {
+    mockExec.mockImplementation((_cmd: string, _opts: unknown, cb: (err: Error | null, out: string) => void) => cb(null, ''));
+    await execAsync('git worktree prune', { timeout: 5000 });
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ kind: 'exec', name: 'git worktree prune' });
+    expect(events[0].ms).toBeGreaterThanOrEqual(0);
+
+    mockExec.mockImplementation((_cmd: string, _opts: unknown, cb: (err: Error | null, out: string) => void) => cb(new Error('x'), ''));
+    await expect(execAsync('npx harness update-user-model --days 1 --json 2>/dev/null || echo "{}"')).rejects.toThrow('x');
+    expect(events).toHaveLength(2);
+    expect(events[1]).toMatchObject({ kind: 'exec', name: 'npx harness update-user-model' });
+  });
+
+  it('sink 开启：execFileAsync 上报 exec 段事件（flag 前截断，args 不进段名）', async () => {
+    mockExecFile.mockImplementation((_cmd: string, _args: string[], _opts: unknown, cb: (err: Error | null, out: string) => void) => cb(null, ''));
+    await execFileAsync('git', ['log', '--oneline', '-n', '5']);
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ kind: 'exec', name: 'git log' });
+  });
+
+  it('sink 开启：易变 flag 参数不进段名——git log --since=<时间戳> 稳定归并为一组', async () => {
+    mockExecFile.mockImplementation((_cmd: string, _args: string[], _opts: unknown, cb: (err: Error | null, out: string) => void) => cb(null, ''));
+    await execFileAsync('git', ['log', '--since=2026-09-01T00:00:00.000Z', '--json']);
+    await execFileAsync('git', ['log', '--since=2026-09-01T00:05:00.000Z', '--json']);
+    expect(events).toHaveLength(2);
+    expect(events[0].name).toBe('git log');
+    expect(events[1].name).toBe('git log');
+  });
+
+  it('sink 关闭（默认）：行为与事件面零变化', async () => {
+    setSegmentMetricsSink(null);
+    mockExec.mockImplementation((_cmd: string, _opts: unknown, cb: (err: Error | null, out: string) => void) => cb(null, 'ok'));
+    await expect(execAsync('git worktree prune')).resolves.toBe('ok');
+    expect(events).toHaveLength(0);
   });
 });

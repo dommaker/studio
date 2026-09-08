@@ -3,9 +3,13 @@
 // ── API helper: all data commands call the HTTP API ──
 
 import { execSync } from 'child_process';
+import * as fs from 'fs';
 import { getCompanyId, getToken } from './shared.js';
 
-const API = `http://localhost:${process.env.PORT || 3001}/api/v1`;
+const API_ORIGIN = `http://localhost:${process.env.PORT || 3001}`;
+const API = `${API_ORIGIN}/api/v1`;
+// 内部端点（无 auth，requireLocalhost）：/api/knowledge，不在 /api/v1 大门内
+const KNOWLEDGE_INTERNAL = `${API_ORIGIN}/api/knowledge`;
 
 async function apiGet(path: string) {
   const r = await fetch(`${API}${path}`);
@@ -45,7 +49,83 @@ export async function apiCommand(resource: string, args: string[]) {
         console.log('Use: studio run <requirement>');
         break;
       default:
-        console.log(`studio ${resource} <list|show|search>`);
+        console.log(`studio ${resource} <list|show|search${resource === 'knowledge' ? '|upsert|sync-status' : ''}>`);
+    }
+  } catch (e: any) {
+    if (e?.cause?.code === 'ECONNREFUSED') {
+      console.error('API server not running. Run: studio up');
+    } else {
+      console.error(`API error: ${e}`);
+    }
+  }
+}
+
+function parseFlags(args: string[]): Record<string, string> {
+  const flags: Record<string, string> = {};
+  for (let i = 0; i < args.length; i++) {
+    if (args[i].startsWith('--') && i + 1 < args.length) {
+      flags[args[i].slice(2)] = args[++i];
+    }
+  }
+  return flags;
+}
+
+/**
+ * studio knowledge 入口：upsert / sync-status 走内部端点（harness#110 前置①，
+ * 替代 harness 侧 knowledgeUpsert/knowledgeSyncStatus），其余子命令委托 apiCommand。
+ */
+export async function studioKnowledge(args: string[]) {
+  const sub = args[0];
+  try {
+    await getToken();
+    switch (sub) {
+      case 'upsert': {
+        const flags = parseFlags(args.slice(1));
+        let content = flags.content || '';
+        if (flags.file && !content) {
+          try {
+            content = fs.readFileSync(flags.file, 'utf-8');
+          } catch (e: any) {
+            console.error(`Failed to read file: ${flags.file}`);
+            console.error(String(e));
+            return;
+          }
+        }
+        if (!flags.scope || !flags.title || !content) {
+          console.error('Usage: studio knowledge upsert --scope <scope> --title <title> (--content <text> | --file <path>) [--type architecture|process|guideline] [--source <source>]');
+          return;
+        }
+        const r = await fetch(`${KNOWLEDGE_INTERNAL}/upsert`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            scope: flags.scope,
+            title: flags.title,
+            content,
+            type: flags.type || 'architecture',
+            source: flags.source || 'cli',
+          }),
+        });
+        if (!r.ok) {
+          const err: any = await r.json().catch(() => ({ error: r.statusText }));
+          console.error(`API error ${r.status}: ${err.error || r.statusText}`);
+          return;
+        }
+        console.log(JSON.stringify(await r.json(), null, 2));
+        break;
+      }
+      case 'sync-status': {
+        const r = await fetch(`${KNOWLEDGE_INTERNAL}/sync-status`);
+        if (!r.ok) {
+          const err: any = await r.json().catch(() => ({ error: r.statusText }));
+          console.error(`API error ${r.status}: ${err.error || r.statusText}`);
+          return;
+        }
+        console.log(JSON.stringify(await r.json(), null, 2));
+        break;
+      }
+      default:
+        await apiCommand('knowledge', args);
     }
   } catch (e: any) {
     if (e?.cause?.code === 'ECONNREFUSED') {

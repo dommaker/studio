@@ -39,6 +39,12 @@ export const AGENT_STATUS_COLORS: Record<AgentStatusKey, string> = {
   none: 'u-surface-2 u-text-3',
 };
 
+/** 卡面色 = AgentStatusKey 色 + disabled 归灰（#433：详情页 pill 与仪表盘卡面 pill 同词同色同源消费） */
+export const CARD_STATUS_COLORS: Record<CardStatusKey, string> = {
+  ...AGENT_STATUS_COLORS,
+  disabled: 'u-surface-2 u-text-3',
+};
+
 /**
  * 状态推导：instance.status + 当前 WU.status → 卡片状态键。
  * 无 instance（null/undefined）→ 'none'；未知 instance.status 原样兜底为 'idle' 以外的键不存在，归入 'none'。

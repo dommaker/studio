@@ -16,6 +16,8 @@ vi.mock('../../../api/channel', () => ({
 }));
 
 import { ChannelInput } from '../ChannelInput';
+import { useRosterStore } from '../../../stores/rosterStore';
+import { useChannelDataStore } from '../../../stores/channelDataStore';
 
 const mockAgents = [
   { id: 'a1', name: 'dev-agent', description: null, status: 'active' },
@@ -47,6 +49,11 @@ describe('ChannelInput @文件引用（#281）', () => {
     vi.clearAllMocks();
     mockListAgents.mockResolvedValue({ data: { data: mockAgents } });
     mockGetFileVocabulary.mockResolvedValue({ data: { data: mockVocabulary } });
+    // #403：agent 列表改读 rosterStore 客户端切片、成员面走 channelDataStore——
+    // seed 正本 + fresh TTL 锚点（ensureFresh/ensureMembers 零请求）；空成员 = 全部 active 可见
+    useChannelDataStore.getState().__resetForTests();
+    useRosterStore.setState({ profiles: mockAgents, loadedAt: Date.now(), inflight: null, forbidden: false, lastToken: null });
+    useChannelDataStore.getState().setMembers('ch-1', []);
   });
 
   it('拉取频道词表；弹框分组展示：上 Agents 下 Files，文件按路径后缀补全', async () => {
@@ -111,9 +118,10 @@ describe('ChannelInput @文件引用（#281）', () => {
   it('键盘导航跨组：ArrowDown 从 agent 组进入 file 组，Enter 插入文件路径', async () => {
     const { textarea } = setup();
     // 'dev-agent' 同时命中 agent（子串）与文件 bin/dev-agent（后缀）
+    // #403 起候选同步可位（store 预 seed）：textarea 文本与弹层项同文本，用 role 查询锁定弹层项
     typeAt(textarea, '@dev-agent');
-    await screen.findByText('@dev-agent');
-    await screen.findByText('bin/dev-agent');
+    await screen.findByRole('option', { name: '@dev-agent' });
+    await screen.findByRole('option', { name: /bin\/dev-agent/ });
 
     fireEvent.keyDown(textarea, { key: 'ArrowDown' }); // agent 组 → file 组
     fireEvent.keyDown(textarea, { key: 'Enter' });

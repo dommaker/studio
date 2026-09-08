@@ -6,21 +6,38 @@ import {
   WU_TYPE_LABELS,
   LIBRARY_DOC_STATUS_LABELS,
   LIBRARY_DOC_STATUS_COLORS,
+  formatChannelName,
 } from '../wu-display';
 
 describe('WU_STATUS_LABELS', () => {
-  it('七列看板状态 + failed/completed 原始状态全覆盖（ProjectActivity 超集口径）', () => {
+  it('七列看板状态 + failed/completed 原始状态全覆盖（ProjectActivity 超集口径），#399 §8.3 正词（#429 收口）', () => {
     expect(WU_STATUS_LABELS).toEqual({
       pending: '待确认',
-      unassigned: '待分配',
-      active: '执行中',
-      in_review: '审查中',
-      done: '已完成',
+      unassigned: '待领取',
+      active: '进行中',
+      in_review: '待验收',
+      done: '完成',
       closed: '已关闭',
       blocked: '阻塞',
       failed: '失败',
-      completed: '已完成',
+      completed: '完成',
     });
+  });
+});
+
+describe('formatChannelName', () => {
+  it('数据已含前导 # 时不重复拼接（#429 B1：频道名数据本身含 #）', () => {
+    expect(formatChannelName('#系统')).toBe('#系统');
+    expect(formatChannelName('#研发')).toBe('#研发');
+  });
+
+  it('数据不含 # 时补单个前缀', () => {
+    expect(formatChannelName('研发')).toBe('#研发');
+  });
+
+  it('多余 # 与 # 后空白一并归一', () => {
+    expect(formatChannelName('##系统')).toBe('#系统');
+    expect(formatChannelName('# 研发')).toBe('#研发');
   });
 });
 

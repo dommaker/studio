@@ -50,4 +50,11 @@ export const requirementApi = {
 
   getChain: (id: string) =>
     api.get<{ success: boolean; data: RequirementChain }>(`/requirements/${id}/chain`),
+
+  /** #387 批量徽章统计：每需求 {finished,total}（PMO 卡片用，替代逐项目 getChain 的 N+1；不存在的需求无 key） */
+  chainStats: (reqIds: string[]) =>
+    api.get<{ success: boolean; data: Record<string, { finished: number; total: number }> }>(
+      '/requirements/chain-stats',
+      { params: { reqIds: reqIds.join(',') } },
+    ),
 };

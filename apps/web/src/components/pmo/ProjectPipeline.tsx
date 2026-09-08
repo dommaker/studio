@@ -1,4 +1,4 @@
-// 进度管道 — PMO 驾驶舱核心区块：总进度条 + 五泳道 WU 小卡
+// 进度管道 — PMO 驾驶舱核心区块：总进度条 + 六泳道 WU 小卡
 // 数据：ProjectDetailPage 经 requirementApi.getChain + workunitApi.get 补全 + monitoringApi 名册组装
 import { useNavigate } from 'react-router-dom';
 import { deriveDisplayState } from '@dommaker/studio-shared/web';
@@ -85,8 +85,7 @@ function WuCard({ wu, agent }: { wu: PipelineWorkUnit; agent?: AgentInfo }) {
               e.stopPropagation();
               navigate(`/agents/${agent.roleId}`);
             }}
-            className="u-accent truncate"
-            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, font: 'inherit' }}
+            className="u-accent truncate u-btn-reset"
           >
             {agent.name}
           </button>
@@ -117,7 +116,7 @@ export function ProjectPipeline({ workunits, agents, loading }: Props) {
         <div className="flex-1">
           <div className="h-3 u-surface-2 rounded-full overflow-hidden">
             <div
-              className={`h-full transition-all ${progress.percent === 100 ? 'u-ok-bg' : 'bg-gradient-to-r from-blue-400 to-blue-600'}`}
+              className={`h-full transition-all ${progress.percent === 100 ? 'u-ok-bg' : 'u-accent-bg'}`}
               style={{ width: `${progress.percent}%` }}
             />
           </div>
@@ -127,8 +126,8 @@ export function ProjectPipeline({ workunits, agents, loading }: Props) {
         </span>
       </div>
 
-      {/* 泳道（泳道头计数 = 全页唯一状态计数表达；§8.1：0 桶 muted 自然呈现，不加整泳道染色） */}
-      <div className="grid grid-cols-5 gap-2">
+      {/* 泳道（列数随 LANE_DEFS 实际泳道数对齐——#432 B0-1；泳道头计数 = 全页唯一状态计数表达；§8.1：0 桶 muted 自然呈现，不加整泳道染色） */}
+      <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${LANE_DEFS.length}, minmax(0, 1fr))` }}>
         {LANE_DEFS.map(lane => {
           const items = lanes[lane.key];
           const empty = items.length === 0;

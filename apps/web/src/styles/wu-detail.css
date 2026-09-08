@@ -20,6 +20,19 @@
 }
 .wu-detail-header-back { margin-bottom: var(--space-4); }
 
+/* #440 Phase 3：标题下 meta strip（密排、缺项不占位；值里的链接保持继承色） */
+.wu-detail-meta {
+  padding: var(--space-1) var(--space-6);
+  border-bottom: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: var(--space-4);
+  row-gap: var(--space-1);
+}
+
 /* ---------- 四站 stepper（全页共享定位条）+ 关键事件 chip 行 ---------- */
 .wu-detail-stepperwrap { flex-shrink: 0; border-bottom: 1px solid var(--border-subtle); }
 .wu-stepper-bar {

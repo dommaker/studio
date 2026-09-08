@@ -73,16 +73,13 @@ const publishPackage: RegisteredTool = {
       return { success: false, error: 'TypeScript compilation failed', steps, compileErrors: errMsg.slice(0, 1000) };
     }
 
-    // 4. Verify dist integrity
-    const criticalFiles = ['dist/core/constraints/checker.js', 'dist/knowledge/doctor.js', 'dist/index.js'];
-    const missing: string[] = [];
-    for (const f of criticalFiles) {
-      if (!fsMod.existsSync(pathMod.join(pkgPath, f))) missing.push(f);
-    }
-    if (missing.length > 0) {
-      steps.push({ step: `dist verify: ${missing.length} missing`, status: 'fail', output: missing.join(', ') });
+    // 4. Verify dist integrity — 调 harness 发布物自检（#425：清单由包声明面运行时推导，不再硬编码）
+    const { verifyReleaseArtifacts } = await import('@dommaker/harness');
+    const integrity = verifyReleaseArtifacts(pkgPath);
+    if (!integrity.ok) {
+      steps.push({ step: `dist verify: ${integrity.missing.length} missing`, status: 'fail', output: integrity.missing.join(', ') });
     } else {
-      steps.push({ step: 'dist verify: all critical files present', status: 'ok' });
+      steps.push({ step: `dist verify: all ${integrity.checked.length} critical artifacts present`, status: 'ok' });
     }
 
     // 5. Bump version

@@ -1,6 +1,7 @@
 // PMO 进度管道 — 纯函数（泳道分组 / 完成度 / 耗时 / 项目动态拼装）
 // 组件见 ProjectPipeline.tsx / ProjectActivity.tsx；数据流见 ProjectDetailPage
 import { deriveDisplayState } from '@dommaker/studio-shared/web';
+import { parseWuMeta } from '../../utils/wuMeta';
 
 /** 进度管道六泳道（pending = #126 待确认人闸：扩范围单创建落点，人工确认才进待领取） */
 export type PipelineLane = 'pending' | 'unassigned' | 'active' | 'in_review' | 'blocked' | 'done';
@@ -127,4 +128,22 @@ export function formatTimelineTime(iso: string): string {
   if (Number.isNaN(d.getTime())) return '';
   const pad = (n: number) => String(n).padStart(2, '0');
   return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+/**
+ * #440 Phase 3：PMO 项目页 meta strip 派生——涉及角色（chain WUs 认领人去重解名）+ AC 数聚合。
+ * 无数据项返回 null（调用方省略不占位）；metadata 坏 JSON 经 parseWuMeta 静默容错（展示辅助数据）。
+ */
+export function projectChainMeta(
+  chainWus: PipelineWorkUnit[],
+  agentNameById: Record<string, string>,
+): { roles: string | null; acCount: number | null } {
+  const assigneeIds = [...new Set(chainWus.map(w => w.assigneeId).filter((x): x is string => !!x))];
+  const names = assigneeIds.map(id => agentNameById[id] ?? `@${id.slice(0, 8)}`);
+  let ac = 0;
+  for (const w of chainWus) {
+    const meta = parseWuMeta<{ ac?: unknown }>(w.metadata);
+    if (Array.isArray(meta.ac)) ac += meta.ac.filter(x => typeof x === 'string' && x.length > 0).length;
+  }
+  return { roles: names.length > 0 ? names.join('、') : null, acCount: ac > 0 ? ac : null };
 }

@@ -1,6 +1,6 @@
 // Contract test: AgentDetailPage — /agents/:profileId（2026-07-31 §5.3：正在执行 + 历史任务 + 统计）
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, act } from '@testing-library/react';
+import { render, screen, waitFor, act, fireEvent } from '@testing-library/react';
 import React from 'react';
 
 vi.mock('react', async () => {
@@ -133,6 +133,8 @@ describe('AgentDetailPage', () => {
     // #393 §4.4：统一左上「← 返回」（BackButton，直开回落 /agents）
     expect(screen.getByRole('button', { name: '← 返回' })).toBeDefined();
     expect(screen.getByText('强制停止')).toBeDefined();
+    // #433：ID 短显 + 复制钮（p1/i1 为短 ID 原样显示，Profile/Instance 各一枚复制钮）
+    expect(screen.getAllByRole('button', { name: '复制' })).toHaveLength(2);
   });
 
   it('正在执行大卡：WU 标题/状态/已耗时/PMO 链接 + 执行流区块', async () => {
@@ -147,10 +149,10 @@ describe('AgentDetailPage', () => {
     expect(await screen.findByText(/暂无执行过程记录/)).toBeDefined();
   });
 
-  it('无当前 WU → 空态「当前空闲」，不渲染执行流', async () => {
+  it('无当前 WU → 空态「空闲 · 等待派活」，不渲染执行流', async () => {
     mockApis({ agents: [{ ...busyInstance, status: 'idle', currentWorkUnitId: null, currentWorkUnit: null, pmo: null, channelId: null }] });
     render(<AgentDetailPage />);
-    expect(await screen.findByText('当前空闲')).toBeDefined();
+    expect(await screen.findByText('空闲 · 等待派活')).toBeDefined();
     expect(screen.queryByText('执行过程')).toBeNull();
   });
 
@@ -168,11 +170,18 @@ describe('AgentDetailPage', () => {
     expect(row.closest('a')?.getAttribute('href')).toBe('/workunits/wu-0');
     expect(mockWuList).toHaveBeenCalledWith({ assigneeId: 'i1', limit: 20 });
     // 统计：total=3，完成 2（done×2），在途 1（active），失败 1（failureType）
-    const statValue = (label: string) => screen.getByText(label).previousElementSibling?.textContent;
+    // #433：历史行状态词与统计标签同词（如「完成」），按 StatBadge 结构（前值 font-bold 大数字）定位统计卡内的值
+    const statValue = (label: string) =>
+      screen.getAllByText(label)
+        .find((el) => el.previousElementSibling?.classList.contains('font-bold'))
+        ?.previousElementSibling?.textContent;
     expect(statValue('历史总数')).toBe('3');
     expect(statValue('完成')).toBe('2');
     expect(statValue('在途')).toBe('1');
     expect(statValue('失败')).toBe('1');
+    // #433：历史行状态词走 WU_STATUS_LABELS 正词（active → 进行中），不直出原始状态值
+    expect(screen.getAllByText('进行中').length).toBeGreaterThanOrEqual(1);
+    expect(screen.queryByText('active')).toBeNull();
   });
 
   it('角色不存在 → 未找到空态', async () => {
@@ -185,7 +194,7 @@ describe('AgentDetailPage', () => {
     mockApis({ agents: [] });
     render(<AgentDetailPage />);
     expect(await screen.findByText('dev-agent')).toBeDefined();
-    await waitFor(() => expect(screen.getByText('当前空闲')).toBeDefined());
+    await waitFor(() => expect(screen.getByText('空闲 · 等待派活')).toBeDefined());
     expect(screen.queryByText('强制停止')).toBeNull();
   });
 });
@@ -226,7 +235,7 @@ describe('AgentDetailPage — SSE 负载直更（#318）', () => {
         pmo: null, startedAt: '2026-07-31T08:00:00Z', lastError: null, lastErrorAt: null,
       },
     });
-    expect(await screen.findByText('当前空闲')).toBeDefined();
+    expect(await screen.findByText('空闲 · 等待派活')).toBeDefined();
     expect(screen.queryByText('PMO-7 · 用户系统')).toBeNull();
     // 负载直更：不得触发整页重拉
     expect(mockGetAgentSummary).toHaveBeenCalledTimes(1);
@@ -266,7 +275,7 @@ describe('AgentDetailPage — SSE 负载直更（#318）', () => {
       },
     });
     // 就地更新即时可见（当前卡 + 历史行各一处）
-    await waitFor(() => expect(screen.getAllByText('in_review').length).toBeGreaterThanOrEqual(1));
+    await waitFor(() => expect(screen.getAllByText('待验收').length).toBeGreaterThanOrEqual(1));
     // 不整页 load
     expect(mockGetAgentSummary).toHaveBeenCalledTimes(1);
     // 取舍（b）：窗口/total 无事件语义 → 低频防抖后只重拉历史区接口
@@ -282,5 +291,103 @@ describe('AgentDetailPage — SSE 负载直更（#318）', () => {
     expect(mockGetAgentSummary).toHaveBeenCalledTimes(1);
     act(() => { sse.reconnects.forEach(fn => fn()); });
     await waitFor(() => expect(mockGetAgentSummary).toHaveBeenCalledTimes(2));
+  });
+});
+
+// #440 Phase 4：agent profile 页标题区渲染 per-agent identicon 头像（与频道消息气泡同一生成逻辑）
+describe('AgentDetailPage — #440 agent 头像', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetRosterStore();
+    sse.handlers.length = 0;
+    sse.reconnects.length = 0;
+    mockApis();
+    mockListChannels.mockResolvedValue({ data: { success: true, data: [{ id: 'ch1', name: 'backend', type: 'dev' }] } });
+    mockWuGet.mockResolvedValue({ data: { id: 'wu-2', scope: '补查任务', type: 'FIX', status: 'active', claimedAt: null } });
+    mockListExecSteps.mockResolvedValue({ data: { events: [], total: 0 } });
+    mockWuList.mockResolvedValue({ data: { data: [], pagination: { page: 1, limit: 20, total: 0, totalPages: 1 } } });
+  });
+
+  it('标题区显示 identicon 头像（title = 角色名），与频道气泡同图', async () => {
+    render(<AgentDetailPage />);
+    await screen.findByText('dev-agent');
+    const avatar = document.querySelector('.mc-avatar-ident') as HTMLElement;
+    expect(avatar).toBeTruthy();
+    expect(avatar.getAttribute('title')).toBe('dev-agent');
+    expect(avatar.querySelector('svg')).toBeTruthy();
+  });
+
+  it('角色不存在 → 空态不渲染头像', async () => {
+    mockApis({ agents: [], profiles: [] });
+    render(<AgentDetailPage />);
+    await screen.findByText('未找到该角色');
+    expect(document.querySelector('.mc-avatar-ident')).toBeNull();
+  });
+});
+
+// #433：信息密度重构——ID 短显+复制、双栏栅格、空态归一、状态词正词表
+describe('AgentDetailPage — #433 信息密度', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetRosterStore();
+    sse.handlers.length = 0;
+    sse.reconnects.length = 0;
+    mockApis();
+    mockListChannels.mockResolvedValue({ data: { success: true, data: [{ id: 'ch1', name: 'backend', type: 'dev' }] } });
+    mockListExecSteps.mockResolvedValue({ data: { events: [], total: 0 } });
+    mockWuList.mockResolvedValue({
+      data: {
+        data: [
+          { id: 'wu-1', scope: '实现登录接口', type: 'DEV', status: 'active', failureType: null, completedAt: null, updatedAt: '2026-07-31T09:00:00Z' },
+        ],
+        pagination: { page: 1, limit: 20, total: 1, totalPages: 1 },
+      },
+    });
+  });
+
+  it('长 UUID 短显为前 8 位 + …，title 承载全量原值', async () => {
+    const longId = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890';
+    mockApis({ agents: [{ ...busyInstance, id: longId }] });
+    render(<AgentDetailPage />);
+    const short = await screen.findByText('a1b2c3d4…');
+    expect(short.getAttribute('title')).toBe(longId);
+    expect(screen.queryByText(longId)).toBeNull();
+  });
+
+  it('复制钮：点击复制全量原值并给出「✓ 已复制」反馈', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    render(<AgentDetailPage />);
+    // Instance ID 复制钮随 instance 异步落地，等两枚齐全
+    await waitFor(() => expect(screen.getAllByRole('button', { name: '复制' })).toHaveLength(2));
+    const buttons = screen.getAllByRole('button', { name: '复制' });
+    fireEvent.click(buttons[0]);
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith('p1'));
+    expect(await screen.findByText('✓ 已复制')).toBeDefined();
+    // Instance ID 一枚同样复制全量原值
+    fireEvent.click(buttons[1]);
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith('i1'));
+  });
+
+  it('profile 停用 → 状态 pill 归一显示「已停用」（与仪表盘卡面 pill 同词），不再叠执行中', async () => {
+    mockApis({ profiles: [{ ...profile, status: 'disabled' }] });
+    render(<AgentDetailPage />);
+    expect(await screen.findByText('已停用')).toBeDefined();
+    expect(screen.queryByText('执行中')).toBeNull();
+  });
+
+  it('历史任务空 → .empty-state 共享类', async () => {
+    mockWuList.mockResolvedValue({ data: { data: [], pagination: { page: 1, limit: 20, total: 0, totalPages: 1 } } });
+    render(<AgentDetailPage />);
+    const empty = (await screen.findByText('暂无历史任务')).closest('.empty-state');
+    expect(empty).toBeTruthy();
+  });
+
+  it('主体为双栏栅格容器（agent-detail-grid），统计卡在栅格内', async () => {
+    render(<AgentDetailPage />);
+    await screen.findByText('实现登录接口');
+    const grid = document.querySelector('.agent-detail-grid');
+    expect(grid).toBeTruthy();
+    expect(grid!.textContent).toContain('历史总数');
   });
 });

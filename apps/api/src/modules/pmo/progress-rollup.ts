@@ -34,39 +34,81 @@
  *   ③ 已完结 spec WU 缺 specTasksSpawnedAt（交稿物化未处理）。
  * 命中即跳过本次 completed/in_review 翻转（progress 照写），待派生落定后的下一事件
  * 或 GET /project/:id 读取时重算再评估。
+ *
+ * #410（#323 残余收口）：消费侧改 per-project 聚合 memo + 去抖合并，消除每事件
+ * 全量存储读（reqService.list() + getIndex() 全量克隆）。事件负载（snapshotToData
+ * 全量数据）直接喂 memo，稳态零存储读：
+ *   - memo 按 projectId 维护项目兄弟 WU 的归约输入最小字段集（EvidenceWuInput：
+ *     id/status/type/metadata——progress 分子、完结判定、证据汇总、分腿的输入，
+ *     口径仍由 evidence-summary / deriveDisplayState 解释，memo 不重新解释）；
+ *   - 归属复用 resolveWuProjectId 口径（reqId 绑定优先 → pmoId 戳兜底）；REQ 归属
+ *     缓存只记正向绑定，未命中走 scoped reqService.get(reqId) 单条查（现状本来就
+ *     每事件 get 一次），回源时整体重建自愈 rebind 漂移；
+ *   - 触发口径不变：reqId 路径仅 REQ 已绑定项目才触发归约；无 reqId 路径戳命中即
+ *     触发；REQ 未绑定但有戳 → 只记账不触发（同现状）。workunit.created 只记账不
+ *     触发（现状 created 本就不回写），感知「created 直落非终态、无 status_changed」
+ *     的新增 WU；
+ *   - 冷启动（memo 缺失/未回源）首个归约回源一次，之后纯增量；
+ *   - 同项目 50ms 窗口去抖：连续事件合并为一次归约回写，串行化仍由 syncChains 承载；
+ *   - 哨兵漂移兜底：派生哨兵（analysisTasksSpawnedAt/specTasksSpawnedAt）经
+ *     updateMetadata 落档不发事件，memo 可能滞后为「未落定」。哨兵只增不减——memo
+ *     判「已落定」必为真；判「未落定」时回源复核一次再判定，语义与现状（永远读
+ *     新鲜存储）逐点一致；
+ *   - 直调路径（syncProjectProgress 导出：routes 读取纠偏 / 测试）恒回源，语义 =
+ *     现状全量读。已知接受项：WU delete 无事件，memo 靠冷启动/复核/直调回源自愈。
  */
-import { eventBus, FileStore, logger, createSettledTracker, deriveDisplayState, type WorkUnitSnapshot } from '@dommaker/studio-shared';
+import { eventBus, FileStore, logger, createSettledTracker, deriveDisplayState } from '@dommaker/studio-shared';
 import { RequirementService, TERMINAL_WORKUNIT_STATUSES } from '../requirements/requirement.service.js';
 import { projectService, resolveDeliveries, LEG_STATUS, PROJECT_STATUS, type DeliveryLeg, type ProjectData } from './project.service.js';
-import { parseWuMetaPmoId, selectProjectSnapshots, summarizeEvidence, partitionSnapshotsByLeg } from './evidence-summary.js';
+import {
+  parseWuMetaPmoId,
+  selectProjectSnapshots,
+  summarizeEvidence,
+  partitionSnapshotsByLeg,
+  buildReqProjectMap,
+  type EvidenceWuInput,
+} from './evidence-summary.js';
 import { parseWuMetadata } from '../workunit/wu-metadata.js';
 
 // 兼容现有引用方（原定义已移至 evidence-summary.ts 共享口径）
 export { parseWuMetaPmoId };
+
+/** status_changed / created 事件负载中 rollup 消费的最小字段集（snapshotToData 全量数据的子集） */
+interface WuRollupEventData {
+  id: string;
+  status: string;
+  type: string;
+  reqId?: string | null;
+  metadata?: string | null;
+}
 
 /**
  * 挂载进度回写订阅，返回解绑函数（测试用）。
  * 生产环境在 API 启动时调用一次（见 apps/api/src/index.ts）。
  */
 export function initPmoProgressRollup(fileStore?: FileStore): () => void {
-  const handler = (payload: { workunit?: { reqId?: string | null; metadata?: string | null } }) => {
+  const statusHandler = (payload: { workunit?: WuRollupEventData }) => {
     const wu = payload?.workunit;
     if (!wu) return;
-    if (wu.reqId) {
-      rollupTracker.track(syncProjectProgressByReqId(wu.reqId, fileStore).catch(err =>
-        logger.warn('[PMO] Progress rollup failed (non-blocking)', { reqId: wu.reqId, error: String(err) })
-      ));
-      return;
-    }
-    // analysis 派生链：无 reqId，经 metadata.pmoId 找到项目再 rollup
-    const pmoId = parseWuMetaPmoId(wu.metadata);
-    if (!pmoId) return;
-    rollupTracker.track(syncProjectProgress(pmoId, fileStore).catch(err =>
-      logger.warn('[PMO] Progress rollup failed (non-blocking)', { projectId: pmoId, error: String(err) })
+    rollupTracker.track(handleWuStatusChanged(wu, fileStore).catch(err =>
+      logger.warn('[PMO] Progress rollup failed (non-blocking)', { workUnitId: wu.id, error: String(err) })
     ));
   };
-  eventBus.subscribe('workunit.status_changed', handler);
-  return () => eventBus.unsubscribe('workunit.status_changed', handler);
+  // #410：created 只记账不触发归约（与现状一致——created 本就不回写），
+  // 让 memo 感知「created 直落非终态、无 status_changed」的新增 WU
+  const createdHandler = (payload: { workunit?: WuRollupEventData }) => {
+    const wu = payload?.workunit;
+    if (!wu) return;
+    rollupTracker.track(attachEventWu(wu, fileStore).then(() => undefined).catch(err =>
+      logger.warn('[PMO] Progress memo attach failed (non-blocking)', { workUnitId: wu.id, error: String(err) })
+    ));
+  };
+  eventBus.subscribe('workunit.status_changed', statusHandler);
+  eventBus.subscribe('workunit.created', createdHandler);
+  return () => {
+    eventBus.unsubscribe('workunit.status_changed', statusHandler);
+    eventBus.unsubscribe('workunit.created', createdHandler);
+  };
 }
 
 /**
@@ -74,6 +116,8 @@ export function initPmoProgressRollup(fileStore?: FileStore): () => void {
  * 事件订阅是 fire-and-forget，publish 同步触发 handler 后回写链路仍在异步推进，
  * 测试侧原本只能盲等（waitFor 轮询）——全量负载下事件循环饥饿会吃满超时预算（偶发红）。
  * #228：实现归并到 studio-shared 的 createSettledTracker（原三处复制之一）。
+ * #410：track 的 promise 贯穿去抖窗口——handler 在 publish 同步链内登记，
+ * await transitionStatus 返回时在途回写（含挂起的去抖归约）必已登记。
  */
 const rollupTracker = createSettledTracker();
 
@@ -81,9 +125,132 @@ const rollupTracker = createSettledTracker();
  * 等待当前已触发的全部进度回写落定（测试用确定性信号，替代 waitFor 盲等）。
  * publish 在 transitionStatus await 链内同步发射（workunit.service.ts），故
  * await transitionStatus 返回时在途回写必已登记，await 本函数即等到回写真正完成。
+ * #410 去抖引入延迟后语义不变：返回时挂起的去抖归约同样已落定。
  */
 export async function waitForPmoProgressRollupSettled(): Promise<void> {
   await rollupTracker.waitForSettled();
+}
+
+// ============================================
+// #410 per-project 聚合 memo + 去抖合并（详见文件头）
+// ============================================
+
+/** 项目兄弟 WU 的归约输入聚合（稳态不再回读存储） */
+interface ProjectRollupMemo {
+  wus: Map<string, EvidenceWuInput>;
+  /** true = 只有事件记账、尚未回源构建（首个归约时回源一次补齐兄弟 WU） */
+  cold: boolean;
+}
+const memos = new Map<string, ProjectRollupMemo>();
+/** wuId → 当前归属项目（归属迁移时从旧项目 memo 移除，单 WU 不双计） */
+const wuProject = new Map<string, string>();
+/**
+ * REQ 归属缓存，按 FileStore 分桶（REQ 序号按存储分配，多存储同号会互撞——
+ * 生产单存储，测试每用例一个临时存储）。只记正向绑定——负缓存会被 REQ 后绑定
+ * stale；回源时重建对应桶。
+ */
+const reqProjectByStore = new Map<FileStore | null, Map<string, string>>();
+const storeKey = (fs?: FileStore): FileStore | null => fs ?? null;
+
+/** REQ 归属解析：缓存命中零读；未命中 scoped 单条查（现状每事件本来就 get 一次） */
+async function resolveReqProjectCached(reqId: string, fileStore?: FileStore): Promise<string | null> {
+  const key = storeKey(fileStore);
+  const cached = reqProjectByStore.get(key)?.get(reqId);
+  if (cached) return cached;
+  const requirement = await new RequirementService(fileStore).get(reqId);
+  const projectId = requirement?.projectId ?? null;
+  if (projectId) {
+    let bucket = reqProjectByStore.get(key);
+    if (!bucket) {
+      bucket = new Map<string, string>();
+      reqProjectByStore.set(key, bucket);
+    }
+    bucket.set(reqId, projectId);
+  }
+  return projectId;
+}
+
+/**
+ * 事件负载喂 memo（status_changed 与 created 共用）。返回归属项目与是否允许触发归约：
+ * 归属口径 = resolveWuProjectId（reqId 绑定优先 → pmoId 戳兜底）；触发口径保持现状——
+ * reqId 路径仅 REQ 已绑定项目才触发（REQ 未绑定但有戳只记账，由兄弟事件/读取纠偏带动），
+ * 无 reqId 路径戳命中即触发。
+ */
+async function attachEventWu(
+  wu: WuRollupEventData,
+  fileStore?: FileStore,
+): Promise<{ projectId: string | null; trigger: boolean }> {
+  let projectId: string | null;
+  let trigger: boolean;
+  if (wu.reqId) {
+    const bound = await resolveReqProjectCached(wu.reqId, fileStore);
+    projectId = bound ?? parseWuMetaPmoId(wu.metadata);
+    trigger = bound !== null;
+  } else {
+    projectId = parseWuMetaPmoId(wu.metadata);
+    trigger = projectId !== null;
+  }
+  const prev = wuProject.get(wu.id);
+  if (prev && prev !== projectId) {
+    memos.get(prev)?.wus.delete(wu.id);
+    wuProject.delete(wu.id);
+  }
+  if (!projectId) return { projectId: null, trigger: false };
+  let memo = memos.get(projectId);
+  if (!memo) {
+    memo = { wus: new Map<string, EvidenceWuInput>(), cold: true };
+    memos.set(projectId, memo);
+  }
+  memo.wus.set(wu.id, { id: wu.id, status: wu.status, type: wu.type, metadata: wu.metadata ?? null });
+  wuProject.set(wu.id, projectId);
+  return { projectId, trigger };
+}
+
+async function handleWuStatusChanged(wu: WuRollupEventData, fileStore?: FileStore): Promise<void> {
+  const { projectId, trigger } = await attachEventWu(wu, fileStore);
+  if (trigger && projectId) await scheduleEventRollup(projectId, fileStore);
+}
+
+/** 回源重建 memo（冷启动 / 哨兵复核 / 直调纠偏共用）：全量读一次，顺带重建本存储的 REQ 归属缓存。
+ *  不做负载覆盖——真实事件的存储持久化先于 publish，回源读到的恒 ≥ payload（哨兵等后发
+ *  metadata 也在内），直接以存储为准最新最准。 */
+async function resourceMemo(projectId: string, fileStore?: FileStore): Promise<ProjectRollupMemo> {
+  const fs = fileStore ?? new FileStore();
+  const reqService = new RequirementService(fs);
+  const requirements = await reqService.list();
+  reqProjectByStore.set(storeKey(fs), buildReqProjectMap(requirements));
+  const index = await fs.getIndex();
+  const wus = new Map<string, EvidenceWuInput>();
+  for (const s of selectProjectSnapshots(projectId, requirements, index)) {
+    wus.set(s.id, { id: s.id, status: s.status, type: s.type, metadata: s.metadata });
+    wuProject.set(s.id, projectId);
+  }
+  const memo: ProjectRollupMemo = { wus, cold: false };
+  memos.set(projectId, memo);
+  return memo;
+}
+
+/** #410 去抖窗口：同项目窗口内连续事件合并为一次归约回写（测试可调整以锁定合并行为，生产恒用默认 50ms） */
+export const rollupTiming = { debounceMs: 50 };
+const scheduledRollups = new Map<string, Promise<void>>();
+
+/**
+ * 去抖调度：窗口内已有挂起归约则复用（挂起的归约会吃到 memo 最新态，后到事件只需喂 memo）；
+ * 否则挂起一个 debounceMs 后的归约（仍走 syncChains 串行化）。返回的 promise 在归约真正落定后
+ * 才 resolve——handler await 它并经 rollupTracker 登记，waitForPmoProgressRollupSettled 语义不变。
+ */
+function scheduleEventRollup(projectId: string, fileStore?: FileStore): Promise<void> {
+  const pending = scheduledRollups.get(projectId);
+  if (pending) return pending;
+  const p = new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      scheduledRollups.delete(projectId);
+      enqueueProjectSync(projectId, () => doSyncProjectProgress(projectId, fileStore, false)).then(resolve, reject);
+    }, rollupTiming.debounceMs);
+    timer.unref?.(); // best-effort 回写不吊住进程退出
+  });
+  scheduledRollups.set(projectId, p);
+  return p;
 }
 
 /** WU 状态变更入口：经其 reqId 找到挂接的 PMO 项目并重算进度 */
@@ -101,21 +268,10 @@ export async function syncProjectProgressByReqId(reqId: string, fileStore?: File
  */
 const syncChains = new Map<string, Promise<void>>();
 
-/** #282：progress 分子唯一口径 = WU 完成管道的 workFinished（存储态 done/closed），两处 progress 计算共用 */
-function isWorkFinished(s: WorkUnitSnapshot): boolean {
-  return deriveDisplayState({ status: s.status, metadata: s.metadata }).workFinished;
-}
-
-/**
- * 重算单个 PMO 项目进度：该项目下全部 Requirement 关联 WU 的完结比例。
- * Requirement 链路拿不到关联 WU 时回退按 metadata.pmoId 归属统计（analysis 派生链），口径不变。
- * completed/cancelled 项目不再回写（不回退）；无关联 WU 时不动作。
- * 全部完结时按证据翻转：deliverable → completed；否则 active/pending → in_review（等证据验收）。
- */
-export function syncProjectProgress(projectId: string, fileStore?: FileStore): Promise<void> {
+function enqueueProjectSync(projectId: string, task: () => Promise<void>): Promise<void> {
   const run = (syncChains.get(projectId) ?? Promise.resolve())
     .catch(() => { /* 前序失败不阻断后续 */ })
-    .then(() => doSyncProjectProgress(projectId, fileStore));
+    .then(task);
   syncChains.set(projectId, run);
   // 链尾回收，避免 Map 随项目数无限增长
   const cleanup = () => { if (syncChains.get(projectId) === run) syncChains.delete(projectId); };
@@ -123,11 +279,30 @@ export function syncProjectProgress(projectId: string, fileStore?: FileStore): P
   return run;
 }
 
+/** #282：progress 分子唯一口径 = WU 完成管道的 workFinished（存储态 done/closed），两处 progress 计算共用 */
+function isWorkFinished(s: EvidenceWuInput): boolean {
+  return deriveDisplayState({ status: s.status, metadata: s.metadata }).workFinished;
+}
+
+const isTerminalWu = (s: EvidenceWuInput): boolean => TERMINAL_WORKUNIT_STATUSES.includes(s.status);
+
+/**
+ * 重算单个 PMO 项目进度：该项目下全部 Requirement 关联 WU 的完结比例。
+ * Requirement 链路拿不到关联 WU 时回退按 metadata.pmoId 归属统计（analysis 派生链），口径不变。
+ * completed/cancelled 项目不再回写（不回退）；无关联 WU 时不动作。
+ * 全部完结时按证据翻转：deliverable → completed；否则 active/pending → in_review（等证据验收）。
+ * #410：直调路径（routes 读取纠偏 / 测试）——恒回源，语义 = 现状全量读；
+ * 事件路径走 scheduleEventRollup 去抖后进同一串行链（memo 增量，稳态零存储读）。
+ */
+export function syncProjectProgress(projectId: string, fileStore?: FileStore): Promise<void> {
+  return enqueueProjectSync(projectId, () => doSyncProjectProgress(projectId, fileStore, true));
+}
+
 /**
  * #115 T9：派生链未落定判定（见文件头）。命中 → 本次不得翻 completed/in_review
  * （「全部完结」是派生前的假相），progress 照写。
  */
-export function derivationPending(project: ProjectData, snapshots: WorkUnitSnapshot[]): boolean {
+export function derivationPending(project: ProjectData, snapshots: EvidenceWuInput[]): boolean {
   // ① 探路链未成文（map 存在则 spec 成文单必由 decision-resolution 派生）
   if (project.map && !project.map.specSpawnedAt) return true;
   return snapshots.some(s => {
@@ -141,15 +316,30 @@ export function derivationPending(project: ProjectData, snapshots: WorkUnitSnaps
   });
 }
 
-async function doSyncProjectProgress(projectId: string, fileStore?: FileStore): Promise<void> {
+/**
+ * @param resourced true = 直调路径，恒回源重建 memo（现状全量读语义）；
+ *                  false = 事件路径，memo 增量（冷启动首个归约回源一次，稳态零存储读）
+ */
+async function doSyncProjectProgress(projectId: string, fileStore: FileStore | undefined, resourced: boolean): Promise<void> {
   const project = await projectService.get(projectId);
   if (!project) return;
   if (project.status === PROJECT_STATUS.COMPLETED || project.status === PROJECT_STATUS.CANCELLED) return;
 
-  const fs = fileStore ?? new FileStore();
-  const reqService = new RequirementService(fs);
-  const snapshots = selectProjectSnapshots(projectId, await reqService.list(), await fs.getIndex());
+  let memo = memos.get(projectId);
+  let fresh = resourced;
+  if (resourced || !memo || memo.cold) {
+    memo = await resourceMemo(projectId, fileStore);
+    fresh = true;
+  }
+  const snapshots = [...memo.wus.values()];
   if (snapshots.length === 0) return;
+
+  // #410 哨兵漂移兜底：派生哨兵落档不发事件，memo 可能滞后为「未落定」；哨兵只增不减，
+  // memo 判「已落定」必为真——只有 memo 判「未落定」才回源复核一次，按新鲜存储走完整判定
+  // （本次调用刚回源过的数据即新鲜存储，不再重复复核）
+  if (!fresh && snapshots.every(isTerminalWu) && derivationPending(project, snapshots)) {
+    return doSyncProjectProgress(projectId, fileStore, true);
+  }
 
   // #113 T7：显式多腿项目走逐腿状态机（腿状态独立演进 + 全腿完结才翻整体）；
   // 单腿（无 deliveries / 合成单腿）保持下方现状路径逐字节一致。
@@ -159,7 +349,7 @@ async function doSyncProjectProgress(projectId: string, fileStore?: FileStore): 
     return;
   }
 
-  const done = snapshots.filter(s => TERMINAL_WORKUNIT_STATUSES.includes(s.status)).length;
+  const done = snapshots.filter(isTerminalWu).length;
   const finished = snapshots.filter(isWorkFinished).length;
   const progress = Math.round((finished / snapshots.length) * 100);
 
@@ -211,11 +401,10 @@ async function doSyncProjectProgress(projectId: string, fileStore?: FileStore): 
 async function doSyncMultiLegProgress(
   project: ProjectData,
   legs: DeliveryLeg[],
-  snapshots: WorkUnitSnapshot[],
+  snapshots: EvidenceWuInput[],
 ): Promise<void> {
   const projectId = project.id;
-  const isTerminal = (s: WorkUnitSnapshot) => TERMINAL_WORKUNIT_STATUSES.includes(s.status);
-  const done = snapshots.filter(isTerminal).length;
+  const done = snapshots.filter(isTerminalWu).length;
   const finished = snapshots.filter(isWorkFinished).length;
   const progress = Math.round((finished / snapshots.length) * 100);
 
@@ -234,7 +423,7 @@ async function doSyncMultiLegProgress(
     const snaps = legSnapsList[i];
     if (leg.status === LEG_STATUS.DELIVERED || snaps.length === 0) return leg;
     let next = leg.status;
-    if (snaps.every(isTerminal)) {
+    if (snaps.every(isTerminalWu)) {
       next = summarizeEvidence(snaps).deliverable ? LEG_STATUS.COMPLETED : LEG_STATUS.IN_REVIEW;
     } else {
       // 有在途即 active——含 completed/in_review 回退（#115：派生物化/人工补单会让

@@ -138,4 +138,15 @@ describe('AC-6: PMO publish button', () => {
 
     await waitFor(() => expect(screen.getByText(/无人认领/)).toBeTruthy());
   });
+
+  it('#432 B8：tab 条左对齐自适应宽——按钮不均分全宽、容器不拉伸', async () => {
+    renderPMO();
+
+    await waitFor(() => expect(screen.getByText(/📁 项目/)).toBeTruthy());
+    const projectsTab = screen.getByText(/📁 项目/).closest('button')!;
+    const okrTab = screen.getByText(/🎯 OKR/).closest('button')!;
+    expect(projectsTab.className).not.toContain('flex-1');
+    expect(okrTab.className).not.toContain('flex-1');
+    expect(projectsTab.parentElement!.className).toContain('inline-flex');
+  });
 });

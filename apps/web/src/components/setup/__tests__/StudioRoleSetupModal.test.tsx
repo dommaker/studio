@@ -3,23 +3,41 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { StudioRoleSetupModal } from '../StudioRoleSetupModal';
 import { isStudioRoleSetupDismissed } from '../dismissed';
 
+const { mockUseDetectedProviders } = vi.hoisted(() => ({
+  mockUseDetectedProviders: vi.fn(),
+}));
+
 // 2026-07：provider 选项改由运行环境扫描驱动，测试中固定回退态（4 个内置 CLI 全量可选）
 vi.mock('../../../hooks/useDetectedProviders', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../hooks/useDetectedProviders')>();
   return {
     ...actual,
-    useDetectedProviders: () => ({ detected: [], loading: false, noneDetected: true }),
+    useDetectedProviders: (options?: { enabled?: boolean }) => {
+      mockUseDetectedProviders(options);
+      return { detected: [], loading: false, noneDetected: true };
+    },
   };
 });
 
 describe('StudioRoleSetupModal (AC-2.2)', () => {
   beforeEach(() => {
     sessionStorage.clear();
+    vi.clearAllMocks();
   });
 
   it('open=false 时不渲染', () => {
     render(<StudioRoleSetupModal open={false} onClose={() => {}} onSave={() => {}} />);
     expect(screen.queryByText('系统执行角色未配置')).toBeNull();
+  });
+
+  // #448 问题3：弹框关着不扫运行环境（/workspaces/runtimes 注定 403 / 进页即扫数十秒）
+  it('open=false 时 useDetectedProviders enabled=false（不发请求）；open=true 才启用', () => {
+    render(<StudioRoleSetupModal open={false} onClose={() => {}} onSave={() => {}} />);
+    expect(mockUseDetectedProviders).toHaveBeenCalledWith({ enabled: false });
+
+    vi.clearAllMocks();
+    render(<StudioRoleSetupModal open={true} onClose={() => {}} onSave={() => {}} />);
+    expect(mockUseDetectedProviders).toHaveBeenCalledWith({ enabled: true });
   });
 
   it('open=true 时渲染弹框 + provider 下拉', () => {

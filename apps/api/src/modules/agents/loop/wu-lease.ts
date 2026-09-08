@@ -75,7 +75,7 @@ export class WuLeaseTracker {
   async stillHolds(wuId: string): Promise<boolean> {
     const assigneeId = this.deps.getAssigneeId();
     if (!this.lease || this.lease.wuId !== wuId || !assigneeId) return true;
-    const snap = (await this.deps.fileStore.getIndex()).find(s => s.id === wuId);
+    const snap = (await this.deps.fileStore.getIndex({ id: wuId }))[0];
     return !!snap && snap.assigneeId === assigneeId && snap.claimedAt === this.lease.claimedAt;
   }
 
@@ -109,7 +109,7 @@ export class WuLeaseTracker {
   /** WU 离开 active 或已易主 -> 停租约心跳（recordResult 后调用） */
   async releaseIfForfeited(wuId: string): Promise<void> {
     if (!this.lease || this.lease.wuId !== wuId) return;
-    const snap = (await this.deps.fileStore.getIndex()).find(s => s.id === wuId);
+    const snap = (await this.deps.fileStore.getIndex({ id: wuId }))[0];
     if (!snap || snap.status !== 'active' || !(await this.stillHolds(wuId))) {
       this.stop();
     }

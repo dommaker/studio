@@ -16,6 +16,8 @@ import {
   PreferenceCard, BusinessRuleCard, EnvSnapshotCard,
   DecisionChainCard, InteractionPatternCard, ResolutionCard,
 } from '../components/knowledge/GapCards';
+import { UnifiedEntryContent } from '../components/knowledge/UnifiedEntryContent';
+import { CONSUMPTION_MODE_CHART } from '../utils/knowledgeContent';
 import type {
   PreferenceGap, BusinessRuleGap, EnvSnapshotGap,
   DecisionChainGap, InteractionGap, ResolutionGap,
@@ -148,14 +150,15 @@ export function KnowledgePage() {
       case 'resolution':
         return <ResolutionCard item={item as ResolutionGap} />;
       default:
-        return <pre className="text-xs u-text-3">{JSON.stringify(item, null, 2)}</pre>;
+        // 六类 GapTab 全覆盖后此分支不可达；兜底同样消化呈现，不裸 JSON.stringify
+        return <UnifiedEntryContent content={JSON.stringify(item)} />;
     }
   };
 
   return (
-    <div className="h-full flex flex-col" style={{ background: 'var(--bg-primary)' }}>
+    <div className="h-full flex flex-col u-page-bg">
       {/* Header */}
-      <div className="px-8 py-6" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+      <div className="u-page-head">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="page-title">知识库</h1>
@@ -178,7 +181,7 @@ export function KnowledgePage() {
         <div className="max-w-5xl">
           {/* S11: Unified search across all knowledge types */}
           <div className="mt-4 mb-4 flex gap-2">
-            <input type="text" placeholder="全局搜索知识（解法 / 行为模式 / 交互模式）..."
+            <input type="text" placeholder="全局搜索知识（解法 / 交互模式 / 规则）..."
               value={globalSearch}
               onChange={e => setGlobalSearch(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && handleGlobalSearch()}
@@ -216,7 +219,7 @@ export function KnowledgePage() {
           {searchLoading && <div className="text-center py-2 text-sm u-text-3">搜索中...</div>}
 
           {/* Tab bar */}
-          <div className="flex gap-1 mb-6 overflow-x-auto pb-1" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+          <div className="flex gap-1 mb-6 overflow-x-auto pb-1 border-b u-border">
             {tabs.map(tab => (
               <button key={tab.id} onClick={() => setActiveTab(tab.id)}
                 className={`px-4 py-2 text-sm rounded-t-lg whitespace-nowrap transition ${activeTab === tab.id ? 'u-surface u-accent' : 'u-text-3'}`}
@@ -284,14 +287,14 @@ export function KnowledgePage() {
                 <div className="text-center py-8 u-text-3">暂无数据</div>
               ) : (
                 <div className="space-y-3">
-                  {unifiedEntries.map((entry, i) => (
+                  {unifiedEntries.map((entry, i) => {
+                    // #435：类别维度不占状态色（§6.5）——chart 类别色文字 + 中性底，无映射归中性
+                    const chartIdx = CONSUMPTION_MODE_CHART[entry.consumptionMode ?? ''];
+                    return (
                     <div key={entry.id || i} className="card p-4">
                       <div className="flex items-center gap-2 mb-2">
-                        <span className={`text-xs px-2 py-0.5 rounded ${
-                          entry.consumptionMode === 'rule' ? 'u-err-bg' :
-                            entry.consumptionMode === 'context' ? 'u-accent-bg' :
-                              entry.consumptionMode === 'signal' ? 'u-warn-bg' : 'u-surface-2 u-text-3'
-                        }`}>
+                        <span className="text-xs px-2 py-0.5 rounded u-surface-2 u-text-3"
+                          style={chartIdx != null ? { color: `var(--chart-${chartIdx})` } : undefined}>
                           {entry.consumptionMode}
                         </span>
                         <span className="text-xs px-2 py-0.5 rounded u-surface-2 u-text-3">
@@ -299,9 +302,7 @@ export function KnowledgePage() {
                         </span>
                         <span className="font-medium text-sm u-text">{entry.title}</span>
                       </div>
-                      <p className="text-xs mb-2 u-text-3">
-                        {entry.content?.slice(0, 200)}{entry.content?.length > 200 ? '...' : ''}
-                      </p>
+                      <UnifiedEntryContent content={entry.content} />
                       {entry.tags?.length > 0 && (
                         <div className="flex gap-1 flex-wrap">
                           {entry.tags.map((tag: string) => (
@@ -312,7 +313,8 @@ export function KnowledgePage() {
                         </div>
                       )}
                     </div>
-                  ))}
+                    );
+                  })}
                   {unifiedTotal > unifiedOffset + 50 && (
                     <div className="text-center mt-4">
                       <button onClick={() => setUnifiedOffset(unifiedOffset + 50)} className="btn btn-secondary">加载更多</button>

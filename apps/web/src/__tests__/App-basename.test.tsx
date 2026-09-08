@@ -20,9 +20,26 @@ vi.mock('../api/channel', () => ({
   channelApi: { listAgents: vi.fn().mockResolvedValue({ data: { data: [] } }) },
 }));
 
+// #403：App 启动角色检测改走 rosterStore（ensureFresh 触发取数）——路由测试只关心渲染目标，
+// 检测取数替身为空操作（hook 形态 + getState 双形态保真）
+vi.mock('../stores/rosterStore', () => {
+  const emptyState = { profiles: [], loadedAt: 1, forbidden: false, error: null };
+  const useRosterStore = ((selector: (s: typeof emptyState) => unknown) =>
+    selector(emptyState)) as {
+    (selector: (s: typeof emptyState) => unknown): unknown;
+    getState: () => typeof emptyState & { ensureFresh: () => Promise<void> };
+  };
+  useRosterStore.getState = () => ({ ...emptyState, ensureFresh: () => Promise.resolve() });
+  return { useRosterStore };
+});
+
 // 壳组件与 provider 与本测试无关，全部透传/置空
 vi.mock('../api/websocket', () => ({
   WebSocketProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+}));
+// #412：chain 数据面接线依赖真实 SSE context（passthrough provider 不提供），本测试只测路由，替身掉
+vi.mock('../hooks/useRequirementChainStoreSync', () => ({
+  useRequirementChainStoreSync: () => {},
 }));
 vi.mock('../contexts/ThemeContext', () => ({
   ThemeProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,

@@ -234,11 +234,20 @@ export const workunitApi = {
     status?: string;
     assigneeId?: string;
     channelId?: string;
+    /** #405：归属维度服务端过滤（#428 API）；false = 未归属（无 reqId 且归因戳为 null） */
+    attributed?: boolean;
     page?: number;
     limit?: number;
   }) => api.get<PaginatedResponse<WorkUnit>>('/workunits', { params }),
 
   get: (id: string) => api.get<WorkUnit>(`/workunits/${id}`),
+
+  /** #387 批量聚合：每 assignee 最近一条完成 WU（roster 空闲卡「最近完成」，替代逐实例 list 的 N+1） */
+  lastDone: (assigneeIds: string[]) =>
+    api.get<{ success: boolean; data: Record<string, WorkUnit | null> }>(
+      '/workunits/last-done',
+      { params: { assigneeIds: assigneeIds.join(',') } },
+    ),
 
   create: (data: {
     scope: string;
@@ -256,8 +265,9 @@ export const workunitApi = {
 
   delete: (id: string) => api.delete(`/workunits/${id}`),
 
-  claim: (id: string, agentId: string) =>
-    api.post<WorkUnit>(`/workunits/${id}/claim`, { agentId }),
+  /** #445：agentId 可省略——缺省由服务端按会话用户解析（人工引导片认领，身份诚实归因） */
+  claim: (id: string, agentId?: string) =>
+    api.post<WorkUnit>(`/workunits/${id}/claim`, agentId ? { agentId } : {}),
 
   unclaim: (id: string) =>
     api.post<WorkUnit>(`/workunits/${id}/unclaim`),

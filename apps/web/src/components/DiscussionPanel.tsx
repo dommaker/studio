@@ -67,7 +67,7 @@ export function DiscussionPanel({ workUnitId }: { workUnitId: string }) {
 
   return (
     <div className="mt-2 rounded" style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-subtle)' }}>
-      <div className="px-3 py-2 text-xs font-medium" style={{ color: 'var(--text-muted)', borderBottom: '1px solid var(--border-subtle)' }}>
+      <div className="px-3 py-2 text-xs font-medium u-text-3 border-b u-border">
         讨论空间
       </div>
 
@@ -94,7 +94,7 @@ export function DiscussionPanel({ workUnitId }: { workUnitId: string }) {
         )}
       </div>
 
-      <div className="flex gap-2 px-3 py-2" style={{ borderTop: '1px solid var(--border-subtle)' }}>
+      <div className="flex gap-2 px-3 py-2 border-t u-border">
         <input
           className="flex-1 px-2 py-1 text-xs rounded u-surface u-text border u-border-2 outline-none "
           placeholder="输入消息..."
@@ -104,7 +104,7 @@ export function DiscussionPanel({ workUnitId }: { workUnitId: string }) {
           disabled={sending}
         />
         <button
-          className="text-xs px-2 py-1 rounded u-accent-dim u-accent u-hover-bg disabled:opacity-50"
+          className="btn btn-secondary btn-sm"
           onClick={handleSend}
           disabled={sending || !input.trim()}
         >

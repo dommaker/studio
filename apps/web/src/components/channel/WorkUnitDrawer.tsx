@@ -9,7 +9,7 @@ import {
   type WorkUnit,
   type WorkunitTokenEvent,
 } from '../../api/workunit';
-import { requirementApi, type RequirementChain } from '../../api/requirements';
+import { useRequirementChainStore } from '../../stores/requirementChainStore';
 import { monitoringApi, type OverheadStats } from '../../api/monitoring';
 import { channelApi } from '../../api/channel';
 import { useWebSocketContext } from '../../api/websocketHooks';
@@ -20,7 +20,7 @@ import { SelfReviewBadge } from '../workunit/SelfReviewBadge';
 import { EvidenceLedger } from '../workunit/EvidenceLedger';
 import { AnalysisApproveDialog } from '../pmo/AnalysisApproveDialog';
 import { buildMapOpeningPrefill } from '../pmo/mapUtils';
-import { deriveDisplayState, parseAttestations, WU_STATUS_LABELS } from '@dommaker/studio-shared/web';
+import { deriveDisplayState, parseAttestations, WU_STATUS_LABELS, formatChannelName } from '@dommaker/studio-shared/web';
 import { AssigneeLabel } from '../workunit/AssigneeLabel';
 import { formatShortTime } from '../../utils/datetime';
 import { parseWuMeta } from '../../utils/wuMeta';
@@ -280,7 +280,7 @@ function WuDetail({ id, autoApprove = false, onOpenReq }: { id: string; autoAppr
               onClick={() => navigate(`/channels/${wu.channelId}`)}
               title="回频道（需求讨论现场）"
             >
-              #{channelName ?? `${wu.channelId.slice(0, 8)}…`}
+              {formatChannelName(channelName ?? `${wu.channelId.slice(0, 8)}…`)}
             </button>
           </span>
         </div>
@@ -486,23 +486,12 @@ function WuDetail({ id, autoApprove = false, onOpenReq }: { id: string; autoAppr
 // ── REQ 全链路 ──
 
 function ReqChain({ id, onOpenWu }: { id: string; onOpenWu: (wuId: string) => void }) {
-  const [chain, setChain] = useState<RequirementChain | null>(null);
-  const [error, setError] = useState('');
-
-  // id 切换时在渲染期同步清空旧链路（替代原 effect 顶部的同步重置）
-  const [prevId, setPrevId] = useState(id);
-  if (prevId !== id) {
-    setPrevId(id);
-    setChain(null);
-    setError('');
-  }
+  // #412：链路读 requirementChainStore（与右栏/面板/项目页共享单份缓存；status_changed 就地更新）
+  const chain = useRequirementChainStore((s) => s.chains[id]);
+  const error = useRequirementChainStore((s) => s.errors[id]);
 
   useEffect(() => {
-    let alive = true;
-    requirementApi.getChain(id)
-      .then(r => { if (alive) setChain(r.data.data); })
-      .catch(e => { if (alive) setError(e instanceof Error ? e.message : String(e)); });
-    return () => { alive = false; };
+    void useRequirementChainStore.getState().ensureChain(id);
   }, [id]);
 
   if (error) return <div className="mc-drawer-note">加载失败: {error}</div>;

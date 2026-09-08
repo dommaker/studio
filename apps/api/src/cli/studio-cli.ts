@@ -7,7 +7,7 @@ import { extractConfigFlag } from './shared.js';
 import { studioUp, studioStatus, studioStop, studioRestart, studioLogs, studioDb } from './server.js';
 import { studioTest, studioBuild } from './dev.js';
 import { studioRun, studioApprove, studioReject } from './workflow.js';
-import { apiCommand, studioEnv, studioMcp, studioHarnessCli } from './data.js';
+import { apiCommand, studioKnowledge, studioEnv, studioMcp, studioHarnessCli } from './data.js';
 import { studioConfig } from './config.js';
 import { studioDaemonStart, studioProject, studioWorkon } from './admin.js';
 
@@ -73,7 +73,7 @@ async function main() {
       await studioReject();
       break;
     case 'knowledge':
-      await apiCommand('knowledge', args.slice(1));
+      await studioKnowledge(args.slice(1));
       break;
     case 'channel':
       await apiCommand('channels', args.slice(1));
@@ -117,7 +117,7 @@ async function main() {
       console.log('    studio run <requirement>   Submit to #研发 (@Analyst)');
       console.log('');
       console.log('  数据:');
-      console.log('    studio knowledge <search>  Knowledge base search');
+      console.log('    studio knowledge <list|show|search|upsert|sync-status>  Knowledge base');
       console.log('    studio channel <list>      Channel list');
       console.log('    studio task <queue|run>    Task management');
       console.log('    studio agent <status>      Agent status');

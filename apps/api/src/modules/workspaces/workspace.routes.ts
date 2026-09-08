@@ -14,6 +14,7 @@ import { Router, Request, Response } from 'express';
 import { FileStore, generateId } from '@dommaker/studio-shared';
 import { logger } from '../../utils/logger.js';
 import { requireAuth, requireAdmin, workspaceAuth, AuthRequest } from '../../middleware/auth.js';
+import { apiCache } from '../../middleware/api-cache.js';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
@@ -330,10 +331,13 @@ router.get('/:id/runtimes', requireAuth(), requireAdmin(), async (req: Request, 
 
 // ─── GET /api/v1/workspaces/:id ───
 
-router.get('/runtimes', requireAuth(), requireAdmin(), async (_req: Request, res: Response) => {
+router.get('/runtimes', requireAuth(), requireAdmin(), apiCache(60), async (_req: Request, res: Response) => {
   try {
     // AC-2.6: 聚合所有 workspace 的 runtimes，供前端角色初始化向导使用
     // 2026-07：聚合前先重扫本地 CLI（best-effort），保证本地 runtime 新鲜可见
+    // #403（缓存 seam 决策树第 2 问）：响应为 HTTP GET、秒级陈旧可接受 → 挂 apiCache 60s。
+    // 每请求 execFileSync 全量重扫所有 CLI（which + --version，timeout 5s/个）同步阻塞事件
+    // 循环最坏数十秒，60s 档把重扫频次压到至多一次/分钟。
     const { rescanLocalRuntimes } = await import('./local-workspace.js');
     await rescanLocalRuntimes().catch(() => {});
 
