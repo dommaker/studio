@@ -56,8 +56,8 @@ describe('RoleCard（信息全卡）', () => {
   it('四层构成：头行（pill/角色名链接/CLI chip/运行时长）→ WU 锚点+类型 chip+已耗时 → 动态区 → 无错误行', () => {
     render(<Host roles={[busyRole('p1', 'dev-agent', 'wu-1', '实现登录接口')]} />);
     const card = screen.getByText('实现登录接口').closest('[data-testid="agent-card"]') as HTMLElement;
-    expect(card.getAttribute('data-status')).toBe('running');
-    expect(within(card).getByText('执行中')).toBeDefined();
+    expect(card.getAttribute('data-status')).toBe('working');
+    expect(within(card).getByText('工作中')).toBeDefined();
     expect(within(card).getByText('dev-agent').closest('a')?.getAttribute('href')).toBe('/agents/p1');
     expect(within(card).getByText('claude')).toBeDefined();
     expect(within(card).getByText('实现登录接口').closest('a')?.getAttribute('href')).toBe('/workunits/wu-1');
@@ -79,7 +79,7 @@ describe('RoleCard（信息全卡）', () => {
     expect(screen.getByText('修好的首页').closest('a')?.getAttribute('href')).toBe('/workunits/wu-9');
   });
 
-  it('异常空态：实例异常文案 + 错误行（⚠ lastError，随 data-status=error 同色）', () => {
+  it('异常空态：实例异常文案 + 红点角标 + 错误行（⚠ lastError；data-status 挂 4 态 attention）', () => {
     const role = idleRole('p1', 'ops-agent');
     role.runtime!.status = 'error';
     role.runtime!.lastError = 'spawn ENOENT';
@@ -87,7 +87,10 @@ describe('RoleCard（信息全卡）', () => {
     expect(screen.getByText(/实例异常/)).toBeDefined();
     const err = screen.getByText(/⚠ spawn ENOENT/);
     expect(err.className).toContain('agd-error');
-    expect(container.querySelector('[data-testid="agent-card"]')?.getAttribute('data-status')).toBe('error');
+    const card = container.querySelector('[data-testid="agent-card"]')!;
+    expect(card.getAttribute('data-status')).toBe('attention');
+    // 细分=error → 角色名前红点角标
+    expect(card.querySelector('.agd-dot-err')).toBeTruthy();
   });
 
   it('最近动态最多 3 条（新→旧），每条可点：有当前 WU → WU 详情', async () => {

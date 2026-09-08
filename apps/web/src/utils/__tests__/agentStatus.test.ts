@@ -3,8 +3,12 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
   deriveAgentStatus,
   resolveCardStatusKey,
+  resolveDisplayStatus,
   AGENT_STATUS_COLORS,
   CARD_STATUS_COLORS,
+  CARD_TO_DISPLAY_STATUS,
+  DISPLAY_STATUS_LABELS,
+  DISPLAY_STATUS_COLORS,
   AGENT_STATUS_RANK,
   matchesStatusFilter,
   formatUptime,
@@ -54,30 +58,78 @@ describe('resolveCardStatusKey', () => {
   });
 });
 
-describe('AGENT_STATUS_RANK（注意力排序：阻塞/异常→待评审→执行中→空闲→未启动/停用）', () => {
-  it('档位关系', () => {
-    expect(AGENT_STATUS_RANK.blocked).toBe(AGENT_STATUS_RANK.error);
-    expect(AGENT_STATUS_RANK.error).toBeLessThan(AGENT_STATUS_RANK.in_review);
-    expect(AGENT_STATUS_RANK.in_review).toBeLessThan(AGENT_STATUS_RANK.running);
-    expect(AGENT_STATUS_RANK.running).toBeLessThan(AGENT_STATUS_RANK.idle);
-    expect(AGENT_STATUS_RANK.idle).toBeLessThan(AGENT_STATUS_RANK.none);
-    expect(AGENT_STATUS_RANK.none).toBe(AGENT_STATUS_RANK.terminated);
-    expect(AGENT_STATUS_RANK.terminated).toBe(AGENT_STATUS_RANK.disabled);
+describe('resolveDisplayStatus（7+1 细分 → 4 态展示合并）', () => {
+  it('running → working', () => {
+    expect(resolveDisplayStatus('active', 'active', 'active')).toBe('working');
+  });
+
+  it('in_review / blocked / error → attention', () => {
+    expect(resolveDisplayStatus('active', 'active', 'in_review')).toBe('attention');
+    expect(resolveDisplayStatus('active', 'active', 'blocked')).toBe('attention');
+    expect(resolveDisplayStatus('active', 'error', null)).toBe('attention');
+  });
+
+  it('idle → idle；none / terminated / disabled → offline', () => {
+    expect(resolveDisplayStatus('active', 'idle', null)).toBe('idle');
+    expect(resolveDisplayStatus('active', null, null)).toBe('offline');
+    expect(resolveDisplayStatus('active', 'terminated', null)).toBe('offline');
+    expect(resolveDisplayStatus('disabled', 'active', 'active')).toBe('offline');
+  });
+
+  it('映射表覆盖全部 8 个细分键', () => {
+    expect(Object.keys(CARD_TO_DISPLAY_STATUS).sort()).toEqual(
+      ['blocked', 'disabled', 'error', 'idle', 'in_review', 'none', 'running', 'terminated'].sort(),
+    );
   });
 });
 
-describe('matchesStatusFilter', () => {
-  it('all 全过；同键直通', () => {
-    expect(matchesStatusFilter('blocked', 'all')).toBe(true);
-    expect(matchesStatusFilter('running', 'running')).toBe(true);
-    expect(matchesStatusFilter('running', 'blocked')).toBe(false);
+describe('DISPLAY_STATUS_LABELS / DISPLAY_STATUS_COLORS（4 态展示词与色）', () => {
+  it('展示词：工作中 / 待处理 / 空闲 / 离线', () => {
+    expect(DISPLAY_STATUS_LABELS).toEqual({
+      working: '工作中',
+      attention: '待处理',
+      idle: '空闲',
+      offline: '离线',
+    });
   });
 
-  it('off = 未启动/已终止/已停用 聚合', () => {
-    expect(matchesStatusFilter('none', 'off')).toBe(true);
-    expect(matchesStatusFilter('terminated', 'off')).toBe(true);
-    expect(matchesStatusFilter('disabled', 'off')).toBe(true);
-    expect(matchesStatusFilter('idle', 'off')).toBe(false);
+  it('展示色：working=绿（u-accent）/ attention=黄（u-warn）/ idle·offline=灰', () => {
+    expect(DISPLAY_STATUS_COLORS.working).toContain('u-accent');
+    expect(DISPLAY_STATUS_COLORS.attention).toContain('u-warn');
+    expect(DISPLAY_STATUS_COLORS.idle).toBe(DISPLAY_STATUS_COLORS.offline);
+    expect(DISPLAY_STATUS_COLORS.idle).toContain('u-surface-2');
+  });
+});
+
+describe('AGENT_STATUS_RANK（4 态注意力排序：待处理→工作中→空闲→离线）', () => {
+  it('档位关系', () => {
+    expect(AGENT_STATUS_RANK.attention).toBeLessThan(AGENT_STATUS_RANK.working);
+    expect(AGENT_STATUS_RANK.working).toBeLessThan(AGENT_STATUS_RANK.idle);
+    expect(AGENT_STATUS_RANK.idle).toBeLessThan(AGENT_STATUS_RANK.offline);
+  });
+});
+
+describe('matchesStatusFilter（4 态口径）', () => {
+  it('all 全过；展示键按映射匹配', () => {
+    expect(matchesStatusFilter('blocked', 'all')).toBe(true);
+    expect(matchesStatusFilter('running', 'working')).toBe(true);
+    expect(matchesStatusFilter('running', 'attention')).toBe(false);
+    expect(matchesStatusFilter('idle', 'idle')).toBe(true);
+    expect(matchesStatusFilter('idle', 'offline')).toBe(false);
+  });
+
+  it('attention 聚合 待评审/阻塞/异常', () => {
+    expect(matchesStatusFilter('in_review', 'attention')).toBe(true);
+    expect(matchesStatusFilter('blocked', 'attention')).toBe(true);
+    expect(matchesStatusFilter('error', 'attention')).toBe(true);
+    expect(matchesStatusFilter('running', 'attention')).toBe(false);
+  });
+
+  it('offline 聚合 未启动/已终止/已停用', () => {
+    expect(matchesStatusFilter('none', 'offline')).toBe(true);
+    expect(matchesStatusFilter('terminated', 'offline')).toBe(true);
+    expect(matchesStatusFilter('disabled', 'offline')).toBe(true);
+    expect(matchesStatusFilter('idle', 'offline')).toBe(false);
   });
 });
 

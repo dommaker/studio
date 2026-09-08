@@ -3,7 +3,8 @@
 // ② 视觉锚点：当前 WU 标题（链 WU 详情）+ 类型 chip + 已耗时，次行 PMO · #频道；空闲/未启动/异常各有空态；
 // ③ 最近动态 3 条迷你列表，每条可点（有当前 WU → WU 详情，无 → 角色详情）；
 // ④ 错误行（⚠ lastError，与卡片状态同色）。
-// 状态色经 data-status + --st 驱动（§6.5 单义）；阻塞/异常整卡上色、空闲/未启动压扁由 CSS 承担。
+// 状态色经 data-status（4 态展示键）+ --st 驱动（§6.5 单义延续）：待处理整卡上色、空闲/离线压扁由 CSS 承担；
+// 内部 7+1 细分态保留——细分=error 时角色名前加红点角标（.agd-dot-err）。
 // 渲染边界（#348 契约不变）：动态订阅卡片自持（useRosterActivities 按 roleId 切片）——stream chunk
 // 只重渲本卡，他卡静态壳零重渲；memo + 稳定 props 让轮询驱动的页面重渲也跳过未变卡（#322 三件套）。
 // 「强制停止」不在卡面（§6.1 无操作位），能力保留在 AgentDetailPage 头部。
@@ -15,7 +16,8 @@ import type { RosterRole } from '../../hooks/useAgentRoster';
 import type { WorkUnit } from '../../api/workunit';
 import {
   resolveCardStatusKey,
-  CARD_STATUS_LABELS,
+  CARD_TO_DISPLAY_STATUS,
+  DISPLAY_STATUS_LABELS,
   formatUptime,
   formatRelativeTime,
 } from '../../utils/agentStatus';
@@ -31,6 +33,7 @@ export const RoleCard = memo(function RoleCard({ role, lastDone, channelNames }:
   const isSystemRole = profile.name === 'studio';
   const wu = runtime?.currentWorkUnit ?? null;
   const statusKey = resolveCardStatusKey(profile.status, runtime?.status ?? null, wu?.status);
+  const displayKey = CARD_TO_DISPLAY_STATUS[statusKey];
   const busy = runtime?.status === 'active' && Boolean(wu || runtime.currentWorkUnitId);
   const lastError = runtime?.lastError ?? profile.lastError;
   const recent = [...activities].reverse().slice(0, 3);
@@ -39,10 +42,12 @@ export const RoleCard = memo(function RoleCard({ role, lastDone, channelNames }:
   const activityTarget = wuId ? `/workunits/${wuId}` : `/agents/${profile.id}`;
 
   return (
-    <article className="card agd-card" data-testid="agent-card" data-status={statusKey}>
+    <article className="card agd-card" data-testid="agent-card" data-status={displayKey}>
       {/* ① 头行 */}
       <header className="agd-head">
-        <span className="agd-pill">{CARD_STATUS_LABELS[statusKey]}</span>
+        <span className="agd-pill">{DISPLAY_STATUS_LABELS[displayKey]}</span>
+        {/* 细分=error 时红点角标（4 态合并后保留异常可见性） */}
+        {statusKey === 'error' && <span className="agd-dot-err" title="实例异常" />}
         <Link to={`/agents/${profile.id}`} className="agd-name u-text u-hover-accent agd-ellipsis">
           {profile.name}
         </Link>

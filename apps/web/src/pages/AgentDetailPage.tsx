@@ -21,7 +21,9 @@ import { useAsyncData } from '../hooks/useAsyncData';
 import {
   resolveCardStatusKey,
   CARD_STATUS_LABELS,
-  CARD_STATUS_COLORS,
+  CARD_TO_DISPLAY_STATUS,
+  DISPLAY_STATUS_LABELS,
+  DISPLAY_STATUS_COLORS,
   formatUptime,
 } from '../utils/agentStatus';
 import { formatFullTime } from '../utils/datetime';
@@ -131,11 +133,12 @@ export function AgentDetailPage() {
   };
 
   const wu = instance?.currentWorkUnit ?? null;
-  // #433：状态 pill 与仪表盘卡面 pill 同词同色（#397 口径）；profile 停用由 resolveCardStatusKey 归一为「已停用」
+  // 状态 pill 走 4 态展示口径（与仪表盘卡面 pill 同词同色同源）；细分态（7+1）以小字保留在 pill 旁
   const statusKey = profile
     ? resolveCardStatusKey(profile.status, instance?.status ?? null, wu?.status)
     : null;
-  const statusPillColor = statusKey ? CARD_STATUS_COLORS[statusKey] : '';
+  const displayKey = statusKey ? CARD_TO_DISPLAY_STATUS[statusKey] : null;
+  const statusPillColor = displayKey ? DISPLAY_STATUS_COLORS[displayKey] : '';
   const stats = {
     total: historyTotal,
     done: history.filter((w) => w.status === 'done' || w.status === 'completed' || w.status === 'closed').length,
@@ -153,10 +156,14 @@ export function AgentDetailPage() {
             {/* #440 Phase 4：per-agent identicon 头像（与频道消息气泡同一生成逻辑） */}
             {profile && <AgentAvatar name={profile.name} size={28} />}
             <h1 className="page-title">{profile?.name ?? 'Agent 详情'}</h1>
-            {statusKey && (
+            {statusKey && displayKey && (
               <span className={`text-xs px-2 py-0.5 rounded ${statusPillColor}`}>
-                {CARD_STATUS_LABELS[statusKey]}
+                {DISPLAY_STATUS_LABELS[displayKey]}
               </span>
+            )}
+            {/* 细分态小字（如「待处理 · 阻塞」「离线 · 已停用」）；与 4 态词同词时不重复显示 */}
+            {statusKey && displayKey && CARD_STATUS_LABELS[statusKey] !== DISPLAY_STATUS_LABELS[displayKey] && (
+              <span className="text-xs u-text-3">{`· ${CARD_STATUS_LABELS[statusKey]}`}</span>
             )}
             {profile && (
               <span className="text-xs px-2 py-0.5 rounded u-surface-2 u-text-2" title="背后的 CLI">
