@@ -8,7 +8,7 @@
  *
  * #411：monitor 轮子进程唯一出口在此加 exec 段计时上报（sink 关闭时原 promise 直返，
  * 零行为变化）。段名取到首个 flag 前的 token（'git worktree prune' /
- * 'npx harness update-user-model'），shell 语法尾巴与易变 flag 参数不进段名，报告按名分组。
+ * 'npx tsx src/cli/studio-cli.ts update-user-model'），shell 语法尾巴与易变 flag 参数不进段名，报告按名分组。
  */
 
 import { exec, execFile } from 'child_process';

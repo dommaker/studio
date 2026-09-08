@@ -107,7 +107,7 @@ function stubProbes(diskUsePercent: number) {
   });
   mockReadMemoryUsage.mockReturnValue({ totalKb: 16_000_000, freeKb: 8_000_000, usedKb: 8_000_000 });
   mockCountZombies.mockReturnValue(0);
-  // #374: checkKnowledgeHealth 的 npx harness 用户模型更新走异步 exec（24h 一次，非本轮探测）
+  // #374: checkKnowledgeHealth 的用户模型更新走异步 exec（24h 一次，非本轮探测；#459 起走 studio 自家 CLI）
   mockExec.mockImplementation((_cmd: string, _opts: unknown, cb: (err: Error | null, stdout: string) => void) => {
     cb(null, '{}');
   });
@@ -277,7 +277,7 @@ describe('checkKnowledgeHealth', () => {
     await checkKnowledgeHealth(state);
 
     expect(mockExec).toHaveBeenCalledWith(
-      expect.stringContaining('npx harness update-user-model'),
+      expect.stringContaining('npx tsx src/cli/studio-cli.ts update-user-model'),
       { timeout: 30_000 },
       expect.any(Function),
     );
@@ -290,7 +290,7 @@ describe('checkKnowledgeHealth', () => {
 
   it('AC #374: 用户模型更新失败（超时等）→ warn non-blocking 不抛出', async () => {
     mockExec.mockImplementation((_cmd: string, _opts: unknown, cb: (err: Error | null, stdout: string) => void) => {
-      cb(new Error('Command failed: npx harness'), '');
+      cb(new Error('Command failed: npx tsx'), '');
     });
     const state = { lastDecayRun: Date.now(), lastUserModelRun: 0 };
 
