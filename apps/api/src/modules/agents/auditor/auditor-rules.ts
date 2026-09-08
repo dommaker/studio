@@ -26,6 +26,17 @@ export function studioEventsJsonl(): string {
   return resolveStudioEventsFile();
 }
 
+/**
+ * harness `update-user-model` 状态文件路径。
+ * harness #116 为该文件加了 HARNESS_UUM_STATE_FILE env 覆盖（默认值不变）；此前本仓
+ * 两个调用点各自 os.homedir() 拼死成默认路径，运维设了该 env 就会 harness 写别处、
+ * auditor 读默认 → 静默读到空、建议数归零且无报错。收口于此。
+ */
+export function userModelStateFile(env: NodeJS.ProcessEnv = process.env): string {
+  return env.HARNESS_UUM_STATE_FILE
+    || path.join(os.homedir(), '.claude', 'user-model-state.json');
+}
+
 export interface Suggestion {
   type: 'skill_weight' | 'skill_status' | 'param_tuning' | 'prompt_optimization'
        | 'model_weight_tune' | 'derived_rule_promote' | 'scope_stale_alert' | 'circuit_fix';
@@ -57,11 +68,9 @@ export async function analyzeUserModel(): Promise<Suggestion[]> {
   const suggestions: Suggestion[] = [];
   try {
     const fs = await import('fs');
-    const path = await import('path');
-    const os = await import('os');
 
     // Read user model state (written by update-user-model)
-    const stateFile = path.join(os.homedir(), '.claude', 'user-model-state.json');
+    const stateFile = userModelStateFile();
     if (!fs.existsSync(stateFile)) return suggestions;
 
     const state = JSON.parse(fs.readFileSync(stateFile, 'utf-8'));

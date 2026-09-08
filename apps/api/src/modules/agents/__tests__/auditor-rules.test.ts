@@ -46,6 +46,7 @@ import { skillStore } from '../../skills/skill-store.js';
 import {
   classifyError,
   studioEventsJsonl,
+  userModelStateFile,
   generateSuggestions,
   analyzeUserModel,
   analyzeCircuitHealth,
@@ -215,6 +216,24 @@ describe('analyzeUserModel()', () => {
     expect(result).toEqual([]);
   });
 
+  // 修复本体：此前两个调用点把路径拼死在 homedir 默认值上，运维设了
+  // HARNESS_UUM_STATE_FILE 就会静默返回 []（harness 写别处、auditor 读默认）。
+  it('状态文件在 env 覆盖路径下时仍能读到（默认路径无文件）', async () => {
+    const override = path.join(tmpHome, 'custom-uum-state.json');
+    fs.writeFileSync(override, JSON.stringify({
+      patterns: { foo: { occurrences: 6, trend: 'rising', sessions: ['s1', 's2'] } },
+      lensWeights: {},
+    }), 'utf-8');
+    process.env.HARNESS_UUM_STATE_FILE = override;
+    try {
+      const result = await analyzeUserModel();
+      expect(result.length).toBeGreaterThan(0);
+    } finally {
+      delete process.env.HARNESS_UUM_STATE_FILE;
+      fs.rmSync(override, { force: true });
+    }
+  });
+
   it('suggests weight tune for rising/falling patterns and rule promote for heavy lens', async () => {
     fs.mkdirSync(path.dirname(stateFile), { recursive: true });
     fs.writeFileSync(stateFile, JSON.stringify({
@@ -373,5 +392,25 @@ describe('analyzeCircuitHealth() Circuit 5 散置 CONTEXT.md', () => {
 describe('studioEventsJsonl()', () => {
   it('resolves 统一事件文件（D18，STUDIO_EVENTS_FILE 可覆盖）', () => {
     expect(studioEventsJsonl()).toBe(eventsFile);
+  });
+});
+
+// 语义对齐 harness 上游 resolveUserModelPaths（用 `||` 而非 `??`）：
+// 写成 ?? 会让本仓在 env 为空串时读到 ""，而 harness 读默认路径 —— 正是本函数要消灭的
+// 「两边读不同文件」静默分歧。空串用例是防回归锁，勿删勿改。
+describe('userModelStateFile()', () => {
+  const defaultFile = path.join(tmpHome, '.claude', 'user-model-state.json');
+
+  it('env 未设 → harness 默认路径', () => {
+    expect(userModelStateFile({})).toBe(defaultFile);
+  });
+
+  it('env 覆盖 → 取 HARNESS_UUM_STATE_FILE', () => {
+    expect(userModelStateFile({ HARNESS_UUM_STATE_FILE: '/tmp/uum-custom.json' }))
+      .toBe('/tmp/uum-custom.json');
+  });
+
+  it('env 为空串 → 落回默认（对齐上游 || 语义）', () => {
+    expect(userModelStateFile({ HARNESS_UUM_STATE_FILE: '' })).toBe(defaultFile);
   });
 });
