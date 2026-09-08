@@ -25,6 +25,7 @@
 | `writeStudioEvent`, `readStudioEvents`, `parseStudioEventPayload`, `getStudioEventTime`, `resolveStudioEventsFile`, `isEmptyEventPayload`, `defaultStudioEventLevel` | studio-events.ts | #361 D18 事件唯一写口（自 apps/api utils 下沉）：StudioEvent envelope `{ type, source?, payload(JSON string), createdAt, level? }`；空 payload 拒收、永不抛出、knowledge:*/tool:call 缺省 debug 级；apps/api utils/studio-events.ts 是兼容薄壳，packages 直用本入口。消费方：studio-agent output-capture 5 emit、api 30+ 模块 |
 | `isTestEnv`, `testTmpRoot`, `resolveStudioLogsDir`, `resolveStudioLogFile` | log-path.ts | #361 测试/生产日志路径隔离规则唯一属主（自 apps/api utils 下沉）：VITEST/NODE_ENV=test → os.tmpdir()/studio-test-logs，生产 → ~/.studio/logs；apps/api utils/studio-log-path.ts 为兼容薄壳 |
 | `matchResolutionPatterns`, `isActionableMaturity`, `formatRkbHint` | resolutions.ts | #361 RKB 匹配核心（原 studio-agent runner-output 与 api resolution.service 逐字重复段收一）：regex(i) 失败回退小写子串包含、verified/canonical 成熟度闸门、RKB hint markdown 格式化；文档扫描与 fix 提取口径留在各调用方 |
+| `readJsonlTail`, `iterateJsonlLinesBackward` | jsonl-tail.ts | 通用 JSONL 尾部倒读原语（架构评审候选 2，泛化自 apps/api studio-events-tail）：「取尾部 N 行 / 倒扫早停 / 游标翻旧页」的 O(增量) 读口，替代「取尾部摊成全量 readJsonl」；字节级行切分（跨块多字节安全），直读磁盘不进 jsonlCache（真源唯一）；消费方：getChannelVersion / getMessagesSince（file-store.ts）、apps/api events 薄封装 |
 
 ### 依赖关系
 
@@ -36,6 +37,8 @@
 - `apps/api` 全套模块（daemon、middleware、modules、index、cli 等）广泛引用本目录的 CLI 框架、配置管理、事件总线及 file-store 类型
 
 ### 注意事项
+
+- 本包 `@types/node` 钉在 20.0.0（泛型前的 Buffer 类型），与 TS 5.7+ lib 的 `ArrayBufferView` 泛型不兼容——`handle.read(buffer)` / `Buffer.concat` 传 Buffer 会报类型错，解法 = 传参处 `as Uint8Array`（Buffer 运行时即 Uint8Array 子类，纯类型层适配，参照 jsonl-tail.ts）；根治 = 对齐 apps/api 的 ^20.12.7（未做，另议）
 
 - CLI 命令注册表为全局单例，测试后需调用 `clearCommands()` 清理
 - 配置优先级：环境变量 > `~/.studio/config.env` > 默认值，且仅当环境变量未设置时才加载 config.env

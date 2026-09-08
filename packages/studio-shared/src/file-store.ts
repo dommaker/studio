@@ -42,6 +42,7 @@ import { stringifyChannels } from './channels-codec';
 import { parseFrontmatter, serializeFrontmatter } from './frontmatter';
 import { readMetricsBegin, emitReadMetric } from './read-metrics';
 import { foldJsonlById } from './jsonl-fold';
+import { iterateJsonlLinesBackward, readJsonlTail } from './jsonl-tail';
 import type {
   AgentProfileData,
   RuntimeStateData,
@@ -767,12 +768,15 @@ export class FileStore extends FileStoreWorkUnitBase {
    * §4.2 发言层新鲜度检查：频道版本快照（messages.jsonl 最后一行的消息 id，含 tombstone 行——
    * 删除也要被感知为「房间已变」）。
    * #319：行号口径退役（压实会压缩行数，按原始行数下标的契约不再成立），一律以 id 为准。
+   * 候选 2：改走尾部倒读（readJsonlTail limit=1），不再为取最后一行全量读+全量克隆；
+   * 损坏行跳过（语义变化点：末行损坏时回退到上一完整行的 id，而非整体判读取失败——
+   * 与 events 尾读同一容错口径，调用方按版本未变处理，安全方向）。
    * 读取失败（频道不存在等）返回空版本 —— 调用方按「无变化」处理，绝不阻断发言。
    */
   async getChannelVersion(channelId: string): Promise<{ lastMessageId: string | null }> {
     try {
-      const rows = await this.readJsonl<ChannelMessageRow>(this.messagesPath(channelId));
-      return { lastMessageId: rows.length > 0 ? rows[rows.length - 1].id : null };
+      const { rows } = await readJsonlTail({ file: this.messagesPath(channelId), limit: 1 });
+      return { lastMessageId: rows.length > 0 ? (rows[0].id as string) : null };
     } catch {
       return { lastMessageId: null };
     }
@@ -784,22 +788,35 @@ export class FileStore extends FileStoreWorkUnitBase {
    * 锚点 id 找不到——根因：压实可能抹除锚点行本身（tombstone 或被覆盖行），位置不可知——
    * 保守返回全部活消息：消费方（§4.2）过滤本 loop 自己的消息且拦截 ≤2 次后照发，
    * 代价是有界误报；反向漏报（丢掉真正的新消息）不允许。
+   * 候选 2：改走尾部倒读早停——锚点是本 loop 最近见过的消息、稳态靠近文件尾，
+   * 倒扫几行即停；锚点丢失（压实后偶发）才全扫，成本由压实周期性封顶（grilling Q3）。
+   * 直读磁盘不进 jsonlCache（尾读即 FileStore seam 的增量读口，真源唯一，grilling Q4）。
    */
   async getMessagesSince(channelId: string, messageId: string | null): Promise<ChannelMessageData[]> {
+    let handle: fs.promises.FileHandle | null = null;
     try {
-      const rows = await this.readJsonl<ChannelMessageRow>(this.messagesPath(channelId));
-      let from = 0;
-      if (messageId) {
-        let anchor = -1;
-        for (let i = rows.length - 1; i >= 0; i--) {
-          if (rows[i].id === messageId) { anchor = i; break; }
+      handle = await fs.promises.open(this.messagesPath(channelId), 'r');
+      const stat = await handle.stat();
+      if (stat.size === 0) return [];
+
+      const collected: ChannelMessageRow[] = []; // 收集顺序 = 新→旧
+      for await (const { text } of iterateJsonlLinesBackward(handle, stat.size)) {
+        let row: ChannelMessageRow;
+        try {
+          row = JSON.parse(text) as ChannelMessageRow;
+        } catch {
+          continue; // 损坏行跳过（同 events 尾读容错口径）
         }
-        if (anchor !== -1) from = anchor + 1;
+        if (messageId && row.id === messageId) break; // 锚点本身不含
+        collected.push(row);
       }
+      collected.reverse(); // 恢复文件序（旧→新）
       // 窗口内按 id 归并（mergeActiveRows 唯一口径）：窗口内发了又删的消息不出现在增量里
-      return mergeActiveRows(rows.slice(from));
+      return mergeActiveRows(collected);
     } catch {
       return [];
+    } finally {
+      await handle?.close();
     }
   }
 

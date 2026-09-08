@@ -47,6 +47,9 @@ export type { FileStoreOptions } from './file-store';
 // 导出 JSONL append-only 折叠（#360：byId 分组 + 业务侧墓碑判据）
 export { foldJsonlById } from './jsonl-fold';
 export type { JsonlFoldGroup } from './jsonl-fold';
+// 导出 JSONL 尾部倒读原语（候选 2：增量读口，替代「取尾部摊成全量读」）
+export { iterateJsonlLinesBackward, readJsonlTail } from './jsonl-tail';
+export type { ReadJsonlTailOptions, ReadJsonlTailResult } from './jsonl-tail';
 
 // #361 事件写口唯一入口 + 日志路径测试隔离（自 apps/api 下沉，packages 可达）
 export * from './studio-events';
