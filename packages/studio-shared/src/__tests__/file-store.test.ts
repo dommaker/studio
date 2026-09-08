@@ -1844,7 +1844,7 @@ describe('queryMessagesPage 分页下沉 + id 游标（#319）', () => {
     await seedSameTimestamp();
     const page = await store.queryMessagesPage(CH, { before: 'p4', limit: 2 });
     expect(page.messages.map(m => m.id)).toEqual(['p2', 'p3']);
-    expect(page.total).toBe(3); // 锚点过滤后的总数（与路由现状语义一致）
+    expect(page.total).toBe(5); // 候选 8 统一口径：热+冷原始行数（原「锚点过滤后的总数」随分支漂移，退役）
     expect(page.hasMore).toBe(true);
 
     const first = await store.queryMessagesPage(CH, { before: 'p2', limit: 2 });
