@@ -9,7 +9,7 @@
 
 import * as fs from 'fs';
 import { logger } from '@dommaker/studio-shared';
-import type { FileStore } from '@dommaker/studio-shared';
+import type { FileStore, WorkUnitSnapshot } from '@dommaker/studio-shared';
 import {
   POOL_STAGNATION_WARN_MS,
   POOL_STAGNATION_CRIT_MS,
@@ -117,9 +117,9 @@ export async function checkFailureTrend(_fileStore: FileStore): Promise<MonitorA
  * >2h warning / >12h critical。指名未认领（assigneeId=profile id，等特定 loop 认领）
  * 与无人认领池（assigneeId=null）分开出声：前者是「被指名的 loop 没来领」，后者是「无人认领」。
  */
-export async function checkPoolStagnation(fileStore: FileStore): Promise<MonitorAlert[]> {
+export async function checkPoolStagnation(snapshots: WorkUnitSnapshot[]): Promise<MonitorAlert[]> {
   const alerts: MonitorAlert[] = [];
-  const unassigned = await fileStore.getIndex({ status: 'unassigned' });
+  const unassigned = snapshots.filter(s => s.status === 'unassigned');
 
   const groups: Array<{ label: string; items: typeof unassigned }> = [
     { label: '无人认领', items: unassigned.filter(w => !w.assigneeId) },
@@ -154,9 +154,9 @@ export async function checkPoolStagnation(fileStore: FileStore): Promise<Monitor
  * in_review 滞留：人工确认队列以天计（不对齐池滞留 2h/12h）——
  * 最老一条（updatedAt = 进入 in_review 的最近流转时间）>24h warning / >72h critical。
  */
-export async function checkReviewStagnation(fileStore: FileStore): Promise<MonitorAlert[]> {
+export async function checkReviewStagnation(snapshots: WorkUnitSnapshot[]): Promise<MonitorAlert[]> {
   const alerts: MonitorAlert[] = [];
-  const inReview = await fileStore.getIndex({ status: 'in_review' });
+  const inReview = snapshots.filter(s => s.status === 'in_review');
   if (inReview.length === 0) return alerts;
 
   const oldest = inReview.reduce((a, b) => (new Date(a.updatedAt).getTime() <= new Date(b.updatedAt).getTime() ? a : b));
@@ -192,12 +192,12 @@ export async function checkReviewStagnation(fileStore: FileStore): Promise<Monit
  * WU 被任何外部写刷新 updatedAt 后复活（零新增机制）；再次沉睡超阈值（updatedAt ≠ 落盘标记）
  * 重新告警。不自动关闭/迁移沉睡 WU，CTA 对齐 #57/#87 既有入口（回复即复活 / 回复「关闭」）。
  */
-export async function checkStaleClaimGuard(fileStore: FileStore): Promise<MonitorAlert[]> {
+export async function checkStaleClaimGuard(fileStore: FileStore, snapshots: WorkUnitSnapshot[]): Promise<MonitorAlert[]> {
   const alerts: MonitorAlert[] = [];
   const now = Date.now();
   // 先排除已出声者再截断：已标记 WU 永不认领、长期占据 index 前部，
   // 先 slice 会让第 21 条起的新沉睡 WU 永久静默（#221 review 修复）。
-  const pending = (await fileStore.getIndex({ status: 'unassigned' }))
+  const pending = snapshots.filter(s => s.status === 'unassigned')
     .filter(s => isStaleClaimSleep(s.updatedAt, now))
     .filter(s => parseWuMetadata(s.metadata).staleGuardBlockedAt !== s.updatedAt) // 本次沉睡已出过声
     .slice(0, 20); // 周期上限只压未出声者，防存量清点刷屏
@@ -229,9 +229,9 @@ export async function checkStaleClaimGuard(fileStore: FileStore): Promise<Monito
 
 // ── NA Step 7: 进度停滞检测 ──
 
-export async function checkProgressStagnation(fileStore: FileStore): Promise<MonitorAlert[]> {
+export async function checkProgressStagnation(snapshots: WorkUnitSnapshot[]): Promise<MonitorAlert[]> {
   const alerts: MonitorAlert[] = [];
-  const running = (await fileStore.getIndex({ status: 'active' })).slice(0, 10);
+  const running = snapshots.filter(s => s.status === 'active').slice(0, 10);
 
   for (const wu of running) {
     const minutesSinceUpdate = Math.round((Date.now() - new Date(wu.updatedAt).getTime()) / 60_000);
@@ -258,9 +258,9 @@ export async function checkProgressStagnation(fileStore: FileStore): Promise<Mon
 
 // ── NA Step 7: 总执行时间告警 + 主动终止 ──
 
-export async function checkTotalExecutionTime(fileStore: FileStore): Promise<MonitorAlert[]> {
+export async function checkTotalExecutionTime(fileStore: FileStore, snapshots: WorkUnitSnapshot[]): Promise<MonitorAlert[]> {
   const alerts: MonitorAlert[] = [];
-  const running = (await fileStore.getIndex({ status: 'active' })).slice(0, 10);
+  const running = snapshots.filter(s => s.status === 'active').slice(0, 10);
 
   for (const exec of running) {
     const startTime = new Date(exec.claimedAt || exec.createdAt).getTime();
@@ -325,10 +325,10 @@ export async function checkTotalExecutionTime(fileStore: FileStore): Promise<Mon
  * 关闭必须双出声（决策 #62 §3）：workunit:closed 结构化事件 + 频道死信通知
  * （已关闭 + 后续出路），统一走 wu-closure 出口，不再静默改状态。
  */
-export async function autoAbandonStaleBlocked(fileStore: FileStore): Promise<void> {
+export async function autoAbandonStaleBlocked(fileStore: FileStore, snapshots: WorkUnitSnapshot[]): Promise<void> {
   const cutoff = Date.now() - BLOCKED_AUTO_ABANDON_MS;
 
-  const stale = (await fileStore.getIndex({ status: 'blocked' }))
+  const stale = snapshots.filter(s => s.status === 'blocked')
     .filter(s => !DECISION_SPEC_TYPES.has(s.type))
     .filter(s => {
       const blockedAt = parseWuMetadata(s.metadata).blockedAt;

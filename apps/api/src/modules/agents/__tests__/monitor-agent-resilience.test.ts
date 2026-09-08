@@ -98,7 +98,7 @@ describe('MonitorService auto-fail time-critical workUnits', () => {
     ]);
     vi.mocked(agentRunner.stop).mockResolvedValue(undefined);
 
-    const alerts = await (monitorService as any).checkTotalExecutionTime();
+    const alerts = await (monitorService as any).checkTotalExecutionTime(await mockGetIndex());
 
     // Should generate a critical alert
     expect(alerts).toEqual(expect.arrayContaining([
@@ -125,7 +125,7 @@ describe('MonitorService auto-fail time-critical workUnits', () => {
       makeSnapshot({ id: 'exec-ok', status: 'active', parentId: 'parent-1', claimedAt: oneHourAgo, createdAt: oneHourAgo }),
     ]);
 
-    const alerts = await (monitorService as any).checkTotalExecutionTime();
+    const alerts = await (monitorService as any).checkTotalExecutionTime(await mockGetIndex());
 
     // Should NOT call agentRunner.stop
     expect(agentRunner.stop).not.toHaveBeenCalled();

@@ -30,6 +30,7 @@ Agent 配置（profile）、运行实例（instance）、决策循环（loop）�
 
 ### 注意事项
 
+- **周期循环 scan-sharing（候选 3，2026-09-08）**：monitor `check()` 一轮开头一次 `getIndex()`，快照作 caller-private 传给 6 个 WU 探针（收 `snapshots` 参数、内存 filter，不再各自 getIndex；动作前新鲜度复核 `getIndex({id})` 点读不受影响）——**新 WU 探针一律收快照不自己读**；auditor generateSuggestions 的 4 周事件窗口同样每轮一次读、多消费方共享（原 skill 循环内 N+1 全窗口扫描）。跨 job 不共享（各自的轮各自读，非快照层）
 - **路由分叉坑（#391 实测）**：`/api/v1/agents` 的 GET / 由 legacy `routes.ts`（agents-registry，响应条目**无 id 字段**）处理；前端 profile 列表走 `/api/v1/agent-profiles`（agent-profile.routes.ts，有 id）。发现 profileId 勿用 `/agents`
 - **AgentProfile 持久化**：`~/.studio/data/agents/{id}/profile.json` + `state.json`；原子写+mkdir 锁，仅可显式 DELETE；保留名 `studio`
 - **prompt 注入 = index-on-demand**：skills 只注入 name+description+triggers+指针，正文不注入；知识分层（rule/context 全量、signal 索引、reference 报条数）；分段软定额+池内余量共享截断（persona 300/roster 400/skills 600/map 800/memory 300/knowledge 1000/files 400/contract 200/handoff 800）；段序 persona->roster->skills->map->memory->knowledge->files->base->contract->handoff->hint

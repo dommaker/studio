@@ -207,13 +207,13 @@ describe('checkPoolStagnation（#181）', () => {
 
   it('无人认领池最老 >2h → warning，>12h → critical', async () => {
     let fileStore = makeFileStore({ getIndex: vi.fn(async () => [mkUnassigned(3, 'wu-warn'), mkUnassigned(0.5, 'wu-fresh')]) });
-    let alerts = await checkPoolStagnation(fileStore);
+    let alerts = await checkPoolStagnation(await fileStore.getIndex());
     expect(alerts).toHaveLength(1);
     expect(alerts[0]).toMatchObject({ source: 'pool_stagnation', level: 'warning', relatedTaskIds: ['wu-warn'], subject: '无人认领' });
     expect(alerts[0].message).toContain('无人认领');
 
     fileStore = makeFileStore({ getIndex: vi.fn(async () => [mkUnassigned(13, 'wu-crit')]) });
-    alerts = await checkPoolStagnation(fileStore);
+    alerts = await checkPoolStagnation(await fileStore.getIndex());
     expect(alerts).toHaveLength(1);
     expect(alerts[0]).toMatchObject({ source: 'pool_stagnation', level: 'critical' });
   });
@@ -226,7 +226,7 @@ describe('checkPoolStagnation（#181）', () => {
       ]),
     });
 
-    const alerts = await checkPoolStagnation(fileStore);
+    const alerts = await checkPoolStagnation(await fileStore.getIndex());
     expect(alerts).toHaveLength(2);
     const pool = alerts.find(a => a.relatedTaskIds?.includes('wu-pool'));
     const designated = alerts.find(a => a.relatedTaskIds?.includes('wu-designated'));
@@ -239,7 +239,7 @@ describe('checkPoolStagnation（#181）', () => {
 
   it('全部新鲜（<2h）→ 无告警', async () => {
     const fileStore = makeFileStore({ getIndex: vi.fn(async () => [mkUnassigned(1, 'wu-fresh'), mkUnassigned(0.5, 'wu-fresh2', 'profile-x')]) });
-    expect(await checkPoolStagnation(fileStore)).toEqual([]);
+    expect(await checkPoolStagnation(await fileStore.getIndex())).toEqual([]);
   });
 });
 
@@ -254,19 +254,19 @@ describe('checkReviewStagnation（#181）', () => {
 
   it('最老 >24h → warning，>72h → critical', async () => {
     let fileStore = makeFileStore({ getIndex: vi.fn(async () => [mkInReview(25, 'wu-warn'), mkInReview(1, 'wu-fresh')]) });
-    let alerts = await checkReviewStagnation(fileStore);
+    let alerts = await checkReviewStagnation(await fileStore.getIndex());
     expect(alerts).toHaveLength(1);
     expect(alerts[0]).toMatchObject({ source: 'review_stagnation', level: 'warning', relatedTaskIds: ['wu-warn'], subject: 'global' });
 
     fileStore = makeFileStore({ getIndex: vi.fn(async () => [mkInReview(73, 'wu-crit')]) });
-    alerts = await checkReviewStagnation(fileStore);
+    alerts = await checkReviewStagnation(await fileStore.getIndex());
     expect(alerts).toHaveLength(1);
     expect(alerts[0]).toMatchObject({ source: 'review_stagnation', level: 'critical' });
   });
 
   it('全部新鲜（<24h）→ 无告警', async () => {
     const fileStore = makeFileStore({ getIndex: vi.fn(async () => [mkInReview(2, 'wu-fresh')]) });
-    expect(await checkReviewStagnation(fileStore)).toEqual([]);
+    expect(await checkReviewStagnation(await fileStore.getIndex())).toEqual([]);
   });
 });
 
@@ -298,7 +298,7 @@ describe('checkStaleClaimGuard（#221）', () => {
   it('陈旧 unassigned → 1 条 warning（指纹含 wuId），标记落盘且 updatedAt/状态不动', async () => {
     const staleIso = await seedStale('wu-stale');
 
-    const alerts = await checkStaleClaimGuard(realStore);
+    const alerts = await checkStaleClaimGuard(realStore, await realStore.getIndex());
     expect(alerts).toHaveLength(1);
     expect(alerts[0]).toMatchObject({
       source: 'stale_claim_guard', level: 'warning',
@@ -315,25 +315,25 @@ describe('checkStaleClaimGuard（#221）', () => {
 
   it('同 WU 跨轮不重复出声（staleGuardBlockedAt === updatedAt 即跳过）', async () => {
     await seedStale('wu-stale');
-    expect(await checkStaleClaimGuard(realStore)).toHaveLength(1);
-    expect(await checkStaleClaimGuard(realStore)).toEqual([]);
-    expect(await checkStaleClaimGuard(realStore)).toEqual([]);
+    expect(await checkStaleClaimGuard(realStore, await realStore.getIndex())).toHaveLength(1);
+    expect(await checkStaleClaimGuard(realStore, await realStore.getIndex())).toEqual([]);
+    expect(await checkStaleClaimGuard(realStore, await realStore.getIndex())).toEqual([]);
   });
 
   it('updatedAt 刷新后复活（不再告警）；再次沉睡超阈值重新告警', async () => {
     const firstStale = await seedStale('wu-stale');
-    expect(await checkStaleClaimGuard(realStore)).toHaveLength(1);
+    expect(await checkStaleClaimGuard(realStore, await realStore.getIndex())).toHaveLength(1);
 
     // 外部写刷新 updatedAt → 复活，不再告警
     const snap = (await realStore.getIndex())[0];
     await realStore.upsertSnapshot({ ...snap, updatedAt: new Date().toISOString() });
-    expect(await checkStaleClaimGuard(realStore)).toEqual([]);
+    expect(await checkStaleClaimGuard(realStore, await realStore.getIndex())).toEqual([]);
 
     // 再次沉睡超阈值（updatedAt 与落盘标记不一致）→ 重新告警
     const secondStale = new Date(Date.now() - STALE_MS).toISOString();
     expect(secondStale).not.toBe(firstStale);
     await realStore.upsertSnapshot({ ...snap, updatedAt: secondStale });
-    const alerts = await checkStaleClaimGuard(realStore);
+    const alerts = await checkStaleClaimGuard(realStore, await realStore.getIndex());
     expect(alerts).toHaveLength(1);
     expect(alerts[0].subject).toBe('wu-stale');
   });
@@ -344,7 +344,7 @@ describe('checkStaleClaimGuard（#221）', () => {
       id: 'wu-active', status: 'active',
       updatedAt: new Date(Date.now() - STALE_MS).toISOString(),
     }) as never);
-    expect(await checkStaleClaimGuard(realStore)).toEqual([]);
+    expect(await checkStaleClaimGuard(realStore, await realStore.getIndex())).toEqual([]);
   });
 
   it('已标记 WU 不占周期名额：20 条已出声 + 1 条新沉睡 → 新沉睡正常告警（slice 顺序回归）', async () => {
@@ -359,7 +359,7 @@ describe('checkStaleClaimGuard（#221）', () => {
     }
     await seedStale('wu-new');
 
-    const alerts = await checkStaleClaimGuard(realStore);
+    const alerts = await checkStaleClaimGuard(realStore, await realStore.getIndex());
     expect(alerts).toHaveLength(1);
     expect(alerts[0].subject).toBe('wu-new');
   });
@@ -371,18 +371,18 @@ describe('checkProgressStagnation', () => {
       makeSnapshot({ id, updatedAt: new Date(Date.now() - minAgo * 60_000).toISOString() });
 
     let fileStore = makeFileStore({ getIndex: vi.fn(async () => [mk(45, 'wu-crit')]) });
-    let alerts = await checkProgressStagnation(fileStore);
+    let alerts = await checkProgressStagnation(await fileStore.getIndex());
     expect(alerts).toHaveLength(1);
     expect(alerts[0]).toMatchObject({ source: 'progress_stagnation', level: 'critical' });
     expect(alerts[0].message).toContain('wu-crit');
 
     fileStore = makeFileStore({ getIndex: vi.fn(async () => [mk(20, 'wu-info')]) });
-    alerts = await checkProgressStagnation(fileStore);
+    alerts = await checkProgressStagnation(await fileStore.getIndex());
     expect(alerts).toHaveLength(1);
     expect(alerts[0].level).toBe('info');
 
     fileStore = makeFileStore({ getIndex: vi.fn(async () => [mk(5, 'wu-fresh')]) });
-    expect(await checkProgressStagnation(fileStore)).toEqual([]);
+    expect(await checkProgressStagnation(await fileStore.getIndex())).toEqual([]);
   });
 });
 
@@ -392,7 +392,7 @@ describe('checkTotalExecutionTime', () => {
     const exec = makeSnapshot({ id: 'exec-timeout', status: 'active', claimedAt: threeHoursAgo, createdAt: threeHoursAgo });
     const fileStore = makeFileStore({ getIndex: vi.fn(async () => [exec]) });
 
-    const alerts = await checkTotalExecutionTime(fileStore);
+    const alerts = await checkTotalExecutionTime(fileStore, await fileStore.getIndex());
 
     expect(alerts).toEqual(expect.arrayContaining([
       expect.objectContaining({ source: 'total_time', level: 'critical', relatedTaskIds: ['exec-timeout'] }),
@@ -415,7 +415,7 @@ describe('checkTotalExecutionTime', () => {
     });
     const fileStore = makeFileStore({ getIndex: vi.fn(async () => [mkActive(2.2), mkActive(1.2), mkActive(0.5)]) });
 
-    const alerts = await checkTotalExecutionTime(fileStore);
+    const alerts = await checkTotalExecutionTime(fileStore, await fileStore.getIndex());
     expect(alerts.map(a => a.level)).toEqual(['warning', 'info']);
     expect(mockAgentStop).not.toHaveBeenCalled();
     expect(mockCloseWithNotice).not.toHaveBeenCalled();
@@ -432,7 +432,7 @@ describe('autoAbandon probes', () => {
     });
     const fileStore = makeFileStore({ getIndex: vi.fn(async () => [stale]) });
 
-    await autoAbandonStaleBlocked(fileStore);
+    await autoAbandonStaleBlocked(fileStore, await fileStore.getIndex());
 
     expect(mockCloseWithNotice).toHaveBeenCalledTimes(1);
     expect(mockCloseWithNotice).toHaveBeenCalledWith(
@@ -450,7 +450,7 @@ describe('autoAbandon probes', () => {
     });
     const fileStore = makeFileStore({ getIndex: vi.fn(async () => [fresh]) });
 
-    await autoAbandonStaleBlocked(fileStore);
+    await autoAbandonStaleBlocked(fileStore, await fileStore.getIndex());
 
     expect(mockCloseWithNotice).not.toHaveBeenCalled();
   });
@@ -462,7 +462,7 @@ describe('autoAbandon probes', () => {
     });
     const fileStore = makeFileStore({ getIndex: vi.fn(async () => [legacy]) });
 
-    await autoAbandonStaleBlocked(fileStore);
+    await autoAbandonStaleBlocked(fileStore, await fileStore.getIndex());
 
     expect(mockCloseWithNotice).toHaveBeenCalledTimes(1);
   });
@@ -479,7 +479,7 @@ describe('autoAbandon probes', () => {
     });
     const fileStore = makeFileStore({ getIndex: vi.fn(async () => [decision, spec]) });
 
-    await autoAbandonStaleBlocked(fileStore);
+    await autoAbandonStaleBlocked(fileStore, await fileStore.getIndex());
 
     expect(mockCloseWithNotice).not.toHaveBeenCalled();
   });

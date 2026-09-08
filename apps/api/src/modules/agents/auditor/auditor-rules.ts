@@ -379,14 +379,17 @@ export async function generateSuggestions(
   try {
     // Skip if insufficient active sessions (4-week window)
     const fourWeeksAgo = new Date(Date.now() - 28 * 24 * 3600_000);
-    // Read studio events from JSONL
-    let activeSessionCount = 0;
+    // 候选 3（scan-sharing）：4 周窗口每轮审计只读一次，活跃会话计数与逐 skill
+    // recentUsage 共享（原 skill 循环内每个 deprecated skill 重扫一次全窗口 = N+1）。
+    // 读失败按空窗口处理（与原 catch 语义一致：activeSessionCount/recentUsage 均为 0）
+    let windowEvents: Array<Record<string, unknown>> = [];
     try {
-      const allEvents = await readStudioEventsSince({ file: studioEventsJsonl(), sinceMs: fourWeeksAgo.getTime() });
-      activeSessionCount = allEvents.filter(
-        (e: any) => e.type === 'session:summary' && getStudioEventTime(e) >= fourWeeksAgo.getTime()
-      ).length;
-    } catch { activeSessionCount = 0; }
+      windowEvents = await readStudioEventsSince({ file: studioEventsJsonl(), sinceMs: fourWeeksAgo.getTime() });
+    } catch { windowEvents = []; }
+
+    const activeSessionCount = windowEvents.filter(
+      (e: any) => e.type === 'session:summary' && getStudioEventTime(e) >= fourWeeksAgo.getTime()
+    ).length;
 
     if (activeSessionCount < 5) {
       logger.info('[AuditorService] Skipping skill audit — insufficient active sessions', { activeSessionCount });
@@ -435,15 +438,11 @@ export async function generateSuggestions(
 
         // skill_retire: deprecated + 0 recent usage → physical delete
         if (skill.status === 'deprecated') {
-          let recentUsage = 0;
-          try {
-            const allEvents = await readStudioEventsSince({ file: studioEventsJsonl(), sinceMs: fourWeeksAgo.getTime() });
-            recentUsage = allEvents.filter(
-              (e: any) => e.type === 'skill:used'
-                && getStudioEventTime(e) >= fourWeeksAgo.getTime()
-                && String(e.payload || '').includes(skill.id)
-            ).length;
-          } catch { recentUsage = 0; }
+          const recentUsage = windowEvents.filter(
+            (e: any) => e.type === 'skill:used'
+              && getStudioEventTime(e) >= fourWeeksAgo.getTime()
+              && String(e.payload || '').includes(skill.id)
+          ).length;
           if (recentUsage === 0) {
             suggestions.push({
               type: 'skill_status',

@@ -18,6 +18,7 @@
  */
 
 import { logger, FileStore } from '@dommaker/studio-shared';
+import type { WorkUnitSnapshot } from '@dommaker/studio-shared';
 import type { MonitorAlert } from '../types.js';
 import * as probes from './monitor-probes.js';
 import * as systemProbes from './monitor-system-probes.js';
@@ -69,15 +70,20 @@ export class MonitorService {
   private async check(): Promise<void> {
     const alerts: MonitorAlert[] = [];
 
+    // 候选 3（scan-sharing）：一轮一快照——6 个 WU 探针共享周期开头的一致性视图，
+    // 各自按 status 内存过滤，不再各自 getIndex 分区扫描；动作前的新鲜度复核
+    // （getIndex({id}) 点读）不受影响。caller-private（缓存 seam 决策树第 4 问），随轮次销毁
+    const snapshots = await this.fileStore.getIndex();
+
     alerts.push(...await this.checkFailureTrend());
-    alerts.push(...await this.checkProgressStagnation());
-    alerts.push(...await this.checkTotalExecutionTime());
-    alerts.push(...await this.checkPoolStagnation());
-    alerts.push(...await this.checkReviewStagnation());
-    alerts.push(...await this.checkStaleClaimGuard());
+    alerts.push(...await this.checkProgressStagnation(snapshots));
+    alerts.push(...await this.checkTotalExecutionTime(snapshots));
+    alerts.push(...await this.checkPoolStagnation(snapshots));
+    alerts.push(...await this.checkReviewStagnation(snapshots));
+    alerts.push(...await this.checkStaleClaimGuard(snapshots));
     alerts.push(...await this.checkToolPatterns());
     await this.evaluateTrajectory();  // G4
-    await this.autoAbandonStaleBlocked();
+    await this.autoAbandonStaleBlocked(snapshots);
     await this.systemTriageCheck();
     await this.gcStaleWorktrees();
     await this.checkKnowledgeHealth();
@@ -107,28 +113,28 @@ export class MonitorService {
     return probes.checkFailureTrend(this.fileStore);
   }
 
-  private async checkProgressStagnation(): Promise<MonitorAlert[]> {
-    return probes.checkProgressStagnation(this.fileStore);
+  private async checkProgressStagnation(snapshots: WorkUnitSnapshot[]): Promise<MonitorAlert[]> {
+    return probes.checkProgressStagnation(snapshots);
   }
 
-  private async checkTotalExecutionTime(): Promise<MonitorAlert[]> {
-    return probes.checkTotalExecutionTime(this.fileStore);
+  private async checkTotalExecutionTime(snapshots: WorkUnitSnapshot[]): Promise<MonitorAlert[]> {
+    return probes.checkTotalExecutionTime(this.fileStore, snapshots);
   }
 
-  private async checkPoolStagnation(): Promise<MonitorAlert[]> {
-    return probes.checkPoolStagnation(this.fileStore);
+  private async checkPoolStagnation(snapshots: WorkUnitSnapshot[]): Promise<MonitorAlert[]> {
+    return probes.checkPoolStagnation(snapshots);
   }
 
-  private async checkReviewStagnation(): Promise<MonitorAlert[]> {
-    return probes.checkReviewStagnation(this.fileStore);
+  private async checkReviewStagnation(snapshots: WorkUnitSnapshot[]): Promise<MonitorAlert[]> {
+    return probes.checkReviewStagnation(snapshots);
   }
 
-  private async checkStaleClaimGuard(): Promise<MonitorAlert[]> {
-    return probes.checkStaleClaimGuard(this.fileStore);
+  private async checkStaleClaimGuard(snapshots: WorkUnitSnapshot[]): Promise<MonitorAlert[]> {
+    return probes.checkStaleClaimGuard(this.fileStore, snapshots);
   }
 
-  private async autoAbandonStaleBlocked(): Promise<void> {
-    return probes.autoAbandonStaleBlocked(this.fileStore);
+  private async autoAbandonStaleBlocked(snapshots: WorkUnitSnapshot[]): Promise<void> {
+    return probes.autoAbandonStaleBlocked(this.fileStore, snapshots);
   }
 
   private async gcStaleWorktrees(): Promise<void> {
