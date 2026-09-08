@@ -5,6 +5,7 @@ import {
   projectActivityMessages,
   buildChannelActivity,
   attributeActivity,
+  deriveActivityRows,
   fmtRelTime,
   type ChannelActivityItem,
 } from '../activityRail';
@@ -163,6 +164,64 @@ describe('attributeActivity — REQ 归属分流', () => {
     const { byReq } = attributeActivity(items, wuToReq);
     expect(byReq['REQ-0002'].map(i => i.id)).toEqual(['a']);
     expect(byReq['REQ-0001']).toBeUndefined();
+  });
+});
+
+describe('deriveActivityRows — 「其他动态」降噪（同类相邻折叠 + 信号分级）', () => {
+  const item = (id: string, over: Partial<ChannelActivityItem> = {}): ChannelActivityItem => ({
+    id, kind: 'wu', text: `动态${id}`, at: '2026-08-10T00:00:00Z', ...over,
+  });
+
+  it('同型 card 相邻连刷 → 折叠为一条（代表取组内首条=最新，count 记折叠数）', () => {
+    const rows = deriveActivityRows([
+      item('c3', { kind: 'card', text: 'daily_reflection 卡片 · 每日洞察 8-10' }),
+      item('c2', { kind: 'card', text: 'daily_reflection 卡片 · 每日洞察 8-09' }),
+      item('c1', { kind: 'card', text: 'daily_reflection 卡片 · 每日洞察 8-08' }),
+    ]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].item.id).toBe('c3');
+    expect(rows[0].count).toBe(3);
+  });
+
+  it('同文 wu 条目相邻（执行失败连刷）→ 折叠；中间夹异文条目不跨条折叠', () => {
+    const rows = deriveActivityRows([
+      item('a2', { text: '执行失败：超时' }),
+      item('a1', { text: '执行失败：超时' }),
+      item('b1', { text: '已交付产物' }),
+      item('a0', { text: '执行失败：超时' }),
+    ]);
+    expect(rows.map(r => [r.item.id, r.count])).toEqual([['a2', 2], ['b1', 1], ['a0', 1]]);
+  });
+
+  it('pinned（等待人工）→ signal，且不同 wuId 的 pinned 不互相折叠', () => {
+    const rows = deriveActivityRows([
+      item('w2', { text: '等待人工回复：选哪个？', pinned: true, wuId: 'wu-2', at: undefined }),
+      item('w1', { text: '等待人工回复：选哪个？', pinned: true, wuId: 'wu-1', at: undefined }),
+    ]);
+    expect(rows).toHaveLength(2);
+    expect(rows.every(r => r.tone === 'signal')).toBe(true);
+  });
+
+  it('文本含 需要输入 / blocked / 阻塞 → signal', () => {
+    const rows = deriveActivityRows([
+      item('s1', { text: 'WU 需要输入：确认方案' }),
+      item('s2', { text: '流水线 blocked：依赖未就绪' }),
+      item('s3', { text: 'REQ 阻塞待处理' }),
+    ]);
+    expect(rows.every(r => r.tone === 'signal')).toBe(true);
+  });
+
+  it('card 条目（例行播报）→ routine；普通 wu/req 条目 → normal', () => {
+    const rows = deriveActivityRows([
+      item('c1', { kind: 'card', text: 'gc_proposal 卡片 · 候选清单' }),
+      item('u1', { kind: 'wu', text: '普通执行进展' }),
+      item('r1', { kind: 'req', text: 'REQ-0001 需求一 · open' }),
+    ]);
+    expect(rows.map(r => r.tone)).toEqual(['routine', 'normal', 'normal']);
+  });
+
+  it('空输入 → 空输出', () => {
+    expect(deriveActivityRows([])).toEqual([]);
   });
 });
 

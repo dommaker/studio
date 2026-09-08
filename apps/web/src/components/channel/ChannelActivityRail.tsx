@@ -17,8 +17,10 @@ import type { NeedInputTodo } from './ChannelNeedInputChip';
 import {
   attributeActivity,
   buildChannelActivity,
+  deriveActivityRows,
   deriveChainSteps,
   fmtRelTime,
+  type ActivityRowData,
   type ChannelActivityItem,
 } from './activityRail';
 
@@ -108,21 +110,23 @@ function useAssigneeNames(assigneeIds: string[]): Record<string, AssigneeDisplay
   return names;
 }
 
-/** 动态条目行：图标点（类型着色）+ 一行文 + 相对时间；REQ/WU → 就地抽屉 */
-function ActivityRow({ item, onOpenWu, onOpenReq }: {
-  item: ChannelActivityItem;
+/** 动态条目行：图标点（类型着色，signal 提权/routine 降权经 mc-act-row-<tone>）+ 一行文
+ * （同类相邻折叠时追加 ×N）+ 相对时间；REQ/WU → 就地抽屉 */
+function ActivityRow({ row, onOpenWu, onOpenReq }: {
+  row: ActivityRowData;
   onOpenWu: (wuId: string) => void;
   onOpenReq: (reqId: string) => void;
 }) {
+  const { item, count, tone } = row;
   const handleClick = () => {
     if (item.kind === 'req' && item.reqId) onOpenReq(item.reqId);
     else if (item.wuId) onOpenWu(item.wuId);
     else if (item.reqId) onOpenReq(item.reqId);
   };
   return (
-    <button className="mc-act-row" onClick={handleClick} title={item.text}>
+    <button className={`mc-act-row mc-act-row-${tone}`} onClick={handleClick} title={item.text}>
       <span className={`mc-act-dot mc-act-dot-${item.kind}`} />
-      <span className="mc-act-text">{item.text}</span>
+      <span className="mc-act-text">{item.text}{count > 1 ? ` ×${count}` : ''}</span>
       <span className="mc-act-time">{item.pinned ? '待回复' : item.at ? fmtRelTime(item.at) : ''}</span>
     </button>
   );
@@ -246,6 +250,8 @@ export const ChannelActivityRail = memo(function ChannelActivityRail({ channelId
     [messageItems, reqs, waitingWus],
   );
   const attributed = useMemo(() => attributeActivity(items, wuToReq), [items, wuToReq]);
+  // ②「其他动态」降噪：同类相邻折叠 + 信号分级（纯派生，docs/plans/2026-09-channel-visual-polish.md 批次1）
+  const otherRows = useMemo(() => deriveActivityRows(attributed.other), [attributed.other]);
 
   return (
     <aside className="mc-act-rail" aria-label="频道动态">
@@ -268,22 +274,22 @@ export const ChannelActivityRail = memo(function ChannelActivityRail({ channelId
               {cardActs.length > 0 && (
                 <div className="mc-act-card-acts">
                   {cardActs.slice(0, 3).map(it => (
-                    <ActivityRow key={it.id} item={it} onOpenWu={onOpenWu} onOpenReq={onOpenReq} />
+                    <ActivityRow key={it.id} row={{ item: it, count: 1, tone: 'normal' }} onOpenWu={onOpenWu} onOpenReq={onOpenReq} />
                   ))}
                 </div>
               )}
             </div>
           );
         })}
-        {attributed.other.length > 0 && (
+        {otherRows.length > 0 && (
           <>
             <div className="mc-act-group-label">其他动态</div>
-            {attributed.other.map(it => (
-              <ActivityRow key={it.id} item={it} onOpenWu={onOpenWu} onOpenReq={onOpenReq} />
+            {otherRows.map(r => (
+              <ActivityRow key={r.item.id} row={r} onOpenWu={onOpenWu} onOpenReq={onOpenReq} />
             ))}
           </>
         )}
-        {reqs.length === 0 && attributed.other.length === 0 && (
+        {reqs.length === 0 && otherRows.length === 0 && (
           <div className="mc-act-empty">暂无 REQ 与动态</div>
         )}
       </div>
