@@ -304,8 +304,7 @@ router.post('/interactions', async (req: Request, res: Response): Promise<void> 
  * 关闭 WorkUnit 并发布事件
  */
 async function closeAndEmit(wuId: string, reason: string): Promise<void> {
-  const snapshots = await fileStore.getIndex();
-  const snap = snapshots.find(s => s.id === wuId);
+  const snap = (await fileStore.getIndex({ id: wuId }))[0];
   if (!snap) return;
 
   const now = new Date().toISOString();
@@ -330,8 +329,7 @@ async function closeAndEmit(wuId: string, reason: string): Promise<void> {
  * 更新 WorkUnit 状态和 metadata
  */
 async function updateWorkUnitStatus(wuId: string, status: string, extraMeta: Record<string, unknown>): Promise<void> {
-  const snapshots = await fileStore.getIndex();
-  const snap = snapshots.find(s => s.id === wuId);
+  const snap = (await fileStore.getIndex({ id: wuId }))[0];
   if (!snap) throw new Error(`WorkUnit not found: ${wuId}`);
 
   const now = new Date().toISOString();

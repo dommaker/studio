@@ -239,7 +239,7 @@ async function closeOnHumanCommand(
     return 'rejected-no-closed-state';
   }
 
-  const snapshot = (await fileStore.getIndex()).find(s => s.id === wu.id);
+  const snapshot = (await fileStore.getIndex({ id: wu.id }))[0];
   if (!snapshot || snapshot.status !== 'blocked') return 'not-found-or-not-blocked';
   const closed = await closeWorkUnitWithNotice(fileStore, snapshot, {
     reason: opts?.reason ?? '人类在线程内回复「关闭」指令，显式关闭',

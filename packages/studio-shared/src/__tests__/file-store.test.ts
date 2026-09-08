@@ -1510,6 +1510,24 @@ describe('FileStore getIndex filter 下推 (#406)', () => {
     expect(all.find(s => s.id === 'wu1')!.scope).toBe('pristine');
   });
 
+  it('id 点读只克隆命中单行，mutate 不污染缓存', async () => {
+    await store.upsertSnapshot(makeSnap('wu1', { status: 'active', scope: 'pristine' }));
+    await store.upsertSnapshot(makeSnap('wu2', { status: 'active' }));
+    await store.getIndex(); // 填充缓存
+
+    const cloneSpy = vi.spyOn(globalThis, 'structuredClone');
+    const hit = await store.getIndex({ id: 'wu1' });
+    expect(hit.map(s => s.id)).toEqual(['wu1']);
+
+    const clonedArrays = cloneSpy.mock.calls.map(c => c[0]).filter(v => Array.isArray(v));
+    expect(clonedArrays).toHaveLength(1);
+    expect(clonedArrays[0]).toHaveLength(1);
+
+    hit[0].scope = 'mutated-by-caller';
+    expect((await store.getIndex({ id: 'wu1' }))[0].scope).toBe('pristine');
+    expect((await store.getIndex()).find(s => s.id === 'wu1')!.scope).toBe('pristine');
+  });
+
   it('撕裂 index + filter 查询 → 仍抛带路径的错误（严格语义不因下推丢失）', async () => {
     await store.upsertSnapshot(makeSnap('wu1'));
     await store.getIndex(); // 填充缓存

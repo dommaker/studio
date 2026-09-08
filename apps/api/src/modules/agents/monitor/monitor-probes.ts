@@ -285,7 +285,7 @@ export async function checkTotalExecutionTime(fileStore: FileStore): Promise<Mon
       // 推向终态（closed）必须双出声（#176，决策 #62 §3）：结构化事件 + 频道说明，
       // 统一走 wu-closure 出口（#170 锁内成对写在其内部保持）
       try {
-        const current = (await fileStore.getIndex()).find(s => s.id === exec.id);
+        const current = (await fileStore.getIndex({ id: exec.id }))[0];
         if (current) {
           await closeWorkUnitWithNotice(fileStore, current, {
             reason: `执行超过 2.5h（已 ${elapsedMin} 分钟），系统强制关闭`,
@@ -340,7 +340,7 @@ export async function autoAbandonStaleBlocked(fileStore: FileStore): Promise<voi
   for (const exec of stale) {
     logger.warn('[MonitorService] Auto-abandoning stale blocked workUnit', { workUnitId: exec.id });
     try {
-      const current = (await fileStore.getIndex()).find(s => s.id === exec.id);
+      const current = (await fileStore.getIndex({ id: exec.id }))[0];
       if (current && current.status === 'blocked') {
         const meta = parseWuMetadata(current.metadata);
         const title = (meta.title ?? current.scope ?? current.id).slice(0, 50);

@@ -53,8 +53,7 @@ export class WorkUnitService extends WorkUnitCrudService {
    * Get a WorkUnit by id. Returns null if not found.
    */
   async getById(id: string): Promise<WorkUnitData | null> {
-    const snapshots = await this.fileStore.getIndex();
-    const found = snapshots.find(s => s.id === id);
+    const found = (await this.fileStore.getIndex({ id }))[0];
     return found ? snapshotToData(found) : null;
   }
 
@@ -137,8 +136,7 @@ export class WorkUnitService extends WorkUnitCrudService {
    * @throws Error if transition is not allowed
    */
   async transitionStatus(id: string, newStatus: string): Promise<WorkUnitData> {
-    const snapshots = await this.fileStore.getIndex();
-    const current = snapshots.find(s => s.id === id);
+    const current = (await this.fileStore.getIndex({ id }))[0];
     if (!current) {
       throw new Error('WorkUnit not found');
     }
@@ -227,8 +225,7 @@ export class WorkUnitService extends WorkUnitCrudService {
    * （人工直推 done 抢跑评审链，迟到的评审结论无处落账的补票口），同不改状态、不触发合并。
    */
   async reviewPassed(id: string, attestation?: ReviewAttestationSource, options?: { defaultTaskAssigneeId?: string }): Promise<WorkUnitData> {
-    const snapshots = await this.fileStore.getIndex();
-    const current = snapshots.find(s => s.id === id);
+    const current = (await this.fileStore.getIndex({ id }))[0];
     if (!current) throw new Error('WorkUnit not found');
     if (current.status !== 'in_review') {
       // F6-b 豁免：done + human-confirm → 只补台账 l3
@@ -351,8 +348,7 @@ export class WorkUnitService extends WorkUnitCrudService {
     source: 'override' | 'convention';
     failure?: { command: string; tail: string };
   }): Promise<WorkUnitData> {
-    const snapshots = await this.fileStore.getIndex();
-    const current = snapshots.find(s => s.id === id);
+    const current = (await this.fileStore.getIndex({ id }))[0];
     if (!current) throw new Error('WorkUnit not found');
 
     const now = new Date().toISOString();
@@ -380,8 +376,7 @@ export class WorkUnitService extends WorkUnitCrudService {
     return snapshotToData(updated);
   }
   async markMergeConflict(id: string, conflictFiles: string[]): Promise<WorkUnitData> {
-    const snapshots = await this.fileStore.getIndex();
-    const current = snapshots.find(s => s.id === id);
+    const current = (await this.fileStore.getIndex({ id }))[0];
     if (!current) throw new Error('WorkUnit not found');
 
     const metadata: WorkUnitMetadata = parseWuMetadata(current.metadata);
@@ -426,8 +421,7 @@ export class WorkUnitService extends WorkUnitCrudService {
    * 终态（done/closed）WU 不动——工作已收口，无可释放（terminate 与完成的竞态防护）。
    */
   async blockForManualRelease(id: string, reason: string): Promise<WorkUnitData> {
-    const snapshots = await this.fileStore.getIndex();
-    const current = snapshots.find(s => s.id === id);
+    const current = (await this.fileStore.getIndex({ id }))[0];
     if (!current) throw new Error('WorkUnit not found');
 
     if (current.status === 'done' || current.status === 'closed') {
@@ -475,8 +469,7 @@ export class WorkUnitService extends WorkUnitCrudService {
    * F6（决策 1）：attestation 入参带来源时写台账（verdict=rejected 留痕；返工后重审 approved 覆盖）。
    */
   async reviewRejected(id: string, reason?: string, attestation?: ReviewAttestationSource): Promise<WorkUnitData> {
-    const snapshots = await this.fileStore.getIndex();
-    const current = snapshots.find(s => s.id === id);
+    const current = (await this.fileStore.getIndex({ id }))[0];
     if (!current) throw new Error('WorkUnit not found');
     if (current.status !== 'in_review') {
       throw new Error(`Cannot review: current status is ${current.status}, expected in_review`);

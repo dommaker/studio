@@ -286,8 +286,7 @@ export class FileStoreWorkUnitBase extends FileStoreBase {
     expectedClaimedAt: string,
     timeoutAt: Date,
   ): Promise<'ok' | 'lost' | 'missing'> {
-    const snapshots = await this.getIndex();
-    const current = snapshots.find(s => s.id === wuId);
+    const current = (await this.getIndex({ id: wuId }))[0];
     if (!current) return 'missing';
     if (current.assigneeId !== expectedAssigneeId || current.claimedAt !== expectedClaimedAt) {
       this.pendingLeaseRefreshes.delete(wuId); // 令牌已失效，清掉残留 dirty 项
@@ -491,6 +490,7 @@ function parseMetadataTolerant(metadata: string | null): Record<string, unknown>
 export function applyFilter(snapshots: WorkUnitSnapshot[], filter?: WorkUnitFilter): WorkUnitSnapshot[] {
   if (!filter) return snapshots;
   return snapshots.filter(s => {
+    if (filter.id && s.id !== filter.id) return false;
     if (filter.status && s.status !== filter.status) return false;
     if (filter.type && s.type !== filter.type) return false;
     if (filter.assigneeId && s.assigneeId !== filter.assigneeId) return false;
