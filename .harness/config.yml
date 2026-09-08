@@ -1,0 +1,3 @@
+preset: standard
+harness:
+  version: 1.5.0
