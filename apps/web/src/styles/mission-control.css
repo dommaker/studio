@@ -208,6 +208,24 @@
   color: var(--text-muted);
   font-size: var(--fs-sm);
 }
+/* 视觉批次 2 ⑥：空态示例提示 chip——低调（虚线边框 + muted 色），不喧宾夺主 */
+.mc-empty-examples {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: var(--space-3);
+}
+.mc-empty-chip {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px dashed var(--border-subtle);
+  border-radius: 999px;
+  padding: var(--space-1) var(--space-3);
+  cursor: pointer;
+}
+.mc-empty-chip:hover { color: var(--accent-primary); border-color: var(--accent-primary); }
 .mc-loadmore {
   display: block;
   margin: 0 0 10px; /* #394：中栏左对齐，不再居中 */
@@ -216,27 +234,30 @@
 }
 .mc-loadmore:hover { text-decoration: underline; }
 
-/* #289 「回到底部」浮钮：sticky 贴滚动视口底部，零高度包装不占流内空间 */
+/* #289 「回到底部」浮钮：sticky 贴滚动视口底部，零高度包装不占流内空间；
+   视觉批次 2 ④：改贴右下角（右对齐 + 缩小 + 半透明），不再居中压消息文字；显隐逻辑不动 */
 .mc-jump-wrap {
   position: sticky;
   bottom: 12px;
   height: 0;
   display: flex;
-  justify-content: center;
+  justify-content: flex-end;
   align-items: flex-start; /* 防 flex stretch 把按钮压成 0 高 */
+  padding-right: var(--space-3);
   z-index: 5;
 }
 .mc-jump-bottom {
-  padding: 6px 14px;
+  padding: 4px 10px;
   border-radius: 999px;
   background: var(--bg-elevated);
   border: 1px solid var(--border-subtle);
-  color: var(--text-primary);
-  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+  font-size: var(--fs-xs);
+  opacity: 0.75;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
   cursor: pointer;
 }
-.mc-jump-bottom:hover { border-color: var(--accent-primary); }
+.mc-jump-bottom:hover { border-color: var(--accent-primary); color: var(--text-primary); opacity: 1; }
 
 .mc-date {
   display: flex;

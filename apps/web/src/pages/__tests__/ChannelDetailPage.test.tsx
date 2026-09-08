@@ -1333,3 +1333,54 @@ describe('ChannelDetailPage — #445 认领动作片', () => {
     expect(suggestionsCalls()).toBe(1); // 未成功不重拉
   });
 });
+
+// 频道页视觉优化批次 2 ⑥（docs/plans/2026-09-channel-visual-polish.md）：
+// 空频道态在两行引导文案下给 2-3 个低调示例提示 chip，点击走既有 prefill 通道
+// （与 #446 prompt 建议片同一 setInputPrefill 机制）填入输入框，不自动发送
+describe('ChannelDetailPage — 空频道态示例提示 chip（视觉批次 2 ⑥）', () => {
+  const CHANNEL = { data: { data: { id: 'ch-1', name: 'rnd-主研发', type: 'rnd', members: '[]' } } };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    window.localStorage.clear();
+    currentMessages = []; // 空频道
+    currentHasMore = false;
+    sseHandlers = [];
+    useNotificationStore.setState({ notifications: [] });
+    mockApiGet.mockImplementation((url: string) => Promise.resolve(
+      String(url).endsWith('/suggestions') ? { data: { data: { currentWuId: null, suggestions: [] } } } : CHANNEL,
+    ));
+    mockListWorkunits.mockImplementation((params?: { status?: string }) => Promise.resolve(
+      params?.status === 'active' ? activeWuList([]) : { data: { data: [] } },
+    ));
+    mockOnEvent.mockImplementation((cb: SseHandler) => { sseHandlers.push(cb); return () => {}; });
+    mockOnReconnect.mockImplementation((cb: () => void) => { reconnectHandlers.push(cb); return () => {}; });
+    reconnectHandlers = [];
+    mockListReqs.mockResolvedValue({ data: { data: [] } });
+    mockSendMessage.mockResolvedValue({});
+  });
+
+  it('空频道 → 两行引导文案 + 2-3 个可点示例 chip', async () => {
+    renderPage();
+    await screen.findByText('发送消息开始对话');
+    const chips = document.querySelectorAll('.mc-empty-chip');
+    expect(chips.length).toBeGreaterThanOrEqual(2);
+    expect(chips.length).toBeLessThanOrEqual(3);
+  });
+
+  it('点击示例 chip → prefill 填入输入框（nonce 递增），不自动发送', async () => {
+    renderPage();
+    const chip = (await screen.findByText('发送消息开始对话'))
+      .closest('.mc-stream-empty')!.querySelector<HTMLButtonElement>('.mc-empty-chip')!;
+    fireEvent.click(chip);
+    const input = screen.getByTestId('channel-input');
+    expect(input.getAttribute('data-prefill')).toBe(chip.textContent);
+    expect(Number(input.getAttribute('data-prefill-nonce'))).toBeGreaterThan(0);
+    expect(mockSendMessage).not.toHaveBeenCalled();
+    // 再点一次另一 chip → nonce 继续递增（同 nonce 不覆盖用户编辑的契约靠 nonce 保证）
+    const chips = document.querySelectorAll<HTMLButtonElement>('.mc-empty-chip');
+    const before = Number(input.getAttribute('data-prefill-nonce'));
+    fireEvent.click(chips[chips.length - 1]);
+    expect(Number(screen.getByTestId('channel-input').getAttribute('data-prefill-nonce'))).toBe(before + 1);
+  });
+});

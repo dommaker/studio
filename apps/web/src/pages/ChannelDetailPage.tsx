@@ -46,6 +46,14 @@ const GATE_WU_TYPES = new Set(['decision', 'spec']);
 /** #439：?highlight 定位的翻页页数上限（50 条/页 → 最多回看 500 条），超限/翻到底降级为可见反馈 */
 const HIGHLIGHT_LOCATE_MAX_PAGES = 10;
 
+/** 视觉批次 2 ⑥：空频道态示例提示——点击走既有 prefill 通道填入输入框（不自动发送）。
+ *  文案按产品 agent 命名风格（pm-agent / dev-agent / reviewer-agent），仅作起点提示，用户可改 */
+const EMPTY_EXAMPLE_PROMPTS = [
+  '@pm-agent 帮我拆解需求：',
+  '@dev-agent 修复问题：',
+  '@reviewer-agent 评审这段改动：',
+];
+
 /** #444：动作片执行错误文案——优先服务端 error 信封 message（409 拒绝原因对人可读） */
 function suggestionActionErrorMessage(e: unknown): string {
   if (axios.isAxiosError(e)) {
@@ -830,6 +838,20 @@ export function ChannelDetailPage() {
               <div className="mc-stream-empty">
                 <p>发送消息开始对话</p>
                 <p>@Agent 提及 Agent 创建任务</p>
+                {/* 视觉批次 2 ⑥：示例提示 chip——点击经既有 prefill 通道填入输入框（不自动发送），
+                    空态仅此一处渲染点（虚拟化/非虚拟化共用同一 .mc-stream 头块） */}
+                <div className="mc-empty-examples">
+                  {EMPTY_EXAMPLE_PROMPTS.map(text => (
+                    <button
+                      key={text}
+                      type="button"
+                      className="mc-empty-chip"
+                      onClick={() => setInputPrefill(p => ({ text, nonce: (p?.nonce ?? 0) + 1 }))}
+                    >
+                      {text}
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
 
