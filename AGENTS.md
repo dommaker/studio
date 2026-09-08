@@ -34,7 +34,7 @@ pnpm start  # 启动生产服务
 
 ## 约束与治理
 
-- 治理配置：`.harness/config.yml`（preset: standard）
+- 未检测到 harness 治理配置，可运行 `harness init` 初始化
 
 ## 知识入口
 
