@@ -622,12 +622,61 @@
 /* 底部输入条 */
 .mc-inputbar { border-top: 1px solid var(--border-subtle); padding: var(--space-3) var(--space-6); background: var(--bg-secondary); position: relative; } /* #394（spec §4.1）：padding 32px */
 
-/* #440 Phase 2：频道当前 WU 阶段条（复用 wu-detail.css 的 wu-stepper-bar 类，这里只给定位容器） */
-.mc-stagebar {
+/* 频道工作条 ChannelWorkBar（合并原 .mc-stagebar 阶段条与 .mc-livebars live 实况条，
+   docs/plans/2026-09-channel-workbar.md）：stepper 复用 wu-detail.css 的 wu-stepper-bar 类，这里只给定位容器 */
+.mc-workbar {
   padding: var(--space-2) var(--space-6);
   border-bottom: 1px solid var(--border-subtle);
   background: var(--bg-secondary);
 }
+.mc-workbar-main { display: flex; align-items: center; gap: 12px; }
+.mc-workbar-stepper { flex: 1; min-width: 0; }
+.mc-workbar-selflive,
+.mc-workbar-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+.mc-workbar-selflive:hover,
+.mc-workbar-chip:hover { border-color: var(--accent-primary); }
+.mc-workbar-overflow { position: relative; }
+.mc-workbar-overflow-list {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 240px;
+  padding: 4px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+}
+.mc-workbar-livelist { display: flex; flex-direction: column; gap: 4px; }
+.mc-workbar-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 8px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+  text-align: left;
+}
+.mc-workbar-item:hover { border-color: var(--accent-primary); }
 
 /* #440：建议 prompt 片（输入框上方；mono 小卡 + dismiss） */
 .mc-suggest {
@@ -886,24 +935,6 @@
 .mc-chain-node-top { display: flex; align-items: center; gap: 8px; font-size: var(--fs-sm); }
 .mc-chain-node-title { color: var(--text-secondary); font-size: var(--fs-sm); margin-top: 2px; }
 .mc-chain-arrow { text-align: center; color: var(--text-muted); font-size: var(--fs-xs); margin-bottom: 8px; }
-
-/* ---------- #242 频道 live 执行状态条（#394：随弹性中栏吃满，原 760/1000 同宽约束取消） ---------- */
-.mc-livebars { padding: 6px var(--space-6) 0; }
-.mc-livebars-inner { display: flex; flex-direction: column; gap: 4px; }
-.mc-livebar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  padding: 5px 8px;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-subtle);
-  border-radius: 4px;
-  font-size: var(--fs-sm);
-  color: var(--text-secondary);
-  text-align: left;
-}
-.mc-livebar:hover { border-color: var(--accent-primary); }
 
 /* ---------- #240 ExecutionSteps 升级：执行级状态条 + 折叠工具行 + thinking 独立行 ---------- */
 /* 执行级状态条：常驻整个 execution，步切换只更新文案不闪烁 */

@@ -9,12 +9,11 @@ import { useActivityMessageItems } from '../hooks/useActivityMessageItems';
 import { useChannelCardActions } from '../hooks/useChannelCardActions';
 import { useWebSocketContext } from '../api/websocketHooks';
 import { ChannelMessageItem } from '../components/channel/ChannelMessageItem';
-import { ChannelLiveBars } from '../components/channel/ChannelLiveBars';
+import { ChannelWorkBar } from '../components/channel/ChannelWorkBar';
 import { deriveStreamView, type StreamItem } from '../utils/streamView';
 import { buildMessageToItemIndex } from '../utils/streamVirtual';
 import { ChannelInput } from '../components/channel/ChannelInput';
 import { SuggestionChips, type SuggestionChipItem } from '../components/channel/SuggestionChips';
-import { ChannelStageBar } from '../components/channel/ChannelStageBar';
 import { ChannelMemberManager } from '../components/channel/ChannelMemberManager';
 import { ChannelDefaultProjectSelect } from '../components/channel/ChannelDefaultProjectSelect';
 import { ChannelCurrentPmoChip } from '../components/channel/ChannelCurrentPmoChip';
@@ -140,7 +139,7 @@ export function ChannelDetailPage() {
   const lgUp = useMediaQuery('(min-width: 1024px)', true);
   const [actRailOpen, setActRailOpen] = useState(false);
   // #242 live 执行状态条：#322 下沉至 ChannelLiveBars 自持有 useChannelLiveExecutions，
-  // step 事件不再触发本页整树重渲（见渲染段 <ChannelLiveBars>）
+  // step 事件不再触发本页整树重渲；2026-09 并入 ChannelWorkBar（见渲染段 <ChannelWorkBar>）
 
   useEffect(() => {
     if (!id) return;
@@ -802,13 +801,11 @@ export function ChannelDetailPage() {
           </div>
         </div>
 
-        {/* #242: live 执行状态条——有 WU 执行中时显示，点击打开对应 WU 抽屉（过程明细仍在抽屉）；
-            #322：hook 下沉 ChannelLiveBars 自持有，step 事件只重渲该组件边界 */}
-        <ChannelLiveBars channelId={id} onOpenWorkUnit={openWu} />
-
-        {/* #440 Phase 2：频道当前 WU 阶段条（与 WU 详情页同一 deriveDisplayState 口径；无 WU 不占位）。
-            #447：currentWu = 建议端点 currentWuId × channelWus（拣选口径单源在后端） */}
-        <ChannelStageBar wu={currentWu} />
+        {/* 频道工作条（合并 #242/#322 live 实况条 + #440/#447 阶段条，docs/plans/2026-09-channel-workbar.md）：
+            一条横带回答「这个频道的工作现在什么状态」；hook 自持有，step 事件只重渲该组件边界；
+            currentWu = 建议端点 currentWuId × channelWus（拣选口径单源在后端，未命中 fail-closed 主区不渲染）；
+            点击条目打开对应 WU 抽屉（过程明细仍在抽屉） */}
+        <ChannelWorkBar channelId={id} currentWu={currentWu} onOpenWorkUnit={openWu} />
 
         {/* Message list
             #325：头部块（空态/加载更早/折叠 toggle）与虚拟列表 spacer 分离——

@@ -1,6 +1,6 @@
 # CAPABILITIES.md
 
-> 最后更新: 2026-09-02
+> 最后更新: 2026-09-08
 
 ---
 
@@ -187,7 +187,7 @@
 | ProjectCandidatesSection | apps/web/src/components/settings/ProjectCandidatesSection.tsx | 工程候选管理 section（#266，决策 #258）：归属问答候选集排除清单管理。 |
 | notification-service.test | packages/studio-notification/src/services/notification-service.test.ts | NotificationService tests — #274 写路径归属校验 |
 | AssigneeLabel | apps/web/src/components/workunit/AssigneeLabel.tsx | 负责人展示标签（#290 清单 #24）——解析到角色名则渲染 @名字 并链到 /agents/:roleId； |
-| ChannelLiveBars | apps/web/src/components/channel/ChannelLiveBars.tsx | 频道 live 执行状态条（#242；#322 live 执行状态下沉）：useChannelLiveExecutions 由本组件 |
+
 | service | apps/api/src/modules/auth/service.ts | 认证服务 - Auth Service |
 | card | apps/api/src/modules/review-proposal/card.ts | review-proposal/card (#351) — 人审提案卡投放 #系统 频道（唯一正本） |
 | registry | apps/api/src/modules/review-proposal/registry.ts | review-proposal/registry (#351) — 人审提案卡 adapter 注册表（kind → adapter） |
@@ -213,8 +213,9 @@
 | TreeTokenChart | apps/web/src/components/workunit/TreeTokenChart.tsx | TreeTokenChart — #396 WU 详情页 Token 开销图表化（spec §5.4，零图表库手搓） |
 | ChannelHomeRedirect | apps/web/src/pages/ChannelHomeRedirect.tsx | #393 频道首页重定向 — `/` 与 `/channels` 唯一入口（频道列表页已删除，spec §2） |
 | AgentAvatar | apps/web/src/components/channel/AgentAvatar.tsx | AgentAvatar — #440 Phase 4：per-agent identicon 式确定性头像。 |
-| ChannelStageBar | apps/web/src/components/channel/ChannelStageBar.tsx | ChannelStageBar — #440 Phase 2：频道详情页顶部的工单阶段条。 |
+
 | SuggestionChips | apps/web/src/components/channel/SuggestionChips.tsx | SuggestionChips — #440 Phase 1：频道输入框上方的建议片； |
 | UnifiedEntryContent | apps/web/src/components/knowledge/UnifiedEntryContent.tsx | #435 B7：统一视图条目内容消化呈现——JSON 结构化键值列表；文本超 200 字符截断 + 展开/收起， |
 | MetaStrip | apps/web/src/components/ui/MetaStrip.tsx | MetaStrip — #440 Phase 3：详情页标题下密排元信息条。 |
+| ChannelWorkBar | apps/web/src/components/channel/ChannelWorkBar.tsx | ChannelWorkBar — 频道工作条：合并 ChannelLiveBars（#242/#322 live 实况）与 |
 | mockMatchMedia | apps/web/src/test/mockMatchMedia.ts | #395：jsdom 无 window.matchMedia 实现——按给定视口宽度求值 (min|max)-width 媒体查询， |
