@@ -1,5 +1,5 @@
 // ChannelDetailPage — Mission Control 三栏 smoke test
-// 覆盖：三栏渲染 / REQ chip 开抽屉 / WU 链接开抽屉 / 已完成折叠 / NEED_INPUT 内嵌回复链路 / 线程展开
+// 覆盖：三栏渲染 / REQ chip 开抽屉 / WU 链接开抽屉 / 已完成折叠 / NEED_INPUT 内嵌回复链路 / 线程默认展开与收起持久化
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
@@ -209,6 +209,8 @@ const renderPage = (entry = '/channels/ch-1') =>
 describe('ChannelDetailPage — Mission Control 三栏', () => {
   beforeEach(async () => {
     vi.clearAllMocks();
+    // 折叠状态按频道持久化（Step 3）——防跨用例 localStorage 泄漏
+    window.localStorage.clear();
     currentMessages = MESSAGES;
     currentHasMore = false;
     // toast.dismiss() 是 200ms 动画后异步移除——有残留时等其落定，防跨用例 toast 文本污染断言
@@ -419,9 +421,8 @@ describe('ChannelDetailPage — Mission Control 三栏', () => {
     ];
     renderPage();
     await waitFor(() => expect(screen.getByText('需求已收到，开始分析')).toBeTruthy());
-    fireEvent.click(screen.getByText('▸ 5 条回复'));
 
-    // 3 条连续过程消息收成一组；卡片回复（非末位）是里程碑，直接可见
+    // 线程默认展开：3 条连续过程消息收成一组；卡片回复（非末位）是里程碑，直接可见
     expect(screen.getByText('▸ 3 条过程消息')).toBeTruthy();
     expect(screen.getByText('通过')).toBeTruthy();
     expect(screen.getByText('分析结论：拆成 3 个任务')).toBeTruthy();
@@ -438,22 +439,32 @@ describe('ChannelDetailPage — Mission Control 三栏', () => {
     });
   });
 
-  it('thread replies hidden by default and expand on toggle', async () => {
+  it('thread replies visible by default; toggle collapses and persists across remount', async () => {
+    const first = renderPage();
+    await waitFor(() => expect(screen.getByText('检索到 3 条相关知识')).toBeTruthy());
+    // 折叠层级 4→2：线程默认展开，普通回复直接可见
+    expect(screen.getByText('补充：SDD-012 强相关')).toBeTruthy();
+
+    // 手动收起
+    fireEvent.click(screen.getByText('▾ 收起回复'));
+    expect(screen.queryByText('补充：SDD-012 强相关')).toBeNull();
+    expect(screen.getByText('▸ 1 条回复')).toBeTruthy();
+
+    // 收起状态按频道持久化，重进频道恢复
+    first.unmount();
     renderPage();
     await waitFor(() => expect(screen.getByText('检索到 3 条相关知识')).toBeTruthy());
     expect(screen.queryByText('补充：SDD-012 强相关')).toBeNull();
-    fireEvent.click(screen.getByText('▸ 1 条回复'));
-    expect(screen.getByText('补充：SDD-012 强相关')).toBeTruthy();
+    expect(screen.getByText('▸ 1 条回复')).toBeTruthy();
   });
 
   it('collapses ≥3 consecutive process replies inside a thread; milestones stay visible', async () => {
     currentMessages = PROCESS_MESSAGES;
     renderPage();
-    // 展开线程
+    // 线程默认展开（无需再点「N 条回复」）
     await waitFor(() => expect(screen.getByText('需求已收到，开始分析')).toBeTruthy());
-    fireEvent.click(screen.getByText('▸ 5 条回复'));
 
-    // 4 条连续过程消息收成一组（默认折叠）；最后一条（最新状态）直接可见
+    // 4 条连续过程消息收成一组（保持一层折叠，默认收拢）；最后一条（最新状态）直接可见
     expect(screen.getByText('分析结论：拆成 3 个任务')).toBeTruthy();
     expect(screen.queryByText('过程步骤 3')).toBeNull();
     const toggle = screen.getByText('▸ 4 条过程消息');

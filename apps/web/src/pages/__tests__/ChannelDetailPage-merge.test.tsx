@@ -73,6 +73,8 @@ const hasHead = (container: HTMLElement, id: string) =>
 describe('ChannelDetailPage — 连续消息合并（#277 D2）', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // 折叠状态按频道持久化（Step 3）——防跨用例 localStorage 泄漏
+    window.localStorage.clear();
     currentMessages = [];
     mockApiGet.mockResolvedValue({ data: { data: { id: 'ch-1', name: 'rnd', type: 'rnd', members: '[]' } } });
     mockListWorkunits.mockResolvedValue({ data: { data: [] } });
@@ -157,8 +159,7 @@ describe('ChannelDetailPage — 连续消息合并（#277 D2）', () => {
       msg('f3', { workUnitId: 'WU-9', replyToId: 'f1', createdAt: iso(2) }),
     ];
     const { container } = renderPage();
-    await waitFor(() => expect(screen.getByText('内容-f1')).toBeTruthy());
-    fireEvent.click(screen.getByText('▸ 2 条回复'));
+    // 线程默认展开（折叠层级 4→2）：回复直接可见
     await waitFor(() => expect(screen.getByText('内容-f3')).toBeTruthy());
     expect(hasHead(container, 'f2')).toBe(true); // 线程首条回复不并入主流锚点
     expect(hasHead(container, 'f3')).toBe(false);
@@ -171,8 +172,7 @@ describe('ChannelDetailPage — 连续消息合并（#277 D2）', () => {
       msg('g6', { workUnitId: 'WU-8', replyToId: 'g1', createdAt: iso(5) }), // 末条里程碑
     ];
     const { container } = renderPage();
-    await waitFor(() => expect(screen.getByText('内容-g1')).toBeTruthy());
-    fireEvent.click(screen.getByText('▸ 5 条回复'));
+    // 线程默认展开：过程组保持一层折叠（默认收拢）
     await waitFor(() => expect(screen.getByText('▸ 4 条过程消息')).toBeTruthy());
     fireEvent.click(screen.getByText('▸ 4 条过程消息'));
     await waitFor(() => expect(screen.getByText('内容-g3')).toBeTruthy());
