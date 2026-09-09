@@ -1,6 +1,6 @@
 // App.tsx - Agent Studio - 路由重构
 import { useState, useEffect, useRef, lazy, Suspense } from 'react';
-import { Routes, Route, useLocation, useParams, Navigate } from 'react-router-dom';
+import { Routes, Route, useLocation, useNavigate, useParams, Navigate } from 'react-router-dom';
 const ChannelHomeRedirect = lazy(() => import('./pages/ChannelHomeRedirect').then(m => ({ default: m.ChannelHomeRedirect })));
 const TriageBanner = lazy(() => import('./components/TriageBanner').then(m => ({ default: m.TriageBanner })));
 
@@ -41,6 +41,7 @@ import { useRosterStore } from './stores/rosterStore';
 import { useRequirementChainStoreSync } from './hooks/useRequirementChainStoreSync';
 import { StudioRoleSetupModal } from './components/setup/StudioRoleSetupModal';
 import { FirstRoleSetupModal } from './components/setup/FirstRoleSetupModal';
+import { joinDefaultChannel } from './components/setup/joinChannel';
 import { isStudioRoleSetupDismissed, isFirstRoleSetupDismissed } from './components/setup/dismissed';
 import './styles/theme.css';
 
@@ -59,6 +60,7 @@ function LegacyProjectRedirect() {
 
 export default function App() {
   const location = useLocation();
+  const navigate = useNavigate();
   const isGuest = useAuthStore((s) => s.isGuest());
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated());
 
@@ -172,12 +174,22 @@ export default function App() {
           } catch { /* best-effort */ }
         }}
       />
-      {/* AC-2.3: 无用户角色弹框 */}
+      {/* AC-2.3: 无用户角色弹框；#465：创建成功后续接「一键加入 #研发」引导（不跳转断点在此补上） */}
       <FirstRoleSetupModal
         open={firstRoleSetupOpen}
         onClose={() => setFirstRoleSetupOpen(false)}
         onCreate={async (data) => {
-          try { await channelApi.createAgent(data); } catch { /* best-effort */ }
+          try {
+            const res = await channelApi.createAgent(data);
+            // 刷 roster 切片让新角色即时可见（同 StudioRoleSetupModal 保存后强刷先例）
+            await useRosterStore.getState().ensureFresh({ maxAgeMs: 0 }).catch(() => {});
+            return { id: res.data.id, name: res.data.name };
+          } catch { return null; /* best-effort：创建失败静默关窗（原语义） */ }
+        }}
+        onJoinChannel={async (agentId) => {
+          const channelId = await joinDefaultChannel(agentId);
+          if (channelId) navigate(`/channels/${channelId}`);
+          return channelId !== null;
         }}
       />
 

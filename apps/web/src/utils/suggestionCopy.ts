@@ -43,6 +43,12 @@ const TEMPLATES: Record<string, CopyTemplate> = {
     label: `可选：转写审查清单：《${p.wuTitle}》`,
     hint: '自动审查开始前，可以先让审查员把验收标准转写成审查清单；点击会把这句话预填到输入框，可修改后再发送',
   }),
+  // #465：首用引导——空转频道（无当前工单）且无成员时的只读提示（status 形态）；
+  // 引导去顶栏 ⋯ 菜单加成员（与 ChannelMemberManager 入口口径一致）
+  'channel-no-members': () => ({
+    label: '本频道还没有成员',
+    hint: '角色加入频道后才能在这里接收任务；点顶栏 ⋯ 菜单里的「成员」添加',
+  }),
 };
 
 /** 渲染建议文案；未知模板 → null（调用方跳过该片） */

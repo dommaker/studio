@@ -96,6 +96,7 @@ describe('renderSuggestionCopy（文案模板机制）', () => {
       { id: 'claim-wu', kind: 'action', params: { wuId: 'WU-1', wuTitle: '登录功能' } },
       { id: 'diagnose-blocked', kind: 'prompt', params: { wuId: 'WU-1', wuTitle: '登录功能', blockReason: '自动验证未通过（3 个用例）' } },
       { id: 'transcribe-review-checklist', kind: 'prompt', params: { wuId: 'WU-1', wuTitle: '登录功能' } },
+      { id: 'channel-no-members', kind: 'status', params: {} },
     ];
     for (const s of samples) {
       const copy = renderSuggestionCopy(s);
@@ -103,6 +104,14 @@ describe('renderSuggestionCopy（文案模板机制）', () => {
       expect(copy!.label).not.toMatch(JARGON);
       if (copy!.hint) expect(copy!.hint).not.toMatch(JARGON);
     }
+  });
+
+  // #465：首用引导——空频道无成员只读提示（status 形态，无点击语义）；引导去 ⋯ 菜单加成员
+  it('channel-no-members：快照锁定 + hint 指到成员管理入口', () => {
+    const copy = renderSuggestionCopy({ id: 'channel-no-members', kind: 'status', params: {} });
+    expect(copy).not.toBeNull();
+    expect(copy!.hint).toContain('成员');
+    expect(copy).toMatchSnapshot();
   });
 
   it('未知模板 id → null（fail-closed：后端给了前端不认识的建议，不渲染也不编造）', () => {

@@ -143,11 +143,19 @@ export async function deriveChannelSuggestions(
 
     const channelWus = (await fileStore.getIndex()).filter(s => s.channelId === channelId);
     const current = pickCurrentWuSnapshot(channelWus);
-    if (!current) return EMPTY;
+    const memberIds = parseChannels(channel.members);
+    if (!current) {
+      // #465（首用路径断点）：空转频道（无当前工单）且成员为空 → 出只读提示片。
+      // 新装三默认频道正是此态——角色不进频道等于不存在（mention 以 members 为界、
+      // loop 认领同口径）。有工单在跑的频道由既有引导片覆盖，不叠加本片。
+      if (memberIds.length === 0) {
+        return { currentWuId: null, suggestions: [{ id: 'channel-no-members', kind: 'status', params: {} }] };
+      }
+      return EMPTY;
+    }
 
     const meta = parseWuMetadata(current.metadata);
     const wuTitle = meta.title ?? current.scope ?? current.id;
-    const memberIds = parseChannels(channel.members);
 
     // #445（spec #441 动作形态第二种）：当前工单 unassigned → 「认领」动作片，
     // 点击经确认直调 claim 端点（认领即发声原语，与 loop 自动认领同一路径）。

@@ -7,6 +7,13 @@ exports[`renderSuggestionCopy（文案模板机制） > auto-review-in-flight：
 }
 `;
 
+exports[`renderSuggestionCopy（文案模板机制） > channel-no-members：快照锁定 + hint 指到成员管理入口 1`] = `
+{
+  "hint": "角色加入频道后才能在这里接收任务；点顶栏 ⋯ 菜单里的「成员」添加",
+  "label": "本频道还没有成员",
+}
+`;
+
 exports[`renderSuggestionCopy（文案模板机制） > claim-wu：快照锁定 + 带工单上下文 + hint 说清点击后果 1`] = `
 {
   "hint": "这张工单一直没有人接手；点击确认后会把它认领给你，并在频道里发一条认领说明",
