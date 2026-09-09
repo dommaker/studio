@@ -37,10 +37,15 @@ describe('ChannelWorkBar — 频道工作条', () => {
     expect(mockUseChannelLiveExecutions).toHaveBeenCalledWith('ch-1');
   });
 
-  it('无 currentWu 且无 active WU → 不渲染', () => {
+  it('无 currentWu 且无 active WU → 留「状态同步中」占位（#474：不再整条静默消失）', () => {
     mockUseChannelLiveExecutions.mockReturnValue([]);
     const { container } = render(<ChannelWorkBar channelId="ch-1" currentWu={null} onOpenWorkUnit={() => {}} />);
-    expect(container.firstChild).toBeNull();
+    expect(container.firstChild).not.toBeNull();
+    expect(screen.getByLabelText('频道工作条')).toBeTruthy();
+    expect(screen.getByText('状态同步中…')).toBeTruthy();
+    // 占位语义：无 stepper、无 live 列表
+    expect(stationEls(container)).toHaveLength(0);
+    expect(container.querySelector('.mc-workbar-livelist')).toBeNull();
   });
 
   it('无 currentWu 有 active → 仅 live 列表（WU 短 id + 步号 + action）；点击开抽屉', () => {

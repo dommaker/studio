@@ -1,7 +1,8 @@
 // ChannelWorkBar — 频道工作条：合并 ChannelLiveBars（#242/#322 live 实况）与
 // ChannelStageBar（#440/#447 阶段条）为频道顶部单一工作条（docs/plans/2026-09-channel-workbar.md）。
 // 渲染规则：
-//   - 无 currentWu 且无 active WU → 不渲染（沿用两条旧带的零占位语义）
+//   - 无 currentWu 且无 active WU → #474：留「状态同步中…」占位（原整条静默消失，用户无法区分
+//     「真的没事」与「状态还没拉到」）
 //   - 无 currentWu（含 currentWuId 未命中 channelWus）→ fail-closed：主区不渲染，仅 live 列表
 //   - 有 currentWu 无 active → 仅 stepper 主区
 //   - 自身 active → 当前站旁叠加「第 N 步 · 动作」（点击开自身抽屉）
@@ -49,7 +50,14 @@ function LiveItem({ exec, onOpenWorkUnit }: { exec: LiveExecution; onOpenWorkUni
 export function ChannelWorkBar({ channelId, currentWu, onOpenWorkUnit }: Props) {
   const liveExecs = useChannelLiveExecutions(channelId);
   const [overflowOpen, setOverflowOpen] = useState(false);
-  if (!currentWu && liveExecs.length === 0) return null;
+  // #474：未命中时不再整条静默消失——留「状态同步中…」占位条
+  if (!currentWu && liveExecs.length === 0) {
+    return (
+      <div className="mc-workbar" aria-label="频道工作条">
+        <div className="mc-workbar-placeholder">状态同步中…</div>
+      </div>
+    );
+  }
 
   const selfLive = currentWu ? liveExecs.find(e => e.workUnitId === currentWu.id) : undefined;
   const others = currentWu ? liveExecs.filter(e => e.workUnitId !== currentWu.id) : liveExecs;

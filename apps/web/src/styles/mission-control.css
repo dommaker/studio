@@ -693,6 +693,8 @@
   background: var(--bg-secondary);
 }
 .mc-workbar-main { display: flex; align-items: center; gap: 12px; }
+/* #474：未命中占位（原整条 return null 静默消失，用户分不清「空闲」与「未拉到」） */
+.mc-workbar-placeholder { font-size: var(--fs-xs); color: var(--text-muted); }
 /* ① stepper 不再全宽撑满：紧凑左对齐 + 合理 max-width（wu-detail.css 全局类不动，WU 详情页不受影响） */
 .mc-workbar-stepper { flex: 0 1 auto; min-width: 0; max-width: 640px; }
 .mc-workbar .wu-stepper-bar { padding: 0; }
