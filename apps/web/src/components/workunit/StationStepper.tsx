@@ -2,21 +2,44 @@
 // 横向四站：连线贯穿 + 已完成 accent 实心 + 当前站描边高亮 + 时间戳在站名下方；
 // 关键事件 = stepper 下一行横排 chip（色点 + 文字 + mono 时间），无事件不占行。
 // 数据全部来自 utils/wuLifecycle 纯函数，本文件只做渲染。
+// E1（2026-09 页面重设计）：可选 onStationClick —— 传则站点渲染为可点按钮（频道工作条用它开 WU 抽屉，
+// 视觉由 .mc-workbar 作用域覆盖承载）；WU 详情页不传，保持纯展示（全局 stepper 形态不变）。
 import type { WuKeyEvent, WuStation } from '../../utils/wuLifecycle';
 import { formatShortTime } from '../../utils/datetime';
 
-export function StationStepper({ stations }: { stations: WuStation[] }) {
+interface StationStepperProps {
+  stations: WuStation[];
+  /** 可选：站点点击回调（传则站点可点；不传 = 纯展示定位条） */
+  onStationClick?: (station: WuStation) => void;
+}
+
+export function StationStepper({ stations, onStationClick }: StationStepperProps) {
   return (
     <div className="wu-stepper-bar">
       {stations.map((st, i) => (
         <div key={st.id} style={{ display: 'contents' }}>
-          <div className={`wu-bstep wu-st-${st.state}`}>
-            <div className="wu-bstep-head">
-              <span className="wu-st-dot" />
-              <span className="wu-st-label">{st.label}</span>
+          {onStationClick ? (
+            <button
+              type="button"
+              className={`wu-bstep wu-st-${st.state} wu-bstep-btn`}
+              onClick={() => onStationClick(st)}
+              title="打开工单详情"
+            >
+              <div className="wu-bstep-head">
+                <span className="wu-st-dot" />
+                <span className="wu-st-label">{st.label}</span>
+              </div>
+              <span className="wu-st-time">{formatShortTime(st.time)}</span>
+            </button>
+          ) : (
+            <div className={`wu-bstep wu-st-${st.state}`}>
+              <div className="wu-bstep-head">
+                <span className="wu-st-dot" />
+                <span className="wu-st-label">{st.label}</span>
+              </div>
+              <span className="wu-st-time">{formatShortTime(st.time)}</span>
             </div>
-            <span className="wu-st-time">{formatShortTime(st.time)}</span>
-          </div>
+          )}
           {i < stations.length - 1 && (
             <div className={`wu-bstep-line${stations[i].state === 'done' ? ' wu-bstep-line-reached' : ''}`} />
           )}

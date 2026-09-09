@@ -1,5 +1,6 @@
 /**
- * ChannelMessageItem tests — F5: NEED_INPUT 挂起「等待回复」badge
+ * ChannelMessageItem tests — F5: NEED_INPUT 挂起内嵌回复区
+ * （E1 2026-09 页面重设计：消息头「等待回复」badge 已删，流内信号 = 内嵌回复框/选项卡本体）
  * + 2026-07 §5.7: WU chip 开抽屉 / PMO chip 渲染与跳转（2026-09 视觉批次1：WU chip 旁 ↗ 直跳钮已删，chip 自承载开抽屉）
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -36,36 +37,38 @@ beforeEach(() => {
   mockNavigate.mockClear();
 });
 
-describe('ChannelMessageItem — F5 waiting badge', () => {
-  it('shows 等待回复 badge when waitingForInput', () => {
-    render(<ChannelMessageItem message={baseMessage} onAction={vi.fn()} waitingForInput />);
-    expect(screen.getByText('等待回复')).toBeInTheDocument();
-  });
-
-  it('does not show badge by default', () => {
-    render(<ChannelMessageItem message={baseMessage} onAction={vi.fn()} />);
+describe('ChannelMessageItem — F5 waiting 内嵌回复区', () => {
+  // E1：消息头「等待回复」badge 已删——内嵌回复框本身是流内信号与行动点，待办强信号唯一位 = 顶栏 chip
+  it('waitingForInput → 渲染内嵌回复框（流内信号本体），无消息头 badge', () => {
+    render(<ChannelMessageItem message={baseMessage} onAction={vi.fn()} waitingForInput onInlineReply={vi.fn()} />);
+    expect(screen.getByLabelText('回复 wu-1')).toBeInTheDocument();
     expect(screen.queryByText('等待回复')).not.toBeInTheDocument();
   });
 
-  // #279（走查 F4）+ #276（P2 #15）：回答后「已回复」与「等待回复」不得同屏并存；
+  it('非等待态不渲染内嵌回复框', () => {
+    render(<ChannelMessageItem message={baseMessage} onAction={vi.fn()} onInlineReply={vi.fn()} />);
+    expect(screen.queryByLabelText('回复 wu-1')).not.toBeInTheDocument();
+  });
+
+  // #279（走查 F4）+ #276（P2 #15）：回答后「已回复」与回复区不得同屏并存；
   // #276：needSent 不再点击即置位--仅在 onInlineReply await resolve 后置位，
   // 发送失败不发「已回复」假承诺；「已回复」文本去掉「WorkUnit 将继续执行」未来时承诺。
-  it('#276 发送成功 -> 显示已回复，badge 让位（互斥；不再点击即假承诺）', async () => {
+  it('#276 发送成功 -> 显示已回复，回复区收起（互斥；不再点击即假承诺）', async () => {
     let resolveReply: () => void = () => {};
     const onInlineReply = vi.fn().mockImplementation(
       () => new Promise<void>(resolve => { resolveReply = resolve; }),
     );
     render(<ChannelMessageItem message={baseMessage} onAction={vi.fn()} waitingForInput onInlineReply={onInlineReply} />);
-    expect(screen.getByText('等待回复')).toBeInTheDocument();
+    expect(screen.getByLabelText('回复 wu-1')).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('回复 wu-1'), { target: { value: '用 OAuth' } });
     fireEvent.click(screen.getByText('回复'));
     // 发送期间：button 显示「发送中…」、input 禁用
     await waitFor(() => expect(screen.getByText('发送中…')).toBeInTheDocument());
     expect((screen.getByLabelText('回复 wu-1') as HTMLInputElement).disabled).toBe(true);
-    // await resolve 后：needSent=true -> 已回复，badge 消失（互斥）
+    // await resolve 后：needSent=true -> 已回复，回复区收起（互斥）
     resolveReply();
     expect(await screen.findByText(/已回复/)).toBeInTheDocument();
-    expect(screen.queryByText('等待回复')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('回复 wu-1')).not.toBeInTheDocument();
   });
 
   // #276 AC1：发送失败 -> 不发假承诺「已回复」，表单恢复可用可重试
@@ -75,7 +78,7 @@ describe('ChannelMessageItem — F5 waiting badge', () => {
       () => new Promise<void>((_, reject) => { rejectReply = reject; }),
     );
     render(<ChannelMessageItem message={baseMessage} onAction={vi.fn()} waitingForInput onInlineReply={onInlineReply} />);
-    expect(screen.getByText('等待回复')).toBeInTheDocument();
+    expect(screen.getByLabelText('回复 wu-1')).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('回复 wu-1'), { target: { value: '用 OAuth' } });
     fireEvent.click(screen.getByText('回复'));
     // 发送中：button 显示「发送中…」、input 禁用
@@ -87,7 +90,7 @@ describe('ChannelMessageItem — F5 waiting badge', () => {
     await waitFor(() => expect(screen.getByText('回复')).toBeInTheDocument());
     expect((screen.getByLabelText('回复 wu-1') as HTMLInputElement).disabled).toBe(false);
     expect(screen.queryByText(/已回复/)).not.toBeInTheDocument();
-    expect(screen.getByText('等待回复')).toBeInTheDocument();
+    expect(screen.getByLabelText('回复 wu-1')).toBeInTheDocument();
   });
 
   // #276 AC1：文案不再含未来时假承诺「WorkUnit 将继续执行」
@@ -133,7 +136,6 @@ describe('ChannelMessageItem — F5 waiting badge', () => {
     expect(screen.queryByText(/已回复/)).not.toBeInTheDocument();
     // WU 再度挂起（无新提问，仍落本条）-> 回到等待回复态，表单可再次使用
     rerender(<ChannelMessageItem message={baseMessage} onAction={vi.fn()} waitingForInput onInlineReply={onInlineReply} />);
-    expect(screen.getByText('等待回复')).toBeInTheDocument();
     expect(screen.getByLabelText('回复 wu-1')).toBeInTheDocument();
     expect(screen.queryByText(/已回复/)).not.toBeInTheDocument();
   });

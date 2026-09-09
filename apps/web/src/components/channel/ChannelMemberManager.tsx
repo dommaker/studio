@@ -15,9 +15,11 @@ import { serverErrorMessage } from '../../utils/errorMessage';
 
 interface ChannelMemberManagerProps {
   channelId: string;
+  /** E1：顶栏 ⋯ 菜单收纳时传入菜单行类（默认 mc-btn 顶栏钮形态不变） */
+  triggerClassName?: string;
 }
 
-export const ChannelMemberManager: React.FC<ChannelMemberManagerProps> = ({ channelId }) => {
+export const ChannelMemberManager: React.FC<ChannelMemberManagerProps> = ({ channelId, triggerClassName }) => {
   // 缺键 = 未拉到（页面水合或 store 兜底拉取到位前短暂为空，对齐旧 membersJson 异步到达语义）
   const memberIds = useChannelDataStore((s) => s.members[channelId]);
   const profiles = useRosterStore((s) => s.profiles);
@@ -141,7 +143,7 @@ export const ChannelMemberManager: React.FC<ChannelMemberManagerProps> = ({ chan
     <div style={{ position: 'relative' }} ref={panelRef}>
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="mc-btn"
+        className={triggerClassName ?? 'mc-btn'}
         title="Channel 成员管理"
       >
         成员 <span>{memberCount > 0 ? `${memberCount} agents` : 'All'}</span>

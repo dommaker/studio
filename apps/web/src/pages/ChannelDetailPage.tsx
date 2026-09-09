@@ -15,9 +15,7 @@ import { deriveStreamView, type StreamItem } from '../utils/streamView';
 import { buildMessageToItemIndex } from '../utils/streamVirtual';
 import { ChannelInput } from '../components/channel/ChannelInput';
 import { SuggestionChips, type SuggestionChipItem } from '../components/channel/SuggestionChips';
-import { ChannelMemberManager } from '../components/channel/ChannelMemberManager';
-import { ChannelDefaultProjectSelect } from '../components/channel/ChannelDefaultProjectSelect';
-import { ChannelCurrentPmoChip } from '../components/channel/ChannelCurrentPmoChip';
+import { ChannelTopbarMenu } from '../components/channel/ChannelTopbarMenu';
 import { ChannelNeedInputChip, type NeedInputTodo } from '../components/channel/ChannelNeedInputChip';
 import { ChannelRail } from '../components/channel/ChannelRail';
 import { ChannelActivityRail } from '../components/channel/ChannelActivityRail';
@@ -794,26 +792,15 @@ export function ChannelDetailPage() {
             {channel?.type === 'rnd' ? '研发频道' : channel?.type === 'decision' ? '决策频道' : '系统频道'}
           </span>
           <div className="mc-topbar-actions">
-            {/* #395（spec §4.6）：<1024 右栏抽屉入口（≥1024 CSS 隐藏，内联右栏在岗） */}
-            <button
-              type="button"
-              className="mc-btn mc-act-open"
-              aria-label="打开频道动态"
-              onClick={() => setActRailOpen(true)}
-            >
-              频道动态
-            </button>
-            {/* #279（决策 #250 D4）：NEED_INPUT 待办 chip（只聚合等待回复，闸门类不聚合） */}
+            {/* #279（决策 #250 D4）：NEED_INPUT 待办 chip（只聚合等待回复，闸门类不聚合）——
+                E1 起为顶栏唯一待办信号位（消息头 badge 已删，见 ChannelMessageItem） */}
             <ChannelNeedInputChip items={waitingWus} onLocate={locateWaitingQuestion} />
-            {/* #272（决策 #251 Q6）：当前 PMO chip（派生不落库，点击跳项目页） */}
-            <ChannelCurrentPmoChip channelId={id} />
-            {/* #403：成员面进 channelDataStore（组件自取 + 频道记录到位时写穿水合），不再透传 membersJson */}
-            <ChannelMemberManager channelId={id} />
-            {/* #272（决策 #251 Q2'）：默认工程 = 本地 repo 下拉（落 defaultPath）；
-                默认执行机器（远程 Workspace）挪设置区由 #286 承接 */}
-            <ChannelDefaultProjectSelect
+            {/* E1（2026-09 页面重设计）：顶栏收敛 ⋯ 菜单——成员管理/默认工程/频道动态入口（<1024）/
+                当前 PMO 跳转收纳进菜单；主行动点保持输入框「发送」唯一 accent */}
+            <ChannelTopbarMenu
               channelId={id}
               defaultPath={channel?.defaultPath}
+              onOpenActivity={() => setActRailOpen(true)}
             />
           </div>
         </div>

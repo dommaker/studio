@@ -340,8 +340,10 @@ describe('ChannelDetailPage — Mission Control 三栏', () => {
     expect(screen.getByTestId('activity-rail')).toBeTruthy();
     await waitFor(() => expect(screen.getByText('#rnd-主研发')).toBeTruthy());
     expect(screen.getByTestId('channel-input')).toBeTruthy();
+    // E1 顶栏收敛：成员/PMO/默认工程收进 ⋯ 菜单，开菜单可见
+    expect(screen.queryByTestId('member-manager')).toBeNull();
+    fireEvent.click(screen.getByLabelText('更多操作'));
     expect(screen.getByTestId('member-manager')).toBeTruthy();
-    // #272：顶栏 = 当前 PMO chip + 默认工程（本地 repo）下拉
     expect(screen.getByTestId('current-pmo-chip')).toBeTruthy();
     expect(screen.getByTestId('default-project-select')).toBeTruthy();
     expect(screen.queryByTestId('wu-drawer')).toBeNull();
@@ -428,9 +430,9 @@ describe('ChannelDetailPage — Mission Control 三栏', () => {
     expect(screen.getByText('分析结论：拆成 3 个任务')).toBeTruthy();
   });
 
-  it('NEED_INPUT: waiting badge + inline reply sends through the same replyTo link', async () => {
+  it('NEED_INPUT: inline reply sends through the same replyTo link（E1：badge 已删，回复框即信号）', async () => {
     renderPage();
-    await waitFor(() => expect(screen.getByText('等待回复')).toBeTruthy());
+    await waitFor(() => expect(screen.getByLabelText('回复 WU-1018')).toBeTruthy());
     const input = screen.getByLabelText('回复 WU-1018');
     fireEvent.change(input, { target: { value: '同意注入' } });
     fireEvent.click(screen.getByText('回复'));
@@ -663,10 +665,9 @@ describe('ChannelDetailPage — #279 NEED_INPUT 待办 chip 与等待态清理',
     expect(screen.getByText('交给 agent 判断')).toBeTruthy();
   });
 
-  it('等待 badge 与回复区只落在当前提问消息（anchor 不再重复 badge/回复框）', async () => {
+  it('回复区只落在当前提问消息（anchor 不再重复挂回复区）', async () => {
     renderPage();
-    await waitFor(() => expect(screen.getByText('等待回复')).toBeTruthy());
-    expect(screen.getAllByText('等待回复')).toHaveLength(1);
+    await waitFor(() => expect(screen.getByText('OAuth')).toBeTruthy());
     // 选项卡只此一份（anchor 上没有第二份回复区）
     expect(screen.getAllByText('交给 agent 判断')).toHaveLength(1);
   });
@@ -676,9 +677,9 @@ describe('ChannelDetailPage — #279 NEED_INPUT 待办 chip 与等待态清理',
     await waitFor(() => expect(screen.getByText('OAuth')).toBeTruthy());
     fireEvent.click(screen.getByText('OAuth'));
     await waitFor(() => expect(mockSendMessage).toHaveBeenCalledWith('OAuth', 'q-2'));
-    // await sendMessage resolve 后：needSent=true -> 已回复显示；badge 消失（互斥）
+    // await sendMessage resolve 后：needSent=true -> 已回复显示；选项卡收起（互斥）
     await waitFor(() => expect(screen.getByText(/已回复/)).toBeTruthy());
-    expect(screen.queryByText('等待回复')).toBeNull();
+    expect(screen.queryByText('账号密码')).toBeNull();
   });
 
   // #276 AC3：追问再挂起后旧回复框不重复出现--#279 latestQuestionIdByWu 已结构性保证；
@@ -713,8 +714,7 @@ describe('ChannelDetailPage — #279 NEED_INPUT 待办 chip 与等待态清理',
     renderPage();
     // q-3 是最新提问，提升到主流 + 挂回复区
     await waitFor(() => expect(screen.getByText(/回调地址/)).toBeTruthy());
-    // 仅 q-3 挂「等待回复」badge 与选项卡（q-2 已被回复过不再重复挂回复区）
-    expect(screen.getAllByText('等待回复')).toHaveLength(1);
+    // 仅 q-3 挂选项卡回复区（q-2 已被回复过不再重复挂回复区）
     expect(screen.getAllByText('交给 agent 判断')).toHaveLength(1);
     // q-2 的选项（账号密码）不渲染--避免一屏多个相同回复框
     expect(screen.queryByText('账号密码')).toBeNull();

@@ -62,6 +62,14 @@ describe('ChannelMemberManager', () => {
     expect(screen.getByTitle('Channel 成员管理')).toBeTruthy();
   });
 
+  it('E1：triggerClassName 覆盖触发钮类（顶栏 ⋯ 菜单行形态），缺省 mc-btn 不变', () => {
+    const { unmount } = render(<ChannelMemberManager channelId="ch-1" />);
+    expect(screen.getByTitle('Channel 成员管理').className).toBe('mc-btn');
+    unmount();
+    render(<ChannelMemberManager channelId="ch-1" triggerClassName="mc-topbar-menu-item" />);
+    expect(screen.getByTitle('Channel 成员管理').className).toBe('mc-topbar-menu-item');
+  });
+
   it('shows "All" when no members configured', () => {
     render(<ChannelMemberManager channelId="ch-1" />);
     expect(screen.getByText('All')).toBeTruthy();

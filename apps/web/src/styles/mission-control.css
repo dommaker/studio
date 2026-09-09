@@ -192,6 +192,41 @@
 .mc-topbar-type { color: var(--text-secondary); font-size: var(--fs-sm); flex-shrink: 0; }
 .mc-topbar-actions { margin-left: auto; display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
 
+/* E1：顶栏 ⋯ 菜单（成员管理/默认工程/频道动态/当前 PMO 收纳进此，顶栏只留待回复 chip + ⋯） */
+.mc-topbar-menu-wrap { position: relative; }
+.mc-topbar-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 30;
+  min-width: 220px;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: 4px;
+  box-shadow: var(--shadow-lg);
+  padding: 4px;
+}
+.mc-topbar-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 10px;
+  font-size: var(--fs-sm);
+  color: var(--text-primary);
+  text-align: left;
+  border-radius: 3px;
+}
+.mc-topbar-menu-item:hover { background: var(--bg-hover); }
+/* PMO chip（复用 ChannelCurrentPmoChip，菜单行形态：去边框、整行宽）；派生为 null 时行不占位 */
+.mc-topbar-menu-row:empty { display: none; }
+.mc-topbar-menu-row > .mc-btn { width: 100%; text-align: left; border-color: transparent; }
+.mc-topbar-menu-row > .mc-btn:hover { border-color: transparent; background: var(--bg-hover); }
+.mc-topbar-menu-field { display: flex; flex-direction: column; gap: 4px; padding: 4px 10px 6px; }
+.mc-topbar-menu-label { font-size: var(--fs-xs); color: var(--text-tertiary); }
+
 /* #394：REQ chips 条随 REQ 呈现挪右栏链路卡（spec §4.2）删除 */
 
 /* 消息流 */
@@ -403,15 +438,8 @@
   text-overflow: ellipsis;
 }
 
-/* 等待回复 badge（NEED_INPUT） */
-.mc-wait-badge {
-  font-size: var(--fs-xs);
-  color: var(--warning);
-  background: var(--warning-dim);
-  border: 1px solid var(--warning-border);
-  border-radius: 4px;
-  padding: 1px 7px;
-}
+/* E1（2026-09 页面重设计）：.mc-wait-badge 已删——消息头「等待回复」badge 去除，
+   待办信号唯一位 = 顶栏 chip；流内识别靠内嵌回复区（行动点本体） */
 
 /* 消息卡片族（任务状态卡） */
 .mc-card {
@@ -667,6 +695,10 @@
 /* ① 当前站强化：点径加大 + 发光保留；时间戳再弱化一档（不抢站名） */
 .mc-workbar .wu-st-current .wu-st-dot { width: 12px; height: 12px; box-shadow: 0 0 8px var(--accent-glow); }
 .mc-workbar .wu-st-time { opacity: 0.7; }
+/* E1：站点可点化（StationStepper onStationClick 仅 workbar 传入；按钮形态与 hover 只作用域在此，全局 stepper 不动） */
+.mc-workbar .wu-bstep-btn { cursor: pointer; text-align: left; }
+.mc-workbar .wu-bstep-btn:hover .wu-st-label { color: var(--accent-primary); }
+.mc-workbar .wu-bstep-btn:focus-visible { outline: 1px solid var(--accent-primary); outline-offset: 2px; }
 .mc-workbar-selflive,
 .mc-workbar-chip {
   display: flex;

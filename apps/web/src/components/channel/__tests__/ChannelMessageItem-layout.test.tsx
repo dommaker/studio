@@ -119,7 +119,8 @@ describe('ChannelMessageItem — 系统播报形态（#277 D3；#437 起左对�
     expect(root.classList.contains('mc-msg-system')).toBe(false);
     expect(root.classList.contains('mc-msg-agent')).toBe(true);
     expect(root.querySelector('.mc-avatar')).not.toBeNull();
-    expect(screen.getByText('等待回复')).toBeTruthy();
+    // E1：消息头 badge 已删，回复框本体即流内信号
+    expect(screen.getByPlaceholderText(/直接在此回复/)).toBeTruthy();
   });
 
   it('带卡片的 Studio 消息不判系统（卡片全宽分支优先）', () => {

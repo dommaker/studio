@@ -1,6 +1,6 @@
 // #396：横向四站 stepper + 生命周期事件 chip 行
-import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { describe, it, expect, vi } from 'vitest';
+import { render, screen, fireEvent } from '@testing-library/react';
 import React from 'react';
 import { StationStepper, LifecycleEventChips } from '../StationStepper';
 import { formatShortTime } from '../../../utils/datetime';
@@ -37,6 +37,22 @@ describe('StationStepper', () => {
     // 连线：仅已达成站之后的线高亮（claim done → 1 条 reached）
     expect(container.querySelectorAll('.wu-bstep-line').length).toBe(3);
     expect(container.querySelectorAll('.wu-bstep-line-reached').length).toBe(1);
+  });
+
+  // E1：onStationClick 可选——不传纯展示（WU 详情页），传则站点可点（频道工作条开抽屉）
+  it('不传 onStationClick → 纯展示（站点非按钮）', () => {
+    const { container } = render(<StationStepper stations={stations} />);
+    expect(container.querySelectorAll('button.wu-bstep').length).toBe(0);
+    expect(container.querySelectorAll('.wu-bstep-btn').length).toBe(0);
+  });
+
+  it('传 onStationClick → 站点渲染为按钮，点击回调带站点', () => {
+    const onStationClick = vi.fn();
+    const { container } = render(<StationStepper stations={stations} onStationClick={onStationClick} />);
+    const btns = container.querySelectorAll('button.wu-bstep.wu-bstep-btn');
+    expect(btns.length).toBe(4);
+    fireEvent.click(screen.getByText('待验收'));
+    expect(onStationClick).toHaveBeenCalledWith(stations[2]);
   });
 });
 
