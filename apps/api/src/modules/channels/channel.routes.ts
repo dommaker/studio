@@ -15,6 +15,7 @@ import { getChannelFileVocabulary } from './file-ref-vocabulary.js';
 import { deriveChannelCurrentPmo } from './current-pmo.js';
 import { deriveChannelSuggestions } from './suggestions.js';
 import { getErrorMessage } from '../../utils/errors.js';
+import { validateRouting } from './routing.js';
 
 const router = Router();
 const fileStore = new FileStore();
@@ -31,7 +32,7 @@ router.get('/', apiCache(CACHE_CONFIG.medium), async (_req, res) => {
 // POST /api/v1/channels — create a new channel (B2-007)
 // Also supports creating initial agents: { agents: [{ name, description? }] }
 router.post('/', requireAuth(), requireNotGuest(), async (req, res) => {
-  const { name, type = 'rnd', members, agents, defaultPipeline, defaultPath } = req.body;
+  const { name, type = 'rnd', members, agents, defaultPath } = req.body;
   if (!name || typeof name !== 'string' || !name.trim()) {
     return res.status(400).json({ success: false, error: 'name is required' });
   }
@@ -43,15 +44,6 @@ router.post('/', requireAuth(), requireNotGuest(), async (req, res) => {
     return res.status(400).json({ success: false, error: 'defaultPath must be a string' });
   }
   const defaultPathValue = typeof defaultPath === 'string' && defaultPath.trim() ? defaultPath.trim() : null;
-  // AC-6.2: validate defaultPipeline items are active AgentProfile names
-  let pipelineValue: string[] | undefined;
-  if (defaultPipeline !== undefined) {
-    const validated = await validateDefaultPipeline(fileStore, defaultPipeline);
-    if (!validated.ok) {
-      return res.status(400).json({ success: false, error: validated.error });
-    }
-    pipelineValue = validated.value;
-  }
   const channelName = name.startsWith('#') ? name.trim() : `#${name.trim()}`;
   try {
     // Check duplicate name (FileStore has no unique constraint)
@@ -70,7 +62,6 @@ router.post('/', requireAuth(), requireNotGuest(), async (req, res) => {
       discordChannelId: null,
       discordWebhookUrl: null,
       members: '[]',
-      ...(pipelineValue !== undefined ? { defaultPipeline: pipelineValue } : {}),
       createdAt: now,
       updatedAt: now,
     };
@@ -285,7 +276,7 @@ router.put('/:id/restore', requireAuth(), requireNotGuest(), async (req, res) =>
 // PATCH /api/v1/channels/:id — update channel settings
 router.patch('/:id', requireAuth(), requireNotGuest(), async (req, res) => {
   const { id } = req.params;
-  const { name, defaultWorkspaceId, defaultPath, defaultPipeline, defaultProfileId } = req.body;
+  const { name, defaultWorkspaceId, defaultPath, routing, defaultProfileId } = req.body;
   try {
     const data: Record<string, unknown> = {};
     if (name !== undefined) data.name = name;
@@ -298,13 +289,17 @@ router.patch('/:id', requireAuth(), requireNotGuest(), async (req, res) => {
       data.defaultWorkspaceId = validated.value;
     }
     if (defaultPath !== undefined) data.defaultPath = defaultPath;
-    // AC-6.2: validate defaultPipeline items are active AgentProfile names
-    if (defaultPipeline !== undefined) {
-      const validated = await validateDefaultPipeline(fileStore, defaultPipeline);
+    // #466: 阶段→角色路由表（吞并 defaultPipeline）；值须为 active profile id，'' / null 清除该档
+    if (routing !== undefined) {
+      const validated = await validateRouting(fileStore, routing);
       if (!validated.ok) {
         return res.status(400).json({ success: false, error: validated.error });
       }
-      data.defaultPipeline = validated.value;
+      // 与存量 routing 合并（单档更新不清掉其他档；显式 null = 清除该档）
+      if (validated.value) {
+        const current = (await fileStore.getChannel(id))?.routing ?? {};
+        data.routing = { ...current, ...validated.value };
+      }
     }
     // F5（决策 6）: 入口角色 defaultProfileId 可配置 — '' / null → 清除（@studio 与无 @ 消息回退未指派）；
     // 非空校验为已存在的 active profile（不强制频道成员，成员边界在路由时按 §9.5 判定）
@@ -489,33 +484,4 @@ export async function validateDefaultWorkspaceId(
     return { ok: false, value: null, error: `Workspace not found: ${wsId}` };
   }
   return { ok: true, value: wsId };
-}
-
-/**
- * AC-6.2: validate defaultPipeline items are active AgentProfile names.
- * - undefined -> ok, value=undefined (skip update)
- * - non-array -> reject
- * - each item must be string matching an active AgentProfile.name
- * - empty array allowed (clears pipeline)
- */
-export async function validateDefaultPipeline(
-  fs: FileStore,
-  value: unknown,
-): Promise<{ ok: boolean; value?: string[]; error?: string }> {
-  if (value === undefined) return { ok: true };
-  if (!Array.isArray(value)) {
-    return { ok: false, error: 'defaultPipeline must be an array' };
-  }
-  if (value.length === 0) return { ok: true, value: [] };
-  const activeProfiles = await fs.listProfiles({ status: 'active' });
-  const activeNames = new Set(activeProfiles.map(p => p.name));
-  for (const item of value) {
-    if (typeof item !== 'string') {
-      return { ok: false, error: `defaultPipeline item must be string: ${String(item)}` };
-    }
-    if (!activeNames.has(item)) {
-      return { ok: false, error: `AgentProfile not found or not active: ${item}` };
-    }
-  }
-  return { ok: true, value: value as string[] };
 }

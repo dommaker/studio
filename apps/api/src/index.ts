@@ -185,6 +185,11 @@ async function start() {
       migrateProfileChannelsToMembers().catch(err => logger.warn('[MembersMigration] failed', { error: String(err) }));
     }).catch(err => logger.warn('[MembersMigration] import failed', { error: String(err) }));
 
+    // #466: 吞并迁移 defaultPipeline → routing.implement（幂等，异步不阻塞启动）
+    import('./modules/channels/migrate-routing.js').then(({ migrateDefaultPipelineToRouting }) => {
+      migrateDefaultPipelineToRouting().catch(err => logger.warn('[RoutingMigration] failed', { error: String(err) }));
+    }).catch(err => logger.warn('[RoutingMigration] import failed', { error: String(err) }));
+
     // AS-020 P2-04: VPS 本地 Workspace 注册（异步，不阻塞启动）
     import('./modules/workspaces/local-workspace.js').then(({ ensureLocalWorkspace }) => {
       ensureLocalWorkspace().catch(err => logger.warn('[LocalWorkspace] Registration failed', { error: String(err) }));

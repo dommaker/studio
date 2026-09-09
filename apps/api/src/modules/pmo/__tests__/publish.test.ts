@@ -5,8 +5,11 @@ const {
   mockReadJson,
   mockWriteJson,
   mockCreateHumanMessage,
+  mockCreateAgentMessage,
   mockUpdateMessageMeta,
   mockWuCreate,
+  mockGetChannel,
+  mockGetProfile,
 } = vi.hoisted(() => ({
   mockReadJson: vi.fn(),
   mockWriteJson: vi.fn().mockResolvedValue(undefined),
@@ -21,6 +24,7 @@ const {
     meta: {},
     createdAt: new Date(),
   }),
+  mockCreateAgentMessage: vi.fn().mockResolvedValue({ id: 'msg-sys-1' }),
   mockUpdateMessageMeta: vi.fn().mockResolvedValue({
     id: 'msg-1',
     meta: { pmoId: 'proj-1' },
@@ -31,16 +35,25 @@ const {
     scope: 'test',
     status: 'unassigned',
   }),
+  // #466 路由表：缺省无配置（null = 频道不存在/无路由），行为与存量一致
+  mockGetChannel: vi.fn().mockResolvedValue(null),
+  mockGetProfile: vi.fn().mockResolvedValue(null),
 }));
 
 // Mock FileStore
-vi.mock('@dommaker/studio-shared', () => ({
-  FileStore: vi.fn().mockImplementation(function () { return {
-    readJson: mockReadJson,
-    writeJson: mockWriteJson,
-    readJsonl: vi.fn().mockResolvedValue([]),
-  }; }),
-}));
+vi.mock('@dommaker/studio-shared', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@dommaker/studio-shared')>();
+  return {
+    ...actual,
+    FileStore: vi.fn().mockImplementation(function () { return {
+      readJson: mockReadJson,
+      writeJson: mockWriteJson,
+      readJsonl: vi.fn().mockResolvedValue([]),
+      getChannel: mockGetChannel,
+      getProfile: mockGetProfile,
+    }; }),
+  };
+});
 
 // Mock fs
 vi.mock('node:fs', async () => {
@@ -61,6 +74,7 @@ vi.mock('node:fs', async () => {
 vi.mock('../../channels/channel-message.service.js', () => ({
   channelMessageService: {
     createHumanMessage: (...args: unknown[]) => mockCreateHumanMessage(...args),
+    createAgentMessage: (...args: unknown[]) => mockCreateAgentMessage(...args),
     updateMessageMeta: (...args: unknown[]) => mockUpdateMessageMeta(...args),
   },
 }));
@@ -106,6 +120,9 @@ describe('AC-5: PMO Publish API', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockReadJson.mockResolvedValue(sampleProject());
+    // #466：缺省无路由配置（各用例自行覆盖，避免泄漏）
+    mockGetChannel.mockResolvedValue(null);
+    mockGetProfile.mockResolvedValue(null);
   });
 
   it('pending PMO publish creates ChannelMessage + WorkUnit + status→active', async () => {
@@ -318,5 +335,63 @@ describe('AC-5: PMO Publish API', () => {
 
     const scope = mockWuCreate.mock.calls[0][0].scope as string;
     expect(scope).not.toContain('多交付腿');
+  });
+
+  // ── #466: 频道路由表 plan 档 ──
+
+  it('#466：频道配置 routing.plan 且未显式指派 → plan WU 落路由角色', async () => {
+    mockGetChannel.mockResolvedValue({
+      id: 'ch-1', members: '["p-planner"]', routing: { plan: 'p-planner' },
+    });
+    mockGetProfile.mockResolvedValue({
+      id: 'p-planner', name: 'planner', status: 'active', channels: '[]',
+    });
+    await projectService.publish({ projectId: 'proj-1', channelId: 'ch-1' });
+    expect(mockWuCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'plan', assigneeId: 'p-planner' })
+    );
+  });
+
+  it('#466：显式 assigneeId 优先于 routing.plan', async () => {
+    mockGetChannel.mockResolvedValue({
+      id: 'ch-1', members: '["p-planner"]', routing: { plan: 'p-planner' },
+    });
+    mockGetProfile.mockResolvedValue({
+      id: 'p-planner', name: 'planner', status: 'active', channels: '[]',
+    });
+    await projectService.publish({ projectId: 'proj-1', channelId: 'ch-1', assigneeId: 'profile-7' });
+    expect(mockWuCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ assigneeId: 'profile-7' })
+    );
+  });
+
+  it('#466：路由角色 inactive → 回池涌现（不带 assigneeId）+ 频道出声提醒', async () => {
+    mockGetChannel.mockResolvedValue({
+      id: 'ch-1', members: '["p-planner"]', routing: { plan: 'p-planner' },
+    });
+    mockGetProfile.mockResolvedValue({
+      id: 'p-planner', name: 'planner', status: 'inactive', channels: '[]',
+    });
+    await projectService.publish({ projectId: 'proj-1', channelId: 'ch-1' });
+    const input = mockWuCreate.mock.calls[0][0] as Record<string, unknown>;
+    expect('assigneeId' in input).toBe(false);
+    expect(mockCreateAgentMessage).toHaveBeenCalledWith(
+      'ch-1', 'Studio', expect.stringContaining('planner'), expect.anything()
+    );
+  });
+
+  it('#466：路由角色被移出频道 → 回池涌现 + 频道出声提醒', async () => {
+    mockGetChannel.mockResolvedValue({
+      id: 'ch-1', members: '["p-other"]', routing: { plan: 'p-planner' },
+    });
+    mockGetProfile.mockResolvedValue({
+      id: 'p-planner', name: 'planner', status: 'active', channels: '[]',
+    });
+    await projectService.publish({ projectId: 'proj-1', channelId: 'ch-1' });
+    const input = mockWuCreate.mock.calls[0][0] as Record<string, unknown>;
+    expect('assigneeId' in input).toBe(false);
+    expect(mockCreateAgentMessage).toHaveBeenCalledWith(
+      'ch-1', 'Studio', expect.stringContaining('planner'), expect.anything()
+    );
   });
 });

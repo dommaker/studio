@@ -8,6 +8,7 @@
 import { FileStore, generateId, parseFrontmatter } from '@dommaker/studio-shared';
 import { logger } from '../../utils/logger.js';
 import { channelMessageService } from '../channels/channel-message.service.js';
+import { resolveStageRouting, routingFallbackText } from '../channels/routing.js';
 import { WorkUnitService } from '../workunit/workunit.service.js';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -568,12 +569,20 @@ export const projectService = {
       ? `\n\n## 多交付腿（腿调研只读范围）\n本需求跨 ${legs.length} 个仓库交付，规划须覆盖以下全部仓库路径；逐腿调研一律只读（不做 worktree 隔离），需要深挖时按腿派 DELEGATE research 子单（子单 scope 带腿仓库路径）：\n`
         + legs.map(leg => `- ${leg.gitRepo ?? '（未设置仓库路径）'}${leg.branch ? `（分支 ${leg.branch}）` : ''}`).join('\n')
       : '';
+    // #466：发布人未显式指派时查频道路由表 plan 档（指名即硬约束）；
+    // 配置了但角色 inactive/被移出频道 → 回池涌现 + 频道出声提醒
+    const planRouting = input.assigneeId
+      ? null
+      : await resolveStageRouting(fileStore, input.channelId, 'plan');
     const workUnit = await workUnitService.create({
       // #471：派生链收敛——publish 只建一张 plan WU（一脉会话），不再建 analysis；
       // analysis/decision/spec 三段派生退役（map-opening 降级为台账记录，不再建 decision 单）
       type: 'plan',
-      // #177（#69 决议）：发布人可选显式指派 plan WU 执行角色（留空 = 回池涌现）
-      ...(input.assigneeId ? { assigneeId: input.assigneeId } : {}),
+      // #177（#69 决议）：发布人可选显式指派 plan WU 执行角色（留空 = 回池涌现）；
+      // #466：留空时再查 routing.plan（显式指派优先）
+      ...(input.assigneeId
+        ? { assigneeId: input.assigneeId }
+        : planRouting?.profileId ? { assigneeId: planRouting.profileId } : {}),
       // #471 配套补充（2026-09-09）：scope 首行钉方法论 skill（评审单 +code-review 先例，
       // review-dispatcher.ts）——requirement-clarify（澄清→设计→spec→质量门）+ to-tickets（拆单）
       scope: `规划需求 ${project.pmoNumber}: ${project.title} +requirement-clarify +to-tickets
@@ -614,6 +623,16 @@ FOG: <待决问题>
         ...(project.gitRepo ? { workspaceRoot: project.gitRepo } : {}),
       },
     });
+
+    // #466 路由回退提醒（非阻断）：配置失效不影响发布主链路
+    if (planRouting?.fallback) {
+      await channelMessageService.createAgentMessage(
+        input.channelId,
+        'Studio',
+        routingFallbackText('plan', planRouting),
+        { workUnitId: workUnit.id },
+      ).catch(err => logger.warn({ error: String(err) }, '[PMO] routing fallback notice failed (non-blocking)'));
+    }
 
     // #273（#251 决议）：发布即绑定——publish 时回写 project.channelId（1 PMO : 1 频道，
     // 绑定唯一入口），项目页「去频道」按钮（条件 project.channelId）随之复活；channel 侧不加 pmoId

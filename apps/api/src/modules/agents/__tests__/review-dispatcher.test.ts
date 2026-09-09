@@ -612,3 +612,66 @@ describe('ReviewDispatcher (AC-4.1 ~ AC-4.5 + F4)', () => {
     expect(att?.l2?.ref).toBe('wu-other');
   });
 });
+
+// #466：路由表 review 档 —— 评审子 WU 查表指名；路由评审=实现者/路由不可用时回池涌现 + 频道出声
+describe('#466 routing.review（评审路由）', () => {
+  it('频道配置 routing.review → 评审子 WU 指名路由角色（不再涌现/排除约束）', async () => {
+    await fileStore.updateChannel('ch-test', { routing: { review: reviewerProfile.id } });
+
+    const { child } = await createParentAndReview('实现功能 R1', executorProfile.id);
+    expect(child).toBeDefined();
+    expect(child!.assigneeId).toBe(reviewerProfile.id);
+    expect(child!.status).toBe('unassigned');
+    const meta = metaOf(child!.metadata);
+    expect(meta.excludeAssignee).toBeUndefined();
+    expect(meta.selfReview).toBeUndefined();
+  });
+
+  it('路由评审 = 实现者本人 → 回池涌现（保留 excludeAssignee）+ 频道出声提醒', async () => {
+    await fileStore.updateChannel('ch-test', { routing: { review: executorProfile.id } });
+
+    const { parent, child } = await createParentAndReview('实现功能 R2', executorProfile.id);
+    expect(child).toBeDefined();
+    expect(child!.assigneeId).toBeNull();
+    const meta = metaOf(child!.metadata);
+    expect(meta.excludeAssignee).toBe(executorProfile.id);
+    expect(meta.selfReview).toBeUndefined();
+
+    const messages = await fileStore.queryMessages('ch-test', { workUnitId: parent.id });
+    const notice = messages.find(m => m.content.includes('路由') && m.content.includes('Executor'));
+    expect(notice).toBeDefined();
+  });
+
+  it('路由评审 inactive → 回池涌现 + 频道出声提醒', async () => {
+    await fileStore.updateChannel('ch-test', { routing: { review: reviewerProfile.id } });
+    await fileStore.updateProfile(reviewerProfile.id, { status: 'inactive' });
+
+    const { parent, child } = await createParentAndReview('实现功能 R3', executorProfile.id);
+    expect(child).toBeDefined();
+    expect(child!.assigneeId).toBeNull();
+
+    const messages = await fileStore.queryMessages('ch-test', { workUnitId: parent.id });
+    const notice = messages.find(m => m.content.includes('Reviewer'));
+    expect(notice).toBeDefined();
+  });
+
+  it('路由评审被移出频道 → 回池涌现 + 频道出声提醒', async () => {
+    await fileStore.updateChannel('ch-test', {
+      members: stringifyChannels([executorProfile.id, reviewerProfile.id]),
+      routing: { review: 'p-outsider' },
+    });
+    await fileStore.createProfile({
+      id: 'p-outsider', name: 'Outsider', description: null,
+      channels: '[]', status: 'active', provider: null,
+      createdAt: '2026-09-09T00:00:00Z', updatedAt: '2026-09-09T00:00:00Z',
+    });
+
+    const { parent, child } = await createParentAndReview('实现功能 R4', executorProfile.id);
+    expect(child).toBeDefined();
+    expect(child!.assigneeId).toBeNull();
+
+    const messages = await fileStore.queryMessages('ch-test', { workUnitId: parent.id });
+    const notice = messages.find(m => m.content.includes('Outsider'));
+    expect(notice).toBeDefined();
+  });
+});

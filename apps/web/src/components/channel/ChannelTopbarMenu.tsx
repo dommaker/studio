@@ -11,6 +11,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ChannelCurrentPmoChip } from './ChannelCurrentPmoChip';
 import { ChannelMemberManager } from './ChannelMemberManager';
 import { ChannelDefaultProjectSelect } from './ChannelDefaultProjectSelect';
+import { ChannelRoutingEditor } from './ChannelRoutingEditor';
 
 interface Props {
   channelId: string;
@@ -66,6 +67,10 @@ export function ChannelTopbarMenu({ channelId, defaultPath, onOpenActivity }: Pr
           </div>
           <div className="mc-topbar-menu-row">
             <ChannelMemberManager channelId={channelId} triggerClassName="mc-topbar-menu-item" />
+          </div>
+          {/* #466：工单路由（阶段→角色）三行下拉，成本结构一屏可见 */}
+          <div className="mc-topbar-menu-row">
+            <ChannelRoutingEditor channelId={channelId} triggerClassName="mc-topbar-menu-item" />
           </div>
           <div className="mc-topbar-menu-field">
             <span className="mc-topbar-menu-label">默认工程</span>

@@ -255,6 +255,66 @@ describe('AnalysisHandoff（PMO 分析接力）', () => {
   });
 });
 
+// #466：路由表 implement 档 —— TASK 拆派工查表落 assigneeId（确认弹窗人选优先）
+describe('#466 TASK 派工 × routing.implement', () => {
+  const ROUTER_ID = 'p-router-exec';
+
+  async function seedRouter(opts: { status?: string; member?: boolean } = {}) {
+    await fileStore.createProfile({
+      id: ROUTER_ID, name: 'router-exec', description: null,
+      channels: '[]', status: opts.status ?? 'active',
+      createdAt: '2026-09-09T00:00:00.000Z', updatedAt: '2026-09-09T00:00:00.000Z',
+    });
+    await fileStore.updateChannel('ch-test', {
+      members: JSON.stringify(opts.member === false ? [] : [ROUTER_ID]),
+      routing: { implement: ROUTER_ID },
+    });
+  }
+
+  it('未指定默认执行角色 + 频道配置 routing.implement → 派生 task 落路由角色', async () => {
+    await seedRouter();
+    const wu = await createAnalysisWu({ analysisTasks: ['实现登录接口', '补登录单测'] });
+    emitStatus(wu, 'done');
+
+    const ok = await waitFor(async () =>
+      (await fileStore.getIndex()).filter(s => s.parentId === wu.id).length === 2);
+    expect(ok).toBe(true);
+    const children = (await fileStore.getIndex()).filter(s => s.parentId === wu.id);
+    expect(children.every(c => c.assigneeId === ROUTER_ID)).toBe(true);
+  });
+
+  it('确认弹窗指定的 defaultTaskAssigneeId 优先于 routing.implement', async () => {
+    await seedRouter();
+    const wu = await createAnalysisWu({
+      analysisTasks: ['任务一'],
+      defaultTaskAssigneeId: 'profile-7',
+    });
+    emitStatus(wu, 'done');
+
+    const ok = await waitFor(async () =>
+      (await fileStore.getIndex()).filter(s => s.parentId === wu.id).length === 1);
+    expect(ok).toBe(true);
+    const children = (await fileStore.getIndex()).filter(s => s.parentId === wu.id);
+    expect(children[0].assigneeId).toBe('profile-7');
+  });
+
+  it('路由角色被移出频道 → 回池涌现（不带 assigneeId）+ 频道出声提醒', async () => {
+    await seedRouter({ member: false });
+    const wu = await createAnalysisWu({ analysisTasks: ['任务一'] });
+    emitStatus(wu, 'done');
+
+    const ok = await waitFor(async () =>
+      (await fileStore.getIndex()).filter(s => s.parentId === wu.id).length === 1);
+    expect(ok).toBe(true);
+    const children = (await fileStore.getIndex()).filter(s => s.parentId === wu.id);
+    expect(children[0].assigneeId).toBeFalsy();
+
+    const msgOk = await waitFor(async () =>
+      (await channelMessages()).some(m => m.content.includes('router-exec')));
+    expect(msgOk).toBe(true);
+  });
+});
+
 // #471：派生链收敛——plan（一脉会话规划单）走同一确认→拆 TASK 派工管线（字段名/哨兵不变）
 describe('#471 plan WU 接力（确认闸 + TASK 派工）', () => {
   async function createPlanWu(metadata: WorkUnitMetadata): Promise<WorkUnitData> {

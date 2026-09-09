@@ -26,6 +26,7 @@ import { eventBus, logger, createSettledTracker, type FileStore } from '@dommake
 import { WorkUnitService, ANALYSIS_TASKS_MAX, type WorkUnitData, type WorkUnitMetadata } from '../workunit/workunit.service.js';
 import { parseWuMetadata } from '../workunit/wu-metadata.js';
 import { ChannelMessageService } from '../channels/channel-message.service.js';
+import { resolveStageRouting, routingFallbackText, type StageRoutingResolution } from '../channels/routing.js';
 import { dispatchMonitorAlerts } from '../agents/monitor/monitor-alerts.js';
 
 export class AnalysisHandoff {
@@ -205,7 +206,15 @@ export class AnalysisHandoff {
     const created: string[] = [];
     // #177（#69 决议）：analysis 确认处可选「默认执行角色」应用于全部派生 task 子 WU
     // （留空 = 涌现）；指名 = 排他邮箱，无自动回池（滞留由 #62 探针出声）
-    const defaultAssigneeId = this.resolveDefaultAssignee(meta);
+    // #466：确认弹窗留空时再查频道路由表 implement 档（指名即硬约束）；
+    // 配置了但角色 inactive/被移出频道 → 回池涌现 + 频道出声提醒
+    let defaultAssigneeId = this.resolveDefaultAssignee(meta);
+    let routingFallback: StageRoutingResolution | null = null;
+    if (!defaultAssigneeId && fresh.channelId) {
+      const routing = await resolveStageRouting(this.fileStore, fresh.channelId, 'implement');
+      if (routing.profileId) defaultAssigneeId = routing.profileId;
+      else if (routing.fallback) routingFallback = routing;
+    }
     for (const scope of tasks) {
       try {
         const child = await this.createTaskChild(fresh, scope, meta, defaultAssigneeId);
@@ -226,6 +235,10 @@ export class AnalysisHandoff {
         `${fresh.type === 'plan' ? '规划' : '分析'}结论已确认，拆分 ${created.length} 个任务并派工（${defaultAssigneeId ? '已指定执行角色' : '频道成员自动认领'}）：\n`
         + created.map((t, i) => `${i + 1}. ${t}`).join('\n'),
       );
+    }
+    // #466 路由回退提醒（建单完成后出声，与任务清单同线程）
+    if (routingFallback) {
+      await this.post(fresh, routingFallbackText('implement', routingFallback));
     }
   }
 
@@ -315,7 +328,12 @@ export class AnalysisHandoff {
     const fresh = await this.workUnitService.getById(wu.id);
     if (!fresh) return result;
     const meta = this.readMeta(fresh);
-    const defaultAssigneeId = this.resolveDefaultAssignee(meta);
+    let defaultAssigneeId = this.resolveDefaultAssignee(meta);
+    // #466：对账补建同样走 routing.implement（频道不出声——决议 5，提醒由 spawnTasks 主链发出）
+    if (!defaultAssigneeId && fresh.channelId) {
+      const routing = await resolveStageRouting(this.fileStore, fresh.channelId, 'implement');
+      if (routing.profileId) defaultAssigneeId = routing.profileId;
+    }
     const siblings = (await this.workUnitService.list({ parentId: fresh.id, limit: 1000 })).data;
 
     for (const scope of scopes) {

@@ -26,6 +26,7 @@ import { MANUAL_GATE_TYPES } from '../../workunit/workunit.types.js';
 import { readCollab } from '../../workunit/delegation-gate.js';
 import { postWuSystemMessage } from '../../workunit/wu-messenger.js';
 import { parseWuMetadata, clearSessionBookkeeping } from '../../workunit/wu-metadata.js';
+import { resolveStageRouting, routingFallbackText } from '../../channels/routing.js';
 import type { ParsedReviewReport } from './review-contract.js';
 
 export class ReviewDispatcher {
@@ -146,20 +147,48 @@ export class ReviewDispatcher {
    * F4: 评审子 WU 未指派走涌现；排除实现者（决策 5 衔接顺序）：
    * 成员已知且除实现者外无他人 → 自评兜底（不加排除 + selfReview 标记 + 频道提醒）；
    * 成员未知（历史频道未回填 members）同样保守处理为自评兜底。
+   * #466: 频道路由表 review 档优先于涌现——配置了且路由角色可用且非实现者时
+   * 指名评审（assigneeId 硬约束，D4 的「换 provider 审」由 role.provider 自然承载）；
+   * 路由角色=实现者（评审独立性不允许自评指名）/ inactive / 已移出频道 →
+   * 回池涌现（现状涌现 + excludeAssignee 语义不变）+ 频道出声提醒。
    * #170（决策 #65-2）：建单走 createGuarded 锁内 check-then-create——
    * 并发下另一实例已抢建时返回 null（调用方按「已在途」处理）。
    */
   private async createReviewChildFor(parent: WorkUnitData): Promise<WorkUnitData | null> {
     const members = await this.getChannelActiveMembers(parent.channelId!);
     const implementerId = await this.resolveProfileId(parent.assigneeId);
+
+    // #466: 解析 review 档路由（不可用/指到实现者 → 回池涌现 + 提醒）
+    let pinnedReviewer: string | null = null;
+    let routingNotice: string | null = null;
+    const routing = await resolveStageRouting(this.fileStore, parent.channelId!, 'review');
+    if (routing.profileId) {
+      if (routing.profileId === implementerId) {
+        routingNotice = `工单路由提醒：本频道「评审」阶段路由到 @${routing.profileName ?? routing.profileId}，但其正是本单实现者（不许自己审自己），本单已回池涌现——请到频道设置调整路由表`;
+      } else {
+        pinnedReviewer = routing.profileId;
+      }
+    } else if (routing.fallback) {
+      routingNotice = routingFallbackText('review', routing);
+    }
+
     const eligible = members?.filter(p => p.id !== implementerId) ?? null;
-    const selfReview = !eligible || eligible.length === 0;
+    const selfReview = !pinnedReviewer && (!eligible || eligible.length === 0);
 
     const child = await this.createReviewWorkUnit(parent, {
-      excludeAssignee: selfReview ? null : implementerId,
+      excludeAssignee: selfReview || pinnedReviewer ? null : implementerId,
       selfReview,
+      assigneeId: pinnedReviewer,
     });
     if (!child) return null; // 并发抢建被锁内 guard 拦截
+
+    if (routingNotice) {
+      await this.postSystemMessage(parent, routingNotice).catch(err =>
+        logger.warn('[ReviewDispatcher] Post routing fallback notice failed (non-blocking)', {
+          parentId: parent.id, error: String(err),
+        })
+      );
+    }
 
     if (selfReview) {
       // 决策 5：提醒是给人看的（建议人工复核/加成员），自评是保流转的——二者不冲突
@@ -215,13 +244,13 @@ export class ReviewDispatcher {
     return child;
   }
 
-  /** 创建 review 子 WU（未指派走 claim 涌现；绕过 DelegationGate，design.md D6）。
+  /** 创建 review 子 WU（默认未指派走 claim 涌现；#466 路由指名时带 assigneeId；绕过 DelegationGate，design.md D6）。
    *  #170（决策 #65-2）：hasUnfinishedReviewChild 检查 + create 收进同一把 workunits flock
    *  （createGuarded 锁内 check-then-create，照抄 claimWorkUnit 锁内复查模式）——
    *  并发/多实例下不重复建单。guard 拒绝返回 null。 */
   private async createReviewWorkUnit(
     parent: WorkUnitData,
-    opts: { excludeAssignee: string | null; selfReview: boolean },
+    opts: { excludeAssignee: string | null; selfReview: boolean; assigneeId?: string | null },
   ): Promise<WorkUnitData | null> {
     const parentMeta = parseWuMetadata(parent.metadata);
     const parentCollab = parentMeta.collab ?? {
@@ -279,8 +308,9 @@ REVIEW_RESULT: {"verdict":"pass"|"reject"|"needs-info","summary":"一句话结�
       // P0 修复（reviewReport 回传断链）：scope 写入 REVIEW_RESULT 输出约定 ——
       // 评审方 AgentLoop complete 时据此解析结构化结论写入 metadata.reviewReport
       scope,
-      // F4: 未指派 —— 任何频道成员可认领（排除实现者由 metadata.excludeAssignee 约束）
-      assigneeId: null,
+      // F4: 默认未指派 —— 任何频道成员可认领（排除实现者由 metadata.excludeAssignee 约束）；
+      // #466: 频道路由 review 档命中时指名评审角色（assigneeId 硬约束）
+      assigneeId: opts.assigneeId ?? null,
       status: 'unassigned',
       channelId: parent.channelId,
       parentId: parent.id,
@@ -295,9 +325,10 @@ REVIEW_RESULT: {"verdict":"pass"|"reject"|"needs-info","summary":"一句话结�
       return null;
     }
 
-    logger.info('[ReviewDispatcher] Created review child WU (unassigned)', {
+    logger.info('[ReviewDispatcher] Created review child WU', {
       parentId: parent.id,
       childId: child.id,
+      assigneeId: opts.assigneeId ?? null,
       excludeAssignee: opts.excludeAssignee,
       selfReview: opts.selfReview,
     });

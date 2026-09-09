@@ -56,8 +56,13 @@ export interface ChannelData {
   discordChannelId: string | null;
   discordWebhookUrl: string | null;
   members: string;         // JSON: AgentProfile ID[]
-  /** AC-6.1: 频道默认管线 AgentProfile name 数组。空数组=清除；undefined=未配置 */
-  defaultPipeline?: string[];
+  /**
+   * #466: 频道级「阶段→角色」路由表（plan/implement/review → AgentProfile ID）。
+   * 未配置（undefined）或某档为空（null）= 该阶段回池涌现；配置了但角色 inactive/被移出频道
+   * → 回池涌现 + 频道出声提醒（解析语义见 channels/routing.ts）。
+   * defaultPipeline（AC-6.1，name 数组）已吞并迁移进 routing.implement（channels/migrate-routing.ts）。
+   */
+  routing?: { plan?: string | null; implement?: string | null; review?: string | null };
   /** 决策 12: 无 @ 消息的默认认领角色（AgentProfile ID）。未配置（null/undefined）= 维持纯存储 */
   defaultProfileId?: string | null;
   createdAt: string;       // ISO 8601

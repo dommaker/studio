@@ -42,7 +42,7 @@ Agent 配置（profile）、运行实例（instance）、决策循环（loop）�
 - **SSE 负载含 channelId（2026-08-24 SSE 负载加深，批 1）**：`workunit.execution.step` / `workunit.execution.stream`（含 step-start）负载与 `workunit.tokens` SSE 信封 data 均携带 `channelId`（wu.channelId 透传，无频道 WU 缺省该键）——前端按频道过滤 step/token 事件的数据源；`workunit:tokens` 落盘后顺带经 eventBus.publish 发 SSE（best-effort，不落盘二次）
 - **派单链**：WorkUnitService.create -> workunit.created -> TriggerScheduler -> AgentLoop.observe（15s 轮询兜底）-> 过滤 -> claim -> agentStep -> LocalExecutor -> spawn CLI -> recordResult -> 回帖（EventBus/SSE）。#445 起「认领即发声」（#175 决策 1）不再是 loop 私有实现：claimAndAnnounce 薄封装委托 workunit/claim-announce.ts 的 claimWorkUnitAndAnnounce 原语，REST claim 端点同路径（契约测试双入口间谍锁定，见 workunit/__tests__/claim-announce.test.ts）
 - **observe 读路径优化（#330）**：observe 调 `queryAllMessages` 传 myActive WU 的 channelId 集合做频道预过滤（任一活跃 WU 无 channelId 退全扫；已接受盲区 = WU 换频道后旧频道新回复不扫）；loop start 订阅 `channel.message_sent`（eventBus 同进程，human 且 workUnitId ∈ myActive 命中即打断空闲 sleep 立即 observe，stop 退订）——空闲兜底轮询维持 15s 不变（事件 fire-and-forget 无持久，防跨进程写者/重启间隙）
-- **F4 review 派发**：父 in_review -> 建未指派 review 子 WU 走 claim 涌现；excludeAssignee 禁自领；同父唯一性 flock 锁
+- **F4 review 派发**：父 in_review -> 建未指派 review 子 WU 走 claim 涌现；excludeAssignee 禁自领；同父唯一性 flock 锁。#466 起 review-dispatcher 先查频道路由表 review 档（channels/routing.ts）：命中则指名评审角色（assigneeId 硬约束取代涌现+排除）；路由=实现者本人/角色 inactive/移出频道 → 回池涌现（现状语义不变）+ 频道出声提醒
 - **R3 评审契约**：评审子 WU scope = diff-only+`+code-review`；needs-info -> 转人工
 - **不派评审类型**：decision/spec/analysis 走人工 in_review
 - **F6 台账**：COMPLETE 前验证守卫写 l1；`POST /workunits/:id/verify` 人工重跑；`POST /workunits/:id/dispatch-review` 人工补派
