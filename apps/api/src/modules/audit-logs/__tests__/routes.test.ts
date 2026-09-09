@@ -11,10 +11,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // ── #359: 分页 clamp 测试用 AuditService mock（hoisted，先于 router import）──
 const mockAuditQuery = vi.hoisted(() => vi.fn());
+const mockAuditExport = vi.hoisted(() => vi.fn());
 
 vi.mock('@dommaker/studio-audit', () => ({
   AuditService: vi.fn().mockImplementation(function () {
-    return { query: mockAuditQuery };
+    return { query: mockAuditQuery, export: mockAuditExport };
   }),
   AuditActions: { LOGIN: 'login' },
   AuditResources: { USER: 'user' },
@@ -103,5 +104,65 @@ describe('audit-logs GET / 分页 clamp (#359)', () => {
     await invokeList({ page: '0', limit: '-5' });
     expect(mockAuditQuery.mock.calls[0][0].page).toBe(1);
     expect(mockAuditQuery.mock.calls[0][0].limit).toBe(1);
+  });
+});
+
+/**
+ * GET /export 过滤透传：action/resource/status 必须进 service.export。
+ * 修复前路由层静默丢弃这三个参数（E7 前端已带上），导出与列表口径不一致。
+ */
+describe('audit-logs GET /export 过滤透传', () => {
+  function createReq(query: Record<string, unknown>) {
+    return { method: 'GET', url: '/export', headers: {}, query, params: {}, body: {}, get: () => undefined } as any;
+  }
+  function createRes() {
+    const res: Record<string, any> = {};
+    res.status = vi.fn(() => res);
+    res.json = vi.fn(() => res);
+    res.setHeader = vi.fn(() => res);
+    return res as any;
+  }
+  async function invokeExport(query: Record<string, unknown>) {
+    const layer = (router as any).stack.find(
+      (l: any) => l.route && l.route.path === '/export' && l.route.methods.get,
+    );
+    const handler = layer.route.stack[layer.route.stack.length - 1].handle;
+    const res = createRes();
+    await handler(createReq(query), res, () => undefined);
+    return res;
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockAuditExport.mockResolvedValue([]);
+  });
+
+  it('GET /export 注册在 GET /:id 之前，不被通配路由遮蔽（历史 bug 回归保护）', () => {
+    const order = flattenRoutes(router).map(r => `${r.method} ${r.path}`);
+    expect(order.indexOf('GET /export')).toBeGreaterThanOrEqual(0);
+    expect(order.indexOf('GET /export')).toBeLessThan(order.indexOf('GET /:id'));
+  });
+
+  it('action/resource/status 透传到 service.export（不再静默丢弃）', async () => {
+    await invokeExport({ action: 'login', resource: 'user', status: 'failure' });
+    expect(mockAuditExport).toHaveBeenCalledTimes(1);
+    const q = mockAuditExport.mock.calls[0][0];
+    expect(q.action).toBe('login');
+    expect(q.resource).toBe('user');
+    expect(q.status).toBe('failure');
+  });
+
+  it('userId/companyId/时间范围保持透传（回归保护）', async () => {
+    await invokeExport({
+      userId: 'u1',
+      companyId: 'c1',
+      startTime: '2026-09-01T00:00:00.000Z',
+      endTime: '2026-09-02T00:00:00.000Z',
+    });
+    const q = mockAuditExport.mock.calls[0][0];
+    expect(q.userId).toBe('u1');
+    expect(q.companyId).toBe('c1');
+    expect(q.startTime).toEqual(new Date('2026-09-01T00:00:00.000Z'));
+    expect(q.endTime).toEqual(new Date('2026-09-02T00:00:00.000Z'));
   });
 });
