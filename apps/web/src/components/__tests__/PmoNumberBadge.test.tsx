@@ -15,11 +15,11 @@ describe('PmoNumberBadge', () => {
     expect(badge.textContent).toBe('PMO-1');
   });
 
-  it('PmoNumberLink 点击 SPA 导航至 /project/:projectId', () => {
+  it('PmoNumberLink 点击 SPA 导航至 /pmo/project/:projectId（#474：/project/ 旧路由已收编）', () => {
     render(<PmoNumberLink pmoNumber="PMO-1" projectId="p1" />);
     fireEvent.click(screen.getByText('PMO-1'));
 
-    expect(mockNavigate).toHaveBeenCalledWith('/project/p1');
+    expect(mockNavigate).toHaveBeenCalledWith('/pmo/project/p1');
   });
 
   it('PmoNumberLink 无 projectId 时不导航', () => {

@@ -52,7 +52,8 @@ export function PmoNumberLink({
   const navigate = useNavigate();
   const handleClick = () => {
     if (projectId) {
-      navigate(`/project/${projectId}`);
+      // #474：项目详情唯一入口 /pmo/project/:id（/project/ 旧路由由 App 重定向兜底）
+      navigate(`/pmo/project/${projectId}`);
     }
   };
 
