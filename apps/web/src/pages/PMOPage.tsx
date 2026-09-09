@@ -145,26 +145,28 @@ export function PMOPage({ companyId }: PMOPageProps) {
       <div className="u-page-head">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="page-title">📊 PMO 管理</h1>
+            <h1 className="page-title">PMO 管理</h1>
             <p className="page-subtitle">项目组合 + OKR 管理</p>
           </div>
         </div>
       </div>
 
-      {/* Tabs — #432 B8：左对齐自适应宽（参照 KnowledgePage tab bar），不均分全宽 */}
-      <div className="px-8 py-4">
-        <div className="inline-flex gap-2 p-1 rounded u-surface-0">
+      {/* Tabs — E3（2026-09 页面重设计）：border-b 形态（批次 D-4 定 KnowledgePage 为正本）+ 去 emoji */}
+      <div className="px-8 pt-4">
+        <div className="flex gap-1 mb-4 overflow-x-auto pb-1 border-b u-border">
           <button
             onClick={() => setActiveTab('projects')}
-            className={`py-2 px-4 rounded text-sm font-medium ${activeTab === 'projects' ? 'u-surface u-accent' : 'u-text-2'}`}
+            className={`px-4 py-2 text-sm rounded-t-lg whitespace-nowrap ${activeTab === 'projects' ? 'u-surface u-accent' : 'u-text-3'}`}
+            style={{ borderBottom: activeTab === 'projects' ? '2px solid var(--accent-primary)' : '2px solid transparent' }}
           >
-            📁 项目 ({projects.length})
+            项目 ({projects.length})
           </button>
           <button
             onClick={() => setActiveTab('okr')}
-            className={`py-2 px-4 rounded text-sm font-medium ${activeTab === 'okr' ? 'u-surface u-accent' : 'u-text-2'}`}
+            className={`px-4 py-2 text-sm rounded-t-lg whitespace-nowrap ${activeTab === 'okr' ? 'u-surface u-accent' : 'u-text-3'}`}
+            style={{ borderBottom: activeTab === 'okr' ? '2px solid var(--accent-primary)' : '2px solid transparent' }}
           >
-            🎯 OKR ({okrs.length})
+            OKR ({okrs.length})
           </button>
         </div>
       </div>

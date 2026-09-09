@@ -128,26 +128,30 @@ describe('AC-5: PMO 驾驶舱', { testTimeout: 15000 }, () => {
     });
   });
 
-  it('头部：原始需求块 + 状态 stepper（当前阶段高亮）+ 去频道', async () => {
+  it('头部：原始需求块 + 阶段步条（当前阶段高亮）+ 去频道', async () => {
     renderDetail();
 
     await waitFor(() => {
-      expect(screen.getByText('🚦 进度管道')).toBeTruthy();
+      expect(screen.getByText('进度管道')).toBeTruthy();
     });
 
-    // 原始需求可折叠块（短文本全量显示，无展开按钮）
+    // 原始需求可折叠块（短文本全量显示，无展开按钮）——E3 起自页头移入收起层，行为不变
     expect(screen.getByText('原始需求')).toBeTruthy();
     expect(screen.getByText('做一个驾驶舱页面，展示进度管道与文档')).toBeTruthy();
 
-    // stepper 四阶段（#399 §8.3 项目阶段专用词：讨论→开发→验收→交付）；active 为当前阶段（高亮 pill）
+    // E3：阶段步条复用 wu-bstep/StationStepper 视觉语言（pill 步条废弃）；
+    // 四阶段（#399 §8.3 项目阶段专用词：讨论→开发→验收→交付）；active 为当前阶段（wu-st-current 高亮）
     expect(screen.getByText('讨论')).toBeTruthy();
     expect(screen.getByText('验收')).toBeTruthy();
     expect(screen.getByText('交付')).toBeTruthy();
-    const current = screen.getByText('开发', { selector: 'span.rounded-full' });
-    expect(current.className).toContain('u-accent-bg');
+    const current = screen.getByText('开发', { selector: '.wu-st-label' });
+    expect(current.closest('.wu-bstep')!.className).toContain('wu-st-current');
+    // 已过阶段 = wu-st-done
+    const done = screen.getByText('讨论', { selector: '.wu-st-label' });
+    expect(done.closest('.wu-bstep')!.className).toContain('wu-st-done');
 
-    // 去频道按钮（channelId 存在时）
-    expect(screen.getByRole('button', { name: /去频道/ })).toBeTruthy();
+    // 去频道按钮（channelId 存在时；E3 降级为 btn-secondary 次按钮，去 💬）
+    expect(screen.getByRole('button', { name: '去频道' })).toBeTruthy();
   });
 
   it('进度管道：总进度 x/y + 五泳道分组 + WU 小卡（类型/状态/证据徽章/认领人/耗时）', async () => {
@@ -205,13 +209,35 @@ describe('AC-5: PMO 驾驶舱', { testTimeout: 15000 }, () => {
     mockGetProject.mockResolvedValue({ data: { ...mockProject, channelId: null } });
     renderDetail();
 
-    await waitFor(() => expect(screen.getByText('🚦 进度管道')).toBeTruthy());
-    expect(screen.queryByRole('button', { name: /去频道/ })).toBeNull();
+    await waitFor(() => expect(screen.getByText('进度管道')).toBeTruthy());
+    expect(screen.queryByRole('button', { name: '去频道' })).toBeNull();
+  });
+
+  it('E3：项目动态默认折叠（「最近 N 条动态」），点击展开后可见条目', async () => {
+    renderDetail();
+    await waitFor(() => expect(screen.getByText(/项目动态 · 最近 \d+ 条/)).toBeTruthy());
+
+    // 折叠态：条目不在 DOM（WU 标题在管道区也有，按动态专属文案「领取了」断言）
+    expect(screen.queryByText((_, el) =>
+      el?.tagName === 'LI' && (el.textContent ?? '').includes('领取了'))).toBeNull();
+
+    // 展开后可见
+    fireEvent.click(screen.getByRole('button', { name: '展开' }));
+    await waitFor(() => {
+      expect(screen.getByText((_, el) =>
+        el?.tagName === 'LI' && (el.textContent ?? '').includes('dev 领取了 「设计管道 UI」'))).toBeTruthy();
+    });
+    // 再点收起
+    fireEvent.click(screen.getByRole('button', { name: '收起' }));
+    expect(screen.queryByText((_, el) =>
+      el?.tagName === 'LI' && (el.textContent ?? '').includes('领取了'))).toBeNull();
   });
 
   it('项目动态：领取/完成/新增条目拼装，标题可点跳 WU 详情', async () => {
     renderDetail();
     await waitFor(() => expect(screen.getByText(/项目动态/)).toBeTruthy());
+    // E3：动态默认折叠，先展开
+    fireEvent.click(screen.getByRole('button', { name: '展开' }));
 
     // 「dev 领取了「设计管道 UI」」（文本跨节点，按 li textContent 断言）
     await waitFor(() => {

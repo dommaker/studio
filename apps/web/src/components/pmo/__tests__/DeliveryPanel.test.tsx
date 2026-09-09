@@ -98,7 +98,7 @@ describe('DeliveryPanel', () => {
   it('渲染台账概览 + 在途徽标 + 缺口行动行（缺层人话文案 + 行动按钮）', () => {
     renderPanel();
 
-    expect(screen.getByText('📦 交付')).toBeTruthy();
+    expect(screen.getByText('交付', { selector: 'h3' })).toBeTruthy();
     expect(screen.getByText('🔄 进行中 2/3')).toBeTruthy();
     // #399 §8.3 词表：WU→任务；证据三级白话
     expect(screen.getByText('任务: 2/3 完成')).toBeTruthy();

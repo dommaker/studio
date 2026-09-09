@@ -126,7 +126,7 @@ describe('NextActionCard：下一个该干什么', () => {
   it('决策单 → 「先拍板这个待决问题」，点击跳 WU', () => {
     renderCard({ id: 'wu-d1', title: '待决问题 PMO-1: 存储选型？', type: 'decision' });
 
-    expect(screen.getByText('👉 下一个该干什么')).toBeTruthy();
+    expect(screen.getByText('下一个该干什么')).toBeTruthy();
     expect(screen.getByText('先拍板这个待决问题')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: '待决问题 PMO-1: 存储选型？' }));
     expect(screen.getByText('WU 详情页')).toBeTruthy();

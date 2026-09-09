@@ -112,7 +112,7 @@ describe('#114：PMO 地图区 + 下一个该干什么', { testTimeout: 15000 },
   it('地图区：目标 / 待决问题（徽章按决策单真实状态）/ 结论时间线 / 依赖图', async () => {
     renderDetail();
 
-    await waitFor(() => expect(screen.getByText('🗺️ 地图')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('地图', { selector: 'h3' })).toBeTruthy());
     expect(screen.getByText('把订单系统拆成前后台两条线')).toBeTruthy();
 
     // 徽章：fog-1 已定；fog-2 决策单 wu-d2 在审（workunitApi.get 拉回 in_review）→ 待确认；fog-3 未建单 → 待认领
@@ -137,7 +137,7 @@ describe('#114：PMO 地图区 + 下一个该干什么', { testTimeout: 15000 },
   it('下一个该干什么：本 PMO 可认领的决策单（他 PMO 与依赖未清的不算）', async () => {
     renderDetail();
 
-    await waitFor(() => expect(screen.getByText('👉 下一个该干什么')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('下一个该干什么')).toBeTruthy());
     // #350 nextAction 改由 project 落地后级联重拉：候选项晚一帧落地，断言等它
     await waitFor(() => expect(screen.getByRole('button', { name: '待决问题 PMO-11: 队列方案？' })).toBeTruthy());
     expect(screen.getByText('先拍板这个待决问题')).toBeTruthy();
@@ -158,8 +158,8 @@ describe('#114：PMO 地图区 + 下一个该干什么', { testTimeout: 15000 },
     renderDetail();
 
     await waitFor(() => expect(screen.getByText('探路项目')).toBeTruthy());
-    expect(screen.queryByText('🗺️ 地图')).toBeNull();
-    await waitFor(() => expect(screen.getByText('👉 下一个该干什么')).toBeTruthy());
+    expect(screen.queryByText('地图', { selector: 'h3' })).toBeNull();
+    await waitFor(() => expect(screen.getByText('下一个该干什么')).toBeTruthy());
     expect(screen.getByText('可以认领开工')).toBeTruthy();
   });
 
@@ -168,7 +168,7 @@ describe('#114：PMO 地图区 + 下一个该干什么', { testTimeout: 15000 },
     mockWuGet.mockRejectedValue(new Error('boom'));
     renderDetail();
 
-    await waitFor(() => expect(screen.getByText('🗺️ 地图')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('地图', { selector: 'h3' })).toBeTruthy());
     // 下一个该干什么空态
     expect(screen.getByText('暂无可认领的任务（依赖未清或都已有人在做）')).toBeTruthy();
     // fog-2 状态拉不到 → 待认领兜底（fog-1 已定不受影响）
