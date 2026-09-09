@@ -19,6 +19,7 @@
  *   POST   /api/v1/workunits/:id/opportunities/:oppId/ignore — #163 巡检机会忽略（终态，可附理由）
  *   POST   /api/v1/workunits/:id/resume — #185（决策 #87 D2）：Web 按钮通道「继续执行」（与回复路径共享复活原语）
  *   POST   /api/v1/workunits/:id/close  — #185（决策 #87 D2）：Web 按钮通道「关闭任务」（死信显式关闭路径）
+ *   POST   /api/v1/workunits/:id/ruling — #467：裁决轮一次性提交（采纳/打回重议；批量落探路台账 + 复活同会话）
  *
  * 涌现路径 (AS-025 §5.15):
  *   POST   /api/v1/workunits/from-message — convert ChannelMessage to WorkUnit
@@ -40,6 +41,7 @@ import { aggregateTreeTokens } from '../agents/token-usage.service.js';
 import { CODE_WORKTREE_TYPES, resolveVerifyCommands, runWuVerification } from '../agents/loop/wu-verification.js';
 import { channelMessageService } from '../channels/channel-message.service.js';
 import { resumeBlockedWorkUnitFromWeb, closeBlockedWorkUnitFromWeb } from './waiting-input.js';
+import { applyPlanRuling, validateRulingItems, PlanRulingError } from '../pmo/plan-ruling.js';
 import { claimWorkUnitAndAnnounce } from './claim-announce.js';
 import { listWorkUnitChangedFiles } from './wu-changed-files.js';
 import { getErrorMessage } from '../../utils/errors.js';
@@ -562,6 +564,43 @@ router.post('/:id/resume', requireAuth(), requireNotGuest(), async (req: Request
     const updated = await service.getById(req.params.id);
     res.json(updated);
   } catch (error) {
+    res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: getErrorMessage(error) } });
+  }
+});
+
+/**
+ * POST /:id/ruling — #467：裁决轮一次性提交（human-only，结构化表单通道）。
+ * plan 会话 fog 调研齐后出一次裁决卡（NEED_INPUT + RULING 行 → metadata.planRulings）；
+ * 人一次操作（全对 / 单题修改 / 某题打回重议）经本端点提交：applyPlanRuling 批量落探路台账
+ * （decisions[] + fog resolved/open）+ 组合裁决结果文本复活同会话（pendingReplies 注入）。
+ * 前置守卫：仅 blocked 且 metadata.planRulings 非空（裁决轮挂起中）；载荷非法 → 400。
+ */
+router.post('/:id/ruling', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
+  try {
+    const wu = await service.getById(req.params.id);
+    if (!wu) {
+      return res.status(404).json({
+        error: { code: 'NOT_FOUND', message: `WorkUnit ${req.params.id} not found` },
+      });
+    }
+    if (wu.status !== 'blocked') {
+      return res.status(409).json({
+        error: { code: 'NOT_BLOCKED', message: `WorkUnit 当前状态为 ${wu.status}，仅 blocked（裁决轮挂起）可提交裁决` },
+      });
+    }
+    const meta = parseWuMetadata(wu.metadata);
+    if (!Array.isArray(meta.planRulings) || meta.planRulings.length === 0) {
+      return res.status(409).json({
+        error: { code: 'NO_PENDING_RULING', message: '该任务无待裁的裁决轮（planRulings 为空）' },
+      });
+    }
+    const items = validateRulingItems(req.body?.items);
+    const updated = await applyPlanRuling(req.params.id, items, fileStore);
+    res.json(updated);
+  } catch (error) {
+    if (error instanceof PlanRulingError) {
+      return res.status(400).json({ error: { code: 'INVALID_RULING', message: getErrorMessage(error) } });
+    }
     res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: getErrorMessage(error) } });
   }
 });

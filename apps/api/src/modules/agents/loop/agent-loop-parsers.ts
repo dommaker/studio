@@ -7,6 +7,7 @@ import { join } from 'path';
 import * as os from 'os';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import { ANALYSIS_TASKS_MAX, INSPECTION_OPPORTUNITIES_MAX, type WorkUnitData } from '../../workunit/workunit.service.js';
+import { MAP_OPENING_FOG_MAX } from '../../pmo/map-opening.js';
 import type { ParsedReviewReport } from './review-contract.js';
 import type { StepResult, Observations, Target } from './agent-loop.types.js';
 
@@ -82,6 +83,9 @@ export function parseAgentOutput(text: string): StepResult {
       if (result.action === 'need_input') {
         const options = parseNeedInputOptions(lines[i + 1]);
         if (options) result.options = options;
+        // #467：裁决轮——NEED_INPUT 紧随的 RULING: 行（可与 OPTIONS 共存）
+        const rulings = parseRulingLines(lines.slice(i + 1));
+        if (rulings) result.rulings = rulings;
       }
       return result;
     }
@@ -91,6 +95,7 @@ export function parseAgentOutput(text: string): StepResult {
 
 /** #279：解析 NEED_INPUT 下一行的 OPTIONS: JSON 数组；非法输入一律返回 undefined */
 function parseNeedInputOptions(line: string | undefined): StepResult['options'] {
+
   const match = line?.match(/^OPTIONS:\s*(.+)$/);
   if (!match) return undefined;
   try {
@@ -108,6 +113,37 @@ function parseNeedInputOptions(line: string | undefined): StepResult['options'] 
   } catch {
     return undefined;
   }
+}
+
+/**
+ * #467：解析 NEED_INPUT 后续的 RULING: JSON 行（plan 裁决轮契约，见 prompt-composer
+ * CONTRACT_TEMPLATES.plan）。每行一条 `RULING: {"question":"...","suggestion":"...","default":"..."（可省）}`；
+ * 裁决行须连续紧随 NEED_INPUT（OPTIONS 行可夹杂，首个其他行即出区）；JSON 损坏行跳过、
+ * question/suggestion 缺或非串的条目丢弃；封顶 MAP_OPENING_FOG_MAX 条、字段截 300 字符；
+ * 无合法行返回 undefined（调用方据此不落 planRulings，NEED_INPUT 本体解析不受影响）。
+ */
+function parseRulingLines(lines: string[]): StepResult['rulings'] {
+  const rulings: NonNullable<StepResult['rulings']> = [];
+  for (const line of lines) {
+    if (/^OPTIONS:/.test(line)) continue; // #279 选项行与裁决行可共存
+    if (!/^RULING:/.test(line)) break; // 裁决行连续紧随 NEED_INPUT；首个其他行即出区
+    const match = line.match(/^RULING:\s*(\{.*\})\s*$/);
+    if (!match) continue; // 形坏（非 JSON 对象形）跳过，不阻断后续裁决行
+    try {
+      const parsed = JSON.parse(match[1]) as { question?: unknown; suggestion?: unknown; default?: unknown };
+      if (typeof parsed.question !== 'string' || !parsed.question.trim()) continue;
+      if (typeof parsed.suggestion !== 'string' || !parsed.suggestion.trim()) continue;
+      rulings.push({
+        question: parsed.question.trim().slice(0, ANALYSIS_TASK_MAX_CHARS),
+        suggestion: parsed.suggestion.trim().slice(0, ANALYSIS_TASK_MAX_CHARS),
+        ...(typeof parsed.default === 'string' && parsed.default.trim()
+          ? { default: parsed.default.trim().slice(0, ANALYSIS_TASK_MAX_CHARS) }
+          : {}),
+      });
+      if (rulings.length >= MAP_OPENING_FOG_MAX) break;
+    } catch { /* JSON 损坏行跳过 */ }
+  }
+  return rulings.length > 0 ? rulings : undefined;
 }
 
 /** Dynamic sleep interval based on result */

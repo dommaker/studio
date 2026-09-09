@@ -1700,6 +1700,11 @@ export class AgentLoop {
           waitingQuestion: result.summary,
           waitingSince: new Date().toISOString(),
           waitingReminded: false,
+          // #467：裁决轮——RULING 行落档（裁决卡预填数据源）+ 挂起原因标记；
+          // 人提交裁决（POST /:id/ruling → pmo/plan-ruling.ts）后清除
+          ...(result.rulings?.length
+            ? { planRulings: result.rulings, waitingReason: 'plan-ruling' }
+            : {}),
         }
       : metadata.waitingForInput
         ? { waitingForInput: false, waitingReminded: false }
@@ -1871,9 +1876,13 @@ export class AgentLoop {
       case 'need_input':
         // 2026-07 PMO-flow UX（§6-3）：NEED_INPUT 里程碑 —— meta 带 pmoId（可解析时）+ atHuman
         // #279（决策 #250 D3）：result.options 存在时随 meta 透传，供前端渲染选项卡
+        // #467：result.rulings 存在时 meta.cardType='plan_ruling'——前端渲染裁决轮接力卡
         if (!skipResultPost) {
+          const extraMeta: MessageMeta = {};
+          if (result.options?.length) extraMeta.options = result.options;
+          if (result.rulings?.length) extraMeta.cardType = 'plan_ruling';
           await this.postToDiscussionSpace(wuId, `需要输入: ${result.summary}`, wu,
-            result.options?.length ? { options: result.options } : undefined);
+            Object.keys(extraMeta).length > 0 ? extraMeta : undefined);
         }
         // F5: 挂起 — 守卫重复 NEED_INPUT（blocked → blocked 不在 VALID_TRANSITIONS 中）
         // #178（#63 决议 2）：状态迁移前 fencing，易主即静默退出
