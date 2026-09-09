@@ -234,6 +234,12 @@ export type ReviewConfirmPayload =
   // #471：plan（一脉会话规划单）与 analysis 同形契约（destination/fog → 开图台账；tasks → 派工覆写）
   | { kind: 'analysis' | 'plan'; destination?: string; fog?: string[]; tasks?: string[] };
 
+// #467：裁决轮提交载荷（后端 apps/api workunit/ruling 路由 + pmo/plan-ruling.ts 为契约正本；
+// 镜像类型，形态照 ReviewConfirmPayload 先例）。accept 必须带 conclusion；reopen = 打回重议（只重调该题）
+export type PlanRulingPayload = {
+  items: Array<{ question: string; action: 'accept' | 'reopen'; conclusion?: string }>;
+};
+
 export const workunitApi = {
   list: (params?: {
     type?: string;
@@ -312,6 +318,10 @@ export const workunitApi = {
   /** #185（决策 #87 D2）：Web 按钮通道「关闭任务」——死信显式关闭路径（decision/spec 无 closed → 409） */
   close: (id: string) =>
     api.post<WorkUnit>(`/workunits/${id}/close`),
+
+  /** #467：裁决轮一次性提交（全对/单题修改/打回重议）——后端批量落探路台账并复活同会话 */
+  submitRuling: (id: string, payload: PlanRulingPayload) =>
+    api.post<WorkUnit>(`/workunits/${id}/ruling`, payload),
 
   getMessages: (id: string, params?: { before?: string; limit?: number }) =>
     api.get(`/workunits/${id}/messages`, { params }),

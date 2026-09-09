@@ -572,6 +572,8 @@ export function ChannelDetailPage() {
   const openWu = useCallback((wuId: string) => setDrawer({ kind: 'wu', id: wuId }), []);
   // #284（决策 #250 D6）：analysis_confirm 接力卡「去确认」——打开即弹确认对话框
   const openWuConfirm = useCallback((wuId: string) => setDrawer({ kind: 'wu', id: wuId, autoApprove: true }), []);
+  // #467：plan_ruling 裁决轮接力卡「去裁决」——打开即弹 PlanRulingDialog
+  const openWuRuling = useCallback((wuId: string) => setDrawer({ kind: 'wu', id: wuId, autoRuling: true }), []);
   const openReq = useCallback((reqId: string) => setDrawer({ kind: 'req', id: reqId }), []);
 
   // #395：覆盖态频道动态里点 REQ/WU → 收起覆盖层再开详情抽屉（窄屏不叠加两层）；
@@ -697,6 +699,7 @@ export function ChannelDetailPage() {
       waitingForInput={isWaitingForInput(msg)}
       onOpenWorkUnit={openWu}
       onOpenWorkUnitConfirm={openWuConfirm}
+      onOpenWorkUnitRuling={openWuRuling}
       onOpenRequirement={openReq}
       onInlineReply={handleInlineReply}
       fileVocabulary={fileVocabulary}
@@ -704,7 +707,7 @@ export function ChannelDetailPage() {
       highlight={highlightId === msg.id}
       {...extra}
     />
-  ), [handleAction, handleReply, findMessage, id, isWaitingForInput, openWu, openWuConfirm, openReq, handleInlineReply, fileVocabulary, wuChangedFiles, highlightId]);
+  ), [handleAction, handleReply, findMessage, id, isWaitingForInput, openWu, openWuConfirm, openWuRuling, openReq, handleInlineReply, fileVocabulary, wuChangedFiles, highlightId]);
 
   // #326：骨架占位行——degraded 消息（含 thread anchor）渲染为固定占位行，
   // 保留 data-message-id（锚点捕获/阅读位置仍可按 mid 定位）；水合后原位恢复。

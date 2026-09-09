@@ -32,7 +32,8 @@ import { errorMessage } from '../../utils/errorMessage';
 
 export type DrawerState =
   // #284（决策 #250 D6）：autoApprove = analysis_confirm 接力卡「去确认」的「打开即弹」入参
-  | { kind: 'wu'; id: string; autoApprove?: boolean }
+  // #467：autoRuling = plan_ruling 裁决轮接力卡「去裁决」的「打开即弹」入参
+  | { kind: 'wu'; id: string; autoApprove?: boolean; autoRuling?: boolean }
   | { kind: 'req'; id: string }
   | null;
 
@@ -90,7 +91,7 @@ export function WorkUnitDrawer({ drawer, onClose, onOpenWu, onOpenReq }: Props) 
       </div>
       <div className="mc-drawer-body">
         {drawer.kind === 'wu'
-          ? <WuDetail id={drawer.id} autoApprove={drawer.autoApprove === true} onOpenReq={onOpenReq} />
+          ? <WuDetail id={drawer.id} autoApprove={drawer.autoApprove === true} autoRuling={drawer.autoRuling === true} onOpenReq={onOpenReq} />
           : <ReqChain id={drawer.id} onOpenWu={onOpenWu} />}
       </div>
     </aside>
@@ -99,7 +100,7 @@ export function WorkUnitDrawer({ drawer, onClose, onOpenWu, onOpenReq }: Props) 
 
 // ── WorkUnit 详情 ──
 
-function WuDetail({ id, autoApprove = false, onOpenReq }: { id: string; autoApprove?: boolean; onOpenReq: (reqId: string) => void }) {
+function WuDetail({ id, autoApprove = false, autoRuling = false, onOpenReq }: { id: string; autoApprove?: boolean; autoRuling?: boolean; onOpenReq: (reqId: string) => void }) {
   const navigate = useNavigate();
   const [wu, setWu] = useState<WorkUnit | null>(null);
   const [tokens, setTokens] = useState<WorkunitTokenEvent[] | null>(null);
@@ -277,8 +278,9 @@ function WuDetail({ id, autoApprove = false, onOpenReq }: { id: string; autoAppr
       <div style={{ margin: '4px 0 8px' }}>{gateActions}</div>
 
       {/* #185（决策 #87 D4）：blocked 处置组件（继续执行/关闭任务），与详情页同一组件；
+          #467：plan-ruling 挂起时另出「去裁决」（PlanRulingDialog，autoRuling = 接力卡打开即弹）。
           动作成功后重拉一次详情兜底（状态变化另有 status_changed SSE 负载直更） */}
-      <BlockedActions wu={wu} onChanged={() => {
+      <BlockedActions wu={wu} autoRuling={autoRuling} onChanged={() => {
         workunitApi.get(id).then(r => setWu(r.data)).catch(() => {});
       }} />
 
