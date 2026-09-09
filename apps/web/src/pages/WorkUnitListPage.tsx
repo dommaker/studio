@@ -15,6 +15,8 @@ import { useWebSocketContext } from '../api/websocketHooks';
 import { Select } from '../components/ui';
 import { MetaStrip } from '../components/ui/MetaStrip';
 import { formatShortTime } from '../utils/datetime';
+import { toast } from '../utils/toast';
+import { serverErrorMessage } from '../utils/errorMessage';
 import '../styles/workunits.css';
 
 /** F6：WU 展示状态唯一派生口径（铁律：禁止各自读 metadata.attestations 解释） */
@@ -43,6 +45,8 @@ export function WorkUnitListPage() {
   const [newScope, setNewScope] = useState('');
   const [newType, setNewType] = useState('task');
   const [creating, setCreating] = useState(false);
+  // 批次A 项4：创建失败内联错误（原 console.error 静默）
+  const [createError, setCreateError] = useState<string | null>(null);
   const [humanOnly, setHumanOnly] = useState(false);
   const [searchParams] = useSearchParams();
 
@@ -76,12 +80,14 @@ export function WorkUnitListPage() {
   const handleCreate = async () => {
     if (!newScope.trim()) return;
     setCreating(true);
+    setCreateError(null);
     try {
       await createWorkUnit({ scope: newScope.trim(), type: newType });
       setNewScope('');
       setShowCreate(false);
     } catch (e) {
-      console.error('Create WorkUnit failed:', e);
+      // 批次A 项4：失败内联进创建表单（服务端 error.message 优先）
+      setCreateError(serverErrorMessage(e) ?? '创建失败，请重试');
     } finally {
       setCreating(false);
     }
@@ -180,6 +186,7 @@ export function WorkUnitListPage() {
                   {creating ? '创建中...' : '创建'}
                 </button>
               </div>
+              {createError && <div className="mt-2 text-xs u-err">{createError}</div>}
             </div>
           )}
 
@@ -221,10 +228,10 @@ function WorkUnitRow({
   wu, onReviewPassed, onReviewRejected, onConfirmPending, formatTime,
 }: {
   wu: WorkUnit;
-  onReviewPassed: (summary?: string, assigneeId?: string) => void;
-  onReviewRejected: (reason?: string) => void;
+  onReviewPassed: (summary?: string, assigneeId?: string) => void | Promise<unknown>;
+  onReviewRejected: (reason?: string) => void | Promise<unknown>;
   /** #284（决策 #250 D1）：pending 人闸确认（行展开态入口，与频道抽屉同行为） */
-  onConfirmPending: () => void;
+  onConfirmPending: () => void | Promise<unknown>;
   formatTime: (ts: string | null) => string;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -234,6 +241,8 @@ function WorkUnitRow({
   // #106 M7：analysis 通过/确认弹窗——预填 agent 产出的待决问题清单（人审改后随 summary 回传开图）
   const [showApproveModal, setShowApproveModal] = useState(false);
   const [channelMembers, setChannelMembers] = useState<AgentProfile[]>([]);
+  // 批次A 项4：行闸门按钮 pending 锁存（ReviewProposalCard 同约定）+ 失败 toast，不再静默
+  const [pending, setPending] = useState(false);
   const navigate = useNavigate();
   // F6-b：徽章/按钮的展示判断一律过派生函数（通过/拒绝的调用资格仍看存储状态，
   // 因为服务端状态机以存储为准；done 缺 l3 时"确认"调同一端点幂等补写）
@@ -243,8 +252,28 @@ function WorkUnitRow({
   const depBlocked = wu.status === 'unassigned' && wu.claimable === false;
   const depIds = depBlocked ? parseBlockedBy(wu.metadata) : [];
 
+  /** 批次A 项4：行闸门动作统一入口——pending 锁存防连点 + 失败 toast（服务端 error.message 优先） */
+  const run = async (fn: () => void | Promise<unknown>) => {
+    if (pending) return;
+    setPending(true);
+    try {
+      await fn();
+    } catch (e) {
+      const m = serverErrorMessage(e);
+      toast.error(m ? `操作失败：${m}` : '操作失败，请重试');
+    } finally {
+      setPending(false);
+    }
+  };
+
   // analysis 单走确认弹窗（待决问题清单审核）；其余类型保持一键通过
-  const handleApprove = () => (wu.type === 'analysis' ? setShowApproveModal(true) : onReviewPassed());
+  const handleApprove = () => {
+    if (wu.type === 'analysis') {
+      setShowApproveModal(true);
+    } else {
+      void run(() => onReviewPassed());
+    }
+  };
 
   // AC-2.4: expanded 时获取频道成员，用于 ReviewHint 判断是否有 reviewer
   useEffect(() => {
@@ -309,12 +338,14 @@ function WorkUnitRow({
             <>
               <button
                 className="text-xs px-2 py-1 rounded u-ok-dim u-ok u-hover-bg"
+                disabled={pending}
                 onClick={e => { e.stopPropagation(); handleApprove(); }}
               >
                 通过
               </button>
               <button
                 className="text-xs px-2 py-1 rounded u-err-dim u-err u-hover-bg"
+                disabled={pending}
                 onClick={e => { e.stopPropagation(); setShowRejectModal(true); }}
               >
                 拒绝
@@ -326,6 +357,7 @@ function WorkUnitRow({
           {wu.status === 'done' && derived.needsHuman && (
             <button
               className="text-xs px-2 py-1 rounded u-ok-dim u-ok u-hover-bg"
+              disabled={pending}
               title="流程已由 Agent 评审推进完成；此确认为人工确认留痕，不阻断流程，确认后出审查列"
               onClick={e => { e.stopPropagation(); handleApprove(); }}
             >
@@ -365,8 +397,9 @@ function WorkUnitRow({
             <div className="mt-2">
               <button
                 className="text-xs px-2 py-1 rounded u-ok-dim u-ok u-hover-bg"
+                disabled={pending}
                 title="待确认人闸：扩范围单创建落待确认，确认后进入待领取（agent 可见可领取）"
-                onClick={onConfirmPending}
+                onClick={() => void run(onConfirmPending)}
               >
                 确认（进待领取）
               </button>
@@ -411,7 +444,11 @@ function WorkUnitRow({
         <AnalysisApproveDialog
           prefill={buildMapOpeningPrefill(wu.metadata)}
           channelId={wu.channelId}
-          onConfirm={(summary, assigneeId) => { onReviewPassed(summary, assigneeId); setShowApproveModal(false); }}
+          onConfirm={async (summary, assigneeId) => {
+            // 批次A 项7：成功才关窗（失败由弹窗内联展示错误）
+            await onReviewPassed(summary, assigneeId);
+            setShowApproveModal(false);
+          }}
           onCancel={() => setShowApproveModal(false)}
         />
       )}
@@ -441,7 +478,15 @@ function WorkUnitRow({
               </button>
               <button
                 className="btn btn-danger"
-                onClick={() => { onReviewRejected(rejectReason || undefined); setShowRejectModal(false); setRejectReason(''); }}
+                disabled={pending}
+                onClick={() => {
+                  // 批次A 项4：成功才关窗；失败 toast（run 内）且保持弹窗可重试
+                  void run(async () => {
+                    await onReviewRejected(rejectReason || undefined);
+                    setShowRejectModal(false);
+                    setRejectReason('');
+                  });
+                }}
               >
                 确认拒绝
               </button>

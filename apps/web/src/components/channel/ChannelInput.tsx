@@ -8,9 +8,10 @@ import type { AgentProfile, ChannelMessage, FileRef } from '../../api/channel';
 import { useImeEnterGuard } from '../../hooks/useImeEnterGuard';
 import { useRosterStore, activeAgentsOf } from '../../stores/rosterStore';
 import { useChannelDataStore } from '../../stores/channelDataStore';
+import { toast } from '../../utils/toast';
 
 interface Props {
-  onSend: (content: string, replyToId?: string, files?: FileRef[]) => void;
+  onSend: (content: string, replyToId?: string, files?: FileRef[]) => void | Promise<unknown>;
   sending: boolean;
   replyTo?: ChannelMessage | null;
   onCancelReply?: () => void;
@@ -175,19 +176,29 @@ export function ChannelInput({ onSend, sending, replyTo, onCancelReply, channelI
     }, 0);
   }, [content, cursorPos, mentionState]);
 
-  const handleSend = () => {
+  // 批次A 项1：await 真实发送结果——失败回灌文本/文件引用 + toast 提示
+  // （参照 ChannelMessageItem 内嵌回复「失败保留 draft」模式，发送中输入框经 sending 禁用）
+  const handleSend = async () => {
     const trimmed = content.trim();
     if (!trimmed || sending) return;
     // #281: 只上送正文仍含其路径的引用（发送前删掉路径文本 = 撤销引用）
     const refs = fileRefs.filter(f => trimmed.includes(f.path));
-    if (refs.length > 0) {
-      onSend(trimmed, replyTo?.id, refs);
-    } else {
-      onSend(trimmed, replyTo?.id);
-    }
+    // 乐观清空（原语义），失败回灌
     setContent('');
     setCursorPos(0);
     setFileRefs([]);
+    try {
+      if (refs.length > 0) {
+        await onSend(trimmed, replyTo?.id, refs);
+      } else {
+        await onSend(trimmed, replyTo?.id);
+      }
+    } catch {
+      setContent(trimmed);
+      setCursorPos(trimmed.length);
+      setFileRefs(refs);
+      toast.error('发送失败，内容已保留');
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -230,7 +241,7 @@ export function ChannelInput({ onSend, sending, replyTo, onCancelReply, channelI
     }
     if (e.key === 'Enter' && !e.shiftKey && !popupOpen) {
       e.preventDefault();
-      handleSend();
+      void handleSend();
     }
   };
 
@@ -269,7 +280,7 @@ export function ChannelInput({ onSend, sending, replyTo, onCancelReply, channelI
             disabled={sending}
           />
           <button
-            onClick={handleSend}
+            onClick={() => void handleSend()}
             disabled={sending || !content.trim()}
             className="mc-btn mc-btn-primary"
           >

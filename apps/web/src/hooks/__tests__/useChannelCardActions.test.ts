@@ -192,12 +192,22 @@ describe('useChannelCardActions — action → api 映射', () => {
     expect(mockDistillApprove).not.toHaveBeenCalled();
   });
 
-  it('api 异常 → 返回 false（knowledge approveProposal reject）', async () => {
+  it('api 异常 → 抛出提取后的错误文案（批次A 项2：不再静默归 false，卡片内联展示）', async () => {
     mockKnApprove.mockRejectedValue(new Error('boom'));
     const messages = [msg('m1', { proposalId: 'kp-1', entries: [{ id: 'k-1' }] })];
     const { dispatch, refresh } = setup(messages);
-    await expect(dispatch()('m1', 'knowledge_proposal_approve')).resolves.toBe(false);
+    await expect(dispatch()('m1', 'knowledge_proposal_approve')).rejects.toThrow('boom');
     expect(refresh).not.toHaveBeenCalled();
+  });
+
+  it('api 异常带服务端 error 信封 → 上抛信封 message（409 人话优先于 axios 裸 message）', async () => {
+    mockKnApprove.mockRejectedValue(Object.assign(new Error('Request failed with status code 409'), {
+      isAxiosError: true,
+      response: { status: 409, data: { error: { message: '该提案已被审核，不可重复操作' } } },
+    }));
+    const messages = [msg('m1', { proposalId: 'kp-1', entries: [{ id: 'k-1' }] })];
+    const { dispatch } = setup(messages);
+    await expect(dispatch()('m1', 'knowledge_proposal_approve')).rejects.toThrow('该提案已被审核，不可重复操作');
   });
 
   it('meta 为 string（存量/夹具形态）同样解析 cardData', async () => {

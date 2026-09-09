@@ -5,6 +5,8 @@
 import React, { useEffect, useState } from 'react';
 import { channelApi, type LocalProject } from '../../api/channel';
 import { Select, type SelectOption } from '../ui';
+import { toast } from '../../utils/toast';
+import { serverErrorMessage } from '../../utils/errorMessage';
 
 interface ChannelDefaultProjectSelectProps {
   channelId: string;
@@ -32,9 +34,15 @@ export const ChannelDefaultProjectSelect: React.FC<ChannelDefaultProjectSelectPr
     return () => { alive = false; };
   }, []);
 
+  // 批次A 项3：乐观选中保留，失败回滚选中值 + toast（服务端 error.message 优先，无则通用文案）
   const handleChange = (value: string) => {
+    const prev = selected;
     setSelected(value);
-    channelApi.update(channelId, { defaultPath: value }).catch(() => {});
+    channelApi.update(channelId, { defaultPath: value }).catch((e) => {
+      setSelected(prev);
+      const m = serverErrorMessage(e);
+      toast.error(m ? `保存默认工程失败：${m}` : '保存默认工程失败，已恢复原值');
+    });
   };
 
   const options: SelectOption[] = [

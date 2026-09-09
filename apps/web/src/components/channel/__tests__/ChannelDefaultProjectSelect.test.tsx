@@ -76,4 +76,36 @@ describe('ChannelDefaultProjectSelect（#272 顶栏默认工程）', () => {
       expect(screen.getByTitle('默认工程').textContent).toContain('/opt/legacy-repo');
     });
   });
+
+  // 批次A 项3：乐观选中失败回滚 + toast（原 .catch(() => {}) 假保存）
+  it('保存失败 → 选中值回滚原值 + toast 提示', async () => {
+    document.querySelector('#toast-container')?.replaceChildren(); // 只清子节点——toast.ts 模块级缓存 container 引用，remove 会让后续 toast 挂到游离节点
+    vi.mocked(channelApi.update).mockRejectedValue(new Error('network'));
+    render(<ChannelDefaultProjectSelect channelId="ch-1" defaultPath="/root/projects/dommaker" />);
+    await waitFor(() => {
+      expect(screen.getByTitle('默认工程').textContent).toContain('dommaker');
+    });
+
+    fireEvent.click(screen.getByTitle('默认工程'));
+    fireEvent.click(await screen.findByRole('option', { name: 'studio' }));
+
+    await waitFor(() => {
+      expect(screen.getByTitle('默认工程').textContent).toContain('dommaker');
+    });
+    expect(await screen.findByText('保存默认工程失败，已恢复原值')).toBeTruthy();
+  });
+
+  it('保存失败带服务端 error.message → toast 透传原因', async () => {
+    document.querySelector('#toast-container')?.replaceChildren(); // 只清子节点——toast.ts 模块级缓存 container 引用，remove 会让后续 toast 挂到游离节点
+    vi.mocked(channelApi.update).mockRejectedValue(Object.assign(new Error('Request failed with status code 400'), {
+      isAxiosError: true,
+      response: { status: 400, data: { error: { message: '路径不在扫描根下' } } },
+    }));
+    render(<ChannelDefaultProjectSelect channelId="ch-1" defaultPath={null} />);
+
+    fireEvent.click(screen.getByTitle('默认工程'));
+    fireEvent.click(await screen.findByRole('option', { name: 'studio' }));
+
+    expect(await screen.findByText('保存默认工程失败：路径不在扫描根下')).toBeTruthy();
+  });
 });

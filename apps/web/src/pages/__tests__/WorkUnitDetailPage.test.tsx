@@ -468,6 +468,37 @@ describe('WorkUnitDetailPage', () => {
     fireEvent.click(screen.getByText('确认通过'));
     await waitFor(() => expect(mockReviewPassed).toHaveBeenCalledWith('wu-1', '目标：目标\n待决：问题1', undefined));
   });
+
+  // 批次A 项5：闸门动作失败内联错误行（BlockedActions run() 同模式），不再静默
+  it('批次A 项5：审查闸门「通过」失败 → 错误行内联进闸门动作区（服务端 error.message 优先）', async () => {
+    mockWuGet.mockResolvedValue({
+      data: { ...baseWu, status: 'in_review', completedAt: null, metadata: JSON.stringify({ title: '登录功能开发' }) },
+    });
+    mockReviewPassed.mockRejectedValue(Object.assign(new Error('Request failed with status code 409'), {
+      isAxiosError: true,
+      response: { status: 409, data: { error: { message: '状态机不允许该迁移' } } },
+    }));
+    render(<WorkUnitDetailPage />);
+
+    fireEvent.click(await screen.findByText('通过（审查闸门）'));
+    expect(await screen.findByText('状态机不允许该迁移')).toBeTruthy();
+    // 失败不重拉详情（actionTick 不前进）
+    expect(mockWuGet).toHaveBeenCalledTimes(1);
+  });
+
+  it('批次A 项5：拒绝失败 → 弹窗保持打开 + 错误行进弹窗，不静默关窗', async () => {
+    mockWuGet.mockResolvedValue({
+      data: { ...baseWu, status: 'in_review', completedAt: null, metadata: JSON.stringify({ title: '登录功能开发' }) },
+    });
+    mockReviewRejected.mockRejectedValue(new Error('服务端挂了'));
+    render(<WorkUnitDetailPage />);
+
+    fireEvent.click(await screen.findByText('拒绝'));
+    fireEvent.click(screen.getByText('确认拒绝'));
+    // 错误行同时进闸门动作区与弹窗（两处同源 gateError）
+    expect((await screen.findAllByText('服务端挂了')).length).toBeGreaterThan(0);
+    expect(screen.getByText('拒绝原因')).toBeTruthy(); // 弹窗仍在
+  });
 });
 
 // #440 Phase 3：WU 详情页标题下 meta strip（涉及角色 / AC 数 / 当前阶段；缺项不占位）

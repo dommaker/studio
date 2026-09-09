@@ -266,10 +266,11 @@ export function DeliveryPanel({ projectId, delivery, onRefresh }: DeliveryPanelP
         <AnalysisApproveDialog
           prefill={approveGap.prefill}
           channelId={approveGap.channelId}
-          onConfirm={(summary, assigneeId) => {
+          onConfirm={async (summary, assigneeId) => {
+            // 批次A 项7：等动作结算后才关窗（失败 toast 在 handleGapAction 内）
             const gap = approveGap.gap;
+            await handleGapAction(gap, 'reviewPassed', summary, assigneeId);
             setApproveGap(null);
-            handleGapAction(gap, 'reviewPassed', summary, assigneeId);
           }}
           onCancel={() => setApproveGap(null)}
         />

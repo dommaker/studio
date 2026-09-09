@@ -24,7 +24,7 @@ export function ReviewProposalCard({ message, meta, onAction }: Props) {
 
 function ConfiguredProposalCard({ config, message, meta, onAction }: Props & { config: ProposalCardConfig }) {
   const cardData = meta.cardData;
-  const { reviewed, pending, armed, setArmed, act } = useProposalReview({
+  const { reviewed, pending, armed, setArmed, act, actionError } = useProposalReview({
     config,
     meta,
     messageId: message.id,
@@ -81,6 +81,8 @@ function ConfiguredProposalCard({ config, message, meta, onAction }: Props & { c
           {config.rejectLabel}
         </button>
       </div>
+      {/* 批次A 项2：审批失败内联错误行（服务端 error.message 已由 dispatch 层提取上抛） */}
+      {actionError && <div className="text-xs u-err" style={{ marginTop: 4 }}>{actionError}</div>}
     </div>
   );
 }

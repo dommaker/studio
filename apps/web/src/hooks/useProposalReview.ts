@@ -21,6 +21,8 @@ export function useProposalReview({ config, meta, messageId, onAction }: UseProp
     () => config.initialReviewed?.(meta.status) ?? null,
   );
   const [pending, setPending] = useState(false);
+  // 批次A 项2：审批失败内联错误行（dispatch 层上抛的错误文案，服务端 error.message 优先）
+  const [actionError, setActionError] = useState('');
   // #288 两步确认（高危操作，当前仅 constraint_audit）：armed=true 表示已进入待确认态，再次点击才执行
   const [armed, setArmed] = useState(false);
 
@@ -42,6 +44,7 @@ export function useProposalReview({ config, meta, messageId, onAction }: UseProp
 
   const act = async (decision: 'approve' | 'reject') => {
     setPending(true);
+    setActionError('');
     try {
       const ok = await onAction(messageId, decision === 'approve' ? config.approveAction : config.rejectAction);
       if (ok !== false) {
@@ -54,6 +57,9 @@ export function useProposalReview({ config, meta, messageId, onAction }: UseProp
           if (state) setReviewed(state);
         } catch { /* 派生失败保持待审 */ }
       }
+    } catch (e) {
+      // 批次A 项2：审批失败不静默——错误行进卡（保持待审可重试）
+      setActionError(e instanceof Error ? e.message : String(e));
     } finally {
       setPending(false);
       // #288：执行完毕（含失败重武装）退出两步确认待确认态
@@ -61,5 +67,5 @@ export function useProposalReview({ config, meta, messageId, onAction }: UseProp
     }
   };
 
-  return { reviewed, pending, armed, setArmed, act };
+  return { reviewed, pending, armed, setArmed, act, actionError };
 }

@@ -24,6 +24,7 @@ import { deriveDisplayState, parseAttestations, WU_STATUS_LABELS, formatChannelN
 import { AssigneeLabel } from '../workunit/AssigneeLabel';
 import { formatShortTime } from '../../utils/datetime';
 import { parseWuMeta } from '../../utils/wuMeta';
+import { errorMessage } from '../../utils/errorMessage';
 
 export type DrawerState =
   // #284（决策 #250 D6）：autoApprove = analysis_confirm 接力卡「去确认」的「打开即弹」入参
@@ -106,6 +107,8 @@ function WuDetail({ id, autoApprove = false, onOpenReq }: { id: string; autoAppr
   const [notFound, setNotFound] = useState(false);
   const [showTreeTokens, setShowTreeTokens] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  // 批次A 项5：闸门动作失败内联错误行（BlockedActions run() 同模式），不再静默
+  const [gateError, setGateError] = useState('');
   // #106 M7：analysis 通过/确认弹窗（共享件），非 analysis 保持一键通过
   const [showApproveModal, setShowApproveModal] = useState(false);
   // #284：in_review 拒绝入口（带原因弹窗，与列表行/详情页一致）
@@ -159,7 +162,8 @@ function WuDetail({ id, autoApprove = false, onOpenReq }: { id: string; autoAppr
       .catch(e => {
         if (!alive) return;
         if (axios.isAxiosError(e) && e.response?.status === 404) setNotFound(true);
-        else setError(e instanceof Error ? e.message : String(e));
+        // 批次A 项6：错误文案走 errorMessage 正本（服务端 error.message 优先，不再直拼 axios 裸 message）
+        else setError(errorMessage(e));
       });
     return () => { alive = false; };
   }, [id]);
@@ -210,25 +214,41 @@ function WuDetail({ id, autoApprove = false, onOpenReq }: { id: string; autoAppr
 
   /** 人工确认入口：in_review = 审查硬门（过→done；analysis 过后自动拆任务派工）；
    *  done 缺 l3 = L3 人工验收留痕（不阻断流程）。同调 reviewPassed（服务端幂等）。
-   *  决策 8：动作成功后用响应体直接更新本地 wu（状态变化另有 status_changed SSE 兜底） */
+   *  决策 8：动作成功后用响应体直接更新本地 wu（状态变化另有 status_changed SSE 兜底）。
+   *  批次A 项5：失败置 gateError 内联并 rethrow——弹窗路径（AnalysisApproveDialog）据此保持打开 */
   const handleReviewPassed = async (summary?: string, assigneeId?: string) => {
     setConfirming(true);
+    setGateError('');
     try {
       const r = await workunitApi.reviewPassed(id, summary, assigneeId);
       setWu(r.data);
+    } catch (e) {
+      setGateError(errorMessage(e));
+      throw e;
     } finally {
       setConfirming(false);
     }
   };
   // analysis 单走确认弹窗（待决问题清单审核，预填→人改→带 summary 提交）；其余类型保持一键通过
-  const handleApprove = () => (wu.type === 'analysis' ? setShowApproveModal(true) : handleReviewPassed());
+  const handleApprove = () => {
+    if (wu!.type === 'analysis') {
+      setShowApproveModal(true);
+    } else {
+      // 按钮直触路径：失败原因已内联置位，吞掉 rejection 防 unhandled
+      void handleReviewPassed().catch(() => {});
+    }
+  };
 
   /** #126（T4）待确认人闸：扩范围单（feature/task/spec）创建落 pending，人工确认 → unassigned 进 frontier 可认领 */
   const handleConfirmPending = async () => {
     setConfirming(true);
+    setGateError('');
     try {
       const r = await workunitApi.transitionStatus(id, 'unassigned');
       setWu(r.data);
+    } catch (e) {
+      setGateError(errorMessage(e));
+      throw e;
     } finally {
       setConfirming(false);
     }
@@ -237,11 +257,15 @@ function WuDetail({ id, autoApprove = false, onOpenReq }: { id: string; autoAppr
   /** #284：审查硬门拒绝（带原因），与列表行/详情页同一端点同一语义 */
   const handleReviewRejected = async () => {
     setConfirming(true);
+    setGateError('');
     try {
       const r = await workunitApi.reviewRejected(id, rejectReason.trim() || undefined);
       setWu(r.data);
       setShowRejectModal(false);
       setRejectReason('');
+    } catch (e) {
+      // 失败保持弹窗打开，错误行同时进弹窗与闸门区
+      setGateError(errorMessage(e));
     } finally {
       setConfirming(false);
     }
@@ -303,7 +327,7 @@ function WuDetail({ id, autoApprove = false, onOpenReq }: { id: string; autoAppr
             className="mc-wu-link"
             disabled={confirming}
             title="待确认人闸：扩范围单创建落待确认，确认后进入待领取（agent 可见可领取）"
-            onClick={handleConfirmPending}
+            onClick={() => { void handleConfirmPending().catch(() => { /* 失败原因已内联 */ }); }}
           >
             {confirming ? '提交中…' : '确认（进待领取）'}
           </button>
@@ -342,11 +366,17 @@ function WuDetail({ id, autoApprove = false, onOpenReq }: { id: string; autoAppr
           </button>
         </div>
       )}
+      {/* 批次A 项5：闸门动作失败内联错误行（BlockedActions 同模式） */}
+      {gateError && <div className="text-xs u-err" style={{ margin: '4px 0 8px' }}>{gateError}</div>}
       {showApproveModal && (
         <AnalysisApproveDialog
           prefill={buildMapOpeningPrefill(wu.metadata)}
           channelId={wu.channelId}
-          onConfirm={(summary, assigneeId) => { setShowApproveModal(false); handleReviewPassed(summary, assigneeId); }}
+          onConfirm={async (summary, assigneeId) => {
+            // 批次A 项7：成功才关窗（失败由弹窗内联展示，gateError 亦已置位）
+            await handleReviewPassed(summary, assigneeId);
+            setShowApproveModal(false);
+          }}
           onCancel={() => setShowApproveModal(false)}
         />
       )}
@@ -367,6 +397,8 @@ function WuDetail({ id, autoApprove = false, onOpenReq }: { id: string; autoAppr
                 value={rejectReason}
                 onChange={e => setRejectReason(e.target.value)}
               />
+              {/* 批次A 项5：拒绝失败保持弹窗打开，错误行进弹窗（闸门区同步置位） */}
+              {gateError && <p className="text-xs u-err" style={{ marginTop: 4 }}>{gateError}</p>}
             </div>
             <div className="modal-footer">
               <button

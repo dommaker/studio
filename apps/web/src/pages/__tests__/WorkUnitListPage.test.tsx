@@ -519,3 +519,84 @@ describe('WorkUnitListPage — 行与展开区重设计（Step 2）', () => {
     expect(titles).toEqual(['执行过程', '讨论']);
   });
 });
+
+// 批次A 项4：行闸门按钮 pending 锁存 + 失败 toast；handleCreate 失败内联错误（原 console.error 静默）
+describe('WorkUnitListPage — 行闸门反馈兜底（批次A 项4）', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockStore.workunits = [];
+    mockStore.statusFilter = null;
+    mockSearchParamsValue.value = '';
+    document.querySelector('#toast-container')?.replaceChildren(); // 只清子节点——toast.ts 模块级缓存 container 引用，remove 会让后续 toast 挂到游离节点
+  });
+
+  it('行「通过」pending 锁存：未结算前连击只调一次，按钮禁用', async () => {
+    let resolve: () => void = () => {};
+    mockStore.reviewPassed.mockImplementation(() => new Promise<void>(r => { resolve = r; }));
+    mockStore.workunits = [makeWu({ id: 'wu-l1', type: 'task', status: 'in_review' })];
+    render(<WorkUnitListPage />);
+
+    const btn = screen.getByText('通过').closest('button')!;
+    fireEvent.click(btn);
+    await waitFor(() => expect(btn.disabled).toBe(true));
+    expect(screen.getByText('拒绝').closest('button')!.disabled).toBe(true);
+    fireEvent.click(btn);
+    expect(mockStore.reviewPassed).toHaveBeenCalledTimes(1);
+
+    resolve();
+    await waitFor(() => expect(btn.disabled).toBe(false));
+  });
+
+  it('行「通过」失败 → toast 透传服务端 error.message，按钮恢复可点', async () => {
+    mockStore.reviewPassed.mockRejectedValue(Object.assign(new Error('Request failed with status code 409'), {
+      isAxiosError: true,
+      response: { status: 409, data: { error: { message: '状态机不允许该迁移' } } },
+    }));
+    mockStore.workunits = [makeWu({ id: 'wu-l2', type: 'task', status: 'in_review' })];
+    render(<WorkUnitListPage />);
+
+    const btn = screen.getByText('通过').closest('button')!;
+    fireEvent.click(btn);
+    expect(await screen.findByText('操作失败：状态机不允许该迁移')).toBeTruthy();
+    await waitFor(() => expect(btn.disabled).toBe(false));
+  });
+
+  it('pending 行「确认（进待领取）」失败 → toast + 不静默', async () => {
+    mockStore.confirmPending.mockRejectedValue(new Error('boom'));
+    mockStore.workunits = [makeWu({ id: 'wu-l3', type: 'task', status: 'pending' })];
+    render(<WorkUnitListPage />);
+
+    fireEvent.click(screen.getByText('ID: wu-l3...'));
+    fireEvent.click(await screen.findByText('确认（进待领取）'));
+    expect(await screen.findByText('操作失败，请重试')).toBeTruthy();
+  });
+
+  it('handleCreate 失败 → 内联错误行进创建表单（原 console.error 静默）', async () => {
+    mockStore.createWorkUnit.mockRejectedValue(Object.assign(new Error('Request failed with status code 400'), {
+      isAxiosError: true,
+      response: { status: 400, data: { error: { message: 'scope 不能为空' } } },
+    }));
+    render(<WorkUnitListPage />);
+
+    fireEvent.click(screen.getByText('+ 新建'));
+    fireEvent.change(screen.getByPlaceholderText('例：实现用户登录功能'), { target: { value: '新任务' } });
+    fireEvent.click(screen.getByText('创建'));
+
+    expect(await screen.findByText('scope 不能为空')).toBeTruthy();
+    // 表单保持打开可重试
+    expect(screen.getByPlaceholderText('例：实现用户登录功能')).toBeTruthy();
+  });
+
+  it('analysis 弹窗确认失败 → 弹窗不关 + 内联错误（批次A 项7 成功才关窗）', async () => {
+    mockStore.reviewPassed.mockRejectedValue(new Error('服务端挂了'));
+    mockStore.workunits = [makeWu({ id: 'wu-l4', status: 'in_review' })]; // 默认 type=analysis
+    render(<WorkUnitListPage />);
+
+    fireEvent.click(screen.getByText('通过'));
+    fireEvent.click(await screen.findByText('确认通过'));
+
+    expect(await screen.findByText('服务端挂了')).toBeTruthy();
+    // 弹窗仍在（成功才关窗）
+    expect(screen.getByText('确认分析结论')).toBeTruthy();
+  });
+});

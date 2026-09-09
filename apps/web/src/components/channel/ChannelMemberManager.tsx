@@ -10,6 +10,8 @@ import { useDetectedProviders, buildProviderOptions } from '../../hooks/useDetec
 import { useRosterStore, activeAgentsOf } from '../../stores/rosterStore';
 import { useChannelDataStore } from '../../stores/channelDataStore';
 import { Select } from '../ui';
+import { toast } from '../../utils/toast';
+import { serverErrorMessage } from '../../utils/errorMessage';
 
 interface ChannelMemberManagerProps {
   channelId: string;
@@ -84,13 +86,15 @@ export const ChannelMemberManager: React.FC<ChannelMemberManagerProps> = ({ chan
   }, [isOpen]);
 
   // 写穿以调用完成时刻的 store 最新值为基（不从渲染闭包取 memberIds——await 期间可能已被并发修改）
+  // 批次A 项8：增删失败 toast（服务端 error.message 优先），不再 console.error 静默
   const handleAdd = async (agentId: string) => {
     try {
       await channelApi.updateMembers(channelId, { add: [agentId] });
       const cur = useChannelDataStore.getState().members[channelId] ?? [];
       useChannelDataStore.getState().setMembers(channelId, [...new Set([...cur, agentId])]);
     } catch (e) {
-      console.error('Failed to add member', e);
+      const m = serverErrorMessage(e);
+      toast.error(m ? `添加成员失败：${m}` : '添加成员失败，请重试');
     }
   };
 
@@ -100,7 +104,8 @@ export const ChannelMemberManager: React.FC<ChannelMemberManagerProps> = ({ chan
       const cur = useChannelDataStore.getState().members[channelId] ?? [];
       useChannelDataStore.getState().setMembers(channelId, cur.filter((id) => id !== agentId));
     } catch (e) {
-      console.error('Failed to remove member', e);
+      const m = serverErrorMessage(e);
+      toast.error(m ? `移除成员失败：${m}` : '移除成员失败，请重试');
     }
   };
 

@@ -8,13 +8,14 @@ vi.mock('react', async () => {
   return { ...actual, default: actual };
 });
 
-const { mockListAllAgents, mockListChannels, mockGetAgentSummary, mockWuList, mockWuGet, mockListExecSteps, sse } = vi.hoisted(() => ({
+const { mockListAllAgents, mockListChannels, mockGetAgentSummary, mockWuList, mockWuGet, mockListExecSteps, mockTerminateInstance, sse } = vi.hoisted(() => ({
   mockListAllAgents: vi.fn(),
   mockListChannels: vi.fn(),
   mockGetAgentSummary: vi.fn(),
   mockWuList: vi.fn(),
   mockWuGet: vi.fn(),
   mockListExecSteps: vi.fn(),
+  mockTerminateInstance: vi.fn(),
   // SSE 注册口捕获（#318：页面与内嵌 ExecutionSteps 都经 useWebSocketContext 订阅，广播全体）
   sse: {
     handlers: [] as Array<(msg: { event_type: string; data: unknown }) => void>,
@@ -31,7 +32,7 @@ vi.mock('react-router-dom', () => ({
 }));
 
 vi.mock('../../api/monitoring', () => ({
-  monitoringApi: { getAgentSummary: mockGetAgentSummary },
+  monitoringApi: { getAgentSummary: mockGetAgentSummary, terminateInstance: mockTerminateInstance },
 }));
 
 vi.mock('../../api/channel', () => ({
@@ -392,5 +393,50 @@ describe('AgentDetailPage — #433 信息密度', () => {
     const grid = document.querySelector('.agent-detail-grid');
     expect(grid).toBeTruthy();
     expect(grid!.textContent).toContain('历史总数');
+  });
+});
+
+// 批次A 项7：强制停止 ConfirmDialog 补 loading——提交期间双键禁用 + 遮罩屏蔽；失败关窗出页顶错误条
+describe('AgentDetailPage — 强制停止提交反馈（批次A 项7）', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetRosterStore();
+    sse.handlers.length = 0;
+    sse.reconnects.length = 0;
+    mockApis();
+    mockListChannels.mockResolvedValue({ data: { success: true, data: [{ id: 'ch1', name: 'backend', type: 'dev' }] } });
+    mockListExecSteps.mockResolvedValue({ data: { events: [], total: 0 } });
+    mockWuList.mockResolvedValue({ data: { data: [], pagination: { page: 1, limit: 20, total: 0, totalPages: 1 } } });
+    mockTerminateInstance.mockResolvedValue({});
+  });
+
+  it('确认停止未结算期间 loading（确认键 aria-busy + 禁用），结算后关窗并调 terminateInstance', async () => {
+    let resolve: () => void = () => {};
+    mockTerminateInstance.mockImplementation(() => new Promise<void>(r => { resolve = r; }));
+    render(<AgentDetailPage />);
+    fireEvent.click(await screen.findByText('强制停止'));
+    const confirmBtn = screen.getByText('确认停止').closest('button')!;
+    fireEvent.click(confirmBtn);
+
+    await waitFor(() => expect(confirmBtn.getAttribute('aria-busy')).toBe('true'));
+    expect(confirmBtn.disabled).toBe(true);
+    expect(mockTerminateInstance).toHaveBeenCalledWith('i1');
+
+    resolve();
+    // 成功关窗
+    await waitFor(() => expect(screen.queryByText('确认停止')).toBeNull());
+  });
+
+  it('terminate 失败 → 关窗 + 页顶错误条透传服务端 error.message', async () => {
+    mockTerminateInstance.mockRejectedValue(Object.assign(new Error('Request failed with status code 409'), {
+      isAxiosError: true,
+      response: { status: 409, data: { error: { message: '实例已在停止流程中' } } },
+    }));
+    render(<AgentDetailPage />);
+    fireEvent.click(await screen.findByText('强制停止'));
+    fireEvent.click(screen.getByText('确认停止'));
+
+    expect(await screen.findByText('实例已在停止流程中')).toBeTruthy();
+    await waitFor(() => expect(screen.queryByText('确认停止')).toBeNull());
   });
 });

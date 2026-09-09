@@ -591,4 +591,30 @@ describe('WorkUnitDrawer', () => {
     expect(screen.getByText('3.0k')).toBeTruthy();
     expect(screen.getByText('11.0k')).toBeTruthy();
   });
+
+  // 批次A 项5：闸门动作失败内联错误行（BlockedActions run() 同模式），不再静默
+  it('批次A 项5：审查闸门「通过」失败 → 错误行内联进抽屉（服务端 error.message 优先）', async () => {
+    mockWuGet.mockResolvedValue({ data: { ...WU, status: 'in_review' } });
+    mockReviewPassed.mockRejectedValue(Object.assign(new Error('Request failed with status code 409'), {
+      isAxiosError: true,
+      response: { status: 409, data: { error: { message: '状态机不允许该迁移' } } },
+    }));
+    renderDrawer({ kind: 'wu', id: 'WU-1017' });
+    fireEvent.click(await screen.findByText('通过（审查闸门）'));
+    expect(await screen.findByText('状态机不允许该迁移')).toBeTruthy();
+    // 按钮恢复可点（可重试）
+    await waitFor(() => expect(screen.getByText('通过（审查闸门）').closest('button')!.disabled).toBe(false));
+  });
+
+  it('批次A 项5：拒绝失败 → 弹窗保持打开 + 错误行进弹窗', async () => {
+    mockWuGet.mockResolvedValue({ data: { ...WU, status: 'in_review' } });
+    mockReviewRejected.mockRejectedValue(new Error('服务端挂了'));
+    renderDrawer({ kind: 'wu', id: 'WU-1017' });
+    fireEvent.click(await screen.findByText('拒绝'));
+    fireEvent.click(screen.getByText('确认拒绝'));
+    // 错误行同时进闸门区与弹窗（两处同源 gateError）
+    expect((await screen.findAllByText('服务端挂了')).length).toBeGreaterThan(0);
+    // 弹窗未关（成功才关）
+    expect(screen.getByText('拒绝原因')).toBeTruthy();
+  });
 });

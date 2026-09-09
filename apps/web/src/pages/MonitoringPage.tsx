@@ -11,6 +11,8 @@ import { MonitorSection } from '../components/monitoring/MonitorSection';
 import { UsageBar, DayBars, HBars } from '../components/monitoring/charts';
 import { useAsyncData } from '../hooks/useAsyncData';
 import { formatAge } from '@dommaker/studio-shared/web';
+import { toast } from '../utils/toast';
+import { serverErrorMessage } from '../utils/errorMessage';
 
 type MonitoringTab = 'overview' | 'events';
 
@@ -25,7 +27,8 @@ export function MonitoringPage() {
   const efficiencyQ = useAsyncData(() => monitoringApi.getEfficiency().then(r => r.data).catch(() => null), []);
   // 审核闭环：proposal 待审列表（maturity=draft，与 proposalsPendingReview 计数同库口径）
   const proposalsQ = useAsyncData(() => knowledgeApi.listPendingReview().then(r => r.data.entries).catch(() => null), []);
-  const [approvingIds, setApprovingIds] = useState<Set<string>>(new Set());
+  // 批次A 项8：通过/拒绝共用 pending 锁存（防连点）+ 失败 toast（原 catch 静默）
+  const [actingIds, setActingIds] = useState<Set<string>>(new Set());
 
   const overview = overviewQ.data;
   const evidence = overview?.evidence ?? null;
@@ -36,6 +39,8 @@ export function MonitoringPage() {
   const efficiency = efficiencyQ.data;
   const cacheHit = efficiency?.cacheHitRate ?? null;
   const proposals = proposalsQ.data;
+  // 批次A 项8：刷新按钮 loading（任一分区在拉即视为刷新中）
+  const refreshing = overviewQ.loading || flywheelQ.loading || overheadQ.loading || efficiencyQ.loading || proposalsQ.loading;
 
   const refresh = () => {
     overviewQ.reload();
@@ -45,15 +50,21 @@ export function MonitoringPage() {
     proposalsQ.reload();
   };
 
-  // 一键 approve：draft → verified（参与注入）；成功后移出列表
-  const approveProposal = async (entryId: string) => {
-    setApprovingIds(prev => new Set(prev).add(entryId));
+  /** 提案审批统一入口：approve=promote（draft→verified）/ reject=demote（draft→archived）；成功后移出列表 */
+  const actOnProposal = async (entryId: string, action: 'approve' | 'reject') => {
+    setActingIds(prev => new Set(prev).add(entryId));
     try {
-      await knowledgeApi.promote(entryId);
+      if (action === 'approve') await knowledgeApi.promote(entryId);
+      else await knowledgeApi.demote(entryId);
       proposalsQ.setData(prev => (prev ? prev.filter(p => p.id !== entryId) : prev));
       flywheelQ.reload();
-    } catch { /* 保留在列表中，可重试 */ } finally {
-      setApprovingIds(prev => {
+    } catch (e) {
+      // 保留在列表中可重试 + toast 提示（服务端 error.message 优先）
+      const m = serverErrorMessage(e);
+      const verb = action === 'approve' ? '通过' : '拒绝';
+      toast.error(m ? `${verb}失败：${m}` : `${verb}失败，请重试`);
+    } finally {
+      setActingIds(prev => {
         const next = new Set(prev);
         next.delete(entryId);
         return next;
@@ -70,7 +81,9 @@ export function MonitoringPage() {
             <p className="page-subtitle">Agent Network 运营度量</p>
           </div>
           <div className="flex gap-2">
-            <button className="btn btn-secondary" onClick={refresh}>刷新</button>
+            <button className="btn btn-secondary" disabled={refreshing} onClick={refresh}>
+              {refreshing ? '刷新中…' : '刷新'}
+            </button>
           </div>
         </div>
       </div>
@@ -120,12 +133,20 @@ export function MonitoringPage() {
                         {p.title}
                       </span>
                       <span className="text-xs u-text-3">{formatAge(p.created)}</span>
+                      {/* 批次A 项8：补「拒绝」按钮（demote → archived），与通过共用 pending 锁存 */}
                       <button
                         className="btn btn-secondary btn-sm"
-                        disabled={approvingIds.has(p.id)}
-                        onClick={() => approveProposal(p.id)}
+                        disabled={actingIds.has(p.id)}
+                        onClick={() => actOnProposal(p.id, 'approve')}
                       >
-                        {approvingIds.has(p.id) ? '处理中…' : '通过'}
+                        {actingIds.has(p.id) ? '处理中…' : '通过'}
+                      </button>
+                      <button
+                        className="btn btn-secondary btn-sm"
+                        disabled={actingIds.has(p.id)}
+                        onClick={() => actOnProposal(p.id, 'reject')}
+                      >
+                        {actingIds.has(p.id) ? '处理中…' : '拒绝'}
                       </button>
                     </div>
                   ))}

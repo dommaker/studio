@@ -41,6 +41,12 @@ describe('Sidebar — #393 菜单精简', () => {
     // 不再有「更多」展开按钮
     expect(screen.queryByRole('button', { name: /更多/ })).toBeNull();
   });
+
+  // 批次A 项8：底部假「就绪」状态已删除（恒绿假状态，真实 SSE 连接态如需另开入口接入）
+  it('不渲染底部假「就绪」状态块', () => {
+    renderSidebar();
+    expect(screen.queryByText('就绪')).toBeNull();
+  });
 });
 
 describe('Sidebar — #395 窄屏并入频道左栏', () => {

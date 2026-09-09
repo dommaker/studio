@@ -30,6 +30,7 @@ import { AnalysisApproveDialog } from '../components/pmo/AnalysisApproveDialog';
 import { buildLifecycle } from '../utils/wuLifecycle';
 import { formatShortTime } from '../utils/datetime';
 import { parseWuMeta } from '../utils/wuMeta';
+import { errorMessage } from '../utils/errorMessage';
 import '../styles/wu-detail.css';
 
 interface PmoInfo {
@@ -79,6 +80,8 @@ export function WorkUnitDetailPage() {
   const [actionTick, setActionTick] = useState(0);
   // #284（决策 #250 D1/F7-F9）：闸门入口补齐——pending 确认 / in_review 通过+拒绝（拒绝带原因）
   const [confirming, setConfirming] = useState(false);
+  // 批次A 项5：闸门动作失败内联错误行（BlockedActions run() 同模式），不再静默
+  const [gateError, setGateError] = useState('');
   const [showApproveModal, setShowApproveModal] = useState(false);
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
@@ -89,6 +92,7 @@ export function WorkUnitDetailPage() {
     setPrevId(id);
     setWu(null);
     setError('');
+    setGateError('');
     setPmo(null);
     setChannelName(null);
   }
@@ -112,7 +116,7 @@ export function WorkUnitDetailPage() {
             .catch(() => { /* best-effort */ });
         }
       })
-      .catch(e => { if (alive) setError(e instanceof Error ? e.message : String(e)); });
+      .catch(e => { if (alive) setError(errorMessage(e)); });
     return () => { alive = false; };
   }, [id, actionTick]);
 
@@ -134,27 +138,40 @@ export function WorkUnitDetailPage() {
   };
   const title = wu ? (typeof meta.title === 'string' && meta.title ? meta.title : wu.scope) : '';
 
-  /** #284：闸门动作统一经 actionTick 重拉详情（与 BlockedActions.onChanged 同一路径） */
+  /** #284：闸门动作统一经 actionTick 重拉详情（与 BlockedActions.onChanged 同一路径）。
+   *  批次A 项5：失败置 gateError 内联（BlockedActions run() 同模式）并 rethrow——弹窗路径据此保持打开 */
   const runGateAction = async (fn: () => Promise<unknown>) => {
     setConfirming(true);
+    setGateError('');
     try {
       await fn();
       setActionTick(t => t + 1);
+    } catch (e) {
+      setGateError(errorMessage(e));
+      throw e;
     } finally {
       setConfirming(false);
     }
   };
   // #126（T4）待确认人闸：确认 → unassigned 进 frontier 可认领（与频道抽屉同行为）
-  const handleConfirmPending = () => id && runGateAction(() => workunitApi.transitionStatus(id, 'unassigned'));
+  // 按钮直触路径吞掉 rejection（失败原因已内联置位）
+  const handleConfirmPending = () => {
+    if (id) void runGateAction(() => workunitApi.transitionStatus(id, 'unassigned')).catch(() => {});
+  };
   // 审查硬门：通过→done（analysis 走确认弹窗，预填待决问题清单随 summary 回传开图）
   const handleReviewPassed = (summary?: string, assigneeId?: string) =>
-    id && runGateAction(() => workunitApi.reviewPassed(id, summary, assigneeId));
-  const handleApprove = () => wu && (wu.type === 'analysis' ? setShowApproveModal(true) : handleReviewPassed());
+    id ? runGateAction(() => workunitApi.reviewPassed(id, summary, assigneeId)) : undefined;
+  const handleApprove = () => {
+    if (!wu) return;
+    if (wu.type === 'analysis') setShowApproveModal(true);
+    else void handleReviewPassed()?.catch(() => { /* 失败原因已内联 */ });
+  };
   const handleReviewRejected = () => {
     if (!id) return;
-    runGateAction(() => workunitApi.reviewRejected(id, rejectReason.trim() || undefined));
-    setShowRejectModal(false);
-    setRejectReason('');
+    // 成功才关弹窗；失败原因已内联置位（闸门动作区 + 弹窗内）
+    void runGateAction(() => workunitApi.reviewRejected(id, rejectReason.trim() || undefined))
+      .then(() => { setShowRejectModal(false); setRejectReason(''); })
+      .catch(() => {});
   };
   // F6 派生（铁律：徽章/证据判断一律过 deriveDisplayState，不自行解释 attestations）
   const derived = wu ? deriveDisplayState({ status: wu.status, metadata: wu.metadata }) : null;
@@ -331,6 +348,8 @@ export function WorkUnitDetailPage() {
                     </div>
                   )}
                   <BlockedActions wu={wu} onChanged={() => setActionTick(t => t + 1)} />
+                  {/* 批次A 项5：闸门动作失败内联错误行（BlockedActions 同模式） */}
+                  {gateError && <div className="text-xs u-err" style={{ marginTop: 4 }}>{gateError}</div>}
                 </div>
               </section>
             )}
@@ -363,7 +382,11 @@ export function WorkUnitDetailPage() {
         <AnalysisApproveDialog
           prefill={buildMapOpeningPrefill(wu.metadata)}
           channelId={wu.channelId}
-          onConfirm={(summary, assigneeId) => { setShowApproveModal(false); handleReviewPassed(summary, assigneeId); }}
+          onConfirm={async (summary, assigneeId) => {
+            // 批次A 项7：成功才关窗（失败由弹窗内联展示，gateError 亦已置位）
+            await handleReviewPassed(summary, assigneeId);
+            setShowApproveModal(false);
+          }}
           onCancel={() => setShowApproveModal(false)}
         />
       )}
@@ -384,6 +407,8 @@ export function WorkUnitDetailPage() {
                 value={rejectReason}
                 onChange={e => setRejectReason(e.target.value)}
               />
+              {/* 批次A 项5：拒绝失败保持弹窗打开，错误行进弹窗（闸门动作区同步置位） */}
+              {gateError && <p className="text-xs u-err" style={{ marginTop: 4 }}>{gateError}</p>}
             </div>
             <div className="modal-footer">
               <button

@@ -5,10 +5,13 @@
 // 入口：WorkUnitListPage 行按钮 / WorkUnitDrawer 确认按钮 / DeliveryPanel 缺口「人工确认」。
 // #177（#69 决议）：带 channelId 时加可选「默认执行角色」下拉（候选=频道成员，
 // 默认留空=涌现，不阻塞主交互），选中值应用于确认后全部派生 task 子 WU，不做逐条指派。
+// 批次A 项7：onConfirm 返回 Promise——提交期间确认键 loading + 双键禁用 + 屏蔽遮罩关闭，
+// 成功才关窗（调用方在 onConfirm resolve 后关），失败内联错误行保持打开可重试。
 import { useEffect, useState } from 'react';
 import { channelApi, type AgentProfile } from '../../api/channel';
-import { Select } from '../ui';
+import { Button, Select } from '../ui';
 import { resolveChannelResponders } from './channelResponders';
+import { errorMessage } from '../../utils/errorMessage';
 
 interface AnalysisApproveDialogProps {
   /** 预填文本（buildMapOpeningPrefill 产物；空串 = 无清单，空手填或直接通过） */
@@ -16,8 +19,9 @@ interface AnalysisApproveDialogProps {
   /** WU 所在频道 id（#177：给出则渲染「默认执行角色」下拉；缺省不渲染，存量形态不变） */
   channelId?: string | null;
   /** 确认通过：当前文本作为 summary 回传（可为空串，api 层 trim 后为空则不带 summary 字段）；
-   *  第二参 = 默认执行角色 profile id（留空 = undefined，涌现认领） */
-  onConfirm: (summary: string, assigneeId?: string) => void;
+   *  第二参 = 默认执行角色 profile id（留空 = undefined，涌现认领）。
+   *  批次A 项7：可返回 Promise——reject 时弹窗保持打开并内联错误，resolve 后由调用方关窗 */
+  onConfirm: (summary: string, assigneeId?: string) => void | Promise<unknown>;
   onCancel: () => void;
 }
 
@@ -26,6 +30,9 @@ export function AnalysisApproveDialog({ prefill, channelId, onConfirm, onCancel 
   // #177：默认执行角色候选（频道成员）；'' = 留空涌现
   const [assigneeId, setAssigneeId] = useState('');
   const [candidates, setCandidates] = useState<AgentProfile[]>([]);
+  // 批次A 项7：提交反馈（loading + 失败内联错误）
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState('');
 
   useEffect(() => {
     if (!channelId) return;
@@ -40,12 +47,25 @@ export function AnalysisApproveDialog({ prefill, channelId, onConfirm, onCancel 
     return () => { cancelled = true; };
   }, [channelId]);
 
+  const handleConfirm = async () => {
+    if (submitting) return;
+    setSubmitting(true);
+    setSubmitError('');
+    try {
+      await onConfirm(text, assigneeId || undefined);
+    } catch (e) {
+      setSubmitError(errorMessage(e));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   return (
-    <div className="modal-overlay" onClick={onCancel}>
+    <div className="modal-overlay" onClick={submitting ? undefined : onCancel}>
       <div className="modal" style={{ maxWidth: '28rem' }} onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <h3 className="modal-title">确认分析结论</h3>
-          <button className="modal-close" onClick={onCancel} aria-label="关闭">×</button>
+          <button className="modal-close" onClick={onCancel} disabled={submitting} aria-label="关闭">×</button>
         </div>
         <div className="modal-body">
           <p className="text-xs u-text-2 mb-2">
@@ -77,20 +97,24 @@ export function AnalysisApproveDialog({ prefill, channelId, onConfirm, onCancel 
               />
             </div>
           )}
+          {/* 批次A 项7：提交失败内联错误（弹窗保持打开可重试） */}
+          {submitError && <p className="text-xs u-err" style={{ marginTop: 8 }}>{submitError}</p>}
         </div>
         <div className="modal-footer">
           <button
             className="btn btn-secondary"
             onClick={onCancel}
+            disabled={submitting}
           >
             取消
           </button>
-          <button
-            className="btn btn-primary"
-            onClick={() => onConfirm(text, assigneeId || undefined)}
+          <Button
+            variant="primary"
+            loading={submitting}
+            onClick={() => void handleConfirm()}
           >
             确认通过
-          </button>
+          </Button>
         </div>
       </div>
     </div>
