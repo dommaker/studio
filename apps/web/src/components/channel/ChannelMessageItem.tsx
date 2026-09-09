@@ -291,17 +291,18 @@ export const ChannelMessageItem = memo(function ChannelMessageItem({
         )
       )}
 
-      {/* Footer: WU/REQ 链接（开右抽屉）+ PMO 直跳 + 线程开关；⑤ WU chip 旁 ↗ 直跳已删（同目的地两入口，chip 自承载） */}
+      {/* Footer: WU/REQ 链接（开右抽屉）+ PMO 直跳 + 线程开关；⑤ WU chip 旁 ↗ 直跳已删（同目的地两入口，chip 自承载）。
+          #474：三枚同形 chip 无法扫读 → 类型修饰类差异化配色（wu=accent / PMO=success / REQ=warning） */}
       {(message.workUnitId || reqId || pmoId || (isThreadAnchor && threadReplyCount !== undefined && threadReplyCount > 0)) && (
         <div className="mc-card-foot">
           {message.workUnitId && onOpenWorkUnit && (
-            <button className="mc-wu-link" onClick={() => onOpenWorkUnit(message.workUnitId!)} title={`打开任务详情：${message.workUnitId}`}>
+            <button className="mc-wu-link mc-wu-link--wu" onClick={() => onOpenWorkUnit(message.workUnitId!)} title={`打开任务详情：${message.workUnitId}`}>
               {shortWuId(message.workUnitId)} ›
             </button>
           )}
           {pmoId && (
             <button
-              className="mc-wu-link"
+              className="mc-wu-link mc-wu-link--pmo"
               onClick={() => navigate(`/pmo/project/${pmoId}`)}
               title="打开项目详情"
               aria-label="打开项目详情"
@@ -310,7 +311,7 @@ export const ChannelMessageItem = memo(function ChannelMessageItem({
             </button>
           )}
           {reqId && onOpenRequirement && (
-            <button className="mc-wu-link" onClick={() => onOpenRequirement(reqId)} title="打开 REQ 全链路">
+            <button className="mc-wu-link mc-wu-link--req" onClick={() => onOpenRequirement(reqId)} title="打开 REQ 全链路">
               {reqId} ›
             </button>
           )}

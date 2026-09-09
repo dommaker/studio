@@ -49,4 +49,26 @@ describe('ChannelMessageItem — footer REQ›/PMO›（#275 断点3）', () => 
     const { container } = renderItem(msgWithMeta({}));
     expect(container.querySelector('.mc-card-foot')).toBeNull();
   });
+
+  // #474：三枚同形 chip 无法扫读 → 类型差异化配色（wu=accent / PMO=success / REQ=warning 修饰类）
+  it('#474：footer chip 按类型挂修饰类（wu/pmo/req 三色可扫读区分）', () => {
+    const message: ChannelMessage = {
+      ...msgWithMeta({ requirementId: 'REQ-0042', pmoId: 'PMO-7' }),
+      workUnitId: 'WU-1018',
+    };
+    render(
+      <MemoryRouter initialEntries={['/channels/ch1']}>
+        <Routes>
+          <Route
+            path="/channels/:id"
+            element={<ChannelMessageItem message={message} onAction={vi.fn()} onOpenWorkUnit={vi.fn()} onOpenRequirement={vi.fn()} />}
+          />
+          <Route path="/pmo/project/:id" element={<div>项目页</div>} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    expect(screen.getByRole('button', { name: /WU-1018/ }).className).toContain('mc-wu-link--wu');
+    expect(screen.getByRole('button', { name: '打开项目详情' }).className).toContain('mc-wu-link--pmo');
+    expect(screen.getByRole('button', { name: 'REQ-0042 ›' }).className).toContain('mc-wu-link--req');
+  });
 });

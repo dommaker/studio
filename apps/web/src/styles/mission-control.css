@@ -504,6 +504,12 @@
 }
 .mc-wu-link:hover { border-color: var(--accent-primary); }
 
+/* #474：footer 三枚同形 chip 无法扫读 → 类型差异化配色（wu=accent 原色 / PMO=success / REQ=warning） */
+.mc-wu-link--pmo { color: var(--success); background: var(--success-dim); border-color: var(--success-border); }
+.mc-wu-link--pmo:hover { border-color: var(--success); }
+.mc-wu-link--req { color: var(--warning); background: var(--warning-dim); border-color: var(--warning-border); }
+.mc-wu-link--req:hover { border-color: var(--warning); }
+
 /* #285: agent 消息 inline-code 文件 chip（点击复制绝对路径 / .studio/ 跳阅览室） */
 .mc-file-chip {
   font-size: var(--fs-sm);
