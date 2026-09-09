@@ -12,6 +12,7 @@ import { workunitApi, type ReviewConfirmPayload } from '../../api/workunit';
 import { formatFullTime } from '../../utils/datetime';
 import { toast } from '../../utils/toast';
 import { AnalysisApproveDialog } from './AnalysisApproveDialog';
+import { IconCheck, IconRefresh, IconClock } from '../ui/icons';
 import { buildAnalysisConfirmPrefill, type AnalysisConfirmPrefill } from './mapUtils';
 import { EVIDENCE_LAYER_LABELS } from './pipelineUtils';
 import { DELIVERY_POLICY_LABELS } from './projectDisplay';
@@ -148,30 +149,31 @@ export function DeliveryPanel({ projectId, delivery, onRefresh }: DeliveryPanelP
     <div className="card p-4 mb-3">
       <div className="flex items-center justify-between mb-3">
         <h3 className="mc-block-label" style={{ margin: 0 }}>交付</h3>
+        {/* #474 去 emoji：状态徽章图标 = ui/icons stroke SVG（原 ✓/🔄/⏳ 徽章） */}
         {delivery.deliveredAt ? (
-          <span className="text-xs px-2 py-1 rounded u-ok-dim u-ok font-medium">✓ 已交付</span>
+          <span className="text-xs px-2 py-1 rounded u-ok-dim u-ok font-medium inline-flex items-center gap-1"><IconCheck size={12} /> 已交付</span>
         ) : delivery.deliverable ? (
-          <span className="text-xs px-2 py-1 rounded u-ok-dim u-ok font-medium">✓ 可交付</span>
+          <span className="text-xs px-2 py-1 rounded u-ok-dim u-ok font-medium inline-flex items-center gap-1"><IconCheck size={12} /> 可交付</span>
         ) : delivery.wu.inFlight > 0 ? (
-          <span className="text-xs px-2 py-1 rounded u-accent-dim u-accent font-medium">
-            🔄 进行中 {delivery.wu.finished}/{delivery.wu.total}
+          <span className="text-xs px-2 py-1 rounded u-accent-dim u-accent font-medium inline-flex items-center gap-1">
+            <IconRefresh size={12} /> 进行中 {delivery.wu.finished}/{delivery.wu.total}
           </span>
         ) : (
           // #472：项目级「待验收」改「待交付」——与 WU 四站「待验收」同词异义分词（项目级=待交付合并）
-          <span className="text-xs px-2 py-1 rounded u-warn-dim u-warn font-medium">
-            ⏳ 待交付:证据还差 {delivery.evidence.l1Missing.length + delivery.evidence.l2Missing.length + delivery.evidence.l3Missing.length} 项
+          <span className="text-xs px-2 py-1 rounded u-warn-dim u-warn font-medium inline-flex items-center gap-1">
+            <IconClock size={12} /> 待交付:证据还差 {delivery.evidence.l1Missing.length + delivery.evidence.l2Missing.length + delivery.evidence.l3Missing.length} 项
           </span>
         )}
       </div>
 
-      {/* 台账概览：策略 / 分支 / 任务完成度 / 证据三层（白话词表）/ 自评；#472 策略文案走 projectDisplay 唯一词表 */}
-      <div className="text-sm u-text-2 flex flex-wrap gap-x-4 gap-y-1 mb-2">
+      {/* 台账概览：策略 / 分支 / 任务完成度 / 证据三层（白话词表）/ 自评；#472 策略文案走 projectDisplay 唯一词表；#474 ✓ → IconCheck */}
+      <div className="text-sm u-text-2 flex flex-wrap gap-x-4 gap-y-1 mb-2 items-center">
         <span>交付策略: {DELIVERY_POLICY_LABELS[delivery.policy] ?? delivery.policy}</span>
         <span>分支: {delivery.branch || '—'}</span>
         <span>任务: {delivery.wu.finished}/{delivery.wu.total} 完成</span>
-        <span>{EVIDENCE_LAYER_LABELS.l1}: {delivery.evidence.l1Missing.length === 0 ? '✓' : `缺 ${delivery.evidence.l1Missing.length}`}</span>
-        <span>{EVIDENCE_LAYER_LABELS.l2}: {delivery.evidence.l2Missing.length === 0 ? '✓' : `缺 ${delivery.evidence.l2Missing.length}`}</span>
-        <span>{EVIDENCE_LAYER_LABELS.l3}: {delivery.evidence.l3Missing.length === 0 ? '✓' : `缺 ${delivery.evidence.l3Missing.length}`}</span>
+        <span className="inline-flex items-center gap-1">{EVIDENCE_LAYER_LABELS.l1}: {delivery.evidence.l1Missing.length === 0 ? <IconCheck size={12} /> : `缺 ${delivery.evidence.l1Missing.length}`}</span>
+        <span className="inline-flex items-center gap-1">{EVIDENCE_LAYER_LABELS.l2}: {delivery.evidence.l2Missing.length === 0 ? <IconCheck size={12} /> : `缺 ${delivery.evidence.l2Missing.length}`}</span>
+        <span className="inline-flex items-center gap-1">{EVIDENCE_LAYER_LABELS.l3}: {delivery.evidence.l3Missing.length === 0 ? <IconCheck size={12} /> : `缺 ${delivery.evidence.l3Missing.length}`}</span>
         <span>自评: {delivery.evidence.selfReviewCount}</span>
       </div>
 

@@ -47,6 +47,16 @@ describe('Sidebar — #393 菜单精简', () => {
     renderSidebar();
     expect(screen.queryByText('就绪')).toBeNull();
   });
+
+  // #474 图标策略定稿：全去 emoji——主导航图标为 stroke SVG 组件，文本无 emoji
+  it('#474 主导航去 emoji：图标为 SVG 组件，链接文本无 emoji', () => {
+    renderSidebar();
+    for (const label of ['频道', 'PMO', '任务', '角色']) {
+      const link = screen.getByRole('link', { name: new RegExp(label) });
+      expect(link.querySelector('svg')).toBeTruthy();
+      expect(link.textContent).not.toMatch(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{FE0F}]/u);
+    }
+  });
 });
 
 describe('Sidebar — #395 窄屏并入频道左栏', () => {

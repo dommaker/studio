@@ -101,7 +101,10 @@ describe('DeliveryPanel', () => {
     renderPanel();
 
     expect(screen.getByText('交付', { selector: 'h3' })).toBeTruthy();
-    expect(screen.getByText('🔄 进行中 2/3')).toBeTruthy();
+    // #474：状态徽章去 emoji——图标为 SVG 组件，文本无 emoji
+    const badge = screen.getByText(/进行中 2\/3/);
+    expect(badge.textContent).not.toMatch(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{FE0F}\u2713]/u);
+    expect(badge.querySelector('svg')).toBeTruthy();
     // #399 §8.3 词表：WU→任务；证据三级白话
     expect(screen.getByText('任务: 2/3 完成')).toBeTruthy();
     expect(screen.getByText('Agent 评审: 缺 1')).toBeTruthy();

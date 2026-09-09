@@ -57,6 +57,21 @@ describe('MoreDropdown — header 更多菜单', () => {
     fireEvent.click(screen.getByRole('link', { name: /知识库/ }));
     expect(screen.queryByRole('link', { name: /阅览室/ })).toBeNull();
   });
+
+  // #474 图标策略定稿：全去 emoji——菜单项与触发器图标为 SVG 组件，文本无 emoji
+  it('#474 菜单去 emoji：各项图标为 SVG，文本无 emoji', () => {
+    renderDropdown();
+    fireEvent.click(screen.getByRole('button', { name: /更多/ }));
+    const emojiRe = /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{FE0F}]/u;
+    for (const label of ['知识库', '阅览室', '监控', '审计日志', '设置']) {
+      const link = screen.getByRole('link', { name: new RegExp(label) });
+      expect(link.querySelector('svg')).toBeTruthy();
+      expect(link.textContent).not.toMatch(emojiRe);
+    }
+    const trigger = screen.getByRole('button', { name: /更多/ });
+    expect(trigger.querySelector('svg')).toBeTruthy();
+    expect(trigger.textContent).not.toMatch(emojiRe);
+  });
 });
 
 describe('MoreDropdown — 徽标 = 行动中心 unreadCount（#468 投影化）', () => {
