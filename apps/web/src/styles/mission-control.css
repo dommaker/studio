@@ -1363,3 +1363,7 @@ button.mc-act-step:hover { background: var(--bg-hover); }
 /* 裸按钮重置（§4.5：无 btn 体系外壳的文字/图标钮；font/color 继承由 Tailwind preflight 兜底，故不含——
    保留类上 mc-block-label/u-accent/text-* 等排类的字体颜色决议权） */
 .u-btn-reset { background: none; border: none; cursor: pointer; padding: 0; }
+
+/* Tab 形态正本（批次 D-4 定 Knowledge border-b 为正本；E5 起激活态 accent 底线自内联 style 收进类） */
+.u-tab { border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.u-tab-active { border-bottom-color: var(--accent-primary); }
