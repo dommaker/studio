@@ -48,7 +48,6 @@ import { MetaStrip } from '../components/ui/MetaStrip';
 import { StationStepper } from '../components/workunit/StationStepper';
 import { WU_STATION_ORDER, type WuStation } from '../utils/wuLifecycle';
 import { buildProjectTimeline, projectChainMeta, type PipelineWorkUnit } from '../components/pmo/pipelineUtils';
-import { DELIVERY_POLICY_LABELS } from '../components/pmo/projectDisplay';
 // E3：阶段步条复用 wu-bstep/wu-st-* 视觉语言（顶层作用域类，同 ChannelWorkBar 先例）
 import '../styles/wu-detail.css';
 
@@ -253,12 +252,10 @@ export function ProjectDetailPage() {
                 OKR: {project.OKR.title} ({project.OKR.quarter})
               </div>
             )}
-            {/* 🆕 PMO-a + #440 Phase 3：meta strip——REQ 别名 / 分支 / 交付策略 / 涉及角色 / AC 数（有值才显示，缺项不占位） */}
+            {/* 🆕 PMO-a + #440 Phase 3 + #474：meta strip——REQ 别名 / 涉及角色 / AC 数（有值才显示，缺项不占位）；
+                #474：分支/交付策略两项删除——与 DeliveryPanel 台账重复（同一事实只表达一次） */}
             <MetaStrip items={[
               { key: 'req', label: 'REQ 别名', value: project.reqAlias },
-              { key: 'branch', label: '分支', value: project.gitBranch },
-              { key: 'delivery', label: '交付策略', value: project.deliveryPolicy
-                  ? (DELIVERY_POLICY_LABELS[project.deliveryPolicy] ?? project.deliveryPolicy) : null },
               { key: 'roles', label: '涉及角色', value: chainMeta.roles },
               { key: 'ac', label: 'AC 数', value: chainMeta.acCount },
             ]} />

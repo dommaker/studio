@@ -1,7 +1,7 @@
 // AC-5: ProjectDetailPage 驾驶舱测试 — 头部增强 / 进度管道 / 项目动态 / 跳转
 // #149（2026-08-15）：文档阅读器相关测试随 document-store 退役移除
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 
 const {
@@ -221,14 +221,15 @@ describe('AC-5: PMO 驾驶舱', { testTimeout: 15000 }, () => {
     expect(screen.queryByText((_, el) =>
       el?.tagName === 'LI' && (el.textContent ?? '').includes('领取了'))).toBeNull();
 
-    // 展开后可见
-    fireEvent.click(screen.getByRole('button', { name: '展开' }));
+    // 展开后可见（#474：进展卡也有「展开」，按项目动态卡作用域）
+    const activityCard = screen.getByText(/项目动态 · 最近 \d+ 条/).closest('.card') as HTMLElement;
+    fireEvent.click(within(activityCard).getByRole('button', { name: '展开' }));
     await waitFor(() => {
       expect(screen.getByText((_, el) =>
         el?.tagName === 'LI' && (el.textContent ?? '').includes('dev 领取了 「设计管道 UI」'))).toBeTruthy();
     });
     // 再点收起
-    fireEvent.click(screen.getByRole('button', { name: '收起' }));
+    fireEvent.click(within(activityCard).getByRole('button', { name: '收起' }));
     expect(screen.queryByText((_, el) =>
       el?.tagName === 'LI' && (el.textContent ?? '').includes('领取了'))).toBeNull();
   });
@@ -236,8 +237,9 @@ describe('AC-5: PMO 驾驶舱', { testTimeout: 15000 }, () => {
   it('项目动态：领取/完成/新增条目拼装，标题可点跳 WU 详情', async () => {
     renderDetail();
     await waitFor(() => expect(screen.getByText(/项目动态/)).toBeTruthy());
-    // E3：动态默认折叠，先展开
-    fireEvent.click(screen.getByRole('button', { name: '展开' }));
+    // E3：动态默认折叠，先展开（#474：进展卡也有「展开」，按项目动态卡作用域）
+    const activityCard2 = screen.getByText(/项目动态 · 最近 \d+ 条/).closest('.card') as HTMLElement;
+    fireEvent.click(within(activityCard2).getByRole('button', { name: '展开' }));
 
     // 「dev 领取了「设计管道 UI」」（文本跨节点，按 li textContent 断言）
     await waitFor(() => {
