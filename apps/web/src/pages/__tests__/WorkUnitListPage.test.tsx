@@ -358,11 +358,28 @@ describe('WorkUnitListPage — claimable 置灰与被阻塞徽标（#116）', ()
     })];
     render(<WorkUnitListPage />);
 
+
     fireEvent.click(screen.getByText('ID: wu-b2...'));
 
     expect(mockDrawerProps).toHaveBeenCalledWith(expect.objectContaining({
       drawer: { kind: 'wu', id: 'wu-b2' },
     }));
+  });
+
+  it('#474：行内 Agent 不再拿截断 hash 当人名——走 AssigneeLabel 解析；ID 全文收进 title', () => {
+    mockStore.workunits = [makeWu({
+      id: 'wu-full-id-1234567890',
+      assigneeId: 'agent-instance-abcdef123456',
+    })];
+    render(<WorkUnitListPage />);
+
+    // 旧形态（裸「Agent: <8位hash>...」）不再出现
+    expect(screen.queryByText(/Agent: /)).toBeNull();
+    // ID 截断显示不变，全文收进 title
+    const idSpan = screen.getByText(/ID: wu-full-/);
+    expect(idSpan).toHaveAttribute('title', 'wu-full-id-1234567890');
+    // AssigneeLabel 兜底形态：@短 id（解析为异步，查不到角色时回退；解析契约见 AssigneeLabel.test）
+    expect(screen.getByText('@agent-in')).toBeTruthy();
   });
 });
 

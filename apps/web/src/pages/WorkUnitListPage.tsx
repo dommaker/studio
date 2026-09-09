@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { deriveDisplayState, WU_STATUS_LABELS, WU_TYPE_LABELS, type DerivedWuState } from '@dommaker/studio-shared/web';
 import { useWorkUnitStore } from '../stores/workunitStore';
 import { SelfReviewBadge } from '../components/workunit/SelfReviewBadge';
+import { AssigneeLabel } from '../components/workunit/AssigneeLabel';
 import { StaleSleepBadge } from '../components/workunit/StaleSleepBadge';
 import { WuGateActions } from '../components/workunit/WuGateActions';
 import { WorkUnitDrawer, type DrawerState } from '../components/channel/WorkUnitDrawer';
@@ -312,8 +313,14 @@ function WorkUnitRow({
             <StaleSleepBadge wu={wu} />
           </div>
           <div className="flex items-center gap-4 mt-1 text-xs u-text-2">
-            <span className="font-mono">ID: {wu.id.slice(0, 8)}...</span>
-            {wu.assigneeId && <span className="font-mono">Agent: {wu.assigneeId.slice(0, 8)}...</span>}
+            {/* #474：ID 截断显示、全文收进 title；Agent 不再拿截断 hash 当人名——AssigneeLabel 解析成角色名 */}
+            <span className="font-mono" title={wu.id}>ID: {wu.id.slice(0, 8)}...</span>
+            {wu.assigneeId && (
+              // stopPropagation：解析到时 AssigneeLabel 是 Link，防冒泡触发行点击开抽屉
+              <span onClick={e => e.stopPropagation()}>
+                <AssigneeLabel assigneeId={wu.assigneeId} className="font-mono" />
+              </span>
+            )}
             <span>创建: <span className="font-mono">{formatTime(wu.createdAt)}</span></span>
             {wu.claimedAt && <span>领取: <span className="font-mono">{formatTime(wu.claimedAt)}</span></span>}
           </div>
