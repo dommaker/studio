@@ -98,7 +98,7 @@ describe('F5: @studio 路由 → 频道入口角色 / 未指派', () => {
     expect(wu!.assigneeId).toBe('entry-1');
   });
 
-  it('@studio + 未配置 defaultProfileId → 未指派（assigneeId=null，无系统消息）', async () => {
+  it('@studio + 未配置 defaultProfileId → 未指派 + 频道说明（#464：未匹配不再静默）', async () => {
     await fileStore.createProfile(profile('studio-1', 'studio'));
 
     const result = await routeMessage(channelId, '@studio 帮我看下', undefined, fileStore);
@@ -109,8 +109,9 @@ describe('F5: @studio 路由 → 频道入口角色 / 未指派', () => {
     expect(meta.matched).toBe(false);
     expect(meta.reroutedFrom).toBeUndefined();
 
+    // #464：@studio 无入口可转 = 未匹配的一种，频道发说明（此前静默，票体点名对照项）
     const sysMsgs = await studioSystemMessages();
-    expect(sysMsgs.some(c => c.includes('系统角色'))).toBe(false);
+    expect(sysMsgs.some(c => c.includes('系统角色') && c.includes('自动认领'))).toBe(true);
   });
 
   it('@studio + 入口角色 inactive → 未指派', async () => {

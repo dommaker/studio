@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { deriveDisplayState, WU_STATUS_LABELS, WU_TYPE_LABELS, type DerivedWuState } from '@dommaker/studio-shared/web';
 import { useWorkUnitStore } from '../stores/workunitStore';
 import { SelfReviewBadge } from '../components/workunit/SelfReviewBadge';
+import { StaleSleepBadge } from '../components/workunit/StaleSleepBadge';
 import { WuGateActions } from '../components/workunit/WuGateActions';
 import { WorkUnitDrawer, type DrawerState } from '../components/channel/WorkUnitDrawer';
 import type { ReviewConfirmPayload, WorkUnit } from '../api/workunit';
@@ -300,6 +301,7 @@ function WorkUnitRow({
               </span>
             )}
             <SelfReviewBadge wu={wu} />
+            <StaleSleepBadge wu={wu} />
           </div>
           <div className="flex items-center gap-4 mt-1 text-xs u-text-2">
             <span className="font-mono">ID: {wu.id.slice(0, 8)}...</span>

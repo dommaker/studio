@@ -9,7 +9,8 @@ WorkUnit 核心域: 任务单元 CRUD、认领与状态机; F5 双向沟通的 N
 - `workunit.service.ts` - Service 门面: CRUD + Claim + 状态机, claim 写 5min 租约(持有方 30s 心跳推前), 收口 reviewPassed/reviewRejected/attestation 幂等补写/markMergeConflict/blockForManualRelease。导出 `waitForReviewPassSettled()` 供测试等待异步自动合并收尾。
 - `workunit.types.ts` - 类型契约 + 状态机表: WorkUnitMetadata / DTO / VALID_TRANSITIONS / TYPE_VALID_TRANSITIONS + resolveValidTransitions / WU_LEASE_TTL_MS(5min) / ANALYSIS_TASKS_MAX(8) / INSPECTION_OPPORTUNITIES_MAX / MANUAL_GATE_TYPES(#471: 人工 L3 验收类 = analysis/decision/spec/plan, 不派自动评审 + 豁免 l2 + 不出评审建议片的单一事实源) / PLAN_STEP_LIMIT(#471: plan 步数额度 60, agent-loop 前置守卫与 waiting-input 续期双消费)。
 - `workunit.mappers.ts` - 快照 <-> DTO 转换: snapshotToData / inputToSnapshot / patchSnapshot。
-- `workunit-crud.ts` - WorkUnitCrudService(基类): CRUD + Claim(flock 悲观互斥锁) + 快照转换 + publishStatusChanged + aggregateParentStatus。
+- `workunit-crud.ts` - WorkUnitCrudService(基类): CRUD + Claim(flock 悲观互斥锁) + 快照转换 + publishStatusChanged + aggregateParentStatus。#464 出声: create 落 pending 且带频道 → 发「待确认」milestone 系统消息(atHuman + 行动中心通知双写); expandRoutingHead 未配置 implement 路由也发频道提示(此前仅「配错」出声, 未配置静默)。
+- `in-review-inbox.ts` - #464 无频道 in_review(非 analysis) → Web「需要处理」收件箱: 订阅 workunit.status_changed, 命中即 dispatchMonitorAlerts(warning, relatedTaskIds 带 wuId → 行动中心直链); analysis 走 analysis-handoff 既有路径不重复。index.ts 启动注册, 幂等。
 - `workunit.routes.ts` - API 路由。
 - `waiting-input.ts` - F5 双向沟通 + 回复即复活(全 blocked 类型): 线程人类回复 -> active + pendingReplies 注入; ownership 挂起按工程归属解析(project-discovery 唯一命中 -> 绑定 + 写回 Requirement.projectId + 置 unassigned); wu-token-budget 按人三选分流; plan-step-limit(#471, plan 步数额度到线) 回复即续期(planStepAllowance += PLAN_STEP_LIMIT 后走通用复活); Web 按钮 POST /:id/resume + /:id/close 复用原语。
 - `blocked-cta.ts` - blocked 消息统一 CTA 模板: withBlockedCta / buildDeadLetterNotice。

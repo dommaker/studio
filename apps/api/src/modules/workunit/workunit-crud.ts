@@ -13,7 +13,7 @@
 import { randomUUID } from 'crypto';
 import { logger, eventBus, FileStore, type WorkUnitSnapshot, type WorkUnitEvent } from '@dommaker/studio-shared';
 import { ChannelMessageService, channelMessageService } from '../channels/channel-message.service.js';
-import { resolveStageRouting, routingFallbackText } from '../channels/routing.js';
+import { resolveStageRouting, routingFallbackText, ROUTING_STAGE_LABELS } from '../channels/routing.js';
 import { postWuSystemMessage } from './wu-messenger.js';
 import { resolveInitialStatus, WU_LEASE_TTL_MS } from './workunit.types.js';
 import { buildStatusById, resolveClaimable } from './wu-dependencies.js';
@@ -213,6 +213,22 @@ export class WorkUnitCrudService {
 
     const parentWu = snapshotToData(snapshot);
 
+    // #464：pending = 待确认人闸——落闸即频道出声（此前唯一入口是 WU 列表统计 chip，
+    // 角色不动工用户无感知）。milestone 形态：atHuman 响铃 + #468 行动中心通知双写，
+    // 与状态派生的 confirm 段（action-center）同源不重复（事件持久面 + 状态派生面各司其职）。
+    if (parentWu.status === 'pending' && parentWu.channelId) {
+      await postWuSystemMessage(
+        parentWu,
+        `新工单「${parentWu.scope.slice(0, 50)}」已进入待确认（人闸）——在工单列表/详情点「确认」后才会派工`,
+        { milestone: true, fileStore: this.fileStore },
+      ).catch(err =>
+        logger.warn('[WorkUnit] pending gate notice failed (non-blocking)', {
+          workUnitId: parentWu.id,
+          error: String(err),
+        }),
+      );
+    }
+
     // #466: 频道工单路由展开（吞并 AC-6.3 defaultPipeline；D10: 只展开第一跳，后续靠 agent DELEGATE）
     // #126（T4）：feature 落 pending（待确认人闸）时不展开——确认（pending→unassigned）
     // 时由 transitionStatus 补展开，避免未确认需求先烧 token。
@@ -284,21 +300,26 @@ export class WorkUnitCrudService {
   protected async expandRoutingHead(parent: WorkUnitData): Promise<void> {
     const routing = await resolveStageRouting(this.fileStore, parent.channelId!, 'implement');
     if (!routing.profileId) {
+      // #464：未配置也要出声——此前未配置静默 return，用户分不清「只配一跳」还是「断了」。
+      // 文案与配错（routingFallbackText）同形态可区分；非里程碑（路由提醒不打扰，对齐配错提醒形态）。
+      const notice = routing.fallback
+        ? routingFallbackText('implement', routing)
+        : `工单路由提示：本频道未配置「${ROUTING_STAGE_LABELS.implement}」阶段路由，本单已回池涌现（频道成员自动认领）——如需固定角色派工请到频道设置配置路由表，或手动拆单`;
       if (routing.fallback) {
         logger.warn('[WorkUnit] routing.implement 配置不可用，回池涌现', {
           parentId: parent.id,
           fallback: routing.fallback,
           profileName: routing.profileName,
         });
-        await postWuSystemMessage(parent, routingFallbackText('implement', routing), {
-          fileStore: this.fileStore,
-        }).catch(err =>
-          logger.warn('[WorkUnit] routing fallback notice failed (non-blocking)', {
-            parentId: parent.id,
-            error: String(err),
-          }),
-        );
       }
+      await postWuSystemMessage(parent, notice, {
+        fileStore: this.fileStore,
+      }).catch(err =>
+        logger.warn('[WorkUnit] routing notice failed (non-blocking)', {
+          parentId: parent.id,
+          error: String(err),
+        }),
+      );
       return;
     }
 

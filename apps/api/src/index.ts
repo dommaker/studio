@@ -293,6 +293,13 @@ async function start() {
         logger.info('[AnalysisHandoff] Subscribed to workunit.status_changed');
       } catch (e) { logger.warn('[AnalysisHandoff] Failed to subscribe', { error: String(e) }); }
 
+      // #464: 无频道 in_review（非 analysis）→ Web「需要处理」收件箱
+      try {
+        const { initInReviewInbox } = await import('./modules/workunit/in-review-inbox.js');
+        initInReviewInbox();
+        logger.info('[InReviewInbox] Subscribed to workunit.status_changed');
+      } catch (e) { logger.warn('[InReviewInbox] Failed to subscribe', { error: String(e) }); }
+
       // #110 决策落地：decision 确认 → 写探路地图 + 雾全清建 spec 单
       try {
         const { initDecisionResolution } = await import('./modules/pmo/decision-resolution.js');

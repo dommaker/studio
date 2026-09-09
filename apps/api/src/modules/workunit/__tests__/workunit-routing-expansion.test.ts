@@ -152,6 +152,35 @@ describe('#466: WorkUnit create() routing.implement expansion', () => {
     expect(msgs[0].content).toContain('executor');
   });
 
+  it('#464：未配置 implement 路由 → 不展开 + 频道提示（与「配错」可区分）', async () => {
+    await seedChannel('ch-unconfigured', { members: [executorProfileId] });
+    const parent = await service.create({
+      type: 'feature',
+      scope: 'feature unconfigured routing',
+      channelId: 'ch-unconfigured',
+      status: 'unassigned',
+    });
+    const children = await childrenOf(parent.id);
+    expect(children.length).toBe(0);
+    const msgs = await fileStore.queryMessages('ch-unconfigured', {});
+    expect(msgs.length).toBe(1);
+    expect(msgs[0].content).toContain('未配置');
+  });
+
+  it('#464：pending 确认（→unassigned）后无路由 → 频道提示「未配置」', async () => {
+    await seedChannel('ch-confirm-noroute', { members: [executorProfileId] });
+    const parent = await service.create({
+      type: 'feature',
+      scope: 'confirm then no route',
+      channelId: 'ch-confirm-noroute',
+    });
+    expect(parent.status).toBe('pending');
+    await service.transitionStatus(parent.id, 'unassigned');
+    const msgs = await fileStore.queryMessages('ch-confirm-noroute', {});
+    // pending 待确认卡（#464 create 出声）+ 确认后未配置路由提示
+    expect(msgs.some(m => m.content.includes('未配置'))).toBe(true);
+  });
+
   it('type=task + routing -> 不展开（仅 feature 展开）', async () => {
     const parent = await service.create({
       type: 'task',

@@ -169,6 +169,29 @@ describe('Message Routing (AC-B1-B4)', () => {
       expect(meta.matched).toBe(false);
     });
 
+    it('#464：@ 未匹配 → 频道回「未找到角色」说明（转自动认领）', async () => {
+      const result = await routeMessage(channelId, '@UnknownAgent help me', undefined, fileStore);
+
+      const msgs = await fileStore.queryMessages(channelId, { workUnitId: result.workUnitId! });
+      const notice = msgs.find(m => m.authorType === 'agent' && m.content.includes('未找到角色'));
+      expect(notice).toBeTruthy();
+      expect(notice!.content).toContain('UnknownAgent');
+      expect(notice!.content).toContain('自动认领');
+    });
+
+    it('#464：无归属挂起提问带 atHuman（milestone 响铃）', async () => {
+      await createTestAgent(fileStore, 'ParkedAgent');
+
+      const result = await routeMessage(channelId, '@ParkedAgent do this task', undefined, fileStore);
+
+      const wu = await findWu(result.workUnitId!);
+      expect(wu!.status).toBe('blocked'); // parked（无归属挂起）
+      const msgs = await fileStore.queryMessages(channelId, { workUnitId: result.workUnitId! });
+      const question = msgs.find(m => m.authorType === 'agent' && m.content.includes('正在等待你的回复'));
+      expect(question).toBeTruthy();
+      expect(JSON.parse(question!.meta ?? '{}').atHuman).toBe(true);
+    });
+
     it('scope strips @name prefix', async () => {
       const result = await routeMessage(channelId, '@Agent please analyze this code', undefined, fileStore);
 
