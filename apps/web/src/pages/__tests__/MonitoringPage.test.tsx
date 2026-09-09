@@ -1,6 +1,6 @@
 // Contract test: MonitoringPage — MVP-6 + #398 重构（spec §7：行动面首屏 / 区块裁决 / 图表化 / §7.5 文案）
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import React from 'react';
 
 vi.mock('react', async () => {
@@ -63,9 +63,15 @@ vi.mock('../../api/events', () => ({
   eventsApi: { search: mockEventSearch },
 }));
 
-// #184「需要处理」区：桩件隔离（其数据加载契约见组件自身测试）
+// #184「需要处理」区：桩件隔离（其数据加载契约见组件自身测试）；E4 起捕获 props 供下钻接线用例驱动
+const { needsAttentionProps } = vi.hoisted(() => ({
+  needsAttentionProps: { current: null as { onAlertClick?: (g: { level: string; message: string; count: number }) => void } | null },
+}));
 vi.mock('../../components/monitoring/NeedsAttentionSection', () => ({
-  NeedsAttentionSection: () => React.createElement('div', null, '需要处理'),
+  NeedsAttentionSection: (props: { onAlertClick?: (g: { level: string; message: string; count: number }) => void }) => {
+    needsAttentionProps.current = props;
+    return React.createElement('div', null, '需要处理');
+  },
 }));
 
 import { MonitoringPage } from '../MonitoringPage';
@@ -136,6 +142,7 @@ describe('MonitoringPage', () => {
     });
     mockPromote.mockResolvedValue({ data: { success: true } });
     mockDemote.mockResolvedValue({ data: { success: true } });
+    mockEventSearch.mockResolvedValue({ data: { events: [], total: 0, nextCursor: null } });
     document.querySelector('#toast-container')?.replaceChildren(); // 只清子节点——toast.ts 模块级缓存 container 引用，remove 会让后续 toast 挂到游离节点
   });
 
@@ -453,5 +460,49 @@ describe('MonitoringPage', () => {
     fireEvent.click(screen.getByText('事件检索'));
     fireEvent.click(screen.getByText('查询'));
     expect(await screen.findByText(/查询失败/)).toBeDefined();
+  });
+});
+
+// ── E4 告警下钻：点击告警组 → 事件检索 tab 预填签名过滤（NeedsAttentionSection 为桩件，经捕获的 props 驱动）──
+describe('MonitoringPage — 告警下钻（E4）', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGetOverview.mockResolvedValue(defaultOverview());
+    mockGetEfficiency.mockResolvedValue(emptyEfficiency());
+    mockListPendingReview.mockResolvedValue({ data: { entries: [], total: 0 } });
+    mockEventSearch.mockResolvedValue({ data: { events: [], total: 0, nextCursor: null } });
+  });
+
+  it('点击告警 → 切事件检索 tab，预填 type=monitor:alert + 签名关键词并自动检索', async () => {
+    render(<MonitoringPage />);
+    await screen.findByText('知识提案待审');
+    act(() => {
+      needsAttentionProps.current!.onAlertClick!({ level: 'warning', message: '未认领池滞留：最老任务已滞留 7h', count: 3 });
+    });
+
+    await waitFor(() => {
+      expect(mockEventSearch).toHaveBeenCalledWith(expect.objectContaining({
+        type: 'monitor:alert',
+        level: 'warning',
+        keyword: '未认领池滞留：最老任务已滞留',
+      }));
+    });
+    expect((screen.getByPlaceholderText('类型（可选），如 workunit:failed') as HTMLInputElement).value).toBe('monitor:alert');
+    expect((screen.getByPlaceholderText('关键词（可选）') as HTMLInputElement).value).toBe('未认领池滞留：最老任务已滞留');
+  });
+
+  it('下钻后回概览再手动进事件检索 → 旧预填不重放（不再自动检索）', async () => {
+    render(<MonitoringPage />);
+    await screen.findByText('知识提案待审');
+    act(() => {
+      needsAttentionProps.current!.onAlertClick!({ level: 'warning', message: '滞留 7h', count: 1 });
+    });
+    await waitFor(() => expect(mockEventSearch).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(screen.getByText('概览'));
+    fireEvent.click(screen.getByText('事件检索'));
+    // 面板重挂但无 initialFilters：不自动检索，表单回到空
+    expect(mockEventSearch).toHaveBeenCalledTimes(1);
+    expect((screen.getByPlaceholderText('关键词（可选）') as HTMLInputElement).value).toBe('');
   });
 });

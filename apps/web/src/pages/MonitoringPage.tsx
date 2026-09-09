@@ -5,8 +5,9 @@
 import { useState } from 'react';
 import { monitoringApi } from '../api/monitoring';
 import { knowledgeApi } from '../api/knowledge';
-import { EventSearchPanel } from '../components/monitoring/EventSearchPanel';
+import { EventSearchPanel, type EventSearchFilters } from '../components/monitoring/EventSearchPanel';
 import { NeedsAttentionSection } from '../components/monitoring/NeedsAttentionSection';
+import { alertSignatureKeyword, type AlertGroup } from '../components/monitoring/alertGrouping';
 import { MonitorSection } from '../components/monitoring/MonitorSection';
 import { UsageBar, DayBars, HBars } from '../components/monitoring/charts';
 import { useAsyncData } from '../hooks/useAsyncData';
@@ -18,6 +19,8 @@ type MonitoringTab = 'overview' | 'events';
 
 export function MonitoringPage() {
   const [activeTab, setActiveTab] = useState<MonitoringTab>('overview');
+  // E4 告警下钻：点击告警组 → 事件检索 tab 预填该签名过滤（面板随 tab 重挂时经 initialFilters 消费）
+  const [eventSeed, setEventSeed] = useState<EventSearchFilters | null>(null);
   // 健康度量分区默认折叠（§7.2：度量区整体降为下方分区）
   const [metricsOpen, setMetricsOpen] = useState(false);
   // #350 useAsyncData 收一次性拉取样板：各区块独立加载、失败静默（fetcher 内 catch 落 null，区块内提示）
@@ -41,6 +44,19 @@ export function MonitoringPage() {
   const proposals = proposalsQ.data;
   // 批次A 项8：刷新按钮 loading（任一分区在拉即视为刷新中）
   const refreshing = overviewQ.loading || flywheelQ.loading || overheadQ.loading || efficiencyQ.loading || proposalsQ.loading;
+
+  /** E4 告警下钻：点击告警组 → 事件检索 tab，预填 type=monitor:alert + 签名关键词（告警与收件箱同 warning 级口径） */
+  const drillIntoAlert = (g: AlertGroup) => {
+    const keyword = alertSignatureKeyword(g.message);
+    setEventSeed({ type: 'monitor:alert', level: 'warning', ...(keyword ? { keyword } : {}) });
+    setActiveTab('events');
+  };
+
+  /** 手动切 tab：回概览时清掉下钻预填，防旧 seed 在下次进事件检索时重放 */
+  const switchTab = (t: MonitoringTab) => {
+    if (t === 'overview') setEventSeed(null);
+    setActiveTab(t);
+  };
 
   const refresh = () => {
     overviewQ.reload();
@@ -93,7 +109,7 @@ export function MonitoringPage() {
         {([['overview', '概览'], ['events', '事件检索']] as Array<[MonitoringTab, string]>).map(([id, label]) => (
           <button
             key={id}
-            onClick={() => setActiveTab(id)}
+            onClick={() => switchTab(id)}
             className={`px-4 py-2 text-sm rounded-t-lg transition ${activeTab === id ? 'u-surface u-accent' : 'u-text-3'}`}
             style={{ borderBottom: activeTab === id ? '2px solid var(--accent-primary)' : '2px solid transparent' }}
           >
@@ -105,7 +121,7 @@ export function MonitoringPage() {
       {activeTab === 'events' ? (
         <div className="flex-1 overflow-auto px-8 pb-8">
           <div className="max-w-5xl">
-            <EventSearchPanel />
+            <EventSearchPanel initialFilters={eventSeed ?? undefined} />
           </div>
         </div>
       ) : (
@@ -113,7 +129,7 @@ export function MonitoringPage() {
         <div className="max-w-5xl">
           {/* 行动面（§7.2 首屏）：需要处理（#184 独立加载）+ 知识提案待审（全页唯一可操作列表，上移） */}
           <div className="space-y-4 mt-4">
-            <NeedsAttentionSection />
+            <NeedsAttentionSection onAlertClick={drillIntoAlert} />
 
             <MonitorSection
               title="知识提案待审"

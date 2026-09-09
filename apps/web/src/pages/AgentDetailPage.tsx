@@ -187,7 +187,7 @@ export function AgentDetailPage() {
           <div className="flex gap-2">
             {instance && instance.status !== 'terminated' && (
               <button
-                className="text-xs px-2 py-1 rounded u-err-dim u-err u-hover-bg"
+                className="btn btn-danger btn-sm"
                 onClick={() => setConfirmTerminate(true)}
               >
                 强制停止

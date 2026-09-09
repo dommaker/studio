@@ -1,6 +1,6 @@
 // Contract test: alertGrouping — #398 监控页告警按归一化 message 签名分组（spec §7.3，纯前端不动探针口径）
 import { describe, it, expect } from 'vitest';
-import { groupAlertsBySignature, type AlertItem } from '../alertGrouping';
+import { alertSignatureKeyword, groupAlertsBySignature, type AlertItem } from '../alertGrouping';
 
 const at = (iso: string) => iso;
 
@@ -62,5 +62,27 @@ describe('groupAlertsBySignature', () => {
       { level: 'warning', message: '心跳过期 5h', createdAt: at('2026-08-29T02:00:00Z') },
     ];
     expect(groupAlertsBySignature(alerts)).toHaveLength(2);
+  });
+});
+
+describe('alertSignatureKeyword（E4 告警下钻关键词）', () => {
+  it('数字段切除后取最长文本段：同组不同数值共享该段', () => {
+    expect(alertSignatureKeyword('未认领池滞留：最老任务已滞留 7h')).toBe('未认领池滞留：最老任务已滞留');
+  });
+
+  it('hex id 段同样切除', () => {
+    expect(alertSignatureKeyword('执行 loop 失联：实例 1a2b3c4d 心跳过期')).toBe('执行 loop 失联：实例');
+  });
+
+  it('斜杠分隔的多数值：取最长段', () => {
+    expect(alertSignatureKeyword('Knowledge health score: 50/100')).toBe('Knowledge health score:');
+  });
+
+  it('原文中的拉丁字母 N 不被误切', () => {
+    expect(alertSignatureKeyword('NEED_INPUT 挂起 3 次')).toBe('NEED_INPUT 挂起');
+  });
+
+  it('全由数值构成 → 空串（调用方退化为仅 type 过滤）', () => {
+    expect(alertSignatureKeyword('50')).toBe('');
   });
 });

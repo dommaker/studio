@@ -68,3 +68,28 @@ describe('EventSearchPanel', () => {
     expect(await screen.findByText(/查询失败/)).toBeDefined();
   });
 });
+
+describe('EventSearchPanel — initialFilters（E4 告警下钻预填）', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockSearch.mockResolvedValue({ data: { events: [], total: 0, nextCursor: null } });
+  });
+
+  it('预填 type/keyword/level 到表单，挂载即自动检索一次', async () => {
+    render(<EventSearchPanel initialFilters={{ type: 'monitor:alert', keyword: '心跳过期', level: 'warning' }} />);
+
+    await waitFor(() => {
+      expect(mockSearch).toHaveBeenCalledTimes(1);
+      expect(mockSearch).toHaveBeenCalledWith(expect.objectContaining({
+        type: 'monitor:alert', keyword: '心跳过期', level: 'warning', limit: 50,
+      }));
+    });
+    expect((screen.getByPlaceholderText('类型（可选），如 workunit:failed') as HTMLInputElement).value).toBe('monitor:alert');
+    expect((screen.getByPlaceholderText('关键词（可选）') as HTMLInputElement).value).toBe('心跳过期');
+  });
+
+  it('无 initialFilters 时不自动检索（手动点查询才发请求）', () => {
+    render(<EventSearchPanel />);
+    expect(mockSearch).not.toHaveBeenCalled();
+  });
+});

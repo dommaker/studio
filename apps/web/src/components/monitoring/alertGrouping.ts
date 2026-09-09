@@ -24,6 +24,18 @@ export function alertSignature(message: string): string {
     .replace(/\d+/g, 'N');
 }
 
+/** E4 告警下钻：告警 message → 事件检索 keyword。签名中的 <id>/N 占位无法子串匹配 payload，
+    故按 hex id/数字段切分原文，取剩余最长文本段（同组不同数值的告警共享该稳定段）。
+    全由数值/id 构成时返回 ''（调用方退化为仅 type 过滤）。 */
+export function alertSignatureKeyword(message: string): string {
+  const segments = message
+    .split(/\b[0-9a-f]{8,}\b|\d+/gi)
+    .map((s) => s.trim())
+    .filter((s) => s.length >= 2);
+  segments.sort((a, b) => b.length - a.length);
+  return segments[0] ?? '';
+}
+
 export function groupAlertsBySignature(alerts: AlertItem[]): AlertGroup[] {
   const byKey = new Map<string, { level: AlertItem['level']; items: AlertItem[] }>();
   for (const a of alerts) {
