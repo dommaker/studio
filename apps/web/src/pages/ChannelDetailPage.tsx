@@ -16,6 +16,7 @@ import { buildMessageToItemIndex } from '../utils/streamVirtual';
 import { ChannelInput } from '../components/channel/ChannelInput';
 import { SuggestionChips, type SuggestionChipItem } from '../components/channel/SuggestionChips';
 import { ChannelTopbarMenu } from '../components/channel/ChannelTopbarMenu';
+import { ChannelCurrentPmoChip } from '../components/channel/ChannelCurrentPmoChip';
 import { ChannelNeedInputChip, type NeedInputTodo } from '../components/channel/ChannelNeedInputChip';
 import { ChannelRail } from '../components/channel/ChannelRail';
 import { ChannelActivityRail } from '../components/channel/ChannelActivityRail';
@@ -751,11 +752,13 @@ export function ChannelDetailPage() {
             {channel?.type === 'rnd' ? '研发频道' : channel?.type === 'decision' ? '决策频道' : '系统频道'}
           </span>
           <div className="mc-topbar-actions">
+            {/* #474：「当前 PMO」提升为顶栏可见位（原藏 ⋯ 菜单）——频道上下文标识与待办信号同排可见 */}
+            <ChannelCurrentPmoChip channelId={id} />
             {/* #279（决策 #250 D4）/ #468：NEED_INPUT 待办 chip——数据源 = 行动中心 stateItems 投影
                 （本频道 reply 项）；E1 起为顶栏唯一待办信号位（消息头 badge 已删，见 ChannelMessageItem） */}
             <ChannelNeedInputChip items={waitingWus} onLocate={locateWaitingQuestion} />
-            {/* E1（2026-09 页面重设计）：顶栏收敛 ⋯ 菜单——成员管理/默认工程/频道动态入口（<1024）/
-                当前 PMO 跳转收纳进菜单；主行动点保持输入框「发送」唯一 accent */}
+            {/* E1（2026-09 页面重设计）：顶栏收敛 ⋯ 菜单——成员管理/默认工程/频道动态入口（<1024）
+                收纳进菜单；主行动点保持输入框「发送」唯一 accent */}
             <ChannelTopbarMenu
               channelId={id}
               defaultPath={channel?.defaultPath}

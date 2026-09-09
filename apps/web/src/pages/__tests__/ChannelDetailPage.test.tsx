@@ -349,12 +349,14 @@ describe('ChannelDetailPage — Mission Control 三栏', () => {
     expect(screen.getByTestId('activity-rail')).toBeTruthy();
     await waitFor(() => expect(screen.getByText('#rnd-主研发')).toBeTruthy());
     expect(screen.getByTestId('channel-input')).toBeTruthy();
-    // E1 顶栏收敛：成员/PMO/默认工程收进 ⋯ 菜单，开菜单可见
+    // #474：「当前 PMO」提升到顶栏可见位（不开菜单即见）；⋯ 菜单只剩成员/默认工程
+    expect(screen.getByTestId('current-pmo-chip')).toBeTruthy();
     expect(screen.queryByTestId('member-manager')).toBeNull();
     fireEvent.click(screen.getByLabelText('更多操作'));
     expect(screen.getByTestId('member-manager')).toBeTruthy();
-    expect(screen.getByTestId('current-pmo-chip')).toBeTruthy();
     expect(screen.getByTestId('default-project-select')).toBeTruthy();
+    // 菜单内不再重复 PMO（顶栏已可见，同一事实只表达一次）
+    expect(screen.getAllByTestId('current-pmo-chip')).toHaveLength(1);
     expect(screen.queryByTestId('wu-drawer')).toBeNull();
   });
 
