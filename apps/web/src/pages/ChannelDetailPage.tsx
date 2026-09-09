@@ -38,10 +38,6 @@ import { channelApi } from '../api/channel';
 import { saveLastChannelId } from '../utils/lastChannel';
 import { toast } from '../utils/toast';
 
-/** #279（决策 #250 D4）：闸门类 WU 类型（人工验收单）——不聚合进 NEED_INPUT 待办 chip；
- *  #471：plan（一脉会话规划单，等裁决轮/额度授权人闸）同入 */
-const GATE_WU_TYPES = new Set(['decision', 'spec', 'plan']);
-
 /** #439：?highlight 定位的翻页页数上限（50 条/页 → 最多回看 500 条），超限/翻到底降级为可见反馈 */
 const HIGHLIGHT_LOCATE_MAX_PAGES = 10;
 
@@ -64,23 +60,6 @@ function suggestionActionErrorMessage(e: unknown): string {
 
 /** #443：带 dismiss 台账 key 的引导片（key = `ep:{wuId}:{suggestionId}`，端点派生片唯一来源 #447） */
 type DismissibleChip = SuggestionChipItem & { dismissKey: string };
-
-/**
- * WU（REST 全量或 status_changed 事件负载解析出的轻量引用）→ NEED_INPUT 待办条目。
- * 过滤逻辑：metadata.waitingForInput && 非闸门类；不满足 → null（调用方据此增/删列表项）。
- */
-function needInputTodoOf(wu: { id: string; type?: string | null; scope?: string | null; metadata?: string | null }): NeedInputTodo | null {
-  try {
-    const md = JSON.parse(wu.metadata || '{}');
-    if (!md.waitingForInput) return null;
-    if (GATE_WU_TYPES.has(wu.type ?? '')) return null;
-    return {
-      wuId: wu.id,
-      question: typeof md.waitingQuestion === 'string' ? md.waitingQuestion : undefined,
-      scope: wu.scope ?? undefined,
-    };
-  } catch { return null; }
-}
 
 const REQ_STATUSES = new Set<RequirementStatus>(['open', 'in-progress', 'done', 'archived']);
 
@@ -129,9 +108,6 @@ export function ChannelDetailPage() {
     expandedProcGroups, setExpandedProcGroups,
   } = usePersistentStreamUI(id);
   const [replyTo, setReplyTo] = useState<ChannelMessage | null>(null);
-  // F5: NEED_INPUT 挂起中的 WorkUnit 集合（等待人类回复）；
-  // #279（决策 #250 D4）：扩为对象集（chip 聚合要 WU 标识 + 问题摘要），闸门类（decision/spec）不聚合
-  const [waitingWus, setWaitingWus] = useState<NeedInputTodo[]>([]);
   // REQ 需求编号（vision §5.3）：本频道需求集；#394 起喂右栏「频道动态」REQ 链路卡（原中栏 chips 条移除）
   const [channelReqs, setChannelReqs] = useState<Requirement[]>([]);
   // #440：本频道 WU 全集——阶段条 WU 数据本体 + 各卡片数据源
@@ -177,24 +153,17 @@ export function ChannelDetailPage() {
     return () => useUnreadStore.getState().setActiveChannel(null);
   }, [id]);
 
-  // F5: 本频道挂起中的 WorkUnit（blocked + metadata.waitingForInput）——REST 打底 +
-  // workunit.status_changed SSE 增量维护（SSE 负载深化 批 2 决策 5：摘 messages.length 依赖，wu 数据直取事件负载）。
-  // #279：闸门类（decision/spec 人工验收单）不聚合进待办 chip（不阻塞执行，避免红点焦虑）；
-  // waitingQuestion 供 chip 下拉问题摘要
+  // F5/#468：NEED_INPUT 待办 = 行动中心投影——notificationStore.stateItems 中本频道 reply 项。
+  // 本地 REST 打底 + workunit.status_changed SSE upsert 维护机制已删（不发明第五套信号）；
+  // 行动中心重拉由 NotificationBell（全局挂载于 TopNav）的 SSE 失效触发承担，本页不自行 load()。
+  // #468 设计稿：reply 不再排除闸门类（decision/spec/plan），排除规则改为面板分区解决
   const { onEvent, onReconnect } = useWebSocketContext();
-
-  // 具名打底函数（批 4 收尾对齐）：重连时与 messages.refresh 一并强制对齐（决策 9）
-  const reloadWaitingWus = useCallback(() => {
-    if (!id) return;
-    workunitApi.list({ channelId: id, status: 'blocked', limit: 100 })
-      .then(r => {
-        setWaitingWus(r.data.data.flatMap(wu => {
-          const todo = needInputTodoOf(wu);
-          return todo ? [todo] : [];
-        }));
-      })
-      .catch(() => {});
-  }, [id]);
+  const stateItems = useNotificationStore(s => s.stateItems);
+  const waitingWus = useMemo<NeedInputTodo[]>(() =>
+    stateItems
+      .filter(i => i.kind === 'reply' && i.channelId === id)
+      .map(i => ({ wuId: i.wuId, question: i.waitingQuestion ?? i.scope })),
+    [stateItems, id]);
 
   const reloadChannelReqs = useCallback(() => {
     if (!id) return;
@@ -230,11 +199,11 @@ export function ChannelDetailPage() {
   }, [id]);
 
   // 决策 9（SSE 负载加深）：SSE 断线重连 → 受影响面一次性 refetch（无序号/校验机制）：
-  // 消息面 refresh + waitingWus/REQ chips 两个打底面 + #403 频道数据面三切片强刷
+  // 消息面 refresh + REQ chips 打底面 + #403 频道数据面三切片强刷
+  // （#468：waitingWus 面已删——行动中心重拉由 NotificationBell 的 onReconnect 承担）
   useEffect(() => {
     return onReconnect(() => {
       void refresh();
-      reloadWaitingWus();
       reloadChannelReqs();
       reloadChannelWus();
       reloadSuggestions();
@@ -244,11 +213,7 @@ export function ChannelDetailPage() {
       void channelData.ensureCurrentPmo(id, { maxAgeMs: 0 });
       void channelData.ensureMembers(id, { maxAgeMs: 0 });
     });
-  }, [onReconnect, refresh, reloadWaitingWus, reloadChannelReqs, reloadChannelWus, reloadSuggestions, id]);
-
-  useEffect(() => {
-    reloadWaitingWus();
-  }, [reloadWaitingWus]);
+  }, [onReconnect, refresh, reloadChannelReqs, reloadChannelWus, reloadSuggestions, id]);
 
   useEffect(() => {
     reloadChannelWus();
@@ -264,16 +229,6 @@ export function ChannelDetailPage() {
       if (msg.event_type !== 'workunit.status_changed') return;
       const wu = parseLiveWuRef(msg.data);
       if (!wu || wu.channelId !== id) return;
-      // 仍是 blocked 且满足过滤 → upsert；否则（迁出 blocked / waitingForInput 消失 / 变闸门类）→ 移除
-      const todo = wu.status === 'blocked' ? needInputTodoOf(wu) : null;
-      setWaitingWus(prev => {
-        const idx = prev.findIndex(w => w.wuId === wu.id);
-        if (!todo) return idx < 0 ? prev : prev.filter(w => w.wuId !== wu.id);
-        if (idx < 0) return [...prev, todo];
-        const next = [...prev];
-        next[idx] = todo;
-        return next;
-      });
       // #440：channelWus 同步 upsert（轻量负载只带 id/status/metadata/type/scope/parentId，其余字段保留旧值；
       // 新 WU 以默认值补全，时间戳类字段等下次打底/重连对齐）
       setChannelWus(prev => {
@@ -796,8 +751,8 @@ export function ChannelDetailPage() {
             {channel?.type === 'rnd' ? '研发频道' : channel?.type === 'decision' ? '决策频道' : '系统频道'}
           </span>
           <div className="mc-topbar-actions">
-            {/* #279（决策 #250 D4）：NEED_INPUT 待办 chip（只聚合等待回复，闸门类不聚合）——
-                E1 起为顶栏唯一待办信号位（消息头 badge 已删，见 ChannelMessageItem） */}
+            {/* #279（决策 #250 D4）/ #468：NEED_INPUT 待办 chip——数据源 = 行动中心 stateItems 投影
+                （本频道 reply 项）；E1 起为顶栏唯一待办信号位（消息头 badge 已删，见 ChannelMessageItem） */}
             <ChannelNeedInputChip items={waitingWus} onLocate={locateWaitingQuestion} />
             {/* E1（2026-09 页面重设计）：顶栏收敛 ⋯ 菜单——成员管理/默认工程/频道动态入口（<1024）/
                 当前 PMO 跳转收纳进菜单；主行动点保持输入框「发送」唯一 accent */}

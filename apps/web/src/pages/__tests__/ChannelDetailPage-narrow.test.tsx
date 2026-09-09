@@ -105,7 +105,7 @@ const renderPage = () =>
 describe('ChannelDetailPage — #395 窄屏降级', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    useNotificationStore.setState({ notifications: [] });
+    useNotificationStore.setState({ stateItems: [], notifications: [], unreadCount: 0 });
     mockApiPost.mockResolvedValue({ data: { success: true } });
     mockApiGet.mockResolvedValue({ data: { data: { id: 'ch-1', name: 'rnd-主研发', type: 'rnd', members: '[]' } } });
     mockListWorkunits.mockResolvedValue({ data: { data: [] } });

@@ -219,8 +219,13 @@ describe('ChannelDetailPage — Mission Control 三栏', () => {
       await new Promise(r => setTimeout(r, 250));
     }
     sseHandlers = [];
-    // 通知 store 是模块单例，跨用例重置
-    useNotificationStore.setState({ notifications: [] });
+    // 行动中心 store 是模块单例，跨用例重置；#468：WU-1018 待回复改由 stateItems 投影提供
+    // （页面不再有 blocked REST 面——chip/waitingWus = store 中本频道 reply 项投影）
+    useNotificationStore.setState({
+      stateItems: [{ kind: 'reply', wuId: 'WU-1018', scope: '检索相关知识', channelId: 'ch-1', since: iso(0) }],
+      notifications: [],
+      unreadCount: 0,
+    });
     mockApiPost.mockResolvedValue({ data: { success: true } });
     mockApiGet.mockResolvedValue({ data: { data: { id: 'ch-1', name: 'rnd-主研发', type: 'rnd', members: '[]' } } });
     // 同一 list 接口服务两种查询：blocked（NEED_INPUT 挂起集合）/ active（#242 live 状态条，默认无执行中）
@@ -236,22 +241,26 @@ describe('ChannelDetailPage — Mission Control 三栏', () => {
     mockSendMessage.mockResolvedValue({});
   });
 
-  it('打开频道即读：本频道未读通知标记已读（后端条目 POST 同步），其他频道不动', async () => {
+  it('打开频道即读：本频道未读通知标记已读（逐条 POST 同步 + unreadCount 递减），其他频道不动', async () => {
     useNotificationStore.setState({
       notifications: [
-        { id: 'n-ch1', backendId: 'n-ch1', channelId: 'ch-1', agentName: 'System', title: '审计建议', content: 'x', time: '10:00', read: false, workUnitId: null, pmoId: null, messageId: null },
-        { id: 'sse-ch1', backendId: null, channelId: 'ch-1', agentName: 'pmo', title: null, content: '@human', time: '10:01', read: false, workUnitId: null, pmoId: null, messageId: 'm-x' },
-        { id: 'n-ch2', backendId: 'n-ch2', channelId: 'ch-2', agentName: 'System', title: '别频道', content: 'y', time: '10:02', read: false, workUnitId: null, pmoId: null, messageId: null },
+        { id: 'n-ch1', type: 'auditor_suggestion', channelId: 'ch-1', agentName: 'System', title: '审计建议', content: 'x', time: '10:00', read: false, workUnitId: null, pmoId: null, messageId: null },
+        { id: 'n-ch1-b', type: 'wu_milestone', channelId: 'ch-1', agentName: 'System', title: '里程碑', content: 'y', time: '10:01', read: false, workUnitId: null, pmoId: null, messageId: 'm-x' },
+        { id: 'n-ch2', type: 'system', channelId: 'ch-2', agentName: 'System', title: '别频道', content: 'z', time: '10:02', read: false, workUnitId: null, pmoId: null, messageId: null },
       ],
+      unreadCount: 3,
     });
 
     renderPage();
     await waitFor(() => expect(screen.getByText('#rnd-主研发')).toBeTruthy());
 
-    const byId = Object.fromEntries(useNotificationStore.getState().notifications.map(n => [n.id, n.read]));
-    expect(byId).toEqual({ 'n-ch1': true, 'sse-ch1': true, 'n-ch2': false });
-    expect(mockApiPost).toHaveBeenCalledTimes(1);
+    const s = useNotificationStore.getState();
+    const byId = Object.fromEntries(s.notifications.map(n => [n.id, n.read]));
+    expect(byId).toEqual({ 'n-ch1': true, 'n-ch1-b': true, 'n-ch2': false });
+    expect(s.unreadCount).toBe(1);
+    expect(mockApiPost).toHaveBeenCalledTimes(2);
     expect(mockApiPost).toHaveBeenCalledWith('/notifications/n-ch1/read');
+    expect(mockApiPost).toHaveBeenCalledWith('/notifications/n-ch1-b/read');
   });
 
   it('?highlight=<mid> 直达消息：滚动定位并高亮（通知中心点击跳转入参）', async () => {
@@ -318,7 +327,7 @@ describe('ChannelDetailPage — Mission Control 三栏', () => {
     });
   });
 
-  it('决策9：SSE 断线重连 → 当前频道一次性 refetch（messages refresh + waitingWus/REQ chips 打底面对齐）', async () => {
+  it('决策9：SSE 断线重连 → 当前频道一次性 refetch（messages refresh + REQ chips 打底面对齐）', async () => {
     renderPage();
     await waitFor(() => expect(screen.getByText('#rnd-主研发')).toBeTruthy());
     expect(mockRefresh).not.toHaveBeenCalled();
@@ -327,9 +336,9 @@ describe('ChannelDetailPage — Mission Control 三栏', () => {
     const reqCallsBefore = mockListReqs.mock.calls.length;
     act(() => emitReconnect());
     expect(mockRefresh).toHaveBeenCalledTimes(1);
-    // chips 打底面强制对齐（批 4 收尾：reloadWaitingWus/reloadChannelReqs 挂进重连回调；
-    // #440 起新增 channelWus 面（建议片/阶段条数据源）→ workunit list 调用 +2）
-    expect(mockListWorkunits.mock.calls.length).toBe(wuCallsBefore + 2);
+    // chips 打底面强制对齐（reloadChannelReqs 挂进重连回调；#440 起 channelWus 面 → workunit list +1；
+    // #468：reloadWaitingWus 已删——waitingWus 改行动中心投影，其重连重拉由 NotificationBell 承担）
+    expect(mockListWorkunits.mock.calls.length).toBe(wuCallsBefore + 1);
     expect(mockListReqs.mock.calls.length).toBe(reqCallsBefore + 1);
   });
 
@@ -600,57 +609,52 @@ describe('ChannelDetailPage — #279 NEED_INPUT 待办 chip 与等待态清理',
       createdAt: iso(1),
     },
   ];
-  const waitingWu = (id: string, type: string, question: string) => ({
-    id, type, scope: `scope of ${id}`,
-    metadata: JSON.stringify({ waitingForInput: true, waitingQuestion: question }),
+  // #468：NEED_INPUT 待办 = 行动中心 stateItems 投影（本页不再有 blocked REST 面），
+  // 用例经 store 直接播种 reply 项
+  const replyItem = (wuId: string, question?: string, channelId = 'ch-1') => ({
+    kind: 'reply' as const, wuId, scope: `scope of ${wuId}`, channelId,
+    ...(question ? { waitingQuestion: question } : {}), since: iso(0),
   });
 
   beforeEach(() => {
     vi.clearAllMocks();
     currentMessages = FOLLOWUP_MESSAGES;
     sseHandlers = [];
+    useNotificationStore.setState({
+      stateItems: [replyItem('WU-3000', '使用 OAuth 还是账号密码？')],
+      notifications: [],
+      unreadCount: 0,
+    });
     mockApiGet.mockResolvedValue({ data: { data: { id: 'ch-1', name: 'rnd-主研发', type: 'rnd', members: '[]' } } });
-    mockListWorkunits.mockImplementation((params?: { status?: string }) => Promise.resolve(
-      params?.status === 'active'
-        ? activeWuList([])
-        : { data: { data: [waitingWu('WU-3000', 'task', '使用 OAuth 还是账号密码？')] } },
-    ));
+    mockListWorkunits.mockResolvedValue({ data: { data: [] } });
     mockOnEvent.mockImplementation((cb: SseHandler) => { sseHandlers.push(cb); return () => {}; });
     mockListReqs.mockResolvedValue({ data: { data: [] } });
     mockSendMessage.mockResolvedValue({});
     Element.prototype.scrollIntoView = vi.fn();
   });
 
-  it('顶栏 chip 聚合 NEED_INPUT 等待计数；闸门类（decision/spec/plan）不聚合', async () => {
-    mockListWorkunits.mockImplementation((params?: { status?: string }) => Promise.resolve(
-      params?.status === 'active'
-        ? activeWuList([])
-        : {
-            data: {
-              data: [
-                waitingWu('WU-3000', 'task', '使用 OAuth 还是账号密码？'),
-                waitingWu('WU-3001', 'decision', '决策单待批'),
-                waitingWu('WU-3002', 'spec', 'spec 单待批'),
-                waitingWu('WU-3003', 'plan', '规划单待裁决'),
-              ],
-            },
-          },
-    ));
+  it('顶栏 chip 聚合本频道 reply 待办（#468：闸门类不再排除；他频道/非 reply 不聚合）', async () => {
+    useNotificationStore.setState({
+      stateItems: [
+        replyItem('WU-3000', '使用 OAuth 还是账号密码？'),
+        replyItem('WU-3001', '决策单待批'),                       // 闸门类也聚合（排除规则改面板分区解决）
+        replyItem('WU-3009', '他频道待回复', 'ch-other'),
+        { kind: 'review' as const, wuId: 'WU-3010', scope: '待验收', channelId: 'ch-1', since: iso(0) },
+      ],
+    });
     renderPage();
-    await waitFor(() => expect(screen.getByText('待回复 · 1')).toBeTruthy());
-    fireEvent.click(screen.getByText('待回复 · 1'));
+    await waitFor(() => expect(screen.getByText('待回复 · 2')).toBeTruthy());
+    fireEvent.click(screen.getByText('待回复 · 2'));
     expect(screen.getByText('WU-3000')).toBeTruthy();
-    // 问题摘要来自 metadata.waitingQuestion
+    expect(screen.getByText('WU-3001')).toBeTruthy();
+    // 问题摘要来自 waitingQuestion
     expect(screen.getAllByText('使用 OAuth 还是账号密码？').length).toBeGreaterThan(0);
-    expect(screen.queryByText('WU-3001')).toBeNull();
-    expect(screen.queryByText('WU-3002')).toBeNull();
-    expect(screen.queryByText('WU-3003')).toBeNull();
+    expect(screen.queryByText('WU-3009')).toBeNull(); // 他频道
+    expect(screen.queryByText('WU-3010')).toBeNull(); // review 不进 reply chip
   });
 
-  it('无 NEED_INPUT 等待 → chip 不渲染', async () => {
-    mockListWorkunits.mockImplementation((params?: { status?: string }) => Promise.resolve(
-      params?.status === 'active' ? activeWuList([]) : { data: { data: [] } },
-    ));
+  it('无本频道 reply 待办 → chip 不渲染', async () => {
+    useNotificationStore.setState({ stateItems: [] });
     renderPage();
     await waitFor(() => expect(screen.getByText('#rnd-主研发')).toBeTruthy());
     expect(screen.queryByText(/待回复 ·/)).toBeNull();
@@ -735,13 +739,10 @@ describe('ChannelDetailPage — #279 NEED_INPUT 待办 chip 与等待态清理',
   });
 });
 
-// SSE 事件负载深化 批 2（决策 5/6）：waitingWus / REQ chips 事件化，摘 messages.length 依赖
-describe('ChannelDetailPage — SSE 负载深化批 2：waitingWus / REQ chips 事件化', () => {
+// SSE 事件负载深化 批 2（决策 5/6）：REQ chips 事件化，摘 messages.length 依赖；
+// #468：waitingWus 面已删（行动中心 stateItems 投影），本 describe 保留投影行为与 REQ 事件化锁定
+describe('ChannelDetailPage — SSE 负载深化批 2：REQ chips 事件化 / waitingWus 投影化（#468）', () => {
   const REQ_0043 = { id: 'REQ-0043', seq: 43, title: '新需求', status: 'open', createdAt: iso(0), createdBy: 'x' };
-  const wuStatusChanged = (wu: Record<string, unknown>) => ({
-    event_type: 'workunit.status_changed',
-    data: { workunit: wu },
-  });
   const blockedCalls = () =>
     mockListWorkunits.mock.calls.filter(c => (c[0] as { status?: string })?.status === 'blocked').length;
 
@@ -749,6 +750,7 @@ describe('ChannelDetailPage — SSE 负载深化批 2：waitingWus / REQ chips �
     vi.clearAllMocks();
     currentMessages = MESSAGES;
     sseHandlers = [];
+    useNotificationStore.setState({ stateItems: [], notifications: [], unreadCount: 0 });
     mockApiGet.mockResolvedValue({ data: { data: { id: 'ch-1', name: 'rnd-主研发', type: 'rnd', members: '[]' } } });
     mockListWorkunits.mockImplementation((params?: { status?: string }) => Promise.resolve(
       params?.status === 'active' ? activeWuList([]) : { data: { data: [] } },
@@ -758,12 +760,12 @@ describe('ChannelDetailPage — SSE 负载深化批 2：waitingWus / REQ chips �
     mockSendMessage.mockResolvedValue({});
   });
 
-  it('messages.length 变化不再触发 waitingWus / REQ 的 REST 重拉', async () => {
+  it('#468：waitingWus 无 blocked REST 面（行动中心投影）；messages.length 变化不触发 REQ 重拉', async () => {
     const { rerender } = renderPage();
     await waitFor(() => expect(screen.getByText(/REQ-0042/)).toBeTruthy());
-    expect(blockedCalls()).toBe(1);
+    expect(blockedCalls()).toBe(0); // blocked 列表查询已随 waitingWus 本地维护机制一并删除
     expect(mockListReqs).toHaveBeenCalledTimes(1);
-    // 模拟新消息到达（messages.length 增长）—— 旧实现两个 effect 依赖 messages.length 会重拉
+    // 模拟新消息到达（messages.length 增长）—— 旧实现 REQ effect 依赖 messages.length 会重拉
     currentMessages = [...MESSAGES, {
       id: 'm-9', channelId: 'ch-1', authorType: 'agent' as const, agentName: 'pm',
       content: '新消息', workUnitId: null, replyToId: null, meta: '{}', createdAt: iso(9),
@@ -776,46 +778,42 @@ describe('ChannelDetailPage — SSE 负载深化批 2：waitingWus / REQ chips �
       </MemoryRouter>,
     );
     await waitFor(() => expect(screen.getByText('新消息')).toBeTruthy());
-    expect(blockedCalls()).toBe(1);
+    expect(blockedCalls()).toBe(0);
     expect(mockListReqs).toHaveBeenCalledTimes(1);
   });
 
-  it('status_changed：blocked + waitingForInput → 待回复 chip 出现；迁出 blocked → 消失', async () => {
+  it('行动中心投影：本频道 reply 项 → 待回复 chip；整体替换清空（状态变即消）→ chip 消失', async () => {
     renderPage();
     await waitFor(() => expect(screen.getByText('#rnd-主研发')).toBeTruthy());
     expect(screen.queryByText(/待回复 ·/)).toBeNull();
-    act(() => emitSse(wuStatusChanged({
-      id: 'WU-3000', status: 'blocked', channelId: 'ch-1', type: 'task', scope: 'scope-3000',
-      metadata: JSON.stringify({ waitingForInput: true, waitingQuestion: '选哪个方案？' }),
-    })));
+    // 行动中心 load 后出现本频道 reply 项（状态派生，由 NotificationBell SSE 失效触发重拉）
+    act(() => useNotificationStore.setState({
+      stateItems: [{
+        kind: 'reply', wuId: 'WU-3000', scope: 'scope-3000', channelId: 'ch-1',
+        waitingQuestion: '选哪个方案？', since: iso(0),
+      }],
+    }));
     await waitFor(() => expect(screen.getByText('待回复 · 1')).toBeTruthy());
-    // 状态迁出 blocked → 从列表移除
-    act(() => emitSse(wuStatusChanged({ id: 'WU-3000', status: 'active', channelId: 'ch-1', type: 'task', metadata: '{}' })));
+    // 状态迁出 → 下次 load 整体替换为空 → chip 消失（无已读概念）
+    act(() => useNotificationStore.setState({ stateItems: [] }));
     expect(screen.queryByText(/待回复 ·/)).toBeNull();
   });
 
-  it('status_changed：waitingForInput 消失（仍 blocked）→ 移除；闸门类不聚合；他频道忽略', async () => {
+  it('投影过滤：他频道 reply / 非 reply kind（review/confirm）不聚合进 chip', async () => {
     renderPage();
     await waitFor(() => expect(screen.getByText('#rnd-主研发')).toBeTruthy());
-    // 闸门类（decision）不聚合
-    act(() => emitSse(wuStatusChanged({
-      id: 'WU-3001', status: 'blocked', channelId: 'ch-1', type: 'decision',
-      metadata: JSON.stringify({ waitingForInput: true }),
-    })));
-    // 他频道事件忽略
-    act(() => emitSse(wuStatusChanged({
-      id: 'WU-3002', status: 'blocked', channelId: 'ch-other', type: 'task',
-      metadata: JSON.stringify({ waitingForInput: true }),
-    })));
+    act(() => useNotificationStore.setState({
+      stateItems: [
+        { kind: 'reply', wuId: 'WU-3002', scope: 's', channelId: 'ch-other', since: iso(0) },
+        { kind: 'review', wuId: 'WU-3003', scope: 's', channelId: 'ch-1', since: iso(0) },
+        { kind: 'confirm', wuId: 'WU-3004', scope: 's', channelId: 'ch-1', since: iso(0) },
+      ],
+    }));
     expect(screen.queryByText(/待回复 ·/)).toBeNull();
-    // 正常加入后 waitingForInput 消失（仍 blocked）→ 移除
-    act(() => emitSse(wuStatusChanged({
-      id: 'WU-3003', status: 'blocked', channelId: 'ch-1', type: 'task',
-      metadata: JSON.stringify({ waitingForInput: true }),
-    })));
+    act(() => useNotificationStore.setState({
+      stateItems: [{ kind: 'reply', wuId: 'WU-3005', scope: 'scope-3005', channelId: 'ch-1', since: iso(0) }],
+    }));
     await waitFor(() => expect(screen.getByText('待回复 · 1')).toBeTruthy());
-    act(() => emitSse(wuStatusChanged({ id: 'WU-3003', status: 'blocked', channelId: 'ch-1', type: 'task', metadata: '{}' })));
-    expect(screen.queryByText(/待回复 ·/)).toBeNull();
   });
 
   it('requirement.created → 右栏 REQ 就地新增（负载全量零补拉，#415）；他频道 created 忽略', async () => {
@@ -888,7 +886,7 @@ describe('ChannelDetailPage — #447 引导片唯一来源 = 建议端点', () =
     currentMessages = MESSAGES;
     sseHandlers = [];
     suggestionPayload = EMPTY;
-    useNotificationStore.setState({ notifications: [] });
+    useNotificationStore.setState({ stateItems: [], notifications: [], unreadCount: 0 });
     mockApiGet.mockImplementation((url: string) => Promise.resolve(
       String(url).endsWith('/suggestions') ? suggestionPayload : CHANNEL,
     ));
@@ -961,7 +959,7 @@ describe('ChannelDetailPage — #440 阶段条（#447 起 currentWuId 由建议�
     currentMessages = MESSAGES;
     sseHandlers = [];
     suggestionPayload = { data: { data: { currentWuId: 'WU-5001', suggestions: [] } } };
-    useNotificationStore.setState({ notifications: [] });
+    useNotificationStore.setState({ stateItems: [], notifications: [], unreadCount: 0 });
     mockApiGet.mockImplementation((url: string) => Promise.resolve(
       String(url).endsWith('/suggestions') ? suggestionPayload : CHANNEL,
     ));
@@ -1038,7 +1036,7 @@ describe('ChannelDetailPage — #443 端点驱动只读状态说明', () => {
     vi.clearAllMocks();
     currentMessages = MESSAGES;
     sseHandlers = [];
-    useNotificationStore.setState({ notifications: [] });
+    useNotificationStore.setState({ stateItems: [], notifications: [], unreadCount: 0 });
     mockApiGet.mockImplementation((url: string) => Promise.resolve(
       String(url).endsWith('/suggestions') ? STATUS_SUGGESTION : CHANNEL,
     ));
@@ -1118,7 +1116,7 @@ describe('ChannelDetailPage — #446 prompt 建议片（预填进输入框，不
     vi.clearAllMocks();
     currentMessages = MESSAGES;
     sseHandlers = [];
-    useNotificationStore.setState({ notifications: [] });
+    useNotificationStore.setState({ stateItems: [], notifications: [], unreadCount: 0 });
     mockApiGet.mockImplementation((url: string) => Promise.resolve(
       String(url).endsWith('/suggestions') ? PROMPT_SUGGESTION : CHANNEL,
     ));
@@ -1190,7 +1188,7 @@ describe('ChannelDetailPage — #444 确定性动作片：补派评审', () => {
     currentMessages = MESSAGES;
     sseHandlers = [];
     suggestionFetchCount = 0;
-    useNotificationStore.setState({ notifications: [] });
+    useNotificationStore.setState({ stateItems: [], notifications: [], unreadCount: 0 });
     // 首次拉取回动作片；动作生效后的重拉回空（子单已建出，前置条件转假）
     mockApiGet.mockImplementation((url: string) => Promise.resolve(
       String(url).endsWith('/suggestions')
@@ -1276,7 +1274,7 @@ describe('ChannelDetailPage — #445 认领动作片', () => {
     currentMessages = MESSAGES;
     sseHandlers = [];
     suggestionFetchCount = 0;
-    useNotificationStore.setState({ notifications: [] });
+    useNotificationStore.setState({ stateItems: [], notifications: [], unreadCount: 0 });
     // 首次拉取回认领动作片；认领生效后的重拉回空（已 active，前置条件转假）
     mockApiGet.mockImplementation((url: string) => Promise.resolve(
       String(url).endsWith('/suggestions')
@@ -1348,7 +1346,7 @@ describe('ChannelDetailPage — 空频道态示例提示 chip（视觉批次 2 �
     currentMessages = []; // 空频道
     currentHasMore = false;
     sseHandlers = [];
-    useNotificationStore.setState({ notifications: [] });
+    useNotificationStore.setState({ stateItems: [], notifications: [], unreadCount: 0 });
     mockApiGet.mockImplementation((url: string) => Promise.resolve(
       String(url).endsWith('/suggestions') ? { data: { data: { currentWuId: null, suggestions: [] } } } : CHANNEL,
     ));

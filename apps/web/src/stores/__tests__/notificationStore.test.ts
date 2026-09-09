@@ -1,6 +1,7 @@
-// notificationStore — 通知中心共享 store：后端持久面 + SSE 实时增量的读态与已读动作。
-// 关键契约：markChannelRead（打开频道即读）只清 channelId 匹配的未读通知，
-// 后端条目逐条 POST /:id/read，SSE 条目（backendId null）仅本地已读。
+// notificationStore — 行动中心共享 store（#468）：GET /action-center 一个端点三段数据
+// （stateItems 状态派生 + notifications 事件持久 + unreadCount），整体替换；
+// 已读动作本地乐观 + 后端 POST 同步，并同步维护 unreadCount。
+// 关键契约：markChannelRead（打开频道即读）只清 channelId 匹配的未读通知，逐条 POST /:id/read。
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const { mockApi } = vi.hoisted(() => ({
@@ -9,25 +10,40 @@ const { mockApi } = vi.hoisted(() => ({
 
 vi.mock('../../api', () => ({ api: mockApi }));
 
-import { useNotificationStore, parseLinkTargets, type Notification } from '../notificationStore';
+import { useNotificationStore, parseLinkTargets, type Notification, type StateItem } from '../notificationStore';
 
-function sseItem(overrides: Partial<Notification> = {}): Notification {
+function notification(overrides: Partial<Notification> = {}): Notification {
   return {
-    id: 'sse-1', backendId: null, channelId: 'ch-1', agentName: 'pmo',
-    title: null, content: '实时消息', time: '10:00', read: false,
-    workUnitId: null, pmoId: null, messageId: 'sse-1',
+    id: 'n1', type: 'auditor_suggestion', channelId: 'ch-1', agentName: 'System',
+    title: '审计建议', content: '建议一', time: '10:00', read: false,
+    workUnitId: null, pmoId: null, messageId: null,
+    ...overrides,
+  };
+}
+
+function stateItem(overrides: Partial<StateItem> = {}): StateItem {
+  return {
+    kind: 'reply', wuId: 'WU-1', scope: '登录功能', channelId: 'ch-1',
+    waitingQuestion: '选哪个方案？', since: '2026-09-09T08:00:00.000Z',
     ...overrides,
   };
 }
 
 const backendRow = {
   id: 'n1', userId: 'u1', type: 'auditor_suggestion', title: '审计建议 (1 项)',
-  content: '建议一', link: '/channels/ch-1', createdAt: '2026-08-18T08:00:00.000Z',
-  read: false, readAt: null,
+  content: '建议一', link: '/channels/ch-1', wuId: null, channelId: null,
+  createdAt: '2026-08-18T08:00:00.000Z', read: false, readAt: null,
 };
 
+const actionCenterPayload = (overrides: Record<string, unknown> = {}) => ({
+  stateItems: [stateItem()],
+  notifications: [backendRow],
+  unreadCount: 1,
+  ...overrides,
+});
+
 beforeEach(() => {
-  useNotificationStore.setState({ notifications: [] });
+  useNotificationStore.setState({ stateItems: [], notifications: [], unreadCount: 0 });
   mockApi.get.mockReset();
   mockApi.post.mockReset();
   mockApi.post.mockResolvedValue({ data: { success: true } });
@@ -50,91 +66,145 @@ describe('parseLinkTargets', () => {
   });
 });
 
-describe('loadFromBackend', () => {
-  it('后端行替换持久面，SSE 实时条目（backendId null）保留', async () => {
-    useNotificationStore.getState().pushSse(sseItem());
-    mockApi.get.mockResolvedValue({ data: [backendRow] });
+describe('load（GET /action-center 三段整体替换）', () => {
+  it('映射 stateItems / notifications / unreadCount 三段', async () => {
+    mockApi.get.mockResolvedValue({ data: actionCenterPayload() });
 
-    await useNotificationStore.getState().loadFromBackend();
+    await useNotificationStore.getState().load();
 
-    const list = useNotificationStore.getState().notifications;
-    expect(list.map(n => n.id)).toEqual(['sse-1', 'n1']);
-    expect(list[1].channelId).toBe('ch-1');
-    expect(list[1].read).toBe(false);
+    expect(mockApi.get).toHaveBeenCalledWith('/action-center');
+    const s = useNotificationStore.getState();
+    expect(s.stateItems).toHaveLength(1);
+    expect(s.stateItems[0]).toMatchObject({ kind: 'reply', wuId: 'WU-1', channelId: 'ch-1', waitingQuestion: '选哪个方案？' });
+    expect(s.notifications.map(n => n.id)).toEqual(['n1']);
+    expect(s.unreadCount).toBe(1);
   });
 
-  it('#439：后端 link 带 ?highlight=<mid> 时 messageId 透出（点击可直达消息）', async () => {
+  it('整体替换：旧 stateItems 与新负载对齐（状态变即消，无合并）', async () => {
+    useNotificationStore.setState({ stateItems: [stateItem({ wuId: 'WU-old' })] });
+    mockApi.get.mockResolvedValue({ data: actionCenterPayload({ stateItems: [] }) });
+
+    await useNotificationStore.getState().load();
+
+    expect(useNotificationStore.getState().stateItems).toEqual([]);
+  });
+
+  it('#468：结构化 wuId/channelId 优先于 link 正则解析', async () => {
     mockApi.get.mockResolvedValue({
-      data: [{ ...backendRow, id: 'n2', link: '/channels/ch-1?highlight=m-42' }],
+      data: actionCenterPayload({
+        notifications: [{ ...backendRow, link: '/channels/ch-legacy', wuId: 'WU-9', channelId: 'ch-9' }],
+      }),
     });
 
-    await useNotificationStore.getState().loadFromBackend();
+    await useNotificationStore.getState().load();
 
     const n = useNotificationStore.getState().notifications[0];
-    expect(n.channelId).toBe('ch-1');
-    expect(n.messageId).toBe('m-42');
+    expect(n.workUnitId).toBe('WU-9');
+    expect(n.channelId).toBe('ch-9');
   });
 
-  it('拉取失败不抛错，保留现有列表', async () => {
-    useNotificationStore.getState().pushSse(sseItem());
+  it('老数据行无结构化字段 → 回退 link 正则（pmoId/messageId 恒走 link）', async () => {
+    mockApi.get.mockResolvedValue({
+      data: actionCenterPayload({
+        notifications: [
+          { ...backendRow, id: 'n2', link: '/workunits/wu-3' },
+          { ...backendRow, id: 'n3', link: '/pmo/project/p-7' },
+          { ...backendRow, id: 'n4', link: '/channels/ch-5?highlight=m-42' },
+        ],
+      }),
+    });
+
+    await useNotificationStore.getState().load();
+
+    const byId = Object.fromEntries(useNotificationStore.getState().notifications.map(n => [n.id, n]));
+    expect(byId['n2'].workUnitId).toBe('wu-3');
+    expect(byId['n3'].pmoId).toBe('p-7');
+    expect(byId['n4'].channelId).toBe('ch-5');
+    expect(byId['n4'].messageId).toBe('m-42');
+  });
+
+  it('拉取失败不抛错，保留现有三段', async () => {
+    useNotificationStore.setState({
+      stateItems: [stateItem()], notifications: [notification()], unreadCount: 3,
+    });
     mockApi.get.mockRejectedValue(new Error('network'));
 
-    await useNotificationStore.getState().loadFromBackend();
+    await useNotificationStore.getState().load();
 
-    expect(useNotificationStore.getState().notifications.map(n => n.id)).toEqual(['sse-1']);
+    const s = useNotificationStore.getState();
+    expect(s.stateItems).toHaveLength(1);
+    expect(s.notifications).toHaveLength(1);
+    expect(s.unreadCount).toBe(3);
   });
 });
 
-describe('markRead / markAllRead', () => {
-  it('markRead：本地已读；后端条目 POST /:id/read，SSE 条目不调后端', () => {
+describe('markRead / markAllRead（本地乐观 + unreadCount 同步）', () => {
+  it('markRead：本地已读 + unreadCount 乐观递减 + POST /:id/read', () => {
     useNotificationStore.setState({
-      notifications: [sseItem(), sseItem({ id: 'n1', backendId: 'n1' })],
+      notifications: [notification(), notification({ id: 'n2' })], unreadCount: 2,
     });
 
-    useNotificationStore.getState().markRead('sse-1');
     useNotificationStore.getState().markRead('n1');
 
-    const list = useNotificationStore.getState().notifications;
-    expect(list.every(n => n.read)).toBe(true);
-    expect(mockApi.post).toHaveBeenCalledTimes(1);
+    const s = useNotificationStore.getState();
+    expect(s.notifications.find(n => n.id === 'n1')?.read).toBe(true);
+    expect(s.notifications.find(n => n.id === 'n2')?.read).toBe(false);
+    expect(s.unreadCount).toBe(1);
     expect(mockApi.post).toHaveBeenCalledWith('/notifications/n1/read');
   });
 
-  it('markAllRead：全部本地已读 + POST /read-all', () => {
-    useNotificationStore.setState({ notifications: [sseItem(), sseItem({ id: 's2' })] });
+  it('markRead 已读条目：计数不重复递减、不重复 POST', () => {
+    useNotificationStore.setState({ notifications: [notification({ read: true })], unreadCount: 0 });
+
+    useNotificationStore.getState().markRead('n1');
+
+    expect(useNotificationStore.getState().unreadCount).toBe(0);
+    expect(mockApi.post).not.toHaveBeenCalled();
+  });
+
+  it('markAllRead：全部本地已读 + unreadCount 归零 + POST /read-all', () => {
+    useNotificationStore.setState({
+      notifications: [notification(), notification({ id: 'n2' })], unreadCount: 2,
+    });
 
     useNotificationStore.getState().markAllRead();
 
-    expect(useNotificationStore.getState().notifications.every(n => n.read)).toBe(true);
+    const s = useNotificationStore.getState();
+    expect(s.notifications.every(n => n.read)).toBe(true);
+    expect(s.unreadCount).toBe(0);
     expect(mockApi.post).toHaveBeenCalledWith('/notifications/read-all');
   });
 });
 
 describe('markChannelRead（打开频道即读）', () => {
-  it('只清 channelId 匹配的未读：本频道已读，其他频道/其他类型不动', () => {
+  it('只清 channelId 匹配的未读：本频道已读 + unreadCount 递减，其他频道/已读不动', () => {
     useNotificationStore.setState({
       notifications: [
-        sseItem(),                                                  // ch-1 未读 SSE
-        sseItem({ id: 'n1', backendId: 'n1' }),                     // ch-1 未读后端
-        sseItem({ id: 's-other', channelId: 'ch-2' }),              // ch-2 未读
-        sseItem({ id: 's-read', read: true }),                      // ch-1 已读
+        notification(),                                       // ch-1 未读
+        notification({ id: 'n2' }),                           // ch-1 未读
+        notification({ id: 'n3', channelId: 'ch-2' }),        // ch-2 未读
+        notification({ id: 'n4', read: true }),               // ch-1 已读
       ],
+      unreadCount: 3,
     });
 
     useNotificationStore.getState().markChannelRead('ch-1');
 
-    const byId = Object.fromEntries(useNotificationStore.getState().notifications.map(n => [n.id, n.read]));
-    expect(byId).toEqual({ 'sse-1': true, 'n1': true, 's-other': false, 's-read': true });
-    // 仅后端条目同步后端
-    expect(mockApi.post).toHaveBeenCalledTimes(1);
+    const s = useNotificationStore.getState();
+    const byId = Object.fromEntries(s.notifications.map(n => [n.id, n.read]));
+    expect(byId).toEqual({ 'n1': true, 'n2': true, 'n3': false, 'n4': true });
+    expect(s.unreadCount).toBe(1);
+    expect(mockApi.post).toHaveBeenCalledTimes(2);
     expect(mockApi.post).toHaveBeenCalledWith('/notifications/n1/read');
+    expect(mockApi.post).toHaveBeenCalledWith('/notifications/n2/read');
   });
 
-  it('无匹配未读 → 零后端调用', () => {
-    useNotificationStore.setState({ notifications: [sseItem({ channelId: 'ch-2' })] });
+  it('无匹配未读 → 零后端调用、unreadCount 不动', () => {
+    useNotificationStore.setState({ notifications: [notification({ channelId: 'ch-2' })], unreadCount: 1 });
 
     useNotificationStore.getState().markChannelRead('ch-1');
 
     expect(mockApi.post).not.toHaveBeenCalled();
+    expect(useNotificationStore.getState().unreadCount).toBe(1);
   });
 });
