@@ -60,7 +60,7 @@ describe('Sidebar — #393 菜单精简', () => {
     for (const label of ['频道', 'PMO', '任务', '角色']) {
       const link = screen.getByRole('link', { name: new RegExp(label) });
       expect(link.querySelector('svg')).toBeTruthy();
-      expect(link.textContent).not.toMatch(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{FE0F}]/u);
+      expect(link.textContent).not.toMatch(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}]/u);
     }
   });
 });

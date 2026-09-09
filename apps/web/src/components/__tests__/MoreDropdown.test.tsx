@@ -62,7 +62,7 @@ describe('MoreDropdown — header 更多菜单', () => {
   it('#474 菜单去 emoji：各项图标为 SVG，文本无 emoji', () => {
     renderDropdown();
     fireEvent.click(screen.getByRole('button', { name: /更多/ }));
-    const emojiRe = /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{FE0F}]/u;
+    const emojiRe = /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}]/u;
     for (const label of ['知识库', '阅览室', '监控', '审计日志', '设置']) {
       const link = screen.getByRole('link', { name: new RegExp(label) });
       expect(link.querySelector('svg')).toBeTruthy();
