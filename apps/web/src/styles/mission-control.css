@@ -1214,6 +1214,12 @@ button.mc-act-step:hover { background: var(--bg-hover); }
 .mc-act-step-upcoming .mc-act-step-label { color: var(--text-muted); }
 .mc-act-step-line { flex: 1; min-width: 8px; height: 1px; margin: 0 2px; background: var(--border-default); }
 .mc-act-step-line-reached { background: var(--accent-border); }
+/* #468：WU 站 blocked/pending 警示色点 */
+.mc-act-step-warn {
+  min-width: 14px; height: 14px; border-radius: 7px; padding: 0 3px;
+  background: var(--warning-dim); border: 1px solid var(--warning-border); color: var(--warning);
+  font-size: 10px; line-height: 12px; text-align: center; flex-shrink: 0;
+}
 
 /* 卡 meta 行：PMO badge + assignee 链接（↗ = 跳页离开会话流，spec §4.3 混合交互） */
 .mc-act-card-meta {

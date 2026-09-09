@@ -170,6 +170,10 @@ const ReqCardStatic = memo(function ReqCardStatic({ req, chain, projectId, proje
             <>
               <span className="mc-act-step-dot" />
               <span className="mc-act-step-label">{s.label}</span>
+              {/* #468：WU 站 blocked/pending 警示色点（计数 >0 才渲染） */}
+              {s.warnCount ? (
+                <span className="mc-act-step-warn" title={`${s.warnCount} 个阻塞/待确认`}>{s.warnCount}</span>
+              ) : null}
             </>
           );
           return (

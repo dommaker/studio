@@ -3,6 +3,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
+const { mockToast } = vi.hoisted(() => ({
+  mockToast: { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn(), dismiss: vi.fn() },
+}));
+vi.mock('../../../utils/toast', () => ({ toast: mockToast }));
+
 import { WuGateActions } from '../WuGateActions';
 import type { WorkUnit } from '../../api/workunit';
 
@@ -263,5 +268,49 @@ describe('WuGateActions — #463 结构化确认弹窗（analysis/decision/spec�
   it('autoApprove 但非 analysis/非 in_review → 不自动弹窗', () => {
     setup(makeWu({ status: 'in_review', type: 'task' }), { autoApprove: true });
     expect(screen.queryByText('确认分析结论')).toBeNull();
+  });
+});
+
+describe('WuGateActions — #468 闸门动作成功 toast 说明后续', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('pending 确认成功 → toast 说明进待领取队列', async () => {
+    setup(makeWu({ status: 'pending' }));
+    fireEvent.click(screen.getByText('确认（进待领取）'));
+    await waitFor(() => expect(mockToast.success).toHaveBeenCalledWith(expect.stringContaining('待领取')));
+  });
+
+  it('task 直通过成功 → toast 说明已过审查闸门', async () => {
+    setup(makeWu({ status: 'in_review' }));
+    fireEvent.click(screen.getByText('通过（审查闸门）'));
+    await waitFor(() => expect(mockToast.success).toHaveBeenCalledWith(expect.stringContaining('审查闸门')));
+  });
+
+  it('analysis 弹窗确认成功 → toast 说明将自动派工', async () => {
+    setup(makeWu({
+      status: 'in_review', type: 'analysis',
+      metadata: JSON.stringify({ analysisDestination: '目的地', analysisFog: [], analysisTasks: ['干活'] }),
+    }));
+    fireEvent.click(screen.getByText('通过（审查闸门）'));
+    fireEvent.click(await screen.findByText('确认开图'));
+    await waitFor(() => expect(mockToast.success).toHaveBeenCalledWith(expect.stringContaining('自动派工')));
+  });
+
+  it('拒绝成功 → toast.info 说明打回返工', async () => {
+    setup(makeWu({ status: 'in_review' }));
+    fireEvent.click(screen.getByText('拒绝'));
+    fireEvent.click(screen.getByText('确认拒绝'));
+    await waitFor(() => expect(mockToast.info).toHaveBeenCalledWith(expect.stringContaining('返工')));
+  });
+
+  it('动作失败 → 不弹 toast（错误仍走 gateError 内联）', async () => {
+    const onReviewPassed = vi.fn().mockRejectedValue(new Error('boom'));
+    render(
+      <WuGateActions wu={makeWu({ status: 'in_review' })} onReviewPassed={onReviewPassed} onReviewRejected={vi.fn()} onConfirmPending={vi.fn()} />,
+    );
+    fireEvent.click(screen.getByText('通过（审查闸门）'));
+    await waitFor(() => expect(screen.getByText('boom')).toBeTruthy());
+    expect(mockToast.success).not.toHaveBeenCalled();
+    expect(mockToast.info).not.toHaveBeenCalled();
   });
 });
