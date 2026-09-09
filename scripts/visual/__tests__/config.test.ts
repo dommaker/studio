@@ -2,8 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { PAGES, B_PAGES, WIDTHS, B_WIDTHS, shotFileName, RUNS_DIR } from '../config';
 
 describe('visual config', () => {
-  it('覆盖 #379 基线 12 页 + #400 补 A 档 4 页 + NotFound', () => {
-    expect(PAGES).toHaveLength(17);
+  it('覆盖 #379 基线 12 页 + #400 补 A 档 3 页（E8 删 /setup/roles）+ NotFound', () => {
+    expect(PAGES).toHaveLength(16);
     expect(PAGES.map(p => p.path)).toEqual([
       '/channels',
       '/channels/:channelId',
@@ -20,7 +20,6 @@ describe('visual config', () => {
       '/audit-logs',
       '/library/:libraryDocId',
       '/workspaces/:workspaceId',
-      '/setup/roles',
       '/no-such-page-visual-check',
     ]);
   });

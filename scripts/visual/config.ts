@@ -25,11 +25,11 @@ export const PAGES: PageTarget[] = [
   { name: 'knowledge', path: '/knowledge' },
   { name: 'library', path: '/library' },
   { name: 'settings', path: '/settings' },
-  // #400 补 A 档（spec §10.1 中原 12 页未覆盖的 4 页；无改版前基线，diff 记 missing-a 属预期）
+  // #400 补 A 档（spec §10.1 中原 12 页未覆盖的页；无改版前基线，diff 记 missing-a 属预期。
+  // E8（2026-09 页面重设计）删 /setup/roles 僵尸路由，A 档由 4 页减为 3 页）
   { name: 'audit-logs', path: '/audit-logs' },
   { name: 'library-doc', path: '/library/:libraryDocId', param: 'libraryDocId' },
   { name: 'workspace', path: '/workspaces/:workspaceId', param: 'workspaceId' },
-  { name: 'setup-roles', path: '/setup/roles' },
   // NotFound 在认证壳内（未认证访问未知路径只会撞 guest wall），归 A 档认证页
   { name: 'notfound', path: '/no-such-page-visual-check' },
 ];

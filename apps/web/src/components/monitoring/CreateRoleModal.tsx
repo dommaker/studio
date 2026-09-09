@@ -1,5 +1,5 @@
 // 创建角色弹框（#397，redesign §6.4：弹框不跳页——上下文不丢）
-// 数据流同 RolesSetup 页：GET /workspaces/runtimes 拿 CLI 清单，勾选 + 命名后 channelApi.createAgent 逐个创建；
+// 数据流（同已删除的 RolesSetup 向导页，E8-3 清理）：GET /workspaces/runtimes 拿 CLI 清单，勾选 + 命名后 channelApi.createAgent 逐个创建；
 // 保存 = 创建 → 关弹框 → onCreated（页面就地刷新名册），不再跳频道页。
 // 结构走 theme.css modal-*（style-guide §4.3，经 ui/Modal 壳），条目样式在 agent-dashboard.css。
 import { useEffect, useState } from 'react';

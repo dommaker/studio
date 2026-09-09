@@ -112,12 +112,17 @@ describe('WorkspacePage', () => {
     });
   });
 
-  // AC-5.5: shows bound role count
-  it('displays no bound roles initially', async () => {
-    render(<WorkspacePage />);
+  // E8-2: 骨架合规化（§4.7）+ 删硬编码「0 个角色」假数据（无按 runtime 的角色计数接口）
+  it('E8-2: 骨架归 §4.7（u-page-head/page-title/max-w-5xl），行卡归 .card，按钮归 btn btn-primary btn-sm，无假数据', async () => {
+    const { container } = render(<WorkspacePage />);
     await waitFor(() => expect(screen.getByText('Claude Code')).toBeDefined());
-    const badges = screen.getAllByText('0 个角色');
-    expect(badges.length).toBeGreaterThanOrEqual(1);
+    expect(container.querySelector('.u-page-bg')).toBeTruthy();
+    expect(container.querySelector('.u-page-head')).toBeTruthy();
+    expect(container.querySelector('.page-title')?.textContent).toBe('VPS');
+    expect(container.querySelector('.max-w-5xl')).toBeTruthy();
+    expect(container.querySelectorAll('.card')).toHaveLength(2);
+    expect(screen.getAllByText('设为角色')[0].className).toContain('btn btn-primary btn-sm');
+    expect(screen.queryByText('0 个角色')).toBeNull();
   });
 
   it('handles API failure gracefully', async () => {

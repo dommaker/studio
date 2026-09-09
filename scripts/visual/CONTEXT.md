@@ -23,5 +23,5 @@
 - diff 对比图一律 `diffMask: true` 纯掩码（透明底），不出灰底原图——公开仓脱敏；入库报告 non-clean 条目人工补归因段。
 - 拍前沉降三要件（#400 踩坑）：等 guest splash 消失（auth 水合，`user:null` 播种态会先渲 splash）+ 等「加载中/Loading」文案消失 + 等 `.animate-spin` 消失；settings 页串行拉 ~10 个慢 API（/workspaces/runtimes 单发 ~2.5s），waitSettled 超时给 20s。
 - buildPrepare 的 `modal-studio-role-setup` 态会把 studio 角色 provider 翻牌 null 再 reload 触发自动弹框，紧随的 `restore-studio-provider` 态负责还原——两态勿拆散；交互态截图前不再重复注入 HIDE_DYNAMIC_CSS（会盖掉 prepare 里的角标揭开样式）。
-- /audit-logs、/workspaces/:id、/setup/roles 的 API 均 requireAdmin——采集账号须 Admin（注册后改 users.json role 生效即时，FileStore 每请求读盘）。
+- /audit-logs、/workspaces/:id 的 API 均 requireAdmin——采集账号须 Admin（注册后改 users.json role 生效即时，FileStore 每请求读盘）。
 - **guest 态过不了 Lurk Wall**（#450 踩坑）：App.tsx `isGuest` 直接渲染 LandingPage，guest-session token 种浏览器存储也只见 splash——浏览器实测（含行高采样类一次性脚本）必须用注册用户（登录响应即带采集可用的访问 token，无须走 refresh 轮换）。注册若已关闭，按本目录先例在服务端用户存储直接补账号（该存储每请求读盘、即时生效；文件与造号手法见 studio-config `security/` 私有台账，不入公开仓）。headless 浏览器在本机内存吃紧时 launch 即被 SIGTERM——重试循环等内存窗口即可，非脚本问题。

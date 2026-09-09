@@ -7,7 +7,7 @@
 
 ```bash
 # 前置：dev 栈在跑（API + vite），环境变量给 refresh token（dev 数据根既有 Admin 用户的，
-# 注意 refresh 会轮换——每次运行前要取最新的；/audit-logs、/workspaces/:id、/setup/roles 需 Admin）
+# 注意 refresh 会轮换——每次运行前要取最新的；/audit-logs、/workspaces/:id 需 Admin）
 VISUAL_REFRESH_TOKEN=<token> npx tsx scripts/visual/capture.ts --name <run>
 # 选项：--base-url（默认 http://localhost:13000/dev/） --api-url（默认 http://localhost:13001）
 #        --widths 1024,768,640,375 覆盖宽度档（窄屏走查，#395；高度在 config.ts HEIGHTS 登记）

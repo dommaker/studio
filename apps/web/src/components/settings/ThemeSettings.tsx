@@ -12,7 +12,7 @@ export function ThemeSettings() {
     <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
       {themes.map((t) => (
         <button key={t.value} onClick={() => setTheme(t.value)}
-          className="p-4 rounded-xl text-left transition-all"
+          className="p-4 rounded text-left transition-all"
           style={{
             background: theme === t.value ? 'var(--bg-elevated)' : 'var(--bg-tertiary)',
             border: theme === t.value ? '2px solid var(--accent-primary)' : '2px solid var(--border-subtle)',
