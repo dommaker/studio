@@ -2,6 +2,7 @@
  * #155 T5: Library 阅览室 — 跨项目 .studio/ 聚合只读层
  *
  * 功能：搜索、项目/类型筛选、文档列表（legacy 遗产文档打「遗产」徽标）。
+ * E6 页面重设计：默认视图按项目分组（组内 updatedAt 降序），搜索/筛选态回退平铺。
  * 只读：无图谱、无编辑——文档随各仓演进，变更历史 = git 历史。
  */
 import { useState, useEffect, useCallback, useRef } from 'react';
@@ -120,6 +121,75 @@ export function LibraryPage() {
   // 类型筛选：前端过滤；kind 为空 = 全部
   const visibleDocs = kind ? docs.filter((d) => d.kind === kind) : docs;
 
+  // E6 页面重设计：默认视图按项目分组（组头 = mc-block-label + pmoNumber + 计数，
+  // 组内 updatedAt 降序、组间按组内最新文档降序）；文档量小一次全量，分组纯前端。
+  // 搜索/任一筛选生效时回退平铺（分组在跨项目结果集无意义）。
+  const flatView = Boolean(search || projectId || kind);
+  const docGroups: Array<{ projectId: string; pmoNumber: string; docs: LibraryDoc[] }> = (() => {
+    if (flatView) return [];
+    const byProject = new Map<string, LibraryDoc[]>();
+    for (const d of visibleDocs) {
+      const arr = byProject.get(d.projectId);
+      if (arr) arr.push(d);
+      else byProject.set(d.projectId, [d]);
+    }
+    return [...byProject.entries()]
+      .map(([pid, list]) => ({
+        projectId: pid,
+        pmoNumber: list[0].pmoNumber,
+        docs: [...list].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
+      }))
+      .sort((a, b) => b.docs[0].updatedAt.localeCompare(a.docs[0].updatedAt));
+  })();
+
+  const renderDocCard = (doc: LibraryDoc) => (
+    <div
+      key={doc.id}
+      onClick={() => navigate(`/library/${encodeURIComponent(doc.id)}`)}
+      className="card p-4 cursor-pointer"
+    >
+      <div className="flex items-start justify-between">
+        <div className="flex-1 min-w-0">
+          <h3 className="font-semibold truncate u-text">
+            {doc.title}
+          </h3>
+          <div className="flex items-center gap-2 mt-2 flex-wrap">
+            {doc.legacy ? (
+              <span className="text-xs px-2 py-0.5 rounded-full u-warn-dim">
+                遗产
+              </span>
+            ) : (
+              <span className="text-xs px-2 py-0.5 rounded-full u-surface-2 u-text-3">
+                {kindLabels[doc.kind] || doc.kind}
+              </span>
+            )}
+            <span className="text-xs px-2 py-0.5 rounded-full u-surface-2 u-text-3">
+              {doc.pmoNumber}
+            </span>
+            {doc.status && (
+              <span
+                className={`text-xs px-2 py-0.5 rounded-full ${LIBRARY_DOC_STATUS_COLORS[doc.status] || 'u-surface-2 u-text-3'}`}
+              >
+                {LIBRARY_DOC_STATUS_LABELS[doc.status] || doc.status}
+              </span>
+            )}
+            {(doc.tags || []).map((tag, i) => (
+              <span
+                key={i}
+                className="text-xs px-2 py-0.5 rounded-full u-surface-2 u-text-3"
+              >
+                {tag}
+              </span>
+            ))}
+          </div>
+        </div>
+        <span className="text-xs ml-4 whitespace-nowrap u-text-3 font-mono">
+          {formatDate(doc.updatedAt)}
+        </span>
+      </div>
+    </div>
+  );
+
   return (
     <div className="h-full flex flex-col u-page-bg">
       {/* Header */}
@@ -127,7 +197,7 @@ export function LibraryPage() {
         <div className="flex items-center justify-between">
           <h1 className="page-title">阅览室</h1>
           <ManualTaskButton
-            label="🔍 语义审查"
+            label="语义审查"
             costTokens={costs?.byTrigger['doc-semantic-review']}
             onRun={async () => {
               const r = await maintenanceApi.fireTrigger('doc-semantic-review');
@@ -185,52 +255,19 @@ export function LibraryPage() {
               {search || projectId || kind ? '没有匹配的文档' : '暂无文档'}
             </p>
           </div>
-        ) : (
+        ) : flatView ? (
           <div className="space-y-3">
-            {visibleDocs.map((doc) => (
-              <div
-                key={doc.id}
-                onClick={() => navigate(`/library/${encodeURIComponent(doc.id)}`)}
-                className="card p-4 cursor-pointer"
-              >
-                <div className="flex items-start justify-between">
-                  <div className="flex-1 min-w-0">
-                    <h3 className="font-semibold truncate u-text">
-                      {doc.title}
-                    </h3>
-                    <div className="flex items-center gap-2 mt-2 flex-wrap">
-                      {doc.legacy ? (
-                        <span className="text-xs px-2 py-0.5 rounded-full u-warn-dim">
-                          遗产
-                        </span>
-                      ) : (
-                        <span className="text-xs px-2 py-0.5 rounded-full u-surface-2 u-text-3">
-                          {kindLabels[doc.kind] || doc.kind}
-                        </span>
-                      )}
-                      <span className="text-xs px-2 py-0.5 rounded-full u-surface-2 u-text-3">
-                        {doc.pmoNumber}
-                      </span>
-                      {doc.status && (
-                        <span
-                          className={`text-xs px-2 py-0.5 rounded-full ${LIBRARY_DOC_STATUS_COLORS[doc.status] || 'u-surface-2 u-text-3'}`}
-                        >
-                          {LIBRARY_DOC_STATUS_LABELS[doc.status] || doc.status}
-                        </span>
-                      )}
-                      {(doc.tags || []).map((tag, i) => (
-                        <span
-                          key={i}
-                          className="text-xs px-2 py-0.5 rounded-full u-surface-2 u-text-3"
-                        >
-                          {tag}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                  <span className="text-xs ml-4 whitespace-nowrap u-text-3 font-mono">
-                    {formatDate(doc.updatedAt)}
-                  </span>
+            {visibleDocs.map(renderDocCard)}
+          </div>
+        ) : (
+          <div className="space-y-6">
+            {docGroups.map((group) => (
+              <div key={group.projectId}>
+                <h2 className="mc-block-label" style={{ margin: '0 0 8px' }}>
+                  {group.pmoNumber} · {group.docs.length} 篇
+                </h2>
+                <div className="space-y-3">
+                  {group.docs.map(renderDocCard)}
                 </div>
               </div>
             ))}

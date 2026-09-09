@@ -144,6 +144,7 @@ export function LibraryDocPage() {
 
       {/* Content */}
       <div className="flex-1 overflow-auto px-8 pb-8 pt-6">
+        {/* 阅读页限宽 900px：长文行宽最优，属 §4.7 内容档（max-w-5xl=1024）之外的阅读档例外，勿收 */}
         <div style={{ maxWidth: '900px' }}>
           {sections.map((section, i) => (
             <div key={i} className={i > 0 ? 'mt-8' : ''}>
