@@ -386,7 +386,7 @@ describe('WorkUnitDrawer', () => {
     renderDrawer({ kind: 'wu', id: 'WU-1017' });
     await waitFor(() => expect(screen.getByText('证据台账')).toBeTruthy());
     expect(screen.getByText(/证据模型未介入/)).toBeTruthy();
-    expect(screen.queryByText(/人工确认（留痕）/)).toBeNull();
+    expect(screen.queryByText(/人工验收确认/)).toBeNull();
   });
 
   it('证据台账：done 缺 l3 → 三层留痕 + 人工确认按钮（点击调 reviewPassed）', async () => {
@@ -406,7 +406,7 @@ describe('WorkUnitDrawer', () => {
     renderDrawer({ kind: 'wu', id: 'WU-1017' });
     await waitFor(() => expect(screen.getByText(/评审结论：实现正确/)).toBeTruthy());
     expect(screen.getByText(/✓ agent-review · 76d96d3/)).toBeTruthy();
-    const btn = screen.getByText('人工确认（留痕）');
+    const btn = screen.getByText('人工验收确认');
     fireEvent.click(btn);
     await waitFor(() => expect(mockReviewPassed).toHaveBeenCalledWith('WU-1017', undefined, undefined, undefined));
   });
@@ -414,8 +414,8 @@ describe('WorkUnitDrawer', () => {
   it('证据台账：in_review → 审查闸门「通过」按钮（硬门语义）', async () => {
     mockWuGet.mockResolvedValue({ data: { ...WU, status: 'in_review' } });
     renderDrawer({ kind: 'wu', id: 'WU-1017' });
-    await waitFor(() => expect(screen.getByText('通过（审查闸门）')).toBeTruthy());
-    fireEvent.click(screen.getByText('通过（审查闸门）'));
+    await waitFor(() => expect(screen.getByText('通过验收')).toBeTruthy());
+    fireEvent.click(screen.getByText('通过验收'));
     await waitFor(() => expect(mockReviewPassed).toHaveBeenCalledWith('WU-1017', undefined, undefined, undefined));
   });
 
@@ -432,8 +432,8 @@ describe('WorkUnitDrawer', () => {
       },
     });
     renderDrawer({ kind: 'wu', id: 'WU-1017' });
-    await waitFor(() => expect(screen.getByText('通过（审查闸门）')).toBeTruthy());
-    fireEvent.click(screen.getByText('通过（审查闸门）'));
+    await waitFor(() => expect(screen.getByText('通过验收')).toBeTruthy());
+    fireEvent.click(screen.getByText('通过验收'));
 
     expect((await screen.findByLabelText('目标') as HTMLInputElement).value).toBe('三仓特性联动上线');
     expect((screen.getByLabelText('待决问题 1') as HTMLInputElement).value).toBe('存储选型用哪个？');
@@ -477,7 +477,7 @@ describe('WorkUnitDrawer', () => {
   it('#284：autoApprove 但 WU 非 analysis/非 in_review → 不自动弹窗（仅打开抽屉）', async () => {
     mockWuGet.mockResolvedValue({ data: { ...WU, status: 'in_review' } }); // type=dev
     renderDrawer({ kind: 'wu', id: 'WU-1017', autoApprove: true });
-    await waitFor(() => expect(screen.getByText('通过（审查闸门）')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('通过验收')).toBeTruthy());
     expect(screen.queryByLabelText('目标')).toBeNull();
   });
 
@@ -624,10 +624,10 @@ describe('WorkUnitDrawer', () => {
       response: { status: 409, data: { error: { message: '状态机不允许该迁移' } } },
     }));
     renderDrawer({ kind: 'wu', id: 'WU-1017' });
-    fireEvent.click(await screen.findByText('通过（审查闸门）'));
+    fireEvent.click(await screen.findByText('通过验收'));
     expect(await screen.findByText('状态机不允许该迁移')).toBeTruthy();
     // 按钮恢复可点（可重试）
-    await waitFor(() => expect(screen.getByText('通过（审查闸门）').closest('button')!.disabled).toBe(false));
+    await waitFor(() => expect(screen.getByText('通过验收').closest('button')!.disabled).toBe(false));
   });
 
   it('批次A 项5：拒绝失败 → 弹窗保持打开 + 错误行进弹窗', async () => {
@@ -665,7 +665,7 @@ describe('WorkUnitDrawer', () => {
     const hint = await screen.findByTestId('review-hint');
     expect(mockListAgents).toHaveBeenCalledWith('ch-1');
     // 位置：闸门动作区（通过按钮）上方
-    const gate = await screen.findByText('通过（审查闸门）');
+    const gate = await screen.findByText('通过验收');
     expect(hint.compareDocumentPosition(gate) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
     fireEvent.click(screen.getByTestId('review-hint-setup'));
@@ -675,7 +675,7 @@ describe('WorkUnitDrawer', () => {
   it('E2-1：频道有成员 → ReviewHint 不渲染（回归既有 in_review 语义）', async () => {
     mockWuGet.mockResolvedValue({ data: { ...WU, status: 'in_review' } });
     renderDrawer({ kind: 'wu', id: 'WU-1017' });
-    await screen.findByText('通过（审查闸门）');
+    await screen.findByText('通过验收');
     await waitFor(() => expect(mockListAgents).toHaveBeenCalledWith('ch-1'));
     expect(screen.queryByTestId('review-hint')).toBeNull();
   });
@@ -684,7 +684,7 @@ describe('WorkUnitDrawer', () => {
     mockWuGet.mockResolvedValue({ data: { ...WU, status: 'in_review' } });
     mockListAgents.mockRejectedValue(new Error('403'));
     renderDrawer({ kind: 'wu', id: 'WU-1017' });
-    await screen.findByText('通过（审查闸门）');
+    await screen.findByText('通过验收');
     await waitFor(() => expect(mockListAgents).toHaveBeenCalledWith('ch-1'));
     expect(screen.queryByTestId('review-hint')).toBeNull();
   });

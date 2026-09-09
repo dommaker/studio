@@ -29,9 +29,9 @@ const renderSidebar = (initialPath = '/channels/ch-1') =>
   );
 
 describe('Sidebar — #393 菜单精简', () => {
-  it('主项仅 4 个：频道 / PMO / 任务 / Agent', () => {
+  it('主项仅 4 个：频道 / PMO / 任务 / 角色', () => {
     renderSidebar();
-    for (const label of ['频道', 'PMO', '任务', 'Agent']) {
+    for (const label of ['频道', 'PMO', '任务', '角色']) {
       expect(screen.getByRole('link', { name: new RegExp(label) })).toBeTruthy();
     }
     // 收纳项不在 sidebar（已移至 header「更多」下拉）

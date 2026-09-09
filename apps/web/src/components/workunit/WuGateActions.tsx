@@ -1,8 +1,9 @@
 // WuGateActions — WU 审查闸门动作三处合一（2026-09 页面重设计 E2-4，docs/plans/2026-09-page-redesign.md）：
 // WorkUnitListPage 行内 / WorkUnitDrawer / WorkUnitDetailPage 左栏挂同一组件，文案与视觉唯一。
-// 分支：pending →「确认（进待领取）」（#284 人闸）；in_review →「通过（审查闸门）」+「拒绝」（带原因弹窗；
+// 分支：pending →「确认并开放领取」（#284 人闸）；in_review →「通过验收」+「拒绝」（带原因弹窗；
 // #463 起 analysis/decision/spec 走各自结构化确认弹窗——评审表单+按钮，后端序列化进 l3.summary，
-// 人不接触魔法行）；done 缺 l3 →「人工确认（留痕）」（L3 台账不阻断流程）。
+// 人不接触魔法行）；done 缺 l3 →「人工验收确认」（L3 台账不阻断流程）。
+// #473：按钮说人话——内部机制词（审查闸门/留痕/进待领取）不上按钮。
 // 反馈统一批次A 模式：pending 锁存防连点 + 失败 gateError 内联（errorMessage 服务端 error.message 优先）
 // + 弹窗成功才关窗 + #468 成功 toast 说明后续走向（自动派工/进待领取/打回返工）。
 // blocked 处置（BlockedActions）不在此列——属状态处置非审查闸门，各页自挂。
@@ -112,7 +113,7 @@ export function WuGateActions({ wu, onReviewPassed, onReviewRejected, onConfirmP
                 .catch(() => { /* 失败原因已内联 */ });
             }}
           >
-            {confirming ? '提交中…' : '确认（进待领取）'}
+            {confirming ? '提交中…' : '确认并开放领取'}
           </button>
         )}
         {wu.status === 'in_review' && (
@@ -123,7 +124,7 @@ export function WuGateActions({ wu, onReviewPassed, onReviewRejected, onConfirmP
               title="审查硬门：通过→done（analysis 通过后按 TASK 拆分自动派工）"
               onClick={handleApprove}
             >
-              {confirming ? '提交中…' : '通过（审查闸门）'}
+              {confirming ? '提交中…' : '通过验收'}
             </button>
             <button
               className="btn btn-danger btn-sm"
@@ -142,7 +143,7 @@ export function WuGateActions({ wu, onReviewPassed, onReviewRejected, onConfirmP
             title="流程已由 Agent 评审推进完成；此确认为人工确认留痕，不阻断流程，确认后出审查列"
             onClick={handleApprove}
           >
-            {confirming ? '提交中…' : '人工确认（留痕）'}
+            {confirming ? '提交中…' : '人工验收确认'}
           </button>
         )}
       </div>

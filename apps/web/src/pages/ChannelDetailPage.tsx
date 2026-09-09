@@ -736,7 +736,7 @@ export function ChannelDetailPage() {
     );
   }, [renderMessageItem, renderSkeletonRow, toggleThread, toggleProcGroup]);
 
-  if (!id) return <div className="mc-stream-empty" style={{ height: '100%' }}>Invalid channel</div>;
+  if (!id) return <div className="mc-stream-empty" style={{ height: '100%' }}>频道不存在或链接无效</div>;
 
   return (
     <div className="mc-ws">

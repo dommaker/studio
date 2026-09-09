@@ -1,5 +1,5 @@
 // Sidebar.tsx - 侧边栏组件（最新设计）
-// #393 菜单精简（spec §2）：主项仅 4 个（频道/PMO/任务/Agent）；
+// #393 菜单精简（spec §2）：主项仅 4 个（频道/PMO/任务/角色，#473 统一「角色」不叫 Agent）；
 // 知识库/阅览室/监控/设置/审计日志收进顶部 header「更多」下拉（MoreDropdown），本组件不再有「更多」组
 // #395（spec §4.6）：<768 频道左栏（ChannelRail）并入本 sidebar——频道路由下渲染于主导航之下，
 // 640–767 随静态 sidebar 常驻、<640 随 sidebar overlay 一起滑出；选频道后 onClose 收起 overlay
@@ -23,7 +23,7 @@ const MAIN_ITEMS: NavItem[] = [
   { to: '/channels', icon: '💬', label: '频道' },
   { to: '/pmo', icon: '📊', label: 'PMO' },
   { to: '/workunits', icon: '📋', label: '任务' },
-  { to: '/agents', icon: '🤖', label: 'Agent' },
+  { to: '/agents', icon: '🤖', label: '角色' },
 ];
 
 export function Sidebar({ isOpen = true, onClose }: SidebarProps) {

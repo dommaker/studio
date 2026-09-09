@@ -91,8 +91,8 @@ export function AnalysisApproveDialog({ prefill, channelId, confirmKind = 'analy
         </div>
         <div className="modal-body">
           <p className="text-xs u-text-2 mb-2">
-            左栏逐条评审待决问题（增删改），「确认开图」据此初始化探路台账（待决问题在规划会话内裁决，不再单独立决策单）；清空待决 = 非探路型不开图。
-            右栏是确认后将自动派工的任务拆分（行内可改、勾选剔除）。结论有问题请「打回补充」。
+            分析结论已拆解为待决问题（左栏，可增删改）与派工任务（右栏，可逐条修改、勾选剔除）。
+            点「确认开图」后系统据此生成探路地图：待决问题在规划会话里逐条裁决，不再单独立决策单；清空待决问题 = 不需要探路，只按任务清单派工。结论有问题请点「打回补充」。
           </p>
           <div className="flex gap-4" style={{ alignItems: 'flex-start' }}>
             {/* 左栏：FOG 待决清单 */}

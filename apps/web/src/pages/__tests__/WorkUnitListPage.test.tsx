@@ -227,7 +227,7 @@ describe('WorkUnitListPage — analysis 确认弹窗（#106 M7；#463 起结构�
     })];
     render(<WorkUnitListPage />);
 
-    fireEvent.click(screen.getByText('通过（审查闸门）'));
+    fireEvent.click(screen.getByText('通过验收'));
 
     // 结构化预填：目标/待决/派工预览各就各位
     expect((screen.getByLabelText('目标') as HTMLInputElement).value).toBe('三仓特性联动上线');
@@ -250,7 +250,7 @@ describe('WorkUnitListPage — analysis 确认弹窗（#106 M7；#463 起结构�
     mockStore.workunits = [makeWu({ id: 'wu-a2' })];
     render(<WorkUnitListPage />);
 
-    fireEvent.click(screen.getByText('通过（审查闸门）'));
+    fireEvent.click(screen.getByText('通过验收'));
     expect((screen.getByLabelText('目标') as HTMLInputElement).value).toBe('');
 
     fireEvent.click(screen.getByText('确认开图'));
@@ -263,7 +263,7 @@ describe('WorkUnitListPage — analysis 确认弹窗（#106 M7；#463 起结构�
     mockStore.workunits = [makeWu({ id: 'wu-t1', type: 'task', scope: '实现登录' })];
     render(<WorkUnitListPage />);
 
-    fireEvent.click(screen.getByText('通过（审查闸门）'));
+    fireEvent.click(screen.getByText('通过验收'));
 
     expect(screen.queryByLabelText('目标')).toBeNull();
     expect(mockStore.reviewPassed).toHaveBeenCalledWith('wu-t1', undefined, undefined, undefined);
@@ -279,11 +279,11 @@ describe('WorkUnitListPage — pending 人闸入口（#284 / E2-4）', () => {
     mockSearchParamsValue.value = '';
   });
 
-  it('pending 行 → 行内「确认（进待领取）」→ confirmPending(id)（不展开不开抽屉）', async () => {
+  it('pending 行 → 行内「确认并开放领取」→ confirmPending(id)（不展开不开抽屉）', async () => {
     mockStore.workunits = [makeWu({ id: 'wu-p1', type: 'task', status: 'pending' })];
     render(<WorkUnitListPage />);
 
-    fireEvent.click(await screen.findByText('确认（进待领取）'));
+    fireEvent.click(await screen.findByText('确认并开放领取'));
 
     expect(mockStore.confirmPending).toHaveBeenCalledWith('wu-p1');
     // 闸门点击不触发行点击开抽屉（组件内吞冒泡）
@@ -294,7 +294,7 @@ describe('WorkUnitListPage — pending 人闸入口（#284 / E2-4）', () => {
     mockStore.workunits = [makeWu({ id: 'wu-a9', type: 'task', status: 'active' })];
     render(<WorkUnitListPage />);
 
-    expect(screen.queryByText('确认（进待领取）')).toBeNull();
+    expect(screen.queryByText('确认并开放领取')).toBeNull();
   });
 });
 
@@ -565,13 +565,13 @@ describe('WorkUnitListPage — 行闸门反馈兜底（批次A 项4 / E2-4）', 
     mockSearchParamsValue.value = '';
   });
 
-  it('行「通过（审查闸门）」pending 锁存：未结算前连击只调一次，按钮禁用', async () => {
+  it('行「通过验收」pending 锁存：未结算前连击只调一次，按钮禁用', async () => {
     let resolve: () => void = () => {};
     mockStore.reviewPassed.mockImplementation(() => new Promise<void>(r => { resolve = r; }));
     mockStore.workunits = [makeWu({ id: 'wu-l1', type: 'task', status: 'in_review' })];
     render(<WorkUnitListPage />);
 
-    const btn = screen.getByText('通过（审查闸门）').closest('button')!;
+    const btn = screen.getByText('通过验收').closest('button')!;
     fireEvent.click(btn);
     await waitFor(() => expect(btn.disabled).toBe(true));
     expect(screen.getByText('拒绝').closest('button')!.disabled).toBe(true);
@@ -586,7 +586,7 @@ describe('WorkUnitListPage — 行闸门反馈兜底（批次A 项4 / E2-4）', 
     mockStore.workunits = [makeWu({ id: 'wu-l0', type: 'task', status: 'in_review' })];
     render(<WorkUnitListPage />);
 
-    expect(screen.getByText('通过（审查闸门）').closest('button')!.className).toBe('btn btn-primary btn-sm');
+    expect(screen.getByText('通过验收').closest('button')!.className).toBe('btn btn-primary btn-sm');
     expect(screen.getByText('拒绝').closest('button')!.className).toBe('btn btn-danger btn-sm');
   });
 
@@ -598,18 +598,18 @@ describe('WorkUnitListPage — 行闸门反馈兜底（批次A 项4 / E2-4）', 
     mockStore.workunits = [makeWu({ id: 'wu-l2', type: 'task', status: 'in_review' })];
     render(<WorkUnitListPage />);
 
-    const btn = screen.getByText('通过（审查闸门）').closest('button')!;
+    const btn = screen.getByText('通过验收').closest('button')!;
     fireEvent.click(btn);
     expect(await screen.findByText('状态机不允许该迁移')).toBeTruthy();
     await waitFor(() => expect(btn.disabled).toBe(false));
   });
 
-  it('pending 行「确认（进待领取）」失败 → 内联错误行（Error.message 回退）不静默', async () => {
+  it('pending 行「确认并开放领取」失败 → 内联错误行（Error.message 回退）不静默', async () => {
     mockStore.confirmPending.mockRejectedValue(new Error('boom'));
     mockStore.workunits = [makeWu({ id: 'wu-l3', type: 'task', status: 'pending' })];
     render(<WorkUnitListPage />);
 
-    fireEvent.click(await screen.findByText('确认（进待领取）'));
+    fireEvent.click(await screen.findByText('确认并开放领取'));
     expect(await screen.findByText('boom')).toBeTruthy();
   });
 
@@ -634,7 +634,7 @@ describe('WorkUnitListPage — 行闸门反馈兜底（批次A 项4 / E2-4）', 
     mockStore.workunits = [makeWu({ id: 'wu-l4', status: 'in_review' })]; // 默认 type=analysis
     render(<WorkUnitListPage />);
 
-    fireEvent.click(screen.getByText('通过（审查闸门）'));
+    fireEvent.click(screen.getByText('通过验收'));
     fireEvent.click(await screen.findByText('确认开图'));
 
     // 错误行同时进闸门区与弹窗（两处同源 gateError/submitError）

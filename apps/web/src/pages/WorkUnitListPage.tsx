@@ -167,7 +167,7 @@ export function WorkUnitListPage() {
               <div className="card mt-4 p-4">
                 <div className="flex gap-3 items-end">
                   <div className="flex-1">
-                    <label className="text-xs u-text-3 mb-1 block">Scope（描述任务）</label>
+                    <label className="text-xs u-text-3 mb-1 block">任务描述</label>
                     <input
                       className="w-full px-3 py-2 rounded u-surface u-text border u-border-2  outline-none"
                       placeholder="例：实现用户登录功能"
@@ -177,7 +177,7 @@ export function WorkUnitListPage() {
                     />
                   </div>
                   <div>
-                    <label className="text-xs u-text-3 mb-1 block">Type</label>
+                    <label className="text-xs u-text-3 mb-1 block">类型</label>
                     <Select
                       className="px-3 py-2 rounded u-surface u-text border u-border-2 outline-none"
                       value={newType}

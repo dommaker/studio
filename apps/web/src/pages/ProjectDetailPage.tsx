@@ -93,13 +93,13 @@ export function ProjectDetailPage() {
   // #350 useAsyncData 收一次性拉取样板：主拉取错误上屏（工单 38 口径）；projectId 切换渲染期重置。
   // 子拉取拆为并行 best-effort hook（原来在 loadData 内串行 await），失败静默落 null 不阻塞页面。
   const projectQ = useAsyncData<Project>(async () => {
-    if (!projectId) throw new Error('Failed to load project');
+    if (!projectId) throw new Error('项目加载失败，请稍后重试');
     try {
       return (await projectApi.get(projectId)).data as Project;
     } catch (err) {
       const msg = (err as { response?: { data?: { error?: { message?: string } } } })
         .response?.data?.error?.message;
-      throw new Error(msg || 'Failed to load project');
+      throw new Error(msg || '项目加载失败，请稍后重试');
     }
   }, [projectId]);
   const project = projectQ.data;

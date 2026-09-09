@@ -421,14 +421,14 @@ describe('WorkUnitDetailPage', () => {
   });
 
   // #284（决策 #250 D1/F7-F9）：详情页（「新页面打开」落点）补齐闸门入口，与列表行/抽屉一致
-  it('#284：pending → 闸门动作节出「确认（进待领取）」调 transitionStatus(unassigned) 并重拉详情；人闸 chip 上 stepper 下', async () => {
+  it('#284：pending → 闸门动作节出「确认并开放领取」调 transitionStatus(unassigned) 并重拉详情；人闸 chip 上 stepper 下', async () => {
     mockWuGet.mockResolvedValue({
       data: { ...baseWu, status: 'pending', completedAt: null, metadata: JSON.stringify({ title: '登录功能开发' }) },
     });
     render(<WorkUnitDetailPage />);
     expect(await screen.findByText('闸门动作')).toBeDefined();
     expect(screen.getByText(/待确认人闸/)).toBeDefined();
-    fireEvent.click(screen.getByText('确认（进待领取）'));
+    fireEvent.click(screen.getByText('确认并开放领取'));
     await waitFor(() => expect(mockTransitionStatus).toHaveBeenCalledWith('wu-1', 'unassigned'));
     await waitFor(() => expect(mockWuGet.mock.calls.length).toBeGreaterThanOrEqual(2));
   });
@@ -439,7 +439,7 @@ describe('WorkUnitDetailPage', () => {
     });
     render(<WorkUnitDetailPage />);
 
-    fireEvent.click(await screen.findByText('通过（审查闸门）'));
+    fireEvent.click(await screen.findByText('通过验收'));
     await waitFor(() => expect(mockReviewPassed).toHaveBeenCalledWith('wu-1', undefined, undefined, undefined));
 
     fireEvent.click(screen.getByText('拒绝'));
@@ -460,7 +460,7 @@ describe('WorkUnitDetailPage', () => {
     });
     render(<WorkUnitDetailPage />);
 
-    fireEvent.click(await screen.findByText('通过（审查闸门）'));
+    fireEvent.click(await screen.findByText('通过验收'));
     expect((await screen.findByLabelText('目标') as HTMLInputElement).value).toBe('目标');
     expect((screen.getByLabelText('待决问题 1') as HTMLInputElement).value).toBe('问题1');
     expect(mockReviewPassed).not.toHaveBeenCalled();
@@ -482,7 +482,7 @@ describe('WorkUnitDetailPage', () => {
     }));
     render(<WorkUnitDetailPage />);
 
-    fireEvent.click(await screen.findByText('通过（审查闸门）'));
+    fireEvent.click(await screen.findByText('通过验收'));
     expect(await screen.findByText('状态机不允许该迁移')).toBeTruthy();
     // 失败不重拉详情（actionTick 不前进）
     expect(mockWuGet).toHaveBeenCalledTimes(1);

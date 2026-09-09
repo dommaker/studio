@@ -12,6 +12,8 @@ import { MonitorSection } from '../components/monitoring/MonitorSection';
 import { UsageBar, DayBars, HBars } from '../components/monitoring/charts';
 import { useAsyncData } from '../hooks/useAsyncData';
 import { formatAge } from '@dommaker/studio-shared/web';
+import { formatFullTime } from '../utils/datetime';
+import { KNOWLEDGE_TYPE_LABELS } from '../components/channel/proposalCardConfigs';
 import { toast } from '../utils/toast';
 import { serverErrorMessage } from '../utils/errorMessage';
 
@@ -32,6 +34,9 @@ export function MonitoringPage() {
   const proposalsQ = useAsyncData(() => knowledgeApi.listPendingReview().then(r => r.data.entries).catch(() => null), []);
   // 批次A 项8：通过/拒绝共用 pending 锁存（防连点）+ 失败 toast（原 catch 静默）
   const [actingIds, setActingIds] = useState<Set<string>>(new Set());
+  // #473：审批前可见详情（点击标题展开）+ 通过两步确认（对照频道 GC 卡 twoStepApprove）
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const [armedIds, setArmedIds] = useState<Set<string>>(new Set());
 
   const overview = overviewQ.data;
   const evidence = overview?.evidence ?? null;
@@ -85,7 +90,32 @@ export function MonitoringPage() {
         next.delete(entryId);
         return next;
       });
+      // #473：结算后解除待确认态（失败可从头重试）
+      setArmedIds(prev => {
+        const next = new Set(prev);
+        next.delete(entryId);
+        return next;
+      });
     }
+  };
+
+  /** #473 两步确认：首次点击仅进待确认态（按钮改文案），再次点击才执行 */
+  const clickApprove = (entryId: string) => {
+    if (!armedIds.has(entryId)) {
+      setArmedIds(prev => new Set(prev).add(entryId));
+      return;
+    }
+    void actOnProposal(entryId, 'approve');
+  };
+
+  /** #473：点击标题展开/收起详情（类型/标签/提交时间），审前先看内容 */
+  const toggleExpanded = (entryId: string) => {
+    setExpandedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(entryId)) next.delete(entryId);
+      else next.add(entryId);
+      return next;
+    });
   };
 
   return (
@@ -144,26 +174,43 @@ export function MonitoringPage() {
               ) : (
                 <div className="space-y-2">
                   {proposals.map(p => (
-                    <div key={p.id} className="flex items-center gap-3 text-sm">
-                      <span className="u-text" style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {p.title}
-                      </span>
-                      <span className="text-xs u-text-3">{formatAge(p.created)}</span>
-                      {/* 批次A 项8：补「拒绝」按钮（demote → archived），与通过共用 pending 锁存 */}
-                      <button
-                        className="btn btn-secondary btn-sm"
-                        disabled={actingIds.has(p.id)}
-                        onClick={() => actOnProposal(p.id, 'approve')}
-                      >
-                        {actingIds.has(p.id) ? '处理中…' : '通过'}
-                      </button>
-                      <button
-                        className="btn btn-secondary btn-sm"
-                        disabled={actingIds.has(p.id)}
-                        onClick={() => actOnProposal(p.id, 'reject')}
-                      >
-                        {actingIds.has(p.id) ? '处理中…' : '拒绝'}
-                      </button>
+                    <div key={p.id} className="text-sm">
+                      <div className="flex items-center gap-3">
+                        {/* #473：标题即详情开关——审前先看内容（对照频道提案卡条目清单） */}
+                        <button
+                          className="u-text u-hover-accent text-left"
+                          style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                          aria-expanded={expandedIds.has(p.id)}
+                          onClick={() => toggleExpanded(p.id)}
+                        >
+                          {p.title}
+                        </button>
+                        <span className="text-xs u-text-3">{formatAge(p.created)}</span>
+                        {/* 批次A 项8：补「拒绝」按钮（demote → archived），与通过共用 pending 锁存；
+                            #473：通过两步确认（首次仅待确认，再次点击才执行） */}
+                        <button
+                          className="btn btn-secondary btn-sm"
+                          disabled={actingIds.has(p.id)}
+                          onClick={() => clickApprove(p.id)}
+                        >
+                          {actingIds.has(p.id) ? '处理中…' : armedIds.has(p.id) ? '再点一次确认通过' : '通过'}
+                        </button>
+                        <button
+                          className="btn btn-secondary btn-sm"
+                          disabled={actingIds.has(p.id)}
+                          onClick={() => actOnProposal(p.id, 'reject')}
+                        >
+                          {actingIds.has(p.id) ? '处理中…' : '拒绝'}
+                        </button>
+                      </div>
+                      {expandedIds.has(p.id) && (
+                        <div className="text-xs u-text-2 mt-1 space-y-0.5">
+                          <div>类型：{KNOWLEDGE_TYPE_LABELS[p.type || ''] || p.type || '未分类'}</div>
+                          {p.tags && p.tags.length > 0 && <div>标签：{p.tags.join('、')}</div>}
+                          {p.created && <div>提交时间：{formatFullTime(p.created)}</div>}
+                          <div>通过后参与注入；拒绝则归档不再出现。</div>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -198,18 +245,18 @@ export function MonitoringPage() {
                     <StatCard label="人工确认" value={evidence.l3Approved} color="u-ok" />
                     {/* #472：待人工确认 warning（非真错误，error 红留给 blocked/failed） */}
                     <StatCard label="待人工确认" value={evidence.needsHuman} color="u-warn" />
-                    <StatCard label="双轨偏差" value={evidence.derivedMismatch} color="u-warn" />
+                    <StatCard label="状态不一致" value={evidence.derivedMismatch} color="u-warn" />
                   </div>
                   <p className="text-xs u-text-3 mt-2">
-                    主数字 = 已验收任务占比（L3 人工确认 ÷ 已介入 {evidence.engaged} 个任务）；
-                    双轨偏差 = 派生列与存储状态不一致的 WU 数（验证期指标，持续为 0 才可停止手写 in_review）
+                    主数字 = 已验收任务占比（人工确认 ÷ 已介入 {evidence.engaged} 个任务）；
+                    状态不一致 = 界面显示状态与实际记录不符的任务数（验证期指标，持续为 0 才可信）
                   </p>
                 </MonitorSection>
               )}
 
-              {/* M1: 飞轮指标；§7.3 stat 减卡到 hitRate / improvement / 待审 */}
+              {/* M1: 飞轮指标；§7.3 stat 减卡到 hitRate / improvement / 待审；#473 标题白话化（L1/L2/L3 不上界面先例） */}
               <MonitorSection
-                title="飞轮指标"
+                title="学习成效"
                 subtitle="系统有没有越用越聪明"
                 stat={flywheel ? `${flywheel.hitRate}%` : undefined}
                 statTestId="flywheel-stat"
@@ -224,17 +271,17 @@ export function MonitoringPage() {
                         color={flywheel.improvement > 0 ? 'u-ok' : flywheel.improvement < 0 ? 'u-err' : 'u-text-3'}
                       />
                       <StatCard
-                        label="proposal 待审"
+                        label="待审提案"
                         value={flywheel.proposalsPendingReview}
                         color={flywheel.proposalsPendingReview > 0 ? 'u-warn' : 'u-text-3'}
                       />
                     </div>
                     {flywheel.source === 'insufficient-data' && (
-                      <div className="mt-2 text-xs u-text-2">事件数据不足：hitRate / 成功率变化为 0 占位而非实测</div>
+                      <div className="mt-2 text-xs u-text-2">事件数据不足：命中率 / 成功率变化为 0 占位而非实测</div>
                     )}
                   </>
                 ) : (
-                  <div className="text-sm u-text-2">飞轮指标不可用</div>
+                  <div className="text-sm u-text-2">学习成效数据不可用</div>
                 )}
               </MonitorSection>
 

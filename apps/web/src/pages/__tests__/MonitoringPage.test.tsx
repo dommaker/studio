@@ -189,10 +189,10 @@ describe('MonitoringPage', () => {
     render(<MonitoringPage />);
     const toggle = await screen.findByText('健康度量');
     expect(toggle.closest('button')?.getAttribute('aria-expanded')).toBe('false');
-    expect(screen.queryByText('飞轮指标')).toBeNull();
+    expect(screen.queryByText('学习成效')).toBeNull();
 
     await openMetrics();
-    expect(screen.getByText('飞轮指标')).toBeDefined();
+    expect(screen.getByText('学习成效')).toBeDefined();
     expect(screen.getByText('系统有没有越用越聪明')).toBeDefined();
     expect(screen.getByText('证据台账（信任分层）')).toBeDefined();
     expect(screen.getByText('每个任务有多少人/机器确认过')).toBeDefined();
@@ -213,7 +213,7 @@ describe('MonitoringPage', () => {
     expect(screen.getByText('Agent 评审')).toBeDefined();
     expect(screen.getByText('人工确认')).toBeDefined();
     expect(screen.getByText('待人工确认')).toBeDefined();
-    expect(screen.getByText('双轨偏差')).toBeDefined();
+    expect(screen.getByText('状态不一致')).toBeDefined();
     expect(screen.queryByText('自评（L2）')).toBeNull();
     expect(screen.queryByText('已介入 WU')).toBeNull();
     // 2/6 = 33%
@@ -230,13 +230,13 @@ describe('MonitoringPage', () => {
     expect(valueSpan.className).not.toContain('u-err');
   });
 
-  it('飞轮指标减卡：hitRate / improvement / 待审三张在，质量分/新鲜度/提取移除；主数字 = 命中率', async () => {
+  it('学习成效减卡：hitRate / improvement / 待审三张在，质量分/新鲜度/提取移除；主数字 = 命中率', async () => {
     render(<MonitoringPage />);
     await openMetrics();
-    await screen.findByText('飞轮指标');
+    await screen.findByText('学习成效');
     expect(screen.getByText('知识命中率')).toBeDefined();
     expect(screen.getByText('+10pp')).toBeDefined();
-    expect(screen.getByText('proposal 待审')).toBeDefined();
+    expect(screen.getByText('待审提案')).toBeDefined();
     expect(screen.queryByText('质量分')).toBeNull();
     expect(screen.queryByText('新鲜度')).toBeNull();
     expect(screen.queryByText(/提取次数/)).toBeNull();
@@ -331,7 +331,8 @@ describe('MonitoringPage', () => {
   it('approve → 调 /promote 并把该条目移出列表，主数字同步减一', async () => {
     render(<MonitoringPage />);
     const buttons = await screen.findAllByText('通过');
-    fireEvent.click(buttons[0]);
+    fireEvent.click(buttons[0]); // 首次仅进待确认态
+    fireEvent.click(await screen.findByText('再点一次确认通过'));
     await waitFor(() => {
       expect(mockPromote).toHaveBeenCalledWith('k-1');
     });
@@ -340,6 +341,29 @@ describe('MonitoringPage', () => {
     });
     expect(screen.getByText('登录流程统一走 auth-service')).toBeDefined();
     expect(screen.getByTestId('proposals-stat').textContent).toBe('1');
+  });
+
+  // ── #473：审批前可见详情 + 两步确认（对照频道 ReviewProposalCard twoStepApprove）──
+
+  it('两步确认：首次点「通过」不调 promote，仅转入待确认态；再次点击才执行', async () => {
+    render(<MonitoringPage />);
+    const buttons = await screen.findAllByText('通过');
+    fireEvent.click(buttons[0]);
+    expect(mockPromote).not.toHaveBeenCalled();
+    expect(await screen.findByText('再点一次确认通过')).toBeDefined();
+    fireEvent.click(screen.getByText('再点一次确认通过'));
+    await waitFor(() => expect(mockPromote).toHaveBeenCalledWith('k-1'));
+  });
+
+  it('点击标题展开详情（类型白话标签 + 提交时间），再点收起', async () => {
+    render(<MonitoringPage />);
+    const title = await screen.findByText('session 过期未刷新导致 401');
+    expect(screen.queryByText('踩坑记录')).toBeNull();
+    fireEvent.click(title);
+    expect(await screen.findByText(/踩坑记录/)).toBeDefined();
+    expect(screen.getByText(/提交时间/)).toBeDefined();
+    fireEvent.click(screen.getByText('session 过期未刷新导致 401'));
+    await waitFor(() => expect(screen.queryByText('踩坑记录')).toBeNull());
   });
 
   // ── 批次A 项8：拒绝按钮 + 失败 toast + 刷新 loading ──
@@ -364,7 +388,8 @@ describe('MonitoringPage', () => {
     }));
     render(<MonitoringPage />);
     const buttons = await screen.findAllByText('通过');
-    fireEvent.click(buttons[0]);
+    fireEvent.click(buttons[0]); // 首次仅进待确认态
+    fireEvent.click(await screen.findByText('再点一次确认通过'));
     expect(await screen.findByText('通过失败：知识库写入冲突')).toBeTruthy();
     expect(screen.getByText('session 过期未刷新导致 401')).toBeDefined();
     expect(screen.getByTestId('proposals-stat').textContent).toBe('2');

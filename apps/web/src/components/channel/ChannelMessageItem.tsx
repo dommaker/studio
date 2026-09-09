@@ -203,7 +203,7 @@ export const ChannelMessageItem = memo(function ChannelMessageItem({
       {/* Quote block (reply reference) */}
       {parentMessage && (
         <div className="mc-quote">
-          {parentMessage.authorType === 'human' ? 'You' : parentMessage.agentName || 'Agent'}：{parentMessage.content}
+          {parentMessage.authorType === 'human' ? '你' : parentMessage.agentName || 'Agent'}：{parentMessage.content}
         </div>
       )}
 

@@ -104,7 +104,7 @@ describe('AgentDashboardPage', () => {
 
   it('renders page title', async () => {
     render(<AgentDashboardPage />);
-    expect(await screen.findByText('Agent 管理')).toBeDefined();
+    expect(await screen.findByText('角色管理')).toBeDefined();
   });
 
   it('shows empty state when no roles', async () => {
