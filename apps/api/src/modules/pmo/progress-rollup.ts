@@ -71,6 +71,7 @@ import {
 } from './evidence-summary.js';
 import { parseWuMetadata } from '../workunit/wu-metadata.js';
 import { parseSpecTasks } from './spec-materialization.js';
+import { postProjectMilestone } from './delivery-notify.js';
 
 // 兼容现有引用方（原定义已移至 evidence-summary.ts 共享口径）
 export { parseWuMetaPmoId };
@@ -352,7 +353,7 @@ async function doSyncProjectProgress(projectId: string, fileStore: FileStore | u
   // 单腿（无 deliveries / 合成单腿）保持下方现状路径逐字节一致。
   const legs = resolveDeliveries(project);
   if (legs.length > 1) {
-    await doSyncMultiLegProgress(project, legs, snapshots);
+    await doSyncMultiLegProgress(project, legs, snapshots, fileStore);
     return;
   }
 
@@ -376,6 +377,11 @@ async function doSyncProjectProgress(projectId: string, fileStore: FileStore | u
         projectId,
         workUnitCount: snapshots.length,
       });
+      // #469：翻 completed 出声——频道里程碑（atHuman 响铃 + pmoId 跳转）+ 持久通知（/pmo/project/:id 直链）
+      await postProjectMilestone(project, {
+        title: `${project.pmoNumber} 已收尾（completed）`,
+        content: `✅ ${project.pmoNumber}「${project.title}」已收尾：${snapshots.length} 个任务全部完结、证据齐，项目翻 completed——可去交付`,
+      }, { fileStore });
     } else if (project.status === PROJECT_STATUS.ACTIVE || project.status === PROJECT_STATUS.PENDING) {
       // 活干完了但证据有缺口 → in_review（等证据验收），不冒充 completed；
       // 已是 in_review 则不动。幂等补写证据不产生状态事件，
@@ -389,6 +395,11 @@ async function doSyncProjectProgress(projectId: string, fileStore: FileStore | u
         l2Missing: summary.l2Missing.length,
         l3Missing: summary.l3Missing.length,
       });
+      // #469：翻 in_review 同样出声——活干完等验收是「追进度」旅程的闭环点
+      await postProjectMilestone(project, {
+        title: `${project.pmoNumber} 待验收（in_review）`,
+        content: `⏳ ${project.pmoNumber}「${project.title}」任务全部完结，证据有缺口（缺自动验证 ${summary.l1Missing.length} / Agent 评审 ${summary.l2Missing.length} / 人工确认 ${summary.l3Missing.length}），项目进入待验收（in_review）——补齐后重算自动翻 completed`,
+      }, { fileStore });
     }
   } else if (progress !== project.progress) {
     await projectService.update(projectId, { progress });
@@ -409,6 +420,7 @@ async function doSyncMultiLegProgress(
   project: ProjectData,
   legs: DeliveryLeg[],
   snapshots: EvidenceWuInput[],
+  fileStore?: FileStore, // #469：里程碑出声发帖用（缺省走默认 FileStore）
 ): Promise<void> {
   const projectId = project.id;
   const done = snapshots.filter(isTerminalWu).length;
@@ -458,6 +470,11 @@ async function doSyncMultiLegProgress(
         workUnitCount: snapshots.length,
         legCount: legs.length,
       });
+      // #469：全腿 deliverable 翻 completed 出声（同单腿口径）
+      await postProjectMilestone(project, {
+        title: `${project.pmoNumber} 已收尾（completed）`,
+        content: `✅ ${project.pmoNumber}「${project.title}」已收尾：${legs.length} 条交付腿全部完结、证据齐，项目翻 completed——可去交付`,
+      }, { fileStore });
     } else if (project.status === PROJECT_STATUS.ACTIVE || project.status === PROJECT_STATUS.PENDING) {
       // 全腿活干完但有腿证据缺口 → in_review（等证据验收），不冒充 completed；
       // 纠偏路径同单腿（幂等补证据 → 读取时重算翻 completed）。
@@ -468,6 +485,11 @@ async function doSyncMultiLegProgress(
         workUnitCount: snapshots.length,
         legs: newLegs.map(l => ({ branch: l.branch, status: l.status })),
       });
+      // #469：翻 in_review 出声（多腿同单腿口径）
+      await postProjectMilestone(project, {
+        title: `${project.pmoNumber} 待验收（in_review）`,
+        content: `⏳ ${project.pmoNumber}「${project.title}」全部腿任务完结、仍有腿证据缺口，项目进入待验收（in_review）——补齐后重算自动翻 completed`,
+      }, { fileStore });
     }
   } else if (progress !== project.progress) {
     await projectService.update(projectId, { progress });

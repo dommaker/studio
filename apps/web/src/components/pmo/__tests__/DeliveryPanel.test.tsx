@@ -9,6 +9,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 const {
   mockNavigate,
   mockDeliver,
+  mockMarkDelivered,
   mockVerify,
   mockDispatchReview,
   mockReviewPassed,
@@ -19,6 +20,7 @@ const {
 } = vi.hoisted(() => ({
   mockNavigate: vi.fn(),
   mockDeliver: vi.fn(),
+  mockMarkDelivered: vi.fn(),
   mockVerify: vi.fn(),
   mockDispatchReview: vi.fn(),
   mockReviewPassed: vi.fn(),
@@ -34,7 +36,7 @@ vi.mock('react-router-dom', async () => {
 });
 
 vi.mock('../../../api', () => ({
-  projectApi: { deliver: mockDeliver },
+  projectApi: { deliver: mockDeliver, markDelivered: mockMarkDelivered },
 }));
 
 vi.mock('../../../api/workunit', () => ({
@@ -341,5 +343,57 @@ describe('DeliveryPanel', () => {
 
     expect(screen.getByText(/证据已齐:请合并分支 PMO-11 并走下游发布链路/)).toBeTruthy();
     expect(screen.queryByText('交付合并')).toBeNull();
+  });
+
+  // ---- #469 branch-only 标记已交付 ----
+
+  const branchOnlyDelivery: DeliveryStatus = {
+    ...baseDelivery,
+    policy: 'branch-only',
+    deliverable: true,
+    gaps: [],
+  };
+
+  it('#469 branch-only 未交付：渲染 commit 输入 + 「标记已交付」按钮；已交付则不渲染', () => {
+    renderPanel(branchOnlyDelivery);
+    expect(screen.getByLabelText('合并 commit 哈希')).toBeTruthy();
+    expect(screen.getByRole('button', { name: '标记已交付' })).toBeTruthy();
+
+    renderPanel({ ...branchOnlyDelivery, deliveredAt: '2026-09-09T00:00:00Z', deliverCommit: 'c0ffee1' });
+    expect(screen.queryAllByLabelText('合并 commit 哈希')).toHaveLength(1); // 仅第一处渲染
+  });
+
+  it('#469 标记已交付成功：trim 后提交，success toast 带短哈希 + onRefresh + 清空输入', async () => {
+    mockMarkDelivered.mockResolvedValue({ data: { delivered: true, deliverCommit: 'c0ffee1234', deliveredAt: '2026-09-09T00:00:00Z' } });
+    const onRefresh = vi.fn();
+    renderPanel(branchOnlyDelivery, onRefresh);
+
+    fireEvent.change(screen.getByLabelText('合并 commit 哈希'), { target: { value: '  c0ffee1234  ' } });
+    fireEvent.click(screen.getByRole('button', { name: '标记已交付' }));
+
+    await waitFor(() => expect(mockMarkDelivered).toHaveBeenCalledWith('p1', 'c0ffee1234'));
+    await waitFor(() => expect(mockToastSuccess).toHaveBeenCalledWith('已标记交付 (c0ffee1)'));
+    expect(onRefresh).toHaveBeenCalled();
+    expect((screen.getByLabelText('合并 commit 哈希') as HTMLInputElement).value).toBe('');
+  });
+
+  it('#469 空 commit 不提交（按钮禁用）', () => {
+    renderPanel(branchOnlyDelivery);
+    expect((screen.getByRole('button', { name: '标记已交付' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(mockMarkDelivered).not.toHaveBeenCalled();
+  });
+
+  it('#469 标记已交付 409：error toast 用 error.message，不刷新', async () => {
+    mockMarkDelivered.mockRejectedValue({
+      response: { status: 409, data: { error: { message: '已于 2026-09-01 落档' } } },
+    });
+    const onRefresh = vi.fn();
+    renderPanel(branchOnlyDelivery, onRefresh);
+
+    fireEvent.change(screen.getByLabelText('合并 commit 哈希'), { target: { value: 'c0ffee' } });
+    fireEvent.click(screen.getByRole('button', { name: '标记已交付' }));
+
+    await waitFor(() => expect(mockToastError).toHaveBeenCalledWith('已于 2026-09-01 落档'));
+    expect(onRefresh).not.toHaveBeenCalled();
   });
 });

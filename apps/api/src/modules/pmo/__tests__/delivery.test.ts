@@ -7,8 +7,10 @@
  * git 调用（execSh）与 getDefaultBranch 全部 mock。
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { WorkUnitSnapshot } from '@dommaker/studio-shared';
-import { getDeliveryStatus, deliverProject } from '../delivery.js';
+import fs from 'node:fs';
+import path from 'node:path';
+import { FileStore, type WorkUnitSnapshot } from '@dommaker/studio-shared';
+import { getDeliveryStatus, deliverProject, markProjectDelivered } from '../delivery.js';
 import type { ProjectData } from '../project.service.js';
 
 const { mockExecSh, mockGetDefaultBranch } = vi.hoisted(() => ({
@@ -279,5 +281,80 @@ describe('deliverProject（PMO-b 交付守卫）', () => {
     const deps = makeDeps({ project: project({ deliveryPolicy: 'auto-merge' }), snapshots: [readyWu()] });
     const r = await deliverProject('proj-1', 'Alice', undefined, deps);
     expect(r).toMatchObject({ delivered: false, reason: 'conflict', conflictFiles: ['a.ts', 'b.ts'] });
+  });
+
+  it('#469：deliver 成功 → 频道播报（pmoNumber + commit 短哈希 + 腿数 + 操作人），meta 带 pmoId/atHuman', async () => {
+    mockExecSh.mockImplementation(async (cmd: string) => {
+      if (cmd.includes('abbrev-ref')) return { stdout: 'master\n', stderr: '' };
+      if (cmd.includes('rev-parse HEAD')) return { stdout: 'feedbeef1234567\n', stderr: '' };
+      return { stdout: '', stderr: '' };
+    });
+    const tmpStore = new FileStore(fs.mkdtempSync(path.join(process.env.TMPDIR || '/tmp', 'pmo-deliver-notify-')));
+    const deps = makeDeps({ project: project({ deliveryPolicy: 'auto-merge', channelId: 'ch-1' }), snapshots: [readyWu()] });
+    const r = await deliverProject('proj-1', 'Alice', tmpStore, deps);
+
+    expect(r.delivered).toBe(true);
+    const msgs = await tmpStore.queryMessages('ch-1', {});
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0].content).toContain('PMO-11');
+    expect(msgs[0].content).toContain('feedbee'); // 短哈希
+    expect(msgs[0].content).toContain('1 条交付腿');
+    expect(msgs[0].content).toContain('Alice');
+    const meta = typeof msgs[0].meta === 'string' ? JSON.parse(msgs[0].meta) : msgs[0].meta;
+    expect(meta).toMatchObject({ pmoId: 'proj-1', atHuman: true });
+  });
+
+  it('#469：无 channelId 项目 deliver 成功 → 不发帖不炸（播报 best-effort）', async () => {
+    mockExecSh.mockImplementation(async (cmd: string) => {
+      if (cmd.includes('abbrev-ref')) return { stdout: 'master\n', stderr: '' };
+      if (cmd.includes('rev-parse HEAD')) return { stdout: 'feedbeef\n', stderr: '' };
+      return { stdout: '', stderr: '' };
+    });
+    const deps = makeDeps({ project: project({ deliveryPolicy: 'auto-merge' }), snapshots: [readyWu()] });
+    const r = await deliverProject('proj-1', 'Alice', undefined, deps);
+    expect(r.delivered).toBe(true);
+  });
+});
+
+describe('markProjectDelivered（#469 branch-only 人工落档）', () => {
+  const COMMIT = 'c0ffee1234567890';
+
+  it('项目不存在 → not-found', async () => {
+    const r = await markProjectDelivered('proj-x', 'Alice', COMMIT, undefined, makeDeps({ project: null }));
+    expect(r).toMatchObject({ marked: false, reason: 'not-found' });
+  });
+
+  it('auto-merge 项目 → not-branch-only（应走 deliver 合并），不落档', async () => {
+    const deps = makeDeps({ project: project({ deliveryPolicy: 'auto-merge' }) });
+    const r = await markProjectDelivered('proj-1', 'Alice', COMMIT, undefined, deps);
+    expect(r).toMatchObject({ marked: false, reason: 'not-branch-only' });
+    expect(deps.updateProject).not.toHaveBeenCalled();
+  });
+
+  it('已落档（deliveredAt 非空）→ already-delivered，不重复写', async () => {
+    const deps = makeDeps({ project: project({ deliveryPolicy: 'branch-only', deliveredAt: '2026-08-01T00:00:00Z' }) });
+    const r = await markProjectDelivered('proj-1', 'Alice', COMMIT, undefined, deps);
+    expect(r).toMatchObject({ marked: false, reason: 'already-delivered' });
+    expect(deps.updateProject).not.toHaveBeenCalled();
+  });
+
+  it('branch-only 未交付 → 写 deliveredAt/deliveredBy/deliverCommit + 频道播报', async () => {
+    const tmpStore = new FileStore(fs.mkdtempSync(path.join(process.env.TMPDIR || '/tmp', 'pmo-mark-delivered-')));
+    const deps = makeDeps({ project: project({ deliveryPolicy: 'branch-only', channelId: 'ch-9' }) });
+    const r = await markProjectDelivered('proj-1', 'Bob', COMMIT, tmpStore, deps);
+
+    expect(r).toMatchObject({ marked: true, deliverCommit: COMMIT });
+    expect(deps.updateProject).toHaveBeenCalledWith('proj-1', expect.objectContaining({
+      deliveredBy: 'Bob',
+      deliverCommit: COMMIT,
+    }));
+    const patch = deps.updateProject.mock.calls[0][1] as Record<string, unknown>;
+    expect(typeof patch.deliveredAt).toBe('string');
+
+    const msgs = await tmpStore.queryMessages('ch-9', {});
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0].content).toContain('PMO-11');
+    expect(msgs[0].content).toContain('c0ffee1'); // 短哈希
+    expect(msgs[0].content).toContain('Bob');
   });
 });

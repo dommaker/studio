@@ -2,7 +2,7 @@
 import { Router, Request, Response } from 'express';
 import { okrService } from './okr.service.js';
 import { projectService, parsePmoNumberFromCommand } from './project.service.js';
-import { getDeliveryStatus, deliverProject } from './delivery.js';
+import { getDeliveryStatus, deliverProject, markProjectDelivered } from './delivery.js';
 import { syncProjectProgress } from './progress-rollup.js';
 import { logger } from '../../utils/logger.js';
 import { requireAuth, requireNotGuest, requireRole, type AuthRequest } from '../../middleware/auth.js';  // 🆕 SEC-001 / SEC-002
@@ -223,6 +223,48 @@ router.post('/project/:id/deliver', requireAuth(), requireNotGuest(), async (req
     });
   } catch (error) {
     logger.error({ error }, 'Failed to deliver project');
+    res.status(500).json({
+      error: { code: 'INTERNAL_ERROR', message: (error as Error).message },
+    });
+  }
+});
+
+/**
+ * POST /api/v1/pmo/project/:id/mark-delivered
+ * #469：branch-only 人工落档（human-only）——系统外合并后把 commit 哈希写进台账
+ * （deliveredAt/deliveredBy/deliverCommit），交付闭环在系统内留痕。commit 必填（400）；
+ * auto-merge 项目 / 已落档 → 409。
+ */
+router.post('/project/:id/mark-delivered', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
+  try {
+    if (resolveCallerAuthorType(req) === 'agent') {
+      return res.status(403).json({
+        error: { code: 'FORBIDDEN', message: 'Delivery is human-only (authorType=agent rejected)' },
+      });
+    }
+    const commit = typeof req.body?.commit === 'string' ? req.body.commit.trim() : '';
+    if (!commit) {
+      return res.status(400).json({
+        error: { code: 'MISSING_FIELDS', message: 'commit is required' },
+      });
+    }
+    const user = (req as AuthRequest).user;
+    const outcome = await markProjectDelivered(req.params.id, user?.name ?? user?.email ?? user?.id ?? 'human', commit);
+    // 注：本包 tsconfig 未开 strict，可辨识联合须用 === 字面量比较收窄（deliver 路由同款）
+    if (outcome.marked === true) {
+      return res.json({ delivered: true, deliverCommit: outcome.deliverCommit, deliveredAt: outcome.deliveredAt });
+    }
+    if (outcome.reason === 'not-found') {
+      return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Project not found' } });
+    }
+    res.status(409).json({
+      error: {
+        code: outcome.reason.toUpperCase().replace(/-/g, '_'),
+        message: outcome.detail ?? outcome.reason,
+      },
+    });
+  } catch (error) {
+    logger.error({ error }, 'Failed to mark project delivered');
     res.status(500).json({
       error: { code: 'INTERNAL_ERROR', message: (error as Error).message },
     });

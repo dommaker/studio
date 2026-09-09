@@ -23,6 +23,7 @@ import { execSh } from '@dommaker/studio-shared/node';
 import { projectService, resolveDeliveries, resolveDeliveryPolicy, LEG_STATUS, PROJECT_STATUS, type DeliveryLeg, type DeliveryLegStatus, type DeliveryPolicy, type ProjectData } from './project.service.js';
 import { RequirementService } from '../requirements/requirement.service.js';
 import { selectProjectSnapshots, summarizeEvidence, partitionSnapshotsByLeg, type EvidenceSummary } from './evidence-summary.js';
+import { postProjectMilestone } from './delivery-notify.js';
 import { sumTokensForWorkUnits } from '../agents/token-usage.service.js';
 import { parseWuMetadata } from '../workunit/wu-metadata.js';
 import { getErrorMessage } from '../../utils/errors.js';
@@ -69,6 +70,8 @@ export interface DeliveryStatus {
   deliveredAt: string | null;
   deliveredBy: string | null;
   deliverCommit: string | null;
+  /** #469：项目绑定频道（交付播报发帖用；未 publish 为 null → 只落持久通知） */
+  channelId: string | null;
   /** #113 T7：逐腿台账（仅显式多腿项目输出；单腿为 undefined，回归硬要求） */
   legs?: LegDeliveryStatus[];
 }
@@ -244,6 +247,7 @@ export async function getDeliveryStatus(
     deliveredAt: project.deliveredAt ?? null,
     deliveredBy: project.deliveredBy ?? null,
     deliverCommit: project.deliverCommit ?? null,
+    channelId: project.channelId ?? null,
     ...(legStatuses ? { legs: legStatuses } : {}),
   };
 }
@@ -311,6 +315,28 @@ async function mergeBranchIntoDefault(repo: string, branch: string, message: str
     deliverCommit = stdout.trim();
   } catch { /* 空字符串兜底 */ }
   return { ok: true, deliverCommit };
+}
+
+/**
+ * #469：交付成功频道播报（+持久通知）——pmoNumber + commit 短哈希 + 腿数 + 操作人。
+ * best-effort（postProjectMilestone 内部逐面兜底），不阻断交付主路径。
+ */
+async function broadcastDelivered(
+  status: Pick<DeliveryStatus, 'projectId' | 'pmoNumber' | 'channelId'>,
+  deliverCommit: string,
+  by: string,
+  legCount: number,
+  fileStore?: FileStore,
+): Promise<void> {
+  const short = deliverCommit ? deliverCommit.slice(0, 7) : '(无 commit)';
+  await postProjectMilestone(
+    { id: status.projectId, pmoNumber: status.pmoNumber, channelId: status.channelId },
+    {
+      title: `${status.pmoNumber} 已交付`,
+      content: `📦 ${status.pmoNumber} 已交付：commit ${short} · ${legCount} 条交付腿 · 操作人 ${by}`,
+    },
+    { fileStore },
+  );
 }
 
 /**
@@ -390,6 +416,8 @@ export async function deliverProject(
         deliveredBy: by,
         deliverCommit: lastCommit,
       });
+      // #469：全腿交付 → 频道播报（腿数 = 显式腿数）
+      await broadcastDelivered(status, lastCommit, by, status.legs.length, fileStore);
       return { delivered: true, deliverCommit: lastCommit, legs: results };
     }
 
@@ -425,5 +453,60 @@ export async function deliverProject(
     deliverCommit: merge.deliverCommit,
   });
 
+  // #469：单腿交付 → 频道播报
+  await broadcastDelivered(status, merge.deliverCommit, by, 1, fileStore);
+
   return { delivered: true, deliverCommit: merge.deliverCommit };
+}
+
+// ============================================
+// #469：branch-only 标记已交付（人工落档）
+// ============================================
+
+export type MarkDeliveredOutcome =
+  | { marked: true; deliverCommit: string; deliveredAt: string }
+  | { marked: false; reason: 'not-found' | 'not-branch-only' | 'already-delivered'; detail?: string };
+
+/**
+ * branch-only 交付闭环：系统外合并发生后，人工把 commit 哈希落档
+ * （deliveredAt/deliveredBy/deliverCommit），台账不再永停「✓ 可交付」。
+ * 不设证据闸——合并在系统外发生，落档时点的证据态不可考，人是唯一权威（human-only
+ * 由 routes 层兜底）；仅守三条：项目存在 / 策略为 branch-only（auto-merge 走 deliver）/
+ * 未落档过（幂等拒绝，不覆盖首报）。落档成功发交付播报（同 deliver 成功路径）。
+ */
+export async function markProjectDelivered(
+  projectId: string,
+  by: string,
+  commit: string,
+  fileStore?: FileStore,
+  deps?: DeliveryDeps,
+): Promise<MarkDeliveredOutcome> {
+  const getProject = deps?.getProject ?? (async (id: string) => projectService.get(id));
+  const project = await getProject(projectId);
+  if (!project) return { marked: false, reason: 'not-found' };
+  if (resolveDeliveryPolicy(project) !== 'branch-only') {
+    return { marked: false, reason: 'not-branch-only', detail: 'auto-merge 项目请走交付合并（deliver），无需人工落档' };
+  }
+  if (project.deliveredAt) {
+    return { marked: false, reason: 'already-delivered', detail: `已于 ${project.deliveredAt} 落档（commit ${project.deliverCommit ?? '未知'}），不重复标记` };
+  }
+
+  const updateProject = deps?.updateProject
+    ?? (async (id: string, input: Record<string, unknown>) => projectService.update(id, input));
+  const deliveredAt = new Date().toISOString();
+  await updateProject(projectId, {
+    deliveredAt,
+    deliveredBy: by,
+    deliverCommit: commit,
+  });
+
+  await broadcastDelivered(
+    { projectId: project.id, pmoNumber: project.pmoNumber, channelId: project.channelId ?? null },
+    commit,
+    by,
+    resolveDeliveries(project).length,
+    fileStore,
+  );
+
+  return { marked: true, deliverCommit: commit, deliveredAt };
 }

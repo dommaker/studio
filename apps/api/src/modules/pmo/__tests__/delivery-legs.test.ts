@@ -12,7 +12,9 @@
  * 单腿回归由 delivery.test.ts 兜底（不改断言全绿）。
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { WorkUnitSnapshot } from '@dommaker/studio-shared';
+import fs from 'node:fs';
+import path from 'node:path';
+import { FileStore, type WorkUnitSnapshot } from '@dommaker/studio-shared';
 import { getDeliveryStatus, deliverProject } from '../delivery.js';
 import type { ProjectData } from '../project.service.js';
 
@@ -184,6 +186,24 @@ describe('deliverProject 多腿 auto-merge（#113 T7）', () => {
         expect.objectContaining({ branch: 'PMO-11-b', status: 'delivered', deliverCommit: 'bbbb' }),
       ],
     }));
+  });
+
+  it('#469：全腿交付成功 → 频道播报带腿数（2 条交付腿）与最后 commit 短哈希', async () => {
+    mockExecSh.mockImplementation(async (cmd: string) => {
+      if (cmd.includes('abbrev-ref')) return { stdout: 'master\n', stderr: '' };
+      if (cmd.includes('rev-parse HEAD')) return { stdout: cmd.includes('/repo/a') ? 'aaaaaaa1\n' : 'bbbbbbb2\n', stderr: '' };
+      return { stdout: '', stderr: '' };
+    });
+    const tmpStore = new FileStore(fs.mkdtempSync(path.join(process.env.TMPDIR || '/tmp', 'pmo-legs-notify-')));
+    const deps = makeDeps({ project: { ...autoProject(), channelId: 'ch-legs' }, snapshots: [readyA(), readyB()] });
+    const r = await deliverProject('proj-1', 'Alice', tmpStore, deps);
+
+    expect(r.delivered).toBe(true);
+    const msgs = await tmpStore.queryMessages('ch-legs', {});
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0].content).toContain('PMO-11');
+    expect(msgs[0].content).toContain('2 条交付腿');
+    expect(msgs[0].content).toContain('bbbbbb'); // 最后一个成功腿的 commit 短哈希
   });
 
   it('一腿冲突不阻断他腿：腿 A 合并成功落档，腿 B conflict，整体 delivered=false', async () => {
