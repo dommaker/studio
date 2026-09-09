@@ -24,7 +24,7 @@
  */
 import { logger, FileStore } from '@dommaker/studio-shared';
 import { WorkUnitService } from '../workunit/workunit.service.js';
-import { DECISION_SPEC_TYPES } from '../workunit/workunit.types.js';
+import { MANUAL_GATE_TYPES } from '../workunit/workunit.types.js';
 import { parseWuMetadata } from '../workunit/wu-metadata.js';
 import { AnalysisHandoff } from '../pmo/analysis-handoff.js';
 import { ReviewDispatcher } from './loop/review-dispatcher.js';
@@ -73,7 +73,12 @@ async function reconcileAnalysisRespawns(
   now: Date,
   result: ReconciliationResult,
 ): Promise<void> {
-  const candidates = await wuService.list({ type: 'analysis', status: 'done', limit: 1000 });
+  // #471：plan（一脉会话规划单）与 analysis 同一派工对账口径（哨兵字段不变）
+  const [analysisDone, planDone] = await Promise.all([
+    wuService.list({ type: 'analysis', status: 'done', limit: 1000 }),
+    wuService.list({ type: 'plan', status: 'done', limit: 1000 }),
+  ]);
+  const candidates = { data: [...analysisDone.data, ...planDone.data] };
   for (const wu of candidates.data) {
     const meta = parseWuMetadata(wu.metadata);
     // 旧时间戳哨兵兼容：无清单不参与对账（#159 存量查证账实相符，无需迁移）
@@ -160,8 +165,8 @@ async function reconcileReviewRedispatches(
   const candidates = await wuService.list({ status: 'in_review', limit: 1000 });
   const snapshots = await fileStore.getIndex();
   for (const wu of candidates.data) {
-    // 同路径 A 口径：review 不再被评审；analysis/decision/spec 验收闸是人工 L3
-    if (wu.type === 'review' || wu.type === 'analysis' || DECISION_SPEC_TYPES.has(wu.type)) continue;
+    // 同路径 A 口径：review 不再被评审；analysis/decision/spec/plan 验收闸是人工 L3（#471）
+    if (wu.type === 'review' || MANUAL_GATE_TYPES.has(wu.type)) continue;
     if (!wu.channelId) continue; // 评审子 WU 经频道涌现认领，无频道必卡死（同 dispatchReviewNow 守卫）
     // in_review 持续 ≥10min（宽限避开在飞建单；updatedAt 为锚——in_review 态无簿记写入）
     if (now.getTime() - wu.updatedAt.getTime() < RECONCILE_GRACE_MS) continue;

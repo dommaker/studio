@@ -57,7 +57,11 @@ export interface WorkUnitMetadata {
   waitingQuestion?: string;   // agent 提出的问题
   waitingSince?: string;      // 挂起时间 ISO 8601（超时提醒据此计算）
   waitingReminded?: boolean;  // 本次挂起已提醒过（每次挂起只提醒一次，恢复时重置）
-  waitingReason?: string;     // 挂起原因：'ownership' = B3a 等待工程归属；'wu-token-budget' = #162 WU 级 token 预算到线（三选分流见 waiting-input.ts）（缺省 = agent 提问）
+  waitingReason?: string;     // 挂起原因：'ownership' = B3a 等待工程归属；'wu-token-budget' = #162 WU 级 token 预算到线（三选分流见 waiting-input.ts）；'plan-step-limit' = #471 plan 步数额度到线（回复即续期）（缺省 = agent 提问）
+  // #471（Triage 定稿 1）：plan 步数续期授权额度——缺省 = PLAN_STEP_LIMIT；到线挂起后人回复
+  // 续期 += PLAN_STEP_LIMIT（waiting-input.ts）。非会话簿记（不随 clearSessionBookkeeping 清除），
+  // 语义同 tokenBudget = 人工授权额度
+  planStepAllowance?: number;
   pendingReplies?: string[];  // 恢复后待注入下一轮 prompt 的人类回复（多条拼接，消费后清除）
   // B3a 工程归属链（决策 D2）：归属解析结果落档
   workspaceRoot?: string;     // 直接可用的工程根路径（Requirement→PMO gitRepo / 人工回复绑定；agent-loop 优先于 workspaceId 消费）
@@ -308,6 +312,14 @@ export const VALID_TRANSITIONS: Record<string, string[]> = {
 export const DECISION_SPEC_TYPES = new Set(['decision', 'spec']);
 
 /**
+ * #471：人工 L3 验收类工单类型集（单一事实源）——ReviewDispatcher 不派自动评审
+ * （验收闸 = 人工 in_review）、evidence-summary 豁免 l2、频道建议不推「派发评审」。
+ * 成员：analysis（存量/巡检单）、decision/spec（#108，存量在飞链）、plan（#471 一脉会话规划单）。
+ * 注意不含 review（review 不再被评审是另一条独立规则，各处自判）。
+ */
+export const MANUAL_GATE_TYPES = new Set(['analysis', ...DECISION_SPEC_TYPES, 'plan']);
+
+/**
  * #126（T4，#105 子票）：扩范围类型集——创建后落「待确认」（pending），人工确认
  * （pending → unassigned）才进 frontier 可认领；未列出的类型（bug/implement/review/
  * analysis/decision 等圈内单）创建即可认领。词表映射（根 CONTEXT.md「工单类型」）：
@@ -356,6 +368,15 @@ export function resolveValidTransitions(wuType: string, status: string): string[
  * 显式值优先（任务预算归 maxTurns + token 记账，#54）。
  */
 export const WU_LEASE_TTL_MS = 5 * 60_000;
+
+/**
+ * #471（Triage 定稿 1）：plan WU 单独步数额度——高于 implement（agent-loop STEP_LIMIT=15）
+ * 与 review（30）。一脉会话承载「澄清→调研→裁决→成文→拆单」全链，到线不静默截断：
+ * agentStep 前置守卫转 need_input 挂 blocked 转人（waitingReason='plan-step-limit'），
+ * 人回复即续期（waiting-input 给 metadata.planStepAllowance 本加一份本常量）。
+ * 常量住这里（WU 类型属性，WU_LEASE_TTL_MS 同例）：agent-loop 与 waiting-input 双消费。
+ */
+export const PLAN_STEP_LIMIT = 60;
 
 /** analysis 任务拆分上限（agent-loop 解析 TASK: 行 / analysis-handoff 派生子 WU 共用） */
 export const ANALYSIS_TASKS_MAX = 8;

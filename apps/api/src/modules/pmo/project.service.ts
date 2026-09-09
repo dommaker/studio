@@ -17,6 +17,14 @@ const PROJECTS_DIR = studioPath('projects');
 
 const fileStore = new FileStore();
 
+/** #471 Triage 定稿 1：plan WU 默认 token 额度（env STUDIO_PLAN_TOKEN_BUDGET 覆盖；非法值回落默认） */
+export const PLAN_TOKEN_BUDGET_DEFAULT = 1_000_000;
+
+export function resolvePlanTokenBudget(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = Number(env.STUDIO_PLAN_TOKEN_BUDGET);
+  return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : PLAN_TOKEN_BUDGET_DEFAULT;
+}
+
 export interface CreateProjectInput {
   companyId?: string;
   title: string;
@@ -552,41 +560,55 @@ export const projectService = {
     await channelMessageService.updateMessageMeta(message.id, { pmoId: project.id });
 
     const workUnitService = new WorkUnitService();
-    // #112 T6 多腿分析单：显式多腿（deliveries > 1）时 scope 注入全部仓库路径
-    // （只读约束不变、无 worktree 隔离）。单腿（无 deliveries 时读取合成的单腿）
+    // #112 T6 多腿段：显式多腿（deliveries > 1）时 scope 注入全部仓库路径
+    // （腿调研只读约束不变、无 worktree 隔离）。单腿（无 deliveries 时读取合成的单腿）
     // 不注入——scope 与现状逐字节一致（回归硬要求）。
     const legs = resolveDeliveries(project);
     const multiLegSection = legs.length > 1
-      ? `\n\n## 多交付腿（只读范围）\n本需求跨 ${legs.length} 个仓库交付，分析须覆盖以下全部仓库路径（均为只读，约束同上，不做 worktree 隔离）：\n`
+      ? `\n\n## 多交付腿（腿调研只读范围）\n本需求跨 ${legs.length} 个仓库交付，规划须覆盖以下全部仓库路径；逐腿调研一律只读（不做 worktree 隔离），需要深挖时按腿派 DELEGATE research 子单（子单 scope 带腿仓库路径）：\n`
         + legs.map(leg => `- ${leg.gitRepo ?? '（未设置仓库路径）'}${leg.branch ? `（分支 ${leg.branch}）` : ''}`).join('\n')
       : '';
     const workUnit = await workUnitService.create({
-      type: 'analysis',
-      // #177（#69 决议）：发布人可选显式指派 analysis WU 执行角色（留空 = 回池涌现）
+      // #471：派生链收敛——publish 只建一张 plan WU（一脉会话），不再建 analysis；
+      // analysis/decision/spec 三段派生退役（map-opening 降级为台账记录，不再建 decision 单）
+      type: 'plan',
+      // #177（#69 决议）：发布人可选显式指派 plan WU 执行角色（留空 = 回池涌现）
       ...(input.assigneeId ? { assigneeId: input.assigneeId } : {}),
-      scope: `分析需求 ${project.pmoNumber}: ${project.title}
+      // #471 配套补充（2026-09-09）：scope 首行钉方法论 skill（评审单 +code-review 先例，
+      // review-dispatcher.ts）——requirement-clarify（澄清→设计→spec→质量门）+ to-tickets（拆单）
+      scope: `规划需求 ${project.pmoNumber}: ${project.title} +requirement-clarify +to-tickets
 
 ${requirementText}
 ${multiLegSection}
-## 工作方式约束（只读分析，重要）
-你是分析角色，只读不改：禁止创建/修改/删除任何文件（不使用 Edit/Write/NotebookEdit），禁止执行会改变工作区状态的命令（git commit/checkout/clean、包管理器 install、写临时脚本等）。只用 Read/Grep/Glob 和只读 Bash（git log/diff/status、ls、cat、grep 等）。分析结论直接以 markdown 输出在回复里，不落盘。
+## 工作方式（一脉会话，对齐 requirement-clarify skill）
+本单是「需求 → 任务清单」的完整规划链，在同一个会话里一脉完成，不分阶段换角色：
+1. 澄清：向人追问澄清（频道 waiting-input 复活本会话，上下文不丢）；
+2. fog 调研：探路型需求的待决问题逐题调研；需要仓外调研时用 DELEGATE 派 research 子单（父会话保上下文，子单只读调研返回结论）；
+3. 裁决轮：不能默认的待决问题打包一轮（问题清单 + 每题建议结论 + 默认值），请人一次性裁决；
+4. spec 成文：裁决后 spec 落业务仓 .studio/specs/（本阶段允许写 spec/文档，实现代码不在本单范围）；
+5. 拆任务清单：输出 TASK: 拆分行，人工确认后系统按清单自动建任务并派工。
 
-## 输出约定（分析接力）
+会话中断恢复：探路台账（目的地 + 待决问题 + 已裁决结论）在你的 prompt「探路地图」段，以台账为准续跑，不整单重来。
 
-分析完成后，除 ACTION 行外，逐行输出拆分后的实现任务（每条一行，3~8 条，每条可被独立认领、独立完成）：
+## 输出约定（规划接力）
+
+规划完成后，除 ACTION 行外，逐行输出拆分后的实现任务（每条一行，3~8 条，每条可被独立认领、独立完成）：
 TASK: <任务描述>
 需求很小无需拆分时可不输出 TASK 行。结论由人工确认后，系统按 TASK 行自动建任务并派工。
 
-如分析中发现必须人工拍板才能推进的待决问题（探路型需求），另逐行输出（每条一行，至多 12 条）：
+如规划中发现必须人工拍板才能推进的待决问题（探路型需求），另逐行输出（每条一行，至多 12 条）：
 FOG: <待决问题>
 可选输出一行 DESTINATION: <一句话目标> 指定探路目的地（缺省用项目标题）。
-人工确认时会审核这份待决问题清单（可增删改），确认通过后系统据此初始化探路地图并逐条建决策单；无 FOG 行 = 非探路型，只按 TASK 行派工。`,
+人工确认时会审核这份待决问题清单（可增删改），确认通过后系统据此初始化探路台账（不再逐条建决策单——裁决在本会话内进行）；无 FOG 行 = 非探路型，只按 TASK 行派工。`,
       channelId: input.channelId,
       metadata: {
         pmoId: project.id,
         pmoNumber: project.pmoNumber,
+        // #471 Triage 定稿 1：plan 类 WU 单独 token 额度（高于 implement 无显式额度的现状）——
+        // 超限走既有 wu-token-budget 熔断挂 blocked 转人（追加预算/收尾/放弃三选），不静默截断
+        tokenBudget: resolvePlanTokenBudget(),
         // B3a 归属链接线：gitRepo 落 metadata.workspaceRoot，agent-loop 执行根解析
-        // （resolveExecutionWorkspaceRoot）优先消费——analysis 及其派生 task WU
+        // （resolveExecutionWorkspaceRoot）优先消费——plan 及其派生 task WU
         // （analysis-handoff 继承该字段）才能走 per-WU worktree + PMO 分支，
         // 否则直接在共享开发仓落地、review 审的也不是隔离分支。
         ...(project.gitRepo ? { workspaceRoot: project.gitRepo } : {}),

@@ -43,6 +43,7 @@ export const WU_TYPE_LABELS: Record<string, string> = {
   task: '任务',
   monitor: '监控',
   analysis: '分析',
+  plan: '规划', // #471：一脉会话规划单（派生链收敛）
   discussion: '讨论',
 };
 

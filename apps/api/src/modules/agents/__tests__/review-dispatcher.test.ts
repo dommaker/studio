@@ -366,8 +366,8 @@ describe('ReviewDispatcher (AC-4.1 ~ AC-4.5 + F4)', () => {
     expect(reviewChild).toBeUndefined();
   });
 
-  it('#108: decision/spec WU in_review -> 不派 review 子 WU（人工验收类工单，验收闸 = 人工 in_review）', async () => {
-    for (const type of ['decision', 'spec']) {
+  it('#108/#471: decision/spec/plan WU in_review -> 不派 review 子 WU（人工验收类工单，验收闸 = 人工 in_review）', async () => {
+    for (const type of ['decision', 'spec', 'plan']) {
       const wu = await wuService.create({
         scope: `${type} 单测试`,
         type,
@@ -429,8 +429,8 @@ describe('ReviewDispatcher (AC-4.1 ~ AC-4.5 + F4)', () => {
     await expect(dispatcher.dispatchReviewNow(analysis.id)).rejects.toThrow('not reviewable');
   });
 
-  it('#108: type=decision/spec -> 拒绝补派（人工验收类工单，同 analysis 先例）', async () => {
-    for (const type of ['decision', 'spec']) {
+  it('#108/#471: type=decision/spec/plan -> 拒绝补派（人工验收类工单，同 analysis 先例）', async () => {
+    for (const type of ['decision', 'spec', 'plan']) {
       const wu = await wuService.create({
         scope: `${type} Y`, type, channelId: 'ch-test', status: 'in_review',
       });

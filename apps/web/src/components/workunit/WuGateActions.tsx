@@ -39,8 +39,9 @@ export function WuGateActions({ wu, onReviewPassed, onReviewRejected, onConfirmP
 
   // autoApprove（#284 决策 #250 D6）：接力卡「打开即弹」一次性——渲染期派生（prevId 同款模式，
   // 组件仅在 wu 加载完成且命中闸门分支后挂载，id 切换经卸载重置）
+  // #471：plan（一脉会话规划单）同走 analysis_confirm 接力卡，同样打开即弹
   const [autoPopupDone, setAutoPopupDone] = useState(false);
-  if (!autoPopupDone && autoApprove && wu.type === 'analysis' && wu.status === 'in_review') {
+  if (!autoPopupDone && autoApprove && (wu.type === 'analysis' || wu.type === 'plan') && wu.status === 'in_review') {
     setAutoPopupDone(true);
     setShowApproveModal(true);
   }
@@ -60,9 +61,10 @@ export function WuGateActions({ wu, onReviewPassed, onReviewRejected, onConfirmP
     }
   };
 
-  // #463：analysis/decision/spec 走各自结构化确认弹窗（评审表单+按钮，人不接触魔法行）；
+  // #463：analysis/plan/decision/spec 走各自结构化确认弹窗（评审表单+按钮，人不接触魔法行）；
+  // #471：plan（一脉会话规划单）复用 AnalysisApproveDialog（confirm kind=plan，同形契约）；
   // 其余类型一键通过。按钮直触路径吞 rejection（原因已内联置位）
-  const CONFIRM_DIALOG_TYPES = new Set(['analysis', 'decision', 'spec']);
+  const CONFIRM_DIALOG_TYPES = new Set(['analysis', 'plan', 'decision', 'spec']);
   const handleApprove = () => {
     if (CONFIRM_DIALOG_TYPES.has(wu.type)) {
       setShowApproveModal(true);
@@ -130,10 +132,11 @@ export function WuGateActions({ wu, onReviewPassed, onReviewRejected, onConfirmP
       {/* 批次A 项5：闸门动作失败内联错误行（BlockedActions run() 同模式） */}
       {gateError && <div className="text-xs u-err mt-1">{gateError}</div>}
 
-      {showApproveModal && wu.type === 'analysis' && (
+      {showApproveModal && (wu.type === 'analysis' || wu.type === 'plan') && (
         <AnalysisApproveDialog
           prefill={buildAnalysisConfirmPrefill(wu.metadata)}
           channelId={wu.channelId}
+          confirmKind={wu.type === 'plan' ? 'plan' : 'analysis'}
           onConfirm={async (confirm, assigneeId) => {
             // 批次A 项7：成功才关窗（失败由弹窗内联展示，gateError 亦已置位）
             await run(() => onReviewPassed(undefined, assigneeId, confirm));

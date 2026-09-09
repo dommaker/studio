@@ -61,6 +61,7 @@ describe('WU_TYPE_LABELS', () => {
       task: '任务',
       monitor: '监控',
       analysis: '分析',
+      plan: '规划',
       discussion: '讨论',
     });
   });

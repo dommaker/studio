@@ -22,7 +22,7 @@
 
 import { eventBus, logger, parseChannels, deriveDisplayState, createSettledTracker, type FileStore, type AgentProfileData, type WorkUnitSnapshot } from '@dommaker/studio-shared';
 import { WorkUnitService, type WorkUnitData, type WorkUnitMetadata } from '../../workunit/workunit.service.js';
-import { DECISION_SPEC_TYPES } from '../../workunit/workunit.types.js';
+import { MANUAL_GATE_TYPES } from '../../workunit/workunit.types.js';
 import { readCollab } from '../../workunit/delegation-gate.js';
 import { postWuSystemMessage } from '../../workunit/wu-messenger.js';
 import { parseWuMetadata, clearSessionBookkeeping } from '../../workunit/wu-metadata.js';
@@ -51,10 +51,10 @@ export class ReviewDispatcher {
   private async handleStatusChanged(wu: WorkUnitData): Promise<void> {
     // 路径 A：父 WU 进入 in_review -> 尝试创建 review 子 WU
     // （跳过 type='review'：review 子 WU 不需要再被 review；
-    //   跳过 type='analysis'：分析结论的评审 = 人工确认（F6 l3），diff-only 契约
-    //   对非代码产物恒 needs-info 转人工纯噪声；接力提示与派工见 pmo/analysis-handoff.ts；
-    //   跳过 decision/spec（#108）：人工验收类工单，验收闸 = 人工 in_review，不派评审子 WU）
-    if (wu.status === 'in_review' && wu.type !== 'review' && wu.type !== 'analysis' && !DECISION_SPEC_TYPES.has(wu.type)) {
+    //   跳过 MANUAL_GATE_TYPES（analysis 分析结论 / #108 decision/spec / #471 plan 一脉会话
+    //   规划单）：人工验收类工单，验收闸 = 人工确认（F6 l3），diff-only 契约
+    //   对非代码产物恒 needs-info 转人工纯噪声；接力提示与派工见 pmo/analysis-handoff.ts）
+    if (wu.status === 'in_review' && wu.type !== 'review' && !MANUAL_GATE_TYPES.has(wu.type)) {
       await this.handleParentInReview(wu).catch(err =>
         logger.warn('[ReviewDispatcher] handleParentInReview failed', { wuId: wu.id, error: String(err) }),
       );
@@ -190,8 +190,8 @@ export class ReviewDispatcher {
   async dispatchReviewNow(parentWuId: string): Promise<WorkUnitData> {
     const parent = await this.workUnitService.getById(parentWuId);
     if (!parent) throw new Error(`WorkUnit ${parentWuId} not found`);
-    if (parent.type === 'review' || parent.type === 'analysis' || DECISION_SPEC_TYPES.has(parent.type)) {
-      throw new Error(`WorkUnit type ${parent.type} is not reviewable (review 不再被评审；analysis/decision/spec 验收闸是人工 L3)`);
+    if (parent.type === 'review' || MANUAL_GATE_TYPES.has(parent.type)) {
+      throw new Error(`WorkUnit type ${parent.type} is not reviewable (review 不再被评审；analysis/decision/spec/plan 验收闸是人工 L3)`);
     }
     if (parent.status !== 'in_review' && parent.status !== 'done') {
       throw new Error(`Cannot dispatch review: current status is ${parent.status}, expected in_review/done`);

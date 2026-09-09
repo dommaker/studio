@@ -96,6 +96,16 @@ export const CONTRACT_TEMPLATES: Record<string, string> = {
     '  TASK: <任务标题> [| AC: <验收标准>]... [| BLOCKEDBY: <wuId,...>] [| LEG: <gitRepo>]',
     '（无 TASK 行 = 不自动派生；清单会在人工确认时逐条评审，可改可剔。）',
   ].join('\n'),
+  // #471：plan（一脉会话规划单）契约——澄清→调研→裁决→成文→拆单同会话完成；
+  // 输出协议行是 agent-loop COMPLETE 解析与 #463 确认弹窗预填的数据源（契约单一来源）
+  plan: [
+    '一脉会话（详见 skills 段 requirement-clarify / to-tickets 全文）：澄清 → fog 调研（仓外调研派 DELEGATE research 子单）→ 裁决轮 → spec 成文落业务仓 .studio/specs/ → 拆任务清单，全程不换会话。',
+    '会话中断恢复：prompt「探路地图」段的台账（目的地 + 待决 + 已裁决结论）是唯一恢复事实源，以台账续跑，不整单重来。',
+    '输出协议（规划完成时，除 ACTION 行外逐行给出）：',
+    '  TASK: <任务描述>（3~8 条，可被独立认领完成；人工确认后按清单自动派工）',
+    '  FOG: <待决问题>（探路型才输出，至多 12 条；确认后入探路台账，不再单独立决策单）',
+    '  DESTINATION: <一句话目标>（可选，缺省用项目标题）',
+  ].join('\n'),
   analysis: [
     '方法论二选一（详见 skills 段 research / prototype 全文）：',
     'research → 调研报告落业务仓 .studio/research/，并在来源工单回挂报告链接。',

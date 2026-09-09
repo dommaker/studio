@@ -329,7 +329,8 @@ export async function autoAbandonStaleBlocked(fileStore: FileStore, snapshots: W
   const cutoff = Date.now() - BLOCKED_AUTO_ABANDON_MS;
 
   const stale = snapshots.filter(s => s.status === 'blocked')
-    .filter(s => !DECISION_SPEC_TYPES.has(s.type))
+    // #471：plan 同豁免——blocked 多为等裁决轮/额度授权的人闸挂起，可能等多天
+    .filter(s => !DECISION_SPEC_TYPES.has(s.type) && s.type !== 'plan')
     .filter(s => {
       const blockedAt = parseWuMetadata(s.metadata).blockedAt;
       const basis = new Date(typeof blockedAt === 'string' ? blockedAt : s.createdAt).getTime();

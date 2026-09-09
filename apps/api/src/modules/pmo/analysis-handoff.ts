@@ -1,20 +1,23 @@
 /**
- * Analysis Handoff — PMO 分析接力（分析结论 → 拆任务 → 派工）
+ * Analysis Handoff — PMO 规划/分析接力（规划结论 → 拆任务 → 派工）
+ *
+ * #471（派生链收敛）：入口类型扩为 analysis（存量/巡检单）+ plan（一脉会话规划单），
+ * 同一确认→拆 TASK 派工管线；metadata 字段名（analysisTasks/analysisTasksSpawnedAt）不变。
  *
  * 订阅 workunit.status_changed，补上 PMO 链路的断环：
- *   1) analysis WU → in_review：ReviewDispatcher 对 analysis 不派自动评审
+ *   1) analysis/plan WU → in_review：ReviewDispatcher 对其不派自动评审
  *     （diff-only 契约对非代码产物恒 needs-info 转人工，纯噪声）——本服务在频道
  *      提示人工确认入口；确认动作 = WorkUnit 列表/抽屉的「通过」（reviewPassed）。
  *      #186（#167 决议）起按来源分流：无频道 + trigger 来源 + 无 TASK 的巡检单
  *      免确认直转 done；无频道其余情形保留人闸、确认提示改投 Web「需要处理」
  *      收件箱（monitor:alert，修 channelId=null 早退吞提示的断链）。
- *   2) analysis WU → done（人工确认通过）：按 metadata.analysisTasks
+ *   2) analysis/plan WU → done（人工确认通过）：按 metadata.analysisTasks
  *     （agent-loop 解析 TASK: 行落档）建未指派 task 子 WU —— 频道成员 loop
  *      observe 到未指派即认领，派工完成；频道发任务清单。
  *      metadata.analysisTasksSpawnedAt + analysisTasksSpawned（已建子 WU id 清单，
  *      #183 起清单化）为幂等哨兵，防重复派生；断链由 5min 对账扫描补差集自愈
  *      （agents/dispatch-reconciliation.ts，#159 决议）。
- *   未输出 TASK: 行的分析：确认后只提示可手动拆任务，不自动派生。
+ *   未输出 TASK: 行的分析/规划：确认后只提示可手动拆任务，不自动派生。
  *
  * 事件订阅语义与 ReviewDispatcher 一致（eventBus 进程内，best-effort）。
  */
@@ -50,7 +53,8 @@ export class AnalysisHandoff {
   }
 
   private async handleStatusChanged(wu: WorkUnitData): Promise<void> {
-    if (!wu || wu.type !== 'analysis') return;
+    // #471：plan（一脉会话规划单）与 analysis（存量/巡检单）走同一确认→拆 TASK 派工管线
+    if (!wu || (wu.type !== 'analysis' && wu.type !== 'plan')) return;
     if (wu.status === 'in_review') {
       await this.handleInReview(wu).catch(err =>
         logger.warn('[AnalysisHandoff] handleInReview failed', { wuId: wu.id, error: String(err) }),
@@ -156,10 +160,12 @@ export class AnalysisHandoff {
     }
     if (!wu.channelId) return;
     const hasTasks = this.taskScopes(meta).length > 0;
+    // #471：人读面按类型措辞（plan = 一脉会话规划单）
+    const label = wu.type === 'plan' ? '规划' : '分析';
     await this.messageService.createAgentMessage(
       wu.channelId,
       'Studio',
-      `分析结论待确认（#${wu.id.slice(0, 8)}）`
+      `${label}结论待确认（#${wu.id.slice(0, 8)}）`
       + (hasTasks ? '，确认后将按 TASK 拆分自动派工' : '（本次未输出 TASK 拆分行，确认后可手动转任务）')
       + '；结论有问题请返工',
       { workUnitId: wu.id, meta: { cardType: 'analysis_confirm' } },
@@ -192,7 +198,7 @@ export class AnalysisHandoff {
     if (parseWuMetadata(sentinel.metadata).analysisTasksSpawnedAt !== stamp) return;
 
     if (tasks.length === 0) {
-      await this.post(fresh, '分析结论已确认。未输出 TASK 拆分行，不自动派生任务——可在频道里转任务或手动创建 WorkUnit');
+      await this.post(fresh, `${fresh.type === 'plan' ? '规划' : '分析'}结论已确认。未输出 TASK 拆分行，不自动派生任务——可在频道里转任务或手动创建 WorkUnit`);
       return;
     }
 
@@ -213,11 +219,11 @@ export class AnalysisHandoff {
       }
     }
 
-    logger.info('[AnalysisHandoff] Spawned task WUs from analysis', { wuId: fresh.id, count: created.length });
+    logger.info('[AnalysisHandoff] Spawned task WUs from analysis/plan', { wuId: fresh.id, count: created.length });
     if (created.length > 0) {
       await this.post(
         fresh,
-        `分析结论已确认，拆分 ${created.length} 个任务并派工（${defaultAssigneeId ? '已指定执行角色' : '频道成员自动认领'}）：\n`
+        `${fresh.type === 'plan' ? '规划' : '分析'}结论已确认，拆分 ${created.length} 个任务并派工（${defaultAssigneeId ? '已指定执行角色' : '频道成员自动认领'}）：\n`
         + created.map((t, i) => `${i + 1}. ${t}`).join('\n'),
       );
     }

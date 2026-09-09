@@ -171,6 +171,24 @@ describe('WuGateActions — #463 结构化确认弹窗（analysis/decision/spec�
     }));
   });
 
+  it('#471 plan 点通过 → 同一结构化弹窗（标题「确认规划结论」），confirm kind=plan 回传', async () => {
+    const { onReviewPassed } = setup(makeWu({
+      status: 'in_review',
+      type: 'plan',
+      metadata: JSON.stringify({ analysisDestination: '目的地', analysisFog: ['问题1'], analysisTasks: ['干活'] }),
+    }));
+
+    fireEvent.click(screen.getByText('通过（审查闸门）'));
+    expect(await screen.findByText('确认规划结论')).toBeTruthy();
+    expect((screen.getByLabelText('待决问题 1') as HTMLInputElement).value).toBe('问题1');
+    expect(onReviewPassed).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByText('确认开图'));
+    await waitFor(() => expect(onReviewPassed).toHaveBeenCalledWith(undefined, undefined, {
+      kind: 'plan', destination: '目的地', fog: ['问题1'], tasks: ['干活'],
+    }));
+  });
+
   it('decision 点通过 → DecisionApproveDialog 预填 agent 建议结论，采纳后 confirm 回传', async () => {
     const { onReviewPassed } = setup(makeWu({
       status: 'in_review',

@@ -202,7 +202,7 @@ export function DeliveryPanel({ projectId, delivery, onRefresh }: DeliveryPanelP
                   )}
                   {gap.missing.includes('l3') && (
                     <button
-                      onClick={() => gap.type === 'analysis' ? openAnalysisApprove(gap) : handleGapAction(gap, 'reviewPassed')}
+                      onClick={() => (gap.type === 'analysis' || gap.type === 'plan') ? openAnalysisApprove(gap) : handleGapAction(gap, 'reviewPassed')}
                       disabled={!!gapActionPending[`${gap.id}:reviewPassed`]}
                       className="btn btn-sm u-ok-dim u-ok u-hover-bg"
                     >
@@ -262,11 +262,12 @@ export function DeliveryPanel({ projectId, delivery, onRefresh }: DeliveryPanelP
           </div>
         )
       )}
-      {/* #106 M7：analysis 缺口的共享确认弹窗（#463 起结构化评审表单 + 打回路径） */}
+      {/* #106 M7：analysis/plan 缺口的共享确认弹窗（#463 起结构化评审表单 + 打回路径；#471 plan 同路） */}
       {approveGap && (
         <AnalysisApproveDialog
           prefill={approveGap.prefill}
           channelId={approveGap.channelId}
+          confirmKind={approveGap.gap.type === 'plan' ? 'plan' : 'analysis'}
           onConfirm={async (confirm, assigneeId) => {
             // 批次A 项7：等动作结算后才关窗（失败 toast 在 handleGapAction 内）
             const gap = approveGap.gap;

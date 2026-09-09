@@ -35,7 +35,7 @@
  */
 import { logger, FileStore } from '@dommaker/studio-shared';
 import { WorkUnitService, type WorkUnitData, type WorkUnitMetadata } from './workunit.service.js';
-import { resolveValidTransitions } from './workunit.types.js';
+import { resolveValidTransitions, PLAN_STEP_LIMIT } from './workunit.types.js';
 import { postWuSystemMessage } from './wu-messenger.js';
 import { parseWuMetadata } from './wu-metadata.js';
 import { withBlockedCta } from './blocked-cta.js';
@@ -99,6 +99,26 @@ export async function resumeWaitingWorkUnit(
   // （追加预算 → 回 active / 现有产出收尾 → in_review / 放弃 → closed）
   if (metadata.waitingReason === 'wu-token-budget') {
     return resolveBudgetChoiceFromReply(wu, metadata, replyText, fileStore);
+  }
+
+  // #471（Triage 定稿 1/会话连续性）：plan 步数额度到线的挂起 — 回复即续期：
+  // planStepAllowance 加一份 PLAN_STEP_LIMIT（额度口径=人工授权批次，仿「追加预算」），
+  // 随后走通用复活路径（清挂起/重置停滞/回复入 pendingReplies → active）。
+  // 会话预算（sessionCount）不动——复活后凭 metadata.sessionId 优先续用旧会话（#94）。
+  if (metadata.waitingReason === 'plan-step-limit') {
+    await fileStore.updateMetadata(workUnitId, latest => ({
+      ...latest,
+      planStepAllowance: (typeof latest.planStepAllowance === 'number' && latest.planStepAllowance > 0
+        ? Math.floor(latest.planStepAllowance)
+        : PLAN_STEP_LIMIT) + PLAN_STEP_LIMIT,
+      waitingReason: undefined, // JSON 序列化丢弃 undefined → 清除
+    }));
+    if (wu.channelId) {
+      const title = (metadata.title ?? wu.scope).slice(0, 50);
+      await postWuSystemMessage(wu, `好的，任务「${title}」已续期 ${PLAN_STEP_LIMIT} 步额度，继续规划`, { fileStore })
+        .catch(err => logger.warn('[WaitingInput] plan-step-limit续期提示失败 (non-blocking)', { workUnitId, error: String(err) }));
+    }
+    logger.info('[WaitingInput] Plan WU step allowance renewed by human reply', { workUnitId });
   }
 
   // #170（决策 #65-1）：锁内合并写——pendingReplies 基于锁内最新值追加

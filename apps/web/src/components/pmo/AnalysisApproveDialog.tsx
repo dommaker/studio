@@ -4,8 +4,10 @@
 //   右栏 TASK 拆分预览（metadata.analysisTasks，行内编辑 + 勾选剔除——原盲盒开盒）。
 // 三按钮（resolution 评论契约）：确认开图（fog 随 confirm 回传开图）/
 // 不开图直接派工（fog 不带，只派工）/ 打回补充（reviewRejected 预设理由）。
-// 确认回传 confirm={kind:'analysis', destination, fog, tasks:勾选集}——后端序列化进
+// 确认回传 confirm={kind:confirmKind('analysis'|'plan'), destination, fog, tasks:勾选集}——后端序列化进
 // l3.summary 并覆写 metadata.analysisTasks（存储契约不变），人永远不接触魔法行。
+// #471：plan（一脉会话规划单）复用本弹窗（confirmKind='plan'）；台账化后「确认开图」
+// 只初始化探路台账，不再逐条建决策单（#471 map-opening 降级）。
 // #177 保留：带 channelId 时可选「默认执行角色」下拉（候选=频道成员，留空=涌现）。
 // 批次A 项7 保留：onConfirm/onReject 可返回 Promise——提交期间禁用 + 失败内联保持打开。
 // 入口：WuGateActions（列表行/抽屉/详情页三处合一，E2-4）/ DeliveryPanel 缺口「人工确认」。
@@ -22,9 +24,11 @@ interface AnalysisApproveDialogProps {
   prefill: AnalysisConfirmPrefill;
   /** WU 所在频道 id（#177：给出则渲染「默认执行角色」下拉；缺省不渲染，存量形态不变） */
   channelId?: string | null;
+  /** #471：confirm 载荷 kind（plan = 一脉会话规划单，与 analysis 同形契约）；缺省 'analysis' */
+  confirmKind?: 'analysis' | 'plan';
   /** 确认（开图/直接派工）：表单数据随 confirm 回传；第二参 = 默认执行角色 profile id
    *  （留空 = undefined，涌现认领）。reject 时弹窗保持打开并内联错误 */
-  onConfirm: (confirm: ReviewConfirmPayload & { kind: 'analysis' }, assigneeId?: string) => void | Promise<unknown>;
+  onConfirm: (confirm: ReviewConfirmPayload & { kind: 'analysis' | 'plan' }, assigneeId?: string) => void | Promise<unknown>;
   /** 打回补充：reviewRejected 预设理由（reject 时弹窗保持打开并内联错误） */
   onReject: (reason: string) => void | Promise<unknown>;
   onCancel: () => void;
@@ -38,7 +42,7 @@ interface TaskRow {
   included: boolean;
 }
 
-export function AnalysisApproveDialog({ prefill, channelId, onConfirm, onReject, onCancel }: AnalysisApproveDialogProps) {
+export function AnalysisApproveDialog({ prefill, channelId, confirmKind = 'analysis', onConfirm, onReject, onCancel }: AnalysisApproveDialogProps) {
   const [destination, setDestination] = useState(prefill.destination);
   const [fog, setFog] = useState<string[]>(prefill.fog);
   const [tasks, setTasks] = useState<TaskRow[]>(prefill.tasks.map(t => ({ text: t, included: true })));
@@ -82,12 +86,12 @@ export function AnalysisApproveDialog({ prefill, channelId, onConfirm, onReject,
     <div className="modal-overlay" onClick={submitting ? undefined : onCancel}>
       <div className="modal" style={{ maxWidth: '44rem' }} onClick={e => e.stopPropagation()}>
         <div className="modal-header">
-          <h3 className="modal-title">确认分析结论</h3>
+          <h3 className="modal-title">{confirmKind === 'plan' ? '确认规划结论' : '确认分析结论'}</h3>
           <button className="modal-close" onClick={onCancel} disabled={submitting} aria-label="关闭">×</button>
         </div>
         <div className="modal-body">
           <p className="text-xs u-text-2 mb-2">
-            左栏逐条评审待决问题（增删改），「确认开图」据此开图并逐条建决策单；清空待决 = 非探路型不开图。
+            左栏逐条评审待决问题（增删改），「确认开图」据此初始化探路台账（待决问题在规划会话内裁决，不再单独立决策单）；清空待决 = 非探路型不开图。
             右栏是确认后将自动派工的任务拆分（行内可改、勾选剔除）。结论有问题请「打回补充」。
           </p>
           <div className="flex gap-4" style={{ alignItems: 'flex-start' }}>
@@ -188,7 +192,7 @@ export function AnalysisApproveDialog({ prefill, channelId, onConfirm, onReject,
             disabled={submitting}
             title="不开图：待决清单不进地图，仅按 TASK 拆分派工"
             onClick={() => void run(() => onConfirm(
-              { kind: 'analysis', tasks: includedTasks },
+              { kind: confirmKind, tasks: includedTasks },
               assigneeId || undefined,
             ))}
           >
@@ -199,7 +203,7 @@ export function AnalysisApproveDialog({ prefill, channelId, onConfirm, onReject,
             loading={submitting}
             onClick={() => void run(() => onConfirm(
               {
-                kind: 'analysis',
+                kind: confirmKind,
                 ...(destination.trim() ? { destination: destination.trim() } : {}),
                 fog: cleanFog,
                 tasks: includedTasks,

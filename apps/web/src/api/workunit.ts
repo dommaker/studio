@@ -231,7 +231,8 @@ export function formatExecutionStreamChunkText(
 export type ReviewConfirmPayload =
   | { kind: 'decision'; conclusion: string }
   | { kind: 'spec'; tasks: Array<{ title: string; ac?: string[]; blockedBy?: string[]; leg?: string }> }
-  | { kind: 'analysis'; destination?: string; fog?: string[]; tasks?: string[] };
+  // #471：plan（一脉会话规划单）与 analysis 同形契约（destination/fog → 开图台账；tasks → 派工覆写）
+  | { kind: 'analysis' | 'plan'; destination?: string; fog?: string[]; tasks?: string[] };
 
 export const workunitApi = {
   list: (params?: {

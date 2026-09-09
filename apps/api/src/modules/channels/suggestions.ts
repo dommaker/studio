@@ -20,7 +20,7 @@
  */
 import { logger, parseChannels, deriveDisplayState, FileStore, type WorkUnitSnapshot } from '@dommaker/studio-shared';
 import { summarizeRoleStates } from '../agents/agent-instance.service.js';
-import { DECISION_SPEC_TYPES } from '../workunit/workunit.types.js';
+import { MANUAL_GATE_TYPES } from '../workunit/workunit.types.js';
 import { parseWuMetadata } from '../workunit/wu-metadata.js';
 import { summarizeBlockReason } from '../workunit/blocked-cta.js';
 
@@ -67,9 +67,9 @@ export interface ChannelSuggestionsDeps {
 
 const EMPTY: ChannelSuggestionsResult = { currentWuId: null, suggestions: [] };
 
-/** 不可自动评审的 WU 类型（同 ReviewDispatcher 路径 A / dispatch-reconciliation 口径） */
+/** 不可自动评审的 WU 类型（同 ReviewDispatcher 路径 A / dispatch-reconciliation 口径；#471 含 plan） */
 function isAutoReviewable(wu: WorkUnitSnapshot): boolean {
-  return wu.type !== 'review' && wu.type !== 'analysis' && !DECISION_SPEC_TYPES.has(wu.type);
+  return wu.type !== 'review' && !MANUAL_GATE_TYPES.has(wu.type);
 }
 
 /**

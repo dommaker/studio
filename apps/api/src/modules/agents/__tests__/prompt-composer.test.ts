@@ -1028,9 +1028,21 @@ describe('#119: 契约段生成器（按 WU type）+ 段序稳定性重排', () 
     expect(prompt).not.toContain('prototype/<name>');
   });
 
-  it('契约段 200 软定额 + 模板表仅覆盖 review/implement/decision/analysis/bug/spec（#121/#463）', () => {
+  it('契约段 plan（#471 一脉会话规划单）→ TASK/FOG 输出协议 + 台账续跑指引', async () => {
+    const { prompt } = await composeStepPrompt(
+      { wu: makeWu({ type: 'plan' }), metadata: {} as any },
+      deps(makeRole()),
+    );
+
+    expect(prompt).toContain('## 产出契约');
+    expect(prompt).toContain('TASK:');
+    expect(prompt).toContain('FOG:');
+    expect(prompt).toContain('.studio/specs/');
+  });
+
+  it('契约段 200 软定额 + 模板表覆盖 review/implement/decision/analysis/bug/spec/plan（#121/#463/#471）', () => {
     expect(SECTION_QUOTAS.contract).toBe(200);
-    expect(Object.keys(CONTRACT_TEMPLATES).sort()).toEqual(['analysis', 'bug', 'decision', 'implement', 'review', 'spec']);
+    expect(Object.keys(CONTRACT_TEMPLATES).sort()).toEqual(['analysis', 'bug', 'decision', 'implement', 'plan', 'review', 'spec']);
   });
 });
 

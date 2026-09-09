@@ -621,7 +621,7 @@ describe('ChannelDetailPage — #279 NEED_INPUT 待办 chip 与等待态清理',
     Element.prototype.scrollIntoView = vi.fn();
   });
 
-  it('顶栏 chip 聚合 NEED_INPUT 等待计数；闸门类（decision/spec）不聚合', async () => {
+  it('顶栏 chip 聚合 NEED_INPUT 等待计数；闸门类（decision/spec/plan）不聚合', async () => {
     mockListWorkunits.mockImplementation((params?: { status?: string }) => Promise.resolve(
       params?.status === 'active'
         ? activeWuList([])
@@ -631,6 +631,7 @@ describe('ChannelDetailPage — #279 NEED_INPUT 待办 chip 与等待态清理',
                 waitingWu('WU-3000', 'task', '使用 OAuth 还是账号密码？'),
                 waitingWu('WU-3001', 'decision', '决策单待批'),
                 waitingWu('WU-3002', 'spec', 'spec 单待批'),
+                waitingWu('WU-3003', 'plan', '规划单待裁决'),
               ],
             },
           },
@@ -643,6 +644,7 @@ describe('ChannelDetailPage — #279 NEED_INPUT 待办 chip 与等待态清理',
     expect(screen.getAllByText('使用 OAuth 还是账号密码？').length).toBeGreaterThan(0);
     expect(screen.queryByText('WU-3001')).toBeNull();
     expect(screen.queryByText('WU-3002')).toBeNull();
+    expect(screen.queryByText('WU-3003')).toBeNull();
   });
 
   it('无 NEED_INPUT 等待 → chip 不渲染', async () => {

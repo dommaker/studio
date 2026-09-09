@@ -323,6 +323,55 @@ describe('#115 派生链未落定不翻 completed（derivationPending）', () =>
     expect((await projectService.get(project.id))!.status).toBe(PROJECT_STATUS.COMPLETED);
   });
 
+  it('#471：已完结 plan 缺 analysisTasksSpawnedAt（接力未处理）→ 不翻 completed', async () => {
+    const project = await createRealProject();
+    const req = await reqService.create({ title: '需求', projectId: project.id });
+    await wuService.create({
+      scope: 'p1', type: 'plan', status: 'done', reqId: req.id,
+      metadata: { attestations: { l3: att('human-confirm') } },
+    });
+
+    await syncProjectProgress(project.id, fileStore);
+
+    const after = await projectService.get(project.id);
+    expect(after!.status).toBe(PROJECT_STATUS.PENDING);
+    expect(after!.progress).toBe(100);
+  });
+
+  it('#471：plan 哨兵已落 → 正常翻 completed', async () => {
+    const project = await createRealProject();
+    const req = await reqService.create({ title: '需求', projectId: project.id });
+    await wuService.create({
+      scope: 'p1', type: 'plan', status: 'done', reqId: req.id,
+      metadata: { analysisTasksSpawnedAt: '2026-09-09T00:00:00Z', attestations: { l3: att('human-confirm') } },
+    });
+
+    await syncProjectProgress(project.id, fileStore);
+
+    expect((await projectService.get(project.id))!.status).toBe(PROJECT_STATUS.COMPLETED);
+  });
+
+  it('#471：新台账 map（fog.wuId 全 null，无 decision 链在飞）→ 不算派生未落定，不阻断', async () => {
+    const project = await createRealProject();
+    await projectService.update(project.id, {
+      map: {
+        destination: 'd',
+        decisions: [{ wuId: 'plan-1', summary: '裁决结论', resolvedAt: '2026-09-09T00:00:00Z' }],
+        fog: [{ id: 'fog-1', question: 'q', wuId: null, status: 'resolved' }],
+        // 无 specSpawnedAt——新链不再派生 spec 成文单
+      },
+    });
+    const req = await reqService.create({ title: '需求', projectId: project.id });
+    await wuService.create({
+      scope: 'p1', type: 'plan', status: 'done', reqId: req.id,
+      metadata: { analysisTasksSpawnedAt: '2026-09-09T00:00:00Z', attestations: { l3: att('human-confirm') } },
+    });
+
+    await syncProjectProgress(project.id, fileStore);
+
+    expect((await projectService.get(project.id))!.status).toBe(PROJECT_STATUS.COMPLETED);
+  });
+
   it('探路型：map 存在但 specSpawnedAt 未落 → 不翻 completed', async () => {
     const project = await createRealProject();
     await projectService.update(project.id, {

@@ -16,7 +16,7 @@ const createWorkUnit: RegisteredTool = {
   inputSchema: {
     type: 'object',
     properties: {
-      type: { type: 'string', enum: ['task', 'analysis', 'monitor', 'discussion'], description: 'WorkUnit 类型' },
+      type: { type: 'string', enum: ['task', 'plan', 'analysis', 'monitor', 'discussion'], description: 'WorkUnit 类型' },
       scope: { type: 'string', description: '工作范围描述' },
       channelId: { type: 'string', description: 'Channel ID（可选）' },
       parentId: { type: 'string', description: '父 WorkUnit ID（可选）' },

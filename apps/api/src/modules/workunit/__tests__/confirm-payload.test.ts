@@ -74,6 +74,20 @@ describe('#463 resolveReviewConfirm（确认表单 → l3.summary 序列化）',
       .toEqual({ analysisTasks: ['干活'] });
     expect(resolveReviewConfirm({ kind: 'analysis' })).toEqual({});
   });
+
+  it('#471 plan：与 analysis 同形（destination+fog → 目标：/待决：行；tasks → analysisTasks 覆写）', () => {
+    const r = resolveReviewConfirm({
+      kind: 'plan',
+      destination: '三仓联动上线',
+      fog: ['存储选型？'],
+      tasks: ['实现存储层'],
+    });
+    expect(r.summary).toBe('目标：三仓联动上线\n待决：存储选型？');
+    expect(r.analysisTasks).toEqual(['实现存储层']);
+    // roundtrip：开图解析器吃回序列化产物（台账化后仍消费同一契约）
+    expect(parseMapOpening(r.summary!)).toEqual({ destination: '三仓联动上线', fog: ['存储选型？'] });
+    expect(resolveReviewConfirm({ kind: 'plan' })).toEqual({});
+  });
 });
 
 describe('#463 reviewPassed options.analysisTasks（人审编辑后的 TASK 清单覆写落档）', () => {

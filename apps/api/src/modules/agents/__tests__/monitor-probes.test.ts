@@ -483,6 +483,19 @@ describe('autoAbandon probes', () => {
 
     expect(mockCloseWithNotice).not.toHaveBeenCalled();
   });
+
+  it('#471: plan 类型豁免死信（blocked = 等裁决轮/额度授权人闸，可能等多天）', async () => {
+    const plan = makeSnapshot({
+      id: 'wu-plan', type: 'plan', status: 'blocked',
+      createdAt: new Date(Date.now() - 96 * 3600_000).toISOString(),
+      metadata: JSON.stringify({ blockedAt: new Date(Date.now() - 96 * 3600_000).toISOString(), waitingReason: 'plan-step-limit' }),
+    });
+    const fileStore = makeFileStore({ getIndex: vi.fn(async () => [plan]) });
+
+    await autoAbandonStaleBlocked(fileStore, await fileStore.getIndex());
+
+    expect(mockCloseWithNotice).not.toHaveBeenCalled();
+  });
 });
 
 describe('checkSessionFileHealth', () => {

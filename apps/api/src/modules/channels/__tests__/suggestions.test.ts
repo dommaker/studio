@@ -415,8 +415,8 @@ describe('deriveChannelSuggestions（推导骨架）', () => {
     }]);
   });
 
-  it('不可自动评审类型（decision/spec/analysis/review）in_review → 不出片', async () => {
-    for (const type of ['decision', 'spec', 'analysis', 'review']) {
+  it('不可自动评审类型（decision/spec/analysis/review/plan）in_review → 不出片', async () => {
+    for (const type of ['decision', 'spec', 'analysis', 'review', 'plan']) {
       await createParent({ type, title: `${type} 单` });
     }
     const r = await deriveChannelSuggestions(CHANNEL_ID, { fileStore });

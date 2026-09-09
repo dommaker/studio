@@ -255,6 +255,28 @@ describe('DeliveryPanel', () => {
     expect(onRefresh).toHaveBeenCalled();
   });
 
+  it('#471 plan 缺口：人工确认同样走共享弹窗，confirm kind=plan 回传', async () => {
+    mockWuGet.mockResolvedValue({
+      data: { metadata: JSON.stringify({ analysisFog: ['存储选型用哪个？'], analysisTasks: ['实现存储层'] }) },
+    });
+    const onRefresh = vi.fn();
+    renderPanel({
+      ...gapDelivery(['l3']),
+      gaps: [{ id: 'wu-p1', title: '规划存储选型', type: 'plan', missing: ['l3'] }],
+    }, onRefresh);
+
+    fireEvent.click(screen.getByRole('button', { name: '人工确认' }));
+
+    expect(await screen.findByLabelText('待决问题 1')).toBeTruthy();
+    expect(mockWuGet).toHaveBeenCalledWith('wu-p1');
+
+    fireEvent.click(screen.getByText('确认开图'));
+    await waitFor(() => expect(mockReviewPassed).toHaveBeenCalledWith('wu-p1', undefined, undefined, {
+      kind: 'plan', fog: ['存储选型用哪个？'], tasks: ['实现存储层'],
+    }));
+    expect(onRefresh).toHaveBeenCalled();
+  });
+
   it('兜底分支：非矩阵状态码 error toast 用 error.message，再次缺省回退「操作失败」', async () => {
     mockReviewPassed.mockRejectedValue({
       response: { status: 500, data: { error: { message: '服务器内部错误' } } },

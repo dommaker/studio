@@ -38,8 +38,9 @@ import { channelApi } from '../api/channel';
 import { saveLastChannelId } from '../utils/lastChannel';
 import { toast } from '../utils/toast';
 
-/** #279（决策 #250 D4）：闸门类 WU 类型（人工验收单）——不聚合进 NEED_INPUT 待办 chip */
-const GATE_WU_TYPES = new Set(['decision', 'spec']);
+/** #279（决策 #250 D4）：闸门类 WU 类型（人工验收单）——不聚合进 NEED_INPUT 待办 chip；
+ *  #471：plan（一脉会话规划单，等裁决轮/额度授权人闸）同入 */
+const GATE_WU_TYPES = new Set(['decision', 'spec', 'plan']);
 
 /** #439：?highlight 定位的翻页页数上限（50 条/页 → 最多回看 500 条），超限/翻到底降级为可见反馈 */
 const HIGHLIGHT_LOCATE_MAX_PAGES = 10;

@@ -27,7 +27,7 @@ const {
   }),
   mockWuCreate: vi.fn().mockResolvedValue({
     id: 'wu-1',
-    type: 'analysis',
+    type: 'plan',
     scope: 'test',
     status: 'unassigned',
   }),
@@ -123,10 +123,10 @@ describe('AC-5: PMO Publish API', () => {
     );
   });
 
-  it('#177：可选 assigneeId 落 analysis WU（留空 = 不带该字段，回池涌现）', async () => {
+  it('#177：可选 assigneeId 落 plan WU（留空 = 不带该字段，回池涌现）', async () => {
     await projectService.publish({ projectId: 'proj-1', channelId: 'ch-1', assigneeId: 'profile-7' });
     expect(mockWuCreate).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'analysis', assigneeId: 'profile-7' })
+      expect.objectContaining({ type: 'plan', assigneeId: 'profile-7' })
     );
 
     mockWuCreate.mockClear();
@@ -156,13 +156,47 @@ describe('AC-5: PMO Publish API', () => {
 
     expect(mockWuCreate).toHaveBeenCalledWith(
       expect.objectContaining({
-        type: 'analysis',
+        type: 'plan',
         metadata: expect.objectContaining({
           pmoId: 'proj-1',
           pmoNumber: 'PM-001',
         }),
       })
     );
+  });
+
+  it('#471：plan WU scope 首行钉 +requirement-clarify +to-tickets（方法论跟活走）', async () => {
+    await projectService.publish({ projectId: 'proj-1', channelId: 'ch-1' });
+
+    const scope = mockWuCreate.mock.calls[0][0].scope as string;
+    const firstLine = scope.split('\n')[0]!;
+    expect(firstLine).toContain('+requirement-clarify');
+    expect(firstLine).toContain('+to-tickets');
+  });
+
+  it('#471：plan WU 落单独 token 额度（默认 1_000_000，env STUDIO_PLAN_TOKEN_BUDGET 可覆盖）', async () => {
+    const prev = process.env.STUDIO_PLAN_TOKEN_BUDGET;
+    try {
+      delete process.env.STUDIO_PLAN_TOKEN_BUDGET;
+      await projectService.publish({ projectId: 'proj-1', channelId: 'ch-1' });
+      expect(mockWuCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          metadata: expect.objectContaining({ tokenBudget: 1_000_000 }),
+        })
+      );
+
+      mockWuCreate.mockClear();
+      process.env.STUDIO_PLAN_TOKEN_BUDGET = '250000';
+      await projectService.publish({ projectId: 'proj-1', channelId: 'ch-1' });
+      expect(mockWuCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          metadata: expect.objectContaining({ tokenBudget: 250_000 }),
+        })
+      );
+    } finally {
+      if (prev === undefined) delete process.env.STUDIO_PLAN_TOKEN_BUDGET;
+      else process.env.STUDIO_PLAN_TOKEN_BUDGET = prev;
+    }
   });
 
   it('B3a 归属链：gitRepo 落 metadata.workspaceRoot；无 gitRepo 不带该字段', async () => {
@@ -181,15 +215,17 @@ describe('AC-5: PMO Publish API', () => {
     expect('workspaceRoot' in meta).toBe(false);
   });
 
-  it('analysis scope 含只读约束（2026-07-30：分析阶段禁止改文件）+ TASK 输出约定 + FOG/DESTINATION 待决清单约定（#106 M7）', async () => {
+  it('#471：plan scope 含一脉会话契约 + TASK 输出约定 + FOG/DESTINATION 待决清单约定（不再是只读分析）', async () => {
     await projectService.publish({ projectId: 'proj-1', channelId: 'ch-1' });
 
     const scope = mockWuCreate.mock.calls[0][0].scope as string;
-    expect(scope).toContain('只读分析');
-    expect(scope).toContain('禁止创建/修改/删除任何文件');
+    expect(scope).toContain('一脉会话');
+    expect(scope).toContain('.studio/specs/');
     expect(scope).toContain('TASK:');
     expect(scope).toContain('FOG:');
     expect(scope).toContain('DESTINATION:');
+    expect(scope).not.toContain('只读分析');
+    expect(scope).not.toContain('禁止创建/修改/删除任何文件');
   });
 
   it('ChannelMessage meta contains pmoId', async () => {
@@ -246,7 +282,7 @@ describe('AC-5: PMO Publish API', () => {
     expect(scope).not.toContain('新描述');
   });
 
-  it('#112 多腿：显式 deliveries 多腿 → 分析单 scope 含全部仓库路径（只读约束不变）', async () => {
+  it('#112 多腿：显式 deliveries 多腿 → plan 单 scope 含全部仓库路径（腿调研只读约束不变）', async () => {
     mockReadJson.mockResolvedValue(sampleProject({
       gitRepo: '/root/projects/leg-a',
       deliveries: [
@@ -264,13 +300,13 @@ describe('AC-5: PMO Publish API', () => {
     expect(scope).toContain('只读');
   });
 
-  it('#112 单腿回归：无 deliveries 字段 → 分析单 scope 与现状一致（无多腿段）', async () => {
+  it('#112 单腿回归：无 deliveries 字段 → plan 单 scope 不注多腿段（一脉会话契约在场）', async () => {
     mockReadJson.mockResolvedValue(sampleProject({ gitRepo: '/root/projects/demo' }));
     await projectService.publish({ projectId: 'proj-1', channelId: 'ch-1' });
 
     const scope = mockWuCreate.mock.calls[0][0].scope as string;
     expect(scope).not.toContain('多交付腿');
-    expect(scope).toContain('只读分析');
+    expect(scope).toContain('一脉会话');
     expect(scope).toContain('TASK:');
   });
 

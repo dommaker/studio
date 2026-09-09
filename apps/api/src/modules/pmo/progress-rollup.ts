@@ -305,13 +305,15 @@ export function syncProjectProgress(projectId: string, fileStore?: FileStore): P
  * （「全部完结」是派生前的假相），progress 照写。
  */
 export function derivationPending(project: ProjectData, snapshots: EvidenceWuInput[]): boolean {
-  // ① 探路链未成文（map 存在则 spec 成文单必由 decision-resolution 派生）
-  if (project.map && !project.map.specSpawnedAt) return true;
+  // ① 探路链未成文（旧链：map 存在则 spec 成文单必由 decision-resolution 派生）。
+  // #471：新链 map 是纯台账（fog.wuId 恒 null，不再派生 decision/spec）→ 不阻断；
+  // 仅旧链在飞（fog 含互挂 wuId）且 specSpawnedAt 未落才算未落定。
+  if (project.map && !project.map.specSpawnedAt && project.map.fog.some(f => !!f.wuId)) return true;
   return snapshots.some(s => {
     if (!TERMINAL_WORKUNIT_STATUSES.includes(s.status)) return false;
     const meta = parseWuMetadata(s.metadata);
-    // ② analysis 接力/开图未处理（analysis-handoff 对 done 恒落哨兵）
-    if (s.type === 'analysis' && !meta.analysisTasksSpawnedAt) return true;
+    // ② analysis/plan 接力/开图未处理（analysis-handoff 对 done 恒落哨兵；#471 起 plan 同口径）
+    if ((s.type === 'analysis' || s.type === 'plan') && !meta.analysisTasksSpawnedAt) return true;
     // ③ spec 交稿物化未处理。#463 起 spec-materialization 哨兵改「无 TASK 行不落档」：
     // 缺哨兵且 l3.summary 含 TASK 物化行 = 未处理（阻断）；缺哨兵但无 TASK 行 =
     // 人审有意不物化 = 已落定（不阻断）。

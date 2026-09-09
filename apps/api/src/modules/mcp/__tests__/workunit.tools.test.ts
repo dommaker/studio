@@ -27,7 +27,7 @@ describe('workunit.tools', () => {
     expect(workunitTools.map(t => t.name)).toEqual(['createWorkUnit']);
     expect(createWorkUnit.inputSchema.required).toEqual(['type', 'scope']);
     expect(createWorkUnit.inputSchema.properties.type.enum)
-      .toEqual(['task', 'analysis', 'monitor', 'discussion']);
+      .toEqual(['task', 'plan', 'analysis', 'monitor', 'discussion']);
   });
 
   it('handler 以共享 fileStore 构造 WorkUnitService 并透传 status=unassigned', async () => {

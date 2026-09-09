@@ -7,13 +7,14 @@
  * 序列化为 l3.summary——**存储格式不变**（下游解析契约 spec-materialization.parseSpecTasks /
  * map-opening.parseMapOpening / decision-resolution 原样消费），人永远不接触魔法行。
  *
- * body.confirm 三种形态（与裸 summary 并存时 confirm 优先；裸 summary 为兼容留路）：
+ * body.confirm 四种形态（与裸 summary 并存时 confirm 优先；裸 summary 为兼容留路）：
  *   { kind: 'decision', conclusion }              → summary = 结论原文
  *   { kind: 'spec', tasks: SpecTaskInput[] }      → summary = TASK 物化行（serializeSpecTasks）
- *   { kind: 'analysis', destination?, fog[], tasks[] }
+ *   { kind: 'analysis' | 'plan', destination?, fog[], tasks[] }
  *                                                 → summary = 目标：/待决：行；
  *                                                   tasks → analysisTasks（覆写 metadata.analysisTasks，
- *                                                   人审剔除/行内编辑生效，analysis-handoff 消费不变）
+ *                                                   人审剔除/行内编辑生效，analysis-handoff 消费不变）。
+ *                                                   #471：plan（一脉会话规划单）与 analysis 同形同契约。
  * 校验失败抛 ConfirmPayloadError（路由转 400）；空结果（无结论/空清单）→ 对应字段缺省，
  * 语义 = 人审有意不带该输入（spec 空清单 = 不物化，哨兵不落档可补确认，见 spec-materialization）。
  */
@@ -85,7 +86,11 @@ export function resolveReviewConfirm(confirm: unknown): ReviewConfirmResolution 
       const summary = serializeSpecTasks(tasks);
       return summary ? { summary } : {};
     }
-    case 'analysis': {
+    case 'analysis':
+    case 'plan': {
+      // #471：plan（一脉会话规划单）与 analysis 同形同契约——destination/fog 序列化为
+      // 目标：/待决：行（map-opening 台账消费），tasks 覆写 metadata.analysisTasks
+      // （analysis-handoff 派工消费）；kind 只作来源留痕，存储格式不变
       const destination = asString(body.destination, 'destination')?.trim();
       const fog = (asStringArray(body.fog, 'fog') ?? [])
         .map(s => s.trim()).filter(Boolean).slice(0, MAP_OPENING_FOG_MAX);
@@ -101,6 +106,6 @@ export function resolveReviewConfirm(confirm: unknown): ReviewConfirmResolution 
       };
     }
     default:
-      throw new ConfirmPayloadError(`confirm.kind 未知：${String(body.kind)}（支持 decision/spec/analysis）`);
+      throw new ConfirmPayloadError(`confirm.kind 未知：${String(body.kind)}（支持 decision/spec/analysis/plan）`);
   }
 }
