@@ -1,0 +1,177 @@
+// AuditLogsPage — E7 审计日志页改造（docs/plans/2026-09-page-redesign.md）
+// 时间范围筛选传后端 / 筛选变化重置 page / userId 300ms 防抖（批次 B-5）/
+// 导出带 status（与列表口径一致）/ 视觉收敛（max-w-5xl + StatCard 配方 + mc-block-label 分区）/ 分页文案「上一页/下一页」
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+
+const { mockList, mockGetStats, mockListActions, mockListResources } = vi.hoisted(() => ({
+  mockList: vi.fn(),
+  mockGetStats: vi.fn(),
+  mockListActions: vi.fn(),
+  mockListResources: vi.fn(),
+}));
+
+vi.mock('../../api/auditLogs', async (importActual) => {
+  const actual = await importActual<typeof import('../../api/auditLogs')>();
+  return {
+    ...actual,
+    auditLogApi: {
+      ...actual.auditLogApi,
+      list: mockList,
+      getStats: mockGetStats,
+      listActions: mockListActions,
+      listResources: mockListResources,
+    },
+  };
+});
+
+import { AuditLogsPage } from '../AuditLogsPage';
+
+const LOGS = [
+  {
+    id: 'log-1',
+    userId: 'user-a',
+    action: 'create',
+    resource: 'workunit',
+    status: 'success',
+    createdAt: '2026-09-08T10:00:00Z',
+  },
+];
+
+const STATS = {
+  totalLogs: 100,
+  successCount: 80,
+  failureCount: 20,
+  topActions: [],
+  topResources: [],
+  topUsers: [],
+  dailyStats: [],
+};
+
+describe('AuditLogsPage（E7 审计日志页改造）', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockList.mockResolvedValue({
+      data: { data: LOGS, pagination: { page: 1, limit: 50, total: 100, totalPages: 2 } },
+    });
+    mockGetStats.mockResolvedValue({ data: STATS });
+    mockListActions.mockResolvedValue({ data: { data: ['create', 'update'] } });
+    mockListResources.mockResolvedValue({ data: { data: ['workunit'] } });
+  });
+
+  it('页头：标题去 emoji，「导出」为页头右侧主行动点', async () => {
+    render(<AuditLogsPage />);
+    await screen.findByText('user-a');
+
+    expect(screen.getByRole('heading', { name: '审计日志' })).toBeTruthy();
+    expect(screen.queryByText(/📋/)).toBeNull();
+    expect(screen.getByRole('button', { name: '导出' })).toBeTruthy();
+  });
+
+  it('视觉收敛：内容区 max-w-5xl + 统计/筛选/表格三区 mc-block-label', async () => {
+    const { container } = render(<AuditLogsPage />);
+    await screen.findByText('user-a');
+
+    expect(container.querySelector('.max-w-5xl')).not.toBeNull();
+    const labels = [...container.querySelectorAll('.mc-block-label')].map((el) => el.textContent);
+    expect(labels).toContain('概览');
+    expect(labels).toContain('筛选');
+    expect(labels).toContain('日志');
+  });
+
+  it('统计卡数字走 --fs-stat + font-mono', async () => {
+    render(<AuditLogsPage />);
+    await screen.findByText('user-a');
+
+    const total = screen.getByText('100');
+    expect(total.style.fontSize).toBe('var(--fs-stat)');
+    expect(total.className).toContain('font-mono');
+  });
+
+  it('分页文案为「上一页/下一页」', async () => {
+    render(<AuditLogsPage />);
+    await screen.findByText('user-a');
+
+    expect(screen.getByRole('button', { name: '上一页' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '下一页' })).toBeTruthy();
+    expect(screen.queryByText('上一步')).toBeNull();
+    expect(screen.queryByText('下一步')).toBeNull();
+  });
+
+  it('筛选变化重置 page（翻页后改状态筛选回第 1 页）', async () => {
+    render(<AuditLogsPage />);
+    await screen.findByText('user-a');
+
+    fireEvent.click(screen.getByRole('button', { name: '下一页' }));
+    await waitFor(() =>
+      expect(mockList).toHaveBeenLastCalledWith(expect.objectContaining({ page: 2 })),
+    );
+
+    fireEvent.click(screen.getByLabelText('状态筛选'));
+    fireEvent.click(await screen.findByRole('option', { name: '失败' }));
+
+    await waitFor(() =>
+      expect(mockList).toHaveBeenLastCalledWith(
+        expect.objectContaining({ status: 'failure', page: 1 }),
+      ),
+    );
+  });
+
+  it('userId 输入 300ms 防抖后才带参拉取', async () => {
+    render(<AuditLogsPage />);
+    await screen.findByText('user-a');
+    const callsAfterLoad = mockList.mock.calls.length;
+
+    fireEvent.change(screen.getByPlaceholderText('用户 ID'), { target: { value: 'user-b' } });
+    // 防抖窗口内不立即打 API
+    expect(mockList.mock.calls.length).toBe(callsAfterLoad);
+
+    await waitFor(
+      () =>
+        expect(mockList).toHaveBeenLastCalledWith(
+          expect.objectContaining({ userId: 'user-b', page: 1 }),
+        ),
+      { timeout: 1500 },
+    );
+  });
+
+  it('时间范围筛选：开始/结束日期转为 ISO startTime/endTime 传后端', async () => {
+    render(<AuditLogsPage />);
+    await screen.findByText('user-a');
+
+    fireEvent.change(screen.getByLabelText('开始日期'), { target: { value: '2026-09-01' } });
+    fireEvent.change(screen.getByLabelText('结束日期'), { target: { value: '2026-09-09' } });
+
+    await waitFor(() =>
+      expect(mockList).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          startTime: new Date('2026-09-01T00:00:00').toISOString(),
+          endTime: new Date('2026-09-09T23:59:59.999').toISOString(),
+          page: 1,
+        }),
+      ),
+    );
+  });
+
+  it('导出带 status 与时间范围参数（与列表口径一致）', async () => {
+    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
+    render(<AuditLogsPage />);
+    await screen.findByText('user-a');
+
+    fireEvent.click(screen.getByLabelText('状态筛选'));
+    fireEvent.click(await screen.findByRole('option', { name: '失败' }));
+    fireEvent.change(screen.getByLabelText('开始日期'), { target: { value: '2026-09-01' } });
+    await waitFor(() =>
+      expect(mockList).toHaveBeenLastCalledWith(expect.objectContaining({ status: 'failure' })),
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '导出' }));
+
+    expect(openSpy).toHaveBeenCalledTimes(1);
+    const url = openSpy.mock.calls[0][0] as string;
+    expect(url).toContain('/audit-logs/export');
+    expect(url).toContain('status=failure');
+    expect(url).toContain('startTime=');
+    openSpy.mockRestore();
+  });
+});

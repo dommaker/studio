@@ -259,7 +259,7 @@ const HIDE_DYNAMIC_CSS = '[data-visual-ignore]{visibility:hidden!important}';
 
 /** 拍前沉降（#400 加固）：等认证水合（A 档 guest splash 消失）+ 加载文案消失 + spinner 消失。
     旧版只等「加载中」文案 4s：splash（auth 水合中）与 PageLoader spinner（无文案）都会漏等，
-    慢页（library/workspace/setup-roles）拍出加载态。10s 兜底——常驻加载态页（频道右栏）超时放过。 */
+    慢页（library/workspace）拍出加载态。10s 兜底——常驻加载态页（频道右栏）超时放过。 */
 export async function waitSettled(page: Page, tier: 'A' | 'B' = 'A'): Promise<void> {
   await page.waitForFunction(
     (isA) => {

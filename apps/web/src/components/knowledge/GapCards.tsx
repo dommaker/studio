@@ -166,13 +166,16 @@ export function InteractionPatternCard({ item }: { item: InteractionGap }) {
   );
 }
 
+/** 成熟度/状态徽标词表（E5：KnowledgePage 统一视图成熟度徽标同源复用本表；draft 对齐 pending 待审 warning 语义） */
+export const MATURITY_BADGE_CLASSES: Record<string, string> = {
+  pending: 'u-warn-bg',
+  draft: 'u-warn-bg',
+  verified: 'u-accent-bg',
+  canonical: 'u-ok-bg',
+  deprecated: 'u-surface-2 u-text-3',
+};
+
 export function ResolutionCard({ item }: { item: ResolutionGap }) {
-  const statusClasses: Record<string, string> = {
-    pending: 'u-warn-bg',
-    verified: 'u-accent-bg',
-    canonical: 'u-ok-bg',
-    deprecated: 'u-surface-2 u-text-3',
-  };
   const layerLabels: Record<string, string> = {
     L3_tool_behavior: 'L3 工具行为',
     L4_env_config: 'L4 环境配置',
@@ -188,7 +191,7 @@ export function ResolutionCard({ item }: { item: ResolutionGap }) {
       <div className="flex items-center gap-2 mb-2">
         <span>🔧</span>
         <span className="font-medium u-text">{item.title}</span>
-        <span className={`text-xs px-2 py-0.5 rounded ${statusClasses[item.status] || 'u-surface-2 u-text-3'}`}>{item.status}</span>
+        <span className={`text-xs px-2 py-0.5 rounded ${MATURITY_BADGE_CLASSES[item.status] || 'u-surface-2 u-text-3'}`}>{item.status}</span>
         <span className="text-xs px-2 py-0.5 rounded u-surface-2 u-text-3">
           {layerLabels[item.layer] || item.layer}
         </span>

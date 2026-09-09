@@ -65,7 +65,9 @@ export function ChannelWorkBar({ channelId, currentWu, onOpenWorkUnit }: Props) 
       {currentWu && stations && (
         <div className="mc-workbar-main">
           <div className="mc-workbar-stepper" aria-label="工单阶段">
-            <StationStepper stations={stations} />
+            {/* E1：workbar 内站点可点（点击开对应 WU 抽屉，与 live 徽标统一入口）；
+                StationStepper 与 WU 详情页共享——可点化仅经 onStationClick 作用域限定在此，详情页不传保持纯展示 */}
+            <StationStepper stations={stations} onStationClick={() => onOpenWorkUnit(currentWu.id)} />
           </div>
           {selfLive && (
             <button

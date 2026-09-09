@@ -1,6 +1,17 @@
 @import "tailwindcss";
 @import "./styles/responsive.css";
 
+/* 字号档重映射到规范阶梯（style-guide §2.3：11/12/13/16/22，token 定义在 styles/theme.css :root）
+   Tailwind 默认 text-sm=14px 不在阶梯内；此处对齐后全站 text-* 工具类输出 token 值。
+   text-2xl 及以上仅装饰图标/Landing 使用，保持 Tailwind 默认值不重映射。 */
+@theme {
+  --text-xs: var(--fs-xs);
+  --text-sm: var(--fs-sm);
+  --text-base: var(--fs-base);
+  --text-lg: var(--fs-title);
+  --text-xl: var(--fs-stat);
+}
+
 /* 基础样式 */
 *, *::before, *::after {
   box-sizing: border-box;

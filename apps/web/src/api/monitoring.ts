@@ -202,8 +202,8 @@ export const monitoringApi = {
   getStats: () => api.get<MonitoringStats>('/monitoring/stats'),
   getFlywheel: () => api.get<FlywheelStats>('/monitoring/flywheel'),
   getOverhead: () => api.get<OverheadStats>('/monitoring/overhead'),
-  /** F6：概览（#398 起消费 evidence + roles + humanIntervention 三段，其余字段不声明不依赖） */
-  getOverview: () => api.get<{ evidence: EvidenceStats; roles: RoleMetrics; humanIntervention: HumanInterventionMetrics }>('/monitoring/overview'),
+  /** F6：概览（#398 起消费 evidence + roles + humanIntervention 三段；E4 增 alerts.last24h 供顶栏待处理徽标，其余字段不声明不依赖） */
+  getOverview: () => api.get<{ evidence: EvidenceStats; roles: RoleMetrics; humanIntervention: HumanInterventionMetrics; alerts: { last24h: number } }>('/monitoring/overview'),
   /** #120：输入缓存命中率（步/WU/角色/天）+ 段 trim 率（按段） */
   getEfficiency: () => api.get<EfficiencyStats>('/monitoring/efficiency'),
   /** 强制停止实例（当前任务转人工处理；AgentDashboardPage / AgentDetailPage 共用） */

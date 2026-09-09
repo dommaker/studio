@@ -14,6 +14,7 @@ import type { ChannelMessage } from '../api/channel';
 import { skillsApi } from '../api/skills';
 import { PROPOSAL_ACTION_INDEX } from '../components/channel/proposalCardConfigs';
 import { parseMeta } from '../utils/messageMeta';
+import { errorMessage } from '../utils/errorMessage';
 
 export interface UseChannelCardActionsOptions {
   channelId: string | undefined;
@@ -35,7 +36,9 @@ export function useChannelCardActions({ channelId, messages, refresh }: UseChann
       return parseMeta(msg?.meta).cardData ?? null;
     };
     // #352：人审提案卡参数化分发（5 段同构分支坍缩）——action → config.exec(cardData, decision)；
-    // exec false（缺数据 / approve success=false 预算熔断等）→ 不 refresh 返回 false；异常归一为 false
+    // exec false（缺数据 / approve success=false 预算熔断等）→ 不 refresh 返回 false；
+    // 批次A 项2：exec 抛错不再静默归 false——提取错误文案（服务端 error.message 优先）上抛，
+    // 由 useProposalReview.act 捕获进卡片内联错误行
     const proposal = PROPOSAL_ACTION_INDEX[action];
     if (proposal) {
       try {
@@ -43,8 +46,8 @@ export function useChannelCardActions({ channelId, messages, refresh }: UseChann
         if (!ok) return false;
         refresh();
         return true;
-      } catch {
-        return false;
+      } catch (e) {
+        throw new Error(errorMessage(e));
       }
     }
     // #278（决策 #250 D2）：retract_confirm 卡接技能退役决策端点（confirm→deprecated / reject→published）。

@@ -6,20 +6,12 @@
 // 语义与频道回复通道等价（同一复活原语/同一死信关闭路径）：按钮 = 纯授权，回复 = 带指导授权。
 // decision/spec 裁剪状态机无 closed → 服务端 409，内联展示错误文案。
 import { useState } from 'react';
-import axios from 'axios';
 import { workunitApi, type WorkUnit } from '../../api/workunit';
 import { Button } from '../ui/Button';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { parseWuMeta } from '../../utils/wuMeta';
-
-/** 错误文案提取：优先服务端 error 信封的 message（409 拒绝原因对人可读） */
-function errorMessage(e: unknown): string {
-  if (axios.isAxiosError(e)) {
-    const msg = (e.response?.data as { error?: { message?: string } } | undefined)?.error?.message;
-    if (msg) return msg;
-  }
-  return e instanceof Error ? e.message : String(e);
-}
+// 批次A 项6：错误文案提取逻辑已收敛为 utils/errorMessage 唯一正本（本组件为原出处）
+import { errorMessage } from '../../utils/errorMessage';
 
 interface Props {
   wu: WorkUnit;

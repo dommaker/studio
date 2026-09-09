@@ -121,9 +121,9 @@ export function DeliveryPanel({ projectId, delivery, onRefresh }: DeliveryPanelP
   };
 
   return (
-    <div className="card p-4 mb-6">
+    <div className="card p-4 mb-3">
       <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-medium u-text-2">📦 交付</h3>
+        <h3 className="mc-block-label" style={{ margin: 0 }}>交付</h3>
         {delivery.deliveredAt ? (
           <span className="text-xs px-2 py-1 rounded u-ok-dim u-ok font-medium">✓ 已交付</span>
         ) : delivery.deliverable ? (
@@ -266,10 +266,11 @@ export function DeliveryPanel({ projectId, delivery, onRefresh }: DeliveryPanelP
         <AnalysisApproveDialog
           prefill={approveGap.prefill}
           channelId={approveGap.channelId}
-          onConfirm={(summary, assigneeId) => {
+          onConfirm={async (summary, assigneeId) => {
+            // 批次A 项7：等动作结算后才关窗（失败 toast 在 handleGapAction 内）
             const gap = approveGap.gap;
+            await handleGapAction(gap, 'reviewPassed', summary, assigneeId);
             setApproveGap(null);
-            handleGapAction(gap, 'reviewPassed', summary, assigneeId);
           }}
           onCancel={() => setApproveGap(null)}
         />

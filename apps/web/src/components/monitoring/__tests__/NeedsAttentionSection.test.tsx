@@ -287,3 +287,39 @@ describe('NeedsAttentionSection — 空态与容错', () => {
     expect(screen.getByText('暂无告警')).toBeDefined();
   });
 });
+
+describe('NeedsAttentionSection — 告警下钻（E4）', () => {
+  const alert = (level: string, message: string, msAgo: number) => ({
+    type: 'monitor:alert', level, payload: JSON.stringify({ message }), createdAt: iso(msAgo),
+  });
+
+  it('注入 onAlertClick 时告警行渲染为按钮，点击回传该组（level/message/count/latestAt）', async () => {
+    mockEventsByType({
+      'monitor:alert': [
+        alert('warning', '未认领池滞留：最老任务已滞留 5h', 5 * HOUR),
+        alert('warning', '未认领池滞留：最老任务已滞留 7h', HOUR),
+        alert('critical', '执行 loop 失联：心跳过期', 2 * HOUR),
+      ],
+    });
+    const onAlertClick = vi.fn();
+    render(<NeedsAttentionSection onAlertClick={onAlertClick} />);
+
+    const btn = await screen.findByRole('button', { name: /未认领池滞留：最老任务已滞留 7h/ });
+    fireEvent.click(btn);
+    expect(onAlertClick).toHaveBeenCalledTimes(1);
+    expect(onAlertClick).toHaveBeenCalledWith(expect.objectContaining({
+      level: 'warning',
+      message: '未认领池滞留：最老任务已滞留 7h',
+      count: 2,
+    }));
+  });
+
+  it('未注入 onAlertClick 时告警行保持纯展示（无按钮语义）', async () => {
+    mockEventsByType({
+      'monitor:alert': [alert('warning', '滞留 5h', HOUR)],
+    });
+    render(<NeedsAttentionSection />);
+    expect(await screen.findByText('滞留 5h')).toBeDefined();
+    expect(screen.queryByRole('button', { name: /滞留 5h/ })).toBeNull();
+  });
+});

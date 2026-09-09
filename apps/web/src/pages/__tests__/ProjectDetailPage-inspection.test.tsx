@@ -1,4 +1,4 @@
-// #163 T8-E2: ProjectDetailPage「🔍 发起巡检」按钮 — fireTrigger('inspection-scan') + toast + 不跳转
+// #163 T8-E2: ProjectDetailPage「发起巡检」按钮 — fireTrigger('inspection-scan') + toast + 不跳转
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
@@ -80,7 +80,7 @@ const renderDetail = () =>
     </MemoryRouter>,
   );
 
-describe('ProjectDetailPage — 🔍 发起巡检', () => {
+describe('ProjectDetailPage — 发起巡检', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockGetProject.mockResolvedValue({ data: mockProject });
@@ -98,7 +98,7 @@ describe('ProjectDetailPage — 🔍 发起巡检', () => {
 
   it('点击 → 调 fireTrigger(inspection-scan) + 成功 toast + 不跳转', async () => {
     renderDetail();
-    const btn = await screen.findByRole('button', { name: '🔍 发起巡检' });
+    const btn = await screen.findByRole('button', { name: '发起巡检' });
 
     fireEvent.click(btn);
     expect(mockFireTrigger).toHaveBeenCalledWith('inspection-scan');
@@ -112,7 +112,7 @@ describe('ProjectDetailPage — 🔍 发起巡检', () => {
   it('触发失败 → 错误 toast，不跳转', async () => {
     mockFireTrigger.mockRejectedValue({ response: { data: { error: { message: '触发器不存在' } } } });
     renderDetail();
-    fireEvent.click(await screen.findByRole('button', { name: '🔍 发起巡检' }));
+    fireEvent.click(await screen.findByRole('button', { name: '发起巡检' }));
     await waitFor(() => expect(mockError).toHaveBeenCalledWith('触发器不存在'));
     expect(mockNavigate).not.toHaveBeenCalled();
   });

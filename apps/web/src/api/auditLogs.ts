@@ -38,6 +38,9 @@ export interface AuditLogQuery {
   resource?: string;
   status?: string;
   userId?: string;
+  /** ISO 8601；后端 list/stats/export 原生支持（routes.ts 已读参） */
+  startTime?: string;
+  endTime?: string;
   page?: number;
   limit?: number;
 }
@@ -62,7 +65,10 @@ export const auditLogApi = {
     const search = new URLSearchParams();
     if (params?.action) search.set('action', params.action);
     if (params?.resource) search.set('resource', params.resource);
+    if (params?.status) search.set('status', params.status);
     if (params?.userId) search.set('userId', params.userId);
+    if (params?.startTime) search.set('startTime', params.startTime);
+    if (params?.endTime) search.set('endTime', params.endTime);
     const qs = search.toString();
     return `${api.defaults.baseURL}/audit-logs/export${qs ? `?${qs}` : ''}`;
   },

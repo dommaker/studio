@@ -53,8 +53,8 @@ export const knowledgeApi = {
   listGaps: (type: KnowledgeGapType) =>
     api.get<{ type: string; data: unknown[]; total: number }>(`/knowledge/gaps/${type}`),
 
-  /** 统一知识浏览（AS-022，KnowledgePage 统一视图 tab） */
-  listUnified: (params?: { limit?: number; offset?: number; consumptionMode?: string }) =>
+  /** 统一知识浏览（AS-022，KnowledgePage 统一视图 tab；E5 起支持 maturity 过滤——后端 /knowledge/unified 原生参数） */
+  listUnified: (params?: { limit?: number; offset?: number; consumptionMode?: string; maturity?: string }) =>
     api.get<{ entries: UnifiedEntry[]; total: number }>('/knowledge/unified', { params }),
 
   /** 手动创建知识条目（AS-022；requireAuth + requireNotGuest） */
@@ -103,6 +103,8 @@ export interface UnifiedEntry {
   consumptionMode?: string;
   source?: string;
   tags?: string[];
+  /** 成熟度（draft/verified/canonical/deprecated 等；E5 徽标与 draft 审批入口依赖本字段） */
+  maturity?: string;
 }
 
 /** 全局搜索结果条目（GET /knowledge/search 的 results 元素） */

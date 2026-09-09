@@ -573,3 +573,44 @@ describe('ReviewProposalCard — constraint_audit_proposal（原 ConstraintAudit
     expect(screen.queryByText(/已确认/)).not.toBeTruthy();
   });
 });
+
+// ---------- 批次A 项2：审批失败内联错误行（dispatch 层上抛错误文案，卡片行动区下方展示） ----------
+
+describe('ReviewProposalCard — 审批失败内联错误（批次A 项2）', () => {
+  beforeEach(() => {
+    mockKnStatus.mockReset();
+    mockKnStatus.mockResolvedValue({ data: { success: true, status: 'pending' } });
+  });
+
+  it('onAction 抛错（409 人话）→ 错误行进卡 + 保持待审可重试', async () => {
+    const onAction = vi.fn().mockRejectedValue(new Error('该提案已被审核，不可重复操作'));
+    renderCard(knowledgeMessage, onAction);
+    fireEvent.click(screen.getByText('通过'));
+    expect(await screen.findByText('该提案已被审核，不可重复操作')).toBeTruthy();
+    // 保持待审：按钮仍在，未进已审态
+    expect(screen.getByText('通过')).toBeTruthy();
+    expect(screen.queryByText(/已通过/)).not.toBeTruthy();
+  });
+
+  it('重试时清掉上一轮的失败错误行', async () => {
+    const onAction = vi.fn()
+      .mockRejectedValueOnce(new Error('网络抖动'))
+      .mockResolvedValueOnce(true);
+    renderCard(knowledgeMessage, onAction);
+    fireEvent.click(screen.getByText('通过'));
+    expect(await screen.findByText('网络抖动')).toBeTruthy();
+
+    fireEvent.click(screen.getByText('通过'));
+    await waitFor(() => expect(onAction).toHaveBeenCalledTimes(2));
+    expect(await screen.findByText(/已通过/)).toBeTruthy();
+    expect(screen.queryByText('网络抖动')).toBeNull();
+  });
+
+  it('拒绝失败同样内联（不区分 approve/reject）', async () => {
+    const onAction = vi.fn().mockRejectedValue(new Error('提案已过期'));
+    renderCard(knowledgeMessage, onAction);
+    fireEvent.click(screen.getByText('拒绝'));
+    expect(await screen.findByText('提案已过期')).toBeTruthy();
+    expect(screen.queryByText(/已拒绝/)).not.toBeTruthy();
+  });
+});

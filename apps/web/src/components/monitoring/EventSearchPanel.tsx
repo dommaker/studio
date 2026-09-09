@@ -4,9 +4,16 @@
  * 消费 GET /events 的 level/type/keyword/until 过滤 + 尾部倒读游标分页。
  * UI 文案不用行话：级别 = 信息/警告/调试，游标分页 = 「加载更多」按钮。
  */
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { eventsApi, type StudioEventItem, type StudioEventLevel } from '../../api/events';
 import { Select } from '../ui/Select';
+
+/** E4 告警下钻：挂载期预填的检索条件（预填后自动执行一次检索） */
+export interface EventSearchFilters {
+  type?: string;
+  keyword?: string;
+  level?: StudioEventLevel;
+}
 
 const LEVEL_OPTIONS: Array<{ value: StudioEventLevel; label: string }> = [
   { value: 'info', label: '信息及以上' },
@@ -23,10 +30,10 @@ const LEVEL_LABELS: Record<string, string> = {
 
 const PAGE_SIZE = 50;
 
-export function EventSearchPanel() {
-  const [type, setType] = useState('');
-  const [keyword, setKeyword] = useState('');
-  const [level, setLevel] = useState<StudioEventLevel>('info');
+export function EventSearchPanel({ initialFilters }: { initialFilters?: EventSearchFilters }) {
+  const [type, setType] = useState(initialFilters?.type ?? '');
+  const [keyword, setKeyword] = useState(initialFilters?.keyword ?? '');
+  const [level, setLevel] = useState<StudioEventLevel>(initialFilters?.level ?? 'info');
   const [until, setUntil] = useState('');
   const [events, setEvents] = useState<StudioEventItem[] | null>(null);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -53,6 +60,16 @@ export function EventSearchPanel() {
       .catch(() => setError('查询失败，请重试'))
       .finally(() => setLoading(false));
   };
+
+  // E4 告警下钻：带 initialFilters 挂载时自动检索一次（点击告警 → 直达过滤结果，1 步）
+  // initialFilters 只在挂载期消费（面板随 tab 切换卸载重挂，重挂即取最新预填值）
+  const autoSearchedRef = useRef(false);
+  useEffect(() => {
+    if (!initialFilters || autoSearchedRef.current) return;
+    autoSearchedRef.current = true;
+    search();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const loadMore = () => {
     if (!nextCursor || loading) return;

@@ -1,5 +1,5 @@
 // 创建角色弹框（#397，redesign §6.4：弹框不跳页——上下文不丢）
-// 数据流同 RolesSetup 页：GET /workspaces/runtimes 拿 CLI 清单，勾选 + 命名后 channelApi.createAgent 逐个创建；
+// 数据流（同已删除的 RolesSetup 向导页，E8-3 清理）：GET /workspaces/runtimes 拿 CLI 清单，勾选 + 命名后 channelApi.createAgent 逐个创建；
 // 保存 = 创建 → 关弹框 → onCreated（页面就地刷新名册），不再跳频道页。
 // 结构走 theme.css modal-*（style-guide §4.3，经 ui/Modal 壳），条目样式在 agent-dashboard.css。
 import { useEffect, useState } from 'react';
@@ -21,15 +21,21 @@ interface SelectedRole {
   description: string;
 }
 
-export function CreateRoleModal({ open, onClose, onCreated }: {
+export function CreateRoleModal({ open, onClose, onCreated, presetProvider }: {
   open: boolean;
   onClose: () => void;
   /** 创建成功后回调（页面侧就地刷新名册） */
   onCreated: () => void;
+  /** E8-4：调用方已锁定 CLI 时传入（WorkspacePage 行内「设为角色」）——跳过 runtime 清单拉取，单项固定预选、provider 只读展示 */
+  presetProvider?: string;
 }) {
   const [runtimes, setRuntimes] = useState<RuntimeInfo[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selected, setSelected] = useState<Record<string, SelectedRole>>({});
+  // preset 模式懒初始化：覆盖挂载即 open=true（prevOpen 上升沿不触发）的情形
+  const [selected, setSelected] = useState<Record<string, SelectedRole>>(() =>
+    presetProvider
+      ? { [presetProvider]: { provider: presetProvider, nodeId: '', name: '', description: '' } }
+      : {});
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -39,14 +45,16 @@ export function CreateRoleModal({ open, onClose, onCreated }: {
   if (prevOpen !== open) {
     setPrevOpen(open);
     if (open) {
-      setSelected({});
+      setSelected(presetProvider
+        ? { [presetProvider]: { provider: presetProvider, nodeId: '', name: '', description: '' } }
+        : {});
       setError(null);
-      setLoading(true);
+      setLoading(!presetProvider);
     }
   }
 
   useEffect(() => {
-    if (!open) return;
+    if (!open || presetProvider) return;
     let cancelled = false;
     api.get<{ runtimes: RuntimeInfo[] }>('/workspaces/runtimes')
       .then((res) => { if (!cancelled) setRuntimes(res.data.runtimes || []); })
@@ -119,7 +127,33 @@ export function CreateRoleModal({ open, onClose, onCreated }: {
         </>
       }
     >
-      {loading ? (
+      {presetProvider ? (
+        // preset 模式（E8-4，WorkspacePage）：provider 已锁定只读展示，单项命名，不走 agd-cr-* 列表样式
+        // （agent-dashboard.css 由 AgentDashboardPage 引入，本页不依赖）
+        <div>
+          <div className="mb-3">
+            <label className="block text-sm u-text-2 mb-1">CLI</label>
+            <div className="text-sm font-medium u-text">{presetProvider}</div>
+          </div>
+          <div className="flex flex-col gap-2">
+            <input
+              type="text"
+              placeholder="角色名称（如 dev-agent）"
+              value={selected[presetProvider]?.name ?? ''}
+              onChange={(e) => updateField(presetProvider, 'name', e.target.value)}
+              className="input"
+              data-testid={`role-name-preset:${presetProvider}`}
+            />
+            <input
+              type="text"
+              placeholder="描述（可选）"
+              value={selected[presetProvider]?.description ?? ''}
+              onChange={(e) => updateField(presetProvider, 'description', e.target.value)}
+              className="input"
+            />
+          </div>
+        </div>
+      ) : loading ? (
         <div className="u-text-2 py-6 text-center">加载中…</div>
       ) : runtimes.length === 0 ? (
         <div className="py-3">

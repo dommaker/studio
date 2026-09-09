@@ -29,6 +29,7 @@ import {
 import { formatFullTime } from '../utils/datetime';
 import { shortWuId } from '../utils/id';
 import { copyText } from '../utils/clipboard';
+import { errorMessage } from '../utils/errorMessage';
 import '../styles/agent-detail.css';
 
 const HISTORY_LIMIT = 20;
@@ -49,6 +50,8 @@ export function AgentDetailPage() {
   const [actionError, setActionError] = useState<string | null>(null);
   // 强制停止二次确认（ui/ConfirmDialog，替代原生 window.confirm）
   const [confirmTerminate, setConfirmTerminate] = useState(false);
+  // 批次A 项7：提交期间 ConfirmDialog loading（防连点 + 遮罩关闭屏蔽）
+  const [terminating, setTerminating] = useState(false);
 
   const profile = useMemo(() => profiles.find((x) => x.id === profileId) ?? null, [profiles, profileId]);
   // 同一角色可能有多条历史 state，接口已按 startedAt 降序，取最新一条
@@ -122,13 +125,18 @@ export function AgentDetailPage() {
   }), [onEvent, historyQ]);
 
   const handleTerminate = async () => {
-    setConfirmTerminate(false);
     if (!instance) return;
+    setTerminating(true);
     try {
       await monitoringApi.terminateInstance(instance.id);
       await useRosterStore.getState().ensureFresh({ maxAgeMs: 0 });
+      setConfirmTerminate(false);
     } catch (e: unknown) {
-      setActionError(e instanceof Error ? e.message : 'Failed to terminate agent');
+      // 失败关窗 + 页顶错误条（批次A 项6：服务端 error.message 优先）
+      setActionError(errorMessage(e));
+      setConfirmTerminate(false);
+    } finally {
+      setTerminating(false);
     }
   };
 
@@ -179,7 +187,7 @@ export function AgentDetailPage() {
           <div className="flex gap-2">
             {instance && instance.status !== 'terminated' && (
               <button
-                className="text-xs px-2 py-1 rounded u-err-dim u-err u-hover-bg"
+                className="btn btn-danger btn-sm"
                 onClick={() => setConfirmTerminate(true)}
               >
                 强制停止
@@ -297,6 +305,7 @@ export function AgentDetailPage() {
         message="强制停止会将当前任务转人工处理，确认？"
         confirmLabel="确认停止"
         danger
+        loading={terminating}
         onConfirm={() => void handleTerminate()}
         onCancel={() => setConfirmTerminate(false)}
       />

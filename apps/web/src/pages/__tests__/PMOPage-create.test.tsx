@@ -197,7 +197,7 @@ describe('PMO-a: 新建 PMO 表单', () => {
 
     await waitFor(() => expect(screen.getByText('既有项目')).toBeTruthy());
 
-    fireEvent.click(screen.getByText(/🎯 OKR/));
+    fireEvent.click(screen.getByText(/OKR \(/));
     fireEvent.click(screen.getByText('+ 创建 OKR'));
     fireEvent.change(screen.getByPlaceholderText('管线效率提升 Q2'), { target: { value: '回归 OKR' } });
     fireEvent.click(screen.getByText('创建'));

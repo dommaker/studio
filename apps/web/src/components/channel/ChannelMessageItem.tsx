@@ -217,19 +217,14 @@ export const ChannelMessageItem = memo(function ChannelMessageItem({
               <span className="mc-time">{formatTime(message.createdAt)}</span>
             </>
           )}
-          {/* #279（走查 F4）：needSent（已回复）时 badge 让位——「已回复」与「等待回复」不同屏并存 */}
-          {waitingForInput && !needSent && (
-            <span className="mc-wait-badge">等待回复</span>
-          )}
+          {/* E1（2026-09 页面重设计）：消息头「等待回复」badge 已删——内嵌回复区本身是行动点，
+              待办信号唯一表达位 = 顶栏「待回复 · N」chip（同一事实只表达一次） */}
           <span className="mc-msg-actions">{actionButtons}</span>
         </div>
       )}
-      {/* #277 D2：compact 省略重复头；动作（+等待 badge）浮于角落保留可用性 */}
+      {/* #277 D2：compact 省略重复头；动作浮于角落保留可用性 */}
       {!isSystem && compact && (
         <span className="mc-msg-actions mc-msg-actions-compact">
-          {waitingForInput && !needSent && (
-            <span className="mc-wait-badge">等待回复</span>
-          )}
           {actionButtons}
         </span>
       )}

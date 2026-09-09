@@ -8,7 +8,7 @@ import { eventsApi, type StudioEventItem } from '../../api/events';
 import { workunitApi } from '../../api/workunit';
 import { useAsyncData } from '../../hooks/useAsyncData';
 import { formatAge, POOL_STAGNATION_WARN_MS } from '@dommaker/studio-shared/web';
-import { groupAlertsBySignature, type AlertItem } from './alertGrouping';
+import { groupAlertsBySignature, type AlertGroup, type AlertItem } from './alertGrouping';
 import { MonitorSection } from './MonitorSection';
 
 const HOUR = 3600_000;
@@ -135,7 +135,7 @@ async function loadFailures(now: number, since48: string): Promise<FailureStats>
   return { n: r.n, rate: r.rate, trend };
 }
 
-export function NeedsAttentionSection() {
+export function NeedsAttentionSection({ onAlertClick }: { onAlertClick?: (group: AlertGroup) => void }) {
   // #350 useAsyncData 收一次性拉取样板：三部分独立取数，各自 data/error/loading，互不阻塞
   const alerts = useAsyncData(() => loadAlerts(new Date(Date.now() - 24 * HOUR).toISOString()), []);
   const stuck = useAsyncData(() => loadStuck(Date.now()), []);
@@ -169,16 +169,32 @@ export function NeedsAttentionSection() {
           ) : groups.length > 0 ? (
             <div>
               <div className="space-y-1">
-                {visibleGroups.map((g, i) => (
-                  <div key={i} className="flex items-center gap-2 text-sm">
-                    <span className={`text-xs px-2 py-0.5 rounded ${g.level === 'critical' ? 'u-err-dim u-err' : 'u-warn-dim u-warn'}`}>
-                      {g.level === 'critical' ? '严重' : '警告'}
-                    </span>
-                    <span className="u-text" style={{ flex: 1, minWidth: 0 }}>{g.message}</span>
-                    {g.count > 1 && <span className="text-xs font-bold u-text-2">×{g.count}</span>}
-                    <span className="text-xs u-text-3">{formatAge(g.latestAt)}</span>
-                  </div>
-                ))}
+                {visibleGroups.map((g, i) => {
+                  const row = (
+                    <>
+                      <span className={`text-xs px-2 py-0.5 rounded ${g.level === 'critical' ? 'u-err-dim u-err' : 'u-warn-dim u-warn'}`}>
+                        {g.level === 'critical' ? '严重' : '警告'}
+                      </span>
+                      <span className="u-text" style={{ flex: 1, minWidth: 0 }}>{g.message}</span>
+                      {g.count > 1 && <span className="text-xs font-bold u-text-2">×{g.count}</span>}
+                      <span className="text-xs u-text-3">{formatAge(g.latestAt)}</span>
+                    </>
+                  );
+                  // E4 告警下钻：点击告警组 → 事件检索 tab 预填签名过滤（onAlertClick 由 MonitoringPage 注入）
+                  return onAlertClick ? (
+                    <button
+                      key={i}
+                      type="button"
+                      className="flex items-center gap-2 text-sm w-full text-left rounded px-1 -mx-1 u-hover-bg"
+                      title="在事件检索中查看此类告警"
+                      onClick={() => onAlertClick(g)}
+                    >
+                      {row}
+                    </button>
+                  ) : (
+                    <div key={i} className="flex items-center gap-2 text-sm">{row}</div>
+                  );
+                })}
               </div>
               {groups.length > ALERT_GROUP_LIMIT && (
                 <button className="text-xs u-text-3 u-hover-accent mt-1" onClick={() => setShowAllGroups(v => !v)}>

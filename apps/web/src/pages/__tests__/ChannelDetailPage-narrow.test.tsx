@@ -124,13 +124,15 @@ describe('ChannelDetailPage — #395 窄屏降级', () => {
     expect(screen.queryByRole('dialog', { name: '频道动态' })).not.toBeInTheDocument();
   });
 
-  it('中档（768–1023）：左栏保留、右栏卸载；顶栏「频道动态」入口开覆盖抽屉，可关', () => {
+  it('中档（768–1023）：左栏保留、右栏卸载；顶栏 ⋯ 菜单内「频道动态」入口开覆盖抽屉，可关', () => {
     mockMatchMedia(900);
     renderPage();
     expect(screen.getByTestId('channel-rail')).toBeInTheDocument();
     // 内联右栏不挂载（唯一实例在覆盖抽屉内，未开时零挂载）
     expect(screen.queryByTestId('activity-rail')).not.toBeInTheDocument();
 
+    // E1：频道动态入口收进顶栏 ⋯ 菜单
+    fireEvent.click(screen.getByLabelText('更多操作'));
     fireEvent.click(screen.getByRole('button', { name: '打开频道动态' }));
     const dialog = screen.getByRole('dialog', { name: '频道动态' });
     expect(dialog).toBeInTheDocument();
@@ -144,6 +146,7 @@ describe('ChannelDetailPage — #395 窄屏降级', () => {
   it('覆盖抽屉内点 REQ：覆盖层收起 + 详情抽屉打开（不叠加两层）', async () => {
     mockMatchMedia(900);
     renderPage();
+    fireEvent.click(screen.getByLabelText('更多操作'));
     fireEvent.click(screen.getByRole('button', { name: '打开频道动态' }));
     // channelReqs 走 REST 异步打底，等链路卡渲染
     fireEvent.click(await screen.findByTestId('rail-req-REQ-0042'));
@@ -158,6 +161,7 @@ describe('ChannelDetailPage — #395 窄屏降级', () => {
     renderPage();
     expect(screen.queryByTestId('channel-rail')).not.toBeInTheDocument();
     expect(screen.queryByTestId('activity-rail')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText('更多操作'));
     expect(screen.getByRole('button', { name: '打开频道动态' })).toBeInTheDocument();
   });
 });

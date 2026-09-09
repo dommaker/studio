@@ -145,7 +145,7 @@ describe('PMO-b/F6-c: 交付区块', () => {
     renderDetail();
 
     await waitFor(() => {
-      expect(screen.getByText('📦 交付')).toBeTruthy();
+      expect(screen.getByText('交付', { selector: 'h3' })).toBeTruthy();
     });
 
     // inFlight>0 → 蓝色进行中徽标
@@ -236,7 +236,7 @@ describe('PMO-b/F6-c: 交付区块', () => {
     renderDetail();
 
     await waitFor(() => {
-      expect(screen.getByText('📦 交付')).toBeTruthy();
+      expect(screen.getByText('交付', { selector: 'h3' })).toBeTruthy();
     });
     expect(screen.queryByText(/证据已齐:请合并分支/)).toBeNull();
     expect(screen.queryByText('交付合并')).toBeNull();
@@ -340,7 +340,7 @@ describe('PMO-b/F6-c: 交付区块', () => {
     renderDetail();
 
     await waitFor(() => {
-      expect(screen.getByText('📈 项目进展')).toBeTruthy();
+      expect(screen.getByText('项目进展')).toBeTruthy();
     });
 
     // 六卡已删（状态计数唯一表达 = 泳道头）

@@ -1,6 +1,9 @@
 // WorkUnitDrawer — Mission Control 右抽屉：WorkUnit 详情 / REQ 全链路
 // 只展示真实 API 数据（workunitApi / requirementApi / monitoringApi / channelApi），无对应数据的维度不展示、不编造
-import { useEffect, useRef, useState } from 'react';
+// 2026-09 页面重设计 E2（docs/plans/2026-09-page-redesign.md）：列表页行点击同挂本抽屉（props 自包含自取数）；
+// 闸门动作合一走 WuGateActions；ReviewHint（in_review 且频道无 reviewer）自列表展开区挪入闸门动作区上方；
+// ExecutionSteps 后补「会话原文」折叠节（TranscriptViewer，原详情页独有）。
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import {
@@ -11,19 +14,21 @@ import {
 } from '../../api/workunit';
 import { useRequirementChainStore } from '../../stores/requirementChainStore';
 import { monitoringApi, type OverheadStats } from '../../api/monitoring';
-import { channelApi } from '../../api/channel';
+import { channelApi, type AgentProfile } from '../../api/channel';
 import { useWebSocketContext } from '../../api/websocketHooks';
 import { ExecutionSteps } from '../workunit/ExecutionSteps';
 import { BlockedActions } from '../workunit/BlockedActions';
 import { TreeTokenDrawer } from '../workunit/TreeTokenDrawer';
 import { SelfReviewBadge } from '../workunit/SelfReviewBadge';
 import { EvidenceLedger } from '../workunit/EvidenceLedger';
-import { AnalysisApproveDialog } from '../pmo/AnalysisApproveDialog';
-import { buildMapOpeningPrefill } from '../pmo/mapUtils';
+import { ReviewHint } from '../workunit/ReviewHint';
+import { WuGateActions } from '../workunit/WuGateActions';
+import { TranscriptViewer } from '../workunit/TranscriptViewer';
 import { deriveDisplayState, parseAttestations, WU_STATUS_LABELS, formatChannelName } from '@dommaker/studio-shared/web';
 import { AssigneeLabel } from '../workunit/AssigneeLabel';
 import { formatShortTime } from '../../utils/datetime';
 import { parseWuMeta } from '../../utils/wuMeta';
+import { errorMessage } from '../../utils/errorMessage';
 
 export type DrawerState =
   // #284（决策 #250 D6）：autoApprove = analysis_confirm 接力卡「去确认」的「打开即弹」入参
@@ -105,18 +110,9 @@ function WuDetail({ id, autoApprove = false, onOpenReq }: { id: string; autoAppr
   // #241: 悬空 WU 引用（历史清理后消息 footer 指向已不存在的 WU）——404 单列友好态
   const [notFound, setNotFound] = useState(false);
   const [showTreeTokens, setShowTreeTokens] = useState(false);
-  const [confirming, setConfirming] = useState(false);
-  // #106 M7：analysis 通过/确认弹窗（共享件），非 analysis 保持一键通过
-  const [showApproveModal, setShowApproveModal] = useState(false);
-  // #284：in_review 拒绝入口（带原因弹窗，与列表行/详情页一致）
-  const [showRejectModal, setShowRejectModal] = useState(false);
-  const [rejectReason, setRejectReason] = useState('');
-  // #284（决策 #250 D6）：接力卡「打开即弹」一次性哨兵（ref：避免 effect 内 setState 触发 lint；
-  // 仅 id/autoApprove 变化时重新武装，SSE 事件更新不重复弹）
-  const autoPopupDoneRef = useRef(!autoApprove);
-  useEffect(() => {
-    autoPopupDoneRef.current = !autoApprove;
-  }, [id, autoApprove]);
+  // E2-1：ReviewHint 自列表展开区挪入——频道成员（in_review 时判断是否有人可认领评审）；
+  // null = 未拉到（含 best-effort 失败）→ 不渲染提醒（空数组会误报「无人可认领」）
+  const [channelMembers, setChannelMembers] = useState<AgentProfile[] | null>(null);
   // 决策 8（2026-08 SSE 负载加深）：SSE 事件订阅——status_changed 负载 = 全量 WorkUnit
   // （同 workunitApi.get 形状）按 id 匹配直接替换本地 wu；workunit.tokens 复用
   // parseWorkunitTokenEvents 防御解析（他 WU / 缺字段负载跳过，聚合保持现有值）。
@@ -131,11 +127,12 @@ function WuDetail({ id, autoApprove = false, onOpenReq }: { id: string; autoAppr
     setWu(null);
     setTokens(null);
     setChannelName(null);
+    setChannelMembers(null);
     setError('');
     setNotFound(false);
   }
 
-  // 开抽屉一次性打底：WU 详情（+ 频道名 best-effort）
+  // 开抽屉一次性打底：WU 详情（+ 频道名/频道成员 best-effort）
   useEffect(() => {
     let alive = true;
     workunitApi.get(id)
@@ -143,23 +140,22 @@ function WuDetail({ id, autoApprove = false, onOpenReq }: { id: string; autoAppr
         if (!alive) return;
         setWu(r.data);
         setError('');
-        // #284（决策 #250 D6）：接力卡「去确认」打开即弹——WU 加载完成自动弹 AnalysisApproveDialog
-        // （仅 in_review analysis；其余情形仅打开抽屉。一次性，确认/取消后不重弹）
-        if (!autoPopupDoneRef.current) {
-          autoPopupDoneRef.current = true;
-          if (r.data.type === 'analysis' && r.data.status === 'in_review') setShowApproveModal(true);
-        }
-        // #275（#251 断点2）：频道名 best-effort（频道已删/无权限时保留 null，链接退回 id 截短）
         if (r.data.channelId) {
+          // #275（#251 断点2）：频道名 best-effort（频道已删/无权限时保留 null，链接退回 id 截短）
           channelApi.get(r.data.channelId)
             .then(res => { if (alive) setChannelName(res.data.data.name); })
+            .catch(() => { /* best-effort */ });
+          // E2-1：ReviewHint 频道成员判断（best-effort；失败留 null 不渲染提醒，防误报）
+          channelApi.listAgents(r.data.channelId)
+            .then(res => { if (alive) setChannelMembers(res.data.data); })
             .catch(() => { /* best-effort */ });
         }
       })
       .catch(e => {
         if (!alive) return;
         if (axios.isAxiosError(e) && e.response?.status === 404) setNotFound(true);
-        else setError(e instanceof Error ? e.message : String(e));
+        // 批次A 项6：错误文案走 errorMessage 正本（服务端 error.message 优先，不再直拼 axios 裸 message）
+        else setError(errorMessage(e));
       });
     return () => { alive = false; };
   }, [id]);
@@ -199,8 +195,6 @@ function WuDetail({ id, autoApprove = false, onOpenReq }: { id: string; autoAppr
 
   const meta = parseWuMeta<WuMeta>(wu.metadata);
   const title = meta.title || wu.scope;
-  // F6 派生（铁律：needsHuman/证据判断一律过 deriveDisplayState，不自行读 attestations 字段）
-  const derived = deriveDisplayState({ status: wu.status, metadata: wu.metadata });
   const attestations = parseAttestations(wu.metadata);
   const injectedSum = (tokens ?? []).reduce((s, t) => s + t.injectedTokens, 0);
   const execKnown = (tokens ?? []).filter(t => t.executionTokens !== null);
@@ -208,44 +202,17 @@ function WuDetail({ id, autoApprove = false, onOpenReq }: { id: string; autoAppr
   const totalSum = (tokens ?? []).reduce((s, t) => s + t.totalTokens, 0);
   const maxBar = Math.max(totalSum, 1);
 
-  /** 人工确认入口：in_review = 审查硬门（过→done；analysis 过后自动拆任务派工）；
-   *  done 缺 l3 = L3 人工验收留痕（不阻断流程）。同调 reviewPassed（服务端幂等）。
-   *  决策 8：动作成功后用响应体直接更新本地 wu（状态变化另有 status_changed SSE 兜底） */
-  const handleReviewPassed = async (summary?: string, assigneeId?: string) => {
-    setConfirming(true);
-    try {
-      const r = await workunitApi.reviewPassed(id, summary, assigneeId);
-      setWu(r.data);
-    } finally {
-      setConfirming(false);
-    }
-  };
-  // analysis 单走确认弹窗（待决问题清单审核，预填→人改→带 summary 提交）；其余类型保持一键通过
-  const handleApprove = () => (wu.type === 'analysis' ? setShowApproveModal(true) : handleReviewPassed());
-
-  /** #126（T4）待确认人闸：扩范围单（feature/task/spec）创建落 pending，人工确认 → unassigned 进 frontier 可认领 */
-  const handleConfirmPending = async () => {
-    setConfirming(true);
-    try {
-      const r = await workunitApi.transitionStatus(id, 'unassigned');
-      setWu(r.data);
-    } finally {
-      setConfirming(false);
-    }
-  };
-
-  /** #284：审查硬门拒绝（带原因），与列表行/详情页同一端点同一语义 */
-  const handleReviewRejected = async () => {
-    setConfirming(true);
-    try {
-      const r = await workunitApi.reviewRejected(id, rejectReason.trim() || undefined);
-      setWu(r.data);
-      setShowRejectModal(false);
-      setRejectReason('');
-    } finally {
-      setConfirming(false);
-    }
-  };
+  /** E2-4：闸门动作写路径 = 直调 API + 响应体直替本地 wu（决策 8；状态变化另有 status_changed SSE 兜底），
+   *  分支/锁存/错误内联/弹窗全部在共享 WuGateActions（与列表行/详情页同一组件） */
+  const gateActions = (
+    <WuGateActions
+      wu={wu}
+      autoApprove={autoApprove}
+      onReviewPassed={async (summary, assigneeId) => { const r = await workunitApi.reviewPassed(id, summary, assigneeId); setWu(r.data); }}
+      onReviewRejected={async (reason) => { const r = await workunitApi.reviewRejected(id, reason); setWu(r.data); }}
+      onConfirmPending={async () => { const r = await workunitApi.transitionStatus(id, 'unassigned'); setWu(r.data); }}
+    />
+  );
 
   return (
     <div>
@@ -297,95 +264,17 @@ function WuDetail({ id, autoApprove = false, onOpenReq }: { id: string; autoAppr
       {/* F6 证据台账：L1 自动验证 / L2 Agent 评审 / L3 人工验收 三层留痕（共享 EvidenceLedger，卡片变体见 WorkUnitDetailPage）。
           语义：L2 是流程硬门（过了即推进）；L3 是人工背书台账，不阻断流程（done 缺 l3 时展示回审查列）。 */}
       <EvidenceLedger attestations={attestations} variant="drawer" />
-      {wu.status === 'pending' && (
-        <div style={{ margin: '4px 0 8px' }}>
-          <button
-            className="mc-wu-link"
-            disabled={confirming}
-            title="待确认人闸：扩范围单创建落待确认，确认后进入待领取（agent 可见可领取）"
-            onClick={handleConfirmPending}
-          >
-            {confirming ? '提交中…' : '确认（进待领取）'}
-          </button>
-        </div>
-      )}
-      {wu.status === 'in_review' && (
-        <div style={{ margin: '4px 0 8px', display: 'flex', gap: 8 }}>
-          <button
-            className="mc-wu-link"
-            disabled={confirming}
-            title="审查硬门：通过→done（analysis 通过后按 TASK 拆分自动派工）"
-            onClick={handleApprove}
-          >
-            {confirming ? '提交中…' : '通过（审查闸门）'}
-          </button>
-          {/* #284：拒绝入口补齐（带原因弹窗），与列表行/WU 详情页三处一致 */}
-          <button
-            className="mc-wu-link"
-            disabled={confirming}
-            title="审查硬门：拒绝→返工（附原因供 agent 修正）"
-            onClick={() => setShowRejectModal(true)}
-          >
-            拒绝
-          </button>
-        </div>
-      )}
-      {wu.status === 'done' && derived.needsHuman && (
-        <div style={{ margin: '4px 0 8px' }}>
-          <button
-            className="mc-wu-link"
-            disabled={confirming}
-            title="流程已由 Agent 评审推进完成；此确认为人工确认留痕，不阻断流程，确认后出审查列"
-            onClick={handleApprove}
-          >
-            {confirming ? '提交中…' : '人工确认（留痕）'}
-          </button>
-        </div>
-      )}
-      {showApproveModal && (
-        <AnalysisApproveDialog
-          prefill={buildMapOpeningPrefill(wu.metadata)}
-          channelId={wu.channelId}
-          onConfirm={(summary, assigneeId) => { setShowApproveModal(false); handleReviewPassed(summary, assigneeId); }}
-          onCancel={() => setShowApproveModal(false)}
+      {/* E2-1：ReviewHint（in_review 且频道无 reviewer 提醒）自列表展开区挪入闸门动作区上方；
+          onSetupClick 按 E8-3 改链 /agents；成员未拉到（null）不渲染防误报 */}
+      {channelMembers !== null && (
+        <ReviewHint
+          status={wu.status}
+          channelMembers={channelMembers}
+          onSetupClick={() => navigate('/agents')}
         />
       )}
-
-      {/* #284：审查拒绝弹窗（带原因），与列表行同款 */}
-      {showRejectModal && (
-        <div className="modal-overlay" onClick={() => setShowRejectModal(false)}>
-          <div className="modal" style={{ maxWidth: '24rem' }} onClick={e => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3 className="modal-title">拒绝原因</h3>
-              <button className="modal-close" onClick={() => setShowRejectModal(false)} aria-label="关闭">×</button>
-            </div>
-            <div className="modal-body">
-              <textarea
-                className="input w-full"
-                rows={3}
-                placeholder="输入拒绝原因（可选）"
-                value={rejectReason}
-                onChange={e => setRejectReason(e.target.value)}
-              />
-            </div>
-            <div className="modal-footer">
-              <button
-                className="btn btn-secondary"
-                onClick={() => { setShowRejectModal(false); setRejectReason(''); }}
-              >
-                取消
-              </button>
-              <button
-                className="btn btn-danger"
-                disabled={confirming}
-                onClick={handleReviewRejected}
-              >
-                确认拒绝
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* E2-4：闸门动作 = 共享 WuGateActions（pending 确认 / in_review 通过+拒绝 / done 人工确认留痕） */}
+      <div style={{ margin: '4px 0 8px' }}>{gateActions}</div>
 
       {/* #185（决策 #87 D4）：blocked 处置组件（继续执行/关闭任务），与详情页同一组件；
           动作成功后重拉一次详情兜底（状态变化另有 status_changed SSE 负载直更） */}
@@ -394,9 +283,13 @@ function WuDetail({ id, autoApprove = false, onOpenReq }: { id: string; autoAppr
       }} />
 
       {/* WU 过程可视化：执行步事件流（思考/工具调用/skill 注入/用量），SSE 步级刷新。
-          频道只留里程碑，过程明细在这里；完整 transcript（会话原文）见 WU 详情页 TranscriptViewer（#174）。
+          频道只留里程碑，过程明细在这里。
           #182：传 wu 启用置顶「当前状态速览」节（决策 #61 速览档，与详情页同组件复用）。 */}
       <ExecutionSteps workUnitId={id} wu={wu} />
+
+      {/* E2-2：「会话原文」折叠节（复用详情页 TranscriptViewer，默认折叠不请求）——
+          处置 blocked/待验收时不再必须跳详情页看原文 */}
+      <TranscriptViewer workUnitId={id} />
 
       {wu.status === 'blocked' && meta.waitingForInput && meta.waitingQuestion && (
         <>

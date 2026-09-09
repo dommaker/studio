@@ -4,7 +4,8 @@
 // - 非 Admin 读 workspaces 列表 403 → 明确「无权限」降级呈现（绑定值只读回显，不无限加载）
 // - 孤儿绑定（绑定值指向已删除 workspace）→ 失效提示 + 一键解除绑定（PATCH ''）
 // - 已绑定值正确回显：channels 数据加载完成后才渲染选择器，杜绝旧版 useState 初值只跑一次的回显 bug
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { formatChannelName } from '@dommaker/studio-shared/web';
 import { workspaceApi } from '../../api';
 import { channelApi, type Channel } from '../../api/channel';
@@ -25,6 +26,13 @@ export function DefaultExecutionMachineSection() {
   // 非 Admin：workspaces 列表 Admin-only（403）→ 降级只读呈现
   const [forbidden, setForbidden] = useState(false);
   const [loading, setLoading] = useState(true);
+  // E8-1：保存成功轻反馈——Select 旁「✓ 已保存」2s 后淡出（失败仍走 toast）
+  const [savedChannelId, setSavedChannelId] = useState<string | null>(null);
+  const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => {
+    if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -77,6 +85,9 @@ export function DefaultExecutionMachineSection() {
               )
             : prev,
         );
+        setSavedChannelId(channelId);
+        if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
+        savedTimerRef.current = setTimeout(() => setSavedChannelId(null), 2000);
       })
       .catch((err) => {
         console.error('Failed to update default execution machine:', err);
@@ -89,7 +100,7 @@ export function DefaultExecutionMachineSection() {
 
   return (
     <section className="space-y-4">
-      <h2 className="mc-block-label" style={{ margin: 0 }}>🖥️ 默认执行机器</h2>
+      <h2 className="mc-block-label" style={{ margin: 0 }}>默认执行机器</h2>
       <p className="text-sm u-text-2">
         每个频道的任务在哪台机器跑（远程 Workspace，决定执行目录的解析）；
         与频道顶栏的「默认工程」（本地 repo）是两个概念。不绑定时按频道与需求的归属关系自动解析。
@@ -130,22 +141,39 @@ export function DefaultExecutionMachineSection() {
             ) : (
               <div key={c.id} className="flex items-center justify-between gap-3">
                 <span className="text-sm font-medium truncate">{formatChannelName(c.name)}</span>
-                <Select
-                  value={c.defaultWorkspaceId ?? ''}
-                  onChange={(v) => bind(c.id, v)}
-                  options={[
-                    { value: '', label: '无' },
-                    ...(workspaces ?? []).map((w) => ({ value: w.id, label: w.name })),
-                  ]}
-                  placeholder="无"
-                  data-testid={`exec-machine-select-${c.id}`}
-                  title={`${formatChannelName(c.name)} 的默认执行机器`}
-                />
+                <div className="flex items-center gap-2 shrink-0">
+                  {savedChannelId === c.id && (
+                    <span className="text-xs u-ok" data-testid={`exec-machine-saved-${c.id}`}>✓ 已保存</span>
+                  )}
+                  <Select
+                    value={c.defaultWorkspaceId ?? ''}
+                    onChange={(v) => bind(c.id, v)}
+                    options={[
+                      { value: '', label: '无' },
+                      ...(workspaces ?? []).map((w) => ({ value: w.id, label: w.name })),
+                    ]}
+                    placeholder="无"
+                    data-testid={`exec-machine-select-${c.id}`}
+                    title={`${formatChannelName(c.name)} 的默认执行机器`}
+                  />
+                </div>
               </div>
             ),
           )
         )}
       </div>
+      {/* E8-1：机器详情入口——WorkspacePage 原无站内入口，机器名直链 /workspaces/:id（仅 Admin 拿到清单时呈现） */}
+      {workspaces && workspaces.length > 0 && (
+        <p className="text-sm u-text-2">
+          执行机器详情：
+          {workspaces.map((w, i) => (
+            <span key={w.id}>
+              {i > 0 && ' · '}
+              <Link to={`/workspaces/${w.id}`} className="u-accent">{w.name}</Link>
+            </span>
+          ))}
+        </p>
+      )}
     </section>
   );
 }

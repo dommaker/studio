@@ -72,36 +72,37 @@ describe('WorkspacePage', () => {
     expect(buttons).toHaveLength(2);
   });
 
-  // AC-5.3: provider auto-filled, not editable
-  it('clicking create role opens dialog with provider pre-filled', async () => {
+  // AC-5.3: provider auto-filled, not editable（E8-4：链路走 CreateRoleModal 正本，presetProvider 锁定行内 CLI）
+  it('clicking create role opens CreateRoleModal with provider pre-filled', async () => {
     render(<WorkspacePage />);
     await waitFor(() => expect(screen.getByText('Claude Code')).toBeDefined());
 
     fireEvent.click(screen.getAllByText('设为角色')[0]);
 
-    // Dialog is open
+    // CreateRoleModal 正本弹框（title + 正本提交键 testid）
     expect(screen.getByText('创建角色')).toBeDefined();
+    expect(screen.getByTestId('create-role-submit')).toBeDefined();
     // Name input is present
-    expect(screen.getByPlaceholderText('角色名称')).toBeDefined();
+    expect(screen.getByPlaceholderText(/角色名称/)).toBeDefined();
     // Provider is displayed as readonly text
     expect(screen.getByText('claude')).toBeDefined();
   });
 
-  // AC-5.4: submit creates agent via API
-  it('submit creates agent and shows success', async () => {
+  // AC-5.4: submit creates agent via API（E8-4：成功 = 关弹框 + onCreated，§6.4 正本行为）
+  it('submit creates agent via CreateRoleModal and closes dialog', async () => {
     render(<WorkspacePage />);
     await waitFor(() => expect(screen.getByText('Claude Code')).toBeDefined());
 
     fireEvent.click(screen.getAllByText('设为角色')[0]);
 
     // Fill name and description
-    const nameInput = screen.getByPlaceholderText('角色名称');
+    const nameInput = screen.getByPlaceholderText(/角色名称/);
     fireEvent.change(nameInput, { target: { value: 'Executor' } });
 
-    const descInput = screen.getByPlaceholderText('角色描述（选填）');
+    const descInput = screen.getByPlaceholderText(/描述（可选）/);
     fireEvent.change(descInput, { target: { value: '代码实现' } });
 
-    fireEvent.click(screen.getByText('创建'));
+    fireEvent.click(screen.getByTestId('create-role-submit'));
 
     await waitFor(() => {
       expect(mockCreateAgent).toHaveBeenCalledWith({
@@ -110,14 +111,21 @@ describe('WorkspacePage', () => {
         provider: 'claude',
       });
     });
+    // §6.4：创建成功关弹框
+    await waitFor(() => expect(screen.queryByTestId('create-role-submit')).toBeNull());
   });
 
-  // AC-5.5: shows bound role count
-  it('displays no bound roles initially', async () => {
-    render(<WorkspacePage />);
+  // E8-2: 骨架合规化（§4.7）+ 删硬编码「0 个角色」假数据（无按 runtime 的角色计数接口）
+  it('E8-2: 骨架归 §4.7（u-page-head/page-title/max-w-5xl），行卡归 .card，按钮归 btn btn-primary btn-sm，无假数据', async () => {
+    const { container } = render(<WorkspacePage />);
     await waitFor(() => expect(screen.getByText('Claude Code')).toBeDefined());
-    const badges = screen.getAllByText('0 个角色');
-    expect(badges.length).toBeGreaterThanOrEqual(1);
+    expect(container.querySelector('.u-page-bg')).toBeTruthy();
+    expect(container.querySelector('.u-page-head')).toBeTruthy();
+    expect(container.querySelector('.page-title')?.textContent).toBe('VPS');
+    expect(container.querySelector('.max-w-5xl')).toBeTruthy();
+    expect(container.querySelectorAll('.card')).toHaveLength(2);
+    expect(screen.getAllByText('设为角色')[0].className).toContain('btn btn-primary btn-sm');
+    expect(screen.queryByText('0 个角色')).toBeNull();
   });
 
   it('handles API failure gracefully', async () => {

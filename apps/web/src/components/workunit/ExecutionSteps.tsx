@@ -1,9 +1,10 @@
 // ExecutionSteps — WU 过程可视化：执行步事件流（思考/工具调用/skill 注入/用量），SSE 负载直更（#318，无 eventTick 重拉）。
 // 频道只留里程碑，过程明细在这里；完整 transcript（会话原文）见 WU 详情页 TranscriptViewer（#174）。
 // Layer B：执行中的步内实时 chunk（SSE-only 不落盘）；REST 步级卡片落位（同 step）后实时区自动让位。
-// 消费方：WorkUnitDrawer（频道页右抽屉）、WorkUnitDetailPage（详情页）、WorkUnitListPage（/workunits 行内展开）
+// 消费方：WorkUnitDrawer（频道页/列表页右抽屉）、WorkUnitDetailPage（详情页）。
+// （E2-1 起 WorkUnitListPage 行内展开区删除，不再直接消费）
 // #182（决策 #61 速览档）：传 wu 时置顶「当前状态速览」节——状态 / 第 N 步·上限 M / 最近进展 / 失败原因 / 累计 token；
-// 抽屉与详情页都传 wu，两端复用同一组件避免渲染逻辑漂移；ListPage 不传则不渲染速览。
+// 抽屉与详情页都传 wu，两端复用同一组件避免渲染逻辑漂移。
 import { useEffect, useRef, useState } from 'react';
 import {
   workunitApi,

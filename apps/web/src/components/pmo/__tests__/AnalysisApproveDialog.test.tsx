@@ -2,7 +2,7 @@
 // 预填展示 / 人改后 summary 回传 / 空清单直接通过 / 取消（按钮、关闭 ×、遮罩点击）
 // #177：可选「默认执行角色」下拉（候选=频道成员，默认留空=涌现）
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
 const { mockChannelGet, mockListAllAgents } = vi.hoisted(() => ({
   mockChannelGet: vi.fn(),
@@ -116,5 +116,47 @@ describe('#177 默认执行角色下拉（候选=频道成员，留空=涌现）
     render(<AnalysisApproveDialog prefill="" onConfirm={vi.fn()} onCancel={vi.fn()} />);
     expect(screen.queryByRole('button', { name: '默认执行角色' })).toBeNull();
     expect(mockChannelGet).not.toHaveBeenCalled();
+  });
+});
+
+// 批次A 项7：onConfirm 返回 Promise —— 提交期间 loading + 双键禁用 + 遮罩不关闭；失败内联错误保持打开
+describe('批次A 项7：弹窗提交反馈', () => {
+  it('onConfirm 未结算期间：确认键 loading/禁用，取消与遮罩关闭被屏蔽', async () => {
+    let resolve: () => void = () => {};
+    const onConfirm = vi.fn().mockImplementation(() => new Promise<void>(r => { resolve = r; }));
+    const onCancel = vi.fn();
+    const { container } = render(
+      <AnalysisApproveDialog prefill={PREFILL} onConfirm={onConfirm} onCancel={onCancel} />,
+    );
+
+    const confirmBtn = screen.getByText('确认通过').closest('button')!;
+    fireEvent.click(confirmBtn);
+    await waitFor(() => expect(confirmBtn.disabled).toBe(true));
+    expect(confirmBtn.getAttribute('aria-busy')).toBe('true');
+    expect(screen.getByText('取消').closest('button')!.disabled).toBe(true);
+
+    fireEvent.click(screen.getByText('取消'));
+    fireEvent.click(container.querySelector('.modal-overlay')!);
+    expect(onCancel).not.toHaveBeenCalled();
+
+    resolve();
+    await waitFor(() => expect(confirmBtn.disabled).toBe(false));
+  });
+
+  it('onConfirm reject → 弹窗不关 + 内联错误行；重试成功由调用方关窗', async () => {
+    const onConfirm = vi.fn()
+      .mockRejectedValueOnce(new Error('审查硬门已关闭'))
+      .mockResolvedValueOnce(undefined);
+    const onCancel = vi.fn();
+    render(<AnalysisApproveDialog prefill={PREFILL} onConfirm={onConfirm} onCancel={onCancel} />);
+
+    fireEvent.click(screen.getByText('确认通过'));
+    expect(await screen.findByText('审查硬门已关闭')).toBeTruthy();
+    expect(onCancel).not.toHaveBeenCalled(); // 未关窗
+    expect(screen.getByText('确认分析结论')).toBeTruthy(); // 弹窗仍在
+
+    fireEvent.click(screen.getByText('确认通过'));
+    await waitFor(() => expect(onConfirm).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.queryByText('审查硬门已关闭')).toBeNull()); // 重试清错误行
   });
 });

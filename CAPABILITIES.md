@@ -1,6 +1,6 @@
 # CAPABILITIES.md
 
-> 最后更新: 2026-09-08
+> 最后更新: 2026-09-09
 
 ---
 
@@ -160,7 +160,7 @@
 | PMOPage | apps/web/src/pages/PMOPage.tsx | PMOPage - PMO 管理主页面（项目 + OKR；三个弹窗已抽至 components/pmo/，工单 33） |
 | ProjectDetailPage | apps/web/src/pages/ProjectDetailPage.tsx | Project 详情页 - GEN-005 + FL-013 |
 | ResetPasswordPage | apps/web/src/pages/ResetPasswordPage.tsx | 重置密码页面 — 使用 token 设置新密码 |
-| RolesSetup | apps/web/src/pages/RolesSetup.tsx | AC-2.5: 角色初始化向导页 |
+
 | Settings | apps/web/src/pages/Settings.tsx | 设置页面 - API 配置 + 通知 + 公司 + 主题语言 |
 
 | WorkUnitDetailPage | apps/web/src/pages/WorkUnitDetailPage.tsx | WorkUnitDetailPage — /workunits/:id WU 详情页（全站跳转枢纽，2026-07 agents-pmo-flow-ux §5.4） |
@@ -218,4 +218,6 @@
 | UnifiedEntryContent | apps/web/src/components/knowledge/UnifiedEntryContent.tsx | #435 B7：统一视图条目内容消化呈现——JSON 结构化键值列表；文本超 200 字符截断 + 展开/收起， |
 | MetaStrip | apps/web/src/components/ui/MetaStrip.tsx | MetaStrip — #440 Phase 3：详情页标题下密排元信息条。 |
 | ChannelWorkBar | apps/web/src/components/channel/ChannelWorkBar.tsx | ChannelWorkBar — 频道工作条：合并 ChannelLiveBars（#242/#322 live 实况）与 |
+| ChannelTopbarMenu | apps/web/src/components/channel/ChannelTopbarMenu.tsx | ChannelTopbarMenu — E1（2026-09 页面重设计，docs/plans/2026-09-page-redesign.md）： |
+| WuGateActions | apps/web/src/components/workunit/WuGateActions.tsx | WuGateActions — WU 审查闸门动作三处合一（2026-09 页面重设计 E2-4，docs/plans/2026-09-page-redesign.md）： |
 | mockMatchMedia | apps/web/src/test/mockMatchMedia.ts | #395：jsdom 无 window.matchMedia 实现——按给定视口宽度求值 (min|max)-width 媒体查询， |

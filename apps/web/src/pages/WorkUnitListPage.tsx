@@ -1,20 +1,16 @@
 import { useEffect, useState } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { deriveDisplayState, WU_STATUS_LABELS, WU_TYPE_LABELS, type DerivedWuState } from '@dommaker/studio-shared/web';
 import { useWorkUnitStore } from '../stores/workunitStore';
-import { DiscussionPanel } from '../components/DiscussionPanel';
-import { ExecutionSteps } from '../components/workunit/ExecutionSteps';
-import { ReviewHint } from '../components/workunit/ReviewHint';
 import { SelfReviewBadge } from '../components/workunit/SelfReviewBadge';
-import { channelApi, type AgentProfile } from '../api/channel';
+import { WuGateActions } from '../components/workunit/WuGateActions';
+import { WorkUnitDrawer, type DrawerState } from '../components/channel/WorkUnitDrawer';
 import type { WorkUnit } from '../api/workunit';
-import { buildMapOpeningPrefill, parseBlockedBy } from '../components/pmo/mapUtils';
-import { BlockedByList } from '../components/workunit/BlockedByList';
-import { AnalysisApproveDialog } from '../components/pmo/AnalysisApproveDialog';
+import { parseBlockedBy } from '../components/pmo/mapUtils';
 import { useWebSocketContext } from '../api/websocketHooks';
 import { Select } from '../components/ui';
-import { MetaStrip } from '../components/ui/MetaStrip';
 import { formatShortTime } from '../utils/datetime';
+import { serverErrorMessage } from '../utils/errorMessage';
 import '../styles/workunits.css';
 
 /** F6：WU 展示状态唯一派生口径（铁律：禁止各自读 metadata.attestations 解释） */
@@ -34,7 +30,7 @@ const STATUS_CHIPS = [
 export function WorkUnitListPage() {
   const {
     workunits, total, loading, error,
-    loadWorkUnits, createWorkUnit, reviewPassed, reviewRejected, confirmPending,
+    loadWorkUnits, loadMoreWorkUnits, createWorkUnit, reviewPassed, reviewRejected, confirmPending,
     statusFilter, setStatusFilter,
     unattributedOnly, unattributedTotal, setUnattributedOnly, loadUnattributedCount,
   } = useWorkUnitStore();
@@ -43,8 +39,12 @@ export function WorkUnitListPage() {
   const [newScope, setNewScope] = useState('');
   const [newType, setNewType] = useState('task');
   const [creating, setCreating] = useState(false);
+  // 批次A 项4：创建失败内联错误（原 console.error 静默）
+  const [createError, setCreateError] = useState<string | null>(null);
   const [humanOnly, setHumanOnly] = useState(false);
   const [searchParams] = useSearchParams();
+  // E2-1（2026-09 页面重设计）：行点击 → 右侧抽屉（替代整行展开区）；复用频道工作区同一 WorkUnitDrawer
+  const [drawer, setDrawer] = useState<DrawerState>(null);
 
   // #184：支持下钻链接 URL 初始化状态筛选（/workunits?status=blocked），仅首载读取一次
   useEffect(() => {
@@ -76,12 +76,14 @@ export function WorkUnitListPage() {
   const handleCreate = async () => {
     if (!newScope.trim()) return;
     setCreating(true);
+    setCreateError(null);
     try {
       await createWorkUnit({ scope: newScope.trim(), type: newType });
       setNewScope('');
       setShowCreate(false);
     } catch (e) {
-      console.error('Create WorkUnit failed:', e);
+      // 批次A 项4：失败内联进创建表单（服务端 error.message 优先）
+      setCreateError(serverErrorMessage(e) ?? '创建失败，请重试');
     } finally {
       setCreating(false);
     }
@@ -110,7 +112,7 @@ export function WorkUnitListPage() {
           </div>
         </div>
 
-        {/* Stats = 快速筛选 chip（Step 2 筛选合一；计数口径不变：总数走 server total，其余当前页派生列计数。
+        {/* Stats = 快速筛选 chip（Step 2 筛选合一；计数口径不变：总数走 server total，其余已加载集合派生列计数。
             F6-b：计数走派生列（双轨期与存储状态并存比对）） */}
         <div className="flex gap-2 mt-4 flex-wrap">
           <StatChip
@@ -147,70 +149,98 @@ export function WorkUnitListPage() {
         </div>
       </div>
 
-      <div className="flex-1 overflow-auto px-8 pb-8">
-        <div className="max-w-5xl">
-          {/* Create form */}
-          {showCreate && (
-            <div className="card mt-4 p-4">
-              <div className="flex gap-3 items-end">
-                <div className="flex-1">
-                  <label className="text-xs u-text-3 mb-1 block">Scope（描述任务）</label>
-                  <input
-                    className="w-full px-3 py-2 rounded u-surface u-text border u-border-2  outline-none"
-                    placeholder="例：实现用户登录功能"
-                    value={newScope}
-                    onChange={e => setNewScope(e.target.value)}
-                    onKeyDown={e => e.key === 'Enter' && handleCreate()}
-                  />
+      {/* E2-1：列表 + 流内右抽屉双栏（768–1023 抽屉转 fixed 覆盖、<768 全屏化，走 .mc-drawer 全局降级规则） */}
+      <div className="flex-1 flex min-h-0">
+        <div className="flex-1 overflow-auto px-8 pb-8">
+          <div className="max-w-5xl">
+            {/* Create form */}
+            {showCreate && (
+              <div className="card mt-4 p-4">
+                <div className="flex gap-3 items-end">
+                  <div className="flex-1">
+                    <label className="text-xs u-text-3 mb-1 block">Scope（描述任务）</label>
+                    <input
+                      className="w-full px-3 py-2 rounded u-surface u-text border u-border-2  outline-none"
+                      placeholder="例：实现用户登录功能"
+                      value={newScope}
+                      onChange={e => setNewScope(e.target.value)}
+                      onKeyDown={e => e.key === 'Enter' && handleCreate()}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs u-text-3 mb-1 block">Type</label>
+                    <Select
+                      className="px-3 py-2 rounded u-surface u-text border u-border-2 outline-none"
+                      value={newType}
+                      onChange={setNewType}
+                      options={Object.entries(WU_TYPE_LABELS).map(([v, l]) => ({ value: v, label: l }))}
+                    />
+                  </div>
+                  <button
+                    className="btn btn-primary"
+                    onClick={handleCreate}
+                    disabled={creating || !newScope.trim()}
+                  >
+                    {creating ? '创建中...' : '创建'}
+                  </button>
                 </div>
-                <div>
-                  <label className="text-xs u-text-3 mb-1 block">Type</label>
-                  <Select
-                    className="px-3 py-2 rounded u-surface u-text border u-border-2 outline-none"
-                    value={newType}
-                    onChange={setNewType}
-                    options={Object.entries(WU_TYPE_LABELS).map(([v, l]) => ({ value: v, label: l }))}
-                  />
-                </div>
-                <button
-                  className="btn btn-primary"
-                  onClick={handleCreate}
-                  disabled={creating || !newScope.trim()}
-                >
-                  {creating ? '创建中...' : '创建'}
-                </button>
+                {createError && <div className="mt-2 text-xs u-err">{createError}</div>}
               </div>
-            </div>
-          )}
+            )}
 
-          {/* Error */}
-          {error && (
-            <div className="mt-4 p-3 rounded u-err-dim u-err text-sm">{error}</div>
-          )}
+            {/* Error */}
+            {error && (
+              <div className="mt-4 p-3 rounded u-err-dim u-err text-sm">{error}</div>
+            )}
 
-          {/* List —— Step 2：无边框行列表（细分隔线 + 左侧状态色条）；待人工 = 派生维度客户端过滤 */}
-          {loading && workunits.length === 0 ? (
-            <div className="text-center py-20 u-text-2">加载中...</div>
-          ) : workunits.length === 0 ? (
-            <div className="empty-state">
-              <div className="empty-icon">📋</div>
-              <p>暂无任务</p>
-              <p className="text-sm mt-2">点击"新建"创建第一个任务</p>
-            </div>
-          ) : (
-            <div className="mt-4">
-              {(humanOnly ? workunits.filter(w => deriveWu(w).needsHuman) : workunits).map(wu => (
-                <WorkUnitRow
-                  key={wu.id}
-                  wu={wu}
-                  onReviewPassed={(summary, assigneeId) => reviewPassed(wu.id, summary, assigneeId)}
-                  onReviewRejected={(reason) => reviewRejected(wu.id, reason)}
-                  onConfirmPending={() => confirmPending(wu.id)}
-                  formatTime={formatShortTime}
-                />
-              ))}
-            </div>
-          )}
+            {/* List —— 无边框行列表（细分隔线 + 左侧状态色条）；待人工 = 派生维度客户端过滤 */}
+            {loading && workunits.length === 0 ? (
+              <div className="text-center py-20 u-text-2">加载中...</div>
+            ) : workunits.length === 0 ? (
+              <div className="empty-state">
+                <div className="empty-icon">📋</div>
+                <p>暂无任务</p>
+                <p className="text-sm mt-2">点击"新建"创建第一个任务</p>
+              </div>
+            ) : (
+              <div className="mt-4">
+                {(humanOnly ? workunits.filter(w => deriveWu(w).needsHuman) : workunits).map(wu => (
+                  <WorkUnitRow
+                    key={wu.id}
+                    wu={wu}
+                    onOpen={() => setDrawer({ kind: 'wu', id: wu.id })}
+                    onReviewPassed={(summary, assigneeId) => reviewPassed(wu.id, summary, assigneeId)}
+                    onReviewRejected={(reason) => reviewRejected(wu.id, reason)}
+                    onConfirmPending={() => confirmPending(wu.id)}
+                    formatTime={formatShortTime}
+                  />
+                ))}
+                {/* E2-5 分页（承接批次 B-3）：追加式「加载更多」+ 已加载/共 N 明示（共 N = pagination.total） */}
+                <div className="flex items-center justify-between mt-2 text-xs u-text-3">
+                  <span>已加载 <span className="font-mono">{workunits.length}</span> / 共 <span className="font-mono">{total}</span></span>
+                  {workunits.length < total && (
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      disabled={loading}
+                      onClick={() => void loadMoreWorkUnits()}
+                    >
+                      {loading ? '加载中…' : '加载更多'}
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* E2-1：WU/REQ 详情右抽屉（与频道工作区同一组件，props 自包含自取数） */}
+        <div className="wu-drawer-host">
+          <WorkUnitDrawer
+            drawer={drawer}
+            onClose={() => setDrawer(null)}
+            onOpenWu={(id) => setDrawer({ kind: 'wu', id })}
+            onOpenReq={(id) => setDrawer({ kind: 'req', id })}
+          />
         </div>
       </div>
     </div>
@@ -218,23 +248,17 @@ export function WorkUnitListPage() {
 }
 
 function WorkUnitRow({
-  wu, onReviewPassed, onReviewRejected, onConfirmPending, formatTime,
+  wu, onOpen, onReviewPassed, onReviewRejected, onConfirmPending, formatTime,
 }: {
   wu: WorkUnit;
-  onReviewPassed: (summary?: string, assigneeId?: string) => void;
-  onReviewRejected: (reason?: string) => void;
-  /** #284（决策 #250 D1）：pending 人闸确认（行展开态入口，与频道抽屉同行为） */
-  onConfirmPending: () => void;
+  /** E2-1：行点击开右侧抽屉（替代整行展开区） */
+  onOpen: () => void;
+  onReviewPassed: (summary?: string, assigneeId?: string) => Promise<unknown>;
+  onReviewRejected: (reason?: string) => Promise<unknown>;
+  /** #284（决策 #250 D1）：pending 人闸确认（行内快速处置入口，与抽屉/详情页同组件） */
+  onConfirmPending: () => Promise<unknown>;
   formatTime: (ts: string | null) => string;
 }) {
-  const [expanded, setExpanded] = useState(false);
-  const [showMetadata, setShowMetadata] = useState(false);
-  const [showRejectModal, setShowRejectModal] = useState(false);
-  const [rejectReason, setRejectReason] = useState('');
-  // #106 M7：analysis 通过/确认弹窗——预填 agent 产出的待决问题清单（人审改后随 summary 回传开图）
-  const [showApproveModal, setShowApproveModal] = useState(false);
-  const [channelMembers, setChannelMembers] = useState<AgentProfile[]>([]);
-  const navigate = useNavigate();
   // F6-b：徽章/按钮的展示判断一律过派生函数（通过/拒绝的调用资格仍看存储状态，
   // 因为服务端状态机以存储为准；done 缺 l3 时"确认"调同一端点幂等补写）
   const derived = deriveWu(wu);
@@ -243,40 +267,22 @@ function WorkUnitRow({
   const depBlocked = wu.status === 'unassigned' && wu.claimable === false;
   const depIds = depBlocked ? parseBlockedBy(wu.metadata) : [];
 
-  // analysis 单走确认弹窗（待决问题清单审核）；其余类型保持一键通过
-  const handleApprove = () => (wu.type === 'analysis' ? setShowApproveModal(true) : onReviewPassed());
-
-  // AC-2.4: expanded 时获取频道成员，用于 ReviewHint 判断是否有 reviewer
-  useEffect(() => {
-    if (!expanded || !wu.channelId) return;
-    channelApi.listAgents(wu.channelId)
-      .then(res => setChannelMembers(res.data.data))
-      .catch(() => { /* best-effort */ });
-  }, [expanded, wu.channelId]);
-
   return (
     <div
-      className={`wu-row${expanded ? ' wu-row-open' : ''}${depBlocked ? ' u-dimmed' : ''}`}
+      className={`wu-row${depBlocked ? ' u-dimmed' : ''}`}
       data-status={derived.column}
     >
       <div
         className="px-3 py-2.5 cursor-pointer flex items-center justify-between gap-4"
-        onClick={() => setExpanded(!expanded)}
+        onClick={onOpen}
       >
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             {/* 状态色点 + 状态词（小字）：着色走 data-status（与左侧色条同口径） */}
             <span className="wu-dot" aria-hidden="true" />
             <span className="wu-status">{WU_STATUS_LABELS[derived.column] ?? derived.column}</span>
-            {/* 标题 = 详情页链接（↗ 深链枢纽）；行其余区域点击仍为行内展开 */}
-            <Link
-              to={`/workunits/${wu.id}`}
-              className="font-medium u-text truncate u-hover-accent"
-              title="打开任务详情页"
-              onClick={e => e.stopPropagation()}
-            >
-              {wu.scope}
-            </Link>
+            {/* 标题（行点击开抽屉；详情页入口 = 行尾 ↗，深链场景） */}
+            <span className="font-medium u-text truncate">{wu.scope}</span>
             {/* 弱化 chip：类型 / REQ / 被阻塞；#400 验收修复：shrink-0+nowrap 防长标题挤压 */}
             <span className="wu-chip">{WU_TYPE_LABELS[wu.type] ?? wu.type}</span>
             {wu.reqId && (
@@ -284,8 +290,7 @@ function WorkUnitRow({
                 {wu.reqId}
               </span>
             )}
-            {/* #116：被阻塞徽标，悬停 title 列依赖 id（客户端不知各依赖状态，口径保持中性；
-                未了结判定与可点击清单见行内展开 BlockedByList） */}
+            {/* #116：被阻塞徽标，悬停 title 列依赖 id（依赖清单与各依赖状态见详情页「依赖与验收」节） */}
             {depBlocked && (
               <span
                 className="wu-chip wu-chip-warn"
@@ -305,150 +310,25 @@ function WorkUnitRow({
         </div>
 
         <div className="flex items-center gap-2">
-          {wu.status === 'in_review' && (
-            <>
-              <button
-                className="text-xs px-2 py-1 rounded u-ok-dim u-ok u-hover-bg"
-                onClick={e => { e.stopPropagation(); handleApprove(); }}
-              >
-                通过
-              </button>
-              <button
-                className="text-xs px-2 py-1 rounded u-err-dim u-err u-hover-bg"
-                onClick={e => { e.stopPropagation(); setShowRejectModal(true); }}
-              >
-                拒绝
-              </button>
-            </>
-          )}
-          {/* F6-b：done 但缺人工确认（l3）→ 确认按钮（幂等补写台账，不改状态）。
-              语义：L2 agent 评审已是流程硬门（过了即推进），此按钮是 L3 人工验收留痕，不阻断流程。 */}
-          {wu.status === 'done' && derived.needsHuman && (
-            <button
-              className="text-xs px-2 py-1 rounded u-ok-dim u-ok u-hover-bg"
-              title="流程已由 Agent 评审推进完成；此确认为人工确认留痕，不阻断流程，确认后出审查列"
-              onClick={e => { e.stopPropagation(); handleApprove(); }}
-            >
-              确认
-            </button>
-          )}
-          <span className="u-text-2 text-sm">{expanded ? '▾' : '▸'}</span>
+          {/* E2-4：行内闸门按钮 = 共享 WuGateActions（快速处置不开抽屉；组件内吞冒泡） */}
+          <WuGateActions
+            wu={wu}
+            onReviewPassed={onReviewPassed}
+            onReviewRejected={onReviewRejected}
+            onConfirmPending={onConfirmPending}
+          />
+          {/* E2-1：行尾 ↗ = 完整详情页入口（深链分享/深度调查场景） */}
+          <Link
+            to={`/workunits/${wu.id}`}
+            className="u-text-2 u-hover-accent"
+            title="打开完整详情页"
+            aria-label="打开完整详情页"
+            onClick={e => e.stopPropagation()}
+          >
+            ↗
+          </Link>
         </div>
       </div>
-
-      {expanded && (
-        <div className="px-3 pb-3 text-sm border-t u-border">
-          {/* AC-2.4: in_review + 无 reviewer -> 提醒横幅 */}
-          <ReviewHint
-            status={wu.status}
-            channelMembers={channelMembers}
-            onSetupClick={() => navigate('/setup/roles')}
-          />
-          {/* Step 2：metadata grid → MetaStrip 紧凑横排（字段不变，Completed 无值自动省略） */}
-          <MetaStrip
-            className="text-xs u-text-2 mt-2 flex flex-wrap gap-x-4 gap-y-1"
-            items={[
-              { key: 'id', label: 'ID', value: <span className="u-text-3 font-mono">{wu.id}</span> },
-              { key: 'type', label: 'Type', value: <span className="u-text-3">{wu.type}</span> },
-              { key: 'assignee', label: 'Assignee', value: <span className="u-text-3 font-mono">{wu.assigneeId ?? 'none'}</span> },
-              { key: 'channel', label: 'Channel', value: <span className="u-text-3 font-mono">{wu.channelId ?? 'none'}</span> },
-              { key: 'req', label: 'REQ', value: <span className="u-text-3 font-mono">{wu.reqId ?? 'none'}</span> },
-              { key: 'retry', label: 'Retry', value: <span className="u-text-3">{wu.retryCount}</span> },
-              { key: 'failure', label: 'Failure', value: <span className="u-text-3">{wu.failureType ?? 'none'}</span> },
-              { key: 'updated', label: 'Updated', value: <span className="u-text-3 font-mono">{formatTime(wu.updatedAt)}</span> },
-              { key: 'completed', label: 'Completed', value: wu.completedAt ? <span className="u-text-3 font-mono">{formatTime(wu.completedAt)}</span> : null },
-            ]}
-          />
-          {/* #284（决策 #250 D1/F7）：pending 人闸确认入口补齐到行展开态（与频道抽屉同行为：
-              确认 → unassigned 进 frontier 可认领） */}
-          {wu.status === 'pending' && (
-            <div className="mt-2">
-              <button
-                className="text-xs px-2 py-1 rounded u-ok-dim u-ok u-hover-bg"
-                title="待确认人闸：扩范围单创建落待确认，确认后进入待领取（agent 可见可领取）"
-                onClick={onConfirmPending}
-              >
-                确认（进待领取）
-              </button>
-            </div>
-          )}
-          {/* #116：被阻塞行展开显示依赖清单（各依赖状态 + 跳详情页） */}
-          {depBlocked && (
-            <div className="mt-2">
-              <BlockedByList metadata={wu.metadata} />
-            </div>
-          )}
-          {/* Step 2：metadata JSON 默认收进 toggle */}
-          {wu.metadata && (
-            <div className="mt-2">
-              <button
-                className="wu-toggle"
-                aria-expanded={showMetadata}
-                onClick={() => setShowMetadata(!showMetadata)}
-              >
-                {showMetadata ? '▾ 隐藏 metadata' : '▸ 查看 metadata'}
-              </button>
-              {showMetadata && (
-                <pre className="mt-1 text-xs u-text-3 u-surface rounded p-2 overflow-auto max-h-32">
-                  {(() => { try { return JSON.stringify(JSON.parse(wu.metadata!), null, 2); } catch { return wu.metadata; } })()}
-                </pre>
-              )}
-            </div>
-          )}
-          {/* 执行过程（思考/工具调用/用量，SSE 负载直更 #318）——与频道页右抽屉同一视图 */}
-          <div className="mt-3">
-            <div className="wu-sec">执行过程</div>
-            <ExecutionSteps workUnitId={wu.id} />
-          </div>
-          <div className="mt-3">
-            <div className="wu-sec">讨论</div>
-            <DiscussionPanel workUnitId={wu.id} />
-          </div>
-        </div>
-      )}
-
-      {showApproveModal && (
-        <AnalysisApproveDialog
-          prefill={buildMapOpeningPrefill(wu.metadata)}
-          channelId={wu.channelId}
-          onConfirm={(summary, assigneeId) => { onReviewPassed(summary, assigneeId); setShowApproveModal(false); }}
-          onCancel={() => setShowApproveModal(false)}
-        />
-      )}
-
-      {showRejectModal && (
-        <div className="modal-overlay" onClick={() => setShowRejectModal(false)}>
-          <div className="modal" style={{ maxWidth: '24rem' }} onClick={e => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3 className="modal-title">拒绝原因</h3>
-              <button className="modal-close" onClick={() => setShowRejectModal(false)} aria-label="关闭">×</button>
-            </div>
-            <div className="modal-body">
-              <textarea
-                className="input w-full"
-                rows={3}
-                placeholder="输入拒绝原因（可选）"
-                value={rejectReason}
-                onChange={e => setRejectReason(e.target.value)}
-              />
-            </div>
-            <div className="modal-footer">
-              <button
-                className="btn btn-secondary"
-                onClick={() => { setShowRejectModal(false); setRejectReason(''); }}
-              >
-                取消
-              </button>
-              <button
-                className="btn btn-danger"
-                onClick={() => { onReviewRejected(rejectReason || undefined); setShowRejectModal(false); setRejectReason(''); }}
-              >
-                确认拒绝
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

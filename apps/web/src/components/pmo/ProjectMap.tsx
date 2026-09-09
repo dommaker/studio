@@ -128,12 +128,13 @@ export function ProjectMap({ map, decisionStatusByWuId, chainWus }: ProjectMapPr
 /**
  * 顶部「下一个该干什么」：可认领 + 依赖已清的第一张（排序细则见 mapUtils.pickNextAction）。
  * action=null = 暂无（依赖未清或都已有人在做）。
+ * E3（2026-09 页面重设计）：提升为详情页主行动区——accent 左边线卡（与中性信息卡的地图区层级分工）。
  */
 export function NextActionCard({ action }: { action: NextActionCandidate | null }) {
   const navigate = useNavigate();
   return (
-    <div className="card p-4 mb-6">
-      <h3 className="text-sm font-medium u-text-2 mb-2">👉 下一个该干什么</h3>
+    <div className="card p-4 mb-3" style={{ borderLeft: '2px solid var(--accent-primary)' }}>
+      <h3 className="mc-block-label" style={{ margin: '0 0 8px' }}>下一个该干什么</h3>
       {action ? (
         <div className="flex items-center gap-2 flex-wrap">
           <button

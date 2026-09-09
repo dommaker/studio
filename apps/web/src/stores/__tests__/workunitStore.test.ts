@@ -164,6 +164,79 @@ describe('workunitStore applyWorkunitEvent — SSE 负载驱动行更新（#318�
   });
 });
 
+// E2-5（承接批次 B-3）：追加式翻页——loadMoreWorkUnits 拉下一页拼接尾部（按 id 去重），page 随响应前进
+describe('workunitStore loadMoreWorkUnits — 追加式分页（E2-5）', () => {
+  const row = (id: string, overrides: Record<string, unknown> = {}) =>
+    ({ id, scope: `scope-${id}`, type: 'task', status: 'active', metadata: null, ...overrides }) as unknown as import('../../api/workunit').WorkUnit;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useWorkUnitStore.setState({
+      workunits: [row('wu-1'), row('wu-2')],
+      total: 5,
+      page: 1,
+      limit: 2,
+      statusFilter: null,
+      typeFilter: null,
+      unattributedOnly: false,
+      unattributedTotal: null,
+      loading: false,
+      error: null,
+    });
+  });
+
+  it('拉下一页追加拼接（不去重时含 SSE 插头部重叠行 → 按 id 去重），page/total 随响应前进', async () => {
+    (workunitApi.list as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      data: {
+        // wu-2 重叠（SSE created 插头部顶位导致），应被去重
+        data: [row('wu-2'), row('wu-3'), row('wu-4')],
+        pagination: { total: 5, page: 2, limit: 2, totalPages: 3 },
+      },
+    });
+
+    await useWorkUnitStore.getState().loadMoreWorkUnits();
+
+    const s = useWorkUnitStore.getState();
+    expect(workunitApi.list).toHaveBeenCalledWith(expect.objectContaining({ page: 2, limit: 2 }));
+    expect(s.workunits.map(w => w.id)).toEqual(['wu-1', 'wu-2', 'wu-3', 'wu-4']);
+    expect(s.page).toBe(2);
+    expect(s.total).toBe(5);
+    expect(s.loading).toBe(false);
+  });
+
+  it('携带当前过滤维度（statusFilter / unattributedOnly）请求下一页', async () => {
+    useWorkUnitStore.setState({ statusFilter: 'active', unattributedOnly: true });
+    (workunitApi.list as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      data: { data: [row('wu-3')], pagination: { total: 5, page: 2, limit: 2, totalPages: 3 } },
+    });
+
+    await useWorkUnitStore.getState().loadMoreWorkUnits();
+
+    expect(workunitApi.list).toHaveBeenCalledWith(expect.objectContaining({ status: 'active', attributed: false, page: 2 }));
+  });
+
+  it('已到底（workunits.length >= total）或在途 → no-op 不发请求', async () => {
+    useWorkUnitStore.setState({ workunits: [row('wu-1'), row('wu-2')], total: 2 });
+    await useWorkUnitStore.getState().loadMoreWorkUnits();
+    expect(workunitApi.list).not.toHaveBeenCalled();
+
+    useWorkUnitStore.setState({ total: 5, loading: true });
+    await useWorkUnitStore.getState().loadMoreWorkUnits();
+    expect(workunitApi.list).not.toHaveBeenCalled();
+  });
+
+  it('请求失败 → error 置位、loading 复位、原列表不动', async () => {
+    (workunitApi.list as unknown as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('network down'));
+
+    await useWorkUnitStore.getState().loadMoreWorkUnits();
+
+    const s = useWorkUnitStore.getState();
+    expect(s.error).toBe('network down');
+    expect(s.loading).toBe(false);
+    expect(s.workunits.map(w => w.id)).toEqual(['wu-1', 'wu-2']);
+    expect(s.page).toBe(1);
+  });
+});
 // #405：未归属过滤（消费 #428 attributed=false 服务端过滤）——
 // 请求带参、徽标计数取服务端 total（非当前页近似）、SSE 增量不混入不符行
 describe('workunitStore 未归属过滤（#405）', () => {

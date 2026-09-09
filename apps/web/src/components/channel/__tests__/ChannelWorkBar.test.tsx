@@ -157,4 +157,15 @@ describe('ChannelWorkBar — 频道工作条', () => {
     expect(steps[2].className).toContain('wu-st-current');
     expect(steps[3].className).toContain('wu-st-upcoming');
   });
+
+  // E1：workbar 内 stepper 站点可点（与 live 徽标统一入口）——点击任意站开 currentWu 抽屉
+  it('stepper 站点可点：点击开 currentWu 抽屉', () => {
+    mockUseChannelLiveExecutions.mockReturnValue([]);
+    const onOpenWorkUnit = vi.fn();
+    const { container } = render(<ChannelWorkBar channelId="ch-1" currentWu={wu({ status: 'active' })} onOpenWorkUnit={onOpenWorkUnit} />);
+    const btns = container.querySelectorAll('button.wu-bstep-btn');
+    expect(btns).toHaveLength(4);
+    fireEvent.click(screen.getByText('待验收'));
+    expect(onOpenWorkUnit).toHaveBeenCalledWith('WU-1');
+  });
 });

@@ -20,6 +20,13 @@ vi.mock('../../../api/channel', () => ({
   },
 }));
 
+// E8-1 起机器名直链用 react-router-dom Link；本测试无 Router 上下文，mock 为 <a>
+vi.mock('react-router-dom', () => ({
+  Link: ({ children, to }: { children: React.ReactNode; to: string }) =>
+    React.createElement('a', { href: to }, children),
+}));
+
+import React from 'react';
 import { DefaultExecutionMachineSection } from '../DefaultExecutionMachineSection';
 import { useAuthStore } from '../../../stores/authStore';
 
@@ -115,6 +122,43 @@ describe('#286: DefaultExecutionMachineSection 默认执行机器', () => {
     await waitFor(() => expect(screen.getByTestId('exec-machine-select-ch-1')).toBeTruthy());
     expect(screen.getByTestId('exec-machine-select-ch-1').textContent).toContain('无');
     expect(screen.queryByText(/绑定已失效/)).toBeNull();
+  });
+});
+
+describe('E8-1: 保存成功轻反馈 + WorkspacePage 站内入口', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockListChannels.mockResolvedValue({ data: { success: true, data: [CH_BOUND, CH_FREE] } });
+    mockListWorkspaces.mockResolvedValue({ data: { success: true, data: WS_LIST } });
+    mockUpdateChannel.mockResolvedValue({ data: { success: true, data: {} } });
+  });
+
+  it('改选保存成功 → Select 旁「✓ 已保存」轻反馈，约 2s 后淡出消失', async () => {
+    render(<DefaultExecutionMachineSection />);
+    await waitFor(() => expect(screen.getByTestId('exec-machine-select-ch-2')).toBeTruthy());
+
+    fireEvent.click(screen.getByTestId('exec-machine-select-ch-2'));
+    fireEvent.click(screen.getByRole('option', { name: 'VPS' }));
+
+    await waitFor(() => expect(screen.getByTestId('exec-machine-saved-ch-2')).toBeTruthy());
+    // 约 2s 后自动消失（真实定时器；断言收敛到消失即可）
+    await waitFor(() => expect(screen.queryByTestId('exec-machine-saved-ch-2')).toBeNull(), { timeout: 4000 });
+  });
+
+  it('机器名直链 /workspaces/:id——WorkspacePage 的站内入口', async () => {
+    render(<DefaultExecutionMachineSection />);
+
+    await waitFor(() => expect(screen.getByText(/执行机器详情/)).toBeTruthy());
+    expect(screen.getByRole('link', { name: 'VPS' }).getAttribute('href')).toBe('/workspaces/ws-vps');
+    expect(screen.getByRole('link', { name: '本机' }).getAttribute('href')).toBe('/workspaces/ws-local');
+  });
+
+  it('非 Admin（workspaces 403 降级）→ 不出机器入口链接', async () => {
+    mockListWorkspaces.mockRejectedValue(forbidden());
+    render(<DefaultExecutionMachineSection />);
+
+    await waitFor(() => expect(screen.getByText(/无权限/)).toBeTruthy());
+    expect(screen.queryByText(/执行机器详情/)).toBeNull();
   });
 });
 

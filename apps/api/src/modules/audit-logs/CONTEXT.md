@@ -21,4 +21,4 @@
 - 所有错误场景统一返回 `{ error: { code, message } }` 格式，内部日志使用 `logger.error`。
 - 审计服务通过 `createLazyService` 延迟初始化，避免启动时加载依赖。
 - 分页默认值为 page=1, limit=20（上限 100），统一走 `parsePagination`（#359：堵 limit=999999 直通豁口，原缺省 50 无 clamp）。
-- **鉴权（2026-07-24 收紧）**：`/api/v1/audit-logs` 挂载级 `requireAuth()+requireAdmin()` —— 日志含 IP/UA/email（PII），且 `POST /`（伪造审计）、`POST /cleanup`（销毁证据）此前无角色限制。另：`GET /export` 注册在 `GET /:id` 之后被遮蔽不可达（历史 bug，未修）。
+- **鉴权（2026-07-24 收紧）**：`/api/v1/audit-logs` 挂载级 `requireAuth()+requireAdmin()` —— 日志含 IP/UA/email（PII），且 `POST /`（伪造审计）、`POST /cleanup`（销毁证据）此前无角色限制。`GET /export` 曾注册在 `GET /:id` 之后被遮蔽不可达（历史 bug），2026-09-09 已修复：/export 移到 /:id 之前，并补 action/resource/status 过滤透传（与列表口径一致，E7 前端已带参）。

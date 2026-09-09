@@ -10,12 +10,16 @@ import { useDetectedProviders, buildProviderOptions } from '../../hooks/useDetec
 import { useRosterStore, activeAgentsOf } from '../../stores/rosterStore';
 import { useChannelDataStore } from '../../stores/channelDataStore';
 import { Select } from '../ui';
+import { toast } from '../../utils/toast';
+import { serverErrorMessage } from '../../utils/errorMessage';
 
 interface ChannelMemberManagerProps {
   channelId: string;
+  /** E1：顶栏 ⋯ 菜单收纳时传入菜单行类（默认 mc-btn 顶栏钮形态不变） */
+  triggerClassName?: string;
 }
 
-export const ChannelMemberManager: React.FC<ChannelMemberManagerProps> = ({ channelId }) => {
+export const ChannelMemberManager: React.FC<ChannelMemberManagerProps> = ({ channelId, triggerClassName }) => {
   // 缺键 = 未拉到（页面水合或 store 兜底拉取到位前短暂为空，对齐旧 membersJson 异步到达语义）
   const memberIds = useChannelDataStore((s) => s.members[channelId]);
   const profiles = useRosterStore((s) => s.profiles);
@@ -84,13 +88,15 @@ export const ChannelMemberManager: React.FC<ChannelMemberManagerProps> = ({ chan
   }, [isOpen]);
 
   // 写穿以调用完成时刻的 store 最新值为基（不从渲染闭包取 memberIds——await 期间可能已被并发修改）
+  // 批次A 项8：增删失败 toast（服务端 error.message 优先），不再 console.error 静默
   const handleAdd = async (agentId: string) => {
     try {
       await channelApi.updateMembers(channelId, { add: [agentId] });
       const cur = useChannelDataStore.getState().members[channelId] ?? [];
       useChannelDataStore.getState().setMembers(channelId, [...new Set([...cur, agentId])]);
     } catch (e) {
-      console.error('Failed to add member', e);
+      const m = serverErrorMessage(e);
+      toast.error(m ? `添加成员失败：${m}` : '添加成员失败，请重试');
     }
   };
 
@@ -100,7 +106,8 @@ export const ChannelMemberManager: React.FC<ChannelMemberManagerProps> = ({ chan
       const cur = useChannelDataStore.getState().members[channelId] ?? [];
       useChannelDataStore.getState().setMembers(channelId, cur.filter((id) => id !== agentId));
     } catch (e) {
-      console.error('Failed to remove member', e);
+      const m = serverErrorMessage(e);
+      toast.error(m ? `移除成员失败：${m}` : '移除成员失败，请重试');
     }
   };
 
@@ -136,7 +143,7 @@ export const ChannelMemberManager: React.FC<ChannelMemberManagerProps> = ({ chan
     <div style={{ position: 'relative' }} ref={panelRef}>
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="mc-btn"
+        className={triggerClassName ?? 'mc-btn'}
         title="Channel 成员管理"
       >
         成员 <span>{memberCount > 0 ? `${memberCount} agents` : 'All'}</span>
@@ -162,7 +169,7 @@ export const ChannelMemberManager: React.FC<ChannelMemberManagerProps> = ({ chan
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
                   <span style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis' }}>@{m.name}</span>
                   {m.lastError && (
-                    <span className="mc-status mc-status-running" title={m.lastError}>! 不可用</span>
+                    <span className="mc-status mc-status-error" title={m.lastError}>! 不可用</span>
                   )}
                   {m.description && (
                     <span className="mc-mention-desc">{m.description}</span>

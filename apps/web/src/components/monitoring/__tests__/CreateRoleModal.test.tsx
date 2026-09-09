@@ -82,4 +82,32 @@ describe('CreateRoleModal', () => {
     expect(onClose).toHaveBeenCalled();
     expect(mockCreateAgent).not.toHaveBeenCalled();
   });
+
+  // E8-4：presetProvider（WorkspacePage 行内「设为角色」复用正本）
+  it('presetProvider → 不拉取 runtime 清单，单项固定预选 + provider 只读', async () => {
+    render(<CreateRoleModal open presetProvider="claude" onClose={() => {}} onCreated={() => {}} />);
+    // provider 只读展示，无勾选列表
+    expect(screen.getByText('claude')).toBeDefined();
+    expect(screen.queryByRole('checkbox')).toBeNull();
+    expect(screen.queryByText(/检测到 .* runtime/)).toBeNull();
+    expect(mockApiGet).not.toHaveBeenCalled();
+    // 已预选但未命名 → 提交键禁用
+    expect(screen.getByTestId('create-role-submit').hasAttribute('disabled')).toBe(true);
+  });
+
+  it('presetProvider → 命名后创建带锁定 provider，成功关弹框 + onCreated', async () => {
+    const onClose = vi.fn();
+    const onCreated = vi.fn();
+    render(<CreateRoleModal open presetProvider="claude" onClose={onClose} onCreated={onCreated} />);
+    fireEvent.change(screen.getByTestId('role-name-preset:claude'), { target: { value: 'Executor' } });
+    fireEvent.change(screen.getByPlaceholderText(/描述（可选）/), { target: { value: '代码实现' } });
+    fireEvent.click(screen.getByTestId('create-role-submit'));
+    await waitFor(() => expect(mockCreateAgent).toHaveBeenCalledWith({
+      name: 'Executor',
+      description: '代码实现',
+      provider: 'claude',
+    }));
+    await waitFor(() => expect(onCreated).toHaveBeenCalled());
+    expect(onClose).toHaveBeenCalled();
+  });
 });

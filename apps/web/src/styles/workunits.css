@@ -1,8 +1,10 @@
 /* ============================================================
    WorkUnit 列表页（/workunits）— 2026-09 UI 丝滑化 Step 2
    （docs/plans/2026-09-ui-smoothness.md）
-   无边框行列表：行间细分隔线 + 左侧 3px 状态色条 + hover/展开微底色；
+   无边框行列表：行间细分隔线 + 左侧 3px 状态色条 + hover 微底色；
    统计 chip 可点击筛选（视觉对齐 agent-dashboard .agd-stat-filter）。
+   2026-09 页面重设计 E2-1（docs/plans/2026-09-page-redesign.md）：整行展开区删除，
+   行点击开右侧抽屉（复用 .mc-drawer 全局样式与 #395 降级），本文件只管抽屉宿主宽度。
    全部消费 theme.css CSS 变量（深浅色均可用），状态色与 WU_STATUS_COLORS 语义一致。
    ============================================================ */
 
@@ -44,8 +46,6 @@
   transition: background 0.12s ease;
 }
 .wu-row:hover { background: var(--bg-hover); }
-.wu-row-open,
-.wu-row-open:hover { background: var(--bg-active); }
 
 /* 左侧状态色条 + 状态点按派生列着色（pending/in_review=warn、active=accent、done/closed=ok、blocked=err） */
 .wu-row[data-status='pending']    { border-left-color: var(--warning); }
@@ -89,18 +89,10 @@
 }
 .wu-chip-warn { color: var(--warning); border-color: var(--warning-border); }
 
-/* ---------- 展开区 ---------- */
-.wu-sec {
-  font-size: var(--fs-xs);
-  color: var(--text-muted);
-  margin-bottom: 4px;
+/* ---------- E2-1：行点击右侧抽屉宿主（复用 .mc-drawer 全局样式） ----------
+   ≥768 流内右栏 400px（768–1023 经全局规则转 fixed 覆盖，宽度保留）；
+   <768 全屏化由 mission-control.css `.mc-drawer { width: 100% }` 接管，本档不覆盖。 */
+.wu-drawer-host { display: flex; }
+@media (min-width: 768px) {
+  .wu-drawer-host > .mc-drawer { width: 400px; border-left: 1px solid var(--border-subtle); }
 }
-.wu-toggle {
-  font-size: var(--fs-xs);
-  color: var(--text-secondary);
-  background: none;
-  border: none;
-  padding: 0;
-  cursor: pointer;
-}
-.wu-toggle:hover { color: var(--accent-primary); }

@@ -1,6 +1,6 @@
 // #396：横向四站 stepper + 生命周期事件 chip 行
-import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { describe, it, expect, vi } from 'vitest';
+import { render, screen, fireEvent } from '@testing-library/react';
 import React from 'react';
 import { StationStepper, LifecycleEventChips } from '../StationStepper';
 import { formatShortTime } from '../../../utils/datetime';
@@ -38,6 +38,22 @@ describe('StationStepper', () => {
     expect(container.querySelectorAll('.wu-bstep-line').length).toBe(3);
     expect(container.querySelectorAll('.wu-bstep-line-reached').length).toBe(1);
   });
+
+  // E1：onStationClick 可选——不传纯展示（WU 详情页），传则站点可点（频道工作条开抽屉）
+  it('不传 onStationClick → 纯展示（站点非按钮）', () => {
+    const { container } = render(<StationStepper stations={stations} />);
+    expect(container.querySelectorAll('button.wu-bstep').length).toBe(0);
+    expect(container.querySelectorAll('.wu-bstep-btn').length).toBe(0);
+  });
+
+  it('传 onStationClick → 站点渲染为按钮，点击回调带站点', () => {
+    const onStationClick = vi.fn();
+    const { container } = render(<StationStepper stations={stations} onStationClick={onStationClick} />);
+    const btns = container.querySelectorAll('button.wu-bstep.wu-bstep-btn');
+    expect(btns.length).toBe(4);
+    fireEvent.click(screen.getByText('待验收'));
+    expect(onStationClick).toHaveBeenCalledWith(stations[2]);
+  });
 });
 
 describe('LifecycleEventChips', () => {
@@ -48,10 +64,10 @@ describe('LifecycleEventChips', () => {
 
   it('chip = 色点 + 文字 + mono 时间；tone 上 class', () => {
     render(<LifecycleEventChips events={events} />);
-    const blocked = screen.getByText('阻塞').closest('.wu-chip');
+    const blocked = screen.getByText('阻塞').closest('.wu-ev-chip');
     expect(blocked?.className).toContain('wu-ev-danger');
     expect(blocked?.getAttribute('title')).toBe('stuck');
-    expect(screen.getByText('L2 Agent 评审通过').closest('.wu-chip')?.className).toContain('wu-ev-accent');
+    expect(screen.getByText('L2 Agent 评审通过').closest('.wu-ev-chip')?.className).toContain('wu-ev-accent');
     expect(screen.getByText(t3)).toBeDefined();
   });
 

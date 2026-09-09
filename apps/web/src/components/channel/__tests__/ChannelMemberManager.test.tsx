@@ -62,6 +62,14 @@ describe('ChannelMemberManager', () => {
     expect(screen.getByTitle('Channel 成员管理')).toBeTruthy();
   });
 
+  it('E1：triggerClassName 覆盖触发钮类（顶栏 ⋯ 菜单行形态），缺省 mc-btn 不变', () => {
+    const { unmount } = render(<ChannelMemberManager channelId="ch-1" />);
+    expect(screen.getByTitle('Channel 成员管理').className).toBe('mc-btn');
+    unmount();
+    render(<ChannelMemberManager channelId="ch-1" triggerClassName="mc-topbar-menu-item" />);
+    expect(screen.getByTitle('Channel 成员管理').className).toBe('mc-topbar-menu-item');
+  });
+
   it('shows "All" when no members configured', () => {
     render(<ChannelMemberManager channelId="ch-1" />);
     expect(screen.getByText('All')).toBeTruthy();
@@ -166,5 +174,32 @@ describe('ChannelMemberManager', () => {
       expect(mockUpdateMembers).toHaveBeenCalledWith('ch-1', { add: ['a2'] });
     });
     expect(useChannelDataStore.getState().members['ch-1']).toEqual(['a1', 'a2']);
+  });
+
+  // 批次A 项8：成员增删失败 toast（原 console.error 静默），store 不写穿
+  it('添加成员失败 → toast 提示 + store 不写穿', async () => {
+    document.querySelector('#toast-container')?.replaceChildren(); // 只清子节点——toast.ts 模块级缓存 container 引用，remove 会让后续 toast 挂到游离节点
+    seedStores(['a1']);
+    mockUpdateMembers.mockRejectedValue(Object.assign(new Error('Request failed with status code 403'), {
+      isAxiosError: true,
+      response: { status: 403, data: { error: { message: '仅频道管理员可增删成员' } } },
+    }));
+    render(<ChannelMemberManager channelId="ch-1" />);
+    fireEvent.click(screen.getByTitle('Channel 成员管理'));
+    fireEvent.click(await screen.findByText('@pm-agent'));
+    expect(await screen.findByText('添加成员失败：仅频道管理员可增删成员')).toBeTruthy();
+    expect(useChannelDataStore.getState().members['ch-1']).toEqual(['a1']);
+  });
+
+  it('移除成员失败 → toast 通用文案 + 成员仍在列表', async () => {
+    document.querySelector('#toast-container')?.replaceChildren(); // 只清子节点——toast.ts 模块级缓存 container 引用，remove 会让后续 toast 挂到游离节点
+    seedStores(['a1']);
+    mockUpdateMembers.mockRejectedValue(new Error('network'));
+    render(<ChannelMemberManager channelId="ch-1" />);
+    fireEvent.click(screen.getByTitle('Channel 成员管理'));
+    const row = (await screen.findByText('@dev-agent')).closest('.mc-mention-item')!;
+    fireEvent.click(row.querySelector('button[title="移除"]')!);
+    expect(await screen.findByText('移除成员失败，请重试')).toBeTruthy();
+    expect(useChannelDataStore.getState().members['ch-1']).toEqual(['a1']);
   });
 });

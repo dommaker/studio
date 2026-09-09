@@ -103,6 +103,43 @@ router.get('/resources', (_req: Request, res: Response) => {
 });
 
 /**
+ * GET /api/audit-logs/export - 导出审计日志
+ *
+ * 过滤口径与 GET / 列表一致（E7 前端已带 action/resource/status，
+ * 修复前路由层静默丢弃导致假过滤）。
+ * 必须注册在 GET /:id 之前——否则 `/export` 被 `/:id` 遮蔽不可达
+ * （历史 bug，2026-09-09 随过滤透传一并修复）。
+ */
+router.get('/export', async (req: Request, res: Response) => {
+  try {
+    const service = getAuditService();
+
+    const query = {
+      userId: req.query.userId as string,
+      companyId: req.query.companyId as string,
+      action: req.query.action as string,
+      resource: req.query.resource as string,
+      status: req.query.status as string,
+      startTime: req.query.startTime ? new Date(req.query.startTime as string) : undefined,
+      endTime: req.query.endTime ? new Date(req.query.endTime as string) : undefined,
+    };
+
+    const logs = await service.export(query);
+
+    // 设置下载头
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Content-Disposition', `attachment; filename="audit-logs-${new Date().toISOString().split('T')[0]}.json"`);
+
+    res.json(logs);
+  } catch (error) {
+    logger.error({ error }, 'Failed to export audit logs');
+    res.status(500).json({
+      error: { code: 'INTERNAL_ERROR', message: 'Failed to export audit logs' },
+    });
+  }
+});
+
+/**
  * GET /api/audit-logs/:id - 获取单条审计日志
  */
 router.get('/:id', async (req: Request, res: Response) => {
@@ -148,34 +185,5 @@ router.post('/', async (req: Request, res: Response) => {
  * 已配置 audit.jsonl: hotDays=90, action=archive）。
  * 若需重新引入清理能力，必须先归档（复用 rotateJsonlLog/appendGz）再删热行。
  */
-
-/**
- * GET /api/audit-logs/export - 导出审计日志
- */
-router.get('/export', async (req: Request, res: Response) => {
-  try {
-    const service = getAuditService();
-    
-    const query = {
-      userId: req.query.userId as string,
-      companyId: req.query.companyId as string,
-      startTime: req.query.startTime ? new Date(req.query.startTime as string) : undefined,
-      endTime: req.query.endTime ? new Date(req.query.endTime as string) : undefined,
-    };
-
-    const logs = await service.export(query);
-
-    // 设置下载头
-    res.setHeader('Content-Type', 'application/json');
-    res.setHeader('Content-Disposition', `attachment; filename="audit-logs-${new Date().toISOString().split('T')[0]}.json"`);
-    
-    res.json(logs);
-  } catch (error) {
-    logger.error({ error }, 'Failed to export audit logs');
-    res.status(500).json({
-      error: { code: 'INTERNAL_ERROR', message: 'Failed to export audit logs' },
-    });
-  }
-});
 
 export default router;

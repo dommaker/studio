@@ -93,14 +93,6 @@
     margin: 0.5rem 0;
     border-radius: 0.75rem;
   }
-  
-  .card-glow {
-    box-shadow: none;
-  }
-  
-  .card-glow:hover {
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-  }
 }
 
 /* ==================== 表单响应式 ==================== */

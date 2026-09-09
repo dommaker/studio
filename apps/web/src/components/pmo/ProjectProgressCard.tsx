@@ -35,8 +35,8 @@ export function ProjectProgressCard({ progress, delivery, projectStatus }: Proje
     .join(' · ');
 
   return (
-    <div className="card p-4 mb-6">
-      <h3 className="text-sm font-medium u-text-2 mb-3">📈 项目进展</h3>
+    <div className="card p-4 mb-3">
+      <h3 className="mc-block-label" style={{ margin: '0 0 12px' }}>项目进展</h3>
 
       {/* 主进度条 + % + 已完成 n/m + Token meta（全周期累计），同一行 */}
       <div className="flex items-center gap-3">
