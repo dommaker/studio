@@ -290,22 +290,12 @@ export const ChannelMessageItem = memo(function ChannelMessageItem({
         )
       )}
 
-      {/* Footer: WU/REQ 链接（开右抽屉）+ WU/PMO 直跳 + 线程开关 */}
+      {/* Footer: WU/REQ 链接（开右抽屉）+ PMO 直跳 + 线程开关；⑤ WU chip 旁 ↗ 直跳已删（同目的地两入口，chip 自承载） */}
       {(message.workUnitId || reqId || pmoId || (isThreadAnchor && threadReplyCount !== undefined && threadReplyCount > 0)) && (
         <div className="mc-card-foot">
           {message.workUnitId && onOpenWorkUnit && (
             <button className="mc-wu-link" onClick={() => onOpenWorkUnit(message.workUnitId!)} title={`打开任务详情：${message.workUnitId}`}>
               {shortWuId(message.workUnitId)} ›
-            </button>
-          )}
-          {message.workUnitId && (
-            <button
-              className="mc-wu-link"
-              onClick={() => navigate(`/workunits/${message.workUnitId}`)}
-              title="新页面打开任务详情"
-              aria-label="新页面打开任务详情"
-            >
-              ↗
             </button>
           )}
           {pmoId && (

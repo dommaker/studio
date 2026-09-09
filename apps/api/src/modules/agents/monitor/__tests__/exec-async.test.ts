@@ -47,7 +47,7 @@ describe('exec-async exec 段计时（#411）', () => {
     setSegmentMetricsSink(null);
   });
 
-  it('sink 开启：execAsync 上报 exec 段事件，命令名取前 3 个 token，成功/失败都发', async () => {
+  it('sink 开启：execAsync 上报 exec 段事件，命令名取到首个 flag 前（上限 4 token），成功/失败都发', async () => {
     mockExec.mockImplementation((_cmd: string, _opts: unknown, cb: (err: Error | null, out: string) => void) => cb(null, ''));
     await execAsync('git worktree prune', { timeout: 5000 });
     expect(events).toHaveLength(1);
@@ -55,9 +55,9 @@ describe('exec-async exec 段计时（#411）', () => {
     expect(events[0].ms).toBeGreaterThanOrEqual(0);
 
     mockExec.mockImplementation((_cmd: string, _opts: unknown, cb: (err: Error | null, out: string) => void) => cb(new Error('x'), ''));
-    await expect(execAsync('npx harness update-user-model --days 1 --json 2>/dev/null || echo "{}"')).rejects.toThrow('x');
+    await expect(execAsync('npx tsx src/cli/studio-cli.ts update-user-model --days 1 --json 2>/dev/null || echo "{}"')).rejects.toThrow('x');
     expect(events).toHaveLength(2);
-    expect(events[1]).toMatchObject({ kind: 'exec', name: 'npx harness update-user-model' });
+    expect(events[1]).toMatchObject({ kind: 'exec', name: 'npx tsx src/cli/studio-cli.ts update-user-model' });
   });
 
   it('sink 开启：execFileAsync 上报 exec 段事件（flag 前截断，args 不进段名）', async () => {

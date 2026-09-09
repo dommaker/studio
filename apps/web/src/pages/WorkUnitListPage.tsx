@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { deriveDisplayState, WU_STATUS_COLORS, WU_STATUS_LABELS, WU_TYPE_LABELS, type DerivedWuState } from '@dommaker/studio-shared/web';
+import { deriveDisplayState, WU_STATUS_LABELS, WU_TYPE_LABELS, type DerivedWuState } from '@dommaker/studio-shared/web';
 import { useWorkUnitStore } from '../stores/workunitStore';
 import { DiscussionPanel } from '../components/DiscussionPanel';
 import { ExecutionSteps } from '../components/workunit/ExecutionSteps';
@@ -13,13 +13,23 @@ import { BlockedByList } from '../components/workunit/BlockedByList';
 import { AnalysisApproveDialog } from '../components/pmo/AnalysisApproveDialog';
 import { useWebSocketContext } from '../api/websocketHooks';
 import { Select } from '../components/ui';
+import { MetaStrip } from '../components/ui/MetaStrip';
 import { formatShortTime } from '../utils/datetime';
+import '../styles/workunits.css';
 
 /** F6：WU 展示状态唯一派生口径（铁律：禁止各自读 metadata.attestations 解释） */
 const deriveWu = (wu: { status: string; metadata?: string | null }): DerivedWuState =>
   deriveDisplayState({ status: wu.status, metadata: wu.metadata });
 
 const STATUS_OPTIONS = ['all', 'pending', 'unassigned', 'active', 'in_review', 'done', 'closed', 'blocked'] as const;
+
+/** Step 2 筛选合一：统计 chip 集（点击过滤/再点取消回全部）；待人工是派生维度单列 */
+const STATUS_CHIPS = [
+  { key: 'pending', label: '待确认', color: 'var(--warning)' },
+  { key: 'unassigned', label: WU_STATUS_LABELS.unassigned, color: 'var(--text-muted)' },
+  { key: 'active', label: WU_STATUS_LABELS.active, color: 'var(--accent-primary)' },
+  { key: 'in_review', label: WU_STATUS_LABELS.in_review, color: 'var(--warning)' },
+] as const;
 
 export function WorkUnitListPage() {
   const {
@@ -77,6 +87,13 @@ export function WorkUnitListPage() {
     }
   };
 
+  // 状态 chip：与服务端 statusFilter 互斥于 humanOnly（选状态清待人工，同原 pill 行为）；
+  // 再点已激活 chip = 取消回全部
+  const clickStatusChip = (key: string) => {
+    setHumanOnly(false);
+    setStatusFilter(!humanOnly && statusFilter === key ? null : key);
+  };
+
   return (
     <div className="h-full flex flex-col u-page-bg">
       {/* Header */}
@@ -93,15 +110,40 @@ export function WorkUnitListPage() {
           </div>
         </div>
 
-        {/* Stats —— F6-b：计数走派生列（双轨期与存储状态并存比对） */}
-        <div className="flex gap-6 mt-4">
-          <StatBadge label="总数" value={total} color="u-accent" />
+        {/* Stats = 快速筛选 chip（Step 2 筛选合一；计数口径不变：总数走 server total，其余当前页派生列计数。
+            F6-b：计数走派生列（双轨期与存储状态并存比对）） */}
+        <div className="flex gap-2 mt-4 flex-wrap">
+          <StatChip
+            label="总数" value={total} color="var(--accent-primary)"
+            active={!humanOnly && statusFilter === null}
+            onClick={() => { setHumanOnly(false); setStatusFilter(null); }}
+          />
           {/* #280：pending 单列「待确认」（扩范围人闸），不再计入「待人工」 */}
-          <StatBadge label="待确认" value={workunits.filter(w => deriveWu(w).column === 'pending').length} color="u-warn" />
-          <StatBadge label={WU_STATUS_LABELS.unassigned} value={workunits.filter(w => deriveWu(w).column === 'unassigned').length} color="u-text-3" />
-          <StatBadge label={WU_STATUS_LABELS.active} value={workunits.filter(w => deriveWu(w).column === 'active').length} color="u-accent" />
-          <StatBadge label={WU_STATUS_LABELS.in_review} value={workunits.filter(w => deriveWu(w).column === 'in_review').length} color="u-warn" />
-          <StatBadge label="待人工" value={workunits.filter(w => deriveWu(w).needsHuman).length} color="u-err" />
+          {STATUS_CHIPS.map(c => (
+            <StatChip
+              key={c.key}
+              label={c.label}
+              value={workunits.filter(w => deriveWu(w).column === c.key).length}
+              color={c.color}
+              active={!humanOnly && statusFilter === c.key}
+              onClick={() => clickStatusChip(c.key)}
+            />
+          ))}
+          <StatChip
+            label="待人工" value={workunits.filter(w => deriveWu(w).needsHuman).length} color="var(--error)"
+            active={humanOnly}
+            onClick={() => setHumanOnly(!humanOnly)}
+            title="活已干完但人还没确认（手写待验收 + done 缺人工确认）"
+          />
+          {/* #405：未归属过滤（服务端 attributed=false，#428）+ 服务端 total 计数徽标——低调小 chip，
+              与状态 chip 同为服务端维度可交集组合；取消即恢复原列表 */}
+          <button
+            className={`wu-unattr${unattributedOnly ? ' wu-unattr-on' : ''}`}
+            onClick={() => { setHumanOnly(false); setUnattributedOnly(!unattributedOnly); }}
+            title="无 reqId 且无 PMO 归因戳的任务（不计入任何项目交付统计，仅作归因覆盖率信号）"
+          >
+            未归属{unattributedTotal !== null && <span className="font-mono"> {unattributedTotal}</span>}
+          </button>
         </div>
       </div>
 
@@ -141,49 +183,12 @@ export function WorkUnitListPage() {
             </div>
           )}
 
-          {/* Filters —— 状态 pill 走服务端过滤（存储状态）；待人工 pill 是派生维度，客户端过滤 */}
-          <div className="flex gap-2 mt-4">
-            {STATUS_OPTIONS.map(s => (
-              <button
-                key={s}
-                className={`text-xs px-3 py-1 rounded-full transition-colors ${
-                  !humanOnly && (statusFilter ?? 'all') === s
-                    ? 'u-accent-dim u-accent'
-                    : 'u-surface-2 u-text-3 u-hover-bg'
-                }`}
-                onClick={() => { setHumanOnly(false); setStatusFilter(s === 'all' ? null : s); }}
-              >
-                {s === 'all' ? '全部' : WU_STATUS_LABELS[s] ?? s}
-              </button>
-            ))}
-            <button
-              className={`text-xs px-3 py-1 rounded-full transition-colors ${
-                humanOnly ? 'u-err-dim u-err' : 'u-surface-2 u-text-3 u-hover-bg'
-              }`}
-              onClick={() => setHumanOnly(!humanOnly)}
-              title="活已干完但人还没确认（手写待验收 + done 缺人工确认）"
-            >
-              待人工
-            </button>
-            {/* #405：未归属过滤（服务端 attributed=false，#428）+ 服务端 total 计数徽标。
-                与状态 pill 同为服务端维度可交集组合；取消即恢复原列表 */}
-            <button
-              className={`text-xs px-3 py-1 rounded-full transition-colors ${
-                unattributedOnly ? 'u-accent-dim u-accent' : 'u-surface-2 u-text-3 u-hover-bg'
-              }`}
-              onClick={() => { setHumanOnly(false); setUnattributedOnly(!unattributedOnly); }}
-              title="无 reqId 且无 PMO 归因戳的任务（不计入任何项目交付统计，仅作归因覆盖率信号）"
-            >
-              未归属{unattributedTotal !== null && <span className="font-mono"> {unattributedTotal}</span>}
-            </button>
-          </div>
-
           {/* Error */}
           {error && (
             <div className="mt-4 p-3 rounded u-err-dim u-err text-sm">{error}</div>
           )}
 
-          {/* List */}
+          {/* List —— Step 2：无边框行列表（细分隔线 + 左侧状态色条）；待人工 = 派生维度客户端过滤 */}
           {loading && workunits.length === 0 ? (
             <div className="text-center py-20 u-text-2">加载中...</div>
           ) : workunits.length === 0 ? (
@@ -193,7 +198,7 @@ export function WorkUnitListPage() {
               <p className="text-sm mt-2">点击"新建"创建第一个任务</p>
             </div>
           ) : (
-            <div className="space-y-2 mt-4">
+            <div className="mt-4">
               {(humanOnly ? workunits.filter(w => deriveWu(w).needsHuman) : workunits).map(wu => (
                 <WorkUnitRow
                   key={wu.id}
@@ -223,6 +228,7 @@ function WorkUnitRow({
   formatTime: (ts: string | null) => string;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const [showMetadata, setShowMetadata] = useState(false);
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
   // #106 M7：analysis 通过/确认弹窗——预填 agent 产出的待决问题清单（人审改后随 summary 回传开图）
@@ -249,34 +255,19 @@ function WorkUnitRow({
   }, [expanded, wu.channelId]);
 
   return (
-    <div className={depBlocked ? 'card u-dimmed' : 'card'}>
+    <div
+      className={`wu-row${expanded ? ' wu-row-open' : ''}${depBlocked ? ' u-dimmed' : ''}`}
+      data-status={derived.column}
+    >
       <div
-        className="p-3 cursor-pointer flex items-center justify-between gap-4"
+        className="px-3 py-2.5 cursor-pointer flex items-center justify-between gap-4"
         onClick={() => setExpanded(!expanded)}
       >
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            {/* #400 验收修复：badge 行 shrink-0+nowrap，防长标题把状态/类型徽标挤成竖排 */}
-            <span className={`text-xs px-2 py-0.5 rounded shrink-0 whitespace-nowrap ${WU_STATUS_COLORS[derived.column] || 'u-surface-2 u-text-3'}`}>
-              {WU_STATUS_LABELS[derived.column] ?? derived.column}
-            </span>
-            {/* #116：被阻塞徽标，悬停 title 列依赖 id（客户端不知各依赖状态，口径保持中性；
-                未了结判定与可点击清单见行内展开 BlockedByList） */}
-            {depBlocked && (
-              <span
-                className="text-xs px-2 py-0.5 rounded u-warn-dim u-warn shrink-0 whitespace-nowrap"
-                title={depIds.length > 0 ? `依赖：${depIds.join(', ')}` : '依赖未了结'}
-              >
-                被阻塞
-              </span>
-            )}
-            <SelfReviewBadge wu={wu} />
-            <span className="text-xs u-text-2 shrink-0 whitespace-nowrap">{WU_TYPE_LABELS[wu.type] ?? wu.type}</span>
-            {wu.reqId && (
-              <span className="text-xs px-2 py-0.5 rounded u-accent-dim u-accent shrink-0 whitespace-nowrap" title="REQ 需求编号">
-                {wu.reqId}
-              </span>
-            )}
+            {/* 状态色点 + 状态词（小字）：着色走 data-status（与左侧色条同口径） */}
+            <span className="wu-dot" aria-hidden="true" />
+            <span className="wu-status">{WU_STATUS_LABELS[derived.column] ?? derived.column}</span>
             {/* 标题 = 详情页链接（↗ 深链枢纽）；行其余区域点击仍为行内展开 */}
             <Link
               to={`/workunits/${wu.id}`}
@@ -286,6 +277,24 @@ function WorkUnitRow({
             >
               {wu.scope}
             </Link>
+            {/* 弱化 chip：类型 / REQ / 被阻塞；#400 验收修复：shrink-0+nowrap 防长标题挤压 */}
+            <span className="wu-chip">{WU_TYPE_LABELS[wu.type] ?? wu.type}</span>
+            {wu.reqId && (
+              <span className="wu-chip" title="REQ 需求编号">
+                {wu.reqId}
+              </span>
+            )}
+            {/* #116：被阻塞徽标，悬停 title 列依赖 id（客户端不知各依赖状态，口径保持中性；
+                未了结判定与可点击清单见行内展开 BlockedByList） */}
+            {depBlocked && (
+              <span
+                className="wu-chip wu-chip-warn"
+                title={depIds.length > 0 ? `依赖：${depIds.join(', ')}` : '依赖未了结'}
+              >
+                被阻塞
+              </span>
+            )}
+            <SelfReviewBadge wu={wu} />
           </div>
           <div className="flex items-center gap-4 mt-1 text-xs u-text-2">
             <span className="font-mono">ID: {wu.id.slice(0, 8)}...</span>
@@ -335,19 +344,21 @@ function WorkUnitRow({
             channelMembers={channelMembers}
             onSetupClick={() => navigate('/setup/roles')}
           />
-          <div className="grid grid-cols-2 gap-2 mt-2 text-xs">
-            <div><span className="u-text-2">ID:</span> <span className="u-text-3 font-mono">{wu.id}</span></div>
-            <div><span className="u-text-2">Type:</span> <span className="u-text-3">{wu.type}</span></div>
-            <div><span className="u-text-2">Assignee:</span> <span className="u-text-3 font-mono">{wu.assigneeId ?? 'none'}</span></div>
-            <div><span className="u-text-2">Channel:</span> <span className="u-text-3 font-mono">{wu.channelId ?? 'none'}</span></div>
-            <div><span className="u-text-2">REQ:</span> <span className="u-text-3 font-mono">{wu.reqId ?? 'none'}</span></div>
-            <div><span className="u-text-2">Retry:</span> <span className="u-text-3">{wu.retryCount}</span></div>
-            <div><span className="u-text-2">Failure:</span> <span className="u-text-3">{wu.failureType ?? 'none'}</span></div>
-            <div className="col-span-2"><span className="u-text-2">Updated:</span> <span className="u-text-3 font-mono">{formatTime(wu.updatedAt)}</span></div>
-            {wu.completedAt && (
-              <div className="col-span-2"><span className="u-text-2">Completed:</span> <span className="u-text-3 font-mono">{formatTime(wu.completedAt)}</span></div>
-            )}
-          </div>
+          {/* Step 2：metadata grid → MetaStrip 紧凑横排（字段不变，Completed 无值自动省略） */}
+          <MetaStrip
+            className="text-xs u-text-2 mt-2 flex flex-wrap gap-x-4 gap-y-1"
+            items={[
+              { key: 'id', label: 'ID', value: <span className="u-text-3 font-mono">{wu.id}</span> },
+              { key: 'type', label: 'Type', value: <span className="u-text-3">{wu.type}</span> },
+              { key: 'assignee', label: 'Assignee', value: <span className="u-text-3 font-mono">{wu.assigneeId ?? 'none'}</span> },
+              { key: 'channel', label: 'Channel', value: <span className="u-text-3 font-mono">{wu.channelId ?? 'none'}</span> },
+              { key: 'req', label: 'REQ', value: <span className="u-text-3 font-mono">{wu.reqId ?? 'none'}</span> },
+              { key: 'retry', label: 'Retry', value: <span className="u-text-3">{wu.retryCount}</span> },
+              { key: 'failure', label: 'Failure', value: <span className="u-text-3">{wu.failureType ?? 'none'}</span> },
+              { key: 'updated', label: 'Updated', value: <span className="u-text-3 font-mono">{formatTime(wu.updatedAt)}</span> },
+              { key: 'completed', label: 'Completed', value: wu.completedAt ? <span className="u-text-3 font-mono">{formatTime(wu.completedAt)}</span> : null },
+            ]}
+          />
           {/* #284（决策 #250 D1/F7）：pending 人闸确认入口补齐到行展开态（与频道抽屉同行为：
               确认 → unassigned 进 frontier 可认领） */}
           {wu.status === 'pending' && (
@@ -367,19 +378,32 @@ function WorkUnitRow({
               <BlockedByList metadata={wu.metadata} />
             </div>
           )}
+          {/* Step 2：metadata JSON 默认收进 toggle */}
           {wu.metadata && (
             <div className="mt-2">
-              <span className="u-text-2 text-xs">Metadata:</span>
-              <pre className="mt-1 text-xs u-text-3 u-surface rounded p-2 overflow-auto max-h-32">
-                {(() => { try { return JSON.stringify(JSON.parse(wu.metadata), null, 2); } catch { return wu.metadata; } })()}
-              </pre>
+              <button
+                className="wu-toggle"
+                aria-expanded={showMetadata}
+                onClick={() => setShowMetadata(!showMetadata)}
+              >
+                {showMetadata ? '▾ 隐藏 metadata' : '▸ 查看 metadata'}
+              </button>
+              {showMetadata && (
+                <pre className="mt-1 text-xs u-text-3 u-surface rounded p-2 overflow-auto max-h-32">
+                  {(() => { try { return JSON.stringify(JSON.parse(wu.metadata!), null, 2); } catch { return wu.metadata; } })()}
+                </pre>
+              )}
             </div>
           )}
           {/* 执行过程（思考/工具调用/用量，SSE 负载直更 #318）——与频道页右抽屉同一视图 */}
-          <div className="mt-2">
+          <div className="mt-3">
+            <div className="wu-sec">执行过程</div>
             <ExecutionSteps workUnitId={wu.id} />
           </div>
-          <DiscussionPanel workUnitId={wu.id} />
+          <div className="mt-3">
+            <div className="wu-sec">讨论</div>
+            <DiscussionPanel workUnitId={wu.id} />
+          </div>
         </div>
       )}
 
@@ -429,11 +453,19 @@ function WorkUnitRow({
   );
 }
 
-function StatBadge({ label, value, color }: { label: string; value: number; color: string }) {
+/** Step 2：可点击的统计筛选 chip（数字+状态，点击过滤/再点取消；视觉对齐 AgentDashboard StatFilter） */
+function StatChip({ label, value, color, active, onClick, title }: {
+  label: string; value: number; color: string; active: boolean; onClick: () => void; title?: string;
+}) {
   return (
-    <div className="flex items-center gap-2">
-      <span className={`font-mono font-bold ${color}`} style={{ fontSize: 'var(--fs-stat)' }}>{value}</span>
+    <button
+      className={`wu-stat${active ? ' wu-stat-on' : ''}`}
+      aria-pressed={active}
+      onClick={onClick}
+      title={title}
+    >
+      <span className="font-mono font-bold wu-stat-num" style={{ color }}>{value}</span>
       <span className="text-sm u-text-3">{label}</span>
-    </div>
+    </button>
   );
 }

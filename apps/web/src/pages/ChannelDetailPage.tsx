@@ -4,17 +4,17 @@ import { useParams, useSearchParams } from 'react-router-dom';
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { formatChannelName } from '@dommaker/studio-shared/web';
 import { useChannelMessages } from '../hooks/useChannelEvents';
+import { usePersistentStreamUI } from '../hooks/usePersistentStreamUI';
 import { useStreamFollow } from '../hooks/useStreamFollow';
 import { useActivityMessageItems } from '../hooks/useActivityMessageItems';
 import { useChannelCardActions } from '../hooks/useChannelCardActions';
 import { useWebSocketContext } from '../api/websocketHooks';
 import { ChannelMessageItem } from '../components/channel/ChannelMessageItem';
-import { ChannelLiveBars } from '../components/channel/ChannelLiveBars';
+import { ChannelWorkBar } from '../components/channel/ChannelWorkBar';
 import { deriveStreamView, type StreamItem } from '../utils/streamView';
 import { buildMessageToItemIndex } from '../utils/streamVirtual';
 import { ChannelInput } from '../components/channel/ChannelInput';
 import { SuggestionChips, type SuggestionChipItem } from '../components/channel/SuggestionChips';
-import { ChannelStageBar } from '../components/channel/ChannelStageBar';
 import { ChannelMemberManager } from '../components/channel/ChannelMemberManager';
 import { ChannelDefaultProjectSelect } from '../components/channel/ChannelDefaultProjectSelect';
 import { ChannelCurrentPmoChip } from '../components/channel/ChannelCurrentPmoChip';
@@ -45,6 +45,14 @@ const GATE_WU_TYPES = new Set(['decision', 'spec']);
 
 /** #439：?highlight 定位的翻页页数上限（50 条/页 → 最多回看 500 条），超限/翻到底降级为可见反馈 */
 const HIGHLIGHT_LOCATE_MAX_PAGES = 10;
+
+/** 视觉批次 2 ⑥：空频道态示例提示——点击走既有 prefill 通道填入输入框（不自动发送）。
+ *  文案按产品 agent 命名风格（pm-agent / dev-agent / reviewer-agent），仅作起点提示，用户可改 */
+const EMPTY_EXAMPLE_PROMPTS = [
+  '@pm-agent 帮我拆解需求：',
+  '@dev-agent 修复问题：',
+  '@reviewer-agent 评审这段改动：',
+];
 
 /** #444：动作片执行错误文案——优先服务端 error 信封 message（409 拒绝原因对人可读） */
 function suggestionActionErrorMessage(e: unknown): string {
@@ -114,7 +122,13 @@ export function ChannelDetailPage() {
   const [channel, setChannel] = useState<Channel | null>(null);
   const { messages, loading, sendMessage, loadMore, hasMore, refresh, syncPruning } = useChannelMessages(id);
   const [sending, setSending] = useState(false);
-  const [showCompleted, setShowCompleted] = useState(false);
+  // 折叠 UI 状态（showCompleted / collapsedThreads / expandedProcGroups）按频道持久化（Step 3），
+  // setter 语义同 useState；线程默认全部展开，collapsedThreads 只存手动收起的锚点 id
+  const {
+    showCompleted, setShowCompleted,
+    collapsedThreads, setCollapsedThreads,
+    expandedProcGroups, setExpandedProcGroups,
+  } = usePersistentStreamUI(id);
   const [replyTo, setReplyTo] = useState<ChannelMessage | null>(null);
   // F5: NEED_INPUT 挂起中的 WorkUnit 集合（等待人类回复）；
   // #279（决策 #250 D4）：扩为对象集（chip 聚合要 WU 标识 + 问题摘要），闸门类（decision/spec）不聚合
@@ -140,7 +154,7 @@ export function ChannelDetailPage() {
   const lgUp = useMediaQuery('(min-width: 1024px)', true);
   const [actRailOpen, setActRailOpen] = useState(false);
   // #242 live 执行状态条：#322 下沉至 ChannelLiveBars 自持有 useChannelLiveExecutions，
-  // step 事件不再触发本页整树重渲（见渲染段 <ChannelLiveBars>）
+  // step 事件不再触发本页整树重渲；2026-09 并入 ChannelWorkBar（见渲染段 <ChannelWorkBar>）
 
   useEffect(() => {
     if (!id) return;
@@ -461,20 +475,17 @@ export function ChannelDetailPage() {
     return () => { cancelled = true; };
   }, [messages]);
 
-  // AC-C3: Thread expand/collapse state
-  const [expandedThreads, setExpandedThreads] = useState<Set<string>>(new Set());
-  // 线程内过程消息组的展开状态（默认折叠，key = proc-<首条消息 id>）
-  const [expandedProcGroups, setExpandedProcGroups] = useState<Set<string>>(new Set());
-
+  // AC-C3: 线程收起/展开（2026-09 折叠层级 4→2：默认全部展开，collapsedThreads 存手动收起的锚点 id）
   const toggleThread = useCallback((anchorId: string) => {
-    setExpandedThreads(prev => {
+    setCollapsedThreads(prev => {
       const next = new Set(prev);
       if (next.has(anchorId)) next.delete(anchorId);
       else next.add(anchorId);
       return next;
     });
-  }, []);
+  }, [setCollapsedThreads]);
 
+  // 线程内过程消息组的展开状态（保持一层折叠：默认收拢，key = proc-<首条消息 id>）
   const toggleProcGroup = useCallback((key: string) => {
     setExpandedProcGroups(prev => {
       const next = new Set(prev);
@@ -482,25 +493,33 @@ export function ChannelDetailPage() {
       else next.add(key);
       return next;
     });
-  }, []);
+  }, [setExpandedProcGroups]);
 
   // #416：右栏消息摘要投影——右栏只消费 card/agent WU 条目集（不再收全量 messages）；
   // 无关增量（人类插话等）投影等值 → 引用保持 → memo 化的右栏整栏零重渲
   const activityMessageItems = useActivityMessageItems(messages);
 
+  // 定位到埋在被收起线程里的目标消息前，移除其锚点的收起标记（默认已展开，
+  // 本来就不在 collapsedThreads → 返回原引用，不制造无意义新 Set 触发重渲）
+  const ensureThreadExpanded = useCallback((anchorId: string) => {
+    setCollapsedThreads(prev => {
+      if (!prev.has(anchorId)) return prev;
+      const next = new Set(prev);
+      next.delete(anchorId);
+      return next;
+    });
+  }, [setCollapsedThreads]);
+
   // #279（决策 #250 D4）：chip 点条目 → 滚动定位到该 WU 当前提问消息并高亮（2s 后消退）。
-  // 提问消息若还埋在折叠线程里（数据时序边界），先把所属线程展开
+  // 提问消息若埋在被用户收起的线程里，先把所属线程展开
   const [highlightId, setHighlightId] = useState<string | null>(null);
   const locateWaitingQuestion = useCallback((wuId: string) => {
     const msgId = latestQuestionIdByWu.get(wuId);
     if (!msgId) return;
     const target = messages.find(m => m.id === msgId);
-    if (target?.replyToId) {
-      const anchorId = target.replyToId;
-      setExpandedThreads(prev => new Set(prev).add(anchorId));
-    }
+    if (target?.replyToId) ensureThreadExpanded(target.replyToId);
     setHighlightId(msgId);
-  }, [latestQuestionIdByWu, messages]);
+  }, [latestQuestionIdByWu, messages, ensureThreadExpanded]);
 
   // 通知中心点击直达（?highlight=<mid>）：复用上方高亮定位机制，滚动到该消息并高亮 2s。
   // 每个 mid 只消费一次（防消息流更新反复重置高亮）；首拉未完成（loading）时等下一轮 messages。
@@ -521,10 +540,7 @@ export function ChannelDetailPage() {
     if (target) {
       highlightConsumedRef.current = mid;
       highlightLocatingRef.current = null;
-      if (target.replyToId) {
-        const anchorId = target.replyToId;
-        setExpandedThreads(prev => new Set(prev).add(anchorId));
-      }
+      if (target.replyToId) ensureThreadExpanded(target.replyToId);
       setHighlightId(mid);
       return;
     }
@@ -550,7 +566,7 @@ export function ChannelDetailPage() {
         toast.warning('该消息太旧或已删除，无法定位');
       }
     })();
-  }, [searchParams, messages, loading]);
+  }, [searchParams, messages, loading, ensureThreadExpanded]);
 
   // 里程碑判定（不折叠）：人类消息 / 卡片消息 / 等待回复 / 最后一条回复——已迁入 deriveStreamView（#322）
 
@@ -566,14 +582,14 @@ export function ChannelDetailPage() {
   useEffect(() => { if (lgUp) setActRailOpen(false); }, [lgUp]);
 
   // #322: 消息流管线——归组/过程折叠/连续合并/日期分隔/可见性走 deriveStreamView 纯函数，
-  // useMemo 消费（消息引用与 UI 状态不变则零重算）；折叠 UI 状态留组件
+  // useMemo 消费（消息引用与 UI 状态不变则零重算）；折叠 UI 状态由 usePersistentStreamUI 按频道持久化
   const streamView = useMemo(() => deriveStreamView(messages, {
     showCompleted,
-    expandedThreads,
+    collapsedThreads,
     expandedProcGroups,
     promotedQuestionIds,
     isWaitingForInput,
-  }), [messages, showCompleted, expandedThreads, expandedProcGroups, promotedQuestionIds, isWaitingForInput]);
+  }), [messages, showCompleted, collapsedThreads, expandedProcGroups, promotedQuestionIds, isWaitingForInput]);
 
   // #325：mid→item index 映射（prepend 补偿 / 阅读位置恢复 / highlight 定位的桥）
   const messageToItemIndex = useMemo(() => buildMessageToItemIndex(streamView.items), [streamView.items]);
@@ -802,13 +818,11 @@ export function ChannelDetailPage() {
           </div>
         </div>
 
-        {/* #242: live 执行状态条——有 WU 执行中时显示，点击打开对应 WU 抽屉（过程明细仍在抽屉）；
-            #322：hook 下沉 ChannelLiveBars 自持有，step 事件只重渲该组件边界 */}
-        <ChannelLiveBars channelId={id} onOpenWorkUnit={openWu} />
-
-        {/* #440 Phase 2：频道当前 WU 阶段条（与 WU 详情页同一 deriveDisplayState 口径；无 WU 不占位）。
-            #447：currentWu = 建议端点 currentWuId × channelWus（拣选口径单源在后端） */}
-        <ChannelStageBar wu={currentWu} />
+        {/* 频道工作条（合并 #242/#322 live 实况条 + #440/#447 阶段条，docs/plans/2026-09-channel-workbar.md）：
+            一条横带回答「这个频道的工作现在什么状态」；hook 自持有，step 事件只重渲该组件边界；
+            currentWu = 建议端点 currentWuId × channelWus（拣选口径单源在后端，未命中 fail-closed 主区不渲染）；
+            点击条目打开对应 WU 抽屉（过程明细仍在抽屉） */}
+        <ChannelWorkBar channelId={id} currentWu={currentWu} onOpenWorkUnit={openWu} />
 
         {/* Message list
             #325：头部块（空态/加载更早/折叠 toggle）与虚拟列表 spacer 分离——
@@ -824,6 +838,20 @@ export function ChannelDetailPage() {
               <div className="mc-stream-empty">
                 <p>发送消息开始对话</p>
                 <p>@Agent 提及 Agent 创建任务</p>
+                {/* 视觉批次 2 ⑥：示例提示 chip——点击经既有 prefill 通道填入输入框（不自动发送），
+                    空态仅此一处渲染点（虚拟化/非虚拟化共用同一 .mc-stream 头块） */}
+                <div className="mc-empty-examples">
+                  {EMPTY_EXAMPLE_PROMPTS.map(text => (
+                    <button
+                      key={text}
+                      type="button"
+                      className="mc-empty-chip"
+                      onClick={() => setInputPrefill(p => ({ text, nonce: (p?.nonce ?? 0) + 1 }))}
+                    >
+                      {text}
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
 

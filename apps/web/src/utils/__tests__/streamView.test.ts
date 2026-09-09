@@ -15,7 +15,7 @@ const msg = (id: string, over: Partial<ChannelMessage> = {}): ChannelMessage => 
 
 const ui = (over: Partial<StreamUiState> = {}): StreamUiState => ({
   showCompleted: false,
-  expandedThreads: new Set(),
+  collapsedThreads: new Set(),
   expandedProcGroups: new Set(),
   promotedQuestionIds: new Set(),
   isWaitingForInput: () => false,
@@ -70,7 +70,7 @@ describe('deriveStreamView — 可见性（已完成折叠）', () => {
 });
 
 describe('deriveStreamView — 线程归组', () => {
-  it('WU 锚点 + 回复 → thread 项；折叠态 replies 不计算', () => {
+  it('WU 锚点 + 回复 → thread 项；线程默认展开（折叠层级 4→2），replies 直接计算', () => {
     const view = deriveStreamView([
       msg('t1', { workUnitId: 'WU-1', createdAt: iso(0) }),
       msg('t2', { workUnitId: 'WU-1', replyToId: 't1', createdAt: iso(1) }),
@@ -79,20 +79,20 @@ describe('deriveStreamView — 线程归组', () => {
     expect(threads).toHaveLength(1);
     expect(threads[0].anchor.id).toBe('t1');
     expect(threads[0].replyCount).toBe(1);
-    expect(threads[0].expanded).toBe(false);
-    expect(threads[0].replies).toEqual([]);
+    expect(threads[0].expanded).toBe(true);
+    expect(threads[0].replies).toEqual([
+      { kind: 'msg', message: expect.objectContaining({ id: 't2' }), compact: false },
+    ]);
   });
 
-  it('expandedThreads 命中的线程展开并计算 replies', () => {
+  it('collapsedThreads 命中的线程收起：expanded=false，replies 不计算', () => {
     const view = deriveStreamView([
       msg('t1', { workUnitId: 'WU-1', createdAt: iso(0) }),
       msg('t2', { workUnitId: 'WU-1', replyToId: 't1', createdAt: iso(1) }),
-    ], ui({ expandedThreads: new Set(['t1']) }));
+    ], ui({ collapsedThreads: new Set(['t1']) }));
     const thread = threadItems(view)[0];
-    expect(thread.expanded).toBe(true);
-    expect(thread.replies).toEqual([
-      { kind: 'msg', message: expect.objectContaining({ id: 't2' }), compact: false },
-    ]);
+    expect(thread.expanded).toBe(false);
+    expect(thread.replies).toEqual([]);
   });
 
   it('promotedQuestionIds 命中的回复提升到主流（不进折叠线程）', () => {
@@ -184,7 +184,7 @@ describe('deriveStreamView — 线程内过程消息折叠', () => {
   ];
 
   it('连续 ≥3 条过程消息收成 proc-group；末条（最新状态）恒为里程碑', () => {
-    const view = deriveStreamView(threadFixture(), ui({ expandedThreads: new Set(['p1']) }));
+    const view = deriveStreamView(threadFixture(), ui());
     const replies = threadItems(view)[0].replies;
     expect(replies).toHaveLength(2);
     const group = replies[0] as Extract<ThreadReplyView, { kind: 'proc-group' }>;
@@ -200,7 +200,7 @@ describe('deriveStreamView — 线程内过程消息折叠', () => {
       msg('p1', { workUnitId: 'WU-1', createdAt: iso(0) }),
       msg('p2', { workUnitId: 'WU-1', replyToId: 'p1', createdAt: iso(1) }),
       msg('p3', { workUnitId: 'WU-1', replyToId: 'p1', createdAt: iso(2) }),
-    ], ui({ expandedThreads: new Set(['p1']) }));
+    ], ui()); // 线程默认展开
     const replies = threadItems(view)[0].replies;
     expect(replies.map(r => r.kind)).toEqual(['msg', 'msg']);
   });
@@ -217,8 +217,7 @@ describe('deriveStreamView — 线程内过程消息折叠', () => {
       }),
       ...[10, 11, 12].map(i => msg(`p${i}`, { workUnitId: 'WU-1', replyToId: 'p1', createdAt: iso(i - 1) })),
       msg('w13', { workUnitId: 'WU-1', replyToId: 'p1', createdAt: iso(12) }),
-    ], ui({
-      expandedThreads: new Set(['p1']),
+    ], ui({ // 线程默认展开，无需展开标记
       isWaitingForInput: m => m.id === 'w13',
     }));
     const replies = threadItems(view)[0].replies;
@@ -232,7 +231,6 @@ describe('deriveStreamView — 线程内过程消息折叠', () => {
 
   it('expandedProcGroups 命中 → proc-group expanded=true', () => {
     const view = deriveStreamView(threadFixture(), ui({
-      expandedThreads: new Set(['p1']),
       expandedProcGroups: new Set(['proc-p2']),
     }));
     const group = threadItems(view)[0].replies[0] as Extract<ThreadReplyView, { kind: 'proc-group' }>;
@@ -244,7 +242,7 @@ describe('deriveStreamView — 线程内过程消息折叠', () => {
       msg('p1', { workUnitId: 'WU-1', createdAt: iso(0) }),
       ...[2, 3, 4, 5].map(i => msg(`p${i}`, { workUnitId: 'WU-1', replyToId: 'p1', createdAt: iso(i - 1) })),
       msg('p6', { workUnitId: 'WU-1', replyToId: 'p1', createdAt: iso(5) }),
-    ], ui({ expandedThreads: new Set(['p1']) }));
+    ], ui()); // 线程默认展开
     const replies = threadItems(view)[0].replies;
     // p2-p5 折叠成组（切断合并），p6 组后首条 → 不省头
     expect(replies[1]).toMatchObject({ kind: 'msg', compact: false });
@@ -255,7 +253,7 @@ describe('deriveStreamView — 线程内过程消息折叠', () => {
       msg('p1', { workUnitId: 'WU-1', createdAt: iso(0) }),
       msg('p2', { workUnitId: 'WU-1', replyToId: 'p1', createdAt: iso(1) }),
       msg('p3', { workUnitId: 'WU-1', replyToId: 'p1', createdAt: iso(2) }),
-    ], ui({ expandedThreads: new Set(['p1']) }));
+    ], ui()); // 线程默认展开
     const replies = threadItems(view)[0].replies;
     expect(replies.map(r => (r as { compact?: boolean }).compact)).toEqual([false, true]);
   });

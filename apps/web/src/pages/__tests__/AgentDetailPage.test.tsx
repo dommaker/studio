@@ -126,7 +126,9 @@ describe('AgentDetailPage', () => {
     render(<AgentDetailPage />);
     expect(await screen.findByText('dev-agent')).toBeDefined();
     expect(screen.getByText('CLI: claude')).toBeDefined();
-    expect(screen.getAllByText('执行中').length).toBeGreaterThan(0);
+    // 状态 pill 走 4 态展示词，pill 旁小字保留细分原文
+    expect(screen.getAllByText('工作中').length).toBeGreaterThan(0);
+    expect(screen.getByText('· 执行中')).toBeDefined();
     expect(screen.getAllByText('#backend')[0].closest('a')?.getAttribute('href')).toBe('/channels/ch1');
     expect(screen.getByText('p1')).toBeDefined();
     expect(screen.getByText('i1')).toBeDefined();
@@ -369,10 +371,11 @@ describe('AgentDetailPage — #433 信息密度', () => {
     await waitFor(() => expect(writeText).toHaveBeenCalledWith('i1'));
   });
 
-  it('profile 停用 → 状态 pill 归一显示「已停用」（与仪表盘卡面 pill 同词），不再叠执行中', async () => {
+  it('profile 停用 → 状态 pill 显示 4 态「离线」+ 小字细分「已停用」（与仪表盘卡面 pill 同源）', async () => {
     mockApis({ profiles: [{ ...profile, status: 'disabled' }] });
     render(<AgentDetailPage />);
-    expect(await screen.findByText('已停用')).toBeDefined();
+    expect(await screen.findByText('离线')).toBeDefined();
+    expect(screen.getByText('· 已停用')).toBeDefined();
     expect(screen.queryByText('执行中')).toBeNull();
   });
 

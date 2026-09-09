@@ -10,15 +10,20 @@ import { RoleCard } from '../components/monitoring/RoleCard';
 import { CreateRoleModal } from '../components/monitoring/CreateRoleModal';
 import {
   resolveCardStatusKey,
+  resolveDisplayStatus,
   AGENT_STATUS_RANK,
   matchesStatusFilter,
   type StatusFilter,
 } from '../utils/agentStatus';
 import '../styles/agent-dashboard.css';
 
-/** 卡面状态键（页面侧统计/筛选/排序与卡面 pill 同口径） */
+/** 卡面细分状态键（筛选匹配用；pill/统计/排序走 4 态展示口径） */
 const statusKeyOf = (r: RosterRole) =>
   resolveCardStatusKey(r.profile.status, r.runtime?.status ?? null, r.runtime?.currentWorkUnit?.status ?? null);
+
+/** 展示状态键（页面侧统计/排序与卡面 pill 同 4 态口径） */
+const displayKeyOf = (r: RosterRole) =>
+  resolveDisplayStatus(r.profile.status, r.runtime?.status ?? null, r.runtime?.currentWorkUnit?.status ?? null);
 
 export function AgentDashboardPage() {
   const { roles, lastDone, channelNames, loading, error, forbidden, refresh } = useAgentRoster();
@@ -29,19 +34,17 @@ export function AgentDashboardPage() {
 
   const stats = useMemo(() => ({
     total: roles.length,
-    running: roles.filter((r) => statusKeyOf(r) === 'running').length,
-    in_review: roles.filter((r) => statusKeyOf(r) === 'in_review').length,
-    blocked: roles.filter((r) => statusKeyOf(r) === 'blocked').length,
-    error: roles.filter((r) => statusKeyOf(r) === 'error').length,
-    idle: roles.filter((r) => statusKeyOf(r) === 'idle').length,
-    off: roles.filter((r) => matchesStatusFilter(statusKeyOf(r), 'off')).length,
+    working: roles.filter((r) => displayKeyOf(r) === 'working').length,
+    attention: roles.filter((r) => displayKeyOf(r) === 'attention').length,
+    idle: roles.filter((r) => displayKeyOf(r) === 'idle').length,
+    offline: roles.filter((r) => displayKeyOf(r) === 'offline').length,
   }), [roles]);
 
-  // 注意力排序（§6.2）+ 筛选（§6.3）
+  // 注意力排序（待处理→工作中→空闲→离线）+ 筛选（4 态口径）
   const visibleRoles = useMemo(
     () => roles
       .filter((r) => matchesStatusFilter(statusKeyOf(r), statFilter))
-      .sort((a, b) => AGENT_STATUS_RANK[statusKeyOf(a)] - AGENT_STATUS_RANK[statusKeyOf(b)]),
+      .sort((a, b) => AGENT_STATUS_RANK[displayKeyOf(a)] - AGENT_STATUS_RANK[displayKeyOf(b)]),
     [roles, statFilter],
   );
 
@@ -62,12 +65,10 @@ export function AgentDashboardPage() {
 
         <div className="flex gap-2 mt-4 flex-wrap">
           <StatFilter label="总数" value={stats.total} active={statFilter === 'all'} onClick={() => setStatFilter('all')} />
-          <StatFilter label="执行中" value={stats.running} color="var(--accent-primary)" active={statFilter === 'running'} onClick={() => toggleFilter('running')} />
-          <StatFilter label="待评审" value={stats.in_review} color="var(--warning)" active={statFilter === 'in_review'} onClick={() => toggleFilter('in_review')} />
-          <StatFilter label="阻塞" value={stats.blocked} color="var(--error)" active={statFilter === 'blocked'} onClick={() => toggleFilter('blocked')} />
-          <StatFilter label="异常" value={stats.error} color="var(--anomaly)" active={statFilter === 'error'} onClick={() => toggleFilter('error')} />
+          <StatFilter label="工作中" value={stats.working} color="var(--accent-primary)" active={statFilter === 'working'} onClick={() => toggleFilter('working')} />
+          <StatFilter label="待处理" value={stats.attention} color="var(--warning)" active={statFilter === 'attention'} onClick={() => toggleFilter('attention')} />
           <StatFilter label="空闲" value={stats.idle} color="var(--text-muted)" active={statFilter === 'idle'} onClick={() => toggleFilter('idle')} />
-          <StatFilter label="未启动·停用" value={stats.off} color="var(--text-muted)" active={statFilter === 'off'} onClick={() => toggleFilter('off')} />
+          <StatFilter label="离线" value={stats.offline} color="var(--text-muted)" active={statFilter === 'offline'} onClick={() => toggleFilter('offline')} />
         </div>
       </div>
 

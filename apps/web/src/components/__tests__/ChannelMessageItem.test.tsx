@@ -1,6 +1,6 @@
 /**
  * ChannelMessageItem tests — F5: NEED_INPUT 挂起「等待回复」badge
- * + 2026-07 §5.7: WU ↗ 直跳 / PMO chip 渲染与跳转
+ * + 2026-07 §5.7: WU chip 开抽屉 / PMO chip 渲染与跳转（2026-09 视觉批次1：WU chip 旁 ↗ 直跳钮已删，chip 自承载开抽屉）
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
@@ -161,16 +161,18 @@ describe('ChannelMessageItem — F5 waiting badge', () => {
   });
 });
 
-describe('ChannelMessageItem — §5.7 WU/PMO 直跳', () => {
-  it('有 workUnitId 时渲染 ↗，点击跳 /workunits/:id', () => {
-    render(<ChannelMessageItem message={baseMessage} onAction={vi.fn()} />);
-    fireEvent.click(screen.getByTitle('新页面打开任务详情'));
-    expect(mockNavigate).toHaveBeenCalledWith('/workunits/wu-1');
+describe('ChannelMessageItem — §5.7 WU/PMO chip', () => {
+  // 2026-09 视觉批次1 ⑤：WU chip 旁 ↗ 直跳钮已删（同目的地不双入口），chip 自承载开抽屉
+  it('有 workUnitId 时渲染 WU chip，点击经 onOpenWorkUnit 开任务抽屉', () => {
+    const onOpenWorkUnit = vi.fn();
+    render(<ChannelMessageItem message={baseMessage} onAction={vi.fn()} onOpenWorkUnit={onOpenWorkUnit} />);
+    fireEvent.click(screen.getByTitle('打开任务详情：wu-1'));
+    expect(onOpenWorkUnit).toHaveBeenCalledWith('wu-1');
   });
 
-  it('无 workUnitId 时不渲染 ↗', () => {
-    render(<ChannelMessageItem message={{ ...baseMessage, workUnitId: null }} onAction={vi.fn()} />);
-    expect(screen.queryByTitle('新页面打开任务详情')).not.toBeInTheDocument();
+  it('无 workUnitId 时不渲染 WU chip', () => {
+    render(<ChannelMessageItem message={{ ...baseMessage, workUnitId: null }} onAction={vi.fn()} onOpenWorkUnit={vi.fn()} />);
+    expect(screen.queryByTitle(/^打开任务详情/)).not.toBeInTheDocument();
   });
 
   it('meta.pmoId 存在时渲染 PMO chip，点击跳 /pmo/project/:id', () => {

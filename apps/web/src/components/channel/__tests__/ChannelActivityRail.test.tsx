@@ -211,6 +211,24 @@ describe('ChannelActivityRail — 动态归属与其他动态（§4.2）', () =>
     renderRail();
     expect(await screen.findByText(/暂无/)).toBeTruthy();
   });
+
+  // ② 其他动态降噪（docs/plans/2026-09-channel-visual-polish.md）：折叠与分级规则由 deriveActivityRows 纯函数覆盖，此处只锁组件接线
+  it('② 同型 card 相邻折叠为一条 ×N；pinned 待办带 signal 类不折叠', async () => {
+    renderRail({
+      messageItems: [
+        { id: 'm2', kind: 'card', text: 'daily_reflection 卡片 · 洞察 8-10', at: '2026-08-10T01:00:00Z' },
+        { id: 'm1', kind: 'card', text: 'daily_reflection 卡片 · 洞察 8-09', at: '2026-08-10T00:00:00Z' },
+      ],
+      waitingWus: [{ wuId: 'wu-9', question: '确认方案？' }],
+    });
+    // 两条 daily_reflection 折叠为一条（代表 = 最新 m2），×N 为独立元素（不被 ellipsis 吞）
+    expect(await screen.findByText('daily_reflection 卡片 · 洞察 8-10')).toBeTruthy();
+    expect(screen.getByText('×2')).toBeTruthy();
+    expect(screen.queryByText(/洞察 8-09/)).toBeNull();
+    // pinned 待办提权：signal 类落在行上
+    const waitRow = (await screen.findByText(/等待人工回复/)).closest('.mc-act-row') as HTMLElement;
+    expect(waitRow.className).toContain('mc-act-row-signal');
+  });
 });
 
 describe('ChannelActivityRail — #412 chain 数据面 store（请求去重 + 右栏新鲜度）', () => {

@@ -26,7 +26,7 @@ const msg = (id: string, over: Partial<ChannelMessage> = {}): ChannelMessage => 
 
 const ui = (over: Partial<StreamUiState> = {}): StreamUiState => ({
   showCompleted: false,
-  expandedThreads: new Set(),
+  collapsedThreads: new Set(),
   expandedProcGroups: new Set(),
   promotedQuestionIds: new Set(),
   isWaitingForInput: () => false,
@@ -65,17 +65,17 @@ describe('buildMessageToItemIndex', () => {
     expect(map.get('m2')).toBe(1);
   });
 
-  it('thread 折叠态：anchor id → thread index；折叠 replies 不在视图模型中，不入映射（与虚拟化前 DOM 查询行为对齐）', () => {
-    const map = buildMessageToItemIndex(threadView(3).items);
+  it('thread 折叠态（collapsedThreads 命中）：anchor id → thread index；折叠 replies 不在视图模型中，不入映射（与虚拟化前 DOM 查询行为对齐）', () => {
+    const map = buildMessageToItemIndex(threadView(3, { collapsedThreads: new Set(['a1']) }).items);
     expect(map.get('a1')).toBe(0);
     // 折叠态 replies 未渲染（deriveStreamView 不计算），锚点捕获/恢复本就不可能命中——维持现状兜底语义
     expect(map.get('r1')).toBeUndefined();
     expect(map.get('r3')).toBeUndefined();
   });
 
-  it('thread 展开 + 过程组折叠：组内消息 id 同样映射到 thread index', () => {
+  it('thread 展开（默认）+ 过程组折叠：组内消息 id 同样映射到 thread index', () => {
     // 5 条 agent 回复连续非里程碑 → 前几条折进 proc-group（里程碑含最后一条）
-    const view = threadView(5, { expandedThreads: new Set(['a1']) });
+    const view = threadView(5);
     const map = buildMessageToItemIndex(view.items);
     for (const id of ['a1', 'r1', 'r2', 'r3', 'r4', 'r5']) {
       expect(map.get(id)).toBe(0);
@@ -212,41 +212,41 @@ describe('estimateStreamItemSize（#450 分型静态估计：分类逻辑全量�
   });
 
   it('thread 折叠态 = anchor 档 + 回复 toggle；无回复不加 toggle', () => {
-    const [t2] = threadView(2).items;
+    const [t2] = threadView(2, { collapsedThreads: new Set(['a1']) }).items;
     expect(estimateStreamItemSize(t2)).toBe(E.date + E.agent + E.threadToggle);
     const solo = deriveStreamView([msg('a9', { workUnitId: 'wu-9' })], ui()).items[0];
     expect(estimateStreamItemSize(solo)).toBe(E.date + E.agent);
   });
 
-  it('thread anchor 为卡片/系统播报时按对应档计', () => {
+  it('thread anchor 为卡片/系统播报时按对应档计（收起态 = anchor 档 + toggle）', () => {
     const [t] = deriveStreamView(
       [msg('a1', { workUnitId: 'wu-1', agentName: 'Studio' }), msg('r1', { replyToId: 'a1', createdAt: iso(1) })],
-      ui(),
+      ui({ collapsedThreads: new Set(['a1']) }),
     ).items;
     expect(estimateStreamItemSize(t)).toBe(E.date + E.system + E.threadToggle);
     const [tc] = deriveStreamView(
       [msg('a2', { workUnitId: 'wu-2', meta: JSON.stringify({ cardType: 'wu_done' }) }), msg('r2', { replyToId: 'a2', createdAt: iso(1) })],
-      ui(),
+      ui({ collapsedThreads: new Set(['a2']) }),
     ).items;
     expect(estimateStreamItemSize(tc)).toBe(E.date + E.card + E.threadToggle);
   });
 
-  it('thread 展开态 = anchor + 逐条回复（msg 按档、折叠过程组按按钮档）', () => {
+  it('thread 展开态（默认）= anchor + 逐条回复（msg 按档、折叠过程组按按钮档）', () => {
     // 5 条连续 agent 回复：r1-r4 非里程碑折进 proc-group（折叠），r5 最后一条里程碑单列
-    const [t] = threadView(5, { expandedThreads: new Set(['a1']) }).items;
+    const [t] = threadView(5).items;
     if (t.kind !== 'thread') throw new Error('expected thread');
     expect(t.replies.map(r => r.kind)).toEqual(['proc-group', 'msg']);
     expect(estimateStreamItemSize(t)).toBe(E.date + E.agent + E.procGroupCollapsed + E.agent);
   });
 
   it('展开线程内的过程组再展开 = 组内消息逐条全量计（不省头）', () => {
-    const view = threadView(5, { expandedThreads: new Set(['a1']), expandedProcGroups: new Set(['proc-r1']) });
+    const view = threadView(5, { expandedProcGroups: new Set(['proc-r1']) });
     const [t] = view.items;
     if (t.kind !== 'thread') throw new Error('expected thread');
     expect(estimateStreamItemSize(t)).toBe(E.date + E.agent + 4 * E.agent + E.agent);
   });
 
-  it('thread anchor degraded → skeleton 档（折叠态含日期）', () => {
+  it('thread anchor degraded → skeleton 档（含日期）', () => {
     const [t] = deriveStreamView(
       [msg('a1', { workUnitId: 'wu-1', degraded: true }), msg('r1', { replyToId: 'a1', createdAt: iso(1) })],
       ui(),

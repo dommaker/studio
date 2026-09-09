@@ -9,8 +9,8 @@ import { parseMeta } from './messageMeta';
 export interface StreamUiState {
   /** 已完成消息全量展开（false = 只留最近 2 条） */
   showCompleted: boolean;
-  /** 展开的线程锚点 id 集 */
-  expandedThreads: ReadonlySet<string>;
+  /** 收起的线程锚点 id 集（2026-09 折叠层级 4→2：默认空 = 全部线程展开，用户可手动收起） */
+  collapsedThreads: ReadonlySet<string>;
   /** 展开的过程消息组 key 集（key = proc-<首条消息 id>） */
   expandedProcGroups: ReadonlySet<string>;
   /** #279（走查 F4）：提升主流的当前提问消息 id 集（不进折叠线程、不参与合并） */
@@ -169,7 +169,7 @@ const dateLabelOf = (m: ChannelMessage, dateStr: string) => {
  * 消息引用不变则输出可整树跳过（组件侧 useMemo 消费）。
  */
 export function deriveStreamView(messages: ChannelMessage[], uiState: StreamUiState): StreamView {
-  const { showCompleted, expandedThreads, expandedProcGroups, promotedQuestionIds, isWaitingForInput } = uiState;
+  const { showCompleted, collapsedThreads, expandedProcGroups, promotedQuestionIds, isWaitingForInput } = uiState;
 
   // B2-006: 已完成折叠——默认活跃全留 + 最近 2 条已完成
   const completed = messages.filter(isCompleted);
@@ -206,8 +206,9 @@ export function deriveStreamView(messages: ChannelMessage[], uiState: StreamUiSt
       compact,
     };
     if ('anchor' in item) {
-      const expanded = expandedThreads.has(item.anchor.id);
-      // 线程内回复渲染项仅在展开时计算（折叠态不付出折叠/合并成本）
+      // 线程默认展开（collapsedThreads 只存手动收起的锚点）
+      const expanded = !collapsedThreads.has(item.anchor.id);
+      // 线程内回复渲染项仅在展开时计算（收起态不付出折叠/合并成本）
       let replies: ThreadReplyView[] = [];
       if (expanded && item.replies.length > 0) {
         // #277 D2：线程内同作者连续回复合并；折叠组切断合并，组内消息参与过折叠不省头

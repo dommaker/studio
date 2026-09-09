@@ -1,6 +1,6 @@
 // 作战视图执行动态 store（#348 状态下沉）：workunit.execution.step/stream 的 chunk 写入此处，
 // RoleCard 经 useRosterActivities 只订自己 roleId 的切片——chunk 只重渲对应卡，
-// 不再掀 AgentDashboardPage 整树（对齐 ChannelLiveBars #322 状态下沉先例）。
+// 不再掀 AgentDashboardPage 整树（对齐 ChannelWorkBar #322 状态下沉先例）。
 // 生命周期 = 页面挂载期：useAgentRoster 卸载时 reset（动态是页面私有实时面，每次进页从零开始）。
 import { create } from 'zustand';
 

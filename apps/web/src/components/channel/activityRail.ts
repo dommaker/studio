@@ -154,6 +154,50 @@ export function attributeActivity(
   return { byReq, other };
 }
 
+/** 信号分级：signal = 需要人工介入（提权重）；routine = 例行播报（降权）；其余 normal */
+export type ActivityTone = 'signal' | 'normal' | 'routine';
+
+export interface ActivityRowData {
+  /** 代表条目：折叠时取组内首条（列表已 pinned 优先 + 时间倒序，首条即最新） */
+  item: ChannelActivityItem;
+  /** 折叠条数（≥1；>1 时 UI 追加 ×N） */
+  count: number;
+  tone: ActivityTone;
+}
+
+const SIGNAL_RE = /需要输入|等待人工|阻塞|blocked/i;
+
+/** 折叠键：pinned 按 wuId 区分（不同待办不互折）；card 按卡型（「xxx 卡片 · …」前缀）；
+ *  其余按 kind+全文（同文连刷才折叠，如执行失败连刷） */
+function foldKey(it: ChannelActivityItem): string {
+  if (it.pinned) return `pinned:${it.wuId ?? it.id}`;
+  if (it.kind === 'card') return `card:${it.text.split(' · ')[0]}`;
+  return `${it.kind}:${it.text}`;
+}
+
+function toneOf(it: ChannelActivityItem): ActivityTone {
+  if (it.pinned || SIGNAL_RE.test(it.text)) return 'signal';
+  if (it.kind === 'card') return 'routine';
+  return 'normal';
+}
+
+/** 「其他动态」降噪（docs/plans/2026-09-channel-visual-polish.md 批次1 ②）：
+ *  同类相邻重复折叠（标题 ×N）+ 信号分级（signal 提权 / routine 降权），纯派生不动数据源 */
+export function deriveActivityRows(items: ChannelActivityItem[]): ActivityRowData[] {
+  const rows: ActivityRowData[] = [];
+  let lastKey: string | null = null;
+  for (const it of items) {
+    const key = foldKey(it);
+    if (key === lastKey) {
+      rows[rows.length - 1].count += 1;
+      continue;
+    }
+    rows.push({ item: it, count: 1, tone: toneOf(it) });
+    lastKey = key;
+  }
+  return rows;
+}
+
 export function fmtRelTime(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime();
   const min = Math.floor(diff / 60000);

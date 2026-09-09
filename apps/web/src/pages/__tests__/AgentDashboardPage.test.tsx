@@ -122,18 +122,22 @@ describe('AgentDashboardPage', () => {
     expect(screen.queryByText(/Request failed with status code 403/)).toBeNull();
   });
 
-  it('§6.3 页头统计行 = 快速筛选 chip：七档齐全、「在线」不在筛选行', async () => {
+  it('§6.3 页头统计行 = 快速筛选 chip：4 态口径五档齐全、「在线」不在筛选行', async () => {
     mockApis();
     render(<AgentDashboardPage />);
     expect(await screen.findByText('实现登录接口')).toBeDefined();
-    for (const label of ['总数', '执行中', '待评审', '阻塞', '异常', '空闲', '未启动·停用']) {
+    for (const label of ['总数', '工作中', '待处理', '空闲', '离线']) {
       expect(screen.getByRole('button', { name: new RegExp(label) })).toBeDefined();
+    }
+    // 7+1 细分档不再出现在筛选行
+    for (const label of ['执行中', '待评审', '阻塞', '异常', '未启动·停用']) {
+      expect(screen.queryByRole('button', { name: new RegExp(label) })).toBeNull();
     }
     expect(screen.queryByRole('button', { name: /在线/ })).toBeNull();
     expect(screen.queryByText('在线')).toBeNull();
   });
 
-  it('§6.3 chip 点击过滤栅格、再点取消', async () => {
+  it('§6.3 chip 点击过滤栅格、再点取消（待处理聚合阻塞/待评审/异常）', async () => {
     mockApis({
       profiles: [profile(), profile({ id: 'p2', name: 'reviewer', provider: 'kimi' })],
       agents: [
@@ -147,17 +151,17 @@ describe('AgentDashboardPage', () => {
     expect(await screen.findByText('实现登录接口')).toBeDefined();
     expect(screen.getByText('评审首页改版')).toBeDefined();
 
-    fireEvent.click(screen.getByRole('button', { name: /阻塞/ }));
+    fireEvent.click(screen.getByRole('button', { name: /待处理/ }));
     expect(screen.queryByText('实现登录接口')).toBeNull();
     expect(screen.getByText('评审首页改版')).toBeDefined();
 
     // 再点取消 → 全量恢复
-    fireEvent.click(screen.getByRole('button', { name: /阻塞/ }));
+    fireEvent.click(screen.getByRole('button', { name: /待处理/ }));
     expect(await screen.findByText('实现登录接口')).toBeDefined();
     expect(screen.getByText('评审首页改版')).toBeDefined();
   });
 
-  it('§6.2 注意力排序：阻塞/异常卡排在执行中之前', async () => {
+  it('注意力排序：待处理卡排在工作中之前（data-status 挂 4 态展示键）', async () => {
     mockApis({
       profiles: [profile(), profile({ id: 'p2', name: 'blocker', provider: 'kimi' })],
       agents: [
@@ -171,7 +175,7 @@ describe('AgentDashboardPage', () => {
     expect(await screen.findByText('被卡的迁移')).toBeDefined();
     const statuses = Array.from(container.querySelectorAll('[data-testid="agent-card"]'))
       .map((el) => el.getAttribute('data-status'));
-    expect(statuses).toEqual(['blocked', 'running']);
+    expect(statuses).toEqual(['attention', 'working']);
   });
 
   it('§6.1 忙碌卡四层：pill+角色名链接+CLI chip+运行时长 → WU 锚点+类型 chip+已耗时 → PMO·频道次行', async () => {
@@ -179,9 +183,9 @@ describe('AgentDashboardPage', () => {
     render(<AgentDashboardPage />);
     const title = await screen.findByText('实现登录接口');
     const card = title.closest('[data-testid="agent-card"]')!;
-    expect(card.getAttribute('data-status')).toBe('running');
+    expect(card.getAttribute('data-status')).toBe('working');
     // 头行
-    expect(within(card as HTMLElement).getByText('执行中')).toBeDefined();
+    expect(within(card as HTMLElement).getByText('工作中')).toBeDefined();
     expect(within(card as HTMLElement).getByText('dev-agent').closest('a')?.getAttribute('href')).toBe('/agents/p1');
     expect(within(card as HTMLElement).getByText('claude')).toBeDefined();
     expect(within(card as HTMLElement).getByText(/^\d+m$/)).toBeDefined();
@@ -194,13 +198,13 @@ describe('AgentDashboardPage', () => {
     expect(within(card as HTMLElement).getByText('#backend').closest('a')?.getAttribute('href')).toBe('/channels/ch1');
   });
 
-  it('active + WU in_review → 待评审（data-status=in_review）；blocked → 阻塞', async () => {
+  it('active + WU in_review / blocked → 待处理 pill（data-status=attention）', async () => {
     mockApis({
       agents: [instance({ currentWorkUnit: { id: 'wu-1', title: 't', type: 'DEV', status: 'in_review', claimedAt: null } })],
     });
     const { unmount, container } = render(<AgentDashboardPage />);
-    expect(await screen.findByText('待评审')).toBeDefined();
-    expect(container.querySelector('[data-testid="agent-card"]')?.getAttribute('data-status')).toBe('in_review');
+    expect((await screen.findAllByText('待处理')).length).toBeGreaterThan(0);
+    expect(container.querySelector('[data-testid="agent-card"]')?.getAttribute('data-status')).toBe('attention');
     unmount();
 
     // 同测试内二次挂载：重置 TTL 锚点，挂载首拉才会取到本轮 mock 的数据
@@ -209,8 +213,8 @@ describe('AgentDashboardPage', () => {
       agents: [instance({ currentWorkUnit: { id: 'wu-1', title: 't', type: 'DEV', status: 'blocked', claimedAt: null } })],
     });
     const { container: c2 } = render(<AgentDashboardPage />);
-    expect(await screen.findByText('阻塞')).toBeDefined();
-    expect(c2.querySelector('[data-testid="agent-card"]')?.getAttribute('data-status')).toBe('blocked');
+    expect((await screen.findAllByText('待处理')).length).toBeGreaterThan(0);
+    expect(c2.querySelector('[data-testid="agent-card"]')?.getAttribute('data-status')).toBe('attention');
   });
 
   it('§6.1 空闲空态：等待派活 + 最近完成链接（#387 批量端点取 done）', async () => {
@@ -225,21 +229,25 @@ describe('AgentDashboardPage', () => {
     expect(mockWuLastDone).toHaveBeenCalledWith(['i1']);
   });
 
-  it('§6.1 无 instance → 未启动 pill + 未启动空态', async () => {
+  it('§6.1 无 instance → 离线 pill + 未启动空态', async () => {
     mockApis({ agents: [] });
     const { container } = render(<AgentDashboardPage />);
-    // pill 与空态文案同为「未启动」
+    // pill 走 4 态「离线」，空态文案保留细分「未启动」
+    expect((await screen.findAllByText('离线')).length).toBeGreaterThan(0);
     expect((await screen.findAllByText('未启动')).length).toBeGreaterThan(0);
-    expect(container.querySelector('[data-testid="agent-card"]')?.getAttribute('data-status')).toBe('none');
+    expect(container.querySelector('[data-testid="agent-card"]')?.getAttribute('data-status')).toBe('offline');
   });
 
-  it('§6.1 异常卡：错误行 ⚠ lastError 上卡（与卡同色经 data-status=error 驱动）', async () => {
+  it('§6.1 异常卡：待处理 pill + 角色名前红点角标 + 错误行 ⚠ lastError 上卡', async () => {
     mockApis({
       agents: [instance({ status: 'error', currentWorkUnitId: null, currentWorkUnit: null, pmo: null, channelId: null, lastError: 'spawn ENOENT' })],
     });
     const { container } = render(<AgentDashboardPage />);
     const err = await screen.findByText(/⚠ spawn ENOENT/);
-    expect(container.querySelector('[data-testid="agent-card"]')?.getAttribute('data-status')).toBe('error');
+    const card = container.querySelector('[data-testid="agent-card"]')!;
+    expect(card.getAttribute('data-status')).toBe('attention');
+    // 细分=error → 红点角标（4 态合并后保留异常可见性）
+    expect(card.querySelector('.agd-dot-err')).toBeTruthy();
     expect(err.className).toContain('agd-error');
   });
 
@@ -258,11 +266,11 @@ describe('AgentDashboardPage', () => {
         h({ event_type: 'agent.instance.status_changed', data: { profileId: 'p1', instanceId: 'i1', name: 'dev-agent', status: 'active', currentWorkUnitId: 'wu-9' } });
       }
     });
-    // 补查 wu-9 详情后显示标题链接 + 执行中 pill
+    // 补查 wu-9 详情后显示标题链接 + 工作中 pill
     const title = await screen.findByText('补查的任务');
     expect(title.closest('a')?.getAttribute('href')).toBe('/workunits/wu-9');
     expect(mockWuGet).toHaveBeenCalledWith('wu-9');
-    expect(screen.getAllByText('执行中').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('工作中').length).toBeGreaterThan(0);
   });
 
   it('SSE workunit.execution.step：最近动态每条可点 → 当前 WU 详情；他 WU 事件不落卡', async () => {

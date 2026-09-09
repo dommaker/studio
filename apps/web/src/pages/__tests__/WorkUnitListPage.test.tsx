@@ -19,6 +19,7 @@ vi.mock('react-router-dom', () => ({
 
 const mockStore = {
   workunits: [] as Array<Record<string, unknown>>,
+  statusFilter: null as string | null,
   reviewPassed: vi.fn(),
   reviewRejected: vi.fn(),
   confirmPending: vi.fn(),
@@ -39,7 +40,7 @@ vi.mock('../../stores/workunitStore', () => ({
         total: mockStore.workunits.length,
         loading: false,
         error: null,
-        statusFilter: null,
+        statusFilter: mockStore.statusFilter,
         unattributedOnly: mockStore.unattributedOnly,
         unattributedTotal: mockStore.unattributedTotal,
         loadWorkUnits: mockStore.loadWorkUnits,
@@ -131,8 +132,7 @@ describe('WorkUnitListPage - 统计条口径（#280）', () => {
     mockSearchParamsValue.value = '';
   });
 
-  /** 找到 StatBadge（<span class="font-bold"/>value + <span class="text-sm u-text-3"/>label 结构）的数字。
-   *  注意：filter pill 也会渲染同名标签（如「待确认」），所以用 font-bold sibling 定位 StatBadge。 */
+  /** 找到统计 chip（wu-stat：<span class="font-bold"/>value + <span class="text-sm u-text-3"/>label 结构）的数字。 */
   function statValue(label: string): string {
     const allLabels = screen.getAllByText(label);
     const statLabel = allLabels.find(el =>
@@ -310,8 +310,8 @@ describe('WorkUnitListPage — claimable 置灰与被阻塞徽标（#116）', ()
     const badge = screen.getByText('被阻塞');
     expect(badge.getAttribute('title')).toContain('wu-dep-1');
     expect(badge.getAttribute('title')).toContain('wu-dep-2');
-    const card = badge.closest('.card') as HTMLElement;
-    expect(card.className).toContain('u-dimmed');
+    const row = badge.closest('.wu-row') as HTMLElement;
+    expect(row.className).toContain('u-dimmed');
   });
 
   it('unassigned + claimable=true（依赖全了结）→ 无徽标不置灰（恢复可认领样式）', () => {
@@ -320,7 +320,7 @@ describe('WorkUnitListPage — claimable 置灰与被阻塞徽标（#116）', ()
 
     expect(screen.queryByText('被阻塞')).toBeNull();
     const link = screen.getByText('分析需求 PMO-1: 测试');
-    expect((link.closest('.card') as HTMLElement).className).not.toContain('u-dimmed');
+    expect((link.closest('.wu-row') as HTMLElement).className).not.toContain('u-dimmed');
   });
 
   it('非 unassigned 行 claimable 恒 false（服务端口径）→ 不误标', () => {
@@ -387,5 +387,135 @@ describe('WorkUnitListPage — 未归属 pill（#405）', () => {
   it('挂载时拉取未归属计数（loadUnattributedCount）', () => {
     render(<WorkUnitListPage />);
     expect(mockStore.loadUnattributedCount).toHaveBeenCalled();
+  });
+});
+
+// Step 2（docs/plans/2026-09-ui-smoothness.md）：筛选合一 —— 统计 chip 可点击过滤/再点取消回全部；
+// 待确认/待领取/进行中/待验收 → 服务端 statusFilter；待人工 → humanOnly 客户端派生过滤
+describe('WorkUnitListPage — 统计 chip 筛选（Step 2）', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockStore.workunits = [];
+    mockStore.statusFilter = null;
+    mockStore.unattributedOnly = false;
+    mockSearchParamsValue.value = '';
+  });
+
+  it('点状态 chip → setStatusFilter(对应状态)（服务端过滤）', () => {
+    render(<WorkUnitListPage />);
+
+    fireEvent.click(screen.getByRole('button', { name: /待确认/ }));
+    expect(mockStore.setStatusFilter).toHaveBeenCalledWith('pending');
+
+    fireEvent.click(screen.getByRole('button', { name: /待验收/ }));
+    expect(mockStore.setStatusFilter).toHaveBeenCalledWith('in_review');
+  });
+
+  it('激活态再点同 chip → setStatusFilter(null)（取消回全部）', () => {
+    mockStore.statusFilter = 'pending';
+    render(<WorkUnitListPage />);
+
+    fireEvent.click(screen.getByRole('button', { name: /待确认/ }));
+    expect(mockStore.setStatusFilter).toHaveBeenCalledWith(null);
+  });
+
+  it('「总数」chip = 回全部：清空状态筛选', () => {
+    mockStore.statusFilter = 'active';
+    render(<WorkUnitListPage />);
+
+    fireEvent.click(screen.getByRole('button', { name: /总数/ }));
+    expect(mockStore.setStatusFilter).toHaveBeenCalledWith(null);
+  });
+
+  it('激活 chip aria-pressed=true，其余 false', () => {
+    mockStore.statusFilter = 'pending';
+    render(<WorkUnitListPage />);
+
+    expect(screen.getByRole('button', { name: /待确认/ }).getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByRole('button', { name: /待领取/ }).getAttribute('aria-pressed')).toBe('false');
+  });
+
+  it('「待人工」chip → 客户端过滤只剩 needsHuman 行；再点恢复全量', () => {
+    mockStore.workunits = [
+      makeWu({ id: 'wu-r1', scope: '待验收的活', status: 'in_review' }),
+      makeWu({ id: 'wu-a1', scope: '进行中的活', status: 'active' }),
+    ];
+    render(<WorkUnitListPage />);
+
+    fireEvent.click(screen.getByRole('button', { name: /待人工/ }));
+    expect(screen.getByText('待验收的活')).toBeDefined();
+    expect(screen.queryByText('进行中的活')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: /待人工/ }));
+    expect(screen.getByText('进行中的活')).toBeDefined();
+  });
+
+  it('选状态 chip 清除待人工过滤（互斥，与原 pill 行为一致）', () => {
+    mockStore.workunits = [
+      makeWu({ id: 'wu-r1', scope: '待验收的活', status: 'in_review' }),
+      makeWu({ id: 'wu-a1', scope: '进行中的活', status: 'active' }),
+    ];
+    render(<WorkUnitListPage />);
+
+    fireEvent.click(screen.getByRole('button', { name: /待人工/ }));
+    expect(screen.queryByText('进行中的活')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: /进行中/ }));
+    expect(mockStore.setStatusFilter).toHaveBeenCalledWith('active');
+    // humanOnly 已清 → 列表恢复全量（状态过滤本身走服务端，本地 mock 不重拉）
+    expect(screen.getByText('进行中的活')).toBeDefined();
+  });
+});
+
+// Step 2：行/展开区重设计 —— 无边框行（wu-row + data-status 色条锚点）、metadata toggle、分节小标题
+describe('WorkUnitListPage — 行与展开区重设计（Step 2）', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockStore.workunits = [];
+    mockStore.statusFilter = null;
+    mockSearchParamsValue.value = '';
+  });
+
+  it('行为 wu-row 无边框块（无 .card），挂 data-status = 派生列作状态色条锚点', () => {
+    mockStore.workunits = [makeWu({ id: 'wu-ds', status: 'active' })];
+    render(<WorkUnitListPage />);
+
+    const link = screen.getByText('分析需求 PMO-1: 测试');
+    const row = link.closest('.wu-row') as HTMLElement;
+    expect(row).not.toBeNull();
+    expect(row.getAttribute('data-status')).toBe('active');
+    expect(link.closest('.card')).toBeNull();
+  });
+
+  it('metadata 默认收起；「查看 metadata」toggle 展开 JSON，再点收起', async () => {
+    mockStore.workunits = [makeWu({
+      id: 'wu-m1',
+      type: 'task',
+      status: 'active',
+      metadata: JSON.stringify({ blockedBy: ['wu-hidden-dep'] }),
+    })];
+    render(<WorkUnitListPage />);
+
+    fireEvent.click(screen.getByText('ID: wu-m1...')); // 行内展开
+    const toggle = await screen.findByRole('button', { name: /查看 metadata/ });
+    expect(screen.queryByText(/wu-hidden-dep/)).toBeNull(); // pre 默认不渲染
+
+    fireEvent.click(toggle);
+    expect(screen.getByText(/wu-hidden-dep/)).toBeDefined(); // JSON 展开
+    expect(screen.getByRole('button', { name: /隐藏 metadata/ }).getAttribute('aria-expanded')).toBe('true');
+
+    fireEvent.click(screen.getByRole('button', { name: /隐藏 metadata/ }));
+    expect(screen.queryByText(/wu-hidden-dep/)).toBeNull();
+  });
+
+  it('展开区有「执行过程」「讨论」分节小标题', async () => {
+    mockStore.workunits = [makeWu({ id: 'wu-s1', type: 'task', status: 'active' })];
+    const { container } = render(<WorkUnitListPage />);
+
+    fireEvent.click(screen.getByText('ID: wu-s1...'));
+    // ExecutionSteps 组件内部也渲染「执行过程」原文，故用 .wu-sec 类定位分节标题
+    await waitFor(() => expect(container.querySelectorAll('.wu-sec').length).toBe(2));
+    const titles = Array.from(container.querySelectorAll('.wu-sec')).map(el => el.textContent);
+    expect(titles).toEqual(['执行过程', '讨论']);
   });
 });

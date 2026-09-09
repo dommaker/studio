@@ -1,5 +1,5 @@
 // ChannelDetailPage — Mission Control 三栏 smoke test
-// 覆盖：三栏渲染 / REQ chip 开抽屉 / WU 链接开抽屉 / 已完成折叠 / NEED_INPUT 内嵌回复链路 / 线程展开
+// 覆盖：三栏渲染 / REQ chip 开抽屉 / WU 链接开抽屉 / 已完成折叠 / NEED_INPUT 内嵌回复链路 / 线程默认展开与收起持久化
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
@@ -209,6 +209,8 @@ const renderPage = (entry = '/channels/ch-1') =>
 describe('ChannelDetailPage — Mission Control 三栏', () => {
   beforeEach(async () => {
     vi.clearAllMocks();
+    // 折叠状态按频道持久化（Step 3）——防跨用例 localStorage 泄漏
+    window.localStorage.clear();
     currentMessages = MESSAGES;
     currentHasMore = false;
     // toast.dismiss() 是 200ms 动画后异步移除——有残留时等其落定，防跨用例 toast 文本污染断言
@@ -419,9 +421,8 @@ describe('ChannelDetailPage — Mission Control 三栏', () => {
     ];
     renderPage();
     await waitFor(() => expect(screen.getByText('需求已收到，开始分析')).toBeTruthy());
-    fireEvent.click(screen.getByText('▸ 5 条回复'));
 
-    // 3 条连续过程消息收成一组；卡片回复（非末位）是里程碑，直接可见
+    // 线程默认展开：3 条连续过程消息收成一组；卡片回复（非末位）是里程碑，直接可见
     expect(screen.getByText('▸ 3 条过程消息')).toBeTruthy();
     expect(screen.getByText('通过')).toBeTruthy();
     expect(screen.getByText('分析结论：拆成 3 个任务')).toBeTruthy();
@@ -438,22 +439,32 @@ describe('ChannelDetailPage — Mission Control 三栏', () => {
     });
   });
 
-  it('thread replies hidden by default and expand on toggle', async () => {
+  it('thread replies visible by default; toggle collapses and persists across remount', async () => {
+    const first = renderPage();
+    await waitFor(() => expect(screen.getByText('检索到 3 条相关知识')).toBeTruthy());
+    // 折叠层级 4→2：线程默认展开，普通回复直接可见
+    expect(screen.getByText('补充：SDD-012 强相关')).toBeTruthy();
+
+    // 手动收起
+    fireEvent.click(screen.getByText('▾ 收起回复'));
+    expect(screen.queryByText('补充：SDD-012 强相关')).toBeNull();
+    expect(screen.getByText('▸ 1 条回复')).toBeTruthy();
+
+    // 收起状态按频道持久化，重进频道恢复
+    first.unmount();
     renderPage();
     await waitFor(() => expect(screen.getByText('检索到 3 条相关知识')).toBeTruthy());
     expect(screen.queryByText('补充：SDD-012 强相关')).toBeNull();
-    fireEvent.click(screen.getByText('▸ 1 条回复'));
-    expect(screen.getByText('补充：SDD-012 强相关')).toBeTruthy();
+    expect(screen.getByText('▸ 1 条回复')).toBeTruthy();
   });
 
   it('collapses ≥3 consecutive process replies inside a thread; milestones stay visible', async () => {
     currentMessages = PROCESS_MESSAGES;
     renderPage();
-    // 展开线程
+    // 线程默认展开（无需再点「N 条回复」）
     await waitFor(() => expect(screen.getByText('需求已收到，开始分析')).toBeTruthy());
-    fireEvent.click(screen.getByText('▸ 5 条回复'));
 
-    // 4 条连续过程消息收成一组（默认折叠）；最后一条（最新状态）直接可见
+    // 4 条连续过程消息收成一组（保持一层折叠，默认收拢）；最后一条（最新状态）直接可见
     expect(screen.getByText('分析结论：拆成 3 个任务')).toBeTruthy();
     expect(screen.queryByText('过程步骤 3')).toBeNull();
     const toggle = screen.getByText('▸ 4 条过程消息');
@@ -1320,5 +1331,56 @@ describe('ChannelDetailPage — #445 认领动作片', () => {
     fireEvent.click(await screen.findByRole('button', { name: '确认认领' }));
     await screen.findByText(/Claim failed/);
     expect(suggestionsCalls()).toBe(1); // 未成功不重拉
+  });
+});
+
+// 频道页视觉优化批次 2 ⑥（docs/plans/2026-09-channel-visual-polish.md）：
+// 空频道态在两行引导文案下给 2-3 个低调示例提示 chip，点击走既有 prefill 通道
+// （与 #446 prompt 建议片同一 setInputPrefill 机制）填入输入框，不自动发送
+describe('ChannelDetailPage — 空频道态示例提示 chip（视觉批次 2 ⑥）', () => {
+  const CHANNEL = { data: { data: { id: 'ch-1', name: 'rnd-主研发', type: 'rnd', members: '[]' } } };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    window.localStorage.clear();
+    currentMessages = []; // 空频道
+    currentHasMore = false;
+    sseHandlers = [];
+    useNotificationStore.setState({ notifications: [] });
+    mockApiGet.mockImplementation((url: string) => Promise.resolve(
+      String(url).endsWith('/suggestions') ? { data: { data: { currentWuId: null, suggestions: [] } } } : CHANNEL,
+    ));
+    mockListWorkunits.mockImplementation((params?: { status?: string }) => Promise.resolve(
+      params?.status === 'active' ? activeWuList([]) : { data: { data: [] } },
+    ));
+    mockOnEvent.mockImplementation((cb: SseHandler) => { sseHandlers.push(cb); return () => {}; });
+    mockOnReconnect.mockImplementation((cb: () => void) => { reconnectHandlers.push(cb); return () => {}; });
+    reconnectHandlers = [];
+    mockListReqs.mockResolvedValue({ data: { data: [] } });
+    mockSendMessage.mockResolvedValue({});
+  });
+
+  it('空频道 → 两行引导文案 + 2-3 个可点示例 chip', async () => {
+    renderPage();
+    await screen.findByText('发送消息开始对话');
+    const chips = document.querySelectorAll('.mc-empty-chip');
+    expect(chips.length).toBeGreaterThanOrEqual(2);
+    expect(chips.length).toBeLessThanOrEqual(3);
+  });
+
+  it('点击示例 chip → prefill 填入输入框（nonce 递增），不自动发送', async () => {
+    renderPage();
+    const chip = (await screen.findByText('发送消息开始对话'))
+      .closest('.mc-stream-empty')!.querySelector<HTMLButtonElement>('.mc-empty-chip')!;
+    fireEvent.click(chip);
+    const input = screen.getByTestId('channel-input');
+    expect(input.getAttribute('data-prefill')).toBe(chip.textContent);
+    expect(Number(input.getAttribute('data-prefill-nonce'))).toBeGreaterThan(0);
+    expect(mockSendMessage).not.toHaveBeenCalled();
+    // 再点一次另一 chip → nonce 继续递增（同 nonce 不覆盖用户编辑的契约靠 nonce 保证）
+    const chips = document.querySelectorAll<HTMLButtonElement>('.mc-empty-chip');
+    const before = Number(input.getAttribute('data-prefill-nonce'));
+    fireEvent.click(chips[chips.length - 1]);
+    expect(Number(screen.getByTestId('channel-input').getAttribute('data-prefill-nonce'))).toBe(before + 1);
   });
 });

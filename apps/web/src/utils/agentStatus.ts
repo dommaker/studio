@@ -1,5 +1,6 @@
 // Agent 卡片状态推导与时间格式化（2026-07-31 全流程串联 UX 重构 §5.2/§5.3）
-// 纯函数抽出以便单测；状态色遵循 redesign §6.5 单义规则（绿=执行 / 黄=待评审 / 红=阻塞 / 橙=异常 / 灰=空闲·停用）
+// 纯函数抽出以便单测；内部细分态（7+1）保留作细分依据，UI 展示层合并为 4 态
+// （工作中 / 待处理 / 空闲 / 离线，见 DisplayStatusKey）；展示色：绿=工作中 / 黄=待处理 / 灰=空闲·离线
 
 /** 卡片状态键：active 实例按当前 WU.status 细分 */
 export type AgentStatusKey =
@@ -75,25 +76,63 @@ export function resolveCardStatusKey(
   return deriveAgentStatus(instanceStatus, currentWorkUnitStatus);
 }
 
-/** §6.2 注意力排序：阻塞/异常 → 待评审 → 执行中 → 空闲 → 未启动/终止/停用 */
-export const AGENT_STATUS_RANK: Record<CardStatusKey, number> = {
-  blocked: 0,
-  error: 0,
-  in_review: 1,
-  running: 2,
-  idle: 3,
-  none: 4,
-  terminated: 4,
-  disabled: 4,
+/** 展示状态键（UI 4 态口径）：内部 7+1 细分态不删，作细分依据（详情页小字 / error 红点角标） */
+export type DisplayStatusKey =
+  | 'working'   // 工作中（running）
+  | 'attention' // 待处理（in_review / blocked / error）
+  | 'idle'      // 空闲（idle）
+  | 'offline';  // 离线（none / terminated / disabled）
+
+export const DISPLAY_STATUS_LABELS: Record<DisplayStatusKey, string> = {
+  working: '工作中',
+  attention: '待处理',
+  idle: '空闲',
+  offline: '离线',
 };
 
-/** §6.3 页头筛选维度；'off' 聚合 未启动/已终止/已停用；'all' 不过滤 */
-export type StatusFilter = 'all' | 'running' | 'in_review' | 'blocked' | 'error' | 'idle' | 'off';
+/** 展示状态色（与细分态 §6.5 单义同系）：绿=工作中（u-accent）/ 黄=待处理（u-warn）/ 灰=空闲·离线 */
+export const DISPLAY_STATUS_COLORS: Record<DisplayStatusKey, string> = {
+  working: 'u-accent-dim u-accent',
+  attention: 'u-warn-dim u-warn',
+  idle: 'u-surface-2 u-text-3',
+  offline: 'u-surface-2 u-text-3',
+};
+
+/** 细分态 → 展示态唯一映射表（pill / 页头筛选 chip / 统计 / 排序同源消费） */
+export const CARD_TO_DISPLAY_STATUS: Record<CardStatusKey, DisplayStatusKey> = {
+  running: 'working',
+  in_review: 'attention',
+  blocked: 'attention',
+  error: 'attention',
+  idle: 'idle',
+  none: 'offline',
+  terminated: 'offline',
+  disabled: 'offline',
+};
+
+/** 展示状态统一口径：内部走 resolveCardStatusKey 细分再映射 */
+export function resolveDisplayStatus(
+  profileStatus: string | null | undefined,
+  instanceStatus: string | null | undefined,
+  currentWorkUnitStatus?: string | null,
+): DisplayStatusKey {
+  return CARD_TO_DISPLAY_STATUS[resolveCardStatusKey(profileStatus, instanceStatus, currentWorkUnitStatus)];
+}
+
+/** 注意力排序（4 态口径）：待处理 → 工作中 → 空闲 → 离线 */
+export const AGENT_STATUS_RANK: Record<DisplayStatusKey, number> = {
+  attention: 0,
+  working: 1,
+  idle: 2,
+  offline: 3,
+};
+
+/** 页头筛选维度（4 态口径）；'all' 不过滤 */
+export type StatusFilter = 'all' | DisplayStatusKey;
 
 export function matchesStatusFilter(key: CardStatusKey, filter: StatusFilter): boolean {
   if (filter === 'all') return true;
-  if (filter === 'off') return key === 'none' || key === 'terminated' || key === 'disabled';
-  return key === filter;
+  return CARD_TO_DISPLAY_STATUS[key] === filter;
 }
 
 /** 运行时长 / 已耗时：从 startedAt（或 claimedAt）起算，"5m" / "2h 30m" / "1d 4h" */
