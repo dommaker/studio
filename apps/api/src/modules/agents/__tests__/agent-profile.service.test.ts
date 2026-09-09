@@ -614,6 +614,83 @@ describe('决策 9: create preset 预填（.agents/roles/*.yaml）', () => {
   });
 });
 
+// ── #462: role.skills 显式声明可经 create/update 写入（UI 多选数据源；注入索引消费见 skill-selector） ──
+
+describe('#462: role.skills create/update 写入', () => {
+  let tmpDir: string;
+  let rolesDir: string;
+  let fileStore: FileStore;
+  let service: AgentProfileService;
+  let savedRolesDir: string | undefined;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'profile-skills-test-'));
+    rolesDir = path.join(tmpDir, 'roles');
+    fs.mkdirSync(rolesDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(rolesDir, 'developer.yaml'),
+      ['description: 开发者', 'skills: [tdd-implement]', ''].join('\n'),
+      'utf-8',
+    );
+    fileStore = new FileStore(tmpDir);
+    service = new AgentProfileService(fileStore);
+    savedRolesDir = process.env.STUDIO_ROLES_DIR;
+    process.env.STUDIO_ROLES_DIR = rolesDir;
+  });
+
+  afterEach(() => {
+    if (savedRolesDir === undefined) delete process.env.STUDIO_ROLES_DIR;
+    else process.env.STUDIO_ROLES_DIR = savedRolesDir;
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('create 显式 skills（无 preset）落盘可回读', async () => {
+    const profile = await service.create({ name: 'sk-1', skills: ['requirement-clarify'] });
+
+    expect(profile.skills).toEqual(['requirement-clarify']);
+    const onDisk = await service.getById(profile.id);
+    expect(onDisk!.skills).toEqual(['requirement-clarify']);
+  });
+
+  it('create 显式 skills 优先于 preset skills', async () => {
+    const profile = await service.create({ name: 'sk-2', preset: 'developer', skills: ['code-review'] });
+
+    expect(profile.skills).toEqual(['code-review']);
+  });
+
+  it('create 未传 skills 时仍吃 preset skills（兼容）', async () => {
+    const profile = await service.create({ name: 'sk-3', preset: 'developer' });
+
+    expect(profile.skills).toEqual(['tdd-implement']);
+  });
+
+  it('update 设置 skills 落盘可回读', async () => {
+    const profile = await service.create({ name: 'sk-4' });
+
+    const updated = await service.update(profile.id, { skills: ['tdd-implement', 'to-tickets'] });
+
+    expect(updated.skills).toEqual(['tdd-implement', 'to-tickets']);
+    const onDisk = await service.getById(profile.id);
+    expect(onDisk!.skills).toEqual(['tdd-implement', 'to-tickets']);
+  });
+
+  it('update skills: [] 清空既有声明', async () => {
+    const profile = await service.create({ name: 'sk-5', skills: ['tdd-implement'] });
+
+    const updated = await service.update(profile.id, { skills: [] });
+
+    expect(updated.skills).toEqual([]);
+  });
+
+  it('update 未传 skills 不动既有值', async () => {
+    const profile = await service.create({ name: 'sk-6', skills: ['tdd-implement'] });
+
+    const updated = await service.update(profile.id, { description: '改描述' });
+
+    expect(updated.skills).toEqual(['tdd-implement']);
+  });
+});
+
 // ── #298: update 名字唯一性校验（与 create 同口径，排除自身支持幂等） ──
 
 describe('#298: update name uniqueness (与 create 同口径)', () => {

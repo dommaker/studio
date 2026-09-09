@@ -45,6 +45,8 @@ export interface CreateAgentProfileInput {
   persona?: string;
   /** 显式职能域（阶段词表）；显式传入优先于预设 */
   acceptedTypes?: string[];
+  /** #462: 显式 skill 声明（进注入索引，与 +skill 点名同权）；显式传入优先于预设（传 [] 覆盖预设） */
+  skills?: string[];
 }
 
 /** 角色预设 yaml 中可预填的字段 */
@@ -101,6 +103,8 @@ export interface UpdateAgentProfileInput {
   channels?: string[];
   provider?: string | null;
   status?: string;
+  /** #462: 显式 skill 声明（传 [] 清空）；undefined = 不动既有值 */
+  skills?: string[];
 }
 
 export type AgentProfileWithOnline = AgentProfileData & {
@@ -201,7 +205,8 @@ export class AgentProfileService {
         ? { acceptedTypes: input.acceptedTypes ?? preset?.acceptedTypes }
         : {}),
       // #91: preset 的 skills/tools/constraints 落盘（prompt 组装消费；皆无则不写）
-      ...(preset?.skills?.length ? { skills: preset.skills } : {}),
+      // #462: skills 显式传入优先于预设（注入索引消费，selectSkillsForInjection）
+      ...(input.skills ?? preset?.skills ? { skills: input.skills ?? preset?.skills } : {}),
       ...(preset?.tools?.length ? { tools: preset.tools } : {}),
       ...(preset?.constraints ? { constraints: preset.constraints } : {}),
     };
@@ -306,6 +311,8 @@ export class AgentProfileService {
     if (input.channels !== undefined) patch.channels = stringifyChannels(input.channels);
     if (input.provider !== undefined) patch.provider = input.provider;
     if (input.status !== undefined) patch.status = input.status;
+    // #462: 显式 skill 声明（[] = 清空）
+    if (input.skills !== undefined) patch.skills = input.skills;
 
     await this.fileStore.updateProfile(id, patch);
     const updated = await this.fileStore.getProfile(id);

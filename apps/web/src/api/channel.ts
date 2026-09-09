@@ -41,6 +41,8 @@ export interface AgentProfile {
   status: string;
   provider?: string | null;
   channels?: string | string[] | null; // JSON string of channel ID array（历史数据可能双重编码）
+  /** #462: 显式 skill 声明（注入索引候选，与 WU +skill 点名同权） */
+  skills?: string[];
   isOnline?: boolean;
   lastError?: string | null;
 }
@@ -169,9 +171,9 @@ export const channelApi = {
   updateMembers: (channelId: string, ops: { add?: string[]; remove?: string[] }) =>
     api.patch<{ success: boolean; data: { members: string[] } }>(`/channels/${channelId}/members`, ops),
 
-  createAgent: (data: { name: string; description?: string; channels?: string[]; provider?: string }) =>
+  createAgent: (data: { name: string; description?: string; channels?: string[]; provider?: string; skills?: string[] }) =>
     api.post<AgentProfile>('/agent-profiles', data),
 
-  updateAgent: (id: string, data: Partial<{ name: string; description: string | null; channels: string[]; provider: string | null; status: string }>) =>
+  updateAgent: (id: string, data: Partial<{ name: string; description: string | null; channels: string[]; provider: string | null; status: string; skills: string[] }>) =>
     api.patch<AgentProfile>(`/agent-profiles/${id}`, data),
 };

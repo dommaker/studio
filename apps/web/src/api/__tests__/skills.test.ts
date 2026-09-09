@@ -18,4 +18,9 @@ describe('skillsApi', () => {
     await skillsApi.retractDecide('skill-1', 'reject');
     expect(api.post).toHaveBeenCalledWith('/skills/skill-1/retract/decide', { decision: 'reject' });
   });
+
+  it('#462: listManifest → GET /skills/manifest（角色编辑 skill 多选数据源）', async () => {
+    await skillsApi.listManifest();
+    expect(api.get).toHaveBeenCalledWith('/skills/manifest');
+  });
 });

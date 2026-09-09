@@ -303,4 +303,47 @@ describe('selectSkillsForInjection（#92：硬预裁剪 —— 注入段只含 h
     const matched = selectSkillsForInjection(skills, { acceptedTypes: [], wuType: 'feature' }, []);
     expect(matched.map(s => s.name)).toEqual(['ok-skill']);
   });
+
+  // #462：role.skills 显式声明进注入索引（与 +skill 点名同权，按名解析、同 active 口径）
+  it('#462：role.skills 进注入索引（无 hint 无域匹配也返回）', () => {
+    const skills = [
+      entry('role-skill', { description: 'xyzzy 无交集' }),
+      entry('scope-only', { description: '分析需求、AC 形式化' }),
+    ];
+    const matched = selectSkillsForInjection(skills, { acceptedTypes: [], wuType: 'zzz-无交集' }, [], ['role-skill']);
+    expect(matched.map(s => s.name)).toEqual(['role-skill']);
+  });
+
+  it('#462：role.skills 排在 +hint 之后、域匹配之前', () => {
+    const skills = [
+      entry('hint-skill', { description: 'xyzzy' }),
+      entry('role-skill', { description: 'xyzzy' }),
+      entry('domain-skill', { agentTypes: ['feature'] }),
+    ];
+    const matched = selectSkillsForInjection(skills, { acceptedTypes: [], wuType: 'feature' }, ['hint-skill'], ['role-skill']);
+    expect(matched.map(s => s.name)).toEqual(['hint-skill', 'role-skill', 'domain-skill']);
+  });
+
+  it('#462：WU 钉的与角色声明的按名去重（prompt 只出现一次）', () => {
+    const skills = [entry('both', { description: 'xyzzy' })];
+    const matched = selectSkillsForInjection(skills, { acceptedTypes: [], wuType: 'zzz-无交集' }, ['both'], ['both']);
+    expect(matched.map(s => s.name)).toEqual(['both']);
+  });
+
+  it('#462：role.skills 复用 active 口径：未知/draft/loop-consumer 跳过并记日志', () => {
+    const skills = [
+      entry('draft-skill', { status: 'draft' }),
+      entry('loop-skill', { consumers: ['loop'] }),
+      entry('ok-skill', {}),
+    ];
+    const matched = selectSkillsForInjection(
+      skills, { acceptedTypes: [], wuType: 'zzz-无交集' }, [],
+      ['draft-skill', 'loop-skill', 'no-such-skill', 'ok-skill'],
+    );
+    expect(matched.map(s => s.name)).toEqual(['ok-skill']);
+    expect(mockLogger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('not found'),
+      expect.objectContaining({ hint: 'no-such-skill' }),
+    );
+  });
 });

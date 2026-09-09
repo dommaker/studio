@@ -201,6 +201,23 @@ describe('§10 P0 + 决策 7/11/13: agentStep skill/persona 注入', () => {
     expect(result.metadataUpdates?.matchedSkills?.[0]).toBe('feature-dev');
   });
 
+  it('#462：role.skills 显式声明进注入索引（无 +hint 无域匹配也命中，与 +skill 同权）', async () => {
+    // type 无域交集、scope 无点名 —— 只能靠 role.skills 声明
+    const wu = makeWu(null, { type: 'zzz-无交集', scope: 'xyzzy 无交集' });
+    const { knowledgeContext, result } = await runStep(wu, { skills: ['feature-dev'] });
+
+    expect(knowledgeContext).toContain('### feature-dev');
+    expect(result.metadataUpdates?.matchedSkills).toEqual(['feature-dev']);
+  });
+
+  it('#462：WU +点名与 role.skills 声明同一 skill → 按名去重，索引只出现一次', async () => {
+    const wu = makeWu(null, { type: 'zzz-无交集', scope: 'xyzzy 无交集 +feature-dev' });
+    const { knowledgeContext, result } = await runStep(wu, { skills: ['feature-dev'] });
+
+    expect(result.metadataUpdates?.matchedSkills).toEqual(['feature-dev']);
+    expect(knowledgeContext.split('### feature-dev').length - 1).toBe(1);
+  });
+
   it('skill 库为空 → 无 skill 段，injectContext 吃到全部前段余量（#91：1000 定额 + 2400 余量）', async () => {
     fs.rmSync(path.join(testSkillsDir, 'feature-dev'), { recursive: true, force: true });
     invalidateManifestCache();

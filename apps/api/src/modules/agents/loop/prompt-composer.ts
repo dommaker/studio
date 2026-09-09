@@ -615,7 +615,8 @@ function buildHandoffSection(metadata: WorkUnitMetadata, isNewSession: boolean, 
  * §10 P0 + 决策 7/11 + #92: 组装 `## 本次任务 Skills` 段 —— step 时计算（不再读 claim 落盘的
  * metadata.matchedSkills，消竞态并吃到 skill 库最新版）。
  * #92 硬预裁剪（selectSkillsForInjection）：注入段只含 +skill 显式点名（wu.scope 解析）+
- * 域匹配（role.acceptedTypes ∪ 归一化 wu.type ∩ skill.agentTypes）两类；scope 文本匹配与
+ * role.skills 显式声明（#462：与 +skill 同权，按名去重）+
+ * 域匹配（role.acceptedTypes ∪ 归一化 wu.type ∩ skill.agentTypes）三类；scope 文本匹配与
  * 「rest 热度」不再进注入段（由段尾 MANIFEST 指针按需兜底）。预裁剪后仍受 #91 分段定额截断
  * （有效预算 = 定额 + 池余量，块级截断，取代封顶 3）。
  * index-on-demand：索引行 = name + description + triggers 摘要 + 全文指针
@@ -634,10 +635,11 @@ async function buildSkillSection(
   if (manifest.length === 0) return { section: '', tokens: 0, originalTokens: 0, matched: [] };
 
   const hints = parseSkillHintsFromScope(wu.scope ?? '');
+  // #462：role.skills 显式声明纳入索引候选（与 +skill 点名同权，按名去重——见 selectSkillsForInjection）
   const ranked = selectSkillsForInjection(manifest, {
     acceptedTypes: deps.acceptedTypes,
     wuType: wu.type,
-  }, hints);
+  }, hints, deps.role.skills ?? []);
   if (ranked.length === 0) return { section: '', tokens: 0, originalTokens: 0, matched: [] };
 
   const header = '## 本次任务 Skills\n\n以下 skill 按相关度排序；任务内容命中其触发条件时，先读全文再按此执行；不相关则忽略。';
