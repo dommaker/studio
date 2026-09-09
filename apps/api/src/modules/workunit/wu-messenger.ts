@@ -18,8 +18,10 @@
  * 后者被 workunit.service 静态依赖；静态引入 pmo-branch-resolver
  * （→ project.service → workunit.service）会成循环（同 merge-on-review-pass 头部依赖说明）。
  */
-import { FileStore, type ChannelMessageData } from '@dommaker/studio-shared';
+import { FileStore, logger, type ChannelMessageData } from '@dommaker/studio-shared';
+import { NotificationService } from '@dommaker/studio-notification';
 import { ChannelMessageService, type MessageMeta, type MessageRecord } from '../channels/channel-message.service.js';
+import { parseWuTitle } from './wu-metadata.js';
 import type { WorkUnitData } from './workunit.service.js';
 
 export interface PostWuSystemMessageOptions {
@@ -67,6 +69,31 @@ async function milestoneMeta(wu: WorkUnitData, fileStore: FileStore): Promise<Me
 }
 
 /**
+ * #468 行动中心：里程碑消息同步落 NotificationService（type=wu_milestone，全用户），
+ * 刷新/断线重连不丢——SSE 只做实时增量，持久面以通知为准。
+ * best-effort：写失败仅 warn，绝不阻断频道发帖主路径。
+ */
+async function persistMilestoneNotification(
+  wu: WorkUnitData,
+  content: string,
+  messageId: string,
+  fileStore: FileStore,
+): Promise<void> {
+  try {
+    await new NotificationService(fileStore).createForAllUsers({
+      type: 'wu_milestone',
+      title: `WU 里程碑：${parseWuTitle(wu.metadata, wu.scope)}`,
+      content: content.slice(0, 200),
+      link: `/channels/${wu.channelId}?highlight=${messageId}`,
+      wuId: wu.id,
+      channelId: wu.channelId ?? undefined,
+    });
+  } catch (err) {
+    logger.warn('[wu-messenger] milestone notification write failed (non-blocking)', { error: String(err) });
+  }
+}
+
+/**
  * 向 WU 所在频道发系统消息（统一形态：authorType:'agent' + eventBus + SSE）。
  * @returns 发送成功的消息记录；content 为空或 wu.channelId 缺失时返回 null（不发帖）
  */
@@ -86,10 +113,16 @@ export async function postWuSystemMessage(
     ? { ...await milestoneMeta(wu, fileStore), ...opts?.meta }
     : opts?.meta;
 
-  return new ChannelMessageService(fileStore).createAgentMessage(
+  const record = await new ChannelMessageService(fileStore).createAgentMessage(
     wu.channelId,
     opts?.agentName ?? 'Studio',
     trimmed,
     { replyToId: opts?.replyToId ?? anchor?.id ?? undefined, meta, workUnitId: wu.id },
   );
+
+  if (opts?.milestone && record) {
+    await persistMilestoneNotification(wu, trimmed, record.id, fileStore);
+  }
+
+  return record;
 }

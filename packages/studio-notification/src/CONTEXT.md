@@ -19,5 +19,6 @@
 ### 注意事项
 
 - 服务层 `NotificationService` 使用 JSONL 文件存储，路径固定为 `~/.studio/logs/notifications.jsonl`，注意文件锁和并发写入问题。
-- `CreateNotificationInput` 的 `type` 为 `review_request | review_approved | review_rejected | system | auditor_suggestion`。
+- `CreateNotificationInput` 的 `type` 为 `review_request | review_approved | review_rejected | system | auditor_suggestion | wu_milestone | monitor_alert | incident`（后三个为 #468 行动中心追加）；数据行可选 `wuId/channelId` 结构化直链字段，查询透出（无则 null）。
+- #468：`createForAllUsers(input)` 把「遍历全用户写入」从 auditor-execution 的 readdir 先例收敛为服务方法（data/users/*.json 文件名，截顶 10，目录缺失返回 0 不抛错）；studio 事实单用户，多用户精确归属另票。
 - append-only 折叠口径（#360）：私有 `foldRows` 建在共享 `foldJsonlById` 上（studio-shared）。墓碑行 `{ id, deleted: true, deletedAt }` 是「已读标记」非删除--已读通知保留可见，全墓碑（孤儿墓碑行）不可见；数据载体 = 最新非 deleted 行，readAt = 首个墓碑的 deletedAt（多次 markAllAsRead 取首个）。四个读方法（getUserNotifications/markAsRead/markAllAsRead/getUnreadCount）共用 foldRows，改口径只改一处。

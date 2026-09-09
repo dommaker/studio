@@ -5,6 +5,7 @@ import { knowledgeService } from '../../knowledge/knowledge-service.js';
 import type { SystemTriageResult } from '../../triage/error-class.js';
 import type { TriageIncidentInput, TriageLogEntry } from '../types.js';
 import { appendIncidentUpdate } from './incident-store.js';
+import { persistIncidentNotification } from './incident-notification.js';
 import { resolveStudioLogFile } from '../../../utils/studio-log-path.js';
 import { getErrorMessage } from '../../../utils/errors.js';
 import { countProcessesByCmdline, listZombieProcesses } from '../ops/proc-probes.js';
@@ -56,6 +57,13 @@ class TriageService {
     });
 
     eventBus.publish('incident.created', { incidentId, type: input.type, severity: input.severity });
+    // #468：incident 落 NotificationService（SSE 桥断裂，通知是唯一持久面）
+    void persistIncidentNotification('created', {
+      incidentId,
+      severity: input.severity,
+      summary: `${input.type}: ${input.message}`,
+      wuId: (input.details?.relatedTaskIds as string[] | undefined)?.[0],
+    });
     logger.info('[TriageService] Incident created', { incidentId, type: input.type });
 
     const triageLog: TriageLogEntry[] = [];
@@ -465,6 +473,12 @@ class TriageService {
     });
 
     eventBus.publish('incident.escalated', { incidentId, triage });
+    // #468：升级人工即 critical 横幅突破口径，落通知持久面
+    void persistIncidentNotification('escalated', {
+      incidentId,
+      severity: triage?.severity === 'minor' || triage?.severity === 'degraded' ? triage.severity : 'critical',
+      summary: triage ? `${triage.errorClass} / ${triage.recommendedAction}` : 'Max attempts exhausted',
+    });
     logger.warn('[TriageService] Incident escalated', { incidentId });
     return { incidentId, resolved: false, resolution: 'escalated_to_human' };
   }
@@ -489,6 +503,7 @@ class TriageService {
     });
 
     eventBus.publish('incident.escalated', { incidentId, reason });
+    void persistIncidentNotification('escalated', { incidentId, summary: reason }); // #468
     logger.error('[TriageService] Force escalated', { incidentId, reason });
     return { incidentId, resolved: false, resolution: reason };
   }

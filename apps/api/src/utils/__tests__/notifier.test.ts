@@ -8,11 +8,12 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-const { mockLogger, mockListChannels, mockCreateAgentMessage, mockFetch } = vi.hoisted(() => ({
+const { mockLogger, mockListChannels, mockCreateAgentMessage, mockFetch, mockCreateForAllUsers } = vi.hoisted(() => ({
   mockLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
   mockListChannels: vi.fn(),
   mockCreateAgentMessage: vi.fn(),
   mockFetch: vi.fn(),
+  mockCreateForAllUsers: vi.fn(),
 }));
 
 vi.mock('@dommaker/studio-shared', () => ({
@@ -29,6 +30,13 @@ vi.mock('../../modules/channels/channel-message.service.js', () => ({
   }),
 }));
 
+// #468 行动中心 sink 经 NotificationService.createForAllUsers 持久化，此处只验证委托
+vi.mock('@dommaker/studio-notification', () => ({
+  NotificationService: vi.fn().mockImplementation(function () {
+    return { createForAllUsers: mockCreateForAllUsers };
+  }),
+}));
+
 import { notifyAlert } from '../notifier.js';
 
 const ENV_KEYS = ['STUDIO_ALERT_CHANNEL_ID', 'WECOM_WEBHOOK_URL'] as const;
@@ -42,6 +50,7 @@ describe('notifier (P0 修复 4)', () => {
     mockCreateAgentMessage.mockResolvedValue(undefined);
     mockListChannels.mockResolvedValue([]);
     mockFetch.mockResolvedValue({ ok: true });
+    mockCreateForAllUsers.mockResolvedValue(1);
     for (const k of ENV_KEYS) {
       envBackup[k] = process.env[k];
       delete process.env[k];
@@ -172,6 +181,47 @@ describe('notifier (P0 修复 4)', () => {
 
       await expect(notifyAlert('warning', 't', 'b')).resolves.toBeUndefined();
       expect(mockLogger.warn).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('行动中心 sink（#468 持久化）', () => {
+    it('warning/critical → createForAllUsers 落 monitor_alert 通知', async () => {
+      await notifyAlert('critical', 'Test title', 'Test body');
+
+      expect(mockCreateForAllUsers).toHaveBeenCalledTimes(1);
+      expect(mockCreateForAllUsers).toHaveBeenCalledWith(expect.objectContaining({
+        type: 'monitor_alert',
+        title: 'Test title',
+        content: 'Test body',
+      }));
+    });
+
+    it('opts.wuId → 通知带 wuId 与 WU 详情直链', async () => {
+      await notifyAlert('warning', 'T', 'B', { wuId: 'wu-1' });
+
+      expect(mockCreateForAllUsers).toHaveBeenCalledWith(expect.objectContaining({
+        wuId: 'wu-1',
+        link: '/workunits/wu-1',
+      }));
+    });
+
+    it('info 级不持久化（与 atHuman 口径一致，防刷屏）', async () => {
+      await notifyAlert('info', 'T', 'B');
+
+      expect(mockCreateForAllUsers).not.toHaveBeenCalled();
+    });
+
+    it('通知 sink 失败不影响其他 sink，notifyAlert 不抛错', async () => {
+      process.env.STUDIO_ALERT_CHANNEL_ID = 'ch-alert-1';
+      mockCreateForAllUsers.mockRejectedValue(new Error('jsonl locked'));
+
+      await expect(notifyAlert('critical', 't', 'b')).resolves.toBeUndefined();
+
+      expect(mockCreateAgentMessage).toHaveBeenCalledTimes(1);
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('Notification sink failed'),
+        expect.objectContaining({ error: expect.stringContaining('jsonl locked') }),
+      );
     });
   });
 });

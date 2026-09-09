@@ -115,6 +115,9 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
   // StudioEvent CRUD routes (G30)
   const { default: eventRoutes } = await import('./modules/events/event.routes.js') as { default: Router };
 
+  // Action Center routes (#468 统一行动中心)
+  const { actionCenterRoutes } = await import('./modules/action-center/routes.js') as { actionCenterRoutes: Router };
+
   // WU transcript 只读查看 (#174, #60 C5)
   const { default: transcriptRoutes } = await import('./modules/transcripts/transcript.routes.js') as { default: Router };
 
@@ -245,6 +248,7 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
 
     // 通知与知识
     { path: '/api/v1/notifications', router: notificationRoutes, middleware: auth },
+    { path: '/api/v1/action-center', router: actionCenterRoutes, middleware: auth, comment: '#468: 统一行动中心（状态派生 + 事件持久）' },
     { path: '/api/v1/notify', router: notifyRoutes, middleware: admin, comment: 'DD-009: 出站推送（内部调用）' },
     { path: '/api/v1/knowledge', router: knowledgeRoutes, middleware: auth },
     { path: '/api/v1/knowledge-service', router: knowledgeServiceRoutes, middleware: auth, comment: 'KnowledgeService HTTP API + SSE' },

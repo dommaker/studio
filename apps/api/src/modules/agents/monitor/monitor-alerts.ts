@@ -112,8 +112,12 @@ export function dispatchMonitorAlerts(alerts: MonitorAlert[]): void {
         emitMonitorEvent({ type: 'monitor:alert', ...alert });
       } catch { /* non-blocking */ }
       // fire-and-forget：sink 失败仅记日志，不阻塞 check loop
-      void notifyAlert(alert.level, `[Monitor] ${alert.source}`, alert.message)
-        .catch(() => { /* non-blocking */ });
+      // #468：有关联 WU 时携带（行动中心通知获得 /workunits/:id 直链），无则保持原 3 参形态
+      const alertWuId = alert.relatedTaskIds?.[0];
+      void (alertWuId
+        ? notifyAlert(alert.level, `[Monitor] ${alert.source}`, alert.message, { wuId: alertWuId })
+        : notifyAlert(alert.level, `[Monitor] ${alert.source}`, alert.message)
+      ).catch(() => { /* non-blocking */ });
     }
   }
 }

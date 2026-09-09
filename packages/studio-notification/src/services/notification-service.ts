@@ -4,13 +4,32 @@
 
 import { FileStore, foldJsonlById, logger, generateId as sharedGenerateId } from '@dommaker/studio-shared';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
+import fs from 'node:fs';
+
+/** 全用户 id 列表（auditor 先例：data/users/*.json 文件名，截顶 10；目录缺失返回空） */
+async function listUserIds(): Promise<string[]> {
+  try {
+    const entries = await fs.promises.readdir(studioPath('data', 'users'), { withFileTypes: true });
+    return entries
+      .filter(e => e.isFile() && e.name.endsWith('.json'))
+      .slice(0, 10)
+      .map(f => f.name.replace(/\.json$/, ''));
+  } catch {
+    return [];
+  }
+}
 
 export interface CreateNotificationInput {
   userId: string;
-  type: 'review_request' | 'review_approved' | 'review_rejected' | 'system' | 'auditor_suggestion';
+  // #468：追加 wu_milestone（闸门里程碑备查）/ monitor_alert（监控告警）/ incident（triage 事件）
+  type: 'review_request' | 'review_approved' | 'review_rejected' | 'system' | 'auditor_suggestion'
+    | 'wu_milestone' | 'monitor_alert' | 'incident';
   title: string;
   content: string;
   link?: string;
+  /** #468：结构化直链字段——告警/里程碑类通知免 link 正则解析即可获得 WU 详情跳转 */
+  wuId?: string;
+  channelId?: string;
 }
 
 const NOTIFICATIONS_JSONL = studioPath('logs', 'notifications.jsonl');
@@ -22,6 +41,9 @@ interface NotificationRow {
   title?: string;
   content?: string;
   link?: string;
+  /** #468 结构化直链字段（可选，老数据行没有） */
+  wuId?: string;
+  channelId?: string;
   createdAt?: string;
   deleted?: boolean;
   deletedAt?: string;
@@ -55,11 +77,25 @@ export class NotificationService {
       title: input.title,
       content: input.content,
       link: input.link,
+      wuId: input.wuId,
+      channelId: input.channelId,
       createdAt: new Date().toISOString(),
     };
     await this.fileStore.appendJsonl(NOTIFICATIONS_JSONL, entry);
     logger.info(`Notification created: ${entry.id}, userId=${input.userId}, type=${input.type}`);
     return entry;
+  }
+
+  /**
+   * 遍历全用户各写一条（#468：auditor-execution 的 readdir 先例收敛为服务方法；
+   * studio 事实单用户，多用户 per-user 精确归属另票）。返回写入条数。
+   */
+  async createForAllUsers(input: Omit<CreateNotificationInput, 'userId'>): Promise<number> {
+    const userIds = await listUserIds();
+    for (const uid of userIds) {
+      await this.create({ ...input, userId: uid });
+    }
+    return userIds.length;
   }
 
   /**
@@ -97,6 +133,8 @@ export class NotificationService {
       title: string;
       content: string;
       link: string | null;
+      wuId: string | null;
+      channelId: string | null;
       createdAt: Date;
       read: boolean;
       readAt: Date | null;
@@ -112,6 +150,8 @@ export class NotificationService {
         title: entry.data.title!,
         content: entry.data.content!,
         link: entry.data.link || null,
+        wuId: entry.data.wuId || null,
+        channelId: entry.data.channelId || null,
         createdAt: new Date(entry.data.createdAt!),
         read: entry.read,
         readAt: entry.readAt,
