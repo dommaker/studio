@@ -54,6 +54,7 @@ describe('#464 无频道 in_review 收件箱', () => {
     const [alerts] = mockDispatch.mock.calls[0];
     expect(alerts).toHaveLength(1);
     expect(alerts[0]).toMatchObject({
+      source: 'in_review_orphan', // 与 #181 review_stagnation 滞留探针区分（review 修复）
       level: 'warning',
       relatedTaskIds: [wu.id],
       subject: wu.id,

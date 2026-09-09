@@ -10,6 +10,8 @@
  * 频道/企业微信/行动中心通知三 sink；relatedTaskIds 带 wuId → 通知带
  * /workunits/:id 直链，#468 统一口径）。每次迁入只发一条（status_changed 单次发射），
  * 滞留超阈值的后续提醒仍归 review_stagnation 探针（#181），互不重复。
+ * source 用独立的 in_review_orphan——与 #181 review_stagnation 滞留探针同名不同义
+ * （单次入口出声 vs 聚合滞留提醒），下游按 source 分组/去重不混淆。
  */
 import { eventBus } from '@dommaker/studio-shared';
 import { dispatchMonitorAlerts } from '../agents/monitor/monitor-alerts.js';
@@ -31,7 +33,7 @@ export function initInReviewInbox(): void {
     if (wu.channelId || HANDLED_ELSEWHERE.has(wu.type)) return;
 
     dispatchMonitorAlerts([{
-      source: 'review_stagnation',
+      source: 'in_review_orphan',
       level: 'warning',
       subject: wu.id,
       relatedTaskIds: [wu.id],

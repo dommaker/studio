@@ -141,6 +141,7 @@ export function escalateToTriage(alerts: MonitorAlert[]): void {
     agent_timeout_scan: 'execution_heartbeat_lost', // #179：疑似 FileStore 故障（仅 critical 才升级，本告警为 warning 不触发）
     pool_stagnation: null, // #181：滞留告警不升级 Triage（决策 #62：不发明新出口）
     review_stagnation: null, // #181：同上
+    in_review_orphan: null, // #464：warning-only 单次出声，不升级 Triage
     analysis_respawn: null, // #183：critical 引人介入走告警管线本身，不升级 Triage
     review_redispatch: null, // #183：同上
     analysis_confirm: null, // #186：人工动作队列走收件箱本身，不升级 Triage（决策 #62：不发明新出口）
