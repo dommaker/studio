@@ -7,8 +7,9 @@
 import { Link, useLocation } from 'react-router-dom';
 import type { ComponentType } from 'react';
 import { useMediaQuery } from '../hooks/useMediaQuery';
+import { useNotificationStore } from '../stores/notificationStore';
 import { ChannelRail } from './channel/ChannelRail';
-import { IconChat, IconChart, IconClipboard, IconUsers, type IconProps } from './ui/icons';
+import { IconChat, IconChart, IconClipboard, IconUsers, IconActivity, type IconProps } from './ui/icons';
 import '../styles/theme.css';
 
 interface SidebarProps {
@@ -34,6 +35,9 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
   // #395：<768 频道左栏并入（matchMedia 缺失回落宽屏 = 不并入）；activeChannelId 取自路由
   const narrow = useMediaQuery('(max-width: 767px)', false);
   const channelMatch = /^\/channels\/([^/]+)$/.exec(location.pathname);
+  // #474：监控入口过深（藏「更多」第三项）→ 行动中心有待处理（unreadCount>0）时升主导航临时项，
+  // 归零即撤（口径与 MoreDropdown 徽标同源 = notificationStore.unreadCount）
+  const unreadCount = useNotificationStore(s => s.unreadCount);
 
   const isActive = (path: string) => location.pathname.startsWith(path);
 
@@ -63,6 +67,15 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
       }}>
         {item.label}
       </span>
+      {/* #474：监控临时项的待处理计数徽标（仅监控项挂载，unreadCount>0 才渲染本项） */}
+      {item.to === '/monitoring' && (
+        <span
+          title="有待处理事项"
+          className="ml-auto u-err-bg u-on-accent text-xs font-bold rounded-full min-w-4 h-4 px-0.5 flex items-center justify-center"
+        >
+          {unreadCount > 99 ? '99+' : unreadCount}
+        </span>
+      )}
     </Link>
   );
 
@@ -97,6 +110,7 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
       {/* 导航列表 */}
       <nav className="p-4 space-y-1">
         {MAIN_ITEMS.map(renderItem)}
+        {unreadCount > 0 && renderItem({ to: '/monitoring', Icon: IconActivity, label: '监控' })}
       </nav>
 
       {/* #395（spec §4.6）：<768 频道左栏并入——工作区内联 ChannelRail 此时已卸载，

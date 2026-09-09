@@ -1,7 +1,7 @@
 // #393 左侧菜单精简：4 主项（频道/PMO/WorkUnit/Agent）；
 // 收纳项（知识库/阅览室/监控/设置/审计日志）已移至顶部 header「更多」下拉（MoreDropdown），本组件不再有「更多」组
 // #395（spec §4.6）：<768 频道左栏并入本 sidebar（频道路由下渲染于主导航之下，选频道后收起 overlay）
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
@@ -19,6 +19,7 @@ vi.mock('../channel/ChannelRail', () => ({
 }));
 
 import { Sidebar } from '../SidebarNew';
+import { useNotificationStore } from '../../stores/notificationStore';
 import { mockMatchMedia, uninstallMatchMedia } from '../../test/mockMatchMedia';
 
 const renderSidebar = (initialPath = '/channels/ch-1') =>
@@ -29,6 +30,11 @@ const renderSidebar = (initialPath = '/channels/ch-1') =>
   );
 
 describe('Sidebar — #393 菜单精简', () => {
+  beforeEach(() => {
+    // 模块单例 store 跨用例复位（#474：unreadCount>0 会挂「监控」临时主项，防泄漏进精简断言）
+    useNotificationStore.setState({ stateItems: [], notifications: [], unreadCount: 0 });
+  });
+
   it('主项仅 4 个：频道 / PMO / 任务 / 角色', () => {
     renderSidebar();
     for (const label of ['频道', 'PMO', '任务', '角色']) {
@@ -56,6 +62,26 @@ describe('Sidebar — #393 菜单精简', () => {
       expect(link.querySelector('svg')).toBeTruthy();
       expect(link.textContent).not.toMatch(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{FE0F}]/u);
     }
+  });
+});
+
+describe('Sidebar — #474 监控入口：有待处理时升主导航临时项', () => {
+  afterEach(() => {
+    useNotificationStore.setState({ stateItems: [], notifications: [], unreadCount: 0 });
+  });
+
+  it('行动中心 unreadCount > 0 → 主导航出现「监控」临时项（带计数徽标）', () => {
+    useNotificationStore.setState({ unreadCount: 3 });
+    renderSidebar();
+    const link = screen.getByRole('link', { name: /监控/ });
+    expect(link.getAttribute('href')).toBe('/monitoring');
+    expect(link.querySelector('svg')).toBeTruthy();
+    expect(screen.getByTitle('有待处理事项').textContent).toBe('3');
+  });
+
+  it('unreadCount = 0 → 监控留在「更多」下拉，不占主导航', () => {
+    renderSidebar();
+    expect(screen.queryByRole('link', { name: /监控/ })).toBeNull();
   });
 });
 
