@@ -2,11 +2,13 @@
 // E8-2（2026-09 页面重设计）：骨架合规化——§4.7 标准骨架（u-page-bg/u-page-head/page-title/max-w-5xl），
 // runtime 行卡归 .card，「设为角色」归 btn btn-primary btn-sm，删硬编码「0 个角色」假数据
 // （无按 runtime 的角色计数现成接口，假数据直接删除）
+// E8-4：创建角色表单合一——内嵌 dialog 已删，复用 CreateRoleModal 正本（#397 §6.4，
+// presetProvider 锁定行内 runtime 的 CLI；行为归一 = 创建成功关弹框 + onCreated，原「成功留框」差异随之消除）
 import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { workspaceApi } from '../api';
-import { channelApi } from '../api/channel';
 import { BackButton } from '../components/ui';
+import { CreateRoleModal } from '../components/monitoring/CreateRoleModal';
 
 interface Runtime {
   id: string;
@@ -30,11 +32,6 @@ export function WorkspacePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedRuntime, setSelectedRuntime] = useState<Runtime | null>(null);
-  const [creating, setCreating] = useState(false);
-  const [formName, setFormName] = useState('');
-  const [formDesc, setFormDesc] = useState('');
-  const [createError, setCreateError] = useState<string | null>(null);
-  const [createSuccess, setCreateSuccess] = useState(false);
 
   // id 切换时在渲染期同步置回加载态（替代原 effect 顶部的同步 setLoading）
   const [prevId, setPrevId] = useState(id);
@@ -54,33 +51,8 @@ export function WorkspacePage() {
       .finally(() => setLoading(false));
   }, [id]);
 
-  const handleCreateRole = async () => {
-    if (!formName.trim() || !selectedRuntime) return;
-    setCreating(true);
-    setCreateError(null);
-    try {
-      await channelApi.createAgent({
-        name: formName.trim(),
-        description: formDesc.trim() || undefined,
-        provider: selectedRuntime.provider,
-      });
-      setCreateSuccess(true);
-      setFormName('');
-      setFormDesc('');
-    } catch (e) {
-      const msg = e?.response?.data?.error?.message || e?.message || '创建失败';
-      setCreateError(msg);
-    } finally {
-      setCreating(false);
-    }
-  };
-
   const openDialog = (rt: Runtime) => {
     setSelectedRuntime(rt);
-    setFormName('');
-    setFormDesc('');
-    setCreateError(null);
-    setCreateSuccess(false);
   };
 
   if (loading) return <div className="h-full u-page-bg p-4 u-text-2">加载中...</div>;
@@ -131,61 +103,14 @@ export function WorkspacePage() {
             </div>
           )}
 
-          {/* Create role dialog */}
-          {selectedRuntime && (
-            <div className="modal-overlay">
-              <div className="modal" style={{ maxWidth: '24rem' }}>
-                <div className="modal-header">
-                  <h3 className="modal-title">创建角色</h3>
-                  <button className="modal-close" onClick={() => setSelectedRuntime(null)} aria-label="关闭">×</button>
-                </div>
-                <div className="modal-body">
-                  <div className="mb-3">
-                    <label className="block text-sm u-text-2 mb-1">CLI</label>
-                    <div className="text-sm font-medium u-text">{selectedRuntime.provider}</div>
-                  </div>
-
-                  <div className="mb-3">
-                    <input
-                      type="text"
-                      placeholder="角色名称"
-                      value={formName}
-                      onChange={(e) => setFormName(e.target.value)}
-                      className="input w-full"
-                    />
-                  </div>
-
-                  <div className="mb-4">
-                    <input
-                      type="text"
-                      placeholder="角色描述（选填）"
-                      value={formDesc}
-                      onChange={(e) => setFormDesc(e.target.value)}
-                      className="input w-full"
-                    />
-                  </div>
-
-                  {createError && <p className="text-sm u-err mb-3">{createError}</p>}
-                  {createSuccess && <p className="text-sm u-ok mb-3">角色创建成功</p>}
-                </div>
-                <div className="modal-footer">
-                  <button
-                    onClick={() => setSelectedRuntime(null)}
-                    className="btn btn-secondary"
-                  >
-                    取消
-                  </button>
-                  <button
-                    onClick={handleCreateRole}
-                    disabled={creating || !formName.trim()}
-                    className="btn btn-primary"
-                  >
-                    创建
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
+          {/* Create role dialog — E8-4：复用 CreateRoleModal 正本（#397 §6.4），presetProvider 锁定行内 CLI；
+              本页无名册可刷新，onCreated 为空操作（§6.4 就地刷新契约的退化情形） */}
+          <CreateRoleModal
+            open={!!selectedRuntime}
+            presetProvider={selectedRuntime?.provider}
+            onClose={() => setSelectedRuntime(null)}
+            onCreated={() => {}}
+          />
         </div>
       </div>
     </div>
