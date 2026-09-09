@@ -2,7 +2,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 
-const { mockWuGet, mockListTokenEvents, mockListExecSteps, mockReviewPassed, mockReviewRejected, mockGetChain, mockGetOverhead, mockStreamChunks, mockResume, mockClose, mockChannelGet, mockGetAgentSummary, mockGetAgentInstance, mockListAllAgents, mockOnEvent } = vi.hoisted(() => ({
+const { mockWuGet, mockListTokenEvents, mockListExecSteps, mockReviewPassed, mockReviewRejected, mockGetChain, mockGetOverhead, mockStreamChunks, mockResume, mockClose, mockChannelGet, mockGetAgentSummary, mockGetAgentInstance, mockListAllAgents, mockOnEvent, mockListAgents, mockTranscriptGet } = vi.hoisted(() => ({
   mockWuGet: vi.fn(),
   mockListTokenEvents: vi.fn(),
   mockListExecSteps: vi.fn(),
@@ -18,6 +18,10 @@ const { mockWuGet, mockListTokenEvents, mockListExecSteps, mockReviewPassed, moc
   mockGetAgentInstance: vi.fn(),
   mockListAllAgents: vi.fn(),
   mockOnEvent: vi.fn(),
+  // E2-1：ReviewHint 挪入抽屉（频道成员判断）
+  mockListAgents: vi.fn(),
+  // E2-2：会话原文折叠节（TranscriptViewer）
+  mockTranscriptGet: vi.fn(),
 }));
 
 vi.mock('../../../api/workunit', async () => {
@@ -58,12 +62,19 @@ vi.mock('../../../api/channel', async () => {
       ...(actual as { channelApi: object }).channelApi,
       get: mockChannelGet,
       listAllAgents: mockListAllAgents,
+      // E2-1：ReviewHint 频道成员（抽屉自取数）
+      listAgents: mockListAgents,
       // #346：rosterStore.ensureFresh 会拉 channelApi.list——必须 stub 掉，
       // 否则真实 axios 请求跨测悬挂落地，把 TTL 锚点打进下一测（store 化前无此调用）
       list: vi.fn().mockRejectedValue(new Error('not mocked here')),
     },
   };
 });
+
+// E2-2：TranscriptViewer 会话原文（默认折叠不请求，展开才拉）
+vi.mock('../../../api/transcript', () => ({
+  transcriptsApi: { get: mockTranscriptGet },
+}));
 
 // SSE context — 抽屉直接订阅 workunit.status_changed / workunit.tokens（决策 8），用例手工驱动事件；
 // onReconnect 置空（#318 后内嵌 ExecutionSteps 经此注册重连对齐）
@@ -159,6 +170,8 @@ const renderDrawer = (drawer: DrawerState, extra: { onClose?: () => void; onOpen
         />
         {/* #275 断点2 断言落点：抽屉内点频道链接跳频道页（页面级跳转走 react-router） */}
         <Route path="/channels/:id" element={<div>频道页</div>} />
+        {/* E2-1：ReviewHint「去设置」改链 /agents（E8-3） */}
+        <Route path="/agents" element={<div>Agent 页</div>} />
       </Routes>
     </MemoryRouter>,
   );
@@ -197,6 +210,12 @@ describe('WorkUnitDrawer', () => {
     });
     mockGetAgentInstance.mockRejectedValue(new Error('404'));
     mockListAllAgents.mockResolvedValue({ data: { data: [] } });
+    // E2-1：默认频道有成员（ReviewHint 不渲染，保持既有 in_review 用例语义）；特定用例覆盖为空
+    mockListAgents.mockResolvedValue({ data: { data: [{ id: 'p-coder', name: 'Coder', description: null }] } });
+    // E2-2：会话原文默认一条
+    mockTranscriptGet.mockResolvedValue({
+      data: { entries: [{ step: 1, action: 'run', rawOutput: 'raw 输出内容', createdAt: '2026-07-19T09:35:00Z' }], total: 1 },
+    });
   });
 
   it('renders nothing when drawer is null', () => {
@@ -616,5 +635,52 @@ describe('WorkUnitDrawer', () => {
     expect((await screen.findAllByText('服务端挂了')).length).toBeGreaterThan(0);
     // 弹窗未关（成功才关）
     expect(screen.getByText('拒绝原因')).toBeTruthy();
+  });
+
+  // ── E2（2026-09 页面重设计）：抽屉补「会话原文」折叠节 + ReviewHint 挪入闸门动作区上方 ──
+
+  it('E2-2：ExecutionSteps 后挂「会话原文」折叠节——默认折叠不请求，展开拉取并渲染条目', async () => {
+    renderDrawer({ kind: 'wu', id: 'WU-1017' });
+    const toggle = await screen.findByRole('button', { name: /会话原文/ });
+    expect(mockTranscriptGet).not.toHaveBeenCalled(); // 默认折叠不请求
+    // 位置：在执行过程区块之后
+    const exec = await screen.findByText(/暂无执行过程记录/);
+    expect(exec.compareDocumentPosition(toggle) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    fireEvent.click(toggle);
+    await waitFor(() => expect(mockTranscriptGet).toHaveBeenCalledWith('WU-1017', { offset: 0, limit: 20 }));
+    expect(await screen.findByText('raw 输出内容')).toBeTruthy();
+  });
+
+  it('E2-1：ReviewHint 挪入抽屉——in_review 且频道无成员时出现在闸门按钮上方，「去设置」跳 /agents', async () => {
+    mockWuGet.mockResolvedValue({ data: { ...WU, status: 'in_review' } });
+    mockListAgents.mockResolvedValue({ data: { data: [] } });
+    renderDrawer({ kind: 'wu', id: 'WU-1017' });
+
+    const hint = await screen.findByTestId('review-hint');
+    expect(mockListAgents).toHaveBeenCalledWith('ch-1');
+    // 位置：闸门动作区（通过按钮）上方
+    const gate = await screen.findByText('通过（审查闸门）');
+    expect(hint.compareDocumentPosition(gate) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    fireEvent.click(screen.getByTestId('review-hint-setup'));
+    await screen.findByText('Agent 页'); // /agents 路由落点
+  });
+
+  it('E2-1：频道有成员 → ReviewHint 不渲染（回归既有 in_review 语义）', async () => {
+    mockWuGet.mockResolvedValue({ data: { ...WU, status: 'in_review' } });
+    renderDrawer({ kind: 'wu', id: 'WU-1017' });
+    await screen.findByText('通过（审查闸门）');
+    await waitFor(() => expect(mockListAgents).toHaveBeenCalledWith('ch-1'));
+    expect(screen.queryByTestId('review-hint')).toBeNull();
+  });
+
+  it('E2-1：成员拉取失败 → ReviewHint 不渲染（防「无人可认领」误报）', async () => {
+    mockWuGet.mockResolvedValue({ data: { ...WU, status: 'in_review' } });
+    mockListAgents.mockRejectedValue(new Error('403'));
+    renderDrawer({ kind: 'wu', id: 'WU-1017' });
+    await screen.findByText('通过（审查闸门）');
+    await waitFor(() => expect(mockListAgents).toHaveBeenCalledWith('ch-1'));
+    expect(screen.queryByTestId('review-hint')).toBeNull();
   });
 });

@@ -23,10 +23,10 @@ import { OpportunitiesPanel } from '../components/workunit/OpportunitiesPanel';
 import { BlockedByList } from '../components/workunit/BlockedByList';
 import { StationStepper, LifecycleEventChips } from '../components/workunit/StationStepper';
 import { TreeTokenEntry } from '../components/workunit/TreeTokenChart';
+import { WuGateActions } from '../components/workunit/WuGateActions';
 import { BackButton } from '../components/ui';
 import { MetaStrip } from '../components/ui/MetaStrip';
-import { parseBlockedBy, buildMapOpeningPrefill } from '../components/pmo/mapUtils';
-import { AnalysisApproveDialog } from '../components/pmo/AnalysisApproveDialog';
+import { parseBlockedBy } from '../components/pmo/mapUtils';
 import { buildLifecycle } from '../utils/wuLifecycle';
 import { formatShortTime } from '../utils/datetime';
 import { parseWuMeta } from '../utils/wuMeta';
@@ -78,13 +78,6 @@ export function WorkUnitDetailPage() {
   const [chainReqId, setChainReqId] = useState<string | null>(null);
   // #185：blocked 处置动作成功后 +1 触发重拉详情
   const [actionTick, setActionTick] = useState(0);
-  // #284（决策 #250 D1/F7-F9）：闸门入口补齐——pending 确认 / in_review 通过+拒绝（拒绝带原因）
-  const [confirming, setConfirming] = useState(false);
-  // 批次A 项5：闸门动作失败内联错误行（BlockedActions run() 同模式），不再静默
-  const [gateError, setGateError] = useState('');
-  const [showApproveModal, setShowApproveModal] = useState(false);
-  const [showRejectModal, setShowRejectModal] = useState(false);
-  const [rejectReason, setRejectReason] = useState('');
 
   // id 切换时在渲染期同步清空上一 WU 的全部展示数据（替代原 effect 顶部的五处同步重置）
   const [prevId, setPrevId] = useState(id);
@@ -92,7 +85,6 @@ export function WorkUnitDetailPage() {
     setPrevId(id);
     setWu(null);
     setError('');
-    setGateError('');
     setPmo(null);
     setChannelName(null);
   }
@@ -138,41 +130,9 @@ export function WorkUnitDetailPage() {
   };
   const title = wu ? (typeof meta.title === 'string' && meta.title ? meta.title : wu.scope) : '';
 
-  /** #284：闸门动作统一经 actionTick 重拉详情（与 BlockedActions.onChanged 同一路径）。
-   *  批次A 项5：失败置 gateError 内联（BlockedActions run() 同模式）并 rethrow——弹窗路径据此保持打开 */
-  const runGateAction = async (fn: () => Promise<unknown>) => {
-    setConfirming(true);
-    setGateError('');
-    try {
-      await fn();
-      setActionTick(t => t + 1);
-    } catch (e) {
-      setGateError(errorMessage(e));
-      throw e;
-    } finally {
-      setConfirming(false);
-    }
-  };
-  // #126（T4）待确认人闸：确认 → unassigned 进 frontier 可认领（与频道抽屉同行为）
-  // 按钮直触路径吞掉 rejection（失败原因已内联置位）
-  const handleConfirmPending = () => {
-    if (id) void runGateAction(() => workunitApi.transitionStatus(id, 'unassigned')).catch(() => {});
-  };
-  // 审查硬门：通过→done（analysis 走确认弹窗，预填待决问题清单随 summary 回传开图）
-  const handleReviewPassed = (summary?: string, assigneeId?: string) =>
-    id ? runGateAction(() => workunitApi.reviewPassed(id, summary, assigneeId)) : undefined;
-  const handleApprove = () => {
-    if (!wu) return;
-    if (wu.type === 'analysis') setShowApproveModal(true);
-    else void handleReviewPassed()?.catch(() => { /* 失败原因已内联 */ });
-  };
-  const handleReviewRejected = () => {
-    if (!id) return;
-    // 成功才关弹窗；失败原因已内联置位（闸门动作区 + 弹窗内）
-    void runGateAction(() => workunitApi.reviewRejected(id, rejectReason.trim() || undefined))
-      .then(() => { setShowRejectModal(false); setRejectReason(''); })
-      .catch(() => {});
-  };
+  /** E2-4：闸门动作 = 共享 WuGateActions（与列表行/抽屉同一组件，文案视觉唯一）；
+   *  写路径留在本页：动作成功经 actionTick 重拉详情（与 BlockedActions.onChanged 同一路径） */
+  const reloadOnGate = () => setActionTick(t => t + 1);
   // F6 派生（铁律：徽章/证据判断一律过 deriveDisplayState，不自行解释 attestations）
   const derived = wu ? deriveDisplayState({ status: wu.status, metadata: wu.metadata }) : null;
   const attestations = wu ? parseAttestations(wu.metadata) : undefined;
@@ -312,44 +272,18 @@ export function WorkUnitDetailPage() {
               </section>
             )}
 
-            {/* 闸门动作（#284 pending 确认 / in_review 通过+拒绝；#185 blocked 处置）——整节按状态条件渲染 */}
+            {/* 闸门动作（E2-4：pending 确认 / in_review 通过+拒绝 → 共享 WuGateActions；#185 blocked 处置 BlockedActions 自挂）——整节按状态条件渲染 */}
             {hasGate && (
               <section className="wu-detail-sec">
                 <h3 className="wu-detail-sec-title">闸门动作</h3>
                 <div className="wu-detail-card">
-                  {wu.status === 'pending' && (
-                    <button
-                      className="btn btn-primary"
-                      disabled={confirming}
-                      title="待确认人闸：扩范围单创建落待确认，确认后进入待领取（agent 可见可领取）"
-                      onClick={handleConfirmPending}
-                    >
-                      {confirming ? '提交中…' : '确认（进待领取）'}
-                    </button>
-                  )}
-                  {wu.status === 'in_review' && (
-                    <div className="flex gap-2">
-                      <button
-                        className="btn btn-primary"
-                        disabled={confirming}
-                        title="审查硬门：通过→done（analysis 通过后按 TASK 拆分自动派工）"
-                        onClick={handleApprove}
-                      >
-                        {confirming ? '提交中…' : '通过（审查闸门）'}
-                      </button>
-                      <button
-                        className="btn btn-danger"
-                        disabled={confirming}
-                        title="审查硬门：拒绝→返工（附原因供 agent 修正）"
-                        onClick={() => setShowRejectModal(true)}
-                      >
-                        拒绝
-                      </button>
-                    </div>
-                  )}
-                  <BlockedActions wu={wu} onChanged={() => setActionTick(t => t + 1)} />
-                  {/* 批次A 项5：闸门动作失败内联错误行（BlockedActions 同模式） */}
-                  {gateError && <div className="text-xs u-err" style={{ marginTop: 4 }}>{gateError}</div>}
+                  <WuGateActions
+                    wu={wu}
+                    onReviewPassed={async (summary, assigneeId) => { await workunitApi.reviewPassed(wu.id, summary, assigneeId); reloadOnGate(); }}
+                    onReviewRejected={async (reason) => { await workunitApi.reviewRejected(wu.id, reason); reloadOnGate(); }}
+                    onConfirmPending={async () => { await workunitApi.transitionStatus(wu.id, 'unassigned'); reloadOnGate(); }}
+                  />
+                  <BlockedActions wu={wu} onChanged={reloadOnGate} />
                 </div>
               </section>
             )}
@@ -376,54 +310,7 @@ export function WorkUnitDetailPage() {
 
       {/* REQ 全链路弹窗（复用 RequirementChainPanel） */}
       {chainReqId && <RequirementChainPanel reqId={chainReqId} onClose={() => setChainReqId(null)} />}
-
-      {/* #284：analysis 通过确认弹窗（共享件，预填逻辑 buildMapOpeningPrefill 不变） */}
-      {showApproveModal && wu && (
-        <AnalysisApproveDialog
-          prefill={buildMapOpeningPrefill(wu.metadata)}
-          channelId={wu.channelId}
-          onConfirm={async (summary, assigneeId) => {
-            // 批次A 项7：成功才关窗（失败由弹窗内联展示，gateError 亦已置位）
-            await handleReviewPassed(summary, assigneeId);
-            setShowApproveModal(false);
-          }}
-          onCancel={() => setShowApproveModal(false)}
-        />
-      )}
-
-      {/* #284：审查拒绝弹窗（带原因），与列表行/抽屉同款 */}
-      {showRejectModal && (
-        <div className="modal-overlay" onClick={() => setShowRejectModal(false)}>
-          <div className="modal" style={{ maxWidth: '24rem' }} onClick={e => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3 className="modal-title">拒绝原因</h3>
-              <button className="modal-close" onClick={() => setShowRejectModal(false)} aria-label="关闭">×</button>
-            </div>
-            <div className="modal-body">
-              <textarea
-                className="input w-full"
-                rows={3}
-                placeholder="输入拒绝原因（可选）"
-                value={rejectReason}
-                onChange={e => setRejectReason(e.target.value)}
-              />
-              {/* 批次A 项5：拒绝失败保持弹窗打开，错误行进弹窗（闸门动作区同步置位） */}
-              {gateError && <p className="text-xs u-err" style={{ marginTop: 4 }}>{gateError}</p>}
-            </div>
-            <div className="modal-footer">
-              <button
-                className="btn btn-secondary"
-                onClick={() => { setShowRejectModal(false); setRejectReason(''); }}
-              >
-                取消
-              </button>
-              <button className="btn btn-danger" disabled={confirming} onClick={handleReviewRejected}>
-                确认拒绝
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* 闸门 analysis 确认弹窗 / 拒绝弹窗：E2-4 起由 WuGateActions 内部承载（三处同款） */}
     </div>
   );
 }

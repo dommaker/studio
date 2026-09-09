@@ -2,7 +2,7 @@
 // 预填 agent COMPLETE 落档的待决问题清单（mapUtils.buildMapOpeningPrefill 产物，
 // #401 起用中文别名「目标：/待决：」逐行 map-opening 契约格式），人审改后随 summary 回传开图；
 // 清空清单直接通过 = 非探路型，不开图。非 analysis 类型一律不走本弹窗（一键通过）。
-// 入口：WorkUnitListPage 行按钮 / WorkUnitDrawer 确认按钮 / DeliveryPanel 缺口「人工确认」。
+// 入口：WuGateActions（列表行/抽屉/详情页三处合一，E2-4）/ DeliveryPanel 缺口「人工确认」。
 // #177（#69 决议）：带 channelId 时加可选「默认执行角色」下拉（候选=频道成员，
 // 默认留空=涌现，不阻塞主交互），选中值应用于确认后全部派生 task 子 WU，不做逐条指派。
 // 批次A 项7：onConfirm 返回 Promise——提交期间确认键 loading + 双键禁用 + 屏蔽遮罩关闭，

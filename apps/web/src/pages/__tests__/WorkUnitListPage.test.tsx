@@ -1,7 +1,7 @@
 // Contract test: WorkUnitListPage — MVP-1 + MVP-3 + MVP-4
 // #106 M7：analysis 确认弹窗（预填待决问题清单 → summary 随 reviewPassed 回传）
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import React from 'react';
 
 vi.mock('react', async () => {
@@ -12,7 +12,9 @@ vi.mock('react', async () => {
 const { mockSearchParamsValue } = vi.hoisted(() => ({ mockSearchParamsValue: { value: '' } }));
 
 vi.mock('react-router-dom', () => ({
-  Link: ({ children, to }: { children: React.ReactNode; to: string }) => React.createElement('a', { href: to }, children),
+  // 透传其余 props（onClick/aria-label 等）——E2-1 行尾 ↗ 依赖 onClick stopPropagation 不触发行点击
+  Link: ({ children, to, ...rest }: { children: React.ReactNode; to: string; [k: string]: unknown }) =>
+    React.createElement('a', { href: to, ...rest }, children),
   useNavigate: () => vi.fn(),
   useSearchParams: () => [new URLSearchParams(mockSearchParamsValue.value)],
 }));
@@ -20,10 +22,13 @@ vi.mock('react-router-dom', () => ({
 const mockStore = {
   workunits: [] as Array<Record<string, unknown>>,
   statusFilter: null as string | null,
+  /** E2-5：分页测试用 total 覆盖（缺省 = 当页条数） */
+  total: null as number | null,
   reviewPassed: vi.fn(),
   reviewRejected: vi.fn(),
   confirmPending: vi.fn(),
   loadWorkUnits: vi.fn(),
+  loadMoreWorkUnits: vi.fn(),
   createWorkUnit: vi.fn(),
   setStatusFilter: vi.fn(),
   setUnattributedOnly: vi.fn(),
@@ -37,13 +42,14 @@ vi.mock('../../stores/workunitStore', () => ({
     (selector?: (s: Record<string, unknown>) => unknown) => {
       const state = {
         workunits: mockStore.workunits,
-        total: mockStore.workunits.length,
+        total: mockStore.total ?? mockStore.workunits.length,
         loading: false,
         error: null,
         statusFilter: mockStore.statusFilter,
         unattributedOnly: mockStore.unattributedOnly,
         unattributedTotal: mockStore.unattributedTotal,
         loadWorkUnits: mockStore.loadWorkUnits,
+        loadMoreWorkUnits: mockStore.loadMoreWorkUnits,
         createWorkUnit: mockStore.createWorkUnit,
         reviewPassed: mockStore.reviewPassed,
         reviewRejected: mockStore.reviewRejected,
@@ -57,6 +63,12 @@ vi.mock('../../stores/workunitStore', () => ({
     },
     { getState: vi.fn().mockReturnValue({ workunits: [], total: 0, loading: false, error: null, loadWorkUnits: vi.fn() }) }
   ),
+}));
+
+// E2-1：行点击开右侧抽屉——抽屉本体契约在 WorkUnitDrawer.test.tsx 覆盖，本文件桩化只断言挂载/回调接线
+const { mockDrawerProps } = vi.hoisted(() => ({ mockDrawerProps: vi.fn() }));
+vi.mock('../../components/channel/WorkUnitDrawer', () => ({
+  WorkUnitDrawer: (props: unknown) => { mockDrawerProps(props); return null; },
 }));
 
 // SSE 上下文（#318 负载直更订阅口）— 测试无 WebSocketProvider，置空
@@ -201,6 +213,7 @@ describe('WorkUnitListPage — analysis 确认弹窗（#106 M7）', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockStore.workunits = [];
+    mockStore.total = null;
   });
 
   it('analysis 点通过 → 弹窗预填 metadata 里的待决问题清单；编辑后确认 → summary 回传', () => {
@@ -213,7 +226,7 @@ describe('WorkUnitListPage — analysis 确认弹窗（#106 M7）', () => {
     })];
     render(<WorkUnitListPage />);
 
-    fireEvent.click(screen.getByText('通过'));
+    fireEvent.click(screen.getByText('通过（审查闸门）'));
 
     // 预填 = 目标：/待决： 逐行还原（map-opening 契约中文别名，#401）
     const textarea = screen.getByPlaceholderText(/目标/) as HTMLTextAreaElement;
@@ -232,7 +245,7 @@ describe('WorkUnitListPage — analysis 确认弹窗（#106 M7）', () => {
     mockStore.workunits = [makeWu({ id: 'wu-a2' })];
     render(<WorkUnitListPage />);
 
-    fireEvent.click(screen.getByText('通过'));
+    fireEvent.click(screen.getByText('通过（审查闸门）'));
     const textarea = screen.getByPlaceholderText(/目标/) as HTMLTextAreaElement;
     expect(textarea.value).toBe('');
 
@@ -244,57 +257,56 @@ describe('WorkUnitListPage — analysis 确认弹窗（#106 M7）', () => {
     mockStore.workunits = [makeWu({ id: 'wu-t1', type: 'task', scope: '实现登录' })];
     render(<WorkUnitListPage />);
 
-    fireEvent.click(screen.getByText('通过'));
+    fireEvent.click(screen.getByText('通过（审查闸门）'));
 
     expect(screen.queryByPlaceholderText(/目标/)).toBeNull();
     expect(mockStore.reviewPassed).toHaveBeenCalledWith('wu-t1', undefined, undefined);
   });
 });
 
-// #284（决策 #250 D1）：pending 人闸确认入口补齐到行展开态（与频道抽屉同行为）
-describe('WorkUnitListPage — pending 人闸入口（#284）', () => {
+// #284（决策 #250 D1）：pending 人闸确认入口（E2-4 起与抽屉/详情页同一 WuGateActions 组件，行内直出）
+describe('WorkUnitListPage — pending 人闸入口（#284 / E2-4）', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockStore.workunits = [];
+    mockStore.total = null;
     mockSearchParamsValue.value = '';
   });
 
-  it('pending 行展开态 → 「确认（进待领取）」→ confirmPending(id)', async () => {
+  it('pending 行 → 行内「确认（进待领取）」→ confirmPending(id)（不展开不开抽屉）', async () => {
     mockStore.workunits = [makeWu({ id: 'wu-p1', type: 'task', status: 'pending' })];
     render(<WorkUnitListPage />);
 
-    fireEvent.click(screen.getByText('ID: wu-p1...')); // 行内展开
     fireEvent.click(await screen.findByText('确认（进待领取）'));
 
     expect(mockStore.confirmPending).toHaveBeenCalledWith('wu-p1');
+    // 闸门点击不触发行点击开抽屉（组件内吞冒泡）
+    expect(mockDrawerProps).not.toHaveBeenCalledWith(expect.objectContaining({ drawer: expect.objectContaining({ kind: 'wu' }) }));
   });
 
-  it('非 pending 行展开态无确认按钮', async () => {
+  it('非 pending 行无确认按钮', () => {
     mockStore.workunits = [makeWu({ id: 'wu-a9', type: 'task', status: 'active' })];
     render(<WorkUnitListPage />);
 
-    fireEvent.click(screen.getByText('ID: wu-a9...'));
-    await waitFor(() => expect(screen.getByText(/Assignee/)).toBeDefined()); // 展开已生效
     expect(screen.queryByText('确认（进待领取）')).toBeNull();
   });
 });
 
-// #116：BlockedByList 经 workunitApi.get 拉依赖状态（行内展开时）；mock 全文件生效（vi.mock 提升）
-const { mockDepGet } = vi.hoisted(() => ({ mockDepGet: vi.fn() }));
+// #116：被阻塞徽标在行上保留（E2-1 展开区删除后，依赖清单 BlockedByList 归详情页「依赖与验收」节，
+// 等价断言在 WorkUnitDetailPage.test.tsx #116 用例）；mock 全文件生效（vi.mock 提升）
 vi.mock('../../api/workunit', () => ({
   workunitApi: {
-    get: mockDepGet,
+    get: vi.fn(),
     listExecutionStepEvents: vi.fn().mockResolvedValue({ data: { events: [], total: 0 } }),
     getMessages: vi.fn().mockResolvedValue({ data: { data: [] } }),
   },
 }));
-// ExecutionSteps（行内展开渲染）依赖的 SSE hook — 测试无 WebSocketProvider，置空
-vi.mock('../../hooks/useWorkUnitStreamEvents', () => ({ useWorkUnitStreamEvents: () => [] }));
 
 describe('WorkUnitListPage — claimable 置灰与被阻塞徽标（#116）', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockStore.workunits = [];
+    mockStore.total = null;
     mockSearchParamsValue.value = '';
   });
 
@@ -330,8 +342,8 @@ describe('WorkUnitListPage — claimable 置灰与被阻塞徽标（#116）', ()
     expect(screen.queryByText('被阻塞')).toBeNull();
   });
 
-  it('展开被阻塞行 → 依赖清单拉取并展示依赖状态', async () => {
-    mockDepGet.mockResolvedValue({ data: { id: 'wu-dep-1', status: 'active', scope: '依赖任务一', metadata: null } });
+  // E2-1：行内展开区已删除，行点击开右侧抽屉（等价断言：点击行 → 抽屉收到该 WU）
+  it('点击被阻塞行 → 开右侧抽屉（依赖清单等深度信息挪抽屉/详情页）', () => {
     mockStore.workunits = [makeWu({
       id: 'wu-b2',
       status: 'unassigned',
@@ -342,8 +354,9 @@ describe('WorkUnitListPage — claimable 置灰与被阻塞徽标（#116）', ()
 
     fireEvent.click(screen.getByText('ID: wu-b2...'));
 
-    await waitFor(() => expect(screen.getByText('依赖任务一')).toBeDefined());
-    expect(mockDepGet).toHaveBeenCalledWith('wu-dep-1');
+    expect(mockDrawerProps).toHaveBeenCalledWith(expect.objectContaining({
+      drawer: { kind: 'wu', id: 'wu-b2' },
+    }));
   });
 });
 
@@ -467,76 +480,92 @@ describe('WorkUnitListPage — 统计 chip 筛选（Step 2）', () => {
   });
 });
 
-// Step 2：行/展开区重设计 —— 无边框行（wu-row + data-status 色条锚点）、metadata toggle、分节小标题
-describe('WorkUnitListPage — 行与展开区重设计（Step 2）', () => {
+// Step 2：行重设计（无边框行 wu-row + data-status 色条锚点）；
+// E2-1（docs/plans/2026-09-page-redesign.md）：整行展开区删除，行点击 → 右侧抽屉（WorkUnitDrawer 桩化断言接线）
+describe('WorkUnitListPage — 行形态与抽屉（Step 2 / E2-1）', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockStore.workunits = [];
     mockStore.statusFilter = null;
+    mockStore.total = null;
     mockSearchParamsValue.value = '';
   });
+
+  const lastDrawerProps = () => mockDrawerProps.mock.calls.at(-1)?.[0] as {
+    drawer: { kind: string; id: string } | null;
+    onClose: () => void;
+    onOpenWu: (id: string) => void;
+    onOpenReq: (id: string) => void;
+  };
 
   it('行为 wu-row 无边框块（无 .card），挂 data-status = 派生列作状态色条锚点', () => {
     mockStore.workunits = [makeWu({ id: 'wu-ds', status: 'active' })];
     render(<WorkUnitListPage />);
 
-    const link = screen.getByText('分析需求 PMO-1: 测试');
-    const row = link.closest('.wu-row') as HTMLElement;
+    const title = screen.getByText('分析需求 PMO-1: 测试');
+    const row = title.closest('.wu-row') as HTMLElement;
     expect(row).not.toBeNull();
     expect(row.getAttribute('data-status')).toBe('active');
-    expect(link.closest('.card')).toBeNull();
+    expect(title.closest('.card')).toBeNull();
   });
 
-  it('metadata 默认收起；「查看 metadata」toggle 展开 JSON，再点收起', async () => {
-    mockStore.workunits = [makeWu({
-      id: 'wu-m1',
-      type: 'task',
-      status: 'active',
-      metadata: JSON.stringify({ blockedBy: ['wu-hidden-dep'] }),
-    })];
+  it('点击行 → 右侧抽屉收到 { kind: wu, id }（替代整行展开区）；初始 drawer=null', () => {
+    mockStore.workunits = [makeWu({ id: 'wu-m1', type: 'task', status: 'active' })];
     render(<WorkUnitListPage />);
 
-    fireEvent.click(screen.getByText('ID: wu-m1...')); // 行内展开
-    const toggle = await screen.findByRole('button', { name: /查看 metadata/ });
-    expect(screen.queryByText(/wu-hidden-dep/)).toBeNull(); // pre 默认不渲染
+    expect(lastDrawerProps().drawer).toBeNull();
 
-    fireEvent.click(toggle);
-    expect(screen.getByText(/wu-hidden-dep/)).toBeDefined(); // JSON 展开
-    expect(screen.getByRole('button', { name: /隐藏 metadata/ }).getAttribute('aria-expanded')).toBe('true');
-
-    fireEvent.click(screen.getByRole('button', { name: /隐藏 metadata/ }));
-    expect(screen.queryByText(/wu-hidden-dep/)).toBeNull();
+    fireEvent.click(screen.getByText('ID: wu-m1...'));
+    expect(lastDrawerProps().drawer).toEqual({ kind: 'wu', id: 'wu-m1' });
   });
 
-  it('展开区有「执行过程」「讨论」分节小标题', async () => {
-    mockStore.workunits = [makeWu({ id: 'wu-s1', type: 'task', status: 'active' })];
-    const { container } = render(<WorkUnitListPage />);
+  it('行尾「↗」= 完整详情页链接（深链场景），点击不开抽屉', () => {
+    mockStore.workunits = [makeWu({ id: 'wu-dl', type: 'task', status: 'active' })];
+    render(<WorkUnitListPage />);
 
-    fireEvent.click(screen.getByText('ID: wu-s1...'));
-    // ExecutionSteps 组件内部也渲染「执行过程」原文，故用 .wu-sec 类定位分节标题
-    await waitFor(() => expect(container.querySelectorAll('.wu-sec').length).toBe(2));
-    const titles = Array.from(container.querySelectorAll('.wu-sec')).map(el => el.textContent);
-    expect(titles).toEqual(['执行过程', '讨论']);
+    // Link mock 透传 aria-label（与真实路由环境一致）
+    const link = screen.getByRole('link', { name: '打开完整详情页' });
+    expect(link.getAttribute('href')).toBe('/workunits/wu-dl');
+    fireEvent.click(link);
+    expect(lastDrawerProps().drawer).toBeNull();
+  });
+
+  it('抽屉回调接线：onClose 收抽屉；onOpenReq 切 REQ 全链路', () => {
+    mockStore.workunits = [makeWu({ id: 'wu-cb', type: 'task', status: 'active' })];
+    render(<WorkUnitListPage />);
+
+    fireEvent.click(screen.getByText('ID: wu-cb...'));
+    expect(lastDrawerProps().drawer).toEqual({ kind: 'wu', id: 'wu-cb' });
+
+    act(() => lastDrawerProps().onClose());
+    expect(lastDrawerProps().drawer).toBeNull();
+
+    act(() => lastDrawerProps().onOpenReq('REQ-0042'));
+    expect(lastDrawerProps().drawer).toEqual({ kind: 'req', id: 'REQ-0042' });
+
+    act(() => lastDrawerProps().onOpenWu('wu-x9'));
+    expect(lastDrawerProps().drawer).toEqual({ kind: 'wu', id: 'wu-x9' });
   });
 });
 
-// 批次A 项4：行闸门按钮 pending 锁存 + 失败 toast；handleCreate 失败内联错误（原 console.error 静默）
-describe('WorkUnitListPage — 行闸门反馈兜底（批次A 项4）', () => {
+// 批次A 项4 → E2-4：行闸门按钮三处合一为 WuGateActions——pending 锁存 + 失败内联错误（原 toast 统一为内联，方案「文案与视觉唯一」）；
+// handleCreate 失败内联错误不变
+describe('WorkUnitListPage — 行闸门反馈兜底（批次A 项4 / E2-4）', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockStore.workunits = [];
     mockStore.statusFilter = null;
+    mockStore.total = null;
     mockSearchParamsValue.value = '';
-    document.querySelector('#toast-container')?.replaceChildren(); // 只清子节点——toast.ts 模块级缓存 container 引用，remove 会让后续 toast 挂到游离节点
   });
 
-  it('行「通过」pending 锁存：未结算前连击只调一次，按钮禁用', async () => {
+  it('行「通过（审查闸门）」pending 锁存：未结算前连击只调一次，按钮禁用', async () => {
     let resolve: () => void = () => {};
     mockStore.reviewPassed.mockImplementation(() => new Promise<void>(r => { resolve = r; }));
     mockStore.workunits = [makeWu({ id: 'wu-l1', type: 'task', status: 'in_review' })];
     render(<WorkUnitListPage />);
 
-    const btn = screen.getByText('通过').closest('button')!;
+    const btn = screen.getByText('通过（审查闸门）').closest('button')!;
     fireEvent.click(btn);
     await waitFor(() => expect(btn.disabled).toBe(true));
     expect(screen.getByText('拒绝').closest('button')!.disabled).toBe(true);
@@ -547,7 +576,15 @@ describe('WorkUnitListPage — 行闸门反馈兜底（批次A 项4）', () => {
     await waitFor(() => expect(btn.disabled).toBe(false));
   });
 
-  it('行「通过」失败 → toast 透传服务端 error.message，按钮恢复可点', async () => {
+  it('行闸门按钮统一视觉（E2-4）：btn btn-primary btn-sm / btn btn-danger btn-sm', () => {
+    mockStore.workunits = [makeWu({ id: 'wu-l0', type: 'task', status: 'in_review' })];
+    render(<WorkUnitListPage />);
+
+    expect(screen.getByText('通过（审查闸门）').closest('button')!.className).toBe('btn btn-primary btn-sm');
+    expect(screen.getByText('拒绝').closest('button')!.className).toBe('btn btn-danger btn-sm');
+  });
+
+  it('行「通过」失败 → 内联错误行透传服务端 error.message，按钮恢复可点', async () => {
     mockStore.reviewPassed.mockRejectedValue(Object.assign(new Error('Request failed with status code 409'), {
       isAxiosError: true,
       response: { status: 409, data: { error: { message: '状态机不允许该迁移' } } },
@@ -555,20 +592,19 @@ describe('WorkUnitListPage — 行闸门反馈兜底（批次A 项4）', () => {
     mockStore.workunits = [makeWu({ id: 'wu-l2', type: 'task', status: 'in_review' })];
     render(<WorkUnitListPage />);
 
-    const btn = screen.getByText('通过').closest('button')!;
+    const btn = screen.getByText('通过（审查闸门）').closest('button')!;
     fireEvent.click(btn);
-    expect(await screen.findByText('操作失败：状态机不允许该迁移')).toBeTruthy();
+    expect(await screen.findByText('状态机不允许该迁移')).toBeTruthy();
     await waitFor(() => expect(btn.disabled).toBe(false));
   });
 
-  it('pending 行「确认（进待领取）」失败 → toast + 不静默', async () => {
+  it('pending 行「确认（进待领取）」失败 → 内联错误行（Error.message 回退）不静默', async () => {
     mockStore.confirmPending.mockRejectedValue(new Error('boom'));
     mockStore.workunits = [makeWu({ id: 'wu-l3', type: 'task', status: 'pending' })];
     render(<WorkUnitListPage />);
 
-    fireEvent.click(screen.getByText('ID: wu-l3...'));
     fireEvent.click(await screen.findByText('确认（进待领取）'));
-    expect(await screen.findByText('操作失败，请重试')).toBeTruthy();
+    expect(await screen.findByText('boom')).toBeTruthy();
   });
 
   it('handleCreate 失败 → 内联错误行进创建表单（原 console.error 静默）', async () => {
@@ -592,11 +628,52 @@ describe('WorkUnitListPage — 行闸门反馈兜底（批次A 项4）', () => {
     mockStore.workunits = [makeWu({ id: 'wu-l4', status: 'in_review' })]; // 默认 type=analysis
     render(<WorkUnitListPage />);
 
-    fireEvent.click(screen.getByText('通过'));
+    fireEvent.click(screen.getByText('通过（审查闸门）'));
     fireEvent.click(await screen.findByText('确认通过'));
 
-    expect(await screen.findByText('服务端挂了')).toBeTruthy();
+    // 错误行同时进闸门区与弹窗（两处同源 gateError/submitError）
+    expect((await screen.findAllByText('服务端挂了')).length).toBeGreaterThan(0);
     // 弹窗仍在（成功才关窗）
     expect(screen.getByText('确认分析结论')).toBeTruthy();
+  });
+});
+
+// E2-5 分页（承接批次 B-3）：底部「加载更多」追加式加载 + 「已加载 X / 共 N」明示（共 N = pagination.total）
+describe('WorkUnitListPage — 分页底栏（E2-5）', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockStore.workunits = [];
+    mockStore.total = null;
+    mockStore.statusFilter = null;
+    mockSearchParamsValue.value = '';
+  });
+
+  it('底栏明示「已加载 X / 共 N」（N = pagination.total，非当页条数）', () => {
+    mockStore.workunits = [makeWu({ id: 'wu-pg1', status: 'active' }), makeWu({ id: 'wu-pg2', status: 'done' })];
+    mockStore.total = 42;
+    render(<WorkUnitListPage />);
+
+    expect(screen.getByText(/已加载/).textContent).toContain('2');
+    expect(screen.getByText(/已加载/).textContent).toContain('42');
+    // 「总数」chip 同样对齐 pagination.total
+    expect(screen.getByRole('button', { name: /总数/ }).textContent).toContain('42');
+  });
+
+  it('已加载 < total → 渲染「加载更多」，点击调 loadMoreWorkUnits（追加式）', () => {
+    mockStore.workunits = [makeWu({ id: 'wu-pg1', status: 'active' })];
+    mockStore.total = 21;
+    render(<WorkUnitListPage />);
+
+    fireEvent.click(screen.getByRole('button', { name: '加载更多' }));
+    expect(mockStore.loadMoreWorkUnits).toHaveBeenCalledTimes(1);
+  });
+
+  it('已加载 >= total → 不渲染「加载更多」', () => {
+    mockStore.workunits = [makeWu({ id: 'wu-pg1', status: 'active' }), makeWu({ id: 'wu-pg2', status: 'done' })];
+    mockStore.total = 2;
+    render(<WorkUnitListPage />);
+
+    expect(screen.queryByRole('button', { name: '加载更多' })).toBeNull();
+    expect(screen.getByText(/已加载/).textContent).toContain('2');
   });
 });

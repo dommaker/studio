@@ -37,6 +37,12 @@ interface WorkUnitState {
   // Actions
   loadWorkUnits: (params?: { status?: string; type?: string; page?: number }) => Promise<void>;
   /**
+   * E2-5（2026-09 页面重设计，承接批次 B-3）：追加式翻页——拉下一页拼接到现有列表尾部
+   * （按 id 去重：SSE created 插头部会让后续页行与前页重叠），page 随响应前进。
+   * 在途/已到底（workunits.length >= total）时 no-op；统计口径不变（total = pagination.total）。
+   */
+  loadMoreWorkUnits: () => Promise<void>;
+  /**
    * #318：SSE 负载驱动行更新（对齐批 3 模式，替代 eventTick 整页重拉）。
    * status_changed 直替已有行（insertIfMissing: false——未知行不插入，防跨页重复，
    * 即使新进过滤集亦然：服务端过滤 + 分页下无法判定页内归属，取舍 c 见 CONTEXT.md 批 4）；
@@ -91,6 +97,34 @@ export const useWorkUnitStore = create<WorkUnitState>((set, get) => ({
         // 交集过滤下 total 是交集计数，不能覆盖徽标（徽标由 loadUnattributedCount 维护）
         ...(unattributedOnly && !(params?.status ?? statusFilter) && !(params?.type ?? typeFilter)
           ? { unattributedTotal: result?.pagination?.total ?? 0 } : {}),
+        loading: false,
+      });
+    } catch (e) {
+      set({ error: e?.message ?? 'Failed to load workunits', loading: false });
+    }
+  },
+
+  loadMoreWorkUnits: async () => {
+    const { workunits, total, page, loading } = get();
+    if (loading || workunits.length >= total) return;
+    set({ loading: true, error: null });
+    try {
+      const { statusFilter, typeFilter, unattributedOnly, limit } = get();
+      const { data } = await workunitApi.list({
+        status: statusFilter ?? undefined,
+        type: typeFilter ?? undefined,
+        attributed: unattributedOnly ? false : undefined,
+        page: page + 1,
+        limit,
+      });
+      const result = data as PaginatedResponse<WorkUnit>;
+      const incoming = result?.data ?? [];
+      // SSE created 插头部会让下一页与前页行重叠——按 id 去重再拼接
+      const seen = new Set(get().workunits.map(w => w.id));
+      set({
+        workunits: [...get().workunits, ...incoming.filter(w => !seen.has(w.id))],
+        total: result?.pagination?.total ?? 0,
+        page: result?.pagination?.page ?? page + 1,
         loading: false,
       });
     } catch (e) {
