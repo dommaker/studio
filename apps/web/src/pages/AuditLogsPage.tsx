@@ -4,10 +4,14 @@
  * 提供审计日志查询、筛选、导出功能
  */
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { auditLogApi, type AuditLog, type AuditLogStats } from '../api/auditLogs';
 import { Select } from '../components/ui';
 import { formatFullTime } from '../utils/datetime';
+
+/** 日期 input（YYYY-MM-DD）→ 本地日界 ISO，传后端 startTime/endTime */
+const toStartIso = (d: string) => (d ? new Date(`${d}T00:00:00`).toISOString() : undefined);
+const toEndIso = (d: string) => (d ? new Date(`${d}T23:59:59.999`).toISOString() : undefined);
 
 export const AuditLogsPage: React.FC = () => {
   const [logs, setLogs] = useState<AuditLog[]>([]);
@@ -16,13 +20,17 @@ export const AuditLogsPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [selectedLog, setSelectedLog] = useState<AuditLog | null>(null);
 
-  // Filters
+  // Filters（startDate/endDate 为日期 input 原值 YYYY-MM-DD，请求时转 ISO）
   const [filters, setFilters] = useState({
     action: '',
     resource: '',
     status: '',
     userId: '',
+    startDate: '',
+    endDate: '',
   });
+  // userId 输入框原值（300ms 防抖后才进 filters，批次 B-5，模式参照 LibraryPage）
+  const [userIdInput, setUserIdInput] = useState('');
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const limit = 50;
@@ -32,12 +40,35 @@ export const AuditLogsPage: React.FC = () => {
   const [resources, setResources] = useState<string[]>([]);
 
   // 筛选/翻页变化时在渲染期同步置回加载态（替代原 loadLogs 内、由 effect 触发的同步 setLoading）
-  const filterKey = JSON.stringify([filters.action, filters.resource, filters.status, filters.userId, page]);
+  const filterKey = JSON.stringify([filters, page]);
   const [prevFilterKey, setPrevFilterKey] = useState(filterKey);
   if (prevFilterKey !== filterKey) {
     setPrevFilterKey(filterKey);
     setLoading(true);
   }
+
+  // 筛选变化统一入口：改筛选即回第 1 页（修复翻页后改筛选停留旧页、结果错位）
+  const applyFilter = (patch: Partial<typeof filters>) => {
+    setFilters(f => ({ ...f, ...patch }));
+    setPage(1);
+  };
+
+  // userId 防抖：跳过首次运行（初始加载由主 effect 触发，输入框初值与 filters 一致无需提交）
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const firstDebounceRef = useRef(true);
+  useEffect(() => {
+    if (firstDebounceRef.current) {
+      firstDebounceRef.current = false;
+      return;
+    }
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      applyFilter({ userId: userIdInput });
+    }, 300);
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [userIdInput]);
 
   const loadOptions = useCallback(async () => {
     try {
@@ -59,6 +90,8 @@ export const AuditLogsPage: React.FC = () => {
         resource: filters.resource || undefined,
         status: filters.status || undefined,
         userId: filters.userId || undefined,
+        startTime: toStartIso(filters.startDate),
+        endTime: toEndIso(filters.endDate),
         page,
         limit,
       });
@@ -94,10 +127,14 @@ export const AuditLogsPage: React.FC = () => {
 
   const handleExport = () => {
     // 文件下载：浏览器跳转打开导出 URL（鉴权说明见 api/auditLogs.ts getExportUrl）
+    // 口径与列表一致：status/时间范围随筛选带上
     window.open(auditLogApi.getExportUrl({
       action: filters.action || undefined,
       resource: filters.resource || undefined,
+      status: filters.status || undefined,
       userId: filters.userId || undefined,
+      startTime: toStartIso(filters.startDate),
+      endTime: toEndIso(filters.endDate),
     }), '_blank');
   };
 
@@ -142,41 +179,47 @@ export const AuditLogsPage: React.FC = () => {
     <div className="h-full flex flex-col u-page-bg">
       {/* Header */}
       <div className="u-page-head">
-        <h1 className="page-title">📋 {'审计日志'}</h1>
-        <p className="page-subtitle">{'查看系统操作记录'}</p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="page-title">{'审计日志'}</h1>
+            <p className="page-subtitle">{'查看系统操作记录'}</p>
+          </div>
+          <button
+            onClick={handleExport}
+            className="btn btn-primary"
+          >
+            {'导出'}
+          </button>
+        </div>
       </div>
 
-      <div className="flex-1 overflow-auto px-8 py-6">
+      <div className="flex-1 overflow-auto px-8 pb-8">
+      <div className="max-w-5xl">
 
       {/* Stats */}
       {stats && (
-        <div className="grid grid-cols-4 gap-4 mb-6">
-          <div className="u-accent-dim rounded p-4">
-            <div style={{ fontSize: 'var(--fs-stat)' }} className="font-mono font-bold u-accent">{stats.totalLogs}</div>
-            <div className="text-sm u-accent">{'总日志数'}</div>
+        <>
+          <div className="mc-block-label">{'概览'}</div>
+          <div className="grid grid-cols-4 gap-4 mb-6">
+            <StatCard label={'总日志数'} value={stats.totalLogs} color="u-accent" />
+            <StatCard label={'成功操作'} value={stats.successCount} color="u-ok" />
+            <StatCard label={'失败操作'} value={stats.failureCount} color="u-err" />
+            <StatCard
+              label={'成功率'}
+              value={`${stats.successCount > 0 ? ((stats.successCount / stats.totalLogs) * 100).toFixed(1) : 0}%`}
+              color="u-accent"
+            />
           </div>
-          <div className="u-ok-dim rounded p-4">
-            <div style={{ fontSize: 'var(--fs-stat)' }} className="font-mono font-bold u-ok">{stats.successCount}</div>
-            <div className="text-sm u-ok">{'成功操作'}</div>
-          </div>
-          <div className="u-err-dim rounded p-4">
-            <div style={{ fontSize: 'var(--fs-stat)' }} className="font-mono font-bold u-err">{stats.failureCount}</div>
-            <div className="text-sm u-err">{'失败操作'}</div>
-          </div>
-          <div className="u-accent-dim rounded p-4">
-            <div style={{ fontSize: 'var(--fs-stat)' }} className="font-mono font-bold u-accent">
-              {stats.successCount > 0 ? ((stats.successCount / stats.totalLogs) * 100).toFixed(1) : 0}%
-            </div>
-            <div className="text-sm u-accent">{'成功率'}</div>
-          </div>
-        </div>
+        </>
       )}
 
       {/* Filters */}
-      <div className="flex items-center gap-4 mb-4">
+      <div className="mc-block-label">{'筛选'}</div>
+      <div className="flex items-center gap-4 mb-4 flex-wrap">
         <Select
+          aria-label={'操作筛选'}
           value={filters.action}
-          onChange={(v) => setFilters({ ...filters, action: v })}
+          onChange={(v) => applyFilter({ action: v })}
           options={[
             { value: '', label: '全部操作' },
             ...actions.map(action => ({ value: action, label: action })),
@@ -184,8 +227,9 @@ export const AuditLogsPage: React.FC = () => {
         />
 
         <Select
+          aria-label={'资源筛选'}
           value={filters.resource}
-          onChange={(v) => setFilters({ ...filters, resource: v })}
+          onChange={(v) => applyFilter({ resource: v })}
           options={[
             { value: '', label: '全部资源' },
             ...resources.map(resource => ({ value: resource, label: resource })),
@@ -193,8 +237,9 @@ export const AuditLogsPage: React.FC = () => {
         />
 
         <Select
+          aria-label={'状态筛选'}
           value={filters.status}
-          onChange={(v) => setFilters({ ...filters, status: v })}
+          onChange={(v) => applyFilter({ status: v })}
           options={[
             { value: '', label: '全部状态' },
             { value: 'success', label: '成功' },
@@ -205,17 +250,26 @@ export const AuditLogsPage: React.FC = () => {
         <input
           type="text"
           placeholder={'用户 ID'}
-          value={filters.userId}
-          onChange={(e) => setFilters({ ...filters, userId: e.target.value })}
+          value={userIdInput}
+          onChange={(e) => setUserIdInput(e.target.value)}
           className="input"
         />
 
-        <button
-          onClick={handleExport}
-          className="btn btn-primary"
-        >
-          {'导出'}
-        </button>
+        <input
+          type="date"
+          aria-label={'开始日期'}
+          value={filters.startDate}
+          onChange={(e) => applyFilter({ startDate: e.target.value })}
+          className="input"
+        />
+
+        <input
+          type="date"
+          aria-label={'结束日期'}
+          value={filters.endDate}
+          onChange={(e) => applyFilter({ endDate: e.target.value })}
+          className="input"
+        />
       </div>
 
       {/* Error */}
@@ -226,6 +280,7 @@ export const AuditLogsPage: React.FC = () => {
       )}
 
       {/* Table */}
+      <div className="mc-block-label">{'日志'}</div>
       <div className="overflow-x-auto">
         <table className="w-full">
           <thead>
@@ -312,14 +367,14 @@ export const AuditLogsPage: React.FC = () => {
               disabled={page === 1}
               className="btn btn-secondary btn-sm"
             >
-              {'上一步'}
+              {'上一页'}
             </button>
             <button
               onClick={() => setPage(p => p + 1)}
               disabled={page * limit >= total}
               className="btn btn-secondary btn-sm"
             >
-              {'下一步'}
+              {'下一页'}
             </button>
           </div>
         </div>
@@ -416,8 +471,19 @@ export const AuditLogsPage: React.FC = () => {
         </div>
       )}
       </div>
+      </div>
     </div>
   );
 };
+
+/** 统计卡（E7 归一配方：.card 容器 + --fs-stat mono 数字 + u-text-2 标签） */
+function StatCard({ label, value, color }: { label: string; value: React.ReactNode; color: string }) {
+  return (
+    <div className="card p-4">
+      <div style={{ fontSize: 'var(--fs-stat)' }} className={`font-mono font-bold ${color}`}>{value}</div>
+      <div className="text-sm u-text-2">{label}</div>
+    </div>
+  );
+}
 
 export default AuditLogsPage;
