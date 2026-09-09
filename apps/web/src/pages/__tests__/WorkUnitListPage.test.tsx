@@ -209,48 +209,54 @@ describe('WorkUnitListPage - 统计条口径（#280）', () => {
   });
 });
 
-describe('WorkUnitListPage — analysis 确认弹窗（#106 M7）', () => {
+describe('WorkUnitListPage — analysis 确认弹窗（#106 M7；#463 起结构化评审表单）', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockStore.workunits = [];
     mockStore.total = null;
   });
 
-  it('analysis 点通过 → 弹窗预填 metadata 里的待决问题清单；编辑后确认 → summary 回传', () => {
+  it('analysis 点通过 → 弹窗结构化预填待决清单与 TASK 预览；编辑后确认开图 → confirm 载荷回传', () => {
     mockStore.workunits = [makeWu({
       id: 'wu-a1',
       metadata: JSON.stringify({
         analysisDestination: '三仓特性联动上线',
         analysisFog: ['存储选型用哪个？', '部署形态先单机还是分布式？'],
+        analysisTasks: ['实现存储层'],
       }),
     })];
     render(<WorkUnitListPage />);
 
     fireEvent.click(screen.getByText('通过（审查闸门）'));
 
-    // 预填 = 目标：/待决： 逐行还原（map-opening 契约中文别名，#401）
-    const textarea = screen.getByPlaceholderText(/目标/) as HTMLTextAreaElement;
-    expect(textarea.value).toBe(
-      '目标：三仓特性联动上线\n待决：存储选型用哪个？\n待决：部署形态先单机还是分布式？',
-    );
+    // 结构化预填：目标/待决/派工预览各就各位
+    expect((screen.getByLabelText('目标') as HTMLInputElement).value).toBe('三仓特性联动上线');
+    expect((screen.getByLabelText('待决问题 1') as HTMLInputElement).value).toBe('存储选型用哪个？');
+    expect((screen.getByLabelText('派工任务 1') as HTMLInputElement).value).toBe('实现存储层');
 
     // 人审改：删掉一条雾
-    fireEvent.change(textarea, { target: { value: '待决：存储选型用哪个？' } });
-    fireEvent.click(screen.getByText('确认通过'));
+    fireEvent.click(screen.getByLabelText('删除待决问题 2'));
+    fireEvent.click(screen.getByText('确认开图'));
 
-    expect(mockStore.reviewPassed).toHaveBeenCalledWith('wu-a1', '待决：存储选型用哪个？', undefined);
+    expect(mockStore.reviewPassed).toHaveBeenCalledWith('wu-a1', undefined, undefined, {
+      kind: 'analysis',
+      destination: '三仓特性联动上线',
+      fog: ['存储选型用哪个？'],
+      tasks: ['实现存储层'],
+    });
   });
 
-  it('analysis 无清单 metadata → 弹窗空文本（空手填或直接通过 = 非探路型）', () => {
+  it('analysis 无清单 metadata → 弹窗全空（空手评或直接通过 = 非探路型）', () => {
     mockStore.workunits = [makeWu({ id: 'wu-a2' })];
     render(<WorkUnitListPage />);
 
     fireEvent.click(screen.getByText('通过（审查闸门）'));
-    const textarea = screen.getByPlaceholderText(/目标/) as HTMLTextAreaElement;
-    expect(textarea.value).toBe('');
+    expect((screen.getByLabelText('目标') as HTMLInputElement).value).toBe('');
 
-    fireEvent.click(screen.getByText('确认通过'));
-    expect(mockStore.reviewPassed).toHaveBeenCalledWith('wu-a2', '', undefined);
+    fireEvent.click(screen.getByText('确认开图'));
+    expect(mockStore.reviewPassed).toHaveBeenCalledWith('wu-a2', undefined, undefined, {
+      kind: 'analysis', fog: [], tasks: [],
+    });
   });
 
   it('非 analysis（task）点通过 → 不开弹窗，直接调 reviewPassed（回归）', () => {
@@ -259,8 +265,8 @@ describe('WorkUnitListPage — analysis 确认弹窗（#106 M7）', () => {
 
     fireEvent.click(screen.getByText('通过（审查闸门）'));
 
-    expect(screen.queryByPlaceholderText(/目标/)).toBeNull();
-    expect(mockStore.reviewPassed).toHaveBeenCalledWith('wu-t1', undefined, undefined);
+    expect(screen.queryByLabelText('目标')).toBeNull();
+    expect(mockStore.reviewPassed).toHaveBeenCalledWith('wu-t1', undefined, undefined, undefined);
   });
 });
 
@@ -629,7 +635,7 @@ describe('WorkUnitListPage — 行闸门反馈兜底（批次A 项4 / E2-4）', 
     render(<WorkUnitListPage />);
 
     fireEvent.click(screen.getByText('通过（审查闸门）'));
-    fireEvent.click(await screen.findByText('确认通过'));
+    fireEvent.click(await screen.findByText('确认开图'));
 
     // 错误行同时进闸门区与弹窗（两处同源 gateError/submitError）
     expect((await screen.findAllByText('服务端挂了')).length).toBeGreaterThan(0);

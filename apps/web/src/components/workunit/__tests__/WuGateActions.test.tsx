@@ -149,23 +149,86 @@ describe('WuGateActions — 反馈兜底（批次A 模式）', () => {
   });
 });
 
-describe('WuGateActions — analysis 弹窗与 autoApprove', () => {
+describe('WuGateActions — #463 结构化确认弹窗（analysis/decision/spec）与 autoApprove', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('analysis 点通过 → AnalysisApproveDialog 预填待决清单，确认后 summary 回传', async () => {
+  it('analysis 点通过 → AnalysisApproveDialog 结构化预填，确认开图后 confirm 表单回传', async () => {
     const { onReviewPassed } = setup(makeWu({
       status: 'in_review',
       type: 'analysis',
-      metadata: JSON.stringify({ analysisDestination: '目的地', analysisFog: ['问题1'] }),
+      metadata: JSON.stringify({ analysisDestination: '目的地', analysisFog: ['问题1'], analysisTasks: ['干活'] }),
     }));
 
     fireEvent.click(screen.getByText('通过（审查闸门）'));
-    const textarea = await screen.findByPlaceholderText(/目标/) as HTMLTextAreaElement;
-    expect(textarea.value).toBe('目标：目的地\n待决：问题1');
+    expect((await screen.findByLabelText('目标') as HTMLInputElement).value).toBe('目的地');
+    expect((screen.getByLabelText('待决问题 1') as HTMLInputElement).value).toBe('问题1');
+    expect((screen.getByLabelText('派工任务 1') as HTMLInputElement).value).toBe('干活');
     expect(onReviewPassed).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByText('确认通过'));
-    await waitFor(() => expect(onReviewPassed).toHaveBeenCalledWith('目标：目的地\n待决：问题1', undefined));
+    fireEvent.click(screen.getByText('确认开图'));
+    await waitFor(() => expect(onReviewPassed).toHaveBeenCalledWith(undefined, undefined, {
+      kind: 'analysis', destination: '目的地', fog: ['问题1'], tasks: ['干活'],
+    }));
+  });
+
+  it('decision 点通过 → DecisionApproveDialog 预填 agent 建议结论，采纳后 confirm 回传', async () => {
+    const { onReviewPassed } = setup(makeWu({
+      status: 'in_review',
+      type: 'decision',
+      scope: '待决问题 PMO-1: 存储选型？',
+      metadata: JSON.stringify({ decisionSuggestion: '用 SQLite' }),
+    }));
+
+    fireEvent.click(screen.getByText('通过（审查闸门）'));
+    expect((await screen.findByLabelText('决策结论') as HTMLTextAreaElement).value).toBe('用 SQLite');
+    expect(onReviewPassed).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByText('采纳结论'));
+    await waitFor(() => expect(onReviewPassed).toHaveBeenCalledWith(undefined, undefined, {
+      kind: 'decision', conclusion: '用 SQLite',
+    }));
+  });
+
+  it('decision 弹窗「转人工讨论」→ onReviewRejected 预设理由并关窗', async () => {
+    const { onReviewRejected } = setup(makeWu({
+      status: 'in_review',
+      type: 'decision',
+      metadata: JSON.stringify({ decisionSuggestion: '用 SQLite' }),
+    }));
+
+    fireEvent.click(screen.getByText('通过（审查闸门）'));
+    fireEvent.click(await screen.findByText('转人工讨论'));
+    await waitFor(() => expect(onReviewRejected).toHaveBeenCalledWith(expect.stringContaining('转人工讨论')));
+    await waitFor(() => expect(screen.queryByText('确认决策结论')).toBeNull());
+  });
+
+  it('spec 点通过 → SpecApproveDialog 卡片墙预填，确认物化后 confirm 回传勾选集', async () => {
+    const { onReviewPassed } = setup(makeWu({
+      status: 'in_review',
+      type: 'spec',
+      metadata: JSON.stringify({ specTasks: [{ title: '实现存储层', ac: ['单测覆盖'], blockedBy: [] }] }),
+    }));
+
+    fireEvent.click(screen.getByText('通过（审查闸门）'));
+    expect((await screen.findByLabelText('任务标题 1') as HTMLInputElement).value).toBe('实现存储层');
+    expect(onReviewPassed).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByText('确认物化（1）'));
+    await waitFor(() => expect(onReviewPassed).toHaveBeenCalledWith(undefined, undefined, {
+      kind: 'spec', tasks: [{ title: '实现存储层', ac: ['单测覆盖'] }],
+    }));
+  });
+
+  it('spec 无 specTasks（旧数据/agent 未拆）→ 空卡片墙，可添加任务后物化（不再一键烧掉哨兵）', async () => {
+    const { onReviewPassed } = setup(makeWu({ status: 'in_review', type: 'spec', metadata: null }));
+
+    fireEvent.click(screen.getByText('通过（审查闸门）'));
+    fireEvent.click(await screen.findByText('添加任务'));
+    fireEvent.change(screen.getByLabelText('任务标题 1'), { target: { value: '补录的任务' } });
+    fireEvent.click(screen.getByText('确认物化（1）'));
+    await waitFor(() => expect(onReviewPassed).toHaveBeenCalledWith(undefined, undefined, {
+      kind: 'spec', tasks: [{ title: '补录的任务', ac: [] }],
+    }));
   });
 
   it('autoApprove：in_review analysis 挂载即弹（一次性，无需点通过）', async () => {
@@ -175,12 +238,12 @@ describe('WuGateActions — analysis 弹窗与 autoApprove', () => {
       metadata: JSON.stringify({ analysisDestination: '目的地', analysisFog: ['问题1'] }),
     }), { autoApprove: true });
 
-    const textarea = await screen.findByPlaceholderText(/目标/) as HTMLTextAreaElement;
-    expect(textarea.value).toBe('目标：目的地\n待决：问题1');
+    expect((await screen.findByLabelText('目标') as HTMLInputElement).value).toBe('目的地');
+    expect((screen.getByLabelText('待决问题 1') as HTMLInputElement).value).toBe('问题1');
   });
 
   it('autoApprove 但非 analysis/非 in_review → 不自动弹窗', () => {
     setup(makeWu({ status: 'in_review', type: 'task' }), { autoApprove: true });
-    expect(screen.queryByPlaceholderText(/目标/)).toBeNull();
+    expect(screen.queryByText('确认分析结论')).toBeNull();
   });
 });

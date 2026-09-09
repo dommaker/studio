@@ -208,7 +208,7 @@ function WuDetail({ id, autoApprove = false, onOpenReq }: { id: string; autoAppr
     <WuGateActions
       wu={wu}
       autoApprove={autoApprove}
-      onReviewPassed={async (summary, assigneeId) => { const r = await workunitApi.reviewPassed(id, summary, assigneeId); setWu(r.data); }}
+      onReviewPassed={async (summary, assigneeId, confirm) => { const r = await workunitApi.reviewPassed(id, summary, assigneeId, confirm); setWu(r.data); }}
       onReviewRejected={async (reason) => { const r = await workunitApi.reviewRejected(id, reason); setWu(r.data); }}
       onConfirmPending={async () => { const r = await workunitApi.transitionStatus(id, 'unassigned'); setWu(r.data); }}
     />

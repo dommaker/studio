@@ -8,11 +8,11 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { projectApi, type DeliveryStatus, type DeliveryGap } from '../../api';
-import { workunitApi } from '../../api/workunit';
+import { workunitApi, type ReviewConfirmPayload } from '../../api/workunit';
 import { formatFullTime } from '../../utils/datetime';
 import { toast } from '../../utils/toast';
 import { AnalysisApproveDialog } from './AnalysisApproveDialog';
-import { buildMapOpeningPrefill } from './mapUtils';
+import { buildAnalysisConfirmPrefill, type AnalysisConfirmPrefill } from './mapUtils';
 import { EVIDENCE_LAYER_LABELS } from './pipelineUtils';
 
 // 🆕 F6-c: 缺口层 → 人话文案（#399 §8.3 词表：自动验证 / Agent 评审 / 人工确认，L1/L2/L3 不上界面）
@@ -39,24 +39,25 @@ export function DeliveryPanel({ projectId, delivery, onRefresh }: DeliveryPanelP
   const [deliverError, setDeliverError] = useState<{ message: string; missing?: string[]; conflictFiles?: string[] } | null>(null);
   // 🆕 F6-c: 缺口行动按钮的独立 loading 态（key = `${wuId}:${action}`），防重复点击
   const [gapActionPending, setGapActionPending] = useState<Record<string, boolean>>({});
-  // #106 M7：analysis 缺口的「人工确认」走共享确认弹窗（预填待决问题清单 → 人改 → 带 summary 提交）
-  const [approveGap, setApproveGap] = useState<{ gap: DeliveryGap; prefill: string; channelId: string | null } | null>(null);
+  // #106 M7：analysis 缺口的「人工确认」走共享确认弹窗（#463 起结构化评审表单：
+  // FOG 清单 + TASK 拆分预览，人审后 confirm 载荷由后端序列化进 l3.summary）
+  const [approveGap, setApproveGap] = useState<{ gap: DeliveryGap; prefill: AnalysisConfirmPrefill; channelId: string | null } | null>(null);
 
-  // analysis 缺口开弹窗：gaps 列表无 metadata，best-effort 拉 WU 详情取预填（拉不到 → 空手填）
+  // analysis 缺口开弹窗：gaps 列表无 metadata，best-effort 拉 WU 详情取预填（拉不到 → 空手评）
   // #177：同时取 channelId 喂弹窗的「默认执行角色」下拉（候选=频道成员）
   const openAnalysisApprove = async (gap: DeliveryGap) => {
-    let prefill = '';
+    let prefill: AnalysisConfirmPrefill = { destination: '', fog: [], tasks: [] };
     let channelId: string | null = null;
     try {
       const res = await workunitApi.get(gap.id);
-      prefill = buildMapOpeningPrefill(res.data?.metadata);
+      prefill = buildAnalysisConfirmPrefill(res.data?.metadata);
       channelId = res.data?.channelId ?? null;
     } catch { /* best-effort */ }
     setApproveGap({ gap, prefill, channelId });
   };
 
   // 🆕 F6-c: 缺口行动——重跑 L1 验证 / 补派 L2 评审 / L3 人工确认
-  const handleGapAction = async (gap: DeliveryGap, action: 'verify' | 'dispatchReview' | 'reviewPassed', summary?: string, assigneeId?: string) => {
+  const handleGapAction = async (gap: DeliveryGap, action: 'verify' | 'dispatchReview' | 'reviewPassed', summary?: string, assigneeId?: string, confirm?: ReviewConfirmPayload) => {
     const key = `${gap.id}:${action}`;
     setGapActionPending(prev => ({ ...prev, [key]: true }));
     try {
@@ -74,7 +75,7 @@ export function DeliveryPanel({ projectId, delivery, onRefresh }: DeliveryPanelP
         toast.success('已创建评审任务，待 agent 领取');
         await onRefresh();
       } else {
-        await workunitApi.reviewPassed(gap.id, summary, assigneeId);
+        await workunitApi.reviewPassed(gap.id, summary, assigneeId, confirm);
         toast.success('人工确认已补齐');
         await onRefresh();
       }
@@ -261,16 +262,23 @@ export function DeliveryPanel({ projectId, delivery, onRefresh }: DeliveryPanelP
           </div>
         )
       )}
-      {/* #106 M7：analysis 缺口的共享确认弹窗 */}
+      {/* #106 M7：analysis 缺口的共享确认弹窗（#463 起结构化评审表单 + 打回路径） */}
       {approveGap && (
         <AnalysisApproveDialog
           prefill={approveGap.prefill}
           channelId={approveGap.channelId}
-          onConfirm={async (summary, assigneeId) => {
+          onConfirm={async (confirm, assigneeId) => {
             // 批次A 项7：等动作结算后才关窗（失败 toast 在 handleGapAction 内）
             const gap = approveGap.gap;
-            await handleGapAction(gap, 'reviewPassed', summary, assigneeId);
+            await handleGapAction(gap, 'reviewPassed', undefined, assigneeId, confirm);
             setApproveGap(null);
+          }}
+          onReject={async reason => {
+            const gap = approveGap.gap;
+            await workunitApi.reviewRejected(gap.id, reason);
+            toast.success('已打回，待补充修订');
+            setApproveGap(null);
+            await onRefresh();
           }}
           onCancel={() => setApproveGap(null)}
         />

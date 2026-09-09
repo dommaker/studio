@@ -440,7 +440,7 @@ describe('WorkUnitDetailPage', () => {
     render(<WorkUnitDetailPage />);
 
     fireEvent.click(await screen.findByText('通过（审查闸门）'));
-    await waitFor(() => expect(mockReviewPassed).toHaveBeenCalledWith('wu-1', undefined, undefined));
+    await waitFor(() => expect(mockReviewPassed).toHaveBeenCalledWith('wu-1', undefined, undefined, undefined));
 
     fireEvent.click(screen.getByText('拒绝'));
     fireEvent.change(screen.getByPlaceholderText(/拒绝原因/), { target: { value: '实现不符合预期' } });
@@ -448,7 +448,7 @@ describe('WorkUnitDetailPage', () => {
     await waitFor(() => expect(mockReviewRejected).toHaveBeenCalledWith('wu-1', '实现不符合预期'));
   });
 
-  it('#284：in_review analysis → 通过弹确认弹窗（预填逻辑不变），确认后 summary 随 reviewPassed 回传', async () => {
+  it('#284：in_review analysis → 通过弹确认弹窗（#463 结构化表单），确认开图后 confirm 载荷随 reviewPassed 回传', async () => {
     mockWuGet.mockResolvedValue({
       data: {
         ...baseWu,
@@ -461,12 +461,14 @@ describe('WorkUnitDetailPage', () => {
     render(<WorkUnitDetailPage />);
 
     fireEvent.click(await screen.findByText('通过（审查闸门）'));
-    const textarea = await screen.findByPlaceholderText(/目标/) as HTMLTextAreaElement;
-    expect(textarea.value).toBe('目标：目标\n待决：问题1');
+    expect((await screen.findByLabelText('目标') as HTMLInputElement).value).toBe('目标');
+    expect((screen.getByLabelText('待决问题 1') as HTMLInputElement).value).toBe('问题1');
     expect(mockReviewPassed).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByText('确认通过'));
-    await waitFor(() => expect(mockReviewPassed).toHaveBeenCalledWith('wu-1', '目标：目标\n待决：问题1', undefined));
+    fireEvent.click(screen.getByText('确认开图'));
+    await waitFor(() => expect(mockReviewPassed).toHaveBeenCalledWith('wu-1', undefined, undefined, {
+      kind: 'analysis', destination: '目标', fog: ['问题1'], tasks: [],
+    }));
   });
 
   // 批次A 项5：闸门动作失败内联错误行（BlockedActions run() 同模式），不再静默

@@ -5,7 +5,9 @@ import {
   pickNextAction,
   toNextActionCandidate,
   parseBlockedBy,
-  buildMapOpeningPrefill,
+  buildAnalysisConfirmPrefill,
+  buildSpecConfirmPrefill,
+  buildDecisionConfirmPrefill,
   buildTaskDepRows,
   FOG_BADGE_META,
 } from '../mapUtils';
@@ -114,26 +116,59 @@ describe('parseBlockedBy：metadata 依赖解析', () => {
   });
 });
 
-describe('buildMapOpeningPrefill：analysis 确认弹窗清单预填（#106 M7；#401 起中文别名键）', () => {
-  it('analysisDestination + analysisFog → 目标：/待决： 逐行还原', () => {
+describe('#463 buildAnalysisConfirmPrefill：analysis 确认弹窗结构化预填（吸收 buildMapOpeningPrefill）', () => {
+  it('analysisDestination/analysisFog/analysisTasks → 结构化三段；空白项剔除', () => {
     const metadata = JSON.stringify({
       analysisDestination: '三仓特性联动上线',
-      analysisFog: ['存储选型用哪个？', '部署形态先单机还是分布式？'],
+      analysisFog: ['存储选型用哪个？', '  ', 42],
+      analysisTasks: ['实现存储层', ''],
     });
-    expect(buildMapOpeningPrefill(metadata)).toBe(
-      '目标：三仓特性联动上线\n待决：存储选型用哪个？\n待决：部署形态先单机还是分布式？',
-    );
+    expect(buildAnalysisConfirmPrefill(metadata)).toEqual({
+      destination: '三仓特性联动上线',
+      fog: ['存储选型用哪个？'],
+      tasks: ['实现存储层'],
+    });
   });
 
-  it('只有 analysisFog → 无目标行；空白项剔除', () => {
-    const metadata = JSON.stringify({ analysisFog: ['队列方案？', '  ', 42] });
-    expect(buildMapOpeningPrefill(metadata)).toBe('待决：队列方案？');
+  it('无清单 / 坏 JSON / null → 全空结构（弹窗空手评）', () => {
+    const EMPTY = { destination: '', fog: [], tasks: [] };
+    expect(buildAnalysisConfirmPrefill(null)).toEqual(EMPTY);
+    expect(buildAnalysisConfirmPrefill('not-json')).toEqual(EMPTY);
+    expect(buildAnalysisConfirmPrefill(JSON.stringify({ other: 1 }))).toEqual(EMPTY);
+  });
+});
+
+describe('#463 buildSpecConfirmPrefill：spec 确认弹窗卡片墙预填（metadata.specTasks）', () => {
+  it('specTasks → 卡片（title/ac/blockedBy/leg 保留，blockedBy/leg 过堂不编辑但须透传）', () => {
+    const metadata = JSON.stringify({
+      specTasks: [
+        { title: '实现存储层', ac: ['单测覆盖'], blockedBy: ['wu-1'], leg: 'dommaker/studio' },
+        { title: '接通派工', ac: [], blockedBy: [] },
+      ],
+    });
+    expect(buildSpecConfirmPrefill(metadata)).toEqual([
+      { title: '实现存储层', ac: ['单测覆盖'], blockedBy: ['wu-1'], leg: 'dommaker/studio' },
+      { title: '接通派工', ac: [], blockedBy: [] },
+    ]);
   });
 
-  it('无清单 / 坏 JSON / null → 空串（非探路型，弹窗空手填）', () => {
-    expect(buildMapOpeningPrefill(null)).toBe('');
-    expect(buildMapOpeningPrefill('not-json')).toBe('');
-    expect(buildMapOpeningPrefill(JSON.stringify({ analysisTasks: ['x'] }))).toBe('');
+  it('无 specTasks / 坏 JSON / 畸形条目 → 兜底空数组或过滤', () => {
+    expect(buildSpecConfirmPrefill(null)).toEqual([]);
+    expect(buildSpecConfirmPrefill('not-json')).toEqual([]);
+    expect(buildSpecConfirmPrefill(JSON.stringify({ specTasks: 'x' }))).toEqual([]);
+    expect(buildSpecConfirmPrefill(JSON.stringify({
+      specTasks: [{ title: '有效' }, { ac: ['缺标题'] }, 'junk', { title: '  ' }],
+    }))).toEqual([{ title: '有效', ac: [], blockedBy: [] }]);
+  });
+});
+
+describe('#463 buildDecisionConfirmPrefill：decision 确认弹窗建议结论预填（metadata.decisionSuggestion）', () => {
+  it('decisionSuggestion → 预填文本；缺失/坏 JSON → 空串', () => {
+    expect(buildDecisionConfirmPrefill(JSON.stringify({ decisionSuggestion: '选型用 SQLite' })))
+      .toBe('选型用 SQLite');
+    expect(buildDecisionConfirmPrefill(null)).toBe('');
+    expect(buildDecisionConfirmPrefill('not-json')).toBe('');
+    expect(buildDecisionConfirmPrefill(JSON.stringify({ decisionSuggestion: 42 }))).toBe('');
   });
 });
 

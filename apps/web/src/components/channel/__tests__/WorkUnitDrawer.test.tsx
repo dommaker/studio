@@ -408,7 +408,7 @@ describe('WorkUnitDrawer', () => {
     expect(screen.getByText(/✓ agent-review · 76d96d3/)).toBeTruthy();
     const btn = screen.getByText('人工确认（留痕）');
     fireEvent.click(btn);
-    await waitFor(() => expect(mockReviewPassed).toHaveBeenCalledWith('WU-1017', undefined, undefined));
+    await waitFor(() => expect(mockReviewPassed).toHaveBeenCalledWith('WU-1017', undefined, undefined, undefined));
   });
 
   it('证据台账：in_review → 审查闸门「通过」按钮（硬门语义）', async () => {
@@ -416,10 +416,10 @@ describe('WorkUnitDrawer', () => {
     renderDrawer({ kind: 'wu', id: 'WU-1017' });
     await waitFor(() => expect(screen.getByText('通过（审查闸门）')).toBeTruthy());
     fireEvent.click(screen.getByText('通过（审查闸门）'));
-    await waitFor(() => expect(mockReviewPassed).toHaveBeenCalledWith('WU-1017', undefined, undefined));
+    await waitFor(() => expect(mockReviewPassed).toHaveBeenCalledWith('WU-1017', undefined, undefined, undefined));
   });
 
-  it('analysis 单（#106 M7）：通过走共享确认弹窗——预填清单人改后 summary 随 reviewPassed 回传', async () => {
+  it('analysis 单（#106 M7；#463 结构化表单）：通过走共享确认弹窗——预填清单人改后 confirm 载荷随 reviewPassed 回传', async () => {
     mockWuGet.mockResolvedValue({
       data: {
         ...WU,
@@ -435,13 +435,18 @@ describe('WorkUnitDrawer', () => {
     await waitFor(() => expect(screen.getByText('通过（审查闸门）')).toBeTruthy());
     fireEvent.click(screen.getByText('通过（审查闸门）'));
 
-    const textarea = await screen.findByPlaceholderText(/目标/) as HTMLTextAreaElement;
-    expect(textarea.value).toBe('目标：三仓特性联动上线\n待决：存储选型用哪个？');
+    expect((await screen.findByLabelText('目标') as HTMLInputElement).value).toBe('三仓特性联动上线');
+    expect((screen.getByLabelText('待决问题 1') as HTMLInputElement).value).toBe('存储选型用哪个？');
     expect(mockReviewPassed).not.toHaveBeenCalled();
 
-    fireEvent.change(textarea, { target: { value: '待决：存储选型用哪个？' } });
-    fireEvent.click(screen.getByText('确认通过'));
-    await waitFor(() => expect(mockReviewPassed).toHaveBeenCalledWith('WU-1017', '待决：存储选型用哪个？', undefined));
+    fireEvent.change(screen.getByLabelText('待决问题 1'), { target: { value: '存储选型（改）？' } });
+    fireEvent.click(screen.getByText('确认开图'));
+    await waitFor(() => expect(mockReviewPassed).toHaveBeenCalledWith('WU-1017', undefined, undefined, {
+      kind: 'analysis',
+      destination: '三仓特性联动上线',
+      fog: ['存储选型（改）？'],
+      tasks: [],
+    }));
   });
 
   it('#284：in_review → 拒绝入口（带原因弹窗，调 reviewRejected），与列表行行为一致', async () => {
@@ -463,9 +468,9 @@ describe('WorkUnitDrawer', () => {
       },
     });
     renderDrawer({ kind: 'wu', id: 'WU-1017', autoApprove: true });
-    const textarea = await screen.findByPlaceholderText(/目标/) as HTMLTextAreaElement;
-    // 预填逻辑（buildMapOpeningPrefill）不变
-    expect(textarea.value).toBe('目标：三仓特性联动上线\n待决：存储选型用哪个？');
+    // #463 起结构化预填（buildAnalysisConfirmPrefill 吸收原 buildMapOpeningPrefill）
+    expect((await screen.findByLabelText('目标') as HTMLInputElement).value).toBe('三仓特性联动上线');
+    expect((screen.getByLabelText('待决问题 1') as HTMLInputElement).value).toBe('存储选型用哪个？');
     expect(mockReviewPassed).not.toHaveBeenCalled();
   });
 
@@ -473,7 +478,7 @@ describe('WorkUnitDrawer', () => {
     mockWuGet.mockResolvedValue({ data: { ...WU, status: 'in_review' } }); // type=dev
     renderDrawer({ kind: 'wu', id: 'WU-1017', autoApprove: true });
     await waitFor(() => expect(screen.getByText('通过（审查闸门）')).toBeTruthy());
-    expect(screen.queryByPlaceholderText(/目标/)).toBeNull();
+    expect(screen.queryByLabelText('目标')).toBeNull();
   });
 
   it('Layer B 实时区块：渲染执行中 chunk（思考/工具/result），step-start 不渲染', async () => {

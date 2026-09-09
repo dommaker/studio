@@ -279,7 +279,7 @@ export function WorkUnitDetailPage() {
                 <div className="wu-detail-card">
                   <WuGateActions
                     wu={wu}
-                    onReviewPassed={async (summary, assigneeId) => { await workunitApi.reviewPassed(wu.id, summary, assigneeId); reloadOnGate(); }}
+                    onReviewPassed={async (summary, assigneeId, confirm) => { await workunitApi.reviewPassed(wu.id, summary, assigneeId, confirm); reloadOnGate(); }}
                     onReviewRejected={async (reason) => { await workunitApi.reviewRejected(wu.id, reason); reloadOnGate(); }}
                     onConfirmPending={async () => { await workunitApi.transitionStatus(wu.id, 'unassigned'); reloadOnGate(); }}
                   />

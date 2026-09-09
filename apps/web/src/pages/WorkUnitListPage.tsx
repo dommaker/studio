@@ -5,7 +5,7 @@ import { useWorkUnitStore } from '../stores/workunitStore';
 import { SelfReviewBadge } from '../components/workunit/SelfReviewBadge';
 import { WuGateActions } from '../components/workunit/WuGateActions';
 import { WorkUnitDrawer, type DrawerState } from '../components/channel/WorkUnitDrawer';
-import type { WorkUnit } from '../api/workunit';
+import type { ReviewConfirmPayload, WorkUnit } from '../api/workunit';
 import { parseBlockedBy } from '../components/pmo/mapUtils';
 import { useWebSocketContext } from '../api/websocketHooks';
 import { Select } from '../components/ui';
@@ -209,7 +209,7 @@ export function WorkUnitListPage() {
                     key={wu.id}
                     wu={wu}
                     onOpen={() => setDrawer({ kind: 'wu', id: wu.id })}
-                    onReviewPassed={(summary, assigneeId) => reviewPassed(wu.id, summary, assigneeId)}
+                    onReviewPassed={(summary, assigneeId, confirm) => reviewPassed(wu.id, summary, assigneeId, confirm)}
                     onReviewRejected={(reason) => reviewRejected(wu.id, reason)}
                     onConfirmPending={() => confirmPending(wu.id)}
                     formatTime={formatShortTime}
@@ -253,7 +253,7 @@ function WorkUnitRow({
   wu: WorkUnit;
   /** E2-1：行点击开右侧抽屉（替代整行展开区） */
   onOpen: () => void;
-  onReviewPassed: (summary?: string, assigneeId?: string) => Promise<unknown>;
+  onReviewPassed: (summary?: string, assigneeId?: string, confirm?: ReviewConfirmPayload) => Promise<unknown>;
   onReviewRejected: (reason?: string) => Promise<unknown>;
   /** #284（决策 #250 D1）：pending 人闸确认（行内快速处置入口，与抽屉/详情页同组件） */
   onConfirmPending: () => Promise<unknown>;

@@ -222,14 +222,14 @@ describe('DeliveryPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '人工确认' }));
 
-    await waitFor(() => expect(mockReviewPassed).toHaveBeenCalledWith('wu-1', undefined, undefined));
+    await waitFor(() => expect(mockReviewPassed).toHaveBeenCalledWith('wu-1', undefined, undefined, undefined));
     await waitFor(() => expect(mockToastSuccess).toHaveBeenCalledWith('人工确认已补齐'));
     expect(onRefresh).toHaveBeenCalled();
   });
 
-  it('analysis 缺口（#106 M7）：人工确认走共享弹窗——拉 WU 详情预填清单，人改后 summary 随 reviewPassed 回传', async () => {
+  it('analysis 缺口（#106 M7；#463 结构化表单）：人工确认走共享弹窗——拉 WU 详情预填清单，人改后 confirm 载荷随 reviewPassed 回传', async () => {
     mockWuGet.mockResolvedValue({
-      data: { metadata: JSON.stringify({ analysisFog: ['存储选型用哪个？'] }) },
+      data: { metadata: JSON.stringify({ analysisFog: ['存储选型用哪个？'], analysisTasks: ['实现存储层'] }) },
     });
     const onRefresh = vi.fn();
     renderPanel({
@@ -239,15 +239,18 @@ describe('DeliveryPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '人工确认' }));
 
-    const textarea = await screen.findByPlaceholderText(/目标/) as HTMLTextAreaElement;
+    expect(await screen.findByLabelText('待决问题 1')).toBeTruthy();
     expect(mockWuGet).toHaveBeenCalledWith('wu-a1');
-    expect(textarea.value).toBe('待决：存储选型用哪个？');
+    expect((screen.getByLabelText('待决问题 1') as HTMLInputElement).value).toBe('存储选型用哪个？');
+    expect((screen.getByLabelText('派工任务 1') as HTMLInputElement).value).toBe('实现存储层');
     expect(mockReviewPassed).not.toHaveBeenCalled();
 
-    fireEvent.change(textarea, { target: { value: '待决：改后的待决问题？' } });
-    fireEvent.click(screen.getByText('确认通过'));
+    fireEvent.change(screen.getByLabelText('待决问题 1'), { target: { value: '改后的待决问题？' } });
+    fireEvent.click(screen.getByText('确认开图'));
 
-    await waitFor(() => expect(mockReviewPassed).toHaveBeenCalledWith('wu-a1', '待决：改后的待决问题？', undefined));
+    await waitFor(() => expect(mockReviewPassed).toHaveBeenCalledWith('wu-a1', undefined, undefined, {
+      kind: 'analysis', fog: ['改后的待决问题？'], tasks: ['实现存储层'],
+    }));
     await waitFor(() => expect(mockToastSuccess).toHaveBeenCalledWith('人工确认已补齐'));
     expect(onRefresh).toHaveBeenCalled();
   });
