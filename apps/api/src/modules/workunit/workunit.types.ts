@@ -177,8 +177,18 @@ export interface WorkUnitMetadata {
   // → 初始化 PMO map + 逐条建 decision 单；mapOpenedAt 为幂等哨兵（先落档再建单）
   mapOpenedAt?: string;
   // #115 交稿物化（pmo/spec-materialization）：spec 人工确认（l3.summary 含 TASK 物化清单）
-  // → 批量建 task 单（ac/blockedBy/腿归属齐全）；specTasksSpawnedAt 为幂等哨兵（先落档再建单）
+  // → 批量建 task 单（ac/blockedBy/腿归属齐全）；specTasksSpawnedAt 为幂等哨兵（先落档再建单）。
+  // #463 起哨兵改「无 TASK 行不落档」——确认时清单为空 = 人审有意不物化，补确认可再触发；
+  // progress-rollup「物化未落定」判定同步按 l3.summary 有无 TASK 行区分。
   specTasksSpawnedAt?: string;
+  // #463：确认表单结构化预填数据源（照 analysisTasks/analysisFog 先例，确认前已落档）——
+  // spec COMPLETE 时 agent-loop 用 spec-materialization 同一解析器解析 TASK: 物化行落档；
+  // 确认弹窗卡片墙据此预填，人审改后由后端序列化进 l3.summary（存储契约不变）。
+  // 形状与 pmo/spec-materialization SpecTaskSpec 结构一致（此处自持定义防模块环依赖）。
+  specTasks?: Array<{ title: string; ac: string[]; blockedBy: string[]; leg?: string }>;
+  // #463：decision COMPLETE 时 agent-loop 解析 `## 结论摘要` 段落档——确认弹窗据此预填
+  // agent 建议结论（人审采纳/改后采纳，后端原样序列化进 l3.summary → map.decisions[]）
+  decisionSuggestion?: string;
   traceId?: string;           // P0 修复 6: 链路追踪 id（频道消息 req → WU → agent-loop 日志；与 audit requestId 同值）
   // F4 reviewer 解锚（2026-07-28 分析文档，决策 5）：评审 WU 未指派走 claim 涌现时的约束/标记
   excludeAssignee?: string;   // 禁止认领的 profile id（评审排除实现者；agent-loop observe 未指派过滤据此剔除）

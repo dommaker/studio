@@ -188,15 +188,34 @@ describe('SpecMaterialization（#115 交稿物化）', () => {
     expect((await taskWus()).length).toBe(1);
   });
 
-  it('无 TASK 行：不建单但恒落哨兵（rollup 派生未落定判定的输入）', async () => {
+  it('#463：无 TASK 行 → 不建单且不落哨兵（人审有意不物化 ≠ 未处理；补确认可再触发）', async () => {
     const project = await createProject([REPO_A, REPO_B]);
     const wu = await createSpecWu(project, '本次成文只记录决策，无拆分。');
 
     await emitDone(wu);
-    const ok = await waitFor(async () =>
-      Boolean(metaOf((await wuService.getById(wu.id))!.metadata).specTasksSpawnedAt));
-    expect(ok).toBe(true);
+    // 等事件链落定：频道提示已发（postMaterialized 是事件链最后一环），哨兵必须不在
+    await materialization.waitForSettled();
+    expect(metaOf((await wuService.getById(wu.id))!.metadata).specTasksSpawnedAt).toBeUndefined();
     expect((await taskWus()).length).toBe(0);
+
+    // 补确认：l3.summary 补上 TASK 行（照 F6-b 补写：metadata 重写 + 再发 status_changed）
+    // → 哨兵未烧，物化照常触发（消除旧「一键通过即永远烧掉」）
+    const fresh = await wuService.getById(wu.id);
+    const meta = metaOf(fresh!.metadata);
+    await wuService.update(wu.id, {
+      metadata: {
+        ...meta,
+        attestations: {
+          ...meta.attestations,
+          l3: { verdict: 'approved', by: 'tester', at: new Date().toISOString(), kind: 'human-confirm',
+            summary: `TASK: 补物化任务 | LEG: ${REPO_A}` },
+        },
+      },
+    });
+    await emitDone((await wuService.getById(wu.id))!);
+    const ok = await waitFor(async () => (await taskWus()).length === 1);
+    expect(ok).toBe(true);
+    expect(metaOf((await wuService.getById(wu.id))!.metadata).specTasksSpawnedAt).toBeTruthy();
   });
 
   it('LEG 未命中项目交付腿：仍建单但不落 workspaceRoot（公共 WU）', async () => {

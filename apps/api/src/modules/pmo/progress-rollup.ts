@@ -31,7 +31,8 @@
  * WU 永远无法再推动状态（探路链项目卡在 completed、腿状态冻结）。判定：
  *   ① 项目有 map 且 specSpawnedAt 未落（探路链未成文）；
  *   ② 已完结 analysis WU 缺 analysisTasksSpawnedAt（接力/开图未处理）；
- *   ③ 已完结 spec WU 缺 specTasksSpawnedAt（交稿物化未处理）。
+ *   ③ 已完结 spec WU 缺 specTasksSpawnedAt 且 l3.summary 含 TASK 物化行（交稿物化未处理；
+ *      #463 起无 TASK 行不落哨兵 = 人审有意不物化，不算未落定）。
  * 命中即跳过本次 completed/in_review 翻转（progress 照写），待派生落定后的下一事件
  * 或 GET /project/:id 读取时重算再评估。
  *
@@ -69,6 +70,7 @@ import {
   type EvidenceWuInput,
 } from './evidence-summary.js';
 import { parseWuMetadata } from '../workunit/wu-metadata.js';
+import { parseSpecTasks } from './spec-materialization.js';
 
 // 兼容现有引用方（原定义已移至 evidence-summary.ts 共享口径）
 export { parseWuMetaPmoId };
@@ -310,8 +312,11 @@ export function derivationPending(project: ProjectData, snapshots: EvidenceWuInp
     const meta = parseWuMetadata(s.metadata);
     // ② analysis 接力/开图未处理（analysis-handoff 对 done 恒落哨兵）
     if (s.type === 'analysis' && !meta.analysisTasksSpawnedAt) return true;
-    // ③ spec 交稿物化未处理（spec-materialization 对 done 恒落哨兵）
-    if (s.type === 'spec' && !meta.specTasksSpawnedAt) return true;
+    // ③ spec 交稿物化未处理。#463 起 spec-materialization 哨兵改「无 TASK 行不落档」：
+    // 缺哨兵且 l3.summary 含 TASK 物化行 = 未处理（阻断）；缺哨兵但无 TASK 行 =
+    // 人审有意不物化 = 已落定（不阻断）。
+    if (s.type === 'spec' && !meta.specTasksSpawnedAt
+      && parseSpecTasks(meta.attestations?.l3?.summary ?? '').length > 0) return true;
     return false;
   });
 }

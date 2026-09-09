@@ -176,6 +176,29 @@ function normalizeReviewIssues(raw: unknown): Array<{ severity: string; message:
 /** analysis 任务拆分上限（防模型刷行刷屏；常量定义在 workunit.service，此处复用） */
 const ANALYSIS_TASK_MAX_CHARS = 300;
 
+/** #463：decisionSuggestion 截断上限（结论一句话，防模型刷长文） */
+const DECISION_SUGGESTION_MAX_CHARS = 500;
+
+/**
+ * #463：解析 decision WU 输出末段的 `## 结论摘要`（契约见 prompt-composer
+ * CONTRACT_TEMPLATES.decision）——段落正文（标题下一行起、到下一个 `##` 标题或
+ * ACTION: 协议行为止）作为 agent 建议结论落 metadata.decisionSuggestion，供人工
+ * 确认弹窗预填。无该段/段内空白 → null（不落档，确认弹窗空手填）。
+ */
+export function parseDecisionConclusion(text: string): string | null {
+  const lines = text.split('\n');
+  const start = lines.findIndex(l => /^##\s*结论摘要\s*$/.test(l.trim()));
+  if (start === -1) return null;
+  const body: string[] = [];
+  for (const line of lines.slice(start + 1)) {
+    if (/^##\s/.test(line.trim()) || /^ACTION:/.test(line.trim())) break;
+    body.push(line);
+  }
+  const conclusion = body.join('\n').trim();
+  if (!conclusion) return null;
+  return conclusion.slice(0, DECISION_SUGGESTION_MAX_CHARS);
+}
+
 /**
  * PMO 分析接力：解析 analysis WU 输出中的 TASK: 拆分行（约定见 publish 的 scope 契约）。
  * 每行一条 `TASK: <任务描述>`；去空白/去重/封顶 8 条/单条截 300 字符；

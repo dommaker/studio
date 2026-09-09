@@ -966,6 +966,17 @@ describe('#119: 契约段生成器（按 WU type）+ 段序稳定性重排', () 
     expect(prompt).toContain('## 结论摘要');
   });
 
+  it('契约段 spec（成文单）→ TASK 物化行格式（#463：确认弹窗卡片墙的数据源）', async () => {
+    const { prompt } = await composeStepPrompt(
+      { wu: makeWu({ type: 'spec' }), metadata: {} as any },
+      deps(makeRole()),
+    );
+
+    expect(prompt).toContain('## 产出契约');
+    expect(prompt).toContain('TASK:');
+    expect(prompt).toContain('AC:');
+  });
+
   it('契约段 analysis → research/prototype 产出载体（T3/#125）+ bug 路由规则与升级触发器（#121）', async () => {
     const { prompt } = await composeStepPrompt(
       { wu: makeWu({ type: 'analysis' }), metadata: {} as any },
@@ -993,8 +1004,8 @@ describe('#119: 契约段生成器（按 WU type）+ 段序稳定性重排', () 
     expect(prompt).toContain('防回归测试随修复同 commit');
   });
 
-  it('未知/无契约 type（task/feature/spec）→ 空段不注入', async () => {
-    for (const type of ['task', 'feature', 'spec']) {
+  it('未知/无契约 type（task/feature）→ 空段不注入（spec 自 #463 起有物化清单契约）', async () => {
+    for (const type of ['task', 'feature']) {
       const { prompt } = await composeStepPrompt(
         { wu: makeWu({ type }), metadata: {} as any },
         deps(makeRole()),
@@ -1017,9 +1028,9 @@ describe('#119: 契约段生成器（按 WU type）+ 段序稳定性重排', () 
     expect(prompt).not.toContain('prototype/<name>');
   });
 
-  it('契约段 200 软定额 + 模板表仅覆盖 review/implement/decision/analysis/bug（#121）', () => {
+  it('契约段 200 软定额 + 模板表仅覆盖 review/implement/decision/analysis/bug/spec（#121/#463）', () => {
     expect(SECTION_QUOTAS.contract).toBe(200);
-    expect(Object.keys(CONTRACT_TEMPLATES).sort()).toEqual(['analysis', 'bug', 'decision', 'implement', 'review']);
+    expect(Object.keys(CONTRACT_TEMPLATES).sort()).toEqual(['analysis', 'bug', 'decision', 'implement', 'review', 'spec']);
   });
 });
 

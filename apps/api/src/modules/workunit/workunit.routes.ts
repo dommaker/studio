@@ -35,6 +35,7 @@ import { WorkUnitService, type WorkUnitMetadata } from './workunit.service.js';
 import { parseWuMetadata } from './wu-metadata.js';
 import { resolveClaimable, buildStatusById } from './wu-dependencies.js';
 import { adoptInspectionOpportunity, ignoreInspectionOpportunity } from './inspection-opportunities.js';
+import { resolveReviewConfirm, ConfirmPayloadError } from './confirm-payload.js';
 import { aggregateTreeTokens } from '../agents/token-usage.service.js';
 import { CODE_WORKTREE_TYPES, resolveVerifyCommands, runWuVerification } from '../agents/loop/wu-verification.js';
 import { channelMessageService } from '../channels/channel-message.service.js';
@@ -366,21 +367,33 @@ router.post('/:id/review-passed', requireAuth(), requireNotGuest(), async (req: 
     // F6（决策 1）：人工确认落台账 l3 —— by 取登录用户名（本地模式回落 Local User/id）
     // #110：可选 body.summary（人点通过时填写的结论文本）穿透进 l3 台账——
     // pmo/decision-resolution 订阅器据此把 decision 单结论原样写入探路地图 decisions[]
+    // #463：可选 body.confirm 结构化评审表单（decision/spec/analysis）——后端序列化为
+    // l3.summary（存储契约不变，人不接触魔法行）；与裸 summary 并存时 confirm 优先；
+    // analysis 的 tasks 经 options.analysisTasks 透传覆写 metadata.analysisTasks。
     const user = (req as AuthRequest).user;
-    const summary = req.body?.summary;
+    const confirm = resolveReviewConfirm(req.body?.confirm);
+    const rawSummary = req.body?.summary;
+    const summary = confirm.summary
+      ?? (typeof rawSummary === 'string' && rawSummary.trim() ? rawSummary : undefined);
     // #177：可选 defaultAssigneeId（profile id）——analysis 确认处「默认执行角色」，
     // 落 WU metadata.defaultTaskAssigneeId，analysis-handoff 应用于全部派生 task 子 WU
     const defaultAssigneeId = req.body?.defaultAssigneeId;
+    const options = {
+      ...(typeof defaultAssigneeId === 'string' && defaultAssigneeId.trim()
+        ? { defaultTaskAssigneeId: defaultAssigneeId.trim() } : {}),
+      ...(confirm.analysisTasks !== undefined ? { analysisTasks: confirm.analysisTasks } : {}),
+    };
     const wu = await service.reviewPassed(req.params.id, {
       by: user?.name ?? user?.email ?? user?.id ?? 'human',
       kind: 'human-confirm',
-      ...(typeof summary === 'string' && summary.trim() ? { summary } : {}),
-    }, typeof defaultAssigneeId === 'string' && defaultAssigneeId.trim()
-      ? { defaultTaskAssigneeId: defaultAssigneeId.trim() }
-      : undefined);
+      ...(summary ? { summary } : {}),
+    }, Object.keys(options).length > 0 ? options : undefined);
     res.json(wu);
   } catch (error) {
     const msg = getErrorMessage(error);
+    if (error instanceof ConfirmPayloadError) {
+      return res.status(400).json({ error: { code: 'INVALID_CONFIRM', message: msg } });
+    }
     if (msg.includes('not found')) {
       return res.status(404).json({ error: { code: 'NOT_FOUND', message: msg } });
     }

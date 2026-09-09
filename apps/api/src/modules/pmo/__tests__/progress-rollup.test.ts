@@ -343,7 +343,28 @@ describe('#115 派生链未落定不翻 completed（derivationPending）', () =>
     expect((await projectService.get(project.id))!.status).toBe(PROJECT_STATUS.PENDING);
   });
 
-  it('已完结 spec 缺 specTasksSpawnedAt（物化未处理）→ 不翻 completed', async () => {
+  it('已完结 spec 缺 specTasksSpawnedAt 且 l3 含 TASK 物化行（物化未处理）→ 不翻 completed', async () => {
+    const project = await createRealProject();
+    await projectService.update(project.id, {
+      map: {
+        destination: 'd',
+        decisions: [],
+        fog: [{ id: 'fog-1', question: 'q', wuId: 'wu-x', status: 'resolved' }],
+        specSpawnedAt: '2026-08-11T00:00:00Z',
+      },
+    });
+    const req = await reqService.create({ title: '需求', projectId: project.id });
+    await wuService.create({
+      scope: 's1', type: 'spec', status: 'done', reqId: req.id,
+      metadata: { attestations: { l3: { ...att('human-confirm'), summary: 'TASK: 待物化任务' } } },
+    });
+
+    await syncProjectProgress(project.id, fileStore);
+
+    expect((await projectService.get(project.id))!.status).toBe(PROJECT_STATUS.PENDING);
+  });
+
+  it('#463：已完结 spec 缺哨兵但 l3 无 TASK 行（人审有意不物化）→ 不算未落定，照常进入证据评估', async () => {
     const project = await createRealProject();
     await projectService.update(project.id, {
       map: {
@@ -361,7 +382,8 @@ describe('#115 派生链未落定不翻 completed（derivationPending）', () =>
 
     await syncProjectProgress(project.id, fileStore);
 
-    expect((await projectService.get(project.id))!.status).toBe(PROJECT_STATUS.PENDING);
+    // 派生判定不阻断：不再卡 pending（本例 spec 证据口径下达 deliverable → completed）
+    expect((await projectService.get(project.id))!.status).toBe(PROJECT_STATUS.COMPLETED);
   });
 
   it('多腿：派生未落定窗口腿状态也不翻（腿 completed 同样是假相）', async () => {

@@ -89,6 +89,13 @@ export const CONTRACT_TEMPLATES: Record<string, string> = {
   decision: [
     '结论摘要格式：输出末段 `## 结论摘要`，用一句话给出待决问题的结论与理由。',
   ].join('\n'),
+  // #463：spec 成文单契约——输出尾部给 TASK 物化行（spec-materialization 解析契约），
+  // 落 metadata.specTasks 供人工确认弹窗卡片墙预填（人审改后由后端序列化进 l3.summary）
+  spec: [
+    '物化清单格式：输出尾部逐行给出本成文单要拆的任务（确认后按清单自动派生任务单）：',
+    '  TASK: <任务标题> [| AC: <验收标准>]... [| BLOCKEDBY: <wuId,...>] [| LEG: <gitRepo>]',
+    '（无 TASK 行 = 不自动派生；清单会在人工确认时逐条评审，可改可剔。）',
+  ].join('\n'),
   analysis: [
     '方法论二选一（详见 skills 段 research / prototype 全文）：',
     'research → 调研报告落业务仓 .studio/research/，并在来源工单回挂报告链接。',

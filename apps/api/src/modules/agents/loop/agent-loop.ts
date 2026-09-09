@@ -38,11 +38,12 @@ import { loadCurrentWuContexts, type CurrentWuContext } from '../../monitoring/c
 import { CODE_WORKTREE_TYPES, runWuVerification } from './wu-verification.js';
 import { runCompletionGuards } from './completion-gates.js';
 import { parseMapOpening } from '../../pmo/map-opening.js';
+import { parseSpecTasks } from '../../pmo/spec-materialization.js';
 import type { StepResult, Observations, Target, RuntimeInstanceRow } from './agent-loop.types.js';
 import {
   isProcessAlive, isGitRepoRoot, resolveWorktreesDir,
   resolveTarget, parseAgentOutput, dynamicInterval, parseReviewReport, parseTaskBreakdown,
-  parseOpportunities,
+  parseOpportunities, parseDecisionConclusion,
   sleep,
 } from './agent-loop-parsers.js';
 import {
@@ -62,6 +63,7 @@ import { appendTranscriptStep, transcriptPath } from '../../transcripts/transcri
 export {
   isProcessAlive, isGitRepoRoot, resolveWorktreesDir,
   resolveTarget, parseAgentOutput, dynamicInterval, parseReviewReport, parseTaskBreakdown,
+  parseDecisionConclusion,
 } from './agent-loop-parsers.js';
 
 // workunit:tokens / tool:call 事件落盘已抽到 ./agent-loop-events.js（工单 28，行为不变）；
@@ -1362,6 +1364,24 @@ export class AgentLoop {
               status: 'pending' as const,
             }));
           }
+        }
+      }
+
+      // #463：decision/spec 确认表单的结构化预填数据源（照 analysis TASK/FOG 落档先例，
+      // 结构化数据在确认之前落档，确认弹窗只做评审不做录入）：
+      //   decision COMPLETE → `## 结论摘要` 段（prompt 契约已有）落 decisionSuggestion；
+      //   spec COMPLETE → TASK: 物化行（spec-materialization 同一解析器，契约单一来源）
+      //     落 specTasks。解析无获不写，不阻断完成。
+      if (wu.type === 'decision' && stepResult.action === 'complete') {
+        const suggestion = parseDecisionConclusion(result.outputText ?? '');
+        if (suggestion) {
+          metadataUpdates.decisionSuggestion = suggestion;
+        }
+      }
+      if (wu.type === 'spec' && stepResult.action === 'complete') {
+        const specTasks = parseSpecTasks(result.outputText ?? '');
+        if (specTasks.length > 0) {
+          metadataUpdates.specTasks = specTasks;
         }
       }
 
