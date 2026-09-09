@@ -24,9 +24,16 @@ describe('PmoNumberBadge', () => {
 
   it('PmoNumberLink 无 projectId 时不导航', () => {
     mockNavigate.mockClear();
-    render(<PmoNumberLink pmoNumber="PMO-1" />);
+    render(<PmoNumberLink pmoNumber="PMO-1" projectId={undefined} />);
     fireEvent.click(screen.getByText('PMO-1'));
 
     expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it('#472：tooltip 状态走中文词表（不裸英文 active）', () => {
+    render(<PmoNumberBadge pmoNumber="PMO-1" status="active" />);
+    const badge = screen.getByText('PMO-1').parentElement!;
+    expect(badge.title).toContain('开发中');
+    expect(badge.title).not.toContain('active');
   });
 });

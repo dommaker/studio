@@ -1,7 +1,7 @@
 // 进度管道 — PMO 驾驶舱核心区块：总进度条 + 六泳道 WU 小卡
 // 数据：ProjectDetailPage 经 requirementApi.getChain + workunitApi.get 补全 + monitoringApi 名册组装
 import { useNavigate } from 'react-router-dom';
-import { deriveDisplayState } from '@dommaker/studio-shared/web';
+import { deriveDisplayState, WU_STATUS_COLORS, WU_STATUS_LABELS } from '@dommaker/studio-shared/web';
 import type { AgentInfo } from '../../api/monitoring';
 import {
   computePipelineProgress,
@@ -12,36 +12,17 @@ import {
   type PipelineWorkUnit,
 } from './pipelineUtils';
 
-// #399 §8.3 词表正词：待领取/进行中/待验收/完成（pending「待确认」词表无对应词，暂保留）
+// #399 §8.3 词表正词：待领取/进行中/待验收/完成；#472 起文案/配色收口 wu-display 唯一出口（私有拷贝已删）。
+// 泳道头/底色类与 chip 色同族（wu-display 的 chip 类是「底色+文字」双类，泳道拆成 head/lane 两类，故此处只留类骨架、文案同源）。
+// pending 待确认走中性色（#472：与 in_review 待验收 warning 分开）。
 const LANE_DEFS: Array<{ key: PipelineLane; label: string; headClass: string; laneClass: string }> = [
-  { key: 'pending', label: '待确认', headClass: 'u-warn', laneClass: 'u-warn-dim' },
-  { key: 'unassigned', label: '待领取', headClass: 'u-text-2', laneClass: 'u-surface-2' },
-  { key: 'active', label: '进行中', headClass: 'u-accent', laneClass: 'u-accent-dim' },
-  { key: 'in_review', label: '待验收', headClass: 'u-warn', laneClass: 'u-warn-dim' },
-  { key: 'blocked', label: '阻塞', headClass: 'u-err', laneClass: 'u-err-dim' },
-  { key: 'done', label: '完成', headClass: 'u-ok', laneClass: 'u-ok-dim' },
+  { key: 'pending', label: WU_STATUS_LABELS.pending, headClass: 'u-text-2', laneClass: 'u-surface-2' },
+  { key: 'unassigned', label: WU_STATUS_LABELS.unassigned, headClass: 'u-text-2', laneClass: 'u-surface-2' },
+  { key: 'active', label: WU_STATUS_LABELS.active, headClass: 'u-accent', laneClass: 'u-accent-dim' },
+  { key: 'in_review', label: WU_STATUS_LABELS.in_review, headClass: 'u-warn', laneClass: 'u-warn-dim' },
+  { key: 'blocked', label: WU_STATUS_LABELS.blocked, headClass: 'u-err', laneClass: 'u-err-dim' },
+  { key: 'done', label: WU_STATUS_LABELS.done, headClass: 'u-ok', laneClass: 'u-ok-dim' },
 ];
-
-// 状态 chip 文案同泳道词表（配色与 RequirementChainPanel / 任务看板一致）
-const STATUS_LABELS: Record<string, string> = {
-  pending: '待确认',
-  unassigned: '待领取',
-  active: '进行中',
-  in_review: '待验收',
-  done: '完成',
-  closed: '已关闭',
-  blocked: '阻塞',
-};
-
-const STATUS_COLORS: Record<string, string> = {
-  pending: 'u-warn-dim u-warn',
-  unassigned: 'u-surface-2 u-text-2',
-  active: 'u-accent-dim u-accent',
-  in_review: 'u-warn-dim u-warn',
-  done: 'u-ok-dim u-ok',
-  closed: 'u-ok-dim u-ok',
-  blocked: 'u-err-dim u-err',
-};
 
 interface Props {
   workunits: PipelineWorkUnit[];
@@ -65,8 +46,8 @@ function WuCard({ wu, agent }: { wu: PipelineWorkUnit; agent?: AgentInfo }) {
         {wu.type && (
           <span className="text-xs px-1.5 py-0.5 rounded u-surface-2 u-text-3">{wu.type}</span>
         )}
-        <span className={`text-xs px-1.5 py-0.5 rounded ${STATUS_COLORS[derived.column] ?? 'u-surface-2 u-text-2'}`}>
-          {STATUS_LABELS[derived.column] ?? derived.column}
+        <span className={`text-xs px-1.5 py-0.5 rounded ${WU_STATUS_COLORS[derived.column] ?? 'u-surface-2 u-text-2'}`}>
+          {WU_STATUS_LABELS[derived.column] ?? derived.column}
         </span>
         {/* 证据徽章（§8.3 白话词表 EVIDENCE_LAYER_LABELS）：approved 亮绿，缺失灰底 */}
         {(['l1', 'l2', 'l3'] as const).map(key => (

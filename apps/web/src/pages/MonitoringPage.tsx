@@ -196,7 +196,8 @@ export function MonitoringPage() {
                     <StatCard label="自动验证" value={evidence.l1Approved} color="u-ok" />
                     <StatCard label="Agent 评审" value={evidence.l2Approved} color="u-ok" />
                     <StatCard label="人工确认" value={evidence.l3Approved} color="u-ok" />
-                    <StatCard label="待人工确认" value={evidence.needsHuman} color="u-err" />
+                    {/* #472：待人工确认 warning（非真错误，error 红留给 blocked/failed） */}
+                    <StatCard label="待人工确认" value={evidence.needsHuman} color="u-warn" />
                     <StatCard label="双轨偏差" value={evidence.derivedMismatch} color="u-warn" />
                   </div>
                   <p className="text-xs u-text-3 mt-2">

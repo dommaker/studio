@@ -20,9 +20,10 @@ const deriveWu = (wu: { status: string; metadata?: string | null }): DerivedWuSt
 
 const STATUS_OPTIONS = ['all', 'pending', 'unassigned', 'active', 'in_review', 'done', 'closed', 'blocked'] as const;
 
-/** Step 2 筛选合一：统计 chip 集（点击过滤/再点取消回全部）；待人工是派生维度单列 */
+/** Step 2 筛选合一：统计 chip 集（点击过滤/再点取消回全部）；待人工是派生维度单列。
+ *  #472 颜色语义：待确认中性（待确认≠待验收，不再同 warning 黄）；待人工 warning（error 红留给真错误）。 */
 const STATUS_CHIPS = [
-  { key: 'pending', label: '待确认', color: 'var(--warning)' },
+  { key: 'pending', label: '待确认', color: 'var(--text-secondary)' },
   { key: 'unassigned', label: WU_STATUS_LABELS.unassigned, color: 'var(--text-muted)' },
   { key: 'active', label: WU_STATUS_LABELS.active, color: 'var(--accent-primary)' },
   { key: 'in_review', label: WU_STATUS_LABELS.in_review, color: 'var(--warning)' },
@@ -113,9 +114,9 @@ export function WorkUnitListPage() {
           </div>
         </div>
 
-        {/* Stats = 快速筛选 chip（Step 2 筛选合一；计数口径不变：总数走 server total，其余已加载集合派生列计数。
-            F6-b：计数走派生列（双轨期与存储状态并存比对）） */}
-        <div className="flex gap-2 mt-4 flex-wrap">
+        {/* Stats = 快速筛选 chip（Step 2 筛选合一；计数口径：总数走 server total，其余按已加载子集派生列计数——
+            #472：分页未全量/筛选生效时在 chip 行内联标注口径，防数字撒谎） */}
+        <div className="flex gap-2 mt-4 flex-wrap items-center">
           <StatChip
             label="总数" value={total} color="var(--accent-primary)"
             active={!humanOnly && statusFilter === null}
@@ -133,11 +134,18 @@ export function WorkUnitListPage() {
             />
           ))}
           <StatChip
-            label="待人工" value={workunits.filter(w => deriveWu(w).needsHuman).length} color="var(--error)"
+            label="待人工" value={workunits.filter(w => deriveWu(w).needsHuman).length} color="var(--warning)"
             active={humanOnly}
             onClick={() => setHumanOnly(!humanOnly)}
             title="活已干完但人还没确认（手写待验收 + done 缺人工确认）"
           />
+          {/* #472：口径标注——除「总数」外 chip 计的是当前已加载子集；全量无筛选时计数即全量，不标注。
+              措辞避开「已加载」（底栏分页文案唯一断言占用） */}
+          {(statusFilter !== null || humanOnly || workunits.length < total) && (
+            <span className="text-xs u-text-3">
+              计数口径：当前 {workunits.length}/{total} 条
+            </span>
+          )}
           {/* #405：未归属过滤（服务端 attributed=false，#428）+ 服务端 total 计数徽标——低调小 chip，
               与状态 chip 同为服务端维度可交集组合；取消即恢复原列表 */}
           <button

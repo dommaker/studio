@@ -220,6 +220,16 @@ describe('MonitoringPage', () => {
     expect(screen.getByTestId('evidence-stat').textContent).toBe('33%');
   });
 
+  it('#472：「待人工确认」用 warning 不用 error 红（红留给真错误 blocked/failed）', async () => {
+    render(<MonitoringPage />);
+    await openMetrics();
+    const label = await screen.findByText('待人工确认');
+    // StatCard 结构：<div><span class="font-bold ${color}">值</span><span>label</span></div>
+    const valueSpan = label.previousElementSibling!;
+    expect(valueSpan.className).toContain('u-warn');
+    expect(valueSpan.className).not.toContain('u-err');
+  });
+
   it('飞轮指标减卡：hitRate / improvement / 待审三张在，质量分/新鲜度/提取移除；主数字 = 命中率', async () => {
     render(<MonitoringPage />);
     await openMetrics();

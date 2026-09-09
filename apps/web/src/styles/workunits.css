@@ -47,8 +47,8 @@
 }
 .wu-row:hover { background: var(--bg-hover); }
 
-/* 左侧状态色条 + 状态点按派生列着色（pending/in_review=warn、active=accent、done/closed=ok、blocked=err） */
-.wu-row[data-status='pending']    { border-left-color: var(--warning); }
+/* 左侧状态色条 + 状态点按派生列着色（#472：pending=中性、in_review=warn、active=accent、done/closed=ok、blocked=err） */
+.wu-row[data-status='pending']    { border-left-color: var(--text-secondary); }
 .wu-row[data-status='unassigned'] { border-left-color: var(--text-muted); }
 .wu-row[data-status='active']     { border-left-color: var(--accent-primary); }
 .wu-row[data-status='in_review']  { border-left-color: var(--warning); }
@@ -63,7 +63,7 @@
   flex-shrink: 0;
   background: var(--text-muted);
 }
-.wu-row[data-status='pending'] .wu-dot,
+.wu-row[data-status='pending'] .wu-dot { background: var(--text-secondary); }
 .wu-row[data-status='in_review'] .wu-dot { background: var(--warning); }
 .wu-row[data-status='active'] .wu-dot { background: var(--accent-primary); }
 .wu-row[data-status='done'] .wu-dot,

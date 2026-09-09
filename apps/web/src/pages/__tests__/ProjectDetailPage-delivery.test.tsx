@@ -255,9 +255,9 @@ describe('PMO-b/F6-c: 交付区块', () => {
     });
     renderDetail();
 
-    // 全部完成但有缺口 → 琥珀待验收徽标
+    // 全部完成但有缺口 → 琥珀待交付徽标（#472：项目级「待验收」改「待交付」，与 WU 四站「待验收」分词）
     await waitFor(() => {
-      expect(screen.getByText('⏳ 待验收:证据还差 1 项')).toBeTruthy();
+      expect(screen.getByText('⏳ 待交付:证据还差 1 项')).toBeTruthy();
     });
     expect(screen.getByText('撰写发布说明')).toBeTruthy();
     expect(screen.getByText('缺人工确认')).toBeTruthy();

@@ -3,9 +3,10 @@
  * 及随附 statusColors/typeLabels；阅览室文档词表逐字同构随本模块一并收口）。
  * 挂 deriveDisplayState 旁：展示列由 deriveDisplayState().column 派生，本模块只负责 列/状态 → 文案/配色 映射。
  * 未知状态调用方兜底原样显示（labels[col] ?? col），表内容即渲染契约。
- * 注意：ProjectPipeline / mapUtils.DEP_STATUS_LABEL 存在有意方言
- * （依赖图大白话文案）——行为对齐另议，不在 #358/#429 范围。
- * （#429 起 RequirementChainPanel 已收口消费本模块，不再是方言。）
+ * 注意：mapUtils.DEP_STATUS_LABEL 存在有意方言（依赖图大白话文案）——行为对齐另议，不在 #358/#429/#472 范围。
+ * （#429 起 RequirementChainPanel 已收口消费本模块；#472 起 ProjectPipeline 亦收口，泳道/chip 词色同源自本模块。）
+ * #472 颜色语义：pending「待确认」改中性色（与 in_review「待验收」warning 分开，二者语义相反）；
+ * error 红留给 blocked/failed 真错误。
  */
 
 /** WU 状态（含派生列）→ 中文文案。failed/completed 为原始状态值（ProjectActivity 时间线条目直接消费）。
@@ -27,9 +28,10 @@ export function formatChannelName(name: string): string {
   return `#${name.replace(/^#+\s*/, '')}`;
 }
 
-/** WU 状态 → chip 配色（u-* 工具类，定义在 apps/web 样式层） */
+/** WU 状态 → chip 配色（u-* 工具类，定义在 apps/web 样式层）。
+ *  #472：pending 中性色（待确认≠待验收，不与 in_review 同 warning 黄）。 */
 export const WU_STATUS_COLORS: Record<string, string> = {
-  pending: 'u-warn-dim u-warn',
+  pending: 'u-surface-2 u-text-2',
   unassigned: 'u-surface-2 u-text-3',
   active: 'u-accent-dim u-accent',
   in_review: 'u-warn-dim u-warn',

@@ -1,8 +1,10 @@
-// PMO 项目卡片 — 编号 / 徽章（杂务 · 交付策略 · WU 完成度）/ 进度 / 发起讨论（从 pages/PMOPage.tsx 抽出，纯代码移动）
+// PMO 项目卡片 — 编号 / 徽章（状态词 · 杂务 · 交付策略 · WU 完成度）/ 进度 / 发起讨论（从 pages/PMOPage.tsx 抽出，纯代码移动）
 // #149（2026-08-15）：文档计数徽章随 document-store 退役移除
+// #472：状态词 / 交付策略走 projectDisplay 唯一词表（原卡片无状态词、策略裸输出 auto-merge）
 import { useNavigate } from 'react-router-dom';
 import type { Channel } from '../../api/channel';
 import type { Project } from './types';
+import { DELIVERY_POLICY_LABELS, PROJECT_STATUS_COLORS, PROJECT_STATUS_LABELS } from './projectDisplay';
 
 interface ProjectCardProps {
   project: Project;
@@ -28,6 +30,10 @@ export function ProjectCard({ project, wuStats, channels, handlePublishClick }: 
           <div>
             <div className="font-medium flex items-center gap-2 u-text">
               {project.title}
+              {/* #472：状态词上卡片（原三种表达之一「卡片无状态词」），词色同源 projectDisplay */}
+              <span className={`text-xs px-1.5 py-0.5 rounded ${PROJECT_STATUS_COLORS[project.status] ?? 'u-surface-2 u-text'}`}>
+                {PROJECT_STATUS_LABELS[project.status] ?? project.status}
+              </span>
               {/* 🆕 PMO-a: 杂务徽章 */}
               {project.isChore && (
                 <span className="text-xs px-1.5 py-0.5 rounded u-warn-dim">
@@ -37,10 +43,10 @@ export function ProjectCard({ project, wuStats, channels, handlePublishClick }: 
             </div>
             <div className="text-xs u-text-3">
               {project.description || '无描述'}
-              {/* 🆕 PMO-a: 交付策略小字标注 */}
+              {/* 🆕 PMO-a: 交付策略小字标注（#472：走唯一词表，不裸输出策略值） */}
               {project.deliveryPolicy && (
                 <span className="ml-2">
-                  · {project.deliveryPolicy}
+                  · {DELIVERY_POLICY_LABELS[project.deliveryPolicy] ?? project.deliveryPolicy}
                 </span>
               )}
               {/* 🆕 AC-6: 任务完成度徽章（#399 §8.3：WU→「任务」；数据缺失/为 0 不显示） */}

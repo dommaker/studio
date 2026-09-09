@@ -130,6 +130,31 @@ describe('ProjectPipeline', () => {
     expect(screen.getByText('未领取')).toBeInTheDocument();
   });
 
+  it('#472：pending「待确认」收口 wu-display 中性色（与 in_review 待验收 warning 区分开）', () => {
+    render(
+      <ProjectPipeline
+        workunits={[
+          wu({ id: 'a', title: '任务A', status: 'pending' }),
+          wu({ id: 'b', title: '任务B', status: 'in_review' }),
+        ]}
+        agents={[]}
+      />,
+    );
+
+    // 泳道头：非 0 桶仍走中性色（不再 u-warn）
+    const pendingHead = screen.getByText(/待确认 \(1\)/);
+    expect(pendingHead.className).not.toContain('u-warn');
+
+    // WU 卡状态 chip：消费 WU_STATUS_COLORS（pending = 中性 surface，非 warn）
+    const chip = screen.getByText('待确认', { selector: 'span.rounded' });
+    expect(chip.className).toContain('u-surface-2');
+    expect(chip.className).not.toContain('u-warn');
+
+    // in_review 侧保持 warning 不变（语义对照组）
+    const reviewChip = screen.getByText('待验收', { selector: 'span.rounded' });
+    expect(reviewChip.className).toContain('u-warn');
+  });
+
   it('WU 卡片点击 navigate /workunits/:id', () => {
     render(<ProjectPipeline workunits={[wu({ id: 'a', title: '任务', status: 'active' })]} agents={[]} />);
     screen.getByText('任务').click();

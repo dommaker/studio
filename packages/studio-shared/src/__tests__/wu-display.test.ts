@@ -44,7 +44,7 @@ describe('formatChannelName', () => {
 describe('WU_STATUS_COLORS', () => {
   it('七列 chip 配色（u-* 工具类，定义在 apps/web 样式层）', () => {
     expect(WU_STATUS_COLORS).toEqual({
-      pending: 'u-warn-dim u-warn',
+      pending: 'u-surface-2 u-text-2',
       unassigned: 'u-surface-2 u-text-3',
       active: 'u-accent-dim u-accent',
       in_review: 'u-warn-dim u-warn',
@@ -52,6 +52,12 @@ describe('WU_STATUS_COLORS', () => {
       closed: 'u-ok-dim u-ok',
       blocked: 'u-err-dim u-err',
     });
+  });
+
+  it('#472：pending「待确认」与 in_review「待验收」语义相反，不得同色（待确认中性、待验收 warning）', () => {
+    expect(WU_STATUS_COLORS.pending).not.toBe(WU_STATUS_COLORS.in_review);
+    expect(WU_STATUS_COLORS.pending).not.toContain('u-warn');
+    expect(WU_STATUS_COLORS.in_review).toContain('u-warn');
   });
 });
 

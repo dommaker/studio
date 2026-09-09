@@ -48,6 +48,7 @@ import { MetaStrip } from '../components/ui/MetaStrip';
 import { StationStepper } from '../components/workunit/StationStepper';
 import { WU_STATION_ORDER, type WuStation } from '../utils/wuLifecycle';
 import { buildProjectTimeline, projectChainMeta, type PipelineWorkUnit } from '../components/pmo/pipelineUtils';
+import { DELIVERY_POLICY_LABELS } from '../components/pmo/projectDisplay';
 // E3：阶段步条复用 wu-bstep/wu-st-* 视觉语言（顶层作用域类，同 ChannelWorkBar 先例）
 import '../styles/wu-detail.css';
 
@@ -257,7 +258,7 @@ export function ProjectDetailPage() {
               { key: 'req', label: 'REQ 别名', value: project.reqAlias },
               { key: 'branch', label: '分支', value: project.gitBranch },
               { key: 'delivery', label: '交付策略', value: project.deliveryPolicy
-                  ? (project.deliveryPolicy === 'auto-merge' ? '自动合并' : '分支交付') : null },
+                  ? (DELIVERY_POLICY_LABELS[project.deliveryPolicy] ?? project.deliveryPolicy) : null },
               { key: 'roles', label: '涉及角色', value: chainMeta.roles },
               { key: 'ac', label: 'AC 数', value: chainMeta.acCount },
             ]} />

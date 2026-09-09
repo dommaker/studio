@@ -683,3 +683,57 @@ describe('WorkUnitListPage — 分页底栏（E2-5）', () => {
     expect(screen.getByText(/已加载/).textContent).toContain('2');
   });
 });
+
+// #472：统计 chip 颜色语义 + 计数口径标注
+describe('WorkUnitListPage — 统计 chip 语义与口径（#472）', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockStore.workunits = [];
+    mockStore.total = null;
+    mockStore.statusFilter = null;
+    mockSearchParamsValue.value = '';
+  });
+
+  /** chip 数字 span（wu-stat-num）的内联色 */
+  function chipColor(label: string): string {
+    const chip = screen.getByRole('button', { name: new RegExp(label) });
+    const num = chip.querySelector('.wu-stat-num') as HTMLElement | null;
+    if (!num) throw new Error(`chip "${label}" 无数字 span`);
+    return num.style.color;
+  }
+
+  it('「待人工」chip 用 warning 不用 error 红（红留给真错误）', () => {
+    mockStore.workunits = [makeWu({ id: 'wu-1', status: 'in_review' })];
+    render(<WorkUnitListPage />);
+    expect(chipColor('待人工')).toBe('var(--warning)');
+  });
+
+  it('「待确认」chip 用中性色（与「待验收」warning 区分开）', () => {
+    mockStore.workunits = [makeWu({ id: 'wu-1', status: 'pending' })];
+    render(<WorkUnitListPage />);
+    expect(chipColor('待确认')).not.toBe('var(--warning)');
+    expect(chipColor('待验收')).toBe('var(--warning)');
+  });
+
+  it('分页未全量 → chip 行标注计数口径（防数字撒谎）', () => {
+    mockStore.workunits = [makeWu({ id: 'wu-1', status: 'active' }), makeWu({ id: 'wu-2', status: 'done' })];
+    mockStore.total = 42;
+    render(<WorkUnitListPage />);
+    expect(screen.getByText(/计数口径/).textContent).toContain('2/42');
+  });
+
+  it('全量加载且无筛选 → 不标注（计数即全量，无需解释）', () => {
+    mockStore.workunits = [makeWu({ id: 'wu-1', status: 'active' }), makeWu({ id: 'wu-2', status: 'done' })];
+    mockStore.total = 2;
+    render(<WorkUnitListPage />);
+    expect(screen.queryByText(/计数口径/)).toBeNull();
+  });
+
+  it('状态筛选生效 → 同样标注（其余 chip 数的是筛选后子集）', () => {
+    mockStore.workunits = [makeWu({ id: 'wu-1', status: 'active' })];
+    mockStore.total = 1;
+    mockStore.statusFilter = 'active';
+    render(<WorkUnitListPage />);
+    expect(screen.getByText(/计数口径/)).toBeTruthy();
+  });
+});
