@@ -11,7 +11,7 @@ Agent 配置（profile）、运行实例（instance）、决策循环（loop）�
 - `monitor/` - Monitor Agent（service/probes/system-probes/alerts/reports/lifecycle）
 - `ops/` - 进程级守护（ops.service/ops-rules/proc-probes/system-health）
 - `knowledge/` - 知识维护 Agent（curator/cold-start/extraction/maintenance）
-- `triage/` - Triage Agent（triage.service；incident-store = incidents.jsonl append-only）
+- `triage/` - Triage Agent（triage.service；incident-store = incidents.jsonl append-only；#468 incident-notification.ts：incident.created/escalated 落 NotificationService type=incident（severity 进 content 首行），取代断裂的 SSE 桥）
 - 根目录 - 共享与 CRUD：routes、types、agent-profile/*、agent-instance/*、token-usage/*、default-provider、default-triggers、system-executor、session-summary.service、requirement-gate
 
 ### 核心导出
