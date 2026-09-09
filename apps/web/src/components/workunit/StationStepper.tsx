@@ -31,10 +31,10 @@ export function LifecycleEventChips({ events }: { events: WuKeyEvent[] }) {
   return (
     <div className="wu-chips">
       {events.map(ev => (
-        <span key={ev.id} className={`wu-chip wu-ev-${ev.tone}`} title={ev.detail}>
-          <span className="wu-chip-dot" />
-          <span className="wu-chip-label">{ev.label}</span>
-          <span className="wu-chip-time">{formatShortTime(ev.time)}</span>
+        <span key={ev.id} className={`wu-ev-chip wu-ev-${ev.tone}`} title={ev.detail}>
+          <span className="wu-ev-chip-dot" />
+          <span className="wu-ev-chip-label">{ev.label}</span>
+          <span className="wu-ev-chip-time">{formatShortTime(ev.time)}</span>
         </span>
       ))}
     </div>

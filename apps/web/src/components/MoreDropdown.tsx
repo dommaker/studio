@@ -62,10 +62,11 @@ export function MoreDropdown() {
 
       {isOpen && (
         <div
-          className="absolute right-0 top-full mt-1 w-52 rounded-lg shadow-xl py-2 z-50"
+          className="absolute right-0 top-full mt-1 w-52 rounded-lg py-2 z-50"
           style={{
             background: 'var(--bg-elevated)',
             border: '1px solid var(--border-default)',
+            boxShadow: 'var(--shadow-lg)',
           }}
         >
           {/* 高级功能 */}

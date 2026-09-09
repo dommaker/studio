@@ -317,7 +317,7 @@
   justify-content: center;
   font-size: var(--fs-xs);
   font-weight: 600;
-  color: #f5f7fa;
+  color: var(--text-primary);
   flex-shrink: 0;
   align-self: center;
   object-fit: cover;
@@ -456,8 +456,8 @@
   border: 1px solid transparent;
   white-space: nowrap;
 }
-.mc-status-running { color: var(--warning); border-color: var(--warning-border); background: var(--warning-dim); }
-.mc-status-running .mc-dot { background: var(--warning); animation: mc-pulse 1.6s infinite; }
+.mc-status-running { color: var(--accent-primary); border-color: var(--accent-border); background: var(--accent-dim); }
+.mc-status-running .mc-dot { background: var(--accent-primary); animation: mc-pulse 1.6s infinite; }
 .mc-status-need { color: var(--accent-primary); border-color: var(--accent-border); background: var(--accent-dim); }
 .mc-status-done { color: var(--success); border-color: var(--success-border); background: var(--success-dim); }
 .mc-status-pending { color: var(--text-secondary); border-color: var(--border-default); }
@@ -682,10 +682,6 @@
 }
 .mc-workbar-selflive:hover,
 .mc-workbar-chip:hover { border-color: var(--accent-primary); }
-/* 视觉批次 2 ⑧：工作条内 running 徽标改用 running=绿 accent 语义（与 stepper 当前站/语义全局一致），
-   不动全局 .mc-status-running（warning 黄保留给「待处理/需介入」场景）；作用域限 .mc-workbar */
-.mc-workbar .mc-status-running { color: var(--accent-primary); border-color: var(--accent-border); background: var(--accent-dim); }
-.mc-workbar .mc-status-running .mc-dot { background: var(--accent-primary); }
 .mc-workbar-overflow { position: relative; }
 .mc-workbar-overflow-list {
   position: absolute;
@@ -1019,7 +1015,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-family: monospace;
+  font-family: var(--font-mono);
 }
 .mc-toolrow-chevron { color: var(--text-muted); font-size: var(--fs-xs); flex-shrink: 0; }
 /* 展开输出：内部滚动容器，不撑爆消息流 */
@@ -1030,7 +1026,7 @@
   padding: 6px 8px;
   background: var(--bg-tertiary);
   border-radius: 3px;
-  font-family: monospace;
+  font-family: var(--font-mono);
   font-size: var(--fs-sm);
   color: var(--text-secondary);
   white-space: pre-wrap;

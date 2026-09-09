@@ -336,7 +336,7 @@ describe('WorkUnitDetailPage', () => {
     render(<WorkUnitDetailPage />);
     // 关键事件 chip：阻塞（与状态 pill 同名，按 chip class 甄别）
     const blockedTexts = await screen.findAllByText('阻塞');
-    expect(blockedTexts.some(el => el.closest('.wu-chip'))).toBe(true);
+    expect(blockedTexts.some(el => el.closest('.wu-ev-chip'))).toBe(true);
     const resumeBtn = await screen.findByRole('button', { name: '继续执行' });
     expect(screen.getByRole('button', { name: '关闭任务' })).toBeDefined();
     fireEvent.click(resumeBtn);

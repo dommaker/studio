@@ -167,7 +167,7 @@ export const ChannelMemberManager: React.FC<ChannelMemberManagerProps> = ({ chan
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
                   <span style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis' }}>@{m.name}</span>
                   {m.lastError && (
-                    <span className="mc-status mc-status-running" title={m.lastError}>! 不可用</span>
+                    <span className="mc-status mc-status-error" title={m.lastError}>! 不可用</span>
                   )}
                   {m.description && (
                     <span className="mc-mention-desc">{m.description}</span>

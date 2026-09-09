@@ -48,10 +48,10 @@ describe('LifecycleEventChips', () => {
 
   it('chip = 色点 + 文字 + mono 时间；tone 上 class', () => {
     render(<LifecycleEventChips events={events} />);
-    const blocked = screen.getByText('阻塞').closest('.wu-chip');
+    const blocked = screen.getByText('阻塞').closest('.wu-ev-chip');
     expect(blocked?.className).toContain('wu-ev-danger');
     expect(blocked?.getAttribute('title')).toBe('stuck');
-    expect(screen.getByText('L2 Agent 评审通过').closest('.wu-chip')?.className).toContain('wu-ev-accent');
+    expect(screen.getByText('L2 Agent 评审通过').closest('.wu-ev-chip')?.className).toContain('wu-ev-accent');
     expect(screen.getByText(t3)).toBeDefined();
   });
 

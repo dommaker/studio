@@ -153,7 +153,7 @@ export function NotificationBell() {
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full mt-2 w-80 u-surface border u-border rounded-lg shadow-xl z-50">
+        <div className="absolute right-0 top-full mt-2 w-80 u-surface border u-border rounded-lg z-50" style={{ boxShadow: 'var(--shadow-lg)' }}>
           <div className="flex items-center justify-between px-4 py-2 border-b u-border">
             <span className="text-sm font-semibold u-text">通知</span>
             {unread > 0 && (

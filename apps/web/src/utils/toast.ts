@@ -18,10 +18,10 @@ const ICONS: Record<ToastType, string> = {
 };
 
 const COLORS: Record<ToastType, { bg: string; border: string; text: string }> = {
-  success: { bg: 'rgba(16,185,129,0.15)', border: 'rgba(16,185,129,0.3)', text: 'var(--success)' },
-  error: { bg: 'rgba(239,68,68,0.15)', border: 'rgba(239,68,68,0.3)', text: 'var(--error)' },
-  warning: { bg: 'rgba(245,158,11,0.15)', border: 'rgba(245,158,11,0.3)', text: 'var(--warning)' },
-  info: { bg: 'rgba(59,130,246,0.15)', border: 'rgba(59,130,246,0.3)', text: 'var(--info)' },
+  success: { bg: 'var(--success-dim)', border: 'var(--success-border)', text: 'var(--success)' },
+  error: { bg: 'var(--error-dim)', border: 'var(--error-border)', text: 'var(--error)' },
+  warning: { bg: 'var(--warning-dim)', border: 'var(--warning-border)', text: 'var(--warning)' },
+  info: { bg: 'var(--info-dim)', border: 'var(--info-border)', text: 'var(--info)' },
 };
 
 let container: HTMLDivElement | null = null;
@@ -57,14 +57,13 @@ function show(message: string, type: ToastType, options?: ToastOptions): void {
     align-items: center;
     gap: 10px;
     padding: 12px 16px;
-    border-radius: 10px;
+    border-radius: 4px;
     background: var(--bg-elevated);
     border: 1px solid ${colors.border};
     box-shadow: var(--shadow-md);
     color: var(--text-primary);
     font-size: var(--fs-base);
     font-family: var(--font-sans);
-    animation: toast-slide-in 0.3s ease-out;
     cursor: pointer;
     max-width: 100%;
     word-break: break-word;
@@ -104,24 +103,7 @@ function show(message: string, type: ToastType, options?: ToastOptions): void {
 }
 
 function removeToast(el: HTMLDivElement): void {
-  el.style.animation = 'toast-slide-out 0.2s ease-in forwards';
-  setTimeout(() => el.remove(), 200);
-}
-
-// Inject animation keyframes once
-if (typeof document !== 'undefined') {
-  const style = document.createElement('style');
-  style.textContent = `
-    @keyframes toast-slide-in {
-      from { opacity: 0; transform: translateX(40px); }
-      to { opacity: 1; transform: translateX(0); }
-    }
-    @keyframes toast-slide-out {
-      from { opacity: 1; transform: translateX(0); }
-      to { opacity: 0; transform: translateX(40px); }
-    }
-  `;
-  document.head.appendChild(style);
+  el.remove();
 }
 
 export const toast = Object.assign(
