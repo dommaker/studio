@@ -1,0 +1,80 @@
+/* Library 阅览室列表 — 2026-09-10 第二轮重设计：去大边框卡片 → Linear 风无边框行列表
+   （细分隔线 + hover 提亮 + kind 类别色点）。颜色全 token：kind 色走 --chart-*（§4.8 类别色不占 accent/状态色）。 */
+
+.lib-list {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.lib-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-2);
+  border-bottom: 1px solid var(--border-subtle);
+  cursor: pointer;
+  transition: background var(--motion-fast) var(--ease-standard);
+}
+.lib-row:hover { background: var(--bg-hover); }
+.lib-row:focus-visible { background: var(--bg-hover); outline: none; }
+
+/* kind 类别色点（spec/research/adr/context/legacy → --chart-1..5） */
+.lib-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--chart-4);
+}
+.lib-row[data-kind='spec'] .lib-dot { background: var(--chart-1); }
+.lib-row[data-kind='research'] .lib-dot { background: var(--chart-2); }
+.lib-row[data-kind='adr'] .lib-dot { background: var(--chart-3); }
+.lib-row[data-kind='context'] .lib-dot { background: var(--chart-4); }
+.lib-row[data-kind='legacy'] .lib-dot { background: var(--chart-5); }
+
+.lib-title {
+  font-weight: 500;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* kind 词与色点同色（类别辨识），其余徽标走中性 chip */
+.lib-kind {
+  font-size: var(--fs-xs);
+  flex-shrink: 0;
+  white-space: nowrap;
+  color: var(--chart-4);
+}
+.lib-row[data-kind='spec'] .lib-kind { color: var(--chart-1); }
+.lib-row[data-kind='research'] .lib-kind { color: var(--chart-2); }
+.lib-row[data-kind='adr'] .lib-kind { color: var(--chart-3); }
+.lib-row[data-kind='context'] .lib-kind { color: var(--chart-4); }
+.lib-row[data-kind='legacy'] .lib-kind { color: var(--chart-5); }
+
+.lib-chip {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  border: 1px solid var(--border-subtle);
+  border-radius: 3px;
+  padding: 0 6px;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.lib-path {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lib-date {
+  font-size: var(--fs-xs);
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  flex-shrink: 0;
+  white-space: nowrap;
+}

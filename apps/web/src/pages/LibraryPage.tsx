@@ -13,6 +13,7 @@ import { companyApi } from '../api/company';
 import { maintenanceApi, type TriggerCosts } from '../api/maintenance';
 import { ManualTaskButton } from '../components/ui';
 import { Select } from '../components/ui/Select';
+import '../styles/library.css';
 
 interface LibraryDoc {
   id: string;
@@ -142,51 +143,41 @@ export function LibraryPage() {
       .sort((a, b) => b.docs[0].updatedAt.localeCompare(a.docs[0].updatedAt));
   })();
 
-  const renderDocCard = (doc: LibraryDoc) => (
+  const renderDocRow = (doc: LibraryDoc) => (
     <div
       key={doc.id}
+      data-kind={doc.kind}
       onClick={() => navigate(`/library/${encodeURIComponent(doc.id)}`)}
-      className="card p-4 cursor-pointer"
+      className="lib-row"
+      role="link"
+      tabIndex={0}
+      onKeyDown={(e) => e.key === 'Enter' && navigate(`/library/${encodeURIComponent(doc.id)}`)}
+      title={doc.path}
     >
-      <div className="flex items-start justify-between">
-        <div className="flex-1 min-w-0">
-          <h3 className="font-semibold truncate u-text">
-            {doc.title}
-          </h3>
-          <div className="flex items-center gap-2 mt-2 flex-wrap">
-            {doc.legacy ? (
-              <span className="text-xs px-2 py-0.5 rounded-full u-warn-dim">
-                遗产
-              </span>
-            ) : (
-              <span className="text-xs px-2 py-0.5 rounded-full u-surface-2 u-text-3">
-                {kindLabels[doc.kind] || doc.kind}
-              </span>
-            )}
-            <span className="text-xs px-2 py-0.5 rounded-full u-surface-2 u-text-3">
-              {doc.pmoNumber}
+      <span className="lib-dot" aria-hidden="true" />
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <span className="lib-title">{doc.title}</span>
+          {doc.legacy ? (
+            <span className="text-xs px-2 py-0.5 rounded-full u-warn-dim">遗产</span>
+          ) : (
+            <span className="lib-kind">{kindLabels[doc.kind] || doc.kind}</span>
+          )}
+          <span className="lib-chip">{doc.pmoNumber}</span>
+          {doc.status && (
+            <span
+              className={`text-xs px-2 py-0.5 rounded-full ${LIBRARY_DOC_STATUS_COLORS[doc.status] || 'u-surface-2 u-text-3'}`}
+            >
+              {LIBRARY_DOC_STATUS_LABELS[doc.status] || doc.status}
             </span>
-            {doc.status && (
-              <span
-                className={`text-xs px-2 py-0.5 rounded-full ${LIBRARY_DOC_STATUS_COLORS[doc.status] || 'u-surface-2 u-text-3'}`}
-              >
-                {LIBRARY_DOC_STATUS_LABELS[doc.status] || doc.status}
-              </span>
-            )}
-            {(doc.tags || []).map((tag, i) => (
-              <span
-                key={i}
-                className="text-xs px-2 py-0.5 rounded-full u-surface-2 u-text-3"
-              >
-                {tag}
-              </span>
-            ))}
-          </div>
+          )}
+          {(doc.tags || []).map((tag, i) => (
+            <span key={i} className="lib-chip">{tag}</span>
+          ))}
         </div>
-        <span className="text-xs ml-4 whitespace-nowrap u-text-3 font-mono">
-          {formatDate(doc.updatedAt)}
-        </span>
+        <div className="lib-path mt-0.5">{doc.path}</div>
       </div>
+      <span className="lib-date">{formatDate(doc.updatedAt)}</span>
     </div>
   );
 
@@ -256,8 +247,8 @@ export function LibraryPage() {
             </p>
           </div>
         ) : flatView ? (
-          <div className="space-y-3">
-            {visibleDocs.map(renderDocCard)}
+          <div className="lib-list">
+            {visibleDocs.map(renderDocRow)}
           </div>
         ) : (
           <div className="space-y-6">
@@ -266,8 +257,8 @@ export function LibraryPage() {
                 <h2 className="mc-block-label" style={{ margin: '0 0 8px' }}>
                   {group.pmoNumber} · {group.docs.length} 篇
                 </h2>
-                <div className="space-y-3">
-                  {group.docs.map(renderDocCard)}
+                <div className="lib-list">
+                  {group.docs.map(renderDocRow)}
                 </div>
               </div>
             ))}

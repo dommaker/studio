@@ -199,8 +199,8 @@ describe('LibraryPage（#155 T5 阅览室）', () => {
 
       expect(await screen.findByText('PMO-1 · 2 篇')).toBeTruthy();
       expect(screen.getByText('PMO-2 · 1 篇')).toBeTruthy();
-      // 文档标题（h3）DOM 顺序 = 渲染顺序：PMO-1 组（最新 8/1）在前，组内 新→旧
-      const titles = [...document.querySelectorAll('h3')].map((h) => h.textContent);
+      // 文档标题（.lib-title 行标题）DOM 顺序 = 渲染顺序：PMO-1 组（最新 8/1）在前，组内 新→旧
+      const titles = [...document.querySelectorAll('.lib-title')].map((h) => h.textContent);
       expect(titles).toEqual(['甲-新', '甲-旧', '乙-文']);
     });
 
