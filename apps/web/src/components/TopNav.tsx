@@ -5,6 +5,7 @@ import { ThemeToggleButton } from '../contexts/ThemeContext';
 import { MoreDropdown } from './MoreDropdown';
 import { NotificationBell } from './NotificationBell';
 import { useWebSocketContext } from '../api/websocketHooks';
+import { IconZap } from './ui/icons';
 import '../styles/theme.css';
 
 interface TopNavProps {
@@ -19,46 +20,33 @@ export function TopNav({ onMenuClick }: TopNavProps) {
   return (
     <header className="nav-header flex items-center px-6 shrink-0 sticky top-0 z-40">
       {/* MR-009: 汉堡菜单按钮（移动端） */}
-      <button 
+      <button
         className="hamburger-btn hide-desktop"
         onClick={onMenuClick}
         aria-label="打开菜单"
-        style={{
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '5px',
-          padding: '8px',
-          background: 'transparent',
-          border: 'none',
-          cursor: 'pointer',
-          marginRight: '1rem',
-        }}
       >
-        <span style={{ width: '20px', height: '2px', background: 'var(--text-primary)' }}></span>
-        <span style={{ width: '20px', height: '2px', background: 'var(--text-primary)' }}></span>
-        <span style={{ width: '20px', height: '2px', background: 'var(--text-primary)' }}></span>
+        <span className="hamburger-line" />
+        <span className="hamburger-line" />
+        <span className="hamburger-line" />
       </button>
-      
-      {/* Logo */}
-      <Link 
-        to="/" 
-        className="text-xl font-bold flex items-center gap-2 transition-opacity hover:opacity-80"
-        style={{ color: 'var(--accent-primary)' }}
+
+      {/* Logo（批次 D-1.2：⚡ emoji → IconZap SVG；品牌双色调：Agent 正文色 / Studio accent） */}
+      <Link
+        to="/"
+        className="brand-link text-xl flex items-center gap-2"
       >
-        <span className="text-2xl">⚡</span>
+        <span className="u-accent flex items-center"><IconZap size={20} /></span>
         <span className="tracking-tight hide-mobile">
-          Agent <span className="font-extrabold">Studio</span>
+          <span className="u-text font-medium">Agent</span>{' '}<span className="u-accent font-extrabold">Studio</span>
         </span>
       </Link>
 
       {/* 工具栏 */}
       <div className="ml-auto flex items-center gap-4">
-        {/* SSE 连接状态 */}
-        <div className="flex items-center gap-2 text-sm hide-mobile">
+        {/* SSE 连接状态（批次 D-1.2：chip 化） */}
+        <div className="conn-chip hide-mobile">
           <span className={`status-dot ${connected ? 'status-online' : 'status-offline'}`} />
-          <span className="u-text-2">
-            {connected ? '已连接' : '未连接'}
-          </span>
+          <span>{connected ? '已连接' : '未连接'}</span>
         </div>
 
         {/* 通知中心 (B2-003) */}

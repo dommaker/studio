@@ -279,7 +279,23 @@
 /* ==================== Sidebar 移动端样式 ==================== */
 
 .sidebar {
+  /* 批次 D-1.2：底色/右边线自 SidebarNew 内联收敛 */
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border-subtle);
   /* 移动端默认隐藏 */
+}
+
+/* 批次 D-1.2：移动端关闭按钮视觉自 SidebarNew 内联收敛（显隐规则在下方媒体查询档） */
+.mobile-close-btn {
+  position: absolute;
+  top: var(--space-4);
+  right: var(--space-4);
+  padding: var(--space-2);
+  background: transparent;
+  border: none;
+  font-size: var(--fs-title);
+  color: var(--text-primary);
+  cursor: pointer;
 }
 
 @media (max-width: 639px) {

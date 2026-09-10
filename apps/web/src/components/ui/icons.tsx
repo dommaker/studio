@@ -113,6 +113,11 @@ export const IconClock = (p: IconProps) => (
   <Svg {...p}><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></Svg>
 );
 
+/** 品牌闪电（顶栏 logo 标；批次 D-1.2 去 ⚡ emoji） */
+export const IconZap = (p: IconProps) => (
+  <Svg {...p}><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" /></Svg>
+);
+
 /** 浅色主题（太阳）——批次 D-0：主题切换控件去 emoji */
 export const IconSun = (p: IconProps) => (
   <Svg {...p}>
