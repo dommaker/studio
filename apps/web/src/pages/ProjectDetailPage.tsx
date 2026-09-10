@@ -43,7 +43,7 @@ import { DeliveryPanel } from '../components/pmo/DeliveryPanel';
 import { VscodeGuideDialog, CloudIdeGuideDialog } from '../components/pmo/IdeGuideDialogs';
 import { ProjectProgressCard } from '../components/pmo/ProjectProgressCard';
 import { ManualTaskButton } from '../components/ui/ManualTaskButton';
-import { BackButton } from '../components/ui';
+import { BackButton, SkeletonText, SkeletonCard } from '../components/ui';
 import { MetaStrip } from '../components/ui/MetaStrip';
 import { StationStepper } from '../components/workunit/StationStepper';
 import { WU_STATION_ORDER, type WuStation } from '../utils/wuLifecycle';
@@ -223,11 +223,26 @@ export function ProjectDetailPage() {
   })() : null;
 
   if (loading) {
-    return <div className="flex items-center justify-center h-64"><div className="u-text-2">加载中...</div></div>;
+    // 批次 E-2：静态骨架占位（标题行 + 卡片块，贴近首屏布局）
+    return (
+      <div className="h-full u-page-bg px-8 py-6">
+        <SkeletonText lines={1} widths={['30%']} className="mb-4" />
+        <SkeletonCard height={160} className="mb-3" />
+        <SkeletonCard height={240} />
+      </div>
+    );
   }
 
   if (error) {
-    return <div className="flex items-center justify-center h-64"><div className="u-err">{error}</div></div>;
+    // 批次 E-2：抄 PMOPage 错误条模式（红条 + 重试，reload 即清 error 重拉）
+    return (
+      <div className="h-full u-page-bg px-8 py-6">
+        <div className="max-w-5xl p-3 rounded u-err-dim u-err text-sm flex items-center justify-between">
+          <span>{error}</span>
+          <button onClick={projectQ.reload} className="btn btn-secondary btn-sm">重试</button>
+        </div>
+      </div>
+    );
   }
 
   if (!project) {

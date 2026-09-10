@@ -2,6 +2,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { workunitApi } from '../api/workunit';
 import { AuthorAvatar } from './channel/AuthorAvatar';
+import { SkeletonText } from './ui';
+import { toast } from '../utils/toast';
 
 interface Message {
   id: string;
@@ -33,7 +35,9 @@ export function DiscussionPanel({ workUnitId }: { workUnitId: string }) {
       const resp = data as { data?: Message[] } | Message[];
       setMessages(Array.isArray(resp) ? resp : resp?.data ?? []);
     } catch (e) {
+      // 批次 E-2：失败不静默——console 留调试 + toast 可见反馈
       console.error('Failed to load messages:', e);
+      toast.error('加载讨论消息失败，请稍后重试');
     } finally {
       setLoading(false);
     }
@@ -56,10 +60,12 @@ export function DiscussionPanel({ workUnitId }: { workUnitId: string }) {
     setSending(true);
     try {
       await workunitApi.postMessage(workUnitId, input.trim(), 'human');
+      // 成功才清空——失败时输入内容天然保留（批次 E-2 对齐 ChannelInput「失败保留草稿」口径）
       setInput('');
       await loadMessages();
     } catch (e) {
       console.error('Failed to send message:', e);
+      toast.error('发送失败，内容已保留');
     } finally {
       setSending(false);
     }
@@ -73,7 +79,8 @@ export function DiscussionPanel({ workUnitId }: { workUnitId: string }) {
 
       <div ref={listRef} className="max-h-48 overflow-auto px-3 py-2 space-y-2">
         {loading && messages.length === 0 ? (
-          <div className="text-xs u-text-2">加载中...</div>
+          /* 批次 E-2：静态骨架占位（消息行形态） */
+          <SkeletonText lines={2} widths={['70%', '40%']} className="space-y-2" />
         ) : messages.length === 0 ? (
           <div className="text-xs u-text-2">暂无消息</div>
         ) : (

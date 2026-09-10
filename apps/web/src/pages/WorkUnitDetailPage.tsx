@@ -25,7 +25,7 @@ import { BlockedByList } from '../components/workunit/BlockedByList';
 import { StationStepper, LifecycleEventChips } from '../components/workunit/StationStepper';
 import { TreeTokenEntry } from '../components/workunit/TreeTokenChart';
 import { WuGateActions } from '../components/workunit/WuGateActions';
-import { BackButton } from '../components/ui';
+import { BackButton, SkeletonText, SkeletonCard } from '../components/ui';
 import { MetaStrip } from '../components/ui/MetaStrip';
 import { parseBlockedBy } from '../components/pmo/mapUtils';
 import { buildLifecycle } from '../utils/wuLifecycle';
@@ -134,6 +134,8 @@ export function WorkUnitDetailPage() {
   /** E2-4：闸门动作 = 共享 WuGateActions（与列表行/抽屉同一组件，文案视觉唯一）；
    *  写路径留在本页：动作成功经 actionTick 重拉详情（与 BlockedActions.onChanged 同一路径） */
   const reloadOnGate = () => setActionTick(t => t + 1);
+  // 批次 E-2：错误条「重试」——清 error 后经 actionTick 复用同一 effect 重拉
+  const retryLoad = () => { setError(''); setActionTick(t => t + 1); };
   // F6 派生（铁律：徽章/证据判断一律过 deriveDisplayState，不自行解释 attestations）
   const derived = wu ? deriveDisplayState({ status: wu.status, metadata: wu.metadata }) : null;
   const attestations = wu ? parseAttestations(wu.metadata) : undefined;
@@ -184,10 +186,18 @@ export function WorkUnitDetailPage() {
 
       {error ? (
         <div className="wu-detail-body-single">
-          <div className="p-3 rounded u-err-dim u-err text-sm">加载失败: {error}</div>
+          {/* 批次 E-2：抄 PMOPage 错误条模式（红条 + 重试） */}
+          <div className="p-3 rounded u-err-dim u-err text-sm flex items-center justify-between">
+            <span>加载失败: {error}</span>
+            <button onClick={retryLoad} className="btn btn-secondary btn-sm">重试</button>
+          </div>
         </div>
       ) : !wu || !derived || !life ? (
-        <div className="wu-detail-body-single text-center py-20 u-text-2">加载中...</div>
+        // 批次 E-2：静态骨架占位（标题行 + 卡片块，贴近首屏布局）
+        <div className="wu-detail-body-single">
+          <SkeletonText lines={1} widths={['40%']} className="mb-4" />
+          <SkeletonCard height={200} />
+        </div>
       ) : (
         <div className="wu-detail-body">
           {/* 左栏 260px = 判断/操作的输入 */}

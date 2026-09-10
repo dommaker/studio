@@ -34,9 +34,10 @@ const agent = (over: Partial<AgentInfo> & { id: string }): AgentInfo => ({
 });
 
 describe('ProjectPipeline', () => {
-  it('loading 态显示加载中', () => {
-    render(<ProjectPipeline workunits={[]} agents={[]} loading={true} />);
-    expect(screen.getByText('加载中...')).toBeInTheDocument();
+  it('loading 态渲染静态骨架（批次 E-2，替代纯文字「加载中」）', () => {
+    const { container } = render(<ProjectPipeline workunits={[]} agents={[]} loading={true} />);
+    expect(container.querySelectorAll('.skeleton').length).toBeGreaterThan(0);
+    expect(screen.queryByText('加载中...')).toBeNull();
   });
 
   it('空 WU 列表显示暂无产出', () => {

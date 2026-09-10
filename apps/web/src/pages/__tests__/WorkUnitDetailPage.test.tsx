@@ -159,16 +159,18 @@ describe('WorkUnitDetailPage', () => {
     mockListAllAgents.mockResolvedValue({ data: { data: [] } });
   });
 
-  it('加载态：WU 未返回时显示加载中', () => {
+  it('加载态：WU 未返回时显示静态骨架（批次 E-2，替代纯文字「加载中」）', () => {
     mockWuGet.mockReturnValue(new Promise(() => {}));
-    render(<WorkUnitDetailPage />);
-    expect(screen.getByText('加载中...')).toBeDefined();
+    const { container } = render(<WorkUnitDetailPage />);
+    expect(container.querySelectorAll('.skeleton').length).toBeGreaterThan(0);
+    expect(screen.queryByText('加载中...')).toBeNull();
   });
 
-  it('错误态：加载失败显示错误信息', async () => {
+  it('错误态：加载失败显示错误信息 + 重试按钮（批次 E-2）', async () => {
     mockWuGet.mockRejectedValue(new Error('Not Found'));
     render(<WorkUnitDetailPage />);
     expect(await screen.findByText(/加载失败: Not Found/)).toBeDefined();
+    expect(screen.getByRole('button', { name: '重试' })).toBeDefined();
   });
 
   it('Header：标题取 metadata.title，含类型 chip / 状态 pill；头栏不再有「Token 开销」按钮（入口挪左栏事实行）', async () => {

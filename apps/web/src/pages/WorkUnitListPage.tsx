@@ -9,7 +9,8 @@ import { WuGateActions } from '../components/workunit/WuGateActions';
 import type { ReviewConfirmPayload, WorkUnit } from '../api/workunit';
 import { parseBlockedBy } from '../components/pmo/mapUtils';
 import { useWebSocketContext } from '../api/websocketHooks';
-import { Select } from '../components/ui';
+import { Select, Button, SkeletonText } from '../components/ui';
+import { IconClipboard } from '../components/ui/icons';
 import { formatShortTime } from '../utils/datetime';
 import { serverErrorMessage } from '../utils/errorMessage';
 import '../styles/workunits.css';
@@ -97,6 +98,16 @@ export function WorkUnitListPage() {
     applyWorkunitEvent(data.workunit, { insertIfMissing: msg.event_type === 'workunit.created' });
   }), [onEvent, applyWorkunitEvent]);
   useEffect(() => onReconnect(() => { void loadWorkUnits(); void loadUnattributedCount(); void loadAllCount(); }), [onReconnect, loadWorkUnits, loadUnattributedCount, loadAllCount]);
+
+  // 批次 E-2 空态分语境：过滤生效（状态/搜索/待人工/未归属）→ 「清除过滤」；全空 → 「新建任务」
+  const isFilteredEmpty = humanOnly || statusFilter !== null || searchQuery !== null || unattributedOnly;
+  const clearFilters = () => {
+    setHumanOnly(false);
+    setStatusFilter(null);
+    setUnattributedOnly(false);
+    setSearchInput('');
+    setSearchQuery(null);
+  };
 
   const handleCreate = async () => {
     if (!newScope.trim()) return;
@@ -219,31 +230,47 @@ export function WorkUnitListPage() {
                       options={Object.entries(WU_TYPE_LABELS).map(([v, l]) => ({ value: v, label: l }))}
                     />
                   </div>
-                  <button
-                    className="btn btn-primary"
+                  <Button
                     onClick={handleCreate}
-                    disabled={creating || !newScope.trim()}
+                    loading={creating}
+                    loadingLabel="创建中..."
+                    disabled={!newScope.trim()}
                   >
-                    {creating ? '创建中...' : '创建'}
-                  </button>
+                    创建
+                  </Button>
                 </div>
                 {createError && <div className="mt-2 text-xs u-err">{createError}</div>}
               </div>
             )}
 
-            {/* Error */}
+            {/* Error —— 批次 E-2：抄 PMOPage 错误条模式（红条 + 重试） */}
             {error && (
-              <div className="mt-4 p-3 rounded u-err-dim u-err text-sm">{error}</div>
+              <div className="mt-4 p-3 rounded u-err-dim u-err text-sm flex items-center justify-between">
+                <span>{error}</span>
+                <button onClick={() => void loadWorkUnits()} className="btn btn-secondary btn-sm">重试</button>
+              </div>
             )}
 
             {/* List —— 无边框行列表（细分隔线 + 左侧状态色条）；待人工 = 派生维度客户端过滤 */}
             {loading && workunits.length === 0 ? (
-              <div className="text-center py-20 u-text-2">加载中...</div>
+              // 批次 E-2：静态骨架占位（零动画），贴近行列表形态
+              <SkeletonText lines={6} className="mt-4 space-y-3" />
             ) : workunits.length === 0 ? (
               <div className="empty-state">
-                <div className="empty-icon">📋</div>
-                <p>暂无任务</p>
-                <p className="text-sm mt-2">点击"新建"创建第一个任务</p>
+                <div className="empty-icon"><IconClipboard size={32} /></div>
+                {isFilteredEmpty ? (
+                  <>
+                    <p>没有符合当前过滤条件的任务</p>
+                    <p className="text-sm mt-2">调整或清除过滤条件后再查看</p>
+                    <button className="btn btn-primary mt-4" onClick={clearFilters}>清除过滤</button>
+                  </>
+                ) : (
+                  <>
+                    <p>暂无任务</p>
+                    <p className="text-sm mt-2">点击"新建"创建第一个任务</p>
+                    <button className="btn btn-primary mt-4" onClick={() => setShowCreate(true)}>新建任务</button>
+                  </>
+                )}
               </div>
             ) : (
               <div className="mt-4">
@@ -262,13 +289,15 @@ export function WorkUnitListPage() {
                 <div className="flex items-center justify-between mt-2 text-xs u-text-3">
                   <span>已加载 <span className="font-mono">{workunits.length}</span> / 共 <span className="font-mono">{total}</span></span>
                   {workunits.length < total && (
-                    <button
-                      className="btn btn-secondary btn-sm"
-                      disabled={loading}
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      loading={loading}
+                      loadingLabel="加载中…"
                       onClick={() => void loadMoreWorkUnits()}
                     >
-                      {loading ? '加载中…' : '加载更多'}
-                    </button>
+                      加载更多
+                    </Button>
                   )}
                 </div>
               </div>

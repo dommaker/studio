@@ -826,6 +826,16 @@ body,
   to { transform: rotate(360deg); }
 }
 
+/* 批次 E-2：静态骨架占位（SkeletonText/SkeletonCard）——零动画，禁 shimmer/pulse（动效白名单 §2.5 外） */
+.skeleton {
+  background: var(--bg-tertiary);
+  border-radius: 3px;
+}
+
+.skeleton-text {
+  height: 12px;
+}
+
 /* === 空状态 === */
 .empty-state {
   text-align: center;

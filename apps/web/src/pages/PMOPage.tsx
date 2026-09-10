@@ -14,6 +14,7 @@ import { CreateOkrDialog } from '../components/pmo/CreateOkrDialog';
 import { CreateProjectDialog } from '../components/pmo/CreateProjectDialog';
 import { PublishProjectDialog } from '../components/pmo/PublishProjectDialog';
 import { ProjectCard } from '../components/pmo/ProjectCard';
+import { SkeletonText } from '../components/ui';
 
 interface Project {
   id: string;
@@ -185,9 +186,8 @@ export function PMOPage({ companyId }: PMOPageProps) {
           </div>
         )}
         {loading ? (
-          <div className="text-center py-8 u-text-3">
-            加载中...
-          </div>
+          /* 批次 E-2：静态骨架占位（贴近行列表形态，零动画） */
+          <SkeletonText lines={5} className="space-y-3" />
         ) : activeTab === 'projects' ? (
           /* 2026-09 第二轮 v2：紧凑行列表（pmo.css .pmo-row，与 library/workunits 行模式同族） */
           <div>
@@ -235,8 +235,11 @@ export function PMOPage({ companyId }: PMOPageProps) {
             </button>
 
             {okrs.length === 0 ? (
-              <div className="text-center py-8 u-text-3">
-                暂无 OKR，点击上方按钮创建
+              /* 批次 E-2：空态 = 说明 + 一个明确主行动（批次 D-3 模式，入 CreateOkrDialog） */
+              <div className="empty-state">
+                <p>暂无 OKR</p>
+                <p className="text-sm mt-2">为新季度设置目标和关键结果</p>
+                <button className="btn btn-primary mt-4" onClick={() => setShowOKRDialog(true)}>创建 OKR</button>
               </div>
             ) : (
               okrs.map(okr => (

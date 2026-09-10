@@ -11,6 +11,7 @@ import {
   type PipelineLane,
   type PipelineWorkUnit,
 } from './pipelineUtils';
+import { SkeletonText, SkeletonCard } from '../ui';
 
 // #399 §8.3 词表正词：待领取/进行中/待验收/完成；#472 起文案/配色收口 wu-display 唯一出口（私有拷贝已删）。
 // 泳道头/底色类与 chip 色同族（wu-display 的 chip 类是「底色+文字」双类，泳道拆成 head/lane 两类，故此处只留类骨架、文案同源）。
@@ -81,7 +82,13 @@ function WuCard({ wu, agent }: { wu: PipelineWorkUnit; agent?: AgentInfo }) {
 
 export function ProjectPipeline({ workunits, agents, loading }: Props) {
   if (loading) {
-    return <div className="text-sm u-text-3">加载中...</div>;
+    // 批次 E-2：静态骨架占位（进度条行 + 泳道块形态，零动画）
+    return (
+      <div>
+        <SkeletonText lines={1} widths={['60%']} className="mb-3" />
+        <SkeletonCard height={96} />
+      </div>
+    );
   }
   const progress = computePipelineProgress(workunits);
   if (progress.total === 0) {

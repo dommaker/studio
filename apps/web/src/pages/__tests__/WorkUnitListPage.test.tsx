@@ -44,6 +44,7 @@ const mockStore = {
   unattributedTotal: null as number | null,
   searchQuery: null as string | null,
   setSearchQuery: vi.fn(),
+  error: null as string | null,
 };
 
 vi.mock('../../stores/workunitStore', () => ({
@@ -53,7 +54,7 @@ vi.mock('../../stores/workunitStore', () => ({
         workunits: mockStore.workunits,
         total: mockStore.total ?? mockStore.workunits.length,
         loading: false,
-        error: null,
+        error: mockStore.error,
         statusFilter: mockStore.statusFilter,
         unattributedOnly: mockStore.unattributedOnly,
         unattributedTotal: mockStore.unattributedTotal,
@@ -114,6 +115,10 @@ describe('WorkUnitListPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockStore.workunits = [];
+    mockStore.error = null;
+    mockStore.statusFilter = null;
+    mockStore.searchQuery = null;
+    mockStore.unattributedOnly = false;
     mockSearchParamsValue.value = '';
   });
 
@@ -130,6 +135,37 @@ describe('WorkUnitListPage', () => {
   it('shows empty state when no workunits', () => {
     render(<WorkUnitListPage />);
     expect(screen.getByText('暂无任务')).toBeDefined();
+  });
+
+  // 批次 E-2：全空空态 = 图标（去 emoji）+ 「新建任务」CTA（开创建表单）
+  it('全空空态：去 emoji 图标 + 「新建任务」CTA 开创建表单', () => {
+    render(<WorkUnitListPage />);
+    const empty = screen.getByText('暂无任务').closest('.empty-state') as HTMLElement;
+    expect(empty.querySelector('.empty-icon svg')).not.toBeNull();
+    expect(empty.textContent).not.toMatch(/📋/);
+    fireEvent.click(screen.getByRole('button', { name: '新建任务' }));
+    expect(screen.getByPlaceholderText('例：实现用户登录功能')).toBeDefined();
+  });
+
+  // 批次 E-2：过滤无结果空态 = 区分文案 + 「清除过滤」CTA
+  it('过滤无结果空态：「清除过滤」CTA 清全部过滤', () => {
+    mockStore.statusFilter = 'pending';
+    render(<WorkUnitListPage />);
+    expect(screen.getByText('没有符合当前过滤条件的任务')).toBeDefined();
+    fireEvent.click(screen.getByRole('button', { name: '清除过滤' }));
+    expect(mockStore.setStatusFilter).toHaveBeenCalledWith(null);
+    expect(mockStore.setUnattributedOnly).toHaveBeenCalledWith(false);
+    expect(mockStore.setSearchQuery).toHaveBeenCalledWith(null);
+  });
+
+  // 批次 E-2：错误条带「重试」（抄 PMOPage 模式）
+  it('加载失败：错误条 + 重试按钮触发重新加载', () => {
+    mockStore.error = '网络错误';
+    render(<WorkUnitListPage />);
+    expect(screen.getByText('网络错误')).toBeDefined();
+    mockStore.loadWorkUnits.mockClear();
+    fireEvent.click(screen.getByRole('button', { name: '重试' }));
+    expect(mockStore.loadWorkUnits).toHaveBeenCalledTimes(1);
   });
 
   // #184：监控页「需要处理」下钻链接（/workunits?status=blocked）初始化状态筛选
