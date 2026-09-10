@@ -58,12 +58,23 @@ describe('library routes', () => {
     expect(mockGetLibraryDoc).toHaveBeenCalledWith('proj-a:specs/a.md');
   });
 
-  it('GET /:id 未命中返回 404', async () => {
+  it('GET 未命中返回 404', async () => {
     mockGetLibraryDoc.mockResolvedValue(null);
 
     const { status, json } = await req('GET', `/${encodeURIComponent('proj-x:specs/no.md')}`);
     expect(status).toBe(404);
     expect(json.success).toBe(false);
+  });
+
+  // 2026-09-10 回归：nginx proxy_pass 带 URI（/api/）会先解码 %2F→/ 再转发，
+  // id 以多段路径原形到达（/proj-a:specs/a.md）——wildcard 路由必须照样命中
+  it('GET nginx 解码形态（id 带字面 /）同样命中', async () => {
+    mockGetLibraryDoc.mockResolvedValue({ id: 'proj-a:specs/a.md', content: '正文' });
+
+    const { status, json } = await req('GET', '/proj-a:specs/a.md');
+    expect(status).toBe(200);
+    expect(json.data.content).toBe('正文');
+    expect(mockGetLibraryDoc).toHaveBeenCalledWith('proj-a:specs/a.md');
   });
 
   it('只读面：无 PUT/POST/DELETE', async () => {
