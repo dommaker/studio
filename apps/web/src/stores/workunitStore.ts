@@ -31,6 +31,8 @@ interface WorkUnitState {
   unattributedOnly: boolean;
   /** #405：未归属 WU 总数徽标（服务端 total 口径，非当前页近似）；null = 未拉取 */
   unattributedTotal: number | null;
+  /** 批次 D-2 项4：标题搜索词（服务端 q 过滤，与 status/type/attributed 交集）；null = 未激活 */
+  searchQuery: string | null;
   loading: boolean;
   error: string | null;
 
@@ -60,6 +62,8 @@ interface WorkUnitState {
   setTypeFilter: (type: string | null) => void;
   /** #405：切换未归属过滤（重置到第 1 页并重拉；on 时顺带同步徽标计数） */
   setUnattributedOnly: (on: boolean) => void;
+  /** 批次 D-2 项4：设置标题搜索词（重置到第 1 页并重拉；null/空白 = 清除搜索） */
+  setSearchQuery: (q: string | null) => void;
   /** #405：轻量拉取未归属总数徽标（limit=1 只取 pagination.total，best-effort 失败留旧值） */
   loadUnattributedCount: () => Promise<void>;
 }
@@ -73,18 +77,21 @@ export const useWorkUnitStore = create<WorkUnitState>((set, get) => ({
   typeFilter: null,
   unattributedOnly: false,
   unattributedTotal: null,
+  searchQuery: null,
   loading: false,
   error: null,
 
   loadWorkUnits: async (params) => {
     set({ loading: true, error: null });
     try {
-      const { statusFilter, typeFilter, unattributedOnly, page, limit } = get();
+      const { statusFilter, typeFilter, unattributedOnly, searchQuery, page, limit } = get();
       const { data } = await workunitApi.list({
         status: params?.status ?? statusFilter ?? undefined,
         type: params?.type ?? typeFilter ?? undefined,
         // #405：未归属过滤走服务端（#428 attributed 参数）
         attributed: unattributedOnly ? false : undefined,
+        // 批次 D-2 项4：标题搜索走服务端 q 参数
+        q: searchQuery ?? undefined,
         page: params?.page ?? page,
         limit,
       });
@@ -93,9 +100,9 @@ export const useWorkUnitStore = create<WorkUnitState>((set, get) => ({
         workunits: result?.data ?? (result as unknown as WorkUnit[]) ?? [],
         total: result?.pagination?.total ?? 0,
         page: result?.pagination?.page ?? 1,
-        // #405：仅无 status/type 过滤时本次 total 才是未归属总数，可同步徽标；
+        // #405：仅无 status/type/q 过滤时本次 total 才是未归属总数，可同步徽标；
         // 交集过滤下 total 是交集计数，不能覆盖徽标（徽标由 loadUnattributedCount 维护）
-        ...(unattributedOnly && !(params?.status ?? statusFilter) && !(params?.type ?? typeFilter)
+        ...(unattributedOnly && !(params?.status ?? statusFilter) && !(params?.type ?? typeFilter) && !searchQuery
           ? { unattributedTotal: result?.pagination?.total ?? 0 } : {}),
         loading: false,
       });
@@ -109,11 +116,12 @@ export const useWorkUnitStore = create<WorkUnitState>((set, get) => ({
     if (loading || workunits.length >= total) return;
     set({ loading: true, error: null });
     try {
-      const { statusFilter, typeFilter, unattributedOnly, limit } = get();
+      const { statusFilter, typeFilter, unattributedOnly, searchQuery, limit } = get();
       const { data } = await workunitApi.list({
         status: statusFilter ?? undefined,
         type: typeFilter ?? undefined,
         attributed: unattributedOnly ? false : undefined,
+        q: searchQuery ?? undefined,
         page: page + 1,
         limit,
       });
@@ -133,11 +141,13 @@ export const useWorkUnitStore = create<WorkUnitState>((set, get) => ({
   },
 
   applyWorkunitEvent: (wu, { insertIfMissing }) => {
-    const { workunits, total, statusFilter, typeFilter, unattributedOnly } = get();
+    const { workunits, total, statusFilter, typeFilter, unattributedOnly, searchQuery } = get();
     const matches = (statusFilter === null || wu.status === statusFilter)
       && (typeFilter === null || wu.type === typeFilter)
       // #405：未归属过滤态下 SSE 增量不把已归属行混入（服务端口径的本地镜像判定）
-      && (!unattributedOnly || isUnattributedWu(wu));
+      && (!unattributedOnly || isUnattributedWu(wu))
+      // 批次 D-2 项4：搜索态下 SSE 增量不匹配 q 就不插入（scope 子串，大小写不敏感，与服务端同口径）
+      && (!searchQuery || wu.scope.toLowerCase().includes(searchQuery.toLowerCase()));
     const idx = workunits.findIndex(w => w.id === wu.id);
     if (idx >= 0) {
       if (!matches) {
@@ -189,6 +199,13 @@ export const useWorkUnitStore = create<WorkUnitState>((set, get) => ({
 
   setUnattributedOnly: (on) => {
     set({ unattributedOnly: on, page: 1 });
+    get().loadWorkUnits({ page: 1 });
+  },
+
+  setSearchQuery: (q) => {
+    const normalized = q && q.trim() ? q.trim() : null;
+    if (normalized === get().searchQuery) return; // 词未变不重拉（防抖尾抖/重复提交）
+    set({ searchQuery: normalized, page: 1 });
     get().loadWorkUnits({ page: 1 });
   },
 

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { deriveDisplayState, WU_STATUS_LABELS, WU_TYPE_LABELS, type DerivedWuState } from '@dommaker/studio-shared/web';
 import { useWorkUnitStore } from '../stores/workunitStore';
@@ -36,6 +36,7 @@ export function WorkUnitListPage() {
     loadWorkUnits, loadMoreWorkUnits, createWorkUnit, reviewPassed, reviewRejected, confirmPending,
     statusFilter, setStatusFilter,
     unattributedOnly, unattributedTotal, setUnattributedOnly, loadUnattributedCount,
+    searchQuery, setSearchQuery,
   } = useWorkUnitStore();
 
   const [showCreate, setShowCreate] = useState(false);
@@ -46,8 +47,27 @@ export function WorkUnitListPage() {
   const [createError, setCreateError] = useState<string | null>(null);
   const [humanOnly, setHumanOnly] = useState(false);
   const [searchParams] = useSearchParams();
+  // 批次 D-2 项4：标题搜索输入（300ms 防抖进 store，参考 LibraryPage userIdInput 防抖先例）
+  const [searchInput, setSearchInput] = useState('');
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const firstSearchEffectRef = useRef(true);
   // E2-1（2026-09 页面重设计）：行点击 → 右侧抽屉（替代整行展开区）；复用频道工作区同一 WorkUnitDrawer
   const [drawer, setDrawer] = useState<DrawerState>(null);
+
+  // 防抖落 store（跳过首次运行：挂载首拉已由下方 effect 触发，空串不重复加载）
+  useEffect(() => {
+    if (firstSearchEffectRef.current) {
+      firstSearchEffectRef.current = false;
+      return;
+    }
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    searchDebounceRef.current = setTimeout(() => {
+      setSearchQuery(searchInput.trim() ? searchInput.trim() : null);
+    }, 300);
+    return () => {
+      if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    };
+  }, [searchInput, setSearchQuery]);
 
   // #184：支持下钻链接 URL 初始化状态筛选（/workunits?status=blocked），仅首载读取一次
   useEffect(() => {
@@ -142,7 +162,7 @@ export function WorkUnitListPage() {
           />
           {/* #472：口径标注——除「总数」外 chip 计的是当前已加载子集；全量无筛选时计数即全量，不标注。
               措辞避开「已加载」（底栏分页文案唯一断言占用） */}
-          {(statusFilter !== null || humanOnly || workunits.length < total) && (
+          {(statusFilter !== null || searchQuery !== null || humanOnly || workunits.length < total) && (
             <span className="text-xs u-text-3">
               计数口径：当前 {workunits.length}/{total} 条
             </span>
@@ -156,6 +176,18 @@ export function WorkUnitListPage() {
           >
             未归属{unattributedTotal !== null && <span className="font-mono"> {unattributedTotal}</span>}
           </button>
+        </div>
+
+        {/* 批次 D-2 项4：标题搜索（300ms 防抖 → store searchQuery → 服务端 q 过滤；
+            「已加载 X / 共 N」随过滤自然变化，total 已是服务端过滤计数） */}
+        <div className="mt-3 max-w-sm">
+          <input
+            className="input w-full"
+            placeholder="搜索任务标题…"
+            aria-label="搜索任务标题"
+            value={searchInput}
+            onChange={e => setSearchInput(e.target.value)}
+          />
         </div>
       </div>
 

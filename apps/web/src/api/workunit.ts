@@ -248,6 +248,8 @@ export const workunitApi = {
     channelId?: string;
     /** #405：归属维度服务端过滤（#428 API）；false = 未归属（无 reqId 且归因戳为 null） */
     attributed?: boolean;
+    /** 批次 D-2 项4：标题（scope）大小写不敏感子串搜索 */
+    q?: string;
     page?: number;
     limit?: number;
   }) => api.get<PaginatedResponse<WorkUnit>>('/workunits', { params }),

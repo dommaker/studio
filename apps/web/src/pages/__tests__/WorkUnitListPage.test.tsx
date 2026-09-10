@@ -35,6 +35,8 @@ const mockStore = {
   loadUnattributedCount: vi.fn(),
   unattributedOnly: false,
   unattributedTotal: null as number | null,
+  searchQuery: null as string | null,
+  setSearchQuery: vi.fn(),
 };
 
 vi.mock('../../stores/workunitStore', () => ({
@@ -48,6 +50,8 @@ vi.mock('../../stores/workunitStore', () => ({
         statusFilter: mockStore.statusFilter,
         unattributedOnly: mockStore.unattributedOnly,
         unattributedTotal: mockStore.unattributedTotal,
+        searchQuery: mockStore.searchQuery,
+        setSearchQuery: mockStore.setSearchQuery,
         loadWorkUnits: mockStore.loadWorkUnits,
         loadMoreWorkUnits: mockStore.loadMoreWorkUnits,
         createWorkUnit: mockStore.createWorkUnit,
@@ -802,5 +806,61 @@ describe('WorkUnitListPage — 统计 chip 语义与口径（#472）', () => {
     mockStore.statusFilter = 'active';
     render(<WorkUnitListPage />);
     expect(screen.getByText(/计数口径/)).toBeTruthy();
+  });
+});
+
+// 批次 D-2 项4（docs/plans/2026-09-ui-interaction-polish.md）：页头标题搜索框 ——
+// 300ms 防抖进 store（参考 LibraryPage 防抖先例），store 走服务端 q 过滤；搜索态 chip 行标注计数口径
+describe('WorkUnitListPage — 标题搜索（批次 D-2 项4）', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockStore.workunits = [];
+    mockStore.total = null;
+    mockStore.statusFilter = null;
+    mockStore.searchQuery = null;
+    mockSearchParamsValue.value = '';
+  });
+
+  it('页头渲染搜索输入框（.input + aria-label）', () => {
+    render(<WorkUnitListPage />);
+    const input = screen.getByLabelText('搜索任务标题');
+    expect(input.className).toContain('input');
+    expect(input.getAttribute('placeholder')).toContain('搜索任务标题');
+  });
+
+  it('输入 300ms 防抖后 → setSearchQuery(trimmed)；防抖窗口内不触发', () => {
+    vi.useFakeTimers();
+    try {
+      render(<WorkUnitListPage />);
+      fireEvent.change(screen.getByLabelText('搜索任务标题'), { target: { value: '  登录  ' } });
+      expect(mockStore.setSearchQuery).not.toHaveBeenCalled();
+      act(() => { vi.advanceTimersByTime(300); });
+      expect(mockStore.setSearchQuery).toHaveBeenCalledWith('登录');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('清空输入 → setSearchQuery(null)（恢复未搜索列表）', () => {
+    vi.useFakeTimers();
+    try {
+      render(<WorkUnitListPage />);
+      const input = screen.getByLabelText('搜索任务标题');
+      fireEvent.change(input, { target: { value: '登录' } });
+      act(() => { vi.advanceTimersByTime(300); });
+      fireEvent.change(input, { target: { value: '' } });
+      act(() => { vi.advanceTimersByTime(300); });
+      expect(mockStore.setSearchQuery).toHaveBeenLastCalledWith(null);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('搜索激活（store.searchQuery 非空）→ chip 行标注计数口径（#472 防数字撒谎）', () => {
+    mockStore.workunits = [makeWu({ id: 'wu-s1', status: 'active' })];
+    mockStore.total = 1;
+    mockStore.searchQuery = '登录';
+    render(<WorkUnitListPage />);
+    expect(screen.getByText(/计数口径/).textContent).toContain('1/1');
   });
 });

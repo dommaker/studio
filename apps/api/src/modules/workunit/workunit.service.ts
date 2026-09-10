@@ -71,10 +71,12 @@ export class WorkUnitService extends WorkUnitCrudService {
     // #428（#402 决策 4）：归属维度过滤。false = 未归属（无 reqId 且 pmoId 归因戳
     // 解析为 null，口径同 #402 决策 1 / #405 AC）；true = 反向；undefined = 不过滤
     attributed?: boolean;
+    /** 批次 D-2 项4：scope（标题）大小写不敏感子串过滤，与既有过滤取交集 */
+    q?: string;
     page?: number;
     limit?: number;
   }): Promise<{ data: WorkUnitData[]; total: number }> {
-    const { type, status, assigneeId, channelId, parentId, failureType, timedOutBefore, attributed, page = 1, limit = 20 } = options ?? {};
+    const { type, status, assigneeId, channelId, parentId, failureType, timedOutBefore, attributed, q, page = 1, limit = 20 } = options ?? {};
 
     let snapshots = await this.fileStore.getIndex();
 
@@ -92,6 +94,10 @@ export class WorkUnitService extends WorkUnitCrudService {
     if (attributed !== undefined) {
       // #428：已归属 = 有 reqId 或归因戳（canonical pmoId ‖ legacy ownershipProjectId）非 null
       snapshots = snapshots.filter(s => (!!s.reqId || parseWuPmoId(s.metadata) !== null) === attributed);
+    }
+    if (q) {
+      const needle = q.toLowerCase();
+      snapshots = snapshots.filter(s => s.scope.toLowerCase().includes(needle));
     }
 
     // Sort by createdAt desc

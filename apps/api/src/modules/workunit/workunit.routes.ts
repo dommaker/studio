@@ -2,7 +2,7 @@
  * WorkUnit API 路由 (AS-025 §3.28c-1, §5.16)
  *
  * Endpoints:
- *   GET    /api/v1/workunits          — list（#109：列表项附 claimable 可认领标记）
+ *   GET    /api/v1/workunits          — list（#109：列表项附 claimable 可认领标记；D-2 项4：q= 标题子串搜索）
  *   GET    /api/v1/workunits/last-done — 批量最近完成（#387：每 assignee 一条 done/completed，roster 空闲卡用）
  *   POST   /api/v1/workunits          — create
  *   GET    /api/v1/workunits/:id      — get by id
@@ -67,7 +67,7 @@ function resolveCallerAuthorType(req: Request): string {
 /** GET / — list WorkUnits */
 router.get('/', async (req: Request, res: Response) => {
   try {
-    const { type, status, assigneeId, channelId, parentId, attributed } = req.query;
+    const { type, status, assigneeId, channelId, parentId, attributed, q } = req.query;
     const { page, limit } = parsePagination(req);
 
     const result = await service.list({
@@ -78,6 +78,8 @@ router.get('/', async (req: Request, res: Response) => {
       parentId: parentId as string,
       // #428：attributed=true/false 显式布尔；其他值（含缺省）= undefined 不过滤
       attributed: attributed === 'true' ? true : attributed === 'false' ? false : undefined,
+      // 批次 D-2 项4：标题搜索（scope 子串，大小写不敏感）；空白 q 不过滤
+      q: typeof q === 'string' && q.trim() ? q.trim() : undefined,
       page,
       limit,
     });
