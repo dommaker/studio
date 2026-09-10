@@ -296,7 +296,7 @@ export const ChannelActivityRail = memo(function ChannelActivityRail({ channelId
           </>
         )}
         {reqs.length === 0 && otherRows.length === 0 && (
-          <div className="mc-act-empty">暂无 REQ 与动态</div>
+          <div className="mc-act-empty">暂无需求与动态</div>
         )}
       </div>
     </aside>

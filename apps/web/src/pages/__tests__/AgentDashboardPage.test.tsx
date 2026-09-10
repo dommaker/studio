@@ -118,6 +118,15 @@ describe('AgentDashboardPage', () => {
     expect(await screen.findByText('暂无角色')).toBeDefined();
   });
 
+  it('D-3 项1：零角色空态 = 说明 + 主行动按钮，点击就地开 CreateRoleModal（不跳页）', async () => {
+    render(<AgentDashboardPage />);
+    const empty = (await screen.findByText('暂无角色')).closest('.empty-state') as HTMLElement;
+    fireEvent.click(within(empty).getByRole('button', { name: '创建角色' }));
+    // 弹框就地打开（mock 0 runtime → 未检测到 CLI 态），不 navigate
+    expect(await screen.findByText(/未检测到 CLI/)).toBeDefined();
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
   // #283：monitoring 接口 Admin-only，非 Admin 渲染「无权限」终态
   it('monitoring 403 → 渲染「无权限」终态而非恒加载/英文错误', async () => {
     const err = Object.assign(new Error('Request failed with status code 403'), { response: { status: 403 } });

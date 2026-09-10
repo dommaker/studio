@@ -226,8 +226,11 @@ export function PMOPage({ companyId }: PMOPageProps) {
             </button>
 
             {projects.length === 0 ? (
-              <div className="text-center py-8 u-text-3">
-                暂无项目，点击上方「新建 PMO」创建
+              // 批次 D-3 项1：空态 = 说明 + 一个明确主行动（与上方虚线块同入 CreateProjectDialog）
+              <div className="empty-state">
+                <p>暂无项目</p>
+                <p className="text-sm mt-2">下达项目指令即可创建，自动生成 PMO 编号</p>
+                <button className="btn btn-primary mt-4" onClick={() => setShowCreateForm(true)}>新建 PMO</button>
               </div>
             ) : (
               projects.map(project => (

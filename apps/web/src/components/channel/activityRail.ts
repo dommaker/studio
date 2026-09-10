@@ -21,29 +21,30 @@ export interface ChainStep {
 const WU_TERMINAL = new Set(['done', 'closed']);
 
 /**
- * 四站 stepper「讨论 → REQ → WU n/m → 交付」状态推导：
- * 讨论恒 done；REQ 拆出 WU 即 done（否则 current）；WU 全终态 done / 有 WU 未终 current / 无 WU upcoming；
- * 交付在 WU 全终后 current；REQ 终态（done/archived）全线 done。
+ * 四站 stepper「讨论 → 需求 → 任务 n/m → 交付」状态推导：
+ * 讨论恒 done；需求拆出任务即 done（否则 current）；任务全终态 done / 有任务未终 current / 无任务 upcoming；
+ * 交付在任务全终后 current；REQ 终态（done/archived）全线 done。
  * #468：WU 站附 warnCount = blocked+pending 计数（警示色点数据面）。
+ * 批次 D-3 项2：站标签说人话（需求/任务），机制词 REQ/WU 不上 UI（#473 口径）。
  */
 export function deriveChainSteps(req: Requirement, wus: RequirementChainWorkUnit[]): ChainStep[] {
   const total = wus.length;
   const done = wus.filter(w => WU_TERMINAL.has(w.status)).length;
   const warnCount = wus.filter(w => w.status === 'blocked' || w.status === 'pending').length;
   const warn = warnCount > 0 ? { warnCount } : {};
-  const wuLabel = `WU ${done}/${total}`;
+  const wuLabel = `任务 ${done}/${total}`;
   const inflight = wus.find(w => !WU_TERMINAL.has(w.status)) ?? wus[wus.length - 1];
   if (req.status === 'done' || req.status === 'archived') {
     return [
       { key: 'discuss', label: '讨论', state: 'done' },
-      { key: 'req', label: 'REQ', state: 'done' },
+      { key: 'req', label: '需求', state: 'done' },
       { key: 'wu', label: wuLabel, state: 'done', ...(inflight ? { wuId: inflight.id } : {}), ...warn },
       { key: 'deliver', label: '交付', state: 'done' },
     ];
   }
   return [
     { key: 'discuss', label: '讨论', state: 'done' },
-    { key: 'req', label: 'REQ', state: total > 0 ? 'done' : 'current' },
+    { key: 'req', label: '需求', state: total > 0 ? 'done' : 'current' },
     {
       key: 'wu', label: wuLabel,
       state: total === 0 ? 'upcoming' : done === total ? 'done' : 'current',

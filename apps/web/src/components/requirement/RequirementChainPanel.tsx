@@ -35,7 +35,7 @@ export function RequirementChainPanel({ reqId, onClose }: Props) {
   const req = chain?.requirement;
 
   return (
-    <Modal open onClose={onClose} title={`REQ 全链路 · ${reqId}`}>
+    <Modal open onClose={onClose} title={`需求全链路 · ${reqId}`}>
       {error && <div className="text-sm u-err">加载失败: {error}</div>}
       {!chain && !error && <div className="text-sm u-text-3">加载中...</div>}
       {chain && req && (

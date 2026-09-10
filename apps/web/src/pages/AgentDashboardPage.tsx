@@ -97,9 +97,11 @@ export function AgentDashboardPage() {
         ) : loading && roles.length === 0 ? (
           <div className="text-center py-20 u-text-2">加载中...</div>
         ) : roles.length === 0 ? (
+          // 批次 D-3 项1：空态 = 说明 + 一个明确主行动（直挂 CreateRoleModal，同页头按钮入口）
           <div className="empty-state">
             <p>暂无角色</p>
-            <p className="text-sm mt-2">点击右上角"创建角色"，从检测到的 CLI 创建第一个 Agent</p>
+            <p className="text-sm mt-2">从检测到的 CLI 创建第一个 Agent</p>
+            <button className="btn btn-primary mt-4" onClick={() => setCreateOpen(true)}>创建角色</button>
           </div>
         ) : (
           <div className="agd-grid">

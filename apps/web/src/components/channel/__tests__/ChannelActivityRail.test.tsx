@@ -85,11 +85,11 @@ describe('ChannelActivityRail — REQ 链路卡与 stepper', () => {
     expect(card).toBeTruthy();
     expect(within(card).getByText('标题REQ-0001')).toBeTruthy();
     expect(within(card).getByText('讨论')).toBeTruthy();
-    expect(within(card).getByText('REQ')).toBeTruthy();
-    expect(await within(card).findByText('WU 1/2')).toBeTruthy();
+    expect(within(card).getByText('需求')).toBeTruthy();
+    expect(await within(card).findByText('任务 1/2')).toBeTruthy();
     expect(within(card).getByText('交付')).toBeTruthy();
     // 当前站 = WU（高亮 class），讨论/REQ 已达成，交付未到
-    expect(within(card).getByText('WU 1/2').closest('.mc-act-step')!.className).toContain('mc-act-step-current');
+    expect(within(card).getByText('任务 1/2').closest('.mc-act-step')!.className).toContain('mc-act-step-current');
     expect(within(card).getByText('讨论').closest('.mc-act-step')!.className).toContain('mc-act-step-done');
     expect(within(card).getByText('交付').closest('.mc-act-step')!.className).toContain('mc-act-step-upcoming');
   });
@@ -102,17 +102,17 @@ describe('ChannelActivityRail — REQ 链路卡与 stepper', () => {
     fireEvent.click(within(card).getByText('标题REQ-0001'));
     expect(props.onOpenReq).toHaveBeenCalledWith('REQ-0001');
 
-    fireEvent.click(await within(card).findByText('WU 1/2'));
+    fireEvent.click(await within(card).findByText('任务 1/2'));
     expect(props.onOpenWu).toHaveBeenCalledWith('wu-b');
 
-    fireEvent.click(within(card).getByText('REQ'));
+    fireEvent.click(within(card).getByText('需求'));
     expect(props.onOpenReq).toHaveBeenCalledTimes(2);
   });
 
   it('chain 拉取失败 → 该卡仍渲染（stepper 退化无 WU），不炸', async () => {
     mockGetChain.mockRejectedValue(new Error('boom'));
     renderRail({ reqs: [req('REQ-0001')] });
-    expect(await screen.findByText('WU 0/0')).toBeTruthy();
+    expect(await screen.findByText('任务 0/0')).toBeTruthy();
   });
 });
 
@@ -243,12 +243,12 @@ describe('ChannelActivityRail — #412 chain 数据面 store（请求去重 + �
       onOpenReq: vi.fn(),
     };
     const first = render(<ChannelActivityRail {...props} />);
-    await screen.findByText('WU 0/1');
+    await screen.findByText('任务 0/1');
     expect(mockGetChain).toHaveBeenCalledTimes(1);
 
     first.unmount();
     render(<ChannelActivityRail {...props} />);
-    await screen.findByText('WU 0/1');
+    await screen.findByText('任务 0/1');
     // 旧实现每次挂载逐 REQ 重拉；store 化后缓存命中零请求
     expect(mockGetChain).toHaveBeenCalledTimes(1);
   });
@@ -265,7 +265,7 @@ describe('ChannelActivityRail — #412 chain 数据面 store（请求去重 + �
       onOpenReq: vi.fn(),
     };
     const view = render(<ChannelActivityRail {...props} />);
-    await screen.findByText('WU 0/1');
+    await screen.findByText('任务 0/1');
     expect(mockGetChain).toHaveBeenCalledTimes(1);
 
     view.rerender(<ChannelActivityRail {...props} reqs={[req('REQ-0001'), req('REQ-0002')]} />);
@@ -278,7 +278,7 @@ describe('ChannelActivityRail — #412 chain 数据面 store（请求去重 + �
     mockGetChain.mockResolvedValue(chain(null, [{ id: 'wu-a', status: 'active' }, { id: 'wu-b', status: 'done' }]));
     renderRail({ reqs: [req('REQ-0001')] });
     const card = (await screen.findByText('REQ-0001')).closest('.mc-act-card') as HTMLElement;
-    expect(await within(card).findByText('WU 1/2')).toBeTruthy();
+    expect(await within(card).findByText('任务 1/2')).toBeTruthy();
     expect(within(card).getByText('交付').closest('.mc-act-step')!.className).toContain('mc-act-step-upcoming');
     expect(mockGetChain).toHaveBeenCalledTimes(1);
 
@@ -290,7 +290,7 @@ describe('ChannelActivityRail — #412 chain 数据面 store（请求去重 + �
       });
     });
 
-    expect(within(card).getByText('WU 2/2')).toBeTruthy();
+    expect(within(card).getByText('任务 2/2')).toBeTruthy();
     expect(within(card).getByText('交付').closest('.mc-act-step')!.className).toContain('mc-act-step-current');
     expect(mockGetChain).toHaveBeenCalledTimes(1); // 未重拉
   });

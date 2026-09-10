@@ -265,7 +265,7 @@ function WuDetail({ id, autoApprove = false, autoRuling = false, onOpenReq }: { 
       {/* #290（清单 #24）：负责人解析为角色名并链角色页（与详情页同一 hook 口径），查不到回退短 UUID */}
       <div className="mc-kv"><span className="mc-kv-k">负责人</span><span className="mc-kv-v">{wu.assigneeId ? <AssigneeLabel assigneeId={wu.assigneeId} className="mc-wu-link" /> : '—'}</span></div>
       <div className="mc-kv">
-        <span className="mc-kv-k">所属 REQ</span>
+        <span className="mc-kv-k">所属需求</span>
         <span className="mc-kv-v">
           {wu.reqId
             ? <button className="mc-wu-link" onClick={() => onOpenReq(wu.reqId!)}>{wu.reqId} ›</button>

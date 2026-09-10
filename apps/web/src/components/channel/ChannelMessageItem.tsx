@@ -322,7 +322,7 @@ export const ChannelMessageItem = memo(function ChannelMessageItem({
             </button>
           )}
           {reqId && onOpenRequirement && (
-            <button className="mc-wu-link mc-wu-link--req" onClick={() => onOpenRequirement(reqId)} title="打开 REQ 全链路">
+            <button className="mc-wu-link mc-wu-link--req" onClick={() => onOpenRequirement(reqId)} title="打开需求全链路">
               {reqId} ›
             </button>
           )}
