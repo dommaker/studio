@@ -31,6 +31,9 @@ interface WorkUnitState {
   unattributedOnly: boolean;
   /** #405：未归属 WU 总数徽标（服务端 total 口径，非当前页近似）；null = 未拉取 */
   unattributedTotal: number | null;
+  /** 全量总数徽标（「总数」chip 专用）：total 是过滤态计数，切 tab 后不能冒充全量。
+   *  无过滤的 loadWorkUnits 顺带同步；过滤态由 loadAllCount（limit=1 轻量查）补齐；null = 未拉取 */
+  allTotal: number | null;
   /** 批次 D-2 项4：标题搜索词（服务端 q 过滤，与 status/type/attributed 交集）；null = 未激活 */
   searchQuery: string | null;
   loading: boolean;
@@ -66,6 +69,8 @@ interface WorkUnitState {
   setSearchQuery: (q: string | null) => void;
   /** #405：轻量拉取未归属总数徽标（limit=1 只取 pagination.total，best-effort 失败留旧值） */
   loadUnattributedCount: () => Promise<void>;
+  /** 轻量拉取全量总数徽标（无任何过滤，limit=1 只取 pagination.total，best-effort 失败留旧值） */
+  loadAllCount: () => Promise<void>;
 }
 
 export const useWorkUnitStore = create<WorkUnitState>((set, get) => ({
@@ -77,6 +82,7 @@ export const useWorkUnitStore = create<WorkUnitState>((set, get) => ({
   typeFilter: null,
   unattributedOnly: false,
   unattributedTotal: null,
+  allTotal: null,
   searchQuery: null,
   loading: false,
   error: null,
@@ -104,6 +110,10 @@ export const useWorkUnitStore = create<WorkUnitState>((set, get) => ({
         // 交集过滤下 total 是交集计数，不能覆盖徽标（徽标由 loadUnattributedCount 维护）
         ...(unattributedOnly && !(params?.status ?? statusFilter) && !(params?.type ?? typeFilter) && !searchQuery
           ? { unattributedTotal: result?.pagination?.total ?? 0 } : {}),
+        // 全量总数徽标：仅无任何过滤时本次 total 才是全量，可同步 allTotal；
+        // 过滤态下 total 是过滤计数，「总数」chip 不得随之变脸（过滤态由 loadAllCount 补齐）
+        ...(!unattributedOnly && !(params?.status ?? statusFilter) && !(params?.type ?? typeFilter) && !searchQuery
+          ? { allTotal: result?.pagination?.total ?? 0 } : {}),
         loading: false,
       });
     } catch (e) {
@@ -151,6 +161,7 @@ export const useWorkUnitStore = create<WorkUnitState>((set, get) => ({
     const idx = workunits.findIndex(w => w.id === wu.id);
     if (idx >= 0) {
       if (!matches) {
+        // 过滤态下移出当前列表：过滤计数 -1；全局总数 allTotal 不受状态迁移影响
         set({ workunits: workunits.filter(w => w.id !== wu.id), total: Math.max(0, total - 1) });
         return;
       }
@@ -160,8 +171,13 @@ export const useWorkUnitStore = create<WorkUnitState>((set, get) => ({
       set({ workunits: next });
       return;
     }
-    if (insertIfMissing && matches) {
-      set({ workunits: [wu, ...workunits], total: total + 1 });
+    if (insertIfMissing) {
+      // created = 全局新增：allTotal 不论是否命中当前过滤都 +1（近似维护，重连 refetch 自愈）
+      const allTotal = get().allTotal;
+      set({
+        ...(matches ? { workunits: [wu, ...workunits], total: total + 1 } : {}),
+        ...(allTotal !== null ? { allTotal: allTotal + 1 } : {}),
+      });
     }
   },
 
@@ -216,6 +232,16 @@ export const useWorkUnitStore = create<WorkUnitState>((set, get) => ({
       set({ unattributedTotal: result?.pagination?.total ?? 0 });
     } catch {
       // best-effort：徽标留旧值（null = 不显示数字），下次加载/重连自愈
+    }
+  },
+
+  loadAllCount: async () => {
+    try {
+      const { data } = await workunitApi.list({ page: 1, limit: 1 });
+      const result = data as PaginatedResponse<WorkUnit>;
+      set({ allTotal: result?.pagination?.total ?? 0 });
+    } catch {
+      // best-effort：徽标留旧值（null = chip 回退显示过滤态 total），下次加载/重连自愈
     }
   },
 }));

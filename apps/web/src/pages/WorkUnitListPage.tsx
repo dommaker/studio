@@ -1,12 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { deriveDisplayState, WU_STATUS_LABELS, WU_TYPE_LABELS, type DerivedWuState } from '@dommaker/studio-shared/web';
 import { useWorkUnitStore } from '../stores/workunitStore';
 import { SelfReviewBadge } from '../components/workunit/SelfReviewBadge';
 import { AssigneeLabel } from '../components/workunit/AssigneeLabel';
 import { StaleSleepBadge } from '../components/workunit/StaleSleepBadge';
 import { WuGateActions } from '../components/workunit/WuGateActions';
-import { WorkUnitDrawer, type DrawerState } from '../components/channel/WorkUnitDrawer';
 import type { ReviewConfirmPayload, WorkUnit } from '../api/workunit';
 import { parseBlockedBy } from '../components/pmo/mapUtils';
 import { useWebSocketContext } from '../api/websocketHooks';
@@ -32,8 +31,8 @@ const STATUS_CHIPS = [
 
 export function WorkUnitListPage() {
   const {
-    workunits, total, loading, error,
-    loadWorkUnits, loadMoreWorkUnits, createWorkUnit, reviewPassed, reviewRejected, confirmPending,
+    workunits, total, allTotal, loading, error,
+    loadWorkUnits, loadMoreWorkUnits, loadAllCount, createWorkUnit, reviewPassed, reviewRejected, confirmPending,
     statusFilter, setStatusFilter,
     unattributedOnly, unattributedTotal, setUnattributedOnly, loadUnattributedCount,
     searchQuery, setSearchQuery,
@@ -47,12 +46,13 @@ export function WorkUnitListPage() {
   const [createError, setCreateError] = useState<string | null>(null);
   const [humanOnly, setHumanOnly] = useState(false);
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
   // 批次 D-2 项4：标题搜索输入（300ms 防抖进 store，参考 LibraryPage userIdInput 防抖先例）
   const [searchInput, setSearchInput] = useState('');
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const firstSearchEffectRef = useRef(true);
-  // E2-1（2026-09 页面重设计）：行点击 → 右侧抽屉（替代整行展开区）；复用频道工作区同一 WorkUnitDrawer
-  const [drawer, setDrawer] = useState<DrawerState>(null);
+  // 2026-09-10 第二轮重设计：行点击直跳 /workunits/:id 详情页（替代 E2-1 右抽屉——
+  // 400px 流内窄栏可读性差且与详情页功能重复；快速处置由行内 WuGateActions 覆盖）
 
   // 防抖落 store（跳过首次运行：挂载首拉已由下方 effect 触发，空串不重复加载）
   useEffect(() => {
@@ -82,7 +82,9 @@ export function WorkUnitListPage() {
     loadWorkUnits();
     // #405：未归属计数徽标（服务端 total 口径；过滤态下由 loadWorkUnits 顺带同步）
     void loadUnattributedCount();
-  }, [loadWorkUnits, loadUnattributedCount]);
+    // 全量总数徽标：首载无过滤时由 loadWorkUnits 顺带同步；URL 深链带过滤（#184）时这里补齐
+    void loadAllCount();
+  }, [loadWorkUnits, loadUnattributedCount, loadAllCount]);
 
   // #318：WU SSE 负载直更（替代 eventTick 整页重拉）——status_changed 直替/移除行、created 插头部；
   // SSE 重连经 onReconnect 一次性 refetch 对齐（ADR D3）
@@ -94,7 +96,7 @@ export function WorkUnitListPage() {
     if (!data?.workunit) return;
     applyWorkunitEvent(data.workunit, { insertIfMissing: msg.event_type === 'workunit.created' });
   }), [onEvent, applyWorkunitEvent]);
-  useEffect(() => onReconnect(() => { void loadWorkUnits(); void loadUnattributedCount(); }), [onReconnect, loadWorkUnits, loadUnattributedCount]);
+  useEffect(() => onReconnect(() => { void loadWorkUnits(); void loadUnattributedCount(); void loadAllCount(); }), [onReconnect, loadWorkUnits, loadUnattributedCount, loadAllCount]);
 
   const handleCreate = async () => {
     if (!newScope.trim()) return;
@@ -135,11 +137,11 @@ export function WorkUnitListPage() {
           </div>
         </div>
 
-        {/* Stats = 快速筛选 chip（Step 2 筛选合一；计数口径：总数走 server total，其余按已加载子集派生列计数——
-            #472：分页未全量/筛选生效时在 chip 行内联标注口径，防数字撒谎） */}
+        {/* Stats = 快速筛选 chip（Step 2 筛选合一；计数口径：总数走全量徽标 allTotal（过滤态不变脸），
+            其余按已加载子集派生列计数——#472：分页未全量/筛选生效时在 chip 行内联标注口径，防数字撒谎） */}
         <div className="flex gap-2 mt-4 flex-wrap items-center">
           <StatChip
-            label="总数" value={total} color="var(--accent-primary)"
+            label="总数" value={allTotal ?? total} color="var(--accent-primary)"
             active={!humanOnly && statusFilter === null}
             onClick={() => { setHumanOnly(false); setStatusFilter(null); }}
           />
@@ -191,9 +193,8 @@ export function WorkUnitListPage() {
         </div>
       </div>
 
-      {/* E2-1：列表 + 流内右抽屉双栏（768–1023 抽屉转 fixed 覆盖、<768 全屏化，走 .mc-drawer 全局降级规则） */}
-      <div className="flex-1 flex min-h-0">
-        <div className="flex-1 overflow-auto px-8 pb-8">
+      {/* 列表区（抽屉已删：行点击直跳详情页） */}
+      <div className="flex-1 overflow-auto px-8 pb-8">
           <div className="max-w-5xl">
             {/* Create form */}
             {showCreate && (
@@ -250,7 +251,7 @@ export function WorkUnitListPage() {
                   <WorkUnitRow
                     key={wu.id}
                     wu={wu}
-                    onOpen={() => setDrawer({ kind: 'wu', id: wu.id })}
+                    onOpen={() => navigate(`/workunits/${wu.id}`)}
                     onReviewPassed={(summary, assigneeId, confirm) => reviewPassed(wu.id, summary, assigneeId, confirm)}
                     onReviewRejected={(reason) => reviewRejected(wu.id, reason)}
                     onConfirmPending={() => confirmPending(wu.id)}
@@ -273,17 +274,6 @@ export function WorkUnitListPage() {
               </div>
             )}
           </div>
-        </div>
-
-        {/* E2-1：WU/REQ 详情右抽屉（与频道工作区同一组件，props 自包含自取数） */}
-        <div className="wu-drawer-host">
-          <WorkUnitDrawer
-            drawer={drawer}
-            onClose={() => setDrawer(null)}
-            onOpenWu={(id) => setDrawer({ kind: 'wu', id })}
-            onOpenReq={(id) => setDrawer({ kind: 'req', id })}
-          />
-        </div>
       </div>
     </div>
   );
@@ -293,11 +283,11 @@ function WorkUnitRow({
   wu, onOpen, onReviewPassed, onReviewRejected, onConfirmPending, formatTime,
 }: {
   wu: WorkUnit;
-  /** E2-1：行点击开右侧抽屉（替代整行展开区） */
+  /** 2026-09-10 第二轮：行点击直跳 /workunits/:id 详情页 */
   onOpen: () => void;
   onReviewPassed: (summary?: string, assigneeId?: string, confirm?: ReviewConfirmPayload) => Promise<unknown>;
   onReviewRejected: (reason?: string) => Promise<unknown>;
-  /** #284（决策 #250 D1）：pending 人闸确认（行内快速处置入口，与抽屉/详情页同组件） */
+  /** #284（决策 #250 D1）：pending 人闸确认（行内快速处置入口，与详情页同组件） */
   onConfirmPending: () => Promise<unknown>;
   formatTime: (ts: string | null) => string;
 }) {
@@ -323,8 +313,8 @@ function WorkUnitRow({
             {/* 状态色点 + 状态词（小字）：着色走 data-status（与左侧色条同口径） */}
             <span className="wu-dot" aria-hidden="true" />
             <span className="wu-status">{WU_STATUS_LABELS[derived.column] ?? derived.column}</span>
-            {/* 标题（行点击开抽屉；详情页入口 = 行尾 ↗，深链场景） */}
-            <span className="font-medium u-text truncate">{wu.scope}</span>
+            {/* 标题（整行点击跳详情页）；长文 2 行折行 + title 悬停全文，不再单行截断 */}
+            <span className="font-medium u-text wu-scope" title={wu.scope}>{wu.scope}</span>
             {/* 弱化 chip：类型 / REQ / 被阻塞；#400 验收修复：shrink-0+nowrap 防长标题挤压 */}
             <span className="wu-chip">{WU_TYPE_LABELS[wu.type] ?? wu.type}</span>
             {wu.reqId && (
@@ -348,7 +338,7 @@ function WorkUnitRow({
             {/* #474：ID 截断显示、全文收进 title；Agent 不再拿截断 hash 当人名——AssigneeLabel 解析成角色名 */}
             <span className="font-mono" title={wu.id}>ID: {wu.id.slice(0, 8)}...</span>
             {wu.assigneeId && (
-              // stopPropagation：解析到时 AssigneeLabel 是 Link，防冒泡触发行点击开抽屉
+              // stopPropagation：解析到时 AssigneeLabel 是 Link，防冒泡触发行点击跳详情
               <span onClick={e => e.stopPropagation()}>
                 <AssigneeLabel assigneeId={wu.assigneeId} className="font-mono" />
               </span>
@@ -359,23 +349,13 @@ function WorkUnitRow({
         </div>
 
         <div className="flex items-center gap-2">
-          {/* E2-4：行内闸门按钮 = 共享 WuGateActions（快速处置不开抽屉；组件内吞冒泡） */}
+          {/* E2-4：行内闸门按钮 = 共享 WuGateActions（快速处置不进详情页；组件内吞冒泡） */}
           <WuGateActions
             wu={wu}
             onReviewPassed={onReviewPassed}
             onReviewRejected={onReviewRejected}
             onConfirmPending={onConfirmPending}
           />
-          {/* E2-1：行尾 ↗ = 完整详情页入口（深链分享/深度调查场景） */}
-          <Link
-            to={`/workunits/${wu.id}`}
-            className="u-text-2 u-hover-accent"
-            title="打开完整详情页"
-            aria-label="打开完整详情页"
-            onClick={e => e.stopPropagation()}
-          >
-            ↗
-          </Link>
         </div>
       </div>
     </div>

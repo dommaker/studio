@@ -94,7 +94,7 @@ export function WorkUnitDrawer({ drawer, onClose, onOpenWu, onOpenReq, todoNav }
       <div className="mc-drawer-head">
         {/* #395（spec §4.6）：<768 抽屉全屏化的左上返回（≥768 CSS 隐藏，DOM 常驻） */}
         <button className="mc-drawer-back" aria-label="返回" onClick={onClose}>← 返回</button>
-        <h3 className="mc-drawer-title">
+        <h3 className="mc-drawer-title" title={drawer.kind === 'wu' ? drawer.id : `${drawer.id} 全链路`}>
           {drawer.kind === 'wu' ? drawer.id : `${drawer.id} 全链路`}
         </h3>
         <button className="mc-drawer-close" aria-label="关闭抽屉" onClick={onClose}>×</button>

@@ -448,3 +448,85 @@ describe('workunitStore 标题搜索（批次 D-2 项4）', () => {
     expect(s.total).toBe(3);
   });
 });
+
+// 全量总数徽标 allTotal（「总数」chip 专用）：total 是过滤态计数，切 tab 后不得冒充全量——
+// 无过滤 loadWorkUnits 顺带同步；过滤态由 loadAllCount（limit=1）补齐；SSE created 全局 +1
+describe('workunitStore 全量总数徽标 allTotal', () => {
+  const row = (id: string, overrides: Record<string, unknown> = {}) =>
+    ({ id, scope: `scope-${id}`, type: 'task', status: 'active', metadata: null, ...overrides }) as unknown as import('../../api/workunit').WorkUnit;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useWorkUnitStore.setState({
+      workunits: [],
+      total: 0,
+      page: 1,
+      limit: 20,
+      statusFilter: null,
+      typeFilter: null,
+      unattributedOnly: false,
+      unattributedTotal: null,
+      allTotal: null,
+      searchQuery: null,
+      loading: false,
+      error: null,
+    });
+  });
+
+  it('无过滤 loadWorkUnits 顺带同步 allTotal；带 status 过滤的加载不覆盖 allTotal', async () => {
+    (workunitApi.list as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      data: { data: [row('wu-1')], pagination: { total: 47, page: 1, limit: 20, totalPages: 3 } },
+    });
+    await useWorkUnitStore.getState().loadWorkUnits();
+    expect(useWorkUnitStore.getState().allTotal).toBe(47);
+
+    // 切 tab：过滤计数 total=3，allTotal 保持 47（chip 不变脸）
+    (workunitApi.list as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      data: { data: [row('wu-2', { status: 'pending' })], pagination: { total: 3, page: 1, limit: 20, totalPages: 1 } },
+    });
+    useWorkUnitStore.getState().setStatusFilter('pending');
+    await new Promise(resolve => setTimeout(resolve, 0));
+    const s = useWorkUnitStore.getState();
+    expect(s.total).toBe(3);
+    expect(s.allTotal).toBe(47);
+  });
+
+  it('loadAllCount：limit=1 无过滤轻量查询取服务端 total；失败留旧值', async () => {
+    (workunitApi.list as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      data: { data: [row('wu-x')], pagination: { total: 47, page: 1, limit: 1, totalPages: 47 } },
+    });
+    await useWorkUnitStore.getState().loadAllCount();
+    expect(workunitApi.list).toHaveBeenCalledWith({ page: 1, limit: 1 });
+    expect(useWorkUnitStore.getState().allTotal).toBe(47);
+
+    (workunitApi.list as unknown as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('network down'));
+    await useWorkUnitStore.getState().loadAllCount();
+    expect(useWorkUnitStore.getState().allTotal).toBe(47); // 留旧值
+  });
+
+  it('SSE created：全局新增 allTotal+1（不符当前过滤也计）；status_changed 移出列表不影响 allTotal', () => {
+    useWorkUnitStore.setState({ statusFilter: 'active', workunits: [row('wu-1')], total: 5, allTotal: 47 });
+
+    // created 不符过滤：不插入列表，但全局总数仍 +1
+    useWorkUnitStore.getState().applyWorkunitEvent(row('wu-9', { status: 'pending' }), { insertIfMissing: true });
+    expect(useWorkUnitStore.getState().workunits).toHaveLength(1);
+    expect(useWorkUnitStore.getState().allTotal).toBe(48);
+
+    // created 符合过滤：插头部 + total/allTotal 各 +1
+    useWorkUnitStore.getState().applyWorkunitEvent(row('wu-2'), { insertIfMissing: true });
+    expect(useWorkUnitStore.getState().total).toBe(6);
+    expect(useWorkUnitStore.getState().allTotal).toBe(49);
+
+    // 状态迁移移出过滤集：total-1，allTotal 不变（全局总量未变）
+    useWorkUnitStore.getState().applyWorkunitEvent(row('wu-1', { status: 'done' }), { insertIfMissing: false });
+    const s = useWorkUnitStore.getState();
+    expect(s.workunits.map(w => w.id)).toEqual(['wu-2']);
+    expect(s.total).toBe(5);
+    expect(s.allTotal).toBe(49);
+  });
+
+  it('SSE created 时 allTotal 未拉取（null）保持 null（不凭空造数）', () => {
+    useWorkUnitStore.getState().applyWorkunitEvent(row('wu-1'), { insertIfMissing: true });
+    expect(useWorkUnitStore.getState().allTotal).toBeNull();
+  });
+});

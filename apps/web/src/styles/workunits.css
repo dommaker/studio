@@ -90,6 +90,16 @@
   white-space: nowrap;
 }
 
+/* 行标题：长 scope 最多 2 行折行（替代单行 truncate 截字看不全），title 属性兜底全文 */
+.wu-scope {
+  min-width: 0;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow-wrap: anywhere;
+}
+
 
 /* 弱化 chip：类型 / REQ / 被阻塞 */
 .wu-chip {
@@ -102,11 +112,3 @@
   white-space: nowrap;
 }
 .wu-chip-warn { color: var(--warning); border-color: var(--warning-border); }
-
-/* ---------- E2-1：行点击右侧抽屉宿主（复用 .mc-drawer 全局样式） ----------
-   ≥768 流内右栏 400px（768–1023 经全局规则转 fixed 覆盖，宽度保留）；
-   <768 全屏化由 mission-control.css `.mc-drawer { width: 100% }` 接管，本档不覆盖。 */
-.wu-drawer-host { display: flex; }
-@media (min-width: 768px) {
-  .wu-drawer-host > .mc-drawer { width: 400px; border-left: 1px solid var(--border-subtle); }
-}
