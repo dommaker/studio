@@ -10,9 +10,10 @@ import '../styles/theme.css';
 
 interface TopNavProps {
   onMenuClick?: () => void;  // MR-009: 汉堡菜单回调
+  onOpenSearch?: () => void; // 批次 D-2 项 8：「搜索 ⌘K」入口（MoreDropdown 透传）
 }
 
-export function TopNav({ onMenuClick }: TopNavProps) {
+export function TopNav({ onMenuClick, onOpenSearch }: TopNavProps) {
   // 连接状态读取应用根部唯一的 SSE 连接（WebSocketProvider）
   const { status } = useWebSocketContext();
   const connected = status === 'connected';
@@ -56,7 +57,7 @@ export function TopNav({ onMenuClick }: TopNavProps) {
         <ThemeToggleButton />
 
         {/* L4 高级功能下拉 */}
-        <MoreDropdown />
+        <MoreDropdown onOpenSearch={onOpenSearch} />
       </div>
     </header>
   );

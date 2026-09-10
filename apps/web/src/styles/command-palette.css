@@ -1,0 +1,108 @@
+/* CommandPalette（批次 D-2 项 8）：Cmd/Ctrl+K 全局搜索面板。
+   遮罩复用 .modal-overlay（style-guide §4.3），本层只覆写为顶部对齐；
+   z-index 100 须高于 .modal-overlay 的 50（同 .select-panel 档，面板可在已开 modal 之上唤起）。
+   颜色/字号/圆角全走 token，零硬编码。 */
+
+.cmdk-overlay {
+  align-items: flex-start;
+  padding-top: 12vh;
+  z-index: 100;
+}
+
+.cmdk-panel {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: 6px; /* modal 面板档（§4.3 .modal 同值） */
+  box-shadow: var(--shadow-lg);
+  width: min(560px, calc(100vw - 2 * var(--space-4)));
+  max-height: 60vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* 搜索框：复用 .input 底子，面板内去四边边框只留底部 hairline；焦点态 accent 底线（§4.2 焦点=accent） */
+.cmdk-input {
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border-subtle);
+  border-radius: 0;
+  padding: 12px 16px;
+  font-size: var(--fs-title);
+}
+
+.cmdk-input:hover {
+  border-color: var(--border-subtle);
+}
+
+.cmdk-input:focus {
+  border-color: var(--accent-primary);
+}
+
+.cmdk-results {
+  overflow-y: auto;
+  padding: 4px;
+  min-height: 72px;
+}
+
+/* 组头 = mc-block-label 形态（mission-control.css 非全局加载，此处按同一 token 配方落档） */
+.cmdk-group-label {
+  color: var(--text-secondary);
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  margin: 8px 6px 2px;
+}
+
+.cmdk-group:first-child .cmdk-group-label {
+  margin-top: 2px;
+}
+
+/* 结果行：配方对齐 .select-option（hover/高亮 --bg-hover，3px 行圆角） */
+.cmdk-item {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
+  font-size: var(--fs-base);
+  color: var(--text-primary);
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.cmdk-item.is-highlighted {
+  background: var(--bg-hover);
+}
+
+.cmdk-item-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cmdk-item-meta {
+  color: var(--text-tertiary);
+  font-size: var(--fs-xs);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* mono 限定 ID/编号（#380 字体角色） */
+.cmdk-item-code {
+  font-family: var(--font-mono);
+}
+
+.cmdk-hint {
+  padding: var(--space-4);
+  text-align: center;
+  color: var(--text-tertiary);
+  font-size: var(--fs-sm);
+}
+
+.cmdk-footer {
+  border-top: 1px solid var(--border-subtle);
+  padding: 6px 12px;
+  font-size: var(--fs-xs);
+  color: var(--text-tertiary);
+}

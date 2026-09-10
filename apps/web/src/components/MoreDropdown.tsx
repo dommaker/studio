@@ -26,7 +26,12 @@ const CONFIG_ITEMS: DropdownItem[] = [
   { to: '/settings', Icon: IconSettings, label: '设置' },
 ];
 
-export function MoreDropdown() {
+interface MoreDropdownProps {
+  /** 批次 D-2 项 8：「搜索 ⌘K」入口（打开 App 根 CommandPalette）；不传则不渲染该项 */
+  onOpenSearch?: () => void;
+}
+
+export function MoreDropdown({ onOpenSearch }: MoreDropdownProps) {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   // #468：徽标 = 行动中心 unreadCount（同数据源投影，不再单独拉监控计数）；展开时重拉刷新
@@ -91,6 +96,29 @@ export function MoreDropdown() {
             boxShadow: 'var(--shadow-lg)',
           }}
         >
+          {/* 批次 D-2 项 8：「搜索 ⌘K」入口（降低 Cmd/Ctrl+K 学习成本），点击开 App 根 CommandPalette */}
+          {onOpenSearch && (
+            <>
+              <div className="px-2 pb-1">
+                <span className="text-xs font-medium px-2 u-text-3">
+                  快捷
+                </span>
+              </div>
+              <button
+                type="button"
+                className="w-full text-left block px-4 py-2 text-sm transition-colors flex items-center gap-2 u-hover-bg u-text"
+                onClick={() => {
+                  setIsOpen(false);
+                  onOpenSearch();
+                }}
+              >
+                <span className="flex items-center"><IconSearch size={16} /></span>
+                <span>搜索</span>
+                <span className="ml-auto text-xs u-text-3">⌘K</span>
+              </button>
+              <div className="my-1 mx-2 border-t u-border" />
+            </>
+          )}
           {/* 高级功能 */}
           <div className="px-2 pb-1">
             <span className="text-xs font-medium px-2 u-text-3">

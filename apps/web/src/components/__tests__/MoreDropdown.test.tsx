@@ -108,3 +108,26 @@ describe('MoreDropdown — 徽标 = 行动中心 unreadCount（#468 投影化）
     expect(screen.getByRole('link', { name: /监控/ })).toBeDefined();
   });
 });
+
+describe('MoreDropdown — 「搜索 ⌘K」入口（批次 D-2 项 8）', () => {
+  it('传 onOpenSearch：渲染搜索项，点击触发并收起下拉', () => {
+    const onOpenSearch = vi.fn();
+    render(
+      <MemoryRouter initialEntries={['/channels']}>
+        <MoreDropdown onOpenSearch={onOpenSearch} />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: /更多/ }));
+    const item = screen.getByRole('button', { name: /搜索/ });
+    expect(item.textContent).toContain('⌘K');
+    fireEvent.click(item);
+    expect(onOpenSearch).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('link', { name: /知识库/ })).toBeNull();
+  });
+
+  it('不传 onOpenSearch：不渲染搜索项（旧调用方零影响）', () => {
+    renderDropdown();
+    fireEvent.click(screen.getByRole('button', { name: /更多/ }));
+    expect(screen.queryByRole('button', { name: /搜索/ })).toBeNull();
+  });
+});
