@@ -45,11 +45,11 @@ describe('ProjectMap：地图区', () => {
   it('目标 + 待决问题清单 + 结论时间线 + 依赖图四块渲染', () => {
     renderMap();
 
-    expect(screen.getByText('🎯 目标')).toBeTruthy();
+    expect(screen.getByText('目标')).toBeTruthy();
     expect(screen.getByText('把订单系统拆成前后台两条线')).toBeTruthy();
-    expect(screen.getByText('❓ 待决问题 (4)')).toBeTruthy();
-    expect(screen.getByText('📜 结论时间线 (2)')).toBeTruthy();
-    expect(screen.getByText('🔗 任务单依赖')).toBeTruthy();
+    expect(screen.getByText('待决问题 (4)')).toBeTruthy();
+    expect(screen.getByText('结论时间线 (2)')).toBeTruthy();
+    expect(screen.getByText('任务单依赖')).toBeTruthy();
   });
 
   it('徽章四态：已定 / 待确认 / 讨论中 / 待认领 按决策单实际状态渲染', () => {

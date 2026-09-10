@@ -59,7 +59,7 @@ describe('TriageBanner — #468 行动中心投影（critical 才突破成横幅
     expect(container.firstChild).toBeNull();
   });
 
-  it('critical 未读（content 首行解析）→ 横幅 critical 配色/🚨，展示标题', () => {
+  it('critical 未读（content 首行解析）→ 横幅 critical 配色/告警图标（G-1 起 SVG），展示标题', () => {
     useNotificationStore.setState({
       notifications: [
         incident({ id: 'n1', title: '警告级', content: 'severity: warning\n一般告警' }),
@@ -67,7 +67,8 @@ describe('TriageBanner — #468 行动中心投影（critical 才突破成横幅
       ],
     });
     const { container } = render(<TriageBanner />);
-    expect(screen.getByText('🚨')).toBeInTheDocument();
+    expect(container.querySelector('svg')).toBeInTheDocument();
+    expect(screen.queryByText('🚨')).not.toBeInTheDocument();
     expect(container.firstChild).toHaveClass('u-err-bg');
     // 只有 critical 那条进横幅
     expect(screen.getByText('严重事故')).toBeInTheDocument();

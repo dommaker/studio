@@ -133,10 +133,92 @@ export const IconMoon = (p: IconProps) => (
   <Svg {...p}><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" /></Svg>
 );
 
-/** 跟随系统（显示器） */
+/** 跟随系统（显示器）；环境快照卡（🖥️）同源复用 */
 export const IconMonitor = (p: IconProps) => (
   <Svg {...p}>
     <rect x="2" y="3" width="20" height="14" rx="2" />
     <path d="M8 21h8" /><path d="M12 17v4" />
   </Svg>
+);
+
+/** 告警/事故（三角警告；批次 G-1：TriageBanner 🚨、LandingPage 自动修复卡、GapCards ⚠️ 已知限制） */
+export const IconAlertTriangle = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3" />
+    <path d="M12 9v4" /><path d="M12 17h.01" />
+  </Svg>
+);
+
+/** 通知铃铛（批次 G-1：行动中心入口 🔔） */
+export const IconBell = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+    <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+  </Svg>
+);
+
+/** 用户（单人；批次 G-1：GapCards 偏好卡 👤） */
+export const IconUser = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+    <circle cx="12" cy="7" r="4" />
+  </Svg>
+);
+
+/** 业务规则（尺子；批次 G-1：GapCards 规则卡 📏） */
+export const IconRuler = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M21.3 15.3a2.4 2.4 0 0 1 0 3.4l-2.6 2.6a2.4 2.4 0 0 1-3.4 0L2.7 8.7a2.41 2.41 0 0 1 0-3.4l2.6-2.6a2.41 2.41 0 0 1 3.4 0Z" />
+    <path d="m14.5 12.5 2-2" /><path d="m11.5 9.5 2-2" />
+    <path d="m8.5 6.5 2-2" /><path d="m17.5 15.5 2-2" />
+  </Svg>
+);
+
+/** 关联/依赖（链条；批次 G-1：GapCards 决策链卡与 ProjectMap 依赖图 🔗） */
+export const IconLink = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+    <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+  </Svg>
+);
+
+/** 提示/洞察（灯泡；批次 G-1：GapCards insight 💡、IDE 指南 hint） */
+export const IconLightbulb = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5" />
+    <path d="M9 18h6" /><path d="M10 22h4" />
+  </Svg>
+);
+
+/** 修复/工具（扳手；批次 G-1：GapCards 解法库卡 🔧） */
+export const IconWrench = (p: IconProps) => (
+  <Svg {...p}><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" /></Svg>
+);
+
+/** 目标（靶心；批次 G-1：ProjectMap 目标卡 🎯） */
+export const IconTarget = (p: IconProps) => (
+  <Svg {...p}>
+    <circle cx="12" cy="12" r="10" /><circle cx="12" cy="12" r="6" /><circle cx="12" cy="12" r="2" />
+  </Svg>
+);
+
+/** 待决问题（问号圈；批次 G-1：ProjectMap 待决问题卡 ❓） */
+export const IconHelpCircle = (p: IconProps) => (
+  <Svg {...p}>
+    <circle cx="12" cy="12" r="10" />
+    <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" /><path d="M12 17h.01" />
+  </Svg>
+);
+
+/** 结论时间线（卷轴；批次 G-1：ProjectMap 结论卡 📜） */
+export const IconScroll = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M19 17V5a2 2 0 0 0-2-2H4" />
+    <path d="M8 21h12a2 2 0 0 0 2-2v-1a1 1 0 0 0-1-1H11a1 1 0 0 0-1 1v1a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v2a1 1 0 0 0 1 1h3" />
+  </Svg>
+);
+
+/** Cloud IDE（云；批次 G-1：IDE 指南弹窗 ☁️） */
+export const IconCloud = (p: IconProps) => (
+  <Svg {...p}><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z" /></Svg>
 );

@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { workunitApi, type Opportunity } from '../../api/workunit';
 import { toast } from '../../utils/toast';
+import { IconSearch } from '../ui/icons';
 
 interface Props {
   workUnitId: string;
@@ -47,7 +48,7 @@ export function OpportunitiesPanel({ workUnitId, opportunities, onChanged }: Pro
 
   return (
     <div className="card mt-4 p-3">
-      <h3 className="text-sm font-medium u-text-2 mb-2">🔍 巡检发现的机会</h3>
+      <h3 className="text-sm font-medium u-text-2 mb-2 flex items-center gap-1.5"><IconSearch size={14} />巡检发现的机会</h3>
       <ul className="space-y-2">
         {opportunities.map(opp => {
           const busy = busyId === opp.id;

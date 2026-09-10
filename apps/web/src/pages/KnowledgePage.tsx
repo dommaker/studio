@@ -240,7 +240,7 @@ export function KnowledgePage() {
           </div>
           <div className="flex gap-2">
             <ManualTaskButton
-              label="🧪 质量审计"
+              label="质量审计"
               costNote={costs != null ? `近 30 天 ${costs.callsBySource['knowledge-maintenance'] ?? 0} 次调用` : undefined}
               onRun={async () => {
                 const r = await maintenanceApi.runKnowledgeMaintenance();

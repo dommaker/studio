@@ -128,7 +128,7 @@ describe('#114：PMO 地图区 + 下一个该干什么', { testTimeout: 15000 },
 
   it('依赖图：拆写模型等拆读模型（已完成的不再拦路）', async () => {
     renderDetail();
-    await waitFor(() => expect(screen.getByText('🔗 任务单依赖')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('任务单依赖')).toBeTruthy());
     // #350 chain 改由 project 落地后级联重拉：依赖图内容晚一帧落地，断言等它
     await waitFor(() => expect(screen.getByRole('button', { name: '拆写模型' })).toBeTruthy());
     expect(screen.getByText(/拆读模型（已完成）/)).toBeTruthy();

@@ -21,10 +21,10 @@ describe('ManualTaskButton', () => {
   it('点击 → loading（disabled + 运行中…）→ 成功 toast 展示 onRun 返回的文案', async () => {
     let resolveRun!: (msg: string) => void;
     const onRun = vi.fn(() => new Promise<string>((res) => { resolveRun = res; }));
-    render(<ManualTaskButton label="🧪 测试任务" onRun={onRun} />);
+    render(<ManualTaskButton label="测试任务" onRun={onRun} />);
 
     const btn = screen.getByRole('button');
-    expect(btn.textContent).toBe('🧪 测试任务');
+    expect(btn.textContent).toBe('测试任务');
 
     fireEvent.click(btn);
     expect(onRun).toHaveBeenCalledTimes(1);
@@ -33,7 +33,7 @@ describe('ManualTaskButton', () => {
     expect(btn.textContent).toBe('运行中…');
 
     resolveRun('任务完成');
-    await waitFor(() => expect(btn.textContent).toBe('🧪 测试任务'));
+    await waitFor(() => expect(btn.textContent).toBe('测试任务'));
     expect(mockSuccess).toHaveBeenCalledWith('任务完成');
     expect(btn).not.toBeDisabled();
   });

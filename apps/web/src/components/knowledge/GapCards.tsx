@@ -1,5 +1,10 @@
 // 知识库页面六类 Gap 明细卡片（2026-08 工单 34 从 pages/KnowledgePage.tsx 抽出，纯展示无逻辑变更）
 // 各卡片字段按 KnowledgePage gapData 对应 tab 的响应形状声明（全可选，缺失时沿用既有 ||/?. 兜底）
+// 批次 G-1：卡头/行内 emoji → ui/icons SVG（#474 图标策略）
+import {
+  IconUser, IconRuler, IconMonitor, IconAlertTriangle,
+  IconLink, IconChart, IconLightbulb, IconWrench,
+} from '../ui/icons';
 
 export type PreferenceGap = {
   responseStyle?: string;
@@ -68,7 +73,7 @@ export function PreferenceCard({ item }: { item: PreferenceGap }) {
   return (
     <div className="card p-4">
       <div className="flex items-center gap-2 mb-2">
-        <span>👤</span>
+        <IconUser />
         <span className="font-medium u-text">用户偏好</span>
         {item.responseStyle && <span className="text-xs px-2 py-0.5 rounded u-accent-bg">{item.responseStyle}</span>}
         {item.preferredModel && <span className="text-xs px-2 py-0.5 rounded u-surface-2 u-text-3">{item.preferredModel}</span>}
@@ -87,7 +92,7 @@ export function BusinessRuleCard({ item }: { item: BusinessRuleGap }) {
   return (
     <div className="card p-4">
       <div className="flex items-center gap-2 mb-2">
-        <span>📏</span>
+        <IconRuler />
         <span className="font-medium u-text">{item.name}</span>
         <span className="text-xs px-2 py-0.5 rounded u-surface-2 u-text-3">{item.category}</span>
         <span className="text-xs ml-auto u-text-3">v{item.version}</span>
@@ -106,7 +111,7 @@ export function EnvSnapshotCard({ item }: { item: EnvSnapshotGap }) {
   return (
     <div className="card p-4">
       <div className="flex items-center gap-2 mb-2">
-        <span>🖥️</span>
+        <IconMonitor />
         <span className="font-medium u-text">环境快照</span>
         <span className="text-xs px-2 py-0.5 rounded u-surface-2 u-text-3">{item.nodeEnv}</span>
       </div>
@@ -117,8 +122,9 @@ export function EnvSnapshotCard({ item }: { item: EnvSnapshotGap }) {
         <div><span className="u-text-3">端口: </span><span className="u-text">{item.apiPort}</span></div>
       </div>
       {(item.knownLimitations || []).length > 0 && (
-        <div className="mt-2 text-xs u-warn">
-          ⚠️ 已知限制: {(item.knownLimitations || []).map((l) => l.issue).join('; ')}
+        <div className="mt-2 text-xs u-warn flex items-center gap-1">
+          <IconAlertTriangle size={12} className="flex-shrink-0" />
+          <span>已知限制: {(item.knownLimitations || []).map((l) => l.issue).join('; ')}</span>
         </div>
       )}
       {item.diffFromPrev && <div className="mt-1 text-xs u-text-2">变更: {item.diffFromPrev}</div>}
@@ -131,7 +137,7 @@ export function DecisionChainCard({ item }: { item: DecisionChainGap }) {
   return (
     <div className="card p-4">
       <div className="flex items-center gap-2 mb-2">
-        <span>🔗</span>
+        <IconLink />
         <span className="font-medium u-text">{item.topic}</span>
         <span className="text-xs px-2 py-0.5 rounded u-surface-2 u-text-3">{item.category}</span>
         <span className="text-xs ml-auto u-text-3">{item.sourceType}</span>
@@ -152,7 +158,7 @@ export function InteractionPatternCard({ item }: { item: InteractionGap }) {
   return (
     <div className="card p-4">
       <div className="flex items-center gap-2 mb-2">
-        <span>📊</span>
+        <IconChart />
         <span className="font-medium u-text">{item.name}</span>
         <span className="text-xs px-2 py-0.5 rounded u-surface-2 u-text-3">{item.category}</span>
         <span className="text-xs ml-auto u-text-3">
@@ -160,7 +166,12 @@ export function InteractionPatternCard({ item }: { item: InteractionGap }) {
         </span>
       </div>
       <p className="text-sm mb-1 u-text">{item.description}</p>
-      {item.insight && <p className="text-sm u-accent">💡 {item.insight}</p>}
+      {item.insight && (
+        <p className="text-sm u-accent flex items-center gap-1">
+          <IconLightbulb size={14} className="flex-shrink-0" />
+          <span>{item.insight}</span>
+        </p>
+      )}
       {item.suggestion && <p className="text-xs u-text-2">建议: {item.suggestion}</p>}
     </div>
   );
@@ -189,7 +200,7 @@ export function ResolutionCard({ item }: { item: ResolutionGap }) {
   return (
     <div className="card p-4">
       <div className="flex items-center gap-2 mb-2">
-        <span>🔧</span>
+        <IconWrench />
         <span className="font-medium u-text">{item.title}</span>
         <span className={`text-xs px-2 py-0.5 rounded ${MATURITY_BADGE_CLASSES[item.status] || 'u-surface-2 u-text-3'}`}>{item.status}</span>
         <span className="text-xs px-2 py-0.5 rounded u-surface-2 u-text-3">

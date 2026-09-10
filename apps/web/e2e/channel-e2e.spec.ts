@@ -60,7 +60,7 @@ test.describe('Channel 列表页', () => {
 
   test('通知铃铛可见', async ({ page }) => {
     await goToChannelList(page);
-    await expect(page.locator('button:has-text("🔔")')).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('button[title="行动中心"]')).toBeVisible({ timeout: 10000 });
   });
 
   test('新建频道表单可展开', async ({ page }) => {
@@ -321,7 +321,7 @@ test.describe('通知中心', () => {
 
   test('通知铃铛点击打开下拉菜单', async ({ page }) => {
     await goToChannelList(page);
-    await page.locator('button:has-text("🔔")').click();
+    await page.locator('button[title="行动中心"]').click();
     await page.waitForTimeout(500);
     // 通知下拉应有内容或空状态
     const dropdown = page.locator('text=暂无通知').or(page.locator('text=通知'));

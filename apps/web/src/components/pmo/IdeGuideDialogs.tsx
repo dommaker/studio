@@ -1,7 +1,8 @@
 // IDE 指南弹窗（从 pages/ProjectDetailPage.tsx 抽取，工单 35-E4）：VS Code Remote SSH / Cloud IDE
 // 服务器地址走项目既有 vite env 配置通道（同 api/index.ts 的 VITE_API_URL 惯例）：
 // VITE_IDE_SSH_HOST / VITE_IDE_CLOUD_IDE_URL，缺省回退当前站点主机名，不再硬编码生产 IP。
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
+import { IconClipboard, IconCloud, IconLightbulb } from '../ui/icons';
 
 const sshHost = import.meta.env.VITE_IDE_SSH_HOST || `root@${window.location.hostname}`;
 const cloudIdeUrl = import.meta.env.VITE_IDE_CLOUD_IDE_URL || `http://${window.location.hostname}:8443`;
@@ -25,12 +26,14 @@ interface GuideStep { step: number; text: string }
 
 interface GuideDialogProps {
   title: string;
+  /** 标题前图标（批次 G-1：emoji → ui/icons SVG） */
+  icon: ReactNode;
   steps: GuideStep[];
   hint: string;
   onClose: () => void;
 }
 
-function GuideDialog({ title, steps, hint, onClose }: GuideDialogProps) {
+function GuideDialog({ title, icon, steps, hint, onClose }: GuideDialogProps) {
   const [copiedStep, setCopiedStep] = useState<number | null>(null);
 
   // 复制步骤
@@ -44,7 +47,7 @@ function GuideDialog({ title, steps, hint, onClose }: GuideDialogProps) {
     <div className="modal-overlay">
       <div className="modal" style={{ maxWidth: 448 }}>
         <div className="modal-header">
-          <h3 className="modal-title">{title}</h3>
+          <h3 className="modal-title flex items-center gap-2">{icon}{title}</h3>
         </div>
         <div className="modal-body space-y-3">
           {steps.map((step, i) => (
@@ -56,7 +59,10 @@ function GuideDialog({ title, steps, hint, onClose }: GuideDialogProps) {
               </button>
             </div>
           ))}
-          <div className="text-xs p-2 rounded u-accent-dim u-accent">{hint}</div>
+          <div className="text-xs p-2 rounded u-accent-dim u-accent flex items-center gap-1.5">
+            <IconLightbulb size={14} className="flex-shrink-0" />
+            <span>{hint}</span>
+          </div>
         </div>
         <div className="modal-footer">
           <button onClick={onClose} className="btn btn-secondary">关闭</button>
@@ -70,9 +76,10 @@ export function VscodeGuideDialog({ open, onClose }: { open: boolean; onClose: (
   if (!open) return null;
   return (
     <GuideDialog
-      title="📋 VS Code Remote SSH"
+      title="VS Code Remote SSH"
+      icon={<IconClipboard />}
       steps={vscodeSteps}
-      hint="💡 提示：连接成功后 File → Open Folder → 粘贴路径"
+      hint="提示：连接成功后 File → Open Folder → 粘贴路径"
       onClose={onClose}
     />
   );
@@ -82,9 +89,10 @@ export function CloudIdeGuideDialog({ open, onClose }: { open: boolean; onClose:
   if (!open) return null;
   return (
     <GuideDialog
-      title="☁️ Cloud IDE (浏览器中的 VS Code)"
+      title="Cloud IDE (浏览器中的 VS Code)"
+      icon={<IconCloud />}
       steps={cloudIdeSteps}
-      hint="💡 Cloud IDE 内置终端和浏览器预览"
+      hint="Cloud IDE 内置终端和浏览器预览"
       onClose={onClose}
     />
   );
