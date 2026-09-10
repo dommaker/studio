@@ -72,6 +72,7 @@ import {
 import { parseWuMetadata } from '../workunit/wu-metadata.js';
 import { parseSpecTasks } from './spec-materialization.js';
 import { postProjectMilestone } from './delivery-notify.js';
+import { createKeyedEnqueue } from './keyed-enqueue.js';
 
 // 兼容现有引用方（原定义已移至 evidence-summary.ts 共享口径）
 export { parseWuMetaPmoId };
@@ -268,19 +269,9 @@ export async function syncProjectProgressByReqId(reqId: string, fileStore?: File
  * 同一项目的回写串行化：status_changed 事件是 fire-and-forget，相邻两次迁移
  * （如 WU in_review → done）会并发触发回写——不串行时慢到的 in_review 写可能
  * 覆盖先到的 completed。按 projectId 链式排队，前序失败不阻断后续。
+ * （共享实现 keyed-enqueue，原 syncChains 拷贝收口）
  */
-const syncChains = new Map<string, Promise<void>>();
-
-function enqueueProjectSync(projectId: string, task: () => Promise<void>): Promise<void> {
-  const run = (syncChains.get(projectId) ?? Promise.resolve())
-    .catch(() => { /* 前序失败不阻断后续 */ })
-    .then(task);
-  syncChains.set(projectId, run);
-  // 链尾回收，避免 Map 随项目数无限增长
-  const cleanup = () => { if (syncChains.get(projectId) === run) syncChains.delete(projectId); };
-  run.then(cleanup, cleanup);
-  return run;
-}
+const enqueueProjectSync = createKeyedEnqueue();
 
 /** #282：progress 分子唯一口径 = WU 完成管道的 workFinished（存储态 done/closed），两处 progress 计算共用 */
 function isWorkFinished(s: EvidenceWuInput): boolean {

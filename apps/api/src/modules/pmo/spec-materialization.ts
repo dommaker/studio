@@ -31,6 +31,7 @@ import { WorkUnitService, type WorkUnitData, type WorkUnitMetadata } from '../wo
 import { parseWuMetadata } from '../workunit/wu-metadata.js';
 import { ChannelMessageService } from '../channels/channel-message.service.js';
 import { projectService, resolveDeliveries, type ProjectData } from './project.service.js';
+import { createKeyedEnqueue } from './keyed-enqueue.js';
 
 /** 物化任务条数上限（照 MAP_OPENING_FOG_MAX 先例防刷屏） */
 export const SPEC_TASKS_MAX = 12;
@@ -141,18 +142,8 @@ export class SpecMaterialization {
     await this.enqueue(pmoId || wuId, () => this.materialize(fresh, meta));
   }
 
-  /** 同 PMO 的物化串行化（照 decision-resolution 链式排队，前序失败不阻断后续） */
-  private chains = new Map<string, Promise<void>>();
-
-  private enqueue(key: string, task: () => Promise<void>): Promise<void> {
-    const run = (this.chains.get(key) ?? Promise.resolve())
-      .catch(() => { /* 前序失败不阻断后续 */ })
-      .then(task);
-    this.chains.set(key, run);
-    const cleanup = () => { if (this.chains.get(key) === run) this.chains.delete(key); };
-    run.then(cleanup, cleanup);
-    return run;
-  }
+  /** 同 PMO 的物化串行化（共享实现 keyed-enqueue，前序失败不阻断后续） */
+  private readonly enqueue = createKeyedEnqueue();
 
   private async materialize(wu: WorkUnitData, meta: WorkUnitMetadata): Promise<void> {
     const tasks = parseSpecTasks(meta.attestations?.l3?.summary ?? '');

@@ -35,6 +35,7 @@ import { WorkUnitService, type WorkUnitData, type WorkUnitMetadata } from '../wo
 import { parseWuMetadata } from '../workunit/wu-metadata.js';
 import { ChannelMessageService } from '../channels/channel-message.service.js';
 import { projectService, type PmoMap, type ProjectData } from './project.service.js';
+import { createKeyedEnqueue } from './keyed-enqueue.js';
 
 /** 开图 fog 条数上限（照 ANALYSIS_TASKS_MAX 先例防刷屏） */
 export const MAP_OPENING_FOG_MAX = 12;
@@ -114,18 +115,8 @@ export class MapOpening {
     await this.enqueue(pmoId, () => this.openMap(pmoId, destination, fog, fresh, meta));
   }
 
-  /** 同 PMO 的 map 写串行化（照 decision-resolution 链式排队，前序失败不阻断后续） */
-  private chains = new Map<string, Promise<void>>();
-
-  private enqueue(projectId: string, task: () => Promise<void>): Promise<void> {
-    const run = (this.chains.get(projectId) ?? Promise.resolve())
-      .catch(() => { /* 前序失败不阻断后续 */ })
-      .then(task);
-    this.chains.set(projectId, run);
-    const cleanup = () => { if (this.chains.get(projectId) === run) this.chains.delete(projectId); };
-    run.then(cleanup, cleanup);
-    return run;
-  }
+  /** 同 PMO 的 map 写串行化（共享实现 keyed-enqueue，前序失败不阻断后续） */
+  private readonly enqueue = createKeyedEnqueue();
 
   private async openMap(
     projectId: string,

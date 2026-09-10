@@ -33,6 +33,7 @@ import { resumeWaitingWorkUnit } from '../workunit/waiting-input.js';
 import { postWuSystemMessage } from '../workunit/wu-messenger.js';
 import { projectService, type PmoMap } from './project.service.js';
 import { MAP_OPENING_FOG_MAX } from './map-opening.js';
+import { createKeyedEnqueue } from './keyed-enqueue.js';
 
 /** 载荷校验失败（路由转 400） */
 export class PlanRulingError extends Error {}
@@ -198,15 +199,5 @@ async function writeRulingsToMap(
   await projectService.update(projectId, { map: { ...base, fog, decisions } });
 }
 
-/** 同 PMO 的 map 写串行化（照 decision-resolution 链式排队，前序失败不阻断后续） */
-const chains = new Map<string, Promise<void>>();
-
-function enqueue(projectId: string, task: () => Promise<void>): Promise<void> {
-  const run = (chains.get(projectId) ?? Promise.resolve())
-    .catch(() => { /* 前序失败不阻断后续 */ })
-    .then(task);
-  chains.set(projectId, run);
-  const cleanup = () => { if (chains.get(projectId) === run) chains.delete(projectId); };
-  run.then(cleanup, cleanup);
-  return run;
-}
+/** 同 PMO 的 map 写串行化（共享实现 keyed-enqueue，前序失败不阻断后续） */
+const enqueue = createKeyedEnqueue();

@@ -26,6 +26,7 @@ import { eventBus, logger, type FileStore } from '@dommaker/studio-shared';
 import { WorkUnitService, type WorkUnitData, type WorkUnitMetadata } from '../workunit/workunit.service.js';
 import { parseWuMetadata } from '../workunit/wu-metadata.js';
 import { projectService, type ProjectData, type PmoMap } from './project.service.js';
+import { createKeyedEnqueue } from './keyed-enqueue.js';
 
 export class DecisionResolution {
   private subscribed = false;
@@ -90,18 +91,8 @@ export class DecisionResolution {
     await this.enqueue(pmoId, () => this.resolve(pmoId, fogId, fresh, meta));
   }
 
-  /** 同 PMO 的 map 写串行化（照 progress-rollup 链式排队，前序失败不阻断后续） */
-  private chains = new Map<string, Promise<void>>();
-
-  private enqueue(projectId: string, task: () => Promise<void>): Promise<void> {
-    const run = (this.chains.get(projectId) ?? Promise.resolve())
-      .catch(() => { /* 前序失败不阻断后续 */ })
-      .then(task);
-    this.chains.set(projectId, run);
-    const cleanup = () => { if (this.chains.get(projectId) === run) this.chains.delete(projectId); };
-    run.then(cleanup, cleanup);
-    return run;
-  }
+  /** 同 PMO 的 map 写串行化（共享实现 keyed-enqueue，前序失败不阻断后续） */
+  private readonly enqueue = createKeyedEnqueue();
 
   private async resolve(projectId: string, fogId: string, wu: WorkUnitData, meta: WorkUnitMetadata): Promise<void> {
     const project = await projectService.get(projectId);
