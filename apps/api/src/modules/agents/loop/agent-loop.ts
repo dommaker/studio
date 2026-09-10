@@ -170,7 +170,7 @@ export class AgentLoop {
     // W-4 fix + F3: parse channels from role.channels JSON（容错历史双重编码值）
     this.myChannels = parseChannels(role.channels);
     // §9.6: 执行面走 Executor 接口。远程节点方向已放弃（origin/master bdaf0dd3：生产无
-    // nodeId profile、无 WS 客户端活路径），统一 LocalExecutor；profile.nodeId 仅为数据兼容保留。
+    // nodeId profile、无 WS 客户端活路径），统一 LocalExecutor；profile.nodeId 字段已随之删除。
     this.executor = new LocalExecutor();
     // #209 smell 4：租约/fencing 三件套迁 ./wu-lease.js，AgentLoop 只注入依赖 + 委托
     this.wuLease = new WuLeaseTracker({

@@ -50,8 +50,6 @@ export interface AgentTask {
   silenceKillMs?: number;
   /** #171: 静默 warn 观测回调（仅 LocalExecutor 同进程有意义；异常被吞） */
   onSilenceWarn?: (silentMs: number) => void;
-  /** §9.6 P1: 远程节点 ID。undefined/'local' → LocalExecutor，否则 RemoteExecutor。 */
-  nodeId?: string;
 }
 
 // ─── Analyst 产出上下文（经 task.parameters 传入 executor） ───
