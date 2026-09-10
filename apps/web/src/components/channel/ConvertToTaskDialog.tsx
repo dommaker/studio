@@ -105,24 +105,24 @@ export function ConvertToTaskDialog({ open, onClose, messageId, channelId, messa
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-content" style={{ maxWidth: 480 }} onClick={e => e.stopPropagation()}>
-        <h2 className="modal-title" style={{ marginBottom: 12 }}>转为任务</h2>
+        <h2 className="modal-title mb-3">转为任务</h2>
 
         {/* Source message preview */}
-        <div className="mc-quote" style={{ marginBottom: 12 }}>
+        <div className="mc-quote u-mb-3">
           {messageContent}
         </div>
 
         {loading && (
-          <div className="mc-drawer-note" style={{ textAlign: 'center', marginBottom: 12 }}>正在获取建议...</div>
+          <div className="mc-drawer-note u-mb-3 text-center">正在获取建议...</div>
         )}
 
         {error && (
-          <div className="mc-status mc-status-error" style={{ display: 'flex', marginBottom: 12, padding: '6px 10px' }}>{error}</div>
+          <div className="mc-error-banner">{error}</div>
         )}
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div className="flex flex-col gap-2.5">
           <div>
-            <label className="mc-card-label" style={{ display: 'block', marginBottom: 4 }}>标题</label>
+            <label className="mc-card-label block mb-1">标题</label>
             <input
               type="text"
               value={title}
@@ -133,18 +133,18 @@ export function ConvertToTaskDialog({ open, onClose, messageId, channelId, messa
             />
           </div>
           <div>
-            <label className="mc-card-label" style={{ display: 'block', marginBottom: 4 }}>描述</label>
+            <label className="mc-card-label block mb-1">描述</label>
             <textarea
               value={description}
               onChange={e => setDescription(e.target.value)}
               placeholder="任务描述"
               rows={3}
-              className="input"
-              style={{ width: '100%', resize: 'none' }}
+              className="input resize-none"
+              style={{ width: '100%' }}
             />
           </div>
           <div>
-            <label className="mc-card-label" style={{ display: 'block', marginBottom: 4 }}>分配给</label>
+            <label className="mc-card-label block mb-1">分配给</label>
             <Select
               value={assigneeId}
               onChange={setAssigneeId}
@@ -157,7 +157,7 @@ export function ConvertToTaskDialog({ open, onClose, messageId, channelId, messa
             />
           </div>
           <div>
-            <label className="mc-card-label" style={{ display: 'block', marginBottom: 4 }}>项目</label>
+            <label className="mc-card-label block mb-1">项目</label>
             <Select
               value={projectPath}
               onChange={setProjectPath}
@@ -171,7 +171,7 @@ export function ConvertToTaskDialog({ open, onClose, messageId, channelId, messa
           </div>
         </div>
 
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
+        <div className="flex justify-end gap-2 mt-4">
           <button onClick={onClose} className="mc-btn">
             取消
           </button>

@@ -140,7 +140,7 @@ export const ChannelMemberManager: React.FC<ChannelMemberManagerProps> = ({ chan
   };
 
   return (
-    <div style={{ position: 'relative' }} ref={panelRef}>
+    <div className="relative" ref={panelRef}>
       <button
         onClick={() => setIsOpen(!isOpen)}
         className={triggerClassName ?? 'mc-btn'}
@@ -151,23 +151,23 @@ export const ChannelMemberManager: React.FC<ChannelMemberManagerProps> = ({ chan
 
       {isOpen && (
         <div className="mc-mention-popup" style={{ left: 'auto', right: 0, bottom: 'auto', top: '100%', marginTop: 4, width: 288, maxHeight: 'none' }}>
-          <div className="border-b u-border" style={{ padding: '8px 10px' }}>
-            <h3 className="mc-card-body" style={{ fontWeight: 600 }}>频道成员</h3>
+          <div className="border-b u-border py-2 px-2.5">
+            <h3 className="mc-card-body font-semibold">频道成员</h3>
             {memberCount === 0 && (
               <p className="mc-drawer-note">空 = 所有 Agent 可见</p>
             )}
           </div>
 
           {/* Current members */}
-          <div style={{ maxHeight: 160, overflowY: 'auto', padding: '4px 6px' }}>
+          <div className="max-h-40 overflow-y-auto py-1 px-1.5">
             {members.length === 0 && memberCount === 0 && (
               /* #290（清单 #25）：空成员三处文案统一口径「空 = 所有 Agent 可见」（按钮 All / 说明 / 空态） */
-              <p className="mc-drawer-note" style={{ textAlign: 'center', padding: '8px 0' }}>未配置成员（空 = 所有 Agent 可见）</p>
+              <p className="mc-drawer-note text-center py-2">未配置成员（空 = 所有 Agent 可见）</p>
             )}
             {members.map((m) => (
-              <div key={m.id} className="mc-mention-item" style={{ justifyContent: 'space-between' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-                  <span style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis' }}>@{m.name}</span>
+              <div key={m.id} className="mc-mention-item justify-between">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="font-semibold overflow-hidden text-ellipsis">@{m.name}</span>
                   {m.lastError && (
                     <span className="mc-status mc-status-error" title={m.lastError}>! 不可用</span>
                   )}
@@ -188,8 +188,8 @@ export const ChannelMemberManager: React.FC<ChannelMemberManagerProps> = ({ chan
 
           {/* Add existing agent */}
           {availableAgents.length > 0 && (
-            <div className="border-t u-border" style={{ padding: '4px 6px' }}>
-              <p className="mc-drawer-note" style={{ padding: '0 4px' }}>添加 Agent</p>
+            <div className="border-t u-border py-1 px-1.5">
+              <p className="mc-drawer-note px-1">添加 Agent</p>
               {availableAgents.map((a) => (
                 <button
                   key={a.id}
@@ -204,9 +204,9 @@ export const ChannelMemberManager: React.FC<ChannelMemberManagerProps> = ({ chan
           )}
 
           {/* Create new agent */}
-          <div className="border-t u-border" style={{ padding: 8 }}>
+          <div className="border-t u-border p-2">
             {showCreateForm ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <div className="flex flex-col gap-1.5">
                 <input
                   type="text"
                   value={newAgentName}
@@ -234,21 +234,19 @@ export const ChannelMemberManager: React.FC<ChannelMemberManagerProps> = ({ chan
                   disabled={creating}
                 />
                 {createError && (
-                  <p className="mc-drawer-note" style={{ color: 'var(--error)', margin: 0 }}>{createError}</p>
+                  <p className="u-err text-sm m-0">{createError}</p>
                 )}
-                <div style={{ display: 'flex', gap: 6 }}>
+                <div className="flex gap-1.5">
                   <button
                     onClick={handleCreateAgent}
-                    className="mc-btn mc-btn-primary"
-                    style={{ flex: 1 }}
+                    className="mc-btn mc-btn-primary flex-1"
                     disabled={!newAgentName.trim() || !newAgentProvider || creating}
                   >
                     {creating ? '创建中…' : '创建并加入频道'}
                   </button>
                   <button
                     onClick={() => { setShowCreateForm(false); setNewAgentName(''); setNewAgentDesc(''); setProviderOverride(''); setCreateError(null); }}
-                    className="mc-btn"
-                    style={{ flex: 1 }}
+                    className="mc-btn flex-1"
                     disabled={creating}
                   >
                     取消
@@ -258,8 +256,7 @@ export const ChannelMemberManager: React.FC<ChannelMemberManagerProps> = ({ chan
             ) : (
               <button
                 onClick={() => setShowCreateForm(true)}
-                className="mc-icon-btn"
-                style={{ opacity: 1, width: '100%', textAlign: 'center', color: 'var(--accent-primary)' }}
+                className="mc-icon-btn u-accent w-full text-center"
               >
                 + 创建新 Agent
               </button>

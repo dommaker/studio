@@ -121,11 +121,11 @@ export function FirstRoleSetupModal({ open, onClose, onCreate, onJoinChannel }: 
             <button className="modal-close" onClick={onClose} aria-label="关闭">×</button>
           </div>
           <div className="modal-body">
-            <p className="u-text-2" style={{ margin: '0 0 12px', fontSize: 'var(--fs-sm)' }}>
+            <p className="u-text-2 text-sm mb-3">
               @{createdRole.name} 已创建。角色要加入频道才能接收任务和 @ 消息——把它加入 #研发 频道就可以开始派活了。
             </p>
             {joinError && (
-              <p className="u-text-2" style={{ margin: '0 0 12px', fontSize: 'var(--fs-sm)', color: 'var(--error)' }}>
+              <p className="u-err text-sm mb-3">
                 {joinError}
               </p>
             )}
@@ -154,10 +154,10 @@ export function FirstRoleSetupModal({ open, onClose, onCreate, onJoinChannel }: 
           <button className="modal-close" onClick={handleDismiss} aria-label="关闭">×</button>
         </div>
         <div className="modal-body">
-          <p className="u-text-2" style={{ margin: '0 0 12px', fontSize: 'var(--fs-sm)' }}>
+          <p className="u-text-2 text-sm mb-3">
             Agent Network 需要至少一个角色才能接收任务。请创建你的第一个角色。
           </p>
-          <div style={{ marginBottom: '12px' }}>
+          <div className="mb-3">
             <label htmlFor="first-role-name" className="u-text" style={{ display: 'block', marginBottom: '4px', fontSize: 'var(--fs-sm)', fontWeight: 500 }}>名称</label>
             <input
               id="first-role-name"
@@ -171,7 +171,7 @@ export function FirstRoleSetupModal({ open, onClose, onCreate, onJoinChannel }: 
               autoFocus
             />
           </div>
-          <div style={{ marginBottom: '12px' }}>
+          <div className="mb-3">
             <label htmlFor="first-role-desc" className="u-text" style={{ display: 'block', marginBottom: '4px', fontSize: 'var(--fs-sm)', fontWeight: 500 }}>描述（可选）</label>
             <input
               id="first-role-desc"
@@ -195,7 +195,7 @@ export function FirstRoleSetupModal({ open, onClose, onCreate, onJoinChannel }: 
               data-testid="first-role-provider"
             />
             {noneDetected && (
-              <p className="u-text-2" style={{ margin: '6px 0 0', fontSize: 'var(--fs-sm)' }}>
+              <p className="u-text-2 text-sm mt-1.5">
                 未在服务器上检测到已安装的 CLI，请确认安装后再选择。
               </p>
             )}

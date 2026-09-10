@@ -510,6 +510,21 @@
 .mc-status-pending { color: var(--text-secondary); border-color: var(--border-default); }
 .mc-status-error { color: var(--error); border-color: var(--error-border); background: var(--error-dim); }
 
+/* 批次 D-4 内联收敛：弹框内错误横幅 = mc-status-error 语义色的块级形态（ConvertToTaskDialog 正本消费） */
+.mc-error-banner {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-bottom: var(--space-3);
+  padding: 6px 10px;
+  font-size: var(--fs-xs);
+  color: var(--error);
+  background: var(--error-dim);
+  border: 1px solid var(--error-border);
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
 /* WorkUnit / REQ 链接 chip（点击开右抽屉） */
 .mc-wu-link {
   /* #239: footer 直跳链接可读性——fs-xs→fs-sm，padding 加大 */
@@ -1375,6 +1390,9 @@ button.mc-act-step:hover { background: var(--bg-hover); }
 .u-text { color: var(--text-primary); }
 .u-text-2 { color: var(--text-secondary); }
 .u-text-3 { color: var(--text-muted); }
+/* 批次 D-4：下间距工具类。Tailwind 工具类在 utilities 层、压不过本文件未分层 mc-* 类自带的 margin
+   （如 mc-quote/mc-drawer-note），需要覆盖组件类默认下间距时用；= --space-3(12)，ConvertToTaskDialog 正本消费 */
+.u-mb-3 { margin-bottom: var(--space-3); }
 /* 整卡置灰弱化（#116：依赖未了结的不可认领任务单卡） */
 .u-dimmed { opacity: 0.55; }
 .u-border { border-color: var(--border-subtle); }
