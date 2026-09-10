@@ -1,6 +1,6 @@
 // PMO-a: 新建 PMO 表单测试（打开 → 填写 → 提交断言参数 → 列表刷新）
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
 const { mockGet, mockPost, mockChannelList, mockCreate, mockDiscoverProjects, mockProjectList } = vi.hoisted(() => ({
@@ -174,7 +174,7 @@ describe('PMO-a: 新建 PMO 表单', () => {
     expect(mockCreate).not.toHaveBeenCalled();
   });
 
-  it('空态文案指向新建 PMO 按钮', async () => {
+  it('D-3 项1：零项目空态 = 说明 + 主行动按钮，点击就地开新建弹窗', async () => {
     mockProjectList.mockResolvedValue({ data: { data: [] } });
     mockGet.mockImplementation((url: string) => {
       if (url.includes('/companies')) return Promise.resolve({ data: { data: [{ id: 'co-1' }] } });
@@ -184,8 +184,12 @@ describe('PMO-a: 新建 PMO 表单', () => {
     renderPMO();
 
     await waitFor(() => {
-      expect(screen.getByText('暂无项目，点击上方「新建 PMO」创建')).toBeTruthy();
+      expect(screen.getByText('暂无项目')).toBeTruthy();
     });
+    // 空态内主行动按钮 → 打开 CreateProjectDialog（与「+ 新建 PMO」虚线块同一入口）
+    const empty = screen.getByText('暂无项目').closest('.empty-state') as HTMLElement;
+    fireEvent.click(within(empty).getByRole('button', { name: '新建 PMO' }));
+    expect(screen.getByPlaceholderText('项目标题')).toBeTruthy();
   });
 
   it('#434：路由不传 companyId prop 时，创建 OKR 用页面解析出的 companyId（不再走 localStorage）', async () => {

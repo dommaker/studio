@@ -16,6 +16,9 @@ export interface StateItem {
   scope: string;
   channelId: string | null;
   waitingQuestion?: string;
+  /** D-2（reply 深链）：触发 waitingForInput 的提问消息 id（后端派生，口径 = 频道页 chip
+   *  「当前提问消息」）；缺省时跳频道不拼 ?highlight=（fail-closed） */
+  messageId?: string;
   since: string;
 }
 

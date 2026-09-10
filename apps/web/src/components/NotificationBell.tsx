@@ -4,11 +4,24 @@
 // 数据源与已读动作住 stores/notificationStore（读态跨组件共享：频道页进页 markChannelRead）。
 // SSE 只作失效触发：channel.message_sent atHuman / workunit.status_changed → 重拉；
 // 断线重连重拉（#415 模式保留）；通知点击跳转优先级 wuId > 频道(?highlight=) > PMO。
-import { useState, useCallback, useRef, useEffect } from 'react';
+// D-2 交互效率第一轮（docs/plans/2026-09-ui-interaction-polish.md）：
+// ① reply 深链——StateItem.messageId 存在时跳频道带 ?highlight= 直达提问消息（缺失 fail-closed 不拼参数）；
+// ② review/confirm 就地化——点击开 WorkUnitDrawer 覆盖当前页（本组件自挂 drawer 实例，lazy 加载，
+//    与频道页/列表页 drawer 互不共享状态），↗ 详情页深链入口在抽屉内；
+// ③ 下一个待办——闸门动作成功（当前 WU 掉出 stateItems 池）后抽屉内给「下一个 →」同池导航；
+//    reply 线在频道页处理，经 toast 行动按钮导航下一条；池空 → 收口文案。
+import { useState, useCallback, useRef, useEffect, lazy, Suspense } from 'react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useWebSocketContext } from '../api/websocketHooks';
 import { useNotificationStore, type Notification, type StateItem } from '../stores/notificationStore';
+import { toast } from '../utils/toast';
+import type { DrawerState } from './channel/WorkUnitDrawer';
+
+// D-2 项2：抽屉懒加载——TopNav 全站常驻，不把 WorkUnitDrawer 依赖树打进主包
+const WorkUnitDrawer = lazy(() =>
+  import('./channel/WorkUnitDrawer').then(m => ({ default: m.WorkUnitDrawer })),
+);
 
 /** channel.message_sent SSE payload（服务端 shapeMessageData 已把 meta 解析为对象） */
 interface ChannelMessageSentData {
@@ -33,6 +46,8 @@ export function NotificationBell() {
   const markRead = useNotificationStore(s => s.markRead);
   const markAllRead = useNotificationStore(s => s.markAllRead);
   const [open, setOpen] = useState(false);
+  // D-2 项2：review/confirm 就地抽屉状态（本组件自挂 drawer 实例，全站任意页可开）
+  const [drawer, setDrawer] = useState<DrawerState>(null);
   const { onEvent, onReconnect } = useWebSocketContext();
   const dropdownRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
@@ -111,12 +126,43 @@ export function NotificationBell() {
     return () => document.removeEventListener('mousedown', handler);
   }, [open]);
 
-  // 点状态派生项（无已读概念）：待回复优先跳频道（频道页 chip 提供定位），其余跳 WU 详情
+  // D-2 项3（reply 线）：追踪点击过的 reply 项，掉出池后给「下一个」（effect 在下方）
+  const handledReplyRef = useRef<string | null>(null);
+
+  // 点状态派生项（无已读概念）：
+  // D-2 项1：待回复跳频道，messageId 存在时带 ?highlight= 直达提问消息（缺失 fail-closed 不拼参数）；
+  // D-2 项2：待验收/待确认就地开抽屉（覆盖当前页），不再整页跳 /workunits/:id
   const openStateItem = useCallback((item: StateItem) => {
-    if (item.kind === 'reply' && item.channelId) navigate(`/channels/${item.channelId}`);
-    else navigate(`/workunits/${item.wuId}`);
+    if (item.kind === 'reply') {
+      handledReplyRef.current = item.wuId; // D-2 项3：追踪本次点击，掉出池后给「下一个」
+      if (item.channelId) {
+        navigate(`/channels/${item.channelId}${item.messageId ? `?highlight=${encodeURIComponent(item.messageId)}` : ''}`);
+      } else {
+        navigate(`/workunits/${item.wuId}`);
+      }
+    } else {
+      setDrawer({ kind: 'wu', id: item.wuId });
+    }
     setOpen(false);
   }, [navigate]);
+
+  // D-2 项3（reply 线）：点击过的 reply 项从 stateItems 掉出 = 已处理（状态派生、状态变即消）——
+  // 还有剩余 reply 就 toast 给「下一个 →」导航（跳下一条所在频道），清空则收口文案
+  useEffect(() => {
+    const handled = handledReplyRef.current;
+    if (!handled) return;
+    const replies = stateItems.filter(i => i.kind === 'reply');
+    if (replies.some(i => i.wuId === handled)) return; // 还在池里，未处理完
+    handledReplyRef.current = null;
+    const next = replies[0];
+    if (!next) {
+      toast.success('待回复都处理完了 ✓');
+      return;
+    }
+    toast.success(`已处理，还剩 ${replies.length} 条待回复`, {
+      action: { label: '下一个 →', onClick: () => openStateItem(next) },
+    });
+  }, [stateItems, openStateItem]);
 
   // 点通知本体：标记已读（store 动作内含后端同步），跳转优先级 WU 详情 > 频道（?highlight= 直达消息）> PMO
   const openNotification = useCallback((n: Notification) => {
@@ -161,7 +207,19 @@ export function NotificationBell() {
     </div>
   );
 
+  // D-2 项3（review/confirm 线）：抽屉内当前 WU 掉出待办池 = 闸门动作已成功（SSE 触发重拉后
+  // 状态派生项消失）→ 给抽屉传「下一个 →」同池导航（不关抽屉换 WU）；池空 → 抽屉内收口文案
+  const drawerWuId = drawer?.kind === 'wu' ? drawer.id : null;
+  const gatePool = stateItems.filter(i => i.kind === 'review' || i.kind === 'confirm');
+  const todoNav = drawerWuId && !stateItems.some(i => i.wuId === drawerWuId)
+    ? {
+        next: gatePool[0] ? { wuId: gatePool[0].wuId, label: gatePool[0].scope } : null,
+        onOpenNext: (wuId: string) => setDrawer({ kind: 'wu', id: wuId }),
+      }
+    : undefined;
+
   return (
+    <>
     <div className="relative" ref={dropdownRef}>
       <button
         onClick={() => setOpen(!open)}
@@ -252,5 +310,22 @@ export function NotificationBell() {
         </div>
       )}
     </div>
+
+    {/* D-2 项2：行动中心就地抽屉（自挂实例 + fixed 覆盖宿主，与频道页/列表页 drawer
+        状态机完全隔离；仅打开时挂载——空 host div 不进 TopNav 工具栏 flex 占位） */}
+    {drawer && (
+      <Suspense fallback={null}>
+        <div className="ac-drawer-host">
+          <WorkUnitDrawer
+            drawer={drawer}
+            onClose={() => setDrawer(null)}
+            onOpenWu={(id) => setDrawer({ kind: 'wu', id })}
+            onOpenReq={(id) => setDrawer({ kind: 'req', id })}
+            {...(todoNav ? { todoNav } : {})}
+          />
+        </div>
+      </Suspense>
+    )}
+    </>
   );
 }

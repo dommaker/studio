@@ -35,6 +35,8 @@ const mockStore = {
   loadUnattributedCount: vi.fn(),
   unattributedOnly: false,
   unattributedTotal: null as number | null,
+  searchQuery: null as string | null,
+  setSearchQuery: vi.fn(),
 };
 
 vi.mock('../../stores/workunitStore', () => ({
@@ -48,6 +50,8 @@ vi.mock('../../stores/workunitStore', () => ({
         statusFilter: mockStore.statusFilter,
         unattributedOnly: mockStore.unattributedOnly,
         unattributedTotal: mockStore.unattributedTotal,
+        searchQuery: mockStore.searchQuery,
+        setSearchQuery: mockStore.setSearchQuery,
         loadWorkUnits: mockStore.loadWorkUnits,
         loadMoreWorkUnits: mockStore.loadMoreWorkUnits,
         createWorkUnit: mockStore.createWorkUnit,
@@ -571,6 +575,56 @@ describe('WorkUnitListPage — 行形态与抽屉（Step 2 / E2-1）', () => {
   });
 });
 
+// 批次 D-1.6（docs/plans/2026-09-ui-interaction-polish.md）：「待人工」行级提权 ——
+// needsHuman（in_review ‖ done 缺 l3，与统计 chip 同口径）行加 wu-row-human 类，
+// 视觉（warning-dim 底色 + hover 提亮）在 workunits.css
+describe('WorkUnitListPage — 待人工行级提权（D-1.6）', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockStore.workunits = [];
+    mockStore.statusFilter = null;
+    mockSearchParamsValue.value = '';
+  });
+
+  const rowClass = (scope: string) =>
+    (screen.getByText(scope).closest('.wu-row') as HTMLElement).className;
+
+  it('in_review 行 → wu-row-human（待人工提权）', () => {
+    mockStore.workunits = [makeWu({ id: 'wu-h1', scope: '待验收的活', status: 'in_review' })];
+    render(<WorkUnitListPage />);
+    expect(rowClass('待验收的活')).toContain('wu-row-human');
+  });
+
+  it('done 缺 l3（证据已介入）行 → wu-row-human；done 有 l3 行不提权', () => {
+    const att = (l3: boolean) => JSON.stringify({
+      attestations: {
+        l1: { verdict: 'approved', by: 'dev', at: 't', kind: 'verify' },
+        l2: { verdict: 'approved', by: 'rev', at: 't', kind: 'agent-review' },
+        ...(l3 ? { l3: { verdict: 'approved', by: 'human', at: 't', kind: 'human-accept' } } : {}),
+      },
+    });
+    mockStore.workunits = [
+      makeWu({ id: 'wu-h2', scope: '缺人工验收的活', status: 'done', metadata: att(false) }),
+      makeWu({ id: 'wu-h3', scope: '已人工验收的活', status: 'done', metadata: att(true) }),
+    ];
+    render(<WorkUnitListPage />);
+    expect(rowClass('缺人工验收的活')).toContain('wu-row-human');
+    expect(rowClass('已人工验收的活')).not.toContain('wu-row-human');
+  });
+
+  it('其他状态行不提权（active / pending / unassigned）', () => {
+    mockStore.workunits = [
+      makeWu({ id: 'wu-h4', scope: '进行中的活', status: 'active' }),
+      makeWu({ id: 'wu-h5', scope: '待确认的活', status: 'pending' }),
+      makeWu({ id: 'wu-h6', scope: '待领取的活', status: 'unassigned' }),
+    ];
+    render(<WorkUnitListPage />);
+    for (const scope of ['进行中的活', '待确认的活', '待领取的活']) {
+      expect(rowClass(scope)).not.toContain('wu-row-human');
+    }
+  });
+});
+
 // 批次A 项4 → E2-4：行闸门按钮三处合一为 WuGateActions——pending 锁存 + 失败内联错误（原 toast 统一为内联，方案「文案与视觉唯一」）；
 // handleCreate 失败内联错误不变
 describe('WorkUnitListPage — 行闸门反馈兜底（批次A 项4 / E2-4）', () => {
@@ -752,5 +806,61 @@ describe('WorkUnitListPage — 统计 chip 语义与口径（#472）', () => {
     mockStore.statusFilter = 'active';
     render(<WorkUnitListPage />);
     expect(screen.getByText(/计数口径/)).toBeTruthy();
+  });
+});
+
+// 批次 D-2 项4（docs/plans/2026-09-ui-interaction-polish.md）：页头标题搜索框 ——
+// 300ms 防抖进 store（参考 LibraryPage 防抖先例），store 走服务端 q 过滤；搜索态 chip 行标注计数口径
+describe('WorkUnitListPage — 标题搜索（批次 D-2 项4）', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockStore.workunits = [];
+    mockStore.total = null;
+    mockStore.statusFilter = null;
+    mockStore.searchQuery = null;
+    mockSearchParamsValue.value = '';
+  });
+
+  it('页头渲染搜索输入框（.input + aria-label）', () => {
+    render(<WorkUnitListPage />);
+    const input = screen.getByLabelText('搜索任务标题');
+    expect(input.className).toContain('input');
+    expect(input.getAttribute('placeholder')).toContain('搜索任务标题');
+  });
+
+  it('输入 300ms 防抖后 → setSearchQuery(trimmed)；防抖窗口内不触发', () => {
+    vi.useFakeTimers();
+    try {
+      render(<WorkUnitListPage />);
+      fireEvent.change(screen.getByLabelText('搜索任务标题'), { target: { value: '  登录  ' } });
+      expect(mockStore.setSearchQuery).not.toHaveBeenCalled();
+      act(() => { vi.advanceTimersByTime(300); });
+      expect(mockStore.setSearchQuery).toHaveBeenCalledWith('登录');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('清空输入 → setSearchQuery(null)（恢复未搜索列表）', () => {
+    vi.useFakeTimers();
+    try {
+      render(<WorkUnitListPage />);
+      const input = screen.getByLabelText('搜索任务标题');
+      fireEvent.change(input, { target: { value: '登录' } });
+      act(() => { vi.advanceTimersByTime(300); });
+      fireEvent.change(input, { target: { value: '' } });
+      act(() => { vi.advanceTimersByTime(300); });
+      expect(mockStore.setSearchQuery).toHaveBeenLastCalledWith(null);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('搜索激活（store.searchQuery 非空）→ chip 行标注计数口径（#472 防数字撒谎）', () => {
+    mockStore.workunits = [makeWu({ id: 'wu-s1', status: 'active' })];
+    mockStore.total = 1;
+    mockStore.searchQuery = '登录';
+    render(<WorkUnitListPage />);
+    expect(screen.getByText(/计数口径/).textContent).toContain('1/1');
   });
 });

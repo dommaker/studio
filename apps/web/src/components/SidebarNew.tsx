@@ -52,21 +52,11 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
       key={item.to}
       to={item.to}
       onClick={() => handleNavClick()}
-      className={`flex items-center gap-3 px-3 py-2 rounded-lg transition-all`}
-      style={{
-        background: isActive(item.to)
-          ? 'var(--accent-dim)'
-          : 'transparent',
-        border: isActive(item.to) ? '1px solid var(--accent-primary)' : '1px solid transparent',
-      }}
+      className={`nav-item${isActive(item.to) ? ' nav-item-active' : ''}`}
     >
       {/* #474：emoji 图标 → stroke SVG（currentColor 随 active 态文本色） */}
       <item.Icon size={18} />
-      <span className="font-medium" style={{
-        color: isActive(item.to) ? 'var(--accent-primary)' : 'var(--text-primary)'
-      }}>
-        {item.label}
-      </span>
+      <span className="font-medium">{item.label}</span>
       {/* #474：监控临时项的待处理计数徽标（仅监控项挂载，unreadCount>0 才渲染本项） */}
       {item.to === '/monitoring' && (
         <span
@@ -82,27 +72,12 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
   return (
     <aside
       className={`sidebar ${isOpen ? 'sidebar-open' : ''}`}
-      style={{
-        background: 'var(--bg-secondary)',
-        borderRight: '1px solid var(--border-subtle)',
-      }}
     >
       {/* 移动端关闭按钮 */}
       <button
         className="mobile-close-btn hide-desktop"
         onClick={onClose}
         aria-label="关闭菜单"
-        style={{
-          position: 'absolute',
-          top: '1rem',
-          right: '1rem',
-          padding: '0.5rem',
-          background: 'transparent',
-          border: 'none',
-          fontSize: 'var(--fs-title)',
-          color: 'var(--text-primary)',
-          cursor: 'pointer',
-        }}
       >
         ✕
       </button>

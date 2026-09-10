@@ -387,8 +387,13 @@
   border-top-right-radius: 3px;
   padding: 6px 12px;
 }
-/* D1 agent 消息：左侧无气泡文档流，占内容列宽（#394 起中栏弹性无上限，760/1000 双档取消） */
-.mc-msg-agent { text-align: left; }
+/* D1 agent 消息：左侧无气泡文档流，占内容列宽（#394 起中栏弹性无上限，760/1000 双档取消）；
+   批次 D-1.5 ②：2px --border-default 左边线 + 12px 内距，文档流形态视觉锚点（人类气泡/系统播报不加） */
+.mc-msg-agent {
+  text-align: left;
+  border-left: 2px solid var(--border-default);
+  padding-left: 12px;
+}
 /* D3 系统播报：淡色小字，与左右对话流明确区隔；无头无动作，仅正文（+可选 footer 链接） */
 /* #437：居中装置是 760px 限宽栏语境的设计；#394 取消限宽后播报漂屏中，改左对齐随主流文档流，
    区隔 = 淡色小字 + 无头两层信号；footer 链接随正文左对齐（居中 override 一并删除） */
@@ -397,6 +402,20 @@
   font-size: var(--fs-xs);
   white-space: pre-wrap;
 }
+/* 批次 D-1.5 ①：系统播报行首严重度 chip——[CRITICAL]/[WARNING] 裸文本前缀 chip 化（渲染层剥前缀），
+   [INFO] 及其余播报不加 chip。配色配方同 .mc-wu-link 变体（dim 底 + 原色字 + border 边） */
+.mc-sev-chip {
+  display: inline-block;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 0 6px;
+  margin-right: 6px;
+  vertical-align: baseline;
+}
+.mc-sev-chip--error { color: var(--error); background: var(--error-dim); border-color: var(--error-border); }
+.mc-sev-chip--warning { color: var(--warning); background: var(--warning-dim); border-color: var(--warning-border); }
 /* D2 compact（连续合并）：省略重复头，动作浮于消息右上，hover/focus 显化（沿用 .mc-msg-actions 弱化态） */
 .mc-msg-compact { position: relative; }
 .mc-msg-compact > .mc-msg-actions-compact {
@@ -490,6 +509,21 @@
 .mc-status-done { color: var(--success); border-color: var(--success-border); background: var(--success-dim); }
 .mc-status-pending { color: var(--text-secondary); border-color: var(--border-default); }
 .mc-status-error { color: var(--error); border-color: var(--error-border); background: var(--error-dim); }
+
+/* 批次 D-4 内联收敛：弹框内错误横幅 = mc-status-error 语义色的块级形态（ConvertToTaskDialog 正本消费） */
+.mc-error-banner {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-bottom: var(--space-3);
+  padding: 6px 10px;
+  font-size: var(--fs-xs);
+  color: var(--error);
+  background: var(--error-dim);
+  border: 1px solid var(--error-border);
+  border-radius: 4px;
+  white-space: nowrap;
+}
 
 /* WorkUnit / REQ 链接 chip（点击开右抽屉） */
 .mc-wu-link {
@@ -754,6 +788,13 @@
 }
 .mc-workbar-item:hover { border-color: var(--accent-primary); }
 
+/* D-2 项6：currentWu 闸门态时工作条右端直挂 WuGateActions（按钮已是 btn-sm 紧凑档，内部不动）；
+   右端对齐靠 auto margin 吸收余量，与 stepper/live 区隔 */
+.mc-workbar-gate { margin-left: auto; flex-shrink: 0; }
+/* 工作条触发的闸门弹窗须压过可能同开的 WU 抽屉：.modal-overlay 全站 z-index 50 < 抽屉 300，
+   窄屏/覆盖式抽屉同开时弹窗会被盖住——作用域限定在工作条内挂的实例，全站遮罩口径不动 */
+.mc-workbar .modal-overlay { z-index: 400; }
+
 /* #440：建议 prompt 片（输入框上方；mono 小卡 + dismiss） */
 .mc-suggest {
   display: flex;
@@ -814,7 +855,9 @@
   flex: 1;
   resize: none;
 }
-.mc-input-row textarea:focus { border-color: var(--accent-primary); }
+/* 批次 D-1.5 ③：focus 加 accent 描边 + glow（白名单场景①允许 transition 100ms，
+   但 --motion-fast token 尚未落地（D-2.x），本轮只加静态 focus 态，不加 transition） */
+.mc-input-row textarea:focus { border-color: var(--accent-primary); box-shadow: var(--shadow-glow); }
 .mc-input-row textarea::placeholder { color: var(--text-muted); }
 .mc-input-hint {
   display: flex;
@@ -871,6 +914,12 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
+  /* 批次 D-2.x 白名单场景②：抽屉进场右滑淡入（prefers-reduced-motion 全禁） */
+  animation: mc-drawer-in var(--motion-base) var(--ease-standard);
+}
+@keyframes mc-drawer-in {
+  from { opacity: 0; transform: translateX(12px); }
+  to { opacity: 1; transform: translateX(0); }
 }
 .mc-drawer-head {
   display: flex;
@@ -906,9 +955,8 @@
 }
 .mc-drawer-subject-title {
   font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  /* 抽屉主体标题允许折行：窄抽屉下单行截断看不全全文 */
+  overflow-wrap: anywhere;
 }
 .mc-drawer-desc { color: var(--text-secondary); font-size: var(--fs-sm); margin: 6px 0; }
 
@@ -1135,6 +1183,37 @@
   .mc-drawer-back { display: inline-flex; align-items: center; }
 }
 
+/* D-2 项2（行动中心就地化）：NotificationBell 自挂的抽屉宿主——挂在顶栏里，无流内位置，
+   全断点 fixed 覆盖当前页（768–1023 的全局覆盖规则同形态，本规则把 ≥1024 也纳入覆盖式）。
+   频道页流内右栏 / 列表页 .wu-drawer-host 既有 drawer 不受影响（选择器作用域隔离）。 */
+.ac-drawer-host > .mc-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 300;
+  width: 400px;
+  box-shadow: var(--shadow-lg);
+}
+@media (max-width: 767px) {
+  .ac-drawer-host > .mc-drawer { width: 100%; }
+}
+
+/* D-2 项3：抽屉内「下一个待办」串办导航条（抽屉头与主体之间；按钮走 btn 体系，长标题截断） */
+.ac-todo-nav {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border-subtle);
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.ac-todo-nav-btn {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* <768 ChannelRail 并入全局 Sidebar（SidebarNew 内渲染，工作区内联实例已卸载）：
    去固定宽/右边框/底色，贴 sidebar 流；flex:1 吃剩余高，底部状态条不动 */
 .sidebar .mc-rail {
@@ -1311,6 +1390,9 @@ button.mc-act-step:hover { background: var(--bg-hover); }
 .u-text { color: var(--text-primary); }
 .u-text-2 { color: var(--text-secondary); }
 .u-text-3 { color: var(--text-muted); }
+/* 批次 D-4：下间距工具类。Tailwind 工具类在 utilities 层、压不过本文件未分层 mc-* 类自带的 margin
+   （如 mc-quote/mc-drawer-note），需要覆盖组件类默认下间距时用；= --space-3(12)，ConvertToTaskDialog 正本消费 */
+.u-mb-3 { margin-bottom: var(--space-3); }
 /* 整卡置灰弱化（#116：依赖未了结的不可认领任务单卡） */
 .u-dimmed { opacity: 0.55; }
 .u-border { border-color: var(--border-subtle); }

@@ -7,7 +7,8 @@ import { useRequirementChainStore } from '../../stores/requirementChainStore';
 import { formatFullTime } from '../../utils/datetime';
 import { AssigneeLabel } from '../workunit/AssigneeLabel';
 
-const reqStatusLabels: Record<string, string> = {
+/** REQ 状态词表唯一出口（批次 D-2 项5 起 PMOPage 需求 tab 同源消费） */
+export const REQ_STATUS_LABELS: Record<string, string> = {
   open: '未开始',
   'in-progress': '进行中',
   done: '已完成',
@@ -34,7 +35,7 @@ export function RequirementChainPanel({ reqId, onClose }: Props) {
   const req = chain?.requirement;
 
   return (
-    <Modal open onClose={onClose} title={`REQ 全链路 · ${reqId}`}>
+    <Modal open onClose={onClose} title={`需求全链路 · ${reqId}`}>
       {error && <div className="text-sm u-err">加载失败: {error}</div>}
       {!chain && !error && <div className="text-sm u-text-3">加载中...</div>}
       {chain && req && (
@@ -44,7 +45,7 @@ export function RequirementChainPanel({ reqId, onClose }: Props) {
             <div className="flex items-center gap-2">
               <span className="font-medium u-text">{req.title}</span>
               <span className="text-xs px-2 py-0.5 rounded u-accent-dim u-accent">
-                {reqStatusLabels[req.status] ?? req.status}
+                {REQ_STATUS_LABELS[req.status] ?? req.status}
               </span>
             </div>
             <div className="text-xs u-text-3 mt-1">

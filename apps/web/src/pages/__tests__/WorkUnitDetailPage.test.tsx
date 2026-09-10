@@ -320,7 +320,7 @@ describe('WorkUnitDetailPage', () => {
   it('REQ chip 点击打开 REQ 全链路弹窗', async () => {
     render(<WorkUnitDetailPage />);
     fireEvent.click(await screen.findByText('REQ-0042'));
-    expect(await screen.findByText(/REQ 全链路 · REQ-0042/)).toBeDefined();
+    expect(await screen.findByText(/需求全链路 · REQ-0042/)).toBeDefined();
     expect(await screen.findByText('登录需求')).toBeDefined();
   });
 

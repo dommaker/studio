@@ -8,6 +8,8 @@ type ToastType = 'success' | 'error' | 'warning' | 'info';
 interface ToastOptions {
   duration?: number;
   icon?: string;
+  /** D-2（行动中心「下一个待办」）：可选行动按钮——点击执行 onClick 并关闭本 toast */
+  action?: { label: string; onClick: () => void };
 }
 
 const ICONS: Record<ToastType, string> = {
@@ -91,6 +93,22 @@ function show(message: string, type: ToastType, options?: ToastOptions): void {
 
   toast.appendChild(iconEl);
   toast.appendChild(msgEl);
+
+  // D-2：可选行动按钮（btn 体系；stopPropagation 防触发整 toast 的点击关闭，动作后主动关）
+  if (options?.action) {
+    const { label, onClick } = options.action;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn btn-secondary btn-sm';
+    btn.style.flexShrink = '0';
+    btn.textContent = label;
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      onClick();
+      removeToast(toast);
+    });
+    toast.appendChild(btn);
+  }
 
   toast.addEventListener('click', () => removeToast(toast));
 

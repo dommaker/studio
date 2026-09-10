@@ -28,8 +28,8 @@ describe('deriveChainSteps — 四站 stepper', () => {
     const steps = deriveChainSteps(req({ status: 'done' }), [wu('a', 'done'), wu('b', 'closed')]);
     expect(steps.map(s => [s.key, s.state, s.label])).toEqual([
       ['discuss', 'done', '讨论'],
-      ['req', 'done', 'REQ'],
-      ['wu', 'done', 'WU 2/2'],
+      ['req', 'done', '需求'],
+      ['wu', 'done', '任务 2/2'],
       ['deliver', 'done', '交付'],
     ]);
   });
@@ -38,8 +38,8 @@ describe('deriveChainSteps — 四站 stepper', () => {
     const steps = deriveChainSteps(req({ status: 'open' }), []);
     expect(steps.map(s => [s.key, s.state, s.label])).toEqual([
       ['discuss', 'done', '讨论'],
-      ['req', 'current', 'REQ'],
-      ['wu', 'upcoming', 'WU 0/0'],
+      ['req', 'current', '需求'],
+      ['wu', 'upcoming', '任务 0/0'],
       ['deliver', 'upcoming', '交付'],
     ]);
     expect(steps.find(s => s.key === 'wu')?.wuId).toBeUndefined();
@@ -49,8 +49,8 @@ describe('deriveChainSteps — 四站 stepper', () => {
     const steps = deriveChainSteps(req(), [wu('a', 'done'), wu('b', 'active'), wu('c', 'unassigned')]);
     expect(steps.map(s => [s.key, s.state, s.label])).toEqual([
       ['discuss', 'done', '讨论'],
-      ['req', 'done', 'REQ'],
-      ['wu', 'current', 'WU 1/3'],
+      ['req', 'done', '需求'],
+      ['wu', 'current', '任务 1/3'],
       ['deliver', 'upcoming', '交付'],
     ]);
     expect(steps.find(s => s.key === 'wu')?.wuId).toBe('b');
@@ -60,8 +60,8 @@ describe('deriveChainSteps — 四站 stepper', () => {
     const steps = deriveChainSteps(req(), [wu('a', 'done'), wu('b', 'closed')]);
     expect(steps.map(s => [s.key, s.state, s.label])).toEqual([
       ['discuss', 'done', '讨论'],
-      ['req', 'done', 'REQ'],
-      ['wu', 'done', 'WU 2/2'],
+      ['req', 'done', '需求'],
+      ['wu', 'done', '任务 2/2'],
       ['deliver', 'current', '交付'],
     ]);
     expect(steps.find(s => s.key === 'wu')?.wuId).toBe('b');

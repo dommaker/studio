@@ -3,6 +3,7 @@ import { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import { Routes, Route, useLocation, useNavigate, useParams, Navigate } from 'react-router-dom';
 const ChannelHomeRedirect = lazy(() => import('./pages/ChannelHomeRedirect').then(m => ({ default: m.ChannelHomeRedirect })));
 const TriageBanner = lazy(() => import('./components/TriageBanner').then(m => ({ default: m.TriageBanner })));
+const CommandPalette = lazy(() => import('./components/CommandPalette').then(m => ({ default: m.CommandPalette })));
 
 // 路由级代码分割 - 懒加载页面组件
 const Settings = lazy(() => import('./pages/Settings').then(m => ({ default: m.Settings })));
@@ -39,6 +40,7 @@ import { WebSocketProvider } from './api/websocket';
 import { channelApi } from './api/channel';
 import { useRosterStore } from './stores/rosterStore';
 import { useRequirementChainStoreSync } from './hooks/useRequirementChainStoreSync';
+import { useGlobalShortcuts } from './hooks/useGlobalShortcuts';
 import { StudioRoleSetupModal } from './components/setup/StudioRoleSetupModal';
 import { FirstRoleSetupModal } from './components/setup/FirstRoleSetupModal';
 import { joinDefaultChannel } from './components/setup/joinChannel';
@@ -66,6 +68,11 @@ export default function App() {
 
   // 本地 state
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  // 批次 D-2 项 8：Cmd/Ctrl+K 全局搜索面板（CommandPalette）；再按一次 ⌘K 关闭
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  useGlobalShortcuts([
+    { key: 'k', mod: true, allowInInput: true, handler: () => setPaletteOpen((o) => !o) },
+  ]);
   // AC-2.2/2.3: studio 角色 provider=null + 无用户角色 弹框提醒
   const [studioRoleSetupOpen, setStudioRoleSetupOpen] = useState(false);
   const [firstRoleSetupOpen, setFirstRoleSetupOpen] = useState(false);
@@ -195,9 +202,11 @@ export default function App() {
 
       <TopNav
         onMenuClick={() => setIsSidebarOpen(true)}
+        onOpenSearch={() => setPaletteOpen(true)}
       />
 
       <Suspense fallback={null}><TriageBanner /></Suspense>
+      <Suspense fallback={null}><CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} /></Suspense>
 
       <div className="flex-1 flex min-h-0">
         <Sidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />

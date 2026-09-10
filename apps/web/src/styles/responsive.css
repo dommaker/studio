@@ -279,7 +279,23 @@
 /* ==================== Sidebar 移动端样式 ==================== */
 
 .sidebar {
+  /* 批次 D-1.2：底色/右边线自 SidebarNew 内联收敛 */
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border-subtle);
   /* 移动端默认隐藏 */
+}
+
+/* 批次 D-1.2：移动端关闭按钮视觉自 SidebarNew 内联收敛（显隐规则在下方媒体查询档） */
+.mobile-close-btn {
+  position: absolute;
+  top: var(--space-4);
+  right: var(--space-4);
+  padding: var(--space-2);
+  background: transparent;
+  border: none;
+  font-size: var(--fs-title);
+  color: var(--text-primary);
+  cursor: pointer;
 }
 
 @media (max-width: 639px) {
@@ -357,18 +373,25 @@
 /* ==================== 打印样式 ==================== */
 
 @media print {
+  /* 打印恒为白底黑字，不随主题变量（深色 token 在白纸上不可见）；批次 D-0 token 化 */
+  :root {
+    --print-bg: #ffffff;
+    --print-text: #000000;
+    --print-border: #dddddd;
+  }
+
   .hide-print {
     display: none !important;
   }
-  
+
   body {
-    background: white;
-    color: black;
+    background: var(--print-bg);
+    color: var(--print-text);
   }
-  
+
   .card {
     box-shadow: none;
-    border: 1px solid #ddd;
+    border: 1px solid var(--print-border);
   }
 }
 

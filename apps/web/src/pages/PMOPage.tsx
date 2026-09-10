@@ -5,7 +5,9 @@ import { projectApi } from '../api';
 import { companyApi } from '../api/company';
 import { okrApi, type OkrKeyResult } from '../api/pmo';
 import { channelApi, type Channel } from '../api/channel';
-import { requirementApi } from '../api/requirements';
+import { requirementApi, type Requirement } from '../api/requirements';
+import { formatChannelName } from '@dommaker/studio-shared/web';
+import { REQ_STATUS_LABELS } from '../components/requirement/RequirementChainPanel';
 import { useAsyncData } from '../hooks/useAsyncData';
 import { CreateOkrDialog } from '../components/pmo/CreateOkrDialog';
 import { CreateProjectDialog } from '../components/pmo/CreateProjectDialog';
@@ -71,6 +73,11 @@ export function PMOPage({ companyId }: PMOPageProps) {
   const channelsQ = useAsyncData(() => channelApi.list().then(r => r.data?.data || []).catch(() => []), []);
   const channels: Channel[] = channelsQ.data ?? [];
 
+  // 批次 D-2 项5：需求索引 tab 数据源——REQ 全量列表（含 PMO 别名视图，无过滤即全量）
+  // + 关联 WU 完成度（chain-stats 单请求批量，#387；失败静默不显示计数）
+  const reqsQ = useAsyncData(() => requirementApi.list().then(r => r.data?.data || []), []);
+  const [reqStats, setReqStats] = useState<Record<string, { finished: number; total: number }>>({});
+
   // 🆕 AC-6: 卡片徽章数据（WU 完成度；#387 单请求批量、失败静默不显示）
   // #149（2026-08-15）：文档计数徽章随 document-store 退役移除
   const [wuStats, setWuStats] = useState<Record<string, { finished: number; total: number }>>({});
@@ -79,8 +86,8 @@ export function PMOPage({ companyId }: PMOPageProps) {
   const [showOKRDialog, setShowOKRDialog] = useState(false);
 
   const tabParam = searchParams.get('tab');
-  const defaultTab = tabParam === 'okr' ? 'okr' : 'projects';
-  const [activeTab, setActiveTab] = useState<'projects' | 'okr'>(defaultTab);
+  const defaultTab = tabParam === 'okr' ? 'okr' : tabParam === 'reqs' ? 'reqs' : 'projects';
+  const [activeTab, setActiveTab] = useState<'projects' | 'okr' | 'reqs'>(defaultTab);
 
   // AC-6: Publish dialog state（组件见 components/pmo/PublishProjectDialog）
   const [showPublishDialog, setShowPublishDialog] = useState(false);
@@ -94,6 +101,17 @@ export function PMOPage({ companyId }: PMOPageProps) {
   // 派生数组 useMemo 稳身份：wuStats effect 依赖 projects，避免 data 未落地时逐帧换引用
   const okrs = useMemo(() => pmoQ.data?.okrs ?? [], [pmoQ.data]);
   const projects = useMemo(() => pmoQ.data?.projects ?? [], [pmoQ.data]);
+  const reqs = useMemo(() => reqsQ.data ?? [], [reqsQ.data]);
+
+  // 批次 D-2 项5：需求列表落地后单请求批量拉关联 WU 完成度（缺 key = 需求不存在/无统计 → 不显示）
+  useEffect(() => {
+    if (reqs.length === 0) return;
+    let cancelled = false;
+    requirementApi.chainStats(reqs.map(r => r.id)).then(res => {
+      if (!cancelled) setReqStats(res.data?.data ?? {});
+    }).catch(() => { /* 失败静默：计数不显示（列表照常渲染） */ });
+    return () => { cancelled = true; };
+  }, [reqs]);
 
   // 🆕 AC-6: 列表加载后单请求批量拉徽章数据（#387 chain-stats；finished 口径 workFinished
   // 服务端同源计算；失败静默不显示）
@@ -168,6 +186,13 @@ export function PMOPage({ companyId }: PMOPageProps) {
           >
             OKR ({okrs.length})
           </button>
+          <button
+            onClick={() => setActiveTab('reqs')}
+            className={`px-4 py-2 text-sm rounded-t-lg whitespace-nowrap ${activeTab === 'reqs' ? 'u-surface u-accent' : 'u-text-3'}`}
+            style={{ borderBottom: activeTab === 'reqs' ? '2px solid var(--accent-primary)' : '2px solid transparent' }}
+          >
+            需求 ({reqs.length})
+          </button>
         </div>
       </div>
 
@@ -201,8 +226,11 @@ export function PMOPage({ companyId }: PMOPageProps) {
             </button>
 
             {projects.length === 0 ? (
-              <div className="text-center py-8 u-text-3">
-                暂无项目，点击上方「新建 PMO」创建
+              // 批次 D-3 项1：空态 = 说明 + 一个明确主行动（与上方虚线块同入 CreateProjectDialog）
+              <div className="empty-state">
+                <p>暂无项目</p>
+                <p className="text-sm mt-2">下达项目指令即可创建，自动生成 PMO 编号</p>
+                <button className="btn btn-primary mt-4" onClick={() => setShowCreateForm(true)}>新建 PMO</button>
               </div>
             ) : (
               projects.map(project => (
@@ -216,6 +244,58 @@ export function PMOPage({ companyId }: PMOPageProps) {
               ))
             )}
           </div>
+        ) : activeTab === 'reqs' ? (
+          /* 批次 D-2 项5：需求索引视图——全部 REQ 平铺（编号 + 标题 + 状态 + 关联 WU 计数 + 频道/项目归属）。
+             行点击链到所属频道（频道页右栏是 REQ 主呈现位）；无频道归属的行禁跳并说明 */
+          reqsQ.loading ? (
+            <div className="text-center py-8 u-text-3">加载中...</div>
+          ) : reqs.length === 0 ? (
+            <div className="empty-state">
+              <div className="empty-icon">📋</div>
+              <p>暂无需求</p>
+              <p className="text-sm mt-2">在频道 @Analyst 派发或创建 PMO 项目后，需求在此汇总</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {reqs.map(req => {
+                const channel = req.channelId ? channels.find(c => c.id === req.channelId) : undefined;
+                const project = req.projectId ? projects.find(p => p.id === req.projectId) : undefined;
+                const stats = reqStats[req.id];
+                const clickable = !!req.channelId;
+                return (
+                  <div
+                    key={req.id}
+                    className={`card p-3${clickable ? ' cursor-pointer' : ''}`}
+                    onClick={clickable ? () => navigate(`/channels/${req.channelId}`) : undefined}
+                    title={clickable ? '去频道查看该需求' : '该需求无频道归属，无可跳转入口'}
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono text-xs u-text-3">{req.id}</span>
+                          <span className="font-medium u-text truncate">{req.title}</span>
+                          <span className="text-xs px-1.5 py-0.5 rounded u-surface-2 u-text-3">
+                            {REQ_STATUS_LABELS[req.status] ?? req.status}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-3 mt-1 text-xs u-text-2">
+                          {channel && <span>{formatChannelName(channel.name)}</span>}
+                          {project && <span className="font-mono">{project.pmoNumber}</span>}
+                          {!req.channelId && <span className="u-text-3">无频道归属（不可跳转）</span>}
+                        </div>
+                      </div>
+                      {/* 关联 WU 完成度（chain-stats；缺 key = 无统计 → 不显示，同 PMO 卡片口径） */}
+                      {stats && (
+                        <span className="text-xs u-text-3 shrink-0">
+                          任务 <span className="font-mono">{stats.finished}/{stats.total}</span>
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )
         ) : (
           <div className="space-y-3">
             {/* 🆕 AS-016: 创建 OKR 按钮（打开弹窗） */}

@@ -66,6 +66,16 @@ interface Props {
   onClose: () => void;
   onOpenWu: (id: string) => void;
   onOpenReq: (id: string) => void;
+  /** D-2 项3（行动中心串办，可选）：host 仅在「当前 WU 已处理完（掉出待办池）」时传入——
+   *  抽屉内给「下一个 →」同池导航（不关抽屉换 WU）；next=null → 收口文案 */
+  todoNav?: DrawerTodoNav;
+}
+
+/** D-2 项3：抽屉内「下一个待办」导航数据（host 计算，组件只渲染） */
+export interface DrawerTodoNav {
+  /** 下一个待办（host 侧同池第一项）；null = 待办池已清空 */
+  next: { wuId: string; label: string } | null;
+  onOpenNext: (wuId: string) => void;
 }
 
 /** WU metadata JSON 解析产物（只声明本抽屉消费字段，其余透传） */
@@ -77,7 +87,7 @@ interface WuMeta {
   [key: string]: unknown;
 }
 
-export function WorkUnitDrawer({ drawer, onClose, onOpenWu, onOpenReq }: Props) {
+export function WorkUnitDrawer({ drawer, onClose, onOpenWu, onOpenReq, todoNav }: Props) {
   if (!drawer) return null;
   return (
     <aside className="mc-drawer" aria-label="详情抽屉">
@@ -89,6 +99,21 @@ export function WorkUnitDrawer({ drawer, onClose, onOpenWu, onOpenReq }: Props) 
         </h3>
         <button className="mc-drawer-close" aria-label="关闭抽屉" onClick={onClose}>×</button>
       </div>
+      {/* D-2 项3：行动中心串办导航条（host 在当前 WU 处理完后才传 todoNav） */}
+      {drawer.kind === 'wu' && todoNav && (
+        <div className="ac-todo-nav">
+          {todoNav.next ? (
+            <button
+              className="btn btn-secondary btn-sm ac-todo-nav-btn"
+              onClick={() => todoNav.onOpenNext(todoNav.next!.wuId)}
+            >
+              下一个 → {todoNav.next.label}
+            </button>
+          ) : (
+            <span className="mc-drawer-note">待办都处理完了 ✓</span>
+          )}
+        </div>
+      )}
       <div className="mc-drawer-body">
         {drawer.kind === 'wu'
           ? <WuDetail id={drawer.id} autoApprove={drawer.autoApprove === true} autoRuling={drawer.autoRuling === true} onOpenReq={onOpenReq} />
@@ -224,12 +249,23 @@ function WuDetail({ id, autoApprove = false, autoRuling = false, onOpenReq }: { 
         </span>
         <SelfReviewBadge wu={wu} />
         <span className="mc-drawer-subject-title">{title}</span>
+        {/* D-2 项2：行动中心就地化后详情页深链入口保留在抽屉内（深链分享/深度调查场景，
+            与列表行尾 ↗ 同语义）；此前抽屉无此入口，本次补全 */}
+        <button
+          className="mc-wu-link"
+          style={{ marginLeft: 'auto', flexShrink: 0 }}
+          onClick={() => navigate(`/workunits/${id}`)}
+          title="打开完整详情页"
+          aria-label="打开完整详情页"
+        >
+          ↗ 详情页
+        </button>
       </div>
 
       {/* #290（清单 #24）：负责人解析为角色名并链角色页（与详情页同一 hook 口径），查不到回退短 UUID */}
       <div className="mc-kv"><span className="mc-kv-k">负责人</span><span className="mc-kv-v">{wu.assigneeId ? <AssigneeLabel assigneeId={wu.assigneeId} className="mc-wu-link" /> : '—'}</span></div>
       <div className="mc-kv">
-        <span className="mc-kv-k">所属 REQ</span>
+        <span className="mc-kv-k">所属需求</span>
         <span className="mc-kv-v">
           {wu.reqId
             ? <button className="mc-wu-link" onClick={() => onOpenReq(wu.reqId!)}>{wu.reqId} ›</button>

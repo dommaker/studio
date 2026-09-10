@@ -137,6 +137,50 @@ describe('ChannelMessageItem — 系统播报形态（#277 D3；#437 起左对�
   });
 });
 
+describe('ChannelMessageItem — 系统播报严重度 chip（批次 D-1.5）', () => {
+  const sevMsg = (content: string, extra: Partial<ChannelMessage> = {}): ChannelMessage => ({
+    ...base,
+    agentName: 'Studio',
+    content,
+    ...extra,
+  });
+
+  it('[CRITICAL] 行首前缀 → error 变体 chip，前缀自正文剥除', () => {
+    const { container } = renderItem(sevMsg('[CRITICAL] **[Monitor]** 数据库连接失败'));
+    const chip = container.querySelector('.mc-sev-chip');
+    expect(chip).not.toBeNull();
+    expect(chip!.classList.contains('mc-sev-chip--error')).toBe(true);
+    expect(chip!.textContent).toBe('CRITICAL');
+    const body = rootOf(container, 'm-1').querySelector('.mc-msg-body')!;
+    expect(body.textContent).toBe('CRITICAL**[Monitor]** 数据库连接失败');
+    expect(body.textContent).not.toContain('[CRITICAL]');
+  });
+
+  it('[WARNING] 行首前缀 → warning 变体 chip', () => {
+    const { container } = renderItem(sevMsg('[WARNING] 内存水位 85%'));
+    const chip = container.querySelector('.mc-sev-chip');
+    expect(chip!.classList.contains('mc-sev-chip--warning')).toBe(true);
+    expect(chip!.textContent).toBe('WARNING');
+  });
+
+  it('[INFO] 与无前缀播报不加 chip，原文透传', () => {
+    const { container } = renderItem(sevMsg('[INFO] 巡检完成'));
+    expect(container.querySelector('.mc-sev-chip')).toBeNull();
+    expect(rootOf(container, 'm-1').querySelector('.mc-msg-body')!.textContent).toBe('[INFO] 巡检完成');
+  });
+
+  it('非系统消息不带 chip：agent 文档流 [CRITICAL] 开头原样走 Markdown', () => {
+    const { container } = renderItem({ ...base, content: '[CRITICAL] 不是播报' });
+    expect(container.querySelector('.mc-sev-chip')).toBeNull();
+  });
+
+  it('非系统消息不带 chip：人类消息 [CRITICAL] 开头原样', () => {
+    const { container } = renderItem(sevMsg('[CRITICAL] 人发的', { authorType: 'human', agentName: undefined }));
+    expect(container.querySelector('.mc-sev-chip')).toBeNull();
+    expect(rootOf(container, 'm-1').querySelector('.mc-msg-body')!.textContent).toBe('[CRITICAL] 人发的');
+  });
+});
+
 describe('ChannelMessageItem — mention chip（#277 D5，零存储模型变更）', () => {
   it('人类消息纯文本内 @name 渲染为 chip，其余文本原样', () => {
     const { container } = renderItem({

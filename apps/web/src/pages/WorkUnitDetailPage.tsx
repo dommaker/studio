@@ -204,8 +204,8 @@ export function WorkUnitDetailPage() {
                     </FactRow>
                   )}
                   {wu.reqId && (
-                    <FactRow k="REQ">
-                      <button className="u-accent wu-detail-fact-btn" title="查看 REQ 全链路" onClick={() => setChainReqId(wu.reqId ?? null)}>
+                    <FactRow k="需求">
+                      <button className="u-accent wu-detail-fact-btn" title="查看需求全链路" onClick={() => setChainReqId(wu.reqId ?? null)}>
                         {wu.reqId}
                       </button>
                     </FactRow>

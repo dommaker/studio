@@ -109,9 +109,9 @@ export function CreateProjectDialog({ open, onClose, onCreated }: CreateProjectD
           <button className="modal-close" onClick={onClose} aria-label="关闭">×</button>
         </div>
         <div className="modal-body">
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div className="flex flex-col gap-3">
             <div>
-              <label className="mc-card-label" style={{ display: 'block', marginBottom: 4 }}>标题 *</label>
+              <label className="mc-card-label block mb-1">标题 *</label>
               <input
                 type="text"
                 value={newTitle}
@@ -122,29 +122,28 @@ export function CreateProjectDialog({ open, onClose, onCreated }: CreateProjectD
               />
             </div>
             <div>
-              <label className="mc-card-label" style={{ display: 'block', marginBottom: 4 }}>需求描述</label>
+              <label className="mc-card-label block mb-1">需求描述</label>
               <textarea
                 value={newRequirement}
                 onChange={(e) => setNewRequirement(e.target.value)}
-                className="input"
-                style={{ width: '100%', resize: 'none' }}
+                className="input resize-none"
+                style={{ width: '100%' }}
                 rows={3}
                 placeholder="需求背景、验收标准等"
               />
             </div>
             <div>
-              <label className="mc-card-label" style={{ display: 'block', marginBottom: 4 }}>
+              <label className="mc-card-label block mb-1">
                 工程（可多选，每个选中工程建一条交付腿）
               </label>
-              <div className="u-surface-2 rounded" style={{ padding: 8, maxHeight: 180, overflowY: 'auto' }}>
+              <div className="u-surface-2 rounded p-2 max-h-45 overflow-y-auto">
                 {projectsScanning ? (
                   <div className="text-xs u-text-3">正在扫描本地工程…</div>
                 ) : (
                   discoveredProjects.map(p => (
                     <label
                       key={p.path}
-                      className="flex items-center gap-2 text-sm u-text"
-                      style={{ cursor: 'pointer', padding: '4px 0' }}
+                      className="flex items-center gap-2 text-sm u-text cursor-pointer py-1"
                     >
                       <input
                         type="checkbox"
@@ -174,7 +173,7 @@ export function CreateProjectDialog({ open, onClose, onCreated }: CreateProjectD
               )}
             </div>
             <div>
-              <label className="mc-card-label" style={{ display: 'block', marginBottom: 4 }}>交付策略</label>
+              <label className="mc-card-label block mb-1">交付策略</label>
               <Select
                 value={newDeliveryPolicy}
                 onChange={(v) => setNewDeliveryPolicy(v as 'branch-only' | 'auto-merge')}

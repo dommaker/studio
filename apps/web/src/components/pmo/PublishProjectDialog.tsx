@@ -115,16 +115,16 @@ export function PublishProjectDialog({ open, projectId, channels, onClose, onPub
               />
               {/* #273：未选频道时不解析/提示频道成员，先引导显式选择 */}
               {!selectedChannelId ? (
-                <p className="u-text-3 text-sm" style={{ marginTop: 8 }}>请选择目标频道后再发起</p>
+                <p className="u-text-3 text-sm mt-2">请选择目标频道后再发起</p>
               ) : agentsLoading ? (
-                <p className="u-text-3 text-sm" style={{ marginTop: 8 }}>加载频道成员…</p>
+                <p className="u-text-3 text-sm mt-2">加载频道成员…</p>
               ) : channelAgents.length > 0 ? (
-                <p className="u-text-3 text-sm" style={{ marginTop: 8 }}>
+                <p className="u-text-3 text-sm mt-2">
                   会响应的 Agent（{channelAgents.length}）：{channelAgents.map(a => a.name).join('、')}
                   ——需求发到频道后由 TA 们认领并开始分析
                 </p>
               ) : (
-                <p className="u-warn text-sm" style={{ marginTop: 8 }}>
+                <p className="u-warn text-sm mt-2">
                   {/* #290（清单 #25）：文案写明判定口径，消除与成员面板「空 = 所有 Agent 可见」的表面矛盾——
                       空成员口径下仍无响应者，说明成员非空但无 active 成员，或所有 active Agent 都限定了其他频道 */}
                   ⚠ 该频道没有可响应的 Agent（判定口径：频道成员为空 = 所有未限定频道的 Agent 可见；当前口径下仍无响应者），发起后需求可能无人认领
@@ -132,8 +132,8 @@ export function PublishProjectDialog({ open, projectId, channels, onClose, onPub
               )}
               {/* #177：可选指派分析角色（默认留空=自动认领，候选=频道成员，不阻塞主交互） */}
               {!agentsLoading && channelAgents.length > 0 && (
-                <div style={{ marginTop: 12 }}>
-                  <p className="u-text-3 text-sm" style={{ marginBottom: 4 }}>
+                <div className="mt-3">
+                  <p className="u-text-3 text-sm mb-1">
                     指定分析角色（可选，不选则由频道成员自动认领）
                   </p>
                   <Select

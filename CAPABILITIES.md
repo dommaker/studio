@@ -247,4 +247,5 @@
 | joinChannel | apps/web/src/components/setup/joinChannel.ts | #465（首用路径断点）：一键加入 #研发——解析默认频道（按名字，同 cli/dev.ts 先例）、 |
 | icons | apps/web/src/components/ui/icons.tsx | #474 图标策略定稿：全去 emoji——导航/徽章统一用本文件的 stroke SVG 图标组件。 |
 | StaleSleepBadge | apps/web/src/components/workunit/StaleSleepBadge.tsx | #464：「已沉睡」徽标 —— 72h 认领陈旧守卫命中的 WU。 |
+| CommandPalette | apps/web/src/components/CommandPalette.tsx | CommandPalette — Cmd/Ctrl+K 全局搜索面板（批次 D-2 项 8，docs/plans/2026-09-ui-interaction-polish.md）。 |
 | mockMatchMedia | apps/web/src/test/mockMatchMedia.ts | #395：jsdom 无 window.matchMedia 实现——按给定视口宽度求值 (min|max)-width 媒体查询， |

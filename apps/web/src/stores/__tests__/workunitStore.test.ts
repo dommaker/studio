@@ -349,3 +349,102 @@ describe('workunitStore 未归属过滤（#405）', () => {
     expect(s.total).toBe(3); // 列表计数是交集（各自口径正确）
   });
 });
+
+// 批次 D-2 项4：标题搜索 —— q 状态进 loadWorkUnits/loadMoreWorkUnits 参数，
+// SSE 增量不匹配 q 就不插入（与 status 过滤同模式）
+describe('workunitStore 标题搜索（批次 D-2 项4）', () => {
+  const row = (id: string, overrides: Record<string, unknown> = {}) =>
+    ({ id, scope: `scope-${id}`, type: 'task', status: 'active', metadata: null, ...overrides }) as unknown as import('../../api/workunit').WorkUnit;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useWorkUnitStore.setState({
+      workunits: [],
+      total: 0,
+      page: 1,
+      limit: 20,
+      statusFilter: null,
+      typeFilter: null,
+      unattributedOnly: false,
+      unattributedTotal: null,
+      searchQuery: null,
+      loading: false,
+      error: null,
+    });
+  });
+
+  it('setSearchQuery：请求带 q 且重置到第 1 页', async () => {
+    await useWorkUnitStore.getState().setSearchQuery('登录');
+
+    expect(workunitApi.list).toHaveBeenCalledWith(expect.objectContaining({ q: '登录', page: 1 }));
+    expect(useWorkUnitStore.getState().searchQuery).toBe('登录');
+  });
+
+  it('setSearchQuery 空白 → null（清除搜索），请求不带 q', async () => {
+    useWorkUnitStore.setState({ searchQuery: '登录' });
+
+    await useWorkUnitStore.getState().setSearchQuery('   ');
+
+    expect(workunitApi.list).toHaveBeenCalledWith(expect.objectContaining({ q: undefined }));
+    expect(useWorkUnitStore.getState().searchQuery).toBeNull();
+  });
+
+  it('词未变 → no-op 不重拉（防抖尾抖/重复提交防护）', async () => {
+    useWorkUnitStore.setState({ searchQuery: '登录' });
+
+    await useWorkUnitStore.getState().setSearchQuery('登录');
+
+    expect(workunitApi.list).not.toHaveBeenCalled();
+  });
+
+  it('loadMoreWorkUnits 携带当前 q 请求下一页', async () => {
+    useWorkUnitStore.setState({ searchQuery: 'login', workunits: [row('wu-1')], total: 5 });
+    (workunitApi.list as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      data: { data: [row('wu-2')], pagination: { total: 5, page: 2, limit: 20, totalPages: 1 } },
+    });
+
+    await useWorkUnitStore.getState().loadMoreWorkUnits();
+
+    expect(workunitApi.list).toHaveBeenCalledWith(expect.objectContaining({ q: 'login', page: 2 }));
+  });
+
+  it('搜索态下 SSE created：不匹配 q 的行不插入，匹配（大小写不敏感）的插入', () => {
+    useWorkUnitStore.setState({ searchQuery: 'login', workunits: [], total: 0 });
+
+    useWorkUnitStore.getState().applyWorkunitEvent(row('wu-a', { scope: '实现登录功能' }), { insertIfMissing: true });
+    expect(useWorkUnitStore.getState().workunits).toHaveLength(0);
+
+    useWorkUnitStore.getState().applyWorkunitEvent(row('wu-b', { scope: 'Fix Login redirect' }), { insertIfMissing: true });
+    const s = useWorkUnitStore.getState();
+    expect(s.workunits.map(w => w.id)).toEqual(['wu-b']);
+    expect(s.total).toBe(1);
+  });
+
+  it('搜索态下行 scope 变更后不再匹配 q -> 移除且 total-1', () => {
+    useWorkUnitStore.setState({ searchQuery: '登录', workunits: [row('wu-1', { scope: '登录功能' })], total: 5 });
+
+    useWorkUnitStore.getState().applyWorkunitEvent(row('wu-1', { scope: '登出功能' }), { insertIfMissing: false });
+
+    const s = useWorkUnitStore.getState();
+    expect(s.workunits).toHaveLength(0);
+    expect(s.total).toBe(4);
+  });
+
+  it('搜索态下未归属徽标不被交集计数污染（同 #405 组合口径）', async () => {
+    (workunitApi.list as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      data: { data: [row('wu-o1')], pagination: { total: 42, page: 1, limit: 20, totalPages: 3 } },
+    });
+    await useWorkUnitStore.getState().setUnattributedOnly(true);
+    expect(useWorkUnitStore.getState().unattributedTotal).toBe(42);
+
+    // 叠加搜索：交集查询 total=3 不得覆盖徽标
+    (workunitApi.list as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      data: { data: [row('wu-o2')], pagination: { total: 3, page: 1, limit: 20, totalPages: 1 } },
+    });
+    await useWorkUnitStore.getState().setSearchQuery('登录');
+
+    const s = useWorkUnitStore.getState();
+    expect(s.unattributedTotal).toBe(42);
+    expect(s.total).toBe(3);
+  });
+});

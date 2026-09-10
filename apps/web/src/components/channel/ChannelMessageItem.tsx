@@ -19,6 +19,7 @@ import { ConvertToTaskDialog } from './ConvertToTaskDialog';
 import { NeedInputOptions } from './NeedInputOptions';
 import { shortWuId } from '../../utils/id';
 import { parseMeta, type CardMeta, type MetaOption } from '../../utils/messageMeta';
+import { parseSeverityPrefix } from '../../utils/severityPrefix';
 import { useImeEnterGuard } from '../../hooks/useImeEnterGuard';
 
 interface Props {
@@ -166,6 +167,9 @@ export const ChannelMessageItem = memo(function ChannelMessageItem({
 
   // #277 D3：系统播报判定——Studio 署名、无卡片、非 NEED_INPUT 等待中（等待中的提问保留 agent 形态供回复）
   const isSystem = !isHuman && !card && !waitingForInput && message.agentName === 'Studio';
+  // 批次 D-1.5：系统播报行首 [CRITICAL]/[WARNING] 裸文本前缀 → 严重度 chip（纯渲染层，不动消息数据）；
+  // [INFO] 及无前缀播报不 chip 化，原文透传
+  const severity = isSystem ? parseSeverityPrefix(message.content) : null;
   // #277 D1：分侧类——卡片全宽不参与分侧
   // mc-msg-card：无样式规则，测试 DOM 钩子（ChannelMessageItem.test.tsx 断言用，#431 定性保留，删类会红测试）
   const sideClass = card ? 'mc-msg-card' : isSystem ? 'mc-msg-system' : isHuman ? 'mc-msg-human' : 'mc-msg-agent';
@@ -239,7 +243,14 @@ export const ChannelMessageItem = memo(function ChannelMessageItem({
       {/* #271: agent 正文 Markdown 渲染（wikiLinks 关、codeCopy 开）；人类/系统维持纯文本 pre-wrap。
           #277 D5：双侧 @name 染 mention chip（纯文本侧 renderWithMentions 拆分；agent 侧 MarkdownBody mentions 插件） */}
       {card || (isSystem || isHuman ? (
-        <div className={`mc-msg-body ${isHuman ? 'mc-bubble' : ''}`}>{renderWithMentions(message.content)}</div>
+        <div className={`mc-msg-body ${isHuman ? 'mc-bubble' : ''}`}>
+          {severity && (
+            <span className={`mc-sev-chip mc-sev-chip--${severity.level === 'critical' ? 'error' : 'warning'}`}>
+              {severity.level.toUpperCase()}
+            </span>
+          )}
+          {renderWithMentions(severity ? severity.rest : message.content)}
+        </div>
       ) : (
         <div className="mc-msg-body">
           <MarkdownBody
@@ -311,7 +322,7 @@ export const ChannelMessageItem = memo(function ChannelMessageItem({
             </button>
           )}
           {reqId && onOpenRequirement && (
-            <button className="mc-wu-link mc-wu-link--req" onClick={() => onOpenRequirement(reqId)} title="打开 REQ 全链路">
+            <button className="mc-wu-link mc-wu-link--req" onClick={() => onOpenRequirement(reqId)} title="打开需求全链路">
               {reqId} ›
             </button>
           )}

@@ -96,7 +96,7 @@ describe('ChannelActivityRail — #416 渲染边界', () => {
     const props = makeProps([wuItem('m1', 'wu-a', '2026-08-10T00:00:00Z')]);
     const view = render(<ChannelActivityRail {...props} />);
     const card = (await screen.findByText('REQ-0001')).closest('.mc-act-card') as HTMLElement;
-    await within(card).findByText('WU 1/2'); // chain 到位、stepper 已渲染
+    await within(card).findByText('任务 1/2'); // chain 到位、stepper 已渲染
     await act(async () => {}); // flush 残余微任务（label/assignee 拉取）
     const stepsAfterMount = stepsCount.n;
     const buildAfterMount = buildCount.n;
@@ -113,7 +113,7 @@ describe('ChannelActivityRail — #416 渲染边界', () => {
     const props = makeProps(base);
     const view = render(<ChannelActivityRail {...props} />);
     const card = (await screen.findByText('REQ-0001')).closest('.mc-act-card') as HTMLElement;
-    await within(card).findByText('WU 1/2');
+    await within(card).findByText('任务 1/2');
     await within(card).findByText('动态m1');
     await act(async () => {});
     const stepsAfterMount = stepsCount.n;
@@ -130,6 +130,6 @@ describe('ChannelActivityRail — #416 渲染边界', () => {
     expect(await within(card).findByText('动态m2')).toBeTruthy();
     // 静态部分（卡头/四站 stepper/PMO·Agent meta）零重渲
     expect(stepsCount.n).toBe(stepsAfterMount);
-    expect(within(card).getByText('WU 1/2')).toBeTruthy();
+    expect(within(card).getByText('任务 1/2')).toBeTruthy();
   });
 });

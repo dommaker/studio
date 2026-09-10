@@ -43,8 +43,22 @@ vi.mock('../../api/websocketHooks', () => ({
 
 vi.mock('../../api', () => ({ api: mockApi }));
 
+// D-2 项2/项3：抽屉自挂实例 —— stub WorkUnitDrawer（真实抽屉的取数/SSE 由 WorkUnitDrawer.test 覆盖），
+// 本文件只断言「打开/切换/串办导航」的宿主行为
+const { drawerPropsSpy } = vi.hoisted(() => ({ drawerPropsSpy: vi.fn() }));
+vi.mock('../channel/WorkUnitDrawer', () => ({
+  WorkUnitDrawer: (props: {
+    drawer: { kind: string; id: string } | null;
+    todoNav?: { next: { wuId: string; label: string } | null; onOpenNext: (wuId: string) => void };
+  }) => {
+    drawerPropsSpy(props);
+    return props.drawer ? <div data-testid="ac-drawer">{props.drawer.id}</div> : null;
+  },
+}));
+
 import { NotificationBell } from '../NotificationBell';
 import { useNotificationStore, type StateItem } from '../../stores/notificationStore';
+import { toast } from '../../utils/toast';
 
 interface BackendNotification {
   id: string;
@@ -134,6 +148,8 @@ beforeEach(() => {
   mockApi.get.mockReset();
   mockApi.post.mockReset();
   mockApi.post.mockResolvedValue({ data: { success: true } });
+  drawerPropsSpy.mockClear();
+  toast.dismiss(); // D-2 项3：toast 是全局 DOM 单例（#toast-container），跨用例清场
 });
 
 describe('#468 行动中心面板（四分区）', () => {
@@ -170,26 +186,32 @@ describe('#468 行动中心面板（四分区）', () => {
     expect(screen.getByText('审计建议 (2 项)')).toBeInTheDocument();
   });
 
-  it('待回复点击：channelId 存在 → 跳频道（chip 定位在频道页）；否则 → WU 详情', async () => {
+  it('待回复点击：channelId 存在 → 跳频道；messageId 存在 → 带 ?highlight= 直达提问消息（D-2 项1）', async () => {
     await renderLoaded({
       stateItems: [
-        stateItem({ wuId: 'WU-1', scope: '有频道待回复', channelId: 'ch-1' }),
-        stateItem({ wuId: 'WU-2', scope: '无频道待回复', channelId: null }),
+        stateItem({ wuId: 'WU-1', scope: '带锚点待回复', channelId: 'ch-1', messageId: 'm-9' }),
+        stateItem({ wuId: 'WU-2', scope: '无锚点待回复', channelId: 'ch-2' }),
+        stateItem({ wuId: 'WU-3', scope: '无频道待回复', channelId: null }),
       ],
     });
     openDropdown();
 
-    fireEvent.click(screen.getByText('有频道待回复'));
-    expect(mockNavigate).toHaveBeenCalledWith('/channels/ch-1');
+    fireEvent.click(screen.getByText('带锚点待回复'));
+    expect(mockNavigate).toHaveBeenCalledWith('/channels/ch-1?highlight=m-9');
 
     openDropdown(); // 点击后面板收起，重新展开
+    fireEvent.click(screen.getByText('无锚点待回复'));
+    // fail-closed：messageId 缺失不拼参数（回退既有行为）
+    expect(mockNavigate).toHaveBeenCalledWith('/channels/ch-2');
+
+    openDropdown();
     fireEvent.click(screen.getByText('无频道待回复'));
-    expect(mockNavigate).toHaveBeenCalledWith('/workunits/WU-2');
+    expect(mockNavigate).toHaveBeenCalledWith('/workunits/WU-3');
     // stateItems 无已读概念：点击不产生后端已读调用
     expect(mockApi.post).not.toHaveBeenCalled();
   });
 
-  it('待验收/待确认点击 → WU 详情', async () => {
+  it('待验收/待确认点击 → 就地开抽屉覆盖当前页（D-2 项2），不再整页跳 /workunits/:id', async () => {
     await renderLoaded({
       stateItems: [
         stateItem({ kind: 'review', wuId: 'WU-7', scope: '验收单' }),
@@ -199,10 +221,94 @@ describe('#468 行动中心面板（四分区）', () => {
     openDropdown();
 
     fireEvent.click(screen.getByText('验收单'));
-    expect(mockNavigate).toHaveBeenCalledWith('/workunits/WU-7');
-    openDropdown(); // 点击后面板收起，重新展开
+    expect(await screen.findByTestId('ac-drawer')).toHaveTextContent('WU-7');
+    expect(mockNavigate).not.toHaveBeenCalled();
+
+    openDropdown(); // 点击后面板收起，重新展开（抽屉保持打开）
     fireEvent.click(screen.getByText('确认单'));
-    expect(mockNavigate).toHaveBeenCalledWith('/workunits/WU-8');
+    expect(await screen.findByTestId('ac-drawer')).toHaveTextContent('WU-8');
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it('D-2 项3（review/confirm 线）：当前 WU 掉出待办池 → 抽屉收 todoNav「下一个 →」，点击同抽屉换 WU', async () => {
+    await renderLoaded({
+      stateItems: [
+        stateItem({ kind: 'review', wuId: 'WU-7', scope: '验收单' }),
+        stateItem({ kind: 'confirm', wuId: 'WU-8', scope: '确认单' }),
+      ],
+    });
+    openDropdown();
+    fireEvent.click(screen.getByText('验收单'));
+    await screen.findByTestId('ac-drawer');
+
+    // 当前项仍在池里（未处理）→ 不出串办导航
+    expect(drawerPropsSpy.mock.lastCall![0].todoNav).toBeUndefined();
+
+    // 闸门动作成功 = SSE 触发重拉后 WU-7 掉出 stateItems（状态派生、状态变即消）
+    act(() => {
+      useNotificationStore.setState({
+        stateItems: [stateItem({ kind: 'confirm', wuId: 'WU-8', scope: '确认单' })],
+      });
+    });
+    const nav = drawerPropsSpy.mock.lastCall![0].todoNav;
+    expect(nav.next).toEqual({ wuId: 'WU-8', label: '确认单' });
+
+    // 「下一个 →」= 同抽屉换 WU（不关抽屉、不跳页）
+    act(() => nav.onOpenNext('WU-8'));
+    expect(await screen.findByTestId('ac-drawer')).toHaveTextContent('WU-8');
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it('D-2 项3：待办池清空 → todoNav.next=null（抽屉内收口文案由抽屉渲染）', async () => {
+    await renderLoaded({
+      stateItems: [stateItem({ kind: 'review', wuId: 'WU-7', scope: '验收单' })],
+    });
+    openDropdown();
+    fireEvent.click(screen.getByText('验收单'));
+    await screen.findByTestId('ac-drawer');
+
+    act(() => { useNotificationStore.setState({ stateItems: [] }); });
+    expect(drawerPropsSpy.mock.lastCall![0].todoNav.next).toBeNull();
+  });
+
+  it('D-2 项3（reply 线）：处理完点击过的 reply 项 → toast 给「下一个 →」导航到下一条频道', async () => {
+    await renderLoaded({
+      stateItems: [
+        stateItem({ wuId: 'WU-1', scope: '待回复甲', channelId: 'ch-1', messageId: 'm-1' }),
+        stateItem({ wuId: 'WU-2', scope: '待回复乙', channelId: 'ch-2', messageId: 'm-2' }),
+      ],
+    });
+    openDropdown();
+    fireEvent.click(screen.getByText('待回复甲'));
+    expect(mockNavigate).toHaveBeenCalledWith('/channels/ch-1?highlight=m-1');
+
+    // 未处理完（仍在池里）→ 不出 toast（容器可能由前序用例创建但已清空）
+    const idleContainer = document.querySelector('#toast-container');
+    expect(idleContainer === null || idleContainer.children.length === 0).toBe(true);
+
+    // 处理完 = WU-1 掉出池（回复后 WU 复活，状态派生项消失），还剩 WU-2
+    act(() => {
+      useNotificationStore.setState({
+        stateItems: [stateItem({ wuId: 'WU-2', scope: '待回复乙', channelId: 'ch-2', messageId: 'm-2' })],
+      });
+    });
+    const toastEl = document.querySelector('#toast-container');
+    expect(toastEl?.textContent).toContain('已处理，还剩 1 条待回复');
+    const actionBtn = toastEl?.querySelector('button');
+    expect(actionBtn?.textContent).toBe('下一个 →');
+    fireEvent.click(actionBtn!);
+    expect(mockNavigate).toHaveBeenCalledWith('/channels/ch-2?highlight=m-2');
+  });
+
+  it('D-2 项3（reply 线）：reply 全清 → 收口文案 toast', async () => {
+    await renderLoaded({
+      stateItems: [stateItem({ wuId: 'WU-1', scope: '待回复甲', channelId: 'ch-1' })],
+    });
+    openDropdown();
+    fireEvent.click(screen.getByText('待回复甲'));
+
+    act(() => { useNotificationStore.setState({ stateItems: [] }); });
+    expect(document.querySelector('#toast-container')?.textContent).toContain('待回复都处理完了');
   });
 
   it('通知条目：点击标记已读（POST /:id/read）并按 wuId 跳 WU 详情', async () => {

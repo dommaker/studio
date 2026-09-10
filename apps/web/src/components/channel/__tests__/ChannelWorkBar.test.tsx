@@ -2,7 +2,7 @@
 // 渲染规则见 docs/plans/2026-09-channel-workbar.md。阶段语义 = deriveDisplayState 展示列
 // （与 WU 详情页同口径，不发明第二套阶段模型）；live 数据源沿用自持有的 useChannelLiveExecutions。
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
 const { mockUseChannelLiveExecutions } = vi.hoisted(() => ({
   mockUseChannelLiveExecutions: vi.fn(),
@@ -172,5 +172,68 @@ describe('ChannelWorkBar — 频道工作条', () => {
     expect(btns).toHaveLength(4);
     fireEvent.click(screen.getByText('待验收'));
     expect(onOpenWorkUnit).toHaveBeenCalledWith('WU-1');
+  });
+
+  // D-2 项6：currentWu 闸门态 → 工作条直挂共享 WuGateActions（写路径经 gate prop 注入）
+  const gateHandlers = () => ({
+    onReviewPassed: vi.fn().mockResolvedValue({}),
+    onReviewRejected: vi.fn().mockResolvedValue({}),
+    onConfirmPending: vi.fn().mockResolvedValue({}),
+  });
+
+  it('D-2 项6：pending currentWu + gate → 工作条渲染「确认并开放领取」，点击调 onConfirmPending', async () => {
+    mockUseChannelLiveExecutions.mockReturnValue([]);
+    const gate = gateHandlers();
+    const { container } = render(<ChannelWorkBar channelId="ch-1" currentWu={wu({ status: 'pending' })} onOpenWorkUnit={() => {}} gate={gate} />);
+    const btn = screen.getByRole('button', { name: '确认并开放领取' });
+    expect(btn.className).toContain('btn-sm');
+    expect(container.querySelector('.mc-workbar-gate')).not.toBeNull();
+    fireEvent.click(btn);
+    await waitFor(() => expect(gate.onConfirmPending).toHaveBeenCalledTimes(1));
+    expect(gate.onReviewPassed).not.toHaveBeenCalled();
+  });
+
+  it('D-2 项6：in_review currentWu（task 类型）→ 渲染「通过验收/拒绝」，通过直调 onReviewPassed', async () => {
+    mockUseChannelLiveExecutions.mockReturnValue([]);
+    const gate = gateHandlers();
+    render(<ChannelWorkBar channelId="ch-1" currentWu={wu({ status: 'in_review' })} onOpenWorkUnit={() => {}} gate={gate} />);
+    fireEvent.click(screen.getByRole('button', { name: '通过验收' }));
+    await waitFor(() => expect(gate.onReviewPassed).toHaveBeenCalledTimes(1));
+    expect(screen.getByRole('button', { name: '拒绝' })).toBeTruthy();
+  });
+
+  it('D-2 项6：done 缺 l3 → 渲染「人工验收确认」；done 且 l3 齐 → 不渲染闸门区', () => {
+    mockUseChannelLiveExecutions.mockReturnValue([]);
+    const metaNoL3 = JSON.stringify({
+      attestations: { l2: { verdict: 'approved', by: 'rev', at: '2026-09-01T01:30:00Z', kind: 'agent-review' } },
+    });
+    const { unmount } = render(
+      <ChannelWorkBar channelId="ch-1" currentWu={wu({ status: 'done', metadata: metaNoL3 })} onOpenWorkUnit={() => {}} gate={gateHandlers()} />,
+    );
+    expect(screen.getByRole('button', { name: '人工验收确认' })).toBeTruthy();
+    unmount();
+
+    const metaFull = JSON.stringify({
+      attestations: {
+        l2: { verdict: 'approved', by: 'rev', at: '2026-09-01T01:30:00Z', kind: 'agent-review' },
+        l3: { verdict: 'approved', by: 'human', at: '2026-09-01T02:00:00Z', kind: 'human-accept' },
+      },
+    });
+    const { container } = render(
+      <ChannelWorkBar channelId="ch-1" currentWu={wu({ status: 'done', metadata: metaFull })} onOpenWorkUnit={() => {}} gate={gateHandlers()} />,
+    );
+    expect(container.querySelector('.mc-workbar-gate')).toBeNull();
+  });
+
+  it('D-2 项6：active currentWu（非闸门态）→ 不渲染闸门区；无 gate prop → 闸门态也不渲染', () => {
+    mockUseChannelLiveExecutions.mockReturnValue([]);
+    const { container, unmount } = render(
+      <ChannelWorkBar channelId="ch-1" currentWu={wu({ status: 'active' })} onOpenWorkUnit={() => {}} gate={gateHandlers()} />,
+    );
+    expect(container.querySelector('.mc-workbar-gate')).toBeNull();
+    unmount();
+
+    const { container: c2 } = render(<ChannelWorkBar channelId="ch-1" currentWu={wu({ status: 'in_review' })} onOpenWorkUnit={() => {}} />);
+    expect(c2.querySelector('.mc-workbar-gate')).toBeNull();
   });
 });
