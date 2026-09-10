@@ -97,26 +97,75 @@ export function parseBlockedBy(metadata?: string | null): string[] {  if (!metad
 }
 
 /**
- * #106 M7：analysis 确认弹窗的待决问题清单预填——agent COMPLETE 时落档的
- * metadata.analysisDestination/analysisFog 还原为 map-opening 契约行。
- * #401：预填用中文别名（目标：/待决：，人话化）；后端 parseMapOpening 中英键通吃，
- * agent 产出的英文键（DESTINATION:/FOG:）不受影响。人审改后作为 reviewPassed 的 summary 回传。
- * 无清单 → 空串（弹窗显示占位提示，人手填或直接通过 = 非探路型不开图）。
+ * #463：确认弹窗结构化预填（resolution 评论：结构化数据在确认之前已落档，
+ * 人审表单不做录入只做判断；后端把表单序列化进 l3.summary，存储契约不变）。
+ * 三个构建器分别对应 analysis / spec / decision 确认弹窗；metadata 坏 JSON / 字段畸形
+ * 一律兜底空结构（弹窗空手评，不炸）。
  */
-export function buildMapOpeningPrefill(metadata?: string | null): string {
+
+/** analysis 确认表单预填：destination（目标）+ fog（待决清单）+ tasks（TASK 拆分预览） */
+export interface AnalysisConfirmPrefill {
+  destination: string;
+  fog: string[];
+  tasks: string[];
+}
+
+/** 吸收 #106 M7 buildMapOpeningPrefill：同一数据源，结构化输出替代魔法行文本 */
+export function buildAnalysisConfirmPrefill(metadata?: string | null): AnalysisConfirmPrefill {
+  const empty: AnalysisConfirmPrefill = { destination: '', fog: [], tasks: [] };
+  if (!metadata) return empty;
+  try {
+    const v = JSON.parse(metadata) as {
+      analysisDestination?: unknown;
+      analysisFog?: unknown;
+      analysisTasks?: unknown;
+    };
+    const strings = (x: unknown): string[] =>
+      Array.isArray(x) ? x.filter((s): s is string => typeof s === 'string' && s.trim().length > 0).map(s => s.trim()) : [];
+    return {
+      destination: typeof v.analysisDestination === 'string' ? v.analysisDestination.trim() : '',
+      fog: strings(v.analysisFog),
+      tasks: strings(v.analysisTasks),
+    };
+  } catch {
+    return empty;
+  }
+}
+
+/** spec 确认表单卡片墙条目（blockedBy/leg 人审不编辑但须透传给后端序列化） */
+export interface SpecTaskFormItem {
+  title: string;
+  ac: string[];
+  blockedBy: string[];
+  leg?: string;
+}
+
+/** spec 卡片墙预填（metadata.specTasks，agent COMPLETE 时 agent-loop 落档） */
+export function buildSpecConfirmPrefill(metadata?: string | null): SpecTaskFormItem[] {
+  if (!metadata) return [];
+  try {
+    const v = (JSON.parse(metadata) as { specTasks?: unknown }).specTasks;
+    if (!Array.isArray(v)) return [];
+    return v
+      .filter((t): t is Record<string, unknown> => t !== null && typeof t === 'object')
+      .filter(t => typeof t.title === 'string' && t.title.trim().length > 0)
+      .map(t => ({
+        title: (t.title as string).trim(),
+        ac: Array.isArray(t.ac) ? t.ac.filter((s): s is string => typeof s === 'string') : [],
+        blockedBy: Array.isArray(t.blockedBy) ? t.blockedBy.filter((s): s is string => typeof s === 'string') : [],
+        ...(typeof t.leg === 'string' && t.leg ? { leg: t.leg } : {}),
+      }));
+  } catch {
+    return [];
+  }
+}
+
+/** decision 确认表单预填（metadata.decisionSuggestion，agent `## 结论摘要` 段落档） */
+export function buildDecisionConfirmPrefill(metadata?: string | null): string {
   if (!metadata) return '';
   try {
-    const v = JSON.parse(metadata) as { analysisDestination?: unknown; analysisFog?: unknown };
-    const lines: string[] = [];
-    if (typeof v.analysisDestination === 'string' && v.analysisDestination.trim()) {
-      lines.push(`目标：${v.analysisDestination.trim()}`);
-    }
-    if (Array.isArray(v.analysisFog)) {
-      for (const q of v.analysisFog) {
-        if (typeof q === 'string' && q.trim()) lines.push(`待决：${q.trim()}`);
-      }
-    }
-    return lines.join('\n');
+    const v = (JSON.parse(metadata) as { decisionSuggestion?: unknown }).decisionSuggestion;
+    return typeof v === 'string' ? v : '';
   } catch {
     return '';
   }

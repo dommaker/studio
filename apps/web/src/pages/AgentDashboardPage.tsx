@@ -55,7 +55,7 @@ export function AgentDashboardPage() {
       <div className="u-page-head">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="page-title">Agent 管理</h1>
+            <h1 className="page-title">角色管理</h1>
             <p className="page-subtitle">角色清单（状态 / 当前任务 / 实时动态）</p>
           </div>
           <div className="flex gap-2">

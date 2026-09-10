@@ -42,7 +42,7 @@ const renderCard = (message: ChannelMessage, onAction: ReturnType<typeof vi.fn>,
 
 // ---------- distill_proposal（原 DistillProposalCard 8 用例） ----------
 
-const distillMessage = msg('msg-dp-1', '知识蒸馏提案 — 待确认', {
+const distillMessage = msg('msg-dp-1', '知识提炼提案 — 待确认', {
   cardType: 'distill_proposal',
   status: 'ready',
   cardData: {
@@ -63,30 +63,30 @@ describe('ReviewProposalCard — distill_proposal（原 DistillProposalCard）',
     mockProposalStatus.mockResolvedValue({ data: { success: true, statuses: { 'dp-1': 'pending' } } });
   });
 
-  it('renders 原料清单/命中信号 + 确认蒸馏/拒绝按钮', () => {
+  it('renders 原料清单/命中信号 + 确认提炼/拒绝按钮', () => {
     renderCard(distillMessage, vi.fn());
     expect(screen.getByText('[Session Fix] 修复竞态')).toBeTruthy();
     expect(screen.getByText('[Session Fix] 修复超时')).toBeTruthy();
     expect(screen.getByText('[Session Feature] 新增导出')).toBeTruthy();
     expect(screen.getByText(/session-summary/)).toBeTruthy();
-    expect(screen.getByText('3 条原料')).toBeTruthy();
-    expect(screen.getByText('确认蒸馏')).toBeTruthy();
+    expect(screen.getByText('已完成工单 3 条')).toBeTruthy();
+    expect(screen.getByText('确认提炼')).toBeTruthy();
     expect(screen.getByText('拒绝')).toBeTruthy();
   });
 
-  it('点确认蒸馏 → onAction(messageId, distill_proposal_approve)，成功后显示已执行', async () => {
+  it('点确认提炼 → onAction(messageId, distill_proposal_approve)，成功后显示已执行', async () => {
     const onAction = vi.fn().mockResolvedValue(true);
     renderCard(distillMessage, onAction);
-    fireEvent.click(screen.getByText('确认蒸馏'));
+    fireEvent.click(screen.getByText('确认提炼'));
     await waitFor(() => expect(onAction).toHaveBeenCalledWith('msg-dp-1', 'distill_proposal_approve'));
-    expect(await screen.findByText(/已确认，蒸馏已执行/)).toBeTruthy();
+    expect(await screen.findByText(/已确认，提炼已执行/)).toBeTruthy();
   });
 
   it('锁存（#288 核查）：onAction 未回流前连击不重复触发，按钮禁用', async () => {
     let resolve: (v: boolean) => void = () => {};
     const onAction = vi.fn().mockImplementation(() => new Promise<boolean>(r => { resolve = r; }));
     renderCard(distillMessage, onAction);
-    const approveBtn = screen.getByText('确认蒸馏').closest('button')!;
+    const approveBtn = screen.getByText('确认提炼').closest('button')!;
     fireEvent.click(approveBtn);
     expect(approveBtn.disabled).toBe(true);
     expect(screen.getByText('拒绝').closest('button')!.disabled).toBe(true);
@@ -94,7 +94,7 @@ describe('ReviewProposalCard — distill_proposal（原 DistillProposalCard）',
     fireEvent.click(screen.getByText('拒绝'));
     expect(onAction).toHaveBeenCalledTimes(1);
     resolve(true);
-    expect(await screen.findByText(/已确认，蒸馏已执行/)).toBeTruthy();
+    expect(await screen.findByText(/已确认，提炼已执行/)).toBeTruthy();
     expect(onAction).toHaveBeenCalledTimes(1);
   });
 
@@ -109,16 +109,16 @@ describe('ReviewProposalCard — distill_proposal（原 DistillProposalCard）',
   it('onAction 返回 false（如预算熔断）→ 不显示已审态，按钮仍在', async () => {
     const onAction = vi.fn().mockResolvedValue(false);
     renderCard(distillMessage, onAction);
-    fireEvent.click(screen.getByText('确认蒸馏'));
+    fireEvent.click(screen.getByText('确认提炼'));
     await waitFor(() => expect(onAction).toHaveBeenCalled());
-    await waitFor(() => expect(screen.getByText('确认蒸馏')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('确认提炼')).toBeTruthy());
     expect(screen.queryByText(/已确认/)).not.toBeTruthy();
   });
 
   it('刷新后按提案状态派生已审态：executed → 已执行（无按钮）', async () => {
     mockProposalStatus.mockResolvedValue({ data: { success: true, statuses: { 'dp-1': 'executed' } } });
     renderCard(distillMessage, vi.fn());
-    expect(await screen.findByText(/已确认，蒸馏已执行/)).toBeTruthy();
+    expect(await screen.findByText(/已确认，提炼已执行/)).toBeTruthy();
     expect(screen.queryByText('拒绝')).not.toBeTruthy();
     expect(mockProposalStatus).toHaveBeenCalledWith(['dp-1']);
   });
@@ -138,7 +138,7 @@ describe('ReviewProposalCard — distill_proposal（原 DistillProposalCard）',
     mockProposalStatus.mockRejectedValue(new Error('network'));
     renderCard(distillMessage, vi.fn());
     await waitFor(() => expect(mockProposalStatus).toHaveBeenCalled());
-    expect(screen.getByText('确认蒸馏')).toBeTruthy();
+    expect(screen.getByText('确认提炼')).toBeTruthy();
     expect(screen.queryByText(/已确认/)).not.toBeTruthy();
   });
 });

@@ -6,6 +6,7 @@
 
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
+import { PROJECT_STATUS_COLORS, PROJECT_STATUS_LABELS } from './pmo/projectDisplay';
 
 interface PmoNumberBadgeProps {
   pmoNumber: string;  // PMO-1
@@ -13,14 +14,6 @@ interface PmoNumberBadgeProps {
   size?: 'sm' | 'md' | 'lg';
   onClick?: () => void;
 }
-
-const statusColors: Record<string, string> = {
-  pending: 'u-surface-2 u-text',
-  active: 'u-accent-dim u-accent',
-  in_review: 'u-warn-dim u-warn',
-  completed: 'u-ok-dim u-ok',
-  cancelled: 'u-err-dim u-err',
-};
 
 const sizeStyles: Record<string, string> = {
   sm: 'px-2 py-0.5 text-xs',
@@ -34,14 +27,14 @@ export function PmoNumberBadge({
   size = 'md',
   onClick,
 }: PmoNumberBadgeProps) {
-  const baseClass = `inline-flex items-center rounded-full font-medium ${statusColors[status]} ${sizeStyles[size]}`;
+  const baseClass = `inline-flex items-center rounded-full font-medium ${PROJECT_STATUS_COLORS[status] ?? 'u-surface-2 u-text'} ${sizeStyles[size]}`;
   const clickableClass = onClick ? 'cursor-pointer hover:opacity-80 transition-opacity' : '';
 
   return (
     <span
       className={`${baseClass} ${clickableClass}`}
       onClick={onClick}
-      title={`PMO 号: ${pmoNumber} | 状态: ${status}`}
+      title={`PMO 号: ${pmoNumber} | 状态: ${PROJECT_STATUS_LABELS[status] ?? status}`}
     >
       <span className="font-bold">{pmoNumber}</span>
     </span>
@@ -59,7 +52,8 @@ export function PmoNumberLink({
   const navigate = useNavigate();
   const handleClick = () => {
     if (projectId) {
-      navigate(`/project/${projectId}`);
+      // #474：项目详情唯一入口 /pmo/project/:id（/project/ 旧路由由 App 重定向兜底）
+      navigate(`/pmo/project/${projectId}`);
     }
   };
 

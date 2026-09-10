@@ -17,10 +17,11 @@
  *                  保守计入每条腿台账）
  *   无 TASK 行 = 无物化清单 → 不建单、发频道提示可手动拆任务（形态照 analysis-handoff）。
  *
- * 幂等：metadata.specTasksSpawnedAt 哨兵——spec done 恒落档（形态照 analysis-handoff，
- * 与 map-opening 有意不同）：人工确认通过即定稿，物化清单应在确认时一并填好；
- * 恒落档也是 pmo/progress-rollup「派生链未落定不翻 completed」判定（#115）的输入——
- * 哨兵缺席 = 物化未处理，项目不得因假相全完结提前翻 completed。
+ * 幂等：metadata.specTasksSpawnedAt 哨兵（形态照 analysis-handoff）。#463 起改
+ * 「无 TASK 行不落档」：确认时清单为空 = 人审有意不物化，不落哨兵——补确认
+ * （F6-b l3 补写再发 status_changed）可再触发物化，消除旧「一键通过即永远烧掉」；
+ * pmo/progress-rollup「派生未落定不翻 completed」判定（#115）同步按 l3.summary
+ * 有无 TASK 行区分「未处理」与「有意不物化」。
  * 事件订阅语义与 DecisionResolution 一致（eventBus 进程内，best-effort）；
  * 同 PMO 的物化按 projectId 串行化（无 pmoId 按 WU id）。
  */
@@ -30,6 +31,7 @@ import { WorkUnitService, type WorkUnitData, type WorkUnitMetadata } from '../wo
 import { parseWuMetadata } from '../workunit/wu-metadata.js';
 import { ChannelMessageService } from '../channels/channel-message.service.js';
 import { projectService, resolveDeliveries, type ProjectData } from './project.service.js';
+import { createKeyedEnqueue } from './keyed-enqueue.js';
 
 /** 物化任务条数上限（照 MAP_OPENING_FOG_MAX 先例防刷屏） */
 export const SPEC_TASKS_MAX = 12;
@@ -75,6 +77,21 @@ export function parseSpecTasks(summary: string): SpecTaskSpec[] {
     tasks.push(task);
   }
   return tasks;
+}
+
+/**
+ * #463：SpecTaskSpec 清单 → TASK 物化行文本（parseSpecTasks 的逆运算，同一契约正本）。
+ * 确认表单（review-passed confirm body）由后端序列化进 l3.summary——人永远不接触魔法行。
+ * 空清单 → 空串（调用方据此不落 summary，哨兵不落档可补确认）。
+ */
+export function serializeSpecTasks(tasks: SpecTaskSpec[]): string {
+  return tasks.map(task => {
+    const segments = [`TASK: ${task.title}`];
+    for (const ac of task.ac) segments.push(`AC: ${ac}`);
+    if (task.blockedBy.length > 0) segments.push(`BLOCKEDBY: ${task.blockedBy.join(',')}`);
+    if (task.leg) segments.push(`LEG: ${task.leg}`);
+    return segments.join(' | ');
+  }).join('\n');
 }
 
 export class SpecMaterialization {
@@ -125,32 +142,26 @@ export class SpecMaterialization {
     await this.enqueue(pmoId || wuId, () => this.materialize(fresh, meta));
   }
 
-  /** 同 PMO 的物化串行化（照 decision-resolution 链式排队，前序失败不阻断后续） */
-  private chains = new Map<string, Promise<void>>();
-
-  private enqueue(key: string, task: () => Promise<void>): Promise<void> {
-    const run = (this.chains.get(key) ?? Promise.resolve())
-      .catch(() => { /* 前序失败不阻断后续 */ })
-      .then(task);
-    this.chains.set(key, run);
-    const cleanup = () => { if (this.chains.get(key) === run) this.chains.delete(key); };
-    run.then(cleanup, cleanup);
-    return run;
-  }
+  /** 同 PMO 的物化串行化（共享实现 keyed-enqueue，前序失败不阻断后续） */
+  private readonly enqueue = createKeyedEnqueue();
 
   private async materialize(wu: WorkUnitData, meta: WorkUnitMetadata): Promise<void> {
+    const tasks = parseSpecTasks(meta.attestations?.l3?.summary ?? '');
+
+    // #463：哨兵改「无 TASK 行不落档」——确认时清单为空 = 人审有意不物化（或旧一键通过
+    // 误烧），不落 specTasksSpawnedAt，补确认（F6-b l3 补写会再发 status_changed）可再触发
+    // 物化，消除一次性烧掉。rollup「物化未落定」判定同步按 l3.summary 有无 TASK 行区分
+    // （progress-rollup 判③，无 TASK 行 = 已落定）。
+    if (tasks.length === 0) {
+      await this.postMaterialized(wu, []);
+      logger.info('[SpecMaterialization] No TASK lines — nothing to materialize（哨兵不落档，可补确认）', { wuId: wu.id });
+      return;
+    }
+
     // 幂等哨兵先落档：即便后续建单部分失败也不重复派生（失败只记日志，人工可补）。
-    // 恒落档（含无 TASK 行）——rollup「派生未落定」判定依赖本哨兵（见文件头）
     await this.workUnitService.update(wu.id, {
       metadata: { ...meta, specTasksSpawnedAt: new Date().toISOString() },
     });
-
-    const tasks = parseSpecTasks(meta.attestations?.l3?.summary ?? '');
-    if (tasks.length === 0) {
-      await this.postMaterialized(wu, []);
-      logger.info('[SpecMaterialization] No TASK lines — nothing to materialize', { wuId: wu.id });
-      return;
-    }
 
     // 腿归属判定输入：项目交付腿（无 pmoId/项目缺失 → LEG 段一律不命中，记日志）
     const pmoId = typeof meta.pmoId === 'string' ? meta.pmoId : '';

@@ -4,16 +4,17 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
-const { mockResume, mockClose } = vi.hoisted(() => ({
+const { mockResume, mockClose, mockSubmitRuling } = vi.hoisted(() => ({
   mockResume: vi.fn(),
   mockClose: vi.fn(),
+  mockSubmitRuling: vi.fn(),
 }));
 
 vi.mock('../../../api/workunit', async () => {
   const actual = await vi.importActual<typeof import('../../../api/workunit')>('../../../api/workunit');
   return {
     ...actual,
-    workunitApi: { ...actual.workunitApi, resume: mockResume, close: mockClose },
+    workunitApi: { ...actual.workunitApi, resume: mockResume, close: mockClose, submitRuling: mockSubmitRuling },
   };
 });
 
@@ -118,6 +119,63 @@ describe('BlockedActions（#185 决策 #87）', () => {
     render(<BlockedActions wu={blockedWu()} onChanged={onChanged} />);
     fireEvent.click(screen.getByRole('button', { name: '继续执行' }));
     expect(await screen.findByText('网络错误')).toBeTruthy();
+    expect(onChanged).not.toHaveBeenCalled();
+  });
+});
+
+describe('BlockedActions — #467 裁决轮（plan-ruling）', () => {
+  const rulingMeta = {
+    waitingForInput: true,
+    waitingReason: 'plan-ruling',
+    planRulings: [
+      { question: '存储选型？', suggestion: 'SQLite' },
+      { question: '部署形态？', suggestion: '单机' },
+    ],
+  };
+
+  beforeEach(() => {
+    mockSubmitRuling.mockResolvedValue({ data: blockedWu({}, { status: 'active' }) });
+  });
+
+  it('plan-ruling 挂起 → 显示「去裁决」，不显示「继续执行」（裁决须带结论，纯授权无意义）', () => {
+    render(<BlockedActions wu={blockedWu(rulingMeta, { type: 'plan' })} />);
+    expect(screen.getByRole('button', { name: '去裁决' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '继续执行' })).toBeNull();
+  });
+
+  it('点「去裁决」→ 弹 PlanRulingDialog（逐题预填建议结论）；提交 → submitRuling + onChanged', async () => {
+    const onChanged = vi.fn();
+    render(<BlockedActions wu={blockedWu(rulingMeta, { type: 'plan' })} onChanged={onChanged} />);
+    fireEvent.click(screen.getByRole('button', { name: '去裁决' }));
+    expect(await screen.findByLabelText('结论 1')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: '全部采纳' }));
+    await waitFor(() => expect(mockSubmitRuling).toHaveBeenCalledWith('WU-1', {
+      items: [
+        { question: '存储选型？', action: 'accept', conclusion: 'SQLite' },
+        { question: '部署形态？', action: 'accept', conclusion: '单机' },
+      ],
+    }));
+    await waitFor(() => expect(onChanged).toHaveBeenCalled());
+  });
+
+  it('autoRuling（接力卡「去裁决」打开即弹）→ 挂载即自动弹窗（一次性）', async () => {
+    render(<BlockedActions wu={blockedWu(rulingMeta, { type: 'plan' })} autoRuling />);
+    expect(await screen.findByLabelText('结论 1')).toBeTruthy();
+  });
+
+  it('非 plan-ruling 的 blocked → 无「去裁决」入口', () => {
+    render(<BlockedActions wu={blockedWu({ waitingForInput: true, waitingQuestion: 'q' })} />);
+    expect(screen.queryByRole('button', { name: '去裁决' })).toBeNull();
+  });
+
+  it('submitRuling 失败 → 错误内联（弹窗保持打开），不触发 onChanged', async () => {
+    const onChanged = vi.fn();
+    mockSubmitRuling.mockRejectedValue(new Error('该任务无待裁的裁决轮'));
+    render(<BlockedActions wu={blockedWu(rulingMeta, { type: 'plan' })} onChanged={onChanged} />);
+    fireEvent.click(screen.getByRole('button', { name: '去裁决' }));
+    fireEvent.click(await screen.findByRole('button', { name: '全部采纳' }));
+    expect(await screen.findByText('该任务无待裁的裁决轮')).toBeTruthy();
     expect(onChanged).not.toHaveBeenCalled();
   });
 });

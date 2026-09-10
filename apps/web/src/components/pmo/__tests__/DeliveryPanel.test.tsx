@@ -9,6 +9,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 const {
   mockNavigate,
   mockDeliver,
+  mockMarkDelivered,
   mockVerify,
   mockDispatchReview,
   mockReviewPassed,
@@ -19,6 +20,7 @@ const {
 } = vi.hoisted(() => ({
   mockNavigate: vi.fn(),
   mockDeliver: vi.fn(),
+  mockMarkDelivered: vi.fn(),
   mockVerify: vi.fn(),
   mockDispatchReview: vi.fn(),
   mockReviewPassed: vi.fn(),
@@ -34,7 +36,7 @@ vi.mock('react-router-dom', async () => {
 });
 
 vi.mock('../../../api', () => ({
-  projectApi: { deliver: mockDeliver },
+  projectApi: { deliver: mockDeliver, markDelivered: mockMarkDelivered },
 }));
 
 vi.mock('../../../api/workunit', () => ({
@@ -99,7 +101,10 @@ describe('DeliveryPanel', () => {
     renderPanel();
 
     expect(screen.getByText('交付', { selector: 'h3' })).toBeTruthy();
-    expect(screen.getByText('🔄 进行中 2/3')).toBeTruthy();
+    // #474：状态徽章去 emoji——图标为 SVG 组件，文本无 emoji
+    const badge = screen.getByText(/进行中 2\/3/);
+    expect(badge.textContent).not.toMatch(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u2713]/u);
+    expect(badge.querySelector('svg')).toBeTruthy();
     // #399 §8.3 词表：WU→任务；证据三级白话
     expect(screen.getByText('任务: 2/3 完成')).toBeTruthy();
     expect(screen.getByText('Agent 评审: 缺 1')).toBeTruthy();
@@ -222,14 +227,14 @@ describe('DeliveryPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '人工确认' }));
 
-    await waitFor(() => expect(mockReviewPassed).toHaveBeenCalledWith('wu-1', undefined, undefined));
+    await waitFor(() => expect(mockReviewPassed).toHaveBeenCalledWith('wu-1', undefined, undefined, undefined));
     await waitFor(() => expect(mockToastSuccess).toHaveBeenCalledWith('人工确认已补齐'));
     expect(onRefresh).toHaveBeenCalled();
   });
 
-  it('analysis 缺口（#106 M7）：人工确认走共享弹窗——拉 WU 详情预填清单，人改后 summary 随 reviewPassed 回传', async () => {
+  it('analysis 缺口（#106 M7；#463 结构化表单）：人工确认走共享弹窗——拉 WU 详情预填清单，人改后 confirm 载荷随 reviewPassed 回传', async () => {
     mockWuGet.mockResolvedValue({
-      data: { metadata: JSON.stringify({ analysisFog: ['存储选型用哪个？'] }) },
+      data: { metadata: JSON.stringify({ analysisFog: ['存储选型用哪个？'], analysisTasks: ['实现存储层'] }) },
     });
     const onRefresh = vi.fn();
     renderPanel({
@@ -239,16 +244,41 @@ describe('DeliveryPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '人工确认' }));
 
-    const textarea = await screen.findByPlaceholderText(/目标/) as HTMLTextAreaElement;
+    expect(await screen.findByLabelText('待决问题 1')).toBeTruthy();
     expect(mockWuGet).toHaveBeenCalledWith('wu-a1');
-    expect(textarea.value).toBe('待决：存储选型用哪个？');
+    expect((screen.getByLabelText('待决问题 1') as HTMLInputElement).value).toBe('存储选型用哪个？');
+    expect((screen.getByLabelText('派工任务 1') as HTMLInputElement).value).toBe('实现存储层');
     expect(mockReviewPassed).not.toHaveBeenCalled();
 
-    fireEvent.change(textarea, { target: { value: '待决：改后的待决问题？' } });
-    fireEvent.click(screen.getByText('确认通过'));
+    fireEvent.change(screen.getByLabelText('待决问题 1'), { target: { value: '改后的待决问题？' } });
+    fireEvent.click(screen.getByText('确认开图'));
 
-    await waitFor(() => expect(mockReviewPassed).toHaveBeenCalledWith('wu-a1', '待决：改后的待决问题？', undefined));
+    await waitFor(() => expect(mockReviewPassed).toHaveBeenCalledWith('wu-a1', undefined, undefined, {
+      kind: 'analysis', fog: ['改后的待决问题？'], tasks: ['实现存储层'],
+    }));
     await waitFor(() => expect(mockToastSuccess).toHaveBeenCalledWith('人工确认已补齐'));
+    expect(onRefresh).toHaveBeenCalled();
+  });
+
+  it('#471 plan 缺口：人工确认同样走共享弹窗，confirm kind=plan 回传', async () => {
+    mockWuGet.mockResolvedValue({
+      data: { metadata: JSON.stringify({ analysisFog: ['存储选型用哪个？'], analysisTasks: ['实现存储层'] }) },
+    });
+    const onRefresh = vi.fn();
+    renderPanel({
+      ...gapDelivery(['l3']),
+      gaps: [{ id: 'wu-p1', title: '规划存储选型', type: 'plan', missing: ['l3'] }],
+    }, onRefresh);
+
+    fireEvent.click(screen.getByRole('button', { name: '人工确认' }));
+
+    expect(await screen.findByLabelText('待决问题 1')).toBeTruthy();
+    expect(mockWuGet).toHaveBeenCalledWith('wu-p1');
+
+    fireEvent.click(screen.getByText('确认开图'));
+    await waitFor(() => expect(mockReviewPassed).toHaveBeenCalledWith('wu-p1', undefined, undefined, {
+      kind: 'plan', fog: ['存储选型用哪个？'], tasks: ['实现存储层'],
+    }));
     expect(onRefresh).toHaveBeenCalled();
   });
 
@@ -316,5 +346,57 @@ describe('DeliveryPanel', () => {
 
     expect(screen.getByText(/证据已齐:请合并分支 PMO-11 并走下游发布链路/)).toBeTruthy();
     expect(screen.queryByText('交付合并')).toBeNull();
+  });
+
+  // ---- #469 branch-only 标记已交付 ----
+
+  const branchOnlyDelivery: DeliveryStatus = {
+    ...baseDelivery,
+    policy: 'branch-only',
+    deliverable: true,
+    gaps: [],
+  };
+
+  it('#469 branch-only 未交付：渲染 commit 输入 + 「标记已交付」按钮；已交付则不渲染', () => {
+    renderPanel(branchOnlyDelivery);
+    expect(screen.getByLabelText('合并 commit 哈希')).toBeTruthy();
+    expect(screen.getByRole('button', { name: '标记已交付' })).toBeTruthy();
+
+    renderPanel({ ...branchOnlyDelivery, deliveredAt: '2026-09-09T00:00:00Z', deliverCommit: 'c0ffee1' });
+    expect(screen.queryAllByLabelText('合并 commit 哈希')).toHaveLength(1); // 仅第一处渲染
+  });
+
+  it('#469 标记已交付成功：trim 后提交，success toast 带短哈希 + onRefresh + 清空输入', async () => {
+    mockMarkDelivered.mockResolvedValue({ data: { delivered: true, deliverCommit: 'c0ffee1234', deliveredAt: '2026-09-09T00:00:00Z' } });
+    const onRefresh = vi.fn();
+    renderPanel(branchOnlyDelivery, onRefresh);
+
+    fireEvent.change(screen.getByLabelText('合并 commit 哈希'), { target: { value: '  c0ffee1234  ' } });
+    fireEvent.click(screen.getByRole('button', { name: '标记已交付' }));
+
+    await waitFor(() => expect(mockMarkDelivered).toHaveBeenCalledWith('p1', 'c0ffee1234'));
+    await waitFor(() => expect(mockToastSuccess).toHaveBeenCalledWith('已标记交付 (c0ffee1)'));
+    expect(onRefresh).toHaveBeenCalled();
+    expect((screen.getByLabelText('合并 commit 哈希') as HTMLInputElement).value).toBe('');
+  });
+
+  it('#469 空 commit 不提交（按钮禁用）', () => {
+    renderPanel(branchOnlyDelivery);
+    expect((screen.getByRole('button', { name: '标记已交付' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(mockMarkDelivered).not.toHaveBeenCalled();
+  });
+
+  it('#469 标记已交付 409：error toast 用 error.message，不刷新', async () => {
+    mockMarkDelivered.mockRejectedValue({
+      response: { status: 409, data: { error: { message: '已于 2026-09-01 落档' } } },
+    });
+    const onRefresh = vi.fn();
+    renderPanel(branchOnlyDelivery, onRefresh);
+
+    fireEvent.change(screen.getByLabelText('合并 commit 哈希'), { target: { value: 'c0ffee' } });
+    fireEvent.click(screen.getByRole('button', { name: '标记已交付' }));
+
+    await waitFor(() => expect(mockToastError).toHaveBeenCalledWith('已于 2026-09-01 落档'));
+    expect(onRefresh).not.toHaveBeenCalled();
   });
 });

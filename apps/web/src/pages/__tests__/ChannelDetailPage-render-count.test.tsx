@@ -144,7 +144,7 @@ describe('ChannelDetailPage — #416 右栏消息摘要投影：无关 message_s
     act(() => {
       currentMessages = [...currentMessages, msg('m3', { authorType: 'human', content: '人类插话', createdAt: iso(20) })];
     });
-    // 触发一次页面重渲（waitingWus 状态变更），让 mocked hook 重新读到新 messages
+    // 触发一次页面重渲（channelWus upsert；#468 前为 waitingWus 状态变更），让 mocked hook 重新读到新 messages
     const railCallsBefore = mockRailSpy.mock.calls.length;
     act(() => emitSse({
       event_type: 'workunit.status_changed',

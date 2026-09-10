@@ -74,3 +74,52 @@ describe('#274 归属校验', () => {
     expect(await service.getUnreadCount('user-b')).toBe(1);
   });
 });
+
+describe('#468 行动中心扩展', () => {
+  it('create：新类型 wu_milestone/monitor_alert/incident 可写入并回读', async () => {
+    await service.create({ userId: 'user-a', type: 'wu_milestone', title: 'M', content: 'm' });
+    await service.create({ userId: 'user-a', type: 'monitor_alert', title: 'A', content: 'a' });
+    await service.create({ userId: 'user-a', type: 'incident', title: 'I', content: 'i' });
+    const types = (await service.getUserNotifications('user-a')).map(n => n.type).sort();
+    expect(types).toEqual(['incident', 'monitor_alert', 'wu_milestone']);
+  });
+
+  it('create：wuId/channelId 结构化字段随数据行持久化并在查询中透出', async () => {
+    const n = await service.create({
+      userId: 'user-a', type: 'wu_milestone', title: 'M', content: 'm',
+      wuId: 'wu-1', channelId: 'ch-1',
+    });
+    const list = await service.getUserNotifications('user-a');
+    const hit = list.find(x => x.id === n.id);
+    expect(hit?.wuId).toBe('wu-1');
+    expect(hit?.channelId).toBe('ch-1');
+  });
+
+  it('create：无 wuId/channelId 时查询透出 null', async () => {
+    const { a } = await seed();
+    const hit = (await service.getUserNotifications('user-a')).find(x => x.id === a.id);
+    expect(hit?.wuId).toBeNull();
+    expect(hit?.channelId).toBeNull();
+  });
+
+  it('createForAllUsers：遍历 users 目录每个用户各写一条（auditor 先例收敛）', async () => {
+    const usersDir = path.join(tmpRoot.value, 'data', 'users');
+    fs.mkdirSync(usersDir, { recursive: true });
+    fs.writeFileSync(path.join(usersDir, 'user-a.json'), '{}');
+    fs.writeFileSync(path.join(usersDir, 'user-b.json'), '{}');
+    fs.writeFileSync(path.join(usersDir, 'not-a-user.txt'), '');
+
+    await service.createForAllUsers({ type: 'incident', title: 'T', content: 'c' });
+
+    expect(await service.getUnreadCount('user-a')).toBe(1);
+    expect(await service.getUnreadCount('user-b')).toBe(1);
+    expect(await service.getUnreadCount('not-a-user')).toBe(0);
+  });
+
+  it('createForAllUsers：users 目录不存在时不抛错、不写入', async () => {
+    fs.rmSync(path.join(tmpRoot.value, 'data', 'users'), { recursive: true, force: true });
+    await expect(
+      service.createForAllUsers({ type: 'incident', title: 'T', content: 'c' }),
+    ).resolves.toBe(0);
+  });
+});

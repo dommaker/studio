@@ -1,12 +1,19 @@
 /**
- * Map Opening — 开图机制（#112，#106 子票 T6）
+ * Map Opening — 开图机制（#112，#106 子票 T6；#471 起降级为台账记录）
  *
- * 订阅 workunit.status_changed，把 PMO 分析单的人工确认与探路地图（#107 map）接通：
- *   analysis WU → done（人工确认通过）且确认文本含待决问题清单 →
- *   初始化 map（destination + fog[]）→ 逐条建未指派 decision 单 → 回写 fog[].wuId（互挂）。
+ * 订阅 workunit.status_changed，把 PMO 规划单（#471 起 type=plan；存量 analysis 兼容）
+ * 的人工确认与探路地图（#107 map）接通：
+ *   plan/analysis WU → done（人工确认通过）且确认文本含待决问题清单 →
+ *   初始化 map 台账（destination + fog[]）。
+ *
+ * #471（派生链收敛）：不再逐条建 decision WU——裁决在 plan 一脉会话内进行
+ * （#467 会话内人闸），fog[].wuId 恒 null（不互挂）。map 降级为纯台账：
+ * 探路地图可视化（ProjectMap）+ plan 会话恢复的唯一事实源（prompt-composer
+ * map 段按 metadata.pmoId 注入，新会话以台账为输入续跑）。
+ * 存量在飞 decision 链不受影响（decision-resolution 继续服务既有 decision WU）。
  *
  * 待决问题清单提取契约（机制只搬运人填文本，不做 LLM 提取）：
- *   来源 = analysis WU 人工确认台账 attestations.l3.summary（reviewPassed 的
+ *   来源 = plan/analysis WU 人工确认台账 attestations.l3.summary（reviewPassed 的
  *   可选 body.summary，#110 已穿透端点入参）。逐行约定格式（兼容中文冒号）：
  *     DESTINATION: <目的地>   —— 首条生效；缺省回退项目 title
  *     FOG: <待决问题>         —— 每行一条 fog 条目（上限 MAP_OPENING_FOG_MAX 条）
@@ -15,14 +22,11 @@
  *   无 FOG 行 = 无待决问题清单 → 不炸、不初始化、不落哨兵（F6-b 人工补确认会重发
  *   status_changed(done)，后续补填清单仍可开图）。
  *
- * 互挂契约：decision 单 metadata 落 pmoId/pmoNumber/fogId（#110 decision-resolution
- * 按此消费：decision 确认 → 写 map.decisions[] + 消解 fog），fog[].wuId 回写新建 WU id。
- *
- * 幂等：metadata.mapOpenedAt 哨兵（照 analysisTasksSpawnedAt 先例先落档再建单，
- * 建单失败只记日志人工可补）；已有 map 的 PMO 不重建。同 PMO 的 map 写按 projectId
+ * 幂等：metadata.mapOpenedAt 哨兵（照 analysisTasksSpawnedAt 先例先落档再写台账，
+ * 写失败只记日志人工可补）；已有 map 的 PMO 不重建。同 PMO 的 map 写按 projectId
  * 串行化（照 decision-resolution / progress-rollup）。
  *
- * 非探路型（无 FOG 清单）与无 pmoId 的 analysis 不受影响。事件订阅语义与
+ * 非探路型（无 FOG 清单）与无 pmoId 的 plan/analysis 不受影响。事件订阅语义与
  * AnalysisHandoff 一致（eventBus 进程内，best-effort）。
  */
 
@@ -31,6 +35,7 @@ import { WorkUnitService, type WorkUnitData, type WorkUnitMetadata } from '../wo
 import { parseWuMetadata } from '../workunit/wu-metadata.js';
 import { ChannelMessageService } from '../channels/channel-message.service.js';
 import { projectService, type PmoMap, type ProjectData } from './project.service.js';
+import { createKeyedEnqueue } from './keyed-enqueue.js';
 
 /** 开图 fog 条数上限（照 ANALYSIS_TASKS_MAX 先例防刷屏） */
 export const MAP_OPENING_FOG_MAX = 12;
@@ -77,7 +82,8 @@ export class MapOpening {
 
     eventBus.subscribe('workunit.status_changed', (payload: { workunit: WorkUnitData }) => {
       const wu = payload.workunit;
-      if (!wu || wu.type !== 'analysis' || wu.status !== 'done') return;
+      // #471：plan（新链）+ analysis（存量在飞链）双吃；其余类型不相关
+      if (!wu || (wu.type !== 'analysis' && wu.type !== 'plan') || wu.status !== 'done') return;
       this.settled.track(this.onAnalysisDone(wu.id).catch(err =>
         logger.warn('[MapOpening] onAnalysisDone failed', { wuId: wu.id, error: String(err) }),
       ));
@@ -109,18 +115,8 @@ export class MapOpening {
     await this.enqueue(pmoId, () => this.openMap(pmoId, destination, fog, fresh, meta));
   }
 
-  /** 同 PMO 的 map 写串行化（照 decision-resolution 链式排队，前序失败不阻断后续） */
-  private chains = new Map<string, Promise<void>>();
-
-  private enqueue(projectId: string, task: () => Promise<void>): Promise<void> {
-    const run = (this.chains.get(projectId) ?? Promise.resolve())
-      .catch(() => { /* 前序失败不阻断后续 */ })
-      .then(task);
-    this.chains.set(projectId, run);
-    const cleanup = () => { if (this.chains.get(projectId) === run) this.chains.delete(projectId); };
-    run.then(cleanup, cleanup);
-    return run;
-  }
+  /** 同 PMO 的 map 写串行化（共享实现 keyed-enqueue，前序失败不阻断后续） */
+  private readonly enqueue = createKeyedEnqueue();
 
   private async openMap(
     projectId: string,
@@ -133,7 +129,7 @@ export class MapOpening {
     if (!project) return;
     if (project.map) return; // 已有 map 的 PMO：不重建
 
-    // 幂等哨兵先落档：即便后续建单部分失败也不重复派生（失败只记日志，人工可补）。
+    // 幂等哨兵先落档：即便后续台账写失败也不重复初始化（失败只记日志，人工可补）。
     // 与 analysis-handoff 同一 done 事件写同一 WU metadata（它落 analysisTasksSpawnedAt）——
     // 写入前重读合并，防 read-modify-write 丢更新（#115 e2e 实测两哨兵互覆）
     const latest = await this.workUnitService.getById(wu.id);
@@ -143,7 +139,7 @@ export class MapOpening {
       metadata: { ...latestMeta, mapOpenedAt: new Date().toISOString() },
     });
 
-    // 1) 先初始化 map（wuId 待回写）
+    // 初始化 map 台账（#471：fog[].wuId 恒 null——不再逐条建 decision 单，不互挂）
     const map: PmoMap = {
       destination: destination ?? project.title,
       decisions: [],
@@ -151,45 +147,19 @@ export class MapOpening {
     };
     await projectService.update(projectId, { map });
 
-    // 2) 逐条建未指派 decision 单（频道成员 loop 认领 = 认领该待决问题）
-    for (const fogItem of map.fog) {
-      try {
-        const decision = await this.workUnitService.create({
-          type: 'decision',
-          scope: `待决问题 ${project.pmoNumber}: ${fogItem.question}`,
-          status: 'unassigned',
-          channelId: wu.channelId,
-          metadata: {
-            creationMode: 'map-opening',
-            // #110 decision-resolution 消费契约：按 pmoId 找 PMO、按 fogId 定位 fog 条目
-            pmoId: project.id,
-            pmoNumber: project.pmoNumber,
-            fogId: fogItem.id,
-          },
-        });
-        fogItem.wuId = decision.id;
-      } catch (err) {
-        // 哨兵已落档：建单失败不重复派生，wuId 留 null（未认领），人工可补
-        logger.warn('[MapOpening] create decision WU failed (skip)', { wuId: wu.id, projectId, fogId: fogItem.id, error: String(err) });
-      }
-    }
-
-    // 3) 回写 fog[].wuId（互挂）
-    await projectService.update(projectId, { map });
-
-    logger.info('[MapOpening] Map opened', { wuId: wu.id, projectId, fogCount: map.fog.length });
+    logger.info('[MapOpening] Map ledger opened (no decision WUs — #471 台账化)', { wuId: wu.id, projectId, fogCount: map.fog.length });
     await this.postOpened(wu, project, map);
   }
 
   /** 频道发开图结果（best-effort） */
   private async postOpened(wu: WorkUnitData, project: ProjectData, map: PmoMap): Promise<void> {
     if (!wu.channelId) return;
-    const lines = map.fog.map((f, i) => `${i + 1}. ${f.question}${f.wuId ? '' : '（建单失败，待人工补）'}`);
+    const lines = map.fog.map((f, i) => `${i + 1}. ${f.question}`);
     await this.messageService.createAgentMessage(
       wu.channelId,
       'Studio',
-      `分析确认通过，已开图 ${project.pmoNumber}（目的地：${map.destination}），`
-      + `逐条建成 ${map.fog.length} 个待决问题单（频道成员自动认领）：\n${lines.join('\n')}`,
+      `规划确认通过，已开图 ${project.pmoNumber}（目的地：${map.destination}），`
+      + `${map.fog.length} 个待决问题已入探路台账（规划会话内逐题裁决，不再单独立决策单）：\n${lines.join('\n')}`,
       { workUnitId: wu.id },
     ).catch(err =>
       logger.warn('[MapOpening] postOpened failed (non-blocking)', { wuId: wu.id, error: String(err) }),

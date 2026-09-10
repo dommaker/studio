@@ -114,9 +114,26 @@ describe('deriveChannelSuggestions（推导骨架）', () => {
     return suggestions.find(s => s.kind === 'status' && s.id === 'auto-review-in-flight');
   }
 
-  it('无 WU → currentWuId=null，不出片', async () => {
+  it('无 WU + 有成员 → currentWuId=null，不出片', async () => {
+    await setMembers(['profile-exec']);
     const r = await deriveChannelSuggestions(CHANNEL_ID, { fileStore });
     expect(r).toEqual({ currentWuId: null, suggestions: [] });
+  });
+
+  // #465（首用路径断点）：空转频道（无当前工单）+ 成员为空 → 出只读提示片
+  // （新装三默认频道正是此态；角色不进频道 = @ 不到、loop 不认领）
+  it('无 WU + 频道成员为空 → 出 channel-no-members 只读提示片（currentWuId=null）', async () => {
+    const r = await deriveChannelSuggestions(CHANNEL_ID, { fileStore });
+    expect(r).toEqual({
+      currentWuId: null,
+      suggestions: [{ id: 'channel-no-members', kind: 'status', params: {} }],
+    });
+  });
+
+  it('有当前工单 + 成员为空 → 不出 channel-no-members 片（由既有片型覆盖，不叠加）', async () => {
+    await createParent({ status: 'unassigned' });
+    const r = await deriveChannelSuggestions(CHANNEL_ID, { fileStore });
+    expect(r.suggestions.find(s => s.id === 'channel-no-members')).toBeUndefined();
   });
 
   it('in_review + 活跃 review 子单（租约未到期）→ 出只读状态说明，带工单上下文（在途）', async () => {
@@ -415,8 +432,8 @@ describe('deriveChannelSuggestions（推导骨架）', () => {
     }]);
   });
 
-  it('不可自动评审类型（decision/spec/analysis/review）in_review → 不出片', async () => {
-    for (const type of ['decision', 'spec', 'analysis', 'review']) {
+  it('不可自动评审类型（decision/spec/analysis/review/plan）in_review → 不出片', async () => {
+    for (const type of ['decision', 'spec', 'analysis', 'review', 'plan']) {
       await createParent({ type, title: `${type} 单` });
     }
     const r = await deriveChannelSuggestions(CHANNEL_ID, { fileStore });
@@ -639,7 +656,7 @@ describe('channel routes（#443）：GET /:id/suggestions', () => {
     expect(res.status).toBe(404);
   });
 
-  it('空频道 → currentWuId=null，suggestions=[]', async () => {
+  it('空频道（无 WU、无成员）→ currentWuId=null + channel-no-members 提示片（#465）', async () => {
     const res = await fetch(baseUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -651,7 +668,10 @@ describe('channel routes（#443）：GET /:id/suggestions', () => {
     expect(r.status).toBe(200);
     const body = await r.json();
     expect(body.success).toBe(true);
-    expect(body.data).toEqual({ currentWuId: null, suggestions: [] });
+    expect(body.data).toEqual({
+      currentWuId: null,
+      suggestions: [{ id: 'channel-no-members', kind: 'status', params: {} }],
+    });
   });
 
   it('in_review + 活跃 review 子单 → data 携带 status 形态建议（结构化 params，无自由文案）', async () => {

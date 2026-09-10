@@ -39,7 +39,7 @@ pnpm start  # 启动生产服务
 ## 知识入口
 
 - `.harness/knowledge/`：项目知识库，用 `harness knowledge` 查询
-- 各源码目录的 `CONTEXT.md` 是权威模块文档（现有 44 个），改动代码时同步更新
+- 各源码目录的 `CONTEXT.md` 是权威模块文档（现有 45 个），改动代码时同步更新
 
 <!-- PRESERVE:governance -->
 ## 治理契约
@@ -144,6 +144,7 @@ pnpm start  # 启动生产服务
 
 | 目录 | 说明 |
 |------|------|
+| `apps/api/src/modules/action-center` | 统一行动中心（#468）：一个端点回答「现在需要我做什么」。GET /api/v1/action-center（requireAuth + requireNotGuest）返回三段：stateItems（状态派生：reply=bloc... |
 | `apps/api/src/modules/admin` | 提供 REST API 端点检查 CLAUDE.md 和 CAPABILITIES.md 的文档新鲜度，包括文件是否存在、最近修改时间、harness 约束检查结果，用于监控文档同步状态。 |
 | `apps/api/src/modules/agents` | Agent 配置（profile）、运行实例（instance）、决策循环（loop）及内部审计 Agent（Auditor/Monitor/Knowledge/Triage/Ops）编排。REST API CRUD + 事件驱动自动... |
 | `apps/api/src/modules/audit` | 将 EventBus 中的审计事件（events:audit）持久化到 KnowledgeStore，提供启动和停止订阅控制，确保每条事件以 guideline 类型存储，并记录错误日志。 |

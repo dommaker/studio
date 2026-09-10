@@ -226,7 +226,19 @@ export function formatExecutionStreamChunkText(
       return null;
   }
 }
+// #463：review-passed 结构化确认表单载荷（后端 apps/api workunit/confirm-payload.ts 为契约正本；
+// 此处为线上 JSON 形状的镜像类型，形态照 mapUtils 与后端 PmoMap 的平行定义先例）
+export type ReviewConfirmPayload =
+  | { kind: 'decision'; conclusion: string }
+  | { kind: 'spec'; tasks: Array<{ title: string; ac?: string[]; blockedBy?: string[]; leg?: string }> }
+  // #471：plan（一脉会话规划单）与 analysis 同形契约（destination/fog → 开图台账；tasks → 派工覆写）
+  | { kind: 'analysis' | 'plan'; destination?: string; fog?: string[]; tasks?: string[] };
 
+// #467：裁决轮提交载荷（后端 apps/api workunit/ruling 路由 + pmo/plan-ruling.ts 为契约正本；
+// 镜像类型，形态照 ReviewConfirmPayload 先例）。accept 必须带 conclusion；reopen = 打回重议（只重调该题）
+export type PlanRulingPayload = {
+  items: Array<{ question: string; action: 'accept' | 'reopen'; conclusion?: string }>;
+};
 
 export const workunitApi = {
   list: (params?: {
@@ -277,11 +289,14 @@ export const workunitApi = {
 
   // #106 M7：可选 summary 穿透 l3 台账（analysis 确认弹窗的待决问题清单、decision 结论等）
   // #177：可选 defaultAssigneeId（analysis 确认处「默认执行角色」）→ 应用于全部派生 task 子 WU
-  reviewPassed: (id: string, summary?: string, defaultAssigneeId?: string) => {
+  // #463：可选 confirm 结构化评审表单（decision/spec/analysis）——后端序列化为 l3.summary，
+  // 存储契约不变；与 summary 并存时 confirm 优先（人永远不接触魔法行）
+  reviewPassed: (id: string, summary?: string, defaultAssigneeId?: string, confirm?: ReviewConfirmPayload) => {
     const trimmed = summary?.trim();
     return api.post<WorkUnit>(`/workunits/${id}/review-passed`, {
       ...(trimmed ? { summary: trimmed } : {}),
       ...(defaultAssigneeId ? { defaultAssigneeId } : {}),
+      ...(confirm ? { confirm } : {}),
     });
   },
 
@@ -303,6 +318,10 @@ export const workunitApi = {
   /** #185（决策 #87 D2）：Web 按钮通道「关闭任务」——死信显式关闭路径（decision/spec 无 closed → 409） */
   close: (id: string) =>
     api.post<WorkUnit>(`/workunits/${id}/close`),
+
+  /** #467：裁决轮一次性提交（全对/单题修改/打回重议）——后端批量落探路台账并复活同会话 */
+  submitRuling: (id: string, payload: PlanRulingPayload) =>
+    api.post<WorkUnit>(`/workunits/${id}/ruling`, payload),
 
   getMessages: (id: string, params?: { before?: string; limit?: number }) =>
     api.get(`/workunits/${id}/messages`, { params }),

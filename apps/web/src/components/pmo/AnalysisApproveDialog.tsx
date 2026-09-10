@@ -1,32 +1,51 @@
-// AnalysisApproveDialog - #106 M7 analysis 通过/确认弹窗（共享件，自 WorkUnitListPage 抽出）
-// 预填 agent COMPLETE 落档的待决问题清单（mapUtils.buildMapOpeningPrefill 产物，
-// #401 起用中文别名「目标：/待决：」逐行 map-opening 契约格式），人审改后随 summary 回传开图；
-// 清空清单直接通过 = 非探路型，不开图。非 analysis 类型一律不走本弹窗（一键通过）。
+// AnalysisApproveDialog — #463 起重写为结构化评审表单（原 #106 M7 魔法行 textarea 退役）。
+// 数据源 = agent COMPLETE 落档的结构化 metadata（buildAnalysisConfirmPrefill 产物）：
+//   左栏 FOG 待决清单（增删改；清空 = 非探路型不开图）+ 目标行；
+//   右栏 TASK 拆分预览（metadata.analysisTasks，行内编辑 + 勾选剔除——原盲盒开盒）。
+// 三按钮（resolution 评论契约）：确认开图（fog 随 confirm 回传开图）/
+// 不开图直接派工（fog 不带，只派工）/ 打回补充（reviewRejected 预设理由）。
+// 确认回传 confirm={kind:confirmKind('analysis'|'plan'), destination, fog, tasks:勾选集}——后端序列化进
+// l3.summary 并覆写 metadata.analysisTasks（存储契约不变），人永远不接触魔法行。
+// #471：plan（一脉会话规划单）复用本弹窗（confirmKind='plan'）；台账化后「确认开图」
+// 只初始化探路台账，不再逐条建决策单（#471 map-opening 降级）。
+// #177 保留：带 channelId 时可选「默认执行角色」下拉（候选=频道成员，留空=涌现）。
+// 批次A 项7 保留：onConfirm/onReject 可返回 Promise——提交期间禁用 + 失败内联保持打开。
 // 入口：WuGateActions（列表行/抽屉/详情页三处合一，E2-4）/ DeliveryPanel 缺口「人工确认」。
-// #177（#69 决议）：带 channelId 时加可选「默认执行角色」下拉（候选=频道成员，
-// 默认留空=涌现，不阻塞主交互），选中值应用于确认后全部派生 task 子 WU，不做逐条指派。
-// 批次A 项7：onConfirm 返回 Promise——提交期间确认键 loading + 双键禁用 + 屏蔽遮罩关闭，
-// 成功才关窗（调用方在 onConfirm resolve 后关），失败内联错误行保持打开可重试。
 import { useEffect, useState } from 'react';
 import { channelApi, type AgentProfile } from '../../api/channel';
 import { Button, Select } from '../ui';
 import { resolveChannelResponders } from './channelResponders';
 import { errorMessage } from '../../utils/errorMessage';
+import type { ReviewConfirmPayload } from '../../api/workunit';
+import type { AnalysisConfirmPrefill } from './mapUtils';
 
 interface AnalysisApproveDialogProps {
-  /** 预填文本（buildMapOpeningPrefill 产物；空串 = 无清单，空手填或直接通过） */
-  prefill: string;
+  /** 结构化预填（buildAnalysisConfirmPrefill 产物；全空 = agent 无产出，空手评或直接通过） */
+  prefill: AnalysisConfirmPrefill;
   /** WU 所在频道 id（#177：给出则渲染「默认执行角色」下拉；缺省不渲染，存量形态不变） */
   channelId?: string | null;
-  /** 确认通过：当前文本作为 summary 回传（可为空串，api 层 trim 后为空则不带 summary 字段）；
-   *  第二参 = 默认执行角色 profile id（留空 = undefined，涌现认领）。
-   *  批次A 项7：可返回 Promise——reject 时弹窗保持打开并内联错误，resolve 后由调用方关窗 */
-  onConfirm: (summary: string, assigneeId?: string) => void | Promise<unknown>;
+  /** #471：confirm 载荷 kind（plan = 一脉会话规划单，与 analysis 同形契约）；缺省 'analysis' */
+  confirmKind?: 'analysis' | 'plan';
+  /** 确认（开图/直接派工）：表单数据随 confirm 回传；第二参 = 默认执行角色 profile id
+   *  （留空 = undefined，涌现认领）。reject 时弹窗保持打开并内联错误 */
+  onConfirm: (confirm: ReviewConfirmPayload & { kind: 'analysis' | 'plan' }, assigneeId?: string) => void | Promise<unknown>;
+  /** 打回补充：reviewRejected 预设理由（reject 时弹窗保持打开并内联错误） */
+  onReject: (reason: string) => void | Promise<unknown>;
   onCancel: () => void;
 }
 
-export function AnalysisApproveDialog({ prefill, channelId, onConfirm, onCancel }: AnalysisApproveDialogProps) {
-  const [text, setText] = useState(prefill);
+/** 打回补充预设理由（结论/拆分需修订，agent 据此返工） */
+export const ANALYSIS_REJECT_REASON = '打回补充：分析结论或任务拆分需修订，请补充后重新提交确认';
+
+interface TaskRow {
+  text: string;
+  included: boolean;
+}
+
+export function AnalysisApproveDialog({ prefill, channelId, confirmKind = 'analysis', onConfirm, onReject, onCancel }: AnalysisApproveDialogProps) {
+  const [destination, setDestination] = useState(prefill.destination);
+  const [fog, setFog] = useState<string[]>(prefill.fog);
+  const [tasks, setTasks] = useState<TaskRow[]>(prefill.tasks.map(t => ({ text: t, included: true })));
   // #177：默认执行角色候选（频道成员）；'' = 留空涌现
   const [assigneeId, setAssigneeId] = useState('');
   const [candidates, setCandidates] = useState<AgentProfile[]>([]);
@@ -47,12 +66,12 @@ export function AnalysisApproveDialog({ prefill, channelId, onConfirm, onCancel 
     return () => { cancelled = true; };
   }, [channelId]);
 
-  const handleConfirm = async () => {
+  const run = async (fn: () => void | Promise<unknown>) => {
     if (submitting) return;
     setSubmitting(true);
     setSubmitError('');
     try {
-      await onConfirm(text, assigneeId || undefined);
+      await fn();
     } catch (e) {
       setSubmitError(errorMessage(e));
     } finally {
@@ -60,25 +79,81 @@ export function AnalysisApproveDialog({ prefill, channelId, onConfirm, onCancel 
     }
   };
 
+  const cleanFog = fog.map(s => s.trim()).filter(Boolean);
+  const includedTasks = tasks.filter(t => t.included && t.text.trim()).map(t => t.text.trim());
+
   return (
     <div className="modal-overlay" onClick={submitting ? undefined : onCancel}>
-      <div className="modal" style={{ maxWidth: '28rem' }} onClick={e => e.stopPropagation()}>
+      <div className="modal" style={{ maxWidth: '44rem' }} onClick={e => e.stopPropagation()}>
         <div className="modal-header">
-          <h3 className="modal-title">确认分析结论</h3>
+          <h3 className="modal-title">{confirmKind === 'plan' ? '确认规划结论' : '确认分析结论'}</h3>
           <button className="modal-close" onClick={onCancel} disabled={submitting} aria-label="关闭">×</button>
         </div>
         <div className="modal-body">
           <p className="text-xs u-text-2 mb-2">
-            逐行确认待决问题（每行一条、以「待决：」开头，可增删改；首行可用「目标：」写明目的地）；
-            确认通过后系统据此开图并逐条建决策单。清空清单直接通过 = 非探路型，不开图。
+            分析结论已拆解为待决问题（左栏，可增删改）与派工任务（右栏，可逐条修改、勾选剔除）。
+            点「确认开图」后系统据此生成探路地图：待决问题在规划会话里逐条裁决，不再单独立决策单；清空待决问题 = 不需要探路，只按任务清单派工。结论有问题请点「打回补充」。
           </p>
-          <textarea
-            className="input w-full font-mono"
-            rows={8}
-            placeholder={'目标：一句话目标（可选）\n待决：待决问题 1\n待决：待决问题 2'}
-            value={text}
-            onChange={e => setText(e.target.value)}
-          />
+          <div className="flex gap-4" style={{ alignItems: 'flex-start' }}>
+            {/* 左栏：FOG 待决清单 */}
+            <div className="flex-1 flex flex-col gap-1">
+              <input
+                className="input w-full"
+                placeholder="目标（可选）：一句话目的地"
+                value={destination}
+                onChange={e => setDestination(e.target.value)}
+                aria-label="目标"
+              />
+              {fog.map((q, i) => (
+                <div key={i} className="flex gap-1 items-center">
+                  <input
+                    className="input w-full"
+                    placeholder="待决问题"
+                    value={q}
+                    onChange={e => setFog(prev => prev.map((x, k) => (k === i ? e.target.value : x)))}
+                    aria-label={`待决问题 ${i + 1}`}
+                  />
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    aria-label={`删除待决问题 ${i + 1}`}
+                    onClick={() => setFog(prev => prev.filter((_, k) => k !== i))}
+                  >
+                    删
+                  </button>
+                </div>
+              ))}
+              <button
+                className="btn btn-secondary btn-sm"
+                style={{ alignSelf: 'flex-start' }}
+                onClick={() => setFog(prev => [...prev, ''])}
+              >
+                添加待决
+              </button>
+            </div>
+            {/* 右栏：TASK 拆分预览（勾选剔除 + 行内编辑） */}
+            <div className="flex-1 flex flex-col gap-1">
+              <p className="text-xs u-text-2">派工预览（{includedTasks.length} 条将派工）</p>
+              {tasks.length === 0 && (
+                <p className="text-xs u-text-3">agent 未输出 TASK 拆分——确认后不自动派工，可手动转任务</p>
+              )}
+              {tasks.map((t, i) => (
+                <div key={i} className="flex gap-1 items-center">
+                  <input
+                    type="checkbox"
+                    checked={t.included}
+                    onChange={e => setTasks(prev => prev.map((x, k) => (k === i ? { ...x, included: e.target.checked } : x)))}
+                    aria-label={`纳入派工 ${i + 1}`}
+                  />
+                  <input
+                    className="input w-full"
+                    value={t.text}
+                    onChange={e => setTasks(prev => prev.map((x, k) => (k === i ? { ...x, text: e.target.value } : x)))}
+                    aria-label={`派工任务 ${i + 1}`}
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
           {channelId && (
             <div className="mt-2">
               <p className="text-xs u-text-2 mb-1">
@@ -101,19 +176,42 @@ export function AnalysisApproveDialog({ prefill, channelId, onConfirm, onCancel 
           {submitError && <p className="text-xs u-err" style={{ marginTop: 8 }}>{submitError}</p>}
         </div>
         <div className="modal-footer">
+          <button className="btn btn-secondary" onClick={onCancel} disabled={submitting}>
+            取消
+          </button>
+          <button
+            className="btn btn-danger"
+            disabled={submitting}
+            title="打回：结论或拆分需修订（agent 返工）"
+            onClick={() => void run(() => onReject(ANALYSIS_REJECT_REASON))}
+          >
+            打回补充
+          </button>
           <button
             className="btn btn-secondary"
-            onClick={onCancel}
             disabled={submitting}
+            title="不开图：待决清单不进地图，仅按 TASK 拆分派工"
+            onClick={() => void run(() => onConfirm(
+              { kind: confirmKind, tasks: includedTasks },
+              assigneeId || undefined,
+            ))}
           >
-            取消
+            不开图直接派工
           </button>
           <Button
             variant="primary"
             loading={submitting}
-            onClick={() => void handleConfirm()}
+            onClick={() => void run(() => onConfirm(
+              {
+                kind: confirmKind,
+                ...(destination.trim() ? { destination: destination.trim() } : {}),
+                fog: cleanFog,
+                tasks: includedTasks,
+              },
+              assigneeId || undefined,
+            ))}
           >
-            确认通过
+            确认开图
           </Button>
         </div>
       </div>

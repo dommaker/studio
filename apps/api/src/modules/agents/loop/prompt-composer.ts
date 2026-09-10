@@ -89,6 +89,29 @@ export const CONTRACT_TEMPLATES: Record<string, string> = {
   decision: [
     '结论摘要格式：输出末段 `## 结论摘要`，用一句话给出待决问题的结论与理由。',
   ].join('\n'),
+  // #463：spec 成文单契约——输出尾部给 TASK 物化行（spec-materialization 解析契约），
+  // 落 metadata.specTasks 供人工确认弹窗卡片墙预填（人审改后由后端序列化进 l3.summary）
+  spec: [
+    '物化清单格式：输出尾部逐行给出本成文单要拆的任务（确认后按清单自动派生任务单）：',
+    '  TASK: <任务标题> [| AC: <验收标准>]... [| BLOCKEDBY: <wuId,...>] [| LEG: <gitRepo>]',
+    '（无 TASK 行 = 不自动派生；清单会在人工确认时逐条评审，可改可剔。）',
+  ].join('\n'),
+  // #471：plan（一脉会话规划单）契约——澄清→调研→裁决→成文→拆单同会话完成；
+  // 输出协议行是 agent-loop COMPLETE 解析与 #463 确认弹窗预填的数据源（契约单一来源）
+  // #467：裁决轮协议（RULING 行）——fog 调研齐后向人出一次裁决卡，不逐题问人
+  plan: [
+    '一脉会话（详见 skills 段 requirement-clarify / to-tickets 全文）：澄清 → fog 调研（仓外调研派 DELEGATE research 子单）→ 裁决轮 → spec 成文落业务仓 .studio/specs/ → 拆任务清单，全程不换会话。',
+    '会话中断恢复：prompt「探路地图」段的台账（目的地 + 待决 + 已裁决结论）是唯一恢复事实源，以台账续跑，不整单重来。',
+    '裁决轮（fog 调研齐后出一次，不逐题问人）：输出',
+    '  ACTION: NEED_INPUT:裁决轮——N 个待决问题请一次性裁决',
+    '  紧随逐行 RULING: {"question":"<待决问题>","suggestion":"<建议结论>","default":"<人不答时的默认值，可省>"}',
+    '  人一次性裁决后同一会话继续：采纳结论已落探路台账（随裁决结果注入回复）；被打回重议的题只重调该题——补充调研后重新出裁决轮。',
+    '无 FOG 的小需求不进裁决轮：澄清确认一次后直接成文拆单。',
+    '输出协议（规划完成时，除 ACTION 行外逐行给出）：',
+    '  TASK: <任务描述>（3~8 条，可被独立认领完成；人工确认后按清单自动派工）',
+    '  FOG: <待决问题>（探路型才输出，至多 12 条；确认后入探路台账，不再单独立决策单）',
+    '  DESTINATION: <一句话目标>（可选，缺省用项目标题）',
+  ].join('\n'),
   analysis: [
     '方法论二选一（详见 skills 段 research / prototype 全文）：',
     'research → 调研报告落业务仓 .studio/research/，并在来源工单回挂报告链接。',
@@ -592,7 +615,8 @@ function buildHandoffSection(metadata: WorkUnitMetadata, isNewSession: boolean, 
  * §10 P0 + 决策 7/11 + #92: 组装 `## 本次任务 Skills` 段 —— step 时计算（不再读 claim 落盘的
  * metadata.matchedSkills，消竞态并吃到 skill 库最新版）。
  * #92 硬预裁剪（selectSkillsForInjection）：注入段只含 +skill 显式点名（wu.scope 解析）+
- * 域匹配（role.acceptedTypes ∪ 归一化 wu.type ∩ skill.agentTypes）两类；scope 文本匹配与
+ * role.skills 显式声明（#462：与 +skill 同权，按名去重）+
+ * 域匹配（role.acceptedTypes ∪ 归一化 wu.type ∩ skill.agentTypes）三类；scope 文本匹配与
  * 「rest 热度」不再进注入段（由段尾 MANIFEST 指针按需兜底）。预裁剪后仍受 #91 分段定额截断
  * （有效预算 = 定额 + 池余量，块级截断，取代封顶 3）。
  * index-on-demand：索引行 = name + description + triggers 摘要 + 全文指针
@@ -611,10 +635,11 @@ async function buildSkillSection(
   if (manifest.length === 0) return { section: '', tokens: 0, originalTokens: 0, matched: [] };
 
   const hints = parseSkillHintsFromScope(wu.scope ?? '');
+  // #462：role.skills 显式声明纳入索引候选（与 +skill 点名同权，按名去重——见 selectSkillsForInjection）
   const ranked = selectSkillsForInjection(manifest, {
     acceptedTypes: deps.acceptedTypes,
     wuType: wu.type,
-  }, hints);
+  }, hints, deps.role.skills ?? []);
   if (ranked.length === 0) return { section: '', tokens: 0, originalTokens: 0, matched: [] };
 
   const header = '## 本次任务 Skills\n\n以下 skill 按相关度排序；任务内容命中其触发条件时，先读全文再按此执行；不相关则忽略。';

@@ -121,8 +121,8 @@ describe('summarizeEvidence', () => {
     expect(s2.deliverable).toBe(false);
   });
 
-  it('#108: decision/spec 豁免 l2（人工验收类工单不派评审），l3 仍要求', () => {
-    for (const type of ['decision', 'spec']) {
+  it('#108/#471: decision/spec/plan 豁免 l2（人工验收类工单不派评审），l3 仍要求', () => {
+    for (const type of ['decision', 'spec', 'plan']) {
       const withL3 = wu({ type, metadataObj: { attestations: { l3: att('human-confirm') } } });
       expect(summarizeEvidence([withL3]).deliverable).toBe(true);
 

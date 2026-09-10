@@ -111,7 +111,7 @@ describe('T4: pending 不可认领，确认后可认领', () => {
   });
 });
 
-describe('T4: feature 管线展开与确认补展开', () => {
+describe('T4: feature 路由展开与确认补展开（#466：配置源 defaultPipeline → routing.implement）', () => {
   let channelId: string;
 
   beforeEach(async () => {
@@ -126,12 +126,12 @@ describe('T4: feature 管线展开与确认补展开', () => {
       id: channelId, name: '#pending-pipeline', type: 'rnd',
       defaultWorkspaceId: null, defaultPath: null,
       discordChannelId: null, discordWebhookUrl: null,
-      members: '[]', defaultPipeline: ['executor'],
+      members: JSON.stringify(['p-exec-pending']), routing: { implement: 'p-exec-pending' },
       createdAt: now, updatedAt: now,
     });
   });
 
-  it('feature 落 pending：创建时不展开管线（未确认需求不烧 token）', async () => {
+  it('feature 落 pending：创建时不展开路由（未确认需求不烧 token）', async () => {
     const parent = await service.create({ type: 'feature', scope: '未确认需求', channelId });
     expect(parent.status).toBe('pending');
     const all = await fileStore.getIndex();

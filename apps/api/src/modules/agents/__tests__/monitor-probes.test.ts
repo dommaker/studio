@@ -347,6 +347,28 @@ describe('checkStaleClaimGuard（#221）', () => {
     expect(await checkStaleClaimGuard(realStore, await realStore.getIndex())).toEqual([]);
   });
 
+  it('#464：沉睡 WU 带频道 → 频道发「已沉睡」提醒（milestone：atHuman + 行动中心通知）', async () => {
+    const now = new Date().toISOString();
+    await realStore.createChannel({
+      id: 'ch-stale', name: '#stale', type: 'rnd',
+      defaultWorkspaceId: null, defaultPath: null,
+      discordChannelId: null, discordWebhookUrl: null, members: '[]',
+      createdAt: now, updatedAt: now,
+    });
+    const updatedAt = new Date(Date.now() - STALE_MS).toISOString();
+    await realStore.upsertSnapshot(makeSnapshot({
+      id: 'wu-stale-ch', status: 'unassigned', channelId: 'ch-stale', updatedAt, createdAt: updatedAt,
+    }) as never);
+
+    const alerts = await checkStaleClaimGuard(realStore, await realStore.getIndex());
+    expect(alerts).toHaveLength(1);
+
+    const msgs = await realStore.queryMessages('ch-stale', { workUnitId: 'wu-stale-ch' });
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0].content).toContain('沉睡');
+    expect(JSON.parse(msgs[0].meta ?? '{}').atHuman).toBe(true);
+  });
+
   it('已标记 WU 不占周期名额：20 条已出声 + 1 条新沉睡 → 新沉睡正常告警（slice 顺序回归）', async () => {
     // 20 条陈旧且已落标记（长期占据 index 前部）
     for (let i = 0; i < 20; i++) {
@@ -478,6 +500,19 @@ describe('autoAbandon probes', () => {
       createdAt: new Date(Date.now() - 96 * 3600_000).toISOString(),
     });
     const fileStore = makeFileStore({ getIndex: vi.fn(async () => [decision, spec]) });
+
+    await autoAbandonStaleBlocked(fileStore, await fileStore.getIndex());
+
+    expect(mockCloseWithNotice).not.toHaveBeenCalled();
+  });
+
+  it('#471: plan 类型豁免死信（blocked = 等裁决轮/额度授权人闸，可能等多天）', async () => {
+    const plan = makeSnapshot({
+      id: 'wu-plan', type: 'plan', status: 'blocked',
+      createdAt: new Date(Date.now() - 96 * 3600_000).toISOString(),
+      metadata: JSON.stringify({ blockedAt: new Date(Date.now() - 96 * 3600_000).toISOString(), waitingReason: 'plan-step-limit' }),
+    });
+    const fileStore = makeFileStore({ getIndex: vi.fn(async () => [plan]) });
 
     await autoAbandonStaleBlocked(fileStore, await fileStore.getIndex());
 

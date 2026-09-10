@@ -8,12 +8,14 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { projectApi, type DeliveryStatus, type DeliveryGap } from '../../api';
-import { workunitApi } from '../../api/workunit';
+import { workunitApi, type ReviewConfirmPayload } from '../../api/workunit';
 import { formatFullTime } from '../../utils/datetime';
 import { toast } from '../../utils/toast';
 import { AnalysisApproveDialog } from './AnalysisApproveDialog';
-import { buildMapOpeningPrefill } from './mapUtils';
+import { IconCheck, IconRefresh, IconClock } from '../ui/icons';
+import { buildAnalysisConfirmPrefill, type AnalysisConfirmPrefill } from './mapUtils';
 import { EVIDENCE_LAYER_LABELS } from './pipelineUtils';
+import { DELIVERY_POLICY_LABELS } from './projectDisplay';
 
 // 🆕 F6-c: 缺口层 → 人话文案（#399 §8.3 词表：自动验证 / Agent 评审 / 人工确认，L1/L2/L3 不上界面）
 // 「缺」与 Latin 开头的 Agent 评审间留空格，CJK 词直连
@@ -39,24 +41,25 @@ export function DeliveryPanel({ projectId, delivery, onRefresh }: DeliveryPanelP
   const [deliverError, setDeliverError] = useState<{ message: string; missing?: string[]; conflictFiles?: string[] } | null>(null);
   // 🆕 F6-c: 缺口行动按钮的独立 loading 态（key = `${wuId}:${action}`），防重复点击
   const [gapActionPending, setGapActionPending] = useState<Record<string, boolean>>({});
-  // #106 M7：analysis 缺口的「人工确认」走共享确认弹窗（预填待决问题清单 → 人改 → 带 summary 提交）
-  const [approveGap, setApproveGap] = useState<{ gap: DeliveryGap; prefill: string; channelId: string | null } | null>(null);
+  // #106 M7：analysis 缺口的「人工确认」走共享确认弹窗（#463 起结构化评审表单：
+  // FOG 清单 + TASK 拆分预览，人审后 confirm 载荷由后端序列化进 l3.summary）
+  const [approveGap, setApproveGap] = useState<{ gap: DeliveryGap; prefill: AnalysisConfirmPrefill; channelId: string | null } | null>(null);
 
-  // analysis 缺口开弹窗：gaps 列表无 metadata，best-effort 拉 WU 详情取预填（拉不到 → 空手填）
+  // analysis 缺口开弹窗：gaps 列表无 metadata，best-effort 拉 WU 详情取预填（拉不到 → 空手评）
   // #177：同时取 channelId 喂弹窗的「默认执行角色」下拉（候选=频道成员）
   const openAnalysisApprove = async (gap: DeliveryGap) => {
-    let prefill = '';
+    let prefill: AnalysisConfirmPrefill = { destination: '', fog: [], tasks: [] };
     let channelId: string | null = null;
     try {
       const res = await workunitApi.get(gap.id);
-      prefill = buildMapOpeningPrefill(res.data?.metadata);
+      prefill = buildAnalysisConfirmPrefill(res.data?.metadata);
       channelId = res.data?.channelId ?? null;
     } catch { /* best-effort */ }
     setApproveGap({ gap, prefill, channelId });
   };
 
   // 🆕 F6-c: 缺口行动——重跑 L1 验证 / 补派 L2 评审 / L3 人工确认
-  const handleGapAction = async (gap: DeliveryGap, action: 'verify' | 'dispatchReview' | 'reviewPassed', summary?: string, assigneeId?: string) => {
+  const handleGapAction = async (gap: DeliveryGap, action: 'verify' | 'dispatchReview' | 'reviewPassed', summary?: string, assigneeId?: string, confirm?: ReviewConfirmPayload) => {
     const key = `${gap.id}:${action}`;
     setGapActionPending(prev => ({ ...prev, [key]: true }));
     try {
@@ -74,7 +77,7 @@ export function DeliveryPanel({ projectId, delivery, onRefresh }: DeliveryPanelP
         toast.success('已创建评审任务，待 agent 领取');
         await onRefresh();
       } else {
-        await workunitApi.reviewPassed(gap.id, summary, assigneeId);
+        await workunitApi.reviewPassed(gap.id, summary, assigneeId, confirm);
         toast.success('人工确认已补齐');
         await onRefresh();
       }
@@ -94,6 +97,10 @@ export function DeliveryPanel({ projectId, delivery, onRefresh }: DeliveryPanelP
       setGapActionPending(prev => ({ ...prev, [key]: false }));
     }
   };
+
+  // #469: branch-only 标记已交付（系统外合并后人工落档 commit 哈希）
+  const [markCommit, setMarkCommit] = useState('');
+  const [marking, setMarking] = useState(false);
 
   // 🆕 PMO-b: 交付合并（409 时展示缺口/冲突清单）
   const handleDeliver = async () => {
@@ -120,33 +127,53 @@ export function DeliveryPanel({ projectId, delivery, onRefresh }: DeliveryPanelP
     }
   };
 
+  // #469: branch-only 人工落档——填合并 commit 哈希，写 deliveredAt/By/Commit（后端幂等拒绝重复落档）
+  const handleMarkDelivered = async () => {
+    const commit = markCommit.trim();
+    if (!commit) return;
+    setMarking(true);
+    try {
+      const res = await projectApi.markDelivered(projectId, commit);
+      toast.success(`已标记交付${res.data?.deliverCommit ? ` (${String(res.data.deliverCommit).slice(0, 7)})` : ''}`);
+      setMarkCommit('');
+      await onRefresh();
+    } catch (err) {
+      const errData = err?.response?.data?.error;
+      toast.error(errData?.message || err?.message || '标记已交付失败');
+    } finally {
+      setMarking(false);
+    }
+  };
+
   return (
     <div className="card p-4 mb-3">
       <div className="flex items-center justify-between mb-3">
         <h3 className="mc-block-label" style={{ margin: 0 }}>交付</h3>
+        {/* #474 去 emoji：状态徽章图标 = ui/icons stroke SVG（原 ✓/🔄/⏳ 徽章） */}
         {delivery.deliveredAt ? (
-          <span className="text-xs px-2 py-1 rounded u-ok-dim u-ok font-medium">✓ 已交付</span>
+          <span className="text-xs px-2 py-1 rounded u-ok-dim u-ok font-medium inline-flex items-center gap-1"><IconCheck size={12} /> 已交付</span>
         ) : delivery.deliverable ? (
-          <span className="text-xs px-2 py-1 rounded u-ok-dim u-ok font-medium">✓ 可交付</span>
+          <span className="text-xs px-2 py-1 rounded u-ok-dim u-ok font-medium inline-flex items-center gap-1"><IconCheck size={12} /> 可交付</span>
         ) : delivery.wu.inFlight > 0 ? (
-          <span className="text-xs px-2 py-1 rounded u-accent-dim u-accent font-medium">
-            🔄 进行中 {delivery.wu.finished}/{delivery.wu.total}
+          <span className="text-xs px-2 py-1 rounded u-accent-dim u-accent font-medium inline-flex items-center gap-1">
+            <IconRefresh size={12} /> 进行中 {delivery.wu.finished}/{delivery.wu.total}
           </span>
         ) : (
-          <span className="text-xs px-2 py-1 rounded u-warn-dim u-warn font-medium">
-            ⏳ 待验收:证据还差 {delivery.evidence.l1Missing.length + delivery.evidence.l2Missing.length + delivery.evidence.l3Missing.length} 项
+          // #472：项目级「待验收」改「待交付」——与 WU 四站「待验收」同词异义分词（项目级=待交付合并）
+          <span className="text-xs px-2 py-1 rounded u-warn-dim u-warn font-medium inline-flex items-center gap-1">
+            <IconClock size={12} /> 待交付:证据还差 {delivery.evidence.l1Missing.length + delivery.evidence.l2Missing.length + delivery.evidence.l3Missing.length} 项
           </span>
         )}
       </div>
 
-      {/* 台账概览：策略 / 分支 / 任务完成度 / 证据三层（白话词表）/ 自评 */}
-      <div className="text-sm u-text-2 flex flex-wrap gap-x-4 gap-y-1 mb-2">
-        <span>交付策略: {delivery.policy === 'auto-merge' ? '自动合并' : '分支交付'}</span>
+      {/* 台账概览：策略 / 分支 / 任务完成度 / 证据三层（白话词表）/ 自评；#472 策略文案走 projectDisplay 唯一词表；#474 ✓ → IconCheck */}
+      <div className="text-sm u-text-2 flex flex-wrap gap-x-4 gap-y-1 mb-2 items-center">
+        <span>交付策略: {DELIVERY_POLICY_LABELS[delivery.policy] ?? delivery.policy}</span>
         <span>分支: {delivery.branch || '—'}</span>
         <span>任务: {delivery.wu.finished}/{delivery.wu.total} 完成</span>
-        <span>{EVIDENCE_LAYER_LABELS.l1}: {delivery.evidence.l1Missing.length === 0 ? '✓' : `缺 ${delivery.evidence.l1Missing.length}`}</span>
-        <span>{EVIDENCE_LAYER_LABELS.l2}: {delivery.evidence.l2Missing.length === 0 ? '✓' : `缺 ${delivery.evidence.l2Missing.length}`}</span>
-        <span>{EVIDENCE_LAYER_LABELS.l3}: {delivery.evidence.l3Missing.length === 0 ? '✓' : `缺 ${delivery.evidence.l3Missing.length}`}</span>
+        <span className="inline-flex items-center gap-1">{EVIDENCE_LAYER_LABELS.l1}: {delivery.evidence.l1Missing.length === 0 ? <IconCheck size={12} /> : `缺 ${delivery.evidence.l1Missing.length}`}</span>
+        <span className="inline-flex items-center gap-1">{EVIDENCE_LAYER_LABELS.l2}: {delivery.evidence.l2Missing.length === 0 ? <IconCheck size={12} /> : `缺 ${delivery.evidence.l2Missing.length}`}</span>
+        <span className="inline-flex items-center gap-1">{EVIDENCE_LAYER_LABELS.l3}: {delivery.evidence.l3Missing.length === 0 ? <IconCheck size={12} /> : `缺 ${delivery.evidence.l3Missing.length}`}</span>
         <span>自评: {delivery.evidence.selfReviewCount}</span>
       </div>
 
@@ -201,7 +228,7 @@ export function DeliveryPanel({ projectId, delivery, onRefresh }: DeliveryPanelP
                   )}
                   {gap.missing.includes('l3') && (
                     <button
-                      onClick={() => gap.type === 'analysis' ? openAnalysisApprove(gap) : handleGapAction(gap, 'reviewPassed')}
+                      onClick={() => (gap.type === 'analysis' || gap.type === 'plan') ? openAnalysisApprove(gap) : handleGapAction(gap, 'reviewPassed')}
                       disabled={!!gapActionPending[`${gap.id}:reviewPassed`]}
                       className="btn btn-sm u-ok-dim u-ok u-hover-bg"
                     >
@@ -254,23 +281,50 @@ export function DeliveryPanel({ projectId, delivery, onRefresh }: DeliveryPanelP
           )}
         </div>
       ) : (
-        // branch-only：证据齐且未交付才提示手动合并；证据未齐时缺口行动清单就是指引
-        delivery.deliverable && !delivery.deliveredAt && (
+        // branch-only：未交付时给「标记已交付」人工落档（#469：系统外合并后回填 commit，
+        // 台账不再永停「✓ 可交付」）；证据齐时再附手动合并提示（证据未齐时缺口行动清单就是指引）
+        !delivery.deliveredAt && (
           <div className="text-xs u-text-3">
-            证据已齐:请合并分支 {delivery.branch} 并走下游发布链路
+            {delivery.deliverable && (
+              <div className="mb-1">证据已齐:请合并分支 {delivery.branch} 并走下游发布链路</div>
+            )}
+            <div className="flex items-center gap-2">
+              <input
+                aria-label="合并 commit 哈希"
+                className="input flex-1"
+                placeholder="系统外已合并？填 commit 哈希落档"
+                value={markCommit}
+                onChange={e => setMarkCommit(e.target.value)}
+              />
+              <button
+                onClick={handleMarkDelivered}
+                disabled={marking || !markCommit.trim()}
+                className="btn btn-sm u-ok-dim u-ok u-hover-bg"
+              >
+                {marking ? '落档中...' : '标记已交付'}
+              </button>
+            </div>
           </div>
         )
       )}
-      {/* #106 M7：analysis 缺口的共享确认弹窗 */}
+      {/* #106 M7：analysis/plan 缺口的共享确认弹窗（#463 起结构化评审表单 + 打回路径；#471 plan 同路） */}
       {approveGap && (
         <AnalysisApproveDialog
           prefill={approveGap.prefill}
           channelId={approveGap.channelId}
-          onConfirm={async (summary, assigneeId) => {
+          confirmKind={approveGap.gap.type === 'plan' ? 'plan' : 'analysis'}
+          onConfirm={async (confirm, assigneeId) => {
             // 批次A 项7：等动作结算后才关窗（失败 toast 在 handleGapAction 内）
             const gap = approveGap.gap;
-            await handleGapAction(gap, 'reviewPassed', summary, assigneeId);
+            await handleGapAction(gap, 'reviewPassed', undefined, assigneeId, confirm);
             setApproveGap(null);
+          }}
+          onReject={async reason => {
+            const gap = approveGap.gap;
+            await workunitApi.reviewRejected(gap.id, reason);
+            toast.success('已打回，待补充修订');
+            setApproveGap(null);
+            await onRefresh();
           }}
           onCancel={() => setApproveGap(null)}
         />

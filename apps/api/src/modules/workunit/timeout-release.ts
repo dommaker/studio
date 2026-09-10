@@ -95,8 +95,9 @@ export async function scanTimedOutWorkUnits(fs?: FileStore, now: Date = new Date
 
   for (const wu of timedOut.data) {
     // #108（T2）：decision 单不进超时扫描——决策可能等关键人好几天，
-    // claim 写入的 timeoutAt 对其无意义（spec 成文单仍按默认时长正常参与扫描）
-    if (wu.type === 'decision') continue;
+    // claim 写入的 timeoutAt 对其无意义（spec 成文单仍按默认时长正常参与扫描）；
+    // #471：plan 一脉会话等裁决轮人闸，同 decision 豁免
+    if (wu.type === 'decision' || wu.type === 'plan') continue;
     try {
       const metadata = parseWuMetadata(wu.metadata);
       const releases = (metadata.timeoutReleaseCount ?? 0) + 1;

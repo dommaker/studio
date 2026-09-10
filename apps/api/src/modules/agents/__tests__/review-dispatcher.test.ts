@@ -366,8 +366,8 @@ describe('ReviewDispatcher (AC-4.1 ~ AC-4.5 + F4)', () => {
     expect(reviewChild).toBeUndefined();
   });
 
-  it('#108: decision/spec WU in_review -> 不派 review 子 WU（人工验收类工单，验收闸 = 人工 in_review）', async () => {
-    for (const type of ['decision', 'spec']) {
+  it('#108/#471: decision/spec/plan WU in_review -> 不派 review 子 WU（人工验收类工单，验收闸 = 人工 in_review）', async () => {
+    for (const type of ['decision', 'spec', 'plan']) {
       const wu = await wuService.create({
         scope: `${type} 单测试`,
         type,
@@ -429,8 +429,8 @@ describe('ReviewDispatcher (AC-4.1 ~ AC-4.5 + F4)', () => {
     await expect(dispatcher.dispatchReviewNow(analysis.id)).rejects.toThrow('not reviewable');
   });
 
-  it('#108: type=decision/spec -> 拒绝补派（人工验收类工单，同 analysis 先例）', async () => {
-    for (const type of ['decision', 'spec']) {
+  it('#108/#471: type=decision/spec/plan -> 拒绝补派（人工验收类工单，同 analysis 先例）', async () => {
+    for (const type of ['decision', 'spec', 'plan']) {
       const wu = await wuService.create({
         scope: `${type} Y`, type, channelId: 'ch-test', status: 'in_review',
       });
@@ -610,5 +610,68 @@ describe('ReviewDispatcher (AC-4.1 ~ AC-4.5 + F4)', () => {
     // l2 保持原值（ref 不被迟到结论覆盖）
     const att = metaOf((await wuService.getById(parent.id))!.metadata).attestations;
     expect(att?.l2?.ref).toBe('wu-other');
+  });
+});
+
+// #466：路由表 review 档 —— 评审子 WU 查表指名；路由评审=实现者/路由不可用时回池涌现 + 频道出声
+describe('#466 routing.review（评审路由）', () => {
+  it('频道配置 routing.review → 评审子 WU 指名路由角色（不再涌现/排除约束）', async () => {
+    await fileStore.updateChannel('ch-test', { routing: { review: reviewerProfile.id } });
+
+    const { child } = await createParentAndReview('实现功能 R1', executorProfile.id);
+    expect(child).toBeDefined();
+    expect(child!.assigneeId).toBe(reviewerProfile.id);
+    expect(child!.status).toBe('unassigned');
+    const meta = metaOf(child!.metadata);
+    expect(meta.excludeAssignee).toBeUndefined();
+    expect(meta.selfReview).toBeUndefined();
+  });
+
+  it('路由评审 = 实现者本人 → 回池涌现（保留 excludeAssignee）+ 频道出声提醒', async () => {
+    await fileStore.updateChannel('ch-test', { routing: { review: executorProfile.id } });
+
+    const { parent, child } = await createParentAndReview('实现功能 R2', executorProfile.id);
+    expect(child).toBeDefined();
+    expect(child!.assigneeId).toBeNull();
+    const meta = metaOf(child!.metadata);
+    expect(meta.excludeAssignee).toBe(executorProfile.id);
+    expect(meta.selfReview).toBeUndefined();
+
+    const messages = await fileStore.queryMessages('ch-test', { workUnitId: parent.id });
+    const notice = messages.find(m => m.content.includes('路由') && m.content.includes('Executor'));
+    expect(notice).toBeDefined();
+  });
+
+  it('路由评审 inactive → 回池涌现 + 频道出声提醒', async () => {
+    await fileStore.updateChannel('ch-test', { routing: { review: reviewerProfile.id } });
+    await fileStore.updateProfile(reviewerProfile.id, { status: 'inactive' });
+
+    const { parent, child } = await createParentAndReview('实现功能 R3', executorProfile.id);
+    expect(child).toBeDefined();
+    expect(child!.assigneeId).toBeNull();
+
+    const messages = await fileStore.queryMessages('ch-test', { workUnitId: parent.id });
+    const notice = messages.find(m => m.content.includes('Reviewer'));
+    expect(notice).toBeDefined();
+  });
+
+  it('路由评审被移出频道 → 回池涌现 + 频道出声提醒', async () => {
+    await fileStore.updateChannel('ch-test', {
+      members: stringifyChannels([executorProfile.id, reviewerProfile.id]),
+      routing: { review: 'p-outsider' },
+    });
+    await fileStore.createProfile({
+      id: 'p-outsider', name: 'Outsider', description: null,
+      channels: '[]', status: 'active', provider: null,
+      createdAt: '2026-09-09T00:00:00Z', updatedAt: '2026-09-09T00:00:00Z',
+    });
+
+    const { parent, child } = await createParentAndReview('实现功能 R4', executorProfile.id);
+    expect(child).toBeDefined();
+    expect(child!.assigneeId).toBeNull();
+
+    const messages = await fileStore.queryMessages('ch-test', { workUnitId: parent.id });
+    const notice = messages.find(m => m.content.includes('Outsider'));
+    expect(notice).toBeDefined();
   });
 });

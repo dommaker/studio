@@ -16,6 +16,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { eventBus, FileStore } from '@dommaker/studio-shared';
+import { NotificationService } from '@dommaker/studio-notification';
 import { initPmoProgressRollup, syncProjectProgress, syncProjectProgressByReqId, parseWuMetaPmoId, waitForPmoProgressRollupSettled } from '../progress-rollup.js';
 import { projectService, PROJECT_STATUS, type ProjectData } from '../project.service.js';
 import { RequirementService } from '../../requirements/requirement.service.js';
@@ -323,6 +324,55 @@ describe('#115 派生链未落定不翻 completed（derivationPending）', () =>
     expect((await projectService.get(project.id))!.status).toBe(PROJECT_STATUS.COMPLETED);
   });
 
+  it('#471：已完结 plan 缺 analysisTasksSpawnedAt（接力未处理）→ 不翻 completed', async () => {
+    const project = await createRealProject();
+    const req = await reqService.create({ title: '需求', projectId: project.id });
+    await wuService.create({
+      scope: 'p1', type: 'plan', status: 'done', reqId: req.id,
+      metadata: { attestations: { l3: att('human-confirm') } },
+    });
+
+    await syncProjectProgress(project.id, fileStore);
+
+    const after = await projectService.get(project.id);
+    expect(after!.status).toBe(PROJECT_STATUS.PENDING);
+    expect(after!.progress).toBe(100);
+  });
+
+  it('#471：plan 哨兵已落 → 正常翻 completed', async () => {
+    const project = await createRealProject();
+    const req = await reqService.create({ title: '需求', projectId: project.id });
+    await wuService.create({
+      scope: 'p1', type: 'plan', status: 'done', reqId: req.id,
+      metadata: { analysisTasksSpawnedAt: '2026-09-09T00:00:00Z', attestations: { l3: att('human-confirm') } },
+    });
+
+    await syncProjectProgress(project.id, fileStore);
+
+    expect((await projectService.get(project.id))!.status).toBe(PROJECT_STATUS.COMPLETED);
+  });
+
+  it('#471：新台账 map（fog.wuId 全 null，无 decision 链在飞）→ 不算派生未落定，不阻断', async () => {
+    const project = await createRealProject();
+    await projectService.update(project.id, {
+      map: {
+        destination: 'd',
+        decisions: [{ wuId: 'plan-1', summary: '裁决结论', resolvedAt: '2026-09-09T00:00:00Z' }],
+        fog: [{ id: 'fog-1', question: 'q', wuId: null, status: 'resolved' }],
+        // 无 specSpawnedAt——新链不再派生 spec 成文单
+      },
+    });
+    const req = await reqService.create({ title: '需求', projectId: project.id });
+    await wuService.create({
+      scope: 'p1', type: 'plan', status: 'done', reqId: req.id,
+      metadata: { analysisTasksSpawnedAt: '2026-09-09T00:00:00Z', attestations: { l3: att('human-confirm') } },
+    });
+
+    await syncProjectProgress(project.id, fileStore);
+
+    expect((await projectService.get(project.id))!.status).toBe(PROJECT_STATUS.COMPLETED);
+  });
+
   it('探路型：map 存在但 specSpawnedAt 未落 → 不翻 completed', async () => {
     const project = await createRealProject();
     await projectService.update(project.id, {
@@ -343,7 +393,28 @@ describe('#115 派生链未落定不翻 completed（derivationPending）', () =>
     expect((await projectService.get(project.id))!.status).toBe(PROJECT_STATUS.PENDING);
   });
 
-  it('已完结 spec 缺 specTasksSpawnedAt（物化未处理）→ 不翻 completed', async () => {
+  it('已完结 spec 缺 specTasksSpawnedAt 且 l3 含 TASK 物化行（物化未处理）→ 不翻 completed', async () => {
+    const project = await createRealProject();
+    await projectService.update(project.id, {
+      map: {
+        destination: 'd',
+        decisions: [],
+        fog: [{ id: 'fog-1', question: 'q', wuId: 'wu-x', status: 'resolved' }],
+        specSpawnedAt: '2026-08-11T00:00:00Z',
+      },
+    });
+    const req = await reqService.create({ title: '需求', projectId: project.id });
+    await wuService.create({
+      scope: 's1', type: 'spec', status: 'done', reqId: req.id,
+      metadata: { attestations: { l3: { ...att('human-confirm'), summary: 'TASK: 待物化任务' } } },
+    });
+
+    await syncProjectProgress(project.id, fileStore);
+
+    expect((await projectService.get(project.id))!.status).toBe(PROJECT_STATUS.PENDING);
+  });
+
+  it('#463：已完结 spec 缺哨兵但 l3 无 TASK 行（人审有意不物化）→ 不算未落定，照常进入证据评估', async () => {
     const project = await createRealProject();
     await projectService.update(project.id, {
       map: {
@@ -361,7 +432,8 @@ describe('#115 派生链未落定不翻 completed（derivationPending）', () =>
 
     await syncProjectProgress(project.id, fileStore);
 
-    expect((await projectService.get(project.id))!.status).toBe(PROJECT_STATUS.PENDING);
+    // 派生判定不阻断：不再卡 pending（本例 spec 证据口径下达 deliverable → completed）
+    expect((await projectService.get(project.id))!.status).toBe(PROJECT_STATUS.COMPLETED);
   });
 
   it('多腿：派生未落定窗口腿状态也不翻（腿 completed 同样是假相）', async () => {
@@ -466,5 +538,65 @@ describe('initPmoProgressRollup（事件接线）', () => {
     await waitForPmoProgressRollupSettled();
 
     expect((await projectService.get(project.id))!.progress).toBe(0);
+  });
+});
+
+describe('#469 完成/验收感知出声（completed/in_review 翻转 → 频道里程碑 + 持久通知）', () => {
+  /** 让 createForAllUsers 有落点：隔离数据根下放一个用户文件 */
+  function seedUser(userId: string): void {
+    const usersDir = path.join(process.env.STUDIO_DATA_DIR!, 'users');
+    fs.mkdirSync(usersDir, { recursive: true });
+    fs.writeFileSync(path.join(usersDir, `${userId}.json`), '{}');
+  }
+
+  it('翻 completed → 频道里程碑消息（pmoId + atHuman）+ 持久通知（/pmo/project/:id 直链）', async () => {
+    seedUser('u1');
+    const project = await createRealProject();
+    await projectService.updateStatus(project.id, PROJECT_STATUS.ACTIVE, false, { channelId: 'ch-469' });
+    const req = await reqService.create({ title: '需求', projectId: project.id });
+    await wuService.create({ scope: 'w1', type: 'task', status: 'done', reqId: req.id, metadata: fullEvidence });
+
+    await syncProjectProgress(project.id, fileStore);
+
+    const after = await projectService.get(project.id);
+    expect(after!.status).toBe(PROJECT_STATUS.COMPLETED);
+
+    const msgs = await fileStore.queryMessages('ch-469', {});
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0].content).toContain(after!.pmoNumber);
+    expect(msgs[0].content).toContain('completed');
+    const meta = typeof msgs[0].meta === 'string' ? JSON.parse(msgs[0].meta) : msgs[0].meta;
+    expect(meta).toMatchObject({ pmoId: project.id, atHuman: true });
+
+    const notifications = await new NotificationService(fileStore).getUserNotifications('u1');
+    expect(notifications).toHaveLength(1);
+    expect(notifications[0].link).toBe(`/pmo/project/${project.id}`);
+  });
+
+  it('翻 in_review → 频道出声（证据缺口计数可见），不冒充 completed', async () => {
+    const project = await createRealProject();
+    await projectService.updateStatus(project.id, PROJECT_STATUS.ACTIVE, false, { channelId: 'ch-469b' });
+    const req = await reqService.create({ title: '需求', projectId: project.id });
+    await wuService.create({
+      scope: 'w1', type: 'task', status: 'done', reqId: req.id,
+      metadata: { attestations: { l1: att('verify'), l2: att('agent-review') } },
+    });
+
+    await syncProjectProgress(project.id, fileStore);
+
+    expect((await projectService.get(project.id))!.status).toBe(PROJECT_STATUS.IN_REVIEW);
+    const msgs = await fileStore.queryMessages('ch-469b', {});
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0].content).toContain('in_review');
+  });
+
+  it('无 channelId 项目翻 completed → 不发帖不炸，状态照翻', async () => {
+    const project = await createRealProject();
+    const req = await reqService.create({ title: '需求', projectId: project.id });
+    await wuService.create({ scope: 'w1', type: 'task', status: 'done', reqId: req.id, metadata: fullEvidence });
+
+    await syncProjectProgress(project.id, fileStore);
+
+    expect((await projectService.get(project.id))!.status).toBe(PROJECT_STATUS.COMPLETED);
   });
 });

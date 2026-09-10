@@ -548,3 +548,66 @@ describe('#162（T8-E1）: WU 级 token 预算到线挂起的人三选', () => {
     }
   });
 });
+
+describe('#471（Triage 定稿 1）: plan 步数额度到线挂起的回复续期', () => {
+  /** plan 步数到线挂起中的 WU：type=plan + blocked + waitingForInput + waitingReason='plan-step-limit' */
+  async function createPlanStepParkedWu(overrides?: Partial<WorkUnitMetadata>) {
+    const wu = await wuService.create({
+      scope: '规划需求 PMO-1: 测试 +requirement-clarify +to-tickets',
+      channelId,
+      type: 'plan',
+      status: 'active',
+      assigneeId: 'instance-1',
+      metadata: { title: '规划单' },
+    });
+    await wuService.transitionStatus(wu.id, 'blocked');
+    await wuService.update(wu.id, {
+      metadata: {
+        title: '规划单',
+        waitingForInput: true,
+        waitingQuestion: '这次规划已推进 60 步，达到步数额度 60，已暂停等你决定',
+        waitingSince: new Date().toISOString(),
+        waitingReminded: false,
+        waitingReason: 'plan-step-limit',
+        stepCount: 60,
+        ...overrides,
+      },
+    });
+    return wu;
+  }
+
+  it('任意回复 → planStepAllowance +60（60→120），清挂起回 active，回复入 pendingReplies', async () => {
+    const wu = await createPlanStepParkedWu();
+
+    const resumed = await resumeWaitingWorkUnit(wu.id, '继续', fileStore);
+
+    expect(resumed).toBe(true);
+    const after = await findWu(wu.id);
+    expect(after.status).toBe('active');
+    const meta = metaOf(after);
+    expect(meta.planStepAllowance).toBe(120); // PLAN_STEP_LIMIT 60 缺省额度 + 续期 60
+    expect(meta.waitingForInput).toBe(false);
+    expect(meta.waitingReason).toBeUndefined();
+    expect(meta.pendingReplies).toEqual(['继续']);
+  });
+
+  it('已有授权额度（planStepAllowance=120）→ 在其上续期（120→180）', async () => {
+    const wu = await createPlanStepParkedWu({ stepCount: 120, planStepAllowance: 120 });
+
+    const resumed = await resumeWaitingWorkUnit(wu.id, '接着跑', fileStore);
+
+    expect(resumed).toBe(true);
+    expect(metaOf(await findWu(wu.id)).planStepAllowance).toBe(180);
+  });
+
+  it('「关闭」指令优先于续期（plan 有 closed 边 → 正常关闭）', async () => {
+    const wu = await createPlanStepParkedWu();
+
+    const resumed = await resumeWaitingWorkUnit(wu.id, '关闭', fileStore);
+
+    expect(resumed).toBe(true);
+    const after = await findWu(wu.id);
+    expect(after.status).toBe('closed');
+    expect(metaOf(after).planStepAllowance).toBeUndefined();
+  });
+});

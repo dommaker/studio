@@ -185,6 +185,11 @@ async function start() {
       migrateProfileChannelsToMembers().catch(err => logger.warn('[MembersMigration] failed', { error: String(err) }));
     }).catch(err => logger.warn('[MembersMigration] import failed', { error: String(err) }));
 
+    // #466: 吞并迁移 defaultPipeline → routing.implement（幂等，异步不阻塞启动）
+    import('./modules/channels/migrate-routing.js').then(({ migrateDefaultPipelineToRouting }) => {
+      migrateDefaultPipelineToRouting().catch(err => logger.warn('[RoutingMigration] failed', { error: String(err) }));
+    }).catch(err => logger.warn('[RoutingMigration] import failed', { error: String(err) }));
+
     // AS-020 P2-04: VPS 本地 Workspace 注册（异步，不阻塞启动）
     import('./modules/workspaces/local-workspace.js').then(({ ensureLocalWorkspace }) => {
       ensureLocalWorkspace().catch(err => logger.warn('[LocalWorkspace] Registration failed', { error: String(err) }));
@@ -287,6 +292,13 @@ async function start() {
         initAnalysisHandoff();
         logger.info('[AnalysisHandoff] Subscribed to workunit.status_changed');
       } catch (e) { logger.warn('[AnalysisHandoff] Failed to subscribe', { error: String(e) }); }
+
+      // #464: 无频道 in_review（非 analysis）→ Web「需要处理」收件箱
+      try {
+        const { initInReviewInbox } = await import('./modules/workunit/in-review-inbox.js');
+        initInReviewInbox();
+        logger.info('[InReviewInbox] Subscribed to workunit.status_changed');
+      } catch (e) { logger.warn('[InReviewInbox] Failed to subscribe', { error: String(e) }); }
 
       // #110 决策落地：decision 确认 → 写探路地图 + 雾全清建 spec 单
       try {

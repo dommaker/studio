@@ -183,11 +183,11 @@ export class WorkUnitService extends WorkUnitCrudService {
     await this.publishStatusChanged(updated);
 
     // #126（T4）：人工确认（pending → unassigned）解除人闸——feature 单此时补展开
-    // 频道默认管线第一跳（创建时落 pending 跳过展开；expandDefaultPipelineHead 幂等）。
+    // 频道工单路由第一跳（创建时落 pending 跳过展开；expandRoutingHead 幂等）。
     if (current.status === 'pending' && newStatus === 'unassigned'
       && updated.type === 'feature' && updated.channelId) {
-      await this.expandDefaultPipelineHead(snapshotToData(updated)).catch(err =>
-        logger.warn('[WorkUnit] defaultPipeline expansion on confirm failed (non-blocking)', {
+      await this.expandRoutingHead(snapshotToData(updated)).catch(err =>
+        logger.warn('[WorkUnit] routing expansion on confirm failed (non-blocking)', {
           parentId: updated.id,
           error: String(err),
         }),
@@ -224,7 +224,7 @@ export class WorkUnitService extends WorkUnitCrudService {
    * F6-c（断点 3）：agent-review 且当前已是 done 且 l2 缺失 → 幂等补写 l2
    * （人工直推 done 抢跑评审链，迟到的评审结论无处落账的补票口），同不改状态、不触发合并。
    */
-  async reviewPassed(id: string, attestation?: ReviewAttestationSource, options?: { defaultTaskAssigneeId?: string }): Promise<WorkUnitData> {
+  async reviewPassed(id: string, attestation?: ReviewAttestationSource, options?: { defaultTaskAssigneeId?: string; analysisTasks?: string[] }): Promise<WorkUnitData> {
     const current = (await this.fileStore.getIndex({ id }))[0];
     if (!current) throw new Error('WorkUnit not found');
     if (current.status !== 'in_review') {
@@ -246,6 +246,11 @@ export class WorkUnitService extends WorkUnitCrudService {
     // #177：analysis 确认处可选「默认执行角色」落档（analysis-handoff 派生 task 子 WU 时消费）
     if (options?.defaultTaskAssigneeId) {
       metadata.defaultTaskAssigneeId = options.defaultTaskAssigneeId;
+    }
+    // #463：analysis 确认表单的人审后 TASK 清单（剔除/行内编辑）覆写 metadata.analysisTasks——
+    // analysis-handoff 消费人审定稿而非 agent 原始拆分；缺省不动（兼容旧路径）
+    if (options?.analysisTasks !== undefined) {
+      metadata.analysisTasks = options.analysisTasks;
     }
     if (attestation) {
       const level = attestation.kind === 'agent-review' ? 'l2' : 'l3';

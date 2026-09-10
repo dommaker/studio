@@ -299,13 +299,30 @@ export async function routeMessage(
       );
     }
     // B3a: 无归属挂起 → 频道发 Studio 系统消息提问（挂在派发消息线程，回复即触发解析）
+    // #464：milestone=true（atHuman 响铃 + 行动中心通知双写）——挂起提问是「需要人答」，
+    // 此前只上屏不响铃，非在线人看不到（票体补充评论并入项）。
     if (parked) {
       await postWuSystemMessage(
         workUnit,
         `任务「${scope.slice(0, 50)}」正在等待你的回复：${OWNERSHIP_WAITING_QUESTION}`,
-        { replyToId: message.id, fileStore: resolvedFs },
+        { replyToId: message.id, fileStore: resolvedFs, milestone: true },
       ).catch(err =>
         logger.warn('[MessageRouting] Post ownership question failed (non-blocking)', {
+          workUnitId: workUnit.id,
+          error: String(err),
+        })
+      );
+    }
+    // #464: @mention 未匹配（角色不存在/非本频道成员；@studio 未配置默认入口）→ 线程说明。
+    // 此前 WU 照建、matched=false 落档但频道零提示，用户以为已派给某人（对照 @studio 改派有系统消息）。
+    if (!agent) {
+      const unmatchedText = mentionName === STUDIO_ROLE_NAME
+        ? 'studio 是系统角色，且本频道未配置默认入口角色，本单已转自动认领（频道成员可认领）'
+        : `未找到角色 @${mentionName}（不存在或非本频道成员），本单已转自动认领（频道成员可认领）`;
+      await postWuSystemMessage(workUnit, unmatchedText, {
+        replyToId: message.id, fileStore: resolvedFs,
+      }).catch(err =>
+        logger.warn('[MessageRouting] Post unmatched-mention notice failed (non-blocking)', {
           workUnitId: workUnit.id,
           error: String(err),
         })

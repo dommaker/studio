@@ -11,8 +11,10 @@
  */
 
 import { randomUUID } from 'crypto';
-import { logger, eventBus, FileStore, type AgentProfileData, type WorkUnitSnapshot, type WorkUnitEvent } from '@dommaker/studio-shared';
+import { logger, eventBus, FileStore, type WorkUnitSnapshot, type WorkUnitEvent } from '@dommaker/studio-shared';
 import { ChannelMessageService, channelMessageService } from '../channels/channel-message.service.js';
+import { resolveStageRouting, routingFallbackText, ROUTING_STAGE_LABELS } from '../channels/routing.js';
+import { postWuSystemMessage } from './wu-messenger.js';
 import { resolveInitialStatus, WU_LEASE_TTL_MS } from './workunit.types.js';
 import { buildStatusById, resolveClaimable } from './wu-dependencies.js';
 import { parseWuPmoId } from '../requirements/wu-pmo-attribution.js';
@@ -211,12 +213,28 @@ export class WorkUnitCrudService {
 
     const parentWu = snapshotToData(snapshot);
 
-    // AC-6.3: 频道默认管线展开（D10: 只展开第一跳，后续靠 agent DELEGATE）
+    // #464：pending = 待确认人闸——落闸即频道出声（此前唯一入口是 WU 列表统计 chip，
+    // 角色不动工用户无感知）。milestone 形态：atHuman 响铃 + #468 行动中心通知双写，
+    // 与状态派生的 confirm 段（action-center）同源不重复（事件持久面 + 状态派生面各司其职）。
+    if (parentWu.status === 'pending' && parentWu.channelId) {
+      await postWuSystemMessage(
+        parentWu,
+        `新工单「${parentWu.scope.slice(0, 50)}」已进入待确认（人闸）——在工单列表/详情点「确认」后才会派工`,
+        { milestone: true, fileStore: this.fileStore },
+      ).catch(err =>
+        logger.warn('[WorkUnit] pending gate notice failed (non-blocking)', {
+          workUnitId: parentWu.id,
+          error: String(err),
+        }),
+      );
+    }
+
+    // #466: 频道工单路由展开（吞并 AC-6.3 defaultPipeline；D10: 只展开第一跳，后续靠 agent DELEGATE）
     // #126（T4）：feature 落 pending（待确认人闸）时不展开——确认（pending→unassigned）
     // 时由 transitionStatus 补展开，避免未确认需求先烧 token。
     if (input.type === 'feature' && input.channelId && parentWu.status === 'unassigned') {
-      await this.expandDefaultPipelineHead(parentWu).catch(err =>
-        logger.warn('[WorkUnit] defaultPipeline expansion failed (non-blocking)', {
+      await this.expandRoutingHead(parentWu).catch(err =>
+        logger.warn('[WorkUnit] routing expansion failed (non-blocking)', {
           parentId: parentWu.id,
           error: String(err),
         }),
@@ -272,28 +290,44 @@ export class WorkUnitCrudService {
   }
 
   /**
-   * AC-6.3 + D10: 展开频道默认管线的第一跳。
-   * 仅 type='feature' 父 WU 触发；创建 type=pipeline[0] 的链头子 WU，
+   * #466（吞并 AC-6.3 + D10）：展开频道工单路由的第一跳。
+   * 仅 type='feature' 父 WU 触发；routing.implement 配置的角色作为链头子 WU 指名人，
    * 后续跳由 agent DELEGATE 协议接管（不全链路代码展开）。
+   * 未配置 implement 档 → 不展开（父单留池涌现）；
+   * 配置了但角色 inactive/被移出频道 → 不展开（回池涌现）+ 频道出声提醒（票体回退语义）。
    * #126（T4）：幂等——父单已有任何子单则跳过（create 与确认后补展开两处调用点）。
    */
-  protected async expandDefaultPipelineHead(parent: WorkUnitData): Promise<void> {
-    const channel = await this.fileStore.getChannel(parent.channelId!);
-    if (!channel?.defaultPipeline || channel.defaultPipeline.length === 0) return;
+  protected async expandRoutingHead(parent: WorkUnitData): Promise<void> {
+    const routing = await resolveStageRouting(this.fileStore, parent.channelId!, 'implement');
+    if (!routing.profileId) {
+      // #464：未配置也要出声——此前未配置静默 return，用户分不清「只配一跳」还是「断了」。
+      // 文案与配错（routingFallbackText）同形态可区分；非里程碑（路由提醒不打扰，对齐配错提醒形态）。
+      const notice = routing.fallback
+        ? routingFallbackText('implement', routing)
+        : `工单路由提示：本频道未配置「${ROUTING_STAGE_LABELS.implement}」阶段路由，本单已回池涌现（频道成员自动认领）——如需固定角色派工请到频道设置配置路由表，或手动拆单`;
+      if (routing.fallback) {
+        logger.warn('[WorkUnit] routing.implement 配置不可用，回池涌现', {
+          parentId: parent.id,
+          fallback: routing.fallback,
+          profileName: routing.profileName,
+        });
+      }
+      await postWuSystemMessage(parent, notice, {
+        fileStore: this.fileStore,
+      }).catch(err =>
+        logger.warn('[WorkUnit] routing notice failed (non-blocking)', {
+          parentId: parent.id,
+          error: String(err),
+        }),
+      );
+      return;
+    }
 
     const existing = await this.fileStore.getIndex();
     if (existing.some(s => s.parentId === parent.id)) return;
 
-    const firstName = channel.defaultPipeline[0];
-    const profiles = await this.fileStore.listProfiles({ status: 'active' });
-    const firstProfile: AgentProfileData | undefined = profiles.find(p => p.name === firstName);
-    if (!firstProfile) {
-      logger.warn('[WorkUnit] defaultPipeline profile not found or inactive', {
-        parentId: parent.id,
-        profileName: firstName,
-      });
-      return;
-    }
+    const firstProfile = await this.fileStore.getProfile(routing.profileId);
+    if (!firstProfile) return; // 解析与建单间的竞态（角色刚被删）——按不展开处理
 
     const childMeta: WorkUnitMetadata = {
       collab: {

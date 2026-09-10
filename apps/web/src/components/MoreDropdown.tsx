@@ -1,48 +1,37 @@
 // MoreDropdown.tsx - "更多"下拉菜单组件（L4 高级功能）
 // 左侧 sidebar「更多」收纳项已并入本下拉（知识库/阅览室/监控 + 审计日志/设置；PMO 为 sidebar 四主项之一，不重复收纳）
-// E4/B-8 监控入口可见性：有待处理告警/提案时按钮挂计数徽标（监控藏在本下拉内无提示）
-import { useState, useEffect, useRef } from 'react';
+// #468 徽标投影化：计数徽标 = notificationStore.unreadCount（行动中心未读口径，归零可达）——
+// 原 monitoringApi 24h 告警 + 提案待审计数（loadAttentionCount）已删；展开下拉时 load() 刷新。
+// #474 图标策略定稿（全去 emoji）：菜单/触发器图标 = components/ui/icons 的 stroke SVG 组件
+import { useState, useEffect, useRef, type ComponentType } from 'react';
 import { Link } from 'react-router-dom';
-import { monitoringApi } from '../api/monitoring';
-import { useAsyncData } from '../hooks/useAsyncData';
+import { useNotificationStore } from '../stores/notificationStore';
+import { IconBook, IconLibrary, IconActivity, IconSearch, IconSettings, IconGrid, type IconProps } from './ui/icons';
 import '../styles/theme.css';
 
 interface DropdownItem {
   to: string;
-  icon: string;
+  Icon: ComponentType<IconProps>;
   label: string;
 }
 
 const MORE_ITEMS: DropdownItem[] = [
-  { to: '/knowledge', icon: '📚', label: '知识库' },
-  { to: '/library', icon: '📖', label: '阅览室' },
-  { to: '/monitoring', icon: '📈', label: '监控' },
-  { to: '/audit-logs', icon: '🔍', label: '审计日志' },
+  { to: '/knowledge', Icon: IconBook, label: '知识库' },
+  { to: '/library', Icon: IconLibrary, label: '阅览室' },
+  { to: '/monitoring', Icon: IconActivity, label: '监控' },
+  { to: '/audit-logs', Icon: IconSearch, label: '审计日志' },
 ];
 
 const CONFIG_ITEMS: DropdownItem[] = [
-  { to: '/settings', icon: '⚙️', label: '设置' },
+  { to: '/settings', Icon: IconSettings, label: '设置' },
 ];
-
-/**
- * E4/B-8 待处理计数 = 近 24h 告警数（overview.alerts.last24h，与 NeedsAttentionSection 24h 窗口同口径）
- * + 知识提案待审数（flywheel.proposalsPendingReview，与监控页行动面同库口径）。
- * 无专用轻量计数端点——复用两个 60s 服务端缓存的监控端点；各自 best-effort 失败/403（非 Admin）落 0，徽标隐藏。
- */
-async function loadAttentionCount(): Promise<number> {
-  const [alerts, proposals] = await Promise.all([
-    monitoringApi.getOverview().then((r) => r.data.alerts?.last24h ?? 0).catch(() => 0),
-    monitoringApi.getFlywheel().then((r) => r.data.proposalsPendingReview ?? 0).catch(() => 0),
-  ]);
-  return alerts + proposals;
-}
 
 export function MoreDropdown() {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
-  // 挂载首拉 + 展开时重拉（无 SSE 告警事件可接，展开即用户关注时刻，服务端 60s 缓存兜底成本）
-  const attentionQ = useAsyncData(loadAttentionCount, []);
-  const attention = attentionQ.data ?? 0;
+  // #468：徽标 = 行动中心 unreadCount（同数据源投影，不再单独拉监控计数）；展开时重拉刷新
+  const unreadCount = useNotificationStore(s => s.unreadCount);
+  const load = useNotificationStore(s => s.load);
 
   // 点击外部关闭
   useEffect(() => {
@@ -63,7 +52,7 @@ export function MoreDropdown() {
       className="block px-4 py-2 text-sm transition-colors flex items-center gap-2 u-hover-bg u-text"
       onClick={() => setIsOpen(false)}
     >
-      <span>{item.icon}</span>
+      <span className="flex items-center"><item.Icon size={16} /></span>
       <span>{item.label}</span>
     </Link>
   );
@@ -74,21 +63,21 @@ export function MoreDropdown() {
         onClick={() => {
           const next = !isOpen;
           setIsOpen(next);
-          if (next) attentionQ.reload();
+          if (next) void load();
         }}
         className="btn btn-ghost relative flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors u-text-2"
       >
-        <span>🗂</span>
+        <span className="flex items-center"><IconGrid size={16} /></span>
         <span className="hidden sm:inline">更多</span>
         <span className="text-xs">{isOpen ? '▼' : '▶'}</span>
-        {/* E4/B-8 计数徽标：绝对定位独立槽位（沿用 NotificationBell 模式），不被 text ellipsis 吞掉 */}
-        {attention > 0 && (
+        {/* #468 计数徽标：绝对定位独立槽位（沿用既有模式），不被 text ellipsis 吞掉 */}
+        {unreadCount > 0 && (
           <span
             data-visual-ignore
-            title="监控有待处理事项"
+            title="有未读通知"
             className="absolute -top-1 -right-1 u-err-bg u-on-accent text-[var(--fs-xs)] font-bold rounded-full min-w-4 h-4 px-0.5 flex items-center justify-center"
           >
-            {attention > 99 ? '99+' : attention}
+            {unreadCount > 99 ? '99+' : unreadCount}
           </span>
         )}
       </button>

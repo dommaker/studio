@@ -1,14 +1,16 @@
 /**
- * MapOpening 单测（#112 T6：开图机制）
+ * MapOpening 单测（#112 T6：开图机制；#471 起降级为台账记录）
+ *
+ * #471（派生链收敛）行为变更：开图只初始化探路台账（project.map = destination + fog[]），
+ * 不再逐条建 decision WU——裁决在 plan 一脉会话内进行（#467 会话内人闸），fog[].wuId 恒 null。
  *
  * 覆盖（issue 验收 + 边界）：
- *  - analysis 单 reviewPassed（done）且人工确认文本含待决问题清单 → 初始化 map
- *    （destination + fog 逐条）+ 逐条建未指派 decision 单（数量 = 雾条数）
- *    + 互挂：fog[].wuId = 新建 WU id，decision WU metadata 带 pmoId/fogId（#110 消费契约）
- *  - 幂等：同一 analysis WU 重复 done 事件不重复初始化 map/重复建 decision 单（mapOpenedAt 哨兵）
+ *  - analysis/plan 单 reviewPassed（done）且人工确认文本含待决问题清单 → 初始化 map
+ *    （destination + fog 逐条，wuId=null，status=open），不建 decision 单
+ *  - 幂等：同一 WU 重复 done 事件不重复初始化 map（mapOpenedAt 哨兵）
  *  - 无待决问题清单（无 FOG 行/无 summary）：不炸、不初始化；后续人工确认补填仍可开图
- *  - 已有 map 的 PMO：不重建、不新建 decision 单
- *  - DESTINATION 缺省 → 回退项目 title；非 analysis / 非 done：忽略
+ *  - 已有 map 的 PMO：不重建
+ *  - DESTINATION 缺省 → 回退项目 title；非 analysis/plan / 非 done：忽略
  *
  * 约定同 decision-resolution.test.ts：PMO 项目写真实 ~/.studio/projects，afterEach 统一删除。
  */
@@ -61,10 +63,10 @@ function l3(summary?: string): WorkUnitMetadata['attestations'] {
   };
 }
 
-async function createAnalysisWu(project: ProjectData, summary?: string): Promise<WorkUnitData> {
+async function createPlanChainWu(project: ProjectData, summary?: string, type: 'analysis' | 'plan' = 'plan'): Promise<WorkUnitData> {
   return wuService.create({
-    type: 'analysis',
-    scope: `分析需求 ${project.pmoNumber}: ${project.title}`,
+    type,
+    scope: `规划需求 ${project.pmoNumber}: ${project.title}`,
     channelId: 'ch-test',
     status: 'in_review',
     metadata: {
@@ -83,6 +85,12 @@ async function decisionWus(): Promise<Array<{ id: string; status: string; metada
   return (await fileStore.getIndex())
     .filter(s => s.type === 'decision')
     .map(s => ({ id: s.id, status: s.status, metadata: metaOf(s.metadata) }));
+}
+
+/** map 台账就绪条件：初始化完成（fog 条数对齐，wuId 恒 null——#471 不再互挂） */
+async function mapReady(projectId: string, fogCount: number): Promise<boolean> {
+  const m = (await projectService.get(projectId))!.map;
+  return !!m && m.fog.length === fogCount;
 }
 
 beforeEach(async () => {
@@ -118,69 +126,61 @@ afterEach(async () => {
   }
 });
 
-describe('MapOpening（#112 开图机制）', () => {
-  it('开图通过 → map 初始化 + 决策单数 = 雾条数 + wuId 互挂正确', async () => {
+describe('MapOpening（#112 开图机制；#471 台账化）', () => {
+  it('plan done + FOG → map 台账初始化（destination+fog，wuId=null），不再建 decision 单', async () => {
     const project = await createProject();
-    const wu = await createAnalysisWu(project, 'DESTINATION: 把 X 做起来\nFOG: 存储选型？\nFOG: 部署形态？');
+    const wu = await createPlanChainWu(project, 'DESTINATION: 把 X 做起来\nFOG: 存储选型？\nFOG: 部署形态？');
 
-    // map 先初始化、decision 单后建、wuId 最后回写——以回写完成作为就绪条件
-    const mapReady = async () => {
-      const m = (await projectService.get(project.id))!.map;
-      return !!m && m.fog.length === 2 && m.fog.every(f => !!f.wuId);
-    };
     await emitDone(wu);
-    const ok = await waitFor(mapReady);
+    const ok = await waitFor(() => mapReady(project.id, 2));
     expect(ok).toBe(true);
 
     const map = (await projectService.get(project.id))!.map!;
     expect(map.destination).toBe('把 X 做起来');
     expect(map.decisions).toEqual([]);
-    expect(map.fog.length).toBe(2);
     expect(map.fog.map(f => f.question)).toEqual(['存储选型？', '部署形态？']);
     expect(map.fog.every(f => f.status === 'open')).toBe(true);
-
-    const decisions = await decisionWus();
-    expect(decisions.length).toBe(2);
-    expect(decisions.every(d => d.status === 'unassigned')).toBe(true);
-
-    // 互挂：decision WU metadata 带 pmoId/fogId（#110 消费），fog[].wuId = 新建 WU id
-    for (const fogItem of map.fog) {
-      expect(fogItem.wuId).toBeTruthy();
-      const decision = decisions.find(d => d.id === fogItem.wuId);
-      expect(decision).toBeDefined();
-      expect(decision!.metadata.pmoId).toBe(project.id);
-      expect(decision!.metadata.pmoNumber).toBe(project.pmoNumber);
-      expect(decision!.metadata.fogId).toBe(fogItem.id);
-    }
+    // #471：不再逐条建 decision 单，fog[].wuId 恒 null（裁决在 plan 会话内进行）
+    expect(map.fog.every(f => f.wuId === null)).toBe(true);
+    expect((await decisionWus()).length).toBe(0);
 
     // 幂等哨兵落档
     expect(metaOf((await wuService.getById(wu.id))!.metadata).mapOpenedAt).toBeTruthy();
   });
 
-  it('幂等：同一 analysis WU 重复 done 事件不重复初始化 map/重复建 decision 单', async () => {
+  it('存量 analysis 单 done + FOG → 同样只落台账不建 decision 单（旧派生退役）', async () => {
     const project = await createProject();
-    const wu = await createAnalysisWu(project, 'FOG: 存储选型？\nFOG: 部署形态？');
+    const wu = await createPlanChainWu(project, 'FOG: 存储选型？', 'analysis');
 
     await emitDone(wu);
-    await waitFor(async () => {
-      const m = (await projectService.get(project.id))!.map;
-      return !!m && m.fog.every(f => !!f.wuId);
-    });
+    const ok = await waitFor(() => mapReady(project.id, 1));
+    expect(ok).toBe(true);
+
+    expect((await decisionWus()).length).toBe(0);
+    expect((await projectService.get(project.id))!.map!.fog[0].wuId).toBeNull();
+  });
+
+  it('幂等：同一 plan WU 重复 done 事件不重复初始化 map', async () => {
+    const project = await createProject();
+    const wu = await createPlanChainWu(project, 'FOG: 存储选型？\nFOG: 部署形态？');
+
+    await emitDone(wu);
+    await waitFor(() => mapReady(project.id, 2));
     const mapBefore = (await projectService.get(project.id))!.map!;
 
     await emitDone(wu);
     await new Promise(r => setTimeout(r, 150));
 
-    expect((await decisionWus()).length).toBe(2);
+    expect((await decisionWus()).length).toBe(0);
     expect((await projectService.get(project.id))!.map!.fog).toEqual(mapBefore.fog);
   });
 
   it('DESTINATION 缺省 → destination 回退项目 title；兼容中文冒号', async () => {
     const project = await createProject();
-    const wu = await createAnalysisWu(project, 'FOG：存储选型？');
+    const wu = await createPlanChainWu(project, 'FOG：存储选型？');
 
     await emitDone(wu);
-    const ok = await waitFor(async () => (await decisionWus()).length === 1);
+    const ok = await waitFor(() => mapReady(project.id, 1));
     expect(ok).toBe(true);
 
     const map = (await projectService.get(project.id))!.map!;
@@ -190,10 +190,10 @@ describe('MapOpening（#112 开图机制）', () => {
 
   it('#401：中文别名「目标：/待决：」与英文 DESTINATION:/FOG: 同效', async () => {
     const project = await createProject();
-    const wu = await createAnalysisWu(project, '目标：把 X 做起来\n待决：存储选型？\n待决：部署形态？');
+    const wu = await createPlanChainWu(project, '目标：把 X 做起来\n待决：存储选型？\n待决：部署形态？');
 
     await emitDone(wu);
-    const ok = await waitFor(async () => (await decisionWus()).length === 2);
+    const ok = await waitFor(() => mapReady(project.id, 2));
     expect(ok).toBe(true);
 
     const map = (await projectService.get(project.id))!.map!;
@@ -203,7 +203,7 @@ describe('MapOpening（#112 开图机制）', () => {
 
   it('无待决问题清单（无 FOG 行）：不炸、不初始化、不落哨兵', async () => {
     const project = await createProject();
-    const wu = await createAnalysisWu(project, '结论没问题，可以开工');
+    const wu = await createPlanChainWu(project, '结论没问题，可以开工');
 
     await emitDone(wu);
     await new Promise(r => setTimeout(r, 150));
@@ -215,7 +215,7 @@ describe('MapOpening（#112 开图机制）', () => {
 
   it('无待决问题清单首开不动；后续人工确认补填 FOG 清单仍可开图', async () => {
     const project = await createProject();
-    const wu = await createAnalysisWu(project); // 无 summary
+    const wu = await createPlanChainWu(project); // 无 summary
 
     await emitDone(wu);
     await new Promise(r => setTimeout(r, 150));
@@ -229,12 +229,11 @@ describe('MapOpening（#112 开图机制）', () => {
     });
     await emitDone((await wuService.getById(wu.id))!);
 
-    const ok = await waitFor(async () => (await decisionWus()).length === 1);
+    const ok = await waitFor(() => mapReady(project.id, 1));
     expect(ok).toBe(true);
-    expect((await projectService.get(project.id))!.map!.fog.length).toBe(1);
   });
 
-  it('已有 map 的 PMO：不重建、不新建 decision 单', async () => {
+  it('已有 map 的 PMO：不重建', async () => {
     const project = await createProject();
     await projectService.update(project.id, {
       map: {
@@ -243,7 +242,7 @@ describe('MapOpening（#112 开图机制）', () => {
         fog: [{ id: 'fog-old', question: '老问题', wuId: null, status: 'open' }],
       },
     });
-    const wu = await createAnalysisWu(project, 'FOG: 新问题？');
+    const wu = await createPlanChainWu(project, 'FOG: 新问题？');
 
     await emitDone(wu);
     await new Promise(r => setTimeout(r, 150));
@@ -255,18 +254,18 @@ describe('MapOpening（#112 开图机制）', () => {
     expect((await decisionWus()).length).toBe(0);
   });
 
-  it('非 PMO analysis（缺 pmoId）/ 非 analysis 类型 / 非 done 状态：忽略', async () => {
+  it('非 PMO（缺 pmoId）/ 非 analysis·plan 类型 / 非 done 状态：忽略', async () => {
     const project = await createProject();
     const noPmo = await wuService.create({
-      type: 'analysis',
-      scope: '无 PMO 分析',
+      type: 'plan',
+      scope: '无 PMO 规划',
       channelId: 'ch-test',
       status: 'in_review',
       metadata: { attestations: l3('FOG: 存储选型？') },
     });
     await emitDone(noPmo);
 
-    const wu = await createAnalysisWu(project, 'FOG: 存储选型？');
+    const wu = await createPlanChainWu(project, 'FOG: 存储选型？');
     eventBus.publish('workunit.status_changed', { workunit: { ...wu, status: 'in_review' } });
     eventBus.publish('workunit.status_changed', { workunit: { ...wu, type: 'task', status: 'done' } });
     await new Promise(r => setTimeout(r, 150));

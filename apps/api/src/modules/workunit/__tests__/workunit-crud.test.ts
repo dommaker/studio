@@ -258,6 +258,41 @@ describe('create', () => {
     }
   });
 
+  it('#464：落 pending（待确认人闸）且带频道 → 频道发「待确认」系统消息（milestone：atHuman + 挂 WU）', async () => {
+    const now = new Date().toISOString();
+    await fileStore.createChannel({
+      id: 'ch-pending', name: '#pending', type: 'rnd',
+      defaultWorkspaceId: null, defaultPath: null,
+      discordChannelId: null, discordWebhookUrl: null, members: '[]',
+      createdAt: now, updatedAt: now,
+    });
+
+    const wu = await service.create({ type: 'feature', scope: '待确认出声', channelId: 'ch-pending' });
+    expect(wu.status).toBe('pending');
+
+    const msgs = await fileStore.queryMessages('ch-pending', { workUnitId: wu.id });
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0].authorType).toBe('agent');
+    expect(msgs[0].content).toContain('待确认');
+    expect(JSON.parse(msgs[0].meta ?? '{}').atHuman).toBe(true);
+  });
+
+  it('#464：显式 status=unassigned → 不发待确认消息；pending 但无频道 → 不发声不报错', async () => {
+    const now = new Date().toISOString();
+    await fileStore.createChannel({
+      id: 'ch-unassigned', name: '#unassigned', type: 'rnd',
+      defaultWorkspaceId: null, defaultPath: null,
+      discordChannelId: null, discordWebhookUrl: null, members: '[]',
+      createdAt: now, updatedAt: now,
+    });
+
+    const wu = await service.create({ type: 'task', scope: '直接派工', channelId: 'ch-unassigned', status: 'unassigned' });
+    expect(await fileStore.queryMessages('ch-unassigned', { workUnitId: wu.id })).toHaveLength(0);
+
+    const noChannel = await service.create({ type: 'task', scope: '无频道 pending' });
+    expect(noChannel.status).toBe('pending'); // 不抛错即通过（postWuSystemMessage 无频道守卫）
+  });
+
   it('type=feature + 频道无 defaultPipeline → 不展开子 WU', async () => {
     const now = new Date().toISOString();
     await fileStore.createChannel({

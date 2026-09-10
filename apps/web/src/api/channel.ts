@@ -23,6 +23,15 @@ export interface Channel {
   defaultWorkspaceId?: string | null;
   defaultPath?: string | null;
   members?: string; // JSON string of agent ID array
+  /** #466: 频道级「阶段→角色」路由表（profile id；undefined/某档 null = 该阶段回池涌现） */
+  routing?: ChannelRouting;
+}
+
+/** #466: 工单路由三档（plan 规划 / implement 执行 / review 评审） */
+export interface ChannelRouting {
+  plan?: string | null;
+  implement?: string | null;
+  review?: string | null;
 }
 
 export interface AgentProfile {
@@ -32,6 +41,8 @@ export interface AgentProfile {
   status: string;
   provider?: string | null;
   channels?: string | string[] | null; // JSON string of channel ID array（历史数据可能双重编码）
+  /** #462: 显式 skill 声明（注入索引候选，与 WU +skill 点名同权） */
+  skills?: string[];
   isOnline?: boolean;
   lastError?: string | null;
 }
@@ -97,7 +108,7 @@ export const channelApi = {
   create: (data: { name: string; type: string; agents?: Array<{ name: string }>; defaultPath?: string | null }) =>
     api.post<{ success: boolean; data: Channel }>('/channels', data),
 
-  update: (channelId: string, data: { defaultWorkspaceId?: string; defaultPath?: string; name?: string }) =>
+  update: (channelId: string, data: { defaultWorkspaceId?: string; defaultPath?: string; name?: string; routing?: ChannelRouting }) =>
     api.patch<{ success: boolean; data: Channel }>(`/channels/${channelId}`, data),
 
   listMessages: (channelId: string, params?: { before?: string; limit?: number }) =>
@@ -160,9 +171,9 @@ export const channelApi = {
   updateMembers: (channelId: string, ops: { add?: string[]; remove?: string[] }) =>
     api.patch<{ success: boolean; data: { members: string[] } }>(`/channels/${channelId}/members`, ops),
 
-  createAgent: (data: { name: string; description?: string; channels?: string[]; provider?: string }) =>
+  createAgent: (data: { name: string; description?: string; channels?: string[]; provider?: string; skills?: string[] }) =>
     api.post<AgentProfile>('/agent-profiles', data),
 
-  updateAgent: (id: string, data: Partial<{ name: string; description: string | null; channels: string[]; provider: string | null; status: string }>) =>
+  updateAgent: (id: string, data: Partial<{ name: string; description: string | null; channels: string[]; provider: string | null; status: string; skills: string[] }>) =>
     api.patch<AgentProfile>(`/agent-profiles/${id}`, data),
 };

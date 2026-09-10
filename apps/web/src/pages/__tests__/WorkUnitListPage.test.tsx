@@ -209,58 +209,64 @@ describe('WorkUnitListPage - 统计条口径（#280）', () => {
   });
 });
 
-describe('WorkUnitListPage — analysis 确认弹窗（#106 M7）', () => {
+describe('WorkUnitListPage — analysis 确认弹窗（#106 M7；#463 起结构化评审表单）', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockStore.workunits = [];
     mockStore.total = null;
   });
 
-  it('analysis 点通过 → 弹窗预填 metadata 里的待决问题清单；编辑后确认 → summary 回传', () => {
+  it('analysis 点通过 → 弹窗结构化预填待决清单与 TASK 预览；编辑后确认开图 → confirm 载荷回传', () => {
     mockStore.workunits = [makeWu({
       id: 'wu-a1',
       metadata: JSON.stringify({
         analysisDestination: '三仓特性联动上线',
         analysisFog: ['存储选型用哪个？', '部署形态先单机还是分布式？'],
+        analysisTasks: ['实现存储层'],
       }),
     })];
     render(<WorkUnitListPage />);
 
-    fireEvent.click(screen.getByText('通过（审查闸门）'));
+    fireEvent.click(screen.getByText('通过验收'));
 
-    // 预填 = 目标：/待决： 逐行还原（map-opening 契约中文别名，#401）
-    const textarea = screen.getByPlaceholderText(/目标/) as HTMLTextAreaElement;
-    expect(textarea.value).toBe(
-      '目标：三仓特性联动上线\n待决：存储选型用哪个？\n待决：部署形态先单机还是分布式？',
-    );
+    // 结构化预填：目标/待决/派工预览各就各位
+    expect((screen.getByLabelText('目标') as HTMLInputElement).value).toBe('三仓特性联动上线');
+    expect((screen.getByLabelText('待决问题 1') as HTMLInputElement).value).toBe('存储选型用哪个？');
+    expect((screen.getByLabelText('派工任务 1') as HTMLInputElement).value).toBe('实现存储层');
 
     // 人审改：删掉一条雾
-    fireEvent.change(textarea, { target: { value: '待决：存储选型用哪个？' } });
-    fireEvent.click(screen.getByText('确认通过'));
+    fireEvent.click(screen.getByLabelText('删除待决问题 2'));
+    fireEvent.click(screen.getByText('确认开图'));
 
-    expect(mockStore.reviewPassed).toHaveBeenCalledWith('wu-a1', '待决：存储选型用哪个？', undefined);
+    expect(mockStore.reviewPassed).toHaveBeenCalledWith('wu-a1', undefined, undefined, {
+      kind: 'analysis',
+      destination: '三仓特性联动上线',
+      fog: ['存储选型用哪个？'],
+      tasks: ['实现存储层'],
+    });
   });
 
-  it('analysis 无清单 metadata → 弹窗空文本（空手填或直接通过 = 非探路型）', () => {
+  it('analysis 无清单 metadata → 弹窗全空（空手评或直接通过 = 非探路型）', () => {
     mockStore.workunits = [makeWu({ id: 'wu-a2' })];
     render(<WorkUnitListPage />);
 
-    fireEvent.click(screen.getByText('通过（审查闸门）'));
-    const textarea = screen.getByPlaceholderText(/目标/) as HTMLTextAreaElement;
-    expect(textarea.value).toBe('');
+    fireEvent.click(screen.getByText('通过验收'));
+    expect((screen.getByLabelText('目标') as HTMLInputElement).value).toBe('');
 
-    fireEvent.click(screen.getByText('确认通过'));
-    expect(mockStore.reviewPassed).toHaveBeenCalledWith('wu-a2', '', undefined);
+    fireEvent.click(screen.getByText('确认开图'));
+    expect(mockStore.reviewPassed).toHaveBeenCalledWith('wu-a2', undefined, undefined, {
+      kind: 'analysis', fog: [], tasks: [],
+    });
   });
 
   it('非 analysis（task）点通过 → 不开弹窗，直接调 reviewPassed（回归）', () => {
     mockStore.workunits = [makeWu({ id: 'wu-t1', type: 'task', scope: '实现登录' })];
     render(<WorkUnitListPage />);
 
-    fireEvent.click(screen.getByText('通过（审查闸门）'));
+    fireEvent.click(screen.getByText('通过验收'));
 
-    expect(screen.queryByPlaceholderText(/目标/)).toBeNull();
-    expect(mockStore.reviewPassed).toHaveBeenCalledWith('wu-t1', undefined, undefined);
+    expect(screen.queryByLabelText('目标')).toBeNull();
+    expect(mockStore.reviewPassed).toHaveBeenCalledWith('wu-t1', undefined, undefined, undefined);
   });
 });
 
@@ -273,11 +279,11 @@ describe('WorkUnitListPage — pending 人闸入口（#284 / E2-4）', () => {
     mockSearchParamsValue.value = '';
   });
 
-  it('pending 行 → 行内「确认（进待领取）」→ confirmPending(id)（不展开不开抽屉）', async () => {
+  it('pending 行 → 行内「确认并开放领取」→ confirmPending(id)（不展开不开抽屉）', async () => {
     mockStore.workunits = [makeWu({ id: 'wu-p1', type: 'task', status: 'pending' })];
     render(<WorkUnitListPage />);
 
-    fireEvent.click(await screen.findByText('确认（进待领取）'));
+    fireEvent.click(await screen.findByText('确认并开放领取'));
 
     expect(mockStore.confirmPending).toHaveBeenCalledWith('wu-p1');
     // 闸门点击不触发行点击开抽屉（组件内吞冒泡）
@@ -288,7 +294,7 @@ describe('WorkUnitListPage — pending 人闸入口（#284 / E2-4）', () => {
     mockStore.workunits = [makeWu({ id: 'wu-a9', type: 'task', status: 'active' })];
     render(<WorkUnitListPage />);
 
-    expect(screen.queryByText('确认（进待领取）')).toBeNull();
+    expect(screen.queryByText('确认并开放领取')).toBeNull();
   });
 });
 
@@ -352,11 +358,28 @@ describe('WorkUnitListPage — claimable 置灰与被阻塞徽标（#116）', ()
     })];
     render(<WorkUnitListPage />);
 
+
     fireEvent.click(screen.getByText('ID: wu-b2...'));
 
     expect(mockDrawerProps).toHaveBeenCalledWith(expect.objectContaining({
       drawer: { kind: 'wu', id: 'wu-b2' },
     }));
+  });
+
+  it('#474：行内 Agent 不再拿截断 hash 当人名——走 AssigneeLabel 解析；ID 全文收进 title', () => {
+    mockStore.workunits = [makeWu({
+      id: 'wu-full-id-1234567890',
+      assigneeId: 'agent-instance-abcdef123456',
+    })];
+    render(<WorkUnitListPage />);
+
+    // 旧形态（裸「Agent: <8位hash>...」）不再出现
+    expect(screen.queryByText(/Agent: /)).toBeNull();
+    // ID 截断显示不变，全文收进 title
+    const idSpan = screen.getByText(/ID: wu-full-/);
+    expect(idSpan).toHaveAttribute('title', 'wu-full-id-1234567890');
+    // AssigneeLabel 兜底形态：@短 id（解析为异步，查不到角色时回退；解析契约见 AssigneeLabel.test）
+    expect(screen.getByText('@agent-in')).toBeTruthy();
   });
 });
 
@@ -559,13 +582,13 @@ describe('WorkUnitListPage — 行闸门反馈兜底（批次A 项4 / E2-4）', 
     mockSearchParamsValue.value = '';
   });
 
-  it('行「通过（审查闸门）」pending 锁存：未结算前连击只调一次，按钮禁用', async () => {
+  it('行「通过验收」pending 锁存：未结算前连击只调一次，按钮禁用', async () => {
     let resolve: () => void = () => {};
     mockStore.reviewPassed.mockImplementation(() => new Promise<void>(r => { resolve = r; }));
     mockStore.workunits = [makeWu({ id: 'wu-l1', type: 'task', status: 'in_review' })];
     render(<WorkUnitListPage />);
 
-    const btn = screen.getByText('通过（审查闸门）').closest('button')!;
+    const btn = screen.getByText('通过验收').closest('button')!;
     fireEvent.click(btn);
     await waitFor(() => expect(btn.disabled).toBe(true));
     expect(screen.getByText('拒绝').closest('button')!.disabled).toBe(true);
@@ -580,7 +603,7 @@ describe('WorkUnitListPage — 行闸门反馈兜底（批次A 项4 / E2-4）', 
     mockStore.workunits = [makeWu({ id: 'wu-l0', type: 'task', status: 'in_review' })];
     render(<WorkUnitListPage />);
 
-    expect(screen.getByText('通过（审查闸门）').closest('button')!.className).toBe('btn btn-primary btn-sm');
+    expect(screen.getByText('通过验收').closest('button')!.className).toBe('btn btn-primary btn-sm');
     expect(screen.getByText('拒绝').closest('button')!.className).toBe('btn btn-danger btn-sm');
   });
 
@@ -592,18 +615,18 @@ describe('WorkUnitListPage — 行闸门反馈兜底（批次A 项4 / E2-4）', 
     mockStore.workunits = [makeWu({ id: 'wu-l2', type: 'task', status: 'in_review' })];
     render(<WorkUnitListPage />);
 
-    const btn = screen.getByText('通过（审查闸门）').closest('button')!;
+    const btn = screen.getByText('通过验收').closest('button')!;
     fireEvent.click(btn);
     expect(await screen.findByText('状态机不允许该迁移')).toBeTruthy();
     await waitFor(() => expect(btn.disabled).toBe(false));
   });
 
-  it('pending 行「确认（进待领取）」失败 → 内联错误行（Error.message 回退）不静默', async () => {
+  it('pending 行「确认并开放领取」失败 → 内联错误行（Error.message 回退）不静默', async () => {
     mockStore.confirmPending.mockRejectedValue(new Error('boom'));
     mockStore.workunits = [makeWu({ id: 'wu-l3', type: 'task', status: 'pending' })];
     render(<WorkUnitListPage />);
 
-    fireEvent.click(await screen.findByText('确认（进待领取）'));
+    fireEvent.click(await screen.findByText('确认并开放领取'));
     expect(await screen.findByText('boom')).toBeTruthy();
   });
 
@@ -628,8 +651,8 @@ describe('WorkUnitListPage — 行闸门反馈兜底（批次A 项4 / E2-4）', 
     mockStore.workunits = [makeWu({ id: 'wu-l4', status: 'in_review' })]; // 默认 type=analysis
     render(<WorkUnitListPage />);
 
-    fireEvent.click(screen.getByText('通过（审查闸门）'));
-    fireEvent.click(await screen.findByText('确认通过'));
+    fireEvent.click(screen.getByText('通过验收'));
+    fireEvent.click(await screen.findByText('确认开图'));
 
     // 错误行同时进闸门区与弹窗（两处同源 gateError/submitError）
     expect((await screen.findAllByText('服务端挂了')).length).toBeGreaterThan(0);
@@ -675,5 +698,59 @@ describe('WorkUnitListPage — 分页底栏（E2-5）', () => {
 
     expect(screen.queryByRole('button', { name: '加载更多' })).toBeNull();
     expect(screen.getByText(/已加载/).textContent).toContain('2');
+  });
+});
+
+// #472：统计 chip 颜色语义 + 计数口径标注
+describe('WorkUnitListPage — 统计 chip 语义与口径（#472）', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockStore.workunits = [];
+    mockStore.total = null;
+    mockStore.statusFilter = null;
+    mockSearchParamsValue.value = '';
+  });
+
+  /** chip 数字 span（wu-stat-num）的内联色 */
+  function chipColor(label: string): string {
+    const chip = screen.getByRole('button', { name: new RegExp(label) });
+    const num = chip.querySelector('.wu-stat-num') as HTMLElement | null;
+    if (!num) throw new Error(`chip "${label}" 无数字 span`);
+    return num.style.color;
+  }
+
+  it('「待人工」chip 用 warning 不用 error 红（红留给真错误）', () => {
+    mockStore.workunits = [makeWu({ id: 'wu-1', status: 'in_review' })];
+    render(<WorkUnitListPage />);
+    expect(chipColor('待人工')).toBe('var(--warning)');
+  });
+
+  it('「待确认」chip 用中性色（与「待验收」warning 区分开）', () => {
+    mockStore.workunits = [makeWu({ id: 'wu-1', status: 'pending' })];
+    render(<WorkUnitListPage />);
+    expect(chipColor('待确认')).not.toBe('var(--warning)');
+    expect(chipColor('待验收')).toBe('var(--warning)');
+  });
+
+  it('分页未全量 → chip 行标注计数口径（防数字撒谎）', () => {
+    mockStore.workunits = [makeWu({ id: 'wu-1', status: 'active' }), makeWu({ id: 'wu-2', status: 'done' })];
+    mockStore.total = 42;
+    render(<WorkUnitListPage />);
+    expect(screen.getByText(/计数口径/).textContent).toContain('2/42');
+  });
+
+  it('全量加载且无筛选 → 不标注（计数即全量，无需解释）', () => {
+    mockStore.workunits = [makeWu({ id: 'wu-1', status: 'active' }), makeWu({ id: 'wu-2', status: 'done' })];
+    mockStore.total = 2;
+    render(<WorkUnitListPage />);
+    expect(screen.queryByText(/计数口径/)).toBeNull();
+  });
+
+  it('状态筛选生效 → 同样标注（其余 chip 数的是筛选后子集）', () => {
+    mockStore.workunits = [makeWu({ id: 'wu-1', status: 'active' })];
+    mockStore.total = 1;
+    mockStore.statusFilter = 'active';
+    render(<WorkUnitListPage />);
+    expect(screen.getByText(/计数口径/)).toBeTruthy();
   });
 });

@@ -1,9 +1,10 @@
 /**
- * NotificationBell tests — #274 接后端 notifications API + §5.7 跳转优先级
+ * NotificationBell tests — #468 统一行动中心面板
  *
- * 后端持久化通知：挂载拉列表（历史在）、未读计数、单条已读（POST /:id/read）、
- * 全部已读（POST /read-all）；点击按 WU > PMO > 频道跳转（link 解析）。
- * SSE atHuman 实时增量保留：入列、跳转优先级、不产生后端已读调用。
+ * 面板 = GET /action-center 一个端点三段数据的视图：
+ * 待回复/待验收/待确认（stateItems 状态派生，无已读概念）+ 通知与告警（事件持久，已读墓碑）。
+ * SSE 只作失效触发（atHuman / workunit.status_changed → 重拉），断线重连重拉（#415 模式保留）。
+ * 标题闪烁机制保留，停止条件 = unreadCount + stateItems.length === 0。
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
@@ -43,7 +44,7 @@ vi.mock('../../api/websocketHooks', () => ({
 vi.mock('../../api', () => ({ api: mockApi }));
 
 import { NotificationBell } from '../NotificationBell';
-import { useNotificationStore } from '../../stores/notificationStore';
+import { useNotificationStore, type StateItem } from '../../stores/notificationStore';
 
 interface BackendNotification {
   id: string;
@@ -52,40 +53,58 @@ interface BackendNotification {
   title: string;
   content: string;
   link: string | null;
+  wuId?: string | null;
+  channelId?: string | null;
   createdAt: string;
   read: boolean;
   readAt: string | null;
 }
 
-function backendRows(overrides: Partial<BackendNotification>[] = []): BackendNotification[] {
-  const base: BackendNotification[] = [
-    { id: 'n1', userId: 'u1', type: 'auditor_suggestion', title: '审计建议 (2 项)', content: '建议一 | 建议二', link: '/channels/ch-9', createdAt: '2026-08-18T08:00:00.000Z', read: false, readAt: null },
-    { id: 'n2', userId: 'u1', type: 'system', title: '系统通知', content: '已读的一条', link: '/pmo/project/proj-7', createdAt: '2026-08-17T08:00:00.000Z', read: true, readAt: '2026-08-17T09:00:00.000Z' },
-  ];
-  return base.map((b, i) => ({ ...b, ...(overrides[i] ?? {}) }));
+function stateItem(overrides: Partial<StateItem> = {}): StateItem {
+  return {
+    kind: 'reply', wuId: 'WU-1', scope: '登录功能', channelId: 'ch-1',
+    waitingQuestion: '选哪个方案？', since: '2026-09-09T08:00:00.000Z',
+    ...overrides,
+  };
 }
 
-function mockList(rows: BackendNotification[]) {
-  mockApi.get.mockResolvedValue({ data: rows });
+function backendNotification(overrides: Partial<BackendNotification> = {}): BackendNotification {
+  return {
+    id: 'n1', userId: 'u1', type: 'auditor_suggestion', title: '审计建议 (2 项)',
+    content: '建议一 | 建议二', link: '/channels/ch-9', wuId: null, channelId: null,
+    createdAt: '2026-08-18T08:00:00.000Z', read: false, readAt: null,
+    ...overrides,
+  };
 }
 
-interface FakeMessage {
-  id: string;
-  agentName: string;
-  content: string;
-  workUnitId?: string | null;
-  meta?: { atHuman?: boolean; pmoId?: string } | null;
+interface Payload {
+  stateItems?: StateItem[];
+  notifications?: BackendNotification[];
+  unreadCount?: number;
 }
 
-function emitAtHuman(message: FakeMessage, channelId = 'ch-1') {
+function mockActionCenter(p: Payload = {}) {
+  mockApi.get.mockResolvedValue({
+    data: { stateItems: p.stateItems ?? [], notifications: p.notifications ?? [], unreadCount: p.unreadCount ?? 0 },
+  });
+}
+
+function emitSse(eventType: string, data: unknown, eventId = 'evt-1') {
   const msg: WebSocketMessage = {
-    event_id: `evt-${message.id}`,
-    event_type: 'channel.message_sent',
+    event_id: eventId,
+    event_type: eventType,
     timestamp: new Date().toISOString(),
-    data: { channelId, message },
+    data,
   };
   act(() => {
     sseHandlers.forEach(h => h(msg));
+  });
+}
+
+function emitAtHuman(agentName = 'pmo') {
+  emitSse('channel.message_sent', {
+    channelId: 'ch-1',
+    message: { id: 'm-1', agentName, content: '@人 请处理', meta: { atHuman: true } },
   });
 }
 
@@ -97,180 +116,218 @@ function emitReconnect() {
 }
 
 function openDropdown() {
-  fireEvent.click(screen.getByTitle('通知中心'));
+  fireEvent.click(screen.getByTitle('行动中心'));
 }
 
-async function renderLoaded(rows: BackendNotification[]) {
-  mockList(rows);
+async function renderLoaded(p: Payload = {}) {
+  mockActionCenter(p);
   render(<NotificationBell />);
-  await waitFor(() => expect(mockApi.get).toHaveBeenCalledWith('/notifications'));
+  await waitFor(() => expect(mockApi.get).toHaveBeenCalledWith('/action-center'));
 }
 
 beforeEach(() => {
   sseHandlers.clear();
   reconnectHandlers.clear();
-  // store 是模块单例，跨用例重置通知列表
-  useNotificationStore.setState({ notifications: [] });
+  // store 是模块单例，跨用例重置三段
+  useNotificationStore.setState({ stateItems: [], notifications: [], unreadCount: 0 });
   mockNavigate.mockClear();
   mockApi.get.mockReset();
   mockApi.post.mockReset();
   mockApi.post.mockResolvedValue({ data: { success: true } });
 });
 
-describe('#274 后端持久化通知', () => {
-  it('挂载拉取后端列表：历史通知渲染，未读计数 = 未读条数', async () => {
-    await renderLoaded(backendRows());
-    // 未读角标（n1 未读，n2 已读）
-    expect(screen.getByText('1')).toBeInTheDocument();
-
-    openDropdown();
-    await waitFor(() => expect(screen.getByText('审计建议 (2 项)')).toBeInTheDocument());
-    expect(screen.getByText('系统通知')).toBeInTheDocument();
+describe('#468 行动中心面板（四分区）', () => {
+  it('挂载拉取 /action-center；角标 = unreadCount + stateItems 数', async () => {
+    await renderLoaded({
+      stateItems: [stateItem(), stateItem({ kind: 'confirm', wuId: 'WU-2', channelId: null })],
+      notifications: [backendNotification()],
+      unreadCount: 1,
+    });
+    expect(screen.getByText('3')).toBeInTheDocument();
   });
 
-  it('刷新后历史通知仍在（数据源 = 后端，非内存 SSE）', async () => {
-    await renderLoaded(backendRows());
+  it('面板分区：待回复/待验收/待确认分区计数 + 分隔后的通知与告警', async () => {
+    await renderLoaded({
+      stateItems: [
+        stateItem({ wuId: 'WU-1', scope: '登录功能' }),
+        stateItem({ kind: 'review', wuId: 'WU-2', scope: '决策单待批', channelId: 'ch-2' }),
+        stateItem({ kind: 'confirm', wuId: 'WU-3', scope: '新任务待确认', channelId: null }),
+      ],
+      notifications: [backendNotification()],
+      unreadCount: 1,
+    });
     openDropdown();
-    // 无 SSE 事件也有历史列表
-    expect(screen.getByText('建议一 | 建议二')).toBeInTheDocument();
+
+    expect(screen.getByText('行动中心')).toBeInTheDocument();
+    expect(screen.getByText('待回复 (1)')).toBeInTheDocument();
+    expect(screen.getByText('待验收 (1)')).toBeInTheDocument();
+    expect(screen.getByText('待确认 (1)')).toBeInTheDocument();
+    expect(screen.getByText('通知与告警')).toBeInTheDocument();
+    expect(screen.getByText('登录功能')).toBeInTheDocument();
+    expect(screen.getByText('选哪个方案？')).toBeInTheDocument();
+    expect(screen.getByText('决策单待批')).toBeInTheDocument();
+    expect(screen.getByText('新任务待确认')).toBeInTheDocument();
+    expect(screen.getByText('审计建议 (2 项)')).toBeInTheDocument();
   });
 
-  it('后端返回空 → 暂无通知', async () => {
-    await renderLoaded([]);
+  it('待回复点击：channelId 存在 → 跳频道（chip 定位在频道页）；否则 → WU 详情', async () => {
+    await renderLoaded({
+      stateItems: [
+        stateItem({ wuId: 'WU-1', scope: '有频道待回复', channelId: 'ch-1' }),
+        stateItem({ wuId: 'WU-2', scope: '无频道待回复', channelId: null }),
+      ],
+    });
     openDropdown();
-    expect(screen.getByText('暂无通知')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('有频道待回复'));
+    expect(mockNavigate).toHaveBeenCalledWith('/channels/ch-1');
+
+    openDropdown(); // 点击后面板收起，重新展开
+    fireEvent.click(screen.getByText('无频道待回复'));
+    expect(mockNavigate).toHaveBeenCalledWith('/workunits/WU-2');
+    // stateItems 无已读概念：点击不产生后端已读调用
+    expect(mockApi.post).not.toHaveBeenCalled();
   });
 
-  it('点击后端通知：标记已读（POST /notifications/:id/read）并按 link 跳转频道', async () => {
-    await renderLoaded(backendRows());
+  it('待验收/待确认点击 → WU 详情', async () => {
+    await renderLoaded({
+      stateItems: [
+        stateItem({ kind: 'review', wuId: 'WU-7', scope: '验收单' }),
+        stateItem({ kind: 'confirm', wuId: 'WU-8', scope: '确认单' }),
+      ],
+    });
+    openDropdown();
+
+    fireEvent.click(screen.getByText('验收单'));
+    expect(mockNavigate).toHaveBeenCalledWith('/workunits/WU-7');
+    openDropdown(); // 点击后面板收起，重新展开
+    fireEvent.click(screen.getByText('确认单'));
+    expect(mockNavigate).toHaveBeenCalledWith('/workunits/WU-8');
+  });
+
+  it('通知条目：点击标记已读（POST /:id/read）并按 wuId 跳 WU 详情', async () => {
+    await renderLoaded({
+      notifications: [backendNotification({ id: 'n1', link: null, wuId: 'WU-3' })],
+      unreadCount: 1,
+    });
     openDropdown();
 
     fireEvent.click(screen.getByText('审计建议 (2 项)'));
     expect(mockApi.post).toHaveBeenCalledWith('/notifications/n1/read');
-    expect(mockNavigate).toHaveBeenCalledWith('/channels/ch-9');
-    // 角标清零
+    expect(mockNavigate).toHaveBeenCalledWith('/workunits/WU-3');
+    // 角标递减
     await waitFor(() => expect(screen.queryByText('1')).not.toBeInTheDocument());
   });
 
-  it('link 解析跳转优先级：/workunits/:id > /pmo/project/:id > /channels/:id', async () => {
-    await renderLoaded(backendRows([{}, { id: 'n2', link: '/pmo/project/proj-7', read: false }]));
+  it('通知跳转优先级：wuId > channelId(+?highlight=) > pmoId', async () => {
+    await renderLoaded({
+      notifications: [
+        // 老数据行：无结构化字段，channelId/messageId 经 link 解析
+        backendNotification({ id: 'n1', title: '频道通知', link: '/channels/ch-5?highlight=m-42' }),
+        backendNotification({ id: 'n2', title: 'PMO 通知', link: '/pmo/project/p-7' }),
+        backendNotification({ id: 'n3', title: 'WU 通知', link: '/pmo/project/p-9', wuId: 'WU-9', channelId: 'ch-9' }),
+      ],
+      unreadCount: 3,
+    });
     openDropdown();
 
-    fireEvent.click(screen.getByText('系统通知'));
-    expect(mockNavigate).toHaveBeenCalledWith('/pmo/project/proj-7');
-    expect(mockApi.post).toHaveBeenCalledWith('/notifications/n2/read');
+    fireEvent.click(screen.getByText('频道通知'));
+    expect(mockNavigate).toHaveBeenCalledWith('/channels/ch-5?highlight=m-42');
+    openDropdown(); // 点击后面板收起，重新展开
+    fireEvent.click(screen.getByText('PMO 通知'));
+    expect(mockNavigate).toHaveBeenCalledWith('/pmo/project/p-7');
+    openDropdown();
+    fireEvent.click(screen.getByText('WU 通知'));
+    expect(mockNavigate).toHaveBeenCalledWith('/workunits/WU-9');
   });
 
-  it('link 为 /workunits/:id 时跳 WU 详情', async () => {
-    await renderLoaded(backendRows([{ id: 'n1', link: '/workunits/wu-3' }]));
+  it('WU/PMO 小按钮直跳（stopPropagation，不触发本体跳转）', async () => {
+    await renderLoaded({
+      notifications: [backendNotification({ id: 'n1', link: '/pmo/project/p-5', wuId: 'WU-5' })],
+      unreadCount: 1,
+    });
     openDropdown();
 
-    fireEvent.click(screen.getByText('审计建议 (2 项)'));
-    expect(mockNavigate).toHaveBeenCalledWith('/workunits/wu-3');
+    fireEvent.click(screen.getByText('任务'));
+    expect(mockNavigate).toHaveBeenCalledTimes(1);
+    expect(mockNavigate).toHaveBeenCalledWith('/workunits/WU-5');
+
+    openDropdown(); // 点击后面板收起，重新展开
+    fireEvent.click(screen.getByText('PMO'));
+    expect(mockNavigate).toHaveBeenCalledWith('/pmo/project/p-5');
   });
 
-  it('全部已读：POST /notifications/read-all 并清角标', async () => {
-    await renderLoaded(backendRows([{}, { id: 'n2', read: false }]));
-    // 两条未读 → 角标 2
-    expect(screen.getByText('2')).toBeInTheDocument();
-
+  it('全部已读：POST /read-all，unreadCount 归零；stateItems 不受影响', async () => {
+    await renderLoaded({
+      stateItems: [stateItem()],
+      notifications: [backendNotification()],
+      unreadCount: 1,
+    });
     openDropdown();
     fireEvent.click(screen.getByText('全部已读'));
 
     expect(mockApi.post).toHaveBeenCalledWith('/notifications/read-all');
-    await waitFor(() => expect(screen.queryByText('2')).not.toBeInTheDocument());
+    expect(useNotificationStore.getState().unreadCount).toBe(0);
+    // 待回复分区仍在（状态派生无已读概念）
+    expect(screen.getByText('待回复 (1)')).toBeInTheDocument();
+    // 角标只剩 stateItems 数
+    expect(screen.getByText('1')).toBeInTheDocument();
   });
 
-  it('后端请求失败不崩溃：展示暂无通知', async () => {
+  it('无待办无通知 → 空态', async () => {
+    await renderLoaded();
+    openDropdown();
+    expect(screen.getByText('暂无待办与通知')).toBeInTheDocument();
+    expect(screen.queryByText('全部已读')).not.toBeInTheDocument();
+  });
+
+  it('后端请求失败不崩溃：展示空态', async () => {
     mockApi.get.mockRejectedValue(new Error('network'));
     render(<NotificationBell />);
     await waitFor(() => expect(mockApi.get).toHaveBeenCalled());
     openDropdown();
-    expect(screen.getByText('暂无通知')).toBeInTheDocument();
+    expect(screen.getByText('暂无待办与通知')).toBeInTheDocument();
   });
 });
 
-describe('§5.7 SSE 实时 atHuman 增量（保留）', () => {
-  it('有 workUnitId + pmoId：点本体优先跳 WU 详情，不调后端已读 API', async () => {
-    await renderLoaded([]);
-    emitAtHuman({ id: 'm1', agentName: 'pmo', content: 'WU 完成', workUnitId: 'wu-1', meta: { atHuman: true, pmoId: 'proj-1' } });
-    openDropdown();
-
-    expect(screen.getByText('任务')).toBeInTheDocument();
-    expect(screen.getByText('PMO')).toBeInTheDocument();
-
-    fireEvent.click(screen.getByText('WU 完成'));
-    expect(mockNavigate).toHaveBeenCalledWith('/workunits/wu-1');
-    expect(mockApi.post).not.toHaveBeenCalled();
+describe('#468 SSE 只作失效触发（不直接入列）', () => {
+  it('channel.message_sent 且 meta.atHuman → 重拉 /action-center', async () => {
+    await renderLoaded();
+    emitAtHuman();
+    await waitFor(() => expect(mockApi.get).toHaveBeenCalledTimes(2));
+    expect(mockApi.get).toHaveBeenLastCalledWith('/action-center');
   });
 
-  it('只有 pmoId：点本体跳 PMO 详情', async () => {
-    await renderLoaded([]);
-    emitAtHuman({ id: 'm2', agentName: 'pmo', content: '项目交付', workUnitId: null, meta: { atHuman: true, pmoId: 'proj-2' } });
-    openDropdown();
-
-    fireEvent.click(screen.getByText('项目交付'));
-    expect(mockNavigate).toHaveBeenCalledWith('/pmo/project/proj-2');
+  it('非 atHuman 的 channel.message_sent 不重拉', async () => {
+    await renderLoaded();
+    emitSse('channel.message_sent', {
+      channelId: 'ch-1',
+      message: { id: 'm-2', agentName: 'pmo', content: '普通消息', meta: null },
+    });
+    await new Promise(r => setTimeout(r, 20));
+    expect(mockApi.get).toHaveBeenCalledTimes(1);
   });
 
-  it('既无 workUnitId 也无 pmoId：点本体跳频道并直达消息（?highlight=<mid>）', async () => {
-    await renderLoaded([]);
-    emitAtHuman({ id: 'm3', agentName: 'coder', content: '请review', meta: { atHuman: true } });
-    openDropdown();
-
-    fireEvent.click(screen.getByText('请review'));
-    expect(mockNavigate).toHaveBeenCalledWith('/channels/ch-1?highlight=m3');
+  it('workunit.status_changed → 重拉（stateItems 状态变即消）', async () => {
+    await renderLoaded();
+    emitSse('workunit.status_changed', { workunit: { id: 'WU-1', status: 'blocked' } });
+    await waitFor(() => expect(mockApi.get).toHaveBeenCalledTimes(2));
   });
 
-  it('SSE 与后端通知并存：角标合并计数', async () => {
-    await renderLoaded(backendRows());
-    emitAtHuman({ id: 'm4', agentName: 'pmo', content: '新@消息', meta: { atHuman: true } });
-    // 后端 1 条未读 + SSE 1 条未读
-    expect(screen.getByText('2')).toBeInTheDocument();
-  });
-
-  it('点 WU 按钮直跳 WU 详情（stopPropagation，不触发本体跳转）', async () => {
-    await renderLoaded([]);
-    emitAtHuman({ id: 'm5', agentName: 'pmo', content: 'WU 完成', workUnitId: 'wu-9', meta: { atHuman: true, pmoId: 'proj-9' } });
-
-    openDropdown();
-    fireEvent.click(screen.getByText('任务'));
-
-    expect(mockNavigate).toHaveBeenCalledTimes(1);
-    expect(mockNavigate).toHaveBeenCalledWith('/workunits/wu-9');
-    // 下拉收起
-    expect(screen.queryByText('WU 完成')).not.toBeInTheDocument();
-  });
-
-  it('点 PMO 按钮直跳 PMO 详情，不触发本体跳转', async () => {
-    await renderLoaded([]);
-    emitAtHuman({ id: 'm6', agentName: 'pmo', content: 'WU 完成', workUnitId: 'wu-5', meta: { atHuman: true, pmoId: 'proj-5' } });
-    openDropdown();
-
-    fireEvent.click(screen.getByText('PMO'));
-    expect(mockNavigate).toHaveBeenCalledTimes(1);
-    expect(mockNavigate).toHaveBeenCalledWith('/pmo/project/proj-5');
-  });
-});
-
-describe('#415 断线重连 → 持久面一次性 refetch（ADR D3）', () => {
-  it('重连触发 loadFromBackend：后端行刷新对齐，SSE 增量条目（backendId null）保留', async () => {
-    await renderLoaded(backendRows());
-    emitAtHuman({ id: 'm-r', agentName: 'pmo', content: '实时条目', meta: { atHuman: true } });
-    // 重连期间持久面新增 n3 → refetch 后对齐
-    mockList(backendRows([{ id: 'n3', title: '断线期间落库', content: '新告警', link: '/channels/ch-9', read: false }]));
+  it('断线重连 → 重拉（#415 模式保留）', async () => {
+    await renderLoaded();
+    mockActionCenter({ notifications: [backendNotification({ title: '断线期间落库' })], unreadCount: 1 });
     emitReconnect();
     await waitFor(() => expect(mockApi.get).toHaveBeenCalledTimes(2));
     openDropdown();
     expect(screen.getByText('断线期间落库')).toBeInTheDocument();
-    // SSE 条目不在后端持久面，refetch 不丢它
-    expect(screen.getByText('实时条目')).toBeInTheDocument();
   });
 
-  it('重连 refetch 失败不崩溃：保留现有列表', async () => {
-    await renderLoaded(backendRows());
+  it('SSE 不重拉失败不崩溃：保留现有列表', async () => {
+    await renderLoaded({ notifications: [backendNotification()], unreadCount: 1 });
     mockApi.get.mockRejectedValue(new Error('network'));
-    emitReconnect();
+    emitSse('workunit.status_changed', { workunit: { id: 'WU-1', status: 'done' } });
+    await waitFor(() => expect(mockApi.get).toHaveBeenCalledTimes(2));
     openDropdown();
     expect(screen.getByText('审计建议 (2 项)')).toBeInTheDocument();
   });
@@ -278,18 +335,20 @@ describe('#415 断线重连 → 持久面一次性 refetch（ADR D3）', () => {
 
 describe('B2-004 标题闪烁（flash 定时器生命周期）', () => {
   // fake timers 下 waitFor 会卡，用 act 刷 microtask 代替
-  async function renderLoadedFlush(rows: BackendNotification[]) {
-    mockList(rows);
+  async function renderLoadedFlush(p: Payload = {}) {
+    mockActionCenter(p);
     render(<NotificationBell />);
     await act(async () => {});
   }
 
-  it('全部已读 → 标题停止闪烁并恢复原样', async () => {
+  it('unreadCount + stateItems 归零 → 标题停止闪烁并恢复原样', async () => {
     vi.useFakeTimers();
     try {
-      await renderLoadedFlush([]);
+      await renderLoadedFlush({
+        notifications: [backendNotification()], unreadCount: 1,
+      });
       const original = document.title;
-      emitAtHuman({ id: 'f1', agentName: 'pmo', content: '闪', meta: { atHuman: true } });
+      emitAtHuman();
       act(() => { vi.advanceTimersByTime(1000); });
       expect(document.title).not.toBe(original); // 确认在闪
 
@@ -304,14 +363,39 @@ describe('B2-004 标题闪烁（flash 定时器生命周期）', () => {
     }
   });
 
+  it('仍有 stateItems（状态派生待办）→ 不因通知全读而停闪', async () => {
+    vi.useFakeTimers();
+    try {
+      await renderLoadedFlush({
+        stateItems: [stateItem()], notifications: [backendNotification()], unreadCount: 1,
+      });
+      const original = document.title;
+      emitAtHuman();
+      act(() => { vi.advanceTimersByTime(1000); });
+      expect(document.title).not.toBe(original);
+
+      openDropdown();
+      fireEvent.click(screen.getByText('全部已读'));
+      // 通知清零但仍有 1 条待回复 stateItem → 继续闪（直至 10s 自停）。
+      // 注意闪烁是交替的：1000ms 后处于「灭灯相位」（标题=原文），再 1000ms 回到闪烁文案
+      act(() => { vi.advanceTimersByTime(1000); });
+      act(() => { vi.advanceTimersByTime(1000); });
+      expect(document.title).not.toBe(original);
+      act(() => { vi.advanceTimersByTime(20000); });
+      expect(document.title).toBe(original);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('10s 内连续两条 @human：旧 interval 被清理，超时后标题稳定', async () => {
     vi.useFakeTimers();
     try {
-      await renderLoadedFlush([]);
+      await renderLoadedFlush({ notifications: [backendNotification()], unreadCount: 1 });
       const original = document.title;
-      emitAtHuman({ id: 'f2', agentName: 'pmo', content: '第一条', meta: { atHuman: true } });
+      emitAtHuman('pmo');
       act(() => { vi.advanceTimersByTime(500); });
-      emitAtHuman({ id: 'f3', agentName: 'coder', content: '第二条', meta: { atHuman: true } });
+      emitAtHuman('coder');
 
       // 两条消息的 10s 超时都过期后，标题必须稳定（有泄漏 interval 则会继续交替）
       act(() => { vi.advanceTimersByTime(20000); });

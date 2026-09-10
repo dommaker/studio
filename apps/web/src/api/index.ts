@@ -216,6 +216,10 @@ export const projectApi = {
   // 🆕 PMO-b: 交付合并（human-only；branch-only 返回 409 BRANCH_ONLY）
   deliver: (id: string) => api.post(`/pmo/project/${id}/deliver`),
 
+  // #469: branch-only 标记已交付（系统外合并后人工落档 commit 哈希，写 deliveredAt/By/Commit）
+  markDelivered: (id: string, commit: string) =>
+    api.post(`/pmo/project/${id}/mark-delivered`, { commit }),
+
 };
 
 // 🆕 PMO-b: 交付台账（GET /pmo/project/:id/delivery 响应形状）

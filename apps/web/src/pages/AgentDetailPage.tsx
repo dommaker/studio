@@ -13,6 +13,7 @@ import { monitoringApi } from '../api/monitoring';
 import { workunitApi, type WorkUnit } from '../api/workunit';
 import { ExecutionSteps } from '../components/workunit/ExecutionSteps';
 import { AgentAvatar } from '../components/channel/AgentAvatar';
+import { RoleSkillsModal } from '../components/monitoring/RoleSkillsModal';
 import { ConfirmDialog, BackButton } from '../components/ui';
 import { useWebSocketContext } from '../api/websocketHooks';
 import { useRosterStore } from '../stores/rosterStore';
@@ -52,6 +53,8 @@ export function AgentDetailPage() {
   const [confirmTerminate, setConfirmTerminate] = useState(false);
   // 批次A 项7：提交期间 ConfirmDialog loading（防连点 + 遮罩关闭屏蔽）
   const [terminating, setTerminating] = useState(false);
+  // #462：技能编辑弹框（role.skills 多选，候选 = skills MANIFEST）
+  const [skillsOpen, setSkillsOpen] = useState(false);
 
   const profile = useMemo(() => profiles.find((x) => x.id === profileId) ?? null, [profiles, profileId]);
   // 同一角色可能有多条历史 state，接口已按 startedAt 降序，取最新一条
@@ -285,19 +288,48 @@ export function AgentDetailPage() {
               </div>
 
               {/* 统计栏（由历史列表推导） */}
-              <div className="card p-3">
-                <div className="mc-block-label">统计</div>
-                <div className="flex flex-col gap-2 mt-2">
-                  <StatBadge label="历史总数" value={stats.total} color="u-accent" />
-                  <StatBadge label="完成" value={stats.done} color="u-ok" />
-                  <StatBadge label="在途" value={stats.inFlight} color="u-accent" />
-                  <StatBadge label="失败" value={stats.failed} color="u-err" />
+              <div>
+                {/* #462：技能卡（role.skills = 注入索引候选；编辑走 MANIFEST 多选弹框） */}
+                <div className="card p-3">
+                  <div className="flex items-center justify-between">
+                    <div className="mc-block-label">技能</div>
+                    <button className="btn btn-secondary btn-sm" onClick={() => setSkillsOpen(true)}>编辑技能</button>
+                  </div>
+                  {profile.skills && profile.skills.length > 0 ? (
+                    <div className="flex gap-1 mt-2 flex-wrap">
+                      {profile.skills.map((s) => (
+                        <span key={s} className="text-xs px-2 py-0.5 rounded u-surface-2 u-text-2">{s}</span>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-sm u-text-3 mt-2">未声明</div>
+                  )}
+                </div>
+
+                <div className="card p-3 mt-4">
+                  <div className="mc-block-label">统计</div>
+                  <div className="flex flex-col gap-2 mt-2">
+                    <StatBadge label="历史总数" value={stats.total} color="u-accent" />
+                    <StatBadge label="完成" value={stats.done} color="u-ok" />
+                    <StatBadge label="在途" value={stats.inFlight} color="u-accent" />
+                    <StatBadge label="失败" value={stats.failed} color="u-err" />
+                  </div>
                 </div>
               </div>
             </div>
           )}
         </div>
       </div>
+
+      {/* #462：技能编辑弹框（保存后强制刷新名册） */}
+      {profile && (
+        <RoleSkillsModal
+          open={skillsOpen}
+          profile={profile}
+          onClose={() => setSkillsOpen(false)}
+          onSaved={() => void useRosterStore.getState().ensureFresh({ maxAgeMs: 0 })}
+        />
+      )}
 
       <ConfirmDialog
         open={confirmTerminate}

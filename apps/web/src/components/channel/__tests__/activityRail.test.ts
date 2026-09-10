@@ -71,6 +71,16 @@ describe('deriveChainSteps — 四站 stepper', () => {
     const steps = deriveChainSteps(req({ status: 'archived' }), []);
     expect(steps.every(s => s.state === 'done')).toBe(true);
   });
+
+  it('#468：blocked/pending WU 计数挂 WU 站警示点（warnCount）', () => {
+    const steps = deriveChainSteps(req(), [wu('a', 'done'), wu('b', 'blocked'), wu('c', 'pending')]);
+    expect(steps.find(s => s.key === 'wu')?.warnCount).toBe(2);
+  });
+
+  it('#468：无 blocked/pending → WU 站不带 warnCount；REQ 终态时同样不带', () => {
+    expect(deriveChainSteps(req(), [wu('a', 'active'), wu('b', 'done')]).find(s => s.key === 'wu')?.warnCount).toBeUndefined();
+    expect(deriveChainSteps(req({ status: 'done' }), [wu('a', 'done'), wu('b', 'closed')]).find(s => s.key === 'wu')?.warnCount).toBeUndefined();
+  });
 });
 
 function msg(id: string, over: Partial<ChannelMessage> = {}): ChannelMessage {

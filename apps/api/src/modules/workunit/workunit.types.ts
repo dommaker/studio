@@ -57,7 +57,14 @@ export interface WorkUnitMetadata {
   waitingQuestion?: string;   // agent 提出的问题
   waitingSince?: string;      // 挂起时间 ISO 8601（超时提醒据此计算）
   waitingReminded?: boolean;  // 本次挂起已提醒过（每次挂起只提醒一次，恢复时重置）
-  waitingReason?: string;     // 挂起原因：'ownership' = B3a 等待工程归属；'wu-token-budget' = #162 WU 级 token 预算到线（三选分流见 waiting-input.ts）（缺省 = agent 提问）
+  waitingReason?: string;     // 挂起原因：'ownership' = B3a 等待工程归属；'wu-token-budget' = #162 WU 级 token 预算到线（三选分流见 waiting-input.ts）；'plan-step-limit' = #471 plan 步数额度到线（回复即续期）；'plan-ruling' = #467 裁决轮待裁（结构化提交见 pmo/plan-ruling.ts）（缺省 = agent 提问）
+  // #467：裁决轮——plan 会话 NEED_INPUT 携 RULING: 行时落档的问题清单 + 每题建议结论 + 默认值
+  // （裁决接力卡/裁决弹窗预填数据源；人提交裁决后由 pmo/plan-ruling.ts 清除）
+  planRulings?: { question: string; suggestion: string; default?: string }[];
+  // #471（Triage 定稿 1）：plan 步数续期授权额度——缺省 = PLAN_STEP_LIMIT；到线挂起后人回复
+  // 续期 += PLAN_STEP_LIMIT（waiting-input.ts）。非会话簿记（不随 clearSessionBookkeeping 清除），
+  // 语义同 tokenBudget = 人工授权额度
+  planStepAllowance?: number;
   pendingReplies?: string[];  // 恢复后待注入下一轮 prompt 的人类回复（多条拼接，消费后清除）
   // B3a 工程归属链（决策 D2）：归属解析结果落档
   workspaceRoot?: string;     // 直接可用的工程根路径（Requirement→PMO gitRepo / 人工回复绑定；agent-loop 优先于 workspaceId 消费）
@@ -177,8 +184,18 @@ export interface WorkUnitMetadata {
   // → 初始化 PMO map + 逐条建 decision 单；mapOpenedAt 为幂等哨兵（先落档再建单）
   mapOpenedAt?: string;
   // #115 交稿物化（pmo/spec-materialization）：spec 人工确认（l3.summary 含 TASK 物化清单）
-  // → 批量建 task 单（ac/blockedBy/腿归属齐全）；specTasksSpawnedAt 为幂等哨兵（先落档再建单）
+  // → 批量建 task 单（ac/blockedBy/腿归属齐全）；specTasksSpawnedAt 为幂等哨兵（先落档再建单）。
+  // #463 起哨兵改「无 TASK 行不落档」——确认时清单为空 = 人审有意不物化，补确认可再触发；
+  // progress-rollup「物化未落定」判定同步按 l3.summary 有无 TASK 行区分。
   specTasksSpawnedAt?: string;
+  // #463：确认表单结构化预填数据源（照 analysisTasks/analysisFog 先例，确认前已落档）——
+  // spec COMPLETE 时 agent-loop 用 spec-materialization 同一解析器解析 TASK: 物化行落档；
+  // 确认弹窗卡片墙据此预填，人审改后由后端序列化进 l3.summary（存储契约不变）。
+  // 形状与 pmo/spec-materialization SpecTaskSpec 结构一致（此处自持定义防模块环依赖）。
+  specTasks?: Array<{ title: string; ac: string[]; blockedBy: string[]; leg?: string }>;
+  // #463：decision COMPLETE 时 agent-loop 解析 `## 结论摘要` 段落档——确认弹窗据此预填
+  // agent 建议结论（人审采纳/改后采纳，后端原样序列化进 l3.summary → map.decisions[]）
+  decisionSuggestion?: string;
   traceId?: string;           // P0 修复 6: 链路追踪 id（频道消息 req → WU → agent-loop 日志；与 audit requestId 同值）
   // F4 reviewer 解锚（2026-07-28 分析文档，决策 5）：评审 WU 未指派走 claim 涌现时的约束/标记
   excludeAssignee?: string;   // 禁止认领的 profile id（评审排除实现者；agent-loop observe 未指派过滤据此剔除）
@@ -298,6 +315,14 @@ export const VALID_TRANSITIONS: Record<string, string[]> = {
 export const DECISION_SPEC_TYPES = new Set(['decision', 'spec']);
 
 /**
+ * #471：人工 L3 验收类工单类型集（单一事实源）——ReviewDispatcher 不派自动评审
+ * （验收闸 = 人工 in_review）、evidence-summary 豁免 l2、频道建议不推「派发评审」。
+ * 成员：analysis（存量/巡检单）、decision/spec（#108，存量在飞链）、plan（#471 一脉会话规划单）。
+ * 注意不含 review（review 不再被评审是另一条独立规则，各处自判）。
+ */
+export const MANUAL_GATE_TYPES = new Set(['analysis', ...DECISION_SPEC_TYPES, 'plan']);
+
+/**
  * #126（T4，#105 子票）：扩范围类型集——创建后落「待确认」（pending），人工确认
  * （pending → unassigned）才进 frontier 可认领；未列出的类型（bug/implement/review/
  * analysis/decision 等圈内单）创建即可认领。词表映射（根 CONTEXT.md「工单类型」）：
@@ -346,6 +371,15 @@ export function resolveValidTransitions(wuType: string, status: string): string[
  * 显式值优先（任务预算归 maxTurns + token 记账，#54）。
  */
 export const WU_LEASE_TTL_MS = 5 * 60_000;
+
+/**
+ * #471（Triage 定稿 1）：plan WU 单独步数额度——高于 implement（agent-loop STEP_LIMIT=15）
+ * 与 review（30）。一脉会话承载「澄清→调研→裁决→成文→拆单」全链，到线不静默截断：
+ * agentStep 前置守卫转 need_input 挂 blocked 转人（waitingReason='plan-step-limit'），
+ * 人回复即续期（waiting-input 给 metadata.planStepAllowance 本加一份本常量）。
+ * 常量住这里（WU 类型属性，WU_LEASE_TTL_MS 同例）：agent-loop 与 waiting-input 双消费。
+ */
+export const PLAN_STEP_LIMIT = 60;
 
 /** analysis 任务拆分上限（agent-loop 解析 TASK: 行 / analysis-handoff 派生子 WU 共用） */
 export const ANALYSIS_TASKS_MAX = 8;

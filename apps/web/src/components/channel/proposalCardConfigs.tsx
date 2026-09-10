@@ -86,8 +86,8 @@ const MEMORY_KIND_LABELS: Record<string, string> = {
   preference: '偏好约定',
 };
 
-/** knowledge 卡 type → 人类可读标签 */
-const KNOWLEDGE_TYPE_LABELS: Record<string, string> = {
+/** knowledge 卡 type → 人类可读标签（#473 导出：监控页知识提案展开详情同词表复用） */
+export const KNOWLEDGE_TYPE_LABELS: Record<string, string> = {
   decision: '设计决策',
   pitfall: '踩坑记录',
   guideline: '最佳实践',
@@ -148,15 +148,15 @@ export const PROPOSAL_CARD_CONFIGS: Record<string, ProposalCardConfig> = {
     approvedState: 'executed',
     exec: proposalExec('proposalId', distillApi.approve, distillApi.reject),
     fetchReviewed: proposalFetchReviewed('proposalId', distillApi.proposalStatus, ['executed', 'rejected', 'failed']),
-    reviewedTitle: '知识蒸馏',
+    reviewedTitle: '知识提炼',
     reviewLabels: {
-      executed: { text: '已确认，蒸馏已执行', cls: 'mc-status-done' },
+      executed: { text: '已确认，提炼已执行', cls: 'mc-status-done' },
       rejected: { text: '已拒绝，本轮零副作用', cls: 'mc-status-error' },
-      failed: { text: '蒸馏执行失败（原料未消费）', cls: 'mc-status-error' },
+      failed: { text: '提炼执行失败（工单未消费）', cls: 'mc-status-error' },
     },
-    pendingTitle: '知识蒸馏提案 — 待确认',
-    countText: cd => `${(cd?.materials as unknown[] | undefined)?.length || 0} 条原料`,
-    approveLabel: '确认蒸馏',
+    pendingTitle: '知识提炼提案 — 待确认',
+    countText: cd => `已完成工单 ${(cd?.materials as unknown[] | undefined)?.length || 0} 条`,
+    approveLabel: '确认提炼',
     rejectLabel: '拒绝',
     renderContent: cd => {
       const materials = cd?.materials as Array<{ id: string; title: string }> | undefined;
@@ -175,7 +175,7 @@ export const PROPOSAL_CARD_CONFIGS: Record<string, ProposalCardConfig> = {
             </div>
           ))}
           <div className="mc-time mb-1.5">
-            预期产出：1–5 条蒸馏知识条目；确认后原料归档移出主区，拒绝则零副作用。
+            预期产出：1–5 条提炼后的知识条目；确认后这些工单归档移出主区，拒绝则零副作用。
           </div>
         </>
       );

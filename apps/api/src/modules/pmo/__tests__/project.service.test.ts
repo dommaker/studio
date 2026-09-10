@@ -38,6 +38,9 @@ vi.mock('@dommaker/studio-shared', () => ({
     readJson: mockReadJson,
     writeJson: mockWriteJson,
     readJsonl: mockReadJsonl,
+    // #466：publish 查频道路由表（本测试不关心路由，恒无配置 → 回池涌现现状）
+    getChannel: vi.fn().mockResolvedValue(null),
+    getProfile: vi.fn().mockResolvedValue(null),
   }; }),
   generateId: (prefix: string) => `${prefix}_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
 }));

@@ -1,6 +1,6 @@
 # CAPABILITIES.md
 
-> 最后更新: 2026-09-09
+> 最后更新: 2026-09-10
 
 ---
 
@@ -220,4 +220,31 @@
 | ChannelWorkBar | apps/web/src/components/channel/ChannelWorkBar.tsx | ChannelWorkBar — 频道工作条：合并 ChannelLiveBars（#242/#322 live 实况）与 |
 | ChannelTopbarMenu | apps/web/src/components/channel/ChannelTopbarMenu.tsx | ChannelTopbarMenu — E1（2026-09 页面重设计，docs/plans/2026-09-page-redesign.md）： |
 | WuGateActions | apps/web/src/components/workunit/WuGateActions.tsx | WuGateActions — WU 审查闸门动作三处合一（2026-09 页面重设计 E2-4，docs/plans/2026-09-page-redesign.md）： |
+| action-center.service | apps/api/src/modules/action-center/action-center.service.ts | 行动中心派生服务（#468 统一行动中心）。 |
+| routes | apps/api/src/modules/action-center/routes.ts | 行动中心 API 路由（#468） |
+| routes | apps/api/src/modules/agents/routes.ts | Agent API 路由 |
+| routes | apps/api/src/modules/audit-logs/routes.ts | GET /api/audit-logs - 查询审计日志 |
+| routes | apps/api/src/modules/auth/routes.ts | GET /api/v1/auth/status |
+| routes | apps/api/src/modules/builtin-tools/routes.ts | builtin-tools/routes.ts — Built-in Toolset (HZ-026) |
+| routes | apps/api/src/modules/capabilities/routes.ts | 从 YAML 文件读取 stage 字段 |
+| routes | apps/api/src/modules/companies/routes.ts | Company API 路由 |
+| routes | apps/api/src/modules/dingtalk/routes.ts | 钉钉机器人交互回调 |
+| routes | apps/api/src/modules/discord/routes.ts | Discord Interactions Endpoint |
+| routes | apps/api/src/modules/executions/routes.ts | Execution API 路由 |
+| routes | apps/api/src/modules/harness/routes.ts | FL-029: Harness Monitoring Routes (T-015)（挂载门面） |
+| routes | apps/api/src/modules/knowledge/routes.ts | 知识库 API - 公司数字资产管理（挂载门面） |
+| routes | apps/api/src/modules/lark/routes.ts | 飞书机器人交互回调 |
+| routes | apps/api/src/modules/mcp/routes.ts | MCP HTTP Routes |
+| routes | apps/api/src/modules/notifications/routes.ts | 通知 API 路由 |
+| routes | apps/api/src/modules/outbound-notify/routes.ts | Notify API 路由 |
+| routes | apps/api/src/modules/pmo/routes.ts | 收集请求里的 gitRepo/gitRepos 候选（仅非空字符串；空串视为未传，与既有口径一致） |
+| routes | apps/api/src/modules/review-proposal/routes.ts | review-proposal/routes (#351) — 人审提案卡通用端点（ADR 决策 4） |
+| routes | apps/api/src/modules/skills/routes.ts | SkillHub API — CRUD + 生命周期 + Agent 可发现性 + 使用统计 |
+| routes | apps/api/src/modules/specs/routes.ts | POST /api/v1/specs/:id/analyze-change |
+| ChannelRoutingEditor | apps/web/src/components/channel/ChannelRoutingEditor.tsx | ChannelRoutingEditor — #466：频道级「阶段→角色」路由表编辑（一屏三行下拉）。 |
+| PlanRulingCard | apps/web/src/components/channel/PlanRulingCard.tsx | PlanRulingCard — #467：裁决轮接力卡（plan 一脉会话内的一次性人闸） |
+| RoleSkillsModal | apps/web/src/components/monitoring/RoleSkillsModal.tsx | 角色技能编辑弹框（#462：role.skills 显式声明 → 注入索引候选，与 WU +skill 点名同权） |
+| joinChannel | apps/web/src/components/setup/joinChannel.ts | #465（首用路径断点）：一键加入 #研发——解析默认频道（按名字，同 cli/dev.ts 先例）、 |
+| icons | apps/web/src/components/ui/icons.tsx | #474 图标策略定稿：全去 emoji——导航/徽章统一用本文件的 stroke SVG 图标组件。 |
+| StaleSleepBadge | apps/web/src/components/workunit/StaleSleepBadge.tsx | #464：「已沉睡」徽标 —— 72h 认领陈旧守卫命中的 WU。 |
 | mockMatchMedia | apps/web/src/test/mockMatchMedia.ts | #395：jsdom 无 window.matchMedia 实现——按给定视口宽度求值 (min|max)-width 媒体查询， |

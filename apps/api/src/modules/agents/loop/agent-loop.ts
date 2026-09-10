@@ -23,6 +23,7 @@ import { postWuSystemMessage } from '../../workunit/wu-messenger.js';
 import type { MessageMeta } from '../../channels/channel-message.service.js';
 import { withBlockedCta } from '../../workunit/blocked-cta.js';
 import { parseWuMetadata, mergedWuView } from '../../workunit/wu-metadata.js';
+import { PLAN_STEP_LIMIT } from '../../workunit/workunit.types.js';
 import { hasUnfinishedDeps, buildStatusById } from '../../workunit/wu-dependencies.js';
 import { resolveWorkspaceRoot } from '../../workspaces/workspace-store.js';
 import { resolvePmoBranchForWU } from '../../requirements/pmo-branch-resolver.js';
@@ -38,11 +39,12 @@ import { loadCurrentWuContexts, type CurrentWuContext } from '../../monitoring/c
 import { CODE_WORKTREE_TYPES, runWuVerification } from './wu-verification.js';
 import { runCompletionGuards } from './completion-gates.js';
 import { parseMapOpening } from '../../pmo/map-opening.js';
+import { parseSpecTasks } from '../../pmo/spec-materialization.js';
 import type { StepResult, Observations, Target, RuntimeInstanceRow } from './agent-loop.types.js';
 import {
   isProcessAlive, isGitRepoRoot, resolveWorktreesDir,
   resolveTarget, parseAgentOutput, dynamicInterval, parseReviewReport, parseTaskBreakdown,
-  parseOpportunities,
+  parseOpportunities, parseDecisionConclusion,
   sleep,
 } from './agent-loop-parsers.js';
 import {
@@ -62,6 +64,7 @@ import { appendTranscriptStep, transcriptPath } from '../../transcripts/transcri
 export {
   isProcessAlive, isGitRepoRoot, resolveWorktreesDir,
   resolveTarget, parseAgentOutput, dynamicInterval, parseReviewReport, parseTaskBreakdown,
+  parseDecisionConclusion,
 } from './agent-loop-parsers.js';
 
 // workunit:tokens / tool:call 事件落盘已抽到 ./agent-loop-events.js（工单 28，行为不变）；
@@ -87,6 +90,14 @@ function studioEventsJsonlPath(): string {
  *  评审职责是读不是写，无提交守卫豁免后正常 ≤5 步收口；阈值仅是防死循环的安全阀 */
 const STEP_LIMIT = 15;
 const REVIEW_STEP_LIMIT = 30;
+
+/** 步骤安全阀上限（recordResult 强制收口用）。#471：plan 返回 null——其步数额度守卫
+ *  在 agentStep 前置（PLAN_STEP_LIMIT，挂 blocked 转人续期），不走强制收口 in_review */
+function stepSafetyLimit(wuType: string): number | null {
+  if (wuType === 'review') return REVIEW_STEP_LIMIT;
+  if (wuType === 'plan') return null;
+  return STEP_LIMIT;
+}
 
 /** #95: progressLog 环形簿记——保留最近成功步条数上限 */
 const PROGRESS_LOG_MAX_ENTRIES = 5;
@@ -833,6 +844,27 @@ export class AgentLoop {
         };
       }
     }
+    // #471（Triage 定稿 1）：plan 步数额度熔断。一脉会话承载全规划链，额度高于
+    // implement（PLAN_STEP_LIMIT=60，常量与语义见 workunit.types.ts）。到线不走
+    // recordResult 的强制收口 in_review（plan 已从中豁免）——前置守卫在此转
+    // need_input 挂 blocked 转人，不静默截断；人回复即续期（waiting-input 给
+    // planStepAllowance 加一份 PLAN_STEP_LIMIT，复活回 active 续跑）。
+    if (wu.type === 'plan') {
+      const allowance = typeof metadata.planStepAllowance === 'number' && Number.isFinite(metadata.planStepAllowance) && metadata.planStepAllowance > 0
+        ? Math.floor(metadata.planStepAllowance)
+        : PLAN_STEP_LIMIT;
+      const planSteps = metadata.stepCount ?? 0;
+      if (planSteps >= allowance) {
+        logger.warn('[AgentLoop] Plan step limit reached — suspending for human decision', {
+          workUnitId: wu.id, stepCount: planSteps, allowance,
+        });
+        return {
+          action: 'need_input' as const,
+          summary: `这次规划已推进 ${planSteps} 步，达到为它设定的步数额度 ${allowance}，已暂停等你决定。回复任意内容（或「继续」）即续期 ${PLAN_STEP_LIMIT} 步接着跑；想收尾可在 Web 端点「通过」进入人工确认`,
+          metadataUpdates: { waitingReason: 'plan-step-limit' },
+        };
+      }
+    }
     // P0 修复 6: traceId 贯穿 — 频道消息 → WU metadata → 执行参数（extraEnv）与日志行
     const traceId = typeof metadata.traceId === 'string' && metadata.traceId ? metadata.traceId : undefined;
 
@@ -1330,11 +1362,12 @@ export class AgentLoop {
         }
       }
 
-      // PMO 分析接力（analysis-handoff）：analysis WU COMPLETE 时解析 TASK: 拆分行
+      // PMO 规划接力（analysis-handoff）：analysis/plan WU COMPLETE 时解析 TASK: 拆分行
       // 写入 metadata.analysisTasks —— 人工确认（reviewPassed → done）后由
       // analysis-handoff 据此建未指派 task 子 WU（频道成员涌现认领 = 派工）。
+      // #471：plan（一脉会话）沿用 analysis 字段名——解析契约/确认弹窗预填/派工消费全不变。
       // 解析失败/无 TASK 行不写（确认后仅提示可手动拆，不阻断完成）。
-      if (wu.type === 'analysis' && stepResult.action === 'complete') {
+      if ((wu.type === 'analysis' || wu.type === 'plan') && stepResult.action === 'complete') {
         const tasks = parseTaskBreakdown(result.outputText ?? '');
         if (tasks.length > 0) {
           metadataUpdates.analysisTasks = tasks;
@@ -1362,6 +1395,24 @@ export class AgentLoop {
               status: 'pending' as const,
             }));
           }
+        }
+      }
+
+      // #463：decision/spec 确认表单的结构化预填数据源（照 analysis TASK/FOG 落档先例，
+      // 结构化数据在确认之前落档，确认弹窗只做评审不做录入）：
+      //   decision COMPLETE → `## 结论摘要` 段（prompt 契约已有）落 decisionSuggestion；
+      //   spec COMPLETE → TASK: 物化行（spec-materialization 同一解析器，契约单一来源）
+      //     落 specTasks。解析无获不写，不阻断完成。
+      if (wu.type === 'decision' && stepResult.action === 'complete') {
+        const suggestion = parseDecisionConclusion(result.outputText ?? '');
+        if (suggestion) {
+          metadataUpdates.decisionSuggestion = suggestion;
+        }
+      }
+      if (wu.type === 'spec' && stepResult.action === 'complete') {
+        const specTasks = parseSpecTasks(result.outputText ?? '');
+        if (specTasks.length > 0) {
+          metadataUpdates.specTasks = specTasks;
         }
       }
 
@@ -1610,7 +1661,8 @@ export class AgentLoop {
     // 但不计 verifyFailCount、不改 blocked 语义——仍按原计划进 in_review 交人工。
     // 本 step COMPLETE 守卫已跑过验证时不重复跑；无命令可跑 → 不写 attestation（维持现状）。
     // attestation 合进下方同一次 metadata 原子写回，不单独写库（防竞态）。
-    const forceClosing = stepCount > (wu.type === 'review' ? REVIEW_STEP_LIMIT : STEP_LIMIT);
+    const stepLimit = stepSafetyLimit(wu.type);
+    const forceClosing = stepLimit !== null && stepCount > stepLimit;
     if (forceClosing && !verifyGuardRan
       && CODE_WORKTREE_TYPES.has(wu.type)
       && typeof metadata.worktreePath === 'string' && metadata.worktreePath.length > 0) {
@@ -1648,6 +1700,11 @@ export class AgentLoop {
           waitingQuestion: result.summary,
           waitingSince: new Date().toISOString(),
           waitingReminded: false,
+          // #467：裁决轮——RULING 行落档（裁决卡预填数据源）+ 挂起原因标记；
+          // 人提交裁决（POST /:id/ruling → pmo/plan-ruling.ts）后清除
+          ...(result.rulings?.length
+            ? { planRulings: result.rulings, waitingReason: 'plan-ruling' }
+            : {}),
         }
       : metadata.waitingForInput
         ? { waitingForInput: false, waitingReminded: false }
@@ -1756,8 +1813,8 @@ export class AgentLoop {
       await this.postToDiscussionSpace(wuId, verifyPassNotice);
     }
 
-    // Monitoring: step limit（review WU 用放宽阈值，见 REVIEW_STEP_LIMIT 注释）
-    if (stepCount > (wu.type === 'review' ? REVIEW_STEP_LIMIT : STEP_LIMIT)) {
+    // Monitoring: step limit（review WU 用放宽阈值，见 REVIEW_STEP_LIMIT 注释；plan 无强制收口——额度守卫在 agentStep 前置，#471）
+    if (stepLimit !== null && stepCount > stepLimit) {
       // C-2 fix: blocked→in_review is not in VALID_TRANSITIONS, go through active first
       // #178（#63 决议 2）：状态迁移前 fencing，易主即静默退出
       if (wu.status === 'blocked' && !(await this.transitionIfHeld(wuId, 'active'))) return;
@@ -1819,9 +1876,13 @@ export class AgentLoop {
       case 'need_input':
         // 2026-07 PMO-flow UX（§6-3）：NEED_INPUT 里程碑 —— meta 带 pmoId（可解析时）+ atHuman
         // #279（决策 #250 D3）：result.options 存在时随 meta 透传，供前端渲染选项卡
+        // #467：result.rulings 存在时 meta.cardType='plan_ruling'——前端渲染裁决轮接力卡
         if (!skipResultPost) {
+          const extraMeta: MessageMeta = {};
+          if (result.options?.length) extraMeta.options = result.options;
+          if (result.rulings?.length) extraMeta.cardType = 'plan_ruling';
           await this.postToDiscussionSpace(wuId, `需要输入: ${result.summary}`, wu,
-            result.options?.length ? { options: result.options } : undefined);
+            Object.keys(extraMeta).length > 0 ? extraMeta : undefined);
         }
         // F5: 挂起 — 守卫重复 NEED_INPUT（blocked → blocked 不在 VALID_TRANSITIONS 中）
         // #178（#63 决议 2）：状态迁移前 fencing，易主即静默退出

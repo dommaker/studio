@@ -92,13 +92,13 @@ export function ProjectDetailPage() {
   // #350 useAsyncData 收一次性拉取样板：主拉取错误上屏（工单 38 口径）；projectId 切换渲染期重置。
   // 子拉取拆为并行 best-effort hook（原来在 loadData 内串行 await），失败静默落 null 不阻塞页面。
   const projectQ = useAsyncData<Project>(async () => {
-    if (!projectId) throw new Error('Failed to load project');
+    if (!projectId) throw new Error('项目加载失败，请稍后重试');
     try {
       return (await projectApi.get(projectId)).data as Project;
     } catch (err) {
       const msg = (err as { response?: { data?: { error?: { message?: string } } } })
         .response?.data?.error?.message;
-      throw new Error(msg || 'Failed to load project');
+      throw new Error(msg || '项目加载失败，请稍后重试');
     }
   }, [projectId]);
   const project = projectQ.data;
@@ -252,12 +252,10 @@ export function ProjectDetailPage() {
                 OKR: {project.OKR.title} ({project.OKR.quarter})
               </div>
             )}
-            {/* 🆕 PMO-a + #440 Phase 3：meta strip——REQ 别名 / 分支 / 交付策略 / 涉及角色 / AC 数（有值才显示，缺项不占位） */}
+            {/* 🆕 PMO-a + #440 Phase 3 + #474：meta strip——REQ 别名 / 涉及角色 / AC 数（有值才显示，缺项不占位）；
+                #474：分支/交付策略两项删除——与 DeliveryPanel 台账重复（同一事实只表达一次） */}
             <MetaStrip items={[
               { key: 'req', label: 'REQ 别名', value: project.reqAlias },
-              { key: 'branch', label: '分支', value: project.gitBranch },
-              { key: 'delivery', label: '交付策略', value: project.deliveryPolicy
-                  ? (project.deliveryPolicy === 'auto-merge' ? '自动合并' : '分支交付') : null },
               { key: 'roles', label: '涉及角色', value: chainMeta.roles },
               { key: 'ac', label: 'AC 数', value: chainMeta.acCount },
             ]} />

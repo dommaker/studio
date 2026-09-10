@@ -64,7 +64,7 @@ import { ChannelDetailPage } from '../ChannelDetailPage';
 const MESSAGES = [
   {
     id: 'msg-dp-1', channelId: 'ch-sys', authorType: 'agent' as const, agentName: 'KK',
-    content: '知识蒸馏提案 — 待确认', workUnitId: null, replyToId: null,
+    content: '知识提炼提案 — 待确认', workUnitId: null, replyToId: null,
     meta: JSON.stringify({
       cardType: 'distill_proposal',
       status: 'ready',
@@ -103,27 +103,27 @@ describe('ChannelDetailPage — distill_proposal 审核分发', () => {
 
   it('approve → distillApi.approve(proposalId)，卡片显示已执行', async () => {
     renderPage();
-    const btn = await screen.findByText('确认蒸馏');
+    const btn = await screen.findByText('确认提炼');
     fireEvent.click(btn);
 
     await waitFor(() => {
       expect(mockDistillApprove).toHaveBeenCalledWith('dp-1');
     });
-    expect(await screen.findByText(/已确认，蒸馏已执行/)).toBeTruthy();
+    expect(await screen.findByText(/已确认，提炼已执行/)).toBeTruthy();
     expect(mockRefresh).toHaveBeenCalled();
   });
 
   it('approve 预算熔断（success:false + skipped）→ 卡片保持待审', async () => {
     mockDistillApprove.mockResolvedValue({ data: { success: false, skipped: 'budget-exhausted' } });
     renderPage();
-    const btn = await screen.findByText('确认蒸馏');
+    const btn = await screen.findByText('确认提炼');
     fireEvent.click(btn);
 
     await waitFor(() => {
       expect(mockDistillApprove).toHaveBeenCalledWith('dp-1');
     });
     // 卡片保持待审：按钮仍在，无已审态
-    await waitFor(() => expect(screen.getByText('确认蒸馏')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('确认提炼')).toBeTruthy());
     expect(screen.queryByText(/已确认/)).not.toBeTruthy();
   });
 

@@ -11,17 +11,17 @@
  *
  * 证据口径：
  *   - l1 只对代码类 WU（task/bug/feature/refactor）要求；
- *   - l2 对已完成 WU 要求，但豁免 type==='review' 与 type==='analysis'——
- *     与 review-dispatcher.ts:47 的跳过集对齐：review 子 WU 自身不再派评审，
- *     analysis 的验收闸是人工确认（L3），diff-only 契约对非代码产物恒 needs-info
- *     转人工纯噪声。若不豁免，analysis 类 WU 永远不可能 deliverable（规则自相矛盾）。
- *     #108 起 decision/spec 同入豁免（DECISION_SPEC_TYPES，人工验收类工单不派评审）；
+ *   - l2 对已完成 WU 要求，但豁免 type==='review' 与人工验收类（MANUAL_GATE_TYPES：
+ *     analysis / decision / spec / plan）——与 review-dispatcher.ts 的跳过集对齐：
+ *     review 子 WU 自身不再派评审，人工验收类的验收闸是人工确认（L3），diff-only
+ *     契约对非代码产物恒 needs-info 转人工纯噪声。若不豁免，这些类型永远不可能
+ *     deliverable（规则自相矛盾）。
  *   - l3 对所有已完成 WU 要求（验收权只在人）。
  */
 import { deriveDisplayState, type WorkUnitSnapshot } from '@dommaker/studio-shared';
 import { parseWuPmoId } from '../requirements/wu-pmo-attribution.js';
 import { parseWuMetadata } from '../workunit/wu-metadata.js';
-import { DECISION_SPEC_TYPES } from '../workunit/workunit.types.js';
+import { MANUAL_GATE_TYPES } from '../workunit/workunit.types.js';
 import type { DeliveryLeg } from './project.service.js';
 
 /**
@@ -42,8 +42,8 @@ export type EvidenceWuInput = Pick<WorkUnitSnapshot, 'id' | 'status' | 'type' | 
 /** 代码类 WU（与 agent-loop CODE_WORKTREE_TYPES 同集——有专属 worktree 才跑自动验证） */
 export const CODE_TYPES = new Set(['task', 'bug', 'feature', 'refactor']);
 
-/** L2 豁免集：ReviewDispatcher 不派自动评审的类型（review-dispatcher.ts 跳过集 + #108 decision/spec） */
-const L2_EXEMPT_TYPES = new Set(['review', 'analysis', ...DECISION_SPEC_TYPES]);
+/** L2 豁免集：ReviewDispatcher 不派自动评审的类型（review + 人工验收类 MANUAL_GATE_TYPES，#471 含 plan） */
+const L2_EXEMPT_TYPES = new Set(['review', ...MANUAL_GATE_TYPES]);
 
 /** 项目证据汇总（deliverable = 有 WU 且全部完成且三层证据齐） */
 export interface EvidenceSummary {

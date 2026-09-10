@@ -3,9 +3,11 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { deriveDisplayState, WU_STATUS_LABELS, WU_TYPE_LABELS, type DerivedWuState } from '@dommaker/studio-shared/web';
 import { useWorkUnitStore } from '../stores/workunitStore';
 import { SelfReviewBadge } from '../components/workunit/SelfReviewBadge';
+import { AssigneeLabel } from '../components/workunit/AssigneeLabel';
+import { StaleSleepBadge } from '../components/workunit/StaleSleepBadge';
 import { WuGateActions } from '../components/workunit/WuGateActions';
 import { WorkUnitDrawer, type DrawerState } from '../components/channel/WorkUnitDrawer';
-import type { WorkUnit } from '../api/workunit';
+import type { ReviewConfirmPayload, WorkUnit } from '../api/workunit';
 import { parseBlockedBy } from '../components/pmo/mapUtils';
 import { useWebSocketContext } from '../api/websocketHooks';
 import { Select } from '../components/ui';
@@ -19,9 +21,10 @@ const deriveWu = (wu: { status: string; metadata?: string | null }): DerivedWuSt
 
 const STATUS_OPTIONS = ['all', 'pending', 'unassigned', 'active', 'in_review', 'done', 'closed', 'blocked'] as const;
 
-/** Step 2 筛选合一：统计 chip 集（点击过滤/再点取消回全部）；待人工是派生维度单列 */
+/** Step 2 筛选合一：统计 chip 集（点击过滤/再点取消回全部）；待人工是派生维度单列。
+ *  #472 颜色语义：待确认中性（待确认≠待验收，不再同 warning 黄）；待人工 warning（error 红留给真错误）。 */
 const STATUS_CHIPS = [
-  { key: 'pending', label: '待确认', color: 'var(--warning)' },
+  { key: 'pending', label: '待确认', color: 'var(--text-secondary)' },
   { key: 'unassigned', label: WU_STATUS_LABELS.unassigned, color: 'var(--text-muted)' },
   { key: 'active', label: WU_STATUS_LABELS.active, color: 'var(--accent-primary)' },
   { key: 'in_review', label: WU_STATUS_LABELS.in_review, color: 'var(--warning)' },
@@ -112,9 +115,9 @@ export function WorkUnitListPage() {
           </div>
         </div>
 
-        {/* Stats = 快速筛选 chip（Step 2 筛选合一；计数口径不变：总数走 server total，其余已加载集合派生列计数。
-            F6-b：计数走派生列（双轨期与存储状态并存比对）） */}
-        <div className="flex gap-2 mt-4 flex-wrap">
+        {/* Stats = 快速筛选 chip（Step 2 筛选合一；计数口径：总数走 server total，其余按已加载子集派生列计数——
+            #472：分页未全量/筛选生效时在 chip 行内联标注口径，防数字撒谎） */}
+        <div className="flex gap-2 mt-4 flex-wrap items-center">
           <StatChip
             label="总数" value={total} color="var(--accent-primary)"
             active={!humanOnly && statusFilter === null}
@@ -132,11 +135,18 @@ export function WorkUnitListPage() {
             />
           ))}
           <StatChip
-            label="待人工" value={workunits.filter(w => deriveWu(w).needsHuman).length} color="var(--error)"
+            label="待人工" value={workunits.filter(w => deriveWu(w).needsHuman).length} color="var(--warning)"
             active={humanOnly}
             onClick={() => setHumanOnly(!humanOnly)}
             title="活已干完但人还没确认（手写待验收 + done 缺人工确认）"
           />
+          {/* #472：口径标注——除「总数」外 chip 计的是当前已加载子集；全量无筛选时计数即全量，不标注。
+              措辞避开「已加载」（底栏分页文案唯一断言占用） */}
+          {(statusFilter !== null || humanOnly || workunits.length < total) && (
+            <span className="text-xs u-text-3">
+              计数口径：当前 {workunits.length}/{total} 条
+            </span>
+          )}
           {/* #405：未归属过滤（服务端 attributed=false，#428）+ 服务端 total 计数徽标——低调小 chip，
               与状态 chip 同为服务端维度可交集组合；取消即恢复原列表 */}
           <button
@@ -158,7 +168,7 @@ export function WorkUnitListPage() {
               <div className="card mt-4 p-4">
                 <div className="flex gap-3 items-end">
                   <div className="flex-1">
-                    <label className="text-xs u-text-3 mb-1 block">Scope（描述任务）</label>
+                    <label className="text-xs u-text-3 mb-1 block">任务描述</label>
                     <input
                       className="w-full px-3 py-2 rounded u-surface u-text border u-border-2  outline-none"
                       placeholder="例：实现用户登录功能"
@@ -168,7 +178,7 @@ export function WorkUnitListPage() {
                     />
                   </div>
                   <div>
-                    <label className="text-xs u-text-3 mb-1 block">Type</label>
+                    <label className="text-xs u-text-3 mb-1 block">类型</label>
                     <Select
                       className="px-3 py-2 rounded u-surface u-text border u-border-2 outline-none"
                       value={newType}
@@ -209,7 +219,7 @@ export function WorkUnitListPage() {
                     key={wu.id}
                     wu={wu}
                     onOpen={() => setDrawer({ kind: 'wu', id: wu.id })}
-                    onReviewPassed={(summary, assigneeId) => reviewPassed(wu.id, summary, assigneeId)}
+                    onReviewPassed={(summary, assigneeId, confirm) => reviewPassed(wu.id, summary, assigneeId, confirm)}
                     onReviewRejected={(reason) => reviewRejected(wu.id, reason)}
                     onConfirmPending={() => confirmPending(wu.id)}
                     formatTime={formatShortTime}
@@ -253,7 +263,7 @@ function WorkUnitRow({
   wu: WorkUnit;
   /** E2-1：行点击开右侧抽屉（替代整行展开区） */
   onOpen: () => void;
-  onReviewPassed: (summary?: string, assigneeId?: string) => Promise<unknown>;
+  onReviewPassed: (summary?: string, assigneeId?: string, confirm?: ReviewConfirmPayload) => Promise<unknown>;
   onReviewRejected: (reason?: string) => Promise<unknown>;
   /** #284（决策 #250 D1）：pending 人闸确认（行内快速处置入口，与抽屉/详情页同组件） */
   onConfirmPending: () => Promise<unknown>;
@@ -300,10 +310,17 @@ function WorkUnitRow({
               </span>
             )}
             <SelfReviewBadge wu={wu} />
+            <StaleSleepBadge wu={wu} />
           </div>
           <div className="flex items-center gap-4 mt-1 text-xs u-text-2">
-            <span className="font-mono">ID: {wu.id.slice(0, 8)}...</span>
-            {wu.assigneeId && <span className="font-mono">Agent: {wu.assigneeId.slice(0, 8)}...</span>}
+            {/* #474：ID 截断显示、全文收进 title；Agent 不再拿截断 hash 当人名——AssigneeLabel 解析成角色名 */}
+            <span className="font-mono" title={wu.id}>ID: {wu.id.slice(0, 8)}...</span>
+            {wu.assigneeId && (
+              // stopPropagation：解析到时 AssigneeLabel 是 Link，防冒泡触发行点击开抽屉
+              <span onClick={e => e.stopPropagation()}>
+                <AssigneeLabel assigneeId={wu.assigneeId} className="font-mono" />
+              </span>
+            )}
             <span>创建: <span className="font-mono">{formatTime(wu.createdAt)}</span></span>
             {wu.claimedAt && <span>领取: <span className="font-mono">{formatTime(wu.claimedAt)}</span></span>}
           </div>

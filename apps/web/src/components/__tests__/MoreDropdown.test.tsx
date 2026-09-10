@@ -1,18 +1,17 @@
 // header「更多」下拉：收纳 sidebar 四主项之外的入口（知识库/阅览室/监控/审计日志/设置；PMO 是主项不重复）
-// E4/B-8：有待处理告警/提案时按钮挂计数徽标（数据 = overview.alerts.last24h + flywheel.proposalsPendingReview）
+// #468 徽标投影化：计数徽标 = notificationStore.unreadCount（行动中心未读口径，归零可达），
+// 原 monitoringApi 24h 告警 + 提案待审计数（loadAttentionCount）已删；展开下拉时 load() 刷新。
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
-const { mockGetOverview, mockGetFlywheel } = vi.hoisted(() => ({
-  mockGetOverview: vi.fn(),
-  mockGetFlywheel: vi.fn(),
+const { mockApi } = vi.hoisted(() => ({
+  mockApi: { get: vi.fn(), post: vi.fn() },
 }));
-vi.mock('../../api/monitoring', () => ({
-  monitoringApi: { getOverview: mockGetOverview, getFlywheel: mockGetFlywheel },
-}));
+vi.mock('../../api', () => ({ api: mockApi }));
 
 import { MoreDropdown } from '../MoreDropdown';
+import { useNotificationStore } from '../../stores/notificationStore';
 
 const renderDropdown = () =>
   render(
@@ -23,8 +22,8 @@ const renderDropdown = () =>
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockGetOverview.mockResolvedValue({ data: { alerts: { last24h: 0 } } });
-  mockGetFlywheel.mockResolvedValue({ data: { proposalsPendingReview: 0 } });
+  useNotificationStore.setState({ stateItems: [], notifications: [], unreadCount: 0 });
+  mockApi.get.mockResolvedValue({ data: { stateItems: [], notifications: [], unreadCount: 0 } });
 });
 
 describe('MoreDropdown — header 更多菜单', () => {
@@ -58,37 +57,54 @@ describe('MoreDropdown — header 更多菜单', () => {
     fireEvent.click(screen.getByRole('link', { name: /知识库/ }));
     expect(screen.queryByRole('link', { name: /阅览室/ })).toBeNull();
   });
+
+  // #474 图标策略定稿：全去 emoji——菜单项与触发器图标为 SVG 组件，文本无 emoji
+  it('#474 菜单去 emoji：各项图标为 SVG，文本无 emoji', () => {
+    renderDropdown();
+    fireEvent.click(screen.getByRole('button', { name: /更多/ }));
+    const emojiRe = /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}]/u;
+    for (const label of ['知识库', '阅览室', '监控', '审计日志', '设置']) {
+      const link = screen.getByRole('link', { name: new RegExp(label) });
+      expect(link.querySelector('svg')).toBeTruthy();
+      expect(link.textContent).not.toMatch(emojiRe);
+    }
+    const trigger = screen.getByRole('button', { name: /更多/ });
+    expect(trigger.querySelector('svg')).toBeTruthy();
+    expect(trigger.textContent).not.toMatch(emojiRe);
+  });
 });
 
-describe('MoreDropdown — 监控待处理计数徽标（E4/B-8）', () => {
-  it('告警 2 + 提案待审 3 → 按钮挂计数徽标 5', async () => {
-    mockGetOverview.mockResolvedValue({ data: { alerts: { last24h: 2 } } });
-    mockGetFlywheel.mockResolvedValue({ data: { proposalsPendingReview: 3 } });
+describe('MoreDropdown — 徽标 = 行动中心 unreadCount（#468 投影化）', () => {
+  it('unreadCount 5 → 按钮挂计数徽标 5', () => {
+    useNotificationStore.setState({ unreadCount: 5 });
     renderDropdown();
-    const badge = await screen.findByTitle('监控有待处理事项');
+    const badge = screen.getByTitle('有未读通知');
     expect(badge.textContent).toBe('5');
   });
 
-  it('待处理为 0 → 不挂徽标', async () => {
+  it('unreadCount > 99 → 截断显示 99+', () => {
+    useNotificationStore.setState({ unreadCount: 120 });
     renderDropdown();
-    await waitFor(() => expect(mockGetOverview).toHaveBeenCalled());
-    expect(screen.queryByTitle('监控有待处理事项')).toBeNull();
+    expect(screen.getByTitle('有未读通知').textContent).toBe('99+');
   });
 
-  it('监控接口 403/失败（非 Admin）→ 徽标隐藏，不炸', async () => {
-    mockGetOverview.mockRejectedValue(new Error('403'));
-    mockGetFlywheel.mockRejectedValue(new Error('403'));
+  it('unreadCount 0 → 不挂徽标（未读口径归零可达）', () => {
     renderDropdown();
-    // 展开交互不受取数失败影响
+    expect(screen.queryByTitle('有未读通知')).toBeNull();
+  });
+
+  it('展开下拉时 load() 刷新行动中心（GET /action-center）', async () => {
+    renderDropdown();
+    expect(mockApi.get).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: /更多/ }));
+    await waitFor(() => expect(mockApi.get).toHaveBeenCalledWith('/action-center'));
+  });
+
+  it('load 失败不炸：展开交互不受影响', async () => {
+    mockApi.get.mockRejectedValue(new Error('network'));
+    renderDropdown();
+    fireEvent.click(screen.getByRole('button', { name: /更多/ }));
+    await waitFor(() => expect(mockApi.get).toHaveBeenCalledWith('/action-center'));
     expect(screen.getByRole('link', { name: /监控/ })).toBeDefined();
-    expect(screen.queryByTitle('监控有待处理事项')).toBeNull();
-  });
-
-  it('展开下拉时重拉计数（服务端 60s 缓存兜底成本）', async () => {
-    renderDropdown();
-    await waitFor(() => expect(mockGetOverview).toHaveBeenCalledTimes(1));
-    fireEvent.click(screen.getByRole('button', { name: /更多/ }));
-    await waitFor(() => expect(mockGetOverview).toHaveBeenCalledTimes(2));
   });
 });

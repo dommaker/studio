@@ -18,6 +18,7 @@ import { TranscriptViewer } from '../components/workunit/TranscriptViewer';
 import { DiscussionPanel } from '../components/DiscussionPanel';
 import { RequirementChainPanel } from '../components/requirement/RequirementChainPanel';
 import { SelfReviewBadge } from '../components/workunit/SelfReviewBadge';
+import { StaleSleepBadge } from '../components/workunit/StaleSleepBadge';
 import { EvidenceLedger } from '../components/workunit/EvidenceLedger';
 import { OpportunitiesPanel } from '../components/workunit/OpportunitiesPanel';
 import { BlockedByList } from '../components/workunit/BlockedByList';
@@ -154,6 +155,7 @@ export function WorkUnitDetailPage() {
                 {WU_STATUS_LABELS[derived.column] ?? derived.column}
               </span>
               <SelfReviewBadge wu={wu} />
+              <StaleSleepBadge wu={wu} />
             </>
           )}
           <h1 className="page-title truncate">{wu ? title : '任务详情'}</h1>
@@ -279,7 +281,7 @@ export function WorkUnitDetailPage() {
                 <div className="wu-detail-card">
                   <WuGateActions
                     wu={wu}
-                    onReviewPassed={async (summary, assigneeId) => { await workunitApi.reviewPassed(wu.id, summary, assigneeId); reloadOnGate(); }}
+                    onReviewPassed={async (summary, assigneeId, confirm) => { await workunitApi.reviewPassed(wu.id, summary, assigneeId, confirm); reloadOnGate(); }}
                     onReviewRejected={async (reason) => { await workunitApi.reviewRejected(wu.id, reason); reloadOnGate(); }}
                     onConfirmPending={async () => { await workunitApi.transitionStatus(wu.id, 'unassigned'); reloadOnGate(); }}
                   />

@@ -8,7 +8,7 @@ vi.mock('react', async () => {
   return { ...actual, default: actual };
 });
 
-const { mockListAllAgents, mockListChannels, mockGetAgentSummary, mockWuList, mockWuGet, mockListExecSteps, mockTerminateInstance, sse } = vi.hoisted(() => ({
+const { mockListAllAgents, mockListChannels, mockGetAgentSummary, mockWuList, mockWuGet, mockListExecSteps, mockTerminateInstance, mockUpdateAgent, mockListManifest, sse } = vi.hoisted(() => ({
   mockListAllAgents: vi.fn(),
   mockListChannels: vi.fn(),
   mockGetAgentSummary: vi.fn(),
@@ -16,6 +16,8 @@ const { mockListAllAgents, mockListChannels, mockGetAgentSummary, mockWuList, mo
   mockWuGet: vi.fn(),
   mockListExecSteps: vi.fn(),
   mockTerminateInstance: vi.fn(),
+  mockUpdateAgent: vi.fn(),
+  mockListManifest: vi.fn(),
   // SSE 注册口捕获（#318：页面与内嵌 ExecutionSteps 都经 useWebSocketContext 订阅，广播全体）
   sse: {
     handlers: [] as Array<(msg: { event_type: string; data: unknown }) => void>,
@@ -36,7 +38,11 @@ vi.mock('../../api/monitoring', () => ({
 }));
 
 vi.mock('../../api/channel', () => ({
-  channelApi: { listAllAgents: mockListAllAgents, list: mockListChannels },
+  channelApi: { listAllAgents: mockListAllAgents, list: mockListChannels, updateAgent: mockUpdateAgent },
+}));
+
+vi.mock('../../api/skills', () => ({
+  skillsApi: { listManifest: mockListManifest },
 }));
 
 vi.mock('../../api/workunit', async () => {
@@ -83,6 +89,7 @@ function resetRosterStore() {
 
 const profile = {
   id: 'p1', name: 'dev-agent', description: 'writes code', status: 'active', provider: 'claude', isOnline: true,
+  skills: ['tdd-implement'],
 };
 
 const busyInstance = {
@@ -199,6 +206,44 @@ describe('AgentDetailPage', () => {
     expect(await screen.findByText('dev-agent')).toBeDefined();
     await waitFor(() => expect(screen.getByText('空闲 · 等待派活')).toBeDefined());
     expect(screen.queryByText('强制停止')).toBeNull();
+  });
+
+  it('#462：技能卡展示 role.skills + 编辑开多选弹框（候选 = skills MANIFEST）', async () => {
+    mockListManifest.mockResolvedValue({
+      data: {
+        data: [
+          { name: 'tdd-implement', description: '测试先行实现', agentTypes: ['implement'], triggers: [] },
+          { name: 'code-review', description: '代码评审', agentTypes: ['review'], triggers: [] },
+        ],
+      },
+    });
+    mockUpdateAgent.mockResolvedValue({ data: {} });
+    render(<AgentDetailPage />);
+
+    // 技能卡展示当前声明
+    expect(await screen.findByText('技能')).toBeDefined();
+    expect(screen.getByText('tdd-implement')).toBeDefined();
+
+    // 编辑 → 弹框拉 MANIFEST 渲染多选
+    fireEvent.click(screen.getByRole('button', { name: '编辑技能' }));
+    expect(await screen.findByText('code-review')).toBeDefined();
+    expect(mockListManifest).toHaveBeenCalledTimes(1);
+
+    // 勾选 code-review 保存 → PATCH skills 并强制刷新名册
+    fireEvent.click(screen.getByLabelText(/code-review/));
+    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+    await waitFor(() => {
+      expect(mockUpdateAgent).toHaveBeenCalledWith('p1', { skills: ['tdd-implement', 'code-review'] });
+    });
+    await waitFor(() => {
+      expect(mockListAllAgents.mock.calls.length).toBeGreaterThanOrEqual(2);
+    });
+  });
+
+  it('#462：未声明 skills → 技能卡空态「未声明」', async () => {
+    mockApis({ profiles: [{ ...profile, skills: undefined }] });
+    render(<AgentDetailPage />);
+    expect(await screen.findByText('未声明')).toBeDefined();
   });
 });
 

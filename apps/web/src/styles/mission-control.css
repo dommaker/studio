@@ -504,6 +504,12 @@
 }
 .mc-wu-link:hover { border-color: var(--accent-primary); }
 
+/* #474：footer 三枚同形 chip 无法扫读 → 类型差异化配色（wu=accent 原色 / PMO=success / REQ=warning） */
+.mc-wu-link--pmo { color: var(--success); background: var(--success-dim); border-color: var(--success-border); }
+.mc-wu-link--pmo:hover { border-color: var(--success); }
+.mc-wu-link--req { color: var(--warning); background: var(--warning-dim); border-color: var(--warning-border); }
+.mc-wu-link--req:hover { border-color: var(--warning); }
+
 /* #285: agent 消息 inline-code 文件 chip（点击复制绝对路径 / .studio/ 跳阅览室） */
 .mc-file-chip {
   font-size: var(--fs-sm);
@@ -687,6 +693,8 @@
   background: var(--bg-secondary);
 }
 .mc-workbar-main { display: flex; align-items: center; gap: 12px; }
+/* #474：未命中占位（原整条 return null 静默消失，用户分不清「空闲」与「未拉到」） */
+.mc-workbar-placeholder { font-size: var(--fs-xs); color: var(--text-muted); }
 /* ① stepper 不再全宽撑满：紧凑左对齐 + 合理 max-width（wu-detail.css 全局类不动，WU 详情页不受影响） */
 .mc-workbar-stepper { flex: 0 1 auto; min-width: 0; max-width: 640px; }
 .mc-workbar .wu-stepper-bar { padding: 0; }
@@ -1214,6 +1222,12 @@ button.mc-act-step:hover { background: var(--bg-hover); }
 .mc-act-step-upcoming .mc-act-step-label { color: var(--text-muted); }
 .mc-act-step-line { flex: 1; min-width: 8px; height: 1px; margin: 0 2px; background: var(--border-default); }
 .mc-act-step-line-reached { background: var(--accent-border); }
+/* #468：WU 站 blocked/pending 警示色点 */
+.mc-act-step-warn {
+  min-width: 14px; height: 14px; border-radius: 7px; padding: 0 3px;
+  background: var(--warning-dim); border: 1px solid var(--warning-border); color: var(--warning);
+  font-size: 10px; line-height: 12px; text-align: center; flex-shrink: 0;
+}
 
 /* 卡 meta 行：PMO badge + assignee 链接（↗ = 跳页离开会话流，spec §4.3 混合交互） */
 .mc-act-card-meta {

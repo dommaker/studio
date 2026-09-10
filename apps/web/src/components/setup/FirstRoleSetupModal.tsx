@@ -5,6 +5,10 @@
  * 角色存在但 provider 为空 = 没有可用执行体，与"没有角色"同样需要引导。
  * 用户填 name/description/provider 创建第一个角色。关闭后 sessionStorage 标记。
  *
+ * #465（首用路径断点）：两步流——创建成功后不直接关窗，进「加入频道」引导步
+ * （一键加入 #研发 / 跳过）；角色不进频道等于不存在（@mention 以频道成员为界、
+ * loop 认领同口径）。创建失败保持原静默关窗语义（best-effort）。
+ *
  * 样式遵循方向 A「Mission Control」设计体系（docs/specs/ui/style-guide.md），
  * 一律消费 theme.css 组件类（modal-* / input / btn），禁止内联写死颜色。
  */
@@ -14,17 +18,32 @@ import { FIRST_ROLE_SETUP_SESSION_KEY } from './dismissed';
 import { Select } from '../ui';
 import '../../styles/theme.css';
 
+/** onCreate 成功时回传的创建结果（AgentProfile 最小子集，供「加入频道」步使用） */
+export interface CreatedRole {
+  id: string;
+  name: string;
+}
+
 export interface FirstRoleSetupModalProps {
   open: boolean;
   onClose: () => void;
-  onCreate: (data: { name: string; description?: string; provider?: string }) => void;
+  /** 创建角色；成功返回创建结果（进「加入频道」引导步），失败返回 null（静默关窗） */
+  onCreate: (data: { name: string; description?: string; provider?: string }) => Promise<CreatedRole | null>;
+  /** #465：一键加入 #研发频道；返回是否成功（失败时引导步内联报错，不关窗） */
+  onJoinChannel: (agentId: string) => Promise<boolean>;
 }
 
-export function FirstRoleSetupModal({ open, onClose, onCreate }: FirstRoleSetupModalProps) {
+export function FirstRoleSetupModal({ open, onClose, onCreate, onJoinChannel }: FirstRoleSetupModalProps) {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   // 用户显式选择的 CLI；空 = 未选过（或选择已失效），由下方派生值回退默认
   const [providerOverride, setProviderOverride] = useState<string>('');
+  // #465 两步流：form = 创建表单 / join = 加入频道引导
+  const [step, setStep] = useState<'form' | 'join'>('form');
+  const [createdRole, setCreatedRole] = useState<CreatedRole | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [joining, setJoining] = useState(false);
+  const [joinError, setJoinError] = useState<string | null>(null);
   // #448 问题3：弹框关着不扫运行环境（App 根无条件挂载本组件，enabled=false 时才不发请求）
   const { detected, loading: providersLoading, noneDetected } = useDetectedProviders({ enabled: open });
   // 扫描进行中同样回退全量可选，避免加载窗口期无可选项
@@ -43,25 +62,89 @@ export function FirstRoleSetupModal({ open, onClose, onCreate }: FirstRoleSetupM
     if (open) {
       setName('');
       setDescription('');
+      setStep('form');
+      setCreatedRole(null);
+      setJoinError(null);
     }
   }
 
   if (!open) return null;
 
-  const handleCreate = () => {
-    if (!name.trim()) return;
-    onCreate({
-      name: name.trim(),
-      description: description.trim() || undefined,
-      provider,
-    });
-    onClose();
+  const handleCreate = async () => {
+    if (!name.trim() || creating) return;
+    setCreating(true);
+    try {
+      const created = await onCreate({
+        name: name.trim(),
+        description: description.trim() || undefined,
+        provider,
+      });
+      if (created) {
+        // #465：创建成功 → 接续引导「加入频道」（不直接关窗）
+        setCreatedRole(created);
+        setStep('join');
+      } else {
+        onClose(); // 创建失败：保持原静默关窗语义
+      }
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const handleJoin = async () => {
+    if (!createdRole || joining) return;
+    setJoining(true);
+    setJoinError(null);
+    try {
+      const ok = await onJoinChannel(createdRole.id);
+      if (ok) {
+        onClose();
+      } else {
+        setJoinError('加入失败，请稍后在频道顶栏 ⋯ 菜单的「成员」里手动添加');
+      }
+    } finally {
+      setJoining(false);
+    }
   };
 
   const handleDismiss = () => {
     try { sessionStorage.setItem(FIRST_ROLE_SETUP_SESSION_KEY, '1'); } catch { /* ignore */ }
     onClose();
   };
+
+  if (step === 'join' && createdRole) {
+    return (
+      <div className="modal-overlay" onClick={onClose}>
+        <div className="modal" style={{ maxWidth: '400px' }} onClick={(e) => e.stopPropagation()}>
+          <div className="modal-header">
+            <h2 className="modal-title">角色已创建</h2>
+            <button className="modal-close" onClick={onClose} aria-label="关闭">×</button>
+          </div>
+          <div className="modal-body">
+            <p className="u-text-2" style={{ margin: '0 0 12px', fontSize: 'var(--fs-sm)' }}>
+              @{createdRole.name} 已创建。角色要加入频道才能接收任务和 @ 消息——把它加入 #研发 频道就可以开始派活了。
+            </p>
+            {joinError && (
+              <p className="u-text-2" style={{ margin: '0 0 12px', fontSize: 'var(--fs-sm)', color: 'var(--error)' }}>
+                {joinError}
+              </p>
+            )}
+          </div>
+          <div className="modal-footer">
+            <button className="btn btn-secondary" onClick={onClose} disabled={joining}>跳过</button>
+            <button
+              className="btn btn-primary"
+              onClick={handleJoin}
+              disabled={joining}
+              data-testid="first-role-join-channel"
+            >
+              {joining ? '加入中…' : '加入 #研发频道'}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="modal-overlay" onClick={handleDismiss}>
@@ -119,14 +202,14 @@ export function FirstRoleSetupModal({ open, onClose, onCreate }: FirstRoleSetupM
           </div>
         </div>
         <div className="modal-footer">
-          <button className="btn btn-secondary" onClick={handleDismiss}>稍后</button>
+          <button className="btn btn-secondary" onClick={handleDismiss} disabled={creating}>稍后</button>
           <button
             className="btn btn-primary"
             onClick={handleCreate}
-            disabled={!name.trim() || !provider}
+            disabled={!name.trim() || !provider || creating}
             data-testid="first-role-create"
           >
-            创建
+            {creating ? '创建中…' : '创建'}
           </button>
         </div>
       </div>

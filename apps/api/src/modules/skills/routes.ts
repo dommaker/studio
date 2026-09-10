@@ -7,6 +7,7 @@
 import { Router, Request, Response } from 'express';
 import { logger } from '../../utils/logger.js';
 import { skillStore } from './skill-store.js';
+import { loadManifest } from './manifest-loader.js';
 import { getSkillReviewAdapter } from './review-adapter.js';
 import { promoteSkill } from './skill-promotion.js';
 import { channelMessageService } from '../channels/channel-message.service.js';
@@ -80,6 +81,30 @@ router.get('/discover', async (req: Request, res: Response) => {
   } catch (error) {
     logger.error({ error }, 'Failed to discover skills');
     res.status(500).json({ error: 'Failed to discover skills' });
+  }
+});
+
+/**
+ * GET /api/v1/skills/manifest
+ * #462: skills MANIFEST 只读清单 —— 角色编辑 UI 的 skill 多选数据源。
+ * 源 = loadManifest()（~/.studio/skills/<name>/SKILL.md frontmatter，已过滤非 published）；
+ * consumers 含 'loop' 的 hub-service skill 不参与注入，不进候选（与 selectSkillsForInjection 口径一致）。
+ * 必须注册在 /:id 之前，否则被参数路由吞掉。
+ */
+router.get('/manifest', async (_req: Request, res: Response) => {
+  try {
+    const entries = loadManifest()
+      .filter(s => !(Array.isArray(s.consumers) && s.consumers.some(c => c.toLowerCase() === 'loop')))
+      .map(s => ({
+        name: s.name,
+        description: s.description,
+        agentTypes: s.agentTypes ?? [],
+        triggers: s.triggers ?? [],
+      }));
+    res.json({ data: entries });
+  } catch (error) {
+    logger.error({ error }, 'Failed to load skills manifest');
+    res.status(500).json({ error: 'Failed to load skills manifest' });
   }
 });
 

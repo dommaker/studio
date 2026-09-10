@@ -31,7 +31,8 @@
  * WU 永远无法再推动状态（探路链项目卡在 completed、腿状态冻结）。判定：
  *   ① 项目有 map 且 specSpawnedAt 未落（探路链未成文）；
  *   ② 已完结 analysis WU 缺 analysisTasksSpawnedAt（接力/开图未处理）；
- *   ③ 已完结 spec WU 缺 specTasksSpawnedAt（交稿物化未处理）。
+ *   ③ 已完结 spec WU 缺 specTasksSpawnedAt 且 l3.summary 含 TASK 物化行（交稿物化未处理；
+ *      #463 起无 TASK 行不落哨兵 = 人审有意不物化，不算未落定）。
  * 命中即跳过本次 completed/in_review 翻转（progress 照写），待派生落定后的下一事件
  * 或 GET /project/:id 读取时重算再评估。
  *
@@ -69,6 +70,9 @@ import {
   type EvidenceWuInput,
 } from './evidence-summary.js';
 import { parseWuMetadata } from '../workunit/wu-metadata.js';
+import { parseSpecTasks } from './spec-materialization.js';
+import { postProjectMilestone } from './delivery-notify.js';
+import { createKeyedEnqueue } from './keyed-enqueue.js';
 
 // 兼容现有引用方（原定义已移至 evidence-summary.ts 共享口径）
 export { parseWuMetaPmoId };
@@ -265,19 +269,9 @@ export async function syncProjectProgressByReqId(reqId: string, fileStore?: File
  * 同一项目的回写串行化：status_changed 事件是 fire-and-forget，相邻两次迁移
  * （如 WU in_review → done）会并发触发回写——不串行时慢到的 in_review 写可能
  * 覆盖先到的 completed。按 projectId 链式排队，前序失败不阻断后续。
+ * （共享实现 keyed-enqueue，原 syncChains 拷贝收口）
  */
-const syncChains = new Map<string, Promise<void>>();
-
-function enqueueProjectSync(projectId: string, task: () => Promise<void>): Promise<void> {
-  const run = (syncChains.get(projectId) ?? Promise.resolve())
-    .catch(() => { /* 前序失败不阻断后续 */ })
-    .then(task);
-  syncChains.set(projectId, run);
-  // 链尾回收，避免 Map 随项目数无限增长
-  const cleanup = () => { if (syncChains.get(projectId) === run) syncChains.delete(projectId); };
-  run.then(cleanup, cleanup);
-  return run;
-}
+const enqueueProjectSync = createKeyedEnqueue();
 
 /** #282：progress 分子唯一口径 = WU 完成管道的 workFinished（存储态 done/closed），两处 progress 计算共用 */
 function isWorkFinished(s: EvidenceWuInput): boolean {
@@ -303,15 +297,20 @@ export function syncProjectProgress(projectId: string, fileStore?: FileStore): P
  * （「全部完结」是派生前的假相），progress 照写。
  */
 export function derivationPending(project: ProjectData, snapshots: EvidenceWuInput[]): boolean {
-  // ① 探路链未成文（map 存在则 spec 成文单必由 decision-resolution 派生）
-  if (project.map && !project.map.specSpawnedAt) return true;
+  // ① 探路链未成文（旧链：map 存在则 spec 成文单必由 decision-resolution 派生）。
+  // #471：新链 map 是纯台账（fog.wuId 恒 null，不再派生 decision/spec）→ 不阻断；
+  // 仅旧链在飞（fog 含互挂 wuId）且 specSpawnedAt 未落才算未落定。
+  if (project.map && !project.map.specSpawnedAt && project.map.fog.some(f => !!f.wuId)) return true;
   return snapshots.some(s => {
     if (!TERMINAL_WORKUNIT_STATUSES.includes(s.status)) return false;
     const meta = parseWuMetadata(s.metadata);
-    // ② analysis 接力/开图未处理（analysis-handoff 对 done 恒落哨兵）
-    if (s.type === 'analysis' && !meta.analysisTasksSpawnedAt) return true;
-    // ③ spec 交稿物化未处理（spec-materialization 对 done 恒落哨兵）
-    if (s.type === 'spec' && !meta.specTasksSpawnedAt) return true;
+    // ② analysis/plan 接力/开图未处理（analysis-handoff 对 done 恒落哨兵；#471 起 plan 同口径）
+    if ((s.type === 'analysis' || s.type === 'plan') && !meta.analysisTasksSpawnedAt) return true;
+    // ③ spec 交稿物化未处理。#463 起 spec-materialization 哨兵改「无 TASK 行不落档」：
+    // 缺哨兵且 l3.summary 含 TASK 物化行 = 未处理（阻断）；缺哨兵但无 TASK 行 =
+    // 人审有意不物化 = 已落定（不阻断）。
+    if (s.type === 'spec' && !meta.specTasksSpawnedAt
+      && parseSpecTasks(meta.attestations?.l3?.summary ?? '').length > 0) return true;
     return false;
   });
 }
@@ -345,7 +344,7 @@ async function doSyncProjectProgress(projectId: string, fileStore: FileStore | u
   // 单腿（无 deliveries / 合成单腿）保持下方现状路径逐字节一致。
   const legs = resolveDeliveries(project);
   if (legs.length > 1) {
-    await doSyncMultiLegProgress(project, legs, snapshots);
+    await doSyncMultiLegProgress(project, legs, snapshots, fileStore);
     return;
   }
 
@@ -369,6 +368,11 @@ async function doSyncProjectProgress(projectId: string, fileStore: FileStore | u
         projectId,
         workUnitCount: snapshots.length,
       });
+      // #469：翻 completed 出声——频道里程碑（atHuman 响铃 + pmoId 跳转）+ 持久通知（/pmo/project/:id 直链）
+      await postProjectMilestone(project, {
+        title: `${project.pmoNumber} 已收尾（completed）`,
+        content: `✅ ${project.pmoNumber}「${project.title}」已收尾：${snapshots.length} 个任务全部完结、证据齐，项目翻 completed——可去交付`,
+      }, { fileStore });
     } else if (project.status === PROJECT_STATUS.ACTIVE || project.status === PROJECT_STATUS.PENDING) {
       // 活干完了但证据有缺口 → in_review（等证据验收），不冒充 completed；
       // 已是 in_review 则不动。幂等补写证据不产生状态事件，
@@ -382,6 +386,11 @@ async function doSyncProjectProgress(projectId: string, fileStore: FileStore | u
         l2Missing: summary.l2Missing.length,
         l3Missing: summary.l3Missing.length,
       });
+      // #469：翻 in_review 同样出声——活干完等验收是「追进度」旅程的闭环点
+      await postProjectMilestone(project, {
+        title: `${project.pmoNumber} 待验收（in_review）`,
+        content: `⏳ ${project.pmoNumber}「${project.title}」任务全部完结，证据有缺口（缺自动验证 ${summary.l1Missing.length} / Agent 评审 ${summary.l2Missing.length} / 人工确认 ${summary.l3Missing.length}），项目进入待验收（in_review）——补齐后重算自动翻 completed`,
+      }, { fileStore });
     }
   } else if (progress !== project.progress) {
     await projectService.update(projectId, { progress });
@@ -402,6 +411,7 @@ async function doSyncMultiLegProgress(
   project: ProjectData,
   legs: DeliveryLeg[],
   snapshots: EvidenceWuInput[],
+  fileStore?: FileStore, // #469：里程碑出声发帖用（缺省走默认 FileStore）
 ): Promise<void> {
   const projectId = project.id;
   const done = snapshots.filter(isTerminalWu).length;
@@ -451,6 +461,11 @@ async function doSyncMultiLegProgress(
         workUnitCount: snapshots.length,
         legCount: legs.length,
       });
+      // #469：全腿 deliverable 翻 completed 出声（同单腿口径）
+      await postProjectMilestone(project, {
+        title: `${project.pmoNumber} 已收尾（completed）`,
+        content: `✅ ${project.pmoNumber}「${project.title}」已收尾：${legs.length} 条交付腿全部完结、证据齐，项目翻 completed——可去交付`,
+      }, { fileStore });
     } else if (project.status === PROJECT_STATUS.ACTIVE || project.status === PROJECT_STATUS.PENDING) {
       // 全腿活干完但有腿证据缺口 → in_review（等证据验收），不冒充 completed；
       // 纠偏路径同单腿（幂等补证据 → 读取时重算翻 completed）。
@@ -461,6 +476,11 @@ async function doSyncMultiLegProgress(
         workUnitCount: snapshots.length,
         legs: newLegs.map(l => ({ branch: l.branch, status: l.status })),
       });
+      // #469：翻 in_review 出声（多腿同单腿口径）
+      await postProjectMilestone(project, {
+        title: `${project.pmoNumber} 待验收（in_review）`,
+        content: `⏳ ${project.pmoNumber}「${project.title}」全部腿任务完结、仍有腿证据缺口，项目进入待验收（in_review）——补齐后重算自动翻 completed`,
+      }, { fileStore });
     }
   } else if (progress !== project.progress) {
     await projectService.update(projectId, { progress });

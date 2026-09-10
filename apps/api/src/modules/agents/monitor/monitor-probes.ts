@@ -22,6 +22,8 @@ import type { MonitorAlert } from '../types.js';
 import { closeWorkUnitWithNotice } from '../../workunit/wu-closure.js';
 import { buildDeadLetterNotice } from '../../workunit/blocked-cta.js';
 import { parseWuMetadata } from '../../workunit/wu-metadata.js';
+import { postWuSystemMessage } from '../../workunit/wu-messenger.js';
+import { snapshotToData } from '../../workunit/workunit-crud.js';
 import { DECISION_SPEC_TYPES } from '../../workunit/workunit.types.js';
 import { getStudioEventTime, parseStudioEventPayload } from '../../../utils/studio-events.js';
 import { readStudioEventsSince } from '../../../utils/studio-events-tail.js';
@@ -222,6 +224,21 @@ export async function checkStaleClaimGuard(fileStore: FileStore, snapshots: Work
         + '回复该 WU 即复活（任何写刷新 updatedAt 后恢复可认领）；确认无需执行请回复「关闭」。',
       relatedTaskIds: [s.id],
     });
+    // #464：WU 自身频道同步出声（此前唯一出声是 monitor 探针 warning 投告警频道，
+    // WU 所在频道与列表零痕迹）。milestone 形态：atHuman 响铃 + 行动中心通知双写；
+    // 出声频率由上方 staleGuardBlockedAt 标记保证（同次沉睡只发一条，与告警同生命周期）。
+    if (s.channelId) {
+      await postWuSystemMessage(
+        snapshotToData(s),
+        `工单「${s.scope.slice(0, 50)}」已沉睡 ${days} 天（72h 未动），已被认领守卫拦截，不会被自动认领——回复本工单即复活；确认无需执行请回复「关闭」`,
+        { milestone: true, fileStore },
+      ).catch(err =>
+        logger.warn('[Monitor] stale-claim channel notice failed (non-blocking)', {
+          workUnitId: s.id,
+          error: String(err),
+        }),
+      );
+    }
   }
 
   return alerts;
@@ -329,7 +346,8 @@ export async function autoAbandonStaleBlocked(fileStore: FileStore, snapshots: W
   const cutoff = Date.now() - BLOCKED_AUTO_ABANDON_MS;
 
   const stale = snapshots.filter(s => s.status === 'blocked')
-    .filter(s => !DECISION_SPEC_TYPES.has(s.type))
+    // #471：plan 同豁免——blocked 多为等裁决轮/额度授权的人闸挂起，可能等多天
+    .filter(s => !DECISION_SPEC_TYPES.has(s.type) && s.type !== 'plan')
     .filter(s => {
       const blockedAt = parseWuMetadata(s.metadata).blockedAt;
       const basis = new Date(typeof blockedAt === 'string' ? blockedAt : s.createdAt).getTime();

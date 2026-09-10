@@ -253,7 +253,7 @@ export function ChannelInput({ onSend, sending, replyTo, onCancelReply, channelI
           <div className="mc-input-reply">
             <span>↩</span>
             <span>
-              回复 {replyTo.authorType === 'human' ? 'You' : replyTo.agentName || 'Agent'}:
+              回复 {replyTo.authorType === 'human' ? '你' : replyTo.agentName || 'Agent'}:
             </span>
             <span className="mc-input-reply-content">{replyTo.content}</span>
             <button onClick={onCancelReply} className="mc-icon-btn" aria-label="取消回复">

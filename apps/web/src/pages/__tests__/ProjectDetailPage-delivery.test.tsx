@@ -2,7 +2,7 @@
 // （台账渲染 / 四态徽标 / 缺口行动清单 / auto-merge 交付按钮 / branch-only 提示 / 进展卡口径）
 // #149（2026-08-15）：归档知识按钮测试随 document-store 退役移除
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 
 const {
@@ -149,14 +149,14 @@ describe('PMO-b/F6-c: 交付区块', () => {
     });
 
     // inFlight>0 → 蓝色进行中徽标
-    expect(screen.getByText('🔄 进行中 2/3')).toBeTruthy();
+    expect(screen.getByText(/进行中 2\/3/)).toBeTruthy(); // #474：徽章去 emoji（图标为 SVG）
     expect(screen.getByText(/自动合并/)).toBeTruthy();
     expect(screen.getByText(/分支: PMO-11/)).toBeTruthy();
     // #399 §8.3 词表：WU→任务；证据三级白话（自动验证/Agent 评审/人工确认）
     expect(screen.getByText('任务: 2/3 完成')).toBeTruthy();
-    expect(screen.getByText('自动验证: ✓')).toBeTruthy();
+    expect(screen.getByText(/自动验证:/)).toBeTruthy(); // #474：✓ → IconCheck SVG
     expect(screen.getByText('Agent 评审: 缺 1')).toBeTruthy();
-    expect(screen.getByText('人工确认: ✓')).toBeTruthy();
+    expect(screen.getByText(/人工确认:/)).toBeTruthy(); // #474：✓ → IconCheck SVG
     expect(screen.getByText('自评: 2')).toBeTruthy();
     // 缺口行动清单：在途提示 + 任务行（标题/type/缺层白话文案/行动按钮）
     expect(screen.getByText('1 个任务仍在途')).toBeTruthy();
@@ -172,7 +172,7 @@ describe('PMO-b/F6-c: 交付区块', () => {
     renderDetail();
 
     const btn = await screen.findByText('交付合并');
-    expect(screen.getByText('✓ 可交付')).toBeTruthy();
+    expect(screen.getByText('可交付')).toBeTruthy(); // #474：徽章去 emoji
 
     fireEvent.click(btn);
 
@@ -184,7 +184,7 @@ describe('PMO-b/F6-c: 交付区块', () => {
     await waitFor(() => {
       expect(screen.getByText(/已交付: /)).toBeTruthy();
     });
-    expect(screen.getByText('✓ 已交付')).toBeTruthy();
+    expect(screen.getByText('已交付', { selector: 'span' })).toBeTruthy(); // #474：徽章去 emoji
     expect(screen.getByText(/tester@example\.com/)).toBeTruthy();
     // toast 与台账都含短哈希，断言至少一处出现
     expect(screen.getAllByText(/abcdef1/).length).toBeGreaterThan(0);
@@ -255,9 +255,9 @@ describe('PMO-b/F6-c: 交付区块', () => {
     });
     renderDetail();
 
-    // 全部完成但有缺口 → 琥珀待验收徽标
+    // 全部完成但有缺口 → 琥珀待交付徽标（#472：项目级「待验收」改「待交付」，与 WU 四站「待验收」分词）
     await waitFor(() => {
-      expect(screen.getByText('⏳ 待验收:证据还差 1 项')).toBeTruthy();
+      expect(screen.getByText(/待交付:证据还差 1 项/)).toBeTruthy(); // #474：徽章去 emoji
     });
     expect(screen.getByText('撰写发布说明')).toBeTruthy();
     expect(screen.getByText('缺人工确认')).toBeTruthy();
@@ -265,7 +265,7 @@ describe('PMO-b/F6-c: 交付区块', () => {
     fireEvent.click(screen.getByRole('button', { name: '人工确认' }));
 
     await waitFor(() => {
-      expect(mockReviewPassed).toHaveBeenCalledWith('wu-9', undefined, undefined);
+      expect(mockReviewPassed).toHaveBeenCalledWith('wu-9', undefined, undefined, undefined);
     });
     // toast + 刷新（初次加载 1 次 + 行动后 refreshDelivery 再拉 1 次）
     await screen.findByText('人工确认已补齐');
@@ -318,13 +318,13 @@ describe('PMO-b/F6-c: 交付区块', () => {
           (_, el) =>
             el?.tagName === 'DIV' &&
             el.textContent ===
-              '⚠️ 项目已标记完成，但交付证据未齐（2 个任务缺自动验证 · 1 个缺人工确认）——在上方交付卡补齐后才算真正交付',
+              '项目已标记完成，但交付证据未齐（2 个任务缺自动验证 · 1 个缺人工确认）——在上方交付卡补齐后才算真正交付',
         ),
       ).toBeTruthy();
     });
   });
 
-  it('#399 §8.2：六卡删除，进展卡 = progress + 已完成 n/m + Token meta（全周期累计）+ 口径副标题', async () => {
+  it('#474：进展卡折叠为次要块（头部恒显 %，展开见 Token meta/副标题；「已完成 n/m」已删——与交付台账重复）', async () => {
     mockGetDelivery.mockResolvedValue({
       data: {
         ...deliveryAutoMergePending,
@@ -349,11 +349,16 @@ describe('PMO-b/F6-c: 交付区块', () => {
     expect(screen.queryByText('🚫 阻塞')).toBeNull();
     expect(screen.queryByText('💰 Token')).toBeNull();
 
-    // 新构成：% 走 --fs-stat + mono；同行 n/m 与 Token meta（全周期累计）；--fs-xs muted 副标题
+    // % 走 --fs-stat + mono（头部恒显）；「已完成 n/m」已删（与交付台账「任务: n/m 完成」重复）
     const pct = screen.getByText(`${mockProject.progress}%`);
     expect(pct.style.fontSize).toBe('var(--fs-stat)');
     expect(pct.className).toContain('font-mono');
-    expect(screen.getByText(/已完成 4\/8/)).toBeTruthy();
+    expect(screen.queryByText(/已完成 4\/8/)).toBeNull();
+    // 默认折叠 → 展开后见 Token meta（全周期累计）与口径副标题
+    expect(screen.queryByText(/1\.2M tokens（全周期累计）/)).toBeNull();
+    // 页面还有「项目动态/原始需求」的展开按钮——按卡片作用域点进展卡的
+    const progressCard = screen.getByText('项目进展').closest('.card') as HTMLElement;
+    fireEvent.click(within(progressCard).getByRole('button', { name: '展开' }));
     expect(screen.getByText(/1\.2M tokens（全周期累计）/)).toBeTruthy();
     expect(screen.getByText('完成数 = 已交付的任务，验收中的不计入')).toBeTruthy();
   });

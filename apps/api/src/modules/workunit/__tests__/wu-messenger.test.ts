@@ -22,6 +22,8 @@ vi.mock('../../requirements/pmo-branch-resolver', () => ({
 }));
 
 import { postWuSystemMessage } from '../wu-messenger.js';
+import { NotificationService } from '@dommaker/studio-notification';
+import { studioPath } from '@dommaker/studio-shared/studio-dir';
 
 let tmpDir: string;
 let fileStore: FileStore;
@@ -245,5 +247,48 @@ describe('里程碑 meta（2026-07 PMO-flow UX §6-3/§10）', () => {
     const record = await postWuSystemMessage(wu, '带卡消息', { fileStore, meta: { cardType: 'x' } });
 
     expect(record!.meta).toEqual({ cardType: 'x' });
+  });
+});
+
+describe('里程碑通知落库（#468 行动中心双写）', () => {
+  const notifService = new NotificationService(new FileStore());
+
+  function seedUsers(...ids: string[]) {
+    const dir = studioPath('data', 'users');
+    fs.mkdirSync(dir, { recursive: true });
+    for (const id of ids) fs.writeFileSync(path.join(dir, `${id}.json`), '{}');
+  }
+
+  beforeEach(() => {
+    // 通知落在 STUDIO_HOME 隔离根的 logs/notifications.jsonl，逐用例清空
+    fs.rmSync(studioPath('logs', 'notifications.jsonl'), { force: true });
+    fs.rmSync(studioPath('data', 'users'), { recursive: true, force: true });
+  });
+
+  it('milestone: true → 全用户各落一条 wu_milestone 通知（wuId/channelId/highlight link 齐备）', async () => {
+    seedUsers('user-a', 'user-b');
+    const wu = await createWu({ title: '登录功能' });
+
+    const record = await postWuSystemMessage(wu, '待人工确认方案', { fileStore, milestone: true });
+
+    const listA = await notifService.getUserNotifications('user-a');
+    expect(listA).toHaveLength(1);
+    const n = listA[0];
+    expect(n.type).toBe('wu_milestone');
+    expect(n.wuId).toBe(wu.id);
+    expect(n.channelId).toBe(channelId);
+    expect(n.title).toContain('登录功能');
+    expect(n.content).toContain('待人工确认方案');
+    expect(n.link).toBe(`/channels/${channelId}?highlight=${record!.id}`);
+    expect(await notifService.getUnreadCount('user-b')).toBe(1);
+  });
+
+  it('非里程碑消息 → 不落通知', async () => {
+    seedUsers('user-a');
+    const wu = await createWu();
+
+    await postWuSystemMessage(wu, '普通进度', { fileStore });
+
+    expect(await notifService.getUserNotifications('user-a')).toHaveLength(0);
   });
 });

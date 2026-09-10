@@ -14,6 +14,7 @@ import { RequirementsDocCard } from './RequirementsDocCard';
 import { KnowledgeConfirmCard } from './KnowledgeConfirmCard';
 import { ReviewProposalCard } from './ReviewProposalCard';
 import { AnalysisConfirmCard } from './AnalysisConfirmCard';
+import { PlanRulingCard } from './PlanRulingCard';
 import { ConvertToTaskDialog } from './ConvertToTaskDialog';
 import { NeedInputOptions } from './NeedInputOptions';
 import { shortWuId } from '../../utils/id';
@@ -39,6 +40,8 @@ interface Props {
   onOpenWorkUnit?: (workUnitId: string) => void;
   /** #284（决策 #250 D6）：analysis_confirm 接力卡「去确认」——开 WU 抽屉并自动弹确认对话框 */
   onOpenWorkUnitConfirm?: (workUnitId: string) => void;
+  /** #467：plan_ruling 裁决轮接力卡「去裁决」——开 WU 抽屉并自动弹 PlanRulingDialog */
+  onOpenWorkUnitRuling?: (workUnitId: string) => void;
   onOpenRequirement?: (reqId: string) => void;
   /** F5: NEED_INPUT 卡片内嵌回复（与回复按钮同链路：sendMessage + replyToId）；
    * #276：返回 Promise 以便按真实成功置位「已回复」（失败可重试，不发假承诺） */
@@ -58,6 +61,7 @@ function renderCard(
   message: ChannelMessage,
   onAction: Props['onAction'],
   onOpenWorkUnitConfirm: Props['onOpenWorkUnitConfirm'],
+  onOpenWorkUnitRuling: Props['onOpenWorkUnitRuling'],
 ) {
   switch (meta.cardType) {
     case 'requirements_doc':
@@ -75,6 +79,8 @@ function renderCard(
       return <ReviewProposalCard message={message} meta={meta} onAction={onAction} />;
     case 'analysis_confirm': // #284（决策 #250 D6）analysis 接力卡
       return <AnalysisConfirmCard message={message} meta={meta} onOpenConfirm={onOpenWorkUnitConfirm} />;
+    case 'plan_ruling': // #467 裁决轮接力卡
+      return <PlanRulingCard message={message} meta={meta} onOpenRuling={onOpenWorkUnitRuling} />;
     default:
       return null;
   }
@@ -85,11 +91,11 @@ function renderCard(
 export const ChannelMessageItem = memo(function ChannelMessageItem({
   message, onAction, onReply, findMessage, channelId,
   isThreadAnchor, threadReplyCount, isExpanded, onToggleThread, isThreadReply,
-  waitingForInput, onOpenWorkUnit, onOpenWorkUnitConfirm, onOpenRequirement, onInlineReply, fileVocabulary, wuChangedFiles, compact, highlight,
+  waitingForInput, onOpenWorkUnit, onOpenWorkUnitConfirm, onOpenWorkUnitRuling, onOpenRequirement, onInlineReply, fileVocabulary, wuChangedFiles, compact, highlight,
 }: Props) {
   const isHuman = message.authorType === 'human';
   const meta = parseMeta(message.meta);
-  const card = renderCard(meta, message, onAction, onOpenWorkUnitConfirm);
+  const card = renderCard(meta, message, onAction, onOpenWorkUnitConfirm, onOpenWorkUnitRuling);
   const parentMessage = message.replyToId && findMessage ? findMessage(message.replyToId) : undefined;
   const [convertOpen, setConvertOpen] = useState(false);
   const [needDraft, setNeedDraft] = useState('');
@@ -197,7 +203,7 @@ export const ChannelMessageItem = memo(function ChannelMessageItem({
       {/* Quote block (reply reference) */}
       {parentMessage && (
         <div className="mc-quote">
-          {parentMessage.authorType === 'human' ? 'You' : parentMessage.agentName || 'Agent'}：{parentMessage.content}
+          {parentMessage.authorType === 'human' ? '你' : parentMessage.agentName || 'Agent'}：{parentMessage.content}
         </div>
       )}
 
@@ -285,17 +291,18 @@ export const ChannelMessageItem = memo(function ChannelMessageItem({
         )
       )}
 
-      {/* Footer: WU/REQ 链接（开右抽屉）+ PMO 直跳 + 线程开关；⑤ WU chip 旁 ↗ 直跳已删（同目的地两入口，chip 自承载） */}
+      {/* Footer: WU/REQ 链接（开右抽屉）+ PMO 直跳 + 线程开关；⑤ WU chip 旁 ↗ 直跳已删（同目的地两入口，chip 自承载）。
+          #474：三枚同形 chip 无法扫读 → 类型修饰类差异化配色（wu=accent / PMO=success / REQ=warning） */}
       {(message.workUnitId || reqId || pmoId || (isThreadAnchor && threadReplyCount !== undefined && threadReplyCount > 0)) && (
         <div className="mc-card-foot">
           {message.workUnitId && onOpenWorkUnit && (
-            <button className="mc-wu-link" onClick={() => onOpenWorkUnit(message.workUnitId!)} title={`打开任务详情：${message.workUnitId}`}>
+            <button className="mc-wu-link mc-wu-link--wu" onClick={() => onOpenWorkUnit(message.workUnitId!)} title={`打开任务详情：${message.workUnitId}`}>
               {shortWuId(message.workUnitId)} ›
             </button>
           )}
           {pmoId && (
             <button
-              className="mc-wu-link"
+              className="mc-wu-link mc-wu-link--pmo"
               onClick={() => navigate(`/pmo/project/${pmoId}`)}
               title="打开项目详情"
               aria-label="打开项目详情"
@@ -304,7 +311,7 @@ export const ChannelMessageItem = memo(function ChannelMessageItem({
             </button>
           )}
           {reqId && onOpenRequirement && (
-            <button className="mc-wu-link" onClick={() => onOpenRequirement(reqId)} title="打开 REQ 全链路">
+            <button className="mc-wu-link mc-wu-link--req" onClick={() => onOpenRequirement(reqId)} title="打开 REQ 全链路">
               {reqId} ›
             </button>
           )}
