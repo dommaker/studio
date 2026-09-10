@@ -4,7 +4,8 @@
 
 /* === 主题切换 === */
 /* 默认深色主题 —— 方向 A「Mission Control 控制台」（docs/plans/2026-07-ui-visual-directions.md §2）
-   近纯黑 #050507 / 正文 sans + mono 限定代码/ID/时间戳/统计数字（#380）/ 13px 基准高密度 / 动效最少（仅执行中状态点 pulse）/ 磷光青绿 #2ee6a8 */
+   近纯黑 #050507 / 正文 sans + mono 限定代码/ID/时间戳/统计数字（#380）/ 13px 基准高密度 / 磷光青绿 #2ee6a8
+   动效 = 克制白名单（批次 D-2.x：状态点 pulse + 4 类 100–150ms 过渡，style-guide §2.5） */
 :root {
   /* 背景 - 近纯黑；2026-09-10 批次 D-1.1：明度差 ~2% 在真实显示器上不可感知（d-fresh 截图实证），
      secondary/tertiary/elevated/hover 整体上抬至可分辨档，层级意图兑现 */
@@ -93,6 +94,12 @@
   --space-4: 16px;
   --space-5: 24px;
   --space-6: 32px;
+
+  /* 动效 token（批次 D-2.x，style-guide §2.5 白名单）：仅 4 类场景允许——
+     hover/focus 过渡、抽屉/弹窗进出场、状态色切换、主题切换；prefers-reduced-motion 全禁（下方媒体查询） */
+  --motion-fast: 100ms;
+  --motion-base: 150ms;
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
 
   /* 主题标识 */
   --theme-name: 'dark';
@@ -208,6 +215,58 @@ body {
   font-family: var(--font-sans);
   font-size: var(--fs-base);
   line-height: var(--lh-base);
+}
+
+/* === 克制动效白名单场景①：hover/focus 过渡（批次 D-2.x；prefers-reduced-motion 全禁） === */
+.btn,
+.input,
+.select-trigger,
+.select-option,
+.card,
+.nav-item,
+.icon-btn,
+.conn-chip,
+.theme-option {
+  transition:
+    background-color var(--motion-fast) var(--ease-standard),
+    border-color var(--motion-fast) var(--ease-standard),
+    color var(--motion-fast) var(--ease-standard),
+    box-shadow var(--motion-fast) var(--ease-standard);
+}
+
+/* 场景②：弹窗进出场（遮罩淡入 + 本体上浮淡入） */
+@keyframes mc-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes mc-modal-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.modal-overlay {
+  animation: mc-fade-in var(--motion-fast) var(--ease-standard);
+}
+
+.modal,
+.modal-content {
+  animation: mc-modal-in var(--motion-base) var(--ease-standard);
+}
+
+/* 场景③：状态点颜色切换 */
+.status-dot {
+  transition: background-color var(--motion-base) var(--ease-standard);
+}
+
+/* 场景④：主题切换过渡（只过渡底色/文字色，不做全局 * 过渡） */
+body,
+.card,
+.nav-header,
+.sidebar {
+  transition: background-color var(--motion-base) var(--ease-standard),
+    color var(--motion-base) var(--ease-standard),
+    border-color var(--motion-base) var(--ease-standard);
 }
 
 /* === 容器 === */
