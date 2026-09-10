@@ -164,25 +164,29 @@ export function WorkUnitDetailPage() {
         </div>
       </div>
 
-      {/* #440 Phase 3：标题下 meta strip（涉及角色 / AC 数 / 当前阶段；缺项不占位） */}
-      {wu && derived && (
-        <MetaStrip
-          className="wu-detail-meta"
-          items={[
-            { key: 'role', label: '涉及角色', value: wu.assigneeId ? <AssigneeLabel assigneeId={wu.assigneeId} assigneeRoleId={wu.assigneeRoleId} className="u-hover-accent" /> : null },
-            { key: 'ac', label: 'AC 数', value: acList.length > 0 ? acList.length : null },
-            { key: 'stage', label: '当前阶段', value: WU_STATUS_LABELS[derived.column] ?? derived.column },
-          ]}
-        />
-      )}
+      {/* 批次 E-3：meta strip + stepper 槽位恒渲染（.wu-detail-headslot min-height 占位）——
+          徽章/stepper 条件内容出现时不推挤下方内容，缓解首屏布局跳变 */}
+      <div className="wu-detail-headslot">
+        {/* #440 Phase 3：标题下 meta strip（涉及角色 / AC 数 / 当前阶段；缺项不占位） */}
+        {wu && derived && (
+          <MetaStrip
+            className="wu-detail-meta"
+            items={[
+              { key: 'role', label: '涉及角色', value: wu.assigneeId ? <AssigneeLabel assigneeId={wu.assigneeId} assigneeRoleId={wu.assigneeRoleId} className="u-hover-accent" /> : null },
+              { key: 'ac', label: 'AC 数', value: acList.length > 0 ? acList.length : null },
+              { key: 'stage', label: '当前阶段', value: WU_STATUS_LABELS[derived.column] ?? derived.column },
+            ]}
+          />
+        )}
 
-      {/* 四站 stepper 全页共享定位条 + 生命周期关键事件 chip 行（无事件不占行） */}
-      {life && (
-        <div className="wu-detail-stepperwrap">
-          <StationStepper stations={life.stations} />
-          <LifecycleEventChips events={life.events} />
-        </div>
-      )}
+        {/* 四站 stepper 全页共享定位条 + 生命周期关键事件 chip 行（无事件不占行） */}
+        {life && (
+          <div className="wu-detail-stepperwrap">
+            <StationStepper stations={life.stations} />
+            <LifecycleEventChips events={life.events} />
+          </div>
+        )}
+      </div>
 
       {error ? (
         <div className="wu-detail-body-single">

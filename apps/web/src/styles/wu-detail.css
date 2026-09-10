@@ -34,6 +34,9 @@
 }
 
 /* ---------- 四站 stepper（全页共享定位条）+ 关键事件 chip 行 ---------- */
+/* 批次 E-3：meta strip + stepper 槽位恒渲染 + min-height 占位——条件内容出现时不推挤下方内容
+   （高度 ≈ meta 一行 + stepper 条，chips 行有事件才占高，不预留） */
+.wu-detail-headslot { min-height: calc(var(--space-6) * 2 + var(--space-5)); flex-shrink: 0; }
 .wu-detail-stepperwrap { flex-shrink: 0; border-bottom: 1px solid var(--border-subtle); }
 .wu-stepper-bar {
   display: flex;
@@ -42,7 +45,12 @@
 }
 .wu-bstep { display: flex; flex-direction: column; gap: 3px; flex-shrink: 0; }
 .wu-bstep-head { display: flex; align-items: center; gap: 6px; }
-.wu-st-dot { width: 9px; height: 9px; border-radius: 50%; box-sizing: border-box; flex-shrink: 0; }
+/* 批次 E-3：站点状态切换补颜色过渡（白名单③状态色切换；prefers-reduced-motion 全局禁用） */
+.wu-st-dot {
+  width: 9px; height: 9px; border-radius: 50%; box-sizing: border-box; flex-shrink: 0;
+  transition: background-color var(--motion-base) var(--ease-standard),
+    border-color var(--motion-base) var(--ease-standard);
+}
 .wu-st-done .wu-st-dot { background: var(--accent-primary); }
 .wu-st-current .wu-st-dot {
   border: 2px solid var(--accent-primary);
@@ -50,7 +58,10 @@
   box-shadow: 0 0 6px var(--accent-glow);
 }
 .wu-st-upcoming .wu-st-dot { border: 1px solid var(--text-muted); background: transparent; }
-.wu-st-label { font-size: var(--fs-sm); white-space: nowrap; }
+.wu-st-label {
+  font-size: var(--fs-sm); white-space: nowrap;
+  transition: color var(--motion-base) var(--ease-standard);
+}
 .wu-st-done .wu-st-label { color: var(--text-primary); }
 .wu-st-current .wu-st-label { color: var(--accent-primary); font-weight: 600; }
 .wu-st-upcoming .wu-st-label { color: var(--text-muted); }
@@ -61,7 +72,10 @@
   font-variant-numeric: tabular-nums;
 }
 /* 连线贯穿：已达成站之后的线 accent 高亮 */
-.wu-bstep-line { flex: 1; min-width: 24px; height: 1px; margin: 10px var(--space-2) 0; background: var(--border-default); }
+.wu-bstep-line {
+  flex: 1; min-width: 24px; height: 1px; margin: 10px var(--space-2) 0; background: var(--border-default);
+  transition: background-color var(--motion-base) var(--ease-standard);
+}
 .wu-bstep-line-reached { background: var(--accent-border); }
 
 /* 生命周期关键事件 = 横排 chip（色点 + 文字 + mono 时间），无事件不占行 */
@@ -242,6 +256,8 @@
   font-size: var(--fs-sm);
   color: var(--text-primary);
   font-variant-numeric: tabular-nums;
+  /* 批次 E-3：hover 颜色过渡（白名单①hover 过渡） */
+  transition: color var(--motion-fast) var(--ease-standard);
 }
 .wu-token-minibar {
   flex: 1;

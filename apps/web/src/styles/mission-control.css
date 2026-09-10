@@ -309,12 +309,16 @@
   background: var(--border-subtle);
 }
 
-/* #326：骨架占位行——数据层降级消息的固定小高度占位（水合前渲染） */
+/* #326：骨架占位行——数据层降级消息的固定小高度占位（水合前渲染）；
+   批次 E-3：透明 outline + outline-color 过渡挂基类（同 .mc-msg），mc-msg-highlight 移除时渐隐 */
 .mc-msg-skeleton {
   padding: 6px 12px;
   color: var(--text-muted);
   font-size: var(--fs-xs);
   text-align: center;
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+  transition: outline-color var(--motion-base) var(--ease-standard);
   border: 1px dashed var(--border-subtle);
   border-radius: 4px;
   margin: 4px 0;
@@ -331,8 +335,16 @@
 }
 .mc-collapse-toggle:hover { color: var(--text-primary); border-color: var(--accent-primary); }
 
-/* 消息（纯文本行，不做气泡） */
-.mc-msg { margin-bottom: 8px; }
+/* 消息（纯文本行，不做气泡）。
+   批次 E-3：透明 outline + 颜色过渡挂基类（白名单③状态色切换）——mc-msg-highlight /
+   mc-msg-new 类移除时 outline-color/background-color 有过渡起点，高亮渐隐而非瞬隐 */
+.mc-msg {
+  margin-bottom: 8px;
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+  transition: background-color var(--motion-base) var(--ease-standard),
+    outline-color var(--motion-base) var(--ease-standard);
+}
 .mc-msg-head {
   display: flex;
   align-items: baseline;
@@ -669,10 +681,12 @@
   white-space: nowrap;
 }
 .mc-msg-highlight {
-  outline: 2px solid var(--warning);
-  outline-offset: 2px;
+  outline-color: var(--warning);
   border-radius: 4px;
 }
+/* 批次 E-3：SSE 新到达消息渐隐高亮（白名单③状态色切换）——accent-dim 底色，
+   页面 2s 后移类，经 .mc-msg 基类 background-color 过渡渐隐常态 */
+.mc-msg-new { background-color: var(--accent-dim); }
 
 /* 按钮（Mission Control 密度） */
 .mc-btn {

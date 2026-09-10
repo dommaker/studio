@@ -600,6 +600,7 @@ export function ChannelDetailPage() {
     unpinFromBottom,
     handleLoadMore,
     ownSendPendingRef,
+    awayNewCount,
     virtualizer,
     virtualEnabled,
   } = useStreamFollow({
@@ -667,6 +668,36 @@ export function ChannelDetailPage() {
     return () => clearTimeout(timer);
   }, [highlightId, streamRef, virtualEnabled, messageToItemIndex, virtualizer, unpinFromBottom]);
 
+  // 批次 E-3：SSE 新到达消息渐隐高亮（白名单③状态色切换：accent-dim 底色 → 常态，仅 background-color 过渡）。
+  // 口径 = 全部新到达消息（含自己发送的回显——消息模型只有 authorType 无 authorId，区分不到个人，
+  // 与 useStreamFollow ownSendPending 窗口同一局限）；首拉与翻页 prepend/水合归并的历史不标
+  // （createdAt 早于到达前最新一条即历史）。2s 后移类，经 .mc-msg 基类过渡渐隐
+  const [freshMsgIds, setFreshMsgIds] = useState<ReadonlySet<string>>(new Set());
+  const msgTrackRef = useRef<{ ids: Set<string>; latestTs: number } | null>(null);
+  const freshMsgTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (messages.length === 0) return;
+    const ts = (m: ChannelMessage) => new Date(m.createdAt).getTime();
+    const track = msgTrackRef.current;
+    if (!track) {
+      // 首载：全部记为已见，不高亮
+      msgTrackRef.current = { ids: new Set(messages.map(m => m.id)), latestTs: ts(messages[messages.length - 1]) };
+      return;
+    }
+    const arrived = messages.filter(m => !track.ids.has(m.id) && ts(m) >= track.latestTs);
+    for (const m of messages) track.ids.add(m.id);
+    track.latestTs = Math.max(track.latestTs, ts(messages[messages.length - 1]));
+    if (arrived.length === 0) return;
+    setFreshMsgIds(prev => {
+      const next = new Set(prev);
+      for (const m of arrived) next.add(m.id);
+      return next;
+    });
+    if (freshMsgTimerRef.current) clearTimeout(freshMsgTimerRef.current);
+    freshMsgTimerRef.current = setTimeout(() => setFreshMsgIds(new Set()), 2000);
+  }, [messages]);
+  useEffect(() => () => { if (freshMsgTimerRef.current) clearTimeout(freshMsgTimerRef.current); }, []);
+
   // #322：提升为 useCallback——消除每次渲染新建的内联 render props（memo 稳定 props 契约）
   const renderMessageItem = useCallback((msg: ChannelMessage, extra: Partial<Parameters<typeof ChannelMessageItem>[0]> = {}) => (
     <ChannelMessageItem
@@ -685,9 +716,10 @@ export function ChannelDetailPage() {
       fileVocabulary={fileVocabulary}
       wuChangedFiles={msg.workUnitId ? wuChangedFiles[msg.workUnitId] : undefined}
       highlight={highlightId === msg.id}
+      fresh={freshMsgIds.has(msg.id)}
       {...extra}
     />
-  ), [handleAction, handleReply, findMessage, id, isWaitingForInput, openWu, openWuConfirm, openWuRuling, openReq, handleInlineReply, fileVocabulary, wuChangedFiles, highlightId]);
+  ), [handleAction, handleReply, findMessage, id, isWaitingForInput, openWu, openWuConfirm, openWuRuling, openReq, handleInlineReply, fileVocabulary, wuChangedFiles, highlightId, freshMsgIds]);
 
   // #326：骨架占位行——degraded 消息（含 thread anchor）渲染为固定占位行，
   // 保留 data-message-id（锚点捕获/阅读位置仍可按 mid 定位）；水合后原位恢复。
@@ -870,11 +902,12 @@ export function ChannelDetailPage() {
               ))
             )}
           </div>
-          {/* #289: 偏离底部时浮出「回到底部」（sticky 贴滚动视口底部，不占流内高度） */}
+          {/* #289: 偏离底部时浮出「回到底部」（sticky 贴滚动视口底部，不占流内高度）；
+              批次 E-3：钉底跟随期间到达的新消息计数进浮钮文案，点击回底后清零 */}
           {showJumpToBottom && (
             <div className="mc-jump-wrap">
               <button type="button" className="mc-jump-bottom" onClick={pinAndJumpToBottom}>
-                ↓ 回到底部
+                {awayNewCount > 0 ? `↓ ${awayNewCount} 条新消息` : '↓ 回到底部'}
               </button>
             </div>
           )}

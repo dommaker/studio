@@ -380,9 +380,10 @@ export function ProjectDetailPage() {
               >
                 Cloud IDE
               </button>
+              {/* 批次 E-3：「✓ 已复制」反馈补 color 过渡（白名单③状态色切换），成功态染 accent */}
               <button
                 onClick={handleCopyPath}
-                className="btn btn-secondary"
+                className={`btn btn-secondary transition-colors${copySuccess ? ' u-accent' : ''}`}
               >
                 {copySuccess ? '✓ 已复制' : '复制路径'}
               </button>

@@ -48,6 +48,10 @@ export function useStreamFollow({ channelId, messages, loading, loadMore, items,
   // 钉底状态只由读者滚动改写（几何判定见 streamFollow 纯函数）
   const pinnedRef = useRef(true);
   const [showJumpToBottom, setShowJumpToBottom] = useState(false);
+  // 批次 E-3：离底期间到达的新消息计数（「回到底部」浮钮未读数；回底/跟随清零）。
+  // tailIdRef = 上一批消息的尾部 id，增量 = 尾部新增条数（prepend 历史不动尾部，天然不计）
+  const [awayNewCount, setAwayNewCount] = useState(0);
+  const tailIdRef = useRef<string | null>(null);
   // 「自己发送」挂起标记：发送动作到消息落地之间的窗口置位，跟随判定据此识别自己的消息
   // （消息模型只有 authorType 无 authorId，无法精确到人；窗口内他人 human 消息会被误判为自发，可接受）
   const ownSendPendingRef = useRef(false);
@@ -171,6 +175,7 @@ export function useStreamFollow({ channelId, messages, loading, loadMore, items,
     pendingFineAdjustRef.current = null; // 回底（按钮/自发消息跟随）= 离开存档位置，放弃未落地的精校正
     pinnedRef.current = true;
     setShowJumpToBottom(false);
+    setAwayNewCount(0); // 批次 E-3：回底即清零离底新消息计数
     // 写超出值由浏览器 clamp 到最大偏移；spacer 高 = totalSize，落点即末行底（等价 D4-4 末行语义）
     scrollStreamTo(el.scrollHeight);
   }, [scrollStreamTo]);
@@ -200,6 +205,8 @@ export function useStreamFollow({ channelId, messages, loading, loadMore, items,
     ownSendPendingRef.current = false;
     pendingFineAdjustRef.current = null; // 换频道放弃未落地的精校正
     restoreRef.current = null; // 换频道强制重读存档（防复用上次恢复的残值）
+    tailIdRef.current = null; // 批次 E-3：换频道清零离底新消息计数基线
+    setAwayNewCount(0);
     return () => {
       if (!currentId) return;
       // 消息仍属其他频道（快速连切，新频道数据未到达）→ 不存档
@@ -264,6 +271,7 @@ export function useStreamFollow({ channelId, messages, loading, loadMore, items,
     if (state.initial) {
       if (!loading) {
         state.initial = false;
+        tailIdRef.current = messages[messages.length - 1]?.id ?? null; // 批次 E-3：离底计数基线
         if (restoreRef.current?.channelId !== channelId) {
           restoreRef.current = { channelId, pos: channelId ? loadReadingPosition(channelId) : undefined };
         }
@@ -302,8 +310,15 @@ export function useStreamFollow({ channelId, messages, loading, loadMore, items,
     const last = messages[messages.length - 1];
     const lastIsOwn = last?.authorType === 'human' && ownSendPendingRef.current;
     if (lastIsOwn) ownSendPendingRef.current = false;
+    // 批次 E-3：离底期间按尾部 id 差计新到达条数（浮钮未读数）；跟随/回底走 pinAndJumpToBottom 清零
+    const prevTail = tailIdRef.current;
+    tailIdRef.current = last?.id ?? null;
     if (shouldFollowBottom(pinnedRef.current, lastIsOwn)) {
       pinAndJumpToBottom();
+    } else if (prevTail && last && prevTail !== last.id) {
+      const idx = messages.findIndex(m => m.id === prevTail);
+      const arrived = idx >= 0 ? messages.length - 1 - idx : 1; // 旧尾部掉出已加载集：保守计 1
+      if (arrived > 0) setAwayNewCount(c => c + arrived);
     }
   }, [messages, loading, scrollStreamTo, pinAndJumpToBottom, anchorRowTop, virtualEnabled, messageToItemIndex, virtualizer, startFineAdjustPoll]);
 
@@ -342,6 +357,8 @@ export function useStreamFollow({ channelId, messages, loading, loadMore, items,
     unpinFromBottom,
     handleLoadMore,
     ownSendPendingRef,
+    // 批次 E-3：离底期间到达的新消息计数（「回到底部」浮钮未读数）
+    awayNewCount,
     // #325：渲染段窗口化消费（virtualEnabled=false 时忽略，全量渲染）
     virtualizer,
     virtualEnabled,

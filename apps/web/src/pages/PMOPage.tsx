@@ -156,20 +156,19 @@ export function PMOPage({ companyId }: PMOPageProps) {
       </div>
 
       {/* Tabs — E3（2026-09 页面重设计）：border-b 形态（批次 D-4 定 KnowledgePage 为正本）+ 去 emoji；
-          2026-09-10 第二轮：删「需求」tab（与 PMO 重复，REQ 主呈现位在频道右栏） */}
+          2026-09-10 第二轮：删「需求」tab（与 PMO 重复，REQ 主呈现位在频道右栏）；
+          批次 E-3：激活态底线收进 .u-tab/.u-tab-active 结构类（禁内联 borderBottom），transition 过渡走白名单①③ */}
       <div className="px-8 pt-4">
         <div className="flex gap-1 mb-4 overflow-x-auto pb-1 border-b u-border">
           <button
             onClick={() => setActiveTab('projects')}
-            className={`px-4 py-2 text-sm rounded-t-lg whitespace-nowrap ${activeTab === 'projects' ? 'u-surface u-accent' : 'u-text-3'}`}
-            style={{ borderBottom: activeTab === 'projects' ? '2px solid var(--accent-primary)' : '2px solid transparent' }}
+            className={`u-tab px-4 py-2 text-sm rounded-t-lg whitespace-nowrap transition ${activeTab === 'projects' ? 'u-tab-active u-surface u-accent' : 'u-text-3'}`}
           >
             项目 ({projects.length})
           </button>
           <button
             onClick={() => setActiveTab('okr')}
-            className={`px-4 py-2 text-sm rounded-t-lg whitespace-nowrap ${activeTab === 'okr' ? 'u-surface u-accent' : 'u-text-3'}`}
-            style={{ borderBottom: activeTab === 'okr' ? '2px solid var(--accent-primary)' : '2px solid transparent' }}
+            className={`u-tab px-4 py-2 text-sm rounded-t-lg whitespace-nowrap transition ${activeTab === 'okr' ? 'u-tab-active u-surface u-accent' : 'u-text-3'}`}
           >
             OKR ({okrs.length})
           </button>

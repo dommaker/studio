@@ -81,10 +81,13 @@ vi.mock('../../stores/workunitStore', () => ({
 
 // 2026-09-10 第二轮：列表页抽屉已删（行点击直跳详情页），WorkUnitDrawer 不再被本页消费
 
-// SSE 上下文（#318 负载直更订阅口）— 测试无 WebSocketProvider，置空
+// SSE 上下文（#318 负载直更订阅口）— onEvent 注册回调收集，用例手工驱动（批次 E-3 起新增驱动能力）
+type SseMsg = { event_type: string; data?: unknown };
+let sseHandlers: Array<(msg: SseMsg) => void> = [];
+const emitSse = (msg: SseMsg) => { sseHandlers.forEach(h => h(msg)); };
 vi.mock('../../api/websocketHooks', () => ({
   useWebSocketContext: () => ({
-    onEvent: () => () => {},
+    onEvent: (cb: (msg: SseMsg) => void) => { sseHandlers.push(cb); return () => {}; },
     onReconnect: () => () => {},
   }),
 }));
@@ -120,6 +123,7 @@ describe('WorkUnitListPage', () => {
     mockStore.searchQuery = null;
     mockStore.unattributedOnly = false;
     mockSearchParamsValue.value = '';
+    sseHandlers = [];
   });
 
   it('renders page title', () => {
@@ -135,6 +139,34 @@ describe('WorkUnitListPage', () => {
   it('shows empty state when no workunits', () => {
     render(<WorkUnitListPage />);
     expect(screen.getByText('暂无任务')).toBeDefined();
+  });
+
+  it('批次 E-3：SSE workunit.created 新行挂 wu-row-new 渐隐高亮，2s 后自清；status_changed 不标', () => {
+    vi.useFakeTimers();
+    try {
+      mockStore.workunits = [makeWu({ id: 'wu-1', scope: '存量行' })];
+      const { container, rerender } = render(<WorkUnitListPage />);
+      const rowOf = (scope: string) =>
+        Array.from(container.querySelectorAll('.wu-row')).find(r => r.textContent?.includes(scope)) as HTMLElement;
+
+      // status_changed 直替行不挂新行高亮
+      act(() => { emitSse({ event_type: 'workunit.status_changed', data: { workunit: makeWu({ id: 'wu-1', status: 'done' }) } }); });
+      expect(rowOf('存量行').className).not.toContain('wu-row-new');
+
+      // created → 新行插头部（store 为 mock，手动对齐插头部语义）+ 渐隐高亮
+      const newWu = makeWu({ id: 'wu-2', scope: 'SSE 新行' });
+      act(() => { emitSse({ event_type: 'workunit.created', data: { workunit: newWu } }); });
+      mockStore.workunits = [newWu, ...mockStore.workunits];
+      rerender(<WorkUnitListPage />);
+      expect(rowOf('SSE 新行').className).toContain('wu-row-new');
+      expect(rowOf('存量行').className).not.toContain('wu-row-new');
+
+      // 2s 后页面自清类（渐隐经 .wu-row 既有 background-color 过渡完成）
+      act(() => { vi.advanceTimersByTime(2100); });
+      expect(rowOf('SSE 新行').className).not.toContain('wu-row-new');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   // 批次 E-2：全空空态 = 图标（去 emoji）+ 「新建任务」CTA（开创建表单）

@@ -197,14 +197,14 @@ const emitReconnect = () => { reconnectHandlers.forEach(h => h()); };
 /** #242 夹具：本频道 active WU 列表响应（deriveLiveExecutions 初始数据源） */
 const activeWuList = (wus: Array<{ id: string; metadata: string | null }>) => ({ data: { data: wus } });
 
-const renderPage = (entry = '/channels/ch-1') =>
-  render(
-    <MemoryRouter initialEntries={[entry]}>
-      <Routes>
-        <Route path="/channels/:id" element={<ChannelDetailPage />} />
-      </Routes>
-    </MemoryRouter>,
-  );
+const pageJsx = (entry = '/channels/ch-1') => (
+  <MemoryRouter initialEntries={[entry]}>
+    <Routes>
+      <Route path="/channels/:id" element={<ChannelDetailPage />} />
+    </Routes>
+  </MemoryRouter>
+);
+const renderPage = (entry = '/channels/ch-1') => render(pageJsx(entry));
 
 describe('ChannelDetailPage — Mission Control 三栏', () => {
   beforeEach(async () => {
@@ -488,6 +488,61 @@ describe('ChannelDetailPage — Mission Control 三栏', () => {
     expect(screen.getByText('过程步骤 3')).toBeTruthy();
     fireEvent.click(screen.getByText('收起 4 条过程消息'));
     expect(screen.queryByText('过程步骤 3')).toBeNull();
+  });
+
+  it('批次 E-3：SSE 新到达消息挂 mc-msg-new 渐隐高亮，2s 后自清；首拉历史不标', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const utils = renderPage();
+      // 挂载后微任务（频道/通知等 mock promise 落地）在 act 内刷新，防 act 警告
+      await act(async () => {});
+      // 首拉消息全部已渲染（mock 同步供给），且不带 mc-msg-new
+      expect(document.querySelector('[data-message-id="m-1"]')).toBeTruthy();
+      expect(document.querySelector('[data-message-id="m-1"]')?.className).not.toContain('mc-msg-new');
+
+      // 新消息到达（外部快照推进 + rerender，等价 SSE 落地后 messages 变化）
+      const newMsg: ChannelMessage = {
+        id: 'm-new', channelId: 'ch-1', authorType: 'agent' as const, agentName: 'coder-1',
+        content: '新到的消息', workUnitId: null, replyToId: null, meta: '{}', createdAt: iso(10),
+      };
+      currentMessages = [...MESSAGES, newMsg];
+      await act(async () => { utils.rerender(pageJsx('/channels/ch-1')); });
+
+      const el = document.querySelector('[data-message-id="m-new"]');
+      expect(el?.className).toContain('mc-msg-new');
+      // 既有消息不受影响
+      expect(document.querySelector('[data-message-id="m-1"]')?.className).not.toContain('mc-msg-new');
+
+      // 2s 后页面自清类（渐隐经 .mc-msg 基类 background-color 过渡完成）
+      act(() => { vi.advanceTimersByTime(2100); });
+      expect(document.querySelector('[data-message-id="m-new"]')?.className ?? '').not.toContain('mc-msg-new');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('批次 E-3：离底期间新消息计数进「回到底部」浮钮，点击回底后清零', async () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    // ?highlight 直达 = 离开底部的导航意图 → 解钉，浮钮出现（无新消息时原文案）
+    const utils = renderPage('/channels/ch-1?highlight=m-1');
+    await waitFor(() => expect(screen.getByText('↓ 回到底部')).toBeTruthy());
+
+    const mk = (mid: string, min: number): ChannelMessage => ({
+      id: mid, channelId: 'ch-1', authorType: 'agent' as const, agentName: 'coder-1',
+      content: mid, workUnitId: null, replyToId: null, meta: '{}', createdAt: iso(min),
+    });
+    // 离底期间到达 2 条 → 浮钮带未读数
+    currentMessages = [...MESSAGES, mk('m-6', 10), mk('m-7', 11)];
+    act(() => { utils.rerender(pageJsx('/channels/ch-1?highlight=m-1')); });
+    expect(screen.getByText('↓ 2 条新消息')).toBeTruthy();
+    // 再到 1 条 → 累加
+    currentMessages = [...currentMessages, mk('m-8', 12)];
+    act(() => { utils.rerender(pageJsx('/channels/ch-1?highlight=m-1')); });
+    expect(screen.getByText('↓ 3 条新消息')).toBeTruthy();
+
+    // 点击回底 → 清零 + 浮钮随钉底隐藏
+    fireEvent.click(screen.getByText('↓ 3 条新消息'));
+    expect(screen.queryByText(/回到底部|条新消息/)).toBeNull();
   });
 });
 

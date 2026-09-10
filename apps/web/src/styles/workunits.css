@@ -61,6 +61,10 @@
 .wu-row.wu-row-human { background: var(--warning-dim); }
 .wu-row.wu-row-human:hover { background: var(--bg-hover); }
 
+/* 批次 E-3：SSE 新插入行渐隐高亮（白名单③状态色切换）——accent-dim 底色，页面 2s 后移类，
+   经 .wu-row 既有 background-color 过渡渐隐常态；规则置后于 human/hover 锁叠加顺序 */
+.wu-row.wu-row-new { background: var(--accent-dim); }
+
 /* 左侧状态色条 + 状态点按派生列着色（#472：pending=中性、in_review=warn、active=accent、done/closed=ok、blocked=err） */
 .wu-row[data-status='pending']    { border-left-color: var(--text-secondary); }
 .wu-row[data-status='unassigned'] { border-left-color: var(--text-muted); }

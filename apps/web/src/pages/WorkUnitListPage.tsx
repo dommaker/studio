@@ -91,11 +91,27 @@ export function WorkUnitListPage() {
   // SSE 重连经 onReconnect 一次性 refetch 对齐（ADR D3）
   const applyWorkunitEvent = useWorkUnitStore(s => s.applyWorkunitEvent);
   const { onEvent, onReconnect } = useWebSocketContext();
+  // 批次 E-3：SSE 新 WU 行渐隐高亮（白名单③状态色切换）——created 事件插头部的新行挂
+  // .wu-row-new（accent-dim 底色），2s 后移类经 .wu-row 既有 background-color 过渡渐隐；
+  // 过滤不符的行 store 不插入，fresh 标记由定时器自清，无副作用
+  const [freshWuIds, setFreshWuIds] = useState<ReadonlySet<string>>(new Set());
+  const freshWuTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  useEffect(() => () => { freshWuTimersRef.current.forEach(clearTimeout); }, []);
   useEffect(() => onEvent((msg) => {
     if (msg.event_type !== 'workunit.status_changed' && msg.event_type !== 'workunit.created') return;
     const data = msg.data as { workunit?: WorkUnit } | null;
     if (!data?.workunit) return;
     applyWorkunitEvent(data.workunit, { insertIfMissing: msg.event_type === 'workunit.created' });
+    if (msg.event_type === 'workunit.created') {
+      const wuId = data.workunit.id;
+      setFreshWuIds(prev => (prev.has(wuId) ? prev : new Set(prev).add(wuId)));
+      const timers = freshWuTimersRef.current;
+      if (timers.has(wuId)) clearTimeout(timers.get(wuId));
+      timers.set(wuId, setTimeout(() => {
+        timers.delete(wuId);
+        setFreshWuIds(prev => { const next = new Set(prev); next.delete(wuId); return next; });
+      }, 2000));
+    }
   }), [onEvent, applyWorkunitEvent]);
   useEffect(() => onReconnect(() => { void loadWorkUnits(); void loadUnattributedCount(); void loadAllCount(); }), [onReconnect, loadWorkUnits, loadUnattributedCount, loadAllCount]);
 
@@ -278,6 +294,7 @@ export function WorkUnitListPage() {
                   <WorkUnitRow
                     key={wu.id}
                     wu={wu}
+                    fresh={freshWuIds.has(wu.id)}
                     onOpen={() => navigate(`/workunits/${wu.id}`)}
                     onReviewPassed={(summary, assigneeId, confirm) => reviewPassed(wu.id, summary, assigneeId, confirm)}
                     onReviewRejected={(reason) => reviewRejected(wu.id, reason)}
@@ -309,9 +326,11 @@ export function WorkUnitListPage() {
 }
 
 function WorkUnitRow({
-  wu, onOpen, onReviewPassed, onReviewRejected, onConfirmPending, formatTime,
+  wu, fresh, onOpen, onReviewPassed, onReviewRejected, onConfirmPending, formatTime,
 }: {
   wu: WorkUnit;
+  /** 批次 E-3：SSE 新插入行渐隐高亮标记（.wu-row-new，2s 后页面自清） */
+  fresh?: boolean;
   /** 2026-09-10 第二轮：行点击直跳 /workunits/:id 详情页 */
   onOpen: () => void;
   onReviewPassed: (summary?: string, assigneeId?: string, confirm?: ReviewConfirmPayload) => Promise<unknown>;
@@ -330,7 +349,7 @@ function WorkUnitRow({
 
   return (
     <div
-      className={`wu-row${depBlocked ? ' u-dimmed' : ''}${derived.needsHuman ? ' wu-row-human' : ''}`}
+      className={`wu-row${depBlocked ? ' u-dimmed' : ''}${derived.needsHuman ? ' wu-row-human' : ''}${fresh ? ' wu-row-new' : ''}`}
       data-status={derived.column}
     >
       <div
