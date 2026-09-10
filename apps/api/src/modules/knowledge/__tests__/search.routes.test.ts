@@ -64,6 +64,44 @@ describe('search.routes', () => {
     expect(second.json).toEqual({ results: [], total: 0 });
   });
 
+  // 防回归（2026-09-10 生产 500）：tag 'pattern' 是自由命名空间，guideline 条目
+  // （session-summary 等）合法携带且正文为 markdown；pattern 分支若按裸 tag 查询 +
+  // 裸 JSON.parse 正文，遇到此类条目即 SyntaxError → 整请求 500。
+  it('GET /search 200 with markdown-bodied guideline tagged pattern and corrupted pattern entry', async () => {
+    const { sharedStore } = await import('../knowledge-singletons.js');
+    const ts = new Date().toISOString();
+    const base = {
+      layer: 'project', created: ts, lastReferenced: ts,
+      contributors: [], projects: [], applicablePhases: [],
+      sourceReferences: [], referencedBy: [], executionResults: [],
+    } as const;
+    // 正常交互模式条目（type=pattern，JSON 正文）
+    sharedStore.save({
+      ...base, id: 'pat-test-good', type: 'pattern', title: '序列: deploy → verify',
+      content: JSON.stringify({ description: 'deploy gating 模式', insight: 'deploy 前先 verify', confidence: 0.9 }),
+      maturity: 'active', tags: ['pattern', 'active', 'tool_usage'], consumptionMode: 'signal', origin: 'system',
+    } as any);
+    // guideline 合法携带 'pattern' tag，正文为 markdown（生产 GUI-083 等的形态）
+    sharedStore.save({
+      ...base, id: 'gui-test-md', type: 'guideline', title: 'deploy 流程规范',
+      content: '# deploy 规范\n\nCommit: 1b2c3d 后才能 deploy。',
+      maturity: 'active', tags: ['pattern', 'session-summary'], consumptionMode: 'reference', origin: 'agent',
+    } as any);
+    // type=pattern 但正文损坏（数据防御层）：跳过而非 500
+    sharedStore.save({
+      ...base, id: 'pat-test-corrupt', type: 'pattern', title: 'deploy corrupted entry',
+      content: 'deploy: not-json-body', maturity: 'active',
+      tags: ['pattern', 'active'], consumptionMode: 'signal', origin: 'system',
+    } as any);
+
+    const res = await api('GET', '/search?q=deploy');
+    expect(res.status).toBe(200);
+    const ids = res.json.results.map((r: any) => r.id);
+    expect(ids).toContain('pat-test-good');
+    expect(ids).not.toContain('gui-test-md');
+    expect(ids).not.toContain('pat-test-corrupt');
+  });
+
   it('GET /resolutions 200 with empty list and byStatus', async () => {
     const res = await api('GET', '/resolutions');
     expect(res.status).toBe(200);

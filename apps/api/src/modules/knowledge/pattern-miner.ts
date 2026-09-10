@@ -8,6 +8,7 @@
 import { logger, FileStore } from '@dommaker/studio-shared';
 import { skillStore } from '../skills/skill-store.js';
 import { sharedStore } from './knowledge-singletons.js';
+import { listInteractionPatterns, parsePatternContent } from './pattern-entry.js';
 import {
   resolveStudioEventsFile,
   parseStudioEventPayload,
@@ -94,10 +95,11 @@ export class PatternMiner {
     }
 
     // 清理旧模式 — 标记 7 天前的为 outdated
-    const allPatterns = sharedStore.list({ tags: ['pattern'] });
+    const allPatterns = listInteractionPatterns(sharedStore);
     const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
     for (const entry of allPatterns) {
-      const data = JSON.parse((entry as any).content || '{}');
+      const data = parsePatternContent(entry.content);
+      if (data === null) continue; // 正文损坏条目跳过（见 pattern-entry.ts 根因注释）
       if (data.status === 'active' && new Date(data.observedPeriodEnd).getTime() < weekAgo) {
         sharedStore.save({ ...entry, tags: [...(entry as any).tags.filter((t: string) => t !== 'active'), 'outdated'] } as any);
       }
@@ -105,14 +107,14 @@ export class PatternMiner {
 
     if (newPatterns.length > 0) {
       try {
-        const activePatterns = sharedStore.list({ tags: ['pattern', 'active'] })
-          .filter((e: any) => {
-            const d = JSON.parse(e.content || '{}');
-            return d.confidence >= 0.7;
+        const activePatterns = listInteractionPatterns(sharedStore, ['active'])
+          .filter((e) => {
+            const d = parsePatternContent(e.content);
+            return d !== null && d.confidence >= 0.7;
           })
-          .sort((a: any, b: any) => {
-            return (JSON.parse(b.content || '{}').confidence || 0)
-                 - (JSON.parse(a.content || '{}').confidence || 0);
+          .sort((a, b) => {
+            return (parsePatternContent(b.content)?.confidence || 0)
+                 - (parsePatternContent(a.content)?.confidence || 0);
           })
           .slice(0, 3);
 
@@ -121,8 +123,8 @@ export class PatternMiner {
           const sysChannels = await fileStore.listChannels({ name: '#系统' });
           const sysChannel = sysChannels[0] ?? null;
           if (sysChannel) {
-            const insightLines = activePatterns.map((e: any) => {
-              const d = JSON.parse(e.content || '{}');
+            const insightLines = activePatterns.map((e) => {
+              const d = parsePatternContent(e.content) ?? {};
               return `- **${e.title}**: ${d.insight || d.description} (置信度: ${Math.round((d.confidence || 0) * 100)}%)`;
             }).join('\n');
             await channelMessageService.createAgentMessage(sysChannel.id, 'PatternMiner',
@@ -139,11 +141,12 @@ export class PatternMiner {
   }
 
   async getActivePatterns(category?: string): Promise<Record<string, any>[]> {
-    const entries = sharedStore.list({ tags: ['pattern', 'active'] });
+    const entries = listInteractionPatterns(sharedStore, ['active']);
 
     return entries
-      .map((e: any) => {
-        const d = JSON.parse(e.content || '{}');
+      .map((e) => {
+        const d = parsePatternContent(e.content);
+        if (d === null) return null; // 正文损坏条目跳过（见 pattern-entry.ts 根因注释）
         if (category && d.category !== category) return null;
         return { ...d, id: e.id, name: e.title, status: d.status || 'active' };
       })
@@ -241,11 +244,16 @@ export class PatternMiner {
     observedPeriodStart: Date;
     observedPeriodEnd: Date;
   }): Promise<number> {
-    const entries = sharedStore.list({ tags: ['pattern', 'active'] });
-    const existing = entries.find((e: any) => e.title === data.name);
+    const entries = listInteractionPatterns(sharedStore, ['active']);
+    const existing = entries.find((e) => e.title === data.name);
 
     if (existing) {
-      const d = JSON.parse((existing as any).content || '{}');
+      const d = parsePatternContent(existing.content);
+      // 正文损坏条目无法安全合并：跳过本次 upsert（不新建同标题副本），等数据修复
+      if (d === null) {
+        logger.warn('[PatternMiner] skip upsert: corrupted pattern content', { id: existing.id, title: data.name });
+        return 0;
+      }
       sharedStore.save({
         ...existing,
         content: JSON.stringify({
@@ -284,14 +292,14 @@ export class PatternMiner {
   }
 
   async suggestSkillsFromPatterns(): Promise<number> {
-    const entries = sharedStore.list({ tags: ['pattern', 'active', 'tool_usage'] });
+    const entries = listInteractionPatterns(sharedStore, ['active', 'tool_usage']);
     const highConfidence = entries
-      .filter((e: any) => {
-        const d = JSON.parse(e.content || '{}');
-        return d.confidence > 0.8 && d.frequency >= 5;
+      .filter((e) => {
+        const d = parsePatternContent(e.content);
+        return d !== null && d.confidence > 0.8 && d.frequency >= 5;
       })
-      .sort((a: any, b: any) => {
-        return (JSON.parse(b.content || '{}').confidence || 0) - (JSON.parse(a.content || '{}').confidence || 0);
+      .sort((a, b) => {
+        return (parsePatternContent(b.content)?.confidence || 0) - (parsePatternContent(a.content)?.confidence || 0);
       })
       .slice(0, 10);
 
@@ -299,23 +307,30 @@ export class PatternMiner {
 
     let suggested = 0;
     for (const pattern of highConfidence) {
-      const d = JSON.parse((pattern as any).content || '{}');
+      const d = parsePatternContent(pattern.content) ?? {};
       const existing = skillStore.findFirst({
-        name: { contains: (pattern as any).title.slice(0, 50) },
+        name: { contains: pattern.title.slice(0, 50) },
         source: { in: ['proposal', 'extraction', 'builtin'] },
       });
       if (existing) continue;
 
+      // d.pattern 是条目内嵌的 JSON 字符串，同样只是约定：解析失败按空工具列表处理
+      let patternTools: unknown[] = [];
+      try {
+        const parsed: unknown = JSON.parse(d.pattern);
+        if (Array.isArray(parsed)) patternTools = parsed;
+      } catch { /* 见 pattern-entry.ts 根因注释 */ }
+
       skillStore.create({
         companyId: 'system',
-        name: `Auto: ${(pattern as any).title}`.slice(0, 100),
+        name: `Auto: ${pattern.title}`.slice(0, 100),
         source: 'proposal',
         status: 'draft',
         category: d.category,
         description: d.description,
-        tools: JSON.stringify(Array.isArray(JSON.parse(d.pattern)) ? JSON.parse(d.pattern) : []),
+        tools: JSON.stringify(patternTools),
         metadata: JSON.stringify({
-          patternId: (pattern as any).id,
+          patternId: pattern.id,
           confidence: d.confidence,
           frequency: d.frequency,
           insight: d.insight,
@@ -324,7 +339,7 @@ export class PatternMiner {
         }),
       });
       suggested++;
-      logger.info('[PatternMiner] Skill proposal created', { patternName: (pattern as any).title, confidence: d.confidence });
+      logger.info('[PatternMiner] Skill proposal created', { patternName: pattern.title, confidence: d.confidence });
     }
 
     return suggested;

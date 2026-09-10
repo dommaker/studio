@@ -64,7 +64,7 @@ searchRoutes.get('/resolutions', async (req, res) => {
       byStatus,
     });
   } catch (error) {
-    logger.error('Failed to list resolutions');
+    logger.error('Failed to list resolutions', { error: String(error) });
     res.status(500).json({ error: 'Failed to list resolutions' });
   }
 });
@@ -112,22 +112,24 @@ searchRoutes.get('/search', apiCache(CACHE_CONFIG.short), async (req, res) => {
     // Search interaction patterns (KnowledgeStore)
     if (searchTypes.includes('pattern')) {
       const { sharedStore } = await import('./knowledge-singletons.js');
-      const patterns = sharedStore.list({ tags: ['pattern', 'active'] })
-        .filter((e: any) => {
-          const d = JSON.parse(e.content || '{}');
+      const { listInteractionPatterns, parsePatternContent } = await import('./pattern-entry.js');
+      const patterns = listInteractionPatterns(sharedStore, ['active'])
+        .filter((e) => {
+          const d = parsePatternContent(e.content);
+          if (d === null) return false; // 正文损坏条目跳过（见 pattern-entry.ts 根因注释）
           const name = e.title || '';
-          const desc = d.description || '';
-          const insight = d.insight || '';
+          const desc = String(d.description || '');
+          const insight = String(d.insight || '');
           return name.includes(query) || desc.includes(query) || insight.includes(query);
         })
         .slice(0, takeLimit);
       for (const e of patterns) {
-        const d = JSON.parse((e as any).content || '{}');
+        const d = parsePatternContent(e.content) ?? {};
         results.push({
           type: 'pattern',
-          id: (e as any).id,
-          title: (e as any).title,
-          snippet: (d.insight || d.description || '').slice(0, 200),
+          id: e.id,
+          title: e.title,
+          snippet: String(d.insight || d.description || '').slice(0, 200),
           score: 2,
         });
       }
@@ -167,7 +169,7 @@ searchRoutes.get('/search', apiCache(CACHE_CONFIG.short), async (req, res) => {
 
     res.json({ results: results.slice(0, takeLimit), total: results.length });
   } catch (error) {
-    logger.error('Knowledge search failed');
+    logger.error('Knowledge search failed', { error: String(error) });
     res.status(500).json({ error: 'Knowledge search failed' });
   }
 });
@@ -186,7 +188,7 @@ searchRoutes.get('/resolution/density', async (_req, res) => {
     const density = await resolutionService.getDensityScore();
     res.json(density);
   } catch (error) {
-    logger.error('Failed to get density score');
+    logger.error('Failed to get density score', { error: String(error) });
     res.status(500).json({ error: 'Failed to get density score' });
   }
 });
@@ -201,7 +203,7 @@ searchRoutes.get('/resolution/cross-session', async (_req, res) => {
     const stats = await resolutionService.getCrossSessionStats();
     res.json(stats);
   } catch (error) {
-    logger.error('Failed to get cross-session stats');
+    logger.error('Failed to get cross-session stats', { error: String(error) });
     res.status(500).json({ error: 'Failed to get cross-session stats' });
   }
 });

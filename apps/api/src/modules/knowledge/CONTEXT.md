@@ -1,6 +1,6 @@
 # apps/api/src/modules/knowledge
 
-> Updated: 2026-06-11 (GAP-7 元数据驱动注入 + error logging 修复)
+> Updated: 2026-09-10 (pattern-entry 交互模式查询/解析口径收敛，/search 500 根因修复)
 
 ### 职责
 
@@ -59,7 +59,8 @@ knowledge/
 ├── preference-observer.ts     # Producer: 用户偏好
 ├── rule-scanner.ts            # Producer: 业务规则
 ├── env-snapper.ts             # Producer: 环境快照
-├── pattern-miner.ts           # Producer: 交互模式
+├── pattern-miner.ts           # Producer: 交互模式（读口走 pattern-entry 口径）
+├── pattern-entry.ts           # 交互模式条目统一口径：listInteractionPatterns（types:['pattern'] 判别）+ parsePatternContent（安全解析）
 ├── decision-chain-extractor.ts # Producer: 决策链
 ├── eval-case-generator.ts     # Producer: 评估用例
 ├── routes.ts                  # API 路由门面（挂载子路由，导出 knowledgeRoutes/knowledgeInternalRoutes 不变）
@@ -77,6 +78,8 @@ knowledge/
 - **下游**: `channels/*`（conversation-handler）
 
 ### 注意事项
+
+- **交互模式条目判别口径（2026-09-10 生产 /search 500 根因修复）**：tag `pattern` 是自由命名空间——guideline 条目（session-summary 等）合法携带且正文为 markdown；交互模式条目的唯一可靠判别是结构化字段 `type='pattern'`（off-schema，harness `KnowledgeSubsystem` 词表未收录，upsertPattern 以 `as any` 写入）。消费方（search.routes /search、pattern-miner 5 处）统一走 `pattern-entry.ts` 的 `listInteractionPatterns`（types 口径）+ `parsePatternContent`（正文 JSON 解析失败 = 数据损坏，返回 null 跳过，不抛异常打垮读路径）。同类裸 `JSON.parse(entry.content)` 在 rule-scanner / decision-chain-extractor / unified-query 仍存在，其 tag 词表（rule/decision 等）当前无冲突条目，属同类潜在 hazard。
 
 - **分页口径统一（#359，2026-08-26）**：knowledge 全部 limit 入口（/export、/gaps/:type、/unified、/knowledge-service/search、/knowledge-service/entries）统一走 `utils/pagination.ts parsePagination`（clamp 1..100，缺省 20）。修复前三处三个口径（search clamp 50 / entries|unified clamp 100 / export 无 clamp）。缺省值变化：search 10→20、export 100→20、unified 50→20、entries 无 limit 时从不设限 → 20。
 - **#355 审核闭环接线 review-proposal 正本（2026-08-26）**：knowledge_proposal 卡生命周期（建提案/发卡/approve/reject/status）归 review-proposal 正本（kind='knowledge'，存储 `knowledge-proposals.jsonl`）；业务侧只留 `review-adapter.ts`（卡渲染 + onApprove 逐条目 promote / onReject 逐条目 demote）。审批改走通用端点 `/api/v1/review-proposals/knowledge/:proposalId/{approve,reject,status}`（整卡一次审批）；`/knowledge-service/promote|demote` 是条目生命周期端点（MonitoringPage 人工 promote 在用），保留。接线前发出的存量卡（cardData 无 proposalId）不可再审批——条目保持 draft 不注入（同 #354 存量口径）。`conversation-extraction.ts`（拆分时遗留的死拷贝，零 importer）随本票删除。
