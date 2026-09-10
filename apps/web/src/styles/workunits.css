@@ -50,7 +50,8 @@
 .wu-row {
   border-bottom: 1px solid var(--border-subtle);
   border-left: 3px solid transparent;
-  transition: background 0.12s ease;
+  /* 批次 E-1：硬编码时长归动效 token，属性收窄为实际过渡的 background-color（hover 底色切换） */
+  transition: background-color var(--motion-fast) var(--ease-standard);
 }
 .wu-row:hover { background: var(--bg-hover); }
 
