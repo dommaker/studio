@@ -50,6 +50,16 @@ export function MoreDropdown({ onOpenSearch }: MoreDropdownProps) {
     return () => document.removeEventListener('click', handleClickOutside);
   }, []);
 
+  // 批次 F-2：Escape 关闭下拉
+  useEffect(() => {
+    if (!isOpen) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setIsOpen(false);
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [isOpen]);
+
   const renderItem = (item: DropdownItem) => (
     <Link
       key={item.to}
@@ -65,6 +75,7 @@ export function MoreDropdown({ onOpenSearch }: MoreDropdownProps) {
   return (
     <div ref={dropdownRef} className="relative">
       <button
+        aria-expanded={isOpen}
         onClick={() => {
           const next = !isOpen;
           setIsOpen(next);

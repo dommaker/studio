@@ -126,6 +126,16 @@ export function NotificationBell() {
     return () => document.removeEventListener('mousedown', handler);
   }, [open]);
 
+  // 批次 F-2：Escape 收起面板
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [open]);
+
   // D-2 项3（reply 线）：追踪点击过的 reply 项，掉出池后给「下一个」（effect 在下方）
   const handledReplyRef = useRef<string | null>(null);
 

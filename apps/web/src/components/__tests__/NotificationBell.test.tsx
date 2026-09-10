@@ -387,6 +387,15 @@ describe('#468 行动中心面板（四分区）', () => {
     expect(screen.queryByText('全部已读')).not.toBeInTheDocument();
   });
 
+  // 批次 F-2：Escape 收起面板
+  it('Escape 收起行动中心面板', async () => {
+    await renderLoaded({ stateItems: [stateItem()] });
+    openDropdown();
+    expect(screen.getByText('待回复 (1)')).toBeInTheDocument();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByText('待回复 (1)')).not.toBeInTheDocument();
+  });
+
   it('后端请求失败不崩溃：展示空态', async () => {
     mockApi.get.mockRejectedValue(new Error('network'));
     render(<NotificationBell />);

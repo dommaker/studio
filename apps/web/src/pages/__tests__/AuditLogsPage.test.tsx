@@ -174,4 +174,33 @@ describe('AuditLogsPage（E7 审计日志页改造）', () => {
     expect(url).toContain('startTime=');
     openSpy.mockRestore();
   });
+
+  it('批次 F-2：行点击开详情弹窗（归并 ui/Modal：role=dialog + ✕ + 关闭按钮），Escape 关闭', async () => {
+    render(<AuditLogsPage />);
+    const cell = await screen.findByText('user-a');
+
+    fireEvent.click(cell.closest('tr')!);
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toHaveAttribute('aria-modal', 'true');
+    expect(screen.getByText('日志详情')).toBeTruthy();
+    // ui/Modal 标题栏 ✕（aria-label=关闭）+ footer「关闭」按钮
+    expect(screen.getAllByRole('button', { name: '关闭' })).toHaveLength(2);
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('批次 F-2：表格行可键盘触发（tabIndex + Enter/Space 开详情）', async () => {
+    render(<AuditLogsPage />);
+    const cell = await screen.findByText('user-a');
+    const row = cell.closest('tr')!;
+    expect(row).toHaveAttribute('tabindex', '0');
+
+    fireEvent.keyDown(row, { key: 'Enter' });
+    expect(await screen.findByRole('dialog')).toBeTruthy();
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    fireEvent.keyDown(row, { key: ' ' });
+    expect(await screen.findByRole('dialog')).toBeTruthy();
+  });
 });

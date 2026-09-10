@@ -6,7 +6,7 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { auditLogApi, type AuditLog, type AuditLogStats } from '../api/auditLogs';
-import { Select } from '../components/ui';
+import { Select, Modal } from '../components/ui';
 import { formatFullTime } from '../utils/datetime';
 
 /** 日期 input（YYYY-MM-DD）→ 本地日界 ISO，传后端 startTime/endTime */
@@ -317,7 +317,18 @@ export const AuditLogsPage: React.FC = () => {
               </tr>
             ) : (
               logs.map(log => (
-                <tr key={log.id} className="border-b u-border u-hover-bg cursor-pointer" onClick={() => setSelectedLog(log)}>
+                <tr
+                  key={log.id}
+                  className="border-b u-border u-hover-bg cursor-pointer"
+                  tabIndex={0}
+                  onClick={() => setSelectedLog(log)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      setSelectedLog(log);
+                    }
+                  }}
+                >
                   <td className="py-3 px-4 text-sm font-mono">
                     {formatFullTime(log.createdAt)}
                   </td>
@@ -380,15 +391,23 @@ export const AuditLogsPage: React.FC = () => {
         </div>
       )}
 
-      {/* Detail Modal */}
-      {selectedLog && (
-        <div className="modal-overlay">
-          <div className="modal" style={{ maxWidth: 672 }}>
-            <div className="modal-header">
-              <h2 className="modal-title">{'日志详情'}</h2>
-            </div>
-            <div className="modal-body">
-            <div className="space-y-4">
+      {/* Detail Modal（批次 F-2：手搓弹层归并 ui/Modal——获得遮罩点击关闭/关闭 ✕/Escape/焦点管理） */}
+      <Modal
+        open={!!selectedLog}
+        onClose={() => setSelectedLog(null)}
+        title={'日志详情'}
+        maxWidth="672px"
+        footer={
+          <button
+            onClick={() => setSelectedLog(null)}
+            className="btn btn-secondary"
+          >
+            {'关闭'}
+          </button>
+        }
+      >
+        {selectedLog && (
+          <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="text-sm u-text-2">{'ID'}</label>
@@ -458,18 +477,8 @@ export const AuditLogsPage: React.FC = () => {
                 </div>
               )}
             </div>
-            </div>
-            <div className="modal-footer">
-              <button
-                onClick={() => setSelectedLog(null)}
-                className="btn btn-secondary"
-              >
-                {'关闭'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+        )}
+      </Modal>
       </div>
       </div>
     </div>

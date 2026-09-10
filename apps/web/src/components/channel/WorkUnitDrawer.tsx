@@ -88,6 +88,20 @@ interface WuMeta {
 }
 
 export function WorkUnitDrawer({ drawer, onClose, onOpenWu, onOpenReq, todoNav }: Props) {
+  // 批次 F-2：Escape 关闭抽屉；事件源在弹层（.modal-overlay）内时让给弹层自管，避免一按双关
+  useEffect(() => {
+    if (!drawer) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      // 事件源在弹层（.modal-overlay）内、或 Select 选项面板在岗时让弹层自管，避免一按双关
+      if (e.target instanceof Element && e.target.closest('.modal-overlay')) return;
+      if (document.querySelector('.select-panel')) return;
+      onClose();
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [drawer, onClose]);
+
   if (!drawer) return null;
   return (
     <aside className="mc-drawer" aria-label="详情抽屉">

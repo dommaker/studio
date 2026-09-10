@@ -237,6 +237,30 @@ describe('WorkUnitDrawer', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
+  // 批次 F-2：Escape 关闭抽屉
+  it('Escape 调 onClose 关闭抽屉', () => {
+    const onClose = vi.fn();
+    renderDrawer({ kind: 'wu', id: 'WU-1017' }, { onClose });
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('Escape 事件源在弹层（.modal-overlay）内时让弹层自管，不关抽屉', () => {
+    const onClose = vi.fn();
+    renderDrawer({ kind: 'wu', id: 'WU-1017' }, { onClose });
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    const inner = document.createElement('button');
+    overlay.appendChild(inner);
+    document.body.appendChild(overlay);
+    try {
+      fireEvent.keyDown(inner, { key: 'Escape' });
+      expect(onClose).not.toHaveBeenCalled();
+    } finally {
+      overlay.remove();
+    }
+  });
+
   it('shows WorkUnit detail with status, owner, REQ link and step count', async () => {
     renderDrawer({ kind: 'wu', id: 'WU-1017' });
     await waitFor(() => expect(screen.getByText('方向稿 A/B 原型页搭建')).toBeTruthy());

@@ -72,6 +72,23 @@ describe('MoreDropdown — header 更多菜单', () => {
     expect(trigger.querySelector('svg')).toBeTruthy();
     expect(trigger.textContent).not.toMatch(emojiRe);
   });
+
+  // 批次 F-2：aria-expanded（ChannelTopbarMenu 同款）+ Escape 关闭
+  it('批次 F-2：触发器 aria-expanded 随开合切换', () => {
+    renderDropdown();
+    const trigger = screen.getByRole('button', { name: /更多/ });
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(trigger);
+    expect(trigger).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('批次 F-2：Escape 收起下拉', () => {
+    renderDropdown();
+    fireEvent.click(screen.getByRole('button', { name: /更多/ }));
+    expect(screen.getByRole('link', { name: /知识库/ })).toBeTruthy();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('link', { name: /知识库/ })).toBeNull();
+  });
 });
 
 describe('MoreDropdown — 徽标 = 行动中心 unreadCount（#468 投影化）', () => {
