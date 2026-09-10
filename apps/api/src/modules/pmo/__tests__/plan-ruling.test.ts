@@ -10,7 +10,8 @@
  *  - 无 pmoId：只复活不写台账；非 blocked / 无待裁 rulings → 拒绝
  *  - 载荷校验：空清单 / 未知 action / 采纳缺结论 / 超 12 条 → PlanRulingError
  *
- * 约定同 map-opening.test.ts：PMO 项目写真实 ~/.studio/projects，afterEach 统一删除。
+ * 约定同 map-opening.test.ts：PMO 项目经 projectService 写入（落 #219 setup 钉的
+ * 隔离根 projects/，非真实 ~/.studio），afterEach 统一删除。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';

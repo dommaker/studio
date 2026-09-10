@@ -33,7 +33,7 @@ async function findWuByMessage(workUnitId: string | null | undefined) {
 beforeEach(async () => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'req-binding-test-'));
   fileStore = new FileStore(tmpDir);
-  // 中性化 PMO 依赖（默认实现会读真实 ~/.studio/projects，并行测试下被 routes 测试的真实项目串扰）
+  // 中性化 PMO 依赖（默认实现绑模块级 projectService，读 #219 隔离根 projects/——与本文件 tmpDir store 不同源）
   reqService = new RequirementService(fileStore, {
     getProjectByAlias: async () => null,
     findChoreProject: async () => null,

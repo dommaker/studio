@@ -37,7 +37,7 @@ export type RequirementWithProject = RequirementData & {
   projectId?: string | null; // B3a: 挂接的 PMO 项目 id（WU 经此继承工程 gitRepo）
 };
 
-/** RequirementService 可注入依赖（测试用 stub 避免碰真实 ~/.studio/projects） */
+/** RequirementService 可注入依赖（测试用 stub 隔离 PMO 依赖） */
 export interface RequirementServiceDeps {
   projectExists?: (projectId: string) => Promise<boolean>;
   /** 决策 4 别名层：REQ id → 统一编号 PMO（默认 projectService.getByReqAlias） */

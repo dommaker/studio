@@ -10,7 +10,8 @@
  *  - 边界：无 TASK 行不建不落哨兵；LEG 未命中 → 不落 workspaceRoot 仍建单；
  *    非 spec 类型 / 非 done 状态忽略
  *
- * 约定同 decision-resolution.test.ts：PMO 项目写真实 ~/.studio/projects，afterEach 统一删除。
+ * 约定同 decision-resolution.test.ts：PMO 项目经 projectService 写入（落 #219 setup 钉的
+ * 隔离根 projects/，非真实 ~/.studio），afterEach 统一删除。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';

@@ -24,7 +24,7 @@ let workUnitService: WorkUnitService;
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'req-service-test-'));
   fileStore = new FileStore(tmpDir);
-  // 中性化 PMO 依赖（默认实现会读真实 ~/.studio/projects，并行测试下被 routes 测试的真实项目串扰）
+  // 中性化 PMO 依赖（默认实现绑模块级 projectService，读 #219 隔离根 projects/——与本文件 tmpDir store 不同源）
   service = new RequirementService(fileStore, {
     getProjectByAlias: async () => null,
     findChoreProject: async () => null,
@@ -150,7 +150,7 @@ describe('RequirementService (vision §5.3)', () => {
   });
 
   describe('B3a: projectId 挂接（决策 D2）', () => {
-    // projectExists stub：只认 'proj-ok'，不碰真实 ~/.studio/projects
+    // projectExists stub：只认 'proj-ok'（隔离 PMO 依赖）
     const exists = async (id: string) => id === 'proj-ok';
     let svc: RequirementService;
 
@@ -235,7 +235,7 @@ describe('RequirementService (vision §5.3)', () => {
     });
 
     it('projectId 缺省校验走真实 projectService（默认 deps）', async () => {
-      // 默认 projectExists 查真实 ~/.studio/projects —— 不存在的 id 一律抛错
+      // 默认 projectExists 走 projectService（#219 隔离根 projects/）—— 不存在的 id 一律抛错
       await expect(service.create({ title: '需求', projectId: 'proj-definitely-not-exists-b3a' }))
         .rejects.toThrow('Project not found');
     });
@@ -396,7 +396,7 @@ describe('RequirementService (vision §5.3)', () => {
 /**
  * PMO-a 别名层（2026-07-28 分析文档，决策 4/2）
  * get/list 别名感知、createFromDispatch 杂务归集、update/maybeRollUpToDone 别名只读。
- * 全部经 stub 依赖注入，不碰真实 ~/.studio/projects。
+ * 全部经 stub 依赖注入（隔离 PMO 依赖）。
  */
 describe('PMO-a：REQ → PMO 只读别名层（决策 4/2）', () => {
   const aliasProject = {

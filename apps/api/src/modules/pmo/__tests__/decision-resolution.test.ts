@@ -8,7 +8,8 @@
  *    specSpawnedAt 哨兵防重、specWuId 回写）；非全清不建
  *  - 边界：无 map 的 PMO（非探路型）不受影响；metadata 缺 fogId 不炸；缺 summary 落空串
  *
- * 约定同 progress-rollup.test.ts：PMO 项目写真实 ~/.studio/projects，afterEach 统一删除。
+ * 约定同 progress-rollup.test.ts：PMO 项目经 projectService 写入（落 #219 setup 钉的
+ * 隔离根 projects/，非真实 ~/.studio），afterEach 统一删除。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';

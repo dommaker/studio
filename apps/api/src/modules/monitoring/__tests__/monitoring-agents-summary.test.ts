@@ -4,7 +4,7 @@
 // （legacy 与 REQ 别名两种）；metadata.pmoProjectId 已移出解析链）、
 // 归属不到/悬空 WU → null、向后兼容（既有字段不动）。
 // 模式同 monitoring.service.test.ts：真实 FileStore（tmpdir）；projects 走 deps.listProjects stub
-// （避免碰真实 ~/.studio/projects）。
+// （隔离 PMO 依赖）。
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';

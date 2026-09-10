@@ -12,7 +12,8 @@
  *  - 已有 map 的 PMO：不重建
  *  - DESTINATION 缺省 → 回退项目 title；非 analysis/plan / 非 done：忽略
  *
- * 约定同 decision-resolution.test.ts：PMO 项目写真实 ~/.studio/projects，afterEach 统一删除。
+ * 约定同 decision-resolution.test.ts：PMO 项目经 projectService 写入（落 #219 setup 钉的
+ * 隔离根 projects/，非真实 ~/.studio），afterEach 统一删除。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';

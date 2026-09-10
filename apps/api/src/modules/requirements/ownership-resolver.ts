@@ -46,7 +46,7 @@ export interface ResolveWorkspaceInput {
   /** #285（决策 #249 §4）：@文件引用（路由层校验后的 kept refs；全部引用同仓时该仓即归属工程） */
   fileRefs?: { repo: string; path: string }[];
   fileStore?: FileStore;
-  /** 项目查询（可注入，测试用 stub 避免碰真实 ~/.studio/projects） */
+  /** 项目查询（可注入，测试用 stub 隔离 PMO 依赖） */
   getProject?: (projectId: string) => Promise<{ gitRepo?: string | null } | null>;
 }
 
