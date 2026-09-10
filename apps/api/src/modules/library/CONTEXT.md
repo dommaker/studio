@@ -32,4 +32,5 @@
 - title 兜底链：frontmatter title → 首个 H1 → 文件名；updatedAt 兜底链：frontmatter updatedAt → 文件 mtime
 - 单仓读失败（目录不存在/权限）不炸整体，跳过并 `logger.warn`
 - 前端 id 整段 `encodeURIComponent` 传入（含 `:` 与 `/`），路由侧 decode 后按首个冒号切分 projectId/relPath
+- **2026-09-10：详情路由是通配 `GET /*`（不是 `/:id`）**——生产/开发 nginx `proxy_pass` 带 URI（`/api/`）会先解码 `%2F`→`/` 再转发，id 以多段路径原形到达，单段 `/:id` 恒 404（症状 = 前端「文档未找到」）。通配后编码/解码两种到达形态都命中。`req.params[0]` 已被 Express 解码一次，**禁止再手动 `decodeURIComponent`**（双重解码 bug，已修）
 - adr 面 relPath = `docs/adr/<name>.md`（相对仓根），其余面相对 `.studio/`；KIND_DIRS 的 `root` 字段区分两类基座
