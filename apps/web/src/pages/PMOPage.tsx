@@ -1,6 +1,6 @@
 // PMOPage - PMO 管理主页面（项目 + OKR；三个弹窗已抽至 components/pmo/，工单 33）
 // 2026-09-10 第二轮重设计：① 删「需求」tab（用户反馈看不懂且与 PMO 重复；REQ 主呈现位在频道右栏）；
-// ② 项目列表横向行卡 → 双列竖向卡网格（≥lg 两列）。
+// ② 项目列表 v2 = 紧凑行列表（pmo.css .pmo-row，细分隔线 + 状态色条，项目多了也可扫读）。
 import { useState, useEffect, useMemo } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { projectApi } from '../api';
@@ -9,6 +9,7 @@ import { okrApi, type OkrKeyResult } from '../api/pmo';
 import { channelApi, type Channel } from '../api/channel';
 import { requirementApi } from '../api/requirements';
 import { useAsyncData } from '../hooks/useAsyncData';
+import '../styles/pmo.css';
 import { CreateOkrDialog } from '../components/pmo/CreateOkrDialog';
 import { CreateProjectDialog } from '../components/pmo/CreateProjectDialog';
 import { PublishProjectDialog } from '../components/pmo/PublishProjectDialog';
@@ -188,40 +189,34 @@ export function PMOPage({ companyId }: PMOPageProps) {
             加载中...
           </div>
         ) : activeTab === 'projects' ? (
-          /* 2026-09 第二轮：双列竖向卡网格（<lg 单列）；「+ 新建 PMO」虚线卡作首格 */
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+          /* 2026-09 第二轮 v2：紧凑行列表（pmo.css .pmo-row，与 library/workunits 行模式同族） */
+          <div>
             {/* 🆕 PMO-a: 新建 PMO 入口（表单为规范 modal，见页面底部） */}
-            <button
-              onClick={() => setShowCreateForm(true)}
-              className="card p-4 text-left cursor-pointer u-text-2 flex flex-col justify-center"
-              style={{ borderStyle: 'dashed' }}
-            >
-              <div className="flex items-center gap-2">
-                <span>+ 新建 PMO</span>
-              </div>
-              <div className="text-xs mt-1 u-text-3">
-                直接下达项目指令，自动生成 PMO 号
-              </div>
+            <button onClick={() => setShowCreateForm(true)} className="pmo-new">
+              <span>+ 新建 PMO</span>
+              <span className="text-xs u-text-3">直接下达项目指令，自动生成 PMO 号</span>
             </button>
 
-            {projects.length === 0 && (
-              // 批次 D-3 项1：空态 = 说明 + 一个明确主行动（与左侧虚线块同入 CreateProjectDialog）
+            {projects.length === 0 ? (
+              // 批次 D-3 项1：空态 = 说明 + 一个明确主行动（与上方虚线行同入 CreateProjectDialog）
               <div className="empty-state">
                 <p>暂无项目</p>
                 <p className="text-sm mt-2">下达项目指令即可创建，自动生成 PMO 编号</p>
                 <button className="btn btn-primary mt-4" onClick={() => setShowCreateForm(true)}>新建 PMO</button>
               </div>
+            ) : (
+              <div className="pmo-list">
+                {projects.map(project => (
+                  <ProjectCard
+                    key={project.id}
+                    project={project}
+                    wuStats={wuStats}
+                    channels={channels}
+                    handlePublishClick={handlePublishClick}
+                  />
+                ))}
+              </div>
             )}
-
-            {projects.map(project => (
-              <ProjectCard
-                key={project.id}
-                project={project}
-                wuStats={wuStats}
-                channels={channels}
-                handlePublishClick={handlePublishClick}
-              />
-            ))}
           </div>
         ) : (
           <div className="space-y-3">
