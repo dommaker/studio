@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { FileStore, eventBus } from '@dommaker/studio-shared';
-import { AgentProfileService, ensureStudioProfile, STUDIO_ROLE_DESCRIPTION, STUDIO_ROLE_DEFAULT_PROVIDER } from '../agent-profile.service.js';
+import { AgentProfileService, ensureStudioProfile, STUDIO_ROLE_DESCRIPTION, STUDIO_ROLE_DEFAULT_PROVIDER, STUDIO_ROLE_LEGACY_DESCRIPTION } from '../agent-profile.service.js';
 
 // F1: provider 缺省打戳的扫描结果 mock 为固定 'claude'（真机扫描结果随机器漂移，测试要确定）
 vi.mock('../default-provider.js', () => ({
@@ -499,6 +499,49 @@ describe('AC Group 1: studio role', () => {
     it('delete studio 角色拒绝', async () => {
       const studio = await ensureStudioProfile(fileStore);
       await expect(service.delete(studio.id)).rejects.toThrow(/studio.*cannot be deleted|cannot delete.*studio/i);
+    });
+  });
+
+  // 2026-09-10 设计修正：studio 从「署名身份」转为系统维护任务的执行角色（挂 loop），
+  // 停用它 = 系统任务死单生产线复活，故保留名保护扩展到停用
+  describe('update rejects deactivating studio', () => {
+    it('update studio 的 status 置非 active 拒绝', async () => {
+      const studio = await ensureStudioProfile(fileStore);
+      await expect(service.update(studio.id, { status: 'inactive' })).rejects.toThrow(/studio.*cannot be deactivated|deactivat.*studio/i);
+    });
+
+    it('update studio 的其他字段（provider 杠杆）放行', async () => {
+      const studio = await ensureStudioProfile(fileStore);
+      const updated = await service.update(studio.id, { provider: 'kimi' });
+      expect(updated.provider).toBe('kimi');
+    });
+  });
+
+  describe('ensureStudioProfile 描述迁移（2026-09-10）', () => {
+    it('存量 description 为旧默认文案（不执行任务）时迁移为新文案', async () => {
+      const now = new Date().toISOString();
+      await fileStore.createProfile({
+        id: 'studio-legacy-desc', name: 'studio', description: STUDIO_ROLE_LEGACY_DESCRIPTION,
+        channels: '[]', provider: 'claude', status: 'active',
+        createdAt: now, updatedAt: now,
+      });
+
+      const profile = await ensureStudioProfile(fileStore);
+      expect(profile.description).toBe(STUDIO_ROLE_DESCRIPTION);
+      const onDisk = await fileStore.getProfile('studio-legacy-desc');
+      expect(onDisk!.description).toBe(STUDIO_ROLE_DESCRIPTION);
+    });
+
+    it('存量 description 为用户自定义时不覆盖', async () => {
+      const now = new Date().toISOString();
+      await fileStore.createProfile({
+        id: 'studio-custom-desc', name: 'studio', description: '我自己的备注',
+        channels: '[]', provider: 'claude', status: 'active',
+        createdAt: now, updatedAt: now,
+      });
+
+      const profile = await ensureStudioProfile(fileStore);
+      expect(profile.description).toBe('我自己的备注');
     });
   });
 });

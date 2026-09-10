@@ -19,7 +19,10 @@ import { summarizeRoleStates } from './agent-instance.service.js';
 export const STUDIO_ROLE_NAME = 'studio';
 
 /** B4a: studio 角色定位描述（种子默认值；用户自定义后不覆盖） */
-export const STUDIO_ROLE_DESCRIPTION = '系统角色：平台维护性 LLM 调用与系统提醒署名，不执行任务';
+export const STUDIO_ROLE_DESCRIPTION = '系统角色：系统维护任务执行身份（挂 loop，仅消费指名给它的 WU）+ 平台维护性 LLM 直调与系统提醒署名';
+
+/** 旧默认文案（2026-09-10 前「不执行任务」定位）——ensureStudioProfile 据此迁移存量，不碰用户自定义 */
+export const STUDIO_ROLE_LEGACY_DESCRIPTION = '系统角色：平台维护性 LLM 调用与系统提醒署名，不执行任务';
 
 /**
  * L2（2026-07-28）：studio 角色缺省 provider（种子默认值；用户显式配置后不覆盖）。
@@ -117,12 +120,14 @@ export type AgentProfileWithOnline = AgentProfileData & {
 /**
  * AC-1.1: 幂等创建内置 studio 角色。
  *
- * studio 角色是系统任务执行身份（systemExecutor 读其 provider），
- * 不通过 AgentProfileService.create 走事件流（避免触发 agentLoopRegistry mount），
- * 直接 fileStore.createProfile。已存在则跳过。
+ * studio 角色是系统任务执行身份（systemExecutor 读其 provider；2026-09-10 起挂 loop
+ * 消费指名给它的系统维护 WU——trigger assigneeRole 独占认领语义要求目标角色必须有 loop），
+ * 不通过 AgentProfileService.create 走事件流（避免触发 agentLoopRegistry mount 时序竞争），
+ * 直接 fileStore.createProfile。已存在则按需补齐。
  *
- * B4a: description 定位为"系统角色不执行任务"——新建直接写入；
- * 存量仅在 description 为空（旧默认）时回填，用户自定义不覆盖。
+ * B4a: description 定位为系统角色说明——新建直接写入；
+ * 存量在 description 为空（旧默认）或等于旧默认文案（STUDIO_ROLE_LEGACY_DESCRIPTION）
+ * 时迁移，用户自定义不覆盖。
  * L2: provider 同口径——新建写入 STUDIO_ROLE_DEFAULT_PROVIDER；
  * 存量 provider 为空（未配置）时回填，用户显式配置的 provider 不覆盖。
  */
@@ -131,7 +136,7 @@ export async function ensureStudioProfile(fileStore: FileStore): Promise<AgentPr
   const existing = all.find(p => p.name === STUDIO_ROLE_NAME);
   if (existing) {
     const patch: Partial<AgentProfileData> = {};
-    if (!existing.description || !existing.description.trim()) {
+    if (!existing.description || !existing.description.trim() || existing.description === STUDIO_ROLE_LEGACY_DESCRIPTION) {
       patch.description = STUDIO_ROLE_DESCRIPTION;
     }
     if (!existing.provider) {
@@ -156,8 +161,8 @@ export async function ensureStudioProfile(fileStore: FileStore): Promise<AgentPr
     updatedAt: now,
   };
   await fileStore.createProfile(data);
-  // 故意不发 agent-profile.created 事件：studio 角色 mount 应跳过（AC-1.3），
-  // 走事件流会触发 mount，虽 mount 内部会跳过，但事件语义不对（不是用户创建）。
+  // 故意不发 agent-profile.created 事件：mount 由启动批量挂载统一负责（index.ts），
+  // 走事件流会抢在批量挂载前单独 mount，事件语义也不对（不是用户创建）。
   return data;
 }
 
@@ -294,6 +299,12 @@ export class AgentProfileService {
     // AC-1.2: 拒绝改名到 studio
     if (input.name === STUDIO_ROLE_NAME) {
       throw new Error(`name "${STUDIO_ROLE_NAME}" is reserved for system role`);
+    }
+
+    // 2026-09-10：studio 转为系统维护 WU 执行角色（挂 loop），停用 = 系统任务死单生产线
+    // 复活（trigger 指名单仅其 loop 可见）。保留名保护扩展到停用；其余字段（provider 等）可改。
+    if (existing.name === STUDIO_ROLE_NAME && input.status !== undefined && input.status !== 'active') {
+      throw new Error(`studio role cannot be deactivated (system workunit executor)`);
     }
 
     // #298: 名字唯一性校验（与 create 同口径；排除自身 id 以支持改名为自己当前名=幂等）。

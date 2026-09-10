@@ -12,6 +12,7 @@ Trigger 子系统（AS-026，3.28c-4）：SCHEDULE（cron）+ EVENT（EventBus�
 - `trigger-scheduler.ts` — SCHEDULE tick + EVENT EventBus 订阅
 - `trigger-registry.ts` — 单例 TriggerScheduler（注入 eventBus）
 - `trigger-action.ts` — CREATE 动作执行（从 trigger payload 创建 WorkUnit；#162 T8-E1：建单显式 `status='pending'` 人闸，按来源不按类型，人工确认 pending→unassigned 后才可认领）
+- `trigger-assignee-check.ts` — 指名执行者可运行性自检 `checkTriggerAssignees`（2026-09-10，doc-semantic-review 滞留 143h 事故根治）：CREATE 类 trigger 的 `assigneeRole` 指名 = 独占认领（仅该角色 loop 可见），角色不存在/loop 非 running 即结构性死单；index.ts 启动挂载 loop 后调用，问题逐条 logger.error
 - `trigger.routes.ts` — Trigger 管理 REST API
 
 ### 依赖关系

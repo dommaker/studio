@@ -136,17 +136,21 @@ describe('AgentLoopRegistry', () => {
       expect(registry.list()).toHaveLength(1);
     });
 
-    it('AC-1.3: mount 跳过 name=studio 角色（status=skipped，不创建 loop）', async () => {
+    it('studio 系统角色正常挂载 loop（2026-09-10 设计修正：AC-1.3 跳过已废除——系统维护 WU 指名 studio，无 loop 即死单）', async () => {
       const studioProfile = makeProfile('studio-id');
       studioProfile.name = 'studio';
       const entry = await registry.mount(studioProfile);
 
-      expect(entry.status).toBe('skipped');
-      expect(entry.loop).toBeNull();
-      // 不注册 trigger
-      expect(mockTriggerScheduler.registerTrigger).not.toHaveBeenCalled();
-      // get 仍可查到（便于调试）
-      expect(registry.get('studio-id')).toBe(entry);
+      expect(entry.status).toBe('running');
+      expect(entry.loop).not.toBeNull();
+      // 与其他角色同待遇：注册 EVENT trigger + 建运行时实例
+      expect(mockTriggerScheduler.registerTrigger).toHaveBeenCalledWith(
+        expect.objectContaining({
+          condition: { type: 'EVENT', event: 'workunit.created' },
+        })
+      );
+      const states = await fileStore.listStates();
+      expect(states.find(s => s.roleId === 'studio-id' && s.status === 'idle')).toBeDefined();
     });
   });
 

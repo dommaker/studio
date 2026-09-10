@@ -29,18 +29,10 @@ export class AgentLoopRegistry {
     const existing = this.loops.get(profile.id);
     if (existing) return existing;
 
-    // AC-1.3: studio 角色不 mount（系统任务执行身份，不消费 WU，由 systemExecutor 直接 spawn）
-    if (profile.name === 'studio') {
-      const entry: MountedLoop = {
-        profileId: profile.id,
-        loop: null,
-        status: 'skipped',
-        error: 'system role',
-      };
-      this.loops.set(profile.id, entry);
-      logger.info(`[AgentLoopRegistry] Skipped mount for system role ${profile.name}`);
-      return entry;
-    }
+    // 2026-09-10 设计修正：AC-1.3「studio 角色不 mount」已废除——studio 转为系统维护
+    // WU 的执行角色（trigger assigneeRole 指名语义 = 独占认领，无 loop 即结构性死单，
+    // 见 docs/issues/2026-08-03-unattended-token-burn.md 与 trigger-assignee-check.ts）。
+    // studio 的 systemExecutor 直调身份不受影响（读 profile.provider，不经过 loop）。
 
     const loop = new AgentLoop(profile, this.fileStore);
     let entry: MountedLoop;

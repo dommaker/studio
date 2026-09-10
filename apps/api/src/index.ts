@@ -345,6 +345,23 @@ async function start() {
         if (profiles.length === 0) {
           logger.info('[AgentLoop] No active profiles found, skipping auto-start');
         }
+
+        // 2026-09-10 启动自检：CREATE 类 trigger 的 assigneeRole 必须解析到 loop running 的角色，
+        // 否则建出的指名 WU 是结构性死单（doc-semantic-review 滞留 143h 事故）。
+        // 仅 agentLoopEnabled 实例执行（standby 实例不挂 loop，自检必然误报）。
+        try {
+          const { checkTriggerAssignees } = await import('./modules/triggers/trigger-assignee-check.js');
+          const problems = await checkTriggerAssignees(
+            scheduler.getStates().map(s => s.config),
+            { fileStore, getLoopEntry: (id) => agentLoopRegistry.get(id) },
+          );
+          for (const p of problems) {
+            logger.error(`[TriggerAssigneeCheck] trigger "${p.triggerId}" assigneeRole "${p.assigneeRole}": ${p.reason}`);
+          }
+          if (problems.length === 0) {
+            logger.info('[TriggerAssigneeCheck] All named trigger assignees have running loops');
+          }
+        } catch (e) { logger.warn('[TriggerAssigneeCheck] Failed', { error: String(e) }); }
       }
     } catch (e) { logger.warn('[AgentLoop] Failed to start', { error: String(e) }); }
 

@@ -1,10 +1,14 @@
 // 负责人展示解析（#290 清单 #24）——WU 详情页 / WU 抽屉 / REQ 链路节点三处同一口径。
-// assigneeId 存的是 RuntimeInstance id，解析顺序：
+// assigneeId 双语义（workunit/CONTEXT.md）：unassigned 时 = 被指名 profile.id；认领后 = instance.id。
+// 解析顺序：
 //   ① 当前运行实例摘要（/monitoring/agents）按 instance id 匹配 → {name, roleId}
+//   ①.5 profile 直配：assigneeId 命中 profile id（未认领指名 WU）→ 角色名；
+//       2026-09-10 新增——旧版无此步，指名 WU 必然落到 ② 拿 profile id 点查实例档案，
+//       必死 404（console 噪音拦截不掉）且退化为短 UUID
 //   ② 离线实例：实例档案（/agent-instances/:id）拿 roleId → profile 列表拿名字
 //   ③ 都查不到 → null（调用方回退渲染短 UUID）
 // 纯展示层解析，不改 assigneeId 存储与 API 形态。
-// #346：①②的批量面（summary/profiles）改读 rosterStore——TTL 缓存 + single-flight 去重
+// #346：①①.5②的批量面（summary/profiles）改读 rosterStore——TTL 缓存 + single-flight 去重
 // 取代原模块作用域 inflight 共享（locality 归位 store）；30s 内的轻微陈旧是 TTL 缓存的既定取舍。
 // 离线实例档案（/agent-instances/:id）是单实例点查，保持直连 API。
 import { useEffect, useState } from 'react';
@@ -24,6 +28,9 @@ export async function resolveAssignee(assigneeId: string): Promise<AssigneeDispl
   // ① 运行实例摘要
   const running = agents.find(a => a.id === assigneeId);
   if (running) return { name: running.name, roleId: running.roleId };
+  // ①.5 profile 直配（双语义：未认领指名 WU 的 assigneeId 就是 profile id）
+  const directProfile = profiles.find(p => p.id === assigneeId);
+  if (directProfile) return { name: directProfile.name, roleId: directProfile.id };
   // ② 离线实例：档案 roleId → profile 名
   try {
     const inst = await monitoringApi.getAgentInstance(assigneeId);
