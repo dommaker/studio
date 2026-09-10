@@ -1,6 +1,6 @@
 # CAPABILITIES.md
 
-> 最后更新: 2026-09-09
+> 最后更新: 2026-09-10
 
 ---
 
@@ -243,4 +243,8 @@
 | routes | apps/api/src/modules/specs/routes.ts | POST /api/v1/specs/:id/analyze-change |
 | ChannelRoutingEditor | apps/web/src/components/channel/ChannelRoutingEditor.tsx | ChannelRoutingEditor — #466：频道级「阶段→角色」路由表编辑（一屏三行下拉）。 |
 | PlanRulingCard | apps/web/src/components/channel/PlanRulingCard.tsx | PlanRulingCard — #467：裁决轮接力卡（plan 一脉会话内的一次性人闸） |
+| RoleSkillsModal | apps/web/src/components/monitoring/RoleSkillsModal.tsx | 角色技能编辑弹框（#462：role.skills 显式声明 → 注入索引候选，与 WU +skill 点名同权） |
+| joinChannel | apps/web/src/components/setup/joinChannel.ts | #465（首用路径断点）：一键加入 #研发——解析默认频道（按名字，同 cli/dev.ts 先例）、 |
+| icons | apps/web/src/components/ui/icons.tsx | #474 图标策略定稿：全去 emoji——导航/徽章统一用本文件的 stroke SVG 图标组件。 |
+| StaleSleepBadge | apps/web/src/components/workunit/StaleSleepBadge.tsx | #464：「已沉睡」徽标 —— 72h 认领陈旧守卫命中的 WU。 |
 | mockMatchMedia | apps/web/src/test/mockMatchMedia.ts | #395：jsdom 无 window.matchMedia 实现——按给定视口宽度求值 (min|max)-width 媒体查询， |
