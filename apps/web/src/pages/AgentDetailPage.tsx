@@ -164,8 +164,8 @@ export function AgentDetailPage() {
         <div className="mb-4"><BackButton fallback="/agents" /></div>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3 flex-wrap">
-            {/* #440 Phase 4：per-agent identicon 头像（与频道消息气泡同一生成逻辑） */}
-            {profile && <AgentAvatar name={profile.name} size={28} />}
+            {/* #440 Phase 4：per-agent identicon 头像（与频道消息气泡同一生成逻辑）；2026-09-10 第二轮放大到 40 作头部锚点 */}
+            {profile && <AgentAvatar name={profile.name} size={40} />}
             <h1 className="page-title">{profile?.name ?? 'Agent 详情'}</h1>
             {statusKey && displayKey && (
               <span className={`text-xs px-2 py-0.5 rounded ${statusPillColor}`}>

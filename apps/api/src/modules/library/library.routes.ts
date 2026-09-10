@@ -25,18 +25,21 @@ libraryRoutes.get('/', async (req, res) => {
 
 /**
  * GET /api/v1/library/:id
- * 文档详情；id = `${projectId}:${relPath}`（前端 encodeURIComponent 整段传入）
+ * 文档详情；id = `${projectId}:${relPath}`（前端 encodeURIComponent 整段传入）。
+ * 通配 `/*`：nginx proxy_pass 带 URI（/api/）会先解码 %2F→/ 再转发，id 以多段路径
+ * 原形到达（/proj:specs/a.md），单段 /:id 匹配不到恒 404（2026-09-10 修复）。
+ * req.params[0] 已被 Express 解码一次，禁止再手动 decodeURIComponent（双重解码）。
  */
-libraryRoutes.get('/:id', async (req, res) => {
+libraryRoutes.get('/*', async (req, res) => {
   try {
-    const id = decodeURIComponent(req.params.id);
+    const id = req.params[0];
     const doc = await getLibraryDoc(id);
     if (!doc) {
       return res.status(404).json({ success: false, error: 'Document not found' });
     }
     res.json({ success: true, data: doc });
   } catch (error) {
-    logger.error('[Library] Get doc failed', { error, id: req.params.id });
+    logger.error('[Library] Get doc failed', { error, id: req.params[0] });
     res.status(500).json({ success: false, error: 'Failed to get document' });
   }
 });

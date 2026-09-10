@@ -61,6 +61,21 @@ describe('resolveAssignee — #290 负责人解析顺序', () => {
     await expect(resolveAssignee('inst-gone')).resolves.toBeNull();
   });
 
+  it('①.5 assigneeId 双语义：未认领指名 WU 的 assigneeId=profile id → 直配 profile 名，不发实例档案点查（消除必死 404）', async () => {
+    // 2026-09-10：workunit assigneeId 双语义（workunit/CONTEXT.md）——unassigned 时=被指名 profile.id，
+    // 认领后才改写为 instance.id。旧解析器只认 instance id，指名 WU 每行必刷一次 404 且退化为 UUID。
+    mockListAllAgents.mockResolvedValue({ data: { data: [{ id: 'role-studio', name: 'studio' }] } });
+    await expect(resolveAssignee('role-studio')).resolves.toEqual({ name: 'studio', roleId: 'role-studio' });
+    expect(mockGetAgentInstance).not.toHaveBeenCalled();
+  });
+
+  it('①.5 profile 直配不抢占运行实例：①仍优先（实例名精度高于角色名）', async () => {
+    mockGetAgentSummary.mockReturnValue(summaryWith([{ id: 'inst-1', roleId: 'role-coder', name: 'coder-01' }]));
+    mockListAllAgents.mockResolvedValue({ data: { data: [{ id: 'role-coder', name: 'Coder' }] } });
+    // 传 instance id：①命中（实例名 coder-01），不走 profile 直配
+    await expect(resolveAssignee('inst-1')).resolves.toEqual({ name: 'coder-01', roleId: 'role-coder' });
+  });
+
   it('③ 两级都查不到 → null（调用方回退短 UUID）', async () => {
     await expect(resolveAssignee('inst-unknown')).resolves.toBeNull();
   });
