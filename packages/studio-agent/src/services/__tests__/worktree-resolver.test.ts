@@ -3,17 +3,13 @@
  *
  * AC: executor 通过 Workspace 获取工作区（D3）
  *
- * Priority chain（2026-09-10 起）:
- *   1. task.parameters.workspaceRoot —— 上游归属信号解析出的真实项目目录（@文件/PMO/频道默认）
- *   2. hasWorktree=true → createWorktree()（代码类任务要隔离工作树）
- *   3. 都没有 → scratch 隔离目录（**不再抓任何真实仓**）
+ * Priority chain:
+ *   1. task.parameters.workspaceRoot (direct path)
+ *   2. VPS workspace lookup (resolveVpsWorkspace from @dommaker/studio-shared/node)
+ *   3. createWorktree() fallback (calls git worktree add via execSh)
  *
- * 变更理由：第 3 级原先是「读本机 VPS workspace 记录的 root」，而那条记录的 root 来自
- * 最早启动的服务器进程的 REPO_DIR——生产上它指向开发工作副本，等于「没解析出归属的任务
- * 悄悄在别人的代码目录里跑」（证据形态：执行日志的 cwd 落在服务器自身的源码工作副本、甚至其上层目录）。
- * 现已判死的远程节点方向不该继续充当执行面的隐式兜底。
- *
- * Strategy: mock external deps (fs, execSh), let real code run.
+ * Strategy: mock external deps (resolveVpsWorkspace seam, fs, execSh), let real code run.
+ * The VPS 'VPS'-name scan itself is tested in studio-shared (vps-workspace.test.ts).
  */
 
 import { describe, test, expect, vi, beforeEach } from 'vitest';
@@ -46,14 +42,10 @@ vi.mock('fs/promises', async (importOriginal) => {
   };
 });
 
-vi.mock('@dommaker/studio-shared/node', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@dommaker/studio-shared/node')>();
-  return {
-    ...actual,
-    execSh: mockExecSh,
-    resolveVpsWorkspace: mockResolveVpsWorkspace,
-  };
-});
+vi.mock('@dommaker/studio-shared/node', () => ({
+  execSh: mockExecSh,
+  resolveVpsWorkspace: mockResolveVpsWorkspace,
+}));
 
 vi.mock('@dommaker/studio-shared', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@dommaker/studio-shared')>();
@@ -68,7 +60,6 @@ import { resolveWorkspace, ensureDeps } from '../worktree-resolver.js';
 const baseOpts = {
   worktreesDir: '/worktrees',
   repoDir: '/repo',
-  scratchDir: '/scratch',
 };
 
 function makeTask(overrides?: Record<string, unknown>) {
@@ -84,10 +75,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   // Default: return true for .git checks (repoDir validation), false otherwise
   mockExistsSync.mockImplementation((p: string) => p.endsWith('/.git'));
-  // 本机 VPS 记录"存在"也不该再影响执行目录（防回归锚点）
-  mockResolveVpsWorkspace.mockResolvedValue({
-    id: 'ws-1', name: 'VPS', workspaceRoot: '/vps/root', updatedAt: '2026-01-01T00:00:00Z',
-  });
+  // Default: no VPS workspace (priority 2 finds nothing) → priority 3 worktree
+  mockResolveVpsWorkspace.mockResolvedValue(null);
   mockExecSh.mockResolvedValue({ stdout: '', stderr: '', exitCode: 0 });
 });
 
@@ -99,6 +88,8 @@ describe('resolveWorkspace()', () => {
     const result = await resolveWorkspace({ task, ...baseOpts });
 
     expect(result).toBe('/custom/workspace');
+    // Priority 2 (VPS workspace lookup) never consulted
+    expect(mockResolveVpsWorkspace).not.toHaveBeenCalled();
     expect(mockExecSh).not.toHaveBeenCalled();
   });
 
@@ -107,52 +98,73 @@ describe('resolveWorkspace()', () => {
 
     await resolveWorkspace({ task, ...baseOpts });
 
-    // 没有真实归属 → 走 scratch，不去建 worktree、不去查本机记录
-    expect(mockMkdirSync).toHaveBeenCalled();
+    // Falls through to priority 3 — createWorktree calls execSh
+    expect(mockExecSh).toHaveBeenCalled();
+  });
+
+  test('priority 2: returns VPS workspaceRoot when path exists', async () => {
+    const task = makeTask();
+    mockResolveVpsWorkspace.mockResolvedValue({
+      id: 'ws-1',
+      name: 'VPS',
+      workspaceRoot: '/vps/root',
+      updatedAt: '2026-01-01T00:00:00Z',
+    });
+    mockExistsSync.mockImplementation((p: string) => p === '/vps/root' || p.endsWith('/.git'));
+
+    const result = await resolveWorkspace({ task, ...baseOpts });
+
+    expect(result).toBe('/vps/root');
+    expect(mockResolveVpsWorkspace).toHaveBeenCalled();
     expect(mockExecSh).not.toHaveBeenCalled();
   });
 
-  test('无归属任务落到 scratch 隔离目录，不碰任何真实仓（远程节点隐式兜底已移除）', async () => {
+  test('priority 2 skipped: VPS workspace found but path does not exist', async () => {
     const task = makeTask();
+    mockResolveVpsWorkspace.mockResolvedValue({
+      id: 'ws-1',
+      name: 'VPS',
+      workspaceRoot: '/stale/path',
+      updatedAt: '2026-01-01T00:00:00Z',
+    });
+    mockExistsSync.mockImplementation((p: string) => p.endsWith('/.git'));
 
-    const result = await resolveWorkspace({ task, ...baseOpts });
+    await resolveWorkspace({ task, ...baseOpts });
 
-    expect(result).toBe('/scratch/exec-1');
-    expect(mockMkdirSync).toHaveBeenCalledWith('/scratch/exec-1', { recursive: true });
-    expect(mockResolveVpsWorkspace).not.toHaveBeenCalled();
-    expect(mockExecSh).not.toHaveBeenCalledWith(expect.stringContaining('git worktree add'), expect.anything());
+    // Falls through to priority 3
+    expect(mockExecSh).toHaveBeenCalled();
   });
 
-  test('hasWorktree=true 仍建隔离 worktree（代码类任务不受 scratch 影响）', async () => {
-    const task = makeTask({ hasWorktree: true, repoDir: '/custom/repo', baseBranch: 'develop' });
+  test('priority 2 skipped: VPS workspace lookup fails', async () => {
+    const task = makeTask();
+    mockResolveVpsWorkspace.mockRejectedValue(new Error('unexpected fs failure'));
 
-    const result = await resolveWorkspace({ task, ...baseOpts });
+    await resolveWorkspace({ task, ...baseOpts });
 
-    expect(result).toBe('/worktrees/exec-1');
-    expect(mockExecSh).toHaveBeenCalledWith(
-      expect.stringContaining('git worktree add'),
-      expect.objectContaining({ cwd: '/custom/repo' }),
-    );
-    expect(mockResolveVpsWorkspace).not.toHaveBeenCalled();
+    expect(mockExecSh).toHaveBeenCalled();
   });
 
   test('priority 3: creates worktree with task repoDir and baseBranch', async () => {
-    const task = makeTask({ hasWorktree: true, repoDir: '/custom/repo', baseBranch: 'develop' });
+    const task = makeTask({ repoDir: '/custom/repo', baseBranch: 'develop' });
 
     const result = await resolveWorkspace({ task, ...baseOpts });
 
     expect(result).toBe('/worktrees/exec-1');
+    // createWorktree calls execSh with git worktree add
     expect(mockExecSh).toHaveBeenCalledWith(
       expect.stringContaining('git worktree add'),
-      expect.objectContaining({ cwd: '/custom/repo' }),
+      expect.objectContaining({
+        cwd: '/custom/repo',
+      }),
     );
   });
 
   test('priority 3: uses getDefaultBranch() when baseBranch not specified', async () => {
-    const task = makeTask({ hasWorktree: true });
+    const task = makeTask();
 
     await resolveWorkspace({ task, ...baseOpts });
 
+    // getDefaultBranch is inlined — falls back to 'master' when repo doesn't exist
     expect(mockExecSh).toHaveBeenCalledWith(
       expect.stringContaining('git worktree add'),
       expect.objectContaining({ cwd: '/repo' }),
@@ -160,28 +172,43 @@ describe('resolveWorkspace()', () => {
   });
 
   test('priority 3: returns worktree path from config.worktreesDir', async () => {
-    const task = makeTask({ hasWorktree: true });
+    const task = makeTask();
 
     const result = await resolveWorkspace({ task, ...baseOpts });
 
     expect(result).toBe('/worktrees/exec-1');
   });
 
+  test('hasWorktree=true skips priority 2 (VPS workspace) and creates worktree', async () => {
+    const task = makeTask({ hasWorktree: true });
+    // VPS workspace exists — but should be skipped
+    mockResolveVpsWorkspace.mockResolvedValue({
+      id: 'ws-1',
+      name: 'VPS',
+      workspaceRoot: '/vps/root',
+      updatedAt: '2026-01-01T00:00:00Z',
+    });
+    mockExistsSync.mockImplementation((p: string) => p === '/vps/root' || p.endsWith('/.git'));
+
+    const result = await resolveWorkspace({ task, ...baseOpts });
+
+    // Should NOT use VPS workspace
+    expect(result).toBe('/worktrees/exec-1');
+    expect(mockResolveVpsWorkspace).not.toHaveBeenCalled();
+    // Should create worktree
+    expect(mockExecSh).toHaveBeenCalledWith(
+      expect.stringContaining('git worktree add'),
+      expect.anything(),
+    );
+  });
+
   test('priority 3 throws when repoDir is not a git repository', async () => {
-    const task = makeTask({ hasWorktree: true, repoDir: '/not-a-repo' });
+    const task = makeTask({ repoDir: '/not-a-repo' });
+    // .git check returns false for /not-a-repo/.git
     mockExistsSync.mockReturnValue(false);
 
     await expect(resolveWorkspace({ task, ...baseOpts }))
       .rejects.toThrow('repoDir is not a git repository: /not-a-repo');
-  });
-
-  test('scratchDir 缺省时落到数据区，不写进任何仓', async () => {
-    const task = makeTask();
-
-    const { studioPath } = await import('@dommaker/studio-shared/studio-dir');
-    const result = await resolveWorkspace({ task, worktreesDir: '/worktrees', repoDir: '/repo' });
-
-    expect(result).toBe(studioPath('scratch', 'exec-1'));
   });
 });
 
@@ -191,21 +218,9 @@ describe('ensureDeps()', () => {
     mockReadFileSync.mockReturnValue(Buffer.from('mock-lockfile-content'));
   });
 
-  test('隔离 scratch（无 package.json）直接跳过：不装依赖、不硬链', async () => {
-    mockExistsSync.mockImplementation((p: string) => {
-      // scratch 里什么都没有；repoDir 有 lockfile（旧行为会据此把 node_modules 硬链进 scratch）
-      if (p === '/repo/pnpm-lock.yaml') return true;
-      return false;
-    });
-
-    await ensureDeps('/scratch/exec-1', '/repo');
-
-    expect(mockExecSh).not.toHaveBeenCalled();
-  });
-
   test('skips when node_modules/.modules.yaml already exists', async () => {
     mockExistsSync.mockImplementation((p: string) =>
-      p.endsWith('/node_modules/.modules.yaml') || p.endsWith('/package.json'),
+      p.endsWith('/node_modules/.modules.yaml'),
     );
 
     await ensureDeps('/worktree', '/repo');
@@ -215,6 +230,9 @@ describe('ensureDeps()', () => {
   });
 
   test('cache HIT: cp -al from cache when lockfile hash matches', async () => {
+    // node_modules/.modules.yaml does NOT exist (no deps installed)
+    // pnpm-lock.yaml exists in worktree
+    // Cache entry exists for the hash
     mockExistsSync.mockImplementation((p: string) => {
       if (p.endsWith('/node_modules/.modules.yaml')) return false;
       if (p.endsWith('/pnpm-lock.yaml')) return true;
@@ -224,10 +242,12 @@ describe('ensureDeps()', () => {
 
     await ensureDeps('/worktree', '/repo');
 
+    // Should call cp -al (hardlink copy from cache)
     expect(mockExecSh).toHaveBeenCalledWith(
       expect.stringContaining('cp -al'),
       expect.objectContaining({ cwd: '/worktree' }),
     );
+    // Should NOT run pnpm install
     expect(mockExecSh).not.toHaveBeenCalledWith(
       expect.stringContaining('pnpm install'),
       expect.anything(),
@@ -235,19 +255,25 @@ describe('ensureDeps()', () => {
   });
 
   test('cache MISS: runs pnpm install --frozen-lockfile then caches result', async () => {
+    // node_modules/.modules.yaml does NOT exist
+    // pnpm-lock.yaml exists in worktree
+    // Cache entry does NOT exist
     mockExistsSync.mockImplementation((p: string) => {
       if (p.endsWith('/node_modules/.modules.yaml')) return false;
       if (p.endsWith('/pnpm-lock.yaml')) return true;
+      // Cache dir does not exist
       if (p.includes('.cache/studio-deps/')) return false;
       return false;
     });
 
     await ensureDeps('/worktree', '/repo');
 
+    // Should run pnpm install --frozen-lockfile
     expect(mockExecSh).toHaveBeenCalledWith(
       'pnpm install --frozen-lockfile',
       expect.objectContaining({ cwd: '/worktree' }),
     );
+    // Should cache result via cp -al
     expect(mockExecSh).toHaveBeenCalledWith(
       expect.stringContaining('cp -al'),
       expect.objectContaining({ cwd: '/worktree' }),
@@ -274,8 +300,7 @@ describe('ensureDeps()', () => {
   test('falls back to npm install when no lockfile found', async () => {
     mockExistsSync.mockImplementation((p: string) => {
       if (p.endsWith('/node_modules/.modules.yaml')) return false;
-      // 真实项目检出（有 package.json）但没有任何 lockfile
-      if (p.endsWith('/package.json')) return true;
+      // No lockfile anywhere
       return false;
     });
 
@@ -294,12 +319,14 @@ describe('ensureDeps()', () => {
       if (p.includes('.cache/studio-deps/') && p.endsWith('/node_modules')) return true;
       return false;
     });
+    // First call (cp -al) fails, second call (pnpm install) succeeds
     mockExecSh
       .mockRejectedValueOnce(new Error('Cross-device link'))
       .mockResolvedValue({ stdout: '', stderr: '', exitCode: 0 });
 
     await ensureDeps('/worktree', '/repo');
 
+    // Should have attempted cp -al, then fallen back to pnpm install
     expect(mockExecSh).toHaveBeenCalledWith(
       'pnpm install --frozen-lockfile',
       expect.objectContaining({ cwd: '/worktree' }),

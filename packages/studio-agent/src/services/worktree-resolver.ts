@@ -15,8 +15,7 @@ import * as fsSync from 'fs';
 import * as crypto from 'crypto';
 import * as os from 'os';
 import { logger } from '@dommaker/studio-shared';
-import { execSh } from '@dommaker/studio-shared/node';
-import { studioPath } from '@dommaker/studio-shared/studio-dir';
+import { execSh, resolveVpsWorkspace } from '@dommaker/studio-shared/node';
 
 import type { AgentTask } from './types.js';
 import { execSync } from 'child_process';
@@ -120,23 +119,19 @@ async function writeGitExclude(repoDir: string): Promise<void> {
 }
 
 /**
- * 执行目录解析（3 级，2026-09-10 重排）：
- *   1. task.parameters.workspaceRoot —— 上游归属信号（@文件引用 / PMO 项目 gitRepo / 频道默认工程）
- *      解析出的真实项目目录
- *   2. hasWorktree=true → createWorktree()（代码类任务要隔离工作树）
- *   3. 都没有 → scratch 隔离目录，**不指向任何真实仓**
+ * 3-priority workspace resolution:
+ *   1. task.parameters.workspaceRoot (direct path)
+ *   2. VPS workspace lookup — resolveVpsWorkspace() from @dommaker/studio-shared/node
+ *      (reads ~/.studio/workspaces/*.json; 'VPS'-name convention owned there) —
+ *      skipped when hasWorktree=true
+ *   3. createWorktree() fallback
  *
- * 原先第 2 级是「读本机 VPS workspace 记录的 root」。那条记录的 root 来自最早启动的服务器
- * 进程的 REPO_DIR/cwd，生产上指向开发工作副本——于是"没解析出归属"的任务会悄悄在别人的
- * 代码目录里跑（证据形态：执行日志的 cwd 落在服务器自身的源码工作副本、甚至其上层目录）。远程节点方向
- * 已判死（bdaf0dd3），它不再充当执行面的隐式兜底。
+ * hasWorktree=true: caller explicitly wants isolated git worktree, skip VPS workspace.
  */
 export async function resolveWorkspace(opts: {
   task: AgentTask;
   worktreesDir: string;
   repoDir: string;
-  /** 无归属任务的隔离工作目录根；缺省 = 数据区 studioPath('scratch') */
-  scratchDir?: string;
 }): Promise<string> {
   const { task, worktreesDir, repoDir } = opts;
 
@@ -147,20 +142,28 @@ export async function resolveWorkspace(opts: {
     return directRoot;
   }
 
-  // Priority 2: 调用方明确要隔离工作树（代码类）
-  if (task.parameters?.hasWorktree === true) {
-    const worktree = path.join(worktreesDir, task.executionId);
-    const projectRepo = (task.parameters?.repoDir as string) || repoDir;
-    const baseBranch = (task.parameters?.baseBranch as string) || getDefaultBranch(projectRepo);
-    await createWorktree(worktree, baseBranch, projectRepo, task);
-    return worktree;
+  // Priority 2: VPS workspace lookup (skip when hasWorktree=true)
+  const needsWorktree = task.parameters?.hasWorktree === true;
+  if (needsWorktree) {
+    logger.info('[WorktreeResolver] hasWorktree=true, skipping VPS workspace, creating git worktree');
+  } else {
+    try {
+      const ws = await resolveVpsWorkspace();
+      if (ws?.workspaceRoot && fsSync.existsSync(ws.workspaceRoot)) {
+        logger.info('[WorktreeResolver] Using VPS workspace', { workspaceId: ws.id, workspaceRoot: ws.workspaceRoot });
+        return ws.workspaceRoot;
+      }
+    } catch (e) {
+      logger.warn('[WorktreeResolver] VPS workspace lookup failed, falling back to createWorktree', { error: String(e) });
+    }
   }
 
-  // Priority 3: 无任何归属信号 → 隔离 scratch，宁可空目录也不猜一个真实仓
-  const scratch = path.join(opts.scratchDir ?? studioPath('scratch'), task.executionId);
-  fsSync.mkdirSync(scratch, { recursive: true });
-  logger.info('[WorktreeResolver] No project attribution resolved, using isolated scratch dir', { scratch });
-  return scratch;
+  // Priority 3: create git worktree
+  const worktree = path.join(worktreesDir, task.executionId);
+  const projectRepo = (task.parameters?.repoDir as string) || repoDir;
+  const baseBranch = (task.parameters?.baseBranch as string) || getDefaultBranch(projectRepo);
+  await createWorktree(worktree, baseBranch, projectRepo, task);
+  return worktree;
 }
 
 /**
@@ -310,13 +313,6 @@ function detectPackageManager(lockfilePath: string): 'pnpm' | 'npm' | 'yarn' {
 export async function ensureDeps(worktree: string, repoDir: string): Promise<void> {
   const nodeModulesPath = path.join(worktree, 'node_modules');
   const modulesYaml = path.join(nodeModulesPath, '.modules.yaml');
-
-  // 不是项目检出（无归属任务的 scratch 兜底）→ 没有依赖这回事。
-  // 不加这道判断会拿 repoDir 的 lockfile 当依据，把 node_modules 硬链进空目录。
-  if (!findLockfile(worktree) && !fsSync.existsSync(path.join(worktree, 'package.json'))) {
-    logger.info('[WorktreeResolver] Deps: not a project checkout, skipping', { worktree });
-    return;
-  }
 
   // Already installed — skip
   if (fsSync.existsSync(modulesYaml)) {
