@@ -496,6 +496,60 @@ body {
   background: var(--accent-dim);
 }
 
+/* === 图标按钮（顶栏工具位；批次 D-0 自 ThemeToggleButton 内联收敛） === */
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-default);
+  border-radius: 3px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  outline: none;
+}
+
+.icon-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.icon-btn:focus-visible {
+  box-shadow: 0 0 0 2px var(--accent-glow);
+}
+
+/* === 主题选择卡（settings/ThemeSettings；批次 D-0 内联收敛 + 去 emoji） === */
+.theme-option {
+  padding: var(--space-4);
+  border-radius: 4px;
+  text-align: left;
+  background: var(--bg-tertiary);
+  border: 2px solid var(--border-subtle);
+  cursor: pointer;
+}
+
+.theme-option:hover {
+  border-color: var(--border-default);
+}
+
+.theme-option-active,
+.theme-option-active:hover {
+  background: var(--bg-elevated);
+  border-color: var(--accent-primary);
+  box-shadow: var(--shadow-glow);
+}
+
+.theme-option-icon {
+  color: var(--text-secondary);
+  margin-bottom: var(--space-2);
+}
+
+.theme-option-active .theme-option-icon {
+  color: var(--accent-primary);
+}
+
 /* === 页面标题 === */
 .page-title {
   font-size: var(--fs-title);

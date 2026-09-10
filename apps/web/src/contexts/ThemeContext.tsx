@@ -1,6 +1,7 @@
 // Theme Context - 主题切换（组件门面；Theme 类型 / ThemeContext / useTheme 见 ./useTheme）
 import { useEffect, useState, type ReactNode } from 'react';
 import { ThemeContext, useTheme, type Theme } from './useTheme';
+import { IconMoon, IconSun } from '../components/ui/icons';
 
 export type { Theme } from './useTheme';
 export { ThemeContext, useTheme } from './useTheme';
@@ -72,51 +73,8 @@ export function ThemeProvider({ children, defaultTheme = 'dark' }: ThemeProvider
 }
 
 /**
- * 主题切换按钮组件
- */
-export function ThemeToggle() {
-  const { theme, setTheme } = useTheme();
-
-  const themes: { value: Theme; label: string; icon: string }[] = [
-    { value: 'dark', label: '深色', icon: '🌙' },
-    { value: 'light', label: '浅色', icon: '☀️' },
-    { value: 'system', label: '跟随系统', icon: '💻' },
-  ];
-
-  return (
-    <div style={{
-      display: 'flex',
-      alignItems: 'center',
-      gap: '8px',
-    }}>
-      {themes.map((t) => (
-        <button
-          key={t.value}
-          onClick={() => setTheme(t.value)}
-          style={{
-            background: theme === t.value ? 'var(--accent-primary)' : 'var(--bg-tertiary)',
-            border: '1px solid var(--border-default)',
-            borderRadius: '8px',
-            padding: '8px 12px',
-            fontSize: 'var(--fs-base)',
-            color: theme === t.value ? 'var(--bg-primary)' : 'var(--text-primary)',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '6px',
-            transition: 'all 0.15s ease',
-          }}
-        >
-          <span>{t.icon}</span>
-          <span>{t.label}</span>
-        </button>
-      ))}
-    </div>
-  );
-}
-
-/**
- * 简洁的主题切换按钮
+ * 顶栏主题切换按钮（dark/light 互切；三选设置见 components/settings/ThemeSettings）
+ * 批次 D-0：去 emoji 改 SVG（ui/icons）、内联样式类化（.icon-btn）、圆角归按钮档
  */
 export function ThemeToggleButton() {
   const { resolvedTheme, setTheme } = useTheme();
@@ -128,21 +86,11 @@ export function ThemeToggleButton() {
   return (
     <button
       onClick={toggleTheme}
-      style={{
-        background: 'var(--bg-tertiary)',
-        border: '1px solid var(--border-default)',
-        borderRadius: '8px',
-        padding: '8px 12px',
-        fontSize: 'var(--fs-title)',
-        cursor: 'pointer',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        transition: 'all 0.15s ease',
-      }}
+      className="icon-btn"
       title={resolvedTheme === 'dark' ? '切换到浅色主题' : '切换到深色主题'}
+      aria-label={resolvedTheme === 'dark' ? '切换到浅色主题' : '切换到深色主题'}
     >
-      {resolvedTheme === 'dark' ? '☀️' : '🌙'}
+      {resolvedTheme === 'dark' ? <IconSun size={16} /> : <IconMoon size={16} />}
     </button>
   );
 }

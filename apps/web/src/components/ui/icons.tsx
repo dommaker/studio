@@ -112,3 +112,26 @@ export const IconRefresh = (p: IconProps) => (
 export const IconClock = (p: IconProps) => (
   <Svg {...p}><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></Svg>
 );
+
+/** 浅色主题（太阳）——批次 D-0：主题切换控件去 emoji */
+export const IconSun = (p: IconProps) => (
+  <Svg {...p}>
+    <circle cx="12" cy="12" r="4" />
+    <path d="M12 2v2" /><path d="M12 20v2" /><path d="M4.93 4.93l1.41 1.41" />
+    <path d="M17.66 17.66l1.41 1.41" /><path d="M2 12h2" /><path d="M20 12h2" />
+    <path d="M6.34 17.66l-1.41 1.41" /><path d="M19.07 4.93l-1.41 1.41" />
+  </Svg>
+);
+
+/** 深色主题（月亮） */
+export const IconMoon = (p: IconProps) => (
+  <Svg {...p}><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" /></Svg>
+);
+
+/** 跟随系统（显示器） */
+export const IconMonitor = (p: IconProps) => (
+  <Svg {...p}>
+    <rect x="2" y="3" width="20" height="14" rx="2" />
+    <path d="M8 21h8" /><path d="M12 17v4" />
+  </Svg>
+);

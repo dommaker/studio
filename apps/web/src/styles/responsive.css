@@ -357,18 +357,25 @@
 /* ==================== 打印样式 ==================== */
 
 @media print {
+  /* 打印恒为白底黑字，不随主题变量（深色 token 在白纸上不可见）；批次 D-0 token 化 */
+  :root {
+    --print-bg: #ffffff;
+    --print-text: #000000;
+    --print-border: #dddddd;
+  }
+
   .hide-print {
     display: none !important;
   }
-  
+
   body {
-    background: white;
-    color: black;
+    background: var(--print-bg);
+    color: var(--print-text);
   }
-  
+
   .card {
     box-shadow: none;
-    border: 1px solid #ddd;
+    border: 1px solid var(--print-border);
   }
 }
 
