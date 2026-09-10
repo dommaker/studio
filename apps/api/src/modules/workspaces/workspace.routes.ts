@@ -18,6 +18,7 @@ import { apiCache } from '../../middleware/api-cache.js';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
+import { resolveVpsWorkspace } from '@dommaker/studio-shared/node';
 
 const fileStore = new FileStore();
 const WORKSPACES_DIR = studioPath('workspaces');
@@ -329,11 +330,11 @@ router.get('/:id/runtimes', requireAuth(), requireAdmin(), async (req: Request, 
   }
 });
 
-// ─── GET /api/v1/workspaces/:id ───
+// ─── GET /api/v1/workspaces/runtimes ───
 
 router.get('/runtimes', requireAuth(), requireAdmin(), apiCache(60), async (_req: Request, res: Response) => {
   try {
-    // AC-2.6: 聚合所有 workspace 的 runtimes，供前端角色初始化向导使用
+    // 本机 CLI 清单，供角色创建候选列表使用（原 AC-2.6「聚合所有 workspace」语义已废弃，见下）
     // 2026-07：聚合前先重扫本地 CLI（best-effort），保证本地 runtime 新鲜可见
     // #403（缓存 seam 决策树第 2 问）：响应为 HTTP GET、秒级陈旧可接受 → 挂 apiCache 60s。
     // 每请求 execFileSync 全量重扫所有 CLI（which + --version，timeout 5s/个）同步阻塞事件
@@ -341,20 +342,16 @@ router.get('/runtimes', requireAuth(), requireAdmin(), apiCache(60), async (_req
     const { rescanLocalRuntimes } = await import('./local-workspace.js');
     await rescanLocalRuntimes().catch(() => {});
 
-    const workspaces = await listWorkspaces();
-    const allRuntimes: Array<{ nodeId: string; provider: string; version: string; workspaceName: string }> = [];
-    for (const ws of workspaces) {
-      const runtimes = (ws.runtimes as Array<{ provider: string; version: string }> | undefined) ?? [];
-      for (const rt of runtimes) {
-        allRuntimes.push({
-          nodeId: ws.id,
-          provider: rt.provider,
-          version: rt.version,
-          workspaceName: ws.name ?? ws.id,
-        });
-      }
-    }
-    return res.json({ runtimes: allRuntimes });
+    // 只取本机记录：多节点执行已无活路径（bdaf0dd3 2026-08-04 放弃远程节点方向），
+    // 遍历全表会让历史/离线节点的 runtimes 永久出现在候选列表里。
+    // nodeId / workspaceName 随之不再下发——创建角色只需要 provider。
+    const ws = await resolveVpsWorkspace();
+    const recorded = (ws?.runtimes ?? []) as Array<{ provider?: string; version?: string }>;
+    const runtimes = recorded
+      .filter((rt) => typeof rt.provider === 'string' && rt.provider.length > 0)
+      .map((rt) => ({ provider: rt.provider as string, version: rt.version ?? '' }));
+
+    return res.json({ runtimes });
   } catch (error) {
     logger.error({ error }, '[Workspace] List all runtimes failed');
     return res.status(500).json({ error: 'Failed to list runtimes', code: 'WORKSPACE_RUNTIMES_ERROR' });
