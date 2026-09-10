@@ -251,7 +251,7 @@ export function KnowledgePage() {
         </div>
       </div>
 
-      <div className="flex-1 overflow-auto px-8 pb-8">
+      <div className="flex-1 overflow-auto u-page-px pb-8">
         <div className="max-w-5xl">
           {/* S11: Unified search across all knowledge types */}
           <div className="mt-4 mb-4 flex gap-2">

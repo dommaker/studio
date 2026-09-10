@@ -198,9 +198,9 @@ export const AuditLogsPage: React.FC = () => {
         <div className="u-page-head">
           <SkeletonText lines={1} widths={['20%']} />
         </div>
-        <div className="flex-1 overflow-auto px-8 pb-8">
+        <div className="flex-1 overflow-auto u-page-px pb-8">
           <div className="max-w-5xl">
-            <div className="grid grid-cols-4 gap-4 mb-6">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
               <SkeletonCard height={88} />
               <SkeletonCard height={88} />
               <SkeletonCard height={88} />
@@ -231,14 +231,14 @@ export const AuditLogsPage: React.FC = () => {
         </div>
       </div>
 
-      <div className="flex-1 overflow-auto px-8 pb-8">
+      <div className="flex-1 overflow-auto u-page-px pb-8">
       <div className="max-w-5xl">
 
       {/* Stats */}
       {stats && (
         <>
           <div className="mc-block-label">{'概览'}</div>
-          <div className="grid grid-cols-4 gap-4 mb-6">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
             <StatCard label={'总日志数'} value={stats.totalLogs} color="u-accent" />
             <StatCard label={'成功操作'} value={stats.successCount} color="u-ok" />
             <StatCard label={'失败操作'} value={stats.failureCount} color="u-err" />

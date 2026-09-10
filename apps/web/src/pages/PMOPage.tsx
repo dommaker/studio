@@ -158,7 +158,7 @@ export function PMOPage({ companyId }: PMOPageProps) {
       {/* Tabs — E3（2026-09 页面重设计）：border-b 形态（批次 D-4 定 KnowledgePage 为正本）+ 去 emoji；
           2026-09-10 第二轮：删「需求」tab（与 PMO 重复，REQ 主呈现位在频道右栏）；
           批次 E-3：激活态底线收进 .u-tab/.u-tab-active 结构类（禁内联 borderBottom），transition 过渡走白名单①③ */}
-      <div className="px-8 pt-4">
+      <div className="u-page-px pt-4">
         <div className="flex gap-1 mb-4 overflow-x-auto pb-1 border-b u-border">
           <button
             onClick={() => setActiveTab('projects')}
@@ -176,7 +176,7 @@ export function PMOPage({ companyId }: PMOPageProps) {
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-auto px-8 pb-8">
+      <div className="flex-1 overflow-auto u-page-px pb-8">
         {/* 工单 38: 加载失败错误条（跟随 WorkUnitDetailPage 的 u-err-dim 错误条形态）+ 重试入口 */}
         {!loading && loadError && (
           <div className="mb-3 p-3 rounded u-err-dim u-err text-sm flex items-center justify-between">

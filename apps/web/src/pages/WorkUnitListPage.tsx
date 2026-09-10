@@ -221,7 +221,7 @@ export function WorkUnitListPage() {
       </div>
 
       {/* 列表区（抽屉已删：行点击直跳详情页） */}
-      <div className="flex-1 overflow-auto px-8 pb-8">
+      <div className="flex-1 overflow-auto u-page-px pb-8">
           <div className="max-w-5xl">
             {/* Create form */}
             {showCreate && (

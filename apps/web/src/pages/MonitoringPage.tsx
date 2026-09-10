@@ -135,7 +135,7 @@ export function MonitoringPage() {
       </div>
 
       {/* #180：概览 / 事件检索 Tab（IA：行动信号 > 健康度量 > 参考资料） */}
-      <div className="px-8 pt-3 flex gap-1 border-b u-border">
+      <div className="u-page-px pt-3 flex gap-1 border-b u-border">
         {([['overview', '概览'], ['events', '事件检索']] as Array<[MonitoringTab, string]>).map(([id, label]) => (
           <button
             key={id}
@@ -149,13 +149,13 @@ export function MonitoringPage() {
       </div>
 
       {activeTab === 'events' ? (
-        <div className="flex-1 overflow-auto px-8 pb-8">
+        <div className="flex-1 overflow-auto u-page-px pb-8">
           <div className="max-w-5xl">
             <EventSearchPanel initialFilters={eventSeed ?? undefined} />
           </div>
         </div>
       ) : (
-      <div className="flex-1 overflow-auto px-8 pb-8">
+      <div className="flex-1 overflow-auto u-page-px pb-8">
         <div className="max-w-5xl">
           {/* 行动面（§7.2 首屏）：需要处理（#184 独立加载）+ 知识提案待审（全页唯一可操作列表，上移） */}
           <div className="space-y-4 mt-4">

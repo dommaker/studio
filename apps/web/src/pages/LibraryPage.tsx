@@ -222,7 +222,7 @@ export function LibraryPage() {
               { value: '', label: '全部项目' },
               ...projects.map((p) => ({ value: p.id, label: `${p.pmoNumber} ${p.title}` })),
             ]}
-            style={{ width: 220 }}
+            className="flex-1 min-w-0 sm:flex-none sm:w-[220px]"
             aria-label="项目筛选"
           />
           <Select
@@ -232,14 +232,14 @@ export function LibraryPage() {
               { value: '', label: '全部类型' },
               ...Object.entries(kindLabels).map(([value, label]) => ({ value, label })),
             ]}
-            style={{ width: 140 }}
+            className="flex-1 min-w-0 sm:flex-none sm:w-[140px]"
             aria-label="类型筛选"
           />
         </div>
       </div>
 
       {/* Content（#436 B11：收 max-w-5xl 对齐 §4.7 内容档） */}
-      <div className="flex-1 overflow-auto px-8 pb-8 pt-6">
+      <div className="flex-1 overflow-auto u-page-px pb-8 pt-6">
         <div className="max-w-5xl">
         {/* 批次 F-1：加载失败错误条（抄 PMOPage u-err-dim 错误条 + 重试模式），失败不再落「暂无文档」假空态 */}
         {!loading && error && (

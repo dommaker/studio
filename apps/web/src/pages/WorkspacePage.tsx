@@ -62,7 +62,7 @@ export function WorkspacePage() {
       <div className="u-page-head">
         <SkeletonText lines={1} widths={['30%']} />
       </div>
-      <div className="flex-1 overflow-auto px-8 pb-8">
+      <div className="flex-1 overflow-auto u-page-px pb-8">
         <div className="max-w-5xl mt-4 space-y-2">
           <SkeletonCard height={56} />
           <SkeletonCard height={56} />
@@ -85,7 +85,7 @@ export function WorkspacePage() {
         </p>
       </div>
 
-      <div className="flex-1 overflow-auto px-8 pb-8">
+      <div className="flex-1 overflow-auto u-page-px pb-8">
         <div className="max-w-5xl mt-4">
           <h2 className="mc-block-label mb-2">可用 CLI ({workspace.runtimes.length})</h2>
 

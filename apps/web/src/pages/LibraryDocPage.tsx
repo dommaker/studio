@@ -82,7 +82,7 @@ export function LibraryDocPage() {
         <div className="u-page-head">
           <SkeletonText lines={1} widths={['35%']} />
         </div>
-        <div className="flex-1 overflow-auto px-8 pb-8">
+        <div className="flex-1 overflow-auto u-page-px pb-8">
           <div className="max-w-5xl mt-4">
             <SkeletonText lines={10} className="space-y-3" widths={['100%', '100%', '90%', '100%', '75%', '100%', '100%', '85%', '100%', '60%']} />
           </div>
@@ -94,7 +94,7 @@ export function LibraryDocPage() {
   // 批次 F-1：加载失败错误条（抄 ProjectDetailPage 模式）+ 重试，不再落「文档未找到」假空态
   if (error) {
     return (
-      <div className="h-full u-page-bg px-8 py-6">
+      <div className="h-full u-page-bg u-page-px py-6">
         <div className="max-w-5xl p-3 rounded u-err-dim u-err text-sm flex items-center justify-between">
           <span>{error}</span>
           <button onClick={() => void fetchDoc()} className="btn btn-secondary btn-sm">重试</button>
@@ -169,7 +169,7 @@ export function LibraryDocPage() {
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-auto px-8 pb-8 pt-6">
+      <div className="flex-1 overflow-auto u-page-px pb-8 pt-6">
         {/* 阅读页限宽 900px：长文行宽最优，属 §4.7 内容档（max-w-5xl=1024）之外的阅读档例外，勿收 */}
         <div style={{ maxWidth: '900px' }}>
           {sections.map((section, i) => (

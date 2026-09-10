@@ -225,7 +225,7 @@ export function ProjectDetailPage() {
   if (loading) {
     // 批次 E-2：静态骨架占位（标题行 + 卡片块，贴近首屏布局）
     return (
-      <div className="h-full u-page-bg px-8 py-6">
+      <div className="h-full u-page-bg u-page-px py-6">
         <SkeletonText lines={1} widths={['30%']} className="mb-4" />
         <SkeletonCard height={160} className="mb-3" />
         <SkeletonCard height={240} />
@@ -236,7 +236,7 @@ export function ProjectDetailPage() {
   if (error) {
     // 批次 E-2：抄 PMOPage 错误条模式（红条 + 重试，reload 即清 error 重拉）
     return (
-      <div className="h-full u-page-bg px-8 py-6">
+      <div className="h-full u-page-bg u-page-px py-6">
         <div className="max-w-5xl p-3 rounded u-err-dim u-err text-sm flex items-center justify-between">
           <span>{error}</span>
           <button onClick={projectQ.reload} className="btn btn-secondary btn-sm">重试</button>
@@ -291,7 +291,7 @@ export function ProjectDetailPage() {
         </div>
       </div>
 
-      <div className="flex-1 overflow-auto px-8 pb-8">
+      <div className="flex-1 overflow-auto u-page-px pb-8">
         <div className="max-w-5xl">
           {/* E3 主区：阶段步条（讨论→开发→验收→交付，#399 §8.3 项目阶段专用词） */}
           {projectStations && <StationStepper stations={projectStations} />}
