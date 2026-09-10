@@ -111,6 +111,7 @@ export interface RequirementChainWorkUnit {
   title: string;
   status: string;
   assigneeId: string | null;
+  assigneeRoleId?: string | null;  // 认领时的 roleId 快照（旧快照无此字段 → null）
   metadata: string | null;   // F6-b：链路节点徽章走 deriveDisplayState，需要台账
   /** 2026-07-31 PMO-flow UX §10：管道/动态直接消费，消前端 N+1 详情补全 */
   type: string;
@@ -291,6 +292,7 @@ export class RequirementService {
         title: extractWorkUnitTitle(s.metadata, s.scope),
         status: s.status,
         assigneeId: s.assigneeId,
+        assigneeRoleId: s.assigneeRoleId ?? null,
         metadata: s.metadata,
         type: s.type,
         createdAt: s.createdAt,

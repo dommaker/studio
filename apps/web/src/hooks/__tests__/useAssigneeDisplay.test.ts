@@ -1,5 +1,7 @@
 // useAssigneeDisplay / resolveAssignee 单测 — #290（清单 #24）负责人 UUID → 角色名
-// 解析顺序：运行实例摘要 → 离线实例档案 roleId + profile 名 → legacy profile 直配 → null
+// 解析顺序：认领快照 roleId → 运行实例摘要 → profile 直配 → null
+// 2026-09-10：离线实例档案点查（原②）已删除——实例 terminated 后被物理回收，
+// 点查是 100% doomed 404；认领时 roleId 已冗余快照到 WU（assigneeRoleId），无需点查。
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const { mockGetAgentSummary, mockGetAgentInstance, mockListAllAgents, mockListChannels } = vi.hoisted(() => ({
@@ -44,21 +46,34 @@ describe('resolveAssignee — #290 负责人解析顺序', () => {
     mockListChannels.mockResolvedValue({ data: { data: [] } });
   });
 
-  it('① 运行实例摘要命中 → {name, roleId}，不再发起回退请求', async () => {
-    mockGetAgentSummary.mockReturnValue(summaryWith([{ id: 'inst-1', roleId: 'role-coder', name: 'coder-01' }]));
-    await expect(resolveAssignee('inst-1')).resolves.toEqual({ name: 'coder-01', roleId: 'role-coder' });
-    // #346：ensureFresh 拉三端点（含 profiles）；回退的点查 getAgentInstance 不应发起
+  it('⓪ assigneeRoleId 认领快照命中 profile → 直接返回角色名，不发任何实例点查', async () => {
+    // 认领时 roleId 已冗余到 WU：实例被回收后仍能解析（snapshot 分支的存在意义）
+    mockListAllAgents.mockResolvedValue({ data: { data: [{ id: 'role-coder', name: 'Coder' }] } });
+    await expect(resolveAssignee('inst-dead', 'role-coder')).resolves.toEqual({ name: 'Coder', roleId: 'role-coder' });
     expect(mockGetAgentInstance).not.toHaveBeenCalled();
   });
 
-  it('② 离线实例：摘要未命中 → 实例档案拿 roleId → profile 拿名字', async () => {
-    mockGetAgentInstance.mockResolvedValue({ data: { id: 'inst-off', roleId: 'role-analyst', status: 'terminated' } });
+  it('⓪ 快照优先于运行实例摘要之外的回退：快照 roleId 与 assigneeId 无关联时也按快照解析', async () => {
     mockListAllAgents.mockResolvedValue({ data: { data: [{ id: 'role-analyst', name: 'Analyst' }] } });
-    await expect(resolveAssignee('inst-off')).resolves.toEqual({ name: 'Analyst', roleId: 'role-analyst' });
+    await expect(resolveAssignee('inst-old', 'role-analyst')).resolves.toEqual({ name: 'Analyst', roleId: 'role-analyst' });
+    expect(mockGetAgentInstance).not.toHaveBeenCalled();
   });
 
-  it('② 实例档案 404 → 回退 null（不抛错）', async () => {
+  it('⓪ 快照 roleId 查无此 profile → 继续走 ①/①.5，查不到落 null', async () => {
+    await expect(resolveAssignee('inst-x', 'role-gone')).resolves.toBeNull();
+  });
+
+  it('① 运行实例摘要命中 → {name, roleId}，不再发起回退请求', async () => {
+    mockGetAgentSummary.mockReturnValue(summaryWith([{ id: 'inst-1', roleId: 'role-coder', name: 'coder-01' }]));
+    await expect(resolveAssignee('inst-1')).resolves.toEqual({ name: 'coder-01', roleId: 'role-coder' });
+    // #346：ensureFresh 拉三端点（含 profiles）；实例档案点查已从解析器删除，任何分支都不应发起
+    expect(mockGetAgentInstance).not.toHaveBeenCalled();
+  });
+
+  it('无快照的死实例 id → resolve null，且不发起实例档案点查（404 防回归）', async () => {
+    // 实例 terminated 后档案被物理回收，旧版②段点查必 404；删除后此路径零请求
     await expect(resolveAssignee('inst-gone')).resolves.toBeNull();
+    expect(mockGetAgentInstance).not.toHaveBeenCalled();
   });
 
   it('①.5 assigneeId 双语义：未认领指名 WU 的 assigneeId=profile id → 直配 profile 名，不发实例档案点查（消除必死 404）', async () => {
@@ -76,15 +91,14 @@ describe('resolveAssignee — #290 负责人解析顺序', () => {
     await expect(resolveAssignee('inst-1')).resolves.toEqual({ name: 'coder-01', roleId: 'role-coder' });
   });
 
-  it('③ 两级都查不到 → null（调用方回退短 UUID）', async () => {
+  it('③ 各段都查不到 → null（调用方回退短 UUID）', async () => {
     await expect(resolveAssignee('inst-unknown')).resolves.toBeNull();
   });
 
-  it('摘要接口失败按空列表降级，仍走实例档案回退', async () => {
+  it('摘要接口失败按空列表降级，仍不发起实例档案点查', async () => {
     mockGetAgentSummary.mockRejectedValue(new Error('network'));
-    mockGetAgentInstance.mockResolvedValue({ data: { id: 'inst-off', roleId: 'role-analyst', status: 'terminated' } });
-    mockListAllAgents.mockResolvedValue({ data: { data: [{ id: 'role-analyst', name: 'Analyst' }] } });
-    await expect(resolveAssignee('inst-off')).resolves.toEqual({ name: 'Analyst', roleId: 'role-analyst' });
+    await expect(resolveAssignee('inst-off')).resolves.toBeNull();
+    expect(mockGetAgentInstance).not.toHaveBeenCalled();
   });
 
   it('并发解析共享在途请求（REQ 链路一屏多节点不放大调用）', async () => {

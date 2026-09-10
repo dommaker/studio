@@ -147,6 +147,7 @@ export interface WorkUnitSnapshot {
   projectPath: string | null;
   workspaceId?: string | null;  // F6: 绑定的注册工程（可选 — 旧事件/快照无此字段仍可加载）
   reqId?: string | null;        // REQ 需求编号（可选 — 旧事件/快照无此字段仍可加载）
+  assigneeRoleId?: string | null;  // 认领时冗余的认领方 roleId 快照（可选 — 旧事件/快照无此字段仍可加载）
   metadata: string | null;
   createdAt: string;
   updatedAt: string;

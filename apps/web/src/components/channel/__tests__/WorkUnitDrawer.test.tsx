@@ -207,7 +207,8 @@ describe('WorkUnitDrawer', () => {
     mockGetChain.mockResolvedValue({ data: { data: CHAIN } });
     mockStreamChunks.mockReturnValue([]);
     mockChannelGet.mockResolvedValue({ data: { data: { id: 'ch-1', name: '研发', type: 'dev' } } });
-    // #290（清单 #24）：负责人解析默认「查无」——摘要空、实例档案 404、profile 列表空
+    // #290（清单 #24）：负责人解析默认「查无」——摘要空、profile 列表空
+    // （实例档案点查段 2026-09-10 已删除，getAgentInstance mock 仅作绑定占位，正常不应被调用）
     mockGetAgentSummary.mockResolvedValue({
       data: { agents: [], summary: { total: 0, idle: 0, active: 0, error: 0, terminated: 0 } },
     });
@@ -259,18 +260,22 @@ describe('WorkUnitDrawer', () => {
     expect(screen.queryByText('@coder-1')).toBeNull();
   });
 
-  it('#290 负责人为离线实例：经实例档案 roleId + profile 名回退解析', async () => {
-    mockGetAgentInstance.mockResolvedValue({ data: { id: 'coder-1', roleId: 'role-coder', status: 'terminated' } });
+  it('#290 负责人带 assigneeRoleId 认领快照：实例离线（摘要未命中）仍解析为角色名，不发实例档案点查', async () => {
+    // 2026-09-10：离线实例档案点查段已删除（被回收实例点查必 404）；认领快照接管该场景
+    mockWuGet.mockResolvedValue({ data: { ...WU, assigneeRoleId: 'role-coder' } });
     mockListAllAgents.mockResolvedValue({ data: { data: [{ id: 'role-coder', name: 'Coder' }] } });
     renderDrawer({ kind: 'wu', id: 'WU-1017' });
     const link = await screen.findByText('@Coder');
     expect(link.closest('a')?.getAttribute('href')).toBe('/agents/role-coder');
+    expect(mockGetAgentInstance).not.toHaveBeenCalled();
   });
 
-  it('#290 负责人查无对应角色：回退短 UUID 且不可点', async () => {
+  it('#290 负责人查无对应角色：回退短 UUID 且不可点（解析全程无实例档案点查）', async () => {
     renderDrawer({ kind: 'wu', id: 'WU-1017' });
     const chip = await screen.findByText('@coder-1'); // 'coder-1' 截 8 位仍为其本身
-    await waitFor(() => expect(mockGetAgentInstance).toHaveBeenCalled());
+    // 等异步解析落定后再断言零点查（旧版②段必发 getAgentInstance，404 防回归）
+    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    expect(mockGetAgentInstance).not.toHaveBeenCalled();
     expect(chip.closest('a')).toBeNull();
   });
 

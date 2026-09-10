@@ -340,7 +340,7 @@ function WorkUnitRow({
             {wu.assigneeId && (
               // stopPropagation：解析到时 AssigneeLabel 是 Link，防冒泡触发行点击跳详情
               <span onClick={e => e.stopPropagation()}>
-                <AssigneeLabel assigneeId={wu.assigneeId} className="font-mono" />
+                <AssigneeLabel assigneeId={wu.assigneeId} assigneeRoleId={wu.assigneeRoleId} className="font-mono" />
               </span>
             )}
             <span>创建: <span className="font-mono">{formatTime(wu.createdAt)}</span></span>

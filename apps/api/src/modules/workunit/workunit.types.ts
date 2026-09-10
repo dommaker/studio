@@ -284,6 +284,7 @@ export interface WorkUnitData {
   projectPath: string | null;
   workspaceId?: string | null;  // F6: 绑定工程（旧 WorkUnit 无此字段 → null）
   reqId?: string | null;        // REQ 需求编号（旧 WorkUnit 无此字段 → null）
+  assigneeRoleId?: string | null;  // 认领时冗余的认领方 roleId 快照（旧 WorkUnit 无此字段 → null）
   metadata: string | null;
   createdAt: Date;
   updatedAt: Date;

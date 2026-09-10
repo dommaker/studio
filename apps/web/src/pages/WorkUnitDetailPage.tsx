@@ -167,7 +167,7 @@ export function WorkUnitDetailPage() {
         <MetaStrip
           className="wu-detail-meta"
           items={[
-            { key: 'role', label: '涉及角色', value: wu.assigneeId ? <AssigneeLabel assigneeId={wu.assigneeId} className="u-hover-accent" /> : null },
+            { key: 'role', label: '涉及角色', value: wu.assigneeId ? <AssigneeLabel assigneeId={wu.assigneeId} assigneeRoleId={wu.assigneeRoleId} className="u-hover-accent" /> : null },
             { key: 'ac', label: 'AC 数', value: acList.length > 0 ? acList.length : null },
             { key: 'stage', label: '当前阶段', value: WU_STATUS_LABELS[derived.column] ?? derived.column },
           ]}
@@ -219,7 +219,7 @@ export function WorkUnitDetailPage() {
                   )}
                   {wu.assigneeId && (
                     <FactRow k="认领人">
-                      <AssigneeLabel assigneeId={wu.assigneeId} className="u-text-2" />
+                      <AssigneeLabel assigneeId={wu.assigneeId} assigneeRoleId={wu.assigneeRoleId} className="u-text-2" />
                     </FactRow>
                   )}
                   <FactRow k="创建"><span className="wu-detail-time">{formatShortTime(wu.createdAt)}</span></FactRow>

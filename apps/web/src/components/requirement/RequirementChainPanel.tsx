@@ -79,7 +79,7 @@ export function RequirementChainPanel({ reqId, onClose }: Props) {
                     </span>
                     <span className="truncate u-text">{wu.title}</span>
                     {wu.assigneeId && (
-                      <AssigneeLabel assigneeId={wu.assigneeId} className="text-xs u-text-3 flex-shrink-0" />
+                      <AssigneeLabel assigneeId={wu.assigneeId} assigneeRoleId={wu.assigneeRoleId} className="text-xs u-text-3 flex-shrink-0" />
                     )}
                   </li>
                   );

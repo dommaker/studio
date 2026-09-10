@@ -509,6 +509,22 @@ describe('update', () => {
     const snap = (await findSnapshot(wu.id))!;
     expect(snap.metadata).toBe('{"priority":"high"}');
   });
+
+  it('显式 assigneeId: null 连带清 assigneeRoleId 快照；未传 assigneeId 不动', async () => {
+    const wu = await service.create({ scope: '快照一致性', status: 'unassigned' }); // #126：task 默认落 pending，显式置 unassigned
+    // 绕过 claim 直接落快照字段（patchSnapshot 一致性规则的隔离验证）
+    const snap = (await findSnapshot(wu.id))!;
+    await fileStore.upsertSnapshot({ ...snap, assigneeId: 'inst-1', assigneeRoleId: 'role-coder' });
+
+    // 未传 assigneeId：快照字段保持
+    const untouched = await service.update(wu.id, { scope: '改标题' });
+    expect(untouched.assigneeRoleId).toBe('role-coder');
+
+    // 显式释放：连带清空，不留悬空旧 roleId
+    const cleared = await service.update(wu.id, { assigneeId: null });
+    expect(cleared.assigneeId).toBeNull();
+    expect(cleared.assigneeRoleId).toBeNull();
+  });
 });
 
 // ── delete ──
@@ -661,6 +677,35 @@ describe('claim', () => {
     const claimed = await service.claim(other.id, 'inst-2');
     expect(claimed.status).toBe('active');
   });
+
+  // assigneeRoleId 认领快照：认领方是运行实例时把其实例 roleId 冗余到 WU，
+  // 实例回收后展示层仍能解析角色名（替代离线实例档案点查）
+  async function seedInstance(agentId: string, roleId: string): Promise<void> {
+    await fileStore.createState(agentId, {
+      id: agentId, roleId, sessionId: null, status: 'idle',
+      currentWorkUnitId: null, startedAt: new Date().toISOString(),
+      terminatedAt: null, lastHeartbeat: null, metadata: null,
+    });
+  }
+
+  it('经运行实例 id 认领 → WU 快照 assigneeRoleId = 实例 roleId', async () => {
+    await seedInstance('inst-1', 'role-coder');
+    const wu = await service.create({ scope: '实例认领', type: 'task', channelId: 'ch-1', status: 'unassigned' }); // #126：显式置 unassigned
+
+    const claimed = await service.claim(wu.id, 'inst-1');
+
+    expect(claimed.assigneeRoleId).toBe('role-coder');
+    const snap = await findSnapshot(wu.id);
+    expect(snap!.assigneeRoleId).toBe('role-coder');
+  });
+
+  it('认领方无实例档案（人工 REST 认领，agentId=用户 id）→ assigneeRoleId = null', async () => {
+    const wu = await service.create({ scope: '人工认领', type: 'task', channelId: 'ch-1', status: 'unassigned' }); // #126：显式置 unassigned
+
+    const claimed = await service.claim(wu.id, 'user-1');
+
+    expect(claimed.assigneeRoleId).toBeNull();
+  });
 });
 
 describe('unclaim', () => {
@@ -686,6 +731,22 @@ describe('unclaim', () => {
     // 事件流追加了 updated 事件
     const events = readEvents();
     expect(events.some(e => e.type === 'updated' && e.wuId === wu.id)).toBe(true);
+  });
+
+  it('unclaim 连带清 assigneeRoleId 认领快照', async () => {
+    await fileStore.createState('inst-1', {
+      id: 'inst-1', roleId: 'role-coder', sessionId: null, status: 'idle',
+      currentWorkUnitId: null, startedAt: new Date().toISOString(),
+      terminatedAt: null, lastHeartbeat: null, metadata: null,
+    });
+    const wu = await service.create({ scope: '快照释放', type: 'task', channelId: 'ch-1', status: 'unassigned' }); // #126：task 默认落 pending（不可认领），显式置 unassigned
+    await service.claim(wu.id, 'inst-1');
+    expect((await findSnapshot(wu.id))!.assigneeRoleId).toBe('role-coder');
+
+    const released = await service.unclaim(wu.id);
+
+    expect(released.assigneeRoleId).toBeNull();
+    expect((await findSnapshot(wu.id))!.assigneeRoleId).toBeNull();
   });
 });
 
