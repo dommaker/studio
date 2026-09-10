@@ -13,6 +13,7 @@ import { memo } from 'react';
 import { Link } from 'react-router-dom';
 import { formatChannelName } from '@dommaker/studio-shared/web';
 import { useRosterActivities } from '../../stores/rosterActivityStore';
+import { AgentAvatar } from '../channel/AgentAvatar';
 import type { RosterRole } from '../../hooks/useAgentRoster';
 import type { WorkUnit } from '../../api/workunit';
 import {
@@ -45,8 +46,9 @@ export const RoleCard = memo(function RoleCard({ role, lastDone, channelNames, o
 
   return (
     <article className="card agd-card" data-testid="agent-card" data-status={displayKey}>
-      {/* ① 头行 */}
+      {/* ① 头行（2026-09-10 第二轮：头像锚点 = 频道气泡/详情页同款 identicon） */}
       <header className="agd-head">
+        <AgentAvatar name={profile.name} size={24} />
         <span className="agd-pill">{DISPLAY_STATUS_LABELS[displayKey]}</span>
         {/* 细分=error 时红点角标（4 态合并后保留异常可见性） */}
         {statusKey === 'error' && <span className="agd-dot-err" title="实例异常" />}
