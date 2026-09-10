@@ -4,6 +4,7 @@
 import { Navigate, useNavigate } from 'react-router-dom';
 import { useChannelList } from '../hooks/useChannelList';
 import { CreateChannelForm } from '../components/channel/CreateChannelForm';
+import { SkeletonText } from '../components/ui';
 import { loadLastChannelId, resolveChannelHome } from '../utils/lastChannel';
 
 export function ChannelHomeRedirect() {
@@ -11,9 +12,10 @@ export function ChannelHomeRedirect() {
   const navigate = useNavigate();
 
   if (loading) {
+    // 批次 F-3：轻量骨架（批次 E-2 ui/Skeleton 正本）
     return (
-      <div className="flex items-center justify-center h-full">
-        <div className="mc-drawer-note">加载中...</div>
+      <div className="flex items-center justify-center h-full px-6">
+        <SkeletonText lines={3} widths={['40%', '70%', '55%']} className="space-y-3 w-full max-w-sm" />
       </div>
     );
   }

@@ -24,7 +24,9 @@ vi.mock('../../api/maintenance', () => ({
   maintenanceApi: { getCosts: vi.fn().mockRejectedValue(new Error('skip')), fireTrigger: vi.fn() },
 }));
 
-vi.mock('../../components/ui', () => ({
+vi.mock('../../components/ui', async (importOriginal) => ({
+  // 部分 mock：只替 ManualTaskButton，其余（Select/SkeletonText 等）保留真实实现
+  ...(await importOriginal<typeof import('../../components/ui')>()),
   ManualTaskButton: ({ label }: { label: string }) => <button>{label}</button>,
 }));
 

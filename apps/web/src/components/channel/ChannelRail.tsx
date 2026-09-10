@@ -11,6 +11,7 @@ import { useRosterStore } from '../../stores/rosterStore';
 import { useRosterStoreSync } from '../../hooks/useRosterStoreSync';
 import { agentDotClass } from './statusClasses';
 import { CreateChannelForm } from './CreateChannelForm';
+import { SkeletonText } from '../ui';
 
 const TYPE_LABELS: Record<string, string> = {
   rnd: '研发',
@@ -98,7 +99,7 @@ export function ChannelRail({ activeChannelId, onNavigate }: Props) {
       )}
 
       <nav className="mc-rail-list" aria-label="频道列表">
-        {loading && <div className="mc-rail-empty">加载中…</div>}
+        {loading && <SkeletonText lines={3} className="space-y-2 m-3" />}
         {!loading && channels.length === 0 && (
           <div className="mc-rail-empty">暂无频道，点击「+ 新频道」创建</div>
         )}
@@ -132,7 +133,7 @@ export function ChannelRail({ activeChannelId, onNavigate }: Props) {
         {agentsForbidden ? (
           <div className="mc-rail-empty">无权限查看 Agent 状态（需 Admin 权限）</div>
         ) : (
-          !agentsLoadedOnce && <div className="mc-rail-empty">加载中…</div>
+          !agentsLoadedOnce && <SkeletonText lines={2} className="space-y-2 m-3" />
         )}
         {visibleAgents.map(a => (
           <div className="mc-agent" key={a.id} title={a.lastError || undefined}>

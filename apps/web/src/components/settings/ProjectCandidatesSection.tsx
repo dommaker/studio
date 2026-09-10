@@ -5,6 +5,7 @@
 import { useEffect, useState } from 'react';
 import { projectsApi, type LocalProject } from '../../api/projects';
 import { toast } from '../../utils/toast';
+import { SkeletonText } from '../ui';
 
 export function ProjectCandidatesSection() {
   const [projects, setProjects] = useState<LocalProject[]>([]);
@@ -43,7 +44,7 @@ export function ProjectCandidatesSection() {
       </p>
       <div className="card p-4 space-y-4">
         {loading ? (
-          <p className="text-sm u-text-2">加载中…</p>
+          <SkeletonText lines={3} className="space-y-2" />
         ) : (
           <>
             <div>

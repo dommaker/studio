@@ -14,6 +14,7 @@ import {
   type WorkUnit,
 } from '../../api/workunit';
 import { deriveDisplayState, WU_STATUS_LABELS } from '@dommaker/studio-shared/web';
+import { SkeletonText } from '../ui';
 import { useWebSocketContext } from '../../api/websocketHooks';
 import { useWorkUnitStreamEvents } from '../../hooks/useWorkUnitStreamEvents';
 import { formatShortTime } from '../../utils/datetime';
@@ -204,7 +205,7 @@ export function ExecutionSteps({ workUnitId, wu }: { workUnitId: string; wu?: Wo
           </div>
         );
       })()}
-      {steps === null && <div className="mc-drawer-note">加载中…</div>}
+      {steps === null && <SkeletonText lines={2} className="space-y-2" />}
       {steps !== null && steps.length === 0 && liveChunks.length === 0 && (
         <div className="mc-drawer-note">暂无执行过程记录（仅记录本能力上线后的执行步）</div>
       )}

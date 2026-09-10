@@ -70,7 +70,7 @@ describe('ExecutionSteps', () => {
     await waitFor(() => expect(screen.getByText(/暂无执行过程记录/)).toBeTruthy());
   });
 
-  it('加载中（steps===null）-> 显示加载中；API reject -> 空态不崩', async () => {
+  it('加载中（steps===null）-> 显示骨架（批次 F-3）；API reject -> 空态不崩', async () => {
     mockListExecSteps.mockRejectedValue(new Error('net'));
     render(<ExecutionSteps workUnitId="WU-1" />);
     await waitFor(() => expect(screen.getByText(/暂无执行过程记录/)).toBeTruthy());

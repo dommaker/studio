@@ -6,7 +6,7 @@
 import { useEffect, useState } from 'react';
 import { channelApi, type AgentProfile } from '../../api/channel';
 import { skillsApi, type SkillManifestEntry } from '../../api/skills';
-import { Modal } from '../ui';
+import { Modal, SkeletonText } from '../ui';
 import { errorMessage } from '../../utils/errorMessage';
 
 export function RoleSkillsModal({ open, profile, onClose, onSaved }: {
@@ -90,7 +90,7 @@ export function RoleSkillsModal({ open, profile, onClose, onSaved }: {
         声明的 skill 会进入该角色每次执行的技能注入索引（与工单 +点名同权）；不控制接单范围。
       </p>
       {loading ? (
-        <div className="u-text-2 py-6 text-center">加载中…</div>
+        <SkeletonText lines={5} className="space-y-2 py-2" />
       ) : (
         <div className="flex flex-col gap-2">
           {options.map((o) => (

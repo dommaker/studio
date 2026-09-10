@@ -9,7 +9,7 @@ import { Link } from 'react-router-dom';
 import { formatChannelName } from '@dommaker/studio-shared/web';
 import { workspaceApi } from '../../api';
 import { channelApi, type Channel } from '../../api/channel';
-import { Select } from '../ui';
+import { Select, SkeletonText } from '../ui';
 import { toast } from '../../utils/toast';
 import { isForbidden } from '../../utils/http';
 import { useAuthStore } from '../../stores/authStore';
@@ -107,7 +107,7 @@ export function DefaultExecutionMachineSection() {
       </p>
       <div className="card p-4 space-y-3">
         {loading ? (
-          <p className="text-sm u-text-2">加载中…</p>
+          <SkeletonText lines={2} className="space-y-2" />
         ) : forbidden ? (
           // 非 Admin 降级：workspaces 列表 Admin-only，绑定值只读回显，不出选择器
           <>

@@ -4,6 +4,7 @@
 import { useEffect, useState } from 'react';
 import { workunitApi, type TreeTokenReport } from '../../api/workunit';
 import { Modal } from '../ui/Modal';
+import { SkeletonText } from '../ui';
 
 function formatTokens(n: number | null): string {
   if (n === null) return '-';
@@ -45,7 +46,7 @@ export function TreeTokenDrawer({ workUnitId, onClose }: Props) {
 
   return (
     <Modal open onClose={onClose} title="协作树 Token 开销" maxWidth="720px">
-      {loading && <p className="text-sm u-text-3">加载中...</p>}
+      {loading && <SkeletonText lines={3} className="space-y-2" />}
       {error && <p className="text-sm u-err">加载失败: {error}</p>}
       {report && (
         <>

@@ -19,7 +19,7 @@ import { maintenanceApi } from '../api/maintenance';
 import { toast } from '../utils/toast';
 import { serverErrorMessage } from '../utils/errorMessage';
 import { useAsyncData } from '../hooks/useAsyncData';
-import { Select, ManualTaskButton, Button } from '../components/ui';
+import { Select, ManualTaskButton, Button, SkeletonCard } from '../components/ui';
 import {
   PreferenceCard, BusinessRuleCard, EnvSnapshotCard,
   DecisionChainCard, InteractionPatternCard, ResolutionCard,
@@ -371,7 +371,12 @@ export function KnowledgePage() {
                 </div>
               )}
               {unifiedLoading ? (
-                <div className="text-center py-8 u-text-3">加载中...</div>
+                // 批次 F-3：加载态骨架卡片行（批次 E-2 ui/Skeleton 正本）
+                <div className="space-y-3">
+                  <SkeletonCard height={88} />
+                  <SkeletonCard height={88} />
+                  <SkeletonCard height={88} />
+                </div>
               ) : tabQ.error ? null : unifiedEntries.length === 0 ? (
                 <div className="empty-state">{reviewOnly ? '暂无待审条目' : '暂无数据'}</div>
               ) : (
@@ -442,7 +447,12 @@ export function KnowledgePage() {
           {activeTab !== 'unified' && (
             <div>
               {gapLoading ? (
-                <div className="text-center py-8 u-text-3">加载中...</div>
+                // 批次 F-3：加载态骨架卡片行（批次 E-2 ui/Skeleton 正本）
+                <div className="space-y-3">
+                  <SkeletonCard height={88} />
+                  <SkeletonCard height={88} />
+                  <SkeletonCard height={88} />
+                </div>
               ) : tabQ.error ? null : gapData.length === 0 ? (
                 <div className="empty-state">
                   暂无{gapLabels[activeTab as GapTab]}数据。系统会自动从 Agent 执行/交互中积累。

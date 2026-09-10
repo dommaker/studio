@@ -6,7 +6,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../../api';
 import { channelApi } from '../../api/channel';
-import { Modal } from '../ui';
+import { Modal, SkeletonText } from '../ui';
 
 interface RuntimeInfo {
   provider: string;
@@ -165,7 +165,7 @@ export function CreateRoleModal({ open, onClose, onCreated, presetProvider }: {
           </div>
         </div>
       ) : loading ? (
-        <div className="u-text-2 py-6 text-center">加载中…</div>
+        <SkeletonText lines={4} className="space-y-2 py-2" />
       ) : loadFailed ? (
         <div className="py-3">
           <p className="u-err">获取本机 CLI 清单失败，可稍后重试或直接创建（provider 可手填于角色设置页）。</p>

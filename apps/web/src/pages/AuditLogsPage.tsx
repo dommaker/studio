@@ -6,7 +6,7 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { auditLogApi, type AuditLog, type AuditLogStats } from '../api/auditLogs';
-import { Select, Modal } from '../components/ui';
+import { Select, Modal, SkeletonText, SkeletonCard } from '../components/ui';
 import { formatFullTime } from '../utils/datetime';
 
 /** 日期 input（YYYY-MM-DD）→ 本地日界 ISO，传后端 startTime/endTime */
@@ -168,9 +168,23 @@ export const AuditLogsPage: React.FC = () => {
   };
 
   if (loading && !logs.length) {
+    // 批次 F-3：加载态骨架（批次 E-2 ui/Skeleton 正本）——统计卡 4 格 + 表格行形态
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="u-text-2">{'加载中...'}</div>
+      <div className="h-full flex flex-col u-page-bg">
+        <div className="u-page-head">
+          <SkeletonText lines={1} widths={['20%']} />
+        </div>
+        <div className="flex-1 overflow-auto px-8 pb-8">
+          <div className="max-w-5xl">
+            <div className="grid grid-cols-4 gap-4 mb-6">
+              <SkeletonCard height={88} />
+              <SkeletonCard height={88} />
+              <SkeletonCard height={88} />
+              <SkeletonCard height={88} />
+            </div>
+            <SkeletonText lines={8} className="space-y-3" />
+          </div>
+        </div>
       </div>
     );
   }

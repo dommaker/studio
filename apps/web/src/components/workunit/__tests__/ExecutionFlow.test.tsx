@@ -107,10 +107,11 @@ describe('ExecutionFlow', () => {
     expect(screen.getByText('完成读取')).toBeDefined();
   });
 
-  it('加载中 → 「加载中…」；空事件 → 空态文案；接口失败 → 空态不炸', async () => {
+  it('加载中 → 静态骨架（批次 F-3）；空事件 → 空态文案；接口失败 → 空态不炸', async () => {
     mockListSteps.mockReturnValue(new Promise(() => {}));
-    const { unmount } = render(<ExecutionFlow workUnitId="wu-1" wu={baseWu} />);
-    expect(screen.getByText('加载中…')).toBeDefined();
+    const { container, unmount } = render(<ExecutionFlow workUnitId="wu-1" wu={baseWu} />);
+    expect(container.querySelector('.skeleton')).not.toBeNull();
+    expect(screen.queryByText('加载中…')).toBeNull();
     unmount();
 
     mockListSteps.mockResolvedValue({ data: { events: [], total: 0 } });

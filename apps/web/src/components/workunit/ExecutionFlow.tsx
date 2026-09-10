@@ -13,6 +13,7 @@ import {
   type ExecutionStepEvent,
   type WorkUnit,
 } from '../../api/workunit';
+import { SkeletonText } from '../ui';
 import { deriveDisplayState, WU_STATUS_COLORS, WU_STATUS_LABELS } from '@dommaker/studio-shared/web';
 import { useWebSocketContext } from '../../api/websocketHooks';
 import { formatShortTime } from '../../utils/datetime';
@@ -159,7 +160,7 @@ export function ExecutionFlow({ workUnitId, wu }: { workUnitId: string; wu: Work
         </div>
       )}
 
-      {steps === null && <div className="wu-exec-note">加载中…</div>}
+      {steps === null && <SkeletonText lines={2} className="space-y-2" />}
       {steps !== null && shown.length === 0 && (
         <div className="wu-exec-note">暂无执行过程记录（仅记录本能力上线后的执行步）</div>
       )}

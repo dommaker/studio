@@ -27,6 +27,7 @@ import type { ReviewConfirmPayload, WorkUnit } from '../api/workunit';
 import { renderSuggestionCopy } from '../utils/suggestionCopy';
 import { getSuggestionAction } from '../utils/suggestionActions';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
+import { SkeletonText } from '../components/ui';
 import axios from 'axios';
 import { useNotificationStore } from '../stores/notificationStore';
 import { useUnreadStore } from '../stores/unreadStore';
@@ -837,7 +838,8 @@ export function ChannelDetailPage() {
           {/* mc-stream-head：滚动测量容器（streamHeadRef 挂点），无样式需求，结构化 hook（#431 定性保留） */}
           <div className="mc-stream-head" ref={streamHeadRef}>
             {loading && messages.length === 0 && (
-              <div className="mc-stream-empty">加载中…</div>
+              // 批次 F-3：消息流首拉骨架（批次 E-2 ui/Skeleton 正本）——消息行形态
+              <SkeletonText lines={5} widths={['40%', '65%', '55%', '70%', '45%']} className="space-y-4 p-4" />
             )}
             {!loading && messages.length === 0 && (
               <div className="mc-stream-empty">

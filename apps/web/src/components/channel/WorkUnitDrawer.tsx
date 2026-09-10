@@ -17,6 +17,7 @@ import { monitoringApi, type OverheadStats } from '../../api/monitoring';
 import { channelApi, type AgentProfile } from '../../api/channel';
 import { useWebSocketContext } from '../../api/websocketHooks';
 import { ExecutionSteps } from '../workunit/ExecutionSteps';
+import { SkeletonText } from '../ui';
 import { BlockedActions } from '../workunit/BlockedActions';
 import { TreeTokenDrawer } from '../workunit/TreeTokenDrawer';
 import { SelfReviewBadge } from '../workunit/SelfReviewBadge';
@@ -231,7 +232,7 @@ function WuDetail({ id, autoApprove = false, autoRuling = false, onOpenReq }: { 
 
   if (notFound) return <div className="mc-drawer-note">该任务不存在或已被清理（id：{id}）</div>;
   if (error) return <div className="mc-drawer-note">加载失败: {error}</div>;
-  if (!wu) return <div className="mc-drawer-note">加载中…</div>;
+  if (!wu) return <SkeletonText lines={6} className="space-y-3" />;
 
   const meta = parseWuMeta<WuMeta>(wu.metadata);
   const title = meta.title || wu.scope;
@@ -351,7 +352,7 @@ function WuDetail({ id, autoApprove = false, autoRuling = false, onOpenReq }: { 
       )}
 
       <div className="mc-block-label">token 开销（本任务）</div>
-      {tokens === null && <div className="mc-drawer-note">加载中…</div>}
+      {tokens === null && <SkeletonText lines={1} widths={['40%']} />}
       {tokens !== null && tokens.length === 0 && (
         <div className="mc-drawer-note">窗口内无 token 度量事件</div>
       )}
@@ -440,7 +441,7 @@ function ReqChain({ id, onOpenWu }: { id: string; onOpenWu: (wuId: string) => vo
   }, [id]);
 
   if (error) return <div className="mc-drawer-note">加载失败: {error}</div>;
-  if (!chain) return <div className="mc-drawer-note">加载中…</div>;
+  if (!chain) return <SkeletonText lines={3} className="space-y-2" />;
 
   const req = chain.requirement;
   return (

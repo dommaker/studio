@@ -10,6 +10,7 @@ import { useAsyncData } from '../../hooks/useAsyncData';
 import { formatAge, POOL_STAGNATION_WARN_MS } from '@dommaker/studio-shared/web';
 import { groupAlertsBySignature, type AlertGroup, type AlertItem } from './alertGrouping';
 import { MonitorSection } from './MonitorSection';
+import { SkeletonText } from '../ui';
 
 const HOUR = 3600_000;
 /** 待领取滞留阈值（对齐 #181 池滞留探针，正本在 studio-shared/constants/monitoring） */
@@ -158,7 +159,7 @@ export function NeedsAttentionSection({ onAlertClick }: { onAlertClick?: (group:
       statTestId="alert-group-count"
     >
       {loading ? (
-        <div className="text-sm u-text-2">加载中...</div>
+        <SkeletonText lines={3} className="space-y-2" />
       ) : allClear ? (
         <div className="text-sm u-ok">现在没有需要你处理的事</div>
       ) : (

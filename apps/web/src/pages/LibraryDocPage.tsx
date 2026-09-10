@@ -10,7 +10,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { LIBRARY_DOC_STATUS_COLORS, LIBRARY_DOC_STATUS_LABELS } from '@dommaker/studio-shared/web';
 import { libraryApi } from '../api';
 import { stripDuplicateH1 } from '../utils/stripDuplicateH1';
-import { BackButton } from '../components/ui';
+import { BackButton, SkeletonText } from '../components/ui';
 
 const MarkdownBody = lazy(() => import('../components/knowledge/MarkdownBody'));
 
@@ -76,9 +76,17 @@ export function LibraryDocPage() {
   };
 
   if (loading) {
+    // 批次 F-3：加载态骨架（批次 E-2 ui/Skeleton 正本）——阅读页标题 + 段落形态
     return (
-      <div className="flex items-center justify-center h-full">
-        <div className="loading-spinner" />
+      <div className="h-full flex flex-col u-page-bg">
+        <div className="u-page-head">
+          <SkeletonText lines={1} widths={['35%']} />
+        </div>
+        <div className="flex-1 overflow-auto px-8 pb-8">
+          <div className="max-w-5xl mt-4">
+            <SkeletonText lines={10} className="space-y-3" widths={['100%', '100%', '90%', '100%', '75%', '100%', '100%', '85%', '100%', '60%']} />
+          </div>
+        </div>
       </div>
     );
   }

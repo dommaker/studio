@@ -7,7 +7,7 @@
 import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { workspaceApi } from '../api';
-import { BackButton } from '../components/ui';
+import { BackButton, SkeletonText, SkeletonCard } from '../components/ui';
 import { CreateRoleModal } from '../components/monitoring/CreateRoleModal';
 
 interface Runtime {
@@ -55,7 +55,21 @@ export function WorkspacePage() {
     setSelectedRuntime(rt);
   };
 
-  if (loading) return <div className="h-full u-page-bg p-4 u-text-2">加载中...</div>;
+  // 批次 F-3：加载态骨架（批次 E-2 ui/Skeleton 正本）——标题 + 行卡形态
+  if (loading) return (
+    <div className="h-full flex flex-col u-page-bg">
+      <div className="u-page-head">
+        <SkeletonText lines={1} widths={['30%']} />
+      </div>
+      <div className="flex-1 overflow-auto px-8 pb-8">
+        <div className="max-w-5xl mt-4 space-y-2">
+          <SkeletonCard height={56} />
+          <SkeletonCard height={56} />
+          <SkeletonCard height={56} />
+        </div>
+      </div>
+    </div>
+  );
   if (error) return <div className="h-full u-page-bg p-4 u-err">{error}</div>;
   if (!workspace) return <div className="h-full u-page-bg p-4 u-text-2">Workspace 不存在</div>;
 

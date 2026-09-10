@@ -11,6 +11,7 @@ import { lazy, Suspense, useCallback, useMemo, useState } from 'react';
 import { useAgentRoster, type RosterRole } from '../hooks/useAgentRoster';
 import { RoleCard } from '../components/monitoring/RoleCard';
 import { CreateRoleModal } from '../components/monitoring/CreateRoleModal';
+import { SkeletonCard } from '../components/ui';
 import type { DrawerState } from '../components/channel/WorkUnitDrawer';
 import {
   resolveCardStatusKey,
@@ -95,7 +96,12 @@ export function AgentDashboardPage() {
             <p>无权限查看 Agent 运行数据（需 Admin 权限）</p>
           </div>
         ) : loading && roles.length === 0 ? (
-          <div className="text-center py-20 u-text-2">加载中...</div>
+          // 批次 F-3：加载态骨架（批次 E-2 ui/Skeleton 正本）——贴近 agd-grid 卡栅格形态
+          <div className="agd-grid">
+            <SkeletonCard height={160} />
+            <SkeletonCard height={160} />
+            <SkeletonCard height={160} />
+          </div>
         ) : roles.length === 0 ? (
           // 批次 D-3 项1：空态 = 说明 + 一个明确主行动（直挂 CreateRoleModal，同页头按钮入口）
           <div className="empty-state">

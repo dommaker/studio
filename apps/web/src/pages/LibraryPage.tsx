@@ -11,7 +11,7 @@ import { LIBRARY_DOC_STATUS_COLORS, LIBRARY_DOC_STATUS_LABELS } from '@dommaker/
 import { libraryApi, projectApi } from '../api';
 import { companyApi } from '../api/company';
 import { maintenanceApi, type TriggerCosts } from '../api/maintenance';
-import { ManualTaskButton } from '../components/ui';
+import { ManualTaskButton, SkeletonText } from '../components/ui';
 import { Select } from '../components/ui/Select';
 import '../styles/library.css';
 
@@ -248,9 +248,8 @@ export function LibraryPage() {
           </div>
         )}
         {loading ? (
-          <div className="flex items-center justify-center h-64">
-            <div className="loading-spinner" />
-          </div>
+          // 批次 F-3：加载态骨架（批次 E-2 ui/Skeleton 正本）——列表行形态
+          <SkeletonText lines={8} className="space-y-3" />
         ) : error ? null : visibleDocs.length === 0 ? (
           <div className="flex items-center justify-center h-64">
             <p className="u-text-3">
