@@ -571,6 +571,56 @@ describe('WorkUnitListPage — 行形态与抽屉（Step 2 / E2-1）', () => {
   });
 });
 
+// 批次 D-1.6（docs/plans/2026-09-ui-interaction-polish.md）：「待人工」行级提权 ——
+// needsHuman（in_review ‖ done 缺 l3，与统计 chip 同口径）行加 wu-row-human 类，
+// 视觉（warning-dim 底色 + hover 提亮）在 workunits.css
+describe('WorkUnitListPage — 待人工行级提权（D-1.6）', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockStore.workunits = [];
+    mockStore.statusFilter = null;
+    mockSearchParamsValue.value = '';
+  });
+
+  const rowClass = (scope: string) =>
+    (screen.getByText(scope).closest('.wu-row') as HTMLElement).className;
+
+  it('in_review 行 → wu-row-human（待人工提权）', () => {
+    mockStore.workunits = [makeWu({ id: 'wu-h1', scope: '待验收的活', status: 'in_review' })];
+    render(<WorkUnitListPage />);
+    expect(rowClass('待验收的活')).toContain('wu-row-human');
+  });
+
+  it('done 缺 l3（证据已介入）行 → wu-row-human；done 有 l3 行不提权', () => {
+    const att = (l3: boolean) => JSON.stringify({
+      attestations: {
+        l1: { verdict: 'approved', by: 'dev', at: 't', kind: 'verify' },
+        l2: { verdict: 'approved', by: 'rev', at: 't', kind: 'agent-review' },
+        ...(l3 ? { l3: { verdict: 'approved', by: 'human', at: 't', kind: 'human-accept' } } : {}),
+      },
+    });
+    mockStore.workunits = [
+      makeWu({ id: 'wu-h2', scope: '缺人工验收的活', status: 'done', metadata: att(false) }),
+      makeWu({ id: 'wu-h3', scope: '已人工验收的活', status: 'done', metadata: att(true) }),
+    ];
+    render(<WorkUnitListPage />);
+    expect(rowClass('缺人工验收的活')).toContain('wu-row-human');
+    expect(rowClass('已人工验收的活')).not.toContain('wu-row-human');
+  });
+
+  it('其他状态行不提权（active / pending / unassigned）', () => {
+    mockStore.workunits = [
+      makeWu({ id: 'wu-h4', scope: '进行中的活', status: 'active' }),
+      makeWu({ id: 'wu-h5', scope: '待确认的活', status: 'pending' }),
+      makeWu({ id: 'wu-h6', scope: '待领取的活', status: 'unassigned' }),
+    ];
+    render(<WorkUnitListPage />);
+    for (const scope of ['进行中的活', '待确认的活', '待领取的活']) {
+      expect(rowClass(scope)).not.toContain('wu-row-human');
+    }
+  });
+});
+
 // 批次A 项4 → E2-4：行闸门按钮三处合一为 WuGateActions——pending 锁存 + 失败内联错误（原 toast 统一为内联，方案「文案与视觉唯一」）；
 // handleCreate 失败内联错误不变
 describe('WorkUnitListPage — 行闸门反馈兜底（批次A 项4 / E2-4）', () => {

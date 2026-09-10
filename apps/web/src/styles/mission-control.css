@@ -387,8 +387,13 @@
   border-top-right-radius: 3px;
   padding: 6px 12px;
 }
-/* D1 agent 消息：左侧无气泡文档流，占内容列宽（#394 起中栏弹性无上限，760/1000 双档取消） */
-.mc-msg-agent { text-align: left; }
+/* D1 agent 消息：左侧无气泡文档流，占内容列宽（#394 起中栏弹性无上限，760/1000 双档取消）；
+   批次 D-1.5 ②：2px --border-default 左边线 + 12px 内距，文档流形态视觉锚点（人类气泡/系统播报不加） */
+.mc-msg-agent {
+  text-align: left;
+  border-left: 2px solid var(--border-default);
+  padding-left: 12px;
+}
 /* D3 系统播报：淡色小字，与左右对话流明确区隔；无头无动作，仅正文（+可选 footer 链接） */
 /* #437：居中装置是 760px 限宽栏语境的设计；#394 取消限宽后播报漂屏中，改左对齐随主流文档流，
    区隔 = 淡色小字 + 无头两层信号；footer 链接随正文左对齐（居中 override 一并删除） */
@@ -397,6 +402,20 @@
   font-size: var(--fs-xs);
   white-space: pre-wrap;
 }
+/* 批次 D-1.5 ①：系统播报行首严重度 chip——[CRITICAL]/[WARNING] 裸文本前缀 chip 化（渲染层剥前缀），
+   [INFO] 及其余播报不加 chip。配色配方同 .mc-wu-link 变体（dim 底 + 原色字 + border 边） */
+.mc-sev-chip {
+  display: inline-block;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 0 6px;
+  margin-right: 6px;
+  vertical-align: baseline;
+}
+.mc-sev-chip--error { color: var(--error); background: var(--error-dim); border-color: var(--error-border); }
+.mc-sev-chip--warning { color: var(--warning); background: var(--warning-dim); border-color: var(--warning-border); }
 /* D2 compact（连续合并）：省略重复头，动作浮于消息右上，hover/focus 显化（沿用 .mc-msg-actions 弱化态） */
 .mc-msg-compact { position: relative; }
 .mc-msg-compact > .mc-msg-actions-compact {
@@ -814,7 +833,9 @@
   flex: 1;
   resize: none;
 }
-.mc-input-row textarea:focus { border-color: var(--accent-primary); }
+/* 批次 D-1.5 ③：focus 加 accent 描边 + glow（白名单场景①允许 transition 100ms，
+   但 --motion-fast token 尚未落地（D-2.x），本轮只加静态 focus 态，不加 transition） */
+.mc-input-row textarea:focus { border-color: var(--accent-primary); box-shadow: var(--shadow-glow); }
 .mc-input-row textarea::placeholder { color: var(--text-muted); }
 .mc-input-hint {
   display: flex;
@@ -906,9 +927,8 @@
 }
 .mc-drawer-subject-title {
   font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  /* 抽屉主体标题允许折行：窄抽屉下单行截断看不全全文 */
+  overflow-wrap: anywhere;
 }
 .mc-drawer-desc { color: var(--text-secondary); font-size: var(--fs-sm); margin: 6px 0; }
 

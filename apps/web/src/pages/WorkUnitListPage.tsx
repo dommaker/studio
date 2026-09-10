@@ -279,7 +279,7 @@ function WorkUnitRow({
 
   return (
     <div
-      className={`wu-row${depBlocked ? ' u-dimmed' : ''}`}
+      className={`wu-row${depBlocked ? ' u-dimmed' : ''}${derived.needsHuman ? ' wu-row-human' : ''}`}
       data-status={derived.column}
     >
       <div

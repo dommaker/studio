@@ -22,8 +22,15 @@
   color: inherit;
 }
 .wu-stat:hover { background: var(--bg-hover); }
-.wu-stat-on { border-color: var(--border-strong); background: var(--bg-active); }
-.wu-stat-num { font-size: var(--fs-stat); }
+/* D-1.6：激活过滤 chip 追加 accent 底线（border-bottom 2px，padding 4→3 补偿 1px→2px 粗化防布局抖动） */
+.wu-stat-on {
+  border-color: var(--border-strong);
+  background: var(--bg-active);
+  border-bottom: 2px solid var(--accent-primary);
+  padding-bottom: 3px;
+}
+/* D-1.6：chip 数字档归 --fs-title（--fs-stat 按 §2.3 仅统计卡大数字用；chip 非统计卡），mono 由 JSX font-mono 承担 */
+.wu-stat-num { font-size: var(--fs-title); }
 
 /* #405：未归属 = 低调小 chip（归因覆盖率信号，非主筛选维度） */
 .wu-unattr {
@@ -46,6 +53,12 @@
   transition: background 0.12s ease;
 }
 .wu-row:hover { background: var(--bg-hover); }
+
+/* D-1.6：「待人工」行级提权（needsHuman = in_review ‖ done 缺 l3，与统计 chip 同口径）——
+   左 3px 状态色条之外整行加 warning-dim 底色；hover 仍走 --bg-hover 提亮
+   （--bg-hover 不透明直接覆盖 tint，显式 hover 规则锁死叠加顺序） */
+.wu-row.wu-row-human { background: var(--warning-dim); }
+.wu-row.wu-row-human:hover { background: var(--bg-hover); }
 
 /* 左侧状态色条 + 状态点按派生列着色（#472：pending=中性、in_review=warn、active=accent、done/closed=ok、blocked=err） */
 .wu-row[data-status='pending']    { border-left-color: var(--text-secondary); }
@@ -76,6 +89,7 @@
   flex-shrink: 0;
   white-space: nowrap;
 }
+
 
 /* 弱化 chip：类型 / REQ / 被阻塞 */
 .wu-chip {
