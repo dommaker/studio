@@ -88,7 +88,7 @@ vi.mock('../../../hooks/useWorkUnitStreamEvents', () => ({
 }));
 
 import { WorkUnitDrawer } from '../WorkUnitDrawer';
-import type { DrawerState } from '../WorkUnitDrawer';
+import type { DrawerState, DrawerTodoNav } from '../WorkUnitDrawer';
 import { useRosterStore } from '../../../stores/rosterStore';
 import { useRequirementChainStore } from '../../../stores/requirementChainStore';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
@@ -153,7 +153,7 @@ const CHAIN = {
   ],
 };
 
-const renderDrawer = (drawer: DrawerState, extra: { onClose?: () => void; onOpenWu?: (id: string) => void; onOpenReq?: (id: string) => void } = {}) =>
+const renderDrawer = (drawer: DrawerState, extra: { onClose?: () => void; onOpenWu?: (id: string) => void; onOpenReq?: (id: string) => void; todoNav?: DrawerTodoNav } = {}) =>
   render(
     <MemoryRouter initialEntries={['/']}>
       <Routes>
@@ -165,6 +165,7 @@ const renderDrawer = (drawer: DrawerState, extra: { onClose?: () => void; onOpen
               onClose={extra.onClose ?? vi.fn()}
               onOpenWu={extra.onOpenWu ?? vi.fn()}
               onOpenReq={extra.onOpenReq ?? vi.fn()}
+              {...(extra.todoNav ? { todoNav: extra.todoNav } : {})}
             />
           }
         />
@@ -172,6 +173,8 @@ const renderDrawer = (drawer: DrawerState, extra: { onClose?: () => void; onOpen
         <Route path="/channels/:id" element={<div>频道页</div>} />
         {/* E2-1：ReviewHint「去设置」改链 /agents（E8-3） */}
         <Route path="/agents" element={<div>Agent 页</div>} />
+        {/* D-2 项2：抽屉内「↗ 详情页」深链落点 */}
+        <Route path="/workunits/:id" element={<div>WU 详情页</div>} />
       </Routes>
     </MemoryRouter>,
   );
@@ -349,6 +352,44 @@ describe('WorkUnitDrawer', () => {
     renderDrawer({ kind: 'wu', id: 'WU-1017' }, { onClose });
     fireEvent.click(screen.getByLabelText('关闭抽屉'));
     expect(onClose).toHaveBeenCalled();
+  });
+
+  // ── D-2（批次 ui-interaction-polish 第一轮）：抽屉内「↗ 详情页」深链 + 「下一个待办」串办导航 ──
+
+  it('D-2 项2：WU 详情有「↗ 详情页」深链入口，点击页面级跳 /workunits/:id', async () => {
+    renderDrawer({ kind: 'wu', id: 'WU-1017' });
+    const link = await screen.findByRole('button', { name: '打开完整详情页' });
+    fireEvent.click(link);
+    await screen.findByText('WU 详情页');
+  });
+
+  it('D-2 项3：todoNav.next 存在 → 导航条「下一个 → 标题」，点击回调 onOpenNext(wuId)', async () => {
+    const onOpenNext = vi.fn();
+    renderDrawer(
+      { kind: 'wu', id: 'WU-1017' },
+      { todoNav: { next: { wuId: 'WU-1015', label: '下一个待办单' }, onOpenNext } },
+    );
+    const btn = await screen.findByRole('button', { name: /下一个 → 下一个待办单/ });
+    fireEvent.click(btn);
+    expect(onOpenNext).toHaveBeenCalledWith('WU-1015');
+  });
+
+  it('D-2 项3：todoNav.next=null → 收口文案「待办都处理完了」；不传 todoNav → 无导航条', async () => {
+    renderDrawer(
+      { kind: 'wu', id: 'WU-1017' },
+      { todoNav: { next: null, onOpenNext: vi.fn() } },
+    );
+    expect(await screen.findByText(/待办都处理完了/)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /下一个 →/ })).toBeNull();
+  });
+
+  it('D-2 项3：REQ 链路视图不渲染串办导航条（仅 WU 详情态）', async () => {
+    renderDrawer(
+      { kind: 'req', id: 'REQ-0042' },
+      { todoNav: { next: { wuId: 'WU-1015', label: 'x' }, onOpenNext: vi.fn() } },
+    );
+    await screen.findByText('主界面视觉方向稿');
+    expect(screen.queryByRole('button', { name: /下一个 →/ })).toBeNull();
   });
 
   it('执行过程区块：渲染步事件（思考/工具/skill/用量），按步号升序', async () => {

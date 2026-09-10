@@ -19,6 +19,10 @@ export interface ActionCenterStateItem {
   scope: string;
   channelId: string | null;
   waitingQuestion?: string;
+  /** D-2（reply 深链）：定位锚点 = 该 WU 频道线程最新一条非人类消息 id
+   *  （与频道页 NEED_INPUT chip「当前提问消息」同口径，#279 走查 F4）。
+   *  无 channelId / 热层无匹配消息 / 查询失败 → 缺省（前端 fail-closed 回退纯频道跳转） */
+  messageId?: string;
   since: string;
 }
 
@@ -49,12 +53,14 @@ export class ActionCenterService {
     for (const wu of blocked.data) {
       const meta = parseWuMetadata(wu.metadata);
       if (!meta.waitingForInput) continue;
+      const messageId = await this.resolveWaitingMessageId(wu.id, wu.channelId);
       stateItems.push({
         kind: 'reply',
         wuId: wu.id,
         scope: parseWuTitle(wu.metadata, wu.scope),
         channelId: wu.channelId,
         ...(meta.waitingQuestion ? { waitingQuestion: meta.waitingQuestion } : {}),
+        ...(messageId ? { messageId } : {}),
         since: meta.waitingSince ?? new Date(wu.updatedAt).toISOString(),
       });
     }
@@ -88,5 +94,23 @@ export class ActionCenterService {
     ]);
 
     return { stateItems, notifications, unreadCount };
+  }
+
+  /**
+   * reply 深链锚点（D-2）：该 WU 频道线程最新一条非人类消息 id——waitingForInput 的
+   * metadata 不记消息 id，而提问消息（agent-loop「需要输入:」/ 归属提问 / 裁决轮）全部经
+   * wu-messenger 发为 authorType=agent 且挂 workUnitId，与频道页 chip 的「当前提问消息 =
+   * 该 WU 最新非人类消息」（#279 走查 F4）同口径。热层查询（挂起中 WU 的消息不入冷层），
+   * 查询失败/无匹配 → null（fail-closed，前端不拼 ?highlight=）。
+   */
+  private async resolveWaitingMessageId(wuId: string, channelId: string | null): Promise<string | null> {
+    if (!channelId) return null;
+    try {
+      const messages = await this.fileStore.queryMessages(channelId, { workUnitId: wuId });
+      const latest = messages.filter(m => m.authorType !== 'human').at(-1);
+      return latest?.id ?? null;
+    } catch {
+      return null;
+    }
   }
 }

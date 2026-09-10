@@ -1155,6 +1155,37 @@
   .mc-drawer-back { display: inline-flex; align-items: center; }
 }
 
+/* D-2 项2（行动中心就地化）：NotificationBell 自挂的抽屉宿主——挂在顶栏里，无流内位置，
+   全断点 fixed 覆盖当前页（768–1023 的全局覆盖规则同形态，本规则把 ≥1024 也纳入覆盖式）。
+   频道页流内右栏 / 列表页 .wu-drawer-host 既有 drawer 不受影响（选择器作用域隔离）。 */
+.ac-drawer-host > .mc-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 300;
+  width: 400px;
+  box-shadow: var(--shadow-lg);
+}
+@media (max-width: 767px) {
+  .ac-drawer-host > .mc-drawer { width: 100%; }
+}
+
+/* D-2 项3：抽屉内「下一个待办」串办导航条（抽屉头与主体之间；按钮走 btn 体系，长标题截断） */
+.ac-todo-nav {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border-subtle);
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.ac-todo-nav-btn {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* <768 ChannelRail 并入全局 Sidebar（SidebarNew 内渲染，工作区内联实例已卸载）：
    去固定宽/右边框/底色，贴 sidebar 流；flex:1 吃剩余高，底部状态条不动 */
 .sidebar .mc-rail {
