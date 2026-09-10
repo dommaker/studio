@@ -358,6 +358,35 @@ describe('批次 F-1: 全局搜索失败反馈（原先 catch 静默置空，落
   });
 });
 
+describe('批次 F-4: 统一视图空态挂「手动新建」入口（双语境）', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockListUnified.mockResolvedValue({ data: { entries: [], total: 0 } });
+  });
+
+  it('真空态出图标 + 说明 + 「手动新建」按钮，点击展开新建表单', async () => {
+    const { container } = render(<MemoryRouter><KnowledgePage /></MemoryRouter>);
+
+    expect(await screen.findByText('暂无数据')).toBeTruthy();
+    expect(screen.getByText('知识由系统自动积累，也可以手动新建一条')).toBeTruthy();
+    expect(container.querySelector('.empty-state .empty-icon svg')).not.toBeNull();
+
+    fireEvent.click(screen.getByText('手动新建'));
+    expect(await screen.findByPlaceholderText('标题')).toBeTruthy();
+  });
+
+  it('「待审」筛选下空态走筛选语境，不显示「手动新建」', async () => {
+    render(<MemoryRouter><KnowledgePage /></MemoryRouter>);
+    await screen.findByText('暂无数据');
+
+    fireEvent.click(screen.getByText('待审'));
+
+    expect(await screen.findByText('暂无待审条目')).toBeTruthy();
+    expect(screen.getByText('关闭「待审」筛选可查看全部条目')).toBeTruthy();
+    expect(screen.queryByText('手动新建')).toBeNull();
+  });
+});
+
 describe('批次 F-1: tab 列表加载失败错误条 + 重试（tabQ.error 原先全程未渲染）', () => {
   beforeEach(() => {
     vi.clearAllMocks();

@@ -148,5 +148,7 @@ describe('WorkspacePage', () => {
     await waitFor(() => {
       expect(screen.getByText('暂无可用 CLI，请先接入算力')).toBeDefined();
     });
+    // 批次 F-4：空态补下一步指引（接入方式说明）
+    expect(screen.getByText(/在本机安装受支持的 Agent CLI/)).toBeDefined();
   });
 });

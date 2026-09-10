@@ -82,7 +82,11 @@ export function DiscussionPanel({ workUnitId }: { workUnitId: string }) {
           /* 批次 E-2：静态骨架占位（消息行形态） */
           <SkeletonText lines={2} widths={['70%', '40%']} className="space-y-2" />
         ) : messages.length === 0 ? (
-          <div className="text-xs u-text-2">暂无消息</div>
+          /* 批次 F-4：空态补引导文案（紧凑面板不适用 .empty-state 大留白，保持 text-xs 行内形态） */
+          <div>
+            <div className="text-xs u-text-2">暂无消息</div>
+            <div className="text-xs u-text-3 mt-1">在下方输入框发出第一条消息，与 Agent 就此任务对齐</div>
+          </div>
         ) : (
           messages.map(msg => (
             <div key={msg.id} className="text-xs">

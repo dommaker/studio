@@ -20,6 +20,7 @@ import { toast } from '../utils/toast';
 import { serverErrorMessage } from '../utils/errorMessage';
 import { useAsyncData } from '../hooks/useAsyncData';
 import { Select, ManualTaskButton, Button, SkeletonCard } from '../components/ui';
+import { IconBook } from '../components/ui/icons';
 import {
   PreferenceCard, BusinessRuleCard, EnvSnapshotCard,
   DecisionChainCard, InteractionPatternCard, ResolutionCard,
@@ -378,7 +379,22 @@ export function KnowledgePage() {
                   <SkeletonCard height={88} />
                 </div>
               ) : tabQ.error ? null : unifiedEntries.length === 0 ? (
-                <div className="empty-state">{reviewOnly ? '暂无待审条目' : '暂无数据'}</div>
+                // 批次 F-4：空态归 .empty-state 正本（图标 + 文案 + CTA），真空挂「手动新建」入口
+                <div className="empty-state">
+                  <div className="empty-icon"><IconBook size={32} /></div>
+                  {reviewOnly ? (
+                    <>
+                      <p>暂无待审条目</p>
+                      <p className="text-sm mt-2">关闭「待审」筛选可查看全部条目</p>
+                    </>
+                  ) : (
+                    <>
+                      <p>暂无数据</p>
+                      <p className="text-sm mt-2">知识由系统自动积累，也可以手动新建一条</p>
+                      <button className="btn btn-primary mt-4" onClick={() => setShowManualEntry(true)}>手动新建</button>
+                    </>
+                  )}
+                </div>
               ) : (
                 <div className="space-y-3">
                   {unifiedEntries.map((entry, i) => {

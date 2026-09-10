@@ -1,7 +1,8 @@
 // AuditLogsPage — E7 审计日志页改造（docs/plans/2026-09-page-redesign.md）
 // 时间范围筛选传后端 / 筛选变化重置 page / userId 300ms 防抖（批次 B-5）/
 // 导出带 status（与列表口径一致）/ 视觉收敛（max-w-5xl + StatCard 配方 + mc-block-label 分区）/ 分页文案「上一页/下一页」
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+// 批次 F-4：错误条补重试 / 导出点击反馈（toast）/ 空态双语境（真空 vs 筛选无结果）
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
 const { mockList, mockGetStats, mockListActions, mockListResources } = vi.hoisted(() => ({
@@ -26,6 +27,7 @@ vi.mock('../../api/auditLogs', async (importActual) => {
 });
 
 import { AuditLogsPage } from '../AuditLogsPage';
+import { toast } from '../../utils/toast';
 
 const LOGS = [
   {
@@ -57,6 +59,11 @@ describe('AuditLogsPage（E7 审计日志页改造）', () => {
     mockGetStats.mockResolvedValue({ data: STATS });
     mockListActions.mockResolvedValue({ data: { data: ['create', 'update'] } });
     mockListResources.mockResolvedValue({ data: { data: ['workunit'] } });
+  });
+
+  afterEach(() => {
+    // 批次 F-4：导出反馈走 toast（挂 document.body），用例间清掉防串扰
+    toast.dismiss();
   });
 
   it('页头：标题去 emoji，「导出」为页头右侧主行动点', async () => {
@@ -154,7 +161,7 @@ describe('AuditLogsPage（E7 审计日志页改造）', () => {
   });
 
   it('导出带 status 与时间范围参数（与列表口径一致）', async () => {
-    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
+    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => ({} as Window));
     render(<AuditLogsPage />);
     await screen.findByText('user-a');
 
@@ -202,5 +209,64 @@ describe('AuditLogsPage（E7 审计日志页改造）', () => {
     fireEvent.keyDown(document, { key: 'Escape' });
     fireEvent.keyDown(row, { key: ' ' });
     expect(await screen.findByRole('dialog')).toBeTruthy();
+  });
+
+  it('批次 F-4：加载失败错误条带「重试」，点击后重新拉取并恢复列表', async () => {
+    mockList.mockRejectedValueOnce(new Error('load boom'));
+    render(<AuditLogsPage />);
+
+    expect(await screen.findByText('load boom')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '重试' }));
+
+    expect(await screen.findByText('user-a')).toBeTruthy();
+    expect(screen.queryByText('load boom')).toBeNull();
+    await waitFor(() => expect(mockList).toHaveBeenCalledTimes(2));
+  });
+
+  it('批次 F-4：导出成功给 toast 确认；弹窗被拦截时 toast 报错感知', async () => {
+    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => ({} as Window));
+    render(<AuditLogsPage />);
+    await screen.findByText('user-a');
+
+    fireEvent.click(screen.getByRole('button', { name: '导出' }));
+    expect(await screen.findByText('导出已开始，请在浏览器下载中查看')).toBeTruthy();
+
+    openSpy.mockImplementation(() => null);
+    fireEvent.click(screen.getByRole('button', { name: '导出' }));
+    expect(await screen.findByText('浏览器拦截了导出弹窗，请允许本站点弹出窗口后重试')).toBeTruthy();
+    openSpy.mockRestore();
+  });
+
+  it('批次 F-4：空态双语境——真空出「暂无审计日志」+ 来源说明，无「清除筛选」', async () => {
+    mockList.mockResolvedValue({
+      data: { data: [], pagination: { page: 1, limit: 50, total: 0, totalPages: 0 } },
+    });
+    render(<AuditLogsPage />);
+
+    expect(await screen.findByText('暂无审计日志')).toBeTruthy();
+    expect(screen.getByText('系统操作产生后会自动记录在这里')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '清除筛选' })).toBeNull();
+  });
+
+  it('批次 F-4：空态双语境——筛选无结果出筛选语境文案 + 「清除筛选」，点击重置筛选重拉', async () => {
+    mockList.mockResolvedValue({
+      data: { data: [], pagination: { page: 1, limit: 50, total: 0, totalPages: 0 } },
+    });
+    render(<AuditLogsPage />);
+    await screen.findByText('暂无审计日志');
+
+    fireEvent.click(screen.getByLabelText('状态筛选'));
+    fireEvent.click(await screen.findByRole('option', { name: '失败' }));
+
+    expect(await screen.findByText('没有符合当前筛选条件的日志')).toBeTruthy();
+    expect(screen.queryByText('暂无审计日志')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: '清除筛选' }));
+    await waitFor(() =>
+      expect(mockList).toHaveBeenLastCalledWith(
+        expect.objectContaining({ status: undefined, page: 1 }),
+      ),
+    );
+    expect(await screen.findByText('暂无审计日志')).toBeTruthy();
   });
 });

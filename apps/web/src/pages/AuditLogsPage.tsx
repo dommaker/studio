@@ -7,6 +7,8 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { auditLogApi, type AuditLog, type AuditLogStats } from '../api/auditLogs';
 import { Select, Modal, SkeletonText, SkeletonCard } from '../components/ui';
+import { IconSearch } from '../components/ui/icons';
+import { toast } from '../utils/toast';
 import { formatFullTime } from '../utils/datetime';
 
 /** 日期 input（YYYY-MM-DD）→ 本地日界 ISO，传后端 startTime/endTime */
@@ -50,6 +52,16 @@ export const AuditLogsPage: React.FC = () => {
   // 筛选变化统一入口：改筛选即回第 1 页（修复翻页后改筛选停留旧页、结果错位）
   const applyFilter = (patch: Partial<typeof filters>) => {
     setFilters(f => ({ ...f, ...patch }));
+    setPage(1);
+  };
+
+  // 批次 F-4：空态双语境——有任一筛选生效时走「筛选无结果」语境 + 清除入口
+  const hasActiveFilters = Boolean(
+    filters.action || filters.resource || filters.status || filters.userId || filters.startDate || filters.endDate,
+  );
+  const clearFilters = () => {
+    setUserIdInput('');
+    setFilters({ action: '', resource: '', status: '', userId: '', startDate: '', endDate: '' });
     setPage(1);
   };
 
@@ -128,14 +140,26 @@ export const AuditLogsPage: React.FC = () => {
   const handleExport = () => {
     // 文件下载：浏览器跳转打开导出 URL（鉴权说明见 api/auditLogs.ts getExportUrl）
     // 口径与列表一致：status/时间范围随筛选带上
-    window.open(auditLogApi.getExportUrl({
+    // 批次 F-4：点击反馈——弹窗被拦截/异常时 toast 感知，成功给短暂确认
+    const url = auditLogApi.getExportUrl({
       action: filters.action || undefined,
       resource: filters.resource || undefined,
       status: filters.status || undefined,
       userId: filters.userId || undefined,
       startTime: toStartIso(filters.startDate),
       endTime: toEndIso(filters.endDate),
-    }), '_blank');
+    });
+    try {
+      const win = window.open(url, '_blank');
+      if (win) {
+        toast.success('导出已开始，请在浏览器下载中查看');
+      } else {
+        toast.error('浏览器拦截了导出弹窗，请允许本站点弹出窗口后重试');
+      }
+    } catch (err) {
+      console.error('Failed to export audit logs:', err);
+      toast.error('导出失败，请重试');
+    }
   };
 
   const getStatusBadge = (status: string) => {
@@ -286,10 +310,11 @@ export const AuditLogsPage: React.FC = () => {
         />
       </div>
 
-      {/* Error */}
+      {/* Error —— 批次 F-4：错误条补重试（PMOPage u-err-dim 红条 + 重试正本） */}
       {error && (
-        <div className="u-err-dim u-err px-4 py-2 rounded mb-4">
-          {error}
+        <div className="mb-4 p-3 rounded u-err-dim u-err text-sm flex items-center justify-between">
+          <span>{error}</span>
+          <button onClick={() => { setLoading(true); void loadLogs(); }} className="btn btn-secondary btn-sm">{'重试'}</button>
         </div>
       )}
 
@@ -323,14 +348,29 @@ export const AuditLogsPage: React.FC = () => {
             </tr>
           </thead>
           <tbody>
-            {logs.length === 0 ? (
+            {logs.length === 0 && !error && (
               <tr>
                 <td colSpan={7}>
-                  <div className="empty-state">{'暂无审计日志'}</div>
+                  {/* 批次 F-4：空态归 .empty-state 正本，区分「真空 vs 筛选无结果」（WorkUnitListPage 双语境模式） */}
+                  <div className="empty-state">
+                    <div className="empty-icon"><IconSearch size={32} /></div>
+                    {hasActiveFilters ? (
+                      <>
+                        <p>{'没有符合当前筛选条件的日志'}</p>
+                        <p className="text-sm mt-2">{'调整或清除筛选条件后再查看'}</p>
+                        <button className="btn btn-primary mt-4" onClick={clearFilters}>{'清除筛选'}</button>
+                      </>
+                    ) : (
+                      <>
+                        <p>{'暂无审计日志'}</p>
+                        <p className="text-sm mt-2">{'系统操作产生后会自动记录在这里'}</p>
+                      </>
+                    )}
+                  </div>
                 </td>
               </tr>
-            ) : (
-              logs.map(log => (
+            )}
+            {logs.map(log => (
                 <tr
                   key={log.id}
                   className="border-b u-border u-hover-bg cursor-pointer"
@@ -374,8 +414,7 @@ export const AuditLogsPage: React.FC = () => {
                     )}
                   </td>
                 </tr>
-              ))
-            )}
+            ))}
           </tbody>
         </table>
       </div>

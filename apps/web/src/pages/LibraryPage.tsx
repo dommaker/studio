@@ -13,6 +13,7 @@ import { companyApi } from '../api/company';
 import { maintenanceApi, type TriggerCosts } from '../api/maintenance';
 import { ManualTaskButton, SkeletonText } from '../components/ui';
 import { Select } from '../components/ui/Select';
+import { IconLibrary } from '../components/ui/icons';
 import '../styles/library.css';
 
 interface LibraryDoc {
@@ -251,10 +252,20 @@ export function LibraryPage() {
           // 批次 F-3：加载态骨架（批次 E-2 ui/Skeleton 正本）——列表行形态
           <SkeletonText lines={8} className="space-y-3" />
         ) : error ? null : visibleDocs.length === 0 ? (
-          <div className="flex items-center justify-center h-64">
-            <p className="u-text-3">
-              {search || projectId || kind ? '没有匹配的文档' : '暂无文档'}
-            </p>
+          // 批次 F-4：空态归 .empty-state 正本（图标 + 文案 + 说明），区分「真空 vs 筛选无结果」
+          <div className="empty-state">
+            <div className="empty-icon"><IconLibrary size={32} /></div>
+            {search || projectId || kind ? (
+              <>
+                <p>没有匹配的文档</p>
+                <p className="text-sm mt-2">调整或清除搜索/筛选条件后再查看</p>
+              </>
+            ) : (
+              <>
+                <p>暂无文档</p>
+                <p className="text-sm mt-2">文档来自各项目仓库的 .studio/ 目录（specs、调研、ADR、CONTEXT 等），随各仓演进自动聚合到这里</p>
+              </>
+            )}
           </div>
         ) : flatView ? (
           <div className="lib-list">

@@ -44,6 +44,8 @@ describe('DiscussionPanel', () => {
   it('shows empty state when no messages', async () => {
     render(<DiscussionPanel workUnitId="wu-1" />);
     expect(await screen.findByText('暂无消息')).toBeDefined();
+    // 批次 F-4：空态补引导文案
+    expect(screen.getByText(/在下方输入框发出第一条消息/)).toBeDefined();
   });
 
   it('renders input field for sending messages', () => {

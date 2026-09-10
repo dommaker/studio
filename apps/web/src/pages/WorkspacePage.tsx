@@ -8,6 +8,7 @@ import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { workspaceApi } from '../api';
 import { BackButton, SkeletonText, SkeletonCard } from '../components/ui';
+import { IconMonitor } from '../components/ui/icons';
 import { CreateRoleModal } from '../components/monitoring/CreateRoleModal';
 
 interface Runtime {
@@ -89,7 +90,12 @@ export function WorkspacePage() {
           <h2 className="mc-block-label mb-2">可用 CLI ({workspace.runtimes.length})</h2>
 
           {workspace.runtimes.length === 0 ? (
-            <p className="u-text-3">暂无可用 CLI，请先接入算力</p>
+            // 批次 F-4：空态归 .empty-state 正本（图标 + 文案 + 下一步指引）
+            <div className="empty-state">
+              <div className="empty-icon"><IconMonitor size={32} /></div>
+              <p>暂无可用 CLI，请先接入算力</p>
+              <p className="text-sm mt-2">在本机安装受支持的 Agent CLI（如 Claude Code），Studio 会自动扫描注册；安装后刷新本页即可在此「设为角色」</p>
+            </div>
           ) : (
             <div className="space-y-2">
               {workspace.runtimes.map((rt) => (

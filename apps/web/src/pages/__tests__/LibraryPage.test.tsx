@@ -157,6 +157,29 @@ describe('LibraryPage（#155 T5 阅览室）', () => {
     expect(btn.textContent).not.toContain('🔍');
   });
 
+  describe('批次 F-4: 空态归 .empty-state（图标 + 文案 + 说明），区分真空/筛选无结果', () => {
+    it('真空态出图标 + 「暂无文档」+ 文档来源说明', async () => {
+      mockLibraryList.mockResolvedValue({ data: { data: [] } });
+      const { container } = renderPage();
+
+      expect(await screen.findByText('暂无文档')).toBeTruthy();
+      expect(screen.getByText(/文档来自各项目仓库的 \.studio\/ 目录/)).toBeTruthy();
+      expect(container.querySelector('.empty-state .empty-icon svg')).not.toBeNull();
+    });
+
+    it('搜索无结果走筛选语境文案', async () => {
+      mockLibraryList.mockResolvedValue({ data: { data: [] } });
+      renderPage();
+      await screen.findByText('暂无文档');
+
+      fireEvent.change(screen.getByPlaceholderText('搜索文档标题或内容...'), { target: { value: '不存在' } });
+
+      expect(await screen.findByText('没有匹配的文档')).toBeTruthy();
+      expect(screen.getByText('调整或清除搜索/筛选条件后再查看')).toBeTruthy();
+      expect(screen.queryByText('暂无文档')).toBeNull();
+    });
+  });
+
   describe('E6 列表按项目分组', () => {
     // 跨两个项目：proj-a 两条（updatedAt 乱序）+ proj-b 一条
     const GROUPED_DOCS = [
