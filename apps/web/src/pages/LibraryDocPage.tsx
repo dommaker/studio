@@ -36,21 +36,27 @@ export function LibraryDocPage() {
   const navigate = useNavigate();
   const [doc, setDoc] = useState<LibraryDocDetail | null>(null);
   const [loading, setLoading] = useState(true);
+  // 批次 F-1：加载失败 error state（原先 catch 只 console.error，落「文档未找到」假空态）
+  const [error, setError] = useState<string | null>(null);
 
   // 切换文档 id 时渲染期置 loading（挂载首帧由 loading 初值 true 覆盖）
   const [prevId, setPrevId] = useState(id);
   if (prevId !== id) {
     setPrevId(id);
     setLoading(true);
+    setError(null);
   }
 
   const fetchDoc = useCallback(async () => {
     if (!id) return;
+    setLoading(true);
+    setError(null);
     try {
       const res = await libraryApi.getDoc(id);
       setDoc(res.data?.data || null);
     } catch (err) {
       console.error('[LibraryDoc] Failed to fetch', err);
+      setError('文档加载失败，请重试');
     } finally {
       setLoading(false);
     }
@@ -73,6 +79,18 @@ export function LibraryDocPage() {
     return (
       <div className="flex items-center justify-center h-full">
         <div className="loading-spinner" />
+      </div>
+    );
+  }
+
+  // 批次 F-1：加载失败错误条（抄 ProjectDetailPage 模式）+ 重试，不再落「文档未找到」假空态
+  if (error) {
+    return (
+      <div className="h-full u-page-bg px-8 py-6">
+        <div className="max-w-5xl p-3 rounded u-err-dim u-err text-sm flex items-center justify-between">
+          <span>{error}</span>
+          <button onClick={() => void fetchDoc()} className="btn btn-secondary btn-sm">重试</button>
+        </div>
       </div>
     );
   }

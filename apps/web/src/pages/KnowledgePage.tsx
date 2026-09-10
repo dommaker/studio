@@ -189,7 +189,14 @@ export function KnowledgePage() {
     try {
       const res = await knowledgeApi.search(globalSearch);
       setSearchResults(res.data.results || []);
-    } catch { setSearchResults([]); }
+    } catch (e) {
+      // 批次 F-1：失败不再静默置空（假「无匹配结果」空态）——toast 反馈（对齐 handleLoadMore 批次A 模式），
+      // 回 tab 视图保留输入词，再次点「搜索」即重试
+      const m = serverErrorMessage(e);
+      toast.error(m ? `搜索失败：${m}` : '搜索失败，请重试');
+      setSearchResults([]);
+      setSearchActive(false);
+    }
     finally { setSearchLoading(false); }
   }, [globalSearch]);
 
@@ -303,6 +310,13 @@ export function KnowledgePage() {
           </div>
 
           {/* ── AS-022: Unified Knowledge Tab ── */}
+          {/* 批次 F-1：tab 拉取失败错误条（tabQ.error 原先全程未渲染，落「暂无数据」假空态）+ tabQ.reload 重试 */}
+          {!tabQ.loading && tabQ.error && (
+            <div className="mb-3 p-3 rounded u-err-dim u-err text-sm flex items-center justify-between">
+              <span>{tabQ.error}</span>
+              <button onClick={tabQ.reload} className="btn btn-secondary btn-sm">重试</button>
+            </div>
+          )}
           {activeTab === 'unified' && (
             <div>
               <div className="flex gap-2 mb-4">
@@ -358,7 +372,7 @@ export function KnowledgePage() {
               )}
               {unifiedLoading ? (
                 <div className="text-center py-8 u-text-3">加载中...</div>
-              ) : unifiedEntries.length === 0 ? (
+              ) : tabQ.error ? null : unifiedEntries.length === 0 ? (
                 <div className="empty-state">{reviewOnly ? '暂无待审条目' : '暂无数据'}</div>
               ) : (
                 <div className="space-y-3">
@@ -429,7 +443,7 @@ export function KnowledgePage() {
             <div>
               {gapLoading ? (
                 <div className="text-center py-8 u-text-3">加载中...</div>
-              ) : gapData.length === 0 ? (
+              ) : tabQ.error ? null : gapData.length === 0 ? (
                 <div className="empty-state">
                   暂无{gapLabels[activeTab as GapTab]}数据。系统会自动从 Agent 执行/交互中积累。
                 </div>

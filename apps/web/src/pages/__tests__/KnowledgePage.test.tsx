@@ -321,3 +321,69 @@ describe('E5: 「加载更多」真追加（对齐 E2 WU 列表口径）', () =>
     expect(screen.queryByText('加载更多')).toBeNull();
   });
 });
+
+describe('批次 F-1: 全局搜索失败反馈（原先 catch 静默置空，落「无匹配结果」假空态）', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockListUnified.mockResolvedValue({ data: { entries: [], total: 0 } });
+  });
+
+  it('搜索失败 toast 报错并回 tab 视图，不落「无匹配结果」假空态', async () => {
+    mockSearch.mockRejectedValue(new Error('search boom'));
+    render(<MemoryRouter><KnowledgePage /></MemoryRouter>);
+
+    fireEvent.change(screen.getByPlaceholderText(/全局搜索知识/), { target: { value: '解法' } });
+    fireEvent.click(screen.getByText('搜索'));
+
+    // toast 挂在 document.body
+    expect(await screen.findByText('搜索失败，请重试')).toBeTruthy();
+    expect(screen.queryByText('无匹配结果')).toBeNull();
+    // 回 tab 视图（输入词保留，可再次点「搜索」重试）
+    expect(screen.getByText('统一视图')).toBeTruthy();
+  });
+
+  it('失败后再次点「搜索」重新发起请求并出结果', async () => {
+    mockSearch
+      .mockRejectedValueOnce(new Error('search boom'))
+      .mockResolvedValue({ data: { results: [{ type: 'resolution', id: 'r1', title: '命中结果', snippet: '片段', score: 0.9 }] } });
+    render(<MemoryRouter><KnowledgePage /></MemoryRouter>);
+
+    fireEvent.change(screen.getByPlaceholderText(/全局搜索知识/), { target: { value: '解法' } });
+    fireEvent.click(screen.getByText('搜索'));
+    expect(await screen.findByText('搜索失败，请重试')).toBeTruthy();
+
+    fireEvent.click(screen.getByText('搜索'));
+    expect(await screen.findByText('命中结果')).toBeTruthy();
+    expect(mockSearch).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('批次 F-1: tab 列表加载失败错误条 + 重试（tabQ.error 原先全程未渲染）', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('tab 拉取失败显示错误条与重试按钮，不落「暂无数据」假空态', async () => {
+    mockListUnified.mockRejectedValue(new Error('load boom'));
+    render(<MemoryRouter><KnowledgePage /></MemoryRouter>);
+
+    expect(await screen.findByText('load boom')).toBeTruthy();
+    expect(screen.getByText('重试')).toBeTruthy();
+    expect(screen.queryByText('暂无数据')).toBeNull();
+  });
+
+  it('点击重试重新发起请求并恢复列表、清除错误条', async () => {
+    mockListUnified
+      .mockRejectedValueOnce(new Error('load boom'))
+      .mockResolvedValue({
+        data: { entries: [{ id: 'e1', title: '恢复条目', consumptionMode: 'rule', source: 's', content: 'x', tags: [] }], total: 1 },
+      });
+    render(<MemoryRouter><KnowledgePage /></MemoryRouter>);
+
+    fireEvent.click(await screen.findByText('重试'));
+
+    expect(await screen.findByText('恢复条目')).toBeTruthy();
+    expect(screen.queryByText('load boom')).toBeNull();
+    await waitFor(() => expect(mockListUnified).toHaveBeenCalledTimes(2));
+  });
+});

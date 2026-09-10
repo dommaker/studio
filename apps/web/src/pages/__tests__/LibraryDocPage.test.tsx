@@ -1,6 +1,6 @@
 // #155 T5: LibraryDocPage 阅览室详情 — 只读渲染 + legacy 三段
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 
 const { mockGetDoc } = vi.hoisted(() => ({ mockGetDoc: vi.fn() }));
@@ -120,5 +120,45 @@ describe('LibraryDocPage（#155 T5 只读详情）', () => {
 
     expect(await screen.findByText('文档未找到')).toBeTruthy();
     expect(screen.getByText('返回列表')).toBeTruthy();
+  });
+
+  describe('批次 F-1: 加载失败错误条 + 重试（原先 catch 只 console.error，落「文档未找到」假空态）', () => {
+    it('getDoc 失败显示错误条与重试按钮，不落「文档未找到」假空态', async () => {
+      mockGetDoc.mockRejectedValue(new Error('boom'));
+
+      renderDoc('proj-a:specs/spec-a.md');
+
+      expect(await screen.findByText('文档加载失败，请重试')).toBeTruthy();
+      expect(screen.getByText('重试')).toBeTruthy();
+      expect(screen.queryByText('文档未找到')).toBeNull();
+    });
+
+    it('点击重试重新发起请求并恢复文档、清除错误条', async () => {
+      mockGetDoc
+        .mockRejectedValueOnce(new Error('boom'))
+        .mockResolvedValue({
+          data: {
+            data: {
+              id: 'proj-a:specs/spec-a.md',
+              title: '规格甲',
+              kind: 'spec',
+              legacy: false,
+              projectId: 'proj-a',
+              pmoNumber: 'PMO-1',
+              path: 'specs/spec-a.md',
+              content: '规格正文内容',
+              updatedAt: '2026-08-01T00:00:00Z',
+            },
+          },
+        });
+
+      renderDoc('proj-a:specs/spec-a.md');
+
+      fireEvent.click(await screen.findByText('重试'));
+
+      expect(await screen.findByText('规格甲')).toBeTruthy();
+      expect(screen.queryByText('文档加载失败，请重试')).toBeNull();
+      await waitFor(() => expect(mockGetDoc).toHaveBeenCalledTimes(2));
+    });
   });
 });

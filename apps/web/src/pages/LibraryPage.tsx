@@ -46,6 +46,8 @@ export function LibraryPage() {
   const navigate = useNavigate();
   const [docs, setDocs] = useState<LibraryDoc[]>([]);
   const [loading, setLoading] = useState(true);
+  // 批次 F-1：加载失败 error state（原先 catch 只 console.error，落「暂无文档」假空态）
+  const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [projectId, setProjectId] = useState('');
   // #436 B11：类型筛选（前端过滤已拉取列表，零后端改动）
@@ -76,6 +78,7 @@ export function LibraryPage() {
 
   const fetchDocs = useCallback(async (searchTerm: string, project: string) => {
     setLoading(true);
+    setError(null);
     try {
       const params: { search?: string; project?: string } = {};
       if (searchTerm) params.search = searchTerm;
@@ -84,6 +87,7 @@ export function LibraryPage() {
       setDocs(res.data?.data || []);
     } catch (err) {
       console.error('[Library] Failed to fetch docs', err);
+      setError('加载文档列表失败，请重试');
     } finally {
       setLoading(false);
     }
@@ -236,11 +240,18 @@ export function LibraryPage() {
       {/* Content（#436 B11：收 max-w-5xl 对齐 §4.7 内容档） */}
       <div className="flex-1 overflow-auto px-8 pb-8 pt-6">
         <div className="max-w-5xl">
+        {/* 批次 F-1：加载失败错误条（抄 PMOPage u-err-dim 错误条 + 重试模式），失败不再落「暂无文档」假空态 */}
+        {!loading && error && (
+          <div className="mb-3 p-3 rounded u-err-dim u-err text-sm flex items-center justify-between">
+            <span>{error}</span>
+            <button onClick={() => fetchDocs(search, projectId)} className="btn btn-secondary btn-sm">重试</button>
+          </div>
+        )}
         {loading ? (
           <div className="flex items-center justify-center h-64">
             <div className="loading-spinner" />
           </div>
-        ) : visibleDocs.length === 0 ? (
+        ) : error ? null : visibleDocs.length === 0 ? (
           <div className="flex items-center justify-center h-64">
             <p className="u-text-3">
               {search || projectId || kind ? '没有匹配的文档' : '暂无文档'}

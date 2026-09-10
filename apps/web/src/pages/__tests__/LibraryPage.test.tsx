@@ -245,4 +245,28 @@ describe('LibraryPage（#155 T5 阅览室）', () => {
       });
     });
   });
+
+  describe('批次 F-1: 加载失败错误条 + 重试（原先 catch 只 console.error，落「暂无文档」假空态）', () => {
+    it('fetchDocs 失败显示错误条与重试按钮，不落「暂无文档」假空态', async () => {
+      mockLibraryList.mockRejectedValue(new Error('boom'));
+      renderPage();
+
+      expect(await screen.findByText('加载文档列表失败，请重试')).toBeTruthy();
+      expect(screen.getByText('重试')).toBeTruthy();
+      expect(screen.queryByText('暂无文档')).toBeNull();
+    });
+
+    it('点击重试重新发起请求并恢复列表、清除错误条', async () => {
+      mockLibraryList
+        .mockRejectedValueOnce(new Error('boom'))
+        .mockResolvedValue({ data: { data: DOCS } });
+      renderPage();
+
+      fireEvent.click(await screen.findByText('重试'));
+
+      expect(await screen.findByText('规格甲')).toBeTruthy();
+      expect(screen.queryByText('加载文档列表失败，请重试')).toBeNull();
+      await waitFor(() => expect(mockLibraryList).toHaveBeenCalledTimes(2));
+    });
+  });
 });
