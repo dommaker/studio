@@ -4,10 +4,14 @@
 // 只重渲对应卡，不掀本页整树；stats/排序/筛选 useMemo，卡片 memo + 稳定 props（对齐 #322 三件套）。
 // §6.3 页头统计行 = 快速筛选 chip（与卡面状态同口径同色，点击过滤/再点取消；「在线」正交维度移出）；
 // §6.4 创建角色 = 弹框不跳页（保存=关弹框就地刷新名册）。
-import { useMemo, useState } from 'react';
+// 批次 D-2 项7（docs/plans/2026-09-ui-interaction-polish.md）：RoleCard 的 WU 锚点/最近完成/动态行
+// 不再整页跳 /workunits/:id，改开本页自挂的 WorkUnitDrawer（懒加载 + .ac-drawer-host 全断点 fixed
+// 覆盖宿主，同 NotificationBell D-2 项2 先例；「↗ 详情页」深链在抽屉 subject 行保留）。
+import { lazy, Suspense, useCallback, useMemo, useState } from 'react';
 import { useAgentRoster, type RosterRole } from '../hooks/useAgentRoster';
 import { RoleCard } from '../components/monitoring/RoleCard';
 import { CreateRoleModal } from '../components/monitoring/CreateRoleModal';
+import type { DrawerState } from '../components/channel/WorkUnitDrawer';
 import {
   resolveCardStatusKey,
   resolveDisplayStatus,
@@ -16,6 +20,11 @@ import {
   type StatusFilter,
 } from '../utils/agentStatus';
 import '../styles/agent-dashboard.css';
+
+// D-2 项7：抽屉懒加载——不把 WorkUnitDrawer 依赖树打进本页首包（NotificationBell 同款）
+const WorkUnitDrawer = lazy(() =>
+  import('../components/channel/WorkUnitDrawer').then(m => ({ default: m.WorkUnitDrawer })),
+);
 
 /** 卡面细分状态键（筛选匹配用；pill/统计/排序走 4 态展示口径） */
 const statusKeyOf = (r: RosterRole) =>
@@ -31,6 +40,9 @@ export function AgentDashboardPage() {
   const [statFilter, setStatFilter] = useState<StatusFilter>('all');
   // §6.4：创建角色弹框
   const [createOpen, setCreateOpen] = useState(false);
+  // D-2 项7：WU 就地抽屉宿主；openWu 必须稳定引用（RoleCard memo + #348 渲染契约）
+  const [drawer, setDrawer] = useState<DrawerState>(null);
+  const openWu = useCallback((wuId: string) => setDrawer({ kind: 'wu', id: wuId }), []);
 
   const stats = useMemo(() => ({
     total: roles.length,
@@ -97,6 +109,7 @@ export function AgentDashboardPage() {
                 role={r}
                 lastDone={lastDone[r.profile.id] ?? null}
                 channelNames={channelNames}
+                onOpenWu={openWu}
               />
             ))}
           </div>
@@ -108,6 +121,21 @@ export function AgentDashboardPage() {
         onClose={() => setCreateOpen(false)}
         onCreated={() => void refresh()}
       />
+
+      {/* D-2 项7：WU 就地抽屉（自挂实例 + .ac-drawer-host 全断点 fixed 覆盖宿主，
+          同 NotificationBell 先例；仅打开时挂载——空 host div 不占位） */}
+      {drawer && (
+        <Suspense fallback={null}>
+          <div className="ac-drawer-host">
+            <WorkUnitDrawer
+              drawer={drawer}
+              onClose={() => setDrawer(null)}
+              onOpenWu={openWu}
+              onOpenReq={(reqId) => setDrawer({ kind: 'req', id: reqId })}
+            />
+          </div>
+        </Suspense>
+      )}
     </div>
   );
 }

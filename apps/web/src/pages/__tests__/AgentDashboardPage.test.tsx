@@ -54,6 +54,12 @@ vi.mock('../../api/websocketHooks', () => ({
   useWebSocketContext: () => ({ onEvent: mockOnEvent }),
 }));
 
+// D-2 项7：页面懒加载的 WorkUnitDrawer 打桩——本组用例只验「开抽屉」接线，不验抽屉内部（其自有测试）
+vi.mock('../../components/channel/WorkUnitDrawer', () => ({
+  WorkUnitDrawer: ({ drawer }: { drawer: { kind: string; id: string } | null }) =>
+    React.createElement('div', { 'data-testid': 'wu-drawer' }, drawer ? `${drawer.kind}:${drawer.id}` : ''),
+}));
+
 import { AgentDashboardPage } from '../../pages/AgentDashboardPage';
 import { useRosterStore } from '../../stores/rosterStore';
 
@@ -189,8 +195,9 @@ describe('AgentDashboardPage', () => {
     expect(within(card as HTMLElement).getByText('dev-agent').closest('a')?.getAttribute('href')).toBe('/agents/p1');
     expect(within(card as HTMLElement).getByText('claude')).toBeDefined();
     expect(within(card as HTMLElement).getByText(/^\d+m$/)).toBeDefined();
-    // 视觉锚点
-    expect(title.closest('a')?.getAttribute('href')).toBe('/workunits/wu-1');
+    // 视觉锚点（D-2 项7：WU 锚点 = 开抽屉按钮，不再整页跳）
+    expect(title.closest('a')).toBeNull();
+    expect(title.closest('button')?.className).toContain('agd-wu');
     expect(within(card as HTMLElement).getByText('DEV')).toBeDefined();
     expect(within(card as HTMLElement).getByText(/已耗时/)).toBeDefined();
     // 次行 PMO · 频道
@@ -217,7 +224,7 @@ describe('AgentDashboardPage', () => {
     expect(c2.querySelector('[data-testid="agent-card"]')?.getAttribute('data-status')).toBe('attention');
   });
 
-  it('§6.1 空闲空态：等待派活 + 最近完成链接（#387 批量端点取 done）', async () => {
+  it('§6.1 空闲空态：等待派活 + 最近完成入口（#387 批量端点取 done；D-2 项7 起点击开抽屉）', async () => {
     mockApis({ agents: [instance({ status: 'idle', currentWorkUnitId: null, currentWorkUnit: null, pmo: null, channelId: null })] });
     mockWuLastDone.mockResolvedValue({
       data: { data: { i1: { id: 'wu-new', scope: '修好的首页', type: 'FIX', status: 'done', completedAt: '2026-07-31T00:00:00Z', updatedAt: '2026-07-31T00:00:00Z' } } },
@@ -225,7 +232,11 @@ describe('AgentDashboardPage', () => {
     render(<AgentDashboardPage />);
     expect(await screen.findByText(/空闲 · 等待派活/)).toBeDefined();
     const done = await screen.findByText('修好的首页');
-    expect(done.closest('a')?.getAttribute('href')).toBe('/workunits/wu-new');
+    expect(done.closest('a')).toBeNull();
+    fireEvent.click(done);
+    // 点击 = 开就地抽屉（懒加载 WorkUnitDrawer，本文件打桩），不整页跳
+    expect((await screen.findByTestId('wu-drawer')).textContent).toBe('wu:wu-new');
+    expect(mockNavigate).not.toHaveBeenCalled();
     expect(mockWuLastDone).toHaveBeenCalledWith(['i1']);
   });
 
@@ -266,14 +277,15 @@ describe('AgentDashboardPage', () => {
         h({ event_type: 'agent.instance.status_changed', data: { profileId: 'p1', instanceId: 'i1', name: 'dev-agent', status: 'active', currentWorkUnitId: 'wu-9' } });
       }
     });
-    // 补查 wu-9 详情后显示标题链接 + 工作中 pill
+    // 补查 wu-9 详情后显示标题（D-2 项7：锚点 = 开抽屉按钮）+ 工作中 pill
     const title = await screen.findByText('补查的任务');
-    expect(title.closest('a')?.getAttribute('href')).toBe('/workunits/wu-9');
+    expect(title.closest('button')?.className).toContain('agd-wu');
+    expect(title.closest('a')).toBeNull();
     expect(mockWuGet).toHaveBeenCalledWith('wu-9');
     expect(screen.getAllByText('工作中').length).toBeGreaterThan(0);
   });
 
-  it('SSE workunit.execution.step：最近动态每条可点 → 当前 WU 详情；他 WU 事件不落卡', async () => {
+  it('SSE workunit.execution.step：最近动态每条可点 → 开当前 WU 抽屉（D-2 项7）；他 WU 事件不落卡', async () => {
     // 同 status_changed 用例：广播到全部 onEvent 订阅者
     const handlers: Array<(msg: unknown) => void> = [];
     mockOnEvent.mockImplementation((h: (msg: unknown) => void) => { handlers.push(h); return () => {}; });
@@ -295,7 +307,12 @@ describe('AgentDashboardPage', () => {
       }
     });
     const row = await screen.findByText(/🔧 Edit src\/auth\.ts/);
-    expect(row.closest('a')?.getAttribute('href')).toBe('/workunits/wu-1');
+    // D-2 项7：动态行 = 开抽屉按钮（不再是整页跳链接）
+    const rowBtn = row.closest('button');
+    expect(rowBtn?.className).toContain('agd-activity-row');
+    fireEvent.click(rowBtn!);
+    expect((await screen.findByTestId('wu-drawer')).textContent).toBe('wu:wu-1');
+    expect(mockNavigate).not.toHaveBeenCalled();
     // 其他 WU 的事件不落卡
     act(() => {
       for (const h of handlers) {
@@ -306,6 +323,18 @@ describe('AgentDashboardPage', () => {
       }
     });
     expect(screen.queryByText(/rm -rf/)).toBeNull();
+  });
+
+  it('D-2 项7：点 WU 锚点开就地抽屉（.ac-drawer-host 懒挂载 WorkUnitDrawer），不整页跳；关闭可复位', async () => {
+    mockApis();
+    const { container } = render(<AgentDashboardPage />);
+    const title = await screen.findByText('实现登录接口');
+    expect(screen.queryByTestId('wu-drawer')).toBeNull();
+    fireEvent.click(title.closest('button')!);
+    expect((await screen.findByTestId('wu-drawer')).textContent).toBe('wu:wu-1');
+    // 宿主 = .ac-drawer-host（全断点 fixed 覆盖，同 NotificationBell 先例）
+    expect(container.querySelector('.ac-drawer-host')).not.toBeNull();
+    expect(mockNavigate).not.toHaveBeenCalled();
   });
 
   it('§6.4 创建角色弹框化：勾选 runtime + 命名 → 创建 → 关弹框就地刷新名册，不跳页', async () => {

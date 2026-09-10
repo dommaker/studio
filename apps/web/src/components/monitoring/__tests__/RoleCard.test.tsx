@@ -1,7 +1,7 @@
 // RoleCard — #397 信息全卡（redesign §6.1 四层构成 + §6.5 状态色单义）；
 // 保留 #348 渲染边界契约：memo + 卡片自订 rosterActivityStore 切片（chunk 只重渲对应卡）。
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, act, within } from '@testing-library/react';
+import { render, screen, act, within, fireEvent } from '@testing-library/react';
 import React from 'react';
 
 const { linkCount } = vi.hoisted(() => ({ linkCount: {} as Record<string, number> }));
@@ -36,12 +36,14 @@ const idleRole = (id: string, name: string): RosterRole => ({
 
 // memo props 稳定契约：对象字面量内联进 Host 会每次渲染新建引用、自己打破 memo（#348 issue 原文同款坑）
 const EMPTY_CHANNELS: Record<string, string> = {};
+// D-2 项7：onOpenWu 同为 memo 契约 prop——模块级单例保证身份稳定
+const mockOpenWu = vi.fn();
 
 function Host({ roles }: { roles: RosterRole[] }) {
   return (
     <>
       {roles.map((r) => (
-        <RoleCard key={r.profile.id} role={r} lastDone={null} channelNames={EMPTY_CHANNELS} />
+        <RoleCard key={r.profile.id} role={r} lastDone={null} channelNames={EMPTY_CHANNELS} onOpenWu={mockOpenWu} />
       ))}
     </>
   );
@@ -51,6 +53,7 @@ describe('RoleCard（信息全卡）', () => {
   beforeEach(() => {
     useRosterActivityStore.getState().resetActivities();
     for (const k of Object.keys(linkCount)) delete linkCount[k];
+    mockOpenWu.mockClear();
   });
 
   it('四层构成：头行（pill/角色名链接/CLI chip/运行时长）→ WU 锚点+类型 chip+已耗时 → 动态区 → 无错误行', () => {
@@ -60,30 +63,39 @@ describe('RoleCard（信息全卡）', () => {
     expect(within(card).getByText('工作中')).toBeDefined();
     expect(within(card).getByText('dev-agent').closest('a')?.getAttribute('href')).toBe('/agents/p1');
     expect(within(card).getByText('claude')).toBeDefined();
-    expect(within(card).getByText('实现登录接口').closest('a')?.getAttribute('href')).toBe('/workunits/wu-1');
+    // D-2 项7：WU 锚点 = 开抽屉按钮（不再是整页跳链接）
+    const anchor = within(card).getByText('实现登录接口');
+    expect(anchor.closest('a')).toBeNull();
+    expect(anchor.closest('button')?.className).toContain('agd-wu');
+    fireEvent.click(anchor);
+    expect(mockOpenWu).toHaveBeenCalledWith('wu-1');
     expect(within(card).getByText('DEV')).toBeDefined();
     expect(within(card).getByText(/已耗时/)).toBeDefined();
     expect(within(card).queryByText(/^⚠/)).toBeNull();
   });
 
-  it('空闲空态：等待派活 + 最近完成链接', () => {
+  it('空闲空态：等待派活 + 最近完成入口（D-2 项7：点击开抽屉不整页跳）', () => {
     const roles = [idleRole('p1', 'ops-agent')];
     render(
       <RoleCard
         role={roles[0]}
         lastDone={{ id: 'wu-9', scope: '修好的首页' } as never}
         channelNames={EMPTY_CHANNELS}
+        onOpenWu={mockOpenWu}
       />,
     );
     expect(screen.getByText(/空闲 · 等待派活/)).toBeDefined();
-    expect(screen.getByText('修好的首页').closest('a')?.getAttribute('href')).toBe('/workunits/wu-9');
+    const done = screen.getByText('修好的首页');
+    expect(done.closest('a')).toBeNull();
+    fireEvent.click(done);
+    expect(mockOpenWu).toHaveBeenCalledWith('wu-9');
   });
 
   it('异常空态：实例异常文案 + 红点角标 + 错误行（⚠ lastError；data-status 挂 4 态 attention）', () => {
     const role = idleRole('p1', 'ops-agent');
     role.runtime!.status = 'error';
     role.runtime!.lastError = 'spawn ENOENT';
-    const { container } = render(<RoleCard role={role} lastDone={null} channelNames={EMPTY_CHANNELS} />);
+    const { container } = render(<RoleCard role={role} lastDone={null} channelNames={EMPTY_CHANNELS} onOpenWu={mockOpenWu} />);
     expect(screen.getByText(/实例异常/)).toBeDefined();
     const err = screen.getByText(/⚠ spawn ENOENT/);
     expect(err.className).toContain('agd-error');
@@ -93,7 +105,7 @@ describe('RoleCard（信息全卡）', () => {
     expect(card.querySelector('.agd-dot-err')).toBeTruthy();
   });
 
-  it('最近动态最多 3 条（新→旧），每条可点：有当前 WU → WU 详情', async () => {
+  it('最近动态最多 3 条（新→旧），每条可点：有当前 WU → 开该 WU 抽屉（D-2 项7）', async () => {
     render(<Host roles={[busyRole('p1', 'dev-agent', 'wu-1', '实现登录接口')]} />);
     act(() => {
       for (let i = 1; i <= 4; i++) {
@@ -104,7 +116,10 @@ describe('RoleCard（信息全卡）', () => {
     expect(screen.getByText('第3条动态')).toBeDefined();
     expect(screen.getByText('第2条动态')).toBeDefined();
     expect(screen.queryByText('第1条动态')).toBeNull();
-    expect(screen.getByText('第4条动态').closest('a')?.getAttribute('href')).toBe('/workunits/wu-1');
+    const row = screen.getByText('第4条动态');
+    expect(row.closest('a')).toBeNull();
+    fireEvent.click(row.closest('button')!);
+    expect(mockOpenWu).toHaveBeenCalledWith('wu-1');
   });
 
   it('无当前 WU 时动态落点 = 角色详情（交互不断链）', async () => {

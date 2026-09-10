@@ -83,7 +83,8 @@
 .agd-sub { font-size: var(--fs-xs); margin-top: 2px; }
 .agd-idle { font-size: var(--fs-sm); }
 
-/* 最近动态 3 条：每条 = 链接，悬停底色 + 下划线；点击进当前 WU 详情（无 WU → 角色详情） */
+/* 最近动态 3 条：每条可点（D-2 项7 起有当前 WU 时为开抽屉按钮、无 WU 时为角色详情链接）；
+   悬停底色 + 下划线 */
 .agd-activity {
   border-top: 1px solid var(--border-subtle);
   padding-top: var(--space-2);
@@ -101,8 +102,14 @@
   border-radius: 4px;
   text-decoration: none;
 }
-a.agd-activity-row:hover { background: var(--bg-hover); }
-a.agd-activity-row:hover .agd-activity-text {
+/* D-2 项7：动态行/WU 锚点/最近完成改 <button> 开抽屉——本页不在 .mc-ws 壳内
+   （button cursor 重置吃不到），按钮三处自补 cursor；hover 选择器自 a 放宽到按钮同款 */
+button.agd-wu,
+.agd-idle button,
+button.agd-activity-row { cursor: pointer; }
+button.agd-activity-row { width: 100%; text-align: left; }
+.agd-activity-row:hover { background: var(--bg-hover); }
+.agd-activity-row:hover .agd-activity-text {
   color: var(--accent-primary);
   text-decoration: underline;
   text-underline-offset: 2px;

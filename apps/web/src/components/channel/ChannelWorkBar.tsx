@@ -9,6 +9,9 @@
 //   - 有其他 active → 「+N 进行中」chip，点击展开小列表（条目点击开对应抽屉）
 // 阶段语义 = deriveDisplayState 展示列（与 WU 详情页同口径，不发明第二套阶段模型）；
 // useChannelLiveExecutions 由本组件自持有（沿用 #322 重渲边界：step 事件只重渲本组件）。
+// 批次 D-2 项6（频道内闸门 1 击化，docs/plans/2026-09-ui-interaction-polish.md）：currentWu 处于闸门态
+// （pending / in_review / done 缺 l3）且调用方注入 gate 写路径时，工作条右端直挂共享 WuGateActions
+// （btn-sm 紧凑动作，不离开消息流完成闸门）；写路径与锁存/弹窗逻辑全在 WuGateActions 与调用方，本组件只挂载。
 import { useState } from 'react';
 import { deriveDisplayState, parseAttestations } from '@dommaker/studio-shared/web';
 import type { WorkUnit } from '../../api/workunit';
@@ -18,8 +21,12 @@ import { buildLifecycle, type WuStation } from '../../utils/wuLifecycle';
 import { parseWuMeta } from '../../utils/wuMeta';
 import type { LiveExecution } from '../workunit/execution-rows';
 import { StationStepper } from '../workunit/StationStepper';
+import { WuGateActions, type WuGateActionsProps } from '../workunit/WuGateActions';
 // stepper 样式类（wu-stepper-bar/wu-bstep/wu-st-*）定义在 wu-detail.css，顶层作用域可直接复用
 import '../../styles/wu-detail.css';
+
+/** D-2 项6：工作条闸门动作写路径（调用方注入，口径同 WuGateActions 既有三处挂载） */
+export type WorkBarGateHandlers = Pick<WuGateActionsProps, 'onReviewPassed' | 'onReviewRejected' | 'onConfirmPending'>;
 
 interface Props {
   channelId: string | null;
@@ -27,6 +34,8 @@ interface Props {
   currentWu: WorkUnit | null;
   /** 点击条目 → 打开对应 WU 右抽屉 */
   onOpenWorkUnit: (workUnitId: string) => void;
+  /** D-2 项6：闸门动作写路径；传入且 currentWu 处于闸门态时工作条右端渲染 WuGateActions */
+  gate?: WorkBarGateHandlers;
 }
 
 /** live 条目文案：WU 短 id + 正在执行 + 步号（缺省不显）+ 动作（缺省不显），沿用 #242 口径 */
@@ -47,7 +56,7 @@ function LiveItem({ exec, onOpenWorkUnit }: { exec: LiveExecution; onOpenWorkUni
   );
 }
 
-export function ChannelWorkBar({ channelId, currentWu, onOpenWorkUnit }: Props) {
+export function ChannelWorkBar({ channelId, currentWu, onOpenWorkUnit, gate }: Props) {
   const liveExecs = useChannelLiveExecutions(channelId);
   const [overflowOpen, setOverflowOpen] = useState(false);
   // #474：未命中时不再整条静默消失——留「状态同步中…」占位条
@@ -63,8 +72,12 @@ export function ChannelWorkBar({ channelId, currentWu, onOpenWorkUnit }: Props) 
   const others = currentWu ? liveExecs.filter(e => e.workUnitId !== currentWu.id) : liveExecs;
 
   let stations: WuStation[] | null = null;
+  // D-2 项6：闸门态判定与 WuGateActions 内部渲染分支同口径（非闸门态挂空壳防 flex 占位）
+  let gateState = false;
   if (currentWu) {
     const derived = deriveDisplayState({ status: currentWu.status, metadata: currentWu.metadata });
+    gateState = currentWu.status === 'pending' || currentWu.status === 'in_review'
+      || (currentWu.status === 'done' && derived.needsHuman);
     stations = buildLifecycle(currentWu, derived, parseWuMeta(currentWu.metadata), parseAttestations(currentWu.metadata)).stations;
   }
 
@@ -106,6 +119,13 @@ export function ChannelWorkBar({ channelId, currentWu, onOpenWorkUnit }: Props) 
                   ))}
                 </div>
               )}
+            </div>
+          )}
+          {/* D-2 项6：闸门态 currentWu 的 1 击处置位（共享 WuGateActions；pending 锁存/失败内联/结构化
+              确认弹窗均为组件自带；动作成功后调用方写路径更新 channelWus，status_changed SSE 兜底） */}
+          {gate && gateState && currentWu && (
+            <div className="mc-workbar-gate">
+              <WuGateActions wu={currentWu} {...gate} />
             </div>
           )}
         </div>

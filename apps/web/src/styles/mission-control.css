@@ -773,6 +773,13 @@
 }
 .mc-workbar-item:hover { border-color: var(--accent-primary); }
 
+/* D-2 项6：currentWu 闸门态时工作条右端直挂 WuGateActions（按钮已是 btn-sm 紧凑档，内部不动）；
+   右端对齐靠 auto margin 吸收余量，与 stepper/live 区隔 */
+.mc-workbar-gate { margin-left: auto; flex-shrink: 0; }
+/* 工作条触发的闸门弹窗须压过可能同开的 WU 抽屉：.modal-overlay 全站 z-index 50 < 抽屉 300，
+   窄屏/覆盖式抽屉同开时弹窗会被盖住——作用域限定在工作条内挂的实例，全站遮罩口径不动 */
+.mc-workbar .modal-overlay { z-index: 400; }
+
 /* #440：建议 prompt 片（输入框上方；mono 小卡 + dismiss） */
 .mc-suggest {
   display: flex;
