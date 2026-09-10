@@ -2,10 +2,11 @@
  * VPS Workspace 解析 — 'VPS' 命名约定 + ~/.studio/workspaces 读取的唯一属主
  *
  * 存储格式由 apps/api workspaces 模块写入（~/.studio/workspaces/{id}.json，
- * 见 workspace.routes.ts / local-workspace.ts），但"哪条记录是本机 VPS workspace"
+ * 见 local-workspace.ts；workspace.routes.ts 只读/删除），但"哪条记录是本机 VPS workspace"
  * 的判定（name === 'VPS' 且无 tokenId）只在本文件定义一次。消费方：
  *   - studio-agent worktree-resolver：resolveWorkspace Priority-2 回退（执行隔离边界）
  *   - apps/api local-workspace：启动时查找/复用本地 workspace
+ *   - apps/api workspace.routes：GET /workspaces/runtimes 取本机 CLI 清单
  * 重命名 VPS workspace 的行为变化收敛在本函数，不再有模块各自手扫 JSON。
  *
  * Node-only（fs/os）——仅从 '@dommaker/studio-shared/node' 导出，不进 web 入口。

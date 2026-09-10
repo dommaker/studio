@@ -1,19 +1,23 @@
 /**
- * Workspace Routes — AS-020 P2: Workspace registration + heartbeat + token management
+ * Workspace Routes — 本机 workspace 记录的只读与删除面
  *
  * Storage: ~/.studio/workspaces/{id}.json (merged JSON with nested tokens/runtimes/repos)
  *
  * Endpoints:
- *   POST   /api/v1/workspaces/register     — Daemon registration (token auth)
- *   PUT    /api/v1/workspaces/:id/heartbeat — Daemon heartbeat (token auth)
  *   GET    /api/v1/workspaces               — List workspaces (JWT auth)
+ *   GET    /api/v1/workspaces/runtimes      — 本机 CLI 清单 (JWT auth)
+ *   GET    /api/v1/workspaces/:id           — Get one (JWT auth)
+ *   GET    /api/v1/workspaces/:id/runtimes  — List one workspace's runtimes (JWT auth)
  *   DELETE /api/v1/workspaces/:id           — Delete workspace (JWT auth)
+ *
+ * POST /register 与 PUT /:id/heartbeat 已随远程节点方向删除（2026-09-10，
+ * 判死出处 bdaf0dd3 2026-08-04：无 daemon 客户端、无 WS 客户端、nodeId 无创建路径）。
  */
 
 import { Router, Request, Response } from 'express';
-import { FileStore, generateId } from '@dommaker/studio-shared';
+import { FileStore } from '@dommaker/studio-shared';
 import { logger } from '../../utils/logger.js';
-import { requireAuth, requireAdmin, workspaceAuth, AuthRequest } from '../../middleware/auth.js';
+import { requireAuth, requireAdmin } from '../../middleware/auth.js';
 import { apiCache } from '../../middleware/api-cache.js';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
@@ -36,11 +40,6 @@ function wsPath(id: string): string {
 
 async function readWorkspace(id: string): Promise<Record<string, any> | null> {
   return fileStore.readJson<Record<string, any>>(wsPath(id));
-}
-
-async function writeWorkspace(id: string, data: Record<string, any>): Promise<void> {
-  await ensureWorkspacesDir();
-  await fileStore.writeJson(wsPath(id), data);
 }
 
 async function listWorkspaces(): Promise<Record<string, any>[]> {
@@ -71,184 +70,6 @@ async function deleteWorkspaceDir(id: string): Promise<void> {
   // Delete workspace file
   try { await fs.promises.unlink(wsPath(id)); } catch { /* not exist */ }
 }
-
-// ─── POST /api/v1/workspaces/register ───
-// Daemon registration with workspace token auth
-
-router.post('/register', workspaceAuth(), async (req: Request, res: Response) => {
-  try {
-    const authReq = req as AuthRequest;
-    const workspaceToken = authReq.workspaceToken!;
-    const existingWorkspace = authReq.workspace!;
-
-    const {
-      name,
-      workspaceRoot,
-      runtimes = [],
-      hasDocker = false,
-      os: wsOs,
-      arch,
-      repos = [],
-    } = req.body;
-
-    if (!workspaceRoot || typeof workspaceRoot !== 'string') {
-      return res.status(400).json({
-        error: 'workspaceRoot is required',
-        code: 'MISSING_WORKSPACE_ROOT',
-      });
-    }
-
-    const now = new Date().toISOString();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const existing: Record<string, any> = existingWorkspace as any;
-    const workspace: Record<string, any> = {
-      id: existing.id,
-      name: name || existing.name || 'Unnamed',
-      workspaceRoot,
-      hasDocker: hasDocker ?? existing.hasDocker ?? false,
-      os: wsOs || existing.os || null,
-      arch: arch || existing.arch || null,
-      status: 'idle',
-      lastHeartbeat: now,
-      currentTask: existing.currentTask || null,
-      tokenId: existing.tokenId || workspaceToken.id || null,
-      tokens: existing.tokens || [],
-      runtimes: [...(existing.runtimes || [])],
-      repos: [...(existing.repos || [])],
-      createdAt: existing.createdAt || now,
-      updatedAt: now,
-    };
-
-    // Upsert runtimes
-    if (Array.isArray(runtimes) && runtimes.length > 0) {
-      const wsruntimes = workspace.runtimes as any[];
-      for (const rt of runtimes) {
-        if (!rt.provider) continue;
-        const idx = wsruntimes.findIndex((r: any) => r.provider === rt.provider);
-        const rtData = {
-          id: `${workspace.id}_${rt.provider}`,
-          provider: rt.provider,
-          name: rt.name || rt.provider,
-          version: rt.version || null,
-          status: 'online',
-          lastSeenAt: now,
-          createdAt: idx >= 0 ? wsruntimes[idx].createdAt : now,
-          updatedAt: now,
-        };
-        if (idx >= 0) {
-          wsruntimes[idx] = { ...wsruntimes[idx], ...rtData, id: wsruntimes[idx].id };
-        } else {
-          wsruntimes.push(rtData);
-        }
-      }
-    }
-
-    // Upsert repos (AS-023)
-    let repoCount = 0;
-    if (Array.isArray(repos) && repos.length > 0) {
-      const wsrepos = workspace.repos as any[];
-      for (const repo of repos) {
-        if (!repo.path || !repo.name) continue;
-        const idx = wsrepos.findIndex((r: any) => r.path === repo.path);
-        const repoData = {
-          id: idx >= 0 ? wsrepos[idx].id : generateId('wr'),
-          path: repo.path,
-          name: repo.name,
-          category: repo.category || null,
-          description: repo.description || null,
-          defaultBranch: repo.defaultBranch || 'main',
-          remoteUrl: repo.remoteUrl || null,
-          status: 'active',
-          lastSyncedAt: now,
-          createdAt: idx >= 0 ? wsrepos[idx].createdAt : now,
-        };
-        if (idx >= 0) {
-          wsrepos[idx] = { ...wsrepos[idx], ...repoData, id: wsrepos[idx].id };
-        } else {
-          wsrepos.push(repoData);
-        }
-        repoCount++;
-      }
-
-      // Mark repos no longer reported as unavailable
-      const reportedPaths = new Set(repos.map((r: any) => r.path));
-      for (const existing of wsrepos) {
-        if (!reportedPaths.has(existing.path) && existing.status === 'active') {
-          existing.status = 'unavailable';
-        }
-      }
-    }
-
-    await writeWorkspace(workspace.id as string, workspace);
-
-    logger.info({ workspaceId: workspace.id, name: workspace.name, runtimeCount: (runtimes as any[]).length, repoCount }, '[Workspace] Registered');
-
-    return res.json({
-      success: true,
-      data: {
-        workspaceId: workspace.id,
-        name: workspace.name,
-        status: workspace.status,
-      },
-    });
-  } catch (error) {
-    logger.error({ error }, '[Workspace] Registration failed');
-    return res.status(500).json({
-      error: 'Workspace registration failed',
-      code: 'WORKSPACE_REGISTER_ERROR',
-    });
-  }
-});
-
-// ─── PUT /api/v1/workspaces/:id/heartbeat ───
-
-router.put('/:id/heartbeat', workspaceAuth(), async (req: Request, res: Response) => {
-  try {
-    const authReq = req as AuthRequest;
-    const workspace = authReq.workspace!;
-    const { id } = req.params;
-
-    if (workspace.id !== id) {
-      return res.status(403).json({
-        error: 'Token does not match requested workspace',
-        code: 'WORKSPACE_MISMATCH',
-      });
-    }
-
-    const { status, currentTask } = req.body;
-    const now = new Date().toISOString();
-
-    const ws = await readWorkspace(id);
-    if (!ws) {
-      return res.status(404).json({
-        error: 'Workspace not found',
-        code: 'WORKSPACE_NOT_FOUND',
-      });
-    }
-
-    ws.status = status || workspace.status;
-    ws.currentTask = currentTask !== undefined ? currentTask : workspace.currentTask;
-    ws.lastHeartbeat = now;
-    ws.updatedAt = now;
-
-    await writeWorkspace(id, ws);
-
-    return res.json({
-      success: true,
-      data: {
-        workspaceId: id,
-        status: ws.status,
-        lastHeartbeat: ws.lastHeartbeat,
-      },
-    });
-  } catch (error) {
-    logger.error({ error }, '[Workspace] Heartbeat failed');
-    return res.status(500).json({
-      error: 'Heartbeat update failed',
-      code: 'WORKSPACE_HEARTBEAT_ERROR',
-    });
-  }
-});
 
 // ─── GET /api/v1/workspaces ───
 // List all workspaces (JWT auth)
