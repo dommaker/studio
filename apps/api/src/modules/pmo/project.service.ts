@@ -8,7 +8,7 @@
 import { FileStore, generateId, parseFrontmatter } from '@dommaker/studio-shared';
 import { logger } from '../../utils/logger.js';
 import { channelMessageService } from '../channels/channel-message.service.js';
-import { resolveStageRouting, routingFallbackText } from '../channels/routing.js';
+import { resolveStageRouting, routingFallbackText, shouldEmitFallbackReminder } from '../channels/routing.js';
 import { WorkUnitService } from '../workunit/workunit.service.js';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -625,7 +625,8 @@ FOG: <待决问题>
     });
 
     // #466 路由回退提醒（非阻断）：配置失效不影响发布主链路
-    if (planRouting?.fallback) {
+    // #497: 同频道同档同原因冷却窗内不重复出声
+    if (planRouting?.fallback && shouldEmitFallbackReminder(input.channelId, 'plan', planRouting)) {
       await channelMessageService.createAgentMessage(
         input.channelId,
         'Studio',

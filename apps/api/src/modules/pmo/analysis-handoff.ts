@@ -26,7 +26,7 @@ import { eventBus, logger, createSettledTracker, type FileStore } from '@dommake
 import { WorkUnitService, ANALYSIS_TASKS_MAX, type WorkUnitData, type WorkUnitMetadata } from '../workunit/workunit.service.js';
 import { parseWuMetadata } from '../workunit/wu-metadata.js';
 import { ChannelMessageService } from '../channels/channel-message.service.js';
-import { resolveStageRouting, routingFallbackText, type StageRoutingResolution } from '../channels/routing.js';
+import { resolveStageRouting, routingFallbackText, shouldEmitFallbackReminder, type StageRoutingResolution } from '../channels/routing.js';
 import { dispatchMonitorAlerts } from '../agents/monitor/monitor-alerts.js';
 
 export class AnalysisHandoff {
@@ -237,7 +237,8 @@ export class AnalysisHandoff {
       );
     }
     // #466 路由回退提醒（建单完成后出声，与任务清单同线程）
-    if (routingFallback) {
+    // #497: 同频道同档同原因冷却窗内不重复出声
+    if (routingFallback && shouldEmitFallbackReminder(fresh.channelId!, 'implement', routingFallback)) {
       await this.post(fresh, routingFallbackText('implement', routingFallback));
     }
   }

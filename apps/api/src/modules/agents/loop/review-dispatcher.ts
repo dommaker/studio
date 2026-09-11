@@ -26,7 +26,7 @@ import { MANUAL_GATE_TYPES } from '../../workunit/workunit.types.js';
 import { readCollab } from '../../workunit/delegation-gate.js';
 import { postWuSystemMessage } from '../../workunit/wu-messenger.js';
 import { parseWuMetadata, clearSessionBookkeeping } from '../../workunit/wu-metadata.js';
-import { resolveStageRouting, routingFallbackText } from '../../channels/routing.js';
+import { resolveStageRouting, routingFallbackText, shouldEmitFallbackReminder } from '../../channels/routing.js';
 import type { ParsedReviewReport } from './review-contract.js';
 
 export class ReviewDispatcher {
@@ -169,7 +169,10 @@ export class ReviewDispatcher {
         pinnedReviewer = routing.profileId;
       }
     } else if (routing.fallback) {
-      routingNotice = routingFallbackText('review', routing);
+      // #497: 同频道同档同原因冷却窗内不重复出声（建单回池不受影响）
+      routingNotice = shouldEmitFallbackReminder(parent.channelId!, 'review', routing)
+        ? routingFallbackText('review', routing)
+        : null;
     }
 
     const eligible = members?.filter(p => p.id !== implementerId) ?? null;

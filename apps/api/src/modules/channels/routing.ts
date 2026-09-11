@@ -16,7 +16,7 @@
  * 消费方：publish 建 plan 单（plan 档）、analysis-handoff TASK 拆派工与
  * workunit feature 展开（implement 档）、review-dispatcher 建评审单（review 档）。
  */
-import { parseChannels, type FileStore } from '@dommaker/studio-shared';
+import { parseChannels, type ChannelData, type FileStore } from '@dommaker/studio-shared';
 
 export const ROUTING_STAGES = ['plan', 'implement', 'review'] as const;
 export type RoutingStage = (typeof ROUTING_STAGES)[number];
@@ -77,6 +77,58 @@ export function routingFallbackText(stage: RoutingStage, resolution: StageRoutin
   const name = resolution.profileName ?? '（已删除）';
   const reason = FALLBACK_TEXT[resolution.fallback ?? 'not-found'];
   return `工单路由提醒：本频道「${ROUTING_STAGE_LABELS[stage]}」阶段路由到 @${name}，但${reason}，本单已回池涌现（频道成员自动认领）——请到频道设置调整路由表`;
+}
+
+/**
+ * #497: fallback 提醒冷却窗——同频道同档同原因在窗内只出声一次。
+ * 悬空指名在配置修复前会持续触发派生，不去重则提醒无限重复刷屏。
+ * 进程内 Map（重启即重置）：提醒是配置修复信号，重启后补一条可接受，不漏路由回退本身。
+ */
+export const FALLBACK_REMINDER_COOLDOWN_MS = 60 * 60 * 1000;
+
+const fallbackReminderSentAt = new Map<string, number>();
+
+/**
+ * #497: fallback 提醒冷却闸。返回 true = 放行并登记本次发送时刻（调用方随后
+ * best-effort 发送，发送失败不补偿——漏一条优于刷屏）；false = 冷却窗内，跳过出声。
+ */
+export function shouldEmitFallbackReminder(
+  channelId: string,
+  stage: RoutingStage,
+  resolution: StageRoutingResolution,
+  now: number = Date.now(),
+): boolean {
+  const key = `${channelId}:${stage}:${resolution.fallback ?? 'none'}`;
+  const last = fallbackReminderSentAt.get(key);
+  if (last !== undefined && now - last < FALLBACK_REMINDER_COOLDOWN_MS) return false;
+  fallbackReminderSentAt.set(key, now);
+  return true;
+}
+
+/** 测试钩子：清空冷却表 */
+export function resetFallbackReminderCooldown(): void {
+  fallbackReminderSentAt.clear();
+}
+
+/**
+ * #497: members 移出的指名漂移检查——被移出角色仍被 routing 档/入口角色指名时
+ * 产出人读 warning（响应附带，不阻断；与 defaultProfileId/routing 校验只查存在性的严格度对齐）。
+ */
+export function buildMemberRemovalWarning(
+  channel: Pick<ChannelData, 'routing' | 'defaultProfileId'>,
+  removedIds: string[],
+): string | undefined {
+  if (removedIds.length === 0) return undefined;
+  const stages = ROUTING_STAGES.filter(s => {
+    const v = channel.routing?.[s];
+    return v != null && removedIds.includes(v);
+  });
+  const namedDefault = channel.defaultProfileId != null && removedIds.includes(channel.defaultProfileId);
+  if (stages.length === 0 && !namedDefault) return undefined;
+  const parts: string[] = [];
+  if (stages.length > 0) parts.push(`「${stages.map(s => ROUTING_STAGE_LABELS[s]).join('、')}」阶段路由`);
+  if (namedDefault) parts.push('入口角色');
+  return `成员移出提醒：被移出的角色仍被指名为本频道${parts.join('与')}，相关派单将回池涌现——请到频道设置调整配置`;
 }
 
 /**
