@@ -275,7 +275,7 @@ export function LibraryPage() {
           <div className="space-y-6">
             {docGroups.map((group) => (
               <div key={group.projectId}>
-                <h2 className="mc-block-label" style={{ margin: '0 0 8px' }}>
+                <h2 className="mc-block-label mc-block-label-gap-2">
                   {group.pmoNumber} · {group.docs.length} 篇
                 </h2>
                 <div className="lib-list">

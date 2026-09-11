@@ -301,7 +301,7 @@ export function ProjectDetailPage() {
 
           {/* 🆕 AC-5: 进度管道（REQ 链路六泳道，WU 小卡可点 → /workunits/:id） */}
           <div className="card p-4 mb-3">
-            <h3 className="mc-block-label" style={{ margin: '0 0 var(--space-3)' }}>进度管道</h3>
+            <h3 className="mc-block-label mc-block-label-gap-3">进度管道</h3>
             <ProjectPipeline workunits={pipelineWus} agents={agents} loading={chainLoading} />
           </div>
 
@@ -316,7 +316,7 @@ export function ProjectDetailPage() {
           {/* E3 收起层：项目动态默认折叠（「最近 N 条动态」），展开看全量 */}
           <div className="card p-4 mb-3">
             <div className="flex items-center justify-between">
-              <h3 className="mc-block-label" style={{ margin: 0 }}>
+              <h3 className="mc-block-label mc-block-label-flush">
                 项目动态{timelineEntries.length > 0 ? ` · 最近 ${timelineEntries.length} 条` : ''}
               </h3>
               {timelineEntries.length > 0 && (
@@ -337,7 +337,7 @@ export function ProjectDetailPage() {
           {project.requirement && (
             <div className="card p-3 mb-3">
               <div className="flex items-center justify-between">
-                <span className="mc-block-label" style={{ margin: 0 }}>原始需求</span>
+                <span className="mc-block-label mc-block-label-flush">原始需求</span>
                 {project.requirement.length > 120 && (
                   <button
                     onClick={() => setRequirementExpanded(v => !v)}
@@ -359,14 +359,14 @@ export function ProjectDetailPage() {
               E3：探路型项目保留展开——它是该类项目的主视图；与 NextAction 靠视觉层级分工（accent 行动卡 vs 中性信息卡） */}
           {project.map && (
             <div className="card p-4 mb-3">
-              <h3 className="mc-block-label" style={{ margin: '0 0 var(--space-3)' }}>地图</h3>
+              <h3 className="mc-block-label mc-block-label-gap-3">地图</h3>
               <ProjectMap map={project.map} decisionStatusByWuId={decisionStatusByWuId} chainWus={chainWus} />
             </div>
           )}
 
           {/* E3：页底工具区降级——全部 btn-secondary 并排，去 emoji（原 VS Code / Cloud IDE 双 btn-primary 抢主行动） */}
           <div className="card p-4">
-            <h3 className="mc-block-label" style={{ margin: '0 0 var(--space-3)' }}>工具</h3>
+            <h3 className="mc-block-label mc-block-label-gap-3">工具</h3>
             <div className="flex flex-wrap gap-2">
               <button
                 onClick={() => setShowVscodeGuide(true)}

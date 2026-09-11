@@ -135,7 +135,7 @@ export function NextActionCard({ action }: { action: NextActionCandidate | null 
   const navigate = useNavigate();
   return (
     <div className="card p-4 mb-3" style={{ borderLeft: '2px solid var(--accent-primary)' }}>
-      <h3 className="mc-block-label" style={{ margin: '0 0 var(--space-2)' }}>下一个该干什么</h3>
+      <h3 className="mc-block-label mc-block-label-gap-2">下一个该干什么</h3>
       {action ? (
         <div className="flex items-center gap-2 flex-wrap">
           <button

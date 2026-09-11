@@ -43,7 +43,7 @@ export function ProjectProgressCard({ progress, delivery, projectStatus }: Proje
     <div className="card p-4 mb-3">
       {/* 头部：标签 + % 恒显 + 展开/收起（详情为次要信息，默认收） */}
       <div className="flex items-center justify-between">
-        <h3 className="mc-block-label" style={{ margin: 0 }}>项目进展</h3>
+        <h3 className="mc-block-label mc-block-label-flush">项目进展</h3>
         <div className="flex items-center gap-3">
           <span className="font-mono font-bold u-text" style={{ fontSize: 'var(--fs-stat)' }}>{progress}%</span>
           <button

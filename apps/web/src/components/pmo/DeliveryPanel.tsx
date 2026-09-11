@@ -148,7 +148,7 @@ export function DeliveryPanel({ projectId, delivery, onRefresh }: DeliveryPanelP
   return (
     <div className="card p-4 mb-3">
       <div className="flex items-center justify-between mb-3">
-        <h3 className="mc-block-label" style={{ margin: 0 }}>交付</h3>
+        <h3 className="mc-block-label mc-block-label-flush">交付</h3>
         {/* #474 去 emoji：状态徽章图标 = ui/icons stroke SVG（原 ✓/🔄/⏳ 徽章） */}
         {delivery.deliveredAt ? (
           <span className="text-xs px-2 py-1 rounded u-ok-dim u-ok font-medium inline-flex items-center gap-1"><IconCheck size={12} /> 已交付</span>

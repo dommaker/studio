@@ -225,7 +225,7 @@ export function MonitoringPage() {
               onClick={() => setMetricsOpen(v => !v)}
             >
               <span className="text-xs">{metricsOpen ? '▾' : '▸'}</span>
-              <span className="mc-block-label" style={{ margin: 0 }}>健康度量</span>
+              <span className="mc-block-label mc-block-label-flush">健康度量</span>
             </button>
 
             {metricsOpen && (

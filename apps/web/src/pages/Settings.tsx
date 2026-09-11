@@ -22,7 +22,7 @@ export function Settings() {
 
           {/* 主题（最下面） */}
           <section className="space-y-4">
-            <h2 className="mc-block-label" style={{ margin: 0 }}>主题设置</h2>
+            <h2 className="mc-block-label mc-block-label-flush">主题设置</h2>
             <ThemeSettings />
           </section>
         </div>

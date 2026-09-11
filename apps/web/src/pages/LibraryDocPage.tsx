@@ -175,7 +175,7 @@ export function LibraryDocPage() {
           {sections.map((section, i) => (
             <div key={i} className={i > 0 ? 'mt-8' : ''}>
               {section.label && (
-                <h2 className="mc-block-label" style={{ margin: '0 0 8px' }}>
+                <h2 className="mc-block-label mc-block-label-gap-2">
                   {section.label}
                 </h2>
               )}

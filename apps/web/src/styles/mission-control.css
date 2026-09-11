@@ -995,6 +995,10 @@
   letter-spacing: 0.12em;
   margin: 12px 0 5px;
 }
+/* 批次 G-3：margin 覆盖变体（收敛基类 margin 的同构内联覆盖） */
+.mc-block-label-flush { margin: 0; }
+.mc-block-label-gap-2 { margin: 0 0 var(--space-2); }
+.mc-block-label-gap-3 { margin: 0 0 var(--space-3); }
 
 .mc-docs { list-style: none; margin: 0; padding: 0; }
 .mc-doc-item {
