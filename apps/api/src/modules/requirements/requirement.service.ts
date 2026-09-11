@@ -22,6 +22,7 @@ import {
   deriveDisplayState,
   type RequirementData,
   type RequirementStatus,
+  type WorkUnitSnapshot,
 } from '@dommaker/studio-shared';
 import { projectService, type ProjectData } from '../pmo/project.service.js';
 import { parseWuPmoId } from './wu-pmo-attribution.js';
@@ -86,6 +87,9 @@ export function toRequirementAliasView(p: ProjectData): RequirementWithProject {
  * in_review 视同工作完成（待人类确认）；completed/failed 兼容外部写入的状态值。
  */
 export const TERMINAL_WORKUNIT_STATUSES = ['in_review', 'done', 'completed', 'failed', 'closed'];
+
+/** #457：maybeRollUpToDone 的 memo 直供快照最小字段集（rollup.ts 事件负载喂入，按 reqId 预 scope） */
+export type ReqRollupSnapshot = Pick<WorkUnitSnapshot, 'id' | 'status' | 'reqId'>;
 
 export interface CreateRequirementInput {
   title: string;
@@ -337,17 +341,28 @@ export class RequirementService {
    * 状态汇总（vision §5.3）：需求的全部 WorkUnit 到达终态 → status = done。
    * 幂等；无 WorkUnit / 已 done / 已 archived 时不动作。返回是否发生了汇总。
    * 决策 4：别名视图跳过——PMO 状态由 progress-rollup 拥有（REQ 汇总不写别名）。
+   * #457：knownSnapshots 直供（rollup.ts 事件 memo，调用方按 reqId 预 scope）时
+   * 跳过全量索引读；缺省回源全量读（直调路径，语义 = 原实现）。Requirement 自身
+   * 状态判定恒新鲜 get（done/archived/别名跳过不受快照来源影响）。
    */
-  async maybeRollUpToDone(reqId: string): Promise<boolean> {
+  async maybeRollUpToDone(reqId: string, knownSnapshots?: ReqRollupSnapshot[]): Promise<boolean> {
     const requirement = await this.get(reqId);
     if (!requirement || requirement.status === 'done' || requirement.status === 'archived') return false;
     if (requirement.createdBy === 'pmo-alias') return false;
-    const snapshots = (await this.fileStore.getIndex()).filter(s => s.reqId === reqId);
+    const snapshots = knownSnapshots ?? (await this.fileStore.getIndex()).filter(s => s.reqId === reqId);
     if (snapshots.length === 0) return false;
     if (!snapshots.every(s => TERMINAL_WORKUNIT_STATUSES.includes(s.status))) return false;
     await this.update(reqId, { status: 'done' });
     logger.info('[Requirement] Rolled up to done', { reqId, workUnitCount: snapshots.length });
     return true;
+  }
+
+  /**
+   * #457 消费侧冷启动回源（rollup.ts memo 专用）：某需求全部关联 WU 的最新快照，
+   * 一次索引读取。事件路径只在 memo 冷启动时调用一次，稳态零调用。
+   */
+  async listWorkUnitSnapshots(reqId: string): Promise<WorkUnitSnapshot[]> {
+    return (await this.fileStore.getIndex()).filter(s => s.reqId === reqId);
   }
 
   private publish(event: 'requirement.created' | 'requirement.updated', requirement: RequirementData): void {
