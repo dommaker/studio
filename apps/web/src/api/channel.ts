@@ -98,6 +98,12 @@ export interface ChannelSuggestion {
 export interface ChannelSuggestions {
   currentWuId: string | null;
   suggestions: ChannelSuggestion[];
+  /**
+   * #490：fail-closed 可观测标志——推导内部读取失败被吞时 true（此时 suggestions 必为空）；
+   * 正常路径（含「确实无建议」）false。前端仅 console 记录 + 不落「已返回」台账
+   * （ChannelWorkBar 占位保持加载态而非误显空闲），不出任何 UI。
+   */
+  degraded?: boolean;
 }
 
 export const channelApi = {

@@ -1227,7 +1227,7 @@ describe('ChannelDetailPage — #440 阶段条（#447 起 currentWuId 由建议�
     expect(screen.queryByText('状态同步中…')).toBeNull();
   });
 
-  it('#488：建议端点请求失败 → 不误显示空闲，保持「状态同步中…」（degraded 标志协同留批次 2.4）', async () => {
+  it('#488：建议端点请求失败 → 不误显示空闲，保持「状态同步中…」', async () => {
     mockApiGet.mockImplementation((url: string) =>
       String(url).endsWith('/suggestions') ? Promise.reject(new Error('boom')) : Promise.resolve(CHANNEL),
     );
@@ -1237,6 +1237,36 @@ describe('ChannelDetailPage — #440 阶段条（#447 起 currentWuId 由建议�
     await waitFor(() => expect(screen.getByText('#rnd-主研发')).toBeTruthy());
     expect(screen.getByText('状态同步中…')).toBeTruthy();
     expect(screen.queryByText('频道暂无进行中的工作')).toBeNull();
+  });
+
+  // #490：推导失败被吞（degraded=true）——前端仅 console 记录，不落「已返回」台账，
+  // 工作条占位保持加载态不误显空闲；不出任何 UI（不打扰用户）
+  it('#490：degraded=true → console.warn 记录 + 不落空闲（保持「状态同步中…」）', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    suggestionPayload = { data: { data: { currentWuId: null, suggestions: [], degraded: true } } };
+    renderPage();
+    await waitFor(() => expect(suggestionsCalls()).toBe(1));
+    await waitFor(() => expect(screen.getByText('#rnd-主研发')).toBeTruthy());
+    expect(screen.getByText('状态同步中…')).toBeTruthy();
+    expect(screen.queryByText('频道暂无进行中的工作')).toBeNull();
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[ChannelDetailPage] suggestions derive degraded (fail-closed)',
+      { channelId: 'ch-1' },
+    );
+    warnSpy.mockRestore();
+  });
+
+  it('#490：degraded=false 正常返回 → 不 warn，照常落账（currentWuId=null → 空闲态）', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    suggestionPayload = { data: { data: { currentWuId: null, suggestions: [], degraded: false } } };
+    renderPage();
+    await waitFor(() => expect(suggestionsCalls()).toBe(1));
+    await waitFor(() => expect(screen.getByText('频道暂无进行中的工作')).toBeTruthy());
+    expect(warnSpy).not.toHaveBeenCalledWith(
+      '[ChannelDetailPage] suggestions derive degraded (fail-closed)',
+      expect.anything(),
+    );
+    warnSpy.mockRestore();
   });
 
   it('#488：currentWuId 未命中 channelWus（时序 skew）→ 保持加载态而非空闲', async () => {

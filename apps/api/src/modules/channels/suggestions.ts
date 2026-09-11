@@ -16,7 +16,8 @@
  * waitingForInput 且无 loop 在处理）与「转写审查清单」（前置门禁窗口：评审未派发），
  * 预填指令本体由 text 字段承载，点击预填进输入框、人可编辑后发送，走既有 @mention
  * 消息路由（不建确定性接口）。
- * 顶层容错：任何一步失败 → 空结果 + warn，派生绝不抛出（同 current-pmo 原则）。
+ * 顶层容错：任何一步失败 → 空结果 + warn + degraded=true（#490：失败被吞 ≠ 无建议，
+ * 标志透出给前端做可观测区分，fail-closed 语义不变），派生绝不抛出（同 current-pmo 原则）。
  */
 import { logger, parseChannels, deriveDisplayState, FileStore, type WorkUnitSnapshot } from '@dommaker/studio-shared';
 import { summarizeRoleStates } from '../agents/agent-instance.service.js';
@@ -61,6 +62,12 @@ export interface ChannelSuggestion {
 export interface ChannelSuggestionsResult {
   currentWuId: string | null;
   suggestions: ChannelSuggestion[];
+  /**
+   * #490：fail-closed 可观测标志——推导内部读取失败被吞时为 true（仍空 suggestions，
+   * fail-closed 语义不变）；正常路径（含「确实无建议」）为 false。非粘性状态，
+   * 每次调用按本次推导现算。前端仅 console 记录，不打扰用户。
+   */
+  degraded: boolean;
 }
 
 export interface ChannelSuggestionsDeps {
@@ -69,7 +76,10 @@ export interface ChannelSuggestionsDeps {
   now?: Date;
 }
 
-const EMPTY: ChannelSuggestionsResult = { currentWuId: null, suggestions: [] };
+/** 推导内部结果（不含 degraded——该标志由外层按「本次推导是否抛错」现算，非粘性） */
+type DeriveInner = { currentWuId: string | null; suggestions: ChannelSuggestion[] };
+
+const EMPTY: DeriveInner = { currentWuId: null, suggestions: [] };
 
 /** 不可自动评审的 WU 类型（同 ReviewDispatcher 路径 A / dispatch-reconciliation 口径；#471 含 plan） */
 function isAutoReviewable(wu: WorkUnitSnapshot): boolean {
@@ -159,14 +169,29 @@ async function hasOnlineMemberLoop(fileStore: FileStore, memberIds: string[]): P
 
 /**
  * 推导频道建议。fail-closed：前置条件不满足/事实缺失/读取失败 → 空结果。
+ * #490：读取失败被吞 ≠ 「确实无建议」——失败路径 degraded=true（仍空 suggestions），
+ * 正常路径 degraded=false，前端据此区分两态（仅记录，不打扰用户）。
  */
 export async function deriveChannelSuggestions(
   channelId: string,
   deps: ChannelSuggestionsDeps = {},
 ): Promise<ChannelSuggestionsResult> {
+  try {
+    return { ...(await deriveChannelSuggestionsInner(channelId, deps)), degraded: false };
+  } catch (err) {
+    logger.warn('[ChannelSuggestions] derive failed (fail-closed → empty)', { channelId, error: String(err) });
+    return { ...EMPTY, degraded: true };
+  }
+}
+
+/** 推导本体（抛错由外层兜底转 degraded=true；自身只表达「事实推导结果」） */
+async function deriveChannelSuggestionsInner(
+  channelId: string,
+  deps: ChannelSuggestionsDeps,
+): Promise<DeriveInner> {
   const fileStore = deps.fileStore ?? new FileStore();
   const now = deps.now ?? new Date();
-  try {
+  {
     const channel = await fileStore.getChannel(channelId);
     if (!channel) return EMPTY;
 
@@ -294,8 +319,5 @@ export async function deriveChannelSuggestions(
         params: { wuId: current.id, wuTitle },
       }],
     };
-  } catch (err) {
-    logger.warn('[ChannelSuggestions] derive failed (fail-closed → empty)', { channelId, error: String(err) });
-    return EMPTY;
   }
 }

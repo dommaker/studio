@@ -117,7 +117,7 @@ describe('deriveChannelSuggestions（推导骨架）', () => {
   it('无 WU + 有成员 → currentWuId=null，不出片', async () => {
     await setMembers(['profile-exec']);
     const r = await deriveChannelSuggestions(CHANNEL_ID, { fileStore });
-    expect(r).toEqual({ currentWuId: null, suggestions: [] });
+    expect(r).toEqual({ currentWuId: null, suggestions: [], degraded: false });
   });
 
   // #465（首用路径断点）：空转频道（无当前工单）+ 成员为空 → 出只读提示片
@@ -127,6 +127,7 @@ describe('deriveChannelSuggestions（推导骨架）', () => {
     expect(r).toEqual({
       currentWuId: null,
       suggestions: [{ id: 'channel-no-members', kind: 'status', params: {} }],
+      degraded: false,
     });
   });
 
@@ -522,7 +523,23 @@ describe('deriveChannelSuggestions（推导骨架）', () => {
 
   it('频道不存在 → 空结果不抛出（fail-closed）', async () => {
     const r = await deriveChannelSuggestions('ch-not-exist', { fileStore });
-    expect(r).toEqual({ currentWuId: null, suggestions: [] });
+    expect(r).toEqual({ currentWuId: null, suggestions: [], degraded: false });
+  });
+
+  // #490：fail-closed 可观测——推导内部读取失败被吞时 degraded=true（仍空 suggestions，
+  // 语义不变），正常路径 degraded=false；前端据此区分「真无建议」与「推导失败被吞」
+  it('#490：内部读取失败（getIndex 抛错）→ degraded=true + 空 suggestions（fail-closed 语义不变）', async () => {
+    vi.spyOn(fileStore, 'getIndex').mockRejectedValueOnce(new Error('index corrupted'));
+    const r = await deriveChannelSuggestions(CHANNEL_ID, { fileStore });
+    expect(r).toEqual({ currentWuId: null, suggestions: [], degraded: true });
+  });
+
+  it('#490：失败恢复后正常推导 → degraded=false（degraded 不是粘性状态）', async () => {
+    vi.spyOn(fileStore, 'getIndex').mockRejectedValueOnce(new Error('index corrupted'));
+    const failed = await deriveChannelSuggestions(CHANNEL_ID, { fileStore });
+    expect(failed.degraded).toBe(true);
+    const ok = await deriveChannelSuggestions(CHANNEL_ID, { fileStore });
+    expect(ok.degraded).toBe(false);
   });
 
   // ─── #447：「出片 ⟺ 前置条件成立」双向不变量全状态覆盖 ───
@@ -725,7 +742,28 @@ describe('channel routes（#443）：GET /:id/suggestions', () => {
     expect(body.data).toEqual({
       currentWuId: null,
       suggestions: [{ id: 'channel-no-members', kind: 'status', params: {} }],
+      degraded: false,
     });
+  });
+
+  // #490：推导失败被吞 → 契约 degraded=true 透传到 HTTP 层（仍 200 + 空 suggestions，fail-closed 语义不变）
+  it('#490：推导内部读取失败 → data.degraded=true + 空 suggestions（200 不 5xx）', async () => {
+    const res = await fetch(baseUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'ch-suggestions-degraded', type: 'rnd' }),
+    });
+    const channel = (await res.json()).data;
+
+    const spy = vi.spyOn(FileStore.prototype, 'getIndex').mockRejectedValueOnce(new Error('index corrupted'));
+    try {
+      const r = await fetch(`${baseUrl}/${channel.id}/suggestions`);
+      expect(r.status).toBe(200);
+      const body = await r.json();
+      expect(body.data).toEqual({ currentWuId: null, suggestions: [], degraded: true });
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it('in_review + 活跃 review 子单 → data 携带 status 形态建议（结构化 params，无自由文案）', async () => {

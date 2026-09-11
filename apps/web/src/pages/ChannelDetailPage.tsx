@@ -207,6 +207,12 @@ export function ChannelDetailPage() {
     if (!id) return;
     channelApi.getSuggestions(id)
       .then(r => {
+        // #490：推导失败被吞（degraded=true）≠「确实无建议」——仅 console 记录不打扰用户；
+        // 不落「已返回」台账（ChannelWorkBar 占位保持加载态，不误显空闲），建议面保持上一份
+        if (r.data?.data?.degraded === true) {
+          console.warn('[ChannelDetailPage] suggestions derive degraded (fail-closed)', { channelId: id });
+          return;
+        }
         const raw: unknown = r.data?.data?.suggestions;
         const list = Array.isArray(raw) ? raw : [];
         setChannelSuggestions(list.filter((s): s is ChannelSuggestion =>
