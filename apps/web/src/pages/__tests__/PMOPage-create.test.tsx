@@ -32,6 +32,7 @@ vi.mock('../../api/channel', () => ({
 }));
 
 import { PMOPage } from '../PMOPage';
+import { usePmoDataStore } from '../../stores/pmoDataStore';
 
 const mockProjects = [
   { id: 'p1', pmoNumber: 'PMO-11', title: '既有项目', status: 'active', progress: 50, createdAt: '2026-01-01' },
@@ -40,6 +41,8 @@ const mockProjects = [
 describe('PMO-a: 新建 PMO 表单', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // #456：company/project 链改读 pmoDataStore（模块级单例），每测重置避免 TTL 缓存跨测串味
+    usePmoDataStore.getState().__resetForTests();
     mockChannelList.mockResolvedValue({ data: { data: [] } });
     mockCreate.mockResolvedValue({ data: { id: 'p2', pmoNumber: 'PMO-12' } });
     mockDiscoverProjects.mockResolvedValue({

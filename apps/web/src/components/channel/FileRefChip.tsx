@@ -2,23 +2,16 @@
 // 点击 = 复制绝对路径 + 短暂「已复制」反馈；例外：.studio/ 前缀 → 解析 PMO 项目跳阅览室，
 // 解析不到（无公司/无项目/接口失败）降级回复制，不报错不空跳。
 // #271 起经 MarkdownBody 的 renderInlineCode 挂载点接入（见 ChannelMessageItem）。
+// #456：company/project 链改读 pmoDataStore（点击时 ensure，TTL 内零请求；原每次点击都拉两份）。
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { FileRef } from '../../api/channel';
-import { companyApi } from '../../api/company';
-import { projectApi } from '../../api';
+import { usePmoDataStore } from '../../stores/pmoDataStore';
 import { fileRefFullPath } from '../../utils/fileChipMatch';
 import { copyText } from '../../utils/clipboard';
 
 const LIBRARY_PREFIX = '.studio/';
 const COPIED_FEEDBACK_MS = 1500;
-
-/** PMO 项目列表里与 FileRef.repo 比对所需的最小形状（gitRepo 或 deliveries[].gitRepo） */
-interface PmoProjectRef {
-  id: string;
-  gitRepo?: string | null;
-  deliveries?: { gitRepo?: string | null }[];
-}
 
 const stripTrailingSlash = (s: string) => s.replace(/\/+$/, '');
 
@@ -27,11 +20,12 @@ async function resolveLibraryUrl(ref: FileRef): Promise<string | null> {
   const relPath = ref.path.slice(LIBRARY_PREFIX.length);
   if (!relPath) return null;
   try {
-    const companiesRes = await companyApi.list();
-    const companyId = companiesRes.data?.data?.[0]?.id;
+    // ensure 永不 reject（失败不落数据），TTL 门禁内零请求；缺数据按解析不到降级
+    await usePmoDataStore.getState().ensureCompanies();
+    const companyId = usePmoDataStore.getState().companies?.[0]?.id;
     if (!companyId) return null;
-    const res = await projectApi.list({ companyId, limit: 100 });
-    const projects = (res.data?.data || []) as PmoProjectRef[];
+    await usePmoDataStore.getState().ensureProjects(companyId);
+    const projects = usePmoDataStore.getState().projects[companyId] ?? [];
     const repo = stripTrailingSlash(ref.repo);
     const project = projects.find(p =>
       (p.gitRepo && stripTrailingSlash(p.gitRepo) === repo) ||

@@ -71,12 +71,14 @@ export class WorkUnitService extends WorkUnitCrudService {
     // #428（#402 决策 4）：归属维度过滤。false = 未归属（无 reqId 且 pmoId 归因戳
     // 解析为 null，口径同 #402 决策 1 / #405 AC）；true = 反向；undefined = 不过滤
     attributed?: boolean;
+    /** #456：按 PMO 项目过滤（ProjectDetailPage next-action 候选）；归属口径与 PMO 台账同源 */
+    projectId?: string;
     /** 批次 D-2 项4：scope（标题）大小写不敏感子串过滤，与既有过滤取交集 */
     q?: string;
     page?: number;
     limit?: number;
   }): Promise<{ data: WorkUnitData[]; total: number }> {
-    const { type, status, assigneeId, channelId, parentId, failureType, timedOutBefore, attributed, q, page = 1, limit = 20 } = options ?? {};
+    const { type, status, assigneeId, channelId, parentId, failureType, timedOutBefore, attributed, projectId, q, page = 1, limit = 20 } = options ?? {};
 
     let snapshots = await this.fileStore.getIndex();
 
@@ -94,6 +96,17 @@ export class WorkUnitService extends WorkUnitCrudService {
     if (attributed !== undefined) {
       // #428：已归属 = 有 reqId 或归因戳（canonical pmoId ‖ legacy ownershipProjectId）非 null
       snapshots = snapshots.filter(s => (!!s.reqId || parseWuPmoId(s.metadata) !== null) === attributed);
+    }
+    if (projectId) {
+      // #456：归属过滤与 PMO 台账唯一同源（selectProjectSnapshots：reqId 绑定优先 → pmoId 戳兜底）。
+      // 动态引入避环：静态 requirement.service → project.service → workunit.service 成循环
+      // （同 wu-messenger / merge-on-review-pass 的避环约定）
+      const [{ RequirementService }, { selectProjectSnapshots }] = await Promise.all([
+        import('../requirements/requirement.service.js'),
+        import('../pmo/evidence-summary.js'),
+      ]);
+      const requirements = await new RequirementService(this.fileStore).list();
+      snapshots = selectProjectSnapshots(projectId, requirements, snapshots);
     }
     if (q) {
       const needle = q.toLowerCase();

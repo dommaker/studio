@@ -31,6 +31,7 @@ vi.mock('../../components/ui', async (importOriginal) => ({
 }));
 
 import { LibraryPage } from '../LibraryPage';
+import { usePmoDataStore } from '../../stores/pmoDataStore';
 
 const DOCS = [
   {
@@ -60,6 +61,8 @@ const DOCS = [
 describe('LibraryPage（#155 T5 阅览室）', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // #456：company/project 链改读 pmoDataStore（模块级单例），每测重置避免 TTL 缓存跨测串味
+    usePmoDataStore.getState().__resetForTests();
     mockLibraryList.mockResolvedValue({ data: { data: DOCS } });
     mockCompanyList.mockResolvedValue({ data: { data: [{ id: 'co-1' }] } });
     mockProjectList.mockResolvedValue({

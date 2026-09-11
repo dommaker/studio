@@ -8,9 +8,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { LIBRARY_DOC_STATUS_COLORS, LIBRARY_DOC_STATUS_LABELS } from '@dommaker/studio-shared/web';
-import { libraryApi, projectApi } from '../api';
-import { companyApi } from '../api/company';
+import { libraryApi } from '../api';
 import { maintenanceApi, type TriggerCosts } from '../api/maintenance';
+import { usePmoDataStore } from '../stores/pmoDataStore';
 import { ManualTaskButton, SkeletonText } from '../components/ui';
 import { Select } from '../components/ui/Select';
 import { IconLibrary } from '../components/ui/icons';
@@ -27,12 +27,6 @@ interface LibraryDoc {
   status?: string;
   tags?: string[];
   updatedAt: string;
-}
-
-interface ProjectOption {
-  id: string;
-  pmoNumber: string;
-  title: string;
 }
 
 const kindLabels: Record<string, string> = {
@@ -53,7 +47,6 @@ export function LibraryPage() {
   const [projectId, setProjectId] = useState('');
   // #436 B11：类型筛选（前端过滤已拉取列表，零后端改动）
   const [kind, setKind] = useState('');
-  const [projects, setProjects] = useState<ProjectOption[]>([]);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // 手动任务成本（近 30 天 token；失败静默，不阻塞页面）
@@ -62,20 +55,17 @@ export function LibraryPage() {
     maintenanceApi.getCosts().then(setCosts).catch(() => setCosts(null));
   }, []);
 
-  // 项目筛选下拉数据源：默认公司下的 PMO 项目清单（失败静默，下拉留空仍可全量浏览）
+  // 项目筛选下拉数据源：默认公司下的 PMO 项目清单（#456 改读 pmoDataStore：companies 单份 +
+  // projects per-companyId，PMO ↔ 阅览室 TTL 内零重拉；失败静默——缺键按空列表降级，下拉留空仍可全量浏览）
+  const companies = usePmoDataStore((s) => s.companies);
+  const defaultCompanyId = companies?.[0]?.id;
+  const projects = usePmoDataStore((s) => (defaultCompanyId ? s.projects[defaultCompanyId] : undefined)) ?? [];
   useEffect(() => {
-    void (async () => {
-      try {
-        const companiesRes = await companyApi.list();
-        const companyId = companiesRes.data?.data?.[0]?.id;
-        if (!companyId) return;
-        const res = await projectApi.list({ companyId, limit: 100 });
-        setProjects(res.data?.data || []);
-      } catch {
-        setProjects([]);
-      }
-    })();
+    void usePmoDataStore.getState().ensureCompanies();
   }, []);
+  useEffect(() => {
+    if (defaultCompanyId) void usePmoDataStore.getState().ensureProjects(defaultCompanyId);
+  }, [defaultCompanyId]);
 
   const fetchDocs = useCallback(async (searchTerm: string, project: string) => {
     setLoading(true);

@@ -266,10 +266,64 @@ describe('aggregateOverview (D16)', () => {
 
   it('每个指标组都带 description（大白话）', () => {
     const m = aggregateOverview(makeInput());
-    for (const group of [m.taskFlow, m.intake, m.humanIntervention, m.cycleTime, m.roles, m.quality, m.tokens, m.alerts]) {
+    for (const group of [m.taskFlow, m.intake, m.humanIntervention, m.cycleTime, m.roles, m.quality, m.tokens, m.alerts, m.stuck, m.failure24h]) {
       expect(typeof group.description).toBe('string');
       expect(group.description.length).toBeGreaterThan(10);
     }
+  });
+});
+
+describe('aggregateOverview — #456 行动面计数（stuck + failure24h，NeedsAttentionSection 服务端单源）', () => {
+  it('stuck：blocked 总数 / 待领取滞留（>2h，POOL_STAGNATION_WARN_MS）/ 执行中停滞（租约过期）', () => {
+    const input = makeInput();
+    // makeInput 自带：wu-c active（timeoutAt null → 不停滞）、wu-d blocked、wu-e unassigned 10 天（滞留）
+    input.snapshots.push(
+      makeWu({ id: 'wu-s1', status: 'blocked', createdAt: iso(T - 1 * D), updatedAt: iso(T - 1 * H) }),
+      makeWu({ id: 'wu-s2', status: 'unassigned', createdAt: iso(T - 1 * H), updatedAt: iso(T - 1 * H) }), // 仅 1h → 不滞留
+      makeWu({ id: 'wu-s3', status: 'active', timeoutAt: iso(T - 5 * 60_000), createdAt: iso(T - 1 * D), updatedAt: iso(T - 1 * H) }), // 租约已过期
+      makeWu({ id: 'wu-s4', status: 'active', timeoutAt: iso(T + 5 * 60_000), createdAt: iso(T - 1 * D), updatedAt: iso(T - 1 * H) }), // 租约未过期
+    );
+    const m = aggregateOverview(input);
+    expect(m.stuck.blocked).toBe(2);         // wu-d + wu-s1
+    expect(m.stuck.staleUnassigned).toBe(1); // wu-e（wu-s2 未超阈值）
+    expect(m.stuck.stalledActive).toBe(1);   // wu-s3（wu-c 无租约、wu-s4 未过期）
+  });
+
+  it('failure24h：失败步+失败终态计数 / 失败率 / 与前 24h 比趋势 / 48h 外不计', () => {
+    const input = makeInput();
+    input.events = [
+      // 近 24h：1 失败步 + 3 成功步（含 1 条缺 status 的历史事件按 success 计，#172）+ 1 WU 失败终态
+      { type: 'workunit:execution_step', payload: JSON.stringify({ status: 'failed' }), createdAt: iso(T - 1 * H) },
+      { type: 'workunit:execution_step', payload: JSON.stringify({ status: 'success' }), createdAt: iso(T - 2 * H) },
+      { type: 'workunit:execution_step', payload: JSON.stringify({ status: 'success' }), createdAt: iso(T - 3 * H) },
+      { type: 'workunit:execution_step', payload: JSON.stringify({}), createdAt: iso(T - 4 * H) },
+      { type: 'workunit:failed', createdAt: iso(T - 5 * H) },
+      // 前 24h（24~48h）：1 失败步 + 1 成功步 → rate 0.5
+      { type: 'workunit:execution_step', payload: JSON.stringify({ status: 'failed' }), createdAt: iso(T - 30 * H) },
+      { type: 'workunit:execution_step', payload: JSON.stringify({ status: 'success' }), createdAt: iso(T - 36 * H) },
+      // 48h 外一律不计（前端旧口径有 since=48h 过滤，服务端须自带下限）
+      { type: 'workunit:execution_step', payload: JSON.stringify({ status: 'failed' }), createdAt: iso(T - 72 * H) },
+      { type: 'workunit:failed', createdAt: iso(T - 72 * H) },
+    ];
+    const m = aggregateOverview(input);
+    expect(m.failure24h.n).toBe(2);          // 1 失败步 + 1 WU 失败终态
+    expect(m.failure24h.rate).toBe(0.4);     // 2 / (2 + 3 成功步)
+    expect(m.failure24h.trend).toBe('down'); // 0.4 < 0.5
+  });
+
+  it('failure24h：步事件缺 createdAt 回退 payload.at；窗口无执行样本 rate/trend = null（不编造）', () => {
+    const input = makeInput();
+    input.events = [
+      { type: 'workunit:execution_step', payload: JSON.stringify({ status: 'failed', at: iso(T - 2 * H) }) },
+    ];
+    const m = aggregateOverview(input);
+    expect(m.failure24h.n).toBe(1);
+    expect(m.failure24h.rate).toBe(1);
+
+    const empty = aggregateOverview({ ...makeInput(), events: [] });
+    expect(empty.failure24h.n).toBe(0);
+    expect(empty.failure24h.rate).toBeNull();
+    expect(empty.failure24h.trend).toBeNull();
   });
 });
 
@@ -361,6 +415,19 @@ describe('MetricsService', () => {
     const m = await svc.getOverviewMetrics({ eventsFile: path.join(dir, 'none.jsonl'), wuEventsFile: path.join(dir, 'none2.jsonl') });
     expect(m.source).toBe('insufficient-data');
     expect(m.taskFlow.byStatus).toEqual({});
+  });
+
+  it('#456：windowDays=1 时事件读取窗口仍覆盖 48h（failure24h 前窗可算，趋势不为 null）', async () => {
+    fs.writeFileSync(eventsFile, [
+      // 近 24h 1 成功步（rate 0）；前 24h 1 失败步（rate 1）→ trend down
+      { type: 'workunit:execution_step', payload: JSON.stringify({ status: 'success' }), createdAt: iso(T - 2 * H) },
+      { type: 'workunit:execution_step', payload: JSON.stringify({ status: 'failed' }), createdAt: iso(T - 30 * H) },
+    ].map(r => JSON.stringify(r)).join('\n') + '\n', 'utf-8');
+    const svc = new MetricsService(fileStoreStub as never);
+    const m = await svc.getOverviewMetrics({ eventsFile, wuEventsFile, windowDays: 1, now: T });
+    // 读取窗口若未扩到 48h，T-30h 事件进不来 → trend 会是 null
+    expect(m.failure24h.rate).toBe(0);
+    expect(m.failure24h.trend).toBe('down');
   });
 });
 

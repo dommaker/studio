@@ -116,6 +116,28 @@ export interface AlertMetrics {
   byLevel: Record<string, number>;
 }
 
+/** #456 行动面卡住计数（监控页「需要处理」区服务端单源；纯快照派生，无窗口概念） */
+export interface StuckMetrics {
+  description: string;
+  /** blocked 状态 WU 总数 */
+  blocked: number;
+  /** unassigned 且创建超 POOL_STAGNATION_WARN_MS（对齐 #181 池滞留探针） */
+  staleUnassigned: number;
+  /** active 且租约 timeoutAt 已过期（#178 租约语义：执行 loop 失联） */
+  stalledActive: number;
+}
+
+/** #456 近 24h 失败趋势（对齐 #181 失败趋势探针口径：workunit:failed 终态 + 失败执行步） */
+export interface Failure24hMetrics {
+  description: string;
+  /** 近 24h 失败次数（workunit:failed + status=failed 执行步） */
+  n: number;
+  /** 近 24h 失败率（失败 / (失败+成功步)）；null = 窗口内无执行样本 */
+  rate: number | null;
+  /** 近 24h vs 前 24h 失败率；null = 前窗口无样本无法比 */
+  trend: 'up' | 'down' | 'flat' | null;
+}
+
 /** F6（决策 1）证据台账指标：信任分层达成 + 双轨比对。派生口径一律过 deriveDisplayState */
 export interface EvidenceMetrics {
   description: string;
@@ -213,6 +235,10 @@ export interface OverviewMetrics {
   quality: QualityMetrics;
   tokens: TokenMetrics;
   alerts: AlertMetrics;
+  /** #456 行动面卡住计数（NeedsAttentionSection 服务端单源） */
+  stuck: StuckMetrics;
+  /** #456 近 24h 失败趋势（NeedsAttentionSection 服务端单源） */
+  failure24h: Failure24hMetrics;
   /** F6 证据台账（决策 1；双轨期与门模型并存比对） */
   evidence: EvidenceMetrics;
   /** 数据源状态：有任何 WU 或事件数据 → 'events'，全空 → 'insufficient-data' */

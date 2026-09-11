@@ -202,8 +202,17 @@ export const monitoringApi = {
   getStats: () => api.get<MonitoringStats>('/monitoring/stats'),
   getFlywheel: () => api.get<FlywheelStats>('/monitoring/flywheel'),
   getOverhead: () => api.get<OverheadStats>('/monitoring/overhead'),
-  /** F6：概览（#398 起消费 evidence + roles + humanIntervention 三段；E4 增 alerts.last24h 供顶栏待处理徽标，其余字段不声明不依赖） */
-  getOverview: () => api.get<{ evidence: EvidenceStats; roles: RoleMetrics; humanIntervention: HumanInterventionMetrics; alerts: { last24h: number } }>('/monitoring/overview'),
+  /** F6：概览（#398 起消费 evidence + roles + humanIntervention 三段；E4 增 alerts.last24h 供顶栏待处理徽标；#456 增 stuck/failure24h 供「需要处理」区，其余字段不声明不依赖） */
+  getOverview: () => api.get<{
+    evidence: EvidenceStats;
+    roles: RoleMetrics;
+    humanIntervention: HumanInterventionMetrics;
+    alerts: { last24h: number };
+    /** #456 行动面卡住计数（服务端单源） */
+    stuck: { blocked: number; staleUnassigned: number; stalledActive: number };
+    /** #456 近 24h 失败趋势（服务端单源） */
+    failure24h: { n: number; rate: number | null; trend: 'up' | 'down' | 'flat' | null };
+  }>('/monitoring/overview'),
   /** #120：输入缓存命中率（步/WU/角色/天）+ 段 trim 率（按段） */
   getEfficiency: () => api.get<EfficiencyStats>('/monitoring/efficiency'),
   /** 强制停止实例（当前任务转人工处理；AgentDashboardPage / AgentDetailPage 共用） */

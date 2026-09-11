@@ -1,39 +1,24 @@
 // NeedsAttentionSection — #184 监控页概览 Tab 顶部「需要处理」区（#62 D4 + #60 IA：行动信号 > 健康度量 > 参考资料）
 // 首屏回答「现在有没有事需要我管」：告警收件箱 / 卡住计数（可下钻）/ 近 24h 失败趋势。
 // #398（spec §7.3）：告警按归一化 message 签名分组（×N + 最近发生时间，>3 组折叠），纯前端不动探针口径。
-// 自含数据加载：三部分各自独立取数，任一部分失败只显示该部分「加载失败」，不影响页面其余区块。
+// #456：stuck/failure 计数改读 /monitoring/overview 扩段（服务端单源，消「拉全量客户端统计」的
+// 先截后滤漏单）；告警行明细仍前端翻页（triage 拍板：签名分组不挪服务端）。
+// 自含数据加载：告警与 overview 各自独立取数，任一部分失败只显示该部分「加载失败」，不影响页面其余区块。
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { eventsApi, type StudioEventItem } from '../../api/events';
-import { workunitApi } from '../../api/workunit';
+import { monitoringApi } from '../../api/monitoring';
 import { useAsyncData } from '../../hooks/useAsyncData';
-import { formatAge, POOL_STAGNATION_WARN_MS } from '@dommaker/studio-shared/web';
+import { formatAge } from '@dommaker/studio-shared/web';
 import { groupAlertsBySignature, type AlertGroup, type AlertItem } from './alertGrouping';
 import { MonitorSection } from './MonitorSection';
 import { SkeletonText } from '../ui';
 
 const HOUR = 3600_000;
-/** 待领取滞留阈值（对齐 #181 池滞留探针，正本在 studio-shared/constants/monitoring） */
-const STALE_UNASSIGNED_MS = POOL_STAGNATION_WARN_MS;
 /** 翻页防御上限（limit 200/页） */
 const MAX_PAGES = 5;
 /** 告警分组展示上限：超过折叠为「还有 N 类」（§7.3） */
 const ALERT_GROUP_LIMIT = 3;
-
-interface StuckCounts {
-  blocked: number;
-  staleUnassigned: number;
-  stalledActive: number;
-}
-
-interface FailureStats {
-  /** 近 24h 失败次数（workunit:failed 终态 + 失败执行步，对齐 #181 失败趋势探针口径） */
-  n: number;
-  /** 近 24h 失败率；null = 窗口内无执行样本 */
-  rate: number | null;
-  /** 近 24h vs 前 24h 失败率；null = 前窗口无样本，无法比 */
-  trend: 'up' | 'down' | 'flat' | null;
-}
 
 /** 沿 nextCursor 翻页取全（防御上限 MAX_PAGES 页） */
 async function searchAll(params: Parameters<typeof eventsApi.search>[0]): Promise<StudioEventItem[]> {
@@ -72,84 +57,22 @@ async function loadAlerts(since24: string): Promise<AlertItem[]> {
   return out;
 }
 
-async function loadStuck(now: number): Promise<StuckCounts> {
-  const [blockedRes, unassignedRes, activeRes] = await Promise.all([
-    workunitApi.list({ status: 'blocked', limit: 1 }),
-    workunitApi.list({ status: 'unassigned', limit: 200 }),
-    workunitApi.list({ status: 'active', limit: 200 }),
-  ]);
-  return {
-    blocked: blockedRes.data.pagination.total,
-    staleUnassigned: unassignedRes.data.data.filter(
-      w => now - new Date(w.createdAt).getTime() > STALE_UNASSIGNED_MS,
-    ).length,
-    // #178 租约语义：timeoutAt 非空且已过期 = 执行 loop 失联（5min 心跳未续）
-    stalledActive: activeRes.data.data.filter(
-      w => w.timeoutAt && new Date(w.timeoutAt).getTime() < now,
-    ).length,
-  };
-}
-
-interface WindowCounts { failedSteps: number; successSteps: number; wuFailed: number }
-
-function emptyWindow(): WindowCounts {
-  return { failedSteps: 0, successSteps: 0, wuFailed: 0 };
-}
-
-async function loadFailures(now: number, since48: string): Promise<FailureStats> {
-  const [stepRows, wuFailedRows] = await Promise.all([
-    searchAll({ type: 'workunit:execution_step', since: since48, limit: 200 }),
-    searchAll({ type: 'workunit:failed', since: since48, limit: 200 }),
-  ]);
-  const cutoff24 = now - 24 * HOUR;
-  const recent = emptyWindow();
-  const prev = emptyWindow();
-
-  for (const row of stepRows) {
-    const p = parsePayload(row.payload);
-    if (!p) continue;
-    const at = row.createdAt ?? (typeof p.at === 'string' ? p.at : undefined);
-    if (!at) continue;
-    const t = new Date(at).getTime();
-    if (!Number.isFinite(t)) continue;
-    const win = t >= cutoff24 ? recent : prev;
-    // #172：历史事件无 status 字段 → 缺省 success
-    if (p.status === 'failed') win.failedSteps++; else win.successSteps++;
-  }
-  for (const row of wuFailedRows) {
-    if (!row.createdAt) continue;
-    const t = new Date(row.createdAt).getTime();
-    if (!Number.isFinite(t)) continue;
-    (t >= cutoff24 ? recent : prev).wuFailed++;
-  }
-
-  const stats = (w: WindowCounts) => {
-    const n = w.wuFailed + w.failedSteps;
-    const denom = n + w.successSteps;
-    return { n, rate: denom > 0 ? n / denom : null };
-  };
-  const r = stats(recent);
-  const p = stats(prev);
-  const trend = r.rate !== null && p.rate !== null
-    ? r.rate > p.rate ? 'up' : r.rate < p.rate ? 'down' : 'flat'
-    : null;
-  return { n: r.n, rate: r.rate, trend };
-}
-
 export function NeedsAttentionSection({ onAlertClick }: { onAlertClick?: (group: AlertGroup) => void }) {
-  // #350 useAsyncData 收一次性拉取样板：三部分独立取数，各自 data/error/loading，互不阻塞
+  // #350 useAsyncData 收一次性拉取样板：两部分独立取数，各自 data/error/loading，互不阻塞
   const alerts = useAsyncData(() => loadAlerts(new Date(Date.now() - 24 * HOUR).toISOString()), []);
-  const stuck = useAsyncData(() => loadStuck(Date.now()), []);
-  const failure = useAsyncData(() => loadFailures(Date.now(), new Date(Date.now() - 48 * HOUR).toISOString()), []);
+  // #456：stuck/failure 服务端单源（60s 服务端缓存；与 MonitoringPage 头部概览调用同端点）
+  const overview = useAsyncData(async () => (await monitoringApi.getOverview()).data, []);
   const [showAllGroups, setShowAllGroups] = useState(false);
 
+  const stuck = overview.data?.stuck;
+  const failure = overview.data?.failure24h;
   const groups = alerts.data ? groupAlertsBySignature(alerts.data) : [];
   const visibleGroups = showAllGroups ? groups : groups.slice(0, ALERT_GROUP_LIMIT);
-  const stuckTotal = stuck.data ? stuck.data.blocked + stuck.data.staleUnassigned + stuck.data.stalledActive : 0;
+  const stuckTotal = stuck ? stuck.blocked + stuck.staleUnassigned + stuck.stalledActive : 0;
   const allClear =
-    !alerts.error && !stuck.error && !failure.error &&
-    groups.length === 0 && stuckTotal === 0 && (failure.data?.n ?? 0) === 0;
-  const loading = alerts.loading || stuck.loading || failure.loading;
+    !alerts.error && !overview.error &&
+    groups.length === 0 && stuckTotal === 0 && (failure?.n ?? 0) === 0;
+  const loading = alerts.loading || overview.loading;
 
   return (
     <MonitorSection
@@ -208,45 +131,45 @@ export function NeedsAttentionSection({ onAlertClick }: { onAlertClick?: (group:
           )}
 
           {/* 卡住计数：非零才显示，点击下钻到任务列表对应状态筛选 */}
-          {stuck.error ? (
+          {overview.error ? (
             <div className="text-sm u-err">任务状态加载失败</div>
-          ) : stuck.data && stuckTotal > 0 ? (
+          ) : stuck && stuckTotal > 0 ? (
             <div className="flex flex-wrap gap-4 text-sm">
-              {stuck.data.blocked > 0 && (
+              {stuck.blocked > 0 && (
                 <Link to="/workunits?status=blocked" className="u-err u-hover-accent">
-                  阻塞 {stuck.data.blocked} 个
+                  阻塞 {stuck.blocked} 个
                 </Link>
               )}
-              {stuck.data.staleUnassigned > 0 && (
+              {stuck.staleUnassigned > 0 && (
                 <Link to="/workunits?status=unassigned" className="u-warn u-hover-accent">
-                  待领取滞留 {stuck.data.staleUnassigned} 个
+                  待领取滞留 {stuck.staleUnassigned} 个
                 </Link>
               )}
-              {stuck.data.stalledActive > 0 && (
+              {stuck.stalledActive > 0 && (
                 <Link to="/workunits?status=active" className="u-warn u-hover-accent">
-                  执行中停滞 {stuck.data.stalledActive} 个
+                  执行中停滞 {stuck.stalledActive} 个
                 </Link>
               )}
             </div>
           ) : null}
 
           {/* 近 24h 失败趋势（事件流口径，对齐 #181 失败趋势探针；不画图） */}
-          {failure.error ? (
+          {overview.error ? (
             <div className="text-sm u-err">失败统计加载失败</div>
-          ) : failure.data && failure.data.n > 0 ? (
+          ) : failure && failure.n > 0 ? (
             <div className="text-sm u-text-2">
-              近 24 小时失败 {failure.data.n} 次 · 失败率 {Math.round((failure.data.rate ?? 0) * 100)}% · 比前一天{' '}
-              {failure.data.trend === 'up' ? (
+              近 24 小时失败 {failure.n} 次 · 失败率 {Math.round((failure.rate ?? 0) * 100)}% · 比前一天{' '}
+              {failure.trend === 'up' ? (
                 <span className="u-err font-bold">↑</span>
-              ) : failure.data.trend === 'down' ? (
+              ) : failure.trend === 'down' ? (
                 <span className="u-ok font-bold">↓</span>
-              ) : failure.data.trend === 'flat' ? (
+              ) : failure.trend === 'flat' ? (
                 <span className="u-text-3 font-bold">→</span>
               ) : (
                 <span className="u-text-3">–</span>
               )}
             </div>
-          ) : failure.data && failure.data.rate === null ? (
+          ) : failure && failure.rate === null ? (
             <div className="text-sm u-text-2">近 24 小时无执行</div>
           ) : null}
         </div>

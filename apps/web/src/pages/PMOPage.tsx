@@ -1,36 +1,19 @@
 // PMOPage - PMO 管理主页面（项目 + OKR；三个弹窗已抽至 components/pmo/，工单 33）
 // 2026-09-10 第二轮重设计：① 删「需求」tab（用户反馈看不懂且与 PMO 重复；REQ 主呈现位在频道右栏）；
 // ② 项目列表 v2 = 紧凑行列表（pmo.css .pmo-row，细分隔线 + 状态色条，项目多了也可扫读）。
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import { projectApi } from '../api';
-import { companyApi } from '../api/company';
 import { okrApi, type OkrKeyResult } from '../api/pmo';
 import { requirementApi } from '../api/requirements';
 import { useAsyncData } from '../hooks/useAsyncData';
 import { useRosterStore } from '../stores/rosterStore';
+import { usePmoDataStore, type PmoProject } from '../stores/pmoDataStore';
 import '../styles/pmo.css';
 import { CreateOkrDialog } from '../components/pmo/CreateOkrDialog';
 import { CreateProjectDialog } from '../components/pmo/CreateProjectDialog';
 import { PublishProjectDialog } from '../components/pmo/PublishProjectDialog';
 import { ProjectCard } from '../components/pmo/ProjectCard';
 import { SkeletonText } from '../components/ui';
-
-interface Project {
-  id: string;
-  pmoNumber: string;
-  title: string;
-  description?: string;
-  status: string;
-  progress: number;
-  createdAt: string;
-  // 🆕 PMO-a: REQ 只读别名 / 交付策略 / 分支 / 杂务标记
-  reqAlias?: string | null;
-  deliveryPolicy?: string;
-  gitBranch?: string | null;
-  isChore?: boolean;
-  OKR?: { id: string; title: string };
-}
 
 interface PMOPageProps {
   companyId?: string;
@@ -39,37 +22,38 @@ interface PMOPageProps {
 export function PMOPage({ companyId }: PMOPageProps) {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  // #350 useAsyncData 收一次性拉取样板：companyId 切换渲染期重置 + loading/error 归一（工单 38 错误条口径保留）
-  const pmoQ = useAsyncData(async () => {
+  // #456：company/project 链读 pmoDataStore（companies 单份 + projects per-companyId map，
+  // PMO ↔ 阅览室路由切换 TTL 内零重拉）；OKR 无共享消费方，仍页面级一次性拉取（#350）。
+  // 工单 38 错误条口径保留：任一切片失败 → 统一文案错误条 + 重试
+  //（重连强刷/兜底轮询接线在 App 级 PmoDataSync，本页只需 ensure 触发）
+  const companies = usePmoDataStore((s) => s.companies);
+  const companiesError = usePmoDataStore((s) => s.companiesError);
+  const actualCompanyId = companyId ?? companies?.[0]?.id;
+  const projectsData = usePmoDataStore((s) => (actualCompanyId ? s.projects[actualCompanyId] : undefined));
+  const projectsError = usePmoDataStore((s) => (actualCompanyId ? s.projectsError[actualCompanyId] ?? null : null));
+  useEffect(() => {
+    if (!companyId) void usePmoDataStore.getState().ensureCompanies();
+  }, [companyId]);
+  useEffect(() => {
+    if (actualCompanyId) void usePmoDataStore.getState().ensureProjects(actualCompanyId);
+  }, [actualCompanyId]);
+
+  const okrQ = useAsyncData(async () => {
+    if (!actualCompanyId) return [];
     try {
-      let actualCompanyId = companyId;
-      if (!actualCompanyId) {
-        const companiesRes = await companyApi.list();
-        if (companiesRes.data?.data?.length > 0) {
-          actualCompanyId = companiesRes.data.data[0].id;
-        }
-      }
-
-      const [okrRes, projectsRes] = await Promise.all([
-        actualCompanyId
-          ? okrApi.list(actualCompanyId)
-          : Promise.resolve({ data: { data: [] } }),
-        actualCompanyId
-          ? projectApi.list({ companyId: actualCompanyId, limit: 20 })
-          : Promise.resolve({ data: { data: [] } }),
-      ]);
-
-      return {
-        companyId: actualCompanyId,
-        okrs: okrRes.data?.data || [],
-        projects: (projectsRes.data?.data || []) as Project[],
-      };
+      return (await okrApi.list(actualCompanyId)).data?.data ?? [];
     } catch (err) {
       console.error('Failed to load PMO data:', err);
       throw new Error('加载 PMO 数据失败，请重试');
     }
-  }, [companyId]);
-  const reload = pmoQ.reload;
+  }, [actualCompanyId]);
+
+  // 三处刷新入口（错误条重试 / 新建 OKR / 新建 PMO）：store 两切片强刷 + okr 重拉
+  const reload = useCallback(() => {
+    void usePmoDataStore.getState().ensureCompanies({ maxAgeMs: 0 });
+    if (actualCompanyId) void usePmoDataStore.getState().ensureProjects(actualCompanyId, { maxAgeMs: 0 });
+    okrQ.reload();
+  }, [actualCompanyId, okrQ]);
 
   // AC-6: Publish dialog 频道列表走 rosterStore channels 切片（#455：30s TTL + single-flight，
   // 新建频道经 appendChannel 写穿；失败时切片保持空/旧值，对齐原 best-effort 静默口径）
@@ -94,11 +78,15 @@ export function PMOPage({ companyId }: PMOPageProps) {
   // 🆕 PMO-a: 新建 PMO 弹窗（组件见 components/pmo/CreateProjectDialog）
   const [showCreateForm, setShowCreateForm] = useState(false);
 
-  const loading = pmoQ.loading;
-  const loadError = pmoQ.error;
+  // loading：任一切片首拉未完成（失败不算 loading——落错误条）；companies 仅在无显式 prop 时参与
+  const companiesLoading = !companyId && companies === undefined && !companiesError;
+  const projectsLoading = !!actualCompanyId && projectsData === undefined && !projectsError;
+  const loading = companiesLoading || projectsLoading || okrQ.loading;
+  // 工单 38 统一文案（原 pmoQ 单 fetch 口径）：任一切片失败同一条错误条
+  const loadError = (companiesError ?? projectsError ?? okrQ.error) ? '加载 PMO 数据失败，请重试' : null;
   // 派生数组 useMemo 稳身份：wuStats effect 依赖 projects，避免 data 未落地时逐帧换引用
-  const okrs = useMemo(() => pmoQ.data?.okrs ?? [], [pmoQ.data]);
-  const projects = useMemo(() => pmoQ.data?.projects ?? [], [pmoQ.data]);
+  const okrs = useMemo(() => okrQ.data ?? [], [okrQ.data]);
+  const projects = useMemo(() => projectsData ?? [], [projectsData]);
 
   // 🆕 AC-6: 列表加载后单请求批量拉徽章数据（#387 chain-stats；finished 口径 workFinished
   // 服务端同源计算；失败静默不显示）
@@ -118,7 +106,7 @@ export function PMOPage({ companyId }: PMOPageProps) {
     }
     let cancelled = false;
 
-    const withAlias = projects.filter((p): p is Project & { reqAlias: string } => !!p.reqAlias);
+    const withAlias = projects.filter((p): p is PmoProject & { reqAlias: string } => !!p.reqAlias);
     if (withAlias.length === 0) {
       setWuStats({});
       return;
@@ -297,7 +285,7 @@ export function PMOPage({ companyId }: PMOPageProps) {
       {/* 🆕 B8: 创建 OKR 弹窗 (支持 KR 编辑)；#434：路由不传 prop 时用查询解析出的 companyId */}
       <CreateOkrDialog
         open={showOKRDialog}
-        companyId={companyId ?? pmoQ.data?.companyId}
+        companyId={actualCompanyId}
         onClose={() => setShowOKRDialog(false)}
         onCreated={reload}
       />

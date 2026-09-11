@@ -4,7 +4,7 @@
  * 供 MetricsService 与单测直接调用；口径原则：数据不足 → 显式 0 / null，不编造。
  */
 
-import { deriveDisplayState, type WorkUnitSnapshot, type WorkUnitEvent } from '@dommaker/studio-shared';
+import { deriveDisplayState, POOL_STAGNATION_WARN_MS, type WorkUnitSnapshot, type WorkUnitEvent } from '@dommaker/studio-shared';
 import { parseStudioEventPayload, getStudioEventTime } from '../../utils/studio-events.js';
 import { parseWuMetadata } from '../workunit/wu-metadata.js';
 import type { AssigneeProfileResolver } from '../workunit/assignee-resolver.js';
@@ -17,6 +17,8 @@ import type {
   QualityMetrics,
   TokenMetrics,
   AlertMetrics,
+  StuckMetrics,
+  Failure24hMetrics,
   EvidenceMetrics,
   OverviewMetrics,
   CacheHitRateMetrics,
@@ -393,6 +395,65 @@ export function aggregateOverview(input: OverviewAggregateInput): OverviewMetric
     byLevel: alertLevels,
   };
 
+  // ── #456 行动面计数（监控页「需要处理」区服务端单源；消前端拉全量客户端统计的先截后滤漏单）──
+  // stuck 纯快照派生，无窗口概念；口径与前端原 loadStuck 一致
+  let stuckBlocked = 0;
+  let staleUnassigned = 0;
+  let stalledActive = 0;
+  for (const s of input.snapshots) {
+    if (s.status === 'blocked') stuckBlocked++;
+    else if (s.status === 'unassigned') {
+      const created = iso(s.createdAt);
+      if (Number.isFinite(created) && now - created > POOL_STAGNATION_WARN_MS) staleUnassigned++;
+    } else if (s.status === 'active') {
+      const timeout = iso(s.timeoutAt);
+      if (Number.isFinite(timeout) && timeout < now) stalledActive++;
+    }
+  }
+  const stuck: StuckMetrics = {
+    description: '卡住计数：blocked 总数 / 待领取滞留（创建超 2h 没人接，对齐 #181 池滞留探针）/ 执行中停滞（租约过期 = loop 失联）。非零 = 有任务需要人介入',
+    blocked: stuckBlocked,
+    staleUnassigned,
+    stalledActive,
+  };
+
+  // failure24h：口径复刻前端原 loadFailures（#181 失败趋势探针）——workunit:failed 终态 +
+  // 失败执行步；历史步事件缺 status 按 success（#172）；48h 下限自带（旧前端靠 since 查询参数过滤）
+  const cutoff24 = now - 24 * 3600_000;
+  const cutoff48 = now - 48 * 3600_000;
+  let rFailed = 0, rSuccess = 0, pFailed = 0, pSuccess = 0;
+  for (const row of input.events) {
+    if (row?.type !== 'workunit:execution_step' && row?.type !== 'workunit:failed') continue;
+    const payload = row.type === 'workunit:execution_step' ? parseStudioEventPayload(row) : null;
+    // 非法 payload 的步事件跳过（对齐前端原口径），不计成功也不计失败
+    if (row.type === 'workunit:execution_step' && !payload) continue;
+    let ts = getStudioEventTime(row);
+    if (!Number.isFinite(ts) && payload) {
+      const at = (payload as Record<string, unknown>).at;
+      ts = typeof at === 'string' ? new Date(at).getTime() : NaN;
+    }
+    if (!Number.isFinite(ts) || ts < cutoff48) continue;
+    const recent = ts >= cutoff24;
+    if (row.type === 'workunit:failed') {
+      if (recent) rFailed++; else pFailed++;
+    } else if (payload?.status === 'failed') {
+      if (recent) rFailed++; else pFailed++;
+    } else {
+      if (recent) rSuccess++; else pSuccess++;
+    }
+  }
+  const failureRate = (f: number, s: number) => (f + s > 0 ? f / (f + s) : null);
+  const rRate = failureRate(rFailed, rSuccess);
+  const pRate = failureRate(pFailed, pSuccess);
+  const failure24h: Failure24hMetrics = {
+    description: '近 24h 失败趋势：失败次数（WU 失败终态 + 失败执行步）与失败率，并与前 24h 比方向。持续 up = 执行链路在退化（模型/环境/任务拆分问题）',
+    n: rFailed,
+    rate: rRate,
+    trend: rRate !== null && pRate !== null
+      ? rRate > pRate ? 'up' : rRate < pRate ? 'down' : 'flat'
+      : null,
+  };
+
   // ── F6 证据台账（决策 1）：全快照口径（非窗口），派生一律过 deriveDisplayState ──
   let engaged = 0;
   let l1Approved = 0;
@@ -441,6 +502,8 @@ export function aggregateOverview(input: OverviewAggregateInput): OverviewMetric
     quality,
     tokens,
     alerts,
+    stuck,
+    failure24h,
     evidence,
     source: hasData ? 'events' : 'insufficient-data',
   };

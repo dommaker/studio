@@ -249,6 +249,8 @@ export const workunitApi = {
     channelId?: string;
     /** #405：归属维度服务端过滤（#428 API）；false = 未归属（无 reqId 且归因戳为 null） */
     attributed?: boolean;
+    /** #456：PMO 项目归属服务端过滤（reqId 绑定优先 → pmoId 戳兜底，与 PMO 台账同口径） */
+    projectId?: string;
     /** 批次 D-2 项4：标题（scope）大小写不敏感子串搜索 */
     q?: string;
     page?: number;
