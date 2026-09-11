@@ -5,6 +5,7 @@
 import React, { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useChannelDataStore } from '../../stores/channelDataStore';
+import { PmoChip } from '../pmo/PmoChip';
 
 interface ChannelCurrentPmoChipProps {
   channelId: string;
@@ -26,14 +27,13 @@ export const ChannelCurrentPmoChip: React.FC<ChannelCurrentPmoChipProps> = ({ ch
     : pmo.title;
 
   return (
-    // mc-pmo-chip：无独立样式规则，测试 querySelector 钩子（ChannelCurrentPmoChip.test.tsx，#431 定性保留，删类会红测试）
-    <button
-      type="button"
-      className="mc-btn mc-pmo-chip"
+    // #476：统一标识 PmoChip（图标+文本、中性色）；mc-pmo-chip 保留为测试 querySelector 钩子
+    // （ChannelCurrentPmoChip.test.tsx，#431 定性保留，删类会红测试）
+    <PmoChip
+      label={`PMO · ${pmo.title}`}
       title={tooltip}
       onClick={() => navigate(`/pmo/project/${pmo.id}`)}
-    >
-      PMO · {pmo.title}
-    </button>
+      className="mc-pmo-chip"
+    />
   );
 };

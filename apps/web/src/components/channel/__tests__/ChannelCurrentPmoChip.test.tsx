@@ -58,6 +58,18 @@ describe('ChannelCurrentPmoChip（#272 当前 PMO chip）', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/pmo/project/proj-1');
   });
 
+  it('#476：顶栏 chip 渲染统一标识（.pmo-chip + PMO 图标），与右栏/footer 同一视觉语言', async () => {
+    vi.mocked(channelApi.getCurrentPmo).mockResolvedValue({
+      data: { success: true, data: { id: 'proj-1', pmoNumber: 'PMO-1', title: '商城重构', gitRepos: [] } },
+    } as never);
+    renderChip();
+
+    const chip = (await screen.findByText(/商城重构/)).closest('button')!;
+    expect(chip.className).toContain('pmo-chip');
+    expect(chip.className).toContain('mc-pmo-chip'); // 站点钩子保留
+    expect(chip.querySelector('svg')).toBeTruthy();
+  });
+
   it('多仓 PMO：chip 只显名称，tooltip 列全部 gitRepos', async () => {
     vi.mocked(channelApi.getCurrentPmo).mockResolvedValue({
       data: {

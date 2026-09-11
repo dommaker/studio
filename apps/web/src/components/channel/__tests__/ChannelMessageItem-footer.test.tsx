@@ -50,8 +50,9 @@ describe('ChannelMessageItem — footer REQ›/PMO›（#275 断点3）', () => 
     expect(container.querySelector('.mc-card-foot')).toBeNull();
   });
 
-  // #474：三枚同形 chip 无法扫读 → 类型差异化配色（wu=accent / PMO=success / REQ=warning 修饰类）
-  it('#474：footer chip 按类型挂修饰类（wu/pmo/req 三色可扫读区分）', () => {
+  // #476：PMO footer chip 收口统一标识 PmoChip（图标+文本、中性色）；#474 的 PMO=success 差异化随本票退场。
+  // wu=accent / req=warning 修饰类不变。
+  it('#476：footer PMO chip 渲染统一标识（.pmo-chip + 图标），wu/req 修饰类不变', () => {
     const message: ChannelMessage = {
       ...msgWithMeta({ requirementId: 'REQ-0042', pmoId: 'PMO-7' }),
       workUnitId: 'WU-1018',
@@ -68,7 +69,10 @@ describe('ChannelMessageItem — footer REQ›/PMO›（#275 断点3）', () => 
       </MemoryRouter>,
     );
     expect(screen.getByRole('button', { name: /WU-1018/ }).className).toContain('mc-wu-link--wu');
-    expect(screen.getByRole('button', { name: '打开项目详情' }).className).toContain('mc-wu-link--pmo');
+    const pmoChip = screen.getByRole('button', { name: '打开项目详情' });
+    expect(pmoChip.className).toContain('pmo-chip');
+    expect(pmoChip.className).not.toContain('mc-wu-link--pmo');
+    expect(pmoChip.querySelector('svg')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'REQ-0042 ›' }).className).toContain('mc-wu-link--req');
   });
 });

@@ -13,6 +13,7 @@ import { useChannelDataStore } from '../../stores/channelDataStore';
 import type { ChannelCurrentPmo } from '../../api/channel';
 import { projectApi } from '../../api';
 import { resolveAssignee, type AssigneeDisplay } from '../../hooks/useAssigneeDisplay';
+import { PmoChip } from '../pmo/PmoChip';
 import type { NeedInputTodo } from './ChannelNeedInputChip';
 import {
   attributeActivity,
@@ -192,13 +193,15 @@ const ReqCardStatic = memo(function ReqCardStatic({ req, chain, projectId, proje
       </div>
       {(projectId && projectLabel) || assignees.some(aid => assigneeNames[aid]) ? (
         <div className="mc-act-card-meta">
-          {/* 项目记录拉不到（已删）→ 不渲染 badge，避免死按钮 */}
+          {/* 项目记录拉不到（已删）→ 不渲染 badge，避免死按钮；
+              #476：统一标识 PmoChip（图标+文本、中性色），mc-act-pmo-badge 仅留右栏字号钩子 */}
           {projectId && projectLabel && (
-            <button className="mc-act-pmo-badge"
+            <PmoChip
+              label={projectLabel}
+              title={projectLabel}
               onClick={() => navigate(`/pmo/project/${projectId}`)}
-              title={projectLabel}>
-              {projectLabel} ↗
-            </button>
+              className="mc-act-pmo-badge"
+            />
           )}
           {assignees.map(aid => assigneeNames[aid] && (
             <button key={aid} className="mc-act-agent-link"
