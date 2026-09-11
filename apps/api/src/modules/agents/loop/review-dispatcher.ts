@@ -26,7 +26,7 @@ import { MANUAL_GATE_TYPES } from '../../workunit/workunit.types.js';
 import { readCollab } from '../../workunit/delegation-gate.js';
 import { postWuSystemMessage } from '../../workunit/wu-messenger.js';
 import { parseWuMetadata, clearSessionBookkeeping } from '../../workunit/wu-metadata.js';
-import { resolveStageRouting, routingFallbackText, shouldEmitFallbackReminder } from '../../channels/routing.js';
+import { resolveOrNotice } from '../../channels/routing.js';
 import type { ParsedReviewReport } from './review-contract.js';
 
 export class ReviewDispatcher {
@@ -160,19 +160,18 @@ export class ReviewDispatcher {
 
     // #466: 解析 review 档路由（不可用/指到实现者 → 回池涌现 + 提醒）
     let pinnedReviewer: string | null = null;
+    // #477：解析 + fallback 判定 + 文案收口到 resolveOrNotice；
+    // 「路由角色=实现者」专属文案为本点差异，留调用侧
+    const { resolution: routing, notice: fallbackNotice } = await resolveOrNotice(this.fileStore, parent.channelId!, 'review');
     let routingNotice: string | null = null;
-    const routing = await resolveStageRouting(this.fileStore, parent.channelId!, 'review');
     if (routing.profileId) {
       if (routing.profileId === implementerId) {
         routingNotice = `工单路由提醒：本频道「评审」阶段路由到 @${routing.profileName ?? routing.profileId}，但其正是本单实现者（不许自己审自己），本单已回池涌现——请到频道设置调整路由表`;
       } else {
         pinnedReviewer = routing.profileId;
       }
-    } else if (routing.fallback) {
-      // #497: 同频道同档同原因冷却窗内不重复出声（建单回池不受影响）
-      routingNotice = shouldEmitFallbackReminder(parent.channelId!, 'review', routing)
-        ? routingFallbackText('review', routing)
-        : null;
+    } else {
+      routingNotice = fallbackNotice;
     }
 
     const eligible = members?.filter(p => p.id !== implementerId) ?? null;

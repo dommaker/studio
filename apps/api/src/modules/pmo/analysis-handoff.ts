@@ -26,7 +26,7 @@ import { eventBus, logger, createSettledTracker, type FileStore } from '@dommake
 import { WorkUnitService, ANALYSIS_TASKS_MAX, type WorkUnitData, type WorkUnitMetadata } from '../workunit/workunit.service.js';
 import { parseWuMetadata } from '../workunit/wu-metadata.js';
 import { ChannelMessageService } from '../channels/channel-message.service.js';
-import { resolveStageRouting, routingFallbackText, shouldEmitFallbackReminder, type StageRoutingResolution } from '../channels/routing.js';
+import { resolveStageRouting, resolveOrNotice } from '../channels/routing.js';
 import { dispatchMonitorAlerts } from '../agents/monitor/monitor-alerts.js';
 
 export class AnalysisHandoff {
@@ -209,11 +209,12 @@ export class AnalysisHandoff {
     // #466：确认弹窗留空时再查频道路由表 implement 档（指名即硬约束）；
     // 配置了但角色 inactive/被移出频道 → 回池涌现 + 频道出声提醒
     let defaultAssigneeId = this.resolveDefaultAssignee(meta);
-    let routingFallback: StageRoutingResolution | null = null;
+    // #477：解析 + fallback 判定 + 文案收口到 resolveOrNotice；出声时机（建单完成后）留本点
+    let routingNotice: string | null = null;
     if (!defaultAssigneeId && fresh.channelId) {
-      const routing = await resolveStageRouting(this.fileStore, fresh.channelId, 'implement');
-      if (routing.profileId) defaultAssigneeId = routing.profileId;
-      else if (routing.fallback) routingFallback = routing;
+      const { resolution, notice } = await resolveOrNotice(this.fileStore, fresh.channelId, 'implement');
+      if (resolution.profileId) defaultAssigneeId = resolution.profileId;
+      else routingNotice = notice;
     }
     for (const scope of tasks) {
       try {
@@ -237,9 +238,9 @@ export class AnalysisHandoff {
       );
     }
     // #466 路由回退提醒（建单完成后出声，与任务清单同线程）
-    // #497: 同频道同档同原因冷却窗内不重复出声
-    if (routingFallback && shouldEmitFallbackReminder(fresh.channelId!, 'implement', routingFallback)) {
-      await this.post(fresh, routingFallbackText('implement', routingFallback));
+    // #497: 同频道同档同原因冷却窗内不重复出声（冷却闸在 resolveOrNotice 内消费）
+    if (routingNotice) {
+      await this.post(fresh, routingNotice);
     }
   }
 
