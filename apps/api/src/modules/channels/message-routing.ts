@@ -15,6 +15,7 @@ import { logger, FileStore, parseChannels } from '@dommaker/studio-shared';
 import { channelMessageService, type MessageMeta, type MessageRecord } from './channel-message.service.js';
 import { WorkUnitService } from '../workunit/workunit.service.js';
 import { resumeWaitingWorkUnit } from '../workunit/waiting-input.js';
+import { parseWuMetadata } from '../workunit/wu-metadata.js';
 import { postWuSystemMessage } from '../workunit/wu-messenger.js';
 import { resolveReqIdForDispatch } from '../requirements/req-binding.js';
 import { OWNERSHIP_WAITING_QUESTION, resolveWorkspaceForWU } from '../requirements/ownership-resolver.js';
@@ -73,7 +74,8 @@ async function findMergeTargetWorkUnit(
   const wu = await new WorkUnitService(fs).getById(last.workUnitId);
   if (!wu || wu.channelId !== channelId) return null;
   if (!MERGE_IN_FLIGHT_STATUSES.has(wu.status)) return null;
-  const meta = wu.metadata ? JSON.parse(wu.metadata) : {};
+  // parseWuMetadata 容错口径：畸形 metadata 落 {}（anchorMessageId 缺省走首根回退），不抛错拖垮整道路由
+  const meta = parseWuMetadata(wu.metadata);
   return {
     id: wu.id,
     anchorMessageId: typeof meta.anchorMessageId === 'string' ? meta.anchorMessageId : undefined,

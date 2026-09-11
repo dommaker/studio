@@ -171,6 +171,26 @@ describe('#495: 决策12 派单合并窗口（方案 a）', () => {
     expect(await countWu(channelId)).toBe(0);
   });
 
+  it('在途 WU metadata 为畸形 JSON → 合并不抛错，照章并入（parseWuMetadata 容错口径）', async () => {
+    const wu = await workUnitService.create({
+      scope: '畸形元数据任务', channelId, type: 'task', status: 'active', assigneeId: 'instance-1',
+    });
+    // 直接把快照 metadata 写成坏 JSON（绕过 service 序列化），模拟脏数据
+    const snap = await findWu(wu.id);
+    await fileStore.upsertSnapshot({ ...snap!, metadata: '{corrupted-json' });
+    const lastHuman: ChannelMessageData = {
+      id: uuidv4(), channelId, authorType: 'human', agentName: null,
+      content: '刚才的指令', replyToId: null, meta: '{}', workUnitId: wu.id,
+      createdAt: new Date().toISOString(),
+    };
+    await fileStore.appendMessage(channelId, lastHuman);
+
+    const merged = await routeMessage(channelId, '继续补充', undefined, fileStore);
+
+    expect(await countWu(channelId)).toBe(1);
+    expect(merged.workUnitId).toBe(wu.id);
+  });
+
   it('窗口阈值可由 STUDIO_CHANNEL_MERGE_WINDOW_MINUTES 覆盖', async () => {
     process.env.STUDIO_CHANNEL_MERGE_WINDOW_MINUTES = '30';
     expect(getMergeWindowMs()).toBe(30 * 60_000);
