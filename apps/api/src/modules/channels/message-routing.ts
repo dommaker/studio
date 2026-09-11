@@ -5,6 +5,7 @@
  * 1. replyToId present → thread reply (inherit workUnitId from parent)
  * 2. @mention detected → create WorkUnit
  * 3. 决策 12: 频道配置了 defaultProfileId → 无 @ 消息派给默认角色建 WorkUnit
+ *    （#495：合并窗口内并入在途 WU 线程，不新建）
  * 4. plain text → store only
  *
  * 决策 11: 路由层不认识 skill——`+skill名` token 保留在 scope 原文，
@@ -40,12 +41,53 @@ export function detectMention(content: string): string | null {
 }
 
 /**
+ * #495（方案 a，票内预授权 2026-09-11）：合并窗口内在途状态——终态（done/closed）
+ * 与 in_review（等人工验收）不吸收新消息，窗口内来新消息照章新建 WU。
+ */
+const MERGE_IN_FLIGHT_STATUSES = new Set(['pending', 'unassigned', 'active', 'blocked']);
+
+/**
+ * #495：决策 12 派单合并窗口（毫秒）。窗口内同频道连续无 @ 消息合并进在途 WU 线程
+ * （继续对话 = 继续任务），替代「每条闲聊建一张 WU」。默认 5 分钟，
+ * STUDIO_CHANNEL_MERGE_WINDOW_MINUTES 覆盖（仿 getReminderThresholdMs 口径）。
+ */
+export function getMergeWindowMs(env: NodeJS.ProcessEnv = process.env): number {
+  const minutes = Number(env.STUDIO_CHANNEL_MERGE_WINDOW_MINUTES);
+  return (Number.isFinite(minutes) && minutes > 0 ? minutes : 5) * 60_000;
+}
+
+/**
+ * #495：找合并目标——同频道最近一条携带 workUnitId 的人类消息（上轮派单/合并/线程回复
+ * 的落点），其 createdAt 在窗口内且 WU 仍在途 → 返回该 WU；否则 null（照章新建）。
+ * 锚点为消息时间而非 WU.updatedAt：每次合并落新消息即刷新窗口（滑动窗口语义）。
+ */
+async function findMergeTargetWorkUnit(
+  channelId: string,
+  fs: FileStore,
+  now: Date = new Date(),
+): Promise<{ id: string; anchorMessageId?: string } | null> {
+  const recentHuman = await fs.queryMessages(channelId, { authorType: 'human', limit: 20 });
+  const last = [...recentHuman].reverse().find(m => m.workUnitId);
+  if (!last?.workUnitId) return null;
+  if (now.getTime() - new Date(last.createdAt).getTime() > getMergeWindowMs()) return null;
+  const wu = await new WorkUnitService(fs).getById(last.workUnitId);
+  if (!wu || wu.channelId !== channelId) return null;
+  if (!MERGE_IN_FLIGHT_STATUSES.has(wu.status)) return null;
+  const meta = wu.metadata ? JSON.parse(wu.metadata) : {};
+  return {
+    id: wu.id,
+    anchorMessageId: typeof meta.anchorMessageId === 'string' ? meta.anchorMessageId : undefined,
+  };
+}
+
+/**
  * Route a message based on its content and context.
  *
  * Priority order:
  * 1. replyToId → thread reply: inherit workUnitId from parent message
  * 2. @mention → create WorkUnit, associate with message
  * 3. 决策 12: 频道配置了 defaultProfileId → 无 @ 消息派给默认角色建 WorkUnit
+ *    （#495：合并窗口内已有在途 WU → 并入该 WU 线程，不新建）
  * 4. plain text → store without workUnitId（未配置默认角色 = 维持纯存储）
  *
  * F6 → B3a 工程归属链（决策 D2）：创建 WorkUnit 时解析工程归属 —
@@ -362,6 +404,43 @@ export async function routeMessage(
   // 决策 12: 无 @ 兜底 —— 频道配置了默认角色 → 派给它建 WorkUnit（消息关联到该 WU）
   const channel = await resolvedFs.getChannel(channelId);
   if (channel?.defaultProfileId) {
+    // #495（方案 a）：合并窗口内已有在途 WU → 消息并入该 WU 线程，不再新建 WU
+    // （连发闲聊不产生 WU 风暴；窗口外/终态后正常新建）。
+    const mergeTarget = await findMergeTargetWorkUnit(channelId, resolvedFs);
+    if (mergeTarget) {
+      const message = await channelMessageService.createHumanMessage(
+        channelId,
+        content,
+        mergeTarget.anchorMessageId, // 挂到在途 WU 的派发线程（缺 anchor 时退为根消息）
+        mergeTarget.id,
+        filesMeta,
+      );
+      // 回复注入：blocked → resumeWaitingWorkUnit 复活 + pendingReplies；
+      // active 且已有 pendingReplies → 其锁内追加分支已覆盖；其余（unassigned/active 无
+      // pendingReplies）此处锁内补齐，保证 loop 下一步经 prompt-composer 注入。
+      const consumed = await resumeWaitingWorkUnit(mergeTarget.id, content, resolvedFs).catch(err => {
+        logger.warn('[MessageRouting] Resume merge-target WorkUnit failed (non-blocking)', {
+          workUnitId: mergeTarget.id, error: String(err),
+        });
+        return false;
+      });
+      if (!consumed) {
+        await resolvedFs.updateMetadata(mergeTarget.id, latest => ({
+          ...latest,
+          pendingReplies: [...(Array.isArray(latest.pendingReplies) ? latest.pendingReplies : []), content],
+        })).catch(err =>
+          logger.warn('[MessageRouting] Append pendingReplies for merge target failed (non-blocking)', {
+            workUnitId: mergeTarget.id, error: String(err),
+          })
+        );
+      }
+      logger.info('[MessageRouting] Message merged into in-flight WorkUnit (merge window)', {
+        channelId,
+        workUnitId: mergeTarget.id,
+      });
+      await reportDroppedRefs(message);
+      return message;
+    }
     // #494：同 mention 路径——先落派发消息再建 WU，anchorMessageId 显式传递消认领播报竞态
     const dispatchMessage = await channelMessageService.createHumanMessage(
       channelId,
