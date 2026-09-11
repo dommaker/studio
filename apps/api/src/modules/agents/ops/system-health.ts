@@ -5,9 +5,8 @@
  */
 
 import * as os from 'os';
-import { execSync } from 'child_process';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
-import { countZombieProcesses } from './proc-probes.js';
+import { countZombieProcesses, readDiskUsage } from './proc-probes.js';
 
 // ─── 类型 ───
 
@@ -92,17 +91,9 @@ function collectMemory(): SystemHealthSnapshot['memory'] {
 
 function collectDisk(): SystemHealthSnapshot['disk'] {
   const path = '/';
-  let percentUsed = 0;
-  try {
-    const output = execSync("df -h / | tail -1 | awk '{print $5}'", {
-      encoding: 'utf-8',
-      timeout: 5000,
-    }).trim();
-    percentUsed = parseInt(output.replace('%', ''), 10) || 0;
-  } catch {
-    percentUsed = 0;
-  }
-  return { percentUsed, path };
+  // statfs 口径，proc-probes 单出口，零子进程（#454 清理死代码里的同步 df）
+  const disk = readDiskUsage(path);
+  return { percentUsed: disk?.usePercent ?? 0, path };
 }
 
 async function collectDb(): Promise<SystemHealthSnapshot['db']> {

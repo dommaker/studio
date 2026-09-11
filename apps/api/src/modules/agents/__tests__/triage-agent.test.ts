@@ -190,6 +190,30 @@ describe('TriageService + MonitorService', () => {
       removeIncident(result.incidentId);
     });
 
+    // #454：df/free 删除、探测改 proc-probes 同源后，findings 文本口径钉死
+    // （现有用例只到 phase 结构，不 pin 文案；重拼字符串漂移靠本用例抓）
+    it('pins diagnose findings text format (Disk/Memory/Tmux via proc-probes)', { timeout: 30000 }, async () => {
+      const result = await triageService.handleAlert({
+        type: 'execution_stuck',
+        severity: 'critical',
+        message: 'Test: pin findings format',
+        details: { executionId: 'test-exec-fmt', monitorSource: 'test' },
+      });
+
+      const incident = findIncident(result.incidentId);
+      expect(incident).not.toBeNull();
+      const logs = typeof incident!.triageLog === 'string'
+        ? JSON.parse(incident!.triageLog)
+        : incident!.triageLog;
+      const diag = logs.find((l: any) => l.phase === 'diagnose');
+      expect(diag).toBeTruthy();
+      expect(diag.result).toMatch(/Disk: \d+% used \([0-9]+[GM] available of [0-9]+[GM]\)/);
+      expect(diag.result).toMatch(/Memory: \d+M\/\d+M used \(\d+M available\)/);
+      expect(diag.result).toContain('Tmux: ');
+
+      removeIncident(result.incidentId);
+    });
+
     it('handles execution_session_exhausted and escalates to human', { timeout: 30000 }, async () => {
       const result = await triageService.handleAlert({
         type: 'execution_session_exhausted',
