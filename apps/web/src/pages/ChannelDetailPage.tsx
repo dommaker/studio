@@ -100,7 +100,7 @@ export function ChannelDetailPage() {
   // #393：记录最近访问频道（/ 与 /channels 重定向落点，spec §2）
   useEffect(() => { if (id) saveLastChannelId(id); }, [id]);
   const [channel, setChannel] = useState<Channel | null>(null);
-  const { messages, loading, sendMessage, loadMore, hasMore, refresh, syncPruning } = useChannelMessages(id);
+  const { messages, loading, error, sendMessage, loadMore, hasMore, refresh, syncPruning } = useChannelMessages(id);
   const [sending, setSending] = useState(false);
   // 折叠 UI 状态（showCompleted / collapsedThreads / expandedProcGroups）按频道持久化（Step 3），
   // setter 语义同 useState；线程默认全部展开，collapsedThreads 只存手动收起的锚点 id
@@ -841,7 +841,15 @@ export function ChannelDetailPage() {
               // 批次 F-3：消息流首拉骨架（批次 E-2 ui/Skeleton 正本）——消息行形态
               <SkeletonText lines={5} widths={['40%', '65%', '55%', '70%', '45%']} className="space-y-4 p-4" />
             )}
-            {!loading && messages.length === 0 && (
+            {!loading && error && messages.length === 0 && (
+              // #482：首拉/兜底轮询失败——错误态 + 重试入口，与真空频道区分（原呈假空态，
+              // 用户会把加载故障误判为空频道）；已有消息时轮询失败不整屏替换，消息流保留
+              <div className="mc-stream-empty" role="alert">
+                <p>消息加载失败</p>
+                <button type="button" className="mc-empty-chip" onClick={() => { void refresh(); }}>重试</button>
+              </div>
+            )}
+            {!loading && !error && messages.length === 0 && (
               <div className="mc-stream-empty">
                 <p>发送消息开始对话</p>
                 <p>@Agent 提及 Agent 创建任务</p>

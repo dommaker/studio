@@ -390,3 +390,70 @@ describe('useChannelMessages（#313 门禁轮询接线）', () => {
     expect(mockListMessages).toHaveBeenLastCalledWith('ch-2');
   });
 });
+
+// #482：首拉/兜底轮询失败暴露 error 态（原仅 console.error → 页面把加载故障渲染成假空态）
+describe('useChannelMessages 错误态（#482）', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockCtx.status = 'connected';
+    mockOnEvent.mockReturnValue(() => {});
+  });
+
+  it('首拉失败：error 置位、loading 落位、messages 保持空', async () => {
+    mockListMessages.mockRejectedValue(new Error('network down'));
+    const { result } = renderHook(() => useChannelMessages('ch-1'));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.error).toBeTruthy();
+    expect(result.current.messages).toHaveLength(0);
+  });
+
+  it('重试（refresh）成功：error 清空，消息正常进入列表', async () => {
+    mockListMessages.mockRejectedValueOnce(new Error('network down'));
+    const { result } = renderHook(() => useChannelMessages('ch-1'));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.error).toBeTruthy();
+
+    const m1 = msg('m1');
+    mockListMessages.mockResolvedValue({ data: { data: [m1], hasMore: false } });
+    await act(async () => {
+      await result.current.refresh();
+    });
+    expect(result.current.error).toBeNull();
+    expect(result.current.messages.map(m => m.id)).toEqual(['m1']);
+  });
+
+  it('兜底轮询失败同口径：error 置位，已加载消息保留', async () => {
+    // 走 #313 兜底路径：SSE 断开 → 10s 周期拉取与首拉共用 fetchMessages，失败同一 error 口径
+    vi.useFakeTimers();
+    try {
+      mockCtx.status = 'disconnected';
+      const m1 = msg('m1');
+      mockListMessages.mockResolvedValue({ data: { data: [m1], hasMore: false } });
+      const { result } = renderHook(() => useChannelMessages('ch-1'));
+      await act(async () => { await Promise.resolve(); });
+      expect(result.current.messages).toHaveLength(1);
+      expect(result.current.error).toBeNull();
+
+      mockListMessages.mockRejectedValueOnce(new Error('blip'));
+      await act(async () => { vi.advanceTimersByTime(10000); await Promise.resolve(); });
+      expect(result.current.error).toBeTruthy();
+      expect(result.current.messages.map(m => m.id)).toEqual(['m1']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('频道切换重置 error（旧频道故障不污染新频道）', async () => {
+    mockListMessages.mockRejectedValueOnce(new Error('network down'));
+    const { result, rerender } = renderHook(({ id }) => useChannelMessages(id), { initialProps: { id: 'ch-1' } });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.error).toBeTruthy();
+
+    const b1 = msg('b1', { channelId: 'ch-2' });
+    mockListMessages.mockResolvedValue({ data: { data: [b1], hasMore: false } });
+    rerender({ id: 'ch-2' });
+    expect(result.current.error).toBeNull();
+    await waitFor(() => expect(result.current.messages.map(m => m.id)).toEqual(['b1']));
+    expect(result.current.error).toBeNull();
+  });
+});

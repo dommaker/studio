@@ -42,6 +42,7 @@ vi.mock('../../hooks/useChannelEvents', async () => {
       return {
         messages: msgs,
         loading: false,
+        error: currentError,
         hasMore: more,
         sendMessage: mockSendMessage,
         loadMore: () => mockLoadMore(setMsgs, setMore),
@@ -180,6 +181,9 @@ let currentMessages: ChannelMessage[] = MESSAGES;
 let currentHasMore = false;
 const mockLoadMore = vi.fn();
 
+// #482：mock 的首拉 error 态（null = 正常；非 null = 加载失败，页面应渲染错误态 + 重试入口）
+let currentError: string | null = null;
+
 // #242：onEvent 注册的 SSE 处理器（用例手工驱动事件）；
 // 批 2（决策 5/6）后页面有多个订阅方（live 状态条 / waitingWus chip / REQ chips）→ 收集全部处理器统一派发
 type SseHandler = (msg: { event_type: string; data?: unknown }) => void;
@@ -213,6 +217,7 @@ describe('ChannelDetailPage — Mission Control 三栏', () => {
     window.localStorage.clear();
     currentMessages = MESSAGES;
     currentHasMore = false;
+    currentError = null;
     // toast.dismiss() 是 200ms 动画后异步移除——有残留时等其落定，防跨用例 toast 文本污染断言
     toast.dismiss();
     if (document.getElementById('toast-container')?.childElementCount) {
@@ -1402,6 +1407,7 @@ describe('ChannelDetailPage — 空频道态示例提示 chip（视觉批次 2 �
     window.localStorage.clear();
     currentMessages = []; // 空频道
     currentHasMore = false;
+    currentError = null;
     sseHandlers = [];
     useNotificationStore.setState({ stateItems: [], notifications: [], unreadCount: 0 });
     mockApiGet.mockImplementation((url: string) => Promise.resolve(
@@ -1439,5 +1445,51 @@ describe('ChannelDetailPage — 空频道态示例提示 chip（视觉批次 2 �
     const before = Number(input.getAttribute('data-prefill-nonce'));
     fireEvent.click(chips[chips.length - 1]);
     expect(Number(screen.getByTestId('channel-input').getAttribute('data-prefill-nonce'))).toBe(before + 1);
+  });
+});
+
+// #482：消息首拉失败——渲染错误态 + 重试入口，与真空频道区分（原呈「发送消息开始对话」假空态）
+describe('ChannelDetailPage — 消息加载失败错误态（#482）', () => {
+  const CHANNEL = { data: { data: { id: 'ch-1', name: 'rnd-主研发', type: 'rnd', members: '[]' } } };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    window.localStorage.clear();
+    currentMessages = [];
+    currentHasMore = false;
+    currentError = 'network down';
+    sseHandlers = [];
+    useNotificationStore.setState({ stateItems: [], notifications: [], unreadCount: 0 });
+    mockApiGet.mockImplementation((url: string) => Promise.resolve(
+      String(url).endsWith('/suggestions') ? { data: { data: { currentWuId: null, suggestions: [] } } } : CHANNEL,
+    ));
+    mockListWorkunits.mockImplementation((params?: { status?: string }) => Promise.resolve(
+      params?.status === 'active' ? activeWuList([]) : { data: { data: [] } },
+    ));
+    mockOnEvent.mockImplementation((cb: SseHandler) => { sseHandlers.push(cb); return () => {}; });
+    mockOnReconnect.mockImplementation((cb: () => void) => { reconnectHandlers.push(cb); return () => {}; });
+    reconnectHandlers = [];
+    mockListReqs.mockResolvedValue({ data: { data: [] } });
+    mockSendMessage.mockResolvedValue({});
+  });
+
+  it('加载失败 → 错误态 + 重试按钮，不渲染空态文案/示例 chip', async () => {
+    renderPage();
+    await screen.findByText('消息加载失败');
+    expect(screen.queryByText('发送消息开始对话')).toBeNull();
+    expect(screen.getByRole('button', { name: '重试' })).toBeTruthy();
+  });
+
+  it('点击重试 → 走 hook refresh 重新拉取', async () => {
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: '重试' }));
+    expect(mockRefresh).toHaveBeenCalledTimes(1);
+  });
+
+  it('已有消息时轮询失败：消息流保留，不整屏替换为错误态', async () => {
+    currentMessages = MESSAGES;
+    renderPage();
+    await waitFor(() => expect(screen.queryByText('消息加载失败')).toBeNull());
+    expect(screen.getByText((MESSAGES[0] as { content: string }).content)).toBeTruthy();
   });
 });
