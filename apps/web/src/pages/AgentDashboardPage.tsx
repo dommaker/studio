@@ -158,7 +158,7 @@ function StatFilter({ label, value, color, active, onClick }: {
       aria-pressed={active}
       onClick={onClick}
     >
-      <span className="font-mono font-bold" style={{ fontSize: 'var(--fs-stat)', color: color ?? 'var(--text-primary)' }}>{value}</span>
+      <span className="font-mono font-bold agd-stat-num" style={{ color: color ?? 'var(--text-primary)' }}>{value}</span>
       <span className="text-sm u-text-3">{label}</span>
     </button>
   );
