@@ -1035,7 +1035,7 @@ describe('ChannelDetailPage — #447 引导片唯一来源 = 建议端点', () =
     renderPage();
     const chip = await screen.findByText(/转写审查清单/);
     expect(chip).toBeTruthy();
-    fireEvent.click(screen.getByLabelText('关闭建议'));
+    fireEvent.click(screen.getByLabelText(/关闭建议：/));
     expect(document.querySelector('.mc-suggest')).toBeNull();
     // 同片重拉（同 dismissKey ep:WU-4001:transcribe-review-checklist）→ 不复活
     act(() => emitSse({
@@ -1051,6 +1051,36 @@ describe('ChannelDetailPage — #447 引导片唯一来源 = 建议端点', () =
       data: { workunit: { id: 'WU-4002', status: 'in_review', channelId: 'ch-1', type: 'task', metadata: '{}' } },
     }));
     await waitFor(() => expect(screen.getByText(/转写审查清单/)).toBeTruthy());
+  });
+
+  // #484：片粒度 dismiss——多片并存时 ✕ 只关本片，其余片保留；会话级语义不变（同片重拉不复活）
+  it('多片并存时 dismiss 其一：只关本片，其余片保留；被关片重拉不复活', async () => {
+    suggestionPayload = {
+      data: {
+        data: {
+          currentWuId: 'WU-4001',
+          suggestions: [
+            { id: 'transcribe-review-checklist', kind: 'prompt', params: { wuId: 'WU-4001', wuTitle: '登录功能' }, text: '@reviewer 把《登录功能》的验收标准转写成审查清单' },
+            { id: 'diagnose-blocked', kind: 'prompt', params: { wuId: 'WU-4001', wuTitle: '登录功能', blockReason: '依赖未完成' }, text: '@developer 诊断《登录功能》的阻塞' },
+          ],
+        },
+      },
+    };
+    renderPage();
+    await screen.findByText(/转写审查清单/);
+    expect(screen.getByText(/诊断阻塞/)).toBeTruthy();
+    // 只 dismiss「转写审查清单」片 → 「诊断阻塞」片保留
+    fireEvent.click(screen.getByLabelText(/关闭建议：.*转写审查清单/));
+    expect(screen.queryByText(/转写审查清单/)).toBeNull();
+    expect(screen.getByText(/诊断阻塞/)).toBeTruthy();
+    // 同负载重拉：被 dismiss 片（同 dismissKey）不复活，未 dismiss 片仍在
+    act(() => emitSse({
+      event_type: 'workunit.status_changed',
+      data: { workunit: { id: 'WU-4001', status: 'in_review', channelId: 'ch-1', type: 'task', metadata: '{}' } },
+    }));
+    await waitFor(() => expect(suggestionsCalls()).toBe(2));
+    expect(screen.queryByText(/转写审查清单/)).toBeNull();
+    expect(screen.getByText(/诊断阻塞/)).toBeTruthy();
   });
 });
 

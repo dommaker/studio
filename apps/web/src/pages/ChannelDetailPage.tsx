@@ -968,17 +968,18 @@ export function ChannelDetailPage() {
         </div>
 
         {/* #443–#447：引导片（唯一来源 = 建议端点派生片；prompt 点击填入输入框，status 只读，
-            action 点击走下方确认弹窗直调确定性接口；会话级 dismiss） */}
+            action 点击走下方确认弹窗直调确定性接口；会话级 dismiss）
+            #484：片粒度 dismiss——每片独立 ✕，按片 dismissKey 记账，不再一键清全部 */}
         {visibleChips.length > 0 && (
           <SuggestionChips
             suggestions={visibleChips}
             onPick={(text) => setInputPrefill(p => ({ text, nonce: (p?.nonce ?? 0) + 1 }))}
             onAction={handleSuggestionAction}
-            onDismiss={() => setDismissedSuggestionKeys(prev => {
-              const next = new Set(prev);
-              for (const c of visibleChips) next.add(c.dismissKey);
-              return next;
-            })}
+            onDismiss={(item) => {
+              const key = visibleChips.find(c => c.id === item.id)?.dismissKey;
+              if (!key) return; // fail-closed：找不到台账 key 不记（不静默吞掉别片）
+              setDismissedSuggestionKeys(prev => new Set(prev).add(key));
+            }}
           />
         )}
 

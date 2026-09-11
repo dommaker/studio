@@ -842,7 +842,8 @@
   color: var(--text-muted);
   margin-top: 2px;
 }
-.mc-suggest-dismiss { margin-left: auto; }
+/* #484：片粒度 dismiss——片 + 各自 ✕ 由容器并排承载（原整组单个 ✕ 靠 margin-left:auto 右推，已删） */
+.mc-suggest-item { display: inline-flex; align-items: flex-start; gap: 2px; }
 
 .mc-input-reply {
   display: flex;
