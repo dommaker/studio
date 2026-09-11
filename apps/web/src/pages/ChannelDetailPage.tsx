@@ -126,6 +126,8 @@ export function ChannelDetailPage() {
     expandedProcGroups, setExpandedProcGroups,
   } = usePersistentStreamUI(id);
   const [replyTo, setReplyTo] = useState<ChannelMessage | null>(null);
+  // #493：线程回复送达后的轻量「已送达/等待 agent」状态（wuId + 送达时刻；agent 响应或超时清除）
+  const [awaitingAgent, setAwaitingAgent] = useState<{ wuId: string; since: number } | null>(null);
   // REQ 需求编号（vision §5.3）：本频道需求集；#394 起喂右栏「频道动态」REQ 链路卡（原中栏 chips 条移除）
   const [channelReqs, setChannelReqs] = useState<Requirement[]>([]);
   // #440：本频道 WU 全集——阶段条 WU 数据本体 + 各卡片数据源
@@ -714,12 +716,12 @@ export function ChannelDetailPage() {
     ownSendPendingRef.current = true;
     try {
       // #281: files 仅在有文件引用时透传（保旧调用两参形态）
-      if (files?.length) {
-        await sendMessage(content, replyToId, files);
-      } else {
-        await sendMessage(content, replyToId);
-      }
+      const sent = files?.length
+        ? await sendMessage(content, replyToId, files)
+        : await sendMessage(content, replyToId);
       setReplyTo(null);
+      // #493：线程回复送达且命中 WU（workUnitId 继承成功 = 会触达 agent）→ 轻量「已送达/等待 agent」状态
+      if (replyToId && sent?.workUnitId) setAwaitingAgent({ wuId: sent.workUnitId, since: Date.now() });
     } catch (err) {
       ownSendPendingRef.current = false;
       throw err;
@@ -733,6 +735,19 @@ export function ChannelDetailPage() {
   const handleInlineReply = useCallback((message: ChannelMessage, content: string) => {
     return handleSend(content, message.id);
   }, [handleSend]);
+
+  // #493：「等待 agent」状态条——agent 已响应（该 WU 的 agent 新消息到达）即 render 派生隐藏，
+  // 不做 effect 内同步 setState；state 本体由 30s 兜底定时器清理（agent 无响应时条不常住；
+  // 30s 口径 > 唤醒+认领秒级路径，loop 异常时由工作条/建议片承接下来）
+  const agentAnswered = !!awaitingAgent && messages.some(m =>
+    m.authorType === 'agent' && m.workUnitId === awaitingAgent.wuId &&
+    new Date(m.createdAt).getTime() >= awaitingAgent.since
+  );
+  useEffect(() => {
+    if (!awaitingAgent) return;
+    const timer = setTimeout(() => setAwaitingAgent(null), 30_000);
+    return () => clearTimeout(timer);
+  }, [awaitingAgent]);
 
   useEffect(() => {
     if (!highlightId) return;
@@ -1040,6 +1055,12 @@ export function ChannelDetailPage() {
             onConfirm={() => { void runSuggestionAction(); }}
             onCancel={() => setPendingSuggestionAction(null)}
           />
+        )}
+
+        {/* #493：线程回复送达即时反馈——「已送达，等待 agent 响应」，
+            该 WU 的 agent 新消息到达或 30s 超时自动消失 */}
+        {awaitingAgent && !agentAnswered && (
+          <div className="mc-agent-ack" role="status">已送达，等待 agent 响应…</div>
         )}
 
         {/* Input */}

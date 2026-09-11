@@ -690,6 +690,8 @@
 /* #486：乐观回显 pending 态——整行降不透明度作「发送中」灰色态，服务端本体替换后类随消息消失 */
 .mc-msg-pending { opacity: 0.55; }
 .mc-msg-pending-mark { font-size: var(--fs-xs); color: var(--text-tertiary); margin-left: 6px; }
+/* #493：线程回复「已送达/等待 agent」状态条——composer 上方一行轻量提示，agent 响应/超时即撤 */
+.mc-agent-ack { font-size: var(--fs-xs); color: var(--text-tertiary); padding: 4px 12px; }
 
 /* 按钮（Mission Control 密度） */
 .mc-btn {
