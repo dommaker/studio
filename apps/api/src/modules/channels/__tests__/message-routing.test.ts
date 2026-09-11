@@ -568,6 +568,95 @@ describe('Message Routing (AC-B1-B4)', () => {
     });
   });
 
+  // ── #496: mention 手打中文连写——成员名最长前缀匹配兜底 ──
+
+  describe('#496: 手打连写 mention 的成员名前缀匹配兜底', () => {
+    function activeProfile(id: string, name: string): AgentProfileData {
+      return {
+        id, name, description: `test agent ${name}`,
+        channels: '[]', status: 'active', provider: null,
+        createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+      };
+    }
+
+    it('成员名前缀连写可命中（中文名）：@开发你好 → 成员「开发」，scope 保留剩余文本', async () => {
+      const dev = activeProfile('dev-agent-1', '开发');
+      await fileStore.createProfile(dev);
+      await fileStore.updateChannel(channelId, { members: JSON.stringify([dev.id]) });
+
+      const result = await routeMessage(channelId, '@开发你好', undefined, fileStore);
+
+      const wu = await findWu(result.workUnitId!);
+      expect(wu!.assigneeId).toBe(dev.id);
+      expect(wu!.scope).toBe('你好');
+      const meta = wu!.metadata ? JSON.parse(wu!.metadata) : {};
+      expect(meta.matched).toBe(true);
+      expect(meta.mentionName).toBe('开发');
+      // 命中即无 #464 未匹配提示
+      const msgs = await fileStore.queryMessages(channelId, { workUnitId: result.workUnitId! });
+      expect(msgs.find(m => m.content.includes('未找到角色'))).toBeUndefined();
+    });
+
+    it('多成员互为前缀取最长：成员「开发」「开发组长」，@开发组长看下 → 命中「开发组长」', async () => {
+      const dev = activeProfile('dev-agent-1', '开发');
+      const lead = activeProfile('lead-agent-1', '开发组长');
+      await fileStore.createProfile(dev);
+      await fileStore.createProfile(lead);
+      await fileStore.updateChannel(channelId, { members: JSON.stringify([dev.id, lead.id]) });
+
+      const result = await routeMessage(channelId, '@开发组长看下这个问题', undefined, fileStore);
+
+      const wu = await findWu(result.workUnitId!);
+      expect(wu!.assigneeId).toBe(lead.id);
+      expect(wu!.scope).toBe('看下这个问题');
+    });
+
+    it('等长歧义回退现状：两个同名 profile 并列最长 → 未匹配（转自动认领提示）', async () => {
+      const a = activeProfile('dup-agent-a', '开发');
+      const b = activeProfile('dup-agent-b', '开发');
+      await fileStore.createProfile(a);
+      await fileStore.createProfile(b);
+      await fileStore.updateChannel(channelId, { members: JSON.stringify([a.id, b.id]) });
+
+      // 精确匹配本身也歧义（find 取第一个）——用连写构造纯前缀歧义场景
+      const result = await routeMessage(channelId, '@开发你好', undefined, fileStore);
+
+      const wu = await findWu(result.workUnitId!);
+      expect(wu!.assigneeId).toBeNull();
+      const meta = wu!.metadata ? JSON.parse(wu!.metadata) : {};
+      expect(meta.matched).toBe(false);
+      const msgs = await fileStore.queryMessages(channelId, { workUnitId: result.workUnitId! });
+      const notice = msgs.find(m => m.authorType === 'agent' && m.content.includes('未找到角色'));
+      expect(notice).toBeTruthy();
+    });
+
+    it('非成员文本不误命中：成员为界——「开发」在册但非本频道成员 → 行为同现状', async () => {
+      const outsider = activeProfile('outsider-dev', '开发');
+      await fileStore.createProfile(outsider);
+      await fileStore.updateChannel(channelId, { members: JSON.stringify(['some-other-profile']) });
+
+      const result = await routeMessage(channelId, '@开发团队 看一下', undefined, fileStore);
+
+      const wu = await findWu(result.workUnitId!);
+      expect(wu!.assigneeId).toBeNull();
+      const meta = wu!.metadata ? JSON.parse(wu!.metadata) : {};
+      expect(meta.matched).toBe(false);
+    });
+
+    it('无此成员时行为同现状：@开发团队 无成员「开发」→ matched=false + 未找到角色提示', async () => {
+      const result = await routeMessage(channelId, '@开发团队 看一下', undefined, fileStore);
+
+      const wu = await findWu(result.workUnitId!);
+      expect(wu!.assigneeId).toBeNull();
+      const meta = wu!.metadata ? JSON.parse(wu!.metadata) : {};
+      expect(meta.matched).toBe(false);
+      const msgs = await fileStore.queryMessages(channelId, { workUnitId: result.workUnitId! });
+      const notice = msgs.find(m => m.authorType === 'agent' && m.content.includes('未找到角色'));
+      expect(notice).toBeTruthy();
+      expect(notice!.content).toContain('开发团队');
+    });
+  });
+
   // ── #494: 派单建 WU 与派发消息非原子 → anchorMessageId 显式传递消竞态 ──
 
   describe('#494 派单线程单根（anchorMessageId 显式传递）', () => {

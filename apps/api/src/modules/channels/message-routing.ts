@@ -239,6 +239,23 @@ export async function routeMessage(
     const memberIds = parseChannels(channel?.members);
     const inScope = (p: (typeof allProfiles)[number]) => memberIds.length === 0 || memberIds.includes(p.id);
     let agent = allProfiles.find(p => p.name === mentionName && inScope(p)) ?? null;
+    // #496: 手打中文连写兜底——token 整体精确匹配失败时，对成员名做最长前缀匹配
+    // （@开发你好 → 命中成员「开发」）。多成员互为前缀取最长；等长歧义（同名 profile
+    // 并列最长）回退现状（未匹配 → #464 转自动认领提示）。studio 系统角色不参与前缀兜底。
+    let prefixMatchName: string | null = null;
+    if (!agent && mentionName !== STUDIO_ROLE_NAME) {
+      const candidates = allProfiles.filter(
+        p => inScope(p) && p.name !== STUDIO_ROLE_NAME && p.name.length > 0 && mentionName.startsWith(p.name),
+      );
+      if (candidates.length > 0) {
+        const maxLen = Math.max(...candidates.map(p => p.name.length));
+        const longest = candidates.filter(p => p.name.length === maxLen);
+        if (longest.length === 1) {
+          agent = longest[0];
+          prefixMatchName = longest[0].name;
+        }
+      }
+    }
     // F5（2026-07-28 分析文档决策 6）: @studio 特殊路由 — studio 是系统角色不执行任务；
     // 转派目标 = 频道 defaultProfileId 入口角色（与决策 12 同字段），未配置/inactive/越界
     // → 未指派（assigneeId=null），走 claim 涌现（agent-loop observe 未指派过滤）。
@@ -255,7 +272,11 @@ export async function routeMessage(
         reroutedToName = entry.name;
       }
     }
-    const scope = content.replace(/@[\p{L}\p{N}_-]+\s*/u, '');
+    // #496: 前缀兜底命中时只剥 `@成员名`（保留连写剩余文本作为 scope，如 @开发你好 → 你好）；
+    // 精确匹配/未匹配维持剥整个 @token。成员名字符集 ⊂ [\p{L}\p{N}_-]，内联进正则安全。
+    const scope = prefixMatchName
+      ? content.replace(new RegExp(`@${prefixMatchName}\\s*`, 'u'), '')
+      : content.replace(/@[\p{L}\p{N}_-]+\s*/u, '');
     // REQ 需求编号（vision §5.3）：显式 > #REQ-XXXX token > 自动新建。
     // best-effort：绑定失败不阻断 WorkUnit 创建（log + 不带 reqId 继续）。
     const reqId = await resolveReqIdForDispatch({
@@ -307,7 +328,8 @@ export async function routeMessage(
       workspaceId,
       reqId,
       metadata: {
-        mentionName,
+        // #496: 前缀兜底命中时落解析后的成员名（展示/认领播报以角色正名为准）
+        mentionName: prefixMatchName ?? mentionName,
         matched: !!agent,
         creationMode: 'mention',
         // #494: 认领播报的显式线程锚点（见上方时序说明）
