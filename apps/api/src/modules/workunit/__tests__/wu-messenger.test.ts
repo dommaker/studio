@@ -181,6 +181,41 @@ describe('anchor 线程锚点（AC-C2 迁移）', () => {
   });
 });
 
+describe('#494 显式 anchor（metadata.anchorMessageId，mention 派单建单时落档）', () => {
+  it('WU 携 anchorMessageId → 优先锚它，即使存在更早的根消息（消除 findAnchorMessage 时序竞态）', async () => {
+    const wu = await createWu();
+    await appendMsg(wu.id, { content: '更早的根消息', createdAt: '2026-09-01T00:00:00Z' });
+    const dispatch = await appendMsg(wu.id, { content: '派发消息', createdAt: '2026-09-02T00:00:00Z' });
+    await wuService.update(wu.id, { metadata: { anchorMessageId: dispatch.id } });
+    const fresh = (await wuService.getById(wu.id))!;
+
+    const record = await postWuSystemMessage(fresh, '认领播报', { fileStore });
+
+    expect(record!.replyToId).toBe(dispatch.id);
+  });
+
+  it('无 anchorMessageId → 既有 anchor 语义不变（最早根消息）', async () => {
+    const wu = await createWu();
+    await appendMsg(wu.id, { content: 'later root', createdAt: '2026-09-01T00:02:00Z' });
+    const earlier = await appendMsg(wu.id, { content: 'earlier root', createdAt: '2026-09-01T00:01:00Z' });
+
+    const record = await postWuSystemMessage(wu, '跟进', { fileStore });
+
+    expect(record!.replyToId).toBe(earlier.id);
+  });
+
+  it('显式 opts.replyToId 优先于 metadata.anchorMessageId', async () => {
+    const wu = await createWu();
+    const dispatch = await appendMsg(wu.id, { content: '派发消息', createdAt: '2026-09-02T00:00:00Z' });
+    await wuService.update(wu.id, { metadata: { anchorMessageId: dispatch.id } });
+    const fresh = (await wuService.getById(wu.id))!;
+
+    const record = await postWuSystemMessage(fresh, '挂指定消息', { fileStore, replyToId: 'explicit-msg-id' });
+
+    expect(record!.replyToId).toBe('explicit-msg-id');
+  });
+});
+
 describe('里程碑 meta（2026-07 PMO-flow UX §6-3/§10）', () => {
   it('milestone: true + pmoId 解析命中 → meta 带 pmoId + atHuman', async () => {
     mockResolvePmoProjectId.mockResolvedValue('proj-1');

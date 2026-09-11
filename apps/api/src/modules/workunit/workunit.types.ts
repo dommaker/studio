@@ -24,6 +24,10 @@ export interface WorkUnitMetadata {
   _consecutiveReviewRejections?: number;  // 连续 review reject 计数（3x → auto-block）
   sourceMessageId?: string;   // createFromMessage 涌现路径来源
   creationMode?: string;      // 创建模式：from-message / manual
+  // #494（方案 c，票内预授权）：频道派发消息 id——mention/频道默认派单建单时落档；
+  // wu-messenger 系统消息（认领播报等）优先锚它，消除「created 事件先于派发消息落库」的
+  // findAnchorMessage 时序竞态；缺失时回退既有「首条根消息」语义
+  anchorMessageId?: string;
   _cumulativeTokens?: number; // 内部 token 累计追踪
   // #162（T8-E1，#130 决策 3）：WU 级 token 预算上限（显式数值，任何类型可带，首个消费 = 巡检单）。
   // 对照 _cumulativeTokens（billed 口径簿记）超线 → need_input 挂起待人三选

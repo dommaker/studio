@@ -245,6 +245,16 @@ export async function routeMessage(
     // 仅解析故障（null）回退旧绑定规则（不挂起，保可用性）。
     const workspaceId = ownership ? ownership.workspaceId : (options?.workspaceId ?? channel?.defaultWorkspaceId ?? null);
     const parked = ownership?.source === 'none';
+    // #494（方案 c，票内预授权）：先落派发消息再建 WU——WU metadata.anchorMessageId 显式携带
+    // 派发消息 id（认领播报优先锚它，消 created 事件先于派发消息落库的 findAnchorMessage 竞态）；
+    // 建单后 linkWorkUnit 回填消息 ↔ WU 关联（同 createFromMessage 既有路径）。
+    const dispatchMessage = await channelMessageService.createHumanMessage(
+      channelId,
+      content,
+      undefined,
+      undefined,
+      filesMeta,
+    );
     const workUnit = await wuService.create({
       scope,
       channelId,
@@ -258,6 +268,8 @@ export async function routeMessage(
         mentionName,
         matched: !!agent,
         creationMode: 'mention',
+        // #494: 认领播报的显式线程锚点（见上方时序说明）
+        anchorMessageId: dispatchMessage.id,
         // B4a: @studio 改派标记（WU 实际派给 pm，非 studio 本身）
         ...(reroutedFrom ? { reroutedFrom } : {}),
         // P0 修复 6: traceId 贯穿（audit requestId → WU metadata → agent-loop 日志）
@@ -292,13 +304,14 @@ export async function routeMessage(
       reroutedFrom,
       traceId: options?.traceId ?? undefined,
     });
-    const message = await channelMessageService.createHumanMessage(
-      channelId,
-      content,
-      undefined,
-      workUnit.id,
-      filesMeta,
-    );
+    // #494: 回填派发消息 ↔ WU 关联（best-effort：失败仅缺 back-link，线程锚定已由 anchorMessageId 承载）。
+    // 返回值替换派发消息记录，保持 routeMessage 返回值的 workUnitId 契约不变。
+    const message = await channelMessageService.linkWorkUnit(dispatchMessage.id, workUnit.id).catch(err => {
+      logger.warn('[MessageRouting] Link dispatch message to WorkUnit failed (non-blocking)', {
+        workUnitId: workUnit.id, messageId: dispatchMessage.id, error: String(err),
+      });
+      return dispatchMessage;
+    });
     await reportDroppedRefs(message);
     // F5: @studio 改派 → 频道发 Studio 系统消息说明（best-effort，挂在派发消息线程）
     if (reroutedFrom) {
@@ -349,6 +362,14 @@ export async function routeMessage(
   // 决策 12: 无 @ 兜底 —— 频道配置了默认角色 → 派给它建 WorkUnit（消息关联到该 WU）
   const channel = await resolvedFs.getChannel(channelId);
   if (channel?.defaultProfileId) {
+    // #494：同 mention 路径——先落派发消息再建 WU，anchorMessageId 显式传递消认领播报竞态
+    const dispatchMessage = await channelMessageService.createHumanMessage(
+      channelId,
+      content,
+      undefined,
+      undefined,
+      filesMeta,
+    );
     const workUnit = await wuService.create({
       scope: content,
       channelId,
@@ -357,6 +378,8 @@ export async function routeMessage(
       assigneeId: channel.defaultProfileId,
       metadata: {
         creationMode: 'channel-default',
+        // #494: 认领播报的显式线程锚点
+        anchorMessageId: dispatchMessage.id,
         // #285: @文件引用落档（本路径不做归属解析，仅落档供 prompt-composer files 段消费）
         ...(filesMeta?.files ? { fileRefs: filesMeta.files } : {}),
       },
@@ -366,13 +389,12 @@ export async function routeMessage(
       workUnitId: workUnit.id,
       defaultProfileId: channel.defaultProfileId,
     });
-    const message = await channelMessageService.createHumanMessage(
-      channelId,
-      content,
-      undefined,
-      workUnit.id,
-      filesMeta,
-    );
+    const message = await channelMessageService.linkWorkUnit(dispatchMessage.id, workUnit.id).catch(err => {
+      logger.warn('[MessageRouting] Link dispatch message to WorkUnit failed (non-blocking)', {
+        workUnitId: workUnit.id, messageId: dispatchMessage.id, error: String(err),
+      });
+      return dispatchMessage;
+    });
     await reportDroppedRefs(message);
     return message;
   }

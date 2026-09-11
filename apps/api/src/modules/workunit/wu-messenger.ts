@@ -9,7 +9,8 @@
  * ChannelMessageService.createAgentMessage（append + eventBus 'channel.message_sent' + SSE）。
  *
  * 形态约定：
- * - 默认 agentName='Studio'，挂在 WU 线程 anchor（首条根消息）下；显式 replyToId 时跳过 anchor 查找。
+ * - 默认 agentName='Studio'，挂在 WU 线程 anchor 下——显式 replyToId > metadata.anchorMessageId
+ *   （#494 派单落档）> 首条根消息查找；显式 replyToId 时跳过 anchor 解析。
  * - milestone=true → 里程碑 meta（best-effort 解析 pmoId + atHuman:true，
  *   2026-07 PMO-flow UX §6-3/§10：NotificationBell 监听 meta.atHuman，pmoId 供跳转 PMO 详情）；
  *   opts.meta 合并覆盖里程碑 meta。
@@ -21,7 +22,7 @@
 import { FileStore, logger, type ChannelMessageData } from '@dommaker/studio-shared';
 import { NotificationService } from '@dommaker/studio-notification';
 import { ChannelMessageService, type MessageMeta, type MessageRecord } from '../channels/channel-message.service.js';
-import { parseWuTitle } from './wu-metadata.js';
+import { parseWuMetadata, parseWuTitle } from './wu-metadata.js';
 import type { WorkUnitData } from './workunit.service.js';
 
 export interface PostWuSystemMessageOptions {
@@ -106,7 +107,11 @@ export async function postWuSystemMessage(
   if (!trimmed || !wu.channelId) return null;
 
   const fileStore = opts?.fileStore ?? new FileStore();
-  const anchor = opts?.replyToId === undefined
+  // #494：WU metadata.anchorMessageId（派单建单时落档的派发消息 id）优先于
+  // findAnchorMessage——workunit.created 同步触发 observe→claim→认领播报，显式 anchor
+  // 消除「派发消息尚未落库 → 找不到 anchor → 播报落独立根」的时序竞态；缺失时回退既有语义。
+  const metaAnchor = opts?.replyToId === undefined ? parseWuMetadata(wu.metadata).anchorMessageId : undefined;
+  const anchor = opts?.replyToId === undefined && !metaAnchor
     ? await findAnchorMessage(wu.id, wu.channelId, fileStore).catch(() => null) // anchor 查询失败不阻断发帖
     : null;
   const meta: MessageMeta | undefined = opts?.milestone
@@ -117,7 +122,7 @@ export async function postWuSystemMessage(
     wu.channelId,
     opts?.agentName ?? 'Studio',
     trimmed,
-    { replyToId: opts?.replyToId ?? anchor?.id ?? undefined, meta, workUnitId: wu.id },
+    { replyToId: opts?.replyToId ?? metaAnchor ?? anchor?.id ?? undefined, meta, workUnitId: wu.id },
   );
 
   if (opts?.milestone && record) {

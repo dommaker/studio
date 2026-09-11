@@ -567,4 +567,63 @@ describe('Message Routing (AC-B1-B4)', () => {
       expect(meta.mentionName).toBe('开发');
     });
   });
+
+  // ── #494: 派单建 WU 与派发消息非原子 → anchorMessageId 显式传递消竞态 ──
+
+  describe('#494 派单线程单根（anchorMessageId 显式传递）', () => {
+    it('@mention 派单：WU metadata.anchorMessageId = 派发消息 id，派发消息回填 workUnitId', async () => {
+      await createTestAgent(fileStore, 'AnchorAgent');
+
+      const result = await routeMessage(channelId, '@AnchorAgent 处理这个任务', undefined, fileStore);
+
+      const wu = await findWu(result.workUnitId!);
+      expect(wu).not.toBeNull();
+      const meta = wu!.metadata ? JSON.parse(wu!.metadata) : {};
+      expect(meta.anchorMessageId).toBe(result.id);
+      const stored = await fileStore.getMessageById(result.id);
+      expect(stored!.message.workUnitId).toBe(wu!.id);
+    });
+
+    it('竞态时序：created 处理器内同步抢跑认领 → 认领播报锚在派发消息下，线程单根', async () => {
+      await createTestAgent(fileStore, 'RaceAgent');
+      // 构造竞态：eventBus.publish 同步派发、不等待订阅侧（event-bus.ts），
+      // 在 created 处理器内立即认领并发声——复刻 agent-loop observe→claim→announce
+      // 与派发消息落库的抢跑（#494 票体时序）。修复后 anchor 取自 WU metadata
+      // （建单时已落档），不依赖 findAnchorMessage 的落库先后。
+      const { claimWorkUnitAndAnnounce } = await import('../../workunit/claim-announce.js');
+      let claimed: Promise<unknown> | null = null;
+      const handler = (payload: { workunit: { id: string } }) => {
+        claimed = claimWorkUnitAndAnnounce(payload.workunit.id, 'instance-race', 'RaceAgent', {
+          wuService: workUnitService, fileStore,
+        });
+      };
+      eventBus.subscribe('workunit.created', handler);
+      try {
+        // 显式 workspaceId：跳过 B3a 无归属挂起（blocked 不可认领），聚焦 anchor 竞态本身
+        const result = await routeMessage(channelId, '@RaceAgent 抢跑认领', undefined, fileStore, { workspaceId: 'ws-race' });
+        await claimed;
+
+        const msgs = await fileStore.queryMessages(channelId, { workUnitId: result.workUnitId! });
+        const roots = msgs.filter(m => !m.replyToId);
+        expect(roots.map(m => m.id)).toEqual([result.id]);
+        const announce = msgs.find(m => m.content.includes('已认领任务'));
+        expect(announce).toBeDefined();
+        expect(announce!.replyToId).toBe(result.id);
+      } finally {
+        eventBus.unsubscribe('workunit.created', handler);
+      }
+    });
+
+    it('决策 12 频道默认角色派单：同样落 anchorMessageId + 回填 workUnitId', async () => {
+      await fileStore.updateChannel(channelId, { defaultProfileId: 'default-agent-1' });
+
+      const result = await routeMessage(channelId, '没有点名的消息', undefined, fileStore);
+
+      const wu = await findWu(result.workUnitId!);
+      const meta = wu!.metadata ? JSON.parse(wu!.metadata) : {};
+      expect(meta.anchorMessageId).toBe(result.id);
+      const stored = await fileStore.getMessageById(result.id);
+      expect(stored!.message.workUnitId).toBe(wu!.id);
+    });
+  });
 });
