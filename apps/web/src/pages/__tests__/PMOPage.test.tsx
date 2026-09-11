@@ -30,6 +30,7 @@ vi.mock('../../api/channel', () => ({
 }));
 
 import { PMOPage } from '../PMOPage';
+import { useRosterStore } from '../../stores/rosterStore';
 
 const mockProjects = [
   { id: 'p1', pmoNumber: 'PM-001', title: 'Pending Project', status: 'pending', progress: 0, createdAt: '2026-01-01' },
@@ -43,6 +44,13 @@ const mockChannels = [
 describe('AC-6: PMO publish button', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // #455：频道列表改读 rosterStore 切片（模块级单例），每测重置避免 TTL 缓存跨测串味
+    useRosterStore.setState({
+      profiles: [], agents: [], channels: [],
+      loading: false, error: null, forbidden: false,
+      loadedAt: null, channelsLoadedOnce: false, agentsLoadedOnce: false,
+      inflight: null, lastToken: null,
+    });
     mockGet.mockResolvedValue({ data: { data: [] } });
     mockChannelList.mockResolvedValue({ data: { data: mockChannels } });
     mockListAllAgents.mockResolvedValue({ data: { data: [

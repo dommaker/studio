@@ -6,9 +6,9 @@ import { useSearchParams, useNavigate } from 'react-router-dom';
 import { projectApi } from '../api';
 import { companyApi } from '../api/company';
 import { okrApi, type OkrKeyResult } from '../api/pmo';
-import { channelApi, type Channel } from '../api/channel';
 import { requirementApi } from '../api/requirements';
 import { useAsyncData } from '../hooks/useAsyncData';
+import { useRosterStore } from '../stores/rosterStore';
 import '../styles/pmo.css';
 import { CreateOkrDialog } from '../components/pmo/CreateOkrDialog';
 import { CreateProjectDialog } from '../components/pmo/CreateProjectDialog';
@@ -71,9 +71,10 @@ export function PMOPage({ companyId }: PMOPageProps) {
   }, [companyId]);
   const reload = pmoQ.reload;
 
-  // AC-6: Publish dialog 频道列表（best-effort，失败静默）
-  const channelsQ = useAsyncData(() => channelApi.list().then(r => r.data?.data || []).catch(() => []), []);
-  const channels: Channel[] = channelsQ.data ?? [];
+  // AC-6: Publish dialog 频道列表走 rosterStore channels 切片（#455：30s TTL + single-flight，
+  // 新建频道经 appendChannel 写穿；失败时切片保持空/旧值，对齐原 best-effort 静默口径）
+  const channels = useRosterStore((s) => s.channels);
+  useEffect(() => { void useRosterStore.getState().ensureFresh(); }, []);
 
   // 🆕 AC-6: 卡片徽章数据（WU 完成度；#387 单请求批量、失败静默不显示）
   // #149（2026-08-15）：文档计数徽章随 document-store 退役移除

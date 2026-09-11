@@ -259,6 +259,18 @@ describe('WorkUnitDetailPage', () => {
     expect(mockProjectGet).toHaveBeenCalledWith('proj-2');
   });
 
+  it('#455：频道名解析走 rosterStore channels 切片——TTL 内重挂载不重复 GET /channels', async () => {
+    const first = render(<WorkUnitDetailPage />);
+    await screen.findByText('#主频道');
+    expect(mockChannelList).toHaveBeenCalledTimes(1);
+    first.unmount();
+
+    render(<WorkUnitDetailPage />);
+    await screen.findByText('#主频道');
+    // 第二次挂载 TTL 内：ensureFresh 门禁短路，不再重拉频道列表
+    expect(mockChannelList).toHaveBeenCalledTimes(1);
+  });
+
   it('关键事实卡：无 reqId/channelId/assigneeId/PMO 时归属行不渲染（创建/Token 行仍在）', async () => {
     mockWuGet.mockResolvedValue({
       data: { ...baseWu, reqId: null, channelId: null, assigneeId: null, metadata: '{}' },

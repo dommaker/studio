@@ -17,11 +17,16 @@ vi.mock('../../../api/channel', () => ({
     list: (...args: unknown[]) => mockListChannels(...args),
   },
 }));
+// #455：频道选项改读 rosterStore 切片——ensureFresh 会同步扇出 monitoring 摘要，缺 mock 会同步抛错进 catch 旁路
+vi.mock('../../../api/monitoring', () => ({
+  monitoringApi: { getAgentSummary: vi.fn().mockResolvedValue({ data: { agents: [] } }) },
+}));
 vi.mock('../../../utils/toast', () => ({
   toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() },
 }));
 
 import { PublishProjectDialog } from '../PublishProjectDialog';
+import { useRosterStore } from '../../../stores/rosterStore';
 
 const CHANNELS = [
   { id: 'ch-1', name: '#dev', type: 'rnd', members: '["p1","p2"]' },
@@ -29,6 +34,13 @@ const CHANNELS = [
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // #455：rosterStore 是模块级单例，每测重置避免 TTL 缓存跨测串味
+  useRosterStore.setState({
+    profiles: [], agents: [], channels: [],
+    loading: false, error: null, forbidden: false,
+    loadedAt: null, channelsLoadedOnce: false, agentsLoadedOnce: false,
+    inflight: null, lastToken: null,
+  });
   mockPublish.mockResolvedValue({});
   // #290（清单 #25）：弹窗打开时自取频道列表；默认与 props 一致
   mockListChannels.mockResolvedValue({ data: { data: CHANNELS } });

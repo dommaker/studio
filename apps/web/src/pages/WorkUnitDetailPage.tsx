@@ -10,7 +10,7 @@ import { deriveDisplayState, parseAttestations, WU_STATUS_COLORS, WU_STATUS_LABE
 import { workunitApi, type Opportunity, type WorkUnit } from '../api/workunit';
 import { requirementApi } from '../api/requirements';
 import { projectApi } from '../api/index';
-import { channelApi } from '../api/channel';
+import { useRosterStore } from '../stores/rosterStore';
 import { AssigneeLabel } from '../components/workunit/AssigneeLabel';
 import { ExecutionFlow } from '../components/workunit/ExecutionFlow';
 import { BlockedActions } from '../components/workunit/BlockedActions';
@@ -75,19 +75,19 @@ export function WorkUnitDetailPage() {
   const [wu, setWu] = useState<WorkUnit | null>(null);
   const [error, setError] = useState('');
   const [pmo, setPmo] = useState<PmoInfo | null>(null);
-  const [channelName, setChannelName] = useState<string | null>(null);
+  // #455：频道名读 rosterStore channels 切片（TTL + single-flight），不再每次进页直发 GET /channels
+  const channels = useRosterStore((s) => s.channels);
   const [chainReqId, setChainReqId] = useState<string | null>(null);
   // #185：blocked 处置动作成功后 +1 触发重拉详情
   const [actionTick, setActionTick] = useState(0);
 
-  // id 切换时在渲染期同步清空上一 WU 的全部展示数据（替代原 effect 顶部的五处同步重置）
+  // id 切换时在渲染期同步清空上一 WU 的全部展示数据（替代原 effect 顶部的同步重置）
   const [prevId, setPrevId] = useState(id);
   if (prevId !== id) {
     setPrevId(id);
     setWu(null);
     setError('');
     setPmo(null);
-    setChannelName(null);
   }
 
   useEffect(() => {
@@ -100,18 +100,16 @@ export function WorkUnitDetailPage() {
         setWu(unit);
         // 归属解析全部 best-effort 并行：解析不到就不显示对应行，不阻塞页面
         resolvePmo(unit).then(p => { if (alive) setPmo(p); });
-        if (unit.channelId) {
-          channelApi.list()
-            .then(res => {
-              if (!alive) return;
-              setChannelName(res.data.data.find(c => c.id === unit.channelId)?.name ?? null);
-            })
-            .catch(() => { /* best-effort */ });
-        }
+        // 频道名经 rosterStore 切片解析（ensureFresh 永不 reject，TTL 内零重拉）
+        if (unit.channelId) void useRosterStore.getState().ensureFresh();
       })
       .catch(e => { if (alive) setError(errorMessage(e)); });
     return () => { alive = false; };
   }, [id, actionTick]);
+
+  const channelName = wu?.channelId
+    ? (channels.find(c => c.id === wu.channelId)?.name ?? null)
+    : null;
 
   const meta = wu ? parseWuMeta(wu.metadata) : {};
   // #116：依赖（blockedBy）与验收标准（ac）展示数据

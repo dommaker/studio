@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { projectApi } from '../../api';
 import { channelApi, type Channel, type AgentProfile } from '../../api/channel';
+import { useRosterStore } from '../../stores/rosterStore';
 import { toast } from '../../utils/toast';
 import { Select } from '../ui';
 import { resolveChannelResponders } from './channelResponders';
@@ -43,18 +44,13 @@ export function PublishProjectDialog({ open, projectId, channels, onClose, onPub
     setAssigneeId(''); // 切换频道候选变化，指派选择随之重置回留空
   }
 
-  // #290（清单 #25）：打开时自取全量频道——props 来自 PMOPage 挂载期一次拉取，
-  // 可能滞后于新建频道（观测到选项只剩「#系统」）；拉取失败回退 props
-  const [freshChannels, setFreshChannels] = useState<Channel[] | null>(null);
+  // #290（清单 #25）→ #455：打开时刷新 rosterStore channels 切片（TTL + single-flight），
+  // 选项直接读切片——新建频道经 appendChannel 写穿不滞后；切片为空时回退 props（对齐原拉取失败回退口径）
+  const rosterChannels = useRosterStore((s) => s.channels);
   useEffect(() => {
-    if (!open) return;
-    let cancelled = false;
-    channelApi.list()
-      .then(res => { if (!cancelled) setFreshChannels(res.data?.data ?? []); })
-      .catch(() => { if (!cancelled) setFreshChannels(null); });
-    return () => { cancelled = true; };
+    if (open) void useRosterStore.getState().ensureFresh();
   }, [open]);
-  const channelOptions = freshChannels ?? channels;
+  const channelOptions = rosterChannels.length > 0 ? rosterChannels : channels;
 
   // 弹窗打开/切换频道时解析「谁会响应」：与 AgentLoop.observe 同一口径（resolveChannelResponders）——
   // channel.members 非空 → 仅成员；为空（历史频道未回填）→ 回退 profile.channels（空 = 全频道可见）
