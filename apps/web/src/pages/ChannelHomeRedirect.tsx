@@ -29,7 +29,8 @@ export function ChannelHomeRedirect() {
       <div className="w-full max-w-lg px-6 py-8">
         <h1 className="page-title">暂无频道</h1>
         <p className="page-subtitle">创建第一个频道开始使用</p>
-        <div className="card" style={{ padding: 0, marginTop: 16, overflow: 'hidden' }}>
+        {/* 批次 G-2：padding:0 为冗余（.card 本无 padding）删除；marginTop/overflow 归 Tailwind */}
+        <div className="card mt-4 overflow-hidden">
           <CreateChannelForm
             createChannel={createChannel}
             onCreated={ch => navigate(`/channels/${ch.id}`)}

@@ -267,8 +267,7 @@ function WuDetail({ id, autoApprove = false, autoRuling = false, onOpenReq }: { 
         {/* D-2 项2：行动中心就地化后详情页深链入口保留在抽屉内（深链分享/深度调查场景，
             与列表行尾 ↗ 同语义）；此前抽屉无此入口，本次补全 */}
         <button
-          className="mc-wu-link"
-          style={{ marginLeft: 'auto', flexShrink: 0 }}
+          className="mc-wu-link ml-auto flex-shrink-0"
           onClick={() => navigate(`/workunits/${id}`)}
           title="打开完整详情页"
           aria-label="打开完整详情页"
@@ -326,7 +325,7 @@ function WuDetail({ id, autoApprove = false, autoRuling = false, onOpenReq }: { 
         />
       )}
       {/* E2-4：闸门动作 = 共享 WuGateActions（pending 确认 / in_review 通过+拒绝 / done 人工确认留痕） */}
-      <div style={{ margin: '4px 0 8px' }}>{gateActions}</div>
+      <div className="mt-1 mb-2">{gateActions}</div>
 
       {/* #185（决策 #87 D4）：blocked 处置组件（继续执行/关闭任务），与详情页同一组件；
           #467：plan-ruling 挂起时另出「去裁决」（PlanRulingDialog，autoRuling = 接力卡打开即弹）。
@@ -391,8 +390,7 @@ function WuDetail({ id, autoApprove = false, autoRuling = false, onOpenReq }: { 
       <div className="mc-block-label">
         树级 token 开销
         <button
-          className="mc-wu-link"
-          style={{ marginLeft: 'auto' }}
+          className="mc-wu-link ml-auto"
           onClick={() => setShowTreeTokens(s => !s)}
         >
           {showTreeTokens ? '收起' : '展开'}
@@ -475,7 +473,7 @@ function ReqChain({ id, onOpenWu }: { id: string; onOpenWu: (wuId: string) => vo
                 {WU_STATUS_LABELS[deriveWuColumn(wu)] ?? deriveWuColumn(wu)}
               </span>
               <span className="mc-mono">{wu.id}</span>
-              {wu.assigneeId && <AssigneeLabel assigneeId={wu.assigneeId} assigneeRoleId={wu.assigneeRoleId} className="mc-dim" style={{ marginLeft: 'auto' }} />}
+              {wu.assigneeId && <AssigneeLabel assigneeId={wu.assigneeId} assigneeRoleId={wu.assigneeRoleId} className="mc-dim ml-auto" />}
             </div>
             <div className="mc-chain-node-title">{wu.title}</div>
           </button>

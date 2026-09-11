@@ -178,8 +178,7 @@ export function MonitoringPage() {
                       <div className="flex items-center gap-3">
                         {/* #473：标题即详情开关——审前先看内容（对照频道提案卡条目清单） */}
                         <button
-                          className="u-text u-hover-accent text-left"
-                          style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                          className="u-text u-hover-accent text-left flex-1 min-w-0 truncate"
                           aria-expanded={expandedIds.has(p.id)}
                           onClick={() => toggleExpanded(p.id)}
                         >
