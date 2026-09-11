@@ -9,7 +9,7 @@ import { AuthorAvatar } from './AuthorAvatar';
 import { FileRefChip } from './FileRefChip';
 import { MarkdownBody } from '../knowledge/MarkdownBody';
 import { matchFileRefToken } from '../../utils/fileChipMatch';
-import { renderWithMentions } from '../../utils/mentions';
+import { renderWithMentionsAndImages } from '../../utils/messageImages';
 import { RequirementsDocCard } from './RequirementsDocCard';
 import { KnowledgeConfirmCard } from './KnowledgeConfirmCard';
 import { ReviewProposalCard } from './ReviewProposalCard';
@@ -251,7 +251,7 @@ export const ChannelMessageItem = memo(function ChannelMessageItem({
               {severity.level.toUpperCase()}
             </span>
           )}
-          {renderWithMentions(severity ? severity.rest : message.content)}
+          {renderWithMentionsAndImages(severity ? severity.rest : message.content)}
         </div>
       ) : (
         <div className="mc-msg-body">

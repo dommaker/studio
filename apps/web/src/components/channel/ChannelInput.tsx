@@ -5,10 +5,12 @@
 // 发送时携带结构化 files=[{repo, path}]（仅保留正文仍含其路径的引用，防陈旧）。
 import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
 import type { AgentProfile, ChannelMessage, FileRef } from '../../api/channel';
+import { channelApi } from '../../api/channel';
 import { useImeEnterGuard } from '../../hooks/useImeEnterGuard';
 import { useRosterStore, activeAgentsOf } from '../../stores/rosterStore';
 import { useChannelDataStore } from '../../stores/channelDataStore';
 import { toast } from '../../utils/toast';
+import { IconImage } from '../ui/icons';
 
 interface Props {
   onSend: (content: string, replyToId?: string, files?: FileRef[]) => void | Promise<unknown>;
@@ -22,6 +24,20 @@ interface Props {
 
 /** 文件候选展示上限（词表可能数千条，弹框只给补全头部） */
 const FILE_CANDIDATE_CAP = 20;
+
+/** 2026-09 截图粘贴：图片白名单/上限与后端 attachments.ts 同口径（客户端先拦一道即时反馈，服务端仍兜底） */
+const IMAGE_MIME_WHITELIST = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+
+/** File → base64（剥 data:URL 前缀） */
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(',')[1] ?? '');
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
 
 /** 工程绝对路径 → basename（多仓同名文件消歧展示用） */
 function repoBasename(repo: string): string {
@@ -176,6 +192,63 @@ export function ChannelInput({ onSend, sending, replyTo, onCancelReply, channelI
     }, 0);
   }, [content, cursorPos, mentionState]);
 
+  // 2026-09 截图粘贴：图片上传（JSON base64）→ 成功后光标处插入 markdown 图片语法。
+  // 失败 toast 不动草稿（草稿从未被触碰，比发送失败回灌更简单）；上传中占位态 = uploadingCount。
+  const [uploadingCount, setUploadingCount] = useState(0);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const insertSnippet = useCallback((snippet: string) => {
+    const pos = Math.min(cursorPos, content.length);
+    const newContent = `${content.slice(0, pos)}${snippet}${content.slice(pos)}`;
+    const newCursor = pos + snippet.length;
+    setContent(newContent);
+    setCursorPos(newCursor);
+    setMentionIdx(0);
+    setMentionDismissedAt(null);
+    setTimeout(() => {
+      const el = textareaRef.current;
+      if (el) {
+        el.setSelectionRange(newCursor, newCursor);
+        el.focus();
+      }
+    }, 0);
+  }, [content, cursorPos]);
+
+  const uploadImage = useCallback(async (file: File) => {
+    if (!channelId) {
+      toast.error('缺少频道上下文，无法上传图片');
+      return;
+    }
+    if (!IMAGE_MIME_WHITELIST.includes(file.type)) {
+      toast.error('不支持的图片类型（仅 png/jpg/jpeg/gif/webp）');
+      return;
+    }
+    if (file.size > MAX_IMAGE_BYTES) {
+      toast.error('图片超过 5MB 上限');
+      return;
+    }
+    setUploadingCount(n => n + 1);
+    try {
+      const dataBase64 = await fileToBase64(file);
+      const res = await channelApi.uploadAttachment(channelId, { mime: file.type, dataBase64 });
+      // alt 文本消毒：]/(/)/换行会破坏 markdown 图片语法
+      const alt = (file.name || 'image').replace(/[[\]()\n]/g, '');
+      insertSnippet(`![${alt}](${res.data.data.url})`);
+    } catch {
+      toast.error('图片上传失败，请重试');
+    } finally {
+      setUploadingCount(n => n - 1);
+    }
+  }, [channelId, insertSnippet]);
+
+  // 剪贴板有图 → 拦默认行为走上传；无图 → 文本粘贴走默认
+  const handlePaste = (e: React.ClipboardEvent) => {
+    const img = Array.from(e.clipboardData?.files ?? []).find(f => f.type.startsWith('image/'));
+    if (!img) return;
+    e.preventDefault();
+    void uploadImage(img);
+  };
+
   // 批次A 项1：await 真实发送结果——失败回灌文本/文件引用 + toast 提示
   // （参照 ChannelMessageItem 内嵌回复「失败保留 draft」模式，发送中输入框经 sending 禁用）
   const handleSend = async () => {
@@ -274,11 +347,35 @@ export function ChannelInput({ onSend, sending, replyTo, onCancelReply, channelI
             }}
             onSelect={e => setCursorPos(e.currentTarget.selectionStart ?? e.currentTarget.value.length)}
             onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
             onCompositionEnd={handleCompositionEnd}
             placeholder="输入消息，@Agent 提及 Agent..."
             rows={2}
             disabled={sending}
           />
+          {/* 2026-09 截图粘贴：图片选择按钮（等价于粘贴路径，共用 uploadImage） */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/png,image/jpeg,image/gif,image/webp"
+            style={{ display: 'none' }}
+            aria-hidden="true"
+            onChange={e => {
+              const file = e.target.files?.[0];
+              e.target.value = ''; // 复位——同文件重选也触发 change
+              if (file) void uploadImage(file);
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={sending}
+            className="mc-icon-btn"
+            title="上传图片"
+            aria-label="上传图片"
+          >
+            <IconImage />
+          </button>
           <button
             onClick={() => void handleSend()}
             disabled={sending || !content.trim()}
@@ -290,6 +387,8 @@ export function ChannelInput({ onSend, sending, replyTo, onCancelReply, channelI
 
         <div className="mc-input-hint">
           <span>{popupOpen ? '↑↓ 选择 Enter 确认 Esc 取消' : '@mention Agent · 回复引用 · Enter 发送'}</span>
+          {/* 2026-09 截图粘贴：上传中占位态（计数支持并发多图） */}
+          {uploadingCount > 0 && <span>上传图片中…</span>}
           {/* ⑦ 无输入时不渲染计数器（「0 字」零信号） */}
           {content.length > 0 && <span>{content.length} 字</span>}
         </div>

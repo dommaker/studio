@@ -222,3 +222,12 @@ export const IconScroll = (p: IconProps) => (
 export const IconCloud = (p: IconProps) => (
   <Svg {...p}><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z" /></Svg>
 );
+
+/** 图片（频道输入框「上传图片」按钮，2026-09 截图粘贴） */
+export const IconImage = (p: IconProps) => (
+  <Svg {...p}>
+    <rect x="3" y="3" width="18" height="18" rx="2" />
+    <circle cx="9" cy="9" r="2" />
+    <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" />
+  </Svg>
+);

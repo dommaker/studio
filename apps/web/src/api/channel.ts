@@ -127,6 +127,13 @@ export const channelApi = {
   getFileVocabulary: (channelId: string) =>
     api.get<{ success: boolean; data: ChannelFileVocabulary }>(`/channels/${channelId}/file-vocabulary`),
 
+  /** 2026-09 截图粘贴：频道图片上传（JSON base64；返回相对 URL，渲染时现拼 ?token=） */
+  uploadAttachment: (channelId: string, data: { mime: string; dataBase64: string }) =>
+    api.post<{ success: boolean; data: { id: string; url: string; size: number } }>(
+      `/channels/${channelId}/attachments`,
+      data,
+    ),
+
   /** #272: 顶栏「当前 PMO」chip 派生（最近挂接 REQ 所属 PMO / 杂务 PMO；无 → data=null） */
   getCurrentPmo: (channelId: string) =>
     api.get<{ success: boolean; data: ChannelCurrentPmo | null }>(`/channels/${channelId}/current-pmo`),
