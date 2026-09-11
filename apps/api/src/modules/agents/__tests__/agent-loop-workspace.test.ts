@@ -1,8 +1,9 @@
 /**
- * F6: AgentLoop 工程绑定执行 cwd + 空闲心跳修复
+ * AgentLoop 执行 cwd 解析（#481：F6「WU 绑定 workspace → 记录 root 当 cwd」已退役）
  *
- * - 绑定了 workspaceId 的 WorkUnit → executeLightweight 收到 parameters.workspaceRoot
- * - 未绑定 / workspace 记录缺失 → 不传 workspaceRoot（行为不变）
+ * - metadata.workspaceRoot 是执行根目录的唯一来源（B3a 归属链直接路径）
+ * - wu.workspaceId 不再参与 cwd 决策——即便真实 workspace 记录存在也不读
+ * - 未绑定 → 不传 workspaceRoot（行为不变）
  * - runLoop 空闲分支（updateIdleState）刷新 lastHeartbeat，且按 45s 节流
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -85,7 +86,7 @@ function makeRole(): AgentProfileData {
   };
 }
 
-describe('F6: AgentLoop workspace binding + idle heartbeat', () => {
+describe('AgentLoop 执行 cwd 解析（#481）+ idle heartbeat', () => {
   let testDir: string;
   let fileStore: FileStore;
   let workUnitService: WorkUnitService;
@@ -123,9 +124,23 @@ describe('F6: AgentLoop workspace binding + idle heartbeat', () => {
     return mockExecuteLightweight.mock.calls[0][0];
   }
 
-  it('bound WorkUnit → executeLightweight receives parameters.workspaceRoot', async () => {
+  it('#481 退役锚点：workspaceId 绑定（真实记录存在）不再参与 cwd 决策 → 不传 workspaceRoot', async () => {
     const loop = new AgentLoop(makeRole(), fileStore);
     const wu = await workUnitService.create({ scope: 'bound task', channelId: null, workspaceId: wsId });
+
+    const task = await runStep(loop, wu.id);
+
+    // F6 旧行为是「拿该记录的 workspaceRoot 当 cwd」——已随执行面退役；
+    // 记录的 root 是启动时一次性抄件，不再是任何执行目录的来源
+    expect(task.parameters.workspaceRoot).toBeUndefined();
+  });
+
+  it('metadata.workspaceRoot（B3a 归属链直接路径）→ executeLightweight 收到 parameters.workspaceRoot', async () => {
+    const loop = new AgentLoop(makeRole(), fileStore);
+    const wu = await workUnitService.create({
+      scope: 'attributed task', channelId: null,
+      metadata: { workspaceRoot: wsRoot },
+    });
 
     const task = await runStep(loop, wu.id);
 

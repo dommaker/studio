@@ -141,7 +141,6 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
 
   // Workspace routes (AS-020 P2)
   const { default: workspaceRoutes } = await import('./modules/workspaces/workspace.routes.js') as { default: Router };
-  const { default: workspaceTokenRoutes } = await import('./modules/workspaces/token.routes.js') as { default: Router };
 
   // Daemon (AS-020 P5) 与 Task management（AS-020 P5 UI/Server task CRUD）路由已删：
   // HTTP claim 竖井无任何消费者（客户端三件套 5a982122 已删），任务队列只进不出
@@ -267,9 +266,8 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     // Deploy（触发式部署：GitHub push webhook，HMAC 校验，免登录见 app.ts PUBLIC_API）
     { path: '/api/v1/deploy', router: deployWebhookRoutes, comment: 'GitHub push webhook → auto-deploy' },
 
-    // Workspace (AS-020 P2: Daemon registration + token management)
-    { path: '/api/v1/workspaces', router: workspaceRoutes, comment: 'AS-020: Workspace registration + heartbeat' },
-    { path: '/api/v1/workspace-tokens', router: workspaceTokenRoutes, comment: 'AS-020: Workspace token management' },
+    // Workspace（AS-020 P2：只读查询 + 删除；token 管理已随 #481 退役——远程节点方向的纯残骸）
+    { path: '/api/v1/workspaces', router: workspaceRoutes, comment: 'AS-020: Workspace read-only + delete' },
 
     // Lark (飞书)
     { path: '/api/v1/lark', router: larkRoutes, comment: '飞书机器人回调' },

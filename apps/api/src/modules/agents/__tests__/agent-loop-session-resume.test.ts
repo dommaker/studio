@@ -3,7 +3,7 @@
 // ~/.claude/projects/<cwd-slug>/<sessionId>.jsonl 存在（cwd = 本步最终 workspaceRoot）；
 // 续用步报「会话不存在」→ 换发新 sessionId 降级重试一次。
 // HOME 经 vi.stubEnv 指向 tmpdir 造会话文件；真实 FileStore（tmpdir）+ 真实 WorkUnitService；
-// CLI 执行与 workspace 解析 mock。
+// CLI 执行 mock；#481：执行根经 metadata.workspaceRoot 注入（wu.workspaceId 不再参与 cwd 决策）。
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -12,14 +12,6 @@ import { FileStore, type ChannelMessageData } from '@dommaker/studio-shared';
 import { WorkUnitService, type WorkUnitMetadata } from '../../workunit/workunit.service.js';
 import type { AgentTask } from '@dommaker/studio-agent';
 import { claudeCwdSlug } from '../loop/session-resume.js';
-
-const { mockResolveWorkspaceRoot } = vi.hoisted(() => ({
-  mockResolveWorkspaceRoot: vi.fn(),
-}));
-
-vi.mock('../../workspaces/workspace-store', () => ({
-  resolveWorkspaceRoot: mockResolveWorkspaceRoot,
-}));
 
 const { mockExecuteLightweight } = vi.hoisted(() => ({
   mockExecuteLightweight: vi.fn(),
@@ -61,7 +53,7 @@ interface InstanceHolder {
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-/** workspace 解析 mock 的统一返回值 = 本步最终 cwd（无 .git，不走 worktree 分支） */
+/** metadata.workspaceRoot 注入值 = 本步最终 cwd（无 .git，不走 worktree 分支） */
 const FAKE_CWD = '/tmp/fake-worktree';
 
 const SUCCESS_RESULT = {
@@ -92,7 +84,6 @@ describe('#94: 会话号 per-WU 化与续用降级', () => {
       createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
     });
     agentLoop = new AgentLoop(mockRole, fileStore);
-    mockResolveWorkspaceRoot.mockResolvedValue(FAKE_CWD);
     mockExecuteLightweight.mockResolvedValue({ ...SUCCESS_RESULT });
   });
 
@@ -105,8 +96,8 @@ describe('#94: 会话号 per-WU 化与续用降级', () => {
   async function setupWorkUnit(metadata?: WorkUnitMetadata) {
     const wu = await wuService.create({
       scope: '实现登录功能', channelId, type: 'task',
-      status: 'active', assigneeId: 'instance-1', workspaceId: 'ws-1',
-      ...(metadata ? { metadata } : {}),
+      status: 'active', assigneeId: 'instance-1',
+      metadata: { workspaceRoot: FAKE_CWD, ...metadata },
     });
     const anchor: ChannelMessageData = {
       id: 'anchor-1', channelId, authorType: 'human', agentName: null,

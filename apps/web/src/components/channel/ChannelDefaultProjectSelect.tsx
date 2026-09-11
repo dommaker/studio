@@ -1,7 +1,7 @@
 // #272（决策 #251 Q2'）：顶栏「默认工程」= 本地 repo 下拉。
 // 数据源 = /projects/discover 本地工程发现（非 Admin-only workspaces 接口，非 Admin 可用）；
 // 选中值落 channel.defaultPath（归属链「频道默认工程」rung 读取）。
-// 「默认执行机器」（远程 Workspace）与默认工程分家，由 #286 挪设置区。
+// 「默认执行机器」（远程 Workspace）配置面已随 #481 退役——默认工程是频道级唯一配置点。
 import React, { useEffect, useState } from 'react';
 import { channelApi, type LocalProject } from '../../api/channel';
 import { Select, type SelectOption } from '../ui';

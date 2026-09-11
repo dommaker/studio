@@ -93,11 +93,13 @@ async function findMergeTargetWorkUnit(
  * 4. plain text → store without workUnitId（未配置默认角色 = 维持纯存储）
  *
  * F6 → B3a 工程归属链（决策 D2）：创建 WorkUnit 时解析工程归属 —
- * 显式 workspaceId > Requirement.projectId → PMO 项目 gitRepo（metadata.workspaceRoot
- * 落档，agent-loop 直接作为执行根目录）> 频道 defaultWorkspaceId（降级为默认提示）
+ * Requirement.projectId → PMO 项目 gitRepo / 文件引用 / 频道 defaultPath
+ * （metadata.workspaceRoot 落档，agent-loop 直接作为执行根目录）
  * > 无归属：WU 照常创建但立即 NEED_INPUT 挂起（blocked + waitingForInput，
  * waitingReason='ownership'），并向频道发 Studio 系统消息问人；
  * 线程回复经 waiting-input 解析绑定工程后复活。
+ * #481：显式 workspaceId 与频道 defaultWorkspaceId（默认执行机器）两级已退役，
+ * WU 不再落机器指针（workspaceId 字段仅历史记录展示用，无执行语义）。
  *
  * REQ 需求编号（vision §5.3）：@mention 派发时绑定需求 —
  * options.reqId 显式指定 > 消息文本 #REQ-XXXX token > 自动新建（best-effort）。
@@ -118,7 +120,6 @@ export async function routeMessage(
   replyToId?: string,
   fs?: FileStore,
   options?: {
-    workspaceId?: string | null;
     reqId?: string | null;
     traceId?: string | null;
     /** #281: @文件引用（composer 弹框选中的结构化引用） */
@@ -291,24 +292,22 @@ export async function routeMessage(
       logger.warn('[MessageRouting] REQ binding failed (non-blocking)', { error: String(err) });
       return null;
     });
-    // B3a 工程归属链（决策 D2 + #285 决策 #249 §4）：显式 > Requirement→PMO gitRepo
-    // > 文件引用（kept refs 全同仓）> 频道默认 > 无归属挂起。
-    // 解析故障返回 null，走旧绑定规则兜底。
+    // B3a 工程归属链（决策 D2 + #285 决策 #249 §4）：Requirement→PMO gitRepo
+    // > 文件引用（kept refs 全同仓）> 频道默认工程 > 无归属挂起。
+    // #481：显式/频道默认的 workspaceId（机器指针）两级已退役，不再参与归属。
+    // 解析故障返回 null：按无归属继续但不挂起（保可用性，与退役前一致）。
     const ownership = await resolveWorkspaceForWU({
-      explicitWorkspaceId: options?.workspaceId,
       reqId,
       channelId,
       fileRefs: filesMeta?.files,
       fileStore: resolvedFs,
     }).catch(err => {
-      logger.warn('[MessageRouting] Ownership resolution failed, falling back to legacy workspace binding', {
+      logger.warn('[MessageRouting] Ownership resolution failed, continuing without attribution', {
         error: String(err),
       });
       return null;
     });
-    // ownership 非 null 时其字段为权威解析结果（source=requirement/none 的 null 不再回落）；
-    // 仅解析故障（null）回退旧绑定规则（不挂起，保可用性）。
-    const workspaceId = ownership ? ownership.workspaceId : (options?.workspaceId ?? channel?.defaultWorkspaceId ?? null);
+    // ownership 非 null 时其字段为权威解析结果；解析故障（null）不挂起（保可用性）。
     const parked = ownership?.source === 'none';
     // #494（方案 c，票内预授权）：先落派发消息再建 WU——WU metadata.anchorMessageId 显式携带
     // 派发消息 id（认领播报优先锚它，消 created 事件先于派发消息落库的 findAnchorMessage 竞态）；
@@ -327,7 +326,6 @@ export async function routeMessage(
       // B3a: 无归属 → 立即 NEED_INPUT 挂起（blocked），等人回复工程名/路径
       status: parked ? 'blocked' : 'unassigned',
       assigneeId: agent?.id ?? null,
-      workspaceId,
       reqId,
       metadata: {
         // #496: 前缀兜底命中时落解析后的成员名（展示/认领播报以角色正名为准）
@@ -363,7 +361,6 @@ export async function routeMessage(
       workUnitId: workUnit.id,
       mentionName,
       matched: !!agent,
-      workspaceId,
       reqId,
       ownershipSource: ownership?.source ?? 'fallback',
       parked,

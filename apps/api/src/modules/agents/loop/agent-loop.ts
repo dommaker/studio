@@ -25,7 +25,6 @@ import { withBlockedCta } from '../../workunit/blocked-cta.js';
 import { parseWuMetadata, mergedWuView } from '../../workunit/wu-metadata.js';
 import { PLAN_STEP_LIMIT } from '../../workunit/workunit.types.js';
 import { hasUnfinishedDeps, buildStatusById } from '../../workunit/wu-dependencies.js';
-import { resolveWorkspaceRoot } from '../../workspaces/workspace-store.js';
 import { resolvePmoBranchForWU } from '../../requirements/pmo-branch-resolver.js';
 import { resolveStudioLogFile } from '../../../utils/studio-log-path.js';
 import { writeStudioEvent } from '../../../utils/studio-events.js';
@@ -899,8 +898,9 @@ export class AgentLoop {
 
     // F6 → B3a: WorkUnit 绑定工程 → 解析执行根目录，经 parameters.workspaceRoot
     // 传给 agent-runner（resolveWorkspace Priority 1：直接以该目录为 cwd）。
-    // metadata.workspaceRoot（B3a 归属链：Requirement→PMO gitRepo / 人工回复绑定）优先；
-    // 否则按 wu.workspaceId 查 workspace 记录（F6 旧路径）；都没有 → 不传，保持现有 fallback。
+    // #481：唯一来源是 metadata.workspaceRoot（B3a 归属链：Requirement→PMO gitRepo /
+    // 文件引用 / 频道默认工程 / 人工回复绑定）；wu.workspaceId 不再参与 cwd 决策。
+    // 都没有 → 不传，由 runner 落共享工作目录（REPO_DIR）或隔离 scratch。
     //
     // B3b-i（决策 D1）：代码类 WU（task/bug/feature/refactor）解析出 git 仓库根后，
     // 不再直接改共享目录 —— 执行 cwd 换成该仓库的专属 worktree
@@ -911,7 +911,7 @@ export class AgentLoop {
     // 解析不出 git 仓库（无绑定根 / 根目录无 .git）→ 维持现状。
     // #157（T6）：analysis 原型单（建单显式 metadata.prototype=true）同样挂专属 worktree，
     // 分支前缀 prototype/（永不合并）；无标记的普通 analysis 行为逐字节不变。
-    let workspaceRoot = await this.resolveExecutionWorkspaceRoot(wu, metadata);
+    let workspaceRoot = this.resolveExecutionWorkspaceRoot(metadata);
     const wantsWuWorktree = CODE_WORKTREE_TYPES.has(wu.type)
       || (wu.type === 'analysis' && metadata.prototype === true);
     if (wantsWuWorktree && workspaceRoot && isGitRepoRoot(workspaceRoot)) {
@@ -1472,31 +1472,16 @@ export class AgentLoop {
   // buildRosterSection 已随 prompt 组装段一并抽到 ./prompt-composer.js（2026-08 工单 05，行为不变）。
 
   /**
-   * B3a 归属链：执行根目录解析 — metadata.workspaceRoot（Requirement→PMO gitRepo /
-   * 人工回复绑定的直接路径）优先；否则按 wu.workspaceId 查 workspace 记录（F6 旧路径）。
+   * B3a 归属链：执行根目录解析 — 唯一来源是 metadata.workspaceRoot
+   * （Requirement→PMO gitRepo / 文件引用 / 频道默认工程 / 人工回复绑定的直接路径）。
+   * #481：wu.workspaceId 不再参与 cwd 决策（F6「按 workspaceId 查 workspace 记录」
+   * 旧路径已退役——记录的 root 是启动时一次性抄件，退出执行面）。
    */
-  private async resolveExecutionWorkspaceRoot(wu: WorkUnitData, metadata: WorkUnitMetadata): Promise<string | null> {
+  private resolveExecutionWorkspaceRoot(metadata: WorkUnitMetadata): string | null {
     if (typeof metadata.workspaceRoot === 'string' && metadata.workspaceRoot.length > 0) {
       return metadata.workspaceRoot;
     }
-    return wu.workspaceId ? this.resolveBoundWorkspaceRoot(wu.workspaceId) : null;
-  }
-
-  /**
-   * F6: 解析 WorkUnit 绑定工程的执行根目录（workspace.workspaceRoot）。
-   * 记录缺失/无 workspaceRoot/读取失败 → null（保持未绑定的默认行为）。
-   */
-  private async resolveBoundWorkspaceRoot(workspaceId: string): Promise<string | null> {
-    try {
-      const root = await resolveWorkspaceRoot(workspaceId);
-      if (!root) {
-        logger.warn(`[AgentLoop] Bound workspace ${workspaceId} unresolved, falling back to default cwd`);
-      }
-      return root;
-    } catch (err) {
-      logger.warn(`[AgentLoop] Workspace resolution failed for ${workspaceId}: ${getErrorMessage(err)}`);
-      return null;
-    }
+    return null;
   }
 
   /**
@@ -1519,7 +1504,7 @@ export class AgentLoop {
   /**
    * B3b-i: 提交守卫/自动验证的 git cwd 解析（recordResult 侧只读消费，不创建）。
    * 代码类 WU 有专属 worktree → 在 worktree 下跑 git status；
-   * review WU → 父 WU worktree；否则回退 B3a/F6 的共享根解析。
+   * review WU → 父 WU worktree；否则回退 B3a 的共享根解析（#481 起仅 metadata.workspaceRoot）。
    * #157（T6）：挂 worktree 的 analysis（原型单）同样解析到 metadata.worktreePath ——
    * 未 commit 打回守卫作用于原型 worktree；无落档的普通 analysis 走共享根解析，行为不变。
    */
@@ -1532,7 +1517,7 @@ export class AgentLoop {
       const parentWorktree = await this.resolveParentWorktreePath(wu);
       if (parentWorktree) return parentWorktree;
     }
-    return this.resolveExecutionWorkspaceRoot(wu, metadata);
+    return this.resolveExecutionWorkspaceRoot(metadata);
   }
 
   /**

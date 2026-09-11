@@ -76,7 +76,7 @@ export function WorkspacePage() {
 
   return (
     <div className="h-full flex flex-col u-page-bg">
-      {/* #393 §4.4：详情页统一左上返回（无 workspace 列表页，直开回落 /settings——本页入口 = 设置页「默认执行机器」节机器名直链，E8-1） */}
+      {/* #393 §4.4：详情页统一左上返回（无 workspace 列表页，直开回落 /settings——原入口设置页「默认执行机器」节已随 #481 退役，本页现为直开/历史链接可达） */}
       <div className="u-page-head">
         <div className="mb-2"><BackButton fallback="/settings" /></div>
         <h1 className="page-title">{workspace.name}</h1>

@@ -708,8 +708,10 @@ describe('Message Routing (AC-B1-B4)', () => {
       };
       eventBus.subscribe('workunit.created', handler);
       try {
-        // 显式 workspaceId：跳过 B3a 无归属挂起（blocked 不可认领），聚焦 anchor 竞态本身
-        const result = await routeMessage(channelId, '@RaceAgent 抢跑认领', undefined, fileStore, { workspaceId: 'ws-race' });
+        // 频道默认工程：跳过 B3a 无归属挂起（blocked 不可认领），聚焦 anchor 竞态本身
+        // （#481 前用显式 workspaceId；机器指针退役后改用 defaultPath 提供归属）
+        await fileStore.updateChannel(channelId, { defaultPath: '/tmp/race-repo' });
+        const result = await routeMessage(channelId, '@RaceAgent 抢跑认领', undefined, fileStore);
         await claimed;
 
         const msgs = await fileStore.queryMessages(channelId, { workUnitId: result.workUnitId! });

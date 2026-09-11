@@ -47,6 +47,7 @@ Agent 配置（profile）、运行实例（instance）、决策循环（loop）�
 - **R3 评审契约**：评审子 WU scope = diff-only+`+code-review`；needs-info -> 转人工
 - **不派评审类型**：decision/spec/analysis 走人工 in_review
 - **F6 台账**：COMPLETE 前验证守卫写 l1；`POST /workunits/:id/verify` 人工重跑；`POST /workunits/:id/dispatch-review` 人工补派
+- **执行根目录（#481，2026-09-11）**：agent-loop `resolveExecutionWorkspaceRoot` 唯一来源 = `metadata.workspaceRoot`（B3a 归属链直接路径）；F6「按 `wu.workspaceId` 查 workspace 记录当 cwd」旧路径已删（`resolveBoundWorkspaceRoot` 与 workspace-store 导入同步移除）——记录 root 是启动时一次性抄件，退出执行面。无归属时 runner 侧落共享工作目录（`REPO_DIR` 现场读）或隔离 scratch（见 packages/studio-agent CONTEXT）。`wu.workspaceId` 仅历史展示/候选集/wu-verification 的 verifyCommands 覆盖使用，无执行语义
 - **#463 确认表单预填落档**：COMPLETE 时按 WU 类型解析输出落结构化 metadata（确认弹窗数据源，确认前就存在）——analysis/plan（#471 一脉会话规划单，同字段同解析器）→ analysisTasks/analysisFog/analysisDestination；decision → `## 结论摘要` 段落 decisionSuggestion（parseDecisionConclusion，prompt 契约已有）；spec → TASK 物化行 specTasks（复用 pmo/spec-materialization parseSpecTasks，CONTRACT_TEMPLATES 新增 spec 契约段要求输出）。人审表单改后由 review-passed confirm 载荷回传，后端序列化进 l3.summary（存储契约不变）
 - **#471 plan 一脉会话**：publish 建单即钉 scope `+requirement-clarify +to-tickets`（parseSkillHintsFromScope 既有管线注入索引，selectSkillsForInjection 按名去重为现状）；CONTRACT_TEMPLATES 新增 plan 契约段（TASK/FOG/DESTINATION 输出协议 + 台账续跑指引）；失败恢复以 prompt map 段（buildPmoMapSection 按 metadata.pmoId 类型无关注入）的探路台账为唯一恢复事实源，零新机制。
 - **WU 租约心跳**：每 30s 推前 timeoutAt（now+5min），fencing（claimedAt 代际令牌+assigneeId 双比对）；#314 起每跳只写内存缓冲，FileStore flushWorkUnitLeases 默认 60s 窗口锁内复核 fencing 后合并落盘；易主 -> 停跳+onLost
