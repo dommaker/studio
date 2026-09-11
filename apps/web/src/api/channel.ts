@@ -13,6 +13,8 @@ export interface ChannelMessage {
   meta?: string | Record<string, unknown>;
   /** #326：骨架标记——数据层降级产物，content/meta 大头已剥离，结构字段仍在（ADR 2026-08-25） */
   degraded?: boolean;
+  /** #486：乐观回显本地标记（仅客户端 pending 态，服务端不下发；成功被本体替换、失败回滚） */
+  pending?: boolean;
   createdAt: string;
 }
 

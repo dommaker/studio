@@ -4,6 +4,8 @@
 // 频道词表（git ls-files）路径后缀精确匹配补全，选中插入纯路径文本（mention 正则不动），
 // 发送时携带结构化 files=[{repo, path}]（仅保留正文仍含其路径的引用，防陈旧）。
 // #485：fileRefs 台账可视化——chip 可单独移除；正文被编辑得不含路径时 chip 标灰「已失效」，不静默丢弃。
+// #486：发送中 textarea 不再整段禁用（可接着打下一条）；乐观回显在 useChannelMessages，本组件
+// 只保留发送钮/handleSend 的 sending 防重复提交。
 import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
 import type { AgentProfile, ChannelMessage, FileRef } from '../../api/channel';
 import { channelApi } from '../../api/channel';
@@ -256,7 +258,8 @@ export function ChannelInput({ onSend, sending, replyTo, onCancelReply, channelI
   }, []);
 
   // 批次A 项1：await 真实发送结果——失败回灌文本/文件引用 + toast 提示
-  // （参照 ChannelMessageItem 内嵌回复「失败保留 draft」模式，发送中输入框经 sending 禁用）
+  // （参照 ChannelMessageItem 内嵌回复「失败保留 draft」模式；#486 起发送中 textarea 不再禁用，
+  // 乐观回显由 useChannelMessages 承担，本组件只保留 sending 防重复提交守卫）
   const handleSend = async () => {
     const trimmed = content.trim();
     if (!trimmed || sending) return;
@@ -385,7 +388,6 @@ export function ChannelInput({ onSend, sending, replyTo, onCancelReply, channelI
             onCompositionEnd={handleCompositionEnd}
             placeholder="输入消息，@Agent 提及 Agent..."
             rows={2}
-            disabled={sending}
           />
           {/* 2026-09 截图粘贴：图片选择按钮（等价于粘贴路径，共用 uploadImage） */}
           <input

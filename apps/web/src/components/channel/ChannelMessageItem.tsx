@@ -203,7 +203,7 @@ export const ChannelMessageItem = memo(function ChannelMessageItem({
 
   return (
     <div
-      className={`mc-msg ${compact ? 'mc-msg-compact' : ''} ${sideClass}${highlight ? ' mc-msg-highlight' : ''}${fresh ? ' mc-msg-new' : ''}`}
+      className={`mc-msg ${compact ? 'mc-msg-compact' : ''} ${sideClass}${highlight ? ' mc-msg-highlight' : ''}${fresh ? ' mc-msg-new' : ''}${message.pending ? ' mc-msg-pending' : ''}`}
       data-message-id={message.id}
     >
       {/* Quote block (reply reference) */}
@@ -231,11 +231,12 @@ export const ChannelMessageItem = memo(function ChannelMessageItem({
           )}
           {/* E1（2026-09 页面重设计）：消息头「等待回复」badge 已删——内嵌回复区本身是行动点，
               待办信号唯一表达位 = 顶栏「待回复 · N」chip（同一事实只表达一次） */}
-          <span className="mc-msg-actions">{actionButtons}</span>
+          {/* #486：pending 本地乐观消息不出回复/转任务动作（本地 id 服务端不存在，回复无的放矢） */}
+          {!message.pending && <span className="mc-msg-actions">{actionButtons}</span>}
         </div>
       )}
-      {/* #277 D2：compact 省略重复头；动作浮于角落保留可用性 */}
-      {!isSystem && compact && (
+      {/* #277 D2：compact 省略重复头；动作浮于角落保留可用性（pending 不出动作，同上头部分支） */}
+      {!isSystem && compact && !message.pending && (
         <span className="mc-msg-actions mc-msg-actions-compact">
           {actionButtons}
         </span>
@@ -252,6 +253,8 @@ export const ChannelMessageItem = memo(function ChannelMessageItem({
             </span>
           )}
           {renderWithMentionsAndImages(severity ? severity.rest : message.content)}
+          {/* #486：乐观回显 pending 标记（放正文气泡内——compact 无头时也可见） */}
+          {message.pending && <span className="mc-msg-pending-mark">发送中…</span>}
         </div>
       ) : (
         <div className="mc-msg-body">

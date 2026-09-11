@@ -687,6 +687,9 @@
 /* 批次 E-3：SSE 新到达消息渐隐高亮（白名单③状态色切换）——accent-dim 底色，
    页面 2s 后移类，经 .mc-msg 基类 background-color 过渡渐隐常态 */
 .mc-msg-new { background-color: var(--accent-dim); }
+/* #486：乐观回显 pending 态——整行降不透明度作「发送中」灰色态，服务端本体替换后类随消息消失 */
+.mc-msg-pending { opacity: 0.55; }
+.mc-msg-pending-mark { font-size: var(--fs-xs); color: var(--text-tertiary); margin-left: 6px; }
 
 /* 按钮（Mission Control 密度） */
 .mc-btn {
