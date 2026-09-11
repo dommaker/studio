@@ -20,6 +20,7 @@ Channel 域：频道 CRUD/成员/路由表、消息创建与路由（replyTo 线
 | current-pmo.ts | `deriveChannelCurrentPmo()` | 「当前 PMO」chip 派生（不落库现算） |
 | file-ref-vocabulary.ts | — | #281 @文件引用候选词表（git ls-files + 60s 进程内存缓存） |
 | convert-to-task.service.ts | `ConvertToTaskService` | 消息转任务（LLM 建议标题/描述/归属） |
+| attachments.ts | `saveChannelImage()` / `resolveChannelImage()` / `MAX_IMAGE_BYTES` / `ATTACHMENT_BODY_LIMIT` | 频道图片附件（2026-09 截图粘贴）：base64 落数据区 + 取图解析，id 白名单校验防路径穿越 |
 | channel-init.ts | `ensureDefaultChannels()` | 启动时默认频道初始化（三默认频道，members 空） |
 
 ### 依赖关系
@@ -33,6 +34,7 @@ Channel 域：频道 CRUD/成员/路由表、消息创建与路由（replyTo 线
 
 ### 注意事项
 
+- **频道图片附件（2026-09，docs/plans/2026-09-channel-attachments.md）**：`POST /:id/attachments`（requireAuth+requireNotGuest，与发消息同语义）收 JSON base64（不引 multipart 依赖），单图 ≤5MB 超限 413，落盘 `STUDIO_DATA_DIR/attachments/<channelId>/<uuid>.<ext>`（扩展名白名单 png/jpg/gif/webp，与 FileStore baseDir 同口径解析数据根）；返回相对 URL，消息体直接存 markdown 图片语法即完整事实源——**无附件元数据表**（YAGNI，mime 由 id 内嵌扩展名推导）。`GET /:id/attachments/:attachmentId` 经 `?token=` 携带 JWT（`tokenQueryToHeader` 映射进 header 复用 requireAuth；<img> 无法带 Authorization 头，SSE /events/stream 同款），guest session（userId=null）过不了 session→user 联查 = 看不了图（已知取舍，消息 GET 匿名公开但图要登录）。json limit：全局 2mb 不动，app.ts 在全局 parser 前对该路径预挂 `express.json({limit:'8mb'})`（已解析请求 `_body` 标记跳过全局），路由级同挂保直挂测试自足
 - **输出文件路径**：`perInvocationOutputFile()` 返回绝对路径（ANALYST_DIR 基于 REPO_DIR）。scout 路径用相对路径，session-manager 有 worktree fallback
 - **JSON 解析链**：4 层（sanitize → code-fence → regex → LLM repair），outputText = "DONE" 无 JSON，文件是唯一数据载体
 - **DB 去重**：同 channel 24h 内有有效 RequirementsDoc → 直接复用（0 token）

@@ -41,6 +41,9 @@ app.use(compression({ filter: shouldCompress }));
 app.use('/api/v1/discord/interactions', express.raw({ type: 'application/json', limit: '1mb' }));
 // Deploy webhook 同样需要原始 body 做 GitHub HMAC-SHA256 校验
 app.use('/api/v1/deploy/webhook', express.raw({ type: 'application/json', limit: '1mb' }));
+// 频道图片附件上传走 JSON base64：该路径单独放大 limit（全局 2mb 不动）；
+// 已解析请求带 _body 标记，下方全局 parser 自动跳过
+app.use('/api/v1/channels/:channelId/attachments', express.json({ limit: '8mb' }));
 
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true }));
