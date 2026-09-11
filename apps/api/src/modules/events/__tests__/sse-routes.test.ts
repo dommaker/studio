@@ -7,7 +7,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { EventEmitter } from 'node:events';
 import { eventBus } from '@dommaker/studio-shared';
-import sseRouter, { getTopicFromEventType } from '../sse.routes.js';
+import sseRouter, { getTopicFromEventType, sseReplayBuffer } from '../sse.routes.js';
 
 describe('getTopicFromEventType', () => {
   it('requirement.created / requirement.updated → requirements', () => {
@@ -32,47 +32,59 @@ describe('getTopicFromEventType', () => {
   });
 });
 
+// ── 共享脚手架：express Router.handle + 假 req/res（不起真 HTTP 服务——
+// 背压由 res.write 返回值模拟，真 socket 不可靠复现）──
+interface FakeClient {
+  req: EventEmitter & Record<string, unknown>;
+  res: { writeHead: ReturnType<typeof vi.fn>; write: ReturnType<typeof vi.fn>; end: ReturnType<typeof vi.fn> };
+  writes: string[];
+  /** 置 true 后 write 返回 false（模拟慢客户端缓冲区满） */
+  slow: { value: boolean };
+}
+
+const connected: FakeClient[] = [];
+
+function connectClient(headers: Record<string, string> = {}, topics = 'all'): FakeClient {
+  const req = new EventEmitter() as FakeClient['req'];
+  req.method = 'GET';
+  req.url = `/stream?topics=${topics}`;
+  req.query = { topics };
+  req.headers = headers;
+  req.app = {};
+  const client: FakeClient = {
+    req,
+    writes: [],
+    slow: { value: false },
+    res: {
+      writeHead: vi.fn(),
+      write: vi.fn((chunk: string) => { client.writes.push(chunk); return !client.slow.value; }),
+      end: vi.fn(),
+    },
+  };
+  (sseRouter as unknown as { handle: (q: unknown, s: unknown, n: () => void) => void }).handle(req, client.res, () => {});
+  connected.push(client);
+  return client;
+}
+
+afterEach(() => {
+  // 触发 req close 清理 heartbeat interval 与 clients Map（防句柄泄漏）
+  for (const c of connected.splice(0)) c.req.emit('close');
+});
+
+/** 把 writes 里的 `id:` + `data:` 行配成帧（heartbeat 注释行无 id 自动跳过） */
+function extractFrames(client: FakeClient): { id: string; data: Record<string, unknown> }[] {
+  const frames: { id: string; data: Record<string, unknown> }[] = [];
+  for (let i = 0; i < client.writes.length; i++) {
+    const m = /^id: (.+)\n$/.exec(client.writes[i]);
+    if (m && client.writes[i + 1]?.startsWith('data: ')) {
+      frames.push({ id: m[1], data: JSON.parse(client.writes[i + 1].slice('data: '.length).trim()) });
+    }
+  }
+  return frames;
+}
+
 // ── #324：SSE 直订 eventBus + 背压断开慢客户端 ──
-// 驱动方式：express Router.handle + 假 req/res（同 outbound-notify 测试的轻量思路，
-// 但不起真 HTTP 服务——背压由 res.write 返回值模拟，真 socket 不可靠复现）。
 describe('SSE /stream 背压（#324）', () => {
-  interface FakeClient {
-    req: EventEmitter & Record<string, unknown>;
-    res: { writeHead: ReturnType<typeof vi.fn>; write: ReturnType<typeof vi.fn>; end: ReturnType<typeof vi.fn> };
-    writes: string[];
-    /** 置 true 后 write 返回 false（模拟慢客户端缓冲区满） */
-    slow: { value: boolean };
-  }
-
-  const connected: FakeClient[] = [];
-
-  function connectClient(): FakeClient {
-    const req = new EventEmitter() as FakeClient['req'];
-    req.method = 'GET';
-    req.url = '/stream?topics=all';
-    req.query = { topics: 'all' };
-    req.headers = {};
-    req.app = {};
-    const client: FakeClient = {
-      req,
-      writes: [],
-      slow: { value: false },
-      res: {
-        writeHead: vi.fn(),
-        write: vi.fn((chunk: string) => { client.writes.push(chunk); return !client.slow.value; }),
-        end: vi.fn(),
-      },
-    };
-    (sseRouter as unknown as { handle: (q: unknown, s: unknown, n: () => void) => void }).handle(req, client.res, () => {});
-    connected.push(client);
-    return client;
-  }
-
-  afterEach(() => {
-    // 触发 req close 清理 heartbeat interval 与 clients Map（防句柄泄漏）
-    for (const c of connected.splice(0)) c.req.emit('close');
-  });
-
   it('write 返回 false 的慢客户端被断开并移除，正常客户端照常收到事件', () => {
     const normal = connectClient();
     const slow = connectClient();
@@ -91,9 +103,10 @@ describe('SSE /stream 背压（#324）', () => {
 
     // 慢客户端：res.end 被调、之后不再收到写出
     expect(slow.res.end).toHaveBeenCalledTimes(1);
-    // 正常客户端：收到 id 行 + 匿名 data 行，data 内含 event_type
+    // 正常客户端：收到 id 行（#491 起 = 服务端单调 seq，不再是信封 event_id）+ 匿名 data 行
     const newWrites = normal.writes.slice(normalWritesBefore);
-    expect(newWrites.some(w => w === 'id: e-1\n')).toBe(true);
+    const idLine = newWrites.find(w => /^id: \d+\n$/.test(w));
+    expect(idLine).toBeDefined();
     const dataLine = newWrites.find(w => w.startsWith('data: '));
     expect(dataLine).toBeDefined();
     expect(JSON.parse(dataLine!.slice('data: '.length).trim()).event_type).toBe('task.updated');
@@ -124,5 +137,62 @@ describe('SSE /stream 背压（#324）', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+// ── #491：断线窗口事件 replay——重连带 Last-Event-ID 补发窗口内遗漏事件 ──
+describe('SSE /stream 断线 replay（#491）', () => {
+  function publish(eventType: string, eventId: string, data: Record<string, unknown>) {
+    eventBus.publish('events', {
+      event_type: eventType, event_id: eventId,
+      timestamp: '2026-09-11T00:00:00Z', data,
+    });
+  }
+
+  it('重连带 last-event-id：断线窗口内事件按序补发（含 channel.message_updated），connection.established 在其后', () => {
+    const a = connectClient();
+    const cursor = extractFrames(a).at(-1)!.id; // connection.established 的 id = 当前 seq
+
+    publish('channel.message_created', 'ev-c1', { channelId: 'ch-1', message: { id: 'm1' } });
+    publish('channel.message_updated', 'ev-u1', { channelId: 'ch-1', messageId: 'm1' });
+
+    const b = connectClient({ 'last-event-id': cursor });
+    const frames = extractFrames(b);
+    expect(frames).toHaveLength(3);
+    expect(frames[0].data.event_type).toBe('channel.message_created');
+    expect(frames[1].data.event_type).toBe('channel.message_updated');
+    // 按 seq 升序，且 connection.established 殿后（id = currentSeq ≥ 补发事件，游标不回退）
+    expect(Number(frames[0].id)).toBeLessThan(Number(frames[1].id));
+    expect(Number(frames[1].id)).toBeLessThanOrEqual(Number(frames[2].id));
+    expect(frames[2].data.clientId).toBeDefined();
+  });
+
+  it('补发按订阅 topics 过滤：不匹配的事件不重放', () => {
+    const a = connectClient({}, 'channels');
+    const cursor = extractFrames(a).at(-1)!.id;
+
+    publish('channel.message_created', 'ev-c2', { channelId: 'ch-1', message: { id: 'm2' } });
+    publish('task.updated', 'ev-t2', { taskId: 't-9' });
+
+    const b = connectClient({ 'last-event-id': cursor }, 'channels');
+    const frames = extractFrames(b);
+    // 仅 channels 事件 + connection.established
+    expect(frames.map(f => f.data.event_type)).toEqual(['channel.message_created', undefined]);
+  });
+
+  it('lastEventId 无法解析（旧版 uuid 游标）→ 不补发，仅 connection.established', () => {
+    const b = connectClient({ 'last-event-id': 'a1b2c3d4-e5f6-uuid' });
+    const frames = extractFrames(b);
+    expect(frames).toHaveLength(1);
+    expect(frames[0].data.clientId).toBeDefined();
+  });
+
+  it('lastEventId 早于 buffer 最老事件（有洞）→ 不补发，由前端 refetch 兜底', () => {
+    // 直推 buffer 越过容量制造淘汰（容量 500，推到最老 seq > 2）
+    for (let i = 0; i < 600; i++) sseReplayBuffer.push('all', 'task.updated', { i });
+    const b = connectClient({ 'last-event-id': '1' });
+    const frames = extractFrames(b);
+    expect(frames).toHaveLength(1);
+    expect(frames[0].data.clientId).toBeDefined();
   });
 });
