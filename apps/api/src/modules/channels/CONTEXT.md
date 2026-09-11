@@ -2,23 +2,25 @@
 
 ### 职责
 
-Channel 驱动管线入口：@Analyst 触发 → RequirementsDoc 生成 → Goal 创建 → 执行管线。
-包含 Analyst 全流程（scout+synth / direct 两条路径）、ContractTest 验证、SDD 文件写入。
+Channel 域：频道 CRUD/成员/路由表、消息创建与路由（replyTo 线程 / @mention 派单 / 决策12 默认角色）、情境引导建议推导、@文件引用词表、「当前 PMO」派生。
+
+需求主入口已不在本模块：@Analyst 管线（scout/synth、RequirementsDoc、ContractTest、产卡自动执行）已于 2026-07-08（658ac7ae）整体删除；现实链路 = PMO `publish` 建 plan WU（pmo/project.service）→ plan 内 TASK 拆分经 `pmo/analysis-handoff` 建 task 子单 → `agents/loop/review-dispatcher` 派评审。
 
 ### 核心导出
 
 | 模块 | 导出 | 职责 |
 |------|------|------|
-| analyst-trigger.service.ts | `AnalystTriggerService.trigger()` | 管线入口：DB 去重 → LLM 分析 → 验证 → SDD → 卡片 → 自动执行 |
-| analyst-executor.ts | `runClaudeCode()`, `sanitizeJson()`, `validateAnalystOutput()` | Claude Code 执行 + 4 层 JSON 解析链 + 输出验证 |
-| analyst-knowledge.ts | `perInvocationOutputFile()`, `loadKnowledge()`, `saveKnowledge()` | Analyst 输出路径 + knowledge.md 读写 |
-| analyst-prompt.ts | `buildAnalystPrompt()`, `buildRevisionPrompt()` | Analyst prompt 构建（含 scout/synth/revision） |
-| channel-message.service.ts | `channelMessageService` | 消息创建/更新/删除 + event 发布 |
-| contract-test-validator.ts | `validateContractTests()` | Layer 1-3 契约测试质量检查（AC coverage / TS syntax / import path） |
-| contract-test-red-check.ts | `verifyRedState()` | Layer 4 RED 状态验证 |
-| channel.routes.ts | Express router | Channel API 端点（消息/start_execution/cancel 等） |
+| channel-message.service.ts | `channelMessageService` / `ChannelMessageService` | 消息创建/更新/删除 + event/SSE 发布（系统消息唯一发布路径） |
+| message-routing.ts | `routeMessage()` / `detectMention()` | 消息路由：replyTo 线程回复 → @mention 派单 → 决策12 默认角色 → 纯文本存储 |
+| channel.routes.ts | Express router | Channel API 端点（消息/members/routing/suggestions/current-pmo/file-vocabulary 等） |
+| suggestions.ts | `deriveChannelSuggestions()` / `SUGGESTION_TIMING` | 情境引导片推导（status/action/prompt 三形态，fail-closed） |
 | routing.ts | `resolveStageRouting()` / `validateRouting()` / `routingFallbackText()` | #466 频道级「阶段→角色」路由表（plan/implement/review）解析与 PATCH 校验单一事实源 |
 | migrate-routing.ts | `migrateDefaultPipelineToRouting()` | #466 启动幂等迁移：存量 defaultPipeline 吞并入 routing.implement |
+| migrate-members.ts | `migrateProfileChannelsToMembers()` | 启动幂等迁移：AgentProfile.channels → channel.members 唯一事实源 |
+| current-pmo.ts | `deriveChannelCurrentPmo()` | 「当前 PMO」chip 派生（不落库现算） |
+| file-ref-vocabulary.ts | — | #281 @文件引用候选词表（git ls-files + 60s 进程内存缓存） |
+| convert-to-task.service.ts | `ConvertToTaskService` | 消息转任务（LLM 建议标题/描述/归属） |
+| channel-init.ts | `ensureDefaultChannels()` | 启动时默认频道初始化（三默认频道，members 空） |
 
 ### 依赖关系
 
