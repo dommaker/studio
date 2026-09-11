@@ -446,6 +446,15 @@ body,
   border-color: var(--accent-primary);
 }
 
+/* 表单 label（批次 H-1：吸收 style-guide §4.2 原四属性内联示例，根治其与规则 2 的条文矛盾） */
+.form-label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
 /* === 下拉选择组件（components/ui/Select，原生 select 的主题感知替代） === */
 /* 触发器视觉对齐 .input；选项面板 portal 到 body、fixed 定位（位置由组件行内注入） */
 .select-trigger {

@@ -58,7 +58,7 @@ export function StudioRoleSetupModal({ open, onClose, onSave }: StudioRoleSetupM
             系统内部任务（知识维护、诊断、提取等）需要选择一个 CLI 作为执行角色。
           </p>
           <div>
-            <label htmlFor="studio-provider-select" className="u-text" style={{ display: 'block', marginBottom: '4px', fontSize: 'var(--fs-sm)', fontWeight: 500 }}>选择 CLI</label>
+            <label htmlFor="studio-provider-select" className="form-label">选择 CLI</label>
             <Select
               id="studio-provider-select"
               className="input"

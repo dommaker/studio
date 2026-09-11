@@ -158,7 +158,7 @@ export function FirstRoleSetupModal({ open, onClose, onCreate, onJoinChannel }: 
             Agent Network 需要至少一个角色才能接收任务。请创建你的第一个角色。
           </p>
           <div className="mb-3">
-            <label htmlFor="first-role-name" className="u-text" style={{ display: 'block', marginBottom: '4px', fontSize: 'var(--fs-sm)', fontWeight: 500 }}>名称</label>
+            <label htmlFor="first-role-name" className="form-label">名称</label>
             <input
               id="first-role-name"
               type="text"
@@ -172,7 +172,7 @@ export function FirstRoleSetupModal({ open, onClose, onCreate, onJoinChannel }: 
             />
           </div>
           <div className="mb-3">
-            <label htmlFor="first-role-desc" className="u-text" style={{ display: 'block', marginBottom: '4px', fontSize: 'var(--fs-sm)', fontWeight: 500 }}>描述（可选）</label>
+            <label htmlFor="first-role-desc" className="form-label">描述（可选）</label>
             <input
               id="first-role-desc"
               type="text"
@@ -184,7 +184,7 @@ export function FirstRoleSetupModal({ open, onClose, onCreate, onJoinChannel }: 
             />
           </div>
           <div>
-            <label htmlFor="first-role-provider" className="u-text" style={{ display: 'block', marginBottom: '4px', fontSize: 'var(--fs-sm)', fontWeight: 500 }}>CLI</label>
+            <label htmlFor="first-role-provider" className="form-label">CLI</label>
             <Select
               id="first-role-provider"
               className="input"
