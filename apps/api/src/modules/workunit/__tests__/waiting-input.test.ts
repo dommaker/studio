@@ -158,13 +158,37 @@ describe('resumeWaitingWorkUnit', () => {
     expect(metaOf(await findWu(wu.id)).resumeCount).toBe(3);
   });
 
-  it('active WorkUnit（无 pendingReplies）不处理', async () => {
+  it('#499：active WorkUnit（无 pendingReplies）线程回复 → 入 pendingReplies 缓冲（不再静默吞掉），状态不动', async () => {
     const wu = await wuService.create({ scope: 't', channelId, type: 'task', status: 'active', assigneeId: 'i-1' });
 
     const resumed = await resumeWaitingWorkUnit(wu.id, 'hello', fileStore);
 
+    expect(resumed).toBe(true);
+    const after = await findWu(wu.id);
+    expect(after.status).toBe('active');
+    expect(metaOf(after).pendingReplies).toEqual(['hello']);
+  });
+
+  it('#499：active WorkUnit 执行中连续回复（缓冲空 → 有）逐条保留，下轮 prompt 注入', async () => {
+    const wu = await wuService.create({ scope: 't', channelId, type: 'task', status: 'active', assigneeId: 'i-1' });
+
+    await resumeWaitingWorkUnit(wu.id, '第一条', fileStore);
+    await resumeWaitingWorkUnit(wu.id, '第二条', fileStore);
+
+    const meta = metaOf(await findWu(wu.id));
+    expect(meta.pendingReplies).toEqual(['第一条', '第二条']);
+  });
+
+  it('in_review WorkUnit（终态审阅中）回复不缓冲 → false，不动状态', async () => {
+    const wu = await wuService.create({ scope: 't', channelId, type: 'task', status: 'active', assigneeId: 'i-1' });
+    await wuService.transitionStatus(wu.id, 'in_review');
+
+    const resumed = await resumeWaitingWorkUnit(wu.id, 'hello', fileStore);
+
     expect(resumed).toBe(false);
-    expect((await findWu(wu.id)).status).toBe('active');
+    const after = await findWu(wu.id);
+    expect(after.status).toBe('in_review');
+    expect(metaOf(after).pendingReplies).toBeUndefined();
   });
 
   it('WorkUnit 不存在 → false，不抛错', async () => {

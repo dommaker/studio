@@ -473,6 +473,26 @@ describe('Message Routing (AC-B1-B4)', () => {
       expect(meta.pendingReplies).toEqual(['看看情况']);
       expect(meta.resumeCount).toBe(1);
     });
+
+    it('#499：reply to ACTIVE WorkUnit（执行中、无 pendingReplies）→ 回复入 pendingReplies 缓冲，状态不动（不再低于 newReplies 水位线被吞）', async () => {
+      const wu = await workUnitService.create({
+        scope: '进行中的任务', channelId, type: 'task', status: 'active', assigneeId: 'instance-1',
+      });
+      const anchor: ChannelMessageData = {
+        id: uuidv4(), channelId, authorType: 'agent', agentName: 'f5-agent',
+        content: '开始执行', replyToId: null, meta: '{}',
+        workUnitId: wu.id, createdAt: new Date().toISOString(),
+      };
+      await fileStore.appendMessage(channelId, anchor);
+
+      const reply = await routeMessage(channelId, '顺便把文案改一下', anchor.id, fileStore);
+
+      expect(reply.workUnitId).toBe(wu.id);
+      const after = await findWu(wu.id);
+      expect(after!.status).toBe('active');
+      const meta = after!.metadata ? JSON.parse(after!.metadata) : {};
+      expect(meta.pendingReplies).toEqual(['顺便把文案改一下']);
+    });
   });
 
   // ── detectMention utility ──

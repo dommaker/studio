@@ -56,6 +56,8 @@ export function getReminderThresholdMs(env: NodeJS.ProcessEnv = process.env): nu
  * 回复「关闭」→ 显式关闭指令（见 closeOnHumanCommand）；其余回复 → 复活：
  * 重置 consecutiveStuck/blockReason、resumeCount 累加（D5 不限次观测钩子）、
  * timeoutReleaseCount 终身保留，回复原文追加进 pendingReplies 注入下一步 prompt。
+ * #499：active 中的 WU 收到回复同样入 pendingReplies 缓冲（下轮 prompt 必注入）——
+ * 不再依赖 observe 的 newReplies 水位线（updatedAt 被簿记推进后回复会低于水位线被吞）。
  * B3a: metadata.waitingReason === 'ownership' 时走工程归属解析（见 resolveOwnershipFromReply）。
  * @returns true = 回复已消费（复活/关闭/拒绝关闭均属已消费）
  */
@@ -71,8 +73,12 @@ export async function resumeWaitingWorkUnit(
 
   const metadata = parseWuMetadata(wu.metadata);
 
-  // 已恢复但 loop 尚未消费 pendingReplies 的窗口内，后续回复直接追加拼接
-  if (wu.status === 'active' && Array.isArray(metadata.pendingReplies) && metadata.pendingReplies.length > 0) {
+  // 已恢复但 loop 尚未消费 pendingReplies 的窗口内，后续回复直接追加拼接。
+  // #499：active 一律入缓冲（不再要求 pendingReplies 非空）——执行中的 WU 收到线程回复时，
+  // 若当前步簿记推进 updatedAt 越过回复 createdAt，回复会低于 observe 的 newReplies 水位线
+  // 永不注入 prompt（#493 残留盲区）；锁内入 pendingReplies 后由 recordResult 三段合成保留、
+  // 下一步 prompt-composer 必注入。in_review/done/closed 等无下一步的状态仍直返 false。
+  if (wu.status === 'active') {
     // #170（决策 #65-1）：锁内合并写追加——并发回复之间、回复与 recordResult 簿记之间互不冲掉
     await fileStore.updateMetadata(workUnitId, latest => ({
       ...latest,
@@ -288,6 +294,11 @@ export async function resumeBlockedWorkUnitFromWeb(
   fs?: FileStore,
 ): Promise<boolean> {
   const fileStore = fs ?? new FileStore();
+  // #499：复活原语对 active WU 改为缓冲回复（入 pendingReplies，不再返回 false）——
+  // 本通道契约保持 blocked-only（路由层同口径 409：仅 blocked 可「继续执行」），
+  // active/其他状态直返 false，不注占位文案、不发里程碑
+  const before = await new WorkUnitService(fileStore).getById(workUnitId);
+  if (!before || before.status !== 'blocked') return false;
   const resumed = await resumeWaitingWorkUnit(workUnitId, WEB_RESUME_PLACEHOLDER, fileStore);
   if (!resumed) return false;
 
