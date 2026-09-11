@@ -687,6 +687,11 @@
 /* 批次 E-3：SSE 新到达消息渐隐高亮（白名单③状态色切换）——accent-dim 底色，
    页面 2s 后移类，经 .mc-msg 基类 background-color 过渡渐隐常态 */
 .mc-msg-new { background-color: var(--accent-dim); }
+/* #486：乐观回显 pending 态——整行降不透明度作「发送中」灰色态，服务端本体替换后类随消息消失 */
+.mc-msg-pending { opacity: 0.55; }
+.mc-msg-pending-mark { font-size: var(--fs-xs); color: var(--text-tertiary); margin-left: 6px; }
+/* #493：线程回复「已送达/等待 agent」状态条——composer 上方一行轻量提示，agent 响应/超时即撤 */
+.mc-agent-ack { font-size: var(--fs-xs); color: var(--text-tertiary); padding: 4px 12px; }
 
 /* 按钮（Mission Control 密度） */
 .mc-btn {
@@ -842,7 +847,8 @@
   color: var(--text-muted);
   margin-top: 2px;
 }
-.mc-suggest-dismiss { margin-left: auto; }
+/* #484：片粒度 dismiss——片 + 各自 ✕ 由容器并排承载（原整组单个 ✕ 靠 margin-left:auto 右推，已删） */
+.mc-suggest-item { display: inline-flex; align-items: flex-start; gap: 2px; }
 
 .mc-input-reply {
   display: flex;
@@ -857,6 +863,23 @@
   color: var(--text-secondary);
 }
 .mc-input-reply-content { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-primary); }
+/* #485：composer 已挂文件引用 chip（台账可视化）；失效（正文被改得不含路径）标灰 + 「已失效」，不静默丢弃 */
+.mc-fileref-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
+.mc-fileref-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 6px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-subtle);
+  border-radius: 3px;
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+}
+.mc-fileref-path { font-family: var(--font-mono); color: var(--text-primary); }
+.mc-fileref-repo { color: var(--text-muted); }
+.mc-fileref-chip-invalid { opacity: 0.55; border-style: dashed; }
+.mc-fileref-invalid-mark { color: var(--text-muted); }
 .mc-input-row { display: flex; gap: 8px; align-items: flex-end; }
 .mc-input-row textarea {
   font: inherit;

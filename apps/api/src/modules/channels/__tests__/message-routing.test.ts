@@ -268,6 +268,41 @@ describe('Message Routing (AC-B1-B4)', () => {
     });
   });
 
+  // ── #492: 回复冷层父消息 → 频道系统提示（方案 a，不再静默失效）──
+
+  describe('#492: reply to cold-tier parent posts archive notice', () => {
+    it('父消息在冷层（热层不可见）→ 帖子成立 + Studio 系统提示挂在回复线程', async () => {
+      const reply = await routeMessage(channelId, '回复已归档话题', 'cold-parent-id', fileStore);
+
+      // 降级放行行为不变（#327）：帖子成立、workUnitId 落 null、不抛错
+      expect(reply.replyToId).toBe('cold-parent-id');
+      expect(reply.workUnitId ?? null).toBeNull();
+      // #492：频道给出明确反馈，Studio 系统提示挂在该回复线程
+      const msgs = await fileStore.queryMessages(channelId, {});
+      const notice = msgs.find(m =>
+        m.authorType === 'agent' && m.agentName === 'Studio' && m.content.includes('该话题已归档'),
+      );
+      expect(notice).toBeTruthy();
+      expect(notice!.content).toContain('回复不会触达任务');
+      expect(notice!.replyToId).toBe(reply.id);
+    });
+
+    it('热层父消息（正常回复路径）→ 不发归档提示', async () => {
+      const now = new Date().toISOString();
+      const original: ChannelMessageData = {
+        id: uuidv4(), channelId, authorType: 'human', agentName: null,
+        content: 'original', replyToId: null, meta: '{}', workUnitId: null, createdAt: now,
+      };
+      await fileStore.appendMessage(channelId, original);
+
+      const reply = await routeMessage(channelId, 'follow up', original.id, fileStore);
+
+      expect(reply.replyToId).toBe(original.id);
+      const msgs = await fileStore.queryMessages(channelId, {});
+      expect(msgs.find(m => m.content.includes('该话题已归档'))).toBeUndefined();
+    });
+  });
+
   // ── AC-B3: Thread @mention = feedback, no new WorkUnit ──
 
   describe('AC-B3: Thread @mention does not create new WorkUnit', () => {
@@ -530,6 +565,154 @@ describe('Message Routing (AC-B1-B4)', () => {
       const meta = wu!.metadata ? JSON.parse(wu!.metadata) : {};
       expect(meta.matched).toBe(true);
       expect(meta.mentionName).toBe('开发');
+    });
+  });
+
+  // ── #496: mention 手打中文连写——成员名最长前缀匹配兜底 ──
+
+  describe('#496: 手打连写 mention 的成员名前缀匹配兜底', () => {
+    function activeProfile(id: string, name: string): AgentProfileData {
+      return {
+        id, name, description: `test agent ${name}`,
+        channels: '[]', status: 'active', provider: null,
+        createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+      };
+    }
+
+    it('成员名前缀连写可命中（中文名）：@开发你好 → 成员「开发」，scope 保留剩余文本', async () => {
+      const dev = activeProfile('dev-agent-1', '开发');
+      await fileStore.createProfile(dev);
+      await fileStore.updateChannel(channelId, { members: JSON.stringify([dev.id]) });
+
+      const result = await routeMessage(channelId, '@开发你好', undefined, fileStore);
+
+      const wu = await findWu(result.workUnitId!);
+      expect(wu!.assigneeId).toBe(dev.id);
+      expect(wu!.scope).toBe('你好');
+      const meta = wu!.metadata ? JSON.parse(wu!.metadata) : {};
+      expect(meta.matched).toBe(true);
+      expect(meta.mentionName).toBe('开发');
+      // 命中即无 #464 未匹配提示
+      const msgs = await fileStore.queryMessages(channelId, { workUnitId: result.workUnitId! });
+      expect(msgs.find(m => m.content.includes('未找到角色'))).toBeUndefined();
+    });
+
+    it('多成员互为前缀取最长：成员「开发」「开发组长」，@开发组长看下 → 命中「开发组长」', async () => {
+      const dev = activeProfile('dev-agent-1', '开发');
+      const lead = activeProfile('lead-agent-1', '开发组长');
+      await fileStore.createProfile(dev);
+      await fileStore.createProfile(lead);
+      await fileStore.updateChannel(channelId, { members: JSON.stringify([dev.id, lead.id]) });
+
+      const result = await routeMessage(channelId, '@开发组长看下这个问题', undefined, fileStore);
+
+      const wu = await findWu(result.workUnitId!);
+      expect(wu!.assigneeId).toBe(lead.id);
+      expect(wu!.scope).toBe('看下这个问题');
+    });
+
+    it('等长歧义回退现状：两个同名 profile 并列最长 → 未匹配（转自动认领提示）', async () => {
+      const a = activeProfile('dup-agent-a', '开发');
+      const b = activeProfile('dup-agent-b', '开发');
+      await fileStore.createProfile(a);
+      await fileStore.createProfile(b);
+      await fileStore.updateChannel(channelId, { members: JSON.stringify([a.id, b.id]) });
+
+      // 精确匹配本身也歧义（find 取第一个）——用连写构造纯前缀歧义场景
+      const result = await routeMessage(channelId, '@开发你好', undefined, fileStore);
+
+      const wu = await findWu(result.workUnitId!);
+      expect(wu!.assigneeId).toBeNull();
+      const meta = wu!.metadata ? JSON.parse(wu!.metadata) : {};
+      expect(meta.matched).toBe(false);
+      const msgs = await fileStore.queryMessages(channelId, { workUnitId: result.workUnitId! });
+      const notice = msgs.find(m => m.authorType === 'agent' && m.content.includes('未找到角色'));
+      expect(notice).toBeTruthy();
+    });
+
+    it('非成员文本不误命中：成员为界——「开发」在册但非本频道成员 → 行为同现状', async () => {
+      const outsider = activeProfile('outsider-dev', '开发');
+      await fileStore.createProfile(outsider);
+      await fileStore.updateChannel(channelId, { members: JSON.stringify(['some-other-profile']) });
+
+      const result = await routeMessage(channelId, '@开发团队 看一下', undefined, fileStore);
+
+      const wu = await findWu(result.workUnitId!);
+      expect(wu!.assigneeId).toBeNull();
+      const meta = wu!.metadata ? JSON.parse(wu!.metadata) : {};
+      expect(meta.matched).toBe(false);
+    });
+
+    it('无此成员时行为同现状：@开发团队 无成员「开发」→ matched=false + 未找到角色提示', async () => {
+      const result = await routeMessage(channelId, '@开发团队 看一下', undefined, fileStore);
+
+      const wu = await findWu(result.workUnitId!);
+      expect(wu!.assigneeId).toBeNull();
+      const meta = wu!.metadata ? JSON.parse(wu!.metadata) : {};
+      expect(meta.matched).toBe(false);
+      const msgs = await fileStore.queryMessages(channelId, { workUnitId: result.workUnitId! });
+      const notice = msgs.find(m => m.authorType === 'agent' && m.content.includes('未找到角色'));
+      expect(notice).toBeTruthy();
+      expect(notice!.content).toContain('开发团队');
+    });
+  });
+
+  // ── #494: 派单建 WU 与派发消息非原子 → anchorMessageId 显式传递消竞态 ──
+
+  describe('#494 派单线程单根（anchorMessageId 显式传递）', () => {
+    it('@mention 派单：WU metadata.anchorMessageId = 派发消息 id，派发消息回填 workUnitId', async () => {
+      await createTestAgent(fileStore, 'AnchorAgent');
+
+      const result = await routeMessage(channelId, '@AnchorAgent 处理这个任务', undefined, fileStore);
+
+      const wu = await findWu(result.workUnitId!);
+      expect(wu).not.toBeNull();
+      const meta = wu!.metadata ? JSON.parse(wu!.metadata) : {};
+      expect(meta.anchorMessageId).toBe(result.id);
+      const stored = await fileStore.getMessageById(result.id);
+      expect(stored!.message.workUnitId).toBe(wu!.id);
+    });
+
+    it('竞态时序：created 处理器内同步抢跑认领 → 认领播报锚在派发消息下，线程单根', async () => {
+      await createTestAgent(fileStore, 'RaceAgent');
+      // 构造竞态：eventBus.publish 同步派发、不等待订阅侧（event-bus.ts），
+      // 在 created 处理器内立即认领并发声——复刻 agent-loop observe→claim→announce
+      // 与派发消息落库的抢跑（#494 票体时序）。修复后 anchor 取自 WU metadata
+      // （建单时已落档），不依赖 findAnchorMessage 的落库先后。
+      const { claimWorkUnitAndAnnounce } = await import('../../workunit/claim-announce.js');
+      let claimed: Promise<unknown> | null = null;
+      const handler = (payload: { workunit: { id: string } }) => {
+        claimed = claimWorkUnitAndAnnounce(payload.workunit.id, 'instance-race', 'RaceAgent', {
+          wuService: workUnitService, fileStore,
+        });
+      };
+      eventBus.subscribe('workunit.created', handler);
+      try {
+        // 显式 workspaceId：跳过 B3a 无归属挂起（blocked 不可认领），聚焦 anchor 竞态本身
+        const result = await routeMessage(channelId, '@RaceAgent 抢跑认领', undefined, fileStore, { workspaceId: 'ws-race' });
+        await claimed;
+
+        const msgs = await fileStore.queryMessages(channelId, { workUnitId: result.workUnitId! });
+        const roots = msgs.filter(m => !m.replyToId);
+        expect(roots.map(m => m.id)).toEqual([result.id]);
+        const announce = msgs.find(m => m.content.includes('已认领任务'));
+        expect(announce).toBeDefined();
+        expect(announce!.replyToId).toBe(result.id);
+      } finally {
+        eventBus.unsubscribe('workunit.created', handler);
+      }
+    });
+
+    it('决策 12 频道默认角色派单：同样落 anchorMessageId + 回填 workUnitId', async () => {
+      await fileStore.updateChannel(channelId, { defaultProfileId: 'default-agent-1' });
+
+      const result = await routeMessage(channelId, '没有点名的消息', undefined, fileStore);
+
+      const wu = await findWu(result.workUnitId!);
+      const meta = wu!.metadata ? JSON.parse(wu!.metadata) : {};
+      expect(meta.anchorMessageId).toBe(result.id);
+      const stored = await fileStore.getMessageById(result.id);
+      expect(stored!.message.workUnitId).toBe(wu!.id);
     });
   });
 });

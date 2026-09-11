@@ -48,6 +48,39 @@ describe('ChannelWorkBar — 频道工作条', () => {
     expect(container.querySelector('.mc-workbar-livelist')).toBeNull();
   });
 
+  // #488：占位三态区分——加载（端点未返回/失败/skew）/ 空闲（端点返回 currentWuId=null）/ 有 currentWu
+  it('#488 空闲态：wuIdle=true 且无 currentWu 无 live → 空闲文案，不再显示「状态同步中」', () => {
+    mockUseChannelLiveExecutions.mockReturnValue([]);
+    const { container } = render(<ChannelWorkBar channelId="ch-1" currentWu={null} onOpenWorkUnit={() => {}} wuIdle />);
+    expect(screen.getByText('频道暂无进行中的工作')).toBeTruthy();
+    expect(screen.queryByText('状态同步中…')).toBeNull();
+    expect(stationEls(container)).toHaveLength(0);
+    expect(container.querySelector('.mc-workbar-livelist')).toBeNull();
+  });
+
+  it('#488 加载态（默认）：不传 wuIdle → 保持「状态同步中…」（端点未返回/请求失败不误显空闲）', () => {
+    mockUseChannelLiveExecutions.mockReturnValue([]);
+    render(<ChannelWorkBar channelId="ch-1" currentWu={null} onOpenWorkUnit={() => {}} />);
+    expect(screen.getByText('状态同步中…')).toBeTruthy();
+    expect(screen.queryByText('频道暂无进行中的工作')).toBeNull();
+  });
+
+  it('#488 有 currentWu：wuIdle 不影响——仍渲染阶段条主区，无占位', () => {
+    mockUseChannelLiveExecutions.mockReturnValue([]);
+    const { container } = render(<ChannelWorkBar channelId="ch-1" currentWu={wu({ status: 'active' })} onOpenWorkUnit={() => {}} wuIdle />);
+    expect(stationEls(container)).toHaveLength(4);
+    expect(screen.queryByText('频道暂无进行中的工作')).toBeNull();
+    expect(screen.queryByText('状态同步中…')).toBeNull();
+  });
+
+  it('#488 空闲 + 有 live → 渲染 live 列表而非空闲占位', () => {
+    mockUseChannelLiveExecutions.mockReturnValue([{ workUnitId: 'WU-1018', step: 1 }]);
+    render(<ChannelWorkBar channelId="ch-1" currentWu={null} onOpenWorkUnit={() => {}} wuIdle />);
+    expect(screen.getByText(/WU-1018 正在执行/)).toBeTruthy();
+    expect(screen.queryByText('频道暂无进行中的工作')).toBeNull();
+    expect(screen.queryByText('状态同步中…')).toBeNull();
+  });
+
   it('无 currentWu 有 active → 仅 live 列表（WU 短 id + 步号 + action）；点击开抽屉', () => {
     mockUseChannelLiveExecutions.mockReturnValue([
       { workUnitId: 'WU-1018', step: 3, action: 'progress' },

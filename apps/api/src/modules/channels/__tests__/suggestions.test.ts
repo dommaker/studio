@@ -117,7 +117,7 @@ describe('deriveChannelSuggestions（推导骨架）', () => {
   it('无 WU + 有成员 → currentWuId=null，不出片', async () => {
     await setMembers(['profile-exec']);
     const r = await deriveChannelSuggestions(CHANNEL_ID, { fileStore });
-    expect(r).toEqual({ currentWuId: null, suggestions: [] });
+    expect(r).toEqual({ currentWuId: null, suggestions: [], degraded: false });
   });
 
   // #465（首用路径断点）：空转频道（无当前工单）+ 成员为空 → 出只读提示片
@@ -127,6 +127,7 @@ describe('deriveChannelSuggestions（推导骨架）', () => {
     expect(r).toEqual({
       currentWuId: null,
       suggestions: [{ id: 'channel-no-members', kind: 'status', params: {} }],
+      degraded: false,
     });
   });
 
@@ -466,9 +467,79 @@ describe('deriveChannelSuggestions（推导骨架）', () => {
     expect(r.currentWuId).toBe(parent.id);
   });
 
+  // ─── #487：currentWu 拣选粘性（多单并行不抖动） ───
+
+  /** 直接改快照 updatedAt（模拟 loop 每步簿记 bump，不经状态流转） */
+  async function bumpUpdatedAt(wuId: string, iso: string) {
+    const s = (await fileStore.getIndex()).find(x => x.id === wuId)!;
+    await fileStore.upsertSnapshot({ ...s, updatedAt: iso });
+  }
+
+  it('#487：双活跃 WU 交替簿写 → currentWuId 不抖动（领先未超粘性窗口不切换）', async () => {
+    const a = await createParent({ status: 'active', title: '工单A' });
+    const b = await createParent({ status: 'active', title: '工单B' }); // 后建，updatedAt 最新
+
+    const first = await deriveChannelSuggestions(CHANNEL_ID, { fileStore });
+    expect(first.currentWuId).toBe(b.id);
+
+    // 交替簿写（loop 每步 metadata 簿记都 bump updatedAt）：A 短暂领先 → 不切换；
+    // B 再簿写 → 仍 B；A 再领先 → 仍 B。现任未终态且挑战者领先未超窗口 → 保持现任。
+    const t0 = Date.now();
+    await bumpUpdatedAt(a.id, new Date(t0 + 1_000).toISOString());
+    expect((await deriveChannelSuggestions(CHANNEL_ID, { fileStore })).currentWuId).toBe(b.id);
+    await bumpUpdatedAt(b.id, new Date(t0 + 2_000).toISOString());
+    expect((await deriveChannelSuggestions(CHANNEL_ID, { fileStore })).currentWuId).toBe(b.id);
+    await bumpUpdatedAt(a.id, new Date(t0 + 3_000).toISOString());
+    expect((await deriveChannelSuggestions(CHANNEL_ID, { fileStore })).currentWuId).toBe(b.id);
+  });
+
+  it('#487：现任转入终态 → 立即切换到下一候选（不等粘性窗口）', async () => {
+    const a = await createParent({ status: 'active', title: '工单A' });
+    const b = await createParent({ status: 'active', title: '工单B' });
+    expect((await deriveChannelSuggestions(CHANNEL_ID, { fileStore })).currentWuId).toBe(b.id);
+
+    // b 关闭（终态）——updatedAt 仍最新，但终态现任立即让位
+    await bumpUpdatedAt(b.id, nowIso());
+    const s = (await fileStore.getIndex()).find(x => x.id === b.id)!;
+    await fileStore.upsertSnapshot({ ...s, status: 'closed' });
+
+    const r = await deriveChannelSuggestions(CHANNEL_ID, { fileStore });
+    expect(r.currentWuId).toBe(a.id);
+  });
+
+  it('#487：现任长时间静默（挑战者 updatedAt 领先超粘性窗口）→ 切换', async () => {
+    const stickyMs = SUGGESTION_TIMING.currentWuStickyMs;
+    const a = await createParent({ status: 'active', title: '工单A' });
+    const b = await createParent({ status: 'active', title: '工单B' });
+    expect((await deriveChannelSuggestions(CHANNEL_ID, { fileStore })).currentWuId).toBe(b.id);
+
+    // b 静默不动，a 持续活跃至领先超过窗口 → 切换（现任已长时间静默，粘性解除）
+    const bSnap = (await fileStore.getIndex()).find(x => x.id === b.id)!;
+    await bumpUpdatedAt(a.id, new Date(Date.parse(bSnap.updatedAt) + stickyMs + 60_000).toISOString());
+
+    const r = await deriveChannelSuggestions(CHANNEL_ID, { fileStore });
+    expect(r.currentWuId).toBe(a.id);
+  });
+
   it('频道不存在 → 空结果不抛出（fail-closed）', async () => {
     const r = await deriveChannelSuggestions('ch-not-exist', { fileStore });
-    expect(r).toEqual({ currentWuId: null, suggestions: [] });
+    expect(r).toEqual({ currentWuId: null, suggestions: [], degraded: false });
+  });
+
+  // #490：fail-closed 可观测——推导内部读取失败被吞时 degraded=true（仍空 suggestions，
+  // 语义不变），正常路径 degraded=false；前端据此区分「真无建议」与「推导失败被吞」
+  it('#490：内部读取失败（getIndex 抛错）→ degraded=true + 空 suggestions（fail-closed 语义不变）', async () => {
+    vi.spyOn(fileStore, 'getIndex').mockRejectedValueOnce(new Error('index corrupted'));
+    const r = await deriveChannelSuggestions(CHANNEL_ID, { fileStore });
+    expect(r).toEqual({ currentWuId: null, suggestions: [], degraded: true });
+  });
+
+  it('#490：失败恢复后正常推导 → degraded=false（degraded 不是粘性状态）', async () => {
+    vi.spyOn(fileStore, 'getIndex').mockRejectedValueOnce(new Error('index corrupted'));
+    const failed = await deriveChannelSuggestions(CHANNEL_ID, { fileStore });
+    expect(failed.degraded).toBe(true);
+    const ok = await deriveChannelSuggestions(CHANNEL_ID, { fileStore });
+    expect(ok.degraded).toBe(false);
   });
 
   // ─── #447：「出片 ⟺ 前置条件成立」双向不变量全状态覆盖 ───
@@ -671,7 +742,28 @@ describe('channel routes（#443）：GET /:id/suggestions', () => {
     expect(body.data).toEqual({
       currentWuId: null,
       suggestions: [{ id: 'channel-no-members', kind: 'status', params: {} }],
+      degraded: false,
     });
+  });
+
+  // #490：推导失败被吞 → 契约 degraded=true 透传到 HTTP 层（仍 200 + 空 suggestions，fail-closed 语义不变）
+  it('#490：推导内部读取失败 → data.degraded=true + 空 suggestions（200 不 5xx）', async () => {
+    const res = await fetch(baseUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'ch-suggestions-degraded', type: 'rnd' }),
+    });
+    const channel = (await res.json()).data;
+
+    const spy = vi.spyOn(FileStore.prototype, 'getIndex').mockRejectedValueOnce(new Error('index corrupted'));
+    try {
+      const r = await fetch(`${baseUrl}/${channel.id}/suggestions`);
+      expect(r.status).toBe(200);
+      const body = await r.json();
+      expect(body.data).toEqual({ currentWuId: null, suggestions: [], degraded: true });
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it('in_review + 活跃 review 子单 → data 携带 status 形态建议（结构化 params，无自由文案）', async () => {

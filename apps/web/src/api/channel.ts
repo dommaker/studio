@@ -13,6 +13,8 @@ export interface ChannelMessage {
   meta?: string | Record<string, unknown>;
   /** #326：骨架标记——数据层降级产物，content/meta 大头已剥离，结构字段仍在（ADR 2026-08-25） */
   degraded?: boolean;
+  /** #486：乐观回显本地标记（仅客户端 pending 态，服务端不下发；成功被本体替换、失败回滚） */
+  pending?: boolean;
   createdAt: string;
 }
 
@@ -96,6 +98,12 @@ export interface ChannelSuggestion {
 export interface ChannelSuggestions {
   currentWuId: string | null;
   suggestions: ChannelSuggestion[];
+  /**
+   * #490：fail-closed 可观测标志——推导内部读取失败被吞时 true（此时 suggestions 必为空）；
+   * 正常路径（含「确实无建议」）false。前端仅 console 记录 + 不落「已返回」台账
+   * （ChannelWorkBar 占位保持加载态而非误显空闲），不出任何 UI。
+   */
+  degraded?: boolean;
 }
 
 export const channelApi = {

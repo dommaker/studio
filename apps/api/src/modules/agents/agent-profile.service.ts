@@ -11,7 +11,7 @@ import { randomUUID } from 'crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import yaml from 'js-yaml';
-import { eventBus, FileStore, parseChannels, stringifyChannels, type AgentProfileData } from '@dommaker/studio-shared';
+import { eventBus, FileStore, parseChannels, stringifyChannels, type AgentProfileData, type ChannelData } from '@dommaker/studio-shared';
 import { resolveDefaultProvider } from './default-provider.js';
 import { summarizeRoleStates } from './agent-instance.service.js';
 
@@ -345,14 +345,21 @@ export class AgentProfileService {
 
     await this.fileStore.deleteProfile(id);
     // 清理 channel.members 中的悬空引用（channel.members 是成员关系唯一事实源）
+    // #497: 同步收敛 channel.routing 中指名该 profile 的档（归一化为 null，其他档不动）——
+    // 否则悬空指名此后每次派生单都触发 fallback 提醒，配置漂移无人修。
     const channels = await this.fileStore.listChannels();
     for (const ch of channels) {
       const ids = parseChannels(ch.members);
-      if (ids.includes(id)) {
-        await this.fileStore.updateChannel(ch.id, {
-          members: JSON.stringify(ids.filter(m => m !== id)),
-        });
-      }
+      const memberHit = ids.includes(id);
+      const routing = ch.routing;
+      const routingHit = routing != null && Object.values(routing).some(v => v === id);
+      if (!memberHit && !routingHit) continue;
+      await this.fileStore.updateChannel(ch.id, {
+        ...(memberHit ? { members: JSON.stringify(ids.filter(m => m !== id)) } : {}),
+        ...(routingHit
+          ? { routing: Object.fromEntries(Object.entries(routing!).map(([k, v]) => [k, v === id ? null : v])) as ChannelData['routing'] }
+          : {}),
+      });
     }
     // F1: notify AgentLoopRegistry (unmounts the loop)
     eventBus.publish('agent-profile.deleted', { profileId: id });

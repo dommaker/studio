@@ -39,6 +39,8 @@ export function useChannelMessages(channelId: string | undefined, options?: UseC
   const [messages, setMessages] = useState<ChannelMessage[]>([]);
   // 初值覆盖挂载首拉；channelId undefined→defined 的上升沿由下方渲染期分支补齐
   const [loading, setLoading] = useState(!!channelId);
+  // #482：首拉/兜底轮询失败暴露 error 态（原仅 console.error → 页面把加载故障渲染成假空态）
+  const [error, setError] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(false);
   const { onEvent } = useWebSocketContext();
 
@@ -48,6 +50,7 @@ export function useChannelMessages(channelId: string | undefined, options?: UseC
   if (prevChannelId !== channelId) {
     setPrevChannelId(channelId);
     if (channelId) setLoading(true);
+    setError(null);
   }
 
   // #328：记录当前已完成首拉的频道——同频道 refetch 走合并，首拉/频道切换仍替换
@@ -77,8 +80,11 @@ export function useChannelMessages(channelId: string | undefined, options?: UseC
         setHasMore(res.data.hasMore);
         loadedChannelRef.current = channelId;
       }
+      setError(null);
     } catch (err) {
       console.error('[Channel] Failed to fetch messages', err);
+      // #482：error 态供页面区分「加载失败（可重试）/ 真空频道」；已加载消息不清空
+      setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
@@ -132,18 +138,38 @@ export function useChannelMessages(channelId: string | undefined, options?: UseC
     return unsub;
   }, [channelId, onEvent]);
 
+  // #486：乐观回显——本地 pending 消息（id 前缀 pending-，仅客户端）随发送即插入，
+  // 不再等 REST 往返；成功后服务端本体原位替换（SSE 回声先到则已按 id 插入，替换同样收敛
+  // 不重复）；失败回滚 pending + 上抛（ChannelInput 回灌草稿 + toast 的既有路径不变）
   const sendMessage = useCallback(async (content: string, replyToId?: string, files?: FileRef[]) => {
     if (!channelId || !content.trim()) return null;
-    const res = await channelApi.sendMessage(channelId, content, replyToId, files);
-    const msg = res.data.data;
-    setMessages(prev => insertMessage(prev, msg));
-    return msg;
+    const pendingId = `pending-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const pendingMsg: ChannelMessage = {
+      id: pendingId,
+      channelId,
+      authorType: 'human',
+      content,
+      replyToId: replyToId ?? null,
+      createdAt: new Date().toISOString(),
+      pending: true,
+    };
+    setMessages(prev => insertMessage(prev, pendingMsg));
+    try {
+      const res = await channelApi.sendMessage(channelId, content, replyToId, files);
+      const msg = res.data.data;
+      setMessages(prev => insertMessage(prev.filter(m => m.id !== pendingId), msg));
+      return msg;
+    } catch (err) {
+      setMessages(prev => prev.filter(m => m.id !== pendingId));
+      throw err;
+    }
   }, [channelId]);
 
   // #290（清单 #22）：返回是否真实前插（供调用方在失败/无更多时清理行锚点，防视口乱跳）
   const loadMore = useCallback(async (): Promise<boolean> => {
     if (!channelId || !hasMore) return false;
-    const oldest = messages[0];
+    // #486：游标取最老非 pending 消息——pending 是本地乐观 id，服务端不存在，作锚点会翻出空页
+    const oldest = messages.find(m => !m.pending);
     if (!oldest) return false;
     try {
       // #319：游标 = 锚点消息 id（原 createdAt 时间戳同毫秒撞车会漏/重）
@@ -211,5 +237,5 @@ export function useChannelMessages(channelId: string | undefined, options?: UseC
     if (plan.hydrateBefore) scheduleHydration(plan.hydrateBefore);
   }, [scheduleHydration]);
 
-  return { messages, loading, hasMore, sendMessage, loadMore, refresh: fetchMessages, syncPruning };
+  return { messages, loading, error, hasMore, sendMessage, loadMore, refresh: fetchMessages, syncPruning };
 }

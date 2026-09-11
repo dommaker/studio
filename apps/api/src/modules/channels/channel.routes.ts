@@ -17,7 +17,7 @@ import { getChannelFileVocabulary } from './file-ref-vocabulary.js';
 import { deriveChannelCurrentPmo } from './current-pmo.js';
 import { deriveChannelSuggestions } from './suggestions.js';
 import { getErrorMessage } from '../../utils/errors.js';
-import { validateRouting } from './routing.js';
+import { validateRouting, buildMemberRemovalWarning } from './routing.js';
 
 const router = Router();
 const fileStore = new FileStore();
@@ -358,9 +358,17 @@ router.patch('/:id/members', requireAuth(), requireNotGuest(), async (req, res) 
   const { add, remove } = req.body;
   try {
     const members = await updateChannelMembers(req.params.id, { add, remove });
+    // #497: 移出被指名角色（routing 档/入口角色）→ 响应附 warning 提示漂移（不阻断，
+    // 与现有校验严格度对齐——指名静默退化为涌现前给人一次知情机会）
+    const removed: string[] = Array.isArray(remove) ? remove.filter((x): x is string => typeof x === 'string') : [];
+    let warning: string | undefined;
+    if (removed.length > 0) {
+      const channel = await fileStore.getChannel(req.params.id);
+      if (channel) warning = buildMemberRemovalWarning(channel, removed);
+    }
     // #448 问题1：members 在列表载荷中，写后失效 channels 列表缓存（30s apiCache）
     await clearCache(req.baseUrl);
-    res.json({ success: true, data: { members } });
+    res.json({ success: true, data: { members, ...(warning ? { warning } : {}) } });
   } catch (e: unknown) {
     const msg = getErrorMessage(e);
     if (msg.includes('not found')) {

@@ -23,11 +23,25 @@ describe('SuggestionChips', () => {
     expect(onPick).toHaveBeenCalledTimes(1);
   });
 
-  it('dismiss 按钮 → onDismiss', () => {
+  // #484：片粒度 dismiss——每片独立 ✕，点击只上送本片（不再一键清全部）
+  it('每片独立 ✕：点击只上送该片给 onDismiss，其余片保留', () => {
     const onDismiss = vi.fn();
     render(<SuggestionChips suggestions={SUGGESTIONS} onPick={() => {}} onDismiss={onDismiss} />);
-    fireEvent.click(screen.getByLabelText('关闭建议'));
+    const dismissBtns = screen.getAllByRole('button', { name: /关闭建议/ });
+    expect(dismissBtns).toHaveLength(2); // 每片各一 ✕，不再有整组清全部按钮
+    fireEvent.click(dismissBtns[0]);
     expect(onDismiss).toHaveBeenCalledTimes(1);
+    expect(onDismiss).toHaveBeenCalledWith(SUGGESTIONS[0]); // 只上送被点片
+    // 组件纯展示：台账由调用方记账，未被 dismiss 的片仍在
+    expect(screen.getByText('@developer 锁定实现契约')).toBeTruthy();
+  });
+
+  it('status 形态片同样带独立 ✕（dismiss 覆盖三形态）', () => {
+    const onDismiss = vi.fn();
+    const statusItem = { id: 'auto-review-in-flight', kind: 'status' as const, label: '等待自动评审：《登录功能》' };
+    render(<SuggestionChips suggestions={[statusItem]} onPick={() => {}} onDismiss={onDismiss} />);
+    fireEvent.click(screen.getByRole('button', { name: /关闭建议/ }));
+    expect(onDismiss).toHaveBeenCalledWith(statusItem);
   });
 
   // #442：in_review 片收窄——label 标注「可选」、hint 说明点击后果；预填内容（text）不污染

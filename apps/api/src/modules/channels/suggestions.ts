@@ -16,7 +16,8 @@
  * waitingForInput 且无 loop 在处理）与「转写审查清单」（前置门禁窗口：评审未派发），
  * 预填指令本体由 text 字段承载，点击预填进输入框、人可编辑后发送，走既有 @mention
  * 消息路由（不建确定性接口）。
- * 顶层容错：任何一步失败 → 空结果 + warn，派生绝不抛出（同 current-pmo 原则）。
+ * 顶层容错：任何一步失败 → 空结果 + warn + degraded=true（#490：失败被吞 ≠ 无建议，
+ * 标志透出给前端做可观测区分，fail-closed 语义不变），派生绝不抛出（同 current-pmo 原则）。
  */
 import { logger, parseChannels, deriveDisplayState, FileStore, type WorkUnitSnapshot } from '@dommaker/studio-shared';
 import { summarizeRoleStates } from '../agents/agent-instance.service.js';
@@ -35,6 +36,10 @@ export const SUGGESTION_TIMING = {
   /** 无人认领宽限（#445）：WU unassigned 且有在线成员 loop 时，该窗口内不出认领片
    *  （claim 轮询 15s 节奏下在线 loop 大概率已涌现认领；对齐对账扫描 5min 档，不发明新量级） */
   unassignedClaimGraceMs: 5 * 60 * 1000,
+  /** currentWu 拣选粘性窗口（#487）：现任非终态时，挑战者 updatedAt 须领先现任超过该窗口
+   *  才切换——loop 每步 metadata 簿记都 bump updatedAt，多单并行交替簿写不应让
+   *  阶段条/引导片来回跳。对齐对账扫描 5min 档，不发明新量级。 */
+  currentWuStickyMs: 5 * 60 * 1000,
 } as const;
 
 /** 建议三形态（#441）：status 只读说明 / action 确定性动作 / prompt 预填建议 */
@@ -57,6 +62,12 @@ export interface ChannelSuggestion {
 export interface ChannelSuggestionsResult {
   currentWuId: string | null;
   suggestions: ChannelSuggestion[];
+  /**
+   * #490：fail-closed 可观测标志——推导内部读取失败被吞时为 true（仍空 suggestions，
+   * fail-closed 语义不变）；正常路径（含「确实无建议」）为 false。非粘性状态，
+   * 每次调用按本次推导现算。前端仅 console 记录，不打扰用户。
+   */
+  degraded: boolean;
 }
 
 export interface ChannelSuggestionsDeps {
@@ -65,12 +76,24 @@ export interface ChannelSuggestionsDeps {
   now?: Date;
 }
 
-const EMPTY: ChannelSuggestionsResult = { currentWuId: null, suggestions: [] };
+/** 推导内部结果（不含 degraded——该标志由外层按「本次推导是否抛错」现算，非粘性） */
+type DeriveInner = { currentWuId: string | null; suggestions: ChannelSuggestion[] };
+
+const EMPTY: DeriveInner = { currentWuId: null, suggestions: [] };
 
 /** 不可自动评审的 WU 类型（同 ReviewDispatcher 路径 A / dispatch-reconciliation 口径；#471 含 plan） */
 function isAutoReviewable(wu: WorkUnitSnapshot): boolean {
   return wu.type !== 'review' && !MANUAL_GATE_TYPES.has(wu.type);
 }
+
+/**
+ * currentWu 现任记忆（#487）：进程内 per-channel 粘性，不落库——派生仍是纯推导，
+ * 进程重启即按当前事实重选（与「不落库每次现算」语义一致，粘性只是抗抖动的滞后）。
+ * 无状态的阈值规则无法区分「现任自己簿写 bump」与「挑战者超车」（对称规则两者同形），
+ * 故粘性必须记忆现任；进程内 Map 是最小实现。key = channelId，value = 现任 wuId；
+ * 现任从候选集消失（换频道数据/终态让位）时自然被覆盖，无需清理。
+ */
+const currentWuIncumbent = new Map<string, string>();
 
 /**
  * 频道当前 WU = 非终态（派生列非 done/closed）中 updatedAt 最新者；全终态回退最新者；空 → null。
@@ -81,8 +104,12 @@ function isAutoReviewable(wu: WorkUnitSnapshot): boolean {
  * 否则父单一进 in_review 子单即建、updatedAt 恒新，当前工单永远是子单，
  * 「等待自动评审」状态说明永远不触发（前端静态版即有此盲区）。故拣选时排除
  * review 子单；频道内只剩 review 子单时回退全集口径（不编造）。
+ *
+ * 粘性（#487）：现任非终态且仍在候选集时，仅当挑战者 updatedAt 领先现任超过
+ * SUGGESTION_TIMING.currentWuStickyMs 才切换（现任长时间静默 = 粘性解除）；
+ * 现任终态/消失立即让位给最新候选。
  */
-function pickCurrentWuSnapshot(wus: WorkUnitSnapshot[]): WorkUnitSnapshot | null {
+function pickCurrentWuSnapshot(wus: WorkUnitSnapshot[], channelId: string): WorkUnitSnapshot | null {
   if (wus.length === 0) return null;
   const byUpdatedDesc = (list: WorkUnitSnapshot[]) =>
     [...list].sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
@@ -94,7 +121,19 @@ function pickCurrentWuSnapshot(wus: WorkUnitSnapshot[]): WorkUnitSnapshot | null
   const mainline = wus.filter(w => !isReviewChild(w));
   const candidates = mainline.length > 0 ? mainline : wus;
   const byUpdated = byUpdatedDesc(candidates);
-  return byUpdated.find(w => !terminal(w)) ?? byUpdated[0];
+  const fresh = byUpdated.find(w => !terminal(w)) ?? byUpdated[0];
+
+  const incumbentId = currentWuIncumbent.get(channelId);
+  const incumbent = incumbentId ? candidates.find(w => w.id === incumbentId) : undefined;
+  let picked = fresh;
+  if (incumbent && !terminal(incumbent)) {
+    // 现任仍活跃：挑战者（fresh = 非终态最新者）领先未超窗口 → 保持现任抗抖动；
+    // 领先超窗口 = 现任已长时间静默 → 切换。fresh 即现任时 leadMs=0，天然保持。
+    const leadMs = Date.parse(fresh.updatedAt) - Date.parse(incumbent.updatedAt);
+    if (leadMs <= SUGGESTION_TIMING.currentWuStickyMs) picked = incumbent;
+  }
+  currentWuIncumbent.set(channelId, picked.id);
+  return picked;
 }
 
 /** 未完结 review 子单（同 dispatch-reconciliation / #442 判据：parentId 命中 + type=review + 非 done/closed） */
@@ -130,19 +169,34 @@ async function hasOnlineMemberLoop(fileStore: FileStore, memberIds: string[]): P
 
 /**
  * 推导频道建议。fail-closed：前置条件不满足/事实缺失/读取失败 → 空结果。
+ * #490：读取失败被吞 ≠ 「确实无建议」——失败路径 degraded=true（仍空 suggestions），
+ * 正常路径 degraded=false，前端据此区分两态（仅记录，不打扰用户）。
  */
 export async function deriveChannelSuggestions(
   channelId: string,
   deps: ChannelSuggestionsDeps = {},
 ): Promise<ChannelSuggestionsResult> {
+  try {
+    return { ...(await deriveChannelSuggestionsInner(channelId, deps)), degraded: false };
+  } catch (err) {
+    logger.warn('[ChannelSuggestions] derive failed (fail-closed → empty)', { channelId, error: String(err) });
+    return { ...EMPTY, degraded: true };
+  }
+}
+
+/** 推导本体（抛错由外层兜底转 degraded=true；自身只表达「事实推导结果」） */
+async function deriveChannelSuggestionsInner(
+  channelId: string,
+  deps: ChannelSuggestionsDeps,
+): Promise<DeriveInner> {
   const fileStore = deps.fileStore ?? new FileStore();
   const now = deps.now ?? new Date();
-  try {
+  {
     const channel = await fileStore.getChannel(channelId);
     if (!channel) return EMPTY;
 
     const channelWus = (await fileStore.getIndex()).filter(s => s.channelId === channelId);
-    const current = pickCurrentWuSnapshot(channelWus);
+    const current = pickCurrentWuSnapshot(channelWus, channelId);
     const memberIds = parseChannels(channel.members);
     if (!current) {
       // #465（首用路径断点）：空转频道（无当前工单）且成员为空 → 出只读提示片。
@@ -265,8 +319,5 @@ export async function deriveChannelSuggestions(
         params: { wuId: current.id, wuTitle },
       }],
     };
-  } catch (err) {
-    logger.warn('[ChannelSuggestions] derive failed (fail-closed → empty)', { channelId, error: String(err) });
-    return EMPTY;
   }
 }

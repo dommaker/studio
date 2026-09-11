@@ -151,6 +151,9 @@ export class AgentLoop {
   private lastActiveWuIds = new Set<string>();
   /** #330：channel.message_sent 订阅句柄（start 挂、stop 退） */
   private messageSentHandler: ((payload: { message?: { authorType?: string; workUnitId?: string | null } }) => void) | null = null;
+  /** #493：唤醒闩锁——事件到达时 loop 不在 idleSleep（执行中/步骤间）则置 true，
+   *  下一次 idleSleep 入口消费并立即放行重跑 observe，唤醒不再丢失（原 fire-and-forget 丢此类唤醒） */
+  private pendingWake = false;
   private executor: Executor;
   /** 2026-07 PMO-flow UX（§6-2）：最后一次已发布的 instance 状态（SSE 去重——状态不变不发） */
   private lastPublishedStatus: string | null = null;
@@ -284,13 +287,10 @@ export class AgentLoop {
       // #330: 事件驱动唤醒——订阅 channel.message_sent（同进程 eventBus，先例 channel-review）。
       // 人类消息且 workUnitId 命中当前 myActive 时打断空闲 sleep、立即跑一轮 observe；
       // 窄过滤天然限流，不去抖。事件 fire-and-forget 无持久，15s 空闲兜底轮询保留
-      // （防未来跨进程写者与重启间隙——当前生产写消息路径全部经 channel-message.service 发事件）。
-      this.messageSentHandler = (payload) => {
-        const msg = payload?.message;
-        if (!msg || msg.authorType !== 'human' || !msg.workUnitId) return;
-        if (!this.lastActiveWuIds.has(msg.workUnitId)) return;
-        this.wakeIdle?.();
-      };
+      // （防未来跨进程写者与重启间隙——当前生产写消息路径全部经 channel-message.service 发事件；
+      //  重启间隙的回复由启动首轮 observe 经 newReplies >= 口径捞回，#493）。
+      // #493：过滤+闩锁逻辑收进 onChannelMessageSent（seam 可测）。
+      this.messageSentHandler = (payload) => this.onChannelMessageSent(payload);
       eventBus.subscribe('channel.message_sent', this.messageSentHandler);
 
       // Main loop (non-blocking — fire and forget like original)
@@ -658,11 +658,28 @@ export class AgentLoop {
     }
   }
 
+  /** #330/#493：channel.message_sent 唤醒过滤 + 闩锁（独立方法供测试 seam 直驱） */
+  private onChannelMessageSent(payload: { message?: { authorType?: string; workUnitId?: string | null } }): void {
+    const msg = payload?.message;
+    if (!msg || msg.authorType !== 'human' || !msg.workUnitId) return;
+    if (!this.lastActiveWuIds.has(msg.workUnitId)) return;
+    // #493：闩锁先行——不在 idleSleep（执行中/步骤间 sleep）时 wakeIdle 为 null，
+    // 唤醒原样会丢；置闩后下一次 idleSleep 入口消费并立即放行重跑 observe
+    this.pendingWake = true;
+    this.wakeIdle?.();
+  }
+
   /** #330: 可中断的空闲 sleep——channel.message_sent 命中 myActive（或 stop）时提前返回 */
   private idleSleep(ms: number): Promise<void> {
     if (!this.alive) return Promise.resolve(); // stop 与进入 sleep 的竞态：已停则立即返回
+    // #493：消费唤醒闩锁——挂起期间有唤醒意图未送达，不睡直接重跑一轮 observe
+    if (this.pendingWake) {
+      this.pendingWake = false;
+      return Promise.resolve();
+    }
     return new Promise(resolve => {
       const wake = () => {
+        this.pendingWake = false; // #493：打断即消费——紧随的 observe 已覆盖本次唤醒意图
         clearTimeout(timer);
         if (this.wakeIdle === wake) this.wakeIdle = null;
         resolve();
@@ -769,7 +786,9 @@ export class AgentLoop {
           channelIds: channelFilter,
         })).filter(msg => {
           const wu = myActive.find(w => w.id === msg.workUnitId);
-          return wu && new Date(msg.createdAt).getTime() > wu.updatedAt.getTime();
+          // #493：>= 同毫秒边界——回复与 WU 簿记同毫秒落盘（含重启间隙首扫捞回）不再漏检；
+          // 不误循环：回复被消费后 recordResult 簿记推进 updatedAt，下一轮自然越界
+          return wu && new Date(msg.createdAt).getTime() >= wu.updatedAt.getTime();
         })
       : [];
 

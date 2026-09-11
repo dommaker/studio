@@ -5,6 +5,7 @@
  * 1. replyToId present → thread reply (inherit workUnitId from parent)
  * 2. @mention detected → create WorkUnit
  * 3. 决策 12: 频道配置了 defaultProfileId → 无 @ 消息派给默认角色建 WorkUnit
+ *    （#495：合并窗口内并入在途 WU 线程，不新建）
  * 4. plain text → store only
  *
  * 决策 11: 路由层不认识 skill——`+skill名` token 保留在 scope 原文，
@@ -14,6 +15,7 @@ import { logger, FileStore, parseChannels } from '@dommaker/studio-shared';
 import { channelMessageService, type MessageMeta, type MessageRecord } from './channel-message.service.js';
 import { WorkUnitService } from '../workunit/workunit.service.js';
 import { resumeWaitingWorkUnit } from '../workunit/waiting-input.js';
+import { parseWuMetadata } from '../workunit/wu-metadata.js';
 import { postWuSystemMessage } from '../workunit/wu-messenger.js';
 import { resolveReqIdForDispatch } from '../requirements/req-binding.js';
 import { OWNERSHIP_WAITING_QUESTION, resolveWorkspaceForWU } from '../requirements/ownership-resolver.js';
@@ -40,12 +42,54 @@ export function detectMention(content: string): string | null {
 }
 
 /**
+ * #495（方案 a，票内预授权 2026-09-11）：合并窗口内在途状态——终态（done/closed）
+ * 与 in_review（等人工验收）不吸收新消息，窗口内来新消息照章新建 WU。
+ */
+const MERGE_IN_FLIGHT_STATUSES = new Set(['pending', 'unassigned', 'active', 'blocked']);
+
+/**
+ * #495：决策 12 派单合并窗口（毫秒）。窗口内同频道连续无 @ 消息合并进在途 WU 线程
+ * （继续对话 = 继续任务），替代「每条闲聊建一张 WU」。默认 5 分钟，
+ * STUDIO_CHANNEL_MERGE_WINDOW_MINUTES 覆盖（仿 getReminderThresholdMs 口径）。
+ */
+export function getMergeWindowMs(env: NodeJS.ProcessEnv = process.env): number {
+  const minutes = Number(env.STUDIO_CHANNEL_MERGE_WINDOW_MINUTES);
+  return (Number.isFinite(minutes) && minutes > 0 ? minutes : 5) * 60_000;
+}
+
+/**
+ * #495：找合并目标——同频道最近一条携带 workUnitId 的人类消息（上轮派单/合并/线程回复
+ * 的落点），其 createdAt 在窗口内且 WU 仍在途 → 返回该 WU；否则 null（照章新建）。
+ * 锚点为消息时间而非 WU.updatedAt：每次合并落新消息即刷新窗口（滑动窗口语义）。
+ */
+async function findMergeTargetWorkUnit(
+  channelId: string,
+  fs: FileStore,
+  now: Date = new Date(),
+): Promise<{ id: string; anchorMessageId?: string } | null> {
+  const recentHuman = await fs.queryMessages(channelId, { authorType: 'human', limit: 20 });
+  const last = [...recentHuman].reverse().find(m => m.workUnitId);
+  if (!last?.workUnitId) return null;
+  if (now.getTime() - new Date(last.createdAt).getTime() > getMergeWindowMs()) return null;
+  const wu = await new WorkUnitService(fs).getById(last.workUnitId);
+  if (!wu || wu.channelId !== channelId) return null;
+  if (!MERGE_IN_FLIGHT_STATUSES.has(wu.status)) return null;
+  // parseWuMetadata 容错口径：畸形 metadata 落 {}（anchorMessageId 缺省走首根回退），不抛错拖垮整道路由
+  const meta = parseWuMetadata(wu.metadata);
+  return {
+    id: wu.id,
+    anchorMessageId: typeof meta.anchorMessageId === 'string' ? meta.anchorMessageId : undefined,
+  };
+}
+
+/**
  * Route a message based on its content and context.
  *
  * Priority order:
  * 1. replyToId → thread reply: inherit workUnitId from parent message
  * 2. @mention → create WorkUnit, associate with message
  * 3. 决策 12: 频道配置了 defaultProfileId → 无 @ 消息派给默认角色建 WorkUnit
+ *    （#495：合并窗口内已有在途 WU → 并入该 WU 线程，不新建）
  * 4. plain text → store without workUnitId（未配置默认角色 = 维持纯存储）
  *
  * F6 → B3a 工程归属链（决策 D2）：创建 WorkUnit 时解析工程归属 —
@@ -146,6 +190,7 @@ export async function routeMessage(
     // #327：父消息不在热层（已归档 = getMessageById 热只读不可见；与「彻底不存在」不可区分）
     // → 引用降级放行：帖子成立、replyToId 保留（前端引用预览自然缺失）、
     // workUnitId 继承失效落 null、不触发挂起复活——不整帖抛错
+    // #492：降级放行后补频道 Studio 系统提示「该话题已归档」（见下方 !found 分支）
     if (!found) {
       logger.warn('[MessageRouting] Replied message not in hot tier, degrading reply (no workUnitId inheritance)', {
         channelId, replyToId,
@@ -168,6 +213,20 @@ export async function routeMessage(
         })
       );
     }
+    // #492（方案 a）：父消息在冷层 → 降级放行的回复不会触达任何任务，
+    // 频道发 Studio 系统提示（挂在该回复线程），用户不再静默失效；提示本身 best-effort。
+    if (!found) {
+      await channelMessageService.createAgentMessage(
+        channelId,
+        'Studio',
+        '该话题已归档，回复不会触达任务',
+        { replyToId: message.id },
+      ).catch(err =>
+        logger.warn('[MessageRouting] Post cold-tier-reply notice failed (non-blocking)', {
+          channelId, replyToId, error: String(err),
+        })
+      );
+    }
     await reportDroppedRefs(message);
     return message;
   }
@@ -182,6 +241,23 @@ export async function routeMessage(
     const memberIds = parseChannels(channel?.members);
     const inScope = (p: (typeof allProfiles)[number]) => memberIds.length === 0 || memberIds.includes(p.id);
     let agent = allProfiles.find(p => p.name === mentionName && inScope(p)) ?? null;
+    // #496: 手打中文连写兜底——token 整体精确匹配失败时，对成员名做最长前缀匹配
+    // （@开发你好 → 命中成员「开发」）。多成员互为前缀取最长；等长歧义（同名 profile
+    // 并列最长）回退现状（未匹配 → #464 转自动认领提示）。studio 系统角色不参与前缀兜底。
+    let prefixMatchName: string | null = null;
+    if (!agent && mentionName !== STUDIO_ROLE_NAME) {
+      const candidates = allProfiles.filter(
+        p => inScope(p) && p.name !== STUDIO_ROLE_NAME && p.name.length > 0 && mentionName.startsWith(p.name),
+      );
+      if (candidates.length > 0) {
+        const maxLen = Math.max(...candidates.map(p => p.name.length));
+        const longest = candidates.filter(p => p.name.length === maxLen);
+        if (longest.length === 1) {
+          agent = longest[0];
+          prefixMatchName = longest[0].name;
+        }
+      }
+    }
     // F5（2026-07-28 分析文档决策 6）: @studio 特殊路由 — studio 是系统角色不执行任务；
     // 转派目标 = 频道 defaultProfileId 入口角色（与决策 12 同字段），未配置/inactive/越界
     // → 未指派（assigneeId=null），走 claim 涌现（agent-loop observe 未指派过滤）。
@@ -198,7 +274,11 @@ export async function routeMessage(
         reroutedToName = entry.name;
       }
     }
-    const scope = content.replace(/@[\p{L}\p{N}_-]+\s*/u, '');
+    // #496: 前缀兜底命中时只剥 `@成员名`（保留连写剩余文本作为 scope，如 @开发你好 → 你好）；
+    // 精确匹配/未匹配维持剥整个 @token。成员名字符集 ⊂ [\p{L}\p{N}_-]，内联进正则安全。
+    const scope = prefixMatchName
+      ? content.replace(new RegExp(`@${prefixMatchName}\\s*`, 'u'), '')
+      : content.replace(/@[\p{L}\p{N}_-]+\s*/u, '');
     // REQ 需求编号（vision §5.3）：显式 > #REQ-XXXX token > 自动新建。
     // best-effort：绑定失败不阻断 WorkUnit 创建（log + 不带 reqId 继续）。
     const reqId = await resolveReqIdForDispatch({
@@ -230,6 +310,16 @@ export async function routeMessage(
     // 仅解析故障（null）回退旧绑定规则（不挂起，保可用性）。
     const workspaceId = ownership ? ownership.workspaceId : (options?.workspaceId ?? channel?.defaultWorkspaceId ?? null);
     const parked = ownership?.source === 'none';
+    // #494（方案 c，票内预授权）：先落派发消息再建 WU——WU metadata.anchorMessageId 显式携带
+    // 派发消息 id（认领播报优先锚它，消 created 事件先于派发消息落库的 findAnchorMessage 竞态）；
+    // 建单后 linkWorkUnit 回填消息 ↔ WU 关联（同 createFromMessage 既有路径）。
+    const dispatchMessage = await channelMessageService.createHumanMessage(
+      channelId,
+      content,
+      undefined,
+      undefined,
+      filesMeta,
+    );
     const workUnit = await wuService.create({
       scope,
       channelId,
@@ -240,9 +330,12 @@ export async function routeMessage(
       workspaceId,
       reqId,
       metadata: {
-        mentionName,
+        // #496: 前缀兜底命中时落解析后的成员名（展示/认领播报以角色正名为准）
+        mentionName: prefixMatchName ?? mentionName,
         matched: !!agent,
         creationMode: 'mention',
+        // #494: 认领播报的显式线程锚点（见上方时序说明）
+        anchorMessageId: dispatchMessage.id,
         // B4a: @studio 改派标记（WU 实际派给 pm，非 studio 本身）
         ...(reroutedFrom ? { reroutedFrom } : {}),
         // P0 修复 6: traceId 贯穿（audit requestId → WU metadata → agent-loop 日志）
@@ -277,13 +370,14 @@ export async function routeMessage(
       reroutedFrom,
       traceId: options?.traceId ?? undefined,
     });
-    const message = await channelMessageService.createHumanMessage(
-      channelId,
-      content,
-      undefined,
-      workUnit.id,
-      filesMeta,
-    );
+    // #494: 回填派发消息 ↔ WU 关联（best-effort：失败仅缺 back-link，线程锚定已由 anchorMessageId 承载）。
+    // 返回值替换派发消息记录，保持 routeMessage 返回值的 workUnitId 契约不变。
+    const message = await channelMessageService.linkWorkUnit(dispatchMessage.id, workUnit.id).catch(err => {
+      logger.warn('[MessageRouting] Link dispatch message to WorkUnit failed (non-blocking)', {
+        workUnitId: workUnit.id, messageId: dispatchMessage.id, error: String(err),
+      });
+      return dispatchMessage;
+    });
     await reportDroppedRefs(message);
     // F5: @studio 改派 → 频道发 Studio 系统消息说明（best-effort，挂在派发消息线程）
     if (reroutedFrom) {
@@ -334,6 +428,51 @@ export async function routeMessage(
   // 决策 12: 无 @ 兜底 —— 频道配置了默认角色 → 派给它建 WorkUnit（消息关联到该 WU）
   const channel = await resolvedFs.getChannel(channelId);
   if (channel?.defaultProfileId) {
+    // #495（方案 a）：合并窗口内已有在途 WU → 消息并入该 WU 线程，不再新建 WU
+    // （连发闲聊不产生 WU 风暴；窗口外/终态后正常新建）。
+    const mergeTarget = await findMergeTargetWorkUnit(channelId, resolvedFs);
+    if (mergeTarget) {
+      const message = await channelMessageService.createHumanMessage(
+        channelId,
+        content,
+        mergeTarget.anchorMessageId, // 挂到在途 WU 的派发线程（缺 anchor 时退为根消息）
+        mergeTarget.id,
+        filesMeta,
+      );
+      // 回复注入：blocked → resumeWaitingWorkUnit 复活 + pendingReplies；
+      // active 且已有 pendingReplies → 其锁内追加分支已覆盖；其余（unassigned/active 无
+      // pendingReplies）此处锁内补齐，保证 loop 下一步经 prompt-composer 注入。
+      const consumed = await resumeWaitingWorkUnit(mergeTarget.id, content, resolvedFs).catch(err => {
+        logger.warn('[MessageRouting] Resume merge-target WorkUnit failed (non-blocking)', {
+          workUnitId: mergeTarget.id, error: String(err),
+        });
+        return false;
+      });
+      if (!consumed) {
+        await resolvedFs.updateMetadata(mergeTarget.id, latest => ({
+          ...latest,
+          pendingReplies: [...(Array.isArray(latest.pendingReplies) ? latest.pendingReplies : []), content],
+        })).catch(err =>
+          logger.warn('[MessageRouting] Append pendingReplies for merge target failed (non-blocking)', {
+            workUnitId: mergeTarget.id, error: String(err),
+          })
+        );
+      }
+      logger.info('[MessageRouting] Message merged into in-flight WorkUnit (merge window)', {
+        channelId,
+        workUnitId: mergeTarget.id,
+      });
+      await reportDroppedRefs(message);
+      return message;
+    }
+    // #494：同 mention 路径——先落派发消息再建 WU，anchorMessageId 显式传递消认领播报竞态
+    const dispatchMessage = await channelMessageService.createHumanMessage(
+      channelId,
+      content,
+      undefined,
+      undefined,
+      filesMeta,
+    );
     const workUnit = await wuService.create({
       scope: content,
       channelId,
@@ -342,6 +481,8 @@ export async function routeMessage(
       assigneeId: channel.defaultProfileId,
       metadata: {
         creationMode: 'channel-default',
+        // #494: 认领播报的显式线程锚点
+        anchorMessageId: dispatchMessage.id,
         // #285: @文件引用落档（本路径不做归属解析，仅落档供 prompt-composer files 段消费）
         ...(filesMeta?.files ? { fileRefs: filesMeta.files } : {}),
       },
@@ -351,13 +492,12 @@ export async function routeMessage(
       workUnitId: workUnit.id,
       defaultProfileId: channel.defaultProfileId,
     });
-    const message = await channelMessageService.createHumanMessage(
-      channelId,
-      content,
-      undefined,
-      workUnit.id,
-      filesMeta,
-    );
+    const message = await channelMessageService.linkWorkUnit(dispatchMessage.id, workUnit.id).catch(err => {
+      logger.warn('[MessageRouting] Link dispatch message to WorkUnit failed (non-blocking)', {
+        workUnitId: workUnit.id, messageId: dispatchMessage.id, error: String(err),
+      });
+      return dispatchMessage;
+    });
     await reportDroppedRefs(message);
     return message;
   }

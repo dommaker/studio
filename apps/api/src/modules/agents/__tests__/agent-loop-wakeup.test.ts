@@ -205,3 +205,96 @@ describe('#330: observe 扫描裁剪 + 事件驱动唤醒', () => {
     await agentLoop.waitForStop();
   });
 });
+
+// #493: 新回复检测同毫秒边界（>=）+ 唤醒闩锁（事件到达时不在 idleSleep 不丢唤醒）
+// 均不 start()——纯 seam 直驱（observe / onChannelMessageSent / idleSleep），确定性无竞态
+describe('#493: 新回复同毫秒边界 + 唤醒闩锁', () => {
+  let testDir: string;
+  let fileStore: FileStore;
+  let wuService: WorkUnitService;
+  let channelId: string;
+
+  beforeEach(() => {
+    testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-loop-493-'));
+    fileStore = new FileStore(testDir);
+    wuService = new WorkUnitService(fileStore);
+    channelId = `ch-493-${Date.now()}`;
+  });
+
+  afterEach(() => {
+    fs.rmSync(testDir, { recursive: true, force: true });
+  });
+
+  /** seam：私有成员访问（TS private 仅编译期） */
+  interface Seam493 {
+    alive: boolean;
+    lastActiveWuIds: Set<string>;
+    pendingWake: boolean;
+    onChannelMessageSent(payload: { message?: { authorType?: string; workUnitId?: string | null } }): void;
+    idleSleep(ms: number): Promise<void>;
+    observe(): Promise<{ newReplies: { id: string }[] }>;
+  }
+  const seamOf = (loop: AgentLoop) => loop as unknown as Seam493;
+
+  const humanMsg = (id: string, workUnitId: string, createdAt: string) => ({
+    id, channelId, authorType: 'human' as const, agentName: null,
+    content: `回复-${id}`, replyToId: null, meta: '{}', workUnitId, createdAt,
+  });
+
+  it('同毫秒边界：msg.createdAt == wu.updatedAt 的回复被检为新回复（>=）', async () => {
+    const loop = new AgentLoop(mockRole, fileStore);
+    const wu = await wuService.create({
+      scope: '挂起等回复', channelId, type: 'task',
+      status: 'blocked', assigneeId: 'some-instance',
+      metadata: { waitingForInput: true },
+    });
+    const sameMs = wu.updatedAt.toISOString();
+    const olderMs = new Date(wu.updatedAt.getTime() - 1).toISOString();
+    await fileStore.appendMessage(channelId, humanMsg('m-same-ms', wu.id, sameMs));
+    await fileStore.appendMessage(channelId, humanMsg('m-older', wu.id, olderMs));
+
+    const obs = await seamOf(loop).observe();
+
+    expect(obs.newReplies.some(m => m.id === 'm-same-ms')).toBe(true);
+    expect(obs.newReplies.some(m => m.id === 'm-older')).toBe(false);
+  });
+
+  it('唤醒闩锁：事件到达时不在 idleSleep → 置闩，下一次 idleSleep 立即放行并消费', async () => {
+    const loop = new AgentLoop(mockRole, fileStore);
+    const seam = seamOf(loop);
+    seam.alive = true;
+    seam.lastActiveWuIds = new Set(['wu-1']);
+
+    seam.onChannelMessageSent({ message: { authorType: 'human', workUnitId: 'wu-1' } });
+    expect(seam.pendingWake).toBe(true);
+
+    const t0 = Date.now();
+    await seam.idleSleep(15_000); // 闩锁命中 → 不睡满 15s
+    expect(Date.now() - t0).toBeLessThan(1000);
+    expect(seam.pendingWake).toBe(false); // 已消费，不残留
+  });
+
+  it('闩锁不误置：非 human / 非 myActive / 无 workUnitId 的事件不置闩', () => {
+    const loop = new AgentLoop(mockRole, fileStore);
+    const seam = seamOf(loop);
+    seam.alive = true;
+    seam.lastActiveWuIds = new Set(['wu-1']);
+
+    seam.onChannelMessageSent({ message: { authorType: 'agent', workUnitId: 'wu-1' } });
+    seam.onChannelMessageSent({ message: { authorType: 'human', workUnitId: 'wu-stranger' } });
+    seam.onChannelMessageSent({ message: { authorType: 'human', workUnitId: null } });
+    seam.onChannelMessageSent({});
+    expect(seam.pendingWake).toBe(false);
+  });
+
+  it('无闩时 idleSleep 正常睡足（闩锁不改变无事件时的空闲调度）', async () => {
+    const loop = new AgentLoop(mockRole, fileStore);
+    const seam = seamOf(loop);
+    seam.alive = true;
+
+    const t0 = Date.now();
+    await seam.idleSleep(60);
+    expect(Date.now() - t0).toBeGreaterThanOrEqual(50);
+    expect(seam.pendingWake).toBe(false);
+  });
+});

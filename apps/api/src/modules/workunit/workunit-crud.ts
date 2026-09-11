@@ -13,7 +13,7 @@
 import { randomUUID } from 'crypto';
 import { logger, eventBus, FileStore, type WorkUnitSnapshot, type WorkUnitEvent } from '@dommaker/studio-shared';
 import { ChannelMessageService, channelMessageService } from '../channels/channel-message.service.js';
-import { resolveStageRouting, routingFallbackText, ROUTING_STAGE_LABELS } from '../channels/routing.js';
+import { resolveStageRouting, routingFallbackText, shouldEmitFallbackReminder, ROUTING_STAGE_LABELS } from '../channels/routing.js';
 import { postWuSystemMessage } from './wu-messenger.js';
 import { resolveInitialStatus, WU_LEASE_TTL_MS } from './workunit.types.js';
 import { buildStatusById, resolveClaimable } from './wu-dependencies.js';
@@ -316,6 +316,8 @@ export class WorkUnitCrudService {
           fallback: routing.fallback,
           profileName: routing.profileName,
         });
+        // #497: 同频道同档同原因冷却窗内不重复出声（路由回退本身不受影响）
+        if (!shouldEmitFallbackReminder(parent.channelId!, 'implement', routing)) return;
       }
       await postWuSystemMessage(parent, notice, {
         fileStore: this.fileStore,

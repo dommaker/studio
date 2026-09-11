@@ -42,6 +42,7 @@ vi.mock('../../hooks/useChannelEvents', async () => {
       return {
         messages: msgs,
         loading: false,
+        error: currentError,
         hasMore: more,
         sendMessage: mockSendMessage,
         loadMore: () => mockLoadMore(setMsgs, setMore),
@@ -180,6 +181,9 @@ let currentMessages: ChannelMessage[] = MESSAGES;
 let currentHasMore = false;
 const mockLoadMore = vi.fn();
 
+// #482：mock 的首拉 error 态（null = 正常；非 null = 加载失败，页面应渲染错误态 + 重试入口）
+let currentError: string | null = null;
+
 // #242：onEvent 注册的 SSE 处理器（用例手工驱动事件）；
 // 批 2（决策 5/6）后页面有多个订阅方（live 状态条 / waitingWus chip / REQ chips）→ 收集全部处理器统一派发
 type SseHandler = (msg: { event_type: string; data?: unknown }) => void;
@@ -213,6 +217,7 @@ describe('ChannelDetailPage — Mission Control 三栏', () => {
     window.localStorage.clear();
     currentMessages = MESSAGES;
     currentHasMore = false;
+    currentError = null;
     // toast.dismiss() 是 200ms 动画后异步移除——有残留时等其落定，防跨用例 toast 文本污染断言
     toast.dismiss();
     if (document.getElementById('toast-container')?.childElementCount) {
@@ -673,9 +678,15 @@ describe('ChannelDetailPage — #279 NEED_INPUT 待办 chip 与等待态清理',
     ...(question ? { waitingQuestion: question } : {}), since: iso(0),
   });
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
     currentMessages = FOLLOWUP_MESSAGES;
+    currentHasMore = false;
+    // toast.dismiss() 是 200ms 动画后异步移除——有残留时等其落定，防跨用例 toast 文本污染断言
+    toast.dismiss();
+    if (document.getElementById('toast-container')?.childElementCount) {
+      await new Promise(r => setTimeout(r, 250));
+    }
     sseHandlers = [];
     useNotificationStore.setState({
       stateItems: [replyItem('WU-3000', '使用 OAuth 还是账号密码？')],
@@ -793,6 +804,54 @@ describe('ChannelDetailPage — #279 NEED_INPUT 待办 chip 与等待态清理',
       expect(el?.className).toContain('mc-msg-highlight');
     });
     expect(Element.prototype.scrollIntoView).toHaveBeenCalled();
+  });
+
+  it('#483：chip 定位——提问掉出已加载分页 → 自动翻页定位并高亮（与 highlight 路径同循环）', async () => {
+    // 提问 q-2 不在已加载页（空消息集），翻一页后载入并到底
+    currentMessages = [];
+    currentHasMore = true;
+    mockLoadMore.mockImplementation(async (
+      setMsgs: (fn: (prev: ChannelMessage[]) => ChannelMessage[]) => void,
+      setMore: (v: boolean) => void,
+    ) => {
+      setMsgs(prev => [...FOLLOWUP_MESSAGES, ...prev]);
+      setMore(false);
+      return true;
+    });
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText('待回复 · 1')).toBeTruthy());
+    fireEvent.click(screen.getByText('待回复 · 1'));
+    fireEvent.click(screen.getByText('WU-3000'));
+
+    await waitFor(() => {
+      const el = document.querySelector('[data-message-id="q-2"]');
+      expect(el?.className).toContain('mc-msg-highlight');
+    });
+    expect(mockLoadMore).toHaveBeenCalledTimes(1);
+    // 目标已定位，无降级反馈
+    expect(document.getElementById('toast-container')?.textContent ?? '').not.toContain('无法定位');
+  });
+
+  it('#483：chip 定位——翻页到底仍无该 WU 提问 → toast 可见反馈，不静默', async () => {
+    currentMessages = [];
+    currentHasMore = true;
+    // 翻一页后到底（hasMore → false），WU-3000 的提问始终不存在
+    mockLoadMore.mockImplementation(async (_setMsgs: unknown, setMore: (v: boolean) => void) => {
+      setMore(false);
+      return true;
+    });
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText('待回复 · 1')).toBeTruthy());
+    fireEvent.click(screen.getByText('待回复 · 1'));
+    fireEvent.click(screen.getByText('WU-3000'));
+
+    await waitFor(() => {
+      expect(document.getElementById('toast-container')?.textContent).toContain('无法定位');
+    });
+    expect(mockLoadMore).toHaveBeenCalledTimes(1);
+    toast.dismiss();
   });
 });
 
@@ -976,7 +1035,7 @@ describe('ChannelDetailPage — #447 引导片唯一来源 = 建议端点', () =
     renderPage();
     const chip = await screen.findByText(/转写审查清单/);
     expect(chip).toBeTruthy();
-    fireEvent.click(screen.getByLabelText('关闭建议'));
+    fireEvent.click(screen.getByLabelText(/关闭建议：/));
     expect(document.querySelector('.mc-suggest')).toBeNull();
     // 同片重拉（同 dismissKey ep:WU-4001:transcribe-review-checklist）→ 不复活
     act(() => emitSse({
@@ -992,6 +1051,115 @@ describe('ChannelDetailPage — #447 引导片唯一来源 = 建议端点', () =
       data: { workunit: { id: 'WU-4002', status: 'in_review', channelId: 'ch-1', type: 'task', metadata: '{}' } },
     }));
     await waitFor(() => expect(screen.getByText(/转写审查清单/)).toBeTruthy());
+  });
+
+  // #484：片粒度 dismiss——多片并存时 ✕ 只关本片，其余片保留；会话级语义不变（同片重拉不复活）
+  it('多片并存时 dismiss 其一：只关本片，其余片保留；被关片重拉不复活', async () => {
+    suggestionPayload = {
+      data: {
+        data: {
+          currentWuId: 'WU-4001',
+          suggestions: [
+            { id: 'transcribe-review-checklist', kind: 'prompt', params: { wuId: 'WU-4001', wuTitle: '登录功能' }, text: '@reviewer 把《登录功能》的验收标准转写成审查清单' },
+            { id: 'diagnose-blocked', kind: 'prompt', params: { wuId: 'WU-4001', wuTitle: '登录功能', blockReason: '依赖未完成' }, text: '@developer 诊断《登录功能》的阻塞' },
+          ],
+        },
+      },
+    };
+    renderPage();
+    await screen.findByText(/转写审查清单/);
+    expect(screen.getByText(/诊断阻塞/)).toBeTruthy();
+    // 只 dismiss「转写审查清单」片 → 「诊断阻塞」片保留
+    fireEvent.click(screen.getByLabelText(/关闭建议：.*转写审查清单/));
+    expect(screen.queryByText(/转写审查清单/)).toBeNull();
+    expect(screen.getByText(/诊断阻塞/)).toBeTruthy();
+    // 同负载重拉：被 dismiss 片（同 dismissKey）不复活，未 dismiss 片仍在
+    act(() => emitSse({
+      event_type: 'workunit.status_changed',
+      data: { workunit: { id: 'WU-4001', status: 'in_review', channelId: 'ch-1', type: 'task', metadata: '{}' } },
+    }));
+    await waitFor(() => expect(suggestionsCalls()).toBe(2));
+    expect(screen.queryByText(/转写审查清单/)).toBeNull();
+    expect(screen.getByText(/诊断阻塞/)).toBeTruthy();
+  });
+});
+
+// #489：建议端点重拉触发面补齐——channel.message_sent（里程碑/agent 消息）与 requirement.created/updated
+// 同样触发重拉（NEED_INPUT 变化已由 workunit.status_changed 覆盖）；SSE 触发共享一个 trailing 防抖，
+// 连续事件合并为一次请求防风暴；挂载/重连仍即时重拉不经防抖。
+describe('ChannelDetailPage — #489 建议端点重拉触发面（防抖合并）', () => {
+  const CHANNEL = { data: { data: { id: 'ch-1', name: 'rnd-主研发', type: 'rnd', members: '[]' } } };
+  const EMPTY = { data: { data: { currentWuId: null, suggestions: [] } } };
+  const suggestionsCalls = () =>
+    mockApiGet.mock.calls.filter(([url]) => String(url).endsWith('/suggestions')).length;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    currentMessages = MESSAGES;
+    sseHandlers = [];
+    useNotificationStore.setState({ stateItems: [], notifications: [], unreadCount: 0 });
+    mockApiGet.mockImplementation((url: string) => Promise.resolve(
+      String(url).endsWith('/suggestions') ? EMPTY : CHANNEL,
+    ));
+    mockListWorkunits.mockImplementation((params?: { status?: string }) => Promise.resolve(
+      params?.status === 'active' ? activeWuList([]) : { data: { data: [] } },
+    ));
+    mockOnEvent.mockImplementation((cb: SseHandler) => { sseHandlers.push(cb); return () => {}; });
+    mockOnReconnect.mockImplementation((cb: () => void) => { reconnectHandlers.push(cb); return () => {}; });
+    reconnectHandlers = [];
+    mockListReqs.mockResolvedValue({ data: { data: [] } });
+    mockSendMessage.mockResolvedValue({});
+  });
+
+  it('channel.message_sent（本频道里程碑消息）→ 防抖窗口内重拉建议端点', async () => {
+    renderPage();
+    await waitFor(() => expect(suggestionsCalls()).toBe(1));
+    act(() => emitSse({
+      event_type: 'channel.message_sent',
+      data: { channelId: 'ch-1', message: { id: 'm-new', channelId: 'ch-1', authorType: 'agent', content: '里程碑', createdAt: iso(10) } },
+    }));
+    await waitFor(() => expect(suggestionsCalls()).toBe(2), { timeout: 2000 });
+  });
+
+  it('channel.message_sent（他频道）→ 不触发重拉', async () => {
+    renderPage();
+    await waitFor(() => expect(suggestionsCalls()).toBe(1));
+    act(() => emitSse({
+      event_type: 'channel.message_sent',
+      data: { channelId: 'ch-other', message: { id: 'm-x' } },
+    }));
+    // 跨过整个防抖窗口确认无请求
+    await new Promise(r => setTimeout(r, 1200));
+    expect(suggestionsCalls()).toBe(1);
+  });
+
+  it('requirement.created / updated → 重拉建议端点（REQ 变化可能改变引导）', async () => {
+    renderPage();
+    await waitFor(() => expect(suggestionsCalls()).toBe(1));
+    act(() => emitSse({
+      event_type: 'requirement.created',
+      data: { requirement: { id: 'REQ-0050', seq: 50, title: '新需求', status: 'open', channelId: 'ch-1', createdAt: iso(0), createdBy: 'x' } },
+    }));
+    await waitFor(() => expect(suggestionsCalls()).toBe(2), { timeout: 2000 });
+    act(() => emitSse({
+      event_type: 'requirement.updated',
+      data: { requirement: { id: 'REQ-0050', seq: 50, title: '新需求', status: 'done', channelId: 'ch-1', createdAt: iso(0), createdBy: 'x' } },
+    }));
+    await waitFor(() => expect(suggestionsCalls()).toBe(3), { timeout: 2000 });
+  });
+
+  it('防抖合并：连续到达的异类事件合并为一次重拉', async () => {
+    renderPage();
+    await waitFor(() => expect(suggestionsCalls()).toBe(1));
+    act(() => {
+      emitSse({ event_type: 'channel.message_sent', data: { channelId: 'ch-1', message: { id: 'm-a' } } });
+      emitSse({ event_type: 'workunit.status_changed', data: { workunit: { id: 'WU-9001', status: 'in_review', channelId: 'ch-1', type: 'task', metadata: '{}' } } });
+      emitSse({ event_type: 'channel.message_sent', data: { channelId: 'ch-1', message: { id: 'm-b' } } });
+    });
+    await waitFor(() => expect(suggestionsCalls()).toBe(2), { timeout: 2000 });
+    // 防抖窗口过后无第二次请求（三事件只合并出一次）
+    await new Promise(r => setTimeout(r, 1200));
+    expect(suggestionsCalls()).toBe(2);
   });
 });
 
@@ -1048,6 +1216,65 @@ describe('ChannelDetailPage — #440 阶段条（#447 起 currentWuId 由建议�
     await waitFor(() => expect(screen.getByText('#rnd-主研发')).toBeTruthy());
     await waitFor(() => expect(suggestionsCalls()).toBe(1));
     expect(screen.queryByLabelText('工单阶段')).toBeNull();
+  });
+
+  // #488：工作条占位三态——端点返回 null → 空闲态；未返回/失败/skew → 保持加载态（不误显空闲）
+  it('#488：端点返回 currentWuId=null → 工作条显示空闲文案，不再「状态同步中」', async () => {
+    suggestionPayload = { data: { data: { currentWuId: null, suggestions: [] } } };
+    renderPage();
+    await waitFor(() => expect(suggestionsCalls()).toBe(1));
+    await waitFor(() => expect(screen.getByText('频道暂无进行中的工作')).toBeTruthy());
+    expect(screen.queryByText('状态同步中…')).toBeNull();
+  });
+
+  it('#488：建议端点请求失败 → 不误显示空闲，保持「状态同步中…」', async () => {
+    mockApiGet.mockImplementation((url: string) =>
+      String(url).endsWith('/suggestions') ? Promise.reject(new Error('boom')) : Promise.resolve(CHANNEL),
+    );
+    renderPage();
+    await waitFor(() => expect(suggestionsCalls()).toBe(1));
+    // 失败为静默 catch——等一拍确认文案不落空闲
+    await waitFor(() => expect(screen.getByText('#rnd-主研发')).toBeTruthy());
+    expect(screen.getByText('状态同步中…')).toBeTruthy();
+    expect(screen.queryByText('频道暂无进行中的工作')).toBeNull();
+  });
+
+  // #490：推导失败被吞（degraded=true）——前端仅 console 记录，不落「已返回」台账，
+  // 工作条占位保持加载态不误显空闲；不出任何 UI（不打扰用户）
+  it('#490：degraded=true → console.warn 记录 + 不落空闲（保持「状态同步中…」）', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    suggestionPayload = { data: { data: { currentWuId: null, suggestions: [], degraded: true } } };
+    renderPage();
+    await waitFor(() => expect(suggestionsCalls()).toBe(1));
+    await waitFor(() => expect(screen.getByText('#rnd-主研发')).toBeTruthy());
+    expect(screen.getByText('状态同步中…')).toBeTruthy();
+    expect(screen.queryByText('频道暂无进行中的工作')).toBeNull();
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[ChannelDetailPage] suggestions derive degraded (fail-closed)',
+      { channelId: 'ch-1' },
+    );
+    warnSpy.mockRestore();
+  });
+
+  it('#490：degraded=false 正常返回 → 不 warn，照常落账（currentWuId=null → 空闲态）', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    suggestionPayload = { data: { data: { currentWuId: null, suggestions: [], degraded: false } } };
+    renderPage();
+    await waitFor(() => expect(suggestionsCalls()).toBe(1));
+    await waitFor(() => expect(screen.getByText('频道暂无进行中的工作')).toBeTruthy());
+    expect(warnSpy).not.toHaveBeenCalledWith(
+      '[ChannelDetailPage] suggestions derive degraded (fail-closed)',
+      expect.anything(),
+    );
+    warnSpy.mockRestore();
+  });
+
+  it('#488：currentWuId 未命中 channelWus（时序 skew）→ 保持加载态而非空闲', async () => {
+    suggestionPayload = { data: { data: { currentWuId: 'WU-9999', suggestions: [] } } };
+    renderPage();
+    await waitFor(() => expect(suggestionsCalls()).toBe(1));
+    expect(screen.getByText('状态同步中…')).toBeTruthy();
+    expect(screen.queryByText('频道暂无进行中的工作')).toBeNull();
   });
 
   it('端点 currentWuId 指向 channelWus 外的 WU（时序 skew）→ 不渲染阶段条（fail-closed 不编造）', async () => {
@@ -1402,6 +1629,7 @@ describe('ChannelDetailPage — 空频道态示例提示 chip（视觉批次 2 �
     window.localStorage.clear();
     currentMessages = []; // 空频道
     currentHasMore = false;
+    currentError = null;
     sseHandlers = [];
     useNotificationStore.setState({ stateItems: [], notifications: [], unreadCount: 0 });
     mockApiGet.mockImplementation((url: string) => Promise.resolve(
@@ -1439,5 +1667,51 @@ describe('ChannelDetailPage — 空频道态示例提示 chip（视觉批次 2 �
     const before = Number(input.getAttribute('data-prefill-nonce'));
     fireEvent.click(chips[chips.length - 1]);
     expect(Number(screen.getByTestId('channel-input').getAttribute('data-prefill-nonce'))).toBe(before + 1);
+  });
+});
+
+// #482：消息首拉失败——渲染错误态 + 重试入口，与真空频道区分（原呈「发送消息开始对话」假空态）
+describe('ChannelDetailPage — 消息加载失败错误态（#482）', () => {
+  const CHANNEL = { data: { data: { id: 'ch-1', name: 'rnd-主研发', type: 'rnd', members: '[]' } } };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    window.localStorage.clear();
+    currentMessages = [];
+    currentHasMore = false;
+    currentError = 'network down';
+    sseHandlers = [];
+    useNotificationStore.setState({ stateItems: [], notifications: [], unreadCount: 0 });
+    mockApiGet.mockImplementation((url: string) => Promise.resolve(
+      String(url).endsWith('/suggestions') ? { data: { data: { currentWuId: null, suggestions: [] } } } : CHANNEL,
+    ));
+    mockListWorkunits.mockImplementation((params?: { status?: string }) => Promise.resolve(
+      params?.status === 'active' ? activeWuList([]) : { data: { data: [] } },
+    ));
+    mockOnEvent.mockImplementation((cb: SseHandler) => { sseHandlers.push(cb); return () => {}; });
+    mockOnReconnect.mockImplementation((cb: () => void) => { reconnectHandlers.push(cb); return () => {}; });
+    reconnectHandlers = [];
+    mockListReqs.mockResolvedValue({ data: { data: [] } });
+    mockSendMessage.mockResolvedValue({});
+  });
+
+  it('加载失败 → 错误态 + 重试按钮，不渲染空态文案/示例 chip', async () => {
+    renderPage();
+    await screen.findByText('消息加载失败');
+    expect(screen.queryByText('发送消息开始对话')).toBeNull();
+    expect(screen.getByRole('button', { name: '重试' })).toBeTruthy();
+  });
+
+  it('点击重试 → 走 hook refresh 重新拉取', async () => {
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: '重试' }));
+    expect(mockRefresh).toHaveBeenCalledTimes(1);
+  });
+
+  it('已有消息时轮询失败：消息流保留，不整屏替换为错误态', async () => {
+    currentMessages = MESSAGES;
+    renderPage();
+    await waitFor(() => expect(screen.queryByText('消息加载失败')).toBeNull());
+    expect(screen.getByText((MESSAGES[0] as { content: string }).content)).toBeTruthy();
   });
 });

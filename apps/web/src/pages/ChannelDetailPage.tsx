@@ -43,6 +43,22 @@ import { toast } from '../utils/toast';
 /** #439：?highlight 定位的翻页页数上限（50 条/页 → 最多回看 500 条），超限/翻到底降级为可见反馈 */
 const HIGHLIGHT_LOCATE_MAX_PAGES = 10;
 
+/** #489：建议端点 SSE 触发面共享的 trailing 防抖窗口——一次状态转换常伴随多类事件连发
+ *  （status_changed / 里程碑 message_sent / requirement.*），合并为一次请求防风暴；
+ *  挂载/重连/动作回扫仍即时重拉，不经防抖 */
+const SUGGESTIONS_RELOAD_DEBOUNCE_MS = 500;
+
+/** #483：某 WU 的当前提问消息 = 该 WU 最新一条非人类消息（与 latestQuestionIdByWu 同口径）。
+ *  chip 翻页定位循环需读最新快照（memo 值在异步循环里是旧闭包），故抽纯函数共用 */
+function latestQuestionMessageOf(msgs: ChannelMessage[], wuId: string): ChannelMessage | null {
+  let best: ChannelMessage | null = null;
+  for (const m of msgs) {
+    if (m.workUnitId !== wuId || m.authorType === 'human') continue;
+    if (!best || new Date(m.createdAt).getTime() >= new Date(best.createdAt).getTime()) best = m;
+  }
+  return best;
+}
+
 /** 视觉批次 2 ⑥：空频道态示例提示——点击走既有 prefill 通道填入输入框（不自动发送）。
  *  文案按产品 agent 命名风格（pm-agent / dev-agent / reviewer-agent），仅作起点提示，用户可改 */
 const EMPTY_EXAMPLE_PROMPTS = [
@@ -100,7 +116,7 @@ export function ChannelDetailPage() {
   // #393：记录最近访问频道（/ 与 /channels 重定向落点，spec §2）
   useEffect(() => { if (id) saveLastChannelId(id); }, [id]);
   const [channel, setChannel] = useState<Channel | null>(null);
-  const { messages, loading, sendMessage, loadMore, hasMore, refresh, syncPruning } = useChannelMessages(id);
+  const { messages, loading, error, sendMessage, loadMore, hasMore, refresh, syncPruning } = useChannelMessages(id);
   const [sending, setSending] = useState(false);
   // 折叠 UI 状态（showCompleted / collapsedThreads / expandedProcGroups）按频道持久化（Step 3），
   // setter 语义同 useState；线程默认全部展开，collapsedThreads 只存手动收起的锚点 id
@@ -110,6 +126,8 @@ export function ChannelDetailPage() {
     expandedProcGroups, setExpandedProcGroups,
   } = usePersistentStreamUI(id);
   const [replyTo, setReplyTo] = useState<ChannelMessage | null>(null);
+  // #493：线程回复送达后的轻量「已送达/等待 agent」状态（wuId + 送达时刻；agent 响应或超时清除）
+  const [awaitingAgent, setAwaitingAgent] = useState<{ wuId: string; since: number } | null>(null);
   // REQ 需求编号（vision §5.3）：本频道需求集；#394 起喂右栏「频道动态」REQ 链路卡（原中栏 chips 条移除）
   const [channelReqs, setChannelReqs] = useState<Requirement[]>([]);
   // #440：本频道 WU 全集——阶段条 WU 数据本体 + 各卡片数据源
@@ -122,6 +140,9 @@ export function ChannelDetailPage() {
   // currentWuId = 后端拣选的「频道当前工单」（阶段条与引导片同源消费，口径单源在后端）
   const [channelSuggestions, setChannelSuggestions] = useState<ChannelSuggestion[]>([]);
   const [currentWuId, setCurrentWuId] = useState<string | null>(null);
+  // #488：建议端点「已成功返回」台账（按频道 id 记，切频道自动失效回加载态）——工作条占位三态：
+  // 已返回且 currentWuId=null → 空闲态；未返回/请求失败（catch 静默不落账）/ skew 未命中 → 加载态
+  const [suggestionsResolvedFor, setSuggestionsResolvedFor] = useState<string | null>(null);
   // Mission Control 右抽屉：WorkUnit 详情 / REQ 全链路
   const [drawer, setDrawer] = useState<DrawerState>(null);
   // #395（spec §4.6）窄屏降级断点：<768 左栏并入全局 Sidebar（本页卸载内联 ChannelRail）；
@@ -188,6 +209,12 @@ export function ChannelDetailPage() {
     if (!id) return;
     channelApi.getSuggestions(id)
       .then(r => {
+        // #490：推导失败被吞（degraded=true）≠「确实无建议」——仅 console 记录不打扰用户；
+        // 不落「已返回」台账（ChannelWorkBar 占位保持加载态，不误显空闲），建议面保持上一份
+        if (r.data?.data?.degraded === true) {
+          console.warn('[ChannelDetailPage] suggestions derive degraded (fail-closed)', { channelId: id });
+          return;
+        }
         const raw: unknown = r.data?.data?.suggestions;
         const list = Array.isArray(raw) ? raw : [];
         setChannelSuggestions(list.filter((s): s is ChannelSuggestion =>
@@ -196,9 +223,25 @@ export function ChannelDetailPage() {
         ));
         const rawWuId: unknown = r.data?.data?.currentWuId;
         setCurrentWuId(typeof rawWuId === 'string' ? rawWuId : null);
+        // #488：成功返回落账（失败走 catch 不落账 → 占位保持加载态，不误显空闲）
+        setSuggestionsResolvedFor(id);
       })
       .catch(() => {});
   }, [id]);
+
+  // #489：SSE 触发面（workunit.status_changed / channel.message_sent / requirement.created|updated）
+  // 统一走 trailing 防抖——连续事件合并为一次重拉；卸载时清挂起定时器
+  const suggestionsDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scheduleSuggestionsReload = useCallback(() => {
+    if (suggestionsDebounceRef.current) clearTimeout(suggestionsDebounceRef.current);
+    suggestionsDebounceRef.current = setTimeout(() => {
+      suggestionsDebounceRef.current = null;
+      reloadSuggestions();
+    }, SUGGESTIONS_RELOAD_DEBOUNCE_MS);
+  }, [reloadSuggestions]);
+  useEffect(() => () => {
+    if (suggestionsDebounceRef.current) clearTimeout(suggestionsDebounceRef.current);
+  }, []);
 
   // 决策 9（SSE 负载加深）：SSE 断线重连 → 受影响面一次性 refetch（无序号/校验机制）：
   // 消息面 refresh + REQ chips 打底面 + #403 频道数据面三切片强刷
@@ -228,6 +271,13 @@ export function ChannelDetailPage() {
   useEffect(() => {
     if (!id) return;
     return onEvent(msg => {
+      // #489：里程碑/agent 消息到达也改变建议推导输入（如 system 播报、里程碑）→ 防抖重拉；
+      // 负载缺 channelId 属畸形，fail-closed 跳过（与 useChannelEvents 同口径）
+      if (msg.event_type === 'channel.message_sent') {
+        const data = msg.data as { channelId?: string } | undefined;
+        if (data?.channelId === id) scheduleSuggestionsReload();
+        return;
+      }
       if (msg.event_type !== 'workunit.status_changed') return;
       const wu = parseLiveWuRef(msg.data);
       if (!wu || wu.channelId !== id) return;
@@ -256,11 +306,11 @@ export function ChannelDetailPage() {
         };
         return next;
       });
-      // #443：状态变化后端点派生建议重拉（复用既有事件，不新增事件类型；推导输入含 loop 心跳等
-      // 无事件信号，由后端宽限期吸收，前端不做实时）
-      reloadSuggestions();
+      // #443：状态变化（含 NEED_INPUT 挂起/恢复）后端点派生建议重拉；#489 起走共享防抖
+      // （复用既有事件，不新增事件类型；推导输入含 loop 心跳等无事件信号，由后端宽限期吸收，前端不做实时）
+      scheduleSuggestionsReload();
     });
-  }, [id, onEvent, reloadSuggestions]);
+  }, [id, onEvent, scheduleSuggestionsReload]);
 
   // REQ 需求编号（vision §5.3）：本频道需求 chips；REST 打底（reloadChannelReqs，见上）+
   // requirement.created/updated SSE 增量（批 2 决策 6：摘 messages.length 依赖；#415 负载 = { requirement } 全量，就地 upsert 零补拉）
@@ -278,6 +328,8 @@ export function ChannelDetailPage() {
       if (req.channelId && req.channelId !== id) return;
       // #403 白捡触发器（ADR 决策 3）：REQ 变更可能改变 current-pmo 派生 → 失效强刷（零成本接线）
       if (id) useChannelDataStore.getState().invalidateCurrentPmo(id);
+      // #489：REQ 创建/更新同样改变建议推导输入 → 防抖重拉（与 status_changed/message_sent 共享窗口）
+      scheduleSuggestionsReload();
       if (msg.event_type === 'requirement.created') {
         // 负载即全量（与 REST get 同源）→ 就地 upsert（updater 内按 id 去重），零补拉（#415）
         setChannelReqs(prev => (prev.some(x => x.id === req.id) ? prev : [...prev, req]));
@@ -292,7 +344,7 @@ export function ChannelDetailPage() {
         return next;
       });
     });
-  }, [id, onEvent]);
+  }, [id, onEvent, scheduleSuggestionsReload]);
 
   // 统一卡片 action 路由：#322 抽成 useChannelCardActions（dispatch 单一入口，
   // 卡片 action 类型 → api 调用映射在 hook 内，映射断言见 hooks/__tests__/useChannelCardActions.test.ts）
@@ -491,15 +543,59 @@ export function ChannelDetailPage() {
   }, [setCollapsedThreads]);
 
   // #279（决策 #250 D4）：chip 点条目 → 滚动定位到该 WU 当前提问消息并高亮（2s 后消退）。
-  // 提问消息若埋在被用户收起的线程里，先把所属线程展开
   const [highlightId, setHighlightId] = useState<string | null>(null);
+  // 翻页定位循环是异步长任务，经 ref 读最新快照，避免闭包锁旧值（#439 引入，#483 起 chip 定位复用）
+  const locateSnapshotRef = useRef({ messages, hasMore, loadMore });
+  locateSnapshotRef.current = { messages, hasMore, loadMore };
+
+  /** #439 翻页定位循环（#483 起 chip 定位复用）：沿 #319 翻页游标向前翻，直到 found() 命中 /
+   *  翻到底 / 超 HIGHLIGHT_LOCATE_MAX_PAGES / 翻页无新内容；cancelled() 为真则放弃（无终局反馈） */
+  const pageBackToFind = useCallback(async (
+    found: () => boolean,
+    cancelled: () => boolean,
+  ): Promise<'found' | 'cancelled' | 'exhausted'> => {
+    for (let page = 0; page < HIGHLIGHT_LOCATE_MAX_PAGES; page++) {
+      if (cancelled()) return 'cancelled';
+      if (found()) return 'found';
+      if (!locateSnapshotRef.current.hasMore) break; // 翻到底
+      const prepended = await locateSnapshotRef.current.loadMore();
+      if (!prepended) break; // 翻页失败/无新内容，终止防空转
+      // loadMore resolve 时 React 尚未提交新快照——让出一个 macrotask 等 ref 刷新，
+      // 否则下一轮判空读旧快照会多翻一页（目标恰在末页时甚至可能误报不可达）
+      await new Promise(resolve => setTimeout(resolve, 0));
+    }
+    if (cancelled()) return 'cancelled';
+    return found() ? 'found' : 'exhausted';
+  }, []);
+
+  // 提问消息若埋在被用户收起的线程里，先把所属线程展开；
+  // #483：提问掉出已加载分页 → 复用 #439 翻页定位循环；翻到底/超限/无新内容 → toast 兜底，不静默
+  const chipLocatingRef = useRef<string | null>(null);
   const locateWaitingQuestion = useCallback((wuId: string) => {
-    const msgId = latestQuestionIdByWu.get(wuId);
-    if (!msgId) return;
-    const target = messages.find(m => m.id === msgId);
-    if (target?.replyToId) ensureThreadExpanded(target.replyToId);
-    setHighlightId(msgId);
-  }, [latestQuestionIdByWu, messages, ensureThreadExpanded]);
+    const loaded = latestQuestionMessageOf(locateSnapshotRef.current.messages, wuId);
+    if (loaded) {
+      if (loaded.replyToId) ensureThreadExpanded(loaded.replyToId);
+      setHighlightId(loaded.id);
+      return;
+    }
+    if (chipLocatingRef.current === wuId) return; // 同 WU 防重入
+    chipLocatingRef.current = wuId;
+    void (async () => {
+      const result = await pageBackToFind(
+        () => latestQuestionMessageOf(locateSnapshotRef.current.messages, wuId) !== null,
+        () => chipLocatingRef.current !== wuId,
+      );
+      if (result === 'cancelled') return;
+      chipLocatingRef.current = null;
+      const target = latestQuestionMessageOf(locateSnapshotRef.current.messages, wuId);
+      if (target) {
+        if (target.replyToId) ensureThreadExpanded(target.replyToId);
+        setHighlightId(target.id);
+      } else {
+        toast.warning('该消息太旧或已删除，无法定位');
+      }
+    })();
+  }, [ensureThreadExpanded, pageBackToFind]);
 
   // 通知中心点击直达（?highlight=<mid>）：复用上方高亮定位机制，滚动到该消息并高亮 2s。
   // 每个 mid 只消费一次（防消息流更新反复重置高亮）；首拉未完成（loading）时等下一轮 messages。
@@ -509,9 +605,6 @@ export function ChannelDetailPage() {
   const highlightConsumedRef = useRef<string | null>(null);
   /** #439：正在为哪个 mid 跑翻页定位循环（同 mid 防重入；定位成功/终局反馈后清空） */
   const highlightLocatingRef = useRef<string | null>(null);
-  // 翻页循环是异步长任务，经 ref 读最新快照，避免闭包锁旧值
-  const locateSnapshotRef = useRef({ messages, hasMore, loadMore });
-  locateSnapshotRef.current = { messages, hasMore, loadMore };
   useEffect(() => {
     const mid = searchParams.get('highlight');
     if (!mid || highlightConsumedRef.current === mid) return;
@@ -529,24 +622,16 @@ export function ChannelDetailPage() {
     if (highlightLocatingRef.current === mid) return;
     highlightLocatingRef.current = mid;
     void (async () => {
-      for (let page = 0; page < HIGHLIGHT_LOCATE_MAX_PAGES; page++) {
-        if (highlightLocatingRef.current !== mid) return; // 已被上方分支定位/消费
-        if (locateSnapshotRef.current.messages.some(m => m.id === mid)) return; // 已载入，交给 effect 定位
-        if (!locateSnapshotRef.current.hasMore) break; // 翻到底
-        const prepended = await locateSnapshotRef.current.loadMore();
-        if (!prepended) break; // 翻页失败/无新内容，终止防空转
-        // loadMore resolve 时 React 尚未提交新快照——让出一个 macrotask 等 ref 刷新，
-        // 否则下一轮判空读旧快照会多翻一页（目标恰在末页时甚至可能误报不可达）
-        await new Promise(resolve => setTimeout(resolve, 0));
-      }
-      if (highlightLocatingRef.current !== mid) return;
+      const result = await pageBackToFind(
+        () => locateSnapshotRef.current.messages.some(m => m.id === mid),
+        () => highlightLocatingRef.current !== mid,
+      );
+      if (result !== 'exhausted') return; // found → 交给上方分支定位；cancelled → 已被消费
       highlightLocatingRef.current = null;
-      if (!locateSnapshotRef.current.messages.some(m => m.id === mid)) {
-        highlightConsumedRef.current = mid;
-        toast.warning('该消息太旧或已删除，无法定位');
-      }
+      highlightConsumedRef.current = mid;
+      toast.warning('该消息太旧或已删除，无法定位');
     })();
-  }, [searchParams, messages, loading, ensureThreadExpanded]);
+  }, [searchParams, messages, loading, ensureThreadExpanded, pageBackToFind]);
 
   // 里程碑判定（不折叠）：人类消息 / 卡片消息 / 等待回复 / 最后一条回复——已迁入 deriveStreamView（#322）
 
@@ -631,12 +716,12 @@ export function ChannelDetailPage() {
     ownSendPendingRef.current = true;
     try {
       // #281: files 仅在有文件引用时透传（保旧调用两参形态）
-      if (files?.length) {
-        await sendMessage(content, replyToId, files);
-      } else {
-        await sendMessage(content, replyToId);
-      }
+      const sent = files?.length
+        ? await sendMessage(content, replyToId, files)
+        : await sendMessage(content, replyToId);
       setReplyTo(null);
+      // #493：线程回复送达且命中 WU（workUnitId 继承成功 = 会触达 agent）→ 轻量「已送达/等待 agent」状态
+      if (replyToId && sent?.workUnitId) setAwaitingAgent({ wuId: sent.workUnitId, since: Date.now() });
     } catch (err) {
       ownSendPendingRef.current = false;
       throw err;
@@ -650,6 +735,19 @@ export function ChannelDetailPage() {
   const handleInlineReply = useCallback((message: ChannelMessage, content: string) => {
     return handleSend(content, message.id);
   }, [handleSend]);
+
+  // #493：「等待 agent」状态条——agent 已响应（该 WU 的 agent 新消息到达）即 render 派生隐藏，
+  // 不做 effect 内同步 setState；state 本体由 30s 兜底定时器清理（agent 无响应时条不常住；
+  // 30s 口径 > 唤醒+认领秒级路径，loop 异常时由工作条/建议片承接下来）
+  const agentAnswered = !!awaitingAgent && messages.some(m =>
+    m.authorType === 'agent' && m.workUnitId === awaitingAgent.wuId &&
+    new Date(m.createdAt).getTime() >= awaitingAgent.since
+  );
+  useEffect(() => {
+    if (!awaitingAgent) return;
+    const timer = setTimeout(() => setAwaitingAgent(null), 30_000);
+    return () => clearTimeout(timer);
+  }, [awaitingAgent]);
 
   useEffect(() => {
     if (!highlightId) return;
@@ -828,7 +926,7 @@ export function ChannelDetailPage() {
             一条横带回答「这个频道的工作现在什么状态」；hook 自持有，step 事件只重渲该组件边界；
             currentWu = 建议端点 currentWuId × channelWus（拣选口径单源在后端，未命中 fail-closed 主区不渲染）；
             点击条目打开对应 WU 抽屉（过程明细仍在抽屉） */}
-        <ChannelWorkBar channelId={id} currentWu={currentWu} onOpenWorkUnit={openWu} gate={workBarGate} />
+        <ChannelWorkBar channelId={id} currentWu={currentWu} onOpenWorkUnit={openWu} gate={workBarGate} wuIdle={suggestionsResolvedFor === id && currentWuId === null} />
 
         {/* Message list
             #325：头部块（空态/加载更早/折叠 toggle）与虚拟列表 spacer 分离——
@@ -841,7 +939,15 @@ export function ChannelDetailPage() {
               // 批次 F-3：消息流首拉骨架（批次 E-2 ui/Skeleton 正本）——消息行形态
               <SkeletonText lines={5} widths={['40%', '65%', '55%', '70%', '45%']} className="space-y-4 p-4" />
             )}
-            {!loading && messages.length === 0 && (
+            {!loading && error && messages.length === 0 && (
+              // #482：首拉/兜底轮询失败——错误态 + 重试入口，与真空频道区分（原呈假空态，
+              // 用户会把加载故障误判为空频道）；已有消息时轮询失败不整屏替换，消息流保留
+              <div className="mc-stream-empty" role="alert">
+                <p>消息加载失败</p>
+                <button type="button" className="mc-empty-chip" onClick={() => { void refresh(); }}>重试</button>
+              </div>
+            )}
+            {!loading && !error && messages.length === 0 && (
               <div className="mc-stream-empty">
                 <p>发送消息开始对话</p>
                 <p>@Agent 提及 Agent 创建任务</p>
@@ -916,17 +1022,18 @@ export function ChannelDetailPage() {
         </div>
 
         {/* #443–#447：引导片（唯一来源 = 建议端点派生片；prompt 点击填入输入框，status 只读，
-            action 点击走下方确认弹窗直调确定性接口；会话级 dismiss） */}
+            action 点击走下方确认弹窗直调确定性接口；会话级 dismiss）
+            #484：片粒度 dismiss——每片独立 ✕，按片 dismissKey 记账，不再一键清全部 */}
         {visibleChips.length > 0 && (
           <SuggestionChips
             suggestions={visibleChips}
             onPick={(text) => setInputPrefill(p => ({ text, nonce: (p?.nonce ?? 0) + 1 }))}
             onAction={handleSuggestionAction}
-            onDismiss={() => setDismissedSuggestionKeys(prev => {
-              const next = new Set(prev);
-              for (const c of visibleChips) next.add(c.dismissKey);
-              return next;
-            })}
+            onDismiss={(item) => {
+              const key = visibleChips.find(c => c.id === item.id)?.dismissKey;
+              if (!key) return; // fail-closed：找不到台账 key 不记（不静默吞掉别片）
+              setDismissedSuggestionKeys(prev => new Set(prev).add(key));
+            }}
           />
         )}
 
@@ -948,6 +1055,12 @@ export function ChannelDetailPage() {
             onConfirm={() => { void runSuggestionAction(); }}
             onCancel={() => setPendingSuggestionAction(null)}
           />
+        )}
+
+        {/* #493：线程回复送达即时反馈——「已送达，等待 agent 响应」，
+            该 WU 的 agent 新消息到达或 30s 超时自动消失 */}
+        {awaitingAgent && !agentAnswered && (
+          <div className="mc-agent-ack" role="status">已送达，等待 agent 响应…</div>
         )}
 
         {/* Input */}
