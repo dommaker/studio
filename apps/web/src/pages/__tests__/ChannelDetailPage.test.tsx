@@ -1084,6 +1084,85 @@ describe('ChannelDetailPage — #447 引导片唯一来源 = 建议端点', () =
   });
 });
 
+// #489：建议端点重拉触发面补齐——channel.message_sent（里程碑/agent 消息）与 requirement.created/updated
+// 同样触发重拉（NEED_INPUT 变化已由 workunit.status_changed 覆盖）；SSE 触发共享一个 trailing 防抖，
+// 连续事件合并为一次请求防风暴；挂载/重连仍即时重拉不经防抖。
+describe('ChannelDetailPage — #489 建议端点重拉触发面（防抖合并）', () => {
+  const CHANNEL = { data: { data: { id: 'ch-1', name: 'rnd-主研发', type: 'rnd', members: '[]' } } };
+  const EMPTY = { data: { data: { currentWuId: null, suggestions: [] } } };
+  const suggestionsCalls = () =>
+    mockApiGet.mock.calls.filter(([url]) => String(url).endsWith('/suggestions')).length;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    currentMessages = MESSAGES;
+    sseHandlers = [];
+    useNotificationStore.setState({ stateItems: [], notifications: [], unreadCount: 0 });
+    mockApiGet.mockImplementation((url: string) => Promise.resolve(
+      String(url).endsWith('/suggestions') ? EMPTY : CHANNEL,
+    ));
+    mockListWorkunits.mockImplementation((params?: { status?: string }) => Promise.resolve(
+      params?.status === 'active' ? activeWuList([]) : { data: { data: [] } },
+    ));
+    mockOnEvent.mockImplementation((cb: SseHandler) => { sseHandlers.push(cb); return () => {}; });
+    mockOnReconnect.mockImplementation((cb: () => void) => { reconnectHandlers.push(cb); return () => {}; });
+    reconnectHandlers = [];
+    mockListReqs.mockResolvedValue({ data: { data: [] } });
+    mockSendMessage.mockResolvedValue({});
+  });
+
+  it('channel.message_sent（本频道里程碑消息）→ 防抖窗口内重拉建议端点', async () => {
+    renderPage();
+    await waitFor(() => expect(suggestionsCalls()).toBe(1));
+    act(() => emitSse({
+      event_type: 'channel.message_sent',
+      data: { channelId: 'ch-1', message: { id: 'm-new', channelId: 'ch-1', authorType: 'agent', content: '里程碑', createdAt: iso(10) } },
+    }));
+    await waitFor(() => expect(suggestionsCalls()).toBe(2), { timeout: 2000 });
+  });
+
+  it('channel.message_sent（他频道）→ 不触发重拉', async () => {
+    renderPage();
+    await waitFor(() => expect(suggestionsCalls()).toBe(1));
+    act(() => emitSse({
+      event_type: 'channel.message_sent',
+      data: { channelId: 'ch-other', message: { id: 'm-x' } },
+    }));
+    // 跨过整个防抖窗口确认无请求
+    await new Promise(r => setTimeout(r, 1200));
+    expect(suggestionsCalls()).toBe(1);
+  });
+
+  it('requirement.created / updated → 重拉建议端点（REQ 变化可能改变引导）', async () => {
+    renderPage();
+    await waitFor(() => expect(suggestionsCalls()).toBe(1));
+    act(() => emitSse({
+      event_type: 'requirement.created',
+      data: { requirement: { id: 'REQ-0050', seq: 50, title: '新需求', status: 'open', channelId: 'ch-1', createdAt: iso(0), createdBy: 'x' } },
+    }));
+    await waitFor(() => expect(suggestionsCalls()).toBe(2), { timeout: 2000 });
+    act(() => emitSse({
+      event_type: 'requirement.updated',
+      data: { requirement: { id: 'REQ-0050', seq: 50, title: '新需求', status: 'done', channelId: 'ch-1', createdAt: iso(0), createdBy: 'x' } },
+    }));
+    await waitFor(() => expect(suggestionsCalls()).toBe(3), { timeout: 2000 });
+  });
+
+  it('防抖合并：连续到达的异类事件合并为一次重拉', async () => {
+    renderPage();
+    await waitFor(() => expect(suggestionsCalls()).toBe(1));
+    act(() => {
+      emitSse({ event_type: 'channel.message_sent', data: { channelId: 'ch-1', message: { id: 'm-a' } } });
+      emitSse({ event_type: 'workunit.status_changed', data: { workunit: { id: 'WU-9001', status: 'in_review', channelId: 'ch-1', type: 'task', metadata: '{}' } } });
+      emitSse({ event_type: 'channel.message_sent', data: { channelId: 'ch-1', message: { id: 'm-b' } } });
+    });
+    await waitFor(() => expect(suggestionsCalls()).toBe(2), { timeout: 2000 });
+    // 防抖窗口过后无第二次请求（三事件只合并出一次）
+    await new Promise(r => setTimeout(r, 1200));
+    expect(suggestionsCalls()).toBe(2);
+  });
+});
+
 // #440 Phase 2：频道阶段条——复用 StationStepper/buildLifecycle，deriveDisplayState 同口径；
 // #447 起「频道当前工单」拣选唯一正本在后端建议端点（pickCurrentWu 前端副本已删），
 // 阶段条与引导片同源消费端点 currentWuId（WU 数据本体仍取自 channelWus 面）

@@ -43,6 +43,11 @@ import { toast } from '../utils/toast';
 /** #439：?highlight 定位的翻页页数上限（50 条/页 → 最多回看 500 条），超限/翻到底降级为可见反馈 */
 const HIGHLIGHT_LOCATE_MAX_PAGES = 10;
 
+/** #489：建议端点 SSE 触发面共享的 trailing 防抖窗口——一次状态转换常伴随多类事件连发
+ *  （status_changed / 里程碑 message_sent / requirement.*），合并为一次请求防风暴；
+ *  挂载/重连/动作回扫仍即时重拉，不经防抖 */
+const SUGGESTIONS_RELOAD_DEBOUNCE_MS = 500;
+
 /** #483：某 WU 的当前提问消息 = 该 WU 最新一条非人类消息（与 latestQuestionIdByWu 同口径）。
  *  chip 翻页定位循环需读最新快照（memo 值在异步循环里是旧闭包），故抽纯函数共用 */
 function latestQuestionMessageOf(msgs: ChannelMessage[], wuId: string): ChannelMessage | null {
@@ -216,6 +221,20 @@ export function ChannelDetailPage() {
       .catch(() => {});
   }, [id]);
 
+  // #489：SSE 触发面（workunit.status_changed / channel.message_sent / requirement.created|updated）
+  // 统一走 trailing 防抖——连续事件合并为一次重拉；卸载时清挂起定时器
+  const suggestionsDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scheduleSuggestionsReload = useCallback(() => {
+    if (suggestionsDebounceRef.current) clearTimeout(suggestionsDebounceRef.current);
+    suggestionsDebounceRef.current = setTimeout(() => {
+      suggestionsDebounceRef.current = null;
+      reloadSuggestions();
+    }, SUGGESTIONS_RELOAD_DEBOUNCE_MS);
+  }, [reloadSuggestions]);
+  useEffect(() => () => {
+    if (suggestionsDebounceRef.current) clearTimeout(suggestionsDebounceRef.current);
+  }, []);
+
   // 决策 9（SSE 负载加深）：SSE 断线重连 → 受影响面一次性 refetch（无序号/校验机制）：
   // 消息面 refresh + REQ chips 打底面 + #403 频道数据面三切片强刷
   // （#468：waitingWus 面已删——行动中心重拉由 NotificationBell 的 onReconnect 承担）
@@ -244,6 +263,13 @@ export function ChannelDetailPage() {
   useEffect(() => {
     if (!id) return;
     return onEvent(msg => {
+      // #489：里程碑/agent 消息到达也改变建议推导输入（如 system 播报、里程碑）→ 防抖重拉；
+      // 负载缺 channelId 属畸形，fail-closed 跳过（与 useChannelEvents 同口径）
+      if (msg.event_type === 'channel.message_sent') {
+        const data = msg.data as { channelId?: string } | undefined;
+        if (data?.channelId === id) scheduleSuggestionsReload();
+        return;
+      }
       if (msg.event_type !== 'workunit.status_changed') return;
       const wu = parseLiveWuRef(msg.data);
       if (!wu || wu.channelId !== id) return;
@@ -272,11 +298,11 @@ export function ChannelDetailPage() {
         };
         return next;
       });
-      // #443：状态变化后端点派生建议重拉（复用既有事件，不新增事件类型；推导输入含 loop 心跳等
-      // 无事件信号，由后端宽限期吸收，前端不做实时）
-      reloadSuggestions();
+      // #443：状态变化（含 NEED_INPUT 挂起/恢复）后端点派生建议重拉；#489 起走共享防抖
+      // （复用既有事件，不新增事件类型；推导输入含 loop 心跳等无事件信号，由后端宽限期吸收，前端不做实时）
+      scheduleSuggestionsReload();
     });
-  }, [id, onEvent, reloadSuggestions]);
+  }, [id, onEvent, scheduleSuggestionsReload]);
 
   // REQ 需求编号（vision §5.3）：本频道需求 chips；REST 打底（reloadChannelReqs，见上）+
   // requirement.created/updated SSE 增量（批 2 决策 6：摘 messages.length 依赖；#415 负载 = { requirement } 全量，就地 upsert 零补拉）
@@ -294,6 +320,8 @@ export function ChannelDetailPage() {
       if (req.channelId && req.channelId !== id) return;
       // #403 白捡触发器（ADR 决策 3）：REQ 变更可能改变 current-pmo 派生 → 失效强刷（零成本接线）
       if (id) useChannelDataStore.getState().invalidateCurrentPmo(id);
+      // #489：REQ 创建/更新同样改变建议推导输入 → 防抖重拉（与 status_changed/message_sent 共享窗口）
+      scheduleSuggestionsReload();
       if (msg.event_type === 'requirement.created') {
         // 负载即全量（与 REST get 同源）→ 就地 upsert（updater 内按 id 去重），零补拉（#415）
         setChannelReqs(prev => (prev.some(x => x.id === req.id) ? prev : [...prev, req]));
@@ -308,7 +336,7 @@ export function ChannelDetailPage() {
         return next;
       });
     });
-  }, [id, onEvent]);
+  }, [id, onEvent, scheduleSuggestionsReload]);
 
   // 统一卡片 action 路由：#322 抽成 useChannelCardActions（dispatch 单一入口，
   // 卡片 action 类型 → api 调用映射在 hook 内，映射断言见 hooks/__tests__/useChannelCardActions.test.ts）
