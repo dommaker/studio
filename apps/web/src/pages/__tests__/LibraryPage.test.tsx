@@ -24,7 +24,9 @@ vi.mock('../../api/maintenance', () => ({
   maintenanceApi: { getCosts: vi.fn().mockRejectedValue(new Error('skip')), fireTrigger: vi.fn() },
 }));
 
-vi.mock('../../components/ui', () => ({
+vi.mock('../../components/ui', async (importOriginal) => ({
+  // 部分 mock：只替 ManualTaskButton，其余（Select/SkeletonText 等）保留真实实现
+  ...(await importOriginal<typeof import('../../components/ui')>()),
   ManualTaskButton: ({ label }: { label: string }) => <button>{label}</button>,
 }));
 
@@ -155,6 +157,29 @@ describe('LibraryPage（#155 T5 阅览室）', () => {
     expect(btn.textContent).not.toContain('🔍');
   });
 
+  describe('批次 F-4: 空态归 .empty-state（图标 + 文案 + 说明），区分真空/筛选无结果', () => {
+    it('真空态出图标 + 「暂无文档」+ 文档来源说明', async () => {
+      mockLibraryList.mockResolvedValue({ data: { data: [] } });
+      const { container } = renderPage();
+
+      expect(await screen.findByText('暂无文档')).toBeTruthy();
+      expect(screen.getByText(/文档来自各项目仓库的 \.studio\/ 目录/)).toBeTruthy();
+      expect(container.querySelector('.empty-state .empty-icon svg')).not.toBeNull();
+    });
+
+    it('搜索无结果走筛选语境文案', async () => {
+      mockLibraryList.mockResolvedValue({ data: { data: [] } });
+      renderPage();
+      await screen.findByText('暂无文档');
+
+      fireEvent.change(screen.getByPlaceholderText('搜索文档标题或内容...'), { target: { value: '不存在' } });
+
+      expect(await screen.findByText('没有匹配的文档')).toBeTruthy();
+      expect(screen.getByText('调整或清除搜索/筛选条件后再查看')).toBeTruthy();
+      expect(screen.queryByText('暂无文档')).toBeNull();
+    });
+  });
+
   describe('E6 列表按项目分组', () => {
     // 跨两个项目：proj-a 两条（updatedAt 乱序）+ proj-b 一条
     const GROUPED_DOCS = [
@@ -243,6 +268,30 @@ describe('LibraryPage（#155 T5 阅览室）', () => {
         expect(screen.getByText('甲-旧')).toBeTruthy();
         expect(screen.queryByText('乙-文')).toBeNull(); // kind=spec 过滤掉 adr
       });
+    });
+  });
+
+  describe('批次 F-1: 加载失败错误条 + 重试（原先 catch 只 console.error，落「暂无文档」假空态）', () => {
+    it('fetchDocs 失败显示错误条与重试按钮，不落「暂无文档」假空态', async () => {
+      mockLibraryList.mockRejectedValue(new Error('boom'));
+      renderPage();
+
+      expect(await screen.findByText('加载文档列表失败，请重试')).toBeTruthy();
+      expect(screen.getByText('重试')).toBeTruthy();
+      expect(screen.queryByText('暂无文档')).toBeNull();
+    });
+
+    it('点击重试重新发起请求并恢复列表、清除错误条', async () => {
+      mockLibraryList
+        .mockRejectedValueOnce(new Error('boom'))
+        .mockResolvedValue({ data: { data: DOCS } });
+      renderPage();
+
+      fireEvent.click(await screen.findByText('重试'));
+
+      expect(await screen.findByText('规格甲')).toBeTruthy();
+      expect(screen.queryByText('加载文档列表失败，请重试')).toBeNull();
+      await waitFor(() => expect(mockLibraryList).toHaveBeenCalledTimes(2));
     });
   });
 });

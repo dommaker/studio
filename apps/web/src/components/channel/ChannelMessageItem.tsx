@@ -9,7 +9,7 @@ import { AuthorAvatar } from './AuthorAvatar';
 import { FileRefChip } from './FileRefChip';
 import { MarkdownBody } from '../knowledge/MarkdownBody';
 import { matchFileRefToken } from '../../utils/fileChipMatch';
-import { renderWithMentions } from '../../utils/mentions';
+import { renderWithMentionsAndImages } from '../../utils/messageImages';
 import { RequirementsDocCard } from './RequirementsDocCard';
 import { KnowledgeConfirmCard } from './KnowledgeConfirmCard';
 import { ReviewProposalCard } from './ReviewProposalCard';
@@ -55,6 +55,8 @@ interface Props {
   compact?: boolean;
   /** #279（决策 #250 D4）：顶栏待办 chip 定位高亮 */
   highlight?: boolean;
+  /** 批次 E-3：SSE 新到达消息渐隐高亮（.mc-msg-new，accent-dim 底色，页面 2s 后自清） */
+  fresh?: boolean;
 }
 
 function renderCard(
@@ -92,7 +94,7 @@ function renderCard(
 export const ChannelMessageItem = memo(function ChannelMessageItem({
   message, onAction, onReply, findMessage, channelId,
   isThreadAnchor, threadReplyCount, isExpanded, onToggleThread, isThreadReply,
-  waitingForInput, onOpenWorkUnit, onOpenWorkUnitConfirm, onOpenWorkUnitRuling, onOpenRequirement, onInlineReply, fileVocabulary, wuChangedFiles, compact, highlight,
+  waitingForInput, onOpenWorkUnit, onOpenWorkUnitConfirm, onOpenWorkUnitRuling, onOpenRequirement, onInlineReply, fileVocabulary, wuChangedFiles, compact, highlight, fresh,
 }: Props) {
   const isHuman = message.authorType === 'human';
   const meta = parseMeta(message.meta);
@@ -201,7 +203,7 @@ export const ChannelMessageItem = memo(function ChannelMessageItem({
 
   return (
     <div
-      className={`mc-msg ${compact ? 'mc-msg-compact' : ''} ${sideClass}${highlight ? ' mc-msg-highlight' : ''}`}
+      className={`mc-msg ${compact ? 'mc-msg-compact' : ''} ${sideClass}${highlight ? ' mc-msg-highlight' : ''}${fresh ? ' mc-msg-new' : ''}`}
       data-message-id={message.id}
     >
       {/* Quote block (reply reference) */}
@@ -249,7 +251,7 @@ export const ChannelMessageItem = memo(function ChannelMessageItem({
               {severity.level.toUpperCase()}
             </span>
           )}
-          {renderWithMentions(severity ? severity.rest : message.content)}
+          {renderWithMentionsAndImages(severity ? severity.rest : message.content)}
         </div>
       ) : (
         <div className="mc-msg-body">

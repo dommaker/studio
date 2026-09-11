@@ -53,7 +53,7 @@ export function KnowledgeConfirmCard({ message, meta, onAction }: Props) {
     const okState = status === 'confirmed' || status === 'published';
     return (
       <div className="mc-card" data-card-type={meta.cardType}>
-        <div className="mc-card-label" style={{ marginBottom: 4 }}>{isRetract ? '撤回确认' : '知识收录'}</div>
+        <div className="mc-card-label mb-1">{isRetract ? '撤回确认' : '知识收录'}</div>
         <span className={okState ? 'mc-status mc-status-done' : status === 'deprecated' ? 'mc-status mc-status-pending' : 'mc-status mc-status-error'}>
           {isRetract
             ? (status === 'deprecated' ? '已确认废弃' : '撤回已取消，保持发布')
@@ -64,7 +64,7 @@ export function KnowledgeConfirmCard({ message, meta, onAction }: Props) {
   }
 
   return (
-    <div className="mc-card" data-card-type={meta.cardType} style={{ borderColor: 'var(--accent-border)' }}>
+    <div className="mc-card u-accent-border" data-card-type={meta.cardType}>
       <div className="mc-card-head">
         <span className="mc-card-label">
           {isRetract ? '撤回确认' : '知识收录确认'}
@@ -77,10 +77,10 @@ export function KnowledgeConfirmCard({ message, meta, onAction }: Props) {
 
       {/* Entries */}
       {entries?.map((entry, i) => (
-        <div key={i} className="border-b u-border" style={{ marginBottom: 6, paddingBottom: 6 }}>
-          <p className="mc-card-body" style={{ fontWeight: 600 }}>{entry.title}</p>
-          <p className="mc-card-dim" style={{ marginTop: 2 }}>{entry.content}</p>
-          <div style={{ display: 'flex', gap: 4, marginTop: 4, flexWrap: 'wrap' }}>
+        <div key={i} className="border-b u-border mb-1.5 pb-1.5">
+          <p className="mc-card-body font-semibold">{entry.title}</p>
+          <p className="mc-card-dim mt-0.5">{entry.content}</p>
+          <div className="flex gap-1 mt-1 flex-wrap">
             <span className="mc-wu-link">{TYPE_LABELS[entry.type] || entry.type}</span>
             {entry.tags?.map(tag => (
               <span key={tag} className="mc-status mc-status-pending">{tag}</span>
@@ -111,7 +111,7 @@ export function KnowledgeConfirmCard({ message, meta, onAction }: Props) {
           </button>
         </div>
       ) : !isRetract ? (
-        <div className="mc-card-foot mc-card-dim border-t u-border" style={{ paddingTop: 8 }}>
+        <div className="mc-card-foot mc-card-dim border-t u-border pt-2">
           该确认入口已下线
         </div>
       ) : null}

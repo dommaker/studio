@@ -8,7 +8,8 @@
  * - progress 仍按项目全部 WU 完结比例（语义不变）
  *
  * 单腿回归由 progress-rollup.test.ts 兜底（不改断言全绿）。
- * 约定同 progress-rollup.test.ts：项目写真实 ~/.studio/projects，afterEach 复位删除。
+ * 约定同 progress-rollup.test.ts：项目经 projectService 写入（落 #219 setup 钉的隔离根
+ * projects/，非真实 ~/.studio），afterEach 复位删除。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';

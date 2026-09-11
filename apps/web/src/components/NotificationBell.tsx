@@ -16,6 +16,7 @@ import { useNavigate } from 'react-router-dom';
 import { useWebSocketContext } from '../api/websocketHooks';
 import { useNotificationStore, type Notification, type StateItem } from '../stores/notificationStore';
 import { toast } from '../utils/toast';
+import { IconBell } from './ui/icons';
 import type { DrawerState } from './channel/WorkUnitDrawer';
 
 // D-2 项2：抽屉懒加载——TopNav 全站常驻，不把 WorkUnitDrawer 依赖树打进主包
@@ -126,6 +127,16 @@ export function NotificationBell() {
     return () => document.removeEventListener('mousedown', handler);
   }, [open]);
 
+  // 批次 F-2：Escape 收起面板
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [open]);
+
   // D-2 项3（reply 线）：追踪点击过的 reply 项，掉出池后给「下一个」（effect 在下方）
   const handledReplyRef = useRef<string | null>(null);
 
@@ -226,7 +237,8 @@ export function NotificationBell() {
         className="relative p-1.5 rounded-lg u-hover-bg transition-colors"
         title="行动中心"
       >
-        <span className="text-lg">🔔</span>
+        {/* 批次 G-1：🔔 emoji → IconBell SVG（#474 图标策略） */}
+        <IconBell size={18} />
         {total > 0 && (
           <span data-visual-ignore className="absolute -top-0.5 -right-0.5 u-err-bg u-on-accent text-[var(--fs-xs)] font-bold rounded-full min-w-4 h-4 px-0.5 flex items-center justify-center">
             {total > 9 ? '9+' : total}

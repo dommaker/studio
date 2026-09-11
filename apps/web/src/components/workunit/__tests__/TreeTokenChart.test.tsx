@@ -1,6 +1,6 @@
 // #396：Token 开销图表化 —— 左栏事实行入口 + 双 stat/预算占比/per-node 堆叠条面板（零图表库）
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import React from 'react';
 
 const { mockGetTreeTokens } = vi.hoisted(() => ({ mockGetTreeTokens: vi.fn() }));
@@ -61,12 +61,13 @@ describe('TreeTokenChart', () => {
     expect(values).toEqual(['12.0k', '2.5k']);
   });
 
-  it('拉取在途：事实行显示 -，面板显示加载中', async () => {
+  it('拉取在途：事实行显示 -，面板显示静态骨架（批次 F-3）', async () => {
     mockGetTreeTokens.mockReturnValue(new Promise(() => {}));
-    render(<TreeTokenEntry workUnitId="wu-root" />);
+    const { container } = render(<TreeTokenEntry workUnitId="wu-root" />);
     const btn = await screen.findByRole('button', { name: /-/ });
     fireEvent.click(btn);
-    expect(await screen.findByText('加载中...')).toBeDefined();
+    await waitFor(() => expect(container.querySelector('.skeleton')).not.toBeNull());
+    expect(screen.queryByText('加载中...')).toBeNull();
   });
 
   it('接口失败：事实行降级 -，不炸页面', async () => {

@@ -23,6 +23,7 @@ export interface WorkunitStatusPayload {
   reqId?: string | null;
   scope?: string | null;
   assigneeId?: string | null;
+  assigneeRoleId?: string | null;
   metadata?: string | null;
   claimedAt?: string | null;
   completedAt?: string | null;
@@ -120,6 +121,7 @@ export const useRequirementChainStore = create<RequirementChainState>((set, get)
           ...cur,
           status: wu!.status,
           assigneeId: wu!.assigneeId !== undefined ? wu!.assigneeId : cur.assigneeId,
+          assigneeRoleId: wu!.assigneeRoleId !== undefined ? wu!.assigneeRoleId : cur.assigneeRoleId,
           title: deriveWorkunitTitle(wu!.metadata, wu!.scope),
           metadata: wu!.metadata !== undefined ? wu!.metadata : cur.metadata,
           claimedAt: wu!.claimedAt !== undefined ? wu!.claimedAt : cur.claimedAt,

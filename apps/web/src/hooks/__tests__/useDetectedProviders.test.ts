@@ -22,7 +22,7 @@ describe('buildProviderOptions', () => {
   });
 
   it('标记已检测到的内置 provider 为可选（带版本）', () => {
-    const opts = buildProviderOptions([{ provider: 'claude', version: '2.0.0', workspaceName: 'VPS', nodeId: 'n1' }], false);
+    const opts = buildProviderOptions([{ provider: 'claude', version: '2.0.0' }], false);
     const claude = opts.find((o) => o.value === 'claude');
     expect(claude).toBeDefined();
     expect(claude!.disabled).toBe(false);
@@ -40,9 +40,9 @@ describe('buildProviderOptions', () => {
 
   it('保持输入顺序（排序由 useDetectedProviders hook 负责）', () => {
     const opts = buildProviderOptions([
-      { provider: 'claude', version: '2.0.0', workspaceName: 'VPS', nodeId: 'n2' },
-      { provider: 'a-tool', version: '1.0.0', workspaceName: 'VPS', nodeId: 'n1' },
-      { provider: 'z-custom', version: '1.0.0', workspaceName: 'VPS', nodeId: 'n1' },
+      { provider: 'claude', version: '2.0.0' },
+      { provider: 'a-tool', version: '1.0.0' },
+      { provider: 'z-custom', version: '1.0.0' },
     ], false);
     const values = opts.filter((o) => !o.disabled).map((o) => o.value);
     expect(values).toEqual(['claude', 'a-tool', 'z-custom']);
@@ -67,8 +67,8 @@ describe('useDetectedProviders', () => {
     mockGet.mockResolvedValue({
       data: {
         runtimes: [
-          { provider: 'claude', version: '1.0.0', workspaceName: 'VPS', nodeId: 'n1' },
-          { provider: 'kimi', version: '2.1.0', workspaceName: 'VPS', nodeId: 'n2' },
+          { provider: 'claude', version: '1.0.0' },
+          { provider: 'kimi', version: '2.1.0' },
         ],
       },
     });
@@ -88,12 +88,12 @@ describe('useDetectedProviders', () => {
     expect(result.current.noneDetected).toBe(true);
   });
 
-  it('按 provider 去重（同 provider 只保留第一次出现）', async () => {
+  it('清单内同 provider 重复条目只保留首次出现', async () => {
     mockGet.mockResolvedValue({
       data: {
         runtimes: [
-          { provider: 'claude', version: 'v1', workspaceName: 'A', nodeId: 'n1' },
-          { provider: 'claude', version: 'v2', workspaceName: 'B', nodeId: 'n2' },
+          { provider: 'claude', version: 'v1' },
+          { provider: 'claude', version: 'v2' },
         ],
       },
     });
@@ -108,7 +108,7 @@ describe('useDetectedProviders', () => {
     mockGet.mockReturnValue(new Promise((r) => { resolve = r; }));
     const { result, unmount } = renderHook(() => useDetectedProviders());
     unmount();
-    resolve({ data: { runtimes: [{ provider: 'claude', version: '1.0.0', workspaceName: 'VPS', nodeId: 'n1' }] } });
+    resolve({ data: { runtimes: [{ provider: 'claude', version: '1.0.0' }] } });
     // 状态应停留在初始值（loading=true, no crash）
     expect(result.current.loading).toBe(true);
   });
@@ -123,7 +123,7 @@ describe('useDetectedProviders', () => {
 
   it('enabled 翻 true 后发起且每次挂载只扫一次；收起再展开不重发（#403）', async () => {
     mockGet.mockResolvedValue({
-      data: { runtimes: [{ provider: 'claude', version: '1.0.0', workspaceName: 'VPS', nodeId: 'n1' }] },
+      data: { runtimes: [{ provider: 'claude', version: '1.0.0' }] },
     });
     const { result, rerender } = renderHook(
       ({ enabled }: { enabled: boolean }) => useDetectedProviders({ enabled }),

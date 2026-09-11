@@ -5,7 +5,7 @@
  *
  * WU 快照 / requirement / project 各读一次（FileStore JSON），内存 map 匹配——不逐 WU 串行读文件。
  * WU 不存在于 index（悬空 currentWorkUnitId）→ 无 map 项（调用方得 null）。
- * projects 由调用方注入（测试 stub 避免碰真实 ~/.studio/projects；生产 = projectService.list 大页）。
+ * projects 由调用方注入（测试 stub 隔离 PMO 依赖；生产 = projectService.list 大页）。
  */
 
 import type { FileStore } from '@dommaker/studio-shared';

@@ -8,6 +8,7 @@ import { useEffect, useState } from 'react';
 import { deriveDisplayState, type WuDisplayColumn } from '@dommaker/studio-shared/web';
 import { workunitApi, type TreeTokenReport } from '../../api/workunit';
 import { Modal } from '../ui/Modal';
+import { SkeletonText } from '../ui';
 import { formatStepTokens } from '../../utils/executionSteps';
 
 function formatTokens(n: number | null): string {
@@ -62,7 +63,7 @@ export function TreeTokenPanel({ report, onClose }: { report: TreeTokenReport | 
   return (
     <Modal open onClose={onClose} maxWidth="640px" title="协作树 Token 开销">
       {!report ? (
-        <p className="text-sm u-text-3">加载中...</p>
+        <SkeletonText lines={3} className="space-y-2" />
       ) : (
         <div className="wu-token-panel">
           <div className="wu-exec-stats">

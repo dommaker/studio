@@ -15,7 +15,7 @@ export function MonitorSection({ title, subtitle, stat, statTestId, children }: 
     <div className="card p-4">
       <div className="flex items-start justify-between gap-4" style={{ marginBottom: 'var(--space-3)' }}>
         <div>
-          <h2 className="mc-block-label" style={{ margin: 0 }}>{title}</h2>
+          <h2 className="mc-block-label mc-block-label-flush">{title}</h2>
           {subtitle && <p className="u-text-3" style={{ margin: 'var(--space-1) 0 0', fontSize: 'var(--fs-xs)' }}>{subtitle}</p>}
         </div>
         {stat !== undefined && (

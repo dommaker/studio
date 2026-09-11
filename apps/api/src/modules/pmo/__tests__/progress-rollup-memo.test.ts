@@ -11,7 +11,8 @@
  *
  * 探测手法：spy RequirementService.prototype.list / FileStore.prototype.getIndex 计存储读；
  * 事件用 eventBus.publish 合成（绕开 wuService 自身的存储读，spy 计数全部可归因到 rollup）。
- * 项目写真实 ~/.studio/projects（progress-rollup.test.ts 同款约定），afterEach 统一清理。
+ * 项目经 projectService 写入（落 #219 setup 钉的隔离根 projects/，非真实 ~/.studio；
+ * progress-rollup.test.ts 同款约定），afterEach 统一清理。
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'node:fs';

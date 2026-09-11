@@ -38,6 +38,8 @@ const { mockFileStore } = vi.hoisted(() => ({
     removeSnapshot: vi.fn(),
     // #170：update 改走锁内成对原语（claim 的 timeoutAt 回写经过）
     commitSnapshot: vi.fn(),
+    // 认领时读取认领方实例 roleId 冗余快照（assigneeRoleId）；本组用例 agentId 非实例 → null
+    getState: vi.fn(),
   },
 }));
 
@@ -70,6 +72,7 @@ describe('AC4 → 决策 7: claim 基础行为（skill 匹配已挪到 step 时�
   beforeEach(() => {
     vi.clearAllMocks();
     invalidateManifestCache();
+    mockFileStore.getState.mockResolvedValue(null);
 
     service = new WorkUnitService(mockFileStore as never);
   });

@@ -6,12 +6,14 @@ import { useAssigneeDisplay } from '../../hooks/useAssigneeDisplay';
 
 interface AssigneeLabelProps {
   assigneeId: string;
+  /** 认领时的 roleId 快照（有则优先按快照解析，兼容旧 WU 缺省） */
+  assigneeRoleId?: string | null;
   className?: string;
   style?: CSSProperties;
 }
 
-export function AssigneeLabel({ assigneeId, className, style }: AssigneeLabelProps) {
-  const display = useAssigneeDisplay(assigneeId);
+export function AssigneeLabel({ assigneeId, assigneeRoleId, className, style }: AssigneeLabelProps) {
+  const display = useAssigneeDisplay(assigneeId, assigneeRoleId);
   if (display) {
     return (
       <Link to={`/agents/${display.roleId}`} className={className} style={style} title="认领 Agent">

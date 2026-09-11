@@ -1,21 +1,20 @@
 // 运行环境 CLI 探测 hook — 2026-07 频道角色修复
-// 数据源：GET /workspaces/runtimes（服务端聚合前会对本机做 best-effort 重扫，
+// 数据源：GET /workspaces/runtimes（服务端返回前会对本机做 best-effort 重扫，
 // 扫描实现见 apps/api/src/modules/workspaces/local-workspace.ts → daemon/cli-scanner.ts）
+// 2026-09-10：端点收敛为本机 CLI 清单，nodeId / workspaceName 随远程节点方向废弃
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 
 export interface DetectedProvider {
   provider: string;
   version: string;
-  workspaceName: string;
-  nodeId: string;
 }
 
 /** 内置 CLI provider（与 packages/studio-shared/src/providers.ts 的 BUILTIN_PROVIDERS 对齐） */
 export const BUILTIN_PROVIDERS = ['claude', 'kimi', 'codex', 'opencode'] as const;
 
 interface RuntimesResponse {
-  runtimes?: Array<{ nodeId: string; provider: string; version: string; workspaceName: string }>;
+  runtimes?: Array<{ provider: string; version: string }>;
 }
 
 /**
@@ -42,8 +41,6 @@ export function useDetectedProviders(options?: { enabled?: boolean }) {
           byProvider.set(rt.provider, {
             provider: rt.provider,
             version: rt.version ?? '',
-            workspaceName: rt.workspaceName ?? '',
-            nodeId: rt.nodeId ?? '',
           });
         }
         const ordered = [

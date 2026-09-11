@@ -8,6 +8,7 @@ export interface WorkUnit {
   type: string;
   scope: string;
   assigneeId: string | null;
+  assigneeRoleId?: string | null;  // 认领时的 roleId 快照（旧 WU 无此字段 → undefined/null）
   status: string;
   failureType: string | null;
   retryCount: number;

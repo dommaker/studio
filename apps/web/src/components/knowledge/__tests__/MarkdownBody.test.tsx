@@ -4,10 +4,11 @@
  *       [[wiki 链接]] → router Link、外链新标签页、原始 HTML 不渲染（不可信输入安全）
  * #271（决策 #248 D4）：wikiLinks 开关 / codeCopy 复制按钮 / renderInlineCode 挂载点
  */
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { MarkdownBody } from '../MarkdownBody';
+import { useAuthStore } from '../../../stores/authStore';
 
 const renderBody = (content: string, props?: Partial<Parameters<typeof MarkdownBody>[0]>) =>
   render(
@@ -17,6 +18,10 @@ const renderBody = (content: string, props?: Partial<Parameters<typeof MarkdownB
   );
 
 describe('MarkdownBody', () => {
+  afterEach(() => {
+    // 附件 token 用例改动 authStore，还原防串扰
+    useAuthStore.setState({ token: null });
+  });
   it('基础渲染：标题 / 加粗 / 列表 / 行内代码 chip', () => {
     const { container } = renderBody('# 标题一\n\n正文**加粗**\n\n- 项目一\n- 项目二\n\n用 `useState` 管理');
     expect(screen.getByRole('heading', { level: 1, name: '标题一' })).toBeInTheDocument();
@@ -109,5 +114,24 @@ describe('MarkdownBody', () => {
     const block = screen.getByText(/const a = 1;/);
     expect(block.closest('pre')).not.toBeNull();
     expect(container.querySelectorAll('button')).toHaveLength(1);
+  });
+
+  it('2026-09 截图粘贴：频道附件 img src 渲染时现拼 ?token=（buildSseUrl 同款取 token）', () => {
+    useAuthStore.setState({ token: 'tok-abc' });
+    const { container } = renderBody('![shot](/api/v1/channels/ch1/attachments/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.png)');
+    const img = container.querySelector('img');
+    expect(img).not.toBeNull();
+    expect(img!.getAttribute('src')).toBe(
+      '/api/v1/channels/ch1/attachments/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.png?token=tok-abc',
+    );
+    expect(img!.getAttribute('alt')).toBe('shot');
+  });
+
+  it('2026-09 截图粘贴：无 token 时附件 src 原样；非附件 src 永不拼 token', () => {
+    useAuthStore.setState({ token: null });
+    const { container } = renderBody('![a](/api/v1/channels/ch1/attachments/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.png)\n\n![b](https://example.com/x.png)');
+    const imgs = container.querySelectorAll('img');
+    expect(imgs[0].getAttribute('src')).toBe('/api/v1/channels/ch1/attachments/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.png');
+    expect(imgs[1].getAttribute('src')).toBe('https://example.com/x.png');
   });
 });

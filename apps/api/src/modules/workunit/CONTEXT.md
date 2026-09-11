@@ -31,7 +31,7 @@ WorkUnit 核心域: 任务单元 CRUD、认领与状态机; F5 双向沟通的 N
 
 ### 注意事项
 
-- **assigneeId 双语义**: unassigned 时 = 被指名 profile.id; 认领后 = 认领方 loop 的 instance.id。claim 锁是 flock 悲观互斥锁(mkdir 原子目录跨进程互斥)。token 归因按双语义解析, 批量消费方统一走 assignee-resolver, 勿各自再建 map。
+- **assigneeId 双语义**: unassigned 时 = 被指名 profile.id; 认领后 = 认领方 loop 的 instance.id。认领口径补充(2026-09-10): claim 时把认领方实例的 roleId 冗余快照为 WU 的 assigneeRoleId(人工 REST 认领 agentId=用户 id 无实例档案 -> null), unclaim 与显式 assigneeId=null 的 patch 连带清空; 展示层优先按快照解析角色名, 不再点查实例档案(实例回收后档案不存在)。claim 锁是 flock 悲观互斥锁(mkdir 原子目录跨进程互斥)。token 归因按双语义解析, 批量消费方统一走 assignee-resolver, 勿各自再建 map。
 - 状态变更发 workunit.status_changed 事件(claim/unclaim/reviewRejected 也发), requirements/rollup 据此汇总 REQ 状态。订阅方: events/workunit-events-bridge(->SSE)、pmo/analysis-handoff(分析接力)。
 - **租约 + 代际令牌(fencing)**: timeoutAt 语义 = 租约到期, claim 写固定 5min(WU_LEASE_TTL_MS), 持有方 loop 每 30s 心跳推前(#314 起 refreshWorkUnitLease 只写内存缓冲, flushWorkUnitLeases 默认 60s 窗口锁内复核 fencing 后合并落盘——持久化 timeoutAt 滞后 ≤60s ≪ TTL, 扫描逻辑零改动)。claimedAt 作 fencing token, 三处校验: 心跳前(快速路) / 步结果回写前(stillHoldsLease) / 状态迁移前(transitionIfHeld)。易主即杀 CLI 进程组(Executor.stopProcessGroup -> kill(-pid)) + 停心跳 + 静默退出该 WU。释放即杀: 释放/转 blocked 后顺 assigneeId 杀原 holder。
 - **blocked 恢复**: 不做自动恢复。回复即复活 -- 全 blocked 类型, 线程人类回复 -> active + pendingReplies 注入, 回复「关闭」= 显式关闭指令(decision/spec 无 closed -> 拒绝并说明)。复活重置 consecutiveStuck/blockReason, 记 resumeCount(不限次), timeoutReleaseCount 终身保留。CTA 统一 blocked-cta 模板(blocked 里程碑/30min 提醒/24h 死信)。24h 死信自动关闭(计时基准 = metadata.blockedAt, 无则回退 createdAt; decision/spec 豁免), 经 wu-closure 双出声。checkTotalExecutionTime 2.5h 强杀同出口。复活后凭 metadata.sessionId 优先续用旧会话(不靠清零 sessionCount 放行)。

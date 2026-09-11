@@ -8,8 +8,8 @@
  * - Requirement 无 projectId / 项目已 completed（不回退）/ 无关联 WU → 不动作
  * - 订阅解绑（off）后不再回写
  *
- * 约定：PMO 项目写真实 ~/.studio/projects（workspace-binding.test.ts 同款约定），
- * afterEach 统一删除（completed 项目先复位状态再删）。
+ * 约定：PMO 项目经 projectService 写入（落 #219 setup 钉的隔离根 projects/，非真实 ~/.studio；
+ * workspace-binding.test.ts 同款口径），afterEach 统一删除（completed 项目先复位状态再删）。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';

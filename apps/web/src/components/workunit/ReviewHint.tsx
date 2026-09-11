@@ -20,31 +20,19 @@ export function ReviewHint({ status, channelMembers, onSetupClick }: ReviewHintP
   if (channelMembers.length > 0) return null;
 
   return (
+    // 批次 G-2：整块内联归 Tailwind/u-*（border 色走 u-warn-border，圆角 4px 卡片档 = rounded，字号 text-base = --fs-base）
     <div
-      className="u-warn-dim u-warn"
-      style={{
-        padding: '8px 12px',
-        border: '1px solid var(--warning-border)',
-        borderRadius: '4px',
-        marginTop: '8px',
-        marginBottom: '8px',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        gap: '12px',
-        fontSize: 'var(--fs-base)',
-      }}
+      className="u-warn-dim u-warn border u-warn-border rounded my-2 px-3 py-2 flex items-center justify-between gap-3 text-base"
       data-testid="review-hint"
     >
-      <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+      <span className="flex items-center gap-2">
         <span aria-hidden="true">⚠</span>
         <span>频道内没有可认领评审的成员，评审将滞留——请添加成员或人工评审</span>
       </span>
       {onSetupClick && (
         <button
-          className="btn btn-warning btn-sm"
+          className="btn btn-warning btn-sm flex-shrink-0"
           onClick={onSetupClick}
-          style={{ flexShrink: 0 }}
           data-testid="review-hint-setup"
         >
           去设置

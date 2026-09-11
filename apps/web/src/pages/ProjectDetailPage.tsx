@@ -43,7 +43,7 @@ import { DeliveryPanel } from '../components/pmo/DeliveryPanel';
 import { VscodeGuideDialog, CloudIdeGuideDialog } from '../components/pmo/IdeGuideDialogs';
 import { ProjectProgressCard } from '../components/pmo/ProjectProgressCard';
 import { ManualTaskButton } from '../components/ui/ManualTaskButton';
-import { BackButton } from '../components/ui';
+import { BackButton, SkeletonText, SkeletonCard } from '../components/ui';
 import { MetaStrip } from '../components/ui/MetaStrip';
 import { StationStepper } from '../components/workunit/StationStepper';
 import { WU_STATION_ORDER, type WuStation } from '../utils/wuLifecycle';
@@ -223,11 +223,26 @@ export function ProjectDetailPage() {
   })() : null;
 
   if (loading) {
-    return <div className="flex items-center justify-center h-64"><div className="u-text-2">加载中...</div></div>;
+    // 批次 E-2：静态骨架占位（标题行 + 卡片块，贴近首屏布局）
+    return (
+      <div className="h-full u-page-bg u-page-px py-6">
+        <SkeletonText lines={1} widths={['30%']} className="mb-4" />
+        <SkeletonCard height={160} className="mb-3" />
+        <SkeletonCard height={240} />
+      </div>
+    );
   }
 
   if (error) {
-    return <div className="flex items-center justify-center h-64"><div className="u-err">{error}</div></div>;
+    // 批次 E-2：抄 PMOPage 错误条模式（红条 + 重试，reload 即清 error 重拉）
+    return (
+      <div className="h-full u-page-bg u-page-px py-6">
+        <div className="max-w-5xl p-3 rounded u-err-dim u-err text-sm flex items-center justify-between">
+          <span>{error}</span>
+          <button onClick={projectQ.reload} className="btn btn-secondary btn-sm">重试</button>
+        </div>
+      </div>
+    );
   }
 
   if (!project) {
@@ -276,7 +291,7 @@ export function ProjectDetailPage() {
         </div>
       </div>
 
-      <div className="flex-1 overflow-auto px-8 pb-8">
+      <div className="flex-1 overflow-auto u-page-px pb-8">
         <div className="max-w-5xl">
           {/* E3 主区：阶段步条（讨论→开发→验收→交付，#399 §8.3 项目阶段专用词） */}
           {projectStations && <StationStepper stations={projectStations} />}
@@ -286,7 +301,7 @@ export function ProjectDetailPage() {
 
           {/* 🆕 AC-5: 进度管道（REQ 链路六泳道，WU 小卡可点 → /workunits/:id） */}
           <div className="card p-4 mb-3">
-            <h3 className="mc-block-label" style={{ margin: '0 0 12px' }}>进度管道</h3>
+            <h3 className="mc-block-label mc-block-label-gap-3">进度管道</h3>
             <ProjectPipeline workunits={pipelineWus} agents={agents} loading={chainLoading} />
           </div>
 
@@ -301,7 +316,7 @@ export function ProjectDetailPage() {
           {/* E3 收起层：项目动态默认折叠（「最近 N 条动态」），展开看全量 */}
           <div className="card p-4 mb-3">
             <div className="flex items-center justify-between">
-              <h3 className="mc-block-label" style={{ margin: 0 }}>
+              <h3 className="mc-block-label mc-block-label-flush">
                 项目动态{timelineEntries.length > 0 ? ` · 最近 ${timelineEntries.length} 条` : ''}
               </h3>
               {timelineEntries.length > 0 && (
@@ -322,7 +337,7 @@ export function ProjectDetailPage() {
           {project.requirement && (
             <div className="card p-3 mb-3">
               <div className="flex items-center justify-between">
-                <span className="mc-block-label" style={{ margin: 0 }}>原始需求</span>
+                <span className="mc-block-label mc-block-label-flush">原始需求</span>
                 {project.requirement.length > 120 && (
                   <button
                     onClick={() => setRequirementExpanded(v => !v)}
@@ -344,14 +359,14 @@ export function ProjectDetailPage() {
               E3：探路型项目保留展开——它是该类项目的主视图；与 NextAction 靠视觉层级分工（accent 行动卡 vs 中性信息卡） */}
           {project.map && (
             <div className="card p-4 mb-3">
-              <h3 className="mc-block-label" style={{ margin: '0 0 12px' }}>地图</h3>
+              <h3 className="mc-block-label mc-block-label-gap-3">地图</h3>
               <ProjectMap map={project.map} decisionStatusByWuId={decisionStatusByWuId} chainWus={chainWus} />
             </div>
           )}
 
           {/* E3：页底工具区降级——全部 btn-secondary 并排，去 emoji（原 VS Code / Cloud IDE 双 btn-primary 抢主行动） */}
           <div className="card p-4">
-            <h3 className="mc-block-label" style={{ margin: '0 0 12px' }}>工具</h3>
+            <h3 className="mc-block-label mc-block-label-gap-3">工具</h3>
             <div className="flex flex-wrap gap-2">
               <button
                 onClick={() => setShowVscodeGuide(true)}
@@ -365,9 +380,10 @@ export function ProjectDetailPage() {
               >
                 Cloud IDE
               </button>
+              {/* 批次 E-3：「✓ 已复制」反馈补 color 过渡（白名单③状态色切换），成功态染 accent */}
               <button
                 onClick={handleCopyPath}
-                className="btn btn-secondary"
+                className={`btn btn-secondary transition-colors${copySuccess ? ' u-accent' : ''}`}
               >
                 {copySuccess ? '✓ 已复制' : '复制路径'}
               </button>

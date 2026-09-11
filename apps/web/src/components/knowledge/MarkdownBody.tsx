@@ -14,6 +14,7 @@ import remarkGfm from 'remark-gfm';
 import { Link } from 'react-router-dom';
 import { copyText } from '../../utils/clipboard';
 import { remarkMentions } from '../../utils/remarkMentions';
+import { resolveAttachmentSrc } from '../../utils/attachmentUrl';
 
 /** [[X]] → [X](/library/<encodeURIComponent(X)>)（在 markdown 解析前预处理；a 渲染器再转 router Link） */
 function preprocessWikiLinks(content: string): string {
@@ -149,7 +150,8 @@ function createComponents({ codeCopy, renderInlineCode, mentions }: ComponentsOp
       </td>
     ),
     hr: () => <hr className="my-3 border-0 border-t u-border" />,
-    img: ({ src, alt }) => <img src={src} alt={alt ?? ''} className="max-w-full rounded my-2" />,
+    // 频道附件 URL 渲染时现拼 ?token=（2026-09 截图粘贴；其余 src 原样透传）
+    img: ({ src, alt }) => <img src={resolveAttachmentSrc(src)} alt={alt ?? ''} className="max-w-full rounded my-2" />,
   };
 }
 

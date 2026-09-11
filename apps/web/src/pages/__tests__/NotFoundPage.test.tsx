@@ -14,4 +14,14 @@ describe('NotFoundPage', () => {
     expect(screen.getByText('404')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: '返回首页' })).toHaveAttribute('href', '/');
   });
+
+  it('批次 F-4：🔍 emoji → ui/icons SVG（empty-icon 容器）', () => {
+    const { container } = render(
+      <MemoryRouter>
+        <NotFoundPage />
+      </MemoryRouter>,
+    );
+    expect(screen.queryByText('🔍')).toBeNull();
+    expect(container.querySelector('.empty-icon svg')).not.toBeNull();
+  });
 });

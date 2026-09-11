@@ -157,7 +157,7 @@ export class FileStoreWorkUnitBase extends FileStoreBase {
     return applyFilter(snapshots, filter);
   }
 
-  async claimWorkUnit(wuId: string, assigneeId: string): Promise<boolean> {
+  async claimWorkUnit(wuId: string, assigneeId: string, opts?: { assigneeRoleId?: string | null }): Promise<boolean> {
     return this.withLock(this.lockDir, async () => {
       // 读取当前 index（不存在 → 空；撕裂/损坏 → 抛错，不再幻影 "not found"）
       const snapshots = (await this.readIndexFile()) ?? [];
@@ -167,6 +167,9 @@ export class FileStoreWorkUnitBase extends FileStoreBase {
         return false;
       }
 
+      // 认领时冗余 assigneeRoleId 快照：实例回收后展示层仍能解析角色名
+      const assigneeRoleId = opts?.assigneeRoleId ?? null;
+
       // append claim event
       const timestamp = new Date().toISOString();
       const claimEvent: WorkUnitEvent = {
@@ -175,6 +178,7 @@ export class FileStoreWorkUnitBase extends FileStoreBase {
         timestamp,
         data: {
           assigneeId,
+          assigneeRoleId,
           status: 'active',
           claimedAt: timestamp,
           updatedAt: timestamp,
@@ -185,7 +189,7 @@ export class FileStoreWorkUnitBase extends FileStoreBase {
       // update index snapshot
       const updated = snapshots.map(s =>
         s.id === wuId
-          ? { ...s, assigneeId, status: 'active' as const, claimedAt: timestamp, updatedAt: timestamp }
+          ? { ...s, assigneeId, assigneeRoleId, status: 'active' as const, claimedAt: timestamp, updatedAt: timestamp }
           : s
       );
       await this.writeJson(this.indexPath, updated);

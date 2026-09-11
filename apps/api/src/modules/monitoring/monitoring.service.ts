@@ -73,7 +73,7 @@ export interface OverheadStats {
   timestamp: string;
 }
 
-/** /monitoring/agents PMO 归属聚合的可注入依赖（测试 stub 避免碰真实 ~/.studio/projects） */
+/** /monitoring/agents PMO 归属聚合的可注入依赖（测试 stub 隔离 PMO 依赖） */
 export interface MonitoringServiceDeps {
   /** 全量 PMO 项目读取（默认 projectService.list 大页；getAgentSummary 每次调用批量读一次） */
   listProjects?: () => Promise<ProjectData[]>;

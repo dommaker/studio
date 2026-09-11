@@ -94,7 +94,7 @@ export const ChannelRoutingEditor: React.FC<ChannelRoutingEditorProps> = ({ chan
   const configuredCount = STAGES.filter((s) => routing[s.key]).length;
 
   return (
-    <div style={{ position: 'relative' }} ref={panelRef}>
+    <div className="relative" ref={panelRef}>
       <button
         onClick={() => setIsOpen(!isOpen)}
         className={triggerClassName ?? 'mc-btn'}
@@ -103,13 +103,15 @@ export const ChannelRoutingEditor: React.FC<ChannelRoutingEditorProps> = ({ chan
         路由 <span>{configuredCount > 0 ? `${configuredCount}/3` : '自动'}</span>
       </button>
 
+      {/* 批次 G-2：弹层定位/宽度内联保留（§2.2 组件特有参数豁免，D-4 先例 ChannelMemberManager:153 同款）；
+          内层 padding/flex/gap 全部归类（ChannelMemberManager 为正本） */}
       {isOpen && (
         <div className="mc-mention-popup" style={{ left: 'auto', right: 0, bottom: 'auto', top: '100%', marginTop: 4, width: 320, maxHeight: 'none' }}>
-          <div className="border-b u-border" style={{ padding: '8px 10px' }}>
-            <h3 className="mc-card-body" style={{ fontWeight: 600 }}>工单路由</h3>
+          <div className="border-b u-border py-2 px-2.5">
+            <h3 className="mc-card-body font-semibold">工单路由</h3>
             <p className="mc-drawer-note">哪种活给哪个角色；留空 = 频道成员自动认领</p>
           </div>
-          <div style={{ padding: '8px 10px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div className="py-2 px-2.5 flex flex-col gap-2">
             {STAGES.map((s) => {
               const options: SelectOption[] = [
                 { value: '', label: '自动认领（涌现）' },
@@ -121,9 +123,10 @@ export const ChannelRoutingEditor: React.FC<ChannelRoutingEditorProps> = ({ chan
                 options.push({ value: selected, label: `${selected}（不可用）` });
               }
               return (
-                <div key={s.key} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span className="mc-drawer-note" style={{ flex: '0 0 auto', margin: 0 }}>{s.label}</span>
-                  <div style={{ flex: 1, minWidth: 0 }}>
+                <div key={s.key} className="flex items-center gap-2">
+                  {/* mc-drawer-note 自带 margin 4px 0 未分层压不过，改用同参数 Tailwind+u-* 组合（fs-sm/muted） */}
+                  <span className="text-sm u-text-3 shrink-0">{s.label}</span>
+                  <div className="flex-1 min-w-0">
                     <Select
                       value={selected}
                       onChange={(v) => handleChange(s.key, v)}

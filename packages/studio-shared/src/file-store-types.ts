@@ -16,8 +16,6 @@ export interface AgentProfileData {
   provider: string | null; // bound CLI: claude | kimi | codex | opencode | openclaw | null
   createdAt: string;       // ISO 8601
   updatedAt: string;       // ISO 8601
-  /** @deprecated §9.6 远程节点方向已放弃（2026-08）：字段仅为数据兼容保留，执行面恒为本地执行。 */
-  nodeId?: string;
   /** 决策 9: 显式职能域（阶段词表，见 domain-vocab.ts）。创建时可从 .agents/roles/*.yaml 预设带入 */
   acceptedTypes?: string[];
   /** 决策 13: 角色自述（prompt「## 你的角色」段内容）；缺省回退 description */
@@ -147,6 +145,7 @@ export interface WorkUnitSnapshot {
   projectPath: string | null;
   workspaceId?: string | null;  // F6: 绑定的注册工程（可选 — 旧事件/快照无此字段仍可加载）
   reqId?: string | null;        // REQ 需求编号（可选 — 旧事件/快照无此字段仍可加载）
+  assigneeRoleId?: string | null;  // 认领时冗余的认领方 roleId 快照（可选 — 旧事件/快照无此字段仍可加载）
   metadata: string | null;
   createdAt: string;
   updatedAt: string;

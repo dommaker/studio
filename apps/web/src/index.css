@@ -10,6 +10,12 @@
   --text-base: var(--fs-base);
   --text-lg: var(--fs-title);
   --text-xl: var(--fs-stat);
+
+  /* 圆角档重映射（style-guide §2.4：按钮/输入 3px、卡片 4px、模态 6px、tag 999px）
+     Tailwind 默认 rounded-lg=8px/rounded-xl=12px 不在档位内；rounded-t-lg 等方向
+     变体同走 --radius-lg（v4 --radius-* 命名空间），此处映射即全覆盖。 */
+  --radius-lg: 4px;
+  --radius-xl: 6px;
 }
 
 /* 基础样式 */

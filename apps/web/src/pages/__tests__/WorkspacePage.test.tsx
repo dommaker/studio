@@ -116,11 +116,12 @@ describe('WorkspacePage', () => {
   });
 
   // E8-2: 骨架合规化（§4.7）+ 删硬编码「0 个角色」假数据（无按 runtime 的角色计数接口）
-  it('E8-2: 骨架归 §4.7（u-page-head/page-title/max-w-5xl），行卡归 .card，按钮归 btn btn-primary btn-sm，无假数据', async () => {
+  it('E8-2: 骨架归 §4.7（u-page-head/u-page-px/page-title/max-w-5xl），行卡归 .card，按钮归 btn btn-primary btn-sm，无假数据', async () => {
     const { container } = render(<WorkspacePage />);
     await waitFor(() => expect(screen.getByText('Claude Code')).toBeDefined());
     expect(container.querySelector('.u-page-bg')).toBeTruthy();
     expect(container.querySelector('.u-page-head')).toBeTruthy();
+    expect(container.querySelector('.u-page-px')).toBeTruthy();
     expect(container.querySelector('.page-title')?.textContent).toBe('VPS');
     expect(container.querySelector('.max-w-5xl')).toBeTruthy();
     expect(container.querySelectorAll('.card')).toHaveLength(2);
@@ -148,5 +149,7 @@ describe('WorkspacePage', () => {
     await waitFor(() => {
       expect(screen.getByText('暂无可用 CLI，请先接入算力')).toBeDefined();
     });
+    // 批次 F-4：空态补下一步指引（接入方式说明）
+    expect(screen.getByText(/在本机安装受支持的 Agent CLI/)).toBeDefined();
   });
 });

@@ -9,7 +9,7 @@ import { studioTest, studioBuild } from './dev.js';
 import { studioRun, studioApprove, studioReject } from './workflow.js';
 import { apiCommand, studioKnowledge, studioEnv, studioMcp, studioHarnessCli } from './data.js';
 import { studioConfig } from './config.js';
-import { studioDaemonStart, studioProject, studioWorkon } from './admin.js';
+import { studioProject, studioWorkon } from './admin.js';
 import { studioUpdateUserModel, studioAnalyzeSessions } from './mining.js';
 
 async function main() {
@@ -49,14 +49,6 @@ async function main() {
       break;
     case 'build':
       studioBuild();
-      break;
-    case 'daemon':
-      if (args[1] === 'start') {
-        await studioDaemonStart();
-      } else {
-        console.log('Studio Daemon');
-        console.log('  studio daemon start       Register workspace with server');
-      }
       break;
     case 'run':
       await studioRun();
@@ -153,7 +145,6 @@ async function main() {
       console.log('    studio project add <path> Register a project');
       console.log('    studio project list       List registered projects');
       console.log('    studio workon <name>      Set active project');
-      console.log('    studio daemon start       Register workspace with server');
       break;
   }
 }

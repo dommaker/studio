@@ -18,7 +18,8 @@
  * - 同一 WU 3 轮未解 → 停止追问 + 播报转人工 + 保持 blocked；之后未解回复不再发声
  *
  * 约定：discovery 根用 STUDIO_PROJECTS_ROOT 指向 tmp fixture；
- * PMO 项目写真实 ~/.studio/projects（workspace-binding.test.ts 同款约定），afterEach 清理。
+ * PMO 项目经 projectService 写入（落 #219 setup 钉的隔离根 projects/，非真实 ~/.studio），
+ * afterEach 清理。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';

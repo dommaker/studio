@@ -43,8 +43,10 @@ describe('TreeTokenDrawer (AC-5.4 ~ AC-5.7)', () => {
 
   it('renders loading state initially', () => {
     vi.mocked(workunitApi.getTreeTokens).mockReturnValue(new Promise(() => {}));
-    render(<TreeTokenDrawer workUnitId="wu-root" onClose={mockOnClose} />);
-    expect(screen.getByText('加载中...')).toBeTruthy();
+    const { container } = render(<TreeTokenDrawer workUnitId="wu-root" onClose={mockOnClose} />);
+    // 批次 F-3：加载态改 ui/Skeleton 静态骨架，不再有「加载中...」纯文字
+    expect(container.querySelector('.skeleton')).not.toBeNull();
+    expect(screen.queryByText('加载中...')).toBeNull();
   });
 
   it('renders report on success', async () => {

@@ -1,8 +1,23 @@
 // Lurk Wall: 个人网站展示页 — 不提示登录，不显示入口
-import { useState, useEffect } from 'react';
+import { useState, useEffect, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../stores/authStore';
 import { AuthModal } from './AuthModal';
+import {
+  IconZap, IconClipboard, IconSettings, IconSearch,
+  IconLibrary, IconChart, IconAlertTriangle,
+  type IconProps,
+} from './ui/icons';
+
+// 批次 G-1：能力卡图标 emoji → ui/icons SVG（#474 图标策略）
+const CAPABILITIES: Array<{ icon: (p: IconProps) => ReactNode; label: string; desc: string }> = [
+  { icon: IconClipboard, label: '需求分析', desc: '自动拆解验收标准' },
+  { icon: IconSettings, label: 'TDD 开发', desc: '写测试→实现→通过' },
+  { icon: IconSearch, label: '多立场审查', desc: '安全/性能/架构' },
+  { icon: IconLibrary, label: '阅览室沉淀', desc: '自动归档知识' },
+  { icon: IconChart, label: '周报审计', desc: '趋势+异常检测' },
+  { icon: IconAlertTriangle, label: '自动修复', desc: '出错自动分诊处理' },
+];
 
 export function LandingPage() {
   const [showAuth, setShowAuth] = useState(false);
@@ -39,7 +54,7 @@ export function LandingPage() {
           onDoubleClick={handleSecretGesture}
           title=""
         >
-          <span className="text-5xl">⚡</span>
+          <span className="u-accent inline-flex"><IconZap size={48} /></span>
         </div>
         <h1 className="text-3xl md:text-4xl font-bold mb-3 tracking-tight">
           Agent Studio
@@ -50,21 +65,14 @@ export function LandingPage() {
 
         {/* 能力卡片 */}
         <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-16">
-          {[
-            { icon: '📋', label: '需求分析', desc: '自动拆解验收标准' },
-            { icon: '⚙️', label: 'TDD 开发', desc: '写测试→实现→通过' },
-            { icon: '🔍', label: '多立场审查', desc: '安全/性能/架构' },
-            { icon: '📚', label: '阅览室沉淀', desc: '自动归档知识' },
-            { icon: '📊', label: '周报审计', desc: '趋势+异常检测' },
-            { icon: '🚨', label: '自动修复', desc: '出错自动分诊处理' },
-          ].map((f) => (
+          {CAPABILITIES.map(({ icon: Icon, label, desc }) => (
             <div
-              key={f.label}
+              key={label}
               className="u-surface-2 border u-border rounded-xl p-5 text-center"
             >
-              <div className="text-2xl mb-2">{f.icon}</div>
-              <div className="text-sm font-medium mb-1">{f.label}</div>
-              <div className="text-xs u-text-2">{f.desc}</div>
+              <div className="mb-2 flex justify-center u-text-2"><Icon size={24} /></div>
+              <div className="text-sm font-medium mb-1">{label}</div>
+              <div className="text-xs u-text-2">{desc}</div>
             </div>
           ))}
         </div>

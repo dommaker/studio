@@ -49,7 +49,8 @@
     width: 20px;
     height: 2px;
     background: var(--text-primary);
-    transition: all 0.3s ease;
+    /* 批次 E-1：all 收窄为实际动画属性，时长/缓动归动效 token */
+    transition: transform var(--motion-base) var(--ease-standard), background-color var(--motion-base) var(--ease-standard);
   }
   
   /* 移动端菜单 */
@@ -63,7 +64,8 @@
     padding: 1rem;
     transform: translateY(-100%);
     opacity: 0;
-    transition: all 0.3s ease;
+    /* 批次 E-1：all 收窄为进出场实际动画属性 transform + opacity */
+    transition: transform var(--motion-base) var(--ease-standard), opacity var(--motion-base) var(--ease-standard);
     z-index: 100;
   }
   
@@ -199,7 +201,7 @@
     height: 100%;
     z-index: 200;
     transform: translateX(-100%);
-    transition: transform 0.3s ease;
+    transition: transform var(--motion-base) var(--ease-standard);
     padding: 1rem;
   }
   
@@ -236,7 +238,8 @@
     width: 20px;
     height: 2px;
     background: var(--text-primary);
-    transition: all 0.3s ease;
+    /* 批次 E-1：all 收窄为实际动画属性，时长/缓动归动效 token */
+    transition: transform var(--motion-base) var(--ease-standard), background-color var(--motion-base) var(--ease-standard);
   }
   
   /* WU 详情页右栏：≤639 隐藏（#395 修 aside 兜底误藏时保留原行为——原 aside:not(.sidebar-mobile-overlay)
@@ -307,7 +310,8 @@
     height: 100%;
     z-index: 200;
     transform: translateX(-100%);
-    transition: transform 0.3s ease;
+    /* 批次 E-1：抽屉滑出，时长/缓动归动效 token */
+    transition: transform var(--motion-base) var(--ease-standard);
     padding: 1rem;
     display: flex;
     flex-direction: column;
@@ -325,10 +329,11 @@
     left: 0;
     right: 0;
     bottom: 0;
-    background: rgba(0, 0, 0, 0.5);
+    background: var(--overlay-sidebar);
     z-index: -1;
     opacity: 0;
-    transition: opacity 0.3s ease;
+    /* 批次 E-1：遮罩淡入淡出，时长/缓动归动效 token */
+    transition: opacity var(--motion-base) var(--ease-standard);
   }
   
   .sidebar-open::before {

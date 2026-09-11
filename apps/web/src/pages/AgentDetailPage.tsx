@@ -14,7 +14,7 @@ import { workunitApi, type WorkUnit } from '../api/workunit';
 import { ExecutionSteps } from '../components/workunit/ExecutionSteps';
 import { AgentAvatar } from '../components/channel/AgentAvatar';
 import { RoleSkillsModal } from '../components/monitoring/RoleSkillsModal';
-import { ConfirmDialog, BackButton } from '../components/ui';
+import { ConfirmDialog, BackButton, SkeletonCard } from '../components/ui';
 import { useWebSocketContext } from '../api/websocketHooks';
 import { useRosterStore } from '../stores/rosterStore';
 import { useRosterStoreSync } from '../hooks/useRosterStoreSync';
@@ -206,14 +206,23 @@ export function AgentDetailPage() {
         </div>
       </div>
 
-      <div className="flex-1 overflow-auto px-8 pb-8">
+      <div className="flex-1 overflow-auto u-page-px pb-8">
         <div className="agent-detail-wrap">
           {error && (
             <div className="mt-4 p-3 rounded u-err-dim u-err text-sm">{error}</div>
           )}
 
           {loading && !profile ? (
-            <div className="text-center py-20 u-text-2">加载中...</div>
+            // 批次 F-3：加载态骨架（批次 E-2 ui/Skeleton 正本）——双栏卡形态
+            <div className="agent-detail-grid">
+              <div className="space-y-3">
+                <SkeletonCard height={120} />
+                <SkeletonCard height={200} />
+              </div>
+              <div className="space-y-3">
+                <SkeletonCard height={160} />
+              </div>
+            </div>
           ) : !profile ? (
             <div className="text-center py-20 u-text-2">
               <p>未找到该角色</p>

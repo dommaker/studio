@@ -2,8 +2,9 @@
  * §10 P0 — claim 持久化 metadata.matchedSkills
  * → 决策 7 重构：skill 匹配从 claim 挪到 agent-loop step 时（消竞态、吃到 skill 库最新版）。
  * 本文件改为守卫新契约：claim 不再做 skill 匹配/落盘——
- * 不写 metadata.matchedSkills、不发 updated 事件、不再回读 instance/profile 解析职能域
+ * 不写 metadata.matchedSkills、不发 updated 事件、不再回读 profile 解析职能域
  * （matchedSkills 由 agent-loop 在 step 时经 metadataUpdates 原子写入）。
+ * 2026-09-10：claim 恢复读 getState 一次——用途是 assigneeRoleId 认领快照，与职能域解析无关。
  */
 import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
 import * as fs from 'fs';
@@ -86,11 +87,13 @@ describe('§10 P0 → 决策 7: claim 不再落盘 metadata.matchedSkills', () =
     expect(mockFileStore.appendEvent).not.toHaveBeenCalled();
   });
 
-  it('claim 不再回读 instance/profile 解析职能域（autoLoadSkillsForAgent 已删除）', async () => {
+  it('claim 不再回读 profile 解析职能域（autoLoadSkillsForAgent 已删除）', async () => {
     await service.claim('wu-1', 'inst-1');
     await new Promise(r => setTimeout(r, 50));
 
-    expect(mockFileStore.getState).not.toHaveBeenCalled();
+    // 2026-09-10：getState 恢复为每次 claim 一次——用途改为 assigneeRoleId 认领快照
+    // （冗余 roleId 到 WU，实例回收后展示层仍可解析），与职能域/skill 匹配无关
+    expect(mockFileStore.getState).toHaveBeenCalledTimes(1);
     expect(mockFileStore.getProfile).not.toHaveBeenCalled();
   });
 

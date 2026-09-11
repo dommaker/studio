@@ -20,7 +20,7 @@ const channelId = 'ownership-ch';
 beforeEach(async () => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ownership-resolver-test-'));
   fileStore = new FileStore(tmpDir);
-  // projectExists stub：挂接 projectId 不碰真实 ~/.studio/projects
+  // projectExists stub：挂接 projectId（隔离 PMO 依赖）
   reqService = new RequirementService(fileStore, { projectExists: async () => true });
   await fileStore.createChannel({
     id: channelId, name: '#ownership', type: 'rnd',

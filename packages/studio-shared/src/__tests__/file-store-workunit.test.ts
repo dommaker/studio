@@ -296,6 +296,35 @@ describe('FileStoreWorkUnitBase（直接单元测试）', () => {
       writeTornIndex();
       await expect(store.claimWorkUnit('wu1', 'agent1')).rejects.toThrow(indexPath());
     });
+
+    it('claim 带 assigneeRoleId 快照：index / claimed 事件 / rebuild 三处都保留', async () => {
+      await seedWu(makeWuSnapshot('wu1'));
+
+      const ok = await store.claimWorkUnit('wu1', 'inst-1', { assigneeRoleId: 'role-coder' });
+      expect(ok).toBe(true);
+
+      const [wu] = await store.getIndex();
+      expect(wu.assigneeRoleId).toBe('role-coder');
+
+      const events = await store.readJsonl<WorkUnitEvent>(eventsPath());
+      const claimed = events.filter(e => e.type === 'claimed');
+      expect(claimed).toHaveLength(1);
+      expect(claimed[0].data).toMatchObject({ assigneeId: 'inst-1', assigneeRoleId: 'role-coder' });
+
+      // 事件流字段级 merge 归约：claimed 事件带字段即自动保留，重建后仍在
+      const rebuilt = await store.rebuildIndex();
+      expect(rebuilt).toHaveLength(1);
+      expect(rebuilt[0].assigneeRoleId).toBe('role-coder');
+    });
+
+    it('claim 不带 opts → assigneeRoleId 落 null', async () => {
+      await seedWu(makeWuSnapshot('wu1'));
+
+      await store.claimWorkUnit('wu1', 'agent1');
+
+      const [wu] = await store.getIndex();
+      expect(wu.assigneeRoleId).toBeNull();
+    });
   });
 
   // ═══ upsertSnapshot / removeSnapshot ═══

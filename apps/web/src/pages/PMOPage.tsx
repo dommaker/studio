@@ -1,6 +1,6 @@
 // PMOPage - PMO 管理主页面（项目 + OKR；三个弹窗已抽至 components/pmo/，工单 33）
 // 2026-09-10 第二轮重设计：① 删「需求」tab（用户反馈看不懂且与 PMO 重复；REQ 主呈现位在频道右栏）；
-// ② 项目列表横向行卡 → 双列竖向卡网格（≥lg 两列）。
+// ② 项目列表 v2 = 紧凑行列表（pmo.css .pmo-row，细分隔线 + 状态色条，项目多了也可扫读）。
 import { useState, useEffect, useMemo } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { projectApi } from '../api';
@@ -9,10 +9,12 @@ import { okrApi, type OkrKeyResult } from '../api/pmo';
 import { channelApi, type Channel } from '../api/channel';
 import { requirementApi } from '../api/requirements';
 import { useAsyncData } from '../hooks/useAsyncData';
+import '../styles/pmo.css';
 import { CreateOkrDialog } from '../components/pmo/CreateOkrDialog';
 import { CreateProjectDialog } from '../components/pmo/CreateProjectDialog';
 import { PublishProjectDialog } from '../components/pmo/PublishProjectDialog';
 import { ProjectCard } from '../components/pmo/ProjectCard';
+import { SkeletonText } from '../components/ui';
 
 interface Project {
   id: string;
@@ -154,20 +156,19 @@ export function PMOPage({ companyId }: PMOPageProps) {
       </div>
 
       {/* Tabs — E3（2026-09 页面重设计）：border-b 形态（批次 D-4 定 KnowledgePage 为正本）+ 去 emoji；
-          2026-09-10 第二轮：删「需求」tab（与 PMO 重复，REQ 主呈现位在频道右栏） */}
-      <div className="px-8 pt-4">
+          2026-09-10 第二轮：删「需求」tab（与 PMO 重复，REQ 主呈现位在频道右栏）；
+          批次 E-3：激活态底线收进 .u-tab/.u-tab-active 结构类（禁内联 borderBottom），transition 过渡走白名单①③ */}
+      <div className="u-page-px pt-4">
         <div className="flex gap-1 mb-4 overflow-x-auto pb-1 border-b u-border">
           <button
             onClick={() => setActiveTab('projects')}
-            className={`px-4 py-2 text-sm rounded-t-lg whitespace-nowrap ${activeTab === 'projects' ? 'u-surface u-accent' : 'u-text-3'}`}
-            style={{ borderBottom: activeTab === 'projects' ? '2px solid var(--accent-primary)' : '2px solid transparent' }}
+            className={`u-tab px-4 py-2 text-sm rounded-t-lg whitespace-nowrap transition ${activeTab === 'projects' ? 'u-tab-active u-surface u-accent' : 'u-text-3'}`}
           >
             项目 ({projects.length})
           </button>
           <button
             onClick={() => setActiveTab('okr')}
-            className={`px-4 py-2 text-sm rounded-t-lg whitespace-nowrap ${activeTab === 'okr' ? 'u-surface u-accent' : 'u-text-3'}`}
-            style={{ borderBottom: activeTab === 'okr' ? '2px solid var(--accent-primary)' : '2px solid transparent' }}
+            className={`u-tab px-4 py-2 text-sm rounded-t-lg whitespace-nowrap transition ${activeTab === 'okr' ? 'u-tab-active u-surface u-accent' : 'u-text-3'}`}
           >
             OKR ({okrs.length})
           </button>
@@ -175,7 +176,7 @@ export function PMOPage({ companyId }: PMOPageProps) {
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-auto px-8 pb-8">
+      <div className="flex-1 overflow-auto u-page-px pb-8">
         {/* 工单 38: 加载失败错误条（跟随 WorkUnitDetailPage 的 u-err-dim 错误条形态）+ 重试入口 */}
         {!loading && loadError && (
           <div className="mb-3 p-3 rounded u-err-dim u-err text-sm flex items-center justify-between">
@@ -184,44 +185,37 @@ export function PMOPage({ companyId }: PMOPageProps) {
           </div>
         )}
         {loading ? (
-          <div className="text-center py-8 u-text-3">
-            加载中...
-          </div>
+          /* 批次 E-2：静态骨架占位（贴近行列表形态，零动画） */
+          <SkeletonText lines={5} className="space-y-3" />
         ) : activeTab === 'projects' ? (
-          /* 2026-09 第二轮：双列竖向卡网格（<lg 单列）；「+ 新建 PMO」虚线卡作首格 */
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+          /* 2026-09 第二轮 v2：紧凑行列表（pmo.css .pmo-row，与 library/workunits 行模式同族） */
+          <div>
             {/* 🆕 PMO-a: 新建 PMO 入口（表单为规范 modal，见页面底部） */}
-            <button
-              onClick={() => setShowCreateForm(true)}
-              className="card p-4 text-left cursor-pointer u-text-2 flex flex-col justify-center"
-              style={{ borderStyle: 'dashed' }}
-            >
-              <div className="flex items-center gap-2">
-                <span>+ 新建 PMO</span>
-              </div>
-              <div className="text-xs mt-1 u-text-3">
-                直接下达项目指令，自动生成 PMO 号
-              </div>
+            <button onClick={() => setShowCreateForm(true)} className="pmo-new">
+              <span>+ 新建 PMO</span>
+              <span className="text-xs u-text-3">直接下达项目指令，自动生成 PMO 号</span>
             </button>
 
-            {projects.length === 0 && (
-              // 批次 D-3 项1：空态 = 说明 + 一个明确主行动（与左侧虚线块同入 CreateProjectDialog）
+            {projects.length === 0 ? (
+              // 批次 D-3 项1：空态 = 说明 + 一个明确主行动（与上方虚线行同入 CreateProjectDialog）
               <div className="empty-state">
                 <p>暂无项目</p>
                 <p className="text-sm mt-2">下达项目指令即可创建，自动生成 PMO 编号</p>
                 <button className="btn btn-primary mt-4" onClick={() => setShowCreateForm(true)}>新建 PMO</button>
               </div>
+            ) : (
+              <div className="pmo-list">
+                {projects.map(project => (
+                  <ProjectCard
+                    key={project.id}
+                    project={project}
+                    wuStats={wuStats}
+                    channels={channels}
+                    handlePublishClick={handlePublishClick}
+                  />
+                ))}
+              </div>
             )}
-
-            {projects.map(project => (
-              <ProjectCard
-                key={project.id}
-                project={project}
-                wuStats={wuStats}
-                channels={channels}
-                handlePublishClick={handlePublishClick}
-              />
-            ))}
           </div>
         ) : (
           <div className="space-y-3">
@@ -240,8 +234,11 @@ export function PMOPage({ companyId }: PMOPageProps) {
             </button>
 
             {okrs.length === 0 ? (
-              <div className="text-center py-8 u-text-3">
-                暂无 OKR，点击上方按钮创建
+              /* 批次 E-2：空态 = 说明 + 一个明确主行动（批次 D-3 模式，入 CreateOkrDialog） */
+              <div className="empty-state">
+                <p>暂无 OKR</p>
+                <p className="text-sm mt-2">为新季度设置目标和关键结果</p>
+                <button className="btn btn-primary mt-4" onClick={() => setShowOKRDialog(true)}>创建 OKR</button>
               </div>
             ) : (
               okrs.map(okr => (

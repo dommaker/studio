@@ -1,18 +1,18 @@
 // 负责人展示解析（#290 清单 #24）——WU 详情页 / WU 抽屉 / REQ 链路节点三处同一口径。
 // assigneeId 双语义（workunit/CONTEXT.md）：unassigned 时 = 被指名 profile.id；认领后 = instance.id。
 // 解析顺序：
+//   ⓪ assigneeRoleId 认领快照（2026-09-10 新增）：claim 时把实例 roleId 冗余到 WU，
+//       实例 terminated 被物理回收后仍能解析——快照在 rosterStore profiles 按 id 找名字，
+//       命中即返回；旧 WU 无快照（undefined/null）跳过此段
 //   ① 当前运行实例摘要（/monitoring/agents）按 instance id 匹配 → {name, roleId}
-//   ①.5 profile 直配：assigneeId 命中 profile id（未认领指名 WU）→ 角色名；
-//       2026-09-10 新增——旧版无此步，指名 WU 必然落到 ② 拿 profile id 点查实例档案，
-//       必死 404（console 噪音拦截不掉）且退化为短 UUID
-//   ② 离线实例：实例档案（/agent-instances/:id）拿 roleId → profile 列表拿名字
+//   ①.5 profile 直配：assigneeId 命中 profile id（未认领指名 WU）→ 角色名
 //   ③ 都查不到 → null（调用方回退渲染短 UUID）
 // 纯展示层解析，不改 assigneeId 存储与 API 形态。
-// #346：①①.5②的批量面（summary/profiles）改读 rosterStore——TTL 缓存 + single-flight 去重
+// #346：①①.5 的批量面（summary/profiles）改读 rosterStore——TTL 缓存 + single-flight 去重
 // 取代原模块作用域 inflight 共享（locality 归位 store）；30s 内的轻微陈旧是 TTL 缓存的既定取舍。
-// 离线实例档案（/agent-instances/:id）是单实例点查，保持直连 API。
+// 2026-09-10：原②段「离线实例档案点查（/agent-instances/:id）」已删除——被回收实例的
+// 档案点查是 100% 失败请求（console 噪音拦截不掉）；认领快照 ⓪ 接管该场景的解析。
 import { useEffect, useState } from 'react';
-import { monitoringApi } from '../api/monitoring';
 import { useRosterStore } from '../stores/rosterStore';
 
 export interface AssigneeDisplay {
@@ -20,42 +20,39 @@ export interface AssigneeDisplay {
   roleId: string;
 }
 
-/** 解析 assigneeId → {name, roleId}；查不到返回 null（导出供单测直接驱动分支） */
-export async function resolveAssignee(assigneeId: string): Promise<AssigneeDisplay | null> {
-  // ensureFresh 永不 reject（错误落 store 状态）；forbidden/失败时 agents/profiles 保持空 → 走 ② 回退
+/** 解析 assigneeId（+可选 roleId 认领快照）→ {name, roleId}；查不到返回 null（导出供单测直接驱动分支） */
+export async function resolveAssignee(assigneeId: string, assigneeRoleId?: string | null): Promise<AssigneeDisplay | null> {
+  // ensureFresh 永不 reject（错误落 store 状态）；forbidden/失败时 agents/profiles 保持空 → 各段落空回退 null
   await useRosterStore.getState().ensureFresh();
   const { agents, profiles } = useRosterStore.getState();
+  // ⓪ 认领快照 roleId → profile 名
+  if (assigneeRoleId) {
+    const snapshotProfile = profiles.find(p => p.id === assigneeRoleId);
+    if (snapshotProfile) return { name: snapshotProfile.name, roleId: assigneeRoleId };
+  }
   // ① 运行实例摘要
   const running = agents.find(a => a.id === assigneeId);
   if (running) return { name: running.name, roleId: running.roleId };
   // ①.5 profile 直配（双语义：未认领指名 WU 的 assigneeId 就是 profile id）
   const directProfile = profiles.find(p => p.id === assigneeId);
   if (directProfile) return { name: directProfile.name, roleId: directProfile.id };
-  // ② 离线实例：档案 roleId → profile 名
-  try {
-    const inst = await monitoringApi.getAgentInstance(assigneeId);
-    const roleId = inst.data?.roleId;
-    if (roleId) {
-      const profile = profiles.find(p => p.id === roleId);
-      if (profile) return { name: profile.name, roleId };
-    }
-  } catch { /* 实例不存在/接口失败 → 回退 null */ }
   return null;
 }
 
-export function useAssigneeDisplay(assigneeId: string | null | undefined): AssigneeDisplay | null {
+export function useAssigneeDisplay(assigneeId: string | null | undefined, assigneeRoleId?: string | null): AssigneeDisplay | null {
   const [display, setDisplay] = useState<AssigneeDisplay | null>(null);
-  // 渲染期重置：assigneeId 切换立即清旧值（站内通行的渲染期调整模式）
-  const [prevId, setPrevId] = useState(assigneeId);
-  if (prevId !== assigneeId) {
-    setPrevId(assigneeId);
+  // 渲染期重置：assigneeId/assigneeRoleId 切换立即清旧值（站内通行的渲染期调整模式）
+  const [prevKey, setPrevKey] = useState(`${assigneeId}\0${assigneeRoleId}`);
+  const key = `${assigneeId}\0${assigneeRoleId}`;
+  if (prevKey !== key) {
+    setPrevKey(key);
     setDisplay(null);
   }
   useEffect(() => {
     if (!assigneeId) return;
     let alive = true;
-    resolveAssignee(assigneeId).then(d => { if (alive) setDisplay(d); });
+    resolveAssignee(assigneeId, assigneeRoleId).then(d => { if (alive) setDisplay(d); });
     return () => { alive = false; };
-  }, [assigneeId]);
+  }, [assigneeId, assigneeRoleId]);
   return display;
 }

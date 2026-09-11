@@ -10,7 +10,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { LIBRARY_DOC_STATUS_COLORS, LIBRARY_DOC_STATUS_LABELS } from '@dommaker/studio-shared/web';
 import { libraryApi } from '../api';
 import { stripDuplicateH1 } from '../utils/stripDuplicateH1';
-import { BackButton } from '../components/ui';
+import { BackButton, SkeletonText } from '../components/ui';
 
 const MarkdownBody = lazy(() => import('../components/knowledge/MarkdownBody'));
 
@@ -36,21 +36,27 @@ export function LibraryDocPage() {
   const navigate = useNavigate();
   const [doc, setDoc] = useState<LibraryDocDetail | null>(null);
   const [loading, setLoading] = useState(true);
+  // 批次 F-1：加载失败 error state（原先 catch 只 console.error，落「文档未找到」假空态）
+  const [error, setError] = useState<string | null>(null);
 
   // 切换文档 id 时渲染期置 loading（挂载首帧由 loading 初值 true 覆盖）
   const [prevId, setPrevId] = useState(id);
   if (prevId !== id) {
     setPrevId(id);
     setLoading(true);
+    setError(null);
   }
 
   const fetchDoc = useCallback(async () => {
     if (!id) return;
+    setLoading(true);
+    setError(null);
     try {
       const res = await libraryApi.getDoc(id);
       setDoc(res.data?.data || null);
     } catch (err) {
       console.error('[LibraryDoc] Failed to fetch', err);
+      setError('文档加载失败，请重试');
     } finally {
       setLoading(false);
     }
@@ -70,9 +76,29 @@ export function LibraryDocPage() {
   };
 
   if (loading) {
+    // 批次 F-3：加载态骨架（批次 E-2 ui/Skeleton 正本）——阅读页标题 + 段落形态
     return (
-      <div className="flex items-center justify-center h-full">
-        <div className="loading-spinner" />
+      <div className="h-full flex flex-col u-page-bg">
+        <div className="u-page-head">
+          <SkeletonText lines={1} widths={['35%']} />
+        </div>
+        <div className="flex-1 overflow-auto u-page-px pb-8">
+          <div className="max-w-5xl mt-4">
+            <SkeletonText lines={10} className="space-y-3" widths={['100%', '100%', '90%', '100%', '75%', '100%', '100%', '85%', '100%', '60%']} />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // 批次 F-1：加载失败错误条（抄 ProjectDetailPage 模式）+ 重试，不再落「文档未找到」假空态
+  if (error) {
+    return (
+      <div className="h-full u-page-bg u-page-px py-6">
+        <div className="max-w-5xl p-3 rounded u-err-dim u-err text-sm flex items-center justify-between">
+          <span>{error}</span>
+          <button onClick={() => void fetchDoc()} className="btn btn-secondary btn-sm">重试</button>
+        </div>
       </div>
     );
   }
@@ -143,13 +169,13 @@ export function LibraryDocPage() {
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-auto px-8 pb-8 pt-6">
+      <div className="flex-1 overflow-auto u-page-px pb-8 pt-6">
         {/* 阅读页限宽 900px：长文行宽最优，属 §4.7 内容档（max-w-5xl=1024）之外的阅读档例外，勿收 */}
         <div style={{ maxWidth: '900px' }}>
           {sections.map((section, i) => (
             <div key={i} className={i > 0 ? 'mt-8' : ''}>
               {section.label && (
-                <h2 className="mc-block-label" style={{ margin: '0 0 8px' }}>
+                <h2 className="mc-block-label mc-block-label-gap-2">
                   {section.label}
                 </h2>
               )}

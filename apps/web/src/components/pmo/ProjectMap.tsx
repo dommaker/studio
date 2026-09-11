@@ -13,6 +13,7 @@ import {
   type NextActionCandidate,
 } from './mapUtils';
 import { formatTimelineTime } from './pipelineUtils';
+import { IconTarget, IconHelpCircle, IconScroll, IconLink } from '../ui/icons';
 
 interface ProjectMapProps {
   map: PmoMap;
@@ -34,13 +35,13 @@ export function ProjectMap({ map, decisionStatusByWuId, chainWus }: ProjectMapPr
     <div>
       {/* 目标 */}
       <div className="mb-4">
-        <div className="mc-card-label mb-1">🎯 目标</div>
+        <div className="mc-card-label mb-1 flex items-center gap-1"><IconTarget size={14} />目标</div>
         <div className="text-sm u-text">{map.destination}</div>
       </div>
 
       {/* 待决问题清单（状态徽章四态：待认领/讨论中/待确认/已定） */}
       <div className="mb-4">
-        <div className="mc-card-label mb-2">❓ 待决问题 ({map.fog.length})</div>
+        <div className="mc-card-label mb-2 flex items-center gap-1"><IconHelpCircle size={14} />待决问题 ({map.fog.length})</div>
         {map.fog.length === 0 ? (
           <div className="text-sm u-text-3">暂无待决问题</div>
         ) : (
@@ -70,7 +71,7 @@ export function ProjectMap({ map, decisionStatusByWuId, chainWus }: ProjectMapPr
 
       {/* 结论时间线（可点进决策单线程） */}
       <div className="mb-4">
-        <div className="mc-card-label mb-2">📜 结论时间线 ({decisions.length})</div>
+        <div className="mc-card-label mb-2 flex items-center gap-1"><IconScroll size={14} />结论时间线 ({decisions.length})</div>
         {decisions.length === 0 ? (
           <div className="text-sm u-text-3">还没有拍板的结论</div>
         ) : (
@@ -92,7 +93,7 @@ export function ProjectMap({ map, decisionStatusByWuId, chainWus }: ProjectMapPr
 
       {/* 任务单依赖图（只列有依赖的单；依赖已清的单才会出现在「下一个该干什么」） */}
       <div>
-        <div className="mc-card-label mb-2">🔗 任务单依赖</div>
+        <div className="mc-card-label mb-2 flex items-center gap-1"><IconLink size={14} />任务单依赖</div>
         {depRows.length === 0 ? (
           <div className="text-sm u-text-3">任务单之间暂无依赖</div>
         ) : (
@@ -134,7 +135,7 @@ export function NextActionCard({ action }: { action: NextActionCandidate | null 
   const navigate = useNavigate();
   return (
     <div className="card p-4 mb-3" style={{ borderLeft: '2px solid var(--accent-primary)' }}>
-      <h3 className="mc-block-label" style={{ margin: '0 0 8px' }}>下一个该干什么</h3>
+      <h3 className="mc-block-label mc-block-label-gap-2">下一个该干什么</h3>
       {action ? (
         <div className="flex items-center gap-2 flex-wrap">
           <button

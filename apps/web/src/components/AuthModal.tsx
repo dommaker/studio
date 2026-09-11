@@ -45,7 +45,8 @@ export function AuthModal({ onClose }: Props) {
         style={{ maxWidth: '24rem' }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="modal-body" style={{ padding: '24px' }}>
+        {/* 批次 G-2：24px → token；留内联因 .modal-body 未分层自带 padding，Tailwind 工具类压不过（ui/Modal:88 同款先例） */}
+        <div className="modal-body" style={{ padding: 'var(--space-5)' }}>
         {/* OAuth buttons */}
         <div className="space-y-2 mb-4">
           <button

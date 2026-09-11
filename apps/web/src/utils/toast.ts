@@ -1,6 +1,11 @@
 /**
  * Lightweight toast notification system (zero dependencies)
  * Uses CSS variables from theme.css for dark/light mode support.
+ *
+ * 批次 E-3（已批治理项，Governance-Approved: session）：toast 进出场 fade——
+ * 进场 opacity 0→1、出场 1→0 过渡结束后移除（--motion-base），归入白名单场景②
+ * 「弹窗进出场」语义扩展；prefers-reduced-motion 下 transition 被全局媒体查询
+ * 压到 0.01ms，天然兼容（仅多停一个淡出时长再移除，无动画残留）。
  */
 
 type ToastType = 'success' | 'error' | 'warning' | 'info';
@@ -47,6 +52,16 @@ function getContainer(): HTMLDivElement {
   return container;
 }
 
+/** 读 --motion-base token（如 "150ms"）得毫秒数，供出场过渡结束后的移除定时；读不到回退 150 */
+function motionBaseMs(): number {
+  const raw = getComputedStyle(document.documentElement).getPropertyValue('--motion-base').trim();
+  const ms = /^([\d.]+)ms$/.exec(raw);
+  if (ms) return Number(ms[1]);
+  const s = /^([\d.]+)s$/.exec(raw);
+  if (s) return Number(s[1]) * 1000;
+  return 150;
+}
+
 function show(message: string, type: ToastType, options?: ToastOptions): void {
   const duration = options?.duration ?? 4000;
   const icon = options?.icon ?? ICONS[type];
@@ -69,6 +84,8 @@ function show(message: string, type: ToastType, options?: ToastOptions): void {
     cursor: pointer;
     max-width: 100%;
     word-break: break-word;
+    opacity: 0;
+    transition: opacity var(--motion-base) var(--ease-standard);
   `;
 
   const iconEl = document.createElement('span');
@@ -115,13 +132,21 @@ function show(message: string, type: ToastType, options?: ToastOptions): void {
   const c = getContainer();
   c.appendChild(toast);
 
+  // 进场 fade：以 opacity:0 挂载，下一帧置 1 触发过渡
+  requestAnimationFrame(() => { toast.style.opacity = '1'; });
+
   if (duration > 0) {
     setTimeout(() => removeToast(toast), duration);
   }
 }
 
 function removeToast(el: HTMLDivElement): void {
-  el.remove();
+  // 幂等：duration 定时器 / 点击关闭 / dismiss 可能并发触发同一元素
+  if (el.dataset.closing) return;
+  el.dataset.closing = '1';
+  // 出场 fade：opacity → 0，过渡结束后移除
+  el.style.opacity = '0';
+  setTimeout(() => el.remove(), motionBaseMs());
 }
 
 export const toast = Object.assign(

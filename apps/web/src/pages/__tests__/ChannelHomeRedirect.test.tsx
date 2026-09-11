@@ -44,10 +44,11 @@ describe('ChannelHomeRedirect — #393', () => {
     window.localStorage.clear();
   });
 
-  it('loading 中显示加载态，不跳转', () => {
+  it('loading 中显示骨架占位（批次 F-3），不跳转', () => {
     mockUseChannelList.mockReturnValue({ channels: [], loading: true, createChannel: vi.fn() });
-    renderAt('/');
-    expect(screen.getByText(/加载中/)).toBeTruthy();
+    const { container } = renderAt('/');
+    expect(container.querySelector('.skeleton')).not.toBeNull();
+    expect(screen.queryByText(/加载中/)).toBeNull();
     expect(screen.queryByTestId('workspace')).toBeNull();
   });
 

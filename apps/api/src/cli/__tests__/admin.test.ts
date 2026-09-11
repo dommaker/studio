@@ -3,8 +3,8 @@
  *
  * 覆盖管理域：
  * - studioProject：add（写 projects.json、去重、缺省取 cwd）、list（空/非空）、未知子命令无输出；
- * - studioWorkon：写 active-project；缺名字 → usage + exit(1)；
- * - studioDaemonStart：缺 --server-url/--token → usage + exit(1)（在任何动态 import 之前）。
+ * - studioWorkon：写 active-project；缺名字 → usage + exit(1)。
+ * （studioDaemonStart 已随远程节点方向删除 —— 见 bdaf0dd3 2026-08-04）
  * HOME 指向临时目录隔离 ~/.studio；process.argv 按需替换并恢复。
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest';
@@ -109,15 +109,5 @@ describe('studioWorkon', () => {
   it('缺名字 → usage + exit(1)', () => {
     expect(() => admin.studioWorkon(undefined)).toThrow('exit:1');
     expect(errs.join('\n')).toContain('Usage: studio workon <name>');
-  });
-});
-
-describe('studioDaemonStart', () => {
-  it('缺 --server-url/--token → usage + exit(1)（不做动态 import）', async () => {
-    process.argv = ['node', 'studio', 'daemon', 'start'];
-    await expect(admin.studioDaemonStart()).rejects.toThrow('exit:1');
-    expect(errs.join('\n')).toContain(
-      'Usage: studio daemon start --server-url <url> --token <token> [--workspace-root <path>] [--name <name>]',
-    );
   });
 });

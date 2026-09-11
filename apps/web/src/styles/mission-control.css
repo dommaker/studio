@@ -309,12 +309,16 @@
   background: var(--border-subtle);
 }
 
-/* #326：骨架占位行——数据层降级消息的固定小高度占位（水合前渲染） */
+/* #326：骨架占位行——数据层降级消息的固定小高度占位（水合前渲染）；
+   批次 E-3：透明 outline + outline-color 过渡挂基类（同 .mc-msg），mc-msg-highlight 移除时渐隐 */
 .mc-msg-skeleton {
   padding: 6px 12px;
   color: var(--text-muted);
   font-size: var(--fs-xs);
   text-align: center;
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+  transition: outline-color var(--motion-base) var(--ease-standard);
   border: 1px dashed var(--border-subtle);
   border-radius: 4px;
   margin: 4px 0;
@@ -331,8 +335,16 @@
 }
 .mc-collapse-toggle:hover { color: var(--text-primary); border-color: var(--accent-primary); }
 
-/* 消息（纯文本行，不做气泡） */
-.mc-msg { margin-bottom: 8px; }
+/* 消息（纯文本行，不做气泡）。
+   批次 E-3：透明 outline + 颜色过渡挂基类（白名单③状态色切换）——mc-msg-highlight /
+   mc-msg-new 类移除时 outline-color/background-color 有过渡起点，高亮渐隐而非瞬隐 */
+.mc-msg {
+  margin-bottom: 8px;
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+  transition: background-color var(--motion-base) var(--ease-standard),
+    outline-color var(--motion-base) var(--ease-standard);
+}
 .mc-msg-head {
   display: flex;
   align-items: baseline;
@@ -562,7 +574,7 @@
 .mc-progress {
   height: 3px;
   background: var(--bg-tertiary);
-  border-radius: 2px;
+  border-radius: 3px;
   overflow: hidden;
   margin-top: 8px;
 }
@@ -669,10 +681,12 @@
   white-space: nowrap;
 }
 .mc-msg-highlight {
-  outline: 2px solid var(--warning);
-  outline-offset: 2px;
+  outline-color: var(--warning);
   border-radius: 4px;
 }
+/* 批次 E-3：SSE 新到达消息渐隐高亮（白名单③状态色切换）——accent-dim 底色，
+   页面 2s 后移类，经 .mc-msg 基类 background-color 过渡渐隐常态 */
+.mc-msg-new { background-color: var(--accent-dim); }
 
 /* 按钮（Mission Control 密度） */
 .mc-btn {
@@ -874,6 +888,8 @@
   left: var(--space-6);
   margin-bottom: 4px;
   width: 224px;
+  /* 批次 F-5：固定宽消费方（路由 320 / 成员 288 内联 width）窄屏不溢出视口 */
+  max-width: 90vw;
   padding: 2px;
   background: var(--bg-elevated);
   border: 1px solid var(--border-default);
@@ -979,6 +995,10 @@
   letter-spacing: 0.12em;
   margin: 12px 0 5px;
 }
+/* 批次 G-3：margin 覆盖变体（收敛基类 margin 的同构内联覆盖） */
+.mc-block-label-flush { margin: 0; }
+.mc-block-label-gap-2 { margin: 0 0 var(--space-2); }
+.mc-block-label-gap-3 { margin: 0 0 var(--space-3); }
 
 .mc-docs { list-style: none; margin: 0; padding: 0; }
 .mc-doc-item {
@@ -1303,7 +1323,7 @@ button.mc-act-step:hover { background: var(--bg-hover); }
 .mc-act-step-line-reached { background: var(--accent-border); }
 /* #468：WU 站 blocked/pending 警示色点 */
 .mc-act-step-warn {
-  min-width: 14px; height: 14px; border-radius: 7px; padding: 0 3px;
+  min-width: 14px; height: 14px; border-radius: 999px; padding: 0 3px;
   background: var(--warning-dim); border: 1px solid var(--warning-border); color: var(--warning);
   font-size: 10px; line-height: 12px; text-align: center; flex-shrink: 0;
 }
@@ -1459,6 +1479,14 @@ button.mc-act-step:hover { background: var(--bg-hover); }
 /* 裸按钮重置（§4.5：无 btn 体系外壳的文字/图标钮；font/color 继承由 Tailwind preflight 兜底，故不含——
    保留类上 mc-block-label/u-accent/text-* 等排类的字体颜色决议权） */
 .u-btn-reset { background: none; border: none; cursor: pointer; padding: 0; }
+/* 页面级水平 padding（批次 F-5：§4.7 内容区 px-8 = --space-6 的类正本，供内容区/tab 条/整页状态复用） */
+.u-page-px { padding-left: var(--space-6); padding-right: var(--space-6); }
+
+/* 批次 F-5 窄屏断点（<640px，对齐 responsive.css 断点档）：页头/内容区水平 padding 收缩一档（--space-6 → --space-4） */
+@media (max-width: 639px) {
+  .u-page-head { padding-left: var(--space-4); padding-right: var(--space-4); }
+  .u-page-px { padding-left: var(--space-4); padding-right: var(--space-4); }
+}
 
 /* Tab 形态正本（批次 D-4 定 Knowledge border-b 为正本；E5 起激活态 accent 底线自内联 style 收进类） */
 .u-tab { border-bottom: 2px solid transparent; margin-bottom: -1px; }

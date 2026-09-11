@@ -23,6 +23,7 @@ export function snapshotToData(s: WorkUnitSnapshot): WorkUnitData {
     projectPath: s.projectPath,
     workspaceId: s.workspaceId ?? null,
     reqId: s.reqId ?? null,
+    assigneeRoleId: s.assigneeRoleId ?? null,
     metadata: s.metadata,
     createdAt: new Date(s.createdAt),
     updatedAt: new Date(s.updatedAt),
@@ -52,6 +53,7 @@ export function inputToSnapshot(
     projectPath: input.projectPath ?? null,
     workspaceId: input.workspaceId ?? null,
     reqId: input.reqId ?? null,
+    assigneeRoleId: null,  // 认领快照仅在 claim 时写入
     metadata: input.metadata ? JSON.stringify(input.metadata) : null,
     createdAt: isoNow,
     updatedAt: isoNow,
@@ -71,6 +73,8 @@ export function patchSnapshot(
     type: input.type ?? existing.type,
     scope: input.scope ?? existing.scope,
     assigneeId: input.assigneeId !== undefined ? input.assigneeId : existing.assigneeId,
+    // 一致性规则：显式释放（assigneeId: null）连带清 roleId 认领快照，不留悬空的旧 roleId
+    assigneeRoleId: input.assigneeId === null ? null : existing.assigneeRoleId ?? null,
     channelId: input.channelId !== undefined ? input.channelId : existing.channelId,
     parentId: input.parentId !== undefined ? input.parentId : existing.parentId,
     projectPath: input.projectPath !== undefined ? input.projectPath : existing.projectPath,

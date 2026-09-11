@@ -71,6 +71,7 @@ export interface WorkUnitData {
   projectPath: string | null;
   workspaceId?: string | null;  // F6: 绑定工程（旧 WorkUnit 无此字段 → null）
   reqId?: string | null;        // REQ 需求编号（旧 WorkUnit 无此字段 → null）
+  assigneeRoleId?: string | null;  // 认领时冗余的认领方 roleId 快照（旧 WorkUnit 无此字段 → null）
   metadata: string | null;
   createdAt: Date;
   updatedAt: Date;
@@ -102,6 +103,7 @@ export function snapshotToData(s: WorkUnitSnapshot): WorkUnitData {
     projectPath: s.projectPath,
     workspaceId: s.workspaceId ?? null,
     reqId: s.reqId ?? null,
+    assigneeRoleId: s.assigneeRoleId ?? null,
     metadata: s.metadata,
     createdAt: new Date(s.createdAt),
     updatedAt: new Date(s.updatedAt),
@@ -131,6 +133,7 @@ function inputToSnapshot(
     projectPath: input.projectPath ?? null,
     workspaceId: input.workspaceId ?? null,
     reqId: input.reqId ?? null,
+    assigneeRoleId: null,  // 认领快照仅在 claim 时写入（create 无认领方 roleId 来源）
     metadata: input.metadata ? JSON.stringify(input.metadata) : null,
     createdAt: isoNow,
     updatedAt: isoNow,
@@ -150,6 +153,8 @@ function patchSnapshot(
     type: input.type ?? existing.type,
     scope: input.scope ?? existing.scope,
     assigneeId: input.assigneeId !== undefined ? input.assigneeId : existing.assigneeId,
+    // 一致性规则：显式释放（assigneeId: null）连带清 roleId 认领快照，不留悬空的旧 roleId
+    assigneeRoleId: input.assigneeId === null ? null : existing.assigneeRoleId ?? null,
     channelId: input.channelId !== undefined ? input.channelId : existing.channelId,
     parentId: input.parentId !== undefined ? input.parentId : existing.parentId,
     projectPath: input.projectPath !== undefined ? input.projectPath : existing.projectPath,
@@ -489,7 +494,10 @@ export class WorkUnitCrudService {
     }
 
     // Use flock-based claim
-    const claimed = await this.fileStore.claimWorkUnit(id, agentId);
+    // 认领方是运行实例时取其 roleId 冗余快照到 WU（实例回收后展示层仍能解析角色名）；
+    // 人工 REST 认领 agentId=用户 id，getState 落空 → null（回退短 UUID，与既有表现一致）
+    const assigneeRoleId = (await this.fileStore.getState(agentId))?.roleId ?? null;
+    const claimed = await this.fileStore.claimWorkUnit(id, agentId, { assigneeRoleId });
     if (!claimed) {
       throw new Error('Claim failed');
     }
@@ -522,6 +530,7 @@ export class WorkUnitCrudService {
     const updated: WorkUnitSnapshot = {
       ...existing,
       assigneeId: null,
+      assigneeRoleId: null,  // 释放连带清认领快照（事件 data 是全量快照，rebuild 自动一致）
       status: 'unassigned',
       claimedAt: null,
       updatedAt: now.toISOString(),

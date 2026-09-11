@@ -184,8 +184,8 @@ describe('Requirement API (vision §5.3)', () => {
     expect(status).toBe(400);
   });
 
-  // B3a 工程归属链（决策 D2）：projectId 挂接 —— PMO 项目写真实 ~/.studio/projects
-  // （workspace-binding.test.ts 同款约定），用例结束统一删除。
+  // B3a 工程归属链（决策 D2）：projectId 挂接 —— PMO 项目经 projectService 写入
+  // （落 #219 setup 钉的隔离根 projects/，非真实 ~/.studio），用例结束统一删除。
   describe('B3a: projectId 挂接', () => {
     let projectId: string | null = null;
 

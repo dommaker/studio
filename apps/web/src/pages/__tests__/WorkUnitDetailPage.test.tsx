@@ -159,16 +159,18 @@ describe('WorkUnitDetailPage', () => {
     mockListAllAgents.mockResolvedValue({ data: { data: [] } });
   });
 
-  it('加载态：WU 未返回时显示加载中', () => {
+  it('加载态：WU 未返回时显示静态骨架（批次 E-2，替代纯文字「加载中」）', () => {
     mockWuGet.mockReturnValue(new Promise(() => {}));
-    render(<WorkUnitDetailPage />);
-    expect(screen.getByText('加载中...')).toBeDefined();
+    const { container } = render(<WorkUnitDetailPage />);
+    expect(container.querySelectorAll('.skeleton').length).toBeGreaterThan(0);
+    expect(screen.queryByText('加载中...')).toBeNull();
   });
 
-  it('错误态：加载失败显示错误信息', async () => {
+  it('错误态：加载失败显示错误信息 + 重试按钮（批次 E-2）', async () => {
     mockWuGet.mockRejectedValue(new Error('Not Found'));
     render(<WorkUnitDetailPage />);
     expect(await screen.findByText(/加载失败: Not Found/)).toBeDefined();
+    expect(screen.getByRole('button', { name: '重试' })).toBeDefined();
   });
 
   it('Header：标题取 metadata.title，含类型 chip / 状态 pill；头栏不再有「Token 开销」按钮（入口挪左栏事实行）', async () => {
@@ -280,17 +282,19 @@ describe('WorkUnitDetailPage', () => {
     expect(chip.closest('a')).toBeNull();
   });
 
-  // #290（清单 #24）：负责人解析三级口径——运行实例 → 离线实例 profile → 短 UUID
-  it('#290 认领 agent 为离线实例：经实例档案 roleId + profile 名解析，仍链到角色页', async () => {
+  // #290（清单 #24）：负责人解析口径——认领快照 → 运行实例 → profile 直配 → 短 UUID
+  it('#290 认领 agent 为离线实例：经 assigneeRoleId 认领快照解析角色名，不发实例档案点查', async () => {
+    // 2026-09-10：离线实例档案点查段已删除（被回收实例点查必 404）；认领快照接管该场景
+    mockWuGet.mockResolvedValue({ data: { ...baseWu, assigneeRoleId: 'role-9' } });
     mockAgentSummary.mockResolvedValue({
       data: { agents: [], summary: { total: 0, idle: 0, active: 0, error: 0, terminated: 0 } },
     });
-    mockGetAgentInstance.mockResolvedValue({ data: { id: 'inst-abcdefgh1234', roleId: 'role-9', status: 'terminated' } });
     mockListAllAgents.mockResolvedValue({ data: { data: [{ id: 'role-9', name: 'Analyst' }] } });
     render(<WorkUnitDetailPage />);
     // #440：meta strip 与事实卡各渲染一份，取其一断链接
     const [chip] = await screen.findAllByText('@Analyst');
     expect(chip.closest('a')?.getAttribute('href')).toBe('/agents/role-9');
+    expect(mockGetAgentInstance).not.toHaveBeenCalled();
   });
 
   it('证据台账：L1/L2/L3 三层紧凑行（drawer 变体）与评审结论', async () => {

@@ -1,0 +1,103 @@
+/* PMO 项目列表 — 2026-09-10 第二轮重设计 v2：双列大卡 → 紧凑行列表
+   （细分隔线 + 左侧状态色条 + hover 提亮，与 library/workunits 行模式同族）。
+   色条着色与 projectDisplay.PROJECT_STATUS_COLORS 徽章同语义（active=accent=正在发生）。 */
+
+.pmo-list {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.pmo-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border-subtle);
+  border-left: 3px solid transparent;
+  cursor: pointer;
+  transition: background var(--motion-fast) var(--ease-standard);
+}
+.pmo-row:hover { background: var(--bg-hover); }
+.pmo-row:focus-visible { background: var(--bg-hover); outline: none; }
+
+/* 左侧状态色条（与状态徽章同语义） */
+.pmo-row[data-status='pending'] { border-left-color: var(--text-muted); }
+.pmo-row[data-status='active'] { border-left-color: var(--accent-primary); }
+.pmo-row[data-status='in_review'] { border-left-color: var(--warning); }
+.pmo-row[data-status='completed'],
+.pmo-row[data-status='delivered'] { border-left-color: var(--success); }
+.pmo-row[data-status='cancelled'] { border-left-color: var(--error); }
+
+/* PMO 编号：mono 中性 chip（accent 留给主行动，§4.8） */
+.pmo-num {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-subtle);
+  border-radius: 3px;
+  padding: 1px 6px;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.pmo-title {
+  font-weight: 500;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pmo-desc {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 右档：进度条 + 百分比成组，右对齐成列 */
+.pmo-progress {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+.pmo-progress-bar {
+  width: 72px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--bg-tertiary);
+  overflow: hidden;
+}
+.pmo-progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--success);
+}
+.pmo-progress-num {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text-tertiary);
+  min-width: 34px;
+  text-align: right;
+}
+
+/* 新建虚线行（与数据行同高同节奏） */
+.pmo-new {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-3);
+  margin-bottom: var(--space-3);
+  background: transparent;
+  border: 1px dashed var(--border-default);
+  border-radius: 4px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: var(--fs-base);
+  transition: border-color var(--motion-fast) var(--ease-standard), background var(--motion-fast) var(--ease-standard);
+}
+.pmo-new:hover { border-color: var(--border-strong); background: var(--bg-hover); }

@@ -135,13 +135,12 @@ export function MonitoringPage() {
       </div>
 
       {/* #180：概览 / 事件检索 Tab（IA：行动信号 > 健康度量 > 参考资料） */}
-      <div className="px-8 pt-3 flex gap-1 border-b u-border">
+      <div className="u-page-px pt-3 flex gap-1 border-b u-border">
         {([['overview', '概览'], ['events', '事件检索']] as Array<[MonitoringTab, string]>).map(([id, label]) => (
           <button
             key={id}
             onClick={() => switchTab(id)}
-            className={`px-4 py-2 text-sm rounded-t-lg transition ${activeTab === id ? 'u-surface u-accent' : 'u-text-3'}`}
-            style={{ borderBottom: activeTab === id ? '2px solid var(--accent-primary)' : '2px solid transparent' }}
+            className={`u-tab px-4 py-2 text-sm rounded-t-lg transition ${activeTab === id ? 'u-tab-active u-surface u-accent' : 'u-text-3'}`}
           >
             {label}
           </button>
@@ -149,13 +148,13 @@ export function MonitoringPage() {
       </div>
 
       {activeTab === 'events' ? (
-        <div className="flex-1 overflow-auto px-8 pb-8">
+        <div className="flex-1 overflow-auto u-page-px pb-8">
           <div className="max-w-5xl">
             <EventSearchPanel initialFilters={eventSeed ?? undefined} />
           </div>
         </div>
       ) : (
-      <div className="flex-1 overflow-auto px-8 pb-8">
+      <div className="flex-1 overflow-auto u-page-px pb-8">
         <div className="max-w-5xl">
           {/* 行动面（§7.2 首屏）：需要处理（#184 独立加载）+ 知识提案待审（全页唯一可操作列表，上移） */}
           <div className="space-y-4 mt-4">
@@ -178,8 +177,7 @@ export function MonitoringPage() {
                       <div className="flex items-center gap-3">
                         {/* #473：标题即详情开关——审前先看内容（对照频道提案卡条目清单） */}
                         <button
-                          className="u-text u-hover-accent text-left"
-                          style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                          className="u-text u-hover-accent text-left flex-1 min-w-0 truncate"
                           aria-expanded={expandedIds.has(p.id)}
                           onClick={() => toggleExpanded(p.id)}
                         >
@@ -226,7 +224,7 @@ export function MonitoringPage() {
               onClick={() => setMetricsOpen(v => !v)}
             >
               <span className="text-xs">{metricsOpen ? '▾' : '▸'}</span>
-              <span className="mc-block-label" style={{ margin: 0 }}>健康度量</span>
+              <span className="mc-block-label mc-block-label-flush">健康度量</span>
             </button>
 
             {metricsOpen && (
@@ -402,7 +400,7 @@ export function MonitoringPage() {
 function StatCard({ label, value, color }: { label: string; value: React.ReactNode; color: string }) {
   return (
     <div className="flex items-center gap-2">
-      <span className={`font-bold ${color}`} style={{ fontSize: 'var(--fs-title)' }}>{value}</span>
+      <span className={`font-bold ${color}`} style={{ fontSize: 'var(--fs-stat)' }}>{value}</span>
       <span className="text-sm u-text-2">{label}</span>
     </div>
   );

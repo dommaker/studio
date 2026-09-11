@@ -5,6 +5,7 @@
 import { useEffect, useState } from 'react';
 import { projectsApi, type LocalProject } from '../../api/projects';
 import { toast } from '../../utils/toast';
+import { SkeletonText } from '../ui';
 
 export function ProjectCandidatesSection() {
   const [projects, setProjects] = useState<LocalProject[]>([]);
@@ -36,14 +37,14 @@ export function ProjectCandidatesSection() {
 
   return (
     <section className="space-y-4">
-      <h2 className="mc-block-label" style={{ margin: 0 }}>工程候选管理</h2>
+      <h2 className="mc-block-label mc-block-label-flush">工程候选管理</h2>
       <p className="text-sm u-text-2">
         归属问答的候选工程集。标记「不再作为候选」后该工程不再出现在归属问答候选中
         （已绑定 PMO 的工程自动排在前面）；保存即时生效。
       </p>
       <div className="card p-4 space-y-4">
         {loading ? (
-          <p className="text-sm u-text-2">加载中…</p>
+          <SkeletonText lines={3} className="space-y-2" />
         ) : (
           <>
             <div>

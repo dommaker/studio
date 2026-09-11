@@ -9,7 +9,7 @@ import { Link } from 'react-router-dom';
 import { formatChannelName } from '@dommaker/studio-shared/web';
 import { workspaceApi } from '../../api';
 import { channelApi, type Channel } from '../../api/channel';
-import { Select } from '../ui';
+import { Select, SkeletonText } from '../ui';
 import { toast } from '../../utils/toast';
 import { isForbidden } from '../../utils/http';
 import { useAuthStore } from '../../stores/authStore';
@@ -100,14 +100,14 @@ export function DefaultExecutionMachineSection() {
 
   return (
     <section className="space-y-4">
-      <h2 className="mc-block-label" style={{ margin: 0 }}>默认执行机器</h2>
+      <h2 className="mc-block-label mc-block-label-flush">默认执行机器</h2>
       <p className="text-sm u-text-2">
         每个频道的任务在哪台机器跑（远程 Workspace，决定执行目录的解析）；
         与频道顶栏的「默认工程」（本地 repo）是两个概念。不绑定时按频道与需求的归属关系自动解析。
       </p>
       <div className="card p-4 space-y-3">
         {loading ? (
-          <p className="text-sm u-text-2">加载中…</p>
+          <SkeletonText lines={2} className="space-y-2" />
         ) : forbidden ? (
           // 非 Admin 降级：workspaces 列表 Admin-only，绑定值只读回显，不出选择器
           <>

@@ -3,6 +3,7 @@
 // 样式沿用 ExecutionSteps 的 mc-* 类名习惯，不引入新依赖。
 import { useState } from 'react';
 import { transcriptsApi, type TranscriptEntry } from '../../api/transcript';
+import { SkeletonText } from '../ui';
 import { formatShortTime } from '../../utils/datetime';
 
 const PAGE_SIZE = 20;
@@ -42,7 +43,7 @@ export function TranscriptViewer({ workUnitId }: { workUnitId: string }) {
       </button>
       {expanded && (
         <div style={{ marginTop: 8 }}>
-          {entries === null && !error && <div className="mc-drawer-note">加载中…</div>}
+          {entries === null && !error && <SkeletonText lines={2} className="space-y-2" />}
           {error && <div className="mc-drawer-note">{error}</div>}
           {entries !== null && entries.length === 0 && (
             <div className="mc-drawer-note">暂无 transcript（仅记录本能力上线后的执行步）</div>

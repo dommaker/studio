@@ -9,8 +9,8 @@
  * Runs once on server start. Idempotent.
  *
  * 2026-07 修复：本地 CLI 扫描改走 provider 注册表（daemon/cli-scanner），
- * 结果写入 workspace 记录的 runtimes 数组（与 daemon 注册同构），
- * 每次启动 + GET /workspaces/runtimes 时重扫，保证前端可见、新鲜。
+ * 结果写入 workspace 记录的 runtimes 数组；
+ * 每次启动 + GET /workspaces/runtimes 返回前重扫，保证前端可见、新鲜。
  */
 
 import { FileStore, generateId } from '@dommaker/studio-shared';
@@ -93,8 +93,8 @@ export async function rescanLocalRuntimes(): Promise<void> {
  *
  * 走 provider 注册表（daemon/cli-scanner scanAllProviders）：内置
  * claude/kimi/codex/opencode，用户可经 ~/.studio/providers.json 扩展。
- * 结果全量替换 local workspace 记录的 runtimes 数组（该记录只承载本地扫描，
- * daemon 上报的远程 runtime 在各自 workspace 记录里，互不干扰）。
+ * 结果全量替换 local workspace 记录的 runtimes 数组——该记录就是本机 CLI 清单的唯一存放处
+ * （远程节点上报链路已随 bdaf0dd3 删除）。
  */
 async function scanLocalRuntimes(workspaceId: string): Promise<void> {
   try {

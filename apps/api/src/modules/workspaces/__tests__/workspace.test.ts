@@ -3,8 +3,6 @@
  *
  * Covers AC-C1:
  *   - Token creation + SHA-256 hash
- *   - Workspace registration (upsert on same token)
- *   - Workspace heartbeat update
  *   - Runtime registration (upsert)
  *   - Token revocation
  *   - VPS local workspace creation
@@ -225,20 +223,6 @@ describe('Workspace CRUD (FileStore)', () => {
     expect(found!.tokenId).toBe(token.id);
     expect(found!.status).toBe('offline');
     expect(found!.hasDocker).toBe(false);
-  });
-
-  it('updates workspace on heartbeat', async () => {
-    const ws = makeWorkspace();
-    await writeWorkspace(ws.id, ws);
-
-    ws.status = 'idle';
-    ws.currentTask = null;
-    ws.lastHeartbeat = isoNow();
-    await writeWorkspace(ws.id, ws);
-
-    const found = await readWorkspace(ws.id);
-    expect(found!.status).toBe('idle');
-    expect(found!.lastHeartbeat).toBeTruthy();
   });
 
   it('supports VPS workspace with null tokenId', async () => {

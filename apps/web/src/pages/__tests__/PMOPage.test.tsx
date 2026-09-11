@@ -148,8 +148,10 @@ describe('AC-6: PMO publish button', () => {
     // 容器 = border-b 横条（非旧 segmented pill 容器）
     expect(projectsTab.parentElement!.className).toContain('border-b');
     expect(projectsTab.parentElement!.className).not.toContain('inline-flex');
-    // 激活态 = accent 底线，未激活透明底线
-    expect(projectsTab.style.borderBottom).toBe('2px solid var(--accent-primary)');
-    expect(okrTab.style.borderBottom).toBe('2px solid transparent');
+    // 批次 E-3：激活态底线收进 .u-tab/.u-tab-active 结构类（禁内联 borderBottom）
+    expect(projectsTab.className).toContain('u-tab');
+    expect(projectsTab.className).toContain('u-tab-active');
+    expect(okrTab.className).toContain('u-tab');
+    expect(okrTab.className).not.toContain('u-tab-active');
   });
 });

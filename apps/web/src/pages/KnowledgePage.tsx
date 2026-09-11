@@ -19,7 +19,8 @@ import { maintenanceApi } from '../api/maintenance';
 import { toast } from '../utils/toast';
 import { serverErrorMessage } from '../utils/errorMessage';
 import { useAsyncData } from '../hooks/useAsyncData';
-import { Select, ManualTaskButton, Button } from '../components/ui';
+import { Select, ManualTaskButton, Button, SkeletonCard } from '../components/ui';
+import { IconBook } from '../components/ui/icons';
 import {
   PreferenceCard, BusinessRuleCard, EnvSnapshotCard,
   DecisionChainCard, InteractionPatternCard, ResolutionCard,
@@ -189,7 +190,14 @@ export function KnowledgePage() {
     try {
       const res = await knowledgeApi.search(globalSearch);
       setSearchResults(res.data.results || []);
-    } catch { setSearchResults([]); }
+    } catch (e) {
+      // 批次 F-1：失败不再静默置空（假「无匹配结果」空态）——toast 反馈（对齐 handleLoadMore 批次A 模式），
+      // 回 tab 视图保留输入词，再次点「搜索」即重试
+      const m = serverErrorMessage(e);
+      toast.error(m ? `搜索失败：${m}` : '搜索失败，请重试');
+      setSearchResults([]);
+      setSearchActive(false);
+    }
     finally { setSearchLoading(false); }
   }, [globalSearch]);
 
@@ -232,7 +240,7 @@ export function KnowledgePage() {
           </div>
           <div className="flex gap-2">
             <ManualTaskButton
-              label="🧪 质量审计"
+              label="质量审计"
               costNote={costs != null ? `近 30 天 ${costs.callsBySource['knowledge-maintenance'] ?? 0} 次调用` : undefined}
               onRun={async () => {
                 const r = await maintenanceApi.runKnowledgeMaintenance();
@@ -243,7 +251,7 @@ export function KnowledgePage() {
         </div>
       </div>
 
-      <div className="flex-1 overflow-auto px-8 pb-8">
+      <div className="flex-1 overflow-auto u-page-px pb-8">
         <div className="max-w-5xl">
           {/* S11: Unified search across all knowledge types */}
           <div className="mt-4 mb-4 flex gap-2">
@@ -303,6 +311,13 @@ export function KnowledgePage() {
           </div>
 
           {/* ── AS-022: Unified Knowledge Tab ── */}
+          {/* 批次 F-1：tab 拉取失败错误条（tabQ.error 原先全程未渲染，落「暂无数据」假空态）+ tabQ.reload 重试 */}
+          {!tabQ.loading && tabQ.error && (
+            <div className="mb-3 p-3 rounded u-err-dim u-err text-sm flex items-center justify-between">
+              <span>{tabQ.error}</span>
+              <button onClick={tabQ.reload} className="btn btn-secondary btn-sm">重试</button>
+            </div>
+          )}
           {activeTab === 'unified' && (
             <div>
               <div className="flex gap-2 mb-4">
@@ -357,9 +372,29 @@ export function KnowledgePage() {
                 </div>
               )}
               {unifiedLoading ? (
-                <div className="text-center py-8 u-text-3">加载中...</div>
-              ) : unifiedEntries.length === 0 ? (
-                <div className="empty-state">{reviewOnly ? '暂无待审条目' : '暂无数据'}</div>
+                // 批次 F-3：加载态骨架卡片行（批次 E-2 ui/Skeleton 正本）
+                <div className="space-y-3">
+                  <SkeletonCard height={88} />
+                  <SkeletonCard height={88} />
+                  <SkeletonCard height={88} />
+                </div>
+              ) : tabQ.error ? null : unifiedEntries.length === 0 ? (
+                // 批次 F-4：空态归 .empty-state 正本（图标 + 文案 + CTA），真空挂「手动新建」入口
+                <div className="empty-state">
+                  <div className="empty-icon"><IconBook size={32} /></div>
+                  {reviewOnly ? (
+                    <>
+                      <p>暂无待审条目</p>
+                      <p className="text-sm mt-2">关闭「待审」筛选可查看全部条目</p>
+                    </>
+                  ) : (
+                    <>
+                      <p>暂无数据</p>
+                      <p className="text-sm mt-2">知识由系统自动积累，也可以手动新建一条</p>
+                      <button className="btn btn-primary mt-4" onClick={() => setShowManualEntry(true)}>手动新建</button>
+                    </>
+                  )}
+                </div>
               ) : (
                 <div className="space-y-3">
                   {unifiedEntries.map((entry, i) => {
@@ -428,8 +463,13 @@ export function KnowledgePage() {
           {activeTab !== 'unified' && (
             <div>
               {gapLoading ? (
-                <div className="text-center py-8 u-text-3">加载中...</div>
-              ) : gapData.length === 0 ? (
+                // 批次 F-3：加载态骨架卡片行（批次 E-2 ui/Skeleton 正本）
+                <div className="space-y-3">
+                  <SkeletonCard height={88} />
+                  <SkeletonCard height={88} />
+                  <SkeletonCard height={88} />
+                </div>
+              ) : tabQ.error ? null : gapData.length === 0 ? (
                 <div className="empty-state">
                   暂无{gapLabels[activeTab as GapTab]}数据。系统会自动从 Agent 执行/交互中积累。
                 </div>

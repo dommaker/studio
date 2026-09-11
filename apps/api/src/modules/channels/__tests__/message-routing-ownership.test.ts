@@ -8,8 +8,9 @@
  * - 显式 workspaceId > Requirement > 频道默认（source 区分）
  * - 有归属时保持旧行为：status=unassigned，无挂起 metadata
  *
- * 约定：PMO 项目写真实 ~/.studio/projects（workspace-binding.test.ts 同款约定），
- * afterEach 清理；discovery 不需要（本文件不触发回复解析）。
+ * 约定：PMO 项目经 projectService 写入（落 #219 setup 钉的隔离根 projects/，非真实
+ * ~/.studio；workspace-binding.test.ts 同款口径），afterEach 清理；discovery 不需要
+ * （本文件不触发回复解析）。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';

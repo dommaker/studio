@@ -8,12 +8,7 @@
 |------|------|------|
 | app | src/app.ts | 注册所有 API 路由（异步，启动时调用一次） |
 | studio-cli | src/cli/studio-cli.ts | Studio CLI — 统一入口（2026-05-09: Docker/tmux 已移除） |
-| cli-adapter | src/daemon/cli-adapter.ts | CLI Adapter — translate common agent args to provider-specific spawn args |
 | cli-scanner | src/daemon/cli-scanner.ts | CLI Scanner — auto-detect available agent CLIs on the system |
-| discover-handler | src/daemon/discover-handler.ts | Discover Handler — AS-020 P6-03: Local directory scanning |
-| path-sandbox | src/daemon/path-sandbox.ts | Path Sandbox — AS-020 P6-02: Path traversal protection |
-| registration | src/daemon/registration.ts | Workspace Registration — HTTP registration flow |
-| workspace-config | src/daemon/workspace-config.ts | Workspace Config — manage ~/.studio/workspace.json |
 | api-cache | src/middleware/api-cache.ts | API 缓存中间件 — 内存 Map |
 | audit-logger | src/middleware/audit-logger.ts | 审计日志中间件 - Audit Logger Middleware |
 | auth | src/middleware/auth.ts | 认证中间件 - Auth Middleware |
@@ -88,11 +83,9 @@
 | skill-proposal-routes | src/modules/skills/skill-proposal-routes.ts | Skill Proposal API 路由 |
 | error-class | src/modules/triage/error-class.ts | Triage ErrorClass — B1-007: 八类错误标签 + 严重度三级 + 策略路由 |
 | library.routes | src/modules/library/library.routes.ts | GET /api/v1/library（只读，无写端点）|
-| daemon-routes | src/modules/workspaces/daemon-routes.ts | Daemon Routes — AS-020 P5: HTTP Claim + Event Reporting |
-| discover-proxy | src/modules/workspaces/discover-proxy.ts | Discover Proxy — AS-020 P4: Proxy directory discovery through WS |
 | local-workspace | src/modules/workspaces/local-workspace.ts | Local Workspace Registration — AS-020 P2-04 |
 | token.routes | src/modules/workspaces/token.routes.ts | Workspace Token Routes — AS-020 P2-05: Token management (admin) |
-| workspace.routes | src/modules/workspaces/workspace.routes.ts | Workspace Routes — AS-020 P2: Workspace registration + heartbeat + token management |
+| workspace.routes | src/modules/workspaces/workspace.routes.ts | Workspace Routes — 本机 workspace 记录只读/删除 + 本机 CLI 清单 |
 | route-registry | src/route-registry.ts | Route Registry - 模块化路由注册 |
 | seed-skills | src/scripts/seed-skills.ts | Seed 4 built-in Skills into the Skill table (D6). |
 | discord-notifier | src/utils/discord-notifier.ts | Discord 通知工具 |

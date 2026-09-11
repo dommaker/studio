@@ -3,6 +3,7 @@
 import { useEffect } from 'react';
 import { deriveDisplayState, WU_STATUS_LABELS, WU_STATUS_COLORS } from '@dommaker/studio-shared/web';
 import { Modal } from '../ui/Modal';
+import { SkeletonText } from '../ui';
 import { useRequirementChainStore } from '../../stores/requirementChainStore';
 import { formatFullTime } from '../../utils/datetime';
 import { AssigneeLabel } from '../workunit/AssigneeLabel';
@@ -37,7 +38,7 @@ export function RequirementChainPanel({ reqId, onClose }: Props) {
   return (
     <Modal open onClose={onClose} title={`需求全链路 · ${reqId}`}>
       {error && <div className="text-sm u-err">加载失败: {error}</div>}
-      {!chain && !error && <div className="text-sm u-text-3">加载中...</div>}
+      {!chain && !error && <SkeletonText lines={3} className="space-y-2" />}
       {chain && req && (
         <div className="space-y-4">
           {/* Requirement 信息 */}
@@ -79,7 +80,7 @@ export function RequirementChainPanel({ reqId, onClose }: Props) {
                     </span>
                     <span className="truncate u-text">{wu.title}</span>
                     {wu.assigneeId && (
-                      <AssigneeLabel assigneeId={wu.assigneeId} className="text-xs u-text-3 flex-shrink-0" />
+                      <AssigneeLabel assigneeId={wu.assigneeId} assigneeRoleId={wu.assigneeRoleId} className="text-xs u-text-3 flex-shrink-0" />
                     )}
                   </li>
                   );

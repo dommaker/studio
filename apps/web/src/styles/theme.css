@@ -101,6 +101,10 @@
   --motion-base: 150ms;
   --ease-standard: cubic-bezier(0.2, 0, 0, 1);
 
+  /* 遮罩（批次 G-5）：移动端 sidebar 抽屉背衬（responsive.css .sidebar::before）；
+     .modal-overlay 的 0.7 遮罩系规范明写豁免，不走此 token；浅色同值（与 .modal-overlay 口径一致） */
+  --overlay-sidebar: rgba(0, 0, 0, 0.5);
+
   /* 主题标识 */
   --theme-name: 'dark';
 
@@ -440,6 +444,15 @@ body,
 
 .input:focus {
   border-color: var(--accent-primary);
+}
+
+/* 表单 label（批次 H-1：吸收 style-guide §4.2 原四属性内联示例，根治其与规则 2 的条文矛盾） */
+.form-label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  color: var(--text-primary);
 }
 
 /* === 下拉选择组件（components/ui/Select，原生 select 的主题感知替代） === */
@@ -826,6 +839,16 @@ body,
   to { transform: rotate(360deg); }
 }
 
+/* 批次 E-2：静态骨架占位（SkeletonText/SkeletonCard）——零动画，禁 shimmer/pulse（动效白名单 §2.5 外） */
+.skeleton {
+  background: var(--bg-tertiary);
+  border-radius: 3px;
+}
+
+.skeleton-text {
+  height: 12px;
+}
+
 /* === 空状态 === */
 .empty-state {
   text-align: center;
@@ -857,196 +880,6 @@ body,
 
 ::-webkit-scrollbar-thumb:hover {
   background: var(--text-muted);
-}
-
-/* === React Flow 深色主题 === */
-/* 全局覆盖 ReactFlow 默认样式 */
-.react-flow {
-  background: var(--bg-primary) !important;
-}
-
-/* 通用节点样式 */
-.react-flow__node {
-  background: var(--bg-tertiary) !important;
-  border: 1px solid var(--border-default) !important;
-  border-radius: 8px !important;
-  padding: 0 !important;
-  color: var(--text-primary) !important;
-  font-size: var(--fs-base) !important;
-  box-shadow: var(--shadow-md) !important;
-  /* 让节点内容居中 */
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-}
-
-/* 特定节点类型 - 覆盖 ReactFlow 默认白色主题 */
-.react-flow__node-input,
-.react-flow__node-default,
-.react-flow__node-output,
-.react-flow__node-group {
-  background: var(--bg-tertiary) !important;
-  border: 2px solid var(--border-emphasis) !important;
-  border-radius: 8px !important;
-  color: var(--text-primary) !important;
-  min-width: 120px !important;
-  padding: 0 !important;
-}
-
-/* 强制覆盖所有内层元素 */
-.react-flow__node *,
-.react-flow__node-input *,
-.react-flow__node-default *,
-.react-flow__node-output *,
-.react-flow__node-group * {
-  background: transparent !important;
-  color: var(--text-primary) !important;
-}
-
-/* 修复节点内层 div 超出容器 */
-.react-flow__node-input > div,
-.react-flow__node-default > div,
-.react-flow__node-output > div,
-.react-flow__node-group > div,
-.react-flow__node > div {
-  min-width: auto !important;
-  width: auto !important;
-  max-width: 100% !important;
-  background: transparent !important;
-  padding: 12px 16px !important;
-  box-sizing: border-box !important;
-}
-
-/* 节点内部文字 */
-.react-flow__node .react-flow__node-label,
-.react-flow__node-inputLabel,
-.react-flow__node-defaultLabel,
-.react-flow__node-outputLabel {
-  color: var(--text-primary) !important;
-}
-
-.react-flow__node:hover {
-  border-color: var(--accent-primary) !important;
-  box-shadow: var(--shadow-glow) !important;
-}
-
-.react-flow__node.selected {
-  border-color: var(--accent-primary) !important;
-  box-shadow: 0 0 0 2px var(--accent-glow), var(--shadow-glow) !important;
-}
-
-/* 节点内容 */
-.react-flow__node .react-flow__handle {
-  background: var(--accent-primary) !important;
-  border: 2px solid var(--bg-tertiary) !important;
-  width: 12px !important;
-  height: 12px !important;
-}
-
-.react-flow__node .react-flow__handle:hover {
-  background: var(--warning) !important;
-  transform: scale(1.3);
-}
-
-/* 连接线 */
-.react-flow__edge-path {
-  stroke: var(--accent-primary) !important;
-  stroke-width: 2px !important;
-}
-
-.react-flow__edge.selected .react-flow__edge-path {
-  stroke: var(--warning) !important;
-  stroke-width: 3px !important;
-}
-
-.react-flow__edge:hover .react-flow__edge-path {
-  stroke: var(--accent-secondary) !important;
-}
-
-/* 直角连接线 */
-.react-flow__edge.smoothstep .react-flow__edge-path {
-  stroke: var(--accent-primary) !important;
-}
-
-/* 背景 */
-.react-flow__background {
-  background: var(--bg-primary);
-}
-
-/* 控制面板 */
-.react-flow__controls {
-  background: var(--bg-elevated) !important;
-  border: 1px solid var(--border-subtle) !important;
-  border-radius: 8px !important;
-  box-shadow: var(--shadow-md) !important;
-}
-
-.react-flow__controls-button {
-  background: var(--bg-tertiary) !important;
-  border-bottom: 1px solid var(--border-subtle) !important;
-  color: var(--text-secondary) !important;
-  fill: var(--text-secondary) !important;
-  width: 28px !important;
-  height: 28px !important;
-}
-
-.react-flow__controls-button:hover {
-  background: var(--bg-hover) !important;
-  color: var(--accent-primary) !important;
-  fill: var(--accent-primary) !important;
-}
-
-.react-flow__controls-button svg {
-  fill: currentColor !important;
-}
-
-/* 小地图 */
-.react-flow__minimap {
-  background: var(--bg-elevated) !important;
-  border: 1px solid var(--border-subtle) !important;
-  border-radius: 8px !important;
-}
-
-.react-flow__minimap-mask {
-  fill: var(--bg-primary) !important;
-}
-
-.react-flow__minimap-node {
-  fill: var(--accent-primary) !important;
-}
-
-/* 小地图视口 */
-.react-flow__minimap-viewport {
-  stroke: var(--accent-primary) !important;
-  fill: transparent !important;
-}
-
-/* 背景 */
-.react-flow__background {
-  background: var(--bg-primary);
-}
-
-/* Attribution */
-.react-flow__attribution {
-  background: var(--bg-tertiary);
-  color: var(--text-muted);
-  font-size: var(--fs-xs);
-}
-
-.react-flow__attribution a {
-  color: var(--accent-primary);
-}
-
-/* 连接线动画 */
-.react-flow__edge.animated path {
-  stroke-dasharray: 5;
-  animation: dash 0.5s linear infinite;
-}
-
-@keyframes dash {
-  to {
-    stroke-dashoffset: -10;
-  }
 }
 
 /* === 通用样式 === */

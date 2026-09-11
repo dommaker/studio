@@ -349,7 +349,7 @@ describe('AgentDashboardPage', () => {
   it('§6.4 创建角色弹框化：勾选 runtime + 命名 → 创建 → 关弹框就地刷新名册，不跳页', async () => {
     mockApis();
     mockApiGet.mockResolvedValue({
-      data: { runtimes: [{ nodeId: 'n1', provider: 'claude', version: '1.0.0', workspaceName: 'studio' }] },
+      data: { runtimes: [{ provider: 'claude', version: '1.0.0' }] },
     });
     render(<AgentDashboardPage />);
     expect(await screen.findByText('实现登录接口')).toBeDefined();

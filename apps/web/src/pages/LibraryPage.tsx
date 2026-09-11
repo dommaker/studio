@@ -11,8 +11,9 @@ import { LIBRARY_DOC_STATUS_COLORS, LIBRARY_DOC_STATUS_LABELS } from '@dommaker/
 import { libraryApi, projectApi } from '../api';
 import { companyApi } from '../api/company';
 import { maintenanceApi, type TriggerCosts } from '../api/maintenance';
-import { ManualTaskButton } from '../components/ui';
+import { ManualTaskButton, SkeletonText } from '../components/ui';
 import { Select } from '../components/ui/Select';
+import { IconLibrary } from '../components/ui/icons';
 import '../styles/library.css';
 
 interface LibraryDoc {
@@ -46,6 +47,8 @@ export function LibraryPage() {
   const navigate = useNavigate();
   const [docs, setDocs] = useState<LibraryDoc[]>([]);
   const [loading, setLoading] = useState(true);
+  // 批次 F-1：加载失败 error state（原先 catch 只 console.error，落「暂无文档」假空态）
+  const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [projectId, setProjectId] = useState('');
   // #436 B11：类型筛选（前端过滤已拉取列表，零后端改动）
@@ -76,6 +79,7 @@ export function LibraryPage() {
 
   const fetchDocs = useCallback(async (searchTerm: string, project: string) => {
     setLoading(true);
+    setError(null);
     try {
       const params: { search?: string; project?: string } = {};
       if (searchTerm) params.search = searchTerm;
@@ -84,6 +88,7 @@ export function LibraryPage() {
       setDocs(res.data?.data || []);
     } catch (err) {
       console.error('[Library] Failed to fetch docs', err);
+      setError('加载文档列表失败，请重试');
     } finally {
       setLoading(false);
     }
@@ -217,7 +222,7 @@ export function LibraryPage() {
               { value: '', label: '全部项目' },
               ...projects.map((p) => ({ value: p.id, label: `${p.pmoNumber} ${p.title}` })),
             ]}
-            style={{ width: 220 }}
+            className="flex-1 min-w-0 sm:flex-none sm:w-[220px]"
             aria-label="项目筛选"
           />
           <Select
@@ -227,24 +232,40 @@ export function LibraryPage() {
               { value: '', label: '全部类型' },
               ...Object.entries(kindLabels).map(([value, label]) => ({ value, label })),
             ]}
-            style={{ width: 140 }}
+            className="flex-1 min-w-0 sm:flex-none sm:w-[140px]"
             aria-label="类型筛选"
           />
         </div>
       </div>
 
       {/* Content（#436 B11：收 max-w-5xl 对齐 §4.7 内容档） */}
-      <div className="flex-1 overflow-auto px-8 pb-8 pt-6">
+      <div className="flex-1 overflow-auto u-page-px pb-8 pt-6">
         <div className="max-w-5xl">
-        {loading ? (
-          <div className="flex items-center justify-center h-64">
-            <div className="loading-spinner" />
+        {/* 批次 F-1：加载失败错误条（抄 PMOPage u-err-dim 错误条 + 重试模式），失败不再落「暂无文档」假空态 */}
+        {!loading && error && (
+          <div className="mb-3 p-3 rounded u-err-dim u-err text-sm flex items-center justify-between">
+            <span>{error}</span>
+            <button onClick={() => fetchDocs(search, projectId)} className="btn btn-secondary btn-sm">重试</button>
           </div>
-        ) : visibleDocs.length === 0 ? (
-          <div className="flex items-center justify-center h-64">
-            <p className="u-text-3">
-              {search || projectId || kind ? '没有匹配的文档' : '暂无文档'}
-            </p>
+        )}
+        {loading ? (
+          // 批次 F-3：加载态骨架（批次 E-2 ui/Skeleton 正本）——列表行形态
+          <SkeletonText lines={8} className="space-y-3" />
+        ) : error ? null : visibleDocs.length === 0 ? (
+          // 批次 F-4：空态归 .empty-state 正本（图标 + 文案 + 说明），区分「真空 vs 筛选无结果」
+          <div className="empty-state">
+            <div className="empty-icon"><IconLibrary size={32} /></div>
+            {search || projectId || kind ? (
+              <>
+                <p>没有匹配的文档</p>
+                <p className="text-sm mt-2">调整或清除搜索/筛选条件后再查看</p>
+              </>
+            ) : (
+              <>
+                <p>暂无文档</p>
+                <p className="text-sm mt-2">文档来自各项目仓库的 .studio/ 目录（specs、调研、ADR、CONTEXT 等），随各仓演进自动聚合到这里</p>
+              </>
+            )}
           </div>
         ) : flatView ? (
           <div className="lib-list">
@@ -254,7 +275,7 @@ export function LibraryPage() {
           <div className="space-y-6">
             {docGroups.map((group) => (
               <div key={group.projectId}>
-                <h2 className="mc-block-label" style={{ margin: '0 0 8px' }}>
+                <h2 className="mc-block-label mc-block-label-gap-2">
                   {group.pmoNumber} · {group.docs.length} 篇
                 </h2>
                 <div className="lib-list">

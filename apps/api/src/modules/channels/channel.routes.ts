@@ -1,8 +1,10 @@
 // Channel Routes — B1-001/B1-002/B1-009/B1-011
-import { Router } from 'express';
+import { Router, json } from 'express';
 import { randomUUID } from 'crypto';
+import { createReadStream } from 'node:fs';
 import { logger, FileStore } from '@dommaker/studio-shared';
 import { channelMessageService } from './channel-message.service.js';
+import { saveChannelImage, resolveChannelImage, ATTACHMENT_BODY_LIMIT } from './attachments.js';
 import { routeMessage } from './message-routing.js';
 import { projectService } from '../pmo/project.service.js';
 import { apiCache, CACHE_CONFIG, clearCache } from '../../middleware/api-cache.js';
@@ -216,6 +218,28 @@ router.post('/:id/messages', requireAuth(), requireNotGuest(), async (req, res) 
   res.status(201).json({ success: true, data: message });
 });
 
+// POST /api/v1/channels/:id/attachments — 频道图片上传（2026-09，「频道里加上截图」）
+// JSON base64 体（不引 multipart 依赖）；该路由单独放大 json limit（8mb，全局 2mb 不动）——
+// app.ts 在全局 parser 前对同路径预解析，此处路由级再挂保直挂测试自足（已解析请求自动跳过）。
+router.post('/:id/attachments', json({ limit: ATTACHMENT_BODY_LIMIT }), requireAuth(), requireNotGuest(), async (req, res) => {
+  const channel = await fileStore.getChannel(req.params.id);
+  if (!channel) return res.status(404).json({ success: false, error: 'Channel not found' });
+  const result = await saveChannelImage(req.params.id, req.body ?? {});
+  if (!result.ok) return res.status(result.status).json({ success: false, error: result.error });
+  res.status(201).json({ success: true, data: result.value });
+});
+
+// GET /api/v1/channels/:id/attachments/:attachmentId — 取图
+// <img> 无法带 Authorization 头：?token= 携带 JWT（SSE /events/stream 同款），
+// 映射进 header 后复用 requireAuth 语义；id 白名单校验防路径穿越（attachments.ts）。
+router.get('/:id/attachments/:attachmentId', tokenQueryToHeader, requireAuth(), async (req, res) => {
+  const resolved = await resolveChannelImage(req.params.id, req.params.attachmentId);
+  if (!resolved.ok) return res.status(resolved.status).json({ success: false, error: resolved.error });
+  res.setHeader('Content-Type', resolved.value.mime);
+  res.setHeader('Cache-Control', 'private, max-age=31536000, immutable');
+  createReadStream(resolved.value.filePath).pipe(res);
+});
+
 // DELETE /api/v1/channels/:id — delete channel (B2-012: Goal fallback to #研发)
 router.delete('/:id', requireAuth(), requireNotGuest(), async (req, res) => {
   const channel = await fileStore.getChannel(req.params.id);
@@ -427,6 +451,14 @@ router.post('/:id/messages/:messageId/convert-to-task/suggest', requireAuth(), r
 });
 
 export default router;
+
+/** <img>/EventSource 无法带 Authorization 头：?token= → header 后走 requireAuth（optionalAuth 同款先例） */
+function tokenQueryToHeader(req: import('express').Request, _res: import('express').Response, next: import('express').NextFunction) {
+  if (!req.headers.authorization && typeof req.query.token === 'string' && req.query.token) {
+    req.headers.authorization = `Bearer ${req.query.token}`;
+  }
+  next();
+}
 
 /** Create an agent profile using FileStore (used during channel creation). */
 async function createAgentWithFileStore(fs: FileStore, name: string, description: string | null, channelId: string, provider?: string): Promise<{ id: string }> {

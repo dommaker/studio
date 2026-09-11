@@ -14,9 +14,11 @@ vi.mock('../../../api/channel', () => ({ channelApi: { createAgent: mockCreateAg
 
 import { CreateRoleModal } from '../CreateRoleModal';
 
+// 契约（2026-09-10 收敛）：/workspaces/runtimes 只返回本机 CLI 清单 {provider, version}，
+// 节点维度（nodeId/workspaceName）随远程节点方向一起废弃，见 workspaces/CONTEXT.md
 const runtimes = [
-  { nodeId: 'n1', provider: 'claude', version: '1.0.0', workspaceName: 'studio' },
-  { nodeId: 'n1', provider: 'kimi', version: '0.9.0', workspaceName: 'studio' },
+  { provider: 'claude', version: '1.0.0' },
+  { provider: 'kimi', version: '0.9.0' },
 ];
 
 describe('CreateRoleModal', () => {
@@ -62,6 +64,21 @@ describe('CreateRoleModal', () => {
     expect(onClose).toHaveBeenCalled();
   });
 
+  it('同一 provider 重复条目只渲染一行（去重键 = provider，不再是 nodeId:provider）', async () => {
+    mockApiGet.mockResolvedValue({ data: { runtimes: [...runtimes, { provider: 'claude', version: '9.9.9' }] } });
+    render(<CreateRoleModal open onClose={() => {}} onCreated={() => {}} />);
+    expect(await screen.findByText(/检测到 2 个 runtime/)).toBeDefined();
+    expect(screen.getAllByText('claude')).toHaveLength(1);
+    expect(screen.queryByText('v9.9.9')).toBeNull();
+  });
+
+  it('候选行不展示节点名（@ workspace 维度已随远程节点方向废弃）', async () => {
+    const { container } = render(<CreateRoleModal open onClose={() => {}} onCreated={() => {}} />);
+    expect(await screen.findByText(/检测到 2 个 runtime/)).toBeDefined();
+    // 不用 /@\s/：testing-library 的空白归一化会把尾随空格吃掉，断言会空过
+    expect(container.textContent).not.toContain('@');
+  });
+
   it('创建失败 → 错误上屏，弹框保持打开', async () => {
     mockCreateAgent.mockRejectedValue(new Error('name taken'));
     const onClose = vi.fn();
@@ -81,6 +98,13 @@ describe('CreateRoleModal', () => {
     fireEvent.click(screen.getByRole('button', { name: '取消' }));
     expect(onClose).toHaveBeenCalled();
     expect(mockCreateAgent).not.toHaveBeenCalled();
+  });
+
+  it('清单拉取失败 → 提示获取失败，不误报「未检测到 CLI」', async () => {
+    mockApiGet.mockRejectedValue(new Error('network down'));
+    render(<CreateRoleModal open onClose={() => {}} onCreated={() => {}} />);
+    expect(await screen.findByText(/获取本机 CLI 清单失败/)).toBeDefined();
+    expect(screen.queryByText(/未检测到 CLI/)).toBeNull();
   });
 
   // E8-4：presetProvider（WorkspacePage 行内「设为角色」复用正本）

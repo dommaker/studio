@@ -1,6 +1,6 @@
-// #393 全站详情页统一返回按钮（spec §4.4）：左上「← 返回」（14px / 6×12 padding）
+// #393 全站详情页统一返回按钮（spec §4.4）：左上「← 返回」
 // 有站内历史 navigate(-1)，直开/书签回落默认列表页（fallback）
-// 注：14px / 6×12 为 spec §4.4 显式定值，优先于 style-guide 字号/间距档（style-guide 随改版落地同步，spec §1 关系声明）
+// 批次 E-1 token 合规：fontSize 14px 归 --fs-base（删内联走 .btn 继承），padding 6px 就近取 --space-2
 import { useNavigate } from 'react-router-dom';
 
 interface BackButtonProps {
@@ -23,7 +23,7 @@ export function BackButton({ fallback }: BackButtonProps) {
       type="button"
       onClick={handleClick}
       className="btn btn-ghost"
-      style={{ fontSize: 14, padding: '6px 12px' }}
+      style={{ padding: 'var(--space-2) var(--space-3)' }}
     >
       ← 返回
     </button>

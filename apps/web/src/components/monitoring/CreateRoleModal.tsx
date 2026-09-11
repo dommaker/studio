@@ -1,22 +1,20 @@
 // 创建角色弹框（#397，redesign §6.4：弹框不跳页——上下文不丢）
-// 数据流（同已删除的 RolesSetup 向导页，E8-3 清理）：GET /workspaces/runtimes 拿 CLI 清单，勾选 + 命名后 channelApi.createAgent 逐个创建；
-// 保存 = 创建 → 关弹框 → onCreated（页面就地刷新名册），不再跳频道页。
+// 数据流：GET /workspaces/runtimes 拿**本机** CLI 清单（2026-09-10 起端点只报本机，节点维度随
+// 远程方向废弃——见 apps/api/src/modules/workspaces/CONTEXT.md），勾选 + 命名后 channelApi.createAgent
+// 逐个创建；保存 = 创建 → 关弹框 → onCreated（页面就地刷新名册），不再跳频道页。
 // 结构走 theme.css modal-*（style-guide §4.3，经 ui/Modal 壳），条目样式在 agent-dashboard.css。
 import { useEffect, useState } from 'react';
 import { api } from '../../api';
 import { channelApi } from '../../api/channel';
-import { Modal } from '../ui';
+import { Modal, SkeletonText } from '../ui';
 
 interface RuntimeInfo {
-  nodeId: string;
   provider: string;
   version: string;
-  workspaceName: string;
 }
 
 interface SelectedRole {
   provider: string;
-  nodeId: string;
   name: string;
   description: string;
 }
@@ -29,12 +27,15 @@ export function CreateRoleModal({ open, onClose, onCreated, presetProvider }: {
   /** E8-4：调用方已锁定 CLI 时传入（WorkspacePage 行内「设为角色」）——跳过 runtime 清单拉取，单项固定预选、provider 只读展示 */
   presetProvider?: string;
 }) {
-  const [runtimes, setRuntimes] = useState<RuntimeInfo[]>([]);
+  // 本机 CLI 清单（按 provider 去重，取首条 — 同 useDetectedProviders 口径）
+  const [providers, setProviders] = useState<RuntimeInfo[]>([]);
   const [loading, setLoading] = useState(true);
+  // 拉取失败 ≠ 一个都没装，两者提示不同（原实现混为一谈）
+  const [loadFailed, setLoadFailed] = useState(false);
   // preset 模式懒初始化：覆盖挂载即 open=true（prevOpen 上升沿不触发）的情形
   const [selected, setSelected] = useState<Record<string, SelectedRole>>(() =>
     presetProvider
-      ? { [presetProvider]: { provider: presetProvider, nodeId: '', name: '', description: '' } }
+      ? { [presetProvider]: { provider: presetProvider, name: '', description: '' } }
       : {});
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -46,9 +47,10 @@ export function CreateRoleModal({ open, onClose, onCreated, presetProvider }: {
     setPrevOpen(open);
     if (open) {
       setSelected(presetProvider
-        ? { [presetProvider]: { provider: presetProvider, nodeId: '', name: '', description: '' } }
+        ? { [presetProvider]: { provider: presetProvider, name: '', description: '' } }
         : {});
       setError(null);
+      setLoadFailed(false);
       setLoading(!presetProvider);
     }
   }
@@ -57,20 +59,29 @@ export function CreateRoleModal({ open, onClose, onCreated, presetProvider }: {
     if (!open || presetProvider) return;
     let cancelled = false;
     api.get<{ runtimes: RuntimeInfo[] }>('/workspaces/runtimes')
-      .then((res) => { if (!cancelled) setRuntimes(res.data.runtimes || []); })
-      .catch(() => { if (!cancelled) setError('获取 runtime 清单失败'); })
+      .then((res) => {
+        if (cancelled) return;
+        const byProvider = new Map<string, RuntimeInfo>();
+        for (const rt of res.data.runtimes || []) {
+          if (!rt?.provider || byProvider.has(rt.provider)) continue;
+          byProvider.set(rt.provider, { provider: rt.provider, version: rt.version ?? '' });
+        }
+        setProviders([...byProvider.values()]);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setProviders([]);
+        setLoadFailed(true);
+      })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [open]);
 
-  const toggleSelect = (key: string) => {
+  const toggleSelect = (provider: string) => {
     setSelected((prev) => {
       const next = { ...prev };
-      if (next[key]) delete next[key];
-      else {
-        const [nodeId, provider] = key.split(':');
-        next[key] = { provider, nodeId, name: '', description: '' };
-      }
+      if (next[provider]) delete next[provider];
+      else next[provider] = { provider, name: '', description: '' };
       return next;
     });
   };
@@ -154,48 +165,50 @@ export function CreateRoleModal({ open, onClose, onCreated, presetProvider }: {
           </div>
         </div>
       ) : loading ? (
-        <div className="u-text-2 py-6 text-center">加载中…</div>
-      ) : runtimes.length === 0 ? (
+        <SkeletonText lines={4} className="space-y-2 py-2" />
+      ) : loadFailed ? (
         <div className="py-3">
-          <p className="u-text">未检测到 CLI，请先在节点上安装 claude/kimi/codex/opencode 之一。</p>
-          <p className="text-sm u-text-3 mt-1">节点 daemon start 后会自动扫描并上报 runtime 清单。</p>
+          <p className="u-err">获取本机 CLI 清单失败，可稍后重试或直接创建（provider 可手填于角色设置页）。</p>
+        </div>
+      ) : providers.length === 0 ? (
+        <div className="py-3">
+          <p className="u-text">未检测到 CLI，请先在本机安装 claude/kimi/codex/opencode 之一。</p>
+          <p className="text-sm u-text-3 mt-1">清单由服务端扫描本机 PATH 得到，装好后重开弹框即可看到。</p>
         </div>
       ) : (
         <div className="agd-cr-list">
           <p className="u-text-3 text-xs m-0">
-            检测到 {runtimes.length} 个 runtime，勾选并命名：
+            检测到 {providers.length} 个 runtime，勾选并命名：
           </p>
-          {runtimes.map((rt) => {
-            const key = `${rt.nodeId}:${rt.provider}`;
-            const isSelected = !!selected[key];
+          {providers.map((rt) => {
+            const isSelected = !!selected[rt.provider];
             return (
-              <div key={key} className={`agd-cr-item${isSelected ? ' agd-cr-item-on' : ''}`}>
+              <div key={rt.provider} className={`agd-cr-item${isSelected ? ' agd-cr-item-on' : ''}`}>
                 <label className="agd-cr-item-head">
                   <input
                     type="checkbox"
                     checked={isSelected}
-                    onChange={() => toggleSelect(key)}
+                    onChange={() => toggleSelect(rt.provider)}
                     style={{ accentColor: 'var(--accent-primary)' }}
                   />
                   <span className="u-text font-semibold">{rt.provider}</span>
                   <span className="u-text-2 text-sm">v{rt.version}</span>
-                  <span className="u-text-3 text-xs">@ {rt.workspaceName}</span>
                 </label>
                 {isSelected && (
                   <div className="agd-cr-fields">
                     <input
                       type="text"
                       placeholder="角色名称（如 dev-agent）"
-                      value={selected[key].name}
-                      onChange={(e) => updateField(key, 'name', e.target.value)}
+                      value={selected[rt.provider].name}
+                      onChange={(e) => updateField(rt.provider, 'name', e.target.value)}
                       className="input"
-                      data-testid={`role-name-${key}`}
+                      data-testid={`role-name-${rt.provider}`}
                     />
                     <input
                       type="text"
                       placeholder="描述（可选）"
-                      value={selected[key].description}
-                      onChange={(e) => updateField(key, 'description', e.target.value)}
+                      value={selected[rt.provider].description}
+                      onChange={(e) => updateField(rt.provider, 'description', e.target.value)}
                       className="input"
                     />
                   </div>
