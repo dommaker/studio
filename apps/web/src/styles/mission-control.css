@@ -858,6 +858,23 @@
   color: var(--text-secondary);
 }
 .mc-input-reply-content { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-primary); }
+/* #485：composer 已挂文件引用 chip（台账可视化）；失效（正文被改得不含路径）标灰 + 「已失效」，不静默丢弃 */
+.mc-fileref-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
+.mc-fileref-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 6px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-subtle);
+  border-radius: 3px;
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+}
+.mc-fileref-path { font-family: var(--font-mono); color: var(--text-primary); }
+.mc-fileref-repo { color: var(--text-muted); }
+.mc-fileref-chip-invalid { opacity: 0.55; border-style: dashed; }
+.mc-fileref-invalid-mark { color: var(--text-muted); }
 .mc-input-row { display: flex; gap: 8px; align-items: flex-end; }
 .mc-input-row textarea {
   font: inherit;
