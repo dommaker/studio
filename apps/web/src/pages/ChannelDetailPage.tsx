@@ -43,6 +43,17 @@ import { toast } from '../utils/toast';
 /** #439：?highlight 定位的翻页页数上限（50 条/页 → 最多回看 500 条），超限/翻到底降级为可见反馈 */
 const HIGHLIGHT_LOCATE_MAX_PAGES = 10;
 
+/** #483：某 WU 的当前提问消息 = 该 WU 最新一条非人类消息（与 latestQuestionIdByWu 同口径）。
+ *  chip 翻页定位循环需读最新快照（memo 值在异步循环里是旧闭包），故抽纯函数共用 */
+function latestQuestionMessageOf(msgs: ChannelMessage[], wuId: string): ChannelMessage | null {
+  let best: ChannelMessage | null = null;
+  for (const m of msgs) {
+    if (m.workUnitId !== wuId || m.authorType === 'human') continue;
+    if (!best || new Date(m.createdAt).getTime() >= new Date(best.createdAt).getTime()) best = m;
+  }
+  return best;
+}
+
 /** 视觉批次 2 ⑥：空频道态示例提示——点击走既有 prefill 通道填入输入框（不自动发送）。
  *  文案按产品 agent 命名风格（pm-agent / dev-agent / reviewer-agent），仅作起点提示，用户可改 */
 const EMPTY_EXAMPLE_PROMPTS = [
@@ -491,15 +502,59 @@ export function ChannelDetailPage() {
   }, [setCollapsedThreads]);
 
   // #279（决策 #250 D4）：chip 点条目 → 滚动定位到该 WU 当前提问消息并高亮（2s 后消退）。
-  // 提问消息若埋在被用户收起的线程里，先把所属线程展开
   const [highlightId, setHighlightId] = useState<string | null>(null);
+  // 翻页定位循环是异步长任务，经 ref 读最新快照，避免闭包锁旧值（#439 引入，#483 起 chip 定位复用）
+  const locateSnapshotRef = useRef({ messages, hasMore, loadMore });
+  locateSnapshotRef.current = { messages, hasMore, loadMore };
+
+  /** #439 翻页定位循环（#483 起 chip 定位复用）：沿 #319 翻页游标向前翻，直到 found() 命中 /
+   *  翻到底 / 超 HIGHLIGHT_LOCATE_MAX_PAGES / 翻页无新内容；cancelled() 为真则放弃（无终局反馈） */
+  const pageBackToFind = useCallback(async (
+    found: () => boolean,
+    cancelled: () => boolean,
+  ): Promise<'found' | 'cancelled' | 'exhausted'> => {
+    for (let page = 0; page < HIGHLIGHT_LOCATE_MAX_PAGES; page++) {
+      if (cancelled()) return 'cancelled';
+      if (found()) return 'found';
+      if (!locateSnapshotRef.current.hasMore) break; // 翻到底
+      const prepended = await locateSnapshotRef.current.loadMore();
+      if (!prepended) break; // 翻页失败/无新内容，终止防空转
+      // loadMore resolve 时 React 尚未提交新快照——让出一个 macrotask 等 ref 刷新，
+      // 否则下一轮判空读旧快照会多翻一页（目标恰在末页时甚至可能误报不可达）
+      await new Promise(resolve => setTimeout(resolve, 0));
+    }
+    if (cancelled()) return 'cancelled';
+    return found() ? 'found' : 'exhausted';
+  }, []);
+
+  // 提问消息若埋在被用户收起的线程里，先把所属线程展开；
+  // #483：提问掉出已加载分页 → 复用 #439 翻页定位循环；翻到底/超限/无新内容 → toast 兜底，不静默
+  const chipLocatingRef = useRef<string | null>(null);
   const locateWaitingQuestion = useCallback((wuId: string) => {
-    const msgId = latestQuestionIdByWu.get(wuId);
-    if (!msgId) return;
-    const target = messages.find(m => m.id === msgId);
-    if (target?.replyToId) ensureThreadExpanded(target.replyToId);
-    setHighlightId(msgId);
-  }, [latestQuestionIdByWu, messages, ensureThreadExpanded]);
+    const loaded = latestQuestionMessageOf(locateSnapshotRef.current.messages, wuId);
+    if (loaded) {
+      if (loaded.replyToId) ensureThreadExpanded(loaded.replyToId);
+      setHighlightId(loaded.id);
+      return;
+    }
+    if (chipLocatingRef.current === wuId) return; // 同 WU 防重入
+    chipLocatingRef.current = wuId;
+    void (async () => {
+      const result = await pageBackToFind(
+        () => latestQuestionMessageOf(locateSnapshotRef.current.messages, wuId) !== null,
+        () => chipLocatingRef.current !== wuId,
+      );
+      if (result === 'cancelled') return;
+      chipLocatingRef.current = null;
+      const target = latestQuestionMessageOf(locateSnapshotRef.current.messages, wuId);
+      if (target) {
+        if (target.replyToId) ensureThreadExpanded(target.replyToId);
+        setHighlightId(target.id);
+      } else {
+        toast.warning('该消息太旧或已删除，无法定位');
+      }
+    })();
+  }, [ensureThreadExpanded, pageBackToFind]);
 
   // 通知中心点击直达（?highlight=<mid>）：复用上方高亮定位机制，滚动到该消息并高亮 2s。
   // 每个 mid 只消费一次（防消息流更新反复重置高亮）；首拉未完成（loading）时等下一轮 messages。
@@ -509,9 +564,6 @@ export function ChannelDetailPage() {
   const highlightConsumedRef = useRef<string | null>(null);
   /** #439：正在为哪个 mid 跑翻页定位循环（同 mid 防重入；定位成功/终局反馈后清空） */
   const highlightLocatingRef = useRef<string | null>(null);
-  // 翻页循环是异步长任务，经 ref 读最新快照，避免闭包锁旧值
-  const locateSnapshotRef = useRef({ messages, hasMore, loadMore });
-  locateSnapshotRef.current = { messages, hasMore, loadMore };
   useEffect(() => {
     const mid = searchParams.get('highlight');
     if (!mid || highlightConsumedRef.current === mid) return;
@@ -529,24 +581,16 @@ export function ChannelDetailPage() {
     if (highlightLocatingRef.current === mid) return;
     highlightLocatingRef.current = mid;
     void (async () => {
-      for (let page = 0; page < HIGHLIGHT_LOCATE_MAX_PAGES; page++) {
-        if (highlightLocatingRef.current !== mid) return; // 已被上方分支定位/消费
-        if (locateSnapshotRef.current.messages.some(m => m.id === mid)) return; // 已载入，交给 effect 定位
-        if (!locateSnapshotRef.current.hasMore) break; // 翻到底
-        const prepended = await locateSnapshotRef.current.loadMore();
-        if (!prepended) break; // 翻页失败/无新内容，终止防空转
-        // loadMore resolve 时 React 尚未提交新快照——让出一个 macrotask 等 ref 刷新，
-        // 否则下一轮判空读旧快照会多翻一页（目标恰在末页时甚至可能误报不可达）
-        await new Promise(resolve => setTimeout(resolve, 0));
-      }
-      if (highlightLocatingRef.current !== mid) return;
+      const result = await pageBackToFind(
+        () => locateSnapshotRef.current.messages.some(m => m.id === mid),
+        () => highlightLocatingRef.current !== mid,
+      );
+      if (result !== 'exhausted') return; // found → 交给上方分支定位；cancelled → 已被消费
       highlightLocatingRef.current = null;
-      if (!locateSnapshotRef.current.messages.some(m => m.id === mid)) {
-        highlightConsumedRef.current = mid;
-        toast.warning('该消息太旧或已删除，无法定位');
-      }
+      highlightConsumedRef.current = mid;
+      toast.warning('该消息太旧或已删除，无法定位');
     })();
-  }, [searchParams, messages, loading, ensureThreadExpanded]);
+  }, [searchParams, messages, loading, ensureThreadExpanded, pageBackToFind]);
 
   // 里程碑判定（不折叠）：人类消息 / 卡片消息 / 等待回复 / 最后一条回复——已迁入 deriveStreamView（#322）
 

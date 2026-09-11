@@ -678,9 +678,15 @@ describe('ChannelDetailPage — #279 NEED_INPUT 待办 chip 与等待态清理',
     ...(question ? { waitingQuestion: question } : {}), since: iso(0),
   });
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
     currentMessages = FOLLOWUP_MESSAGES;
+    currentHasMore = false;
+    // toast.dismiss() 是 200ms 动画后异步移除——有残留时等其落定，防跨用例 toast 文本污染断言
+    toast.dismiss();
+    if (document.getElementById('toast-container')?.childElementCount) {
+      await new Promise(r => setTimeout(r, 250));
+    }
     sseHandlers = [];
     useNotificationStore.setState({
       stateItems: [replyItem('WU-3000', '使用 OAuth 还是账号密码？')],
@@ -798,6 +804,54 @@ describe('ChannelDetailPage — #279 NEED_INPUT 待办 chip 与等待态清理',
       expect(el?.className).toContain('mc-msg-highlight');
     });
     expect(Element.prototype.scrollIntoView).toHaveBeenCalled();
+  });
+
+  it('#483：chip 定位——提问掉出已加载分页 → 自动翻页定位并高亮（与 highlight 路径同循环）', async () => {
+    // 提问 q-2 不在已加载页（空消息集），翻一页后载入并到底
+    currentMessages = [];
+    currentHasMore = true;
+    mockLoadMore.mockImplementation(async (
+      setMsgs: (fn: (prev: ChannelMessage[]) => ChannelMessage[]) => void,
+      setMore: (v: boolean) => void,
+    ) => {
+      setMsgs(prev => [...FOLLOWUP_MESSAGES, ...prev]);
+      setMore(false);
+      return true;
+    });
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText('待回复 · 1')).toBeTruthy());
+    fireEvent.click(screen.getByText('待回复 · 1'));
+    fireEvent.click(screen.getByText('WU-3000'));
+
+    await waitFor(() => {
+      const el = document.querySelector('[data-message-id="q-2"]');
+      expect(el?.className).toContain('mc-msg-highlight');
+    });
+    expect(mockLoadMore).toHaveBeenCalledTimes(1);
+    // 目标已定位，无降级反馈
+    expect(document.getElementById('toast-container')?.textContent ?? '').not.toContain('无法定位');
+  });
+
+  it('#483：chip 定位——翻页到底仍无该 WU 提问 → toast 可见反馈，不静默', async () => {
+    currentMessages = [];
+    currentHasMore = true;
+    // 翻一页后到底（hasMore → false），WU-3000 的提问始终不存在
+    mockLoadMore.mockImplementation(async (_setMsgs: unknown, setMore: (v: boolean) => void) => {
+      setMore(false);
+      return true;
+    });
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText('待回复 · 1')).toBeTruthy());
+    fireEvent.click(screen.getByText('待回复 · 1'));
+    fireEvent.click(screen.getByText('WU-3000'));
+
+    await waitFor(() => {
+      expect(document.getElementById('toast-container')?.textContent).toContain('无法定位');
+    });
+    expect(mockLoadMore).toHaveBeenCalledTimes(1);
+    toast.dismiss();
   });
 });
 
