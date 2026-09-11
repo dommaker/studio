@@ -466,6 +466,60 @@ describe('deriveChannelSuggestions（推导骨架）', () => {
     expect(r.currentWuId).toBe(parent.id);
   });
 
+  // ─── #487：currentWu 拣选粘性（多单并行不抖动） ───
+
+  /** 直接改快照 updatedAt（模拟 loop 每步簿记 bump，不经状态流转） */
+  async function bumpUpdatedAt(wuId: string, iso: string) {
+    const s = (await fileStore.getIndex()).find(x => x.id === wuId)!;
+    await fileStore.upsertSnapshot({ ...s, updatedAt: iso });
+  }
+
+  it('#487：双活跃 WU 交替簿写 → currentWuId 不抖动（领先未超粘性窗口不切换）', async () => {
+    const a = await createParent({ status: 'active', title: '工单A' });
+    const b = await createParent({ status: 'active', title: '工单B' }); // 后建，updatedAt 最新
+
+    const first = await deriveChannelSuggestions(CHANNEL_ID, { fileStore });
+    expect(first.currentWuId).toBe(b.id);
+
+    // 交替簿写（loop 每步 metadata 簿记都 bump updatedAt）：A 短暂领先 → 不切换；
+    // B 再簿写 → 仍 B；A 再领先 → 仍 B。现任未终态且挑战者领先未超窗口 → 保持现任。
+    const t0 = Date.now();
+    await bumpUpdatedAt(a.id, new Date(t0 + 1_000).toISOString());
+    expect((await deriveChannelSuggestions(CHANNEL_ID, { fileStore })).currentWuId).toBe(b.id);
+    await bumpUpdatedAt(b.id, new Date(t0 + 2_000).toISOString());
+    expect((await deriveChannelSuggestions(CHANNEL_ID, { fileStore })).currentWuId).toBe(b.id);
+    await bumpUpdatedAt(a.id, new Date(t0 + 3_000).toISOString());
+    expect((await deriveChannelSuggestions(CHANNEL_ID, { fileStore })).currentWuId).toBe(b.id);
+  });
+
+  it('#487：现任转入终态 → 立即切换到下一候选（不等粘性窗口）', async () => {
+    const a = await createParent({ status: 'active', title: '工单A' });
+    const b = await createParent({ status: 'active', title: '工单B' });
+    expect((await deriveChannelSuggestions(CHANNEL_ID, { fileStore })).currentWuId).toBe(b.id);
+
+    // b 关闭（终态）——updatedAt 仍最新，但终态现任立即让位
+    await bumpUpdatedAt(b.id, nowIso());
+    const s = (await fileStore.getIndex()).find(x => x.id === b.id)!;
+    await fileStore.upsertSnapshot({ ...s, status: 'closed' });
+
+    const r = await deriveChannelSuggestions(CHANNEL_ID, { fileStore });
+    expect(r.currentWuId).toBe(a.id);
+  });
+
+  it('#487：现任长时间静默（挑战者 updatedAt 领先超粘性窗口）→ 切换', async () => {
+    const stickyMs = SUGGESTION_TIMING.currentWuStickyMs;
+    const a = await createParent({ status: 'active', title: '工单A' });
+    const b = await createParent({ status: 'active', title: '工单B' });
+    expect((await deriveChannelSuggestions(CHANNEL_ID, { fileStore })).currentWuId).toBe(b.id);
+
+    // b 静默不动，a 持续活跃至领先超过窗口 → 切换（现任已长时间静默，粘性解除）
+    const bSnap = (await fileStore.getIndex()).find(x => x.id === b.id)!;
+    await bumpUpdatedAt(a.id, new Date(Date.parse(bSnap.updatedAt) + stickyMs + 60_000).toISOString());
+
+    const r = await deriveChannelSuggestions(CHANNEL_ID, { fileStore });
+    expect(r.currentWuId).toBe(a.id);
+  });
+
   it('频道不存在 → 空结果不抛出（fail-closed）', async () => {
     const r = await deriveChannelSuggestions('ch-not-exist', { fileStore });
     expect(r).toEqual({ currentWuId: null, suggestions: [] });
