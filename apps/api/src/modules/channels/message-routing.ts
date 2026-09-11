@@ -146,6 +146,7 @@ export async function routeMessage(
     // #327：父消息不在热层（已归档 = getMessageById 热只读不可见；与「彻底不存在」不可区分）
     // → 引用降级放行：帖子成立、replyToId 保留（前端引用预览自然缺失）、
     // workUnitId 继承失效落 null、不触发挂起复活——不整帖抛错
+    // #492：降级放行后补频道 Studio 系统提示「该话题已归档」（见下方 !found 分支）
     if (!found) {
       logger.warn('[MessageRouting] Replied message not in hot tier, degrading reply (no workUnitId inheritance)', {
         channelId, replyToId,
@@ -165,6 +166,20 @@ export async function routeMessage(
         logger.warn('[MessageRouting] Resume waiting WorkUnit failed (non-blocking)', {
           workUnitId: inheritedWorkUnitId,
           error: String(err),
+        })
+      );
+    }
+    // #492（方案 a）：父消息在冷层 → 降级放行的回复不会触达任何任务，
+    // 频道发 Studio 系统提示（挂在该回复线程），用户不再静默失效；提示本身 best-effort。
+    if (!found) {
+      await channelMessageService.createAgentMessage(
+        channelId,
+        'Studio',
+        '该话题已归档，回复不会触达任务',
+        { replyToId: message.id },
+      ).catch(err =>
+        logger.warn('[MessageRouting] Post cold-tier-reply notice failed (non-blocking)', {
+          channelId, replyToId, error: String(err),
         })
       );
     }

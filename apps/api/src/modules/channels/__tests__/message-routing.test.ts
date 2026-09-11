@@ -268,6 +268,41 @@ describe('Message Routing (AC-B1-B4)', () => {
     });
   });
 
+  // ── #492: 回复冷层父消息 → 频道系统提示（方案 a，不再静默失效）──
+
+  describe('#492: reply to cold-tier parent posts archive notice', () => {
+    it('父消息在冷层（热层不可见）→ 帖子成立 + Studio 系统提示挂在回复线程', async () => {
+      const reply = await routeMessage(channelId, '回复已归档话题', 'cold-parent-id', fileStore);
+
+      // 降级放行行为不变（#327）：帖子成立、workUnitId 落 null、不抛错
+      expect(reply.replyToId).toBe('cold-parent-id');
+      expect(reply.workUnitId ?? null).toBeNull();
+      // #492：频道给出明确反馈，Studio 系统提示挂在该回复线程
+      const msgs = await fileStore.queryMessages(channelId, {});
+      const notice = msgs.find(m =>
+        m.authorType === 'agent' && m.agentName === 'Studio' && m.content.includes('该话题已归档'),
+      );
+      expect(notice).toBeTruthy();
+      expect(notice!.content).toContain('回复不会触达任务');
+      expect(notice!.replyToId).toBe(reply.id);
+    });
+
+    it('热层父消息（正常回复路径）→ 不发归档提示', async () => {
+      const now = new Date().toISOString();
+      const original: ChannelMessageData = {
+        id: uuidv4(), channelId, authorType: 'human', agentName: null,
+        content: 'original', replyToId: null, meta: '{}', workUnitId: null, createdAt: now,
+      };
+      await fileStore.appendMessage(channelId, original);
+
+      const reply = await routeMessage(channelId, 'follow up', original.id, fileStore);
+
+      expect(reply.replyToId).toBe(original.id);
+      const msgs = await fileStore.queryMessages(channelId, {});
+      expect(msgs.find(m => m.content.includes('该话题已归档'))).toBeUndefined();
+    });
+  });
+
   // ── AC-B3: Thread @mention = feedback, no new WorkUnit ──
 
   describe('AC-B3: Thread @mention does not create new WorkUnit', () => {
