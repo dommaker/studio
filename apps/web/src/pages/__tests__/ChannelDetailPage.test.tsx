@@ -1139,6 +1139,35 @@ describe('ChannelDetailPage — #440 阶段条（#447 起 currentWuId 由建议�
     expect(screen.queryByLabelText('工单阶段')).toBeNull();
   });
 
+  // #488：工作条占位三态——端点返回 null → 空闲态；未返回/失败/skew → 保持加载态（不误显空闲）
+  it('#488：端点返回 currentWuId=null → 工作条显示空闲文案，不再「状态同步中」', async () => {
+    suggestionPayload = { data: { data: { currentWuId: null, suggestions: [] } } };
+    renderPage();
+    await waitFor(() => expect(suggestionsCalls()).toBe(1));
+    await waitFor(() => expect(screen.getByText('频道暂无进行中的工作')).toBeTruthy());
+    expect(screen.queryByText('状态同步中…')).toBeNull();
+  });
+
+  it('#488：建议端点请求失败 → 不误显示空闲，保持「状态同步中…」（degraded 标志协同留批次 2.4）', async () => {
+    mockApiGet.mockImplementation((url: string) =>
+      String(url).endsWith('/suggestions') ? Promise.reject(new Error('boom')) : Promise.resolve(CHANNEL),
+    );
+    renderPage();
+    await waitFor(() => expect(suggestionsCalls()).toBe(1));
+    // 失败为静默 catch——等一拍确认文案不落空闲
+    await waitFor(() => expect(screen.getByText('#rnd-主研发')).toBeTruthy());
+    expect(screen.getByText('状态同步中…')).toBeTruthy();
+    expect(screen.queryByText('频道暂无进行中的工作')).toBeNull();
+  });
+
+  it('#488：currentWuId 未命中 channelWus（时序 skew）→ 保持加载态而非空闲', async () => {
+    suggestionPayload = { data: { data: { currentWuId: 'WU-9999', suggestions: [] } } };
+    renderPage();
+    await waitFor(() => expect(suggestionsCalls()).toBe(1));
+    expect(screen.getByText('状态同步中…')).toBeTruthy();
+    expect(screen.queryByText('频道暂无进行中的工作')).toBeNull();
+  });
+
   it('端点 currentWuId 指向 channelWus 外的 WU（时序 skew）→ 不渲染阶段条（fail-closed 不编造）', async () => {
     suggestionPayload = { data: { data: { currentWuId: 'WU-9999', suggestions: [] } } };
     renderPage();

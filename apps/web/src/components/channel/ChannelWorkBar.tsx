@@ -1,8 +1,10 @@
 // ChannelWorkBar — 频道工作条：合并 ChannelLiveBars（#242/#322 live 实况）与
 // ChannelStageBar（#440/#447 阶段条）为频道顶部单一工作条（docs/plans/2026-09-channel-workbar.md）。
 // 渲染规则：
-//   - 无 currentWu 且无 active WU → #474：留「状态同步中…」占位（原整条静默消失，用户无法区分
-//     「真的没事」与「状态还没拉到」）
+//   - 无 currentWu 且无 active WU → #474 占位（原整条静默消失，用户无法区分「真的没事」与
+//     「状态还没拉到」）；#488 起占位分三态——wuIdle=true（建议端点已返回且 currentWuId=null）
+//     → 空闲文案「频道暂无进行中的工作」；否则（端点未返回/请求失败/currentWuId 时序 skew 未命中）
+//     → 加载态「状态同步中…」
 //   - 无 currentWu（含 currentWuId 未命中 channelWus）→ fail-closed：主区不渲染，仅 live 列表
 //   - 有 currentWu 无 active → 仅 stepper 主区
 //   - 自身 active → 当前站旁叠加「第 N 步 · 动作」（点击开自身抽屉）
@@ -34,6 +36,9 @@ interface Props {
   currentWu: WorkUnit | null;
   /** 点击条目 → 打开对应 WU 右抽屉 */
   onOpenWorkUnit: (workUnitId: string) => void;
+  /** #488：空闲信号——调用方保证语义 = 建议端点已成功返回且 currentWuId=null（频道确实无工作）；
+   *  缺省 false → 占位保持加载态「状态同步中…」（端点未返回/请求失败/skew 未命中均不误显空闲） */
+  wuIdle?: boolean;
   /** D-2 项6：闸门动作写路径；传入且 currentWu 处于闸门态时工作条右端渲染 WuGateActions */
   gate?: WorkBarGateHandlers;
 }
@@ -56,14 +61,14 @@ function LiveItem({ exec, onOpenWorkUnit }: { exec: LiveExecution; onOpenWorkUni
   );
 }
 
-export function ChannelWorkBar({ channelId, currentWu, onOpenWorkUnit, gate }: Props) {
+export function ChannelWorkBar({ channelId, currentWu, onOpenWorkUnit, gate, wuIdle = false }: Props) {
   const liveExecs = useChannelLiveExecutions(channelId);
   const [overflowOpen, setOverflowOpen] = useState(false);
-  // #474：未命中时不再整条静默消失——留「状态同步中…」占位条
+  // #474：未命中时不再整条静默消失——留占位条；#488：wuIdle 区分加载/空闲文案
   if (!currentWu && liveExecs.length === 0) {
     return (
       <div className="mc-workbar" aria-label="频道工作条">
-        <div className="mc-workbar-placeholder">状态同步中…</div>
+        <div className="mc-workbar-placeholder">{wuIdle ? '频道暂无进行中的工作' : '状态同步中…'}</div>
       </div>
     );
   }

@@ -133,6 +133,9 @@ export function ChannelDetailPage() {
   // currentWuId = 后端拣选的「频道当前工单」（阶段条与引导片同源消费，口径单源在后端）
   const [channelSuggestions, setChannelSuggestions] = useState<ChannelSuggestion[]>([]);
   const [currentWuId, setCurrentWuId] = useState<string | null>(null);
+  // #488：建议端点「已成功返回」台账（按频道 id 记，切频道自动失效回加载态）——工作条占位三态：
+  // 已返回且 currentWuId=null → 空闲态；未返回/请求失败（catch 静默不落账）/ skew 未命中 → 加载态
+  const [suggestionsResolvedFor, setSuggestionsResolvedFor] = useState<string | null>(null);
   // Mission Control 右抽屉：WorkUnit 详情 / REQ 全链路
   const [drawer, setDrawer] = useState<DrawerState>(null);
   // #395（spec §4.6）窄屏降级断点：<768 左栏并入全局 Sidebar（本页卸载内联 ChannelRail）；
@@ -207,6 +210,8 @@ export function ChannelDetailPage() {
         ));
         const rawWuId: unknown = r.data?.data?.currentWuId;
         setCurrentWuId(typeof rawWuId === 'string' ? rawWuId : null);
+        // #488：成功返回落账（失败走 catch 不落账 → 占位保持加载态，不误显空闲）
+        setSuggestionsResolvedFor(id);
       })
       .catch(() => {});
   }, [id]);
@@ -872,7 +877,7 @@ export function ChannelDetailPage() {
             一条横带回答「这个频道的工作现在什么状态」；hook 自持有，step 事件只重渲该组件边界；
             currentWu = 建议端点 currentWuId × channelWus（拣选口径单源在后端，未命中 fail-closed 主区不渲染）；
             点击条目打开对应 WU 抽屉（过程明细仍在抽屉） */}
-        <ChannelWorkBar channelId={id} currentWu={currentWu} onOpenWorkUnit={openWu} gate={workBarGate} />
+        <ChannelWorkBar channelId={id} currentWu={currentWu} onOpenWorkUnit={openWu} gate={workBarGate} wuIdle={suggestionsResolvedFor === id && currentWuId === null} />
 
         {/* Message list
             #325：头部块（空态/加载更早/折叠 toggle）与虚拟列表 spacer 分离——
