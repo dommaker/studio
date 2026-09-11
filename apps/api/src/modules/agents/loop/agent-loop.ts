@@ -7,7 +7,7 @@
 // DELEGATE 分支（建子单 + collab 元数据 + 降级文案）→ delegate-branch.js。
 // 本文件保留 AgentLoop 类编排逻辑 + re-export（对外导出语义不变）。
 import { execSync } from 'child_process';
-import { eventBus, logger, FileStore, parseChannels, withAttestation, isStaleClaimSleep, type RuntimeStateData } from '@dommaker/studio-shared';
+import { eventBus, logger, FileStore, parseChannels, withAttestation, isStaleClaimSleep, parseStreamEvents, type RuntimeStateData } from '@dommaker/studio-shared';
 import { TokenEstimator } from '@dommaker/harness';
 import { resolveProviderDefinition, buildHealthProbeCommand } from '@dommaker/studio-shared/node';
 import { randomUUID } from 'crypto';
@@ -1132,6 +1132,9 @@ export class AgentLoop {
     // 读取调用时的 effectiveSessionId/sessionResumed 当前值（重试降级后可能被改写）。
     // fire-and-forget，与成功路径发射同形态，绝不影响失败处理流程。
     const emitFailedStep = (action: string, detail: string, res?: ExecutionResult) => {
+      // #453: 失败路径保持按原文解析（票内决议）——失败步仅此一个消费点，解析一次；
+      // 成功路径的解析产物复用不延伸到这里（失败步与成功步互斥，无重复解析可省）。
+      const failedRaw = res?.rawOutput;
       void emitExecutionStepEvent({
         workUnitId: wu.id,
         channelId: wu.channelId,
@@ -1140,7 +1143,7 @@ export class AgentLoop {
         sessionResumed,
         step: stepNo,
         action,
-        rawOutput: res?.rawOutput ?? null,
+        events: failedRaw && failedRaw.trim().length > 0 ? parseStreamEvents(failedRaw) : [],
         skills: skillMatched,
         status: 'failed',
         errorType: 'execution_failed',
@@ -1311,10 +1314,15 @@ export class AgentLoop {
       // D18: 写入统一事件文件（~/.studio/logs/studio-events.jsonl）
       // R2-fix: outputText 是 extractResult 后的纯文本（不含 stream-json 事件行），
       // 必须优先取 rawOutput（原始 stdout）——否则 parseStreamEvents 恒产 0 条。
+      // #453: 成功路径全量解析一次（3→1）——tool:call 落盘与 execution_step 提炼共享
+      // 同一份 StreamEvent[]；usage 记账（recordTokenEvent）保持吃原文（claude 主路径走
+      // 末行 parseSessionMetrics 已便宜；opencode/codex 事件形态不同，改 shared 公开 API
+      // 外溢不划算，票内 triage 决议）。
       const toolTraceSource = result.rawOutput ?? result.outputText;
+      const stepEvents = toolTraceSource ? parseStreamEvents(toolTraceSource) : [];
       if (toolTraceSource) {
         try {
-          writeToolCallEvents(toolTraceSource, resolveToolTraceFile());
+          writeToolCallEvents(stepEvents, resolveToolTraceFile());
         } catch { /* non-blocking */ }
       }
 
@@ -1342,7 +1350,8 @@ export class AgentLoop {
         sessionResumed,
         step: stepNo,
         action: stepResult.action,
-        rawOutput: toolTraceSource,
+        // #453: 复用上方统一解析的 stepEvents（与 tool:call 落盘共享同一份解析产物）
+        events: stepEvents,
         skills: skillMatched,
       }).catch(() => {});
 

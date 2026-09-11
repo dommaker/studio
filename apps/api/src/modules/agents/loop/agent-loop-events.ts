@@ -4,7 +4,7 @@
 // tool:call trace 落盘（PatternMiner 数据源）。
 // agent-loop.ts re-export 保持对外导出语义不变。
 import { appendFileSync, existsSync, mkdirSync } from 'fs';
-import { parseStreamEvents, extractToolCalls, extractProviderUsage, eventBus, FileStore } from '@dommaker/studio-shared';
+import { extractToolCalls, extractProviderUsage, eventBus, FileStore, type StreamEvent } from '@dommaker/studio-shared';
 import { v4 as uuidv4 } from 'uuid';
 import type { ExecutionResult } from '@dommaker/studio-agent';
 import { noteTokensWritten } from './daily-token-budget.js';
@@ -172,13 +172,14 @@ export function resolveToolTraceFile(): string {
 }
 
 /**
- * Write tool:call events extracted from stream-json output to a JSONL file.
+ * Write tool:call events extracted from pre-parsed stream events to a JSONL file.
  * Returns the count of tool calls written.
  * T-1.1: Wiring tool:call recording for PatternMiner data source.
  * D18: StudioEvent 形态（payload 嵌套），与 daemon/task-executor 的 tool:call 一致。
+ * #453: 签名从原始 stdout 深化为已解析 StreamEvent[]——成功路径由 agent-loop 统一解析一次，
+ * 本函数与 execution_step 提炼共享同一份解析产物，不再各自全量 split + JSON.parse。
  */
-export function writeToolCallEvents(outputText: string, filePath: string): number {
-  const events = parseStreamEvents(outputText);
+export function writeToolCallEvents(events: StreamEvent[], filePath: string): number {
   const toolCalls = extractToolCalls(events);
   if (toolCalls.length === 0) return 0;
 

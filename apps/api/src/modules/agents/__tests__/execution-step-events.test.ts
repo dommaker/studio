@@ -4,8 +4,8 @@
  * 覆盖：
  *  - summarizeToolInput：Read/Edit/Write→file_path、Bash→command、Glob/Grep→pattern、未知工具→JSON 截断
  *  - extractThinking：thinking 块提取（content / message.content 两种载体、text 兜底、条数/长度上限）
- *  - buildExecutionStepEvent：stream-json 全量解析（thinking/toolCalls/text/usage/skills）、
- *    空内容 → null（不产空信号）、截断纪律
+ *  - buildExecutionStepEvent：已解析 StreamEvent[] 投影（thinking/toolCalls/text/usage/skills）、
+ *    空内容 → null（不产空信号）、截断纪律（#453：接口从 rawOutput 深化为已解析事件数组）
  *  - emitExecutionStepEvent：落盘 studio-events（STUDIO_EVENTS_FILE 隔离）+ 永不抛出
  *  - Layer B buildExecutionStreamChunks：单行 stream-json → thinking/text/tool/result chunk、
  *    降噪（system/user 跳过）、条数/长度上限；emit*Stream*：SSE-only 不落盘 + 永不抛出
@@ -14,7 +14,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { eventBus } from '@dommaker/studio-shared';
+import { eventBus, parseStreamEvents } from '@dommaker/studio-shared';
 import {
   summarizeToolInput,
   extractThinking,
@@ -130,7 +130,7 @@ describe('buildExecutionStepEvent', () => {
       sessionId: 'sess-1',
       step: 2,
       action: 'complete',
-      rawOutput: raw,
+      events: parseStreamEvents(raw),
       skills: ['tdd-implement', 'code-review'],
     });
 
@@ -147,17 +147,20 @@ describe('buildExecutionStepEvent', () => {
     expect(payload!.text).toContain('ACTION: COMPLETE');
   });
 
-  it('空/不可解析输出且无其他信号 → null（不产空事件）', () => {
-    expect(buildExecutionStepEvent({ workUnitId: 'w', executionId: 'e', step: 1, rawOutput: '' })).toBeNull();
-    expect(buildExecutionStepEvent({ workUnitId: 'w', executionId: 'e', step: 1, rawOutput: null })).toBeNull();
-    expect(buildExecutionStepEvent({ workUnitId: 'w', executionId: 'e', step: 1, rawOutput: 'garbage\nnot json' })).toBeNull();
+  it('空/无可提炼内容且无其他信号 → null（不产空事件）', () => {
+    expect(buildExecutionStepEvent({ workUnitId: 'w', executionId: 'e', step: 1 })).toBeNull();
+    expect(buildExecutionStepEvent({ workUnitId: 'w', executionId: 'e', step: 1, events: [] })).toBeNull();
+    expect(buildExecutionStepEvent({
+      workUnitId: 'w', executionId: 'e', step: 1,
+      events: [{ type: 'system', subtype: 'init' }],
+    })).toBeNull();
   });
 
   it('toolCalls 超 30 条截断到 30', () => {
     const calls = Array.from({ length: 40 }, (_, i) => ({ type: 'tool_use', name: 'Read', input: { file_path: `/f${i}` } }));
     const payload = buildExecutionStepEvent({
       workUnitId: 'w', executionId: 'e', step: 1,
-      rawOutput: streamJson([ASSISTANT(calls)]),
+      events: parseStreamEvents(streamJson([ASSISTANT(calls)])),
     });
     expect(payload!.toolCalls.length).toBe(30);
     expect(payload!.toolCalls[29].summary).toBe('/f29');
@@ -165,7 +168,7 @@ describe('buildExecutionStepEvent', () => {
 
   it('#94: sessionResumed 透传（true/false 原样落 payload；缺省 → 无该键）', () => {
     const raw = streamJson([ASSISTANT([{ type: 'thinking', thinking: '想' }])]);
-    const base = { workUnitId: 'w', executionId: 'e', step: 1, rawOutput: raw };
+    const base = { workUnitId: 'w', executionId: 'e', step: 1, events: parseStreamEvents(raw) };
     expect(buildExecutionStepEvent({ ...base, sessionResumed: true })!.sessionResumed).toBe(true);
     expect(buildExecutionStepEvent({ ...base, sessionResumed: false })!.sessionResumed).toBe(false);
     expect(buildExecutionStepEvent(base)!).not.toHaveProperty('sessionResumed');
@@ -173,7 +176,7 @@ describe('buildExecutionStepEvent', () => {
 
   it('#172（#60 决策）：status 缺省 success；failed 携带 errorType/errorDetail', () => {
     const raw = streamJson([ASSISTANT([{ type: 'thinking', thinking: '想' }])]);
-    const base = { workUnitId: 'w', executionId: 'e', step: 1, rawOutput: raw };
+    const base = { workUnitId: 'w', executionId: 'e', step: 1, events: parseStreamEvents(raw) };
     const ok = buildExecutionStepEvent(base)!;
     expect(ok.status).toBe('success');
     expect(ok).not.toHaveProperty('errorType');
@@ -188,14 +191,14 @@ describe('buildExecutionStepEvent', () => {
 
   it('channelId 透传（给定 → payload 携带；缺省 → 无该键）', () => {
     const raw = streamJson([ASSISTANT([{ type: 'thinking', thinking: '想' }])]);
-    const base = { workUnitId: 'w', executionId: 'e', step: 1, rawOutput: raw };
+    const base = { workUnitId: 'w', executionId: 'e', step: 1, events: parseStreamEvents(raw) };
     expect(buildExecutionStepEvent({ ...base, channelId: 'ch-1' })!.channelId).toBe('ch-1');
     expect(buildExecutionStepEvent(base)!).not.toHaveProperty('channelId');
   });
 
   it('#172: 失败步无任何可解析内容也产事件（失败信号不落空）；成功步空内容仍 null', () => {
     const failed = buildExecutionStepEvent({
-      workUnitId: 'w', executionId: 'e', step: 1, rawOutput: '',
+      workUnitId: 'w', executionId: 'e', step: 1, events: [],
       status: 'failed', errorType: 'execution_failed', errorDetail: 'spawn 失败',
     });
     expect(failed).not.toBeNull();
@@ -203,7 +206,7 @@ describe('buildExecutionStepEvent', () => {
     expect(failed!.thinking).toEqual([]);
     expect(failed!.toolCalls).toEqual([]);
     // 对照：非失败空内容依旧不产空信号事件
-    expect(buildExecutionStepEvent({ workUnitId: 'w', executionId: 'e', step: 1, rawOutput: '' })).toBeNull();
+    expect(buildExecutionStepEvent({ workUnitId: 'w', executionId: 'e', step: 1, events: [] })).toBeNull();
   });
 });
 
@@ -213,7 +216,7 @@ describe('emitExecutionStepEvent', () => {
       workUnitId: 'wu-9',
       executionId: 'exec-9',
       step: 1,
-      rawOutput: streamJson([ASSISTANT([{ type: 'thinking', thinking: '想' }])]),
+      events: parseStreamEvents(streamJson([ASSISTANT([{ type: 'thinking', thinking: '想' }])])),
       skills: [],
     });
     expect(ok).toBe(true);
@@ -238,7 +241,7 @@ describe('emitExecutionStepEvent', () => {
       executionId: 'exec-ch',
       step: 1,
       channelId: 'ch-9',
-      rawOutput: streamJson([ASSISTANT([{ type: 'thinking', thinking: '想' }])]),
+      events: parseStreamEvents(streamJson([ASSISTANT([{ type: 'thinking', thinking: '想' }])])),
     });
     expect(ok).toBe(true);
     await new Promise(r => setTimeout(r, 20));
@@ -249,17 +252,16 @@ describe('emitExecutionStepEvent', () => {
   });
 
   it('null 内容 → false 且不落盘；异常输入不抛出', async () => {
-    const ok = await emitExecutionStepEvent({ workUnitId: 'w', executionId: 'e', step: 1, rawOutput: '' });
+    const ok = await emitExecutionStepEvent({ workUnitId: 'w', executionId: 'e', step: 1, events: [] });
     expect(ok).toBe(false);
     expect(fs.existsSync(eventsFile)).toBe(false);
   });
 
-  it('#172: 失败步落盘（status=failed + errorType/errorDetail），rawOutput 缺失也落', async () => {
+  it('#172: 失败步落盘（status=failed + errorType/errorDetail），events 缺失也落', async () => {
     const ok = await emitExecutionStepEvent({
       workUnitId: 'wu-f',
       executionId: 'exec-f',
       step: 3,
-      rawOutput: null,
       status: 'failed',
       errorType: 'execution_failed',
       errorDetail: 'CLI exited with code 1: boom',
