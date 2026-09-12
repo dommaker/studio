@@ -22,8 +22,9 @@ async function listUserIds(): Promise<string[]> {
 export interface CreateNotificationInput {
   userId: string;
   // #468：追加 wu_milestone（闸门里程碑备查）/ monitor_alert（监控告警）/ incident（triage 事件）
+  // #523：追加 gate_reminder（人闸催办/认领滞留 tier1 提醒）
   type: 'review_request' | 'review_approved' | 'review_rejected' | 'system' | 'auditor_suggestion'
-    | 'wu_milestone' | 'monitor_alert' | 'incident';
+    | 'wu_milestone' | 'monitor_alert' | 'incident' | 'gate_reminder';
   title: string;
   content: string;
   link?: string;

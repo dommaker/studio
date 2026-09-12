@@ -15,6 +15,7 @@ import type { MouseEvent as ReactMouseEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useWebSocketContext } from '../api/websocketHooks';
 import { useNotificationStore, type Notification, type StateItem } from '../stores/notificationStore';
+import { showBrowserNotification, requestBrowserNotificationPermission } from '../utils/browserNotification';
 import { toast } from '../utils/toast';
 import { IconBell } from './ui/icons';
 import type { DrawerState } from './channel/WorkUnitDrawer';
@@ -110,6 +111,11 @@ export function NotificationBell() {
         }
       } else if (msg.event_type === 'workunit.status_changed') {
         void load();
+      } else if (msg.event_type === 'notification.created') {
+        // #523 人闸催办/认领滞留 tier1：铃铛重拉 + 浏览器原生通知（granted 才弹，零配置保底）
+        const data = msg.data as { title?: string; content?: string } | undefined;
+        void load();
+        if (data?.title) showBrowserNotification(data.title, data.content ?? '');
       }
     });
     return () => { unsub(); };
@@ -233,7 +239,12 @@ export function NotificationBell() {
     <>
     <div className="relative" ref={dropdownRef}>
       <button
-        onClick={() => setOpen(!open)}
+        onClick={() => {
+          // #523：首次点开面板是既有用户手势——permission=default 时借机请求浏览器通知权限
+          // （无权手势时浏览器会直接拒绝/忽略，故不主动弹）
+          if (!open) requestBrowserNotificationPermission();
+          setOpen(!open);
+        }}
         className="relative p-1.5 rounded-lg u-hover-bg transition-colors"
         title="行动中心"
       >

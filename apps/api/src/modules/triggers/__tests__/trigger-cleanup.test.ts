@@ -32,8 +32,8 @@ function registeredIds(): string[] {
 }
 
 describe('Trigger cleanup verification', () => {
-  it('default triggers count is 9 (6 retained + #163 inspection-scan 双通道 + #183 dispatch-reconciliation)', () => {
-    expect(registeredIds()).toHaveLength(9);
+  it('default triggers count is 10 (6 retained + #163 inspection-scan 双通道 + #183 dispatch-reconciliation + #523 gate-escalation)', () => {
+    expect(registeredIds()).toHaveLength(10);
   });
 
   it('okr-metric-sync trigger is present', () => {

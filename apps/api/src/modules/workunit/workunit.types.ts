@@ -61,6 +61,10 @@ export interface WorkUnitMetadata {
   waitingQuestion?: string;   // agent 提出的问题
   waitingSince?: string;      // 挂起时间 ISO 8601（超时提醒据此计算）
   waitingReminded?: boolean;  // 本次挂起已提醒过（每次挂起只提醒一次，恢复时重置）
+  // #523（#516 决议③④）人闸催办/认领滞留一次性 tier 标记（ISO 时刻，每层只发一次、
+  // 两层互相独立；gate-escalation.ts 锁内合并写，不推进 updatedAt 计时锚）
+  gateReminderTier1At?: string; // tier1 已发（Web 铃铛 + SSE + 浏览器原生通知）
+  gateReminderTier2At?: string; // tier2 已发（notifyAlert 告警通路：企微/告警频道/行动中心）
   waitingReason?: string;     // 挂起原因：'ownership' = B3a 等待工程归属；'wu-token-budget' = #162 WU 级 token 预算到线（三选分流见 waiting-input.ts）；'plan-step-limit' = #471 plan 步数额度到线（回复即续期）；'plan-ruling' = #467 裁决轮待裁（结构化提交见 pmo/plan-ruling.ts）（缺省 = agent 提问）
   // #467：裁决轮——plan 会话 NEED_INPUT 携 RULING: 行时落档的问题清单 + 每题建议结论 + 默认值
   // （裁决接力卡/裁决弹窗预填数据源；人提交裁决后由 pmo/plan-ruling.ts 清除）

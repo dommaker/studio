@@ -6,7 +6,7 @@
  * SSE 只作失效触发（atHuman / workunit.status_changed → 重拉），断线重连重拉（#415 模式保留）。
  * 标题闪烁机制保留，停止条件 = unreadCount + stateItems.length === 0。
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import type { WebSocketMessage } from '../../api/websocket';
 
@@ -445,6 +445,65 @@ describe('#468 SSE 只作失效触发（不直接入列）', () => {
     await waitFor(() => expect(mockApi.get).toHaveBeenCalledTimes(2));
     openDropdown();
     expect(screen.getByText('审计建议 (2 项)')).toBeInTheDocument();
+  });
+});
+
+describe('#523 notification.created（人闸催办 SSE → 重拉 + 浏览器原生通知）', () => {
+  const MockNotification = vi.fn() as unknown as typeof Notification & {
+    permission: NotificationPermission;
+    requestPermission: () => Promise<NotificationPermission>;
+  };
+
+  function stubPermission(permission: NotificationPermission) {
+    MockNotification.permission = permission;
+    MockNotification.requestPermission = vi.fn().mockResolvedValue('granted');
+    vi.stubGlobal('Notification', MockNotification);
+    vi.mocked(MockNotification).mockClear();
+  }
+
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  it('permission=granted：notification.created → 重拉 /action-center + new Notification(title, { body })', async () => {
+    stubPermission('granted');
+    await renderLoaded();
+
+    emitSse('notification.created', {
+      title: '任务「登录方案决策」待确认超过 30 分钟',
+      content: '人闸待你确认，系统不会自动确认',
+      wuId: 'WU-9', link: '/workunits/WU-9',
+    });
+
+    await waitFor(() => expect(mockApi.get).toHaveBeenCalledTimes(2));
+    expect(mockApi.get).toHaveBeenLastCalledWith('/action-center');
+    expect(MockNotification).toHaveBeenCalledTimes(1);
+    expect(MockNotification).toHaveBeenCalledWith(
+      '任务「登录方案决策」待确认超过 30 分钟',
+      { body: '人闸待你确认，系统不会自动确认' },
+    );
+  });
+
+  it('permission=denied：重拉照发，浏览器通知静默跳过', async () => {
+    stubPermission('denied');
+    await renderLoaded();
+
+    emitSse('notification.created', { title: 't', content: 'c', wuId: 'WU-9' });
+
+    await waitFor(() => expect(mockApi.get).toHaveBeenCalledTimes(2));
+    expect(MockNotification).not.toHaveBeenCalled();
+  });
+
+  it('permission=default：不主动弹权限请求，首次点开铃铛面板（用户手势）时才 requestPermission', async () => {
+    stubPermission('default');
+    await renderLoaded();
+
+    // SSE 到达本身不触发权限请求（需用户手势）
+    emitSse('notification.created', { title: 't', content: 'c' });
+    await waitFor(() => expect(mockApi.get).toHaveBeenCalledTimes(2));
+    expect(MockNotification.requestPermission).not.toHaveBeenCalled();
+    expect(MockNotification).not.toHaveBeenCalled();
+
+    openDropdown(); // 首次点开面板 = 已有手势
+    expect(MockNotification.requestPermission).toHaveBeenCalledTimes(1);
   });
 });
 

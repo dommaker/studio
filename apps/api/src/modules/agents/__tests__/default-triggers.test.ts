@@ -13,10 +13,10 @@ describe('Default Triggers', () => {
 
   const registeredIds = (): string[] => registry.getStates().map(s => s.config.id);
 
-  it('registers 9 default triggers (6 retained + #163 inspection-scan 双通道 + #183 reconciliation)', () => {
+  it('registers 10 default triggers (6 retained + #163 inspection-scan 双通道 + #183 reconciliation + #523 gate-escalation)', () => {
     registerDefaultTriggers(registry);
 
-    expect(registeredIds()).toHaveLength(9);
+    expect(registeredIds()).toHaveLength(10);
   });
 
   it('retained triggers are registered', () => {
@@ -32,6 +32,7 @@ describe('Default Triggers', () => {
       'inspection-scan',
       'inspection-scan-schedule',
       'dispatch-reconciliation',
+      'workunit-gate-escalation',
     ]));
   });
 
