@@ -118,12 +118,13 @@ export class ReviewDispatcher {
   /**
    * #183（#66 决议①对账）：幂等重跑路径 A —— 父 WU in_review 断链（评审子 WU 未建起）
    * 时由 5min 对账扫描调用。幂等保证不变：createGuarded 锁内同父唯一性 guard，
-   * 已有未完结评审子 WU（含并发抢建）→ 返回 null。频道不出声由调用方保证
-   * （本方法除既有自评兜底提醒外不发频道消息；告警事件由扫描方统一出口）。
+   * 已有未完结评审子 WU（含并发抢建）→ 返回 null。标准「已派评审」出声以 silent 压掉，
+   * 由调用方（dispatch-reconciliation）在重派成功后统一发「断链已自愈」一条，避免双发
+   * （#523，#516 决议①②）——本方法除既有自评兜底/路由提醒外不发频道消息。
    */
   async redispatchReview(parent: WorkUnitData): Promise<WorkUnitData | null> {
     if (!parent.channelId) return null;
-    return this.createReviewChildFor(parent);
+    return this.createReviewChildFor(parent, { silent: true });
   }
 
   /** 同父唯一性守卫（createGuarded 的锁内 guard + dispatchReviewNow 的友好预检共用） */
@@ -153,8 +154,11 @@ export class ReviewDispatcher {
    * 回池涌现（现状涌现 + excludeAssignee 语义不变）+ 频道出声提醒。
    * #170（决策 #65-2）：建单走 createGuarded 锁内 check-then-create——
    * 并发下另一实例已抢建时返回 null（调用方按「已在途」处理）。
+   * #523（#516 决议①）：建单成功即在父 WU 线程出声「已派评审」——建单与出声同一动作，
+   * 消除 happy path 静默段；认领播报照旧不合并（一条说「活派了」，一条说「人接了」）。
+   * opts.silent：对账重跑路径压掉本条，由调用方发「断链已自愈」，避免双发。
    */
-  private async createReviewChildFor(parent: WorkUnitData): Promise<WorkUnitData | null> {
+  private async createReviewChildFor(parent: WorkUnitData, opts?: { silent?: boolean }): Promise<WorkUnitData | null> {
     const members = await this.getChannelActiveMembers(parent.channelId!);
     const implementerId = await this.resolveProfileId(parent.assigneeId);
 
@@ -183,6 +187,19 @@ export class ReviewDispatcher {
       assigneeId: pinnedReviewer,
     });
     if (!child) return null; // 并发抢建被锁内 guard 拦截
+
+    if (!opts?.silent) {
+      // #523（#516 决议①）：派评审出声——非里程碑、不带 atHuman（正常推进告知，不催人）
+      await postWuSystemMessage(
+        parent,
+        `任务「${(parent.scope ?? '').slice(0, 50)}」已派评审（#${child.id.slice(0, 8)}）`,
+        { fileStore: this.fileStore },
+      ).catch(err =>
+        logger.warn('[ReviewDispatcher] Post dispatch notice failed (non-blocking)', {
+          parentId: parent.id, error: String(err),
+        })
+      );
+    }
 
     if (routingNotice) {
       await this.postSystemMessage(parent, routingNotice).catch(err =>

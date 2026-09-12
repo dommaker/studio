@@ -2,8 +2,10 @@
  * #183 派工/评审断链 5min 对账扫描（dispatch-reconciliation-scan handler 本体）。
  *
  * 对账哲学见根 CONTEXT.md「对账扫描」（#66 ReviewDispatcher / #159 analysis-handoff）：
- * 周期比对「应有 vs 实有」→ 幂等重跑自动补差集 → warning 事件走 #62 告警管线
- * （频道不出声，非终态迁移）；重跑记尝试数，3 次仍败停跑并升 critical。
+ * 周期比对「应有 vs 实有」→ 幂等重跑自动补差集 → 自愈补建/重派成功后本频道出声
+ * 「断链已自愈」（#523，#516 决议②——#159 决议 5「频道不出声」作废：补建的单子是
+ * 频道可见内容，系统自作主张改了就该说）；告警/失败留痕仍走 #62 告警管线
+ * （系统健康留痕不进频道，非终态迁移）；重跑记尝试数，3 次仍败停跑并升 critical。
  *
  * analysis 侧（#159 决议）：
  *   哨兵清单化（metadata.analysisTasksSpawned = 已建子 WU id 清单，analysis-handoff
@@ -26,6 +28,7 @@ import { logger, FileStore } from '@dommaker/studio-shared';
 import { WorkUnitService } from '../workunit/workunit.service.js';
 import { MANUAL_GATE_TYPES } from '../workunit/workunit.types.js';
 import { parseWuMetadata } from '../workunit/wu-metadata.js';
+import { postWuSystemMessage } from '../workunit/wu-messenger.js';
 import { AnalysisHandoff } from '../pmo/analysis-handoff.js';
 import { ReviewDispatcher } from './loop/review-dispatcher.js';
 import { dispatchMonitorAlerts } from './monitor/monitor-alerts.js';
@@ -45,7 +48,8 @@ export interface ReconciliationResult {
 /** 结构化事件（studio-events.jsonl，带 level）+ #62 告警管线出口（告警频道 + Web 收件箱）。
  *  #228：事件落盘改为 await（原 fire-and-forget `void`——测试在 reconcile 返回后
  *  即读事件文件，全量负载下落盘未完成致偶发断言红；writeStudioEvent 永不抛出，await 安全）。
- *  告警管线仍为 fire-and-forget（频道不出声原则不变，投递链路有自己的容错）。 */
+ *  告警管线仍为 fire-and-forget（系统健康留痕走 #62 不进频道，投递链路有自己的容错；
+ *  #523 起「断链已自愈」的频道出声由本文件调用侧另行发帖，不经告警管线）。 */
 async function emitReconcileAlert(
   type: 'analysis.respawned' | 'review.redispatched',
   source: MonitorAlertSource,
@@ -101,6 +105,16 @@ async function reconcileAnalysisRespawns(
       const nextAttempts = healed ? 0 : attempts + 1;
       if (healed) {
         await clearAttempts(fileStore, wu.id, 'analysisRespawnAttempts');
+        // #523（#516 决议②，#159 决议 5 作废）：自愈补建/认养成功 → 本频道出声「断链已自愈」；
+        // 未 healed（部分失败）不出声，只走下方 #62 告警管线
+        const parts: string[] = [];
+        if (r.createdIds.length > 0) parts.push(`补建 ${r.createdIds.map(id => `#${id.slice(0, 8)}`).join('、')}`);
+        if (r.adoptedIds.length > 0) parts.push(`认养 ${r.adoptedIds.map(id => `#${id.slice(0, 8)}`).join('、')}`);
+        await postWuSystemMessage(
+          wu,
+          `任务「${(wu.scope ?? '').slice(0, 50)}」派工断链已自愈（${parts.join('，')}）`,
+          { fileStore },
+        ).catch(err => logger.warn('[Reconciliation] Post healed notice failed (non-blocking)', { wuId: wu.id, error: String(err) }));
       } else {
         await fileStore.updateMetadata(wu.id, latest => ({ ...latest, analysisRespawnAttempts: nextAttempts }));
       }
@@ -182,12 +196,20 @@ async function reconcileReviewRedispatches(
     try {
       const child = await dispatcher.redispatchReview(wu);
       if (!child) {
-        // 锁内 guard 拦截 = 并发方已抢建 → 账实相符，静默（不出声）
+        // 锁内 guard 拦截 = 并发方已抢建 → 账实相符，不出声
+        //（无自愈动作就无可告知；#516 决议②的出声仅限真实补建/重派）
         if (attempts > 0) await clearAttempts(fileStore, wu.id, 'reviewRedispatchAttempts');
         continue;
       }
       if (attempts > 0) await clearAttempts(fileStore, wu.id, 'reviewRedispatchAttempts');
       result.review.redispatched++;
+      // #523（#516 决议②，#159 决议 5 作废）：重派自愈成功 → 本频道出声「断链已自愈」
+      //（redispatchReview 已以 silent 压掉标准「已派评审」，此处一条即够，不双发）
+      await postWuSystemMessage(
+        wu,
+        `任务「${(wu.scope ?? '').slice(0, 50)}」评审断链已自愈（#${child.id.slice(0, 8)}）`,
+        { fileStore },
+      ).catch(err => logger.warn('[Reconciliation] Post healed notice failed (non-blocking)', { wuId: wu.id, error: String(err) }));
       await emitReconcileAlert(
         'review.redispatched', 'review_redispatch', 'warning',
         `父 WU ${wu.id} in_review 断链自愈：重跑评审派工，已建评审子 WU ${child.id}`,

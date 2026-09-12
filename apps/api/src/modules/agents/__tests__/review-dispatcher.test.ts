@@ -151,9 +151,9 @@ describe('ReviewDispatcher (AC-4.1 ~ AC-4.5 + F4)', () => {
     expect(meta.selfReview).toBe(true);
 
     const messages = await fileStore.queryMessages('ch-test', { workUnitId: parent.id });
-    const sysMsg = messages.find(m => m.authorType === 'agent' && m.agentName === 'Studio');
+    // #523 起线程里新增「已派评审」出声，自评提醒须按内容过滤而非取首条 Studio 消息
+    const sysMsg = messages.find(m => m.authorType === 'agent' && m.agentName === 'Studio' && m.content.includes('自评'));
     expect(sysMsg).toBeDefined();
-    expect(sysMsg!.content).toContain('自评');
   });
 
   it('F4: 频道 members 未回填（历史频道）-> 保守按自评兜底', async () => {
@@ -610,6 +610,35 @@ describe('ReviewDispatcher (AC-4.1 ~ AC-4.5 + F4)', () => {
     // l2 保持原值（ref 不被迟到结论覆盖）
     const att = metaOf((await wuService.getById(parent.id))!.metadata).attestations;
     expect(att?.l2?.ref).toBe('wu-other');
+  });
+});
+
+// #523（#516 决议①，2026-09-12）：review 子单建成即在父 WU 线程出声「已派评审」——
+// 建单与出声同一动作，消除 happy path 静默段；认领播报照旧不合并
+describe('#523 派评审出声', () => {
+  it('路径 A：建单即在父 WU 线程出声「已派评审」（恰好一条，含子单标识）', async () => {
+    const { parent, child } = await createParentAndReview('实现功能 T1', executorProfile.id);
+    expect(child).toBeDefined();
+
+    const messages = await fileStore.queryMessages('ch-test', { workUnitId: parent.id });
+    const dispatched = messages.filter(m => m.authorType === 'agent' && m.content.includes('已派评审'));
+    expect(dispatched).toHaveLength(1);
+    expect(dispatched[0].content).toContain(`#${child!.id.slice(0, 8)}`);
+  });
+
+  it('dispatchReviewNow 人工补派同样出声「已派评审」（恰好一条，含子单标识）', async () => {
+    // 直接建 in_review（create 不触发路径 A 自动派单），人工补派
+    const parent = await wuService.create({
+      scope: '实现功能 T2', type: 'feature', channelId: 'ch-test',
+      assigneeId: executorProfile.id, status: 'in_review',
+    });
+
+    const child = await dispatcher.dispatchReviewNow(parent.id);
+
+    const messages = await fileStore.queryMessages('ch-test', { workUnitId: parent.id });
+    const dispatched = messages.filter(m => m.authorType === 'agent' && m.content.includes('已派评审'));
+    expect(dispatched).toHaveLength(1);
+    expect(dispatched[0].content).toContain(`#${child.id.slice(0, 8)}`);
   });
 });
 
