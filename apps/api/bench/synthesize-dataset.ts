@@ -16,6 +16,7 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import { parseWorkUnitIndexContent } from '@dommaker/studio-shared';
 
 export interface SynthesizeOptions {
   /** 模板根（只读）：含 data/ 与 logs/ */
@@ -55,8 +56,9 @@ export function synthesizeDataset(opts: SynthesizeOptions): SynthesizeStats {
 
   // ── WorkUnit index ×scale（id/parentId 一致性重映射）──
   const indexPath = path.join(templateHome, 'data', 'workunits', 'index.json');
+  // #524 P1-2：模板 index.json 可能是旧 JSON 数组或新 append-only JSONL，统一走 fold 读口
   const templateWus: Array<Record<string, any>> = fs.existsSync(indexPath)
-    ? JSON.parse(fs.readFileSync(indexPath, 'utf-8'))
+    ? parseWorkUnitIndexContent(fs.readFileSync(indexPath, 'utf-8')) as Array<Record<string, any>>
     : [];
   const outWus: Array<Record<string, any>> = [];
   for (let k = 0; k < scale; k++) {
@@ -95,7 +97,8 @@ export function synthesizeDataset(opts: SynthesizeOptions): SynthesizeStats {
   }
   const outWusDir = path.join(outData, 'workunits');
   fs.mkdirSync(outWusDir, { recursive: true });
-  fs.writeFileSync(path.join(outWusDir, 'index.json'), JSON.stringify(outWus, null, 2));
+  // #524 P1-2：合成数据直接产出新格式（append-only JSONL，每行一个快照）
+  fs.writeFileSync(path.join(outWusDir, 'index.json'), outWus.map(w => JSON.stringify(w)).join('\n') + (outWus.length > 0 ? '\n' : ''));
 
   // ── studio-events.jsonl 行 ×scale ──
   // #335：副本按 -k*12h 偏移时间戳（createdAt ISO / timestamp number|ISO），最旧副本在前——
