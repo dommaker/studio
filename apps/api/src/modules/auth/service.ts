@@ -120,7 +120,10 @@ async function readSessions(): Promise<SessionData[]> {
 }
 
 async function writeSessions(sessions: SessionData[]): Promise<void> {
-  await fileStore.writeJson(SESSIONS_FILE, sessions);
+  // #525 P2-3：写路径顺带 prune 过期条目，sessions.json 不随过期条目无限增长
+  const now = new Date();
+  const kept = sessions.filter((s) => new Date(s.expiresAt) >= now);
+  await fileStore.writeJson(SESSIONS_FILE, kept);
 }
 
 async function appendSession(session: SessionData): Promise<void> {
