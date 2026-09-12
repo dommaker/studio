@@ -194,6 +194,9 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
   // Project Discovery routes (AC-D1+D3: local project scanning)
   const { default: projectRoutes } = await import('./modules/projects/project.routes.js') as { default: Router };
 
+  // #525 P2-6: 通知渠道配置（/settings「通知渠道」配置区，消费方 = notifyAlert 告警外推）
+  const { default: notifyChannelRoutes } = await import('./modules/notify-channels/routes.js') as { default: Router };
+
   const auth = [requireAuth()];
   // 2026-07 API 鉴权收紧（姿态 A：保持 Lurk Wall，收紧写操作+敏感信息，详见 docs/plans/2026-07-api-auth-tightening.md）
   const admin = [requireAuth(), requireAdmin()];
@@ -249,6 +252,7 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     { path: '/api/v1/notifications', router: notificationRoutes, middleware: auth },
     { path: '/api/v1/action-center', router: actionCenterRoutes, middleware: auth, comment: '#468: 统一行动中心（状态派生 + 事件持久）' },
     { path: '/api/v1/notify', router: notifyRoutes, middleware: admin, comment: 'DD-009: 出站推送（内部调用）' },
+    { path: '/api/v1/notify-channels', router: notifyChannelRoutes, middleware: admin, comment: '#525 P2-6: 通知渠道配置（企微 webhook + ClawBot 扫码绑定，/settings 配置区）' },
     { path: '/api/v1/knowledge', router: knowledgeRoutes, middleware: auth },
     { path: '/api/v1/knowledge-service', router: knowledgeServiceRoutes, middleware: auth, comment: 'KnowledgeService HTTP API + SSE' },
     { path: '/api/v1/review-proposals', router: reviewProposalRoutes, middleware: auth, comment: '#351: 人审提案卡通用端点（distill/gc/audit/memory 经注册表分发；#353 起取代 /role-memory 专有端点）' },

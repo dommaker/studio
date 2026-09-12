@@ -3,10 +3,18 @@
  *
  * 覆盖：
  * - 频道 sink：STUDIO_ALERT_CHANNEL_ID 优先 → 按名字找「系统」/system → 都没有跳过 + warn
- * - 企业微信 sink：WECOM_WEBHOOK_URL 存在时 POST markdown；未配置跳过
+ * - 企业微信 sink：WECOM_WEBHOOK_URL 存在时 POST markdown；未配置跳过；
+ *   #525 P2-6 起 URL 解析「配置存储优先、env 兜底」
+ * - ClawBot sink（#525 P2-6）：配置存储已绑定时 sendText 到 ilinkUserId；未绑定跳过
  * - fan-out 降级：任一 sink 失败不影响另一个，notifyAlert 不抛错
+ *
+ * 配置存储走真实 config-store + 临时 STUDIO_HOME（mkdtemp），不 mock，
+ * 以覆盖「配置存储优先于 env」的真实文件链路。
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import * as os from 'node:os';
 
 const { mockLogger, mockListChannels, mockCreateAgentMessage, mockFetch, mockCreateForAllUsers } = vi.hoisted(() => ({
   mockLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -38,11 +46,13 @@ vi.mock('@dommaker/studio-notification', () => ({
 }));
 
 import { notifyAlert } from '../notifier.js';
+import { saveNotifyChannelsConfig } from '../../modules/notify-channels/config-store.js';
 
-const ENV_KEYS = ['STUDIO_ALERT_CHANNEL_ID', 'WECOM_WEBHOOK_URL'] as const;
+const ENV_KEYS = ['STUDIO_ALERT_CHANNEL_ID', 'WECOM_WEBHOOK_URL', 'STUDIO_HOME'] as const;
 
 describe('notifier (P0 修复 4)', () => {
   const envBackup: Record<string, string | undefined> = {};
+  let tmpStudioHome: string;
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -55,6 +65,9 @@ describe('notifier (P0 修复 4)', () => {
       envBackup[k] = process.env[k];
       delete process.env[k];
     }
+    // #525 P2-6：配置存储隔离到临时 STUDIO_HOME（默认空配置）
+    tmpStudioHome = fs.mkdtempSync(path.join(os.tmpdir(), 'notifier-cfg-'));
+    process.env.STUDIO_HOME = tmpStudioHome;
   });
 
   afterEach(() => {
@@ -63,6 +76,7 @@ describe('notifier (P0 修复 4)', () => {
       if (envBackup[k] === undefined) delete process.env[k];
       else process.env[k] = envBackup[k];
     }
+    fs.rmSync(tmpStudioHome, { recursive: true, force: true });
   });
 
   describe('频道 sink', () => {
@@ -222,6 +236,83 @@ describe('notifier (P0 修复 4)', () => {
         expect.stringContaining('Notification sink failed'),
         expect.objectContaining({ error: expect.stringContaining('jsonl locked') }),
       );
+    });
+  });
+
+  describe('企业微信 sink（#525 P2-6：配置存储优先、env 兜底）', () => {
+    it('配置存储与 env 都设时打到配置存储的 URL', async () => {
+      process.env.WECOM_WEBHOOK_URL = 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=envkey';
+      saveNotifyChannelsConfig({
+        wecom: { webhookUrl: 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=settingskey' },
+      });
+
+      await notifyAlert('critical', 'T', 'B');
+
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      expect(mockFetch.mock.calls[0][0]).toBe('https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=settingskey');
+    });
+
+    it('仅 env 时照旧走 env URL', async () => {
+      process.env.WECOM_WEBHOOK_URL = 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=envkey';
+
+      await notifyAlert('critical', 'T', 'B');
+
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      expect(mockFetch.mock.calls[0][0]).toBe(process.env.WECOM_WEBHOOK_URL);
+    });
+  });
+
+  describe('ClawBot sink（#525 P2-6）', () => {
+    const CLAWBOT_CFG = {
+      botToken: 'tok-clawbot',
+      baseUrl: 'https://ilinkai.weixin.qq.com',
+      ilinkBotId: 'bot-1',
+      ilinkUserId: 'ilink-user-1',
+      boundAt: '2026-09-12T00:00:00.000Z',
+    };
+
+    function clawbotCalls() {
+      return mockFetch.mock.calls.filter(([url]) => String(url).includes('/ilink/bot/sendmessage'));
+    }
+
+    it('已绑定时 sendText 到 ilinkUserId（文本与企微段同内容）', async () => {
+      saveNotifyChannelsConfig({ clawbot: CLAWBOT_CFG });
+
+      await notifyAlert('critical', 'Test title', 'Test body');
+
+      const calls = clawbotCalls();
+      expect(calls).toHaveLength(1);
+      const [, init] = calls[0];
+      expect(init.headers.Authorization).toBe('Bearer tok-clawbot');
+      const payload = JSON.parse(init.body);
+      expect(payload.msg.to_user_id).toBe('ilink-user-1');
+      const text = payload.msg.item_list[0].text_item.text;
+      expect(text).toContain('[CRITICAL]');
+      expect(text).toContain('Test title');
+      expect(text).toContain('Test body');
+    });
+
+    it('未绑定时不触发 ClawBot sink', async () => {
+      await notifyAlert('warning', 't', 'b');
+      expect(clawbotCalls()).toHaveLength(0);
+    });
+
+    it('发送失败不阻断其他 sink，仅 logger.warn', async () => {
+      process.env.WECOM_WEBHOOK_URL = 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=envkey';
+      saveNotifyChannelsConfig({ clawbot: CLAWBOT_CFG });
+      mockFetch.mockImplementation(async (url: string) => {
+        if (String(url).includes('/ilink/bot/sendmessage')) throw new Error('ilink down');
+        return { ok: true };
+      });
+
+      await expect(notifyAlert('critical', 't', 'b')).resolves.toBeUndefined();
+
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('ClawBot sink failed'),
+        expect.objectContaining({ error: expect.stringContaining('ilink down') }),
+      );
+      // 企微 sink 仍被调用
+      expect(mockFetch.mock.calls.some(([url]) => String(url).includes('key=envkey'))).toBe(true);
     });
   });
 });

@@ -6,16 +6,21 @@
  *      （eventBus + SSE 发布，频道页实时可见）。
  *      目标频道解析顺序：env STUDIO_ALERT_CHANNEL_ID → 按名字找「系统」/system 频道
  *      → 都没有则跳过并 logger.warn。
- *   2. 企业微信 sink — env WECOM_WEBHOOK_URL 存在时 POST 群机器人 markdown 消息
- *      （5s 超时）；未配置则跳过。
+ *   2. 企业微信 sink — webhook URL 解析「配置存储（/settings 通知渠道）优先，
+ *      env WECOM_WEBHOOK_URL 兜底」（#525 P2-6，解析见 notify-channels/config-store），
+ *      POST 群机器人 markdown 消息（5s 超时）；未配置则跳过。
  *   3. 行动中心 sink（#468）— warning/critical 落 NotificationService（type=monitor_alert，
  *      全用户），刷新/重连不丢；info 不持久化（与 atHuman 口径一致，防刷屏）。
+ *   4. ClawBot sink（#525 P2-6）— 配置存储里已扫码绑定时 sendText 到 ilinkUserId
+ *      （文本同企微段内容；iLink 主动推送受 24h/10 条限制，见 clawbot-client 头注释）。
  *
  * utils/discord-notifier.ts 保留不动（可选渠道，后续由配置决定是否并入）。
  */
 import { logger, FileStore } from '@dommaker/studio-shared';
 import { NotificationService } from '@dommaker/studio-notification';
 import { ChannelMessageService } from '../modules/channels/channel-message.service.js';
+import { loadNotifyChannelsConfig, resolveWeComWebhookUrl } from '../modules/notify-channels/config-store.js';
+import { sendText } from '../modules/notify-channels/clawbot-client.js';
 
 export type AlertLevel = 'info' | 'warning' | 'critical';
 
@@ -42,6 +47,9 @@ export async function notifyAlert(level: AlertLevel, title: string, body: string
     ),
     persistAlertNotification(level, title, body, opts).catch(err =>
       logger.warn('[Notifier] Notification sink failed (non-blocking)', { error: String(err) })
+    ),
+    postToClawBot(level, title, body).catch(err =>
+      logger.warn('[Notifier] ClawBot sink failed (non-blocking)', { error: String(err) })
     ),
   ]);
 }
@@ -94,9 +102,9 @@ async function resolveAlertChannelId(fs: FileStore): Promise<string | null> {
   return hit?.id ?? null;
 }
 
-/** 企业微信群机器人 sink：POST markdown 消息，5s 超时；未配置 WECOM_WEBHOOK_URL 则跳过 */
+/** 企业微信群机器人 sink：POST markdown 消息，5s 超时；URL 解析「配置存储优先、env 兜底」（#525 P2-6），未配置则跳过 */
 async function postToWeCom(level: AlertLevel, title: string, body: string): Promise<void> {
-  const url = process.env.WECOM_WEBHOOK_URL?.trim();
+  const url = resolveWeComWebhookUrl().url;
   if (!url) return;
 
   const controller = new AbortController();
@@ -117,6 +125,19 @@ async function postToWeCom(level: AlertLevel, title: string, body: string): Prom
   } finally {
     clearTimeout(timer);
   }
+}
+
+/** ClawBot sink（#525 P2-6）：配置存储已绑定时 sendText 到 ilinkUserId（文本同企微段内容）；未绑定跳过 */
+async function postToClawBot(level: AlertLevel, title: string, body: string): Promise<void> {
+  const clawbot = loadNotifyChannelsConfig().clawbot;
+  if (!clawbot?.botToken) return;
+
+  await sendText({
+    botToken: clawbot.botToken,
+    baseUrl: clawbot.baseUrl,
+    toUserId: clawbot.ilinkUserId,
+    text: `${formatLevelTag(level)} **${title}**\n${body}`,
+  });
 }
 
 function formatLevelTag(level: AlertLevel): string {
