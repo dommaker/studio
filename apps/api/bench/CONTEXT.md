@@ -4,6 +4,8 @@
 
 #323 阶段一（周期循环读口量化测量）的基准 harness：以真实 `~/.studio` 为 1x 模板合成 1x/10x/50x 数据集到 tmp，子进程驱动 8 个周期循环体各 N 轮（外加 monitor 日级窗口补测），聚合产出 markdown 报告。**去留随 #323 评审**（阶段一为一次性测量，不作为常驻工具维护）。
 
+#521（2026-09-13）新增常驻测量工具：`mainline-align.ts`（频道主链路离线对齐，随六份走查 bench 先例 `npx tsx` 直跑）——只读三家数据源（频道消息热文件 / WU 快照 / studio-events 事件流）对齐出「派单 / 等认领 / 执行总时长（含步级分解）/ 回执落库」四段 p50/p95 分布 + 按 traceId 单链明细；口径与数据结构见 `mainline-align-core.ts` 头注。
+
 ### 核心导出
 
 | 导出 | 文件 | 说明 |
@@ -12,6 +14,8 @@
 | `parseArgs` | loop-read-metrics.ts | bench 入口参数解析（`--rounds`/`--scales`）；入口脚本（tsx 直跑）合成 → 子进程驱动 → 聚合 |
 | `bucketOfFor` | loop-read-worker.ts | 读口事件按存储源分桶（wu-index/studio-events/agent-state/...）；worker 为每档子进程 |
 | `summarize` / `renderMarkdown` / `loadWorkerResults` | read-metrics-aggregate.ts | 轮次聚合（分桶计数、各阶段 P50/P95、残差）与 markdown 渲染纯函数 |
+| `buildChains` / `summarizeChains` / `filterChainsByWindow` / `findChainsByTraceId` | mainline-align-core.ts | #521 主链路对齐纯函数：三家数据行 → 单链四段（缺失段 skips 标注）→ 分布/明细 |
+| `parseArgs` / `loadInput` | mainline-align.ts | #521 CLI 壳参数解析（`--since 24h\|7d\|ISO` / `--until` / `--traceId` / `--studio-home` / `--events-file`）与三家数据源读取（缺文件降级空源 + 数据提示） |
 
 ### 注意事项
 

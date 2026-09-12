@@ -195,8 +195,8 @@ router.post('/:id/messages', requireAuth(), requireNotGuest(), async (req, res) 
     return res.status(404).json({ success: false, error: 'Channel not found' });
   }
 
-  // P0 修复 6: traceId — 复用 audit 中间件落在 req 上的 requestId（同一次 HTTP 请求同值），
-  // 没有则新建（如单测直连路由）；@mention 建 WU 时写入 metadata.traceId。
+  // P0 修复 6 + #519: traceId — 复用 audit 中间件落在 req 上的 requestId（同一次 HTTP 请求同值），
+  // 没有则新建（如单测直连路由）；三条派单路径建出/关联的 WU 统一写入 metadata.traceId。
   const traceId = (req as any).requestId ?? randomUUID();
 
   // #481：body.workspaceId（F6 显式机器指针）已退役，不再接收/生效

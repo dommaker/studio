@@ -38,6 +38,7 @@ import { parseLiveWuRef } from '../components/workunit/execution-rows';
 import type { Channel, ChannelMessage, ChannelSuggestion, FileRef } from '../api/channel';
 import { channelApi } from '../api/channel';
 import { saveLastChannelId } from '../utils/lastChannel';
+import { markPageEntry, emitPageFirstRender, emitReceiptRendered } from '../utils/clientPerf';
 import { toast } from '../utils/toast';
 
 /** #439：?highlight 定位的翻页页数上限（50 条/页 → 最多回看 500 条），超限/翻到底降级为可见反馈 */
@@ -115,8 +116,22 @@ export function ChannelDetailPage() {
   const { id } = useParams<{ id: string }>();
   // #393：记录最近访问频道（/ 与 /channels 重定向落点，spec §2）
   useEffect(() => { if (id) saveLastChannelId(id); }, [id]);
+
+  // #520 测量②：client.perf 埋点③起点——进页记时（埋点①在 ChannelInput，②起点在 useChannelMessages）
+  useEffect(() => { if (id) markPageEntry(id); }, [id]);
   const [channel, setChannel] = useState<Channel | null>(null);
   const { messages, loading, error, sendMessage, loadMore, hasMore, refresh, syncPruning } = useChannelMessages(id);
+
+  // #520 测量②：渲染完成终点（effect 于提交后跑 = 渲染已完成）——
+  // ③ page_load：首屏消息渲染完成（每进页至多一次，起点消费后不再发；空频道不发属正常）；
+  // ② receipt_render：仅 SSE 到达时标记过的消息发事件（首拉/翻页/水合的历史消息无标记，天然跳过）
+  useEffect(() => {
+    if (!id || loading || messages.length === 0) return;
+    emitPageFirstRender(id);
+    for (const m of messages) {
+      emitReceiptRendered({ messageId: m.id, channelId: id, workUnitId: m.workUnitId ?? null });
+    }
+  }, [id, loading, messages]);
   const [sending, setSending] = useState(false);
   // 折叠 UI 状态（showCompleted / collapsedThreads / expandedProcGroups）按频道持久化（Step 3），
   // setter 语义同 useState；线程默认全部展开，collapsedThreads 只存手动收起的锚点 id

@@ -104,8 +104,10 @@ async function findMergeTargetWorkUnit(
  * REQ 需求编号（vision §5.3）：@mention 派发时绑定需求 —
  * options.reqId 显式指定 > 消息文本 #REQ-XXXX token > 自动新建（best-effort）。
  *
- * P0 修复 6：options.traceId 链路追踪 id — 仅 @mention 建 WU 时写入 metadata.traceId；
- * 线程回复不建 WU，不动。
+ * P0 修复 6 + #519：options.traceId 链路追踪 id — 三条派单路径统一写入：
+ * @mention / 默认角色新建 WU 时写入 metadata.traceId；线程回复与合并窗口
+ * 关联到既有 WU 时，把该 WU 的 metadata.traceId 刷新为本次请求值（#519 口径：
+ * spec user story 5 二选一，统一取「本次消息 traceId」，与 AC「与本次请求一致」对齐）。
  *
  * #281（决策 #249 §2/§3 + #257 D7/D9）：options.files @文件引用 —— 路由时存在性校验
  * （repo ∈ 频道相关工程候选集 且 path ∈ 该仓 git ls-files 词表）；有效引用写消息
@@ -185,6 +187,20 @@ export async function routeMessage(
     }, { source: 'message-routing' });
   };
 
+  // #519: 关联到既有 WU 的两条路径（线程回复 / 合并窗口）共用——把 WU metadata.traceId
+  // 刷新为本次请求 traceId（best-effort：失败仅缺本次关联，不阻断消息路由）
+  const refreshWuTraceId = async (workUnitId: string) => {
+    if (!options?.traceId) return;
+    await resolvedFs.updateMetadata(workUnitId, latest => ({
+      ...latest,
+      traceId: options.traceId,
+    })).catch(err =>
+      logger.warn('[MessageRouting] Refresh WorkUnit traceId failed (non-blocking)', {
+        workUnitId, traceId: options.traceId, error: String(err),
+      })
+    );
+  };
+
   // Priority 1: Thread reply — inherit workUnitId from parent
   if (replyToId) {
     const found = await resolvedFs.getMessageById(replyToId);
@@ -213,6 +229,8 @@ export async function routeMessage(
           error: String(err),
         })
       );
+      // #519: 线程回复关联的 WU 同样携带本次 traceId（全链路统一关联键）
+      await refreshWuTraceId(inheritedWorkUnitId);
     }
     // #492（方案 a）：父消息在冷层 → 降级放行的回复不会触达任何任务，
     // 频道发 Studio 系统提示（挂在该回复线程），用户不再静默失效；提示本身 best-effort。
@@ -455,6 +473,8 @@ export async function routeMessage(
           })
         );
       }
+      // #519: 合并窗口并入的在途 WU 刷新为本次消息 traceId（与线程回复同口径）
+      await refreshWuTraceId(mergeTarget.id);
       logger.info('[MessageRouting] Message merged into in-flight WorkUnit (merge window)', {
         channelId,
         workUnitId: mergeTarget.id,
@@ -480,6 +500,8 @@ export async function routeMessage(
         creationMode: 'channel-default',
         // #494: 认领播报的显式线程锚点
         anchorMessageId: dispatchMessage.id,
+        // #519: traceId 贯穿（与 @mention 路径同写法）
+        ...(options?.traceId ? { traceId: options.traceId } : {}),
         // #285: @文件引用落档（本路径不做归属解析，仅落档供 prompt-composer files 段消费）
         ...(filesMeta?.files ? { fileRefs: filesMeta.files } : {}),
       },

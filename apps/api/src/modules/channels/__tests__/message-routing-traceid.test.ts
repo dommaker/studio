@@ -1,9 +1,11 @@
 /**
- * P0 修复 6: traceId 贯穿 — message-routing 段
+ * P0 修复 6 + #519: traceId 贯穿 — message-routing 段
  *
  * - @mention 建 WU 时 options.traceId 写入 metadata.traceId
  * - 无 traceId 时 metadata 不带该字段（向后兼容）
- * - 线程回复不建 WU，不受影响
+ * - #519 三路径补齐：线程回复关联的 WU、默认角色派单（新建 + 合并窗口并入的在途 WU）
+ *   同样写入/刷新 metadata.traceId；口径统一为「本次消息 traceId」（spec user story 5
+ *   二选一，取与 AC「与本次请求一致」对齐的一项）
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import fs from 'node:fs';
@@ -84,5 +86,48 @@ describe('message-routing traceId (P0 修复 6)', () => {
     // 回复继承父消息 workUnitId，不新建 WU
     expect(reply.workUnitId).toBe(parent.workUnitId);
     expect((await fileStore.getIndex()).length).toBe(wuCountBefore);
+  });
+
+  // #519: traceId 三条派单路径补齐（spec 2026-09-12-channel-mainline-measurement）
+  it('#519 线程回复：关联 WU 的 metadata.traceId 刷新为本次请求 traceId', async () => {
+    const parent = await routeMessage(channelId, '@Nobody 父消息', undefined, fileStore, {
+      traceId: 'trace-parent',
+    });
+
+    const reply = await routeMessage(channelId, '线程回复', parent.id, fileStore, {
+      traceId: 'trace-reply',
+    });
+
+    const meta = await findWuMeta(reply.workUnitId!);
+    expect(meta.traceId).toBe('trace-reply');
+  });
+
+  it('#519 默认角色派单（新建 WU）：options.traceId 写入 metadata.traceId', async () => {
+    await fileStore.updateChannel(channelId, { defaultProfileId: 'default-agent-1' });
+
+    const message = await routeMessage(channelId, '无 @ 的普通消息', undefined, fileStore, {
+      traceId: 'trace-default-new',
+    });
+
+    expect(message.workUnitId).toBeTruthy();
+    const meta = await findWuMeta(message.workUnitId!);
+    expect(meta.traceId).toBe('trace-default-new');
+    expect(meta.creationMode).toBe('channel-default');
+  });
+
+  it('#519 默认角色合并窗口：并入的在途 WU metadata.traceId 刷新为本次消息 traceId', async () => {
+    await fileStore.updateChannel(channelId, { defaultProfileId: 'default-agent-1' });
+    const first = await routeMessage(channelId, '第一条', undefined, fileStore, {
+      traceId: 'trace-merge-first',
+    });
+
+    const second = await routeMessage(channelId, '窗口内第二条', undefined, fileStore, {
+      traceId: 'trace-merge-second',
+    });
+
+    // 合并入同一张在途 WU，不新建
+    expect(second.workUnitId).toBe(first.workUnitId);
+    const meta = await findWuMeta(first.workUnitId!);
+    expect(meta.traceId).toBe('trace-merge-second');
   });
 });
