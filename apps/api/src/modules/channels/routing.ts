@@ -85,8 +85,9 @@ export function routingFallbackText(stage: RoutingStage, resolution: StageRoutin
  * analysis-handoff（implement）/ review-dispatcher（review）/ project.service（plan）四处。
  *
  * 返回 resolution + 应出声文案（null = 不出声）：配错时 #497 冷却闸在内部消费；
- * 未配置仅在传入 notConfiguredText 时出声（对齐 #464 workunit-crud「未配置也提示」口径，
- * 且未配置提示不走冷却闸——与改造前逐点行为一致）。
+ * 未配置仅在传入 notConfiguredText 时出声（对齐 #464 workunit-crud「未配置也提示」口径）。
+ * #525：未配置提示同样过 #497 冷却闸（同频道同档 1h 一次，键 = channelId:stage:not-configured，
+ * 与配错的 channelId:stage:fallbackReason 同表不同键），首次照出不误。
  *
  * 留在调用侧的差异（票体难点决议，不强行收口）：出声通道（WU 系统消息 / 频道 agent
  * 消息 / analysis-handoff 自身 post）与出声时机（建单前即时 / 建单完成后）四点皆不同，
@@ -112,11 +113,15 @@ export async function resolveOrNotice(
       : null;
     return { resolution, notice };
   }
-  return { resolution, notice: opts.notConfiguredText ?? null };
+  // #525：未配置提示也过冷却闸（同频道同档 1h 一次），首次照出不误
+  const notice = opts.notConfiguredText && shouldEmitNotConfiguredReminder(channelId, stage)
+    ? opts.notConfiguredText
+    : null;
+  return { resolution, notice };
 }
 
 /**
- * #497: fallback 提醒冷却窗——同频道同档同原因在窗内只出声一次。
+ * #497: 提醒冷却窗——同频道同档同原因（含 #525 的 not-configured 档）在窗内只出声一次。
  * 悬空指名在配置修复前会持续触发派生，不去重则提醒无限重复刷屏。
  * 进程内 Map（重启即重置）：提醒是配置修复信号，重启后补一条可接受，不漏路由回退本身。
  */
@@ -135,6 +140,23 @@ export function shouldEmitFallbackReminder(
   now: number = Date.now(),
 ): boolean {
   const key = `${channelId}:${stage}:${resolution.fallback ?? 'none'}`;
+  const last = fallbackReminderSentAt.get(key);
+  if (last !== undefined && now - last < FALLBACK_REMINDER_COOLDOWN_MS) return false;
+  fallbackReminderSentAt.set(key, now);
+  return true;
+}
+
+/**
+ * #525: 未配置提示冷却闸——与配错提醒同一张冷却表（resetFallbackReminderCooldown 一并清），
+ * 键 = channelId:stage:not-configured，与配错的 channelId:stage:fallbackReason 互不冲突。
+ * 返回 true = 放行并登记；false = 冷却窗内，跳过出声。
+ */
+export function shouldEmitNotConfiguredReminder(
+  channelId: string,
+  stage: RoutingStage,
+  now: number = Date.now(),
+): boolean {
+  const key = `${channelId}:${stage}:not-configured`;
   const last = fallbackReminderSentAt.get(key);
   if (last !== undefined && now - last < FALLBACK_REMINDER_COOLDOWN_MS) return false;
   fallbackReminderSentAt.set(key, now);
