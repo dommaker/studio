@@ -169,7 +169,7 @@ async function main(): Promise<void> {
 
     const channel = await apiJson<{ data: any }>('/channels', postJson({ name: `e2e-live-${Date.now().toString(36)}`, type: 'rnd' }));
     channelId = channel.data.id;
-    await apiJson(`/channels/${channelId}`, patchJson({ defaultWorkspaceId: workspace.id }));
+    await apiJson(`/channels/${channelId}`, patchJson({ defaultPath: repoDir }));
 
     const profile = await apiJson<any>('/agent-profiles', postJson({
       name: AGENT_NAME,
