@@ -95,9 +95,10 @@ export interface QueryOpts {
 export interface MessagePageOpts {
   before?: string;         // message id（替代原 timestamp 游标——同毫秒多条不漏不重）
   limit?: number;
+  includeTotal?: boolean;  // #525 P2-4：缺省 false 完全跳过冷/热行数统计，total 恒 0；要总数的调用方显式开口
 }
 
-/** 频道消息分页结果（messages 按 createdAt 升序；total = 锚点过滤后的总数） */
+/** 频道消息分页结果（messages 按 createdAt 升序；total = 锚点过滤后的总数，includeTotal 未开启时 total 恒 0） */
 export interface MessagePage {
   messages: ChannelMessageData[];
   total: number;

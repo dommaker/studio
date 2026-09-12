@@ -1834,7 +1834,7 @@ describe('queryMessagesPage 分页下沉 + id 游标（#319）', () => {
 
   it('无 before：返回最新 limit 条（升序），total/hasMore 正确', async () => {
     await seedSameTimestamp();
-    const page = await store.queryMessagesPage(CH, { limit: 2 });
+    const page = await store.queryMessagesPage(CH, { limit: 2, includeTotal: true });
     expect(page.messages.map(m => m.id)).toEqual(['p4', 'p5']);
     expect(page.total).toBe(5);
     expect(page.hasMore).toBe(true);
@@ -1842,7 +1842,7 @@ describe('queryMessagesPage 分页下沉 + id 游标（#319）', () => {
 
   it('before=<messageId>：锚点之前窗口（不含锚点），同毫秒消息不漏不重', async () => {
     await seedSameTimestamp();
-    const page = await store.queryMessagesPage(CH, { before: 'p4', limit: 2 });
+    const page = await store.queryMessagesPage(CH, { before: 'p4', limit: 2, includeTotal: true });
     expect(page.messages.map(m => m.id)).toEqual(['p2', 'p3']);
     expect(page.total).toBe(5); // 候选 8 统一口径：热+冷原始行数（原「锚点过滤后的总数」随分支漂移，退役）
     expect(page.hasMore).toBe(true);
@@ -1854,7 +1854,7 @@ describe('queryMessagesPage 分页下沉 + id 游标（#319）', () => {
 
   it('锚点 id 不存在（已删除/被压实抹除）→ 空页、hasMore=false，不整页错发', async () => {
     await seedSameTimestamp();
-    const page = await store.queryMessagesPage(CH, { before: 'p-gone', limit: 2 });
+    const page = await store.queryMessagesPage(CH, { before: 'p-gone', limit: 2, includeTotal: true });
     expect(page.messages).toEqual([]);
     expect(page.total).toBe(5);
     expect(page.hasMore).toBe(false);
@@ -1984,7 +1984,7 @@ describe('消息读口倒扫（#524 P1-1）', () => {
       for (const [i, id] of ['h1', 'h2', 'h3', 'h4', 'h5'].entries()) {
         await store.appendMessage(CH, { ...makeMessage(id, CH), createdAt: ts(i + 1) });
       }
-      const page = await store.queryMessagesPage(CH, { limit: 2 });
+      const page = await store.queryMessagesPage(CH, { limit: 2, includeTotal: true });
       expect(page.messages.map(m => m.id)).toEqual(['h4', 'h5']);
       expect(page.hasMore).toBe(true);
       expect(page.total).toBe(7); // 2 死行 + 5 活行（字节快扫原始行数；活数为 5）
@@ -1997,7 +1997,7 @@ describe('消息读口倒扫（#524 P1-1）', () => {
       }
       // 旧消息 h2 的更新副本落在文件尾（createdAt 不变）：窗口文件序 ≠ 时间序
       await store.appendMessage(CH, { ...makeMessage('h2', CH), content: 'h2 v2', createdAt: ts(2) });
-      const page = await store.queryMessagesPage(CH, { limit: 2 });
+      const page = await store.queryMessagesPage(CH, { limit: 2, includeTotal: true });
       expect(page.messages.map(m => m.id)).toEqual(['h4', 'h5']);
       expect(page.hasMore).toBe(true);
       expect(page.total).toBe(5); // 全量路径：精确活数
@@ -2006,7 +2006,7 @@ describe('消息读口倒扫（#524 P1-1）', () => {
     it('热穷举（≤limit）→ total 为精确活数', async () => {
       await store.appendMessage(CH, makeMessage('s1', CH));
       await store.appendMessage(CH, { ...makeMessage('s1', CH), content: 's1 v2' });
-      const page = await store.queryMessagesPage(CH, { limit: 10 });
+      const page = await store.queryMessagesPage(CH, { limit: 10, includeTotal: true });
       expect(page.messages.map(m => m.id)).toEqual(['s1']);
       expect(page.total).toBe(1);
       expect(page.hasMore).toBe(false);

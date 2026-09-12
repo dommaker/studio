@@ -943,6 +943,8 @@ export class FileStore extends FileStoreWorkUnitBase {
    * total 统一为「热 + 冷原始行数」三分支同口径（原语义随分支漂移：无锚=全链总数、
    * 锚在冷=比锚点旧的数量；前端不消费 total）：冷行数走字节快扫数 LF，不 parse/clone/sort，
    * thaw/崩溃残留行计入会虚高（方向安全，偏多不丢）。
+   * #525 P2-4：total 统计默认关闭（includeTotal 缺省 false → 完全跳过冷/热行数统计，total 恒 0），
+   * 要总数的调用方显式 includeTotal: true，口径不变。
    */
   async queryMessagesPage(channelId: string, opts?: MessagePageOpts): Promise<MessagePage> {
     const limit = opts?.limit !== undefined && opts.limit > 0 ? opts.limit : 50;
@@ -960,13 +962,15 @@ export class FileStore extends FileStoreWorkUnitBase {
       //   压实 #319 清死行后自愈）。
       const tail = await this.readMessagesTail(channelId, { limit: limit + 1 });
       if (tail.exhausted || isStrictlyDecreasingTs(tail.messages)) {
-        const coldLineCount = await this.countColdLines(channelId);
+        // #525 P2-4：includeTotal 未开启（缺省）时完全跳过 countColdLines/countFileLines，total 恒 0
         // total 热部：穷举 = 精确活数；未穷举 = 字节快扫原始行数（死行虚高，方向安全偏多——
         // 与冷侧「thaw/崩溃残留行计入」同口径，前端不消费 total）
-        const hotTotal = tail.exhausted
-          ? tail.messages.length
-          : await this.countFileLines(this.messagesPath(channelId));
-        const total = hotTotal + coldLineCount;
+        const total = opts?.includeTotal
+          ? (tail.exhausted
+            ? tail.messages.length
+            : await this.countFileLines(this.messagesPath(channelId)))
+          + await this.countColdLines(channelId)
+          : 0;
 
         const hasHotMore = tail.messages.length > limit;
         const hotPage = tail.messages.slice(0, limit); // 新→旧（单调窗口内 = createdAt 降序）
@@ -994,8 +998,10 @@ export class FileStore extends FileStoreWorkUnitBase {
     // 按创建时间升序（与 queryMessages 同口径；同刻消息按文件序稳定排列）
     resolved.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
     const hotIds = new Set(resolved.map(m => m.id));
-    const coldLineCount = await this.countColdLines(channelId);
-    const total = resolved.length + coldLineCount;
+    // #525 P2-4：includeTotal 未开启（缺省）时完全跳过 countColdLines，total 恒 0
+    const total = opts?.includeTotal
+      ? resolved.length + await this.countColdLines(channelId)
+      : 0;
 
     if (!opts?.before) {
       // 无 before 的原全量首页路径（#524 快径严格性违例时回退到此）：

@@ -144,6 +144,9 @@ router.get('/:id/messages', async (req, res) => {
   const page = await fileStore.queryMessagesPage(req.params.id, {
     before: typeof before === 'string' && before ? before : undefined,
     limit: take,
+    // #525 P2-4：total 默认跳过（countColdLines 逐冷月字节扫纯浪费，前端不消费）；
+    // 要总数的调用方显式 ?includeTotal=true 开口
+    includeTotal: req.query.includeTotal === 'true',
   });
 
   // 解析 meta JSON，转换 createdAt 类型
@@ -211,6 +214,8 @@ router.post('/:id/messages', requireAuth(), requireNotGuest(), async (req, res) 
       traceId,
       // #281: @文件引用（路由层做存在性校验 + 剔除播报）
       files: files as { repo: string; path: string }[] | undefined,
+      // #525 P2-2（决策 #517 项 3）：上方 404 判定已读出的 channel 透传，消 routeMessage 重复读
+      channel,
     },
   );
 
