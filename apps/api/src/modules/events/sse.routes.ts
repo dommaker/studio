@@ -20,6 +20,7 @@ import { eventBus } from '@dommaker/studio-shared';
 import { v4 as uuidv4 } from 'uuid';
 import { logger } from '../../utils/logger.js';
 import { SseReplayBuffer } from './sse-replay-buffer.js';
+import { EXECUTION_STREAM_SSE_TYPE } from '../agents/loop/execution-step-events.js';
 
 const router = Router();
 
@@ -61,8 +62,12 @@ function ensureEventSubscription() {
     // eventBus 精确匹配走 EventEmitter.emit，handler 抛异常会向上抛——内部 try/catch 护住
     try {
       const topic = getTopicFromEventType(event.event_type);
+      // #524 P1-3（#516 项⑥）：stream chunk 不进 500 条共享 replay buffer——
+      // 补发价值最低流量最大（Layer B 不落盘、前端纯内存、重连走全量 refetch 兜底），
+      // 关键事件独占补发窗口；直播广播照常（id 取当前 seq，EventSource 游标语义不变）。
+      const isStreamChunk = event.event_type === EXECUTION_STREAM_SSE_TYPE;
       // #491：先入 replay buffer（分配单调 seq 作为 SSE id 行），再广播
-      const seq = sseReplayBuffer.push(topic, event.event_type, event);
+      const seq = isStreamChunk ? sseReplayBuffer.currentSeq : sseReplayBuffer.push(topic, event.event_type, event);
       for (const client of clients.values()) {
         if (client.topics.has('all') || client.topics.has(topic)) {
           // 转发完整信封（event_type/event_id/timestamp/data）——客户端按 event_type 分发
