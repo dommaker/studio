@@ -43,6 +43,7 @@ vi.mock('../../knowledge/knowledge-service.js', () => ({
 }));
 
 import { skillStore } from '../../skills/skill-store.js';
+import { FileStore, eventBus } from '@dommaker/studio-shared';
 import {
   classifyError,
   studioEventsJsonl,
@@ -392,6 +393,83 @@ describe('analyzeCircuitHealth() Circuit 5 散置 CONTEXT.md', () => {
 describe('studioEventsJsonl()', () => {
   it('resolves 统一事件文件（D18，STUDIO_EVENTS_FILE 可覆盖）', () => {
     expect(studioEventsJsonl()).toBe(eventsFile);
+  });
+});
+
+// ── #523（#515 决议 P0-3）：okr_proposal 建单收口 WorkUnitService.create ──
+// 原 commitSnapshot 直写不发 eventBus 事件，对唤醒体系完全隐形（第二个建单口）；
+// 改走 create 后建单发 workunit.created（带 claimable），AgentLoop 真唤醒链路可见。
+
+describe('#523: okr_proposal 建单走 WorkUnitService.create', () => {
+  const prevRepoDir = process.env.REPO_DIR;
+  let realStore: FileStore;
+  let storeDir: string;
+
+  beforeAll(() => {
+    // Point REPO_DIR at empty tmp → Circuit 5 (CONTEXT.md scan) skipped deterministically
+    process.env.REPO_DIR = tmpHome;
+  });
+
+  afterAll(() => {
+    if (prevRepoDir === undefined) delete process.env.REPO_DIR;
+    else process.env.REPO_DIR = prevRepoDir;
+  });
+
+  beforeEach(() => {
+    storeDir = fs.mkdtempSync(path.join(tmpHome, 'okr-wu-'));
+    realStore = new FileStore(storeDir);
+    // 知识总线健康 → 不早退，走到 Circuit 7 OKR 检查
+    mockGetStats.mockReturnValue({ total: 50, pattern: 20, failure: 15, trend: 15 });
+    // Circuit 7 喂数：1 个 active OKR，KR 达成率 50% < 60% 且趋势未改善 → 触发建单
+    vi.spyOn(realStore, 'listDocs').mockResolvedValue(['okr-1']);
+    vi.spyOn(realStore, 'readDoc').mockResolvedValue({
+      meta: {
+        id: 'okr-1', status: 'active', title: '增长',
+        keyResults: [{ id: 'kr-1', title: 'DAU', metricType: 'count', target: 100, unit: '' }],
+      },
+      body: '',
+    });
+    vi.spyOn(realStore, 'readJsonl').mockResolvedValue([
+      { okrId: 'okr-1', krId: 'kr-1', value: 50, status: 'ok', timestamp: new Date().toISOString() },
+    ]);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    fs.rmSync(storeDir, { recursive: true, force: true });
+  });
+
+  it('低达成 KR 建 okr_proposal 单：落库 + 发 workunit.created（claimable=true）', async () => {
+    interface CreatedPayload { workunit: { id: string; type: string; status: string; claimable: boolean; scope: string; metadata: string } }
+    const events: CreatedPayload[] = [];
+    const handler = (p: CreatedPayload) => events.push(p);
+    eventBus.subscribe('workunit.created', handler);
+    try {
+      const suggestions = await analyzeCircuitHealth(realStore);
+
+      // 原有 suggestions.push 逻辑不动
+      expect(suggestions.some(s => s.detail.includes('建议触发深度根因分析'))).toBe(true);
+
+      // 建单走 WorkUnitService.create → 发 workunit.created 且带 claimable
+      // （commitSnapshot 直写不发事件，claimable 只有 publishCreated 会算）
+      expect(events.length).toBe(1);
+      const wu = events[0].workunit;
+      expect(wu.type).toBe('okr_proposal');
+      expect(wu.status).toBe('unassigned');
+      expect(wu.claimable).toBe(true);
+      expect(wu.scope).toContain('[OKR优化] DAU');
+      const meta = JSON.parse(wu.metadata);
+      expect(meta.okrId).toBe('okr-1');
+      expect(meta.krId).toBe('kr-1');
+      expect(meta.attainment).toBe(0.5);
+
+      // 落库可经 FileStore 读回（create 不支持指定 id → 用 service 生成的 id）
+      const stored = await realStore.getIndex({ id: wu.id });
+      expect(stored.length).toBe(1);
+      expect(stored[0].type).toBe('okr_proposal');
+    } finally {
+      eventBus.unsubscribe('workunit.created', handler);
+    }
   });
 });
 

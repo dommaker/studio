@@ -298,3 +298,165 @@ describe('#493: 新回复同毫秒边界 + 唤醒闩锁', () => {
     expect(seam.pendingWake).toBe(false);
   });
 });
+
+// #523（#515 决议 P0-1）：认领真唤醒——workunit.created 的 EVENT handler 不再白跑
+// 一次 observe 丢弃，改走 channel.message_sent 同款机制（pendingWake 闩锁 + wakeIdle）
+// 叫醒 runLoop 自己跑 observe→认领；派生可认领路径（status_changed）同口径补唤醒。
+// 过滤口径 = 负载现成的 claimable === true（pending 人闸单/有依赖单不空唤醒）。
+describe('#523: workunit 认领真唤醒（created + status_changed）', () => {
+  let testDir: string;
+  let fileStore: FileStore;
+  let agentLoop: AgentLoop;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockExecSync.mockReturnValue('Claude Code CLI version 1.0.0');
+    testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-loop-523-'));
+    fileStore = new FileStore(testDir);
+  });
+
+  afterEach(async () => {
+    if (agentLoop) {
+      agentLoop.stop();
+      await Promise.race([
+        agentLoop.waitForStop(),
+        new Promise(resolve => setTimeout(resolve, 2000)),
+      ]);
+    }
+    eventBus.unsubscribeAll('workunit.status_changed');
+    fs.rmSync(testDir, { recursive: true, force: true });
+  }, 5000);
+
+  /** 启动 loop 并等首轮 observe 完成 */
+  async function startAndWaitFirstObserve(): Promise<void> {
+    agentLoop = new AgentLoop(mockRole, fileStore);
+    const indexSpy = vi.spyOn(fileStore, 'getIndex');
+    await agentLoop.start();
+    await vi.waitFor(() => {
+      expect(indexSpy.mock.calls.length).toBeGreaterThanOrEqual(1);
+    }, { timeout: 3000, interval: 20 });
+    indexSpy.mockRestore();
+  }
+
+  /** workunit.created 的 EVENT EXECUTE handler（trigger scheduler 会把事件 payload 传进来） */
+  function createdHandler(): (payload: unknown) => Promise<void> {
+    const handler = mockTriggerScheduler.registerExecuteHandler.mock.calls
+      .find(c => c[0] === `agent-loop-${mockRole.id}-observe`)?.[1] as ((payload: unknown) => Promise<void>) | undefined;
+    expect(handler).toBeTruthy();
+    return handler!;
+  }
+
+  it('workunit.created（claimable=true）→ 叫醒 loop 立即跑一轮 observe（不等 15s 地板）', async () => {
+    await startAndWaitFirstObserve();
+
+    const indexSpy = vi.spyOn(fileStore, 'getIndex');
+    const before = indexSpy.mock.calls.length;
+
+    await createdHandler()({ workunit: { id: 'wu-new', claimable: true } });
+
+    // idle 地板 15s——2s 内 observe 再跑即证明真唤醒（不是白跑丢弃）
+    await vi.waitFor(() => {
+      expect(indexSpy.mock.calls.length).toBeGreaterThan(before);
+    }, { timeout: 2000, interval: 20 });
+  });
+
+  it('workunit.created claimable=false / 缺字段 → 不唤醒', async () => {
+    await startAndWaitFirstObserve();
+
+    const indexSpy = vi.spyOn(fileStore, 'getIndex');
+    const before = indexSpy.mock.calls.length;
+
+    const handler = createdHandler();
+    await handler({ workunit: { id: 'wu-pending', claimable: false } }); // pending 人闸单
+    await handler({ workunit: { id: 'wu-no-field' } });                    // 缺 claimable 字段
+    await handler({});                                                     // 空负载
+    eventBus.publish('workunit.status_changed', { workunit: { id: 'wu-x', claimable: false } });
+
+    await new Promise(resolve => setTimeout(resolve, 400));
+    expect(indexSpy.mock.calls.length).toBe(before);
+  });
+
+  it('workunit.status_changed（claimable=true）→ 同样唤醒（人闸确认/unclaim/reopen 同口径）', async () => {
+    await startAndWaitFirstObserve();
+
+    const indexSpy = vi.spyOn(fileStore, 'getIndex');
+    const before = indexSpy.mock.calls.length;
+
+    eventBus.publish('workunit.status_changed', { workunit: { id: 'wu-confirmed', claimable: true } });
+
+    await vi.waitFor(() => {
+      expect(indexSpy.mock.calls.length).toBeGreaterThan(before);
+    }, { timeout: 2000, interval: 20 });
+  });
+
+  it('stop() 退订 workunit.status_changed', async () => {
+    const unsubscribeSpy = vi.spyOn(eventBus, 'unsubscribe');
+    await startAndWaitFirstObserve();
+
+    agentLoop.stop();
+    expect(unsubscribeSpy).toHaveBeenCalledWith('workunit.status_changed', expect.any(Function));
+    await agentLoop.waitForStop();
+  });
+});
+
+// #523 seam 直驱（不 start，确定性无竞态）：步间 sleep 复用 wakeIdle 可中断原语——
+// 认领事件到达时 loop 不在 idleSleep 则置闩，在 idleSleep（含步间 dynamicInterval sleep）则打断
+describe('#523: 步间 sleep 可中断（seam 直驱）', () => {
+  let testDir: string;
+  let fileStore: FileStore;
+
+  interface Seam523 {
+    alive: boolean;
+    pendingWake: boolean;
+    onWorkUnitClaimable(payload: unknown): void;
+    idleSleep(ms: number): Promise<void>;
+  }
+  const seamOf = (loop: AgentLoop) => loop as unknown as Seam523;
+
+  beforeEach(() => {
+    testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-loop-523-seam-'));
+    fileStore = new FileStore(testDir);
+  });
+
+  afterEach(() => {
+    fs.rmSync(testDir, { recursive: true, force: true });
+  });
+
+  it('认领事件打断在睡的 idleSleep（步间 sleep 同款原语，不睡满）', async () => {
+    const loop = new AgentLoop(mockRole, fileStore);
+    const seam = seamOf(loop);
+    seam.alive = true;
+
+    const t0 = Date.now();
+    const sleeping = seam.idleSleep(30_000); // 步间 dynamicInterval 上限档
+    seam.onWorkUnitClaimable({ workunit: { id: 'wu-1', claimable: true } });
+    await sleeping;
+    expect(Date.now() - t0).toBeLessThan(1000);
+  });
+
+  it('不在 sleep 时认领事件置闩，下一次 idleSleep 入口消费立即放行', async () => {
+    const loop = new AgentLoop(mockRole, fileStore);
+    const seam = seamOf(loop);
+    seam.alive = true;
+
+    seam.onWorkUnitClaimable({ workunit: { id: 'wu-1', claimable: true } });
+    expect(seam.pendingWake).toBe(true);
+
+    const t0 = Date.now();
+    await seam.idleSleep(15_000);
+    expect(Date.now() - t0).toBeLessThan(1000);
+    expect(seam.pendingWake).toBe(false);
+  });
+
+  it('闩锁不误置：claimable=false / 缺字段 / 空负载不置闩', () => {
+    const loop = new AgentLoop(mockRole, fileStore);
+    const seam = seamOf(loop);
+    seam.alive = true;
+
+    seam.onWorkUnitClaimable({ workunit: { id: 'wu-1', claimable: false } });
+    seam.onWorkUnitClaimable({ workunit: { id: 'wu-1' } });
+    seam.onWorkUnitClaimable({});
+    seam.onWorkUnitClaimable(null);
+    expect(seam.pendingWake).toBe(false);
+  });
+});
