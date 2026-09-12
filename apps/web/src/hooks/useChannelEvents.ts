@@ -5,6 +5,7 @@ import { channelApi, type ChannelMessage, type FileRef } from '../api/channel';
 import { useWebSocketContext } from '../api/websocketHooks';
 import { useGatedPoll } from './useGatedPoll';
 import { degradeMessage, planPrune, PRUNE_KEEP_RECENT, PRUNE_DEGRADE_DISTANCE, PRUNE_HYDRATE_DISTANCE, PRUNE_HYDRATE_PAGE_LIMIT, type PruneOptions } from '../utils/messagePruning';
+import { markReceiptArrived } from '../utils/clientPerf';
 
 /** #287（清单 P2 #19）：增量到达按 createdAt 升序归位 + id 去重。
  *  下游 groupIntoThreads 单遍归组要求 anchor 先于 reply 出现；一律 push 尾部会让
@@ -109,6 +110,11 @@ export function useChannelMessages(channelId: string | undefined, options?: UseC
       if (msg.event_type === 'channel.message_sent') {
         const data = msg.data as { channelId?: string; message?: ChannelMessage };
         if (data?.channelId === channelId && data?.message) {
+          // #520 测量②：回执渲染计时起点——仅新消息记；已在列表的 SSE 回声不记
+          // （其渲染由 REST 替换完成，非本次到达）
+          if (!messagesRef.current.some(m => m.id === data.message!.id)) {
+            markReceiptArrived(data.message.id);
+          }
           setMessages(prev => insertMessage(prev, data.message!));
         }
       } else if (msg.event_type === 'channel.message_updated') {

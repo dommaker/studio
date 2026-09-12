@@ -13,6 +13,7 @@ import { useImeEnterGuard } from '../../hooks/useImeEnterGuard';
 import { useRosterStore, activeAgentsOf } from '../../stores/rosterStore';
 import { useChannelDataStore } from '../../stores/channelDataStore';
 import { toast } from '../../utils/toast';
+import { emitSendClick } from '../../utils/clientPerf';
 import { IconImage } from '../ui/icons';
 
 interface Props {
@@ -263,6 +264,8 @@ export function ChannelInput({ onSend, sending, replyTo, onCancelReply, channelI
   const handleSend = async () => {
     const trimmed = content.trim();
     if (!trimmed || sending) return;
+    // #520 测量②：发送点击瞬间埋点（点事件，不等 REST 结果）
+    emitSendClick({ channelId, replyToId: replyTo?.id ?? null });
     // #281: 只上送正文仍含其路径的引用（发送前删掉路径文本 = 撤销引用）
     const refs = fileRefs.filter(f => trimmed.includes(f.path));
     // 乐观清空（原语义），失败回灌
