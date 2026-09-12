@@ -428,8 +428,8 @@ router.post('/:id/messages/:messageId/convert-to-task/suggest', requireAuth(), r
   const { messageId } = req.params;
 
   try {
-    // 1. Get message content
-    const found = await fileStore.getMessageById(messageId);
+    // 1. Get message content（#524 P1-1：路径参数 :id 即频道，按频道直查免全频道扇出）
+    const found = await fileStore.getMessageById(messageId, req.params.id);
     if (!found) {
       return res.status(404).json({ success: false, error: 'Message not found' });
     }

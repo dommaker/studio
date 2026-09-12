@@ -61,14 +61,20 @@ export function getMergeWindowMs(env: NodeJS.ProcessEnv = process.env): number {
  * #495：找合并目标——同频道最近一条携带 workUnitId 的人类消息（上轮派单/合并/线程回复
  * 的落点），其 createdAt 在窗口内且 WU 仍在途 → 返回该 WU；否则 null（照章新建）。
  * 锚点为消息时间而非 WU.updatedAt：每次合并落新消息即刷新窗口（滑动窗口语义）。
+ * #524 P1-1（#514 定案 D 方案）：全热文件读 → 尾部倒扫收集 20 条人类消息即停
+ * （去重/tombstone 口径与原 queryMessages 一致；不按 createdAt 早停——更新-append
+ * 使文件序≠时间序，决议已否决时间早停）。
  */
 async function findMergeTargetWorkUnit(
   channelId: string,
   fs: FileStore,
   now: Date = new Date(),
 ): Promise<{ id: string; anchorMessageId?: string } | null> {
-  const recentHuman = await fs.queryMessages(channelId, { authorType: 'human', limit: 20 });
-  const last = [...recentHuman].reverse().find(m => m.workUnitId);
+  const { messages: recentHuman } = await fs.readMessagesTail(channelId, {
+    limit: 20,
+    match: m => m.authorType === 'human',
+  });
+  const last = recentHuman.find(m => m.workUnitId); // 倒扫序 = 新→旧，首条命中即最新落点
   if (!last?.workUnitId) return null;
   if (now.getTime() - new Date(last.createdAt).getTime() > getMergeWindowMs()) return null;
   const wu = await new WorkUnitService(fs).getById(last.workUnitId);
@@ -203,7 +209,8 @@ export async function routeMessage(
 
   // Priority 1: Thread reply — inherit workUnitId from parent
   if (replyToId) {
-    const found = await resolvedFs.getMessageById(replyToId);
+    // #524 P1-1：父消息必在本频道（replyToId 来自本频道 UI），按频道直查不再全频道扇出
+    const found = await resolvedFs.getMessageById(replyToId, channelId);
     // #327：父消息不在热层（已归档 = getMessageById 热只读不可见；与「彻底不存在」不可区分）
     // → 引用降级放行：帖子成立、replyToId 保留（前端引用预览自然缺失）、
     // workUnitId 继承失效落 null、不触发挂起复活——不整帖抛错
@@ -387,7 +394,7 @@ export async function routeMessage(
     });
     // #494: 回填派发消息 ↔ WU 关联（best-effort：失败仅缺 back-link，线程锚定已由 anchorMessageId 承载）。
     // 返回值替换派发消息记录，保持 routeMessage 返回值的 workUnitId 契约不变。
-    const message = await channelMessageService.linkWorkUnit(dispatchMessage.id, workUnit.id).catch(err => {
+    const message = await channelMessageService.linkWorkUnit(dispatchMessage.id, workUnit.id, channelId).catch(err => {
       logger.warn('[MessageRouting] Link dispatch message to WorkUnit failed (non-blocking)', {
         workUnitId: workUnit.id, messageId: dispatchMessage.id, error: String(err),
       });
@@ -511,7 +518,7 @@ export async function routeMessage(
       workUnitId: workUnit.id,
       defaultProfileId: channel.defaultProfileId,
     });
-    const message = await channelMessageService.linkWorkUnit(dispatchMessage.id, workUnit.id).catch(err => {
+    const message = await channelMessageService.linkWorkUnit(dispatchMessage.id, workUnit.id, channelId).catch(err => {
       logger.warn('[MessageRouting] Link dispatch message to WorkUnit failed (non-blocking)', {
         workUnitId: workUnit.id, messageId: dispatchMessage.id, error: String(err),
       });

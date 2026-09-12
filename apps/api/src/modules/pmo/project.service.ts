@@ -558,7 +558,7 @@ export const projectService = {
     const requirementText = project.requirement || project.description || '';
     const content = `📋 ${project.pmoNumber}: ${project.title}\n\n${requirementText}`;
     const message = await channelMessageService.createHumanMessage(input.channelId, content);
-    await channelMessageService.updateMessageMeta(message.id, { pmoId: project.id });
+    await channelMessageService.updateMessageMeta(message.id, { pmoId: project.id }, input.channelId);
 
     const workUnitService = new WorkUnitService();
     // #112 T6 多腿段：显式多腿（deliveries > 1）时 scope 注入全部仓库路径

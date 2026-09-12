@@ -46,8 +46,8 @@ export class ConvertToTaskService {
    * Creates WorkUnit via FileStore, links message as thread anchor.
    */
   async convert(channelId: string, messageId: string, input: ConvertInput): Promise<WorkUnitData> {
-    // 1. Fetch original message via FileStore
-    const found = await this.fileStore.getMessageById(messageId);
+    // 1. Fetch original message via FileStore（#524 P1-1：频道已知，按频道直查免全频道扇出）
+    const found = await this.fileStore.getMessageById(messageId, channelId);
     if (!found) {
       throw new Error(`Message ${messageId} not found`);
     }
@@ -91,7 +91,7 @@ export class ConvertToTaskService {
 
     // 3. Link message to WorkUnit —— #333：经 ChannelMessageService 统一更新路径
     // （append 新版保留原 createdAt，自带 eventBus + SSE channel.message_updated 双发）
-    await this.messageService.linkWorkUnit(messageId, workUnit.id);
+    await this.messageService.linkWorkUnit(messageId, workUnit.id, channelId);
 
     return workUnit;
   }

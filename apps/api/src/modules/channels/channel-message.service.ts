@@ -155,8 +155,9 @@ export class ChannelMessageService {
   async updateMessageMeta(
     messageId: string,
     meta: MessageMeta,
+    channelId?: string,
   ): Promise<MessageRecord> {
-    const found = await this.fileStore.getMessageById(messageId);
+    const found = await this.fileStore.getMessageById(messageId, channelId);
     if (!found) throw new Error(`Message ${messageId} not found`);
 
     const existingMeta = typeof found.message.meta === 'string' ? JSON.parse(found.message.meta) : found.message.meta;
@@ -184,8 +185,9 @@ export class ChannelMessageService {
   async updateMessage(
     messageId: string,
     updates: { content?: string; meta?: MessageMeta },
+    channelId?: string,
   ): Promise<MessageRecord> {
-    const found = await this.fileStore.getMessageById(messageId);
+    const found = await this.fileStore.getMessageById(messageId, channelId);
     if (!found) throw new Error(`Message ${messageId} not found`);
 
     const patched: ChannelMessageData = { ...found.message };
@@ -219,9 +221,11 @@ export class ChannelMessageService {
    * #333：关联 WorkUnit 的统一更新路径（createFromMessage / convert-to-task 共用）。
    * 与 updateMessageMeta 同口径：append 新版（createdAt 不变，#317/#332）→
    * eventBus + SSE 双发 channel.message_updated，负载挂全量 shaped message 本体。
+   * #524 P1-1（#514 定案）：channelId 必填——调用方均已知频道，按频道直查，
+   * 不再全频道扫描反查（6.1ms cold → 亚毫秒）。
    */
-  async linkWorkUnit(messageId: string, workUnitId: string): Promise<MessageRecord> {
-    const found = await this.fileStore.getMessageById(messageId);
+  async linkWorkUnit(messageId: string, workUnitId: string, channelId: string): Promise<MessageRecord> {
+    const found = await this.fileStore.getMessageById(messageId, channelId);
     if (!found) throw new Error(`Message ${messageId} not found`);
 
     const updated: ChannelMessageData = { ...found.message, workUnitId };
