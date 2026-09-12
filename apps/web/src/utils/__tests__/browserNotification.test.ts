@@ -5,6 +5,8 @@ import {
   getBrowserNotificationPermission,
   showBrowserNotification,
   requestBrowserNotificationPermission,
+  isBrowserNotificationEnabled,
+  setBrowserNotificationEnabled,
 } from '../browserNotification';
 
 const MockNotification = vi.fn() as unknown as typeof Notification & {
@@ -21,6 +23,7 @@ function stubPermission(permission: NotificationPermission) {
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.mocked(MockNotification).mockClear();
+  localStorage.clear();
 });
 
 describe('getBrowserNotificationPermission', () => {
@@ -58,6 +61,38 @@ describe('showBrowserNotification', () => {
     stubPermission('granted');
     vi.mocked(MockNotification).mockImplementationOnce(() => { throw new Error('Illegal constructor'); });
     expect(showBrowserNotification('t', 'b')).toBe(false);
+  });
+});
+
+describe('isBrowserNotificationEnabled / setBrowserNotificationEnabled（#525 P2-6 总开关）', () => {
+  it('缺省（localStorage 无记录）→ 开', () => {
+    expect(isBrowserNotificationEnabled()).toBe(true);
+  });
+
+  it('set false → 关并持久化；set true → 恢复开', () => {
+    setBrowserNotificationEnabled(false);
+    expect(isBrowserNotificationEnabled()).toBe(false);
+    expect(localStorage.getItem('studio:browser-notifications-enabled')).toBe('false');
+    setBrowserNotificationEnabled(true);
+    expect(isBrowserNotificationEnabled()).toBe(true);
+    expect(localStorage.getItem('studio:browser-notifications-enabled')).toBe('true');
+  });
+
+  it('开关关闭时 showBrowserNotification 直接返回 false（granted 也不发）', () => {
+    stubPermission('granted');
+    setBrowserNotificationEnabled(false);
+
+    expect(showBrowserNotification('人闸待确认', '任务「X」待确认超过 30 分钟')).toBe(false);
+    expect(MockNotification).not.toHaveBeenCalled();
+  });
+
+  it('开关重新打开后恢复发送', () => {
+    stubPermission('granted');
+    setBrowserNotificationEnabled(false);
+    setBrowserNotificationEnabled(true);
+
+    expect(showBrowserNotification('t', 'b')).toBe(true);
+    expect(MockNotification).toHaveBeenCalledTimes(1);
   });
 });
 

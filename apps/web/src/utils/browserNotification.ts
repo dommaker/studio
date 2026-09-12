@@ -5,6 +5,25 @@
 
 export type BrowserNotificationPermission = NotificationPermission | 'unsupported';
 
+// #525 P2-6：浏览器通知总开关（设置页「通知渠道」区读写；localStorage 持久化，缺省开）
+const ENABLED_KEY = 'studio:browser-notifications-enabled';
+
+/** 是否启用浏览器通知（缺省开；localStorage 不可用/读取失败视为开，不阻断既有通知路径） */
+export function isBrowserNotificationEnabled(): boolean {
+  try {
+    return localStorage.getItem(ENABLED_KEY) !== 'false';
+  } catch {
+    return true;
+  }
+}
+
+/** 持久化开关状态；写入失败（隐私模式等）静默，仅本次会话不生效 */
+export function setBrowserNotificationEnabled(enabled: boolean): void {
+  try {
+    localStorage.setItem(ENABLED_KEY, enabled ? 'true' : 'false');
+  } catch { /* 静默 */ }
+}
+
 /** 当前权限；环境无 Notification API（老浏览器/非安全上下文）→ 'unsupported' */
 export function getBrowserNotificationPermission(): BrowserNotificationPermission {
   if (typeof Notification === 'undefined') return 'unsupported';
@@ -13,6 +32,7 @@ export function getBrowserNotificationPermission(): BrowserNotificationPermissio
 
 /** granted 时弹一条系统级通知；其余一律静默。返回是否已弹。构造异常同样静默（部分平台限制） */
 export function showBrowserNotification(title: string, body: string): boolean {
+  if (!isBrowserNotificationEnabled()) return false; // #525 P2-6 总开关关闭 → 静默
   if (getBrowserNotificationPermission() !== 'granted') return false;
   try {
     new Notification(title, { body });
