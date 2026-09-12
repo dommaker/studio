@@ -80,6 +80,14 @@ describe('useChannelMessages — #520 回执渲染计时起点', () => {
     expect(mockSink).not.toHaveBeenCalled();
   });
 
+  it('人类新消息到达 → 不标记（回执口径仅 agent 消息，复审 minor 修复）', async () => {
+    await renderLoaded([]);
+    act(() => handler(sseMessage(msg('h-1', { authorType: 'human' }))));
+
+    emitReceiptRendered({ messageId: 'h-1', channelId: 'ch-1', workUnitId: null });
+    expect(mockSink).not.toHaveBeenCalled();
+  });
+
   it('sink 关闭时 SSE 到达不标记、不抛错', async () => {
     setClientPerfSink(null);
     const result = await renderLoaded([]);

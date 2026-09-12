@@ -110,9 +110,9 @@ export function useChannelMessages(channelId: string | undefined, options?: UseC
       if (msg.event_type === 'channel.message_sent') {
         const data = msg.data as { channelId?: string; message?: ChannelMessage };
         if (data?.channelId === channelId && data?.message) {
-          // #520 测量②：回执渲染计时起点——仅新消息记；已在列表的 SSE 回声不记
-          // （其渲染由 REST 替换完成，非本次到达）
-          if (!messagesRef.current.some(m => m.id === data.message!.id)) {
+          // #520 测量②：回执渲染计时起点——仅 agent 新消息记（人类消息不是回执，复审 minor 修复）；
+          // 已在列表的 SSE 回声不记（其渲染由 REST 替换完成，非本次到达）
+          if (data.message.authorType === 'agent' && !messagesRef.current.some(m => m.id === data.message!.id)) {
             markReceiptArrived(data.message.id);
           }
           setMessages(prev => insertMessage(prev, data.message!));
