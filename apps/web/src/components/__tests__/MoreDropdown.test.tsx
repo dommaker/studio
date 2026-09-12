@@ -22,7 +22,8 @@ const renderDropdown = () =>
 
 beforeEach(() => {
   vi.clearAllMocks();
-  useNotificationStore.setState({ stateItems: [], notifications: [], unreadCount: 0 });
+  // #517：store 单例跨用例重置，含取数纪律锚点（loadedAt/inflight）——否则前一用例成功 load 后 TTL 门禁拦截本用例
+  useNotificationStore.setState({ stateItems: [], notifications: [], unreadCount: 0, loadedAt: null, inflight: null });
   mockApi.get.mockResolvedValue({ data: { stateItems: [], notifications: [], unreadCount: 0 } });
 });
 

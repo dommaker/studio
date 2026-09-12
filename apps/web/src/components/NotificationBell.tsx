@@ -40,6 +40,11 @@ interface ChannelMessageSentData {
   };
 }
 
+/** #517：SSE 触发面共享的 trailing 防抖窗口（#489 同款，对齐 SUGGESTIONS_RELOAD_DEBOUNCE_MS）——
+ *  三类失效事件（atHuman / workunit.status_changed / notification.created）逐条连发合并为一次重拉，
+ *  防 SSE 风暴全量重拉；挂载/重连仍即时，标题闪烁与浏览器通知不防抖 */
+const SSE_RELOAD_DEBOUNCE_MS = 500;
+
 export function NotificationBell() {
   const stateItems = useNotificationStore(s => s.stateItems);
   const notifications = useNotificationStore(s => s.notifications);
@@ -65,8 +70,22 @@ export function NotificationBell() {
     void load();
   }, [load]);
 
-  // #415（ADR D3）：断线重连 → 行动中心一次性 refetch 打底对齐
-  useEffect(() => onReconnect(() => { void load(); }), [onReconnect, load]);
+  // #415（ADR D3）：断线重连 → 行动中心一次性 refetch 打底对齐（maxAgeMs: 0 强拉，对齐 rosterStore 重连语义）
+  useEffect(() => onReconnect(() => { void load({ maxAgeMs: 0 }); }), [onReconnect, load]);
+
+  // #517：三类 SSE 失效触发共享一个 500ms trailing 防抖（#489 同款）——连发合并为一次 load；
+  // SSE 是失效信号，重拉传 maxAgeMs: 0 绕过 TTL（防抖已合并风暴）；卸载清挂起定时器
+  const loadDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scheduleLoad = useCallback(() => {
+    if (loadDebounceRef.current) clearTimeout(loadDebounceRef.current);
+    loadDebounceRef.current = setTimeout(() => {
+      loadDebounceRef.current = null;
+      void load({ maxAgeMs: 0 });
+    }, SSE_RELOAD_DEBOUNCE_MS);
+  }, [load]);
+  useEffect(() => () => {
+    if (loadDebounceRef.current) clearTimeout(loadDebounceRef.current);
+  }, []);
 
   // B2-004 标题闪烁定时器：收进 ref 管理——开新闪前必清旧闪（修：10s 内多条 @human
   // 旧 interval 被覆盖引用导致永久泄漏闪烁）；归零/卸载即停（修：全部已读后仍闪到超时）
@@ -101,25 +120,26 @@ export function NotificationBell() {
   useEffect(() => stopFlash, [stopFlash]);
 
   // #468：SSE 只作失效触发，不再直接入列——atHuman（顺带标题闪烁）/ WU 状态流转 → 重拉
+  // #517：重拉走共享防抖（scheduleLoad）；startFlash / showBrowserNotification 保持即时不防抖
   useEffect(() => {
     const unsub = onEvent((msg) => {
       if (msg.event_type === 'channel.message_sent') {
         const data = msg.data as ChannelMessageSentData | undefined;
         if (data?.message?.meta?.atHuman) {
-          void load();
+          scheduleLoad();
           startFlash(data.message.agentName || 'Agent');
         }
       } else if (msg.event_type === 'workunit.status_changed') {
-        void load();
+        scheduleLoad();
       } else if (msg.event_type === 'notification.created') {
         // #523 人闸催办/认领滞留 tier1：铃铛重拉 + 浏览器原生通知（granted 才弹，零配置保底）
         const data = msg.data as { title?: string; content?: string } | undefined;
-        void load();
+        scheduleLoad();
         if (data?.title) showBrowserNotification(data.title, data.content ?? '');
       }
     });
     return () => { unsub(); };
-  }, [onEvent, load, startFlash]);
+  }, [onEvent, scheduleLoad, startFlash]);
 
   // Close on outside click
   useEffect(() => {

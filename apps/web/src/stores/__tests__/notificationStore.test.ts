@@ -43,7 +43,7 @@ const actionCenterPayload = (overrides: Record<string, unknown> = {}) => ({
 });
 
 beforeEach(() => {
-  useNotificationStore.setState({ stateItems: [], notifications: [], unreadCount: 0 });
+  useNotificationStore.setState({ stateItems: [], notifications: [], unreadCount: 0, loadedAt: null, inflight: null });
   mockApi.get.mockReset();
   mockApi.post.mockReset();
   mockApi.post.mockResolvedValue({ data: { success: true } });
@@ -135,6 +135,62 @@ describe('load（GET /action-center 三段整体替换）', () => {
     expect(s.stateItems).toHaveLength(1);
     expect(s.notifications).toHaveLength(1);
     expect(s.unreadCount).toBe(3);
+  });
+});
+
+describe('#517 取数纪律（TTL / single-flight / seq 守卫，照 rosterStore 模式）', () => {
+  it('TTL 内重复 load 只发一次请求；maxAgeMs=0 强拉绕过 TTL', async () => {
+    mockApi.get.mockResolvedValue({ data: actionCenterPayload() });
+
+    await useNotificationStore.getState().load();
+    await useNotificationStore.getState().load();
+    expect(mockApi.get).toHaveBeenCalledTimes(1);
+
+    await useNotificationStore.getState().load({ maxAgeMs: 0 });
+    expect(mockApi.get).toHaveBeenCalledTimes(2);
+  });
+
+  it('并发 load 并入 single-flight：在途期间只发一次请求', async () => {
+    let resolveGet!: (v: unknown) => void;
+    mockApi.get.mockImplementation(() => new Promise(r => { resolveGet = r; }));
+
+    const p1 = useNotificationStore.getState().load();
+    const p2 = useNotificationStore.getState().load();
+    expect(mockApi.get).toHaveBeenCalledTimes(1);
+
+    resolveGet({ data: actionCenterPayload() });
+    await Promise.all([p1, p2]);
+    expect(useNotificationStore.getState().notifications).toHaveLength(1);
+  });
+
+  it('失败不更新 loadedAt 锚点：TTL 内下一次 load 立即重试（永不 reject）', async () => {
+    mockApi.get.mockRejectedValueOnce(new Error('network'));
+    await useNotificationStore.getState().load();
+    expect(useNotificationStore.getState().loadedAt).toBeNull();
+
+    mockApi.get.mockResolvedValue({ data: actionCenterPayload() });
+    await useNotificationStore.getState().load();
+    expect(mockApi.get).toHaveBeenCalledTimes(2);
+    expect(useNotificationStore.getState().unreadCount).toBe(1);
+  });
+
+  it('seq 守卫：强拉在途时旧 fetch 晚到结果不落库', async () => {
+    const resolvers: Array<(v: unknown) => void> = [];
+    mockApi.get.mockImplementation(() => new Promise(r => { resolvers.push(r); }));
+
+    const p1 = useNotificationStore.getState().load();
+    const p2 = useNotificationStore.getState().load({ maxAgeMs: 0 }); // 强拉不并入在途
+    expect(mockApi.get).toHaveBeenCalledTimes(2);
+
+    // 新 fetch 先回 → 落库
+    resolvers[1]({ data: actionCenterPayload({ unreadCount: 2 }) });
+    await p2;
+    expect(useNotificationStore.getState().unreadCount).toBe(2);
+
+    // 旧 fetch 晚到 → seq 守卫拦截，不回写
+    resolvers[0]({ data: actionCenterPayload({ unreadCount: 9 }) });
+    await p1;
+    expect(useNotificationStore.getState().unreadCount).toBe(2);
   });
 });
 

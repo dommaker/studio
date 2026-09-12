@@ -142,8 +142,8 @@ async function renderLoaded(p: Payload = {}) {
 beforeEach(() => {
   sseHandlers.clear();
   reconnectHandlers.clear();
-  // store 是模块单例，跨用例重置三段
-  useNotificationStore.setState({ stateItems: [], notifications: [], unreadCount: 0 });
+  // store 是模块单例，跨用例重置三段 + 取数纪律锚点（loadedAt/inflight）
+  useNotificationStore.setState({ stateItems: [], notifications: [], unreadCount: 0, loadedAt: null, inflight: null });
   mockNavigate.mockClear();
   mockApi.get.mockReset();
   mockApi.post.mockReset();
@@ -406,10 +406,11 @@ describe('#468 行动中心面板（四分区）', () => {
 });
 
 describe('#468 SSE 只作失效触发（不直接入列）', () => {
-  it('channel.message_sent 且 meta.atHuman → 重拉 /action-center', async () => {
+  it('channel.message_sent 且 meta.atHuman → 重拉 /action-center（经 500ms 防抖）', async () => {
     await renderLoaded();
     emitAtHuman();
-    await waitFor(() => expect(mockApi.get).toHaveBeenCalledTimes(2));
+    // #517：SSE 触发走 500ms trailing 防抖，等待窗口放宽到 2s
+    await waitFor(() => expect(mockApi.get).toHaveBeenCalledTimes(2), { timeout: 2000 });
     expect(mockApi.get).toHaveBeenLastCalledWith('/action-center');
   });
 
@@ -423,10 +424,10 @@ describe('#468 SSE 只作失效触发（不直接入列）', () => {
     expect(mockApi.get).toHaveBeenCalledTimes(1);
   });
 
-  it('workunit.status_changed → 重拉（stateItems 状态变即消）', async () => {
+  it('workunit.status_changed → 重拉（stateItems 状态变即消，经 500ms 防抖）', async () => {
     await renderLoaded();
     emitSse('workunit.status_changed', { workunit: { id: 'WU-1', status: 'blocked' } });
-    await waitFor(() => expect(mockApi.get).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(mockApi.get).toHaveBeenCalledTimes(2), { timeout: 2000 });
   });
 
   it('断线重连 → 重拉（#415 模式保留）', async () => {
@@ -442,9 +443,35 @@ describe('#468 SSE 只作失效触发（不直接入列）', () => {
     await renderLoaded({ notifications: [backendNotification()], unreadCount: 1 });
     mockApi.get.mockRejectedValue(new Error('network'));
     emitSse('workunit.status_changed', { workunit: { id: 'WU-1', status: 'done' } });
-    await waitFor(() => expect(mockApi.get).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(mockApi.get).toHaveBeenCalledTimes(2), { timeout: 2000 });
     openDropdown();
     expect(screen.getByText('审计建议 (2 项)')).toBeInTheDocument();
+  });
+
+  it('#517：三类 SSE 连发共享 500ms trailing 防抖，合并为一次重拉（fake timers）', async () => {
+    vi.useFakeTimers();
+    try {
+      mockActionCenter();
+      render(<NotificationBell />);
+      await act(async () => {}); // 挂载首次 load 完成
+      expect(mockApi.get).toHaveBeenCalledTimes(1);
+
+      // 三类失效事件逐条连发（atHuman / status_changed / notification.created）
+      emitAtHuman();
+      emitSse('workunit.status_changed', { workunit: { id: 'WU-1', status: 'done' } });
+      emitSse('notification.created', { title: 't', content: 'c' });
+
+      // 防抖窗口内：逐条到达不触发全量重拉
+      await act(async () => { vi.advanceTimersByTime(400); });
+      expect(mockApi.get).toHaveBeenCalledTimes(1);
+
+      // 窗口到点：连发合并为一次重拉
+      await act(async () => { vi.advanceTimersByTime(200); });
+      expect(mockApi.get).toHaveBeenCalledTimes(2);
+      expect(mockApi.get).toHaveBeenLastCalledWith('/action-center');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
@@ -473,7 +500,7 @@ describe('#523 notification.created（人闸催办 SSE → 重拉 + 浏览器原
       wuId: 'WU-9', link: '/workunits/WU-9',
     });
 
-    await waitFor(() => expect(mockApi.get).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(mockApi.get).toHaveBeenCalledTimes(2), { timeout: 2000 });
     expect(mockApi.get).toHaveBeenLastCalledWith('/action-center');
     expect(MockNotification).toHaveBeenCalledTimes(1);
     expect(MockNotification).toHaveBeenCalledWith(
@@ -488,7 +515,7 @@ describe('#523 notification.created（人闸催办 SSE → 重拉 + 浏览器原
 
     emitSse('notification.created', { title: 't', content: 'c', wuId: 'WU-9' });
 
-    await waitFor(() => expect(mockApi.get).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(mockApi.get).toHaveBeenCalledTimes(2), { timeout: 2000 });
     expect(MockNotification).not.toHaveBeenCalled();
   });
 
@@ -498,7 +525,7 @@ describe('#523 notification.created（人闸催办 SSE → 重拉 + 浏览器原
 
     // SSE 到达本身不触发权限请求（需用户手势）
     emitSse('notification.created', { title: 't', content: 'c' });
-    await waitFor(() => expect(mockApi.get).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(mockApi.get).toHaveBeenCalledTimes(2), { timeout: 2000 });
     expect(MockNotification.requestPermission).not.toHaveBeenCalled();
     expect(MockNotification).not.toHaveBeenCalled();
 
