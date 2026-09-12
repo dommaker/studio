@@ -1,8 +1,9 @@
 /**
  * F6: WorkUnit 绑定工程
  *
- * - routeMessage: 显式 workspaceId 优先，其次频道 defaultWorkspaceId
- * - ConvertToTaskService.convert: 同样绑定规则
+ * - routeMessage（#481）：不再落 workspaceId 机器指针——显式指定与频道
+ *   defaultWorkspaceId 两级归属已退役，workspaceId 字段仅历史记录展示用
+ * - ConvertToTaskService.convert: 绑定规则不变（workspaceId 仅展示/候选集语义）
  * - validateDefaultWorkspaceId: 频道 PATCH 校验（workspace 须已注册，'' → 清除）
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
@@ -75,24 +76,15 @@ beforeEach(async () => {
   process.env.STUDIO_PROJECTS_ROOT = tmpDir;
 });
 
-describe('F6: routeMessage workspace binding', () => {
-  it('binds channel defaultWorkspaceId when no explicit workspaceId', async () => {
+describe('routeMessage workspace binding（#481：机器指针退役）', () => {
+  it('频道配 defaultWorkspaceId 也不再落 WU（归属不再产出机器指针）', async () => {
     channelId = await createChannel(testWsId);
 
     const msg = await routeMessage(channelId, '@Agent do this', undefined, fileStore);
 
     const wu = await findWu(msg.workUnitId!);
     expect(wu).toBeTruthy();
-    expect(wu!.workspaceId).toBe(testWsId);
-  });
-
-  it('explicit workspaceId wins over channel default', async () => {
-    channelId = await createChannel(testWsId);
-
-    const msg = await routeMessage(channelId, '@Agent do this', undefined, fileStore, { workspaceId: 'ws-explicit-1' });
-
-    const wu = await findWu(msg.workUnitId!);
-    expect(wu!.workspaceId).toBe('ws-explicit-1');
+    expect(wu!.workspaceId ?? null).toBeNull();
   });
 
   it('workspaceId=null when channel has no default and none given', async () => {

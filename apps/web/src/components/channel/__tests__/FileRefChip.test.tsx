@@ -26,6 +26,7 @@ vi.mock('../../../api', () => ({
 import type { ChannelFileVocabulary, ChannelMessage } from '../../../api/channel';
 import { FileRefChip } from '../FileRefChip';
 import { ChannelMessageItem } from '../ChannelMessageItem';
+import { usePmoDataStore } from '../../../stores/pmoDataStore';
 
 const vocab: ChannelFileVocabulary = {
   repos: [
@@ -37,6 +38,8 @@ const vocab: ChannelFileVocabulary = {
 describe('FileRefChip（#285）', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // #456：company/project 链改读 pmoDataStore（模块级单例），每测重置避免 TTL 缓存跨测串味
+    usePmoDataStore.getState().__resetForTests();
     mockWriteText.mockResolvedValue(undefined);
     Object.defineProperty(navigator, 'clipboard', {
       value: { writeText: mockWriteText },

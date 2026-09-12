@@ -1,6 +1,7 @@
 // CommandPalette — Cmd/Ctrl+K 全局搜索面板（批次 D-2 项 8，docs/plans/2026-09-ui-interaction-polish.md）。
-// 纯前端四域扇出：频道（channelApi.list 全量 + 客户端名称子串过滤）、任务（workunitApi.list 服务端 q，
-// 批次 D-2 项 4）、需求（requirementApi.list 全量 + 客户端标题/编号过滤）、知识（knowledgeApi.search，
+// 纯前端四域扇出：频道（#455 起读 rosterStore channels 切片——TTL + single-flight 复用取数纪律，
+// 不再每次输入直发 GET /channels）、任务（workunitApi.list 服务端 q，批次 D-2 项 4）、需求
+// （requirementApi.list 全量 + 客户端标题/编号过滤）、知识（knowledgeApi.search，
 // KnowledgePage 同端点）；统一走 fanOut（#349）——单域失败隔离不炸整批，结果按域序对齐。
 // 纪律：面板打开才查询（300ms 防抖，LibraryPage 先例），关闭即清防抖定时器，无轮询/SSE 残留；
 // seq 守卫拒迟到响应。样式 styles/command-palette.css，零硬编码色（style-guide §4 token）。
@@ -8,10 +9,10 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { formatChannelName, WU_STATUS_LABELS } from '@dommaker/studio-shared/web';
-import { channelApi } from '../api/channel';
 import { workunitApi } from '../api/workunit';
 import { requirementApi } from '../api/requirements';
 import { knowledgeApi } from '../api/knowledge';
+import { useRosterStore } from '../stores/rosterStore';
 import { fanOut } from '../utils/fanOut';
 import { REQ_STATUS_LABELS } from './requirement/RequirementChainPanel';
 import { useImeEnterGuard } from '../hooks/useImeEnterGuard';
@@ -48,9 +49,10 @@ const DOMAINS: readonly DomainSearch[] = [
   {
     group: 'channel',
     search: async (q) => {
-      const res = await channelApi.list();
+      // #455：ensureFresh 永不 reject（错误落 store 状态）；失败时 channels 保持旧值/空 → 客户端过滤照旧
+      await useRosterStore.getState().ensureFresh();
       const lq = q.toLowerCase();
-      return (res.data?.data ?? [])
+      return useRosterStore.getState().channels
         .filter((c) => c.name.toLowerCase().includes(lq))
         .slice(0, LIMIT)
         .map((c) => ({

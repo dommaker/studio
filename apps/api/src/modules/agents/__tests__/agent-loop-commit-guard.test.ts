@@ -1,5 +1,6 @@
 // §10.5 提交守卫：COMPLETE 打回（worktree 有未提交改动）+ PROGRESS 连续无新提交监视
-// 真实 FileStore（tmpdir）+ 真实 WorkUnitService；git 调用（execSync）、workspace 解析、CLI 执行 mock
+// 真实 FileStore（tmpdir）+ 真实 WorkUnitService；git 调用（execSync）、CLI 执行 mock
+// #481：共享根经 metadata.workspaceRoot 注入（wu.workspaceId 不再参与 cwd 决策）
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -14,14 +15,6 @@ const { mockExecSync } = vi.hoisted(() => ({
 
 vi.mock('child_process', () => ({
   execSync: mockExecSync,
-}));
-
-const { mockResolveWorkspaceRoot } = vi.hoisted(() => ({
-  mockResolveWorkspaceRoot: vi.fn(),
-}));
-
-vi.mock('../../workspaces/workspace-store', () => ({
-  resolveWorkspaceRoot: mockResolveWorkspaceRoot,
 }));
 
 const { mockExecuteLightweight } = vi.hoisted(() => ({
@@ -82,7 +75,6 @@ describe('§10.5: 提交守卫', () => {
     });
     // 不 start()：recordResult/agentStep 不依赖运行中的 loop 实例
     agentLoop = new AgentLoop(mockRole, fileStore);
-    mockResolveWorkspaceRoot.mockResolvedValue('/tmp/fake-worktree');
   });
 
   afterEach(() => {
@@ -96,12 +88,13 @@ describe('§10.5: 提交守卫', () => {
     );
   }
 
-  /** 创建 active WorkUnit（绑定 workspace）+ anchor 消息 */
-  async function setupWorkUnit(metadata?: WorkUnitMetadata, type = 'task') {
+  /** 创建 active WorkUnit + anchor 消息；缺省带 metadata.workspaceRoot（守卫的 git cwd），noRoot 时不带 */
+  async function setupWorkUnit(metadata?: WorkUnitMetadata, type = 'task', opts?: { noRoot?: boolean }) {
+    const merged = opts?.noRoot ? metadata : { workspaceRoot: '/tmp/fake-worktree', ...metadata };
     const wu = await wuService.create({
       scope: '实现登录功能', channelId, type,
-      status: 'active', assigneeId: 'instance-1', workspaceId: 'ws-1',
-      ...(metadata ? { metadata } : {}),
+      status: 'active', assigneeId: 'instance-1',
+      ...(merged ? { metadata: merged } : {}),
     });
     const anchor: ChannelMessageData = {
       id: uuidv4(), channelId, authorType: 'human', agentName: null,
@@ -162,7 +155,6 @@ describe('§10.5: 提交守卫', () => {
       if (String(cmd).includes('rev-parse')) return 'h1\n';
       return opts?.cwd === '/tmp/wt-dirty' ? ' M README.md\n' : '';
     });
-    mockResolveWorkspaceRoot.mockResolvedValue('/tmp/main-clean');
     const wu = await setupWorkUnit(); // 持久化 metadata 无 worktreePath（首 step 未落库）
 
     await (agentLoop as unknown as RecordResultCapable).recordResult(
@@ -265,9 +257,8 @@ describe('§10.5: 提交守卫', () => {
     expect((await wuService.getById(wu.id))!.status).toBe('in_review');
   });
 
-  it('workspace 路径解析失败 → 静默跳过守卫，正常完成', async () => {
-    mockResolveWorkspaceRoot.mockResolvedValue(null);
-    const wu = await setupWorkUnit();
+  it('metadata.workspaceRoot 缺失 → 静默跳过守卫，正常完成', async () => {
+    const wu = await setupWorkUnit(undefined, 'task', { noRoot: true });
 
     await (agentLoop as unknown as RecordResultCapable).recordResult(
       { workUnit: wu },

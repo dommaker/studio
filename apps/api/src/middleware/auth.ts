@@ -18,36 +18,12 @@ const fileStore = new FileStore();
 const STUDIO_DIR = studioDir();
 const USERS_FILE = path.join(STUDIO_DIR, 'users.json');
 const SESSIONS_FILE = path.join(STUDIO_DIR, 'sessions.json');
-const WORKSPACE_TOKENS_DIR = path.join(STUDIO_DIR, 'workspace-tokens');
-const WORKSPACES_DIR = path.join(STUDIO_DIR, 'workspaces');
 
 // ─── 本地类型（替代 Prisma model 类型） ───
 // UserData / SessionData 单一来源在 modules/auth/service.ts（users.json/sessions.json
 // 的唯一写入方），此处 re-export 保持既有 import 路径可用。
 
 export type { UserData, SessionData };
-
-export interface WorkspaceData {
-  id: string;
-  name: string;
-  slug: string;
-  status: string;
-  currentTask?: string | null;
-  lastHeartbeat?: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface WorkspaceTokenData {
-  id: string;
-  tokenHash: string;
-  workspaceId: string;
-  name?: string | null;
-  revokedAt?: string | null;
-  lastUsedAt?: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
 
 // 扩展 Request 类型
 declare global {
@@ -56,8 +32,6 @@ declare global {
       user?: UserData | null;
       session?: SessionData | null;
       anonymousId?: string;  // 🆕 SEC-009: 匿名用户标识
-      workspace?: WorkspaceData | null;
-      workspaceToken?: WorkspaceTokenData | null;
     }
   }
 }
@@ -69,8 +43,6 @@ export interface AuthRequest extends Request {
   user?: UserData | null;
   session?: SessionData | null;
   anonymousId?: string;  // 🆕 SEC-009
-  workspace?: WorkspaceData | null;
-  workspaceToken?: WorkspaceTokenData | null;
 }
 
 // ─── 内部查询工具 ───
@@ -384,65 +356,5 @@ export function requireLocalhost() {
       error: '该端点仅允许本机调用',
       code: 'LOCALHOST_ONLY',
     });
-  };
-}
-
-/**
- * Workspace Token 认证 - 用于 Daemon 端点
- * 读取 Authorization: Bearer st_mach_xxx header
- * hash token → 查 WorkspaceToken → 查 Workspace
- */
-export function workspaceAuth() {
-  return async (req: Request, res: Response, next: NextFunction) => {
-    const authReq = req as AuthRequest;
-
-    try {
-      const token = parseAuthHeader(req);
-      if (!token) {
-        return res.status(401).json({
-          error: 'Missing workspace token',
-          code: 'MISSING_WORKSPACE_TOKEN',
-        });
-      }
-
-      // Hash incoming token to compare with stored hash
-      const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
-
-      // 查询 WorkspaceToken（FileStore）
-      const workspaceToken = await fileStore.readJson<WorkspaceTokenData>(path.join(WORKSPACE_TOKENS_DIR, `${tokenHash}.json`));
-
-      if (!workspaceToken) {
-        return res.status(401).json({
-          error: 'Invalid workspace token',
-          code: 'INVALID_WORKSPACE_TOKEN',
-        });
-      }
-
-      if (workspaceToken.revokedAt) {
-        return res.status(401).json({
-          error: 'Workspace token has been revoked',
-          code: 'WORKSPACE_TOKEN_REVOKED',
-        });
-      }
-
-      // Find workspace associated with this token (FileStore)
-      const workspace = await fileStore.readJson<WorkspaceData>(path.join(WORKSPACES_DIR, `${workspaceToken.workspaceId}.json`));
-      if (!workspace) {
-        return res.status(401).json({
-          error: 'No workspace registered for this token',
-          code: 'WORKSPACE_NOT_FOUND',
-        });
-      }
-
-      authReq.workspace = workspace;
-      authReq.workspaceToken = workspaceToken;
-      next();
-    } catch (error) {
-      logger.error({ error }, 'Workspace auth middleware error');
-      return res.status(500).json({
-        error: 'Workspace authentication failed',
-        code: 'WORKSPACE_AUTH_ERROR',
-      });
-    }
   };
 }

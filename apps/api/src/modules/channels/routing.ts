@@ -80,6 +80,42 @@ export function routingFallbackText(stage: RoutingStage, resolution: StageRoutin
 }
 
 /**
+ * #477: 「解析 → fallback 判定 → 出声文案」骨架收口——原「resolveStageRouting →
+ * 未命中/配错时 routingFallbackText 出声」重复于 workunit-crud（implement）/
+ * analysis-handoff（implement）/ review-dispatcher（review）/ project.service（plan）四处。
+ *
+ * 返回 resolution + 应出声文案（null = 不出声）：配错时 #497 冷却闸在内部消费；
+ * 未配置仅在传入 notConfiguredText 时出声（对齐 #464 workunit-crud「未配置也提示」口径，
+ * 且未配置提示不走冷却闸——与改造前逐点行为一致）。
+ *
+ * 留在调用侧的差异（票体难点决议，不强行收口）：出声通道（WU 系统消息 / 频道 agent
+ * 消息 / analysis-handoff 自身 post）与出声时机（建单前即时 / 建单完成后）四点皆不同，
+ * 故本 helper 只产出文案，发送动作由各调用点按原时机原通道执行。
+ */
+export interface ResolveOrNoticeResult {
+  resolution: StageRoutingResolution;
+  /** 应发频道的提醒文案；null = 无需出声（命中 / 冷却窗内 / 未配置且无 notConfiguredText） */
+  notice: string | null;
+}
+
+export async function resolveOrNotice(
+  fileStore: FileStore,
+  channelId: string,
+  stage: RoutingStage,
+  opts: { notConfiguredText?: string } = {},
+): Promise<ResolveOrNoticeResult> {
+  const resolution = await resolveStageRouting(fileStore, channelId, stage);
+  if (resolution.profileId) return { resolution, notice: null };
+  if (resolution.fallback) {
+    const notice = shouldEmitFallbackReminder(channelId, stage, resolution)
+      ? routingFallbackText(stage, resolution)
+      : null;
+    return { resolution, notice };
+  }
+  return { resolution, notice: opts.notConfiguredText ?? null };
+}
+
+/**
  * #497: fallback 提醒冷却窗——同频道同档同原因在窗内只出声一次。
  * 悬空指名在配置修复前会持续触发派生，不去重则提醒无限重复刷屏。
  * 进程内 Map（重启即重置）：提醒是配置修复信号，重启后补一条可接受，不漏路由回退本身。

@@ -274,11 +274,3 @@ export const workspaceApi = {
   list: () => api.get('/workspaces'),
   get: (id: string) => api.get(`/workspaces/${id}`),
 };
-
-// Workspace Token API — AS-020 P2-05/P7-03
-export const workspaceTokenApi = {
-  generate: (name: string, permissions?: string[]) =>
-    api.post('/workspace-tokens', { name, permissions }),
-  list: () => api.get('/workspace-tokens'),
-  revoke: (id: string) => api.delete(`/workspace-tokens/${id}`),
-};

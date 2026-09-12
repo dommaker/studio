@@ -358,6 +358,35 @@ describe('RequirementService (vision §5.3)', () => {
         expect.arrayContaining(['in_review', 'done', 'completed', 'failed', 'closed']),
       );
     });
+
+    it('#457：knownSnapshots 直供时不再读全量索引，汇总口径不变', async () => {
+      const req = await service.create({ title: 'memo 汇总', status: 'in-progress' });
+      const wu = await workUnitService.create({ scope: 't', reqId: req.id, status: 'unassigned' });
+      await workUnitService.transitionStatus(wu.id, 'closed');
+
+      // 与全量读同口径的肯定/否定判定（快照由调用方按 reqId 预scope）
+      expect(await service.maybeRollUpToDone(req.id, [
+        { id: wu.id, reqId: req.id, status: 'active' },
+      ])).toBe(false);
+      expect(await service.maybeRollUpToDone(req.id, [
+        { id: wu.id, reqId: req.id, status: 'closed' },
+      ])).toBe(true);
+      expect((await service.get(req.id))!.status).toBe('done');
+      // 空快照 = 无 WorkUnit，不动作
+      const empty = await service.create({ title: 'memo 空需求' });
+      expect(await service.maybeRollUpToDone(empty.id, [])).toBe(false);
+    });
+
+    it('#457：listWorkUnitSnapshots 返回按 reqId scope 的最新快照', async () => {
+      const req = await service.create({ title: '回源需求' });
+      const other = await service.create({ title: '别的需求' });
+      const wu1 = await workUnitService.create({ scope: 'a', reqId: req.id });
+      await workUnitService.create({ scope: 'b', reqId: other.id });
+      await workUnitService.create({ scope: 'c' });
+
+      const snapshots = await service.listWorkUnitSnapshots(req.id);
+      expect(snapshots.map(s => s.id)).toEqual([wu1.id]);
+    });
   });
 
   describe('initRequirementRollup (event subscription)', () => {

@@ -23,7 +23,6 @@ const { mockRescan } = vi.hoisted(() => ({
 vi.mock('../../middleware/auth.js', () => ({
   requireAuth: () => (_q: unknown, _s: unknown, n: () => void) => n(),
   requireAdmin: () => (_q: unknown, _s: unknown, n: () => void) => n(),
-  workspaceAuth: () => (_q: unknown, _s: unknown, n: () => void) => n(),
 }));
 
 vi.mock('../local-workspace.js', () => ({

@@ -67,7 +67,7 @@ function resolveCallerAuthorType(req: Request): string {
 /** GET / — list WorkUnits */
 router.get('/', async (req: Request, res: Response) => {
   try {
-    const { type, status, assigneeId, channelId, parentId, attributed, q } = req.query;
+    const { type, status, assigneeId, channelId, parentId, attributed, projectId, q } = req.query;
     const { page, limit } = parsePagination(req);
 
     const result = await service.list({
@@ -78,6 +78,8 @@ router.get('/', async (req: Request, res: Response) => {
       parentId: parentId as string,
       // #428：attributed=true/false 显式布尔；其他值（含缺省）= undefined 不过滤
       attributed: attributed === 'true' ? true : attributed === 'false' ? false : undefined,
+      // #456：PMO 项目归属过滤（空串不过滤）
+      projectId: typeof projectId === 'string' && projectId ? projectId : undefined,
       // 批次 D-2 项4：标题搜索（scope 子串，大小写不敏感）；空白 q 不过滤
       q: typeof q === 'string' && q.trim() ? q.trim() : undefined,
       page,

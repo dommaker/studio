@@ -90,8 +90,9 @@ export class MetricsService {
     const [snapshots, wuEvents, events, humanMessages, states, profiles] = await Promise.all([
       this.fileStore.getIndex().catch(() => [] as WorkUnitSnapshot[]),
       this.fileStore.readJsonl<WorkUnitEvent>(opts?.wuEventsFile ?? this.defaultWuEventsFile()).catch(() => [] as WorkUnitEvent[]),
-      // #335：窗口外事件不 parse；下游 aggregate 仍按 inWindow(windowDays) 过滤，口径不变
-      readStudioEventsSince({ file: opts?.eventsFile, sinceMs: now - windowDays * 86400_000 }).catch(() => [] as Array<Record<string, unknown>>),
+      // #335：窗口外事件不 parse；下游 aggregate 仍按 inWindow(windowDays) 过滤，口径不变。
+      // #456：读取窗口下限 2d——failure24h 趋势要前 24h 样本，windowDays=1 时也必须可算
+      readStudioEventsSince({ file: opts?.eventsFile, sinceMs: now - Math.max(windowDays, 2) * 86400_000 }).catch(() => [] as Array<Record<string, unknown>>),
       this.fileStore.queryAllMessages({ authorType: 'human' }).catch(() => [] as Array<{ createdAt?: string }>),
       this.fileStore.listStates().catch(() => [] as Array<{ id: string; roleId: string }>),
       this.fileStore.listProfiles().catch(() => [] as Array<{ id: string; name: string }>),

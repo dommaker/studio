@@ -14,7 +14,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { FileStore, stringifyChannels } from '@dommaker/studio-shared';
-import { resolveStageRouting, validateRouting } from '../routing.js';
+import { resolveStageRouting, resolveOrNotice, resetFallbackReminderCooldown, validateRouting } from '../routing.js';
 
 let tmpDir: string;
 let fileStore: FileStore;
@@ -116,6 +116,49 @@ describe('#466 resolveStageRouting', () => {
     const r = await resolveStageRouting(fileStore, 'ch-missing', 'plan');
     expect(r.profileId).toBeNull();
     expect(r.fallback).toBeUndefined();
+  });
+});
+
+describe('#477 resolveOrNotice', () => {
+  beforeEach(() => resetFallbackReminderCooldown());
+
+  it('命中：配置了且角色可用 → notice=null，resolution 指名该角色', async () => {
+    await seedProfile('p-ok', 'ok-agent');
+    await seedChannel('ch-ok', { members: ['p-ok'], routing: { plan: 'p-ok' } });
+    const r = await resolveOrNotice(fileStore, 'ch-ok', 'plan');
+    expect(r.resolution.profileId).toBe('p-ok');
+    expect(r.notice).toBeNull();
+  });
+
+  it('未命中（未配置）：缺省不出声；传 notConfiguredText 时原样返回该文案', async () => {
+    await seedChannel('ch-none');
+    const silent = await resolveOrNotice(fileStore, 'ch-none', 'implement');
+    expect(silent.resolution.profileId).toBeNull();
+    expect(silent.resolution.fallback).toBeUndefined();
+    expect(silent.notice).toBeNull();
+
+    const withText = await resolveOrNotice(fileStore, 'ch-none', 'implement', { notConfiguredText: '未配置提示' });
+    expect(withText.notice).toBe('未配置提示');
+  });
+
+  it('配错：角色 inactive → notice=fallback 提醒文案，resolution 带 fallback 原因', async () => {
+    await seedProfile('p-dead2', 'dead-agent', 'inactive');
+    await seedChannel('ch-bad', { members: ['p-dead2'], routing: { implement: 'p-dead2' } });
+    const r = await resolveOrNotice(fileStore, 'ch-bad', 'implement');
+    expect(r.resolution.profileId).toBeNull();
+    expect(r.resolution.fallback).toBe('inactive');
+    expect(r.notice).toContain('@dead-agent');
+    expect(r.notice).toContain('角色已停用');
+  });
+
+  it('配错冷却：同频道同档同原因窗内第二次 → notice=null', async () => {
+    await seedProfile('p-dead3', 'dead-agent', 'inactive');
+    await seedChannel('ch-cool', { members: ['p-dead3'], routing: { review: 'p-dead3' } });
+    const first = await resolveOrNotice(fileStore, 'ch-cool', 'review');
+    expect(first.notice).not.toBeNull();
+    const second = await resolveOrNotice(fileStore, 'ch-cool', 'review');
+    expect(second.resolution.fallback).toBe('inactive');
+    expect(second.notice).toBeNull();
   });
 });
 

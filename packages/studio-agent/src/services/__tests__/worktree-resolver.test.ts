@@ -1,26 +1,25 @@
 /**
  * Behavioral tests for resolveWorkspace()
  *
- * AC: executor 通过 Workspace 获取工作区（D3）
+ * 执行目录解析（#481，2026-09-11 重排，本机 workspace 记录退出执行面）：
+ *   1. task.parameters.workspaceRoot —— 上游归属信号（@文件引用 / PMO 项目 gitRepo /
+ *      频道默认工程）解析出的真实项目目录
+ *   2. hasWorktree=true → createWorktree()（代码类任务要隔离工作树，绝不退回共享目录）
+ *   3. 无归属 → 显式配置的共享工作目录（REPO_DIR，执行时现场读，单一来源）；
+ *      未配置/不存在 → 隔离 scratch（绝不猜一个真实仓）
  *
- * Priority chain:
- *   1. task.parameters.workspaceRoot (direct path)
- *   2. VPS workspace lookup (resolveVpsWorkspace from @dommaker/studio-shared/node)
- *   3. createWorktree() fallback (calls git worktree add via execSh)
- *
- * Strategy: mock external deps (resolveVpsWorkspace seam, fs, execSh), let real code run.
- * The VPS 'VPS'-name scan itself is tested in studio-shared (vps-workspace.test.ts).
+ * Strategy: mock external deps (fs, execSh, studio-dir), let real code run.
  */
 
-import { describe, test, expect, vi, beforeEach } from 'vitest';
+import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest';
 
-const { mockExistsSync, mockExecSh, mockReadFileSync, mockMkdirSync, mockWriteFile, mockResolveVpsWorkspace } = vi.hoisted(() => ({
+const { mockExistsSync, mockExecSh, mockReadFileSync, mockMkdirSync, mockWriteFile, mockStudioPath } = vi.hoisted(() => ({
   mockExistsSync: vi.fn(),
   mockExecSh: vi.fn(),
   mockReadFileSync: vi.fn(),
   mockMkdirSync: vi.fn(),
   mockWriteFile: vi.fn().mockResolvedValue(undefined),
-  mockResolveVpsWorkspace: vi.fn(),
+  mockStudioPath: vi.fn((...parts: string[]) => ['/.studio', ...parts].join('/')),
 }));
 
 vi.mock('fs', async (importOriginal) => {
@@ -44,7 +43,10 @@ vi.mock('fs/promises', async (importOriginal) => {
 
 vi.mock('@dommaker/studio-shared/node', () => ({
   execSh: mockExecSh,
-  resolveVpsWorkspace: mockResolveVpsWorkspace,
+}));
+
+vi.mock('@dommaker/studio-shared/studio-dir', () => ({
+  studioPath: mockStudioPath,
 }));
 
 vi.mock('@dommaker/studio-shared', async (importOriginal) => {
@@ -71,13 +73,21 @@ function makeTask(overrides?: Record<string, unknown>) {
   } as any;
 }
 
+let savedRepoDir: string | undefined;
+
 beforeEach(() => {
   vi.clearAllMocks();
   // Default: return true for .git checks (repoDir validation), false otherwise
   mockExistsSync.mockImplementation((p: string) => p.endsWith('/.git'));
-  // Default: no VPS workspace (priority 2 finds nothing) → priority 3 worktree
-  mockResolveVpsWorkspace.mockResolvedValue(null);
   mockExecSh.mockResolvedValue({ stdout: '', stderr: '', exitCode: 0 });
+  // 缺省无共享工作目录配置（REPO_DIR 未设）→ 无归属落 scratch
+  savedRepoDir = process.env.REPO_DIR;
+  delete process.env.REPO_DIR;
+});
+
+afterEach(() => {
+  if (savedRepoDir === undefined) delete process.env.REPO_DIR;
+  else process.env.REPO_DIR = savedRepoDir;
 });
 
 describe('resolveWorkspace()', () => {
@@ -88,69 +98,39 @@ describe('resolveWorkspace()', () => {
     const result = await resolveWorkspace({ task, ...baseOpts });
 
     expect(result).toBe('/custom/workspace');
-    // Priority 2 (VPS workspace lookup) never consulted
-    expect(mockResolveVpsWorkspace).not.toHaveBeenCalled();
     expect(mockExecSh).not.toHaveBeenCalled();
   });
 
-  test('priority 1 skipped: workspaceRoot set but path does not exist', async () => {
+  test('priority 1 skipped: workspaceRoot set but path does not exist → 无归属落 scratch', async () => {
     const task = makeTask({ workspaceRoot: '/nonexistent' });
 
-    await resolveWorkspace({ task, ...baseOpts });
+    const result = await resolveWorkspace({ task, ...baseOpts, scratchDir: '/scratch' });
 
-    // Falls through to priority 3 — createWorktree calls execSh
-    expect(mockExecSh).toHaveBeenCalled();
-  });
-
-  test('priority 2: returns VPS workspaceRoot when path exists', async () => {
-    const task = makeTask();
-    mockResolveVpsWorkspace.mockResolvedValue({
-      id: 'ws-1',
-      name: 'VPS',
-      workspaceRoot: '/vps/root',
-      updatedAt: '2026-01-01T00:00:00Z',
-    });
-    mockExistsSync.mockImplementation((p: string) => p === '/vps/root' || p.endsWith('/.git'));
-
-    const result = await resolveWorkspace({ task, ...baseOpts });
-
-    expect(result).toBe('/vps/root');
-    expect(mockResolveVpsWorkspace).toHaveBeenCalled();
+    expect(result).toBe('/scratch/exec-1');
     expect(mockExecSh).not.toHaveBeenCalled();
   });
 
-  test('priority 2 skipped: VPS workspace found but path does not exist', async () => {
-    const task = makeTask();
-    mockResolveVpsWorkspace.mockResolvedValue({
-      id: 'ws-1',
-      name: 'VPS',
-      workspaceRoot: '/stale/path',
-      updatedAt: '2026-01-01T00:00:00Z',
-    });
-    mockExistsSync.mockImplementation((p: string) => p.endsWith('/.git'));
-
-    await resolveWorkspace({ task, ...baseOpts });
-
-    // Falls through to priority 3
-    expect(mockExecSh).toHaveBeenCalled();
-  });
-
-  test('priority 2 skipped: VPS workspace lookup fails', async () => {
-    const task = makeTask();
-    mockResolveVpsWorkspace.mockRejectedValue(new Error('unexpected fs failure'));
-
-    await resolveWorkspace({ task, ...baseOpts });
-
-    expect(mockExecSh).toHaveBeenCalled();
-  });
-
-  test('priority 3: creates worktree with task repoDir and baseBranch', async () => {
-    const task = makeTask({ repoDir: '/custom/repo', baseBranch: 'develop' });
+  test('priority 2: hasWorktree=true creates worktree（绝不退回共享目录/scratch）', async () => {
+    const task = makeTask({ hasWorktree: true });
+    // 共享工作目录已配置且存在 —— hasWorktree 仍优先
+    process.env.REPO_DIR = '/shared';
+    mockExistsSync.mockImplementation((p: string) => p === '/shared' || p.endsWith('/.git'));
 
     const result = await resolveWorkspace({ task, ...baseOpts });
 
     expect(result).toBe('/worktrees/exec-1');
-    // createWorktree calls execSh with git worktree add
+    expect(mockExecSh).toHaveBeenCalledWith(
+      expect.stringContaining('git worktree add'),
+      expect.anything(),
+    );
+  });
+
+  test('priority 2: hasWorktree=true with task repoDir and baseBranch', async () => {
+    const task = makeTask({ hasWorktree: true, repoDir: '/custom/repo', baseBranch: 'develop' });
+
+    const result = await resolveWorkspace({ task, ...baseOpts });
+
+    expect(result).toBe('/worktrees/exec-1');
     expect(mockExecSh).toHaveBeenCalledWith(
       expect.stringContaining('git worktree add'),
       expect.objectContaining({
@@ -159,8 +139,8 @@ describe('resolveWorkspace()', () => {
     );
   });
 
-  test('priority 3: uses getDefaultBranch() when baseBranch not specified', async () => {
-    const task = makeTask();
+  test('priority 2: hasWorktree=true uses getDefaultBranch() when baseBranch not specified', async () => {
+    const task = makeTask({ hasWorktree: true });
 
     await resolveWorkspace({ task, ...baseOpts });
 
@@ -171,44 +151,59 @@ describe('resolveWorkspace()', () => {
     );
   });
 
-  test('priority 3: returns worktree path from config.worktreesDir', async () => {
-    const task = makeTask();
-
-    const result = await resolveWorkspace({ task, ...baseOpts });
-
-    expect(result).toBe('/worktrees/exec-1');
-  });
-
-  test('hasWorktree=true skips priority 2 (VPS workspace) and creates worktree', async () => {
-    const task = makeTask({ hasWorktree: true });
-    // VPS workspace exists — but should be skipped
-    mockResolveVpsWorkspace.mockResolvedValue({
-      id: 'ws-1',
-      name: 'VPS',
-      workspaceRoot: '/vps/root',
-      updatedAt: '2026-01-01T00:00:00Z',
-    });
-    mockExistsSync.mockImplementation((p: string) => p === '/vps/root' || p.endsWith('/.git'));
-
-    const result = await resolveWorkspace({ task, ...baseOpts });
-
-    // Should NOT use VPS workspace
-    expect(result).toBe('/worktrees/exec-1');
-    expect(mockResolveVpsWorkspace).not.toHaveBeenCalled();
-    // Should create worktree
-    expect(mockExecSh).toHaveBeenCalledWith(
-      expect.stringContaining('git worktree add'),
-      expect.anything(),
-    );
-  });
-
-  test('priority 3 throws when repoDir is not a git repository', async () => {
-    const task = makeTask({ repoDir: '/not-a-repo' });
+  test('priority 2: hasWorktree=true throws when repoDir is not a git repository', async () => {
+    const task = makeTask({ hasWorktree: true, repoDir: '/not-a-repo' });
     // .git check returns false for /not-a-repo/.git
     mockExistsSync.mockReturnValue(false);
 
     await expect(resolveWorkspace({ task, ...baseOpts }))
       .rejects.toThrow('repoDir is not a git repository: /not-a-repo');
+  });
+
+  test('priority 3: 无归属 + REPO_DIR 已配置且存在 → 共享工作目录（只读类任务能读到代码）', async () => {
+    const task = makeTask();
+    process.env.REPO_DIR = '/shared/work';
+    mockExistsSync.mockImplementation((p: string) => p === '/shared/work' || p.endsWith('/.git'));
+
+    const result = await resolveWorkspace({ task, ...baseOpts });
+
+    expect(result).toBe('/shared/work');
+    // 不建 worktree、不建 scratch
+    expect(mockExecSh).not.toHaveBeenCalled();
+    expect(mockMkdirSync).not.toHaveBeenCalled();
+  });
+
+  test('priority 3: REPO_DIR 已配置但路径不存在 → 落隔离 scratch（不猜真实仓）', async () => {
+    const task = makeTask();
+    process.env.REPO_DIR = '/shared/gone';
+    mockExistsSync.mockImplementation((p: string) => p.endsWith('/.git'));
+
+    const result = await resolveWorkspace({ task, ...baseOpts, scratchDir: '/scratch' });
+
+    expect(result).toBe('/scratch/exec-1');
+    expect(mockMkdirSync).toHaveBeenCalledWith('/scratch/exec-1', { recursive: true });
+    expect(mockExecSh).not.toHaveBeenCalled();
+  });
+
+  test('priority 3: REPO_DIR 未配置 → 隔离 scratch，不在 repoDir 建 worktree（#481 防回归锚点）', async () => {
+    const task = makeTask();
+
+    const result = await resolveWorkspace({ task, ...baseOpts, scratchDir: '/scratch' });
+
+    // 旧行为（无归属兜底 createWorktree / 读本机 workspace 记录 root）已退役：
+    // 执行目录绝不落在任何真实仓上
+    expect(result).toBe('/scratch/exec-1');
+    expect(mockMkdirSync).toHaveBeenCalledWith('/scratch/exec-1', { recursive: true });
+    expect(mockExecSh).not.toHaveBeenCalled();
+  });
+
+  test('priority 3: scratchDir 缺省 = 数据区 studioPath(\'scratch\')', async () => {
+    const task = makeTask();
+
+    const result = await resolveWorkspace({ task, ...baseOpts });
+
+    expect(mockStudioPath).toHaveBeenCalledWith('scratch');
+    expect(result).toBe('/.studio/scratch/exec-1');
   });
 });
 
@@ -220,12 +215,21 @@ describe('ensureDeps()', () => {
 
   test('skips when node_modules/.modules.yaml already exists', async () => {
     mockExistsSync.mockImplementation((p: string) =>
-      p.endsWith('/node_modules/.modules.yaml'),
+      p.endsWith('/node_modules/.modules.yaml') || p.endsWith('/package.json'),
     );
 
     await ensureDeps('/worktree', '/repo');
 
     // Should not call execSh (no install, no cp)
+    expect(mockExecSh).not.toHaveBeenCalled();
+  });
+
+  test('非项目检出（无 lockfile 且无 package.json）→ 直接返回，不拿 repoDir 的 lockfile 硬链依赖', async () => {
+    // scratch 兜底目录：里面什么都没有；repoDir 有 lockfile
+    mockExistsSync.mockImplementation((p: string) => p === '/repo/pnpm-lock.yaml');
+
+    await ensureDeps('/scratch/exec-1', '/repo');
+
     expect(mockExecSh).not.toHaveBeenCalled();
   });
 
@@ -297,10 +301,11 @@ describe('ensureDeps()', () => {
     );
   });
 
-  test('falls back to npm install when no lockfile found', async () => {
+  test('falls back to npm install when no lockfile found (package.json present)', async () => {
     mockExistsSync.mockImplementation((p: string) => {
       if (p.endsWith('/node_modules/.modules.yaml')) return false;
-      // No lockfile anywhere
+      // package.json 存在（是项目检出），但没有任何 lockfile
+      if (p.endsWith('/package.json')) return true;
       return false;
     });
 

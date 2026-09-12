@@ -19,10 +19,13 @@ vi.mock('../../api/channel', () => ({
 }));
 
 import { PMOPage } from '../PMOPage';
+import { usePmoDataStore } from '../../stores/pmoDataStore';
 
 describe('工单 38: PMOPage loadData 失败反馈', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // #456：company/project 链改读 pmoDataStore（模块级单例），每测重置避免 TTL 缓存跨测串味
+    usePmoDataStore.getState().__resetForTests();
     mockChannelList.mockResolvedValue({ data: { data: [] } });
     mockGet.mockImplementation((url: string) => {
       if (url.includes('/companies')) return Promise.resolve({ data: { data: [{ id: 'co-1' }] } });

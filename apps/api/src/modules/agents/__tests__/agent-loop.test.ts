@@ -2,7 +2,7 @@
 // Agent Loop rewrite (ac-agent-loop-rewrite): removed canClaim/onNewWorkUnit/tryClaim/execute/scanForWork
 // New loop behavior tested in agent-loop-v2.test.ts
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { FileStore } from '@dommaker/studio-shared';
+import { FileStore, parseStreamEvents } from '@dommaker/studio-shared';
 import path from 'node:path';
 import os from 'node:os';
 import fs from 'node:fs';
@@ -32,6 +32,8 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => {
   const orig = await importOriginal() as Record<string, unknown>;
   return {
     ...orig,
+    // #453: 包一层计数（call-through），供「成功路径全量解析 3→1」断言用
+    parseStreamEvents: vi.fn(orig.parseStreamEvents as (stdout: string) => unknown[]),
     logger: {
       info: vi.fn(),
       warn: vi.fn(),
@@ -778,7 +780,7 @@ describe('AgentLoop', () => {
         '{"type":"result"}',
       ].join('\n');
 
-      const count = writeToolCallEvents(streamOutput, eventsFile);
+      const count = writeToolCallEvents(parseStreamEvents(streamOutput), eventsFile);
       expect(count).toBe(2);
 
       // Verify JSONL content
@@ -799,15 +801,15 @@ describe('AgentLoop', () => {
       expect(secondPayload.success).toBe(true);
     });
 
-    it('returns 0 for empty output', () => {
+    it('returns 0 for empty events', () => {
       const eventsFile = path.join(testDir, 'empty.jsonl');
-      const count = writeToolCallEvents('', eventsFile);
+      const count = writeToolCallEvents([], eventsFile);
       expect(count).toBe(0);
     });
 
-    it('returns 0 for output without tool_use', () => {
+    it('returns 0 for events without tool_use', () => {
       const eventsFile = path.join(testDir, 'no-tools.jsonl');
-      const count = writeToolCallEvents('{"type":"result","result":"done"}', eventsFile);
+      const count = writeToolCallEvents(parseStreamEvents('{"type":"result","result":"done"}'), eventsFile);
       expect(count).toBe(0);
     });
   });
@@ -844,7 +846,7 @@ describe('AgentLoop', () => {
         '{"type":"result"}',
       ].join('\n');
 
-      const count = writeToolCallEvents(streamOutput, resolveToolTraceFile());
+      const count = writeToolCallEvents(parseStreamEvents(streamOutput), resolveToolTraceFile());
       expect(count).toBe(1);
 
       const traceFile = path.join(testDir, 'studio-events.jsonl');
@@ -930,6 +932,63 @@ describe('AgentLoop', () => {
 
       // 0 条 tool:call → writeToolCallEvents 提前返回，不落盘
       expect(fs.existsSync(traceFile())).toBe(false);
+    });
+  });
+
+  describe('#453: 成功路径 stream-json 全量解析一次（3→1）', () => {
+    let prevStudioEventsFile: string | undefined;
+
+    const makeTarget = () => ({
+      workUnit: {
+        id: 'wu-parse-once', type: 'task', scope: 'test', channelId: 'ch-1',
+        status: 'active', assigneeId: 'agent-1', parentId: null,
+        failureType: null, retryCount: 0, timeoutAt: null,
+        projectPath: null, metadata: null, claimedAt: null,
+        completedAt: null, createdAt: new Date(), updatedAt: new Date(),
+      },
+    });
+
+    const traceFile = () => path.join(testDir, 'studio-events.jsonl');
+
+    beforeEach(() => {
+      prevStudioEventsFile = process.env.STUDIO_EVENTS_FILE;
+      process.env.STUDIO_EVENTS_FILE = traceFile();
+    });
+
+    afterEach(() => {
+      if (prevStudioEventsFile === undefined) delete process.env.STUDIO_EVENTS_FILE;
+      else process.env.STUDIO_EVENTS_FILE = prevStudioEventsFile;
+    });
+
+    it('tool:call 落盘与 execution_step 提炼共享同一份解析产物，且事件语义不变', async () => {
+      mockExecuteLightweight.mockResolvedValue({
+        success: true,
+        outputText: 'ACTION: PROGRESS:working',
+        rawOutput: [
+          '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"/foo.ts"}}]}}',
+          // 末行 result 携带 usage：usage 记账走 parseSessionMetrics 末行路径（不经 parseStreamEvents）
+          '{"type":"result","result":"ACTION: PROGRESS:working","usage":{"input_tokens":10,"output_tokens":5}}',
+        ].join('\n'),
+        logFile: '/tmp/log', worktree: '/tmp/wt', outputFiles: [], sessionCount: 1,
+      });
+
+      agentLoop = new AgentLoop(mockRole, fileStore);
+      await agentLoop.start();
+      await (agentLoop as unknown as { agentStep(t: unknown): Promise<unknown> }).agentStep(makeTarget());
+
+      // 验收核心：成功路径全量解析恰好 1 次（tool:call 与 execution_step 共享解析产物）
+      expect(vi.mocked(parseStreamEvents).mock.calls.length).toBe(1);
+
+      // 语义不变：tool:call 与 execution_step 事件照常落盘（fire-and-forget，等待异步写盘）
+      await new Promise(r => setTimeout(r, 50));
+      const lines = fs.readFileSync(traceFile(), 'utf-8').trim().split('\n').map(l => JSON.parse(l));
+      const toolCalls = lines.filter(e => e.type === 'tool:call');
+      expect(toolCalls.length).toBe(1);
+      expect(JSON.parse(toolCalls[0].payload).tool).toBe('Read');
+      const stepEvents = lines.filter(e => e.type === 'workunit:execution_step');
+      expect(stepEvents.length).toBe(1);
+      const stepPayload = JSON.parse(stepEvents[0].payload);
+      expect(stepPayload.toolCalls).toEqual([{ tool: 'Read', summary: '/foo.ts' }]);
     });
   });
 

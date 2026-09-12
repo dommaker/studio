@@ -45,11 +45,11 @@ export class DecisionResolution {
       const wu = payload.workunit;
       if (!wu || wu.type !== 'decision') return;
       if (wu.status === 'done') {
-        await this.onDecisionDone(wu.id).catch(err =>
+        await this.onDecisionDone(wu).catch(err =>
           logger.warn('[DecisionResolution] onDecisionDone failed', { wuId: wu.id, error: String(err) }),
         );
       } else if (wu.status === 'active') {
-        await this.onDecisionClaimed(wu.id).catch(err =>
+        await this.onDecisionClaimed(wu).catch(err =>
           logger.warn('[DecisionResolution] onDecisionClaimed failed', { wuId: wu.id, error: String(err) }),
         );
       }
@@ -57,10 +57,9 @@ export class DecisionResolution {
   }
 
   /** decision 单被认领 → 对应雾 open → in-discussion（幂等，仅 open 翻转，resolved 不回摆） */
-  private async onDecisionClaimed(wuId: string): Promise<void> {
-    const fresh = await this.workUnitService.getById(wuId);
-    if (!fresh) return;
-    const meta = parseWuMetadata(fresh.metadata);
+  private async onDecisionClaimed(wu: WorkUnitData): Promise<void> {
+    // #457：payload 即真相——消费的 pmoId/fogId 建单时落档不可变，防御性重读无围栏价值
+    const meta = parseWuMetadata(wu.metadata);
     const pmoId = typeof meta.pmoId === 'string' ? meta.pmoId : '';
     const fogId = typeof meta.fogId === 'string' ? meta.fogId : '';
     if (!pmoId || !fogId) return;
@@ -74,21 +73,21 @@ export class DecisionResolution {
       await projectService.update(pmoId, {
         map: { ...map, fog: map.fog.map(f => (f.id === fogId ? { ...f, status: 'in-discussion' } : f)) },
       });
-      logger.info('[DecisionResolution] Fog in-discussion (decision claimed)', { wuId, projectId: pmoId, fogId });
+      logger.info('[DecisionResolution] Fog in-discussion (decision claimed)', { wuId: wu.id, projectId: pmoId, fogId });
     });
   }
 
-  private async onDecisionDone(wuId: string): Promise<void> {
-    // 事件载荷可能是旧快照（重发/乱序）——以库存最新状态为准（同 analysis-handoff）
-    const fresh = await this.workUnitService.getById(wuId);
-    if (!fresh) return;
-    const meta = parseWuMetadata(fresh.metadata);
+  private async onDecisionDone(wu: WorkUnitData): Promise<void> {
+    // #457：payload 即真相——reviewPassed 的台账 l3 与 done 迁移同一快照原子落盘后才发布
+    // （workunit.service persistSnapshot），payload 必含结论文本；pmoId/fogId 建单时落档
+    // 不可变。防御性重读无围栏价值（map 写的并发围栏在 resolve 的 projectId 串行链上）
+    const meta = parseWuMetadata(wu.metadata);
     const pmoId = typeof meta.pmoId === 'string' ? meta.pmoId : '';
     const fogId = typeof meta.fogId === 'string' ? meta.fogId : '';
     // 缺关联戳（非开图机制建的 decision 单）→ 跳过不炸
     if (!pmoId || !fogId) return;
 
-    await this.enqueue(pmoId, () => this.resolve(pmoId, fogId, fresh, meta));
+    await this.enqueue(pmoId, () => this.resolve(pmoId, fogId, wu, meta));
   }
 
   /** 同 PMO 的 map 写串行化（共享实现 keyed-enqueue，前序失败不阻断后续） */

@@ -1,19 +1,21 @@
 // Contract test: NeedsAttentionSection — #184 监控页「需要处理」区（#62 D4 + #60 IA：行动信号优先）
+// #456：stuck/failure 计数改读 /monitoring/overview 扩段（服务端单源），
+// 告警行明细仍前端翻页（#398 签名分组不动）。
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import React from 'react';
 
-const { mockSearch, mockList } = vi.hoisted(() => ({
+const { mockSearch, mockGetOverview } = vi.hoisted(() => ({
   mockSearch: vi.fn(),
-  mockList: vi.fn(),
+  mockGetOverview: vi.fn(),
 }));
 
 vi.mock('../../../api/events', () => ({
   eventsApi: { search: mockSearch },
 }));
 
-vi.mock('../../../api/workunit', () => ({
-  workunitApi: { list: mockList },
+vi.mock('../../../api/monitoring', () => ({
+  monitoringApi: { getOverview: mockGetOverview },
 }));
 
 vi.mock('react-router-dom', () => ({
@@ -39,23 +41,23 @@ function mockEventsByType(map: Record<string, Array<Record<string, unknown>>>) {
   );
 }
 
-/** 按 status 路由 workunitApi.list mock；默认空列表 */
-function mockWuByStatus(map: Record<string, { total?: number; data?: Array<Record<string, unknown>> }>) {
-  mockList.mockImplementation((params?: { status?: string }) => {
-    const entry = (params?.status && map[params.status]) || { total: 0, data: [] };
-    const data = entry.data ?? [];
-    const total = entry.total ?? data.length;
-    // 对齐真实 API 响应形状（formatPaginatedResponse）：总数在 pagination.total（#309）
-    return Promise.resolve({
-      data: { data, pagination: { page: 1, limit: 200, total, totalPages: Math.ceil(total / 200) } },
-    });
+interface StuckMock { blocked: number; staleUnassigned: number; stalledActive: number }
+interface FailureMock { n: number; rate: number | null; trend: 'up' | 'down' | 'flat' | null }
+
+/** overview 扩段 mock；缺省全零（空态） */
+function mockOverview(stuck?: Partial<StuckMock>, failure24h?: Partial<FailureMock>) {
+  mockGetOverview.mockResolvedValue({
+    data: {
+      stuck: { blocked: 0, staleUnassigned: 0, stalledActive: 0, ...stuck },
+      failure24h: { n: 0, rate: null, trend: null, ...failure24h },
+    },
   });
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
   mockEventsByType({});
-  mockWuByStatus({});
+  mockOverview();
 });
 
 describe('NeedsAttentionSection — 告警收件箱', () => {
@@ -167,24 +169,9 @@ describe('NeedsAttentionSection — 告警分组（#398 §7.3）', () => {
   });
 });
 
-describe('NeedsAttentionSection — 卡住计数', () => {
+describe('NeedsAttentionSection — 卡住计数（#456 服务端单源）', () => {
   it('三类计数非零才显示，带下钻链接', async () => {
-    mockWuByStatus({
-      blocked: { total: 4 },
-      unassigned: {
-        data: [
-          { id: 'wu-old', createdAt: iso(3 * HOUR) },       // >2h → 滞留
-          { id: 'wu-new', createdAt: iso(30 * 60_000) },    // <2h → 不算
-        ],
-      },
-      active: {
-        data: [
-          { id: 'wu-stale', timeoutAt: iso(10 * 60_000) },  // 已过期 → 停滞
-          { id: 'wu-live', timeoutAt: new Date(Date.now() + 5 * 60_000).toISOString() }, // 未过期
-          { id: 'wu-nolease', timeoutAt: null },            // 无租约 → 不算
-        ],
-      },
-    });
+    mockOverview({ blocked: 4, staleUnassigned: 1, stalledActive: 1 });
     render(<NeedsAttentionSection />);
 
     const blocked = await screen.findByText(/阻塞 4 个/);
@@ -198,7 +185,7 @@ describe('NeedsAttentionSection — 卡住计数', () => {
   });
 
   it('计数为 0 的类别不显示', async () => {
-    mockWuByStatus({ blocked: { total: 2 } });
+    mockOverview({ blocked: 2 });
     render(<NeedsAttentionSection />);
     expect(await screen.findByText(/阻塞 2 个/)).toBeDefined();
     expect(screen.queryByText(/待领取滞留/)).toBeNull();
@@ -206,24 +193,9 @@ describe('NeedsAttentionSection — 卡住计数', () => {
   });
 });
 
-describe('NeedsAttentionSection — 近 24 小时失败趋势', () => {
-  /** 构造执行步事件：recentFail/recentOk 个近 24h 失败/成功步，prevFail/prevOk 个前 24h */
-  function mockStepEvents(recentFail: number, recentOk: number, prevFail: number, prevOk: number, recentWuFailed = 0, prevWuFailed = 0) {
-    const steps: Array<Record<string, unknown>> = [];
-    for (let i = 0; i < recentFail; i++) steps.push({ type: 'workunit:execution_step', payload: JSON.stringify({ step: 1, status: 'failed' }), createdAt: iso(2 * HOUR) });
-    for (let i = 0; i < recentOk; i++) steps.push({ type: 'workunit:execution_step', payload: JSON.stringify({ step: 1, status: 'success' }), createdAt: iso(2 * HOUR) });
-    for (let i = 0; i < prevFail; i++) steps.push({ type: 'workunit:execution_step', payload: JSON.stringify({ step: 1, status: 'failed' }), createdAt: iso(30 * HOUR) });
-    for (let i = 0; i < prevOk; i++) steps.push({ type: 'workunit:execution_step', payload: JSON.stringify({ step: 1, status: 'success' }), createdAt: iso(30 * HOUR) });
-    const wuFailed: Array<Record<string, unknown>> = [];
-    for (let i = 0; i < recentWuFailed; i++) wuFailed.push({ type: 'workunit:failed', payload: '{}', createdAt: iso(2 * HOUR) });
-    for (let i = 0; i < prevWuFailed; i++) wuFailed.push({ type: 'workunit:failed', payload: '{}', createdAt: iso(30 * HOUR) });
-    mockEventsByType({ 'workunit:execution_step': steps, 'workunit:failed': wuFailed });
-  }
-
+describe('NeedsAttentionSection — 近 24 小时失败趋势（#456 服务端单源）', () => {
   it('失败率走高 → ↑（变糟）', async () => {
-    // 近 24h：1 失败步 + 1 workunit:failed + 3 成功步 → N=2，率 2/5=40%
-    // 前 24h：1 失败步 + 9 成功步 → 率 10%
-    mockStepEvents(1, 3, 1, 9, 1, 0);
+    mockOverview({}, { n: 2, rate: 0.4, trend: 'up' });
     render(<NeedsAttentionSection />);
     expect(await screen.findByText(/近 24 小时失败 2 次/)).toBeDefined();
     expect(screen.getByText(/失败率 40%/)).toBeDefined();
@@ -232,34 +204,35 @@ describe('NeedsAttentionSection — 近 24 小时失败趋势', () => {
   });
 
   it('失败率走低 → ↓（好转）', async () => {
-    // 近 24h：1/10=10%；前 24h：2/4=50%
-    mockStepEvents(1, 9, 2, 2);
+    mockOverview({}, { n: 1, rate: 0.1, trend: 'down' });
     render(<NeedsAttentionSection />);
     expect(await screen.findByText(/失败率 10%/)).toBeDefined();
     expect(screen.getByText('↓')).toBeDefined();
   });
 
   it('失败率持平 → →', async () => {
-    // 两窗口各 1/2=50%
-    mockStepEvents(1, 1, 1, 1);
+    mockOverview({}, { n: 1, rate: 0.5, trend: 'flat' });
     render(<NeedsAttentionSection />);
     expect(await screen.findByText(/失败率 50%/)).toBeDefined();
     expect(screen.getByText('→')).toBeDefined();
   });
 
-  it('前 24h 无样本 → 箭头显示 –', async () => {
-    mockStepEvents(1, 1, 0, 0);
+  it('前 24h 无样本（trend=null） → 箭头显示 –', async () => {
+    mockOverview({}, { n: 1, rate: 0.5, trend: null });
     render(<NeedsAttentionSection />);
     expect(await screen.findByText(/失败率 50%/)).toBeDefined();
     expect(screen.getByText('–')).toBeDefined();
   });
 
-  it('失败统计口径：workunit:failed + 失败步计入 N', async () => {
-    // 3 失败步 + 2 workunit:failed + 5 成功步 → N=5，率 50%
-    mockStepEvents(3, 5, 0, 0, 2, 0);
+  it('近 24h 无执行（rate=null） → 「近 24 小时无执行」', async () => {
+    mockOverview({}, { n: 0, rate: null, trend: null });
+    mockEventsByType({
+      'monitor:alert': [
+        { type: 'monitor:alert', level: 'warning', payload: JSON.stringify({ message: '有告警' }), createdAt: iso(HOUR) },
+      ],
+    });
     render(<NeedsAttentionSection />);
-    expect(await screen.findByText(/近 24 小时失败 5 次/)).toBeDefined();
-    expect(screen.getByText(/失败率 50%/)).toBeDefined();
+    expect(await screen.findByText('近 24 小时无执行')).toBeDefined();
   });
 });
 
@@ -271,20 +244,47 @@ describe('NeedsAttentionSection — 空态与容错', () => {
     expect(screen.queryByText(/近 24 小时失败/)).toBeNull();
   });
 
-  it('事件 API 失败 → 显示加载失败提示，不抛错', async () => {
+  it('事件 API 失败 → 告警区显示加载失败；overview 区不受影响', async () => {
     mockSearch.mockRejectedValue(new Error('boom'));
+    mockOverview({ blocked: 1 });
     render(<NeedsAttentionSection />);
-    const hints = await screen.findAllByText(/加载失败/);
-    expect(hints.length).toBeGreaterThan(0);
-    // 任务计数部分（workunitApi 正常）不受事件 API 失败影响
+    expect(await screen.findByText('告警加载失败')).toBeDefined();
+    // 任务计数部分（overview 正常）不受事件 API 失败影响
+    expect(await screen.findByText(/阻塞 1 个/)).toBeDefined();
+    expect(screen.queryByText('现在没有需要你处理的事')).toBeNull();
+  });
+
+  it('overview 失败 → 卡住计数与失败趋势各自显示加载失败；告警区不受影响', async () => {
+    mockGetOverview.mockRejectedValue(new Error('boom'));
+    mockEventsByType({
+      'monitor:alert': [
+        { type: 'monitor:alert', level: 'warning', payload: JSON.stringify({ message: '有告警' }), createdAt: iso(HOUR) },
+      ],
+    });
+    render(<NeedsAttentionSection />);
+    expect(await screen.findByText('任务状态加载失败')).toBeDefined();
+    expect(screen.getByText('失败统计加载失败')).toBeDefined();
+    expect(await screen.findByText('有告警')).toBeDefined();
     expect(screen.queryByText('现在没有需要你处理的事')).toBeNull();
   });
 
   it('无告警但有卡住任务时显示「暂无告警」', async () => {
-    mockWuByStatus({ blocked: { total: 1 } });
+    mockOverview({ blocked: 1 });
     render(<NeedsAttentionSection />);
     expect(await screen.findByText(/阻塞 1 个/)).toBeDefined();
     expect(screen.getByText('暂无告警')).toBeDefined();
+  });
+});
+
+describe('NeedsAttentionSection — 取数口径（#456）', () => {
+  it('stuck/failure 来自同一次 overview 调用（挂载 1 次），不再按状态分别拉 WU 池', async () => {
+    mockOverview({ blocked: 1 }, { n: 1, rate: 1, trend: 'up' });
+    render(<NeedsAttentionSection />);
+    expect(await screen.findByText(/阻塞 1 个/)).toBeDefined();
+    expect(await screen.findByText(/近 24 小时失败 1 次/)).toBeDefined();
+    expect(mockGetOverview).toHaveBeenCalledTimes(1);
+    // 失败趋势不再走事件检索（只有告警检索一类调用）
+    expect(mockSearch.mock.calls.every(c => c[0]?.type === 'monitor:alert')).toBe(true);
   });
 });
 

@@ -33,7 +33,7 @@
  * 完整 transcript 需要时按 claude projects 文件回放（见 apps/api/src/modules/agents/CONTEXT.md），不在这里复制。
  */
 
-import { parseStreamEvents, parseStreamLine, extractToolCalls, extractUsage, eventBus, logger, type StreamEvent, type StreamContentBlock } from '@dommaker/studio-shared';
+import { parseStreamLine, extractToolCalls, extractUsage, eventBus, logger, type StreamEvent, type StreamContentBlock } from '@dommaker/studio-shared';
 import { v4 as uuidv4 } from 'uuid';
 import { writeStudioEvent } from '../../../utils/studio-events.js';
 
@@ -96,8 +96,12 @@ export interface BuildExecutionStepEventArgs {
   /** #172: status='failed' 时的错误分类/详情（截断 500 字符） */
   errorType?: string;
   errorDetail?: string;
-  /** stream-json 全量 stdout（result.rawOutput）；空/不可解析 → 返回 null（status='failed' 除外） */
-  rawOutput?: string | null;
+  /**
+   * 本步已解析的 stream-json 事件数组（#453：接口从 rawOutput 深化为解析产物——
+   * 成功路径由 agent-loop 统一解析一次，与 tool:call 落盘共享；失败路径由调用方按原文解析后传入）。
+   * 缺省/空 → 无可提炼内容（status='failed' 除外，失败信号不落空）。
+   */
+  events?: StreamEvent[];
   skills?: string[];
   at?: string;
 }
@@ -181,9 +185,7 @@ export function extractTextSummary(events: StreamEvent[]): string {
  * #172: status='failed' 除外——失败本身就是信号，无内容也产事件（失败步落盘决策）。
  */
 export function buildExecutionStepEvent(args: BuildExecutionStepEventArgs): ExecutionStepEventPayload | null {
-  const events = typeof args.rawOutput === 'string' && args.rawOutput.trim().length > 0
-    ? parseStreamEvents(args.rawOutput)
-    : [];
+  const events = args.events ?? [];
   const thinking = extractThinking(events);
   const toolCalls = extractToolCalls(events)
     .slice(0, TOOLCALLS_MAX_ENTRIES)

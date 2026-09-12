@@ -13,7 +13,7 @@
 import { randomUUID } from 'crypto';
 import { logger, eventBus, FileStore, type WorkUnitSnapshot, type WorkUnitEvent } from '@dommaker/studio-shared';
 import { ChannelMessageService, channelMessageService } from '../channels/channel-message.service.js';
-import { resolveStageRouting, routingFallbackText, shouldEmitFallbackReminder, ROUTING_STAGE_LABELS } from '../channels/routing.js';
+import { resolveOrNotice, ROUTING_STAGE_LABELS } from '../channels/routing.js';
 import { postWuSystemMessage } from './wu-messenger.js';
 import { resolveInitialStatus, WU_LEASE_TTL_MS } from './workunit.types.js';
 import { buildStatusById, resolveClaimable } from './wu-dependencies.js';
@@ -303,30 +303,30 @@ export class WorkUnitCrudService {
    * #126（T4）：幂等——父单已有任何子单则跳过（create 与确认后补展开两处调用点）。
    */
   protected async expandRoutingHead(parent: WorkUnitData): Promise<void> {
-    const routing = await resolveStageRouting(this.fileStore, parent.channelId!, 'implement');
-    if (!routing.profileId) {
+    // #477：解析 + fallback 判定 + 文案收口到 resolveOrNotice；出声通道/时机留本点
+    const { resolution: routing, notice } = await resolveOrNotice(this.fileStore, parent.channelId!, 'implement', {
       // #464：未配置也要出声——此前未配置静默 return，用户分不清「只配一跳」还是「断了」。
       // 文案与配错（routingFallbackText）同形态可区分；非里程碑（路由提醒不打扰，对齐配错提醒形态）。
-      const notice = routing.fallback
-        ? routingFallbackText('implement', routing)
-        : `工单路由提示：本频道未配置「${ROUTING_STAGE_LABELS.implement}」阶段路由，本单已回池涌现（频道成员自动认领）——如需固定角色派工请到频道设置配置路由表，或手动拆单`;
+      notConfiguredText: `工单路由提示：本频道未配置「${ROUTING_STAGE_LABELS.implement}」阶段路由，本单已回池涌现（频道成员自动认领）——如需固定角色派工请到频道设置配置路由表，或手动拆单`,
+    });
+    if (!routing.profileId) {
       if (routing.fallback) {
         logger.warn('[WorkUnit] routing.implement 配置不可用，回池涌现', {
           parentId: parent.id,
           fallback: routing.fallback,
           profileName: routing.profileName,
         });
-        // #497: 同频道同档同原因冷却窗内不重复出声（路由回退本身不受影响）
-        if (!shouldEmitFallbackReminder(parent.channelId!, 'implement', routing)) return;
       }
-      await postWuSystemMessage(parent, notice, {
-        fileStore: this.fileStore,
-      }).catch(err =>
-        logger.warn('[WorkUnit] routing notice failed (non-blocking)', {
-          parentId: parent.id,
-          error: String(err),
-        }),
-      );
+      if (notice) {
+        await postWuSystemMessage(parent, notice, {
+          fileStore: this.fileStore,
+        }).catch(err =>
+          logger.warn('[WorkUnit] routing notice failed (non-blocking)', {
+            parentId: parent.id,
+            error: String(err),
+          }),
+        );
+      }
       return;
     }
 

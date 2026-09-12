@@ -140,11 +140,11 @@ export function ProjectDetailPage() {
   const [activityExpanded, setActivityExpanded] = useState(false);
 
   // 🆕 #114 T8：「下一个该干什么」——可认领 + 依赖已清的第一张
-  //（列表 API claimable 标记 + metadata.pmoId 归属过滤，排序细则见 mapUtils.pickNextAction）
+  //（#456 起候选列表按 projectId 服务端过滤；claimable 筛选与排序细则留前端 mapUtils.pickNextAction）
   const nextActionQ = useAsyncData(async () => {
     if (!project) return null;
     try {
-      const unassignedRes = await workunitApi.list({ status: 'unassigned', limit: 100 });
+      const unassignedRes = await workunitApi.list({ status: 'unassigned', projectId: project.id, limit: 100 });
       const candidates = (unassignedRes.data?.data ?? [])
         .map(w => toNextActionCandidate(w, project.id))
         .filter((c): c is NextActionCandidate => c !== null);

@@ -1,8 +1,11 @@
 /**
  * B3a 工程归属链（决策 D2）— resolveWorkspaceForWU 优先级链测试
  *
- * 覆盖：显式 workspaceId > Requirement.projectId → PMO gitRepo > 频道 defaultWorkspaceId > none；
+ * 覆盖：Requirement.projectId → PMO gitRepo > 文件引用 > 频道 defaultPath > none；
  * 各步独立容错（需求缺失 / 项目缺失 / 无 gitRepo / 查询抛错 → 落下一优先级）。
+ *
+ * #481（2026-09-11）：「显式 workspaceId」与「频道 defaultWorkspaceId（默认执行机器）」
+ * 两级已退役——机器指针不再产出；频道只配 defaultWorkspaceId 时归属为 none。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
@@ -34,31 +37,15 @@ afterEach(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
-async function setChannelDefault(workspaceId: string | null) {
+/** 频道只配 defaultWorkspaceId（默认执行机器残骸）——#481 后不再是归属 rung */
+async function setChannelMachine(workspaceId: string | null) {
   await fileStore.updateChannel(channelId, { defaultWorkspaceId: workspaceId });
 }
 
 describe('resolveWorkspaceForWU（B3a 优先级链）', () => {
-  it('显式 workspaceId 最高优先：压过 Requirement 与频道默认', async () => {
-    const req = await reqService.create({ title: 'r', projectId: 'proj-1' });
-    await setChannelDefault('ws-channel');
-
-    const result = await resolveWorkspaceForWU({
-      explicitWorkspaceId: 'ws-explicit',
-      reqId: req.id,
-      channelId,
-      fileStore,
-      getProject: async () => ({ gitRepo: '/data/repo' }),
-    });
-
-    expect(result).toEqual({
-      source: 'explicit', workspaceId: 'ws-explicit', workspaceRoot: null, projectId: null,
-    });
-  });
-
   it('Requirement.projectId + PMO gitRepo → source=requirement，gitRepo 作 workspaceRoot', async () => {
     const req = await reqService.create({ title: 'r', projectId: 'proj-1' });
-    await setChannelDefault('ws-channel'); // 频道默认存在但被 Requirement 压过
+    await setChannelMachine('ws-channel'); // 机器指针存在但被 Requirement 压过（且本就不是 rung）
 
     const result = await resolveWorkspaceForWU({
       reqId: req.id,
@@ -68,24 +55,22 @@ describe('resolveWorkspaceForWU（B3a 优先级链）', () => {
     });
 
     expect(result).toEqual({
-      source: 'requirement', workspaceId: null, workspaceRoot: '/data/repo', projectId: 'proj-1',
+      source: 'requirement', workspaceRoot: '/data/repo', projectId: 'proj-1',
     });
   });
 
-  it('Requirement 无 projectId → 落频道默认', async () => {
+  it('Requirement 无 projectId + 频道只配 defaultWorkspaceId → none（#481：机器指针不再产出归属）', async () => {
     const req = await reqService.create({ title: 'r' });
-    await setChannelDefault('ws-channel');
+    await setChannelMachine('ws-channel');
 
     const result = await resolveWorkspaceForWU({ reqId: req.id, channelId, fileStore });
 
-    expect(result).toEqual({
-      source: 'channel-default', workspaceId: 'ws-channel', workspaceRoot: null, projectId: null,
-    });
+    expect(result).toEqual({ source: 'none', workspaceRoot: null, projectId: null });
   });
 
-  it('PMO 项目无 gitRepo → 落频道默认', async () => {
+  it('PMO 项目无 gitRepo + 频道只配 defaultWorkspaceId → none', async () => {
     const req = await reqService.create({ title: 'r', projectId: 'proj-1' });
-    await setChannelDefault('ws-channel');
+    await setChannelMachine('ws-channel');
 
     const result = await resolveWorkspaceForWU({
       reqId: req.id,
@@ -94,40 +79,36 @@ describe('resolveWorkspaceForWU（B3a 优先级链）', () => {
       getProject: async () => ({ gitRepo: null }),
     });
 
-    expect(result.source).toBe('channel-default');
-    expect(result.workspaceId).toBe('ws-channel');
+    expect(result.source).toBe('none');
   });
 
-  it('PMO 项目不存在 / 查询抛错 → 落频道默认（容错）', async () => {
+  it('PMO 项目不存在 / 查询抛错 → 落下一优先级（容错）', async () => {
     const req = await reqService.create({ title: 'r', projectId: 'proj-gone' });
-    await setChannelDefault('ws-channel');
 
     const notFound = await resolveWorkspaceForWU({
       reqId: req.id, channelId, fileStore, getProject: async () => null,
     });
-    expect(notFound.source).toBe('channel-default');
+    expect(notFound.source).toBe('none');
 
     const thrown = await resolveWorkspaceForWU({
       reqId: req.id, channelId, fileStore,
       getProject: async () => { throw new Error('boom'); },
     });
-    expect(thrown.source).toBe('channel-default');
+    expect(thrown.source).toBe('none');
   });
 
-  it('reqId 指向不存在的 REQ → 落频道默认', async () => {
-    await setChannelDefault('ws-channel');
-
+  it('reqId 指向不存在的 REQ → 落下一优先级', async () => {
     const result = await resolveWorkspaceForWU({ reqId: 'REQ-9999', channelId, fileStore });
 
-    expect(result.source).toBe('channel-default');
+    expect(result.source).toBe('none');
   });
 
-  it('REQ 无 projectId 且频道无默认 → none（调用方转 NEED_INPUT）', async () => {
+  it('REQ 无 projectId 且频道无默认工程 → none（调用方转 NEED_INPUT）', async () => {
     const req = await reqService.create({ title: 'r' });
 
     const result = await resolveWorkspaceForWU({ reqId: req.id, channelId, fileStore });
 
-    expect(result).toEqual({ source: 'none', workspaceId: null, workspaceRoot: null, projectId: null });
+    expect(result).toEqual({ source: 'none', workspaceRoot: null, projectId: null });
   });
 
   it('无任何输入 → none', async () => {
@@ -141,23 +122,11 @@ describe('resolveWorkspaceForWU（B3a 优先级链）', () => {
   });
 });
 
-describe('#285（决策 #249 §4）：fileRefs 归属 rung（显式 > REQ 继承 > 文件引用 > 频道默认 > none）', () => {
+describe('#285（决策 #249 §4）：fileRefs 归属 rung（REQ 继承 > 文件引用 > 频道默认工程 > none）', () => {
   const sameRepoRefs = [
     { repo: '/data/repo', path: 'src/a.ts' },
     { repo: '/data/repo/', path: 'src/b.ts' }, // 尾斜杠写法差归一后仍同仓
   ];
-
-  it('显式 workspaceId 压过 fileRefs', async () => {
-    const result = await resolveWorkspaceForWU({
-      explicitWorkspaceId: 'ws-explicit',
-      fileRefs: sameRepoRefs,
-      fileStore,
-    });
-
-    expect(result).toEqual({
-      source: 'explicit', workspaceId: 'ws-explicit', workspaceRoot: null, projectId: null,
-    });
-  });
 
   it('REQ 继承压过 fileRefs', async () => {
     const req = await reqService.create({ title: 'r', projectId: 'proj-1' });
@@ -170,12 +139,12 @@ describe('#285（决策 #249 §4）：fileRefs 归属 rung（显式 > REQ 继承
     });
 
     expect(result).toEqual({
-      source: 'requirement', workspaceId: null, workspaceRoot: '/data/req-repo', projectId: 'proj-1',
+      source: 'requirement', workspaceRoot: '/data/req-repo', projectId: 'proj-1',
     });
   });
 
-  it('全部引用同仓（尾斜杠归一）→ source=file-refs，workspaceRoot=归一后的 repo，压过频道默认', async () => {
-    await setChannelDefault('ws-channel');
+  it('全部引用同仓（尾斜杠归一）→ source=file-refs，workspaceRoot=归一后的 repo，压过频道机器指针', async () => {
+    await setChannelMachine('ws-channel');
 
     const result = await resolveWorkspaceForWU({
       fileRefs: sameRepoRefs,
@@ -184,12 +153,12 @@ describe('#285（决策 #249 §4）：fileRefs 归属 rung（显式 > REQ 继承
     });
 
     expect(result).toEqual({
-      source: 'file-refs', workspaceId: null, workspaceRoot: '/data/repo', projectId: null,
+      source: 'file-refs', workspaceRoot: '/data/repo', projectId: null,
     });
   });
 
-  it('跨仓引用不参与归属 → 落频道默认', async () => {
-    await setChannelDefault('ws-channel');
+  it('跨仓引用不参与归属 → none（频道机器指针不再是 rung）', async () => {
+    await setChannelMachine('ws-channel');
 
     const result = await resolveWorkspaceForWU({
       fileRefs: [
@@ -200,36 +169,30 @@ describe('#285（决策 #249 §4）：fileRefs 归属 rung（显式 > REQ 继承
       fileStore,
     });
 
-    expect(result).toEqual({
-      source: 'channel-default', workspaceId: 'ws-channel', workspaceRoot: null, projectId: null,
-    });
+    expect(result.source).toBe('none');
   });
 
-  it('空数组等同无引用 → 落频道默认', async () => {
-    await setChannelDefault('ws-channel');
-
+  it('空数组等同无引用 → 落下一优先级', async () => {
     const result = await resolveWorkspaceForWU({ fileRefs: [], channelId, fileStore });
 
-    expect(result.source).toBe('channel-default');
+    expect(result.source).toBe('none');
   });
 
   it('无引用输入行为不变：无任何输入 → none', async () => {
     const result = await resolveWorkspaceForWU({ fileStore });
 
-    expect(result).toEqual({ source: 'none', workspaceId: null, workspaceRoot: null, projectId: null });
+    expect(result).toEqual({ source: 'none', workspaceRoot: null, projectId: null });
   });
 
   it('仅 fileRefs 同仓、无频道默认 → source=file-refs（不落 none 挂起）', async () => {
     const result = await resolveWorkspaceForWU({ fileRefs: sameRepoRefs, channelId, fileStore });
 
     expect(result).toEqual({
-      source: 'file-refs', workspaceId: null, workspaceRoot: '/data/repo', projectId: null,
+      source: 'file-refs', workspaceRoot: '/data/repo', projectId: null,
     });
   });
 
-  it('畸形条目（repo 缺失/非字符串）不参与归属 → 落频道默认', async () => {
-    await setChannelDefault('ws-channel');
-
+  it('畸形条目（repo 缺失/非字符串）不参与归属 → 落下一优先级', async () => {
     const result = await resolveWorkspaceForWU({
       fileRefs: [
         { repo: '/data/repo', path: 'src/a.ts' },
@@ -239,7 +202,7 @@ describe('#285（决策 #249 §4）：fileRefs 归属 rung（显式 > REQ 继承
       fileStore,
     });
 
-    expect(result.source).toBe('channel-default');
+    expect(result.source).toBe('none');
   });
 });
 
@@ -255,7 +218,6 @@ describe('#272（决策 #251 Q2\'）：频道默认工程 defaultPath 归属 run
 
     expect(result).toEqual({
       source: 'channel-default-path',
-      workspaceId: null,
       workspaceRoot: '/data/channel-repo',
       projectId: null,
     });
@@ -274,9 +236,9 @@ describe('#272（决策 #251 Q2\'）：频道默认工程 defaultPath 归属 run
     expect(result.workspaceRoot).toBe('/data/refs-repo');
   });
 
-  it('defaultPath（默认工程）压过 defaultWorkspaceId（默认执行机器）', async () => {
+  it('defaultPath（默认工程）命中时与 defaultWorkspaceId（机器指针）无关', async () => {
     await setChannelDefaultPath('/data/channel-repo');
-    await setChannelDefault('ws-channel');
+    await setChannelMachine('ws-channel');
 
     const result = await resolveWorkspaceForWU({ channelId, fileStore });
 
@@ -284,16 +246,16 @@ describe('#272（决策 #251 Q2\'）：频道默认工程 defaultPath 归属 run
     expect(result.workspaceRoot).toBe('/data/channel-repo');
   });
 
-  it('defaultPath 为 null/空串 → 跳过该 rung，落 defaultWorkspaceId 或 none', async () => {
-    await setChannelDefault('ws-channel');
+  it('defaultPath 为 null/空串 → 跳过该 rung（defaultWorkspaceId 已退役，落 none）', async () => {
+    await setChannelMachine('ws-channel');
 
     await setChannelDefaultPath(null);
     const nullCase = await resolveWorkspaceForWU({ channelId, fileStore });
-    expect(nullCase.source).toBe('channel-default');
+    expect(nullCase.source).toBe('none');
 
     await setChannelDefaultPath('');
     const emptyCase = await resolveWorkspaceForWU({ channelId, fileStore });
-    expect(emptyCase.source).toBe('channel-default');
+    expect(emptyCase.source).toBe('none');
   });
 
   it('REQ 继承仍压过 defaultPath（第一性归属不变）', async () => {

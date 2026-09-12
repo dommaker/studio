@@ -8,12 +8,17 @@ import { appendIncidentUpdate } from './incident-store.js';
 import { persistIncidentNotification } from './incident-notification.js';
 import { resolveStudioLogFile } from '../../../utils/studio-log-path.js';
 import { getErrorMessage } from '../../../utils/errors.js';
-import { countProcessesByCmdline, listZombieProcesses } from '../ops/proc-probes.js';
+import { countProcessesByCmdline, listZombieProcesses, readDiskUsage, readMemoryUsage } from '../ops/proc-probes.js';
+import { execAsync } from '../monitor/exec-async.js';
 
 const MAX_TRIAGE_TIME_MS = 10 * 60_000; // 10 min
 const MAX_FIX_ATTEMPTS = 3;
 const FIX_COOLDOWN_MS = 30_000; // 30s between attempts
 const INCIDENTS_JSONL = resolveStudioLogFile('incidents.jsonl');
+
+// df -h 风格的 G/M 缩写（proc-probes 原始 bytes → 人类可读，#454）
+const fmtBytes = (bytes: number): string =>
+  bytes >= 1024 ** 3 ? `${Math.round(bytes / 1024 ** 3)}G` : `${Math.round(bytes / 1024 ** 2)}M`;
 
 // 破坏性修复命令安全门：仅当 STUDIO_TRIAGE_DESTRUCTIVE=true 时才真正执行
 // rm/pkill/tmux kill-session 等变更性命令（曾误删 e2e 临时目录、误杀存活 agent CLI 进程）。
@@ -133,34 +138,32 @@ class TriageService {
     const findings: string[] = [];
 
     try {
-      // Service health check
+      // Service health check（exec-async 异步出口——#454，不阻塞事件循环；shell 兜底语义不变）
       if (input.type === 'service_down' || input.type === 'workunit_health_degraded') {
         try {
-          const { execSync } = await import('child_process');
-          const health = execSync(`curl -s -o /dev/null -w "%{http_code}" http://localhost:${process.env.PORT || 3001}/health 2>/dev/null || echo "unreachable"`, {
+          const health = (await execAsync(`curl -s -o /dev/null -w "%{http_code}" http://localhost:${process.env.PORT || 3001}/health 2>/dev/null || echo "unreachable"`, {
             timeout: 5000,
-            encoding: 'utf-8',
-          }).trim();
+          })).trim();
           findings.push(`Health check: ${health}`);
         } catch {
           findings.push('Health check: unreachable');
         }
       }
 
-      // Disk usage
+      // Disk usage（statfs 口径，proc-probes 单出口，零子进程——#454 去同步 df）
       try {
-        const { execSync } = await import('child_process');
-        const df = execSync('df -h / | tail -1', { timeout: 3000, encoding: 'utf-8' }).trim();
-        findings.push(`Disk: ${df}`);
+        const disk = readDiskUsage('/');
+        if (!disk || disk.usePercent === null) throw new Error('statfs unavailable');
+        findings.push(`Disk: ${disk.usePercent}% used (${fmtBytes(disk.availBytes)} available of ${fmtBytes(disk.totalBytes)})`);
       } catch {
         findings.push('Disk check: failed');
       }
 
-      // Memory
+      // Memory（/proc/meminfo MemAvailable 口径，proc-probes 单出口，零子进程——#454 去同步 free）
       try {
-        const { execSync } = await import('child_process');
-        const free = execSync('free -m | grep Mem', { timeout: 3000, encoding: 'utf-8' }).trim();
-        findings.push(`Memory: ${free}`);
+        const mem = readMemoryUsage();
+        if (mem.totalKb === null || mem.usedKb === null || mem.freeKb === null) throw new Error('meminfo unavailable');
+        findings.push(`Memory: ${Math.round(mem.usedKb / 1024)}M/${Math.round(mem.totalKb / 1024)}M used (${Math.round(mem.freeKb / 1024)}M available)`);
       } catch {
         findings.push('Memory check: failed');
       }
@@ -194,9 +197,8 @@ class TriageService {
       // Execution-level diagnosis (Monitor 升级，FL-037 Phase 1)
       if (input.type.startsWith('execution_') || input.type === 'zombie') {
         try {
-          const { execSync } = await import('child_process');
-          // Tmux sessions
-          const tmux = execSync('tmux ls 2>/dev/null || echo "no tmux server"', { timeout: 3000, encoding: 'utf-8' }).trim();
+          // Tmux sessions（exec-async 异步出口——#454；`|| echo` shell 兜底语义不变）
+          const tmux = (await execAsync('tmux ls 2>/dev/null || echo "no tmux server"', { timeout: 3000 })).trim();
           findings.push(`Tmux: ${tmux}`);
         } catch {
           findings.push('Tmux: no server');
@@ -342,17 +344,15 @@ class TriageService {
     const cmd = commands[cmdIndex];
 
     try {
-      const { execSync } = await import('child_process');
-      const output = execSync(cmd, { timeout: 10000, encoding: 'utf-8' }).trim();
+      const output = (await execAsync(cmd, { timeout: 10000 })).trim();
 
-      // Verify with health check after restart-type actions
+      // Verify with health check after restart-type actions（exec-async 异步出口——#454）
       let verified = true;
       if (incidentType === 'service_down') {
         try {
-          const health = execSync(`curl -s -o /dev/null -w "%{http_code}" http://localhost:${process.env.PORT || 3001}/health 2>/dev/null || echo "0"`, {
+          const health = (await execAsync(`curl -s -o /dev/null -w "%{http_code}" http://localhost:${process.env.PORT || 3001}/health 2>/dev/null || echo "0"`, {
             timeout: 5000,
-            encoding: 'utf-8',
-          }).trim();
+          })).trim();
           verified = health.startsWith('2');
         } catch {
           verified = false;

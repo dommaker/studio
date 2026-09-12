@@ -37,12 +37,19 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => {
   };
 });
 
-// 捕获所有 shell 执行：execSync 只记录不执行（service 内为 await import('child_process')）
+// 捕获所有 shell 执行：exec/execSync 只记录不执行（service 内经 monitor/exec-async 异步出口，#454）
 const execCalls: string[] = [];
 vi.mock('child_process', () => ({
   execSync: vi.fn((cmd: string) => {
     execCalls.push(cmd);
     return '';
+  }),
+  // exec-async.ts 的回调式 exec —— 记录命令并立即回调成功
+  exec: vi.fn((cmd: string, ...rest: any[]) => {
+    execCalls.push(cmd);
+    const cb = rest.find((a) => typeof a === 'function');
+    if (cb) cb(null, '', '');
+    return {};
   }),
   // knowledge-service 静态 import execFile（RAG 探测）— 立即回调成功，避免悬挂
   execFile: vi.fn((...args: any[]) => {
@@ -132,9 +139,10 @@ describe('TriageService destructive action gating', () => {
         message: 'test read-only diagnose',
         details: { executionId: 'test-exec-gate-2' },
       });
-      // diagnose 阶段的 tmux ls / ps / df 等只读命令不受影响
-      expect(execCalls.some((c) => c.includes('df -h'))).toBe(true);
+      // diagnose 阶段的只读探测不受影响（#454：df/free 已删除，磁盘/内存改走 proc-probes /proc 直读）
       expect(execCalls.some((c) => c.startsWith('tmux ls'))).toBe(true);
+      expect(execCalls.some((c) => c.includes('df -h'))).toBe(false);
+      expect(execCalls.some((c) => c.includes('free -m'))).toBe(false);
     });
   });
 

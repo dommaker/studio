@@ -71,8 +71,8 @@ export interface WorkUnitMetadata {
   planStepAllowance?: number;
   pendingReplies?: string[];  // 恢复后待注入下一轮 prompt 的人类回复（多条拼接，消费后清除）
   // B3a 工程归属链（决策 D2）：归属解析结果落档
-  workspaceRoot?: string;     // 直接可用的工程根路径（Requirement→PMO gitRepo / 人工回复绑定；agent-loop 优先于 workspaceId 消费）
-  ownershipSource?: string;   // 归属来源：explicit / requirement / file-refs（#285）/ channel-default / none / human-reply
+  workspaceRoot?: string;     // 直接可用的工程根路径（Requirement→PMO gitRepo / 文件引用 / 频道默认工程 / 人工回复绑定；#481 起为 agent-loop 执行根目录的唯一来源）
+  ownershipSource?: string;   // 归属来源：requirement / file-refs（#285）/ channel-default-path / none / human-reply（#481：explicit / channel-default 机器指针来源已退役，仅历史数据可见）
   // #285（决策 #249 §4 / #257）：@文件引用落档（#281 路由层校验后的 kept refs，仅在有有效引用时写入；
   // prompt-composer files 段消费；全部引用同仓时兼任归属 rung 输入）
   fileRefs?: { repo: string; path: string }[];

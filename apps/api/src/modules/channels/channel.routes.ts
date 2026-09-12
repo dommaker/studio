@@ -174,7 +174,7 @@ router.get('/:id/file-vocabulary', async (req, res) => {
 
 // POST /api/v1/channels/:id/messages — send a message
 router.post('/:id/messages', requireAuth(), requireNotGuest(), async (req, res) => {
-  const { content, replyToId, workspaceId, reqId, files } = req.body;
+  const { content, replyToId, reqId, files } = req.body;
   if (!content || typeof content !== 'string' || !content.trim()) {
     return res.status(400).json({ success: false, error: 'content is required' });
   }
@@ -199,14 +199,13 @@ router.post('/:id/messages', requireAuth(), requireNotGuest(), async (req, res) 
   // 没有则新建（如单测直连路由）；@mention 建 WU 时写入 metadata.traceId。
   const traceId = (req as any).requestId ?? randomUUID();
 
-  // F6: 调用方可显式指定 workspaceId（缺省走频道默认工程）
+  // #481：body.workspaceId（F6 显式机器指针）已退役，不再接收/生效
   const message = await routeMessage(
     channelId,
     trimmedContent,
     replyToId || undefined,
     undefined,
     {
-      workspaceId: typeof workspaceId === 'string' && workspaceId ? workspaceId : undefined,
       // REQ 需求编号（vision §5.3）：调用方可显式指定（缺省走 #REQ-XXXX token / 自动新建）
       reqId: typeof reqId === 'string' && reqId ? reqId : undefined,
       traceId,

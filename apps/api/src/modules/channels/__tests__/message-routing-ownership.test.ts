@@ -2,10 +2,12 @@
  * B3a 工程归属链（决策 D2）— message-routing 接线测试
  *
  * 覆盖：
- * - 无归属（无显式/REQ 无 projectId/频道无默认）→ WU 照常创建但立即 NEED_INPUT
+ * - 无归属（REQ 无 projectId/频道无默认工程）→ WU 照常创建但立即 NEED_INPUT
  *   挂起（blocked + waitingForInput + waitingReason='ownership'）+ Studio 系统消息提问
  * - Requirement.projectId → PMO gitRepo → metadata.workspaceRoot 落档（source=requirement）
- * - 显式 workspaceId > Requirement > 频道默认（source 区分）
+ * - 频道 defaultPath → metadata.workspaceRoot 落档（source=channel-default-path）
+ * - #481：频道 defaultWorkspaceId（默认执行机器）不再产出归属——只配机器指针的频道
+ *   等同无归属（挂起问人）；WU 不再落 workspaceId 机器指针
  * - 有归属时保持旧行为：status=unassigned，无挂起 metadata
  *
  * 约定：PMO 项目经 projectService 写入（落 #219 setup 钉的隔离根 projects/，非真实
@@ -140,7 +142,7 @@ describe('B3a: 归属解析优先级接线', () => {
     expect(meta.waitingForInput).toBeUndefined();
   });
 
-  it('PMO 项目无 gitRepo → 落频道默认（channel-default）', async () => {
+  it('PMO 项目无 gitRepo + 频道只配机器指针 → 无归属挂起（#481：defaultWorkspaceId 退役）', async () => {
     const channelId = await createChannel('ws-channel-default');
     const project = await createRealProject(null);
     const req = await reqService.create({ title: '无 gitRepo 需求', channelId, projectId: project.id });
@@ -148,39 +150,39 @@ describe('B3a: 归属解析优先级接线', () => {
     const msg = await routeMessage(channelId, '@Agent 干活', undefined, fileStore, { reqId: req.id });
 
     const wu = await findWu(msg.workUnitId!);
-    expect(wu!.status).toBe('unassigned');
-    expect(wu!.workspaceId).toBe('ws-channel-default');
-    expect(metaOf(wu!).ownershipSource).toBe('channel-default');
-  });
-
-  it('显式 workspaceId 压过 Requirement（source=explicit）', async () => {
-    const channelId = await createChannel(null);
-    const project = await createRealProject('/data/b3a-repo');
-    const req = await reqService.create({ title: '归属需求', channelId, projectId: project.id });
-
-    const msg = await routeMessage(channelId, '@Agent 干活', undefined, fileStore, {
-      reqId: req.id,
-      workspaceId: 'ws-explicit',
-    });
-
-    const wu = await findWu(msg.workUnitId!);
-    expect(wu!.status).toBe('unassigned');
-    expect(wu!.workspaceId).toBe('ws-explicit');
+    expect(wu!.status).toBe('blocked');
+    expect(wu!.workspaceId ?? null).toBeNull(); // 机器指针不再落 WU
     const meta = metaOf(wu!);
-    expect(meta.ownershipSource).toBe('explicit');
-    expect(meta.workspaceRoot).toBeUndefined();
+    expect(meta.ownershipSource).toBe('none');
+    expect(meta.waitingReason).toBe('ownership');
   });
 
-  it('频道默认工程 → source=channel-default，不挂起', async () => {
-    const channelId = await createChannel('ws-channel-default');
+  it('频道 defaultPath（默认工程）→ metadata.workspaceRoot 落档，不挂起', async () => {
+    const channelId = await createChannel(null);
+    await fileStore.updateChannel(channelId, { defaultPath: '/data/channel-repo' });
 
     const msg = await routeMessage(channelId, '@Agent 干活', undefined, fileStore);
 
     const wu = await findWu(msg.workUnitId!);
     expect(wu!.status).toBe('unassigned');
-    expect(wu!.workspaceId).toBe('ws-channel-default');
+    expect(wu!.workspaceId ?? null).toBeNull();
     const meta = metaOf(wu!);
-    expect(meta.ownershipSource).toBe('channel-default');
+    expect(meta.ownershipSource).toBe('channel-default-path');
+    expect(meta.workspaceRoot).toBe('/data/channel-repo');
     expect(meta.waitingForInput).toBeUndefined();
+  });
+
+  it('频道只配 defaultWorkspaceId（默认执行机器）→ #481 后等同无归属，挂起问人', async () => {
+    const channelId = await createChannel('ws-channel-default');
+
+    const msg = await routeMessage(channelId, '@Agent 干活', undefined, fileStore);
+
+    const wu = await findWu(msg.workUnitId!);
+    expect(wu!.status).toBe('blocked');
+    expect(wu!.workspaceId ?? null).toBeNull();
+    const meta = metaOf(wu!);
+    expect(meta.ownershipSource).toBe('none');
+    expect(meta.waitingForInput).toBe(true);
+    expect(meta.waitingReason).toBe('ownership');
   });
 });

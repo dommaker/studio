@@ -142,6 +142,8 @@ describe('#114：PMO 地图区 + 下一个该干什么', { testTimeout: 15000 },
     await waitFor(() => expect(screen.getByRole('button', { name: '待决问题 PMO-11: 队列方案？' })).toBeTruthy());
     expect(screen.getByText('先拍板这个待决问题')).toBeTruthy();
     expect(screen.queryByText('别的项目的活')).toBeNull();
+    // #456：候选列表按 projectId 服务端过滤（不再拉全系统 unassigned 池客户端过滤）
+    expect(mockWuList).toHaveBeenCalledWith(expect.objectContaining({ status: 'unassigned', projectId: 'p1' }));
   });
 
   it('非探路型（无 map）不渲染地图区；有可认领单仍显示下一个该干什么', async () => {

@@ -78,9 +78,9 @@ _Avoid_: 自创类型、label 当词表载体、隐式判定变体
 频道交互（@文件补全、文件引用渲染等）的候选工程集（#249，2026-08-19）= 频道默认工程 ∪ 本频道需求挂接 PMO 的全部工程 ∪ 杂务 PMO 工程，去重、频道内最近使用优先。性质 = UX 划界（收窄补全候选），**非安全边界**——安全边界在 agent CLI 权限层。其中「频道默认工程」自 #272（决策 #251 Q2'）起 = `channel.defaultPath`（本地 repo）；legacy `defaultWorkspaceId`（远程执行机器）解析根仍保留为候选来源。
 _Avoid_: 全量扫描工程当候选、把候选集当权限边界
 
-**默认工程 / 默认执行机器（分家）**:
-「哪个 repo」与「在哪跑」是两个概念，术语自此分家（#251 Q2'，2026-08-19；#272 落地）：**默认工程** = 本地 repo 路径，落 `channel.defaultPath`，顶栏下拉数据源 = `/projects/discover` 本地工程发现（非 Admin 可用），归属链 rung 在文件引用之后、执行机器之前（`source=channel-default-path`）；**默认执行机器** = 远程 Workspace（`channel.defaultWorkspaceId`），Admin 概念，正名挪设置区（#286）。旧顶栏「默认工程」下拉绑的是 Workspace，系语义张冠李戴，已拆除。
-_Avoid_: 用 defaultWorkspaceId 表达工程归属、顶栏混摆两个概念
+**默认工程**:
+「哪个 repo」的唯一频道级配置点（#251 Q2'，2026-08-19；#272 落地；#481 收敛）：**默认工程** = 本地 repo 路径，落 `channel.defaultPath`，顶栏下拉数据源 = `/projects/discover` 本地工程发现（非 Admin 可用），归属链 rung 在文件引用之后、none 之前（`source=channel-default-path`）。**「默认执行机器」（`channel.defaultWorkspaceId`）已随 #481（2026-09-11）退役**：设置面删除、归属链机器指针两级拆除、WU 不再落 `workspaceId`（仅存于 channel PATCH 绑定校验与 file-ref-vocabulary legacy 候选集）。历史上「哪个 repo」与「在哪跑」曾分家为两个概念，远程节点方向判死后「在哪跑」不再成立。
+_Avoid_: 用 defaultWorkspaceId 表达工程归属、重新引入「执行机器」类配置面
 
 **频道工作区**:
 频道域的唯一页面形态（#377 map charting 决议，2026-08-28）：三栏 = 左频道列表 / 中会话流 / 右「频道动态」。旧频道列表页（max-w-lg 居中）删除，`/` 与 `/channels` 重定向进工作区并记住最近访问频道。风格 = Slack/Discord 式三栏骨架 + Linear 式克制密度。改版实施前的现状描述见 `apps/web/src/CONTEXT.md`。

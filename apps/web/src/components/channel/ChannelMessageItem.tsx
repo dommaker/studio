@@ -17,6 +17,7 @@ import { AnalysisConfirmCard } from './AnalysisConfirmCard';
 import { PlanRulingCard } from './PlanRulingCard';
 import { ConvertToTaskDialog } from './ConvertToTaskDialog';
 import { NeedInputOptions } from './NeedInputOptions';
+import { PmoChip } from '../pmo/PmoChip';
 import { shortWuId } from '../../utils/id';
 import { parseMeta, type CardMeta, type MetaOption } from '../../utils/messageMeta';
 import { parseSeverityPrefix } from '../../utils/severityPrefix';
@@ -308,7 +309,8 @@ export const ChannelMessageItem = memo(function ChannelMessageItem({
       )}
 
       {/* Footer: WU/REQ 链接（开右抽屉）+ PMO 直跳 + 线程开关；⑤ WU chip 旁 ↗ 直跳已删（同目的地两入口，chip 自承载）。
-          #474：三枚同形 chip 无法扫读 → 类型修饰类差异化配色（wu=accent / PMO=success / REQ=warning） */}
+          #474 类型差异化配色（wu=accent / REQ=warning）保留；#476：PMO chip 收口统一标识 PmoChip
+          （图标+文本、中性色），#474 的 PMO=success 临时差异化随本票退场 */}
       {(message.workUnitId || reqId || pmoId || (isThreadAnchor && threadReplyCount !== undefined && threadReplyCount > 0)) && (
         <div className="mc-card-foot">
           {message.workUnitId && onOpenWorkUnit && (
@@ -317,14 +319,12 @@ export const ChannelMessageItem = memo(function ChannelMessageItem({
             </button>
           )}
           {pmoId && (
-            <button
-              className="mc-wu-link mc-wu-link--pmo"
+            <PmoChip
+              label="PMO"
               onClick={() => navigate(`/pmo/project/${pmoId}`)}
               title="打开项目详情"
-              aria-label="打开项目详情"
-            >
-              PMO ›
-            </button>
+              ariaLabel="打开项目详情"
+            />
           )}
           {reqId && onOpenRequirement && (
             <button className="mc-wu-link mc-wu-link--req" onClick={() => onOpenRequirement(reqId)} title="打开需求全链路">

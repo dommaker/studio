@@ -15,7 +15,8 @@ import * as fsSync from 'fs';
 import * as crypto from 'crypto';
 import * as os from 'os';
 import { logger } from '@dommaker/studio-shared';
-import { execSh, resolveVpsWorkspace } from '@dommaker/studio-shared/node';
+import { execSh } from '@dommaker/studio-shared/node';
+import { studioPath } from '@dommaker/studio-shared/studio-dir';
 
 import type { AgentTask } from './types.js';
 import { execSync } from 'child_process';
@@ -119,51 +120,54 @@ async function writeGitExclude(repoDir: string): Promise<void> {
 }
 
 /**
- * 3-priority workspace resolution:
- *   1. task.parameters.workspaceRoot (direct path)
- *   2. VPS workspace lookup — resolveVpsWorkspace() from @dommaker/studio-shared/node
- *      (reads ~/.studio/workspaces/*.json; 'VPS'-name convention owned there) —
- *      skipped when hasWorktree=true
- *   3. createWorktree() fallback
+ * 执行目录解析（3 级，#481 2026-09-11 重排，本机 workspace 记录退出执行面）：
+ *   1. task.parameters.workspaceRoot —— 上游归属信号（@文件引用 / PMO 项目 gitRepo /
+ *      频道默认工程）解析出的真实项目目录
+ *   2. hasWorktree=true → createWorktree()（代码类任务要隔离工作树，绝不退回共享目录）
+ *   3. 无归属 → 显式配置的共享工作目录（REPO_DIR，执行时现场读 = 单一来源，
+ *      只读类任务能读到代码）；未配置/不存在 → 隔离 scratch（绝不猜一个真实仓）
  *
- * hasWorktree=true: caller explicitly wants isolated git worktree, skip VPS workspace.
+ * 原先第 2 级是「读本机 VPS workspace 记录的 root」、第 3 级是无条件 createWorktree。
+ * 那条记录的 root 来自最早启动的服务器进程的 REPO_DIR/cwd（一次性抄件，之后只看抄件），
+ * 生产上指向开发工作副本——"没解析出归属"的任务会悄悄在别人的代码目录里跑。远程节点方向
+ * 已判死（bdaf0dd3），它不再充当执行面的隐式兜底；共享工作目录改为现场读配置，
+ * 改配置即生效，不再存在"抄件 vs 配置"的静默分叉。
  */
 export async function resolveWorkspace(opts: {
   task: AgentTask;
   worktreesDir: string;
   repoDir: string;
+  /** 无归属且未配置共享工作目录时的隔离工作目录根；缺省 = 数据区 studioPath('scratch') */
+  scratchDir?: string;
 }): Promise<string> {
   const { task, worktreesDir, repoDir } = opts;
 
-  // Priority 1: direct from task parameters
+  // Priority 1: 归属信号解析出的直接路径
   const directRoot = task.parameters?.workspaceRoot as string | undefined;
   if (directRoot && fsSync.existsSync(directRoot)) {
     logger.info('[WorktreeResolver] Using workspaceRoot from task parameters', { workspaceRoot: directRoot });
     return directRoot;
   }
 
-  // Priority 2: VPS workspace lookup (skip when hasWorktree=true)
-  const needsWorktree = task.parameters?.hasWorktree === true;
-  if (needsWorktree) {
-    logger.info('[WorktreeResolver] hasWorktree=true, skipping VPS workspace, creating git worktree');
-  } else {
-    try {
-      const ws = await resolveVpsWorkspace();
-      if (ws?.workspaceRoot && fsSync.existsSync(ws.workspaceRoot)) {
-        logger.info('[WorktreeResolver] Using VPS workspace', { workspaceId: ws.id, workspaceRoot: ws.workspaceRoot });
-        return ws.workspaceRoot;
-      }
-    } catch (e) {
-      logger.warn('[WorktreeResolver] VPS workspace lookup failed, falling back to createWorktree', { error: String(e) });
-    }
+  // Priority 2: 调用方明确要隔离工作树（代码类，决策 D1）
+  if (task.parameters?.hasWorktree === true) {
+    const worktree = path.join(worktreesDir, task.executionId);
+    const projectRepo = (task.parameters?.repoDir as string) || repoDir;
+    const baseBranch = (task.parameters?.baseBranch as string) || getDefaultBranch(projectRepo);
+    await createWorktree(worktree, baseBranch, projectRepo, task);
+    return worktree;
   }
 
-  // Priority 3: create git worktree
-  const worktree = path.join(worktreesDir, task.executionId);
-  const projectRepo = (task.parameters?.repoDir as string) || repoDir;
-  const baseBranch = (task.parameters?.baseBranch as string) || getDefaultBranch(projectRepo);
-  await createWorktree(worktree, baseBranch, projectRepo, task);
-  return worktree;
+  // Priority 3: 无归属 → 显式配置的共享工作目录（现场读配置）；未配置/不存在 → 隔离 scratch
+  const sharedRoot = process.env.REPO_DIR;
+  if (sharedRoot && fsSync.existsSync(sharedRoot)) {
+    logger.info('[WorktreeResolver] No project attribution; using configured shared working directory (REPO_DIR)', { sharedRoot });
+    return sharedRoot;
+  }
+  const scratch = path.join(opts.scratchDir ?? studioPath('scratch'), task.executionId);
+  fsSync.mkdirSync(scratch, { recursive: true });
+  logger.info('[WorktreeResolver] No project attribution and no shared working directory configured, using isolated scratch dir', { scratch });
+  return scratch;
 }
 
 /**
@@ -313,6 +317,13 @@ function detectPackageManager(lockfilePath: string): 'pnpm' | 'npm' | 'yarn' {
 export async function ensureDeps(worktree: string, repoDir: string): Promise<void> {
   const nodeModulesPath = path.join(worktree, 'node_modules');
   const modulesYaml = path.join(nodeModulesPath, '.modules.yaml');
+
+  // 不是项目检出（无归属任务的 scratch 兜底）→ 没有依赖这回事。
+  // 不加这道判断会拿 repoDir 的 lockfile 当依据，把 node_modules 硬链进空目录。
+  if (!findLockfile(worktree) && !fsSync.existsSync(path.join(worktree, 'package.json'))) {
+    logger.info('[WorktreeResolver] Deps: not a project checkout, skipping', { worktree });
+    return;
+  }
 
   // Already installed — skip
   if (fsSync.existsSync(modulesYaml)) {

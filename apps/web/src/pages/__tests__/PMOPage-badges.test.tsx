@@ -25,6 +25,7 @@ vi.mock('../../api/requirements', () => ({
 }));
 
 import { PMOPage } from '../PMOPage';
+import { usePmoDataStore } from '../../stores/pmoDataStore';
 
 const mockProjects = [
   { id: 'p1', pmoNumber: 'PM-001', title: 'Alpha', status: 'active', progress: 50, createdAt: '2026-01-01', reqAlias: 'REQ-0001' },
@@ -41,6 +42,8 @@ const renderPMO = () =>
 describe('AC-6: PMO 卡片徽章', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // #456：company/project 链改读 pmoDataStore（模块级单例），每测重置避免 TTL 缓存跨测串味
+    usePmoDataStore.getState().__resetForTests();
     mockChannelList.mockResolvedValue({ data: { data: [] } });
     mockListAllAgents.mockResolvedValue({ data: { data: [] } });
     mockProjectList.mockResolvedValue({ data: { data: mockProjects } });

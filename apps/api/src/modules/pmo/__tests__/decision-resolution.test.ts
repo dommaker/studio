@@ -11,7 +11,7 @@
  * 约定同 progress-rollup.test.ts：PMO 项目经 projectService 写入（落 #219 setup 钉的
  * 隔离根 projects/，非真实 ~/.studio），afterEach 统一删除。
  */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
@@ -243,6 +243,31 @@ describe('DecisionResolution（#110 决策落地）', () => {
     await new Promise(r => setTimeout(r, 150));
 
     expect((await projectService.get(project.id))!.map!.decisions.length).toBe(0);
+  });
+
+  it('#457：事件路径零防御性重读（payload 即真相），行为等价', async () => {
+    const project = await createProject(twoFogMap());
+    const wu = await createDecisionWu(project, 'fog-1', '结论');
+
+    const spy = vi.spyOn(wuService, 'getById');
+    await emitDone(wu);
+    const ok = await waitFor(async () => (await projectService.get(project.id))!.map!.decisions.length === 1);
+    expect(ok).toBe(true);
+    expect(spy).not.toHaveBeenCalled();
+
+    // 行为等价：结论原样落地 + 雾置 resolved
+    const after = (await projectService.get(project.id))!.map!;
+    expect(after.decisions[0].summary).toBe('结论');
+    expect(after.fog.find(f => f.id === 'fog-1')!.status).toBe('resolved');
+
+    // active 路径同样零重读
+    spy.mockClear();
+    const wu2 = await createDecisionWu(project, 'fog-2');
+    eventBus.publish('workunit.status_changed', { workunit: { ...wu2, status: 'active' } });
+    const ok2 = await waitFor(async () =>
+      (await projectService.get(project.id))!.map!.fog.find(f => f.id === 'fog-2')!.status === 'in-discussion');
+    expect(ok2).toBe(true);
+    expect(spy).not.toHaveBeenCalled();
   });
 });
 

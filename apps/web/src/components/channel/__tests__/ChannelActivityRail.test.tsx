@@ -117,13 +117,17 @@ describe('ChannelActivityRail — REQ 链路卡与 stepper', () => {
 });
 
 describe('ChannelActivityRail — PMO badge 数据链兜底（§4.3）', () => {
-  it('chain.requirement.projectId 优先：渲染 PMO 号·标题 ↗，点击跳项目页', async () => {
+  it('chain.requirement.projectId 优先：渲染统一标识（.pmo-chip 图标 + PMO 号·标题），点击跳项目页', async () => {
     mockGetChain.mockResolvedValue(chain('proj-1', []));
     mockProjectGet.mockResolvedValue({ data: { pmoNumber: 'PMO-7', title: '项目X' } });
     renderRail({ reqs: [req('REQ-0001')] });
 
-    const badge = await screen.findByText(/PMO-7 · 项目X/);
-    expect(badge.textContent).toContain('↗');
+    const badge = (await screen.findByText(/PMO-7 · 项目X/)).closest('button')!;
+    // #476：右栏 badge 与顶栏/footer 同一 PmoChip 视觉语言（图标 + 中性色，↗ 装饰随统一标识退场）
+    expect(badge.className).toContain('pmo-chip');
+    expect(badge.className).toContain('mc-act-pmo-badge');
+    expect(badge.querySelector('svg')).toBeTruthy();
+    expect(badge.textContent).not.toContain('↗');
     fireEvent.click(badge);
     expect(mockNavigate).toHaveBeenCalledWith('/pmo/project/proj-1');
   });

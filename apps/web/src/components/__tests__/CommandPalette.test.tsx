@@ -10,6 +10,7 @@ const { mockApi } = vi.hoisted(() => ({
 vi.mock('../../api', () => ({ api: mockApi }));
 
 import { CommandPalette } from '../CommandPalette';
+import { useRosterStore } from '../../stores/rosterStore';
 
 const CHANNELS = [
   { id: 'ch-1', name: '#研发', type: 'rnd' },
@@ -75,6 +76,13 @@ const typeQuery = async (q: string) => {
 beforeEach(() => {
   vi.clearAllMocks();
   vi.useFakeTimers();
+  // #455：频道域改读 rosterStore 切片（模块级单例）——每测重置，避免 TTL 缓存跨测串味
+  useRosterStore.setState({
+    profiles: [], agents: [], channels: [],
+    loading: false, error: null, forbidden: false,
+    loadedAt: null, channelsLoadedOnce: false, agentsLoadedOnce: false,
+    inflight: null, lastToken: null,
+  });
   mockAllDomains();
 });
 
@@ -102,8 +110,11 @@ describe('CommandPalette — Cmd/Ctrl+K 全局搜索（批次 D-2 项 8）', () 
     await typeQuery('研发');
 
     // 四域端点各调一次；WU 走服务端 q（批次 D-2 项 4）+ limit 5
+    // #455：频道域改走 rosterStore 切片——ensureFresh 扇出三端点（agent-profiles/monitoring/channels）
     const urls = mockApi.get.mock.calls.map((c) => c[0]);
-    expect(urls).toEqual(['/channels', '/workunits', '/requirements', '/knowledge/search']);
+    expect(new Set(urls)).toEqual(
+      new Set(['/agent-profiles', '/monitoring/agents', '/channels', '/workunits', '/requirements', '/knowledge/search']),
+    );
     const wuCall = mockApi.get.mock.calls.find((c) => c[0] === '/workunits');
     expect(wuCall?.[1]).toEqual({ params: { q: '研发', limit: 5 } });
 
@@ -206,6 +217,17 @@ describe('CommandPalette — Cmd/Ctrl+K 全局搜索（批次 D-2 项 8）', () 
     renderPalette();
     await typeQuery('不存在');
     expect(screen.getByText('无匹配')).toBeTruthy();
+  });
+
+  it('#455：频道数据走 rosterStore 切片——TTL 窗口内多次搜索只发一次 GET /channels', async () => {
+    renderPalette();
+    await typeQuery('研发');
+    await typeQuery('系统');
+
+    const channelCalls = mockApi.get.mock.calls.filter((c) => c[0] === '/channels');
+    expect(channelCalls).toHaveLength(1);
+    // 两次搜索的频道结果都来自同一切片（第二次 TTL 内零重拉）
+    expect(screen.getByText('#系统')).toBeTruthy();
   });
 
   it('Esc 关闭；点遮罩关闭；点面板不关', async () => {

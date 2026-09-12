@@ -1,7 +1,6 @@
 /**
  * Auth middleware unit tests
  *
- * AC1: workspaceAuth() — Bearer token → sha256 → WorkspaceToken (FileStore) → req.workspace
  * AC3: requireNotGuest() — Guest 403 / non-Guest pass
  * AC4: generateAnonymousId() — IP+UA+date hash consistency (SEC-009)
  *
@@ -10,6 +9,7 @@
  * 2026-08-16（#187）：document 分支随 document-store 退役摘除。
  * 2026-08-16（#195）：checkOwnership / findResourceCreator 整体退役
  * （零生产调用方），AC2 测试块同步删除。
+ * 2026-09-11（#481）：workspaceAuth() 随 workspace token 子系统退役删除，AC1 测试块同步删除。
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Request, Response, NextFunction } from 'express';
@@ -32,141 +32,7 @@ vi.mock('../../../utils/logger.js', () => ({
   logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
 }));
 
-import { workspaceAuth, requireNotGuest, requireLocalhost, generateAnonymousId, optionalAuth, requireAuth, requireRole, requireAdmin } from '../auth.js';
-
-// ---------------------------------------------------------------------------
-// AC1: workspaceAuth()
-// ---------------------------------------------------------------------------
-describe('workspaceAuth', () => {
-  let req: Partial<Request>;
-  let res: Partial<Response>;
-  let next: ReturnType<typeof vi.fn>;
-
-  beforeEach(() => {
-    vi.clearAllMocks();
-    req = { headers: {}, socket: {} as any };
-    res = { status: vi.fn().mockReturnThis(), json: vi.fn() };
-    next = vi.fn();
-  });
-
-  it('returns a middleware function', () => {
-    const middleware = workspaceAuth();
-    expect(typeof middleware).toBe('function');
-  });
-
-  it('returns 401 when no Bearer token', async () => {
-    const middleware = workspaceAuth();
-    await middleware(req as Request, res as Response, next);
-
-    expect(res.status).toHaveBeenCalledWith(401);
-    expect(res.json).toHaveBeenCalledWith(
-      expect.objectContaining({ code: 'MISSING_WORKSPACE_TOKEN' }),
-    );
-    expect(next).not.toHaveBeenCalled();
-  });
-
-  it('queries WorkspaceToken with sha256 hash of Bearer token', async () => {
-    const token = 'st_mach_test_token';
-    const expectedHash = crypto.createHash('sha256').update(token).digest('hex');
-    // FileStore: 先读 workspace-tokens/<hash>.json，再读 workspaces/<workspaceId>.json
-    mockReadJson.mockResolvedValueOnce({
-      id: 'wt1',
-      tokenHash: expectedHash,
-      workspaceId: 'ws1',
-      revokedAt: null,
-    });
-    mockReadJson.mockResolvedValueOnce({ id: 'ws1', name: 'test-workspace' });
-    req.headers = { authorization: `Bearer ${token}` };
-
-    const middleware = workspaceAuth();
-    await middleware(req as Request, res as Response, next);
-
-    expect(mockReadJson).toHaveBeenCalledWith(
-      expect.stringContaining(`${expectedHash}.json`),
-    );
-    expect(next).toHaveBeenCalled();
-  });
-
-  it('returns 401 when token not found in FileStore', async () => {
-    mockReadJson.mockResolvedValueOnce(null);
-    req.headers = { authorization: 'Bearer st_mach_unknown_token' };
-
-    const middleware = workspaceAuth();
-    await middleware(req as Request, res as Response, next);
-
-    expect(res.status).toHaveBeenCalledWith(401);
-    expect(res.json).toHaveBeenCalledWith(
-      expect.objectContaining({ code: 'INVALID_WORKSPACE_TOKEN' }),
-    );
-  });
-
-  it('returns 401 when token is revoked', async () => {
-    mockReadJson.mockResolvedValueOnce({
-      id: 'wt1',
-      tokenHash: 'hash',
-      workspaceId: 'ws1',
-      revokedAt: new Date().toISOString(),
-    });
-    req.headers = { authorization: 'Bearer st_mach_revoked_token' };
-
-    const middleware = workspaceAuth();
-    await middleware(req as Request, res as Response, next);
-
-    expect(res.status).toHaveBeenCalledWith(401);
-    expect(res.json).toHaveBeenCalledWith(
-      expect.objectContaining({ code: 'WORKSPACE_TOKEN_REVOKED' }),
-    );
-  });
-
-  it('returns 401 when token has no registered workspace', async () => {
-    mockReadJson.mockResolvedValueOnce({
-      id: 'wt1',
-      tokenHash: 'hash',
-      workspaceId: 'ws-missing',
-      revokedAt: null,
-    });
-    // workspaces/<id>.json 不存在 → readJson 返回 null
-    mockReadJson.mockResolvedValueOnce(null);
-    req.headers = { authorization: 'Bearer st_mach_no_ws_token' };
-
-    const middleware = workspaceAuth();
-    await middleware(req as Request, res as Response, next);
-
-    expect(res.status).toHaveBeenCalledWith(401);
-    expect(res.json).toHaveBeenCalledWith(
-      expect.objectContaining({ code: 'WORKSPACE_NOT_FOUND' }),
-    );
-  });
-
-  it('injects workspace and workspaceToken into req on success', async () => {
-    const mockWorkspace = { id: 'ws1', name: 'test-workspace' };
-    const mockToken = { id: 'wt1', tokenHash: 'hash', workspaceId: 'ws1', revokedAt: null };
-    mockReadJson.mockResolvedValueOnce(mockToken);
-    mockReadJson.mockResolvedValueOnce(mockWorkspace);
-    req.headers = { authorization: 'Bearer st_mach_valid_token' };
-
-    const middleware = workspaceAuth();
-    await middleware(req as Request, res as Response, next);
-
-    const authReq = req as any;
-    expect(authReq.workspace).toEqual(mockWorkspace);
-    expect(authReq.workspaceToken).toEqual(mockToken);
-    expect(next).toHaveBeenCalled();
-  });
-
-  it('returns 500 on unexpected FileStore error', async () => {
-    mockReadJson.mockRejectedValueOnce(new Error('FS read failed'));
-    req.headers = { authorization: 'Bearer st_mach_err_token' };
-
-    const middleware = workspaceAuth();
-    await middleware(req as Request, res as Response, next);
-
-    expect(res.status).toHaveBeenCalledWith(500);
-    expect(res.json).toHaveBeenCalledWith(
-      expect.objectContaining({ code: 'WORKSPACE_AUTH_ERROR' }),
-    );
-  });
-});
+import { requireNotGuest, requireLocalhost, generateAnonymousId, optionalAuth, requireAuth, requireRole, requireAdmin } from '../auth.js';
 
 // ---------------------------------------------------------------------------
 // requireRole none 模式修复 + requireAdmin（2026-07）

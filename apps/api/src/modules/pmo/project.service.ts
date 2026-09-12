@@ -8,7 +8,7 @@
 import { FileStore, generateId, parseFrontmatter } from '@dommaker/studio-shared';
 import { logger } from '../../utils/logger.js';
 import { channelMessageService } from '../channels/channel-message.service.js';
-import { resolveStageRouting, routingFallbackText, shouldEmitFallbackReminder } from '../channels/routing.js';
+import { resolveOrNotice } from '../channels/routing.js';
 import { WorkUnitService } from '../workunit/workunit.service.js';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -571,9 +571,10 @@ export const projectService = {
       : '';
     // #466：发布人未显式指派时查频道路由表 plan 档（指名即硬约束）；
     // 配置了但角色 inactive/被移出频道 → 回池涌现 + 频道出声提醒
+    // #477：解析 + fallback 判定 + 文案收口到 resolveOrNotice；出声时机（建单后带 workUnitId）留本点
     const planRouting = input.assigneeId
       ? null
-      : await resolveStageRouting(fileStore, input.channelId, 'plan');
+      : await resolveOrNotice(fileStore, input.channelId, 'plan');
     const workUnit = await workUnitService.create({
       // #471：派生链收敛——publish 只建一张 plan WU（一脉会话），不再建 analysis；
       // analysis/decision/spec 三段派生退役（map-opening 降级为台账记录，不再建 decision 单）
@@ -582,7 +583,7 @@ export const projectService = {
       // #466：留空时再查 routing.plan（显式指派优先）
       ...(input.assigneeId
         ? { assigneeId: input.assigneeId }
-        : planRouting?.profileId ? { assigneeId: planRouting.profileId } : {}),
+        : planRouting?.resolution.profileId ? { assigneeId: planRouting.resolution.profileId } : {}),
       // #471 配套补充（2026-09-09）：scope 首行钉方法论 skill（评审单 +code-review 先例，
       // review-dispatcher.ts）——requirement-clarify（澄清→设计→spec→质量门）+ to-tickets（拆单）
       scope: `规划需求 ${project.pmoNumber}: ${project.title} +requirement-clarify +to-tickets
@@ -625,12 +626,12 @@ FOG: <待决问题>
     });
 
     // #466 路由回退提醒（非阻断）：配置失效不影响发布主链路
-    // #497: 同频道同档同原因冷却窗内不重复出声
-    if (planRouting?.fallback && shouldEmitFallbackReminder(input.channelId, 'plan', planRouting)) {
+    // #497: 同频道同档同原因冷却窗内不重复出声（冷却闸在 resolveOrNotice 内消费）
+    if (planRouting?.notice) {
       await channelMessageService.createAgentMessage(
         input.channelId,
         'Studio',
-        routingFallbackText('plan', planRouting),
+        planRouting.notice,
         { workUnitId: workUnit.id },
       ).catch(err => logger.warn({ error: String(err) }, '[PMO] routing fallback notice failed (non-blocking)'));
     }

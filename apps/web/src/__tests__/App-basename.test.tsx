@@ -41,6 +41,10 @@ vi.mock('../api/websocket', () => ({
 vi.mock('../hooks/useRequirementChainStoreSync', () => ({
   useRequirementChainStoreSync: () => {},
 }));
+// #456：PMO 数据面接线同理（App 级 PmoDataSync 经 useDataPlaneSync 依赖真实 SSE context）
+vi.mock('../hooks/usePmoDataStoreSync', () => ({
+  usePmoDataStoreSync: () => {},
+}));
 vi.mock('../contexts/ThemeContext', () => ({
   ThemeProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));

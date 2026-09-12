@@ -275,13 +275,13 @@ describe('一期验收：MVP 闭环 e2e（fake provider）', () => {
     workspaceId = ws.id;
   });
 
-  it('(c0) 频道创建并绑定默认工程', async () => {
+  it('(c0) 频道创建并绑定默认工程（#481：defaultPath 为唯一配置点）', async () => {
     const created = await apiJson<{ data: any }>('/channels', postJson({ name: `e2e-mvp-${Date.now()}`, type: 'rnd' }));
     channelId = created.data.id;
     expect(channelId).toBeTruthy();
 
-    const patched = await apiJson<{ data: any }>(`/channels/${channelId}`, patchJson({ defaultWorkspaceId: workspaceId }));
-    expect(patched.data.defaultWorkspaceId).toBe(workspaceId);
+    const patched = await apiJson<{ data: any }>(`/channels/${channelId}`, patchJson({ defaultPath: repoDir }));
+    expect(patched.data.defaultPath).toBe(repoDir);
   });
 
   it('(b) 创建并激活 kimi/claude 双 profile（provider=e2e-fake）→ loop 动态挂载', async () => {
@@ -325,11 +325,15 @@ describe('一期验收：MVP 闭环 e2e（fake provider）', () => {
 
     const wu = await getWorkUnit(workUnitId);
     expect(wu.channelId).toBe(channelId);
-    expect(wu.workspaceId).toBe(workspaceId); // F6: 频道默认工程绑定
+    // #481：机器指针退役——WU 不再落 workspaceId；频道默认工程经归属链落 metadata.workspaceRoot
+    expect(wu.workspaceId ?? null).toBeNull();
+    expect(wu.status).not.toBe('blocked'); // 有归属（channel-default-path）→ 不挂起
     expect(wu.assigneeId).toBe(profiles.kimi.id); // mention 精确匹配 kimi
     const meta = wuMetadata(wu);
     expect(meta.mentionName).toBe('kimi');
     expect(meta.matched).toBe(true);
+    expect(meta.ownershipSource).toBe('channel-default-path');
+    expect(meta.workspaceRoot).toBe(repoDir);
   });
 
   it('(e) WorkUnit 被认领执行，频道出现 agent 回帖', async () => {
@@ -387,7 +391,7 @@ describe('一期验收：MVP 闭环 e2e（fake provider）', () => {
     }
   });
 
-  it('(h) COMPLETE → WorkUnit in_review + 结果消息进频道（含 F6 cwd 证据）', async () => {
+  it('(h) COMPLETE → WorkUnit in_review + 结果消息进频道（含执行 cwd 证据）', async () => {
     // 状态机无 "completed" 状态：agent 输出 COMPLETE → active → in_review
     // （VALID_TRANSITIONS, workunit.service.ts）；in_review 即 agent 侧终态。
     await pollUntil('workunit in_review (COMPLETE)', COMPLETE_TIMEOUT_MS, async () => {
@@ -400,8 +404,10 @@ describe('一期验收：MVP 闭环 e2e（fake provider）', () => {
       return messages.find((m: any) =>
         m.authorType === 'agent' && m.workUnitId === workUnitId && m.content.includes(RESULT_MARKER)) ?? null;
     });
-    // F6 验收：CLI 实际在绑定工程的根目录执行（fixture 把 process.cwd() 写进结果）
-    expect(resultMsg.content).toContain(`cwd=${repoDir}`);
+    // #481（决策 D1）验收：代码类任务在归属工程的专属 worktree 执行
+    // （<WORKTREES_DIR>/wu-<id>），绝不直接改共享目录（fixture 把 process.cwd() 写进结果）
+    expect(resultMsg.content).toContain(`cwd=${path.join(tmpRoot, 'worktrees')}`);
+    expect(resultMsg.content).not.toContain(`cwd=${repoDir}`);
 
     // 完整消息链 sanity check：人类任务 → agent 提问 → 人类回复 → agent 结果
     const messages = await getChannelMessages(channelId);

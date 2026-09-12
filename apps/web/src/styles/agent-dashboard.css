@@ -138,10 +138,15 @@ button.agd-activity-row { width: 100%; text-align: left; }
   color: inherit;
 }
 .agd-stat-filter:hover { background: var(--bg-hover); }
+/* 激活态对齐 workunits .wu-stat-on（D-1.6）：accent 底线 2px + padding 4→3 补偿防布局抖动 */
 .agd-stat-filter-on {
   border-color: var(--border-strong);
   background: var(--bg-active);
+  border-bottom: 2px solid var(--accent-primary);
+  padding-bottom: 3px;
 }
+/* chip 数字档归 --fs-title（--fs-stat 按 §2.3 仅统计卡大数字用；chip 非统计卡），与 .wu-stat-num 同口径 */
+.agd-stat-num { font-size: var(--fs-title); }
 
 /* ---------- §6.4 创建角色弹框（CreateRoleModal） ---------- */
 .agd-cr-list { display: flex; flex-direction: column; gap: var(--space-2); }

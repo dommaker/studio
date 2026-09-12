@@ -40,6 +40,7 @@ import { WebSocketProvider } from './api/websocket';
 import { channelApi } from './api/channel';
 import { useRosterStore } from './stores/rosterStore';
 import { useRequirementChainStoreSync } from './hooks/useRequirementChainStoreSync';
+import { usePmoDataStoreSync } from './hooks/usePmoDataStoreSync';
 import { useGlobalShortcuts } from './hooks/useGlobalShortcuts';
 import { StudioRoleSetupModal } from './components/setup/StudioRoleSetupModal';
 import { FirstRoleSetupModal } from './components/setup/FirstRoleSetupModal';
@@ -50,6 +51,12 @@ import './styles/theme.css';
 // #412：REQ chain 数据面 SSE 接线（App 级单点、零渲染；useWebSocketContext 依赖 Provider，故置于 Provider 内）
 function RequirementChainSync() {
   useRequirementChainStoreSync();
+  return null;
+}
+
+// #456：PMO 数据面接线（App 级单点、零渲染；消费方分布在 PMO/阅览室/FileRefChip，不随页面挂卸增减）
+function PmoDataSync() {
+  usePmoDataStoreSync();
   return null;
 }
 
@@ -167,6 +174,8 @@ export default function App() {
     <div className="h-screen flex flex-col u-page-bg">
       {/* #412：REQ chain 数据面 SSE 接线（App 级单点，hook 需 WebSocketProvider 上下文） */}
       <RequirementChainSync />
+      {/* #456：PMO 数据面接线（App 级单点） */}
+      <PmoDataSync />
       {/* AC-2.2: studio 角色 provider=null 弹框 */}
       <StudioRoleSetupModal
         open={studioRoleSetupOpen}

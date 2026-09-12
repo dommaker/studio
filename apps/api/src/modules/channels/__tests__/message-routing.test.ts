@@ -473,6 +473,26 @@ describe('Message Routing (AC-B1-B4)', () => {
       expect(meta.pendingReplies).toEqual(['看看情况']);
       expect(meta.resumeCount).toBe(1);
     });
+
+    it('#499：reply to ACTIVE WorkUnit（执行中、无 pendingReplies）→ 回复入 pendingReplies 缓冲，状态不动（不再低于 newReplies 水位线被吞）', async () => {
+      const wu = await workUnitService.create({
+        scope: '进行中的任务', channelId, type: 'task', status: 'active', assigneeId: 'instance-1',
+      });
+      const anchor: ChannelMessageData = {
+        id: uuidv4(), channelId, authorType: 'agent', agentName: 'f5-agent',
+        content: '开始执行', replyToId: null, meta: '{}',
+        workUnitId: wu.id, createdAt: new Date().toISOString(),
+      };
+      await fileStore.appendMessage(channelId, anchor);
+
+      const reply = await routeMessage(channelId, '顺便把文案改一下', anchor.id, fileStore);
+
+      expect(reply.workUnitId).toBe(wu.id);
+      const after = await findWu(wu.id);
+      expect(after!.status).toBe('active');
+      const meta = after!.metadata ? JSON.parse(after!.metadata) : {};
+      expect(meta.pendingReplies).toEqual(['顺便把文案改一下']);
+    });
   });
 
   // ── detectMention utility ──
@@ -688,8 +708,10 @@ describe('Message Routing (AC-B1-B4)', () => {
       };
       eventBus.subscribe('workunit.created', handler);
       try {
-        // 显式 workspaceId：跳过 B3a 无归属挂起（blocked 不可认领），聚焦 anchor 竞态本身
-        const result = await routeMessage(channelId, '@RaceAgent 抢跑认领', undefined, fileStore, { workspaceId: 'ws-race' });
+        // 频道默认工程：跳过 B3a 无归属挂起（blocked 不可认领），聚焦 anchor 竞态本身
+        // （#481 前用显式 workspaceId；机器指针退役后改用 defaultPath 提供归属）
+        await fileStore.updateChannel(channelId, { defaultPath: '/tmp/race-repo' });
+        const result = await routeMessage(channelId, '@RaceAgent 抢跑认领', undefined, fileStore);
         await claimed;
 
         const msgs = await fileStore.queryMessages(channelId, { workUnitId: result.workUnitId! });

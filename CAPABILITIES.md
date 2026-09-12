@@ -1,6 +1,6 @@
 # CAPABILITIES.md
 
-> 最后更新: 2026-09-10
+> 最后更新: 2026-09-11
 
 ---
 
@@ -183,7 +183,7 @@
 | CreateChannelForm | apps/web/src/components/channel/CreateChannelForm.tsx | #272（决策 #251 Q3/Q7）：创建频道表单单一实现 —— ChannelListPage 与 ChannelRail 共用。 |
 | FileRefChip | apps/web/src/components/channel/FileRefChip.tsx | #285（决策 #249 §5）：agent 消息正文 inline-code 路径 token 染「文件 chip」。 |
 | NeedInputOptions | apps/web/src/components/channel/NeedInputOptions.tsx | #267（决策 #250 D3）: NEED_INPUT 结构化选项卡 — meta.options[] 全仓首发落地。 |
-| DefaultExecutionMachineSection | apps/web/src/components/settings/DefaultExecutionMachineSection.tsx | 默认执行机器 section（#286，决策 #251 Q2'）：远程 Workspace 绑定从频道顶栏挪入设置区， |
+
 | ProjectCandidatesSection | apps/web/src/components/settings/ProjectCandidatesSection.tsx | 工程候选管理 section（#266，决策 #258）：归属问答候选集排除清单管理。 |
 | notification-service.test | packages/studio-notification/src/services/notification-service.test.ts | NotificationService tests — #274 写路径归属校验 |
 | AssigneeLabel | apps/web/src/components/workunit/AssigneeLabel.tsx | 负责人展示标签（#290 清单 #24）——解析到角色名则渲染 @名字 并链到 /agents/:roleId； |
