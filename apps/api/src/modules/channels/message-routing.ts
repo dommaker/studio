@@ -11,7 +11,7 @@
  * 决策 11: 路由层不认识 skill——`+skill名` token 保留在 scope 原文，
  * 由 agent-loop step 时经 parseSkillHintsFromScope 解析（skill-selector.ts）。
  */
-import { logger, FileStore, parseChannels } from '@dommaker/studio-shared';
+import { logger, FileStore, parseChannels, type ChannelData } from '@dommaker/studio-shared';
 import { channelMessageService, type MessageMeta, type MessageRecord } from './channel-message.service.js';
 import { WorkUnitService } from '../workunit/workunit.service.js';
 import { resumeWaitingWorkUnit } from '../workunit/waiting-input.js';
@@ -134,6 +134,12 @@ export async function routeMessage(
     files?: FileRef[];
     /** #281: 词表/候选集依赖注入（测试用；缺省走真实数据源） */
     fileRefDeps?: FileRefVocabularyDeps;
+    /**
+     * #525 P2-2（决策 #517 项 3）：调用方已读出的频道记录（路由层 404 判定时已 getChannel）。
+     * 传入时 mention/默认角色路径（含归属解析的频道 defaultPath 读取）不再重复 getChannel；
+     * 未传入保持现状读。
+     */
+    channel?: ChannelData | null;
   },
 ) {
   const resolvedFs = fs ?? fileStore;
@@ -261,7 +267,7 @@ export async function routeMessage(
   const mentionName = detectMention(content);
   if (mentionName) {
     const allProfiles = await resolvedFs.listProfiles({ status: 'active' });
-    const channel = await resolvedFs.getChannel(channelId);
+    const channel = options?.channel !== undefined ? options.channel : await resolvedFs.getChannel(channelId);
     // §9.5: mention 匹配以 channel.members 为界 — 只能 @ 到本频道成员（修越界 bug）。
     // members 为空（历史频道未回填）时回退到全量 active profile 匹配，保持既有行为。
     const memberIds = parseChannels(channel?.members);
@@ -326,6 +332,8 @@ export async function routeMessage(
       channelId,
       fileRefs: filesMeta?.files,
       fileStore: resolvedFs,
+      // #525 P2-2：上方已解析的 channel 透传，归属解析不再重复 getChannel
+      channel,
     }).catch(err => {
       logger.warn('[MessageRouting] Ownership resolution failed, continuing without attribution', {
         error: String(err),
@@ -448,7 +456,7 @@ export async function routeMessage(
   }
 
   // 决策 12: 无 @ 兜底 —— 频道配置了默认角色 → 派给它建 WorkUnit（消息关联到该 WU）
-  const channel = await resolvedFs.getChannel(channelId);
+  const channel = options?.channel !== undefined ? options.channel : await resolvedFs.getChannel(channelId);
   if (channel?.defaultProfileId) {
     // #495（方案 a）：合并窗口内已有在途 WU → 消息并入该 WU 线程，不再新建 WU
     // （连发闲聊不产生 WU 风暴；窗口外/终态后正常新建）。
