@@ -1,7 +1,7 @@
-// Default Triggers — 9 system triggers for Agent Network
+// Default Triggers — 10 system triggers for Agent Network
 import { TriggerScheduler } from '../triggers/trigger-scheduler.js';
 
-/** Register the 9 default system triggers */
+/** Register the 10 default system triggers */
 export function registerDefaultTriggers(registry: TriggerScheduler): void {
   // 1. workunit-timeout: SCHEDULE every 5 min → EXECUTE workunit-timeout-scan
   // （P0 修复：原为 UPDATE + 注册时冻结的 timeoutAt 查询，永不命中；改为 EXECUTE handler
@@ -143,6 +143,18 @@ export function registerDefaultTriggers(registry: TriggerScheduler): void {
     name: 'Reconcile dispatch/review breaks',
     condition: { type: 'SCHEDULE', cron: '*/5 * * * *' },
     action: { type: 'EXECUTE', target: 'dispatch-reconciliation-scan' },
+    enabled: true,
+    scope: 'system',
+  });
+
+  // 10. workunit-gate-escalation: #523 P0-3（#516 决议③④）人闸催办与认领滞留 5min 扫描——
+  // in_review 闸门类超 30min / unassigned 超 15min → tier1（Web 铃铛 + SSE + 浏览器通知）；
+  // 两者超 4h → tier2（notifyAlert 既有告警通路）。每层一次性标记，不自动确认、不动状态机。
+  registry.registerTrigger({
+    id: 'workunit-gate-escalation',
+    name: 'Escalate stale manual gates and unclaimed WorkUnits',
+    condition: { type: 'SCHEDULE', cron: '*/5 * * * *' },
+    action: { type: 'EXECUTE', target: 'workunit-gate-escalation-scan' },
     enabled: true,
     scope: 'system',
   });

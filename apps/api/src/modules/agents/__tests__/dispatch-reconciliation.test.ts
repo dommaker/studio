@@ -4,7 +4,8 @@
  *    补建前 parentId+scope 活体去重；人工关单（在清单中）不复活；旧时间戳哨兵兼容跳过；
  *    哨兵落档 <10min 不参与对账；重跑记尝试数，3 次仍败停跑并升 critical
  *  - review 侧：父 WU in_review ≥10min 且无未完结 review 子 WU → 幂等重跑路径 A，
- *    warning 事件 review.redispatched 走 #62 告警管线（频道不出声）
+ *    warning 事件 review.redispatched 走 #62 告警管线；#523（#516 决议②，#159 决议 5
+ *    「频道不出声」作废）起自愈成功本频道出声「断链已自愈」，并发抢建（账实相符）不出声
  * 真实 FileStore（tmpdir）+ 真实 WorkUnitService/ReviewDispatcher/AnalysisHandoff；
  * 告警出口 dispatchMonitorAlerts mock；结构化事件读 STUDIO_EVENTS_FILE 落盘断言。
  */
@@ -23,6 +24,7 @@ vi.mock('../monitor/monitor-alerts.js', () => ({
 
 import { reconcileDispatchBreaks, MAX_RECONCILE_ATTEMPTS } from '../dispatch-reconciliation';
 import { AnalysisHandoff } from '../../pmo/analysis-handoff.js';
+import { ReviewDispatcher } from '../loop/review-dispatcher.js';
 
 let tmpDir: string;
 let eventsFile: string;
@@ -271,6 +273,33 @@ describe('#183 analysis 侧：哨兵清单化 + 对账补差集', () => {
     expect(events[0].level).toBe('warning');
   });
 
+  it('#523：补建自愈成功 → 本频道恰好一条「断链已自愈」（含补建子单标识）', async () => {
+    const wu = await createAnalysisWithSentinel({ tasks: ['任务A', '任务B'], childScopes: ['任务A'] });
+
+    await reconcileDispatchBreaks(fileStore);
+
+    const children = await childrenOf(wu.id);
+    const childB = children.find(c => c.scope === '任务B')!;
+    const messages = await fileStore.queryMessages('ch-test', { workUnitId: wu.id });
+    const healed = messages.filter(m => m.authorType === 'agent' && m.content.includes('断链已自愈'));
+    expect(healed).toHaveLength(1);
+    expect(healed[0].content).toContain(`#${childB.id.slice(0, 8)}`);
+  });
+
+  it('#523：补建部分失败（未 healed）→ 频道不出声，告警照旧走 #62 告警管线', async () => {
+    const wu = await createAnalysisWithSentinel({ tasks: ['任务A'] });
+    vi.spyOn(WorkUnitService.prototype, 'create').mockRejectedValue(new Error('disk full'));
+
+    await reconcileDispatchBreaks(fileStore);
+
+    const messages = await fileStore.queryMessages('ch-test', { workUnitId: wu.id });
+    expect(messages.some(m => m.content.includes('断链已自愈'))).toBe(false);
+    const events = await eventsOfType('analysis.respawned');
+    expect(events).toHaveLength(1);
+    expect(events[0].level).toBe('warning');
+    expect(mockDispatch).toHaveBeenCalledTimes(1);
+  });
+
   it('对账异常路径同样记尝试数：扫描抛错 → 递增，达上限停跑升 critical', async () => {
     const wu = await createAnalysisWithSentinel({
       tasks: ['任务A'], attempts: MAX_RECONCILE_ATTEMPTS - 1,
@@ -358,6 +387,34 @@ describe('#183 review 侧：in_review 断链对账重跑', () => {
     expect(result.review.redispatched).toBe(0);
     expect(await childrenOf(analysisParent.id)).toHaveLength(0);
     expect(await childrenOf(decisionParent.id)).toHaveLength(0);
+  });
+
+  it('#523：redispatch 自愈成功 → 本频道恰好一条「断链已自愈」（含子单标识），无双发（无「已派评审」）', async () => {
+    const parent = await createInReviewParent({});
+
+    await reconcileDispatchBreaks(fileStore);
+
+    const children = await childrenOf(parent.id);
+    expect(children).toHaveLength(1);
+    const messages = await fileStore.queryMessages('ch-test', { workUnitId: parent.id });
+    const healed = messages.filter(m => m.authorType === 'agent' && m.content.includes('断链已自愈'));
+    expect(healed).toHaveLength(1);
+    expect(healed[0].content).toContain(`#${children[0].id.slice(0, 8)}`);
+    // 对账路径压掉标准派单出声——「断链已自愈」一条即够，不双发
+    expect(messages.some(m => m.content.includes('已派评审'))).toBe(false);
+  });
+
+  it('#523：redispatch 并发抢建（child=null，账实相符）→ 频道不出声、无告警', async () => {
+    const parent = await createInReviewParent({ attempts: 1 });
+    vi.spyOn(ReviewDispatcher.prototype, 'redispatchReview').mockResolvedValue(null);
+
+    await reconcileDispatchBreaks(fileStore);
+
+    const messages = await fileStore.queryMessages('ch-test', { workUnitId: parent.id });
+    expect(messages.some(m => m.content.includes('断链已自愈'))).toBe(false);
+    expect(mockDispatch).not.toHaveBeenCalled();
+    const meta = await readMeta(parent.id);
+    expect(meta.reviewRedispatchAttempts).toBeUndefined(); // 账实相符 → 尝试数清零
   });
 
   it('review 重跑失败记尝试数，达上限停跑升 critical', async () => {

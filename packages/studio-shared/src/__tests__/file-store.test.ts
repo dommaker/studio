@@ -1834,7 +1834,7 @@ describe('queryMessagesPage 分页下沉 + id 游标（#319）', () => {
 
   it('无 before：返回最新 limit 条（升序），total/hasMore 正确', async () => {
     await seedSameTimestamp();
-    const page = await store.queryMessagesPage(CH, { limit: 2 });
+    const page = await store.queryMessagesPage(CH, { limit: 2, includeTotal: true });
     expect(page.messages.map(m => m.id)).toEqual(['p4', 'p5']);
     expect(page.total).toBe(5);
     expect(page.hasMore).toBe(true);
@@ -1842,7 +1842,7 @@ describe('queryMessagesPage 分页下沉 + id 游标（#319）', () => {
 
   it('before=<messageId>：锚点之前窗口（不含锚点），同毫秒消息不漏不重', async () => {
     await seedSameTimestamp();
-    const page = await store.queryMessagesPage(CH, { before: 'p4', limit: 2 });
+    const page = await store.queryMessagesPage(CH, { before: 'p4', limit: 2, includeTotal: true });
     expect(page.messages.map(m => m.id)).toEqual(['p2', 'p3']);
     expect(page.total).toBe(5); // 候选 8 统一口径：热+冷原始行数（原「锚点过滤后的总数」随分支漂移，退役）
     expect(page.hasMore).toBe(true);
@@ -1854,7 +1854,7 @@ describe('queryMessagesPage 分页下沉 + id 游标（#319）', () => {
 
   it('锚点 id 不存在（已删除/被压实抹除）→ 空页、hasMore=false，不整页错发', async () => {
     await seedSameTimestamp();
-    const page = await store.queryMessagesPage(CH, { before: 'p-gone', limit: 2 });
+    const page = await store.queryMessagesPage(CH, { before: 'p-gone', limit: 2, includeTotal: true });
     expect(page.messages).toEqual([]);
     expect(page.total).toBe(5);
     expect(page.hasMore).toBe(false);
@@ -1865,5 +1865,151 @@ describe('queryMessagesPage 分页下沉 + id 游标（#319）', () => {
     const page = await store.queryMessagesPage(CH, { before: 'p3', limit: 50 });
     expect(page.messages.map(m => m.id)).toEqual(['p1', 'p2']);
     expect(page.hasMore).toBe(false);
+  });
+});
+
+describe('消息读口倒扫（#524 P1-1）', () => {
+  let tmpDir: string;
+  let store: FileStore;
+  const CH = 'ch-tail';
+
+  beforeEach(async () => {
+    tmpDir = createTempDir();
+    store = new FileStore(tmpDir);
+    await store.createChannel(makeChannel(CH));
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  describe('readMessagesTail', () => {
+    it('尾部倒扫：新→旧返回，limit 截断，exhausted 标记', async () => {
+      for (const id of ['t1', 't2', 't3', 't4', 't5']) await store.appendMessage(CH, makeMessage(id, CH));
+      const page = await store.readMessagesTail(CH, { limit: 3 });
+      expect(page.messages.map(m => m.id)).toEqual(['t5', 't4', 't3']);
+      expect(page.exhausted).toBe(false);
+      const all = await store.readMessagesTail(CH, { limit: 10 });
+      expect(all.messages.map(m => m.id)).toEqual(['t5', 't4', 't3', 't2', 't1']);
+      expect(all.exhausted).toBe(true);
+    });
+
+    it('去重口径：同 id 先见（最新版）为准', async () => {
+      await store.appendMessage(CH, makeMessage('u1', CH));
+      await store.appendMessage(CH, makeMessage('u2', CH));
+      await store.appendMessage(CH, { ...makeMessage('u1', CH), content: 'u1 v2', workUnitId: 'wu-9' });
+      const { messages } = await store.readMessagesTail(CH, { limit: 10 });
+      expect(messages.map(m => m.id)).toEqual(['u1', 'u2']);
+      expect(messages[0].content).toBe('u1 v2');
+      expect(messages[0].workUnitId).toBe('wu-9');
+    });
+
+    it('tombstone 口径：删除行作废整条，旧版不复活', async () => {
+      await store.appendMessage(CH, makeMessage('d1', CH));
+      await store.appendMessage(CH, makeMessage('d2', CH));
+      await store.softDeleteMessage(CH, 'd1');
+      const { messages } = await store.readMessagesTail(CH, { limit: 10 });
+      expect(messages.map(m => m.id)).toEqual(['d2']);
+    });
+
+    it('match 过滤：只收集匹配行（limit 按匹配计数）', async () => {
+      await store.appendMessage(CH, makeMessage('h1', CH, { authorType: 'human' }));
+      await store.appendMessage(CH, makeMessage('a1', CH, { authorType: 'agent' }));
+      await store.appendMessage(CH, makeMessage('h2', CH, { authorType: 'human' }));
+      const { messages } = await store.readMessagesTail(CH, { limit: 1, match: m => m.authorType === 'human' });
+      expect(messages.map(m => m.id)).toEqual(['h2']);
+    });
+
+    it('频道不存在 → 空 + exhausted', async () => {
+      const r = await store.readMessagesTail('ch-ghost', { limit: 5 });
+      expect(r.messages).toEqual([]);
+      expect(r.exhausted).toBe(true);
+    });
+  });
+
+  describe('getMessageById 按频道直查', () => {
+    it('channelId 直查命中；更新版返回最新内容', async () => {
+      await store.appendMessage(CH, makeMessage('g1', CH));
+      await store.appendMessage(CH, { ...makeMessage('g1', CH), content: 'g1 v2' });
+      const found = await store.getMessageById('g1', CH);
+      expect(found?.channelId).toBe(CH);
+      expect(found?.message.content).toBe('g1 v2');
+    });
+
+    it('消息在别频道 → 本频道直查 null（不扇出）；无 channelId 兼容扇出仍命中', async () => {
+      await store.createChannel(makeChannel('ch-other'));
+      await store.appendMessage('ch-other', makeMessage('g2', 'ch-other'));
+      expect(await store.getMessageById('g2', CH)).toBeNull();
+      expect((await store.getMessageById('g2'))?.channelId).toBe('ch-other');
+    });
+
+    it('tombstone 首见 → null（已删除）', async () => {
+      await store.appendMessage(CH, makeMessage('g3', CH));
+      await store.softDeleteMessage(CH, 'g3');
+      expect(await store.getMessageById('g3', CH)).toBeNull();
+    });
+
+    it('频道不存在 → null', async () => {
+      expect(await store.getMessageById('g-x', 'ch-ghost')).toBeNull();
+    });
+  });
+
+  describe('queryMessages 尾部快径', () => {
+    it('limit 无过滤 → 与全量口径一致（含更新/删除），createdAt 升序', async () => {
+      const ts = (s: number) => new Date(2026, 0, 1, 0, 0, s).toISOString();
+      await store.appendMessage(CH, { ...makeMessage('q1', CH), createdAt: ts(1) });
+      await store.appendMessage(CH, { ...makeMessage('q2', CH), createdAt: ts(2) });
+      await store.appendMessage(CH, { ...makeMessage('q3', CH), createdAt: ts(3) });
+      await store.appendMessage(CH, { ...makeMessage('q2', CH), content: 'q2 v2', createdAt: ts(2) });
+      await store.softDeleteMessage(CH, 'q1');
+      const fast = await store.queryMessages(CH, { limit: 2 });
+      expect(fast.map(m => m.id)).toEqual(['q2', 'q3']);
+      expect(fast[0].content).toBe('q2 v2');
+    });
+
+    it('带过滤条件不走快径，行为不变', async () => {
+      await store.appendMessage(CH, makeMessage('f1', CH, { authorType: 'human' }));
+      await store.appendMessage(CH, makeMessage('f2', CH, { authorType: 'agent' }));
+      const r = await store.queryMessages(CH, { authorType: 'agent', limit: 1 });
+      expect(r.map(m => m.id)).toEqual(['f2']);
+    });
+  });
+
+  describe('queryMessagesPage 首页快径', () => {
+    it('干净窗口（无副本）→ 首页 = 最新 limit 条（升序），total 热部走原始行数（死行虚高方向安全）', async () => {
+      const ts = (s: number) => new Date(2026, 0, 1, 0, 0, s).toISOString();
+      // 两条早死行（原行 + 墓碑，在快径窗口之外）：total 热部按原始行数计
+      await store.appendMessage(CH, { ...makeMessage('d1', CH), createdAt: ts(0) });
+      await store.softDeleteMessage(CH, 'd1');
+      for (const [i, id] of ['h1', 'h2', 'h3', 'h4', 'h5'].entries()) {
+        await store.appendMessage(CH, { ...makeMessage(id, CH), createdAt: ts(i + 1) });
+      }
+      const page = await store.queryMessagesPage(CH, { limit: 2, includeTotal: true });
+      expect(page.messages.map(m => m.id)).toEqual(['h4', 'h5']);
+      expect(page.hasMore).toBe(true);
+      expect(page.total).toBe(7); // 2 死行 + 5 活行（字节快扫原始行数；活数为 5）
+    });
+
+    it('窗口混入更新副本（createdAt 非严格递减）→ 回退全量路径，结果与原语义逐条一致', async () => {
+      const ts = (s: number) => new Date(2026, 0, 1, 0, 0, s).toISOString();
+      for (const [i, id] of ['h1', 'h2', 'h3', 'h4', 'h5'].entries()) {
+        await store.appendMessage(CH, { ...makeMessage(id, CH), createdAt: ts(i + 1) });
+      }
+      // 旧消息 h2 的更新副本落在文件尾（createdAt 不变）：窗口文件序 ≠ 时间序
+      await store.appendMessage(CH, { ...makeMessage('h2', CH), content: 'h2 v2', createdAt: ts(2) });
+      const page = await store.queryMessagesPage(CH, { limit: 2, includeTotal: true });
+      expect(page.messages.map(m => m.id)).toEqual(['h4', 'h5']);
+      expect(page.hasMore).toBe(true);
+      expect(page.total).toBe(5); // 全量路径：精确活数
+    });
+
+    it('热穷举（≤limit）→ total 为精确活数', async () => {
+      await store.appendMessage(CH, makeMessage('s1', CH));
+      await store.appendMessage(CH, { ...makeMessage('s1', CH), content: 's1 v2' });
+      const page = await store.queryMessagesPage(CH, { limit: 10, includeTotal: true });
+      expect(page.messages.map(m => m.id)).toEqual(['s1']);
+      expect(page.total).toBe(1);
+      expect(page.hasMore).toBe(false);
+    });
   });
 });

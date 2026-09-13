@@ -33,6 +33,7 @@
 ### 注意事项
 
 - 使用 `FileStore` 替代 Prisma 存储用户和会话数据（`users.json` / `sessions.jsonl`）
+- **#525 P2-3（2026-09-12，#517 项④）**：`writeSessions` 落盘前顺带 prune 过期条目（`expiresAt < now`），sessions.json 不再只涨不清；读路径行为不变，logout 失效条目下一次写即清
 - `JWT_SECRET` 在生产环境必须通过环境变量设置，否则启动报错
 - 密码使用 `bcryptjs` 哈希存储
 - 注册操作需记录审计日志（SEC-010）

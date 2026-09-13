@@ -153,6 +153,8 @@ export class AgentLoop {
   /** #493：唤醒闩锁——事件到达时 loop 不在 idleSleep（执行中/步骤间）则置 true，
    *  下一次 idleSleep 入口消费并立即放行重跑 observe，唤醒不再丢失（原 fire-and-forget 丢此类唤醒） */
   private pendingWake = false;
+  /** #523（#515 决议 P0-2）：workunit.status_changed 订阅句柄（start 挂、stop 退） */
+  private workunitChangedHandler: ((payload: unknown) => void) | null = null;
   private executor: Executor;
   /** 2026-07 PMO-flow UX（§6-2）：最后一次已发布的 instance 状态（SSE 去重——状态不变不发） */
   private lastPublishedStatus: string | null = null;
@@ -266,12 +268,11 @@ export class AgentLoop {
       this.triggerId = `agent-loop-${this.role.id}-workunit-created`;
       const handlerTarget = `agent-loop-${this.role.id}-observe`;
 
-      scheduler.registerExecuteHandler(handlerTarget, async () => {
-        if (this.alive) {
-          this.observe().catch(err =>
-            logger.warn(`[AgentLoop] EVENT-triggered observe failed: ${err.message}`)
-          );
-        }
+      scheduler.registerExecuteHandler(handlerTarget, async (context) => {
+        // #523（#515 决议 P0-1）：认领真唤醒——不再白跑一次 observe 丢弃结果，
+        // 复用 channel.message_sent 同款机制（pendingWake 闩锁 + wakeIdle）叫醒
+        // runLoop 自己走 observe→认领；context = trigger scheduler 传入的事件 payload
+        if (this.alive) this.onWorkUnitClaimable(context);
       });
 
       scheduler.registerTrigger({
@@ -291,6 +292,12 @@ export class AgentLoop {
       // #493：过滤+闩锁逻辑收进 onChannelMessageSent（seam 可测）。
       this.messageSentHandler = (payload) => this.onChannelMessageSent(payload);
       eventBus.subscribe('channel.message_sent', this.messageSentHandler);
+
+      // #523（#515 决议 P0-2）：派生可认领路径同口径补唤醒——增订 workunit.status_changed，
+      // 过滤条件不变（claimable === true）：人闸确认（pending→unassigned）、unclaim 释放、
+      // reopen 全覆盖；blocked→active 复活等非认领路径被条件天然滤掉。零新事件类型。
+      this.workunitChangedHandler = (payload) => this.onWorkUnitClaimable(payload);
+      eventBus.subscribe('workunit.status_changed', this.workunitChangedHandler);
 
       // Main loop (non-blocking — fire and forget like original)
       this.loopPromise = this.runLoop().catch(err =>
@@ -443,7 +450,9 @@ export class AgentLoop {
         // #178（#63 决议 1）：WU 离开 active（complete→in_review/done、need_input→blocked）
         // 或已易主 → 停租约心跳（blocked 不进超时扫描；复活回 active 时 ensureLease 重开）
         await this.releaseLeaseIfForfeited(target.workUnit.id);
-        await sleep(dynamicInterval(result));
+        // #523（#515 决议 P0-5）：步间 sleep 复用同一 wakeIdle 可中断原语——
+        // 认领事件到达即提前结束本睡、立即回环 observe，不引入新机制
+        await this.idleSleep(dynamicInterval(result));
       } catch (err) {
         const message = getErrorMessage(err);
         logger.error(`[AgentLoop] Loop iteration error: ${message}`);
@@ -641,6 +650,11 @@ export class AgentLoop {
       eventBus.unsubscribe('channel.message_sent', this.messageSentHandler);
       this.messageSentHandler = null;
     }
+    // #523: 退订 workunit.status_changed 认领唤醒
+    if (this.workunitChangedHandler) {
+      eventBus.unsubscribe('workunit.status_changed', this.workunitChangedHandler);
+      this.workunitChangedHandler = null;
+    }
     this.wakeIdle?.();
     if (this.instance) {
       this.fileStore.updateState(this.instance.id, {
@@ -668,7 +682,19 @@ export class AgentLoop {
     this.wakeIdle?.();
   }
 
-  /** #330: 可中断的空闲 sleep——channel.message_sent 命中 myActive（或 stop）时提前返回 */
+  /** #523（#515 决议 P0-1/P0-2）：workunit.created / workunit.status_changed 唤醒过滤 + 闩锁
+   * （独立方法供测试 seam 直驱）。过滤口径 = 负载现成的 claimable === true——
+   * pending 人闸单/有依赖单不空唤醒；status_changed 同条件覆盖人闸确认、unclaim 释放、reopen，
+   * blocked→active 复活等非认领路径被条件天然滤掉。 */
+  private onWorkUnitClaimable(payload: unknown): void {
+    const wu = (payload as { workunit?: { claimable?: boolean } } | null)?.workunit;
+    if (wu?.claimable !== true) return;
+    this.pendingWake = true;
+    this.wakeIdle?.();
+  }
+
+  /** #330: 可中断的空闲/步间 sleep——channel.message_sent 命中 myActive、workunit 认领事件
+   * （#523 claimable === true）或 stop 时提前返回 */
   private idleSleep(ms: number): Promise<void> {
     if (!this.alive) return Promise.resolve(); // stop 与进入 sleep 的竞态：已停则立即返回
     // #493：消费唤醒闩锁——挂起期间有唤醒意图未送达，不睡直接重跑一轮 observe

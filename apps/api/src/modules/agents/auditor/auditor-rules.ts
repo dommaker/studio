@@ -17,6 +17,7 @@ import { logger } from '@dommaker/studio-shared';
 import type { FileStore } from '@dommaker/studio-shared';
 import { knowledgeService } from '../../knowledge/knowledge-service.js';
 import { skillStore } from '../../skills/skill-store.js';
+import { WorkUnitService } from '../../workunit/workunit.service.js';
 import { resolveStudioEventsFile, getStudioEventTime } from '../../../utils/studio-events.js';
 // #335：窗口读口（尾部倒读 + 窗口外早停），替代 readJsonl 全量读
 import { readStudioEventsSince } from '../../../utils/studio-events-tail.js';
@@ -275,8 +276,6 @@ export async function analyzeCircuitHealth(fileStore: FileStore): Promise<Sugges
 
             // 纯代码创建 okr_proposal WorkUnit（不调 LLM）
             // Agent 领取后自行诊断，有完整系统上下文
-            const now = new Date().toISOString();
-            const wuId = `okr-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
             const metadata = {
               okrId: okr.id,
               krId: kr.id,
@@ -289,31 +288,18 @@ export async function analyzeCircuitHealth(fileStore: FileStore): Promise<Sugges
             };
 
             // 创建 WorkUnit（#170：created 事件 + 索引同锁成对，替代裸 upsertSnapshot）
+            // #523（#515 决议 P0-3）：改走 WorkUnitService.create——消灭第二个建单口
+            // （commitSnapshot 直写不发 eventBus 事件，对唤醒体系完全隐形）。
+            // create 完整承接 type/metadata、无 channelId 无 projectPath；id 用 service 生成
+            // （create 不支持指定 id，无消费方依赖旧 okr- 前缀格式）
             try {
-              const snapshot = {
-                id: wuId,
-                parentId: null,
+              const wuService = new WorkUnitService(fileStore);
+              await wuService.create({
                 type: 'okr_proposal',
                 scope: `[OKR优化] ${kr.title}: 达成率 ${Math.round(ratio * 100)}% (${latest.value}/${kr.target}${kr.unit || ''})`,
-                assigneeId: null,
-                status: 'unassigned' as const,
-                failureType: null,
-                retryCount: 0,
-                timeoutAt: null,
-                channelId: null,
-                projectPath: null,
-                metadata: JSON.stringify(metadata),
-                createdAt: now,
-                updatedAt: now,
-                claimedAt: null,
-                completedAt: null,
-              };
-              await fileStore.commitSnapshot({
-                type: 'created',
-                wuId,
-                timestamp: now,
-                data: snapshot as unknown as Record<string, unknown>,
-              }, snapshot);
+                status: 'unassigned',
+                metadata,
+              });
             } catch {}
           } else if (ratio < 0.8) {
             suggestions.push({

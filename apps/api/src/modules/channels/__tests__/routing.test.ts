@@ -151,6 +151,36 @@ describe('#477 resolveOrNotice', () => {
     expect(r.notice).toContain('角色已停用');
   });
 
+  it('#525：未配置提示也过冷却闸——同频道同档窗内第二次 → notice=null', async () => {
+    await seedChannel('ch-nc-cool');
+    const first = await resolveOrNotice(fileStore, 'ch-nc-cool', 'implement', { notConfiguredText: '未配置提示' });
+    expect(first.notice).toBe('未配置提示');
+    const second = await resolveOrNotice(fileStore, 'ch-nc-cool', 'implement', { notConfiguredText: '未配置提示' });
+    expect(second.resolution.profileId).toBeNull();
+    expect(second.notice).toBeNull();
+  });
+
+  it('#525：未配置冷却按频道隔离——不同频道互不影响', async () => {
+    await seedChannel('ch-nc-a');
+    await seedChannel('ch-nc-b');
+    const a = await resolveOrNotice(fileStore, 'ch-nc-a', 'implement', { notConfiguredText: '未配置提示' });
+    const b = await resolveOrNotice(fileStore, 'ch-nc-b', 'implement', { notConfiguredText: '未配置提示' });
+    expect(a.notice).toBe('未配置提示');
+    expect(b.notice).toBe('未配置提示');
+  });
+
+  it('#525：未配置冷却与配错冷却键不同——互不影响', async () => {
+    await seedProfile('p-nc-dead', 'dead-agent', 'inactive');
+    await seedChannel('ch-nc-mix', { members: ['p-nc-dead'], routing: { review: 'p-nc-dead' } });
+    // implement 档未配置 → 首次出声并登记 not-configured 键
+    const nc = await resolveOrNotice(fileStore, 'ch-nc-mix', 'implement', { notConfiguredText: '未配置提示' });
+    expect(nc.notice).toBe('未配置提示');
+    // review 档配错（inactive）→ 不受未配置冷却影响，照出
+    const fb = await resolveOrNotice(fileStore, 'ch-nc-mix', 'review');
+    expect(fb.resolution.fallback).toBe('inactive');
+    expect(fb.notice).toContain('角色已停用');
+  });
+
   it('配错冷却：同频道同档同原因窗内第二次 → notice=null', async () => {
     await seedProfile('p-dead3', 'dead-agent', 'inactive');
     await seedChannel('ch-cool', { members: ['p-dead3'], routing: { review: 'p-dead3' } });

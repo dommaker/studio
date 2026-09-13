@@ -196,6 +196,46 @@ describe('cleanupExpiredSessions', () => {
   });
 });
 
+describe('sessions.json 写路径 prune 过期条目 (#525 P2-3)', () => {
+  it('写操作后文件不含过期条目，未过期条目原样保留', async () => {
+    setupStore([], [
+      { id: 's-expired-1', userId: 'u1', token: 't1', guestId: null, ipAddress: null, userAgent: null,
+        expiresAt: new Date(Date.now() - 86400000).toISOString(), createdAt: new Date().toISOString(), refreshToken: null },
+      { id: 's-expired-2', userId: 'u2', token: 't2', guestId: null, ipAddress: null, userAgent: null,
+        expiresAt: new Date(Date.now() - 1000).toISOString(), createdAt: new Date().toISOString(), refreshToken: 'rt' },
+      { id: 's-valid', userId: 'u3', token: 't3', guestId: null, ipAddress: null, userAgent: null,
+        expiresAt: new Date(Date.now() + 86400000).toISOString(), createdAt: new Date().toISOString(), refreshToken: 'rt-valid' },
+    ]);
+    await createGuestSession({ guestId: 'g-prune' });
+    const ids = storeSessions.map((s) => s.id);
+    expect(ids).not.toContain('s-expired-1');
+    expect(ids).not.toContain('s-expired-2');
+    // 未过期条目原样保留
+    const kept = storeSessions.find((s) => s.id === 's-valid');
+    expect(kept).toBeTruthy();
+    expect(kept.refreshToken).toBe('rt-valid');
+    // 新会话写入成功
+    expect(storeSessions.some((s) => s.guestId === 'g-prune')).toBe(true);
+  });
+
+  it('updateSession 写路径同样 prune 过期条目', async () => {
+    setupStore([], [{
+      id: 's1', userId: 'u1', token: 't', guestId: null, ipAddress: null, userAgent: null,
+      expiresAt: new Date(Date.now() + 86400000).toISOString(), createdAt: new Date().toISOString(),
+      refreshToken: 'rt1',
+    }, {
+      id: 's-expired', userId: 'u2', token: 't2', guestId: null, ipAddress: null, userAgent: null,
+      expiresAt: new Date(Date.now() - 86400000).toISOString(), createdAt: new Date().toISOString(),
+      refreshToken: null,
+    }]);
+    await logout('s1', 'u1');
+    // s-expired 被 prune；s1 被 logout 置为已过期（是否当次 prune 取决于毫秒边界，见 service.ts logout 注释）
+    const ids = storeSessions.map((s) => s.id);
+    expect(ids).not.toContain('s-expired');
+    expect(storeSessions.filter((s) => new Date(s.expiresAt) > new Date())).toEqual([]);
+  });
+});
+
 describe('generateRefreshToken + exchange + revoke', () => {
   it('generateRefreshToken stores token in session record', async () => {
     setupStore([], [{

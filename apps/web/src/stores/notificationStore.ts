@@ -4,9 +4,16 @@
 // - notifications 事件持久（已读/未读墓碑）+ unreadCount。
 // 已读动作统一在此：本地乐观更新（含 unreadCount 同步）+ 后端 POST。
 // SSE 不再直接入列（pushSse 已删），只作失效触发由 NotificationBell 重拉。
+// #517：load 接 fetchDiscipline 底座（照 rosterStore 模式：TTL + single-flight + seq 守卫），
+// 触发侧防抖在 NotificationBell（#489 同款 500ms trailing）。
 import { create } from 'zustand';
 import { api } from '../api';
 import { formatShortTime } from '../utils/datetime';
+import { createFetchGate, disciplinedFetch } from './fetchDiscipline';
+
+/** load 默认 TTL：对齐全项目取数 TTL 量级（ROSTER_TTL_MS / CHANNEL_DATA_TTL_MS 同为 30s）——
+ *  重复挂载 TTL 内零重拉；SSE 失效/断线重连由调用方传 maxAgeMs: 0 强拉 */
+export const NOTIFICATION_TTL_MS = 30000;
 
 /** 状态派生待办（reply=blocked+waitingForInput 待回复 / review=in_review 闸门类待验收 / confirm=pending 待确认） */
 export interface StateItem {
@@ -111,29 +118,53 @@ interface ActionCenterState {
   stateItems: StateItem[];
   notifications: Notification[];
   unreadCount: number;
-  /** 拉行动中心三段整体替换；失败不阻塞（保留现状容错） */
-  load: () => Promise<void>;
+  /** 成功落库的时间戳（TTL 锚点；失败不更新 → 下次调用重试） */
+  loadedAt: number | null;
+  /** 进行中的拉取（single-flight 去重锚点） */
+  inflight: Promise<void> | null;
+  /**
+   * 拉行动中心三段整体替换（TTL 门禁 + single-flight + seq 守卫，#517 接 fetchDiscipline）。
+   * 永不 reject（失败不阻塞面板，保留现有三段）。maxAgeMs 缺省 NOTIFICATION_TTL_MS；
+   * 传 0 强制重拉（SSE 失效、断线重连对齐等，照 rosterStore 语义）。
+   */
+  load: (opts?: { maxAgeMs?: number }) => Promise<void>;
   markRead: (id: string) => void;
   markAllRead: () => void;
   /** 打开频道即读：把归属该频道的未读通知标记已读（本地 + 逐条 POST），unreadCount 同步递减 */
   markChannelRead: (channelId: string) => void;
 }
 
+/** 取数纪律底座（#517，照 rosterStore #403 模式）：seq 守卫锚点。TTL / single-flight / inflight 生命周期走 disciplinedFetch */
+const notificationGate = createFetchGate();
+
 export const useNotificationStore = create<ActionCenterState>((set, get) => ({
   stateItems: [],
   notifications: [],
   unreadCount: 0,
+  loadedAt: null,
+  inflight: null,
 
-  load: async () => {
-    try {
-      const res = await api.get('/action-center');
-      const data = res.data as ActionCenterPayload;
-      set({
-        stateItems: data.stateItems ?? [],
-        notifications: (data.notifications ?? []).map(fromBackend),
-        unreadCount: data.unreadCount ?? 0,
-      });
-    } catch { /* 拉取失败不阻塞面板，保留现有三段 */ }
+  load: async (opts) => {
+    const maxAgeMs = opts?.maxAgeMs ?? NOTIFICATION_TTL_MS;
+    return disciplinedFetch(
+      notificationGate,
+      { read: () => ({ loadedAt: get().loadedAt, inflight: get().inflight }), setInflight: (p) => set({ inflight: p }) },
+      { maxAgeMs },
+      async (seq) => {
+        try {
+          const res = await api.get('/action-center');
+          // seq 守卫：晚到的旧 fetch（被强拉/后续拉取超越）不回写
+          if (!notificationGate.isLatest(seq)) return;
+          const data = res.data as ActionCenterPayload;
+          set({
+            stateItems: data.stateItems ?? [],
+            notifications: (data.notifications ?? []).map(fromBackend),
+            unreadCount: data.unreadCount ?? 0,
+            loadedAt: Date.now(),
+          });
+        } catch { /* 拉取失败不阻塞面板，保留现有三段；不更新 loadedAt → 下次调用重试 */ }
+      },
+    );
   },
 
   markRead: (id) => {

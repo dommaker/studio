@@ -21,7 +21,7 @@
  * 以 metadata.workspaceRoot 字符串形式进入 WU，agent-loop 直接作为执行根目录
  * （与 task.parameters.workspaceRoot 消费方式兼容，不经 workspace 记录解析）。
  */
-import { logger, FileStore, stripTrailingSlashes } from '@dommaker/studio-shared';
+import { logger, FileStore, stripTrailingSlashes, type ChannelData } from '@dommaker/studio-shared';
 import { projectService } from '../pmo/project.service.js';
 import type { RequirementWithProject } from './requirement.service.js';
 
@@ -47,6 +47,11 @@ export interface ResolveWorkspaceInput {
   /** #285（决策 #249 §4）：@文件引用（路由层校验后的 kept refs；全部引用同仓时该仓即归属工程） */
   fileRefs?: { repo: string; path: string }[];
   fileStore?: FileStore;
+  /**
+   * #525 P2-2（决策 #517 项 3）：调用方已读出的频道记录。
+   * 传入时优先级 3（频道 defaultPath）不再重复 getChannel；未传入保持现状读。
+   */
+  channel?: ChannelData | null;
   /** 项目查询（可注入，测试用 stub 隔离 PMO 依赖） */
   getProject?: (projectId: string) => Promise<{ gitRepo?: string | null } | null>;
 }
@@ -98,7 +103,7 @@ export async function resolveWorkspaceForWU(input: ResolveWorkspaceInput): Promi
   // 3. 频道 defaultPath（#272 决策 #251 Q2'：默认工程 = 本地 repo，直接作执行根）
   if (input.channelId) {
     try {
-      const channel = await fileStore.getChannel(input.channelId);
+      const channel = input.channel !== undefined ? input.channel : await fileStore.getChannel(input.channelId);
       if (channel?.defaultPath) {
         return { source: 'channel-default-path', workspaceRoot: channel.defaultPath, projectId: null };
       }

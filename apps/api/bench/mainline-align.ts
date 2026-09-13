@@ -28,6 +28,7 @@ import {
   type MainlineChain,
   type SegmentStats,
 } from './mainline-align-core.js';
+import { parseWorkUnitIndexContent } from '@dommaker/studio-shared';
 
 export interface CliArgs {
   sinceMs: number | null;
@@ -99,8 +100,8 @@ export function loadInput(args: CliArgs): AlignInput & { dataNotes: string[] } {
   let workunits: WorkUnitSnapshotRow[] = [];
   const wuIndex = path.join(args.studioHome, 'data', 'workunits', 'index.json');
   try {
-    const parsed = JSON.parse(fs.readFileSync(wuIndex, 'utf8'));
-    workunits = Array.isArray(parsed) ? parsed : [];
+    // #524 P1-2：index.json 改 append-only JSONL（旧 JSON 数组格式兼容），统一走 fold 读口
+    workunits = parseWorkUnitIndexContent(fs.readFileSync(wuIndex, 'utf8')) as WorkUnitSnapshotRow[];
   } catch {
     dataNotes.push(`WU 快照不可读：${wuIndex}（WU 数据源为空）`);
   }

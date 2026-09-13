@@ -92,6 +92,7 @@ export type {
 export { formatRequirementId, formatEvolutionId } from './file-store-types';
 export { LockTimeoutError } from './file-store-base';
 export type { WorkUnitReconcileResult } from './file-store-workunit';
+export { parseWorkUnitIndexContent } from './file-store-workunit';
 export { parseChannels, stringifyChannels } from './channels-codec';
 export { parseFrontmatter, serializeFrontmatter } from './frontmatter';
 
@@ -234,6 +235,20 @@ function mergeActiveRows(rows: ChannelMessageRow[]): ChannelMessageData[] {
     active.push(rest);
   }
   return active;
+}
+
+/**
+ * 倒扫窗口的 createdAt 序列是否严格递减（#524 P1-1 快径判据）：
+ * 严格递减 = 窗口内无旧消息更新副本且无等 ts 撞车——更新-append 的副本
+ * createdAt 不变、位置在尾，会让序列出现上升沿或平台（等 ts 时副本的正确位置
+ * 在首现处而非尾部，非严格判据放不过）。严格递减时文件序 = 时间序，
+ * 尾部切片 = createdAt 精确后缀，翻页游标链完整。
+ */
+function isStrictlyDecreasingTs(messages: ChannelMessageData[]): boolean {
+  for (let i = 1; i < messages.length; i++) {
+    if (new Date(messages[i].createdAt).getTime() >= new Date(messages[i - 1].createdAt).getTime()) return false;
+  }
+  return true;
 }
 
 /** FileStore 构造选项（#319：messageCompaction 供测试注入小阈值；#327：messageArchive 仿同模式） */
@@ -825,7 +840,69 @@ export class FileStore extends FileStoreWorkUnitBase {
     return this.readJsonl<ChannelMessageRow>(this.messagesPath(channelId)).then(mergeActiveRows);
   }
 
+  /**
+   * 尾部倒扫读口（#524 P1-1，#514 定案「指定频道 + 尾部倒扫」）：
+   * 从 messages.jsonl 尾部倒读，收集 limit 条匹配的活消息即停，返回新→旧。
+   * 去重/tombstone 口径复刻 mergeActiveRows——同 id 先见（最新版）为准、deleted 行
+   * 作废整条并占位（更旧版本不复活）；损坏行跳过（同 events 尾读容错）。
+   * **不按 createdAt 早停**：更新-append 使文件序 ≠ 时间序（#317 起更新副本 createdAt
+   * 不变、位置在尾），遇超窗即停会漏（#514 决议已否决该候选）。
+   * exhausted = 未凑满 limit 就扫到文件头（= 收集结果就是全量活消息）。
+   * 直读磁盘不进 jsonlCache（同 getMessagesSince 的 seam 口径：尾读即增量读口，真源唯一）。
+   */
+  async readMessagesTail(
+    channelId: string,
+    opts: { limit: number; match?: (m: ChannelMessageData) => boolean },
+  ): Promise<{ messages: ChannelMessageData[]; exhausted: boolean }> {
+    let handle: fs.promises.FileHandle | null = null;
+    try {
+      handle = await fs.promises.open(this.messagesPath(channelId), 'r');
+      const stat = await handle.stat();
+      if (stat.size === 0) return { messages: [], exhausted: true };
+
+      const seen = new Set<string>();
+      const out: ChannelMessageData[] = []; // 收集顺序 = 新→旧
+      let exhausted = true;
+      for await (const { text } of iterateJsonlLinesBackward(handle, stat.size)) {
+        let row: ChannelMessageRow;
+        try {
+          row = JSON.parse(text) as ChannelMessageRow;
+        } catch {
+          continue; // 损坏行跳过
+        }
+        if (seen.has(row.id)) continue;
+        seen.add(row.id);
+        if (row.deleted === true) continue; // 墓碑占位：整条作废，旧版不复活
+        const { deleted, ...msg } = row;
+        if (opts.match && !opts.match(msg)) continue;
+        out.push(msg);
+        if (out.length >= opts.limit) {
+          exhausted = false;
+          break;
+        }
+      }
+      return { messages: out, exhausted };
+    } catch (err: unknown) {
+      if (isErrnoError(err) && err.code === 'ENOENT') return { messages: [], exhausted: true };
+      throw err;
+    } finally {
+      await handle?.close();
+    }
+  }
+
   async queryMessages(channelId: string, opts?: QueryOpts): Promise<ChannelMessageData[]> {
+    // #524 P1-1 尾部快径（#514 第 4 子项）：limit 且无任何过滤 → 倒扫切片，
+    // 不付全量读/clone/归并税。窗口 createdAt 序列非严格递减（混入更新副本或
+    // 等 ts 撞车 = 文件序≠时间序）→ 回退全量路径保精确（单副本必被严格性检查
+    // 捕获；多副本交织的病态窗口理论上有界偏差，压实 #319 自愈）。
+    if (opts?.limit !== undefined && opts.limit > 0
+      && !opts.workUnitId && !opts.authorType && !opts.since) {
+      const { messages, exhausted } = await this.readMessagesTail(channelId, { limit: opts.limit });
+      if (exhausted || isStrictlyDecreasingTs(messages)) {
+        messages.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+        return messages;
+      }
+    }
     const resolved = await this.resolveActiveMessages(channelId);
     let filtered: ChannelMessageData[] = resolved;
 
@@ -866,18 +943,69 @@ export class FileStore extends FileStoreWorkUnitBase {
    * total 统一为「热 + 冷原始行数」三分支同口径（原语义随分支漂移：无锚=全链总数、
    * 锚在冷=比锚点旧的数量；前端不消费 total）：冷行数走字节快扫数 LF，不 parse/clone/sort，
    * thaw/崩溃残留行计入会虚高（方向安全，偏多不丢）。
+   * #525 P2-4：total 统计默认关闭（includeTotal 缺省 false → 完全跳过冷/热行数统计，total 恒 0），
+   * 要总数的调用方显式 includeTotal: true，口径不变。
    */
   async queryMessagesPage(channelId: string, opts?: MessagePageOpts): Promise<MessagePage> {
+    const limit = opts?.limit !== undefined && opts.limit > 0 ? opts.limit : 50;
+
+    if (!opts?.before) {
+      // #524 P1-1 首页快径（#514 第 4 子项 / #510 嫌疑①）：尾部倒扫 limit+1 条出页，
+      // 省全热文件读/clone/sort（20k 行 90ms → 亚毫秒）。语义对照原全量路径：
+      // - 倒扫凑满 limit+1 ⟺ 活消息 > limit（hasMore 恒真、不补冷）；
+      // - 未凑满即扫到文件头（exhausted）⟺ 活消息 ≤ limit，收集结果 = 全量活消息，
+      //   补冷/去重/total 与原路径逐条一致；
+      // - 窗口 createdAt 序列严格递减 = 窗口内无旧消息更新副本、无等 ts 撞车
+      //   （文件序=时间序），首页 = createdAt 精确后缀，before 游标翻页链完整；
+      //   非严格递减（窗口混入更新副本/等 ts）→ 回退下方全量路径保精确
+      //   （单副本必被严格性检查捕获；多副本交织的病态窗口理论上有界偏差，
+      //   压实 #319 清死行后自愈）。
+      const tail = await this.readMessagesTail(channelId, { limit: limit + 1 });
+      if (tail.exhausted || isStrictlyDecreasingTs(tail.messages)) {
+        // #525 P2-4：includeTotal 未开启（缺省）时完全跳过 countColdLines/countFileLines，total 恒 0
+        // total 热部：穷举 = 精确活数；未穷举 = 字节快扫原始行数（死行虚高，方向安全偏多——
+        // 与冷侧「thaw/崩溃残留行计入」同口径，前端不消费 total）
+        const total = opts?.includeTotal
+          ? (tail.exhausted
+            ? tail.messages.length
+            : await this.countFileLines(this.messagesPath(channelId)))
+          + await this.countColdLines(channelId)
+          : 0;
+
+        const hasHotMore = tail.messages.length > limit;
+        const hotPage = tail.messages.slice(0, limit); // 新→旧（单调窗口内 = createdAt 降序）
+        hotPage.reverse(); // → createdAt 升序（与原路径 sort 后切片同口径）
+        const coldNeed = limit - hotPage.length;
+        const coldPart: ChannelMessageData[] = [];
+        if (tail.exhausted) {
+          // 热不超页才需要冷：补页 + 多收 1 条判 hasMore（热已超页则 hasMore 恒 true，不读冷）
+          const hotIds = new Set(tail.messages.map(m => m.id));
+          for await (const msg of this.iterateColdMessages(channelId, hotIds)) {
+            coldPart.push(msg);
+            if (coldPart.length > coldNeed) break;
+          }
+        }
+        return {
+          messages: [...coldPart.slice(0, coldNeed).reverse(), ...hotPage],
+          total,
+          hasMore: hasHotMore || coldPart.length > coldNeed,
+        };
+      }
+      // 严格性违例（窗口混入更新副本/等 ts 撞车）→ 落回下方全量路径
+    }
+
     const resolved = await this.resolveActiveMessages(channelId);
     // 按创建时间升序（与 queryMessages 同口径；同刻消息按文件序稳定排列）
     resolved.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-    const limit = opts?.limit !== undefined && opts.limit > 0 ? opts.limit : 50;
     const hotIds = new Set(resolved.map(m => m.id));
-    const coldLineCount = await this.countColdLines(channelId);
-    const total = resolved.length + coldLineCount;
+    // #525 P2-4：includeTotal 未开启（缺省）时完全跳过 countColdLines，total 恒 0
+    const total = opts?.includeTotal
+      ? resolved.length + await this.countColdLines(channelId)
+      : 0;
 
     if (!opts?.before) {
-      // 最新页：热页不足 limit 从冷链（新→旧）补满——热全空时首页直接出冷数据
+      // 无 before 的原全量首页路径（#524 快径严格性违例时回退到此）：
+      // 最新页热页不足 limit 从冷链（新→旧）补满——热全空时首页直接出冷数据
       const hotPage = resolved.slice(-limit);
       const coldNeed = limit - hotPage.length;
       const coldPart: ChannelMessageData[] = [];
@@ -1240,8 +1368,38 @@ export class FileStore extends FileStoreWorkUnitBase {
     return result;
   }
 
-  /** 按全局 messageId 查找消息（跨频道扫描），返回消息及其所属 channelId */
-  async getMessageById(messageId: string): Promise<{ channelId: string; message: ChannelMessageData } | null> {
+  /**
+   * 按全局 messageId 查找消息，返回消息及其所属 channelId。
+   * #524 P1-1（#514 定案）：channelId 已知时传参走本频道倒扫直查——倒扫首见定夺
+   * （首见 deleted → 已删除 null；首见普通行即最新版），O(目标位置) 而非 O(Σ全频道热文件)。
+   * channelId 缺省保留全频道扇出（无频道上下文的冷路径兼容）。
+   */
+  async getMessageById(messageId: string, channelId?: string): Promise<{ channelId: string; message: ChannelMessageData } | null> {
+    if (channelId) {
+      let handle: fs.promises.FileHandle | null = null;
+      try {
+        handle = await fs.promises.open(this.messagesPath(channelId), 'r');
+        const stat = await handle.stat();
+        for await (const { text } of iterateJsonlLinesBackward(handle, stat.size)) {
+          let row: ChannelMessageRow;
+          try {
+            row = JSON.parse(text) as ChannelMessageRow;
+          } catch {
+            continue; // 损坏行跳过（同尾读容错口径）
+          }
+          if (row.id !== messageId) continue;
+          if (row.deleted === true) return null; // 墓碑首见 = 已删除
+          const { deleted, ...msg } = row;
+          return { channelId, message: msg };
+        }
+        return null;
+      } catch (err: unknown) {
+        if (isErrnoError(err) && err.code === 'ENOENT') return null; // 频道/文件不存在
+        throw err;
+      } finally {
+        await handle?.close();
+      }
+    }
     const dir = this.channelsDir();
     try {
       const entries = await this.readdirCached(dir);

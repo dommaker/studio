@@ -9,6 +9,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { synthesizeDataset } from '../synthesize-dataset.js';
+import { parseWorkUnitIndexContent } from '@dommaker/studio-shared';
+
+/** #524 P1-2 起 index.json 是 append-only JSONL，统一走 fold 读口（兼容旧 JSON 数组 fixture） */
+function readOutIndex(outHome: string): Array<Record<string, any>> {
+  return parseWorkUnitIndexContent(
+    fs.readFileSync(path.join(outHome, 'data', 'workunits', 'index.json'), 'utf-8'),
+  ) as Array<Record<string, any>>;
+}
 
 let templateHome: string;
 let outHome: string;
@@ -90,7 +98,7 @@ describe('synthesizeDataset', () => {
     expect(stats.stateFiles).toBe(1);
     expect(stats.profileFiles).toBe(1);
 
-    const index = JSON.parse(fs.readFileSync(path.join(outHome, 'data', 'workunits', 'index.json'), 'utf-8'));
+    const index = readOutIndex(outHome);
     expect(index).toHaveLength(5);
     // schema 抽样比对：克隆条目字段集合与模板一致
     const templateKeys = Object.keys(TEMPLATE_WUS[0]).sort();
@@ -113,7 +121,7 @@ describe('synthesizeDataset', () => {
     expect(stats.agentDirs).toBe(6);
     expect(stats.stateFiles).toBe(3);
 
-    const index = JSON.parse(fs.readFileSync(path.join(outHome, 'data', 'workunits', 'index.json'), 'utf-8'));
+    const index = readOutIndex(outHome);
     const ids = index.map((w: any) => w.id);
     expect(new Set(ids).size).toBe(9);
     // parentId 重映射一致：wu-b 的克隆指向对应档位的 wu-a 克隆

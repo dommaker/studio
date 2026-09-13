@@ -135,7 +135,7 @@ router.post('/', requireAuth(), requireNotGuest(), async (req: Request, res: Res
 /** POST /from-message — convert ChannelMessage to WorkUnit (emergence path) */
 router.post('/from-message', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
-    const { messageId, type, metadata } = req.body;
+    const { messageId, type, metadata, channelId } = req.body;
 
     if (!messageId || typeof messageId !== 'string') {
       return res.status(400).json({
@@ -143,7 +143,11 @@ router.post('/from-message', requireAuth(), requireNotGuest(), async (req: Reque
       });
     }
 
-    const wu = await service.createFromMessage(messageId, { type, metadata });
+    // #524 P1-1：body.channelId 可选透传 → 按频道直查，免全频道扫描反查
+    const wu = await service.createFromMessage(messageId, {
+      type, metadata,
+      channelId: typeof channelId === 'string' && channelId ? channelId : undefined,
+    });
     res.status(201).json(wu);
   } catch (error) {
     const msg = getErrorMessage(error);
@@ -793,7 +797,7 @@ router.patch('/:id/messages/:messageId', requireAuth(), requireNotGuest(), async
     const updated = await channelMessageService.updateMessage(req.params.messageId, {
       content,
       meta,
-    });
+    }, found.channelId);
 
     res.json(updated);
   } catch (error) {

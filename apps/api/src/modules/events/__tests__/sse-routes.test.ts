@@ -196,3 +196,44 @@ describe('SSE /stream 断线 replay（#491）', () => {
     expect(frames[0].data.clientId).toBeDefined();
   });
 });
+
+// ── #524 P1-3（#516 项⑥）：stream chunk 不进 500 条共享 replay buffer ──
+describe('SSE replay buffer 踢出 stream chunk（#524 P1-3）', () => {
+  function publishStream(eventId: string, data: Record<string, unknown>) {
+    eventBus.publish('events', {
+      event_type: 'workunit.execution.stream', event_id: eventId,
+      timestamp: '2026-09-12T00:00:00Z', data,
+    });
+  }
+
+  it('stream chunk 直播照常送达，但不占 replay buffer seq（未入队）', () => {
+    const a = connectClient();
+    const before = sseReplayBuffer.currentSeq;
+
+    publishStream('s-1', { workUnitId: 'wu-1', kind: 'text', text: 'hello' });
+
+    const frames = extractFrames(a);
+    expect(frames.at(-1)!.data.event_type).toBe('workunit.execution.stream'); // 直播照常
+    expect(sseReplayBuffer.currentSeq).toBe(before); // buffer 未被占用
+  });
+
+  it('高 stream 负载后重连：关键事件补发齐全（窗口不被 chunk 挤占）', () => {
+    const a = connectClient();
+    const cursor = extractFrames(a).at(-1)!.id;
+
+    eventBus.publish('events', {
+      event_type: 'channel.message_created', event_id: 'ev-k1',
+      timestamp: '2026-09-12T00:00:01Z', data: { channelId: 'ch-1', message: { id: 'mk1' } },
+    });
+    // 600 条 stream chunk（超 500 容量）——若入队会把 ev-k1 挤出窗口
+    for (let i = 0; i < 600; i++) publishStream(`s-${i}`, { i });
+    eventBus.publish('events', {
+      event_type: 'channel.message_updated', event_id: 'ev-k2',
+      timestamp: '2026-09-12T00:00:02Z', data: { channelId: 'ch-1', messageId: 'mk1' },
+    });
+
+    const b = connectClient({ 'last-event-id': cursor });
+    const types = extractFrames(b).map(f => f.data.event_type);
+    expect(types).toEqual(['channel.message_created', 'channel.message_updated', undefined]);
+  });
+});

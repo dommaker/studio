@@ -14,10 +14,89 @@ import type { WorkUnitEvent, WorkUnitSnapshot, WorkUnitFilter } from './file-sto
 /** #314（D2）：租约推前的合并落盘窗口（默认 60s，≪ 5min 租约 TTL，活跃持有方不被误判到期） */
 export const LEASE_FLUSH_INTERVAL_MS = 60_000;
 
+// ─── index.json append-only（#524 P1-2，#517 项 1 定案）───
+//
+// index.json 改 append-only JSONL：upsert 追加一行快照、remove 追加一行 {id, deleted:true}
+// 墓碑；读侧 fold 出最新状态（同 id 后行覆盖前行、墓碑删除、首现位置序），
+// 替代「每次建单/状态迁移全量重写」——写侧耗时不再随 WU 数线性增长。
+// 定期压实（同 #319 messages 压实先例）：每 checkInterval 次 append 评估一次，
+// 总行数 ≥ minLines 且死行（被覆盖旧行 + 墓碑行）占比 ≥ deadRatio 时锁内重写为 fold 结果。
+// fsync 随每写全量重写一起取消（append 本就不 fsync）；崩溃撕裂尾行读侧跳过，
+// 启动 reconcileIndex 按 events（正本）重建兜底——index 只是派生物。
+// 旧格式（pretty JSON 数组）兼容：读侧首字符 '[' 走旧解析（严格抛错语义保留）；
+// 写侧首个 append 前锁内一次性迁移重写为 JSONL。
+const INDEX_COMPACT_CHECK_INTERVAL = 500;
+const INDEX_COMPACT_MIN_LINES = 5000;
+const INDEX_COMPACT_DEAD_RATIO = 0.3;
+
+/** index.json 压实阈值（测试可注入小阈值，同 messageCompaction 模式） */
+export interface IndexCompactionOptions {
+  checkInterval?: number;
+  minLines?: number;
+  deadRatio?: number;
+}
+
+/** index.json 的删除墓碑行（removeSnapshot 追加；fold 时整条移除） */
+interface WorkUnitIndexTombstone {
+  id: string;
+  deleted: true;
+}
+
+/**
+ * index.json 内容 → 快照数组（双格式；bench/脚本直读方与 readIndexFile 共用，口径唯一）。
+ * 旧格式（首非空白字符 '['）：JSON 数组，撕裂/非数组抛错（不静默当空）。
+ * JSONL：逐行 fold——同 id 后行覆盖前行（内容挂首现位置，同 mergeActiveRows 口径）、
+ * {id, deleted:true} 墓碑删除；JSON 撕裂行跳过（append 崩溃尾行容错，
+ * events 是正本，reconcileIndex 兜底重建）；解析成功但缺字符串 id 的行 = 损坏 → 抛错
+ * （保留「损坏不静默当空」防线）。
+ */
+export function parseWorkUnitIndexContent(content: string, sourcePath = 'index.json'): WorkUnitSnapshot[] {
+  const trimmed = content.trimStart();
+  if (trimmed.length === 0) return [];
+  if (trimmed.startsWith('[')) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(content);
+    } catch (err) {
+      throw new Error(
+        `WorkUnit index corrupted (JSON parse failed): ${sourcePath}` +
+        `${err instanceof Error ? ` — ${err.message}` : ''}`
+      );
+    }
+    if (!Array.isArray(parsed)) {
+      throw new Error(`WorkUnit index corrupted (not an array): ${sourcePath}`);
+    }
+    return parsed as WorkUnitSnapshot[];
+  }
+  const byId = new Map<string, WorkUnitSnapshot>();
+  for (const line of content.split('\n')) {
+    const l = line.trim();
+    if (!l) continue;
+    let row: unknown;
+    try {
+      row = JSON.parse(l);
+    } catch {
+      continue; // 撕裂尾行跳过（append 中途崩溃的正常残留）
+    }
+    if (!row || typeof row !== 'object' || typeof (row as { id?: unknown }).id !== 'string') {
+      throw new Error(`WorkUnit index corrupted (JSONL row missing id): ${sourcePath}`);
+    }
+    const r = row as WorkUnitSnapshot | WorkUnitIndexTombstone;
+    if ((r as WorkUnitIndexTombstone).deleted === true) {
+      byId.delete(r.id);
+    } else {
+      byId.set(r.id, r as WorkUnitSnapshot); // Map 保留首现位置
+    }
+  }
+  return Array.from(byId.values());
+}
+
 /** FileStoreWorkUnitBase 构造选项 */
 export interface FileStoreWorkUnitOptions {
   /** 租约推前的落盘间隔（测试注入 0 = 每跳即落盘的即时持久化契约） */
   leaseFlushIntervalMs?: number;
+  /** #524 P1-2：index.json 压实阈值（测试注入小阈值） */
+  indexCompaction?: IndexCompactionOptions;
 }
 
 /** 缓冲的租约推前项（fencing 令牌 + 待落盘新值） */
@@ -33,11 +112,19 @@ export class FileStoreWorkUnitBase extends FileStoreBase {
   /** 上次落盘时刻；初始化为构造时刻（首个落盘窗口自实例创建起算，语义无害） */
   private lastLeaseFlushAt: number;
   private readonly pendingLeaseRefreshes = new Map<string, PendingLeaseRefresh>();
+  /** #524 P1-2：index 压实阈值与 append 计数（进程内存，重启清零最多延迟一轮评估——同 #319 先例） */
+  private readonly indexCompaction: Required<IndexCompactionOptions>;
+  private indexAppendCount = 0;
 
   constructor(baseDir?: string, opts?: FileStoreWorkUnitOptions) {
     super(baseDir);
     this.leaseFlushIntervalMs = opts?.leaseFlushIntervalMs ?? LEASE_FLUSH_INTERVAL_MS;
     this.lastLeaseFlushAt = Date.now();
+    this.indexCompaction = {
+      checkInterval: opts?.indexCompaction?.checkInterval ?? INDEX_COMPACT_CHECK_INTERVAL,
+      minLines: opts?.indexCompaction?.minLines ?? INDEX_COMPACT_MIN_LINES,
+      deadRatio: opts?.indexCompaction?.deadRatio ?? INDEX_COMPACT_DEAD_RATIO,
+    };
   }
 
   private get lockDir(): string {
@@ -61,9 +148,11 @@ export class FileStoreWorkUnitBase extends FileStoreBase {
   }
 
   /**
-   * 读取 workunits/index.json 原始快照数组。
-   * 文件不存在 → null（调用方按空处理）；存在但 JSON 撕裂/非数组 → 抛出带路径的错误。
-   * 损坏绝不静默当空数组——防止后续基于空数组回写把全部已有快照抹掉。
+   * 读取 workunits/index.json 快照数组（双格式 fold，口径 = parseWorkUnitIndexContent）。
+   * 文件不存在 → null（调用方按空处理）。旧格式（JSON 数组）撕裂/非数组、
+   * JSONL 缺 id 行 → 抛出带路径的错误（损坏绝不静默当空——防止后续基于空数组
+   * 回写把全部已有快照抹掉）；JSONL 撕裂尾行跳过（append 崩溃容错，
+   * events 是正本，reconcileIndex 兜底）。
    * 永远裸读（不走缓存）：锁内路径要求跨进程实时性。锁外只读的 getIndex
    * 经 readIndexForQuery seam 由门面覆盖为读穿缓存（#314 D1）。
    */
@@ -75,19 +164,69 @@ export class FileStoreWorkUnitBase extends FileStoreBase {
       if (isErrnoError(err) && err.code === 'ENOENT') return null;
       throw err;
     }
-    let parsed: unknown;
+    return parseWorkUnitIndexContent(content, this.indexPath);
+  }
+
+  /**
+   * 锁内追加索引行（#524 P1-2）：upsert 快照行 / 删除墓碑行。
+   * 追加前必要时做旧格式一次性迁移；追加后做定期压实评估。
+   * 仅供已持有 this.lockDir 的路径调用（所有公共写路径都在 flock 内）。
+   */
+  private async appendIndexRowsLocked(rows: Array<WorkUnitSnapshot | WorkUnitIndexTombstone>): Promise<void> {
+    await this.migrateLegacyIndexLocked();
+    for (const row of rows) {
+      await this.appendJsonl(this.indexPath, row);
+    }
+    this.indexAppendCount += rows.length;
+    await this.compactIndexIfNeededLocked();
+  }
+
+  /**
+   * 旧格式（JSON 数组）一次性迁移：首个 append 前锁内重写为 JSONL。
+   * 首 4KB peek 判定（O(1)，新格式行首必为 '{'）；旧数组严格解析（撕裂抛错，
+   * 不静默当空）→ writeJsonl 原子重写。
+   */
+  private async migrateLegacyIndexLocked(): Promise<void> {
+    let handle: fs.promises.FileHandle;
     try {
-      parsed = JSON.parse(content);
-    } catch (err) {
-      throw new Error(
-        `WorkUnit index corrupted (JSON parse failed): ${this.indexPath}` +
-        `${err instanceof Error ? ` — ${err.message}` : ''}`
-      );
+      handle = await fs.promises.open(this.indexPath, 'r');
+    } catch (err: unknown) {
+      if (isErrnoError(err) && err.code === 'ENOENT') return;
+      throw err;
     }
-    if (!Array.isArray(parsed)) {
-      throw new Error(`WorkUnit index corrupted (not an array): ${this.indexPath}`);
+    let legacy = false;
+    try {
+      const size = (await handle.stat()).size;
+      if (size > 0) {
+        const buf = Buffer.alloc(Math.min(4096, size));
+        // 本包 @types/node 钉在 20.0.0，与 TS 5.7+ lib 的 ArrayBufferView 泛型不兼容——
+        // 仅做类型层适配（同 jsonl-tail.ts 先例）
+        await handle.read(buf as Uint8Array, 0, buf.length, 0);
+        legacy = buf.toString('utf8').trimStart().startsWith('[');
+      }
+    } finally {
+      await handle.close();
     }
-    return parsed as WorkUnitSnapshot[];
+    if (!legacy) return;
+    const snapshots = parseWorkUnitIndexContent(await fs.promises.readFile(this.indexPath, 'utf-8'), this.indexPath);
+    await this.writeJsonl(this.indexPath, snapshots);
+  }
+
+  /** 定期压实评估（锁内）：行数 ≥ minLines 且死行占比 ≥ deadRatio → 重写为 fold 后 JSONL */
+  private async compactIndexIfNeededLocked(): Promise<void> {
+    if (this.indexAppendCount % this.indexCompaction.checkInterval !== 0) return;
+    let content: string;
+    try {
+      content = await fs.promises.readFile(this.indexPath, 'utf-8');
+    } catch (err: unknown) {
+      if (isErrnoError(err) && err.code === 'ENOENT') return;
+      throw err;
+    }
+    const rawLines = content.split('\n').filter(l => l.trim().length > 0).length;
+    if (rawLines < this.indexCompaction.minLines) return;
+    const folded = parseWorkUnitIndexContent(content, this.indexPath);
+    if ((rawLines - folded.length) / rawLines < this.indexCompaction.deadRatio) return;
+    await this.writeJsonl(this.indexPath, folded);
   }
 
   /**
@@ -151,8 +290,8 @@ export class FileStoreWorkUnitBase extends FileStoreBase {
     const events = await this.readJsonl<WorkUnitEvent>(this.eventsPath);
     const snapshots = Array.from(this.reduceEventsToSnapshots(events).values());
 
-    // 写回 index.json
-    await this.writeJson(this.indexPath, snapshots);
+    // 写回 index.json（#524 P1-2：JSONL 压实写 = 派生物全量重建）
+    await this.writeJsonl(this.indexPath, snapshots);
 
     return applyFilter(snapshots, filter);
   }
@@ -186,13 +325,10 @@ export class FileStoreWorkUnitBase extends FileStoreBase {
       };
       await this.appendJsonl(this.eventsPath, claimEvent);
 
-      // update index snapshot
-      const updated = snapshots.map(s =>
-        s.id === wuId
-          ? { ...s, assigneeId, assigneeRoleId, status: 'active' as const, claimedAt: timestamp, updatedAt: timestamp }
-          : s
-      );
-      await this.writeJson(this.indexPath, updated);
+      // #524 P1-2：index append-only——追加一行更新后快照，不再全量重写
+      await this.appendIndexRowsLocked([
+        { ...wu, assigneeId, assigneeRoleId, status: 'active' as const, claimedAt: timestamp, updatedAt: timestamp },
+      ]);
 
       return true;
     });
@@ -201,8 +337,8 @@ export class FileStoreWorkUnitBase extends FileStoreBase {
   /**
    * Upsert a single WorkUnit snapshot in index.json.
    * 用于 service 层 create/update 后同步更新快照。
-   * read-modify-write 全程持有 workunits flock（与 claimWorkUnit 同一把锁），
-   * 跨进程并发写不会丢更新。
+   * #524 P1-2：append-only——锁内追加一行快照（替代 read-modify-write 全量重写），
+   * 全程持有 workunits flock（与 claimWorkUnit 同一把锁），跨进程并发写不会丢更新。
    */
   async upsertSnapshot(snapshot: WorkUnitSnapshot): Promise<void> {
     return this.withLock(this.lockDir, () => this.upsertSnapshotLocked(snapshot));
@@ -213,15 +349,8 @@ export class FileStoreWorkUnitBase extends FileStoreBase {
    * withLock（mkdir）不可重入，持锁方若调公共 upsertSnapshot 会自死锁。
    */
   private async upsertSnapshotLocked(snapshot: WorkUnitSnapshot): Promise<void> {
-    // index 不存在 → 从空开始；撕裂/损坏 → 抛错，绝不基于空数组回写
-    const snapshots = (await this.readIndexFile()) ?? [];
-    const idx = snapshots.findIndex(s => s.id === snapshot.id);
-    if (idx >= 0) {
-      snapshots[idx] = snapshot;
-    } else {
-      snapshots.push(snapshot);
-    }
-    await this.writeJson(this.indexPath, snapshots);
+    // #524 P1-2：append-only upsert 行；旧格式首个写自动迁移，损坏抛错在迁移/fold 内
+    await this.appendIndexRowsLocked([snapshot]);
   }
 
   /**
@@ -235,11 +364,11 @@ export class FileStoreWorkUnitBase extends FileStoreBase {
 
   /** removeSnapshot 的无锁变体：仅供已持有 this.lockDir 的内部路径调用 */
   private async removeSnapshotLocked(id: string): Promise<void> {
-    // index 不存在 → nothing to remove；撕裂/损坏 → 抛错
+    // index 不存在 → nothing to remove（不创建文件）；撕裂/损坏 → 抛错
     const snapshots = await this.readIndexFile();
     if (!snapshots) return;
-    const filtered = snapshots.filter(s => s.id !== id);
-    await this.writeJson(this.indexPath, filtered);
+    // #524 P1-2：追加墓碑行（fold 时整条移除；rebuildIndex/reconcileIndex 不复活）
+    await this.appendIndexRowsLocked([{ id, deleted: true }]);
   }
 
   // ═══════════════════════
@@ -273,12 +402,12 @@ export class FileStoreWorkUnitBase extends FileStoreBase {
    * #178（#63 决议 1/2）锁内租约心跳：fencing（claimedAt 代际令牌 + assigneeId 双比对）
    * 与 timeoutAt 推前的写入。事件 data 走增量（reduce 合并语义）。
    *
-   * #314（D2）高频小写与全量快照写解耦：
+   * #314（D2）高频小写与快照落盘解耦：
    * - 本方法只做快速路 fencing（读 getIndex——mtime 校验读穿缓存，跨进程新鲜）+
-   *   写内存 dirty 项，不再每跳全量读 2 次 + 全量重写 index + 追加事件；
-   * - 权威 fencing 复核与落盘（每 WU 一条增量事件 + 全量索引一次写）收进
-   *   flushWorkUnitLeases 的同一把 workunits flock——#178「校验在锁内、与写入原子」
-   *   的落点从「每跳」移到「每次落盘」；
+   *   写内存 dirty 项，不再每跳读 index + 追加事件；
+   * - 权威 fencing 复核与落盘（每 WU 一条增量事件 + 一行索引 append，#524 P1-2）
+   *   收进 flushWorkUnitLeases 的同一把 workunits flock——#178「校验在锁内、
+   *   与写入原子」的落点从「每跳」移到「每次落盘」；
    * - 距上次落盘 ≥ leaseFlushIntervalMs（默认 LEASE_FLUSH_INTERVAL_MS 60s）时顺带
    *   落盘（piggyback，到点的心跳负责 flush 全部 dirty 项）。持久化 timeoutAt 滞后
    *   ≤ flush 间隔 ≪ 5min TTL，活跃持有方不会被 timeout-release 误判到期。
@@ -315,7 +444,8 @@ export class FileStoreWorkUnitBase extends FileStoreBase {
    * workunits flock 内：裸读最新索引（readIndexFile，锁内不缓存）→ 逐 dirty 项复核
    * fencing + status==='active'（易主/已删/已完成的丢弃，一字不写——zombie 推前
    * 不覆盖新 holder 租约，完成 WU 的 updatedAt 不复活）→ 每 WU 追加一条增量
-   * updated 事件（事件先于索引写，同 commitSnapshot 崩溃恢复顺序）→ 全量索引一次写。
+   * updated 事件（事件先于索引写，同 commitSnapshot 崩溃恢复顺序）→ 索引逐条
+   * append（#524 P1-2，替代全量重写）。
    * 测试/关停路径可显式调用；无 dirty 项时为 no-op（不取锁、不写盘）。
    */
   async flushWorkUnitLeases(): Promise<{ flushed: number; dropped: number }> {
@@ -329,6 +459,7 @@ export class FileStoreWorkUnitBase extends FileStoreBase {
       let dropped = 0;
       let changed = false;
 
+      const flushedRows: WorkUnitSnapshot[] = [];
       for (const [wuId, pending] of this.pendingLeaseRefreshes) {
         const idx = snapshots.findIndex(s => s.id === wuId);
         const current = idx >= 0 ? snapshots[idx] : undefined;
@@ -345,14 +476,15 @@ export class FileStoreWorkUnitBase extends FileStoreBase {
           data: { timeoutAt: pending.timeoutAt, updatedAt: pending.updatedAt },
         };
         await this.appendJsonl(this.eventsPath, event);
-        snapshots[idx] = { ...current, timeoutAt: pending.timeoutAt, updatedAt: pending.updatedAt };
+        flushedRows.push({ ...current, timeoutAt: pending.timeoutAt, updatedAt: pending.updatedAt });
         this.pendingLeaseRefreshes.delete(wuId);
         flushed++;
         changed = true;
       }
 
       if (changed) {
-        await this.writeJson(this.indexPath, snapshots);
+        // #524 P1-2：逐条 append 推前后快照，不再全量重写 index
+        await this.appendIndexRowsLocked(flushedRows);
       }
       this.lastLeaseFlushAt = Date.now();
       return { flushed, dropped };
@@ -449,7 +581,7 @@ export class FileStoreWorkUnitBase extends FileStoreBase {
 
       const consistent = missingInIndex === 0 && staleInIndex === 0 && diverged === 0;
       if (!consistent) {
-        await this.writeJson(this.indexPath, Array.from(expected.values()));
+        await this.writeJsonl(this.indexPath, Array.from(expected.values()));
       }
       return {
         consistent,

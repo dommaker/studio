@@ -21,7 +21,7 @@ import http from 'node:http';
 import path from 'node:path';
 import os from 'node:os';
 import { performance } from 'node:perf_hooks';
-import { FileStore } from '@dommaker/studio-shared';
+import { FileStore, parseWorkUnitIndexContent } from '@dommaker/studio-shared';
 // 子路径 exports（studio-dir 先例）；与 file-store.ts 的 './read-metrics' 解析到同一文件 → 同一模块实例（sink 生效前提）
 import { setReadMetricsSink, setSegmentMetricsSink, runWithLoopLabel } from '@dommaker/studio-shared/read-metrics';
 import { scanTimedOutWorkUnits } from '../src/modules/workunit/timeout-release.js';
@@ -201,7 +201,8 @@ async function main(): Promise<void> {
     scale: process.env.STUDIO_BENCH_SCALE ?? 'unknown',
     meta: {
       rounds: ROUNDS,
-      templateWorkUnits: JSON.parse(fs.readFileSync(path.join(dataDir, 'workunits', 'index.json'), 'utf-8')).length,
+      // #524 P1-2：index.json 改 append-only JSONL（旧格式兼容），fold 后计条目数
+      templateWorkUnits: parseWorkUnitIndexContent(fs.readFileSync(path.join(dataDir, 'workunits', 'index.json'), 'utf-8')).length,
       eventLines: fs.readFileSync(path.join(HOME, 'logs', 'studio-events.jsonl'), 'utf-8').split('\n').filter(l => l.trim()).length,
       agentDirs: stat(path.join(dataDir, 'agents')),
       triageStubCalls: triageCalls.length,

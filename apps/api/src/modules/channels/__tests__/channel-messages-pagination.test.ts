@@ -78,7 +78,8 @@ afterAll(async () => {
 
 describe('GET /channels/:id/messages 分页 limit（C2）', () => {
   it('limit=3 只返回最新 3 条（升序），hasMore=true，total 为全量', async () => {
-    const res = await fetch(`${baseUrl}/${CH}/messages?limit=3`);
+    // #525 P2-4：total 默认不统计（total 恒 0），要总数显式 includeTotal=true
+    const res = await fetch(`${baseUrl}/${CH}/messages?limit=3&includeTotal=true`);
     const body: MessagesPageResponse = await res.json();
 
     expect(res.status).toBe(200);
@@ -127,7 +128,7 @@ describe('GET /channels/:id/messages 分页 limit（C2）', () => {
   });
 
   it('before=<messageId> + limit 组合：锚点前窗口内取最新 take 条（#319 id 游标）', async () => {
-    const res = await fetch(`${baseUrl}/${CH}/messages?limit=2&before=msg-05`);
+    const res = await fetch(`${baseUrl}/${CH}/messages?limit=2&before=msg-05&includeTotal=true`);
     const body: MessagesPageResponse = await res.json();
 
     expect(body.total).toBe(11); // 候选 8 统一口径：热+冷原始行数（原「锚点过滤后的总数」随分支漂移，退役）

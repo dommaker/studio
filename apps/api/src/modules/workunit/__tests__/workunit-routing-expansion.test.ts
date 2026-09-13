@@ -167,6 +167,40 @@ describe('#466: WorkUnit create() routing.implement expansion', () => {
     expect(msgs[0].content).toContain('未配置');
   });
 
+  it('#525：未配置提示过 1h 冷却闸——同频道连续建两个 feature 父 WU 只出声一次', async () => {
+    await seedChannel('ch-nc-cooldown', { members: [executorProfileId] });
+    const first = await service.create({
+      type: 'feature',
+      scope: 'feature nc cooldown one',
+      channelId: 'ch-nc-cooldown',
+      status: 'unassigned',
+    });
+    const second = await service.create({
+      type: 'feature',
+      scope: 'feature nc cooldown two',
+      channelId: 'ch-nc-cooldown',
+      status: 'unassigned',
+    });
+    expect(await childrenOf(first.id)).toHaveLength(0);
+    expect(await childrenOf(second.id)).toHaveLength(0);
+    const msgs = await fileStore.queryMessages('ch-nc-cooldown', {});
+    expect(msgs.length).toBe(1);
+    expect(msgs[0].content).toContain('未配置');
+  });
+
+  it('#525：未配置冷却按频道隔离——另一频道首次仍出声', async () => {
+    await seedChannel('ch-nc-cooldown-b', { members: [executorProfileId] });
+    await service.create({
+      type: 'feature',
+      scope: 'feature nc cooldown other channel',
+      channelId: 'ch-nc-cooldown-b',
+      status: 'unassigned',
+    });
+    const msgs = await fileStore.queryMessages('ch-nc-cooldown-b', {});
+    expect(msgs.length).toBe(1);
+    expect(msgs[0].content).toContain('未配置');
+  });
+
   it('#464：pending 确认（→unassigned）后无路由 → 频道提示「未配置」', async () => {
     await seedChannel('ch-confirm-noroute', { members: [executorProfileId] });
     const parent = await service.create({

@@ -6,6 +6,8 @@
 
 #521（2026-09-13）新增常驻测量工具：`mainline-align.ts`（频道主链路离线对齐，随六份走查 bench 先例 `npx tsx` 直跑）——只读三家数据源（频道消息热文件 / WU 快照 / studio-events 事件流）对齐出「派单 / 等认领 / 执行总时长（含步级分解）/ 回执落库」四段 p50/p95 分布 + 按 traceId 单链明细；口径与数据结构见 `mainline-align-core.ts` 头注。
 
+#524（2026-09-12）验收复跑：`route-dispatch-merge-window.ts`（走查②尺子）B/E 改测新读口（`readMessagesTail` 倒扫 / `getMessageById` 频道直查）并保留 B0/E0 旧路径对照，新增 `--wuscales`（commitSnapshot 写侧随 WU 数扫档）；`walk5-page-load.ts` 复跑验证分页首页快径。直读 workunits/index.json 的脚本（本目录 mainline-align/loop-read-worker/synthesize-dataset）统一走 `parseWorkUnitIndexContent` 双格式 fold（#524 P1-2 起 index.json 为 append-only JSONL，旧 JSON 数组兼容；synthesize-dataset 产出新格式；其测试一度残留旧 JSON.parse 断言（#524 遗留红），#525 同改 fold 读口修复）。
+
 ### 核心导出
 
 | 导出 | 文件 | 说明 |

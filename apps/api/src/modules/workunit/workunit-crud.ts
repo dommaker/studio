@@ -364,13 +364,15 @@ export class WorkUnitCrudService {
   /**
    * Convert a ChannelMessage to a WorkUnit (emergence path).
    * Links the source message to the new WorkUnit via workUnitId.
+   * #524 P1-1（#514 定案）：options.channelId 由上游路由透传 → 按频道直查，
+   * 消灭最后一个全频道扫描反查；缺省保留扇出兼容（无频道上下文的冷调用）。
    * @throws Error if message not found or already converted
    */
   async createFromMessage(
     messageId: string,
-    options?: { type?: string; metadata?: WorkUnitMetadata },
+    options?: { type?: string; metadata?: WorkUnitMetadata; channelId?: string },
   ): Promise<WorkUnitData> {
-    const found = await this.fileStore.getMessageById(messageId);
+    const found = await this.fileStore.getMessageById(messageId, options?.channelId);
     if (!found) throw new Error(`Message ${messageId} not found`);
     if (found.message.workUnitId) throw new Error(`Message already linked to WorkUnit ${found.message.workUnitId}`);
 
@@ -387,7 +389,7 @@ export class WorkUnitCrudService {
 
     // Link message to WorkUnit —— #333：经 ChannelMessageService 统一更新路径
     // （append 新版保留原 createdAt，自带 eventBus + SSE channel.message_updated 双发）
-    await this.messageService.linkWorkUnit(messageId, wu.id);
+    await this.messageService.linkWorkUnit(messageId, wu.id, found.channelId);
 
     return wu;
   }

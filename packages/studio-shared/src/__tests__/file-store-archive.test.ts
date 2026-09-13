@@ -254,7 +254,7 @@ describe('queryMessagesPage 分页穿透冷热（#327 阶段4）', () => {
   it('无 before：热页不足 limit 从冷补满（新→旧），hasMore 计入全链余量（code-review 修复）', async () => {
     await seedHotCold();
     // 热 3 条（m5,m6,m7）+ 冷最新 2 条（m4,m3）补满 limit=5，升序返回
-    const page = await store.queryMessagesPage(CH, { limit: 5 });
+    const page = await store.queryMessagesPage(CH, { limit: 5, includeTotal: true });
     expect(page.messages.map(m => m.id)).toEqual(['m3', 'm4', 'm5', 'm6', 'm7']);
     expect(page.hasMore).toBe(true); // 冷还剩 m1, m2
     expect(page.total).toBe(7);
@@ -272,7 +272,7 @@ describe('queryMessagesPage 分页穿透冷热（#327 阶段4）', () => {
     await store.archiveChannelMessages();
 
     // 首页：冷新→旧取 4 条（e1..e4），升序返回；不再是 [] + hasMore=true 的死页
-    const p1 = await store.queryMessagesPage(CH, { limit: 4 });
+    const p1 = await store.queryMessagesPage(CH, { limit: 4, includeTotal: true });
     expect(p1.messages.map(m => m.id)).toEqual(['e4', 'e3', 'e2', 'e1']);
     expect(p1.hasMore).toBe(true);
     expect(p1.total).toBe(6);
@@ -307,7 +307,7 @@ describe('queryMessagesPage 分页穿透冷热（#327 阶段4）', () => {
 
   it('锚在冷：total 统一为「热+冷原始行数」（候选 8 口径，原「比锚点旧的数量」退役）', async () => {
     await seedHotCold();
-    const page = await store.queryMessagesPage(CH, { before: 'm3', limit: 10 });
+    const page = await store.queryMessagesPage(CH, { before: 'm3', limit: 10, includeTotal: true });
     expect(page.messages.map(m => m.id)).toEqual(['m1', 'm2']);
     expect(page.total).toBe(7); // 热 3 + 冷原始行 4（三分支同口径；前端不消费 total）
     expect(page.hasMore).toBe(false);
@@ -329,7 +329,7 @@ describe('queryMessagesPage 分页穿透冷热（#327 阶段4）', () => {
     await store.archiveChannelMessages();
 
     // 热 1 条不足 limit → 冷补满：同刻两条同页各出现一次（冷侧在前），total 计 2
-    const p1 = await store.queryMessagesPage(CH, { limit: 10 });
+    const p1 = await store.queryMessagesPage(CH, { limit: 10, includeTotal: true });
     expect(p1.messages.map(m => m.id)).toEqual(['m-cold', 'm-hot']);
     expect(p1.total).toBe(2);
     expect(p1.hasMore).toBe(false);
@@ -347,7 +347,7 @@ describe('queryMessagesPage 分页穿透冷热（#327 阶段4）', () => {
     );
 
     // 热 1 条不足 limit → 冷补满：m-y（冷有效）+ m-x（热版本）；冷侧 m-x 残留被遮蔽
-    const p1 = await store.queryMessagesPage(CH, { limit: 10 });
+    const p1 = await store.queryMessagesPage(CH, { limit: 10, includeTotal: true });
     expect(p1.messages.map(m => m.id)).toEqual(['m-y', 'm-x']);
     expect(p1.messages.find(m => m.id === 'm-x')?.content).toBe('hot version');
     expect(p1.total).toBe(3); // 热 1 + 冷原始行 2（候选 8：m-x 残留行计入 total——虚高方向安全，页面/翻页不受影响）
@@ -363,15 +363,35 @@ describe('queryMessagesPage 分页穿透冷热（#327 阶段4）', () => {
     for (const id of ['p1', 'p2', 'p3', 'p4', 'p5']) {
       await store.appendMessage(CH, { ...makeMessage(id, CH), createdAt: ts });
     }
-    const page = await store.queryMessagesPage(CH, { before: 'p4', limit: 2 });
+    const page = await store.queryMessagesPage(CH, { before: 'p4', limit: 2, includeTotal: true });
     expect(page.messages.map(m => m.id)).toEqual(['p2', 'p3']);
     expect(page.total).toBe(5); // 候选 8 统一口径：热 5 + 冷 0（原锚在热分支返回「比锚点旧的数量」=3 退役）
     expect(page.hasMore).toBe(true);
 
-    const missing = await store.queryMessagesPage(CH, { before: 'p-gone', limit: 2 });
+    const missing = await store.queryMessagesPage(CH, { before: 'p-gone', limit: 2, includeTotal: true });
     expect(missing.messages).toEqual([]);
     expect(missing.total).toBe(5);
     expect(missing.hasMore).toBe(false);
+  });
+
+  it('includeTotal 缺省 false：默认路径不算冷层行数（total===0），messages/hasMore 不受影响；显式开启才含冷行数（#525 P2-4）', async () => {
+    await seedHotCold();
+    // 默认调用（首页快径）：total 恒 0，页内容与 hasMore 口径不变
+    const page = await store.queryMessagesPage(CH, { limit: 5 });
+    expect(page.messages.map(m => m.id)).toEqual(['m3', 'm4', 'm5', 'm6', 'm7']);
+    expect(page.hasMore).toBe(true);
+    expect(page.total).toBe(0);
+    // 默认调用（锚在冷全量路径）：同样跳过
+    const p2 = await store.queryMessagesPage(CH, { before: 'm3', limit: 5 });
+    expect(p2.messages.map(m => m.id)).toEqual(['m1', 'm2']);
+    expect(p2.hasMore).toBe(false);
+    expect(p2.total).toBe(0);
+    // 显式开启：保持原精确口径（热 3 + 冷原始行 4），两分支同值
+    const withTotal = await store.queryMessagesPage(CH, { limit: 5, includeTotal: true });
+    expect(withTotal.messages.map(m => m.id)).toEqual(['m3', 'm4', 'm5', 'm6', 'm7']);
+    expect(withTotal.total).toBe(7);
+    const withTotalCold = await store.queryMessagesPage(CH, { before: 'm3', limit: 5, includeTotal: true });
+    expect(withTotalCold.total).toBe(7);
   });
 });
 

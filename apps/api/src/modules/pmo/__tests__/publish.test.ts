@@ -250,7 +250,8 @@ describe('AC-5: PMO Publish API', () => {
 
     expect(mockUpdateMessageMeta).toHaveBeenCalledWith(
       'msg-1',
-      expect.objectContaining({ pmoId: 'proj-1' })
+      expect.objectContaining({ pmoId: 'proj-1' }),
+      'ch-1',
     );
   });
 

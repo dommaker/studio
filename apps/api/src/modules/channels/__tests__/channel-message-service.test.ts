@@ -284,7 +284,7 @@ describe('ChannelMessageService', () => {
     const handler = (payload: any) => events.push(payload);
     eventBus.subscribe('channel.message_updated', handler);
 
-    const updated = await service.linkWorkUnit(msg.id, 'WU-333');
+    const updated = await service.linkWorkUnit(msg.id, 'WU-333', channelId);
     eventBus.unsubscribe('channel.message_updated', handler);
 
     expect(updated.workUnitId).toBe('WU-333');
@@ -309,7 +309,7 @@ describe('ChannelMessageService', () => {
       const msg = await service.createHumanMessage(channelId, 'SSE link');
       spy.mockClear();
 
-      await service.linkWorkUnit(msg.id, 'WU-333');
+      await service.linkWorkUnit(msg.id, 'WU-333', channelId);
 
       const call = spy.mock.calls.find(([channel]) => channel === 'events');
       expect(call).toBeDefined();
@@ -330,7 +330,7 @@ describe('ChannelMessageService', () => {
       const msg = await service.createHumanMessage(channelId, 'Original');
 
       vi.setSystemTime(new Date('2026-08-24T09:00:00.000Z'));
-      const updated = await service.linkWorkUnit(msg.id, 'WU-333');
+      const updated = await service.linkWorkUnit(msg.id, 'WU-333', channelId);
 
       expect(updated.createdAt.toISOString()).toBe('2026-08-24T08:00:00.000Z');
       const stored = await fileStore.getMessageById(msg.id);

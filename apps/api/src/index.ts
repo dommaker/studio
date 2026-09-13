@@ -394,6 +394,12 @@ async function start() {
       await scanWaitingForInputReminders();
     });
 
+    // ── #523: 人闸催办与认领滞留 handler（workunit-gate-escalation 触发器，5min）──
+    registerExecuteHandler('workunit-gate-escalation-scan', async () => {
+      const { scanGateEscalationReminders } = await import('./modules/workunit/gate-escalation.js');
+      await scanGateEscalationReminders();
+    });
+
     // ── P0: WorkUnit 执行超时释放 handler（workunit-timeout 触发器）──
     registerExecuteHandler('workunit-timeout-scan', async () => {
       const { scanTimedOutWorkUnits } = await import('./modules/workunit/timeout-release.js');

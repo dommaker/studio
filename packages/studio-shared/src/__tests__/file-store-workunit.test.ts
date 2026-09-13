@@ -10,7 +10,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { FileStoreWorkUnitBase } from '../file-store-workunit';
+import { FileStoreWorkUnitBase, parseWorkUnitIndexContent } from '../file-store-workunit';
 import type { WorkUnitEvent, WorkUnitSnapshot } from '../file-store-types';
 
 function createTempDir(): string {
@@ -149,7 +149,7 @@ describe('FileStoreWorkUnitBase（直接单元测试）', () => {
 
       const rebuilt = await store.rebuildIndex();
       expect(rebuilt).toHaveLength(2);
-      const onDisk = JSON.parse(fs.readFileSync(indexPath(), 'utf-8'));
+      const onDisk = parseWorkUnitIndexContent(fs.readFileSync(indexPath(), 'utf-8'));
       expect(onDisk).toEqual(rebuilt);
     });
 
@@ -204,13 +204,13 @@ describe('FileStoreWorkUnitBase（直接单元测试）', () => {
 
       const filtered = await store.rebuildIndex({ status: 'active' });
       expect(filtered.map(s => s.id)).toEqual(['wu1']);
-      const onDisk = JSON.parse(fs.readFileSync(indexPath(), 'utf-8')) as WorkUnitSnapshot[];
+      const onDisk = parseWorkUnitIndexContent(fs.readFileSync(indexPath(), 'utf-8'));
       expect(onDisk).toHaveLength(2); // 过滤只影响返回值，不影响落盘
     });
 
     it('无事件时重建为空索引', async () => {
       expect(await store.rebuildIndex()).toEqual([]);
-      expect(JSON.parse(fs.readFileSync(indexPath(), 'utf-8'))).toEqual([]);
+      expect(parseWorkUnitIndexContent(fs.readFileSync(indexPath(), 'utf-8'))).toEqual([]);
     });
   });
 
@@ -689,7 +689,7 @@ describe('FileStoreWorkUnitBase（直接单元测试）', () => {
     }
 
     function readDiskIndex(): WorkUnitSnapshot[] {
-      return JSON.parse(fs.readFileSync(indexPath(), 'utf-8')) as WorkUnitSnapshot[];
+      return parseWorkUnitIndexContent(fs.readFileSync(indexPath(), 'utf-8'));
     }
 
     function readEvents(): WorkUnitEvent[] {
@@ -814,5 +814,119 @@ describe('FileStoreWorkUnitBase（直接单元测试）', () => {
       expect(disk.timeoutAt).toBe(initialTimeout);
       expect(readEvents().filter(e => e.type === 'updated')).toEqual([]);
     });
+  });
+});
+
+// ═══ #524 P1-2（#517 项 1）：index.json append-only + 定期压实 ═══
+
+describe('index.json append-only（#524 P1-2）', () => {
+  let tmpDir: string;
+  let store: FileStoreWorkUnitBase;
+
+  beforeEach(() => {
+    tmpDir = createTempDir();
+    store = new FileStoreWorkUnitBase(tmpDir);
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  const indexPath = () => path.join(tmpDir, 'workunits', 'index.json');
+  const rawLines = () => fs.readFileSync(indexPath(), 'utf-8').trim().split('\n').filter(l => l.length > 0);
+
+  it('upsertSnapshot 每次只追加一行（不再全量重写），读侧 fold 出最新状态', async () => {
+    await store.upsertSnapshot(makeWuSnapshot('wu1'));
+    await store.upsertSnapshot(makeWuSnapshot('wu2'));
+    await store.upsertSnapshot(makeWuSnapshot('wu1', { status: 'active', assigneeId: 'a1' }));
+    expect(rawLines()).toHaveLength(3); // 3 次 upsert = 3 行
+    const index = await store.getIndex();
+    expect(index.map(s => s.id)).toEqual(['wu1', 'wu2']); // 首现位置序
+    expect(index[0].status).toBe('active'); // 最新内容生效
+  });
+
+  it('removeSnapshot 追加墓碑行，fold 后条目消失', async () => {
+    await store.upsertSnapshot(makeWuSnapshot('wu1'));
+    await store.upsertSnapshot(makeWuSnapshot('wu2'));
+    await store.removeSnapshot('wu1');
+    const lines = rawLines();
+    expect(lines).toHaveLength(3);
+    expect(JSON.parse(lines[2])).toEqual({ id: 'wu1', deleted: true });
+    expect((await store.getIndex()).map(s => s.id)).toEqual(['wu2']);
+  });
+
+  it('墓碑后再 upsert 同 id 可复活（后行覆盖前行）', async () => {
+    await store.upsertSnapshot(makeWuSnapshot('wu1'));
+    await store.removeSnapshot('wu1');
+    await store.upsertSnapshot(makeWuSnapshot('wu1', { scope: 'reborn' }));
+    const index = await store.getIndex();
+    expect(index).toHaveLength(1);
+    expect(index[0].scope).toBe('reborn');
+  });
+
+  it('claimWorkUnit 不再全量重写：index 行数只 +1', async () => {
+    await store.upsertSnapshot(makeWuSnapshot('wu1'));
+    await store.upsertSnapshot(makeWuSnapshot('wu2'));
+    expect(await store.claimWorkUnit('wu1', 'agent1')).toBe(true);
+    expect(rawLines()).toHaveLength(3);
+    const wu = (await store.getIndex()).find(s => s.id === 'wu1')!;
+    expect(wu.status).toBe('active');
+    expect(wu.assigneeId).toBe('agent1');
+  });
+
+  it('旧格式（JSON 数组）可读；首个写操作锁内迁移为 JSONL', async () => {
+    fs.mkdirSync(path.dirname(indexPath()), { recursive: true });
+    fs.writeFileSync(indexPath(), JSON.stringify([makeWuSnapshot('wu1'), makeWuSnapshot('wu2')], null, 2));
+    expect((await store.getIndex())).toHaveLength(2); // 旧格式可读
+
+    await store.upsertSnapshot(makeWuSnapshot('wu3'));
+    const lines = rawLines();
+    expect(lines).toHaveLength(3); // 迁移重写 2 行 + append 1 行
+    for (const l of lines) expect(() => JSON.parse(l)).not.toThrow(); // 每行独立 JSON
+    expect((await store.getIndex()).map(s => s.id)).toEqual(['wu1', 'wu2', 'wu3']);
+  });
+
+  it('崩溃撕裂的 JSONL 尾行被跳过（events 是正本，reconcile 兜底重建）', async () => {
+    await store.upsertSnapshot(makeWuSnapshot('wu1'));
+    fs.appendFileSync(indexPath(), '{"id":"wu2",'); // 撕裂尾行（append 中途崩溃）
+    expect((await store.getIndex()).map(s => s.id)).toEqual(['wu1']);
+  });
+
+  it('JSONL 行可解析但缺 id = 损坏 → 抛错不静默当空', async () => {
+    fs.mkdirSync(path.dirname(indexPath()), { recursive: true });
+    fs.writeFileSync(indexPath(), '{"not":"a snapshot"}\n');
+    await expect(store.getIndex()).rejects.toThrow(indexPath());
+  });
+
+  it('定期压实：死行占比超阈值时重写为 fold 后 JSONL', async () => {
+    const compacting = new FileStoreWorkUnitBase(tmpDir, {
+      indexCompaction: { checkInterval: 2, minLines: 4, deadRatio: 0.3 },
+    });
+    await compacting.upsertSnapshot(makeWuSnapshot('wu1'));
+    await compacting.upsertSnapshot(makeWuSnapshot('wu1', { scope: 'v2' })); // 评估点：2 行 < minLines
+    await compacting.upsertSnapshot(makeWuSnapshot('wu1', { scope: 'v3' }));
+    await compacting.upsertSnapshot(makeWuSnapshot('wu1', { scope: 'v4' })); // 评估点：4 行，死 3/4 ≥ 0.3 → 压实
+    const lines = rawLines();
+    expect(lines).toHaveLength(1);
+    expect(JSON.parse(lines[0]).scope).toBe('v4');
+    expect((await compacting.getIndex())[0].scope).toBe('v4');
+  });
+
+  it('rebuildIndex 产出压实的 JSONL（每行一个快照）', async () => {
+    await store.appendEvent(createdEvent(makeWuSnapshot('wu1')));
+    await store.appendEvent(createdEvent(makeWuSnapshot('wu2')));
+    await store.rebuildIndex();
+    const lines = rawLines();
+    expect(lines).toHaveLength(2);
+    expect(lines.map(l => JSON.parse(l).id)).toEqual(['wu1', 'wu2']);
+  });
+
+  it('parseWorkUnitIndexContent：bench/脚本直读方共用的双格式 fold', async () => {
+    await store.upsertSnapshot(makeWuSnapshot('wu1'));
+    await store.removeSnapshot('wu1');
+    await store.upsertSnapshot(makeWuSnapshot('wu2'));
+    const content = fs.readFileSync(indexPath(), 'utf-8');
+    expect(parseWorkUnitIndexContent(content).map(s => s.id)).toEqual(['wu2']);
+    expect(parseWorkUnitIndexContent('')).toEqual([]);
   });
 });

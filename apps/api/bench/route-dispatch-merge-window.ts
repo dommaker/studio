@@ -6,18 +6,20 @@
  *
  * 测什么（对应 routeMessage 各环节的真实读口）：
  *   A. appendMessage              —— 每条落库消息的写成本（含 per-channel flock）
- *   B. queryMessages(after write) —— 决策12 合并窗口 findMergeTargetWorkUnit 的查询，
- *      稳态 = 缓存失效后全热文件读+parse+clone（上一条消息的 append 已失效 jsonlCache）
+ *   B. readMessagesTail(human,20) —— #524 P1-1 后 findMergeTargetWorkUnit 的查询（尾部倒扫）
+ *   B0. queryMessages(after write)—— 对照：#524 前旧路径（缓存失效后全热文件读+parse+clone）
  *   C. queryMessages(warm hit)    —— 对照：无写入间隙时 mtime 命中路径（stat + structuredClone）
  *   D. tailScan20Human            —— 候选替代：iterateJsonlLinesBackward 倒扫凑满 20 条人类消息即停
- *   E. getMessageById(after write)—— replyTo 线程回复父消息查找 + mention 派单 linkWorkUnit 查找，
- *      扫全部频道热文件（写后 = 被写频道 miss，其余 hit）
- *   F. getMessageById(warm hit)   —— 对照
+ *   E. getMessageById(channelId)  —— #524 P1-1 后 replyTo/linkWorkUnit 的父消息查找（本频道直查）
+ *   E0. getMessageById(fanout)    —— 对照：#524 前全频道扇出
+ *   F. getMessageById(channelId, warm hit) —— 对照
  *   G. getIndex({id})             —— WU 点读（findMergeTargetWorkUnit 第二步 / resumeWaitingWorkUnit）
- *   H. commitSnapshot             —— 建 WU 持久化成本（锁内 appendEvent + 全量索引重写）
+ *   H. commitSnapshot             —— 建 WU 持久化成本（#524 P1-2 后 = 锁内 appendEvent + 索引 append 一行）
  *
  * 数据：1x = 真实 ~/.studio/data 只读复制；10x/50x = 最大频道消息行复制放大
  * （id 重生成防 mergeActiveRows 归并塌缩，行内分布/大小保持真实）。WU 索引各档同为真实 1x（49 条）。
+ * --wuscales：WU 写侧扫档（#524 P1-2 验收：commitSnapshot 耗时不随 WU 数线性增长），
+ * 独立合成 index.json = 49×wuScale 条（新 JSONL 格式），其余最小化。
  */
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
@@ -25,12 +27,16 @@ import path from 'node:path';
 import os from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
-import { FileStore } from '/root/projects/studio/packages/studio-shared/src/file-store.ts';
+import { FileStore, parseWorkUnitIndexContent } from '/root/projects/studio/packages/studio-shared/src/file-store.ts';
 import { iterateJsonlLinesBackward } from '/root/projects/studio/packages/studio-shared/src/jsonl-tail.ts';
 
 const REAL_DATA = path.join(os.homedir(), '.studio', 'data');
 const ROUNDS = Number(process.argv[process.argv.indexOf('--rounds') + 1] || 20);
 const SCALES = (process.argv[process.argv.indexOf('--scales') + 1] || '1,10,50').split(',').map(Number);
+/** WU 写侧扫档（#524 P1-2 验收）：--wuscales 1,100,500 → index 条目 = 49×档；空 = 不跑 */
+const WUSCALES = process.argv.includes('--wuscales')
+  ? (process.argv[process.argv.indexOf('--wuscales') + 1] || '').split(',').filter(Boolean).map(Number)
+  : [];
 /** 只跑指定测量项（逗号分隔 key 字母，如 BENCH_ONLY=B,D）——隔离大克隆 GC 噪声时用 */
 const ONLY = process.env.BENCH_ONLY ? new Set(process.env.BENCH_ONLY.split(',')) : null;
 const enabled = (key: string) => !ONLY || ONLY.has(key[0]);
@@ -168,7 +174,8 @@ async function main(): Promise<void> {
     // getMessageById 目标：取最小频道（非最大频道）的首条消息 id —— 模拟 replyTo 父消息在普通频道
     const smallCid = info.channelIds.find(c => c !== info.largestCid)!;
     const smallFirst = JSON.parse(readLines(path.join(root, 'channels', smallCid, 'messages.jsonl'))[0]) as Row;
-    const wuIndex = JSON.parse(fs.readFileSync(path.join(root, 'workunits', 'index.json'), 'utf-8')) as Row[];
+    // #524 P1-2：index.json 改 append-only JSONL（旧格式兼容），统一走 fold 读口
+    const wuIndex = parseWorkUnitIndexContent(fs.readFileSync(path.join(root, 'workunits', 'index.json'), 'utf-8')) as Row[];
     const wuTemplate = wuIndex[0];
 
     const samples: Samples = {};
@@ -190,8 +197,11 @@ async function main(): Promise<void> {
       // A: 消息写（B/E 的失效前置：ONLY 不含 A 时也要先写一发保持「写后」语义）
       if (enabled('A')) await time(samples, 'A.appendMessage', () => store.appendMessage(info.largestCid, msg as never));
       else if (enabled('B') || enabled('E')) await store.appendMessage(info.largestCid, msg as never);
-      // B: 合并窗口查询（写后 = 稳态缓存失效路径，与生产逐消息一致）
-      if (enabled('B')) await time(samples, 'B.queryMessages.afterWrite', () =>
+      // B: #524 P1-1 后合并窗口查询 = readMessagesTail 倒扫（写后 = 生产逐消息一致）
+      if (enabled('B')) await time(samples, 'B.readMessagesTail.human20', () =>
+        store.readMessagesTail(info.largestCid, { limit: 20, match: m => (m as Row).authorType === 'human' }));
+      // B0: 对照——#524 前旧路径（写后 = 稳态缓存失效全热读）
+      if (enabled('B')) await time(samples, 'B0.queryMessages.afterWrite', () =>
         store.queryMessages(info.largestCid, { authorType: 'human', limit: 20 }));
       // C: 对照暖命中
       if (enabled('C')) await time(samples, 'C.queryMessages.warmHit', () =>
@@ -206,10 +216,12 @@ async function main(): Promise<void> {
         const res = await tailScanFirstHumanWu(bigFile);
         tailScanned2 = res.scanned;
       });
-      // E: getMessageById 写后（被写频道 miss + 其余频道 hit 的并行扇出）
-      if (enabled('E')) await time(samples, 'E.getMessageById.afterWrite', () => store.getMessageById(smallFirst.id));
+      // E: #524 P1-1 后父消息查找 = 本频道直查（写后）
+      if (enabled('E')) await time(samples, 'E.getMessageById.inChannel', () => store.getMessageById(smallFirst.id, smallCid));
+      // E0: 对照——#524 前全频道扇出（被写频道 miss + 其余 hit）
+      if (enabled('E')) await time(samples, 'E0.getMessageById.fanout', () => store.getMessageById(smallFirst.id));
       // F: 对照暖命中
-      if (enabled('F')) await time(samples, 'F.getMessageById.warmHit', () => store.getMessageById(smallFirst.id));
+      if (enabled('F')) await time(samples, 'F.getMessageById.inChannel.warm', () => store.getMessageById(smallFirst.id, smallCid));
       // G: WU 点读
       if (enabled('G')) await time(samples, 'G.getIndex.pointRead', () => store.getIndex({ id: String(wuTemplate.id) }));
       // H: 建 WU 持久化（锁内 appendEvent + 索引全量重写）
@@ -243,6 +255,43 @@ async function main(): Promise<void> {
       console.log(`  ${k.padEnd(28)} min=${v.min}ms median=${v.median}ms p95=${v.p95}ms mean=${v.mean}ms`);
     }
     console.log(`  tailScan rows scanned (last round): D=${tailScanned} D2=${tailScanned2}`);
+  }
+
+  // ── #524 P1-2 验收：commitSnapshot 写侧耗时随 WU 数扫档（不应线性增长）──
+  if (WUSCALES.length > 0) {
+    const srcWu = path.join(REAL_DATA, 'workunits');
+    const template = (parseWorkUnitIndexContent(
+      fs.readFileSync(path.join(srcWu, 'index.json'), 'utf-8')) as Row[])[0];
+    const wuReport: Record<string, unknown> = {};
+    for (const wuScale of WUSCALES) {
+      const root = path.join(benchRoot, `wu-${wuScale}x`);
+      const wuDir = path.join(root, 'workunits');
+      fs.mkdirSync(wuDir, { recursive: true });
+      // 合成 index.json（新 JSONL 格式）：49×wuScale 条，id 唯一
+      const base = parseWorkUnitIndexContent(fs.readFileSync(path.join(srcWu, 'index.json'), 'utf-8')) as Row[];
+      const lines: string[] = [];
+      for (let k = 0; k < wuScale; k++) {
+        for (const wu of base) lines.push(JSON.stringify({ ...wu, id: `${wu.id}__w${k}` }));
+      }
+      fs.writeFileSync(path.join(wuDir, 'index.json'), lines.join('\n') + '\n');
+      if (fs.existsSync(path.join(srcWu, 'events.jsonl'))) {
+        fs.copyFileSync(path.join(srcWu, 'events.jsonl'), path.join(wuDir, 'events.jsonl'));
+      }
+      const store = new FileStore(root);
+      const samples: Samples = {};
+      for (let r = 0; r < ROUNDS; r++) {
+        const wu = { ...template, id: randomUUID(), updatedAt: new Date().toISOString() };
+        await time(samples, 'H.commitSnapshot', () =>
+          store.commitSnapshot(
+            { type: 'created', wuId: String(wu.id), timestamp: new Date().toISOString(), data: wu as Record<string, unknown> },
+            wu as never,
+          ));
+      }
+      const m = Object.fromEntries(Object.entries(stats(samples['H.commitSnapshot'])).map(([k, v]) => [k, Number(v.toFixed(3))]));
+      wuReport[`${wuScale}x`] = { wuIndexEntries: base.length * wuScale, 'H.commitSnapshot': m };
+      console.log(`\n[bench] === wu ${wuScale}x (${base.length * wuScale} WUs) === H.commitSnapshot min=${m.min}ms median=${m.median}ms p95=${m.p95}ms mean=${m.mean}ms`);
+    }
+    report.wuScales = wuReport;
   }
 
   const outPath = path.join(benchRoot, 'route-dispatch-bench-results.json');
