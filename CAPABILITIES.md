@@ -1,6 +1,6 @@
 # CAPABILITIES.md
 
-> 最后更新: 2026-09-11
+> 最后更新: 2026-09-13
 
 ---
 
@@ -249,4 +249,28 @@
 | StaleSleepBadge | apps/web/src/components/workunit/StaleSleepBadge.tsx | #464：「已沉睡」徽标 —— 72h 认领陈旧守卫命中的 WU。 |
 | CommandPalette | apps/web/src/components/CommandPalette.tsx | CommandPalette — Cmd/Ctrl+K 全局搜索面板（批次 D-2 项 8，docs/plans/2026-09-ui-interaction-polish.md）。 |
 | Skeleton | apps/web/src/components/ui/Skeleton.tsx | Skeleton — 批次 E-2 静态骨架占位（docs/plans/2026-09-ui-polish-batch-e.md AC1） |
+| routes | apps/api/src/modules/action-center/routes.ts | 行动中心 API 路由（#468） |
+| routes | apps/api/src/modules/agents/routes.ts | Agent API 路由 |
+| routes | apps/api/src/modules/audit-logs/routes.ts | GET /api/audit-logs - 查询审计日志 |
+| routes | apps/api/src/modules/auth/routes.ts | GET /api/v1/auth/status |
+| routes | apps/api/src/modules/builtin-tools/routes.ts | builtin-tools/routes.ts — Built-in Toolset (HZ-026) |
+| routes | apps/api/src/modules/capabilities/routes.ts | 从 YAML 文件读取 stage 字段 |
+| routes | apps/api/src/modules/companies/routes.ts | Company API 路由 |
+| routes | apps/api/src/modules/dingtalk/routes.ts | 钉钉机器人交互回调 |
+| routes | apps/api/src/modules/discord/routes.ts | Discord Interactions Endpoint |
+| routes | apps/api/src/modules/executions/routes.ts | Execution API 路由 |
+| routes | apps/api/src/modules/harness/routes.ts | FL-029: Harness Monitoring Routes (T-015)（挂载门面） |
+| routes | apps/api/src/modules/knowledge/routes.ts | 知识库 API - 公司数字资产管理（挂载门面） |
+| routes | apps/api/src/modules/lark/routes.ts | 飞书机器人交互回调 |
+| routes | apps/api/src/modules/mcp/routes.ts | MCP HTTP Routes |
+| routes | apps/api/src/modules/notifications/routes.ts | 通知 API 路由 |
+| clawbot-client | apps/api/src/modules/notify-channels/clawbot-client.ts | #525 P2-6：ClawBot（iLink 协议）客户端 —— 扫码绑定 + 文本发送 |
+| config-store | apps/api/src/modules/notify-channels/config-store.ts | #525 P2-6：/settings「通知渠道」配置存储 —— ~/.studio 数据区配置文件读写 |
+| routes | apps/api/src/modules/notify-channels/routes.ts | #525 P2-6：/api/v1/notify-channels —— /settings「通知渠道」配置区读写 API |
+| routes | apps/api/src/modules/outbound-notify/routes.ts | Notify API 路由 |
+| routes | apps/api/src/modules/pmo/routes.ts | 收集请求里的 gitRepo/gitRepos 候选（仅非空字符串；空串视为未传，与既有口径一致） |
+| routes | apps/api/src/modules/review-proposal/routes.ts | review-proposal/routes (#351) — 人审提案卡通用端点（ADR 决策 4） |
+| routes | apps/api/src/modules/skills/routes.ts | SkillHub API — CRUD + 生命周期 + Agent 可发现性 + 使用统计 |
+| routes | apps/api/src/modules/specs/routes.ts | POST /api/v1/specs/:id/analyze-change |
+| NotifyChannelsSection | apps/web/src/components/settings/NotifyChannelsSection.tsx | 通知渠道 section（#525 P2-6）：企业微信群机器人 webhook + ClawBot（个人微信）扫码绑定 + 浏览器通知总开关。 |
 | mockMatchMedia | apps/web/src/test/mockMatchMedia.ts | #395：jsdom 无 window.matchMedia 实现——按给定视口宽度求值 (min|max)-width 媒体查询， |
