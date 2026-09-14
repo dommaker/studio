@@ -14,7 +14,7 @@ import { FileStore } from '@dommaker/studio-shared';
 import { routeMessage } from '../message-routing.js';
 import { channelMessageService } from '../channel-message.service.js';
 import { ConvertToTaskService } from '../convert-to-task.service.js';
-import { validateDefaultWorkspaceId } from '../channel.routes.js';
+import { validateDefaultWorkspaceId } from '../channel.service.js';
 
 // #219：SUT 的 WORKSPACES_DIR 经 studioPath('workspaces') 在 import 期冻结，走 STUDIO_HOME
 // （setup 钉的隔离根）而非 os.homedir()；测试写记录必须落到同一根，且不触碰真实 ~/.studio。
