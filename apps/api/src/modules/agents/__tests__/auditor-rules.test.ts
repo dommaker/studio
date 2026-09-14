@@ -1,6 +1,6 @@
 /**
  * auditor-rules — 审计规则单元测试
- * classifyError / generateSuggestions / analyzeUserModel / analyzeCircuitHealth
+ * classifyError / generateSuggestions / analyzeCircuitHealth
  */
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
@@ -47,9 +47,7 @@ import { FileStore, eventBus } from '@dommaker/studio-shared';
 import {
   classifyError,
   studioEventsJsonl,
-  userModelStateFile,
   generateSuggestions,
-  analyzeUserModel,
   analyzeCircuitHealth,
 } from '../auditor/auditor-rules.js';
 
@@ -200,77 +198,6 @@ describe('generateSuggestions()', () => {
     const po = suggestions.filter(s => s.type === 'prompt_optimization');
     expect(po.length).toBe(1);
     expect(po[0].agentType).toBe('analyst');
-  });
-});
-
-// ── analyzeUserModel ──
-
-describe('analyzeUserModel()', () => {
-  const stateFile = path.join(tmpHome, '.claude', 'user-model-state.json');
-
-  afterEach(() => {
-    try { fs.unlinkSync(stateFile); } catch {}
-  });
-
-  it('returns empty when state file missing', async () => {
-    const result = await analyzeUserModel();
-    expect(result).toEqual([]);
-  });
-
-  // 修复本体：此前两个调用点把路径拼死在 homedir 默认值上，运维设了
-  // HARNESS_UUM_STATE_FILE 就会静默返回 []（harness 写别处、auditor 读默认）。
-  it('状态文件在 env 覆盖路径下时仍能读到（默认路径无文件）', async () => {
-    const override = path.join(tmpHome, 'custom-uum-state.json');
-    fs.writeFileSync(override, JSON.stringify({
-      patterns: { foo: { occurrences: 6, trend: 'rising', sessions: ['s1', 's2'] } },
-      lensWeights: {},
-    }), 'utf-8');
-    process.env.HARNESS_UUM_STATE_FILE = override;
-    try {
-      const result = await analyzeUserModel();
-      expect(result.length).toBeGreaterThan(0);
-    } finally {
-      delete process.env.HARNESS_UUM_STATE_FILE;
-      fs.rmSync(override, { force: true });
-    }
-  });
-
-  it('suggests weight tune for rising/falling patterns and rule promote for heavy lens', async () => {
-    fs.mkdirSync(path.dirname(stateFile), { recursive: true });
-    fs.writeFileSync(stateFile, JSON.stringify({
-      patterns: {
-        foo: { occurrences: 6, trend: 'rising', sessions: ['s1', 's2'] },
-        bar: { occurrences: 4, trend: 'falling' },
-        baz: { occurrences: 1, trend: 'rising' }, // below threshold
-      },
-      lensWeights: { security: 3, style: 1 },
-    }), 'utf-8');
-
-    const result = await analyzeUserModel();
-
-    const rising = result.find(s => s.data?.concept === 'foo');
-    expect(rising).toBeDefined();
-    expect(rising!.type).toBe('model_weight_tune');
-    expect(rising!.risk).toBe('low');
-    expect(rising!.detail).toContain('固化权重');
-
-    const falling = result.find(s => s.data?.concept === 'bar');
-    expect(falling).toBeDefined();
-    expect(falling!.detail).toContain('降权');
-
-    expect(result.find(s => s.data?.concept === 'baz')).toBeUndefined();
-
-    const lens = result.find(s => s.type === 'derived_rule_promote');
-    expect(lens).toBeDefined();
-    expect(lens!.risk).toBe('high');
-    expect(lens!.data?.lens).toBe('security');
-  });
-
-  it('handles malformed state file without throwing', async () => {
-    fs.mkdirSync(path.dirname(stateFile), { recursive: true });
-    fs.writeFileSync(stateFile, '{not valid json', 'utf-8');
-    const result = await analyzeUserModel();
-    expect(Array.isArray(result)).toBe(true);
   });
 });
 
@@ -470,25 +397,5 @@ describe('#523: okr_proposal 建单走 WorkUnitService.create', () => {
     } finally {
       eventBus.unsubscribe('workunit.created', handler);
     }
-  });
-});
-
-// 语义对齐 harness 上游 resolveUserModelPaths（用 `||` 而非 `??`）：
-// 写成 ?? 会让本仓在 env 为空串时读到 ""，而 harness 读默认路径 —— 正是本函数要消灭的
-// 「两边读不同文件」静默分歧。空串用例是防回归锁，勿删勿改。
-describe('userModelStateFile()', () => {
-  const defaultFile = path.join(tmpHome, '.claude', 'user-model-state.json');
-
-  it('env 未设 → harness 默认路径', () => {
-    expect(userModelStateFile({})).toBe(defaultFile);
-  });
-
-  it('env 覆盖 → 取 HARNESS_UUM_STATE_FILE', () => {
-    expect(userModelStateFile({ HARNESS_UUM_STATE_FILE: '/tmp/uum-custom.json' }))
-      .toBe('/tmp/uum-custom.json');
-  });
-
-  it('env 为空串 → 落回默认（对齐上游 || 语义）', () => {
-    expect(userModelStateFile({ HARNESS_UUM_STATE_FILE: '' })).toBe(defaultFile);
   });
 });

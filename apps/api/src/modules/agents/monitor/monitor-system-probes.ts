@@ -40,7 +40,6 @@ const SYSTEM_HEALTH_CONFIRM_WINDOW_MS = 60 * 1000; // 60s between checks (Monito
  */
 export interface KnowledgeCycleState {
   lastDecayRun: number;
-  lastUserModelRun: number;
   lastPromotionRun: number;
 }
 
@@ -203,24 +202,6 @@ export async function checkKnowledgeHealth(state: KnowledgeCycleState): Promise<
           message: `Decay: ${decayChanges.length} entries, Auto-fixed: ${lintReport.fixed} issues`,
           timestamp: Date.now(),
         });
-      }
-    }
-
-    // User model update: once per 24h (alongside decay cycle)
-    // #459（harness ADR-0019）：命令已迁入 studio 自家 CLI，不再经 npx harness。
-    // cwd 继承 API 进程工作目录（prod/dev 均为 apps/api），tsx 直跑 src 免 dist 陈旧。
-    if (Date.now() - state.lastUserModelRun > 24 * 60 * 60_000) {
-      state.lastUserModelRun = Date.now();
-      try {
-        const result = (
-          await execAsync('npx tsx src/cli/studio-cli.ts update-user-model --days 1 --json 2>/dev/null || echo "{}"', { timeout: 30_000 })
-        ).trim();
-        if (result && result !== '{}') {
-          const data = JSON.parse(result);
-          logger.info('[MonitorService] User model updated', { newSessions: (data as any).newSessions, changes: (data as any).changes?.length });
-        }
-      } catch (e: any) {
-        logger.warn('[MonitorService] User model update failed (non-blocking)', { error: String(e) });
       }
     }
   } catch (err) {

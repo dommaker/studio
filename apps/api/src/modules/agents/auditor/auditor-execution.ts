@@ -17,7 +17,7 @@ import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import { logger, FileStore } from '@dommaker/studio-shared';
 import { NotificationService } from '@dommaker/studio-notification';
 import { skillStore } from '../../skills/skill-store.js';
-import { classifyError, userModelStateFile } from './auditor-rules.js';
+import { classifyError } from './auditor-rules.js';
 import type { Suggestion } from './auditor-rules.js';
 
 const SYSTEM_CHANNEL_NAME = '#系统';
@@ -39,20 +39,6 @@ export async function applyLowRiskSuggestions(suggestions: Suggestion[]): Promis
         skillStore.update(s.skillId, { status: 'published' });
         applied.push(`Skill "${s.skillName}" auto-published`);
         logger.info('[AuditorService] Auto-applied skill_status', { skillId: s.skillId, skillName: s.skillName });
-      } else if (s.type === 'model_weight_tune') {
-        // Update user model state: mark concept trend as stable
-        const fs = await import('fs');
-        const stateFile = userModelStateFile();
-        if (fs.existsSync(stateFile)) {
-          const state = JSON.parse(fs.readFileSync(stateFile, 'utf-8'));
-          const concept = s.data?.concept as string;
-          if (state.patterns?.[concept]) {
-            state.patterns[concept].trend = 'stable';
-            fs.writeFileSync(stateFile, JSON.stringify(state, null, 2), 'utf-8');
-            applied.push(`概念 "${concept}" 趋势已固化为 stable`);
-            logger.info('[AuditorService] Auto-applied model_weight_tune', { concept });
-          }
-        }
       } else if (s.type === 'circuit_fix' && s.risk === 'low') {
         // Low-risk circuit fix: just record that we tried
         applied.push(`电路建议已记录: ${s.detail.slice(0, 80)}`);

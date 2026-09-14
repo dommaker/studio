@@ -5,7 +5,7 @@
  * 远期 B4-001：系统级 GC + 模型 tier 成功率矩阵 + 约束效果评估。
  *
  * 结构（T3 拆分：审计规则/执行/报告分离，零行为变更；本文件为门面，保留聚合逻辑）：
- *   - auditor-rules.ts         审计规则（错误归类/技能与 agent-type 建议/用户模型质量/知识电路健康）
+ *   - auditor-rules.ts         审计规则（错误归类/技能与 agent-type 建议/知识电路健康）
  *   - auditor-execution.ts     建议执行（低风险自动应用/确认卡片/Resolution 创建/Triage 升级/eval case）
  *   - auditor-reports.ts       洞察与报告输出（会话行为趋势/7 日趋势/tier 成功率/#系统 推送）
  */
@@ -142,15 +142,12 @@ export class AuditorService {
 
       const content = summary.join('\n');
 
-      // 6. 用户模型质量分析
-      const modelSuggestions = await this.analyzeUserModel();
       // 知识电路健康分析
       const circuitSuggestions = await this.analyzeCircuitHealth();
 
       // 7. 生成审计建议 → 分权限执行
       const suggestions = [
         ...await this.generateSuggestions(agentTypeStats, errorByAgentType),
-        ...modelSuggestions,
         ...circuitSuggestions,
       ];
       const lowRisk = suggestions.filter(s => s.risk === 'low');
@@ -166,10 +163,7 @@ export class AuditorService {
         summary.push('', '### 待人工确认', ...highRisk.map(s => `- ⚠️ ${s.detail}`));
       }
 
-      // 新增: 用户模型 + 电路健康摘要
-      if (modelSuggestions.length > 0) {
-        summary.push('', '### 用户模型质量', ...modelSuggestions.map(s => `- ${s.risk === 'high' ? '⚠️' : '📊'} ${s.detail}`));
-      }
+      // 新增: 电路健康摘要
       if (circuitSuggestions.length > 0) {
         summary.push('', '### 知识电路健康', ...circuitSuggestions.map(s => `- ${s.risk === 'high' ? '🔴' : '🟡'} ${s.detail}`));
       }
@@ -220,10 +214,6 @@ export class AuditorService {
 
   private classifyError(errorMsg: string): string {
     return rules.classifyError(errorMsg);
-  }
-
-  private async analyzeUserModel(): Promise<Suggestion[]> {
-    return rules.analyzeUserModel();
   }
 
   private async analyzeCircuitHealth(): Promise<Suggestion[]> {

@@ -217,7 +217,7 @@ describe('systemTriageCheck confirm window', () => {
 describe('checkKnowledgeHealth', () => {
   it('score < 60 escalates to Triage + emits monitor:alert, and runs daily decay cycle', async () => {
     mockHealthScore.mockReturnValue({ score: 50, details: ['d1'] });
-    const state = { lastDecayRun: 0, lastUserModelRun: 0, lastPromotionRun: 0 };
+    const state = { lastDecayRun: 0, lastPromotionRun: 0 };
 
     await checkKnowledgeHealth(state);
 
@@ -231,15 +231,14 @@ describe('checkKnowledgeHealth', () => {
       source: 'knowledge_health',
       level: 'warning',
     }));
-    // state.lastDecayRun = 0 → 触发 24h 衰减循环 + 用户模型更新
+    // state.lastDecayRun = 0 → 触发 24h 衰减循环
     expect(mockRunDecayCycle).toHaveBeenCalledTimes(1);
     expect(state.lastDecayRun).toBeGreaterThan(0);
-    expect(state.lastUserModelRun).toBeGreaterThan(0);
   });
 
   it('B7: LLM daily maintenance is OFF by default (token burn guard)', async () => {
     delete process.env.STUDIO_KNOWLEDGE_MAINTENANCE;
-    const state = { lastDecayRun: 0, lastUserModelRun: 0, lastPromotionRun: 0 };
+    const state = { lastDecayRun: 0, lastPromotionRun: 0 };
 
     await checkKnowledgeHealth(state);
 
@@ -249,7 +248,7 @@ describe('checkKnowledgeHealth', () => {
 
   it('B7: STUDIO_KNOWLEDGE_MAINTENANCE=on re-enables LLM daily maintenance', async () => {
     vi.stubEnv('STUDIO_KNOWLEDGE_MAINTENANCE', 'on');
-    const state = { lastDecayRun: 0, lastUserModelRun: 0, lastPromotionRun: 0 };
+    const state = { lastDecayRun: 0, lastPromotionRun: 0 };
 
     await checkKnowledgeHealth(state);
 
@@ -259,7 +258,7 @@ describe('checkKnowledgeHealth', () => {
 
   it('score ≥ 60 does not escalate; decay cycle skipped when ran < 24h ago', async () => {
     mockHealthScore.mockReturnValue({ score: 90, details: [] });
-    const state = { lastDecayRun: Date.now(), lastUserModelRun: Date.now(), lastPromotionRun: Date.now() };
+    const state = { lastDecayRun: Date.now(), lastPromotionRun: Date.now() };
 
     await checkKnowledgeHealth(state);
 
@@ -267,44 +266,11 @@ describe('checkKnowledgeHealth', () => {
     expect(mockEmitEvent).not.toHaveBeenCalled();
     expect(mockRunDecayCycle).not.toHaveBeenCalled();
   });
-
-  it('AC #374: 用户模型更新走异步 exec（30s timeout 语义不变），execSync 零调用', async () => {
-    mockExec.mockImplementation((_cmd: string, _opts: unknown, cb: (err: Error | null, stdout: string) => void) => {
-      cb(null, '{"newSessions":3,"changes":[]}');
-    });
-    const state = { lastDecayRun: Date.now(), lastUserModelRun: 0, lastPromotionRun: Date.now() }; // 24h 门控命中
-
-    await checkKnowledgeHealth(state);
-
-    expect(mockExec).toHaveBeenCalledWith(
-      expect.stringContaining('npx tsx src/cli/studio-cli.ts update-user-model'),
-      { timeout: 30_000 },
-      expect.any(Function),
-    );
-    expect(mockExecSync).not.toHaveBeenCalled();
-    expect(mockLogger.info).toHaveBeenCalledWith(
-      '[MonitorService] User model updated',
-      expect.objectContaining({ newSessions: 3 }),
-    );
-  });
-
-  it('AC #374: 用户模型更新失败（超时等）→ warn non-blocking 不抛出', async () => {
-    mockExec.mockImplementation((_cmd: string, _opts: unknown, cb: (err: Error | null, stdout: string) => void) => {
-      cb(new Error('Command failed: npx tsx'), '');
-    });
-    const state = { lastDecayRun: Date.now(), lastUserModelRun: 0 };
-
-    await expect(checkKnowledgeHealth(state)).resolves.toBeUndefined();
-    expect(mockLogger.warn).toHaveBeenCalledWith(
-      '[MonitorService] User model update failed (non-blocking)',
-      expect.anything(),
-    );
-  });
 });
 
 describe('知识晋升节奏 (#408: promotion 从 5min 循环拆到日级门控)', () => {
   it('稳态轮（晋升闸未到期）不做全库扫描，tryPromote 零调用', async () => {
-    const state = { lastDecayRun: Date.now(), lastUserModelRun: Date.now(), lastPromotionRun: Date.now() };
+    const state = { lastDecayRun: Date.now(), lastPromotionRun: Date.now() };
 
     await checkKnowledgeHealth(state);
 
@@ -319,7 +285,7 @@ describe('知识晋升节奏 (#408: promotion 从 5min 循环拆到日级门控)
       { id: 'e-active', maturity: 'active' },
     ] as any[]);
     mockTryPromote.mockReturnValueOnce({ entryId: 'e-draft', from: 'draft', to: 'verified', reason: 'Promotion: draft → verified' });
-    const state = { lastDecayRun: Date.now(), lastUserModelRun: Date.now(), lastPromotionRun: 0 };
+    const state = { lastDecayRun: Date.now(), lastPromotionRun: 0 };
 
     await checkKnowledgeHealth(state);
 
@@ -336,7 +302,7 @@ describe('知识晋升节奏 (#408: promotion 从 5min 循环拆到日级门控)
 
   it('晋升扫描后 24h 内的下一轮不重扫（稳态不再每轮全库归约）', async () => {
     mockStoreList.mockReturnValueOnce([{ id: 'e-draft', maturity: 'draft' }] as any[]);
-    const state = { lastDecayRun: Date.now(), lastUserModelRun: Date.now(), lastPromotionRun: 0 };
+    const state = { lastDecayRun: Date.now(), lastPromotionRun: 0 };
 
     await checkKnowledgeHealth(state);
     expect(mockTryPromote).toHaveBeenCalledTimes(1);

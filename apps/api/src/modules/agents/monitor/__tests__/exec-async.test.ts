@@ -55,9 +55,9 @@ describe('exec-async exec 段计时（#411）', () => {
     expect(events[0].ms).toBeGreaterThanOrEqual(0);
 
     mockExec.mockImplementation((_cmd: string, _opts: unknown, cb: (err: Error | null, out: string) => void) => cb(new Error('x'), ''));
-    await expect(execAsync('npx tsx src/cli/studio-cli.ts update-user-model --days 1 --json 2>/dev/null || echo "{}"')).rejects.toThrow('x');
+    await expect(execAsync('npx tsx src/cli/studio-cli.ts status --json 2>/dev/null')).rejects.toThrow('x');
     expect(events).toHaveLength(2);
-    expect(events[1]).toMatchObject({ kind: 'exec', name: 'npx tsx src/cli/studio-cli.ts update-user-model' });
+    expect(events[1]).toMatchObject({ kind: 'exec', name: 'npx tsx src/cli/studio-cli.ts status' });
   });
 
   it('sink 开启：execFileAsync 上报 exec 段事件（flag 前截断，args 不进段名）', async () => {

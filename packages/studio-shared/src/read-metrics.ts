@@ -51,7 +51,7 @@ export interface SegmentMetricEvent {
   kind: SegmentKind;
   /**
    * 段名。exec = 到首个 flag 前的命令 token（'git worktree prune' /
-   * 'npx harness update-user-model'）；harness = 调用级入口
+   * 'npx tsx src/cli/studio-cli.ts status'）；harness = 调用级入口
    * （'FileKnowledgeStore.readEntriesFromDisk' / 'KnowledgeLifecycle.runDecayCycle'）。
    */
   name: string;
