@@ -264,20 +264,30 @@ export class ChannelMessageService {
   /**
    * AS-025 §5.16: List messages in a discussion space (grouped by workUnitId).
    * Returns messages ordered by createdAt ascending (chronological).
+   * #524 P1-1 同构（#529 收口）：channelId 指定时按频道直查，免全频道扇出
+   * （原实现耗时随频道数 × 各频道热层行数线性变差）。
    */
   async listByWorkUnitId(
     workUnitId: string,
-    options?: { before?: Date; limit?: number },
+    options?: { channelId?: string; before?: Date; limit?: number },
   ): Promise<{ data: MessageRecord[]; total: number }> {
     const limit = options?.limit ?? 50;
     const since = options?.before ? options.before.toISOString() : undefined;
 
-    // 轮询所有频道，按 workUnitId 过滤（消息按频道分组存储）
-    let allMessages: ChannelMessageData[] = [];
-    const allChannels = await this.fileStore.listChannels();
-    for (const ch of allChannels) {
-      const msgs = await this.fileStore.queryMessages(ch.id, { workUnitId });
-      allMessages = allMessages.concat(msgs);
+    let allMessages: ChannelMessageData[];
+    if (options?.channelId) {
+      // #529：归属频道直查。channelId = WU 一等列 wu.channelId（写侧讨论消息
+      // 全部锚定它：POST /:id/messages、wu-messenger、派单 linkWorkUnit）。
+      allMessages = await this.fileStore.queryMessages(options.channelId, { workUnitId });
+    } else {
+      // fallback（根因）：无 channelId 的 WU（legacy/手工单）——写侧 POST /:id/messages
+      // 对这类 WU 落第一个 #研发 频道，讨论消息可能散在任一频道，只能保留扇出。
+      allMessages = [];
+      const allChannels = await this.fileStore.listChannels();
+      for (const ch of allChannels) {
+        const msgs = await this.fileStore.queryMessages(ch.id, { workUnitId });
+        allMessages = allMessages.concat(msgs);
+      }
     }
 
     if (since) {
