@@ -23,10 +23,10 @@ import {
   resolveWeComWebhookUrl,
 } from './config-store.js';
 import { getBotQrcode, getQrcodeStatus, sendText } from './clawbot-client.js';
+import { postWeComMarkdown } from './wecom-client.js';
 import { getErrorMessage } from '../../utils/errors.js';
 
 const WECOM_URL_PREFIX = 'https://qyapi.weixin.qq.com/';
-const WECOM_TEST_TIMEOUT_MS = 5_000;
 
 /** 与 CLI config.ts 同款脱敏（不跨域 import CLI）：length<=8 → '****'，否则 first4...last4 */
 function maskValue(value: string): string {
@@ -82,26 +82,17 @@ router.post('/wecom/test', async (_req: Request, res: Response) => {
   if (!url) {
     return res.status(400).json({ success: false, error: 'WeCom webhook not configured' });
   }
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), WECOM_TEST_TIMEOUT_MS);
   try {
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        msgtype: 'markdown',
-        markdown: { content: '[INFO] **Studio 通知渠道测试**\n企业微信 webhook 配置生效。' },
-      }),
-      signal: controller.signal,
-    });
-    if (!response.ok) {
-      return res.status(502).json({ success: false, error: `WeCom webhook returned HTTP ${response.status}` });
+    const { ok, status } = await postWeComMarkdown(
+      url,
+      '[INFO] **Studio 通知渠道测试**\n企业微信 webhook 配置生效。',
+    );
+    if (!ok) {
+      return res.status(502).json({ success: false, error: `WeCom webhook returned HTTP ${status}` });
     }
     res.json({ success: true });
   } catch (error) {
     res.status(502).json({ success: false, error: getErrorMessage(error) });
-  } finally {
-    clearTimeout(timer);
   }
 });
 

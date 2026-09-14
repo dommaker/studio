@@ -21,6 +21,7 @@ import { NotificationService } from '@dommaker/studio-notification';
 import { ChannelMessageService } from '../modules/channels/channel-message.service.js';
 import { loadNotifyChannelsConfig, resolveWeComWebhookUrl } from '../modules/notify-channels/config-store.js';
 import { sendText } from '../modules/notify-channels/clawbot-client.js';
+import { postWeComMarkdown } from '../modules/notify-channels/wecom-client.js';
 
 export type AlertLevel = 'info' | 'warning' | 'critical';
 
@@ -28,8 +29,6 @@ export interface NotifyAlertOptions {
   /** 关联 WU——通知获得 /workunits/:id 直链（行动中心点击直达，#468/#464） */
   wuId?: string;
 }
-
-const WECOM_TIMEOUT_MS = 5_000;
 
 /** 告警频道候选名（频道创建时统一带 '#' 前缀，兼容历史无前缀数据） */
 const ALERT_CHANNEL_NAMES = new Set(['#系统', '系统', '#system', 'system']);
@@ -102,28 +101,15 @@ async function resolveAlertChannelId(fs: FileStore): Promise<string | null> {
   return hit?.id ?? null;
 }
 
-/** 企业微信群机器人 sink：POST markdown 消息，5s 超时；URL 解析「配置存储优先、env 兜底」（#525 P2-6），未配置则跳过 */
+/** 企业微信群机器人 sink：POST markdown 消息（发送实现见 notify-channels/wecom-client）；
+ *  URL 解析「配置存储优先、env 兜底」（#525 P2-6），未配置则跳过 */
 async function postToWeCom(level: AlertLevel, title: string, body: string): Promise<void> {
   const url = resolveWeComWebhookUrl().url;
   if (!url) return;
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), WECOM_TIMEOUT_MS);
-  try {
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        msgtype: 'markdown',
-        markdown: { content: `${formatLevelTag(level)} **${title}**\n${body}` },
-      }),
-      signal: controller.signal,
-    });
-    if (!response.ok) {
-      logger.warn('[Notifier] WeCom webhook returned non-OK', { status: response.status });
-    }
-  } finally {
-    clearTimeout(timer);
+  const { ok, status } = await postWeComMarkdown(url, `${formatLevelTag(level)} **${title}**\n${body}`);
+  if (!ok) {
+    logger.warn('[Notifier] WeCom webhook returned non-OK', { status });
   }
 }
 

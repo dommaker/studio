@@ -2,7 +2,8 @@
 // 面板分区：待回复/待验收/待确认（stateItems 状态派生，无已读概念、状态变即消）
 // + 通知与告警（事件持久，已读/未读墓碑）。
 // 数据源与已读动作住 stores/notificationStore（读态跨组件共享：频道页进页 markChannelRead）。
-// SSE 只作失效触发：channel.message_sent atHuman / workunit.status_changed → 重拉；
+// SSE 只作失效触发：channel.message_sent atHuman / workunit.status_changed / notification.created（#523）
+// → 重拉（#517 起三类事件共享 500ms trailing 防抖，连发合并为一次）；
 // 断线重连重拉（#415 模式保留）；通知点击跳转优先级 wuId > 频道(?highlight=) > PMO。
 // D-2 交互效率第一轮（docs/plans/2026-09-ui-interaction-polish.md）：
 // ① reply 深链——StateItem.messageId 存在时跳频道带 ?highlight= 直达提问消息（缺失 fail-closed 不拼参数）；

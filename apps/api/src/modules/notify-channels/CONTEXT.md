@@ -8,6 +8,7 @@
 
 - `config-store.ts` — `~/.studio/notify-channels.json` 读写（仿 project-exclude-config：load 失败降级空、写前 mkdir -p）；`resolveWeComWebhookUrl()` 是企微 URL 唯一解析口（配置存储优先、env `WECOM_WEBHOOK_URL` 兜底作部署默认，带 source）
 - `clawbot-client.ts` — iLink 协议三端点：`getBotQrcode` / `getQrcodeStatus` / `sendText`（fetch 可注入，10s 超时，body errcode 透传抛错）
+- `wecom-client.ts` — 企微群机器人 markdown 发送唯一出口 `postWeComMarkdown`（5s 超时；非 2xx 不抛返回 status，网络/超时错误抛出），notifier 告警 sink 与 `/wecom/test` 共用
 - `routes.ts` — `GET /`（状态，URL/密钥掩码展示）/ `PUT /wecom`（空串清除，须 `https://qyapi.weixin.qq.com/` 开头）/ `POST /wecom/test` / `POST /clawbot/bind/start` / `GET /clawbot/bind/status`（confirmed 时凭据持久化）/ `POST /clawbot/unbind` / `POST /clawbot/test`
 
 ### 依赖关系
