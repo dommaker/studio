@@ -6,13 +6,14 @@ import { formatChannelName } from '@dommaker/studio-shared/web';
 import { useChannelMessages } from '../hooks/useChannelEvents';
 import { usePersistentStreamUI } from '../hooks/usePersistentStreamUI';
 import { useStreamFollow } from '../hooks/useStreamFollow';
+import { useMessageLocate } from '../hooks/useMessageLocate';
 import { useMessageNav } from '../hooks/useMessageNav';
 import { useActivityMessageItems } from '../hooks/useActivityMessageItems';
 import { useChannelCardActions } from '../hooks/useChannelCardActions';
 import { useWebSocketContext } from '../api/websocketHooks';
 import { ChannelMessageItem } from '../components/channel/ChannelMessageItem';
 import { ChannelWorkBar } from '../components/channel/ChannelWorkBar';
-import { deriveStreamView, rootAnchorIdOf, streamDateStrOf, streamDateLabelOf, navigableIdsOf, type StreamItem } from '../utils/streamView';
+import { deriveStreamView, streamDateStrOf, streamDateLabelOf, navigableIdsOf, type StreamItem } from '../utils/streamView';
 import { buildMessageToItemIndex } from '../utils/streamVirtual';
 import { ChannelInput } from '../components/channel/ChannelInput';
 import { SuggestionChips, type SuggestionChipItem } from '../components/channel/SuggestionChips';
@@ -40,10 +41,6 @@ import type { Channel, ChannelMessage, ChannelSuggestion, FileRef } from '../api
 import { channelApi } from '../api/channel';
 import { saveLastChannelId } from '../utils/lastChannel';
 import { markPageEntry, emitPageFirstRender, emitReceiptRendered } from '../utils/clientPerf';
-import { toast } from '../utils/toast';
-
-/** #439：?highlight 定位的翻页页数上限（50 条/页 → 最多回看 500 条），超限/翻到底降级为可见反馈 */
-const HIGHLIGHT_LOCATE_MAX_PAGES = 10;
 
 /** Phase 3（AC3）：告警组摘要行的首末消息时间（HH:MM；解析失败回退空串） */
 function hhmmOf(iso: string): string {
@@ -393,125 +390,8 @@ export function ChannelDetailPage() {
   // 无关增量（人类插话等）投影等值 → 引用保持 → memo 化的右栏整栏零重渲
   const activityMessageItems = useActivityMessageItems(messages);
 
-  // 定位到埋在被收起线程里的目标消息前，移除其锚点的收起标记（默认已展开，
-  // 本来就不在 collapsedThreads → 返回原引用，不制造无意义新 Set 触发重渲）
-  const ensureThreadExpanded = useCallback((anchorId: string) => {
-    setCollapsedThreads(prev => {
-      if (!prev.has(anchorId)) return prev;
-      const next = new Set(prev);
-      next.delete(anchorId);
-      return next;
-    });
-  }, [setCollapsedThreads]);
-
-  // #279（决策 #250 D4）：chip 点条目 → 滚动定位到该 WU 当前提问消息并高亮（2s 后消退）。
-  const [highlightId, setHighlightId] = useState<string | null>(null);
-  // 翻页定位循环是异步长任务，经 ref 读最新快照，避免闭包锁旧值（#439 引入，#483 起 chip 定位复用）
-  const locateSnapshotRef = useRef({ messages, hasMore, loadMore });
-  locateSnapshotRef.current = { messages, hasMore, loadMore };
-
-  /** #439 翻页定位循环（#483 起 chip 定位复用）：沿 #319 翻页游标向前翻，直到 found() 命中 /
-   *  翻到底 / 超 HIGHLIGHT_LOCATE_MAX_PAGES / 翻页无新内容；cancelled() 为真则放弃（无终局反馈） */
-  const pageBackToFind = useCallback(async (
-    found: () => boolean,
-    cancelled: () => boolean,
-  ): Promise<'found' | 'cancelled' | 'exhausted'> => {
-    for (let page = 0; page < HIGHLIGHT_LOCATE_MAX_PAGES; page++) {
-      if (cancelled()) return 'cancelled';
-      if (found()) return 'found';
-      if (!locateSnapshotRef.current.hasMore) break; // 翻到底
-      const prepended = await locateSnapshotRef.current.loadMore();
-      if (!prepended) break; // 翻页失败/无新内容，终止防空转
-      // loadMore resolve 时 React 尚未提交新快照——让出一个 macrotask 等 ref 刷新，
-      // 否则下一轮判空读旧快照会多翻一页（目标恰在末页时甚至可能误报不可达）
-      await new Promise(resolve => setTimeout(resolve, 0));
-    }
-    if (cancelled()) return 'cancelled';
-    return found() ? 'found' : 'exhausted';
-  }, []);
-
-  // Phase 2（AC2）归组泛化：目标的 replyToId 不一定是线程根（多层回复拍平后，父可能只是线程
-  // 里的某条回复）；先沿链解析根 anchor 再展开。根解析不出（非回复/链断裂）→ 不动折叠状态。
-  const expandThreadOf = useCallback((target: ChannelMessage) => {
-    if (!target.replyToId) return;
-    const byId = new Map(locateSnapshotRef.current.messages.map(m => [m.id, m]));
-    const rootId = rootAnchorIdOf(target, byId);
-    if (rootId) ensureThreadExpanded(rootId);
-  }, [ensureThreadExpanded]);
-
-  // channel 上下游优化 Phase 1（AC1/AC4，docs/plans/2026-09-channel-upstream-downstream-ux.md）：
-  // 通用消息定位——quote 引用块 / reply 预览条 / ?highlight effect 共用同一链路：
-  // 已加载 → 展开所在收起线程 + 高亮（2s 消退，既有 effect 承担）；未加载 → #439 翻页定位循环，
-  // exhausted → toast 兜底，不静默。防重入按 mid 粒度（同 mid 重复点击不并发翻页）
-  const locatingMidRef = useRef<string | null>(null);
-  const locateMessage = useCallback((mid: string) => {
-    const loaded = locateSnapshotRef.current.messages.find(m => m.id === mid);
-    if (loaded) {
-      expandThreadOf(loaded);
-      setHighlightId(mid);
-      return;
-    }
-    if (locatingMidRef.current === mid) return; // 同 mid 防重入
-    locatingMidRef.current = mid;
-    void (async () => {
-      const result = await pageBackToFind(
-        () => locateSnapshotRef.current.messages.some(m => m.id === mid),
-        () => locatingMidRef.current !== mid,
-      );
-      if (result === 'cancelled') return;
-      locatingMidRef.current = null;
-      const target = locateSnapshotRef.current.messages.find(m => m.id === mid);
-      if (target) {
-        expandThreadOf(target);
-        setHighlightId(mid);
-      } else {
-        toast.warning('该消息太旧或已删除，无法定位');
-      }
-    })();
-  }, [expandThreadOf, pageBackToFind]);
-
-  // 提问消息若埋在被用户收起的线程里，先把所属线程展开；
-  // #483：提问掉出已加载分页 → 复用 #439 翻页定位循环；翻到底/超限/无新内容 → toast 兜底，不静默
-  const chipLocatingRef = useRef<string | null>(null);
-  const locateWaitingQuestion = useCallback((wuId: string) => {
-    const loaded = latestQuestionMessageOf(locateSnapshotRef.current.messages, wuId);
-    if (loaded) {
-      expandThreadOf(loaded);
-      setHighlightId(loaded.id);
-      return;
-    }
-    if (chipLocatingRef.current === wuId) return; // 同 WU 防重入
-    chipLocatingRef.current = wuId;
-    void (async () => {
-      const result = await pageBackToFind(
-        () => latestQuestionMessageOf(locateSnapshotRef.current.messages, wuId) !== null,
-        () => chipLocatingRef.current !== wuId,
-      );
-      if (result === 'cancelled') return;
-      chipLocatingRef.current = null;
-      const target = latestQuestionMessageOf(locateSnapshotRef.current.messages, wuId);
-      if (target) {
-        expandThreadOf(target);
-        setHighlightId(target.id);
-      } else {
-        toast.warning('该消息太旧或已删除，无法定位');
-      }
-    })();
-  }, [expandThreadOf, pageBackToFind]);
-
-  // 通知中心点击直达（?highlight=<mid>）：复用上方 locateMessage 链路，滚动到该消息并高亮 2s。
-  // 每个 mid 只消费一次（防消息流更新反复重置高亮）；首拉未完成（loading）时等下一轮 messages。
-  // #439：目标掉出已加载分页 → locateMessage 内翻页定位（上限 HIGHLIGHT_LOCATE_MAX_PAGES 页）；
-  // 翻到底/超限/翻页无新内容 → toast 可见反馈，不静默（原「已知留白」补齐）。
-  const [searchParams] = useSearchParams();
-  const highlightConsumedRef = useRef<string | null>(null);
-  useEffect(() => {
-    const mid = searchParams.get('highlight');
-    if (!mid || highlightConsumedRef.current === mid) return;
-    if (loading) return; // 首拉未完成，等下一轮（防空列表误判不可达）
-    highlightConsumedRef.current = mid;
-    locateMessage(mid);
-  }, [searchParams, loading, locateMessage]);
+  // #530：定位语义（翻页定位循环 / 展开收起线程 / unpin / 高亮生命周期 / 防重入台账）
+  // 已收编 useMessageLocate——quote / chip / ?highlight 三条调用链见 useStreamFollow 下方接线
 
   // 里程碑判定（不折叠）：人类消息 / 卡片消息 / 等待回复 / 最后一条回复——已迁入 deriveStreamView（#322）
 
@@ -579,6 +459,35 @@ export function ChannelDetailPage() {
     messageToItemIndex,
     scrollMargin: streamHeadH,
   });
+
+  // #530：mid→可见 定位语义单入口（架构评审 2026-09-14 候选 2）——翻页定位循环（#439）/
+  // 根锚解析展开收起线程 / unpin 时机 / 高亮生命周期（滚动 + 2s 消退）/ 防重入台账全内化模块；
+  // 三条调用链退化为下方三处：quote 与 reply 预览直传 locate（见 renderMessageItem / ChannelInput）、
+  // chip 定位经 locateBy、?highlight 直达调 locate
+  const { highlightId, locate: locateMessage, locateBy } = useMessageLocate({
+    messages, hasMore, loadMore,
+    setCollapsedThreads,
+    unpinFromBottom,
+    streamRef, virtualizer, virtualEnabled, messageToItemIndex,
+  });
+
+  // #279（决策 #250 D4）/ #483：chip 点条目 → 定位该 WU 当前提问消息。wu→mid 口径
+  // （latestQuestionMessageOf）是 chip 语义留页面；翻页期间模块按新快照重评估 find
+  const locateWaitingQuestion = useCallback((wuId: string) => {
+    locateBy(`wu:${wuId}`, msgs => latestQuestionMessageOf(msgs, wuId));
+  }, [locateBy]);
+
+  // 通知中心点击直达（?highlight=<mid>）：每个 mid 只消费一次（防消息流更新反复重置高亮）；
+  // 首拉未完成（loading）时等下一轮（防空列表误判不可达）。定位动作本体（含翻页/toast 兜底）在模块内
+  const [searchParams] = useSearchParams();
+  const highlightConsumedRef = useRef<string | null>(null);
+  useEffect(() => {
+    const mid = searchParams.get('highlight');
+    if (!mid || highlightConsumedRef.current === mid) return;
+    if (loading) return;
+    highlightConsumedRef.current = mid;
+    locateMessage(mid);
+  }, [searchParams, loading, locateMessage]);
 
   // Phase 3（AC5）：消息级键盘导航（j/k/r/Esc）——可导航序列 = streamView items 拍平
   // （navigableIdsOf 纯函数：折叠组/日期分隔跳过）；滚动跟随 scrollToIndex 优先、DOM 查询兜底
@@ -661,24 +570,6 @@ export function ChannelDetailPage() {
     const timer = setTimeout(() => setAwaitingAgent(null), 30_000);
     return () => clearTimeout(timer);
   }, [awaitingAgent]);
-
-  useEffect(() => {
-    if (!highlightId) return;
-    // #439 走查修复：定位跳转 = 离开底部的导航意图，先解钉——否则钉底跟随在后续
-    // messages 变化（翻页 prepend/水合归并）时把视口拽回底部，与定位滚动振荡
-    unpinFromBottom();
-    const el = streamRef.current?.querySelector(`[data-message-id="${highlightId}"]`);
-    if (el) {
-      // jsdom 无 scrollIntoView 实现，?. 兜底
-      (el as HTMLElement | null)?.scrollIntoView?.({ block: 'center' });
-    } else if (virtualEnabled) {
-      // #325：目标行未渲染（掉出窗口）→ 先 scrollToIndex 把它带入窗口
-      const idx = messageToItemIndex.get(highlightId);
-      if (idx != null) virtualizer.scrollToIndex(idx, { align: 'center' });
-    }
-    const timer = setTimeout(() => setHighlightId(null), 2000);
-    return () => clearTimeout(timer);
-  }, [highlightId, streamRef, virtualEnabled, messageToItemIndex, virtualizer, unpinFromBottom]);
 
   // 批次 E-3：SSE 新到达消息渐隐高亮（白名单③状态色切换：accent-dim 底色 → 常态，仅 background-color 过渡）。
   // 口径 = 全部新到达消息（含自己发送的回显——消息模型只有 authorType 无 authorId，区分不到个人，
