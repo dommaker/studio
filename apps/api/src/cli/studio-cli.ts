@@ -10,7 +10,6 @@ import { studioRun, studioApprove, studioReject } from './workflow.js';
 import { apiCommand, studioKnowledge, studioEnv, studioMcp, studioHarnessCli } from './data.js';
 import { studioConfig } from './config.js';
 import { studioProject, studioWorkon } from './admin.js';
-import { studioUpdateUserModel, studioAnalyzeSessions } from './mining.js';
 
 async function main() {
   const { configPath, args } = extractConfigFlag(process.argv.slice(2));
@@ -86,14 +85,6 @@ async function main() {
     case 'harness':
       await studioHarnessCli(args.slice(1));
       break;
-    case 'update-user-model':
-    case 'uum':
-      await studioUpdateUserModel(args.slice(1));
-      break;
-    case 'analyze-sessions':
-    case 'analyze':
-      await studioAnalyzeSessions(args.slice(1));
-      break;
     case 'skill':
       await apiCommand('skills', args.slice(1));
       break;
@@ -126,10 +117,6 @@ async function main() {
       console.log('    studio mcp <tools|health>  MCP Server management');
       console.log('    studio skill <list>        Skills list');
       console.log('    studio harness <check>     Harness constraint check');
-      console.log('');
-      console.log('  会话挖掘:');
-      console.log('    studio update-user-model [--days N] [--json] [--dry-run]  更新用户思维模型（别名 uum）');
-      console.log('    studio analyze-sessions [-d N] [--json]                   会话模式挖掘，生成规则候选（别名 analyze）');
       console.log('');
       console.log('  审批:');
       console.log('    studio approve list       List all pending approvals');
