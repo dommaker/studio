@@ -208,4 +208,43 @@ describe('ChannelDetailPage — quote/reply 预览点击定位上游消息（Pha
     });
     expect(mockLoadMore).toHaveBeenCalledTimes(1);
   });
+
+  // Phase 2（AC2）：多层线程 t-root → t-mid → t-leaf。t-root 无 WU——归组泛化后被回复即成 anchor；
+  // 定位深层回复时 replyToId（t-mid）不是线程根，必须先解析根 anchor 再展开，否则线程仍收起、高亮不可见
+  it('Phase 2：定位埋在多层线程里的消息 → 展开根线程 + 高亮目标', async () => {
+    currentMessages = [
+      {
+        id: 't-root', channelId: 'ch-1', authorType: 'agent' as const, agentName: 'pm-agent',
+        content: '线程根：发布计划', workUnitId: null, replyToId: null,
+        meta: '{}', createdAt: iso(0),
+      },
+      {
+        id: 't-mid', channelId: 'ch-1', authorType: 'human' as const,
+        content: '中层回复：同意', workUnitId: null, replyToId: 't-root',
+        meta: '{}', createdAt: iso(1),
+      },
+      {
+        id: 't-leaf', channelId: 'ch-1', authorType: 'agent' as const, agentName: 'pm-agent',
+        content: '深层回复：定在周五', workUnitId: null, replyToId: 't-mid',
+        meta: '{}', createdAt: iso(2),
+      },
+    ];
+    previewTargetId = 't-leaf';
+
+    renderPage();
+    // 线程默认展开：t-root 成 anchor（无 WU），多层回复拍平 → 「▾ 收起回复」在根上
+    await waitFor(() => expect(screen.getByText('深层回复：定在周五')).toBeTruthy());
+    fireEvent.click(screen.getByText('▾ 收起回复'));
+    expect(screen.queryByText('深层回复：定在周五')).toBeNull();
+    expect(screen.getByText('▸ 2 条回复')).toBeTruthy();
+
+    // 定位深层回复 → 根线程重新展开 + 目标高亮
+    fireEvent.click(screen.getByTestId('reply-preview-jump'));
+    await waitFor(() => {
+      const el = document.querySelector('[data-message-id="t-leaf"]');
+      expect(el?.className).toContain('mc-msg-highlight');
+    });
+    expect(screen.getByText('深层回复：定在周五')).toBeTruthy(); // 线程已展开，目标可见
+    expect(mockLoadMore).not.toHaveBeenCalled();
+  });
 });

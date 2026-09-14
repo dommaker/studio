@@ -11,7 +11,7 @@ import { useChannelCardActions } from '../hooks/useChannelCardActions';
 import { useWebSocketContext } from '../api/websocketHooks';
 import { ChannelMessageItem } from '../components/channel/ChannelMessageItem';
 import { ChannelWorkBar } from '../components/channel/ChannelWorkBar';
-import { deriveStreamView, type StreamItem } from '../utils/streamView';
+import { deriveStreamView, rootAnchorIdOf, type StreamItem } from '../utils/streamView';
 import { buildMessageToItemIndex } from '../utils/streamVirtual';
 import { ChannelInput } from '../components/channel/ChannelInput';
 import { SuggestionChips, type SuggestionChipItem } from '../components/channel/SuggestionChips';
@@ -583,6 +583,15 @@ export function ChannelDetailPage() {
     return found() ? 'found' : 'exhausted';
   }, []);
 
+  // Phase 2（AC2）归组泛化：目标的 replyToId 不一定是线程根（多层回复拍平后，父可能只是线程
+  // 里的某条回复）；先沿链解析根 anchor 再展开。根解析不出（非回复/链断裂）→ 不动折叠状态。
+  const expandThreadOf = useCallback((target: ChannelMessage) => {
+    if (!target.replyToId) return;
+    const byId = new Map(locateSnapshotRef.current.messages.map(m => [m.id, m]));
+    const rootId = rootAnchorIdOf(target, byId);
+    if (rootId) ensureThreadExpanded(rootId);
+  }, [ensureThreadExpanded]);
+
   // channel 上下游优化 Phase 1（AC1/AC4，docs/plans/2026-09-channel-upstream-downstream-ux.md）：
   // 通用消息定位——quote 引用块 / reply 预览条 / ?highlight effect 共用同一链路：
   // 已加载 → 展开所在收起线程 + 高亮（2s 消退，既有 effect 承担）；未加载 → #439 翻页定位循环，
@@ -591,7 +600,7 @@ export function ChannelDetailPage() {
   const locateMessage = useCallback((mid: string) => {
     const loaded = locateSnapshotRef.current.messages.find(m => m.id === mid);
     if (loaded) {
-      if (loaded.replyToId) ensureThreadExpanded(loaded.replyToId);
+      expandThreadOf(loaded);
       setHighlightId(mid);
       return;
     }
@@ -606,13 +615,13 @@ export function ChannelDetailPage() {
       locatingMidRef.current = null;
       const target = locateSnapshotRef.current.messages.find(m => m.id === mid);
       if (target) {
-        if (target.replyToId) ensureThreadExpanded(target.replyToId);
+        expandThreadOf(target);
         setHighlightId(mid);
       } else {
         toast.warning('该消息太旧或已删除，无法定位');
       }
     })();
-  }, [ensureThreadExpanded, pageBackToFind]);
+  }, [expandThreadOf, pageBackToFind]);
 
   // 提问消息若埋在被用户收起的线程里，先把所属线程展开；
   // #483：提问掉出已加载分页 → 复用 #439 翻页定位循环；翻到底/超限/无新内容 → toast 兜底，不静默
@@ -620,7 +629,7 @@ export function ChannelDetailPage() {
   const locateWaitingQuestion = useCallback((wuId: string) => {
     const loaded = latestQuestionMessageOf(locateSnapshotRef.current.messages, wuId);
     if (loaded) {
-      if (loaded.replyToId) ensureThreadExpanded(loaded.replyToId);
+      expandThreadOf(loaded);
       setHighlightId(loaded.id);
       return;
     }
@@ -635,13 +644,13 @@ export function ChannelDetailPage() {
       chipLocatingRef.current = null;
       const target = latestQuestionMessageOf(locateSnapshotRef.current.messages, wuId);
       if (target) {
-        if (target.replyToId) ensureThreadExpanded(target.replyToId);
+        expandThreadOf(target);
         setHighlightId(target.id);
       } else {
         toast.warning('该消息太旧或已删除，无法定位');
       }
     })();
-  }, [ensureThreadExpanded, pageBackToFind]);
+  }, [expandThreadOf, pageBackToFind]);
 
   // 通知中心点击直达（?highlight=<mid>）：复用上方 locateMessage 链路，滚动到该消息并高亮 2s。
   // 每个 mid 只消费一次（防消息流更新反复重置高亮）；首拉未完成（loading）时等下一轮 messages。

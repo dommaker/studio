@@ -68,27 +68,63 @@ function isYesterday(d: Date) {
 }
 
 /** AC-C3: Group messages into threads (anchor + replies)
- *  #279（走查 F4）：promoteIds 命中的线程回复提升到主流（agent 追问主流可见，不只在折叠线程里） */
+ *  #279（走查 F4）：promoteIds 命中的线程回复提升到主流（agent 追问主流可见，不只在折叠线程里）
+ *  Phase 2（2026-09 channel 上下游优化 AC2）归组泛化：任意被回复消息可成 anchor（不限 WU），
+ *  多层回复沿 replyToId 链拍平进线程根；链断裂（父消息未加载）落主流兜底 */
 interface ThreadGroup {
   anchor: ChannelMessage;
   replies: ChannelMessage[];
 }
 
+/**
+ * Phase 2（AC2）：沿 replyToId 链向上解析线程根 id（链顶 = replyToId 为 null 的祖先）。
+ * 自身无 replyToId / 链断裂（祖先未加载）/ 成环 → null。
+ * 页面定位链路（展开目标所在线程）与 groupIntoThreads 共用本函数，不复制逻辑。
+ */
+export function rootAnchorIdOf(msg: ChannelMessage, byId: ReadonlyMap<string, ChannelMessage>): string | null {
+  if (!msg.replyToId) return null;
+  const seen = new Set<string>([msg.id]);
+  let cur = msg.replyToId;
+  for (;;) {
+    if (seen.has(cur)) return null; // 成环防御
+    seen.add(cur);
+    const parent = byId.get(cur);
+    if (!parent) return null; // 父消息未加载（链断裂）
+    if (!parent.replyToId) return parent.id; // 链顶即线程根
+    cur = parent.replyToId;
+  }
+}
+
 function groupIntoThreads(messages: ChannelMessage[], promoteIds?: ReadonlySet<string>): Array<ChannelMessage | ThreadGroup> {
+  // 第一遍：id → msg 索引 + hasReplies（所有 replyToId 集合，anchor 判定输入）
+  const byId = new Map<string, ChannelMessage>();
+  const hasReplies = new Set<string>();
+  for (const msg of messages) {
+    byId.set(msg.id, msg);
+    if (msg.replyToId) hasReplies.add(msg.replyToId);
+  }
+
+  // 第二遍：归组。anchor = 无 replyToId 且（关联 WU 或被回复过）；
+  // 回复 = 沿链挂最近线程根（promote 命中的中间节点在主流，链透过它继续向上）
   const anchorMap = new Map<string, ThreadGroup>();
   const result: Array<ChannelMessage | ThreadGroup> = [];
 
   for (const msg of messages) {
-    if (msg.workUnitId && !msg.replyToId) {
-      // This is a thread anchor
+    if (!msg.replyToId && (msg.workUnitId || hasReplies.has(msg.id))) {
       const group: ThreadGroup = { anchor: msg, replies: [] };
       anchorMap.set(msg.id, group);
       result.push(group);
-    } else if (msg.replyToId && anchorMap.has(msg.replyToId) && !promoteIds?.has(msg.id)) {
-      // This is a thread reply
-      anchorMap.get(msg.replyToId)!.replies.push(msg);
+    } else if (msg.replyToId && !promoteIds?.has(msg.id)) {
+      const rootId = rootAnchorIdOf(msg, byId);
+      const group = rootId ? anchorMap.get(rootId) : undefined;
+      if (group) {
+        group.replies.push(msg);
+      } else {
+        // 根未加载/未先出现（时序倒序）→ 落主流当普通消息（兜底）
+        result.push(msg);
+      }
     } else {
-      // Regular message (no thread)
+      // Regular message (no thread)：含 promote 命中的回复
       result.push(msg);
     }
   }

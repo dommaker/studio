@@ -2,7 +2,7 @@
 // 覆盖：可见性（已完成折叠）、归组、过程消息折叠/展开、连续合并、日期分隔。
 // 断言自现有 ChannelDetailPage*.test.tsx 行为反推，迁移后页面测试须保持全绿。
 import { describe, it, expect } from 'vitest';
-import { deriveStreamView, type StreamUiState, type StreamItem, type ThreadReplyView } from '../streamView';
+import { deriveStreamView, rootAnchorIdOf, type StreamUiState, type StreamItem, type ThreadReplyView } from '../streamView';
 import type { ChannelMessage } from '../../api/channel';
 
 const t0 = new Date('2026-08-19T10:00:00.000Z').getTime();
@@ -102,6 +102,110 @@ describe('deriveStreamView — 线程归组', () => {
     ], ui({ promotedQuestionIds: new Set(['q2']) }));
     expect(threadItems(view)[0].replyCount).toBe(0);
     expect(messageItems(view).map(i => i.message.id)).toEqual(['q2']);
+  });
+});
+
+// Phase 2（channel 上下游优化 AC2，docs/plans/2026-09-channel-upstream-downstream-ux.md）：
+// 归组语义变更——anchor 条件从「workUnitId && !replyToId」放宽为「!replyToId && (workUnitId || 被回复过)」；
+// 回复沿 replyToId 链挂最近线程根（多层拍平），链断裂落主流兜底。
+describe('deriveStreamView — 线程归组泛化（Phase 2 AC2）', () => {
+  it('普通消息互回（无 WU）→ 被回复消息成 anchor，回复进线程', () => {
+    const view = deriveStreamView([
+      msg('u1', { createdAt: iso(0) }),
+      msg('u2', { replyToId: 'u1', createdAt: iso(1) }),
+    ], ui());
+    const threads = threadItems(view);
+    expect(threads).toHaveLength(1);
+    expect(threads[0].anchor.id).toBe('u1');
+    expect(threads[0].replyCount).toBe(1);
+    expect(messageItems(view)).toHaveLength(0);
+  });
+
+  it('多层回复（A→B→C）拍平进线程根 A：replyCount=2，B/C 同层按时序排列', () => {
+    const view = deriveStreamView([
+      msg('u1', { createdAt: iso(0) }),
+      msg('u2', { replyToId: 'u1', createdAt: iso(1) }),
+      msg('u3', { replyToId: 'u2', createdAt: iso(2) }),
+    ], ui());
+    const threads = threadItems(view);
+    expect(threads).toHaveLength(1);
+    expect(threads[0].anchor.id).toBe('u1');
+    expect(threads[0].replyCount).toBe(2);
+    expect(threads[0].replies.map(r => (r as { message: ChannelMessage }).message.id)).toEqual(['u2', 'u3']);
+  });
+
+  it('链上中间节点落主流（promote 命中）→ 后续回复透过它仍挂进线程根', () => {
+    const view = deriveStreamView([
+      msg('u1', { createdAt: iso(0) }),
+      msg('q2', { replyToId: 'u1', createdAt: iso(1) }),
+      msg('u3', { replyToId: 'q2', createdAt: iso(2) }),
+    ], ui({ promotedQuestionIds: new Set(['q2']) }));
+    const threads = threadItems(view);
+    expect(threads).toHaveLength(1);
+    expect(threads[0].anchor.id).toBe('u1');
+    expect(threads[0].replyCount).toBe(1); // 仅 u3；q2 提升主流不进线程
+    expect(messageItems(view).map(i => i.message.id)).toEqual(['q2']);
+  });
+
+  it('父消息未加载（链断裂）→ 回复落主流当普通消息（兜底语义不变）', () => {
+    const view = deriveStreamView([
+      msg('orphan', { replyToId: 'ghost', createdAt: iso(0) }),
+      msg('m1', { createdAt: iso(1) }),
+    ], ui());
+    expect(threadItems(view)).toHaveLength(0);
+    expect(messageItems(view).map(i => i.message.id)).toEqual(['orphan', 'm1']);
+  });
+
+  it('无回复的普通消息不成 anchor（仍是主流普通消息）', () => {
+    const view = deriveStreamView([
+      msg('m1', { createdAt: iso(0) }),
+      msg('m2', { createdAt: iso(1) }),
+    ], ui());
+    expect(threadItems(view)).toHaveLength(0);
+    expect(messageItems(view)).toHaveLength(2);
+  });
+});
+
+describe('rootAnchorIdOf（Phase 2：页面定位与 streamView 共用的线程根解析）', () => {
+  const byIdOf = (ms: ChannelMessage[]) => new Map(ms.map(m => [m.id, m]));
+
+  it('多层链返回线程根 id；直接回复返回其父（链顶）', () => {
+    const ms = [
+      msg('a', { createdAt: iso(0) }),
+      msg('b', { replyToId: 'a', createdAt: iso(1) }),
+      msg('c', { replyToId: 'b', createdAt: iso(2) }),
+    ];
+    const byId = byIdOf(ms);
+    expect(rootAnchorIdOf(ms[1], byId)).toBe('a');
+    expect(rootAnchorIdOf(ms[2], byId)).toBe('a');
+  });
+
+  it('自身无 replyToId → null（不在任何线程里）', () => {
+    const ms = [msg('a')];
+    expect(rootAnchorIdOf(ms[0], byIdOf(ms))).toBeNull();
+  });
+
+  it('父消息未加载（链断裂）→ null', () => {
+    const ms = [msg('b', { replyToId: 'ghost' })];
+    expect(rootAnchorIdOf(ms[0], byIdOf(ms))).toBeNull();
+  });
+
+  it('链中间节点未加载 → null', () => {
+    const ms = [
+      msg('a', { createdAt: iso(0) }),
+      msg('c', { replyToId: 'b', createdAt: iso(2) }), // b 未加载
+    ];
+    expect(rootAnchorIdOf(ms[1], byIdOf(ms))).toBeNull();
+  });
+
+  it('replyToId 成环 → null（防御，不死循环）', () => {
+    const ms = [
+      msg('x', { replyToId: 'y' }),
+      msg('y', { replyToId: 'x' }),
+    ];
+    const byId = byIdOf(ms);
+    expect(rootAnchorIdOf(ms[0], byId)).toBeNull();
+    expect(rootAnchorIdOf(ms[1], byId)).toBeNull();
   });
 });
 
