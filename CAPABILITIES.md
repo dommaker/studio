@@ -1,6 +1,6 @@
 # CAPABILITIES.md
 
-> 最后更新: 2026-09-13
+> 最后更新: 2026-09-14
 
 ---
 
@@ -273,4 +273,5 @@
 | routes | apps/api/src/modules/skills/routes.ts | SkillHub API — CRUD + 生命周期 + Agent 可发现性 + 使用统计 |
 | routes | apps/api/src/modules/specs/routes.ts | POST /api/v1/specs/:id/analyze-change |
 | NotifyChannelsSection | apps/web/src/components/settings/NotifyChannelsSection.tsx | 通知渠道 section（#525 P2-6）：企业微信群机器人 webhook + ClawBot（个人微信）扫码绑定 + 浏览器通知总开关。 |
+| wecom-client | apps/api/src/modules/notify-channels/wecom-client.ts | 企业微信群机器人 markdown 发送唯一出口（#525 review 收口）： |
 | mockMatchMedia | apps/web/src/test/mockMatchMedia.ts | #395：jsdom 无 window.matchMedia 实现——按给定视口宽度求值 (min|max)-width 媒体查询， |
