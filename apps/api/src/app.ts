@@ -98,7 +98,8 @@ export async function registerRoutes(): Promise<void> {
       // 信封（工单内容/错误堆栈/prompt 片段）。现经 ?token= 认证（optionalAuth
       // 支持 query token，EventSource 无法设置 Authorization 头）。
       // Public read-only endpoints (Lurk Wall bypass)
-      '/channels',
+      // 2026-09-14：'/channels' 移出——读路由已挂 requireAuth（见 channel.routes.ts），
+      // 前缀放行会让 /channels/* 全部子路径匿名穿透到路由层
       '/health',
       '/pipeline/status',
       '/mcp/tools',        // MCP tool listing + execution (auth via permission service)

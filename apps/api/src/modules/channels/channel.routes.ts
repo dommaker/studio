@@ -26,7 +26,8 @@ const workUnitService = new WorkUnitService(fileStore);
 const projectDiscoveryService = new ProjectDiscoveryService();
 
 // GET /api/v1/channels — list all non-archived channels
-router.get('/', apiCache(CACHE_CONFIG.medium), async (_req, res) => {
+// 2026-09-14：读侧与写侧对称补 requireAuth
+router.get('/', requireAuth(), apiCache(CACHE_CONFIG.medium), async (_req, res) => {
   const channels = await fileStore.listChannels({ excludeArchived: true });
   res.json({ success: true, data: channels });
 });
@@ -109,7 +110,7 @@ router.post('/', requireAuth(), requireNotGuest(), async (req, res) => {
 });
 
 // GET /api/v1/channels/:id — get channel detail
-router.get('/:id', async (req, res) => {
+router.get('/:id', requireAuth(), async (req, res) => {
   const channel = await fileStore.getChannel(req.params.id);
   if (!channel) return res.status(404).json({ success: false, error: 'Channel not found' });
   const messageCount = await fileStore.countMessages(req.params.id);
@@ -118,7 +119,7 @@ router.get('/:id', async (req, res) => {
 
 // GET /api/v1/channels/:id/current-pmo — #272（决策 #251 Q6）：顶栏「当前 PMO」chip
 // 派生概念不落库：最近挂接 REQ 所属 PMO → 杂务 PMO 反推 → null（见 current-pmo.ts）。
-router.get('/:id/current-pmo', async (req, res) => {
+router.get('/:id/current-pmo', requireAuth(), async (req, res) => {
   const channel = await fileStore.getChannel(req.params.id);
   if (!channel) return res.status(404).json({ success: false, error: 'Channel not found' });
   const pmo = await deriveChannelCurrentPmo(req.params.id);
@@ -128,7 +129,7 @@ router.get('/:id/current-pmo', async (req, res) => {
 // GET /api/v1/channels/:id/suggestions — #443（spec #441 情境引导 02）：频道建议派生端点。
 // 不落库、按当前事实现算；fail-closed（前置不满足/拿不准不出）。本票只交付 status
 // 只读状态说明形态（自动评审在途）；action/prompt 形态见 #444/#445/#446（见 suggestions.ts）。
-router.get('/:id/suggestions', async (req, res) => {
+router.get('/:id/suggestions', requireAuth(), async (req, res) => {
   const channel = await fileStore.getChannel(req.params.id);
   if (!channel) return res.status(404).json({ success: false, error: 'Channel not found' });
   const data = await deriveChannelSuggestions(req.params.id, { fileStore });
@@ -137,7 +138,7 @@ router.get('/:id/suggestions', async (req, res) => {
 
 // GET /api/v1/channels/:id/messages — paginated messages
 // #319：before = 锚点消息 id 游标（原 timestamp 游标同毫秒撞车会漏/重）；分页半下沉到存储层（queryMessagesPage 切片）
-router.get('/:id/messages', async (req, res) => {
+router.get('/:id/messages', requireAuth(), async (req, res) => {
   const { before, limit = '50' } = req.query;
   const take = Math.min(Number(limit), 100);
 
@@ -162,7 +163,7 @@ router.get('/:id/messages', async (req, res) => {
 // GET /api/v1/channels/:id/file-vocabulary — #281：@文件引用只读词表
 // 候选集 = 频道相关工程（默认工程 ∪ REQ 挂接 PMO ∪ 杂务 PMO，最近使用优先），
 // 各仓 git ls-files + 内存缓存（见 file-ref-vocabulary.ts）。
-router.get('/:id/file-vocabulary', async (req, res) => {
+router.get('/:id/file-vocabulary', requireAuth(), async (req, res) => {
   const channel = await fileStore.getChannel(req.params.id);
   if (!channel) return res.status(404).json({ success: false, error: 'Channel not found' });
   try {
