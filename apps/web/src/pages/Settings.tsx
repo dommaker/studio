@@ -1,4 +1,4 @@
-// 设置页面 — #434 死配置清理 + #481「默认执行机器」退役后仅剩两个活节，全部组件内即时保存，无保存栏
+// 设置页面 — #434 死配置清理 + #481「默认执行机器」退役后的活节（工程候选 / 通知渠道 #525 / 主题），全部组件内即时保存，无保存栏
 import { ProjectCandidatesSection } from '../components/settings/ProjectCandidatesSection';
 import { NotifyChannelsSection } from '../components/settings/NotifyChannelsSection';
 import { ThemeSettings } from '../components/settings/ThemeSettings';

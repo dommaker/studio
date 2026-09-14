@@ -245,8 +245,11 @@ export class ChannelMessageService {
     return shaped;
   }
 
-  async deleteMessage(messageId: string): Promise<void> {
-    const found = await this.fileStore.getMessageById(messageId);
+  /**
+   * #524 P1-1：channelId 可选——带上按频道直查免全频道扇出；缺省保留扇出兼容（冷路径）。
+   */
+  async deleteMessage(messageId: string, channelId?: string): Promise<void> {
+    const found = await this.fileStore.getMessageById(messageId, channelId);
     if (!found) {
       logger.warn('[ChannelMessageService] Delete failed', { messageId, error: 'Message not found' });
       return;

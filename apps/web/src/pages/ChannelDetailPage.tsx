@@ -6,12 +6,13 @@ import { formatChannelName } from '@dommaker/studio-shared/web';
 import { useChannelMessages } from '../hooks/useChannelEvents';
 import { usePersistentStreamUI } from '../hooks/usePersistentStreamUI';
 import { useStreamFollow } from '../hooks/useStreamFollow';
+import { useMessageNav } from '../hooks/useMessageNav';
 import { useActivityMessageItems } from '../hooks/useActivityMessageItems';
 import { useChannelCardActions } from '../hooks/useChannelCardActions';
 import { useWebSocketContext } from '../api/websocketHooks';
 import { ChannelMessageItem } from '../components/channel/ChannelMessageItem';
 import { ChannelWorkBar } from '../components/channel/ChannelWorkBar';
-import { deriveStreamView, type StreamItem } from '../utils/streamView';
+import { deriveStreamView, rootAnchorIdOf, streamDateStrOf, streamDateLabelOf, navigableIdsOf, type StreamItem } from '../utils/streamView';
 import { buildMessageToItemIndex } from '../utils/streamVirtual';
 import { ChannelInput } from '../components/channel/ChannelInput';
 import { SuggestionChips, type SuggestionChipItem } from '../components/channel/SuggestionChips';
@@ -43,6 +44,15 @@ import { toast } from '../utils/toast';
 
 /** #439：?highlight 定位的翻页页数上限（50 条/页 → 最多回看 500 条），超限/翻到底降级为可见反馈 */
 const HIGHLIGHT_LOCATE_MAX_PAGES = 10;
+
+/** Phase 3（AC3）：告警组摘要行的首末消息时间（HH:MM；解析失败回退空串） */
+function hhmmOf(iso: string): string {
+  try {
+    return new Date(iso).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+  } catch {
+    return '';
+  }
+}
 
 /** #489：建议端点 SSE 触发面共享的 trailing 防抖窗口——一次状态转换常伴随多类事件连发
  *  （status_changed / 里程碑 message_sent / requirement.*），合并为一次请求防风暴；
@@ -133,12 +143,13 @@ export function ChannelDetailPage() {
     }
   }, [id, loading, messages]);
   const [sending, setSending] = useState(false);
-  // 折叠 UI 状态（showCompleted / collapsedThreads / expandedProcGroups）按频道持久化（Step 3），
+  // 折叠 UI 状态（showCompleted / collapsedThreads / expandedProcGroups / expandedAlertGroups）按频道持久化（Step 3），
   // setter 语义同 useState；线程默认全部展开，collapsedThreads 只存手动收起的锚点 id
   const {
     showCompleted, setShowCompleted,
     collapsedThreads, setCollapsedThreads,
     expandedProcGroups, setExpandedProcGroups,
+    expandedAlertGroups, setExpandedAlertGroups,
   } = usePersistentStreamUI(id);
   const [replyTo, setReplyTo] = useState<ChannelMessage | null>(null);
   // #493：线程回复送达后的轻量「已送达/等待 agent」状态（wuId + 送达时刻；agent 响应或超时清除）
@@ -542,6 +553,16 @@ export function ChannelDetailPage() {
     });
   }, [setExpandedProcGroups]);
 
+  // Phase 3（AC3）：主流告警组展开状态（默认折叠，key = alerts-<首条消息 id>，按频道持久化）
+  const toggleAlertGroup = useCallback((key: string) => {
+    setExpandedAlertGroups(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, [setExpandedAlertGroups]);
+
   // #416：右栏消息摘要投影——右栏只消费 card/agent WU 条目集（不再收全量 messages）；
   // 无关增量（人类插话等）投影等值 → 引用保持 → memo 化的右栏整栏零重渲
   const activityMessageItems = useActivityMessageItems(messages);
@@ -583,13 +604,53 @@ export function ChannelDetailPage() {
     return found() ? 'found' : 'exhausted';
   }, []);
 
+  // Phase 2（AC2）归组泛化：目标的 replyToId 不一定是线程根（多层回复拍平后，父可能只是线程
+  // 里的某条回复）；先沿链解析根 anchor 再展开。根解析不出（非回复/链断裂）→ 不动折叠状态。
+  const expandThreadOf = useCallback((target: ChannelMessage) => {
+    if (!target.replyToId) return;
+    const byId = new Map(locateSnapshotRef.current.messages.map(m => [m.id, m]));
+    const rootId = rootAnchorIdOf(target, byId);
+    if (rootId) ensureThreadExpanded(rootId);
+  }, [ensureThreadExpanded]);
+
+  // channel 上下游优化 Phase 1（AC1/AC4，docs/plans/2026-09-channel-upstream-downstream-ux.md）：
+  // 通用消息定位——quote 引用块 / reply 预览条 / ?highlight effect 共用同一链路：
+  // 已加载 → 展开所在收起线程 + 高亮（2s 消退，既有 effect 承担）；未加载 → #439 翻页定位循环，
+  // exhausted → toast 兜底，不静默。防重入按 mid 粒度（同 mid 重复点击不并发翻页）
+  const locatingMidRef = useRef<string | null>(null);
+  const locateMessage = useCallback((mid: string) => {
+    const loaded = locateSnapshotRef.current.messages.find(m => m.id === mid);
+    if (loaded) {
+      expandThreadOf(loaded);
+      setHighlightId(mid);
+      return;
+    }
+    if (locatingMidRef.current === mid) return; // 同 mid 防重入
+    locatingMidRef.current = mid;
+    void (async () => {
+      const result = await pageBackToFind(
+        () => locateSnapshotRef.current.messages.some(m => m.id === mid),
+        () => locatingMidRef.current !== mid,
+      );
+      if (result === 'cancelled') return;
+      locatingMidRef.current = null;
+      const target = locateSnapshotRef.current.messages.find(m => m.id === mid);
+      if (target) {
+        expandThreadOf(target);
+        setHighlightId(mid);
+      } else {
+        toast.warning('该消息太旧或已删除，无法定位');
+      }
+    })();
+  }, [expandThreadOf, pageBackToFind]);
+
   // 提问消息若埋在被用户收起的线程里，先把所属线程展开；
   // #483：提问掉出已加载分页 → 复用 #439 翻页定位循环；翻到底/超限/无新内容 → toast 兜底，不静默
   const chipLocatingRef = useRef<string | null>(null);
   const locateWaitingQuestion = useCallback((wuId: string) => {
     const loaded = latestQuestionMessageOf(locateSnapshotRef.current.messages, wuId);
     if (loaded) {
-      if (loaded.replyToId) ensureThreadExpanded(loaded.replyToId);
+      expandThreadOf(loaded);
       setHighlightId(loaded.id);
       return;
     }
@@ -604,49 +665,27 @@ export function ChannelDetailPage() {
       chipLocatingRef.current = null;
       const target = latestQuestionMessageOf(locateSnapshotRef.current.messages, wuId);
       if (target) {
-        if (target.replyToId) ensureThreadExpanded(target.replyToId);
+        expandThreadOf(target);
         setHighlightId(target.id);
       } else {
         toast.warning('该消息太旧或已删除，无法定位');
       }
     })();
-  }, [ensureThreadExpanded, pageBackToFind]);
+  }, [expandThreadOf, pageBackToFind]);
 
-  // 通知中心点击直达（?highlight=<mid>）：复用上方高亮定位机制，滚动到该消息并高亮 2s。
+  // 通知中心点击直达（?highlight=<mid>）：复用上方 locateMessage 链路，滚动到该消息并高亮 2s。
   // 每个 mid 只消费一次（防消息流更新反复重置高亮）；首拉未完成（loading）时等下一轮 messages。
-  // #439：目标掉出已加载分页时沿 #319 翻页游标向前翻页找目标所在页（上限 HIGHLIGHT_LOCATE_MAX_PAGES
-  // 页）；翻到底/超限/翻页无新内容 → toast 可见反馈，不静默（原「已知留白」补齐）。
+  // #439：目标掉出已加载分页 → locateMessage 内翻页定位（上限 HIGHLIGHT_LOCATE_MAX_PAGES 页）；
+  // 翻到底/超限/翻页无新内容 → toast 可见反馈，不静默（原「已知留白」补齐）。
   const [searchParams] = useSearchParams();
   const highlightConsumedRef = useRef<string | null>(null);
-  /** #439：正在为哪个 mid 跑翻页定位循环（同 mid 防重入；定位成功/终局反馈后清空） */
-  const highlightLocatingRef = useRef<string | null>(null);
   useEffect(() => {
     const mid = searchParams.get('highlight');
     if (!mid || highlightConsumedRef.current === mid) return;
     if (loading) return; // 首拉未完成，等下一轮（防空列表误判不可达）
-    const target = messages.find(m => m.id === mid);
-    if (target) {
-      highlightConsumedRef.current = mid;
-      highlightLocatingRef.current = null;
-      if (target.replyToId) ensureThreadExpanded(target.replyToId);
-      setHighlightId(mid);
-      return;
-    }
-    // 目标不在已加载消息集：启动带页数上限的翻页定位循环（进行中则防重入）。
-    // 定位/高亮动作仍由上方分支在目标载入后执行，本循环只负责翻页与终局反馈。
-    if (highlightLocatingRef.current === mid) return;
-    highlightLocatingRef.current = mid;
-    void (async () => {
-      const result = await pageBackToFind(
-        () => locateSnapshotRef.current.messages.some(m => m.id === mid),
-        () => highlightLocatingRef.current !== mid,
-      );
-      if (result !== 'exhausted') return; // found → 交给上方分支定位；cancelled → 已被消费
-      highlightLocatingRef.current = null;
-      highlightConsumedRef.current = mid;
-      toast.warning('该消息太旧或已删除，无法定位');
-    })();
-  }, [searchParams, messages, loading, ensureThreadExpanded, pageBackToFind]);
+    highlightConsumedRef.current = mid;
+    locateMessage(mid);
+  }, [searchParams, loading, locateMessage]);
 
   // 里程碑判定（不折叠）：人类消息 / 卡片消息 / 等待回复 / 最后一条回复——已迁入 deriveStreamView（#322）
 
@@ -669,9 +708,10 @@ export function ChannelDetailPage() {
     showCompleted,
     collapsedThreads,
     expandedProcGroups,
+    expandedAlertGroups,
     promotedQuestionIds,
     isWaitingForInput,
-  }), [messages, showCompleted, collapsedThreads, expandedProcGroups, promotedQuestionIds, isWaitingForInput]);
+  }), [messages, showCompleted, collapsedThreads, expandedProcGroups, expandedAlertGroups, promotedQuestionIds, isWaitingForInput]);
 
   // #325：mid→item index 映射（prepend 补偿 / 阅读位置恢复 / highlight 定位的桥）
   const messageToItemIndex = useMemo(() => buildMessageToItemIndex(streamView.items), [streamView.items]);
@@ -714,12 +754,44 @@ export function ChannelDetailPage() {
     scrollMargin: streamHeadH,
   });
 
+  // Phase 3（AC5）：消息级键盘导航（j/k/r/Esc）——可导航序列 = streamView items 拍平
+  // （navigableIdsOf 纯函数：折叠组/日期分隔跳过）；滚动跟随 scrollToIndex 优先、DOM 查询兜底
+  const navIds = useMemo(() => navigableIdsOf(streamView.items), [streamView.items]);
+  const scrollToFocusedMessage = useCallback((mid: string) => {
+    unpinFromBottom(); // 键盘导航 = 离开底部的阅读意图（同 highlight 定位，防钉底跟随拽回）
+    const idx = messageToItemIndex.get(mid);
+    if (virtualEnabled && idx != null) virtualizer.scrollToIndex(idx, { align: 'auto' });
+    const el = streamRef.current?.querySelector(`[data-message-id="${mid}"]`);
+    (el as HTMLElement | null)?.scrollIntoView?.({ block: 'nearest' }); // jsdom 无实现，?. 兜底
+  }, [unpinFromBottom, messageToItemIndex, virtualEnabled, virtualizer, streamRef]);
+  const focusComposer = useCallback(() => {
+    // ChannelInput 未暴露 imperative focus——经既有根类查询其 textarea（DOM 查询先例见 highlight effect）
+    setTimeout(() => document.querySelector<HTMLTextAreaElement>('.mc-inputbar textarea')?.focus(), 0);
+  }, []);
+  const handleNavReply = useCallback((mid: string) => {
+    const m = findMessage(mid);
+    if (!m) return; // 焦点 id 掉出已加载集（时序防御）→ 不起回复
+    handleReply(m);
+    focusComposer();
+  }, [findMessage, handleReply, focusComposer]);
+  const { focusedId } = useMessageNav({
+    navIds,
+    onReply: handleNavReply,
+    hasReplyTo: replyTo !== null,
+    onCancelReply: () => setReplyTo(null), // 内联回调：hook 镜像 ref 每渲染同步，引用稳定非必需
+    onFocusScroll: scrollToFocusedMessage,
+  });
+
   // #326：首个可见消息 → 数据层降级/水合同步。仅虚拟化路径（jsdom 全量渲染不降级，
   // 页面测试语义不变）；首个 virtual item 含 overscan 缓冲，作为降级锚点足够
   const firstVirtual = virtualEnabled ? virtualizer.getVirtualItems()[0] : undefined;
   const firstVisibleItem = firstVirtual ? streamView.items[firstVirtual.index] : undefined;
   const firstVisibleMid = firstVisibleItem
-    ? (firstVisibleItem.kind === 'thread' ? firstVisibleItem.anchor.id : firstVisibleItem.message.id)
+    ? (firstVisibleItem.kind === 'thread'
+      ? firstVisibleItem.anchor.id
+      : firstVisibleItem.kind === 'alert-group'
+        ? firstVisibleItem.messages[0]?.id ?? null
+        : firstVisibleItem.message.id)
     : null;
   useEffect(() => {
     if (virtualEnabled && firstVisibleMid) syncPruning(firstVisibleMid);
@@ -830,10 +902,12 @@ export function ChannelDetailPage() {
       fileVocabulary={fileVocabulary}
       wuChangedFiles={msg.workUnitId ? wuChangedFiles[msg.workUnitId] : undefined}
       highlight={highlightId === msg.id}
+      onQuoteClick={locateMessage}
       fresh={freshMsgIds.has(msg.id)}
+      focused={focusedId === msg.id}
       {...extra}
     />
-  ), [handleAction, handleReply, findMessage, id, isWaitingForInput, openWu, openWuConfirm, openWuRuling, openReq, handleInlineReply, fileVocabulary, wuChangedFiles, highlightId, freshMsgIds]);
+  ), [handleAction, handleReply, findMessage, id, isWaitingForInput, openWu, openWuConfirm, openWuRuling, openReq, handleInlineReply, fileVocabulary, wuChangedFiles, highlightId, locateMessage, freshMsgIds, focusedId]);
 
   // #326：骨架占位行——degraded 消息（含 thread anchor）渲染为固定占位行，
   // 保留 data-message-id（锚点捕获/阅读位置仍可按 mid 定位）；水合后原位恢复。
@@ -849,6 +923,52 @@ export function ChannelDetailPage() {
   // #325：单个 stream item 的渲染内容（日期分隔 + 消息/线程组）——外层包裹（key/测量）
   // 由调用方决定：非虚拟化路径 = 普通 div；虚拟化路径 = data-index + measureElement 行
   const renderStreamItem = useCallback((item: StreamItem) => {
+    // Phase 3（AC3）：主流告警组——折叠 = 单行摘要（条数 + severity 计数 + 首末时间范围）；
+    // 展开 = 摘要行（兼收起入口）+ 组内消息逐条渲染（复用 renderMessageItem，memo 契约不变）。
+    // 组内跨天（聚合 pass 在日期分隔之后做）时组内自渲染日期分隔；折叠摘要行按首条日期站位主流分隔。
+    if (item.kind === 'alert-group') {
+      const first = item.messages[0];
+      const last = item.messages[item.messages.length - 1];
+      return (
+        <>
+          {item.showDate && (
+            <div className="mc-date" key={item.dateKey}>{item.dateLabel}</div>
+          )}
+          <div className={`mc-alert-group${item.expanded ? ' mc-alert-group-expanded' : ''}`}>
+            <button
+              type="button"
+              className="mc-alert-group-summary"
+              aria-expanded={item.expanded}
+              onClick={() => toggleAlertGroup(item.key)}
+            >
+              ⚠ {item.messages.length} 条监控告警 · {item.criticalCount} CRITICAL · {item.warningCount} WARNING
+              · {hhmmOf(first.createdAt)}–{hhmmOf(last.createdAt)}
+            </button>
+            {item.expanded && (
+              <div className="mc-alert-group-body">
+                {item.messages.map((m, i) => {
+                  // 组内跨天：相邻消息日期串不同则插组内日期分隔（首条不占——组的分隔在主流）
+                  const innerDate = i > 0 && streamDateStrOf(m) !== streamDateStrOf(item.messages[i - 1])
+                    ? <div className="mc-date mc-alert-group-date" key={`date-${m.id}`}>{streamDateLabelOf(m, streamDateStrOf(m))}</div>
+                    : null;
+                  return (
+                    <div key={m.id}>
+                      {innerDate}
+                      {m.degraded
+                        ? renderSkeletonRow(m.id, null)
+                        : renderMessageItem(m)}
+                    </div>
+                  );
+                })}
+                <button type="button" className="mc-collapse-toggle" onClick={() => toggleAlertGroup(item.key)}>
+                  收起 {item.messages.length} 条监控告警
+                </button>
+              </div>
+            )}
+          </div>
+        </>
+      );
+    }
     if (item.kind === 'thread') {
       if (item.anchor.degraded) {
         return renderSkeletonRow(item.anchor.id, item.showDate && (
@@ -905,7 +1025,7 @@ export function ChannelDetailPage() {
           : renderMessageItem(item.message, { compact: item.compact })}
       </>
     );
-  }, [renderMessageItem, renderSkeletonRow, toggleThread, toggleProcGroup]);
+  }, [renderMessageItem, renderSkeletonRow, toggleThread, toggleProcGroup, toggleAlertGroup]);
 
   if (!id) return <div className="mc-stream-empty" style={{ height: '100%' }}>频道不存在或链接无效</div>;
 
@@ -1019,7 +1139,7 @@ export function ChannelDetailPage() {
               </div>
             ) : (
               streamView.items.map(item => (
-                <div key={item.kind === 'thread' ? item.anchor.id : item.message.id}>
+                <div key={item.kind === 'thread' ? item.anchor.id : item.kind === 'alert-group' ? item.key : item.message.id}>
                   {renderStreamItem(item)}
                 </div>
               ))
@@ -1035,22 +1155,6 @@ export function ChannelDetailPage() {
             </div>
           )}
         </div>
-
-        {/* #443–#447：引导片（唯一来源 = 建议端点派生片；prompt 点击填入输入框，status 只读，
-            action 点击走下方确认弹窗直调确定性接口；会话级 dismiss）
-            #484：片粒度 dismiss——每片独立 ✕，按片 dismissKey 记账，不再一键清全部 */}
-        {visibleChips.length > 0 && (
-          <SuggestionChips
-            suggestions={visibleChips}
-            onPick={(text) => setInputPrefill(p => ({ text, nonce: (p?.nonce ?? 0) + 1 }))}
-            onAction={handleSuggestionAction}
-            onDismiss={(item) => {
-              const key = visibleChips.find(c => c.id === item.id)?.dismissKey;
-              if (!key) return; // fail-closed：找不到台账 key 不记（不静默吞掉别片）
-              setDismissedSuggestionKeys(prev => new Set(prev).add(key));
-            }}
-          />
-        )}
 
         {/* #444：动作片一次确认——文案说清点了会发生什么；失败原因内联进弹窗不静默 */}
         {pendingSuggestionAction && pendingActionDef && (
@@ -1072,14 +1176,34 @@ export function ChannelDetailPage() {
           />
         )}
 
-        {/* #493：线程回复送达即时反馈——「已送达，等待 agent 响应」，
-            该 WU 的 agent 新消息到达或 30s 超时自动消失 */}
-        {awaitingAgent && !agentAnswered && (
-          <div className="mc-agent-ack" role="status">已送达，等待 agent 响应…</div>
-        )}
+        {/* channel 上下游优化 Phase 4（AC6）：底部输入区视觉归组——引导片 / 送达反馈条 / 输入条
+            收进统一容器（承载样式见 .mc-composer-stack），纯结构包裹，交互逻辑与状态流不动 */}
+        <div className="mc-composer-stack">
+          {/* #443–#447：引导片（唯一来源 = 建议端点派生片；prompt 点击填入输入框，status 只读，
+              action 点击走上方确认弹窗直调确定性接口；会话级 dismiss）
+              #484：片粒度 dismiss——每片独立 ✕，按片 dismissKey 记账，不再一键清全部 */}
+          {visibleChips.length > 0 && (
+            <SuggestionChips
+              suggestions={visibleChips}
+              onPick={(text) => setInputPrefill(p => ({ text, nonce: (p?.nonce ?? 0) + 1 }))}
+              onAction={handleSuggestionAction}
+              onDismiss={(item) => {
+                const key = visibleChips.find(c => c.id === item.id)?.dismissKey;
+                if (!key) return; // fail-closed：找不到台账 key 不记（不静默吞掉别片）
+                setDismissedSuggestionKeys(prev => new Set(prev).add(key));
+              }}
+            />
+          )}
 
-        {/* Input */}
-        <ChannelInput onSend={handleSend} sending={sending} replyTo={replyTo} onCancelReply={() => setReplyTo(null)} channelId={id} prefill={inputPrefill} />
+          {/* #493：线程回复送达即时反馈——「已送达，等待 agent 响应」，
+              该 WU 的 agent 新消息到达或 30s 超时自动消失 */}
+          {awaitingAgent && !agentAnswered && (
+            <div className="mc-agent-ack" role="status">已送达，等待 agent 响应…</div>
+          )}
+
+          {/* Input */}
+          <ChannelInput onSend={handleSend} sending={sending} replyTo={replyTo} onCancelReply={() => setReplyTo(null)} channelId={id} prefill={inputPrefill} onReplyPreviewClick={locateMessage} />
+        </div>
       </main>
 
       {/* 右栏：频道动态 REQ 链路卡（#394，spec §4.1–4.3）；REQ/WU 点击仍走下方覆盖抽屉。

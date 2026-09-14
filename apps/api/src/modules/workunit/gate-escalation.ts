@@ -27,23 +27,14 @@ import { MANUAL_GATE_TYPES } from './workunit.types.js';
 import { parseWuMetadata } from './wu-metadata.js';
 import { notifyAlert } from '../../utils/notifier.js';
 
-/** tier1 人闸催办阈值（毫秒）。默认 30 分钟，STUDIO_GATE_REMINDER_MINUTES 覆盖 */
-export function getGateReminderThresholdMs(env: NodeJS.ProcessEnv = process.env): number {
-  const minutes = Number(env.STUDIO_GATE_REMINDER_MINUTES);
-  return (Number.isFinite(minutes) && minutes > 0 ? minutes : 30) * 60_000;
-}
+/** tier1 人闸催办阈值：in_review 超 30 分钟 → Web 铃铛提醒 */
+const GATE_REMINDER_THRESHOLD_MS = 30 * 60_000;
 
-/** tier1 认领滞留阈值（毫秒）。默认 15 分钟，STUDIO_UNASSIGNED_REMINDER_MINUTES 覆盖 */
-export function getUnassignedReminderThresholdMs(env: NodeJS.ProcessEnv = process.env): number {
-  const minutes = Number(env.STUDIO_UNASSIGNED_REMINDER_MINUTES);
-  return (Number.isFinite(minutes) && minutes > 0 ? minutes : 15) * 60_000;
-}
+/** tier1 认领滞留阈值：unassigned 超 15 分钟 → Web 铃铛提醒 */
+const UNASSIGNED_REMINDER_THRESHOLD_MS = 15 * 60_000;
 
-/** tier2 升级阈值（毫秒，两类共用）。默认 4 小时，STUDIO_GATE_ESCALATION_HOURS 覆盖 */
-export function getGateEscalationThresholdMs(env: NodeJS.ProcessEnv = process.env): number {
-  const hours = Number(env.STUDIO_GATE_ESCALATION_HOURS);
-  return (Number.isFinite(hours) && hours > 0 ? hours : 4) * 3_600_000;
-}
+/** tier2 升级阈值（两类共用）：超 4 小时 → notifyAlert 外推 */
+const GATE_ESCALATION_THRESHOLD_MS = 4 * 3_600_000;
 
 export interface GateEscalationScanResult {
   /** 本次 tier1（Web 铃铛 + SSE）发送数 */
@@ -80,9 +71,9 @@ export async function scanGateEscalationReminders(
 ): Promise<GateEscalationScanResult> {
   const fileStore = fs ?? new FileStore();
   const wuService = new WorkUnitService(fileStore);
-  const gateTier1Ms = getGateReminderThresholdMs();
-  const unassignedTier1Ms = getUnassignedReminderThresholdMs();
-  const tier2Ms = getGateEscalationThresholdMs();
+  const gateTier1Ms = GATE_REMINDER_THRESHOLD_MS;
+  const unassignedTier1Ms = UNASSIGNED_REMINDER_THRESHOLD_MS;
+  const tier2Ms = GATE_ESCALATION_THRESHOLD_MS;
   const result: GateEscalationScanResult = { tier1: 0, tier2: 0 };
 
   const [inReview, unassigned] = await Promise.all([

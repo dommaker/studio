@@ -14,6 +14,11 @@ describe('skillsApi', () => {
     expect(api.post).toHaveBeenCalledWith('/skills/skill-1/retract/decide', { decision: 'confirm', messageId: 'msg-1' });
   });
 
+  it('retractDecide 带 channelId → body 附 channelId（#524 P1-1 卡片回写按频道直查）', async () => {
+    await skillsApi.retractDecide('skill-1', 'confirm', 'msg-1', 'ch-1');
+    expect(api.post).toHaveBeenCalledWith('/skills/skill-1/retract/decide', { decision: 'confirm', messageId: 'msg-1', channelId: 'ch-1' });
+  });
+
   it('retractDecide 无 messageId → body 不含 messageId 字段', async () => {
     await skillsApi.retractDecide('skill-1', 'reject');
     expect(api.post).toHaveBeenCalledWith('/skills/skill-1/retract/decide', { decision: 'reject' });

@@ -9,11 +9,12 @@ const key = (ch: string) => `mc-stream-ui:v1:${ch}`;
 describe('usePersistentStreamUI', () => {
   beforeEach(() => window.localStorage.clear());
 
-  it('无存档 → 默认值（showCompleted=false，两集合为空）', () => {
+  it('无存档 → 默认值（showCompleted=false，三集合为空）', () => {
     const { result } = renderHook(() => usePersistentStreamUI('ch-1'));
     expect(result.current.showCompleted).toBe(false);
     expect(result.current.collapsedThreads.size).toBe(0);
     expect(result.current.expandedProcGroups.size).toBe(0);
+    expect(result.current.expandedAlertGroups.size).toBe(0);
   });
 
   it('读写往返：setter 变更落 localStorage；卸载重挂后恢复', () => {
@@ -21,8 +22,9 @@ describe('usePersistentStreamUI', () => {
     act(() => result.current.setShowCompleted(true));
     act(() => result.current.setCollapsedThreads(prev => new Set(prev).add('t1')));
     act(() => result.current.setExpandedProcGroups(prev => new Set(prev).add('proc-x')));
+    act(() => result.current.setExpandedAlertGroups(prev => new Set(prev).add('alerts-a1')));
     expect(JSON.parse(window.localStorage.getItem(key('ch-1'))!)).toEqual({
-      showCompleted: true, collapsedThreads: ['t1'], expandedProcGroups: ['proc-x'],
+      showCompleted: true, collapsedThreads: ['t1'], expandedProcGroups: ['proc-x'], expandedAlertGroups: ['alerts-a1'],
     });
 
     unmount();
@@ -30,6 +32,7 @@ describe('usePersistentStreamUI', () => {
     expect(again.result.current.showCompleted).toBe(true);
     expect([...again.result.current.collapsedThreads]).toEqual(['t1']);
     expect([...again.result.current.expandedProcGroups]).toEqual(['proc-x']);
+    expect([...again.result.current.expandedAlertGroups]).toEqual(['alerts-a1']);
   });
 
   it('setter 支持直值与 updater 两种形态（与 useState 语义对齐）', () => {
@@ -46,6 +49,7 @@ describe('usePersistentStreamUI', () => {
     expect(result.current.showCompleted).toBe(false);
     expect(result.current.collapsedThreads.size).toBe(0);
     expect(result.current.expandedProcGroups.size).toBe(0);
+    expect(result.current.expandedAlertGroups.size).toBe(0);
   });
 
   it('缺字段按字段回退默认值（部分存档仍生效）；数组内非字符串条目丢弃', () => {
@@ -54,6 +58,15 @@ describe('usePersistentStreamUI', () => {
     expect(result.current.showCompleted).toBe(false);
     expect([...result.current.collapsedThreads]).toEqual(['t9']);
     expect(result.current.expandedProcGroups.size).toBe(0);
+  });
+
+  it('#channel-ux P3 向后兼容：旧存档无 expandedAlertGroups 字段 → 默认空集，不炸解析', () => {
+    window.localStorage.setItem(key('ch-1'),
+      JSON.stringify({ showCompleted: true, collapsedThreads: [], expandedProcGroups: ['proc-1'] }));
+    const { result } = renderHook(() => usePersistentStreamUI('ch-1'));
+    expect(result.current.showCompleted).toBe(true);
+    expect([...result.current.expandedProcGroups]).toEqual(['proc-1']);
+    expect(result.current.expandedAlertGroups.size).toBe(0);
   });
 
   it('按频道隔离：ch-1 的存档不影响 ch-2', () => {
@@ -81,7 +94,7 @@ describe('usePersistentStreamUI', () => {
     expect(JSON.parse(window.localStorage.getItem(key('ch-2'))!).showCompleted).toBe(false);
     // ch-1 的 key 只有挂载时的默认值直写，未被 ch-2 的状态污染
     expect(JSON.parse(window.localStorage.getItem(key('ch-1'))!)).toEqual({
-      showCompleted: false, collapsedThreads: [], expandedProcGroups: [],
+      showCompleted: false, collapsedThreads: [], expandedProcGroups: [], expandedAlertGroups: [],
     });
   });
 });

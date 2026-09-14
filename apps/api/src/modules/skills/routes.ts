@@ -245,10 +245,11 @@ router.post('/:id/deprecate', requireAuth(), requireNotGuest(), async (req: Requ
  * retract（skill-proposal-routes）已把 skill 置 under_review 并推卡，本端点补下半截：
  * confirm → deprecated、reject → 恢复 published；body.messageId 提供时同步回写卡片 meta.status
  * （经 updateMessageMeta → SSE channel.message_updated，非阻断——卡片找不到不拖垮状态迁移）。
+ * #524 P1-1：body.channelId 可选透传 → 回写按频道直查免全频道扇出（缺省保留扇出兼容）。
  */
 router.post('/:id/retract/decide', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
-    const { decision, messageId } = req.body ?? {};
+    const { decision, messageId, channelId } = req.body ?? {};
     if (decision !== 'confirm' && decision !== 'reject') {
       return res.status(400).json({ error: "decision must be 'confirm' or 'reject'" });
     }
@@ -263,7 +264,11 @@ router.post('/:id/retract/decide', requireAuth(), requireNotGuest(), async (req:
 
     if (typeof messageId === 'string' && messageId) {
       try {
-        await channelMessageService.updateMessageMeta(messageId, { status: nextStatus });
+        await channelMessageService.updateMessageMeta(
+          messageId,
+          { status: nextStatus },
+          typeof channelId === 'string' && channelId ? channelId : undefined,
+        );
       } catch (e: unknown) {
         logger.warn({ messageId, error: String(e) }, '[Skill] retract decide 卡片回写失败（非阻断）');
       }

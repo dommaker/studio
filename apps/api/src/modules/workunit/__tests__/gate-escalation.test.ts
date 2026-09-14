@@ -9,12 +9,7 @@ import os from 'node:os';
 import { FileStore, eventBus } from '@dommaker/studio-shared';
 import { NotificationService } from '@dommaker/studio-notification';
 import { WorkUnitService, type WorkUnitMetadata } from '../workunit.service.js';
-import {
-  scanGateEscalationReminders,
-  getGateReminderThresholdMs,
-  getUnassignedReminderThresholdMs,
-  getGateEscalationThresholdMs,
-} from '../gate-escalation.js';
+import { scanGateEscalationReminders } from '../gate-escalation.js';
 
 const { mockNotifyAlert } = vi.hoisted(() => ({ mockNotifyAlert: vi.fn() }));
 
@@ -200,21 +195,5 @@ describe('scanGateEscalationReminders — unassigned 认领滞留', () => {
     expect(result.tier2).toBe(2);
     expect(mockNotifyAlert).toHaveBeenCalledTimes(2);
     expect(metaOf(await findWu(stale.id)).gateReminderTier2At).toBeDefined();
-  });
-});
-
-describe('催办阈值 env 覆盖（同 STUDIO_INPUT_REMINDER_MINUTES 先例）', () => {
-  it('默认值：人闸 30min / 认领 15min / 升级 4h', () => {
-    expect(getGateReminderThresholdMs({})).toBe(30 * MIN);
-    expect(getUnassignedReminderThresholdMs({})).toBe(15 * MIN);
-    expect(getGateEscalationThresholdMs({})).toBe(4 * HOUR);
-  });
-
-  it('env 覆盖 + 非法值回落默认', () => {
-    expect(getGateReminderThresholdMs({ STUDIO_GATE_REMINDER_MINUTES: '10' })).toBe(10 * MIN);
-    expect(getUnassignedReminderThresholdMs({ STUDIO_UNASSIGNED_REMINDER_MINUTES: '3' })).toBe(3 * MIN);
-    expect(getGateEscalationThresholdMs({ STUDIO_GATE_ESCALATION_HOURS: '1' })).toBe(1 * HOUR);
-    expect(getGateReminderThresholdMs({ STUDIO_GATE_REMINDER_MINUTES: 'abc' })).toBe(30 * MIN);
-    expect(getGateEscalationThresholdMs({ STUDIO_GATE_ESCALATION_HOURS: '-2' })).toBe(4 * HOUR);
   });
 });

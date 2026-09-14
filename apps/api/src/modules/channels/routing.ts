@@ -139,11 +139,7 @@ export function shouldEmitFallbackReminder(
   resolution: StageRoutingResolution,
   now: number = Date.now(),
 ): boolean {
-  const key = `${channelId}:${stage}:${resolution.fallback ?? 'none'}`;
-  const last = fallbackReminderSentAt.get(key);
-  if (last !== undefined && now - last < FALLBACK_REMINDER_COOLDOWN_MS) return false;
-  fallbackReminderSentAt.set(key, now);
-  return true;
+  return passReminderCooldown(`${channelId}:${stage}:${resolution.fallback ?? 'none'}`, now);
 }
 
 /**
@@ -156,7 +152,11 @@ export function shouldEmitNotConfiguredReminder(
   stage: RoutingStage,
   now: number = Date.now(),
 ): boolean {
-  const key = `${channelId}:${stage}:not-configured`;
+  return passReminderCooldown(`${channelId}:${stage}:not-configured`, now);
+}
+
+/** 冷却闸共用判定：窗内 false 跳过出声；窗外放行并登记本次发送时刻 */
+function passReminderCooldown(key: string, now: number): boolean {
   const last = fallbackReminderSentAt.get(key);
   if (last !== undefined && now - last < FALLBACK_REMINDER_COOLDOWN_MS) return false;
   fallbackReminderSentAt.set(key, now);

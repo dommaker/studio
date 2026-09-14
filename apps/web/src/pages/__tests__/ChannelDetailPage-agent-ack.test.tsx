@@ -35,12 +35,12 @@ vi.mock('../../components/channel/WorkUnitDrawer', () => ({ WorkUnitDrawer: () =
 vi.mock('../../components/channel/ChannelMemberManager', () => ({ ChannelMemberManager: () => null }));
 vi.mock('../../components/channel/ChannelDefaultProjectSelect', () => ({ ChannelDefaultProjectSelect: () => null }));
 vi.mock('../../components/channel/ChannelCurrentPmoChip', () => ({ ChannelCurrentPmoChip: () => null }));
-// 捕获 onSend 直驱 handleSend（ChannelInput 本体不渲染）
+// 捕获 onSend 直驱 handleSend（ChannelInput 本体不渲染，仅出占位节点供 AC6 结构断言）
 let capturedOnSend: ((content: string, replyToId?: string) => Promise<void>) | null = null;
 vi.mock('../../components/channel/ChannelInput', () => ({
   ChannelInput: (props: { onSend: (content: string, replyToId?: string) => Promise<void> }) => {
     capturedOnSend = props.onSend;
-    return null;
+    return <div data-testid="channel-input" />;
   },
 }));
 vi.mock('../../components/channel/RequirementsDocCard', () => ({ RequirementsDocCard: () => null }));
@@ -85,6 +85,17 @@ describe('#493: 线程回复「已送达/等待 agent」即时反馈', () => {
     render(tree());
     await act(async () => { await capturedOnSend!('收到', 't-1'); });
     expect(screen.getByText(ACK_TEXT)).toBeTruthy();
+  });
+
+  // channel 上下游优化 Phase 4（AC6）：ack 条归组进 .mc-composer-stack，按序位于输入条之前
+  it('AC6：ack 条在 composer-stack 容器内且位于输入条之前（ack → input）', async () => {
+    render(tree());
+    await act(async () => { await capturedOnSend!('收到', 't-1'); });
+    const ack = screen.getByText(ACK_TEXT).closest('.mc-agent-ack')!;
+    const stack = document.querySelector('.mc-composer-stack')!;
+    expect(stack).not.toBeNull();
+    expect(stack.contains(ack)).toBe(true);
+    expect(ack.compareDocumentPosition(screen.getByTestId('channel-input')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it('顶层消息（非回复）不出状态条', async () => {

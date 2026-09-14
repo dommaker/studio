@@ -5,6 +5,7 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { ChannelFileVocabulary, ChannelMessage } from '../../api/channel';
+import { toast } from '../../utils/toast';
 import { AuthorAvatar } from './AuthorAvatar';
 import { FileRefChip } from './FileRefChip';
 import { MarkdownBody } from '../knowledge/MarkdownBody';
@@ -56,8 +57,13 @@ interface Props {
   compact?: boolean;
   /** #279（决策 #250 D4）：顶栏待办 chip 定位高亮 */
   highlight?: boolean;
+  /** channel 上下游优化 Phase 1（AC1）：quote 引用块点击定位上游消息——
+   *  提供且父消息已加载（findMessage 命中）时 quote button 化；父组件须传 useCallback 稳定引用（#322 契约） */
+  onQuoteClick?: (messageId: string) => void;
   /** 批次 E-3：SSE 新到达消息渐隐高亮（.mc-msg-new，accent-dim 底色，页面 2s 后自清） */
   fresh?: boolean;
+  /** Phase 3（AC5）：j/k 键盘导航焦点环（.mc-msg-focused，accent outline；布尔按消息变化只影响焦点迁移的两条） */
+  focused?: boolean;
 }
 
 function renderCard(
@@ -95,7 +101,7 @@ function renderCard(
 export const ChannelMessageItem = memo(function ChannelMessageItem({
   message, onAction, onReply, findMessage, channelId,
   isThreadAnchor, threadReplyCount, isExpanded, onToggleThread, isThreadReply,
-  waitingForInput, onOpenWorkUnit, onOpenWorkUnitConfirm, onOpenWorkUnitRuling, onOpenRequirement, onInlineReply, fileVocabulary, wuChangedFiles, compact, highlight, fresh,
+  waitingForInput, onOpenWorkUnit, onOpenWorkUnitConfirm, onOpenWorkUnitRuling, onOpenRequirement, onInlineReply, fileVocabulary, wuChangedFiles, compact, highlight, onQuoteClick, fresh, focused,
 }: Props) {
   const isHuman = message.authorType === 'human';
   const meta = parseMeta(message.meta);
@@ -106,6 +112,38 @@ export const ChannelMessageItem = memo(function ChannelMessageItem({
   const [needSent, setNeedSent] = useState(false);
   // #276（P2 #15）：发送中状态——禁用表单防重复触发，await 真实结果后才置位「已回复」
   const [needSending, setNeedSending] = useState(false);
+  // Phase 3（AC4）：复制反馈——成功后按钮变 ✓ 约 1.5s 恢复（本地 state + 定时器，卸载清理）
+  const [copied, setCopied] = useState(false);
+  const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current); }, []);
+
+  const handleCopy = useCallback(async () => {
+    // clipboard API 不可用（非安全上下文）/拒绝 → toast 可见反馈，不静默
+    if (!navigator.clipboard?.writeText) {
+      toast.warning('当前环境不支持复制，请手动选择文本');
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(message.content);
+      setCopied(true);
+      if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
+      copiedTimerRef.current = setTimeout(() => setCopied(false), 1500);
+    } catch {
+      toast.warning('复制失败，请手动选择文本');
+    }
+  }, [message.content]);
+
+  // Phase 3（AC4）：复制按钮（系统播报只出这一个动作；普通消息与 ↩/⊕ 同排）
+  const copyButton = (
+    <button
+      onClick={() => void handleCopy()}
+      className="mc-icon-btn"
+      title="复制"
+      aria-label="复制消息内容"
+    >
+      {copied ? '✓' : '⧉'}
+    </button>
+  );
   // #270：NEED_INPUT 内嵌回复框共享 composer 同款 IME 守卫
   const { handleCompositionEnd, isImeEvent } = useImeEnterGuard();
   const canConvert = !message.workUnitId && isHuman && !!channelId;
@@ -179,6 +217,7 @@ export const ChannelMessageItem = memo(function ChannelMessageItem({
 
   const actionButtons = (
     <>
+      {copyButton}
       {onReply && (
         <button
           onClick={() => onReply(message)}
@@ -204,14 +243,22 @@ export const ChannelMessageItem = memo(function ChannelMessageItem({
 
   return (
     <div
-      className={`mc-msg ${compact ? 'mc-msg-compact' : ''} ${sideClass}${highlight ? ' mc-msg-highlight' : ''}${fresh ? ' mc-msg-new' : ''}${message.pending ? ' mc-msg-pending' : ''}`}
+      className={`mc-msg ${compact ? 'mc-msg-compact' : ''} ${sideClass}${highlight ? ' mc-msg-highlight' : ''}${fresh ? ' mc-msg-new' : ''}${focused ? ' mc-msg-focused' : ''}${message.pending ? ' mc-msg-pending' : ''}`}
       data-message-id={message.id}
     >
-      {/* Quote block (reply reference) */}
+      {/* Quote block (reply reference)
+          channel 上下游优化 Phase 1（AC1）：提供 onQuoteClick 且父消息已加载时 button 化——点击定位上游消息；
+          父消息掉出已加载分页（findMessage 未命中）不渲染 quote，不可点 */}
       {parentMessage && (
-        <div className="mc-quote">
-          {parentMessage.authorType === 'human' ? '你' : parentMessage.agentName || 'Agent'}：{parentMessage.content}
-        </div>
+        onQuoteClick ? (
+          <button type="button" className="mc-quote" onClick={() => onQuoteClick(parentMessage.id)}>
+            {parentMessage.authorType === 'human' ? '你' : parentMessage.agentName || 'Agent'}：{parentMessage.content}
+          </button>
+        ) : (
+          <div className="mc-quote">
+            {parentMessage.authorType === 'human' ? '你' : parentMessage.agentName || 'Agent'}：{parentMessage.content}
+          </div>
+        )
       )}
 
       {/* Author label + hover actions */}
@@ -240,6 +287,12 @@ export const ChannelMessageItem = memo(function ChannelMessageItem({
       {!isSystem && compact && !message.pending && (
         <span className="mc-msg-actions mc-msg-actions-compact">
           {actionButtons}
+        </span>
+      )}
+      {/* Phase 3（AC4）：系统播报原本无 actions 出口——角落悬浮只挂复制（回复/转任务对播报无意义） */}
+      {isSystem && !message.pending && (
+        <span className="mc-msg-actions mc-msg-actions-compact">
+          {copyButton}
         </span>
       )}
 

@@ -28,6 +28,7 @@ const ui = (over: Partial<StreamUiState> = {}): StreamUiState => ({
   showCompleted: false,
   collapsedThreads: new Set(),
   expandedProcGroups: new Set(),
+  expandedAlertGroups: new Set(),
   promotedQuestionIds: new Set(),
   isWaitingForInput: () => false,
   ...over,
@@ -91,6 +92,39 @@ describe('buildMessageToItemIndex', () => {
     const map = buildMessageToItemIndex(view.items);
     expect(map.get('a1')).toBe(0);
     expect(map.get('m9')).toBe(1);
+  });
+});
+
+// Phase 3（AC3）：alert-group 虚拟行——key/mid→item 映射/行高估计
+describe('alert-group 项（Phase 3 AC3）', () => {
+  const alertView = (over: Partial<StreamUiState> = {}) => deriveStreamView([
+    msg('al1', { agentName: 'Studio', content: '[CRITICAL] x1', createdAt: iso(0) }),
+    msg('al2', { agentName: 'Studio', content: '[WARNING] x2', createdAt: iso(1) }),
+    msg('al3', { agentName: 'Studio', content: '[CRITICAL] x3', createdAt: iso(2) }),
+    msg('m9', { createdAt: iso(3) }),
+  ], ui(over));
+
+  it('streamItemKey = 组 key（alerts-<首条id>），折叠/展开切换不变（measurements 存续）', () => {
+    const collapsed = alertView().items[0];
+    const expanded = alertView({ expandedAlertGroups: new Set(['alerts-al1']) }).items[0];
+    expect(streamItemKey(collapsed)).toBe('alerts-al1');
+    expect(streamItemKey(expanded)).toBe('alerts-al1');
+  });
+
+  it('buildMessageToItemIndex：组内消息 id（含折叠态）→ 组 index；组后项顺延', () => {
+    const map = buildMessageToItemIndex(alertView().items);
+    expect(map.get('al1')).toBe(0);
+    expect(map.get('al2')).toBe(0);
+    expect(map.get('al3')).toBe(0);
+    expect(map.get('m9')).toBe(1);
+  });
+
+  it('estimateStreamItemSize：折叠 = 摘要行档；展开 = 摘要行 + 组内消息逐条累计', () => {
+    const E = ROW_HEIGHT_ESTIMATE;
+    const [collapsed] = alertView().items;
+    expect(estimateStreamItemSize(collapsed)).toBe(E.date + E.alertGroupSummary); // 首行 showDate
+    const [expanded] = alertView({ expandedAlertGroups: new Set(['alerts-al1']) }).items;
+    expect(estimateStreamItemSize(expanded)).toBe(E.date + E.alertGroupSummary + 3 * E.system);
   });
 });
 
