@@ -182,33 +182,36 @@ describe('AuditLogsPage（E7 审计日志页改造）', () => {
     openSpy.mockRestore();
   });
 
-  it('批次 F-2：行点击开详情弹窗（归并 ui/Modal：role=dialog + ✕ + 关闭按钮），Escape 关闭', async () => {
+  it('行点击行内展开详情（非弹窗），再点击收起', async () => {
     render(<AuditLogsPage />);
     const cell = await screen.findByText('user-a');
+    const row = cell.closest('tr')!;
+    expect(row).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByText('ID')).toBeNull();
 
-    fireEvent.click(cell.closest('tr')!);
-    const dialog = await screen.findByRole('dialog');
-    expect(dialog).toHaveAttribute('aria-modal', 'true');
-    expect(screen.getByText('日志详情')).toBeTruthy();
-    // ui/Modal 标题栏 ✕（aria-label=关闭）+ footer「关闭」按钮
-    expect(screen.getAllByRole('button', { name: '关闭' })).toHaveLength(2);
-
-    fireEvent.keyDown(document, { key: 'Escape' });
+    fireEvent.click(row);
+    expect(row).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByText('ID')).toBeTruthy();
+    expect(screen.getByText('log-1')).toBeTruthy();
+    // 无遮罩弹窗
     expect(screen.queryByRole('dialog')).toBeNull();
+
+    fireEvent.click(row);
+    expect(row).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByText('ID')).toBeNull();
   });
 
-  it('批次 F-2：表格行可键盘触发（tabIndex + Enter/Space 开详情）', async () => {
+  it('表格行可键盘触发（tabIndex + Enter/Space 切换展开）', async () => {
     render(<AuditLogsPage />);
     const cell = await screen.findByText('user-a');
     const row = cell.closest('tr')!;
     expect(row).toHaveAttribute('tabindex', '0');
 
     fireEvent.keyDown(row, { key: 'Enter' });
-    expect(await screen.findByRole('dialog')).toBeTruthy();
+    expect(await screen.findByText('ID')).toBeTruthy();
 
-    fireEvent.keyDown(document, { key: 'Escape' });
     fireEvent.keyDown(row, { key: ' ' });
-    expect(await screen.findByRole('dialog')).toBeTruthy();
+    expect(screen.queryByText('ID')).toBeNull();
   });
 
   it('批次 F-4：加载失败错误条带「重试」，点击后重新拉取并恢复列表', async () => {
