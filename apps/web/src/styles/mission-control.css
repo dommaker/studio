@@ -340,6 +340,7 @@
    mc-msg-new 类移除时 outline-color/background-color 有过渡起点，高亮渐隐而非瞬隐 */
 .mc-msg {
   margin-bottom: 8px;
+  position: relative; /* Phase 3（AC4）：悬浮动作条（.mc-msg-actions 绝对定位）的定位上下文 */
   outline: 2px solid transparent;
   outline-offset: 2px;
   transition: background-color var(--motion-base) var(--ease-standard),
@@ -428,12 +429,10 @@
 }
 .mc-sev-chip--error { color: var(--error); background: var(--error-dim); border-color: var(--error-border); }
 .mc-sev-chip--warning { color: var(--warning); background: var(--warning-dim); border-color: var(--warning-border); }
-/* D2 compact（连续合并）：省略重复头，动作浮于消息右上，hover/focus 显化（沿用 .mc-msg-actions 弱化态） */
-.mc-msg-compact { position: relative; }
+/* D2 compact（连续合并）：省略重复头，动作浮于消息右上，hover/focus 显化（沿用 .mc-msg-actions 弱化态）。
+   Phase 3（AC4）起角落挂载点（compact/系统播报）的绝对定位收口进 .mc-msg-actions 基类（统一 Slack 式悬浮位），
+   此处不再覆写 top/right——.mc-msg-actions-compact 类保留作 DOM 钩子 */
 .mc-msg-compact > .mc-msg-actions-compact {
-  position: absolute;
-  top: 0;
-  right: 0;
   margin-left: 0;
 }
 /* D5 mention chip：双侧正文 @name 染色（纯渲染，存储仍是纯文本） */
@@ -446,8 +445,23 @@
   font-weight: 600;
 }
 /* #239: 动作图标可读性——常显弱化态（不再 hover 才出现），hover/focus-within 强化；
-   字号/对比度上调（fs-xs→fs-sm、text-muted→text-secondary），点击区域加大 */
-.mc-msg-actions { display: inline-flex; gap: 6px; margin-left: 8px; opacity: 0.55; }
+   字号/对比度上调（fs-xs→fs-sm、text-muted→text-secondary），点击区域加大。
+   Phase 3（AC4）Slack 式升级：动作条浮于消息右上角（bg-elevated + hairline 边框 + 小圆角），
+   脱离头部文档流（头部/compact 角落/系统播报角落三挂载点共用同一悬浮位） */
+.mc-msg-actions {
+  display: inline-flex;
+  gap: 2px;
+  position: absolute;
+  top: -6px;
+  right: 8px;
+  margin-left: 0;
+  padding: 1px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  opacity: 0.55;
+  z-index: 1;
+}
 .mc-msg:hover .mc-msg-actions, .mc-msg-actions:focus-within { opacity: 1; }
 .mc-icon-btn {
   color: var(--text-secondary);
@@ -718,6 +732,11 @@ button.mc-quote:active { background: var(--bg-active); }
   outline-color: var(--warning);
   border-radius: 4px;
 }
+/* Phase 3（AC5）：j/k 键盘导航焦点环——accent outline，区别于 highlight 的 warning outline */
+.mc-msg-focused {
+  outline-color: var(--accent-primary);
+  border-radius: 4px;
+}
 /* 批次 E-3：SSE 新到达消息渐隐高亮（白名单③状态色切换）——accent-dim 底色，
    页面 2s 后移类，经 .mc-msg 基类 background-color 过渡渐隐常态 */
 .mc-msg-new { background-color: var(--accent-dim); }
@@ -767,6 +786,29 @@ button.mc-quote:active { background: var(--bg-active); }
   border-left: 1px solid var(--border-default);
   padding-left: 12px;
 }
+
+/* Phase 3（channel 上下游优化 AC3）：主流 monitor 告警折叠组——
+   摘要行 = 单行弱化按钮（warning 色信号）；展开体复用 proc-group 折叠模式（缩进 + 左边线） */
+.mc-alert-group { margin-bottom: 8px; }
+.mc-alert-group-summary {
+  display: block;
+  width: 100%;
+  text-align: left;
+  color: var(--warning);
+  font-size: var(--fs-sm);
+  padding: 3px 10px;
+  border: 1px dashed var(--warning-border);
+  border-radius: 3px;
+  background: var(--warning-dim);
+}
+.mc-alert-group-summary:hover { border-color: var(--warning); }
+.mc-alert-group-body {
+  margin-left: 18px;
+  border-left: 1px solid var(--warning-border);
+  padding-left: 12px;
+  margin-top: 4px;
+}
+.mc-alert-group-date { margin: 4px 0; }
 
 /* 底部输入条 */
 .mc-inputbar { border-top: 1px solid var(--border-subtle); padding: var(--space-3) var(--space-6); background: var(--bg-secondary); position: relative; } /* #394（spec §4.1）：padding 32px */

@@ -1,7 +1,7 @@
 // 频道折叠 UI 状态按频道持久化（docs/plans/2026-09-ui-smoothness.md Step 3）：
-// showCompleted / collapsedThreads / expandedProcGroups 三项按频道存 localStorage
-//（key `mc-stream-ui:v1:<channelId>`，值 JSON，Set ↔ 数组序列化），切频道/刷新后恢复；
-// 读取损坏/缺字段静默回退默认值；写入随状态变更直写（量级小，不防抖）。
+// showCompleted / collapsedThreads / expandedProcGroups / expandedAlertGroups（#channel-ux P3）
+// 按频道存 localStorage（key `mc-stream-ui:v1:<channelId>`，值 JSON，Set ↔ 数组序列化），切频道/刷新后恢复；
+// 读取损坏/缺字段静默回退默认值（旧存档无 expandedAlertGroups 字段 → 空集，向后兼容）；写入随状态变更直写（量级小，不防抖）。
 // setter 语义与 React useState 的 Dispatch<SetStateAction<T>> 对齐，页面调用方零改造迁移。
 import { useCallback, useEffect, useState, type Dispatch, type SetStateAction } from 'react';
 
@@ -12,9 +12,11 @@ interface PersistedStreamUi {
   showCompleted: boolean;
   collapsedThreads: string[];
   expandedProcGroups: string[];
+  /** Phase 3（AC3）：展开的告警组 key 集（旧存档缺此字段 → 读取回退空数组） */
+  expandedAlertGroups: string[];
 }
 
-const DEFAULTS: PersistedStreamUi = { showCompleted: false, collapsedThreads: [], expandedProcGroups: [] };
+const DEFAULTS: PersistedStreamUi = { showCompleted: false, collapsedThreads: [], expandedProcGroups: [], expandedAlertGroups: [] };
 
 /** 读取持久化状态；损坏 JSON 整体回退默认值，缺字段按字段回退（非字符串条目丢弃） */
 function readPersisted(channelId: string): PersistedStreamUi {
@@ -29,6 +31,7 @@ function readPersisted(channelId: string): PersistedStreamUi {
       showCompleted: rec.showCompleted === true,
       collapsedThreads: strArr(rec.collapsedThreads),
       expandedProcGroups: strArr(rec.expandedProcGroups),
+      expandedAlertGroups: strArr(rec.expandedAlertGroups),
     };
   } catch {
     return DEFAULTS;
@@ -41,6 +44,7 @@ interface StreamUiStateShape {
   showCompleted: boolean;
   collapsedThreads: Set<string>;
   expandedProcGroups: Set<string>;
+  expandedAlertGroups: Set<string>;
 }
 
 const loadState = (channelId: string | undefined): StreamUiStateShape => {
@@ -50,6 +54,7 @@ const loadState = (channelId: string | undefined): StreamUiStateShape => {
     showCompleted: p.showCompleted,
     collapsedThreads: new Set(p.collapsedThreads),
     expandedProcGroups: new Set(p.expandedProcGroups),
+    expandedAlertGroups: new Set(p.expandedAlertGroups),
   };
 };
 
@@ -69,6 +74,7 @@ export function usePersistentStreamUI(channelId: string | undefined) {
         showCompleted: state.showCompleted,
         collapsedThreads: [...state.collapsedThreads],
         expandedProcGroups: [...state.expandedProcGroups],
+        expandedAlertGroups: [...state.expandedAlertGroups],
       }));
     } catch { /* 存储不可用静默降级 */ }
   }, [channelId, state]);
@@ -80,13 +86,17 @@ export function usePersistentStreamUI(channelId: string | undefined) {
     v => setState(prev => ({ ...prev, collapsedThreads: resolve(v, prev.collapsedThreads) })), []);
   const setExpandedProcGroups = useCallback<Dispatch<SetStateAction<Set<string>>>>(
     v => setState(prev => ({ ...prev, expandedProcGroups: resolve(v, prev.expandedProcGroups) })), []);
+  const setExpandedAlertGroups = useCallback<Dispatch<SetStateAction<Set<string>>>>(
+    v => setState(prev => ({ ...prev, expandedAlertGroups: resolve(v, prev.expandedAlertGroups) })), []);
 
   return {
     showCompleted: state.showCompleted,
     collapsedThreads: state.collapsedThreads,
     expandedProcGroups: state.expandedProcGroups,
+    expandedAlertGroups: state.expandedAlertGroups,
     setShowCompleted,
     setCollapsedThreads,
     setExpandedProcGroups,
+    setExpandedAlertGroups,
   };
 }

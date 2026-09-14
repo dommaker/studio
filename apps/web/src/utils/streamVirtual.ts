@@ -12,9 +12,12 @@ import { anchorScrollDelta, type ScrollAnchor } from './streamFollow';
  */
 export const STREAM_VIRTUAL_ENABLED = import.meta.env.MODE !== 'test';
 
-/** 虚拟行 key：thread 取 anchor.id、message 取 message.id（prepend 下稳定，measurements 按 key 存续） */
+/** 虚拟行 key：thread 取 anchor.id、message 取 message.id、alert-group 取组 key
+ *  （alerts-<首条id>，折叠/展开切换不变；prepend 下稳定，measurements 按 key 存续） */
 export function streamItemKey(item: StreamItem): string {
-  return item.kind === 'thread' ? item.anchor.id : item.message.id;
+  if (item.kind === 'thread') return item.anchor.id;
+  if (item.kind === 'alert-group') return item.key;
+  return item.message.id;
 }
 
 // ── #450（#438 方案 A）：estimateSize 分型静态估计 ──────────────
@@ -40,6 +43,8 @@ export const ROW_HEIGHT_ESTIMATE = {
   threadToggle: 24,
   /** 展开线程内折叠过程组按钮（▸ N 条过程消息；CSS 推导 = mc-collapse-toggle 行高） */
   procGroupCollapsed: 36,
+  /** Phase 3（AC3）：告警组摘要行（CSS 推导，同 procGroupCollapsed 单行档） */
+  alertGroupSummary: 36,
 } as const;
 
 /** 单条消息的渲染行高档（thread 内回复同样走此分型；isThreadReply/锚卡差异忽略，归入类内方差） */
@@ -62,6 +67,12 @@ export function estimateStreamItemSize(item: StreamItem): number {
   const date = item.showDate ? ROW_HEIGHT_ESTIMATE.date : 0;
   if (item.kind === 'message') {
     return date + estimateMessagePx(item.message, item.compact);
+  }
+  // Phase 3（AC3）：告警组——折叠 = 单行摘要；展开 = 摘要行 + 组内消息逐条全量渲染（不省头）
+  if (item.kind === 'alert-group') {
+    if (!item.expanded) return date + ROW_HEIGHT_ESTIMATE.alertGroupSummary;
+    return date + ROW_HEIGHT_ESTIMATE.alertGroupSummary
+      + item.messages.reduce((sum, m) => sum + estimateMessagePx(m, false), 0);
   }
   if (item.anchor.degraded) return date + ROW_HEIGHT_ESTIMATE.skeleton;
   let height = date + estimateMessagePx(item.anchor, item.compact);
@@ -91,6 +102,11 @@ export function buildMessageToItemIndex(items: StreamItem[]): Map<string, number
   items.forEach((item, index) => {
     if (item.kind === 'message') {
       map.set(item.message.id, index);
+      return;
+    }
+    // Phase 3（AC3）：组内消息（含折叠态）全部映射到组 index——同属一个虚拟行
+    if (item.kind === 'alert-group') {
+      for (const m of item.messages) map.set(m.id, index);
       return;
     }
     map.set(item.anchor.id, index);
