@@ -583,6 +583,37 @@ export function ChannelDetailPage() {
     return found() ? 'found' : 'exhausted';
   }, []);
 
+  // channel 上下游优化 Phase 1（AC1/AC4，docs/plans/2026-09-channel-upstream-downstream-ux.md）：
+  // 通用消息定位——quote 引用块 / reply 预览条 / ?highlight effect 共用同一链路：
+  // 已加载 → 展开所在收起线程 + 高亮（2s 消退，既有 effect 承担）；未加载 → #439 翻页定位循环，
+  // exhausted → toast 兜底，不静默。防重入按 mid 粒度（同 mid 重复点击不并发翻页）
+  const locatingMidRef = useRef<string | null>(null);
+  const locateMessage = useCallback((mid: string) => {
+    const loaded = locateSnapshotRef.current.messages.find(m => m.id === mid);
+    if (loaded) {
+      if (loaded.replyToId) ensureThreadExpanded(loaded.replyToId);
+      setHighlightId(mid);
+      return;
+    }
+    if (locatingMidRef.current === mid) return; // 同 mid 防重入
+    locatingMidRef.current = mid;
+    void (async () => {
+      const result = await pageBackToFind(
+        () => locateSnapshotRef.current.messages.some(m => m.id === mid),
+        () => locatingMidRef.current !== mid,
+      );
+      if (result === 'cancelled') return;
+      locatingMidRef.current = null;
+      const target = locateSnapshotRef.current.messages.find(m => m.id === mid);
+      if (target) {
+        if (target.replyToId) ensureThreadExpanded(target.replyToId);
+        setHighlightId(mid);
+      } else {
+        toast.warning('该消息太旧或已删除，无法定位');
+      }
+    })();
+  }, [ensureThreadExpanded, pageBackToFind]);
+
   // 提问消息若埋在被用户收起的线程里，先把所属线程展开；
   // #483：提问掉出已加载分页 → 复用 #439 翻页定位循环；翻到底/超限/无新内容 → toast 兜底，不静默
   const chipLocatingRef = useRef<string | null>(null);
@@ -612,41 +643,19 @@ export function ChannelDetailPage() {
     })();
   }, [ensureThreadExpanded, pageBackToFind]);
 
-  // 通知中心点击直达（?highlight=<mid>）：复用上方高亮定位机制，滚动到该消息并高亮 2s。
+  // 通知中心点击直达（?highlight=<mid>）：复用上方 locateMessage 链路，滚动到该消息并高亮 2s。
   // 每个 mid 只消费一次（防消息流更新反复重置高亮）；首拉未完成（loading）时等下一轮 messages。
-  // #439：目标掉出已加载分页时沿 #319 翻页游标向前翻页找目标所在页（上限 HIGHLIGHT_LOCATE_MAX_PAGES
-  // 页）；翻到底/超限/翻页无新内容 → toast 可见反馈，不静默（原「已知留白」补齐）。
+  // #439：目标掉出已加载分页 → locateMessage 内翻页定位（上限 HIGHLIGHT_LOCATE_MAX_PAGES 页）；
+  // 翻到底/超限/翻页无新内容 → toast 可见反馈，不静默（原「已知留白」补齐）。
   const [searchParams] = useSearchParams();
   const highlightConsumedRef = useRef<string | null>(null);
-  /** #439：正在为哪个 mid 跑翻页定位循环（同 mid 防重入；定位成功/终局反馈后清空） */
-  const highlightLocatingRef = useRef<string | null>(null);
   useEffect(() => {
     const mid = searchParams.get('highlight');
     if (!mid || highlightConsumedRef.current === mid) return;
     if (loading) return; // 首拉未完成，等下一轮（防空列表误判不可达）
-    const target = messages.find(m => m.id === mid);
-    if (target) {
-      highlightConsumedRef.current = mid;
-      highlightLocatingRef.current = null;
-      if (target.replyToId) ensureThreadExpanded(target.replyToId);
-      setHighlightId(mid);
-      return;
-    }
-    // 目标不在已加载消息集：启动带页数上限的翻页定位循环（进行中则防重入）。
-    // 定位/高亮动作仍由上方分支在目标载入后执行，本循环只负责翻页与终局反馈。
-    if (highlightLocatingRef.current === mid) return;
-    highlightLocatingRef.current = mid;
-    void (async () => {
-      const result = await pageBackToFind(
-        () => locateSnapshotRef.current.messages.some(m => m.id === mid),
-        () => highlightLocatingRef.current !== mid,
-      );
-      if (result !== 'exhausted') return; // found → 交给上方分支定位；cancelled → 已被消费
-      highlightLocatingRef.current = null;
-      highlightConsumedRef.current = mid;
-      toast.warning('该消息太旧或已删除，无法定位');
-    })();
-  }, [searchParams, messages, loading, ensureThreadExpanded, pageBackToFind]);
+    highlightConsumedRef.current = mid;
+    locateMessage(mid);
+  }, [searchParams, loading, locateMessage]);
 
   // 里程碑判定（不折叠）：人类消息 / 卡片消息 / 等待回复 / 最后一条回复——已迁入 deriveStreamView（#322）
 
@@ -830,10 +839,11 @@ export function ChannelDetailPage() {
       fileVocabulary={fileVocabulary}
       wuChangedFiles={msg.workUnitId ? wuChangedFiles[msg.workUnitId] : undefined}
       highlight={highlightId === msg.id}
+      onQuoteClick={locateMessage}
       fresh={freshMsgIds.has(msg.id)}
       {...extra}
     />
-  ), [handleAction, handleReply, findMessage, id, isWaitingForInput, openWu, openWuConfirm, openWuRuling, openReq, handleInlineReply, fileVocabulary, wuChangedFiles, highlightId, freshMsgIds]);
+  ), [handleAction, handleReply, findMessage, id, isWaitingForInput, openWu, openWuConfirm, openWuRuling, openReq, handleInlineReply, fileVocabulary, wuChangedFiles, highlightId, locateMessage, freshMsgIds]);
 
   // #326：骨架占位行——degraded 消息（含 thread anchor）渲染为固定占位行，
   // 保留 data-message-id（锚点捕获/阅读位置仍可按 mid 定位）；水合后原位恢复。
@@ -1079,7 +1089,7 @@ export function ChannelDetailPage() {
         )}
 
         {/* Input */}
-        <ChannelInput onSend={handleSend} sending={sending} replyTo={replyTo} onCancelReply={() => setReplyTo(null)} channelId={id} prefill={inputPrefill} />
+        <ChannelInput onSend={handleSend} sending={sending} replyTo={replyTo} onCancelReply={() => setReplyTo(null)} channelId={id} prefill={inputPrefill} onReplyPreviewClick={locateMessage} />
       </main>
 
       {/* 右栏：频道动态 REQ 链路卡（#394，spec §4.1–4.3）；REQ/WU 点击仍走下方覆盖抽屉。

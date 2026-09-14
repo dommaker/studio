@@ -468,6 +468,22 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* channel 上下游优化 Phase 1（AC1）：quote button 化（点击定位上游消息）——
+   重置 UA 按钮默认样式，保持原 div 视觉；hover/active 给可点击反馈 */
+button.mc-quote {
+  display: block;
+  width: 100%;
+  padding: 0 0 0 8px;
+  background: none;
+  border: none;
+  border-left: 2px solid var(--border-default);
+  border-radius: 3px;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+button.mc-quote:hover { background: var(--bg-hover); }
+button.mc-quote:active { background: var(--bg-active); }
 
 /* E1（2026-09 页面重设计）：.mc-wait-badge 已删——消息头「等待回复」badge 去除，
    待办信号唯一位 = 顶栏 chip；流内识别靠内嵌回复区（行动点本体） */
@@ -881,6 +897,24 @@
   color: var(--text-secondary);
 }
 .mc-input-reply-content { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-primary); }
+/* channel 上下游优化 Phase 1（AC4）：reply 预览条正文区 button 化（点击定位被回复消息）——
+   重置 UA 按钮默认样式吃满预览条宽，✕ 取消钮保持兄弟节点；hover 给可点击反馈 */
+.mc-input-reply-jump {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: 3px;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.mc-input-reply-jump:hover { background: var(--bg-hover); }
 /* #485：composer 已挂文件引用 chip（台账可视化）；失效（正文被改得不含路径）标灰 + 「已失效」，不静默丢弃 */
 .mc-fileref-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
 .mc-fileref-chip {

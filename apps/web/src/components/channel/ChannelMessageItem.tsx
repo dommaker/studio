@@ -56,6 +56,9 @@ interface Props {
   compact?: boolean;
   /** #279（决策 #250 D4）：顶栏待办 chip 定位高亮 */
   highlight?: boolean;
+  /** channel 上下游优化 Phase 1（AC1）：quote 引用块点击定位上游消息——
+   *  提供且父消息已加载（findMessage 命中）时 quote button 化；父组件须传 useCallback 稳定引用（#322 契约） */
+  onQuoteClick?: (messageId: string) => void;
   /** 批次 E-3：SSE 新到达消息渐隐高亮（.mc-msg-new，accent-dim 底色，页面 2s 后自清） */
   fresh?: boolean;
 }
@@ -95,7 +98,7 @@ function renderCard(
 export const ChannelMessageItem = memo(function ChannelMessageItem({
   message, onAction, onReply, findMessage, channelId,
   isThreadAnchor, threadReplyCount, isExpanded, onToggleThread, isThreadReply,
-  waitingForInput, onOpenWorkUnit, onOpenWorkUnitConfirm, onOpenWorkUnitRuling, onOpenRequirement, onInlineReply, fileVocabulary, wuChangedFiles, compact, highlight, fresh,
+  waitingForInput, onOpenWorkUnit, onOpenWorkUnitConfirm, onOpenWorkUnitRuling, onOpenRequirement, onInlineReply, fileVocabulary, wuChangedFiles, compact, highlight, onQuoteClick, fresh,
 }: Props) {
   const isHuman = message.authorType === 'human';
   const meta = parseMeta(message.meta);
@@ -207,11 +210,19 @@ export const ChannelMessageItem = memo(function ChannelMessageItem({
       className={`mc-msg ${compact ? 'mc-msg-compact' : ''} ${sideClass}${highlight ? ' mc-msg-highlight' : ''}${fresh ? ' mc-msg-new' : ''}${message.pending ? ' mc-msg-pending' : ''}`}
       data-message-id={message.id}
     >
-      {/* Quote block (reply reference) */}
+      {/* Quote block (reply reference)
+          channel 上下游优化 Phase 1（AC1）：提供 onQuoteClick 且父消息已加载时 button 化——点击定位上游消息；
+          父消息掉出已加载分页（findMessage 未命中）不渲染 quote，不可点 */}
       {parentMessage && (
-        <div className="mc-quote">
-          {parentMessage.authorType === 'human' ? '你' : parentMessage.agentName || 'Agent'}：{parentMessage.content}
-        </div>
+        onQuoteClick ? (
+          <button type="button" className="mc-quote" onClick={() => onQuoteClick(parentMessage.id)}>
+            {parentMessage.authorType === 'human' ? '你' : parentMessage.agentName || 'Agent'}：{parentMessage.content}
+          </button>
+        ) : (
+          <div className="mc-quote">
+            {parentMessage.authorType === 'human' ? '你' : parentMessage.agentName || 'Agent'}：{parentMessage.content}
+          </div>
+        )
       )}
 
       {/* Author label + hover actions */}

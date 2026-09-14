@@ -24,6 +24,8 @@ interface Props {
   channelId?: string;
   /** #440：外部填入口（建议片点击 → 填入输入框）。nonce 变化才写入，同 nonce 不覆盖用户编辑 */
   prefill?: { text: string; nonce: number };
+  /** channel 上下游优化 Phase 1（AC4）：reply 预览条点击定位被回复消息（✕ 取消钮保持独立） */
+  onReplyPreviewClick?: (messageId: string) => void;
 }
 
 /** 文件候选展示上限（词表可能数千条，弹框只给补全头部） */
@@ -48,7 +50,7 @@ function repoBasename(repo: string): string {
   return repo.split('/').filter(Boolean).pop() ?? repo;
 }
 
-export function ChannelInput({ onSend, sending, replyTo, onCancelReply, channelId, prefill }: Props) {
+export function ChannelInput({ onSend, sending, replyTo, onCancelReply, channelId, prefill, onReplyPreviewClick }: Props) {
   const [content, setContent] = useState('');
   // 光标位置由 onChange/onSelect 事件写入 state（渲染期禁读 ref）。
   // 顺带修复旧缺陷：原实现 memo 只依赖 content，光标点击移动不重算 mention 解析
@@ -333,14 +335,28 @@ export function ChannelInput({ onSend, sending, replyTo, onCancelReply, channelI
   return (
     <div className="mc-inputbar">
       <div className="mc-inputbar-inner">
-        {/* Reply preview */}
+        {/* Reply preview
+            channel 上下游优化 Phase 1（AC4）：提供 onReplyPreviewClick 时预览正文区 button 化——
+            点击定位被回复消息；✕ 取消钮保持兄弟节点（按钮不嵌套按钮） */}
         {replyTo && onCancelReply && (
           <div className="mc-input-reply">
-            <span>↩</span>
-            <span>
-              回复 {replyTo.authorType === 'human' ? '你' : replyTo.agentName || 'Agent'}:
-            </span>
-            <span className="mc-input-reply-content">{replyTo.content}</span>
+            {onReplyPreviewClick ? (
+              <button type="button" className="mc-input-reply-jump" onClick={() => onReplyPreviewClick(replyTo.id)}>
+                <span>↩</span>
+                <span>
+                  回复 {replyTo.authorType === 'human' ? '你' : replyTo.agentName || 'Agent'}:
+                </span>
+                <span className="mc-input-reply-content">{replyTo.content}</span>
+              </button>
+            ) : (
+              <>
+                <span>↩</span>
+                <span>
+                  回复 {replyTo.authorType === 'human' ? '你' : replyTo.agentName || 'Agent'}:
+                </span>
+                <span className="mc-input-reply-content">{replyTo.content}</span>
+              </>
+            )}
             <button onClick={onCancelReply} className="mc-icon-btn" aria-label="取消回复">
               ✕
             </button>
