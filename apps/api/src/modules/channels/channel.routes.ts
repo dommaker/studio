@@ -208,7 +208,6 @@ router.post('/:id/messages', requireAuth(), requireNotGuest(), async (req, res) 
     channelId,
     trimmedContent,
     replyToId || undefined,
-    undefined,
     {
       // REQ 需求编号（vision §5.3）：调用方可显式指定（缺省走 #REQ-XXXX token / 自动新建）
       reqId: typeof reqId === 'string' && reqId ? reqId : undefined,

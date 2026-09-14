@@ -55,7 +55,7 @@ describe('message-routing traceId (P0 修复 6)', () => {
   });
 
   it('@mention 建 WU：options.traceId 写入 metadata.traceId', async () => {
-    const message = await routeMessage(channelId, '@Nobody 做个事', undefined, fileStore, {
+    const message = await routeMessage(channelId, '@Nobody 做个事', undefined, { fs: fileStore,
       traceId: 'trace-abc-123',
     });
 
@@ -66,7 +66,7 @@ describe('message-routing traceId (P0 修复 6)', () => {
   });
 
   it('@mention 建 WU：无 traceId 时 metadata 不含 traceId 字段', async () => {
-    const message = await routeMessage(channelId, '@Nobody 做个事', undefined, fileStore);
+    const message = await routeMessage(channelId, '@Nobody 做个事', undefined, { fs: fileStore });
 
     expect(message.workUnitId).toBeTruthy();
     const meta = await findWuMeta(message.workUnitId!);
@@ -74,12 +74,12 @@ describe('message-routing traceId (P0 修复 6)', () => {
   });
 
   it('线程回复：不建 WU，traceId 不产生任何 WorkUnit', async () => {
-    const parent = await routeMessage(channelId, '@Nobody 父消息', undefined, fileStore, {
+    const parent = await routeMessage(channelId, '@Nobody 父消息', undefined, { fs: fileStore,
       traceId: 'trace-parent',
     });
     const wuCountBefore = (await fileStore.getIndex()).length;
 
-    const reply = await routeMessage(channelId, '线程回复', parent.id, fileStore, {
+    const reply = await routeMessage(channelId, '线程回复', parent.id, { fs: fileStore,
       traceId: 'trace-reply',
     });
 
@@ -90,11 +90,11 @@ describe('message-routing traceId (P0 修复 6)', () => {
 
   // #519: traceId 三条派单路径补齐（spec 2026-09-12-channel-mainline-measurement）
   it('#519 线程回复：关联 WU 的 metadata.traceId 刷新为本次请求 traceId', async () => {
-    const parent = await routeMessage(channelId, '@Nobody 父消息', undefined, fileStore, {
+    const parent = await routeMessage(channelId, '@Nobody 父消息', undefined, { fs: fileStore,
       traceId: 'trace-parent',
     });
 
-    const reply = await routeMessage(channelId, '线程回复', parent.id, fileStore, {
+    const reply = await routeMessage(channelId, '线程回复', parent.id, { fs: fileStore,
       traceId: 'trace-reply',
     });
 
@@ -105,7 +105,7 @@ describe('message-routing traceId (P0 修复 6)', () => {
   it('#519 默认角色派单（新建 WU）：options.traceId 写入 metadata.traceId', async () => {
     await fileStore.updateChannel(channelId, { defaultProfileId: 'default-agent-1' });
 
-    const message = await routeMessage(channelId, '无 @ 的普通消息', undefined, fileStore, {
+    const message = await routeMessage(channelId, '无 @ 的普通消息', undefined, { fs: fileStore,
       traceId: 'trace-default-new',
     });
 
@@ -117,11 +117,11 @@ describe('message-routing traceId (P0 修复 6)', () => {
 
   it('#519 默认角色合并窗口：并入的在途 WU metadata.traceId 刷新为本次消息 traceId', async () => {
     await fileStore.updateChannel(channelId, { defaultProfileId: 'default-agent-1' });
-    const first = await routeMessage(channelId, '第一条', undefined, fileStore, {
+    const first = await routeMessage(channelId, '第一条', undefined, { fs: fileStore,
       traceId: 'trace-merge-first',
     });
 
-    const second = await routeMessage(channelId, '窗口内第二条', undefined, fileStore, {
+    const second = await routeMessage(channelId, '窗口内第二条', undefined, { fs: fileStore,
       traceId: 'trace-merge-second',
     });
 

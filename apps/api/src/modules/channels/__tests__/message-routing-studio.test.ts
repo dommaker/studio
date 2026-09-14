@@ -65,7 +65,7 @@ describe('F5: @studio 路由 → 频道入口角色 / 未指派', () => {
     await fileStore.createProfile(profile('studio-1', 'studio', 'active', STUDIO_ROLE_DESCRIPTION));
     await fileStore.createProfile(profile('entry-1', 'pm'));
 
-    const result = await routeMessage(channelId, '@studio 帮我看下这个需求', undefined, fileStore);
+    const result = await routeMessage(channelId, '@studio 帮我看下这个需求', undefined, { fs: fileStore });
 
     // defaultProfileId 未配置 → 未指派（先验证默认行为）
     let wu = await findWu(result.workUnitId!);
@@ -73,7 +73,7 @@ describe('F5: @studio 路由 → 频道入口角色 / 未指派', () => {
 
     // 配置入口角色后 → 转派
     await fileStore.updateChannel(channelId, { defaultProfileId: 'entry-1' });
-    const result2 = await routeMessage(channelId, '@studio 帮我看下这个需求', undefined, fileStore);
+    const result2 = await routeMessage(channelId, '@studio 帮我看下这个需求', undefined, { fs: fileStore });
     wu = await findWu(result2.workUnitId!);
     expect(wu).toBeTruthy();
     expect(wu!.assigneeId).toBe('entry-1');
@@ -92,7 +92,7 @@ describe('F5: @studio 路由 → 频道入口角色 / 未指派', () => {
     await fileStore.createProfile(profile('entry-1', 'pm'));
     await fileStore.updateChannel(channelId, { defaultProfileId: 'entry-1' });
 
-    const result = await routeMessage(channelId, '@studio 任务', undefined, fileStore);
+    const result = await routeMessage(channelId, '@studio 任务', undefined, { fs: fileStore });
     const wu = await findWu(result.workUnitId!);
     expect(wu!.assigneeId).not.toBe('studio-1');
     expect(wu!.assigneeId).toBe('entry-1');
@@ -101,7 +101,7 @@ describe('F5: @studio 路由 → 频道入口角色 / 未指派', () => {
   it('@studio + 未配置 defaultProfileId → 未指派 + 频道说明（#464：未匹配不再静默）', async () => {
     await fileStore.createProfile(profile('studio-1', 'studio'));
 
-    const result = await routeMessage(channelId, '@studio 帮我看下', undefined, fileStore);
+    const result = await routeMessage(channelId, '@studio 帮我看下', undefined, { fs: fileStore });
 
     const wu = await findWu(result.workUnitId!);
     expect(wu!.assigneeId).toBeNull();
@@ -118,7 +118,7 @@ describe('F5: @studio 路由 → 频道入口角色 / 未指派', () => {
     await fileStore.createProfile(profile('entry-1', 'pm', 'inactive'));
     await fileStore.updateChannel(channelId, { defaultProfileId: 'entry-1' });
 
-    const result = await routeMessage(channelId, '@studio 帮我看下', undefined, fileStore);
+    const result = await routeMessage(channelId, '@studio 帮我看下', undefined, { fs: fileStore });
 
     const wu = await findWu(result.workUnitId!);
     expect(wu!.assigneeId).toBeNull();
@@ -134,7 +134,7 @@ describe('F5: @studio 路由 → 频道入口角色 / 未指派', () => {
       members: JSON.stringify(['someone-else']), // 频道 members 非空但不含入口角色
     });
 
-    const result = await routeMessage(channelId, '@studio 帮我看下', undefined, fileStore);
+    const result = await routeMessage(channelId, '@studio 帮我看下', undefined, { fs: fileStore });
 
     const wu = await findWu(result.workUnitId!);
     expect(wu!.assigneeId).toBeNull();
@@ -145,7 +145,7 @@ describe('F5: @studio 路由 → 频道入口角色 / 未指派', () => {
   it('@pm 正常直达（不受 studio 特殊路由影响）', async () => {
     await fileStore.createProfile(profile('pm-1', 'pm'));
 
-    const result = await routeMessage(channelId, '@pm 拆解这个需求', undefined, fileStore);
+    const result = await routeMessage(channelId, '@pm 拆解这个需求', undefined, { fs: fileStore });
 
     const wu = await findWu(result.workUnitId!);
     expect(wu!.assigneeId).toBe('pm-1');

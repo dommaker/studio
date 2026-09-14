@@ -80,7 +80,7 @@ describe('routeMessage workspace binding（#481：机器指针退役）', () => 
   it('频道配 defaultWorkspaceId 也不再落 WU（归属不再产出机器指针）', async () => {
     channelId = await createChannel(testWsId);
 
-    const msg = await routeMessage(channelId, '@Agent do this', undefined, fileStore);
+    const msg = await routeMessage(channelId, '@Agent do this', undefined, { fs: fileStore });
 
     const wu = await findWu(msg.workUnitId!);
     expect(wu).toBeTruthy();
@@ -88,15 +88,15 @@ describe('routeMessage workspace binding（#481：机器指针退役）', () => 
   });
 
   it('workspaceId=null when channel has no default and none given', async () => {
-    const msg = await routeMessage(channelId, '@Agent do this', undefined, fileStore);
+    const msg = await routeMessage(channelId, '@Agent do this', undefined, { fs: fileStore });
 
     const wu = await findWu(msg.workUnitId!);
     expect(wu!.workspaceId ?? null).toBeNull();
   });
 
   it('thread reply does not create/bind WorkUnit (unchanged)', async () => {
-    const anchor = await routeMessage(channelId, '@Agent do this', undefined, fileStore);
-    const reply = await routeMessage(channelId, 'follow up', anchor.id, fileStore);
+    const anchor = await routeMessage(channelId, '@Agent do this', undefined, { fs: fileStore });
+    const reply = await routeMessage(channelId, 'follow up', anchor.id, { fs: fileStore });
     expect(reply.workUnitId).toBe(anchor.workUnitId);
   });
 });
