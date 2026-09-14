@@ -4,17 +4,16 @@ import { useParams, useSearchParams } from 'react-router-dom';
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { formatChannelName } from '@dommaker/studio-shared/web';
 import { useChannelMessages } from '../hooks/useChannelEvents';
-import { usePersistentStreamUI } from '../hooks/usePersistentStreamUI';
-import { useStreamFollow } from '../hooks/useStreamFollow';
+import { useChannelStream } from '../hooks/useChannelStream';
 import { useMessageLocate } from '../hooks/useMessageLocate';
 import { useMessageNav } from '../hooks/useMessageNav';
 import { useActivityMessageItems } from '../hooks/useActivityMessageItems';
 import { useChannelCardActions } from '../hooks/useChannelCardActions';
 import { useWebSocketContext } from '../api/websocketHooks';
 import { ChannelMessageItem } from '../components/channel/ChannelMessageItem';
+import { ChannelStreamBody } from '../components/channel/ChannelStreamBody';
 import { ChannelWorkBar } from '../components/channel/ChannelWorkBar';
-import { deriveStreamView, streamDateStrOf, streamDateLabelOf, navigableIdsOf, type StreamItem } from '../utils/streamView';
-import { buildMessageToItemIndex } from '../utils/streamVirtual';
+import { navigableIdsOf } from '../utils/streamView';
 import { ChannelInput } from '../components/channel/ChannelInput';
 import { SuggestionChips, type SuggestionChipItem } from '../components/channel/SuggestionChips';
 import { ChannelTopbarMenu } from '../components/channel/ChannelTopbarMenu';
@@ -41,15 +40,6 @@ import type { Channel, ChannelMessage, ChannelSuggestion, FileRef } from '../api
 import { channelApi } from '../api/channel';
 import { saveLastChannelId } from '../utils/lastChannel';
 import { markPageEntry, emitPageFirstRender, emitReceiptRendered } from '../utils/clientPerf';
-
-/** Phase 3（AC3）：告警组摘要行的首末消息时间（HH:MM；解析失败回退空串） */
-function hhmmOf(iso: string): string {
-  try {
-    return new Date(iso).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
-  } catch {
-    return '';
-  }
-}
 
 /** #483：某 WU 的当前提问消息 = 该 WU 最新一条非人类消息（与 latestQuestionIdByWu 同口径）。
  *  chip 翻页定位循环需读最新快照（memo 值在异步循环里是旧闭包），故抽纯函数共用 */
@@ -108,14 +98,6 @@ export function ChannelDetailPage() {
     }
   }, [id, loading, messages]);
   const [sending, setSending] = useState(false);
-  // 折叠 UI 状态（showCompleted / collapsedThreads / expandedProcGroups / expandedAlertGroups）按频道持久化（Step 3），
-  // setter 语义同 useState；线程默认全部展开，collapsedThreads 只存手动收起的锚点 id
-  const {
-    showCompleted, setShowCompleted,
-    collapsedThreads, setCollapsedThreads,
-    expandedProcGroups, setExpandedProcGroups,
-    expandedAlertGroups, setExpandedAlertGroups,
-  } = usePersistentStreamUI(id);
   const [replyTo, setReplyTo] = useState<ChannelMessage | null>(null);
   // #493：线程回复送达后的轻量「已送达/等待 agent」状态（wuId + 送达时刻；agent 响应或超时清除）
   const [awaitingAgent, setAwaitingAgent] = useState<{ wuId: string; since: number } | null>(null);
@@ -356,42 +338,12 @@ export function ChannelDetailPage() {
     useChannelWorkStore.getState().ensureWuChangedFiles(wuIds);
   }, [messages]);
 
-  // AC-C3: 线程收起/展开（2026-09 折叠层级 4→2：默认全部展开，collapsedThreads 存手动收起的锚点 id）
-  const toggleThread = useCallback((anchorId: string) => {
-    setCollapsedThreads(prev => {
-      const next = new Set(prev);
-      if (next.has(anchorId)) next.delete(anchorId);
-      else next.add(anchorId);
-      return next;
-    });
-  }, [setCollapsedThreads]);
-
-  // 线程内过程消息组的展开状态（保持一层折叠：默认收拢，key = proc-<首条消息 id>）
-  const toggleProcGroup = useCallback((key: string) => {
-    setExpandedProcGroups(prev => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  }, [setExpandedProcGroups]);
-
-  // Phase 3（AC3）：主流告警组展开状态（默认折叠，key = alerts-<首条消息 id>，按频道持久化）
-  const toggleAlertGroup = useCallback((key: string) => {
-    setExpandedAlertGroups(prev => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  }, [setExpandedAlertGroups]);
-
   // #416：右栏消息摘要投影——右栏只消费 card/agent WU 条目集（不再收全量 messages）；
   // 无关增量（人类插话等）投影等值 → 引用保持 → memo 化的右栏整栏零重渲
   const activityMessageItems = useActivityMessageItems(messages);
 
   // #530：定位语义（翻页定位循环 / 展开收起线程 / unpin / 高亮生命周期 / 防重入台账）
-  // 已收编 useMessageLocate——quote / chip / ?highlight 三条调用链见 useStreamFollow 下方接线
+  // 已收编 useMessageLocate——quote / chip / ?highlight 三条调用链见组合层产物下方接线
 
   // 里程碑判定（不折叠）：人类消息 / 卡片消息 / 等待回复 / 最后一条回复——已迁入 deriveStreamView（#322）
 
@@ -408,57 +360,21 @@ export function ChannelDetailPage() {
   const openReqFromRailOverlay = useCallback((reqId: string) => { setActRailOpen(false); openReq(reqId); }, [openReq]);
   useEffect(() => { if (lgUp) setActRailOpen(false); }, [lgUp]);
 
-  // #322: 消息流管线——归组/过程折叠/连续合并/日期分隔/可见性走 deriveStreamView 纯函数，
-  // useMemo 消费（消息引用与 UI 状态不变则零重算）；折叠 UI 状态由 usePersistentStreamUI 按频道持久化
-  const streamView = useMemo(() => deriveStreamView(messages, {
-    showCompleted,
-    collapsedThreads,
-    expandedProcGroups,
-    expandedAlertGroups,
-    promotedQuestionIds,
-    isWaitingForInput,
-  }), [messages, showCompleted, collapsedThreads, expandedProcGroups, expandedAlertGroups, promotedQuestionIds, isWaitingForInput]);
-
-  // #325：mid→item index 映射（prepend 补偿 / 阅读位置恢复 / highlight 定位的桥）
-  const messageToItemIndex = useMemo(() => buildMessageToItemIndex(streamView.items), [streamView.items]);
-
-  // #325：滚动内容头部块（加载更早/折叠 toggle/空态）高度 → virtualizer scrollMargin
-  const streamHeadRef = useRef<HTMLDivElement>(null);
-  const [streamHeadH, setStreamHeadH] = useState(0);
-  useEffect(() => {
-    const el = streamHeadRef.current;
-    if (!el || typeof ResizeObserver === 'undefined') return;
-    const update = () => setStreamHeadH(el.offsetHeight);
-    update();
-    const ro = new ResizeObserver(update);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
-
-  // 消息流滚动状态机：#322 整块抽成 useStreamFollow（PURE_MOVE 行为零变化）——
-  // observed-top 台账 / 钉底跟随 / 行锚点补偿 / ResizeObserver 跟随 / 阅读位置存档全在 hook 内；
-  // #325 起 virtualizer 也建在 hook 内（入参 items/messageToItemIndex/scrollMargin）
-  const {
-    streamRef,
-    streamInnerRef,
-    handleStreamScroll,
-    showJumpToBottom,
-    pinAndJumpToBottom,
-    unpinFromBottom,
-    handleLoadMore,
-    ownSendPendingRef,
-    awayNewCount,
-    virtualizer,
-    virtualEnabled,
-  } = useStreamFollow({
+  // #531：消息流组合层——「messages 到手之后到渲染之前」的全部装配内化 useChannelStream
+  // （deriveStreamView → messageToItemIndex → streamHead 测量 → useStreamFollow → syncPruning
+  // 的接线顺序不变量由模块结构承载）；本页只消费契约产物：结构（头块/导航）、滚动跟随
+  // （浮钮/发送链路）、特性消费产物（下方 locate / 键盘导航即插即用口）
+  const stream = useChannelStream({
     channelId: id,
-    messages,
-    loading,
-    loadMore,
-    items: streamView.items,
-    messageToItemIndex,
-    scrollMargin: streamHeadH,
+    messages, loading, loadMore, syncPruning,
+    promotedQuestionIds, isWaitingForInput,
   });
+  const {
+    streamHeadRef, completedCount, showCompleted, setShowCompleted,
+    streamRef, handleStreamScroll, showJumpToBottom, pinAndJumpToBottom, unpinFromBottom,
+    awayNewCount, handleLoadMore, ownSendPendingRef,
+    messageToItemIndex, virtualizer, virtualEnabled, setCollapsedThreads,
+  } = stream;
 
   // #530：mid→可见 定位语义单入口（架构评审 2026-09-14 候选 2）——翻页定位循环（#439）/
   // 根锚解析展开收起线程 / unpin 时机 / 高亮生命周期（滚动 + 2s 消退）/ 防重入台账全内化模块；
@@ -489,9 +405,9 @@ export function ChannelDetailPage() {
     locateMessage(mid);
   }, [searchParams, loading, locateMessage]);
 
-  // Phase 3（AC5）：消息级键盘导航（j/k/r/Esc）——可导航序列 = streamView items 拍平
+  // Phase 3（AC5）：消息级键盘导航（j/k/r/Esc）——可导航序列 = stream items 拍平
   // （navigableIdsOf 纯函数：折叠组/日期分隔跳过）；滚动跟随 scrollToIndex 优先、DOM 查询兜底
-  const navIds = useMemo(() => navigableIdsOf(streamView.items), [streamView.items]);
+  const navIds = useMemo(() => navigableIdsOf(stream.items), [stream.items]);
   const scrollToFocusedMessage = useCallback((mid: string) => {
     unpinFromBottom(); // 键盘导航 = 离开底部的阅读意图（同 highlight 定位，防钉底跟随拽回）
     const idx = messageToItemIndex.get(mid);
@@ -516,21 +432,6 @@ export function ChannelDetailPage() {
     onCancelReply: () => setReplyTo(null), // 内联回调：hook 镜像 ref 每渲染同步，引用稳定非必需
     onFocusScroll: scrollToFocusedMessage,
   });
-
-  // #326：首个可见消息 → 数据层降级/水合同步。仅虚拟化路径（jsdom 全量渲染不降级，
-  // 页面测试语义不变）；首个 virtual item 含 overscan 缓冲，作为降级锚点足够
-  const firstVirtual = virtualEnabled ? virtualizer.getVirtualItems()[0] : undefined;
-  const firstVisibleItem = firstVirtual ? streamView.items[firstVirtual.index] : undefined;
-  const firstVisibleMid = firstVisibleItem
-    ? (firstVisibleItem.kind === 'thread'
-      ? firstVisibleItem.anchor.id
-      : firstVisibleItem.kind === 'alert-group'
-        ? firstVisibleItem.messages[0]?.id ?? null
-        : firstVisibleItem.message.id)
-    : null;
-  useEffect(() => {
-    if (virtualEnabled && firstVisibleMid) syncPruning(firstVisibleMid);
-  }, [virtualEnabled, firstVisibleMid, syncPruning]);
 
   const handleSend = useCallback(async (content: string, replyToId?: string, files?: FileRef[]) => {
     setSending(true);
@@ -626,124 +527,6 @@ export function ChannelDetailPage() {
     />
   ), [handleAction, handleReply, findMessage, id, isWaitingForInput, openWu, openWuConfirm, openWuRuling, openReq, handleInlineReply, fileVocabulary, wuChangedFiles, highlightId, locateMessage, freshMsgIds, focusedId]);
 
-  // #326：骨架占位行——degraded 消息（含 thread anchor）渲染为固定占位行，
-  // 保留 data-message-id（锚点捕获/阅读位置仍可按 mid 定位）；水合后原位恢复。
-  // #439 走查修复：highlight 目标为骨架时同样给 mc-msg-highlight——否则 ?highlight 直达
-  // 老消息（掉出 PRUNE_KEEP_RECENT 被降级）定位成功但高亮不可见；水合后原位恢复为全量行。
-  const renderSkeletonRow = useCallback((mid: string, dateNode: React.ReactNode) => (
-    <>
-      {dateNode}
-      <div className={`mc-msg-skeleton${highlightId === mid ? ' mc-msg-highlight' : ''}`} data-message-id={mid}>历史消息已卸载 · 滚动经过自动加载</div>
-    </>
-  ), [highlightId]);
-
-  // #325：单个 stream item 的渲染内容（日期分隔 + 消息/线程组）——外层包裹（key/测量）
-  // 由调用方决定：非虚拟化路径 = 普通 div；虚拟化路径 = data-index + measureElement 行
-  const renderStreamItem = useCallback((item: StreamItem) => {
-    // Phase 3（AC3）：主流告警组——折叠 = 单行摘要（条数 + severity 计数 + 首末时间范围）；
-    // 展开 = 摘要行（兼收起入口）+ 组内消息逐条渲染（复用 renderMessageItem，memo 契约不变）。
-    // 组内跨天（聚合 pass 在日期分隔之后做）时组内自渲染日期分隔；折叠摘要行按首条日期站位主流分隔。
-    if (item.kind === 'alert-group') {
-      const first = item.messages[0];
-      const last = item.messages[item.messages.length - 1];
-      return (
-        <>
-          {item.showDate && (
-            <div className="mc-date" key={item.dateKey}>{item.dateLabel}</div>
-          )}
-          <div className={`mc-alert-group${item.expanded ? ' mc-alert-group-expanded' : ''}`}>
-            <button
-              type="button"
-              className="mc-alert-group-summary"
-              aria-expanded={item.expanded}
-              onClick={() => toggleAlertGroup(item.key)}
-            >
-              ⚠ {item.messages.length} 条监控告警 · {item.criticalCount} CRITICAL · {item.warningCount} WARNING
-              · {hhmmOf(first.createdAt)}–{hhmmOf(last.createdAt)}
-            </button>
-            {item.expanded && (
-              <div className="mc-alert-group-body">
-                {item.messages.map((m, i) => {
-                  // 组内跨天：相邻消息日期串不同则插组内日期分隔（首条不占——组的分隔在主流）
-                  const innerDate = i > 0 && streamDateStrOf(m) !== streamDateStrOf(item.messages[i - 1])
-                    ? <div className="mc-date mc-alert-group-date" key={`date-${m.id}`}>{streamDateLabelOf(m, streamDateStrOf(m))}</div>
-                    : null;
-                  return (
-                    <div key={m.id}>
-                      {innerDate}
-                      {m.degraded
-                        ? renderSkeletonRow(m.id, null)
-                        : renderMessageItem(m)}
-                    </div>
-                  );
-                })}
-                <button type="button" className="mc-collapse-toggle" onClick={() => toggleAlertGroup(item.key)}>
-                  收起 {item.messages.length} 条监控告警
-                </button>
-              </div>
-            )}
-          </div>
-        </>
-      );
-    }
-    if (item.kind === 'thread') {
-      if (item.anchor.degraded) {
-        return renderSkeletonRow(item.anchor.id, item.showDate && (
-          <div className="mc-date" key={item.dateKey}>{item.dateLabel}</div>
-        ));
-      }
-      return (
-        <>
-          {item.showDate && (
-            <div className="mc-date" key={item.dateKey}>
-              {item.dateLabel}
-            </div>
-          )}
-          {renderMessageItem(item.anchor, {
-            isThreadAnchor: true,
-            threadReplyCount: item.replyCount,
-            isExpanded: item.expanded,
-            onToggleThread: toggleThread,
-            compact: item.compact,
-          })}
-          {item.expanded && item.replyCount > 0 && (
-            <div className="mc-thread-replies">
-              {item.replies.map(ri => {
-                if (ri.kind === 'msg') {
-                  return renderMessageItem(ri.message, { isThreadReply: true, compact: ri.compact });
-                }
-                return ri.expanded ? (
-                  <div key={ri.key}>
-                    <button onClick={() => toggleProcGroup(ri.key)} className="mc-collapse-toggle">
-                      收起 {ri.messages.length} 条过程消息
-                    </button>
-                    {ri.messages.map(reply => renderMessageItem(reply, { isThreadReply: true }))}
-                  </div>
-                ) : (
-                  <button key={ri.key} onClick={() => toggleProcGroup(ri.key)} className="mc-collapse-toggle">
-                    ▸ {ri.messages.length} 条过程消息
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </>
-      );
-    }
-    return (
-      <>
-        {item.showDate && (
-          <div className="mc-date" key={item.dateKey}>
-            {item.dateLabel}
-          </div>
-        )}
-        {item.message.degraded
-          ? renderSkeletonRow(item.message.id, null)
-          : renderMessageItem(item.message, { compact: item.compact })}
-      </>
-    );
-  }, [renderMessageItem, renderSkeletonRow, toggleThread, toggleProcGroup, toggleAlertGroup]);
-
   if (!id) return <div className="mc-stream-empty" style={{ height: '100%' }}>频道不存在或链接无效</div>;
 
   return (
@@ -781,9 +564,9 @@ export function ChannelDetailPage() {
         <ChannelWorkBar channelId={id} currentWu={currentWu} onOpenWorkUnit={openWu} gate={workBarGate} wuIdle={wuIdleOf(suggestionsSlice)} />
 
         {/* Message list
-            #325：头部块（空态/加载更早/折叠 toggle）与虚拟列表 spacer 分离——
-            头部高度经 streamHeadRef 量作 virtualizer scrollMargin；
-            虚拟化路径只渲染窗口内行（spacer 撑总高 + 块平移），非虚拟化（jsdom）全量渲染 */}
+            #325：头部块（空态/加载更早/折叠 toggle）与消息体分离——
+            头部高度经 streamHeadRef 量作 virtualizer scrollMargin（组合层内）；
+            #531：消息体结构分支（virtual/non-virtual + spacer/translateY）在 ChannelStreamBody */}
         <div className="mc-stream" ref={streamRef} onScroll={handleStreamScroll}>
           {/* mc-stream-head：滚动测量容器（streamHeadRef 挂点），无样式需求，结构化 hook（#431 定性保留） */}
           <div className="mc-stream-head" ref={streamHeadRef}>
@@ -828,40 +611,20 @@ export function ChannelDetailPage() {
             )}
 
             {/* B2-006: collapse completed toggle */}
-            {!showCompleted && streamView.completedCount > 2 && (
+            {!showCompleted && completedCount > 2 && (
               <button onClick={() => setShowCompleted(true)} className="mc-collapse-toggle">
-                显示 {streamView.completedCount - 2} 条已完成消息
+                显示 {completedCount - 2} 条已完成消息
               </button>
             )}
-            {showCompleted && streamView.completedCount > 2 && (
+            {showCompleted && completedCount > 2 && (
               <button onClick={() => setShowCompleted(false)} className="mc-collapse-toggle">
                 收起已完成消息
               </button>
             )}
           </div>
-          <div
-            className="mc-stream-inner"
-            ref={streamInnerRef}
-            style={virtualEnabled ? { height: virtualizer.getTotalSize(), position: 'relative' } : undefined}
-          >
-            {/* B2-002: Date separators + B2-006: collapse completed + AC-C3: threads
-                #322: 归组/折叠/合并/日期分隔/可见性由 deriveStreamView 算出（useMemo 消费） */}
-            {virtualEnabled ? (
-              <div style={{ transform: `translateY(${(virtualizer.getVirtualItems()[0]?.start ?? 0) - streamHeadH}px)` }}>
-                {virtualizer.getVirtualItems().map(vi => (
-                  <div key={vi.key} data-index={vi.index} ref={virtualizer.measureElement}>
-                    {renderStreamItem(streamView.items[vi.index])}
-                  </div>
-                ))}
-              </div>
-            ) : (
-              streamView.items.map(item => (
-                <div key={item.kind === 'thread' ? item.anchor.id : item.kind === 'alert-group' ? item.key : item.message.id}>
-                  {renderStreamItem(item)}
-                </div>
-              ))
-            )}
-          </div>
+          {/* #531：items → DOM 结构分支（virtual/non-virtual + spacer/translateY + 三 kind 分派 +
+              skeleton 占位）收编 ChannelStreamBody；renderMessageItem 与 highlightId 由本页注入 */}
+          <ChannelStreamBody stream={stream} renderMessage={renderMessageItem} highlightId={highlightId} />
           {/* #289: 偏离底部时浮出「回到底部」（sticky 贴滚动视口底部，不占流内高度）；
               批次 E-3：钉底跟随期间到达的新消息计数进浮钮文案，点击回底后清零 */}
           {showJumpToBottom && (
