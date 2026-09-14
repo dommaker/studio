@@ -1156,22 +1156,6 @@ export function ChannelDetailPage() {
           )}
         </div>
 
-        {/* #443–#447：引导片（唯一来源 = 建议端点派生片；prompt 点击填入输入框，status 只读，
-            action 点击走下方确认弹窗直调确定性接口；会话级 dismiss）
-            #484：片粒度 dismiss——每片独立 ✕，按片 dismissKey 记账，不再一键清全部 */}
-        {visibleChips.length > 0 && (
-          <SuggestionChips
-            suggestions={visibleChips}
-            onPick={(text) => setInputPrefill(p => ({ text, nonce: (p?.nonce ?? 0) + 1 }))}
-            onAction={handleSuggestionAction}
-            onDismiss={(item) => {
-              const key = visibleChips.find(c => c.id === item.id)?.dismissKey;
-              if (!key) return; // fail-closed：找不到台账 key 不记（不静默吞掉别片）
-              setDismissedSuggestionKeys(prev => new Set(prev).add(key));
-            }}
-          />
-        )}
-
         {/* #444：动作片一次确认——文案说清点了会发生什么；失败原因内联进弹窗不静默 */}
         {pendingSuggestionAction && pendingActionDef && (
           <ConfirmDialog
@@ -1192,14 +1176,34 @@ export function ChannelDetailPage() {
           />
         )}
 
-        {/* #493：线程回复送达即时反馈——「已送达，等待 agent 响应」，
-            该 WU 的 agent 新消息到达或 30s 超时自动消失 */}
-        {awaitingAgent && !agentAnswered && (
-          <div className="mc-agent-ack" role="status">已送达，等待 agent 响应…</div>
-        )}
+        {/* channel 上下游优化 Phase 4（AC6）：底部输入区视觉归组——引导片 / 送达反馈条 / 输入条
+            收进统一容器（承载样式见 .mc-composer-stack），纯结构包裹，交互逻辑与状态流不动 */}
+        <div className="mc-composer-stack">
+          {/* #443–#447：引导片（唯一来源 = 建议端点派生片；prompt 点击填入输入框，status 只读，
+              action 点击走上方确认弹窗直调确定性接口；会话级 dismiss）
+              #484：片粒度 dismiss——每片独立 ✕，按片 dismissKey 记账，不再一键清全部 */}
+          {visibleChips.length > 0 && (
+            <SuggestionChips
+              suggestions={visibleChips}
+              onPick={(text) => setInputPrefill(p => ({ text, nonce: (p?.nonce ?? 0) + 1 }))}
+              onAction={handleSuggestionAction}
+              onDismiss={(item) => {
+                const key = visibleChips.find(c => c.id === item.id)?.dismissKey;
+                if (!key) return; // fail-closed：找不到台账 key 不记（不静默吞掉别片）
+                setDismissedSuggestionKeys(prev => new Set(prev).add(key));
+              }}
+            />
+          )}
 
-        {/* Input */}
-        <ChannelInput onSend={handleSend} sending={sending} replyTo={replyTo} onCancelReply={() => setReplyTo(null)} channelId={id} prefill={inputPrefill} onReplyPreviewClick={locateMessage} />
+          {/* #493：线程回复送达即时反馈——「已送达，等待 agent 响应」，
+              该 WU 的 agent 新消息到达或 30s 超时自动消失 */}
+          {awaitingAgent && !agentAnswered && (
+            <div className="mc-agent-ack" role="status">已送达，等待 agent 响应…</div>
+          )}
+
+          {/* Input */}
+          <ChannelInput onSend={handleSend} sending={sending} replyTo={replyTo} onCancelReply={() => setReplyTo(null)} channelId={id} prefill={inputPrefill} onReplyPreviewClick={locateMessage} />
+        </div>
       </main>
 
       {/* 右栏：频道动态 REQ 链路卡（#394，spec §4.1–4.3）；REQ/WU 点击仍走下方覆盖抽屉。

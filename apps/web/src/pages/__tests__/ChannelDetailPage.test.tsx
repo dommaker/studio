@@ -1715,3 +1715,62 @@ describe('ChannelDetailPage — 消息加载失败错误态（#482）', () => {
     expect(screen.getByText((MESSAGES[0] as { content: string }).content)).toBeTruthy();
   });
 });
+
+// channel 上下游优化 Phase 4（AC6）：底部输入区视觉归组——
+// 引导片 / 送达反馈条 / 输入条收进统一 .mc-composer-stack 容器（纯结构包裹，样式承载在 mission-control.css）
+describe('ChannelDetailPage — Phase 4（AC6）composer-stack 输入区归组', () => {
+  const CHANNEL = { data: { data: { id: 'ch-1', name: 'rnd-主研发', type: 'rnd', members: '[]' } } };
+  const SUGGESTION = {
+    data: {
+      data: {
+        currentWuId: 'WU-4001',
+        suggestions: [{
+          id: 'transcribe-review-checklist', kind: 'prompt',
+          params: { wuId: 'WU-4001', wuTitle: '登录功能' },
+          text: '@reviewer 把《登录功能》的验收标准转写成审查清单',
+        }],
+      },
+    },
+  };
+  const EMPTY = { data: { data: { currentWuId: null, suggestions: [] } } };
+  let suggestionPayload: unknown = EMPTY;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    window.localStorage.clear();
+    currentMessages = MESSAGES;
+    currentHasMore = false;
+    currentError = null;
+    sseHandlers = [];
+    suggestionPayload = EMPTY;
+    useNotificationStore.setState({ stateItems: [], notifications: [], unreadCount: 0 });
+    mockApiGet.mockImplementation((url: string) => Promise.resolve(
+      String(url).endsWith('/suggestions') ? suggestionPayload : CHANNEL,
+    ));
+    mockListWorkunits.mockImplementation((params?: { status?: string }) => Promise.resolve(
+      params?.status === 'active' ? activeWuList([]) : { data: { data: [] } },
+    ));
+    mockOnEvent.mockImplementation((cb: SseHandler) => { sseHandlers.push(cb); return () => {}; });
+    mockOnReconnect.mockImplementation((cb: () => void) => { reconnectHandlers.push(cb); return () => {}; });
+    reconnectHandlers = [];
+    mockListReqs.mockResolvedValue({ data: { data: [] } });
+    mockSendMessage.mockResolvedValue({});
+  });
+
+  it('composer-stack 容器恒在且包裹输入条（无引导片/无 ack 时也在）', async () => {
+    renderPage();
+    await waitFor(() => expect(screen.getByText('#rnd-主研发')).toBeTruthy());
+    const stack = document.querySelector('.mc-composer-stack');
+    expect(stack).not.toBeNull();
+    expect(stack!.contains(screen.getByTestId('channel-input'))).toBe(true);
+  });
+
+  it('引导片在容器内且按序位于输入条之前（chips → input）', async () => {
+    suggestionPayload = SUGGESTION;
+    renderPage();
+    const suggest = (await screen.findByText(/转写审查清单/)).closest('.mc-suggest')!;
+    const stack = document.querySelector('.mc-composer-stack')!;
+    expect(stack.contains(suggest)).toBe(true);
+    expect(suggest.compareDocumentPosition(screen.getByTestId('channel-input')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+});
