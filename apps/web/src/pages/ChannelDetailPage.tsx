@@ -33,9 +33,9 @@ import axios from 'axios';
 import { useNotificationStore } from '../stores/notificationStore';
 import { useUnreadStore } from '../stores/unreadStore';
 import { useChannelDataStore, parseChannelMembers } from '../stores/channelDataStore';
-import { fanOut } from '../utils/fanOut';
-import { requirementApi, type Requirement, type RequirementStatus } from '../api/requirements';
-import { parseLiveWuRef } from '../components/workunit/execution-rows';
+import { useChannelWorkStore, parseRequirementPayload, wuIdleOf } from '../stores/channelWorkStore';
+import { useChannelWorkStoreSync } from '../hooks/useChannelWorkStoreSync';
+import type { Requirement } from '../api/requirements';
 import type { Channel, ChannelMessage, ChannelSuggestion, FileRef } from '../api/channel';
 import { channelApi } from '../api/channel';
 import { saveLastChannelId } from '../utils/lastChannel';
@@ -53,11 +53,6 @@ function hhmmOf(iso: string): string {
     return '';
   }
 }
-
-/** #489：建议端点 SSE 触发面共享的 trailing 防抖窗口——一次状态转换常伴随多类事件连发
- *  （status_changed / 里程碑 message_sent / requirement.*），合并为一次请求防风暴；
- *  挂载/重连/动作回扫仍即时重拉，不经防抖 */
-const SUGGESTIONS_RELOAD_DEBOUNCE_MS = 500;
 
 /** #483：某 WU 的当前提问消息 = 该 WU 最新一条非人类消息（与 latestQuestionIdByWu 同口径）。
  *  chip 翻页定位循环需读最新快照（memo 值在异步循环里是旧闭包），故抽纯函数共用 */
@@ -90,37 +85,10 @@ function suggestionActionErrorMessage(e: unknown): string {
 /** #443：带 dismiss 台账 key 的引导片（key = `ep:{wuId}:{suggestionId}`，端点派生片唯一来源 #447） */
 type DismissibleChip = SuggestionChipItem & { dismissKey: string };
 
-const REQ_STATUSES = new Set<RequirementStatus>(['open', 'in-progress', 'done', 'archived']);
-
-/** requirement.created/updated SSE data（{ requirement } 信封，同 workunit.status_changed 的 { workunit }）
- *  → 全量 Requirement（#415：service 发布完整对象，与 REST get 同源 → 就地 upsert 零补拉，ADR D1）。
- *  必填字段缺失/坏数据 → null，跳过不编造；channelId 可选，缺省由调用方放行。 */
-function parseRequirementPayload(data: unknown): Requirement | null {
-  try {
-    const p = (typeof data === 'string' ? JSON.parse(data) : data) as Record<string, unknown> | null;
-    const req = p?.requirement as Record<string, unknown> | undefined;
-    if (!req || typeof req.id !== 'string' || !req.id) return null;
-    if (typeof req.seq !== 'number' || !Number.isFinite(req.seq)) return null;
-    if (typeof req.title !== 'string' || typeof req.createdAt !== 'string' || typeof req.createdBy !== 'string') return null;
-    if (typeof req.status !== 'string' || !REQ_STATUSES.has(req.status as RequirementStatus)) return null;
-    return {
-      id: req.id,
-      seq: req.seq,
-      title: req.title,
-      status: req.status as RequirementStatus,
-      // channelId 缺省不落 key（legacy 记录可能无此字段）——updated 全量合并时不抹掉已有条目已知的归属
-      ...(typeof req.channelId === 'string' ? { channelId: req.channelId } : {}),
-      createdAt: req.createdAt,
-      createdBy: req.createdBy,
-      ...(Array.isArray(req.docs) ? { docs: req.docs.filter((d): d is string => typeof d === 'string') } : {}),
-      ...(typeof req.description === 'string' ? { description: req.description } : {}),
-      ...((typeof req.projectId === 'string' || req.projectId === null)
-        ? { projectId: req.projectId as string | null } : {}),
-    };
-  } catch {
-    return null;
-  }
-}
+/** store slice 缺键（未拉到）时的稳定空集回退——防下游 memo 因每渲染新引用失效 */
+const EMPTY_WUS: WorkUnit[] = [];
+const EMPTY_REQS: Requirement[] = [];
+const EMPTY_SUGGESTIONS: ChannelSuggestion[] = [];
 
 export function ChannelDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -154,21 +122,19 @@ export function ChannelDetailPage() {
   const [replyTo, setReplyTo] = useState<ChannelMessage | null>(null);
   // #493：线程回复送达后的轻量「已送达/等待 agent」状态（wuId + 送达时刻；agent 响应或超时清除）
   const [awaitingAgent, setAwaitingAgent] = useState<{ wuId: string; since: number } | null>(null);
-  // REQ 需求编号（vision §5.3）：本频道需求集；#394 起喂右栏「频道动态」REQ 链路卡（原中栏 chips 条移除）
-  const [channelReqs, setChannelReqs] = useState<Requirement[]>([]);
-  // #440：本频道 WU 全集——阶段条 WU 数据本体 + 各卡片数据源
-  // （REST 打底 + status_changed SSE upsert + 决策 9 重连对齐；「当前工单」拣选 #447 起由建议端点裁决）
-  const [channelWus, setChannelWus] = useState<WorkUnit[]>([]);
+  // #528：频道工作面 4 份服务端状态收编 channelWorkStore（ADR 2026-08-31 数据面模式）——
+  // 本页退回纯订阅者：REQ 需求集（vision §5.3，#394 起喂右栏 REQ 链路卡）/ #440 本频道 WU 全集
+  // （阶段条 WU 数据本体；status_changed 全量快照直替 + 重连强刷在 store/sync 层）/
+  // #443 端点派生建议 + #447 currentWuId（同响应同 slice；resolved = #488「已成功返回」台账的等价替代，
+  // 缺键/false → ChannelWorkBar 占位保持加载态不误显空闲）
+  const channelReqs = useChannelWorkStore(s => (id ? s.reqs[id] : undefined)) ?? EMPTY_REQS;
+  const channelWus = useChannelWorkStore(s => (id ? s.wus[id] : undefined)) ?? EMPTY_WUS;
+  const suggestionsSlice = useChannelWorkStore(s => (id ? s.suggestions[id] : undefined));
+  const channelSuggestions = suggestionsSlice?.suggestions ?? EMPTY_SUGGESTIONS;
+  const currentWuId = suggestionsSlice?.currentWuId ?? null;
   // #440：建议片 dismiss 台账（会话级，key = `ep:{wuId}:{suggestionId}`，同 key 不复活）+ 输入框 prefill 通道
   const [dismissedSuggestionKeys, setDismissedSuggestionKeys] = useState<Set<string>>(new Set());
   const [inputPrefill, setInputPrefill] = useState<{ text: string; nonce: number } | undefined>(undefined);
-  // #443（spec #441）：端点派生建议（GET /channels/:id/suggestions）——引导片唯一来源（#447 静态映射已删）；
-  // currentWuId = 后端拣选的「频道当前工单」（阶段条与引导片同源消费，口径单源在后端）
-  const [channelSuggestions, setChannelSuggestions] = useState<ChannelSuggestion[]>([]);
-  const [currentWuId, setCurrentWuId] = useState<string | null>(null);
-  // #488：建议端点「已成功返回」台账（按频道 id 记，切频道自动失效回加载态）——工作条占位三态：
-  // 已返回且 currentWuId=null → 空闲态；未返回/请求失败（catch 静默不落账）/ skew 未命中 → 加载态
-  const [suggestionsResolvedFor, setSuggestionsResolvedFor] = useState<string | null>(null);
   // Mission Control 右抽屉：WorkUnit 详情 / REQ 全链路
   const [drawer, setDrawer] = useState<DrawerState>(null);
   // #395（spec §4.6）窄屏降级断点：<768 左栏并入全局 Sidebar（本页卸载内联 ChannelRail）；
@@ -214,136 +180,27 @@ export function ChannelDetailPage() {
       .map(i => ({ wuId: i.wuId, question: i.waitingQuestion ?? i.scope })),
     [stateItems, id]);
 
-  const reloadChannelReqs = useCallback(() => {
-    if (!id) return;
-    requirementApi.list({ channelId: id })
-      .then(r => setChannelReqs(r.data.data))
-      .catch(() => {});
-  }, [id]);
-
-  // #440：channelWus 打底（建议片/阶段条数据源；失败静默——两片只是引导，不阻断频道使用）
-  const reloadChannelWus = useCallback(() => {
-    if (!id) return;
-    workunitApi.list({ channelId: id, limit: 100 })
-      .then(r => setChannelWus(r.data.data))
-      .catch(() => {});
-  }, [id]);
-
-  // #443：端点派生建议打底（fail-closed：负载畸形/条目缺字段 → 空集，不渲染不编造；失败静默）。
-  // #447：currentWuId 同源消费（阶段条「当前工单」唯一口径）；非字符串 → null
-  const reloadSuggestions = useCallback(() => {
-    if (!id) return;
-    channelApi.getSuggestions(id)
-      .then(r => {
-        // #490：推导失败被吞（degraded=true）≠「确实无建议」——仅 console 记录不打扰用户；
-        // 不落「已返回」台账（ChannelWorkBar 占位保持加载态，不误显空闲），建议面保持上一份
-        if (r.data?.data?.degraded === true) {
-          console.warn('[ChannelDetailPage] suggestions derive degraded (fail-closed)', { channelId: id });
-          return;
-        }
-        const raw: unknown = r.data?.data?.suggestions;
-        const list = Array.isArray(raw) ? raw : [];
-        setChannelSuggestions(list.filter((s): s is ChannelSuggestion =>
-          !!s && typeof s.id === 'string' && typeof s.kind === 'string'
-          && !!s.params && typeof s.params === 'object',
-        ));
-        const rawWuId: unknown = r.data?.data?.currentWuId;
-        setCurrentWuId(typeof rawWuId === 'string' ? rawWuId : null);
-        // #488：成功返回落账（失败走 catch 不落账 → 占位保持加载态，不误显空闲）
-        setSuggestionsResolvedFor(id);
-      })
-      .catch(() => {});
-  }, [id]);
-
-  // #489：SSE 触发面（workunit.status_changed / channel.message_sent / requirement.created|updated）
-  // 统一走 trailing 防抖——连续事件合并为一次重拉；卸载时清挂起定时器
-  const suggestionsDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const scheduleSuggestionsReload = useCallback(() => {
-    if (suggestionsDebounceRef.current) clearTimeout(suggestionsDebounceRef.current);
-    suggestionsDebounceRef.current = setTimeout(() => {
-      suggestionsDebounceRef.current = null;
-      reloadSuggestions();
-    }, SUGGESTIONS_RELOAD_DEBOUNCE_MS);
-  }, [reloadSuggestions]);
-  useEffect(() => () => {
-    if (suggestionsDebounceRef.current) clearTimeout(suggestionsDebounceRef.current);
-  }, []);
+  // #528：频道工作面实时接线（页面级单点，ref-count=1）——挂载打底三 slice、SSE 事件路由
+  // （status_changed 全量直替 / requirement.* upsert / message_sent 标脏）、重连全 slice 强刷，
+  // 全在 useChannelWorkStoreSync + channelWorkStore；本页不再持有手写订阅/防抖/重连对齐
+  useChannelWorkStoreSync(id);
 
   // 决策 9（SSE 负载加深）：SSE 断线重连 → 受影响面一次性 refetch（无序号/校验机制）：
-  // 消息面 refresh + REQ chips 打底面 + #403 频道数据面三切片强刷
-  // （#468：waitingWus 面已删——行动中心重拉由 NotificationBell 的 onReconnect 承担）
+  // 消息面 refresh + #403 频道数据面三切片强刷（频道工作面三 slice 由 useChannelWorkStoreSync 承担；
+  // #468：waitingWus 面已删——行动中心重拉由 NotificationBell 的 onReconnect 承担）
   useEffect(() => {
     return onReconnect(() => {
       void refresh();
-      reloadChannelReqs();
-      reloadChannelWus();
-      reloadSuggestions();
       if (!id) return;
       const channelData = useChannelDataStore.getState();
       void channelData.ensureVocabulary(id, { maxAgeMs: 0 });
       void channelData.ensureCurrentPmo(id, { maxAgeMs: 0 });
       void channelData.ensureMembers(id, { maxAgeMs: 0 });
     });
-  }, [onReconnect, refresh, reloadChannelReqs, reloadChannelWus, reloadSuggestions, id]);
+  }, [onReconnect, refresh, id]);
 
-  useEffect(() => {
-    reloadChannelWus();
-  }, [reloadChannelWus]);
-
-  useEffect(() => {
-    reloadSuggestions();
-  }, [reloadSuggestions]);
-
-  useEffect(() => {
-    if (!id) return;
-    return onEvent(msg => {
-      // #489：里程碑/agent 消息到达也改变建议推导输入（如 system 播报、里程碑）→ 防抖重拉；
-      // 负载缺 channelId 属畸形，fail-closed 跳过（与 useChannelEvents 同口径）
-      if (msg.event_type === 'channel.message_sent') {
-        const data = msg.data as { channelId?: string } | undefined;
-        if (data?.channelId === id) scheduleSuggestionsReload();
-        return;
-      }
-      if (msg.event_type !== 'workunit.status_changed') return;
-      const wu = parseLiveWuRef(msg.data);
-      if (!wu || wu.channelId !== id) return;
-      // #440：channelWus 同步 upsert（轻量负载只带 id/status/metadata/type/scope/parentId，其余字段保留旧值；
-      // 新 WU 以默认值补全，时间戳类字段等下次打底/重连对齐）
-      setChannelWus(prev => {
-        const idx = prev.findIndex(w => w.id === wu.id);
-        const nowIso = new Date().toISOString();
-        if (idx < 0) {
-          return [...prev, {
-            id: wu.id, parentId: wu.parentId, dependsOn: '', type: wu.type ?? 'task', scope: wu.scope ?? '',
-            assigneeId: null, status: wu.status, failureType: null, retryCount: 0, timeoutAt: null,
-            channelId: wu.channelId, metadata: wu.metadata, createdAt: nowIso, updatedAt: nowIso,
-            claimedAt: null, completedAt: null,
-          }];
-        }
-        const next = [...prev];
-        next[idx] = {
-          ...next[idx],
-          status: wu.status,
-          metadata: wu.metadata ?? next[idx].metadata,
-          type: wu.type ?? next[idx].type,
-          scope: wu.scope ?? next[idx].scope,
-          parentId: wu.parentId ?? next[idx].parentId,
-          updatedAt: nowIso,
-        };
-        return next;
-      });
-      // #443：状态变化（含 NEED_INPUT 挂起/恢复）后端点派生建议重拉；#489 起走共享防抖
-      // （复用既有事件，不新增事件类型；推导输入含 loop 心跳等无事件信号，由后端宽限期吸收，前端不做实时）
-      scheduleSuggestionsReload();
-    });
-  }, [id, onEvent, scheduleSuggestionsReload]);
-
-  // REQ 需求编号（vision §5.3）：本频道需求 chips；REST 打底（reloadChannelReqs，见上）+
-  // requirement.created/updated SSE 增量（批 2 决策 6：摘 messages.length 依赖；#415 负载 = { requirement } 全量，就地 upsert 零补拉）
-  useEffect(() => {
-    reloadChannelReqs();
-  }, [reloadChannelReqs]);
-
+  // #403 白捡触发器（ADR 决策 3，#528 边界 1 留页面）：requirement.created/updated 可能改变
+  // current-pmo 派生 → 失效强刷（REQ 数据本体 upsert 与建议标脏已迁 channelWorkStore，此处只留 PMO 接线）
   useEffect(() => {
     if (!id) return;
     return onEvent(msg => {
@@ -352,25 +209,9 @@ export function ChannelDetailPage() {
       if (!req) return;
       // 负载带 channelId → 按频道过滤；缺省（防御）放行
       if (req.channelId && req.channelId !== id) return;
-      // #403 白捡触发器（ADR 决策 3）：REQ 变更可能改变 current-pmo 派生 → 失效强刷（零成本接线）
-      if (id) useChannelDataStore.getState().invalidateCurrentPmo(id);
-      // #489：REQ 创建/更新同样改变建议推导输入 → 防抖重拉（与 status_changed/message_sent 共享窗口）
-      scheduleSuggestionsReload();
-      if (msg.event_type === 'requirement.created') {
-        // 负载即全量（与 REST get 同源）→ 就地 upsert（updater 内按 id 去重），零补拉（#415）
-        setChannelReqs(prev => (prev.some(x => x.id === req.id) ? prev : [...prev, req]));
-        return;
-      }
-      // updated：负载全量覆盖已有条目；列表没有说明打底/created 未覆盖，交由重连 refetch（批 3 决策 9）
-      setChannelReqs(prev => {
-        const idx = prev.findIndex(r => r.id === req.id);
-        if (idx < 0) return prev;
-        const next = [...prev];
-        next[idx] = { ...prev[idx], ...req };
-        return next;
-      });
+      useChannelDataStore.getState().invalidateCurrentPmo(id);
     });
-  }, [id, onEvent, scheduleSuggestionsReload]);
+  }, [id, onEvent]);
 
   // 统一卡片 action 路由：#322 抽成 useChannelCardActions（dispatch 单一入口，
   // 卡片 action 类型 → api 调用映射在 hook 内，映射断言见 hooks/__tests__/useChannelCardActions.test.ts）
@@ -399,11 +240,12 @@ export function ChannelDetailPage() {
     [channelWus, currentWuId],
   );
 
-  // 批次 D-2 项6（频道内闸门 1 击化）：工作条闸门动作写路径——直调 API + 响应体就地并入 channelWus
-  // （抽屉同款直替口径）；状态变化另有 status_changed SSE upsert + 建议重拉（currentWuId 重拣选）兜底
+  // 批次 D-2 项6（频道内闸门 1 击化）：工作条闸门动作写路径——直调 API + 响应体 write-through 进
+  // channelWorkStore（仿 setMembers；抽屉同款直替口径）；状态变化另有 status_changed SSE 直替 +
+  // 建议重拉（currentWuId 重拣选）兜底
   const applyGateResult = useCallback((updated: WorkUnit) => {
-    setChannelWus(prev => prev.map(w => (w.id === updated.id ? { ...w, ...updated } : w)));
-  }, []);
+    if (id) useChannelWorkStore.getState().applyGateResult(id, updated);
+  }, [id]);
   const workBarGate = useMemo(() => {
     if (!currentWu) return undefined;
     const wuId = currentWu.id;
@@ -459,13 +301,14 @@ export function ChannelDetailPage() {
     try {
       await def.run(pendingSuggestionAction.wuId);
       setPendingSuggestionAction(null);
-      reloadSuggestions(); // 状态回扫：子单建出 → 前置条件转假 → 片消失/更新
+      // 状态回扫：子单建出 → 前置条件转假 → 片消失/更新（#528 边界 5：store 暴露即时重拉）
+      if (id) void useChannelWorkStore.getState().refreshSuggestions(id);
     } catch (e) {
       setSuggestionActionError(suggestionActionErrorMessage(e));
     } finally {
       setSuggestionActionRunning(false);
     }
-  }, [pendingSuggestionAction, reloadSuggestions]);
+  }, [pendingSuggestionAction, id]);
 
   const pendingActionDef = pendingSuggestionAction ? getSuggestionAction(pendingSuggestionAction.id) : null;
 
@@ -507,30 +350,13 @@ export function ChannelDetailPage() {
 
   // #285 AC4: 文件 chip 第一优先词表 = 各 agent 消息所属 WU 的产出/修改文件集
   // （distinct workUnitId 逐个拉一次并缓存；拿不到/为空 → 该 WU 降级候选集词表，行为不变）
-  const [wuChangedFiles, setWuChangedFiles] = useState<Record<string, string[]>>({});
-  const wuFilesFetchedRef = useRef<Set<string>>(new Set());
+  // #528：拉取纪律与缓存收编 channelWorkStore per-wuId slice（失败记 [] 不重试语义保留）
+  const wuChangedFiles = useChannelWorkStore(s => s.wuChangedFiles);
   useEffect(() => {
     const wuIds = [...new Set(
       messages.filter(m => m.authorType === 'agent' && m.workUnitId).map(m => m.workUnitId!),
     )];
-    const pending = wuIds.filter(wuId => !wuFilesFetchedRef.current.has(wuId));
-    if (pending.length === 0) return;
-    let cancelled = false;
-    for (const wuId of pending) wuFilesFetchedRef.current.add(wuId);
-    void (async () => {
-      const results = await fanOut(pending, wuId => workunitApi.getChangedFiles(wuId));
-      if (!cancelled) {
-        setWuChangedFiles(prev => {
-          const next = { ...prev };
-          for (let i = 0; i < pending.length; i++) {
-            const r = results[i];
-            next[pending[i]] = r.ok ? r.value.data?.data?.files ?? [] : []; // 失败静默降级：该 WU 走候选集词表
-          }
-          return next;
-        });
-      }
-    })();
-    return () => { cancelled = true; };
+    useChannelWorkStore.getState().ensureWuChangedFiles(wuIds);
   }, [messages]);
 
   // AC-C3: 线程收起/展开（2026-09 折叠层级 4→2：默认全部展开，collapsedThreads 存手动收起的锚点 id）
@@ -1061,7 +887,7 @@ export function ChannelDetailPage() {
             一条横带回答「这个频道的工作现在什么状态」；hook 自持有，step 事件只重渲该组件边界；
             currentWu = 建议端点 currentWuId × channelWus（拣选口径单源在后端，未命中 fail-closed 主区不渲染）；
             点击条目打开对应 WU 抽屉（过程明细仍在抽屉） */}
-        <ChannelWorkBar channelId={id} currentWu={currentWu} onOpenWorkUnit={openWu} gate={workBarGate} wuIdle={suggestionsResolvedFor === id && currentWuId === null} />
+        <ChannelWorkBar channelId={id} currentWu={currentWu} onOpenWorkUnit={openWu} gate={workBarGate} wuIdle={wuIdleOf(suggestionsSlice)} />
 
         {/* Message list
             #325：头部块（空态/加载更早/折叠 toggle）与虚拟列表 spacer 分离——

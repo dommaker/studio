@@ -122,9 +122,16 @@ vi.mock('../../components/channel/ConvertToTaskDialog', () => ({ ConvertToTaskDi
 
 import { ChannelDetailPage } from '../ChannelDetailPage';
 import { useNotificationStore } from '../../stores/notificationStore';
+import { useChannelWorkStore } from '../../stores/channelWorkStore';
 import { toast } from '../../utils/toast';
 import type { ChannelMessage } from '../../api/channel';
 import type { DrawerState } from '../../components/channel/WorkUnitDrawer';
+
+// #528：频道工作面收编 channelWorkStore（模块单例）——每用例清数据面+纪律簿记，
+// 防 TTL 锚点/已打底 slice 跨用例泄漏吞掉后续打底拉取
+beforeEach(() => {
+  useChannelWorkStore.getState().__resetForTests();
+});
 
 const now = Date.now();
 const iso = (offsetMin: number) => new Date(now + offsetMin * 60000).toISOString();
@@ -1250,7 +1257,7 @@ describe('ChannelDetailPage — #440 阶段条（#447 起 currentWuId 由建议�
     expect(screen.getByText('状态同步中…')).toBeTruthy();
     expect(screen.queryByText('频道暂无进行中的工作')).toBeNull();
     expect(warnSpy).toHaveBeenCalledWith(
-      '[ChannelDetailPage] suggestions derive degraded (fail-closed)',
+      '[channelWorkStore] suggestions derive degraded (fail-closed)',
       { channelId: 'ch-1' },
     );
     warnSpy.mockRestore();
@@ -1263,7 +1270,7 @@ describe('ChannelDetailPage — #440 阶段条（#447 起 currentWuId 由建议�
     await waitFor(() => expect(suggestionsCalls()).toBe(1));
     await waitFor(() => expect(screen.getByText('频道暂无进行中的工作')).toBeTruthy());
     expect(warnSpy).not.toHaveBeenCalledWith(
-      '[ChannelDetailPage] suggestions derive degraded (fail-closed)',
+      '[channelWorkStore] suggestions derive degraded (fail-closed)',
       expect.anything(),
     );
     warnSpy.mockRestore();
