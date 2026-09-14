@@ -120,7 +120,7 @@ describe('ChannelDetailPage — auditor_suggestion（#356 通用端点）/ retra
     });
   });
 
-  it('retract 确认废弃 → 两步确认（#288）后 POST /skills/:id/retract/decide {decision:confirm, messageId}', async () => {
+  it('retract 确认废弃 → 两步确认（#288）后 POST /skills/:id/retract/decide {decision:confirm, messageId, channelId}', async () => {
     renderPage();
     // acknowledge→confirm：首次点击仅进入待确认态
     fireEvent.click(await screen.findByText('确认废弃'));
@@ -133,7 +133,7 @@ describe('ChannelDetailPage — auditor_suggestion（#356 通用端点）/ retra
     await waitFor(() => {
       expect(mockApiPost).toHaveBeenCalledWith(
         '/skills/skill-1/retract/decide',
-        { decision: 'confirm', messageId: 'msg-rc-1' },
+        { decision: 'confirm', messageId: 'msg-rc-1', channelId: 'ch-sys' },
       );
     });
     expect(mockRefresh).toHaveBeenCalled();
@@ -147,7 +147,7 @@ describe('ChannelDetailPage — auditor_suggestion（#356 通用端点）/ retra
     await waitFor(() => {
       expect(mockApiPost).toHaveBeenCalledWith(
         '/skills/skill-1/retract/decide',
-        { decision: 'reject', messageId: 'msg-rc-1' },
+        { decision: 'reject', messageId: 'msg-rc-1', channelId: 'ch-sys' },
       );
     });
   });

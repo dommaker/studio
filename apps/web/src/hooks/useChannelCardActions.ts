@@ -56,7 +56,8 @@ export function useChannelCardActions({ channelId, messages, refresh }: UseChann
       const skillId = typeof cardData?.skillId === 'string' ? cardData.skillId : '';
       if (!skillId) return false;
       try {
-        await skillsApi.retractDecide(skillId, action === 'retract_confirm' ? 'confirm' : 'reject', messageId);
+        // #524 P1-1：channelId 透传，卡片回写按频道直查免全频道扇出
+        await skillsApi.retractDecide(skillId, action === 'retract_confirm' ? 'confirm' : 'reject', messageId, channelId);
         refresh();
         return true;
       } catch {

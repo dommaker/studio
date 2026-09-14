@@ -177,13 +177,13 @@ describe('useChannelCardActions — action → api 映射', () => {
     expect(mockAudApprove).not.toHaveBeenCalled();
   });
 
-  it('retract_confirm/reject → skillsApi.retractDecide(skillId, decision, messageId)', async () => {
+  it('retract_confirm/reject → skillsApi.retractDecide(skillId, decision, messageId, channelId)', async () => {
     const messages = [msg('m1', { skillId: 'sk-1' })];
     const { dispatch } = setup(messages);
     await expect(dispatch()('m1', 'retract_confirm')).resolves.toBe(true);
-    expect(mockRetractDecide).toHaveBeenCalledWith('sk-1', 'confirm', 'm1');
+    expect(mockRetractDecide).toHaveBeenCalledWith('sk-1', 'confirm', 'm1', 'ch-1');
     await expect(dispatch()('m1', 'retract_reject')).resolves.toBe(true);
-    expect(mockRetractDecide).toHaveBeenCalledWith('sk-1', 'reject', 'm1');
+    expect(mockRetractDecide).toHaveBeenCalledWith('sk-1', 'reject', 'm1', 'ch-1');
   });
 
   it('未知 action → false，不调任何 api', async () => {

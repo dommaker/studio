@@ -224,7 +224,7 @@ async function main(): Promise<void> {
       if (enabled('F')) await time(samples, 'F.getMessageById.inChannel.warm', () => store.getMessageById(smallFirst.id, smallCid));
       // G: WU 点读
       if (enabled('G')) await time(samples, 'G.getIndex.pointRead', () => store.getIndex({ id: String(wuTemplate.id) }));
-      // H: 建 WU 持久化（锁内 appendEvent + 索引全量重写）
+      // H: 建 WU 持久化（锁内 appendEvent + 索引 append-only upsert，#524 P1-2 起不再全量重写）
       if (enabled('H')) {
         const wu = { ...wuTemplate, id: randomUUID(), updatedAt: new Date().toISOString() };
         await time(samples, 'H.commitSnapshot', () =>

@@ -61,7 +61,7 @@ describe('POST /api/v1/skills/:id/retract/decide (#278)', () => {
     expect(status).toBe(200);
     expect((body.data as { status: string }).status).toBe('deprecated');
     expect(skillStore.get(id)!.status).toBe('deprecated');
-    expect(mockUpdateMessageMeta).toHaveBeenCalledWith('msg-rc-1', { status: 'deprecated' });
+    expect(mockUpdateMessageMeta).toHaveBeenCalledWith('msg-rc-1', { status: 'deprecated' }, undefined);
   });
 
   it('reject → 恢复 published，卡片同步回写 published', async () => {
@@ -73,7 +73,17 @@ describe('POST /api/v1/skills/:id/retract/decide (#278)', () => {
     expect(status).toBe(200);
     expect((body.data as { status: string }).status).toBe('published');
     expect(skillStore.get(id)!.status).toBe('published');
-    expect(mockUpdateMessageMeta).toHaveBeenCalledWith('msg-rc-2', { status: 'published' });
+    expect(mockUpdateMessageMeta).toHaveBeenCalledWith('msg-rc-2', { status: 'published' }, undefined);
+  });
+
+  it('channelId 提供时透传 updateMessageMeta（#524 P1-1 按频道直查免全频道扇出）', async () => {
+    const id = makeSkill(`retract-ch-${Date.now()}`, 'under_review');
+    mockUpdateMessageMeta.mockClear();
+
+    const { status } = await decide(id, { decision: 'confirm', messageId: 'msg-rc-3', channelId: 'ch-9' });
+
+    expect(status).toBe(200);
+    expect(mockUpdateMessageMeta).toHaveBeenCalledWith('msg-rc-3', { status: 'deprecated' }, 'ch-9');
   });
 
   it('无 messageId → 状态迁移照常，不做卡片回写', async () => {
