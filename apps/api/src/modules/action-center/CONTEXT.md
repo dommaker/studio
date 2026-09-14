@@ -20,5 +20,5 @@
 
 - 状态派生项**不做已读/dismiss**（状态机即真相，dismiss 会撒谎——设计稿 §4 明确不做）。
 - reply 口径**不排除 decision/spec**（设计稿决策：排除规则改为面板分区解决），与 chip 旧口径刻意不同。
-- **D-2 reply 深链锚点 `messageId`**（additive 字段，仅 reply 项携带）：waitingForInput metadata 不记消息 id，派生口径 = 该 WU 频道线程**最新一条非人类消息**（`fileStore.queryMessages(channelId, { workUnitId })` 热层过滤 `authorType !== 'human'`），与频道页 NEED_INPUT chip「当前提问消息」（#279 走查 F4）同口径——提问消息形态不统一（agent-loop「需要输入:」/ 归属提问 / 裁决轮卡），不按时效/文案再过滤。fail-closed：无 channelId / 无匹配消息 / 查询失败 → 字段缺省，前端回退纯频道跳转。已知边界：挂起期间若发过超时提醒里程碑，锚点指向提醒而非提问本体（与 chip 口径一致，刻意保持 parity）。
+- **D-2 reply 深链锚点 `messageId`**（additive 字段，仅 reply 项携带）：waitingForInput metadata 不记消息 id，派生口径 = 该 WU 频道线程**最新一条非人类消息**（`fileStore.queryMessages(channelId, { workUnitId })` 热层过滤 `authorType !== 'human'`）。**#533 起为「WU 当前提问消息」唯一派生点**：频道页回复区/提升/chip 定位全消费本字段，前端 latestQuestionIdByWu 反推已删（注释对齐退休）——提问消息形态不统一（agent-loop「需要输入:」/ 归属提问 / 裁决轮卡），不按时效/文案再过滤。fail-closed：无 channelId / 无匹配消息 / 查询失败 → 字段缺省，前端各消费方 fail-closed（不拼 ?highlight= / 不挂回复区 / 定位 toast 反馈）。已知边界：挂起期间若发过超时提醒里程碑，锚点指向提醒而非提问本体（前后端同口径因此天然 parity）。
 - 通知持久面的写入方不在本模块：`wu-messenger.ts`（milestone 双写）、`utils/notifier.ts`（monitor_alert sink）、`agents/triage/incident-notification.ts`（incident.created/escalated）。

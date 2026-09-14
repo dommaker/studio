@@ -5,9 +5,10 @@
 // unpin（定位 = 离底意图）与防重入不变量全部内化，不再靠调用方记得。
 // 一处刻意收严（计划边界 3）：防重入从 mid/chip 双台账并发并为单飞——后到者赢，
 // 任何新定位意图（含已加载快路径）取消在途翻页循环（原双循环共享翻页游标互踩）。
-// 三条调用链（quote 引用块 / chip 提问定位 / ?highlight 通知直达）退化为 locate/locateBy 调用。
-// 边界：useStreamFollow 底座不动（unpinFromBottom 由它提供，本模块只负责调用时机——高亮 effect 内）；
-// wu→mid 口径（latestQuestionMessageOf）是 chip 语义，留调用方经 locateBy 的 find 传入。
+// 三条调用链（quote 引用块 / chip 提问定位 / ?highlight 通知直达）全部退化为 locate(mid) 调用
+// （#533：chip 的 wu→mid 口径收口后端 action-center 下发 messageId，前端不再持有业务口径 find——
+// locateBy 收回模块内私有，对外只暴露 locate）。
+// 边界：useStreamFollow 底座不动（unpinFromBottom 由它提供，本模块只负责调用时机——高亮 effect 内）。
 import { useCallback, useEffect, useRef, useState, type Dispatch, type RefObject, type SetStateAction } from 'react';
 import type { Virtualizer } from '@tanstack/react-virtual';
 import type { ChannelMessage } from '../api/channel';
@@ -32,9 +33,9 @@ export interface UseMessageLocateOptions {
   messageToItemIndex: Map<string, number>;
 }
 
-/** 目标解析器：从当前已加载消息集求目标（mid 直查 / wu 最新提问等调用方口径），
- *  翻页定位循环每页按新快照重评估 */
-export type LocateFind = (msgs: ChannelMessage[]) => ChannelMessage | null;
+/** 目标解析器：从当前已加载消息集求目标（模块内私有——#533 起对外只暴露 locate(mid)，
+ *  前端不再持有 wu→mid 等业务口径 find），翻页定位循环每页按新快照重评估 */
+type LocateFind = (msgs: ChannelMessage[]) => ChannelMessage | null;
 
 export function useMessageLocate({
   messages, hasMore, loadMore,
@@ -139,5 +140,5 @@ export function useMessageLocate({
     return () => clearTimeout(timer);
   }, [highlightId, streamRef, virtualEnabled, messageToItemIndex, virtualizer, unpinFromBottom]);
 
-  return { highlightId, locate, locateBy };
+  return { highlightId, locate };
 }

@@ -26,6 +26,7 @@ import { useMediaQuery } from '../hooks/useMediaQuery';
 import { workunitApi } from '../api/workunit';
 import type { ReviewConfirmPayload, WorkUnit } from '../api/workunit';
 import { renderSuggestionCopy } from '../utils/suggestionCopy';
+import { toast } from '../utils/toast';
 import { getSuggestionAction } from '../utils/suggestionActions';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import { SkeletonText } from '../components/ui';
@@ -40,17 +41,6 @@ import type { Channel, ChannelMessage, ChannelSuggestion, FileRef } from '../api
 import { channelApi } from '../api/channel';
 import { saveLastChannelId } from '../utils/lastChannel';
 import { markPageEntry, emitPageFirstRender, emitReceiptRendered } from '../utils/clientPerf';
-
-/** #483：某 WU 的当前提问消息 = 该 WU 最新一条非人类消息（与 latestQuestionIdByWu 同口径）。
- *  chip 翻页定位循环需读最新快照（memo 值在异步循环里是旧闭包），故抽纯函数共用 */
-function latestQuestionMessageOf(msgs: ChannelMessage[], wuId: string): ChannelMessage | null {
-  let best: ChannelMessage | null = null;
-  for (const m of msgs) {
-    if (m.workUnitId !== wuId || m.authorType === 'human') continue;
-    if (!best || new Date(m.createdAt).getTime() >= new Date(best.createdAt).getTime()) best = m;
-  }
-  return best;
-}
 
 /** 视觉批次 2 ⑥：空频道态示例提示——点击走既有 prefill 通道填入输入框（不自动发送）。
  *  文案按产品 agent 命名风格（pm-agent / dev-agent / reviewer-agent），仅作起点提示，用户可改 */
@@ -151,12 +141,14 @@ export function ChannelDetailPage() {
   // 本地 REST 打底 + workunit.status_changed SSE upsert 维护机制已删（不发明第五套信号）；
   // 行动中心重拉由 NotificationBell（全局挂载于 TopNav）的 SSE 失效触发承担，本页不自行 load()。
   // #468 设计稿：reply 不再排除闸门类（decision/spec/plan），排除规则改为面板分区解决
+  // #533：messageId 随投影下发（后端 action-center 唯一派生点）——回复区/提升/chip 定位全消费它，
+  // 前端不再从已加载消息反推（#483 类「提问掉出分页推不出」机制性消除）
   const { onEvent, onReconnect } = useWebSocketContext();
   const stateItems = useNotificationStore(s => s.stateItems);
   const waitingWus = useMemo<NeedInputTodo[]>(() =>
     stateItems
       .filter(i => i.kind === 'reply' && i.channelId === id)
-      .map(i => ({ wuId: i.wuId, question: i.waitingQuestion ?? i.scope })),
+      .map(i => ({ wuId: i.wuId, question: i.waitingQuestion ?? i.scope, messageId: i.messageId })),
     [stateItems, id]);
 
   // #528：频道工作面实时接线（页面级单点，ref-count=1）——挂载打底三 slice、SSE 事件路由
@@ -208,8 +200,14 @@ export function ChannelDetailPage() {
     return messagesRef.current.find(m => m.id === msgId);
   }, []);
 
-  // F5: 挂起集合（由 waitingWus 派生）
-  const waitingWuIds = useMemo(() => new Set(waitingWus.map(w => w.wuId)), [waitingWus]);
+  // #533：「WU 当前提问消息」唯一派生点 = 后端 action-center（stateItems.messageId 随 waitingWus 投影
+  // 下发）——前端反推（latestQuestionIdByWu / latestQuestionMessageOf）已删；缺省 → 不挂回复区/
+  // 不提升/定位给可见反馈，全部 fail-closed 不回退推导
+  const waitingQuestionIdByWu = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const w of waitingWus) if (w.messageId) map.set(w.wuId, w.messageId);
+    return map;
+  }, [waitingWus]);
 
   // #447（spec #441 收尾）：「频道当前工单」拣选唯一正本 = 后端建议端点 currentWuId
   // （前端静态映射 wuSuggestions 与 pickCurrentWu 本地副本已删，杜绝前后端口径分叉）。
@@ -291,33 +289,15 @@ export function ChannelDetailPage() {
 
   const pendingActionDef = pendingSuggestionAction ? getSuggestionAction(pendingSuggestionAction.id) : null;
 
-  // #279（走查 F4）：每个挂起 WU 的「当前提问消息」= 该 WU 最新一条非人类消息。
-  // badge/回复区只落在这一条（同 WU 多消息不再一屏多个回复框）；chip 定位也用它
-  const latestQuestionIdByWu = useMemo(() => {
-    const map = new Map<string, { id: string; at: number }>();
-    for (const m of messages) {
-      if (!m.workUnitId || m.authorType === 'human') continue;
-      const at = new Date(m.createdAt).getTime();
-      const prev = map.get(m.workUnitId);
-      if (!prev || at >= prev.at) map.set(m.workUnitId, { id: m.id, at });
-    }
-    return new Map([...map].map(([wuId, v]) => [wuId, v.id]));
-  }, [messages]);
+  // #279（走查 F4）/#533：挂起 WU 的当前提问消息（后端下发 messageId）若是线程回复（agent 追问），提升到主流可见
+  const promotedQuestionIds = useMemo(() =>
+    new Set([...waitingQuestionIdByWu.values()]), [waitingQuestionIdByWu]);
 
-  // #279（走查 F4）：挂起 WU 的当前提问消息若是线程回复（agent 追问），提升到主流可见
-  const promotedQuestionIds = useMemo(() => {
-    const ids = new Set<string>();
-    for (const wu of waitingWus) {
-      const msgId = latestQuestionIdByWu.get(wu.wuId);
-      if (msgId) ids.add(msgId);
-    }
-    return ids;
-  }, [waitingWus, latestQuestionIdByWu]);
-
-  // F5: 消息是否为关联 WorkUnit 的当前提问（badge/内嵌回复区只落在这一条）
+  // F5/#533: 消息是否为关联 WorkUnit 的当前提问（badge/内嵌回复区只落在这一条；
+  // 判定 = 命中后端下发锚点，messageId 缺省的 WU 恒 false）
   const isWaitingForInput = useCallback((msg: ChannelMessage) => {
-    return !!msg.workUnitId && waitingWuIds.has(msg.workUnitId) && latestQuestionIdByWu.get(msg.workUnitId) === msg.id;
-  }, [waitingWuIds, latestQuestionIdByWu]);
+    return !!msg.workUnitId && waitingQuestionIdByWu.get(msg.workUnitId) === msg.id;
+  }, [waitingQuestionIdByWu]);
 
   // #285: agent 消息 inline-code 文件 chip 词表——#403 起读 channelDataStore（与 ChannelInput
   // 共享一份拉取；按 channelId 键控无跨频道串词表）；失败静默降级，不渲染 chip
@@ -378,20 +358,25 @@ export function ChannelDetailPage() {
 
   // #530：mid→可见 定位语义单入口（架构评审 2026-09-14 候选 2）——翻页定位循环（#439）/
   // 根锚解析展开收起线程 / unpin 时机 / 高亮生命周期（滚动 + 2s 消退）/ 防重入台账全内化模块；
-  // 三条调用链退化为下方三处：quote 与 reply 预览直传 locate（见 renderMessageItem / ChannelInput）、
-  // chip 定位经 locateBy、?highlight 直达调 locate
-  const { highlightId, locate: locateMessage, locateBy } = useMessageLocate({
+  // 三条调用链全部退化为 locate(mid)：quote 与 reply 预览直传（见 renderMessageItem / ChannelInput）、
+  // chip 定位用后端下发 messageId（#533）、?highlight 直达
+  const { highlightId, locate: locateMessage } = useMessageLocate({
     messages, hasMore, loadMore,
     setCollapsedThreads,
     unpinFromBottom,
     streamRef, virtualizer, virtualEnabled, messageToItemIndex,
   });
 
-  // #279（决策 #250 D4）/ #483：chip 点条目 → 定位该 WU 当前提问消息。wu→mid 口径
-  // （latestQuestionMessageOf）是 chip 语义留页面；翻页期间模块按新快照重评估 find
+  // #279（决策 #250 D4）/ #533：chip 点条目 → 定位后端下发的提问 messageId（wu→mid 不再前端反推）；
+  // messageId 缺省（fail-closed）→ toast 可见反馈，不静默不翻页
   const locateWaitingQuestion = useCallback((wuId: string) => {
-    locateBy(`wu:${wuId}`, msgs => latestQuestionMessageOf(msgs, wuId));
-  }, [locateBy]);
+    const mid = waitingQuestionIdByWu.get(wuId);
+    if (!mid) {
+      toast.warning('提问消息缺少定位锚点，无法定位');
+      return;
+    }
+    locateMessage(mid);
+  }, [waitingQuestionIdByWu, locateMessage]);
 
   // 通知中心点击直达（?highlight=<mid>）：每个 mid 只消费一次（防消息流更新反复重置高亮）；
   // 首拉未完成（loading）时等下一轮（防空列表误判不可达）。定位动作本体（含翻页/toast 兜底）在模块内

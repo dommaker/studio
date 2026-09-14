@@ -1,7 +1,7 @@
 // useMessageLocate — mid→可见 完整语义单测（#530，架构评审 2026-09-14 候选 2）。
-// 覆盖模块接口面：locate(mid) / locateBy(key, find) 全路径——已加载直接定位（展开线程 + 高亮 +
+// 覆盖模块接口面：locate(mid) 全路径——已加载直接定位（展开线程 + 高亮 +
 // unpin 内化）、多层线程根锚解析、#439 翻页定位循环、翻到底 toast 兜底、防重入（同 key 跳过 /
-// 后到者赢）、高亮 2s 消退。页面装配行为见 pages/__tests__/ChannelDetailPage-quote-locate.test.tsx。
+// 后到者赢）、高亮 2s 消退、#533 id 精确匹配（业务口径 find 已退休）。页面装配行为见 pages/__tests__/ChannelDetailPage-quote-locate.test.tsx。
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
 import { useState, type Dispatch, type SetStateAction } from 'react';
@@ -179,21 +179,18 @@ describe('useMessageLocate（#530）', () => {
     expect(toast.warning).not.toHaveBeenCalled();
   });
 
-  it('locateBy：wu 语义 predicate 翻页期间按新快照重评估（chip 提问定位口径）', async () => {
-    const question = msg('m-q', { workUnitId: 'wu-1' });
-    const { hook, loadMore, page } = setup({
-      messages: [msg('m-human', { authorType: 'human', workUnitId: 'wu-1' })],
-      hasMore: true,
-    });
+  it('#533：locate 按 id 精确匹配——同 WU 有更新非人类消息也不改挂（wu→mid 口径推导已退休），翻页按新快照重评估', async () => {
+    const older = msg('m-q', { workUnitId: 'wu-1' }); // 目标：后端下发的锚点（较旧）
+    const newer = msg('m-new', { workUnitId: 'wu-1', createdAt: iso(5) }); // 同 WU 更新的非人类消息
+    const { hook, loadMore, page } = setup({ messages: [newer], hasMore: true });
     loadMore.mockImplementation(async () => {
-      page.prepend([question], false);
+      page.prepend([older], false);
       return true;
     });
-    const latestQuestionOf = (msgs: ChannelMessage[]) =>
-      msgs.filter(m => m.workUnitId === 'wu-1' && m.authorType !== 'human').pop() ?? null;
 
-    act(() => hook.result.current.locateBy('wu:wu-1', latestQuestionOf));
+    act(() => hook.result.current.locate('m-q'));
 
+    // 命中的是 m-q 而非「最新非人类」m-new（旧 wu 口径 predicate 会误选后者）
     await waitFor(() => expect(hook.result.current.highlightId).toBe('m-q'));
     expect(loadMore).toHaveBeenCalledTimes(1);
   });

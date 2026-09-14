@@ -23,8 +23,9 @@ export interface StateItem {
   scope: string;
   channelId: string | null;
   waitingQuestion?: string;
-  /** D-2（reply 深链）：触发 waitingForInput 的提问消息 id（后端派生，口径 = 频道页 chip
-   *  「当前提问消息」）；缺省时跳频道不拼 ?highlight=（fail-closed） */
+  /** D-2（reply 深链）/#533：触发 waitingForInput 的提问消息 id——「WU 当前提问消息」唯一派生点
+   *  = 后端 action-center；频道页回复区/提升/chip 定位全消费此字段（前端反推已删）；
+   *  缺省时各消费方 fail-closed（跳频道不拼 ?highlight=、不挂回复区） */
   messageId?: string;
   since: string;
 }
