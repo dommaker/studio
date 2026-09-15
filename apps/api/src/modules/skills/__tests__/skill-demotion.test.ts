@@ -3,7 +3,8 @@
  *
  * tmp 目录构造：fixture events jsonl + FileStore WU 索引 + 磁盘 skill（SKILLS_DIR 风格 tmp 目录）。
  * 覆盖：
- *   - 聚合：uses / lastUsedAt / successRate（done=成功，closed/blocked=不成功，未终态不计）
+ *   - 聚合：uses / lastUsedAt / exposures；票 D 起 successRate 使用归因
+ *     （有 skill_used 的 WU 才计入：done=成功，closed/blocked=不成功，未终态不计）
  *   - 规则边界：恰好 5 次使用 + 成功率恰好 0.3 → 不提案；29 天零使用 → 不提案
  *   - 幂等：重复扫描不重复产提案
  *   - approve：frontmatter status 改写且正文逐字节保留（hash 对比）
@@ -118,29 +119,67 @@ afterEach(() => {
 });
 
 describe('§10.6 aggregateSkillUsage', () => {
-  it('聚合 uses / lastUsedAt / successRate（done=成功，closed=不成功，in_review 不计）', async () => {
+  it('聚合 uses / lastUsedAt（channel 字段仅记录来源，不影响计数）', async () => {
     writeEvents([
       skillUsedEvent('skill-a', '2026-07-19T10:00:00.000Z'),
       skillUsedEvent('skill-a', '2026-07-20T10:00:00.000Z'),
-      skillUsedEvent('skill-b', '2026-07-18T10:00:00.000Z'),
+      skillUsedEventForWu('skill-b', 'wu-4', '2026-07-18T10:00:00.000Z'),
     ]);
-    writeIndex([
-      makeWu('wu-1', 'done', ['skill-a']),
-      makeWu('wu-2', 'closed', ['skill-a']),
-      makeWu('wu-3', 'in_review', ['skill-a']), // 未终态不计入
-      makeWu('wu-4', 'blocked', ['skill-b']),
-      makeWu('wu-5', 'done'),                    // 无 matchedSkills
-    ]);
+    writeIndex([]);
 
     const usage = await aggregateSkillUsage({ eventsFile, fileStore });
     const a = usage.get('skill-a')!;
     expect(a.uses).toBe(2);
     expect(a.lastUsedAt).toBe('2026-07-20T10:00:00.000Z');
-    expect(a.successRate).toBe(0.5); // 1 done / 2 终态
+    expect(a.exposures).toBe(0);
 
     const b = usage.get('skill-b')!;
     expect(b.uses).toBe(1);
-    expect(b.successRate).toBe(0);   // 0 done / 1 终态（blocked）
+  });
+
+  it('票D: successRate 使用归因——有 skill_used 的 WU 才计入（done=成功，closed/blocked=不成功，未终态不计）', async () => {
+    writeEvents([
+      skillUsedEventForWu('skill-a', 'wu-1', '2026-07-19T10:00:00.000Z'), // wu-1 done → 成功
+      skillUsedEventForWu('skill-a', 'wu-2', '2026-07-19T11:00:00.000Z'), // wu-2 closed → 不成功
+      skillUsedEventForWu('skill-a', 'wu-3', '2026-07-19T12:00:00.000Z'), // wu-3 in_review → 未终态不计
+      skillUsedEventForWu('skill-b', 'wu-4', '2026-07-18T10:00:00.000Z'), // wu-4 blocked → 不成功
+    ]);
+    writeIndex([
+      makeWu('wu-1', 'done'),             // 无 matchedSkills，但真用了 skill-a → 计入
+      makeWu('wu-2', 'closed'),
+      makeWu('wu-3', 'in_review'),
+      makeWu('wu-4', 'blocked', ['skill-b']),
+      makeWu('wu-5', 'closed', ['skill-a']), // 注入了 skill-a 但没读（无 skill_used）→ 不计入成功率
+    ]);
+
+    const usage = await aggregateSkillUsage({ eventsFile, fileStore });
+    expect(usage.get('skill-a')!.successRate).toBe(0.5); // 1 done / 2 终态（wu-5 不算）
+    expect(usage.get('skill-b')!.successRate).toBe(0);   // 0 done / 1 终态（blocked）
+  });
+
+  it('票D: 仅 legacy 事件（无 workUnitId）→ successRate=null（无法归因，未知不编造）', async () => {
+    writeEvents([skillUsedEvent('skill-a', '2026-07-19T10:00:00.000Z')]);
+    writeIndex([makeWu('wu-1', 'done', ['skill-a'])]);
+
+    const usage = await aggregateSkillUsage({ eventsFile, fileStore });
+    expect(usage.get('skill-a')!.successRate).toBeNull();
+  });
+
+  it('票D: exposures = matchedSkills 命中计数（曝光侧，仅展示；含未终态 WU）', async () => {
+    writeEvents([skillUsedEventForWu('skill-a', 'wu-1', '2026-07-19T10:00:00.000Z')]);
+    writeIndex([
+      makeWu('wu-1', 'done', ['skill-a']),
+      makeWu('wu-2', 'in_review', ['skill-a']),
+      makeWu('wu-3', 'closed'),           // 无 matchedSkills
+      makeWu('wu-4', 'done', ['skill-b']), // skill-b 仅曝光未使用
+    ]);
+
+    const usage = await aggregateSkillUsage({ eventsFile, fileStore });
+    expect(usage.get('skill-a')!.exposures).toBe(2);
+    const b = usage.get('skill-b')!;
+    expect(b.exposures).toBe(1);
+    expect(b.uses).toBe(0);
+    expect(b.successRate).toBeNull();
   });
 
   it('uses 口径：带 workUnitId 按 (skill, WU) 去重；legacy 无 workUnitId 每条计 1', async () => {
@@ -177,16 +216,14 @@ describe('§10.6 scanSkillDemotions 规则边界', () => {
     expect(result.proposals[0].suggestedStatus).toBe('archived');
   });
 
-  it('恰好 5 次使用 + 成功率恰好 0.3 → 不提案；成功率 < 0.3 → demote 提案', async () => {
-    // skill-edge: 5 次使用，10 个终态 WU 3 成功 → 0.3，不满足 < 0.3
-    // skill-bad:  5 次使用，10 个终态 WU 2 成功 → 0.2，满足
+  it('恰好 5 次使用 + 成功率恰好 0.3 → 不提案；成功率 < 0.3 → demote 提案（票D: 使用归因）', async () => {
+    // skill-edge: 10 个使用 WU（终态）3 成功 → 0.3，不满足 < 0.3
+    // skill-bad:  10 个使用 WU（终态）2 成功 → 0.2，满足
     const events: string[] = [];
     const wus: WorkUnitSnapshot[] = [];
-    for (let i = 0; i < 5; i++) {
-      events.push(skillUsedEvent('skill-edge', new Date(NOW - i * 1000).toISOString()));
-      events.push(skillUsedEvent('skill-bad', new Date(NOW - i * 1000).toISOString()));
-    }
     for (let i = 0; i < 10; i++) {
+      events.push(skillUsedEventForWu('skill-edge', `edge-${i}`, new Date(NOW - i * 1000).toISOString()));
+      events.push(skillUsedEventForWu('skill-bad', `bad-${i}`, new Date(NOW - i * 1000).toISOString()));
       wus.push(makeWu(`edge-${i}`, i < 3 ? 'done' : 'closed', ['skill-edge']));
       wus.push(makeWu(`bad-${i}`, i < 2 ? 'done' : 'closed', ['skill-bad']));
     }
@@ -202,12 +239,13 @@ describe('§10.6 scanSkillDemotions 规则边界', () => {
     expect(result.proposals[0].stats.successRate).toBe(0.2);
   });
 
-  it('uses < 5 即使成功率 0 → 不提案；successRate=null（无终态 WU）→ 不提案', async () => {
-    writeIndex([makeWu('wu-1', 'closed', ['skill-few'])]);
+  it('uses < 5 即使成功率 0 → 不提案；successRate=null（legacy 事件无法归因）→ 不提案', async () => {
+    // skill-few: 4 个使用 WU 全 closed → successRate=0 但 uses=4 < 5
+    writeIndex(Array.from({ length: 4 }, (_, i) => makeWu(`few-${i}`, 'closed')));
     writeSkill('skill-few', { ageDays: 5 });
     writeSkill('skill-no-outcome', { ageDays: 5 });
     writeEvents([
-      ...Array.from({ length: 4 }, (_, i) => skillUsedEvent('skill-few', new Date(NOW - i * 1000).toISOString())),
+      ...Array.from({ length: 4 }, (_, i) => skillUsedEventForWu('skill-few', `few-${i}`, new Date(NOW - i * 1000).toISOString())),
       ...Array.from({ length: 6 }, (_, i) => skillUsedEvent('skill-no-outcome', new Date(NOW - i * 1000).toISOString())),
     ]);
 

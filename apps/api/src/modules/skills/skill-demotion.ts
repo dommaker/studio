@@ -1,14 +1,18 @@
 /**
  * §10.6 skill 生命周期降级通路（聚合 + 降级提案）。
  *
- * 数据流：
- *   knowledge:skill_used 事件（payload: { skillName, workUnitId? }，agent-loop.ts step 注入时发射）
- *     → 每 skill 使用次数 / lastUsedAt。口径（2026-07-27 校准）：uses = 使用 WU 数——
- *       带 workUnitId 的事件按 (skill, workUnitId) 去重（同一 WU 多 step 注入只计一次）；
- *       legacy 事件（无 workUnitId，source=skill-loader）每条计 1 次。
+ * 数据流（skill 度量地基票 D，2026-09-15 口径重定义：曝光 vs 使用分离）：
+ *   knowledge:skill_used 事件（payload: { skillName, workUnitId?, channel? }）
+ *     发射点：skill-loader.ts（loadSkill 文件路径）/ skill-tools.ts（loadSkill cache
+ *     路径）/ skill-usage-scan.ts（WU done transcript 后验扫描，主口径）。
+ *     → uses = 使用 WU 数：带 workUnitId 的事件按 (skill, workUnitId) 去重（同一 WU
+ *       多渠道/多步只计一次）；legacy 事件（无 workUnitId）每条计 1 次。
+ *     → successRate 使用归因：终态 WU 关联 = 该 WU 有该 skill 的 skill_used 事件
+ *       （注入了没被读的 skill 不背 WU 成败）；done = 成功，closed/blocked = 不成功，
+ *       其余（active/in_review/unassigned 等）未终态不计入。
  *   WU 索引 metadata.matchedSkills（决策 7：agent-loop step 时匹配并落盘）
- *     → skill ↔ WU 关联；终态口径：done = 成功，closed/blocked = 不成功，
- *       其余（active/in_review/unassigned 等）未终态不计入成功率。
+ *     → exposures 曝光计数（注入名单命中次数，含未终态 WU），仅人审参考，
+ *       不参与 demote 判定。
  *   无关联终态 WU 时 successRate = null（未知，不参与 demote 判定，不编造）。
  *
  * 降级规则（只产提案，绝不自动生效；人审通过才改 frontmatter）：
@@ -39,9 +43,11 @@ export const DEMOTE_MAX_SUCCESS_RATE = 0.3;
 
 export interface SkillUsageStats {
   uses: number;
-  /** 终态 WU 成功率；无关联终态 WU → null（未知） */
+  /** 终态 WU 成功率（使用归因：有 skill_used 的 WU 才计入）；无关联终态 WU → null（未知） */
   successRate: number | null;
   lastUsedAt: string | null;
+  /** 曝光次数（注入名单 matchedSkills 命中计数，含未终态 WU）；仅人审参考，不参与 demote 判定 */
+  exposures: number;
 }
 
 export type DemotionKind = 'archive' | 'demote';
@@ -144,7 +150,7 @@ export interface AggregateOptions {
 }
 
 /**
- * 聚合 knowledge:skill_used 事件 + WU 终态 → 每 skill { uses, successRate, lastUsedAt }。
+ * 聚合 knowledge:skill_used 事件 + WU 终态 → 每 skill { uses, successRate, lastUsedAt, exposures }。
  * 事件文件/索引不可读 → 返回空 Map，不抛错。
  */
 export async function aggregateSkillUsage(opts?: AggregateOptions): Promise<Map<string, SkillUsageStats>> {
@@ -155,7 +161,7 @@ export async function aggregateSkillUsage(opts?: AggregateOptions): Promise<Map<
   const ensure = (name: string): SkillUsageStats => {
     let s = stats.get(name);
     if (!s) {
-      s = { uses: 0, successRate: null, lastUsedAt: null };
+      s = { uses: 0, successRate: null, lastUsedAt: null, exposures: 0 };
       stats.set(name, s);
     }
     return s;
@@ -168,8 +174,10 @@ export async function aggregateSkillUsage(opts?: AggregateOptions): Promise<Map<
     rows = [];
   }
 
-  // uses 去重：带 workUnitId 的事件按 (skill, workUnitId) 只计一次（同一 WU 多 step 注入不重复计数）
+  // uses 去重：带 workUnitId 的事件按 (skill, workUnitId) 只计一次（同一 WU 多渠道/多步不重复计数）；
+  // usedWuIds 供 successRate 使用归因（票 D）
   const seenWuPairs = new Set<string>();
+  const usedWuIds = new Map<string, Set<string>>();
 
   for (const row of rows) {
     if (row?.type !== 'knowledge:skill_used') continue;
@@ -189,18 +197,24 @@ export async function aggregateSkillUsage(opts?: AggregateOptions): Promise<Map<
         seenWuPairs.add(pairKey);
         s.uses++;
       }
+      let ids = usedWuIds.get(name);
+      if (!ids) {
+        ids = new Set();
+        usedWuIds.set(name, ids);
+      }
+      ids.add(wuId);
     } else {
-      s.uses++; // legacy 事件（无 workUnitId）每条计 1 次
+      s.uses++; // legacy 事件（无 workUnitId）每条计 1 次（无法归因成功率）
     }
     const tsRaw = (row.createdAt ?? row.timestamp) as string | undefined;
     if (tsRaw && (!s.lastUsedAt || tsRaw > s.lastUsedAt)) s.lastUsedAt = tsRaw;
   }
 
-  // WU 终态关联：metadata.matchedSkills 命中的 skill 记一次终态结果
-  const outcomes = new Map<string, { success: number; final: number }>();
+  // WU 索引：终态状态表（successRate 使用归因）+ 曝光计数（matchedSkills 命中，仅展示）
+  const wuStatus = new Map<string, string>();
   const wus = await fileStore.getIndex().catch(() => []);
   for (const wu of wus) {
-    if (wu.status !== 'done' && wu.status !== 'closed' && wu.status !== 'blocked') continue;
+    wuStatus.set(wu.id, wu.status);
     if (!wu.metadata) continue;
     let matched: unknown;
     try {
@@ -211,15 +225,25 @@ export async function aggregateSkillUsage(opts?: AggregateOptions): Promise<Map<
     if (!Array.isArray(matched)) continue;
     for (const name of matched) {
       if (typeof name !== 'string' || !name) continue;
-      const o = outcomes.get(name) ?? { success: 0, final: 0 };
-      o.final++;
-      if (wu.status === 'done') o.success++;
-      outcomes.set(name, o);
-      ensure(name);
+      ensure(name).exposures++;
     }
   }
-  for (const [name, o] of outcomes) {
-    stats.get(name)!.successRate = o.success / o.final;
+
+  // successRate 使用归因（票 D）：usedWuIds ∩ 终态 WU（done=成功，closed/blocked=不成功）；
+  // 无关联终态 WU → 保持 null（未知，不编造）
+  for (const [name, ids] of usedWuIds) {
+    let success = 0;
+    let final = 0;
+    for (const id of ids) {
+      const st = wuStatus.get(id);
+      if (st === 'done') {
+        success++;
+        final++;
+      } else if (st === 'closed' || st === 'blocked') {
+        final++;
+      }
+    }
+    if (final > 0) stats.get(name)!.successRate = success / final;
   }
 
   return stats;
@@ -293,7 +317,7 @@ export async function scanSkillDemotions(opts?: ScanOptions): Promise<{
     // 已归档的 skill 不再产提案
     if (skill.status === 'archived') continue;
 
-    const stats = usage.get(skill.name) ?? { uses: 0, successRate: null, lastUsedAt: null };
+    const stats = usage.get(skill.name) ?? { uses: 0, successRate: null, lastUsedAt: null, exposures: 0 };
     const ageDays = (now - skill.mtimeMs) / 86_400_000;
     const statsWithAge = { ...stats, ageDays: Math.round(ageDays * 10) / 10 };
 
