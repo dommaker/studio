@@ -49,6 +49,12 @@ function validateTrigger(config: TriggerConfig): void {
     if (!config.action.config?.query || !config.action.config?.update) {
       throw new Error('UPDATE action must have config with query and update');
     }
+    // #538（ADR 2026-09-15 决策 6）：禁改 status——状态机归 WorkUnitService，
+    // 注册校验拒（第一层）；executeUpdateAction 执行守卫为第二层。零消费者先收紧，
+    // 将来真需要状态变更再转 transitionStatus
+    if (config.action.target === 'workunit' && 'status' in config.action.config.update) {
+      throw new Error('UPDATE action must not modify workunit status (state machine owned by WorkUnitService)');
+    }
   } else {
     throw new Error(`Unknown action type: ${(config.action as { type: string }).type}`);
   }

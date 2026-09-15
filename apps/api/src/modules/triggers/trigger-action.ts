@@ -1,6 +1,6 @@
 // Trigger Action — execute trigger actions (3.28c-4, AS-026 extended)
 // Supports: CREATE WorkUnit, EXECUTE handler, UPDATE entity
-import { FileStore, logger, type WorkUnitEvent, type WorkUnitSnapshot } from '@dommaker/studio-shared';
+import { FileStore, logger } from '@dommaker/studio-shared';
 import type { TriggerAction, TriggerExecuteHandler } from './trigger.types.js';
 import { WorkUnitService } from '../workunit/workunit.service.js';
 
@@ -201,7 +201,26 @@ export async function executeExecuteAction(
 }
 
 /**
+ * #538（ADR 2026-09-15 决策 6）：UPDATE 可写字段白名单——与 service.update 的
+ * UpdateWorkUnitInput 一一对应（patchSnapshot 白名单）。status 不在列：
+ * 状态机归 WorkUnitService，UPDATE 禁改（注册校验 + 执行守卫双保险）。
+ */
+const UPDATE_FIELD_WHITELIST = [
+  'type', 'scope', 'assigneeId', 'channelId', 'parentId', 'projectPath',
+  'workspaceId', 'reqId', 'failureType', 'retryCount', 'timeoutAt', 'completedAt',
+] as const;
+
+/** YAML/JSON 配置里的日期是 ISO 字符串；UpdateWorkUnitInput 要 Date（patchSnapshot 调 toISOString） */
+function coerceDateField(value: unknown): Date | null {
+  if (value === null) return null;
+  if (value instanceof Date) return value;
+  return new Date(String(value));
+}
+
+/**
  * Execute an UPDATE action — updates entity via FileStore.
+ * #538：workunit 目标禁改 status（执行守卫）；其余字段走 patchSnapshot 白名单
+ * （service.update），metadata 走 updateMetadata 增量合并（不整写覆盖）。
  * @param action - The trigger action definition (must be UPDATE type)
  */
 export async function executeUpdateAction(
@@ -217,6 +236,18 @@ export async function executeUpdateAction(
 
   // Only support workunit entity for MVP
   if (action.target === 'workunit') {
+    if ('status' in update) {
+      throw new Error('UPDATE action must not modify workunit status (state machine owned by WorkUnitService)');
+    }
+    const { metadata, ...fields } = update as Record<string, unknown> & { metadata?: unknown };
+    if (metadata !== undefined && (metadata === null || typeof metadata !== 'object' || Array.isArray(metadata))) {
+      throw new Error('UPDATE action metadata must be an object (merged via updateMetadata)');
+    }
+    const unknownKeys = Object.keys(fields).filter(k => !(UPDATE_FIELD_WHITELIST as readonly string[]).includes(k));
+    if (unknownKeys.length > 0) {
+      logger.warn(`[TriggerAction] UPDATE workunit: dropping non-whitelisted fields: ${unknownKeys.join(', ')}`);
+    }
+
     const snapshots = await fileStore.getIndex();
     const now = new Date().toISOString();
 
@@ -232,18 +263,20 @@ export async function executeUpdateAction(
       }
       if (!matches) continue;
 
-      const updatedSnapshot: WorkUnitSnapshot = {
-        ...s,
-        ...update as Partial<WorkUnitSnapshot>,
-        updatedAt: now,
-      };
-      const event: WorkUnitEvent = {
-        type: 'updated',
-        wuId: s.id,
-        timestamp: now,
-        data: updatedSnapshot as unknown as Record<string, unknown>,
-      };
-      await fileStore.commitSnapshot(event, updatedSnapshot);
+      const input: Record<string, unknown> = {};
+      for (const key of UPDATE_FIELD_WHITELIST) {
+        if (!(key in fields)) continue;
+        const raw = (fields as Record<string, unknown>)[key];
+        input[key] = (key === 'timeoutAt' || key === 'completedAt') ? coerceDateField(raw) : raw;
+      }
+      if (Object.keys(input).length > 0) {
+        await workUnitService.update(s.id, input);
+      }
+      if (metadata !== undefined) {
+        // metadata 增量合并：mutator 基于锁内最新 metadata，既有键保留、新键并入
+        const patch = metadata as Record<string, unknown>;
+        await fileStore.updateMetadata(s.id, latest => ({ ...latest, ...patch }));
+      }
     }
   } else {
     logger.warn(`[TriggerAction] Unknown UPDATE target: ${action.target}`);

@@ -111,12 +111,14 @@ describe('executeUpdateAction（P0：操作符查询集成）', () => {
       wuSnapshot('wu-no-timeout', null),
     ]);
 
+    // #538（ADR 决策 6）：UPDATE 禁改 status——本用例聚焦操作符匹配，update 载荷
+    // 改用白名单字段（assigneeId 释放）；status 写拒绝由 trigger-update.test.ts 锁定
     const action: TriggerAction = {
       type: 'UPDATE',
       target: 'workunit',
       config: {
         query: { status: 'active', timeoutAt: { lt: NOW_PLACEHOLDER } },
-        update: { status: 'unassigned', assigneeId: null },
+        update: { assigneeId: null },
       },
     };
 
@@ -125,7 +127,7 @@ describe('executeUpdateAction（P0：操作符查询集成）', () => {
     expect(mockFileStore.commitSnapshot).toHaveBeenCalledTimes(1);
     const updated = mockFileStore.commitSnapshot.mock.calls[0][1];
     expect(updated.id).toBe('wu-expired');
-    expect(updated.status).toBe('unassigned');
+    expect(updated.status).toBe('active'); // status 不可经 UPDATE 改写
     expect(updated.assigneeId).toBeNull();
   });
 });
