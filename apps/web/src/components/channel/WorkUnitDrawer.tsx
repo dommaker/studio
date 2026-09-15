@@ -5,13 +5,12 @@
 // ExecutionSteps 后补「会话原文」折叠节（TranscriptViewer，原详情页独有）。
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
 import {
   workunitApi,
   parseWorkunitTokenEvents,
-  type WorkUnit,
   type WorkunitTokenEvent,
 } from '../../api/workunit';
+import { useWorkUnitStore } from '../../stores/workunitStore';
 import { useRequirementChainStore } from '../../stores/requirementChainStore';
 import { monitoringApi, type OverheadStats } from '../../api/monitoring';
 import { channelApi, type AgentProfile } from '../../api/channel';
@@ -29,7 +28,6 @@ import { deriveDisplayState, parseAttestations, WU_STATUS_LABELS, formatChannelN
 import { AssigneeLabel } from '../workunit/AssigneeLabel';
 import { formatShortTime } from '../../utils/datetime';
 import { parseWuMeta } from '../../utils/wuMeta';
-import { errorMessage } from '../../utils/errorMessage';
 
 export type DrawerState =
   // #284（决策 #250 D6）：autoApprove = analysis_confirm 接力卡「去确认」的「打开即弹」入参
@@ -142,64 +140,50 @@ export function WorkUnitDrawer({ drawer, onClose, onOpenWu, onOpenReq, todoNav }
 
 function WuDetail({ id, autoApprove = false, autoRuling = false, onOpenReq }: { id: string; autoApprove?: boolean; autoRuling?: boolean; onOpenReq: (reqId: string) => void }) {
   const navigate = useNavigate();
-  const [wu, setWu] = useState<WorkUnit | null>(null);
+  // #549（B5 收口）：WU 详情读 workunitStore detail slice——REST 打底（loadWorkUnitDetail）
+  // 与 SSE status_changed 就地 upsert 的落点合一（路由在 App 级 useWorkUnitStoreSync）；
+  // 本地 wu 直替已删，drawer 退回 store 订阅者。workunit.tokens 订阅保留本地（唯一消费方）
+  const detail = useWorkUnitStore(s => s.detailById[id]);
   const [tokens, setTokens] = useState<WorkunitTokenEvent[] | null>(null);
   const [overhead, setOverhead] = useState<OverheadStats | null>(null);
   // #275（#251 断点2）：「#频道名」回频道入口的频道名（best-effort，失败退回 id 截短显示）
   const [channelName, setChannelName] = useState<string | null>(null);
-  const [error, setError] = useState('');
-  // #241: 悬空 WU 引用（历史清理后消息 footer 指向已不存在的 WU）——404 单列友好态
-  const [notFound, setNotFound] = useState(false);
   const [showTreeTokens, setShowTreeTokens] = useState(false);
   // E2-1：ReviewHint 自列表展开区挪入——频道成员（in_review 时判断是否有人可认领评审）；
   // null = 未拉到（含 best-effort 失败）→ 不渲染提醒（空数组会误报「无人可认领」）
   const [channelMembers, setChannelMembers] = useState<AgentProfile[] | null>(null);
-  // 决策 8（2026-08 SSE 负载加深）：SSE 事件订阅——status_changed 负载 = 全量 WorkUnit
-  // （同 workunitApi.get 形状）按 id 匹配直接替换本地 wu；workunit.tokens 复用
-  // parseWorkunitTokenEvents 防御解析（他 WU / 缺字段负载跳过，聚合保持现有值）。
-  // 替代原 eventTick（400ms 防抖）驱动的整组重拉。
   const { onEvent } = useWebSocketContext();
 
-  // 渲染期按 id 重置（替代原 effect 内同步重置）：SSE 事件触发的更新不重置，
-  // 消除每次事件都闪"加载中…"的骨架闪烁——事件刷新静默进行，旧数据留到新数据到达
+  // 渲染期按 id 重置本地切片（替代原 effect 内同步重置）：SSE 事件触发的更新不重置，
+  // 消除每次事件都闪"加载中…"的骨架闪烁——事件刷新静默进行，旧数据留到新数据到达；
+  // detail slice 由 store 按 id 分区，无需重置
   const [prevId, setPrevId] = useState(id);
   if (prevId !== id) {
     setPrevId(id);
-    setWu(null);
     setTokens(null);
     setChannelName(null);
     setChannelMembers(null);
-    setError('');
-    setNotFound(false);
   }
 
-  // 开抽屉一次性打底：WU 详情（+ 频道名/频道成员 best-effort）
+  // 开抽屉一次性打底：WU 详情进 store detail slice（打开/换 id 即拉，不做 TTL 门禁）
   useEffect(() => {
-    let alive = true;
-    workunitApi.get(id)
-      .then(r => {
-        if (!alive) return;
-        setWu(r.data);
-        setError('');
-        if (r.data.channelId) {
-          // #275（#251 断点2）：频道名 best-effort（频道已删/无权限时保留 null，链接退回 id 截短）
-          channelApi.get(r.data.channelId)
-            .then(res => { if (alive) setChannelName(res.data.data.name); })
-            .catch(() => { /* best-effort */ });
-          // E2-1：ReviewHint 频道成员判断（best-effort；失败留 null 不渲染提醒，防误报）
-          channelApi.listAgents(r.data.channelId)
-            .then(res => { if (alive) setChannelMembers(res.data.data); })
-            .catch(() => { /* best-effort */ });
-        }
-      })
-      .catch(e => {
-        if (!alive) return;
-        if (axios.isAxiosError(e) && e.response?.status === 404) setNotFound(true);
-        // 批次A 项6：错误文案走 errorMessage 正本（服务端 error.message 优先，不再直拼 axios 裸 message）
-        else setError(errorMessage(e));
-      });
-    return () => { alive = false; };
+    void useWorkUnitStore.getState().loadWorkUnitDetail(id);
   }, [id]);
+
+  // WU 落库后补频道面（best-effort，随 channelId 派生，不随 SSE 快照重拉）：
+  // #275 频道名（失败退回 id 截短）+ E2-1 ReviewHint 频道成员（失败留 null 不渲染提醒，防误报）
+  const channelId = detail?.wu?.channelId ?? null;
+  useEffect(() => {
+    if (!channelId) return;
+    let alive = true;
+    channelApi.get(channelId)
+      .then(res => { if (alive) setChannelName(res.data.data.name); })
+      .catch(() => { /* best-effort */ });
+    channelApi.listAgents(channelId)
+      .then(res => { if (alive) setChannelMembers(res.data.data); })
+      .catch(() => { /* best-effort */ });
+    return () => { alive = false; };
+  }, [channelId]);
 
   // 开抽屉一次性打底：token 度量历史（此后增量走 workunit.tokens SSE）
   useEffect(() => {
@@ -219,20 +203,17 @@ function WuDetail({ id, autoApprove = false, autoRuling = false, onOpenReq }: { 
     return () => { alive = false; };
   }, [id]);
 
-  // SSE 增量订阅（决策 8）
+  // SSE 增量订阅：workunit.tokens 聚合累加（决策 8；status_changed 直替已收口进 store，#549）
   useEffect(() => onEvent((msg) => {
-    if (msg.event_type === 'workunit.status_changed') {
-      const data = msg.data as { workunit?: WorkUnit } | null;
-      if (data?.workunit && data.workunit.id === id) setWu(data.workunit);
-    } else if (msg.event_type === 'workunit.tokens') {
-      const [ev] = parseWorkunitTokenEvents([{ payload: msg.data }], id);
-      if (ev) setTokens(prev => [...(prev ?? []), ev]);
-    }
+    if (msg.event_type !== 'workunit.tokens') return;
+    const [ev] = parseWorkunitTokenEvents([{ payload: msg.data }], id);
+    if (ev) setTokens(prev => [...(prev ?? []), ev]);
   }), [onEvent, id]);
 
-  if (notFound) return <div className="mc-drawer-note">该任务不存在或已被清理（id：{id}）</div>;
-  if (error) return <div className="mc-drawer-note">加载失败: {error}</div>;
-  if (!wu) return <SkeletonText lines={6} className="space-y-3" />;
+  if (detail?.notFound) return <div className="mc-drawer-note">该任务不存在或已被清理（id：{id}）</div>;
+  if (detail?.error) return <div className="mc-drawer-note">加载失败: {detail.error}</div>;
+  if (!detail?.wu) return <SkeletonText lines={6} className="space-y-3" />;
+  const wu = detail.wu;
 
   const meta = parseWuMeta<WuMeta>(wu.metadata);
   const title = meta.title || wu.scope;
@@ -243,10 +224,11 @@ function WuDetail({ id, autoApprove = false, autoRuling = false, onOpenReq }: { 
   const totalSum = (tokens ?? []).reduce((s, t) => s + t.totalTokens, 0);
   const maxBar = Math.max(totalSum, 1);
 
-  /** E2-4：闸门动作写路径 #545 起内建于共享 WuGateActions（gateWriter 双写落点 + onUpdated 直替本地 wu；
+  /** E2-4：闸门动作写路径 #545 起内建于共享 WuGateActions（gateWriter 双写落点——
+   *  store applyWorkunitEvent 覆盖 detail slice 就地更新（#549），drawer 无需 onUpdated sink；
    *  决策 8：状态变化另有 status_changed SSE 兜底）；分支/锁存/错误内联/弹窗全部组件自带 */
   const gateActions = (
-    <WuGateActions wu={wu} autoApprove={autoApprove} onUpdated={setWu} />
+    <WuGateActions wu={wu} autoApprove={autoApprove} />
   );
 
   return (
@@ -325,7 +307,7 @@ function WuDetail({ id, autoApprove = false, autoRuling = false, onOpenReq }: { 
           #467：plan-ruling 挂起时另出「去裁决」（PlanRulingDialog，autoRuling = 接力卡打开即弹）。
           动作成功后重拉一次详情兜底（状态变化另有 status_changed SSE 负载直更） */}
       <BlockedActions wu={wu} autoRuling={autoRuling} onChanged={() => {
-        workunitApi.get(id).then(r => setWu(r.data)).catch(() => {});
+        void useWorkUnitStore.getState().loadWorkUnitDetail(id);
       }} />
 
       {/* WU 过程可视化：执行步事件流（思考/工具调用/skill 注入/用量），SSE 步级刷新。

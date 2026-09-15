@@ -53,7 +53,8 @@ const mockStore = {
   unattributedTotal: null as number | null,
   searchQuery: null as string | null,
   setSearchQuery: vi.fn(),
-  removeWorkunit: vi.fn(),
+  /** #549：fresh 高亮集合（created 路由在 sync hook 打标记，页面只读） */
+  freshWuIds: new Set<string>() as ReadonlySet<string>,
   error: null as string | null,
 };
 
@@ -78,8 +79,7 @@ vi.mock('../../stores/workunitStore', () => ({
         setStatusFilter: mockStore.setStatusFilter,
         setUnattributedOnly: mockStore.setUnattributedOnly,
         loadUnattributedCount: mockStore.loadUnattributedCount,
-        applyWorkunitEvent: vi.fn(),
-        removeWorkunit: mockStore.removeWorkunit,
+        freshWuIds: mockStore.freshWuIds,
       };
       return selector ? selector(state) : state;
     },
@@ -88,17 +88,8 @@ vi.mock('../../stores/workunitStore', () => ({
 }));
 
 // 2026-09-10 第二轮：列表页抽屉已删（行点击直跳详情页），WorkUnitDrawer 不再被本页消费
-
-// SSE 上下文（#318 负载直更订阅口）— onEvent 注册回调收集，用例手工驱动（批次 E-3 起新增驱动能力）
-type SseMsg = { event_type: string; data?: unknown };
-let sseHandlers: Array<(msg: SseMsg) => void> = [];
-const emitSse = (msg: SseMsg) => { sseHandlers.forEach(h => h(msg)); };
-vi.mock('../../api/websocketHooks', () => ({
-  useWebSocketContext: () => ({
-    onEvent: (cb: (msg: SseMsg) => void) => { sseHandlers.push(cb); return () => {}; },
-    onReconnect: () => () => {},
-  }),
-}));
+// #549：SSE 路由已收口进 useWorkUnitStoreSync（App 级）——页面测试不再接 emitSse 管道，
+// 事件路由断言见 hooks/__tests__/useWorkUnitStoreSync.test.ts；本页只断言 store 订阅者身份
 
 import { WorkUnitListPage } from '../WorkUnitListPage';
 
@@ -130,8 +121,8 @@ describe('WorkUnitListPage', () => {
     mockStore.statusFilter = null;
     mockStore.searchQuery = null;
     mockStore.unattributedOnly = false;
+    mockStore.freshWuIds = new Set();
     mockSearchParamsValue.value = '';
-    sseHandlers = [];
   });
 
   it('renders page title', () => {
@@ -149,43 +140,17 @@ describe('WorkUnitListPage', () => {
     expect(screen.getByText('暂无任务')).toBeDefined();
   });
 
-  it('批次 E-3：SSE workunit.created 新行挂 wu-row-new 渐隐高亮，2s 后自清；status_changed 不标', () => {
-    vi.useFakeTimers();
-    try {
-      mockStore.workunits = [makeWu({ id: 'wu-1', scope: '存量行' })];
-      const { container, rerender } = render(<WorkUnitListPage />);
-      const rowOf = (scope: string) =>
-        Array.from(container.querySelectorAll('.wu-row')).find(r => r.textContent?.includes(scope)) as HTMLElement;
+  // 批次 E-3 / #549：fresh 渐隐高亮 = store freshWuIds 订阅（集合与自清在 store，
+  // created 事件路由断言在 useWorkUnitStoreSync 测试；本页只断言类随集合挂载）
+  it('批次 E-3：store freshWuIds 命中的行挂 wu-row-new 渐隐高亮，未命中不挂', () => {
+    mockStore.workunits = [makeWu({ id: 'wu-1', scope: '存量行' }), makeWu({ id: 'wu-2', scope: 'SSE 新行' })];
+    mockStore.freshWuIds = new Set(['wu-2']);
+    const { container } = render(<WorkUnitListPage />);
+    const rowOf = (scope: string) =>
+      Array.from(container.querySelectorAll('.wu-row')).find(r => r.textContent?.includes(scope)) as HTMLElement;
 
-      // status_changed 直替行不挂新行高亮
-      act(() => { emitSse({ event_type: 'workunit.status_changed', data: { workunit: makeWu({ id: 'wu-1', status: 'done' }) } }); });
-      expect(rowOf('存量行').className).not.toContain('wu-row-new');
-
-      // created → 新行插头部（store 为 mock，手动对齐插头部语义）+ 渐隐高亮
-      const newWu = makeWu({ id: 'wu-2', scope: 'SSE 新行' });
-      act(() => { emitSse({ event_type: 'workunit.created', data: { workunit: newWu } }); });
-      mockStore.workunits = [newWu, ...mockStore.workunits];
-      rerender(<WorkUnitListPage />);
-      expect(rowOf('SSE 新行').className).toContain('wu-row-new');
-      expect(rowOf('存量行').className).not.toContain('wu-row-new');
-
-      // 2s 后页面自清类（渐隐经 .wu-row 既有 background-color 过渡完成）
-      act(() => { vi.advanceTimersByTime(2100); });
-      expect(rowOf('SSE 新行').className).not.toContain('wu-row-new');
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  // #538：SSE workunit:removed → store 删行分支（GC/TTL 删除不再悬挂到重连 refetch）；坏负载不调
-  it('SSE workunit:removed → removeWorkunit(id)；缺 id 负载不调', () => {
-    mockStore.workunits = [makeWu({ id: 'wu-1', scope: '存量行' })];
-    render(<WorkUnitListPage />);
-    act(() => { emitSse({ event_type: 'workunit:removed', data: { id: 'wu-1', channelId: null } }); });
-    expect(mockStore.removeWorkunit).toHaveBeenCalledWith('wu-1');
-    mockStore.removeWorkunit.mockClear();
-    act(() => { emitSse({ event_type: 'workunit:removed', data: { channelId: 'ch-1' } }); });
-    expect(mockStore.removeWorkunit).not.toHaveBeenCalled();
+    expect(rowOf('SSE 新行').className).toContain('wu-row-new');
+    expect(rowOf('存量行').className).not.toContain('wu-row-new');
   });
 
   // 批次 E-2：全空空态 = 图标（去 emoji）+ 「新建任务」CTA（开创建表单）

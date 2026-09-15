@@ -63,7 +63,8 @@ describe('useFreshMessageIds', () => {
     expect(result.current.size).toBe(0);
   });
 
-  it('清除窗口内又有新到 → 重新计时（新旧同集，2s 后一并清除）', () => {
+  // #549：per-id 语义（机制 = utils/freshIds 共享件）——各自到达起 2s 渐隐，互不重计时
+  it('清除窗口内又有新到 → per-id 各自计时：先到的先清，后到的留', () => {
     const { result, rerender } = renderHook(({ msgs }) => useFreshMessageIds(msgs), {
       initialProps: { msgs: [msg('m1', 0)] },
     });
@@ -73,9 +74,9 @@ describe('useFreshMessageIds', () => {
     });
     rerender({ msgs: [msg('m1', 0), msg('m2', 1), msg('m3', 2)] });
     act(() => {
-      vi.advanceTimersByTime(1000); // 距首次 2s，但计时已重置
+      vi.advanceTimersByTime(1000); // m2 到自己的 2s
     });
-    expect(result.current.has('m2')).toBe(true);
+    expect(result.current.has('m2')).toBe(false); // 先到先清（不受 m3 到达影响）
     expect(result.current.has('m3')).toBe(true);
     act(() => {
       vi.advanceTimersByTime(1000);

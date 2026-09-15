@@ -45,6 +45,10 @@ vi.mock('../hooks/useRequirementChainStoreSync', () => ({
 vi.mock('../hooks/usePmoDataStoreSync', () => ({
   usePmoDataStoreSync: () => {},
 }));
+// #549：WU 数据面接线同理（App 级 WorkUnitStoreSync 经 useDataPlaneSync 依赖真实 SSE context）
+vi.mock('../hooks/useWorkUnitStoreSync', () => ({
+  useWorkUnitStoreSync: () => {},
+}));
 vi.mock('../contexts/ThemeContext', () => ({
   ThemeProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));

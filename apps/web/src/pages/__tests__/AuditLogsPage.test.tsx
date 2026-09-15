@@ -146,8 +146,9 @@ describe('AuditLogsPage（E7 审计日志页改造）', () => {
     render(<AuditLogsPage />);
     await screen.findByText('user-a');
 
+    // #549：useAsyncData 切参当帧清数据重置加载态（正本语义）——下一个筛选控件等重拉落定再取
     fireEvent.change(screen.getByLabelText('开始日期'), { target: { value: '2026-09-01' } });
-    fireEvent.change(screen.getByLabelText('结束日期'), { target: { value: '2026-09-09' } });
+    fireEvent.change(await screen.findByLabelText('结束日期'), { target: { value: '2026-09-09' } });
 
     await waitFor(() =>
       expect(mockList).toHaveBeenLastCalledWith(
@@ -167,7 +168,8 @@ describe('AuditLogsPage（E7 审计日志页改造）', () => {
 
     fireEvent.click(screen.getByLabelText('状态筛选'));
     fireEvent.click(await screen.findByRole('option', { name: '失败' }));
-    fireEvent.change(screen.getByLabelText('开始日期'), { target: { value: '2026-09-01' } });
+    // #549：同上——等筛选触发的重拉落定再取日期控件
+    fireEvent.change(await screen.findByLabelText('开始日期'), { target: { value: '2026-09-01' } });
     await waitFor(() =>
       expect(mockList).toHaveBeenLastCalledWith(expect.objectContaining({ status: 'failure' })),
     );

@@ -8,7 +8,6 @@ import { StaleSleepBadge } from '../components/workunit/StaleSleepBadge';
 import { WuGateActions } from '../components/workunit/WuGateActions';
 import type { WorkUnit } from '../api/workunit';
 import { parseBlockedBy } from '../components/pmo/mapUtils';
-import { useWebSocketContext } from '../api/websocketHooks';
 import { Select, Button, SkeletonText } from '../components/ui';
 import { IconClipboard } from '../components/ui/icons';
 import { formatShortTime } from '../utils/datetime';
@@ -87,40 +86,10 @@ export function WorkUnitListPage() {
     void loadAllCount();
   }, [loadWorkUnits, loadUnattributedCount, loadAllCount]);
 
-  // #318：WU SSE 负载直更（替代 eventTick 整页重拉）——status_changed 直替/移除行、created 插头部；
-  // SSE 重连经 onReconnect 一次性 refetch 对齐（ADR D3）
-  const applyWorkunitEvent = useWorkUnitStore(s => s.applyWorkunitEvent);
-  const removeWorkunit = useWorkUnitStore(s => s.removeWorkunit);
-  const { onEvent, onReconnect } = useWebSocketContext();
-  // 批次 E-3：SSE 新 WU 行渐隐高亮（白名单③状态色切换）——created 事件插头部的新行挂
-  // .wu-row-new（accent-dim 底色），2s 后移类经 .wu-row 既有 background-color 过渡渐隐；
-  // 过滤不符的行 store 不插入，fresh 标记由定时器自清，无副作用
-  const [freshWuIds, setFreshWuIds] = useState<ReadonlySet<string>>(new Set());
-  const freshWuTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
-  useEffect(() => () => { freshWuTimersRef.current.forEach(clearTimeout); }, []);
-  useEffect(() => onEvent((msg) => {
-    // #538：GC/TTL 删除出声 → 删行分支（负载 { id, channelId }，缺 id 属畸形跳过）
-    if (msg.event_type === 'workunit:removed') {
-      const data = msg.data as { id?: string } | null;
-      if (typeof data?.id === 'string' && data.id) removeWorkunit(data.id);
-      return;
-    }
-    if (msg.event_type !== 'workunit.status_changed' && msg.event_type !== 'workunit.created') return;
-    const data = msg.data as { workunit?: WorkUnit } | null;
-    if (!data?.workunit) return;
-    applyWorkunitEvent(data.workunit, { insertIfMissing: msg.event_type === 'workunit.created' });
-    if (msg.event_type === 'workunit.created') {
-      const wuId = data.workunit.id;
-      setFreshWuIds(prev => (prev.has(wuId) ? prev : new Set(prev).add(wuId)));
-      const timers = freshWuTimersRef.current;
-      if (timers.has(wuId)) clearTimeout(timers.get(wuId));
-      timers.set(wuId, setTimeout(() => {
-        timers.delete(wuId);
-        setFreshWuIds(prev => { const next = new Set(prev); next.delete(wuId); return next; });
-      }, 2000));
-    }
-  }), [onEvent, applyWorkunitEvent, removeWorkunit]);
-  useEffect(() => onReconnect(() => { void loadWorkUnits(); void loadUnattributedCount(); void loadAllCount(); }), [onReconnect, loadWorkUnits, loadUnattributedCount, loadAllCount]);
+  // #549（B5 收口）：SSE 路由（status_changed 直替/移除、created 插头部 + fresh 标记、
+  // workunit:removed 删行）与重连兜底全在 App 级 useWorkUnitStoreSync——本页退回订阅者，
+  // fresh 渐隐高亮集合直接读 store（机制 = utils/freshIds 共享件，per-id 2s 自清）
+  const freshWuIds = useWorkUnitStore(s => s.freshWuIds);
 
   // 批次 E-2 空态分语境：过滤生效（状态/搜索/待人工/未归属）→ 「清除过滤」；全空 → 「新建任务」
   const isFilteredEmpty = humanOnly || statusFilter !== null || searchQuery !== null || unattributedOnly;

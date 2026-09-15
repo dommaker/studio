@@ -1,11 +1,12 @@
 // Contract test: workunitStore — MVP-3 Review UI
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // Mock the API module before importing store
 vi.mock('../../api/workunit', () => ({
   workunitApi: {
     list: vi.fn().mockResolvedValue({ data: { data: [], pagination: { total: 0, page: 1, limit: 20, totalPages: 0 } } }),
     create: vi.fn().mockResolvedValue({ data: {} }),
+    get: vi.fn(),
   },
 }));
 
@@ -539,5 +540,100 @@ describe('workunitStore 全量总数徽标 allTotal', () => {
   it('SSE created 时 allTotal 未拉取（null）保持 null（不凭空造数）', () => {
     useWorkUnitStore.getState().applyWorkunitEvent(row('wu-1'), { insertIfMissing: true });
     expect(useWorkUnitStore.getState().allTotal).toBeNull();
+  });
+});
+
+// #549（B5 收口）：detail slice（byId 快照区）——drawer 打开即 REST 打底（不做 TTL 门禁），
+// status_changed 经 applyWorkunitEvent 就地 upsert；未打开过的 WU 事件 no-op（ADR 决策 2 口径）。
+describe('workunitStore detail slice（#549）', () => {
+  const row = (id: string, overrides: Record<string, unknown> = {}) =>
+    ({ id, scope: `scope-${id}`, type: 'task', status: 'active', metadata: null, ...overrides }) as unknown as import('../../api/workunit').WorkUnit;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useWorkUnitStore.getState().__resetForTests();
+  });
+
+  it('loadWorkUnitDetail：REST 打底落 detailById（wu 快照，error/notFound 复位）', async () => {
+    (workunitApi.get as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ data: row('wu-1') });
+
+    await useWorkUnitStore.getState().loadWorkUnitDetail('wu-1');
+
+    expect(workunitApi.get).toHaveBeenCalledWith('wu-1');
+    const d = useWorkUnitStore.getState().detailById['wu-1'];
+    expect(d.wu?.id).toBe('wu-1');
+    expect(d.error).toBeNull();
+    expect(d.notFound).toBe(false);
+  });
+
+  it('loadWorkUnitDetail 404 → notFound 友好态（无 error 文案）', async () => {
+    (workunitApi.get as unknown as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      Object.assign(new Error('Request failed with status code 404'), { isAxiosError: true, response: { status: 404 } }),
+    );
+
+    await useWorkUnitStore.getState().loadWorkUnitDetail('wu-gone');
+
+    const d = useWorkUnitStore.getState().detailById['wu-gone'];
+    expect(d.notFound).toBe(true);
+    expect(d.error).toBeNull();
+    expect(d.wu).toBeNull();
+  });
+
+  it('loadWorkUnitDetail 非 404 → error 文案（服务端 error.message 优先）', async () => {
+    (workunitApi.get as unknown as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      Object.assign(new Error('Request failed with status code 500'), {
+        isAxiosError: true,
+        response: { status: 500, data: { error: { message: '服务端挂了' } } },
+      }),
+    );
+
+    await useWorkUnitStore.getState().loadWorkUnitDetail('wu-1');
+
+    const d = useWorkUnitStore.getState().detailById['wu-1'];
+    expect(d.notFound).toBe(false);
+    expect(d.error).toBe('服务端挂了');
+  });
+
+  it('applyWorkunitEvent：已打开的 detail 就地 upsert（含 status_changed 与 created）；未打开 no-op', async () => {
+    (workunitApi.get as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ data: row('wu-1') });
+    await useWorkUnitStore.getState().loadWorkUnitDetail('wu-1');
+
+    useWorkUnitStore.getState().applyWorkunitEvent(row('wu-1', { status: 'done' }), { insertIfMissing: false });
+    expect(useWorkUnitStore.getState().detailById['wu-1'].wu?.status).toBe('done');
+
+    useWorkUnitStore.getState().applyWorkunitEvent(row('wu-2'), { insertIfMissing: true });
+    expect(useWorkUnitStore.getState().detailById['wu-2']).toBeUndefined();
+
+    // 未知行 status_changed（insertIfMissing: false）不动 detail
+    useWorkUnitStore.getState().applyWorkunitEvent(row('wu-9'), { insertIfMissing: false });
+    expect(useWorkUnitStore.getState().detailById['wu-9']).toBeUndefined();
+  });
+});
+
+// #549：fresh 高亮集合——created 事件路由驱动 markWuFresh，per-id 2s 自清（机制 = utils/freshIds 共享件）
+describe('workunitStore fresh 集合（#549）', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    useWorkUnitStore.getState().__resetForTests();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('markWuFresh → id 进 freshWuIds，2s 后自清', () => {
+    useWorkUnitStore.getState().markWuFresh('wu-1');
+    expect(useWorkUnitStore.getState().freshWuIds.has('wu-1')).toBe(true);
+
+    vi.advanceTimersByTime(2100);
+    expect(useWorkUnitStore.getState().freshWuIds.has('wu-1')).toBe(false);
+  });
+
+  it('per-id 语义：后到的 id 不重计先到 id 的计时', () => {
+    useWorkUnitStore.getState().markWuFresh('wu-1');
+    vi.advanceTimersByTime(1500);
+    useWorkUnitStore.getState().markWuFresh('wu-2');
+    vi.advanceTimersByTime(600); // wu-1 到 2s
+    expect(useWorkUnitStore.getState().freshWuIds.has('wu-1')).toBe(false);
+    expect(useWorkUnitStore.getState().freshWuIds.has('wu-2')).toBe(true);
   });
 });
