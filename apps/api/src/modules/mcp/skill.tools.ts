@@ -30,6 +30,16 @@ const loadSkill: RegisteredTool = {
     const { skillLoader } = await import('@dommaker/studio-skill');
     const fullPrompt = skillLoader.getFullPrompt(skillName);
     if (fullPrompt) {
+      // skill 度量地基票 A：cache 命中是 loadSkill 常态路径（包级 loader 预热后覆盖全部
+      // 磁盘 skill），此前只有路径 2 发射 skill_used → 事件结构性为 0。发射点上移到
+      // 工具边界：cache 路径在本层补发射（level=info 提为 signal，不归噪声 7 天滚）；
+      // 路径 2 维持 skill-loader.ts 既有发射，每调用恰好一次。
+      const { writeStudioEvent } = await import('@dommaker/studio-shared');
+      void writeStudioEvent('knowledge:skill_used', {
+        skillName,
+        ...(typeof input.workUnitId === 'string' && input.workUnitId ? { workUnitId: input.workUnitId } : {}),
+        channel: 'loadSkill',
+      }, { source: 'skill-tools', level: 'info' }).catch(() => {});
       return { skillName, content: fullPrompt, source: 'cache' };
     }
 
