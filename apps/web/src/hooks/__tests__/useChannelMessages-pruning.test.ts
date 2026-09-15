@@ -21,6 +21,8 @@ vi.mock('../../api/websocketHooks', () => ({
 }));
 
 import { useChannelMessages } from '../useChannelEvents';
+// #548：messages 数据面收编模块单例 store——每用例清数据面+纪律簿记，防跨用例泄漏
+import { useChannelMessageStore } from '../../stores/channelMessageStore';
 import { degradeMessage } from '../../utils/messagePruning';
 
 // 小参数便于构造场景：K=3、D1=2、D2=1
@@ -47,6 +49,7 @@ describe('useChannelMessages 降级/水合', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.useFakeTimers();
+    useChannelMessageStore.getState().__resetForTests();
     mockListMessages.mockResolvedValue({ data: { data: [], hasMore: false } });
     mockOnEvent.mockImplementation(() => () => {});
   });

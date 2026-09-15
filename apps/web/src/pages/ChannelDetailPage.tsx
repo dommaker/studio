@@ -35,6 +35,8 @@ import { useNotificationStore, needInputViewOf } from '../stores/notificationSto
 import { useUnreadStore } from '../stores/unreadStore';
 import { useChannelDataStore, parseChannelMembers } from '../stores/channelDataStore';
 import { useChannelWorkStore, parseRequirementPayload, wuIdleOf } from '../stores/channelWorkStore';
+import { agentAnsweredOf } from '../stores/channelMessageStore';
+import { useFreshMessageIds } from '../hooks/useFreshMessageIds';
 import { useChannelWorkStoreSync } from '../hooks/useChannelWorkStoreSync';
 import type { Requirement } from '../api/requirements';
 import type { Channel, ChannelMessage, ChannelSuggestion, FileRef } from '../api/channel';
@@ -413,10 +415,8 @@ export function ChannelDetailPage() {
   // #493：「等待 agent」状态条——agent 已响应（该 WU 的 agent 新消息到达）即 render 派生隐藏，
   // 不做 effect 内同步 setState；state 本体由 30s 兜底定时器清理（agent 无响应时条不常住；
   // 30s 口径 > 唤醒+认领秒级路径，loop 异常时由工作条/建议片承接下来）
-  const agentAnswered = !!awaitingAgent && messages.some(m =>
-    m.authorType === 'agent' && m.workUnitId === awaitingAgent.wuId &&
-    new Date(m.createdAt).getTime() >= awaitingAgent.since
-  );
+  // #548：判定本体迁出页面——agentAnsweredOf（channelMessageStore 旁挂纯函数），本页只消费派生结果
+  const agentAnswered = agentAnsweredOf(messages, awaitingAgent);
   useEffect(() => {
     if (!awaitingAgent) return;
     const timer = setTimeout(() => setAwaitingAgent(null), 30_000);
@@ -427,31 +427,8 @@ export function ChannelDetailPage() {
   // 口径 = 全部新到达消息（含自己发送的回显——消息模型只有 authorType 无 authorId，区分不到个人，
   // 与 useStreamFollow ownSendPending 窗口同一局限）；首拉与翻页 prepend/水合归并的历史不标
   // （createdAt 早于到达前最新一条即历史）。2s 后移类，经 .mc-msg 基类过渡渐隐
-  const [freshMsgIds, setFreshMsgIds] = useState<ReadonlySet<string>>(new Set());
-  const msgTrackRef = useRef<{ ids: Set<string>; latestTs: number } | null>(null);
-  const freshMsgTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => {
-    if (messages.length === 0) return;
-    const ts = (m: ChannelMessage) => new Date(m.createdAt).getTime();
-    const track = msgTrackRef.current;
-    if (!track) {
-      // 首载：全部记为已见，不高亮
-      msgTrackRef.current = { ids: new Set(messages.map(m => m.id)), latestTs: ts(messages[messages.length - 1]) };
-      return;
-    }
-    const arrived = messages.filter(m => !track.ids.has(m.id) && ts(m) >= track.latestTs);
-    for (const m of messages) track.ids.add(m.id);
-    track.latestTs = Math.max(track.latestTs, ts(messages[messages.length - 1]));
-    if (arrived.length === 0) return;
-    setFreshMsgIds(prev => {
-      const next = new Set(prev);
-      for (const m of arrived) next.add(m.id);
-      return next;
-    });
-    if (freshMsgTimerRef.current) clearTimeout(freshMsgTimerRef.current);
-    freshMsgTimerRef.current = setTimeout(() => setFreshMsgIds(new Set()), 2000);
-  }, [messages]);
-  useEffect(() => () => { if (freshMsgTimerRef.current) clearTimeout(freshMsgTimerRef.current); }, []);
+  // #548：判定本体迁出页面——useFreshMessageIds（hooks/），本页只消费派生集合
+  const freshMsgIds = useFreshMessageIds(messages);
 
   // #547：频道消息环境——横切值单 Provider 下发，消息项 useContext 自取（公开 Props 收窄）。
   // #322 契约不变量：成员全为稳定引用（useCallback/镜像 ref），useMemo 组装后 value identity

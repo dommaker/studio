@@ -20,6 +20,8 @@ vi.mock('../../api/websocketHooks', () => ({
 }));
 
 import { useChannelMessages } from '../useChannelEvents';
+// #548：messages 数据面收编模块单例 store——每用例清数据面+纪律簿记，防跨用例泄漏
+import { useChannelMessageStore } from '../../stores/channelMessageStore';
 import { setClientPerfSink, resetClientPerfSink, emitReceiptRendered } from '../../utils/clientPerf';
 
 function msg(id: string, over: Partial<ChannelMessage> = {}): ChannelMessage {
@@ -45,6 +47,7 @@ describe('useChannelMessages — #520 回执渲染计时起点', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     resetClientPerfSink();
+    useChannelMessageStore.getState().__resetForTests();
     setClientPerfSink(mockSink);
     mockListMessages.mockResolvedValue({ data: { data: [], hasMore: false } });
     mockOnEvent.mockImplementation((h: (msg: WebSocketMessage) => void) => {
