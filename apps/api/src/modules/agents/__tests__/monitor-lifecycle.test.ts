@@ -127,10 +127,15 @@ describe('dataLifecycle (每日 23:55 TTL)', () => {
 
     expect(state.lastDataLifecycleRun).not.toBe('');
     expect(state.lastPrecipitateRun).not.toBe(''); // 闸门先于清理执行
-    // #170：删除走锁内墓碑（closed + deleted:true）+ 索引移除成对原语
+    // #538（ADR 2026-09-15 决策 3）：删除循环改调 service.delete(id, { reason })——
+    // 墓碑事件行由 service 单点构造（closed + deleted:true + reason），调用方不自拼
     expect(fileStore.commitRemoval).toHaveBeenCalledTimes(1);
     expect(fileStore.commitRemoval).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'closed', wuId: 'wu-old', data: { deleted: true } }),
+      expect.objectContaining({
+        type: 'closed',
+        wuId: 'wu-old',
+        data: expect.objectContaining({ deleted: true, reason: expect.stringContaining('90 days') }),
+      }),
       'wu-old',
     );
 

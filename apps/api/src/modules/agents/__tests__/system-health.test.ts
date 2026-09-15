@@ -21,6 +21,15 @@ vi.mock('@dommaker/studio-shared', () => {
   return { FileStore, logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } };
 });
 
+// #538：runGC 的 WU 删除改走 service.delete 单口——本套件只钉「委托语义 + 筛选口径」，
+// 墓碑/reason/workunit:removed 不变式由 workunit-crud.test.ts 锁定（模块边界单测，不重复钉）。
+// 真 chain 在本 mock 下不可达：studio-shared 整体替换后 workunit.service 的传递 import
+//（routing.parseChannels / withAttestation 等）缺导出会在 import 期炸。
+const mockWuDelete = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+vi.mock('../../workunit/workunit.service.js', () => ({
+  WorkUnitService: vi.fn(function () { return { delete: mockWuDelete }; }),
+}));
+
 // 数据根入口走真实现会撞上面的 os mock（无 homedir），这里钉一个 env 敏感的等价物：
 // 断言的边界是「runGC 经 studioPath/STUDIO_HOME 解析 sessions 目录」而非 studioDir 本身。
 vi.mock('@dommaker/studio-shared/studio-dir', async () => {
@@ -171,6 +180,33 @@ describe('runGC', () => {
     } finally {
       vi.unstubAllEnvs();
       fs.rmSync(tmpRoot, { recursive: true, force: true });
+    }
+  });
+
+  // #538（ADR 2026-09-15 决策 3）：WU 删除分支断言——删除循环委托 service.delete(id, { reason })
+  // 单口（不再直摸 commitRemoval），筛选逻辑（done/closed 且 completedAt >30 天）留调用方不变
+  it('deletes completed WorkUnits older than 30 days via service.delete（委托单口 + 筛选口径不变）', async () => {
+    const { FileStore } = await import('@dommaker/studio-shared');
+    const getIndex = (FileStore as unknown as { prototype: { getIndex: ReturnType<typeof vi.fn> } }).prototype.getIndex;
+    const old = new Date(Date.now() - 31 * 24 * 3600_000).toISOString();
+    const fresh = new Date(Date.now() - 10 * 24 * 3600_000).toISOString();
+    getIndex.mockResolvedValue([
+      { id: 'wu-old', status: 'done', completedAt: old, channelId: 'ch-1' },
+      { id: 'wu-fresh', status: 'done', completedAt: fresh, channelId: null },
+      { id: 'wu-active', status: 'active', completedAt: null, channelId: null },
+    ]);
+    mockWuDelete.mockClear();
+    try {
+      const { runGC } = await import('../ops/system-health');
+      const result = await runGC();
+
+      expect(result.details.some((d) => d.includes('wu-old'))).toBe(true);
+      expect(result.details.some((d) => d.includes('wu-fresh'))).toBe(false);
+      expect(result.details.some((d) => d.includes('wu-active'))).toBe(false);
+      expect(mockWuDelete).toHaveBeenCalledTimes(1);
+      expect(mockWuDelete).toHaveBeenCalledWith('wu-old', { reason: expect.stringContaining('30 days') });
+    } finally {
+      getIndex.mockResolvedValue([]); // 不污染同文件其它用例（FileStore.prototype 共享）
     }
   });
 });

@@ -179,14 +179,13 @@ export async function dataLifecycle(fileStore: FileStore, state: LifecycleState)
       const execCutoffMs = Date.now() - 90 * 24 * 3600_000;
       const allWu = await fileStore.getIndex();
       const toDelete = allWu.filter(s => new Date(s.createdAt).getTime() < execCutoffMs);
+      // #538（ADR 2026-09-15 决策 3）：筛选逻辑留本调用方（90 天无状态过滤照旧），
+      // 删除循环走 service.delete 单口——墓碑单点构造 + workunit:removed 出声。
+      // 动态引入避环（agents → workunit 静态链会经 channels 绕回 agents）
+      const { WorkUnitService } = await import('../../workunit/workunit.service.js');
+      const workUnitService = new WorkUnitService(fileStore);
       for (const wu of toDelete) {
-        // #170：墓碑事件 + 索引移除同锁成对（对账/重建不复活已删 WU）
-        await fileStore.commitRemoval({
-          type: 'closed',
-          wuId: wu.id,
-          timestamp: new Date().toISOString(),
-          data: { deleted: true },
-        }, wu.id);
+        await workUnitService.delete(wu.id, { reason: 'monitor TTL: WorkUnit older than 90 days' });
       }
       logger.info('[MonitorService] TTL: WorkUnit cleaned', { deleted: toDelete.length, cutoff: new Date(execCutoffMs).toISOString() });
     } catch (e) {
