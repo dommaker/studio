@@ -423,8 +423,12 @@ export class WorkUnitCrudService {
 
   /**
    * Delete a WorkUnit.
+   * #538（ADR 2026-09-15 决策 3/4/5）：墓碑事件行（closed + deleted:true）由本方法
+   * 单点构造，调用方不自拼；reason 可选落墓碑（GC/TTL 死因留痕）。删除后发
+   * workunit:removed（负载 id + channelId，经 SSE 桥转发前端删行）——只走事件流，
+   * 不进频道出声（数据卫生非对账修复）。
    */
-  async delete(id: string): Promise<void> {
+  async delete(id: string, opts?: { reason?: string }): Promise<void> {
     const existing = (await this.fileStore.getIndex({ id }))[0];
     if (!existing) throw new Error(`WorkUnit not found: ${id}`);
 
@@ -436,9 +440,19 @@ export class WorkUnitCrudService {
       type: 'closed',
       wuId: id,
       timestamp: now.toISOString(),
-      data: { deleted: true },
+      data: { deleted: true, ...(opts?.reason ? { reason: opts.reason } : {}) },
     };
     await this.fileStore.commitRemoval(event, id);
+
+    // best-effort：删除出声失败只记日志（同 publishStatusChanged 口径）
+    try {
+      eventBus.publish('workunit:removed', { id, channelId: existing.channelId ?? null });
+    } catch (err) {
+      logger.warn('[WorkUnit] Failed to publish workunit:removed (non-blocking)', {
+        workUnitId: id,
+        error: String(err),
+      });
+    }
   }
 
   /**

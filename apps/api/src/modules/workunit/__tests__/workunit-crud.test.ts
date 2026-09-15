@@ -544,6 +544,41 @@ describe('delete', () => {
     const closedEvt = events.find(e => e.type === 'closed' && e.wuId === wu.id);
     expect(closedEvt).toBeDefined();
   });
+
+  // #538（ADR 2026-09-15 决策 3/4/5）：delete 加 reason + 墓碑单点构造 + 发 workunit:removed
+  it('reason 落墓碑事件行 + 发布 workunit:removed（负载 id + channelId）', async () => {
+    const removed: Array<{ id: string; channelId: string | null }> = [];
+    const removedHandler = (payload: { id: string; channelId: string | null }) => { removed.push(payload); };
+    eventBus.subscribe('workunit:removed', removedHandler);
+    try {
+      const wu = await service.create({ scope: 'TTL 待删', channelId: 'ch-1' });
+
+      await service.delete(wu.id, { reason: 'TTL: WorkUnit older than 90 days' });
+
+      const tombstone = readEvents().find(e => e.type === 'closed' && e.wuId === wu.id);
+      expect(tombstone?.data).toMatchObject({ deleted: true, reason: 'TTL: WorkUnit older than 90 days' });
+      expect(removed).toEqual([{ id: wu.id, channelId: 'ch-1' }]);
+    } finally {
+      eventBus.unsubscribe('workunit:removed', removedHandler);
+    }
+  });
+
+  it('缺省 reason：墓碑仅 deleted:true，workunit:removed 仍发（channelId 缺省 null 透传）', async () => {
+    const removed: Array<{ id: string; channelId: string | null }> = [];
+    const removedHandler = (payload: { id: string; channelId: string | null }) => { removed.push(payload); };
+    eventBus.subscribe('workunit:removed', removedHandler);
+    try {
+      const wu = await service.create({ scope: '无原因删除' });
+
+      await service.delete(wu.id);
+
+      const tombstone = readEvents().find(e => e.type === 'closed' && e.wuId === wu.id);
+      expect(tombstone?.data).toEqual({ deleted: true });
+      expect(removed).toEqual([{ id: wu.id, channelId: null }]);
+    } finally {
+      eventBus.unsubscribe('workunit:removed', removedHandler);
+    }
+  });
 });
 
 // ── claim / unclaim（#178：固定 5min 租约 timeoutAt）──
