@@ -9,7 +9,6 @@ import express, { Router, Request, Response } from 'express';
 import { FileStore } from '@dommaker/studio-shared';
 import { logger } from '../../utils/logger.js';
 import { WorkUnitService } from '../workunit/workunit.service.js';
-import { closeWorkUnitWithNotice } from '../workunit/wu-closure.js';
 const router = express.Router();
 const fileStore = new FileStore();
 const workUnitService = new WorkUnitService(fileStore);
@@ -296,16 +295,23 @@ router.post('/interactions', async (req: Request, res: Response): Promise<void> 
 });
 
 /**
- * 关闭 WorkUnit（#538，ADR 2026-09-15 决策 2）：走 wu-closure 统一关闭出口——
- * 补 closedAt、落 workunit:closed 结构化记录、频道出声（原因走 opts）。
- * 旧实现（closeAndEmit）手拼快照整写：metadata 整写覆盖摧毁既有 metadata、
- * 不写 closedAt、不发任何事件；legacy events:goal-execution 随 Goal 体系退役停发。
+ * 关闭 WorkUnit（#550，ADR 2026-09-15 决策 2 收口延续）：走 WorkUnitService.close
+ * 状态机单口——补 closedAt、发 status_changed、落 workunit:closed 结构化记录、频道出声；
+ * decision/spec 无 closed 边 → 状态机拒绝（false）。旧实现（closeAndEmit）手拼快照整写：
+ * metadata 整写覆盖摧毁既有 metadata、不写 closedAt、不发任何事件；legacy
+ * events:goal-execution 随 Goal 体系退役停发。
  * @returns 是否找到目标并执行关闭
  */
 async function closeWorkUnit(wuId: string, reason: string): Promise<boolean> {
   const snap = (await fileStore.getIndex({ id: wuId }))[0];
   if (!snap) return false;
-  return closeWorkUnitWithNotice(fileStore, snap, { reason, closedBy: 'human-command' });
+  try {
+    await workUnitService.close(wuId, { reason, closedBy: 'human-command' });
+    return true;
+  } catch (err) {
+    logger.warn({ workUnitId: wuId, error: String(err) }, '[Discord] close workUnit failed');
+    return false;
+  }
 }
 
 /**

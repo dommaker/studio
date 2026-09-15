@@ -19,7 +19,7 @@ import {
 } from '@dommaker/studio-shared';
 import { agentRunner } from '@dommaker/studio-agent';
 import type { MonitorAlert } from '../types.js';
-import { closeWorkUnitWithNotice } from '../../workunit/wu-closure.js';
+import { WorkUnitService } from '../../workunit/workunit.service.js';
 import { buildDeadLetterNotice } from '../../workunit/blocked-cta.js';
 import { parseWuMetadata } from '../../workunit/wu-metadata.js';
 import { postWuSystemMessage } from '../../workunit/wu-messenger.js';
@@ -300,11 +300,11 @@ export async function checkTotalExecutionTime(fileStore: FileStore, snapshots: W
         logger.warn('[MonitorService] Failed to stop workUnit process', { workUnitId: exec.id.slice(0, 8), error: String(stopErr) });
       }
       // 推向终态（closed）必须双出声（#176，决策 #62 §3）：结构化事件 + 频道说明，
-      // 统一走 wu-closure 出口（#170 锁内成对写在其内部保持）
+      // #550 起统一走 WorkUnitService.close 状态机单口（幂等：已 closed 直返现状）
       try {
         const current = (await fileStore.getIndex({ id: exec.id }))[0];
         if (current) {
-          await closeWorkUnitWithNotice(fileStore, current, {
+          await new WorkUnitService(fileStore).close(exec.id, {
             reason: `执行超过 2.5h（已 ${elapsedMin} 分钟），系统强制关闭`,
             closedBy: 'total-time-kill',
           });
@@ -340,7 +340,7 @@ export async function checkTotalExecutionTime(fileStore: FileStore, snapshots: W
  * （修掉「创建超 24h 的 WU 刚 blocked 就被秒关」bug；无 blockedAt 的存量档案回退 createdAt）。
  * 全 blocked 类型统一适用；decision/spec 豁免（#108 裁剪状态机无 closed，可等关键人多天）。
  * 关闭必须双出声（决策 #62 §3）：workunit:closed 结构化事件 + 频道死信通知
- * （已关闭 + 后续出路），统一走 wu-closure 出口，不再静默改状态。
+ * （已关闭 + 后续出路），#550 起统一走 WorkUnitService.close 状态机单口，不再静默改状态。
  */
 export async function autoAbandonStaleBlocked(fileStore: FileStore, snapshots: WorkUnitSnapshot[]): Promise<void> {
   const cutoff = Date.now() - BLOCKED_AUTO_ABANDON_MS;
@@ -362,7 +362,7 @@ export async function autoAbandonStaleBlocked(fileStore: FileStore, snapshots: W
       if (current && current.status === 'blocked') {
         const meta = parseWuMetadata(current.metadata);
         const title = (meta.title ?? current.scope ?? current.id).slice(0, 50);
-        await closeWorkUnitWithNotice(fileStore, current, {
+        await new WorkUnitService(fileStore).close(current.id, {
           reason: 'blocked 超 24h 无人工介入，自动关闭',
           closedBy: 'auto-abandon-stale-blocked',
           message: buildDeadLetterNotice(title, meta.blockReason),

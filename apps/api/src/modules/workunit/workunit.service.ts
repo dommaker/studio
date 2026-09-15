@@ -8,24 +8,27 @@
  * workunit.created/status_changed 事件发布与父状态聚合已迁至 workunit-crud.ts
  * （WorkUnitCrudService 基类）；头部类型/常量/转换层已抽至 workunit.types.ts /
  * workunit.mappers.ts（工单 30）。本文件保留查询（getById/list）、状态机迁移
- * （transitionStatus）与评审验收（reviewPassed/reviewRejected/attestation 补写/
- * recordL1Verification/markMergeConflict/blockForManualRelease/rebindSourceChannel），
+ * （transitionStatus）、系统侧关闭唯一入口（close，#550 收编 wu-closure）与评审验收
+ * （reviewPassed/reviewRejected/attestation 补写/recordL1Verification/markMergeConflict/
+ * blockForManualRelease/rebindSourceChannel），迁移类写路径统一走 persistSnapshot 尾部，
  * 并 re-export 全部迁出符号，导入面不变。
  */
 
 import { logger, withAttestation, deriveDisplayState, createSettledTracker, type AttestationEntry, type WorkUnitSnapshot, type WorkUnitEvent } from '@dommaker/studio-shared';
 import { mergeWorktreeBranchOnReviewPass, cleanupPrototypeWorktreeOnReviewPass } from './merge-on-review-pass.js';
 import { parseWuMetadata } from './wu-metadata.js';
-import { resolveValidTransitions, type WorkUnitMetadata, type ReviewAttestationSource } from './workunit.types.js';
+import { resolveValidTransitions, WORKUNIT_CLOSED_EVENT_TYPE, type WorkUnitMetadata, type ReviewAttestationSource, type CloseWorkUnitOptions } from './workunit.types.js';
 import { snapshotToData } from './workunit.mappers.js';
 import { WorkUnitCrudService, type WorkUnitData } from './workunit-crud.js';
+import { postWuSystemMessage } from './wu-messenger.js';
+import { writeStudioEvent } from '../../utils/studio-events.js';
 // #428：未归属口径的戳解析复用 requirements 的零依赖叶子（无循环依赖风险，见该文件头注释）
 import { parseWuPmoId } from '../requirements/wu-pmo-attribution.js';
 
 // re-export：保持既有消费方（agent-loop / routes / 测试等）从 workunit.service 导入的路径不变
 export { snapshotToData } from './workunit.mappers.js';
 export { ANALYSIS_TASKS_MAX, INSPECTION_OPPORTUNITIES_MAX } from './workunit.types.js';
-export type { WorkUnitMetadata, ReviewAttestationSource, InspectionOpportunity } from './workunit.types.js';
+export type { WorkUnitMetadata, ReviewAttestationSource, InspectionOpportunity, CloseWorkUnitOptions, WorkUnitClosedBy } from './workunit.types.js';
 
 /**
  * #228 测试可观测性（纯增量，不改变行为）：登记 reviewPassed 的 best-effort
@@ -168,38 +171,23 @@ export class WorkUnitService extends WorkUnitCrudService {
       );
     }
 
-    const now = new Date();
-    const isoNow = now.toISOString();
-
     const eventType: WorkUnitEvent['type'] =
       newStatus === 'done' || newStatus === 'closed' ? 'completed' :
       newStatus === 'blocked' ? 'blocked' : 'updated';
 
-    const updated: WorkUnitSnapshot = {
-      ...current,
+    // #176（决策 #57 D4）：转入 blocked 统一落死信计时基准 metadata.blockedAt
+    // （24h 自动关闭与 30min 提醒均以此为锚；复活后再次 blocked 刷新）；
+    // 非 blocked 迁移不动 metadata（原串透传，见 persistSnapshot 口径）
+    const metadata: WorkUnitMetadata | string | null = newStatus === 'blocked'
+      ? { ...parseWuMetadata(current.metadata), blockedAt: new Date().toISOString() }
+      : current.metadata;
+
+    // #550：closedAt/completedAt 落锚、status_changed 发布、父聚合、reopen thaw 全在统一尾部
+    const updated = await this.persistSnapshot(current, metadata, {
+      eventType,
       status: newStatus,
-      completedAt: (newStatus === 'done' || newStatus === 'closed') ? isoNow : current.completedAt,
-      // #327：closedAt 是归档计龄锚点——转入 closed 落锚；从 closed 迁出（reopen，状态机唯一
-      // 出口 closed→unassigned）清除，活 WU 的消息不按陈旧锚点被归档
-      closedAt: newStatus === 'closed' ? isoNow : current.status === 'closed' ? null : current.closedAt ?? null,
-      // #176（决策 #57 D4）：转入 blocked 统一落死信计时基准 metadata.blockedAt
-      // （24h 自动关闭与 30min 提醒均以此为锚；复活后再次 blocked 刷新）
-      metadata: newStatus === 'blocked'
-        ? JSON.stringify({ ...parseWuMetadata(current.metadata), blockedAt: isoNow })
-        : current.metadata,
-      updatedAt: isoNow,
-    };
-
-    const event: WorkUnitEvent = {
-      type: eventType,
-      wuId: id,
-      timestamp: isoNow,
-      data: updated as unknown as Record<string, unknown>,
-    };
-    await this.fileStore.commitSnapshot(event, updated);
-
-    // Publish status-change event（REQ roll-up 等订阅消费，best-effort）
-    await this.publishStatusChanged(updated);
+      markCompleted: newStatus === 'done' || newStatus === 'closed',
+    });
 
     // #126（T4）：人工确认（pending → unassigned）解除人闸——feature 单此时补展开
     // 频道工单路由第一跳（创建时落 pending 跳过展开；expandRoutingHead 幂等）。
@@ -213,24 +201,68 @@ export class WorkUnitService extends WorkUnitCrudService {
       );
     }
 
-    // #327：reopen（closed → unassigned）自动解冻——该 WU 已归档消息从冷文件搬回热文件，
-    // 规则保持一条线：活 WU 的消息永远在热层。best-effort：失败记日志不阻断迁移
-    if (current.status === 'closed' && newStatus === 'unassigned') {
-      await this.fileStore.thawWorkUnitMessages(id).catch(err =>
-        logger.warn('[WorkUnit] Thaw archived messages on reopen failed (non-blocking)', {
-          workUnitId: id, error: String(err),
-        })
-      );
+    return snapshotToData(updated);
+  }
+
+  /**
+   * #550：系统侧关闭唯一入口——与手工 PATCH 同走状态机校验 + 统一落库尾部
+   * （closedAt/completedAt 落锚 + status_changed 广播 + 父聚合），随后双出声
+   * （#176 决策 #62 §3）：workunit:closed 结构化事件（payload 与 wu-closure 时代一致）
+   * + 频道里程碑说明，各步 best-effort。
+   * decision/spec 裁剪状态机无 closed → resolveValidTransitions 天然拒绝
+   * （守卫不再散落调用方手写查表）。
+   * 幂等：目标已是 closed → 直返现状，不重复发事件/广播/出声（巡检探针撞上已关单是
+   * 常态，与 blockForManualRelease 终态不动先例一致）。
+   */
+  async close(id: string, opts: CloseWorkUnitOptions): Promise<WorkUnitData> {
+    const current = (await this.fileStore.getIndex({ id }))[0];
+    if (!current) throw new Error('WorkUnit not found');
+    if (current.status === 'closed') return snapshotToData(current);
+
+    const allowed = resolveValidTransitions(current.type, current.status);
+    if (!allowed || !allowed.includes('closed')) {
+      throw new Error(`Invalid status transition: ${current.status} → closed`);
     }
 
-    // Cascade: parent status aggregation on any status change that affects parent
-    if (['active', 'blocked', 'done', 'closed'].includes(newStatus)) {
-      this.aggregateParentStatus(id).catch(err =>
-        logger.warn('[WorkUnit] aggregateParentStatus failed', { workUnitId: id, error: String(err) })
+    // metadata 原串透传（关闭不动 metadata，与 wu-closure 直写口径一致；blockedAt 由事件发射处另解析）
+    const updated = await this.persistSnapshot(current, current.metadata, {
+      eventType: 'completed',
+      status: 'closed',
+      markCompleted: true,
+    });
+
+    await this.writeWorkUnitClosedEvent(current, opts, updated.closedAt ?? updated.updatedAt);
+
+    if (current.channelId) {
+      await postWuSystemMessage(snapshotToData(updated), opts.message ?? opts.reason, {
+        milestone: true,
+        fileStore: this.fileStore,
+      }).catch(err =>
+        logger.warn('[WorkUnit] Close channel notice failed (non-blocking)', { workUnitId: id, error: String(err) })
       );
     }
 
     return snapshotToData(updated);
+  }
+
+  /** workunit:closed 结构化事件（level=warning，对齐 workunit:failed 分级；fire-and-forget） */
+  private async writeWorkUnitClosedEvent(
+    snapshot: WorkUnitSnapshot,
+    opts: CloseWorkUnitOptions,
+    closedAt: string,
+  ): Promise<void> {
+    try {
+      const blockedAt = parseWuMetadata(snapshot.metadata).blockedAt;
+      await writeStudioEvent(WORKUNIT_CLOSED_EVENT_TYPE, {
+        workUnitId: snapshot.id,
+        reason: opts.reason,
+        closedBy: opts.closedBy,
+        ...(typeof blockedAt === 'string' ? { blockedAt } : {}),
+        closedAt,
+      }, { source: 'wu-closure', level: 'warning' });
+    } catch (err) {
+      logger.warn('[WorkUnit] Closed event emit failed (non-blocking)', { workUnitId: snapshot.id, error: String(err) });
+    }
   }
 
   /**
@@ -288,11 +320,6 @@ export class WorkUnitService extends WorkUnitCrudService {
       status: 'done',
       markCompleted: true,
     });
-
-    // Cascade: parent aggregation (best-effort)
-    this.aggregateParentStatus(id).catch(err =>
-      logger.warn('[WorkUnit] aggregateParentStatus failed', { workUnitId: id, error: String(err) })
-    );
 
     // B3b-ii（决策 D1/D3 后半）：评审通过 → task 分支自动合并回 base 分支。
     // best-effort：无 worktree 落档的 WU 在 merge 模块内旁路；冲突由模块自行置 blocked 转人工；
@@ -410,30 +437,8 @@ export class WorkUnitService extends WorkUnitCrudService {
     // opts.blockReason 覆盖默认文案（如合并后 verify 失败走同路径但前缀区分 merge-verify-failed）
     metadata.blockReason = opts?.blockReason ?? `merge-conflict: 自动合并冲突（${conflictFiles.length} 个文件）`;
 
-    const now = new Date();
-    const isoNow = now.toISOString();
-    metadata.blockedAt = isoNow; // #176（决策 #57 D4）：死信计时基准
-    const updated: WorkUnitSnapshot = {
-      ...current,
-      status: 'blocked',
-      metadata: JSON.stringify(metadata),
-      updatedAt: isoNow,
-    };
-
-    const event: WorkUnitEvent = {
-      type: 'blocked',
-      wuId: id,
-      timestamp: isoNow,
-      data: updated as unknown as Record<string, unknown>,
-    };
-    await this.fileStore.commitSnapshot(event, updated);
-
-    await this.publishStatusChanged(updated);
-
-    this.aggregateParentStatus(id).catch(err =>
-      logger.warn('[WorkUnit] aggregateParentStatus failed', { workUnitId: id, error: String(err) })
-    );
-
+    metadata.blockedAt = new Date().toISOString(); // #176（决策 #57 D4）：死信计时基准
+    const updated = await this.persistSnapshot(current, metadata, { eventType: 'blocked', status: 'blocked' });
     return snapshotToData(updated);
   }
 
@@ -458,33 +463,13 @@ export class WorkUnitService extends WorkUnitCrudService {
     metadata.manualReleaseReason = reason;
     // B4: blocked 原因落盘（2026-08-03 token-burn issue P0-2）
     metadata.blockReason = `manual-release: ${reason}`;
+    metadata.blockedAt = new Date().toISOString(); // #176（决策 #57 D4）：死信计时基准
 
-    const now = new Date();
-    const isoNow = now.toISOString();
-    metadata.blockedAt = isoNow; // #176（决策 #57 D4）：死信计时基准
-    const updated: WorkUnitSnapshot = {
-      ...current,
+    const updated = await this.persistSnapshot(current, metadata, {
+      eventType: 'blocked',
       status: 'blocked',
-      assigneeId: null,
-      claimedAt: null,
-      metadata: JSON.stringify(metadata),
-      updatedAt: isoNow,
-    };
-
-    const event: WorkUnitEvent = {
-      type: 'blocked',
-      wuId: id,
-      timestamp: isoNow,
-      data: updated as unknown as Record<string, unknown>,
-    };
-    await this.fileStore.commitSnapshot(event, updated);
-
-    await this.publishStatusChanged(updated);
-
-    this.aggregateParentStatus(id).catch(err =>
-      logger.warn('[WorkUnit] aggregateParentStatus failed', { workUnitId: id, error: String(err) })
-    );
-
+      patch: { assigneeId: null, claimedAt: null },
+    });
     return snapshotToData(updated);
   }
 
@@ -503,31 +488,9 @@ export class WorkUnitService extends WorkUnitCrudService {
     const metadata: WorkUnitMetadata = parseWuMetadata(current.metadata);
     // B4: blocked 原因落盘（2026-08-03 token-burn issue P0-2）
     metadata.blockReason = reason;
+    metadata.blockedAt = new Date().toISOString(); // #176（决策 #57 D4）：死信计时基准
 
-    const now = new Date();
-    const isoNow = now.toISOString();
-    metadata.blockedAt = isoNow; // #176（决策 #57 D4）：死信计时基准
-    const updated: WorkUnitSnapshot = {
-      ...current,
-      status: 'blocked',
-      metadata: JSON.stringify(metadata),
-      updatedAt: isoNow,
-    };
-
-    const event: WorkUnitEvent = {
-      type: 'blocked',
-      wuId: id,
-      timestamp: isoNow,
-      data: updated as unknown as Record<string, unknown>,
-    };
-    await this.fileStore.commitSnapshot(event, updated);
-
-    await this.publishStatusChanged(updated);
-
-    this.aggregateParentStatus(id).catch(err =>
-      logger.warn('[WorkUnit] aggregateParentStatus failed', { workUnitId: id, error: String(err) })
-    );
-
+    const updated = await this.persistSnapshot(current, metadata, { eventType: 'blocked', status: 'blocked' });
     return snapshotToData(updated);
   }
 
@@ -567,9 +530,10 @@ export class WorkUnitService extends WorkUnitCrudService {
       metadata.blockedAt = new Date().toISOString(); // #176（决策 #57 D4）：死信计时基准
     }
 
-    // in_review → active/blocked 也是状态变化：status_changed 由 persistSnapshot 尾部补发（列表实时刷新）
+    // in_review → active/blocked 也是状态变化：status_changed 由 persistSnapshot 尾部补发（列表实时刷新）。
+    // 本方法历史口径不做父聚合（aggregateParent: false 保留原行为，勿顺手改）
     const eventType: WorkUnitEvent['type'] = newStatus === 'blocked' ? 'blocked' : 'updated';
-    const updated = await this.persistSnapshot(current, metadata, { eventType, status: newStatus });
+    const updated = await this.persistSnapshot(current, metadata, { eventType, status: newStatus, aggregateParent: false });
 
     if (newStatus === 'blocked') {
       logger.warn('[WorkUnit] Auto-blocked after 3 consecutive review rejections', { workUnitId: id });
@@ -604,22 +568,47 @@ export class WorkUnitService extends WorkUnitCrudService {
   }
 
   /**
-   * 评审/验证写入的共用落库尾部：构建 updated 快照（updatedAt=now，可选 status 覆盖 /
-   * markCompleted 置 completedAt=同一此刻）→ commitSnapshot（#170：appendEvent +
-   * upsertSnapshot 同锁成对）+ publishStatusChanged。
-   * 各调用方只保留自身策略：守卫、metadata 变更、事件类型、后续级联（父状态聚合/合并触发）。
+   * 迁移类写路径的唯一落库尾部（#550 扩面：原仅评审/验证路径，现覆盖 transitionStatus /
+   * close / markMergeConflict / blockForManualRelease / blockForAllUnfit 全部迁移类写）：
+   * 构建 updated 快照（updatedAt=now；可选 status 覆盖 / markCompleted 置 completedAt=同一此刻 /
+   * closedAt 落锚规则 / patch 额外字段覆盖）→ commitSnapshot（#170：appendEvent +
+   * upsertSnapshot 同锁成对）→ publishStatusChanged → 父状态聚合（status ∈
+   * active/blocked/done/closed 且未显式关闭时，fire-and-forget 同原 transitionStatus 先例）→
+   * reopen（closed → unassigned）thaw 解冻。
+   * 各调用方只保留自身策略：状态机/业务守卫、metadata 变更、事件类型、特有级联
+   * （如 expandRoutingHead、合并触发）——新迁移入口不得再抄本尾部。
    */
   private async persistSnapshot(
     current: WorkUnitSnapshot,
-    metadata: WorkUnitMetadata,
-    opts: { eventType: WorkUnitEvent['type']; status?: string; markCompleted?: boolean },
+    metadata: WorkUnitMetadata | string | null,
+    opts: {
+      eventType: WorkUnitEvent['type'];
+      status?: string;
+      markCompleted?: boolean;
+      /** 额外快照字段覆盖（如 blockForManualRelease 清 assigneeId/claimedAt） */
+      patch?: Partial<WorkUnitSnapshot>;
+      /** 父状态聚合开关；缺省 = status ∈ active/blocked/done/closed 时聚合 */
+      aggregateParent?: boolean;
+    },
   ): Promise<WorkUnitSnapshot> {
     const isoNow = new Date().toISOString();
+    const nextStatus = opts.status ?? current.status;
+    // string/null 原样透传（调用方未动 metadata 时保持原字节，null 不归一为 '{}'）；
+    // 对象形态由调用方做过策略变更，序列化落盘
+    const metadataRaw: string | null = metadata === null
+      ? null
+      : typeof metadata === 'string'
+        ? metadata
+        : JSON.stringify(metadata);
     const updated: WorkUnitSnapshot = {
       ...current,
       ...(opts.status !== undefined ? { status: opts.status } : {}),
-      metadata: JSON.stringify(metadata),
+      ...opts.patch,
+      metadata: metadataRaw,
       ...(opts.markCompleted ? { completedAt: isoNow } : {}),
+      // #327：closedAt 是归档计龄锚点——转入 closed 落锚；从 closed 迁出（reopen，状态机唯一
+      // 出口 closed→unassigned）清除，活 WU 的消息不按陈旧锚点被归档；其余迁移保持原值
+      closedAt: nextStatus === 'closed' ? isoNow : current.status === 'closed' ? null : current.closedAt,
       updatedAt: isoNow,
     };
     const event: WorkUnitEvent = {
@@ -630,6 +619,26 @@ export class WorkUnitService extends WorkUnitCrudService {
     };
     await this.fileStore.commitSnapshot(event, updated);
     await this.publishStatusChanged(updated);
+
+    // Cascade: parent status aggregation（fire-and-forget，与原 transitionStatus 先例一致）
+    const shouldAggregate = opts.aggregateParent
+      ?? (opts.status !== undefined && ['active', 'blocked', 'done', 'closed'].includes(nextStatus));
+    if (shouldAggregate) {
+      this.aggregateParentStatus(current.id).catch(err =>
+        logger.warn('[WorkUnit] aggregateParentStatus failed', { workUnitId: current.id, error: String(err) })
+      );
+    }
+
+    // #327：reopen（closed → unassigned）自动解冻——该 WU 已归档消息从冷文件搬回热文件，
+    // 规则保持一条线：活 WU 的消息永远在热层。best-effort：失败记日志不阻断迁移
+    if (current.status === 'closed' && nextStatus === 'unassigned') {
+      await this.fileStore.thawWorkUnitMessages(current.id).catch(err =>
+        logger.warn('[WorkUnit] Thaw archived messages on reopen failed (non-blocking)', {
+          workUnitId: current.id, error: String(err),
+        })
+      );
+    }
+
     return updated;
   }
 

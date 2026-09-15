@@ -51,10 +51,9 @@ vi.mock('../../mcp/tool-registry.js', () => ({
   toolRegistry: { getStats: mockGetStats },
 }));
 
-// #176：关闭双出声出口（wu-closure）打桩 —— 其自身行为由 wu-closure.test.ts 覆盖
-vi.mock('../../workunit/wu-closure.js', () => ({
-  closeWorkUnitWithNotice: mockCloseWithNotice,
-  WORKUNIT_CLOSED_EVENT_TYPE: 'workunit:closed',
+// #550：关闭状态机单口（WorkUnitService.close）打桩 —— 其自身行为由 workunit-close.test.ts 覆盖
+vi.mock('../../workunit/workunit.service.js', () => ({
+  WorkUnitService: vi.fn(function () { return { close: mockCloseWithNotice }; }),
 }));
 
 // #181：统一事件流读取打桩（全量 mock——真模块顶层 new FileStore() 依赖 shared，不宜 importOriginal）
@@ -420,11 +419,10 @@ describe('checkTotalExecutionTime', () => {
       expect.objectContaining({ source: 'total_time', level: 'critical', relatedTaskIds: ['exec-timeout'] }),
     ]));
     expect(mockAgentStop).toHaveBeenCalledWith('exec-timeout');
-    // #176（决策 #62 §3）：2.5h 强杀置 closed 补关闭原因事件 + 频道说明（经统一出口）
+    // #176（决策 #62 §3）：2.5h 强杀置 closed 补关闭原因事件 + 频道说明（#550 起经 close 状态机单口）
     expect(mockCloseWithNotice).toHaveBeenCalledTimes(1);
     expect(mockCloseWithNotice).toHaveBeenCalledWith(
-      fileStore,
-      expect.objectContaining({ id: 'exec-timeout', status: 'active' }),
+      'exec-timeout',
       expect.objectContaining({ closedBy: 'total-time-kill', reason: expect.stringContaining('2.5h') }),
     );
   });
@@ -458,8 +456,7 @@ describe('autoAbandon probes', () => {
 
     expect(mockCloseWithNotice).toHaveBeenCalledTimes(1);
     expect(mockCloseWithNotice).toHaveBeenCalledWith(
-      fileStore,
-      expect.objectContaining({ id: 'wu-stale', status: 'blocked' }),
+      'wu-stale',
       expect.objectContaining({ closedBy: 'auto-abandon-stale-blocked' }),
     );
   });

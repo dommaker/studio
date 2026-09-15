@@ -4,12 +4,12 @@
  * 钉住 ADR 2026-09-15 决策 2 的收口语义：
  *  - retry / retry-new 按钮 → unclaim 回池 + 重试标记经 updateMetadata 锁内合并
  *    （旧实现整写 metadata 覆盖摧毁既有键、直摸 commitSnapshot 绕过 service 层）
- *  - abandon 按钮 / /studio stop → closeWorkUnitWithNotice 统一关闭出口
- *    （closedBy: human-command，补 closedAt + workunit:closed 记录 + 频道出声）
+ *  - abandon 按钮 / /studio stop → WorkUnitService.close 状态机单口（#550）
+ *    （closedBy: human-command，补 closedAt + status_changed + workunit:closed 记录 + 频道出声）
  *  - 停发 legacy events:goal-execution 事件（Goal 体系已退役）
  *
  * 签名验证走真 Ed25519（测试内生成密钥对），路由层契约同 trigger-fire.routes.test.ts 模式：
- * 真 express server + fetch；FileStore / WorkUnitService / wu-closure / agentRunner mock。
+ * 真 express server + fetch；FileStore / WorkUnitService / agentRunner mock。
  */
 import { describe, it, expect, vi, beforeAll, beforeEach, afterAll } from 'vitest';
 import express from 'express';
@@ -39,11 +39,7 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => {
 });
 
 vi.mock('../../workunit/workunit.service.js', () => ({
-  WorkUnitService: vi.fn(function () { return { unclaim: mockUnclaim }; }),
-}));
-
-vi.mock('../../workunit/wu-closure.js', () => ({
-  closeWorkUnitWithNotice: mockClose,
+  WorkUnitService: vi.fn(function () { return { unclaim: mockUnclaim, close: mockClose }; }),
 }));
 
 vi.mock('@dommaker/studio-agent', () => ({
@@ -163,7 +159,7 @@ describe('discord interactions 路由（#538 写路径收口）', () => {
     expect(mutator({ keep: 'me' })).toEqual({ keep: 'me', resumeAfterRetry: true, freshPrompt: true });
   });
 
-  it('abandon 按钮 → closeWorkUnitWithNotice 统一关闭（human-command），不直写不发 legacy 事件', async () => {
+  it('abandon 按钮 → WorkUnitService.close 状态机单口（human-command），不直写不发 legacy 事件', async () => {
     const snap = makeSnapshot('wu-1');
     mockFileStore.getIndex.mockResolvedValue([snap]);
 
@@ -173,10 +169,7 @@ describe('discord interactions 路由（#538 写路径收口）', () => {
     expect(body.data.content).toContain('已放弃');
 
     expect(mockClose).toHaveBeenCalledTimes(1);
-    const [fs, passedSnap, closeOpts] = mockClose.mock.calls[0];
-    expect(fs).toBe(mockFileStore);
-    expect(passedSnap).toEqual(snap);
-    expect(closeOpts).toEqual({ reason: 'Abandoned by user via Discord', closedBy: 'human-command' });
+    expect(mockClose).toHaveBeenCalledWith('wu-1', { reason: 'Abandoned by user via Discord', closedBy: 'human-command' });
     expect(mockFileStore.commitSnapshot).not.toHaveBeenCalled();
     // legacy events:goal-execution 停发（Goal 体系已退役）
     expect(mockEventBusPublish).not.toHaveBeenCalledWith('events:goal-execution', expect.anything());
@@ -192,7 +185,7 @@ describe('discord interactions 路由（#538 写路径收口）', () => {
     expect(mockClose).not.toHaveBeenCalled();
   });
 
-  it('/studio stop → closeWorkUnitWithNotice 统一关闭 + agentRunner.stop，停发 legacy 事件', async () => {
+  it('/studio stop → WorkUnitService.close 状态机单口 + agentRunner.stop，停发 legacy 事件', async () => {
     const exec = makeSnapshot('exec-abc123', { status: 'active' });
     mockFileStore.getIndex.mockResolvedValue([exec]);
 
@@ -208,8 +201,7 @@ describe('discord interactions 路由（#538 写路径收口）', () => {
     expect(body.data.content).toContain('✅ Stopped');
 
     expect(mockClose).toHaveBeenCalledTimes(1);
-    const [, , closeOpts] = mockClose.mock.calls[0];
-    expect(closeOpts).toEqual({ reason: 'Stopped by user via Discord', closedBy: 'human-command' });
+    expect(mockClose).toHaveBeenCalledWith('exec-abc123', { reason: 'Stopped by user via Discord', closedBy: 'human-command' });
     expect(mockAgentStop).toHaveBeenCalledWith('exec-abc123');
     expect(mockFileStore.commitSnapshot).not.toHaveBeenCalled();
     expect(mockEventBusPublish).not.toHaveBeenCalledWith('events:goal-execution', expect.anything());

@@ -275,6 +275,20 @@ export interface UnfitRoleEntry {
   at: string;
 }
 
+/** #550（自 wu-closure.ts 归置）：结构化关闭事件类型（REST 回放：GET /api/v1/events?type=workunit:closed） */
+export const WORKUNIT_CLOSED_EVENT_TYPE = 'workunit:closed';
+
+/** #550（自 wu-closure.ts 归置）：关闭来源——24h 死信 / 2.5h 总时长强杀 / 人类「关闭」指令 */
+export type WorkUnitClosedBy = 'auto-abandon-stale-blocked' | 'total-time-kill' | 'human-command';
+
+/** #550：WorkUnitService.close 入参（事件 payload 与缺省频道文案共用 reason；message 覆盖频道说明全文） */
+export interface CloseWorkUnitOptions {
+  reason: string;
+  closedBy: WorkUnitClosedBy;
+  /** 频道说明全文（缺省 = reason；死信场景传 buildDeadLetterNotice 产物） */
+  message?: string;
+}
+
 /** Valid status transitions map */
 export const VALID_TRANSITIONS: Record<string, string[]> = {
   pending: ['unassigned', 'closed'],

@@ -35,11 +35,10 @@
  */
 import { logger, FileStore } from '@dommaker/studio-shared';
 import { WorkUnitService, type WorkUnitData, type WorkUnitMetadata } from './workunit.service.js';
-import { resolveValidTransitions, PLAN_STEP_LIMIT } from './workunit.types.js';
+import { PLAN_STEP_LIMIT } from './workunit.types.js';
 import { postWuSystemMessage } from './wu-messenger.js';
 import { parseWuMetadata } from './wu-metadata.js';
 import { withBlockedCta } from './blocked-cta.js';
-import { closeWorkUnitWithNotice } from './wu-closure.js';
 import { ProjectDiscoveryService, matchProjectByReply, type LocalProject } from '../projects/project-discovery.service.js';
 import { RequirementService } from '../requirements/requirement.service.js';
 import { projectService } from '../pmo/project.service.js';
@@ -237,8 +236,10 @@ async function resolveBudgetChoiceFromReply(
 
 /**
  * #176（决策 #57 D2）：「关闭」指令 —— 显式关闭 blocked WU。
- * 双出声（决策 #62 §3）：workunit:closed 结构化事件 + 频道说明（经 wu-closure 统一出口）。
- * decision/spec 裁剪状态机无 closed（#108：可能等关键人多天）→ 拒绝并频道说明，状态不变。
+ * 双出声（决策 #62 §3）：workunit:closed 结构化事件 + 频道说明（#550 起经
+ * WorkUnitService.close 状态机单口）。
+ * decision/spec 裁剪状态机无 closed（#108：可能等关键人多天）→ 状态机拒绝，
+ * 拒绝说明行为保留（不再靠本模块手写查表守卫），状态不变。
  * 指令不进入 pendingReplies（不复活、无下一步可注入）。
  * #185（决策 #87 D2）：返回值细化为三态（Web 按钮通道复用同一关闭路径，需区分拒绝原因）；
  * opts.reason 覆盖关闭原因文案（Web 按钮 ≠ 频道回复）。
@@ -251,28 +252,34 @@ async function closeOnHumanCommand(
 ): Promise<WebCloseOutcome> {
   const title = (metadata.title ?? wu.scope).slice(0, 50);
 
-  if (!(resolveValidTransitions(wu.type, 'blocked') ?? []).includes('closed')) {
-    if (wu.channelId) {
-      await postWuSystemMessage(
-        wu,
-        `任务「${title}」是 ${wu.type} 类型（人工验收类，无 closed 状态），不支持「关闭」指令；如需继续请直接回复指导意见。`,
-        { fileStore },
-      ).catch(err =>
-        logger.warn('[WaitingInput] Close-reject notice failed (non-blocking)', { workUnitId: wu.id, error: String(err) })
-      );
-    }
-    logger.info('[WaitingInput] Close command rejected (type has no closed state)', { workUnitId: wu.id, type: wu.type });
-    return 'rejected-no-closed-state';
-  }
-
   const snapshot = (await fileStore.getIndex({ id: wu.id }))[0];
   if (!snapshot || snapshot.status !== 'blocked') return 'not-found-or-not-blocked';
-  const closed = await closeWorkUnitWithNotice(fileStore, snapshot, {
-    reason: opts?.reason ?? '人类在线程内回复「关闭」指令，显式关闭',
-    closedBy: 'human-command',
-    message: `任务「${title}」已按你的要求关闭。如需继续请重新派发。`,
-  });
-  logger.info('[WaitingInput] WorkUnit closed by human command', { workUnitId: wu.id, closed });
+  try {
+    await new WorkUnitService(fileStore).close(wu.id, {
+      reason: opts?.reason ?? '人类在线程内回复「关闭」指令，显式关闭',
+      closedBy: 'human-command',
+      message: `任务「${title}」已按你的要求关闭。如需继续请重新派发。`,
+    });
+  } catch (err) {
+    // decision/spec 无 closed 边 → close() 状态机拒绝：频道说明 + 三态返回（行为同 #176 手写守卫时代）
+    if (err instanceof Error && err.message.startsWith('Invalid status transition')) {
+      if (wu.channelId) {
+        await postWuSystemMessage(
+          wu,
+          `任务「${title}」是 ${wu.type} 类型（人工验收类，无 closed 状态），不支持「关闭」指令；如需继续请直接回复指导意见。`,
+          { fileStore },
+        ).catch(postErr =>
+          logger.warn('[WaitingInput] Close-reject notice failed (non-blocking)', { workUnitId: wu.id, error: String(postErr) })
+        );
+      }
+      logger.info('[WaitingInput] Close command rejected (type has no closed state)', { workUnitId: wu.id, type: wu.type });
+      return 'rejected-no-closed-state';
+    }
+    // 其余失败（落库异常等）：记日志按已消费处理（同 wu-closure 时代 closed=false 口径，不回头）
+    logger.error('[WaitingInput] Close command failed', { workUnitId: wu.id, error: String(err) });
+    return 'closed';
+  }
+  logger.info('[WaitingInput] WorkUnit closed by human command', { workUnitId: wu.id });
   return 'closed';
 }
 
