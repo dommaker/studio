@@ -10,10 +10,12 @@ import { FileStore } from '@dommaker/studio-shared';
 import { WorkUnitService, waitForReviewPassSettled, type WorkUnitMetadata, type WorkUnitData } from '../workunit.service.js';
 import { mergeWorktreeBranchOnReviewPass, cleanupPrototypeWorktreeOnReviewPass } from '../merge-on-review-pass.js';
 
-const { mockExecSh, mockPostWuSystemMessage, mockResolvePmoProjectId } = vi.hoisted(() => ({
+const { mockExecSh, mockPostWuSystemMessage, mockResolvePmoProjectId, mockSystemExecRun, mockLoadSingleSkill } = vi.hoisted(() => ({
   mockExecSh: vi.fn(),
   mockPostWuSystemMessage: vi.fn(),
   mockResolvePmoProjectId: vi.fn(),
+  mockSystemExecRun: vi.fn(),
+  mockLoadSingleSkill: vi.fn(),
 }));
 
 vi.mock('@dommaker/studio-shared/node', async (importOriginal) => {
@@ -25,6 +27,17 @@ vi.mock('@dommaker/studio-shared/node', async (importOriginal) => {
 // 归属项目 id（不再读 metadata.pmoProjectId 缓存）；mock 按创建期戳 pmoId 解析
 vi.mock('../../requirements/pmo-branch-resolver.js', () => ({
   resolvePmoProjectIdForWU: mockResolvePmoProjectId,
+}));
+
+// LLM 解冲突：spawn 复用 system-executor 一次性会话（mock 掉真实 LLM 调用）
+vi.mock('../../agents/system-executor.js', () => ({
+  getSystemExecutor: () => ({ run: mockSystemExecRun }),
+}));
+
+// LLM 解冲突：skill 全文经 skillLoader.loadSingle 加载（mock 掉磁盘 seed 依赖；
+// 全 mock 对齐 claim-skill-integration.test.ts 模式——本包无 src 别名，走 dist）
+vi.mock('@dommaker/studio-skill', () => ({
+  skillLoader: { loadSingle: mockLoadSingleSkill },
 }));
 
 // wu-messenger 间谍包装：真实发送保留（消息断言不受影响），另断言委托参数（milestone 等）
@@ -91,6 +104,9 @@ beforeEach(async () => {
       return null;
     }
   });
+  // LLM 解冲突默认实现：skill 可用 + spawn 成功（是否"解完"由各用例的 diff-filter=U mock 决定）
+  mockLoadSingleSkill.mockReturnValue({ id: 'resolving-merge-conflicts', name: 'resolving-merge-conflicts', prompt: 'SKILL 流程卡全文' });
+  mockSystemExecRun.mockResolvedValue({ output: 'resolved; typecheck+test green', usage: undefined, durationMs: 1234 });
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'merge-on-review-pass-'));
   fileStore = new FileStore(tmpDir);
   wuService = new WorkUnitService(fileStore);
@@ -307,7 +323,7 @@ describe('B3b-ii: 评审通过后自动合并', () => {
     expect(meta.mergedAt).toBeDefined();
   });
 
-  it('冲突转人工（rebase 冲突）：取冲突文件清单 → 清理现场 → WU blocked + 频道转人工', async () => {
+  it('冲突兜底转人工（rebase 冲突，LLM 解后仍有残留冲突）：LLM 尝试过 → 清理现场 → WU blocked + 频道转人工', async () => {
     mockExecSh.mockImplementation(async (cmd: string) => {
       if (cmd.includes('merge --no-ff')) throw new Error('CONFLICT: content');
       if (cmd.includes(`rebase '${BASE}'`)) throw new Error('rebase conflict');
@@ -321,8 +337,12 @@ describe('B3b-ii: 评审通过后自动合并', () => {
     const outcome = await mergeWorktreeBranchOnReviewPass(wuService, wu, fileStore);
 
     expect(outcome).toEqual({ attempted: true, merged: false, conflictFiles: ['src/a.ts', 'src/b.ts'] });
+    // LLM 解冲突已尝试（spawn cwd = rebase 现场 worktree），但 mock 下冲突清单不变 → 判定未解完 → 兜底
+    expect(mockLoadSingleSkill).toHaveBeenCalledWith('resolving-merge-conflicts');
+    expect(mockSystemExecRun).toHaveBeenCalledTimes(1);
+    expect(mockSystemExecRun.mock.calls[0][1]).toEqual(expect.objectContaining({ cwd: WT, eventSource: 'merge-conflict-resolution' }));
     const cmds = calledCommands();
-    // 现场清理：rebase --abort 执行过；不清理 worktree/分支（留人工）
+    // 现场清理：LLM 兜底后 rebase --abort 执行过；不清理 worktree/分支（留人工）
     expect(cmds.some(c => c.includes('rebase --abort'))).toBe(true);
     expect(cmds.some(c => c.includes('worktree remove'))).toBe(false);
     expect(cmds.some(c => c.includes('branch -d'))).toBe(false);
@@ -333,6 +353,9 @@ describe('B3b-ii: 评审通过后自动合并', () => {
     expect(meta.mergeConflict).toBe(true);
     expect(meta.conflictFiles).toEqual(['src/a.ts', 'src/b.ts']);
     expect(meta.mergedAt).toBeUndefined();
+    // LLM 解冲突审计落档：未解完（仍有残留冲突）
+    expect(meta.mergeResolution).toEqual(expect.objectContaining({ ok: false, state: 'rebase', cwd: WT }));
+    expect(meta.mergeResolution!.error).toContain('仍有 2 个冲突文件');
 
     const msgs = await studioMessages(wu.id);
     expect(msgs).toHaveLength(1);
@@ -347,7 +370,7 @@ describe('B3b-ii: 评审通过后自动合并', () => {
     );
   });
 
-  it('冲突转人工（rebase 成功但二次 merge 仍冲突）：冲突文件取自 baseRepo 现场', async () => {
+  it('冲突兜底转人工（rebase 成功但二次 merge 仍冲突，LLM 解后仍有残留）：冲突文件取自合并目标现场', async () => {
     let mergeAttempts = 0;
     mockExecSh.mockImplementation(async (cmd: string) => {
       if (cmd.includes('merge --no-ff')) {
@@ -373,6 +396,199 @@ describe('B3b-ii: 评审通过后自动合并', () => {
     expect(updated!.status).toBe('blocked');
     const msgs = await studioMessages(wu.id);
     expect(msgs[0].content).toContain('src/x.ts');
+  });
+
+  it('冲突保留现场交 LLM 解（rebase 冲突）：不先 abort；LLM 解完 rebase → 重放 merge 成功 → verify 绿 → merged', async () => {
+    let mergeAttempts = 0;
+    let llmCalled = false;
+    mockSystemExecRun.mockImplementation(async () => {
+      llmCalled = true;
+      return { output: 'resolved src/a.ts src/b.ts; typecheck+test green', usage: undefined, durationMs: 5678 };
+    });
+    mockExecSh.mockImplementation(async (cmd: string) => {
+      if (cmd.includes('merge --no-ff')) {
+        mergeAttempts++;
+        if (mergeAttempts === 1) throw new Error('CONFLICT: content');
+        return { stdout: '', stderr: '' }; // LLM 解完 rebase 后重放成功
+      }
+      if (cmd.includes(`rebase '${BASE}'`)) throw new Error('rebase conflict');
+      if (cmd.includes('diff --name-only --diff-filter=U')) {
+        // LLM 调用前：rebase 现场有冲突；LLM 调用后：已解清
+        return { stdout: llmCalled ? '' : 'src/a.ts\nsrc/b.ts\n', stderr: '' };
+      }
+      if (cmd.includes('rev-parse HEAD')) return { stdout: `${HEAD}\n`, stderr: '' };
+      return { stdout: '', stderr: '' };
+    });
+    const wu = await createWu(worktreeMeta());
+
+    const outcome = await mergeWorktreeBranchOnReviewPass(wuService, wu, fileStore);
+
+    expect(outcome).toEqual({ attempted: true, merged: true, mergeCommit: HEAD });
+    expect(mergeAttempts).toBe(2); // 首次失败 + LLM 解完 rebase 后重放
+    // spawn 一次性解冲突会话：skill 全文作 systemPrompt，cwd = rebase 现场（worktree）
+    expect(mockLoadSingleSkill).toHaveBeenCalledWith('resolving-merge-conflicts');
+    expect(mockSystemExecRun).toHaveBeenCalledTimes(1);
+    const [prompt, spawnOpts] = mockSystemExecRun.mock.calls[0] as [string, Record<string, unknown>];
+    expect(spawnOpts).toEqual(expect.objectContaining({
+      cwd: WT,
+      systemPrompt: 'SKILL 流程卡全文',
+      eventSource: 'merge-conflict-resolution',
+    }));
+    expect(prompt).toContain(`cwd: ${WT}`);
+    expect(prompt).toContain('rebase 进行中');
+    expect(prompt).toContain(`目标分支: ${BASE}`);
+    expect(prompt).toContain(`来源分支: ${BRANCH}`);
+    expect(prompt).toContain('src/a.ts');
+    const cmds = calledCommands();
+    // 现场保留：rebase --abort 从未执行（LLM 解成功，无需兜底清理）
+    expect(cmds.some(c => c.includes('rebase --abort'))).toBe(false);
+
+    const updated = await wuService.getById(wu.id);
+    expect(updated!.status).not.toBe('blocked');
+    const meta = JSON.parse(updated!.metadata!) as WorkUnitMetadata;
+    expect(meta.mergedAt).toBeDefined();
+    // LLM 解冲突审计落档：成功 + 输出摘要
+    expect(meta.mergeResolution).toEqual(expect.objectContaining({
+      ok: true, state: 'rebase', cwd: WT, durationMs: 5678,
+      conflictFiles: ['src/a.ts', 'src/b.ts'],
+    }));
+    expect(meta.mergeResolution!.summary).toContain('resolved src/a.ts');
+  });
+
+  it('冲突保留现场交 LLM 解（二次 merge 冲突）：LLM 在合并目标目录解 merge → merged', async () => {
+    let mergeAttempts = 0;
+    let llmCalled = false;
+    mockSystemExecRun.mockImplementation(async () => {
+      llmCalled = true;
+      return { output: 'merge committed', usage: undefined, durationMs: 100 };
+    });
+    mockExecSh.mockImplementation(async (cmd: string) => {
+      if (cmd.includes('merge --no-ff')) {
+        mergeAttempts++;
+        throw new Error('CONFLICT: content'); // 首次 + 二次均冲突；LLM 自己 commit merge（无第三次）
+      }
+      if (cmd.includes('diff --name-only --diff-filter=U')) {
+        return { stdout: llmCalled ? '' : 'src/x.ts\n', stderr: '' };
+      }
+      if (cmd.includes('rev-parse HEAD')) return { stdout: `${HEAD}\n`, stderr: '' };
+      return { stdout: '', stderr: '' };
+    });
+    const wu = await createWu(worktreeMeta());
+
+    const outcome = await mergeWorktreeBranchOnReviewPass(wuService, wu, fileStore);
+
+    expect(outcome).toEqual({ attempted: true, merged: true, mergeCommit: HEAD });
+    expect(mergeAttempts).toBe(2); // LLM 解 merge 现场后无重放（merge 由 LLM commit）
+    // spawn cwd = 合并目标目录（baseRepo），prompt 指明 merge 现场
+    const [prompt, spawnOpts] = mockSystemExecRun.mock.calls[0] as [string, Record<string, unknown>];
+    expect(spawnOpts).toEqual(expect.objectContaining({ cwd: REPO }));
+    expect(prompt).toContain('merge 进行中');
+    const cmds = calledCommands();
+    // 现场保留：LLM 调用后不再有 merge --abort（仅 rebase 重试前清首次现场那一次）
+    expect(cmds.filter(c => c.includes('merge --abort'))).toHaveLength(1);
+
+    const meta = JSON.parse((await wuService.getById(wu.id))!.metadata!) as WorkUnitMetadata;
+    expect(meta.mergedAt).toBeDefined();
+    expect(meta.mergeResolution).toEqual(expect.objectContaining({ ok: true, state: 'merge', cwd: REPO }));
+  });
+
+  it('LLM 解冲突失败/超时 → 回退现有 abort + markMergeConflict 转人工（兜底不变）', async () => {
+    mockSystemExecRun.mockRejectedValue(new Error('LLM session timeout'));
+    mockExecSh.mockImplementation(async (cmd: string) => {
+      if (cmd.includes('merge --no-ff')) throw new Error('CONFLICT: content');
+      if (cmd.includes(`rebase '${BASE}'`)) throw new Error('rebase conflict');
+      if (cmd.includes('diff --name-only --diff-filter=U')) return { stdout: 'src/a.ts\n', stderr: '' };
+      return { stdout: '', stderr: '' };
+    });
+    const wu = await createWu(worktreeMeta());
+
+    const outcome = await mergeWorktreeBranchOnReviewPass(wuService, wu, fileStore);
+
+    expect(outcome).toEqual({ attempted: true, merged: false, conflictFiles: ['src/a.ts'] });
+    const cmds = calledCommands();
+    // 兜底清理：rebase --abort 执行过；worktree/分支保留
+    expect(cmds.some(c => c.includes('rebase --abort'))).toBe(true);
+    expect(cmds.some(c => c.includes('worktree remove'))).toBe(false);
+    expect(cmds.some(c => c.includes('branch -d'))).toBe(false);
+
+    const updated = await wuService.getById(wu.id);
+    expect(updated!.status).toBe('blocked');
+    const meta = JSON.parse(updated!.metadata!) as WorkUnitMetadata;
+    expect(meta.mergeConflict).toBe(true);
+    expect(meta.mergedAt).toBeUndefined();
+    expect(meta.mergeResolution).toEqual(expect.objectContaining({ ok: false, state: 'rebase' }));
+    expect(meta.mergeResolution!.error).toContain('LLM session timeout');
+    const msgs = await studioMessages(wu.id);
+    expect(msgs.some(m => m.content.includes('转人工'))).toBe(true);
+  });
+
+  it('skill 不可用 → 不 spawn LLM，直接回退 abort + 转人工', async () => {
+    mockLoadSingleSkill.mockReturnValue(null);
+    mockExecSh.mockImplementation(async (cmd: string) => {
+      if (cmd.includes('merge --no-ff')) throw new Error('CONFLICT: content');
+      if (cmd.includes(`rebase '${BASE}'`)) throw new Error('rebase conflict');
+      if (cmd.includes('diff --name-only --diff-filter=U')) return { stdout: 'src/a.ts\n', stderr: '' };
+      return { stdout: '', stderr: '' };
+    });
+    const wu = await createWu(worktreeMeta());
+
+    const outcome = await mergeWorktreeBranchOnReviewPass(wuService, wu, fileStore);
+
+    expect(outcome.merged).toBe(false);
+    expect(mockSystemExecRun).not.toHaveBeenCalled();
+    expect(calledCommands().some(c => c.includes('rebase --abort'))).toBe(true);
+    const meta = JSON.parse((await wuService.getById(wu.id))!.metadata!) as WorkUnitMetadata;
+    expect(meta.mergeResolution!.ok).toBe(false);
+    expect(meta.mergeResolution!.error).toContain('resolving-merge-conflicts 不可用');
+    expect((await wuService.getById(wu.id))!.status).toBe('blocked');
+  });
+
+  it('合并后 verify 红 → 转人工（merge-verify-failed）：不删 worktree/分支、不落 mergedAt', async () => {
+    mockExecSh.mockImplementation(async (cmd: string) => {
+      if (cmd === 'pnpm run typecheck') {
+        throw Object.assign(new Error('exit 1'), { stderr: 'TS2322: type mismatch in merged code' });
+      }
+      if (cmd.includes('rev-parse HEAD')) return { stdout: `${HEAD}\n`, stderr: '' };
+      return { stdout: '', stderr: '' };
+    });
+    const wu = await createWu(worktreeMeta({ verifyCommands: ['pnpm run typecheck'] }));
+
+    const outcome = await mergeWorktreeBranchOnReviewPass(wuService, wu, fileStore);
+
+    expect(outcome).toEqual({ attempted: true, merged: false, conflictFiles: [], reason: 'merge-verify-failed' });
+    const cmds = calledCommands();
+    // merge 成功 + verify 在合并目标目录跑过；红 → 不删 worktree、不删分支
+    expect(cmds.some(c => c.includes('merge --no-ff'))).toBe(true);
+    expect(mockExecSh).toHaveBeenCalledWith('pnpm run typecheck', expect.objectContaining({ cwd: REPO }));
+    expect(cmds.some(c => c.includes('worktree remove'))).toBe(false);
+    expect(cmds.some(c => c.includes('branch -d'))).toBe(false);
+    // 无冲突 → 不走 LLM 解冲突
+    expect(mockSystemExecRun).not.toHaveBeenCalled();
+
+    const updated = await wuService.getById(wu.id);
+    expect(updated!.status).toBe('blocked');
+    const meta = JSON.parse(updated!.metadata!) as WorkUnitMetadata;
+    expect(meta.mergedAt).toBeUndefined();
+    expect(meta.blockReason).toContain('merge-verify-failed');
+    expect(meta.blockReason).toContain('pnpm run typecheck');
+
+    const msgs = await studioMessages(wu.id);
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0].content).toContain('合并后验证失败');
+    expect(msgs[0].content).toContain('TS2322');
+  });
+
+  it('合并后 verify：无冲突直合也重跑（合并目标目录），全绿 → merged', async () => {
+    const wu = await createWu(worktreeMeta({ verifyCommands: ['pnpm run test', 'pnpm run typecheck'] }));
+
+    const outcome = await mergeWorktreeBranchOnReviewPass(wuService, wu, fileStore);
+
+    expect(outcome).toEqual({ attempted: true, merged: true, mergeCommit: HEAD });
+    // verify 命令在合并目标目录（非 worktree）依次跑过
+    expect(mockExecSh).toHaveBeenCalledWith('pnpm run test', expect.objectContaining({ cwd: REPO }));
+    expect(mockExecSh).toHaveBeenCalledWith('pnpm run typecheck', expect.objectContaining({ cwd: REPO }));
+    const meta = JSON.parse((await wuService.getById(wu.id))!.metadata!) as WorkUnitMetadata;
+    expect(meta.mergedAt).toBeDefined();
   });
 
   it('防重：metadata.mergedAt 已存在 → 跳过，无任何 git 调用', async () => {

@@ -47,6 +47,8 @@ export const DEFAULT_TIMEOUT_BY_EVENT_SOURCE: Readonly<Record<string, number>> =
   'knowledge-distill': 120_000,
   'constraint-audit': 120_000,
   'knowledge-maintenance': 120_000,
+  // 合并冲突 LLM 解：会话内含解冲突 + typecheck/test 验证命令（对齐 VERIFY_COMMAND_TIMEOUT_MS 单条 10min 量级）
+  'merge-conflict-resolution': 600_000,
 };
 
 export interface SystemExecutorResult {

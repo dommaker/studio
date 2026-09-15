@@ -1,6 +1,7 @@
 /**
  * 收口守卫链（2026-08 从 agent-loop.recordResult 抽出，行为一字不改）：
- * recordResult 的 COMPLETE 收口判定 —— §10.5 提交守卫 → §6-2 子任务守卫 → B3b-i 自动验证守卫
+ * recordResult 的 COMPLETE 收口判定 —— §10.5 提交守卫 → §6-2 子任务守卫 → 产出实双闸
+ * （闸 1 代码类 diff 非空 / 闸 2 非代码类契约产物）→ B3b-i 自动验证守卫
  * → T7-E2 软观测段（#161，只观测不拦截：checker:soft_check 台账 + processCheckHint）。
  * 顺序即优先级：前面的守卫把 action 降级为 progress 后，后面的 COMPLETE 守卫自然不再触发。
  *
@@ -15,7 +16,7 @@
  */
 
 import { execFileSync, execSync } from 'child_process';
-import { existsSync, readFileSync } from 'fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'fs';
 import { join } from 'path';
 import yaml from 'js-yaml';
 import { logger, withAttestation } from '@dommaker/studio-shared';
@@ -54,6 +55,71 @@ export function readHeadHash(cwd: string): string | null {
   }
 }
 
+/** 收口闸 1（产出实）: git rev-list --count <base>..HEAD —— 提交守卫已保证无未提交改动，
+ *  这里判「有没有提交内容」。git 失败返回 null —— 静默跳过（基础设施故障不阻断完成）。 */
+export function countBranchCommits(cwd: string, baseBranch: string): number | null {
+  try {
+    const out = execFileSync('git', ['rev-list', '--count', `${baseBranch}..HEAD`], {
+      cwd, timeout: 5000, encoding: 'utf-8',
+    }).trim();
+    const n = Number.parseInt(out, 10);
+    return Number.isFinite(n) ? n : null;
+  } catch {
+    return null;
+  }
+}
+
+/** 收口闸 2（analysis）：契约报告落盘检查 —— <root>/.studio/research/ 下存在非空文件
+ * （inspection 巡检变体只认 inspection-*.md）。目录不存在/读取失败 = 无产物（false）。 */
+export function hasAnalysisReport(workspaceRoot: string, inspection: boolean): boolean {
+  try {
+    const dir = join(workspaceRoot, '.studio', 'research');
+    for (const name of readdirSync(dir)) {
+      if (inspection && !/^inspection-.+\.md$/.test(name)) continue;
+      const st = statSync(join(dir, name));
+      if (st.isFile() && st.size > 0) return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+/** 闸 2 锚点分派（按 wu.type）：返回缺失产物的人话描述；null = 产物在或本类型不进闸。
+ *  decision 的 `## 结论摘要` 解析落档已由 #463 提供（agent-loop → metadata.decisionSuggestion），
+ *  本闸只验非空，不重复解析。 */
+function missingContractArtifact(
+  wu: WorkUnitData,
+  metadata: WorkUnitMetadata,
+  reportExists: (workspaceRoot: string, inspection: boolean) => boolean,
+): string | null {
+  switch (wu.type) {
+    case 'review':
+      return metadata.reviewReport ? null : '评审结论（REVIEW_RESULT 协议输出）';
+    case 'plan':
+      return Array.isArray(metadata.analysisTasks) && metadata.analysisTasks.length > 0
+        ? null : '任务拆分清单（TASK: 协议行）';
+    case 'spec':
+      return Array.isArray(metadata.specTasks) && metadata.specTasks.length > 0
+        ? null : '物化任务清单（TASK: 协议行）';
+    case 'decision':
+      return typeof metadata.decisionSuggestion === 'string' && metadata.decisionSuggestion.trim().length > 0
+        ? null : '结论摘要（## 结论摘要 段）';
+    case 'analysis': {
+      if (metadata.prototype === true) return null; // 原型单契约是 prototype/<name> 分支代码，豁免本闸
+      const root = typeof metadata.workspaceRoot === 'string' && metadata.workspaceRoot.length > 0
+        ? metadata.workspaceRoot : null;
+      if (!root) return null; // 无落盘根无法校验 → 静默跳过
+      const inspection = metadata.inspection === true;
+      return reportExists(root, inspection)
+        ? null
+        : inspection ? '巡检报告（.studio/research/inspection-<日期>.md）' : '调研报告（.studio/research/）';
+    }
+    default:
+      return null; // 代码类由闸 1 覆盖，其余类型无契约产物锚点
+  }
+}
+
 /** 守卫链输入。metadata 必须是「持久化 + 本 step metadataUpdates」的合并视图（调用方构建）：
  *  首个 step 的 worktreePath 等字段由 agentStep 经 result.metadataUpdates 传入、此刻尚未落库；
  *  只看持久化值会让首 step 的 COMPLETE 退到主仓库（干净）做检查而漏拦。 */
@@ -74,6 +140,10 @@ export interface CompletionGuardDeps {
   listUnfinishedChildren: (wuId: string) => Promise<string[]>;
   hasUncommittedChanges?: (cwd: string) => boolean;
   readHeadHash?: (cwd: string) => string | null;
+  /** 收口闸 1: git rev-list --count <base>..HEAD（默认 execFileSync；失败返回 null = 静默跳过） */
+  countBranchCommits?: (cwd: string, baseBranch: string) => number | null;
+  /** 收口闸 2: analysis 契约报告落盘检查（默认 fs 实现；inspection 变体只认 inspection-*.md） */
+  analysisReportExists?: (workspaceRoot: string, inspection: boolean) => boolean;
   runVerification?: (wu: WorkUnitData, metadata: WorkUnitMetadata, worktreePath: string) => Promise<WuVerifyOutcome>;
   /** T7-E2（#161）: harness 三纯函数（默认 = @dommaker/harness 静态导入，#425 去镜像；
    *  返回 null = 软观测段整体 fail-open 跳过） */
@@ -95,6 +165,10 @@ export interface CompletionGuardNotices {
   verifyPassed: string | null;
   /** B3b-i: verifyFailCount ≥3 → blocked 并频道说明 */
   verifyBlocked: boolean;
+  /** 收口闸 1: diffEmptyCount ≥3 → blocked 并频道说明 */
+  diffEmptyBlocked: boolean;
+  /** 收口闸 2: contractArtifactCount ≥3 → blocked 并频道说明 */
+  contractArtifactBlocked: boolean;
   /** F6-c：本 step COMPLETE 守卫是否已跑过验证 —— 步骤超限强制收口路径据此避免重复跑 */
   verifyGuardRan: boolean;
 }
@@ -339,15 +413,19 @@ async function runSoftObservation(
 }
 
 /**
- * 依次跑收口守卫（顺序即优先级，前三张任一降级后后续 COMPLETE 守卫不再触发）：
+ * 依次跑收口守卫（顺序即优先级，前面的守卫任一降级后后续 COMPLETE 守卫不再触发）：
  *  1. §10.5 提交守卫：COMPLETE + 未提交改动 → 降级 progress + commitGuardHint；
  *     PROGRESS 无提交监视（lastCommitHash/noCommitSteps，≥3 → noCommit notice + 归零）。
  *     review WU 整体豁免（评审职责是读不是写）；路径解析/git 失败一律静默跳过。
  *  2. §6-2 子任务守卫：存在未完结子 WU → 降级 progress + childGuardHint。
- *  3. B3b-i 自动验证守卫：代码类 WU 有 worktreePath 才跑（runWuVerification）；
+ *  3. 收口闸 1（产出实）：代码类 COMPLETE 但 base..HEAD 无提交内容 → 降级 progress + diffEmptyHint，
+ *     diffEmptyCount ≥3 → diffEmptyBlocked；有提交 → 计数归零。
+ *  4. 收口闸 2（产出实）：非代码类契约产物锚点缺失 → 降级 progress + contractArtifactHint，
+ *     contractArtifactCount ≥3 → contractArtifactBlocked。
+ *  5. B3b-i 自动验证守卫：代码类 WU 有 worktreePath 才跑（runWuVerification）；
  *     失败 → verifyFailCount++/verifyFailHint/l1 rejected 台账/降级，≥3 → verifyBlocked；
  *     全绿 → verifyReport + l1 approved 台账 + verifyPassed 简报。
- *  4. T7-E2 软观测段：仅 action 仍为 complete 才跑；不降级不阻断，违规落台账 +
+ *  6. T7-E2 软观测段：仅 action 仍为 complete 才跑；不降级不阻断，违规落台账 +
  *     processCheckHint（详见 runSoftObservation）。
  */
 export async function runCompletionGuards(
@@ -365,6 +443,8 @@ export async function runCompletionGuards(
     noCommit: false,
     verifyPassed: null,
     verifyBlocked: false,
+    diffEmptyBlocked: false,
+    contractArtifactBlocked: false,
     verifyGuardRan: false,
   };
 
@@ -410,6 +490,56 @@ export async function runCompletionGuards(
       action = 'progress';
       guardUpdates.childGuardHint = `存在未完结子任务（${unfinishedChildren.join(', ')}），等待其全部完成后再报告 COMPLETE`;
       logger.info(`[AgentLoop] Child guard: COMPLETE downgraded for ${wuId} (unfinished children: ${unfinishedChildren.length})`);
+    }
+  }
+
+  // 收口闸 1（产出实）：代码类 WU 声称完成但 base..HEAD 无任何提交内容 → 降级 progress + diffEmptyHint。
+  // 提交守卫已保证工作区干净，这里判「有没有提交内容」——空 diff 不许进 in_review。
+  // review 不在 CODE_WORKTREE_TYPES（diff-only 不改代码），天然不覆盖；
+  // 缺 worktreeBaseBranch / git 失败 → 静默跳过（基础设施故障不阻断完成）。
+  // diffEmptyCount ≥3 → blocked（模式同 verifyFailCount）。
+  if (action === 'complete'
+    && CODE_WORKTREE_TYPES.has(wu.type)
+    && typeof metadata.worktreePath === 'string' && metadata.worktreePath.length > 0
+    && typeof metadata.worktreeBaseBranch === 'string' && metadata.worktreeBaseBranch.length > 0) {
+    const countCommits = deps.countBranchCommits ?? countBranchCommits;
+    let commitCount: number | null = null;
+    try {
+      commitCount = countCommits(metadata.worktreePath, metadata.worktreeBaseBranch);
+    } catch {
+      commitCount = null;
+    }
+    if (commitCount === 0) {
+      const failCount = (metadata.diffEmptyCount ?? 0) + 1;
+      guardUpdates.diffEmptyCount = failCount;
+      guardUpdates.diffEmptyHint = `你报告了完成，但相对 ${metadata.worktreeBaseBranch} 没有任何提交内容（第 ${failCount} 次）。请实现并 commit，或说明为何无需改动`;
+      action = 'progress';
+      notices.diffEmptyBlocked = failCount >= 3;
+      logger.info(`[AgentLoop] Diff guard: COMPLETE downgraded for ${wuId} (no commits since ${metadata.worktreeBaseBranch}, count ${failCount})`);
+    } else if (commitCount !== null && (metadata.diffEmptyCount ?? 0) > 0) {
+      guardUpdates.diffEmptyCount = 0; // 有提交内容 → 计数归零（与 verifyFailCount 同模式）
+    }
+  }
+
+  // 收口闸 2（产出实）：非代码类 WU 契约产物锚点缺失 → 降级 progress + contractArtifactHint。
+  // 锚点分派见 missingContractArtifact（review→reviewReport、plan→analysisTasks、spec→specTasks、
+  // decision→decisionSuggestion、analysis→调研报告落盘）；代码类不进本闸（由闸 1 覆盖）。
+  // contractArtifactCount ≥3 → blocked（模式同 verifyFailCount）。
+  if (action === 'complete') {
+    const reportExists = deps.analysisReportExists ?? hasAnalysisReport;
+    let missingAnchor: string | null = null;
+    try {
+      missingAnchor = missingContractArtifact(wu, metadata, reportExists);
+    } catch {
+      missingAnchor = null; // 检查故障静默跳过，绝不因基础设施故障阻断完成
+    }
+    if (missingAnchor) {
+      const failCount = (metadata.contractArtifactCount ?? 0) + 1;
+      guardUpdates.contractArtifactCount = failCount;
+      guardUpdates.contractArtifactHint = `契约产物缺失：${missingAnchor}（第 ${failCount} 次）。请补齐产物后再报告完成`;
+      action = 'progress';
+      notices.contractArtifactBlocked = failCount >= 3;
+      logger.info(`[AgentLoop] Contract-artifact guard: COMPLETE downgraded for ${wuId} (missing: ${missingAnchor}, count ${failCount})`);
     }
   }
 

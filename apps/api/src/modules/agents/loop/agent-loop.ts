@@ -51,6 +51,7 @@ import {
   resolveToolTraceFile, writeToolCallEvents, type RealUsage,
 } from './agent-loop-events.js';
 import { testWuGuardEnabled, isTestLikeWorkUnit, parseExcludeAssignee } from './agent-loop-guards.js';
+import { judgeClaimFitness, isRoleUnfit, parseUnfitRoles } from './claim-fitness.js';
 import { composeStepPrompt } from './prompt-composer.js';
 import { handleDelegateBranch } from './delegate-branch.js';
 import { shouldResumeSession, RESUME_FAILURE_RE } from './session-resume.js';
@@ -420,6 +421,12 @@ export class AgentLoop {
 
         // Claim if unassigned
         if (target.workUnit.status === 'unassigned') {
+          // 决策 14 认领前适任判断（「做不了的不抢」）：一次性 LLM 判 no → 落档
+          // metadata.unfitRoles 后本轮放弃；下一轮 observe 经第 7 道过滤自动看下一候选，
+          // 全部候选不适任则静默等待。成本与认领次数成正比，不进 observe 轮询
+          if (!(await this.ensureClaimFit(target.workUnit))) {
+            continue;
+          }
           const claimed = await this.claimAndAnnounce(target.workUnit);
           if (!claimed) {
             await sleep(1_000);
@@ -638,6 +645,83 @@ export class AgentLoop {
     } catch { /* best-effort：负载构建失败绝不阻断主循环 */ }
   }
 
+  /**
+   * 决策 14 认领前适任判断（agents/loop/claim-fitness.ts）。
+   * 显式指名（assigneeId=profile id，人已点名）不判直接放行；涌现认领才判。
+   * 判 no → recordClaimUnfit 落档 unfitRoles（含全员不适任转 blocked 检查）→ false。
+   * 判断本身从宽（judgeClaimFitness 内部全 catch）；落档失败同口径从宽放行——
+   * 宁可误抢（NEED_INPUT 兜底）也不可因 FileStore 抖动每轮空烧判断调用。
+   */
+  private async ensureClaimFit(wu: WorkUnitData): Promise<boolean> {
+    if (wu.assigneeId) return true;
+    const verdict = await judgeClaimFitness(wu, this.role);
+    if (verdict.fit) return true;
+    try {
+      await this.recordClaimUnfit(wu, verdict.reason);
+    } catch (err) {
+      logger.warn(`[AgentLoop] record unfitRoles failed — 从宽放行认领: ${getErrorMessage(err)}`, { wuId: wu.id });
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * 不适任落档：读-改-写合并最新 metadata 追加 unfitRoles 条目
+   * （读-改-写互覆防护同 completion-extraction 哨兵先例）。WU 已非 unassigned
+   * （他角色抢先认领）→ 不落档。落档后检查全员不适任 → 转 blocked 转人工。
+   */
+  private async recordClaimUnfit(wu: WorkUnitData, reason: string): Promise<void> {
+    const fresh = await this.workUnitService.getById(wu.id);
+    if (!fresh || fresh.status !== 'unassigned') return;
+    const unfitRoles = [
+      ...parseUnfitRoles(fresh.metadata).filter(e => e.roleId !== this.role.id),
+      { roleId: this.role.id, reason, at: new Date().toISOString() },
+    ];
+    await this.workUnitService.update(fresh.id, {
+      metadata: { ...parseWuMetadata(fresh.metadata), unfitRoles },
+    });
+    logger.info(`[AgentLoop] ${this.role.name} 认领前适任判断 = 不适任，已落档 unfitRoles`, {
+      wuId: fresh.id, reason,
+    });
+    await this.blockIfAllMembersUnfit(fresh.id, unfitRoles);
+  }
+
+  /**
+   * 全员不适任转人工：unfitRoles 覆盖该频道全部 active 成员（口径同
+   * review-dispatcher.getChannelActiveMembers：channel.members ∩ active profile，排除 studio）
+   * → WU 置 blocked + blockReason 落档 + 频道消息「无人能接」（仿现有 blocked 转人模式：
+   * withBlockedCta + 里程碑）。成员未知（历史频道未回填）/ 无频道 → 不判，保持涌现等待。
+   * 各步失败只记日志，不抛（调用方本轮已放弃认领，WU 保持 unassigned 等下轮/人工）。
+   */
+  private async blockIfAllMembersUnfit(wuId: string, unfitRoles: { roleId: string }[]): Promise<void> {
+    try {
+      const wu = await this.workUnitService.getById(wuId);
+      if (!wu?.channelId) return;
+      const channel = await this.fileStore.getChannel(wu.channelId);
+      const memberIds = parseChannels(channel?.members);
+      if (memberIds.length === 0) return;
+      const activeMembers = (await this.fileStore.listProfiles({ status: 'active' }))
+        .filter(p => memberIds.includes(p.id) && p.name !== 'studio');
+      if (activeMembers.length === 0) return;
+      const unfitIds = new Set(unfitRoles.map(e => e.roleId));
+      if (!activeMembers.every(p => unfitIds.has(p.id))) return;
+
+      const blockReason = `unfit-all: 频道 ${activeMembers.length} 个 active 角色认领前适任判断均为不适任`;
+      // unassigned → blocked 不在 VALID_TRANSITIONS，走语义方法直写（blockForManualRelease 先例）；
+      // 返回 null = 已非 unassigned（他角色抢先认领/状态迁移），不再转人工
+      const blocked = await this.workUnitService.blockForAllUnfit(wuId, blockReason);
+      if (!blocked) return;
+      logger.warn(`[AgentLoop] 全员不适任，WU 转 blocked 待人工`, { wuId, blockReason });
+      await this.postToDiscussionSpace(
+        wuId,
+        withBlockedCta('频道内无人能接此任务，已转 blocked 等待人工介入', blockReason),
+        blocked,
+      );
+    } catch (err) {
+      logger.warn(`[AgentLoop] blockIfAllMembersUnfit failed (non-blocking): ${getErrorMessage(err)}`, { wuId });
+    }
+  }
+
   /** Stop the agent loop and clean up */
   stop(): void {
     this.alive = false;
@@ -781,6 +865,9 @@ export class AgentLoop {
       if (parseExcludeAssignee(s.metadata) === this.role.id) return false;
       // #109（M4 接单过滤）：metadata.blockedBy 中有未 done 的 WU → 对所有 loop 不可见
       if (hasUnfinishedDeps(s.metadata, statusById)) return false;
+      // 决策 14 认领前适任判断：本角色已被判不适任（metadata.unfitRoles 含本 role.id）→ 不可见。
+      // 约束挂 WU 不挂角色身份（合规 ADR D2/决策 10），同 excludeAssignee 口径
+      if (isRoleUnfit(s.metadata, this.role.id)) return false;
       return true;
     }).sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
       .slice(0, 5)
@@ -1623,7 +1710,7 @@ export class AgentLoop {
     // P0 修复 6: traceId（与 agentStep 同一来源，供日志行携带）
     const traceId = typeof metadata.traceId === 'string' && metadata.traceId ? metadata.traceId : undefined;
 
-    // 收口守卫链（§10.5 提交守卫 → §6-2 子任务守卫 → B3b-i 自动验证守卫）已抽到
+    // 收口守卫链（§10.5 提交守卫 → §6-2 子任务守卫 → 产出实双闸（空 diff / 契约产物）→ B3b-i 自动验证守卫）已抽到
     // ./completion-gates.js（行为一字不改，含守卫顺序/hint 写法/l1 台账/合并视图口径）——
     // recordResult 只保留编排：构建合并视图（上方）→ 跑守卫 → delegate/新鲜度/强制收口 →
     // 单次原子写 → 状态迁移与频道通知。git/子任务查询经 deps 注入（loop 绑定的两个方法下传）。
@@ -1639,6 +1726,9 @@ export class AgentLoop {
     const noCommitNotice = guards.notices.noCommit;
     const verifyBlocked = guards.notices.verifyBlocked;
     const verifyPassNotice = guards.notices.verifyPassed;
+    // 收口闸（产出实）：空 diff / 契约产物连续打回 ≥3 次 → blocked（模式同 verifyBlocked）
+    const diffEmptyBlocked = guards.notices.diffEmptyBlocked;
+    const contractArtifactBlocked = guards.notices.contractArtifactBlocked;
     // F6-c：本 step COMPLETE 守卫是否已跑过验证 —— 下方步骤超限强制收口路径据此避免重复跑
     const verifyGuardRan = guards.notices.verifyGuardRan;
 
@@ -1754,6 +1844,10 @@ export class AgentLoop {
     const blockReasonUpdates: Partial<WorkUnitMetadata> = {};
     if (verifyBlocked) {
       blockReasonUpdates.blockReason = `verify-failed x${guardUpdates.verifyFailCount}: 自动验证连续失败`;
+    } else if (diffEmptyBlocked) {
+      blockReasonUpdates.blockReason = `diff-empty x${guardUpdates.diffEmptyCount}: 报告完成但无提交内容`;
+    } else if (contractArtifactBlocked) {
+      blockReasonUpdates.blockReason = `contract-artifact x${guardUpdates.contractArtifactCount}: 契约产物连续缺失`;
     } else if (consecutiveStuck >= 3) {
       blockReasonUpdates.blockReason = action === 'failed' && result.summary
         ? `stuck: 连续 3 步无进展（${result.summary.slice(0, 200)}）`
@@ -1842,6 +1936,40 @@ export class AgentLoop {
           `自动验证连续失败 ${guardUpdates.verifyFailCount} 次，任务已转 blocked，等待人类介入。最近失败命令与输出已记录到任务上下文`,
           String(blockReasonUpdates.blockReason ?? ''),
         ),
+        wu,
+      );
+      return;
+    }
+
+    // 收口闸（产出实）：空 diff / 契约产物连续打回 ≥3 次 → blocked 并频道说明（模式同 verifyBlocked）
+    const outputGateBlocked = diffEmptyBlocked
+      ? {
+          failureType: 'diff_empty',
+          message: `连续 ${guardUpdates.diffEmptyCount} 次报告完成却没有任何提交内容，任务已转 blocked，等待人类介入`,
+        }
+      : contractArtifactBlocked
+        ? {
+            failureType: 'contract_artifact',
+            message: `契约产物连续缺失 ${guardUpdates.contractArtifactCount} 次，任务已转 blocked，等待人类介入。缺失产物与提示已记录到任务上下文`,
+          }
+        : null;
+    if (outputGateBlocked) {
+      // #178（#63 决议 2）：状态迁移前 fencing，易主即静默退出
+      if (wu.status !== 'blocked' && !(await this.transitionIfHeld(wuId, 'blocked'))) return;
+      // #172（#60 决策 Q1）：WU 级终态失败事件落盘（level=warning，#62 失败趋势探测数据源）
+      void emitWorkUnitFailedEvent({
+        workUnitId: wuId,
+        failureType: outputGateBlocked.failureType,
+        blockReason: String(blockReasonUpdates.blockReason ?? ''),
+        consecutiveStuck,
+        attempts: stepCount,
+        totalDurationMs: Math.max(0, Date.now() - new Date(wu.createdAt).getTime()),
+        traceId,
+      }).catch(() => {});
+      // #176（决策 #57 D3-1）：blocked 里程碑统一携带 CTA 行动召唤块
+      await this.postToDiscussionSpace(
+        wuId,
+        withBlockedCta(outputGateBlocked.message, String(blockReasonUpdates.blockReason ?? '')),
         wu,
       );
       return;

@@ -399,15 +399,16 @@ export class WorkUnitService extends WorkUnitCrudService {
     const updated = await this.persistSnapshot(current, metadata, { eventType: 'updated' });
     return snapshotToData(updated);
   }
-  async markMergeConflict(id: string, conflictFiles: string[]): Promise<WorkUnitData> {
+  async markMergeConflict(id: string, conflictFiles: string[], opts?: { blockReason?: string }): Promise<WorkUnitData> {
     const current = (await this.fileStore.getIndex({ id }))[0];
     if (!current) throw new Error('WorkUnit not found');
 
     const metadata: WorkUnitMetadata = parseWuMetadata(current.metadata);
     metadata.mergeConflict = true;
     metadata.conflictFiles = conflictFiles;
-    // B4: blocked 原因落盘（2026-08-03 token-burn issue P0-2）
-    metadata.blockReason = `merge-conflict: 自动合并冲突（${conflictFiles.length} 个文件）`;
+    // B4: blocked 原因落盘（2026-08-03 token-burn issue P0-2）；
+    // opts.blockReason 覆盖默认文案（如合并后 verify 失败走同路径但前缀区分 merge-verify-failed）
+    metadata.blockReason = opts?.blockReason ?? `merge-conflict: 自动合并冲突（${conflictFiles.length} 个文件）`;
 
     const now = new Date();
     const isoNow = now.toISOString();
@@ -466,6 +467,49 @@ export class WorkUnitService extends WorkUnitCrudService {
       status: 'blocked',
       assigneeId: null,
       claimedAt: null,
+      metadata: JSON.stringify(metadata),
+      updatedAt: isoNow,
+    };
+
+    const event: WorkUnitEvent = {
+      type: 'blocked',
+      wuId: id,
+      timestamp: isoNow,
+      data: updated as unknown as Record<string, unknown>,
+    };
+    await this.fileStore.commitSnapshot(event, updated);
+
+    await this.publishStatusChanged(updated);
+
+    this.aggregateParentStatus(id).catch(err =>
+      logger.warn('[WorkUnit] aggregateParentStatus failed', { workUnitId: id, error: String(err) })
+    );
+
+    return snapshotToData(updated);
+  }
+
+  /**
+   * 决策 14 认领前适任判断：全员不适任转人工——频道全部 active 成员都被判不适任，
+   * unassigned WU 直接置 blocked（unassigned → blocked 不在 VALID_TRANSITIONS，
+   * 语义方法直写，形态同 blockForManualRelease/markMergeConflict 先例）。
+   * 仅 unassigned 可转（active/blocked 各有既有出口）；metadata 只补 blockReason/blockedAt，
+   * unfitRoles 已由调用方（agent-loop recordClaimUnfit）先行落档。
+   */
+  async blockForAllUnfit(id: string, reason: string): Promise<WorkUnitData | null> {
+    const current = (await this.fileStore.getIndex({ id }))[0];
+    if (!current) throw new Error('WorkUnit not found');
+    if (current.status !== 'unassigned') return null;
+
+    const metadata: WorkUnitMetadata = parseWuMetadata(current.metadata);
+    // B4: blocked 原因落盘（2026-08-03 token-burn issue P0-2）
+    metadata.blockReason = reason;
+
+    const now = new Date();
+    const isoNow = now.toISOString();
+    metadata.blockedAt = isoNow; // #176（决策 #57 D4）：死信计时基准
+    const updated: WorkUnitSnapshot = {
+      ...current,
+      status: 'blocked',
       metadata: JSON.stringify(metadata),
       updatedAt: isoNow,
     };

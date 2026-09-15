@@ -131,12 +131,30 @@ export interface WorkUnitMetadata {
   mergeCommit?: string;       // 合并后 baseRepo HEAD（merge commit 全哈希）
   mergeConflict?: boolean;    // 自动合并（含 rebase 重试）仍冲突，已转人工（WU 置 blocked）
   conflictFiles?: string[];   // 合并冲突文件清单（diff-filter=U）
+  mergeResolution?: {         // 合并冲突 LLM 解审计（merge/rebase 冲突现场交 LLM 解时落档，仿 distill runs 审计思路）
+    attemptedAt: string;      // 尝试开始时间 ISO 8601
+    ok: boolean;              // 是否解完（确定性校验：冲突标记清零；rebase 现场含重放 merge 成功）
+    state: 'merge' | 'rebase';// 冲突现场类型（merge = 合并目标目录；rebase = worktree）
+    cwd: string;              // 冲突现场目录（LLM 会话 cwd）
+    conflictFiles: string[];  // 交给 LLM 时的冲突文件清单
+    durationMs: number;       // LLM 会话耗时
+    summary?: string;         // LLM 输出摘要（截断，成功时落）
+    error?: string;           // 失败原因（spawn 失败/超时/仍有残留冲突/重放 merge 失败）
+  };
   knowledgeExtractedAt?: string; // R3: 会话知识提取已触达时间戳（去重——同一 WorkUnit 只提取一次）
   memoryExtractedAt?: string;    // #99: WU 收尾角色记忆批量提取已触达时间戳（去重——同一 WorkUnit 只提取一次；区别于 R3 的 knowledgeExtractedAt）
   matchedSkills?: string[];   // 决策 7: step 时域匹配命中并实际注入的 skill 名（agent-loop 落盘，度量用）
   lastCommitHash?: string;    // §10.5: PROGRESS 无提交监视 — 上次观察到的 worktree HEAD
   noCommitSteps?: number;     // §10.5: 连续无新提交步数（满 3 步频道提醒一次并归零）
   commitGuardHint?: string;   // §10.5: COMPLETE 被提交守卫打回时的提示（注入下一轮 prompt 后清除）
+  // 收口闸（产出实）闸 1：代码类 COMPLETE 但 base..HEAD 无任何提交 → 打回（hint 注入下轮 prompt 后清除），
+  // diffEmptyCount ≥3 → blocked 转人工（模式同 verifyFailCount/verifyFailHint）
+  diffEmptyCount?: number;    // 空 diff 连续打回计数
+  diffEmptyHint?: string;     // 空 diff 打回提示
+  // 收口闸（产出实）闸 2：非代码类契约产物锚点缺失（reviewReport/analysisTasks/specTasks/decisionSuggestion/调研报告落盘）
+  // → 打回（hint 注入下轮 prompt 后清除），contractArtifactCount ≥3 → blocked 转人工
+  contractArtifactCount?: number; // 契约产物缺失连续打回计数
+  contractArtifactHint?: string;  // 契约产物缺失打回提示
   // A2A 协作（2026-07-agent-to-agent-collab-design §5）
   collab?: {                  // 协作树追踪（DELEGATE 派生的 WU 携带；根 WU 首次委派后补记）
     rootId: string;           // 协作树根 WU id
@@ -207,6 +225,10 @@ export interface WorkUnitMetadata {
   traceId?: string;           // P0 修复 6: 链路追踪 id（频道消息 req → WU → agent-loop 日志；与 audit requestId 同值）
   // F4 reviewer 解锚（2026-07-28 分析文档，决策 5）：评审 WU 未指派走 claim 涌现时的约束/标记
   excludeAssignee?: string;   // 禁止认领的 profile id（评审排除实现者；agent-loop observe 未指派过滤据此剔除）
+  // 决策 14 认领前适任判断：被判不适任的角色名单（约束挂 WU 不挂角色身份，合规 ADR D2/决策 10）——
+  // 写入方：agent-loop claim 前一次性 LLM 判断（agents/loop/claim-fitness.ts）；消费方：
+  // observe 第 7 道过滤（含本 role.id 即不可见）+ 全员不适任转 blocked 判定
+  unfitRoles?: UnfitRoleEntry[];
   selfReview?: boolean;       // 本评审 WU 未排除实现者（频道内无其他 active 成员）→ 可能是自评，台账/提醒据此标记
   reviewInput?: { mode: string; skill: string };  // R3: 评审输入契约落档（diff-only + code-review），审计用
   reviewRedispatchAttempts?: number; // #183（#66 决议①）：review 对账重跑连续失败次数，≥3 停跑并升 critical
@@ -303,6 +325,17 @@ export interface WorkUnitData {
   /** #318（additive，ADR D2）：可认领标记——仅事件负载（workunit.created/status_changed）与 GET / 列表项附带；
       unassigned 且无未了结依赖才 true，其余状态恒 false；snapshotToData 本体不产此字段 */
   claimable?: boolean;
+}
+
+/**
+ * 决策 14 认领前适任判断的不适任名单条目。
+ * roleId = profile id（与 observe 过滤的 this.role.id 同口径）；reason = 判断器一行理由；
+ * at = 落档时间 ISO 8601。
+ */
+export interface UnfitRoleEntry {
+  roleId: string;
+  reason: string;
+  at: string;
 }
 
 /** Valid status transitions map */

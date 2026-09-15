@@ -112,7 +112,9 @@ describe('P1: review WU 守卫豁免', () => {
   }
 
   it('review WU + 父 worktree 有未提交改动 + COMPLETE → 不打回，in_review → done 自动收口，且全程不碰 git', async () => {
-    const { reviewWu } = await setupReviewWu();
+    // reviewReport 模拟 agentStep 协议行解析落档（收口闸 2 要求 review 契约产物非空；
+    // 本用例走 recordResult 直调，绕过 agentStep，需预置）
+    const { reviewWu } = await setupReviewWu({ reviewReport: { approved: true } });
 
     const after = await record(reviewWu.id, 'complete', 'LGTM，评审通过');
 
@@ -138,7 +140,8 @@ describe('P1: review WU 守卫豁免', () => {
   });
 
   it('review WU stepCount 超 15 未超 30 时 COMPLETE → 不被强制拦截，仍走 complete → done 收口', async () => {
-    const { reviewWu } = await setupReviewWu({ stepCount: 15 });
+    // reviewReport 预置理由同上（收口闸 2 契约产物锚点）
+    const { reviewWu } = await setupReviewWu({ stepCount: 15, reviewReport: { approved: true } });
 
     const after = await record(reviewWu.id, 'complete', '评审通过');
 
