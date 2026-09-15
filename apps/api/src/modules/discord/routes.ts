@@ -6,10 +6,13 @@
  */
 
 import express, { Router, Request, Response } from 'express';
-import { FileStore, eventBus, type WorkUnitSnapshot } from '@dommaker/studio-shared';
+import { FileStore } from '@dommaker/studio-shared';
 import { logger } from '../../utils/logger.js';
+import { WorkUnitService } from '../workunit/workunit.service.js';
+import { closeWorkUnitWithNotice } from '../workunit/wu-closure.js';
 const router = express.Router();
 const fileStore = new FileStore();
+const workUnitService = new WorkUnitService(fileStore);
 
 // Discord Interaction Types
 const InteractionType = {
@@ -207,15 +210,10 @@ router.post('/interactions', async (req: Request, res: Response): Promise<void> 
                   res.json({ type: ResponseType.CHANNEL_MESSAGE_WITH_SOURCE, data: { content: `Cannot stop execution with status: ${match.status}` } });
                   return;
                 }
-                await closeAndEmit(match.id, 'Stopped by user via Discord');
+                await closeWorkUnit(match.id, 'Stopped by user via Discord');
                 // Try to kill running child process (agentRunner 持有真实的 runningProcesses)
                 const { agentRunner } = await import('@dommaker/studio-agent');
                 await agentRunner.stop(match.id);
-                // Publish event
-                eventBus.publish('events:goal-execution', {
-                  event_type: 'goal-execution.updated',
-                  data: { executionId: match.id, status: 'failed', error: 'Stopped by user via Discord' },
-                });
                 res.json({ type: ResponseType.CHANNEL_MESSAGE_WITH_SOURCE, data: { content: `✅ Stopped execution \`${match.id.slice(0, 8)}\`` } });
                 return;
               }
@@ -228,17 +226,11 @@ router.post('/interactions', async (req: Request, res: Response): Promise<void> 
               return;
             }
 
-            await closeAndEmit(exec.id, 'Stopped by user via Discord');
+            await closeWorkUnit(exec.id, 'Stopped by user via Discord');
 
             // Try to kill running child process (agentRunner 持有真实的 runningProcesses)
             const { agentRunner } = await import('@dommaker/studio-agent');
             await agentRunner.stop(exec.id);
-
-            // Publish event so GoalScheduler picks up the change
-            eventBus.publish('events:goal-execution', {
-              event_type: 'goal-execution.updated',
-              data: { executionId: exec.id, status: 'failed', error: 'Stopped by user via Discord' },
-            });
 
             res.json({ type: ResponseType.CHANNEL_MESSAGE_WITH_SOURCE, data: { content: `✅ Stopped execution \`${exec.id.slice(0, 8)}\`` } });
           } catch (err: any) {
@@ -273,20 +265,23 @@ router.post('/interactions', async (req: Request, res: Response): Promise<void> 
 
       if (action === 'retry') {
         const extraRounds = parseInt(parts[2] || '2', 10);
-        await updateWorkUnitStatus(targetId, 'unassigned', { resumeAfterRetry: true, extraRounds });
+        await resetForRetry(targetId, { extraRounds });
         res.json({ type: ResponseType.CHANNEL_MESSAGE_WITH_SOURCE, data: { content: `🔁 已重置，再给 ${extraRounds} 轮` } });
         return;
       }
 
       if (action === 'retry-new') {
-        await updateWorkUnitStatus(targetId, 'unassigned', { resumeAfterRetry: true, freshPrompt: true });
+        await resetForRetry(targetId, { freshPrompt: true });
         res.json({ type: ResponseType.CHANNEL_MESSAGE_WITH_SOURCE, data: { content: `🔄 已重置，换了新方向` } });
         return;
       }
 
       if (action === 'abandon') {
-        await closeAndEmit(targetId, 'Abandoned by user via Discord');
-        res.json({ type: ResponseType.CHANNEL_MESSAGE_WITH_SOURCE, data: { content: `❌ 已放弃` } });
+        const closed = await closeWorkUnit(targetId, 'Abandoned by user via Discord');
+        res.json({
+          type: ResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+          data: { content: closed ? `❌ 已放弃` : `WorkUnit not found: ${targetId}` },
+        });
         return;
       }
 
@@ -301,53 +296,26 @@ router.post('/interactions', async (req: Request, res: Response): Promise<void> 
 });
 
 /**
- * 关闭 WorkUnit 并发布事件
+ * 关闭 WorkUnit（#538，ADR 2026-09-15 决策 2）：走 wu-closure 统一关闭出口——
+ * 补 closedAt、落 workunit:closed 结构化记录、频道出声（原因走 opts）。
+ * 旧实现（closeAndEmit）手拼快照整写：metadata 整写覆盖摧毁既有 metadata、
+ * 不写 closedAt、不发任何事件；legacy events:goal-execution 随 Goal 体系退役停发。
+ * @returns 是否找到目标并执行关闭
  */
-async function closeAndEmit(wuId: string, reason: string): Promise<void> {
+async function closeWorkUnit(wuId: string, reason: string): Promise<boolean> {
   const snap = (await fileStore.getIndex({ id: wuId }))[0];
-  if (!snap) return;
-
-  const now = new Date().toISOString();
-  const updated: WorkUnitSnapshot = {
-    ...snap,
-    status: 'closed',
-    metadata: JSON.stringify({ error: reason }),
-    updatedAt: now,
-  };
-
-  await fileStore.commitSnapshot(
-    { type: 'closed', wuId, timestamp: now, data: updated as unknown as Record<string, unknown> },
-    updated,
-  );
-  eventBus.publish('events:goal-execution', {
-    event_type: 'goal-execution.updated',
-    data: { executionId: wuId, status: 'failed', error: reason },
-  });
+  if (!snap) return false;
+  return closeWorkUnitWithNotice(fileStore, snap, { reason, closedBy: 'human-command' });
 }
 
 /**
- * 更新 WorkUnit 状态和 metadata
+ * 重置 WorkUnit 回池重试（#538，ADR 2026-09-15 决策 2）：unclaim 回 unassigned
+ * （清 assignee + 发 status_changed）+ 重试标记经 updateMetadata 锁内合并
+ * （mutator 基于锁内最新 metadata，既有键保留——旧实现整写覆盖摧毁它们）。
  */
-async function updateWorkUnitStatus(wuId: string, status: string, extraMeta: Record<string, unknown>): Promise<void> {
-  const snap = (await fileStore.getIndex({ id: wuId }))[0];
-  if (!snap) throw new Error(`WorkUnit not found: ${wuId}`);
-
-  const now = new Date().toISOString();
-  let meta: Record<string, unknown> = {};
-  try { meta = snap.metadata ? JSON.parse(snap.metadata) : {}; } catch {}
-  Object.assign(meta, extraMeta);
-
-  const updated: WorkUnitSnapshot = {
-    ...snap,
-    status,
-    metadata: JSON.stringify(meta),
-    updatedAt: now,
-  };
-
-  await fileStore.commitSnapshot(
-    { type: 'updated', wuId, timestamp: now, data: updated as unknown as Record<string, unknown> },
-    updated,
-  );
+async function resetForRetry(wuId: string, retryMeta: Record<string, unknown>): Promise<void> {
+  await workUnitService.unclaim(wuId);
+  await fileStore.updateMetadata(wuId, latest => ({ ...latest, resumeAfterRetry: true, ...retryMeta }));
 }
 
 export default router;
