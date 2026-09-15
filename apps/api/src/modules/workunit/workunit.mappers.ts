@@ -4,7 +4,7 @@
  */
 
 import type { WorkUnitSnapshot } from '@dommaker/studio-shared';
-import type { CreateWorkUnitInput, UpdateWorkUnitInput, WorkUnitData } from './workunit.types.js';
+import type { CreateWorkUnitInput, UpdateWorkUnitInput, WorkUnitData } from './workunit-crud.js';
 
 // ── 转换函数 ──
 

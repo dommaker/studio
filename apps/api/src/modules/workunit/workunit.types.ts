@@ -1,6 +1,7 @@
 /**
  * WorkUnit 类型契约 + 状态机表/超时常量（工单 30 自 workunit.service.ts 头部抽出，纯搬运零逻辑变更）。
- * 内容：WorkUnitMetadata / 输入输出 DTO / VALID_TRANSITIONS（+ #108 按 type 覆盖表 DECISION_SPEC_TYPES/TYPE_VALID_TRANSITIONS）/ 租约常量（#178 WU_LEASE_TTL_MS）/ ANALYSIS_TASKS_MAX。
+ * 内容：WorkUnitMetadata / VALID_TRANSITIONS（+ #108 按 type 覆盖表 DECISION_SPEC_TYPES/TYPE_VALID_TRANSITIONS）/ 租约常量（#178 WU_LEASE_TTL_MS）/ ANALYSIS_TASKS_MAX。
+ * 输入输出 DTO（CreateWorkUnitInput / UpdateWorkUnitInput / WorkUnitData）唯一正本在 workunit-crud.ts（#537 删除本文件的漂移副本）。
  * 零服务依赖，供 service 与跨模块类型级消费方直接引用。
  */
 
@@ -261,70 +262,6 @@ export interface ReviewAttestationSource {
   selfReview?: boolean;       // l2 自评兜底标记（决策 5）
   ref?: string;               // l2: 评审子 WU id
   summary?: string;
-}
-
-export interface CreateWorkUnitInput {
-  type?: string;
-  scope: string;
-  assigneeId?: string;
-  status?: string;
-  channelId?: string | null;
-  parentId?: string | null;
-  projectPath?: string | null;
-  workspaceId?: string | null;  // F6: 绑定工程（显式指定或频道默认）
-  reqId?: string | null;        // REQ 需求编号（vision §5.3：显式/#REQ-XXXX/自动新建）
-  failureType?: string;
-  retryCount?: number;
-  timeoutAt?: Date | null;
-  completedAt?: Date | null;
-  metadata?: WorkUnitMetadata;
-}
-
-export interface UpdateWorkUnitInput {
-  type?: string;
-  scope?: string;
-  assigneeId?: string | null;
-  channelId?: string | null;
-  parentId?: string | null;
-  projectPath?: string | null;
-  workspaceId?: string | null;
-  reqId?: string | null;        // REQ 需求编号
-  failureType?: string | null;
-  retryCount?: number;
-  timeoutAt?: Date | null;
-  completedAt?: Date | null;
-  metadata?: WorkUnitMetadata;
-}
-
-/**
- * WorkUnitData — 与 Prisma WorkUnit 类型兼容的平面字段（无 relations）。
- * 日期字段使用 Date 对象（与 Prisma 行为一致），来源是 FileStore 的字符串日期。
- */
-export interface WorkUnitData {
-  id: string;
-  parentId: string | null;
-  type: string;
-  scope: string;
-  assigneeId: string | null;
-  status: string;
-  failureType: string | null;
-  retryCount: number;
-  timeoutAt: Date | null;
-  channelId: string | null;
-  projectPath: string | null;
-  workspaceId?: string | null;  // F6: 绑定工程（旧 WorkUnit 无此字段 → null）
-  reqId?: string | null;        // REQ 需求编号（旧 WorkUnit 无此字段 → null）
-  assigneeRoleId?: string | null;  // 认领时冗余的认领方 roleId 快照（旧 WorkUnit 无此字段 → null）
-  metadata: string | null;
-  createdAt: Date;
-  updatedAt: Date;
-  claimedAt: Date | null;
-  completedAt: Date | null;
-  /** #327（additive）：关闭时刻——归档计龄锚点。仅 closed 状态有值，reopen 清除 */
-  closedAt?: Date | null;
-  /** #318（additive，ADR D2）：可认领标记——仅事件负载（workunit.created/status_changed）与 GET / 列表项附带；
-      unassigned 且无未了结依赖才 true，其余状态恒 false；snapshotToData 本体不产此字段 */
-  claimable?: boolean;
 }
 
 /**

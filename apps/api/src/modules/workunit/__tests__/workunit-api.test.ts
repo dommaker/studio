@@ -2,9 +2,6 @@
 // Tests: CRUD + Claim + State machine + Review + from-message
 import { describe, it, expect, afterAll, beforeAll, vi } from 'vitest';
 
-const isCI = !!process.env.CI;
-const describeIf = isCI ? describe.skip : describe;
-
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
@@ -12,7 +9,7 @@ import { eventBus, FileStore } from '@dommaker/studio-shared';
 import { WorkUnitService } from '../workunit.service.js';
 import { channelMessageService } from '../../channels/channel-message.service.js';
 
-describeIf('WorkUnit API service', () => {
+describe('WorkUnit API service', () => {
   let tmpDir: string;
   let fileStore: FileStore;
   let service: WorkUnitService;
