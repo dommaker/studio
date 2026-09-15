@@ -5,6 +5,8 @@
 // agent-loop-guards.js。知识搜索分析块（knowledge-search-analysis）零生产调用方，工单 43 已删。
 // 工单 05（2026-08）：prompt/上下文组装（含 buildSkill/Persona/RosterSection）→ prompt-composer.js；
 // DELEGATE 分支（建子单 + collab 元数据 + 降级文案）→ delegate-branch.js。
+// #541（2026-09）：agentStep 入口四段前置守卫（B2 测试 WU / C3 日预算 / #162 WU 预算 /
+// #471 plan 额度）→ step-guards.js（对称出口侧 completion-gates 的 Ctx/Deps/Outcome 模式）。
 // 本文件保留 AgentLoop 类编排逻辑；导出面 = AgentLoop + StepResult（#544 拆除 re-export 门面，
 // 测试 import 已迁真属主 agent-loop-parsers / agent-loop-events / agent-loop-guards）。
 import { execSync } from 'child_process';
@@ -24,20 +26,16 @@ import { postWuSystemMessage } from '../../workunit/wu-messenger.js';
 import type { MessageMeta } from '../../channels/channel-message.service.js';
 import { withBlockedCta } from '../../workunit/blocked-cta.js';
 import { parseWuMetadata, mergedWuView } from '../../workunit/wu-metadata.js';
-import { PLAN_STEP_LIMIT } from '../../workunit/workunit.types.js';
 import { hasUnfinishedDeps, buildStatusById } from '../../workunit/wu-dependencies.js';
 import { resolvePmoBranchForWU } from '../../requirements/pmo-branch-resolver.js';
 import { resolveStudioLogFile } from '../../../utils/studio-log-path.js';
 import { writeStudioEvent } from '../../../utils/studio-events.js';
 import { getErrorMessage } from '../../../utils/errors.js';
-import {
-  tokenBudgetGuardEnabled, resolveDailyTokenBudget, getDailyTokenUsage,
-  notifyBudgetTripped,
-} from './daily-token-budget.js';
 import { emitExecutionStepEvent, emitExecutionStreamLine, emitExecutionStreamStepStart, emitWorkUnitFailedEvent } from './execution-step-events.js';
 import { loadCurrentWuContexts, type CurrentWuContext } from '../../monitoring/current-wu-context.js';
 import { CODE_WORKTREE_TYPES, runWuVerification } from './wu-verification.js';
 import { runCompletionGuards } from './completion-gates.js';
+import { runStepGuards } from './step-guards.js';
 import { parseMapOpening } from '../../pmo/map-opening.js';
 import { parseSpecTasks } from '../../pmo/spec-materialization.js';
 import type { StepResult, Observations, Target, RuntimeInstanceRow } from './agent-loop.types.js';
@@ -51,7 +49,7 @@ import {
   resolveRealUsage, writeWorkunitTokenEvent,
   resolveToolTraceFile, writeToolCallEvents, type RealUsage,
 } from './agent-loop-events.js';
-import { testWuGuardEnabled, isTestLikeWorkUnit, parseExcludeAssignee } from './agent-loop-guards.js';
+import { parseExcludeAssignee } from './agent-loop-guards.js';
 import { judgeClaimFitness, isRoleUnfit, parseUnfitRoles } from './claim-fitness.js';
 import { composeStepPrompt } from './prompt-composer.js';
 import { handleDelegateBranch } from './delegate-branch.js';
@@ -897,90 +895,17 @@ export class AgentLoop {
     const wu = target.workUnit;
     const metadata = parseWuMetadata(wu.metadata);
 
-    // B2 守卫（2026-08-03 token-burn issue P0-1c）：测试特征 WU 不起会话、直接关闭。
-    // 历史事故：路由测试经共享数据根把测试 WU 写进生产 FileStore，daemon 当真任务逐个
-    // 起 Claude 会话执行（16 个会话 420 万 token）。关闭留痕 testWorkUnitGuard + blockReason。
-    if (testWuGuardEnabled() && isTestLikeWorkUnit(wu, metadata)) {
-      logger.warn('[AgentLoop] Test-like WorkUnit guarded — closing without execution', {
-        workUnitId: wu.id, scope: wu.scope,
-      });
-      await this.workUnitService.update(wu.id, {
-        metadata: { ...metadata, testWorkUnitGuard: true, blockReason: 'test-wu-guard: 测试特征任务，守卫关闭' },
-      }).catch(err => logger.warn('[AgentLoop] test-wu guard metadata write failed', { workUnitId: wu.id, error: String(err) }));
-      if (wu.status !== 'closed') {
-        await this.workUnitService.transitionStatus(wu.id, 'closed')
-          .catch(err => logger.warn('[AgentLoop] test-wu guard close failed', { workUnitId: wu.id, error: String(err) }));
-      }
-      await this.postToDiscussionSpace(wu.id, '检测到测试特征任务，已跳过执行并关闭（防止测试数据空烧 token）')
-        .catch(() => {});
-      return { action: 'skipped', summary: '' };
-    }
+    // 入口守卫链（#541，对称出口侧 completion-gates）：B2 测试特征 WU / C3 日 token 预算 /
+    // #162 WU 级 tokenBudget / #471 plan 步数额度四段「该不该跑这一步」前置判定抽到
+    // ./step-guards.js（顺序即优先级，首个命中短路）。命中即返回（skipped/need_input），放行继续。
+    const guardOutcome = await runStepGuards({ wu, metadata }, {
+      updateWuMetadata: (wuId, m) => this.workUnitService.update(wuId, { metadata: m }),
+      closeWu: wuId => this.workUnitService.transitionStatus(wuId, 'closed'),
+      postNotice: (wuId, text) => this.postToDiscussionSpace(wuId, text),
+      eventsFilePath: studioEventsJsonlPath,
+    });
+    if (guardOutcome.result) return guardOutcome.result;
 
-    // C3 守卫（2026-08-03 token-burn issue P2-2，决策记录 #4）：每日 token 预算熔断。
-    // 当日 billed 口径消耗 ≥ 预算（默认 2M/日，STUDIO_DAILY_TOKEN_BUDGET 覆盖，<=0 关闭）→
-    // 不起会话，WU 经 need_input 挂起（recordResult 落 waitingForInput + blockReason），
-    // 等次日本地零点预算复位或人工处置；全局当日只告警一次（studio:budget-tripped 事件留痕）。
-    // 用量走进程内计数器（daily-token-budget），仅首次/跨天全量扫一次事件文件，不拖慢热路径。
-    if (tokenBudgetGuardEnabled()) {
-      const dailyBudget = resolveDailyTokenBudget();
-      if (dailyBudget > 0) {
-        const eventsFile = studioEventsJsonlPath();
-        const daily = await getDailyTokenUsage({ eventsFile });
-        if (daily.usedTokens >= dailyBudget) {
-          logger.warn('[AgentLoop] Daily token budget tripped — pausing automatic execution', {
-            workUnitId: wu.id, usedTokens: daily.usedTokens, budget: dailyBudget,
-          });
-          if (!daily.notified) {
-            await notifyBudgetTripped({ eventsFile, usedTokens: daily.usedTokens, budget: dailyBudget });
-          }
-          return {
-            action: 'need_input' as const,
-            summary: `每日 token 预算已熔断（当日已用 ${daily.usedTokens.toLocaleString()} / 上限 ${dailyBudget.toLocaleString()}，billed 口径含 cache_read）：已暂停自动执行、不再起会话。次日（本地零点）预算复位后回复任意内容继续，或直接关闭任务`,
-          };
-        }
-      }
-    }
-    // #162（T8-E1，#130 决策 3）：WU 级 token 预算熔断。metadata.tokenBudget 显式数值
-    // （任何类型 WU 可带，与日预算无关、不吃 STUDIO_TOKEN_BUDGET_GUARD 开关——字段在场即生效），
-    // 对照 metadata._cumulativeTokens（billed 口径簿记，与日预算同口径）。超线复用日预算同款
-    // need_input 挂起路径（recordResult 落 waitingForInput + blockReason），不新造状态；
-    // waitingReason='wu-token-budget' 供 waiting-input 人三选分流（追加预算/收尾/放弃）。
-    // 人读面说人话：提示文案不出现 WU/metadata/闸/熔断等机制黑话。
-    if (typeof metadata.tokenBudget === 'number' && Number.isFinite(metadata.tokenBudget) && metadata.tokenBudget > 0) {
-      const wuBudget = Math.floor(metadata.tokenBudget);
-      const wuUsed = metadata._cumulativeTokens ?? 0;
-      if (wuUsed >= wuBudget) {
-        logger.warn('[AgentLoop] WU token budget reached — suspending for human decision', {
-          workUnitId: wu.id, usedTokens: wuUsed, budget: wuBudget,
-        });
-        return {
-          action: 'need_input' as const,
-          summary: `这项任务已消耗 ${wuUsed.toLocaleString()} token，达到为它设定的上限 ${wuBudget.toLocaleString()}，已暂停等你决定。回复：「追加预算」在上限之上再加 ${wuBudget.toLocaleString()} 继续执行；「追加预算 <数值>」把上限改为指定数值；「收尾」用现有产出提交审查；「放弃」结束任务`,
-          metadataUpdates: { waitingReason: 'wu-token-budget' },
-        };
-      }
-    }
-    // #471（Triage 定稿 1）：plan 步数额度熔断。一脉会话承载全规划链，额度高于
-    // implement（PLAN_STEP_LIMIT=60，常量与语义见 workunit.types.ts）。到线不走
-    // recordResult 的强制收口 in_review（plan 已从中豁免）——前置守卫在此转
-    // need_input 挂 blocked 转人，不静默截断；人回复即续期（waiting-input 给
-    // planStepAllowance 加一份 PLAN_STEP_LIMIT，复活回 active 续跑）。
-    if (wu.type === 'plan') {
-      const allowance = typeof metadata.planStepAllowance === 'number' && Number.isFinite(metadata.planStepAllowance) && metadata.planStepAllowance > 0
-        ? Math.floor(metadata.planStepAllowance)
-        : PLAN_STEP_LIMIT;
-      const planSteps = metadata.stepCount ?? 0;
-      if (planSteps >= allowance) {
-        logger.warn('[AgentLoop] Plan step limit reached — suspending for human decision', {
-          workUnitId: wu.id, stepCount: planSteps, allowance,
-        });
-        return {
-          action: 'need_input' as const,
-          summary: `这次规划已推进 ${planSteps} 步，达到为它设定的步数额度 ${allowance}，已暂停等你决定。回复任意内容（或「继续」）即续期 ${PLAN_STEP_LIMIT} 步接着跑；想收尾可在 Web 端点「通过」进入人工确认`,
-          metadataUpdates: { waitingReason: 'plan-step-limit' },
-        };
-      }
-    }
     // P0 修复 6: traceId 贯穿 — 频道消息 → WU metadata → 执行参数（extraEnv）与日志行
     const traceId = typeof metadata.traceId === 'string' && metadata.traceId ? metadata.traceId : undefined;
 
