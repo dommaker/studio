@@ -7,6 +7,8 @@
 // DELEGATE 分支（建子单 + collab 元数据 + 降级文案）→ delegate-branch.js。
 // #541（2026-09）：agentStep 入口四段前置守卫（B2 测试 WU / C3 日预算 / #162 WU 预算 /
 // #471 plan 额度）→ step-guards.js（对称出口侧 completion-gates 的 Ctx/Deps/Outcome 模式）。
+// #543（2026-09）：agentStep 中段两段孪生重试骨架（#94 续用丢失降级 / #96 上下文溢出）
+// → step-retry-policy.js（同 Ctx/Deps/Outcome 模式，fake executor 直测占额/簿记回写）。
 // 本文件保留 AgentLoop 类编排逻辑；导出面 = AgentLoop + StepResult（#544 拆除 re-export 门面，
 // 测试 import 已迁真属主 agent-loop-parsers / agent-loop-events / agent-loop-guards）。
 import { execSync } from 'child_process';
@@ -51,8 +53,8 @@ import { parseExcludeAssignee } from './agent-loop-guards.js';
 import { judgeClaimFitness, isRoleUnfit, parseUnfitRoles } from './claim-fitness.js';
 import { composeStepPrompt } from './prompt-composer.js';
 import { handleDelegateBranch } from './delegate-branch.js';
-import { shouldResumeSession, RESUME_FAILURE_RE } from './session-resume.js';
-import { isContextOverflowError, buildRollingSummary, OVERFLOW_SUMMARY_HEADER } from './context-overflow.js';
+import { shouldResumeSession } from './session-resume.js';
+import { runStepRetry, resetUnestablishedSessionBookkeeping, MAX_SESSIONS_PER_WU } from './step-retry-policy.js';
 import { WuLeaseTracker } from './wu-lease.js';
 import { appendTranscriptStep, transcriptPath } from '../../transcripts/transcript-archive.js';
 
@@ -94,12 +96,8 @@ const STEP_WALL_CLOCK_MS = 1_800_000;
 const STEP_SILENCE_WARN_MS = 300_000;
 const STEP_SILENCE_KILL_MS = 600_000;
 
-/** B5（2026-08-03 token-burn issue P1-1）：每 WU 独立会话数上限（#95 由 2 放宽到 5）。
- *  会话反复重建（stuck 重开 / token 截断重开）意味着整段 transcript 全文重放重新烧一遍；
- *  超限说明自动执行已失控，转 need_input 等人工评估（#94 起人工回复不再重置预算——
- *  复活后凭 metadata.sessionId 优先续用旧会话，见 waiting-input.ts）。
- *  #95: 失败/超时的会话建立尝试计入预算（resetUnestablishedSession 不再清 sessionCount）。 */
-const MAX_SESSIONS_PER_WU = 5;
+// B5 每 WU 会话数上限 MAX_SESSIONS_PER_WU：#543 迁到 ./step-retry-policy.js（重试配额判定
+// 真属主，语义注释随迁），本文件新建会话签发（下方 sessionsUsed 检查）经 import 复用同一常量。
 
 /** F6-fix: 空闲分支心跳节流间隔 — agent-timeout-scan 阈值为 5min，45s 一次足够保活 */
 const IDLE_HEARTBEAT_INTERVAL_MS = 45_000;
@@ -1197,112 +1195,36 @@ export class AgentLoop {
             errorAt: new Date().toISOString(),
           },
         });
-        let detail = (result.error ?? '未知错误').slice(0, 500);
+        const detail = (result.error ?? '未知错误').slice(0, 500);
         logger.error(`[AgentLoop] agentStep execution failed for ${wu.id}: ${detail}`, { traceId });
         // B6: 失败执行同样记账（CLI 已跑的轮次照样烧了 token，runner error 路径透出 usage）
         recordTokenEvent(result);
-        // #94 续用降级：仅续用步 + 「会话不存在」错误（档案 sessionId 对应会话已被清理）→
-        // 换发新 sessionId 重试一次（claude 传 --session-id、不带 sessionResume）。
+        // #543: #94 续用丢失降级与 #96 上下文溢出两段孪生重试骨架（配额判定 → 改参 →
+        // 重算 prompt → 再执行 → 成败分叉 → 簿记回写）收编到 ./step-retry-policy.js ——
+        // 本处只保留编排：注入 executor/prompt 重算/记账/失败事件 deps，按 outcome 分流。
         // 非续用类错误（超时/业务失败）与 catch 分支（spawn 异常）不触发；每步至多烧一次重试。
-        if (resumeSessionId && RESUME_FAILURE_RE.test(detail)) {
-          // #96: 收口 #95 降级超限 —— 续用降级重试也遵守 MAX_SESSIONS_PER_WU（删除 #94「绕过 MAX 一次」先例）。
-          if (sessionsUsed >= MAX_SESSIONS_PER_WU) {
-            logger.warn('[AgentLoop] Resume session lost and session limit reached — need human evaluation', {
-              workUnitId: wu.id, sessionsUsed, max: MAX_SESSIONS_PER_WU,
-            });
-            this.recordOutcomeEvent(wu, false, detail, 'execution_failed', injectedKnowledgeIds);
-            emitFailedStep('need_input', detail, result);
-            return {
-              action: 'need_input' as const,
-              summary: `续用会话已丢失且会话重建已达上限（${sessionsUsed}/${MAX_SESSIONS_PER_WU}）：已暂停自动执行。请人工评估后回复任意内容继续，或直接关闭任务`,
-              metadataUpdates,
-            };
-          }
-          const fallbackSessionId = randomUUID();
-          logger.warn(`[AgentLoop] Resume target session lost for ${wu.id} — falling back to a new session`, { traceId });
-          task.parameters!.sessionId = taskProvider === 'claude' ? fallbackSessionId : undefined;
-          delete task.parameters!.sessionResume;
-          // #95: 降级重试 = 一次新建会话尝试，成败均计入会话预算（失败/超时尝试计入）
-          metadataUpdates.sessionCount = sessionsUsed + 1;
-          // #95: 降级换新号 = 执行期续用不命中（断链新会话）——check 时 shouldResumeSession 判命中
-          // 未注入前序进展，执行才发现会话丢失。重算 prompt 以注入「前序进展」段 + 回放
-          // waitingQuestion（复用同一 ctx/deps；knowledge/skill 等段重复组装一次，副作用均 fire-and-forget）。
-          const recomposed = await composeStepPrompt(
-            { wu, metadata, newReplies: target.newReplies?.map(r => r.content), isNewSession: true },
-            composeDeps,
-          );
-          task.prompt = recomposed.prompt;
-          const retryResult: ExecutionResult = await this.executor.execute(task);
-          if (retryResult.success === false) {
-            // 降级重试仍失败 → 既有 failed 返回；新会话未建立，重置 sessionId 但保留 sessionCount（计入）
-            detail = (retryResult.error ?? '未知错误').slice(0, 500);
-            logger.error(`[AgentLoop] agentStep fallback retry failed for ${wu.id}: ${detail}`, { traceId });
-            recordTokenEvent(retryResult);
-            this.resetUnestablishedSession(metadataUpdates);
-            this.recordOutcomeEvent(wu, false, detail, 'execution_failed', injectedKnowledgeIds);
-            emitFailedStep('failed', detail, retryResult);
-            return failResult(detail);
-          }
-          // 降级成功：走正常成功路径；换新号落盘（sessionCount 已在查过 MAX 后计入）
-          result = retryResult;
-          effectiveSessionId = fallbackSessionId;
-          sessionResumed = false;
-          metadataUpdates.sessionId = fallbackSessionId;
-          metadataUpdates.lastSessionResumed = false;
-        } else if (isContextOverflowError(detail)) {
-          // #96: CLI 上下文溢出纯反应式策略 —— 溢出错误 → 会话滚动摘要落盘 → 新会话带摘要
-          // 注入重试一次 → 再败 NEED_INPUT。溢出重试 = 一次新建会话尝试，占会话配额
-          // （与 #95 失败/超时尝试计入语义一致，超限走 need_input，不静默绕过 MAX）。
-          // 摘要来源 = wu.scope + progressLog（会话内逐步 summary），不递归摘要、不建语义搜索。
-          const overflowSummary = buildRollingSummary(wu.scope, metadata);
-          metadataUpdates.sessionSummary = overflowSummary;
-          if (sessionsUsed >= MAX_SESSIONS_PER_WU) {
-            logger.warn('[AgentLoop] Context overflow and session limit reached — need human evaluation', {
-              workUnitId: wu.id, sessionsUsed, max: MAX_SESSIONS_PER_WU,
-            });
-            this.recordOutcomeEvent(wu, false, detail, 'execution_failed', injectedKnowledgeIds);
-            emitFailedStep('need_input', detail, result);
-            return {
-              action: 'need_input' as const,
-              summary: `CLI 上下文溢出且会话重建已达上限（${sessionsUsed}/${MAX_SESSIONS_PER_WU}）：已暂停自动执行。请人工评估后回复任意内容继续，或直接关闭任务`,
-              metadataUpdates,
-            };
-          }
-          const overflowSessionId = randomUUID();
-          logger.warn(`[AgentLoop] Context overflow for ${wu.id} — persisting rolling summary and retrying in a new session`, { traceId });
-          task.parameters!.sessionId = taskProvider === 'claude' ? overflowSessionId : undefined;
-          delete task.parameters!.sessionResume;
-          metadataUpdates.sessionCount = sessionsUsed + 1;
-          metadataUpdates.sessionId = overflowSessionId;
-          metadataUpdates.lastSessionResumed = false;
-          // 重算 prompt 注入摘要（isNewSession:false 避免与 handoff 前序进展段重复；摘要单独注入）
-          const recomposed = await composeStepPrompt(
-            { wu, metadata, newReplies: target.newReplies?.map(r => r.content), isNewSession: false },
-            composeDeps,
-          );
-          task.prompt = `${recomposed.prompt}\n\n${OVERFLOW_SUMMARY_HEADER}\n\n${overflowSummary}`;
-          const retryResult: ExecutionResult = await this.executor.execute(task);
-          if (retryResult.success === false) {
-            // 再败 → NEED_INPUT（合流既有 need_input 路径）；sessionSummary 保留落盘供人工参考，
-            // sessionId 重置、sessionCount 计入（不再三连败静默 blocked）
-            const retryDetail = (retryResult.error ?? '未知错误').slice(0, 500);
-            logger.error(`[AgentLoop] agentStep overflow retry failed for ${wu.id}: ${retryDetail}`, { traceId });
-            recordTokenEvent(retryResult);
-            this.resetUnestablishedSession(metadataUpdates);
-            this.recordOutcomeEvent(wu, false, retryDetail, 'execution_failed', injectedKnowledgeIds);
-            emitFailedStep('need_input', retryDetail, retryResult);
-            return {
-              action: 'need_input' as const,
-              summary: `CLI 上下文溢出：新会话带摘要重试一次仍失败（${retryDetail.slice(0, 200)}），已暂停自动执行。请人工评估后回复任意内容继续，或直接关闭任务`,
-              metadataUpdates,
-            };
-          }
-          // 溢出重试成功：走正常成功路径；换新号落盘
-          result = retryResult;
-          effectiveSessionId = overflowSessionId;
+        const retryOutcome = await runStepRetry(
+          { wu, metadata, provider: taskProvider, task, firstResult: result, detail, sessionsUsed, resumeSessionId, metadataUpdates },
+          {
+            execute: (t) => this.executor.execute(t),
+            recomposePrompt: async ({ isNewSession }) => (await composeStepPrompt(
+              { wu, metadata, newReplies: target.newReplies?.map(r => r.content), isNewSession },
+              composeDeps,
+            )).prompt,
+            recordTokenEvent,
+            recordFailureOutcome: (d) => this.recordOutcomeEvent(wu, false, d, 'execution_failed', injectedKnowledgeIds),
+            emitFailedStep,
+          },
+        );
+        if (retryOutcome.kind === 'terminal') return retryOutcome.result;
+        if (retryOutcome.kind === 'retried') {
+          // 重试成功：走正常成功路径；换新号（簿记已由策略写入 metadataUpdates）
+          result = retryOutcome.result;
+          effectiveSessionId = retryOutcome.sessionId;
           sessionResumed = false;
         } else {
-          // 首 step 失败：会话未必已建立，重置避免下步 --resume 一个从未建立的会话
+          // 非重试类失败（no-retry）：首 step 失败会话未必已建立，重置避免下步 --resume
+          // 一个从未建立的会话
           if (newSessionId) this.resetUnestablishedSession(metadataUpdates);
           this.recordOutcomeEvent(wu, false, detail, 'execution_failed', injectedKnowledgeIds);
           emitFailedStep('failed', detail, result);
@@ -1528,15 +1450,16 @@ export class AgentLoop {
   }
 
   /**
-   * 首 step（新建会话）执行失败 / 续用降级重试仍失败时重置会话簿记：CLI 会话未必已建立
+   * 首 step（新建会话）执行失败 / spawn 异常时重置会话簿记：CLI 会话未必已建立
    * （可能根本没 spawn 到），不重置则下一步按续用发 `--resume <从未建立的 id>`
    * （claude 必报 "No conversation found"）。续用 step 失败不调用 —— 会话已存在，
    * 保留下一步继续 resume。（#94：实例槽位清除已随 per-WU 化一并移除）
    * #95: sessionCount 不再清除 —— 失败/超时的会话建立尝试计入预算（超限转 need_input）。
+   * #543: 实现唯一正本在 ./step-retry-policy.js（resetUnestablishedSessionBookkeeping），
+   * 重试再败路径由策略模块直接调用，本方法委托保持编排侧单一入口。
    */
   private resetUnestablishedSession(metadataUpdates: Partial<WorkUnitMetadata>): void {
-    delete metadataUpdates.sessionId;
-    delete metadataUpdates.lastSessionResumed;
+    resetUnestablishedSessionBookkeeping(metadataUpdates);
   }
 
   /** Record result: monitoring checkpoints + state transitions (zero token) */

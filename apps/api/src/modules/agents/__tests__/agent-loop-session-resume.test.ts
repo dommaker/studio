@@ -4,6 +4,9 @@
 // 续用步报「会话不存在」→ 换发新 sessionId 降级重试一次。
 // HOME 经 vi.stubEnv 指向 tmpdir 造会话文件；真实 FileStore（tmpdir）+ 真实 WorkUnitService；
 // CLI 执行 mock；#481：执行根经 metadata.workspaceRoot 注入（wu.workspaceId 不再参与 cwd 决策）。
+// #543：降级重试序收编 loop/step-retry-policy 后，重试细节断言（占额/簿记/prompt 重算）
+// 移 loop/__tests__/step-retry-policy.test.ts 直测（fake executor），本文件只留整类构造的
+// 续用判定/形态接线与降级路径冒烟。
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -265,7 +268,7 @@ describe('#94: 会话号 per-WU 化与续用降级', () => {
     expect(lastTask().parameters?.sessionResume).toBeUndefined();
   });
 
-  it('续用步报「会话不存在」→ 降级：换发新 UUID 重试一次（无 sessionResume），成功后落新号 + sessionCount+1 + lastSessionResumed=false', async () => {
+  it('续用步报「会话不存在」→ 触发降级重试（接线冒烟；占额/簿记/prompt 重算细节见 loop/__tests__/step-retry-policy 直测）', async () => {
     createClaudeSessionFile('sess-lost');
     const wu = await setupWorkUnit({ sessionId: 'sess-lost', sessionCount: 1 });
     // 降级重试复用同一 task 对象改 parameters（#94 设计）——首次调用形态需在调用时快照
@@ -280,20 +283,18 @@ describe('#94: 会话号 per-WU 化与续用降级', () => {
 
     const step = await (agentLoop as unknown as AgentStepCapable).agentStep({ workUnit: wu });
 
+    // 接线：首次续用形态失败 → 策略改参重试一次（新建形态）→ 成功走正常路径
     expect(mockExecuteLightweight).toHaveBeenCalledTimes(2);
-    // 第一次：续用形态；第二次：新建形态（claude 传新 UUID、不带 sessionResume）
     expect(firstCallParams?.sessionId).toBe('sess-lost');
     expect(firstCallParams?.sessionResume).toBe(true);
     const retryParams = taskAt(1).parameters!;
     expect(retryParams.sessionId).toMatch(UUID_RE);
     expect(retryParams.sessionId).not.toBe('sess-lost');
     expect(retryParams.sessionResume).toBeUndefined();
-    // 降级成功：metadata 落新号、sessionCount+1、lastSessionResumed=false
     expect(step.action).toBe('progress');
     expect(step.metadataUpdates?.sessionId).toBe(retryParams.sessionId);
     expect(step.metadataUpdates?.sessionCount).toBe(2);
-    expect(step.metadataUpdates?.lastSessionResumed).toBe(false);
-    // 续用实际失败 → sessionResumes 不计（#94 起只计实际续用成功的步）
+    // 续用实际失败 → sessionResumes 不计（#94 起只计实际续用成功的步；agent-loop 据 retried outcome 翻 sessionResumed=false 的接线断言）
     expect(step.metadataUpdates).not.toHaveProperty('sessionResumes');
   });
 
@@ -311,7 +312,7 @@ describe('#94: 会话号 per-WU 化与续用降级', () => {
     expect(step.action).toBe('failed');
   });
 
-  it('降级重试仍失败 → action=failed，sessionId/lastSessionResumed 回滚、sessionCount 计入（#95）', async () => {
+  it('降级重试仍失败 → action=failed（接线冒烟；簿记回滚/记账/errorType 细节见 loop/__tests__/step-retry-policy 直测）', async () => {
     createClaudeSessionFile('sess-lost');
     const wu = await setupWorkUnit({ sessionId: 'sess-lost', sessionCount: 1 });
     mockExecuteLightweight.mockResolvedValue({
@@ -325,7 +326,6 @@ describe('#94: 会话号 per-WU 化与续用降级', () => {
     expect(step.action).toBe('failed');
     expect(step.metadataUpdates).not.toHaveProperty('sessionId');
     expect(step.metadataUpdates!.sessionCount).toBe(2);
-    expect(step.metadataUpdates).not.toHaveProperty('lastSessionResumed');
   });
 
   it('#95: 续用降级（check 判命中、执行才发现会话丢失）→ 重试 prompt 注入前序进展段', async () => {

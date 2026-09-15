@@ -1,6 +1,9 @@
 // #96: CLI 上下文溢出纯反应式策略 —— 溢出错误 → 会话滚动摘要落盘 → 新会话带摘要
 // 注入重试一次 → 再败 NEED_INPUT；并收口 #95 降级路径超限（续用降级也遵守 MAX）。
 // 真实 FileStore（tmpdir）+ 真实 WorkUnitService；CLI 执行与 knowledge-service mock。
+// #543：溢出/降级重试序收编 loop/step-retry-policy 后，重试细节断言（占额/簿记/摘要注入）
+// 移 loop/__tests__/step-retry-policy.test.ts 直测（fake executor），本文件只留整类构造的
+// 触发接线、配额分叉与失败 outcome 落盘接线。
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -102,39 +105,27 @@ describe('#96: CLI 上下文溢出纯反应式策略', () => {
     return mockExecuteLightweight.mock.calls.at(index)![0] as AgentTask;
   }
 
-  it('续用会话溢出 → 新会话带摘要重试成功：sessionCount+1、sessionSummary 落盘、重试 prompt 注入摘要', async () => {
+  it('续用会话溢出 → 新会话带摘要重试成功（接线冒烟；占额/簿记/摘要注入细节见 loop/__tests__/step-retry-policy 直测）', async () => {
     const wu = await setupWorkUnit({
       sessionId: 'sess-overflow', sessionCount: 1, stepCount: 2,
       progressLog: [{ step: 1, action: 'progress', summary: '完成数据层', at: '2026-08-12T10:00:00Z' }],
     });
     // 首次（续用形态）报溢出；重试走默认成功
-    let firstParams: AgentTask['parameters'] | undefined;
-    mockExecuteLightweight.mockImplementationOnce(async (task: AgentTask) => {
-      firstParams = { ...task.parameters };
-      return { ...OVERFLOW_FAILURE };
-    });
+    mockExecuteLightweight.mockImplementationOnce(async () => ({ ...OVERFLOW_FAILURE }));
 
     const step = await (agentLoop as unknown as AgentStepCapable).agentStep({ workUnit: wu });
 
+    // 接线：首败触发策略重试一次（新建形态）；重试 prompt 带真实滚动摘要段；成功走正常路径
     expect(mockExecuteLightweight).toHaveBeenCalledTimes(2);
-    // 首次：续用形态；重试：新建形态（claude 传新 UUID、不带 sessionResume）
-    expect(firstParams?.sessionId).toBe('sess-overflow');
-    expect(firstParams?.sessionResume).toBe(true);
     const retryParams = taskAt(1).parameters!;
     expect(retryParams.sessionId).toMatch(UUID_RE);
     expect(retryParams.sessionId).not.toBe('sess-overflow');
     expect(retryParams.sessionResume).toBeUndefined();
-    // 摘要落盘 + 会话簿记：新号、sessionCount+1、lastSessionResumed=false
-    expect(step.action).toBe('progress');
-    expect(step.metadataUpdates?.sessionId).toBe(retryParams.sessionId);
-    expect(step.metadataUpdates?.sessionCount).toBe(2);
-    expect(step.metadataUpdates?.lastSessionResumed).toBe(false);
-    expect(typeof step.metadataUpdates?.sessionSummary).toBe('string');
-    expect(step.metadataUpdates?.sessionSummary).toContain('实现登录功能');
-    expect(step.metadataUpdates?.sessionSummary).toContain('完成数据层');
-    // 重试 prompt 注入摘要段
     expect(taskAt(1).prompt).toContain('## 会话摘要（上下文溢出）');
     expect(taskAt(1).prompt).toContain('完成数据层');
+    expect(step.action).toBe('progress');
+    expect(step.metadataUpdates?.sessionCount).toBe(2);
+    expect(step.metadataUpdates?.sessionSummary).toContain('实现登录功能');
   });
 
   it('新建会话（首步后）溢出 → 同样落盘摘要并重试一次', async () => {
@@ -153,7 +144,7 @@ describe('#96: CLI 上下文溢出纯反应式策略', () => {
     expect(taskAt(1).prompt).toContain('## 会话摘要（上下文溢出）');
   });
 
-  it('溢出重试仍失败 → NEED_INPUT（合流既有路径）：sessionSummary 保留落盘、sessionId 重置、sessionCount 计入', async () => {
+  it('溢出重试仍失败 → NEED_INPUT（接线冒烟；簿记重置/摘要保留/记账细节见 loop/__tests__/step-retry-policy 直测）', async () => {
     const wu = await setupWorkUnit({ sessionId: 'sess-overflow', sessionCount: 1 });
     mockExecuteLightweight.mockResolvedValue({ ...OVERFLOW_FAILURE });
 
@@ -163,15 +154,13 @@ describe('#96: CLI 上下文溢出纯反应式策略', () => {
     expect(step.action).toBe('need_input');
     expect(step.summary).toContain('上下文溢出');
     // #90: 溢出重试再败转 need_input 也落 failure outcome
+    // （策略 recordFailureOutcome → 本类 recordOutcomeEvent → knowledgeService 的接线断言）
     expect(knowledgeService.recordOutcome).toHaveBeenCalledWith(expect.objectContaining({
       success: false,
       errorType: 'execution_failed',
     }));
-    // 摘要保留（落盘供人工参考），会话簿记：sessionId 重置、sessionCount 计入
-    expect(typeof step.metadataUpdates?.sessionSummary).toBe('string');
     expect(step.metadataUpdates).not.toHaveProperty('sessionId');
     expect(step.metadataUpdates!.sessionCount).toBe(2);
-    expect(step.metadataUpdates).not.toHaveProperty('lastSessionResumed');
   });
 
   it('溢出且会话配额已满（sessionCount>=MAX）→ 摘要落盘 + 直接 NEED_INPUT，不再起新会话', async () => {
