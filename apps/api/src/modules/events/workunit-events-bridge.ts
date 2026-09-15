@@ -13,6 +13,8 @@ import { v4 as uuidv4 } from 'uuid';
 
 const FORWARDED_EVENTS = [
   'workunit.created', 'workunit.status_changed',
+  // #538（ADR 2026-09-15 决策 5）：GC/TTL 删除出声——负载 { id, channelId }，前端两 store 删行
+  'workunit:removed',
   // SSE 负载加深（2026-08-24 计划）：REQ chips 改 SSE 驱动，负载 = { requirement }（含 id/title/status/channelId）
   'requirement.created', 'requirement.updated',
 ] as const;

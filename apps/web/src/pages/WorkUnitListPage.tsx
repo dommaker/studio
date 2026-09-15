@@ -90,6 +90,7 @@ export function WorkUnitListPage() {
   // #318：WU SSE 负载直更（替代 eventTick 整页重拉）——status_changed 直替/移除行、created 插头部；
   // SSE 重连经 onReconnect 一次性 refetch 对齐（ADR D3）
   const applyWorkunitEvent = useWorkUnitStore(s => s.applyWorkunitEvent);
+  const removeWorkunit = useWorkUnitStore(s => s.removeWorkunit);
   const { onEvent, onReconnect } = useWebSocketContext();
   // 批次 E-3：SSE 新 WU 行渐隐高亮（白名单③状态色切换）——created 事件插头部的新行挂
   // .wu-row-new（accent-dim 底色），2s 后移类经 .wu-row 既有 background-color 过渡渐隐；
@@ -98,6 +99,12 @@ export function WorkUnitListPage() {
   const freshWuTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   useEffect(() => () => { freshWuTimersRef.current.forEach(clearTimeout); }, []);
   useEffect(() => onEvent((msg) => {
+    // #538：GC/TTL 删除出声 → 删行分支（负载 { id, channelId }，缺 id 属畸形跳过）
+    if (msg.event_type === 'workunit:removed') {
+      const data = msg.data as { id?: string } | null;
+      if (typeof data?.id === 'string' && data.id) removeWorkunit(data.id);
+      return;
+    }
     if (msg.event_type !== 'workunit.status_changed' && msg.event_type !== 'workunit.created') return;
     const data = msg.data as { workunit?: WorkUnit } | null;
     if (!data?.workunit) return;
@@ -112,7 +119,7 @@ export function WorkUnitListPage() {
         setFreshWuIds(prev => { const next = new Set(prev); next.delete(wuId); return next; });
       }, 2000));
     }
-  }), [onEvent, applyWorkunitEvent]);
+  }), [onEvent, applyWorkunitEvent, removeWorkunit]);
   useEffect(() => onReconnect(() => { void loadWorkUnits(); void loadUnattributedCount(); void loadAllCount(); }), [onReconnect, loadWorkUnits, loadUnattributedCount, loadAllCount]);
 
   // 批次 E-2 空态分语境：过滤生效（状态/搜索/待人工/未归属）→ 「清除过滤」；全空 → 「新建任务」

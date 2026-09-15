@@ -44,6 +44,7 @@ const mockStore = {
   unattributedTotal: null as number | null,
   searchQuery: null as string | null,
   setSearchQuery: vi.fn(),
+  removeWorkunit: vi.fn(),
   error: null as string | null,
 };
 
@@ -72,6 +73,7 @@ vi.mock('../../stores/workunitStore', () => ({
         setUnattributedOnly: mockStore.setUnattributedOnly,
         loadUnattributedCount: mockStore.loadUnattributedCount,
         applyWorkunitEvent: vi.fn(),
+        removeWorkunit: mockStore.removeWorkunit,
       };
       return selector ? selector(state) : state;
     },
@@ -167,6 +169,17 @@ describe('WorkUnitListPage', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  // #538：SSE workunit:removed → store 删行分支（GC/TTL 删除不再悬挂到重连 refetch）；坏负载不调
+  it('SSE workunit:removed → removeWorkunit(id)；缺 id 负载不调', () => {
+    mockStore.workunits = [makeWu({ id: 'wu-1', scope: '存量行' })];
+    render(<WorkUnitListPage />);
+    act(() => { emitSse({ event_type: 'workunit:removed', data: { id: 'wu-1', channelId: null } }); });
+    expect(mockStore.removeWorkunit).toHaveBeenCalledWith('wu-1');
+    mockStore.removeWorkunit.mockClear();
+    act(() => { emitSse({ event_type: 'workunit:removed', data: { channelId: 'ch-1' } }); });
+    expect(mockStore.removeWorkunit).not.toHaveBeenCalled();
   });
 
   // 批次 E-2：全空空态 = 图标（去 emoji）+ 「新建任务」CTA（开创建表单）

@@ -28,6 +28,21 @@ describe('workunit-events-bridge', () => {
     expect(typeof (received[0] as unknown as { event_id: string }).event_id).toBe('string');
   });
 
+  it('workunit:removed 转发到 events 频道（负载 id + channelId，#538 决策 5）', async () => {
+    initWorkunitEventsBridge(); // 幂等 no-op（首个用例已注册），订阅仍生效
+
+    const received: Array<{ event_type: string; data: { id: string; channelId: string | null } }> = [];
+    eventBus.subscribe('events', (envelope: { event_type?: string; data: { id: string; channelId: string | null } }) => {
+      if (envelope.event_type === 'workunit:removed') received.push(envelope as (typeof received)[number]);
+    });
+
+    eventBus.publish('workunit:removed', { id: 'wu-gone', channelId: 'ch-1' });
+    await new Promise(r => setTimeout(r, 20));
+
+    expect(received.map(e => e.event_type)).toEqual(['workunit:removed']);
+    expect(received[0].data).toEqual({ id: 'wu-gone', channelId: 'ch-1' });
+  });
+
   it('requirement.created / updated 转发到 events 频道（data.requirement 含 id/channelId/title/status）', async () => {
     initWorkunitEventsBridge(); // 幂等 no-op（首个用例已注册），订阅仍生效
 

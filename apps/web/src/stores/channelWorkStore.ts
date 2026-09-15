@@ -54,6 +54,9 @@ interface ChannelWorkState {
   /** workunit.status_changed 全量快照直替 upsert（17 字段快照原样落库，删除编造时间戳）；
    *  未打底的频道 no-op（等 REST 打底）；坏负载 no-op */
   applyWorkunitSnapshot: (channelId: string, wu: WorkUnit | null | undefined) => void;
+  /** #538（ADR 2026-09-15 决策 5）：workunit:removed 删行分支——GC/TTL 删除即时下榜，
+   *  不再悬挂到 SSE 重连 refetch；未打底频道/未知 id/坏负载 no-op */
+  applyWorkunitRemoved: (channelId: string, wuId: string) => void;
   /** requirement.created/updated 就地 upsert（#415：负载全量零补拉）：created 追加去重 /
    *  updated 全量覆盖已有条目（列表没有则不动，交由重连 refetch）；未打底频道 no-op */
   applyRequirementEvent: (channelId: string, kind: 'created' | 'updated', req: Requirement | null | undefined) => void;
@@ -252,6 +255,16 @@ export const useChannelWorkStore = create<ChannelWorkState>((set, get) => ({
       const next = [...list];
       next[idx] = { ...next[idx], ...wu };
       return { wus: { ...st.wus, [channelId]: next } };
+    });
+  },
+
+  applyWorkunitRemoved: (channelId, wuId) => {
+    if (!wuId) return;
+    set((st) => {
+      const list = st.wus[channelId];
+      if (!list) return {}; // 未打底不建 slice：REST 打底/重连 refetch 自带终态
+      if (!list.some((w) => w.id === wuId)) return {};
+      return { wus: { ...st.wus, [channelId]: list.filter((w) => w.id !== wuId) } };
     });
   },
 

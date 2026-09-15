@@ -56,6 +56,10 @@ interface WorkUnitState {
    * 与操作触发的 loadWorkUnits（docs/plans/2026-08-24-wu-events-payload-consumers.md）。
    */
   applyWorkunitEvent: (wu: WorkUnit, opts: { insertIfMissing: boolean }) => void;
+  /** #538（ADR 2026-09-15 决策 5）：workunit:removed 删行分支——按 id 移除，total/allTotal
+   *  各 -1 近似维护（同 applyWorkunitEvent 取舍 a：页边界不追齐，重连 refetch 自愈）；
+   *  未知行/空 id no-op */
+  removeWorkunit: (id: string) => void;
   createWorkUnit: (data: { scope: string; type?: string }) => Promise<WorkUnit>;
   reviewPassed: (id: string, summary?: string, defaultAssigneeId?: string, confirm?: ReviewConfirmPayload) => Promise<void>;
   reviewRejected: (id: string, reason?: string) => Promise<void>;
@@ -179,6 +183,17 @@ export const useWorkUnitStore = create<WorkUnitState>((set, get) => ({
         ...(allTotal !== null ? { allTotal: allTotal + 1 } : {}),
       });
     }
+  },
+
+  removeWorkunit: (id) => {
+    if (!id) return;
+    const { workunits, total, allTotal } = get();
+    if (!workunits.some(w => w.id === id)) return;
+    set({
+      workunits: workunits.filter(w => w.id !== id),
+      total: Math.max(0, total - 1),
+      ...(allTotal !== null ? { allTotal: Math.max(0, allTotal - 1) } : {}),
+    });
   },
 
   createWorkUnit: async (data) => {

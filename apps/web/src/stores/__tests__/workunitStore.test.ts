@@ -164,6 +164,50 @@ describe('workunitStore applyWorkunitEvent — SSE 负载驱动行更新（#318�
   });
 });
 
+// #538（ADR 2026-09-15 决策 5）：workunit:removed 删行分支——GC/TTL 删除不再悬挂到重连 refetch
+describe('workunitStore removeWorkunit — workunit:removed 删行（#538）', () => {
+  const row = (id: string, overrides: Record<string, unknown> = {}) =>
+    ({ id, scope: `scope-${id}`, type: 'task', status: 'active', metadata: null, ...overrides }) as unknown as import('../../api/workunit').WorkUnit;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useWorkUnitStore.setState({
+      workunits: [row('wu-1'), row('wu-2')],
+      total: 2,
+      allTotal: 10,
+      page: 1,
+      limit: 20,
+      statusFilter: null,
+      typeFilter: null,
+      loading: false,
+      error: null,
+    });
+  });
+
+  it('已知行：移除且 total/allTotal 各 -1', () => {
+    useWorkUnitStore.getState().removeWorkunit('wu-1');
+    const s = useWorkUnitStore.getState();
+    expect(s.workunits.map(w => w.id)).toEqual(['wu-2']);
+    expect(s.total).toBe(1);
+    expect(s.allTotal).toBe(9);
+  });
+
+  it('未知行 / 空 id：no-op（计数不动）', () => {
+    useWorkUnitStore.getState().removeWorkunit('wu-404');
+    useWorkUnitStore.getState().removeWorkunit('');
+    const s = useWorkUnitStore.getState();
+    expect(s.workunits).toHaveLength(2);
+    expect(s.total).toBe(2);
+    expect(s.allTotal).toBe(10);
+  });
+
+  it('allTotal 未拉取（null）时不编造', () => {
+    useWorkUnitStore.setState({ allTotal: null });
+    useWorkUnitStore.getState().removeWorkunit('wu-1');
+    expect(useWorkUnitStore.getState().allTotal).toBeNull();
+  });
+});
+
 // E2-5（承接批次 B-3）：追加式翻页——loadMoreWorkUnits 拉下一页拼接尾部（按 id 去重），page 随响应前进
 describe('workunitStore loadMoreWorkUnits — 追加式分页（E2-5）', () => {
   const row = (id: string, overrides: Record<string, unknown> = {}) =>
