@@ -14,7 +14,7 @@
 | sse.routes.ts | GET /api/v1/events/stream | SSE 实时事件流（#491 起消费 Last-Event-ID：重连补发 replay buffer 窗口内遗漏事件） |
 | sse.routes.ts | GET /api/v1/events/clients | SSE 客户端列表 (debug) |
 | sse-replay-buffer.ts | SseReplayBuffer | #491：SSE 短窗口内存 replay buffer（环形，容量 500，id = 服务端单调 seq） |
-| workunit-events-bridge.ts | initWorkunitEventsBridge() | eventBus 的 workunit.created/status_changed + requirement.created/updated（2026-08-24 SSE 负载加深，REQ chips SSE 驱动）→ 'events' 频道（前端 WU 列表/抽屉/REQ chips 实时刷新）；index.ts 启动时调用，幂等 |
+| workunit-events-bridge.ts | initWorkunitEventsBridge() | eventBus 的 workunit.created/status_changed + workunit:removed（#538 决策 5：service.delete 删除出声，负载 { id, channelId }，前端 workunitStore/channelWorkStore 删行，不进频道）+ requirement.created/updated（2026-08-24 SSE 负载加深，REQ chips SSE 驱动）→ 'events' 频道（前端 WU 列表/抽屉/REQ chips 实时刷新）；index.ts 启动时调用，幂等 |
 | lock-events-bridge.ts | initLockEventsBridge() | #169: eventBus 的 lock.stale_reclaimed/lock.acquire_timeout → 结构化字段落统一事件流 + dispatchMonitorAlerts 全管线（warning 级，不设 critical）；index.ts 启动时调用，幂等 |
 | （agent-loop 直发） | workunit.execution.step | WU 执行步事件（思考/工具/skill/用量）：agent-loop 每步结束经 eventBus.publish 直发（不经过桥），`workunit.` 前缀自动落 workunits topic；落盘形态 `workunit:execution_step` 供 GET /events 回放 |
 | （agent-loop 直发） | workunit.execution.stream | WU 步内流式 chunk（Layer B，2026-07-30）：step 执行中 CLI stdout 按行提炼 thinking/text/tool/result 直发，**SSE-only 不落盘**（行级体量防膨胀；步级归档走 execution.step）；同前缀落 workunits topic |
@@ -37,7 +37,7 @@
 |------|--------|---------|
 | `__tests__/event.routes.test.ts` | 30 | POST/GET/agent-events: 创建/查询/验证/空 payload 拒收（D18）/错误路径；#180 起 GET 用真临时文件 + STUDIO_EVENTS_FILE 缝（过滤/游标/鉴权栈） |
 | `__tests__/session-summary-generator.test.ts` | 17 | classifyPattern 13种模式 + generateSessionSummary 边界情况 |
-| `__tests__/workunit-events-bridge.test.ts` | 2 | workunit.* + requirement.* 事件转发 'events' 频道（信封形状）；桥 started 幂等是模块态，同文件后续用例 init 为 no-op 靠订阅残留生效 |
+| `__tests__/workunit-events-bridge.test.ts` | 3 | workunit.* + workunit:removed + requirement.* 事件转发 'events' 频道（信封形状）；桥 started 幂等是模块态，同文件后续用例 init 为 no-op 靠订阅残留生效 |
 | `__tests__/sse-routes.test.ts` | 11 | getTopicFromEventType 映射表锁定；#324 背压断开慢客户端；#491 重连 replay（按序补发/topics 过滤/不可解析游标/有洞不补发）；#524 stream chunk 不入 replay buffer |
 | `__tests__/sse-replay-buffer.test.ts` | 7 | #491 replay buffer：seq 单调递增、环形淘汰、replay 窗口语义（有洞 → null） |
 | `__tests__/lock-events-bridge.test.ts` | 1 | #169: lock.* 事件 → 结构化事件流 + dispatchMonitorAlerts 全管线（warning + notifyAlert）、init 幂等 |

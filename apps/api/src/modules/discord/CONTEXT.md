@@ -14,9 +14,9 @@
 ### 依赖关系
 
 **上游（本目录依赖）：**
-- `@dommaker/studio-shared`：提供 `FileStore`、`eventBus`、`WorkUnitSnapshot`、`logger`
+- `@dommaker/studio-shared`：提供 `FileStore`、`logger`
 - `../channels/channel-message.service.ts`：`channelMessageService`
-- `../workunit/workunit.service.ts`：`WorkUnitService`
+- `../workunit/workunit.service.ts`：`WorkUnitService`；`../workunit/wu-closure.ts`：`closeWorkUnitWithNotice`
 - `../../utils/logger.ts`：logger
 - `express`、`crypto` 等标准库
 
@@ -29,3 +29,4 @@
 - 必须配置环境变量 `DISCORD_PUBLIC_KEY`，否则交互端点返回 500
 - `triggerRequirement` 依赖 `#研发` 频道存在，否则抛出错误
 - WorkUnit 创建时 `creationMode` 标记为 `'discord'`，用于区分来源
+- **WU 写路径走 service 单口（#538，ADR 2026-09-15 决策 2）**：按钮 retry/retry-new = `unclaim` 回池 + 重试标记（resumeAfterRetry/extraRounds/freshPrompt）经 `updateMetadata` 锁内合并；abandon 与 `/studio stop` = `closeWorkUnitWithNotice`（closedBy: human-command，补 closedAt + workunit:closed 记录 + 频道出声）。旧 closeAndEmit/updateWorkUnitStatus 直写原语已删（metadata 整写覆盖、不写 closedAt、不发事件三宗罪），legacy `events:goal-execution` 事件随 Goal 体系退役停发。测试：`__tests__/routes.test.ts`（按钮两路径 + stop 收口）与 `__tests__/routes-stop.test.ts`（stop 委托 agentRunner）
