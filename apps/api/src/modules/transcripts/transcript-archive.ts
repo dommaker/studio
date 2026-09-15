@@ -1,10 +1,11 @@
 /**
  * transcript-archive — transcript 归档器（#97，#88 子票）
  *
- * 会话原文落盘到数据区（经 studioDir()/studioPath()），供三个消费方共用：
+ * 会话原文落盘到数据区（经 studioDir()/studioPath()），供四个消费方共用：
  *   - #99 WU 收尾批量提取（要全文）
  *   - handoff 摘要（要对话）
  *   - #85 执行质量评估（要执行痕迹）
+ *   - skill 度量地基票 B：skill 使用扫描（skills/skill-usage-scan.ts）
  *
  * 数据源选型：agent-loop 每步 `result.rawOutput`（raw CLI stdout，provider 无关）。
  * 单一来源同时满足三方：rawOutput 含完整对话 + 工具调用/执行痕迹，非摘要级截断，
