@@ -36,13 +36,11 @@ import { loadCurrentWuContexts, type CurrentWuContext } from '../../monitoring/c
 import { CODE_WORKTREE_TYPES, runWuVerification } from './wu-verification.js';
 import { runCompletionGuards } from './completion-gates.js';
 import { runStepGuards } from './step-guards.js';
-import { parseMapOpening } from '../../pmo/map-opening.js';
-import { parseSpecTasks } from '../../pmo/spec-materialization.js';
+import { harvestCompletionMetadata } from './completion-harvest.js';
 import type { StepResult, Observations, Target, RuntimeInstanceRow } from './agent-loop.types.js';
 import {
   isProcessAlive, isGitRepoRoot, resolveWorktreesDir,
-  resolveTarget, parseAgentOutput, dynamicInterval, parseReviewReport, parseTaskBreakdown,
-  parseOpportunities, parseDecisionConclusion,
+  resolveTarget, parseAgentOutput, dynamicInterval,
   sleep,
 } from './agent-loop-parsers.js';
 import {
@@ -1401,70 +1399,14 @@ export class AgentLoop {
         } catch { /* non-blocking */ }
       }
 
-      // P0 修复（reviewReport 回传断链）：review 子 WU 报告 COMPLETE 时，把 reviewer
-      // 最终输出解析为结构化结论写入 metadata.reviewReport —— 这是 ReviewDispatcher
-      // 路径 B 判定父 WU 过/拒的唯一数据源。解析失败不写（dispatcher 转人工，不误拒）。
-      if (wu.type === 'review' && stepResult.action === 'complete') {
-        const report = parseReviewReport(result.outputText ?? '');
-        if (report) {
-          metadataUpdates.reviewReport = report;
-        } else {
-          logger.warn(`[AgentLoop] Review WU ${wu.id} completed without parseable REVIEW_RESULT — 由 ReviewDispatcher 转人工`);
-        }
-      }
-
-      // PMO 规划接力（analysis-handoff）：analysis/plan WU COMPLETE 时解析 TASK: 拆分行
-      // 写入 metadata.analysisTasks —— 人工确认（reviewPassed → done）后由
-      // analysis-handoff 据此建未指派 task 子 WU（频道成员涌现认领 = 派工）。
-      // #471：plan（一脉会话）沿用 analysis 字段名——解析契约/确认弹窗预填/派工消费全不变。
-      // 解析失败/无 TASK 行不写（确认后仅提示可手动拆，不阻断完成）。
-      if ((wu.type === 'analysis' || wu.type === 'plan') && stepResult.action === 'complete') {
-        const tasks = parseTaskBreakdown(result.outputText ?? '');
-        if (tasks.length > 0) {
-          metadataUpdates.analysisTasks = tasks;
-        }
-        // #106 M7 对齐：同份输出里的 FOG:/DESTINATION: 行（map-opening 同一解析器，
-        // 契约单一来源）落 metadata——人工确认弹窗据此预填待决问题清单（人审改后随
-        // l3.summary 回传开图）。无 FOG 行 = 非探路型，两字段都不落（destination
-        // 单独落档会预填出一行无人消费的 DESTINATION，误导确认人）。
-        const opening = parseMapOpening(result.outputText ?? '');
-        if (opening.fog.length > 0) {
-          metadataUpdates.analysisFog = opening.fog;
-          if (opening.destination) {
-            metadataUpdates.analysisDestination = opening.destination;
-          }
-        }
-        // #163（T8-E2，#130 决策 2）：巡检单 COMPLETE 时解析 OPPORTUNITY: 协议行
-        // 落 metadata.opportunities（初始全 pending；id=opp-N 单内唯一）——冷却闸判定
-        // 与 web 确认 UI（采纳/忽略）消费。无合法 OPPORTUNITY 行不写，不阻断完成。
-        if (metadata.inspection === true) {
-          const opps = parseOpportunities(result.outputText ?? '');
-          if (opps.length > 0) {
-            metadataUpdates.opportunities = opps.map((o, i) => ({
-              id: `opp-${i + 1}`,
-              ...o,
-              status: 'pending' as const,
-            }));
-          }
-        }
-      }
-
-      // #463：decision/spec 确认表单的结构化预填数据源（照 analysis TASK/FOG 落档先例，
-      // 结构化数据在确认之前落档，确认弹窗只做评审不做录入）：
-      //   decision COMPLETE → `## 结论摘要` 段（prompt 契约已有）落 decisionSuggestion；
-      //   spec COMPLETE → TASK: 物化行（spec-materialization 同一解析器，契约单一来源）
-      //     落 specTasks。解析无获不写，不阻断完成。
-      if (wu.type === 'decision' && stepResult.action === 'complete') {
-        const suggestion = parseDecisionConclusion(result.outputText ?? '');
-        if (suggestion) {
-          metadataUpdates.decisionSuggestion = suggestion;
-        }
-      }
-      if (wu.type === 'spec' && stepResult.action === 'complete') {
-        const specTasks = parseSpecTasks(result.outputText ?? '');
-        if (specTasks.length > 0) {
-          metadataUpdates.specTasks = specTasks;
-        }
+      // #542：per-WU-type COMPLETE 收割改注册表（completion-harvest.ts）——
+      // review→reviewReport / analysis|plan→analysisTasks+analysisFog+opportunities /
+      // decision→decisionSuggestion / spec→specTasks。新 type 收割 = 注册表加一行；
+      // 解析无获不落档、单收割器抛错仅跳过，均不阻断完成（语义同原各分支）。
+      if (stepResult.action === 'complete') {
+        Object.assign(metadataUpdates, harvestCompletionMetadata(result.outputText ?? '', {
+          wuId: wu.id, wuType: wu.type, metadata,
+        }));
       }
 
       return { ...stepResult, metadataUpdates, channelVersion };
