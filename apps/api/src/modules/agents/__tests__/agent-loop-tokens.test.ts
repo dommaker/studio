@@ -11,7 +11,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { TokenEstimator } from '@dommaker/harness';
 
-import { writeWorkunitTokenEvent, WORKUNIT_TOKENS_SSE_TYPE } from '../loop/agent-loop.js';
+import { writeWorkunitTokenEvent, WORKUNIT_TOKENS_SSE_TYPE } from '../loop/agent-loop-events.js';
 import { eventBus } from '@dommaker/studio-shared';
 import { resolveTokenLedgerFile } from '../../../utils/token-ledger.js';
 

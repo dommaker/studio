@@ -5,7 +5,8 @@
 // agent-loop-guards.js。知识搜索分析块（knowledge-search-analysis）零生产调用方，工单 43 已删。
 // 工单 05（2026-08）：prompt/上下文组装（含 buildSkill/Persona/RosterSection）→ prompt-composer.js；
 // DELEGATE 分支（建子单 + collab 元数据 + 降级文案）→ delegate-branch.js。
-// 本文件保留 AgentLoop 类编排逻辑 + re-export（对外导出语义不变）。
+// 本文件保留 AgentLoop 类编排逻辑；导出面 = AgentLoop + StepResult（#544 拆除 re-export 门面，
+// 测试 import 已迁真属主 agent-loop-parsers / agent-loop-events / agent-loop-guards）。
 import { execSync } from 'child_process';
 import { eventBus, logger, FileStore, parseChannels, withAttestation, isStaleClaimSleep, parseStreamEvents, type RuntimeStateData } from '@dommaker/studio-shared';
 import { TokenEstimator } from '@dommaker/harness';
@@ -58,23 +59,6 @@ import { shouldResumeSession, RESUME_FAILURE_RE } from './session-resume.js';
 import { isContextOverflowError, buildRollingSummary, OVERFLOW_SUMMARY_HEADER } from './context-overflow.js';
 import { WuLeaseTracker } from './wu-lease.js';
 import { appendTranscriptStep, transcriptPath } from '../../transcripts/transcript-archive.js';
-
-// 输出解析/prompt 构建纯函数已抽到 ./agent-loop-parsers.js（工单 28，行为不变）；
-// re-export 保持对外导出语义不变
-export {
-  isProcessAlive, isGitRepoRoot, resolveWorktreesDir,
-  resolveTarget, parseAgentOutput, dynamicInterval, parseReviewReport, parseTaskBreakdown,
-  parseDecisionConclusion,
-} from './agent-loop-parsers.js';
-
-// workunit:tokens / tool:call 事件落盘已抽到 ./agent-loop-events.js（工单 28，行为不变）；
-// re-export 保持对外导出语义不变
-export { resolveRealUsage, writeWorkunitTokenEvent, resolveToolTraceFile, writeToolCallEvents, WORKUNIT_TOKENS_SSE_TYPE } from './agent-loop-events.js';
-export type { WorkunitTokenEventArgs, RealUsage } from './agent-loop-events.js';
-
-// B2 测试特征 WU 守卫 + F4 excludeAssignee 解析已抽到 ./agent-loop-guards.js（工单 28，行为不变）；
-// re-export 保持对外导出语义不变
-export { testWuGuardEnabled, isTestLikeWorkUnit } from './agent-loop-guards.js';
 
 /** M2: workunit:tokens 事件写入目标（与 knowledge consumption/outcome 事件同一事件流）。
  *  STUDIO_EVENTS_JSONL 环境变量可覆盖（测试隔离用）；缺省走 resolveStudioLogFile ——
@@ -131,7 +115,8 @@ const HEARTBEAT_FAIL_LIMIT = 3;
 
 // §10 P0 注入总预算（2K 红线）随 prompt 组装段一并迁到 ./prompt-composer.js（2026-08 工单 05）
 
-// 类型契约已抽到 ./agent-loop.types.js（工单 28，行为不变）；re-export 保持对外导出语义不变
+// 类型契约已抽到 ./agent-loop.types.js（工单 28，行为不变）；
+// StepResult re-export 保留——completion-gates 等生产消费方经本门面取类型（#544）
 export type { StepResult } from './agent-loop.types.js';
 
 export class AgentLoop {

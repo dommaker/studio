@@ -26,7 +26,8 @@ vi.mock('../../knowledge/knowledge-service', () => ({
   },
 }));
 
-import { AgentLoop, resolveTarget } from '../loop/agent-loop';
+import { AgentLoop } from '../loop/agent-loop';
+import { resolveTarget } from '../loop/agent-loop-parsers';
 import { resumeWaitingWorkUnit } from '../../workunit/waiting-input.js';
 
 const mockRole = {

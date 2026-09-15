@@ -3,7 +3,7 @@
  * metadata.decisionSuggestion，确认弹窗预填 + 收口闸 2 契约产物锚点的数据源）。
  */
 import { describe, it, expect } from 'vitest';
-import { parseDecisionConclusion } from '../loop/agent-loop.js';
+import { parseDecisionConclusion } from '../loop/agent-loop-parsers.js';
 
 describe('parseDecisionConclusion', () => {
   it('提取 `## 结论摘要` 段正文（到下一个 ## 段为止）', () => {

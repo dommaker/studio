@@ -40,7 +40,8 @@ vi.mock('../../../knowledge/knowledge-service', () => ({
   },
 }));
 
-import { AgentLoop, resolveTarget } from '../agent-loop';
+import { AgentLoop } from '../agent-loop';
+import { resolveTarget } from '../agent-loop-parsers';
 import {
   buildClaimFitnessPrompt, parseFitnessVerdict, parseUnfitRoles, isRoleUnfit,
   judgeClaimFitness, FITNESS_SCOPE_MAX_CHARS,
