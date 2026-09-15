@@ -29,7 +29,7 @@
 ## 不修（另议，勿并进收口票）
 
 - **关闭路径不广播**：wu-closure 不发 status_changed → 前端列表不实时刷新（discord abandon 收口后同现状，不回退也不提前修）= 架构评审候选 C2（双关闭路径合并）的开放问题。
-- **monitor TTL「满 90 天删任何状态（含 active/blocked）」是否合理**：needs-triage。
+- **monitor TTL「满 90 天删任何状态（含 active/blocked）」是否合理**：~~needs-triage~~ 已裁决（#540，2026-09-15）：非有意设计——90 天无状态过滤是 G31 GoalExecution TTL（执行记录无生命周期）迁到 WorkUnit 时机械沿用的产物；monitor TTL 加终态守卫，仅删 done/closed，缺 status 按非终态保留。
 - **system-health runGC 无生产接线**：接线 or 删除，needs-triage（收口票只迁它的写路径，不动接线状态）。
 
 ## 实施切票

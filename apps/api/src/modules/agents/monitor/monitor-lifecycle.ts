@@ -178,14 +178,20 @@ export async function dataLifecycle(fileStore: FileStore, state: LifecycleState)
     try {
       const execCutoffMs = Date.now() - 90 * 24 * 3600_000;
       const allWu = await fileStore.getIndex();
-      const toDelete = allWu.filter(s => new Date(s.createdAt).getTime() < execCutoffMs);
-      // #538（ADR 2026-09-15 决策 3）：筛选逻辑留本调用方（90 天无状态过滤照旧），
+      // #540：加终态守卫——仅删 done/closed。原「无状态过滤」是 G31 GoalExecution TTL
+      // （执行记录，无生命周期状态）迁到 WorkUnit 时机械沿用的产物，非有意设计；
+      // 进行中/阻塞的长周期单不再被强删（僵尸单走探测告警/人审，不走静默删除）。
+      // 缺 status 的历史行按非终态保留，不误删。
+      const TERMINAL_STATUSES = new Set(['done', 'closed']);
+      const toDelete = allWu.filter(s =>
+        TERMINAL_STATUSES.has(s.status) && new Date(s.createdAt).getTime() < execCutoffMs);
+      // #538（ADR 2026-09-15 决策 3）：筛选逻辑留本调用方，
       // 删除循环走 service.delete 单口——墓碑单点构造 + workunit:removed 出声。
       // 动态引入避环（agents → workunit 静态链会经 channels 绕回 agents）
       const { WorkUnitService } = await import('../../workunit/workunit.service.js');
       const workUnitService = new WorkUnitService(fileStore);
       for (const wu of toDelete) {
-        await workUnitService.delete(wu.id, { reason: 'monitor TTL: WorkUnit older than 90 days' });
+        await workUnitService.delete(wu.id, { reason: 'monitor TTL: terminal WorkUnit older than 90 days' });
       }
       logger.info('[MonitorService] TTL: WorkUnit cleaned', { deleted: toDelete.length, cutoff: new Date(execCutoffMs).toISOString() });
     } catch (e) {
