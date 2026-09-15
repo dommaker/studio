@@ -5,6 +5,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import type { ChannelMessage } from '../../../api/channel';
+import { ChannelMessageEnvProvider } from '../ChannelMessageEnv';
 import { ChannelMessageItem } from '../ChannelMessageItem';
 
 const msgWithMeta = (meta: Record<string, unknown>): ChannelMessage => ({
@@ -23,7 +24,11 @@ const renderItem = (message: ChannelMessage, onOpenRequirement?: (reqId: string)
       <Routes>
         <Route
           path="/channels/:id"
-          element={<ChannelMessageItem message={message} onAction={vi.fn()} onOpenRequirement={onOpenRequirement} />}
+          element={
+            <ChannelMessageEnvProvider value={{ onAction: vi.fn(), onOpenRequirement }}>
+              <ChannelMessageItem message={message} />
+            </ChannelMessageEnvProvider>
+          }
         />
         <Route path="/pmo/project/:id" element={<div>项目页</div>} />
       </Routes>
@@ -62,7 +67,13 @@ describe('ChannelMessageItem — footer REQ›/PMO›（#275 断点3）', () => 
         <Routes>
           <Route
             path="/channels/:id"
-            element={<ChannelMessageItem message={message} onAction={vi.fn()} onOpenWorkUnit={vi.fn()} onOpenRequirement={vi.fn()} />}
+            element={
+              <ChannelMessageEnvProvider
+                value={{ onAction: vi.fn(), onOpenWorkUnit: vi.fn(), onOpenRequirement: vi.fn() }}
+              >
+                <ChannelMessageItem message={message} />
+              </ChannelMessageEnvProvider>
+            }
           />
           <Route path="/pmo/project/:id" element={<div>项目页</div>} />
         </Routes>

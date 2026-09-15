@@ -17,6 +17,8 @@ vi.mock('../../../utils/toast', () => ({
   }),
 }));
 
+import { ChannelMessageEnvProvider } from '../ChannelMessageEnv';
+import type { ChannelMessageEnv } from '../ChannelMessageEnv';
 import { ChannelMessageItem } from '../ChannelMessageItem';
 
 const base: ChannelMessage = {
@@ -37,10 +39,16 @@ const systemMsg: ChannelMessage = {
   content: '[CRITICAL] **[Monitor]** 队列积压',
 };
 
-const renderItem = (message: ChannelMessage, extra: Record<string, unknown> = {}) =>
+const renderItem = (
+  message: ChannelMessage,
+  extra: Record<string, unknown> = {},
+  envExtra: Partial<ChannelMessageEnv> = {},
+) =>
   render(
     <MemoryRouter>
-      <ChannelMessageItem message={message} onAction={vi.fn()} {...extra} />
+      <ChannelMessageEnvProvider value={{ onAction: vi.fn(), ...envExtra }}>
+        <ChannelMessageItem message={message} {...extra} />
+      </ChannelMessageEnvProvider>
     </MemoryRouter>,
   );
 
@@ -88,20 +96,20 @@ describe('ChannelMessageItem — 复制按钮（Phase 3 / AC4）', () => {
   });
 
   it('系统播报消息：有复制入口，无回复/转任务钮（即使传了 onReply）', () => {
-    renderItem(systemMsg, { onReply: vi.fn() });
+    renderItem(systemMsg, {}, { onReply: vi.fn() });
     expect(screen.getByLabelText('复制消息内容')).toBeTruthy();
     expect(screen.queryByLabelText('回复消息')).toBeNull();
     expect(screen.queryByLabelText('转为任务')).toBeNull();
   });
 
   it('compact（连续合并）消息：复制按钮随角落动作保留', () => {
-    renderItem(base, { compact: true, onReply: vi.fn() });
+    renderItem(base, { compact: true }, { onReply: vi.fn() });
     expect(screen.getByLabelText('复制消息内容')).toBeTruthy();
     expect(screen.getByLabelText('回复消息')).toBeTruthy();
   });
 
   it('pending 乐观消息不出复制按钮（同既有回复/转任务守卫）', () => {
-    renderItem({ ...base, pending: true } as ChannelMessage, { onReply: vi.fn() });
+    renderItem({ ...base, pending: true } as ChannelMessage, {}, { onReply: vi.fn() });
     expect(screen.queryByLabelText('复制消息内容')).toBeNull();
   });
 });

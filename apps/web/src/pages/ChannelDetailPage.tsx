@@ -11,7 +11,8 @@ import { useActivityMessageItems } from '../hooks/useActivityMessageItems';
 import { useChannelCardActions } from '../hooks/useChannelCardActions';
 import { useWebSocketContext } from '../api/websocketHooks';
 import { ChannelMessageItem } from '../components/channel/ChannelMessageItem';
-import { ChannelStreamBody } from '../components/channel/ChannelStreamBody';
+import { ChannelMessageEnvProvider, type ChannelMessageEnv } from '../components/channel/ChannelMessageEnv';
+import { ChannelStreamBody, type StreamMessageExtra } from '../components/channel/ChannelStreamBody';
 import { ChannelWorkBar } from '../components/channel/ChannelWorkBar';
 import { navigableIdsOf } from '../utils/streamView';
 import { ChannelInput } from '../components/channel/ChannelInput';
@@ -265,8 +266,8 @@ export function ChannelDetailPage() {
   // 提升到主流可见；promotedQuestionIds / isWaitingForInput 均为 needInputViewOf 产物（#546）
 
   // #285: agent 消息 inline-code 文件 chip 词表——#403 起读 channelDataStore（与 ChannelInput
-  // 共享一份拉取；按 channelId 键控无跨频道串词表）；失败静默降级，不渲染 chip
-  const fileVocabulary = useChannelDataStore((s) => (id ? s.vocabulary[id] : undefined));
+  // 共享一份拉取；按 channelId 键控无跨频道串词表）；失败静默降级，不渲染 chip。
+  // #547：订阅本体已下沉到 ChannelMessageItem（selector 自取），本页只保留拉取触发
   useEffect(() => {
     if (!id) return;
     void useChannelDataStore.getState().ensureVocabulary(id);
@@ -452,30 +453,37 @@ export function ChannelDetailPage() {
   }, [messages]);
   useEffect(() => () => { if (freshMsgTimerRef.current) clearTimeout(freshMsgTimerRef.current); }, []);
 
+  // #547：频道消息环境——横切值单 Provider 下发，消息项 useContext 自取（公开 Props 收窄）。
+  // #322 契约不变量：成员全为稳定引用（useCallback/镜像 ref），useMemo 组装后 value identity
+  // 不随页面重渲变化 → context 零扇出；highlightId/focusedId/freshMsgIds 等 volatile state 禁入
+  const messageEnv = useMemo<ChannelMessageEnv>(() => ({
+    onAction: handleAction,
+    onReply: handleReply,
+    findMessage,
+    channelId: id,
+    onOpenWorkUnit: openWu,
+    onOpenWorkUnitConfirm: openWuConfirm,
+    onOpenWorkUnitRuling: openWuRuling,
+    onOpenRequirement: openReq,
+    onInlineReply: handleInlineReply,
+    onQuoteClick: locateMessage,
+  }), [handleAction, handleReply, findMessage, id, openWu, openWuConfirm, openWuRuling, openReq, handleInlineReply, locateMessage]);
+
   // #322：提升为 useCallback——消除每次渲染新建的内联 render props（memo 稳定 props 契约）
-  const renderMessageItem = useCallback((msg: ChannelMessage, extra: Partial<Parameters<typeof ChannelMessageItem>[0]> = {}) => (
+  // #547：手喂面收窄到 message + 5 个 per-message 派生值（共 6 个）；横切值经 messageEnv 下发，
+  // 结构 props 经 ChannelStreamBody 封闭 extra（StreamMessageExtra）喂入
+  const renderMessageItem = useCallback((msg: ChannelMessage, extra: StreamMessageExtra = {}) => (
     <ChannelMessageItem
       key={msg.id}
       message={msg}
-      onAction={handleAction}
-      onReply={handleReply}
-      findMessage={findMessage}
-      channelId={id}
       waitingForInput={isWaitingForInput(msg)}
-      onOpenWorkUnit={openWu}
-      onOpenWorkUnitConfirm={openWuConfirm}
-      onOpenWorkUnitRuling={openWuRuling}
-      onOpenRequirement={openReq}
-      onInlineReply={handleInlineReply}
-      fileVocabulary={fileVocabulary}
       wuChangedFiles={msg.workUnitId ? wuChangedFiles[msg.workUnitId] : undefined}
       highlight={highlightId === msg.id}
-      onQuoteClick={locateMessage}
       fresh={freshMsgIds.has(msg.id)}
       focused={focusedId === msg.id}
       {...extra}
     />
-  ), [handleAction, handleReply, findMessage, id, isWaitingForInput, openWu, openWuConfirm, openWuRuling, openReq, handleInlineReply, fileVocabulary, wuChangedFiles, highlightId, locateMessage, freshMsgIds, focusedId]);
+  ), [isWaitingForInput, wuChangedFiles, highlightId, freshMsgIds, focusedId]);
 
   if (!id) return <div className="mc-stream-empty" style={{ height: '100%' }}>频道不存在或链接无效</div>;
 
@@ -574,7 +582,10 @@ export function ChannelDetailPage() {
           </div>
           {/* #531：items → DOM 结构分支（virtual/non-virtual + spacer/translateY + 三 kind 分派 +
               skeleton 占位）收编 ChannelStreamBody；renderMessageItem 与 highlightId 由本页注入 */}
-          <ChannelStreamBody stream={stream} renderMessage={renderMessageItem} highlightId={highlightId} />
+          {/* #547：频道消息环境 Provider——横切值经 Context 下发到每条消息项（value 全稳定引用，见上方 useMemo） */}
+          <ChannelMessageEnvProvider value={messageEnv}>
+            <ChannelStreamBody stream={stream} renderMessage={renderMessageItem} highlightId={highlightId} />
+          </ChannelMessageEnvProvider>
           {/* #289: 偏离底部时浮出「回到底部」（sticky 贴滚动视口底部，不占流内高度）；
               批次 E-3：钉底跟随期间到达的新消息计数进浮钮文案，点击回底后清零 */}
           {showJumpToBottom && (

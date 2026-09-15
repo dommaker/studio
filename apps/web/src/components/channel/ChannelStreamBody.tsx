@@ -4,16 +4,23 @@
 // （消息/线程组/告警组 × degraded × 日期分隔站位）、skeleton 占位行（含 highlight 目标为
 // 骨架时的高亮）。整块自 ChannelDetailPage 渲染段搬移（PURE_MOVE 行为零变化）；
 // 消息卡渲染本体（renderMessage）与 highlight 目标由页面经 props 注入。
-import { useCallback, type ComponentProps, type ReactNode } from 'react';
+import { useCallback, type ReactNode } from 'react';
 import type { ChannelMessage } from '../../api/channel';
 import type { ChannelStream } from '../../hooks/useChannelStream';
 import { streamDateStrOf, streamDateLabelOf, type StreamItem } from '../../utils/streamView';
-import type { ChannelMessageItem } from './ChannelMessageItem';
+import type { ChannelMessageItemProps } from './ChannelMessageItem';
 
-/** 页面 renderMessageItem 的原签名（extra = ChannelMessageItem 可选 props 覆盖） */
+/** #547：extra 逃生口收口——只含 6 个结构字段的封闭 Pick（deriveStreamView 产物经本通道喂入），
+ *  编译期拒绝任意 prop 注入（原 Partial<Props> 已删）；横切值走 ChannelMessageEnv，不走本通道 */
+export type StreamMessageExtra = Pick<
+  ChannelMessageItemProps,
+  'isThreadAnchor' | 'threadReplyCount' | 'isExpanded' | 'onToggleThread' | 'compact' | 'isThreadReply'
+>;
+
+/** 页面 renderMessageItem 的签名（extra = 封闭结构 props 覆盖，见上） */
 export type RenderStreamMessage = (
   msg: ChannelMessage,
-  extra?: Partial<ComponentProps<typeof ChannelMessageItem>>,
+  extra?: StreamMessageExtra,
 ) => ReactNode;
 
 /** Phase 3（AC3）：告警组摘要行的首末消息时间（HH:MM；解析失败回退空串） */

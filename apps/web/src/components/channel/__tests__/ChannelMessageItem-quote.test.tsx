@@ -16,6 +16,7 @@ vi.mock('../KnowledgeConfirmCard', () => ({ KnowledgeConfirmCard: () => null }))
 vi.mock('../ConvertToTaskDialog', () => ({ ConvertToTaskDialog: () => null }));
 
 import { ChannelMessageItem } from '../ChannelMessageItem';
+import { ChannelMessageEnvProvider } from '../ChannelMessageEnv';
 import type { ChannelMessage } from '../../../api/channel';
 
 const parentMessage: ChannelMessage = {
@@ -47,12 +48,9 @@ describe('ChannelMessageItem — quote 引用块点击定位（Phase 1 / AC1）'
   it('提供 onQuoteClick 且父消息已加载 → quote 渲染为 button，点击回调带父消息 id', () => {
     const onQuoteClick = vi.fn();
     const { container } = render(
-      <ChannelMessageItem
-        message={replyMessage}
-        onAction={vi.fn()}
-        findMessage={findMessage}
-        onQuoteClick={onQuoteClick}
-      />,
+      <ChannelMessageEnvProvider value={{ onAction: vi.fn(), findMessage, onQuoteClick }}>
+        <ChannelMessageItem message={replyMessage} />
+      </ChannelMessageEnvProvider>,
     );
     const quote = container.querySelector('.mc-quote');
     expect(quote?.tagName).toBe('BUTTON');
@@ -63,7 +61,9 @@ describe('ChannelMessageItem — quote 引用块点击定位（Phase 1 / AC1）'
 
   it('未提供 onQuoteClick → quote 保持纯 div 展示（不可点）', () => {
     const { container } = render(
-      <ChannelMessageItem message={replyMessage} onAction={vi.fn()} findMessage={findMessage} />,
+      <ChannelMessageEnvProvider value={{ onAction: vi.fn(), findMessage }}>
+        <ChannelMessageItem message={replyMessage} />
+      </ChannelMessageEnvProvider>,
     );
     const quote = container.querySelector('.mc-quote');
     expect(quote).not.toBeNull();
@@ -73,12 +73,9 @@ describe('ChannelMessageItem — quote 引用块点击定位（Phase 1 / AC1）'
   it('父消息掉出已加载分页（findMessage 未命中）→ 不渲染 quote', () => {
     const onQuoteClick = vi.fn();
     const { container } = render(
-      <ChannelMessageItem
-        message={replyMessage}
-        onAction={vi.fn()}
-        findMessage={() => undefined}
-        onQuoteClick={onQuoteClick}
-      />,
+      <ChannelMessageEnvProvider value={{ onAction: vi.fn(), findMessage: () => undefined, onQuoteClick }}>
+        <ChannelMessageItem message={replyMessage} />
+      </ChannelMessageEnvProvider>,
     );
     expect(container.querySelector('.mc-quote')).toBeNull();
   });

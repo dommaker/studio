@@ -4,7 +4,9 @@
 // （Studio 无卡非等待消息）淡色小字一行（#437 起左对齐随文档流，不再居中）/ 卡片全宽不参与分侧；compact 省略重复头；双侧 @name 染 mention chip。
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import type { ChannelFileVocabulary, ChannelMessage } from '../../api/channel';
+import type { ChannelMessage } from '../../api/channel';
+import { useChannelDataStore } from '../../stores/channelDataStore';
+import { useChannelMessageEnv, type ChannelMessageEnv } from './ChannelMessageEnv';
 import { toast } from '../../utils/toast';
 import { AuthorAvatar } from './AuthorAvatar';
 import { FileRefChip } from './FileRefChip';
@@ -24,54 +26,40 @@ import { parseMeta, type CardMeta, type MetaOption } from '../../utils/messageMe
 import { parseSeverityPrefix } from '../../utils/severityPrefix';
 import { useImeEnterGuard } from '../../hooks/useImeEnterGuard';
 
-interface Props {
+// #547（架构评审 2026-09-15 候选 B3，grilling 已决）：公开 Props 收窄到消息本体 +
+// per-message 派生值（5）+ 结构 props（6，ChannelStreamBody 经封闭 extra 通道喂入）；
+// 11 个横切值（onAction/onReply/findMessage/channelId/抽屉回调/onInlineReply/onQuoteClick）
+// 经 ChannelMessageEnv Context 自取，fileVocabulary 经 useChannelDataStore selector 自取。
+export interface ChannelMessageItemProps {
   message: ChannelMessage;
-  onAction: (messageId: string, action: string) => void;
-  onReply?: (message: ChannelMessage) => void;
-  findMessage?: (id: string) => ChannelMessage | undefined;
-  channelId?: string;
+  /** F5: 关联 WorkUnit 挂起等待人类回复（NEED_INPUT） */
+  waitingForInput?: boolean;
+  /** #285 AC4: 该消息所属 WU 的产出/修改文件集（chip 第一优先词表，绝对路径；空/缺省 → 仅用候选集词表） */
+  wuChangedFiles?: string[];
+  /** #279（决策 #250 D4）：顶栏待办 chip 定位高亮 */
+  highlight?: boolean;
+  /** 批次 E-3：SSE 新到达消息渐隐高亮（.mc-msg-new，accent-dim 底色，页面 2s 后自清） */
+  fresh?: boolean;
+  /** Phase 3（AC5）：j/k 键盘导航焦点环（.mc-msg-focused，accent outline；布尔按消息变化只影响焦点迁移的两条） */
+  focused?: boolean;
+  // —— 结构 props（#547 封闭集：ChannelStreamBody 的 StreamMessageExtra 只允许这 6 键）——
   /** AC-C3: thread rendering */
   isThreadAnchor?: boolean;
   threadReplyCount?: number;
   isExpanded?: boolean;
   /** #322：稳定 props 契约——收锚点 id（父组件直传 useCallback 的 toggleThread，不再内联闭包） */
   onToggleThread?: (anchorId: string) => void;
-  isThreadReply?: boolean;
-  /** F5: 关联 WorkUnit 挂起等待人类回复（NEED_INPUT） */
-  waitingForInput?: boolean;
-  /** Mission Control: 打开右抽屉（WorkUnit 详情 / REQ 全链路） */
-  onOpenWorkUnit?: (workUnitId: string) => void;
-  /** #284（决策 #250 D6）：analysis_confirm 接力卡「去确认」——开 WU 抽屉并自动弹确认对话框 */
-  onOpenWorkUnitConfirm?: (workUnitId: string) => void;
-  /** #467：plan_ruling 裁决轮接力卡「去裁决」——开 WU 抽屉并自动弹 PlanRulingDialog */
-  onOpenWorkUnitRuling?: (workUnitId: string) => void;
-  onOpenRequirement?: (reqId: string) => void;
-  /** F5: NEED_INPUT 卡片内嵌回复（与回复按钮同链路：sendMessage + replyToId）；
-   * #276：返回 Promise 以便按真实成功置位「已回复」（失败可重试，不发假承诺） */
-  onInlineReply?: (message: ChannelMessage, content: string) => void | Promise<void>;
-  /** #285: agent 消息 inline-code 文件 chip 词表；经 MarkdownBody renderInlineCode 挂载（#271） */
-  fileVocabulary?: ChannelFileVocabulary;
-  /** #285 AC4: 该消息所属 WU 的产出/修改文件集（chip 第一优先词表，绝对路径；空/缺省 → 仅用候选集词表） */
-  wuChangedFiles?: string[];
   /** #277（决策 #248 D2）：连续合并——省略重复头（头像/署名/时间），动作保留 */
   compact?: boolean;
-  /** #279（决策 #250 D4）：顶栏待办 chip 定位高亮 */
-  highlight?: boolean;
-  /** channel 上下游优化 Phase 1（AC1）：quote 引用块点击定位上游消息——
-   *  提供且父消息已加载（findMessage 命中）时 quote button 化；父组件须传 useCallback 稳定引用（#322 契约） */
-  onQuoteClick?: (messageId: string) => void;
-  /** 批次 E-3：SSE 新到达消息渐隐高亮（.mc-msg-new，accent-dim 底色，页面 2s 后自清） */
-  fresh?: boolean;
-  /** Phase 3（AC5）：j/k 键盘导航焦点环（.mc-msg-focused，accent outline；布尔按消息变化只影响焦点迁移的两条） */
-  focused?: boolean;
+  isThreadReply?: boolean;
 }
 
 function renderCard(
   meta: CardMeta,
   message: ChannelMessage,
-  onAction: Props['onAction'],
-  onOpenWorkUnitConfirm: Props['onOpenWorkUnitConfirm'],
-  onOpenWorkUnitRuling: Props['onOpenWorkUnitRuling'],
+  onAction: ChannelMessageEnv['onAction'],
+  onOpenWorkUnitConfirm: ChannelMessageEnv['onOpenWorkUnitConfirm'],
+  onOpenWorkUnitRuling: ChannelMessageEnv['onOpenWorkUnitRuling'],
 ) {
   switch (meta.cardType) {
     case 'requirements_doc':
@@ -97,15 +85,28 @@ function renderCard(
 }
 
 // #322：React.memo 化——父组件已建立稳定 props 契约（useCallback/提升 + 镜像 ref），
-// step 事件/无关 state 变化不再重渲既有消息项（render-count 测试兜底）
+// step 事件/无关 state 变化不再重渲既有消息项（render-count 测试兜底）。
+// #547：横切值改经 ChannelMessageEnv Context——env value 全稳定引用时 context 不触发扇出，
+// memo 边界不变；per-message boolean 翻牌只命中个别消息（focus-fanout 测试兜底）。
 export const ChannelMessageItem = memo(function ChannelMessageItem({
-  message, onAction, onReply, findMessage, channelId,
-  isThreadAnchor, threadReplyCount, isExpanded, onToggleThread, isThreadReply,
-  waitingForInput, onOpenWorkUnit, onOpenWorkUnitConfirm, onOpenWorkUnitRuling, onOpenRequirement, onInlineReply, fileVocabulary, wuChangedFiles, compact, highlight, onQuoteClick, fresh, focused,
-}: Props) {
+  message,
+  waitingForInput, wuChangedFiles, highlight, fresh, focused,
+  isThreadAnchor, threadReplyCount, isExpanded, onToggleThread, compact, isThreadReply,
+}: ChannelMessageItemProps) {
+  // #547：横切值自取——Context（回调/查找/channelId）+ 数据面 store（fileVocabulary，selector 既有模式）
+  const env = useChannelMessageEnv();
+  const {
+    onAction, onReply, findMessage, channelId,
+    onOpenWorkUnit, onOpenWorkUnitConfirm, onOpenWorkUnitRuling, onOpenRequirement,
+    onInlineReply, onQuoteClick,
+  } = env ?? {};
+  // #285: agent 消息 inline-code 文件 chip 词表；按 channelId 键控（无跨频道串词表）；
+  // 缺 Provider/词表未加载 → undefined，chip 不渲染（失败静默降级语义不变）
+  const fileVocabulary = useChannelDataStore(s => (channelId ? s.vocabulary[channelId] : undefined));
   const isHuman = message.authorType === 'human';
   const meta = parseMeta(message.meta);
-  const card = renderCard(meta, message, onAction, onOpenWorkUnitConfirm, onOpenWorkUnitRuling);
+  // 缺 Provider（env=null）→ onAction 缺省 → 卡片不渲染（fail-closed；生产装配层必挂 Provider）
+  const card = onAction ? renderCard(meta, message, onAction, onOpenWorkUnitConfirm, onOpenWorkUnitRuling) : null;
   const parentMessage = message.replyToId && findMessage ? findMessage(message.replyToId) : undefined;
   const [convertOpen, setConvertOpen] = useState(false);
   const [needDraft, setNeedDraft] = useState('');
@@ -154,8 +155,8 @@ export const ChannelMessageItem = memo(function ChannelMessageItem({
 
   const handleConverted = () => {
     setConvertOpen(false);
-    // Parent will refresh messages via onAction
-    onAction(message.id, 'converted');
+    // Parent will refresh messages via onAction（canConvert 要求 channelId，即 Provider 在场，onAction 必有）
+    onAction?.(message.id, 'converted');
   };
 
   // F5: 卡片内嵌回复 —— 走与回复按钮完全相同的链路（sendMessage + replyToId），
