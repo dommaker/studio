@@ -328,6 +328,13 @@ async function start() {
         logger.info('[RoleMemory] Completion extraction subscribed (workunit.status_changed → done)');
       } catch (e) { logger.warn('[RoleMemory] Completion extraction init failed', { error: String(e) }); }
 
+      // skill 度量地基票 B：WU done → transcript 后验扫描 skill 使用痕迹 → skill_used 事件（纯确定性零 LLM）
+      try {
+        const { initSkillUsageScan } = await import('./modules/skills/skill-usage-scan.js');
+        initSkillUsageScan();
+        logger.info('[SkillUsageScan] Subscribed to workunit.status_changed (done → transcript scan)');
+      } catch (e) { logger.warn('[SkillUsageScan] Failed to subscribe', { error: String(e) }); }
+
       // #143 蒸馏主链路：WU done → 门槛检测（纯计数零 LLM）→ distill_proposal 人审卡
       try {
         const { initDistillLoop } = await import('./modules/distill/distill-runtime.js');
