@@ -8,8 +8,11 @@
  *
  * #75: loadSkill lifecycle
  * #172（#60 决策 Q2）：knowledge:skill_used 唯一语义 = Skill 加载（本文件发射点），
- * 携带 workUnitId（调用方已知时）；经 writeStudioEvent 落盘（envelope level=debug），
+ * 携带 workUnitId（调用方已知时）；经 writeStudioEvent 落盘，
  * 替代模块加载期固化的直连路径（修复测试期假 id 写入生产事件文件的污染漏洞）。
+ * skill 度量地基票 C：skill_used 自本票起显式 level=info（signal——热 30 天 → 月度
+ * gz 归档永久保留），不再随 knowledge:* 大类默认 debug 归噪声 7 天滚动删除；
+ * 大类默认不动（其余 knowledge:* 维持 noise）。
  */
 
 import { logger, writeStudioEvent } from '@dommaker/studio-shared';
@@ -103,12 +106,13 @@ export class SkillLoaderService {
     state.loaded.set(skillName, loaded);
 
     // S3 Gap 3c + #172（#60 决策 Q2）: skill_used 唯一语义 = Skill 加载，补 workUnitId；
-    // 经 writeStudioEvent 统一入口落盘（envelope level=debug，测试期走隔离事件文件）
+    // 经 writeStudioEvent 统一入口落盘（测试期走隔离事件文件）；
+    // skill 度量地基票 C：显式 level=info 提为 signal（归档保留，不 7 天滚）
     void writeStudioEvent('knowledge:skill_used', {
       skillName,
       skillId,
       ...(options.workUnitId ? { workUnitId: options.workUnitId } : {}),
-    }, { source: 'skill-loader' }).catch(() => {});
+    }, { source: 'skill-loader', level: 'info' }).catch(() => {});
 
     logger.info('[SkillLoader] Loaded skill', {
       sessionId,

@@ -77,6 +77,10 @@ describe('classifyStudioEventForRetention（#60 决议口径：level=debug 为�
     expect(classifyStudioEventForRetention({ type: 'knowledge:outcome', level: 'warning' })).toBe('signal');
   });
 
+  it('票C: skill_used 显式 level=info → signal（发射点提级，type 大类默认不变）', () => {
+    expect(classifyStudioEventForRetention({ type: 'knowledge:skill_used', level: 'info' })).toBe('signal');
+  });
+
   it('type 缺失/非字符串 → signal（宁可永久留，不静默丢数据）', () => {
     expect(classifyStudioEventForRetention({})).toBe('signal');
     expect(classifyStudioEventForRetention({ type: 42 })).toBe('signal');
@@ -119,6 +123,20 @@ describe('rotateStudioEvents', () => {
       const result = await rotateStudioEvents({ file, now: NOW });
       expect(result.noiseDropped).toBe(1);
       expect(readHotLines(file)).toEqual([]);
+    });
+
+    it('票C: level=info 的 skill_used 超 7 天不滚（归 signal 热 30 天），超 30 天进归档不删除', async () => {
+      const hotSignal = eventLine('knowledge:skill_used', isoDaysAgo(NOISE_RETENTION_DAYS + 1), { level: 'info' });
+      const oldSignal = eventLine('knowledge:skill_used', isoDaysAgo(SIGNAL_HOT_DAYS + 1), { level: 'info' });
+      writeHot([hotSignal, oldSignal]);
+
+      const result = await rotateStudioEvents({ file, now: NOW });
+
+      expect(result.noiseDropped).toBe(0);
+      expect(result.signalArchived).toBe(1);
+      expect(readHotLines(file)).toEqual([hotSignal]);
+      const month = new Date(NOW.getTime() - (SIGNAL_HOT_DAYS + 1) * DAY_MS).toISOString().slice(0, 7);
+      expect(readGzLines(path.join(archiveDir, `studio-events-${month}.jsonl.gz`))).toEqual([oldSignal]);
     });
 
     it('7 天规则不伤信号：8 天前的信号事件保留在热文件', async () => {

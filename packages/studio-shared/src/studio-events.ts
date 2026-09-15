@@ -20,6 +20,9 @@
  * #172（#60 决策 Q2）：envelope 可选 level 字段（缺省 info —— 字段缺省即 info，不为
  * info 冗余落字段）。默认分级按 type：knowledge:* 与 tool:call → debug（噪声），
  * 其余 → info；调用方可经 opts.level 显式覆盖（如 workunit:failed → warning）。
+ * 例外：knowledge:skill_used 自 skill 度量地基票 C（2026-09-15）起由发射点显式
+ * level=info 提为 signal（skill 使用度量需归档保留，不随噪声 7 天滚动删除）；
+ * 本函数的大类默认不变。
  * monitor:alert 由 emitMonitorEvent 透传 opts.level（#184 修复：读取侧 level 过滤只认
  * envelope，payload-only 分级导致告警收件箱恒空）；payload.level 保留兼容既有读者。
  * 读取侧默认 ≥info（过滤归读取方，不在此处硬编码黑名单）。
@@ -110,8 +113,11 @@ export async function writeStudioEvent(
     await fileStore.appendJsonl(opts?.file ?? resolveStudioEventsFile(), {
       type,
       ...(opts?.source ? { source: opts.source } : {}),
-      // #172: level 为可选字段，缺省 info 不落字段（读取侧缺省即 info）
-      ...(level !== 'info' ? { level } : {}),
+      // #172: level 为可选字段，缺省 info 不落字段（读取侧缺省即 info）。
+      // 度量地基票 C：调用方显式传 level 时（含 'info'）必须落字段——显式 'info' 是
+      // 提级语义（如 knowledge:skill_used 脱离 type 默认 debug 归 signal），不落字段
+      // 会让轮转/读取分类回退 type 默认分级，提级静默失效。
+      ...(opts?.level !== undefined || level !== 'info' ? { level } : {}),
       payload: typeof payload === 'string' ? payload : JSON.stringify(payload),
       createdAt: opts?.createdAt ?? new Date().toISOString(),
     });
