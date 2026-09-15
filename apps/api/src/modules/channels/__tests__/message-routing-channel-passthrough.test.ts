@@ -61,7 +61,7 @@ describe('routeMessage options.channel 传参（#525 P2-2）', () => {
     await fileStore.createChannel(channel);
     await fileStore.createProfile(makeProfile('agent-mention-1', 'MentionAgent'));
 
-    const result = await routeMessage(channelId, '@MentionAgent do this', undefined, fileStore, { channel });
+    const result = await routeMessage(channelId, '@MentionAgent do this', undefined, { fs: fileStore, channel });
 
     expect(result.workUnitId).toBeTruthy();
     expect(fileStore.getChannelCalls).toBe(0);
@@ -73,7 +73,7 @@ describe('routeMessage options.channel 传参（#525 P2-2）', () => {
     await fileStore.createChannel(channel);
     await fileStore.createProfile(makeProfile('agent-default-1', 'DefaultAgent'));
 
-    const result = await routeMessage(channelId, 'plain message no mention', undefined, fileStore, { channel });
+    const result = await routeMessage(channelId, 'plain message no mention', undefined, { fs: fileStore, channel });
 
     expect(result.workUnitId).toBeTruthy();
     expect(fileStore.getChannelCalls).toBe(0);
@@ -84,7 +84,7 @@ describe('routeMessage options.channel 传参（#525 P2-2）', () => {
     await fileStore.createChannel(makeChannel(channelId));
     await fileStore.createProfile(makeProfile('agent-mention-2', 'MentionAgent2'));
 
-    const result = await routeMessage(channelId, '@MentionAgent2 do this', undefined, fileStore);
+    const result = await routeMessage(channelId, '@MentionAgent2 do this', undefined, { fs: fileStore });
 
     expect(result.workUnitId).toBeTruthy();
     // 现状：routeMessage 自身读（成员界定）+ 归属解析读（频道 defaultPath）
@@ -96,7 +96,7 @@ describe('routeMessage options.channel 传参（#525 P2-2）', () => {
     await fileStore.createChannel(makeChannel(channelId, { defaultProfileId: 'agent-default-2' }));
     await fileStore.createProfile(makeProfile('agent-default-2', 'DefaultAgent2'));
 
-    const result = await routeMessage(channelId, 'plain message no mention', undefined, fileStore);
+    const result = await routeMessage(channelId, 'plain message no mention', undefined, { fs: fileStore });
 
     expect(result.workUnitId).toBeTruthy();
     expect(fileStore.getChannelCalls).toBe(1);

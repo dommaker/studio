@@ -700,7 +700,11 @@ router.get('/:id/messages', async (req: Request, res: Response) => {
 
     const beforeDate = before ? new Date(before as string) : undefined;
 
+    // #529：从 WU 解析频道归属（一等列 channelId，与写侧 POST /:id/messages 同字段、
+    // 读写对称）传给直查；wu 不存在或无 channelId（legacy/手工单）→ undefined 走扇出 fallback。
+    const wu = await service.getById(req.params.id);
     const result = await channelMessageService.listByWorkUnitId(req.params.id, {
+      channelId: wu?.channelId ?? undefined,
       before: beforeDate,
       limit: take,
     });

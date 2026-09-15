@@ -6,7 +6,7 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { auditLogApi, type AuditLog, type AuditLogStats } from '../api/auditLogs';
-import { Select, Modal, SkeletonText, SkeletonCard } from '../components/ui';
+import { Select, SkeletonText, SkeletonCard } from '../components/ui';
 import { IconSearch } from '../components/ui/icons';
 import { toast } from '../utils/toast';
 import { formatFullTime } from '../utils/datetime';
@@ -20,7 +20,9 @@ export const AuditLogsPage: React.FC = () => {
   const [stats, setStats] = useState<AuditLogStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedLog, setSelectedLog] = useState<AuditLog | null>(null);
+  // 行内展开详情：点击行在下方展开/收起，不弹 Modal 遮罩列表
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const toggleExpanded = (id: string) => setExpandedId(cur => (cur === id ? null : id));
 
   // Filters（startDate/endDate 为日期 input 原值 YYYY-MM-DD，请求时转 ISO）
   const [filters, setFilters] = useState({
@@ -371,15 +373,16 @@ export const AuditLogsPage: React.FC = () => {
               </tr>
             )}
             {logs.map(log => (
+              <React.Fragment key={log.id}>
                 <tr
-                  key={log.id}
                   className="border-b u-border u-hover-bg cursor-pointer"
                   tabIndex={0}
-                  onClick={() => setSelectedLog(log)}
+                  aria-expanded={expandedId === log.id}
+                  onClick={() => toggleExpanded(log.id)}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === ' ') {
                       e.preventDefault();
-                      setSelectedLog(log);
+                      toggleExpanded(log.id);
                     }
                   }}
                 >
@@ -409,11 +412,88 @@ export const AuditLogsPage: React.FC = () => {
                       </span>
                     ) : (
                       <button className="u-accent hover:underline">
-                        {'查看'}
+                        {expandedId === log.id ? '收起' : '查看'}
                       </button>
                     )}
                   </td>
                 </tr>
+                {expandedId === log.id && (
+                  <tr className="border-b u-border">
+                    <td colSpan={7} className="py-4 px-4 u-surface-2">
+                      <div className="space-y-4">
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <label className="text-sm u-text-2">{'ID'}</label>
+                            <div className="font-mono text-sm">{log.id}</div>
+                          </div>
+                          <div>
+                            <label className="text-sm u-text-2">{'时间'}</label>
+                            <div className="font-mono text-sm">{formatFullTime(log.createdAt)}</div>
+                          </div>
+                          <div>
+                            <label className="text-sm u-text-2">{'操作'}</label>
+                            <div>{getActionBadge(log.action)}</div>
+                          </div>
+                          <div>
+                            <label className="text-sm u-text-2">{'资源'}</label>
+                            <div className="text-sm">{log.resource}</div>
+                          </div>
+                          <div>
+                            <label className="text-sm u-text-2">{'用户'}</label>
+                            <div className="text-sm">{log.userId || log.roleId || '-'}</div>
+                          </div>
+                          <div>
+                            <label className="text-sm u-text-2">{'状态'}</label>
+                            <div>{getStatusBadge(log.status)}</div>
+                          </div>
+                        </div>
+
+                        {log.details && Object.keys(log.details).length > 0 && (
+                          <div>
+                            <label className="text-sm u-text-2 block mb-1">{'操作详情'}</label>
+                            <pre className="u-page-bg p-3 rounded text-xs overflow-auto max-h-40">
+                              {JSON.stringify(log.details, null, 2)}
+                            </pre>
+                          </div>
+                        )}
+
+                        {log.changes && (log.changes.before || log.changes.after) && (
+                          <div>
+                            <label className="text-sm u-text-2 block mb-1">{'变更记录'}</label>
+                            <div className="grid grid-cols-2 gap-4">
+                              {log.changes.before && (
+                                <div>
+                                  <div className="text-xs u-text-3 mb-1">{'变更前'}</div>
+                                  <pre className="u-err-dim p-2 rounded text-xs overflow-auto max-h-32">
+                                    {JSON.stringify(log.changes.before, null, 2)}
+                                  </pre>
+                                </div>
+                              )}
+                              {log.changes.after && (
+                                <div>
+                                  <div className="text-xs u-text-3 mb-1">{'变更后'}</div>
+                                  <pre className="u-ok-dim p-2 rounded text-xs overflow-auto max-h-32">
+                                    {JSON.stringify(log.changes.after, null, 2)}
+                                  </pre>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+
+                        {log.errorMessage && (
+                          <div>
+                            <label className="text-sm u-err block mb-1">{'错误信息'}</label>
+                            <div className="u-err-dim p-3 rounded text-sm u-err">
+                              {log.errorMessage}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </React.Fragment>
             ))}
           </tbody>
         </table>
@@ -444,94 +524,6 @@ export const AuditLogsPage: React.FC = () => {
         </div>
       )}
 
-      {/* Detail Modal（批次 F-2：手搓弹层归并 ui/Modal——获得遮罩点击关闭/关闭 ✕/Escape/焦点管理） */}
-      <Modal
-        open={!!selectedLog}
-        onClose={() => setSelectedLog(null)}
-        title={'日志详情'}
-        maxWidth="672px"
-        footer={
-          <button
-            onClick={() => setSelectedLog(null)}
-            className="btn btn-secondary"
-          >
-            {'关闭'}
-          </button>
-        }
-      >
-        {selectedLog && (
-          <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="text-sm u-text-2">{'ID'}</label>
-                  <div className="font-mono text-sm">{selectedLog.id}</div>
-                </div>
-                <div>
-                  <label className="text-sm u-text-2">{'时间'}</label>
-                  <div className="font-mono text-sm">{formatFullTime(selectedLog.createdAt)}</div>
-                </div>
-                <div>
-                  <label className="text-sm u-text-2">{'操作'}</label>
-                  <div>{getActionBadge(selectedLog.action)}</div>
-                </div>
-                <div>
-                  <label className="text-sm u-text-2">{'资源'}</label>
-                  <div className="text-sm">{selectedLog.resource}</div>
-                </div>
-                <div>
-                  <label className="text-sm u-text-2">{'用户'}</label>
-                  <div className="text-sm">{selectedLog.userId || selectedLog.roleId || '-'}</div>
-                </div>
-                <div>
-                  <label className="text-sm u-text-2">{'状态'}</label>
-                  <div>{getStatusBadge(selectedLog.status)}</div>
-                </div>
-              </div>
-
-              {selectedLog.details && Object.keys(selectedLog.details).length > 0 && (
-                <div>
-                  <label className="text-sm u-text-2 block mb-1">{'操作详情'}</label>
-                  <pre className="u-surface-2 p-3 rounded text-xs overflow-auto max-h-40">
-                    {JSON.stringify(selectedLog.details, null, 2)}
-                  </pre>
-                </div>
-              )}
-
-              {selectedLog.changes && (selectedLog.changes.before || selectedLog.changes.after) && (
-                <div>
-                  <label className="text-sm u-text-2 block mb-1">{'变更记录'}</label>
-                  <div className="grid grid-cols-2 gap-4">
-                    {selectedLog.changes.before && (
-                      <div>
-                        <div className="text-xs u-text-3 mb-1">{'变更前'}</div>
-                        <pre className="u-err-dim p-2 rounded text-xs overflow-auto max-h-32">
-                          {JSON.stringify(selectedLog.changes.before, null, 2)}
-                        </pre>
-                      </div>
-                    )}
-                    {selectedLog.changes.after && (
-                      <div>
-                        <div className="text-xs u-text-3 mb-1">{'变更后'}</div>
-                        <pre className="u-ok-dim p-2 rounded text-xs overflow-auto max-h-32">
-                          {JSON.stringify(selectedLog.changes.after, null, 2)}
-                        </pre>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {selectedLog.errorMessage && (
-                <div>
-                  <label className="text-sm u-err block mb-1">{'错误信息'}</label>
-                  <div className="u-err-dim p-3 rounded text-sm u-err">
-                    {selectedLog.errorMessage}
-                  </div>
-                </div>
-              )}
-            </div>
-        )}
-      </Modal>
       </div>
       </div>
     </div>

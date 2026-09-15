@@ -3,10 +3,9 @@
  *
  * Verifies:
  * - circuitSuggestions variable is defined (catches ReferenceError)
- * - analyzeUserModel handles missing state file gracefully
  * - Empty edge cases
  */
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect } from 'vitest';
 
 describe('AuditorService supplementary edge cases', () => {
   it('circuitSuggestions is defined before usage', async () => {
@@ -14,7 +13,6 @@ describe('AuditorService supplementary edge cases', () => {
     // but never defined as a local variable, causing ReferenceError at runtime.
     // The fix is to define it: `const circuitSuggestions = await this.analyzeKnowledgeCircuit();`
     const { AuditorService } = await import('../auditor/auditor.service.js');
-    const agent = new AuditorService() as any;
 
     // Check that the runAudit method body references circuitSuggestions
     const runAuditSrc = AuditorService.prototype.runAudit?.toString() || '';
@@ -32,24 +30,5 @@ describe('AuditorService supplementary edge cases', () => {
         expect(hasVarDef || hasLetDef || hasThisDef).toBe(true);
       }
     }
-  });
-
-  it('analyzeUserModel handles missing file gracefully', async () => {
-    const { AuditorService } = await import('../auditor/auditor.service.js');
-    const agent = new AuditorService() as any;
-
-    // Should not throw when user model file doesn't exist
-    const result = await agent.analyzeUserModel();
-    expect(Array.isArray(result)).toBe(true);
-  });
-
-  it('analyzeUserModel handles malformed state file', async () => {
-    const { AuditorService } = await import('../auditor/auditor.service.js');
-    const agent = new AuditorService() as any;
-
-    // Should not throw when processing unexpected data shape
-    const result = await agent.analyzeUserModel();
-    // Even with no file, this should return an empty array
-    expect(result.length).toBeGreaterThanOrEqual(0);
   });
 });

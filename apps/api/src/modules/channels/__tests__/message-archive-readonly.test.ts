@@ -61,7 +61,7 @@ describe('归档消息只读降级（#327）', () => {
   it('replyTo 父消息已归档 → 降级放行：帖子成立、replyToId 保留、workUnitId 落 null', async () => {
     const parent = await seedArchivedMessage('parent-archived');
 
-    const reply = await routeMessage(CH, '回复一条已归档的消息', parent.id, fileStore);
+    const reply = await routeMessage(CH, '回复一条已归档的消息', parent.id, { fs: fileStore });
 
     expect(reply.replyToId).toBe(parent.id);
     expect(reply.workUnitId ?? null).toBeNull();
@@ -71,7 +71,7 @@ describe('归档消息只读降级（#327）', () => {
   });
 
   it('replyTo 父消息不存在 → 同样降级放行（与已归档不可区分，不整帖抛错）', async () => {
-    const reply = await routeMessage(CH, '回复一条不存在的消息', 'ghost-parent', fileStore);
+    const reply = await routeMessage(CH, '回复一条不存在的消息', 'ghost-parent', { fs: fileStore });
 
     expect(reply.replyToId).toBe('ghost-parent');
     expect(reply.workUnitId ?? null).toBeNull();
@@ -83,7 +83,7 @@ describe('归档消息只读降级（#327）', () => {
     // 父消息挂在一个 active WU 上（永归不了档）
     await fileStore.appendMessage(CH, makeMessage('parent-hot', { workUnitId: 'wu-live' }));
 
-    const reply = await routeMessage(CH, '正常线程回复', 'parent-hot', fileStore);
+    const reply = await routeMessage(CH, '正常线程回复', 'parent-hot', { fs: fileStore });
 
     expect(reply.workUnitId).toBe('wu-live');
   });

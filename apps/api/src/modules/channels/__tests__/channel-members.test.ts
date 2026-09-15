@@ -3,14 +3,14 @@
  *
  * Contract tests for:
  * - B1: Channel.members default/storage (schema already in place)
- * - B2: updateChannelMembers() — add/remove/idempotent logic
+ * - B2: channelService.updateMembers() — add/remove/idempotent logic
  * - B3: POST /channels with members
  *
- * B2 tests import `updateChannelMembers` from channel.routes.js (GREEN will export it).
+ * B2 tests use `channelService.updateMembers`（#532 自 channel.routes 收口进 channel.service）。
  */
 import { describe, it, expect, afterAll } from 'vitest';
 import { FileStore } from '@dommaker/studio-shared';
-import { updateChannelMembers } from '../channel.routes.js';
+import { channelService } from '../channel.service.js';
 
 const fileStore = new FileStore();
 
@@ -84,7 +84,7 @@ describe('AC-B1+B2+B3: Channel Members', () => {
       const agent = await createTestAgent();
       testAgentIds.push(agent.id);
 
-      const result = await updateChannelMembers(ch.id, { add: [agent.id] });
+      const result = await channelService.updateMembers(ch.id, { add: [agent.id] });
       expect(result).toContain(agent.id);
     });
 
@@ -94,7 +94,7 @@ describe('AC-B1+B2+B3: Channel Members', () => {
       const ch = await createTestChannel('#test-b2-rm', { members: JSON.stringify([agent.id]) });
       testChannelIds.push(ch.id);
 
-      const result = await updateChannelMembers(ch.id, { remove: [agent.id] });
+      const result = await channelService.updateMembers(ch.id, { remove: [agent.id] });
       expect(result).not.toContain(agent.id);
     });
 
@@ -104,7 +104,7 @@ describe('AC-B1+B2+B3: Channel Members', () => {
       const ch = await createTestChannel('#test-b2-dup', { members: JSON.stringify([agent.id]) });
       testChannelIds.push(ch.id);
 
-      const result = await updateChannelMembers(ch.id, { add: [agent.id] });
+      const result = await channelService.updateMembers(ch.id, { add: [agent.id] });
       expect(result.filter(id => id === agent.id).length).toBe(1);
     });
 
@@ -112,7 +112,7 @@ describe('AC-B1+B2+B3: Channel Members', () => {
       const ch = await createTestChannel('#test-b2-noop');
       testChannelIds.push(ch.id);
 
-      const result = await updateChannelMembers(ch.id, { remove: ['nonexistent-id'] });
+      const result = await channelService.updateMembers(ch.id, { remove: ['nonexistent-id'] });
       expect(result).toEqual([]);
     });
 
@@ -122,7 +122,7 @@ describe('AC-B1+B2+B3: Channel Members', () => {
       const ch = await createTestChannel('#test-b2-empty', { members: JSON.stringify([agent.id]) });
       testChannelIds.push(ch.id);
 
-      const result = await updateChannelMembers(ch.id, {});
+      const result = await channelService.updateMembers(ch.id, {});
       expect(result).toContain(agent.id);
     });
   });

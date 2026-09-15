@@ -11,6 +11,9 @@ export interface NeedInputTodo {
   question?: string;
   /** WU scope（question 缺失时的兜底摘要） */
   scope?: string;
+  /** #533：当前提问消息 id（后端 action-center 唯一派生点，stateItems.messageId 透传）——
+   *  回复区/提升/定位的唯一锚点；缺省 → 各消费方 fail-closed（前端不再从已加载消息反推） */
+  messageId?: string;
 }
 
 interface Props {

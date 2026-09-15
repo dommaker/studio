@@ -122,9 +122,16 @@ vi.mock('../../components/channel/ConvertToTaskDialog', () => ({ ConvertToTaskDi
 
 import { ChannelDetailPage } from '../ChannelDetailPage';
 import { useNotificationStore } from '../../stores/notificationStore';
+import { useChannelWorkStore } from '../../stores/channelWorkStore';
 import { toast } from '../../utils/toast';
 import type { ChannelMessage } from '../../api/channel';
 import type { DrawerState } from '../../components/channel/WorkUnitDrawer';
+
+// #528：频道工作面收编 channelWorkStore（模块单例）——每用例清数据面+纪律簿记，
+// 防 TTL 锚点/已打底 slice 跨用例泄漏吞掉后续打底拉取
+beforeEach(() => {
+  useChannelWorkStore.getState().__resetForTests();
+});
 
 const now = Date.now();
 const iso = (offsetMin: number) => new Date(now + offsetMin * 60000).toISOString();
@@ -227,7 +234,8 @@ describe('ChannelDetailPage — Mission Control 三栏', () => {
     // 行动中心 store 是模块单例，跨用例重置；#468：WU-1018 待回复改由 stateItems 投影提供
     // （页面不再有 blocked REST 面——chip/waitingWus = store 中本频道 reply 项投影）
     useNotificationStore.setState({
-      stateItems: [{ kind: 'reply', wuId: 'WU-1018', scope: '检索相关知识', channelId: 'ch-1', since: iso(0) }],
+      // #533：回复区/提升/chip 定位只认后端下发 messageId（前端反推已删），种子必须带锚点
+      stateItems: [{ kind: 'reply', wuId: 'WU-1018', scope: '检索相关知识', channelId: 'ch-1', messageId: 'm-1', since: iso(0) }],
       notifications: [],
       unreadCount: 0,
     });
@@ -672,10 +680,11 @@ describe('ChannelDetailPage — #279 NEED_INPUT 待办 chip 与等待态清理',
     },
   ];
   // #468：NEED_INPUT 待办 = 行动中心 stateItems 投影（本页不再有 blocked REST 面），
-  // 用例经 store 直接播种 reply 项
-  const replyItem = (wuId: string, question?: string, channelId = 'ch-1') => ({
+  // 用例经 store 直接播种 reply 项；#533：messageId（后端派生锚点）是回复区/提升/定位的唯一数据源
+  const replyItem = (wuId: string, question?: string, channelId = 'ch-1', messageId?: string) => ({
     kind: 'reply' as const, wuId, scope: `scope of ${wuId}`, channelId,
-    ...(question ? { waitingQuestion: question } : {}), since: iso(0),
+    ...(question ? { waitingQuestion: question } : {}),
+    ...(messageId ? { messageId } : {}), since: iso(0),
   });
 
   beforeEach(async () => {
@@ -689,7 +698,7 @@ describe('ChannelDetailPage — #279 NEED_INPUT 待办 chip 与等待态清理',
     }
     sseHandlers = [];
     useNotificationStore.setState({
-      stateItems: [replyItem('WU-3000', '使用 OAuth 还是账号密码？')],
+      stateItems: [replyItem('WU-3000', '使用 OAuth 还是账号密码？', 'ch-1', 'q-2')],
       notifications: [],
       unreadCount: 0,
     });
@@ -756,11 +765,14 @@ describe('ChannelDetailPage — #279 NEED_INPUT 待办 chip 与等待态清理',
     expect(screen.queryByText('账号密码')).toBeNull();
   });
 
-  // #276 AC3：追问再挂起后旧回复框不重复出现--#279 latestQuestionIdByWu 已结构性保证；
+  // #276 AC3：追问再挂起后旧回复框不重复出现——#533 起由后端下发 messageId 结构性保证（锚点 = 最新提问）；
   // 本票补覆盖：场景 a-1 -> q-2 提问 -> r-1 人类回复 -> q-3 追问，仅 q-3 挂回复区
   it('#276 AC3 追问再挂起后旧回复框不重复出现（仅最新提问挂回复区）', async () => {
     // 场景：WU-3000 经历 a-1 派发 -> q-2 首次提问 -> r-1 人类回复 -> q-3 追问
     // 当前 WU 仍 blocked，最新提问 = q-3；q-2 已被回复过不再挂回复区
+    useNotificationStore.setState({
+      stateItems: [replyItem('WU-3000', 'OAuth 的回调地址是？', 'ch-1', 'q-3')],
+    });
     currentMessages = [
       {
         id: 'a-1', channelId: 'ch-1', authorType: 'agent' as const, agentName: 'pm',
@@ -851,6 +863,49 @@ describe('ChannelDetailPage — #279 NEED_INPUT 待办 chip 与等待态清理',
       expect(document.getElementById('toast-container')?.textContent).toContain('无法定位');
     });
     expect(mockLoadMore).toHaveBeenCalledTimes(1);
+    toast.dismiss();
+  });
+
+  it('#533：messageId 缺省 → 不挂回复区不提升（fail-closed，前端不再从已加载消息反推）', async () => {
+    // 已加载消息里 q-2 明确存在（旧实现可反推出锚点）；reply 项无 messageId 时必须什么都不挂
+    useNotificationStore.setState({
+      stateItems: [replyItem('WU-3000', '使用 OAuth 还是账号密码？')],
+    });
+    renderPage();
+    await waitFor(() => expect(screen.getByText('待回复 · 1')).toBeTruthy());
+    // 追问留在线程未提升（线程回复正常可见、有「收起回复」口），但无选项卡回复区
+    await waitFor(() => expect(screen.getByText('▾ 收起回复')).toBeTruthy());
+    expect(screen.queryByText('交给 agent 判断')).toBeNull();
+  });
+
+  it('#533：口径单点——已加载集有更新非人类消息时，提升/回复区仍只认下发 messageId', async () => {
+    // x-9 比 q-2 更新的同 WU 非人类消息；后端锚点仍指 q-2 → 前端不得按「最新」改挂
+    currentMessages = [
+      ...FOLLOWUP_MESSAGES,
+      {
+        id: 'x-9', channelId: 'ch-1', authorType: 'agent' as const, agentName: 'pm',
+        content: '补充一句进展', workUnitId: 'WU-3000', replyToId: 'a-1',
+        meta: '{}', createdAt: iso(9),
+      },
+    ];
+    renderPage();
+    // q-2 仍被提升到主流 + 挂回复区（若按 recency 反推则会改挂 x-9、q-2 掉回折叠线程）
+    await waitFor(() => expect(screen.getByText(/需要输入: 使用 OAuth 还是账号密码？/)).toBeTruthy());
+    expect(screen.getAllByText('交给 agent 判断')).toHaveLength(1);
+  });
+
+  it('#533：chip 定位——messageId 缺省 → toast 可见反馈，不触发翻页', async () => {
+    useNotificationStore.setState({
+      stateItems: [replyItem('WU-3000', '使用 OAuth 还是账号密码？')],
+    });
+    renderPage();
+    await waitFor(() => expect(screen.getByText('待回复 · 1')).toBeTruthy());
+    fireEvent.click(screen.getByText('待回复 · 1'));
+    fireEvent.click(screen.getByText('WU-3000'));
+    await waitFor(() => {
+      expect(document.getElementById('toast-container')?.textContent).toContain('无法定位');
+    });
+    expect(mockLoadMore).not.toHaveBeenCalled();
     toast.dismiss();
   });
 });
@@ -1250,7 +1305,7 @@ describe('ChannelDetailPage — #440 阶段条（#447 起 currentWuId 由建议�
     expect(screen.getByText('状态同步中…')).toBeTruthy();
     expect(screen.queryByText('频道暂无进行中的工作')).toBeNull();
     expect(warnSpy).toHaveBeenCalledWith(
-      '[ChannelDetailPage] suggestions derive degraded (fail-closed)',
+      '[channelWorkStore] suggestions derive degraded (fail-closed)',
       { channelId: 'ch-1' },
     );
     warnSpy.mockRestore();
@@ -1263,7 +1318,7 @@ describe('ChannelDetailPage — #440 阶段条（#447 起 currentWuId 由建议�
     await waitFor(() => expect(suggestionsCalls()).toBe(1));
     await waitFor(() => expect(screen.getByText('频道暂无进行中的工作')).toBeTruthy());
     expect(warnSpy).not.toHaveBeenCalledWith(
-      '[ChannelDetailPage] suggestions derive degraded (fail-closed)',
+      '[channelWorkStore] suggestions derive degraded (fail-closed)',
       expect.anything(),
     );
     warnSpy.mockRestore();

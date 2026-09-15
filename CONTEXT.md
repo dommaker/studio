@@ -135,7 +135,7 @@ _Avoid_: 快照层抄文件内容当第二真源、塞进 FileStore seam、服�
 _Avoid_: 各业务自抄生命周期、新建专有审批端点、promoted/executed 并存、重写历史 JSONL
 
 **数据面 store**:
-前端某域运行时数据的唯一管家（#346 rosterStore 首创；2026-08-31 架构评审第三轮 N2 grilling 扩为模式，docs/adr/2026-08-31-channel-data-plane-store.md）：统一拉取 + 短 TTL + SSE 就地维护 + 断线重连强对齐，组件全是订阅者——不各自拉取、同域数据不住第二份（agent 列表即读 rosterStore 正本，不进频道数据面）。新域数据面一律照此模式建，禁止退回组件各自拉取。
+前端某域运行时数据的唯一管家（#346 rosterStore 首创；2026-08-31 架构评审第三轮 N2 grilling 扩为模式，docs/adr/2026-08-31-channel-data-plane-store.md）：统一拉取 + 短 TTL + SSE 就地维护 + 断线重连强对齐，组件全是订阅者——不各自拉取、同域数据不住第二份（agent 列表即读 rosterStore 正本，不进频道数据面）。新域数据面一律照此模式建，禁止退回组件各自拉取。现有实例：rosterStore、channelDataStore（词表/当前 PMO/成员，TTL 型）、requirementChainStore、**channelWorkStore**（频道工作面：频道 WU/REQ/引导片/当前工单/WU 文件集，事件驱动型，2026-09-14 架构评审定）。
 _Avoid_: 组件各自拉取、同端点多份 state、store 间复制同一份数据
 
 **取数纪律**:

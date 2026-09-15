@@ -19,9 +19,9 @@ export interface ActionCenterStateItem {
   scope: string;
   channelId: string | null;
   waitingQuestion?: string;
-  /** D-2（reply 深链）：定位锚点 = 该 WU 频道线程最新一条非人类消息 id
-   *  （与频道页 NEED_INPUT chip「当前提问消息」同口径，#279 走查 F4）。
-   *  无 channelId / 热层无匹配消息 / 查询失败 → 缺省（前端 fail-closed 回退纯频道跳转） */
+  /** D-2（reply 深链）：定位锚点 = 该 WU 频道线程最新一条非人类消息 id（#279 走查 F4 口径）。
+   *  #533 起为「WU 当前提问消息」唯一派生点——频道页回复区/提升/chip 定位全消费本字段，
+   *  前端不再从已加载消息反推。无 channelId / 热层无匹配消息 / 查询失败 → 缺省（前端 fail-closed） */
   messageId?: string;
   since: string;
 }

@@ -60,7 +60,7 @@ describe('§10.3 → 决策 11: routeMessage 与 +skill 解耦', () => {
     });
 
     const content = '@HintAgent +tdd +review 实现登录';
-    const result = await routeMessage(channelId, content, undefined, fileStore);
+    const result = await routeMessage(channelId, content, undefined, { fs: fileStore });
 
     const wu = await findWu(result.workUnitId!);
     expect(wu).not.toBeNull();
@@ -73,7 +73,7 @@ describe('§10.3 → 决策 11: routeMessage 与 +skill 解耦', () => {
   });
 
   it('plain 路径：不创建 WorkUnit（未配置频道默认角色时维持纯存储）', async () => {
-    const result = await routeMessage(channelId, '+tdd 随便聊聊', undefined, fileStore);
+    const result = await routeMessage(channelId, '+tdd 随便聊聊', undefined, { fs: fileStore });
 
     expect(result.workUnitId).toBeFalsy();
     expect((await fileStore.getIndex()).filter(s => s.channelId === channelId)).toHaveLength(0);

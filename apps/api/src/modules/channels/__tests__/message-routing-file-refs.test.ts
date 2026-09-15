@@ -71,7 +71,7 @@ describe('路由层文件引用校验（#281）', () => {
       { repo: '/repo/default', path: 'src/a.ts' },
       { repo: '/repo/default', path: 'README.md' },
     ];
-    const message = await routeMessage(channelId, '看这两个文件', undefined, fileStore, {
+    const message = await routeMessage(channelId, '看这两个文件', undefined, { fs: fileStore,
       files, fileRefDeps: makeDeps(),
     });
 
@@ -82,7 +82,7 @@ describe('路由层文件引用校验（#281）', () => {
   });
 
   it('失效引用剔除：不进 meta.files，频道收到 Studio 播报，落 file_refs_dropped 事件', async () => {
-    const message = await routeMessage(channelId, '看文件', undefined, fileStore, {
+    const message = await routeMessage(channelId, '看文件', undefined, { fs: fileStore,
       files: [
         { repo: '/repo/default', path: 'src/a.ts' },
         { repo: '/repo/default', path: 'src/gone.ts' },
@@ -121,7 +121,7 @@ describe('路由层文件引用校验（#281）', () => {
 
   it('校验自身故障（畸形引用触发异常）→ 不静默吞掉：系统播报 + file_refs_dropped 事件（reason=validation-failed）', async () => {
     // repo 非字符串 → validateFileRefs 内部抛 TypeError，走 catch 异常路径
-    const message = await routeMessage(channelId, '看文件', undefined, fileStore, {
+    const message = await routeMessage(channelId, '看文件', undefined, { fs: fileStore,
       files: [{ repo: null as unknown as string, path: 'src/a.ts' }],
       fileRefDeps: makeDeps(),
     });
@@ -146,7 +146,7 @@ describe('路由层文件引用校验（#281）', () => {
 
   it('事件 payload 尺寸纪律：dropped 封顶前 5 条 + droppedCount 全量', async () => {
     const files = Array.from({ length: 7 }, (_, i) => ({ repo: '/repo/default', path: `gone-${i}.ts` }));
-    await routeMessage(channelId, '看文件', undefined, fileStore, { files, fileRefDeps: makeDeps() });
+    await routeMessage(channelId, '看文件', undefined, { fs: fileStore, files, fileRefDeps: makeDeps() });
 
     const events = await readStudioEvents({ file: eventsFile });
     const payload = parseStudioEventPayload<{ droppedCount: number; dropped: unknown[] }>(
@@ -161,7 +161,7 @@ describe('路由层文件引用校验（#281）', () => {
       id: 'agent-dev', name: 'dev', description: null, channels: '[]', status: 'active',
       createdAt: now(), updatedAt: now(),
     });
-    const message = await routeMessage(channelId, '@dev 看文件', undefined, fileStore, {
+    const message = await routeMessage(channelId, '@dev 看文件', undefined, { fs: fileStore,
       files: [
         { repo: '/repo/default', path: 'src/b.ts' },
         { repo: '/repo/default', path: 'nope.ts' },
@@ -176,13 +176,13 @@ describe('路由层文件引用校验（#281）', () => {
   });
 
   it('无文件引用 → 行为与现状一致（meta 为空对象）', async () => {
-    const message = await routeMessage(channelId, 'plain', undefined, fileStore);
+    const message = await routeMessage(channelId, 'plain', undefined, { fs: fileStore });
     expect(parseMeta(message.meta)).toEqual({});
   });
 
   it('线程回复路径：文件引用同样校验并写入回复消息 meta', async () => {
-    const parent = await routeMessage(channelId, '父消息', undefined, fileStore);
-    const reply = await routeMessage(channelId, '回复带文件', parent.id, fileStore, {
+    const parent = await routeMessage(channelId, '父消息', undefined, { fs: fileStore });
+    const reply = await routeMessage(channelId, '回复带文件', parent.id, { fs: fileStore,
       files: [{ repo: '/repo/default', path: 'src/a.ts' }],
       fileRefDeps: makeDeps(),
     });
@@ -207,7 +207,7 @@ async function createDevProfile() {
 describe('WU metadata.fileRefs 落档 + 归属 rung（#285，决策 #249 §4）', () => {
   it('@mention 建 WU：kept refs 原样写入 WU metadata.fileRefs（失效引用不进）', async () => {
     await createDevProfile();
-    const message = await routeMessage(channelId, '@dev 看文件', undefined, fileStore, {
+    const message = await routeMessage(channelId, '@dev 看文件', undefined, { fs: fileStore,
       files: [
         { repo: '/repo/default', path: 'src/a.ts' },
         { repo: '/repo/default', path: 'gone.ts' },
@@ -221,7 +221,7 @@ describe('WU metadata.fileRefs 落档 + 归属 rung（#285，决策 #249 §4）'
 
   it('@mention 建 WU：全部引用失效 → 不写 fileRefs 字段', async () => {
     await createDevProfile();
-    const message = await routeMessage(channelId, '@dev 看文件', undefined, fileStore, {
+    const message = await routeMessage(channelId, '@dev 看文件', undefined, { fs: fileStore,
       files: [{ repo: '/repo/default', path: 'gone.ts' }],
       fileRefDeps: makeDeps(),
     });
@@ -237,7 +237,7 @@ describe('WU metadata.fileRefs 落档 + 归属 rung（#285，决策 #249 §4）'
       ...makeDeps(),
       findChoreProject: async () => ({ gitRepo: '/repo/chore' }),
     };
-    const message = await routeMessage(channelId, '@dev 看杂务仓文件', undefined, fileStore, {
+    const message = await routeMessage(channelId, '@dev 看杂务仓文件', undefined, { fs: fileStore,
       files: [{ repo: '/repo/chore/', path: 'src/a.ts' }], // 尾斜杠写法差，校验侧归一
       fileRefDeps: deps,
     });
@@ -254,7 +254,7 @@ describe('WU metadata.fileRefs 落档 + 归属 rung（#285，决策 #249 §4）'
   it('决策 12 channel-default 建 WU 路径：同样写 metadata.fileRefs（该路径不做归属解析）', async () => {
     await fileStore.updateChannel(channelId, { defaultProfileId: 'agent-dev' });
     await createDevProfile();
-    const message = await routeMessage(channelId, '无 at 消息带文件', undefined, fileStore, {
+    const message = await routeMessage(channelId, '无 at 消息带文件', undefined, { fs: fileStore,
       files: [{ repo: '/repo/default', path: 'README.md' }],
       fileRefDeps: makeDeps(),
     });

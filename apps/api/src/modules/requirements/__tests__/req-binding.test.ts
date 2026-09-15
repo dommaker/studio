@@ -76,7 +76,7 @@ describe('parseReqToken / normalizeReqId', () => {
 
 describe('@mention 派发 → REQ 自动绑定（vision §5.3）', () => {
   it('auto-creates a requirement on first @mention dispatch', async () => {
-    const result = await routeMessage(channelId, '@Agent 实现登录功能', undefined, fileStore);
+    const result = await routeMessage(channelId, '@Agent 实现登录功能', undefined, { fs: fileStore });
 
     const wu = await findWuByMessage(result.workUnitId);
     expect(wu).not.toBeNull();
@@ -91,8 +91,8 @@ describe('@mention 派发 → REQ 自动绑定（vision §5.3）', () => {
   });
 
   it('auto-creates a NEW requirement per dispatch (REQ-0002, REQ-0003, ...)', async () => {
-    const r1 = await routeMessage(channelId, '@Agent 任务一', undefined, fileStore);
-    const r2 = await routeMessage(channelId, '@Agent 任务二', undefined, fileStore);
+    const r1 = await routeMessage(channelId, '@Agent 任务一', undefined, { fs: fileStore });
+    const r2 = await routeMessage(channelId, '@Agent 任务二', undefined, { fs: fileStore });
 
     expect((await findWuByMessage(r1.workUnitId))!.reqId).toBe('REQ-0001');
     expect((await findWuByMessage(r2.workUnitId))!.reqId).toBe('REQ-0002');
@@ -102,7 +102,7 @@ describe('@mention 派发 → REQ 自动绑定（vision §5.3）', () => {
   it('binds to existing requirement via #REQ-XXXX token (no new requirement)', async () => {
     const existing = await reqService.create({ title: '已有需求', channelId });
 
-    const result = await routeMessage(channelId, `@Agent 继续 #${existing.id} 的剩余工作`, undefined, fileStore);
+    const result = await routeMessage(channelId, `@Agent 继续 #${existing.id} 的剩余工作`, undefined, { fs: fileStore });
 
     const wu = await findWuByMessage(result.workUnitId);
     expect(wu!.reqId).toBe(existing.id);
@@ -110,7 +110,7 @@ describe('@mention 派发 → REQ 自动绑定（vision §5.3）', () => {
   });
 
   it('token for non-existent REQ falls through to auto-create', async () => {
-    const result = await routeMessage(channelId, '@Agent 做 #REQ-0999 的事', undefined, fileStore);
+    const result = await routeMessage(channelId, '@Agent 做 #REQ-0999 的事', undefined, { fs: fileStore });
 
     const wu = await findWuByMessage(result.workUnitId);
     expect(wu!.reqId).toBe('REQ-0001'); // 新建的，不是 REQ-0999
@@ -125,8 +125,7 @@ describe('@mention 派发 → REQ 自动绑定（vision §5.3）', () => {
       channelId,
       `@Agent 做 #REQ-${String(token.seq).padStart(4, '0')} 的事`,
       undefined,
-      fileStore,
-      { reqId: explicit.id },
+      { fs: fileStore, reqId: explicit.id },
     );
 
     const wu = await findWuByMessage(result.workUnitId);
@@ -134,7 +133,7 @@ describe('@mention 派发 → REQ 自动绑定（vision §5.3）', () => {
   });
 
   it('explicit reqId that does not exist falls through to token / auto-create', async () => {
-    const result = await routeMessage(channelId, '@Agent 任务', undefined, fileStore, { reqId: 'REQ-0999' });
+    const result = await routeMessage(channelId, '@Agent 任务', undefined, { fs: fileStore, reqId: 'REQ-0999' });
 
     const wu = await findWuByMessage(result.workUnitId);
     expect(wu!.reqId).toBe('REQ-0001'); // 自动新建
@@ -144,7 +143,7 @@ describe('@mention 派发 → REQ 自动绑定（vision §5.3）', () => {
     // 制造存储层故障：requirements 路径被同名文件占用 → mkdir lock 失败
     fs.writeFileSync(path.join(tmpDir, 'requirements'), 'block-dir', 'utf-8');
 
-    const result = await routeMessage(channelId, '@Agent 容错任务', undefined, fileStore);
+    const result = await routeMessage(channelId, '@Agent 容错任务', undefined, { fs: fileStore });
 
     const wu = await findWuByMessage(result.workUnitId);
     expect(wu).not.toBeNull();          // WorkUnit 照常创建
@@ -153,10 +152,10 @@ describe('@mention 派发 → REQ 自动绑定（vision §5.3）', () => {
   });
 
   it('reply (replyToId) path does NOT create requirements', async () => {
-    const first = await routeMessage(channelId, '@Agent 主任务', undefined, fileStore);
+    const first = await routeMessage(channelId, '@Agent 主任务', undefined, { fs: fileStore });
     const before = (await reqService.list()).length;
 
-    await routeMessage(channelId, '跟进一下', first.id, fileStore);
+    await routeMessage(channelId, '跟进一下', first.id, { fs: fileStore });
 
     expect((await reqService.list()).length).toBe(before);
   });

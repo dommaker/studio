@@ -66,12 +66,12 @@ describe('runSegmentSpan', () => {
 
   it('Promise reject：事件仍发出，异常原样透传', async () => {
     await expect(
-      runSegmentSpan('exec', 'npx harness update-user-model', async () => {
+      runSegmentSpan('exec', 'npx tsx src/cli/studio-cli.ts status', async () => {
         throw new Error('boom');
       }),
     ).rejects.toThrow('boom');
     expect(events).toHaveLength(1);
-    expect(events[0].name).toBe('npx harness update-user-model');
+    expect(events[0].name).toBe('npx tsx src/cli/studio-cli.ts status');
   });
 
   it('同步 throw：事件仍发出，异常原样透传', () => {

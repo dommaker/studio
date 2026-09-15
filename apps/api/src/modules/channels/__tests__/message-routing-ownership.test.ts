@@ -78,7 +78,7 @@ describe('B3a: 无归属 → NEED_INPUT 挂起问人', () => {
   it('WU 照常创建但立即挂起（blocked + waitingForInput），metadata 落来源与问题', async () => {
     const channelId = await createChannel(null);
 
-    const msg = await routeMessage(channelId, '@Agent 改一下登录页', undefined, fileStore);
+    const msg = await routeMessage(channelId, '@Agent 改一下登录页', undefined, { fs: fileStore });
 
     const wu = await findWu(msg.workUnitId!);
     expect(wu).toBeTruthy();
@@ -96,7 +96,7 @@ describe('B3a: 无归属 → NEED_INPUT 挂起问人', () => {
   it('向频道发 Studio 系统消息提问（挂在派发消息线程）', async () => {
     const channelId = await createChannel(null);
 
-    const msg = await routeMessage(channelId, '@Agent 改一下登录页', undefined, fileStore);
+    const msg = await routeMessage(channelId, '@Agent 改一下登录页', undefined, { fs: fileStore });
 
     const messages = await fileStore.queryMessages(channelId, { workUnitId: msg.workUnitId! });
     const prompt = messages.find(m => m.agentName === 'Studio');
@@ -112,7 +112,7 @@ describe('B3a: 无归属 → NEED_INPUT 挂起问人', () => {
     // 制造 REQ 存储故障：requirements 路径被同名文件占用
     fs.writeFileSync(path.join(tmpDir, 'requirements'), 'block-dir', 'utf-8');
 
-    const msg = await routeMessage(channelId, '@Agent 容错任务', undefined, fileStore);
+    const msg = await routeMessage(channelId, '@Agent 容错任务', undefined, { fs: fileStore });
 
     const wu = await findWu(msg.workUnitId!);
     expect(wu).toBeTruthy();
@@ -128,7 +128,7 @@ describe('B3a: 归属解析优先级接线', () => {
     const project = await createRealProject('/data/b3a-repo');
     const req = await reqService.create({ title: '归属需求', channelId, projectId: project.id });
 
-    const msg = await routeMessage(channelId, '@Agent 干活', undefined, fileStore, { reqId: req.id });
+    const msg = await routeMessage(channelId, '@Agent 干活', undefined, { fs: fileStore, reqId: req.id });
 
     const wu = await findWu(msg.workUnitId!);
     expect(wu!.status).toBe('unassigned'); // 有归属 → 不挂起
@@ -147,7 +147,7 @@ describe('B3a: 归属解析优先级接线', () => {
     const project = await createRealProject(null);
     const req = await reqService.create({ title: '无 gitRepo 需求', channelId, projectId: project.id });
 
-    const msg = await routeMessage(channelId, '@Agent 干活', undefined, fileStore, { reqId: req.id });
+    const msg = await routeMessage(channelId, '@Agent 干活', undefined, { fs: fileStore, reqId: req.id });
 
     const wu = await findWu(msg.workUnitId!);
     expect(wu!.status).toBe('blocked');
@@ -161,7 +161,7 @@ describe('B3a: 归属解析优先级接线', () => {
     const channelId = await createChannel(null);
     await fileStore.updateChannel(channelId, { defaultPath: '/data/channel-repo' });
 
-    const msg = await routeMessage(channelId, '@Agent 干活', undefined, fileStore);
+    const msg = await routeMessage(channelId, '@Agent 干活', undefined, { fs: fileStore });
 
     const wu = await findWu(msg.workUnitId!);
     expect(wu!.status).toBe('unassigned');
@@ -175,7 +175,7 @@ describe('B3a: 归属解析优先级接线', () => {
   it('频道只配 defaultWorkspaceId（默认执行机器）→ #481 后等同无归属，挂起问人', async () => {
     const channelId = await createChannel('ws-channel-default');
 
-    const msg = await routeMessage(channelId, '@Agent 干活', undefined, fileStore);
+    const msg = await routeMessage(channelId, '@Agent 干活', undefined, { fs: fileStore });
 
     const wu = await findWu(msg.workUnitId!);
     expect(wu!.status).toBe('blocked');

@@ -93,14 +93,14 @@ describe('Message Routing (AC-B1-B4)', () => {
       };
       await fileStore.createProfile(agentData);
 
-      const result = await routeMessage(channelId, '@AssignAgent do this', undefined, fileStore);
+      const result = await routeMessage(channelId, '@AssignAgent do this', undefined, { fs: fileStore });
 
       const wu = await findWu(result.workUnitId!);
       expect(wu!.assigneeId).toBe(agentData.id);
     });
 
     it('sets assigneeId=null when @mention does not match any Agent', async () => {
-      const result = await routeMessage(channelId, '@Nobody help me', undefined, fileStore);
+      const result = await routeMessage(channelId, '@Nobody help me', undefined, { fs: fileStore });
 
       const wu = await findWu(result.workUnitId!);
       expect(wu!.assigneeId).toBeNull();
@@ -109,7 +109,7 @@ describe('Message Routing (AC-B1-B4)', () => {
     it('sets assigneeId=null when @mention matches inactive Agent', async () => {
       await createTestAgent(fileStore, 'InactiveAgent', 'inactive');
 
-      const result = await routeMessage(channelId, '@InactiveAgent do this', undefined, fileStore);
+      const result = await routeMessage(channelId, '@InactiveAgent do this', undefined, { fs: fileStore });
 
       const wu = await findWu(result.workUnitId!);
       expect(wu!.assigneeId).toBeNull();
@@ -129,7 +129,7 @@ describe('Message Routing (AC-B1-B4)', () => {
       // Pre-create a WorkUnit for this agent (simulating busy state)
       await workUnitService.create({ scope: 'existing task', channelId, type: 'task', status: 'active', assigneeId: agentData.id });
 
-      const result = await routeMessage(channelId, '@BusyAgent new task', undefined, fileStore);
+      const result = await routeMessage(channelId, '@BusyAgent new task', undefined, { fs: fileStore });
 
       const wu = await findWu(result.workUnitId!);
       expect(wu!.assigneeId).toBe(agentData.id);
@@ -142,7 +142,7 @@ describe('Message Routing (AC-B1-B4)', () => {
     it('creates WorkUnit when @mention matches active AgentProfile', async () => {
       await createTestAgent(fileStore, 'TestAgent');
 
-      const result = await routeMessage(channelId, '@TestAgent do this task', undefined, fileStore);
+      const result = await routeMessage(channelId, '@TestAgent do this task', undefined, { fs: fileStore });
 
       expect(result.workUnitId).toBeTruthy();
       const wu = await findWu(result.workUnitId!);
@@ -161,7 +161,7 @@ describe('Message Routing (AC-B1-B4)', () => {
     });
 
     it('creates WorkUnit with matched=false when Agent not found', async () => {
-      const result = await routeMessage(channelId, '@UnknownAgent help me', undefined, fileStore);
+      const result = await routeMessage(channelId, '@UnknownAgent help me', undefined, { fs: fileStore });
 
       expect(result.workUnitId).toBeTruthy();
       const wu = await findWu(result.workUnitId!);
@@ -170,7 +170,7 @@ describe('Message Routing (AC-B1-B4)', () => {
     });
 
     it('#464：@ 未匹配 → 频道回「未找到角色」说明（转自动认领）', async () => {
-      const result = await routeMessage(channelId, '@UnknownAgent help me', undefined, fileStore);
+      const result = await routeMessage(channelId, '@UnknownAgent help me', undefined, { fs: fileStore });
 
       const msgs = await fileStore.queryMessages(channelId, { workUnitId: result.workUnitId! });
       const notice = msgs.find(m => m.authorType === 'agent' && m.content.includes('未找到角色'));
@@ -182,7 +182,7 @@ describe('Message Routing (AC-B1-B4)', () => {
     it('#464：无归属挂起提问带 atHuman（milestone 响铃）', async () => {
       await createTestAgent(fileStore, 'ParkedAgent');
 
-      const result = await routeMessage(channelId, '@ParkedAgent do this task', undefined, fileStore);
+      const result = await routeMessage(channelId, '@ParkedAgent do this task', undefined, { fs: fileStore });
 
       const wu = await findWu(result.workUnitId!);
       expect(wu!.status).toBe('blocked'); // parked（无归属挂起）
@@ -193,7 +193,7 @@ describe('Message Routing (AC-B1-B4)', () => {
     });
 
     it('scope strips @name prefix', async () => {
-      const result = await routeMessage(channelId, '@Agent please analyze this code', undefined, fileStore);
+      const result = await routeMessage(channelId, '@Agent please analyze this code', undefined, { fs: fileStore });
 
       const wu = await findWu(result.workUnitId!);
       expect(wu!.scope).toBe('please analyze this code');
@@ -202,7 +202,7 @@ describe('Message Routing (AC-B1-B4)', () => {
     it('takes first @mention when multiple present', async () => {
       await createTestAgent(fileStore, 'First');
 
-      const result = await routeMessage(channelId, '@First and @Second both look at this', undefined, fileStore);
+      const result = await routeMessage(channelId, '@First and @Second both look at this', undefined, { fs: fileStore });
 
       const wu = await findWu(result.workUnitId!);
       const meta = wu!.metadata ? JSON.parse(wu!.metadata) : {};
@@ -214,14 +214,14 @@ describe('Message Routing (AC-B1-B4)', () => {
       const handler = (payload: { workunit: { id: string } }) => events.push(payload);
       eventBus.subscribe('workunit.created', handler);
 
-      await routeMessage(channelId, '@Someone do something', undefined, fileStore);
+      await routeMessage(channelId, '@Someone do something', undefined, { fs: fileStore });
 
       expect(events.length).toBe(1);
       eventBus.unsubscribe('workunit.created', handler);
     });
 
     it('associates workUnitId with ChannelMessage', async () => {
-      const result = await routeMessage(channelId, '@Agent do this', undefined, fileStore);
+      const result = await routeMessage(channelId, '@Agent do this', undefined, { fs: fileStore });
 
       const found = await fileStore.getMessageById(result.id);
       expect(found).not.toBeNull();
@@ -242,7 +242,7 @@ describe('Message Routing (AC-B1-B4)', () => {
       };
       await fileStore.appendMessage(channelId, original);
 
-      const reply = await routeMessage(channelId, 'follow up', original.id, fileStore);
+      const reply = await routeMessage(channelId, 'follow up', original.id, { fs: fileStore });
 
       expect(reply.workUnitId).toBe(wu.id);
       expect(reply.replyToId).toBe(original.id);
@@ -256,7 +256,7 @@ describe('Message Routing (AC-B1-B4)', () => {
       };
       await fileStore.appendMessage(channelId, original);
 
-      const reply = await routeMessage(channelId, 'reply to plain', original.id, fileStore);
+      const reply = await routeMessage(channelId, 'reply to plain', original.id, { fs: fileStore });
 
       expect(reply.workUnitId).toBeNull();
     });
@@ -272,7 +272,7 @@ describe('Message Routing (AC-B1-B4)', () => {
 
   describe('#492: reply to cold-tier parent posts archive notice', () => {
     it('父消息在冷层（热层不可见）→ 帖子成立 + Studio 系统提示挂在回复线程', async () => {
-      const reply = await routeMessage(channelId, '回复已归档话题', 'cold-parent-id', fileStore);
+      const reply = await routeMessage(channelId, '回复已归档话题', 'cold-parent-id', { fs: fileStore });
 
       // 降级放行行为不变（#327）：帖子成立、workUnitId 落 null、不抛错
       expect(reply.replyToId).toBe('cold-parent-id');
@@ -295,7 +295,7 @@ describe('Message Routing (AC-B1-B4)', () => {
       };
       await fileStore.appendMessage(channelId, original);
 
-      const reply = await routeMessage(channelId, 'follow up', original.id, fileStore);
+      const reply = await routeMessage(channelId, 'follow up', original.id, { fs: fileStore });
 
       expect(reply.replyToId).toBe(original.id);
       const msgs = await fileStore.queryMessages(channelId, {});
@@ -317,7 +317,7 @@ describe('Message Routing (AC-B1-B4)', () => {
 
       const wuCountBefore = await countWu(channelId);
 
-      const reply = await routeMessage(channelId, '@Agent fix this', original.id, fileStore);
+      const reply = await routeMessage(channelId, '@Agent fix this', original.id, { fs: fileStore });
 
       const wuCountAfter = await countWu(channelId);
       expect(wuCountAfter).toBe(wuCountBefore);
@@ -333,7 +333,7 @@ describe('Message Routing (AC-B1-B4)', () => {
       };
       await fileStore.appendMessage(channelId, original);
 
-      const reply = await routeMessage(channelId, '@Agent please fix', original.id, fileStore);
+      const reply = await routeMessage(channelId, '@Agent please fix', original.id, { fs: fileStore });
 
       expect(reply.replyToId).toBe(original.id);
       expect(reply.workUnitId).toBe(wu.id);
@@ -344,13 +344,13 @@ describe('Message Routing (AC-B1-B4)', () => {
 
   describe('AC-B4: Message routing priority', () => {
     it('plain text → no WorkUnit', async () => {
-      const result = await routeMessage(channelId, 'just a message', undefined, fileStore);
+      const result = await routeMessage(channelId, 'just a message', undefined, { fs: fileStore });
 
       expect(result.workUnitId).toBeNull();
     });
 
     it('@mention without replyToId → WorkUnit created', async () => {
-      const result = await routeMessage(channelId, '@Someone help', undefined, fileStore);
+      const result = await routeMessage(channelId, '@Someone help', undefined, { fs: fileStore });
 
       expect(result.workUnitId).toBeTruthy();
     });
@@ -364,7 +364,7 @@ describe('Message Routing (AC-B1-B4)', () => {
       };
       await fileStore.appendMessage(channelId, original);
 
-      const reply = await routeMessage(channelId, 'follow up', original.id, fileStore);
+      const reply = await routeMessage(channelId, 'follow up', original.id, { fs: fileStore });
 
       expect(reply.workUnitId).toBe(wu.id);
     });
@@ -379,7 +379,7 @@ describe('Message Routing (AC-B1-B4)', () => {
       await fileStore.appendMessage(channelId, original);
 
       const wuCountBefore = await countWu(channelId);
-      const reply = await routeMessage(channelId, '@Agent feedback', original.id, fileStore);
+      const reply = await routeMessage(channelId, '@Agent feedback', original.id, { fs: fileStore });
       const wuCountAfter = await countWu(channelId);
 
       expect(wuCountAfter).toBe(wuCountBefore);
@@ -393,7 +393,7 @@ describe('Message Routing (AC-B1-B4)', () => {
     it('配置了默认角色 → 无 @ 消息创建 WU 并关联消息', async () => {
       await fileStore.updateChannel(channelId, { defaultProfileId: 'default-agent-1' });
 
-      const result = await routeMessage(channelId, '没有点名的消息', undefined, fileStore);
+      const result = await routeMessage(channelId, '没有点名的消息', undefined, { fs: fileStore });
 
       expect(result.workUnitId).toBeTruthy();
       const wu = await findWu(result.workUnitId!);
@@ -407,7 +407,7 @@ describe('Message Routing (AC-B1-B4)', () => {
     });
 
     it('未配置默认角色 → 维持纯存储（不建 WU）', async () => {
-      const result = await routeMessage(channelId, '纯聊天', undefined, fileStore);
+      const result = await routeMessage(channelId, '纯聊天', undefined, { fs: fileStore });
 
       expect(result.workUnitId).toBeNull();
       expect(await countWu(channelId)).toBe(0);
@@ -443,7 +443,7 @@ describe('Message Routing (AC-B1-B4)', () => {
     it('human thread reply → WorkUnit un-parks (blocked → active) with reply in pendingReplies', async () => {
       const { wu, anchor } = await setupParkedWorkUnit();
 
-      const reply = await routeMessage(channelId, '用 OAuth', anchor.id, fileStore);
+      const reply = await routeMessage(channelId, '用 OAuth', anchor.id, { fs: fileStore });
 
       expect(reply.workUnitId).toBe(wu.id);
       const after = await findWu(wu.id);
@@ -465,7 +465,7 @@ describe('Message Routing (AC-B1-B4)', () => {
       };
       await fileStore.appendMessage(channelId, anchor);
 
-      await routeMessage(channelId, '看看情况', anchor.id, fileStore);
+      await routeMessage(channelId, '看看情况', anchor.id, { fs: fileStore });
 
       const after = await findWu(wu.id);
       expect(after!.status).toBe('active');
@@ -485,7 +485,7 @@ describe('Message Routing (AC-B1-B4)', () => {
       };
       await fileStore.appendMessage(channelId, anchor);
 
-      const reply = await routeMessage(channelId, '顺便把文案改一下', anchor.id, fileStore);
+      const reply = await routeMessage(channelId, '顺便把文案改一下', anchor.id, { fs: fileStore });
 
       expect(reply.workUnitId).toBe(wu.id);
       const after = await findWu(wu.id);
@@ -538,7 +538,7 @@ describe('Message Routing (AC-B1-B4)', () => {
       await fileStore.createProfile(agent);
       await fileStore.updateChannel(channelId, { members: JSON.stringify([agent.id]) });
 
-      const result = await routeMessage(channelId, '@MemberAgent do this', undefined, fileStore);
+      const result = await routeMessage(channelId, '@MemberAgent do this', undefined, { fs: fileStore });
 
       const wu = await findWu(result.workUnitId!);
       expect(wu!.assigneeId).toBe(agent.id);
@@ -552,7 +552,7 @@ describe('Message Routing (AC-B1-B4)', () => {
       // 频道有 members，但不含 OutsiderAgent
       await fileStore.updateChannel(channelId, { members: JSON.stringify(['some-other-profile']) });
 
-      const result = await routeMessage(channelId, '@OutsiderAgent do this', undefined, fileStore);
+      const result = await routeMessage(channelId, '@OutsiderAgent do this', undefined, { fs: fileStore });
 
       expect(result.workUnitId).toBeTruthy(); // WorkUnit 创建行为不变
       const wu = await findWu(result.workUnitId!);
@@ -566,7 +566,7 @@ describe('Message Routing (AC-B1-B4)', () => {
       await fileStore.createProfile(agent);
       await fileStore.updateChannel(channelId, { members: '[]' }); // 历史频道：members 未回填
 
-      const result = await routeMessage(channelId, '@LegacyAgent do this', undefined, fileStore);
+      const result = await routeMessage(channelId, '@LegacyAgent do this', undefined, { fs: fileStore });
 
       const wu = await findWu(result.workUnitId!);
       expect(wu!.assigneeId).toBe(agent.id);
@@ -577,7 +577,7 @@ describe('Message Routing (AC-B1-B4)', () => {
       await fileStore.createProfile(agent);
       await fileStore.updateChannel(channelId, { members: JSON.stringify([agent.id]) });
 
-      const result = await routeMessage(channelId, '@开发 看一下这个问题', undefined, fileStore);
+      const result = await routeMessage(channelId, '@开发 看一下这个问题', undefined, { fs: fileStore });
 
       const wu = await findWu(result.workUnitId!);
       expect(wu!.assigneeId).toBe(agent.id);
@@ -604,7 +604,7 @@ describe('Message Routing (AC-B1-B4)', () => {
       await fileStore.createProfile(dev);
       await fileStore.updateChannel(channelId, { members: JSON.stringify([dev.id]) });
 
-      const result = await routeMessage(channelId, '@开发你好', undefined, fileStore);
+      const result = await routeMessage(channelId, '@开发你好', undefined, { fs: fileStore });
 
       const wu = await findWu(result.workUnitId!);
       expect(wu!.assigneeId).toBe(dev.id);
@@ -624,7 +624,7 @@ describe('Message Routing (AC-B1-B4)', () => {
       await fileStore.createProfile(lead);
       await fileStore.updateChannel(channelId, { members: JSON.stringify([dev.id, lead.id]) });
 
-      const result = await routeMessage(channelId, '@开发组长看下这个问题', undefined, fileStore);
+      const result = await routeMessage(channelId, '@开发组长看下这个问题', undefined, { fs: fileStore });
 
       const wu = await findWu(result.workUnitId!);
       expect(wu!.assigneeId).toBe(lead.id);
@@ -639,7 +639,7 @@ describe('Message Routing (AC-B1-B4)', () => {
       await fileStore.updateChannel(channelId, { members: JSON.stringify([a.id, b.id]) });
 
       // 精确匹配本身也歧义（find 取第一个）——用连写构造纯前缀歧义场景
-      const result = await routeMessage(channelId, '@开发你好', undefined, fileStore);
+      const result = await routeMessage(channelId, '@开发你好', undefined, { fs: fileStore });
 
       const wu = await findWu(result.workUnitId!);
       expect(wu!.assigneeId).toBeNull();
@@ -655,7 +655,7 @@ describe('Message Routing (AC-B1-B4)', () => {
       await fileStore.createProfile(outsider);
       await fileStore.updateChannel(channelId, { members: JSON.stringify(['some-other-profile']) });
 
-      const result = await routeMessage(channelId, '@开发团队 看一下', undefined, fileStore);
+      const result = await routeMessage(channelId, '@开发团队 看一下', undefined, { fs: fileStore });
 
       const wu = await findWu(result.workUnitId!);
       expect(wu!.assigneeId).toBeNull();
@@ -664,7 +664,7 @@ describe('Message Routing (AC-B1-B4)', () => {
     });
 
     it('无此成员时行为同现状：@开发团队 无成员「开发」→ matched=false + 未找到角色提示', async () => {
-      const result = await routeMessage(channelId, '@开发团队 看一下', undefined, fileStore);
+      const result = await routeMessage(channelId, '@开发团队 看一下', undefined, { fs: fileStore });
 
       const wu = await findWu(result.workUnitId!);
       expect(wu!.assigneeId).toBeNull();
@@ -683,7 +683,7 @@ describe('Message Routing (AC-B1-B4)', () => {
     it('@mention 派单：WU metadata.anchorMessageId = 派发消息 id，派发消息回填 workUnitId', async () => {
       await createTestAgent(fileStore, 'AnchorAgent');
 
-      const result = await routeMessage(channelId, '@AnchorAgent 处理这个任务', undefined, fileStore);
+      const result = await routeMessage(channelId, '@AnchorAgent 处理这个任务', undefined, { fs: fileStore });
 
       const wu = await findWu(result.workUnitId!);
       expect(wu).not.toBeNull();
@@ -711,7 +711,7 @@ describe('Message Routing (AC-B1-B4)', () => {
         // 频道默认工程：跳过 B3a 无归属挂起（blocked 不可认领），聚焦 anchor 竞态本身
         // （#481 前用显式 workspaceId；机器指针退役后改用 defaultPath 提供归属）
         await fileStore.updateChannel(channelId, { defaultPath: '/tmp/race-repo' });
-        const result = await routeMessage(channelId, '@RaceAgent 抢跑认领', undefined, fileStore);
+        const result = await routeMessage(channelId, '@RaceAgent 抢跑认领', undefined, { fs: fileStore });
         await claimed;
 
         const msgs = await fileStore.queryMessages(channelId, { workUnitId: result.workUnitId! });
@@ -728,7 +728,7 @@ describe('Message Routing (AC-B1-B4)', () => {
     it('决策 12 频道默认角色派单：同样落 anchorMessageId + 回填 workUnitId', async () => {
       await fileStore.updateChannel(channelId, { defaultProfileId: 'default-agent-1' });
 
-      const result = await routeMessage(channelId, '没有点名的消息', undefined, fileStore);
+      const result = await routeMessage(channelId, '没有点名的消息', undefined, { fs: fileStore });
 
       const wu = await findWu(result.workUnitId!);
       const meta = wu!.metadata ? JSON.parse(wu!.metadata) : {};

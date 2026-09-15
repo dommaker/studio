@@ -62,11 +62,11 @@ describe('#495: 决策12 派单合并窗口（方案 a）', () => {
   });
 
   it('窗口内第二条无 @ 消息 → 合并进在途 WU，不建新单', async () => {
-    const first = await routeMessage(channelId, '帮我看下这个报错', undefined, fileStore);
+    const first = await routeMessage(channelId, '帮我看下这个报错', undefined, { fs: fileStore });
     const wuCount = await countWu(channelId);
     expect(wuCount).toBe(1);
 
-    const second = await routeMessage(channelId, '日志在这里', undefined, fileStore);
+    const second = await routeMessage(channelId, '日志在这里', undefined, { fs: fileStore });
 
     expect(await countWu(channelId)).toBe(1); // 没有第二张单
     expect(second.workUnitId).toBe(first.workUnitId);
@@ -78,9 +78,9 @@ describe('#495: 决策12 派单合并窗口（方案 a）', () => {
   });
 
   it('连发 3 条闲聊 → 仍只 1 张 WU（滑动窗口：合并消息刷新窗口锚点）', async () => {
-    const first = await routeMessage(channelId, '第一条', undefined, fileStore);
-    await routeMessage(channelId, '第二条', undefined, fileStore);
-    const third = await routeMessage(channelId, '第三条', undefined, fileStore);
+    const first = await routeMessage(channelId, '第一条', undefined, { fs: fileStore });
+    await routeMessage(channelId, '第二条', undefined, { fs: fileStore });
+    const third = await routeMessage(channelId, '第三条', undefined, { fs: fileStore });
 
     expect(await countWu(channelId)).toBe(1);
     expect(third.workUnitId).toBe(first.workUnitId);
@@ -104,7 +104,7 @@ describe('#495: 决策12 派单合并窗口（方案 a）', () => {
     };
     await fileStore.appendMessage(channelId, lastHuman);
 
-    const merged = await routeMessage(channelId, '继续，用方案 B', undefined, fileStore);
+    const merged = await routeMessage(channelId, '继续，用方案 B', undefined, { fs: fileStore });
 
     expect(await countWu(channelId)).toBe(1);
     expect(merged.workUnitId).toBe(wu.id);
@@ -125,7 +125,7 @@ describe('#495: 决策12 派单合并窗口（方案 a）', () => {
     };
     await fileStore.appendMessage(channelId, stale);
 
-    const result = await routeMessage(channelId, '新话题：帮我部署一下', undefined, fileStore);
+    const result = await routeMessage(channelId, '新话题：帮我部署一下', undefined, { fs: fileStore });
 
     expect(await countWu(channelId)).toBe(2);
     expect(result.workUnitId).not.toBe(wu.id);
@@ -145,17 +145,17 @@ describe('#495: 决策12 派单合并窗口（方案 a）', () => {
     };
     await fileStore.appendMessage(channelId, lastHuman);
 
-    const result = await routeMessage(channelId, '新任务来了', undefined, fileStore);
+    const result = await routeMessage(channelId, '新任务来了', undefined, { fs: fileStore });
 
     expect(await countWu(channelId)).toBe(2);
     expect(result.workUnitId).not.toBe(wu.id);
   });
 
   it('@mention 路径行为不变：窗口内 @ 消息仍建新 WU', async () => {
-    await routeMessage(channelId, '先聊一句', undefined, fileStore);
+    await routeMessage(channelId, '先聊一句', undefined, { fs: fileStore });
     expect(await countWu(channelId)).toBe(1);
 
-    const result = await routeMessage(channelId, '@Somebody 显式派单', undefined, fileStore);
+    const result = await routeMessage(channelId, '@Somebody 显式派单', undefined, { fs: fileStore });
 
     expect(await countWu(channelId)).toBe(2);
     const wu = await findWu(result.workUnitId!);
@@ -165,7 +165,7 @@ describe('#495: 决策12 派单合并窗口（方案 a）', () => {
   it('未配置默认角色的频道不受影响（维持纯存储）', async () => {
     await fileStore.updateChannel(channelId, { defaultProfileId: null });
 
-    const result = await routeMessage(channelId, '纯闲聊', undefined, fileStore);
+    const result = await routeMessage(channelId, '纯闲聊', undefined, { fs: fileStore });
 
     expect(result.workUnitId).toBeNull();
     expect(await countWu(channelId)).toBe(0);
@@ -185,7 +185,7 @@ describe('#495: 决策12 派单合并窗口（方案 a）', () => {
     };
     await fileStore.appendMessage(channelId, lastHuman);
 
-    const merged = await routeMessage(channelId, '继续补充', undefined, fileStore);
+    const merged = await routeMessage(channelId, '继续补充', undefined, { fs: fileStore });
 
     expect(await countWu(channelId)).toBe(1);
     expect(merged.workUnitId).toBe(wu.id);

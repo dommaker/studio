@@ -1,18 +1,19 @@
 // Channel Routes — B1-001/B1-002/B1-009/B1-011
+// #532：频道记录读写收口 channel.service——404 判定单点（getOrThrow + handle 映射），
+// 写路径内部失效列表缓存；路由只剩 HTTP 装配（参数 + 状态码）。
 import { Router, json } from 'express';
 import { randomUUID } from 'crypto';
 import { createReadStream } from 'node:fs';
+import type { Request, Response, NextFunction } from 'express';
 import { logger, FileStore } from '@dommaker/studio-shared';
-import { channelMessageService } from './channel-message.service.js';
+import { channelService, ChannelError, validateDefaultWorkspaceId } from './channel.service.js';
 import { saveChannelImage, resolveChannelImage, ATTACHMENT_BODY_LIMIT } from './attachments.js';
 import { routeMessage } from './message-routing.js';
 import { projectService } from '../pmo/project.service.js';
-import { apiCache, CACHE_CONFIG, clearCache } from '../../middleware/api-cache.js';
+import { apiCache, CACHE_CONFIG } from '../../middleware/api-cache.js';
 import { requireAuth, requireNotGuest } from '../../middleware/auth.js';
 import { ConvertToTaskService } from './convert-to-task.service.js';
-import { WorkUnitService } from '../workunit/workunit.service.js';
 import { ProjectDiscoveryService } from '../projects/project-discovery.service.js';
-import { getWorkspaceRecord } from '../workspaces/workspace-store.js';
 import { getChannelFileVocabulary } from './file-ref-vocabulary.js';
 import { deriveChannelCurrentPmo } from './current-pmo.js';
 import { deriveChannelSuggestions } from './suggestions.js';
@@ -22,18 +23,33 @@ import { validateRouting, buildMemberRemovalWarning } from './routing.js';
 const router = Router();
 const fileStore = new FileStore();
 const convertToTaskService = new ConvertToTaskService(fileStore);
-const workUnitService = new WorkUnitService(fileStore);
 const projectDiscoveryService = new ProjectDiscoveryService();
 
+type AsyncHandler = (req: Request, res: Response) => Promise<unknown>;
+
+/** ChannelError → 对应状态码 + {success:false, error}；其余错误交全局 errorHandler */
+function handle(fn: AsyncHandler) {
+  return (req: Request, res: Response, next: NextFunction) => {
+    fn(req, res).catch((e: unknown) => {
+      if (e instanceof ChannelError) {
+        res.status(e.status).json({ success: false, error: e.message });
+        return;
+      }
+      next(e);
+    });
+  };
+}
+
 // GET /api/v1/channels — list all non-archived channels
-router.get('/', apiCache(CACHE_CONFIG.medium), async (_req, res) => {
-  const channels = await fileStore.listChannels({ excludeArchived: true });
+// 2026-09-14：读侧与写侧对称补 requireAuth
+router.get('/', requireAuth(), apiCache(CACHE_CONFIG.medium), handle(async (_req, res) => {
+  const channels = await channelService.listVisibleChannels();
   res.json({ success: true, data: channels });
-});
+}));
 
 // POST /api/v1/channels — create a new channel (B2-007)
 // Also supports creating initial agents: { agents: [{ name, description? }] }
-router.post('/', requireAuth(), requireNotGuest(), async (req, res) => {
+router.post('/', requireAuth(), requireNotGuest(), handle(async (req, res) => {
   const { name, type = 'rnd', members, agents, defaultPath } = req.body;
   if (!name || typeof name !== 'string' || !name.trim()) {
     return res.status(400).json({ success: false, error: 'name is required' });
@@ -46,98 +62,37 @@ router.post('/', requireAuth(), requireNotGuest(), async (req, res) => {
     return res.status(400).json({ success: false, error: 'defaultPath must be a string' });
   }
   const defaultPathValue = typeof defaultPath === 'string' && defaultPath.trim() ? defaultPath.trim() : null;
-  const channelName = name.startsWith('#') ? name.trim() : `#${name.trim()}`;
-  try {
-    // Check duplicate name (FileStore has no unique constraint)
-    const existing = await fileStore.listChannels({ name: channelName });
-    if (existing.length > 0) {
-      return res.status(409).json({ success: false, error: 'Channel name already exists' });
-    }
-    // Create channel first
-    const now = new Date().toISOString();
-    const channel = {
-      id: randomUUID(),
-      name: channelName,
-      type,
-      defaultWorkspaceId: null,
-      defaultPath: defaultPathValue,
-      discordChannelId: null,
-      discordWebhookUrl: null,
-      members: '[]',
-      createdAt: now,
-      updatedAt: now,
-    };
-    await fileStore.createChannel(channel);
-
-    // Create initial agents if provided
-    const createdAgentIds: string[] = [];
-    if (Array.isArray(agents) && agents.length > 0) {
-      for (const agent of agents) {
-        if (!agent.name || typeof agent.name !== 'string') continue;
-        try {
-          const profile = await createAgentWithFileStore(fileStore, agent.name.trim(), agent.description, channel.id, agent.provider);
-          createdAgentIds.push(profile.id);
-        } catch (agentErr: any) {
-          // Skip duplicate agent names, continue with others
-          if (!agentErr?.message?.includes('Unique constraint')) {
-            logger.warn('[Channel] Failed to create agent', { agent: agent.name, error: String(agentErr) });
-          }
-        }
-      }
-
-      // Update channel members with created agent IDs
-      if (createdAgentIds.length > 0) {
-        await fileStore.updateChannel(channel.id, { members: JSON.stringify(createdAgentIds) });
-      }
-    }
-
-    // Also include explicitly provided member IDs
-    if (Array.isArray(members) && members.length > 0) {
-      const allMembers = [...new Set([...createdAgentIds, ...members])];
-      await fileStore.updateChannel(channel.id, { members: JSON.stringify(allMembers) });
-    }
-
-    // Reload channel to get final members
-    const finalChannel = await fileStore.getChannel(channel.id);
-    logger.info('[Channel] Created', { id: channel.id, name: channelName, agents: createdAgentIds.length });
-    // #448 问题1：写后失效 channels 列表缓存（30s apiCache）
-    await clearCache(req.baseUrl);
-    res.status(201).json({ success: true, data: finalChannel });
-  } catch (e: any) {
-    throw e;
-  }
-});
+  const finalChannel = await channelService.create({ name, type, defaultPath: defaultPathValue, agents, members });
+  res.status(201).json({ success: true, data: finalChannel });
+}));
 
 // GET /api/v1/channels/:id — get channel detail
-router.get('/:id', async (req, res) => {
-  const channel = await fileStore.getChannel(req.params.id);
-  if (!channel) return res.status(404).json({ success: false, error: 'Channel not found' });
+router.get('/:id', requireAuth(), handle(async (req, res) => {
+  const channel = await channelService.getOrThrow(req.params.id);
   const messageCount = await fileStore.countMessages(req.params.id);
   res.json({ success: true, data: { ...channel, _count: { ChannelMessage: messageCount } } });
-});
+}));
 
 // GET /api/v1/channels/:id/current-pmo — #272（决策 #251 Q6）：顶栏「当前 PMO」chip
 // 派生概念不落库：最近挂接 REQ 所属 PMO → 杂务 PMO 反推 → null（见 current-pmo.ts）。
-router.get('/:id/current-pmo', async (req, res) => {
-  const channel = await fileStore.getChannel(req.params.id);
-  if (!channel) return res.status(404).json({ success: false, error: 'Channel not found' });
+router.get('/:id/current-pmo', requireAuth(), handle(async (req, res) => {
+  await channelService.getOrThrow(req.params.id);
   const pmo = await deriveChannelCurrentPmo(req.params.id);
   res.json({ success: true, data: pmo });
-});
+}));
 
 // GET /api/v1/channels/:id/suggestions — #443（spec #441 情境引导 02）：频道建议派生端点。
 // 不落库、按当前事实现算；fail-closed（前置不满足/拿不准不出）。本票只交付 status
 // 只读状态说明形态（自动评审在途）；action/prompt 形态见 #444/#445/#446（见 suggestions.ts）。
-router.get('/:id/suggestions', async (req, res) => {
-  const channel = await fileStore.getChannel(req.params.id);
-  if (!channel) return res.status(404).json({ success: false, error: 'Channel not found' });
+router.get('/:id/suggestions', requireAuth(), handle(async (req, res) => {
+  await channelService.getOrThrow(req.params.id);
   const data = await deriveChannelSuggestions(req.params.id, { fileStore });
   res.json({ success: true, data });
-});
+}));
 
 // GET /api/v1/channels/:id/messages — paginated messages
 // #319：before = 锚点消息 id 游标（原 timestamp 游标同毫秒撞车会漏/重）；分页半下沉到存储层（queryMessagesPage 切片）
-router.get('/:id/messages', async (req, res) => {
+router.get('/:id/messages', requireAuth(), async (req, res) => {
   const { before, limit = '50' } = req.query;
   const take = Math.min(Number(limit), 100);
 
@@ -162,9 +117,8 @@ router.get('/:id/messages', async (req, res) => {
 // GET /api/v1/channels/:id/file-vocabulary — #281：@文件引用只读词表
 // 候选集 = 频道相关工程（默认工程 ∪ REQ 挂接 PMO ∪ 杂务 PMO，最近使用优先），
 // 各仓 git ls-files + 内存缓存（见 file-ref-vocabulary.ts）。
-router.get('/:id/file-vocabulary', async (req, res) => {
-  const channel = await fileStore.getChannel(req.params.id);
-  if (!channel) return res.status(404).json({ success: false, error: 'Channel not found' });
+router.get('/:id/file-vocabulary', requireAuth(), handle(async (req, res) => {
+  await channelService.getOrThrow(req.params.id);
   try {
     const vocabulary = await getChannelFileVocabulary(req.params.id);
     res.json({ success: true, data: vocabulary });
@@ -173,10 +127,10 @@ router.get('/:id/file-vocabulary', async (req, res) => {
     logger.warn('[Channel] file vocabulary failed', { channelId: req.params.id, error: msg });
     res.status(500).json({ success: false, error: msg });
   }
-});
+}));
 
 // POST /api/v1/channels/:id/messages — send a message
-router.post('/:id/messages', requireAuth(), requireNotGuest(), async (req, res) => {
+router.post('/:id/messages', requireAuth(), requireNotGuest(), handle(async (req, res) => {
   const { content, replyToId, reqId, files } = req.body;
   if (!content || typeof content !== 'string' || !content.trim()) {
     return res.status(400).json({ success: false, error: 'content is required' });
@@ -193,10 +147,7 @@ router.post('/:id/messages', requireAuth(), requireNotGuest(), async (req, res) 
   const channelId = req.params.id;
   const trimmedContent = content.trim();
 
-  const channel = await fileStore.getChannel(channelId);
-  if (!channel) {
-    return res.status(404).json({ success: false, error: 'Channel not found' });
-  }
+  const channel = await channelService.getOrThrow(channelId);
 
   // P0 修复 6 + #519: traceId — 复用 audit 中间件落在 req 上的 requestId（同一次 HTTP 请求同值），
   // 没有则新建（如单测直连路由）；三条派单路径建出/关联的 WU 统一写入 metadata.traceId。
@@ -207,7 +158,6 @@ router.post('/:id/messages', requireAuth(), requireNotGuest(), async (req, res) 
     channelId,
     trimmedContent,
     replyToId || undefined,
-    undefined,
     {
       // REQ 需求编号（vision §5.3）：调用方可显式指定（缺省走 #REQ-XXXX token / 自动新建）
       reqId: typeof reqId === 'string' && reqId ? reqId : undefined,
@@ -220,18 +170,17 @@ router.post('/:id/messages', requireAuth(), requireNotGuest(), async (req, res) 
   );
 
   res.status(201).json({ success: true, data: message });
-});
+}));
 
 // POST /api/v1/channels/:id/attachments — 频道图片上传（2026-09，「频道里加上截图」）
 // JSON base64 体（不引 multipart 依赖）；该路由单独放大 json limit（8mb，全局 2mb 不动）——
 // app.ts 在全局 parser 前对同路径预解析，此处路由级再挂保直挂测试自足（已解析请求自动跳过）。
-router.post('/:id/attachments', json({ limit: ATTACHMENT_BODY_LIMIT }), requireAuth(), requireNotGuest(), async (req, res) => {
-  const channel = await fileStore.getChannel(req.params.id);
-  if (!channel) return res.status(404).json({ success: false, error: 'Channel not found' });
+router.post('/:id/attachments', json({ limit: ATTACHMENT_BODY_LIMIT }), requireAuth(), requireNotGuest(), handle(async (req, res) => {
+  await channelService.getOrThrow(req.params.id);
   const result = await saveChannelImage(req.params.id, req.body ?? {});
   if (!result.ok) return res.status(result.status).json({ success: false, error: result.error });
   res.status(201).json({ success: true, data: result.value });
-});
+}));
 
 // GET /api/v1/channels/:id/attachments/:attachmentId — 取图
 // <img> 无法带 Authorization 头：?token= 携带 JWT（SSE /events/stream 同款），
@@ -245,153 +194,88 @@ router.get('/:id/attachments/:attachmentId', tokenQueryToHeader, requireAuth(), 
 });
 
 // DELETE /api/v1/channels/:id — delete channel (B2-012: Goal fallback to #研发)
-router.delete('/:id', requireAuth(), requireNotGuest(), async (req, res) => {
-  const channel = await fileStore.getChannel(req.params.id);
-  if (!channel) return res.status(404).json({ success: false, error: 'Channel not found' });
-
-  // Find or create #研发 as fallback
-  let rndChannels = await fileStore.listChannels({ type: 'rnd' });
-  let rndChannel = rndChannels.find(c => c.id !== channel.id);
-  if (!rndChannel) {
-    const rndId = randomUUID();
-    const now = new Date().toISOString();
-    rndChannel = { id: rndId, name: '#研发', type: 'rnd', defaultWorkspaceId: null, defaultPath: null, discordChannelId: null, discordWebhookUrl: null, members: '[]', createdAt: now, updatedAt: now };
-    await fileStore.createChannel(rndChannel);
-  }
-
-  // Migrate WorkUnits via WorkUnitService (context.sourceChannelId in metadata)
-  // 存储归属收敛：匹配（字段相等）与写入（事件+快照）均由 WorkUnitService.rebindSourceChannel 负责
-  await workUnitService.rebindSourceChannel(channel.id, rndChannel.id);
-
-  // Delete channel
-  await fileStore.deleteChannel(channel.id);
-  logger.info('[Channel] Deleted with fallback', { deletedId: channel.id, fallbackId: rndChannel.id });
-  // #448 问题1：写后失效 channels 列表缓存（30s apiCache）
-  await clearCache(req.baseUrl);
-  res.json({ success: true, data: { deleted: true, fallbackChannelId: rndChannel.id } });
-});
+router.delete('/:id', requireAuth(), requireNotGuest(), handle(async (req, res) => {
+  const { fallbackChannelId } = await channelService.deleteWithFallback(req.params.id);
+  res.json({ success: true, data: { deleted: true, fallbackChannelId } });
+}));
 
 // PUT /api/v1/channels/:id/archive — archive a channel (B1-011)
-router.put('/:id/archive', requireAuth(), requireNotGuest(), async (req, res) => {
-  const channel = await fileStore.getChannel(req.params.id);
-  if (!channel) return res.status(404).json({ success: false, error: 'Channel not found' });
-
-  // Archive by renaming with timestamp suffix
-  const archivedName = `${channel.name}-archived-${Date.now()}`;
-  await fileStore.updateChannel(channel.id, { name: archivedName });
-  logger.info('[Channel] Archived', { channelId: channel.id, oldName: channel.name });
-  // #448 问题1：写后失效 channels 列表缓存（30s apiCache）
-  await clearCache(req.baseUrl);
-  res.json({ success: true, data: { archived: true, newName: archivedName } });
-});
+router.put('/:id/archive', requireAuth(), requireNotGuest(), handle(async (req, res) => {
+  const newName = await channelService.archive(req.params.id);
+  res.json({ success: true, data: { archived: true, newName } });
+}));
 
 // PUT /api/v1/channels/:id/restore — restore an archived channel (B1-011)
-router.put('/:id/restore', requireAuth(), requireNotGuest(), async (req, res) => {
-  const channel = await fileStore.getChannel(req.params.id);
-  if (!channel) return res.status(404).json({ success: false, error: 'Channel not found' });
-  if (!channel.name.includes('-archived-')) {
-    return res.status(400).json({ success: false, error: 'Channel is not archived' });
-  }
-
-  const restoredName = channel.name.replace(/-archived-\d+$/, '');
-  await fileStore.updateChannel(channel.id, { name: restoredName });
-  logger.info('[Channel] Restored', { channelId: channel.id, restoredName });
-  // #448 问题1：写后失效 channels 列表缓存（30s apiCache）
-  await clearCache(req.baseUrl);
-  res.json({ success: true, data: { restored: true, name: restoredName } });
-});
+router.put('/:id/restore', requireAuth(), requireNotGuest(), handle(async (req, res) => {
+  const name = await channelService.restore(req.params.id);
+  res.json({ success: true, data: { restored: true, name } });
+}));
 
 // PATCH /api/v1/channels/:id — update channel settings
-router.patch('/:id', requireAuth(), requireNotGuest(), async (req, res) => {
+router.patch('/:id', requireAuth(), requireNotGuest(), handle(async (req, res) => {
   const { id } = req.params;
   const { name, defaultWorkspaceId, defaultPath, routing, defaultProfileId } = req.body;
-  try {
-    const data: Record<string, unknown> = {};
-    if (name !== undefined) data.name = name;
-    if (defaultWorkspaceId !== undefined) {
-      // F6: '' → 清除默认工程；非空时校验 workspace 已注册
-      const validated = await validateDefaultWorkspaceId(defaultWorkspaceId);
-      if (!validated.ok) {
-        return res.status(400).json({ success: false, error: validated.error });
-      }
-      data.defaultWorkspaceId = validated.value;
+  const data: Record<string, unknown> = {};
+  if (name !== undefined) data.name = name;
+  if (defaultWorkspaceId !== undefined) {
+    // F6: '' → 清除默认工程；非空时校验 workspace 已注册
+    const validated = await validateDefaultWorkspaceId(defaultWorkspaceId);
+    if (!validated.ok) {
+      return res.status(400).json({ success: false, error: validated.error });
     }
-    if (defaultPath !== undefined) data.defaultPath = defaultPath;
-    // #466: 阶段→角色路由表（吞并 defaultPipeline）；值须为 active profile id，'' / null 清除该档
-    if (routing !== undefined) {
-      const validated = await validateRouting(fileStore, routing);
-      if (!validated.ok) {
-        return res.status(400).json({ success: false, error: validated.error });
-      }
-      // 与存量 routing 合并（单档更新不清掉其他档；显式 null = 清除该档）
-      if (validated.value) {
-        const current = (await fileStore.getChannel(id))?.routing ?? {};
-        data.routing = { ...current, ...validated.value };
-      }
-    }
-    // F5（决策 6）: 入口角色 defaultProfileId 可配置 — '' / null → 清除（@studio 与无 @ 消息回退未指派）；
-    // 非空校验为已存在的 active profile（不强制频道成员，成员边界在路由时按 §9.5 判定）
-    if (defaultProfileId !== undefined) {
-      if (defaultProfileId === '' || defaultProfileId === null) {
-        data.defaultProfileId = null;
-      } else {
-        const all = await fileStore.listProfiles({ status: 'active' });
-        if (!all.some(p => p.id === defaultProfileId)) {
-          return res.status(400).json({ success: false, error: `defaultProfileId ${defaultProfileId} 不是已存在的 active 角色` });
-        }
-        data.defaultProfileId = defaultProfileId;
-      }
-    }
-    await fileStore.updateChannel(id, data as Partial<import('@dommaker/studio-shared').ChannelData>);
-    const updated = await fileStore.getChannel(id);
-    if (!updated) return res.status(404).json({ success: false, error: 'Channel not found' });
-    // #448 问题1：写后失效 channels 列表缓存（30s apiCache）
-    await clearCache(req.baseUrl);
-    res.json({ success: true, data: updated });
-  } catch (e: unknown) {
-    const msg = getErrorMessage(e);
-    if (msg.includes('not found')) {
-      return res.status(404).json({ success: false, error: 'Channel not found' });
-    }
-    throw e;
+    data.defaultWorkspaceId = validated.value;
   }
-});
+  if (defaultPath !== undefined) data.defaultPath = defaultPath;
+  // #466: 阶段→角色路由表（吞并 defaultPipeline）；值须为 active profile id，'' / null 清除该档
+  if (routing !== undefined) {
+    const validated = await validateRouting(fileStore, routing);
+    if (!validated.ok) {
+      return res.status(400).json({ success: false, error: validated.error });
+    }
+    // 与存量合并在 service.update 内部（单档更新不清掉其他档；显式 null = 清除该档）
+    if (validated.value) {
+      data.routing = validated.value;
+    }
+  }
+  // F5（决策 6）: 入口角色 defaultProfileId 可配置 — '' / null → 清除（@studio 与无 @ 消息回退未指派）；
+  // 非空校验为已存在的 active profile（不强制频道成员，成员边界在路由时按 §9.5 判定）
+  if (defaultProfileId !== undefined) {
+    if (defaultProfileId === '' || defaultProfileId === null) {
+      data.defaultProfileId = null;
+    } else {
+      const all = await fileStore.listProfiles({ status: 'active' });
+      if (!all.some(p => p.id === defaultProfileId)) {
+        return res.status(400).json({ success: false, error: `defaultProfileId ${defaultProfileId} 不是已存在的 active 角色` });
+      }
+      data.defaultProfileId = defaultProfileId;
+    }
+  }
+  const updated = await channelService.update(id, data as Partial<import('@dommaker/studio-shared').ChannelData>);
+  res.json({ success: true, data: updated });
+}));
 
 // PATCH /api/v1/channels/:id/members — update channel members (AC-B2)
-router.patch('/:id/members', requireAuth(), requireNotGuest(), async (req, res) => {
+router.patch('/:id/members', requireAuth(), requireNotGuest(), handle(async (req, res) => {
   const { add, remove } = req.body;
-  try {
-    const members = await updateChannelMembers(req.params.id, { add, remove });
-    // #497: 移出被指名角色（routing 档/入口角色）→ 响应附 warning 提示漂移（不阻断，
-    // 与现有校验严格度对齐——指名静默退化为涌现前给人一次知情机会）
-    const removed: string[] = Array.isArray(remove) ? remove.filter((x): x is string => typeof x === 'string') : [];
-    let warning: string | undefined;
-    if (removed.length > 0) {
-      const channel = await fileStore.getChannel(req.params.id);
-      if (channel) warning = buildMemberRemovalWarning(channel, removed);
-    }
-    // #448 问题1：members 在列表载荷中，写后失效 channels 列表缓存（30s apiCache）
-    await clearCache(req.baseUrl);
-    res.json({ success: true, data: { members, ...(warning ? { warning } : {}) } });
-  } catch (e: unknown) {
-    const msg = getErrorMessage(e);
-    if (msg.includes('not found')) {
-      return res.status(404).json({ success: false, error: msg });
-    }
-    throw e;
+  const members = await channelService.updateMembers(req.params.id, { add, remove });
+  // #497: 移出被指名角色（routing 档/入口角色）→ 响应附 warning 提示漂移（不阻断，
+  // 与现有校验严格度对齐——指名静默退化为涌现前给人一次知情机会）
+  const removed: string[] = Array.isArray(remove) ? remove.filter((x): x is string => typeof x === 'string') : [];
+  let warning: string | undefined;
+  if (removed.length > 0) {
+    const channel = await channelService.getOrThrow(req.params.id);
+    warning = buildMemberRemovalWarning(channel, removed);
   }
-});
+  res.json({ success: true, data: { members, ...(warning ? { warning } : {}) } });
+}));
 
 /**
  * POST /api/v1/channels/:id/chore-pmo — 决策 2：登记频道杂务 PMO（find-or-create，幂等）。
  * 登记后，本频道无 token 的派发消息自动归集到杂务 PMO 的 REQ 别名（req-binding 只查不建）。
  */
-router.post('/:id/chore-pmo', requireAuth(), requireNotGuest(), async (req, res) => {
+router.post('/:id/chore-pmo', requireAuth(), requireNotGuest(), handle(async (req, res) => {
+  const channel = await channelService.getOrThrow(req.params.id, `Channel not found: ${req.params.id}`);
   try {
-    const channel = await fileStore.getChannel(req.params.id);
-    if (!channel) {
-      return res.status(404).json({ success: false, error: `Channel not found: ${req.params.id}` });
-    }
     const project = await projectService.ensureChoreProject(channel.id, channel.name);
     res.status(201).json({ success: true, data: project });
   } catch (e: unknown) {
@@ -399,7 +283,7 @@ router.post('/:id/chore-pmo', requireAuth(), requireNotGuest(), async (req, res)
     logger.warn('[Channel] ensure chore PMO failed', { channelId: req.params.id, error: msg });
     res.status(500).json({ success: false, error: msg });
   }
-});
+}));
 
 // POST /api/v1/channels/:id/messages/:messageId/convert-to-task (AC-E1)
 router.post('/:id/messages/:messageId/convert-to-task', requireAuth(), requireNotGuest(), async (req, res) => {
@@ -470,62 +354,4 @@ function tokenQueryToHeader(req: import('express').Request, _res: import('expres
     req.headers.authorization = `Bearer ${req.query.token}`;
   }
   next();
-}
-
-/** Create an agent profile using FileStore (used during channel creation). */
-async function createAgentWithFileStore(fs: FileStore, name: string, description: string | null, channelId: string, provider?: string): Promise<{ id: string }> {
-  const { randomUUID } = await import('crypto');
-  // Check name uniqueness
-  const all = await fs.listProfiles();
-  const existing = all.find(p => p.name === name);
-  if (existing) {
-    return existing;
-  }
-
-  const now = new Date().toISOString();
-  const profile = {
-    id: randomUUID(),
-    name,
-    description: description ?? null,
-    channels: JSON.stringify([channelId]),
-    provider: provider ?? null,
-    status: 'active' as const,
-    createdAt: now,
-    updatedAt: now,
-  };
-  await fs.createProfile(profile);
-  return profile;
-}
-
-/** Update channel members: add/remove agent IDs (idempotent). Returns updated members array. */
-export async function updateChannelMembers(
-  channelId: string,
-  ops: { add?: string[]; remove?: string[] },
-): Promise<string[]> {
-  const channel = await fileStore.getChannel(channelId);
-  if (!channel) throw new Error(`Channel ${channelId} not found`);
-
-  const current: string[] = JSON.parse(channel.members);
-  const addIds: string[] = ops.add ?? [];
-  const removeIds: string[] = ops.remove ?? [];
-
-  const updated = [...new Set([...current, ...addIds])].filter(id => !removeIds.includes(id));
-
-  await fileStore.updateChannel(channelId, { members: JSON.stringify(updated) });
-
-  return updated;
-}
-
-/**
- * F6: 归一化 + 校验 defaultWorkspaceId（channel PATCH 用）。
- * '' / null / 非字符串 → null（清除默认工程）；非空字符串须对应已注册 workspace。
- */
-export async function validateDefaultWorkspaceId(
-  value: unknown,
-): Promise<{ ok: boolean; value: string | null; error?: string }> {
-  const wsId = typeof value === 'string' && value.trim() ? value.trim() : null;
-  if (wsId && !(await getWorkspaceRecord(wsId))) {
-    return { ok: false, value: null, error: `Workspace not found: ${wsId}` };
-  }
-  return { ok: true, value: wsId };
 }

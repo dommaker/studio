@@ -363,3 +363,70 @@ describe('ChannelMessageService', () => {
     });
   });
 });
+
+// ── #529：listByWorkUnitId 频道直查（消灭全频道扇出，#524 P1-1 同构收口） ──
+describe('#529 listByWorkUnitId channelId 直查', () => {
+  let fs529: FileStore;
+  let svc529: ChannelMessageService;
+  let chA: string;
+  let chB: string;
+  let dir529: string;
+
+  beforeAll(async () => {
+    dir529 = path.join(os.tmpdir(), `channel-msg-529-${Date.now()}`);
+    fs529 = new FileStore(dir529);
+    svc529 = new ChannelMessageService(fs529);
+    const mk = async (id: string) => fs529.createChannel({
+      id,
+      name: `#${id}`,
+      type: 'rnd',
+      defaultWorkspaceId: null,
+      defaultPath: null,
+      discordChannelId: null,
+      discordWebhookUrl: null,
+      members: '[]',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    chA = `ch-a-529-${Date.now()}`;
+    chB = `ch-b-529-${Date.now()}`;
+    await mk(chA);
+    await mk(chB);
+  });
+
+  afterAll(() => {
+    fs.rmSync(dir529, { recursive: true, force: true });
+  });
+
+  it('带 channelId：只直查归属频道，不读无关频道（spy queryMessages 调用参数）', async () => {
+    const mA = await svc529.createHumanMessage(chA, 'in A', undefined, 'wu-529');
+    await svc529.createHumanMessage(chB, 'unrelated other WU', undefined, 'wu-other');
+    await svc529.createHumanMessage(chB, 'no WU');
+
+    const spyQuery = vi.spyOn(fs529, 'queryMessages');
+    const spyListChannels = vi.spyOn(fs529, 'listChannels');
+    try {
+      const result = await svc529.listByWorkUnitId('wu-529', { channelId: chA });
+      expect(result.data.map(m => m.id)).toEqual([mA.id]);
+      expect(result.total).toBe(1);
+      // 只读归属频道：单次直查、首参 = channelId，不再 listChannels 扇出
+      expect(spyQuery).toHaveBeenCalledTimes(1);
+      expect(spyQuery.mock.calls[0][0]).toBe(chA);
+      expect(spyQuery).not.toHaveBeenCalledWith(chB, expect.anything());
+      expect(spyListChannels).not.toHaveBeenCalled();
+    } finally {
+      spyQuery.mockRestore();
+      spyListChannels.mockRestore();
+    }
+  });
+
+  it('缺 channelId（legacy WU 无频道归属）：保留扇出 fallback，跨频道收集', async () => {
+    const mA = await svc529.createHumanMessage(chA, 'legacy A', undefined, 'wu-529-legacy');
+    const mB = await svc529.createHumanMessage(chB, 'legacy B', undefined, 'wu-529-legacy');
+
+    const result = await svc529.listByWorkUnitId('wu-529-legacy');
+
+    expect(result.total).toBe(2);
+    expect([...result.data.map(m => m.id)].sort()).toEqual([mA.id, mB.id].sort());
+  });
+});

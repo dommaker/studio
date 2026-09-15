@@ -5,7 +5,6 @@
  * 本模块负责纯分析检测逻辑，产出 Suggestion 列表：
  *   - 错误归类（classifyError）
  *   - 技能/agent-type 建议规则（B3-005）
- *   - 用户模型质量分析
  *   - 知识电路健康分析（I2，含 OKR 达成率与 memory 同步检查）
  */
 
@@ -27,20 +26,9 @@ export function studioEventsJsonl(): string {
   return resolveStudioEventsFile();
 }
 
-/**
- * harness `update-user-model` 状态文件路径。
- * harness #116 为该文件加了 HARNESS_UUM_STATE_FILE env 覆盖（默认值不变）；此前本仓
- * 两个调用点各自 os.homedir() 拼死成默认路径，运维设了该 env 就会 harness 写别处、
- * auditor 读默认 → 静默读到空、建议数归零且无报错。收口于此。
- */
-export function userModelStateFile(env: NodeJS.ProcessEnv = process.env): string {
-  return env.HARNESS_UUM_STATE_FILE
-    || path.join(os.homedir(), '.claude', 'user-model-state.json');
-}
-
 export interface Suggestion {
   type: 'skill_weight' | 'skill_status' | 'param_tuning' | 'prompt_optimization'
-       | 'model_weight_tune' | 'derived_rule_promote' | 'scope_stale_alert' | 'circuit_fix';
+       | 'scope_stale_alert' | 'circuit_fix';
   risk: 'low' | 'high';
   skillId?: string;
   skillName?: string;
@@ -61,59 +49,6 @@ export function classifyError(errorMsg: string): string {
   if (msg.includes('permission') || msg.includes('denied')) return 'permission';
   if (msg.includes('model') || msg.includes('token') || msg.includes('llm')) return 'llm/model';
   return 'other';
-}
-
-// ── User Model Quality Analysis ──
-
-export async function analyzeUserModel(): Promise<Suggestion[]> {
-  const suggestions: Suggestion[] = [];
-  try {
-    const fs = await import('fs');
-
-    // Read user model state (written by update-user-model)
-    const stateFile = userModelStateFile();
-    if (!fs.existsSync(stateFile)) return suggestions;
-
-    const state = JSON.parse(fs.readFileSync(stateFile, 'utf-8'));
-    const patterns = state.patterns || {};
-
-    // 1. Semantic cluster stability: clusters with >5 occurrences but still "new" → suggest stabilize
-    for (const [concept, p] of Object.entries(patterns) as [string, any][]) {
-      if (p.occurrences >= 5 && p.trend === 'rising') {
-        suggestions.push({
-          type: 'model_weight_tune',
-          risk: 'low',
-          detail: `概念 "${concept}" 出现 ${p.occurrences} 次，趋势 rising → 建议固化权重`,
-          data: { concept, occurrences: p.occurrences, sessions: p.sessions?.length },
-        });
-      }
-      // 2. Falling patterns: was stable, now declining → check if should retire
-      if (p.trend === 'falling' && p.occurrences >= 3) {
-        suggestions.push({
-          type: 'model_weight_tune',
-          risk: 'low',
-          detail: `概念 "${concept}" 趋势 falling → 建议降权`,
-          data: { concept, occurrences: p.occurrences, trend: 'falling' },
-        });
-      }
-    }
-
-    // 3. Lens weight drift: compare current weights vs baseline
-    const lensWeights = state.lensWeights || {};
-    for (const [lens, weight] of Object.entries(lensWeights) as [string, number][]) {
-      if (weight >= 3) {
-        suggestions.push({
-          type: 'derived_rule_promote',
-          risk: 'high',
-          detail: `Lens "${lens}" 权重 ${weight} ≥ 3 → 建议升级为硬约束`,
-          data: { lens, weight },
-        });
-      }
-    }
-  } catch (e: any) {
-    logger.warn('[AuditorService] User model analysis failed', { error: String(e) });
-  }
-  return suggestions;
 }
 
 // ── Knowledge Circuit Health (I2) ──

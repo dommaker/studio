@@ -65,11 +65,8 @@ describe('buildAuditorNotificationLink()', () => {
 // ── applyLowRiskSuggestions ──
 
 describe('applyLowRiskSuggestions()', () => {
-  const stateFile = path.join(tmpHome, '.claude', 'user-model-state.json');
-
   beforeEach(() => {
     skillStore.deleteMany({ name: { startsWith: '__exec_test_' } });
-    try { fs.unlinkSync(stateFile); } catch {}
   });
 
   it('applies skill_weight: updates successRate in store', async () => {
@@ -94,27 +91,6 @@ describe('applyLowRiskSuggestions()', () => {
     expect(applied.length).toBe(1);
     expect(applied[0]).toContain('auto-published');
     expect(skillStore.get(s.id)?.status).toBe('published');
-  });
-
-  it('applies model_weight_tune: marks concept trend stable in state file', async () => {
-    fs.mkdirSync(path.dirname(stateFile), { recursive: true });
-    fs.writeFileSync(stateFile, JSON.stringify({ patterns: { foo: { occurrences: 6, trend: 'rising' } } }), 'utf-8');
-
-    const applied = await applyLowRiskSuggestions([{
-      type: 'model_weight_tune', risk: 'low', detail: 'd', data: { concept: 'foo' },
-    }]);
-
-    expect(applied.length).toBe(1);
-    expect(applied[0]).toContain('固化');
-    const state = JSON.parse(fs.readFileSync(stateFile, 'utf-8'));
-    expect(state.patterns.foo.trend).toBe('stable');
-  });
-
-  it('model_weight_tune is a no-op when state file missing', async () => {
-    const applied = await applyLowRiskSuggestions([{
-      type: 'model_weight_tune', risk: 'low', detail: 'd', data: { concept: 'foo' },
-    }]);
-    expect(applied.length).toBe(0);
   });
 
   it('records low-risk circuit_fix without side effects', async () => {
