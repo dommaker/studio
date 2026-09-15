@@ -38,6 +38,15 @@ export type { WorkUnitMetadata, ReviewAttestationSource, InspectionOpportunity, 
  */
 const reviewPassTracker = createSettledTracker();
 
+/** #551：verifyManually 的判别联合结果——kind 承载守卫/执行结论，HTTP 语义由路由层映射 */
+export type ManualVerifyResult =
+  | { kind: 'not-found' }
+  | { kind: 'not-code-type'; wuType: string }
+  | { kind: 'no-worktree' }
+  | { kind: 'no-commands' }
+  | { kind: 'failed'; failure: { command: string; tail: string } }
+  | { kind: 'verified'; report: unknown };
+
 function trackReviewPassEffect(effect: Promise<unknown>): void {
   reviewPassTracker.track(effect);
 }
@@ -426,6 +435,50 @@ export class WorkUnitService extends WorkUnitCrudService {
     const updated = await this.persistSnapshot(current, metadata, { eventType: 'updated' });
     return snapshotToData(updated);
   }
+
+  /**
+   * #551：POST /:id/verify 的业务下沉（F6-c 断点 2，人工重跑 L1，脱 HTTP 可直测）。
+   * 守卫链：存在性 → 代码类 type → worktree 落档 → 有可跑命令，失败以判别联合 kind
+   * 返回（不抛错、不携带 HTTP 语义，状态码由路由层映射）；命令实际执行后无论成败
+   * 都经 recordL1Verification 落台账 l1（失败= rejected，全绿= approved + verifyReport）。
+   * opts.commands 非空时视为 metadata.verifyCommands 覆盖（同 resolveVerifyCommands 语义）。
+   * wu-verification 动态 import：与 merge-on-review-pass 同例，避免拉起 agents 模块图。
+   */
+  async verifyManually(id: string, opts: { by: string; commands?: string[] }): Promise<ManualVerifyResult> {
+    const wu = await this.getById(id);
+    if (!wu) return { kind: 'not-found' };
+
+    const { CODE_WORKTREE_TYPES, resolveVerifyCommands, runWuVerification } =
+      await import('../agents/loop/wu-verification.js');
+
+    if (!CODE_WORKTREE_TYPES.has(wu.type)) return { kind: 'not-code-type', wuType: wu.type };
+
+    const metadata: WorkUnitMetadata = parseWuMetadata(wu.metadata);
+    const worktreePath = typeof metadata.worktreePath === 'string' && metadata.worktreePath.length > 0
+      ? metadata.worktreePath
+      : null;
+    if (!worktreePath) return { kind: 'no-worktree' };
+
+    const effectiveMeta: WorkUnitMetadata = opts.commands && opts.commands.length > 0
+      ? { ...metadata, verifyCommands: opts.commands }
+      : metadata;
+    const { commands } = await resolveVerifyCommands(wu, effectiveMeta, worktreePath);
+    if (commands.length === 0) return { kind: 'no-commands' };
+
+    const outcome = await runWuVerification(wu, effectiveMeta, worktreePath);
+    const updated = await this.recordL1Verification(wu.id, {
+      by: opts.by,
+      ran: outcome.ran,
+      source: outcome.source,
+      failure: outcome.failure,
+    });
+
+    if (outcome.failure) return { kind: 'failed', failure: outcome.failure };
+    const report = parseWuMetadata(updated.metadata).verifyReport
+      ?? { commands: outcome.ran, source: outcome.source };
+    return { kind: 'verified', report };
+  }
+
   async markMergeConflict(id: string, conflictFiles: string[], opts?: { blockReason?: string }): Promise<WorkUnitData> {
     const current = (await this.fileStore.getIndex({ id }))[0];
     if (!current) throw new Error('WorkUnit not found');

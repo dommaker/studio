@@ -1,33 +1,21 @@
 // F6-c 证据断链修复路由契约测试：
-//  - POST /:id/verify（断点 2）：human-only；404/400/409/422 守卫；全绿落 l1 approved + verifyReport，
-//    失败落 l1 rejected；只动台账不动状态；by=登录用户名（STUDIO_AUTH=none → Local User）
+//  - POST /:id/verify（断点 2）：human-only；service.verifyManually 判别联合 kind →
+//    404/400/409/422/200 响应映射（#551 业务下沉后，本层只测 kind→HTTP 翻译；
+//    守卫链/台账落写本身由 workunit-api.test.ts 的 verifyManually 直测覆盖）
 //  - POST /:id/dispatch-review（断点 3）：human-only；404/400/409 守卫；成功返回 { reviewWorkUnitId }
-// WorkUnitService / wu-verification / review-dispatcher 均 mock（router 模块级单例会指向真实 ~/.studio/data），只测路由层契约。
+// WorkUnitService / review-dispatcher 均 mock（router 模块级单例会指向真实 ~/.studio/data），只测路由层契约。
 import { describe, it, expect, vi, beforeAll, beforeEach, afterAll } from 'vitest';
 import express from 'express';
 import type { Server } from 'node:http';
 
-const { mockGetById, mockRecordL1 } = vi.hoisted(() => ({
-  mockGetById: vi.fn(),
-  mockRecordL1: vi.fn(),
+const { mockVerifyManually } = vi.hoisted(() => ({
+  mockVerifyManually: vi.fn(),
 }));
 
 vi.mock('../workunit.service.js', () => ({
   WorkUnitService: class {
-    getById = mockGetById;
-    recordL1Verification = mockRecordL1;
+    verifyManually = mockVerifyManually;
   },
-}));
-
-const { mockResolveVerifyCommands, mockRunWuVerification } = vi.hoisted(() => ({
-  mockResolveVerifyCommands: vi.fn(),
-  mockRunWuVerification: vi.fn(),
-}));
-
-vi.mock('../../agents/loop/wu-verification.js', () => ({
-  CODE_WORKTREE_TYPES: new Set(['task', 'bug', 'feature', 'refactor']),
-  resolveVerifyCommands: mockResolveVerifyCommands,
-  runWuVerification: mockRunWuVerification,
 }));
 
 const { mockDispatchReviewNow } = vi.hoisted(() => ({
@@ -39,13 +27,6 @@ vi.mock('../../agents/loop/review-dispatcher.js', () => ({
 }));
 
 import router from '../workunit.routes.js';
-
-const codeWu = (metadata: Record<string, unknown> = {}) => ({
-  id: 'wu-1',
-  type: 'task',
-  status: 'in_review',
-  metadata: JSON.stringify({ worktreePath: '/tmp/wt-1', ...metadata }),
-});
 
 describe('F6-c 证据断链修复路由（/verify + /dispatch-review）', () => {
   let server: Server;
@@ -79,109 +60,98 @@ describe('F6-c 证据断链修复路由（/verify + /dispatch-review）', () => 
     });
   }
 
-  // ─── POST /:id/verify ───
+  // ─── POST /:id/verify（#551：kind → HTTP 翻译） ───
 
-  it('verify：agent 身份 → 403，service/验证均未调用', async () => {
+  it('verify：agent 身份 → 403，service 未调用', async () => {
     const res = await post('/wu-1/verify', { body: { authorType: 'agent' } });
     expect(res.status).toBe(403);
     const json = await res.json() as { error: { code: string } };
     expect(json.error.code).toBe('FORBIDDEN');
-    expect(mockGetById).not.toHaveBeenCalled();
-    expect(mockRunWuVerification).not.toHaveBeenCalled();
+    expect(mockVerifyManually).not.toHaveBeenCalled();
   });
 
-  it('verify：WU 不存在 → 404', async () => {
-    mockGetById.mockResolvedValue(null);
+  it('verify：not-found → 404 NOT_FOUND', async () => {
+    mockVerifyManually.mockResolvedValue({ kind: 'not-found' });
     const res = await post('/wu-x/verify');
     expect(res.status).toBe(404);
-    const json = await res.json() as { error: { code: string } };
+    const json = await res.json() as { error: { code: string; message: string } };
     expect(json.error.code).toBe('NOT_FOUND');
+    expect(json.error.message).toBe('WorkUnit wu-x not found');
   });
 
-  it('verify：非代码类 WU（review）→ 400', async () => {
-    mockGetById.mockResolvedValue({ ...codeWu(), type: 'review' });
+  it('verify：not-code-type → 400 INVALID_INPUT（message 带 wuType）', async () => {
+    mockVerifyManually.mockResolvedValue({ kind: 'not-code-type', wuType: 'review' });
     const res = await post('/wu-1/verify');
     expect(res.status).toBe(400);
     const json = await res.json() as { error: { code: string; message: string } };
     expect(json.error.code).toBe('INVALID_INPUT');
-    expect(mockRunWuVerification).not.toHaveBeenCalled();
+    expect(json.error.message).toContain('type=review');
   });
 
-  it('verify：无 worktree 落档 → 409', async () => {
-    mockGetById.mockResolvedValue({ id: 'wu-1', type: 'task', status: 'in_review', metadata: '{}' });
+  it('verify：no-worktree → 409 NO_WORKTREE', async () => {
+    mockVerifyManually.mockResolvedValue({ kind: 'no-worktree' });
     const res = await post('/wu-1/verify');
     expect(res.status).toBe(409);
     const json = await res.json() as { error: { code: string } };
     expect(json.error.code).toBe('NO_WORKTREE');
-    expect(mockRunWuVerification).not.toHaveBeenCalled();
   });
 
-  it('verify：无可跑命令 → 422 { verified:false, reason:no-commands, hint }', async () => {
-    mockGetById.mockResolvedValue(codeWu());
-    mockResolveVerifyCommands.mockResolvedValue({ commands: [], source: 'convention' });
+  it('verify：no-commands → 422 { verified:false, reason:no-commands, hint }', async () => {
+    mockVerifyManually.mockResolvedValue({ kind: 'no-commands' });
     const res = await post('/wu-1/verify');
     expect(res.status).toBe(422);
     const json = await res.json() as { verified: boolean; reason: string; hint: string };
     expect(json.verified).toBe(false);
     expect(json.reason).toBe('no-commands');
     expect(json.hint).toContain('verifyCommands');
-    expect(mockRunWuVerification).not.toHaveBeenCalled();
-    expect(mockRecordL1).not.toHaveBeenCalled();
   });
 
-  it('verify：全绿 → 200 { verified:true, report }，落 l1 approved（by=登录用户名，kind=verify）', async () => {
-    mockGetById.mockResolvedValue(codeWu());
-    mockResolveVerifyCommands.mockResolvedValue({ commands: ['pnpm run test'], source: 'convention' });
-    mockRunWuVerification.mockResolvedValue({ ran: ['pnpm run test'], source: 'convention' });
-    const verifyReport = { commands: ['pnpm run test'], source: 'convention', passedAt: '2026-07-30T00:00:00Z' };
-    mockRecordL1.mockResolvedValue({ id: 'wu-1', metadata: JSON.stringify({ verifyReport }) });
-
-    const res = await post('/wu-1/verify');
-    expect(res.status).toBe(200);
-    const json = await res.json() as { verified: boolean; report: { commands: string[] } };
-    expect(json.verified).toBe(true);
-    expect(json.report.commands).toEqual(['pnpm run test']);
-    expect(mockRecordL1).toHaveBeenCalledWith('wu-1', {
-      by: 'Local User', // STUDIO_AUTH=none 本地模式回落
-      ran: ['pnpm run test'],
-      source: 'convention',
-      failure: undefined,
-    });
-  });
-
-  it('verify：有失败 → 200 { verified:false, failed:[{command,tail}] }，落 l1 rejected', async () => {
-    mockGetById.mockResolvedValue(codeWu());
-    mockResolveVerifyCommands.mockResolvedValue({ commands: ['make check'], source: 'override' });
-    mockRunWuVerification.mockResolvedValue({
-      ran: [],
-      source: 'override',
-      failure: { command: 'make check', tail: 'boom' },
-    });
-    mockRecordL1.mockResolvedValue({ id: 'wu-1', metadata: '{}' });
-
+  it('verify：failed → 200 { verified:false, failed:[{command,tail}] }', async () => {
+    mockVerifyManually.mockResolvedValue({ kind: 'failed', failure: { command: 'make check', tail: 'boom' } });
     const res = await post('/wu-1/verify');
     expect(res.status).toBe(200);
     const json = await res.json() as { verified: boolean; failed: Array<{ command: string; tail: string }> };
     expect(json.verified).toBe(false);
     expect(json.failed).toEqual([{ command: 'make check', tail: 'boom' }]);
-    expect(mockRecordL1).toHaveBeenCalledWith('wu-1', expect.objectContaining({
-      failure: { command: 'make check', tail: 'boom' },
-    }));
   });
 
-  it('verify：body.commands 传入时视为 metadata.verifyCommands 覆盖', async () => {
-    mockGetById.mockResolvedValue(codeWu({ verifyCommands: ['old cmd'] }));
-    mockResolveVerifyCommands.mockResolvedValue({ commands: ['./ci.sh'], source: 'override' });
-    mockRunWuVerification.mockResolvedValue({ ran: ['./ci.sh'], source: 'override' });
-    mockRecordL1.mockResolvedValue({ id: 'wu-1', metadata: '{}' });
-
-    const res = await post('/wu-1/verify', { body: { commands: ['./ci.sh'] } });
+  it('verify：verified → 200 { verified:true, report }', async () => {
+    const report = { commands: ['pnpm run test'], source: 'convention', passedAt: '2026-07-30T00:00:00Z' };
+    mockVerifyManually.mockResolvedValue({ kind: 'verified', report });
+    const res = await post('/wu-1/verify');
     expect(res.status).toBe(200);
-    expect(mockRunWuVerification).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 'wu-1' }),
-      expect.objectContaining({ verifyCommands: ['./ci.sh'] }),
-      '/tmp/wt-1',
-    );
+    const json = await res.json() as { verified: boolean; report: { commands: string[] } };
+    expect(json.verified).toBe(true);
+    expect(json.report.commands).toEqual(['pnpm run test']);
+  });
+
+  it('verify：body.commands 过滤透传 + by=登录用户名（STUDIO_AUTH=none → Local User）', async () => {
+    mockVerifyManually.mockResolvedValue({ kind: 'verified', report: {} });
+    const res = await post('/wu-1/verify', { body: { commands: ['./ci.sh', '  ', 42] } });
+    expect(res.status).toBe(200);
+    expect(mockVerifyManually).toHaveBeenCalledWith('wu-1', {
+      by: 'Local User',
+      commands: ['./ci.sh'],
+    });
+  });
+
+  it('verify：body.commands 缺省/空数组 → 不传 commands 键（不落覆盖语义）', async () => {
+    mockVerifyManually.mockResolvedValue({ kind: 'no-commands' });
+    await post('/wu-1/verify');
+    expect(mockVerifyManually).toHaveBeenCalledWith('wu-1', { by: 'Local User' });
+
+    mockVerifyManually.mockClear();
+    await post('/wu-1/verify', { body: { commands: [] } });
+    expect(mockVerifyManually).toHaveBeenCalledWith('wu-1', { by: 'Local User' });
+  });
+
+  it('verify：service 抛错 → 500 INTERNAL_ERROR', async () => {
+    mockVerifyManually.mockRejectedValue(new Error('disk gone'));
+    const res = await post('/wu-1/verify');
+    expect(res.status).toBe(500);
+    const json = await res.json() as { error: { code: string; message: string } };
+    expect(json.error.code).toBe('INTERNAL_ERROR');
+    expect(json.error.message).toBe('disk gone');
   });
 
   // ─── POST /:id/dispatch-review ───

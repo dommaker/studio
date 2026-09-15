@@ -656,4 +656,94 @@ describe('WorkUnit API service', () => {
     });
   });
 
+  // ---- #551: verifyManually（POST /:id/verify 业务下沉 service，脱 HTTP 直测）----
+
+  describe('verifyManually (#551 verify 下沉 service)', () => {
+    it('WU 不存在 → not-found', async () => {
+      const result = await service.verifyManually('nonexistent-id', { by: 'tester' });
+      expect(result.kind).toBe('not-found');
+    });
+
+    it('非代码类 WU → not-code-type（带 wuType）', async () => {
+      const wu = await service.create({ scope: 'analysis no verify', type: 'analysis' });
+      testIds.push(wu.id);
+
+      const result = await service.verifyManually(wu.id, { by: 'tester' });
+      expect(result).toEqual({ kind: 'not-code-type', wuType: 'analysis' });
+    });
+
+    it('代码类但无 worktreePath 落档 → no-worktree', async () => {
+      const wu = await service.create({ scope: 'no worktree', type: 'task' });
+      testIds.push(wu.id);
+
+      const result = await service.verifyManually(wu.id, { by: 'tester' });
+      expect(result.kind).toBe('no-worktree');
+    });
+
+    it('worktree 无可跑命令 → no-commands，不落台账', async () => {
+      const worktreePath = fs.mkdtempSync(path.join(os.tmpdir(), 'wu-verify-empty-'));
+      const wu = await service.create({
+        scope: 'no commands', type: 'task',
+        metadata: { worktreePath },
+      });
+      testIds.push(wu.id);
+
+      const result = await service.verifyManually(wu.id, { by: 'tester' });
+      expect(result.kind).toBe('no-commands');
+
+      const after = await service.getById(wu.id);
+      expect(JSON.parse(after!.metadata ?? '{}').attestations).toBeUndefined();
+    });
+
+    it('全绿 → verified + 台账 l1 approved + verifyReport', async () => {
+      const worktreePath = fs.mkdtempSync(path.join(os.tmpdir(), 'wu-verify-ok-'));
+      const wu = await service.create({
+        scope: 'verify ok', type: 'task',
+        metadata: { worktreePath, verifyCommands: ['echo ok'] },
+      });
+      testIds.push(wu.id);
+
+      const result = await service.verifyManually(wu.id, { by: 'tester' });
+      expect(result.kind).toBe('verified');
+      if (result.kind !== 'verified') return;
+      expect(result.report).toMatchObject({ commands: ['echo ok'], source: 'override' });
+
+      const after = await service.getById(wu.id);
+      const meta = JSON.parse(after!.metadata ?? '{}');
+      expect(meta.attestations.l1).toMatchObject({ verdict: 'approved', by: 'tester', kind: 'verify' });
+      expect(meta.verifyReport.commands).toEqual(['echo ok']);
+    });
+
+    it('命令失败 → failed（首个失败命令 + tail）+ 台账 l1 rejected，不写 verifyReport', async () => {
+      const worktreePath = fs.mkdtempSync(path.join(os.tmpdir(), 'wu-verify-fail-'));
+      const wu = await service.create({
+        scope: 'verify fail', type: 'bug',
+        metadata: { worktreePath, verifyCommands: ['echo first', 'exit 1'] },
+      });
+      testIds.push(wu.id);
+
+      const result = await service.verifyManually(wu.id, { by: 'tester' });
+      expect(result.kind).toBe('failed');
+      if (result.kind !== 'failed') return;
+      expect(result.failure.command).toBe('exit 1');
+
+      const after = await service.getById(wu.id);
+      const meta = JSON.parse(after!.metadata ?? '{}');
+      expect(meta.attestations.l1).toMatchObject({ verdict: 'rejected', by: 'tester', kind: 'verify' });
+      expect(meta.verifyReport).toBeUndefined();
+    });
+
+    it('opts.commands 视为 metadata.verifyCommands 覆盖', async () => {
+      const worktreePath = fs.mkdtempSync(path.join(os.tmpdir(), 'wu-verify-override-'));
+      const wu = await service.create({
+        scope: 'verify override', type: 'feature',
+        metadata: { worktreePath, verifyCommands: ['exit 1'] },
+      });
+      testIds.push(wu.id);
+
+      const result = await service.verifyManually(wu.id, { by: 'tester', commands: ['echo override'] });
+      expect(result.kind).toBe('verified');
+    });
+  });
+
 });
