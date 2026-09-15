@@ -18,7 +18,7 @@ import { ChannelInput } from '../components/channel/ChannelInput';
 import { SuggestionChips, type SuggestionChipItem } from '../components/channel/SuggestionChips';
 import { ChannelTopbarMenu } from '../components/channel/ChannelTopbarMenu';
 import { ChannelCurrentPmoChip } from '../components/channel/ChannelCurrentPmoChip';
-import { ChannelNeedInputChip, type NeedInputTodo } from '../components/channel/ChannelNeedInputChip';
+import { ChannelNeedInputChip } from '../components/channel/ChannelNeedInputChip';
 import { ChannelRail } from '../components/channel/ChannelRail';
 import { ChannelActivityRail } from '../components/channel/ChannelActivityRail';
 import { WorkUnitDrawer, type DrawerState } from '../components/channel/WorkUnitDrawer';
@@ -30,7 +30,7 @@ import { getSuggestionAction } from '../utils/suggestionActions';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import { SkeletonText } from '../components/ui';
 import axios from 'axios';
-import { useNotificationStore } from '../stores/notificationStore';
+import { useNotificationStore, needInputViewOf } from '../stores/notificationStore';
 import { useUnreadStore } from '../stores/unreadStore';
 import { useChannelDataStore, parseChannelMembers } from '../stores/channelDataStore';
 import { useChannelWorkStore, parseRequirementPayload, wuIdleOf } from '../stores/channelWorkStore';
@@ -142,13 +142,12 @@ export function ChannelDetailPage() {
   // #468 设计稿：reply 不再排除闸门类（decision/spec/plan），排除规则改为面板分区解决
   // #533：messageId 随投影下发（后端 action-center 唯一派生点）——回复区/提升/chip 定位全消费它，
   // 前端不再从已加载消息反推（#483 类「提问掉出分页推不出」机制性消除）
+  // #546：投影四种消费形状（待办列表 / wu→mid 映射 / 提升集+判定 / 定位查找）收口 needInputViewOf
+  // 单源选择器（notificationStore 旁纯函数），本页退回订阅并渲染，口径变更只落选择器一处
   const { onEvent, onReconnect } = useWebSocketContext();
   const stateItems = useNotificationStore(s => s.stateItems);
-  const waitingWus = useMemo<NeedInputTodo[]>(() =>
-    stateItems
-      .filter(i => i.kind === 'reply' && i.channelId === id)
-      .map(i => ({ wuId: i.wuId, question: i.waitingQuestion ?? i.scope, messageId: i.messageId })),
-    [stateItems, id]);
+  const needInput = useMemo(() => needInputViewOf(stateItems, id), [stateItems, id]);
+  const { waitingWus, promotedQuestionIds, isWaitingForInput } = needInput;
 
   // #528：频道工作面实时接线（页面级单点，ref-count=1）——挂载打底三 slice、SSE 事件路由
   // （status_changed 全量直替 / requirement.* upsert / message_sent 标脏）、重连全 slice 强刷，
@@ -201,12 +200,7 @@ export function ChannelDetailPage() {
 
   // #533：「WU 当前提问消息」唯一派生点 = 后端 action-center（stateItems.messageId 随 waitingWus 投影
   // 下发）——前端反推（latestQuestionIdByWu / latestQuestionMessageOf）已删；缺省 → 不挂回复区/
-  // 不提升/定位给可见反馈，全部 fail-closed 不回退推导
-  const waitingQuestionIdByWu = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const w of waitingWus) if (w.messageId) map.set(w.wuId, w.messageId);
-    return map;
-  }, [waitingWus]);
+  // 不提升/定位给可见反馈，全部 fail-closed 不回退推导。#546：映射本体在 needInputViewOf 产物上
 
   // #447（spec #441 收尾）：「频道当前工单」拣选唯一正本 = 后端建议端点 currentWuId
   // （前端静态映射 wuSuggestions 与 pickCurrentWu 本地副本已删，杜绝前后端口径分叉）。
@@ -267,15 +261,8 @@ export function ChannelDetailPage() {
 
   const pendingActionDef = pendingSuggestionAction ? getSuggestionAction(pendingSuggestionAction.id) : null;
 
-  // #279（走查 F4）/#533：挂起 WU 的当前提问消息（后端下发 messageId）若是线程回复（agent 追问），提升到主流可见
-  const promotedQuestionIds = useMemo(() =>
-    new Set([...waitingQuestionIdByWu.values()]), [waitingQuestionIdByWu]);
-
-  // F5/#533: 消息是否为关联 WorkUnit 的当前提问（badge/内嵌回复区只落在这一条；
-  // 判定 = 命中后端下发锚点，messageId 缺省的 WU 恒 false）
-  const isWaitingForInput = useCallback((msg: ChannelMessage) => {
-    return !!msg.workUnitId && waitingQuestionIdByWu.get(msg.workUnitId) === msg.id;
-  }, [waitingQuestionIdByWu]);
+  // #279（走查 F4）/#533：挂起 WU 的当前提问消息（后端下发 messageId）若是线程回复（agent 追问），
+  // 提升到主流可见；promotedQuestionIds / isWaitingForInput 均为 needInputViewOf 产物（#546）
 
   // #285: agent 消息 inline-code 文件 chip 词表——#403 起读 channelDataStore（与 ChannelInput
   // 共享一份拉取；按 channelId 键控无跨频道串词表）；失败静默降级，不渲染 chip
@@ -348,13 +335,13 @@ export function ChannelDetailPage() {
   // #279（决策 #250 D4）/ #533：chip 点条目 → 定位后端下发的提问 messageId（wu→mid 不再前端反推）；
   // messageId 缺省（fail-closed）→ toast 可见反馈，不静默不翻页
   const locateWaitingQuestion = useCallback((wuId: string) => {
-    const mid = waitingQuestionIdByWu.get(wuId);
+    const mid = needInput.questionIdByWu.get(wuId);
     if (!mid) {
       toast.warning('提问消息缺少定位锚点，无法定位');
       return;
     }
     locateMessage(mid);
-  }, [waitingQuestionIdByWu, locateMessage]);
+  }, [needInput, locateMessage]);
 
   // 通知中心点击直达（?highlight=<mid>）：每个 mid 只消费一次（防消息流更新反复重置高亮）；
   // 首拉未完成（loading）时等下一轮（防空列表误判不可达）。定位动作本体（含翻页/toast 兜底）在模块内
