@@ -23,8 +23,7 @@ import { ChannelRail } from '../components/channel/ChannelRail';
 import { ChannelActivityRail } from '../components/channel/ChannelActivityRail';
 import { WorkUnitDrawer, type DrawerState } from '../components/channel/WorkUnitDrawer';
 import { useMediaQuery } from '../hooks/useMediaQuery';
-import { workunitApi } from '../api/workunit';
-import type { ReviewConfirmPayload, WorkUnit } from '../api/workunit';
+import type { WorkUnit } from '../api/workunit';
 import { renderSuggestionCopy } from '../utils/suggestionCopy';
 import { toast } from '../utils/toast';
 import { getSuggestionAction } from '../utils/suggestionActions';
@@ -217,30 +216,9 @@ export function ChannelDetailPage() {
     [channelWus, currentWuId],
   );
 
-  // 批次 D-2 项6（频道内闸门 1 击化）：工作条闸门动作写路径——直调 API + 响应体 write-through 进
-  // channelWorkStore（仿 setMembers；抽屉同款直替口径）；状态变化另有 status_changed SSE 直替 +
-  // 建议重拉（currentWuId 重拣选）兜底
-  const applyGateResult = useCallback((updated: WorkUnit) => {
-    if (id) useChannelWorkStore.getState().applyGateResult(id, updated);
-  }, [id]);
-  const workBarGate = useMemo(() => {
-    if (!currentWu) return undefined;
-    const wuId = currentWu.id;
-    return {
-      onReviewPassed: async (summary?: string, assigneeId?: string, confirm?: ReviewConfirmPayload) => {
-        const r = await workunitApi.reviewPassed(wuId, summary, assigneeId, confirm);
-        applyGateResult(r.data);
-      },
-      onReviewRejected: async (reason?: string) => {
-        const r = await workunitApi.reviewRejected(wuId, reason);
-        applyGateResult(r.data);
-      },
-      onConfirmPending: async () => {
-        const r = await workunitApi.transitionStatus(wuId, 'unassigned');
-        applyGateResult(r.data);
-      },
-    };
-  }, [currentWu, applyGateResult]);
+  // 批次 D-2 项6（频道内闸门 1 击化）：工作条闸门动作写路径 #545 起内建于 WuGateActions
+  // （gateWriter 双写落点含 channelWorkStore 快照 + 建议标脏，本页零接线）；
+  // 状态变化另有 status_changed SSE 直替 + 建议重拉（currentWuId 重拣选）兜底
 
   // #443：端点派生建议 → 文案模板渲染成引导片（未知模板 id → 跳过，fail-closed）
   // #446：prompt 形态的预填指令本体由后端 text 字段承载，透传给 SuggestionChips（点击 → onPick(text)）
@@ -546,7 +524,7 @@ export function ChannelDetailPage() {
             一条横带回答「这个频道的工作现在什么状态」；hook 自持有，step 事件只重渲该组件边界；
             currentWu = 建议端点 currentWuId × channelWus（拣选口径单源在后端，未命中 fail-closed 主区不渲染）；
             点击条目打开对应 WU 抽屉（过程明细仍在抽屉） */}
-        <ChannelWorkBar channelId={id} currentWu={currentWu} onOpenWorkUnit={openWu} gate={workBarGate} wuIdle={wuIdleOf(suggestionsSlice)} />
+        <ChannelWorkBar channelId={id} currentWu={currentWu} onOpenWorkUnit={openWu} wuIdle={wuIdleOf(suggestionsSlice)} />
 
         {/* Message list
             #325：头部块（空态/加载更早/折叠 toggle）与消息体分离——

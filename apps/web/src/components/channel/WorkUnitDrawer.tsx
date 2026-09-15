@@ -243,16 +243,10 @@ function WuDetail({ id, autoApprove = false, autoRuling = false, onOpenReq }: { 
   const totalSum = (tokens ?? []).reduce((s, t) => s + t.totalTokens, 0);
   const maxBar = Math.max(totalSum, 1);
 
-  /** E2-4：闸门动作写路径 = 直调 API + 响应体直替本地 wu（决策 8；状态变化另有 status_changed SSE 兜底），
-   *  分支/锁存/错误内联/弹窗全部在共享 WuGateActions（与列表行/详情页同一组件） */
+  /** E2-4：闸门动作写路径 #545 起内建于共享 WuGateActions（gateWriter 双写落点 + onUpdated 直替本地 wu；
+   *  决策 8：状态变化另有 status_changed SSE 兜底）；分支/锁存/错误内联/弹窗全部组件自带 */
   const gateActions = (
-    <WuGateActions
-      wu={wu}
-      autoApprove={autoApprove}
-      onReviewPassed={async (summary, assigneeId, confirm) => { const r = await workunitApi.reviewPassed(id, summary, assigneeId, confirm); setWu(r.data); }}
-      onReviewRejected={async (reason) => { const r = await workunitApi.reviewRejected(id, reason); setWu(r.data); }}
-      onConfirmPending={async () => { const r = await workunitApi.transitionStatus(id, 'unassigned'); setWu(r.data); }}
-    />
+    <WuGateActions wu={wu} autoApprove={autoApprove} onUpdated={setWu} />
   );
 
   return (

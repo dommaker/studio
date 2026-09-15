@@ -6,47 +6,14 @@ vi.mock('../../api/workunit', () => ({
   workunitApi: {
     list: vi.fn().mockResolvedValue({ data: { data: [], pagination: { total: 0, page: 1, limit: 20, totalPages: 0 } } }),
     create: vi.fn().mockResolvedValue({ data: {} }),
-    reviewPassed: vi.fn().mockResolvedValue({ data: {} }),
-    reviewRejected: vi.fn().mockResolvedValue({ data: {} }),
   },
 }));
 
 import { useWorkUnitStore } from '../workunitStore';
 import { workunitApi } from '../../api/workunit';
 
-describe('workunitStore reviewRejected', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    useWorkUnitStore.setState({
-      workunits: [],
-      total: 0,
-      page: 1,
-      limit: 20,
-      statusFilter: null,
-      typeFilter: null,
-      loading: false,
-      error: null,
-    });
-  });
-
-  it('should pass reason to API when rejecting', async () => {
-    const store = useWorkUnitStore.getState();
-    await store.reviewRejected('wu-1', '质量不达标');
-    expect(workunitApi.reviewRejected).toHaveBeenCalledWith('wu-1', '质量不达标');
-  });
-
-  it('should work without reason', async () => {
-    const store = useWorkUnitStore.getState();
-    await store.reviewRejected('wu-1');
-    expect(workunitApi.reviewRejected).toHaveBeenCalledWith('wu-1', undefined);
-  });
-
-  it('should reload workunits after rejection', async () => {
-    const store = useWorkUnitStore.getState();
-    await store.reviewRejected('wu-1', '原因');
-    expect(workunitApi.list).toHaveBeenCalled();
-  });
-});
+// #545：闸门三动作（reviewPassed/reviewRejected/confirmPending）已从 store 删除——
+// 写路径唯一正本为 utils/gateWriter（WuGateActions 直消费），其契约由 gateWriter.test.ts 单点覆盖
 
 // #280：store 从 pagination.total 解析总数（旧版类型把 total 扁平化导致恒 0）
 describe('workunitStore loadWorkUnits - pagination.total 解析（#280）', () => {

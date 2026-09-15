@@ -6,7 +6,7 @@ import { SelfReviewBadge } from '../components/workunit/SelfReviewBadge';
 import { AssigneeLabel } from '../components/workunit/AssigneeLabel';
 import { StaleSleepBadge } from '../components/workunit/StaleSleepBadge';
 import { WuGateActions } from '../components/workunit/WuGateActions';
-import type { ReviewConfirmPayload, WorkUnit } from '../api/workunit';
+import type { WorkUnit } from '../api/workunit';
 import { parseBlockedBy } from '../components/pmo/mapUtils';
 import { useWebSocketContext } from '../api/websocketHooks';
 import { Select, Button, SkeletonText } from '../components/ui';
@@ -33,7 +33,7 @@ const STATUS_CHIPS = [
 export function WorkUnitListPage() {
   const {
     workunits, total, allTotal, loading, error,
-    loadWorkUnits, loadMoreWorkUnits, loadAllCount, createWorkUnit, reviewPassed, reviewRejected, confirmPending,
+    loadWorkUnits, loadMoreWorkUnits, loadAllCount, createWorkUnit,
     statusFilter, setStatusFilter,
     unattributedOnly, unattributedTotal, setUnattributedOnly, loadUnattributedCount,
     searchQuery, setSearchQuery,
@@ -303,9 +303,6 @@ export function WorkUnitListPage() {
                     wu={wu}
                     fresh={freshWuIds.has(wu.id)}
                     onOpen={() => navigate(`/workunits/${wu.id}`)}
-                    onReviewPassed={(summary, assigneeId, confirm) => reviewPassed(wu.id, summary, assigneeId, confirm)}
-                    onReviewRejected={(reason) => reviewRejected(wu.id, reason)}
-                    onConfirmPending={() => confirmPending(wu.id)}
                     formatTime={formatShortTime}
                   />
                 ))}
@@ -333,17 +330,13 @@ export function WorkUnitListPage() {
 }
 
 function WorkUnitRow({
-  wu, fresh, onOpen, onReviewPassed, onReviewRejected, onConfirmPending, formatTime,
+  wu, fresh, onOpen, formatTime,
 }: {
   wu: WorkUnit;
   /** 批次 E-3：SSE 新插入行渐隐高亮标记（.wu-row-new，2s 后页面自清） */
   fresh?: boolean;
   /** 2026-09-10 第二轮：行点击直跳 /workunits/:id 详情页 */
   onOpen: () => void;
-  onReviewPassed: (summary?: string, assigneeId?: string, confirm?: ReviewConfirmPayload) => Promise<unknown>;
-  onReviewRejected: (reason?: string) => Promise<unknown>;
-  /** #284（决策 #250 D1）：pending 人闸确认（行内快速处置入口，与详情页同组件） */
-  onConfirmPending: () => Promise<unknown>;
   formatTime: (ts: string | null) => string;
 }) {
   // F6-b：徽章/按钮的展示判断一律过派生函数（通过/拒绝的调用资格仍看存储状态，
@@ -404,13 +397,9 @@ function WorkUnitRow({
         </div>
 
         <div className="flex items-center gap-2">
-          {/* E2-4：行内闸门按钮 = 共享 WuGateActions（快速处置不进详情页；组件内吞冒泡） */}
-          <WuGateActions
-            wu={wu}
-            onReviewPassed={onReviewPassed}
-            onReviewRejected={onReviewRejected}
-            onConfirmPending={onConfirmPending}
-          />
+          {/* E2-4：行内闸门按钮 = 共享 WuGateActions（快速处置不进详情页；组件内吞冒泡；
+              #545 起写路径内建 gateWriter——store 双写 upsert 存量行，不再全量重拉） */}
+          <WuGateActions wu={wu} />
         </div>
       </div>
     </div>

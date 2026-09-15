@@ -1,6 +1,6 @@
 // WorkUnit Store — Agent Network §3.28c-1
 import { create } from 'zustand';
-import { workunitApi, type PaginatedResponse, type ReviewConfirmPayload, type WorkUnit } from '../api/workunit';
+import { workunitApi, type PaginatedResponse, type WorkUnit } from '../api/workunit';
 
 /**
  * #405：未归属判定 —— 无 reqId 且归因戳（canonical pmoId ‖ legacy ownershipProjectId）
@@ -61,10 +61,6 @@ interface WorkUnitState {
    *  未知行/空 id no-op */
   removeWorkunit: (id: string) => void;
   createWorkUnit: (data: { scope: string; type?: string }) => Promise<WorkUnit>;
-  reviewPassed: (id: string, summary?: string, defaultAssigneeId?: string, confirm?: ReviewConfirmPayload) => Promise<void>;
-  reviewRejected: (id: string, reason?: string) => Promise<void>;
-  /** #284（决策 #250 D1）：pending 人闸确认（→ unassigned 进 frontier 可认领），列表行展开态入口 */
-  confirmPending: (id: string) => Promise<void>;
   setStatusFilter: (status: string | null) => void;
   setTypeFilter: (type: string | null) => void;
   /** #405：切换未归属过滤（重置到第 1 页并重拉；on 时顺带同步徽标计数） */
@@ -201,21 +197,6 @@ export const useWorkUnitStore = create<WorkUnitState>((set, get) => ({
     // Refresh list
     await get().loadWorkUnits();
     return wu;
-  },
-
-  reviewPassed: async (id, summary, defaultAssigneeId, confirm) => {
-    await workunitApi.reviewPassed(id, summary, defaultAssigneeId, confirm);
-    await get().loadWorkUnits();
-  },
-
-  reviewRejected: async (id, reason) => {
-    await workunitApi.reviewRejected(id, reason);
-    await get().loadWorkUnits();
-  },
-
-  confirmPending: async (id) => {
-    await workunitApi.transitionStatus(id, 'unassigned');
-    await get().loadWorkUnits();
   },
 
   setStatusFilter: (status) => {

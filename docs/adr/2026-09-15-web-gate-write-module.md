@@ -1,7 +1,7 @@
 # web 闸门写路径单模块（2026-09-15）
 
 > 来源：架构评审候选 B1（#545）grilling 定案。
-> 状态：**accepted**（实现未落地——按票执行）。
+> 状态：**accepted**（#545 已落地：utils/gateWriter.ts + WuGateActions 直消费 + 五宿主重接）。
 
 ## 背景
 

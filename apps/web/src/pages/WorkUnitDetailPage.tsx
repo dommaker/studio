@@ -130,7 +130,8 @@ export function WorkUnitDetailPage() {
   const title = wu ? (typeof meta.title === 'string' && meta.title ? meta.title : wu.scope) : '';
 
   /** E2-4：闸门动作 = 共享 WuGateActions（与列表行/抽屉同一组件，文案视觉唯一）；
-   *  写路径留在本页：动作成功经 actionTick 重拉详情（与 BlockedActions.onChanged 同一路径） */
+   *  写路径 #545 起内建于组件（gateWriter 双写落点 + onUpdated 直替本地 wu，不再 actionTick 整页重拉）；
+   *  BlockedActions 状态处置仍走 actionTick 重拉 */
   const reloadOnGate = () => setActionTick(t => t + 1);
   // 批次 E-2：错误条「重试」——清 error 后经 actionTick 复用同一 effect 重拉
   const retryLoad = () => { setError(''); setActionTick(t => t + 1); };
@@ -291,12 +292,7 @@ export function WorkUnitDetailPage() {
               <section className="wu-detail-sec">
                 <h3 className="wu-detail-sec-title">闸门动作</h3>
                 <div className="wu-detail-card">
-                  <WuGateActions
-                    wu={wu}
-                    onReviewPassed={async (summary, assigneeId, confirm) => { await workunitApi.reviewPassed(wu.id, summary, assigneeId, confirm); reloadOnGate(); }}
-                    onReviewRejected={async (reason) => { await workunitApi.reviewRejected(wu.id, reason); reloadOnGate(); }}
-                    onConfirmPending={async () => { await workunitApi.transitionStatus(wu.id, 'unassigned'); reloadOnGate(); }}
-                  />
+                  <WuGateActions wu={wu} onUpdated={setWu} />
                   <BlockedActions wu={wu} onChanged={reloadOnGate} />
                 </div>
               </section>

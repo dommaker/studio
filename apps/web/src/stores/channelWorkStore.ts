@@ -51,8 +51,8 @@ interface ChannelWorkState {
   markSuggestionsDirty: (channelId: string) => void;
   /** agent 消息所属 WU 的产出文件集（distinct wuId 各拉一次并缓存；模块级台账防重拉） */
   ensureWuChangedFiles: (wuIds: string[]) => void;
-  /** workunit.status_changed 全量快照直替 upsert（17 字段快照原样落库，删除编造时间戳）；
-   *  未打底的频道 no-op（等 REST 打底）；坏负载 no-op */
+  /** SSE status_changed 与闸门动作（#545 gateWriter sink）共用快照落点：全量快照直替 upsert
+   * （17 字段快照原样落库，删除编造时间戳）；未打底的频道 no-op（等 REST 打底）；坏负载 no-op */
   applyWorkunitSnapshot: (channelId: string, wu: WorkUnit | null | undefined) => void;
   /** #538（ADR 2026-09-15 决策 5）：workunit:removed 删行分支——GC/TTL 删除即时下榜，
    *  不再悬挂到 SSE 重连 refetch；未打底频道/未知 id/坏负载 no-op */
@@ -60,8 +60,6 @@ interface ChannelWorkState {
   /** requirement.created/updated 就地 upsert（#415：负载全量零补拉）：created 追加去重 /
    *  updated 全量覆盖已有条目（列表没有则不动，交由重连 refetch）；未打底频道 no-op */
   applyRequirementEvent: (channelId: string, kind: 'created' | 'updated', req: Requirement | null | undefined) => void;
-  /** 工作条闸门动作 write-through（仿 setMembers）：响应体就地并入，不改数组顺序 */
-  applyGateResult: (channelId: string, updated: WorkUnit) => void;
   /** 测试隔离：清空数据面 + 纪律簿记（模块级 loadedAt/inflight/gate/防抖定时器不在 zustand 内） */
   __resetForTests: () => void;
 }
@@ -283,14 +281,6 @@ export const useChannelWorkStore = create<ChannelWorkState>((set, get) => ({
       const next = [...list];
       next[idx] = { ...next[idx], ...req };
       return { reqs: { ...st.reqs, [channelId]: next } };
-    });
-  },
-
-  applyGateResult: (channelId, updated) => {
-    set((st) => {
-      const list = st.wus[channelId];
-      if (!list) return {};
-      return { wus: { ...st.wus, [channelId]: list.map((w) => (w.id === updated.id ? { ...w, ...updated } : w)) } };
     });
   },
 

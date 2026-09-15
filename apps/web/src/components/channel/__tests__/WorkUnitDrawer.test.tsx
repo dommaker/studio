@@ -44,6 +44,15 @@ vi.mock('../../../api/requirements', () => ({
   requirementApi: { getChain: mockGetChain },
 }));
 
+// #545：gateWriter 的 store 双写落点在模块级测试单点覆盖；本文件 stub 掉两个 store，
+// 防真实 markSuggestionsDirty 防抖定时器跨测悬挂（API 透传 + onUpdated 直替仍走真实 gateWriter）
+vi.mock('../../../stores/channelWorkStore', () => ({
+  useChannelWorkStore: { getState: () => ({ applyWorkunitSnapshot: vi.fn(), markSuggestionsDirty: vi.fn() }) },
+}));
+vi.mock('../../../stores/workunitStore', () => ({
+  useWorkUnitStore: { getState: () => ({ applyWorkunitEvent: vi.fn() }) },
+}));
+
 vi.mock('../../../api/monitoring', () => ({
   monitoringApi: {
     getOverhead: mockGetOverhead,

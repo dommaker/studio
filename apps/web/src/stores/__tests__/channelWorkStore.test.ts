@@ -256,17 +256,6 @@ describe('channelWorkStore — applyWorkunitRemoved（workunit:removed 删行分
   });
 });
 
-describe('channelWorkStore — applyGateResult（闸门动作 write-through）', () => {
-  it('直替命中条目；未打底频道 no-op 不建 slice', async () => {
-    mockWuList.mockResolvedValue({ data: { success: true, data: [wuFixture('wu-1')] } });
-    await useChannelWorkStore.getState().ensureWus('ch-1');
-    useChannelWorkStore.getState().applyGateResult('ch-1', wuFixture('wu-1', { status: 'review' }));
-    expect(useChannelWorkStore.getState().wus['ch-1']![0].status).toBe('review');
-    useChannelWorkStore.getState().applyGateResult('ch-9', wuFixture('wu-1', { channelId: 'ch-9' }));
-    expect(useChannelWorkStore.getState().wus['ch-9']).toBeUndefined();
-  });
-});
-
 describe('channelWorkStore — applyRequirementEvent（envelope 解包就地 upsert，#415 修法）', () => {
   beforeEach(() => {
     mockReqList.mockResolvedValue({ data: { success: true, data: [reqFixture('REQ-1', { title: '旧标题' })] } });
