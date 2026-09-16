@@ -1,6 +1,11 @@
 /**
  * Per-Hook 声明表（A4：HookConfig 归一为 harness 形状 {name,enabled,errorStrategy}）
  *
+ * - #159 起本表是 enabled/errorStrategy 的**唯一声明点**：HookDefinition 不再
+ *   携带这两个字段，有效值在注册环节由本表填充（harness EffectiveHook），
+ *   判定只住在 harness 管线（HookPipeline 读注册表有效值）。原 runHook
+ *   自建判定层已拆除——直接调 hook 函数不再自带 enabled 门，管线外调用
+ *   等价于绕过判定（生产路径全部经管线，见 runtime/bootstrap.ts）。
  * - 声明表是注册表闭环（assertHookRegistryClosed）的「声明」侧：只含经
  *   registerAllHooks 注册进管线的 7 个 hook。buildAgentConstraintPrompt 是同步
  *   直接调用助手（不进管线），不在声明表中。
@@ -55,24 +60,4 @@ export function getAllHookConfigs(): HookConfig[] {
 export function getHookConfig(name: string): HookConfig {
   const config = getAllHookConfigs().find(c => c.name === name);
   return config ?? { name, enabled: false, errorStrategy: 'warn' };
-}
-
-/**
- * 直接调用入口（safeCallHook 接替者）：按声明执行 enabled 检查 + errorStrategy。
- * 管线外直接调 hook 函数时与 HookPipeline 语义一致：
- * enabled=false 跳过；失败时 block 抛错、warn 记录警告继续。
- */
-export async function runHook(
-  name: string,
-  fn: () => Promise<void>,
-): Promise<void> {
-  const config = getHookConfig(name);
-  if (!config.enabled) return;
-
-  try {
-    await fn();
-  } catch (err) {
-    if (config.errorStrategy === 'block') throw err;
-    console.warn(`[HarnessHook] ${name} failed (warn):`, (err as Error).message);
-  }
 }

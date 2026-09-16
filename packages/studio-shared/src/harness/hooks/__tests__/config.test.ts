@@ -3,15 +3,17 @@
  *
  * 覆盖：
  * - 声明表形状：全部 7 个注册 hook 有声明，errorStrategy ∈ {block, warn}（经 toErrorStrategy 映射）
- * - runHook：enabled 检查 + errorStrategy 执行（block 抛 / warn 吞 / 禁用跳过）
+ * - #159 判定委托管线：注册 = 定义 ↔ 声明表配对（有效值来自声明表），
+ *   block/warn/enabled 行为经 harness HookPipeline 验证（原 runHook 自建判定层已拆除）
  * - HARNESS_HOOK_DISABLE 覆盖 enabled
  * - assertHookRegistryClosed：声明 ↔ 注册双向闭环（正例 + 缺失/冗余/重复三向负例）
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { assertHookRegistryClosed } from '@dommaker/harness';
+import { assertHookRegistryClosed, HookRegistry, HookPipeline } from '@dommaker/harness';
+import type { HookDefinition } from '@dommaker/harness';
 
-import { getAllHookConfigs, getHookConfig, runHook } from '../config';
-import { buildHookDefinitions } from '../register';
+import { getAllHookConfigs, getHookConfig } from '../config';
+import { buildHookDefinitions, registerAllHooks } from '../register';
 
 describe('HookConfig 声明表（{name,enabled,errorStrategy}）', () => {
   beforeEach(() => {
@@ -55,7 +57,7 @@ describe('HookConfig 声明表（{name,enabled,errorStrategy}）', () => {
   });
 });
 
-describe('runHook — errorStrategy 执行（safeCallHook 接替者）', () => {
+describe('#159 注册配对 + 管线判定（原 runHook 自建判定层的接替者）', () => {
   beforeEach(() => {
     process.env.HARNESS_HOOK_DISABLE = '';
   });
@@ -64,35 +66,97 @@ describe('runHook — errorStrategy 执行（safeCallHook 接替者）', () => {
     delete process.env.HARNESS_HOOK_DISABLE;
   });
 
-  it('block hook 失败抛异常', async () => {
-    await expect(
-      runHook('beforeAgentExecute', async () => { throw new Error('test error'); }),
-    ).rejects.toThrow('test error');
-  });
+  it('registerAllHooks = 定义 ↔ 声明表配对：注册表有效值逐项等于声明表', () => {
+    const registry = new HookRegistry();
+    registerAllHooks(registry);
 
-  it('warn hook 失败静默继续', async () => {
-    await expect(
-      runHook('afterAgentComplete', async () => { throw new Error('non-blocking error'); }),
-    ).resolves.toBeUndefined();
-  });
-
-  it('warn hook 失败按 warn 口径记录警告（errorStrategy=warn 文案）', async () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    try {
-      await runHook('afterAgentComplete', async () => { throw new Error('boom'); });
-      expect(warnSpy).toHaveBeenCalledTimes(1);
-      expect(warnSpy.mock.calls[0][0]).toBe('[HarnessHook] afterAgentComplete failed (warn):');
-      expect(warnSpy.mock.calls[0][1]).toBe('boom');
-    } finally {
-      warnSpy.mockRestore();
+    expect(registry.size).toBe(7);
+    const configByName = new Map(getAllHookConfigs().map(c => [c.name, c]));
+    for (const hook of registry.listAll()) {
+      const config = configByName.get(hook.name);
+      expect(config).toBeDefined();
+      expect(hook.enabled).toBe(config!.enabled);
+      expect(hook.errorStrategy).toBe(config!.errorStrategy);
     }
   });
 
-  it('禁用的 hook 不执行', async () => {
-    process.env.HARNESS_HOOK_DISABLE = 'checkBeforeTaskComplete';
-    const fn = vi.fn();
-    await runHook('checkBeforeTaskComplete', fn);
-    expect(fn).not.toHaveBeenCalled();
+  it('block hook 失败 → 管线 passed=false 且 blockedBy 含该 hook（阻断口径住管线）', async () => {
+    const registry = new HookRegistry();
+    registry.register(
+      { name: 't_block', phase: 'before', execute: async () => { throw new Error('test error'); } },
+      { name: 't_block', enabled: true, errorStrategy: 'block' },
+    );
+    const pipeline = new HookPipeline(registry);
+    const result = await pipeline.run('before', {});
+
+    expect(result.passed).toBe(false);
+    expect(result.blockedBy).toEqual(['t_block']);
+  });
+
+  it('block hook 失败停止后续 hook 执行', async () => {
+    const second = vi.fn(async () => ({ passed: true }));
+    const registry = new HookRegistry();
+    registry.register(
+      { name: 't_block1', phase: 'before', priority: 1, execute: async () => { throw new Error('boom'); } },
+      { name: 't_block1', enabled: true, errorStrategy: 'block' },
+    );
+    registry.register(
+      { name: 't_block2', phase: 'before', priority: 2, execute: second },
+      { name: 't_block2', enabled: true, errorStrategy: 'warn' },
+    );
+    const pipeline = new HookPipeline(registry);
+    await pipeline.run('before', {});
+
+    expect(second).not.toHaveBeenCalled();
+  });
+
+  it('warn hook 失败 → 管线记录警告继续（passed=true，warnings 含该 hook）', async () => {
+    const registry = new HookRegistry();
+    registry.register(
+      { name: 't_warn', phase: 'after', execute: async () => { throw new Error('non-blocking error'); } },
+      { name: 't_warn', enabled: true, errorStrategy: 'warn' },
+    );
+    const second = vi.fn(async () => ({ passed: true }));
+    registry.register(
+      { name: 't_warn_next', phase: 'after', priority: 2, execute: second },
+      { name: 't_warn_next', enabled: true, errorStrategy: 'warn' },
+    );
+    const pipeline = new HookPipeline(registry);
+    const result = await pipeline.run('after', {});
+
+    expect(result.passed).toBe(true);
+    expect(result.warnings).toEqual(['t_warn']);
+    expect(second).toHaveBeenCalledTimes(1);
+  });
+
+  it('HARNESS_HOOK_DISABLE 禁用的 hook 不进入管线执行', async () => {
+    process.env.HARNESS_HOOK_DISABLE =
+      'beforeGoalCreate,beforeAgentDispatch,beforeAgentExecute,checkBeforeTaskComplete';
+    const registry = new HookRegistry();
+    registerAllHooks(registry);
+    const pipeline = new HookPipeline(registry);
+    const result = await pipeline.run('before', {});
+
+    expect(result.records).toHaveLength(0);
+    expect(registry.get('beforeAgentExecute')?.enabled).toBe(false);
+    // 未禁用的 after phase hook 声明不受影响
+    expect(registry.get('afterReview')?.enabled).toBe(true);
+  });
+
+  it('负例：定义缺声明表配对 → registerAll 抛错（不给表即拒注）', () => {
+    const registry = new HookRegistry();
+    const orphan: HookDefinition = {
+      name: 'orphan_hook', phase: 'before', execute: async () => ({ passed: true }),
+    };
+    expect(() => registry.registerAll([orphan], getAllHookConfigs())).toThrow(/orphan_hook/);
+  });
+
+  it('负例：register 定义与配置名称不一致 → 抛错', () => {
+    const registry = new HookRegistry();
+    expect(() => registry.register(
+      { name: 'hook_a', phase: 'before', execute: async () => ({ passed: true }) },
+      { name: 'hook_b', enabled: true, errorStrategy: 'warn' },
+    )).toThrow(/名称不一致/);
   });
 });
 
@@ -137,7 +201,7 @@ describe('assertHookRegistryClosed — 声明 ↔ 注册双向闭环', () => {
 
   it('负例：注册无对应声明 → 抛错（死代码）', () => {
     const defs = [...buildHookDefinitions(), {
-      name: 'unclaimed_hook', phase: 'before' as const, errorStrategy: 'warn' as const,
+      name: 'unclaimed_hook', phase: 'before' as const,
       execute: async () => ({ passed: true }),
     }];
     expect(() => assertHookRegistryClosed(getAllHookConfigs(), defs)).toThrow(/unclaimed_hook/);

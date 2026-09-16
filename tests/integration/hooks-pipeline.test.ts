@@ -1,7 +1,9 @@
 /**
  * Hooks 管线集成测试
  *
- * 覆盖：Hook 配置管理、per-hook 开关、runHook 行为
+ * 覆盖：Hook 配置管理、per-hook 开关、#159 判定委托管线
+ * （block/warn/enabled 行为经 harness HookRegistry + HookPipeline 验证，
+ * 原 runHook 自建判定层已拆除）
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
 
@@ -33,30 +35,64 @@ describe('Hooks Config — per-hook 开关', () => {
   });
 });
 
-describe('runHook — 失败处理（errorStrategy）', () => {
-  it('block hook 失败应抛异常', async () => {
-    const { runHook } = await import('../../packages/studio-shared/src/harness/hooks/config.js');
-
-    await expect(
-      runHook('beforeAgentExecute', async () => { throw new Error('test error'); }),
-    ).rejects.toThrow('test error');
+describe('管线失败处理 — errorStrategy（#159 判定唯一住在 harness 管线）', () => {
+  afterEach(() => {
+    delete process.env.HARNESS_HOOK_DISABLE;
   });
 
-  it('warn hook 失败应静默', async () => {
-    const { runHook } = await import('../../packages/studio-shared/src/harness/hooks/config.js');
+  const harness = async () => {
+    const { HookRegistry, HookPipeline } = await import('@dommaker/harness');
+    const { registerAllHooks } = await import('../../packages/studio-shared/src/harness/hooks/register.js');
+    return { HookRegistry, HookPipeline, registerAllHooks };
+  };
 
-    await expect(
-      runHook('afterAgentComplete', async () => { throw new Error('non-blocking error'); }),
-    ).resolves.toBeUndefined();
+  it('注册表有效值来自声明表：beforeAgentExecute=block+启用，afterReview=warn+启用', async () => {
+    const { HookRegistry, registerAllHooks } = await harness();
+    const registry = new HookRegistry();
+    registerAllHooks(registry);
+
+    expect(registry.get('beforeAgentExecute')).toMatchObject({ enabled: true, errorStrategy: 'block' });
+    expect(registry.get('afterReview')).toMatchObject({ enabled: true, errorStrategy: 'warn' });
   });
 
-  it('禁用的 hook 不执行', async () => {
-    process.env.HARNESS_HOOK_DISABLE = 'checkBeforeTaskComplete';
-    const { runHook } = await import('../../packages/studio-shared/src/harness/hooks/config.js');
-    const fn = vi.fn();
+  it('block hook 失败 → 管线阻断（passed=false，blockedBy 记录），错误不外抛到调用层', async () => {
+    const { HookRegistry, HookPipeline } = await harness();
+    const registry = new HookRegistry();
+    registry.register(
+      { name: 'it_block', phase: 'before', execute: async () => { throw new Error('test error'); } },
+      { name: 'it_block', enabled: true, errorStrategy: 'block' },
+    );
+    const result = await new HookPipeline(registry).run('before', {});
 
-    await runHook('checkBeforeTaskComplete', fn);
-    expect(fn).not.toHaveBeenCalled();
+    expect(result.passed).toBe(false);
+    expect(result.blockedBy).toEqual(['it_block']);
+  });
+
+  it('warn hook 失败应静默（passed=true，warnings 记录）', async () => {
+    const { HookRegistry, HookPipeline } = await harness();
+    const registry = new HookRegistry();
+    registry.register(
+      { name: 'it_warn', phase: 'after', execute: async () => { throw new Error('non-blocking error'); } },
+      { name: 'it_warn', enabled: true, errorStrategy: 'warn' },
+    );
+    const result = await new HookPipeline(registry).run('after', {});
+
+    expect(result.passed).toBe(true);
+    expect(result.warnings).toEqual(['it_warn']);
+  });
+
+  it('禁用的 hook 不进入管线执行（声明表 enabled=false → getEnabled 过滤）', async () => {
+    process.env.HARNESS_HOOK_DISABLE = 'beforeGoalCreate,beforeAgentDispatch,beforeAgentExecute,checkBeforeTaskComplete';
+    const { HookRegistry, HookPipeline, registerAllHooks } = await harness();
+    const registry = new HookRegistry();
+    registerAllHooks(registry);
+    const spy = vi.fn();
+    registry.register({ name: 'it_sentinel', phase: 'before', execute: spy },
+      { name: 'it_sentinel', enabled: true, errorStrategy: 'warn' });
+
+    const result = await new HookPipeline(registry).run('before', {});
+
+    expect(result.records.map(r => r.hookName)).toEqual(['it_sentinel']);
   });
 });
 

@@ -16,7 +16,7 @@
 | 模块 | 路径 | 职责 |
 |------|------|------|
 | `knowledge-singletons` | `knowledge-singletons.ts` | 共享单例唯一所有者（sharedStore 等）+ 向量库同步 + 统一质量门（R4）+ `publishKnowledgeEntryChanged`（条目变更 SSE 广播，见注意事项 Step 2 条） |
-| `MtimeMemoKnowledgeStore` | `knowledge-store-memo.ts` | sharedStore 的 mtime 校验聚合 memo 包装（#343，缓存 seam ADR 外部包条款）：mtime+size 指纹兜底跨进程外部写 + 本进程写穿透失效；命中深克隆保持「每次读全新对象」契约；readEntriesFromDisk/snapshot 直通不缓存 |
+| `MtimeMemoKnowledgeStore` | `knowledge-store-memo.ts` | sharedStore 的 mtime 校验聚合 memo 包装（#343，缓存 seam ADR 外部包条款）：mtime+size 指纹兜底跨进程外部写 + 本进程写穿透失效；命中深克隆保持「每次读全新对象」契约；readEntriesFromDisk/snapshot 直通不缓存；harness 1.8.0 起补齐 KnowledgeStore 15 成员——`applyAll`（写穿透失效，与 saveAll 同口径）+ `getConsumptionStats`（直通不缓存：stats 文件不在 .md/index.json 指纹内，缓存必过期） |
 | `UnifiedQuery` | `engine/unified-query.ts` | 双存储统一查询（Prisma + KnowledgeStore），knowledgeService 的 query 引擎（R4 修复接线） |
 | `knowledgeService.injectContext` | `knowledge-service.ts` | 统一 prompt 注入入口（absorbed from prompt-builder）；E2：有注入时附「何时查知识库」指引（`KNOWLEDGE_QUERY_GUIDANCE`）；#91：maxTokens 由 prompt-composer 按分段定额传入（knowledge 1000 + 池余量），`knowledge:inject-trimmed` 事件补 originalTokens/keptTokens 尺寸字段，返回值带 `usage` 供 `prompt:section_trimmed` 埋点 |
 | `knowledgeService.semanticSearch` | `knowledge-service.ts` | mcp-local-rag 语义检索；E2：可用性探测（进程内缓存 5min）+ 失败降级关键词检索，不再静默返回 [] |

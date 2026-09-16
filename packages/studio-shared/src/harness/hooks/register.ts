@@ -1,18 +1,19 @@
 /**
- * Hook 注册 — Phase 2 迁移
+ * Hook 注册 — Phase 2 迁移（#159：注册 = 定义与声明表配对）
  *
  * 将现有 business hook 函数转换为 harness HookDefinition 并注册到 HookRegistry。
- * 保持现有 exports 不变（函数仍可直接调用），同时提供 pipeline 集成路径。
  *
  * C1：注册 = 各 hook 模块导出的 HookDefinition 并集（导出即注册），不再手工
- * 维护 7 条清单；enabled/errorStrategy 统一按 hooks/config.ts 声明表合并。
+ * 维护 7 条清单。#159 起 HookDefinition 不携带 enabled/errorStrategy——
+ * 唯一声明点是 hooks/config.ts 声明表，注册时随 registerAll 配对传入，
+ * 有效值（EffectiveHook）由 harness 注册表填充、管线判定。
  * 注册表闭环（assertHookRegistryClosed）对 getAllHookConfigs() ↔
  * buildHookDefinitions() 双向校验：测试期见 hooks/__tests__/config.test.ts，
  * 构建期见 scripts/tools/hooks-closure-check.ts（挂 studio-shared build）。
  */
 
 import type { HookRegistry, HookDefinition } from '@dommaker/harness';
-import { getHookConfig } from './config';
+import { getAllHookConfigs } from './config';
 
 import { goalHookDefinitions } from './goal.hooks';
 import { agentHookDefinitions } from './agent.hooks';
@@ -29,14 +30,15 @@ const MODULE_DEFINITIONS: HookDefinition[] = [
   ...prHookDefinitions,
 ];
 
-/** 聚合模块导出定义并合并声明表 enabled/errorStrategy（注册表闭环断言用） */
+/** 聚合模块导出定义（#159 起定义不携带 enabled/errorStrategy，纯实现侧） */
 export function buildHookDefinitions(): HookDefinition[] {
-  return MODULE_DEFINITIONS.map(def => {
-    const config = getHookConfig(def.name);
-    return { ...def, enabled: config.enabled, errorStrategy: config.errorStrategy };
-  });
+  return [...MODULE_DEFINITIONS];
 }
 
+/**
+ * 批量注册 = 定义 ↔ 声明表配对（harness registerAll 按 name 配对，
+ * 有实现缺声明即抛错；enabled/errorStrategy 由声明表填充）
+ */
 export function registerAllHooks(registry: HookRegistry): void {
-  registry.registerAll(buildHookDefinitions());
+  registry.registerAll(buildHookDefinitions(), getAllHookConfigs());
 }

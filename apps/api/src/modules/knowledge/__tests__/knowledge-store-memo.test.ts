@@ -132,6 +132,27 @@ describe('MtimeMemoKnowledgeStore', () => {
     expect(spy).toHaveBeenCalledTimes(2);
   });
 
+  it('write-through: applyAll (harness#134) patches entries and busts the memo', () => {
+    const spy = vi.spyOn(raw, 'list');
+    store.list({});
+    store.applyAll([{ id: 'kb1', partial: { title: 'patched-title' } }]);
+    const fresh = store.list({}); // 写后首读 = memo 已失效重扫，非旧值
+    expect(fresh.find(e => e.id === 'kb1')?.title).toBe('patched-title');
+    expect(spy).toHaveBeenCalledTimes(2);
+    // 不存在的 id 被底层跳过，不抛错
+    expect(() => store.applyAll([{ id: 'kb-missing', partial: { title: 'x' } }])).not.toThrow();
+  });
+
+  it('getConsumptionStats (harness#134) passes through without caching', () => {
+    expect(store.getConsumptionStats()).toBeUndefined();
+    const spy = vi.spyOn(raw, 'getConsumptionStats');
+    store.getConsumptionStats();
+    store.getConsumptionStats();
+    expect(spy).toHaveBeenCalledTimes(2);
+    fs.writeFileSync(path.join(dir, '.consumption-stats.json'), JSON.stringify({ date: '2026-01-01', dailyEvents: 3, searchHits: 2 }), 'utf-8');
+    expect(store.getConsumptionStats()).toEqual({ dailyEvents: 3 });
+  });
+
   it('write-through: rebuildIndex picks up hand-written files', () => {
     const orphan = makeEntry({ id: 'kb9' });
     const frontmatter = [
