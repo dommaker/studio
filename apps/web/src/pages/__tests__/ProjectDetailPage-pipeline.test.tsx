@@ -168,11 +168,13 @@ describe('AC-5: PMO 驾驶舱', { testTimeout: 15000 }, () => {
     expect(screen.getByText('阻塞 (0)')).toBeTruthy();
     expect(screen.getByText('完成 (1)')).toBeTruthy();
 
-    // wu-1 小卡：类型 chip / 状态 / 证据徽章白话词表（自动验证/Agent 评审/人工确认）/ 名册解析的认领人 / 耗时（25h → 1d1h）
+    // wu-1 小卡：类型 chip / 状态 / 证据徽章白话词表（自动验证/Agent 评审/人工确认；批次 I-6 ✓ → IconCheck SVG，
+    // 多卡同文案徽章并存，按 u-ok 亮绿档 + svg 锁定 wu-1 的已批徽章）/ 名册解析的认领人 / 耗时（25h → 1d1h）
     expect(screen.getByText('设计管道 UI')).toBeTruthy();
-    expect(screen.getByText('自动验证✓')).toBeTruthy();
-    expect(screen.getByText('Agent 评审✓')).toBeTruthy();
-    expect(screen.getByText('人工确认✓')).toBeTruthy();
+    for (const label of ['自动验证', 'Agent 评审', '人工确认']) {
+      const approved = screen.getAllByText(label).find(el => el.className.includes('u-ok') && el.querySelector('svg'));
+      expect(approved).toBeTruthy();
+    }
     expect(screen.getByRole('button', { name: 'dev' })).toBeTruthy();
     expect(screen.getByText('⏱ 1d1h')).toBeTruthy();
 

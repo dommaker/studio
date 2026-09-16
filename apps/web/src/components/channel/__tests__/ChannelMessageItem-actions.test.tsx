@@ -67,16 +67,17 @@ describe('ChannelMessageItem — 复制按钮（Phase 3 / AC4）', () => {
   });
   afterEach(() => vi.useRealTimers());
 
-  it('点击复制 → writeText 写入消息全文；按钮变 ✓ 约 1.5s 后恢复', async () => {
+  it('点击复制 → writeText 写入消息全文；按钮变对勾图标约 1.5s 后恢复（批次 I-6 ✓ → IconCheck SVG）', async () => {
     vi.useFakeTimers();
     renderItem(base);
     const btn = screen.getByLabelText('复制消息内容');
     fireEvent.click(btn);
     expect(mockWriteText).toHaveBeenCalledWith('正文内容-待复制');
     await act(async () => {}); // writeText promise 落地 + state 提交
-    expect(btn.textContent).toBe('✓');
+    expect(btn.querySelector('svg')).toBeTruthy();
     await act(async () => { vi.advanceTimersByTime(1600); });
-    expect(btn.textContent).not.toBe('✓');
+    expect(btn.querySelector('svg')).toBeNull();
+    expect(btn.textContent).toBe('⧉');
   });
 
   it('clipboard API 不可用 → toast.warning 提示，不静默', async () => {

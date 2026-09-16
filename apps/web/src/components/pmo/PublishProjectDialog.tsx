@@ -6,6 +6,7 @@ import { channelApi, type Channel, type AgentProfile } from '../../api/channel';
 import { useRosterStore } from '../../stores/rosterStore';
 import { toast } from '../../utils/toast';
 import { Select, Modal } from '../ui';
+import { IconAlertTriangle } from '../ui/icons';
 import { resolveChannelResponders } from './channelResponders';
 
 interface PublishProjectDialogProps {
@@ -136,7 +137,7 @@ export function PublishProjectDialog({ open, projectId, channels, onClose, onPub
                 <p className="u-warn text-sm mt-2">
                   {/* #290（清单 #25）：文案写明判定口径，消除与成员面板「空 = 所有 Agent 可见」的表面矛盾——
                       空成员口径下仍无响应者，说明成员非空但无 active 成员，或所有 active Agent 都限定了其他频道 */}
-                  ⚠ 该频道没有可响应的 Agent（判定口径：频道成员为空 = 所有未限定频道的 Agent 可见；当前口径下仍无响应者），发起后需求可能无人认领
+                  <IconAlertTriangle size={14} /> 该频道没有可响应的 Agent（判定口径：频道成员为空 = 所有未限定频道的 Agent 可见；当前口径下仍无响应者），发起后需求可能无人认领
                 </p>
               )}
               {/* #177：可选指派分析角色（默认留空=自动认领，候选=频道成员，不阻塞主交互） */}

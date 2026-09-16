@@ -9,6 +9,7 @@ import type { ChannelMessage } from '../../api/channel';
 import type { ChannelStream } from '../../hooks/useChannelStream';
 import { streamDateStrOf, streamDateLabelOf, type StreamItem } from '../../utils/streamView';
 import type { ChannelMessageItemProps } from './ChannelMessageItem';
+import { IconAlertTriangle } from '../ui/icons';
 
 /** #547：extra 逃生口收口——只含 6 个结构字段的封闭 Pick（deriveStreamView 产物经本通道喂入），
  *  编译期拒绝任意 prop 注入（原 Partial<Props> 已删）；横切值走 ChannelMessageEnv，不走本通道 */
@@ -71,7 +72,7 @@ export function ChannelStreamBody({ stream, renderMessage, highlightId }: {
               aria-expanded={item.expanded}
               onClick={() => toggleAlertGroup(item.key)}
             >
-              ⚠ {item.messages.length} 条监控告警 · {item.criticalCount} CRITICAL · {item.warningCount} WARNING
+              <IconAlertTriangle size={14} /> {item.messages.length} 条监控告警 · {item.criticalCount} CRITICAL · {item.warningCount} WARNING
               · {hhmmOf(first.createdAt)}–{hhmmOf(last.createdAt)}
             </button>
             {item.expanded && (

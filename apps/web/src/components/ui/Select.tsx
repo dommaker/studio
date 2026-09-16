@@ -6,6 +6,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { CSSProperties, KeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
+import { IconCheck } from './icons';
 
 export interface SelectOption {
   value: string;
@@ -189,7 +190,7 @@ export function Select(props: SelectProps) {
               onClick={() => { if (!o.disabled) selectOption(o); }}
             >
               <span className="select-option-label">{o.label}</span>
-              {o.value === value && <span className="select-check" aria-hidden="true">✓</span>}
+              {o.value === value && <span className="select-check" aria-hidden="true"><IconCheck size={14} /></span>}
             </div>
           ))}
         </div>,

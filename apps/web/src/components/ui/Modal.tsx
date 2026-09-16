@@ -1,4 +1,5 @@
 import { useEffect, useRef, type CSSProperties, type ReactNode } from 'react';
+import { IconX } from './icons';
 
 interface ModalProps {
   open?: boolean;
@@ -82,7 +83,7 @@ export function Modal({
             <h2 className="modal-title">{title}</h2>
             {onClose && (
               <button onClick={onClose} className="modal-close" aria-label="关闭">
-                ✕
+                <IconX />
               </button>
             )}
           </div>

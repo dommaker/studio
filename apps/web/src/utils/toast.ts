@@ -17,11 +17,14 @@ interface ToastOptions {
   action?: { label: string; onClick: () => void };
 }
 
+// 批次 I-6：默认图标归内联 SVG（与 ui/icons 同约定：24×24 viewBox、stroke=currentColor、aria-hidden）；
+// 本模块是纯 DOM 工具（非 JSX），图标以 SVG 标记字符串经 innerHTML 注入（仅此处静态常量，无注入面）。
+const SVG_OPEN = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">';
 const ICONS: Record<ToastType, string> = {
-  success: '✓',
-  error: '✕',
-  warning: '⚠',
-  info: 'ℹ',
+  success: `${SVG_OPEN}<polyline points="20 6 9 17 4 12"/></svg>`,
+  error: `${SVG_OPEN}<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`,
+  warning: `${SVG_OPEN}<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>`,
+  info: `${SVG_OPEN}<circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>`,
 };
 
 const COLORS: Record<ToastType, { bg: string; border: string; text: string }> = {
@@ -64,7 +67,6 @@ function motionBaseMs(): number {
 
 function show(message: string, type: ToastType, options?: ToastOptions): void {
   const duration = options?.duration ?? 4000;
-  const icon = options?.icon ?? ICONS[type];
   const colors = COLORS[type];
 
   const toast = document.createElement('div');
@@ -102,7 +104,9 @@ function show(message: string, type: ToastType, options?: ToastOptions): void {
     font-size: var(--fs-sm);
     font-weight: 700;
   `;
-  iconEl.textContent = icon;
+  // 自定义 icon（字符串）走 textContent 防注入；缺省图标 = 上方静态 SVG 常量，innerHTML 注入
+  if (options?.icon !== undefined) iconEl.textContent = options.icon;
+  else iconEl.innerHTML = ICONS[type];
 
   const msgEl = document.createElement('span');
   msgEl.style.cssText = `flex: 1; line-height: 1.4;`;

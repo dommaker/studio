@@ -67,13 +67,14 @@ describe('ProjectActivity', () => {
     expect(container.textContent).toContain('「收尾」 完成（已关闭）');
   });
 
-  it('delivered 条目渲染 "✓ 项目已交付"，无 button', () => {
+  it('delivered 条目渲染对勾图标 + "项目已交付"，无 button（批次 I-6：✓ → IconCheck SVG）', () => {
     const { container } = render(
       <ProjectActivity
         entries={[entry({ id: 'd1', kind: 'delivered', at: '2026-07-31T13:00:00', wuId: undefined, title: undefined })]}
       />,
     );
-    expect(container.textContent).toContain('✓ 项目已交付');
+    expect(container.textContent).toContain('项目已交付');
+    expect(container.querySelector('svg')).toBeTruthy();
     expect(screen.queryByRole('button')).not.toBeInTheDocument();
   });
 

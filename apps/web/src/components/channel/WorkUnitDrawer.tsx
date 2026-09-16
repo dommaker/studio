@@ -20,6 +20,7 @@ import { SkeletonText } from '../ui';
 import { BlockedActions } from '../workunit/BlockedActions';
 import { TreeTokenDrawer } from '../workunit/TreeTokenDrawer';
 import { SelfReviewBadge } from '../workunit/SelfReviewBadge';
+import { IconCheck, IconX } from '../ui/icons';
 import { EvidenceLedger } from '../workunit/EvidenceLedger';
 import { ReviewHint } from '../workunit/ReviewHint';
 import { WuGateActions } from '../workunit/WuGateActions';
@@ -123,7 +124,7 @@ export function WorkUnitDrawer({ drawer, onClose, onOpenWu, onOpenReq, todoNav }
               下一个 → {todoNav.next.label}
             </button>
           ) : (
-            <span className="mc-drawer-note">待办都处理完了 ✓</span>
+            <span className="mc-drawer-note">待办都处理完了 <IconCheck size={12} /></span>
           )}
         </div>
       )}
@@ -386,7 +387,7 @@ function WuDetail({ id, autoApprove = false, autoRuling = false, onOpenReq }: { 
                   封装开销 {overhead.avgOverheadRatio !== null ? `${overhead.avgOverheadRatio.toFixed(2)}x` : '—'}（直连 1.0x）
                 </span>
                 <span className={overhead.avgOverheadRatio !== null && overhead.avgOverheadRatio <= overhead.overheadBudget ? 'mc-redline-ok' : 'mc-redline-breach'}>
-                  红线 {overhead.overheadBudget}x {overhead.avgOverheadRatio !== null && overhead.avgOverheadRatio <= overhead.overheadBudget ? '✓' : '✗'}
+                  红线 {overhead.overheadBudget}x {overhead.avgOverheadRatio !== null && overhead.avgOverheadRatio <= overhead.overheadBudget ? <IconCheck size={12} /> : <IconX size={12} />}
                 </span>
               </div>
               <div className="mc-redline">

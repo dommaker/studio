@@ -2,7 +2,7 @@
 // 服务器地址走项目既有 vite env 配置通道（同 api/index.ts 的 VITE_API_URL 惯例）：
 // VITE_IDE_SSH_HOST / VITE_IDE_CLOUD_IDE_URL，缺省回退当前站点主机名，不再硬编码生产 IP。
 import { useState, type ReactNode } from 'react';
-import { IconClipboard, IconCloud, IconLightbulb } from '../ui/icons';
+import { IconClipboard, IconCloud, IconLightbulb, IconCheck } from '../ui/icons';
 import { Modal } from '../ui';
 
 const sshHost = import.meta.env.VITE_IDE_SSH_HOST || `root@${window.location.hostname}`;
@@ -61,7 +61,7 @@ function GuideDialog({ title, icon, steps, hint, onClose }: GuideDialogProps) {
               <span className="w-6 h-6 u-accent-bg u-on-accent rounded-full flex items-center justify-center text-sm">{step.step}</span>
               <span className="text-sm flex-1">{step.text}</span>
               <button onClick={() => copyStep(step.text, i)} className="btn btn-sm btn-secondary">
-                {copiedStep === i ? '✓' : '复制'}
+                {copiedStep === i ? <IconCheck size={12} /> : '复制'}
               </button>
             </div>
           ))}

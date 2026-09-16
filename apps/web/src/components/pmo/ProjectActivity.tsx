@@ -3,6 +3,7 @@
 import { useNavigate } from 'react-router-dom';
 import { WU_STATUS_LABELS } from '@dommaker/studio-shared/web';
 import { formatTimelineTime, type ProjectTimelineEntry } from './pipelineUtils';
+import { IconCheck } from '../ui/icons';
 
 function EntryText({ entry }: { entry: ProjectTimelineEntry }) {
   const navigate = useNavigate();
@@ -28,7 +29,7 @@ function EntryText({ entry }: { entry: ProjectTimelineEntry }) {
       return <span>{title} 完成{label && label !== WU_STATUS_LABELS.done ? `（${label}）` : ''}</span>;
     }
     case 'delivered':
-      return <span className="u-ok">✓ 项目已交付</span>;
+      return <span className="u-ok inline-flex items-center gap-1"><IconCheck size={12} /> 项目已交付</span>;
   }
 }
 

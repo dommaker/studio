@@ -10,6 +10,7 @@ import {
   validateKRTarget,
   type KR,
 } from './okrMetric';
+import { IconCheck, IconX } from '../ui/icons';
 
 interface CreateOkrDialogProps {
   open: boolean;
@@ -179,7 +180,7 @@ export function CreateOkrDialog({ open, companyId, onClose, onCreated }: CreateO
                       onClick={() => removeKR(kr.id)}
                       className="u-btn-reset text-xs u-err u-hover-text"
                     >
-                      ✕
+                      <IconX size={12} />
                     </button>
                   )}
                 </div>
@@ -235,7 +236,9 @@ export function CreateOkrDialog({ open, companyId, onClose, onCreated }: CreateO
                       {meta?.baseline !== undefined && `基准: ${meta.baseline}${meta.unit}`}
                       {meta?.baseline !== undefined && v.status !== 'pass' && ' · '}
                       {v.status !== 'pass' ? v.reason : ''}
-                      {v.status === 'pass' && meta?.baseline !== undefined && ` ✓ 目标合理`}
+                      {v.status === 'pass' && meta?.baseline !== undefined && (
+                        <span className="inline-flex items-center gap-0.5"> <IconCheck size={12} /> 目标合理</span>
+                      )}
                     </div>
                   );
                 })()}

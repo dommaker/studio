@@ -15,6 +15,7 @@ import { matchFileRefToken } from '../../utils/fileChipMatch';
 import { renderWithMentionsAndImages } from '../../utils/messageImages';
 import { RequirementsDocCard } from './RequirementsDocCard';
 import { KnowledgeConfirmCard } from './KnowledgeConfirmCard';
+import { IconCheck } from '../ui/icons';
 import { ReviewProposalCard } from './ReviewProposalCard';
 import { AnalysisConfirmCard } from './AnalysisConfirmCard';
 import { PlanRulingCard } from './PlanRulingCard';
@@ -113,7 +114,7 @@ export const ChannelMessageItem = memo(function ChannelMessageItem({
   const [needSent, setNeedSent] = useState(false);
   // #276（P2 #15）：发送中状态——禁用表单防重复触发，await 真实结果后才置位「已回复」
   const [needSending, setNeedSending] = useState(false);
-  // Phase 3（AC4）：复制反馈——成功后按钮变 ✓ 约 1.5s 恢复（本地 state + 定时器，卸载清理）
+  // Phase 3（AC4）：复制反馈——成功后按钮变对勾图标约 1.5s 恢复（本地 state + 定时器，卸载清理；批次 I-6 ✓ → IconCheck）
   const [copied, setCopied] = useState(false);
   const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => { if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current); }, []);
@@ -142,7 +143,7 @@ export const ChannelMessageItem = memo(function ChannelMessageItem({
       title="复制"
       aria-label="复制消息内容"
     >
-      {copied ? '✓' : '⧉'}
+      {copied ? <IconCheck /> : '⧉'}
     </button>
   );
   // #270：NEED_INPUT 内嵌回复框共享 composer 同款 IME 守卫
@@ -328,7 +329,7 @@ export const ChannelMessageItem = memo(function ChannelMessageItem({
           #276：needSent 仅在 await 真实发送成功后置位；发送中禁用表单防重复触发 */}
       {waitingForInput && onInlineReply && (
         needSent ? (
-          <div className="mc-need-sent">✓ 已回复</div>
+          <div className="mc-need-sent"><IconCheck size={12} /> 已回复</div>
         ) : needOptions && needOptions.length > 0 ? (
           <NeedInputOptions
             options={needOptions}
