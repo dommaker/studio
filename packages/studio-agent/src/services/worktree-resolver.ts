@@ -86,8 +86,11 @@ export async function createWorktree(worktree: string, baseBranch: string, repoD
 }
 
 /** 工具产物 exclude 规则（写入 .git/info/exclude，git status 不再看到这些产物）。
- *  #154（T5）：`.studio/` 移出清单——业务仓 .studio/ = 纯文档正本，整体进 git。 */
-const GIT_EXCLUDE_PATTERNS = ['.claude/', '.daemon/', '.agent.log', '.harness/', '.codex/', '.kimi-code/'];
+ *  #154（T5）：`.studio/` 移出清单——业务仓 .studio/ = 纯文档正本，整体进 git。
+ *  CLAUDE.md：propagateHarnessConfig 复制的薄身（首行 @AGENTS.md 导入），业务仓侧本就
+ *  gitignored；不排除则 worktree 恒脏（?? CLAUDE.md）→ 提交守卫误伤。exclude 只影响
+ *  未跟踪文件，业务仓若真实跟踪 CLAUDE.md 不受此行影响。 */
+const GIT_EXCLUDE_PATTERNS = ['.claude/', '.daemon/', '.agent.log', '.harness/', '.codex/', '.kimi-code/', 'CLAUDE.md'];
 
 /** 历史 exclude 行（#154 前 .studio/ 曾被排除）：writeGitExclude 时自愈清除，让存量仓 .studio/ 也能进 git */
 const LEGACY_EXCLUDE_PATTERNS = ['.studio/'];

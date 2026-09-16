@@ -79,7 +79,7 @@ worktree/
 | codex | 原生 PreToolUse hook | `.codex/hooks.json`（项目级，per-worktree） | CommandGate block 级 exit 2 阻断（`exec --json` 生效，需 trust 门 bypass，见下） |
 | kimi | 原生 PreToolUse hook | `<worktree>/.kimi-code/config.toml`（host 配置复制 + hook 追加；credentials/oauth 软链复用 host）+ spawn env `KIMI_CODE_HOME` | 同上（`-p` 生效） |
 
-hook 统一指向 `@dommaker/harness` 包内出厂 shim `dist/pretool-use-hook.js`（require.resolve 解析，#154 起不再生成 worktree 内脚本；stdin JSON → CommandGate.isAllowed → exit 2）。`.codex/`、`.kimi-code/` 已入 `GIT_EXCLUDE_PATTERNS`；`.studio/` 自 #154 移出 exclude（纯文档正本整体进 git）。黑名单规则本身不在此改（harness 仓另议）。已知限制：agent 运行中可改写自己 worktree 内的执法配置（deny-only 执法面边界，worktree 重建时 propagate 幂等自愈）。
+hook 统一指向 `@dommaker/harness` 包内出厂 shim `dist/pretool-use-hook.js`（require.resolve 解析，#154 起不再生成 worktree 内脚本；stdin JSON → CommandGate.isAllowed → exit 2）。`.codex/`、`.kimi-code/` 已入 `GIT_EXCLUDE_PATTERNS`；`CLAUDE.md`（propagate 复制的薄身）同样在列——不排除会 `?? CLAUDE.md` 恒脏、提交守卫误伤（exclude 只影响未跟踪文件，业务仓真实跟踪 CLAUDE.md 不受影响）；`.studio/` 自 #154 移出 exclude（纯文档正本整体进 git）。黑名单规则本身不在此改（harness 仓另议）。已知限制：agent 运行中可改写自己 worktree 内的执法配置（deny-only 执法面边界，worktree 重建时 propagate 幂等自愈）。
 
 **codex trust 门（0.147.0 实测，D7）**：非 managed command hook 须先 review+trust 才运行，exec 无人值守下未信任一律静默跳过（trust 按 hook hash 持久化，worktree 路径每 WU 不同，无法预信任）→ codex spawn 模板（studio-shared providers.ts）携带 `--dangerously-bypass-hook-trust`（官方定位：已自行审查 hook 来源的自动化）。本机实证：无 flag 时 SessionStart marker 不跑、有 flag 即跑；PreToolUse exit 2 端到端真拦。
 
