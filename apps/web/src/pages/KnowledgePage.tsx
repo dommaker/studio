@@ -11,14 +11,17 @@
  * ④ tab 去 emoji + 激活态 borderBottom 收进 .u-tab/.u-tab-active（批次 D-4 正本形态）；
  * ⑤ 空态归 .empty-state；页底「← 前往阅览室」删除（导航归 MoreDropdown）；搜索结果类型徽标去 emoji，
  *   与统一视图同源走 CONSUMPTION_MODE_CHART 类别色文字 + 中性底。
+ * Step 2（2026-09 web-ux-optional-fixes）：订阅 SSE knowledge.entry_changed（agent 产出/审批/他端新建）
+ * → 当前 tab 防抖重拉；页面不可见不拉（记脏回 visible 补拉），无轮询。
  */
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { knowledgeApi, type KnowledgeGapType, type KnowledgeSearchResult, type UnifiedEntry } from '../api/knowledge';
 import { maintenanceApi } from '../api/maintenance';
 import { toast } from '../utils/toast';
 import { serverErrorMessage } from '../utils/errorMessage';
 import { useAsyncData } from '../hooks/useAsyncData';
+import { useWebSocketContext } from '../api/websocketHooks';
 import { Select, ManualTaskButton, Button, SkeletonCard } from '../components/ui';
 import { IconBook } from '../components/ui/icons';
 import {
@@ -102,6 +105,38 @@ export function KnowledgePage() {
     return { kind: 'gap', items: (res.data.data || []) as GapItem[] };
   }, [activeTab, unifiedMode, reviewOnly]);
   const costsQ = useAsyncData(() => maintenanceApi.getCosts(), []);
+
+  // Step 2：SSE 实时刷新——knowledge.entry_changed（agent 产出/审批/他端新建）到达 → 当前 tab 重拉。
+  // 载荷只带轻量元信息（action/entryId/title），不足以就地拼七种 tab 形状 → reload（保留旧数据重拉）。
+  // 400ms trailing 防抖合并批量事件（review-adapter 逐条目审批会发一串）；
+  // 页面不可见时不拉（零额外开销，useGatedPoll 精神），记脏待回 visible 补拉一次。无轮询。
+  const { onEvent } = useWebSocketContext();
+  const sseDirtyRef = useRef(false);
+  const sseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reloadTab = tabQ.reload; // 引用稳定（useAsyncData 内 useCallback）
+  useEffect(() => {
+    const flush = () => {
+      setMoreEntries([]); // 追加页基于旧快照，首页重拉后失效（同切 tab 口径）
+      reloadTab();
+    };
+    const off = onEvent(msg => {
+      if (msg.event_type !== 'knowledge.entry_changed') return;
+      if (document.hidden) { sseDirtyRef.current = true; return; }
+      if (sseTimerRef.current) clearTimeout(sseTimerRef.current);
+      sseTimerRef.current = setTimeout(flush, 400);
+    });
+    const onVisible = () => {
+      if (document.hidden || !sseDirtyRef.current) return;
+      sseDirtyRef.current = false;
+      flush();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      off();
+      document.removeEventListener('visibilitychange', onVisible);
+      if (sseTimerRef.current) clearTimeout(sseTimerRef.current);
+    };
+  }, [onEvent, reloadTab]);
 
   // AS-022: Submit manual entry
   const handleManualEntry = async () => {

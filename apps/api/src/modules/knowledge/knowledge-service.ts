@@ -39,7 +39,7 @@ import { FileStore, logger } from '@dommaker/studio-shared';
 import { getSystemExecutor, StudioRoleNotConfiguredError } from '../agents/system-executor.js';
 import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
 import type { CreateResolutionInput } from '@dommaker/studio-shared';
-import { scheduleVectorDbSync, ingestWithQualityGate } from './knowledge-singletons.js';
+import { scheduleVectorDbSync, ingestWithQualityGate, publishKnowledgeEntryChanged } from './knowledge-singletons.js';
 import {
   computeOutcomeMetrics,
   scanKnowledgeEvents,
@@ -941,6 +941,7 @@ export class KnowledgeService {
     const target = next[entry.maturity];
     if (target) {
       this.store.update(entryId, { maturity: target });
+      publishKnowledgeEntryChanged('promoted', { entryId, entryType: entry.type, title: entry.title });
     }
   }
 
@@ -955,6 +956,7 @@ export class KnowledgeService {
     const target = prev[entry.maturity];
     if (target) {
       this.store.update(entryId, { maturity: target });
+      publishKnowledgeEntryChanged('demoted', { entryId, entryType: entry.type, title: entry.title });
     }
   }
 

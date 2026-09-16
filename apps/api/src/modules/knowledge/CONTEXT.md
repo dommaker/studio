@@ -15,7 +15,7 @@
 
 | 模块 | 路径 | 职责 |
 |------|------|------|
-| `knowledge-singletons` | `knowledge-singletons.ts` | 共享单例唯一所有者（sharedStore 等）+ 向量库同步 + 统一质量门（R4） |
+| `knowledge-singletons` | `knowledge-singletons.ts` | 共享单例唯一所有者（sharedStore 等）+ 向量库同步 + 统一质量门（R4）+ `publishKnowledgeEntryChanged`（条目变更 SSE 广播，见注意事项 Step 2 条） |
 | `MtimeMemoKnowledgeStore` | `knowledge-store-memo.ts` | sharedStore 的 mtime 校验聚合 memo 包装（#343，缓存 seam ADR 外部包条款）：mtime+size 指纹兜底跨进程外部写 + 本进程写穿透失效；命中深克隆保持「每次读全新对象」契约；readEntriesFromDisk/snapshot 直通不缓存 |
 | `UnifiedQuery` | `engine/unified-query.ts` | 双存储统一查询（Prisma + KnowledgeStore），knowledgeService 的 query 引擎（R4 修复接线） |
 | `knowledgeService.injectContext` | `knowledge-service.ts` | 统一 prompt 注入入口（absorbed from prompt-builder）；E2：有注入时附「何时查知识库」指引（`KNOWLEDGE_QUERY_GUIDANCE`）；#91：maxTokens 由 prompt-composer 按分段定额传入（knowledge 1000 + 池余量），`knowledge:inject-trimmed` 事件补 originalTokens/keptTokens 尺寸字段，返回值带 `usage` 供 `prompt:section_trimmed` 埋点 |
@@ -78,6 +78,8 @@ knowledge/
 - **下游**: `channels/*`（conversation-handler）
 
 ### 注意事项
+
+- **知识条目变更 SSE 事件（2026-09 web-ux-optional-fixes Step 2）**：`publishKnowledgeEntryChanged(action, { entryId?, entryType?, title? })`（knowledge-singletons）经 eventBus `events` 频道广播 `knowledge.entry_changed`（sse.routes 前缀映射进 knowledge topic，载荷只带轻量元信息 = 前端「重拉信号」，信封不带 event_id 同 knowledge bridge 惯例）。三个发射点：`ingestWithQualityGate` 成功入库（agent 产出主路径）、`knowledgeService.promote/demote` 成熟度迁移实际发生（不在迁移表不发）、`POST /knowledge/unified` 人工创建。绕过门面直调 `sharedStore.save` 的机器流（pattern-miner/rule-scanner/decision-chain-extractor/audit-subscriber）**不广播**——audit-subscriber 每条审计事件都写库，store 层 chokepoint 广播会造成事件风暴，是有意排除。消费方：KnowledgePage 订阅后防抖重拉当前 tab。
 
 - **交互模式条目判别口径（2026-09-10 生产 /search 500 根因修复）**：tag `pattern` 是自由命名空间——guideline 条目（session-summary 等）合法携带且正文为 markdown；交互模式条目的唯一可靠判别是结构化字段 `type='pattern'`（off-schema，harness `KnowledgeSubsystem` 词表未收录，upsertPattern 以 `as any` 写入）。消费方（search.routes /search、pattern-miner 5 处）统一走 `pattern-entry.ts` 的 `listInteractionPatterns`（types 口径）+ `parsePatternContent`（正文 JSON 解析失败 = 数据损坏，返回 null 跳过，不抛异常打垮读路径）。同类裸 `JSON.parse(entry.content)` 在 rule-scanner / decision-chain-extractor / unified-query 仍存在，其 tag 词表（rule/decision 等）当前无冲突条目，属同类潜在 hazard。
 

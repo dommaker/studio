@@ -12,7 +12,7 @@
 
 import { Router } from 'express';
 import { logger } from '@dommaker/studio-shared';
-import { sharedStore } from './knowledge-singletons.js';
+import { sharedStore, publishKnowledgeEntryChanged } from './knowledge-singletons.js';
 import { getSystemExecutor } from '../agents/system-executor.js';
 import { requireAuth, requireNotGuest } from '../../middleware/auth.js';
 import { parsePagination } from '../../utils/pagination.js';
@@ -240,6 +240,9 @@ entriesRoutes.post('/unified', requireAuth(), requireNotGuest(), async (req, res
       consumptionMode,
       origin: 'human',
     });
+
+    // Step 2：人工创建同样广播（他端开着的 KnowledgePage 实时刷新；本端提交后本就会 reload）
+    publishKnowledgeEntryChanged('created', { entryId: id, entryType: type, title });
 
     res.status(201).json({ id, title, consumptionMode });
   } catch (error) {

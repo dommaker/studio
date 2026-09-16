@@ -19,7 +19,7 @@
 
 import { FileKnowledgeStore, KnowledgeIngest, KnowledgeLifecycle, KnowledgeQuery, KnowledgeInjector, KnowledgeLinter, ReferenceTracker } from '@dommaker/harness';
 import type { KnowledgeEntry, KnowledgeOrigin, KnowledgeSubsystem, MaturityLevel } from '@dommaker/harness';
-import { FileStore, logger } from '@dommaker/studio-shared';
+import { FileStore, logger, eventBus } from '@dommaker/studio-shared';
 import { wrapWithSegmentSpan } from '@dommaker/studio-shared/read-metrics';
 import { execFile, execFileSync } from 'child_process';
 import * as path from 'path';
@@ -336,9 +336,10 @@ export function ingestWithQualityGate(
     return null;
   }
 
-  // 3. 成功：同步向量库 + entry_created 事件
+  // 3. 成功：同步向量库 + entry_created 事件 + SSE 广播
   scheduleVectorDbSync();
   appendKnowledgeEvent('knowledge:entry_created', { entryType, title: input.title });
+  publishKnowledgeEntryChanged('created', { entryId: saved?.id, entryType, title: input.title });
   return saved;
 }
 
@@ -352,4 +353,30 @@ export function appendKnowledgeEvent(type: string, payload: Record<string, unkno
   }).catch((e: any) => {
     logger.warn(`[Knowledge] ${type} event failed`, { error: String(e) });
   });
+}
+
+// ── 知识条目变更 SSE 广播（2026-09 web-ux-optional-fixes Step 2） ──
+
+export type KnowledgeEntryChangeAction = 'created' | 'promoted' | 'demoted';
+
+/**
+ * 知识条目创建/成熟度变更 → SSE 广播（event_type: knowledge.entry_changed，
+ * 经 sse.routes topic 前缀映射进 knowledge topic，KnowledgePage 订阅后重拉当前 tab）。
+ * 载荷只带轻量元信息（消费方当「重拉信号」用，不做就地拼接）；不带 event_id
+ * （同 initKnowledgeEventBridge 惯例，sse.routes 容忍缺省）。
+ * best-effort：eventBus.publish 为同步 emit（订阅侧异常向上抛），try/catch 护住写路径主流程。
+ */
+export function publishKnowledgeEntryChanged(
+  action: KnowledgeEntryChangeAction,
+  info: { entryId?: string; entryType?: string; title?: string },
+): void {
+  try {
+    eventBus.publish('events', {
+      event_type: 'knowledge.entry_changed',
+      timestamp: new Date().toISOString(),
+      data: { action, ...info },
+    });
+  } catch (e: any) {
+    logger.warn('[Knowledge] entry_changed SSE publish failed', { error: String(e) });
+  }
 }
