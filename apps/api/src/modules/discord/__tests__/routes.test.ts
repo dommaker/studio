@@ -2,8 +2,9 @@
  * Discord interactions 路由测试（#538 从零补齐——现状零覆盖）
  *
  * 钉住 ADR 2026-09-15 决策 2 的收口语义：
- *  - retry / retry-new 按钮 → unclaim 回池 + 重试标记经 updateMetadata 锁内合并
- *    （旧实现整写 metadata 覆盖摧毁既有键、直摸 commitSnapshot 绕过 service 层）
+ *  - retry / retry-new 按钮 → unclaim 回池 + 重试标记经 updateMetadata 语义口合并
+ *    （#554：patch 并入走 WorkUnitService，路由零直摸 FileStore 写原语；
+ *    旧实现整写 metadata 覆盖摧毁既有键、直摸 commitSnapshot 绕过 service 层）
  *  - abandon 按钮 / /studio stop → WorkUnitService.close 状态机单口（#550）
  *    （closedBy: human-command，补 closedAt + status_changed + workunit:closed 记录 + 频道出声）
  *  - 停发 legacy events:goal-execution 事件（Goal 体系已退役）
@@ -16,7 +17,7 @@ import express from 'express';
 import type { Server } from 'node:http';
 import { generateKeyPairSync, sign } from 'node:crypto';
 
-const { mockFileStore, mockUnclaim, mockClose, mockAgentStop, mockEventBusPublish } = vi.hoisted(() => ({
+const { mockFileStore, mockUnclaim, mockUpdateMetadata, mockClose, mockAgentStop, mockEventBusPublish } = vi.hoisted(() => ({
   mockFileStore: {
     getIndex: vi.fn(),
     updateMetadata: vi.fn(),
@@ -24,6 +25,7 @@ const { mockFileStore, mockUnclaim, mockClose, mockAgentStop, mockEventBusPublis
     commitRemoval: vi.fn(),
   },
   mockUnclaim: vi.fn(),
+  mockUpdateMetadata: vi.fn(),
   mockClose: vi.fn(),
   mockAgentStop: vi.fn(),
   mockEventBusPublish: vi.fn(),
@@ -39,7 +41,7 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => {
 });
 
 vi.mock('../../workunit/workunit.service.js', () => ({
-  WorkUnitService: vi.fn(function () { return { unclaim: mockUnclaim, close: mockClose }; }),
+  WorkUnitService: vi.fn(function () { return { unclaim: mockUnclaim, close: mockClose, updateMetadata: mockUpdateMetadata }; }),
 }));
 
 vi.mock('@dommaker/studio-agent', () => ({
@@ -104,7 +106,7 @@ describe('discord interactions 路由（#538 写路径收口）', () => {
     vi.clearAllMocks();
     mockClose.mockResolvedValue(true);
     mockUnclaim.mockResolvedValue({});
-    mockFileStore.updateMetadata.mockResolvedValue(true);
+    mockUpdateMetadata.mockResolvedValue({});
   });
 
   async function postInteraction(payload: unknown, opts?: { badSignature?: boolean }) {
@@ -130,7 +132,7 @@ describe('discord interactions 路由（#538 写路径收口）', () => {
     expect(mockClose).not.toHaveBeenCalled();
   });
 
-  it('retry 按钮 → unclaim 回池 + updateMetadata 合并（resumeAfterRetry + extraRounds），零直写', async () => {
+  it('retry 按钮 → unclaim 回池 + updateMetadata 语义口合并（resumeAfterRetry + extraRounds），零直写', async () => {
     const res = await postInteraction(button('retry:wu-1:3'));
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -138,25 +140,24 @@ describe('discord interactions 路由（#538 写路径收口）', () => {
     expect(body.data.content).toContain('3');
 
     expect(mockUnclaim).toHaveBeenCalledWith('wu-1');
-    expect(mockFileStore.updateMetadata).toHaveBeenCalledTimes(1);
-    const [wuId, mutator] = mockFileStore.updateMetadata.mock.calls[0];
-    expect(wuId).toBe('wu-1');
-    // 合并语义：既有键保留，重试标记并入（旧实现整写覆盖会摧毁 keep 键）
-    expect(mutator({ keep: 'me' })).toEqual({ keep: 'me', resumeAfterRetry: true, extraRounds: 3 });
-    // 不直摸 FileStore 写原语
+    // #554：重试标记走 service 语义口（patch 并入，锁内合并语义由 service/FileStore 层测试钉住）
+    expect(mockUpdateMetadata).toHaveBeenCalledTimes(1);
+    expect(mockUpdateMetadata).toHaveBeenCalledWith('wu-1', { resumeAfterRetry: true, extraRounds: 3 });
+    // 不直摸 FileStore 写原语（含 updateMetadata）
+    expect(mockFileStore.updateMetadata).not.toHaveBeenCalled();
     expect(mockFileStore.commitSnapshot).not.toHaveBeenCalled();
     expect(mockFileStore.commitRemoval).not.toHaveBeenCalled();
   });
 
-  it('retry-new 按钮 → unclaim + updateMetadata 合并（resumeAfterRetry + freshPrompt）', async () => {
+  it('retry-new 按钮 → unclaim + updateMetadata 语义口合并（resumeAfterRetry + freshPrompt）', async () => {
     const res = await postInteraction(button('retry-new:wu-1'));
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.data.content).toContain('🔄');
 
     expect(mockUnclaim).toHaveBeenCalledWith('wu-1');
-    const mutator = mockFileStore.updateMetadata.mock.calls[0][1];
-    expect(mutator({ keep: 'me' })).toEqual({ keep: 'me', resumeAfterRetry: true, freshPrompt: true });
+    expect(mockUpdateMetadata).toHaveBeenCalledWith('wu-1', { resumeAfterRetry: true, freshPrompt: true });
+    expect(mockFileStore.updateMetadata).not.toHaveBeenCalled();
   });
 
   it('abandon 按钮 → WorkUnitService.close 状态机单口（human-command），不直写不发 legacy 事件', async () => {

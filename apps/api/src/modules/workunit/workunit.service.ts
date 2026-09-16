@@ -5,8 +5,8 @@
  * 存储迁移: 已从 Prisma 迁移到 FileStore (Event Sourcing)
  *
  * 拆分说明（纯代码移动，行为不变）：create/update/delete、claim/unclaim、
- * workunit.created/status_changed 事件发布与父状态聚合已迁至 workunit-crud.ts
- * （WorkUnitCrudService 基类）；头部类型/常量/转换层已抽至 workunit.types.ts /
+ * updateMetadata 增量合并语义口（#554）、workunit.created/status_changed 事件发布
+ * 与父状态聚合已迁至 workunit-crud.ts（WorkUnitCrudService 基类）；头部类型/常量/转换层已抽至 workunit.types.ts /
  * workunit.mappers.ts（工单 30）。本文件保留查询（getById/list）、状态机迁移
  * （transitionStatus）、系统侧关闭唯一入口（close，#550 收编 wu-closure）与评审验收
  * （reviewPassed/reviewRejected/attestation 补写/recordL1Verification/markMergeConflict/

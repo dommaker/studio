@@ -527,6 +527,46 @@ describe('update', () => {
   });
 });
 
+// ── updateMetadata 增量合并（#554，ADR 2026-09-15 决策 1/6 语义口）──
+
+describe('updateMetadata', () => {
+  it('patch 浅并入既有 metadata：既有键保留、同名键被 patch 覆盖，返回更新后 WorkUnitData', async () => {
+    const wu = await service.create({
+      scope: 'metadata 增量', metadata: { priority: 'low', blockReason: 'stuck' },
+    });
+    await new Promise(r => setTimeout(r, 10));
+
+    const updated = await service.updateMetadata(wu.id, { priority: 'high', resumeAfterRetry: true });
+
+    expect(updated).not.toBeNull();
+    expect(JSON.parse(updated!.metadata!)).toEqual({
+      priority: 'high',       // 同名键被 patch 覆盖
+      blockReason: 'stuck',   // 既有键保留（不整写覆盖）
+      resumeAfterRetry: true, // 新键并入
+    });
+    // 索引落盘值一致 + 事件流追加 updated 事件 + updatedAt 前进
+    const snap = (await findSnapshot(wu.id))!;
+    expect(JSON.parse(snap.metadata!)).toEqual({ priority: 'high', blockReason: 'stuck', resumeAfterRetry: true });
+    expect(readEvents().some(e => e.type === 'updated' && e.wuId === wu.id)).toBe(true);
+    expect(updated!.updatedAt.getTime()).toBeGreaterThan(wu.createdAt.getTime());
+  });
+
+  it('metadata 为 null / 损坏 JSON 时按 {} 起评并入（FileStore 原语口径透传）', async () => {
+    const wu = await service.create({ scope: '空 metadata' });
+
+    const updated = await service.updateMetadata(wu.id, { tag: 'x' });
+
+    expect(JSON.parse(updated!.metadata!)).toEqual({ tag: 'x' });
+  });
+
+  it('WorkUnit 不存在 → 返回 null（不抛错、不产生事件）', async () => {
+    const result = await service.updateMetadata('wu-missing', { tag: 'x' });
+
+    expect(result).toBeNull();
+    expect(readEvents().filter(e => e.wuId === 'wu-missing')).toHaveLength(0);
+  });
+});
+
 // ── delete ──
 
 describe('delete', () => {

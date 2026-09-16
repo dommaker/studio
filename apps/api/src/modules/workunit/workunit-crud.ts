@@ -4,8 +4,8 @@
  * AS-025 §3.28c-1 Task 2-4
  * 存储迁移: 已从 Prisma 迁移到 FileStore (Event Sourcing)
  *
- * 本文件：create/update/delete + claim/unclaim、workunit.created 与
- * workunit.status_changed 事件发布、父状态聚合（aggregateParentStatus），
+ * 本文件：create/update/delete + claim/unclaim + updateMetadata 增量合并语义口（#554）、
+ * workunit.created 与 workunit.status_changed 事件发布、父状态聚合（aggregateParentStatus），
  * 以及快照转换函数与输入/数据类型。状态机迁移（transitionStatus）、
  * 查询（getById/list）与评审验收收口在 workunit.service.ts 的 WorkUnitService。
  */
@@ -419,6 +419,19 @@ export class WorkUnitCrudService {
     await this.fileStore.commitSnapshot(event, updated);
 
     return snapshotToData(updated);
+  }
+
+  /**
+   * metadata 增量合并语义口（#554，ADR 2026-09-15 决策 1/6）：patch 浅并入既有
+   * metadata——既有键保留、同名键被 patch 覆盖、undefined 值键序列化时丢弃（清除语义）。
+   * 委托 FileStore.updateMetadata 锁内原语（mutator 基于锁内最新值求值，消读-改-写竞态）；
+   * 业务模块不直摸该原语。不动状态机/业务守卫，updatedAt 沿用原语缺省刷新。
+   * @returns 更新后的 WorkUnitData；WU 不存在返回 null（不抛错，与 FileStore 原语同口径，
+   *          与 update() 的抛错口径不同——批量/标记类调用方按忽略语义处理）
+   */
+  async updateMetadata(id: string, patch: WorkUnitMetadata): Promise<WorkUnitData | null> {
+    const updated = await this.fileStore.updateMetadata(id, latest => ({ ...latest, ...patch }));
+    return updated ? snapshotToData(updated) : null;
   }
 
   /**

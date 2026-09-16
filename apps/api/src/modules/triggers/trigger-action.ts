@@ -3,6 +3,7 @@
 import { FileStore, logger } from '@dommaker/studio-shared';
 import type { TriggerAction, TriggerExecuteHandler } from './trigger.types.js';
 import { WorkUnitService } from '../workunit/workunit.service.js';
+import type { WorkUnitMetadata } from '../workunit/workunit.service.js';
 
 /** Handler registry for EXECUTE actions */
 const executeHandlers = new Map<string, TriggerExecuteHandler>();
@@ -273,9 +274,8 @@ export async function executeUpdateAction(
         await workUnitService.update(s.id, input);
       }
       if (metadata !== undefined) {
-        // metadata 增量合并：mutator 基于锁内最新 metadata，既有键保留、新键并入
-        const patch = metadata as Record<string, unknown>;
-        await fileStore.updateMetadata(s.id, latest => ({ ...latest, ...patch }));
+        // metadata 增量合并（#554：走 service 语义口，锁内基于最新 metadata 并入，既有键保留）
+        await workUnitService.updateMetadata(s.id, metadata as WorkUnitMetadata);
       }
     }
   } else {

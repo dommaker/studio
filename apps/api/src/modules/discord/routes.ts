@@ -316,12 +316,12 @@ async function closeWorkUnit(wuId: string, reason: string): Promise<boolean> {
 
 /**
  * 重置 WorkUnit 回池重试（#538，ADR 2026-09-15 决策 2）：unclaim 回 unassigned
- * （清 assignee + 发 status_changed）+ 重试标记经 updateMetadata 锁内合并
- * （mutator 基于锁内最新 metadata，既有键保留——旧实现整写覆盖摧毁它们）。
+ * （清 assignee + 发 status_changed）+ 重试标记经 updateMetadata 语义口锁内合并
+ * （#554：patch 基于锁内最新 metadata 并入，既有键保留——旧实现整写覆盖摧毁它们）。
  */
 async function resetForRetry(wuId: string, retryMeta: Record<string, unknown>): Promise<void> {
   await workUnitService.unclaim(wuId);
-  await fileStore.updateMetadata(wuId, latest => ({ ...latest, resumeAfterRetry: true, ...retryMeta }));
+  await workUnitService.updateMetadata(wuId, { resumeAfterRetry: true, ...retryMeta });
 }
 
 export default router;
