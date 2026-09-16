@@ -12,6 +12,7 @@
  * 词表 = 各仓 `git ls-files` 原样相对路径 + 进程内存缓存（TTL，默认 60s，
  * 同 project-discovery 先例）。单仓失败（非 git 仓/权限/超时）→ 该仓空词表，
  * 不拖垮其他仓；失败同样入缓存防热路径反复 spawn。
+ * 候选集本身也带短 TTL 进程缓存（默认 10s，B7）——避免每请求全量 WU metadata 解析。
  *
  * 校验（路由层存在性校验用）：repo 不在候选集 → not-in-candidate-set；
  * path 不在该仓词表 → not-found。各数据源读取失败仅记日志并跳过该来源，
@@ -53,6 +54,8 @@ export interface FileRefVocabularyDeps {
   listFiles?: (repo: string) => Promise<string[]>;
   /** 词表缓存 TTL（默认 60_000ms） */
   cacheTtlMs?: number;
+  /** 候选集缓存 TTL（默认 CANDIDATE_CACHE_TTL_MS=10_000ms） */
+  candidateTtlMs?: number;
   now?: () => number;
 }
 
@@ -84,20 +87,22 @@ export async function listChannelReqPmoProjects<P extends ProjectLike>(
   const getProject = deps.getProject
     ?? (async (id: string) => (await projectService.get(id)) as unknown as P | null);
   const requirements = await fileStore.listRequirements({ channelId });
-  const links: ChannelReqPmoLink<P>[] = [];
-  for (const req of requirements) {
+  // B7（2026-09-16 channel 性能审计）：多项目解析并行发出（Promise.all），
+  // 原为逐条串行 await（N+1 串行延迟叠加）；Promise.all 保输入序，输出序不变。
+  const results = await Promise.all(requirements.map(async (req): Promise<ChannelReqPmoLink<P> | null> => {
     const projectId = (req as { projectId?: string | null }).projectId;
-    if (!projectId) continue;
+    if (!projectId) return null;
     try {
       const project = await getProject(projectId);
-      if (project) links.push({ reqId: req.id, seq: req.seq, projectId, project });
+      return project ? { reqId: req.id, seq: req.seq, projectId, project } : null;
     } catch (err) {
       logger.warn('[ChannelReqPmo] REQ project resolution failed, skipped', {
         channelId, reqId: req.id, projectId, error: String(err),
       });
+      return null;
     }
-  }
-  return links;
+  }));
+  return results.filter((l): l is ChannelReqPmoLink<P> => l !== null);
 }
 
 /** 工程记录 → 仓路径清单（gitRepo + deliveries[].gitRepo，去重保序；#272 当前 PMO chip 复用） */
@@ -121,9 +126,20 @@ export function reposOfProject(project: ProjectLike | null): string[] {
 
 const vocabCache = new Map<string, { files: string[]; at: number }>();
 
-/** 测试/运维用：清空词表缓存 */
+// ─── 候选集内存缓存（进程级；channelId 为键；B7，2026-09-16 channel 性能审计） ───
+// computeCandidateRepos 每请求要读频道记录 + REQ 列表 + getIndex 全量快照并逐条
+// JSON.parse WU metadata——发消息路径（validateFileRefs）与词表端点都会触发。
+// 候选集由频道配置/REQ 挂接/WU 归属派生，短 TTL（默认 10s）内容忍秒级滞后。
+
+/** 候选集缓存默认 TTL（deps.candidateTtlMs 可覆盖） */
+export const CANDIDATE_CACHE_TTL_MS = 10_000;
+
+const candidateCache = new Map<string, { repos: string[]; at: number }>();
+
+/** 测试/运维用：清空词表缓存与候选集缓存 */
 export function invalidateFileRefVocabularyCache(): void {
   vocabCache.clear();
+  candidateCache.clear();
 }
 
 /** 默认词表来源：git ls-files（原样相对路径，一行一条） */
@@ -162,8 +178,23 @@ async function getRepoFiles(repo: string, deps: FileRefVocabularyDeps): Promise<
 /**
  * 候选集计算：默认工程 ∪ REQ 挂接 PMO ∪ 杂务 PMO，去重，最近 WU 涉及工程优先。
  * 每个来源独立容错：读取失败记日志并跳过该来源。
+ * B7：结果带短 TTL 进程缓存（CANDIDATE_CACHE_TTL_MS），TTL 内零下游重读。
  */
 export async function computeCandidateRepos(
+  channelId: string,
+  deps: FileRefVocabularyDeps = {},
+): Promise<string[]> {
+  const nowMs = (deps.now ?? Date.now)();
+  const ttl = deps.candidateTtlMs ?? CANDIDATE_CACHE_TTL_MS;
+  const hit = candidateCache.get(channelId);
+  if (hit && nowMs - hit.at < ttl) return hit.repos;
+  const repos = await computeCandidateReposFresh(channelId, deps);
+  candidateCache.set(channelId, { repos, at: nowMs });
+  return repos;
+}
+
+/** 候选集实时计算本体（无缓存；缓存壳见 computeCandidateRepos） */
+async function computeCandidateReposFresh(
   channelId: string,
   deps: FileRefVocabularyDeps = {},
 ): Promise<string[]> {

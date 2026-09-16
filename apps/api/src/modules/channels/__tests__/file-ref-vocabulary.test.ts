@@ -5,7 +5,7 @@
  * ∪ 杂务 PMO 工程，去重，频道内最近 WU 涉及工程优先（UX 划界，非安全边界）。
  * 词表 = 各仓 git ls-files + 内存缓存；校验 = repo 在候选集 + path 在词表。
  */
-import { describe, it, expect, beforeEach, afterAll } from 'vitest';
+import { describe, it, expect, beforeEach, afterAll, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -145,6 +145,33 @@ describe('computeCandidateRepos（候选集计算）', () => {
     const repos = await computeCandidateRepos(channelId, deps);
     expect(repos).toEqual(['/repo/a']);
   });
+
+  it('B7：候选集结果短 TTL 缓存——TTL 内二次调用零下游重读，过期后重算', async () => {
+    await createChannel('ws-1');
+    await createWuWithRoot('/repo/default');
+    let nowMs = 1_000_000;
+    const deps: FileRefVocabularyDeps = {
+      fileStore,
+      now: () => nowMs,
+      resolveWorkspaceRoot: async () => '/repo/default',
+      getProject: async () => null,
+      findChoreProject: async () => null,
+    };
+    // getIndex 全量快照 + 逐条 metadata JSON.parse 是每请求主税基，以其调用次数作缓存命中探针
+    const indexSpy = vi.spyOn(fileStore, 'getIndex');
+
+    const first = await computeCandidateRepos(channelId, deps);
+    expect(first).toEqual(['/repo/default']);
+    expect(indexSpy).toHaveBeenCalledTimes(1);
+
+    const second = await computeCandidateRepos(channelId, deps);
+    expect(second).toEqual(first);
+    expect(indexSpy).toHaveBeenCalledTimes(1); // TTL 内不重读
+
+    nowMs += 11_000; // 越过默认候选集 TTL（10s）→ 重算
+    await computeCandidateRepos(channelId, deps);
+    expect(indexSpy).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe('getChannelFileVocabulary（git ls-files 词表 + 内存缓存）', () => {
@@ -228,6 +255,26 @@ describe('listChannelReqPmoProjects（频道 REQ 挂接 PMO 工程共用查询�
     } as unknown as FileStore;
     await expect(listChannelReqPmoProjects(channelId, { fileStore: broken }))
       .rejects.toThrow('disk gone');
+  });
+
+  it('B7：多条挂接并行解析（Promise.all）——全部 getProject 启动后才逐个完成', async () => {
+    await createRequirement('REQ-0001', 'p1');
+    await createRequirement('REQ-0002', 'p2');
+    await createRequirement('REQ-0003', 'p3');
+    const started: string[] = [];
+    const resolvers: Array<() => void> = [];
+    const pending = listChannelReqPmoProjects(channelId, {
+      fileStore,
+      getProject: (id: string) => new Promise<{ gitRepo: string } | null>(resolve => {
+        started.push(id);
+        resolvers.push(() => resolve({ gitRepo: `/repo/${id}` }));
+      }),
+    });
+    // 串行 await 实现下此处只会启动第一条；并行实现三条全部已启动
+    await vi.waitFor(() => expect(started).toHaveLength(3));
+    for (const r of resolvers) r();
+    const links = await pending;
+    expect(links.map(l => l.projectId)).toEqual(['p1', 'p2', 'p3']); // 保序
   });
 });
 

@@ -140,6 +140,39 @@ describe('SSE /stream 背压（#324）', () => {
   });
 });
 
+// ── B6（2026-09-16 channel 性能审计）：广播循环每事件只序列化一次 ──
+describe('SSE 广播序列化一次（B6）', () => {
+  it('同一事件向多个订阅客户端广播，JSON.stringify 只调用一次（不逐客户端重复）', () => {
+    connectClient();
+    connectClient();
+    connectClient();
+    const spy = vi.spyOn(JSON, 'stringify');
+    try {
+      eventBus.publish('events', {
+        event_type: 'task.updated', event_id: 'e-b6',
+        timestamp: '2026-09-16T00:00:00Z', data: { taskId: 't-b6' },
+      });
+      expect(spy).toHaveBeenCalledTimes(1);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('无订阅客户端的 topic 不序列化（零客户端零成本）', () => {
+    connectClient({}, 'channels'); // 只订 channels
+    const spy = vi.spyOn(JSON, 'stringify');
+    try {
+      eventBus.publish('events', {
+        event_type: 'task.updated', event_id: 'e-b6b',
+        timestamp: '2026-09-16T00:00:00Z', data: { taskId: 't-b6b' },
+      });
+      expect(spy).not.toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
+
 // ── #491：断线窗口事件 replay——重连带 Last-Event-ID 补发窗口内遗漏事件 ──
 describe('SSE /stream 断线 replay（#491）', () => {
   function publish(eventType: string, eventId: string, data: Record<string, unknown>) {

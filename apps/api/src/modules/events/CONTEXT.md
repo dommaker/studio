@@ -38,7 +38,7 @@
 | `__tests__/event.routes.test.ts` | 30 | POST/GET/agent-events: 创建/查询/验证/空 payload 拒收（D18）/错误路径；#180 起 GET 用真临时文件 + STUDIO_EVENTS_FILE 缝（过滤/游标/鉴权栈） |
 | `__tests__/session-summary-generator.test.ts` | 17 | classifyPattern 13种模式 + generateSessionSummary 边界情况 |
 | `__tests__/workunit-events-bridge.test.ts` | 3 | workunit.* + workunit:removed + requirement.* 事件转发 'events' 频道（信封形状）；桥 started 幂等是模块态，同文件后续用例 init 为 no-op 靠订阅残留生效 |
-| `__tests__/sse-routes.test.ts` | 11 | getTopicFromEventType 映射表锁定；#324 背压断开慢客户端；#491 重连 replay（按序补发/topics 过滤/不可解析游标/有洞不补发）；#524 stream chunk 不入 replay buffer |
+| `__tests__/sse-routes.test.ts` | 13 | getTopicFromEventType 映射表锁定；#324 背压断开慢客户端；#491 重连 replay（按序补发/topics 过滤/不可解析游标/有洞不补发）；#524 stream chunk 不入 replay buffer；B6 广播每事件序列化一次 |
 | `__tests__/sse-replay-buffer.test.ts` | 7 | #491 replay buffer：seq 单调递增、环形淘汰、replay 窗口语义（有洞 → null） |
 | `__tests__/lock-events-bridge.test.ts` | 1 | #169: lock.* 事件 → 结构化事件流 + dispatchMonitorAlerts 全管线（warning + notifyAlert）、init 幂等 |
 
@@ -47,7 +47,7 @@
 - StudioEvent 用 jsonl 文件存储（D18 起统一经 `../../utils/studio-events.js` 的 writeStudioEvent 写入；空 payload 拒绝落盘）
 - POST /api/v1/events 的 payload 为空（{} / null / 缺失 / '{}'）→ 400（D18：空事件不产信号只产噪音，调用方自查）
 - SSE 使用 EventBus pub/sub (B0-002)，不依赖数据库
-- **SSE 帧格式（2026-07-29 修复）**：只写 `id:` + `data:` 匿名事件（不写 `event:` 命名行——EventSource.onmessage 只收匿名事件），且 data 是完整信封 `{event_type, event_id, timestamp, data}`（此前只发内层 payload，客户端按 event_type 分发恒失败，全站 SSE 实际不通）。topic 映射（`getTopicFromEventType` 纯前缀，已导出供单测锁定）：execution./runtime.→executions、node.→nodes、task.→tasks、goal.→goals、knowledge.→knowledge、workunit.→workunits（含 workunit.tokens / workunit.execution.*）、channel.→channels、requirement.→requirements（2026-08-24 新增）、其余→all（客户端默认订阅 all 全收）
+- **SSE 帧格式（2026-07-29 修复）**：只写 `id:` + `data:` 匿名事件（不写 `event:` 命名行——EventSource.onmessage 只收匿名事件），且 data 是完整信封 `{event_type, event_id, timestamp, data}`（此前只发内层 payload，客户端按 event_type 分发恒失败，全站 SSE 实际不通）。topic 映射（`getTopicFromEventType` 纯前缀，已导出供单测锁定）：execution./runtime.→executions、node.→nodes、task.→tasks、goal.→goals、knowledge.→knowledge、workunit.→workunits（含 workunit.tokens / workunit.execution.*）、channel.→channels、requirement.→requirements（2026-08-24 新增）、其余→all（客户端默认订阅 all 全收）。**B6（2026-09-16 channel 性能审计）**：广播循环每事件仅 1 次 `JSON.stringify`（惰性 memo——零匹配客户端零成本），各客户端复用同一字符串；原为逐客户端重复序列化且在发消息热路径上
 - session:summary 在 session:end 时触发，fire-and-forget
 - **SSE replay（#491，2026-09-11）**：`id:` 行自本票起为服务端单调 seq（不再是信封 event_id；event_id 仍在 data 信封内供前端幂等去重）。事件广播时先入 `sseReplayBuffer`（sse-replay-buffer.ts，环形 500 条，进程级内存、不落盘、重启即清），重连带 `Last-Event-ID` 时按 seq 升序补发窗口内遗漏事件（按订阅 topics 过滤，补发先于 connection.established——后者以 currentSeq 为 id，先发会让游标越过补发事件）；游标早于 buffer 最老事件（有洞）或无法解析（旧版 uuid）则不补发，由前端 onReconnect 全量 refetch 兜底（决策 9）。**#524 P1-3（#516 项⑥）**：`workunit.execution.stream` chunk 不入 replay buffer（sse.routes.ts 入队处一处过滤，不占 seq）——补发价值最低流量最大（Layer B 不落盘、前端纯内存、重连走全量 refetch 兜底），关键事件独占 500 条补发窗口，高 stream 负载下重连补发恢复有效；直播广播照常（id 取 currentSeq，游标语义不变）
 - **SSE 与全局 compression（#263 / 根因 #259，2026-08-19）**：app.ts 全局 compression 中间件必须带 `filter: shouldCompress`（`apps/api/src/middleware/compression-filter.ts`）——默认 compressible 对 `text/event-stream` 经 `^text/` fallback 返回 true 会缓冲 SSE 流，频道实时推送全灭。/events/stream 与 /mcp/sse 均经此中间件覆盖；新增 SSE 端点只要走同一 app 即自动生效
