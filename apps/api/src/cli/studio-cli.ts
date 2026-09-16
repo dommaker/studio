@@ -92,9 +92,17 @@ async function main() {
     case 'harness':
       await studioHarnessCli(args.slice(1));
       break;
-    case 'skill':
-      await apiCommand('skills', args.slice(1));
+    case 'skill': {
+      // #568：export/validate/install 为纯本地文件操作（daemon 离线可用），其余维持 HTTP API
+      const sub = args[1];
+      if (sub === 'export' || sub === 'validate' || sub === 'install') {
+        const { studioSkill } = await import('./skill.js');
+        process.exitCode = await studioSkill(args.slice(1));
+      } else {
+        await apiCommand('skills', args.slice(1));
+      }
       break;
+    }
     case 'config':
       await studioConfig(args.slice(1));
       break;
@@ -121,6 +129,9 @@ async function main() {
       console.log('    studio env <show>          Environment snapshot');
       console.log('    studio mcp <tools|health|install>  MCP Server management / install read-only MCP into agent');
       console.log('    studio skill <list>        Skills list');
+    console.log('    studio skill validate <dir>       Validate skill directory (local, offline)');
+    console.log('    studio skill export <name> [dir]  Export skill from data dir (local, offline)');
+    console.log('    studio skill install <dir>        Install skill into data dir (local, offline)');
       console.log('    studio harness <check>     Harness constraint check');
       console.log('');
       console.log('  审批:');
