@@ -1,6 +1,8 @@
 // ChannelDetailPage — channel 上下游优化 Phase 1（AC1/AC4 定位部分，docs/plans/2026-09-channel-upstream-downstream-ux.md）：
 // 页面抽通用 locateMessage(mid)（?highlight effect 改调它）；quote 引用块与 reply 预览条点击 → 定位高亮上游消息，
 // 掉出已加载分页 → 翻页定位循环，翻到底 → toast 兜底。
+// vc7（2026-09-16 频道视觉批次增量六）：线程内父消息 = anchor 的逐条 quote 抑制（重复引用是噪音），
+// AC1 线程内定位入口改由 .mc-thread-context 归属头 button 承接；组内非 anchor quote 保留。
 // #548：手写有状态 mock（lastExternal 哨兵 + 手写翻页）已删——改播种 channelMessageStore 初态 +
 // 真实 store action 取数（底层 channelApi → api 走本文件既有 mock，按 URL 分派）。
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -132,20 +134,40 @@ describe('ChannelDetailPage — quote/reply 预览点击定位上游消息（Pha
     Element.prototype.scrollIntoView = vi.fn();
   });
 
-  it('AC1：点击 quote 引用块 → 定位高亮被引用的上游消息（已加载）', async () => {
+  // vc7（2026-09-16 走查）：线程内「父消息 = anchor」的逐条重复 quote 已抑制（每条同文引用是噪音，
+  // 归属关系由 .mc-thread-context 统一承载）；AC1 定位能力由归属头 button 化承接；
+  // 组内回复另一条回复（父 ≠ anchor）时 quote 照常渲染可点
+  it('AC1：anchor quote 抑制 + 归属头点击定位 anchor；组内非 anchor quote 保留可点定位', async () => {
+    seedMessages([
+      ...BASE_MESSAGES,
+      {
+        id: 'm-leaf', channelId: 'ch-1', authorType: 'agent' as const, agentName: 'pm-agent',
+        content: '补充：方案 A 已落地', workUnitId: null, replyToId: 'm-reply',
+        meta: '{}', createdAt: iso(2),
+      },
+    ]);
     renderPage();
     await waitFor(() => expect(screen.getByText('#rnd-主研发')).toBeTruthy());
 
-    const quote = document.querySelector('[data-message-id="m-reply"] .mc-quote');
-    expect(quote?.tagName).toBe('BUTTON');
-    fireEvent.click(quote!);
-
+    // m-reply 父消息 = 线程 anchor m-parent → quote 抑制；归属头 button 化，点击定位 anchor
+    expect(document.querySelector('[data-message-id="m-reply"] .mc-quote')).toBeNull();
+    const context = document.querySelector('.mc-thread-context');
+    expect(context?.tagName).toBe('BUTTON');
+    fireEvent.click(context!);
     await waitFor(() => {
       expect(document.querySelector('[data-message-id="m-parent"]')?.className).toContain('mc-msg-highlight');
     });
     // 已加载直接定位，不翻页、无降级反馈
     expect(pagingCalls()).toHaveLength(0);
     expect(document.getElementById('toast-container')?.textContent ?? '').not.toContain('无法定位');
+
+    // m-leaf 父消息 = m-reply（组内另一条回复，非 anchor）→ quote 保留 button 化，点击定位该上游
+    const quote = document.querySelector('[data-message-id="m-leaf"] .mc-quote');
+    expect(quote?.tagName).toBe('BUTTON');
+    fireEvent.click(quote!);
+    await waitFor(() => {
+      expect(document.querySelector('[data-message-id="m-reply"]')?.className).toContain('mc-msg-highlight');
+    });
   });
 
   it('AC4：reply 预览条点击已加载目标 → 直接高亮，不翻页', async () => {

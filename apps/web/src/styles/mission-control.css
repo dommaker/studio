@@ -347,7 +347,7 @@
 /* 增量三：展开态模块盒——「收起条 + 过程消息组」包进同一 bordered 容器，
    条与其控制的消息组边界可见（原上下两个独立块，读不出是一个模块） */
 .mc-proc-group {
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--border-default);
   border-radius: 4px;
   padding: var(--space-2);
   margin-bottom: 8px;
@@ -356,11 +356,13 @@
 .mc-proc-group .mc-msg:last-child { margin-bottom: 0; }
 /* 增量四：角色消息链模块——单作者折叠组 + 紧随的同作者消息 = 同一角色的连续输出，
    一个模块：折叠条作模块头（透明化 + 下虚线分隔），组内 agent panel 拍平（去各自底/边/内距），
-   整条链共享一个 panel 外壳，读作「@某角色 的一段连续发言（中间 N 条折叠）」 */
+   整条链共享一个 panel 外壳，读作「@某角色 的一段连续发言（中间 N 条折叠）」。
+   vc6：外壳与 agent 消息框同档升档（--bg-tertiary + 全周 border-default + 左 3px 角色色条，
+   色由 ChannelStreamBody 内联注入 --mc-agent-color），线程容器（--bg-secondary）内边界一眼可辨 */
 .mc-reply-chain {
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-subtle);
-  border-left: 2px solid var(--border-default);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-default);
+  border-left: 3px solid var(--mc-agent-color, var(--border-default));
   border-radius: 4px;
   padding: var(--space-2) var(--space-3);
   margin-bottom: 8px;
@@ -374,7 +376,7 @@
   padding-right: 0;
 }
 .mc-reply-chain .mc-collapse-toggle:hover { background: transparent; border-bottom-color: var(--accent-border); }
-.mc-reply-chain .mc-msg-agent { background: transparent; border-left: none; padding-left: 0; padding-right: 0; }
+.mc-reply-chain .mc-msg-agent { background: transparent; border: none; padding-left: 0; padding-right: 0; }
 .mc-reply-chain .mc-msg:last-child { margin-bottom: 0; }
 
 /* 消息（纯文本行，不做气泡）。
@@ -444,21 +446,27 @@
   max-width: 75%;
   background: var(--accent-dim);
   border: 1px solid var(--accent-border);
+  /* vc6：右边条（--border-emphasis 强调边档）与 agent 框左色条对位——「右侧+青绿边 = 我」与
+     「左侧+角色色边 = agent」形成对称的方位信号，扫一眼即分发送者 */
+  border-right: 3px solid var(--border-emphasis);
   border-radius: 4px;
   border-top-right-radius: 3px;
   padding: 6px 12px;
 }
 /* D1 agent 消息：左侧文档流，占内容列宽（#394 起中栏弹性无上限，760/1000 双档取消）；
    批次 D-1.5 ②：2px --border-default 左边线 + 12px 内距，文档流形态视觉锚点（人类气泡/系统播报不加）。
-   2026-09 视觉层次批次：升 panel 形态——--bg-elevated 底 + 4px 圆角 + 全向内距，
-   agent 发言在裸页底/线程容器（--bg-secondary）上都可分辨，角色辨识度不再只靠 20px 头像与细边线；
-   底色取 elevated 而非 secondary：线程容器已是 secondary，同档嵌套会隐形 */
+   2026-09 视觉层次批次：升 panel 形态——底 + 4px 圆角 + 全向内距，
+   agent 发言在裸页底/线程容器（--bg-secondary）上都可分辨，角色辨识度不再只靠头像与细边线。
+   vc6：框体升档为「完整盒子」——底 --bg-tertiary（深色系页底/elevated 过近，框体读不出）+
+   全周 1px --border-default 边 + 左 3px 角色色条（--mc-agent-color = 该 agent identicon 同号 --chart-*，
+   组件内联注入，类别色符合 §4.8 不占 accent；缺省回退 --border-default） */
 .mc-msg-agent {
   text-align: left;
-  background: var(--bg-elevated);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-default);
+  border-left: 3px solid var(--mc-agent-color, var(--border-default));
   border-radius: 4px;
   padding: var(--space-2) var(--space-3);
-  border-left: 2px solid var(--border-default);
 }
 /* D3 系统播报：淡色小字，与左右对话流明确区隔；无头无动作，仅正文（+可选 footer 链接） */
 /* #437：居中装置是 760px 限宽栏语境的设计；#394 取消限宽后播报漂屏中，改左对齐随主流文档流，
@@ -827,7 +835,7 @@ button.mc-quote:active { background: var(--bg-active); }
 .mc-thread-toggle:hover { color: var(--accent-primary); }
 /* 2026-09 视觉层次批次：裸缩进 + 1px 边线 → 背景容器成组——
    回复堆叠（尤其实体自回复多轮）原只靠细边线暗示归属，层级一多就糊；
-   容器底 --bg-secondary 与页底分层，内嵌 agent 消息 panel（--bg-elevated）再高一层，组边界一眼可辨 */
+   容器底 --bg-secondary 与页底分层，内嵌 agent 消息框（--bg-tertiary，vc6 起）再高一层，组边界一眼可辨 */
 .mc-thread-replies {
   margin-left: 18px;
   border-left: 2px solid var(--border-default);
@@ -835,7 +843,8 @@ button.mc-quote:active { background: var(--bg-active); }
   background: var(--bg-secondary);
   padding: var(--space-2) var(--space-3);
 }
-/* 线程归属头：锚点摘要（作者 + 内容截断），组内对 anchor 的逐条 quote 由它统一承载 */
+/* 线程归属头：锚点摘要（作者 + 内容截断），组内对 anchor 的逐条 quote 由它统一承载（vc7 起逐条抑制）。
+   vc7：button 化承接 AC1 点击定位 anchor——整行可点、hover 提亮、focus-visible 焦点环（规则 8） */
 .mc-thread-context {
   color: var(--text-muted);
   font-size: var(--fs-xs);
@@ -844,6 +853,14 @@ button.mc-quote:active { background: var(--bg-active); }
   text-overflow: ellipsis;
   margin-bottom: var(--space-2);
 }
+button.mc-thread-context {
+  display: block;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+}
+button.mc-thread-context:hover { color: var(--text-secondary); }
+button.mc-thread-context:focus-visible { outline: 1px solid var(--accent-primary); outline-offset: 2px; }
 
 /* Phase 3（channel 上下游优化 AC3）：主流 monitor 告警折叠组——
    摘要行 = 单行弱化按钮（warning 色信号）；展开体复用 proc-group 折叠模式（缩进 + 左边线） */

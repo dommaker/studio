@@ -2,9 +2,10 @@
 // 2026-07 视觉重构（方向 A Mission Control）：纯文本行 + 卡片族视觉重绘；交互语义零变更
 // #277（决策 #248 D1/D2/D3/D5）：分侧布局——人右轻气泡 / agent 左无气泡文档流 / 系统播报
 // （Studio 无卡非等待消息）淡色小字一行（#437 起左对齐随文档流，不再居中）/ 卡片全宽不参与分侧；compact 省略重复头；双侧 @name 染 mention chip。
-import { memo, useCallback, useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { ChannelMessage } from '../../api/channel';
+import { avatarPattern } from '../../utils/avatar';
 import { useChannelDataStore } from '../../stores/channelDataStore';
 import { useChannelMessageEnv, type ChannelMessageEnv } from './ChannelMessageEnv';
 import { toast } from '../../utils/toast';
@@ -53,6 +54,11 @@ export interface ChannelMessageItemProps {
   /** #277（决策 #248 D2）：连续合并——省略重复头（头像/署名/时间），动作保留 */
   compact?: boolean;
   isThreadReply?: boolean;
+  /** 2026-09 视觉批次 vc7：线程回复所属的 anchor id——组内消息 quote 的父消息就是 anchor 时
+   *  抑制该 quote（`.mc-thread-context` 归属头已统一承载且可点定位 anchor；
+   *  原形态每条回复重复同一行 anchor 引用，「谁回复谁」被噪音淹没）。
+   *  父消息非 anchor（回复的是组内另一条消息）时 quote 照常渲染 */
+  threadAnchorId?: string;
 }
 
 function renderCard(
@@ -92,7 +98,7 @@ function renderCard(
 export const ChannelMessageItem = memo(function ChannelMessageItem({
   message,
   waitingForInput, wuChangedFiles, highlight, fresh, focused,
-  isThreadAnchor, threadReplyCount, isExpanded, onToggleThread, compact, isThreadReply,
+  isThreadAnchor, threadReplyCount, isExpanded, onToggleThread, compact, isThreadReply, threadAnchorId,
 }: ChannelMessageItemProps) {
   // #547：横切值自取——Context（回调/查找/channelId）+ 数据面 store（fileVocabulary，selector 既有模式）
   const env = useChannelMessageEnv();
@@ -216,6 +222,12 @@ export const ChannelMessageItem = memo(function ChannelMessageItem({
   // #277 D1：分侧类——卡片全宽不参与分侧
   // mc-msg-card：无样式规则，测试 DOM 钩子（ChannelMessageItem.test.tsx 断言用，#431 定性保留，删类会红测试）
   const sideClass = card ? 'mc-msg-card' : isSystem ? 'mc-msg-system' : isHuman ? 'mc-msg-human' : 'mc-msg-agent';
+  // 2026-09 视觉批次 vc6：agent 框左色条 = 该角色 identicon 同号 --chart-* 类别色（§4.8 不占 accent）——
+  // 与头像同色同源（avatarPattern 同名恒同号），compact 无头消息也一眼认角色；人类/系统/卡片不设。
+  // 内联 style 仅承载 per-message 参数（规范 §2.2 豁免位），色值本体仍是 token
+  const agentColorStyle: CSSProperties | undefined = sideClass === 'mc-msg-agent'
+    ? ({ '--mc-agent-color': `var(--chart-${avatarPattern(message.agentName || 'Agent').paletteIndex + 1})` } as CSSProperties)
+    : undefined;
 
   const actionButtons = (
     <>
@@ -247,11 +259,14 @@ export const ChannelMessageItem = memo(function ChannelMessageItem({
     <div
       className={`mc-msg ${compact ? 'mc-msg-compact' : ''} ${sideClass}${highlight ? ' mc-msg-highlight' : ''}${fresh ? ' mc-msg-new' : ''}${focused ? ' mc-msg-focused' : ''}${message.pending ? ' mc-msg-pending' : ''}`}
       data-message-id={message.id}
+      style={agentColorStyle}
     >
       {/* Quote block (reply reference)
           channel 上下游优化 Phase 1（AC1）：提供 onQuoteClick 且父消息已加载时 button 化——点击定位上游消息；
-          父消息掉出已加载分页（findMessage 未命中）不渲染 quote，不可点 */}
-      {parentMessage && (
+          父消息掉出已加载分页（findMessage 未命中）不渲染 quote，不可点。
+          vc7：线程内父消息 = anchor 时抑制——归属头 .mc-thread-context 已统一承载「回复谁」且可点定位，
+          逐条重复同一行 anchor 引用是纯噪音（2026-09-16 走查：用户读不出谁回复谁） */}
+      {parentMessage && parentMessage.id !== threadAnchorId && (
         onQuoteClick ? (
           <button type="button" className="mc-quote" onClick={() => onQuoteClick(parentMessage.id)}>
             {parentMessage.authorType === 'human' ? '你' : parentMessage.agentName || 'Agent'}：{parentMessage.content}

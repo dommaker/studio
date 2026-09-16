@@ -4,18 +4,20 @@
 // （消息/线程组/告警组 × degraded × 日期分隔站位）、skeleton 占位行（含 highlight 目标为
 // 骨架时的高亮）。整块自 ChannelDetailPage 渲染段搬移（PURE_MOVE 行为零变化）；
 // 消息卡渲染本体（renderMessage）与 highlight 目标由页面经 props 注入。
-import { Fragment, useCallback, type ReactNode } from 'react';
+import { Fragment, useCallback, type CSSProperties, type ReactNode } from 'react';
 import type { ChannelMessage } from '../../api/channel';
 import type { ChannelStream } from '../../hooks/useChannelStream';
 import { streamDateStrOf, streamDateLabelOf, type StreamItem, type ThreadReplyView } from '../../utils/streamView';
 import type { ChannelMessageItemProps } from './ChannelMessageItem';
 import { IconAlertTriangle } from '../ui/icons';
+import { avatarPattern } from '../../utils/avatar';
+import { useChannelMessageEnv } from './ChannelMessageEnv';
 
-/** #547：extra 逃生口收口——只含 6 个结构字段的封闭 Pick（deriveStreamView 产物经本通道喂入），
+/** #547：extra 逃生口收口——只含 7 个结构字段的封闭 Pick（deriveStreamView 产物经本通道喂入），
  *  编译期拒绝任意 prop 注入（原 Partial<Props> 已删）；横切值走 ChannelMessageEnv，不走本通道 */
 export type StreamMessageExtra = Pick<
   ChannelMessageItemProps,
-  'isThreadAnchor' | 'threadReplyCount' | 'isExpanded' | 'onToggleThread' | 'compact' | 'isThreadReply'
+  'isThreadAnchor' | 'threadReplyCount' | 'isExpanded' | 'onToggleThread' | 'compact' | 'isThreadReply' | 'threadAnchorId'
 >;
 
 /** 页面 renderMessageItem 的签名（extra = 封闭结构 props 覆盖，见上） */
@@ -66,6 +68,8 @@ export function ChannelStreamBody({ stream, renderMessage, highlightId }: {
   highlightId: string | null;
 }) {
   const { items, virtualEnabled, virtualizer, streamHeadH, streamInnerRef, toggleThread, toggleProcGroup, toggleAlertGroup } = stream;
+  // vc7：线程归属头可点定位 anchor（env 横切值自取，缺 Provider → 纯展示降级，与消息项 quote 同口径）
+  const onQuoteClick = useChannelMessageEnv()?.onQuoteClick;
 
   // #326：骨架占位行——degraded 消息（含 thread anchor）渲染为固定占位行，
   // 保留 data-message-id（锚点捕获/阅读位置仍可按 mid 定位）；水合后原位恢复。
@@ -151,19 +155,29 @@ export function ChannelStreamBody({ stream, renderMessage, highlightId }: {
             <div className="mc-thread-replies">
               {/* 2026-09 视觉层次批次：线程归属头——容器属于哪条消息一眼可辨
                   （人类 anchor 是右侧气泡、容器在左下，无头时归属关系读不出）。
-                  组内 quote 不动：AC1 契约 = quote 可点定位上游，主流回复必然挂在线程内，
-                  抑制 anchor quote 会砍掉 quote 的主要出现面 */}
-              <div className="mc-thread-context">回复 {authorLabelOf(item.anchor)}：{item.anchor.content}</div>
+                  vc7：归属头升级为 anchor quote 的唯一承载位——组内回复 anchor 的逐条 quote 已抑制
+                  （每条重复同一行引用，噪音淹没归属），本头 button 化承接 AC1 点击定位 anchor 契约；
+                  缺 onQuoteClick（无 Provider）退化为纯展示 div，与消息项 quote 降级口径一致 */}
+              {onQuoteClick ? (
+                <button type="button" className="mc-thread-context" onClick={() => onQuoteClick(item.anchor.id)}
+                  aria-label="定位被回复的消息">
+                  回复 {authorLabelOf(item.anchor)}：{item.anchor.content}
+                </button>
+              ) : (
+                <div className="mc-thread-context">回复 {authorLabelOf(item.anchor)}：{item.anchor.content}</div>
+              )}
               {(() => {
                 // 增量四：单作者折叠组 + 紧随的同作者可见消息 = 同一角色的连续输出，
                 // 合成 .mc-reply-chain 角色消息模块（折叠条 = 模块头，结论消息 = 模块体）——
-                // 原来折叠条与下方结论消息是两个独立块，读不出同属一个角色
+                // 原来折叠条与下方结论消息是两个独立块，读不出同属一个角色。
+                // vc7：组内所有渲染带 threadAnchorId——quote 父消息 = anchor 的逐条重复引用被抑制
+                const anchorId = item.anchor.id;
                 const ris = item.replies;
                 const nodes: ReactNode[] = [];
                 for (let i = 0; i < ris.length; i++) {
                   const ri = ris[i];
                   if (ri.kind === 'msg') {
-                    nodes.push(renderMessage(ri.message, { isThreadReply: true, compact: ri.compact }));
+                    nodes.push(renderMessage(ri.message, { isThreadReply: true, compact: ri.compact, threadAnchorId: anchorId }));
                     continue;
                   }
                   const singleAuthor = singleAuthorOf(ri.messages);
@@ -186,12 +200,14 @@ export function ChannelStreamBody({ stream, renderMessage, highlightId }: {
                         : `▸ ${ri.messages.length} 条过程消息 · ${procAuthorsOf(ri.messages)}`}
                     </button>
                   );
-                  if (chain.length > 0) {
+                  if (singleAuthor && chain.length > 0) {
                     nodes.push(
-                      <div key={ri.key} className="mc-reply-chain">
+                      // vc6：链模块左色条 = 该作者 identicon 同号 --chart-* 色，与组内消息框同源同色
+                      <div key={ri.key} className="mc-reply-chain"
+                        style={{ '--mc-agent-color': `var(--chart-${avatarPattern(singleAuthor).paletteIndex + 1})` } as CSSProperties}>
                         {toggle}
-                        {ri.expanded && ri.messages.map(reply => renderMessage(reply, { isThreadReply: true }))}
-                        {chain.map(c => renderMessage(c.message, { isThreadReply: true, compact: c.compact }))}
+                        {ri.expanded && ri.messages.map(reply => renderMessage(reply, { isThreadReply: true, threadAnchorId: anchorId }))}
+                        {chain.map(c => renderMessage(c.message, { isThreadReply: true, compact: c.compact, threadAnchorId: anchorId }))}
                       </div>,
                     );
                   } else {
@@ -199,7 +215,7 @@ export function ChannelStreamBody({ stream, renderMessage, highlightId }: {
                       ri.expanded ? (
                         <div key={ri.key} className="mc-proc-group">
                           {toggle}
-                          {ri.messages.map(reply => renderMessage(reply, { isThreadReply: true }))}
+                          {ri.messages.map(reply => renderMessage(reply, { isThreadReply: true, threadAnchorId: anchorId }))}
                         </div>
                       ) : (
                         <Fragment key={ri.key}>{toggle}</Fragment>
@@ -226,7 +242,7 @@ export function ChannelStreamBody({ stream, renderMessage, highlightId }: {
           : renderMessage(item.message, { compact: item.compact })}
       </>
     );
-  }, [renderMessage, renderSkeletonRow, toggleThread, toggleProcGroup, toggleAlertGroup]);
+  }, [renderMessage, renderSkeletonRow, toggleThread, toggleProcGroup, toggleAlertGroup, onQuoteClick]);
 
   // #325：虚拟化路径只渲染窗口内行（spacer 撑总高 + 块平移），非虚拟化（jsdom）全量渲染
   return (
