@@ -121,7 +121,7 @@ export function NeedsAttentionSection({ onAlertClick }: { onAlertClick?: (group:
                 })}
               </div>
               {groups.length > ALERT_GROUP_LIMIT && (
-                <button className="text-xs u-text-3 u-hover-accent mt-1" onClick={() => setShowAllGroups(v => !v)}>
+                <button className="u-btn-reset text-xs u-text-3 u-hover-accent mt-1" onClick={() => setShowAllGroups(v => !v)}>
                   {showAllGroups ? '收起' : `还有 ${groups.length - ALERT_GROUP_LIMIT} 类`}
                 </button>
               )}

@@ -100,7 +100,7 @@ export const RoleCard = memo(function RoleCard({ role, lastDone, channelNames, o
           {runtime?.status === 'idle' && lastDone && (
             <>
               {' · 最近完成 '}
-              <button type="button" className="u-text-2 u-hover-accent" onClick={() => onOpenWu(lastDone.id)}>{lastDone.scope}</button>
+              <button type="button" className="u-btn-reset u-text-2 u-hover-accent" onClick={() => onOpenWu(lastDone.id)}>{lastDone.scope}</button>
             </>
           )}
         </div>

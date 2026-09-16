@@ -33,7 +33,7 @@ export function TriageBanner() {
         </span>
         <button
           onClick={() => { for (const n of visible) markRead(n.id); }}
-          className="ml-2 text-xs underline opacity-70 hover:opacity-100 flex-shrink-0"
+          className="u-btn-reset ml-2 text-xs underline opacity-70 hover:opacity-100 flex-shrink-0"
         >
           关闭
         </button>

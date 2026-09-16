@@ -177,7 +177,7 @@ export function CreateOkrDialog({ open, companyId, onClose, onCreated }: CreateO
                   {krs.length > 1 && (
                     <button
                       onClick={() => removeKR(kr.id)}
-                      className="text-xs u-err u-hover-text"
+                      className="u-btn-reset text-xs u-err u-hover-text"
                     >
                       ✕
                     </button>

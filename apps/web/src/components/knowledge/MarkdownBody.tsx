@@ -65,18 +65,8 @@ function CopyablePre({ children }: { children?: ReactNode }) {
       <button
         type="button"
         onClick={handleCopy}
-        style={{
-          position: 'absolute',
-          top: 10,
-          right: 6,
-          fontSize: 'var(--fs-xs)',
-          padding: '2px 8px',
-          borderRadius: 4,
-          border: '1px solid var(--border-subtle)',
-          background: 'var(--bg-tertiary)',
-          color: 'var(--text-secondary)',
-          cursor: 'pointer',
-        }}
+        className="btn btn-secondary btn-sm"
+        style={{ position: 'absolute', top: 10, right: 6 }}
       >
         {copied ? '已复制' : '复制'}
       </button>
