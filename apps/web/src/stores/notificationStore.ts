@@ -59,6 +59,16 @@ export function needInputViewOf(stateItems: StateItem[], channelId: string | und
   };
 }
 
+/** F2（2026-09-16 性能体检）：NeedInputView 内容等值判定——四种消费形状全由 waitingWus 派生，
+ *  waitingWus 等值即整体等值，可复用旧引用（无关频道 stateItems 变化不掀动下游派生） */
+export function needInputViewEqual(a: NeedInputView, b: NeedInputView): boolean {
+  if (a.waitingWus.length !== b.waitingWus.length) return false;
+  return a.waitingWus.every((w, i) => {
+    const o = b.waitingWus[i];
+    return w.wuId === o.wuId && w.question === o.question && w.messageId === o.messageId;
+  });
+}
+
 export interface Notification {
   id: string;
   /** 通知类型（旧五类 + #468 新三类 wu_milestone/monitor_alert/incident） */

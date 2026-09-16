@@ -31,12 +31,13 @@ import { getSuggestionAction } from '../utils/suggestionActions';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import { SkeletonText } from '../components/ui';
 import axios from 'axios';
-import { useNotificationStore, needInputViewOf } from '../stores/notificationStore';
+import { useNotificationStore } from '../stores/notificationStore';
 import { useUnreadStore } from '../stores/unreadStore';
 import { useChannelDataStore, parseChannelMembers } from '../stores/channelDataStore';
 import { useChannelWorkStore, parseRequirementPayload, wuIdleOf } from '../stores/channelWorkStore';
 import { agentAnsweredOf } from '../stores/channelMessageStore';
 import { useFreshMessageIds } from '../hooks/useFreshMessageIds';
+import { useNeedInputView } from '../hooks/useNeedInputView';
 import { useChannelWorkStoreSync } from '../hooks/useChannelWorkStoreSync';
 import type { Requirement } from '../api/requirements';
 import type { Channel, ChannelMessage, ChannelSuggestion, FileRef } from '../api/channel';
@@ -147,9 +148,10 @@ export function ChannelDetailPage() {
   // 前端不再从已加载消息反推（#483 类「提问掉出分页推不出」机制性消除）
   // #546：投影四种消费形状（待办列表 / wu→mid 映射 / 提升集+判定 / 定位查找）收口 needInputViewOf
   // 单源选择器（notificationStore 旁纯函数），本页退回订阅并渲染，口径变更只落选择器一处
+  // F2（2026-09-16 性能体检）：订阅经 useNeedInputView——投影内容等值复用旧引用，
+  // 他频道 status_changed 触发的 stateItems 整体替换不掀动本频道下游派生
   const { onEvent, onReconnect } = useWebSocketContext();
-  const stateItems = useNotificationStore(s => s.stateItems);
-  const needInput = useMemo(() => needInputViewOf(stateItems, id), [stateItems, id]);
+  const needInput = useNeedInputView(id);
   const { waitingWus, promotedQuestionIds, isWaitingForInput } = needInput;
 
   // #528：频道工作面实时接线（页面级单点，ref-count=1）——挂载打底三 slice、SSE 事件路由
