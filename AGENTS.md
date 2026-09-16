@@ -46,6 +46,8 @@ pnpm start  # 启动生产服务
 
 > 本段手写，增删改走段末「治理变更流程」。依据：docs/adr/2026-08-21-agent-docs-three-kinds.md（内容三分）+ 2026-08-21-agent-docs-placement-model.md（落点模型），2026-08-21 自 CLAUDE.md 迁入（#300/#303）。
 
+- 数据目录契约：`docs/architecture/data-directory-contract.md` 是 `~/.studio` 数据区布局/可改纪律/变更纪律/版本迁移的唯一正本；布局变更须先修订契约（出处：#570 / docs/plans/2026-09-npm-local-form.md §7.4，治理人闸 2026-09-16 当场通过）。
+
 ## Governance Rules
 <!-- HARNESS_CONSTRAINTS_START -->
 <!-- version: 1.8.0 -->

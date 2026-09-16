@@ -1,27 +1,10 @@
 /**
  * FileStore — AN 运行时数据文件存储基类
  *
- * 混合架构：运行时数据走文件，知识图谱/安全/OKR 等跨模型关联数据留在 DB。
- * JSON/JSONL 格式文件存储，flock（mkdir 原子操作）保障 claim 原子性。
+ * 运行时数据全部走文件存储（JSON/JSONL），flock（mkdir 原子操作）保障 claim 原子性。
  *
- * 目录结构：
- *   ~/.studio/data/
- *     agents/{id}/
- *       profile.json     # AgentProfile
- *       state.json       # RuntimeState
- *     channels/{id}/
- *       config.json      # Channel
- *       messages.jsonl   # ChannelMessage（append-only + tombstone；#319 写侧压实清死行）
- *       messages.lock    # 消息写/压实/归档互斥锁目录（#319/#327）
- *       archive/messages-YYYY-MM.jsonl  # 超龄消息冷文件（#327，按消息 createdAt 归月）
- *     workunits/
- *       lock             # flock 文件锁目录
- *       events.jsonl     # 事件流 (append-only)
- *       index.json       # 当前状态快照
- *     requirements/      # REQ 需求编号体系 (vision §5.3)
- *       lock             # seq 分配 flock 锁目录
- *       index.json       # { nextSeq } 序号计数器
- *       REQ-0042.json    # RequirementData（每需求一个文件）
+ * 数据区布局（data/ 子树与 ~/.studio 根级条目）唯一正本：
+ * docs/architecture/data-directory-contract.md（#570）——布局变更须先修订契约。
  *
  * 本文件为门面：数据类型在 file-store-types.ts，JSON/锁原语在 file-store-base.ts，
  * WorkUnit 事件溯源在 file-store-workunit.ts，channels 编解码在 channels-codec.ts，
