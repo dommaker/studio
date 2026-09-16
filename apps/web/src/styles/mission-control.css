@@ -835,9 +835,10 @@ button.mc-quote:active { background: var(--bg-active); }
 .mc-thread-toggle:hover { color: var(--accent-primary); }
 /* 2026-09 视觉层次批次：裸缩进 + 1px 边线 → 背景容器成组——
    回复堆叠（尤其实体自回复多轮）原只靠细边线暗示归属，层级一多就糊；
-   容器底 --bg-secondary 与页底分层，内嵌 agent 消息框（--bg-tertiary，vc6 起）再高一层，组边界一眼可辨 */
+   容器底 --bg-secondary 与页底分层，内嵌 agent 消息框（--bg-tertiary，vc6 起）再高一层，组边界一眼可辨。
+   vc9（走查）：去掉 18px 左缩进——缩进+内距让回复区比主流 agent 框窄一截偏右，读作「在中间」；
+   与主流左边对齐后归属由背景层 + 归属头承载，不再靠缩进 */
 .mc-thread-replies {
-  margin-left: 18px;
   border-left: 2px solid var(--border-default);
   border-radius: 4px;
   background: var(--bg-secondary);
