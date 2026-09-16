@@ -324,16 +324,23 @@
   margin: 4px 0;
 }
 
+/* 2026-09 视觉层次批次：虚线居中 chip → 行级条（实底实边、左对齐、全宽）——
+   折叠组是「可展开内容」的唯一入口，原形态像装饰文本不像按钮，用户察觉不到可点；
+   底取 elevated：线程容器（--bg-secondary）内与主流（页底 primary）上都可分辨 */
 .mc-collapse-toggle {
   display: block;
-  margin: 0 auto 8px;
+  width: 100%;
+  margin: 0 0 8px;
+  padding: 5px 10px;
   color: var(--text-secondary);
   font-size: var(--fs-sm);
-  border: 1px dashed var(--border-default);
-  border-radius: 3px;
-  padding: 3px 10px;
+  text-align: left;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
 }
-.mc-collapse-toggle:hover { color: var(--text-primary); border-color: var(--accent-primary); }
+.mc-collapse-toggle:hover { color: var(--text-primary); background: var(--bg-hover); border-color: var(--accent-border); }
+.mc-collapse-toggle:focus-visible { outline: 1px solid var(--accent-primary); outline-offset: 2px; }
 
 /* 消息（纯文本行，不做气泡）。
    批次 E-3：透明 outline + 颜色过渡挂基类（白名单③状态色切换）——mc-msg-highlight /
@@ -355,10 +362,11 @@
 .mc-author { font-weight: 600; color: var(--text-primary); }
 .mc-author-agent { color: var(--accent-primary); }
 
-/* 消息作者头像：Agent = 名 hash 稳定色（组件内联 background）；人类 = 品牌色 */
+/* 消息作者头像：Agent = 名 hash 稳定色（组件内联 background）；人类 = 品牌色
+   2026-09 视觉层次批次：20→24px——角色辨识主信号之一，配合 agent panel 底色拉开发送者区分度 */
 .mc-avatar {
-  width: 20px;
-  height: 20px;
+  width: 24px;
+  height: 24px;
   border-radius: 50%;
   display: inline-flex;
   align-items: center;
@@ -375,7 +383,8 @@
 /* #440：agent identicon 图形头像（SVG 填满圆形容器，色源 --chart-1..9 在组件内联 fill） */
 .mc-avatar-ident { overflow: hidden; background: var(--bg-elevated); padding: 0; }
 .mc-avatar-ident svg { display: block; width: 100%; height: 100%; }
-.mc-time { color: var(--text-muted); font-size: var(--fs-xs); }
+/* 2026-09 视觉层次批次：时间戳 mono 化（规范：时间戳=mono 限定场景）——元信息与正文字体角色拉开 */
+.mc-time { color: var(--text-muted); font-size: var(--fs-xs); font-family: var(--font-mono); }
 .mc-msg-body { color: var(--text-primary); white-space: pre-wrap; word-break: break-word; }
 /* #271: agent 消息内的 Markdown 容器覆盖 pre-wrap，软换行按 Markdown 语义折叠为空格 */
 .mc-md { white-space: normal; }
@@ -386,6 +395,10 @@
 .mc-md h3 { color: var(--text-primary); }
 .mc-md h2, .mc-md h3 { margin-top: var(--space-4); }
 .mc-md p, .mc-md li { line-height: 1.7; }
+/* 2026-09 视觉层次批次：频道内围栏代码块（日志/命令）——长日志 320px 封顶内滚动，不撑爆消息流；
+   底/边升档在 MarkdownBody PRE_STYLE 全局落地（内联 style 优先级高于样式表，频道作用域覆盖不到，
+   bg-secondary→bg-tertiary、border-subtle→border-default，阅览室等其余消费方同受益） */
+.mc-md pre { max-height: 320px; overflow-y: auto; }
 
 /* ---------- #277（决策 #248 D1/D2/D3/D5）：分侧布局 + 系统播报 + mention chip + 连续合并 ---------- */
 /* D1 人类消息：右侧轻气泡（头像 + 时间戳在右，不署名） */
@@ -400,12 +413,17 @@
   border-top-right-radius: 3px;
   padding: 6px 12px;
 }
-/* D1 agent 消息：左侧无气泡文档流，占内容列宽（#394 起中栏弹性无上限，760/1000 双档取消）；
-   批次 D-1.5 ②：2px --border-default 左边线 + 12px 内距，文档流形态视觉锚点（人类气泡/系统播报不加） */
+/* D1 agent 消息：左侧文档流，占内容列宽（#394 起中栏弹性无上限，760/1000 双档取消）；
+   批次 D-1.5 ②：2px --border-default 左边线 + 12px 内距，文档流形态视觉锚点（人类气泡/系统播报不加）。
+   2026-09 视觉层次批次：升 panel 形态——--bg-elevated 底 + 4px 圆角 + 全向内距，
+   agent 发言在裸页底/线程容器（--bg-secondary）上都可分辨，角色辨识度不再只靠 20px 头像与细边线；
+   底色取 elevated 而非 secondary：线程容器已是 secondary，同档嵌套会隐形 */
 .mc-msg-agent {
   text-align: left;
+  background: var(--bg-elevated);
+  border-radius: 4px;
+  padding: var(--space-2) var(--space-3);
   border-left: 2px solid var(--border-default);
-  padding-left: 12px;
 }
 /* D3 系统播报：淡色小字，与左右对话流明确区隔；无头无动作，仅正文（+可选 footer 链接） */
 /* #437：居中装置是 760px 限宽栏语境的设计；#394 取消限宽后播报漂屏中，改左对齐随主流文档流，
@@ -772,10 +790,15 @@ button.mc-quote:active { background: var(--bg-active); }
   margin: -4px 0 8px 18px;
 }
 .mc-thread-toggle:hover { color: var(--accent-primary); }
+/* 2026-09 视觉层次批次：裸缩进 + 1px 边线 → 背景容器成组——
+   回复堆叠（尤其实体自回复多轮）原只靠细边线暗示归属，层级一多就糊；
+   容器底 --bg-secondary 与页底分层，内嵌 agent 消息 panel（--bg-elevated）再高一层，组边界一眼可辨 */
 .mc-thread-replies {
   margin-left: 18px;
-  border-left: 1px solid var(--border-default);
-  padding-left: 12px;
+  border-left: 2px solid var(--border-default);
+  border-radius: 4px;
+  background: var(--bg-secondary);
+  padding: var(--space-2) var(--space-3);
 }
 
 /* Phase 3（channel 上下游优化 AC3）：主流 monitor 告警折叠组——
@@ -795,7 +818,7 @@ button.mc-quote:active { background: var(--bg-active); }
 .mc-alert-group-summary:hover { border-color: var(--warning); }
 .mc-alert-group-body {
   margin-left: 18px;
-  border-left: 1px solid var(--warning-border);
+  border-left: 2px solid var(--warning-border);
   padding-left: 12px;
   margin-top: 4px;
 }
@@ -826,11 +849,27 @@ button.mc-quote:active { background: var(--bg-active); }
 /* ① stepper 不再全宽撑满：紧凑左对齐 + 合理 max-width（wu-detail.css 全局类不动，WU 详情页不受影响） */
 .mc-workbar-stepper { flex: 0 1 auto; min-width: 0; max-width: 640px; }
 .mc-workbar .wu-stepper-bar { padding: 0; }
-.mc-workbar .wu-bstep-line { flex: 0 0 32px; min-width: 0; background: var(--border-strong); }
+.mc-workbar .wu-bstep-line { flex: 0 0 32px; min-width: 0; height: 2px; background: var(--border-strong); }
 .mc-workbar .wu-bstep-line-reached { background: var(--accent-border); }
+/* 2026-09 视觉层次批次：站点点径 9→11px（current 维持 12px + glow）——原尺寸在顶栏扫读时几乎不可辨 */
+.mc-workbar .wu-st-dot { width: 11px; height: 11px; }
 /* ① 当前站强化：点径加大 + 发光保留；时间戳再弱化一档（不抢站名） */
 .mc-workbar .wu-st-current .wu-st-dot { width: 12px; height: 12px; box-shadow: 0 0 8px var(--accent-glow); }
 .mc-workbar .wu-st-time { opacity: 0.7; }
+/* 2026-09 视觉层次批次：stepper 归属标识 chip——进度条属于哪个 WU 一眼可辨（mono ID 档，点击开抽屉） */
+.mc-workbar-wu {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  padding: 5px 8px;
+  white-space: nowrap;
+}
+.mc-workbar-wu:hover { color: var(--text-primary); border-color: var(--accent-border); }
+.mc-workbar-wu:focus-visible { outline: 1px solid var(--accent-primary); outline-offset: 2px; }
 /* E1：站点可点化（StationStepper onStationClick 仅 workbar 传入；按钮形态与 hover 只作用域在此，全局 stepper 不动） */
 .mc-workbar .wu-bstep-btn { cursor: pointer; text-align: left; }
 .mc-workbar .wu-bstep-btn:hover .wu-st-label { color: var(--accent-primary); }

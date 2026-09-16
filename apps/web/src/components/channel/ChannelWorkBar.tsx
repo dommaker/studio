@@ -85,6 +85,15 @@ export function ChannelWorkBar({ channelId, currentWu, onOpenWorkUnit, wuIdle = 
     <div className="mc-workbar" aria-label="频道工作条">
       {currentWu && stations && (
         <div className="mc-workbar-main">
+          {/* 2026-09 视觉层次批次：stepper 归属标识——进度条属于哪个任务一眼可辨，
+              点击开 WU 抽屉（与站点/live 徽标统一入口） */}
+          <button
+            className="mc-workbar-wu"
+            onClick={() => onOpenWorkUnit(currentWu.id)}
+            title={`打开任务详情：${currentWu.id}`}
+          >
+            {shortWuId(currentWu.id)}
+          </button>
           <div className="mc-workbar-stepper" aria-label="工单阶段">
             {/* E1：workbar 内站点可点（点击开对应 WU 抽屉，与 live 徽标统一入口）；
                 StationStepper 与 WU 详情页共享——可点化仅经 onStationClick 作用域限定在此，详情页不传保持纯展示 */}
