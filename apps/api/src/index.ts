@@ -21,6 +21,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { studioDir as resolveStudioDir, warnIfNonProdUsesProdRoot } from '@dommaker/studio-shared/studio-dir';
 import { resolveListenHost } from './utils/listen-host.js';
+import { handleServerListenError } from './utils/listen-error.js';
 import { isCloudflaredEnabled } from './utils/cloudflared.js';
 
 const PORT = process.env.PORT || 3001;
@@ -483,13 +484,10 @@ async function start() {
     });
 
     // 启动服务器
+    // #573 端口双口径收口（契约 §7）：端口由 port-probe 启动前单口径解析，
+    // listen 时再撞 EADDRINUSE = 竞态 → 拒启，删除原 3s 无限重试
     server.on('error', (err: any) => {
-      if (err?.code === 'EADDRINUSE') {
-        logger.warn(`Port ${PORT} in use, retrying in 3s...`);
-        setTimeout(() => { server.close(); server.listen(Number(PORT), HOST); }, 3000);
-      } else {
-        logger.error('Server listen error', { code: err?.code, message: err?.message, port: PORT });
-      }
+      handleServerListenError(err, { port: PORT, host: HOST, logger });
     });
     logger.info('Attempting server.listen...');
     server.listen(Number(PORT), HOST, () => {

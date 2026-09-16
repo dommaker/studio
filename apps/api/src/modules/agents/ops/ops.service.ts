@@ -92,20 +92,9 @@ export class OpsService {
       autoFixed: frontend.autoBuilt,
     });
 
-    // 3. Check port
-    try {
-      const output = execSync(`lsof -ti:${this.port} 2>/dev/null || true`, { encoding: 'utf-8', stdio: 'pipe' }).trim();
-      if (output) {
-        add({
-          name: 'port-available', passed: false, critical: true,
-          message: `❌ Port ${this.port} is already in use by PID(s): ${output.replace(/\n/g, ', ')}. Kill old processes first: studio stop`,
-        });
-      } else {
-        add({ name: 'port-available', passed: true, message: `Port ${this.port} available`, critical: true });
-      }
-    } catch (e: any) {
-      add({ name: 'port-available', passed: true, message: `Port ${this.port} available`, critical: true });
-    }
+    // 3. 端口检查已移出（#573 契约 §7 双口径收口）：原 lsof 占用即 abort 语义
+    // 收编为 cli/port-probe 的动态顺延分支——调用方（studioUp / studioRunWeb）
+    // 在 preflight 前完成端口解析（默认顺延上限 +100，显式指定占用即拒启）。
 
     // 4. Clean stale processes
     try {

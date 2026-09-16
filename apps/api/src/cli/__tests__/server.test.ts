@@ -71,4 +71,19 @@ describe('checkPrerequisites', () => {
       expect(errs[1]).toBe('Install them before running studio up.');
     }
   });
+
+  // #573 漂移修正（摸底 Q5）：agent CLI 检查对齐 provider 注册表扫描，不再硬编码 claude
+  it('注入空探测结果 → 报缺 agent CLI（注册表口径，不点名单一 CLI）', () => {
+    checkPrerequisites([]);
+    const out = errs.join('\n');
+    expect(out).toMatch(/^Missing prerequisites: /);
+    expect(out).toContain('agent CLI');
+    expect(out).toContain('至少需要一个 agent CLI 才能跑执行');
+    expect(out).not.toContain('claude CLI');
+  });
+
+  it('注入任一已探测 provider → 不报缺 agent CLI', () => {
+    checkPrerequisites([{ provider: 'kimi', path: '/usr/local/bin/kimi', version: '1.0.0' }]);
+    expect(errs.join('\n')).not.toContain('agent CLI');
+  });
 });

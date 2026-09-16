@@ -22,4 +22,4 @@
 - **坑（esbuild 提升）**：index.ts 顶部的 `import 'dotenv/config'` 被 esbuild 提升到 bundle 顶层 → 任何 CLI 动词都会加载 **cwd 的 .env**；其中 PORT 对 `run web` 是显式语义（占用即拒启）。在含 PORT 的仓库目录下跑 `studio run web` 不带 --port 会被 .env 的 PORT 卡住。
 - **apps/api 的 tsc dist 不能被 node 直跑**（tsconfig module ESNext 而包无 `type: module`，产物含 ESM import + 裸 require/__dirname）——npm 形态不走 tsc dist，`pnpm start`/`dev` 走 tsx；不要再给 tsc dist 加 bin 指向（apps/api bin 已于 #571 移除）。
 - CJS 遗迹：部分模块仍有 `require(...)` 惰性调用——bundle 靠 banner 的 createRequire 兜底，dev 靠 tsx；改 ESM 化时逐文件处理，别指望 tsc 产物直接跑。
-- `studio up` 语义不动；端口双口径收口（index.ts EADDRINUSE 重试删除 + ops preflight lsof abort 收编）在 #573，不在本目录已实现的顺延逻辑里重复。
+- `studio up` 语义不动，但端口口径已随 #573 收口：启动前经 port-probe 解析（PORT 显式占用即拒启，缺省 3001 动态顺延上限 +100），ops preflight 的 lsof abort 与 index.ts 的 EADDRINUSE 3s 无限重试均已删除（后者归 utils/listen-error.ts，listen 竞态撞占用 = 拒启）。checkPrerequisites 的 agent CLI 检查同票对齐 provider 注册表扫描（不再硬编码 claude），缺失只警告不阻断。
