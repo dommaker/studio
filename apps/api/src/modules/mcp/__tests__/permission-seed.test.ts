@@ -69,3 +69,34 @@ describe('seedDefaultPermissions 危险工具默认授权', () => {
     expect(readPerms().length).toBe(first);
   });
 });
+
+// P1（#566 D2）：external 角色权限完全由 exposure 子集派生
+describe('seedDefaultPermissions external 角色', () => {
+  it('external 角色仅 external 子集 allowed，其余 default-deny', async () => {
+    await seedDefaultPermissions(['listProjects', 'createWorkUnit'], ['listProjects']);
+    const perms = readPerms();
+
+    expect(perms.find(p => p.roleId === 'external' && p.toolName === 'listProjects')?.allowed).toBe(true);
+    expect(perms.find(p => p.roleId === 'external' && p.toolName === 'createWorkUnit')?.allowed).toBe(false);
+  });
+
+  it('漂移双向纠正：tool 移出子集后残留 allowed:true 被收回，新入子集补放', async () => {
+    fs.writeFileSync(permsPath, JSON.stringify([
+      { id: '1', roleId: 'external', toolName: 'listProjects', allowed: true },
+      { id: '2', roleId: 'external', toolName: 'getBalance', allowed: true },
+    ]));
+
+    await seedDefaultPermissions(['listProjects', 'getBalance'], ['getBalance']);
+    const perms = readPerms();
+
+    expect(perms.find(p => p.roleId === 'external' && p.toolName === 'listProjects')?.allowed).toBe(false);
+    expect(perms.find(p => p.roleId === 'external' && p.toolName === 'getBalance')?.allowed).toBe(true);
+  });
+
+  it('幂等：重复 seed 不重复添加 external 记录', async () => {
+    await seedDefaultPermissions(['listProjects'], ['listProjects']);
+    const first = readPerms().length;
+    await seedDefaultPermissions(['listProjects'], ['listProjects']);
+    expect(readPerms().length).toBe(first);
+  });
+});

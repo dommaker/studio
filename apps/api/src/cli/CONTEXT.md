@@ -14,6 +14,7 @@
 - `bootstrap.ts`：ensureDataDirs / ensureDaemonSecrets（env > .daemon/ 文件 > 生成落盘）/ probeStorageWritable；run web 与 up 共用。
 - `port-probe.ts`：probePortFree（net 模块探测，跨平台不走 lsof）/ resolvePort（默认 3001 起顺延上限 +100；显式 --port/PORT 占用即拒启）/ parsePortFlag / explicitPortFromEnv。
 - `first-run-panel.ts`：buildFirstRunPanel()——Node 版本对 engines>=20、cli-scanner 全 provider 探测结果、数据根、实际监听地址；零 provider 只提示不阻断。
+- `mcp-install.ts`（#566 P3）：`studio mcp install <agent> [--url] [--print] [--uninstall]`——把对外只读 MCP 入口（/api/v1/mcp/external/sse）幂等合入 agent 用户级配置（claude `~/.claude.json` / kimi `~/.kimi-code/mcp.json` / opencode `~/.config/opencode/opencode.json`，均只动 `studio` key、写前 .bak 备份、JSON 损坏拒写）；URL 缺省探测 3001 /mcp/health，不通报错提示 --url；codex 不支持 SSE 报错（Q2 不架 mcp-remote 桥）。
 
 ## 注意事项
 

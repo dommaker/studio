@@ -12,6 +12,7 @@ import type { RegisteredTool } from './tool-registry.js';
 
 const systemHealth: RegisteredTool = {
   name: 'systemHealth',
+  exposure: 'external',
   description: 'Agent-first 系统健康检查：API 状态、知识库统计、Agent 运行状态、管线阶段。Agent 在任何关键操作前应调此 tool 确认系统在线。',
   inputSchema: {
     type: 'object',

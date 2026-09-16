@@ -10,6 +10,7 @@ import type { RegisteredTool } from './tool-registry.js';
 
 const loadSkill: RegisteredTool = {
   name: 'loadSkill',
+  exposure: 'external',
   description: '按需加载 Skill 完整内容。Agent 看到 skill 索引后，调用此工具获取具体工作流指令。',
   inputSchema: {
     type: 'object',

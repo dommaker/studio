@@ -129,6 +129,7 @@ const approveSpec: RegisteredTool = {
 
 const getSpecStatus: RegisteredTool = {
   name: 'getSpecStatus',
+  exposure: 'external',
   description: '获取规格审查状态',
   inputSchema: {
     type: 'object',
@@ -156,6 +157,7 @@ const getSpecStatus: RegisteredTool = {
 
 const listSpecs: RegisteredTool = {
   name: 'listSpecs',
+  exposure: 'external',
   description: '列出规格审查',
   inputSchema: {
     type: 'object',

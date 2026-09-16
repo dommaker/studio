@@ -119,7 +119,7 @@ async function main() {
       console.log('    studio task <queue|run>    Task management');
       console.log('    studio agent <status>      Agent status');
       console.log('    studio env <show>          Environment snapshot');
-      console.log('    studio mcp <tools|health>  MCP Server management');
+      console.log('    studio mcp <tools|health|install>  MCP Server management / install read-only MCP into agent');
       console.log('    studio skill <list>        Skills list');
       console.log('    studio harness <check>     Harness constraint check');
       console.log('');

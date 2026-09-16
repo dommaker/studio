@@ -12,7 +12,7 @@
  */
 
 import { Router, Request, Response } from 'express';
-import { mcpServer } from './server.js';
+import { mcpServer, type MCPRequestContext } from './server.js';
 import { getToolSchemas, executeTool } from './tools.js';
 import { toolRegistry } from './tool-registry.js';
 import { logger } from '@dommaker/studio-shared';
@@ -28,33 +28,71 @@ router.use(mcpRateLimit);
 // ─── SSE Transport ───
 
 const sseClients = new Map<string, Response>();
+// D2（#566）：外部只读入口独立的连接池，与内部 /sse 互不相通
+const externalSseClients = new Map<string, Response>();
+
+function createSseConnectHandler(clients: Map<string, Response>, messagesPath: string) {
+  return (req: Request, res: Response) => {
+    const clientId = `sse-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+    });
+
+    // Send endpoint event with the message URL
+    const messageUrl = `${messagesPath}?clientId=${clientId}`;
+    res.write(`event: endpoint\ndata: ${messageUrl}\n\n`);
+
+    clients.set(clientId, res);
+    logger.info('[MCP SSE] Client connected', { clientId });
+
+    req.on('close', () => {
+      clients.delete(clientId);
+      logger.info('[MCP SSE] Client disconnected', { clientId });
+    });
+  };
+}
+
+function createSseMessageHandler(clients: Map<string, Response>, ctx?: MCPRequestContext) {
+  return async (req: Request, res: Response) => {
+    const clientId = req.query.clientId as string;
+    const client = clientId ? clients.get(clientId) : null;
+
+    try {
+      const response = await mcpServer.handleRequest(req.body, ctx);
+
+      // Send response via SSE if client connected
+      if (client) {
+        client.write(`event: message\ndata: ${JSON.stringify(response)}\n\n`);
+      }
+
+      // Also return in HTTP response
+      res.json(response);
+    } catch (error) {
+      logger.error('MCP SSE message failed', { error: String(error) });
+      const errorResponse = {
+        jsonrpc: '2.0',
+        id: req.body?.id || 0,
+        error: { code: -32603, message: String(error) },
+      };
+
+      if (client) {
+        client.write(`event: message\ndata: ${JSON.stringify(errorResponse)}\n\n`);
+      }
+
+      res.status(500).json(errorResponse);
+    }
+  };
+}
 
 /**
  * GET /api/v1/mcp/sse
  * SSE transport endpoint — Claude CLI connects here
  * 2026-07 收紧：与 /messages 配对限回环（公网匿名握连无意义且可耗资源）。
  */
-router.get('/sse', requireLocalhost(), (req: Request, res: Response) => {
-  const clientId = `sse-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-
-  res.writeHead(200, {
-    'Content-Type': 'text/event-stream',
-    'Cache-Control': 'no-cache',
-    'Connection': 'keep-alive',
-  });
-
-  // Send endpoint event with the message URL
-  const messageUrl = `/api/v1/mcp/messages?clientId=${clientId}`;
-  res.write(`event: endpoint\ndata: ${messageUrl}\n\n`);
-
-  sseClients.set(clientId, res);
-  logger.info('[MCP SSE] Client connected', { clientId });
-
-  req.on('close', () => {
-    sseClients.delete(clientId);
-    logger.info('[MCP SSE] Client disconnected', { clientId });
-  });
-});
+router.get('/sse', requireLocalhost(), createSseConnectHandler(sseClients, '/api/v1/mcp/messages'));
 
 /**
  * POST /api/v1/mcp/messages
@@ -62,35 +100,24 @@ router.get('/sse', requireLocalhost(), (req: Request, res: Response) => {
  * 2026-07 收紧：tools/call 与 REST 执行等价（executor seed 默认全允许），
  * 真实客户端为本机 agent（worktree-resolver STUDIO_MCP_URL=localhost），限回环。
  */
-router.post('/messages', requireLocalhost(), async (req: Request, res: Response) => {
-  const clientId = req.query.clientId as string;
-  const client = clientId ? sseClients.get(clientId) : null;
+router.post('/messages', requireLocalhost(), createSseMessageHandler(sseClients));
 
-  try {
-    const response = await mcpServer.handleRequest(req.body);
+// ─── D2（#566）：外部只读入口 ───
+// 钉死 roleId='external'（忽略自声明）+ tools/list 只出 exposure=external 子集。
+// 写工具三层堵：tools/list 不见 → external 角色 RBAC 仅放 external 子集 → default-deny。
+// 内部 /sse /messages / 路径行为不变。
 
-    // Send response via SSE if client connected
-    if (client) {
-      client.write(`event: message\ndata: ${JSON.stringify(response)}\n\n`);
-    }
+/**
+ * GET /api/v1/mcp/external/sse
+ * 外部 agent（用户终端的 claude/kimi 会话）SSE 连接点，限回环。
+ */
+router.get('/external/sse', requireLocalhost(), createSseConnectHandler(externalSseClients, '/api/v1/mcp/external/messages'));
 
-    // Also return in HTTP response
-    res.json(response);
-  } catch (error) {
-    logger.error('MCP SSE message failed', { error: String(error) });
-    const errorResponse = {
-      jsonrpc: '2.0',
-      id: req.body?.id || 0,
-      error: { code: -32603, message: String(error) },
-    };
-
-    if (client) {
-      client.write(`event: message\ndata: ${JSON.stringify(errorResponse)}\n\n`);
-    }
-
-    res.status(500).json(errorResponse);
-  }
-});
+/**
+ * POST /api/v1/mcp/external/messages
+ * 外部入口消息点：pinnedRoleId='external' + audience='external'。
+ */
+router.post('/external/messages', requireLocalhost(), createSseMessageHandler(externalSseClients, { pinnedRoleId: 'external', audience: 'external' }));
 
 /**
  * POST /api/v1/mcp

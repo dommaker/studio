@@ -105,7 +105,7 @@ describe('studioEnv / studioMcp', () => {
 
   it('studioMcp 未知子命令 → 用法行', async () => {
     await data.studioMcp(['bogus']);
-    expect(logs.join('\n')).toContain('studio mcp <tools|health>');
+    expect(logs.join('\n')).toContain('studio mcp <tools|health|install>');
   });
 
   it('studioMcp 默认 tools 在 API 不可达时 → ECONNREFUSED 提示', async () => {

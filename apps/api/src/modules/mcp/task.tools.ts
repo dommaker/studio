@@ -38,6 +38,7 @@ interface TaskData {
 
 const getTaskBoard: RegisteredTool = {
   name: 'getTaskBoard',
+  exposure: 'external',
   description: '获取任务看板状态',
   inputSchema: {
     type: 'object',
@@ -156,6 +157,7 @@ const updateTaskStatus: RegisteredTool = {
 
 const getTaskStats: RegisteredTool = {
   name: 'getTaskStats',
+  exposure: 'external',
   description: '获取任务统计信息',
   inputSchema: {
     type: 'object',

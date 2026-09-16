@@ -106,6 +106,8 @@ export async function registerRoutes(): Promise<void> {
       '/mcp/health',       // MCP health check
       '/mcp/sse',          // MCP SSE transport endpoint
       '/mcp/messages',     // MCP SSE message endpoint
+      '/mcp/external/sse',      // #566: 外部只读 SSE 入口（钉死 external 角色）
+      '/mcp/external/messages', // #566: 外部只读 SSE 消息端点
     ]);
     const optAuth = optionalAuth();
     app.use('/api/v1', async (req: any, res: any, next: any) => {

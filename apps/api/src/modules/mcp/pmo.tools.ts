@@ -33,6 +33,7 @@ const createProject: RegisteredTool = {
 
 const listProjects: RegisteredTool = {
   name: 'listProjects',
+  exposure: 'external',
   description: '列出所有项目',
   inputSchema: {
     type: 'object',
@@ -54,6 +55,7 @@ const listProjects: RegisteredTool = {
 
 const getProjectStatus: RegisteredTool = {
   name: 'getProjectStatus',
+  exposure: 'external',
   description: '获取项目详情和当前状态',
   inputSchema: {
     type: 'object',

@@ -27,17 +27,20 @@
 | `system.tools.ts` | 2 | systemHealth / emitEvent |
 | `devops.tools.ts` | 1 | publishPackage |
 | `skill.tools.ts` | 1 | loadSkill |
-| `workunit.tools.ts` | 1 | createWorkUnit |
-| **合计** | **19** | |
+| `workunit.tools.ts` | 3 | createWorkUnit / getWorkUnit / listWorkUnits |
+| `channel.tools.ts` | 1 | getChannelMessages（热层尾部，新→旧） |
+| `requirement.tools.ts` | 2 | getRequirement / listRequirements |
+| **合计** | **24** | |
 
 > #149（2026-08-15）：`knowledge.tools.ts`（5 个知识工具，全是 document-store CRUD）随 document-store 退役删除。
 > 2026-08-19：checkGuardrail / getSandboxLevel 随 harness 1.2.0 删除 InputGuardrail/OutputGuardrail/Sandbox（ADR-0003）移除（21 → 19）。
+> #566 P2（2026-09-16）：补只读查询 5 个（getWorkUnit/listWorkUnits/getChannelMessages/getRequirement/listRequirements），全部 exposure='external'（19 → 24）。
 > #172（2026-08-15）：`loadSkill` 入参加可选 `workUnitId`（透传 skill-loader，skill_used 事件补 WU 归属，#60 决策 Q2）。
 > 度量地基票 A（2026-09-15）：`loadSkill` cache 命中路径（常态路径）也发射 `knowledge:skill_used`（channel=loadSkill，level=info）——此前仅文件回退路径发射，事件结构性为 0；文件路径维持 skill-loader.ts 发射，每调用恰好一次。
 
 ### 核心导出
 
-- `getToolSchemas()` — 获取所有 tool 的 JSON schema（不含 handler）
+- `getToolSchemas(audience?)` — 获取 tool 的 JSON schema（不含 handler）；audience='external' 只出 exposure=external 子集，缺省全量
 - `executeTool(name, input, roleId?, traceCtx?)` — 按名称执行 tool（含权限检查 + 限流 + 审计）
 - `MCPToolRegistry` / `toolRegistry` — Tool 注册与生命周期管理
 - `mcpPermissionService` — 权限与审计
@@ -54,4 +57,5 @@
 - 风险级别按工具名前缀自动分配（create/store/extract/approve/assign/update 等 → medium，delete/drop/truncate → high，其余 → low）。
 - 权限模型默认 executor（本地 Agent）可调用普通 tool；**危险工具收口（2026-08-25）**：publishPackage 仅 admin/deploy 默认允许，其余系统角色 seed 为 allowed:false，且历史过度授权记录启动时强制纠正（permission.service.ts seedDefaultPermissions，旧 seed 只增不改不会自愈）。publishPackage 本体同步收口：bumpType 白名单 fail-fast + 全部 execFileSync 数组参数 + git tag 前 semver 校验；dist 完整性校验调 @dommaker/harness 的 verifyReleaseArtifacts 自检（清单由包声明面运行时推导，不硬编码，#425）。
 - **HTTP 端点鉴权分层（2026-07-24 收紧；2026-08-25 补洞）**：`GET /tools`、`GET /health` 保持公开（Lurk）；`POST /tools/:name` → `requireAuth+requireAdmin`；`POST /messages`、`GET /sse`、**`POST /`（完整 JSON-RPC 面，2026-08-25 补挂）** → `requireLocalhost`（真实客户端为本机 agent，`STUDIO_MCP_URL` 默认 localhost SSE）；`/admin/*` → `requireAuth+requireAdmin`。permission.service 的 RBAC 是 agent 角色维度，与 HTTP 用户鉴权是两层。**requireLocalhost 语义（2026-08-25 修复）**：拒绝携带 X-Forwarded-For/CF-Connecting-IP 的请求——同机反代下公网流量 TCP 对端也是 127.0.0.1，单靠 IP 判不出，须靠转发头识别（middleware/auth.ts）。
+- **对外只读入口（#566，2026-09-16，方案 docs/plans/2026-09-mcp-installer.md）**：tool 定义加 `exposure?: 'internal'|'external'`（缺省 internal，D1 default-deny 同构），`GET /external/sse` + `POST /external/messages` 挂 requireLocalhost 并钉死 `roleId='external'`（忽略自声明，D2）+ tools/list 只出 external 子集；RBAC seed 的 external 角色权限由 exposure 标记派生且双向纠正漂移。外放子集 = 8 个既有读 tool（listProjects/getProjectStatus/getTaskBoard/getTaskStats/getSpecStatus/listSpecs/systemHealth/loadSkill）+ P2 新增 5 个只读 tool；getBalance/checkConstraint 不外放（Q1 决策）。内部入口（/sse /messages /）行为不变。配套 CLI：`studio mcp install`（cli/mcp-install.ts）。
 - tool-store.ts（#362，2026-08-27）：`listJsonFiles`/`getEntity`/`writeEntity` 全部委托 FileStore 原语（`listJsonInDir`/`readJson`/`writeJson`），不再自持 readdir 副本；本地 ensureDir 已删（writeJson 自带建目录）。行为差异：list 走读穿缓存 + 并发读、目录不存在返回 [] 且不建目录。
