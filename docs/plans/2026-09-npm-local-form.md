@@ -109,4 +109,4 @@ studio 规划两种交付形态：(a) 部署在用户自己的服务器（现有
 2. **迁移失败语义**：备份 + 拒启（推荐）vs 备份 + 降级继续跑——拒启更安全，继续跑更不打断用户。→ 已定：备份 + 拒绝启动。
 3. **端口冲突默认行为**：动态顺延（推荐）vs 维持拒启 + 提示——动态顺延对新手友好，但"我以为起在 3001"的困惑成本存在。→ 已定：默认动态顺延（上限 +100）；显式 `--port` 冲突即拒启。
 4. **契约指针挂 AGENTS.md PRESERVE 段**（推荐，治理变更）vs 只留独立文档——前者让契约在 agent 入口文档有强制可见性，但要过人闸。→ 已定：独立文档 + AGENTS.md PRESERVE 段挂指针（治理人闸当场通过，2026-09-16）。
-5. **bin 命令名**：`studio start` 新动词（推荐）vs 沿用 `studio up` 改语义——沿用省一个词表项，但 `up` 现有语义里 monorepo 假设太多，改名比改语义干净。→ 已定（2026-09-16 二次确认修订）：命令面只要 web 动词 `studio run web` = 一体起服务总入口（API + 托管已构建 web dist + 首启检测/迁移/端口顺延）；**不新增** `studio start`，web 也不单设独立进程命令——web 静态 dist 随 API 一体托管，开发形态沿用 `pnpm dev` / `pnpm dev:start`。
+5. **bin 命令名**：`studio start` 新动词（推荐）vs 沿用 `studio up` 改语义——沿用省一个词表项，但 `up` 现有语义里 monorepo 假设太多，改名比改语义干净。→ 已定（2026-09-16 三次确认）：命令面只要 web 动词 `studio run web` = 一体起服务总入口（API + 托管已构建 web dist + 首启检测/迁移/端口顺延）；**不新增** `studio start`；旧 `studio run`（提交需求快捷方式，其硬编码的 `@Analyst` 角色已不存在，legacy）删除让位，另开 chore 票执行；web 不单设独立进程命令——web 静态 dist 随 API 一体托管，开发形态沿用 `pnpm dev` / `pnpm dev:start`。
