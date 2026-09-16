@@ -59,7 +59,7 @@ P1 外放子集（现有 10 读里选 8）：`listProjects` `getProjectStatus` `
 
 1. 各 agent 用户级 MCP 配置文件路径/格式/合入键位：claude（`~/.claude.json` 的 `mcpServers`？还是 `claude mcp add` CLI 包装）、kimi（`~/.kimi-code/config.toml`？）、codex（`~/.codex/config.toml` `[mcp_servers.*]`？）、opencode（`~/.config/opencode/opencode.json` `mcp` 段？）——全部以各 CLI 当季官方文档 + 本机实测为准。
 2. 各 agent 是否支持 SSE transport；不支持的确认 `mcp-remote` 桥可行（D3）。
-3. install 时端口来源：PORT env / `studio status` 探测 / 固定默认——现状 3001 与 13101 两口径不一致（背景节），取哪个待 Q3 拍板。
+3. install 时端口来源：PORT env / `studio status` 探测 / 固定默认——现状 3001 与 13101 两口径不一致（背景节），按 Q3 已决策结论执行（探测 3001 health，不通则报错提示 `--url`）。
 4. claude 用户级 scope 与项目级 `.mcp.json` 的取舍（install 写哪一级）。
 
 ## 验收标准（AC）
@@ -88,9 +88,9 @@ P1 外放子集（现有 10 读里选 8）：`listProjects` `getProjectStatus` `
 - 不做远程访问、不做多机。
 - 不动 `getBalance`/`checkConstraint` 以外其余 internal tool 的任何定义。
 
-## 开放问题（待拍板）
+## 开放问题（2026-09-16 人审全部决策，以下为结论）
 
-- **Q1 外放边界**：`getBalance`（economy）与 `checkConstraint`（safety）是否外放？推荐：均不外放（内部激励/治理概念，外部 agent 无消费场景）。
-- **Q2 某 agent 不支持 SSE 时**：先只为支持 SSE 的 agent 出 install（其余报错提示），还是同票引入 `mcp-remote` 桥配置？推荐前者（增量小步，桥配置后补是一行适配器的事）。
-- **Q3 install 默认 URL 的端口**：CLI 默认 3001 vs worktree-resolver 默认 13101 不一致。推荐：install 时探测 `http://localhost:<PORT||3001>/api/v1/mcp/health`，不通则报错提示 `studio up`，不静默写死端口。
-- **Q4 claude 写用户级还是项目级**：推荐用户级（「任意终端的会话」语义），项目级 `.mcp.json` 留给后续 `--project` flag。
+- **Q1 外放边界**：`getBalance`（economy）与 `checkConstraint`（safety）是否外放？**已决策：均不外放**（内部激励/治理概念，外部 agent 无消费场景）。
+- **Q2 某 agent 不支持 SSE 时**：**已决策：不引入 `mcp-remote` 桥**，第一版只为支持 SSE 的 agent 出 install，其余报错提示。
+- **Q3 install 默认 URL 的端口**：CLI 默认 3001 vs worktree-resolver 默认 13101 不一致。**已决策：先探测 `http://localhost:3001/api/v1/mcp/health`，通了用 3001；不通报错并提示 `--url` 显式传入，不顺延猜测其他端口。**
+- **Q4 claude 写用户级还是项目级**：**已决策：写用户级 `~/.claude.json`**（理由：studio 是机器级服务），项目级 `.mcp.json` 留给后续 `--project` flag。

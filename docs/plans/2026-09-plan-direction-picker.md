@@ -109,11 +109,11 @@ review-proposal 维持提案闸定位，不泛化）。
 触及：web `components/channel/PlanDirectionCard.tsx`、`components/pmo/PlanDirectionDialog.tsx`、
 `ChannelMessageItem.tsx`、`BlockedActions.tsx`、`api/workunit.ts` + 测试。
 
-### P4：超时豁免（依开放问题 3 拍板，可独立不做）
+### P4：超时豁免（2026-09-16 人审已决策，正式纳入范围）
 
-若拍板豁免：`autoAbandonStaleBlocked` 对 `waitingReason ∈ {'plan-direction','plan-ruling'}`
-的 plan 挂起跳过 24h 自动关闭（decision/spec 豁免先例：#108「可能等关键人多天」）。
-30 分钟提醒保持不变（blocked 全覆盖现成机制，零改动）。
+`autoAbandonStaleBlocked` 对 `waitingReason ∈ {'plan-direction','plan-ruling'}`
+的 plan 挂起跳过 24h 自动关闭（对齐 decision/spec 豁免先例：#108「可能等关键人多天」）。
+配套超时提醒：30 分钟提醒保持不变（blocked 全覆盖现成机制，零改动）。
 触及：timeout-release/workunit.service 死信扫描处 + 测试。
 
 ### 开关策略
@@ -126,7 +126,7 @@ review-proposal 维持提案闸定位，不泛化）。
 
 ## 验收标准 AC
 
-- AC1：契约文本含方向锁定段（DIRECTION 协议行、候选 2~4、recommended 恰好一个、
+- AC1：契约文本含方向锁定段（DIRECTION 协议行、候选 2~3、recommended 恰好一个、
   快道豁免条款），无互斥方向时 agent 不出方向锁定。
 - AC2：parseDirectionLine 单测覆盖：合法行解析、JSON 损坏跳过、options 越界
   （<2/>4）拒收、recommended 非恰好一个的归一、与 OPTIONS/RULING 行共存。
@@ -137,7 +137,7 @@ review-proposal 维持提案闸定位，不泛化）。
 - AC5：前端三态可验：推荐方向默认选中可改选、补充说明随提交注入、「都不合适」
   转自由文本路径。
 - AC6：非 plan 类型 WU 契约/流程零改动（快照测试或契约 diff 证明）。
-- AC7（P4 若做）：waitingReason='plan-direction'/'plan-ruling' 的 blocked plan 超过
+- AC7：waitingReason='plan-direction'/'plan-ruling' 的 blocked plan 超过
   24h 不被自动关闭，30 分钟提醒照常。
 
 ## 风险与边界
@@ -146,8 +146,8 @@ review-proposal 维持提案闸定位，不泛化）。
   是软约束；先上线观察，滥发再考虑硬闸（如每 plan 限一次）。
 - **方向与裁决轮重复**：方向锁定后仍可能有细节待决走 RULING，人操作两次。缓解：
   契约注明方向锁定只问方向，细节留给裁决轮；方向卡不打回到方向以下颗粒度。
-- **24h 死信**（P4 未做时）：方向卡挂 24h plan 被自动关闭（#467 裁决轮同病）。
-  缓解：30 分钟提醒已覆盖；真发生了人重新派发，成本可接受——故 P4 独立可裁。
+- **24h 死信**：P4 已豁免方向/裁决挂起的自动关闭；残留风险是挂起无限期等人。
+  缓解：30 分钟提醒照常；长期无人理的单由人工处置，不设二次自动动作。
 - **与 OPTIONS 卡的分工**：OPTIONS（#279）是纯点选无落账；方向锁定要落台账 +
   展示取舍长文，OPTIONS 卡（label+description 两行）承载不了，故新卡不复用。
 
@@ -158,17 +158,15 @@ review-proposal 维持提案闸定位，不泛化）。
 - 不做频道级/全局开关配置，不做方向效果度量。
 - 不动其他 WU 类型契约；不动旧链 decision-resolution/spec-materialization。
 
-## 开放问题（待拍板）
+## 开放问题（2026-09-16 人审已全部决策）
 
-1. **通道归属**：扩 plan-ruling 人答链路（推荐，理由见设计判断）vs review-proposal
-   新增 direction-select adapter。若选后者需先改发卡频道机制，成本高且语义不合。
-2. **方向锁定与裁决轮的关系**：前置独立环节（推荐：先方向后细节，两次人闸但各问
-   各的）vs 并入裁决轮（方向作为特殊 RULING 题）。并入省一次人闸但混了颗粒度。
-3. **24h 死信**：方向/裁决挂起的 plan 豁免自动关闭（推荐，decision/spec 先例「可能等
-   关键人多天」；P4 落地）vs 维持现状 24h 自动关闭（P4 不做）。
-4. **候选数**：2-3 硬上限（背景口径）vs 允许 4（方案按 2..4 解析、契约写 2~3 推荐）。
-5. **推荐标记**：强制恰好一个 recommended（推荐：人无主见时一键采纳，方向卡始终
-   有默认推荐位）vs 允许全不推荐。
+1. **通道归属** → 已定：扩展 #467 已有 plan-ruling 人答链路（NEED_INPUT 挂起 →
+   结构化行 → 同会话复活），不走 review-proposal。
+2. **与裁决轮关系** → 已定：前置独立环节，可开关（开关策略见上节）。
+3. **24h 死信** → 已定：方向卡/裁决卡挂起豁免 autoAbandon 自动关闭，对齐
+   decision/spec 先例（#108），配套超时提醒（P4 正式纳入范围）。
+4. **候选数** → 已定：契约写 2~3 个，解析容忍 2..4。
+5. **推荐标记** → 已定：强制恰好一个 recommended。
 
 ## 实施时核查项
 

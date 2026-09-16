@@ -29,7 +29,7 @@ studio 的 skill 立场是「进化出来的」：skill-extraction 从 WU 提取
 
 ### 3.1 打包格式
 
-- **产物 = 目录拷贝**，不打 tgz。export 将整个 skill 目录树（SKILL.md + 子目录，与 `hashSkillDir()` 同一口径）复制到 `<outDir>/<name>/`。跨团队流动走 git/共享盘/任意文件传输，目录形态可直接 diff、可直接进对方仓库——这正是回馈内置库的场景。tgz 作为单文件传输便利列开放问题 Q1。
+- **产物 = 目录拷贝**，不打 tgz。export 将整个 skill 目录树（SKILL.md + 子目录，与 `hashSkillDir()` 同一口径）复制到 `<outDir>/<name>/`。跨团队流动走 git/共享盘/任意文件传输，目录形态可直接 diff、可直接进对方仓库——这正是回馈内置库的场景。不产出 tgz（已决策，见 Q1；单文件传输用户自行 `tar czf`）。
 - **来源信息**：export 时在产物根写边车文件 `PROVENANCE.json`（不污染 SKILL.md frontmatter，loader/manifest 天然忽略未知文件）：`{ name, version, exportedAt, source, sourceWorkUnits?, contentHash }`。`source`/`sourceWorkUnits` 从 `skills-index.json` 的 SkillRecord（`source`/`metadata.sourceGoalIds`）取，取不到则 `source: 'unknown'`（内置 skill 的数据区副本即此情形）。`contentHash` 复用 `hashSkillDir()`。version 取 frontmatter `version`，缺省 1。
 - **版本标识**：frontmatter `version`（整数）+ 内容 hash 双标，不做升级链——install 只用 hash 判「内容是否相同」。
 
@@ -107,9 +107,9 @@ studio 的 skill 立场是「进化出来的」：skill-extraction 从 WU 提取
 - inputs 参数化、capabilities 权限声明（YAGNI）。
 - 改动 seed.ts 升级语义、改动 SkillStore/manifest-loader 现有行为。
 
-## 7. 开放问题（待拍板）
+## 7. 开放问题（2026-09-16 人审已决策）
 
-- **Q1 export 要不要同时产出 tgz？** 选项：A 只目录（推荐——回馈内置库场景要 diff 形态，单文件传输用户自行 `tar czf`）；B 加 `--tgz` flag。推荐 A，YAGNI。
-- **Q2 install 来源是否接受 tgz？** 选项：A 只接受目录（推荐，与 Q1-A 对称）；B 同时接受 `.tgz`（多一个解压依赖与校验面）。推荐 A。
-- **Q3 install 与内置同名是硬拒绝还是允许改名安装？** 选项：A 硬拒绝 + 报错提示人工改名（推荐，最简）；B 提供 `--as <newName>` 一键改名落盘（便利但多一个语义面：frontmatter name 需同步改写）。推荐 A。
-- **Q4 PROVENANCE.json 的归宿**：边车文件（推荐，loader 天然忽略）vs 写进 frontmatter 扩展字段（随 SKILL.md 进 PR 正本，污染正本）。推荐边车。
+- **Q1 export 要不要同时产出 tgz？** 已决策：只产出目录拷贝，不产出 tgz（YAGNI；单文件传输用户自行 `tar czf`）。
+- **Q2 install 来源是否接受 tgz？** 已决策：只接受目录（与 Q1 对称，不引入解压依赖与额外校验面）。
+- **Q3 install 与内置同名是硬拒绝还是允许改名安装？** 已决策：硬拒绝，报错提示用户自行改名（保护 seed hash 升级通道）；不提供 `--as` 改名安装。
+- **Q4 PROVENANCE.json 的归宿**：已决策：边车文件 `PROVENANCE.json`，不进 SKILL.md frontmatter（loader 天然忽略未知文件，不污染正本）。

@@ -106,12 +106,12 @@ stream-json 嵌套 agent 防护：**确认存在缺口**。`stream-json-parser.t
 - 不做探测结果跨进程持久化（FileStore 落盘），进程内缓存够用。
 - 不统一 triage `classifyFailure` 与新分类器的模式表（见开放问题 3）。
 
-## 开放问题（待拍板）
+## 开放问题（全部已决策，2026-09-16 人审）
 
-1. **探测失败语义**：fail-open（推荐，保持现状行为）还是 fail-closed（探测失败就不传任何条件 flag）？推荐 fail-open + warn 日志。
-2. **auth 探测节奏**：推荐「启动 + 手动 rescan，结果随 runtimes 记录持久」；备选是每次 GET 实时探（开销大、有 `apiCache(60)` 也压不住 per-provider 进程 spawn）。是否接受 auth 状态最多陈旧到下次启动/rescan？
-3. **两套失败模式表**：triage `classifyFailure`（内部路由）与新 `failure-classifier.ts`（用户指引）并存，还是本票就收敛为一表两输出？推荐并存、收敛另议——两者消费方和语义不同，收敛是独立重构。
-4. **listModels**：动态模型发现（探测 CLI 支持的模型列表）确认排到后续票？本推荐确认排后——它依赖能力探测层落地后再做更稳。
+1. **探测失败语义**：fail-open（推荐，保持现状行为）还是 fail-closed（探测失败就不传任何条件 flag）？→ **已决策：fail-open**——探测失败回到现状全量传参，不引入新失败模式。
+2. **auth 探测节奏**：推荐「启动 + 手动 rescan，结果随 runtimes 记录持久」；备选是每次 GET 实时探（开销大、有 `apiCache(60)` 也压不住 per-provider 进程 spawn）。是否接受 auth 状态最多陈旧到下次启动/rescan？→ **已决策：启动时探 + 手动 rescan + 结果持久化**，不做每次 GET 实时探。
+3. **两套失败模式表**：triage `classifyFailure`（内部路由）与新 `failure-classifier.ts`（用户指引）并存，还是本票就收敛为一表两输出？→ **已决策：两套并存**——triage 管内部路由策略，新分类器管给人看的修复指引，收敛另议。
+4. **listModels**：动态模型发现（探测 CLI 支持的模型列表）确认排到后续票？→ **已决策：确认不在本票**，排后续独立票。
 
 ## 实施时核查项（不许凭记忆写代码）
 
