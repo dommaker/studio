@@ -4,10 +4,10 @@
 // （消息/线程组/告警组 × degraded × 日期分隔站位）、skeleton 占位行（含 highlight 目标为
 // 骨架时的高亮）。整块自 ChannelDetailPage 渲染段搬移（PURE_MOVE 行为零变化）；
 // 消息卡渲染本体（renderMessage）与 highlight 目标由页面经 props 注入。
-import { useCallback, type ReactNode } from 'react';
+import { Fragment, useCallback, type ReactNode } from 'react';
 import type { ChannelMessage } from '../../api/channel';
 import type { ChannelStream } from '../../hooks/useChannelStream';
-import { streamDateStrOf, streamDateLabelOf, type StreamItem } from '../../utils/streamView';
+import { streamDateStrOf, streamDateLabelOf, type StreamItem, type ThreadReplyView } from '../../utils/streamView';
 import type { ChannelMessageItemProps } from './ChannelMessageItem';
 import { IconAlertTriangle } from '../ui/icons';
 
@@ -39,6 +39,20 @@ function procAuthorsOf(messages: ChannelMessage[]): string {
   const names = [...new Set(messages.map(m => m.agentName || 'Agent'))];
   const shown = names.slice(0, 2).map(n => `@${n}`).join('、');
   return names.length > 2 ? `${shown} 等` : shown;
+}
+
+/** proc-group 单作者判定：全部消息同一 agent → 返回作者名，否则 null（增量四链式合并前提） */
+function singleAuthorOf(messages: ChannelMessage[]): string | null {
+  const names = new Set(messages.map(m => m.agentName || 'Agent'));
+  return names.size === 1 ? [...names][0] : null;
+}
+
+/** 卡片消息粗判（meta string/object 两形态）：链式合并不吞卡片——卡片自身就是全宽模块 */
+function hasCardMeta(m: ChannelMessage): boolean {
+  const meta = m.meta as unknown;
+  if (!meta) return false;
+  if (typeof meta === 'string') return meta.includes('cardType');
+  return typeof meta === 'object' && 'cardType' in (meta as Record<string, unknown>);
 }
 
 /** 消息作者短名（线程锚点摘要头用，与 ChannelMessageItem quote 行同口径） */
@@ -140,23 +154,61 @@ export function ChannelStreamBody({ stream, renderMessage, highlightId }: {
                   组内 quote 不动：AC1 契约 = quote 可点定位上游，主流回复必然挂在线程内，
                   抑制 anchor quote 会砍掉 quote 的主要出现面 */}
               <div className="mc-thread-context">回复 {authorLabelOf(item.anchor)}：{item.anchor.content}</div>
-              {item.replies.map(ri => {
-                if (ri.kind === 'msg') {
-                  return renderMessage(ri.message, { isThreadReply: true, compact: ri.compact });
-                }
-                return ri.expanded ? (
-                  <div key={ri.key} className="mc-proc-group">
+              {(() => {
+                // 增量四：单作者折叠组 + 紧随的同作者可见消息 = 同一角色的连续输出，
+                // 合成 .mc-reply-chain 角色消息模块（折叠条 = 模块头，结论消息 = 模块体）——
+                // 原来折叠条与下方结论消息是两个独立块，读不出同属一个角色
+                const ris = item.replies;
+                const nodes: ReactNode[] = [];
+                for (let i = 0; i < ris.length; i++) {
+                  const ri = ris[i];
+                  if (ri.kind === 'msg') {
+                    nodes.push(renderMessage(ri.message, { isThreadReply: true, compact: ri.compact }));
+                    continue;
+                  }
+                  const singleAuthor = singleAuthorOf(ri.messages);
+                  const chain: Extract<ThreadReplyView, { kind: 'msg' }>[] = [];
+                  if (singleAuthor) {
+                    while (i + 1 < ris.length) {
+                      const next = ris[i + 1];
+                      if (next.kind === 'msg' && next.message.authorType === 'agent'
+                        && (next.message.agentName || 'Agent') === singleAuthor
+                        && !hasCardMeta(next.message)) {
+                        chain.push(next);
+                        i++;
+                      } else break;
+                    }
+                  }
+                  const toggle = (
                     <button onClick={() => toggleProcGroup(ri.key)} className="mc-collapse-toggle">
-                      收起 {ri.messages.length} 条过程消息 · {procAuthorsOf(ri.messages)}
+                      {ri.expanded
+                        ? `收起 ${ri.messages.length} 条过程消息 · ${procAuthorsOf(ri.messages)}`
+                        : `▸ ${ri.messages.length} 条过程消息 · ${procAuthorsOf(ri.messages)}`}
                     </button>
-                    {ri.messages.map(reply => renderMessage(reply, { isThreadReply: true }))}
-                  </div>
-                ) : (
-                  <button key={ri.key} onClick={() => toggleProcGroup(ri.key)} className="mc-collapse-toggle">
-                    ▸ {ri.messages.length} 条过程消息 · {procAuthorsOf(ri.messages)}
-                  </button>
-                );
-              })}
+                  );
+                  if (chain.length > 0) {
+                    nodes.push(
+                      <div key={ri.key} className="mc-reply-chain">
+                        {toggle}
+                        {ri.expanded && ri.messages.map(reply => renderMessage(reply, { isThreadReply: true }))}
+                        {chain.map(c => renderMessage(c.message, { isThreadReply: true, compact: c.compact }))}
+                      </div>,
+                    );
+                  } else {
+                    nodes.push(
+                      ri.expanded ? (
+                        <div key={ri.key} className="mc-proc-group">
+                          {toggle}
+                          {ri.messages.map(reply => renderMessage(reply, { isThreadReply: true }))}
+                        </div>
+                      ) : (
+                        <Fragment key={ri.key}>{toggle}</Fragment>
+                      ),
+                    );
+                  }
+                }
+                return nodes;
+              })()}
             </div>
           )}
         </>

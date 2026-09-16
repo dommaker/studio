@@ -526,6 +526,10 @@ describe('ChannelDetailPage — Mission Control 三栏', () => {
 
     // 2026-09 视觉层次批次：线程归属头（锚点摘要）+ 折叠条作者归属
     expect(screen.getByText(/回复 pm：需求已收到，开始分析/)).toBeTruthy();
+    // 增量四：单作者折叠组 + 紧随的同作者结论消息合成 .mc-reply-chain 角色消息模块
+    const chain = toggle.closest('.mc-reply-chain');
+    expect(chain).toBeTruthy();
+    expect(chain?.textContent).toContain('分析结论：拆成 3 个任务');
 
     // 展开组 → 过程消息可见；再收起
     fireEvent.click(toggle);
@@ -557,6 +561,8 @@ describe('ChannelDetailPage — Mission Control 三栏', () => {
     // 3 名去重作者（pm/exec/reviewer）→ 前 2 名 + 等
     expect(screen.getByText('▸ 4 条过程消息 · @pm、@exec 等')).toBeTruthy();
     expect(screen.getByText(/回复 pm：多作者线程锚点/)).toBeTruthy();
+    // 增量四：多作者折叠组不满足单作者前提，不与紧随消息合并成链
+    expect(screen.getByText('▸ 4 条过程消息 · @pm、@exec 等').closest('.mc-reply-chain')).toBeNull();
   });
 
   it('批次 E-3：SSE 新到达消息挂 mc-msg-new 渐隐高亮，2s 后自清；首拉历史不标', async () => {

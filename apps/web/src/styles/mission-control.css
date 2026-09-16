@@ -354,6 +354,28 @@
 }
 .mc-proc-group .mc-collapse-toggle { margin-bottom: var(--space-2); }
 .mc-proc-group .mc-msg:last-child { margin-bottom: 0; }
+/* 增量四：角色消息链模块——单作者折叠组 + 紧随的同作者消息 = 同一角色的连续输出，
+   一个模块：折叠条作模块头（透明化 + 下虚线分隔），组内 agent panel 拍平（去各自底/边/内距），
+   整条链共享一个 panel 外壳，读作「@某角色 的一段连续发言（中间 N 条折叠）」 */
+.mc-reply-chain {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-left: 2px solid var(--border-default);
+  border-radius: 4px;
+  padding: var(--space-2) var(--space-3);
+  margin-bottom: 8px;
+}
+.mc-reply-chain .mc-collapse-toggle {
+  background: transparent;
+  border: none;
+  border-bottom: 1px dashed var(--border-default);
+  border-radius: 0;
+  padding-left: 0;
+  padding-right: 0;
+}
+.mc-reply-chain .mc-collapse-toggle:hover { background: transparent; border-bottom-color: var(--accent-border); }
+.mc-reply-chain .mc-msg-agent { background: transparent; border-left: none; padding-left: 0; padding-right: 0; }
+.mc-reply-chain .mc-msg:last-child { margin-bottom: 0; }
 
 /* 消息（纯文本行，不做气泡）。
    批次 E-3：透明 outline + 颜色过渡挂基类（白名单③状态色切换）——mc-msg-highlight /
