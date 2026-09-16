@@ -6,6 +6,7 @@
 // （claude 传新号 / kimi 不传、sessionResume 摘除）、prompt 重算参数、成败分叉的
 // terminal 形状（failed vs need_input）与副作用调用（recordTokenEvent/recordFailureOutcome/emitFailedStep）。
 import { describe, it, expect, vi } from 'vitest';
+import { logger } from '@dommaker/studio-shared';
 import type { AgentTask, ExecutionResult } from '@dommaker/studio-agent';
 import {
   matchStepRetry,
@@ -274,6 +275,68 @@ describe('runStepRetry: 不触发重试', () => {
     expect(deps.execute).not.toHaveBeenCalled();
     expect(deps.recomposePrompt).not.toHaveBeenCalled();
     expect(ctx.metadataUpdates).toEqual({});
+  });
+});
+
+describe('runStepRetry: traceId 透传（#552）', () => {
+  // #543 收编后三处日志丢 traceId：ctx 加 traceId?: string，三处恢复携带，
+  // 与首败日志（agent-loop agentStep execution failed）同一字段串联重试段日志。
+  const TRACE_ID = 'trace-552';
+
+  it('配额已满 → warn 携带 traceId', async () => {
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => {});
+    const ctx = makeCtx({ sessionsUsed: MAX_SESSIONS_PER_WU, traceId: TRACE_ID });
+    const deps = makeDeps();
+
+    await runStepRetry(ctx, deps);
+
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('session limit reached'),
+      expect.objectContaining({ traceId: TRACE_ID }),
+    );
+    warn.mockRestore();
+  });
+
+  it('fallback 签发 / 溢出落摘要 → warn 携带 traceId', async () => {
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => {});
+    const ctx = makeCtx({ traceId: TRACE_ID });
+    const deps = makeDeps();
+
+    await runStepRetry(ctx, deps);
+
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('falling back to a new session'),
+      expect.objectContaining({ traceId: TRACE_ID }),
+    );
+    warn.mockRestore();
+  });
+
+  it('重试再败 → error 携带 traceId', async () => {
+    const error = vi.spyOn(logger, 'error').mockImplementation(() => {});
+    const ctx = makeCtx({ traceId: TRACE_ID });
+    const deps = makeDeps({ execute: vi.fn().mockResolvedValue(failureResult('CLI boom again')) });
+
+    await runStepRetry(ctx, deps);
+
+    expect(error).toHaveBeenCalledWith(
+      expect.stringContaining('retry failed'),
+      expect.objectContaining({ traceId: TRACE_ID }),
+    );
+    error.mockRestore();
+  });
+
+  it('ctx 无 traceId → 日志字段为 undefined（可选透传，不影响无 trace 链路）', async () => {
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => {});
+    const ctx = makeCtx();
+    const deps = makeDeps();
+
+    await runStepRetry(ctx, deps);
+
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('falling back to a new session'),
+      expect.objectContaining({ traceId: undefined }),
+    );
+    warn.mockRestore();
   });
 });
 

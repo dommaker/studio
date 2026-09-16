@@ -67,6 +67,8 @@ export interface StepRetryCtx {
   resumeSessionId: string | null;
   /** 本步簿记增量（原地改写：占额 sessionCount / 回写 sessionId/lastSessionResumed/sessionSummary） */
   metadataUpdates: Partial<WorkUnitMetadata>;
+  /** P0 修复 6 traceId 透传（#552）：与首败日志同一字段，串联重试段日志；无 trace 链路可缺省 */
+  traceId?: string;
 }
 
 /** 重试策略外部依赖（agent-loop 绑定注入；单测整体注入伪实现）。 */
@@ -139,7 +141,7 @@ export async function runStepRetry(ctx: StepRetryCtx, deps: StepRetryDeps): Prom
       ? `续用会话已丢失且会话重建已达上限（${ctx.sessionsUsed}/${maxSessions}）：已暂停自动执行。请人工评估后回复任意内容继续，或直接关闭任务`
       : `CLI 上下文溢出且会话重建已达上限（${ctx.sessionsUsed}/${maxSessions}）：已暂停自动执行。请人工评估后回复任意内容继续，或直接关闭任务`;
     logger.warn(`[AgentLoop] ${kind === 'session-resume-lost' ? 'Resume session lost' : 'Context overflow'} and session limit reached — need human evaluation`, {
-      workUnitId: wu.id, sessionsUsed: ctx.sessionsUsed, max: maxSessions,
+      workUnitId: wu.id, sessionsUsed: ctx.sessionsUsed, max: maxSessions, traceId: ctx.traceId,
     });
     deps.recordFailureOutcome(ctx.detail);
     deps.emitFailedStep('need_input', ctx.detail, ctx.firstResult);
@@ -151,6 +153,7 @@ export async function runStepRetry(ctx: StepRetryCtx, deps: StepRetryDeps): Prom
     kind === 'session-resume-lost'
       ? `[AgentLoop] Resume target session lost for ${wu.id} — falling back to a new session`
       : `[AgentLoop] Context overflow for ${wu.id} — persisting rolling summary and retrying in a new session`,
+    { traceId: ctx.traceId },
   );
   task.parameters!.sessionId = ctx.provider === 'claude' ? fallbackSessionId : undefined;
   delete task.parameters!.sessionResume;
@@ -170,7 +173,7 @@ export async function runStepRetry(ctx: StepRetryCtx, deps: StepRetryDeps): Prom
   const retryResult: ExecutionResult = await deps.execute(task);
   if (retryResult.success === false) {
     const retryDetail = (retryResult.error ?? '未知错误').slice(0, 500);
-    logger.error(`[AgentLoop] agentStep ${kind === 'session-resume-lost' ? 'fallback' : 'overflow'} retry failed for ${wu.id}: ${retryDetail}`);
+    logger.error(`[AgentLoop] agentStep ${kind === 'session-resume-lost' ? 'fallback' : 'overflow'} retry failed for ${wu.id}: ${retryDetail}`, { traceId: ctx.traceId });
     deps.recordTokenEvent(retryResult);
     // 新会话未建立：sessionId/lastSessionResumed 回滚；sessionCount 保留计入（#95）；
     // 溢出的 sessionSummary 保留落盘供人工参考

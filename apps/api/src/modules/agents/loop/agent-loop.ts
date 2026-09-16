@@ -1204,7 +1204,7 @@ export class AgentLoop {
         // 本处只保留编排：注入 executor/prompt 重算/记账/失败事件 deps，按 outcome 分流。
         // 非续用类错误（超时/业务失败）与 catch 分支（spawn 异常）不触发；每步至多烧一次重试。
         const retryOutcome = await runStepRetry(
-          { wu, metadata, provider: taskProvider, task, firstResult: result, detail, sessionsUsed, resumeSessionId, metadataUpdates },
+          { wu, metadata, provider: taskProvider, task, firstResult: result, detail, sessionsUsed, resumeSessionId, metadataUpdates, traceId },
           {
             execute: (t) => this.executor.execute(t),
             recomposePrompt: async ({ isNewSession }) => (await composeStepPrompt(
