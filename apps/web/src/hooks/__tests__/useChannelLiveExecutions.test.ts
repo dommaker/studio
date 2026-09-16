@@ -100,6 +100,19 @@ describe('useChannelLiveExecutions', () => {
     expect(result.current).toEqual([{ workUnitId: 'WU-9', step: 2 }]); // 残留未清会错显 9
   });
 
+  // F3 等值守卫：同 wuId 内容等值的 step 事件不再触发 setState（无新渲染，返回引用不变）
+  it('等值 step 事件跳过 setState（结果引用不变）；变化事件仍生效', async () => {
+    const { result } = renderHook(() => useChannelLiveExecutions('ch-1'));
+    await waitFor(() => expect(mockList).toHaveBeenCalled());
+    act(() => { handler!(statusChanged('WU-1', 'active')); });
+    act(() => { handler!(stepEvent('WU-1', 5, 'progress')); });
+    const before = result.current;
+    act(() => { handler!(stepEvent('WU-1', 5, 'progress')); }); // step+action 全等值
+    expect(result.current).toBe(before);
+    act(() => { handler!(stepEvent('WU-1', 6, 'progress')); }); // step 变化
+    expect(result.current).toEqual([{ workUnitId: 'WU-1', step: 6, action: 'progress' }]);
+  });
+
   it('channelId 切换 → 清空重拉', async () => {
     const { result, rerender } = renderHook(({ id }) => useChannelLiveExecutions(id), { initialProps: { id: 'ch-1' as string | null } });
     await waitFor(() => expect(mockList).toHaveBeenCalled());

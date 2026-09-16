@@ -51,7 +51,12 @@ export function useChannelLiveExecutions(channelId: string | null): LiveExecutio
         // 决策 4：负载带 channelId → 他频道步事件直接丢弃（不再产生他频道条目）；
         // channelId 缺省（旧后端）不过滤，向后兼容
         if (ref.channelId && ref.channelId !== channelId) return;
-        setSteps(prev => ({ ...prev, [ref.workUnitId]: { step: ref.step, ...(ref.action ? { action: ref.action } : {}) } }));
+        setSteps(prev => {
+          const cur = prev[ref.workUnitId];
+          // F3 等值守卫：同 wuId 内容等值（step 与 action 均同）→ 跳过 setState，不切重渲
+          if (cur && cur.step === ref.step && cur.action === ref.action) return prev;
+          return { ...prev, [ref.workUnitId]: { step: ref.step, ...(ref.action ? { action: ref.action } : {}) } };
+        });
         return;
       }
       if (msg.event_type === 'workunit.status_changed') {

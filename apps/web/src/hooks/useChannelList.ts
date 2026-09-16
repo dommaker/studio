@@ -3,8 +3,10 @@
 // #346：channels 切片上移 rosterStore（TTL 缓存 + 路由切换零重拉），本 hook 只保留
 // 未读计数与创建频道（写回 store）；loading 只看频道切片自身（channelsLoadedOnce），
 // 不被 Admin-only 的 agents 慢请求/403 拖住。
-// #413：未读面再上移 unreadStore（断点跨越计数不丢 + active 频道不涨徽章），SSE 增量
-// 接线在 useUnreadStoreSync（引用计数单例），本 hook 只订阅切片并挂接线。
+// #413：未读面上移 unreadStore（断点跨越计数不丢 + active 频道不涨徽章），SSE 增量
+// 接线在 useUnreadStoreSync（引用计数单例），本 hook 只挂接线并提供 clearUnread；
+// F4：不再整对象订阅 unreadCounts（任一频道来消息会穿透消费方整栏重渲），
+// 未读徽章由频道行内 per-channel selector（s.unreadCounts[ch.id]）自取
 import { useEffect, useCallback } from 'react';
 import { channelApi, type Channel } from '../api/channel';
 import { useRosterStore } from '../stores/rosterStore';
@@ -32,8 +34,8 @@ export interface CreateChannelInput {
 export function useChannelList() {
   const channels = useRosterStore((s) => s.channels);
   const channelsLoadedOnce = useRosterStore((s) => s.channelsLoadedOnce);
-  // B2-011 → #413: per-channel unread counters 在 unreadStore（共享单例）
-  const unreadCounts = useUnreadStore((s) => s.unreadCounts);
+  // B2-011 → #413: per-channel unread counters 在 unreadStore（共享单例）；
+  // F4：本 hook 不订阅 unreadCounts 整对象，消费方按频道 selector 自取
   const clearUnread = useUnreadStore((s) => s.clearUnread);
   // SSE channel.message_sent 增量接线（引用计数单例，多消费方不放大订阅）
   useUnreadStoreSync();
@@ -60,5 +62,5 @@ export function useChannelList() {
 
   // TTL 内重挂载：channels 已在缓存里，不再闪「加载中」（#346 验收：路由切换 TTL 内零重拉）；
   // 频道切片失败（非 403）也置 channelsLoadedOnce → loading 终结为空列表（对齐旧 catch(() => {}) 行为）
-  return { channels, loading: !channelsLoadedOnce, unreadCounts, clearUnread, createChannel };
+  return { channels, loading: !channelsLoadedOnce, clearUnread, createChannel };
 }
