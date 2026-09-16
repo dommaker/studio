@@ -61,6 +61,15 @@ a {
   text-decoration: none;
 }
 
+/* 焦点可见性全局兜底（style-guide §2 规则 8，批次 I-3）：:where() 零优先级——
+   组件类自带 outline:none（.btn/.input/.select-trigger/.icon-btn，theme.css）优先级更高，
+   可压过本环走自己的 glow/边框焦点态，不双环；无焦点态的可交互元素
+   （Tailwind 拼凑按钮、role=button/tabindex 行等）由本环兜底（WCAG 2.4.7） */
+:where(a, button, [role="button"], [role="tab"], [role="link"], [tabindex]:not([tabindex="-1"])):focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
 /* 滚动条 */
 ::-webkit-scrollbar {
   width: 6px;

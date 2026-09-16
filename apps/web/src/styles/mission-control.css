@@ -1601,8 +1601,9 @@ button.mc-act-step:hover { background: var(--bg-hover); }
 /* 页面级水平 padding（批次 F-5：§4.7 内容区 px-8 = --space-6 的类正本，供内容区/tab 条/整页状态复用） */
 .u-page-px { padding-left: var(--space-6); padding-right: var(--space-6); }
 
-/* 批次 F-5 窄屏断点（<640px，对齐 responsive.css 断点档）：页头/内容区水平 padding 收缩一档（--space-6 → --space-4） */
-@media (max-width: 639px) {
+/* 批次 F-5 窄屏断点（<640px = Tailwind max-sm 档，对齐 responsive.css）：页头/内容区水平 padding 收缩一档（--space-6 → --space-4）；
+   批次 I-3：639px 字面量归一为 range 语法（width < 40rem），与 Tailwind v4 max-sm 完全等效 */
+@media (width < 40rem) {
   .u-page-head { padding-left: var(--space-4); padding-right: var(--space-4); }
   .u-page-px { padding-left: var(--space-4); padding-right: var(--space-4); }
 }
@@ -1610,3 +1611,6 @@ button.mc-act-step:hover { background: var(--bg-hover); }
 /* Tab 形态正本（批次 D-4 定 Knowledge border-b 为正本；E5 起激活态 accent 底线自内联 style 收进类） */
 .u-tab { border-bottom: 2px solid transparent; margin-bottom: -1px; }
 .u-tab-active { border-bottom-color: var(--accent-primary); }
+/* 焦点态（§2 规则 8，批次 I-3）：accent 描边，与 index.css 全局兜底环同口径；
+   不加过渡（零动效默认；白名单①仅允许、非强制） */
+.u-tab:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }

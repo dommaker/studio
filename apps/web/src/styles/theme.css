@@ -310,6 +310,13 @@ body,
   border-color: var(--border-strong);
 }
 
+/* 可点卡片焦点态（§2 规则 8，批次 I-3）：accent 描边，与 index.css 全局兜底环同口径；
+   类级显式声明使组件类自带焦点态，不依赖兜底 */
+.card.cursor-pointer:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
 /* === 按钮组件 === */
 .btn {
   display: inline-flex;
@@ -646,6 +653,13 @@ body,
 
 .nav-item:hover {
   background: var(--bg-hover);
+}
+
+/* 焦点态（§2 规则 8，批次 I-3）：accent 描边，与 index.css 全局兜底环同口径；
+   active 态 inset 左边线走 box-shadow，与 outline 不冲突 */
+.nav-item:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
 }
 
 .nav-item-active,

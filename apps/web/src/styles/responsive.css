@@ -15,7 +15,7 @@
   等 Tailwind 同名工具类，导致工具类在移动端行为不可预期，已删除（工单40）；
   响应式调整请在模板中使用 Tailwind 断点变体（如 sm:p-8）。
 */
-@media (max-width: 639px) {
+@media (width < 40rem) {
   /* 隐藏移动端不必要的元素 */
   .hide-mobile {
     display: none !important;
@@ -24,7 +24,7 @@
 
 /* ==================== 导航栏响应式 ==================== */
 
-@media (max-width: 639px) {
+@media (width < 40rem) {
   /* 导航栏 */
   nav {
     padding: 0.5rem 1rem;
@@ -88,18 +88,9 @@
   }
 }
 
-/* ==================== 卡片响应式 ==================== */
-
-@media (max-width: 639px) {
-  .card {
-    margin: 0.5rem 0;
-    border-radius: 0.75rem;
-  }
-}
-
 /* ==================== 表单响应式 ==================== */
 
-@media (max-width: 639px) {
+@media (width < 40rem) {
   input, textarea, select {
     font-size: 16px !important; /* 防止 iOS 缩放 */
   }
@@ -121,7 +112,7 @@
 
 /* ==================== 办公区页面响应式 ==================== */
 
-@media (max-width: 639px) {
+@media (width < 40rem) {
   .office-grid {
     grid-template-columns: 1fr;
   }
@@ -148,7 +139,7 @@
 
 /* ==================== CEO 输入响应式 ==================== */
 
-@media (max-width: 639px) {
+@media (width < 40rem) {
   .ceo-input-container {
     padding: 0 1rem;
   }
@@ -175,7 +166,7 @@
 
 /* ==================== 首页响应式 ==================== */
 
-@media (max-width: 639px) {
+@media (width < 40rem) {
   .home-container {
     padding: 0.5rem;
   }
@@ -191,7 +182,7 @@
 
 /* ==================== MR-009: Sidebar + TopNav 响应式 ==================== */
 
-@media (max-width: 639px) {
+@media (width < 40rem) {
   /* Sidebar 移动端覆盖层 */
   .sidebar-mobile-overlay {
     position: fixed;
@@ -301,7 +292,7 @@
   cursor: pointer;
 }
 
-@media (max-width: 639px) {
+@media (width < 40rem) {
   .sidebar {
     position: fixed;
     top: 0;
@@ -415,7 +406,7 @@
   display: none;
 }
 
-@media (max-width: 639px) {
+@media (width < 40rem) {
   .hide-mobile {
     display: none !important;
   }
@@ -446,7 +437,7 @@
 }
 
 /* 响应式间距 */
-@media (max-width: 639px) {
+@media (width < 40rem) {
   .gap-responsive {
     gap: 0.5rem;
   }
