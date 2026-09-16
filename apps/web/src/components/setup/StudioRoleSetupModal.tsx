@@ -11,7 +11,6 @@ import { useState } from 'react';
 import { useDetectedProviders, buildProviderOptions } from '../../hooks/useDetectedProviders';
 import { STUDIO_ROLE_SETUP_SESSION_KEY } from './dismissed';
 import { Select, Modal } from '../ui';
-import '../../styles/theme.css';
 
 export interface StudioRoleSetupModalProps {
   open: boolean;

@@ -295,7 +295,7 @@ describe('ExecutionSteps · 当前状态速览（#182）', () => {
     await waitFor(() => expect(screen.getByText('第 7 步 / 上限 30 步')).toBeTruthy());
   });
 
-  it('失败原因来自失败步事件（errorDetail 优先），失败步卡片标 ✗', async () => {
+  it('失败原因来自失败步事件（errorDetail 优先），失败步卡片标失败图标', async () => {
     mockListExecSteps.mockResolvedValue({
       data: {
         events: [
@@ -308,8 +308,8 @@ describe('ExecutionSteps · 当前状态速览（#182）', () => {
     render(<ExecutionSteps workUnitId="WU-1" wu={glanceWu({ status: 'blocked', metadata: JSON.stringify({ stepCount: 2 }) })} />);
     await waitFor(() => expect(screen.getByText('失败原因')).toBeTruthy());
     expect(screen.getByText('Verify FAILED: tsc')).toBeTruthy();
-    // 失败步卡片头部标 ✗
-    expect(screen.getByText('#2 · failed · ✗ 失败')).toBeTruthy();
+    // 失败步卡片头部标失败图标（批次 I-5a ✗ → IconX；文本被内联图标 span 打断，按 textContent 归一空白匹配）
+    expect(screen.getByText((_, el) => el?.className === 'mc-kv-k' && el.textContent?.replace(/\s+/g, ' ').trim() === '#2 · failed · 失败')).toBeTruthy();
     expect(screen.getByText('#1 · progress')).toBeTruthy(); // 成功步不标
   });
 

@@ -1,12 +1,12 @@
 /* CommandPalette（批次 D-2 项 8）：Cmd/Ctrl+K 全局搜索面板。
    遮罩复用 .modal-overlay（style-guide §4.3），本层只覆写为顶部对齐；
-   z-index 100 须高于 .modal-overlay 的 50（同 .select-panel 档，面板可在已开 modal 之上唤起）。
+   z-index 取 --z-popover(100) 须高于 .modal-overlay 的 --z-overlay(50)（同 .select-panel 档，面板可在已开 modal 之上唤起）。
    颜色/字号/圆角全走 token，零硬编码。 */
 
 .cmdk-overlay {
   align-items: flex-start;
   padding-top: 12vh;
-  z-index: 100;
+  z-index: var(--z-popover);
 }
 
 .cmdk-panel {

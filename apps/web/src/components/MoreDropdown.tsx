@@ -7,7 +7,6 @@ import { useState, useEffect, useRef, type ComponentType } from 'react';
 import { Link } from 'react-router-dom';
 import { useNotificationStore } from '../stores/notificationStore';
 import { IconBook, IconLibrary, IconActivity, IconSearch, IconSettings, IconGrid, type IconProps } from './ui/icons';
-import '../styles/theme.css';
 
 interface DropdownItem {
   to: string;

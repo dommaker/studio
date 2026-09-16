@@ -501,7 +501,7 @@ describe('WorkUnitDrawer', () => {
     });
     renderDrawer({ kind: 'wu', id: 'WU-1017' });
     await waitFor(() => expect(screen.getByText(/评审结论：实现正确/)).toBeTruthy());
-    expect(screen.getByText(/✓ agent-review · 76d96d3/)).toBeTruthy();
+    expect(screen.getByText(/agent-review · 76d96d3/)).toBeTruthy();
     const btn = screen.getByText('人工验收确认');
     fireEvent.click(btn);
     await waitFor(() => expect(mockReviewPassed).toHaveBeenCalledWith('WU-1017', undefined, undefined, undefined));

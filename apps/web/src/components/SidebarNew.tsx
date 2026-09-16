@@ -10,7 +10,6 @@ import { useMediaQuery } from '../hooks/useMediaQuery';
 import { useNotificationStore } from '../stores/notificationStore';
 import { ChannelRail } from './channel/ChannelRail';
 import { IconChat, IconChart, IconClipboard, IconUsers, IconActivity, type IconProps } from './ui/icons';
-import '../styles/theme.css';
 
 interface SidebarProps {
   isOpen?: boolean;

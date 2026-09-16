@@ -43,6 +43,7 @@ import { DeliveryPanel } from '../components/pmo/DeliveryPanel';
 import { VscodeGuideDialog, CloudIdeGuideDialog } from '../components/pmo/IdeGuideDialogs';
 import { ProjectProgressCard } from '../components/pmo/ProjectProgressCard';
 import { ManualTaskButton } from '../components/ui/ManualTaskButton';
+import { IconCheck } from '../components/ui/icons';
 import { BackButton, SkeletonText, SkeletonCard } from '../components/ui';
 import { MetaStrip } from '../components/ui/MetaStrip';
 import { StationStepper } from '../components/workunit/StationStepper';
@@ -380,12 +381,12 @@ export function ProjectDetailPage() {
               >
                 Cloud IDE
               </button>
-              {/* 批次 E-3：「✓ 已复制」反馈补 color 过渡（白名单③状态色切换），成功态染 accent */}
+              {/* 批次 E-3：「已复制」反馈补 color 过渡（白名单③状态色切换），成功态染 accent；批次 I-5a ✓ → IconCheck */}
               <button
                 onClick={handleCopyPath}
                 className={`btn btn-secondary transition-colors${copySuccess ? ' u-accent' : ''}`}
               >
-                {copySuccess ? '✓ 已复制' : '复制路径'}
+                {copySuccess ? <span className="inline-flex items-center gap-1"><IconCheck size={12} /> 已复制</span> : '复制路径'}
               </button>
               {/* #163 T8-E2: 手动发起巡检（结果挂到巡检单详情页的机会清单，由人在那里确认） */}
               <ManualTaskButton

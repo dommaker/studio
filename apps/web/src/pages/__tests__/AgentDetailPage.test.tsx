@@ -402,7 +402,7 @@ describe('AgentDetailPage — #433 信息密度', () => {
     expect(screen.queryByText(longId)).toBeNull();
   });
 
-  it('复制钮：点击复制全量原值并给出「✓ 已复制」反馈', async () => {
+  it('复制钮：点击复制全量原值并给出「已复制」反馈', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
     render(<AgentDetailPage />);
@@ -411,7 +411,7 @@ describe('AgentDetailPage — #433 信息密度', () => {
     const buttons = screen.getAllByRole('button', { name: '复制' });
     fireEvent.click(buttons[0]);
     await waitFor(() => expect(writeText).toHaveBeenCalledWith('p1'));
-    expect(await screen.findByText('✓ 已复制')).toBeDefined();
+    expect(await screen.findByText('已复制')).toBeDefined();
     // Instance ID 一枚同样复制全量原值
     fireEvent.click(buttons[1]);
     await waitFor(() => expect(writeText).toHaveBeenCalledWith('i1'));

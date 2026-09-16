@@ -79,7 +79,7 @@ describe('ExecutionFlow', () => {
   it('最近进展取 progressLog 末条；失败步红色警示行', async () => {
     render(<ExecutionFlow workUnitId="wu-1" wu={baseWu} />);
     expect(await screen.findByText(/第 2 步：测试编写中/)).toBeDefined();
-    expect(screen.getByText(/✗ 第 2 步失败：vitest 退出码 1/)).toBeDefined();
+    expect(screen.getByText(/第 2 步失败：vitest 退出码 1/)).toBeDefined();
   });
 
   it('step 链：步骤号节点 + action 标题；thinking 折叠（details 默认闭合）；tool 成行 mono；失败步红节点 + 红 tag + 错误详情', async () => {

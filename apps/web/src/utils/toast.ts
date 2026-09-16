@@ -41,7 +41,7 @@ function getContainer(): HTMLDivElement {
     position: fixed;
     bottom: 20px;
     right: 20px;
-    z-index: 9999;
+    z-index: var(--z-toast);
     display: flex;
     flex-direction: column-reverse;
     gap: 8px;

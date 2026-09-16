@@ -16,7 +16,6 @@ import { useState } from 'react';
 import { useDetectedProviders, buildProviderOptions } from '../../hooks/useDetectedProviders';
 import { FIRST_ROLE_SETUP_SESSION_KEY } from './dismissed';
 import { Select, Modal } from '../ui';
-import '../../styles/theme.css';
 
 /** onCreate 成功时回传的创建结果（AgentProfile 最小子集，供「加入频道」步使用） */
 export interface CreatedRole {

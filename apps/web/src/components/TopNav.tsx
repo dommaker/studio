@@ -6,7 +6,6 @@ import { MoreDropdown } from './MoreDropdown';
 import { NotificationBell } from './NotificationBell';
 import { useWebSocketContext } from '../api/websocketHooks';
 import { IconZap } from './ui/icons';
-import '../styles/theme.css';
 
 interface TopNavProps {
   onMenuClick?: () => void;  // MR-009: 汉堡菜单回调

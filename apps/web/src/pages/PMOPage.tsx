@@ -151,13 +151,13 @@ export function PMOPage({ companyId }: PMOPageProps) {
         <div className="flex gap-1 mb-4 overflow-x-auto pb-1 border-b u-border">
           <button
             onClick={() => setActiveTab('projects')}
-            className={`u-tab px-4 py-2 text-sm rounded-t-lg whitespace-nowrap transition ${activeTab === 'projects' ? 'u-tab-active u-surface u-accent' : 'u-text-3'}`}
+            className={`u-tab px-4 py-2 text-sm rounded-t-lg whitespace-nowrap transition-colors ${activeTab === 'projects' ? 'u-tab-active u-surface u-accent' : 'u-text-3'}`}
           >
             项目 ({projects.length})
           </button>
           <button
             onClick={() => setActiveTab('okr')}
-            className={`u-tab px-4 py-2 text-sm rounded-t-lg whitespace-nowrap transition ${activeTab === 'okr' ? 'u-tab-active u-surface u-accent' : 'u-text-3'}`}
+            className={`u-tab px-4 py-2 text-sm rounded-t-lg whitespace-nowrap transition-colors ${activeTab === 'okr' ? 'u-tab-active u-surface u-accent' : 'u-text-3'}`}
           >
             OKR ({okrs.length})
           </button>

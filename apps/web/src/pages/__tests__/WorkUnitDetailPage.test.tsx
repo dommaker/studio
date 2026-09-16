@@ -324,9 +324,9 @@ describe('WorkUnitDetailPage', () => {
     expect(screen.getByText('自动验证')).toBeDefined();
     expect(screen.getByText('Agent 评审')).toBeDefined();
     expect(screen.getByText('人工确认')).toBeDefined();
-    expect(screen.getByText(/✓ verify · /)).toBeDefined();
-    expect(screen.getByText(/✓ agent-review · /)).toBeDefined();
-    expect(screen.getByText(/✓ human-confirm · /)).toBeDefined();
+    expect(screen.getByText(/verify · /)).toBeDefined();
+    expect(screen.getByText(/agent-review · /)).toBeDefined();
+    expect(screen.getByText(/human-confirm · /)).toBeDefined();
     expect(screen.getByText('评审结论：LGTM')).toBeDefined();
   });
 

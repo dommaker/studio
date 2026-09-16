@@ -2,6 +2,7 @@
 
 > 版本：2026-08-03（文字 token 对比度提升 + 全站页面/组件统一收敛）；2026-08-29 按 map #377 / #380 决议预更新视觉基线目标值，#392 已落地（字体角色、字号阶梯、muted 对比度、`--border-strong`、`--space-*`），细节见 `docs/specs/ui/redesign-2026-08.md` §3；2026-09-01 #431 新增共享类 `u-page-bg` / `u-page-head` / `u-btn-reset`，`.mc-ws button` 全局重置 `:where()` 降权，`.mc-bubble` 圆角归档到卡片档；2026-09-09 批次 C：Tailwind `text-*` 档位经 `@theme` 重映射到 token 阶梯（index.css），`.mc-status-running` 全局统一 accent，删死族 `tag-*`/`nav-tab`/`list-item`/`table-*`/`hero-*`/`feature-*`/`card-glow`/`animate-*`/`stagger-*` 与 animations.css 整文件；2026-09-10 批次 D-0：§2.5「不动效」放宽为「克制动效白名单」（治理人闸当场过）；新增 `icon-btn` / `theme-option` 类，主题切换控件去 emoji 改 SVG（ui/icons 补 IconSun/IconMoon/IconMonitor），删死代码 ThemeToggle；@media print 硬编码色 token 化（--print-*）；批次 D-1.1–1.4：背景档整体上抬至可感知档（d-fresh 截图实证明度差失效）、卡片 1px 顶部内高光（深色）/shadow-sm（浅色）、新增 `--fs-page(20)` 页面标题档、新增 `nav-item`/`conn-chip`/`brand-link` 类、§4.8 accent 品牌时刻策略、顶栏 ⚡ emoji → IconZap SVG；批次 D-2：行动中心 reply 深链/闸门审批就地化/下一个待办、/workunits 标题搜索（后端 additive q）、PMO 需求 tab、频道工作条 1 击闸门、RoleCard 抽屉化、Cmd/Ctrl+K 全局搜索（CommandPalette + useGlobalShortcuts）；批次 D-2.x：动效 token（--motion-fast/--motion-base/--ease-standard）落地 4 类白名单场景；批次 D-3：空态=说明+主行动模式（agents/pmo）、术语白话 7 处；批次 D-4：内联审计 5 文件 67→21 处（新增 mc-error-banner/u-mb-3 类）；2026-09-10 批次 E（`docs/plans/2026-09-ui-polish-batch-e.md`）：E-1 token 合规清扫（workunits.css/responsive.css 硬编码 transition 归 `--motion-*`，BackButton/ProjectDetailPage/ProjectMap 内联间距字号归 token）；E-3 治理决策变更——toast 允许 opacity 进出场 fade（`--motion-base`，`data-closing` 幂等守卫），**推翻批次 C「toast 无进出场动效」决策**（当场批准，commit `11483225` 带 `Governance-Approved: session`；归入 §2.5 场景②语义扩展）；新内容进场渐隐高亮（`.wu-row-new`/`.mc-msg-new` accent-dim 底色 2s 渐隐、`.mc-msg-highlight` outline 渐隐）按 §2.5 白名单场景③「状态色切换」解释落地，仅颜色属性过渡、无 transform/位移；新增 `.skeleton`/`.skeleton-text`/`.wu-row-new`/`.mc-msg-new` 组件类（§4.4）；2026-09-11 批次 H-1（治理人闸当场过）规范根部修正四项：① §2.5 动效白名单 4 类扩 5 类——新增场景⑤「加载与进度反馈」（spinner 旋转、忙碌状态点 pulse、进度条宽度/填充过渡，历史遗留白名单外动效收编）；② §4.8 补豁免——统计卡大数字（`--fs-stat` 档）数据强调允许 accent；③ §2.3 补豁免——长文阅读正文（markdown 渲染、文档阅读页）允许 `lineHeight: 1.8`；④ §4.2 label 写法根治——原四属性内联示例与规则 2「禁内联布局样式」自相矛盾，新增 `.form-label` 组件类（§4.4 登记），代码迁移 4 处｜ 状态：**现行有效，唯一权威来源**
 > 2026-09-16 批次 I-1（治理人闸当场过）：全局视觉走查（全仓静态审计）落规范——§2 新增规则 7「class 体系分层归属」/ 规则 8「焦点可见性」/ 规则 9「响应式断点统一 Tailwind 档」/ 规则 10「z-index 阶梯 token」；§4.1 增补按钮归属（`ui/Button` / `.btn` / `.icon-btn` 三档，禁 Tailwind 拼凑自造按钮）；§4.3 弹窗正本改 `components/ui/Modal`（手写 `modal-overlay` 结构降为豁免）；**本文档自本批次起豁免 `.gitignore` 入 git**（原「Spec source 忽略」只落本地盘，规范无法评审/回溯，批次 F-5/G-3/G-4 的类登记曾全留本地）。留痕 commit 带 `Governance-Approved: session`。
+> 2026-09-16 批次 I-5a：z-index 阶梯 token 落地（11 档 `--z-below..--z-toast`，存量字面量全量归队、堆叠行为零变化，§3 层叠行定档）；新增 `--shadow-popover`（小型浮层轻投影）与 `--overlay-modal`（modal 同档 0.7 遮罩第二消费方）两 token；4 处 `u-tab` 裸 `transition` 收窄 `transition-colors`（白名单场景①③）；`theme.css` 重复 import 清理（唯一入口 App.tsx）；✓✗⚠ 字形扫尾按 #474 口径转 SVG（ui/icons 新增 `IconX`）。
 > 依据：`docs/plans/2026-07-ui-visual-directions.md`（方向 A 已定稿并落地）
 > 实现：`apps/web/src/styles/theme.css`（token + 组件类）、`apps/web/src/styles/mission-control.css`（三栏布局 mc-*）、`apps/web/src/styles/utilities.css`（语义工具类 u-*，批次 I-4 自 mission-control.css 迁出）
 > 范例实现：`apps/web/src/components/ui/Modal.tsx`（弹窗正本组件，§4.3）
@@ -34,7 +35,7 @@
 7. **class 体系分层归属**（2026-09-16 批次 I-1）：同一元素混用多套 class 体系时按层取舍——布局/间距/flex 走 Tailwind 工具类（`flex`/`gap-*`/`px-*`…）；颜色与语义态走 `u-*` 语义类或 `var(--*)` token（规则 1）；页面/组件结构走 BEM 页面类（`mc-*`/`wu-*`/`pmo-*`…）或 theme.css 组件类；内联 `style` 仅组件特有参数（规则 2）。新增代码不得用 Tailwind 重新发明已有 `u-*`/组件类能力（hover 底色已有 `u-hover-bg`、tab 形态已有 `u-tab`、卡片已有 `.card`）。
 8. **焦点可见性**（2026-09-16 批次 I-1）：所有可交互元素（按钮、tab、可点卡片、导航项、自绘控件）必须有 `:focus-visible` 可见焦点。`.btn`/`.icon-btn`/`.select-trigger`/`u-hover-bg` 已内置；新增可交互样式必须自带焦点态（`--accent-primary` 描边或等效 box-shadow）。全局兜底环随批次 I 落地 `index.css`，组件类不得与之冲突（WCAG 2.4.7）。
 9. **响应式断点统一 Tailwind 档**（2026-09-16 批次 I-1）：只取 640 / 768 / 1024（`sm`/`md`/`lg`）；废弃 639 自定义档（`responsive.css` 存量随批次 I 归并），JS 侧 `useMediaQuery` 同档对齐。移动端覆盖不得违反 §2.3/§2.4 档位（`responsive.css` 的 `.card` 12px 圆角 + 纵向 margin 覆盖系违规，批次 I 删除）。
-10. **z-index 走阶梯 token**（2026-09-16 批次 I-1）：新增层叠一律 `var(--z-*)`（阶梯 base/sticky/overlay/drawer/modal/popover 随批次 I 落地 theme.css）；存量散落字面量（1/5/30/50/100/200/250/300/400）随批次归队，不再新增字面量。
+10. **z-index 走阶梯 token**（2026-09-16 批次 I-1；批次 I-5a 已落地 theme.css）：新增层叠一律 `var(--z-*)`；存量字面量已全量归队（堆叠行为零变化），不再新增字面量。阶梯见 §3 层叠行。
 
 ## 3. 设计 Token 速查（theme.css `:root`）
 
@@ -54,10 +55,10 @@
 | 图表 | `--chart-1`…`--chart-9` | 蓝/紫/绿/灰/琥珀/红/青/粉/黄绿 | 数据可视化分类色（知识图谱节点类型等）；仅代表类别不表状态，浅色主题压暗一档保证白底可读 |
 | 边框 | `--border-subtle` / `--border-default` / `--border-emphasis` | 白 7% / 白 14% / 青绿 30% | 分隔 / 常规 / 强调 |
 | | `--border-strong` | 白 35%（复合 ≈`#5d5d5e`，对页底/输入底 ≥3.1:1；浅色 `#858585`，≥3.16:1——#392 色对校验定值） | 交互边界（`.input` / `.select-trigger` / 可点卡片——`.card.cursor-pointer` 或行卡 `.card:has(> .cursor-pointer)`，hover 不掉档，WCAG 1.4.11，#380） |
-| 阴影 | `--shadow-sm/md/lg`、`--shadow-glow` | | 模态框用 `--shadow-lg` |
+| 阴影/遮罩 | `--shadow-sm/md/lg/popover`、`--shadow-glow`；`--overlay-sidebar`(0.5) / `--overlay-modal`(0.7) | | 模态框用 `--shadow-lg`；`--shadow-popover`（批次 I-5a）= 小型浮层轻投影档（0 2px 8px）；遮罩两档 = sidebar 背衬 0.5 / modal 同档 0.7（`.modal-overlay` 内置 0.7 系规范豁免不走 token，`.mc-act-overlay-backdrop` 经 `--overlay-modal` 对齐） |
 | 字体/密度 | `--font-sans`（正文/UI）、`--font-mono`（代码/ID/时间戳/日志/统计数字限定）、`--fs-*`（含 `--fs-page` 页面标题档、 `--fs-stat` 统计大数字专用）、`--lh-base` | | 见 §2.3 |
 | 间距 | `--space-1..6` | 4/8/12/16/24/32px | 卡片 padding、列表行高、区块间距指档（#380） |
-| 层叠 | `--z-*` 阶梯（base/sticky/overlay/drawer/modal/popover，批次 I 落地 theme.css） | — | 规则 10；落地前不得新增 z-index 字面量 |
+| 层叠 | `--z-below`(-1) / `--z-base`(1) / `--z-sticky`(5) / `--z-dropdown`(30) / `--z-overlay`(50) / `--z-popover`(100) / `--z-sidebar`(200) / `--z-act-overlay`(250) / `--z-drawer`(300) / `--z-modal-above`(400) / `--z-toast`(9999) | — | 规则 10（批次 I-5a 落地：值 = 存量字面量命名归队，堆叠行为不变）；新增 z-index 只取档 |
 
 ## 4. 组件规范（全部已在 theme.css 实现，直接用类）
 
@@ -96,7 +97,7 @@ label 一律 `.form-label` 类（theme.css；批次 H-1 抽类根治——原条
 </Modal>
 ```
 
-- 遮罩/容器视觉仍由 theme.css `.modal-overlay`/`.modal` 承载（`rgba(0,0,0,.7)` + `blur(4px)` + `z-index:50`），切组件零视觉变化。
+- 遮罩/容器视觉仍由 theme.css `.modal-overlay`/`.modal` 承载（`rgba(0,0,0,.7)` + `blur(4px)` + `z-index: var(--z-overlay)`(50)），切组件零视觉变化。
 - 宽度经 `maxWidth` prop 调整，其余一律类。footer 按钮顺序：次操作在左，主操作在右。
 - **手写 `.modal-overlay` 结构降为豁免**：仅 `ui/Modal` 无法承载的特殊场景允许，须在注释中说明原因；存量手写弹窗（13 处）随批次 I 收编。
 - 参考实现：`components/ui/Modal.tsx`。
@@ -145,7 +146,7 @@ label 一律 `.form-label` 类（theme.css；批次 H-1 抽类根治——原条
 ```
 
 - 触发器 `.select-trigger` 视觉 = `.input`（`--bg-tertiary` 底、`--border-strong` 交互边框、3px 圆角、`--fs-base`），右侧 `▾` 指示（`--text-tertiary`）；`data-testid` / `aria-label` / `title` 经 props 透传。
-- 选项面板 `.select-panel`：**portal 到 `document.body`**、fixed 定位（贴触发器下方、宽度对齐），`max-height: 240px` 可滚动，`z-index: 100`（须高于 `.modal-overlay` 的 50），不被 modal-body 等 overflow 容器裁剪。
+- 选项面板 `.select-panel`：**portal 到 `document.body`**、fixed 定位（贴触发器下方、宽度对齐），`max-height: 240px` 可滚动，`z-index: var(--z-popover)`(100)（须高于 `.modal-overlay` 的 `--z-overlay`(50)），不被 modal-body 等 overflow 容器裁剪。
 - 选项行 `.select-option`：hover / 键盘高亮 `--bg-hover`；选中项 `.is-selected` = `--bg-active` + `--accent-primary` ✓；禁用项 `.is-disabled` = `--text-muted`、不可点、无 hover。
 - 关闭：点外部 / Escape / resize / 滚动。键盘：Enter/Space/↑↓ 打开与高亮移动，Enter 选中；ARIA：触发器 `aria-haspopup="listbox"` + `aria-expanded`，面板 `role="listbox"`，项 `role="option"` + `aria-selected`。
 - 零动画、零硬编码颜色（全部 `var(--*)` token）。

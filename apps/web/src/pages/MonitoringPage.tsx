@@ -140,7 +140,7 @@ export function MonitoringPage() {
           <button
             key={id}
             onClick={() => switchTab(id)}
-            className={`u-tab px-4 py-2 text-sm rounded-t-lg transition ${activeTab === id ? 'u-tab-active u-surface u-accent' : 'u-text-3'}`}
+            className={`u-tab px-4 py-2 text-sm rounded-t-lg transition-colors ${activeTab === id ? 'u-tab-active u-surface u-accent' : 'u-text-3'}`}
           >
             {label}
           </button>

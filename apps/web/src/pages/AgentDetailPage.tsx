@@ -15,6 +15,7 @@ import { ExecutionSteps } from '../components/workunit/ExecutionSteps';
 import { AgentAvatar } from '../components/channel/AgentAvatar';
 import { RoleSkillsModal } from '../components/monitoring/RoleSkillsModal';
 import { ConfirmDialog, BackButton, SkeletonCard } from '../components/ui';
+import { IconCheck } from '../components/ui/icons';
 import { useWebSocketContext } from '../api/websocketHooks';
 import { useRosterStore } from '../stores/rosterStore';
 import { useRosterStoreSync } from '../hooks/useRosterStoreSync';
@@ -354,7 +355,7 @@ export function AgentDetailPage() {
   );
 }
 
-/** #433：ID 短显（shortWuId，title 承载全量）+ 复制钮（copyText 复制全量原值，「✓ 已复制」反馈 2s） */
+/** #433：ID 短显（shortWuId，title 承载全量）+ 复制钮（copyText 复制全量原值，「已复制」反馈 2s；批次 I-5a ✓ → IconCheck） */
 function IdWithCopy({ label, value }: { label: string; value: string }) {
   const [copied, setCopied] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -374,7 +375,7 @@ function IdWithCopy({ label, value }: { label: string; value: string }) {
           });
         }}
       >
-        {copied ? '✓ 已复制' : '复制'}
+        {copied ? <span className="inline-flex items-center gap-1"><IconCheck size={12} /> 已复制</span> : '复制'}
       </button>
     </span>
   );

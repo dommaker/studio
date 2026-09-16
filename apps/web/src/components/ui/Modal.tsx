@@ -10,8 +10,8 @@ interface ModalProps {
   title?: ReactNode;
   /** Optional footer rendered at the bottom */
   footer?: ReactNode;
-  /** z-index override（缺省不出 inline style，走 theme.css .modal-overlay 的 50——
-   *  显式传值会压过 .mc-workbar .modal-overlay{z-index:400} 等作用域覆盖，慎用） */
+  /** z-index override（缺省不出 inline style，走 theme.css .modal-overlay 的 --z-overlay(50)——
+   *  显式传值会压过 .mc-workbar .modal-overlay{z-index:--z-modal-above(400)} 等作用域覆盖，慎用） */
   zIndex?: number;
   /** modal-body 的内联覆盖（仅组件特有参数，如 AuthModal 整体 padding；样式能走类的走类） */
   bodyStyle?: CSSProperties;

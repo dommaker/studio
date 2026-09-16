@@ -15,6 +15,8 @@ export interface ReviewHintProps {
   onSetupClick?: () => void;
 }
 
+import { IconAlertTriangle } from '../ui/icons';
+
 export function ReviewHint({ status, channelMembers, onSetupClick }: ReviewHintProps) {
   if (status !== 'in_review') return null;
   if (channelMembers.length > 0) return null;
@@ -26,7 +28,7 @@ export function ReviewHint({ status, channelMembers, onSetupClick }: ReviewHintP
       data-testid="review-hint"
     >
       <span className="flex items-center gap-2">
-        <span aria-hidden="true">⚠</span>
+        <IconAlertTriangle size={16} />
         <span>频道内没有可认领评审的成员，评审将滞留——请添加成员或人工评审</span>
       </span>
       {onSetupClick && (

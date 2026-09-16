@@ -304,7 +304,7 @@ export function KnowledgePage() {
           <div className="flex gap-1 mb-6 overflow-x-auto pb-1 border-b u-border">
             {tabs.map(tab => (
               <button key={tab.id} onClick={() => { setActiveTab(tab.id); setMoreEntries([]); }}
-                className={`u-tab px-4 py-2 text-sm rounded-t-lg whitespace-nowrap transition ${activeTab === tab.id ? 'u-tab-active u-surface u-accent' : 'u-text-3'}`}>
+                className={`u-tab px-4 py-2 text-sm rounded-t-lg whitespace-nowrap transition-colors ${activeTab === tab.id ? 'u-tab-active u-surface u-accent' : 'u-text-3'}`}>
                 {tab.label}
               </button>
             ))}

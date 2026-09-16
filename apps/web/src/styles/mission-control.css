@@ -198,7 +198,7 @@
   position: absolute;
   top: calc(100% + 4px);
   right: 0;
-  z-index: 30;
+  z-index: var(--z-dropdown);
   min-width: 220px;
   display: flex;
   flex-direction: column;
@@ -279,7 +279,7 @@
   justify-content: flex-end;
   align-items: flex-start; /* 防 flex stretch 把按钮压成 0 高 */
   padding-right: var(--space-3);
-  z-index: 5;
+  z-index: var(--z-sticky);
 }
 .mc-jump-bottom {
   padding: 4px 10px;
@@ -289,7 +289,7 @@
   color: var(--text-secondary);
   font-size: var(--fs-xs);
   opacity: 0.75;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+  box-shadow: var(--shadow-popover);
   cursor: pointer;
 }
 .mc-jump-bottom:hover { border-color: var(--accent-primary); color: var(--text-primary); opacity: 1; }
@@ -460,7 +460,7 @@
   border: 1px solid var(--border-default);
   border-radius: 6px;
   opacity: 0.55;
-  z-index: 1;
+  z-index: var(--z-base);
 }
 .mc-msg:hover .mc-msg-actions, .mc-msg-actions:focus-within { opacity: 1; }
 .mc-icon-btn {
@@ -684,7 +684,7 @@ button.mc-quote:active { background: var(--bg-active); }
   position: absolute;
   top: calc(100% + 4px);
   right: 0;
-  z-index: 30;
+  z-index: var(--z-dropdown);
   min-width: 260px;
   max-width: 360px;
   display: flex;
@@ -692,7 +692,7 @@ button.mc-quote:active { background: var(--bg-active); }
   background: var(--bg-elevated);
   border: 1px solid var(--border-default);
   border-radius: 4px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  box-shadow: var(--shadow-md);
   overflow: hidden;
 }
 .mc-need-chip-item {
@@ -855,7 +855,7 @@ button.mc-quote:active { background: var(--bg-active); }
   position: absolute;
   right: 0;
   top: calc(100% + 4px);
-  z-index: 5;
+  z-index: var(--z-sticky);
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -864,7 +864,7 @@ button.mc-quote:active { background: var(--bg-active); }
   background: var(--bg-secondary);
   border: 1px solid var(--border-subtle);
   border-radius: 4px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+  box-shadow: var(--shadow-popover);
 }
 .mc-workbar-livelist { display: flex; flex-direction: column; gap: 4px; }
 .mc-workbar-item {
@@ -885,9 +885,9 @@ button.mc-quote:active { background: var(--bg-active); }
 /* D-2 项6：currentWu 闸门态时工作条右端直挂 WuGateActions（按钮已是 btn-sm 紧凑档，内部不动）；
    右端对齐靠 auto margin 吸收余量，与 stepper/live 区隔 */
 .mc-workbar-gate { margin-left: auto; flex-shrink: 0; }
-/* 工作条触发的闸门弹窗须压过可能同开的 WU 抽屉：.modal-overlay 全站 z-index 50 < 抽屉 300，
+/* 工作条触发的闸门弹窗须压过可能同开的 WU 抽屉：.modal-overlay 全站 --z-overlay(50) < 抽屉 --z-drawer(300)，
    窄屏/覆盖式抽屉同开时弹窗会被盖住——作用域限定在工作条内挂的实例，全站遮罩口径不动 */
-.mc-workbar .modal-overlay { z-index: 400; }
+.mc-workbar .modal-overlay { z-index: var(--z-modal-above); }
 
 /* #440：建议 prompt 片（输入框上方；mono 小卡 + dismiss） */
 .mc-suggest {
@@ -1014,7 +1014,7 @@ button.mc-quote:active { background: var(--bg-active); }
   border: 1px solid var(--border-default);
   border-radius: 3px;
   box-shadow: var(--shadow-lg);
-  z-index: 50;
+  z-index: var(--z-overlay);
   /* #270：max-height 按可用空间 clamp，超出滚动 */
   max-height: min(240px, 40vh);
   overflow-y: auto;
@@ -1280,16 +1280,16 @@ button.mc-quote:active { background: var(--bg-active); }
     top: 0;
     right: 0;
     bottom: 0;
-    z-index: 300;
+    z-index: var(--z-drawer);
     box-shadow: var(--shadow-lg);
   }
 }
 
 /* 频道动态覆盖抽屉：右侧滑出（面板 300px 贴右），backdrop 点击 / × 关闭。
-   遮罩对齐 .modal-overlay 定值（全站唯一遮罩口径，不另造第三档）；
+   遮罩走 --overlay-modal（批次 I-5a token 化）对齐 .modal-overlay 0.7 定值（全站唯一遮罩口径，不另造第三档）；
    style-guide §2.5 不动效——无进出场动画，直出 */
-.mc-act-overlay { position: fixed; inset: 0; z-index: 250; }
-.mc-act-overlay-backdrop { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.7); }
+.mc-act-overlay { position: fixed; inset: 0; z-index: var(--z-act-overlay); }
+.mc-act-overlay-backdrop { position: absolute; inset: 0; background: var(--overlay-modal); }
 .mc-act-overlay-panel {
   position: absolute;
   top: 0;
@@ -1303,7 +1303,7 @@ button.mc-quote:active { background: var(--bg-active); }
   position: absolute;
   top: 6px;
   right: 6px;
-  z-index: 1;
+  z-index: var(--z-base);
 }
 
 /* <768：REQ/WU 抽屉全屏化（占满视口 + 左上返回，与 spec §4.4 详情页返回同形态）。
@@ -1330,7 +1330,7 @@ button.mc-quote:active { background: var(--bg-active); }
   top: 0;
   right: 0;
   bottom: 0;
-  z-index: 300;
+  z-index: var(--z-drawer);
   width: 400px;
   box-shadow: var(--shadow-lg);
 }
