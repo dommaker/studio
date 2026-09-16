@@ -62,6 +62,12 @@ function authorLabelOf(m: ChannelMessage): string {
   return m.authorType === 'human' ? '你' : m.agentName || 'Agent';
 }
 
+/** vc8：组内同作者相邻判定——折叠组/回复链内连续同作者消息省略重复头
+ * （一个头像 + 多条消息，同 #277 D2 主流 compact 口径；原形态每条印一遍头像） */
+function sameAuthorOf(a: ChannelMessage, b: ChannelMessage): boolean {
+  return a.authorType === b.authorType && (a.agentName || 'Agent') === (b.agentName || 'Agent');
+}
+
 export function ChannelStreamBody({ stream, renderMessage, highlightId }: {
   stream: ChannelStream;
   renderMessage: RenderStreamMessage;
@@ -202,12 +208,14 @@ export function ChannelStreamBody({ stream, renderMessage, highlightId }: {
                   );
                   if (singleAuthor && chain.length > 0) {
                     nodes.push(
-                      // vc6：链模块左色条 = 该作者 identicon 同号 --chart-* 色，与组内消息框同源同色
+                      // vc6：链模块左色条 = 该作者 identicon 同号 --chart-* 色，与组内消息框同源同色。
+                      // vc8：链内一个作者块只留一个头——组内消息首条带头、其余 compact；
+                      // 展开时链消息紧跟过程消息（同作者）一并 compact，折叠时首条链消息留头
                       <div key={ri.key} className="mc-reply-chain"
                         style={{ '--mc-agent-color': `var(--chart-${avatarPattern(singleAuthor).paletteIndex + 1})` } as CSSProperties}>
                         {toggle}
-                        {ri.expanded && ri.messages.map(reply => renderMessage(reply, { isThreadReply: true, threadAnchorId: anchorId }))}
-                        {chain.map(c => renderMessage(c.message, { isThreadReply: true, compact: c.compact, threadAnchorId: anchorId }))}
+                        {ri.expanded && ri.messages.map((reply, idx) => renderMessage(reply, { isThreadReply: true, threadAnchorId: anchorId, compact: idx > 0 }))}
+                        {chain.map((c, idx) => renderMessage(c.message, { isThreadReply: true, threadAnchorId: anchorId, compact: c.compact || idx > 0 || (ri.expanded && ri.messages.length > 0) }))}
                       </div>,
                     );
                   } else {
@@ -215,7 +223,8 @@ export function ChannelStreamBody({ stream, renderMessage, highlightId }: {
                       ri.expanded ? (
                         <div key={ri.key} className="mc-proc-group">
                           {toggle}
-                          {ri.messages.map(reply => renderMessage(reply, { isThreadReply: true, threadAnchorId: anchorId }))}
+                          {/* vc8：多作者组内同作者相邻也省略重复头 */}
+                          {ri.messages.map((reply, idx) => renderMessage(reply, { isThreadReply: true, threadAnchorId: anchorId, compact: idx > 0 && sameAuthorOf(reply, ri.messages[idx - 1]) }))}
                         </div>
                       ) : (
                         <Fragment key={ri.key}>{toggle}</Fragment>
