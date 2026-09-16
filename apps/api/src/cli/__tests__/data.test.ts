@@ -2,7 +2,7 @@
  * data.ts 单元测试（T3 拆分新增，pre-commit TDD 门禁）。
  *
  * 覆盖数据域 apiCommand / studioKnowledge / studioEnv / studioMcp 的离线路径：
- * - 本地分支（run / 缺 id 的 show / 未知子命令 / upsert 缺参）不发请求直接输出；
+ * - 本地分支（缺 id 的 show / 未知子命令 / upsert 缺参）不发请求直接输出；
  * - 需要请求的分支在 API 不可达（ECONNREFUSED）时输出 "API server not running"。
  * 导入前将 PORT 指到端口 19141（API 常量在模块加载时计算），
  * HOME 指向临时目录避免读取真实 ~/.studio session-token。
@@ -50,11 +50,6 @@ afterEach(() => {
 });
 
 describe('apiCommand 本地分支（不发请求）', () => {
-  it('run 子命令提示使用 studio run', async () => {
-    await data.apiCommand('tasks', ['run']);
-    expect(logs.join('\n')).toContain('Use: studio run <requirement>');
-  });
-
   it('show 缺 id → usage 错误', async () => {
     await data.apiCommand('knowledge', ['show']);
     expect(errs.join('\n')).toContain('Usage: studio knowledge show <id>');

@@ -45,9 +45,6 @@ export async function apiCommand(resource: string, args: string[]) {
       case 'queue':
         console.log(JSON.stringify(await apiGet(`/${resource}?companyId=${cid}&status=pending`), null, 2));
         break;
-      case 'run':
-        console.log('Use: studio run <requirement>');
-        break;
       default:
         console.log(`studio ${resource} <list|show|search${resource === 'knowledge' ? '|upsert|sync-status' : ''}>`);
     }

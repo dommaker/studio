@@ -6,7 +6,7 @@
 import { extractConfigFlag } from './shared.js';
 import { studioUp, studioStatus, studioStop, studioRestart, studioLogs, studioDb } from './server.js';
 import { studioTest, studioBuild } from './dev.js';
-import { studioRun, studioApprove, studioReject } from './workflow.js';
+import { studioApprove, studioReject } from './workflow.js';
 import { apiCommand, studioKnowledge, studioEnv, studioMcp, studioHarnessCli } from './data.js';
 import { studioConfig } from './config.js';
 import { studioProject, studioWorkon } from './admin.js';
@@ -48,9 +48,6 @@ async function main() {
       break;
     case 'build':
       studioBuild();
-      break;
-    case 'run':
-      await studioRun();
       break;
     case 'status':
       await studioStatus();
@@ -104,9 +101,6 @@ async function main() {
       console.log('  开发:');
       console.log('    studio build              Build all packages (pnpm build)');
       console.log('    studio test               Quick API E2E test (8 checks)');
-      console.log('');
-      console.log('  执行:');
-      console.log('    studio run <requirement>   Submit to #研发 (@Analyst)');
       console.log('');
       console.log('  数据:');
       console.log('    studio knowledge <list|show|search|upsert|sync-status>  Knowledge base');

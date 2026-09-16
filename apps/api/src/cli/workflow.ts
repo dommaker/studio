@@ -1,53 +1,5 @@
-// ── 执行/审批域（2026-07-20 自 studio-cli.ts 按命令域拆分）──
-// studio run / approve / reject
-
-export async function studioRun() {
-  const args = process.argv.slice(3);
-  const requirement = args.join(' ').trim();
-
-  if (!requirement) {
-    console.error('Usage: studio run "requirement description"');
-    process.exit(1);
-  }
-
-  const port = process.env.PORT || '3001';
-  const baseUrl = `http://localhost:${port}/api/v1`;
-
-  try {
-    // Get #研发 channel
-    const chResp = await fetch(`${baseUrl}/channels`);
-    const { data: channels } = await chResp.json() as { data: Array<{ id: string; type: string; name: string }> };
-    // Dev mode → prefer #研发-dev, prod → prefer #研发 (skip -dev suffixed)
-    const isDev = process.env.NODE_ENV === 'development';
-    const rndChannel = isDev
-      ? channels.find((c: any) => c.type === 'rnd' && c.name?.endsWith('-dev'))
-      : channels.find((c: any) => c.type === 'rnd' && !c.name?.endsWith('-dev'));
-    if (!rndChannel) {
-      console.error(`No ${isDev ? '#研发-dev' : '#研发'} channel found. Start studio with: studio up`);
-      process.exit(1);
-    }
-
-    // Send message (@mention → WorkUnit creation in route handler)
-    const content = /@analyst/i.test(requirement) ? requirement : `${requirement} @Analyst`;
-    const msgResp = await fetch(`${baseUrl}/channels/${rndChannel.id}/messages`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content }),
-    });
-    const msgResult = await msgResp.json() as { success: boolean; data?: { id: string }; error?: string };
-
-    if (!msgResult.success) {
-      console.error('Failed to submit:', msgResult.error);
-      process.exit(1);
-    }
-
-    console.log(`✅ Submitted to ${rndChannel.name}. Analyst is analyzing...`);
-  } catch (err: any) {
-    console.error('Failed to connect to studio server:', err.message);
-    console.error('Make sure studio is running: studio up');
-    process.exit(1);
-  }
-}
+// ── 审批域（2026-07-20 自 studio-cli.ts 按命令域拆分）──
+// studio approve / reject（2026-09-16 #569：studio run 已随 @Analyst 角色退役删除）
 
 // ─── studio approve/reject ───
 
