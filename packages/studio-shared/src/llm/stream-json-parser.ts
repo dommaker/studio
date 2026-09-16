@@ -14,6 +14,16 @@ export interface StreamEvent {
   result?: string;
   is_error?: boolean;
   usage?: Record<string, unknown>;
+  /**
+   * 子 agent（Task/subagent）子树事件标记：CLI 对子树事件回填 Task tool_use 的 id，
+   * 父 run 顶层事件为 null/缺省（#564）。extractResult/extractUsage 据此过滤子树。
+   */
+  parent_tool_use_id?: string | null;
+}
+
+/** #564: 子 agent 子树事件判定——Task/subagent 产生的事件携带非空 parent_tool_use_id。 */
+function isSubtreeEvent(event: StreamEvent): boolean {
+  return typeof event.parent_tool_use_id === 'string' && event.parent_tool_use_id.length > 0;
 }
 
 /** stream-json 内容块：thinking/text/tool_use（assistant）与 tool_result（user）两类载体共用 */
@@ -112,6 +122,7 @@ export function parseStreamLine(line: string): StreamEvent | null {
  *
  * Stream-json events may carry `usage` on assistant/result events.
  * This function sums across all events to get total token counts.
+ * #564: 子 agent（Task/subagent）子树事件的 usage 不计入父 run 聚合（父子双计修复）。
  */
 export function extractUsage(events: StreamEvent[]): {
   inputTokens: number;
@@ -127,6 +138,7 @@ export function extractUsage(events: StreamEvent[]): {
   let model = '';
 
   for (const event of events) {
+    if (isSubtreeEvent(event)) continue;
     const u = event.usage as Record<string, unknown> | undefined;
     if (!u) continue;
     inputTokens += (u.input_tokens as number) || 0;
@@ -141,12 +153,14 @@ export function extractUsage(events: StreamEvent[]): {
 
 /**
  * Extract the final text result from stream events.
+ * #564: 子 agent（Task/subagent）子树的 result 事件不参与父 run 完成判定——
+ * 子 agent 的 error result 不再误杀父 run，其 result 文本也不覆盖父 run 结果。
  */
 export function extractResult(events: StreamEvent[]): { text: string; isError: boolean } {
   let text = '';
   let isError = false;
   for (const event of events) {
-    if (event.type === 'result') {
+    if (event.type === 'result' && !isSubtreeEvent(event)) {
       if (event.is_error) isError = true;
       if (event.result) text = event.result;
     }
