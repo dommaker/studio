@@ -276,10 +276,16 @@ router.post('/interactions', async (req: Request, res: Response): Promise<void> 
       }
 
       if (action === 'abandon') {
-        const closed = await closeWorkUnit(targetId, 'Abandoned by user via Discord');
+        const result = await closeWorkUnit(targetId, 'Abandoned by user via Discord');
+        // #555：区分「不存在」与「状态机拒绝/落库失败」——后者回真实原因，不误报 not found
+        const content = result.closed
+          ? `❌ 已放弃`
+          : result.error
+            ? `⚠️ 关闭失败: ${result.error.slice(0, 300)}`
+            : `WorkUnit not found: ${targetId}`;
         res.json({
           type: ResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-          data: { content: closed ? `❌ 已放弃` : `WorkUnit not found: ${targetId}` },
+          data: { content },
         });
         return;
       }
@@ -297,20 +303,21 @@ router.post('/interactions', async (req: Request, res: Response): Promise<void> 
 /**
  * 关闭 WorkUnit（#550，ADR 2026-09-15 决策 2 收口延续）：走 WorkUnitService.close
  * 状态机单口——补 closedAt、发 status_changed、落 workunit:closed 结构化记录、频道出声；
- * decision/spec 无 closed 边 → 状态机拒绝（false）。旧实现（closeAndEmit）手拼快照整写：
+ * decision/spec 无 closed 边 → 状态机拒绝（抛错）。旧实现（closeAndEmit）手拼快照整写：
  * metadata 整写覆盖摧毁既有 metadata、不写 closedAt、不发任何事件；legacy
  * events:goal-execution 随 Goal 体系退役停发。
- * @returns 是否找到目标并执行关闭
+ * #555：返回值区分三种结局——closed（成功）、not found（error 缺省）、
+ * 状态机拒绝/落库失败（error 携带真实原因），调用方不再把后两者混报为 not found。
  */
-async function closeWorkUnit(wuId: string, reason: string): Promise<boolean> {
+async function closeWorkUnit(wuId: string, reason: string): Promise<{ closed: boolean; error?: string }> {
   const snap = (await fileStore.getIndex({ id: wuId }))[0];
-  if (!snap) return false;
+  if (!snap) return { closed: false };
   try {
     await workUnitService.close(wuId, { reason, closedBy: 'human-command' });
-    return true;
+    return { closed: true };
   } catch (err) {
     logger.warn({ workUnitId: wuId, error: String(err) }, '[Discord] close workUnit failed');
-    return false;
+    return { closed: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
 

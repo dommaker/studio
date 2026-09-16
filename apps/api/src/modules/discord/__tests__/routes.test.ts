@@ -176,6 +176,30 @@ describe('discord interactions 路由（#538 写路径收口）', () => {
     expect(mockEventBusPublish).not.toHaveBeenCalledWith('events:goal-execution', expect.anything());
   });
 
+  it('abandon 目标存在但状态机拒绝（decision/spec 无 closed 边）→ 回真实原因而非 not found（#555）', async () => {
+    const snap = makeSnapshot('wu-2', { type: 'decision', status: 'done' });
+    mockFileStore.getIndex.mockResolvedValue([snap]);
+    mockClose.mockRejectedValue(new Error('Invalid status transition: done → closed'));
+
+    const res = await postInteraction(button('abandon:wu-2'));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data.content).not.toMatch(/not found/i);
+    expect(body.data.content).toContain('Invalid status transition: done → closed');
+  });
+
+  it('abandon 目标存在但落库失败 → 回真实原因而非 not found（#555）', async () => {
+    const snap = makeSnapshot('wu-3');
+    mockFileStore.getIndex.mockResolvedValue([snap]);
+    mockClose.mockRejectedValue(new Error('commitSnapshot failed: disk full'));
+
+    const res = await postInteraction(button('abandon:wu-3'));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data.content).not.toMatch(/not found/i);
+    expect(body.data.content).toContain('commitSnapshot failed: disk full');
+  });
+
   it('abandon 目标不存在 → 不关闭，回 not found', async () => {
     mockFileStore.getIndex.mockResolvedValue([]);
 
