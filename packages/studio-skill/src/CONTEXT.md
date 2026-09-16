@@ -14,6 +14,7 @@
 | `skillLoader` | `loader.ts` | `SkillLoader` 的单例实例 |
 | `seedBuiltinSkills` | `seed.ts` | 内置 skill 同步：缺→拷贝、未改→覆盖升级、无台账且与正本一致→收养写台账（#225）、用户改过/无台账不一致→不动；best-effort 不 throw |
 | `hashSkillDir` | `seed.ts` | skill 目录树内容 hash（sha256，排序相对路径+逐文件内容） |
+| `builtinSkillsDir` | `seed.ts` | 内置 skill 正本目录解析（monorepo=包根 `skills/`；npm bundle=`<bundle>/../skills`），#568 install 同名硬拒绝的清单来源 |
 
 ### 依赖关系
 
@@ -31,3 +32,4 @@
 - **磁盘加载唯一属主（#361，2026-08-27）**：`loadSingle(skillName)` 是 apps/api 侧按名加载 skill 的唯一入口——api skill-loader.ts 已删除自有的第三份 frontmatter 解析器与 loadSkillFromDisk，只留会话级缓存与 skill_used 事件发射；新增解析口径变更只改本包。
 - `SkillLoader` 实例 `skillLoader` 是全局单例，导出时直接实例化，内部 `customSkillsProvided` 标记未在源码完整展现，但用于区分是否已手动注册自定义技能。
 - seed 升级台账 = `<SKILLS_DIR>/.builtin-hashes.json`（name→内容 hash 中央文件，skill 目录与仓库逐字节一致）；seed 时机 = API 启动（`apps/api/src/index.ts`，有变更才重生成 MANIFEST）；仓库移除的 skill 本地留置转用户自有，用户删除的内置 skill 下次启动重建。
+- **数据区 skill 回馈内置正本流程（#568，docs/plans/2026-09-skill-export-import.md §3.3）**：`studio skill export <name> <repo>/packages/studio-skill/skills/`（产物直指本仓 checkout）→ 人工审查（删 `PROVENANCE.json`、按需补 `description`/`triggers`、`status: published`）→ `studio skill validate packages/studio-skill/skills/<name>` 过检 → 提 PR 合并后随 npm 包分发，各机 seed 播种。反向 install 与内置同名被硬拒绝（保护 seed hash 升级通道）。

@@ -15,6 +15,7 @@
 - `port-probe.ts`：probePortFree（net 模块探测，跨平台不走 lsof）/ resolvePort（默认 3001 起顺延上限 +100；显式 --port/PORT 占用即拒启）/ parsePortFlag / explicitPortFromEnv。
 - `first-run-panel.ts`：buildFirstRunPanel()——Node 版本对 engines>=20、cli-scanner 全 provider 探测结果、数据根、实际监听地址；零 provider 只提示不阻断。
 - `mcp-install.ts`（#566 P3）：`studio mcp install <agent> [--url] [--print] [--uninstall]`——把对外只读 MCP 入口（/api/v1/mcp/external/sse）幂等合入 agent 用户级配置（claude `~/.claude.json` / kimi `~/.kimi-code/mcp.json` / opencode `~/.config/opencode/opencode.json`，均只动 `studio` key、写前 .bak 备份、JSON 损坏拒写）；URL 缺省探测 3001 /mcp/health，不通报错提示 --url；codex 不支持 SSE 报错（Q2 不架 mcp-remote 桥）。
+- `skill.ts` + `skill-validate.ts`（#568）：`studio skill validate/export/install` 流动三件套——纯本地文件操作（daemon 离线可用，与走 HTTP 的 `studio skill list` 分流于 studio-cli.ts `case 'skill'`）；validate 规则 = 布局 + frontmatter（name≠目录名为 error，description/triggers 缺为 warning）；export = 目录拷贝 + `PROVENANCE.json` 边车（contentHash 复用 `hashSkillDir`，脱敏不写绝对路径）；install 与内置正本同名硬拒绝（保护 seed hash 升级通道），冲突/no-op/--force 三态，不碰 `.builtin-hashes.json` 与 `skills-index.json`。
 
 ## 注意事项
 
