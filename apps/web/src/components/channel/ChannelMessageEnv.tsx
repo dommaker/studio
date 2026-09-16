@@ -21,6 +21,8 @@ export interface ChannelMessageEnv {
   onOpenWorkUnitConfirm?: (workUnitId: string) => void;
   /** #467：plan_ruling 裁决轮接力卡「去裁决」 */
   onOpenWorkUnitRuling?: (workUnitId: string) => void;
+  /** #567：plan_direction 方向锁定接力卡「去选定」 */
+  onOpenWorkUnitDirection?: (workUnitId: string) => void;
   onOpenRequirement?: (reqId: string) => void;
   /** F5: NEED_INPUT 卡片内嵌回复；#276：返回 Promise 以便按真实成功置位「已回复」 */
   onInlineReply?: (message: ChannelMessage, content: string) => void | Promise<void>;

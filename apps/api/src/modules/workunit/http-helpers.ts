@@ -17,6 +17,7 @@ import type { NextFunction, Request, Response } from 'express';
 import { getErrorMessage } from '../../utils/errors.js';
 import { ConfirmPayloadError } from './confirm-payload.js';
 import { PlanRulingError } from '../pmo/plan-ruling.js';
+import { PlanDirectionError } from '../pmo/plan-direction.js';
 
 /** 路由内可预期的业务拒绝：自带 HTTP 语义，翻译层直出不查表 */
 export class HttpRouteError extends Error {
@@ -87,6 +88,9 @@ export const WORKUNIT_ERROR_MAPS = {
   ],
   ruling: [
     { match: PlanRulingError, status: 400, code: 'INVALID_RULING' },
+  ],
+  direction: [
+    { match: PlanDirectionError, status: 400, code: 'INVALID_DIRECTION' },
   ],
   editMessage: [
     { match: 'not found', status: 404, code: 'NOT_FOUND' },

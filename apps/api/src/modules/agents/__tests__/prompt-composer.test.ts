@@ -1043,6 +1043,40 @@ describe('#119: 契约段生成器（按 WU type）+ 段序稳定性重排', () 
     expect(prompt).toContain('.studio/specs/');
   });
 
+  it('#567 契约段 plan 含方向锁定段（DIRECTION 协议行，在裁决轮段之前）', async () => {
+    const plan = CONTRACT_TEMPLATES.plan;
+    expect(plan).toContain('DIRECTION:');
+    expect(plan).toContain('方向锁定');
+    const dirIdx = plan.indexOf('方向锁定');
+    const rulingIdx = plan.indexOf('裁决轮（fog 调研齐后出一次');
+    expect(dirIdx).toBeGreaterThanOrEqual(0);
+    expect(rulingIdx).toBeGreaterThan(dirIdx);
+
+    const { prompt } = await composeStepPrompt(
+      { wu: makeWu({ type: 'plan' }), metadata: {} as any },
+      deps(makeRole()),
+    );
+    expect(prompt).toContain('DIRECTION:');
+  });
+
+  it('#567 directionPick:false → 契约段方向锁定段替换为「本单已关闭方向锁定」提示', async () => {
+    const { prompt } = await composeStepPrompt(
+      { wu: makeWu({ type: 'plan' }), metadata: { directionPick: false } as any },
+      deps(makeRole()),
+    );
+
+    expect(prompt).toContain('本单已关闭方向锁定');
+    expect(prompt).not.toContain('DIRECTION:');
+  });
+
+  it('#567 AC6：非 plan 类型契约模板不含方向锁定段（零改动证明）', () => {
+    for (const [type, template] of Object.entries(CONTRACT_TEMPLATES)) {
+      if (type === 'plan') continue;
+      expect(template, `${type} 模板不应含 DIRECTION 段`).not.toContain('DIRECTION:');
+      expect(template, `${type} 模板不应含方向锁定`).not.toContain('方向锁定');
+    }
+  });
+
   it('契约段 200 软定额 + 模板表覆盖 review/implement/decision/analysis/bug/spec/plan（#121/#463/#471）', () => {
     expect(SECTION_QUOTAS.contract).toBe(200);
     expect(Object.keys(CONTRACT_TEMPLATES).sort()).toEqual(['analysis', 'bug', 'decision', 'implement', 'plan', 'review', 'spec']);

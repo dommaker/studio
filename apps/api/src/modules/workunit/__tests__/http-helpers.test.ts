@@ -13,6 +13,7 @@ import {
 } from '../http-helpers.js';
 import { ConfirmPayloadError } from '../confirm-payload.js';
 import { PlanRulingError } from '../../pmo/plan-ruling.js';
+import { PlanDirectionError } from '../../pmo/plan-direction.js';
 
 function mockRes() {
   const res = {
@@ -61,6 +62,7 @@ describe('sendMappedError（#551 统一翻译层）', () => {
   const classSamples: ReadonlyMap<unknown, Error> = new Map<unknown, Error>([
     [ConfirmPayloadError, new ConfirmPayloadError('confirm bad')],
     [PlanRulingError, new PlanRulingError('ruling bad')],
+    [PlanDirectionError, new PlanDirectionError('direction bad')],
   ]);
 
   for (const [endpoint, mappings] of Object.entries(WORKUNIT_ERROR_MAPS)) {

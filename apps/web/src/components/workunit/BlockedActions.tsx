@@ -5,6 +5,8 @@
 // 二次确认（danger）；继续执行不确认（非破坏、可再拦截）。
 // #467：plan-ruling 挂起（裁决轮待裁）另出「去裁决」——PlanRulingDialog 结构化表单
 // （全对/单题修改/打回重议），提交走 POST /:id/ruling；autoRuling = 接力卡「去裁决」打开即弹。
+// #567：plan-direction 挂起（方向锁定待选，裁决轮前置环节）另出「去选定」——PlanDirectionDialog
+// 候选卡单选 + 补充说明，提交走 POST /:id/direction；autoDirection = 接力卡「去选定」打开即弹。
 // 语义与频道回复通道等价（同一复活原语/同一死信关闭路径）：按钮 = 纯授权，回复 = 带指导授权。
 // decision/spec 裁剪状态机无 closed → 服务端 409，内联展示错误文案。
 import { useState } from 'react';
@@ -12,6 +14,7 @@ import { workunitApi, type WorkUnit } from '../../api/workunit';
 import { Button } from '../ui/Button';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { PlanRulingDialog, type PlanRulingRow } from '../pmo/PlanRulingDialog';
+import { PlanDirectionDialog, type PlanDirections } from '../pmo/PlanDirectionDialog';
 import { parseWuMeta } from '../../utils/wuMeta';
 // 批次A 项6：错误文案提取逻辑已收敛为 utils/errorMessage 唯一正本（本组件为原出处）
 import { errorMessage } from '../../utils/errorMessage';
@@ -22,29 +25,41 @@ interface Props {
   onChanged?: () => void;
   /** #467：裁决轮接力卡「去裁决」——挂载即自动弹 PlanRulingDialog（一次性） */
   autoRuling?: boolean;
+  /** #567：方向锁定接力卡「去选定」——挂载即自动弹 PlanDirectionDialog（一次性） */
+  autoDirection?: boolean;
 }
 
-export function BlockedActions({ wu, onChanged, autoRuling = false }: Props) {
+export function BlockedActions({ wu, onChanged, autoRuling = false, autoDirection = false }: Props) {
   const [pending, setPending] = useState<'resume' | 'close' | null>(null);
   const [confirmClose, setConfirmClose] = useState(false);
   const [showRuling, setShowRuling] = useState(false);
+  const [showDirection, setShowDirection] = useState(false);
   const [error, setError] = useState('');
-  // autoRuling 一次性锁（hooks 须在 early return 前）
+  // autoRuling/autoDirection 一次性锁（hooks 须在 early return 前）
   const [autoRulingDone, setAutoRulingDone] = useState(false);
+  const [autoDirectionDone, setAutoDirectionDone] = useState(false);
 
   if (wu.status !== 'blocked') return null;
-  const meta = parseWuMeta<{ title?: string; waitingForInput?: boolean; waitingReason?: string; planRulings?: PlanRulingRow[] }>(wu.metadata);
+  const meta = parseWuMeta<{ title?: string; waitingForInput?: boolean; waitingReason?: string; planRulings?: PlanRulingRow[]; planDirections?: PlanDirections }>(wu.metadata);
   const title = meta.title || wu.scope;
   // D3 分类型显示：NEED_INPUT 型只给「关闭任务」，继续执行入口 = 频道回复（带指导授权）
   const needInput = meta.waitingForInput === true;
   // #467：裁决轮待裁 = waitingReason='plan-ruling' 且 planRulings 非空（卡/弹窗数据源）
   const rulings = meta.waitingReason === 'plan-ruling' && Array.isArray(meta.planRulings) && meta.planRulings.length > 0
     ? meta.planRulings : null;
+  // #567：方向锁定待选 = waitingReason='plan-direction' 且 planDirections.options 非空（卡/弹窗数据源）
+  const directions = meta.waitingReason === 'plan-direction' && Array.isArray(meta.planDirections?.options) && meta.planDirections.options.length > 0
+    ? meta.planDirections : null;
 
   // autoRuling（#467）：接力卡「去裁决」打开即弹一次性——渲染期派生（同 WuGateActions autoApprove 模式）
   if (!autoRulingDone && autoRuling && rulings) {
     setAutoRulingDone(true);
     setShowRuling(true);
+  }
+  // autoDirection（#567）：接力卡「去选定」打开即弹一次性（同 autoRuling 模式）
+  if (!autoDirectionDone && autoDirection && directions) {
+    setAutoDirectionDone(true);
+    setShowDirection(true);
   }
 
   const run = async (kind: 'resume' | 'close', action: () => Promise<unknown>) => {
@@ -70,6 +85,15 @@ export function BlockedActions({ wu, onChanged, autoRuling = false }: Props) {
             onClick={() => setShowRuling(true)}
           >
             去裁决
+          </Button>
+        )}
+        {directions && (
+          <Button
+            variant="primary"
+            title="方向锁定：比较候选方向的取舍与影响面后选定，提交后规划会话继续"
+            onClick={() => setShowDirection(true)}
+          >
+            去选定
           </Button>
         )}
         {!needInput && (
@@ -103,6 +127,18 @@ export function BlockedActions({ wu, onChanged, autoRuling = false }: Props) {
             onChanged?.();
           }}
           onCancel={() => setShowRuling(false)}
+        />
+      )}
+      {showDirection && directions && (
+        <PlanDirectionDialog
+          directions={directions}
+          onSubmit={async pick => {
+            // 失败 rethrow 给弹窗内联（弹窗保持打开）；成功关窗 + 通知宿主重拉
+            await workunitApi.submitDirection(wu.id, { choice: pick.choice, ...(pick.note ? { note: pick.note } : {}) });
+            setShowDirection(false);
+            onChanged?.();
+          }}
+          onCancel={() => setShowDirection(false)}
         />
       )}
       <ConfirmDialog

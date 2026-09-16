@@ -66,10 +66,19 @@ export interface WorkUnitMetadata {
   // 两层互相独立；gate-escalation.ts 锁内合并写，不推进 updatedAt 计时锚）
   gateReminderTier1At?: string; // tier1 已发（Web 铃铛 + SSE + 浏览器原生通知）
   gateReminderTier2At?: string; // tier2 已发（notifyAlert 告警通路：企微/告警频道/行动中心）
-  waitingReason?: string;     // 挂起原因：'ownership' = B3a 等待工程归属；'wu-token-budget' = #162 WU 级 token 预算到线（三选分流见 waiting-input.ts）；'plan-step-limit' = #471 plan 步数额度到线（回复即续期）；'plan-ruling' = #467 裁决轮待裁（结构化提交见 pmo/plan-ruling.ts）（缺省 = agent 提问）
+  waitingReason?: string;     // 挂起原因：'ownership' = B3a 等待工程归属；'wu-token-budget' = #162 WU 级 token 预算到线（三选分流见 waiting-input.ts）；'plan-step-limit' = #471 plan 步数额度到线（回复即续期）；'plan-ruling' = #467 裁决轮待裁（结构化提交见 pmo/plan-ruling.ts）；'plan-direction' = #567 方向锁定待人选定（结构化提交见 pmo/plan-direction.ts）（缺省 = agent 提问）
   // #467：裁决轮——plan 会话 NEED_INPUT 携 RULING: 行时落档的问题清单 + 每题建议结论 + 默认值
   // （裁决接力卡/裁决弹窗预填数据源；人提交裁决后由 pmo/plan-ruling.ts 清除）
   planRulings?: { question: string; suggestion: string; default?: string }[];
+  // #567：方向锁定——plan 会话 NEED_INPUT 携 DIRECTION: 行时落档的方向抉择点 + 候选方向清单
+  // （方向接力卡/方向弹窗预填数据源；人提交选定后由 pmo/plan-direction.ts 清除）
+  planDirections?: {
+    question: string;
+    options: { name: string; summary: string; tradeoffs: string; impact: string; recommended: boolean }[];
+  };
+  // #567：方向锁定开关——派单时显式 directionPick:false 关闭 plan 契约的方向锁定段
+  // （prompt-composer buildContractSection 替换为「本单已关闭方向锁定」提示）
+  directionPick?: boolean;
   // #471（Triage 定稿 1）：plan 步数续期授权额度——缺省 = PLAN_STEP_LIMIT；到线挂起后人回复
   // 续期 += PLAN_STEP_LIMIT（waiting-input.ts）。非会话簿记（不随 clearSessionBookkeeping 清除），
   // 语义同 tokenBudget = 人工授权额度

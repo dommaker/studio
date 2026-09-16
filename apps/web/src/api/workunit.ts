@@ -241,6 +241,10 @@ export type PlanRulingPayload = {
   items: Array<{ question: string; action: 'accept' | 'reopen'; conclusion?: string }>;
 };
 
+// #567：方向锁定提交载荷（后端 apps/api pmo/plan-direction.ts 为契约正本；镜像类型，
+// 形态照 PlanRulingPayload 先例）。choice = 选定方向名（须在 planDirections.options 内）；note = 可选补充说明
+export type PlanDirectionPayload = { choice: string; note?: string };
+
 export const workunitApi = {
   list: (params?: {
     type?: string;
@@ -327,6 +331,10 @@ export const workunitApi = {
   /** #467：裁决轮一次性提交（全对/单题修改/打回重议）——后端批量落探路台账并复活同会话 */
   submitRuling: (id: string, payload: PlanRulingPayload) =>
     api.post<WorkUnit>(`/workunits/${id}/ruling`, payload),
+
+  /** #567：方向锁定选定提交——后端落探路台账并复活同会话（裁决轮前置环节） */
+  submitDirection: (id: string, payload: PlanDirectionPayload) =>
+    api.post<WorkUnit>(`/workunits/${id}/direction`, payload),
 
   getMessages: (id: string, params?: { before?: string; limit?: number }) =>
     api.get(`/workunits/${id}/messages`, { params }),

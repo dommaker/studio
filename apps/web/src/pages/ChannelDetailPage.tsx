@@ -302,6 +302,8 @@ export function ChannelDetailPage() {
   const openWuConfirm = useCallback((wuId: string) => setDrawer({ kind: 'wu', id: wuId, autoApprove: true }), []);
   // #467：plan_ruling 裁决轮接力卡「去裁决」——打开即弹 PlanRulingDialog
   const openWuRuling = useCallback((wuId: string) => setDrawer({ kind: 'wu', id: wuId, autoRuling: true }), []);
+  // #567：plan_direction 方向锁定接力卡「去选定」——打开即弹 PlanDirectionDialog
+  const openWuDirection = useCallback((wuId: string) => setDrawer({ kind: 'wu', id: wuId, autoDirection: true }), []);
   const openReq = useCallback((reqId: string) => setDrawer({ kind: 'req', id: reqId }), []);
 
   // #395：覆盖态频道动态里点 REQ/WU → 收起覆盖层再开详情抽屉（窄屏不叠加两层）；
@@ -443,10 +445,11 @@ export function ChannelDetailPage() {
     onOpenWorkUnit: openWu,
     onOpenWorkUnitConfirm: openWuConfirm,
     onOpenWorkUnitRuling: openWuRuling,
+    onOpenWorkUnitDirection: openWuDirection,
     onOpenRequirement: openReq,
     onInlineReply: handleInlineReply,
     onQuoteClick: locateMessage,
-  }), [handleAction, handleReply, findMessage, id, openWu, openWuConfirm, openWuRuling, openReq, handleInlineReply, locateMessage]);
+  }), [handleAction, handleReply, findMessage, id, openWu, openWuConfirm, openWuRuling, openWuDirection, openReq, handleInlineReply, locateMessage]);
 
   // #322：提升为 useCallback——消除每次渲染新建的内联 render props（memo 稳定 props 契约）
   // #547：手喂面收窄到 message + 5 个 per-message 派生值（共 6 个）；横切值经 messageEnv 下发，

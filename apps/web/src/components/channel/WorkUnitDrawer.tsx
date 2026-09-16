@@ -33,7 +33,8 @@ import { parseWuMeta } from '../../utils/wuMeta';
 export type DrawerState =
   // #284（决策 #250 D6）：autoApprove = analysis_confirm 接力卡「去确认」的「打开即弹」入参
   // #467：autoRuling = plan_ruling 裁决轮接力卡「去裁决」的「打开即弹」入参
-  | { kind: 'wu'; id: string; autoApprove?: boolean; autoRuling?: boolean }
+  // #567：autoDirection = plan_direction 方向锁定接力卡「去选定」的「打开即弹」入参
+  | { kind: 'wu'; id: string; autoApprove?: boolean; autoRuling?: boolean; autoDirection?: boolean }
   | { kind: 'req'; id: string }
   | null;
 
@@ -130,7 +131,7 @@ export function WorkUnitDrawer({ drawer, onClose, onOpenWu, onOpenReq, todoNav }
       )}
       <div className="mc-drawer-body">
         {drawer.kind === 'wu'
-          ? <WuDetail id={drawer.id} autoApprove={drawer.autoApprove === true} autoRuling={drawer.autoRuling === true} onOpenReq={onOpenReq} />
+          ? <WuDetail id={drawer.id} autoApprove={drawer.autoApprove === true} autoRuling={drawer.autoRuling === true} autoDirection={drawer.autoDirection === true} onOpenReq={onOpenReq} />
           : <ReqChain id={drawer.id} onOpenWu={onOpenWu} />}
       </div>
     </aside>
@@ -139,7 +140,7 @@ export function WorkUnitDrawer({ drawer, onClose, onOpenWu, onOpenReq, todoNav }
 
 // ── WorkUnit 详情 ──
 
-function WuDetail({ id, autoApprove = false, autoRuling = false, onOpenReq }: { id: string; autoApprove?: boolean; autoRuling?: boolean; onOpenReq: (reqId: string) => void }) {
+function WuDetail({ id, autoApprove = false, autoRuling = false, autoDirection = false, onOpenReq }: { id: string; autoApprove?: boolean; autoRuling?: boolean; autoDirection?: boolean; onOpenReq: (reqId: string) => void }) {
   const navigate = useNavigate();
   // #549（B5 收口）：WU 详情读 workunitStore detail slice——REST 打底（loadWorkUnitDetail）
   // 与 SSE status_changed 就地 upsert 的落点合一（路由在 App 级 useWorkUnitStoreSync）；
@@ -305,9 +306,10 @@ function WuDetail({ id, autoApprove = false, autoRuling = false, onOpenReq }: { 
       <div className="mt-1 mb-2">{gateActions}</div>
 
       {/* #185（决策 #87 D4）：blocked 处置组件（继续执行/关闭任务），与详情页同一组件；
-          #467：plan-ruling 挂起时另出「去裁决」（PlanRulingDialog，autoRuling = 接力卡打开即弹）。
+          #467：plan-ruling 挂起时另出「去裁决」（PlanRulingDialog，autoRuling = 接力卡打开即弹）；
+          #567：plan-direction 挂起时另出「去选定」（PlanDirectionDialog，autoDirection = 接力卡打开即弹）。
           动作成功后重拉一次详情兜底（状态变化另有 status_changed SSE 负载直更） */}
-      <BlockedActions wu={wu} autoRuling={autoRuling} onChanged={() => {
+      <BlockedActions wu={wu} autoRuling={autoRuling} autoDirection={autoDirection} onChanged={() => {
         void useWorkUnitStore.getState().loadWorkUnitDetail(id);
       }} />
 

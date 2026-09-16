@@ -20,6 +20,7 @@
  *   POST   /api/v1/workunits/:id/resume — #185（决策 #87 D2）：Web 按钮通道「继续执行」（与回复路径共享复活原语）
  *   POST   /api/v1/workunits/:id/close  — #185（决策 #87 D2）：Web 按钮通道「关闭任务」（死信显式关闭路径）
  *   POST   /api/v1/workunits/:id/ruling — #467：裁决轮一次性提交（采纳/打回重议；批量落探路台账 + 复活同会话）
+ *   POST   /api/v1/workunits/:id/direction — #567：方向锁定提交（选定方向落探路台账 + 复活同会话）
  *
  * 涌现路径 (AS-025 §5.15):
  *   POST   /api/v1/workunits/from-message — convert ChannelMessage to WorkUnit
@@ -44,6 +45,7 @@ import { aggregateTreeTokens } from '../agents/token-usage.service.js';
 import { channelMessageService } from '../channels/channel-message.service.js';
 import { resumeBlockedWorkUnitFromWeb, closeBlockedWorkUnitFromWeb } from './waiting-input.js';
 import { applyPlanRuling, validateRulingItems } from '../pmo/plan-ruling.js';
+import { applyPlanDirection, validateDirectionPick } from '../pmo/plan-direction.js';
 import { claimWorkUnitAndAnnounce } from './claim-announce.js';
 import { listWorkUnitChangedFiles } from './wu-changed-files.js';
 import { parsePagination, formatPaginatedResponse } from '../../utils/pagination.js';
@@ -344,6 +346,27 @@ router.post('/:id/ruling', requireAuth(), requireNotGuest(), route(WORKUNIT_ERRO
   }
   const items = validateRulingItems(req.body?.items);
   const updated = await applyPlanRuling(req.params.id, items, fileStore);
+  res.json(updated);
+}));
+
+/**
+ * POST /:id/direction — #567：方向锁定提交（human-only，结构化表单通道，仿 /:id/ruling）。
+ * plan 会话存在互斥大方向时先出一次方向卡（NEED_INPUT + DIRECTION 行 → metadata.planDirections）；
+ * 人单选一个方向（可附补充说明）经本端点提交：applyPlanDirection 落探路台账
+ * （decisions[] 追加「方向：…（人锁定）」结论）+ 组合选定文本复活同会话（pendingReplies 注入）。
+ * 前置守卫：仅 blocked 且 metadata.planDirections 非空（方向锁定挂起中）；载荷非法 → 400。
+ */
+router.post('/:id/direction', requireAuth(), requireNotGuest(), route(WORKUNIT_ERROR_MAPS.direction, async (req, res) => {
+  const wu = await mustGetWu(req.params.id);
+  if (wu.status !== 'blocked') {
+    throw new HttpRouteError(409, 'NOT_BLOCKED', `WorkUnit 当前状态为 ${wu.status}，仅 blocked（方向锁定挂起）可提交方向选定`);
+  }
+  const meta = parseWuMetadata(wu.metadata);
+  if (!meta.planDirections || !Array.isArray(meta.planDirections.options) || meta.planDirections.options.length === 0) {
+    throw new HttpRouteError(409, 'NO_PENDING_DIRECTION', '该任务无待选的方向锁定（planDirections 为空）');
+  }
+  const pick = validateDirectionPick(req.body, meta.planDirections);
+  const updated = await applyPlanDirection(req.params.id, pick, fileStore);
   res.json(updated);
 }));
 

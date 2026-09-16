@@ -20,6 +20,7 @@ import { IconCheck } from '../ui/icons';
 import { ReviewProposalCard } from './ReviewProposalCard';
 import { AnalysisConfirmCard } from './AnalysisConfirmCard';
 import { PlanRulingCard } from './PlanRulingCard';
+import { PlanDirectionCard } from './PlanDirectionCard';
 import { ConvertToTaskDialog } from './ConvertToTaskDialog';
 import { NeedInputOptions } from './NeedInputOptions';
 import { PmoChip } from '../pmo/PmoChip';
@@ -67,6 +68,7 @@ function renderCard(
   onAction: ChannelMessageEnv['onAction'],
   onOpenWorkUnitConfirm: ChannelMessageEnv['onOpenWorkUnitConfirm'],
   onOpenWorkUnitRuling: ChannelMessageEnv['onOpenWorkUnitRuling'],
+  onOpenWorkUnitDirection: ChannelMessageEnv['onOpenWorkUnitDirection'],
 ) {
   switch (meta.cardType) {
     case 'requirements_doc':
@@ -86,6 +88,8 @@ function renderCard(
       return <AnalysisConfirmCard message={message} meta={meta} onOpenConfirm={onOpenWorkUnitConfirm} />;
     case 'plan_ruling': // #467 裁决轮接力卡
       return <PlanRulingCard message={message} meta={meta} onOpenRuling={onOpenWorkUnitRuling} />;
+    case 'plan_direction': // #567 方向锁定接力卡
+      return <PlanDirectionCard message={message} meta={meta} onOpenDirection={onOpenWorkUnitDirection} />;
     default:
       return null;
   }
@@ -104,7 +108,7 @@ export const ChannelMessageItem = memo(function ChannelMessageItem({
   const env = useChannelMessageEnv();
   const {
     onAction, onReply, findMessage, channelId,
-    onOpenWorkUnit, onOpenWorkUnitConfirm, onOpenWorkUnitRuling, onOpenRequirement,
+    onOpenWorkUnit, onOpenWorkUnitConfirm, onOpenWorkUnitRuling, onOpenWorkUnitDirection, onOpenRequirement,
     onInlineReply, onQuoteClick,
   } = env ?? {};
   // #285: agent 消息 inline-code 文件 chip 词表；按 channelId 键控（无跨频道串词表）；
@@ -113,7 +117,7 @@ export const ChannelMessageItem = memo(function ChannelMessageItem({
   const isHuman = message.authorType === 'human';
   const meta = parseMeta(message.meta);
   // 缺 Provider（env=null）→ onAction 缺省 → 卡片不渲染（fail-closed；生产装配层必挂 Provider）
-  const card = onAction ? renderCard(meta, message, onAction, onOpenWorkUnitConfirm, onOpenWorkUnitRuling) : null;
+  const card = onAction ? renderCard(meta, message, onAction, onOpenWorkUnitConfirm, onOpenWorkUnitRuling, onOpenWorkUnitDirection) : null;
   const parentMessage = message.replyToId && findMessage ? findMessage(message.replyToId) : undefined;
   const [convertOpen, setConvertOpen] = useState(false);
   const [needDraft, setNeedDraft] = useState('');

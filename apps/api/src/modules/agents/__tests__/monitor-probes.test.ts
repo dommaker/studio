@@ -528,6 +528,21 @@ describe('autoAbandon probes', () => {
 
     expect(mockCloseWithNotice).not.toHaveBeenCalled();
   });
+
+  // #567 AC7：方向锁定/裁决轮挂起的 plan 超 24h 不被自动关闭（#471 plan 类型豁免的
+  // 显式回归网；30 分钟提醒 scanWaitingForInputReminders 覆盖全部 blocked，零改动）
+  it.each(['plan-direction', 'plan-ruling'])('#567: waitingReason=%s 的 blocked plan 超 24h 豁免死信', async (waitingReason) => {
+    const plan = makeSnapshot({
+      id: `wu-plan-${waitingReason}`, type: 'plan', status: 'blocked',
+      createdAt: new Date(Date.now() - 96 * 3600_000).toISOString(),
+      metadata: JSON.stringify({ blockedAt: new Date(Date.now() - 96 * 3600_000).toISOString(), waitingReason }),
+    });
+    const fileStore = makeFileStore({ getIndex: vi.fn(async () => [plan]) });
+
+    await autoAbandonStaleBlocked(fileStore, await fileStore.getIndex());
+
+    expect(mockCloseWithNotice).not.toHaveBeenCalled();
+  });
 });
 
 describe('checkSessionFileHealth', () => {

@@ -1612,6 +1612,12 @@ export class AgentLoop {
           ...(result.rulings?.length
             ? { planRulings: result.rulings, waitingReason: 'plan-ruling' }
             : {}),
+          // #567：方向锁定——DIRECTION 行落档（方向接力卡预填数据源）+ 挂起原因标记；
+          // 与 rulings 并存时 direction 优先定 waitingReason（方向是裁决轮前置环节）；
+          // 人提交选定（POST /:id/direction → pmo/plan-direction.ts）后清除
+          ...(result.directions
+            ? { planDirections: result.directions, waitingReason: 'plan-direction' }
+            : {}),
         }
       : metadata.waitingForInput
         ? { waitingForInput: false, waitingReminded: false }
@@ -1822,10 +1828,13 @@ export class AgentLoop {
         // 2026-07 PMO-flow UX（§6-3）：NEED_INPUT 里程碑 —— meta 带 pmoId（可解析时）+ atHuman
         // #279（决策 #250 D3）：result.options 存在时随 meta 透传，供前端渲染选项卡
         // #467：result.rulings 存在时 meta.cardType='plan_ruling'——前端渲染裁决轮接力卡
+        // #567：result.directions 存在时 meta.cardType='plan_direction'——前端渲染方向接力卡
+        //   （方向是裁决轮前置环节，并存时 direction 优先）
         if (!skipResultPost) {
           const extraMeta: MessageMeta = {};
           if (result.options?.length) extraMeta.options = result.options;
           if (result.rulings?.length) extraMeta.cardType = 'plan_ruling';
+          if (result.directions) extraMeta.cardType = 'plan_direction';
           await this.postToDiscussionSpace(wuId, `需要输入: ${result.summary}`, wu,
             Object.keys(extraMeta).length > 0 ? extraMeta : undefined);
         }
