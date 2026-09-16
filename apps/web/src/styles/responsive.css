@@ -43,15 +43,6 @@
     padding: 0.625rem var(--space-4);
     font-size: 0.875rem;
   }
-  
-  /* 表单组堆叠 */
-  .form-group {
-    flex-direction: column;
-  }
-  
-  .form-group > * {
-    width: 100%;
-  }
 }
 
 /* ==================== MR-009: Sidebar + TopNav 响应式 ==================== */
