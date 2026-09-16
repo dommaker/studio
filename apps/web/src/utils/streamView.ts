@@ -221,8 +221,22 @@ function isCompleted(m: ChannelMessage): boolean {
   return typeof status === 'string' && COMPLETED_STATUSES.includes(status);
 }
 
-const dateStrOf = (m: ChannelMessage) =>
-  new Date(m.createdAt).toLocaleDateString('zh-CN', { month: 'long', day: 'numeric' });
+// F1③（2026-09-16 性能体检）：toLocaleDateString 走 Intl 偏贵，按消息 id+createdAt 缓存
+// （createdAt 不可变诞生时刻，#317 ADR 2026-08-24；键带上 createdAt 对同 id 不同时间戳的
+// 测试夹具也安全）；长会话跨频道累积防御——超上限整体清空重建（简单优先，不做 LRU）
+const DATE_STR_CACHE_CAP = 10000;
+const dateStrCache = new Map<string, string>();
+
+const dateStrOf = (m: ChannelMessage) => {
+  const key = `${m.id}:${m.createdAt}`;
+  let s = dateStrCache.get(key);
+  if (s === undefined) {
+    if (dateStrCache.size >= DATE_STR_CACHE_CAP) dateStrCache.clear();
+    s = new Date(m.createdAt).toLocaleDateString('zh-CN', { month: 'long', day: 'numeric' });
+    dateStrCache.set(key, s);
+  }
+  return s;
+};
 
 const dateLabelOf = (m: ChannelMessage, dateStr: string) => {
   const d = new Date(m.createdAt);
@@ -298,10 +312,22 @@ export function deriveStreamView(messages: ChannelMessage[], uiState: StreamUiSt
   const { showCompleted, collapsedThreads, expandedProcGroups, expandedAlertGroups, promotedQuestionIds, isWaitingForInput } = uiState;
 
   // B2-006: 已完成折叠——默认活跃全留 + 最近 2 条已完成
+  // F1①②（2026-09-16 性能体检）：completed 建 Set 单遍过滤（旧 completed.includes 为 O(n×c)）；
+  // store 保证 messages 恒按 createdAt 升序（channelMessageStore 升序不变量测试锁定），
+  // filter 保序故免全量 sort；乱序输入兜底排序，保持旧契约不变
   const completed = messages.filter(isCompleted);
-  const active = messages.filter(m => !completed.includes(m));
-  const visibleMessages = (showCompleted ? messages : [...active, ...completed.slice(-2)])
-    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+  const completedIds = new Set(completed.map(m => m.id));
+  const keepCompletedIds = new Set(completed.slice(-2).map(m => m.id));
+  const filtered = showCompleted
+    ? messages
+    : messages.filter(m => !completedIds.has(m.id) || keepCompletedIds.has(m.id));
+  let visibleMessages = filtered;
+  for (let i = 1; i < filtered.length; i++) {
+    if (new Date(filtered[i - 1].createdAt).getTime() > new Date(filtered[i].createdAt).getTime()) {
+      visibleMessages = [...filtered].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+      break;
+    }
+  }
 
   // Re-group visible messages into threads（#279：当前提问消息提升主流，不进折叠线程）
   const grouped = groupIntoThreads(visibleMessages, promotedQuestionIds);

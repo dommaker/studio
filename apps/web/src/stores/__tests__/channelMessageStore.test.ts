@@ -225,6 +225,42 @@ describe('channelMessageStore', () => {
       expect(sliceOf()!.messages.map(m => m.id)).toEqual(['m1']);
       expect(sliceOf('ch-2')).toBeUndefined();
     });
+
+    it('F5：未命中 id → 原 state 早退，messages/channels 引用均不变（不白触发下游全量派生）', () => {
+      const store = useChannelMessageStore.getState();
+      store.applyMessageSent('ch-1', msg('m1', 0));
+      const stateBefore = useChannelMessageStore.getState();
+      const messagesBefore = sliceOf()!.messages;
+      // 三条未命中路径：全量本体 / legacy patch / 空负载
+      store.applyMessageUpdated('ch-1', { messageId: 'ghost', message: msg('ghost', 9) });
+      store.applyMessageUpdated('ch-1', { messageId: 'ghost', meta: { status: 'done' } });
+      store.applyMessageUpdated('ch-1', {});
+      expect(useChannelMessageStore.getState()).toBe(stateBefore);
+      expect(sliceOf()!.messages).toBe(messagesBefore);
+    });
+  });
+
+  describe('messages 升序不变量（deriveStreamView 免全量 sort 的前提，F1）', () => {
+    it('prepend / 乱序 SSE 插入 / refetch 合并后恒按 createdAt 升序', async () => {
+      const store = useChannelMessageStore.getState();
+      mockListMessages.mockResolvedValue({ data: { data: [msg('m3', 2)], hasMore: true } });
+      await store.fetchMessages('ch-1');
+      // prepend 一页更早历史
+      mockListMessages.mockResolvedValue({ data: { data: [msg('m1', 0)], hasMore: false } });
+      await store.loadMore('ch-1');
+      // 乱序到达的 SSE 增量
+      store.applyMessageSent('ch-1', msg('m5', 4));
+      store.applyMessageSent('ch-1', msg('m4', 3));
+      // refetch 合并进落在中间的新消息 m2
+      mockListMessages.mockResolvedValue({
+        data: { data: [msg('m2', 1), msg('m3', 2), msg('m4', 3), msg('m5', 4)], hasMore: false },
+      });
+      await store.fetchMessages('ch-1');
+
+      const ts = sliceOf()!.messages.map(m => new Date(m.createdAt).getTime());
+      expect(sliceOf()!.messages.map(m => m.id)).toEqual(['m1', 'm2', 'm3', 'm4', 'm5']);
+      expect(ts).toEqual([...ts].sort((a, b) => a - b));
+    });
   });
 
   describe('sendMessage（#486 乐观回显）', () => {

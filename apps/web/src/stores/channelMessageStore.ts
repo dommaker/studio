@@ -226,6 +226,10 @@ export const useChannelMessageStore = create<ChannelMessageState>((set, get) => 
     set(st => {
       const cur = st.channels[channelId];
       if (!cur) return st;
+      // F5（2026-09-16 性能体检）：未命中直接返回原 state——旧实现未命中也 map 产新数组 +
+      // 新切片引用，白触发下游 deriveStreamView 全量重算
+      const targetId = data.message?.id ?? data.messageId;
+      if (!targetId || !cur.messages.some(m => m.id === targetId)) return st;
       let messages = cur.messages;
       if (data.message) {
         // #315：全量 message 本体的 meta 为后端合并后真值，消除增量 meta 整体替换丢旧 key 的分叉
