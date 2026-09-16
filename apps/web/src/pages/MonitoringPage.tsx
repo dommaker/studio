@@ -177,7 +177,7 @@ export function MonitoringPage() {
                       <div className="flex items-center gap-3">
                         {/* #473：标题即详情开关——审前先看内容（对照频道提案卡条目清单） */}
                         <button
-                          className="u-text u-hover-accent text-left flex-1 min-w-0 truncate"
+                          className="u-btn-reset u-text u-hover-accent text-left flex-1 min-w-0 truncate"
                           aria-expanded={expandedIds.has(p.id)}
                           onClick={() => toggleExpanded(p.id)}
                         >
@@ -219,7 +219,7 @@ export function MonitoringPage() {
           {/* 健康度量（§7.2：度量区降为下方分区，默认折叠） */}
           <div className="mt-6">
             <button
-              className="flex items-center gap-2 u-text-2 u-hover-accent"
+              className="u-btn-reset flex items-center gap-2 u-text-2 u-hover-accent"
               aria-expanded={metricsOpen}
               onClick={() => setMetricsOpen(v => !v)}
             >

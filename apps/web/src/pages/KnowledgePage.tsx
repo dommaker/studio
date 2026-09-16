@@ -273,7 +273,7 @@ export function KnowledgePage() {
                 <span className="text-sm font-medium u-text">
                   搜索结果 ({searchResults.length})
                 </span>
-                <button onClick={clearSearch} className="text-xs u-text-3">清除</button>
+                <button onClick={clearSearch} className="u-btn-reset text-xs u-text-3">清除</button>
               </div>
               {searchResults.length === 0 ? (
                 <div className="empty-state text-sm">无匹配结果</div>
