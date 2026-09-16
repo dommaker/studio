@@ -5,9 +5,9 @@
 // 提交载荷 = PlanRulingPayload.items（后端 pmo/plan-ruling.ts 批量落探路台账 + 复活同会话），
 // 人永远不接触 RULING 魔法行。提交失败弹窗保持打开 + 内联错误（批次A 项7 同款）。
 // 入口：BlockedActions（plan-ruling 挂起的 blocked 处置区；接力卡「去裁决」经 autoRuling 打开即弹）。
+// 公共骨架（submitting/取消键/关窗屏蔽/错误行）走 ui/ApproveDialogShell（Step 3 收敛）。
 import { useState } from 'react';
-import { Button, Modal } from '../ui';
-import { errorMessage } from '../../utils/errorMessage';
+import { ApproveDialogShell, Button } from '../ui';
 import type { PlanRulingPayload } from '../../api/workunit';
 
 /** 裁决轮待裁题（metadata.planRulings 条目镜像；question/suggestion 必填，default 可省） */
@@ -37,36 +37,17 @@ export function PlanRulingDialog({ rulings, onSubmit, onCancel }: PlanRulingDial
   const [rows, setRows] = useState<RowState[]>(
     rulings.map(r => ({ ...r, conclusion: r.suggestion, reopen: false })),
   );
-  const [submitting, setSubmitting] = useState(false);
-  const [submitError, setSubmitError] = useState('');
-
-  const run = async (fn: () => void | Promise<unknown>) => {
-    if (submitting) return;
-    setSubmitting(true);
-    setSubmitError('');
-    try {
-      await fn();
-    } catch (e) {
-      setSubmitError(errorMessage(e));
-    } finally {
-      setSubmitting(false);
-    }
-  };
 
   const patchRow = (i: number, patch: Partial<RowState>) =>
     setRows(prev => prev.map((r, k) => (k === i ? { ...r, ...patch } : r)));
 
-  // 批次 I-2：收编 ui/Modal（§4.3 正本）；提交中屏蔽一切关窗路径（遮罩/Escape/✕ 同原 disabled 语义）
   return (
-    <Modal
-      onClose={() => { if (!submitting) onCancel(); }}
+    <ApproveDialogShell
       maxWidth="40rem"
       title="裁决轮：一次性裁决"
-      footer={
+      onCancel={onCancel}
+      actions={({ submitting, run }) => (
         <>
-          <button className="btn btn-secondary" onClick={onCancel} disabled={submitting}>
-            取消
-          </button>
           <button
             className="btn btn-secondary"
             disabled={submitting}
@@ -89,40 +70,39 @@ export function PlanRulingDialog({ rulings, onSubmit, onCancel }: PlanRulingDial
             提交裁决
           </Button>
         </>
-      }
+      )}
     >
-          <p className="text-xs u-text-2 mb-2">
-            逐题评审 agent 的建议结论（可直接改）；「打回重议」的题保持待决，agent 只重调该题后重新出裁决。
-            提交后结论一次性落入探路台账，规划会话继续（spec 成文 → 拆任务清单）。
-          </p>
-          <div className="flex flex-col gap-2">
-            {rows.map((r, i) => (
-              <div key={i} className="flex flex-col gap-1" style={{ borderBottom: '1px solid var(--border-default)', paddingBottom: 8 }}>
-                <div className="flex gap-2 items-center">
-                  <span className="text-sm" style={{ flex: 1 }}>{r.question}</span>
-                  <label className="text-xs u-text-2 flex gap-1 items-center">
-                    <input
-                      type="checkbox"
-                      checked={r.reopen}
-                      onChange={e => patchRow(i, { reopen: e.target.checked })}
-                      aria-label={`打回重议 ${i + 1}`}
-                    />
-                    打回重议
-                  </label>
-                </div>
-                {r.default && <p className="text-xs u-text-3">默认值（人不答时）：{r.default}</p>}
-                <textarea
-                  className="input w-full"
-                  rows={2}
-                  value={r.conclusion}
-                  disabled={r.reopen}
-                  onChange={e => patchRow(i, { conclusion: e.target.value })}
-                  aria-label={`结论 ${i + 1}`}
+      <p className="text-xs u-text-2 mb-2">
+        逐题评审 agent 的建议结论（可直接改）；「打回重议」的题保持待决，agent 只重调该题后重新出裁决。
+        提交后结论一次性落入探路台账，规划会话继续（spec 成文 → 拆任务清单）。
+      </p>
+      <div className="flex flex-col gap-2">
+        {rows.map((r, i) => (
+          <div key={i} className="flex flex-col gap-1" style={{ borderBottom: '1px solid var(--border-default)', paddingBottom: 8 }}>
+            <div className="flex gap-2 items-center">
+              <span className="text-sm" style={{ flex: 1 }}>{r.question}</span>
+              <label className="text-xs u-text-2 flex gap-1 items-center">
+                <input
+                  type="checkbox"
+                  checked={r.reopen}
+                  onChange={e => patchRow(i, { reopen: e.target.checked })}
+                  aria-label={`打回重议 ${i + 1}`}
                 />
-              </div>
-            ))}
+                打回重议
+              </label>
+            </div>
+            {r.default && <p className="text-xs u-text-3">默认值（人不答时）：{r.default}</p>}
+            <textarea
+              className="input w-full"
+              rows={2}
+              value={r.conclusion}
+              disabled={r.reopen}
+              onChange={e => patchRow(i, { conclusion: e.target.value })}
+              aria-label={`结论 ${i + 1}`}
+            />
           </div>
-          {submitError && <p className="text-xs u-err" style={{ marginTop: 8 }}>{submitError}</p>}
-    </Modal>
+        ))}
+      </div>
+    </ApproveDialogShell>
   );
 }
