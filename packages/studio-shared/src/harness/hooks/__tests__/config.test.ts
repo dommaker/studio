@@ -4,7 +4,8 @@
  * 覆盖：
  * - 声明表形状：全部 7 个注册 hook 有声明，errorStrategy ∈ {block, warn}（经 toErrorStrategy 映射）
  * - #159 判定委托管线：注册 = 定义 ↔ 声明表配对（有效值来自声明表），
- *   block/warn/enabled 行为经 harness HookPipeline 验证（原 runHook 自建判定层已拆除）
+ *   block/warn/enabled 行为经 harness HookPipeline 验证（管线是时机粒度；
+ *   按名字直调那条路径的判定见 __tests__/direct-call-gate.test.ts）
  * - HARNESS_HOOK_DISABLE 覆盖 enabled
  * - assertHookRegistryClosed：声明 ↔ 注册双向闭环（正例 + 缺失/冗余/重复三向负例）
  */

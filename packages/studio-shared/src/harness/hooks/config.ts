@@ -10,7 +10,7 @@
  *   直调 beforeAgentExecute，不经管线。把判定只留给了 ① 会让
  *   enabled / HARNESS_HOOK_DISABLE 在这条路径上配了不生效（2026-09-16 实测回归，
  *   防回归用例见 hooks/__tests__/direct-call-gate.test.ts）。
- *   根治 = harness 提供按名执行单 hook 的公共面后删掉 ②，另票。
+ *   根治 = harness 提供按名执行单 hook 的公共面后删掉 ②（harness#167）。
  * - 声明表是注册表闭环（assertHookRegistryClosed）的「声明」侧：只含经
  *   registerAllHooks 注册进管线的 7 个 hook。buildAgentConstraintPrompt 是同步
  *   直接调用助手（不进管线），不在声明表中。

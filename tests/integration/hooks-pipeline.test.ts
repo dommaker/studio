@@ -1,9 +1,10 @@
 /**
  * Hooks 管线集成测试
  *
- * 覆盖：Hook 配置管理、per-hook 开关、#159 判定委托管线
- * （block/warn/enabled 行为经 harness HookRegistry + HookPipeline 验证，
- * 原 runHook 自建判定层已拆除）
+ * 覆盖：Hook 配置管理、per-hook 开关、#159 管线路径判定
+ * （block/warn/enabled 行为经 harness HookRegistry + HookPipeline 验证；
+ *   管线粒度是时机，按名字直调 hook 的判定路径另见
+ *   packages/studio-shared/src/harness/hooks/__tests__/direct-call-gate.test.ts）
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
 
@@ -35,7 +36,7 @@ describe('Hooks Config — per-hook 开关', () => {
   });
 });
 
-describe('管线失败处理 — errorStrategy（#159 判定唯一住在 harness 管线）', () => {
+describe('管线失败处理 — errorStrategy（#159 时机粒度路径，声明值同源于配置表）', () => {
   afterEach(() => {
     delete process.env.HARNESS_HOOK_DISABLE;
   });
