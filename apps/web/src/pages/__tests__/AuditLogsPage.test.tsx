@@ -274,4 +274,34 @@ describe('AuditLogsPage（E7 审计日志页改造）', () => {
     );
     expect(await screen.findByText('暂无审计日志')).toBeTruthy();
   });
+
+  it('stats 子拉取失败：错误行 + 重试，点击后重拉恢复统计卡（原 try/catch 只 console.error 静默）', async () => {
+    mockGetStats.mockRejectedValueOnce(new Error('stats boom'));
+    render(<AuditLogsPage />);
+    await screen.findByText('user-a');
+
+    expect(await screen.findByText('stats boom')).toBeTruthy();
+    // 失败时统计区不再凭空消失（错误行占位）
+    expect(screen.queryByText('总日志数')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: '重试' }));
+    expect(await screen.findByText('总日志数')).toBeTruthy();
+    expect(screen.queryByText('stats boom')).toBeNull();
+    await waitFor(() => expect(mockGetStats).toHaveBeenCalledTimes(2));
+  });
+
+  it('下拉 options 子拉取失败：错误行 + 重试，点击后重拉恢复筛选项（原 try/catch 只 console.error 静默）', async () => {
+    mockListActions.mockRejectedValueOnce(new Error('options boom'));
+    render(<AuditLogsPage />);
+    await screen.findByText('user-a');
+
+    expect(await screen.findByText('options boom')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '重试' }));
+
+    await waitFor(() => expect(screen.queryByText('options boom')).toBeNull());
+    await waitFor(() => expect(mockListActions).toHaveBeenCalledTimes(2));
+    // 恢复后操作筛选下拉带 actions 选项
+    fireEvent.click(screen.getByLabelText('操作筛选'));
+    expect(await screen.findByRole('option', { name: 'create' })).toBeTruthy();
+  });
 });

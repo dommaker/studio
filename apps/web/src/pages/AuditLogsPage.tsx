@@ -37,8 +37,10 @@ export const AuditLogsPage: React.FC = () => {
   const [page, setPage] = useState(1);
 
   // #549（B5 收口）：取数状态机退位——三份 useAsyncData（logs 随筛选/翻页重拉、
-  // stats 与下拉 options 挂载一次 best-effort），自管理 loading 派生（filterKey prev-state hack）已删；
+  // stats 与下拉 options 挂载一次）；自管理 loading 派生（filterKey prev-state hack）已删；
   // 筛选/翻页/行展开/userId 防抖留页面本地
+  // 2026-09 web-ux-optional-fixes Step 1：stats/options 失败不再 try/catch 静默落 null——
+  // error 由 hook 承接，各自区块内渲染最小错误行 + 重试（logs 错误条同款 u-err-dim 红条）
   const logsData = useAsyncData(async () => {
     const response = await auditLogApi.list({
       action: filters.action || undefined,
@@ -56,26 +58,14 @@ export const AuditLogsPage: React.FC = () => {
     };
   }, [filters.action, filters.resource, filters.status, filters.userId, filters.startDate, filters.endDate, page]);
 
-  const statsData = useAsyncData(async () => {
-    try {
-      return (await auditLogApi.getStats()).data;
-    } catch (err) {
-      console.error('Failed to load stats:', err);
-      return null;
-    }
-  }, []);
+  const statsData = useAsyncData(async () => (await auditLogApi.getStats()).data, []);
 
   const optionsData = useAsyncData(async () => {
-    try {
-      const [actionsRes, resourcesRes] = await Promise.all([
-        auditLogApi.listActions(),
-        auditLogApi.listResources(),
-      ]);
-      return { actions: (actionsRes.data.data || []) as string[], resources: (resourcesRes.data.data || []) as string[] };
-    } catch (err) {
-      console.error('Failed to load options:', err);
-      return null;
-    }
+    const [actionsRes, resourcesRes] = await Promise.all([
+      auditLogApi.listActions(),
+      auditLogApi.listResources(),
+    ]);
+    return { actions: (actionsRes.data.data || []) as string[], resources: (resourcesRes.data.data || []) as string[] };
   }, []);
 
   const logs = logsData.data?.logs ?? [];
@@ -215,8 +205,13 @@ export const AuditLogsPage: React.FC = () => {
       <div className="flex-1 overflow-auto u-page-px pb-8">
       <div className="max-w-5xl">
 
-      {/* Stats */}
-      {stats && (
+      {/* Stats —— stats 子拉取失败：错误行 + 重试（原 try/catch 只 console.error，统计区凭空消失） */}
+      {statsData.error ? (
+        <div className="mb-4 p-3 rounded u-err-dim u-err text-sm flex items-center justify-between">
+          <span>{statsData.error}</span>
+          <button onClick={() => statsData.reload()} className="btn btn-secondary btn-sm">{'重试'}</button>
+        </div>
+      ) : stats && (
         <>
           <div className="mc-block-label">{'概览'}</div>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
@@ -230,6 +225,14 @@ export const AuditLogsPage: React.FC = () => {
             />
           </div>
         </>
+      )}
+
+      {/* Options 子拉取失败：筛选下拉凭空缺项——错误行 + 重试（原 try/catch 只 console.error） */}
+      {optionsData.error && (
+        <div className="mb-4 p-3 rounded u-err-dim u-err text-sm flex items-center justify-between">
+          <span>{optionsData.error}</span>
+          <button onClick={() => optionsData.reload()} className="btn btn-secondary btn-sm">{'重试'}</button>
+        </div>
       )}
 
       {/* Filters */}

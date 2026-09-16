@@ -13,15 +13,17 @@ vi.mock('react-router-dom', () => ({
   useNavigate: () => vi.fn(),
 }));
 
-const { mockGetOverview, mockGetEfficiency } = vi.hoisted(() => ({
+const { mockGetOverview, mockGetEfficiency, mockGetFlywheel, mockGetOverhead } = vi.hoisted(() => ({
   mockGetOverview: vi.fn(),
   mockGetEfficiency: vi.fn(),
+  mockGetFlywheel: vi.fn(),
+  mockGetOverhead: vi.fn(),
 }));
 
 vi.mock('../../api/monitoring', () => ({
   monitoringApi: {
     getOverview: mockGetOverview,
-    getFlywheel: vi.fn().mockResolvedValue({
+    getFlywheel: mockGetFlywheel.mockResolvedValue({
       data: {
         quality: 42, hitRate: 67, improvement: 10, freshness: 80,
         source: 'events',
@@ -31,7 +33,7 @@ vi.mock('../../api/monitoring', () => ({
         timestamp: '2026-07-19T00:00:00Z',
       },
     }),
-    getOverhead: vi.fn().mockResolvedValue({
+    getOverhead: mockGetOverhead.mockResolvedValue({
       data: {
         windowDays: 30, executions: 4, workUnits: 3,
         avgInjectedTokens: 800, injectedBudget: 2000, injectedBudgetUsedPct: 40,
@@ -539,5 +541,63 @@ describe('MonitoringPage — 告警下钻（E4）', () => {
     // 面板重挂但无 initialFilters：不自动检索，表单回到空
     expect(mockEventSearch).toHaveBeenCalledTimes(1);
     expect((screen.getByPlaceholderText('关键词（可选）') as HTMLInputElement).value).toBe('');
+  });
+});
+
+// ── 2026-09 web-ux-optional-fixes Step 1：子拉取失败不再静默 null——区块内最小错误行 + 重试 ──
+describe('MonitoringPage — 子拉取失败错误行（web-ux-optional-fixes Step 1）', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGetOverview.mockResolvedValue(defaultOverview());
+    mockGetEfficiency.mockResolvedValue(emptyEfficiency());
+    mockListPendingReview.mockResolvedValue({ data: { entries: [], total: 0 } });
+    mockEventSearch.mockResolvedValue({ data: { events: [], total: 0, nextCursor: null } });
+  });
+
+  it('待审列表拉取失败：区块内错误行 + 重试，点击后重拉恢复（原 .catch(() => null) 静默）', async () => {
+    mockListPendingReview
+      .mockRejectedValueOnce(new Error('proposals boom'))
+      .mockResolvedValue({
+        data: {
+          entries: [{ id: 'k-9', title: '恢复后的提案', type: 'pitfall', maturity: 'draft', created: new Date().toISOString() }],
+          total: 1,
+        },
+      });
+    render(<MonitoringPage />);
+
+    expect(await screen.findByText('proposals boom')).toBeTruthy();
+    // 失败不再落「待审列表不可用」静态文案（分不清没数据与加载失败）
+    expect(screen.queryByText('待审列表不可用')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: '重试' }));
+    expect(await screen.findByText('恢复后的提案')).toBeTruthy();
+    expect(screen.queryByText('proposals boom')).toBeNull();
+    await waitFor(() => expect(mockListPendingReview).toHaveBeenCalledTimes(2));
+  });
+
+  it('学习成效拉取失败：展开健康度量见错误行，重试后恢复主数字', async () => {
+    mockGetFlywheel.mockRejectedValueOnce(new Error('flywheel boom'));
+    render(<MonitoringPage />);
+    await openMetrics();
+
+    expect(await screen.findByText('flywheel boom')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '重试' }));
+
+    await waitFor(() => expect(screen.getByTestId('flywheel-stat').textContent).toBe('67%'));
+    expect(screen.queryByText('flywheel boom')).toBeNull();
+    await waitFor(() => expect(mockGetFlywheel).toHaveBeenCalledTimes(2));
+  });
+
+  it('概览拉取失败：健康度量区错误行（证据台账同源三区块不凭空消失），重试后恢复', async () => {
+    mockGetOverview.mockRejectedValueOnce(new Error('overview boom'));
+    render(<MonitoringPage />);
+    await openMetrics();
+
+    expect(await screen.findByText('overview boom')).toBeTruthy();
+    expect(screen.queryByText('证据台账（信任分层）')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: '重试' }));
+    expect(await screen.findByText('证据台账（信任分层）')).toBeTruthy();
+    expect(screen.queryByText('overview boom')).toBeNull();
   });
 });

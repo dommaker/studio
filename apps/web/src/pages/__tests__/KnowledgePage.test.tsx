@@ -3,12 +3,13 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
-const { mockListUnified, mockCreateUnifiedEntry, mockPromote, mockDemote, mockSearch } = vi.hoisted(() => ({
+const { mockListUnified, mockCreateUnifiedEntry, mockPromote, mockDemote, mockSearch, mockGetCosts } = vi.hoisted(() => ({
   mockListUnified: vi.fn(),
   mockCreateUnifiedEntry: vi.fn(),
   mockPromote: vi.fn(),
   mockDemote: vi.fn(),
   mockSearch: vi.fn(),
+  mockGetCosts: vi.fn(),
 }));
 
 vi.mock('../../api/knowledge', () => ({
@@ -25,7 +26,7 @@ vi.mock('../../api/knowledge', () => ({
 
 vi.mock('../../api/maintenance', () => ({
   maintenanceApi: {
-    getCosts: vi.fn().mockResolvedValue(null),
+    getCosts: mockGetCosts,
     runKnowledgeMaintenance: vi.fn(),
     fireTrigger: vi.fn(),
   },
@@ -414,5 +415,27 @@ describe('批次 F-1: tab 列表加载失败错误条 + 重试（tabQ.error 原�
     expect(await screen.findByText('恢复条目')).toBeTruthy();
     expect(screen.queryByText('load boom')).toBeNull();
     await waitFor(() => expect(mockListUnified).toHaveBeenCalledTimes(2));
+  });
+});
+
+describe('成本子拉取失败错误行（2026-09 web-ux-optional-fixes Step 1，原 .catch(() => null) 静默）', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockListUnified.mockResolvedValue({ data: { entries: [], total: 0 } });
+    mockGetCosts.mockResolvedValue(null);
+  });
+
+  it('getCosts 失败：页头按钮旁错误行 + 重试，点击后重拉恢复 costNote', async () => {
+    mockGetCosts
+      .mockRejectedValueOnce(new Error('costs boom'))
+      .mockResolvedValue({ days: 30, byTrigger: {}, bySource: {}, callsBySource: { 'knowledge-maintenance': 7 } });
+    render(<MemoryRouter><KnowledgePage /></MemoryRouter>);
+
+    expect(await screen.findByText('costs boom')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '重试' }));
+
+    expect(await screen.findByText(/近 30 天 7 次调用/)).toBeTruthy();
+    expect(screen.queryByText('costs boom')).toBeNull();
+    await waitFor(() => expect(mockGetCosts).toHaveBeenCalledTimes(2));
   });
 });

@@ -82,7 +82,8 @@ export function KnowledgePage() {
   const [actingIds, setActingIds] = useState<Set<string>>(new Set());
 
   // #350 useAsyncData 收一次性拉取样板：tab/mode/reviewOnly 变化渲染期重置重拉；
-  // 手动任务成本（近 30 天 token；失败静默，不阻塞页面）
+  // 手动任务成本（近 30 天 token）——失败不再静默落 null（2026-09 web-ux-optional-fixes Step 1），
+  // error 由 hook 承接，页头按钮旁渲染最小错误行 + 重试
   const tabQ = useAsyncData(async (): Promise<TabPayload> => {
     if (activeTab === 'unified') {
       const res = await knowledgeApi.listUnified({
@@ -100,7 +101,7 @@ export function KnowledgePage() {
     const res = await knowledgeApi.listGaps(activeTab as KnowledgeGapType);
     return { kind: 'gap', items: (res.data.data || []) as GapItem[] };
   }, [activeTab, unifiedMode, reviewOnly]);
-  const costsQ = useAsyncData(() => maintenanceApi.getCosts().catch(() => null), []);
+  const costsQ = useAsyncData(() => maintenanceApi.getCosts(), []);
 
   // AS-022: Submit manual entry
   const handleManualEntry = async () => {
@@ -238,7 +239,14 @@ export function KnowledgePage() {
             <h1 className="page-title">知识库</h1>
             <p className="page-subtitle">七大知识类型 — 统一视图 / 偏好 / 规则 / 环境 / 决策链 / 交互模式 / 解法库</p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 items-center">
+            {/* 成本子拉取失败：最小错误行 + 重试（原 .catch(() => null) 静默，costNote 凭空消失） */}
+            {costsQ.error && (
+              <div className="p-2 rounded u-err-dim u-err text-sm flex items-center gap-2">
+                <span>{costsQ.error}</span>
+                <button onClick={costsQ.reload} className="btn btn-secondary btn-sm">重试</button>
+              </div>
+            )}
             <ManualTaskButton
               label="质量审计"
               costNote={costs != null ? `近 30 天 ${costs.callsBySource['knowledge-maintenance'] ?? 0} 次调用` : undefined}
