@@ -126,8 +126,6 @@ export class AgentLoop {
   private lastIdleHeartbeatAt = 0;
   /** #330：事件驱动唤醒——空闲 sleep 的中断器（idleSleep 挂起期间非 null） */
   private wakeIdle: (() => void) | null = null;
-  /** #330：最近一轮 observe 的 myActive WU id 集——channel.message_sent 唤醒过滤口径 */
-  private lastActiveWuIds = new Set<string>();
   /** #330：channel.message_sent 订阅句柄（start 挂、stop 退） */
   private messageSentHandler: ((payload: { message?: { authorType?: string; workUnitId?: string | null } }) => void) | null = null;
   /** #493：唤醒闩锁——事件到达时 loop 不在 idleSleep（执行中/步骤间）则置 true，
@@ -265,17 +263,19 @@ export class AgentLoop {
       });
 
       // #330: 事件驱动唤醒——订阅 channel.message_sent（同进程 eventBus，先例 channel-review）。
-      // 人类消息且 workUnitId 命中当前 myActive 时打断空闲 sleep、立即跑一轮 observe；
-      // 窄过滤天然限流，不去抖。事件 fire-and-forget 无持久，15s 空闲兜底轮询保留
+      // 2026-09-16 放宽为「只放行不裁决」：人类消息带 workUnitId 即打断空闲 sleep 跑一轮 observe，
+      // 不再用 myActive 派生缓存否决（缓存在认领后首个 sleep 窗口必 stale，回复唤醒会被滤掉，
+      // 实测白等满 30s dynamicInterval）；归属裁决归 observe（幂等零 token），误醒廉价、漏醒人感。
+      // 事件 fire-and-forget 无持久，15s 空闲兜底轮询保留
       // （防未来跨进程写者与重启间隙——当前生产写消息路径全部经 channel-message.service 发事件；
       //  重启间隙的回复由启动首轮 observe 经 newReplies >= 口径捞回，#493）。
       // #493：过滤+闩锁逻辑收进 onChannelMessageSent（seam 可测）。
       this.messageSentHandler = (payload) => this.onChannelMessageSent(payload);
       eventBus.subscribe('channel.message_sent', this.messageSentHandler);
 
-      // #523（#515 决议 P0-2）：派生可认领路径同口径补唤醒——增订 workunit.status_changed，
-      // 过滤条件不变（claimable === true）：人闸确认（pending→unassigned）、unclaim 释放、
-      // reopen 全覆盖；blocked→active 复活等非认领路径被条件天然滤掉。零新事件类型。
+      // #523（#515 决议 P0-2）+ 2026-09-16 放宽：增订 workunit.status_changed——
+      // claimable===true（人闸确认/unclaim/reopen）或 assigneeId===本实例
+      // （含 NEED_INPUT 复活 blocked→active，旧口径把它滤掉导致回复后白等 30s）。零新事件类型。
       this.workunitChangedHandler = (payload) => this.onWorkUnitClaimable(payload);
       eventBus.subscribe('workunit.status_changed', this.workunitChangedHandler);
 
@@ -734,30 +734,35 @@ export class AgentLoop {
     }
   }
 
-  /** #330/#493：channel.message_sent 唤醒过滤 + 闩锁（独立方法供测试 seam 直驱） */
+  /** #330/#493 + 2026-09-16 放宽：channel.message_sent 唤醒过滤 + 闩锁（独立方法供测试 seam 直驱）。
+   *  只放行不裁决：人类消息且带 workUnitId 即醒（负载原始字段）；不再用 lastActiveWuIds
+   *  派生缓存否决（认领后首个 sleep 窗口缓存必 stale，回复唤醒 100% 被滤掉，实测白等 30s）。 */
   private onChannelMessageSent(payload: { message?: { authorType?: string; workUnitId?: string | null } }): void {
     const msg = payload?.message;
     if (!msg || msg.authorType !== 'human' || !msg.workUnitId) return;
-    if (!this.lastActiveWuIds.has(msg.workUnitId)) return;
     // #493：闩锁先行——不在 idleSleep（执行中/步骤间 sleep）时 wakeIdle 为 null，
     // 唤醒原样会丢；置闩后下一次 idleSleep 入口消费并立即放行重跑 observe
     this.pendingWake = true;
     this.wakeIdle?.();
   }
 
-  /** #523（#515 决议 P0-1/P0-2）：workunit.created / workunit.status_changed 唤醒过滤 + 闩锁
-   * （独立方法供测试 seam 直驱）。过滤口径 = 负载现成的 claimable === true——
-   * pending 人闸单/有依赖单不空唤醒；status_changed 同条件覆盖人闸确认、unclaim 释放、reopen，
-   * blocked→active 复活等非认领路径被条件天然滤掉。 */
+  /** #523（#515 决议 P0-1/P0-2）+ 2026-09-16 唤醒放宽（只放行不裁决）：
+   *  workunit.created / workunit.status_changed 唤醒过滤（独立方法供测试 seam 直驱）。
+   *  放行口径只用负载原始字段：claimable === true（可认领：pending 人闸单/有依赖单不空唤醒）
+   *  或 assigneeId === 本实例（我的单状态变化——含 NEED_INPUT 复活 blocked→active；
+   *  旧口径只放 claimable，复活被排除，实测回复后白等满 30s dynamicInterval）。
+   *  归属/可见性的最终裁决归 observe（幂等零 token），唤醒宁可误醒不可漏醒。 */
   private onWorkUnitClaimable(payload: unknown): void {
-    const wu = (payload as { workunit?: { claimable?: boolean } } | null)?.workunit;
-    if (wu?.claimable !== true) return;
+    const wu = (payload as { workunit?: { claimable?: boolean; assigneeId?: string | null } } | null)?.workunit;
+    if (!wu) return;
+    const mine = wu.assigneeId != null && wu.assigneeId === this.instance?.id;
+    if (wu.claimable !== true && !mine) return;
     this.pendingWake = true;
     this.wakeIdle?.();
   }
 
-  /** #330: 可中断的空闲/步间 sleep——channel.message_sent 命中 myActive、workunit 认领事件
-   * （#523 claimable === true）或 stop 时提前返回 */
+  /** #330: 可中断的空闲/步间 sleep——channel.message_sent（人类消息带 workUnitId）、
+   *  workunit 事件（claimable===true 或 assigneeId===本实例）或 stop 时提前返回 */
   private idleSleep(ms: number): Promise<void> {
     if (!this.alive) return Promise.resolve(); // stop 与进入 sleep 的竞态：已停则立即返回
     // #493：消费唤醒闩锁——挂起期间有唤醒意图未送达，不睡直接重跑一轮 observe
@@ -861,8 +866,6 @@ export class AgentLoop {
       }));
 
     const activeWuIds = myActive.map(wu => wu.id);
-    // #330: 缓存 myActive 口径供 channel.message_sent 事件唤醒过滤
-    this.lastActiveWuIds = new Set(activeWuIds);
     // #330 扫描裁剪：只扫活跃 WU 所在频道（通常 1-2 个，原来是全频道无差别全扫）。
     // 任一活跃 WU 无 channelId 时退全扫（该 WU 回复可能落在任意频道）。
     // 已接受盲区：WU 换频道后旧频道里的新人类回复不再被扫到（换频道罕见，

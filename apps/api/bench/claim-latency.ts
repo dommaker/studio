@@ -12,8 +12,9 @@
  *   特征词触发 B2 守卫——认领后立即关闭，不起 LLM 会话、不烧 token）：
  *   B1 拾取延迟：建 unassigned WU（指名本 role）→ 轮询 index 拿 claimedAt，N 轮随机相位；
  *      同时记录 getIndex 调用时刻，验证 workunit.created EVENT 触发的 observe 是否带来认领。
- *   B2 事件唤醒延迟：blocked WU（assignee=实例）进入 lastActiveWuIds 后发人类消息，
+ *   B2 事件唤醒延迟：blocked WU（assignee=实例）就绪且 loop 进入 idleSleep 后发人类消息，
  *      测量 message_sent publish → 下一次 observe(getIndex) 的时延。
+ *      （2026-09-16 唤醒放宽：不再等 lastActiveWuIds，该派生缓存机制已删——唤醒只放行不裁决）
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -187,7 +188,8 @@ async function main(): Promise<void> {
 
   // B2：channel.message_sent 唤醒延迟
   console.log('\n── B2: 人类消息 → 唤醒 idle sleep → 下一次 observe ──');
-  // 建 blocked WU 挂本实例，等它进入 lastActiveWuIds（observe 每 ≤15s 刷一次）。
+  // 建 blocked WU 挂本实例。2026-09-16 唤醒放宽后不再等 lastActiveWuIds（机制已删，
+  // 唤醒只放行不裁决）——只需等 loop 进入 idleSleep。
   // scope 必须带 test 特征词：唤醒后 loop 会真的拾取该 WU 起会话——B2 守卫拦在
   // prompt 组装前直接关闭，防误烧 token（2026-09-12 首跑教训：无 test 词的 scope
   // 被唤醒的 loop 当真任务 spawn 了真实 CLI 会话）。
@@ -197,17 +199,14 @@ async function main(): Promise<void> {
   });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const seam = loop as any;
-  const regDeadline = Date.now() + 20_000;
-  while (!seam.lastActiveWuIds?.has(blockedWu.id) && Date.now() < regDeadline) {
-    await new Promise(res => setTimeout(res, 100));
-  }
-  if (!seam.lastActiveWuIds?.has(blockedWu.id)) {
-    console.log('B2 SKIP: blocked WU 20s 未进入 lastActiveWuIds');
-  } else {
-    console.log('[bench] blocked WU 已进入 lastActiveWuIds，loop 处于 idleSleep');
+  {
     // 等 loop 确实进入 idleSleep（wakeIdle 挂起）
     const idleDeadline = Date.now() + 20_000;
     while (!seam.wakeIdle && Date.now() < idleDeadline) await new Promise(res => setTimeout(res, 50));
+    if (!seam.wakeIdle) {
+      console.log('B2 SKIP: loop 20s 未进入 idleSleep');
+    } else {
+    console.log('[bench] loop 处于 idleSleep');
     const wakeLat: number[] = [];
     for (let i = 0; i < 3; i++) {
       // 等回 idleSleep
@@ -233,6 +232,7 @@ async function main(): Promise<void> {
       await new Promise(res => setTimeout(res, 3_000));
     }
     if (wakeLat.length > 0) console.log(`B2 唤醒延迟: ${summary(wakeLat)}`);
+    }
   }
 
   loop.stop();
