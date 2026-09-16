@@ -15,7 +15,7 @@
 
 import * as fs from 'fs/promises';
 import { logger } from '@dommaker/studio-shared';
-import { execSh, resolveProviderDefinition, buildHealthProbeCommand } from '@dommaker/studio-shared/node';
+import { execSh, resolveProviderDefinition, buildHealthProbeCommand, getSupportedFlags } from '@dommaker/studio-shared/node';
 import { buildAgentConstraintPrompt } from '@dommaker/studio-shared/harness/hooks';
 import { skillLoader } from '@dommaker/studio-skill';
 import { buildSpawnArgs, type Provider, type SpawnParams } from '../cli-adapter.js';
@@ -272,7 +272,10 @@ export interface SessionCommandOptions {
  */
 export function buildSessionCommand(opts: SessionCommandOptions): string {
   const providerDef = resolveProviderDefinition(opts.provider);
-  const spawnArgs = buildSpawnArgs(opts.provider, opts.spawnParams);
+  // #565: 能力探测——目标 CLI 不认识的 conditionalFlags 在 spawn 前剔除；
+  // 探测失败/未声明探测返回 undefined = fail-open 全量传参，行为与现状一致。
+  const supportedFlags = getSupportedFlags(opts.provider);
+  const spawnArgs = buildSpawnArgs(opts.provider, { ...opts.spawnParams, supportedFlags });
   // --verbose already ships in claude's registry template; literal kept for the legacy cmd shape
   const verboseArg = spawnArgs.args.includes('--verbose') ? '' : (opts.provider === 'claude' ? `--verbose` : '');
   const promptArg = providerDef.spawn.promptViaStdin

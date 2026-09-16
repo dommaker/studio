@@ -179,5 +179,28 @@ describe('executeSessionLoop', () => {
     expect(result.failureLog).toContain('## Session 1 Failure');
     expect(emitSessionEnd).toHaveBeenCalledTimes(1);
     expect(state.runningProcesses.size).toBe(0);
+    // #565 AC6: 输出无已知特征 → 不带 failureClass，error 无前缀（行为与现状一致）
+    expect(result.failureClass).toBeUndefined();
+    expect(result.error).not.toMatch(/^\[/);
+  });
+
+  test('#565 AC6：execSh 失败输出命中 auth 特征 → failureClass + error 指引前缀', async () => {
+    state.config.maxSessions = 1;
+    mockExecSh.mockImplementation(async (cmd: string) => {
+      if (String(cmd).startsWith('cd ')) {
+        throw Object.assign(new Error('Command failed'), { code: 1, stdout: Buffer.from('Error: Invalid API key · Please run /login'), stderr: Buffer.from('') });
+      }
+      return { stdout: '' };
+    });
+
+    const result = await executeSessionLoop(state, makeTask());
+
+    expect(result.success).toBe(false);
+    expect(result.failureClass).toBeDefined();
+    expect(result.failureClass!.category).toBe('auth');
+    expect(result.failureClass!.guidance).toContain('claude login');
+    expect(result.error).toMatch(/^\[auth\] /);
+    expect(result.error).toContain('claude login');
+    expect(result.error).toContain('Max sessions (1) exhausted');
   });
 });

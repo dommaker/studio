@@ -10,6 +10,7 @@ export * from './vps-workspace';
 export * from './cli/index';
 export * from './config/index';
 export * from './providers';
+export * from './capability-probe';
 export * from './utils/index';
 export * from './llm/index';
 export * from './harness/index';

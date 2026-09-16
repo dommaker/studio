@@ -136,4 +136,45 @@ describe('buildSpawnArgs', () => {
       expect(result.args).toEqual(['run', '--format', 'json']);
     });
   });
+
+  describe('capability probe — conditionalFlags 过滤（#565 AC1/AC2）', () => {
+    it('AC1: supportedFlags 不含 hook-trust 时从 baseArgs 剔除', () => {
+      const result = buildSpawnArgs('codex', {
+        worktreeDir: '/tmp/test',
+        supportedFlags: new Set(['--json', '--model']),
+      });
+      expect(result.args).toEqual(['exec', '--json']);
+    });
+
+    it('AC1: supportedFlags 含 hook-trust 时保留', () => {
+      const result = buildSpawnArgs('codex', {
+        worktreeDir: '/tmp/test',
+        supportedFlags: new Set(['--json', '--dangerously-bypass-hook-trust']),
+      });
+      expect(result.args).toEqual(['exec', '--json', '--dangerously-bypass-hook-trust']);
+    });
+
+    it('AC1: resume 路径（exec resume --last）同样过滤', () => {
+      const result = buildSpawnArgs('codex', {
+        worktreeDir: '/tmp/test',
+        sessionId: 'sess-123',
+        sessionResume: true,
+        supportedFlags: new Set(['--json']),
+      });
+      expect(result.args).toEqual(['exec', 'resume', '--last', '--json']);
+    });
+
+    it('AC2: 不传 supportedFlags（探测失败 fail-open）argv 与现状逐字节一致', () => {
+      const result = buildSpawnArgs('codex', { worktreeDir: '/tmp/test' });
+      expect(result.args).toEqual(['exec', '--json', '--dangerously-bypass-hook-trust']);
+    });
+
+    it('无 conditionalFlags 的 provider 传 supportedFlags 不过滤任何 flag', () => {
+      const result = buildSpawnArgs('claude', {
+        worktreeDir: '/tmp/test',
+        supportedFlags: new Set([]),
+      });
+      expect(result.args).toEqual(['--print', '--output-format', 'stream-json', '--verbose']);
+    });
+  });
 });

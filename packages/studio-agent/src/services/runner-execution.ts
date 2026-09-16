@@ -13,7 +13,7 @@ import * as path from 'path';
 import * as fs from 'fs/promises';
 import * as fsSync from 'fs';
 import { logger } from '@dommaker/studio-shared';
-import { execSh, resolveSessionId, readSessionIdFile } from '@dommaker/studio-shared/node';
+import { execSh, resolveSessionId, readSessionIdFile, classifyCliFailure } from '@dommaker/studio-shared/node';
 import { beforeAgentExecute } from '@dommaker/studio-shared/harness/hooks';
 
 import {
@@ -314,6 +314,12 @@ export async function executeSessionLoop(state: RunnerExecutionState, task: Agen
         if (sessionCount >= config.maxSessions) {
           // stdout 包含 claude 实际输出（含错误详情），errMsg 可能因 2>&1 为空
           const detail = stdoutText ? stdoutText.slice(-500) : errMsg.slice(0, 200);
+          // #565: 失败分类——最终失败返回带出「去哪修」指引；未命中行为与现状一致
+          const failureClass = classifyCliFailure({
+            provider,
+            exitCode: typeof (execErr as { code?: unknown })?.code === 'number' ? (execErr as { code: number }).code : undefined,
+            output: `${stderrText}\n${stdoutText}\n${errMsg}`,
+          });
           const failureLog = [
             `## Session ${sessionCount} Failure`,
             `### Error: ${errMsg}`,
@@ -338,7 +344,10 @@ export async function executeSessionLoop(state: RunnerExecutionState, task: Agen
           });
           return {
             success: false, worktree, outputFiles: [],
-            error: `Max sessions (${config.maxSessions}) exhausted. Last error: ${detail}`,
+            error: failureClass
+              ? `[${failureClass.category}] ${failureClass.guidance} — Max sessions (${config.maxSessions}) exhausted. Last error: ${detail}`
+              : `Max sessions (${config.maxSessions}) exhausted. Last error: ${detail}`,
+            ...(failureClass ? { failureClass } : {}),
             failureLog,
             logFile, sessionCount,
           };

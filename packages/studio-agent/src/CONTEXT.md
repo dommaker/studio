@@ -10,10 +10,10 @@
 | --- | --- | --- |
 | `AgentRegistry` | services/agent-registry.ts | Agent 注册中心，支持注册、发现、缓存、Schema 校验 |
 | `AgentRunner`, `agentRunner` | services/agent-runner.ts | 统一执行器（execute / executeLightweight / stop / stopProcessGroup / stopAllProcessGroups），支持流式 JSON 输出；stop() 所有权唯一（runningProcesses 只在此注册）；#178 `stopProcessGroup` = kill(-pid) 杀整进程组（fencing 易主/租约场景，ESRCH 跳过、非 ESRCH 回落单杀）；#179（#66 决议 2）`stopAllProcessGroups` = 优雅关闭时 SIGTERM 杀全部注册进程组并清表（不等 step 落盘，api shutdown 调用） |
-| `buildSpawnArgs` | cli-adapter.ts | 纯函数，为指定 provider 构建 CLI spawn 参数（command + args） |
+| `buildSpawnArgs` | cli-adapter.ts | 纯函数，为指定 provider 构建 CLI spawn 参数（command + args）；#565 起 SpawnParams 增可选 `supportedFlags`（能力探测产出，studio-shared capability-probe），提供时剔除模板 conditionalFlags 中目标 CLI 不认识的 flag，缺省 = fail-open 全量传参（runner-params buildSessionCommand 是消费点） |
 | 类型 `Provider`, `SpawnParams`, `SpawnArgs` | cli-adapter.ts | CLI 适配相关类型 |
 | 类型 `AgentMetadata`, `JSONSchema` 等 | types.ts | Agent 元数据、JSON Schema 等类型定义 |
-| 类型 `AgentTask`, `ExecutionResult`, `ExecutorConfig`, `PrerequisiteCheck` | services/types.ts | 任务、执行结果与执行器配置类型（原 session-manager.ts） |
+| 类型 `AgentTask`, `ExecutionResult`, `ExecutorConfig`, `PrerequisiteCheck` | services/types.ts | 任务、执行结果与执行器配置类型（原 session-manager.ts）；#565 起 ExecutionResult 增可选 `failureClass`（studio-shared failure-classifier 产出，runner-execution/runner-lightweight 失败路径命中已知特征时带出，error 同时加 `[category] guidance` 前缀；未命中两路径行为与现状一致） |
 
 ### 依赖关系
 

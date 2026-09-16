@@ -50,6 +50,12 @@ export interface ProviderSpawnTemplate {
   promptFlag?: string;
   /** Prompt appended as positional argument (e.g. codex exec [PROMPT], opencode run [message..]) */
   promptPositional?: boolean;
+  /**
+   * #565: baseArgs/resumeArgs 中允许被能力探测剔除的 flag。
+   * 探测到目标 CLI 不认识（help 输出无此 flag）时由 cli-adapter 过滤；
+   * 只标非核心协议 flag（缺了只是功能降级，不是直接不可用）。
+   */
+  conditionalFlags?: string[];
 }
 
 export interface ProviderDefinition {
@@ -63,6 +69,27 @@ export interface ProviderDefinition {
   versionArgs: string[];
   /** Args for the AgentLoop health probe (`<binary> <healthProbeArgs>`) */
   healthProbeArgs: string[];
+  /**
+   * #565: 能力探测命令（`<binary> <helpArgs>`），解析输出中的 flag 集合。
+   * 不声明则不探测、不过滤 conditionalFlags。codex 的 flag 在子命令上 → ['exec', '--help']。
+   */
+  capabilityProbe?: {
+    helpArgs: string[];
+  };
+  /**
+   * #565: 登录态探测命令（`<binary> <args>`）。三态判定：
+   * exit 0 且输出不命中 notLoggedInPatterns → ok；命中模式或非零 exit → failed；
+   * 未声明 authProbe / 探测自身出错（spawn 失败、超时）→ unknown（不猜配置目录）。
+   * 只声明实测可靠的命令；没有可靠手段就不声明、恒 unknown。
+   */
+  authProbe?: {
+    args: string[];
+    timeoutMs?: number;
+    /** 输出命中任一模式（正则串）= 未登录 */
+    notLoggedInPatterns?: string[];
+    /** auth=failed 时给用户的修复提示（产品语言，不含内部环境信息） */
+    authHint?: string;
+  };
   /** Include in the default `studio daemon start` scan list (default true) */
   scanDefault?: boolean;
   /** Non-interactive task execution template */
@@ -103,6 +130,12 @@ export const BUILTIN_PROVIDERS: Record<string, ProviderDefinition> = {
       addDirFlag: '--add-dir',
       promptViaStdin: true,
     },
+    // #565（2.1.273 实测）：`claude auth status` 输出 JSON，loggedIn 字段即登录态
+    authProbe: {
+      args: ['auth', 'status'],
+      notLoggedInPatterns: ['"loggedIn"\\s*:\\s*false'],
+      authHint: '运行 claude login 重新登录',
+    },
   },
   kimi: {
     id: 'kimi',
@@ -122,6 +155,8 @@ export const BUILTIN_PROVIDERS: Record<string, ProviderDefinition> = {
       promptViaStdin: false,
       promptFlag: '--prompt',
     },
+    // #565：不声明 authProbe —— 0.38.0 实测 `kimi login` 无 status 子命令，
+    // 无可靠登录态探测手段 → 恒 unknown（不猜配置目录）。
   },
   codex: {
     id: 'codex',
@@ -145,6 +180,17 @@ export const BUILTIN_PROVIDERS: Record<string, ProviderDefinition> = {
       addDirFlag: '--add-dir',
       promptViaStdin: true,
       promptPositional: true,
+      // #565: hook-trust flag 是 0.147.0 才引入的能力增强项（非核心协议 flag），
+      // 旧版本 codex 不认识时由能力探测剔除，避免 spawn 后 unknown option 报错。
+      conditionalFlags: ['--dangerously-bypass-hook-trust'],
+    },
+    // #565: codex 的 exec flag 在子命令 help 上（0.147.0 实测含 --dangerously-bypass-hook-trust）
+    capabilityProbe: { helpArgs: ['exec', '--help'] },
+    // #565（0.147.0 实测）：`codex login status` 未登录 exit 1 + 输出 "Not logged in"
+    authProbe: {
+      args: ['login', 'status'],
+      notLoggedInPatterns: ['Not logged in'],
+      authHint: '运行 codex login 登录',
     },
   },
   opencode: {
@@ -165,6 +211,8 @@ export const BUILTIN_PROVIDERS: Record<string, ProviderDefinition> = {
       promptViaStdin: false,
       promptPositional: true,
     },
+    // #565：不声明 authProbe —— 1.18.18 实测 `opencode auth list` 把 env 凭证
+    // （OPENAI_API_KEY 等）与登录态混在一起，无可靠判定 → 恒 unknown。
   },
   openclaw: {
     id: 'openclaw',

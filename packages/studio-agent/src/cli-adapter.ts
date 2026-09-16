@@ -32,7 +32,7 @@
  *                    跑 codex 需先把 provider 换成 wire_api=responses 的可用网关）
  */
 
-import { resolveProviderDefinition, buildArgsFromTemplate, type ProviderId } from '@dommaker/studio-shared/node';
+import { resolveProviderDefinition, buildArgsFromTemplate, type ProviderId, type ProviderDefinition } from '@dommaker/studio-shared/node';
 
 export type Provider = ProviderId;
 
@@ -49,6 +49,11 @@ export interface SpawnParams {
   sessionResume?: boolean;
   /** Max turns for the agent */
   maxTurns?: number;
+  /**
+   * #565: 能力探测产出的 supported flag 集合（getSupportedFlags）。
+   * 提供时剔除模板 conditionalFlags 中不在集合内的 flag；undefined = fail-open 全量传参。
+   */
+  supportedFlags?: Set<string>;
 }
 
 export interface SpawnArgs {
@@ -77,6 +82,22 @@ const RESUME_FLAG_OVERRIDES: Record<string, string> = {
 const RESUME_ONLY_SESSION_PROVIDERS = new Set(['kimi', 'codex', 'opencode']);
 
 /**
+ * #565: 剔除 conditionalFlags 中目标 CLI 不支持的 flag（按 token 精确匹配，
+ * 第一批只标布尔型 flag，无值需要连带剔除）。supportedFlags 缺省 = fail-open 不过滤。
+ */
+function filterConditionalArgs(
+  def: ProviderDefinition,
+  args: string[],
+  supportedFlags: Set<string> | undefined,
+): string[] {
+  const conditional = def.spawn.conditionalFlags;
+  if (!conditional?.length || !supportedFlags) return args;
+  const drop = new Set(conditional.filter(f => !supportedFlags.has(f)));
+  if (drop.size === 0) return args;
+  return args.filter(a => !drop.has(a));
+}
+
+/**
  * Build spawn args for the given provider.
  *
  * @param provider - CLI provider name
@@ -92,14 +113,14 @@ export function buildSpawnArgs(provider: Provider, params: SpawnParams): SpawnAr
     // 占位注入 resumeArgs 模板，保留模板对 model/add-dir 等 flag 的处理；Studio UUID 忽略。
     if (provider === 'codex') {
       const { args } = buildArgsFromTemplate(def, { sessionId: '--last', maxTurns: params.maxTurns });
-      return { command, args };
+      return { command, args: filterConditionalArgs(def, args, params.supportedFlags) };
     }
     const resumeFlag = RESUME_FLAG_OVERRIDES[provider];
     if (resumeFlag) {
       // claude 接 id；kimi/opencode 的 --continue 无值（cwd 维度续用）
       const { args } = buildArgsFromTemplate(def, { maxTurns: params.maxTurns });
       args.push(resumeFlag, ...(provider === 'claude' ? [params.sessionId] : []));
-      return { command, args };
+      return { command, args: filterConditionalArgs(def, args, params.supportedFlags) };
     }
     // 未覆盖的 provider（openclaw/generic）：回落模板 id 形态（未验证，保持旧行为）
   }
@@ -112,5 +133,5 @@ export function buildSpawnArgs(provider: Provider, params: SpawnParams): SpawnAr
     sessionId,
     maxTurns: params.maxTurns,
   });
-  return { command, args };
+  return { command, args: filterConditionalArgs(def, args, params.supportedFlags) };
 }

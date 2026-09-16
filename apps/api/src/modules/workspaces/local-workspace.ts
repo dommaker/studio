@@ -118,6 +118,10 @@ async function scanLocalRuntimes(workspaceId: string): Promise<void> {
         version: rt.version,
         path: rt.path,
         status: 'online',
+        // #565: 登录态三态随 runtimes 记录持久（节奏 = 启动扫描 + 手动 rescan）
+        auth: rt.auth,
+        ...(rt.authHint ? { authHint: rt.authHint } : {}),
+        authCheckedAt: rt.authCheckedAt,
         lastSeenAt: now,
         createdAt: prev?.createdAt ?? now,
         updatedAt: now,

@@ -24,13 +24,16 @@ describe('cli-scanner', () => {
     test('returns runtime info when CLI is found', () => {
       mockExecFileSync
         .mockReturnValueOnce('/usr/local/bin/claude\n') // which
-        .mockReturnValueOnce('claude 1.2.3\n');          // --version
+        .mockReturnValueOnce('claude 1.2.3\n')          // --version
+        .mockReturnValueOnce('{\n  "loggedIn": true\n}\n'); // auth status
 
       const result = detectProvider('claude');
       expect(result).toEqual({
         provider: 'claude',
         path: '/usr/local/bin/claude',
         version: 'claude 1.2.3',
+        auth: 'ok',
+        authCheckedAt: expect.any(String),
       });
     });
 
@@ -50,7 +53,7 @@ describe('cli-scanner', () => {
         .mockImplementationOnce(() => { throw new Error('no -v'); });       // -v
 
       const result = detectProvider('codex');
-      expect(result).toEqual({
+      expect(result).toMatchObject({
         provider: 'codex',
         path: '/usr/local/bin/codex',
         version: 'unknown',
@@ -68,6 +71,8 @@ describe('cli-scanner', () => {
         provider: 'opencode',
         path: '/usr/local/bin/opencode',
         version: 'opencode v0.5.0',
+        auth: 'unknown', // opencode 不声明 authProbe（#565：无可靠探测手段）
+        authCheckedAt: expect.any(String),
       });
     });
 
@@ -81,6 +86,8 @@ describe('cli-scanner', () => {
         provider: 'kimi',
         path: '/root/.kimi-code/bin/kimi',
         version: '0.27.0',
+        auth: 'unknown', // kimi 不声明 authProbe（#565：login 无 status 子命令）
+        authCheckedAt: expect.any(String),
       });
     });
 
@@ -146,6 +153,75 @@ describe('cli-scanner', () => {
         throw new Error('not found');
       });
       expect(hasDocker()).toBe(false);
+    });
+  });
+
+  describe('auth probe（#565 AC3：三态，未声明恒 unknown，不猜配置目录）', () => {
+    test('claude：auth status 输出 loggedIn=true → ok', () => {
+      mockExecFileSync
+        .mockReturnValueOnce('/usr/local/bin/claude\n')
+        .mockReturnValueOnce('2.1.273\n')
+        .mockReturnValueOnce('{\n  "loggedIn": true,\n  "authMethod": "oauth_token"\n}\n');
+
+      const result = detectProvider('claude');
+      expect(result?.auth).toBe('ok');
+      expect(result?.authHint).toBeUndefined();
+      expect(result?.authCheckedAt).toEqual(expect.any(String));
+    });
+
+    test('claude：输出命中 loggedIn=false 模式 → failed + 修复 hint', () => {
+      mockExecFileSync
+        .mockReturnValueOnce('/usr/local/bin/claude\n')
+        .mockReturnValueOnce('2.1.273\n')
+        .mockReturnValueOnce('{\n  "loggedIn": false\n}\n');
+
+      const result = detectProvider('claude');
+      expect(result?.auth).toBe('failed');
+      expect(result?.authHint).toContain('claude login');
+    });
+
+    test('codex：login status 非零退出（进程跑起来了）→ failed + 修复 hint', () => {
+      mockExecFileSync.mockImplementation(((cmd: string, args?: readonly string[]) => {
+        if (cmd === 'which') return '/usr/local/bin/codex\n';
+        if (args?.includes('--version')) return 'codex-cli 0.147.0\n';
+        if (args?.join(' ') === 'exec --help') return 'Usage: codex exec --json\n'; // capability warm
+        if (args?.join(' ') === 'login status') {
+          // 0.147.0 实测：未登录 exit 1 + "Not logged in"
+          const err = new Error('Command failed') as Error & { status: number; stderr: string };
+          err.status = 1;
+          err.stderr = 'Not logged in';
+          throw err;
+        }
+        throw new Error(`unexpected: ${cmd} ${args?.join(' ')}`);
+      }) as typeof execFileSync);
+
+      const result = detectProvider('codex');
+      expect(result?.auth).toBe('failed');
+      expect(result?.authHint).toContain('codex login');
+    });
+
+    test('探测自身出错（spawn 失败，无 exit status）→ unknown，不误报 failed', () => {
+      mockExecFileSync.mockImplementation(((cmd: string, args?: readonly string[]) => {
+        if (cmd === 'which') return '/usr/local/bin/claude\n';
+        if (args?.includes('--version')) return '2.1.273\n';
+        // auth status spawn 失败（如 ENOENT/超时）：没有 status 字段
+        throw new Error('spawn claude ENOENT');
+      }) as typeof execFileSync);
+
+      const result = detectProvider('claude');
+      expect(result?.auth).toBe('unknown');
+      expect(result?.authHint).toBeUndefined();
+    });
+
+    test('未声明 authProbe 的 provider（kimi）恒 unknown，且不发起探测进程', () => {
+      mockExecFileSync
+        .mockReturnValueOnce('/root/.kimi-code/bin/kimi\n')
+        .mockReturnValueOnce('0.38.0\n');
+
+      const result = detectProvider('kimi');
+      expect(result?.auth).toBe('unknown');
+      // 只有 which + --version 两次进程调用，无第三次探测
+      expect(mockExecFileSync).toHaveBeenCalledTimes(2);
     });
   });
 

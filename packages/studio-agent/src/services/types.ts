@@ -6,6 +6,7 @@
  */
 
 import type { ProviderId } from '@dommaker/studio-shared/node';
+import type { CliFailureClass } from '@dommaker/studio-shared/node';
 import type { ProgressReport } from './output-capture.js';
 
 // ─── 配置类型 ───
@@ -90,6 +91,12 @@ export interface ExecutionResult {
   outputFiles: string[];
   error?: string;
   failureLog?: string; // 完整失败上下文（stdout+stderr），用于根因诊断
+  /**
+   * #565: 失败分类（命中已知特征时带出，未命中缺省 = 走原有透传）。
+   * 给用户看的「去哪修」指引（category + guidance）；与 RKB queryResolutionHints
+   * （给下一轮 agent 看）并存，互不影响。UI/agent-loop 消费本字段渲染指引卡。
+   */
+  failureClass?: CliFailureClass;
   logFile: string;
   sessionCount: number;
   totalDurationMs?: number;

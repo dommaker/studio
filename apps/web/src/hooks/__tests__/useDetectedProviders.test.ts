@@ -47,6 +47,28 @@ describe('buildProviderOptions', () => {
     const values = opts.filter((o) => !o.disabled).map((o) => o.value);
     expect(values).toEqual(['claude', 'a-tool', 'z-custom']);
   });
+
+  // #565 AC4：auth=failed 标徽标 + hint；unknown 不标
+  it('auth=failed 的 provider 带未登录徽标与修复 hint', () => {
+    const opts = buildProviderOptions([
+      { provider: 'codex', version: '0.147.0', auth: 'failed', authHint: '运行 codex login 登录' },
+    ], false);
+    const codex = opts.find((o) => o.value === 'codex');
+    expect(codex).toBeDefined();
+    expect(codex!.label).toContain('未登录');
+    expect(codex!.title).toBe('运行 codex login 登录');
+    expect(codex!.auth).toBe('failed');
+    expect(codex!.disabled).toBe(false);
+  });
+
+  it('auth=ok / unknown 不标徽标', () => {
+    const opts = buildProviderOptions([
+      { provider: 'claude', version: '2.1.273', auth: 'ok' },
+      { provider: 'kimi', version: '0.38.0', auth: 'unknown' },
+    ], false);
+    expect(opts.find((o) => o.value === 'claude')!.label).not.toContain('未登录');
+    expect(opts.find((o) => o.value === 'kimi')!.label).not.toContain('未登录');
+  });
 });
 
 // ── useDetectedProviders (hook) ──

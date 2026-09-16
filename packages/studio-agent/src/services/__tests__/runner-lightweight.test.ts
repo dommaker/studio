@@ -225,5 +225,35 @@ describe('executeLightweightSession', () => {
     expect(result.failureLog).toBe('partial');
     expect(emitSessionEnd).toHaveBeenCalledTimes(1);
     expect(state.runningProcesses.size).toBe(0);
+    // #565 AC6: 无已知特征 → 无 failureClass（行为与现状一致）
+    expect(result.failureClass).toBeUndefined();
+  });
+
+  test('#565 AC6：catch 路径命中分类 → failureClass + error 指引前缀', async () => {
+    mockExecSh.mockImplementation(async (cmd: string) => {
+      if (String(cmd).startsWith('cd ')) {
+        throw Object.assign(new Error('Command failed'), { code: 1, stdout: Buffer.from('Not logged in'), stderr: Buffer.from('') });
+      }
+      return { stdout: '' };
+    });
+    const result = await executeLightweightSession(state, makeTask({ provider: 'codex' }));
+
+    expect(result.success).toBe(false);
+    expect(result.failureClass).toBeDefined();
+    expect(result.failureClass!.category).toBe('auth');
+    expect(result.failureClass!.guidance).toContain('codex login');
+    expect(result.error).toMatch(/^\[auth\] /);
+    expect(result.error).toContain('codex login');
+  });
+
+  test('#565 AC6：is_error 路径命中分类 → failureClass + error 指引前缀', async () => {
+    // 注：mockResolvedValue 全覆盖（含前置检查的 df -h）→ stdout 需带 usage 数字避免磁盘检查误判
+    mockExecSh.mockResolvedValue({ stdout: buildStreamStdout({ result: 'Error: Invalid API key', is_error: true, usage: { input_tokens: 30, output_tokens: 10 } }) });
+    const result = await executeLightweightSession(state, makeTask());
+
+    expect(result.success).toBe(false);
+    expect(result.failureClass!.category).toBe('auth');
+    expect(result.error).toMatch(/^\[auth\] /);
+    expect(result.error).toContain('claude login');
   });
 });

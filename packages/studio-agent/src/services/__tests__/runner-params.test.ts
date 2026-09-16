@@ -19,6 +19,17 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => {
   };
 });
 
+vi.mock('@dommaker/studio-shared/node', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@dommaker/studio-shared/node')>();
+  return {
+    ...actual,
+    getSupportedFlags: vi.fn(() => undefined),
+  };
+});
+
+import { getSupportedFlags } from '@dommaker/studio-shared/node';
+const mockGetSupportedFlags = vi.mocked(getSupportedFlags);
+
 import {
   buildAugmentedPrompt,
   buildSessionFlag,
@@ -111,6 +122,20 @@ describe('buildSessionCommand', () => {
   test('promptFlag 型 provider 用 --prompt "$(cat ...)" 形式', () => {
     const cmd = buildSessionCommand({ ...base, provider: 'kimi', spawnParams: { worktreeDir: '/wt' }, sessionFlags: '' });
     expect(cmd).toContain('--prompt "$(cat \"/wt/.daemon/prompt.md\")"');
+  });
+
+  // #565: 能力探测消费点——codex 的 hook-trust conditional flag 按 supportedFlags 剔除/保留
+  test('codex：探测结果不含 hook-trust flag 时命令剔除之', () => {
+    mockGetSupportedFlags.mockReturnValueOnce(new Set(['--json']));
+    const cmd = buildSessionCommand({ ...base, provider: 'codex', spawnParams: { worktreeDir: '/wt' }, sessionFlags: '' });
+    expect(cmd).toContain('codex exec --json');
+    expect(cmd).not.toContain('--dangerously-bypass-hook-trust');
+  });
+
+  test('codex：探测失败（undefined）fail-open 全量传参', () => {
+    mockGetSupportedFlags.mockReturnValueOnce(undefined);
+    const cmd = buildSessionCommand({ ...base, provider: 'codex', spawnParams: { worktreeDir: '/wt' }, sessionFlags: '' });
+    expect(cmd).toContain('codex exec --json --dangerously-bypass-hook-trust');
   });
 });
 

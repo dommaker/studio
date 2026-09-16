@@ -198,3 +198,30 @@ describe('spawn-args templates', () => {
     expect(promptViaStdin).toBe(true);
   });
 });
+
+describe('capability probe declarations（#565 AC1）', () => {
+  test('codex 声明 capabilityProbe.helpArgs 与 conditionalFlags（0.147.0 实测 codex exec --help 含该 flag）', () => {
+    expect(BUILTIN_PROVIDERS.codex.capabilityProbe).toEqual({ helpArgs: ['exec', '--help'] });
+    expect(BUILTIN_PROVIDERS.codex.spawn.conditionalFlags).toEqual(['--dangerously-bypass-hook-trust']);
+  });
+
+  test('其余内置 provider 第一批不声明 conditionalFlags（核心协议 flag 不做探测剔除）', () => {
+    expect(BUILTIN_PROVIDERS.claude.spawn.conditionalFlags).toBeUndefined();
+    expect(BUILTIN_PROVIDERS.kimi.spawn.conditionalFlags).toBeUndefined();
+    expect(BUILTIN_PROVIDERS.opencode.spawn.conditionalFlags).toBeUndefined();
+  });
+});
+
+describe('auth probe declarations（#565 AC3）', () => {
+  test('claude/codex 声明实测验证过的 auth 探测命令', () => {
+    // 2.1.273 实测 `claude auth status` 输出 JSON loggedIn 字段
+    expect(BUILTIN_PROVIDERS.claude.authProbe?.args).toEqual(['auth', 'status']);
+    // 0.147.0 实测 `codex login status` 未登录 exit 1 + "Not logged in"
+    expect(BUILTIN_PROVIDERS.codex.authProbe?.args).toEqual(['login', 'status']);
+  });
+
+  test('kimi/opencode 不声明 authProbe（实测无可靠探测手段 → 恒 unknown，不猜配置目录）', () => {
+    expect(BUILTIN_PROVIDERS.kimi.authProbe).toBeUndefined();
+    expect(BUILTIN_PROVIDERS.opencode.authProbe).toBeUndefined();
+  });
+});

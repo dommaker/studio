@@ -13,7 +13,7 @@ import type { ChildProcess } from 'child_process';
 import * as path from 'path';
 import * as fsSync from 'fs';
 import { logger } from '@dommaker/studio-shared';
-import { execSh } from '@dommaker/studio-shared/node';
+import { execSh, classifyCliFailure } from '@dommaker/studio-shared/node';
 
 import { resolveWorkspace, propagateHarnessConfig } from './worktree-resolver.js';
 import {
@@ -162,8 +162,12 @@ export async function executeLightweightSession(state: RunnerExecutionState, tas
         logger.warn('[AgentRunner] Lightweight session returned error', {
           taskId: task.id, text: text.slice(0, 200),
         });
+        // #565: 失败分类——命中已知特征时带出「去哪修」指引；未命中行为与现状一致
+        const failureClass = classifyCliFailure({ provider, output: text });
         return {
-          success: false, worktree, outputFiles: [], error: text.slice(0, 500),
+          success: false, worktree, outputFiles: [],
+          error: failureClass ? `[${failureClass.category}] ${failureClass.guidance} — ${text.slice(0, 500)}` : text.slice(0, 500),
+          ...(failureClass ? { failureClass } : {}),
           logFile, sessionCount: 1, totalDurationMs: sessionMs, sessionIds: [sessionId],
           usage: streamUsage, // M2: 失败执行同样计 tokens
         };
@@ -186,9 +190,16 @@ export async function executeLightweightSession(state: RunnerExecutionState, tas
 
       await emitSessionEnd(sessionId, task.executionId, 1, sessionExtras);
 
+      // #565: 失败分类——errMsg/stdout 命中已知特征时带出指引；未命中行为与现状一致
+      const failureClass = classifyCliFailure({
+        provider,
+        exitCode: typeof (execErr as { code?: unknown })?.code === 'number' ? (execErr as { code: number }).code : undefined,
+        output: `${errMsg}\n${stdoutText}`,
+      });
       return {
         success: false, worktree, outputFiles: [],
-        error: errMsg.slice(0, 500),
+        error: failureClass ? `[${failureClass.category}] ${failureClass.guidance} — ${errMsg.slice(0, 500)}` : errMsg.slice(0, 500),
+        ...(failureClass ? { failureClass } : {}),
         failureLog: stdoutText ? stdoutText.slice(-1000) : undefined,
         logFile, sessionCount: 1, totalDurationMs: Date.now() - sessionStart,
         sessionIds: [sessionId],
