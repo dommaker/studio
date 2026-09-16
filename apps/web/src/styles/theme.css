@@ -1,5 +1,7 @@
 @import "./responsive.css";
-@import "./mission-control.css";
+/* 批次 I-4：mission-control.css 改由 index.css 显式 import（紧随其后的 utilities.css 须保持
+   u-* 在 mc-* 之后的级联顺序，u-mb-3/u-accent 等覆盖 mc-* 自带 margin/color 的场景依赖此序），
+   本文件不再中转。 */
 /* 科幻极简设计系统 - 统一样式（2026-07 起深色主题 = 方向 A「Mission Control」） */
 
 /* === 主题切换 === */
@@ -253,8 +255,7 @@ body {
   animation: mc-fade-in var(--motion-fast) var(--ease-standard);
 }
 
-.modal,
-.modal-content {
+.modal {
   animation: mc-modal-in var(--motion-base) var(--ease-standard);
 }
 
@@ -271,12 +272,6 @@ body,
   transition: background-color var(--motion-base) var(--ease-standard),
     color var(--motion-base) var(--ease-standard),
     border-color var(--motion-base) var(--ease-standard);
-}
-
-/* === 容器 === */
-.container-main {
-  background: var(--bg-primary);
-  min-height: 100vh;
 }
 
 /* === 卡片组件 === */
@@ -569,22 +564,6 @@ body,
   padding: 10px 16px;
 }
 
-.nav-link {
-  color: var(--text-secondary);
-  padding: 4px 10px;
-  border-radius: 3px;
-}
-
-.nav-link:hover {
-  color: var(--text-primary);
-  background: var(--bg-tertiary);
-}
-
-.nav-link-active {
-  color: var(--accent-primary);
-  background: var(--accent-dim);
-}
-
 /* === 图标按钮（顶栏工具位；批次 D-0 自 ThemeToggleButton 内联收敛） === */
 .icon-btn {
   display: inline-flex;
@@ -760,18 +739,6 @@ body,
   z-index: 50;
 }
 
-.modal-content {
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-default);
-  border-radius: 6px;
-  padding: 16px;
-  max-width: 560px;
-  width: 100%;
-  max-height: 80vh;
-  overflow: auto;
-  box-shadow: var(--shadow-lg);
-}
-
 .modal {
   background: var(--bg-elevated);
   border: 1px solid var(--border-default);
@@ -824,19 +791,6 @@ body,
 
 .modal-close:hover {
   color: var(--text-primary);
-}
-
-/* === 分割线 === */
-.divider {
-  height: 1px;
-  background: linear-gradient(
-    90deg,
-    transparent,
-    var(--border-default) 20%,
-    var(--border-default) 80%,
-    transparent
-  );
-  margin: 16px 0;
 }
 
 /* === 加载状态 === */

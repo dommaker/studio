@@ -1,5 +1,11 @@
 @import "tailwindcss";
 @import "./styles/responsive.css";
+/* 批次 I-4：mission-control.css 自 theme.css 中转改此显式 import；utilities.css 必须紧随其后——
+   u-* 原随 mission-control.css 尾部加载，级联上在全部 mc-* 规则之后（u-mb-3 覆盖 mc-quote/
+   mc-drawer-note margin、u-accent 覆盖 mc-icon-btn color、u-accent-border 覆盖 mc-card border
+   等同优先级后定义胜出场景依赖此序）；theme.css 自身规则仍在其后加载，覆盖关系不变。 */
+@import "./styles/mission-control.css";
+@import "./styles/utilities.css";
 
 /* 字号档重映射到规范阶梯（style-guide §2.3：11/12/13/16/22，token 定义在 styles/theme.css :root）
    Tailwind 默认 text-sm=14px 不在阶梯内；此处对齐后全站 text-* 工具类输出 token 值。

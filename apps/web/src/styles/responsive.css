@@ -27,64 +27,7 @@
 @media (width < 40rem) {
   /* 导航栏 */
   nav {
-    padding: 0.5rem 1rem;
-  }
-  
-  nav .nav-links {
-    display: none;
-  }
-  
-  /* 汉堡菜单按钮 */
-  .mobile-menu-btn {
-    display: flex !important;
-    flex-direction: column;
-    gap: 4px;
-    padding: 8px;
-    background: transparent;
-    border: none;
-    cursor: pointer;
-  }
-  
-  .mobile-menu-btn span {
-    width: 20px;
-    height: 2px;
-    background: var(--text-primary);
-    /* 批次 E-1：all 收窄为实际动画属性，时长/缓动归动效 token */
-    transition: transform var(--motion-base) var(--ease-standard), background-color var(--motion-base) var(--ease-standard);
-  }
-  
-  /* 移动端菜单 */
-  .mobile-menu {
-    position: fixed;
-    top: 60px;
-    left: 0;
-    right: 0;
-    background: var(--bg-elevated);
-    border-top: 1px solid var(--border-subtle);
-    padding: 1rem;
-    transform: translateY(-100%);
-    opacity: 0;
-    /* 批次 E-1：all 收窄为进出场实际动画属性 transform + opacity */
-    transition: transform var(--motion-base) var(--ease-standard), opacity var(--motion-base) var(--ease-standard);
-    z-index: 100;
-  }
-  
-  .mobile-menu.open {
-    transform: translateY(0);
-    opacity: 1;
-  }
-  
-  .mobile-menu a {
-    display: block;
-    padding: 0.75rem 1rem;
-    color: var(--text-primary);
-    text-decoration: none;
-    border-radius: 0.5rem;
-    margin-bottom: 0.5rem;
-  }
-  
-  .mobile-menu a:hover {
-    background: var(--bg-hover);
+    padding: var(--space-2) var(--space-4);
   }
 }
 
@@ -96,7 +39,8 @@
   }
   
   .btn {
-    padding: 0.625rem 1rem;
+    /* 批次 I-4：0.625rem=10px 不在 --space-* 档（4/8/12/16/24/32），保留原值 */
+    padding: 0.625rem var(--space-4);
     font-size: 0.875rem;
   }
   
@@ -110,119 +54,29 @@
   }
 }
 
-/* ==================== 办公区页面响应式 ==================== */
-
-@media (width < 40rem) {
-  .office-grid {
-    grid-template-columns: 1fr;
-  }
-  
-  .role-card {
-    padding: 0.75rem;
-  }
-  
-  .role-card .avatar {
-    width: 40px;
-    height: 40px;
-  }
-  
-  .role-card .stats {
-    display: none;
-  }
-  
-  .role-card .stats-mobile {
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-  }
-}
-
-/* ==================== CEO 输入响应式 ==================== */
-
-@media (width < 40rem) {
-  .ceo-input-container {
-    padding: 0 1rem;
-  }
-  
-  .ceo-input-container .examples {
-    flex-wrap: wrap;
-  }
-  
-  .ceo-input-container .example-btn {
-    font-size: 0.75rem;
-    padding: 0.25rem 0.5rem;
-  }
-  
-  /* 智能补全弹窗 */
-  .suggestions-dropdown {
-    position: fixed;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    max-height: 50vh;
-    border-radius: 1rem 1rem 0 0;
-  }
-}
-
-/* ==================== 首页响应式 ==================== */
-
-@media (width < 40rem) {
-  .home-container {
-    padding: 0.5rem;
-  }
-  
-  .home-container .tasks-section {
-    margin-top: 1rem;
-  }
-  
-  .home-container .task-list {
-    gap: 0.5rem;
-  }
-}
-
 /* ==================== MR-009: Sidebar + TopNav 响应式 ==================== */
 
 @media (width < 40rem) {
-  /* Sidebar 移动端覆盖层 */
-  .sidebar-mobile-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    z-index: 200;
-    transform: translateX(-100%);
-    transition: transform var(--motion-base) var(--ease-standard);
-    padding: 1rem;
-  }
-  
-  .sidebar-mobile-overlay.open {
-    transform: translateX(0);
-  }
-  
   /* TopNav 简化 */
   .nav-header {
-    padding: 0.5rem 1rem;
+    padding: var(--space-2) var(--space-4);
   }
-  
+
   .nav-header nav {
     display: none; /* 隐藏桌面导航 */
   }
-  
-  .nav-header .logo-text {
-    font-size: 1rem;
-  }
-  
+
   /* 汉堡菜单按钮 */
   .hamburger-btn {
     display: flex !important;
     flex-direction: column;
+    /* 批次 I-4：gap 5px 不在 --space-* 档（4/8/12/16/24/32），保留原值 */
     gap: 5px;
-    padding: 8px;
+    padding: var(--space-2);
     background: transparent;
     border: none;
     cursor: pointer;
-    margin-right: 1rem;
+    margin-right: var(--space-4);
   }
   
   .hamburger-btn span {
@@ -303,7 +157,7 @@
     transform: translateX(-100%);
     /* 批次 E-1：抽屉滑出，时长/缓动归动效 token */
     transition: transform var(--motion-base) var(--ease-standard);
-    padding: 1rem;
+    padding: var(--space-4);
     display: flex;
     flex-direction: column;
   }
@@ -354,18 +208,6 @@
   }
 }
 
-/* ==================== 安全区域（刘海屏） ==================== */
-
-@supports (padding: env(safe-area-inset-bottom)) {
-  .bottom-nav {
-    padding-bottom: env(safe-area-inset-bottom);
-  }
-  
-  .bottom-sheet {
-    padding-bottom: calc(1rem + env(safe-area-inset-bottom));
-  }
-}
-
 /* ==================== 打印样式 ==================== */
 
 @media print {
@@ -374,10 +216,6 @@
     --print-bg: #ffffff;
     --print-text: #000000;
     --print-border: #dddddd;
-  }
-
-  .hide-print {
-    display: none !important;
   }
 
   body {
@@ -410,57 +248,16 @@
   .hide-mobile {
     display: none !important;
   }
-  
-  .show-mobile {
-    display: block !important;
-  }
 }
 
 @media (min-width: 640px) and (max-width: 1023px) {
   .hide-tablet {
     display: none !important;
   }
-  
-  .show-tablet {
-    display: block !important;
-  }
 }
 
 @media (min-width: 1024px) {
   .hide-desktop {
     display: none !important;
-  }
-  
-  .show-desktop {
-    display: block !important;
-  }
-}
-
-/* 响应式间距 */
-@media (width < 40rem) {
-  .gap-responsive {
-    gap: 0.5rem;
-  }
-  
-  .p-responsive {
-    padding: 0.75rem;
-  }
-  
-  .m-responsive {
-    margin: 0.5rem;
-  }
-}
-
-@media (min-width: 640px) {
-  .gap-responsive {
-    gap: 1rem;
-  }
-  
-  .p-responsive {
-    padding: 1.5rem;
-  }
-  
-  .m-responsive {
-    margin: 1rem;
   }
 }
