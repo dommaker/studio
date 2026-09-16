@@ -15,7 +15,7 @@
 | `formatError`, `createCliError`, `CliError`, `ERROR_CODES` | cli/error | 统一错误处理与格式化为字符串 |
 | `loadConfigEnv`, `AgentStudioConfig` | config | 系统级配置加载 (~/.studio/config.env) 及类型定义 |
 | `LEVEL_CONFIG`, `getLevelConfig`, `getLevelSalary` 等 | constants/levels | 全局统一的职级配置与辅助函数 |
-| `eventBus`, `StudioEventBus` | event-bus | 内存事件总线，支持通配符订阅 |
+| `eventBus`, `StudioEventBus` | event-bus | 内存事件总线，支持通配符订阅；监听器上限显式抬到 64（`workunit.status_changed` 模块级订阅方常态 11+ 每个 AgentLoop 实例再 +1，属业务扇出非泄漏，P9） |
 | `AgentProfileData`, `RuntimeStateData`, `ChannelData`, `ChannelMessageData` 等 | file-store | 文件存储基础数据类型。`ChannelData.routing`（#466）= 频道级「阶段→角色」路由表 `{ plan?, implement?, review? }`（profile id，档空 = 回池涌现；`defaultPipeline` 已吞并退役，存量由 api 侧 migrate-routing 迁移），解析/校验语义属主在 api channels/routing.ts |
 | `EvolutionProposalData`（constraintChange: message/exception/new-entry/retire——retire 为 #82 D6 退役落点） | file-store-types | E1 进化提案类型 |
 | `resolveVpsWorkspace`, `resolveWorkspacesDir` | vps-workspace（仅 /node 入口） | 'VPS' 工作区命名约定与 ~/.studio/workspaces 扫描的唯一属主（2026-08 起；#481 后消费方 = local-workspace 启动复用与 GET /workspaces/runtimes 本机 CLI 清单，记录的 workspaceRoot 已退出执行面，禁止第三处手扫） |
@@ -38,6 +38,7 @@
 
 ### 注意事项
 
+- `llm/stream-json-parser.ts`（#564，2026-09-16）：`StreamEvent.parent_tool_use_id` 是子 agent（Task/subagent）子树事件标记——CLI 对子树事件回填 Task tool_use 的 id，父 run 顶层事件为 null/缺省；`extractResult`/`extractUsage` 据此过滤子树（子 error result 不误杀父 run、usage 不父子双计），assistant 文本与 tool_use 提取不做过滤
 - 本包 `@types/node` 钉在 20.0.0（泛型前的 Buffer 类型），与 TS 5.7+ lib 的 `ArrayBufferView` 泛型不兼容——`handle.read(buffer)` / `Buffer.concat` 传 Buffer 会报类型错，解法 = 传参处 `as Uint8Array`（Buffer 运行时即 Uint8Array 子类，纯类型层适配，参照 jsonl-tail.ts）；根治 = 对齐 apps/api 的 ^20.12.7（未做，另议）
 
 - CLI 命令注册表为全局单例，测试后需调用 `clearCommands()` 清理
