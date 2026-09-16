@@ -409,6 +409,20 @@ describe('R3: extractFromConversation', () => {
     await ks.extractFromConversation(MESSAGES, { workUnitId: 'wu-empty' });
     expect(mockCreateCardMessage).not.toHaveBeenCalled();
   });
+
+  it('P8: STUDIO_KNOWLEDGE_EXTRACTION=false → 整体跳过（不调 LLM、不入库、不记事件）', async () => {
+    vi.stubEnv('STUDIO_KNOWLEDGE_EXTRACTION', 'false');
+    try {
+      const { ks, ingest, eventEmitter } = createKS();
+      await ks.extractFromConversation(MESSAGES, { workUnitId: 'wu-p8' });
+      expect(mockRun).not.toHaveBeenCalled();
+      expect(ingest.ingestEntry).not.toHaveBeenCalled();
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
+      expect(mockAppendJsonl).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
 });
 
 describe('R3: 提案注入闸门（draft 不参与 injectContext）', () => {
