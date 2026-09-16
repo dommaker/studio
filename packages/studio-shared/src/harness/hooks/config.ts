@@ -2,10 +2,15 @@
  * Per-Hook 声明表（A4：HookConfig 归一为 harness 形状 {name,enabled,errorStrategy}）
  *
  * - #159 起本表是 enabled/errorStrategy 的**唯一声明点**：HookDefinition 不再
- *   携带这两个字段，有效值在注册环节由本表填充（harness EffectiveHook），
- *   判定只住在 harness 管线（HookPipeline 读注册表有效值）。原 runHook
- *   自建判定层已拆除——直接调 hook 函数不再自带 enabled 门，管线外调用
- *   等价于绕过判定（生产路径全部经管线，见 runtime/bootstrap.ts）。
+ *   携带这两个字段，有效值在注册环节由本表填充（harness EffectiveHook）。
+ *   同一份声明有**两个读取点**，缺一即失控：
+ *   ① harness 管线按注册表有效值过滤/分派（时机粒度：run('before'|'after')）；
+ *   ② 本文件的 runHook 供管线外**按名字**直调（见下方注释）。
+ *   studio 的真实生产路径是 ②：packages/studio-agent/src/services/runner-execution.ts
+ *   直调 beforeAgentExecute，不经管线。把判定只留给了 ① 会让
+ *   enabled / HARNESS_HOOK_DISABLE 在这条路径上配了不生效（2026-09-16 实测回归，
+ *   防回归用例见 hooks/__tests__/direct-call-gate.test.ts）。
+ *   根治 = harness 提供按名执行单 hook 的公共面后删掉 ②，另票。
  * - 声明表是注册表闭环（assertHookRegistryClosed）的「声明」侧：只含经
  *   registerAllHooks 注册进管线的 7 个 hook。buildAgentConstraintPrompt 是同步
  *   直接调用助手（不进管线），不在声明表中。
@@ -60,4 +65,22 @@ export function getAllHookConfigs(): HookConfig[] {
 export function getHookConfig(name: string): HookConfig {
   const config = getAllHookConfigs().find(c => c.name === name);
   return config ?? { name, enabled: false, errorStrategy: 'warn' };
+}
+
+/**
+ * 管线外按名字直调 hook 的判定入口：读上方声明表的有效值，与 HookPipeline 同语义。
+ *
+ * enabled=false 跳过；实现体抛错时 block 上抛、warn 记一条警告后继续。
+ * 值只在本文件声明一次，这里与注册环节读的是同一份——两处读取、一处声明。
+ */
+export async function runHook(name: string, fn: () => Promise<void>): Promise<void> {
+  const config = getHookConfig(name);
+  if (!config.enabled) return;
+
+  try {
+    await fn();
+  } catch (err) {
+    if (config.errorStrategy === 'block') throw err;
+    console.warn(`[HarnessHook] ${name} failed (warn):`, (err as Error).message);
+  }
 }

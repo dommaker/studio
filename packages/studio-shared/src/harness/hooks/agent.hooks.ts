@@ -7,6 +7,7 @@ import { join } from 'path';
 import { checkBeforeExecution, getTraceCollector } from '@dommaker/harness';
 import type { ConstraintContext, HookDefinition } from '@dommaker/harness';
 import { formatConstraintsForPrompt } from '../prompt-injection';
+import { runHook } from './config';
 
 /** 延迟取 bootstrap 合并约束（含 custom-constraints.yml），避免与 bootstrap→register→hooks 的静态循环依赖 */
 async function getMergedConstraints() {
@@ -14,20 +15,22 @@ async function getMergedConstraints() {
   return getHarness()?.mergedConstraints ?? null;
 }
 
-/** Agent 执行前：约束检查（#159 起纯实现体，enabled/errorStrategy 判定住 harness 管线） */
+/** Agent 执行前：约束检查（直调路径经 runHook 认声明表的 enabled/errorStrategy） */
 export async function beforeAgentExecute(ctx: ConstraintContext): Promise<void> {
-  await checkBeforeExecution({
-    operation: 'code_implementation',
-    taskDescription: ctx.taskDescription,
-    projectPath: ctx.projectPath,
-    worktreePath: ctx.worktreePath,
-    hasVerificationEvidence: (ctx as any).hasVerificationEvidence,
-    hasRequirement: (ctx as any).hasRequirement,
-    hasSingleTask: (ctx as any).hasSingleTask,
-    hasTest: (ctx as any).hasTest,
-    hasRootCauseInvestigation: (ctx as any).hasRootCauseInvestigation,
-    hasFailingTest: (ctx as any).hasFailingTest,
-  }, await getMergedConstraints());
+  await runHook('beforeAgentExecute', async () => {
+    await checkBeforeExecution({
+      operation: 'code_implementation',
+      taskDescription: ctx.taskDescription,
+      projectPath: ctx.projectPath,
+      worktreePath: ctx.worktreePath,
+      hasVerificationEvidence: (ctx as any).hasVerificationEvidence,
+      hasRequirement: (ctx as any).hasRequirement,
+      hasSingleTask: (ctx as any).hasSingleTask,
+      hasTest: (ctx as any).hasTest,
+      hasRootCauseInvestigation: (ctx as any).hasRootCauseInvestigation,
+      hasFailingTest: (ctx as any).hasFailingTest,
+    }, await getMergedConstraints());
+  });
 }
 
 export function buildAgentConstraintPrompt(ctx: ConstraintContext): string {
@@ -71,27 +74,29 @@ export function buildAgentConstraintPrompt(ctx: ConstraintContext): string {
   return [constraintSection, toolRisk].filter(Boolean).join('\n');
 }
 
-/** Agent 完成后：trace 记录（#159 起纯实现体，判定住 harness 管线） */
+/** Agent 完成后：trace 记录（直调路径经 runHook 认声明表的 enabled/errorStrategy） */
 export async function afterAgentComplete(params?: {
   executionId?: string;
   success?: boolean;
   sessionCount?: number;
 }): Promise<void> {
-  const collector = getTraceCollector();
-  const traceBase = {
-    agentType: 'claude',
-    phase: 'execution',
-    operation: 'code_implementation',
-    message: params?.success
-      ? `Agent completed in ${params.sessionCount ?? '?'} sessions`
-      : `Agent execution recorded`,
-    details: params,
-  };
-  if (params?.success) {
-    collector.recordPass('agent_execution', 'guideline', traceBase);
-  } else {
-    collector.recordFail('agent_execution', 'guideline', traceBase);
-  }
+  await runHook('afterAgentComplete', async () => {
+    const collector = getTraceCollector();
+    const traceBase = {
+      agentType: 'claude',
+      phase: 'execution',
+      operation: 'code_implementation',
+      message: params?.success
+        ? `Agent completed in ${params.sessionCount ?? '?'} sessions`
+        : `Agent execution recorded`,
+      details: params,
+    };
+    if (params?.success) {
+      collector.recordPass('agent_execution', 'guideline', traceBase);
+    } else {
+      collector.recordFail('agent_execution', 'guideline', traceBase);
+    }
+  });
 }
 
 /**

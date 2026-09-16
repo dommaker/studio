@@ -6,6 +6,7 @@
 
 import { checkBeforeExecution, CheckCache } from '@dommaker/harness';
 import type { ConstraintContext, HookDefinition } from '@dommaker/harness';
+import { runHook } from './config';
 
 /**
  * Goal 检查采样缓存（A1：runtime/cache.ts 退役，直用 harness CheckCache）。
@@ -16,23 +17,24 @@ const goalCheckCache = new CheckCache();
 
 /**
  * Goal 创建前：harness 约束检查（采样模式，减少 I/O）。
- * #159：enabled/errorStrategy 判定已拆除委托 harness 管线（声明表经
- * registerAllHooks 配对进注册表，管线按有效值过滤/分派），本函数为纯实现体。
+ * 直调路径经 runHook 认声明表的 enabled/errorStrategy；管线路径由 harness 按注册表有效值判定。
  */
 export async function beforeGoalCreate(ctx: ConstraintContext): Promise<void> {
-  await goalCheckCache.get(
-    'goal_create',
-    ctx.projectPath || 'default',
-    async () => {
-      await checkBeforeExecution({
-        operation: 'goal_creation',
-        taskDescription: ctx.taskDescription,
-        projectPath: ctx.projectPath,
-      });
-      return true;
-    },
-    { sampleRate: 3, defaultValueOnMiss: true },
-  );
+  await runHook('beforeGoalCreate', async () => {
+    await goalCheckCache.get(
+      'goal_create',
+      ctx.projectPath || 'default',
+      async () => {
+        await checkBeforeExecution({
+          operation: 'goal_creation',
+          taskDescription: ctx.taskDescription,
+          projectPath: ctx.projectPath,
+        });
+        return true;
+      },
+      { sampleRate: 3, defaultValueOnMiss: true },
+    );
+  });
 }
 
 /**
@@ -58,18 +60,20 @@ export const goalHookDefinitions: HookDefinition[] = [
   },
 ];
 
-/** Agent dispatch 前：Iron Laws + 前置条件（纯实现体，判定经管线） */
+/** Agent dispatch 前：Iron Laws + 前置条件（直调路径经 runHook 认声明表） */
 export async function beforeAgentDispatch(ctx: ConstraintContext): Promise<void> {
-  await checkBeforeExecution({
-    operation: 'code_implementation',
-    taskDescription: ctx.taskDescription,
-    projectPath: ctx.projectPath,
-    worktreePath: ctx.worktreePath,
-    hasVerificationEvidence: (ctx as any).hasVerificationEvidence,
-    hasRequirement: (ctx as any).hasRequirement,
-    hasSingleTask: (ctx as any).hasSingleTask,
-    hasTest: (ctx as any).hasTest,
-    hasRootCauseInvestigation: (ctx as any).hasRootCauseInvestigation,
-    hasFailingTest: (ctx as any).hasFailingTest,
+  await runHook('beforeAgentDispatch', async () => {
+    await checkBeforeExecution({
+      operation: 'code_implementation',
+      taskDescription: ctx.taskDescription,
+      projectPath: ctx.projectPath,
+      worktreePath: ctx.worktreePath,
+      hasVerificationEvidence: (ctx as any).hasVerificationEvidence,
+      hasRequirement: (ctx as any).hasRequirement,
+      hasSingleTask: (ctx as any).hasSingleTask,
+      hasTest: (ctx as any).hasTest,
+      hasRootCauseInvestigation: (ctx as any).hasRootCauseInvestigation,
+      hasFailingTest: (ctx as any).hasFailingTest,
+    });
   });
 }
