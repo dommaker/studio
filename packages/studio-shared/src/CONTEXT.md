@@ -26,6 +26,7 @@
 | `isTestEnv`, `testTmpRoot`, `resolveStudioLogsDir`, `resolveStudioLogFile` | log-path.ts | #361 测试/生产日志路径隔离规则唯一属主（自 apps/api utils 下沉）：VITEST/NODE_ENV=test → os.tmpdir()/studio-test-logs，生产 → ~/.studio/logs；apps/api utils/studio-log-path.ts 为兼容薄壳 |
 | `matchResolutionPatterns`, `isActionableMaturity`, `formatRkbHint` | resolutions.ts | #361 RKB 匹配核心（原 studio-agent runner-output 与 api resolution.service 逐字重复段收一）：regex(i) 失败回退小写子串包含、verified/canonical 成熟度闸门、RKB hint markdown 格式化；文档扫描与 fix 提取口径留在各调用方 |
 | `readJsonlTail`, `iterateJsonlLinesBackward` | jsonl-tail.ts | 通用 JSONL 尾部倒读原语（架构评审候选 2，泛化自 apps/api studio-events-tail）：「取尾部 N 行 / 倒扫早停 / 游标翻旧页」的 O(增量) 读口，替代「取尾部摊成全量 readJsonl」；字节级行切分（跨块多字节安全），直读磁盘不进 jsonlCache（真源唯一）；消费方：getChannelVersion / getMessagesSince（file-store.ts）、apps/api events 薄封装 |
+| `runMigrations`, `MIGRATIONS`, `MigrationError`, `readSchemaVersion`, `backupDataArea`, `manifestPath` | migrations/（`./migrations` 子路径入口） | #572 数据区 schema 版本迁移框架（契约 §5 冻结方案 A）：版本标记 `data/manifest.json`（无 = v0；data 根与 FileStore 同口径 `STUDIO_DATA_DIR ?? <root>/data`）；四性质 = 幂等（isApplied 探针）/ 可重入（逐条 apply 后原子抬 manifest，中断续跑；写盘一律临时文件 + rename）/ 失败拒启（MigrationError 带备份路径 + 回滚指引，入口外层 catch exit(1)）/ 备份只含 data/ 与根级 *.json/*.jsonl（`.bak-<YYYYMMDD-HHMMSS>`，logs/worktrees/既有 .bak 不备）；骨架 = 空迁移 v0→v1，真实迁移随首次布局变更与契约修订同 commit；接入点 = apps/api index.ts 启动链 reconcileIndex() 之前 |
 
 ### 依赖关系
 

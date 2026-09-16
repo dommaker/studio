@@ -68,6 +68,18 @@ async function start() {
     // FileStore 自动建目录，无需 DB 连接
     logger.info('Storage initialized (FileStore)');
 
+    // #572 / 契约 §5（data-directory-contract.md）：数据区 schema 版本迁移，必须在 reconcileIndex
+    // 之前——迁移后的布局才是对账/读写的正本。失败抛 MigrationError（含备份路径+回滚指引），
+    // 由外层 catch 兜底 process.exit(1) = 失败拒启，不留半迁移态带病运行。
+    const { runMigrations } = await import('@dommaker/studio-shared/migrations');
+    const migration = await runMigrations(resolveStudioDir());
+    if (migration.applied.length > 0 || migration.skipped.length > 0) {
+      logger.info('[Migration] 数据区 schema 迁移完成', {
+        fromVersion: migration.fromVersion, toVersion: migration.toVersion,
+        applied: migration.applied, skipped: migration.skipped, backupPaths: migration.backupPaths,
+      });
+    }
+
     // #170（决策 #65-3）：启动对账 WorkUnit events vs index —— 不一致即按事件流重建索引
     // 并走告警频道（#62 决议出口：dispatchMonitorAlerts 既有管线，warning 级）。
     // 历史数据可能已分叉，不对账永远不可知；失败不阻断启动。
