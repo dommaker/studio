@@ -109,7 +109,7 @@ export function NeedsAttentionSection({ onAlertClick }: { onAlertClick?: (group:
                     <button
                       key={i}
                       type="button"
-                      className="flex items-center gap-2 text-sm w-full text-left rounded px-1 -mx-1 u-hover-bg"
+                      className="u-btn-reset flex items-center gap-2 text-sm w-full text-left rounded px-1 -mx-1 u-hover-bg"
                       title="在事件检索中查看此类告警"
                       onClick={() => onAlertClick(g)}
                     >

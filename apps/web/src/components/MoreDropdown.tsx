@@ -116,7 +116,7 @@ export function MoreDropdown({ onOpenSearch }: MoreDropdownProps) {
               </div>
               <button
                 type="button"
-                className="w-full text-left block px-4 py-2 text-sm transition-colors flex items-center gap-2 u-hover-bg u-text"
+                className="u-btn-reset w-full text-left px-4 py-2 text-sm transition-colors flex items-center gap-2 u-hover-bg u-text"
                 onClick={() => {
                   setIsOpen(false);
                   onOpenSearch();

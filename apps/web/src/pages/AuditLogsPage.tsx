@@ -384,15 +384,17 @@ export const AuditLogsPage: React.FC = () => {
                   <td className="py-3 px-4 text-sm u-text-2">
                     {log.ipAddress || '-'}
                   </td>
+                  {/* 批次 I-6：查看/收起非独立按钮——整行（tr）即展开开关（onClick + Enter/Space + aria-expanded），
+                      原 <button> 无自身 onClick 只是行点击的视觉提示，改 span 去掉冗余 button 语义/重复 tab 停点 */}
                   <td className="py-3 px-4 text-sm u-text-2">
                     {log.errorMessage ? (
                       <span className="u-err" title={log.errorMessage}>
                         {log.errorMessage.slice(0, 30)}...
                       </span>
                     ) : (
-                      <button className="u-accent hover:underline">
+                      <span className="u-accent hover:underline">
                         {expandedId === log.id ? '收起' : '查看'}
-                      </button>
+                      </span>
                     )}
                   </td>
                 </tr>
