@@ -46,6 +46,9 @@ interface WorkUnitState {
    *  未打开过的 WU 事件 no-op（insertIfMissing:false 同口径，ADR 决策 2）。
    *  undefined = 未打开过（消费方显骨架） */
   detailById: Record<string, { wu: WorkUnit | null; notFound: boolean; error: string | null }>;
+  /** #557：列表页在屏信号（WorkUnitListPage 挂载/卸载维护）——useWorkUnitStoreSync
+   *  重连兜底的真实门槛，替代「空列表代理不在屏」：过滤无结果/首拉失败留空时重连照刷 */
+  listOnScreen: boolean;
   /** #549：SSE created 新行渐隐高亮 id 集（批次 E-3 .wu-row-new）——集合与 per-id 2s 自清
    *  都在 store（机制 = utils/freshIds 共享件，与频道消息侧同一份），页面退回订阅者 */
   freshWuIds: ReadonlySet<string>;
@@ -87,6 +90,8 @@ interface WorkUnitState {
   loadWorkUnitDetail: (id: string) => Promise<void>;
   /** #549：created 事件路由驱动——新行 id 进 fresh 集（per-id 2s 自清） */
   markWuFresh: (id: string) => void;
+  /** #557：列表页挂载/卸载登记录在屏信号 */
+  setListOnScreen: (on: boolean) => void;
   /** 测试重置：detail/fresh 切片 + fresh tracker 计时器（防跨测悬挂） */
   __resetForTests: () => void;
 }
@@ -105,6 +110,7 @@ export const useWorkUnitStore = create<WorkUnitState>((set, get) => ({
   loading: false,
   error: null,
   detailById: {},
+  listOnScreen: false,
   freshWuIds: new Set(),
 
   loadWorkUnits: async (params) => {
@@ -285,6 +291,10 @@ export const useWorkUnitStore = create<WorkUnitState>((set, get) => ({
 
   markWuFresh: (id) => {
     freshTracker.mark(id);
+  },
+
+  setListOnScreen: (on) => {
+    set({ listOnScreen: on });
   },
 
   __resetForTests: () => {

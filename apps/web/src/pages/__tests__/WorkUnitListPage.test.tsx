@@ -55,6 +55,8 @@ const mockStore = {
   setSearchQuery: vi.fn(),
   /** #549：fresh 高亮集合（created 路由在 sync hook 打标记，页面只读） */
   freshWuIds: new Set<string>() as ReadonlySet<string>,
+  /** #557：列表页在屏信号（挂载/卸载维护，重连兜底门槛在 sync hook） */
+  setListOnScreen: vi.fn(),
   error: null as string | null,
 };
 
@@ -80,6 +82,7 @@ vi.mock('../../stores/workunitStore', () => ({
         setUnattributedOnly: mockStore.setUnattributedOnly,
         loadUnattributedCount: mockStore.loadUnattributedCount,
         freshWuIds: mockStore.freshWuIds,
+        setListOnScreen: mockStore.setListOnScreen,
       };
       return selector ? selector(state) : state;
     },
@@ -194,6 +197,15 @@ describe('WorkUnitListPage', () => {
   it('无 status query 时不触碰筛选', () => {
     render(<WorkUnitListPage />);
     expect(mockStore.setStatusFilter).not.toHaveBeenCalled();
+  });
+
+  // #557：挂载登记 listOnScreen=true、卸载清 false——App 级 useWorkUnitStoreSync
+  // 重连兜底的真实在屏信号（替代空列表代理）
+  it('#557：挂载/卸载维护 store listOnScreen 在屏信号', () => {
+    const { unmount } = render(<WorkUnitListPage />);
+    expect(mockStore.setListOnScreen).toHaveBeenCalledWith(true);
+    unmount();
+    expect(mockStore.setListOnScreen).toHaveBeenLastCalledWith(false);
   });
 });
 

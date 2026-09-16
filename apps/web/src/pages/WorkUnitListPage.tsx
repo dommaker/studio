@@ -35,7 +35,7 @@ export function WorkUnitListPage() {
     loadWorkUnits, loadMoreWorkUnits, loadAllCount, createWorkUnit,
     statusFilter, setStatusFilter,
     unattributedOnly, unattributedTotal, setUnattributedOnly, loadUnattributedCount,
-    searchQuery, setSearchQuery,
+    searchQuery, setSearchQuery, setListOnScreen,
   } = useWorkUnitStore();
 
   const [showCreate, setShowCreate] = useState(false);
@@ -77,6 +77,13 @@ export function WorkUnitListPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // #557：挂载登记在屏信号（卸载清 false）——App 级 useWorkUnitStoreSync 重连兜底
+  // 的真实门槛（空列表代理已废：过滤无结果/首拉失败留空时重连照刷）
+  useEffect(() => {
+    setListOnScreen(true);
+    return () => setListOnScreen(false);
+  }, [setListOnScreen]);
 
   useEffect(() => {
     loadWorkUnits();

@@ -637,3 +637,19 @@ describe('workunitStore fresh 集合（#549）', () => {
     expect(useWorkUnitStore.getState().freshWuIds.has('wu-2')).toBe(true);
   });
 });
+
+
+// #557：listOnScreen —— 列表页在屏信号（useWorkUnitStoreSync 重连兜底的真实门槛，
+// 替代「空列表代理不在屏」：过滤无结果/首拉失败留空时重连照刷）
+describe('workunitStore listOnScreen（#557）', () => {
+  it('默认 false；setListOnScreen 双向切换', () => {
+    useWorkUnitStore.setState({ listOnScreen: false });
+    expect(useWorkUnitStore.getState().listOnScreen).toBe(false);
+
+    useWorkUnitStore.getState().setListOnScreen(true);
+    expect(useWorkUnitStore.getState().listOnScreen).toBe(true);
+
+    useWorkUnitStore.getState().setListOnScreen(false);
+    expect(useWorkUnitStore.getState().listOnScreen).toBe(false);
+  });
+});

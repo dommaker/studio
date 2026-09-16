@@ -3,7 +3,8 @@
 // status_changed → applyWorkunitEvent(insertIfMissing:false)（存量行直替/过滤移除 + detail 就地 upsert）；
 // created → applyWorkunitEvent(insertIfMissing:true) + markWuFresh（fresh 高亮集合）；
 // workunit:removed → removeWorkunit；detail 未打开过的 WU 事件 no-op。
-// 重连兜底仅在 store 已有负载时刷（页面不在屏不做全量拉）；不加轮询（pollIntervalMs=0 停用）。
+// 重连兜底仅在列表页在屏（store listOnScreen，#557 真实在屏信号替代空列表代理）时刷；
+// 不加轮询（pollIntervalMs=0 停用）。
 // 引用计数单例契约由 useDataPlaneSync 套件锁定，此处不重复。
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
@@ -51,6 +52,7 @@ beforeEach(() => {
     statusFilter: null, typeFilter: null,
     unattributedOnly: false, unattributedTotal: null, allTotal: null,
     searchQuery: null, loading: false, error: null,
+    listOnScreen: false,
   });
   mockOnEvent.mockImplementation((h: typeof handler) => { handler = h; return () => {}; });
   mockOnReconnect.mockReturnValue(() => {});
@@ -123,19 +125,20 @@ describe('useWorkUnitStoreSync — SSE 路由（三路径唯一一份）', () =>
   });
 });
 
-describe('useWorkUnitStoreSync — 重连兜底', () => {
-  it('store 已有负载 → 重连强刷（loadWorkUnits + 两徽标）；无负载 → 不刷（页面不在屏不做全量拉）', async () => {
+describe('useWorkUnitStoreSync — 重连兜底（#557：真实在屏信号 listOnScreen，空列表 ≠ 不在屏）', () => {
+  it('不在屏（listOnScreen=false）有负载也不刷；在屏但空列表（过滤无结果/首拉失败留空）照刷', async () => {
     let reconnect: (() => void) | null = null;
     mockOnReconnect.mockImplementation((h: () => void) => { reconnect = h; return () => {}; });
 
-    // 无负载：不刷
+    // 页面不在屏：即便 store 留有负载也不做全量拉
+    useWorkUnitStore.setState({ listOnScreen: false, workunits: [wuFixture('wu-1')], total: 1 });
     mount();
     act(() => reconnect!());
     await act(async () => {});
     expect(mockWuList).not.toHaveBeenCalled();
 
-    // 有负载：三接口扇出强刷
-    useWorkUnitStore.setState({ workunits: [wuFixture('wu-1')], total: 1 });
+    // 在屏且空列表（过滤无结果 / 首拉失败留空）：重连照刷——复原 #549 前页面级 onReconnect 语义
+    useWorkUnitStore.setState({ listOnScreen: true, workunits: [], total: 0 });
     act(() => reconnect!());
     await vi.waitFor(() => expect(mockWuList).toHaveBeenCalledTimes(3));
   });

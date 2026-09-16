@@ -8,7 +8,9 @@
 // 与 B1 主动写（gateWriter 响应体双写）同口径——同一组 store action 是「单份 upsert」的完整含义
 // （ADR 2026-09-15-web-gate-write-module 决策 2）。
 // 挂载点：App 级单点（App.tsx WebSocketProvider 内，同 useRequirementChainStoreSync 位置）。
-// 重连兜底仅在 store 已有负载时刷（页面不在屏不做全量拉）；不加轮询（pollIntervalMs=0 停用，维持现状）。
+// 重连兜底门槛 = store listOnScreen（#557 真实在屏信号，WorkUnitListPage 挂载/卸载维护）——
+// 空列表代理已废：用户坐在 ListPage 但列表为空（过滤无结果/首拉失败留空）时重连照刷，
+// 复原 #549 收口前页面级 onReconnect 无条件重拉的语义；不加轮询（pollIntervalMs=0 停用，维持现状）。
 import { type WebSocketMessage } from '../api/websocketHooks';
 import { useWorkUnitStore } from '../stores/workunitStore';
 import { useDataPlaneSync } from './useDataPlaneSync';
@@ -32,10 +34,10 @@ function handleWorkUnitEvent(msg: WebSocketMessage) {
   if (msg.event_type === 'workunit.created') store.markWuFresh(wu.id);
 }
 
-/** 引用稳定（useDataPlaneSync 的 effect 依赖要求）：重连兜底仅在 store 已有负载时刷 */
+/** 引用稳定（useDataPlaneSync 的 effect 依赖要求）：重连兜底仅在列表页在屏时刷（#557） */
 function workUnitEnsureFresh(): Promise<void> {
   const store = useWorkUnitStore.getState();
-  if (store.workunits.length === 0) return Promise.resolve();
+  if (!store.listOnScreen) return Promise.resolve();
   return Promise.all([
     store.loadWorkUnits(),
     store.loadUnattributedCount(),
