@@ -31,6 +31,7 @@ Agent 配置（profile）、运行实例（instance）、决策循环（loop）�
 ### 注意事项
 
 - **周期循环 scan-sharing（候选 3，2026-09-08）**：monitor `check()` 一轮开头一次 `getIndex()`，快照作 caller-private 传给 6 个 WU 探针（收 `snapshots` 参数、内存 filter，不再各自 getIndex；动作前新鲜度复核 `getIndex({id})` 点读不受影响）——**新 WU 探针一律收快照不自己读**；auditor generateSuggestions 的 4 周事件窗口同样每轮一次读、多消费方共享（原 skill 循环内 N+1 全窗口扫描）。跨 job 不共享（各自的轮各自读，非快照层）
+- **decision/spec 豁免超时巡检（#553 裁决，2026-09-16）**：checkTotalExecutionTime 跳过 DECISION_SPEC_TYPES——#108 裁剪状态机无 closed、决策/成文单可等关键人多天，语义选「跳过巡检」（非降级告警/仍关闭），与 autoAbandonStaleBlocked 的 #176 豁免同源。此前 2.5h 强杀被状态机拒绝、catch 吞掉只记日志，导致每轮巡检重复 critical 告警但永不关闭
 - **路由分叉坑（#391 实测）**：`/api/v1/agents` 的 GET / 由 legacy `routes.ts`（agents-registry，响应条目**无 id 字段**）处理；前端 profile 列表走 `/api/v1/agent-profiles`（agent-profile.routes.ts，有 id）。发现 profileId 勿用 `/agents`
 - **AgentProfile 持久化**：`~/.studio/data/agents/{id}/profile.json` + `state.json`；原子写+mkdir 锁，仅可显式 DELETE；保留名 `studio`。删除时反向收敛引用（agent-profile.service.delete）：清各频道 members + #497 起同步把 channel.routing 中指名该 profile 的档归一化为 null（其他档不动；无引用的频道零写入，幂等）
 - **studio 系统角色语义（2026-09-10 修正）**：AC-1.3「studio 不挂 loop」已废除——trigger `assigneeRole` 指名 = 独占认领（仅该角色 loop 可见），studio 无 loop 期间指名 WU 全部结构性死单（doc-semantic-review 滞留 143h 事故）。现 studio = 系统维护任务执行角色（正常挂 loop，`channels=[]` 只看得见指名给它的单）+ systemExecutor 直调身份（读其 provider）双重用途；保留名保护扩展到**禁止停用**（update status 非 active 拒绝），删除仍拒。存量旧 description 文案由 `ensureStudioProfile` 按 `STUDIO_ROLE_LEGACY_DESCRIPTION` 匹配迁移，用户自定义不覆盖

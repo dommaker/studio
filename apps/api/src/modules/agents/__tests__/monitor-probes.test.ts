@@ -427,6 +427,19 @@ describe('checkTotalExecutionTime', () => {
     );
   });
 
+  // #553：decision/spec 豁免超时巡检——#108 裁剪状态机无 closed，不进超时关闭路径，
+  // 不告警、不杀进程、不尝试 close（否则每轮巡检重复 critical 但永不生效）
+  it.each(['decision', 'spec'])('skips %s workUnit exceeding 2.5h entirely (no alert/stop/close)', async (type) => {
+    const threeHoursAgo = new Date(Date.now() - 3 * 3600_000).toISOString();
+    const exec = makeSnapshot({ id: `exec-${type}`, type, status: 'active', claimedAt: threeHoursAgo, createdAt: threeHoursAgo });
+    const fileStore = makeFileStore({ getIndex: vi.fn(async () => [exec]) });
+
+    const alerts = await checkTotalExecutionTime(fileStore, await fileStore.getIndex());
+    expect(alerts).toEqual([]);
+    expect(mockAgentStop).not.toHaveBeenCalled();
+    expect(mockCloseWithNotice).not.toHaveBeenCalled();
+  });
+
   it('emits warning at >2h and info at >1h without intervention', async () => {
     const mkActive = (hoursAgo: number) => makeSnapshot({
       id: `exec-${hoursAgo}h`, status: 'active',

@@ -277,7 +277,10 @@ export async function checkProgressStagnation(snapshots: WorkUnitSnapshot[]): Pr
 
 export async function checkTotalExecutionTime(fileStore: FileStore, snapshots: WorkUnitSnapshot[]): Promise<MonitorAlert[]> {
   const alerts: MonitorAlert[] = [];
-  const running = snapshots.filter(s => s.status === 'active').slice(0, 10);
+  // #553：decision/spec 豁免超时巡检——#108 裁剪状态机无 closed，不进超时关闭路径
+  // （与 autoAbandonStaleBlocked 的豁免同源）；此前 2.5h 强杀被状态机拒绝、
+  // catch 吞掉后每轮重复发 critical 但永不关闭
+  const running = snapshots.filter(s => s.status === 'active' && !DECISION_SPEC_TYPES.has(s.type)).slice(0, 10);
 
   for (const exec of running) {
     const startTime = new Date(exec.claimedAt || exec.createdAt).getTime();
