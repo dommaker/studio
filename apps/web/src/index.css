@@ -1,9 +1,13 @@
 @import "tailwindcss";
 @import "./styles/responsive.css";
-/* 批次 I-4：mission-control.css 自 theme.css 中转改此显式 import；utilities.css 必须紧随其后——
-   u-* 原随 mission-control.css 尾部加载，级联上在全部 mc-* 规则之后（u-mb-3 覆盖 mc-quote/
-   mc-drawer-note margin、u-accent 覆盖 mc-icon-btn color、u-accent-border 覆盖 mc-card border
-   等同优先级后定义胜出场景依赖此序）；theme.css 自身规则仍在其后加载，覆盖关系不变。 */
+/* 批次 web-ux Step 4（2026-09-16，docs/plans/2026-09-web-ux-optional-fixes.md）：
+   mission-control.css 保持全局加载——消费面审计：mc-* 被 19 个 lazy 页面中的 11 个
+  （频道/设置/审计/阅览室×2/项目/WU 详情/Agent 详情/监控/Workspace/PMO）+
+   共享组件（MarkdownBody、monitoring charts、workunit 三件套、pmo 组件）使用，
+   远超频道域；拆页面级加载须切割 1524 行样式表（mc-block-label/mc-kv/mc-status 等
+   跨域族与频道规则交织），回归风险大于收益，暂保持全局。
+   「显式优先级覆盖」区以 (0,2,0) 复合选择器登记，两行 import 任意顺序结果一致；
+   theme.css 自身规则仍在其后加载，覆盖关系不变。 */
 @import "./styles/mission-control.css";
 @import "./styles/utilities.css";
 

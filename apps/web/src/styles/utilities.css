@@ -3,10 +3,10 @@
    —— 替代写死浅色 Tailwind 类（bg-white/text-gray-* 等），
    全部消费 theme.css 变量，深色（A 方向）/浅色双主题一致。
 
-   级联位置契约：本文件由 index.css 在 mission-control.css 之后 import，
-   必须保持 u-* 在全部 mc-* 规则之后——u-mb-3/u-accent/u-accent-border 等
-   覆盖 mc-* 自带 margin/color/border 的场景（ConvertToTaskDialog、
-   ChannelMemberManager、KnowledgeConfirmCard 等）依赖此序，勿前移。
+   优先级契约（2026-09-16 Step 4 起，替代原级联位置契约）：u-* 与 mc-*
+   同元素叠加且属性冲突时，不得依赖 import 顺序，必须在文件尾部
+   「显式优先级覆盖」区登记 (0,2,0) 复合选择器；已登记的冲突对见该区，
+   本文件与 mission-control.css 的 import 顺序可任意重排。
    ============================================================ */
 .u-surface { background: var(--bg-elevated); }
 .u-surface-2 { background: var(--bg-tertiary); }
@@ -45,6 +45,24 @@
 .u-anomaly { color: var(--anomaly); }
 .u-anomaly-dim { background: var(--anomaly-dim); color: var(--anomaly); }
 .u-on-accent { color: var(--bg-primary); }
+
+/* ============================================================
+   显式优先级覆盖：u-* × mc-* 同元素冲突对（2026-09-16 Step 4，
+   docs/plans/2026-09-web-ux-optional-fixes.md）
+   原依赖本文件在 mission-control.css 之后 import（同优先级后定义胜出），
+   现改 (0,2,0) 复合选择器显式胜出，import 顺序不再影响结果。
+   覆盖语义逐对保持原样：
+   - mc-icon-btn:hover 的 color 同为 --accent-primary，hover 胜负无视觉差；
+   - mc-card:hover 的 border-color 原以 (0,2,0) 压过单类 u-accent-border，
+     补 hover 行维持原行为（hover 落 --border-default）。
+   消费点：ConvertToTaskDialog（u-mb-3 ×2）、ChannelMemberManager（u-accent）、
+   KnowledgeConfirmCard（u-accent-border）。
+   ============================================================ */
+.mc-quote.u-mb-3,
+.mc-drawer-note.u-mb-3 { margin-bottom: var(--space-3); }
+.mc-icon-btn.u-accent { color: var(--accent-primary); }
+.mc-card.u-accent-border { border-color: var(--accent-border); }
+.mc-card.u-accent-border:hover { border-color: var(--border-default); }
 
 /* 着色底 + u-hover-bg 组合修正：u-hover-bg 会把背景改写成 --bg-hover（近黑），
    实心按钮上的 on-accent 黑字随之消失（hover 变黑看不见字）；dim 按钮则丢着色底。

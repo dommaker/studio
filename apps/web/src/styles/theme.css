@@ -1,7 +1,7 @@
 @import "./responsive.css";
-/* 批次 I-4：mission-control.css 改由 index.css 显式 import（紧随其后的 utilities.css 须保持
-   u-* 在 mc-* 之后的级联顺序，u-mb-3/u-accent 等覆盖 mc-* 自带 margin/color 的场景依赖此序），
-   本文件不再中转。 */
+/* 批次 I-4：mission-control.css 改由 index.css 显式 import，本文件不再中转。
+   （2026-09-16 Step 4 起 u-*×mc-* 覆盖改由 utilities.css 尾部复合选择器显式登记，
+   两文件 import 顺序不再影响结果。） */
 /* 科幻极简设计系统 - 统一样式（2026-07 起深色主题 = 方向 A「Mission Control」） */
 
 /* === 主题切换 === */
