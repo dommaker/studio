@@ -35,7 +35,7 @@ studio 规划两种交付形态：(a) 部署在用户自己的服务器（现有
 | Q1 | 发布单元：哪些包上 npm？ | (a) 单包 `@dommaker/studio` 内嵌全部；(b) 多包 publish（api+shared+agent+…） | (a)。消费者只要一个能跑的命令，多包把 workspace 协议解析、`workspace:*` 版本同步等复杂度甩给发布流水线，违反最简 |
 | Q2 | bin entry 形态 | (a) 编译 `dist/` + `#!/usr/bin/env node` 薄入口；(b) 继续 `npx tsx` 跑 TS 源 | (a)。tsx 是 dev 依赖语义，不该出现在用户机器的关键路径；`bin/studio`（bash 脚本）与 `apps/api` bin 指 `.ts` 源都需重做 |
 | Q3 | `apps/web` 静态资源怎么随包分发 | (a) web dist 预构建打进发布包 `files`（api 包内 `frontend/dist`）；(b) 独立 `@dommaker/studio-web-static` 包；(c) postinstall 现场 vite build | (a)。`app.ts:133` 已 `express.static(<api>/frontend/dist)`，路径约定不动，只是把"部署时构建拷贝"（ops.service auto-build）前移为"发布时打包"；(c) 要求用户机器有完整构建链，排除 |
-| Q4 | 启动命令形态 | (a) `npx studio start` 前台进程；(b) `studio up` 沿用；(c) 后台 daemon 自管理 | (a)。本地优先形态用户对前台进程 + Ctrl-C 的预期最强；`studio up` 里 REPO_DIR 从 CWD 向上找 package.json 的 monorepo 假设、preflight 现场 build 前端等服务器形态残留需逐条标注去留 |
+| Q4 | 启动命令形态 | (a) `npx studio run web` 前台进程（web 动词即总入口：API + 托管 web dist 一体起服务）；(b) `studio up` 沿用；(c) 后台 daemon 自管理 | (a)。单命令体验，本地优先形态用户对前台进程 + Ctrl-C 的预期最强；不单设 `start` 动词。`studio up` 里 REPO_DIR 从 CWD 向上找 package.json 的 monorepo 假设、preflight 现场 build 前端等服务器形态残留需逐条标注去留 |
 | Q5 | 外部 agent CLI 依赖怎么声明 | (a) 不声明，运行时探测 + 首启呈现（现状 cli-scanner）；(b) 文档要求 + `studio doctor` 校验命令 | (a)+(b) 文档。npm 无法对任意第三方 CLI 声明 peerDependency；cli-scanner 已是探测正本，首启直接复用其输出 |
 | Q6 | 数据根与多实例 | STUDIO_HOME 已就位 | 确认即可：`studioDir()` 单入口，开发形态 `~/.studio-dev` 先例（apps/api dev script） |
 | Q7 | Node engines 与发布流水线 Node 版本 | 根 engines `>=18`，release.yml 用 Node 22 | 对齐到 `>=20` 或 `>=22`（摸底确认依赖链实际下限） |
@@ -75,7 +75,7 @@ studio 规划两种交付形态：(a) 部署在用户自己的服务器（现有
 
 ### 3.4 阶段二-3：首启体验与端口
 
-- **首启面板**：`studio start` 首启打印环境检测块——Node 版本、agent CLI 探测结果（复用 `cli-scanner.scanAllProviders()` 现成输出：provider/path/version）、数据根位置、监听地址。缺失 CLI 不阻断（对齐 checkPrerequisites 现有语义），但标注"至少需要一个 agent CLI 才能跑执行"。
+- **首启面板**：`studio run web` 首启打印环境检测块——Node 版本、agent CLI 探测结果（复用 `cli-scanner.scanAllProviders()` 现成输出：provider/path/version）、数据根位置、监听地址。缺失 CLI 不阻断（对齐 checkPrerequisites 现有语义），但标注"至少需要一个 agent CLI 才能跑执行"。
 - **端口**：动态分配 + 显式指定——默认 3001，占用则顺次探测 3002…（上限 +100）；`--port` / `PORT` 显式指定时占用即拒启报错（显式意图不覆盖）。现状 ops.service preflight 的 lsof 检查 abort 语义改为动态分配的一条分支。
 - **绑定纪律成文**：`resolveListenHost()` 现状即正确设计（默认回环、`STUDIO_AUTH=none` 禁非回环），不做代码改动，把纪律写进契约文档 §网络面：本地形态永远回环；对外暴露 = 显式 `HOST=0.0.0.0` + 开认证，守卫保持拒启语义。
 
@@ -109,4 +109,4 @@ studio 规划两种交付形态：(a) 部署在用户自己的服务器（现有
 2. **迁移失败语义**：备份 + 拒启（推荐）vs 备份 + 降级继续跑——拒启更安全，继续跑更不打断用户。→ 已定：备份 + 拒绝启动。
 3. **端口冲突默认行为**：动态顺延（推荐）vs 维持拒启 + 提示——动态顺延对新手友好，但"我以为起在 3001"的困惑成本存在。→ 已定：默认动态顺延（上限 +100）；显式 `--port` 冲突即拒启。
 4. **契约指针挂 AGENTS.md PRESERVE 段**（推荐，治理变更）vs 只留独立文档——前者让契约在 agent 入口文档有强制可见性，但要过人闸。→ 已定：独立文档 + AGENTS.md PRESERVE 段挂指针（治理人闸当场通过，2026-09-16）。
-5. **bin 命令名**：`studio start` 新动词（推荐）vs 沿用 `studio up` 改语义——沿用省一个词表项，但 `up` 现有语义里 monorepo 假设太多，改名比改语义干净。→ 已定：新增 `studio start`；命令面同时补充 web 侧命令（形如 `studio run web`）——分工：`studio start` = 一体起服务（API + 托管已构建 web dist + 首启检测/迁移），web 命令 = web 侧独立动词（具体子命令语义在摸底阶段随 bin entry 设计一并定稿）。
+5. **bin 命令名**：`studio start` 新动词（推荐）vs 沿用 `studio up` 改语义——沿用省一个词表项，但 `up` 现有语义里 monorepo 假设太多，改名比改语义干净。→ 已定（2026-09-16 二次确认修订）：命令面只要 web 动词 `studio run web` = 一体起服务总入口（API + 托管已构建 web dist + 首启检测/迁移/端口顺延）；**不新增** `studio start`，web 也不单设独立进程命令——web 静态 dist 随 API 一体托管，开发形态沿用 `pnpm dev` / `pnpm dev:start`。
