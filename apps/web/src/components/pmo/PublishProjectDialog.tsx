@@ -5,7 +5,7 @@ import { projectApi } from '../../api';
 import { channelApi, type Channel, type AgentProfile } from '../../api/channel';
 import { useRosterStore } from '../../stores/rosterStore';
 import { toast } from '../../utils/toast';
-import { Select } from '../ui';
+import { Select, Modal } from '../ui';
 import { resolveChannelResponders } from './channelResponders';
 
 interface PublishProjectDialogProps {
@@ -88,14 +88,27 @@ export function PublishProjectDialog({ open, projectId, channels, onClose, onPub
 
   if (!open) return null;
 
+  // 批次 I-2：收编 ui/Modal（§4.3 正本）
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" style={{ maxWidth: 400 }} onClick={(e) => e.stopPropagation()}>
-        <div className="modal-header">
-          <h2 className="modal-title">发起需求讨论</h2>
-          <button className="modal-close" onClick={onClose} aria-label="关闭">×</button>
-        </div>
-        <div className="modal-body">
+    <Modal
+      onClose={onClose}
+      maxWidth="400px"
+      title="发起需求讨论"
+      footer={
+        <>
+          <button onClick={onClose} className="btn btn-secondary">
+            取消
+          </button>
+          <button
+            onClick={handlePublishConfirm}
+            disabled={publishing || channelOptions.length === 0 || !selectedChannelId}
+            className="btn btn-primary"
+          >
+            {publishing ? '发起中...' : '确认发起'}
+          </button>
+        </>
+      }
+    >
           {channelOptions.length === 0 ? (
             <p className="u-text-3 text-sm">无可用 Channel，请先创建</p>
           ) : (
@@ -148,20 +161,6 @@ export function PublishProjectDialog({ open, projectId, channels, onClose, onPub
               )}
             </>
           )}
-        </div>
-        <div className="modal-footer">
-          <button onClick={onClose} className="btn btn-secondary">
-            取消
-          </button>
-          <button
-            onClick={handlePublishConfirm}
-            disabled={publishing || channelOptions.length === 0 || !selectedChannelId}
-            className="btn btn-primary"
-          >
-            {publishing ? '发起中...' : '确认发起'}
-          </button>
-        </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

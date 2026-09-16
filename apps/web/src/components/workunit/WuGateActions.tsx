@@ -20,6 +20,7 @@ import { buildAnalysisConfirmPrefill, buildDecisionConfirmPrefill, buildSpecConf
 import { createGateWriter, type GateUpdateSink } from '../../utils/gateWriter';
 import { errorMessage } from '../../utils/errorMessage';
 import { toast } from '../../utils/toast';
+import { Modal } from '../ui';
 
 export interface WuGateActionsProps {
   wu: WorkUnit;
@@ -193,26 +194,14 @@ export function WuGateActions({ wu, onUpdated, autoApprove = false }: WuGateActi
         />
       )}
 
-      {/* #284：审查拒绝弹窗（带原因），三处同款 */}
+      {/* #284：审查拒绝弹窗（带原因），三处同款；批次 I-2 收编 ui/Modal（§4.3 正本） */}
       {showRejectModal && (
-        <div className="modal-overlay" onClick={() => setShowRejectModal(false)}>
-          <div className="modal" style={{ maxWidth: '24rem' }} onClick={e => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3 className="modal-title">拒绝原因</h3>
-              <button className="modal-close" onClick={() => setShowRejectModal(false)} aria-label="关闭">×</button>
-            </div>
-            <div className="modal-body">
-              <textarea
-                className="input w-full"
-                rows={3}
-                placeholder="输入拒绝原因（可选）"
-                value={rejectReason}
-                onChange={e => setRejectReason(e.target.value)}
-              />
-              {/* 拒绝失败保持弹窗打开，错误行进弹窗（闸门区同步置位） */}
-              {gateError && <p className="text-xs u-err" style={{ marginTop: 4 }}>{gateError}</p>}
-            </div>
-            <div className="modal-footer">
+        <Modal
+          onClose={() => setShowRejectModal(false)}
+          maxWidth="24rem"
+          title="拒绝原因"
+          footer={
+            <>
               <button
                 className="btn btn-secondary"
                 onClick={() => { setShowRejectModal(false); setRejectReason(''); }}
@@ -222,9 +211,19 @@ export function WuGateActions({ wu, onUpdated, autoApprove = false }: WuGateActi
               <button className="btn btn-danger" disabled={confirming} onClick={() => handleReject(rejectReason.trim() || undefined)}>
                 确认拒绝
               </button>
-            </div>
-          </div>
-        </div>
+            </>
+          }
+        >
+          <textarea
+            className="input w-full"
+            rows={3}
+            placeholder="输入拒绝原因（可选）"
+            value={rejectReason}
+            onChange={e => setRejectReason(e.target.value)}
+          />
+          {/* 拒绝失败保持弹窗打开，错误行进弹窗（闸门区同步置位） */}
+          {gateError && <p className="text-xs u-err" style={{ marginTop: 4 }}>{gateError}</p>}
+        </Modal>
       )}
     </div>
   );

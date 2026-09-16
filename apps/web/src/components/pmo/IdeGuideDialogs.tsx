@@ -3,6 +3,7 @@
 // VITE_IDE_SSH_HOST / VITE_IDE_CLOUD_IDE_URL，缺省回退当前站点主机名，不再硬编码生产 IP。
 import { useState, type ReactNode } from 'react';
 import { IconClipboard, IconCloud, IconLightbulb } from '../ui/icons';
+import { Modal } from '../ui';
 
 const sshHost = import.meta.env.VITE_IDE_SSH_HOST || `root@${window.location.hostname}`;
 const cloudIdeUrl = import.meta.env.VITE_IDE_CLOUD_IDE_URL || `http://${window.location.hostname}:8443`;
@@ -43,13 +44,18 @@ function GuideDialog({ title, icon, steps, hint, onClose }: GuideDialogProps) {
     setTimeout(() => setCopiedStep(null), 2000);
   };
 
+  // 批次 I-2：收编 ui/Modal（§4.3 正本）。行为变化：原弹窗遮罩不可点关、无 ✕——
+  // 迁移后点遮罩/Escape/✕ 均可关（§4.3 允许点遮罩关闭）
   return (
-    <div className="modal-overlay">
-      <div className="modal" style={{ maxWidth: 448 }}>
-        <div className="modal-header">
-          <h3 className="modal-title flex items-center gap-2">{icon}{title}</h3>
-        </div>
-        <div className="modal-body space-y-3">
+    <Modal
+      onClose={onClose}
+      maxWidth="448px"
+      title={<span className="flex items-center gap-2">{icon}{title}</span>}
+      footer={
+        <button onClick={onClose} className="btn btn-secondary">关闭</button>
+      }
+    >
+        <div className="space-y-3">
           {steps.map((step, i) => (
             <div key={i} className="flex items-center gap-2 p-2 u-surface-2 rounded">
               <span className="w-6 h-6 u-accent-bg u-on-accent rounded-full flex items-center justify-center text-sm">{step.step}</span>
@@ -64,11 +70,7 @@ function GuideDialog({ title, icon, steps, hint, onClose }: GuideDialogProps) {
             <span>{hint}</span>
           </div>
         </div>
-        <div className="modal-footer">
-          <button onClick={onClose} className="btn btn-secondary">关闭</button>
-        </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
 

@@ -6,7 +6,7 @@
 // decision-resolution 消费 → map.decisions[]），人永远不接触魔法行。
 // 批次A 项7 同款：onConfirm/onReject 可返回 Promise——提交期间禁用 + 失败内联错误保持打开。
 import { useState } from 'react';
-import { Button } from '../ui';
+import { Button, Modal } from '../ui';
 import { errorMessage } from '../../utils/errorMessage';
 import type { ReviewConfirmPayload } from '../../api/workunit';
 
@@ -45,29 +45,14 @@ export function DecisionApproveDialog({ question, suggestion, onConfirm, onRejec
 
   const modified = text.trim() !== suggestion.trim();
 
+  // 批次 I-2：收编 ui/Modal（§4.3 正本）；提交中屏蔽一切关窗路径（遮罩/Escape/✕ 同原 disabled 语义）
   return (
-    <div className="modal-overlay" onClick={submitting ? undefined : onCancel}>
-      <div className="modal" style={{ maxWidth: '28rem' }} onClick={e => e.stopPropagation()}>
-        <div className="modal-header">
-          <h3 className="modal-title">确认决策结论</h3>
-          <button className="modal-close" onClick={onCancel} disabled={submitting} aria-label="关闭">×</button>
-        </div>
-        <div className="modal-body">
-          <p className="text-xs u-text-2 mb-2">
-            确认后结论将落入探路地图决策时间线；不认请「转人工讨论」。
-          </p>
-          {question && <p className="text-sm mb-2">{question}</p>}
-          <textarea
-            className="input w-full"
-            rows={4}
-            placeholder="一句话结论与理由（agent 未给出建议时请手填）"
-            value={text}
-            onChange={e => setText(e.target.value)}
-            aria-label="决策结论"
-          />
-          {submitError && <p className="text-xs u-err" style={{ marginTop: 8 }}>{submitError}</p>}
-        </div>
-        <div className="modal-footer">
+    <Modal
+      onClose={() => { if (!submitting) onCancel(); }}
+      maxWidth="28rem"
+      title="确认决策结论"
+      footer={
+        <>
           <button className="btn btn-secondary" onClick={onCancel} disabled={submitting}>
             取消
           </button>
@@ -87,8 +72,22 @@ export function DecisionApproveDialog({ question, suggestion, onConfirm, onRejec
           >
             {modified ? '修改后采纳' : '采纳结论'}
           </Button>
-        </div>
-      </div>
-    </div>
+        </>
+      }
+    >
+          <p className="text-xs u-text-2 mb-2">
+            确认后结论将落入探路地图决策时间线；不认请「转人工讨论」。
+          </p>
+          {question && <p className="text-sm mb-2">{question}</p>}
+          <textarea
+            className="input w-full"
+            rows={4}
+            placeholder="一句话结论与理由（agent 未给出建议时请手填）"
+            value={text}
+            onChange={e => setText(e.target.value)}
+            aria-label="决策结论"
+          />
+          {submitError && <p className="text-xs u-err" style={{ marginTop: 8 }}>{submitError}</p>}
+    </Modal>
   );
 }

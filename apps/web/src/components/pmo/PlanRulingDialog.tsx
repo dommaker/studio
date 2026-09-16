@@ -6,7 +6,7 @@
 // 人永远不接触 RULING 魔法行。提交失败弹窗保持打开 + 内联错误（批次A 项7 同款）。
 // 入口：BlockedActions（plan-ruling 挂起的 blocked 处置区；接力卡「去裁决」经 autoRuling 打开即弹）。
 import { useState } from 'react';
-import { Button } from '../ui';
+import { Button, Modal } from '../ui';
 import { errorMessage } from '../../utils/errorMessage';
 import type { PlanRulingPayload } from '../../api/workunit';
 
@@ -56,14 +56,41 @@ export function PlanRulingDialog({ rulings, onSubmit, onCancel }: PlanRulingDial
   const patchRow = (i: number, patch: Partial<RowState>) =>
     setRows(prev => prev.map((r, k) => (k === i ? { ...r, ...patch } : r)));
 
+  // 批次 I-2：收编 ui/Modal（§4.3 正本）；提交中屏蔽一切关窗路径（遮罩/Escape/✕ 同原 disabled 语义）
   return (
-    <div className="modal-overlay" onClick={submitting ? undefined : onCancel}>
-      <div className="modal" style={{ maxWidth: '40rem' }} onClick={e => e.stopPropagation()}>
-        <div className="modal-header">
-          <h3 className="modal-title">裁决轮：一次性裁决</h3>
-          <button className="modal-close" onClick={onCancel} disabled={submitting} aria-label="关闭">×</button>
-        </div>
-        <div className="modal-body">
+    <Modal
+      onClose={() => { if (!submitting) onCancel(); }}
+      maxWidth="40rem"
+      title="裁决轮：一次性裁决"
+      footer={
+        <>
+          <button className="btn btn-secondary" onClick={onCancel} disabled={submitting}>
+            取消
+          </button>
+          <button
+            className="btn btn-secondary"
+            disabled={submitting}
+            title="全对：不改动，全部以 agent 建议结论采纳"
+            onClick={() => void run(() => onSubmit(
+              rows.map(r => ({ question: r.question, action: 'accept' as const, conclusion: r.suggestion })),
+            ))}
+          >
+            全部采纳
+          </button>
+          <Button
+            variant="primary"
+            loading={submitting}
+            onClick={() => void run(() => onSubmit(
+              rows.map(r => r.reopen
+                ? { question: r.question, action: 'reopen' as const }
+                : { question: r.question, action: 'accept' as const, conclusion: r.conclusion.trim() }),
+            ))}
+          >
+            提交裁决
+          </Button>
+        </>
+      }
+    >
           <p className="text-xs u-text-2 mb-2">
             逐题评审 agent 的建议结论（可直接改）；「打回重议」的题保持待决，agent 只重调该题后重新出裁决。
             提交后结论一次性落入探路台账，规划会话继续（spec 成文 → 拆任务清单）。
@@ -96,34 +123,6 @@ export function PlanRulingDialog({ rulings, onSubmit, onCancel }: PlanRulingDial
             ))}
           </div>
           {submitError && <p className="text-xs u-err" style={{ marginTop: 8 }}>{submitError}</p>}
-        </div>
-        <div className="modal-footer">
-          <button className="btn btn-secondary" onClick={onCancel} disabled={submitting}>
-            取消
-          </button>
-          <button
-            className="btn btn-secondary"
-            disabled={submitting}
-            title="全对：不改动，全部以 agent 建议结论采纳"
-            onClick={() => void run(() => onSubmit(
-              rows.map(r => ({ question: r.question, action: 'accept' as const, conclusion: r.suggestion })),
-            ))}
-          >
-            全部采纳
-          </button>
-          <Button
-            variant="primary"
-            loading={submitting}
-            onClick={() => void run(() => onSubmit(
-              rows.map(r => r.reopen
-                ? { question: r.question, action: 'reopen' as const }
-                : { question: r.question, action: 'accept' as const, conclusion: r.conclusion.trim() }),
-            ))}
-          >
-            提交裁决
-          </Button>
-        </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

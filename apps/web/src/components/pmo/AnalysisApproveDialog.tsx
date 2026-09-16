@@ -13,7 +13,7 @@
 // 入口：WuGateActions（列表行/抽屉/详情页三处合一，E2-4）/ DeliveryPanel 缺口「人工确认」。
 import { useEffect, useState } from 'react';
 import { channelApi, type AgentProfile } from '../../api/channel';
-import { Button, Select } from '../ui';
+import { Button, Select, Modal } from '../ui';
 import { resolveChannelResponders } from './channelResponders';
 import { errorMessage } from '../../utils/errorMessage';
 import type { ReviewConfirmPayload } from '../../api/workunit';
@@ -82,14 +82,54 @@ export function AnalysisApproveDialog({ prefill, channelId, confirmKind = 'analy
   const cleanFog = fog.map(s => s.trim()).filter(Boolean);
   const includedTasks = tasks.filter(t => t.included && t.text.trim()).map(t => t.text.trim());
 
+  // 批次 I-2：收编 ui/Modal（§4.3 正本）；提交中屏蔽一切关窗路径（遮罩/Escape/✕ 同原 disabled 语义）
   return (
-    <div className="modal-overlay" onClick={submitting ? undefined : onCancel}>
-      <div className="modal" style={{ maxWidth: '44rem' }} onClick={e => e.stopPropagation()}>
-        <div className="modal-header">
-          <h3 className="modal-title">{confirmKind === 'plan' ? '确认规划结论' : '确认分析结论'}</h3>
-          <button className="modal-close" onClick={onCancel} disabled={submitting} aria-label="关闭">×</button>
-        </div>
-        <div className="modal-body">
+    <Modal
+      onClose={() => { if (!submitting) onCancel(); }}
+      maxWidth="44rem"
+      title={confirmKind === 'plan' ? '确认规划结论' : '确认分析结论'}
+      footer={
+        <>
+          <button className="btn btn-secondary" onClick={onCancel} disabled={submitting}>
+            取消
+          </button>
+          <button
+            className="btn btn-danger"
+            disabled={submitting}
+            title="打回：结论或拆分需修订（agent 返工）"
+            onClick={() => void run(() => onReject(ANALYSIS_REJECT_REASON))}
+          >
+            打回补充
+          </button>
+          <button
+            className="btn btn-secondary"
+            disabled={submitting}
+            title="不开图：待决清单不进地图，仅按 TASK 拆分派工"
+            onClick={() => void run(() => onConfirm(
+              { kind: confirmKind, tasks: includedTasks },
+              assigneeId || undefined,
+            ))}
+          >
+            不开图直接派工
+          </button>
+          <Button
+            variant="primary"
+            loading={submitting}
+            onClick={() => void run(() => onConfirm(
+              {
+                kind: confirmKind,
+                ...(destination.trim() ? { destination: destination.trim() } : {}),
+                fog: cleanFog,
+                tasks: includedTasks,
+              },
+              assigneeId || undefined,
+            ))}
+          >
+            确认开图
+          </Button>
+        </>
+      }
+    >
           <p className="text-xs u-text-2 mb-2">
             分析结论已拆解为待决问题（左栏，可增删改）与派工任务（右栏，可逐条修改、勾选剔除）。
             点「确认开图」后系统据此生成探路地图：待决问题在规划会话里逐条裁决，不再单独立决策单；清空待决问题 = 不需要探路，只按任务清单派工。结论有问题请点「打回补充」。
@@ -174,47 +214,6 @@ export function AnalysisApproveDialog({ prefill, channelId, confirmKind = 'analy
           )}
           {/* 批次A 项7：提交失败内联错误（弹窗保持打开可重试） */}
           {submitError && <p className="text-xs u-err" style={{ marginTop: 8 }}>{submitError}</p>}
-        </div>
-        <div className="modal-footer">
-          <button className="btn btn-secondary" onClick={onCancel} disabled={submitting}>
-            取消
-          </button>
-          <button
-            className="btn btn-danger"
-            disabled={submitting}
-            title="打回：结论或拆分需修订（agent 返工）"
-            onClick={() => void run(() => onReject(ANALYSIS_REJECT_REASON))}
-          >
-            打回补充
-          </button>
-          <button
-            className="btn btn-secondary"
-            disabled={submitting}
-            title="不开图：待决清单不进地图，仅按 TASK 拆分派工"
-            onClick={() => void run(() => onConfirm(
-              { kind: confirmKind, tasks: includedTasks },
-              assigneeId || undefined,
-            ))}
-          >
-            不开图直接派工
-          </button>
-          <Button
-            variant="primary"
-            loading={submitting}
-            onClick={() => void run(() => onConfirm(
-              {
-                kind: confirmKind,
-                ...(destination.trim() ? { destination: destination.trim() } : {}),
-                fog: cleanFog,
-                tasks: includedTasks,
-              },
-              assigneeId || undefined,
-            ))}
-          >
-            确认开图
-          </Button>
-        </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

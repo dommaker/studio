@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import { okrApi } from '../../api/pmo';
 import { toast } from '../../utils/toast';
-import { Select, Button } from '../ui';
+import { Select, Button, Modal } from '../ui';
 import {
   getCurrentQuarter,
   METRIC_TYPE_OPTIONS,
@@ -98,13 +98,34 @@ export function CreateOkrDialog({ open, companyId, onClose, onCreated }: CreateO
 
   if (!open) return null;
 
+  // 批次 I-2：收编 ui/Modal（§4.3 正本）。行为变化：原弹窗遮罩不可点关、无 ✕——
+  // 迁移后点遮罩/Escape/✕ 均可关（§4.3 允许点遮罩关闭；关窗不重置 KR 表单，同原语义）
   return (
-    <div className="modal-overlay">
-      <div className="modal" style={{ maxWidth: 672 }} onClick={(e) => e.stopPropagation()}>
-        <div className="modal-header">
-          <h2 className="modal-title">创建 OKR</h2>
-        </div>
-        <div className="modal-body">
+    <Modal
+      onClose={onClose}
+      maxWidth="672px"
+      title="创建 OKR"
+      footer={
+        <>
+          <button
+            onClick={() => {
+              onClose();
+              setKRs(emptyKRs());
+            }}
+            className="btn btn-secondary"
+          >
+            取消
+          </button>
+          <Button
+            onClick={handleCreateOKR}
+            loading={creating}
+            loadingLabel="创建中..."
+          >
+            创建
+          </Button>
+        </>
+      }
+    >
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div>
@@ -222,26 +243,6 @@ export function CreateOkrDialog({ open, companyId, onClose, onCreated }: CreateO
             ))}
           </div>
         </div>
-        </div>
-        <div className="modal-footer">
-          <button
-            onClick={() => {
-              onClose();
-              setKRs(emptyKRs());
-            }}
-            className="btn btn-secondary"
-          >
-            取消
-          </button>
-          <Button
-            onClick={handleCreateOKR}
-            loading={creating}
-            loadingLabel="创建中..."
-          >
-            创建
-          </Button>
-        </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

@@ -6,7 +6,7 @@
 // 「打回」= reviewRejected 预设理由。确认回传 confirm={kind:'spec', tasks:勾选集}——
 // 后端序列化为 TASK 物化行进 l3.summary（存储契约不变），人永远不接触魔法行。
 import { useState } from 'react';
-import { Button } from '../ui';
+import { Button, Modal } from '../ui';
 import { errorMessage } from '../../utils/errorMessage';
 import type { ReviewConfirmPayload } from '../../api/workunit';
 import type { SpecTaskFormItem } from './mapUtils';
@@ -59,14 +59,43 @@ export function SpecApproveDialog({ prefill, onConfirm, onReject, onCancel }: Sp
       ? `确认物化（${included.length}）`
       : `部分物化（${included.length}/${cards.length}）`;
 
+  // 批次 I-2：收编 ui/Modal（§4.3 正本）；提交中屏蔽一切关窗路径（遮罩/Escape/✕ 同原 disabled 语义）
   return (
-    <div className="modal-overlay" onClick={submitting ? undefined : onCancel}>
-      <div className="modal" style={{ maxWidth: '36rem' }} onClick={e => e.stopPropagation()}>
-        <div className="modal-header">
-          <h3 className="modal-title">确认物化清单</h3>
-          <button className="modal-close" onClick={onCancel} disabled={submitting} aria-label="关闭">×</button>
-        </div>
-        <div className="modal-body">
+    <Modal
+      onClose={() => { if (!submitting) onCancel(); }}
+      maxWidth="36rem"
+      title="确认物化清单"
+      footer={
+        <>
+          <button className="btn btn-secondary" onClick={onCancel} disabled={submitting}>
+            取消
+          </button>
+          <button
+            className="btn btn-danger"
+            disabled={submitting}
+            title="打回：物化清单需修订（agent 重做拆分）"
+            onClick={() => void run(() => onReject(SPEC_REJECT_REASON))}
+          >
+            打回
+          </button>
+          <Button
+            variant="primary"
+            loading={submitting}
+            onClick={() => void run(() => onConfirm({
+              kind: 'spec',
+              tasks: included.map(c => ({
+                title: c.title.trim(),
+                ac: c.ac.map(s => s.trim()).filter(Boolean),
+                ...(c.blockedBy.length > 0 ? { blockedBy: c.blockedBy } : {}),
+                ...(c.leg ? { leg: c.leg } : {}),
+              })),
+            }))}
+          >
+            {primaryLabel}
+          </Button>
+        </>
+      }
+    >
           <p className="text-xs u-text-2 mb-2">
             逐卡评审要拆的任务（勾选纳入、标题可改、展开改验收标准）；确认后按勾选集自动派生任务单。
             全部不勾 = 确认但不物化（事后可补确认再物化）；拆得不对请「打回」。
@@ -134,36 +163,6 @@ export function SpecApproveDialog({ prefill, onConfirm, onReject, onCancel }: Sp
             添加任务
           </button>
           {submitError && <p className="text-xs u-err" style={{ marginTop: 8 }}>{submitError}</p>}
-        </div>
-        <div className="modal-footer">
-          <button className="btn btn-secondary" onClick={onCancel} disabled={submitting}>
-            取消
-          </button>
-          <button
-            className="btn btn-danger"
-            disabled={submitting}
-            title="打回：物化清单需修订（agent 重做拆分）"
-            onClick={() => void run(() => onReject(SPEC_REJECT_REASON))}
-          >
-            打回
-          </button>
-          <Button
-            variant="primary"
-            loading={submitting}
-            onClick={() => void run(() => onConfirm({
-              kind: 'spec',
-              tasks: included.map(c => ({
-                title: c.title.trim(),
-                ac: c.ac.map(s => s.trim()).filter(Boolean),
-                ...(c.blockedBy.length > 0 ? { blockedBy: c.blockedBy } : {}),
-                ...(c.leg ? { leg: c.leg } : {}),
-              })),
-            }))}
-          >
-            {primaryLabel}
-          </Button>
-        </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
