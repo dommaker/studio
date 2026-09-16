@@ -2,7 +2,9 @@
 import 'dotenv/config';
 
 // 固定 KnowledgeStore 路径 — CWD 无关, 与 memory-knowledge-sync hook 共用
-process.env.KNOWLEDGE_DIR = process.env.KNOWLEDGE_DIR || require('path').resolve(__dirname, '..', '.harness', 'knowledge');
+// #571：缺省自 monorepo 相对路径迁至数据根 harness-knowledge（契约 §8 待归位），env 可覆盖
+import { defaultKnowledgeDir, tunnelUrlFile } from './utils/runtime-paths.js';
+process.env.KNOWLEDGE_DIR = defaultKnowledgeDir();
 
 import { createServer } from 'http';
 import { app, registerRoutes } from './app.js';
@@ -19,6 +21,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { studioDir as resolveStudioDir, warnIfNonProdUsesProdRoot } from '@dommaker/studio-shared/studio-dir';
 import { resolveListenHost } from './utils/listen-host.js';
+import { isCloudflaredEnabled } from './utils/cloudflared.js';
 
 const PORT = process.env.PORT || 3001;
 // 2026-08-25 安全收口：默认只绑回环（服务器模式经 nginx 同机反代，npm 自托管
@@ -35,7 +38,7 @@ function loadConfig(): void {
     // Fallback: STUDIO_HOME（缺省 ~/.studio）defaults
     const studioDir = resolveStudioDir();
     if (!process.env.WORKTREES_DIR) process.env.WORKTREES_DIR = path.join(studioDir, 'worktrees');
-    if (!process.env.EVENTS_DIR) process.env.EVENTS_DIR = path.join(studioDir, 'events');
+    // events/ 目录双口径已收编（#571 / 契约 §8）：统一事件流正本在 logs/，不再注入 EVENTS_DIR
     return;
   }
 
@@ -485,11 +488,11 @@ async function start() {
     // Cloudflared Tunnel — 自动重启守护 + URL 变化通知
     let cloudflaredProc: ChildProcess | null = null;
     let lastTunnelUrl = '';
-    const TUNNEL_URL_FILE = require('path').join(require('os').homedir(), '.claude', 'tunnel-url');
+    const TUNNEL_URL_FILE = tunnelUrlFile();
 
     const notifyTunnelUrl = async (url: string) => {
       // 写文件，方便随时查看
-      try { require('fs').writeFileSync(TUNNEL_URL_FILE, url, 'utf-8'); } catch {}
+      try { fs.writeFileSync(TUNNEL_URL_FILE, url, 'utf-8'); } catch {}
       // 显著日志
       logger.info('='.repeat(70));
       logger.info(`🔗 DISCORD INTERACTIONS ENDPOINT URL: ${url}/api/v1/discord/interactions`);
@@ -543,10 +546,11 @@ async function start() {
         logger.warn('[Cloudflared] Not available, Discord tunnel disabled');
       }
     };
-    if (process.env.CLOUDFLARED_ENABLED !== 'false') {
+    // #571 冲突 5 冻结：外联隧道默认关，仅显式 CLOUDFLARED_ENABLED=true 拉起
+    if (isCloudflaredEnabled()) {
       startCloudflared();
     } else {
-      logger.info('[Cloudflared] Disabled via CLOUDFLARED_ENABLED=false');
+      logger.info('[Cloudflared] Disabled (default off; set CLOUDFLARED_ENABLED=true to enable)');
     }
 
     // 优雅关闭

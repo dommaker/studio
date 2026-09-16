@@ -41,7 +41,9 @@ export function resolveEvolutionPaths(overrides?: Partial<EvolutionPaths>): Evol
     constraintsFile: overrides?.constraintsFile ?? path.join(repoRoot, '.harness', 'custom-constraints.yml'),
     traceFile: overrides?.traceFile ?? path.join(repoRoot, '.harness', 'logs', 'traces.log'),
     rolesDir: overrides?.rolesDir ?? path.join(repoRoot, '.agents', 'roles'),
-    eventsDir: overrides?.eventsDir ?? studioPath('events'),
+    // events/ 语义迁移（契约 §8）：统一事件流正本在 logs/；本字段 @deprecated 不再被读取，
+    // 缺省值同步指 logs/（#571），events/ ensureDir 已从启动链移除
+    eventsDir: overrides?.eventsDir ?? studioPath('logs'),
     studioEventsFile: overrides?.studioEventsFile ?? resolveStudioLogFile('studio-events.jsonl'),
   };
 }

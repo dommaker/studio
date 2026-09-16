@@ -133,10 +133,10 @@ data/
 
 | 条目 | 漂移事实 | 冻结结论 |
 |------|---------|---------|
-| `events/` | 统一事件流正本已迁 `logs/studio-events.jsonl`（D18 收敛）；此处仅剩 ensureDir（index.ts:38、cli/server.ts:31-36）、evolution/signals.ts:44 默认读径与一次性死文件清理（studio-log-rotation.ts:242） | 收编：默认读径改指 `logs/`，ensureDir 移除；实现票执行后降级为遗产 |
-| `worktrees/` | API 进程内经 env 注入写 `<studioDir>/worktrees`；但 7 处模块 fallback 直拼 `~/worktrees`（agent-loop-parsers.ts:35、merge-on-review-pass.ts:53、monitor-system-probes.ts:30、system-health.ts:257、discord/routes.ts:141、studio-shared/config/index.ts:80、agent-runner.ts:58），双口径 | 目录本身契约内；fallback 全部改走 `studioPath('worktrees')`，实现票统一 |
-| `KNOWLEDGE_DIR`（index.ts:5，未落盘为条目时） | 缺省硬编码 `__dirname/../.harness/knowledge`（monorepo 相对路径） | 缺省改 `studioPath('harness-knowledge')`（新根级条目，§2②已登记），env 可覆盖；实现票执行 |
-| `TUNNEL_URL_FILE`（index.ts:488，当前落在 `~/.claude/`） | studioDir() 之外的路径例外，写第三方 CLI 目录 | 改 `studioPath('tunnel-url')`（§2②已登记）；实现票核实是否有外部读取方 |
+| `events/` | 统一事件流正本已迁 `logs/studio-events.jsonl`（D18 收敛）；此处仅剩 ensureDir（index.ts:38、cli/server.ts:31-36）、evolution/signals.ts:44 默认读径与一次性死文件清理（studio-log-rotation.ts:242） | 收编：默认读径改指 `logs/`，ensureDir 移除；实现票执行后降级为遗产。**已执行（#571，2026-09-16）**：signals 缺省指 `studioPath('logs')`、index.ts/cli server.ts 的 EVENTS_DIR 注入与 ensureDir 移除 |
+| `worktrees/` | API 进程内经 env 注入写 `<studioDir>/worktrees`；但 7 处模块 fallback 直拼 `~/worktrees`（agent-loop-parsers.ts:35、merge-on-review-pass.ts:53、monitor-system-probes.ts:30、system-health.ts:257、discord/routes.ts:141、studio-shared/config/index.ts:80、agent-runner.ts:58），双口径 | 目录本身契约内；fallback 全部改走 `studioPath('worktrees')`，实现票统一。**#571 声明留待后续工单**（超出本票边界，未动） |
+| `KNOWLEDGE_DIR`（index.ts:5，未落盘为条目时） | 缺省硬编码 `__dirname/../.harness/knowledge`（monorepo 相对路径） | 缺省改 `studioPath('harness-knowledge')`（新根级条目，§2②已登记），env 可覆盖；实现票执行。**已执行（#571）**：缺省收敛到 `apps/api/src/utils/runtime-paths.ts` defaultKnowledgeDir() |
+| `TUNNEL_URL_FILE`（index.ts:488，当前落在 `~/.claude/`） | studioDir() 之外的路径例外，写第三方 CLI 目录 | 改 `studioPath('tunnel-url')`（§2②已登记）；实现票核实是否有外部读取方。**已执行（#571）**：迁 `studioPath('tunnel-url')`（runtime-paths.ts tunnelUrlFile()，env 可覆盖）；核实全仓无代码读取方（scripts/tunnel-url.sh 读 /tmp/cloudflared.log），纯人工查看文件 |
 | `~/.studio/.harness`（空目录） | 零代码引用（仓内 `.harness` 引用均为 repo/worktree 级） | 疑似手工产物；首启若不需则归遗产，实现票核实 bootstrapHarness 行为后定性 |
 
 ### 遗产（零引用或代码内已声明死亡，18 条，只登记不清理）
@@ -177,8 +177,8 @@ data/
 
 ## 10. 未查实项（移交实现票）
 
-- `pnpm pack` 对 `workspace:*` 协议的重写行为与发布包体积（摸底未查实，#571 实测收口）。
-- `bootstrapHarness()` 缺 `.harness/config.yml` 时的行为（代码 try/catch 倾向容错，未实跑；#571 随 KNOWLEDGE_DIR 归位一并核实）。
+- `pnpm pack` 对 `workspace:*` 协议的重写行为与发布包体积（摸底未查实，#571 实测收口）。**已查实（#571）**：单包走 esbuild bundle 内嵌全部 workspace 代码，根 dependencies 零 `workspace:*`，重写问题不适用；发布包（tgz）≈ 0.9 MB。
+- `bootstrapHarness()` 缺 `.harness/config.yml` 时的行为（代码 try/catch 倾向容错，未实跑；#571 随 KNOWLEDGE_DIR 归位一并核实）。**已查实（#571）**：从无 `.harness` 的 cwd 起服务实测——bootstrap 正常完成（hooks: 7 注册成功），容错成立，无副作用。
 
 ---
 

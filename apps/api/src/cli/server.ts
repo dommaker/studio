@@ -4,7 +4,13 @@
 import { execSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
-import { STUDIO_DIR, DATA_DIR, ensureDir } from './shared.js';
+import { fileURLToPath } from 'url';
+import { STUDIO_DIR } from './shared.js';
+import { ensureDataDirs, ensureDaemonSecrets } from './bootstrap.js';
+import { defaultKnowledgeDir } from '../utils/runtime-paths.js';
+
+// ESM 形态（esbuild bundle / tsc ESNext）无 CJS __dirname，与 app.ts 同法自取
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export function checkPrerequisites() {
   const missing: string[] = [];
@@ -22,43 +28,14 @@ export function checkPrerequisites() {
 export async function studioUp(configPath?: string) {
   console.log('Studio starting...');
 
-  // 1. 确保数据目录
-  ensureDir(STUDIO_DIR);
-  ensureDir(DATA_DIR);
+  // 1. 确保数据目录（#571：共用 bootstrap；events/ ensureDir 已随契约 §8 收编移除）
+  ensureDataDirs(STUDIO_DIR);
   const ANALYST_DIR = path.join(STUDIO_DIR, '.analyst');
   const DAEMON_DIR = path.join(STUDIO_DIR, '.daemon');
-  const KNOWLEDGE_DIR = path.join(STUDIO_DIR, 'knowledge');
-  const EVENTS_DIR = path.join(STUDIO_DIR, 'events');
   const WORKTREES_DIR = path.join(STUDIO_DIR, 'worktrees');
-  ensureDir(ANALYST_DIR);
-  ensureDir(DAEMON_DIR);
-  ensureDir(KNOWLEDGE_DIR);
-  ensureDir(EVENTS_DIR);
-  ensureDir(WORKTREES_DIR);
 
   // 2. 自动生成密钥（必须在加载 .env 之前，避免 .env 中的占位值覆盖生成的密钥）
-  if (!process.env.JWT_SECRET) {
-    const jwtFile = path.join(DAEMON_DIR, 'jwt-secret');
-    if (fs.existsSync(jwtFile)) {
-      process.env.JWT_SECRET = fs.readFileSync(jwtFile, 'utf-8').trim();
-    } else {
-      const secret = require('crypto').randomBytes(32).toString('hex');
-      fs.writeFileSync(jwtFile, secret, 'utf-8');
-      process.env.JWT_SECRET = secret;
-      console.log(`Generated JWT_SECRET (stored in ${jwtFile})`);
-    }
-  }
-  if (!process.env.ENCRYPTION_KEY) {
-    const encFile = path.join(DAEMON_DIR, 'encryption-key');
-    if (fs.existsSync(encFile)) {
-      process.env.ENCRYPTION_KEY = fs.readFileSync(encFile, 'utf-8').trim();
-    } else {
-      const encKey = require('crypto').randomBytes(32).toString('hex');
-      fs.writeFileSync(encFile, encKey, 'utf-8');
-      process.env.ENCRYPTION_KEY = encKey;
-      console.log(`Generated ENCRYPTION_KEY (stored in ${encFile})`);
-    }
-  }
+  ensureDaemonSecrets(DAEMON_DIR);
 
   // 3. 加载配置（--config 参数 或 STUDIO_CONFIG_DIR 环境变量 或 默认路径）
   // 注：密钥先生成再加载 .env — .env 中的 JWT_SECRET 占位值不会覆盖已生成的密钥
@@ -88,8 +65,9 @@ export async function studioUp(configPath?: string) {
   // DATABASE_URL removed (Spec 4 Phase 4) — FileStore only
   if (!process.env.ANALYST_DIR) process.env.ANALYST_DIR = ANALYST_DIR;
   if (!process.env.DAEMON_DIR) process.env.DAEMON_DIR = DAEMON_DIR;
-  if (!process.env.KNOWLEDGE_DIR) process.env.KNOWLEDGE_DIR = KNOWLEDGE_DIR;
-  if (!process.env.EVENTS_DIR) process.env.EVENTS_DIR = EVENTS_DIR;
+  // KNOWLEDGE_DIR = harness hook 知识目录（非 FileKnowledgeStore 的 data 根 knowledge/），
+  // 缺省归数据根 harness-knowledge（#571 / 契约 §8）；events/ 双口径已收编，不再注入 EVENTS_DIR
+  if (!process.env.KNOWLEDGE_DIR) process.env.KNOWLEDGE_DIR = defaultKnowledgeDir();
   if (!process.env.WORKTREES_DIR) process.env.WORKTREES_DIR = WORKTREES_DIR;
 
   console.log(`Data dir: ${STUDIO_DIR}`);

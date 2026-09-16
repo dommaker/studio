@@ -1,3 +1,30 @@
-#!/usr/bin/env bash
-# studio CLI launcher
-exec npx tsx "$(dirname "$0")/../apps/api/src/cli/studio-cli.ts" "$@"
+#!/usr/bin/env node
+/**
+ * studio CLI launcher（#571 npm 形态薄入口）
+ *
+ * - npm 包形态：dist-npm/ 内的 esbuild bundle（构建：scripts/build-npm.mjs）；
+ * - monorepo 开发形态（bundle 不存在且 apps/api 源码在）：fallback 到 tsx 跑 TS 源
+ *   （tsx 是 devDependency，不进发布包，npm 形态永不到此分支）。
+ */
+import { existsSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { spawnSync } from 'node:child_process';
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+const bundle = path.join(here, '..', 'dist-npm', 'apps', 'api', 'dist', 'studio-cli.mjs');
+
+if (existsSync(bundle)) {
+  await import(pathToFileURL(bundle).href);
+} else {
+  const src = path.join(here, '..', 'apps', 'api', 'src', 'cli', 'studio-cli.ts');
+  if (existsSync(src)) {
+    const r = spawnSync('npx', ['tsx', src, ...process.argv.slice(2)], { stdio: 'inherit' });
+    process.exit(r.status ?? 1);
+  }
+  console.error(
+    'studio: runtime bundle missing (dist-npm/apps/api/dist/studio-cli.mjs) — '
+    + 'the installed package is incomplete/corrupt; reinstall: npm install -g @dommaker/studio',
+  );
+  process.exit(1);
+}

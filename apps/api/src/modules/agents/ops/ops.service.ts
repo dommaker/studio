@@ -15,6 +15,7 @@ import { loadRules, type OpsRules } from './ops-rules.js';
 import { readDiskUsage, readMemoryUsage, readLoadAvgRaw, countProcessesByCmdline, listPidsByCmdline } from './proc-probes.js';
 import { hashPassword } from '../../auth/service.js';
 import { resolveStudioLogFile } from '../../../utils/studio-log-path.js';
+import { ensureFrontendDist } from '../../../utils/frontend-dist.js';
 
 const execAsync = promisify(exec);
 
@@ -79,37 +80,17 @@ export class OpsService {
       });
     }
 
-    // 2. Check frontend dist
-    const indexHtml = path.join(frontendDistPath, 'index.html');
-    if (fs.existsSync(indexHtml)) {
-      add({ name: 'frontend-dist', passed: true, message: 'Frontend dist exists', critical: false });
-    } else {
-      // Try to auto-build
-      try {
-        const webDir = path.join(repoDir, 'apps/web');
-        if (fs.existsSync(webDir)) {
-          logger.info('[Ops] Building frontend...');
-          execSync('npx vite build', { cwd: webDir, stdio: 'pipe', timeout: 120_000 });
-          // Copy to frontend dist
-          const srcDist = path.join(webDir, 'dist');
-          if (fs.existsSync(srcDist)) {
-            fs.mkdirSync(path.dirname(frontendDistPath), { recursive: true });
-            execSync(`cp -r "${srcDist}/"* "${frontendDistPath}/"`, { stdio: 'pipe' });
-            add({
-              name: 'frontend-dist', passed: true, critical: false,
-              message: 'Frontend built and deployed', autoFixed: true,
-            });
-          } else {
-            add({ name: 'frontend-dist', passed: false, critical: false, message: '⚠️ Frontend build produced no dist' });
-          }
-        }
-      } catch (e: any) {
-        add({
-          name: 'frontend-dist', passed: false, critical: false,
-          message: `⚠️ Frontend dist missing and auto-build failed: ${e.message.slice(0, 100)}`,
-        });
-      }
-    }
+    // 2. Check frontend dist（#571 冲突 8 冻结：npm 形态缺 dist = 包损坏 critical abort，
+    //    不现场构建；monorepo dev 形态（apps/web 源码在）保留 auto-build 分支）
+    const frontend = ensureFrontendDist(frontendDistPath, repoDir);
+    if (frontend.autoBuilt) logger.info('[Ops] Building frontend...');
+    add({
+      name: 'frontend-dist',
+      passed: frontend.ok,
+      critical: frontend.corrupt === true,
+      message: frontend.message,
+      autoFixed: frontend.autoBuilt,
+    });
 
     // 3. Check port
     try {

@@ -10,12 +10,22 @@ import { studioApprove, studioReject } from './workflow.js';
 import { apiCommand, studioKnowledge, studioEnv, studioMcp, studioHarnessCli } from './data.js';
 import { studioConfig } from './config.js';
 import { studioProject, studioWorkon } from './admin.js';
+import { studioRunWeb } from './run-web.js';
 
 async function main() {
   const { configPath, args } = extractConfigFlag(process.argv.slice(2));
   const cmd = args[0];
 
   switch (cmd) {
+    case 'run':
+      // #571：studio run web = npm 本地形态一体起服务总入口（旧 studio run 提交需求语义已随 #569 移除）
+      if (args[1] === 'web') {
+        await studioRunWeb(args.slice(1));
+      } else {
+        console.error('Usage: studio run web [--port <n>]');
+        process.exit(1);
+      }
+      break;
     case 'up':
       await studioUp(configPath);
       break;
@@ -92,6 +102,7 @@ async function main() {
       console.log('Studio CLI');
       console.log('');
       console.log('  服务管理:');
+      console.log('    studio run web            Start Studio (API + web) in foreground — npm 本地形态总入口');
       console.log('    studio up                 Start Studio server');
       console.log('    studio stop               Stop Studio server');
       console.log('    studio restart            Restart Studio server');
