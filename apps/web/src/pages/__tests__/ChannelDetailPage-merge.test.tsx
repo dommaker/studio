@@ -173,8 +173,8 @@ describe('ChannelDetailPage — 连续消息合并（#277 D2）', () => {
     ];
     const { container } = renderPage();
     // 线程默认展开：过程组保持一层折叠（默认收拢）
-    await waitFor(() => expect(screen.getByText('▸ 4 条过程消息')).toBeTruthy());
-    fireEvent.click(screen.getByText('▸ 4 条过程消息'));
+    await waitFor(() => expect(screen.getByText('▸ 4 条过程消息 · @pm')).toBeTruthy());
+    fireEvent.click(screen.getByText('▸ 4 条过程消息 · @pm'));
     await waitFor(() => expect(screen.getByText('内容-g3')).toBeTruthy());
     for (const id of ['g2', 'g3', 'g4', 'g5']) {
       expect(hasHead(container, id)).toBe(true);

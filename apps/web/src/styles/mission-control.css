@@ -326,7 +326,9 @@
 
 /* 2026-09 视觉层次批次：虚线居中 chip → 行级条（实底实边、左对齐、全宽）——
    折叠组是「可展开内容」的唯一入口，原形态像装饰文本不像按钮，用户察觉不到可点；
-   底取 elevated：线程容器（--bg-secondary）内与主流（页底 primary）上都可分辨 */
+   底取 elevated：线程容器（--bg-secondary）内与主流（页底 primary）上都可分辨。
+   增量三：左边线升 2px --border-default——与 agent 消息 panel 左边线同位同宽，
+   折叠条在回复序列里读作「一行（折叠态）」而不是飘在序列外的装饰条 */
 .mc-collapse-toggle {
   display: block;
   width: 100%;
@@ -337,10 +339,21 @@
   text-align: left;
   background: var(--bg-elevated);
   border: 1px solid var(--border-subtle);
+  border-left: 2px solid var(--border-default);
   border-radius: 4px;
 }
 .mc-collapse-toggle:hover { color: var(--text-primary); background: var(--bg-hover); border-color: var(--accent-border); }
 .mc-collapse-toggle:focus-visible { outline: 1px solid var(--accent-primary); outline-offset: 2px; }
+/* 增量三：展开态模块盒——「收起条 + 过程消息组」包进同一 bordered 容器，
+   条与其控制的消息组边界可见（原上下两个独立块，读不出是一个模块） */
+.mc-proc-group {
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  padding: var(--space-2);
+  margin-bottom: 8px;
+}
+.mc-proc-group .mc-collapse-toggle { margin-bottom: var(--space-2); }
+.mc-proc-group .mc-msg:last-child { margin-bottom: 0; }
 
 /* 消息（纯文本行，不做气泡）。
    批次 E-3：透明 outline + 颜色过渡挂基类（白名单③状态色切换）——mc-msg-highlight /
@@ -799,6 +812,15 @@ button.mc-quote:active { background: var(--bg-active); }
   border-radius: 4px;
   background: var(--bg-secondary);
   padding: var(--space-2) var(--space-3);
+}
+/* 线程归属头：锚点摘要（作者 + 内容截断），组内对 anchor 的逐条 quote 由它统一承载 */
+.mc-thread-context {
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: var(--space-2);
 }
 
 /* Phase 3（channel 上下游优化 AC3）：主流 monitor 告警折叠组——

@@ -33,6 +33,19 @@ function hhmmOf(iso: string): string {
   }
 }
 
+/** 2026-09 视觉层次批次：折叠过程组作者归属——折叠条必须回答「这些消息是谁的」；
+ *  去重后取前 2 名，>2 加「等」（过程组常态单作者，多作者列全撑爆行高） */
+function procAuthorsOf(messages: ChannelMessage[]): string {
+  const names = [...new Set(messages.map(m => m.agentName || 'Agent'))];
+  const shown = names.slice(0, 2).map(n => `@${n}`).join('、');
+  return names.length > 2 ? `${shown} 等` : shown;
+}
+
+/** 消息作者短名（线程锚点摘要头用，与 ChannelMessageItem quote 行同口径） */
+function authorLabelOf(m: ChannelMessage): string {
+  return m.authorType === 'human' ? '你' : m.agentName || 'Agent';
+}
+
 export function ChannelStreamBody({ stream, renderMessage, highlightId }: {
   stream: ChannelStream;
   renderMessage: RenderStreamMessage;
@@ -122,20 +135,25 @@ export function ChannelStreamBody({ stream, renderMessage, highlightId }: {
           })}
           {item.expanded && item.replyCount > 0 && (
             <div className="mc-thread-replies">
+              {/* 2026-09 视觉层次批次：线程归属头——容器属于哪条消息一眼可辨
+                  （人类 anchor 是右侧气泡、容器在左下，无头时归属关系读不出）。
+                  组内 quote 不动：AC1 契约 = quote 可点定位上游，主流回复必然挂在线程内，
+                  抑制 anchor quote 会砍掉 quote 的主要出现面 */}
+              <div className="mc-thread-context">回复 {authorLabelOf(item.anchor)}：{item.anchor.content}</div>
               {item.replies.map(ri => {
                 if (ri.kind === 'msg') {
                   return renderMessage(ri.message, { isThreadReply: true, compact: ri.compact });
                 }
                 return ri.expanded ? (
-                  <div key={ri.key}>
+                  <div key={ri.key} className="mc-proc-group">
                     <button onClick={() => toggleProcGroup(ri.key)} className="mc-collapse-toggle">
-                      收起 {ri.messages.length} 条过程消息
+                      收起 {ri.messages.length} 条过程消息 · {procAuthorsOf(ri.messages)}
                     </button>
                     {ri.messages.map(reply => renderMessage(reply, { isThreadReply: true }))}
                   </div>
                 ) : (
                   <button key={ri.key} onClick={() => toggleProcGroup(ri.key)} className="mc-collapse-toggle">
-                    ▸ {ri.messages.length} 条过程消息
+                    ▸ {ri.messages.length} 条过程消息 · {procAuthorsOf(ri.messages)}
                   </button>
                 );
               })}

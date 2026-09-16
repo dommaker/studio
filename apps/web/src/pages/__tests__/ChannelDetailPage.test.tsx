@@ -477,7 +477,7 @@ describe('ChannelDetailPage — Mission Control 三栏', () => {
     await waitFor(() => expect(screen.getByText('需求已收到，开始分析')).toBeTruthy());
 
     // 线程默认展开：3 条连续过程消息收成一组；卡片回复（非末位）是里程碑，直接可见
-    expect(screen.getByText('▸ 3 条过程消息')).toBeTruthy();
+    expect(screen.getByText('▸ 3 条过程消息 · @pm')).toBeTruthy();
     expect(screen.getByText('通过')).toBeTruthy();
     expect(screen.getByText('分析结论：拆成 3 个任务')).toBeTruthy();
   });
@@ -521,14 +521,42 @@ describe('ChannelDetailPage — Mission Control 三栏', () => {
     // 4 条连续过程消息收成一组（保持一层折叠，默认收拢）；最后一条（最新状态）直接可见
     expect(screen.getByText('分析结论：拆成 3 个任务')).toBeTruthy();
     expect(screen.queryByText('过程步骤 3')).toBeNull();
-    const toggle = screen.getByText('▸ 4 条过程消息');
+    const toggle = screen.getByText('▸ 4 条过程消息 · @pm');
     expect(toggle).toBeTruthy();
+
+    // 2026-09 视觉层次批次：线程归属头（锚点摘要）+ 折叠条作者归属
+    expect(screen.getByText(/回复 pm：需求已收到，开始分析/)).toBeTruthy();
 
     // 展开组 → 过程消息可见；再收起
     fireEvent.click(toggle);
     expect(screen.getByText('过程步骤 3')).toBeTruthy();
-    fireEvent.click(screen.getByText('收起 4 条过程消息'));
+    fireEvent.click(screen.getByText('收起 4 条过程消息 · @pm'));
     expect(screen.queryByText('过程步骤 3')).toBeNull();
+  });
+
+  it('多作者过程组：折叠条作者归属取前 2 名加「等」', async () => {
+    seedMessages([
+      {
+        id: 'm-1', channelId: 'ch-1', authorType: 'agent' as const, agentName: 'pm',
+        content: '多作者线程锚点', workUnitId: 'WU-3000', replyToId: null,
+        meta: '{}', createdAt: iso(0),
+      },
+      ...(['pm', 'exec', 'reviewer', 'pm'] as const).map((name, i) => ({
+        id: `m-r${i}`, channelId: 'ch-1', authorType: 'agent' as const, agentName: name as string,
+        content: `过程-${name}-${i}`, workUnitId: 'WU-3000', replyToId: 'm-1',
+        meta: '{}', createdAt: iso(i + 1),
+      })),
+      {
+        id: 'm-9', channelId: 'ch-1', authorType: 'agent' as const, agentName: 'pm',
+        content: '末条里程碑结论', workUnitId: 'WU-3000', replyToId: 'm-1',
+        meta: '{}', createdAt: iso(9),
+      },
+    ]);
+    renderPage();
+    await waitFor(() => expect(screen.getByText('末条里程碑结论')).toBeTruthy());
+    // 3 名去重作者（pm/exec/reviewer）→ 前 2 名 + 等
+    expect(screen.getByText('▸ 4 条过程消息 · @pm、@exec 等')).toBeTruthy();
+    expect(screen.getByText(/回复 pm：多作者线程锚点/)).toBeTruthy();
   });
 
   it('批次 E-3：SSE 新到达消息挂 mc-msg-new 渐隐高亮，2s 后自清；首拉历史不标', async () => {
