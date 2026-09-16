@@ -164,6 +164,11 @@ describe('写路径内部失效缓存', () => {
 
   it('updateMembers → 合并写回 + 失效', async () => {
     const id = await seedChannel('members');
+    // updateMembers 校验 add 的 profile 存在性——先确保 agent-a 存在
+    if (!(await fileStore.getProfile('agent-a'))) {
+      const now = new Date().toISOString();
+      await fileStore.createProfile({ id: 'agent-a', name: 'agent-a', description: null, channels: '[]', status: 'active', createdAt: now, updatedAt: now });
+    }
     const members = await service.updateMembers(id, { add: ['agent-a'] });
     expect(members).toEqual(['agent-a']);
     expect(clearCacheMock).toHaveBeenCalledWith('/api/v1/channels');

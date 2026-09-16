@@ -116,6 +116,38 @@ describe('AC-B1+B2+B3: Channel Members', () => {
       expect(result).toEqual([]);
     });
 
+    it('add non-existent profile id → ChannelError(400), members not written', async () => {
+      const ch = await createTestChannel('#test-b2-add-unknown');
+      testChannelIds.push(ch.id);
+
+      await expect(channelService.updateMembers(ch.id, { add: ['no-such-profile-id'] }))
+        .rejects.toMatchObject({ name: 'ChannelError', status: 400 });
+      const stored = await fileStore.getChannel(ch.id);
+      expect(stored?.members).toBe('[]');
+    });
+
+    it('add undefined entry → ChannelError(400), members not written ("[null]" 防回归)', async () => {
+      const ch = await createTestChannel('#test-b2-add-undefined');
+      testChannelIds.push(ch.id);
+
+      await expect(channelService.updateMembers(ch.id, { add: [undefined as unknown as string] }))
+        .rejects.toMatchObject({ name: 'ChannelError', status: 400 });
+      const stored = await fileStore.getChannel(ch.id);
+      expect(stored?.members).toBe('[]');
+    });
+
+    it('remove non-string entry → ChannelError(400), members unchanged', async () => {
+      const agent = await createTestAgent();
+      testAgentIds.push(agent.id);
+      const ch = await createTestChannel('#test-b2-rm-undefined', { members: JSON.stringify([agent.id]) });
+      testChannelIds.push(ch.id);
+
+      await expect(channelService.updateMembers(ch.id, { remove: [null as unknown as string] }))
+        .rejects.toMatchObject({ name: 'ChannelError', status: 400 });
+      const stored = await fileStore.getChannel(ch.id);
+      expect(JSON.parse(stored!.members)).toContain(agent.id);
+    });
+
     it('empty body → members unchanged', async () => {
       const agent = await createTestAgent();
       testAgentIds.push(agent.id);

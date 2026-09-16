@@ -8,8 +8,12 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 API_DIR="$PROJECT_ROOT/apps/api"
 WEB_DIR="$PROJECT_ROOT/apps/web"
 
-# 读取 .env.beta（如果存在）
+# 读取 .env.beta（如果存在）；显式导出的环境变量优先，source 前暂存、source 后还回
+EXPLICIT_PORT="${PORT-}"
+EXPLICIT_VITE_PORT="${VITE_PORT-}"
 [ -f "$PROJECT_ROOT/.env.beta" ] && source "$PROJECT_ROOT/.env.beta"
+[ -n "$EXPLICIT_PORT" ] && PORT="$EXPLICIT_PORT"
+[ -n "$EXPLICIT_VITE_PORT" ] && VITE_PORT="$EXPLICIT_VITE_PORT"
 
 API_PORT="${PORT:-13001}"
 WEB_PORT="${VITE_PORT:-13000}"

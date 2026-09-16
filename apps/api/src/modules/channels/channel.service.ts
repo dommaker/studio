@@ -191,6 +191,22 @@ export class ChannelService {
     const addIds: string[] = ops.add ?? [];
     const removeIds: string[] = ops.remove ?? [];
 
+    // 成员 id 校验：非字符串/空串一律 400（防止 {add:[undefined]} 被存成 "[null]"——
+    // 频道看似有成员实际没有，涌现单无人认领）；add 额外要求 profile 存在。
+    // remove 保持幂等：移除不存在的 profile id 视为 no-op（允许清理悬空成员）。
+    for (const id of [...addIds, ...removeIds]) {
+      if (typeof id !== 'string' || id.length === 0) {
+        throw new ChannelError('member id must be a non-empty string', 400);
+      }
+    }
+    if (addIds.length > 0) {
+      const known = new Set((await this.fileStore.listProfiles()).map(p => p.id));
+      const unknown = addIds.filter(id => !known.has(id));
+      if (unknown.length > 0) {
+        throw new ChannelError(`Profile not found: ${unknown.join(', ')}`, 400);
+      }
+    }
+
     const updated = [...new Set([...current, ...addIds])].filter(id => !removeIds.includes(id));
 
     await this.fileStore.updateChannel(channelId, { members: JSON.stringify(updated) });
