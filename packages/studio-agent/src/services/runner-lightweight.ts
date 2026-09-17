@@ -1,9 +1,12 @@
 /**
  * Runner Lightweight — 轻量单 session 执行（agent-runner.ts 拆分模块）
  *
- * 从 agent-runner.ts 按职责拆出的 lightweight 执行路径（P9: Daemon→AgentRunner）：
- *   worktree + harness + 单 session；跳过 SDD 解析、REQUIREMENTS.md、contract tests、
- *   Iron Laws、依赖缓存、卡死检测与多 session 循环。
+ * 从 agent-runner.ts 按职责拆出的执行路径（P9: Daemon→AgentRunner），#562 起是本包
+ * 唯一执行路径：worktree + harness 配置 + 单 session 一次 spawn。
+ * 与已删除的多 session 循环曾共享的依赖面：provider 注册表（spawn 模板）、
+ * propagateHarnessConfig（含 provider-hooks 执法配置与 CLAUDE.md 复制）、
+ * 知识注入（buildAugmentedPrompt）、output-capture（进度读取/事件发射/session 指标）；
+ * harness hooks 层则已整层删除，本路径不再调任何 hook。
  *
  * 零行为变更：函数体自 AgentRunner.executeLightweight() 平移；
  * 实例状态经 RunnerExecutionState 传入。
@@ -36,10 +39,11 @@ import type { AgentTask, ExecutionResult, RunnerExecutionState } from './types.j
 
 /**
  * Lightweight execution: worktree + harness + single session.
- * Skips: SDD resolution, REQUIREMENTS.md, contract tests, Iron Laws,
- *        dependency cache, stuck detection, multi-session loop.
- * Keeps: resolveWorktree, propagateHarnessConfig, session-id/continue,
- *        stream-json parsing, event emission, metrics.
+ * Keeps: resolveWorkspace, checkPrerequisites, propagateHarnessConfig,
+ *        knowledge context, session-id/continue, stream-json parsing,
+ *        event emission, metrics.
+ * No longer exists anywhere: the multi-session loop with its stuck detection,
+ *        contract tests and dependency cache (deleted in #562).
  *
  * Caller provides the full prompt — this path builds no prompt text of its own.
  * Session 语义两个通道：旧 daemon 链路走 parameters.sessionFlags（claude --session-id/--continue

@@ -3,13 +3,14 @@
  *
  * 从 agent-runner.ts 按职责拆出的执行输出/状态解析逻辑：
  *   - processSessionOutput: spawn 尾部管线（写 .agent.log → stream-json 解析 →
- *     tool/file 事件 → session 指标 → session:end），runner-execution 与
- *     runner-lightweight 共用（Wave-4 抽取，原为两处近乎逐字的副本）
- *   - hasRecentActivity: worktree 文件 mtime 探测（stuck 判定的延期依据）
- *   - queryResolutionHints: RKB 已知解法查询（session 错误输出 → resolutionHint）
+ *     tool/file 事件 → session 指标 → session:end），runner-lightweight 消费
+ *     （Wave-4 抽取时原为两处近乎逐字的副本，#562 删多 session 循环后只剩一处）
+ *   - hasRecentActivity: worktree 文件 mtime 探测（原 stuck 判定的延期依据）
+ *   - queryResolutionHints: RKB 已知解法查询（原 session 错误输出 → resolutionHint）
  *
- * isError 的告警/分支语义两个调用方不同（execution 继续循环、lightweight 返回失败），
- * 故保留在调用方；跨 session token 累计亦由调用方基于返回的 streamUsage 完成。
+ * isError 的告警/分支语义由调用方决定（lightweight 返回失败），故不收敛进本模块。
+ * hasRecentActivity / queryResolutionHints 的唯一调用方随 #562 删除，现仅公共面与
+ * 测试保留，去留另裁。
  */
 
 import * as path from 'path';
