@@ -131,8 +131,8 @@ export class ResolutionService {
         (!errorClass || r.errorClass === errorClass)
       );
 
-      // #361: 匹配核心（regex 失败回退子串）下沉 studio-shared，与 studio-agent
-      // queryResolutionHints 的逐字重复实现收一。
+      // #361: 匹配核心（regex 失败回退子串）下沉 studio-shared，当时 studio-agent 侧
+      // 还有一份逐字重复的实现，一并收进本模块（那份随 #562/#587 摘除，本处是唯一消费方）。
       const matched: Resolution[] = matchResolutionPatterns(candidates, errorMessage);
 
       const promptSnippet = matched.length > 0

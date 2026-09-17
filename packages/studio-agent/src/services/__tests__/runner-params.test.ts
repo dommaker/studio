@@ -1,9 +1,10 @@
 /**
  * runner-params 单元测试
  *
- * 覆盖纯参数构建函数：prompt 拼接、session flag、--add-dir、
- * spawn cmd 组装、spawn env。
+ * 覆盖纯参数构建函数：prompt 拼接、spawn cmd 组装、spawn env。
  * （#155：resolveSddTaskData 已随 SDD 体系退役删除，相关用例一并移除）
+ * （#587：session flag / --add-dir 两个 helper 随 #562 遗留死面摘除，相关用例移除；
+ *   claude 续用会话改由 spawnParams.sessionId + sessionResume 承担，用例移至该形态）
  */
 
 import { describe, test, expect, vi } from 'vitest';
@@ -32,8 +33,6 @@ const mockGetSupportedFlags = vi.mocked(getSupportedFlags);
 
 import {
   buildAugmentedPrompt,
-  buildSessionFlag,
-  buildAddDirArgs,
   buildSessionCommand,
   buildSessionEnv,
 } from '../runner-params.js';
@@ -62,45 +61,10 @@ describe('buildAugmentedPrompt', () => {
   });
 });
 
-describe('buildSessionFlag', () => {
-  test('claude 首个新 session：--session-id + --name', () => {
-    expect(buildSessionFlag('claude', 1, true, 'sess-uuid-1', 'exec-abcdef123456'))
-      .toBe('--session-id sess-uuid-1 --name "executor-exec-abc"');
-  });
-
-  test('claude 首个非新 session / 后续 session：--continue', () => {
-    expect(buildSessionFlag('claude', 1, false, 'sess-uuid-1', 'exec-1')).toBe('--continue');
-    expect(buildSessionFlag('claude', 2, true, 'sess-uuid-1', 'exec-1')).toBe('--continue');
-  });
-
-  test('非 claude provider 不带 session flag', () => {
-    expect(buildSessionFlag('kimi', 1, true, 'sess-uuid-1', 'exec-1')).toBe('');
-  });
-});
-
-describe('buildAddDirArgs', () => {
-  test('无 analystContext → 空串', () => {
-    expect(buildAddDirArgs(makeTask(), 'claude')).toBe('');
-  });
-
-  test('verifiedFiles → 每个文件父目录一个 --add-dir', () => {
-    const task = makeTask({
-      parameters: { analystContext: { verifiedFiles: ['src/a.ts', 'src/lib/b.ts'] } },
-    });
-    expect(buildAddDirArgs(task, 'claude')).toBe('--add-dir "src" --add-dir "src/lib"');
-  });
-
-  test('verifiedFiles 为空数组 → 空串', () => {
-    const task = makeTask({ parameters: { analystContext: { verifiedFiles: [] } } });
-    expect(buildAddDirArgs(task, 'claude')).toBe('');
-  });
-});
-
 describe('buildSessionCommand', () => {
   const base = {
     worktree: '/wt',
     promptFile: '/wt/.daemon/prompt.md',
-    sessionFlags: '--continue',
   };
 
   test('claude：cd 开头、stdin 喂 prompt、2>&1 收尾、--verbose 不重复', () => {
@@ -108,33 +72,33 @@ describe('buildSessionCommand', () => {
     expect(cmd.startsWith('cd "/wt" && claude ')).toBe(true);
     expect(cmd).toContain('< "/wt/.daemon/prompt.md"');
     expect(cmd.endsWith('2>&1')).toBe(true);
-    expect(cmd).toContain('--continue');
     expect(cmd.match(/--verbose/g)?.length).toBe(1);
   });
 
-  test('claude：addDirArgs 拼入命令', () => {
+  // session 续接唯一通道：spawnParams.sessionId + sessionResume → cli-adapter 换语法
+  test('claude 续用会话：--resume <id> 拼入命令', () => {
     const cmd = buildSessionCommand({
-      ...base, provider: 'claude', spawnParams: { worktreeDir: '/wt' }, addDirArgs: '--add-dir "src"',
+      ...base, provider: 'claude', spawnParams: { worktreeDir: '/wt', sessionId: 'sess-9', sessionResume: true },
     });
-    expect(cmd).toContain('--add-dir "src"');
+    expect(cmd).toContain('--resume sess-9');
   });
 
   test('promptFlag 型 provider 用 --prompt "$(cat ...)" 形式', () => {
-    const cmd = buildSessionCommand({ ...base, provider: 'kimi', spawnParams: { worktreeDir: '/wt' }, sessionFlags: '' });
+    const cmd = buildSessionCommand({ ...base, provider: 'kimi', spawnParams: { worktreeDir: '/wt' } });
     expect(cmd).toContain('--prompt "$(cat \"/wt/.daemon/prompt.md\")"');
   });
 
   // #565: 能力探测消费点——codex 的 hook-trust conditional flag 按 supportedFlags 剔除/保留
   test('codex：探测结果不含 hook-trust flag 时命令剔除之', () => {
     mockGetSupportedFlags.mockReturnValueOnce(new Set(['--json']));
-    const cmd = buildSessionCommand({ ...base, provider: 'codex', spawnParams: { worktreeDir: '/wt' }, sessionFlags: '' });
+    const cmd = buildSessionCommand({ ...base, provider: 'codex', spawnParams: { worktreeDir: '/wt' } });
     expect(cmd).toContain('codex exec --json');
     expect(cmd).not.toContain('--dangerously-bypass-hook-trust');
   });
 
   test('codex：探测失败（undefined）fail-open 全量传参', () => {
     mockGetSupportedFlags.mockReturnValueOnce(undefined);
-    const cmd = buildSessionCommand({ ...base, provider: 'codex', spawnParams: { worktreeDir: '/wt' }, sessionFlags: '' });
+    const cmd = buildSessionCommand({ ...base, provider: 'codex', spawnParams: { worktreeDir: '/wt' } });
     expect(cmd).toContain('codex exec --json --dangerously-bypass-hook-trust');
   });
 });

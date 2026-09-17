@@ -7,10 +7,6 @@
  * （InputGuardrail / OutputGuardrail / Sandbox 已随 harness 1.2.0 ADR-0003 删除。）
  */
 
-// Prompt injection — 约束前置声明路由层（role→trigger；渲染走 harness renderConstraintsByTrigger）
-export { formatConstraintsForPrompt } from './prompt-injection';
-export type { AgentRole, FormatConstraintsOptions } from './prompt-injection';
-
 // Session metrics (observability)
 export { parseSessionMetrics } from './session-metrics';
 export type { SessionMetrics } from './session-metrics';

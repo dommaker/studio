@@ -40,15 +40,16 @@ import type { AgentTask, ExecutionResult, RunnerExecutionState } from './types.j
 /**
  * Lightweight execution: worktree + harness + single session.
  * Keeps: resolveWorkspace, checkPrerequisites, propagateHarnessConfig,
- *        knowledge context, session-id/continue, stream-json parsing,
+ *        knowledge context, session resume channel, stream-json parsing,
  *        event emission, metrics.
  * No longer exists anywhere: the multi-session loop with its stuck detection,
  *        contract tests and dependency cache (deleted in #562).
  *
  * Caller provides the full prompt — this path builds no prompt text of its own.
- * Session 语义两个通道：旧 daemon 链路走 parameters.sessionFlags（claude --session-id/--continue
- * 原样拼接）；agent-loop 链路走 parameters.sessionId + parameters.sessionResume
- * （经 cli-adapter 按 provider 生成，claude 续用为 --resume）。
+ * Session 续接唯一通道：parameters.sessionId + parameters.sessionResume，经
+ * cli-adapter 按 provider 生成（claude 续用为 --resume；其余 provider 走 cwd 维度
+ * 续用，见 cli-adapter.ts 实证记录）。#587 起旧 daemon 链路那条原样拼接 claude
+ * flag 的通道已随其生产者一并移除。
  */
 export async function executeLightweightSession(state: RunnerExecutionState, task: AgentTask): Promise<ExecutionResult> {
   const { config, runningProcesses } = state;
@@ -88,14 +89,9 @@ export async function executeLightweightSession(state: RunnerExecutionState, tas
     fsSync.mkdirSync(path.dirname(promptFile), { recursive: true });
     fsSync.writeFileSync(promptFile, augmentedPrompt, 'utf-8');
 
-    // Session management — caller provides flags via parameters
-    // F4: sessionFlags 是 claude 专属语法（--session-id/--continue）；其它 provider 的
-    // session 由 registry spawn 模板处理（buildSpawnArgs 传入 parameters.sessionId）。
-    // 核查（fix/guard-and-resume）：sessionFlags 唯一设置方是旧 daemon 链路
-    // apps/api/src/daemon/session-manager.ts（首 task --session-id、后续 --continue，无 Bug B）；
-    // agent-loop 链路不用它 —— 走 parameters.sessionId + parameters.sessionResume（见下）。
+    // Session 续接由调用方经 parameters 给出（sessionId + sessionResume），cli-adapter
+    // 按 provider 换语法；本路径不再原样拼接任何 provider 专属 session flag。
     const provider = task.provider || 'claude';
-    const sessionFlags = provider === 'claude' ? ((task.parameters?.sessionFlags as string) || '') : '';
     const agentRole = (task.parameters?.agentRole as string) || 'executor';
     const sessionId = task.executionId;
 
@@ -111,11 +107,10 @@ export async function executeLightweightSession(state: RunnerExecutionState, tas
       },
       worktree,
       promptFile,
-      sessionFlags,
     });
 
     logger.info('[AgentRunner] Lightweight session spawning', {
-      taskId: task.id, executionId: task.executionId, sessionFlags,
+      taskId: task.id, executionId: task.executionId,
     });
 
     const childRef: { current: ChildProcess | null } = { current: null };

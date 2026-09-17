@@ -1,13 +1,14 @@
 /**
  * RKB 已知解法查询 — 共享匹配核心（#361 双实现收一）。
  *
- * 此前两处逐字相同的实现：
- *   - packages/studio-agent runner-output.ts queryResolutionHints（session 错误 → prompt 注入）
- *   - apps/api knowledge/resolution.service.ts matchResolutions（API 匹配 + 消费事件）
- * 其中「regex 匹配失败回退子串包含」的分支与成熟度过滤完全一致，坍缩到本模块。
+ * 此前 studio-agent（session 错误 → prompt 注入）与 apps/api knowledge
+ * （API 匹配 + 消费事件）各有一份逐字相同的实现，「regex 匹配失败回退子串包含」
+ * 的分支与成熟度过滤完全一致，坍缩到本模块。studio-agent 侧那份的唯一调用方随
+ * #562 多 session 循环删除（#587 摘除），现唯一生产消费方是 apps/api resolution.service。
  *
- * 各调用方保留自己的差异项：文档扫描与 fix 提取口径、promptSnippet 格式化、
- * errorClass 收窄（service）——本模块只收真正的共同逻辑。
+ * 消费方各自保留差异项：文档扫描与 fix 提取口径、promptSnippet 格式化、
+ * errorClass 收窄——本模块只收真正的共同逻辑。
+ * 注意：formatRkbHint 是那份已删实现的输出格式，#587 后暂无生产调用方（待另票裁决）。
  */
 
 /** RKB 成熟度闸门：verified/canonical 才可注入/展示（pending/draft 不参与） */

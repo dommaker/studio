@@ -7,8 +7,8 @@
  *   - Workspace fallback: task.parameters.workspaceRoot → DB query → createWorktree()
  *
  * 模块拆分：实现按职责拆到
- *   - runner-params.ts      参数构建（prompt 增强 / session flag / cmd / env / 前置检查）
- *   - runner-output.ts      输出解析（mtime 探测 / RKB 已知解法）
+ *   - runner-params.ts      参数构建（prompt 增强 / cmd / env / 前置检查）
+ *   - runner-output.ts      输出解析（spawn 尾部管线：落盘 → stream-json → 事件 → 指标）
  *   - runner-lightweight.ts 执行（轻量单 session，唯一执行路径）
  *   - types.ts              公共类型（ExecutorConfig / AgentTask / ExecutionResult / PrerequisiteCheck）
  * 本文件保留门面类与全部公共 API（含函数 re-export），调用方零改动。
@@ -40,9 +40,6 @@ export type OutputEvent = StreamEvent;
 // ─── Function re-exports (保持原 agent-runner.js 导入路径兼容) ───
 
 export { buildAugmentedPrompt } from './runner-params.js';
-export { hasRecentActivity } from './runner-output.js';
-
-const DEFAULT_MAX_SESSIONS = 5;
 
 // ─── AgentRunner class ───
 
@@ -63,7 +60,6 @@ export class AgentRunner {
       })(),
       taskTimeoutMinutes: config?.taskTimeoutMinutes || 60,
       sessionTimeoutMinutes: config?.sessionTimeoutMinutes || 30,
-      maxSessions: config?.maxSessions || DEFAULT_MAX_SESSIONS,
       ...config,
     };
   }

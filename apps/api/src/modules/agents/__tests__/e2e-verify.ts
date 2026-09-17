@@ -77,10 +77,11 @@ async function verifyAssumption2() {
   const task1: AgentTask = {
     id: workUnitId,
     executionId: `${workUnitId}-step1`,
-    agentType: 'claude',
+    provider: 'claude',
     prompt: 'You are a test agent. Read the file /root/projects/studio/apps/api/src/modules/agents/loop/agent-loop.ts and tell me the first function name you see. Output ACTION: PROGRESS:<answer>',
     parameters: {
-      sessionFlags: `--session-id ${sessionId}`,
+      // 新建会话：cli-adapter 按 claude 模板生成 --session-id <uuid>
+      sessionId,
       agentRole: 'executor',
       workUnitId,
       extraEnv: {
@@ -111,7 +112,8 @@ async function verifyAssumption2() {
       prompt: 'Continuing from before. What was the second function you saw? Output ACTION: COMPLETE:<answer>',
       parameters: {
         ...task1.parameters,
-        sessionFlags: `--resume ${sessionId}`,
+        // 续用同一会话：cli-adapter 对 claude 换 --resume <uuid>
+        sessionResume: true,
       },
     };
 

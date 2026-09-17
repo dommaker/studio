@@ -3,13 +3,11 @@
  *
  * 从 agent-runner.ts 按职责拆出的 spawn/prompt 参数构建逻辑：
  *   - prompt 增强（buildAugmentedPrompt）
- *   - spawn 命令构建（session flag / --add-dir / cmd 组装 / env）
+ *   - spawn 命令构建（cmd 组装 / env）
  *   - 前置检查（checkPrerequisites）
  *
- * 零行为变更：函数体均自 agent-runner.ts 平移，仅类方法改为自由函数。
- * cmd/env 组装块原为 loop / lightweight 两模式共享抽取；#562 删 loop 后只剩
- * lightweight 消费方——buildSessionFlag / buildAddDirArgs 因此暂无生产调用方，
- * 本票按票面摘除范围保留其公共面与测试，去留另裁。
+ * cmd/env 组装块原为 loop / lightweight 两模式共享抽取；#562 删 loop、#587 删其
+ * 遗留的 session flag / --add-dir 构建 helper 后，只剩 lightweight 消费方。
  * #155：SDD task 层解析（resolveSddTaskData）已随 SDD 体系退役删除——
  * contractTests/testFiles 只取 task.parameters（DB 值）。
  */
@@ -20,7 +18,7 @@ import { execSh, resolveProviderDefinition, buildHealthProbeCommand, getSupporte
 import { buildSpawnArgs, type Provider, type SpawnParams } from '../cli-adapter.js';
 import { kimiCodeHomePath, kimiCodeHomeReady } from './provider-hooks.js';
 
-import type { ExecutorConfig, AgentTask, PrerequisiteCheck, AnalystContext } from './types.js';
+import type { ExecutorConfig, AgentTask, PrerequisiteCheck } from './types.js';
 
 // ========================================
 // Prerequisites
@@ -113,54 +111,15 @@ export function buildAugmentedPrompt(basePrompt: string, knowledgeContext?: stri
 // Spawn command building
 // ========================================
 
-/**
- * Session flags for the multi-session loop (claude-only).
- * F4: --session-id/--continue/--name 是 claude 专属语法；其它 provider 的 session
- * 由 registry spawn 模板处理（cli-adapter）。非 claude 的跨 session 续接仍是 claude-only。
- */
-export function buildSessionFlag(
-  provider: Provider,
-  sessionCount: number,
-  isNewSession: boolean,
-  sessionId: string,
-  executionId: string,
-): string {
-  const isFirstSession = sessionCount === 1;
-  return provider === 'claude'
-    ? (isFirstSession
-        ? (isNewSession
-            ? `--session-id ${sessionId} --name "executor-${executionId.slice(0, 8)}"`
-            : '--continue')
-        : '--continue')
-    : '';
-}
-
-/** Restrict tool access: --add-dir args derived from analystContext.verifiedFiles (when provider supports it). */
-export function buildAddDirArgs(task: AgentTask, provider: Provider): string {
-  const providerDef = resolveProviderDefinition(provider);
-  const _analystCtx = (task.parameters?.analystContext as AnalystContext | undefined) || null;
-  const _restrictDirs = _analystCtx?.verifiedFiles;
-  return _restrictDirs?.length && providerDef.spawn.addDirFlag
-    ? _restrictDirs.map((f: string) => {
-        const dir = f.split('/').slice(0, -1).join('/');
-        return `${providerDef.spawn.addDirFlag} "${dir}"`;
-      }).join(' ')
-    : '';
-}
-
 export interface SessionCommandOptions {
   /** CLI provider id */
   provider: Provider;
-  /** Passed through to buildSpawnArgs（loop 仅 worktreeDir；lightweight 含 sessionId/maxTurns） */
+  /** Passed through to buildSpawnArgs（仅 worktreeDir / sessionId / sessionResume / maxTurns） */
   spawnParams: SpawnParams;
   /** 工作目录（cmd 以 cd "<worktree>" 开头） */
   worktree: string;
   /** prompt 文件路径（promptViaStdin / promptFlag 都引用它） */
   promptFile: string;
-  /** session flag 串（loop 由 buildSessionFlag 产出；lightweight 由调用方给出） */
-  sessionFlags: string;
-  /** loop 模式的 --add-dir 串（buildAddDirArgs 产出；lightweight 无） */
-  addDirArgs?: string;
 }
 
 /**
@@ -186,8 +145,6 @@ export function buildSessionCommand(opts: SessionCommandOptions): string {
     spawnArgs.command,
     ...spawnArgs.args,
     verboseArg,
-    opts.addDirArgs ?? '',
-    opts.sessionFlags,
     promptArg,
     `2>&1`,
   ].filter(Boolean).join(' ');

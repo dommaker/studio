@@ -2,7 +2,7 @@
  * runner-lightweight 单元测试（轻量单 session 执行）
  *
  * mock execSh（spawn 层）与 output-capture，真实跑 workspace 解析（Priority 1）、
- * prompt 增强、sessionFlags 注入、stream-json 结果解析链路。
+ * prompt 增强、session 续接参数注入、stream-json 结果解析链路。
  */
 
 import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -71,7 +71,7 @@ describe('executeLightweightSession', () => {
     wsRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'lw-ws-root-'));
     worktreesDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lw-worktrees-'));
     state = {
-      config: { worktreesDir, repoDir: wsRoot, taskTimeoutMinutes: 60, sessionTimeoutMinutes: 30, maxSessions: 5 },
+      config: { worktreesDir, repoDir: wsRoot, taskTimeoutMinutes: 60, sessionTimeoutMinutes: 30 },
       runningProcesses: new Map(),
     };
   });
@@ -103,8 +103,8 @@ describe('executeLightweightSession', () => {
     return call as [string, { env?: Record<string, string | undefined>; timeoutMs?: number }];
   }
 
-  test('成功：outputText/usage/sessionIds 透出，sessionFlags 与 WORKUNIT env 注入', async () => {
-    const task = makeTask({ parameters: { workspaceRoot: wsRoot, workUnitId: 'wu-lw-1', sessionFlags: '--resume sess-9' } });
+  test('成功：outputText/usage/sessionIds 透出，会话续接与 WORKUNIT env 注入', async () => {
+    const task = makeTask({ parameters: { workspaceRoot: wsRoot, workUnitId: 'wu-lw-1', sessionId: 'sess-9', sessionResume: true } });
     const result = await executeLightweightSession(state, task);
 
     expect(result.success).toBe(true);
