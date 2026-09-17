@@ -126,4 +126,4 @@ stream-json 嵌套 agent 防护：**确认存在缺口**。`stream-json-parser.t
 - **能力探测**：`codex exec --help` 全文含 `--dangerously-bypass-hook-trust`（与 `--json` 等并列），`/--[a-z0-9][a-z0-9-]*/g` 全文抓够用（flag 均以 `--xxx` 形态出现在选项行；同名 flag 出现在描述文本的误报对「存在性判定」无害——误判为支持 = fail-open 现状行为）。
 - **auth 探测**：claude `auth status` exit 0 输出 JSON（`loggedIn` 布尔字段）→ 声明，未登录模式 `"loggedIn"\s*:\s*false`；codex `login status` 未登录 exit 1 + 输出 "Not logged in"（干净 CODEX_HOME 实测）→ 声明；kimi `login` 无 status 子命令（实测报 "too many arguments"）→ 不声明；opencode `auth list` 把 env 凭证（OPENAI_API_KEY 等）与登录态混排，无可靠判定 → 不声明。
 - **失败分类器样本**：codex "Not logged in"（exit 1）为实测；claude auth JSON 形态实测；配额/限流/unknown option 为各家通用 CLI 错误形态（脱敏入 `failure-classifier.test.ts` fixture）。
-- **注意**：本机 `/root/.codex/config.toml` 是失效配置（wire_api=chat 已废弃），codex 任何命令 exit 1 —— auth 探测会报 failed（引导修配置/重登录），语义可接受。
+- **注意**：本机 codex 配置是失效配置（wire_api=chat 已废弃），codex 任何命令 exit 1 —— auth 探测会报 failed（引导修配置/重登录），语义可接受。
