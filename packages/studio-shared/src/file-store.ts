@@ -938,10 +938,11 @@ export class FileStore extends FileStoreWorkUnitBase {
     // 等 ts 撞车 = 文件序≠时间序）→ 回退全量路径保精确（单副本必被严格性检查
     // 捕获；多副本交织的病态窗口理论上有界偏差，压实 #319 自愈）。
     // B5（2026-09-16 channel 体检）：limit 且带过滤 → 同一快径加谓词（倒扫按匹配
-    // 计数早停），谓词与下方全量路径三条 filter 逐句同语义；无 limit 的带过滤查询
+    // 计数早停），谓词与下方全量路径四条 filter 逐句同语义；无 limit 的带过滤查询
     // 无早停收益（倒扫亦需扫到文件头），保持全量路径不动。
+    // #576：before（createdAt 严格 <）与 since（>=）互补，同为谓词一员。
     if (opts?.limit !== undefined && opts.limit > 0) {
-      if (!opts.workUnitId && !opts.authorType && !opts.since) {
+      if (!opts.workUnitId && !opts.authorType && !opts.since && !opts.before) {
         const { messages, exhausted } = await this.readMessagesTail(channelId, { limit: opts.limit });
         if (exhausted || isStrictlyDecreasingTs(messages)) {
           messages.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
@@ -949,11 +950,14 @@ export class FileStore extends FileStoreWorkUnitBase {
         }
       } else {
         const sinceMs = opts.since !== undefined ? new Date(opts.since).getTime() : null;
+        const beforeMs = opts.before !== undefined ? new Date(opts.before).getTime() : null;
         const match = (m: ChannelMessageData): boolean => {
           if (opts.workUnitId && m.workUnitId !== opts.workUnitId) return false;
           if (opts.authorType && m.authorType !== opts.authorType) return false;
           // 与全量路径同口径：>= 比较（NaN 输入一律不匹配，不静默放宽）
           if (sinceMs !== null && !(new Date(m.createdAt).getTime() >= sinceMs)) return false;
+          // before 同口径：严格 <（NaN 输入一律不匹配）
+          if (beforeMs !== null && !(new Date(m.createdAt).getTime() < beforeMs)) return false;
           return true;
         };
         const { messages, exhausted } = await this.readMessagesTail(channelId, { limit: opts.limit, match });
@@ -975,6 +979,10 @@ export class FileStore extends FileStoreWorkUnitBase {
     if (opts?.since) {
       const since = new Date(opts.since).getTime();
       filtered = filtered.filter(m => new Date(m.createdAt).getTime() >= since);
+    }
+    if (opts?.before) {
+      const before = new Date(opts.before).getTime();
+      filtered = filtered.filter(m => new Date(m.createdAt).getTime() < before);
     }
 
     // 按创建时间升序

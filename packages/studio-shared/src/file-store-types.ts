@@ -87,7 +87,8 @@ export interface ChannelMessageRow extends ChannelMessageData {
 export interface QueryOpts {
   workUnitId?: string;
   authorType?: string;
-  since?: string;          // ISO 8601
+  since?: string;          // ISO 8601，createdAt >= since
+  before?: string;         // ISO 8601，createdAt < before（#576：倒序翻页游标，与 since 互补）
   limit?: number;
 }
 

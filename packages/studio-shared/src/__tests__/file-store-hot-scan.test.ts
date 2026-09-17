@@ -243,5 +243,26 @@ describe('FileStore 热层倒扫（2026-09-16 channel 体检 B4/B5）', () => {
       const r = await store.queryMessages(CH, { workUnitId: 'wu-hot' });
       expect(r.map(m => m.id)).toEqual(Array.from({ length: 10 }, (_, k) => `m${2991 + k}`));
     });
+
+    it('#576：workUnitId + before + limit：before（createdAt 严格 <）进谓词，倒扫早停有界', async () => {
+      seedBigHotFile(tmpDir, (row, i) => (i > 2970 ? { ...row, workUnitId: 'wu-hot' } : row));
+      const readJsonlSpy = vi.spyOn(store, 'readJsonl');
+      scanCounter.lines = 0;
+
+      // before = m2996 的 createdAt：wu-hot ∩ createdAt < before = m2971..m2995，末尾 10 条
+      const before = new Date(BASE_MS + 2996 * 1000).toISOString();
+      const r = await store.queryMessages(CH, { workUnitId: 'wu-hot', before, limit: 10 });
+      expect(r.map(m => m.id)).toEqual(Array.from({ length: 10 }, (_, k) => `m${2986 + k}`));
+      expect(scanCounter.lines).toBeGreaterThan(0);
+      expect(scanCounter.lines).toBeLessThanOrEqual(50);
+      expect(readJsonlSpy).not.toHaveBeenCalled();
+    });
+
+    it('#576：before 无 limit → 全量路径同样支持 before 过滤（与同所 since 的 >= 口径互补）', async () => {
+      seedBigHotFile(tmpDir, (row, i) => (i > 2990 ? { ...row, workUnitId: 'wu-hot' } : row));
+      const before = new Date(BASE_MS + 2995 * 1000).toISOString();
+      const r = await store.queryMessages(CH, { workUnitId: 'wu-hot', before });
+      expect(r.map(m => m.id)).toEqual(['m2991', 'm2992', 'm2993', 'm2994']);
+    });
   });
 });
