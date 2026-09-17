@@ -41,10 +41,6 @@
       "types": "./dist/harness/index.d.ts",
       "default": "./src/harness/index.ts"
     },
-    "./harness/hooks": {
-      "types": "./dist/harness/hooks/index.d.ts",
-      "default": "./src/harness/hooks/index.ts"
-    },
     "./harness/runtime/bootstrap": {
       "types": "./dist/harness/runtime/bootstrap.d.ts",
       "default": "./src/harness/runtime/bootstrap.ts"
@@ -55,7 +51,7 @@
     }
   },
   "scripts": {
-    "build": "tsc && npx tsx ../../scripts/tools/hooks-closure-check.ts",
+    "build": "tsc",
     "test": "vitest run",
     "test:watch": "vitest"
   },

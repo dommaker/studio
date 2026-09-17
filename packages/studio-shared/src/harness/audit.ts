@@ -5,7 +5,7 @@
  * （L1 全局文件 ~/.harness/audit/ 已停写——无活跃读方，#425 a1；L2/L3 由 Auditor 角色消费）。
  */
 
-import { eventBus } from '../../event-bus';
+import { eventBus } from '../event-bus';
 
 export interface AuditEvent {
   eventType: string;

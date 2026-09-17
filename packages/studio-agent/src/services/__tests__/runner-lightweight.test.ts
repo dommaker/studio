@@ -31,11 +31,6 @@ vi.mock('@dommaker/studio-skill', () => ({
   skillLoader: { load: vi.fn().mockReturnValue([]), formatForPrompt: vi.fn().mockReturnValue('') },
 }));
 
-vi.mock('@dommaker/studio-shared/harness/hooks', () => ({
-  beforeAgentExecute: vi.fn().mockResolvedValue({ prompt: 'enhanced prompt', blocked: false }),
-  buildAgentConstraintPrompt: vi.fn().mockReturnValue('constraint prompt'),
-}));
-
 vi.mock('../output-capture.js', () => ({
   readProgress: vi.fn().mockReturnValue(null),
   collectOutputFiles: vi.fn().mockResolvedValue([]),
@@ -48,7 +43,7 @@ vi.mock('../output-capture.js', () => ({
 }));
 
 import { executeLightweightSession } from '../runner-lightweight.js';
-import type { RunnerExecutionState } from '../runner-execution.js';
+import type { RunnerExecutionState } from '../types.js';
 import { emitSessionStart, emitSessionEnd } from '../output-capture.js';
 import type { AgentTask } from '../types.js';
 

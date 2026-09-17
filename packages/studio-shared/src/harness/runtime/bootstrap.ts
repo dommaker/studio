@@ -1,18 +1,17 @@
 /**
- * Harness Runtime Bootstrap — Phase 2 迁移
+ * Harness Runtime Bootstrap
  *
- * 使用 harness 新 hooks 管线 (HookRegistry + HookPipeline) 替代 ad-hoc import。
- * 启动时加载 .harness/config.yml，初始化 ConstraintChecker 并注册所有 hook。
+ * 启动时加载 .harness/config.yml，初始化 ConstraintChecker。
+ * #562：业务 hook 注册与 HookPipeline 访问器随 hooks 层收缩删除，本文件只剩初始化。
  */
 
-import { bootstrapHarness as harnessBootstrap, HookRegistry, HookPipeline } from '@dommaker/harness';
-import type { HarnessBootstrap, HookDefinition } from '@dommaker/harness';
-import { registerAllHooks } from '../hooks/register';
+import { bootstrapHarness as harnessBootstrap } from '@dommaker/harness';
+import type { HarnessBootstrap } from '@dommaker/harness';
 
 let bootstrap: HarnessBootstrap | null = null;
 
 /**
- * 初始化 harness 运行时（Phase 2: 使用新 hooks 管线）
+ * 初始化 harness 运行时
  * 应在 API 服务器启动时调用一次
  */
 export async function bootstrapHarness(projectPath?: string): Promise<HarnessBootstrap> {
@@ -21,20 +20,16 @@ export async function bootstrapHarness(projectPath?: string): Promise<HarnessBoo
   const root = projectPath || process.cwd();
 
   try {
-    // Phase 2: 使用 harness 新 bootstrap（异步加载配置，解决 S9）
+    // 使用 harness bootstrap（异步加载配置，解决 S9）
     bootstrap = await harnessBootstrap(root);
 
-    // 注册所有 business hooks 到管线
-    registerAllHooks(bootstrap.hooks);
-
-    console.log(`[Harness] Bootstrap complete — project: ${root}, hooks: ${bootstrap.hooks.size}`);
+    console.log(`[Harness] Bootstrap complete — project: ${root}`);
     return bootstrap;
   } catch (err) {
     console.warn('[Harness] Bootstrap failed:', (err as Error).message);
     // Fallback: 同步初始化
     const { bootstrapHarnessSync } = await import('@dommaker/harness');
     bootstrap = bootstrapHarnessSync(root);
-    registerAllHooks(bootstrap.hooks);
     return bootstrap;
   }
 }
@@ -44,13 +39,6 @@ export async function bootstrapHarness(projectPath?: string): Promise<HarnessBoo
  */
 export function getHarness(): HarnessBootstrap | null {
   return bootstrap;
-}
-
-/**
- * 获取 hook 管线（用于执行业务 hook）
- */
-export function getPipeline(): HookPipeline | null {
-  return bootstrap?.pipeline ?? null;
 }
 
 export function isHarnessInitialized(): boolean {

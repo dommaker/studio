@@ -27,9 +27,8 @@ import {
   buildSessionCommand,
   buildSessionEnv,
 } from './runner-params.js';
-import type { RunnerExecutionState } from './runner-execution.js';
 
-import type { AgentTask, ExecutionResult } from './types.js';
+import type { AgentTask, ExecutionResult, RunnerExecutionState } from './types.js';
 
 // ========================================
 // Lightweight mode (P9: Daemon→AgentRunner)
@@ -42,7 +41,7 @@ import type { AgentTask, ExecutionResult } from './types.js';
  * Keeps: resolveWorktree, propagateHarnessConfig, session-id/continue,
  *        stream-json parsing, event emission, metrics.
  *
- * Caller provides the full prompt — no buildPrompt enrichment.
+ * Caller provides the full prompt — this path builds no prompt text of its own.
  * Session 语义两个通道：旧 daemon 链路走 parameters.sessionFlags（claude --session-id/--continue
  * 原样拼接）；agent-loop 链路走 parameters.sessionId + parameters.sessionResume
  * （经 cli-adapter 按 provider 生成，claude 续用为 --resume）。

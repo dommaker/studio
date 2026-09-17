@@ -2,11 +2,11 @@
  * Worktree Resolver — git worktree 创建/复用/清理 + harness 配置传播 + 依赖缓存
  *
  * P11-02: Extracted from agent-executor.ts
- * Wave-4: prompt/文件桥内容（buildCachePrefix/writeRequirementsMd/writeContractTests）
- * 移至 runner-briefing.ts；本模块只保留 git/依赖生命周期。
+ * Wave-4 曾把 prompt/文件桥内容（CACHE_PREFIX.md / REQUIREMENTS.md / 契约测试写入）
+ * 抽为独立模块；#562 删多 session 循环后该文件桥失去消费方，一并移除，
+ * 本模块只保留 git/依赖生命周期。
  * （origin/master 曾将 scaffolding 写入同类抽为 worktree-scaffolding.ts；
- *  合并后该拆分产物随 session-manager 簇一并删除，runner-briefing.ts 为文件桥唯一事实源，
- *  ensureDeps 留在本模块。）
+ *  合并后该拆分产物随 session-manager 簇一并删除，ensureDeps 留在本模块。）
  */
 
 import * as path from 'path';
@@ -178,7 +178,7 @@ export async function resolveWorkspace(opts: {
  */
 export async function propagateHarnessConfig(worktree: string, taskId: string, executionId: string, repoDir?: string): Promise<void> {
   try {
-    // FIX #3: 复制 CLAUDE.md 到 worktree，使 buildAgentConstraintPrompt 去重逻辑生效
+    // FIX #3: 复制 CLAUDE.md 到 worktree，使约束去重逻辑生效
     // 新落点模型（docs/adr/2026-08-21-agent-docs-placement-model.md）：去重检测认
     // AGENTS.md PRESERVE:governance 段（git worktree checkout 自带）；CLAUDE.md 为
     // gitignored 薄身（首行 @AGENTS.md 导入），仍需复制以便 Claude Code 读到约束。

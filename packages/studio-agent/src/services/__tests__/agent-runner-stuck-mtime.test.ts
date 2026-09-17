@@ -17,12 +17,6 @@ const runnerOutputSrc = fs.readFileSync(
   'utf-8',
 );
 
-// Stuck detection integration lives in runner-execution.ts
-const runnerExecutionSrc = fs.readFileSync(
-  path.resolve(__dirname, '../runner-execution.ts'),
-  'utf-8',
-);
-
 // Import the function under test
 // Will fail until GREEN phase implements it
 import { hasRecentActivity } from '../agent-runner.js';
@@ -102,7 +96,7 @@ describe('hasRecentActivity', () => {
   });
 });
 
-describe('Stuck detection integration: hasRecentActivity is called before declaring stuck', () => {
+describe('hasRecentActivity contract (runner-output.ts)', () => {
   test('runner-output.ts exports hasRecentActivity function', () => {
     expect(runnerOutputSrc).toMatch(/export\s+function\s+hasRecentActivity/);
   });
@@ -125,16 +119,5 @@ describe('Stuck detection integration: hasRecentActivity is called before declar
 
   test('hasRecentActivity excludes node_modules from mtime check', () => {
     expect(runnerOutputSrc).toContain('node_modules');
-  });
-
-  test('stuck detection path calls hasRecentActivity before incrementing stuckCount', () => {
-    // The stuck detection block must call hasRecentActivity before stuckCount++
-    expect(runnerExecutionSrc).toMatch(/hasRecentActivity\s*\(\s*worktree/);
-  });
-
-  test('stuck detection defers when hasRecentActivity returns true', () => {
-    // When hasRecentActivity returns true, stuckCount++ must be skipped
-    // Look for: if (hasRecentActivity(worktree)) pattern near stuckCount
-    expect(runnerExecutionSrc).toMatch(/if\s*\(\s*hasRecentActivity\s*\(\s*worktree/);
   });
 });

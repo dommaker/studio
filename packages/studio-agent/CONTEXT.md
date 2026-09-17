@@ -1,50 +1,56 @@
 # packages/studio-agent
 
-> 最后更新: 2026-08-15
-> Agent 执行器 — session loop 模型 + git worktree 隔离 + 文件桥上下文传递
+> 最后更新: 2026-09-17
+> Agent 执行器 — 轻量单 session 模型 + git worktree 隔离 + harness 配置传递
 
 ### 职责
 
-Sub-agent 的完整生命周期管理：创建隔离 worktree → spawn Claude Code → session loop 监控 → 完成判定。
+Sub-agent 的完整生命周期管理：创建隔离 worktree → 传播 harness 配置 → spawn provider CLI（单 session）→ stream-json 解析与事件发射。完成判定/状态机不在本包，由 apps/api `modules/agents/loop`（agent-loop + step-guards）承担。
 
 ### 核心导出
 
 | 导出 | 说明 |
 |------|------|
-| `AgentRunner` | 统一执行器：session loop（execute）+ 轻量单 session（executeLightweight）+ stop |
+| `AgentRunner` | 统一执行器：轻量单 session（`executeLightweight`）+ stop/stopProcessGroup/stopAllProcessGroups。**#562 后本类只有一个执行方法**——多 session 循环 `execute()` 无生产调用方，已删除（公共 API 面收窄） |
 | `agentRunner` | 单例实例；stop() 所有权唯一在此（runningProcesses 只在本类注册，Discord /studio stop 与 monitor-probes 都调它） |
 
 > 2026-08：旧 `AgentExecutor`/`agentExecutor`（services/session-manager.ts）为 runner-* 拆分前的死代码双胞胎，无生产调用方，已删除；`AgentTask`/`ExecutionResult` 等类型移至 `src/services/types.ts`。
 > 2026-08：`AgentCompleter`/`agentCompleter`（services/agent-completer.ts，229 行）整模块零引用，已删除；`AgentConfig`/`AgentCapabilities` 等无人消费的类型导出同步移除（apps 各自本地重定义同名 interface，未从包导入）。
+> 2026-09（#562）：死执行路径整簇删除——`services/runner-execution.ts`（`executeSessionLoop`）+ `services/runner-briefing.ts`（REQUIREMENTS.md / CACHE_PREFIX.md / 契约测试文件桥，唯一调用方就是 session loop）+ `runner-params.ts` 的 loop 专属 prompt 构建。生产全部经 `LocalExecutor → executeLightweight`（apps/api loop/executor.ts），session loop 自 runner-* 拆分起再无调用方。判据见 `docs/adr/2026-09-17-hooks-layer-shrink.md`。
 
 ### 执行模型
 
-#### Session Loop
+#### 轻量单 session（唯一路径）
 
-不信任 Claude Code exit code。改读 `.progress.json` 判断完成：
+不信任 CLI exit code，但也不 re-spawn：一次 spawn 定胜负，成败判定交给上层 agent-loop。
 
 ```
-execute(task):
-  git worktree add → REQUIREMENTS.md → loop:
-    spawn Claude Code → wait (30 min timeout) → read .progress.json
-    allComplete=true ∧ testsPass → 成功退出
-    allComplete=false → 自动 re-spawn
-    session≥5 → 失败，Level 3 告警
+executeLightweight(task):
+  resolveWorkspace（worktree 复用/新建）→ checkPrerequisites
+  → propagateHarnessConfig（CLAUDE.md/AGENTS.md + provider 执法配置）
+  → buildAugmentedPrompt(task.prompt, knowledgeContext) → 落 .daemon/prompt.md
+  → buildSessionCommand + buildSessionEnv → spawn 一次（stream-json，可杀进程组/静默看门狗）
+  → processSessionOutput（写 .agent.log → 解析 → session:start/end 事件 + usage）
 ```
+
+调用方给全量 prompt，本包不再自行构建（旧 loop 的续接 prompt、卡死重投、strategy hints 随路径一并删除）。
 
 #### Worktree 文件布局
 
 ```
 worktree/
-  REQUIREMENTS.md        ← AC + 约束（session 间不变，文件桥）
-  .progress.json         ← 进度快照（session 间唯一变化）
+  .daemon/prompt.md      ← 本次 spawn 的完整 prompt
+  .agent.log             ← CLI 输出日志
+  .progress.json         ← 进度快照（agent 自写，格式见下）
   .review-report.json    ← 审查报告
-  .prompt.md             ← 当前 session prompt
-  .agent.log             ← Claude Code 输出日志
   src/                   ← 代码变更
 ```
 
+> #562 前此处还列 `REQUIREMENTS.md`（AC + 约束文件桥）与根级 `.prompt.md`：前者由已删除的 runner-briefing 写入、后者是旧 loop 的 prompt 落点，两条路径都不再产生它们。
+
 #### .progress.json 格式
+
+由 skill prompt 指示 agent 自己维护（`apps/api/src/scripts/seed-skills.ts`），读方：`output-capture.ts readProgress()`、discord 进度查询、monitor 停滞判定。executor 侧不再据此判定完成（那是 agent-loop 的 completion-gates 职责）。
 
 ```json
 {
@@ -57,11 +63,6 @@ worktree/
   "notes": "working on null check"
 }
 ```
-
-#### Session Prompt
-
-- Session 1: 全量 prompt（约束注入 + TDD 指令 + 读 REQUIREMENTS.md）
-- Session 2+: 极短续接（"读 REQUIREMENTS.md + .progress.json，继续从 {currentStep}"）
 
 #### Spawn env 约定（2026-07-30）
 

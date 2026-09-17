@@ -5,6 +5,7 @@
  * 现由 agent-runner 门面与 runner-* 子模块共享。
  */
 
+import type { ChildProcess } from 'child_process';
 import type { ProviderId } from '@dommaker/studio-shared/node';
 import type { CliFailureClass } from '@dommaker/studio-shared/node';
 import type { ProgressReport } from './output-capture.js';
@@ -129,4 +130,15 @@ export interface PrerequisiteCheck {
   passed: boolean;
   message: string;
   isWarning?: boolean;
+}
+
+// ─── 执行器实例状态 ───
+
+/**
+ * 执行所需的实例状态（由 AgentRunner 门面传入，避免模块反向依赖类）。
+ * 原声明于 runner-execution.ts，#562 删多 session 循环后迁入，lightweight 路径继续用。
+ */
+export interface RunnerExecutionState {
+  config: ExecutorConfig;
+  runningProcesses: Map<string, { current: ChildProcess | null }>;
 }

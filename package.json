@@ -40,7 +40,6 @@
     "tools:status": "./scripts/tools/status.sh",
     "typecheck": "node bin/tsc-gate.js --check --baseline .tsc-baseline.json --packages apps/api,apps/web,packages/studio-shared,packages/studio-agent",
     "cleanup:data": "npx tsx scripts/cleanup-runtime-data.ts",
-    "harness:coverage": "npx tsx scripts/tools/harness-coverage.ts",
     "doc:sync-check": "bash scripts/check-doc-sync.sh",
     "gen:agents-md": "node scripts/gen-agents-md.mjs",
     "agents-md:sync": "npx harness sync-docs --agents && node scripts/gen-agents-md.mjs",

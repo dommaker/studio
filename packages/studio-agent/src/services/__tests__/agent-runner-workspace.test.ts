@@ -43,11 +43,6 @@ vi.mock('../output-capture.js', () => ({
   getConstraintMeta: vi.fn().mockResolvedValue({ hash: 'abc', size: 100 }),
 }));
 
-vi.mock('@dommaker/studio-shared/harness/hooks', () => ({
-  beforeAgentExecute: vi.fn().mockResolvedValue({ prompt: 'enhanced prompt', blocked: false }),
-  buildAgentConstraintPrompt: vi.fn().mockResolvedValue('constraint prompt'),
-}));
-
 import { AgentRunner } from '../agent-runner.js';
 import type { AgentTask } from '../types.js';
 

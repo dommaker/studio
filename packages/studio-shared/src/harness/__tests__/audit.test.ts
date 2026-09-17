@@ -6,7 +6,7 @@
 
 import { describe, it, expect, afterEach } from 'vitest';
 import { recordDecision, recordDecisions } from '../audit';
-import { eventBus } from '../../../event-bus';
+import { eventBus } from '../../event-bus';
 
 describe('AuditRecorder', () => {
   const received: unknown[] = [];
