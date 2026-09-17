@@ -60,6 +60,7 @@ Agent 配置（profile）、运行实例（instance）、决策循环（loop）�
 - **鉴权**：POST/PUT = requireAuth()+requireNotGuest()；terminate = requireAuth()+requireAdmin()
 - **SystemExecutor 输出形态（#364）**：claude 模板固定带 `--verbose`，`--output-format json --verbose` stdout 是单行 stream-json 事件数组（产出与 usage 在末位 `type=result` 事件），非单 envelope；`extractResultEnvelope` 统一归一两种形态，mock CLI 输出时必须按真实形态（数组）写，否则测试绿生产哑
 - **SystemExecutor 按源超时（#369）**：`run()` 超时解析 = 显式 `timeoutMs` > `DEFAULT_TIMEOUT_BY_EVENT_SOURCE[eventSource]` > 30s 全局默认；注册表收编重 prompt 源 knowledge-distill / constraint-audit / knowledge-maintenance =120s（依据 #365 实测蒸馏 21-27s 撞 30s）。新调用点必须带 eventSource（同时是 system:tokens 成本聚合键）；轻源不进表走裸 30s，durationMs 遥测贴上限再评估
+- **SystemExecutor 恒开 killProcessGroup（#581，2026-09-17 修复）**：`run()` 的 `execSh` 调用恒传 `killProcessGroup: true`，超时杀整进程组（#171 机制，同 runner-lightweight 先例），CLI spawn 的孙进程不再孤儿化写临时目录；兼容性结论 = execSh posix-only（bash -c），无 Windows 负担
 - **system:tokens 写通路可观测（#370）**：写入成功打 info 日志（eventSource/provider/durationMs），失败 warn 带 eventSource——"零产出"与"静默失败"可区分；#370 实证写链路本身无 bug（冒烟脚本 `scripts/system-tokens-smoke.ts` 直接 `getSystemExecutor().run()` 验证落盘），零产出根因是全部 13 个调用方事件驱动、环境未触发
 - **频道发声**：里程碑+异常+每步简报+认领消息+步失败消息；认领/失败消息不过新鲜度检查
 - **认领门槛**：纯显式，三门槛：assigneeId 排他+excludeAssignee+blockedBy 依赖门禁；决策 14 起加认领前适任判断（loop/claim-fitness.ts）——resolveTarget 选中 unassigned 候选后、claim 前一次性轻量 LLM（复用 system-executor）问「能否胜任」，判 no 落档 WU `metadata.unfitRoles`（约束挂 WU 不挂角色身份，合规 ADR D2/决策 10），observe 第 7 道过滤（含本 role.id 即不可见）；判断失败/解析不出从宽视为适任；unfitRoles 覆盖频道全部 active 成员 → `WorkUnitService.blockForAllUnfit` 置 blocked 转人工（语义方法直写，不动状态机表）

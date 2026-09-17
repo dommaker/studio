@@ -462,5 +462,22 @@ describe('SystemExecutor', () => {
         expect.objectContaining({ timeoutMs: 15_000 }),
       );
     });
+
+    // #581：超时整树回收——恒开 killProcessGroup（#171 机制，runner-lightweight 先例）
+    it('execSh 恒开 killProcessGroup（超时杀整进程组，不留孙进程孤儿）', async () => {
+      await ensureStudioProfile(fileStore);
+      const profiles = await fileStore.listProfiles();
+      const studio = profiles.find(p => p.name === 'studio')!;
+      await fileStore.updateProfile(studio.id, { provider: 'claude' });
+
+      mockExecSh.mockResolvedValue({ stdout: '{}', stderr: '' });
+
+      await executor.run('test');
+
+      expect(mockExecSh).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ killProcessGroup: true }),
+      );
+    });
   });
 });

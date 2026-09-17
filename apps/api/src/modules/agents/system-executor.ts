@@ -135,6 +135,10 @@ export class SystemExecutor {
       },
       timeoutMs: effectiveTimeoutMs,
       maxBuffer: opts.maxBuffer,
+      // #581：恒开 killProcessGroup（#171 机制，同 runner-lightweight 先例）——
+      // 超时杀整进程组，CLI spawn 的孙进程不留孤儿继续写临时目录。
+      // 兼容性：execSh 本身 posix-only（bash -c），kill(-pid) 为 posix 语义，无新增负担。
+      killProcessGroup: true,
     });
 
     // 5. 解析 JSON envelope.usage（claude --verbose 时为事件数组，归一到 result 事件，#364）
