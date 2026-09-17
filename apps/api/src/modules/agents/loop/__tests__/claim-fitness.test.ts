@@ -241,6 +241,36 @@ describe('buildClaimFitnessPrompt / judgeClaimFitness', () => {
   });
 });
 
+describe('#579: STUDIO_CLAIM_FITNESS 开关（fake/无凭证环境豁免适任判断）', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('STUDIO_CLAIM_FITNESS=false：judgeClaimFitness 直接放行，不起 LLM 调用', async () => {
+    vi.stubEnv('STUDIO_CLAIM_FITNESS', 'false');
+    const verdict = await judgeClaimFitness({ type: 'implement', scope: '任何任务' }, mockRole as never);
+    expect(verdict).toEqual({ fit: true, reason: '' });
+    expect(mockRun).not.toHaveBeenCalled();
+  });
+
+  it('STUDIO_CLAIM_FITNESS=false：ensureClaimFit 涌现认领放行且不落档', async () => {
+    vi.stubEnv('STUDIO_CLAIM_FITNESS', 'false');
+    mockRun.mockResolvedValue({ output: 'FIT: no: 不该被读到' });
+    const wu = await createUnassignedWu('普通单');
+    expect(await ensureClaimFit(wu)).toBe(true);
+    expect(mockRun).not.toHaveBeenCalled();
+    const meta = parseWuMetadata((await wuService.getById(wu.id))!.metadata);
+    expect(meta.unfitRoles).toBeUndefined();
+  });
+
+  it('默认（未设置/其他值）照旧做适任判断', async () => {
+    vi.stubEnv('STUDIO_CLAIM_FITNESS', 'true');
+    const verdict = await judgeClaimFitness({ type: 'implement', scope: '任何任务' }, mockRole as never);
+    expect(verdict.fit).toBe(true);
+    expect(mockRun).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('observe 第 7 道过滤（unfitRoles 不可见）', () => {
   it('unfitRoles 含本 role → 不可见；含其他 role → 可见', async () => {
     const unfitForSelf = await createUnassignedWu('别人做不了的单', {

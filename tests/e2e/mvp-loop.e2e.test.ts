@@ -206,6 +206,9 @@ async function bootApi(): Promise<void> {
       // P7：同理关掉自动评审——评审子单是未指派涌现单，认领前适任判断
       // （claim-fitness，决策 14）会经 system-executor 起真实 CLI。
       STUDIO_AUTO_REVIEW: 'false',
+      // #579：同理豁免认领前适任判断本身——其他未指派涌现单（如 PMO 派单）
+      // 的 fitness 判断同样会经 system-executor 起真实 CLI 空转。
+      STUDIO_CLAIM_FITNESS: 'false',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });

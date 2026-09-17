@@ -91,12 +91,20 @@ export function parseFitnessVerdict(output: string): FitnessVerdict {
 /**
  * 一次性适任判断。任何失败（spawn 失败/超时/未配置 studio provider）→ 从宽适任。
  * eventSource='claim-fitness' 走 system:tokens 记账（默认 30s 超时，轻量 prompt 够用）。
+ *
+ * #579（2026-09-17）：总开关 `STUDIO_CLAIM_FITNESS=false`（默认开），无凭证/
+ * fake-provider 环境豁免适任判断——否则每个涌现认领都经 system-executor 起真实
+ * CLI 空转（P7/P8 同类治理，STUDIO_AUTO_REVIEW / STUDIO_KNOWLEDGE_EXTRACTION
+ * 同风格 `!== 'false'`）。关闭时从宽放行（等同判断失败语义）。
  */
 export async function judgeClaimFitness(
   wu: Pick<WorkUnitData, 'type' | 'scope'>,
   role: AgentProfileData,
   run?: FitnessRunner,
 ): Promise<FitnessVerdict> {
+  if (process.env.STUDIO_CLAIM_FITNESS === 'false') {
+    return { fit: true, reason: '' }; // #579：fake/无凭证环境豁免，不起真实 CLI
+  }
   const call: FitnessRunner = run ?? ((prompt, options) => getSystemExecutor().run(prompt, options));
   try {
     const result = await call(buildClaimFitnessPrompt(wu, role), {
