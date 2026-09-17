@@ -40,7 +40,12 @@ export interface ProviderSpawnTemplate {
   modelFlag?: string;
   /** Flag appended with the max-turns value when maxTurns is set */
   maxTurnsFlag?: string;
-  /** Flag for granting access to extra working directories */
+  /**
+   * Flag for granting access to extra working directories.
+   * 暂无读取方：唯一读它的是 studio-agent 侧按 Analyst 产出限制工具访问的构建 helper
+   * （#562 删多 session 循环后失去调用方，#587 摘除）。字段保留 = 各 CLI 支持该 flag
+   * 的注册表事实；是否连同 3 处赋值一起收编，待「工具访问限制要不要重新接线」另票裁。
+   */
   addDirFlag?: string;
   /** Flag appended with the output format — only when the caller explicitly sets outputFormat */
   outputFormatFlag?: string;
