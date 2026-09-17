@@ -30,6 +30,7 @@ Agent 配置（profile）、运行实例（instance）、决策循环（loop）�
 
 ### 注意事项
 
+- **wholesale mock 桶包的 import 期崩坑（#575/#578）**：测试对 `@dommaker/studio-shared` / `@dommaker/harness` 做 wholesale `vi.mock` 时，被 mock 包内任何**模块级**导出调用（如 workunit.service 的 `createSettledTracker()`、goal.hooks 的 `new CheckCache()`）都会要求 mock 补齐该导出，否则套件 0 测试即崩（"No X export is defined on the mock"）。上游包新增模块级导出调用 = 全部 wholesale-mock 套件的潜在随动点；修法二选一：mock 补桩，或 `importOriginal` 部分 mock（monitor-probes.test.ts 先例）
 - **monitor-reports 知识质量审计构造（harness 1.8.0 / #134①）**：`new KnowledgeAudit(store, 阈值?)` —— baseDir/autoFix 已退出构造参数（autoFix 留在 `run({autoFix})`），日兜底走 `sharedStore` 单例（与运行时知识库同路径 UNIFIED_KNOWLEDGE_DIR），不再自拼 `{baseDir}` 构造；该调用点经 `await import(...) as any` 动态导入，TS 编译期拦不住签名漂移，改签名时须连 `__tests__/monitor-reports.test.ts` 的 KnowledgeAudit mock 一起核
 - **周期循环 scan-sharing（候选 3，2026-09-08）**：monitor `check()` 一轮开头一次 `getIndex()`，快照作 caller-private 传给 6 个 WU 探针（收 `snapshots` 参数、内存 filter，不再各自 getIndex；动作前新鲜度复核 `getIndex({id})` 点读不受影响）——**新 WU 探针一律收快照不自己读**；auditor generateSuggestions 的 4 周事件窗口同样每轮一次读、多消费方共享（原 skill 循环内 N+1 全窗口扫描）。跨 job 不共享（各自的轮各自读，非快照层）
 - **decision/spec 豁免超时巡检（#553 裁决，2026-09-16）**：checkTotalExecutionTime 跳过 DECISION_SPEC_TYPES——#108 裁剪状态机无 closed、决策/成文单可等关键人多天，语义选「跳过巡检」（非降级告警/仍关闭），与 autoAbandonStaleBlocked 的 #176 豁免同源。此前 2.5h 强杀被状态机拒绝、catch 吞掉只记日志，导致每轮巡检重复 critical 告警但永不关闭
