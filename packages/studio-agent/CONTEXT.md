@@ -105,6 +105,6 @@ hook 统一指向 `@dommaker/harness` 包内出厂 shim `dist/pretool-use-hook.j
 | 配置 | 默认值 | 说明 |
 |------|:---:|------|
 | `sessionTimeoutMinutes` | 30 | 单次 session 超时 |
-| `maxSessions` | 5 | 最大 session 循环次数 |
+| `maxSessions` | 5 | 最大 session 循环次数（#562 删循环后无读取方，去留与 buildSessionFlag 等新孤儿一并另裁） |
 | `heartbeatIntervalMinutes` | 5 | 心跳间隔 |
 | `dockerImage` | claude-code:fast | Claude Code Docker 镜像 |

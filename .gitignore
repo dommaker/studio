@@ -95,9 +95,9 @@ e2e/.auth.json
 CLAUDE.md
 .claude/
 
-# Runner worktree artifacts (regenerated per worktree at runtime;
-# committing them breaks per-worktree regeneration — runner-execution only
-# writes CACHE_PREFIX.md when absent, and worktrees inherit tracked files)
+# Runner worktree artifacts (regenerated per worktree at runtime; committing them
+# breaks per-worktree regeneration, and worktrees inherit tracked files).
+# 两条写方随 #562 删除，保留规则只为兜住历史 worktree 里的残留产物。
 CACHE_PREFIX.md
 .prompt.md
 

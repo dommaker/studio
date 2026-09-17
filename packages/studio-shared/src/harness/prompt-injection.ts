@@ -6,6 +6,9 @@
  * getEffectiveConstraints 数据源）。此模块原在 harness 中
  * （@dommaker/harness），迁至 studio-shared 以解耦管道拓扑；A3 起渲染
  * 层回收到 harness，本文件不再手写过滤/分组。
+ *
+ * #562 起本模块在 studio 无生产调用方：唯一消费方是已删除的 hooks 层约束 prompt
+ * 注入助手（那条通道随死路径一起消失）。公共面与测试暂留，去留另裁。
  */
 
 import { renderConstraintsByTrigger } from '@dommaker/harness';

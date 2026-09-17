@@ -2,8 +2,8 @@
  * Worktree Resolver — git worktree 创建/复用/清理 + harness 配置传播 + 依赖缓存
  *
  * P11-02: Extracted from agent-executor.ts
- * Wave-4 曾把 prompt/文件桥内容（CACHE_PREFIX.md / REQUIREMENTS.md / 契约测试写入）
- * 抽为独立模块；#562 删多 session 循环后该文件桥失去消费方，一并移除，
+ * Wave-4 曾把「agent 被告知的内容」文件桥（CACHE_PREFIX.md / REQUIREMENTS.md / 契约测试
+ * 写入）抽为独立模块，#562 删多 session 循环后该文件桥失去消费方、随之删除，
  * 本模块只保留 git/依赖生命周期。
  * （origin/master 曾将 scaffolding 写入同类抽为 worktree-scaffolding.ts；
  *  合并后该拆分产物随 session-manager 簇一并删除，ensureDeps 留在本模块。）
@@ -178,10 +178,12 @@ export async function resolveWorkspace(opts: {
  */
 export async function propagateHarnessConfig(worktree: string, taskId: string, executionId: string, repoDir?: string): Promise<void> {
   try {
-    // FIX #3: 复制 CLAUDE.md 到 worktree，使约束去重逻辑生效
-    // 新落点模型（docs/adr/2026-08-21-agent-docs-placement-model.md）：去重检测认
-    // AGENTS.md PRESERVE:governance 段（git worktree checkout 自带）；CLAUDE.md 为
-    // gitignored 薄身（首行 @AGENTS.md 导入），仍需复制以便 Claude Code 读到约束。
+    // FIX #3: 复制 CLAUDE.md 到 worktree —— 约束正本落在 AGENTS.md 的 PRESERVE:governance
+    // 段（已跟踪文件，git worktree checkout 自带），CLAUDE.md 是 gitignored 薄身
+    // （首行 @AGENTS.md 导入），仍需复制以便 Claude Code 读到约束。
+    // 落点模型见 docs/adr/2026-08-21-agent-docs-placement-model.md。
+    // （#562 前这条还附带「让 prompt 侧约束去重生效」的目的：那个读取方是已删除的
+    //  hooks 层 prompt 注入，现在只剩 provider 读文件这一条通道。）
     if (repoDir) {
       const claudeMdSrc = path.join(repoDir, 'CLAUDE.md');
       const claudeMdDst = path.join(worktree, 'CLAUDE.md');
