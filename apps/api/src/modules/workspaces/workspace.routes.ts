@@ -167,7 +167,10 @@ router.get('/runtimes', requireAuth(), requireAdmin(), apiCache(60), async (_req
     // 遍历全表会让历史/离线节点的 runtimes 永久出现在候选列表里。
     // nodeId / workspaceName 随之不再下发——创建角色只需要 provider。
     const ws = await resolveVpsWorkspace();
-    const recorded = (ws?.runtimes ?? []) as Array<{ provider?: string; version?: string; auth?: string; authHint?: string }>;
+    const recorded = (ws?.runtimes ?? []) as Array<{
+      provider?: string; version?: string; auth?: string; authHint?: string;
+      models?: string[]; modelsSource?: 'live' | 'fallback';
+    }>;
     const runtimes = recorded
       .filter((rt) => typeof rt.provider === 'string' && rt.provider.length > 0)
       // #565 AC4: auth 三态透出（旧记录无 auth 字段 → unknown），failed 附修复 hint
@@ -176,6 +179,10 @@ router.get('/runtimes', requireAuth(), requireAdmin(), apiCache(60), async (_req
         version: rt.version ?? '',
         auth: rt.auth ?? 'unknown',
         ...(rt.authHint ? { authHint: rt.authHint } : {}),
+        // #574: 模型清单 + 来源标注透出（旧记录无字段则不带）
+        ...(Array.isArray(rt.models) && rt.models.length > 0
+          ? { models: rt.models, modelsSource: rt.modelsSource ?? 'fallback' }
+          : {}),
       }));
 
     return res.json({ runtimes });

@@ -225,3 +225,40 @@ describe('auth probe declarations（#565 AC3）', () => {
     expect(BUILTIN_PROVIDERS.opencode.authProbe).toBeUndefined();
   });
 });
+
+describe('listModels declarations（#574 动态模型发现）', () => {
+  test('codex/kimi/opencode 声明实测验证过的模型列表探测命令（2026-09-16 本机实测）', () => {
+    // 0.147.0 实测 `codex debug models`：stdout JSON，取 visibility==="list" 的 slug
+    expect(BUILTIN_PROVIDERS.codex.listModels).toEqual({ args: ['debug', 'models'], parser: 'jsonModelSlugs' });
+    // 0.38.0 实测 `kimi provider list --json`：JSON，models 对象的键即模型 alias
+    expect(BUILTIN_PROVIDERS.kimi.listModels).toEqual({ args: ['provider', 'list', '--json'], parser: 'jsonModelKeys' });
+    // 1.18.18 实测 `opencode models`：每行一个 provider/model
+    expect(BUILTIN_PROVIDERS.opencode.listModels).toEqual({ args: ['models'], parser: 'lines' });
+  });
+
+  test('claude 不声明 listModels（2.1.273 实测无模型列表命令），四内置均有静态 fallbackModels', () => {
+    expect(BUILTIN_PROVIDERS.claude.listModels).toBeUndefined();
+    for (const id of ['claude', 'kimi', 'codex', 'opencode'] as const) {
+      expect(BUILTIN_PROVIDERS[id].fallbackModels?.length).toBeGreaterThan(0);
+    }
+  });
+
+  test('providers.json 用户覆盖优先级不变：可覆盖 fallbackModels 与 listModels', () => {
+    const p = writeConfig({
+      claude: { fallbackModels: ['my-claude-model'] },
+      mycli: {
+        displayName: 'My CLI',
+        binaries: ['mycli'],
+        versionArgs: ['--version'],
+        healthProbeArgs: ['--version'],
+        spawn: { baseArgs: [], defaultOutputFormat: 'text', promptViaStdin: true },
+        listModels: { args: ['models', '--json'], parser: 'jsonModelKeys' },
+        fallbackModels: ['mycli/default'],
+      },
+    });
+    expect(getProviderDefinition('claude', p)!.fallbackModels).toEqual(['my-claude-model']);
+    const mycli = getProviderDefinition('mycli', p)!;
+    expect(mycli.listModels).toEqual({ args: ['models', '--json'], parser: 'jsonModelKeys' });
+    expect(mycli.fallbackModels).toEqual(['mycli/default']);
+  });
+});

@@ -14,8 +14,16 @@ const { mockGetWorkspace, mockCreateAgent } = vi.hoisted(() => ({
         status: 'idle',
         workspaceRoot: '/root/projects',
         runtimes: [
-          { id: 'rt-1', provider: 'claude', name: 'Claude Code', version: '2.1.0', status: 'online' },
-          { id: 'rt-2', provider: 'opencode', name: 'OpenCode CLI', version: '3.0.0', status: 'online' },
+          {
+            id: 'rt-1', provider: 'claude', name: 'Claude Code', version: '2.1.0', status: 'online',
+            // #574: 未声明 listModels → 静态兜底清单
+            models: ['opus', 'sonnet'], modelsSource: 'fallback',
+          },
+          {
+            id: 'rt-2', provider: 'opencode', name: 'OpenCode CLI', version: '3.0.0', status: 'online',
+            // #574: listModels 探测成功 → 实测清单
+            models: ['opencode/big-pickle', 'openai/gpt-4o'], modelsSource: 'live',
+          },
         ],
       },
     },
@@ -70,6 +78,36 @@ describe('WorkspacePage', () => {
     await waitFor(() => expect(screen.getByText('Claude Code')).toBeDefined());
     const buttons = screen.getAllByText('设为角色');
     expect(buttons).toHaveLength(2);
+  });
+
+  // #574: runtime 卡片展示模型清单 + 来源标注（live=实测 / fallback=静态）
+  it('renders model list with live/fallback source badge per runtime', async () => {
+    render(<WorkspacePage />);
+    await waitFor(() => expect(screen.getByText('Claude Code')).toBeDefined());
+    // claude：静态兜底
+    expect(screen.getByText(/opus, sonnet/)).toBeDefined();
+    expect(screen.getByText('静态')).toBeDefined();
+    // opencode：实测
+    expect(screen.getByText(/opencode\/big-pickle/)).toBeDefined();
+    expect(screen.getByText('实测')).toBeDefined();
+  });
+
+  it('omits model line when runtime has no models field', async () => {
+    mockGetWorkspace.mockResolvedValueOnce({
+      data: {
+        success: true,
+        data: {
+          id: 'ws-1', name: 'VPS', status: 'idle', workspaceRoot: '/tmp',
+          runtimes: [
+            { id: 'rt-9', provider: 'openclaw', name: 'OpenClaw', version: '1.0.0', status: 'online' },
+          ],
+        },
+      },
+    });
+    render(<WorkspacePage />);
+    await waitFor(() => expect(screen.getByText('OpenClaw')).toBeDefined());
+    expect(screen.queryByText('实测')).toBeNull();
+    expect(screen.queryByText('静态')).toBeNull();
   });
 
   // AC-5.3: provider auto-filled, not editable（E8-4：链路走 CreateRoleModal 正本，presetProvider 锁定行内 CLI）

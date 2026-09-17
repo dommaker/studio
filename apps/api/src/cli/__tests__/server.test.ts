@@ -71,8 +71,9 @@ describe('checkPrerequisites', () => {
       expect(errs[1]).toBe('Install them before running studio up.');
     }
     // #565 起 scanAllProviders 含 auth/能力探测（每 provider 多 1-2 次进程 spawn），
-    // 真机扫描在并行负载下会超默认 5s——本用例打的是真 CLI，给足集成级窗口
-  }, 15_000);
+    // #574 起再挂模型列表探测（kimi `provider list --json` 实测 ~4s、opencode `models`
+    // 实测 ~7s），真机全量扫描单跑即 ~15s——本用例打的是真 CLI，给足集成级窗口
+  }, 30_000);
 
   // #573 漂移修正（摸底 Q5）：agent CLI 检查对齐 provider 注册表扫描，不再硬编码 claude
   it('注入空探测结果 → 报缺 agent CLI（注册表口径，不点名单一 CLI）', () => {

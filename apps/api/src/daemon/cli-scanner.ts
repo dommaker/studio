@@ -7,7 +7,7 @@
  */
 
 import { execFileSync, execSync } from 'child_process';
-import { listScanProviders, resolveProviderDefinition, warmCapabilityProbe, type ProviderId } from '@dommaker/studio-shared/node';
+import { listScanProviders, resolveProviderDefinition, warmCapabilityProbe, getProviderModels, type ProviderId } from '@dommaker/studio-shared/node';
 
 /** Known agent CLI providers (from the provider registry, built-ins + user config) */
 export const KNOWN_PROVIDERS: readonly string[] = listScanProviders();
@@ -27,6 +27,14 @@ export interface DetectedRuntime {
   authHint?: string;
   /** 本次 auth 探测时间（ISO） */
   authCheckedAt: string;
+  /**
+   * #574: 模型清单。live = listModels 探测实测；fallback = 注册表静态兜底
+   * （探测失败/超时/未声明 listModels 时）。探测节奏同 auth：启动扫描 + 手动
+   * rescan，随 runtimes 记录持久；进程内缓存 key=binary@version，重扫不重跑。
+   */
+  models?: string[];
+  /** models 的来源标注（消费面区分实测/静态兜底） */
+  modelsSource?: 'live' | 'fallback';
 }
 
 /**
@@ -108,7 +116,20 @@ export function detectProvider(name: ProviderName): DetectedRuntime | null {
 
       const authResult = probeAuth(def, cliPath);
 
-      return { provider: name, path: cliPath, version, ...authResult };
+      // #574: 模型清单探测（进程内缓存 key=binary@version，重扫命中缓存不重跑；
+      // 失败/未声明回退静态 fallbackModels，best-effort 不阻断扫描）
+      let modelsResult: { models: string[]; source: 'live' | 'fallback' } | undefined;
+      try {
+        modelsResult = getProviderModels(name, cliPath, version);
+      } catch { /* best-effort：不阻断扫描 */ }
+
+      return {
+        provider: name,
+        path: cliPath,
+        version,
+        ...authResult,
+        ...(modelsResult ? { models: modelsResult.models, modelsSource: modelsResult.source } : {}),
+      };
     } catch {
       // binary not found — try the next candidate
     }

@@ -122,6 +122,8 @@ async function scanLocalRuntimes(workspaceId: string): Promise<void> {
         auth: rt.auth,
         ...(rt.authHint ? { authHint: rt.authHint } : {}),
         authCheckedAt: rt.authCheckedAt,
+        // #574: 模型清单 + 来源标注随 runtimes 记录持久（探测节奏同上）
+        ...(rt.models ? { models: rt.models, modelsSource: rt.modelsSource } : {}),
         lastSeenAt: now,
         createdAt: prev?.createdAt ?? now,
         updatedAt: now,
