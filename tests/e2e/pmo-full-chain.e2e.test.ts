@@ -196,6 +196,9 @@ async function bootApi(): Promise<void> {
       CLOUDFLARED_ENABLED: 'false',
       // 本套件不建 profile、不起 loop（agent 侧动作全走 API 模拟）
       STUDIO_AGENT_LOOP_ENABLED: 'false',
+      // PMO gitRepo 白名单（POST /project 校验）：三条腿仓库建在 tmpRoot 下，
+      // 不置本环境变量会落在缺省根 /root/projects 之外 → 400 级联全挂（#580）
+      PMO_GIT_REPO_ROOTS: tmpRoot,
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
