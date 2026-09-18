@@ -71,7 +71,7 @@ describe('executeLightweightSession', () => {
     wsRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'lw-ws-root-'));
     worktreesDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lw-worktrees-'));
     state = {
-      config: { worktreesDir, repoDir: wsRoot, taskTimeoutMinutes: 60, sessionTimeoutMinutes: 30 },
+      config: { worktreesDir, repoDir: wsRoot },
       runningProcesses: new Map(),
     };
   });

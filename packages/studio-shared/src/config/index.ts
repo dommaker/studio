@@ -57,13 +57,9 @@ export interface AgentStudioConfig {
   repoDir: string;
   outputsDir: string;
   
-  // Docker 配置
-  dockerImage: string;
-  
   // 超时配置
   taskTimeoutMinutes: number;
-  heartbeatIntervalMinutes: number;
-  
+
   // Agent 配置
   defaultAgentType: 'codex' | 'claude';
   
@@ -80,9 +76,7 @@ const DEFAULT_CONFIG: AgentStudioConfig = {
   worktreesDir: path.join(os.homedir(), 'worktrees'),
   repoDir: path.join(os.homedir(), 'projects', 'agent-skills'),
   outputsDir: path.join(os.homedir(), 'outputs'),
-  dockerImage: 'claude-code:fast',
   taskTimeoutMinutes: 60,
-  heartbeatIntervalMinutes: 10,
   defaultAgentType: 'codex',
 };
 
@@ -95,14 +89,10 @@ export function loadAgentStudioConfig(): AgentStudioConfig {
     worktreesDir: process.env.WORKTREES_DIR || DEFAULT_CONFIG.worktreesDir,
     repoDir: process.env.REPO_DIR || DEFAULT_CONFIG.repoDir,
     outputsDir: process.env.OUTPUTS_DIR || DEFAULT_CONFIG.outputsDir,
-    
-    // Docker 配置
-    dockerImage: process.env.DOCKER_IMAGE || DEFAULT_CONFIG.dockerImage,
-    
+
     // 超时配置
     taskTimeoutMinutes: parseInt(process.env.TASK_TIMEOUT_MINUTES || '', 10) || DEFAULT_CONFIG.taskTimeoutMinutes,
-    heartbeatIntervalMinutes: parseInt(process.env.HEARTBEAT_INTERVAL_MINUTES || '', 10) || DEFAULT_CONFIG.heartbeatIntervalMinutes,
-    
+
     // Agent 配置
     defaultAgentType: (process.env.DEFAULT_AGENT_TYPE as 'codex' | 'claude') || DEFAULT_CONFIG.defaultAgentType,
 

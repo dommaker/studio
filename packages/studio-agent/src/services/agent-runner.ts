@@ -58,8 +58,6 @@ export class AgentRunner {
         }
         return fsSync.existsSync(path.join(dir, 'package.json')) ? dir : path.join(homeDir, 'projects');
       })(),
-      taskTimeoutMinutes: config?.taskTimeoutMinutes || 60,
-      sessionTimeoutMinutes: config?.sessionTimeoutMinutes || 30,
       ...config,
     };
   }

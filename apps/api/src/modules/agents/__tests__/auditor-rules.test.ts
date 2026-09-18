@@ -192,7 +192,7 @@ describe('generateSuggestions()', () => {
 
   // #593：param_tuning 文案里出现的旋钮名必须落在真生效的配置面里——
   // 生效面 = runner-lightweight spawn 选项（packages/studio-agent services/runner-lightweight.ts
-  // 的 timeoutMs / silenceWarnMs / silenceKillMs）；ExecutorConfig 的两个 *TimeoutMinutes 只写不读。
+  // 的 timeoutMs / silenceWarnMs / silenceKillMs）；ExecutorConfig 的两个 *TimeoutMinutes 只写不读字段已随 #589 删除。
   it('param_tuning 文案只引用真生效的超时旋钮（防回归）', async () => {
     const EFFECTIVE_TIMEOUT_KNOBS = new Set(['timeoutMs', 'silenceWarnMs', 'silenceKillMs']);
     const agentTypeStats = new Map([['executor', { total: 10, failed: 6 }]]);
