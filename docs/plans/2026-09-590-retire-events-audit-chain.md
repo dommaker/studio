@@ -18,14 +18,15 @@
 1. **`apps/api/src/index.ts` 有三处接线，不是一处**：import（L15）、启动 `startAuditSubscriber()`（L242）、优雅停机 `stopAuditSubscriber()`（L586）。票面只写「启动接线」——漏删 L586 会留下指向已删模块的 import 报错。
 2. **`apps/api/src/modules/knowledge/CONTEXT.md:82`** 把 audit-subscriber 列为「绕过门面直调 `sharedStore.save` 的机器流」四例之一，并用它论证「store 层 chokepoint 广播会造成事件风暴」的有意排除。删模块后该例指向不存在的东西 → 从枚举里去掉、把论证改写成不依赖该例的说法（**保留有意排除这条规则本身**，另三例 pattern-miner/rule-scanner/decision-chain-extractor 仍活）。
 3. **`apps/api/src/modules/audit/CONTEXT.md`** 随目录整体删除（票面「整目录」已含，此处标明它是该目录第三个文件）。
-4. **`packages/studio-shared/CONTEXT.md`** 的 `recordDecision()` 核心导出行删除后，该行原承载的「落点原则」（ADR 决策 3）需要新家，否则下一个人想在 harness 层加事件发布器时无从得知 → 并入相邻的「harness 运行时初始化」行。
+4. **`packages/studio-shared/CONTEXT.md`** 的 `recordDecision()` 核心导出行删除后，该行原承载的「落点原则」（ADR 决策 3）需要新家，否则下一个人想在 harness 层加事件发布器时无从得知 → 落成「约束」节一条铁律（见下节末条）。
 
-### 实施中按沉淀规则撤回的两处
+### 实施中按沉淀规则改写的三处
 
-`~/.studio/skills/exploration-sediment` 维护规则「不留已删符号的残影」「修复叙事的家是 git log」——两处初版写法违规，已撤回：
+`~/.studio/skills/exploration-sediment` 维护规则「不留已删符号的残影」「修复叙事的家是 git log」——初版写法违规，已改写：
 
-- `auditor.service.ts` 头注释曾加 `2026-09-18:` 删除叙事两行 → 撤回，改由 commit message + ADR 承载。保留 `2026-05-09: 初始实现。每日扫描审计事件…` 原句：它是日期限定的历史 changelog 条目，不是当前行为声明。
+- `auditor.service.ts` 头注释曾加 `2026-09-18:` 删除叙事两行 → 撤回，改由 commit message + ADR 承载（沉淀规则「修复叙事的家是 git log」）。但原句 `每日扫描审计事件和执行结果` 是**当前状态误报**（该能力本轮恰被删）→ 中性化为 `每日扫描执行数据`，不写删除叙事。
 - `knowledge/CONTEXT.md` 曾写「原列第四例已随 #590 删除」→ 撤掉该从句，只留通用化的规则表述。
+- `packages/studio-shared/CONTEXT.md` 的落点原则初版挂在「harness 运行时初始化」导出行尾 → 移到「约束」节成条（`审计数据落点铁律`），与同节两条铁律同格式同口吻；挂在无关导出行不可寻。
 
 步骤注释编号不重排：该函数注释序为 `1,2,3,4,5,7,8,8,9`（原本就缺 6、双 8），删 3 后留缺口与文件既有状态一致，重排反而把无关注释行拉进 diff。
 
