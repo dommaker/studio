@@ -35,6 +35,9 @@
    的唯一实质缺口，补进 step-guards 链）；#586 约束引擎整体分拣评估；#583 关闭（前提消失）。
    harness 侧 `runOne`（已随 1.8.1 发布、当前零消费者）与 `HookPipeline` 是否按 ADR-0022
    收缩由 harness 仓独立裁决。
+   （#585 落点，2026-09-18：step-guards 链新增需求/AC 段（B2 之后、资源闸之前，
+   口径=reqId+metadata.ac[] 存在性，用户指令/trigger 建单豁免），放行口令「确认执行」接线在
+   workunit/waiting-input.ts（waitingReason='requirement-guard' → metadata.requirementOverride）。）
 
 ## 为什么是收缩而不是接线（第一性论证）
 

@@ -894,9 +894,9 @@ export class AgentLoop {
     const wu = target.workUnit;
     const metadata = parseWuMetadata(wu.metadata);
 
-    // 入口守卫链（#541，对称出口侧 completion-gates）：B2 测试特征 WU / C3 日 token 预算 /
-    // #162 WU 级 tokenBudget / #471 plan 步数额度四段「该不该跑这一步」前置判定抽到
-    // ./step-guards.js（顺序即优先级，首个命中短路）。命中即返回（skipped/need_input），放行继续。
+    // 入口守卫链（#541，对称出口侧 completion-gates）：B2 测试特征 WU / #585 需求+AC /
+    // C3 日 token 预算 / #162 WU 级 tokenBudget / #471 plan 步数额度五段「该不该跑这一步」
+    // 前置判定抽到 ./step-guards.js（顺序即优先级，首个命中短路）。命中即返回（skipped/need_input），放行继续。
     const guardOutcome = await runStepGuards({ wu, metadata }, {
       updateWuMetadata: (wuId, m) => this.workUnitService.update(wuId, { metadata: m }),
       closeWu: wuId => this.workUnitService.transitionStatus(wuId, 'closed'),

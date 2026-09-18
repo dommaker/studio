@@ -66,7 +66,7 @@ export interface WorkUnitMetadata {
   // 两层互相独立；gate-escalation.ts 锁内合并写，不推进 updatedAt 计时锚）
   gateReminderTier1At?: string; // tier1 已发（Web 铃铛 + SSE + 浏览器原生通知）
   gateReminderTier2At?: string; // tier2 已发（notifyAlert 告警通路：企微/告警频道/行动中心）
-  waitingReason?: string;     // 挂起原因：'ownership' = B3a 等待工程归属；'wu-token-budget' = #162 WU 级 token 预算到线（三选分流见 waiting-input.ts）；'plan-step-limit' = #471 plan 步数额度到线（回复即续期）；'plan-ruling' = #467 裁决轮待裁（结构化提交见 pmo/plan-ruling.ts）；'plan-direction' = #567 方向锁定待人选定（结构化提交见 pmo/plan-direction.ts）（缺省 = agent 提问）
+  waitingReason?: string;     // 挂起原因：'ownership' = B3a 等待工程归属；'wu-token-budget' = #162 WU 级 token 预算到线（三选分流见 waiting-input.ts）；'plan-step-limit' = #471 plan 步数额度到线（回复即续期）；'requirement-guard' = #585 需求/AC 守卫拦停（放行口令「确认执行」接线见 waiting-input.ts）；'plan-ruling' = #467 裁决轮待裁（结构化提交见 pmo/plan-ruling.ts）；'plan-direction' = #567 方向锁定待人选定（结构化提交见 pmo/plan-direction.ts）（缺省 = agent 提问）
   // #467：裁决轮——plan 会话 NEED_INPUT 携 RULING: 行时落档的问题清单 + 每题建议结论 + 默认值
   // （裁决接力卡/裁决弹窗预填数据源；人提交裁决后由 pmo/plan-ruling.ts 清除）
   planRulings?: { question: string; suggestion: string; default?: string }[];
@@ -101,6 +101,12 @@ export interface WorkUnitMetadata {
   // #109（T3，#106 子票）：接单规则机制化——依赖与验收标准
   blockedBy?: string[];       // 阻塞本 WU 的 WU id 列表（可跨 PMO）；任一未了结（非 done/closed）→ unassigned 对所有 loop 不可见（wu-dependencies.ts 判定；agent-loop observe 过滤 + 列表 claimable 标记消费）
   ac?: string[];              // 验收标准（验收闸对照用；机制只存不解释）
+  // trigger 建单戳（trigger-action CREATE 动作落档，固定 'trigger-registry'）：#585 需求/AC 守卫
+  // 据此豁免——trigger 建单已过 #162/#130 人闸，人确认即来源批准
+  triggerSource?: string;
+  // #585（ADR 2026-09-17-hooks-layer-shrink 衍生）：需求/AC 守卫人工放行标记——频道回复约定口令
+  // 「确认执行」由 waiting-input 落档；step-guards 认此标记放行（事后人闸，标记可审计）
+  requirementOverride?: boolean;
   // B3b-i 每 WU worktree 隔离（决策 D1）：代码类 WU 首个 step 创建并落档，后续 step 复用
   // #157（T6，#128 决议）：analysis 原型单标记——建单显式 prototype: true 才挂专属 worktree
   // （仅 analysis 类型消费本字段；不增类型、不隐式判定）

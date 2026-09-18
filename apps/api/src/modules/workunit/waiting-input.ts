@@ -28,6 +28,9 @@
  * - #162（T8-E1）：metadata.waitingReason === 'wu-token-budget' 的挂起（WU 级 token
  *   预算到线），回复按人三选分流：追加预算（→ active）/ 现有产出收尾（→ in_review）/
  *   放弃（→ closed）；未识别回复继续等待并重述三选。
+ * - #585（ADR 2026-09-17-hooks-layer-shrink 衍生）：waitingReason === 'requirement-guard'
+ *   的挂起（step-guards 需求/AC 前置守卫拦停），约定口令「确认执行」落
+ *   requirementOverride 放行标记后走通用复活；非口令回复重述处理方式继续等待。
  * - scanWaitingForInputReminders: SCHEDULE trigger（workunit-input-reminder）的 handler，
  *   #176（决策 #57 D3-2）：覆盖面从 waitingForInput 扩到全部 blocked 类型，
  *   计时基准取 metadata.blockedAt（回退 waitingSince/updatedAt），复用同一 30 分钟
@@ -104,6 +107,35 @@ export async function resumeWaitingWorkUnit(
   // （追加预算 → 回 active / 现有产出收尾 → in_review / 放弃 → closed）
   if (metadata.waitingReason === 'wu-token-budget') {
     return resolveBudgetChoiceFromReply(wu, metadata, replyText, fileStore);
+  }
+
+  // #585（ADR 2026-09-17-hooks-layer-shrink 衍生）：需求/AC 守卫拦停的挂起 ——
+  // 约定口令「确认执行」= 人工放行：锁内落 requirementOverride 标记（事后人闸，可审计）
+  // 并清 waitingReason，随后走通用复活路径；守卫下一步认标记放行。
+  // 非口令回复 → 继续等待并重述处理方式（同预算三选的「不乱动」语义）。
+  if (metadata.waitingReason === 'requirement-guard') {
+    const title = (metadata.title ?? wu.scope).slice(0, 50);
+    if (replyText.trim() !== '确认执行') {
+      if (wu.channelId) {
+        await postWuSystemMessage(
+          wu,
+          `任务「${title}」仍在暂停中：缺少需求编号或验收标准。补齐方式：挂上需求编号（REQ-xxx）并写明验收标准，或从需求重新派一张工单；确认它就该直接执行的话，回复「确认执行」放行`,
+          { fileStore },
+        );
+      }
+      logger.info('[WaitingInput] Requirement-guard reply unrecognized, still waiting', { workUnitId });
+      return false;
+    }
+    await fileStore.updateMetadata(workUnitId, latest => ({
+      ...latest,
+      requirementOverride: true,
+      waitingReason: undefined, // JSON 序列化丢弃 undefined → 清除
+    }));
+    if (wu.channelId) {
+      await postWuSystemMessage(wu, `好的，任务「${title}」已按你的确认放行，继续执行`, { fileStore })
+        .catch(err => logger.warn('[WaitingInput] requirement-guard放行提示失败 (non-blocking)', { workUnitId, error: String(err) }));
+    }
+    logger.info('[WaitingInput] Requirement-guard override granted by human reply', { workUnitId });
   }
 
   // #471（Triage 定稿 1/会话连续性）：plan 步数额度到线的挂起 — 回复即续期：
