@@ -29,7 +29,6 @@
 | session-summary.service | src/modules/agents/session-summary.service.ts | SessionSummaryService — 会话级知识提取 (2026-05-25) |
 | triage.service | src/modules/agents/triage/triage.service.ts | Triage Service — incident response: diagnose → classify → act → resolve/escalate |
 | types | src/modules/agents/types.ts | Agent 团队类型定义 |
-| audit-subscriber | src/modules/audit/audit-subscriber.ts | Audit Event Subscriber — EventBus 审计事件持久化到 DB (B0-002) |
 | routes | src/modules/audit-logs/routes.ts | GET /api/audit-logs - 查询审计日志 |
 | routes | src/modules/auth/routes.ts | POST /api/v1/auth/guest-session |
 | service | src/modules/auth/service.ts | 认证服务 - Auth Service |

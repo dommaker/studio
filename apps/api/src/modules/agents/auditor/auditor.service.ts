@@ -81,13 +81,6 @@ export class AuditorService {
         perType.set(errorType, (perType.get(errorType) || 0) + 1);
       }
 
-      // 3. 最近 24h 的审计事件统计 (KnowledgeStore)
-      const { sharedStore: auditStore } = await import('../../knowledge/knowledge-singletons.js');
-      const auditEntries = auditStore.list({ tags: ['audit'] });
-      const auditCount = auditEntries.filter((e: any) =>
-        new Date(e.created).getTime() >= yesterday.getTime()
-      ).length;
-
       // 4. Agent-type 交叉分析
       const agentTypeStats = new Map<string, { total: number; failed: number }>();
 
@@ -116,7 +109,6 @@ export class AuditorService {
         '',
         '### 执行统计',
         `- 总执行: ${total} | 成功: ${total - failed} | 失败: ${failed} | 成功率: ${successRate}%`,
-        `- 审计事件: ${auditCount}`,
         '',
         '### 按 Agent 类型',
         ...[...agentTypeStats.entries()]

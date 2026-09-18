@@ -1,6 +1,6 @@
 # CAPABILITIES.md
 
-> 最后更新: 2026-09-17
+> 最后更新: 2026-09-18
 
 ---
 
@@ -34,7 +34,7 @@
 | ops | apps/api/src/modules/agents/ops/ | Ops Service — 系统生命周期守护 |
 
 | triage.service | apps/api/src/modules/agents/triage/triage.service.ts | Triage Service — incident response: diagnose → classify → act → resolve/escalate |
-| audit-subscriber | apps/api/src/modules/audit/audit-subscriber.ts | Audit Event Subscriber — EventBus 审计事件持久化到 DB (B0-002) |
+
 | routes | apps/api/src/modules/audit-logs/routes.ts | GET /api/audit-logs - 查询审计日志 |
 | auth | apps/api/src/modules/auth/ | POST /api/v1/auth/guest-session |
 | routes | apps/api/src/modules/builtin-tools/routes.ts | builtin-tools/routes.ts — Built-in Toolset (HZ-026) |

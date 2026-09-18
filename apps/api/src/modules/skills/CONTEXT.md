@@ -32,7 +32,7 @@ skills 模块负责技能（Skill）的完整生命周期管理，包括基于�
 ### 依赖关系
 
 **上游（本目录依赖）**
-- `@dommaker/studio-shared`（多个文件：logger、FileStore、modelGateway、recordDecision；#361 起 writeStudioEvent 经 utils 薄壳）
+- `@dommaker/studio-shared`（多个文件：logger、FileStore、modelGateway；#361 起 writeStudioEvent 经 utils 薄壳）
 - `@dommaker/studio-skill`（skill-loader.ts 的 skillLoader.loadSingle 磁盘加载；SkillTier 类型）
 - `express`（routes.ts、skill-proposal-routes.ts 中的 Router）
 - Node.js 内置模块：fs、path、os、crypto
