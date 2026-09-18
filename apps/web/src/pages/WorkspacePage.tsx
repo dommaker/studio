@@ -17,6 +17,10 @@ interface Runtime {
   name: string;
   version: string | null;
   status: string;
+  /** #574: 模型清单（扫描期探测，随 runtimes 记录持久） */
+  models?: string[];
+  /** #574: live = CLI 实测探测；fallback = 注册表静态兜底 */
+  modelsSource?: 'live' | 'fallback';
 }
 
 interface WorkspaceDetail {
@@ -111,6 +115,16 @@ export function WorkspacePage() {
                     <span className="ml-2 text-xs u-ok u-ok-dim px-2 py-0.5 rounded">
                       {rt.status}
                     </span>
+                    {/* #574: 模型清单 + 来源标注（实测=CLI 探测 / 静态=注册表兜底），无 models 字段不渲染 */}
+                    {rt.models && rt.models.length > 0 && (
+                      <div className="mt-1 text-xs u-text-3">
+                        模型：{rt.models.slice(0, 5).join(', ')}
+                        {rt.models.length > 5 ? ` 等 ${rt.models.length} 个` : ''}
+                        <span className="ml-2 px-1.5 py-0.5 rounded u-ok-dim">
+                          {rt.modelsSource === 'live' ? '实测' : '静态'}
+                        </span>
+                      </div>
+                    )}
                   </div>
                   <button
                     onClick={() => openDialog(rt)}

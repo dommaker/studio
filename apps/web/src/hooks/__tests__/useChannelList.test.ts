@@ -59,12 +59,12 @@ describe('useChannelList', () => {
     act(() => {
       handler!({ event_type: 'channel.message_sent', data: { channelId: 'ch-1', message: { authorType: 'agent' } } });
     });
-    expect(result.current.unreadCounts['ch-1']).toBe(1);
+    expect(useUnreadStore.getState().unreadCounts['ch-1']).toBe(1);
 
     act(() => {
       handler!({ event_type: 'channel.message_sent', data: { channelId: 'ch-1', message: { authorType: 'agent' } } });
     });
-    expect(result.current.unreadCounts['ch-1']).toBe(2);
+    expect(useUnreadStore.getState().unreadCounts['ch-1']).toBe(2);
   });
 
   it('ignores human-authored messages and other event types for unread', async () => {
@@ -77,8 +77,8 @@ describe('useChannelList', () => {
       handler!({ event_type: 'channel.message_sent', data: { channelId: 'ch-1', message: { authorType: 'human' } } });
       handler!({ event_type: 'channel.message_updated', data: { channelId: 'ch-2' } });
     });
-    expect(result.current.unreadCounts['ch-1']).toBeUndefined();
-    expect(result.current.unreadCounts['ch-2']).toBeUndefined();
+    expect(useUnreadStore.getState().unreadCounts['ch-1']).toBeUndefined();
+    expect(useUnreadStore.getState().unreadCounts['ch-2']).toBeUndefined();
   });
 
   it('clearUnread removes the counter for a channel', async () => {
@@ -90,10 +90,10 @@ describe('useChannelList', () => {
     act(() => {
       handler!({ event_type: 'channel.message_sent', data: { channelId: 'ch-1', message: { authorType: 'agent' } } });
     });
-    expect(result.current.unreadCounts['ch-1']).toBe(1);
+    expect(useUnreadStore.getState().unreadCounts['ch-1']).toBe(1);
 
     act(() => result.current.clearUnread('ch-1'));
-    expect(result.current.unreadCounts['ch-1']).toBeUndefined();
+    expect(useUnreadStore.getState().unreadCounts['ch-1']).toBeUndefined();
   });
 
   // #413 验收①：断点跨越（<768 内联 ChannelRail 卸载、SidebarNew 挂另一实例）计数不丢——
@@ -107,18 +107,18 @@ describe('useChannelList', () => {
     act(() => {
       handler!({ event_type: 'channel.message_sent', data: { channelId: 'ch-1', message: { authorType: 'agent' } } });
     });
-    expect(first.result.current.unreadCounts['ch-1']).toBe(1);
+    expect(useUnreadStore.getState().unreadCounts['ch-1']).toBe(1);
     first.unmount();
 
     const second = renderHook(() => useChannelList());
     await waitFor(() => expect(second.result.current.loading).toBe(false));
-    expect(second.result.current.unreadCounts['ch-1']).toBe(1);
+    expect(useUnreadStore.getState().unreadCounts['ch-1']).toBe(1);
 
     // 重挂后 SSE 增量继续落在同一份计数上（单例订阅重挂即恢复）
     act(() => {
       handler!({ event_type: 'channel.message_sent', data: { channelId: 'ch-1', message: { authorType: 'agent' } } });
     });
-    expect(second.result.current.unreadCounts['ch-1']).toBe(2);
+    expect(useUnreadStore.getState().unreadCounts['ch-1']).toBe(2);
   });
 
   // #413 验收②：active 频道（正在查看）不涨未读徽章——排除逻辑在 store action
@@ -132,7 +132,7 @@ describe('useChannelList', () => {
     act(() => {
       handler!({ event_type: 'channel.message_sent', data: { channelId: 'ch-1', message: { authorType: 'agent' } } });
     });
-    expect(result.current.unreadCounts['ch-1']).toBeUndefined();
+    expect(useUnreadStore.getState().unreadCounts['ch-1']).toBeUndefined();
   });
 
   it('createChannel posts payload and appends the new channel', async () => {

@@ -19,6 +19,8 @@ const {
 
 vi.mock('@dommaker/studio-shared', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
+  // #575：workunit.service 模块级 createSettledTracker()（经 monitor-probes 导入链拉到），wholesale mock 需补齐
+  createSettledTracker: () => ({ track: vi.fn(), waitForSettled: vi.fn(() => Promise.resolve()) }),
   FileStore: class {
     getIndex = mockGetIndex;
     upsertSnapshot = mockUpsertSnapshot;
@@ -36,6 +38,12 @@ vi.mock('@dommaker/harness', () => ({
   KnowledgeHealthScorer: class {},
   ReferenceTracker: class {},
   CheckpointValidator: { getInstance: () => ({ validate: () => [] }) },
+  // #578：goal.hooks.ts 模块级 new CheckCache()，mock 需对齐 harness 1.8.0 导出形态
+  CheckCache: class {
+    get(_ns: string, _key: string, fn: () => Promise<unknown>) { return fn(); }
+    getSync(_ns: string, _key: string, fn: () => unknown) { return fn(); }
+    invalidate() {}
+  },
 }));
 
 vi.mock('../../knowledge/knowledge-singletons.js', () => ({

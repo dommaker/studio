@@ -5,7 +5,7 @@
  * 真源是磁盘文件，但管理它的存储栈来自外部包（harness FileKnowledgeStore，npm 固定版本），
  * 进不了 studio-shared FileStore 读穿 seam → 决策树第 3 问「聚合 memo」，贴着
  * knowledge-singletons 的 sharedStore 组装点放置。失效口径（写在构造处）：
- *   - 本进程写穿透：save/saveAll/update/delete/rebuildIndex 同步失效全部 memo；
+ *   - 本进程写穿透：save/saveAll/applyAll/update/delete/rebuildIndex 同步失效全部 memo；
  *   - 跨进程外部写：每次读前重算指纹（readdir + 逐文件 stat，mtimeMs+size），
  *     指纹不变 → memo 有效；有变 → 全量重扫。残余风险与 FileStore seam 的 mtime
  *     兜底同量级：外部同毫秒且等长改写不可见（本进程写不受此限）。
@@ -14,7 +14,8 @@
  * 会原地改嵌套数组——memo 命中一律 structuredClone 后返回，保持该既有契约。
  *
  * 直通不缓存：readEntriesFromDisk（显式磁盘核对，linter 一致性检查依赖）/
- * snapshot / getSnapshot / getSurvivalRate（低频度量路径）。
+ * snapshot / getSnapshot / getSurvivalRate（低频度量路径）/
+ * getConsumptionStats（#134 新增，stats 文件不在指纹内）。
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -60,6 +61,12 @@ export class MtimeMemoKnowledgeStore implements KnowledgeStore {
     this.invalidate();
   }
 
+  /** harness#134（1.8.0 KnowledgeStore 15 成员）批量补丁写：与 saveAll 同一写穿透口径 */
+  applyAll(updates: Parameters<KnowledgeStore['applyAll']>[0]): void {
+    this.underlying.applyAll(updates);
+    this.invalidate();
+  }
+
   delete(id: string): boolean {
     const removed = this.underlying.delete(id);
     this.invalidate();
@@ -93,6 +100,15 @@ export class MtimeMemoKnowledgeStore implements KnowledgeStore {
 
   getSurvivalRate(daysAgo: number): ReturnType<KnowledgeStore['getSurvivalRate']> {
     return this.underlying.getSurvivalRate(daysAgo);
+  }
+
+  /**
+   * harness#134（1.8.0 KnowledgeStore 15 成员）消费计数：直通不缓存——
+   * .consumption-stats.json 不在目录指纹（.md + index.json）覆盖内，
+   * 缓存会返回过期计数；调用方（KnowledgeAudit 打分）低频。
+   */
+  getConsumptionStats(): ReturnType<KnowledgeStore['getConsumptionStats']> {
+    return this.underlying.getConsumptionStats();
   }
 
   // ── memo 内核 ──────────────────────────────────────────

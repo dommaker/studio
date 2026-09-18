@@ -109,7 +109,7 @@ export function NeedsAttentionSection({ onAlertClick }: { onAlertClick?: (group:
                     <button
                       key={i}
                       type="button"
-                      className="flex items-center gap-2 text-sm w-full text-left rounded px-1 -mx-1 u-hover-bg"
+                      className="u-btn-reset flex items-center gap-2 text-sm w-full text-left rounded px-1 -mx-1 u-hover-bg"
                       title="在事件检索中查看此类告警"
                       onClick={() => onAlertClick(g)}
                     >
@@ -121,7 +121,7 @@ export function NeedsAttentionSection({ onAlertClick }: { onAlertClick?: (group:
                 })}
               </div>
               {groups.length > ALERT_GROUP_LIMIT && (
-                <button className="text-xs u-text-3 u-hover-accent mt-1" onClick={() => setShowAllGroups(v => !v)}>
+                <button className="u-btn-reset text-xs u-text-3 u-hover-accent mt-1" onClick={() => setShowAllGroups(v => !v)}>
                   {showAllGroups ? '收起' : `还有 ${groups.length - ALERT_GROUP_LIMIT} 类`}
                 </button>
               )}

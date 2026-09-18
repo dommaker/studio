@@ -307,10 +307,13 @@ export async function dailyReflection(fileStore: FileStore, state: ReportState):
     } catch { /* best-effort */ }
 
     // 5. Knowledge quality audit (daily, auto-fix)
+    // #134①（harness 1.8.0）：KnowledgeAudit 构造签名改 (store, 阈值)，
+    // baseDir 由 store 供给——走 sharedStore 单例（与运行时知识库同一路径
+    // UNIFIED_KNOWLEDGE_DIR），不再自拼 {baseDir} 构造。
     try {
       const { KnowledgeAudit } = await import('@dommaker/harness') as any;
-      const knowledgeDir = studioPath('knowledge');
-      const audit = new KnowledgeAudit({ baseDir: knowledgeDir });
+      const { sharedStore } = await import('../../knowledge/knowledge-singletons.js');
+      const audit = new KnowledgeAudit(sharedStore);
       const report = audit.run({ autoFix: true });
       if (report.totalEntries > 0) {
         lines.push('', '### 知识质量审计');

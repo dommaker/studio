@@ -4,8 +4,9 @@
  * 提供审计日志查询、筛选、导出功能
  */
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { auditLogApi, type AuditLog, type AuditLogStats } from '../api/auditLogs';
+import React, { useEffect, useRef, useState } from 'react';
+import { auditLogApi, type AuditLog } from '../api/auditLogs';
+import { useAsyncData } from '../hooks/useAsyncData';
 import { Select, SkeletonText, SkeletonCard } from '../components/ui';
 import { IconSearch } from '../components/ui/icons';
 import { toast } from '../utils/toast';
@@ -15,11 +16,9 @@ import { formatFullTime } from '../utils/datetime';
 const toStartIso = (d: string) => (d ? new Date(`${d}T00:00:00`).toISOString() : undefined);
 const toEndIso = (d: string) => (d ? new Date(`${d}T23:59:59.999`).toISOString() : undefined);
 
+const PAGE_LIMIT = 50;
+
 export const AuditLogsPage: React.FC = () => {
-  const [logs, setLogs] = useState<AuditLog[]>([]);
-  const [stats, setStats] = useState<AuditLogStats | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   // 行内展开详情：点击行在下方展开/收起，不弹 Modal 遮罩列表
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const toggleExpanded = (id: string) => setExpandedId(cur => (cur === id ? null : id));
@@ -36,20 +35,45 @@ export const AuditLogsPage: React.FC = () => {
   // userId 输入框原值（300ms 防抖后才进 filters，批次 B-5，模式参照 LibraryPage）
   const [userIdInput, setUserIdInput] = useState('');
   const [page, setPage] = useState(1);
-  const [total, setTotal] = useState(0);
-  const limit = 50;
 
-  // Available options
-  const [actions, setActions] = useState<string[]>([]);
-  const [resources, setResources] = useState<string[]>([]);
+  // #549（B5 收口）：取数状态机退位——三份 useAsyncData（logs 随筛选/翻页重拉、
+  // stats 与下拉 options 挂载一次）；自管理 loading 派生（filterKey prev-state hack）已删；
+  // 筛选/翻页/行展开/userId 防抖留页面本地
+  // 2026-09 web-ux-optional-fixes Step 1：stats/options 失败不再 try/catch 静默落 null——
+  // error 由 hook 承接，各自区块内渲染最小错误行 + 重试（logs 错误条同款 u-err-dim 红条）
+  const logsData = useAsyncData(async () => {
+    const response = await auditLogApi.list({
+      action: filters.action || undefined,
+      resource: filters.resource || undefined,
+      status: filters.status || undefined,
+      userId: filters.userId || undefined,
+      startTime: toStartIso(filters.startDate),
+      endTime: toEndIso(filters.endDate),
+      page,
+      limit: PAGE_LIMIT,
+    });
+    return {
+      logs: (response.data.data || []) as AuditLog[],
+      total: response.data.pagination?.total || 0,
+    };
+  }, [filters.action, filters.resource, filters.status, filters.userId, filters.startDate, filters.endDate, page]);
 
-  // 筛选/翻页变化时在渲染期同步置回加载态（替代原 loadLogs 内、由 effect 触发的同步 setLoading）
-  const filterKey = JSON.stringify([filters, page]);
-  const [prevFilterKey, setPrevFilterKey] = useState(filterKey);
-  if (prevFilterKey !== filterKey) {
-    setPrevFilterKey(filterKey);
-    setLoading(true);
-  }
+  const statsData = useAsyncData(async () => (await auditLogApi.getStats()).data, []);
+
+  const optionsData = useAsyncData(async () => {
+    const [actionsRes, resourcesRes] = await Promise.all([
+      auditLogApi.listActions(),
+      auditLogApi.listResources(),
+    ]);
+    return { actions: (actionsRes.data.data || []) as string[], resources: (resourcesRes.data.data || []) as string[] };
+  }, []);
+
+  const logs = logsData.data?.logs ?? [];
+  const total = logsData.data?.total ?? 0;
+  const error = logsData.error;
+  const stats = statsData.data;
+  const actions = optionsData.data?.actions ?? [];
+  const resources = optionsData.data?.resources ?? [];
 
   // 筛选变化统一入口：改筛选即回第 1 页（修复翻页后改筛选停留旧页、结果错位）
   const applyFilter = (patch: Partial<typeof filters>) => {
@@ -67,7 +91,7 @@ export const AuditLogsPage: React.FC = () => {
     setPage(1);
   };
 
-  // userId 防抖：跳过首次运行（初始加载由主 effect 触发，输入框初值与 filters 一致无需提交）
+  // userId 防抖：跳过首次运行（初始加载由 useAsyncData 首拉触发，输入框初值与 filters 一致无需提交）
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const firstDebounceRef = useRef(true);
   useEffect(() => {
@@ -83,61 +107,6 @@ export const AuditLogsPage: React.FC = () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
   }, [userIdInput]);
-
-  const loadOptions = useCallback(async () => {
-    try {
-      const [actionsRes, resourcesRes] = await Promise.all([
-        auditLogApi.listActions(),
-        auditLogApi.listResources(),
-      ]);
-      setActions(actionsRes.data.data || []);
-      setResources(resourcesRes.data.data || []);
-    } catch (err) {
-      console.error('Failed to load options:', err);
-    }
-  }, []);
-
-  const loadLogs = useCallback(async () => {
-    try {
-      const response = await auditLogApi.list({
-        action: filters.action || undefined,
-        resource: filters.resource || undefined,
-        status: filters.status || undefined,
-        userId: filters.userId || undefined,
-        startTime: toStartIso(filters.startDate),
-        endTime: toEndIso(filters.endDate),
-        page,
-        limit,
-      });
-      const data = response.data;
-
-      setLogs(data.data || []);
-      setTotal(data.pagination?.total || 0);
-      setError(null);
-    } catch (err) {
-      setError(err.message || '加载失败');
-    } finally {
-      setLoading(false);
-    }
-  }, [filters, page]);
-
-  const loadStats = useCallback(async () => {
-    try {
-      const response = await auditLogApi.getStats();
-      setStats(response.data);
-    } catch (err) {
-      console.error('Failed to load stats:', err);
-    }
-  }, []);
-
-  useEffect(() => {
-    // 微任务里触发加载：loader 为多 await async 函数，编译器对 effect 内同步调用保守告警
-    void Promise.resolve().then(() => {
-      loadOptions();
-      loadLogs();
-      loadStats();
-    });
-  }, [loadOptions, loadLogs, loadStats]);
 
   const handleExport = () => {
     // 文件下载：浏览器跳转打开导出 URL（鉴权说明见 api/auditLogs.ts getExportUrl）
@@ -193,7 +162,7 @@ export const AuditLogsPage: React.FC = () => {
     );
   };
 
-  if (loading && !logs.length) {
+  if (logsData.loading && !logs.length) {
     // 批次 F-3：加载态骨架（批次 E-2 ui/Skeleton 正本）——统计卡 4 格 + 表格行形态
     return (
       <div className="h-full flex flex-col u-page-bg">
@@ -236,8 +205,13 @@ export const AuditLogsPage: React.FC = () => {
       <div className="flex-1 overflow-auto u-page-px pb-8">
       <div className="max-w-5xl">
 
-      {/* Stats */}
-      {stats && (
+      {/* Stats —— stats 子拉取失败：错误行 + 重试（原 try/catch 只 console.error，统计区凭空消失） */}
+      {statsData.error ? (
+        <div className="mb-4 p-3 rounded u-err-dim u-err text-sm flex items-center justify-between">
+          <span>{statsData.error}</span>
+          <button onClick={() => statsData.reload()} className="btn btn-secondary btn-sm">{'重试'}</button>
+        </div>
+      ) : stats && (
         <>
           <div className="mc-block-label">{'概览'}</div>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
@@ -251,6 +225,14 @@ export const AuditLogsPage: React.FC = () => {
             />
           </div>
         </>
+      )}
+
+      {/* Options 子拉取失败：筛选下拉凭空缺项——错误行 + 重试（原 try/catch 只 console.error） */}
+      {optionsData.error && (
+        <div className="mb-4 p-3 rounded u-err-dim u-err text-sm flex items-center justify-between">
+          <span>{optionsData.error}</span>
+          <button onClick={() => optionsData.reload()} className="btn btn-secondary btn-sm">{'重试'}</button>
+        </div>
       )}
 
       {/* Filters */}
@@ -316,7 +298,7 @@ export const AuditLogsPage: React.FC = () => {
       {error && (
         <div className="mb-4 p-3 rounded u-err-dim u-err text-sm flex items-center justify-between">
           <span>{error}</span>
-          <button onClick={() => { setLoading(true); void loadLogs(); }} className="btn btn-secondary btn-sm">{'重试'}</button>
+          <button onClick={() => logsData.reload()} className="btn btn-secondary btn-sm">{'重试'}</button>
         </div>
       )}
 
@@ -405,15 +387,17 @@ export const AuditLogsPage: React.FC = () => {
                   <td className="py-3 px-4 text-sm u-text-2">
                     {log.ipAddress || '-'}
                   </td>
+                  {/* 批次 I-6：查看/收起非独立按钮——整行（tr）即展开开关（onClick + Enter/Space + aria-expanded），
+                      原 <button> 无自身 onClick 只是行点击的视觉提示，改 span 去掉冗余 button 语义/重复 tab 停点 */}
                   <td className="py-3 px-4 text-sm u-text-2">
                     {log.errorMessage ? (
                       <span className="u-err" title={log.errorMessage}>
                         {log.errorMessage.slice(0, 30)}...
                       </span>
                     ) : (
-                      <button className="u-accent hover:underline">
+                      <span className="u-accent hover:underline">
                         {expandedId === log.id ? '收起' : '查看'}
-                      </button>
+                      </span>
                     )}
                   </td>
                 </tr>
@@ -500,10 +484,10 @@ export const AuditLogsPage: React.FC = () => {
       </div>
 
       {/* Pagination */}
-      {total > limit && (
+      {total > PAGE_LIMIT && (
         <div className="flex items-center justify-between mt-4">
           <div className="text-sm u-text-2">
-            {`第 ${page} 页 / 共 ${Math.ceil(total / limit)} 页`}
+            {`第 ${page} 页 / 共 ${Math.ceil(total / PAGE_LIMIT)} 页`}
           </div>
           <div className="flex gap-2">
             <button
@@ -515,7 +499,7 @@ export const AuditLogsPage: React.FC = () => {
             </button>
             <button
               onClick={() => setPage(p => p + 1)}
-              disabled={page * limit >= total}
+              disabled={page * PAGE_LIMIT >= total}
               className="btn btn-secondary btn-sm"
             >
               {'下一页'}

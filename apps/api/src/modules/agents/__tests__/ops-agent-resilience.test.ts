@@ -229,6 +229,26 @@ describe('OpsService proxy health (AC-2)', () => {
       }
     });
 
+    it('#573: 端口检查收编 port-probe——preflight 不再含 port-available，不再跑 lsof', async () => {
+      // 端口口径单源：契约 §7（摸底冲突 4）——lsof abort 语义收编为 port-probe
+      // 动态顺延分支（调用方 studioUp/run-web 启动前解析），preflight 不再查端口
+      mockExecSync.mockClear();
+      ensureStudioData();
+      const dist = makeTmp('ops-pf-dist-');
+      const repo = makeTmp('ops-pf-repo-');
+      fs.writeFileSync(path.join(dist, 'index.html'), 'x');
+      try {
+        const ops = createOpsService(19999);
+        pinThresholds(ops);
+        const result = await ops.preflight(repo, dist);
+        expect(result.checks.find(c => c.name === 'port-available')).toBeUndefined();
+        expect(mockExecSync.mock.calls.flat().join(' ')).not.toContain('lsof -ti:');
+      } finally {
+        fs.rmSync(dist, { recursive: true, force: true });
+        fs.rmSync(repo, { recursive: true, force: true });
+      }
+    });
+
     it('readDiskUsage 不可用（null）→ skip 而非失败', async () => {
       mockReadDiskUsage.mockReturnValue(null);
       ensureStudioData();

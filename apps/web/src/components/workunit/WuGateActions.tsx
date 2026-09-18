@@ -7,31 +7,30 @@
 // 反馈统一批次A 模式：pending 锁存防连点 + 失败 gateError 内联（errorMessage 服务端 error.message 优先）
 // + 弹窗成功才关窗 + #468 成功 toast 说明后续走向（自动派工/进待领取/打回返工）。
 // blocked 处置（BlockedActions）不在此列——属状态处置非审查闸门，各页自挂。
-// 变更写路径留在调用方经 props 注入（列表=store 动作后重拉 / 抽屉=响应体直替本地 wu / 详情页=actionTick 重拉）。
+// 写路径内建（#545，ADR 2026-09-15-web-gate-write-module）：组件直接消费 utils/gateWriter
+// （一次 API 调用 + 响应体快照双写落点）；宿主只经 onUpdated 登记本地落点（drawer/详情页 setWu），
+// 列表行/工作条无需 sink（store 双写已覆盖）。
 import { useState } from 'react';
 import { deriveDisplayState } from '@dommaker/studio-shared/web';
-import type { WorkUnit, ReviewConfirmPayload } from '../../api/workunit';
+import type { WorkUnit } from '../../api/workunit';
 import { AnalysisApproveDialog } from '../pmo/AnalysisApproveDialog';
 import { DecisionApproveDialog } from '../pmo/DecisionApproveDialog';
 import { SpecApproveDialog } from '../pmo/SpecApproveDialog';
 import { buildAnalysisConfirmPrefill, buildDecisionConfirmPrefill, buildSpecConfirmPrefill } from '../pmo/mapUtils';
+import { createGateWriter, type GateUpdateSink } from '../../utils/gateWriter';
 import { errorMessage } from '../../utils/errorMessage';
 import { toast } from '../../utils/toast';
+import { Modal } from '../ui';
 
 export interface WuGateActionsProps {
   wu: WorkUnit;
-  /** 审查硬门通过（analysis/decision/spec 由各自确认弹窗带 confirm 结构化表单回传，#463；
-   *  后端序列化进 l3.summary，存储契约不变）；失败须 reject——弹窗据此保持打开 */
-  onReviewPassed: (summary?: string, assigneeId?: string, confirm?: ReviewConfirmPayload) => Promise<unknown>;
-  /** 审查硬门拒绝（reason 可选；弹窗的打回按钮带预设理由走同一入口） */
-  onReviewRejected: (reason?: string) => Promise<unknown>;
-  /** #284 pending 人闸确认（→ unassigned 进 frontier 可认领） */
-  onConfirmPending: () => Promise<unknown>;
+  /** #545：宿主本地快照落点（store 双写完成后由 gateWriter 调用）；缺省 = 无本地态宿主 */
+  onUpdated?: GateUpdateSink;
   /** #284（决策 #250 D6）：接力卡「打开即弹」——挂载时 wu 为 in_review analysis 则自动弹确认弹窗（一次性） */
   autoApprove?: boolean;
 }
 
-export function WuGateActions({ wu, onReviewPassed, onReviewRejected, onConfirmPending, autoApprove = false }: WuGateActionsProps) {
+export function WuGateActions({ wu, onUpdated, autoApprove = false }: WuGateActionsProps) {
   const [confirming, setConfirming] = useState(false);
   const [gateError, setGateError] = useState('');
   const [showApproveModal, setShowApproveModal] = useState(false);
@@ -39,6 +38,8 @@ export function WuGateActions({ wu, onReviewPassed, onReviewRejected, onConfirmP
   const [rejectReason, setRejectReason] = useState('');
   // F6 派生（铁律：needsHuman 判断一律过 deriveDisplayState，不自行读 attestations）
   const derived = deriveDisplayState({ status: wu.status, metadata: wu.metadata });
+  // #545：写路径唯一正本（API 调用 + store 双写 + onUpdated 回调全在 gateWriter）
+  const gateWriter = createGateWriter(onUpdated);
 
   // autoApprove（#284 决策 #250 D6）：接力卡「打开即弹」一次性——渲染期派生（prevId 同款模式，
   // 组件仅在 wu 加载完成且命中闸门分支后挂载，id 切换经卸载重置）
@@ -80,13 +81,13 @@ export function WuGateActions({ wu, onReviewPassed, onReviewRejected, onConfirmP
     if (CONFIRM_DIALOG_TYPES.has(wu.type)) {
       setShowApproveModal(true);
     } else {
-      void run(() => onReviewPassed()).then(() => toast.success(approveFollowUp())).catch(() => {});
+      void run(() => gateWriter.reviewPassed(wu.id)).then(() => toast.success(approveFollowUp())).catch(() => {});
     }
   };
 
   /** 拒绝（含弹窗打回按钮）：成功才关弹窗；失败错误行同时进闸门区与弹窗（同源 gateError） */
   const handleReject = (reason?: string) => {
-    void run(() => onReviewRejected(reason))
+    void run(() => gateWriter.reviewRejected(wu.id, reason))
       .then(() => {
         setShowRejectModal(false); setRejectReason(''); setShowApproveModal(false);
         toast.info('已拒绝，工单打回返工'); // #468
@@ -108,7 +109,7 @@ export function WuGateActions({ wu, onReviewPassed, onReviewRejected, onConfirmP
             disabled={confirming}
             title="待确认人闸：扩范围单创建落待确认，确认后进入待领取（agent 可见可领取）"
             onClick={() => {
-              void run(onConfirmPending)
+              void run(() => gateWriter.confirmPending(wu.id))
                 .then(() => toast.success('已确认，工单进入待领取队列（agent 可认领）')) // #468
                 .catch(() => { /* 失败原因已内联 */ });
             }}
@@ -157,11 +158,11 @@ export function WuGateActions({ wu, onReviewPassed, onReviewRejected, onConfirmP
           confirmKind={wu.type === 'plan' ? 'plan' : 'analysis'}
           onConfirm={async (confirm, assigneeId) => {
             // 批次A 项7：成功才关窗（失败由弹窗内联展示，gateError 亦已置位）
-            await run(() => onReviewPassed(undefined, assigneeId, confirm));
+            await run(() => gateWriter.reviewPassed(wu.id, undefined, assigneeId, confirm));
             toast.success(approveFollowUp()); // #468
             setShowApproveModal(false);
           }}
-          onReject={async reason => { await run(() => onReviewRejected(reason)); toast.info('已拒绝，工单打回返工'); setShowApproveModal(false); }}
+          onReject={async reason => { await run(() => gateWriter.reviewRejected(wu.id, reason)); toast.info('已拒绝，工单打回返工'); setShowApproveModal(false); }}
           onCancel={() => setShowApproveModal(false)}
         />
       )}
@@ -171,11 +172,11 @@ export function WuGateActions({ wu, onReviewPassed, onReviewRejected, onConfirmP
           question={(wu.scope ?? '').split('\n')[0] ?? ''}
           suggestion={buildDecisionConfirmPrefill(wu.metadata)}
           onConfirm={async confirm => {
-            await run(() => onReviewPassed(undefined, undefined, confirm));
+            await run(() => gateWriter.reviewPassed(wu.id, undefined, undefined, confirm));
             toast.success(approveFollowUp()); // #468
             setShowApproveModal(false);
           }}
-          onReject={async reason => { await run(() => onReviewRejected(reason)); toast.info('已拒绝，工单打回返工'); setShowApproveModal(false); }}
+          onReject={async reason => { await run(() => gateWriter.reviewRejected(wu.id, reason)); toast.info('已拒绝，工单打回返工'); setShowApproveModal(false); }}
           onCancel={() => setShowApproveModal(false)}
         />
       )}
@@ -184,35 +185,23 @@ export function WuGateActions({ wu, onReviewPassed, onReviewRejected, onConfirmP
         <SpecApproveDialog
           prefill={buildSpecConfirmPrefill(wu.metadata)}
           onConfirm={async confirm => {
-            await run(() => onReviewPassed(undefined, undefined, confirm));
+            await run(() => gateWriter.reviewPassed(wu.id, undefined, undefined, confirm));
             toast.success(approveFollowUp()); // #468
             setShowApproveModal(false);
           }}
-          onReject={async reason => { await run(() => onReviewRejected(reason)); toast.info('已拒绝，工单打回返工'); setShowApproveModal(false); }}
+          onReject={async reason => { await run(() => gateWriter.reviewRejected(wu.id, reason)); toast.info('已拒绝，工单打回返工'); setShowApproveModal(false); }}
           onCancel={() => setShowApproveModal(false)}
         />
       )}
 
-      {/* #284：审查拒绝弹窗（带原因），三处同款 */}
+      {/* #284：审查拒绝弹窗（带原因），三处同款；批次 I-2 收编 ui/Modal（§4.3 正本） */}
       {showRejectModal && (
-        <div className="modal-overlay" onClick={() => setShowRejectModal(false)}>
-          <div className="modal" style={{ maxWidth: '24rem' }} onClick={e => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3 className="modal-title">拒绝原因</h3>
-              <button className="modal-close" onClick={() => setShowRejectModal(false)} aria-label="关闭">×</button>
-            </div>
-            <div className="modal-body">
-              <textarea
-                className="input w-full"
-                rows={3}
-                placeholder="输入拒绝原因（可选）"
-                value={rejectReason}
-                onChange={e => setRejectReason(e.target.value)}
-              />
-              {/* 拒绝失败保持弹窗打开，错误行进弹窗（闸门区同步置位） */}
-              {gateError && <p className="text-xs u-err" style={{ marginTop: 4 }}>{gateError}</p>}
-            </div>
-            <div className="modal-footer">
+        <Modal
+          onClose={() => setShowRejectModal(false)}
+          maxWidth="24rem"
+          title="拒绝原因"
+          footer={
+            <>
               <button
                 className="btn btn-secondary"
                 onClick={() => { setShowRejectModal(false); setRejectReason(''); }}
@@ -222,9 +211,19 @@ export function WuGateActions({ wu, onReviewPassed, onReviewRejected, onConfirmP
               <button className="btn btn-danger" disabled={confirming} onClick={() => handleReject(rejectReason.trim() || undefined)}>
                 确认拒绝
               </button>
-            </div>
-          </div>
-        </div>
+            </>
+          }
+        >
+          <textarea
+            className="input w-full"
+            rows={3}
+            placeholder="输入拒绝原因（可选）"
+            value={rejectReason}
+            onChange={e => setRejectReason(e.target.value)}
+          />
+          {/* 拒绝失败保持弹窗打开，错误行进弹窗（闸门区同步置位） */}
+          {gateError && <p className="text-xs u-err" style={{ marginTop: 4 }}>{gateError}</p>}
+        </Modal>
       )}
     </div>
   );

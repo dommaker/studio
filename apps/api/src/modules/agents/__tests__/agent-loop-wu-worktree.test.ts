@@ -444,7 +444,11 @@ describe('B3b-i: 每 WU worktree 隔离 + 自动验证', () => {
     const parent = await createWu('task', { workspaceRoot: repoRoot, worktreePath: WT() });
     const reviewWu = await createWu('review', { workspaceRoot: repoRoot, worktreePath: WT() }, { parentId: parent.id });
 
-    await loop().recordResult({ workUnit: reviewWu }, { action: 'complete', summary: 'REVIEW_RESULT: {"verdict":"pass"}' });
+    await loop().recordResult({ workUnit: reviewWu }, {
+      action: 'complete', summary: 'REVIEW_RESULT: {"verdict":"pass"}',
+      // reviewReport 模拟 agentStep 协议行解析落档（收口闸 2 要求 review 契约产物非空）
+      metadataUpdates: { reviewReport: { approved: true } },
+    });
 
     expect(mockExecSh).not.toHaveBeenCalled();
     // review 子 WU complete 直接收口 done（P0 修复路径）

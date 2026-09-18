@@ -1,9 +1,12 @@
 /**
  * Runner Lightweight — 轻量单 session 执行（agent-runner.ts 拆分模块）
  *
- * 从 agent-runner.ts 按职责拆出的 lightweight 执行路径（P9: Daemon→AgentRunner）：
- *   worktree + harness + 单 session；跳过 SDD 解析、REQUIREMENTS.md、contract tests、
- *   Iron Laws、依赖缓存、卡死检测与多 session 循环。
+ * 从 agent-runner.ts 按职责拆出的执行路径（P9: Daemon→AgentRunner），#562 起是本包
+ * 唯一执行路径：worktree + harness 配置 + 单 session 一次 spawn。
+ * 与已删除的多 session 循环曾共享的依赖面：provider 注册表（spawn 模板）、
+ * propagateHarnessConfig（含 provider-hooks 执法配置与 CLAUDE.md 复制）、
+ * 知识注入（buildAugmentedPrompt）、output-capture（进度读取/事件发射/session 指标）；
+ * harness hooks 层则已整层删除，本路径不再调任何 hook。
  *
  * 零行为变更：函数体自 AgentRunner.executeLightweight() 平移；
  * 实例状态经 RunnerExecutionState 传入。
@@ -13,7 +16,7 @@ import type { ChildProcess } from 'child_process';
 import * as path from 'path';
 import * as fsSync from 'fs';
 import { logger } from '@dommaker/studio-shared';
-import { execSh } from '@dommaker/studio-shared/node';
+import { execSh, classifyCliFailure } from '@dommaker/studio-shared/node';
 
 import { resolveWorkspace, propagateHarnessConfig } from './worktree-resolver.js';
 import {
@@ -27,9 +30,8 @@ import {
   buildSessionCommand,
   buildSessionEnv,
 } from './runner-params.js';
-import type { RunnerExecutionState } from './runner-execution.js';
 
-import type { AgentTask, ExecutionResult } from './types.js';
+import type { AgentTask, ExecutionResult, RunnerExecutionState } from './types.js';
 
 // ========================================
 // Lightweight mode (P9: Daemon→AgentRunner)
@@ -37,15 +39,17 @@ import type { AgentTask, ExecutionResult } from './types.js';
 
 /**
  * Lightweight execution: worktree + harness + single session.
- * Skips: SDD resolution, REQUIREMENTS.md, contract tests, Iron Laws,
- *        dependency cache, stuck detection, multi-session loop.
- * Keeps: resolveWorktree, propagateHarnessConfig, session-id/continue,
- *        stream-json parsing, event emission, metrics.
+ * Keeps: resolveWorkspace, checkPrerequisites, propagateHarnessConfig,
+ *        knowledge context, session resume channel, stream-json parsing,
+ *        event emission, metrics.
+ * No longer exists anywhere: the multi-session loop with its stuck detection,
+ *        contract tests and dependency cache (deleted in #562).
  *
- * Caller provides the full prompt — no buildPrompt enrichment.
- * Session 语义两个通道：旧 daemon 链路走 parameters.sessionFlags（claude --session-id/--continue
- * 原样拼接）；agent-loop 链路走 parameters.sessionId + parameters.sessionResume
- * （经 cli-adapter 按 provider 生成，claude 续用为 --resume）。
+ * Caller provides the full prompt — this path builds no prompt text of its own.
+ * Session 续接唯一通道：parameters.sessionId + parameters.sessionResume，经
+ * cli-adapter 按 provider 生成（claude 续用为 --resume；其余 provider 走 cwd 维度
+ * 续用，见 cli-adapter.ts 实证记录）。#587 起旧 daemon 链路那条原样拼接 claude
+ * flag 的通道已随其生产者一并移除。
  */
 export async function executeLightweightSession(state: RunnerExecutionState, task: AgentTask): Promise<ExecutionResult> {
   const { config, runningProcesses } = state;
@@ -85,14 +89,9 @@ export async function executeLightweightSession(state: RunnerExecutionState, tas
     fsSync.mkdirSync(path.dirname(promptFile), { recursive: true });
     fsSync.writeFileSync(promptFile, augmentedPrompt, 'utf-8');
 
-    // Session management — caller provides flags via parameters
-    // F4: sessionFlags 是 claude 专属语法（--session-id/--continue）；其它 provider 的
-    // session 由 registry spawn 模板处理（buildSpawnArgs 传入 parameters.sessionId）。
-    // 核查（fix/guard-and-resume）：sessionFlags 唯一设置方是旧 daemon 链路
-    // apps/api/src/daemon/session-manager.ts（首 task --session-id、后续 --continue，无 Bug B）；
-    // agent-loop 链路不用它 —— 走 parameters.sessionId + parameters.sessionResume（见下）。
+    // Session 续接由调用方经 parameters 给出（sessionId + sessionResume），cli-adapter
+    // 按 provider 换语法；本路径不再原样拼接任何 provider 专属 session flag。
     const provider = task.provider || 'claude';
-    const sessionFlags = provider === 'claude' ? ((task.parameters?.sessionFlags as string) || '') : '';
     const agentRole = (task.parameters?.agentRole as string) || 'executor';
     const sessionId = task.executionId;
 
@@ -108,11 +107,10 @@ export async function executeLightweightSession(state: RunnerExecutionState, tas
       },
       worktree,
       promptFile,
-      sessionFlags,
     });
 
     logger.info('[AgentRunner] Lightweight session spawning', {
-      taskId: task.id, executionId: task.executionId, sessionFlags,
+      taskId: task.id, executionId: task.executionId,
     });
 
     const childRef: { current: ChildProcess | null } = { current: null };
@@ -162,8 +160,12 @@ export async function executeLightweightSession(state: RunnerExecutionState, tas
         logger.warn('[AgentRunner] Lightweight session returned error', {
           taskId: task.id, text: text.slice(0, 200),
         });
+        // #565: 失败分类——命中已知特征时带出「去哪修」指引；未命中行为与现状一致
+        const failureClass = classifyCliFailure({ provider, output: text });
         return {
-          success: false, worktree, outputFiles: [], error: text.slice(0, 500),
+          success: false, worktree, outputFiles: [],
+          error: failureClass ? `[${failureClass.category}] ${failureClass.guidance} — ${text.slice(0, 500)}` : text.slice(0, 500),
+          ...(failureClass ? { failureClass } : {}),
           logFile, sessionCount: 1, totalDurationMs: sessionMs, sessionIds: [sessionId],
           usage: streamUsage, // M2: 失败执行同样计 tokens
         };
@@ -186,9 +188,16 @@ export async function executeLightweightSession(state: RunnerExecutionState, tas
 
       await emitSessionEnd(sessionId, task.executionId, 1, sessionExtras);
 
+      // #565: 失败分类——errMsg/stdout 命中已知特征时带出指引；未命中行为与现状一致
+      const failureClass = classifyCliFailure({
+        provider,
+        exitCode: typeof (execErr as { code?: unknown })?.code === 'number' ? (execErr as { code: number }).code : undefined,
+        output: `${errMsg}\n${stdoutText}`,
+      });
       return {
         success: false, worktree, outputFiles: [],
-        error: errMsg.slice(0, 500),
+        error: failureClass ? `[${failureClass.category}] ${failureClass.guidance} — ${errMsg.slice(0, 500)}` : errMsg.slice(0, 500),
+        ...(failureClass ? { failureClass } : {}),
         failureLog: stdoutText ? stdoutText.slice(-1000) : undefined,
         logFile, sessionCount: 1, totalDurationMs: Date.now() - sessionStart,
         sessionIds: [sessionId],

@@ -12,6 +12,7 @@ import {
   type PipelineWorkUnit,
 } from './pipelineUtils';
 import { SkeletonText, SkeletonCard } from '../ui';
+import { IconCheck } from '../ui/icons';
 
 // #399 §8.3 词表正词：待领取/进行中/待验收/完成；#472 起文案/配色收口 wu-display 唯一出口（私有拷贝已删）。
 // 泳道头/底色类与 chip 色同族（wu-display 的 chip 类是「底色+文字」双类，泳道拆成 head/lane 两类，故此处只留类骨架、文案同源）。
@@ -56,7 +57,7 @@ function WuCard({ wu, agent }: { wu: PipelineWorkUnit; agent?: AgentInfo }) {
             key={key}
             className={`text-xs px-1 py-0.5 rounded ${derived.evidence[key] ? 'u-ok-dim u-ok' : 'u-surface-2 u-text-3'}`}
           >
-            {EVIDENCE_LAYER_LABELS[key]}{derived.evidence[key] ? '✓' : ''}
+            {EVIDENCE_LAYER_LABELS[key]}{derived.evidence[key] ? <IconCheck size={12} /> : null}
           </span>
         ))}
       </div>

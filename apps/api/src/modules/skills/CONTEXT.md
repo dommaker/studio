@@ -6,8 +6,8 @@ skills 模块负责技能（Skill）的完整生命周期管理，包括基于�
 
 ### 词汇表
 
-- **Skill 加载（loaded）**：agent 经 MCP 工具 `loadSkill` 显式拉取 SKILL.md 正文。`knowledge:skill_used` 事件的唯一语义（#60 决策，2026-08-09；#172 落地）：发射点 = `skill-loader.ts` 的 `loadSkill`，payload 携带 `workUnitId`（调用方已知时），envelope level=debug。
-- **Skill 曝光（exposed）**：已废除的概念。旧口径把「skill 索引条目进入 prompt」记为 skill_used，实测为常量集合（14/20 skill，零信息量），发射已删除（#60 决策，#172 落地，prompt-composer.ts）。基于曝光口径的降级提案统计无效，修复归知识飞轮 handoff。
+- **Skill 使用（used）**：agent 在 WU 执行期间获取 SKILL.md 全文，渠道无关（loadSkill / Read / cat 均算）。`knowledge:skill_used` 事件（#60 决策，2026-08-09；#172 落地）发射点三处：`skill-loader.ts`（loadSkill 文件路径）、`mcp/skill-tools.ts`（loadSkill cache 路径，度量地基票 A 补）、`skill-usage-scan.ts`（WU done transcript 后验扫描，主口径——agent 直读文件绕开 loadSkill 时仍能在 rawOutput 路径痕迹中测到）。payload 携带 `workUnitId`（已知时）+ `channel`；envelope level=info（度量地基票 C 提为 signal：热 30 天 → 月度 gz 归档，不再随噪声 7 天滚）。
+- **Skill 曝光（exposed）**：曝光事件发射已废除（旧口径把「skill 索引条目进入 prompt」记为 skill_used，实测为常量集合零信息量，#60 决策，#172 落地）。度量地基票 D 起曝光以 `exposures` 统计字段恢复（matchedSkills 命中计数），仅降级提案人审参考，不参与判定；successRate 归因同步从曝光改为使用（有 skill_used 的 WU 才背成败）。
 
 ### 核心导出
 
@@ -25,7 +25,8 @@ skills 模块负责技能（Skill）的完整生命周期管理，包括基于�
 | GET /skills/manifest | routes.ts | #462：skills MANIFEST 只读清单（name/description/agentTypes/triggers），角色编辑 UI 的 skill 多选数据源；loop-consumer 不进候选（与注入口径一致）；注册在 /:id 之前 |
 | SkillRecord, SkillCreateInput, SkillUpdateInput | skill-store.ts | 技能元数据的类型定义及文件型 CRUD |
 | LoadedSkill, SessionSkillState, LoadSkillOptions | skill-loader.ts | 技能加载相关的类型定义；#361 起磁盘加载归 `@dommaker/studio-skill` 包加载器（loadSingle），本文件只留会话级 load 缓存 + skill_used 事件发射（第三份 frontmatter 解析器已删） |
-| aggregateSkillUsage, scanSkillDemotions, approveDemotion, rejectDemotion, DemotionProposalStore | skill-demotion.ts | §10.6 降级通路：skill_used 事件 + WU 终态聚合 → 降级提案（只提案不自动生效；approve 改 frontmatter status，正文逐字节保留）；提案存 ~/.studio/data/skills/demotion-proposals.json |
+| aggregateSkillUsage, scanSkillDemotions, approveDemotion, rejectDemotion, DemotionProposalStore | skill-demotion.ts | §10.6 降级通路：skill_used 事件 + WU 终态聚合 → 降级提案（只提案不自动生效；approve 改 frontmatter status，正文逐字节保留）；票 D 起 successRate 使用归因（usedWuIds ∩ 终态）+ exposures 曝光计数仅展示；提案存 ~/.studio/data/skills/demotion-proposals.json |
+| SkillUsageScanner, initSkillUsageScan, extractUsedSkillNames | skill-usage-scan.ts | 度量地基票 B：WU done → readTranscript 扫 rawOutput 中 `skills/<name>/SKILL.md` 痕迹 → 每 skill 一条 skill_used（channel=transcript，level=info）；纯确定性零 LLM，eventBus 钩子（index.ts 挂载），聚合侧 (skill, WU) 去重吸收重复触发 |
 | router | skill-demotion-routes.ts | 降级提案列表（?scan=true 触发扫描）/ 审批路由，挂载至 /api/v1/skills/demotion-proposals（先于 /api/v1/skills 注册） |
 
 ### 依赖关系
@@ -60,3 +61,4 @@ skills 模块负责技能（Skill）的完整生命周期管理，包括基于�
 - **鉴权（2026-07-24 收紧）**：skills 8 条写（POST /、PATCH、DELETE、publish、deprecate、restore、usage、retract/decide）+ demotion-proposals approve/reject + proposals 写端点（scan/extract/retract；approve/reject 已于 #354 删除，审批走正本通用端点）已收 requireAuth+requireNotGuest。GET /api/v1/skills/proposals 被 skills 的 GET /:id 遮蔽，属路由顺序 bug（未修）。
 - **retract 决策闭环（#278，决策 #250 D2）**：`POST /:id/retract/decide {decision, messageId?, channelId?}`（routes.ts）补上 retract 下半截——守卫 `status==='under_review'`，confirm→`deprecated`、reject→`published`；messageId 提供时经 `channelMessageService.updateMessageMeta` 回写 retract_confirm 卡 meta.status（非阻断）；#524 P1-1 起 channelId 可选透传（前端 useChannelCardActions 带上）→ 回写按频道直查免全频道扇出，缺省保留扇出兼容。注意 retract 端点本体在 proposals 挂载点下，实际路径是 `/api/v1/skills/proposals/:id/retract`（与文件内注释声称的 `/skills/:id/retract` 不符，历史遗留）。
 - **手改 SKILL.md 后一次性重生成 MANIFEST.md（#306，2026-08-24）**：在 `apps/api` 目录内用 tsx 跑临时脚本调 `generateManifest()`（manifest-generator.ts:54）——脚本必须放项目目录内，tsx 按脚本位置解析相对导入，放 /tmp 会 MODULE_NOT_FOUND。免手工路径：API 启动时 seed hash 有变更自动重生成。
+- **CLI 流动三件套（#568）**：`studio skill validate/export/install` 落 `apps/api/src/cli/skill.ts`（纯本地文件操作，daemon 离线可用）；install 只落目录不写 skills-index.json（与 seed 对齐：目录即注册，REST CRUD 面看不到 install 来的 skill，语义与内置 skill 一致）。

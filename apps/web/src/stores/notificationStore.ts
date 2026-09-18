@@ -30,6 +30,45 @@ export interface StateItem {
   since: string;
 }
 
+/** #546：per-channel need-input 视图投影（四种消费形状单源，照 channelWorkStore.wuIdleOf 派生单源模式）——
+ *  stateItems → 频道页 NEED_INPUT 面全部消费形状。口径变更（过滤规则 / fail-closed 语义）只落本函数，
+ *  ChannelDetailPage / ChannelNeedInputChip / 右栏 / useChannelStream 消费同一份产物 */
+export interface NeedInputView {
+  /** 待办列表（chip / 右栏共用）：本频道 reply 项，question = waitingQuestion ?? scope */
+  waitingWus: Array<{ wuId: string; question: string; messageId?: string }>;
+  /** wuId → 当前提问 messageId——fail-closed：messageId 缺省的 WU 不进映射（前端不从已加载消息反推，#483 边界） */
+  questionIdByWu: ReadonlyMap<string, string>;
+  /** 提问提升集（= questionIdByWu values）——线程回复形态的提问消息提升到主流可见 */
+  promotedQuestionIds: ReadonlySet<string>;
+  /** 消息是否为本频道某 WU 的当前提问（badge/内嵌回复区只落这一条） */
+  isWaitingForInput: (msg: { id: string; workUnitId?: string | null }) => boolean;
+}
+
+/** stateItems → per-channel need-input 投影。channelId 缺省 / 条目 channelId 为 null → 不匹配（fail-closed） */
+export function needInputViewOf(stateItems: StateItem[], channelId: string | undefined): NeedInputView {
+  const waitingWus = stateItems
+    .filter(i => i.kind === 'reply' && i.channelId === channelId)
+    .map(i => ({ wuId: i.wuId, question: i.waitingQuestion ?? i.scope, messageId: i.messageId }));
+  const questionIdByWu = new Map<string, string>();
+  for (const w of waitingWus) if (w.messageId) questionIdByWu.set(w.wuId, w.messageId);
+  return {
+    waitingWus,
+    questionIdByWu,
+    promotedQuestionIds: new Set(questionIdByWu.values()),
+    isWaitingForInput: (msg) => !!msg.workUnitId && questionIdByWu.get(msg.workUnitId) === msg.id,
+  };
+}
+
+/** F2（2026-09-16 性能体检）：NeedInputView 内容等值判定——四种消费形状全由 waitingWus 派生，
+ *  waitingWus 等值即整体等值，可复用旧引用（无关频道 stateItems 变化不掀动下游派生） */
+export function needInputViewEqual(a: NeedInputView, b: NeedInputView): boolean {
+  if (a.waitingWus.length !== b.waitingWus.length) return false;
+  return a.waitingWus.every((w, i) => {
+    const o = b.waitingWus[i];
+    return w.wuId === o.wuId && w.question === o.question && w.messageId === o.messageId;
+  });
+}
+
 export interface Notification {
   id: string;
   /** 通知类型（旧五类 + #468 新三类 wu_milestone/monitor_alert/incident） */

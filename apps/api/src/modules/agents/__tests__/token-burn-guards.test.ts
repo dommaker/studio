@@ -44,14 +44,9 @@ vi.mock('../../knowledge/knowledge-service', () => ({
   },
 }));
 
-import {
-  AgentLoop,
-  isTestLikeWorkUnit,
-  testWuGuardEnabled,
-  resolveRealUsage,
-  writeWorkunitTokenEvent,
-  type StepResult,
-} from '../loop/agent-loop';
+import { AgentLoop, type StepResult } from '../loop/agent-loop';
+import { isTestLikeWorkUnit, testWuGuardEnabled } from '../loop/agent-loop-guards';
+import { resolveRealUsage, writeWorkunitTokenEvent } from '../loop/agent-loop-events';
 import { WorkUnitService, type WorkUnitMetadata, type WorkUnitData } from '../../workunit/workunit.service';
 import type { ExecutionResult } from '@dommaker/studio-agent';
 

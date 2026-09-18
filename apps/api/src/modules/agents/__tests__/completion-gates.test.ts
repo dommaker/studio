@@ -2,6 +2,7 @@
 // 覆盖：三条守卫各自的触发/跳过/降级路径、守卫优先级（commit → child → verify）、
 // hint 文案、l1 台账形状、verifyFailCount ≥3 → verifyBlocked、no-commit 计数/提醒。
 import { describe, it, expect, vi } from 'vitest';
+import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -9,6 +10,8 @@ import {
   runCompletionGuards,
   hasUncommittedChanges,
   readHeadHash,
+  countBranchCommits,
+  hasAnalysisReport,
   parseWuGitLog,
   loadCompletionCheckersConfig,
   type CompletionCheckerFns,
@@ -80,8 +83,10 @@ describe('completion-gates: §10.5 提交守卫', () => {
     // 注入 checkers=null 隔离提交守卫语义：harness ≥1.1.0 起软观测段激活，
     // contract-presence 对无 worktree 类型（含 review）会设计性回退解析 cwd 取 .harness 契约清单
     // （见 completion-gates.ts runSoftObservation 注释），不在本测试的提交守卫豁免口径内。
+    // reviewReport 备齐：收口闸 2（契约产物）对缺 reviewReport 的 review 会降级，不属于本测试口径。
     const deps = makeDeps({ loadCompletionCheckers: async () => null });
-    const out = await runCompletionGuards(ctxOf(makeWu({ type: 'review' }), {}), deps);
+    const out = await runCompletionGuards(
+      ctxOf(makeWu({ type: 'review' }), { reviewReport: { approved: true } }), deps);
 
     expect(deps.resolveExecutionCwd).not.toHaveBeenCalled();
     expect(deps.hasUncommittedChanges).not.toHaveBeenCalled();
@@ -396,7 +401,10 @@ describe('completion-gates: T7-E2 软观测段', () => {
     expect(out.action).toBe('complete');
   });
 
-  it('圈定口径：review 型契约缺失（contracts 含 review + 无 reviewReport）→ violation 事件 + hint', async () => {
+  it('圈定口径：review 型契约（contracts 含 review）→ reviewReport 透传，violation 事件 + hint', async () => {
+    // reviewReport 备齐以过收口闸 2（缺报告已在闸 2 硬降级，走不到软观测段）；
+    // 本用例只验软观测段把 reviewReport 透传给 harness contract-presence
+    const report = { approved: false, reason: '缺测试' };
     const { deps, fns, events } = makeSoftDeps(
       {
         verifyContractPresence: vi.fn().mockReturnValue({
@@ -405,9 +413,9 @@ describe('completion-gates: T7-E2 软观测段', () => {
       },
       { config: { contracts: ['review'] } },
     );
-    const out = await runCompletionGuards(ctxOf(makeWu({ type: 'review' }), {}), deps);
+    const out = await runCompletionGuards(ctxOf(makeWu({ type: 'review' }), { reviewReport: report }), deps);
 
-    expect(fns.verifyContractPresence).toHaveBeenCalledWith('review', { reviewReport: undefined }, { contracts: ['review'] });
+    expect(fns.verifyContractPresence).toHaveBeenCalledWith('review', { reviewReport: report }, { contracts: ['review'] });
     expect(events).toContainEqual(expect.objectContaining({ checker: 'contract-presence', verdict: 'violation' }));
     expect(out.guardUpdates.processCheckHint).toContain('[contract-presence]');
     expect(out.action).toBe('complete');
@@ -420,6 +428,206 @@ describe('completion-gates: T7-E2 软观测段', () => {
 
     expect(out.action).toBe('progress');
     expect(deps.loadCompletionCheckers).not.toHaveBeenCalled();
+  });
+});
+
+describe('completion-gates: 收口闸 1（代码类 diff 非空）', () => {
+  const DIFF_META: WorkUnitMetadata = { worktreePath: '/repo/wt', worktreeBaseBranch: 'main' };
+
+  it('空 diff（rev-list=0）→ 降级 progress + diffEmptyHint + diffEmptyCount++，verify 不再触发', async () => {
+    const deps = makeDeps({ countBranchCommits: vi.fn().mockReturnValue(0) });
+    const out = await runCompletionGuards(ctxOf(makeWu(), { ...DIFF_META, diffEmptyCount: 1 }), deps);
+
+    expect(out.action).toBe('progress');
+    expect(out.guardUpdates.diffEmptyCount).toBe(2);
+    expect(out.guardUpdates.diffEmptyHint)
+      .toBe('你报告了完成，但相对 main 没有任何提交内容（第 2 次）。请实现并 commit，或说明为何无需改动');
+    // 优先级：闸 1 降级后 verify 不再触发
+    expect(deps.runVerification).not.toHaveBeenCalled();
+    expect(out.notices.diffEmptyBlocked).toBe(false);
+  });
+
+  it('有提交内容（rev-list>0）→ 放行不写 hint；既有计数归零', async () => {
+    const deps = makeDeps({ countBranchCommits: vi.fn().mockReturnValue(3) });
+    const out = await runCompletionGuards(ctxOf(makeWu(), { ...DIFF_META, diffEmptyCount: 2 }), deps);
+
+    expect(out.action).toBe('complete');
+    expect(out.guardUpdates.diffEmptyHint).toBeUndefined();
+    expect(out.guardUpdates.diffEmptyCount).toBe(0);
+    expect(out.notices.diffEmptyBlocked).toBe(false);
+  });
+
+  it('diffEmptyCount 到 3 → diffEmptyBlocked', async () => {
+    const deps = makeDeps({ countBranchCommits: vi.fn().mockReturnValue(0) });
+    const out = await runCompletionGuards(ctxOf(makeWu(), { ...DIFF_META, diffEmptyCount: 2 }), deps);
+
+    expect(out.guardUpdates.diffEmptyCount).toBe(3);
+    expect(out.notices.diffEmptyBlocked).toBe(true);
+  });
+
+  it('跳过条件：缺 worktreeBaseBranch → 不跑 git 探针；git 失败（null）→ 静默放行', async () => {
+    const spy = vi.fn().mockReturnValue(0);
+    const noBase = makeDeps({ countBranchCommits: spy });
+    const out1 = await runCompletionGuards(ctxOf(makeWu(), { worktreePath: '/repo/wt' }), noBase);
+    expect(spy).not.toHaveBeenCalled();
+    expect(out1.action).toBe('complete');
+
+    const gitFail = makeDeps({ countBranchCommits: vi.fn().mockReturnValue(null) });
+    const out2 = await runCompletionGuards(ctxOf(makeWu(), DIFF_META), gitFail);
+    expect(out2.action).toBe('complete');
+    expect(out2.guardUpdates.diffEmptyHint).toBeUndefined();
+  });
+
+  it('跳过条件：非代码类（analysis）即使有 worktree/base 也不进闸 1', async () => {
+    const spy = vi.fn().mockReturnValue(0);
+    const deps = makeDeps({ countBranchCommits: spy });
+    const out = await runCompletionGuards(
+      ctxOf(makeWu({ type: 'analysis' }), { ...DIFF_META, prototype: true }), deps);
+
+    expect(spy).not.toHaveBeenCalled();
+    expect(out.action).toBe('complete');
+  });
+});
+
+describe('completion-gates: 收口闸 2（非代码类契约产物）', () => {
+  it('review 缺 reviewReport → 降级 progress + contractArtifactHint；有 → 放行', async () => {
+    const missing = await runCompletionGuards(ctxOf(makeWu({ type: 'review' }), {}), makeDeps());
+    expect(missing.action).toBe('progress');
+    expect(missing.guardUpdates.contractArtifactCount).toBe(1);
+    expect(missing.guardUpdates.contractArtifactHint)
+      .toBe('契约产物缺失：评审结论（REVIEW_RESULT 协议输出）（第 1 次）。请补齐产物后再报告完成');
+
+    const present = await runCompletionGuards(
+      ctxOf(makeWu({ type: 'review' }), { reviewReport: { approved: true } }), makeDeps());
+    expect(present.action).toBe('complete');
+    expect(present.guardUpdates.contractArtifactHint).toBeUndefined();
+  });
+
+  it('plan 缺 analysisTasks → 降级；有 → 放行', async () => {
+    const missing = await runCompletionGuards(ctxOf(makeWu({ type: 'plan' }), {}), makeDeps());
+    expect(missing.action).toBe('progress');
+    expect(missing.guardUpdates.contractArtifactHint).toContain('任务拆分清单');
+
+    const present = await runCompletionGuards(
+      ctxOf(makeWu({ type: 'plan' }), { analysisTasks: ['拆分子任务 A'] }), makeDeps());
+    expect(present.action).toBe('complete');
+  });
+
+  it('spec 缺 specTasks → 降级；有 → 放行', async () => {
+    const missing = await runCompletionGuards(ctxOf(makeWu({ type: 'spec' }), {}), makeDeps());
+    expect(missing.action).toBe('progress');
+    expect(missing.guardUpdates.contractArtifactHint).toContain('物化任务清单');
+
+    const present = await runCompletionGuards(
+      ctxOf(makeWu({ type: 'spec' }), { specTasks: [{ title: 't', ac: [], blockedBy: [] }] }), makeDeps());
+    expect(present.action).toBe('complete');
+  });
+
+  it('decision 缺 decisionSuggestion → 降级；有 → 放行', async () => {
+    const missing = await runCompletionGuards(ctxOf(makeWu({ type: 'decision' }), {}), makeDeps());
+    expect(missing.action).toBe('progress');
+    expect(missing.guardUpdates.contractArtifactHint).toContain('结论摘要');
+
+    const present = await runCompletionGuards(
+      ctxOf(makeWu({ type: 'decision' }), { decisionSuggestion: '选方案 A' }), makeDeps());
+    expect(present.action).toBe('complete');
+  });
+
+  it('analysis 报告缺失 → 降级；落盘 → 放行；巡检变体按 inspection 检查', async () => {
+    const reportMissing = makeDeps({ analysisReportExists: vi.fn().mockReturnValue(false) });
+    const out1 = await runCompletionGuards(
+      ctxOf(makeWu({ type: 'analysis' }), { workspaceRoot: '/repo' }), reportMissing);
+    expect(out1.action).toBe('progress');
+    expect(out1.guardUpdates.contractArtifactHint).toContain('调研报告（.studio/research/）');
+    expect(reportMissing.analysisReportExists).toHaveBeenCalledWith('/repo', false);
+
+    const reportPresent = makeDeps({ analysisReportExists: vi.fn().mockReturnValue(true) });
+    const out2 = await runCompletionGuards(
+      ctxOf(makeWu({ type: 'analysis' }), { workspaceRoot: '/repo' }), reportPresent);
+    expect(out2.action).toBe('complete');
+
+    const inspection = makeDeps({ analysisReportExists: vi.fn().mockReturnValue(false) });
+    const out3 = await runCompletionGuards(
+      ctxOf(makeWu({ type: 'analysis' }), { workspaceRoot: '/repo', inspection: true }), inspection);
+    expect(out3.action).toBe('progress');
+    expect(out3.guardUpdates.contractArtifactHint).toContain('inspection-<日期>');
+    expect(inspection.analysisReportExists).toHaveBeenCalledWith('/repo', true);
+  });
+
+  it('analysis 跳过条件：prototype 原型单豁免；无 workspaceRoot 无法校验 → 跳过', async () => {
+    const spy = vi.fn().mockReturnValue(false);
+    const proto = makeDeps({ analysisReportExists: spy });
+    const out1 = await runCompletionGuards(
+      ctxOf(makeWu({ type: 'analysis' }), { prototype: true, workspaceRoot: '/repo' }), proto);
+    expect(spy).not.toHaveBeenCalled();
+    expect(out1.action).toBe('complete');
+
+    const noRoot = makeDeps({ analysisReportExists: spy });
+    const out2 = await runCompletionGuards(ctxOf(makeWu({ type: 'analysis' }), {}), noRoot);
+    expect(spy).not.toHaveBeenCalled();
+    expect(out2.action).toBe('complete');
+  });
+
+  it('contractArtifactCount 到 3 → contractArtifactBlocked', async () => {
+    const deps = makeDeps();
+    const out = await runCompletionGuards(
+      ctxOf(makeWu({ type: 'decision' }), { contractArtifactCount: 2 }), deps);
+
+    expect(out.guardUpdates.contractArtifactCount).toBe(3);
+    expect(out.notices.contractArtifactBlocked).toBe(true);
+    expect(out.action).toBe('progress');
+  });
+
+  it('代码类（task）不进本闸：无锚点可判 → 不降级', async () => {
+    const out = await runCompletionGuards(ctxOf(makeWu(), {}), makeDeps());
+    expect(out.action).toBe('complete');
+    expect(out.guardUpdates.contractArtifactHint).toBeUndefined();
+  });
+});
+
+describe('completion-gates: 默认产物探针（真实实现）', () => {
+  it('countBranchCommits：真实 git 仓库按 base..HEAD 计数；非 git 目录 → null', () => {
+    const plain = fs.mkdtempSync(path.join(os.tmpdir(), 'cg-plain-'));
+    const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'cg-repo-'));
+    try {
+      expect(countBranchCommits(plain, 'main')).toBeNull();
+
+      execSync('git init -q -b main && git config user.email t@t && git config user.name t', { cwd: repo });
+      fs.writeFileSync(path.join(repo, 'a.txt'), 'a');
+      execSync('git add . && git commit -qm init', { cwd: repo });
+      expect(countBranchCommits(repo, 'main')).toBe(0); // HEAD 即 base，无领先提交
+
+      execSync('git checkout -qb task/wu-1', { cwd: repo });
+      fs.writeFileSync(path.join(repo, 'b.txt'), 'b');
+      execSync('git add . && git commit -qm work', { cwd: repo });
+      expect(countBranchCommits(repo, 'main')).toBe(1);
+    } finally {
+      fs.rmSync(plain, { recursive: true, force: true });
+      fs.rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it('hasAnalysisReport：目录缺失/空目录/空文件 → false；非空报告 → true；inspection 只认 inspection-*.md', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cg-report-'));
+    try {
+      expect(hasAnalysisReport(dir, false)).toBe(false); // 无 .studio/research 目录
+
+      fs.mkdirSync(path.join(dir, '.studio', 'research'), { recursive: true });
+      expect(hasAnalysisReport(dir, false)).toBe(false); // 空目录
+
+      const report = path.join(dir, '.studio', 'research', 'report.md');
+      fs.writeFileSync(report, '');
+      expect(hasAnalysisReport(dir, false)).toBe(false); // 空文件
+
+      fs.writeFileSync(report, '调研结论');
+      expect(hasAnalysisReport(dir, false)).toBe(true);
+      expect(hasAnalysisReport(dir, true)).toBe(false); // 巡检变体不认普通报告
+
+      fs.writeFileSync(path.join(dir, '.studio', 'research', 'inspection-2026-09-15.md'), '巡检结论');
+      expect(hasAnalysisReport(dir, true)).toBe(true);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

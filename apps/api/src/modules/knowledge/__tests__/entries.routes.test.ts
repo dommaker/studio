@@ -68,6 +68,26 @@ describe('entries.routes', () => {
     expect(res.json.consumptionMode).toBe('reference');
   });
 
+  it('POST /unified 201 后广播 knowledge.entry_changed（Step 2：他端 KnowledgePage 重拉信号）', async () => {
+    const { eventBus } = await import('@dommaker/studio-shared');
+    const received: any[] = [];
+    const handler = (e: any) => { if (e?.event_type === 'knowledge.entry_changed') received.push(e); };
+    eventBus.subscribe('events', handler);
+    try {
+      const res = await api('POST', '/unified', {
+        type: 'pitfall', title: '广播条目', content: 'SSE 广播验证',
+        consumptionMode: 'signal', tags: [],
+      });
+      expect(res.status).toBe(201);
+      expect(received).toHaveLength(1);
+      expect(received[0].data).toEqual({
+        action: 'created', entryId: res.json.id, entryType: 'pitfall', title: '广播条目',
+      });
+    } finally {
+      eventBus.unsubscribe('events', handler);
+    }
+  });
+
   it('GET /unified lists created entry (agent: tag preserved)', async () => {
     const res = await api('GET', '/unified');
     expect(res.status).toBe(200);

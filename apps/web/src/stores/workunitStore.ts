@@ -1,6 +1,9 @@
 // WorkUnit Store — Agent Network §3.28c-1
 import { create } from 'zustand';
-import { workunitApi, type PaginatedResponse, type ReviewConfirmPayload, type WorkUnit } from '../api/workunit';
+import axios from 'axios';
+import { workunitApi, type PaginatedResponse, type WorkUnit } from '../api/workunit';
+import { createFreshIdTracker } from '../utils/freshIds';
+import { errorMessage } from '../utils/errorMessage';
 
 /**
  * #405：未归属判定 —— 无 reqId 且归因戳（canonical pmoId ‖ legacy ownershipProjectId）
@@ -38,6 +41,17 @@ interface WorkUnitState {
   searchQuery: string | null;
   loading: boolean;
   error: string | null;
+  /** #549（B5 收口）：WU 详情快照区（drawer 唯一取数落点）——打开即 loadWorkUnitDetail
+   *  REST 打底（不做 TTL 门禁）；status_changed 经 applyWorkunitEvent 就地 upsert；
+   *  未打开过的 WU 事件 no-op（insertIfMissing:false 同口径，ADR 决策 2）。
+   *  undefined = 未打开过（消费方显骨架） */
+  detailById: Record<string, { wu: WorkUnit | null; notFound: boolean; error: string | null }>;
+  /** #557：列表页在屏信号（WorkUnitListPage 挂载/卸载维护）——useWorkUnitStoreSync
+   *  重连兜底的真实门槛，替代「空列表代理不在屏」：过滤无结果/首拉失败留空时重连照刷 */
+  listOnScreen: boolean;
+  /** #549：SSE created 新行渐隐高亮 id 集（批次 E-3 .wu-row-new）——集合与 per-id 2s 自清
+   *  都在 store（机制 = utils/freshIds 共享件，与频道消息侧同一份），页面退回订阅者 */
+  freshWuIds: ReadonlySet<string>;
 
   // Actions
   loadWorkUnits: (params?: { status?: string; type?: string; page?: number }) => Promise<void>;
@@ -56,11 +70,11 @@ interface WorkUnitState {
    * 与操作触发的 loadWorkUnits（docs/plans/2026-08-24-wu-events-payload-consumers.md）。
    */
   applyWorkunitEvent: (wu: WorkUnit, opts: { insertIfMissing: boolean }) => void;
+  /** #538（ADR 2026-09-15 决策 5）：workunit:removed 删行分支——按 id 移除，total/allTotal
+   *  各 -1 近似维护（同 applyWorkunitEvent 取舍 a：页边界不追齐，重连 refetch 自愈）；
+   *  未知行/空 id no-op */
+  removeWorkunit: (id: string) => void;
   createWorkUnit: (data: { scope: string; type?: string }) => Promise<WorkUnit>;
-  reviewPassed: (id: string, summary?: string, defaultAssigneeId?: string, confirm?: ReviewConfirmPayload) => Promise<void>;
-  reviewRejected: (id: string, reason?: string) => Promise<void>;
-  /** #284（决策 #250 D1）：pending 人闸确认（→ unassigned 进 frontier 可认领），列表行展开态入口 */
-  confirmPending: (id: string) => Promise<void>;
   setStatusFilter: (status: string | null) => void;
   setTypeFilter: (type: string | null) => void;
   /** #405：切换未归属过滤（重置到第 1 页并重拉；on 时顺带同步徽标计数） */
@@ -71,6 +85,15 @@ interface WorkUnitState {
   loadUnattributedCount: () => Promise<void>;
   /** 轻量拉取全量总数徽标（无任何过滤，limit=1 只取 pagination.total，best-effort 失败留旧值） */
   loadAllCount: () => Promise<void>;
+  /** #549：WU 详情 REST 打底（drawer 打开/换 id 即拉，不做 TTL 门禁）；404 → notFound 友好态，
+   *  其他错误 → error 文案（errorMessage 正本，服务端 error.message 优先） */
+  loadWorkUnitDetail: (id: string) => Promise<void>;
+  /** #549：created 事件路由驱动——新行 id 进 fresh 集（per-id 2s 自清） */
+  markWuFresh: (id: string) => void;
+  /** #557：列表页挂载/卸载登记录在屏信号 */
+  setListOnScreen: (on: boolean) => void;
+  /** 测试重置：detail/fresh 切片 + fresh tracker 计时器（防跨测悬挂） */
+  __resetForTests: () => void;
 }
 
 export const useWorkUnitStore = create<WorkUnitState>((set, get) => ({
@@ -86,6 +109,9 @@ export const useWorkUnitStore = create<WorkUnitState>((set, get) => ({
   searchQuery: null,
   loading: false,
   error: null,
+  detailById: {},
+  listOnScreen: false,
+  freshWuIds: new Set(),
 
   loadWorkUnits: async (params) => {
     set({ loading: true, error: null });
@@ -151,24 +177,27 @@ export const useWorkUnitStore = create<WorkUnitState>((set, get) => ({
   },
 
   applyWorkunitEvent: (wu, { insertIfMissing }) => {
-    const { workunits, total, statusFilter, typeFilter, unattributedOnly, searchQuery } = get();
+    const { workunits, total, statusFilter, typeFilter, unattributedOnly, searchQuery, detailById } = get();
     const matches = (statusFilter === null || wu.status === statusFilter)
       && (typeFilter === null || wu.type === typeFilter)
       // #405：未归属过滤态下 SSE 增量不把已归属行混入（服务端口径的本地镜像判定）
       && (!unattributedOnly || isUnattributedWu(wu))
       // 批次 D-2 项4：搜索态下 SSE 增量不匹配 q 就不插入（scope 子串，大小写不敏感，与服务端同口径）
       && (!searchQuery || wu.scope.toLowerCase().includes(searchQuery.toLowerCase()));
+    // #549：detail slice 就地 upsert——已打开（有快照条目）才直替；未打开过的 WU 事件 no-op
+    const detail = detailById[wu.id];
+    const nextDetailById = detail ? { ...detailById, [wu.id]: { ...detail, wu } } : detailById;
     const idx = workunits.findIndex(w => w.id === wu.id);
     if (idx >= 0) {
       if (!matches) {
         // 过滤态下移出当前列表：过滤计数 -1；全局总数 allTotal 不受状态迁移影响
-        set({ workunits: workunits.filter(w => w.id !== wu.id), total: Math.max(0, total - 1) });
+        set({ workunits: workunits.filter(w => w.id !== wu.id), total: Math.max(0, total - 1), detailById: nextDetailById });
         return;
       }
       const next = [...workunits];
       // ADR D2 回退：旧形状负载（无 claimable）直替时保留行原值，不丢「被阻塞」徽标
       next[idx] = { ...wu, claimable: wu.claimable ?? workunits[idx].claimable };
-      set({ workunits: next });
+      set({ workunits: next, detailById: nextDetailById });
       return;
     }
     if (insertIfMissing) {
@@ -177,8 +206,22 @@ export const useWorkUnitStore = create<WorkUnitState>((set, get) => ({
       set({
         ...(matches ? { workunits: [wu, ...workunits], total: total + 1 } : {}),
         ...(allTotal !== null ? { allTotal: allTotal + 1 } : {}),
+        detailById: nextDetailById,
       });
+    } else if (detail) {
+      set({ detailById: nextDetailById });
     }
+  },
+
+  removeWorkunit: (id) => {
+    if (!id) return;
+    const { workunits, total, allTotal } = get();
+    if (!workunits.some(w => w.id === id)) return;
+    set({
+      workunits: workunits.filter(w => w.id !== id),
+      total: Math.max(0, total - 1),
+      ...(allTotal !== null ? { allTotal: Math.max(0, allTotal - 1) } : {}),
+    });
   },
 
   createWorkUnit: async (data) => {
@@ -186,21 +229,6 @@ export const useWorkUnitStore = create<WorkUnitState>((set, get) => ({
     // Refresh list
     await get().loadWorkUnits();
     return wu;
-  },
-
-  reviewPassed: async (id, summary, defaultAssigneeId, confirm) => {
-    await workunitApi.reviewPassed(id, summary, defaultAssigneeId, confirm);
-    await get().loadWorkUnits();
-  },
-
-  reviewRejected: async (id, reason) => {
-    await workunitApi.reviewRejected(id, reason);
-    await get().loadWorkUnits();
-  },
-
-  confirmPending: async (id) => {
-    await workunitApi.transitionStatus(id, 'unassigned');
-    await get().loadWorkUnits();
   },
 
   setStatusFilter: (status) => {
@@ -244,4 +272,39 @@ export const useWorkUnitStore = create<WorkUnitState>((set, get) => ({
       // best-effort：徽标留旧值（null = chip 回退显示过滤态 total），下次加载/重连自愈
     }
   },
+
+  loadWorkUnitDetail: async (id) => {
+    try {
+      const { data } = await workunitApi.get(id);
+      set({ detailById: { ...get().detailById, [id]: { wu: data, notFound: false, error: null } } });
+    } catch (e) {
+      // #241 口径：404 = 悬空 WU 单列友好态（无 error 文案）；其余错误走 errorMessage 正本
+      const notFound = axios.isAxiosError(e) && e.response?.status === 404;
+      set({
+        detailById: {
+          ...get().detailById,
+          [id]: { wu: null, notFound, error: notFound ? null : errorMessage(e) },
+        },
+      });
+    }
+  },
+
+  markWuFresh: (id) => {
+    freshTracker.mark(id);
+  },
+
+  setListOnScreen: (on) => {
+    set({ listOnScreen: on });
+  },
+
+  __resetForTests: () => {
+    freshTracker.dispose();
+    set({ detailById: {}, freshWuIds: new Set() });
+  },
 }));
+
+// #549：fresh 高亮计时唯一一份（utils/freshIds 共享件，与频道消息侧同机制）——
+// 模块级单例：集合快照回写 store，页面只读 freshWuIds。回调惰性求值，模块初始化后才被触发
+const freshTracker = createFreshIdTracker(ids => {
+  useWorkUnitStore.setState({ freshWuIds: ids });
+});

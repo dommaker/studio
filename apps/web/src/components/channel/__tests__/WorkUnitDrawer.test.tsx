@@ -44,6 +44,14 @@ vi.mock('../../../api/requirements', () => ({
   requirementApi: { getChain: mockGetChain },
 }));
 
+// #545：gateWriter 的 channelWorkStore 双写落点在模块级测试单点覆盖；本文件 stub 掉该 store，
+// 防真实 markSuggestionsDirty 防抖定时器跨测悬挂（API 透传仍走真实 gateWriter）。
+// #549：workunitStore 用真实实现——drawer 已是 detail slice 订阅者，SSE 事件经挂载的
+// useWorkUnitStoreSync（真实 hook）路由进 store，契约即集成断言
+vi.mock('../../../stores/channelWorkStore', () => ({
+  useChannelWorkStore: { getState: () => ({ applyWorkunitSnapshot: vi.fn(), markSuggestionsDirty: vi.fn() }) },
+}));
+
 vi.mock('../../../api/monitoring', () => ({
   monitoringApi: {
     getOverhead: mockGetOverhead,
@@ -91,6 +99,8 @@ import { WorkUnitDrawer } from '../WorkUnitDrawer';
 import type { DrawerState, DrawerTodoNav } from '../WorkUnitDrawer';
 import { useRosterStore } from '../../../stores/rosterStore';
 import { useRequirementChainStore } from '../../../stores/requirementChainStore';
+import { useWorkUnitStore } from '../../../stores/workunitStore';
+import { useWorkUnitStoreSync } from '../../../hooks/useWorkUnitStoreSync';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 
 // 决策 8：SSE 事件捕获（mockOnEvent 注册的回调，用例手工驱动）。
@@ -153,9 +163,17 @@ const CHAIN = {
   ],
 };
 
+// #549：真实 sync hook 挂载（App 级形状镜像）——SSE status_changed/created/removed 路由进
+// workunitStore，drawer 测试保持「发事件 → 断言 UI」的集成口径
+function WorkUnitSyncBridge() {
+  useWorkUnitStoreSync();
+  return null;
+}
+
 const renderDrawer = (drawer: DrawerState, extra: { onClose?: () => void; onOpenWu?: (id: string) => void; onOpenReq?: (id: string) => void; todoNav?: DrawerTodoNav } = {}) =>
   render(
     <MemoryRouter initialEntries={['/']}>
+      <WorkUnitSyncBridge />
       <Routes>
         <Route
           path="/"
@@ -190,6 +208,14 @@ describe('WorkUnitDrawer', () => {
       loading: false, error: null, forbidden: false,
       loadedAt: null, channelsLoadedOnce: false, agentsLoadedOnce: false,
       inflight: null, lastToken: null,
+    });
+    // #549：drawer 读真实 workunitStore detail slice（模块级单例），每测重置防快照跨测串味
+    useWorkUnitStore.getState().__resetForTests();
+    useWorkUnitStore.setState({
+      workunits: [], total: 0, page: 1, limit: 20,
+      statusFilter: null, typeFilter: null,
+      unattributedOnly: false, unattributedTotal: null, allTotal: null,
+      searchQuery: null, loading: false, error: null,
     });
     sseHandlers = [];
     mockOnEvent.mockImplementation((h: (msg: { event_type: string; data?: unknown }) => void) => {
@@ -475,7 +501,7 @@ describe('WorkUnitDrawer', () => {
     });
     renderDrawer({ kind: 'wu', id: 'WU-1017' });
     await waitFor(() => expect(screen.getByText(/评审结论：实现正确/)).toBeTruthy());
-    expect(screen.getByText(/✓ agent-review · 76d96d3/)).toBeTruthy();
+    expect(screen.getByText(/agent-review · 76d96d3/)).toBeTruthy();
     const btn = screen.getByText('人工验收确认');
     fireEvent.click(btn);
     await waitFor(() => expect(mockReviewPassed).toHaveBeenCalledWith('WU-1017', undefined, undefined, undefined));

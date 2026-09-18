@@ -704,3 +704,38 @@ describe('#466 routing.review（评审路由）', () => {
     expect(notice).toBeDefined();
   });
 });
+
+describe('P7: STUDIO_AUTO_REVIEW 开关（fake/无凭证环境豁免自动评审）', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('STUDIO_AUTO_REVIEW=false：in_review 事件链不自动建评审子 WU', async () => {
+    vi.stubEnv('STUDIO_AUTO_REVIEW', 'false');
+    const { child } = await createParentAndReview('实现功能 P7', executorProfile.id);
+    expect(child).toBeUndefined();
+  });
+
+  it('STUDIO_AUTO_REVIEW=false：对账 redispatchReview 同样不建单', async () => {
+    vi.stubEnv('STUDIO_AUTO_REVIEW', 'false');
+    const parent = await wuService.create({
+      scope: '实现功能 P7R',
+      type: 'feature',
+      channelId: 'ch-test',
+      assigneeId: executorProfile.id,
+      status: 'active',
+    });
+    const inReview = await wuService.transitionStatus(parent.id, 'in_review');
+    await dispatcher.waitForSettled();
+    const out = await dispatcher.redispatchReview(inReview);
+    expect(out).toBeNull();
+    const snapshots = await fileStore.getIndex();
+    expect(snapshots.find(s => s.parentId === parent.id && s.type === 'review')).toBeUndefined();
+  });
+
+  it('默认（未设置/其他值）照旧自动派评审', async () => {
+    vi.stubEnv('STUDIO_AUTO_REVIEW', 'true');
+    const { child } = await createParentAndReview('实现功能 P7D', executorProfile.id);
+    expect(child).toBeDefined();
+  });
+});

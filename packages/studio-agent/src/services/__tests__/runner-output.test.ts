@@ -1,8 +1,10 @@
 /**
  * runner-output 单元测试
  *
- * 覆盖 hasRecentActivity（真实 tmpdir）、queryResolutionHints（mock FileStore）
- * 与 processSessionOutput（mock output-capture，真实 stream-json 解析）。
+ * 覆盖 processSessionOutput（mock output-capture，真实 stream-json 解析）。
+ * （#587：同文件的 mtime 探测与 RKB 解法查询两个 helper 随 #562 遗留死面摘除，
+ *   相关用例与 FileStore mock 一并移除；RKB 匹配核心的测试在 studio-shared
+ *   __tests__/resolutions.test.ts）
  */
 
 import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -10,26 +12,13 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
-const { mockListDocs, mockReadDoc, mockRecordSessionMetrics, mockEmitSessionEnd, mockEmitToolCall, mockEmitFileChange, mockGetConstraintMeta } = vi.hoisted(() => ({
-  mockListDocs: vi.fn(),
-  mockReadDoc: vi.fn(),
+const { mockRecordSessionMetrics, mockEmitSessionEnd, mockEmitToolCall, mockEmitFileChange, mockGetConstraintMeta } = vi.hoisted(() => ({
   mockRecordSessionMetrics: vi.fn(),
   mockEmitSessionEnd: vi.fn(),
   mockEmitToolCall: vi.fn(),
   mockEmitFileChange: vi.fn(),
   mockGetConstraintMeta: vi.fn(),
 }));
-
-vi.mock('@dommaker/studio-shared', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@dommaker/studio-shared')>();
-  return {
-    ...actual,
-    FileStore: class {
-      listDocs = mockListDocs;
-      readDoc = mockReadDoc;
-    },
-  };
-});
 
 vi.mock('../output-capture.js', () => ({
   recordSessionMetrics: mockRecordSessionMetrics,
@@ -39,85 +28,7 @@ vi.mock('../output-capture.js', () => ({
   getConstraintMeta: mockGetConstraintMeta,
 }));
 
-import { hasRecentActivity, queryResolutionHints, processSessionOutput } from '../runner-output.js';
-
-describe('hasRecentActivity', () => {
-  let tmpDir: string;
-
-  beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'runner-output-test-'));
-  });
-
-  afterEach(() => {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
-  });
-
-  test('空目录 → false', () => {
-    expect(hasRecentActivity(tmpDir)).toBe(false);
-  });
-
-  test('阈值内有文件改动 → true', () => {
-    fs.writeFileSync(path.join(tmpDir, 'index.ts'), 'export {}');
-    expect(hasRecentActivity(tmpDir)).toBe(true);
-  });
-
-  test('文件 mtime 超出阈值 → false', () => {
-    const filePath = path.join(tmpDir, 'old.ts');
-    fs.writeFileSync(filePath, 'old');
-    const oldTime = new Date(Date.now() - 10 * 60 * 1000);
-    fs.utimesSync(filePath, oldTime, oldTime);
-    expect(hasRecentActivity(tmpDir, 3 * 60 * 1000)).toBe(false);
-  });
-
-  test('.progress.json / .agent.log / node_modules 不计入', () => {
-    fs.writeFileSync(path.join(tmpDir, '.progress.json'), '{}');
-    fs.writeFileSync(path.join(tmpDir, '.agent.log'), 'log');
-    fs.mkdirSync(path.join(tmpDir, 'node_modules', 'pkg'), { recursive: true });
-    fs.writeFileSync(path.join(tmpDir, 'node_modules', 'pkg', 'index.js'), 'x');
-    expect(hasRecentActivity(tmpDir)).toBe(false);
-  });
-
-  test('目录不存在 → false', () => {
-    expect(hasRecentActivity('/nonexistent/path/xyz')).toBe(false);
-  });
-});
-
-describe('queryResolutionHints', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mockListDocs.mockResolvedValue(['resolution-abc', 'note-x']);
-    mockReadDoc.mockImplementation(async (_dir: string, key: string) => {
-      if (key !== 'resolution-abc') return null;
-      return {
-        meta: { maturity: 'verified', pattern: 'boom error', title: 'Boom', verifyCount: 3 },
-        body: '# Boom\n## Solution\napply the fix',
-      };
-    });
-  });
-
-  test('错误信息命中 resolution 模式 → 返回 hint 文本', async () => {
-    const hint = await queryResolutionHints('a BOOM ERROR happened');
-    expect(hint).toContain('已知解法 (RKB)');
-    expect(hint).toContain('- **Boom**: apply the fix');
-  });
-
-  test('无匹配 → 返回空串', async () => {
-    expect(await queryResolutionHints('some unrelated failure')).toBe('');
-  });
-
-  test('非 verified/canonical 文档被过滤', async () => {
-    mockReadDoc.mockResolvedValue({
-      meta: { maturity: 'draft', pattern: 'boom error', title: 'Boom', verifyCount: 0 },
-      body: '# Boom\nfix',
-    });
-    expect(await queryResolutionHints('a boom error happened')).toBe('');
-  });
-
-  test('查询失败（listDocs 抛错）→ 返回空串', async () => {
-    mockListDocs.mockRejectedValue(new Error('fs error'));
-    expect(await queryResolutionHints('a boom error happened')).toBe('');
-  });
-});
+import { processSessionOutput } from '../runner-output.js';
 
 describe('processSessionOutput', () => {
   let tmpDir: string;

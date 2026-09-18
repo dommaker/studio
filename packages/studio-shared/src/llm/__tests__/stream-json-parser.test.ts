@@ -111,6 +111,73 @@ describe('extractResult', () => {
   });
 });
 
+describe('extractResult — 子 agent 事件不参与父 run 完成判定 (#564)', () => {
+  it('子 agent 的 error result 不误杀父 run', () => {
+    const stdout = [
+      JSON.stringify({ type: 'assistant', parent_tool_use_id: null, content: [{ type: 'text', text: 'parent ' }] }),
+      // 父 run spawn Task 子 agent；子 agent 失败
+      JSON.stringify({ type: 'assistant', parent_tool_use_id: 'toolu_task1', content: [{ type: 'text', text: 'child' }] }),
+      JSON.stringify({ type: 'result', parent_tool_use_id: 'toolu_task1', result: 'child boom', is_error: true }),
+      // 父 run 自身成功收尾
+      JSON.stringify({ type: 'result', parent_tool_use_id: null, result: 'parent ok', is_error: false }),
+    ].join('\n');
+    const events = parseStreamEvents(stdout);
+    expect(extractResult(events)).toEqual({ text: 'parent ok', isError: false });
+  });
+
+  it('子 agent 的 result 不覆盖父 run 的结果文本（子 result 在父 result 之后到达）', () => {
+    const stdout = [
+      JSON.stringify({ type: 'result', parent_tool_use_id: null, result: 'parent final', is_error: false }),
+      JSON.stringify({ type: 'result', parent_tool_use_id: 'toolu_task1', result: 'child final', is_error: false }),
+    ].join('\n');
+    const events = parseStreamEvents(stdout);
+    expect(extractResult(events)).toEqual({ text: 'parent final', isError: false });
+  });
+});
+
+describe('extractUsage — 子 agent 事件不计入父 run 用量 (#564)', () => {
+  it('子 agent 的 usage 不参与父 run 聚合（父子双计修复）', () => {
+    const stdout = [
+      JSON.stringify({
+        type: 'assistant', parent_tool_use_id: null,
+        content: [{ type: 'text', text: 'hi' }],
+        usage: { input_tokens: 100, output_tokens: 50, cache_read_input_tokens: 10, model: 'claude-sonnet-4-20250514' },
+      }),
+      JSON.stringify({
+        type: 'assistant', parent_tool_use_id: 'toolu_task1',
+        content: [{ type: 'text', text: 'child' }],
+        usage: { input_tokens: 999, output_tokens: 888, cache_creation_input_tokens: 777 },
+      }),
+      JSON.stringify({
+        type: 'result', parent_tool_use_id: 'toolu_task1',
+        result: 'child done', is_error: false,
+        usage: { input_tokens: 500, output_tokens: 400 },
+      }),
+      JSON.stringify({ type: 'result', parent_tool_use_id: null, result: 'done', is_error: false }),
+    ].join('\n');
+    const events = parseStreamEvents(stdout);
+    const usage = extractUsage(events);
+    expect(usage.inputTokens).toBe(100);
+    expect(usage.outputTokens).toBe(50);
+    expect(usage.cacheReadTokens).toBe(10);
+    expect(usage.cacheCreationTokens).toBe(0);
+    expect(usage.model).toBe('claude-sonnet-4-20250514');
+  });
+
+  it('parent_tool_use_id 缺省/null 视为父 run 事件（向后兼容旧 fixture）', () => {
+    const stdout = [
+      JSON.stringify({ type: 'assistant', usage: { input_tokens: 10, output_tokens: 5 } }),
+      JSON.stringify({ type: 'assistant', parent_tool_use_id: null, usage: { input_tokens: 20, output_tokens: 10 } }),
+      JSON.stringify({ type: 'result', parent_tool_use_id: null, result: 'ok', is_error: false }),
+    ].join('\n');
+    const events = parseStreamEvents(stdout);
+    const usage = extractUsage(events);
+    expect(usage.inputTokens).toBe(30);
+    expect(usage.outputTokens).toBe(15);
+    expect(extractResult(events)).toEqual({ text: 'ok', isError: false });
+  });
+});
+
 describe('extractUsage', () => {
   it('extracts token counts from usage fields', () => {
     const stdout = [

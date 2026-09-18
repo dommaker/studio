@@ -8,6 +8,9 @@ import { writeStudioEvent } from '../../utils/studio-events.js';
 
 export type ToolRiskLevel = 'low' | 'medium' | 'high';
 
+/** D1（#566）：tool 外放可见性。缺省 internal（default-deny 同构），external = 对外只读入口可见 */
+export type ToolExposure = 'internal' | 'external';
+
 export interface RegisteredTool {
   name: string;
   description: string;
@@ -19,6 +22,8 @@ export interface RegisteredTool {
   requiredPermissions?: string[];
   /** G2: 工具风险级别。high=破坏性操作需确认，low=只读安全 */
   riskLevel?: ToolRiskLevel;
+  /** D1（#566）：缺省 internal；标 external 的只读子集经 /mcp/external/* 入口外放 */
+  exposure?: ToolExposure;
 }
 
 interface ToolStats {
@@ -106,13 +111,16 @@ export class MCPToolRegistry {
 
   /**
    * Get tool schemas (for MCP tools/list)
+   * D1（#566）：audience='external' 只出 exposure=external 的只读子集；缺省 internal 出全量（现状不变）
    */
-  getSchemas(): Array<{ name: string; description: string; inputSchema: Record<string, any> }> {
-    return this.list().map(({ name, description, inputSchema }) => ({
-      name,
-      description,
-      inputSchema,
-    }));
+  getSchemas(audience: ToolExposure = 'internal'): Array<{ name: string; description: string; inputSchema: Record<string, any> }> {
+    return this.list()
+      .filter(t => audience === 'internal' || t.exposure === 'external')
+      .map(({ name, description, inputSchema }) => ({
+        name,
+        description,
+        inputSchema,
+      }));
   }
 
   /**

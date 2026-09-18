@@ -6,10 +6,23 @@
  * - studioStop：端口无监听时输出 "No server found"（PORT/VITE_PORT 指向
  *   未占用端口，确保不会误杀本机真实进程）；
  * - studioStatus：API 不可达时输出 not reachable 并提前返回；
- * - checkPrerequisites：冒烟（不抛错，输出与否则取决于本机是否装 claude）。
+ * - checkPrerequisites：冒烟（不抛错；scanAllProviders 已 mock 隔离真机扫描，见 #577）。
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { checkPrerequisites, studioDb, studioStatus, studioStop } from '../server.js';
+
+// #577：mock scanAllProviders 隔离真机全量扫描——#573 挂注册表扫描、#574 挂模型探测
+// （kimi ~4s / opencode ~7s）后真扫描在复审环境实测 43-55s，两次上调超时（#565 → 30s）
+// 仍被拖爆；扫描成本只随 provider 探测增长，单测不应为机器计时买单。importOriginal
+// 部分 mock（wholesale mock import 期崩坑先例，见 agents/CONTEXT.md #575 条），
+// KNOWN_PROVIDERS 等其余导出保持真实；git --version 检查仍走真 execSync。
+vi.mock('../../daemon/cli-scanner.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../daemon/cli-scanner.js')>();
+  return {
+    ...actual,
+    scanAllProviders: () => [{ provider: 'kimi', path: '/usr/local/bin/kimi', version: '1.0.0' }],
+  };
+});
 
 let logs: string[];
 let errs: string[];
@@ -70,5 +83,22 @@ describe('checkPrerequisites', () => {
       expect(errs[0]).toMatch(/^Missing prerequisites: /);
       expect(errs[1]).toBe('Install them before running studio up.');
     }
+    // 扫描已由顶部 vi.mock 隔离（#577），本用例只验证默认参数路径不抛错 +
+    // 缺 git 时的输出形态；无需集成级超时窗口
+  });
+
+  // #573 漂移修正（摸底 Q5）：agent CLI 检查对齐 provider 注册表扫描，不再硬编码 claude
+  it('注入空探测结果 → 报缺 agent CLI（注册表口径，不点名单一 CLI）', () => {
+    checkPrerequisites([]);
+    const out = errs.join('\n');
+    expect(out).toMatch(/^Missing prerequisites: /);
+    expect(out).toContain('agent CLI');
+    expect(out).toContain('至少需要一个 agent CLI 才能跑执行');
+    expect(out).not.toContain('claude CLI');
+  });
+
+  it('注入任一已探测 provider → 不报缺 agent CLI', () => {
+    checkPrerequisites([{ provider: 'kimi', path: '/usr/local/bin/kimi', version: '1.0.0' }]);
+    expect(errs.join('\n')).not.toContain('agent CLI');
   });
 });

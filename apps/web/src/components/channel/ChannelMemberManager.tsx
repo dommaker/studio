@@ -12,6 +12,7 @@ import { useChannelDataStore } from '../../stores/channelDataStore';
 import { Select } from '../ui';
 import { toast } from '../../utils/toast';
 import { serverErrorMessage } from '../../utils/errorMessage';
+import { IconX } from '../ui/icons';
 
 interface ChannelMemberManagerProps {
   channelId: string;
@@ -180,7 +181,7 @@ export const ChannelMemberManager: React.FC<ChannelMemberManagerProps> = ({ chan
                   className="mc-icon-btn"
                   title="移除"
                 >
-                  ✕
+                  <IconX />
                 </button>
               </div>
             ))}

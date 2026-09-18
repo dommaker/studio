@@ -44,7 +44,8 @@ vi.mock('../../knowledge/knowledge-service', () => ({
   },
 }));
 
-import { AgentLoop, writeWorkunitTokenEvent, type StepResult } from '../loop/agent-loop';
+import { AgentLoop, type StepResult } from '../loop/agent-loop';
+import { writeWorkunitTokenEvent } from '../loop/agent-loop-events';
 import {
   BUDGET_TRIPPED_EVENT,
   DEFAULT_DAILY_TOKEN_BUDGET,

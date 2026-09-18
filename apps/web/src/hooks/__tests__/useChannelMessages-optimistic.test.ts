@@ -21,6 +21,8 @@ vi.mock('../../api/websocketHooks', () => ({
 }));
 
 import { useChannelMessages } from '../useChannelEvents';
+// #548：messages 数据面收编模块单例 store——每用例清数据面+纪律簿记，防跨用例泄漏
+import { useChannelMessageStore } from '../../stores/channelMessageStore';
 
 const iso = (s: number) => new Date(s * 1000).toISOString();
 
@@ -52,6 +54,7 @@ describe('useChannelMessages — 乐观回显（#486）', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    useChannelMessageStore.getState().__resetForTests();
     mockListMessages.mockResolvedValue({ data: { data: [], hasMore: false } });
     mockOnEvent.mockImplementation((h: (msg: WebSocketMessage) => void) => {
       handler = h;

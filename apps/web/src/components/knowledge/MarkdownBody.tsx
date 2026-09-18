@@ -39,7 +39,9 @@ const LINK_CLASS = 'u-accent underline';
 const COPIED_FEEDBACK_MS = 1500;
 
 const PRE_CLASS = 'p-3 rounded overflow-x-auto text-xs font-mono my-2';
-const PRE_STYLE = { background: 'var(--bg-secondary)', border: '1px solid var(--border-subtle)' } as const;
+/* 2026-09 视觉层次批次：bg-secondary→bg-tertiary + border-subtle→border-default——
+   旧档贴近页底（#0a0a0e vs #050507），日志/命令块与正文糊成一片；升一档与正文明确分层 */
+const PRE_STYLE = { background: 'var(--bg-tertiary)', border: '1px solid var(--border-default)' } as const;
 
 /** 带「复制」按钮的围栏代码块容器（codeCopy 开启时替换 pre 渲染器） */
 function CopyablePre({ children }: { children?: ReactNode }) {
@@ -65,18 +67,8 @@ function CopyablePre({ children }: { children?: ReactNode }) {
       <button
         type="button"
         onClick={handleCopy}
-        style={{
-          position: 'absolute',
-          top: 10,
-          right: 6,
-          fontSize: 'var(--fs-xs)',
-          padding: '2px 8px',
-          borderRadius: 4,
-          border: '1px solid var(--border-subtle)',
-          background: 'var(--bg-tertiary)',
-          color: 'var(--text-secondary)',
-          cursor: 'pointer',
-        }}
+        className="btn btn-secondary btn-sm"
+        style={{ position: 'absolute', top: 10, right: 6 }}
       >
         {copied ? '已复制' : '复制'}
       </button>

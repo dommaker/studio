@@ -86,6 +86,9 @@ export function parseAgentOutput(text: string): StepResult {
         // #467：裁决轮——NEED_INPUT 紧随的 RULING: 行（可与 OPTIONS 共存）
         const rulings = parseRulingLines(lines.slice(i + 1));
         if (rulings) result.rulings = rulings;
+        // #567：方向锁定——NEED_INPUT 紧随的 DIRECTION: 行（可与 OPTIONS/RULING 共存）
+        const directions = parseDirectionLine(lines.slice(i + 1));
+        if (directions) result.directions = directions;
       }
       return result;
     }
@@ -126,6 +129,7 @@ function parseRulingLines(lines: string[]): StepResult['rulings'] {
   const rulings: NonNullable<StepResult['rulings']> = [];
   for (const line of lines) {
     if (/^OPTIONS:/.test(line)) continue; // #279 选项行与裁决行可共存
+    if (/^DIRECTION:/.test(line)) continue; // #567 方向锁定行与裁决行可共存
     if (!/^RULING:/.test(line)) break; // 裁决行连续紧随 NEED_INPUT；首个其他行即出区
     const match = line.match(/^RULING:\s*(\{.*\})\s*$/);
     if (!match) continue; // 形坏（非 JSON 对象形）跳过，不阻断后续裁决行
@@ -144,6 +148,69 @@ function parseRulingLines(lines: string[]): StepResult['rulings'] {
     } catch { /* JSON 损坏行跳过 */ }
   }
   return rulings.length > 0 ? rulings : undefined;
+}
+
+/** #567：DIRECTION 载荷字段截断上限（与 pmo/plan-ruling.ts RULING_FIELD_MAX_CHARS 同口径） */
+const DIRECTION_FIELD_MAX_CHARS = 500;
+/** #567：方向候选条数区间（契约写 2~3 个，解析容忍至多 4） */
+const DIRECTION_OPTIONS_MIN = 2;
+const DIRECTION_OPTIONS_MAX = 4;
+
+/**
+ * #567：解析 NEED_INPUT 后续的 DIRECTION: JSON 行（plan 方向锁定契约，见 prompt-composer
+ * PLAN_DIRECTION_SECTION）。每行一条 `DIRECTION: {"question":"...","options":[{name,summary,
+ * tradeoffs,impact,recommended}]}`；方向行紧随 NEED_INPUT（OPTIONS/RULING 行可夹杂跳过，
+ * 首个其他行即出区），第一条合法 DIRECTION 行生效。防御口径同 RULING：JSON 损坏静默跳过、
+ * question/options 各必填字段缺或非串整条拒收、options 必须 2..4 条否则整条拒收、
+ * 字段截 DIRECTION_FIELD_MAX_CHARS 字符；recommended 非恰好一个 → 归一（全部置 false
+ * 后首条置 true）。无合法行返回 undefined（调用方据此不落 planDirections，NEED_INPUT
+ * 本体解析不受影响）。
+ */
+function parseDirectionLine(lines: string[]): StepResult['directions'] {
+  for (const line of lines) {
+    if (/^OPTIONS:/.test(line) || /^RULING:/.test(line)) continue; // 选项行/裁决行与方向行可共存
+    if (!/^DIRECTION:/.test(line)) break; // 方向行紧随 NEED_INPUT；首个其他行即出区
+    const match = line.match(/^DIRECTION:\s*(\{.*\})\s*$/);
+    if (!match) continue; // 形坏（非 JSON 对象形）跳过，不阻断后续行
+    try {
+      const parsed = JSON.parse(match[1]) as {
+        question?: unknown;
+        options?: unknown;
+      };
+      if (typeof parsed.question !== 'string' || !parsed.question.trim()) continue;
+      if (!Array.isArray(parsed.options)) continue;
+      if (parsed.options.length < DIRECTION_OPTIONS_MIN || parsed.options.length > DIRECTION_OPTIONS_MAX) continue;
+      const options: NonNullable<StepResult['directions']>['options'] = [];
+      let valid = true;
+      for (const entry of parsed.options) {
+        if (entry === null || typeof entry !== 'object') { valid = false; break; }
+        const o = entry as Record<string, unknown>;
+        const name = typeof o.name === 'string' ? o.name.trim() : '';
+        const summary = typeof o.summary === 'string' ? o.summary.trim() : '';
+        const tradeoffs = typeof o.tradeoffs === 'string' ? o.tradeoffs.trim() : '';
+        const impact = typeof o.impact === 'string' ? o.impact.trim() : '';
+        if (!name || !summary || !tradeoffs || !impact) { valid = false; break; }
+        options.push({
+          name: name.slice(0, DIRECTION_FIELD_MAX_CHARS),
+          summary: summary.slice(0, DIRECTION_FIELD_MAX_CHARS),
+          tradeoffs: tradeoffs.slice(0, DIRECTION_FIELD_MAX_CHARS),
+          impact: impact.slice(0, DIRECTION_FIELD_MAX_CHARS),
+          recommended: o.recommended === true,
+        });
+      }
+      if (!valid) continue;
+      // recommended 恰好一个（契约硬约束）；非恰好一个 → 归一：全部置 false 后首条置 true
+      if (options.filter(o => o.recommended).length !== 1) {
+        for (const o of options) o.recommended = false;
+        options[0].recommended = true;
+      }
+      return {
+        question: parsed.question.trim().slice(0, DIRECTION_FIELD_MAX_CHARS),
+        options,
+      };
+    } catch { /* JSON 损坏行跳过 */ }
+  }
+  return undefined;
 }
 
 /** Dynamic sleep interval based on result */

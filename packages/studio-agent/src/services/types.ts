@@ -5,7 +5,9 @@
  * 现由 agent-runner 门面与 runner-* 子模块共享。
  */
 
+import type { ChildProcess } from 'child_process';
 import type { ProviderId } from '@dommaker/studio-shared/node';
+import type { CliFailureClass } from '@dommaker/studio-shared/node';
 import type { ProgressReport } from './output-capture.js';
 
 // ─── 配置类型 ───
@@ -15,7 +17,6 @@ export interface ExecutorConfig {
   repoDir: string;
   taskTimeoutMinutes: number;
   sessionTimeoutMinutes: number;
-  maxSessions: number;
 }
 
 // ─── 任务类型 ───
@@ -52,36 +53,6 @@ export interface AgentTask {
   onSilenceWarn?: (silentMs: number) => void;
 }
 
-// ─── Analyst 产出上下文（经 task.parameters 传入 executor） ───
-
-/** AC 分组（task.parameters.acGroup，Analyst 需求拆分产物） */
-export interface AcGroup {
-  acs?: string[];
-  files?: string[];
-  implementationNotes?: string;
-  codePatterns?: string[];
-  gotchas?: string[];
-  architectureContext?: AcArchitectureContext;
-}
-
-/** AcGroup 附带的架构上下文（Analyst 已探索验证的代码位置与签名） */
-export interface AcArchitectureContext {
-  functions?: string[];
-  callChain?: string;
-  imports?: string[];
-  typesInScope?: string[];
-  dangerZones?: string[];
-  testMock?: string[];
-  verifiedAt?: string;
-}
-
-/** Analyst 探索产出的上下文（task.parameters.analystContext） */
-export interface AnalystContext {
-  verifiedFiles?: string[];
-  architectureContext?: string;
-  gotchas?: string[];
-}
-
 // ─── 执行结果 ───
 
 export interface ExecutionResult {
@@ -90,6 +61,13 @@ export interface ExecutionResult {
   outputFiles: string[];
   error?: string;
   failureLog?: string; // 完整失败上下文（stdout+stderr），用于根因诊断
+  /**
+   * #565: 失败分类（命中已知特征时带出，未命中缺省 = 走原有透传）。
+   * 给用户看的「去哪修」指引（category + guidance）；RKB 已知解法（给 agent 看）
+   * 由 apps/api knowledge/resolution.service 产出，两者并存、互不影响。
+   * UI/agent-loop 消费本字段渲染指引卡。
+   */
+  failureClass?: CliFailureClass;
   logFile: string;
   sessionCount: number;
   totalDurationMs?: number;
@@ -122,4 +100,15 @@ export interface PrerequisiteCheck {
   passed: boolean;
   message: string;
   isWarning?: boolean;
+}
+
+// ─── 执行器实例状态 ───
+
+/**
+ * 执行所需的实例状态（由 AgentRunner 门面传入，避免模块反向依赖类）。
+ * 原声明于 runner-execution.ts，#562 删多 session 循环后迁入，lightweight 路径继续用。
+ */
+export interface RunnerExecutionState {
+  config: ExecutorConfig;
+  runningProcesses: Map<string, { current: ChildProcess | null }>;
 }

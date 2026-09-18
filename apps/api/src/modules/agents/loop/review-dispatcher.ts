@@ -29,6 +29,17 @@ import { parseWuMetadata, clearSessionBookkeeping } from '../../workunit/wu-meta
 import { resolveOrNotice } from '../../channels/routing.js';
 import type { ParsedReviewReport } from './review-contract.js';
 
+/**
+ * P7（2026-09-16 perf 实测）：自动评审总开关，默认开。无凭证/fake-provider 环境
+ * 置 `STUDIO_AUTO_REVIEW=false` 停建评审子 WU——否则子单被真实 CLI 角色认领空转
+ * （无凭证 exit 1 ×3 → blocked + 频道刷屏「执行失败」）。
+ * 只闸两条自动路径（事件链 handleParentInReview + 对账 redispatchReview）；
+ * 人工补派 dispatchReviewNow 不闸（人显式发起）。
+ */
+function autoReviewEnabled(): boolean {
+  return process.env.STUDIO_AUTO_REVIEW !== 'false';
+}
+
 export class ReviewDispatcher {
   private subscribed = false;
   /** #228 测试可观测性（纯增量）：在途事件链登记，见 waitForSettled */
@@ -108,6 +119,7 @@ export class ReviewDispatcher {
   /** 父 WU 进入 in_review 时的处理 */
   private async handleParentInReview(parent: WorkUnitData): Promise<void> {
     if (!parent.channelId) return;
+    if (!autoReviewEnabled()) return; // P7：自动评审关停（fake/无凭证环境）
 
     // #170（决策 #65-2）：同父唯一性检查收进建单的同一把 workunits flock
     // （锁内 check-then-create），并发/多实例事件链下不会重复建单；
@@ -124,6 +136,7 @@ export class ReviewDispatcher {
    */
   async redispatchReview(parent: WorkUnitData): Promise<WorkUnitData | null> {
     if (!parent.channelId) return null;
+    if (!autoReviewEnabled()) return null; // P7：自动评审关停（对账重派同口径）
     return this.createReviewChildFor(parent, { silent: true });
   }
 

@@ -14,7 +14,7 @@ export interface DataPlaneSyncOptions {
   handleEvent: (msg: WebSocketMessage) => void;
   /** 重连强刷与兜底轮询的目标（ensureFresh 自带 TTL 门禁；引用稳定） */
   ensureFresh: (opts?: { maxAgeMs?: number }) => Promise<void>;
-  /** 兜底轮询周期 */
+  /** 兜底轮询周期；<= 0 = 停用轮询兜底（#549：只接 SSE + 重连的 store 维持无轮询现状） */
   pollIntervalMs: number;
 }
 

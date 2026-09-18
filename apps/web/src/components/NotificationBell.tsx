@@ -266,7 +266,7 @@ export function NotificationBell() {
           if (!open) requestBrowserNotificationPermission();
           setOpen(!open);
         }}
-        className="relative p-1.5 rounded-lg u-hover-bg transition-colors"
+        className="icon-btn relative"
         title="行动中心"
       >
         {/* 批次 G-1：🔔 emoji → IconBell SVG（#474 图标策略） */}
@@ -283,7 +283,7 @@ export function NotificationBell() {
           <div className="flex items-center justify-between px-4 py-2 border-b u-border">
             <span className="text-sm font-semibold u-text">行动中心</span>
             {unreadCount > 0 && (
-              <button onClick={markAllRead} className="text-xs u-accent hover:underline">
+              <button onClick={markAllRead} className="u-btn-reset text-xs u-accent hover:underline">
                 全部已读
               </button>
             )}
@@ -324,7 +324,7 @@ export function NotificationBell() {
                         <button
                           type="button"
                           onClick={e => openTarget(e, n, `/workunits/${n.workUnitId}`)}
-                          className="text-[var(--fs-xs)] px-1.5 py-0.5 rounded border u-accent-border u-accent-dim flex-shrink-0"
+                          className="btn btn-sm u-accent-dim u-accent u-hover-bg flex-shrink-0"
                           title="打开任务详情"
                         >
                           任务
@@ -334,7 +334,7 @@ export function NotificationBell() {
                         <button
                           type="button"
                           onClick={e => openTarget(e, n, `/pmo/project/${n.pmoId}`)}
-                          className="text-[var(--fs-xs)] px-1.5 py-0.5 rounded border u-accent-border u-accent-dim flex-shrink-0"
+                          className="btn btn-sm u-accent-dim u-accent u-hover-bg flex-shrink-0"
                           title="打开 PMO 详情"
                         >
                           PMO

@@ -115,11 +115,12 @@ describe('dataLifecycle (每日 23:55 TTL)', () => {
     expect(fileStore.getIndex).not.toHaveBeenCalled();
   });
 
-  it('in window: runs precipitation gate + deletes WorkUnits older than 90 days, once per day', async () => {
+  it('in window: runs precipitation gate + deletes terminal WorkUnits older than 90 days, once per day', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(2026, 6, 19, 23, 55)); // 本地 23:55
-    const oldWu = { id: 'wu-old', createdAt: new Date(Date.now() - 100 * 24 * 3600_000).toISOString() };
-    const newWu = { id: 'wu-new', createdAt: new Date().toISOString() };
+    // #540：仅终态（done/closed）才进 TTL 删除；进行中/阻塞单满 90 天保留
+    const oldWu = { id: 'wu-old', status: 'done', createdAt: new Date(Date.now() - 100 * 24 * 3600_000).toISOString() };
+    const newWu = { id: 'wu-new', status: 'active', createdAt: new Date().toISOString() };
     const fileStore = makeFileStore({ getIndex: vi.fn(async () => [oldWu, newWu]) });
     const state = { lastPrecipitateRun: '', lastDataLifecycleRun: '' };
 
@@ -127,16 +128,46 @@ describe('dataLifecycle (每日 23:55 TTL)', () => {
 
     expect(state.lastDataLifecycleRun).not.toBe('');
     expect(state.lastPrecipitateRun).not.toBe(''); // 闸门先于清理执行
-    // #170：删除走锁内墓碑（closed + deleted:true）+ 索引移除成对原语
+    // #538（ADR 2026-09-15 决策 3）：删除循环改调 service.delete(id, { reason })——
+    // 墓碑事件行由 service 单点构造（closed + deleted:true + reason），调用方不自拼
     expect(fileStore.commitRemoval).toHaveBeenCalledTimes(1);
     expect(fileStore.commitRemoval).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'closed', wuId: 'wu-old', data: { deleted: true } }),
+      expect.objectContaining({
+        type: 'closed',
+        wuId: 'wu-old',
+        data: expect.objectContaining({ deleted: true, reason: expect.stringContaining('90 days') }),
+      }),
       'wu-old',
     );
 
     // 同一天第二次调用直接去重返回
     await dataLifecycle(fileStore, state);
     expect(fileStore.commitRemoval).toHaveBeenCalledTimes(1);
+  });
+
+  it('满 90 天的非终态单（active/blocked/in_review/pending/unassigned/无 status）不删，仅终态（done/closed）删（#540）', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 6, 19, 23, 55));
+    const old = () => new Date(Date.now() - 100 * 24 * 3600_000).toISOString();
+    const fileStore = makeFileStore({
+      getIndex: vi.fn(async () => [
+        { id: 'wu-done', status: 'done', createdAt: old() },
+        { id: 'wu-closed', status: 'closed', createdAt: old() },
+        { id: 'wu-active', status: 'active', createdAt: old() },
+        { id: 'wu-blocked', status: 'blocked', createdAt: old() },
+        { id: 'wu-review', status: 'in_review', createdAt: old() },
+        { id: 'wu-pending', status: 'pending', createdAt: old() },
+        { id: 'wu-unassigned', status: 'unassigned', createdAt: old() },
+        { id: 'wu-nostatus', createdAt: old() }, // 缺 status 按非终态保留（不误删）
+      ]),
+    });
+    const state = { lastPrecipitateRun: '', lastDataLifecycleRun: '' };
+
+    await dataLifecycle(fileStore, state);
+
+    expect(fileStore.commitRemoval).toHaveBeenCalledTimes(2);
+    const deletedIds = fileStore.commitRemoval.mock.calls.map((c: [unknown, string]) => c[1]);
+    expect(deletedIds.sort()).toEqual(['wu-closed', 'wu-done']);
   });
 
   it('truncates 统一事件文件 keeping last 7 days（createdAt 口径，坏行保留）', async () => {

@@ -39,7 +39,7 @@ import { FileStore, logger } from '@dommaker/studio-shared';
 import { getSystemExecutor, StudioRoleNotConfiguredError } from '../agents/system-executor.js';
 import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
 import type { CreateResolutionInput } from '@dommaker/studio-shared';
-import { scheduleVectorDbSync, ingestWithQualityGate } from './knowledge-singletons.js';
+import { scheduleVectorDbSync, ingestWithQualityGate, publishKnowledgeEntryChanged } from './knowledge-singletons.js';
 import {
   computeOutcomeMetrics,
   scanKnowledgeEvents,
@@ -343,12 +343,19 @@ export class KnowledgeService {
    * - 提取开销（tokens/duration）以 knowledge:extraction 事件单独度量，
    *   不计入 2K 注入红线。
    * - 永不抛出：LLM 未配置/调用失败仅记日志（e2e 无 LLM 时静默跳过）。
+   * - P8（2026-09-16 perf 实测）：总开关 `STUDIO_KNOWLEDGE_EXTRACTION=false`
+   *   整体跳过——无凭证/fake-provider 环境里 studio 角色 provider 仍指向真实
+   *   CLI，每次 WU 完成都起真实 LLM 进程挂到超时，纯空转+日志噪声。
    */
   async extractFromConversation(
     messages: { role: string; content: string }[],
     ctx?: ConversationExtractionCtx,
   ): Promise<void> {
     const source = ctx?.source ?? `conversation:${ctx?.workUnitId ?? 'unknown'}`;
+    if (process.env.STUDIO_KNOWLEDGE_EXTRACTION === 'false') {
+      logger.info('[KnowledgeService] extractFromConversation skipped: STUDIO_KNOWLEDGE_EXTRACTION=false', { source });
+      return;
+    }
     try {
       const transcript = buildConversationTranscript(messages);
       if (!transcript) return;
@@ -941,6 +948,7 @@ export class KnowledgeService {
     const target = next[entry.maturity];
     if (target) {
       this.store.update(entryId, { maturity: target });
+      publishKnowledgeEntryChanged('promoted', { entryId, entryType: entry.type, title: entry.title });
     }
   }
 
@@ -955,6 +963,7 @@ export class KnowledgeService {
     const target = prev[entry.maturity];
     if (target) {
       this.store.update(entryId, { maturity: target });
+      publishKnowledgeEntryChanged('demoted', { entryId, entryType: entry.type, title: entry.title });
     }
   }
 

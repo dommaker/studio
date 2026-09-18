@@ -6,16 +6,26 @@
 import { extractConfigFlag } from './shared.js';
 import { studioUp, studioStatus, studioStop, studioRestart, studioLogs, studioDb } from './server.js';
 import { studioTest, studioBuild } from './dev.js';
-import { studioRun, studioApprove, studioReject } from './workflow.js';
+import { studioApprove, studioReject } from './workflow.js';
 import { apiCommand, studioKnowledge, studioEnv, studioMcp, studioHarnessCli } from './data.js';
 import { studioConfig } from './config.js';
 import { studioProject, studioWorkon } from './admin.js';
+import { studioRunWeb } from './run-web.js';
 
 async function main() {
   const { configPath, args } = extractConfigFlag(process.argv.slice(2));
   const cmd = args[0];
 
   switch (cmd) {
+    case 'run':
+      // #571：studio run web = npm 本地形态一体起服务总入口（旧 studio run 提交需求语义已随 #569 移除）
+      if (args[1] === 'web') {
+        await studioRunWeb(args.slice(1));
+      } else {
+        console.error('Usage: studio run web [--port <n>]');
+        process.exit(1);
+      }
+      break;
     case 'up':
       await studioUp(configPath);
       break;
@@ -48,9 +58,6 @@ async function main() {
       break;
     case 'build':
       studioBuild();
-      break;
-    case 'run':
-      await studioRun();
       break;
     case 'status':
       await studioStatus();
@@ -85,9 +92,17 @@ async function main() {
     case 'harness':
       await studioHarnessCli(args.slice(1));
       break;
-    case 'skill':
-      await apiCommand('skills', args.slice(1));
+    case 'skill': {
+      // #568：export/validate/install 为纯本地文件操作（daemon 离线可用），其余维持 HTTP API
+      const sub = args[1];
+      if (sub === 'export' || sub === 'validate' || sub === 'install') {
+        const { studioSkill } = await import('./skill.js');
+        process.exitCode = await studioSkill(args.slice(1));
+      } else {
+        await apiCommand('skills', args.slice(1));
+      }
       break;
+    }
     case 'config':
       await studioConfig(args.slice(1));
       break;
@@ -95,6 +110,7 @@ async function main() {
       console.log('Studio CLI');
       console.log('');
       console.log('  服务管理:');
+      console.log('    studio run web            Start Studio (API + web) in foreground — npm 本地形态总入口');
       console.log('    studio up                 Start Studio server');
       console.log('    studio stop               Stop Studio server');
       console.log('    studio restart            Restart Studio server');
@@ -105,17 +121,17 @@ async function main() {
       console.log('    studio build              Build all packages (pnpm build)');
       console.log('    studio test               Quick API E2E test (8 checks)');
       console.log('');
-      console.log('  执行:');
-      console.log('    studio run <requirement>   Submit to #研发 (@Analyst)');
-      console.log('');
       console.log('  数据:');
       console.log('    studio knowledge <list|show|search|upsert|sync-status>  Knowledge base');
       console.log('    studio channel <list>      Channel list');
       console.log('    studio task <queue|run>    Task management');
       console.log('    studio agent <status>      Agent status');
       console.log('    studio env <show>          Environment snapshot');
-      console.log('    studio mcp <tools|health>  MCP Server management');
+      console.log('    studio mcp <tools|health|install>  MCP Server management / install read-only MCP into agent');
       console.log('    studio skill <list>        Skills list');
+    console.log('    studio skill validate <dir>       Validate skill directory (local, offline)');
+    console.log('    studio skill export <name> [dir]  Export skill from data dir (local, offline)');
+    console.log('    studio skill install <dir>        Install skill into data dir (local, offline)');
       console.log('    studio harness <check>     Harness constraint check');
       console.log('');
       console.log('  审批:');

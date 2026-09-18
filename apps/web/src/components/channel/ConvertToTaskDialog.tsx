@@ -7,7 +7,7 @@ import type { AgentProfile, ConvertSuggestion, LocalProject } from '../../api/ch
 import { channelApi } from '../../api/channel';
 import { useRosterStore, activeAgentsOf } from '../../stores/rosterStore';
 import { useChannelDataStore } from '../../stores/channelDataStore';
-import { Select } from '../ui';
+import { Select, Modal } from '../ui';
 
 // #292: 标题兜底——首个非空行截断约 50 字；suggestTask 失败/为空时创建链路也无需手打标题
 function deriveDefaultTitle(content: string): string {
@@ -102,10 +102,27 @@ export function ConvertToTaskDialog({ open, onClose, messageId, channelId, messa
 
   if (!open) return null;
 
+  // 批次 I-2：收编 ui/Modal（§4.3 正本）；原 .modal-content 手写结构降为 title/footer props
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content" style={{ maxWidth: 480 }} onClick={e => e.stopPropagation()}>
-        <h2 className="modal-title mb-3">转为任务</h2>
+    <Modal
+      onClose={onClose}
+      maxWidth="480px"
+      title="转为任务"
+      footer={
+        <>
+          <button onClick={onClose} className="mc-btn">
+            取消
+          </button>
+          <button
+            onClick={handleSubmit}
+            disabled={submitting || loading}
+            className="mc-btn mc-btn-primary"
+          >
+            {submitting ? '创建中...' : '创建任务'}
+          </button>
+        </>
+      }
+    >
 
         {/* Source message preview */}
         <div className="mc-quote u-mb-3">
@@ -170,20 +187,6 @@ export function ConvertToTaskDialog({ open, onClose, messageId, channelId, messa
             />
           </div>
         </div>
-
-        <div className="flex justify-end gap-2 mt-4">
-          <button onClick={onClose} className="mc-btn">
-            取消
-          </button>
-          <button
-            onClick={handleSubmit}
-            disabled={submitting || loading}
-            className="mc-btn mc-btn-primary"
-          >
-            {submitting ? '创建中...' : '创建任务'}
-          </button>
-        </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

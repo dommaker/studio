@@ -25,13 +25,14 @@ export function MonitoringPage() {
   const [eventSeed, setEventSeed] = useState<EventSearchFilters | null>(null);
   // 健康度量分区默认折叠（§7.2：度量区整体降为下方分区）
   const [metricsOpen, setMetricsOpen] = useState(false);
-  // #350 useAsyncData 收一次性拉取样板：各区块独立加载、失败静默（fetcher 内 catch 落 null，区块内提示）
-  const overviewQ = useAsyncData(() => monitoringApi.getOverview().then(r => r.data).catch(() => null), []);
-  const flywheelQ = useAsyncData(() => monitoringApi.getFlywheel().then(r => r.data).catch(() => null), []);
-  const overheadQ = useAsyncData(() => monitoringApi.getOverhead().then(r => r.data).catch(() => null), []);
-  const efficiencyQ = useAsyncData(() => monitoringApi.getEfficiency().then(r => r.data).catch(() => null), []);
+  // #350 useAsyncData 收一次性拉取样板：各区块独立加载；失败不再静默落 null（2026-09 web-ux-optional-fixes
+  // Step 1）——error 由 hook 承接，区块内渲染最小错误行（SectionError）+ 重试，区分「没数据」与「加载失败」
+  const overviewQ = useAsyncData(() => monitoringApi.getOverview().then(r => r.data), []);
+  const flywheelQ = useAsyncData(() => monitoringApi.getFlywheel().then(r => r.data), []);
+  const overheadQ = useAsyncData(() => monitoringApi.getOverhead().then(r => r.data), []);
+  const efficiencyQ = useAsyncData(() => monitoringApi.getEfficiency().then(r => r.data), []);
   // 审核闭环：proposal 待审列表（maturity=draft，与 proposalsPendingReview 计数同库口径）
-  const proposalsQ = useAsyncData(() => knowledgeApi.listPendingReview().then(r => r.data.entries).catch(() => null), []);
+  const proposalsQ = useAsyncData(() => knowledgeApi.listPendingReview().then(r => r.data.entries), []);
   // 批次A 项8：通过/拒绝共用 pending 锁存（防连点）+ 失败 toast（原 catch 静默）
   const [actingIds, setActingIds] = useState<Set<string>>(new Set());
   // #473：审批前可见详情（点击标题展开）+ 通过两步确认（对照频道 GC 卡 twoStepApprove）
@@ -140,7 +141,7 @@ export function MonitoringPage() {
           <button
             key={id}
             onClick={() => switchTab(id)}
-            className={`u-tab px-4 py-2 text-sm rounded-t-lg transition ${activeTab === id ? 'u-tab-active u-surface u-accent' : 'u-text-3'}`}
+            className={`u-tab px-4 py-2 text-sm rounded-t-lg transition-colors ${activeTab === id ? 'u-tab-active u-surface u-accent' : 'u-text-3'}`}
           >
             {label}
           </button>
@@ -166,8 +167,10 @@ export function MonitoringPage() {
               stat={proposals === null ? undefined : proposals.length}
               statTestId="proposals-stat"
             >
-              {proposals === null ? (
-                <div className="text-sm u-text-2">待审列表不可用</div>
+              {proposalsQ.error ? (
+                <SectionError error={proposalsQ.error} onRetry={proposalsQ.reload} />
+              ) : proposals === null ? (
+                <div className="text-sm u-text-3">加载中…</div>
               ) : proposals.length === 0 ? (
                 <div className="empty-state text-sm">无待审提案（提取产物以 draft 入库，审核通过后才参与注入）</div>
               ) : (
@@ -177,7 +180,7 @@ export function MonitoringPage() {
                       <div className="flex items-center gap-3">
                         {/* #473：标题即详情开关——审前先看内容（对照频道提案卡条目清单） */}
                         <button
-                          className="u-text u-hover-accent text-left flex-1 min-w-0 truncate"
+                          className="u-btn-reset u-text u-hover-accent text-left flex-1 min-w-0 truncate"
                           aria-expanded={expandedIds.has(p.id)}
                           onClick={() => toggleExpanded(p.id)}
                         >
@@ -219,7 +222,7 @@ export function MonitoringPage() {
           {/* 健康度量（§7.2：度量区降为下方分区，默认折叠） */}
           <div className="mt-6">
             <button
-              className="flex items-center gap-2 u-text-2 u-hover-accent"
+              className="u-btn-reset flex items-center gap-2 u-text-2 u-hover-accent"
               aria-expanded={metricsOpen}
               onClick={() => setMetricsOpen(v => !v)}
             >
@@ -229,8 +232,10 @@ export function MonitoringPage() {
 
             {metricsOpen && (
             <div className="space-y-4 mt-3">
+              {/* 概览子拉取失败：证据台账/角色效率/人工干预三区块同源，一条错误行代表（原静默整块消失） */}
+              {overviewQ.error && <SectionError error={overviewQ.error} onRetry={overviewQ.reload} />}
               {/* F6 证据台账（决策 1）：信任分层达成 + 双轨比对；§7.3 stat 减卡 7→5 */}
-              {evidence && (
+              {!overviewQ.error && evidence && (
                 <MonitorSection
                   title="证据台账（信任分层）"
                   subtitle="每个任务有多少人/机器确认过"
@@ -259,7 +264,9 @@ export function MonitoringPage() {
                 stat={flywheel ? `${flywheel.hitRate}%` : undefined}
                 statTestId="flywheel-stat"
               >
-                {flywheel ? (
+                {flywheelQ.error ? (
+                  <SectionError error={flywheelQ.error} onRetry={flywheelQ.reload} />
+                ) : flywheel ? (
                   <>
                     <div className="grid grid-cols-4 gap-3">
                       <StatCard label="知识命中率" value={`${flywheel.hitRate}%`} color="u-accent" />
@@ -290,7 +297,9 @@ export function MonitoringPage() {
                 stat={overhead && overhead.source === 'events' ? `${overhead.injectedBudgetUsedPct}%` : undefined}
                 statTestId="overhead-stat"
               >
-                {overhead && overhead.source === 'events' ? (
+                {overheadQ.error ? (
+                  <SectionError error={overheadQ.error} onRetry={overheadQ.reload} />
+                ) : overhead && overhead.source === 'events' ? (
                   <>
                     <UsageBar
                       usedPct={overhead.injectedBudgetUsedPct}
@@ -308,7 +317,9 @@ export function MonitoringPage() {
               </MonitorSection>
 
               {/* #120: 输入缓存命中率；§7.3 图表化 = byDay 柱 + byRole 横条（时间序列仅 byDay 一组可用，§7.1） */}
-              {cacheHit && (
+              {efficiencyQ.error ? (
+                <SectionError error={efficiencyQ.error} onRetry={efficiencyQ.reload} />
+              ) : cacheHit && (
                 <MonitorSection
                   title="输入缓存命中率"
                   subtitle="重复内容有没有被缓存省下 token"
@@ -402,6 +413,16 @@ function StatCard({ label, value, color }: { label: string; value: React.ReactNo
     <div className="flex items-center gap-2">
       <span className={`font-bold ${color}`} style={{ fontSize: 'var(--fs-stat)' }}>{value}</span>
       <span className="text-sm u-text-2">{label}</span>
+    </div>
+  );
+}
+
+/** 子拉取失败最小错误行（2026-09 web-ux-optional-fixes Step 1）：KnowledgePage/AuditLogsPage 错误条同款 u-err-dim 红条 + 重试 */
+function SectionError({ error, onRetry }: { error: string; onRetry: () => void }) {
+  return (
+    <div className="p-3 rounded u-err-dim u-err text-sm flex items-center justify-between">
+      <span>{error}</span>
+      <button onClick={onRetry} className="btn btn-secondary btn-sm">重试</button>
     </div>
   );
 }

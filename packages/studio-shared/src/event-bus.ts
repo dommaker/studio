@@ -7,7 +7,11 @@ import { EventEmitter } from 'events';
 type EventHandler = (payload: any) => void | Promise<void>;
 
 class StudioEventBus {
-  private emitter = new EventEmitter();
+  // 业务扇出常态超 EventEmitter 默认上限 10：workunit.status_changed 的模块级
+  // 订阅方已有 11 个（各 rollup / ReviewDispatcher / InReviewInbox / RoleMemory /
+  // SkillUsageScan / Distill 等），每个 AgentLoop 实例再 +1——是订阅方清单增长
+  // 而非泄漏（泄漏仍会触顶告警）。抬到 64 压住误报（P9）。
+  private emitter = new EventEmitter().setMaxListeners(64);
   private listeners = new Map<string, Set<EventHandler>>();
 
   // 发布事件

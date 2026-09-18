@@ -2,7 +2,9 @@
 import 'dotenv/config';
 
 // 固定 KnowledgeStore 路径 — CWD 无关, 与 memory-knowledge-sync hook 共用
-process.env.KNOWLEDGE_DIR = process.env.KNOWLEDGE_DIR || require('path').resolve(__dirname, '..', '.harness', 'knowledge');
+// #571：缺省自 monorepo 相对路径迁至数据根 harness-knowledge（契约 §8 待归位），env 可覆盖
+import { defaultKnowledgeDir, tunnelUrlFile } from './utils/runtime-paths.js';
+process.env.KNOWLEDGE_DIR = defaultKnowledgeDir();
 
 import { createServer } from 'http';
 import { app, registerRoutes } from './app.js';
@@ -19,6 +21,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { studioDir as resolveStudioDir, warnIfNonProdUsesProdRoot } from '@dommaker/studio-shared/studio-dir';
 import { resolveListenHost } from './utils/listen-host.js';
+import { handleServerListenError } from './utils/listen-error.js';
+import { isCloudflaredEnabled } from './utils/cloudflared.js';
 
 const PORT = process.env.PORT || 3001;
 // 2026-08-25 安全收口：默认只绑回环（服务器模式经 nginx 同机反代，npm 自托管
@@ -35,7 +39,7 @@ function loadConfig(): void {
     // Fallback: STUDIO_HOME（缺省 ~/.studio）defaults
     const studioDir = resolveStudioDir();
     if (!process.env.WORKTREES_DIR) process.env.WORKTREES_DIR = path.join(studioDir, 'worktrees');
-    if (!process.env.EVENTS_DIR) process.env.EVENTS_DIR = path.join(studioDir, 'events');
+    // events/ 目录双口径已收编（#571 / 契约 §8）：统一事件流正本在 logs/，不再注入 EVENTS_DIR
     return;
   }
 
@@ -64,6 +68,18 @@ async function start() {
   try {
     // FileStore 自动建目录，无需 DB 连接
     logger.info('Storage initialized (FileStore)');
+
+    // #572 / 契约 §5（data-directory-contract.md）：数据区 schema 版本迁移，必须在 reconcileIndex
+    // 之前——迁移后的布局才是对账/读写的正本。失败抛 MigrationError（含备份路径+回滚指引），
+    // 由外层 catch 兜底 process.exit(1) = 失败拒启，不留半迁移态带病运行。
+    const { runMigrations } = await import('@dommaker/studio-shared/migrations');
+    const migration = await runMigrations(resolveStudioDir());
+    if (migration.applied.length > 0 || migration.skipped.length > 0) {
+      logger.info('[Migration] 数据区 schema 迁移完成', {
+        fromVersion: migration.fromVersion, toVersion: migration.toVersion,
+        applied: migration.applied, skipped: migration.skipped, backupPaths: migration.backupPaths,
+      });
+    }
 
     // #170（决策 #65-3）：启动对账 WorkUnit events vs index —— 不一致即按事件流重建索引
     // 并走告警频道（#62 决议出口：dispatchMonitorAlerts 既有管线，warning 级）。
@@ -328,6 +344,13 @@ async function start() {
         logger.info('[RoleMemory] Completion extraction subscribed (workunit.status_changed → done)');
       } catch (e) { logger.warn('[RoleMemory] Completion extraction init failed', { error: String(e) }); }
 
+      // skill 度量地基票 B：WU done → transcript 后验扫描 skill 使用痕迹 → skill_used 事件（纯确定性零 LLM）
+      try {
+        const { initSkillUsageScan } = await import('./modules/skills/skill-usage-scan.js');
+        initSkillUsageScan();
+        logger.info('[SkillUsageScan] Subscribed to workunit.status_changed (done → transcript scan)');
+      } catch (e) { logger.warn('[SkillUsageScan] Failed to subscribe', { error: String(e) }); }
+
       // #143 蒸馏主链路：WU done → 门槛检测（纯计数零 LLM）→ distill_proposal 人审卡
       try {
         const { initDistillLoop } = await import('./modules/distill/distill-runtime.js');
@@ -461,13 +484,10 @@ async function start() {
     });
 
     // 启动服务器
+    // #573 端口双口径收口（契约 §7）：端口由 port-probe 启动前单口径解析，
+    // listen 时再撞 EADDRINUSE = 竞态 → 拒启，删除原 3s 无限重试
     server.on('error', (err: any) => {
-      if (err?.code === 'EADDRINUSE') {
-        logger.warn(`Port ${PORT} in use, retrying in 3s...`);
-        setTimeout(() => { server.close(); server.listen(Number(PORT), HOST); }, 3000);
-      } else {
-        logger.error('Server listen error', { code: err?.code, message: err?.message, port: PORT });
-      }
+      handleServerListenError(err, { port: PORT, host: HOST, logger });
     });
     logger.info('Attempting server.listen...');
     server.listen(Number(PORT), HOST, () => {
@@ -478,11 +498,11 @@ async function start() {
     // Cloudflared Tunnel — 自动重启守护 + URL 变化通知
     let cloudflaredProc: ChildProcess | null = null;
     let lastTunnelUrl = '';
-    const TUNNEL_URL_FILE = require('path').join(require('os').homedir(), '.claude', 'tunnel-url');
+    const TUNNEL_URL_FILE = tunnelUrlFile();
 
     const notifyTunnelUrl = async (url: string) => {
       // 写文件，方便随时查看
-      try { require('fs').writeFileSync(TUNNEL_URL_FILE, url, 'utf-8'); } catch {}
+      try { fs.writeFileSync(TUNNEL_URL_FILE, url, 'utf-8'); } catch {}
       // 显著日志
       logger.info('='.repeat(70));
       logger.info(`🔗 DISCORD INTERACTIONS ENDPOINT URL: ${url}/api/v1/discord/interactions`);
@@ -536,10 +556,11 @@ async function start() {
         logger.warn('[Cloudflared] Not available, Discord tunnel disabled');
       }
     };
-    if (process.env.CLOUDFLARED_ENABLED !== 'false') {
+    // #571 冲突 5 冻结：外联隧道默认关，仅显式 CLOUDFLARED_ENABLED=true 拉起
+    if (isCloudflaredEnabled()) {
       startCloudflared();
     } else {
-      logger.info('[Cloudflared] Disabled via CLOUDFLARED_ENABLED=false');
+      logger.info('[Cloudflared] Disabled (default off; set CLOUDFLARED_ENABLED=true to enable)');
     }
 
     // 优雅关闭

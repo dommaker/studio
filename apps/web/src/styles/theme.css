@@ -1,5 +1,7 @@
 @import "./responsive.css";
-@import "./mission-control.css";
+/* 批次 I-4：mission-control.css 改由 index.css 显式 import，本文件不再中转。
+   （2026-09-16 Step 4 起 u-*×mc-* 覆盖改由 utilities.css 尾部复合选择器显式登记，
+   两文件 import 顺序不再影响结果。） */
 /* 科幻极简设计系统 - 统一样式（2026-07 起深色主题 = 方向 A「Mission Control」） */
 
 /* === 主题切换 === */
@@ -71,6 +73,8 @@
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.5);
   --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.6);
+  /* 批次 I-5a：小型浮层轻投影档（回到底部浮钮、工作条溢出列表，原散置 0 2px 8px rgba(0,0,0,0.35) 归队） */
+  --shadow-popover: 0 2px 8px rgba(0, 0, 0, 0.35);
   --shadow-glow: 0 0 20px var(--accent-glow);
 
   /* 字体（#380/#392）：正文/标题/UI chrome = 比例 sans；mono 限定代码、ID、时间戳、日志、统计数字 */
@@ -104,6 +108,23 @@
   /* 遮罩（批次 G-5）：移动端 sidebar 抽屉背衬（responsive.css .sidebar::before）；
      .modal-overlay 的 0.7 遮罩系规范明写豁免，不走此 token；浅色同值（与 .modal-overlay 口径一致） */
   --overlay-sidebar: rgba(0, 0, 0, 0.5);
+  /* 批次 I-5a：modal 同档遮罩（0.7）第二档——频道动态覆盖层背衬（mission-control.css .mc-act-overlay-backdrop）
+     消费；.modal-overlay 内置 0.7 系规范明写豁免，不走此 token */
+  --overlay-modal: rgba(0, 0, 0, 0.7);
+
+  /* z-index 阶梯（批次 I-5a，style-guide §2 规则 10）：值 = 存量字面量逐一命名归队，堆叠行为零变化；
+     新增层叠一律 var(--z-*) 取档，不再写字面量。双主题同值 */
+  --z-below: -1;        /* 沉底背衬（.sidebar::before 遮罩） */
+  --z-base: 1;          /* 流内微抬（消息操作钮、覆盖层关闭钮） */
+  --z-sticky: 5;        /* 流内 sticky（回到底部浮钮、工作条溢出列表） */
+  --z-dropdown: 30;     /* 面板内下拉（顶栏 ⋯ 菜单、待回复 chip 下拉） */
+  --z-overlay: 50;      /* 全局遮罩/弹窗基准（.modal-overlay、@mention 面板） */
+  --z-popover: 100;     /* 浮层（.select-panel、⌘K 面板——须高于 overlay） */
+  --z-sidebar: 200;     /* 移动端抽屉侧边栏 */
+  --z-act-overlay: 250; /* 频道动态覆盖层 */
+  --z-drawer: 300;      /* 覆盖式抽屉（WU/REQ/行动中心宿主） */
+  --z-modal-above: 400; /* 抽屉之上的弹窗（工作条闸门弹窗压同开抽屉） */
+  --z-toast: 9999;      /* toast 顶层 */
 
   /* 主题标识 */
   --theme-name: 'dark';
@@ -175,6 +196,7 @@
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.1);
   --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.12);
+  --shadow-popover: 0 2px 8px rgba(0, 0, 0, 0.08);
   --shadow-glow: 0 0 20px var(--accent-glow);
 
   /* 字体：mono 栈（--font-sans 在 :root 统一定义；浅色同栈） */
@@ -253,8 +275,7 @@ body {
   animation: mc-fade-in var(--motion-fast) var(--ease-standard);
 }
 
-.modal,
-.modal-content {
+.modal {
   animation: mc-modal-in var(--motion-base) var(--ease-standard);
 }
 
@@ -271,12 +292,6 @@ body,
   transition: background-color var(--motion-base) var(--ease-standard),
     color var(--motion-base) var(--ease-standard),
     border-color var(--motion-base) var(--ease-standard);
-}
-
-/* === 容器 === */
-.container-main {
-  background: var(--bg-primary);
-  min-height: 100vh;
 }
 
 /* === 卡片组件 === */
@@ -308,6 +323,13 @@ body,
 .card.cursor-pointer:hover,
 .card:has(> .cursor-pointer):hover {
   border-color: var(--border-strong);
+}
+
+/* 可点卡片焦点态（§2 规则 8，批次 I-3）：accent 描边，与 index.css 全局兜底环同口径；
+   类级显式声明使组件类自带焦点态，不依赖兜底 */
+.card.cursor-pointer:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
 }
 
 /* === 按钮组件 === */
@@ -506,7 +528,7 @@ body,
 
 .select-panel {
   position: fixed;
-  z-index: 100; /* 须高于 .modal-overlay 的 50 */
+  z-index: var(--z-popover); /* 须高于 .modal-overlay 的 --z-overlay */
   background: var(--bg-tertiary);
   border: 1px solid var(--border-default);
   border-radius: 3px;
@@ -560,22 +582,6 @@ body,
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border-subtle);
   padding: 10px 16px;
-}
-
-.nav-link {
-  color: var(--text-secondary);
-  padding: 4px 10px;
-  border-radius: 3px;
-}
-
-.nav-link:hover {
-  color: var(--text-primary);
-  background: var(--bg-tertiary);
-}
-
-.nav-link-active {
-  color: var(--accent-primary);
-  background: var(--accent-dim);
 }
 
 /* === 图标按钮（顶栏工具位；批次 D-0 自 ThemeToggleButton 内联收敛） === */
@@ -646,6 +652,13 @@ body,
 
 .nav-item:hover {
   background: var(--bg-hover);
+}
+
+/* 焦点态（§2 规则 8，批次 I-3）：accent 描边，与 index.css 全局兜底环同口径；
+   active 态 inset 左边线走 box-shadow，与 outline 不冲突 */
+.nav-item:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
 }
 
 .nav-item-active,
@@ -743,19 +756,7 @@ body,
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 50;
-}
-
-.modal-content {
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-default);
-  border-radius: 6px;
-  padding: 16px;
-  max-width: 560px;
-  width: 100%;
-  max-height: 80vh;
-  overflow: auto;
-  box-shadow: var(--shadow-lg);
+  z-index: var(--z-overlay);
 }
 
 .modal {
@@ -810,19 +811,6 @@ body,
 
 .modal-close:hover {
   color: var(--text-primary);
-}
-
-/* === 分割线 === */
-.divider {
-  height: 1px;
-  background: linear-gradient(
-    90deg,
-    transparent,
-    var(--border-default) 20%,
-    var(--border-default) 80%,
-    transparent
-  );
-  margin: 16px 0;
 }
 
 /* === 加载状态 === */

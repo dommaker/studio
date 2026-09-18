@@ -1,14 +1,21 @@
 // 工单 38: KnowledgePage 手动新建条目 — 失败 toast 反馈且表单保留（原先仅 console.error 静默）
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
-const { mockListUnified, mockCreateUnifiedEntry, mockPromote, mockDemote, mockSearch } = vi.hoisted(() => ({
+const { mockListUnified, mockCreateUnifiedEntry, mockPromote, mockDemote, mockSearch, mockGetCosts, mockOnEvent } = vi.hoisted(() => ({
   mockListUnified: vi.fn(),
   mockCreateUnifiedEntry: vi.fn(),
   mockPromote: vi.fn(),
   mockDemote: vi.fn(),
   mockSearch: vi.fn(),
+  mockGetCosts: vi.fn(),
+  // SSE 注册口（Step 2）：默认返回退订函数，具体用例在自身 beforeEach 捕获 handler
+  mockOnEvent: vi.fn((_h: unknown) => () => {}),
+}));
+
+vi.mock('../../api/websocketHooks', () => ({
+  useWebSocketContext: () => ({ onEvent: mockOnEvent, onReconnect: () => () => {}, status: 'connected' }),
 }));
 
 vi.mock('../../api/knowledge', () => ({
@@ -25,7 +32,7 @@ vi.mock('../../api/knowledge', () => ({
 
 vi.mock('../../api/maintenance', () => ({
   maintenanceApi: {
-    getCosts: vi.fn().mockResolvedValue(null),
+    getCosts: mockGetCosts,
     runKnowledgeMaintenance: vi.fn(),
     fireTrigger: vi.fn(),
   },
@@ -414,5 +421,106 @@ describe('批次 F-1: tab 列表加载失败错误条 + 重试（tabQ.error 原�
     expect(await screen.findByText('恢复条目')).toBeTruthy();
     expect(screen.queryByText('load boom')).toBeNull();
     await waitFor(() => expect(mockListUnified).toHaveBeenCalledTimes(2));
+  });
+});
+
+describe('成本子拉取失败错误行（2026-09 web-ux-optional-fixes Step 1，原 .catch(() => null) 静默）', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockListUnified.mockResolvedValue({ data: { entries: [], total: 0 } });
+    mockGetCosts.mockResolvedValue(null);
+  });
+
+  it('getCosts 失败：页头按钮旁错误行 + 重试，点击后重拉恢复 costNote', async () => {
+    mockGetCosts
+      .mockRejectedValueOnce(new Error('costs boom'))
+      .mockResolvedValue({ days: 30, byTrigger: {}, bySource: {}, callsBySource: { 'knowledge-maintenance': 7 } });
+    render(<MemoryRouter><KnowledgePage /></MemoryRouter>);
+
+    expect(await screen.findByText('costs boom')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '重试' }));
+
+    expect(await screen.findByText(/近 30 天 7 次调用/)).toBeTruthy();
+    expect(screen.queryByText('costs boom')).toBeNull();
+    await waitFor(() => expect(mockGetCosts).toHaveBeenCalledTimes(2));
+  });
+});
+
+describe('Step 2: SSE knowledge.entry_changed 实时刷新（无轮询）', () => {
+  let sseHandler: ((msg: { event_type: string; data?: unknown }) => void) | null;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sseHandler = null;
+    mockOnEvent.mockImplementation((h: any) => { sseHandler = h; return () => {}; });
+    mockGetCosts.mockResolvedValue(null);
+  });
+
+  it('事件到达 → 当前 tab 防抖重拉，agent 新产出条目上屏', async () => {
+    mockListUnified
+      .mockResolvedValueOnce({
+        data: { entries: [{ id: 'e1', title: '旧条目', consumptionMode: 'rule', source: 's', content: 'x', tags: [] }], total: 1 },
+      })
+      .mockResolvedValue({
+        data: { entries: [
+          { id: 'e1', title: '旧条目', consumptionMode: 'rule', source: 's', content: 'x', tags: [] },
+          { id: 'e2', title: 'agent 新产出', consumptionMode: 'signal', source: 'distill', content: 'y', tags: [] },
+        ], total: 2 },
+      });
+    render(<MemoryRouter><KnowledgePage /></MemoryRouter>);
+    expect(await screen.findByText('旧条目')).toBeTruthy();
+    expect(mockListUnified).toHaveBeenCalledTimes(1);
+
+    act(() => { sseHandler!({ event_type: 'knowledge.entry_changed', data: { action: 'created', entryId: 'e2' } }); });
+
+    expect(await screen.findByText('agent 新产出', {}, { timeout: 2000 })).toBeTruthy();
+    await waitFor(() => expect(mockListUnified).toHaveBeenCalledTimes(2));
+  });
+
+  it('无关事件类型不触发重拉', async () => {
+    mockListUnified.mockResolvedValue({ data: { entries: [], total: 0 } });
+    render(<MemoryRouter><KnowledgePage /></MemoryRouter>);
+    await screen.findByText('暂无数据');
+
+    act(() => { sseHandler!({ event_type: 'channel.message_sent', data: { channelId: 'ch-1' } }); });
+    await new Promise(r => setTimeout(r, 600)); // 超过 400ms 防抖窗口
+    expect(mockListUnified).toHaveBeenCalledTimes(1);
+  });
+
+  it('批量事件（逐条目审批一串）防抖合并为一次重拉', async () => {
+    mockListUnified.mockResolvedValue({ data: { entries: [], total: 0 } });
+    render(<MemoryRouter><KnowledgePage /></MemoryRouter>);
+    await screen.findByText('暂无数据');
+
+    act(() => {
+      sseHandler!({ event_type: 'knowledge.entry_changed', data: { action: 'promoted', entryId: 'a' } });
+      sseHandler!({ event_type: 'knowledge.entry_changed', data: { action: 'promoted', entryId: 'b' } });
+      sseHandler!({ event_type: 'knowledge.entry_changed', data: { action: 'demoted', entryId: 'c' } });
+    });
+
+    await waitFor(() => expect(mockListUnified).toHaveBeenCalledTimes(2), { timeout: 2000 });
+    await new Promise(r => setTimeout(r, 600));
+    expect(mockListUnified).toHaveBeenCalledTimes(2);
+  });
+
+  it('页面不可见时不重拉（零额外开销），记脏回 visible 补拉一次', async () => {
+    mockListUnified.mockResolvedValue({ data: { entries: [], total: 0 } });
+    let hidden = false;
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden });
+    try {
+      render(<MemoryRouter><KnowledgePage /></MemoryRouter>);
+      await screen.findByText('暂无数据');
+
+      hidden = true;
+      act(() => { sseHandler!({ event_type: 'knowledge.entry_changed', data: { action: 'created', entryId: 'x' } }); });
+      await new Promise(r => setTimeout(r, 600));
+      expect(mockListUnified).toHaveBeenCalledTimes(1); // 不可见：无请求
+
+      hidden = false;
+      act(() => { document.dispatchEvent(new Event('visibilitychange')); });
+      await waitFor(() => expect(mockListUnified).toHaveBeenCalledTimes(2));
+    } finally {
+      Object.defineProperty(document, 'hidden', { configurable: true, get: () => false });
+    }
   });
 });

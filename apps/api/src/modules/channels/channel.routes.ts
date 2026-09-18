@@ -67,15 +67,17 @@ router.post('/', requireAuth(), requireNotGuest(), handle(async (req, res) => {
 }));
 
 // GET /api/v1/channels/:id — get channel detail
+// B8（2026-09-16 channel 性能审计）：去掉 prisma 时代遗留的 `_count.ChannelMessage`
+// （全仓无消费方，每请求 O(热文件行数) 全量 countMessages 纯浪费）
 router.get('/:id', requireAuth(), handle(async (req, res) => {
   const channel = await channelService.getOrThrow(req.params.id);
-  const messageCount = await fileStore.countMessages(req.params.id);
-  res.json({ success: true, data: { ...channel, _count: { ChannelMessage: messageCount } } });
+  res.json({ success: true, data: channel });
 }));
 
 // GET /api/v1/channels/:id/current-pmo — #272（决策 #251 Q6）：顶栏「当前 PMO」chip
 // 派生概念不落库：最近挂接 REQ 所属 PMO → 杂务 PMO 反推 → null（见 current-pmo.ts）。
-router.get('/:id/current-pmo', requireAuth(), handle(async (req, res) => {
+// B7：派生链为 N+1 全量读取，挂短 TTL apiCache（5s 档，同 GET / 列表先例）。
+router.get('/:id/current-pmo', requireAuth(), apiCache(CACHE_CONFIG.short), handle(async (req, res) => {
   await channelService.getOrThrow(req.params.id);
   const pmo = await deriveChannelCurrentPmo(req.params.id);
   res.json({ success: true, data: pmo });
@@ -117,7 +119,8 @@ router.get('/:id/messages', requireAuth(), async (req, res) => {
 // GET /api/v1/channels/:id/file-vocabulary — #281：@文件引用只读词表
 // 候选集 = 频道相关工程（默认工程 ∪ REQ 挂接 PMO ∪ 杂务 PMO，最近使用优先），
 // 各仓 git ls-files + 内存缓存（见 file-ref-vocabulary.ts）。
-router.get('/:id/file-vocabulary', requireAuth(), handle(async (req, res) => {
+// B7：挂短 TTL apiCache（5s 档）——词表进程缓存之外再挡一层 HTTP 级重复派生。
+router.get('/:id/file-vocabulary', requireAuth(), apiCache(CACHE_CONFIG.short), handle(async (req, res) => {
   await channelService.getOrThrow(req.params.id);
   try {
     const vocabulary = await getChannelFileVocabulary(req.params.id);

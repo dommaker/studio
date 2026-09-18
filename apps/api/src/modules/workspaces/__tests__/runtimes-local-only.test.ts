@@ -100,8 +100,45 @@ describe('GET /workspaces/runtimes — 本机 CLI 清单', () => {
     const { status, body } = await getRuntimes();
     expect(status).toBe(200);
     expect(body.runtimes).toEqual([
-      { provider: 'claude', version: '2.1.80' },
-      { provider: 'kimi', version: '0.31.0' },
+      // 旧记录无 auth 字段 → 回落 unknown（#565 AC4）
+      { provider: 'claude', version: '2.1.80', auth: 'unknown' },
+      { provider: 'kimi', version: '0.31.0', auth: 'unknown' },
+    ]);
+  });
+
+  it('AC4: 记录中的 auth 三态与修复 hint 透传到响应', async () => {
+    seedWorkspace({
+      id: 'ws_vps', name: 'VPS',
+      runtimes: [
+        { id: 'ws_vps_claude', provider: 'claude', version: '2.1.273', status: 'online', auth: 'ok', authCheckedAt: '2026-09-16T00:00:00Z' },
+        { id: 'ws_vps_codex', provider: 'codex', version: '0.147.0', status: 'online', auth: 'failed', authHint: '运行 codex login 登录', authCheckedAt: '2026-09-16T00:00:00Z' },
+      ],
+    });
+
+    const { status, body } = await getRuntimes();
+    expect(status).toBe(200);
+    expect(body.runtimes).toEqual([
+      { provider: 'claude', version: '2.1.273', auth: 'ok' },
+      { provider: 'codex', version: '0.147.0', auth: 'failed', authHint: '运行 codex login 登录' },
+    ]);
+  });
+
+  it('#574: 记录中的 models / modelsSource 透传到响应；无 models 的记录不带该字段', async () => {
+    seedWorkspace({
+      id: 'ws_vps', name: 'VPS',
+      runtimes: [
+        { id: 'ws_vps_codex', provider: 'codex', version: '0.147.0', status: 'online', auth: 'ok', models: ['gpt-5.6-sol', 'gpt-5.5'], modelsSource: 'live' },
+        { id: 'ws_vps_claude', provider: 'claude', version: '2.1.273', status: 'online', auth: 'ok', models: ['opus', 'sonnet'], modelsSource: 'fallback' },
+        { id: 'ws_vps_openclaw', provider: 'openclaw', version: '1.0.0', status: 'online' },
+      ],
+    });
+
+    const { status, body } = await getRuntimes();
+    expect(status).toBe(200);
+    expect(body.runtimes).toEqual([
+      { provider: 'codex', version: '0.147.0', auth: 'ok', models: ['gpt-5.6-sol', 'gpt-5.5'], modelsSource: 'live' },
+      { provider: 'claude', version: '2.1.273', auth: 'ok', models: ['opus', 'sonnet'], modelsSource: 'fallback' },
+      { provider: 'openclaw', version: '1.0.0', auth: 'unknown' },
     ]);
   });
 
@@ -153,7 +190,7 @@ describe('GET /workspaces/runtimes — 本机 CLI 清单', () => {
     mockRescan.mockRejectedValueOnce(new Error('scan boom'));
     const res1 = await getRuntimes();
     expect(res1.status).toBe(200);
-    expect(res1.body.runtimes).toEqual([{ provider: 'kimi', version: '0.31.0' }]);
+    expect(res1.body.runtimes).toEqual([{ provider: 'kimi', version: '0.31.0', auth: 'unknown' }]);
     expect(mockRescan).toHaveBeenCalledTimes(1);
   });
 });

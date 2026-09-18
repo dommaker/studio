@@ -23,6 +23,8 @@ vi.mock('../../api/websocketHooks', () => ({
 }));
 
 import { useChannelMessages } from '../useChannelEvents';
+// #548：messages 数据面收编模块单例 store——每用例清数据面+纪律簿记，防跨用例泄漏
+import { useChannelMessageStore } from '../../stores/channelMessageStore';
 
 const iso = (s: number) => new Date(s * 1000).toISOString();
 
@@ -56,6 +58,7 @@ describe('useChannelMessages', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     seq = 0;
+    useChannelMessageStore.getState().__resetForTests();
     mockListMessages.mockResolvedValue({ data: { data: [], hasMore: false } });
     mockOnEvent.mockImplementation((h: (msg: WebSocketMessage) => void) => {
       handler = h;
@@ -344,6 +347,7 @@ describe('useChannelMessages（#313 门禁轮询接线）', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.clearAllMocks();
+    useChannelMessageStore.getState().__resetForTests();
     mockCtx.status = 'connected';
     mockOnEvent.mockReturnValue(() => {});
     mockListMessages.mockResolvedValue({ data: { data: [], hasMore: false } });
@@ -395,6 +399,7 @@ describe('useChannelMessages（#313 门禁轮询接线）', () => {
 describe('useChannelMessages 错误态（#482）', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    useChannelMessageStore.getState().__resetForTests();
     mockCtx.status = 'connected';
     mockOnEvent.mockReturnValue(() => {});
   });

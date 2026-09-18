@@ -1,27 +1,10 @@
 /**
  * FileStore — AN 运行时数据文件存储基类
  *
- * 混合架构：运行时数据走文件，知识图谱/安全/OKR 等跨模型关联数据留在 DB。
- * JSON/JSONL 格式文件存储，flock（mkdir 原子操作）保障 claim 原子性。
+ * 运行时数据全部走文件存储（JSON/JSONL），flock（mkdir 原子操作）保障 claim 原子性。
  *
- * 目录结构：
- *   ~/.studio/data/
- *     agents/{id}/
- *       profile.json     # AgentProfile
- *       state.json       # RuntimeState
- *     channels/{id}/
- *       config.json      # Channel
- *       messages.jsonl   # ChannelMessage（append-only + tombstone；#319 写侧压实清死行）
- *       messages.lock    # 消息写/压实/归档互斥锁目录（#319/#327）
- *       archive/messages-YYYY-MM.jsonl  # 超龄消息冷文件（#327，按消息 createdAt 归月）
- *     workunits/
- *       lock             # flock 文件锁目录
- *       events.jsonl     # 事件流 (append-only)
- *       index.json       # 当前状态快照
- *     requirements/      # REQ 需求编号体系 (vision §5.3)
- *       lock             # seq 分配 flock 锁目录
- *       index.json       # { nextSeq } 序号计数器
- *       REQ-0042.json    # RequirementData（每需求一个文件）
+ * 数据区布局（data/ 子树与 ~/.studio 根级条目）唯一正本：
+ * docs/architecture/data-directory-contract.md（#570）——布局变更须先修订契约。
  *
  * 本文件为门面：数据类型在 file-store-types.ts，JSON/锁原语在 file-store-base.ts，
  * WorkUnit 事件溯源在 file-store-workunit.ts，channels 编解码在 channels-codec.ts，
@@ -890,17 +873,98 @@ export class FileStore extends FileStoreWorkUnitBase {
     }
   }
 
+  /**
+   * B4（2026-09-16 channel 体检）：before 锚点热层倒扫——从 messages.jsonl 尾部倒读，
+   * 命中锚点后多收 limit+1 条活跃消息即停（锚不存在则扫到文件头）。
+   * 去重/tombstone/损坏行口径同 readMessagesTail（复刻 mergeActiveRows）。
+   * window = 扫描见过的全部活跃消息（新→旧），anchorIdx = 锚点在 window 中的下标；
+   * 锚点起的后缀（window.slice(anchorIdx)）最多 limit+1 条（锚 + limit + 1 判 hasMore）。
+   * 调用方出页前须校验：① 锚点起后缀 createdAt 严格递减（判据同首页快径——窗口内
+   * 文件序=时间序）；② 比锚点新（扫描序靠前）的活跃消息 createdAt 全部 > 锚点
+   * （否则其按 createdAt 应排在锚点之前、属于页内，倒扫窗口不含它 → 回退全量保精确）。
+   * exhausted = 扫到文件头（此时 hotIds/activeCount = 热层全量精确值，供冷侧去重与 total）；
+   * 未穷举时 hotIds/activeCount 只是尾部窗口的部分值，调用方不得使用。
+   * 直读磁盘不进 jsonlCache（同 readMessagesTail 的 seam 口径）。
+   */
+  private async scanHotToAnchor(
+    channelId: string,
+    anchorId: string,
+    limit: number,
+  ): Promise<{ found: boolean; window: ChannelMessageData[]; anchorIdx: number; hotIds: Set<string>; activeCount: number; exhausted: boolean }> {
+    let handle: fs.promises.FileHandle | null = null;
+    try {
+      handle = await fs.promises.open(this.messagesPath(channelId), 'r');
+      const stat = await handle.stat();
+      const hotIds = new Set<string>();
+      const window: ChannelMessageData[] = [];
+      let anchorIdx = -1;
+      let exhausted = true;
+      if (stat.size > 0) {
+        const seen = new Set<string>();
+        for await (const { text } of iterateJsonlLinesBackward(handle, stat.size)) {
+          let row: ChannelMessageRow;
+          try {
+            row = JSON.parse(text) as ChannelMessageRow;
+          } catch {
+            continue; // 损坏行跳过（同尾读容错口径）
+          }
+          if (seen.has(row.id)) continue;
+          seen.add(row.id);
+          if (row.deleted === true) continue; // 墓碑占位：整条作废，旧版不复活
+          const { deleted, ...msg } = row;
+          hotIds.add(msg.id);
+          window.push(msg);
+          if (msg.id === anchorId) anchorIdx = window.length - 1;
+          if (anchorIdx !== -1 && window.length - anchorIdx > limit + 1) { // 锚 + limit + 1 判 hasMore
+            exhausted = false;
+            break;
+          }
+        }
+      }
+      return { found: anchorIdx !== -1, window, anchorIdx, hotIds, activeCount: hotIds.size, exhausted };
+    } catch (err: unknown) {
+      if (isErrnoError(err) && err.code === 'ENOENT') {
+        return { found: false, window: [], anchorIdx: -1, hotIds: new Set(), activeCount: 0, exhausted: true };
+      }
+      throw err;
+    } finally {
+      await handle?.close();
+    }
+  }
+
   async queryMessages(channelId: string, opts?: QueryOpts): Promise<ChannelMessageData[]> {
     // #524 P1-1 尾部快径（#514 第 4 子项）：limit 且无任何过滤 → 倒扫切片，
     // 不付全量读/clone/归并税。窗口 createdAt 序列非严格递减（混入更新副本或
     // 等 ts 撞车 = 文件序≠时间序）→ 回退全量路径保精确（单副本必被严格性检查
     // 捕获；多副本交织的病态窗口理论上有界偏差，压实 #319 自愈）。
-    if (opts?.limit !== undefined && opts.limit > 0
-      && !opts.workUnitId && !opts.authorType && !opts.since) {
-      const { messages, exhausted } = await this.readMessagesTail(channelId, { limit: opts.limit });
-      if (exhausted || isStrictlyDecreasingTs(messages)) {
-        messages.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-        return messages;
+    // B5（2026-09-16 channel 体检）：limit 且带过滤 → 同一快径加谓词（倒扫按匹配
+    // 计数早停），谓词与下方全量路径四条 filter 逐句同语义；无 limit 的带过滤查询
+    // 无早停收益（倒扫亦需扫到文件头），保持全量路径不动。
+    // #576：before（createdAt 严格 <）与 since（>=）互补，同为谓词一员。
+    if (opts?.limit !== undefined && opts.limit > 0) {
+      if (!opts.workUnitId && !opts.authorType && !opts.since && !opts.before) {
+        const { messages, exhausted } = await this.readMessagesTail(channelId, { limit: opts.limit });
+        if (exhausted || isStrictlyDecreasingTs(messages)) {
+          messages.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+          return messages;
+        }
+      } else {
+        const sinceMs = opts.since !== undefined ? new Date(opts.since).getTime() : null;
+        const beforeMs = opts.before !== undefined ? new Date(opts.before).getTime() : null;
+        const match = (m: ChannelMessageData): boolean => {
+          if (opts.workUnitId && m.workUnitId !== opts.workUnitId) return false;
+          if (opts.authorType && m.authorType !== opts.authorType) return false;
+          // 与全量路径同口径：>= 比较（NaN 输入一律不匹配，不静默放宽）
+          if (sinceMs !== null && !(new Date(m.createdAt).getTime() >= sinceMs)) return false;
+          // before 同口径：严格 <（NaN 输入一律不匹配）
+          if (beforeMs !== null && !(new Date(m.createdAt).getTime() < beforeMs)) return false;
+          return true;
+        };
+        const { messages, exhausted } = await this.readMessagesTail(channelId, { limit: opts.limit, match });
+        if (exhausted || isStrictlyDecreasingTs(messages)) {
+          messages.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+          return messages;
+        }
       }
     }
     const resolved = await this.resolveActiveMessages(channelId);
@@ -915,6 +979,10 @@ export class FileStore extends FileStoreWorkUnitBase {
     if (opts?.since) {
       const since = new Date(opts.since).getTime();
       filtered = filtered.filter(m => new Date(m.createdAt).getTime() >= since);
+    }
+    if (opts?.before) {
+      const before = new Date(opts.before).getTime();
+      filtered = filtered.filter(m => new Date(m.createdAt).getTime() < before);
     }
 
     // 按创建时间升序
@@ -992,6 +1060,78 @@ export class FileStore extends FileStoreWorkUnitBase {
         };
       }
       // 严格性违例（窗口混入更新副本/等 ts 撞车）→ 落回下方全量路径
+    }
+
+    if (opts?.before) {
+      // B4（2026-09-16 channel 体检）锚在热层倒扫快径：原路径锚在热也全量
+      // resolveActiveMessages + sort + findIndex（每页 O(N)，翻 k 页 = k×O(N)）；
+      // 改倒扫到锚再多收 limit+1 条即停（页成本与锚点深度成正比）。
+      // 语义对照全量路径，两个出页判据（见 scanHotToAnchor 注释）：
+      // - 锚点起后缀 createdAt 严格递减 = 页区内文件序=时间序（判据同首页快径），
+      //   「锚点之后 limit 条（扫描序）」=「按 createdAt 紧邻锚点之前的 limit 条」；
+      // - 比锚点新（扫描序靠前）的活跃消息 createdAt 全部 > 锚点——锚点/更旧消息的
+      //   更新副本落在尾部（createdAt ≤ 锚点却不在页窗口内）等病态序 → 两条任一违例
+      //   落回下方全量路径保精确（压实 #319 自愈，同首页快径的接受口径）；
+      // - 锚点倒扫穷举未命中 = 热层无此锚 → 直走冷链锚路径（热层已全扫，
+      //   hotIds/activeCount 为精确全量，免 resolveActiveMessages）；
+      // - total：穷举 = 精确活跃数（同全量路径）；未穷举 = 字节快扫原始行数
+      //   （死行虚高，方向安全偏多——同首页快径口径）。
+      const scan = await this.scanHotToAnchor(channelId, opts.before, limit);
+      if (scan.found) {
+        const anchorTs = new Date(scan.window[scan.anchorIdx].createdAt).getTime();
+        let preAnchorNewer = true;
+        for (let i = 0; i < scan.anchorIdx; i++) {
+          if (new Date(scan.window[i].createdAt).getTime() <= anchorTs) { preAnchorNewer = false; break; }
+        }
+        const fromAnchor = scan.window.slice(scan.anchorIdx);
+        if (preAnchorNewer && isStrictlyDecreasingTs(fromAnchor)) {
+          const total = opts?.includeTotal
+            ? (scan.exhausted ? scan.activeCount : await this.countFileLines(this.messagesPath(channelId)))
+              + await this.countColdLines(channelId)
+            : 0;
+          const afterAnchor = fromAnchor.slice(1); // 比锚旧的活跃消息（新→旧）
+          const hotPage = afterAnchor.slice(0, limit);
+          hotPage.reverse(); // → createdAt 升序（与全量路径 sort 后切片同口径）
+          const coldNeed = limit - hotPage.length;
+          const coldPart: ChannelMessageData[] = [];
+          if (scan.exhausted) {
+            // 穷举时锚前热消息必不足 limit+1（镜像全量路径 anchor <= limit 分支）：
+            // 余量从冷续 + 多收 1 条判 hasMore（coldNeed=0 也要探 1 条——冷链整体更旧）
+            for await (const msg of this.iterateColdMessages(channelId, scan.hotIds)) {
+              coldPart.push(msg);
+              if (coldPart.length > coldNeed) break;
+            }
+          }
+          return {
+            messages: [...coldPart.slice(0, coldNeed).reverse(), ...hotPage],
+            total,
+            hasMore: afterAnchor.length > limit || coldPart.length > coldNeed,
+          };
+        }
+        // 判据违例 → 落回下方全量路径
+      } else {
+        // 锚不在热层（倒扫已穷举热文件）：锚在冷或不存在——直走冷链锚路径，
+        // 多收 limit+1 条即停；扫完未命中 = 锚不存在 → 空页 + hasMore=false
+        const total = opts?.includeTotal ? scan.activeCount + await this.countColdLines(channelId) : 0;
+        const older: ChannelMessageData[] = [];
+        let anchorFound = false;
+        for await (const msg of this.iterateColdMessages(channelId, scan.hotIds)) {
+          if (!anchorFound) {
+            if (msg.id === opts.before) anchorFound = true;
+            continue;
+          }
+          older.push(msg);
+          if (older.length > limit) break;
+        }
+        if (!anchorFound) {
+          return { messages: [], total, hasMore: false };
+        }
+        return {
+          messages: older.slice(0, limit).reverse(),
+          total,
+          hasMore: older.length > limit,
+        };
+      }
     }
 
     const resolved = await this.resolveActiveMessages(channelId);

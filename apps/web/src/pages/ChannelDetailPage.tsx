@@ -11,20 +11,20 @@ import { useActivityMessageItems } from '../hooks/useActivityMessageItems';
 import { useChannelCardActions } from '../hooks/useChannelCardActions';
 import { useWebSocketContext } from '../api/websocketHooks';
 import { ChannelMessageItem } from '../components/channel/ChannelMessageItem';
-import { ChannelStreamBody } from '../components/channel/ChannelStreamBody';
+import { ChannelMessageEnvProvider, type ChannelMessageEnv } from '../components/channel/ChannelMessageEnv';
+import { ChannelStreamBody, type StreamMessageExtra } from '../components/channel/ChannelStreamBody';
 import { ChannelWorkBar } from '../components/channel/ChannelWorkBar';
 import { navigableIdsOf } from '../utils/streamView';
 import { ChannelInput } from '../components/channel/ChannelInput';
 import { SuggestionChips, type SuggestionChipItem } from '../components/channel/SuggestionChips';
 import { ChannelTopbarMenu } from '../components/channel/ChannelTopbarMenu';
 import { ChannelCurrentPmoChip } from '../components/channel/ChannelCurrentPmoChip';
-import { ChannelNeedInputChip, type NeedInputTodo } from '../components/channel/ChannelNeedInputChip';
+import { ChannelNeedInputChip } from '../components/channel/ChannelNeedInputChip';
 import { ChannelRail } from '../components/channel/ChannelRail';
 import { ChannelActivityRail } from '../components/channel/ChannelActivityRail';
 import { WorkUnitDrawer, type DrawerState } from '../components/channel/WorkUnitDrawer';
 import { useMediaQuery } from '../hooks/useMediaQuery';
-import { workunitApi } from '../api/workunit';
-import type { ReviewConfirmPayload, WorkUnit } from '../api/workunit';
+import type { WorkUnit } from '../api/workunit';
 import { renderSuggestionCopy } from '../utils/suggestionCopy';
 import { toast } from '../utils/toast';
 import { getSuggestionAction } from '../utils/suggestionActions';
@@ -35,6 +35,9 @@ import { useNotificationStore } from '../stores/notificationStore';
 import { useUnreadStore } from '../stores/unreadStore';
 import { useChannelDataStore, parseChannelMembers } from '../stores/channelDataStore';
 import { useChannelWorkStore, parseRequirementPayload, wuIdleOf } from '../stores/channelWorkStore';
+import { agentAnsweredOf } from '../stores/channelMessageStore';
+import { useFreshMessageIds } from '../hooks/useFreshMessageIds';
+import { useNeedInputView } from '../hooks/useNeedInputView';
 import { useChannelWorkStoreSync } from '../hooks/useChannelWorkStoreSync';
 import type { Requirement } from '../api/requirements';
 import type { Channel, ChannelMessage, ChannelSuggestion, FileRef } from '../api/channel';
@@ -143,13 +146,13 @@ export function ChannelDetailPage() {
   // #468 设计稿：reply 不再排除闸门类（decision/spec/plan），排除规则改为面板分区解决
   // #533：messageId 随投影下发（后端 action-center 唯一派生点）——回复区/提升/chip 定位全消费它，
   // 前端不再从已加载消息反推（#483 类「提问掉出分页推不出」机制性消除）
+  // #546：投影四种消费形状（待办列表 / wu→mid 映射 / 提升集+判定 / 定位查找）收口 needInputViewOf
+  // 单源选择器（notificationStore 旁纯函数），本页退回订阅并渲染，口径变更只落选择器一处
+  // F2（2026-09-16 性能体检）：订阅经 useNeedInputView——投影内容等值复用旧引用，
+  // 他频道 status_changed 触发的 stateItems 整体替换不掀动本频道下游派生
   const { onEvent, onReconnect } = useWebSocketContext();
-  const stateItems = useNotificationStore(s => s.stateItems);
-  const waitingWus = useMemo<NeedInputTodo[]>(() =>
-    stateItems
-      .filter(i => i.kind === 'reply' && i.channelId === id)
-      .map(i => ({ wuId: i.wuId, question: i.waitingQuestion ?? i.scope, messageId: i.messageId })),
-    [stateItems, id]);
+  const needInput = useNeedInputView(id);
+  const { waitingWus, promotedQuestionIds, isWaitingForInput } = needInput;
 
   // #528：频道工作面实时接线（页面级单点，ref-count=1）——挂载打底三 slice、SSE 事件路由
   // （status_changed 全量直替 / requirement.* upsert / message_sent 标脏）、重连全 slice 强刷，
@@ -202,12 +205,7 @@ export function ChannelDetailPage() {
 
   // #533：「WU 当前提问消息」唯一派生点 = 后端 action-center（stateItems.messageId 随 waitingWus 投影
   // 下发）——前端反推（latestQuestionIdByWu / latestQuestionMessageOf）已删；缺省 → 不挂回复区/
-  // 不提升/定位给可见反馈，全部 fail-closed 不回退推导
-  const waitingQuestionIdByWu = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const w of waitingWus) if (w.messageId) map.set(w.wuId, w.messageId);
-    return map;
-  }, [waitingWus]);
+  // 不提升/定位给可见反馈，全部 fail-closed 不回退推导。#546：映射本体在 needInputViewOf 产物上
 
   // #447（spec #441 收尾）：「频道当前工单」拣选唯一正本 = 后端建议端点 currentWuId
   // （前端静态映射 wuSuggestions 与 pickCurrentWu 本地副本已删，杜绝前后端口径分叉）。
@@ -217,30 +215,9 @@ export function ChannelDetailPage() {
     [channelWus, currentWuId],
   );
 
-  // 批次 D-2 项6（频道内闸门 1 击化）：工作条闸门动作写路径——直调 API + 响应体 write-through 进
-  // channelWorkStore（仿 setMembers；抽屉同款直替口径）；状态变化另有 status_changed SSE 直替 +
-  // 建议重拉（currentWuId 重拣选）兜底
-  const applyGateResult = useCallback((updated: WorkUnit) => {
-    if (id) useChannelWorkStore.getState().applyGateResult(id, updated);
-  }, [id]);
-  const workBarGate = useMemo(() => {
-    if (!currentWu) return undefined;
-    const wuId = currentWu.id;
-    return {
-      onReviewPassed: async (summary?: string, assigneeId?: string, confirm?: ReviewConfirmPayload) => {
-        const r = await workunitApi.reviewPassed(wuId, summary, assigneeId, confirm);
-        applyGateResult(r.data);
-      },
-      onReviewRejected: async (reason?: string) => {
-        const r = await workunitApi.reviewRejected(wuId, reason);
-        applyGateResult(r.data);
-      },
-      onConfirmPending: async () => {
-        const r = await workunitApi.transitionStatus(wuId, 'unassigned');
-        applyGateResult(r.data);
-      },
-    };
-  }, [currentWu, applyGateResult]);
+  // 批次 D-2 项6（频道内闸门 1 击化）：工作条闸门动作写路径 #545 起内建于 WuGateActions
+  // （gateWriter 双写落点含 channelWorkStore 快照 + 建议标脏，本页零接线）；
+  // 状态变化另有 status_changed SSE 直替 + 建议重拉（currentWuId 重拣选）兜底
 
   // #443：端点派生建议 → 文案模板渲染成引导片（未知模板 id → 跳过，fail-closed）
   // #446：prompt 形态的预填指令本体由后端 text 字段承载，透传给 SuggestionChips（点击 → onPick(text)）
@@ -289,19 +266,12 @@ export function ChannelDetailPage() {
 
   const pendingActionDef = pendingSuggestionAction ? getSuggestionAction(pendingSuggestionAction.id) : null;
 
-  // #279（走查 F4）/#533：挂起 WU 的当前提问消息（后端下发 messageId）若是线程回复（agent 追问），提升到主流可见
-  const promotedQuestionIds = useMemo(() =>
-    new Set([...waitingQuestionIdByWu.values()]), [waitingQuestionIdByWu]);
-
-  // F5/#533: 消息是否为关联 WorkUnit 的当前提问（badge/内嵌回复区只落在这一条；
-  // 判定 = 命中后端下发锚点，messageId 缺省的 WU 恒 false）
-  const isWaitingForInput = useCallback((msg: ChannelMessage) => {
-    return !!msg.workUnitId && waitingQuestionIdByWu.get(msg.workUnitId) === msg.id;
-  }, [waitingQuestionIdByWu]);
+  // #279（走查 F4）/#533：挂起 WU 的当前提问消息（后端下发 messageId）若是线程回复（agent 追问），
+  // 提升到主流可见；promotedQuestionIds / isWaitingForInput 均为 needInputViewOf 产物（#546）
 
   // #285: agent 消息 inline-code 文件 chip 词表——#403 起读 channelDataStore（与 ChannelInput
-  // 共享一份拉取；按 channelId 键控无跨频道串词表）；失败静默降级，不渲染 chip
-  const fileVocabulary = useChannelDataStore((s) => (id ? s.vocabulary[id] : undefined));
+  // 共享一份拉取；按 channelId 键控无跨频道串词表）；失败静默降级，不渲染 chip。
+  // #547：订阅本体已下沉到 ChannelMessageItem（selector 自取），本页只保留拉取触发
   useEffect(() => {
     if (!id) return;
     void useChannelDataStore.getState().ensureVocabulary(id);
@@ -332,6 +302,8 @@ export function ChannelDetailPage() {
   const openWuConfirm = useCallback((wuId: string) => setDrawer({ kind: 'wu', id: wuId, autoApprove: true }), []);
   // #467：plan_ruling 裁决轮接力卡「去裁决」——打开即弹 PlanRulingDialog
   const openWuRuling = useCallback((wuId: string) => setDrawer({ kind: 'wu', id: wuId, autoRuling: true }), []);
+  // #567：plan_direction 方向锁定接力卡「去选定」——打开即弹 PlanDirectionDialog
+  const openWuDirection = useCallback((wuId: string) => setDrawer({ kind: 'wu', id: wuId, autoDirection: true }), []);
   const openReq = useCallback((reqId: string) => setDrawer({ kind: 'req', id: reqId }), []);
 
   // #395：覆盖态频道动态里点 REQ/WU → 收起覆盖层再开详情抽屉（窄屏不叠加两层）；
@@ -370,13 +342,13 @@ export function ChannelDetailPage() {
   // #279（决策 #250 D4）/ #533：chip 点条目 → 定位后端下发的提问 messageId（wu→mid 不再前端反推）；
   // messageId 缺省（fail-closed）→ toast 可见反馈，不静默不翻页
   const locateWaitingQuestion = useCallback((wuId: string) => {
-    const mid = waitingQuestionIdByWu.get(wuId);
+    const mid = needInput.questionIdByWu.get(wuId);
     if (!mid) {
       toast.warning('提问消息缺少定位锚点，无法定位');
       return;
     }
     locateMessage(mid);
-  }, [waitingQuestionIdByWu, locateMessage]);
+  }, [needInput, locateMessage]);
 
   // 通知中心点击直达（?highlight=<mid>）：每个 mid 只消费一次（防消息流更新反复重置高亮）；
   // 首拉未完成（loading）时等下一轮（防空列表误判不可达）。定位动作本体（含翻页/toast 兜底）在模块内
@@ -447,10 +419,8 @@ export function ChannelDetailPage() {
   // #493：「等待 agent」状态条——agent 已响应（该 WU 的 agent 新消息到达）即 render 派生隐藏，
   // 不做 effect 内同步 setState；state 本体由 30s 兜底定时器清理（agent 无响应时条不常住；
   // 30s 口径 > 唤醒+认领秒级路径，loop 异常时由工作条/建议片承接下来）
-  const agentAnswered = !!awaitingAgent && messages.some(m =>
-    m.authorType === 'agent' && m.workUnitId === awaitingAgent.wuId &&
-    new Date(m.createdAt).getTime() >= awaitingAgent.since
-  );
+  // #548：判定本体迁出页面——agentAnsweredOf（channelMessageStore 旁挂纯函数），本页只消费派生结果
+  const agentAnswered = agentAnsweredOf(messages, awaitingAgent);
   useEffect(() => {
     if (!awaitingAgent) return;
     const timer = setTimeout(() => setAwaitingAgent(null), 30_000);
@@ -461,56 +431,41 @@ export function ChannelDetailPage() {
   // 口径 = 全部新到达消息（含自己发送的回显——消息模型只有 authorType 无 authorId，区分不到个人，
   // 与 useStreamFollow ownSendPending 窗口同一局限）；首拉与翻页 prepend/水合归并的历史不标
   // （createdAt 早于到达前最新一条即历史）。2s 后移类，经 .mc-msg 基类过渡渐隐
-  const [freshMsgIds, setFreshMsgIds] = useState<ReadonlySet<string>>(new Set());
-  const msgTrackRef = useRef<{ ids: Set<string>; latestTs: number } | null>(null);
-  const freshMsgTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => {
-    if (messages.length === 0) return;
-    const ts = (m: ChannelMessage) => new Date(m.createdAt).getTime();
-    const track = msgTrackRef.current;
-    if (!track) {
-      // 首载：全部记为已见，不高亮
-      msgTrackRef.current = { ids: new Set(messages.map(m => m.id)), latestTs: ts(messages[messages.length - 1]) };
-      return;
-    }
-    const arrived = messages.filter(m => !track.ids.has(m.id) && ts(m) >= track.latestTs);
-    for (const m of messages) track.ids.add(m.id);
-    track.latestTs = Math.max(track.latestTs, ts(messages[messages.length - 1]));
-    if (arrived.length === 0) return;
-    setFreshMsgIds(prev => {
-      const next = new Set(prev);
-      for (const m of arrived) next.add(m.id);
-      return next;
-    });
-    if (freshMsgTimerRef.current) clearTimeout(freshMsgTimerRef.current);
-    freshMsgTimerRef.current = setTimeout(() => setFreshMsgIds(new Set()), 2000);
-  }, [messages]);
-  useEffect(() => () => { if (freshMsgTimerRef.current) clearTimeout(freshMsgTimerRef.current); }, []);
+  // #548：判定本体迁出页面——useFreshMessageIds（hooks/），本页只消费派生集合
+  const freshMsgIds = useFreshMessageIds(messages);
+
+  // #547：频道消息环境——横切值单 Provider 下发，消息项 useContext 自取（公开 Props 收窄）。
+  // #322 契约不变量：成员全为稳定引用（useCallback/镜像 ref），useMemo 组装后 value identity
+  // 不随页面重渲变化 → context 零扇出；highlightId/focusedId/freshMsgIds 等 volatile state 禁入
+  const messageEnv = useMemo<ChannelMessageEnv>(() => ({
+    onAction: handleAction,
+    onReply: handleReply,
+    findMessage,
+    channelId: id,
+    onOpenWorkUnit: openWu,
+    onOpenWorkUnitConfirm: openWuConfirm,
+    onOpenWorkUnitRuling: openWuRuling,
+    onOpenWorkUnitDirection: openWuDirection,
+    onOpenRequirement: openReq,
+    onInlineReply: handleInlineReply,
+    onQuoteClick: locateMessage,
+  }), [handleAction, handleReply, findMessage, id, openWu, openWuConfirm, openWuRuling, openWuDirection, openReq, handleInlineReply, locateMessage]);
 
   // #322：提升为 useCallback——消除每次渲染新建的内联 render props（memo 稳定 props 契约）
-  const renderMessageItem = useCallback((msg: ChannelMessage, extra: Partial<Parameters<typeof ChannelMessageItem>[0]> = {}) => (
+  // #547：手喂面收窄到 message + 5 个 per-message 派生值（共 6 个）；横切值经 messageEnv 下发，
+  // 结构 props 经 ChannelStreamBody 封闭 extra（StreamMessageExtra）喂入
+  const renderMessageItem = useCallback((msg: ChannelMessage, extra: StreamMessageExtra = {}) => (
     <ChannelMessageItem
       key={msg.id}
       message={msg}
-      onAction={handleAction}
-      onReply={handleReply}
-      findMessage={findMessage}
-      channelId={id}
       waitingForInput={isWaitingForInput(msg)}
-      onOpenWorkUnit={openWu}
-      onOpenWorkUnitConfirm={openWuConfirm}
-      onOpenWorkUnitRuling={openWuRuling}
-      onOpenRequirement={openReq}
-      onInlineReply={handleInlineReply}
-      fileVocabulary={fileVocabulary}
       wuChangedFiles={msg.workUnitId ? wuChangedFiles[msg.workUnitId] : undefined}
       highlight={highlightId === msg.id}
-      onQuoteClick={locateMessage}
       fresh={freshMsgIds.has(msg.id)}
       focused={focusedId === msg.id}
       {...extra}
     />
-  ), [handleAction, handleReply, findMessage, id, isWaitingForInput, openWu, openWuConfirm, openWuRuling, openReq, handleInlineReply, fileVocabulary, wuChangedFiles, highlightId, locateMessage, freshMsgIds, focusedId]);
+  ), [isWaitingForInput, wuChangedFiles, highlightId, freshMsgIds, focusedId]);
 
   if (!id) return <div className="mc-stream-empty" style={{ height: '100%' }}>频道不存在或链接无效</div>;
 
@@ -546,7 +501,7 @@ export function ChannelDetailPage() {
             一条横带回答「这个频道的工作现在什么状态」；hook 自持有，step 事件只重渲该组件边界；
             currentWu = 建议端点 currentWuId × channelWus（拣选口径单源在后端，未命中 fail-closed 主区不渲染）；
             点击条目打开对应 WU 抽屉（过程明细仍在抽屉） */}
-        <ChannelWorkBar channelId={id} currentWu={currentWu} onOpenWorkUnit={openWu} gate={workBarGate} wuIdle={wuIdleOf(suggestionsSlice)} />
+        <ChannelWorkBar channelId={id} currentWu={currentWu} onOpenWorkUnit={openWu} wuIdle={wuIdleOf(suggestionsSlice)} />
 
         {/* Message list
             #325：头部块（空态/加载更早/折叠 toggle）与消息体分离——
@@ -609,7 +564,10 @@ export function ChannelDetailPage() {
           </div>
           {/* #531：items → DOM 结构分支（virtual/non-virtual + spacer/translateY + 三 kind 分派 +
               skeleton 占位）收编 ChannelStreamBody；renderMessageItem 与 highlightId 由本页注入 */}
-          <ChannelStreamBody stream={stream} renderMessage={renderMessageItem} highlightId={highlightId} />
+          {/* #547：频道消息环境 Provider——横切值经 Context 下发到每条消息项（value 全稳定引用，见上方 useMemo） */}
+          <ChannelMessageEnvProvider value={messageEnv}>
+            <ChannelStreamBody stream={stream} renderMessage={renderMessageItem} highlightId={highlightId} />
+          </ChannelMessageEnvProvider>
           {/* #289: 偏离底部时浮出「回到底部」（sticky 贴滚动视口底部，不占流内高度）；
               批次 E-3：钉底跟随期间到达的新消息计数进浮钮文案，点击回底后清零 */}
           {showJumpToBottom && (

@@ -4,17 +4,18 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
-const { mockResume, mockClose, mockSubmitRuling } = vi.hoisted(() => ({
+const { mockResume, mockClose, mockSubmitRuling, mockSubmitDirection } = vi.hoisted(() => ({
   mockResume: vi.fn(),
   mockClose: vi.fn(),
   mockSubmitRuling: vi.fn(),
+  mockSubmitDirection: vi.fn(),
 }));
 
 vi.mock('../../../api/workunit', async () => {
   const actual = await vi.importActual<typeof import('../../../api/workunit')>('../../../api/workunit');
   return {
     ...actual,
-    workunitApi: { ...actual.workunitApi, resume: mockResume, close: mockClose, submitRuling: mockSubmitRuling },
+    workunitApi: { ...actual.workunitApi, resume: mockResume, close: mockClose, submitRuling: mockSubmitRuling, submitDirection: mockSubmitDirection },
   };
 });
 
@@ -176,6 +177,67 @@ describe('BlockedActions — #467 裁决轮（plan-ruling）', () => {
     fireEvent.click(screen.getByRole('button', { name: '去裁决' }));
     fireEvent.click(await screen.findByRole('button', { name: '全部采纳' }));
     expect(await screen.findByText('该任务无待裁的裁决轮')).toBeTruthy();
+    expect(onChanged).not.toHaveBeenCalled();
+  });
+});
+
+describe('BlockedActions — #567 方向锁定（plan-direction）', () => {
+  const directionMeta = {
+    waitingForInput: true,
+    waitingReason: 'plan-direction',
+    planDirections: {
+      question: '存储自研还是引入依赖？',
+      options: [
+        { name: '自研存储层', summary: '自控力强', tradeoffs: '周期长', impact: '触及 storage 模块', recommended: true },
+        { name: '引入 SQLite 库', summary: '快速落地', tradeoffs: '绑定上游', impact: '新增依赖', recommended: false },
+      ],
+    },
+  };
+
+  beforeEach(() => {
+    mockSubmitDirection.mockResolvedValue({ data: blockedWu({}, { status: 'active' }) });
+  });
+
+  it('plan-direction 挂起 → 显示「去选定」，不显示「继续执行」（NEED_INPUT 型；方向须带选定结论）', () => {
+    render(<BlockedActions wu={blockedWu(directionMeta, { type: 'plan' })} />);
+    expect(screen.getByRole('button', { name: '去选定' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '继续执行' })).toBeNull();
+  });
+
+  it('点「去选定」→ 弹 PlanDirectionDialog（抉择点 + 候选卡）；提交 → submitDirection + onChanged', async () => {
+    const onChanged = vi.fn();
+    render(<BlockedActions wu={blockedWu(directionMeta, { type: 'plan' })} onChanged={onChanged} />);
+    fireEvent.click(screen.getByRole('button', { name: '去选定' }));
+    expect(await screen.findByText('存储自研还是引入依赖？')).toBeTruthy();
+
+    // 改选非推荐项 + 补充说明
+    fireEvent.click(screen.getByLabelText('方向：引入 SQLite 库'));
+    fireEvent.change(screen.getByLabelText('补充说明'), { target: { value: '赶工期' } });
+    fireEvent.click(screen.getByRole('button', { name: '锁定所选方向' }));
+    await waitFor(() => expect(mockSubmitDirection).toHaveBeenCalledWith('WU-1', {
+      choice: '引入 SQLite 库',
+      note: '赶工期',
+    }));
+    await waitFor(() => expect(onChanged).toHaveBeenCalled());
+  });
+
+  it('autoDirection（接力卡「去选定」打开即弹）→ 挂载即自动弹窗（一次性）', async () => {
+    render(<BlockedActions wu={blockedWu(directionMeta, { type: 'plan' })} autoDirection />);
+    expect(await screen.findByText('存储自研还是引入依赖？')).toBeTruthy();
+  });
+
+  it('非 plan-direction 的 blocked → 无「去选定」入口', () => {
+    render(<BlockedActions wu={blockedWu({ waitingForInput: true, waitingQuestion: 'q' })} />);
+    expect(screen.queryByRole('button', { name: '去选定' })).toBeNull();
+  });
+
+  it('submitDirection 失败 → 错误内联（弹窗保持打开），不触发 onChanged', async () => {
+    const onChanged = vi.fn();
+    mockSubmitDirection.mockRejectedValue(new Error('该任务无待选的方向'));
+    render(<BlockedActions wu={blockedWu(directionMeta, { type: 'plan' })} onChanged={onChanged} />);
+    fireEvent.click(screen.getByRole('button', { name: '去选定' }));
+    fireEvent.click(await screen.findByRole('button', { name: '锁定推荐方向' }));
+    expect(await screen.findByText('该任务无待选的方向')).toBeTruthy();
     expect(onChanged).not.toHaveBeenCalled();
   });
 });

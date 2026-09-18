@@ -5,6 +5,8 @@
  *
  * - 分类口径 = #172 落地的 envelope level：level=debug（knowledge:*、tool:call 默认分级）
  *   为噪声；其余（缺省 info / warning / critical）为信号。显式 level 字段优先于 type 默认分级。
+ *   例外：knowledge:skill_used 自 skill 度量地基票 C（2026-09-15）起发射点显式
+ *   level=info → 归 signal（skill 使用度量需归档保留）；type 大类默认不变。
  * - 噪声：热文件内超过 7 天（NOISE_RETENTION_DAYS）即滚动删除，不进归档。
  * - 信号：热文件保留 30 天（SIGNAL_HOT_DAYS，趋势探测/复盘直读纯文本），超期按事件月份
  *   切 `archive/studio-events-YYYY-MM.jsonl.gz`（相对热文件目录）永久保留——冷包只增不删；

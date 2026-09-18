@@ -9,6 +9,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { projectApi, type DeliveryStatus, type DeliveryGap } from '../../api';
 import { workunitApi, type ReviewConfirmPayload } from '../../api/workunit';
+import { createGateWriter } from '../../utils/gateWriter';
 import { formatFullTime } from '../../utils/datetime';
 import { toast } from '../../utils/toast';
 import { AnalysisApproveDialog } from './AnalysisApproveDialog';
@@ -58,6 +59,9 @@ export function DeliveryPanel({ projectId, delivery, onRefresh }: DeliveryPanelP
     setApproveGap({ gap, prefill, channelId });
   };
 
+  // #545：闸门写路径收口进 gateWriter（gaps 非 WU 快照宿主，无 sink——成功后 onRefresh 重拉台账）
+  const gateWriter = createGateWriter();
+
   // 🆕 F6-c: 缺口行动——重跑 L1 验证 / 补派 L2 评审 / L3 人工确认
   const handleGapAction = async (gap: DeliveryGap, action: 'verify' | 'dispatchReview' | 'reviewPassed', summary?: string, assigneeId?: string, confirm?: ReviewConfirmPayload) => {
     const key = `${gap.id}:${action}`;
@@ -77,7 +81,7 @@ export function DeliveryPanel({ projectId, delivery, onRefresh }: DeliveryPanelP
         toast.success('已创建评审任务，待 agent 领取');
         await onRefresh();
       } else {
-        await workunitApi.reviewPassed(gap.id, summary, assigneeId, confirm);
+        await gateWriter.reviewPassed(gap.id, summary, assigneeId, confirm);
         toast.success('人工确认已补齐');
         await onRefresh();
       }
@@ -321,7 +325,7 @@ export function DeliveryPanel({ projectId, delivery, onRefresh }: DeliveryPanelP
           }}
           onReject={async reason => {
             const gap = approveGap.gap;
-            await workunitApi.reviewRejected(gap.id, reason);
+            await gateWriter.reviewRejected(gap.id, reason);
             toast.success('已打回，待补充修订');
             setApproveGap(null);
             await onRefresh();

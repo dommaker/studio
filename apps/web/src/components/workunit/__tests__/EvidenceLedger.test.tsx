@@ -1,7 +1,7 @@
 /**
  * EvidenceLedger tests — drawer/card 两变体的共享口径与差异呈现
  * 共享：层标签 / 行格式 `{kind} · {by 前 8 位} · {时间}` / 存量空态文案 / l2.summary 评审结论行
- * 差异：drawer = mc-kv + ✓/✗ 前缀；card = card 容器 + 通过/拒绝徽章
+ * 差异：drawer = mc-kv + 图标前缀（批次 I-5a ✓/✗ → IconCheck/IconX）；card = card 容器 + 通过/拒绝徽章
  */
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
@@ -15,26 +15,29 @@ const baseAttestations: WuAttestations = {
 };
 
 describe('EvidenceLedger drawer 变体', () => {
-  it('三层标签 + ✓/✗ 前缀行 + 评审结论；缺失层显示 —', () => {
-    render(<EvidenceLedger attestations={baseAttestations} variant="drawer" />);
+  it('三层标签 + 图标前缀行 + 评审结论；缺失层显示 —', () => {
+    const { container } = render(<EvidenceLedger attestations={baseAttestations} variant="drawer" />);
     expect(screen.getByText('证据台账')).toBeTruthy();
     expect(screen.getByText('自动验证')).toBeTruthy();
     expect(screen.getByText('Agent 评审')).toBeTruthy();
     expect(screen.getByText('人工确认')).toBeTruthy();
-    expect(screen.getByText(/✓ verify · profile-/)).toBeTruthy();
-    expect(screen.getByText(/✓ agent-review · 76d96d35/)).toBeTruthy();
+    expect(screen.getByText(/verify · profile-/)).toBeTruthy();
+    expect(screen.getByText(/agent-review · 76d96d35/)).toBeTruthy();
+    // 两条已批准证据行各挂一枚 verdict 图标（批次 I-5a ✓/✗ → SVG）
+    expect(container.querySelectorAll('svg').length).toBe(2);
     expect(screen.getByText('评审结论：实现正确')).toBeTruthy();
     expect(screen.getByText('—')).toBeTruthy();
   });
 
-  it('rejected  verdict 显示 ✗ 前缀', () => {
-    render(
+  it('rejected  verdict 显示拒绝图标前缀', () => {
+    const { container } = render(
       <EvidenceLedger
         attestations={{ l1: { verdict: 'rejected', by: 'profile-dev-1', at: '2026-07-19T10:50:00Z', kind: 'verify' } }}
         variant="drawer"
       />
     );
-    expect(screen.getByText(/✗ verify · profile-/)).toBeTruthy();
+    expect(screen.getByText(/verify · profile-/)).toBeTruthy();
+    expect(container.querySelectorAll('svg').length).toBe(1);
   });
 
   it('存量 WU（attestations undefined）显示未介入说明', () => {
@@ -59,8 +62,8 @@ describe('EvidenceLedger card 变体', () => {
     expect(screen.getByText('自动验证')).toBeTruthy();
     expect(screen.getByText('Agent 评审')).toBeTruthy();
     expect(screen.getByText('人工确认')).toBeTruthy();
-    expect(screen.getAllByText('✓ 通过').length).toBe(2);
-    expect(screen.getByText('✗ 拒绝')).toBeTruthy();
+    expect(screen.getAllByText('通过').length).toBe(2);
+    expect(screen.getByText('拒绝')).toBeTruthy();
     expect(screen.getByText(/agent-review · 76d96d35/)).toBeTruthy();
     expect(screen.getByText(/human-confirm · human-ad/)).toBeTruthy();
     expect(screen.getByText('评审结论：实现正确')).toBeTruthy();

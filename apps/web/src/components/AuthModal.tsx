@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../stores/authStore';
 import { authApi } from '../api';
+import { Modal } from './ui';
 
 interface Props {
   onClose: () => void;
@@ -39,14 +40,8 @@ export function AuthModal({ onClose }: Props) {
   };
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div
-        className="modal"
-        style={{ maxWidth: '24rem' }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* 批次 G-2：24px → token；留内联因 .modal-body 未分层自带 padding，Tailwind 工具类压不过（ui/Modal:88 同款先例） */}
-        <div className="modal-body" style={{ padding: 'var(--space-5)' }}>
+    // 批次 I-2：收编 ui/Modal（§4.3 正本）；bodyStyle 保原 24px 整体 padding（原手写 modal-body 内联 space-5）
+    <Modal onClose={onClose} maxWidth="24rem" bodyStyle={{ padding: 'var(--space-5)' }}>
         {/* OAuth buttons */}
         <div className="space-y-2 mb-4">
           <button
@@ -107,8 +102,6 @@ export function AuthModal({ onClose }: Props) {
             忘记密码？
           </a>
         </div>
-        </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

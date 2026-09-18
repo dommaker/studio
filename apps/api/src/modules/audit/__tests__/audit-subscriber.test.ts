@@ -1,5 +1,5 @@
 // audit-subscriber 单测（#324）：直订 eventBus 的 events:audit，
-// handler 收对象 payload（发布方 harness/hooks/audit.ts 本就直发对象），
+// handler 收对象 payload（发布方 harness/audit.ts 本就直发对象），
 // 以原形态持久化到 KnowledgeStore（sharedStore.save，content = 事件 JSON）。
 import { describe, it, expect, afterAll, vi } from 'vitest';
 import { eventBus } from '@dommaker/studio-shared';

@@ -228,14 +228,31 @@ describe('channelWorkStore — applyWorkunitSnapshot（status_changed 全量快�
   });
 });
 
-describe('channelWorkStore — applyGateResult（闸门动作 write-through）', () => {
-  it('直替命中条目；未打底频道 no-op 不建 slice', async () => {
-    mockWuList.mockResolvedValue({ data: { success: true, data: [wuFixture('wu-1')] } });
+describe('channelWorkStore — applyWorkunitRemoved（workunit:removed 删行分支，#538）', () => {
+  beforeEach(() => {
+    mockWuList.mockResolvedValue({ data: { success: true, data: [wuFixture('wu-1'), wuFixture('wu-2')] } });
+  });
+
+  it('已打底频道：按 id 删行，其余行不动', async () => {
     await useChannelWorkStore.getState().ensureWus('ch-1');
-    useChannelWorkStore.getState().applyGateResult('ch-1', wuFixture('wu-1', { status: 'review' }));
-    expect(useChannelWorkStore.getState().wus['ch-1']![0].status).toBe('review');
-    useChannelWorkStore.getState().applyGateResult('ch-9', wuFixture('wu-1', { channelId: 'ch-9' }));
+    useChannelWorkStore.getState().applyWorkunitRemoved('ch-1', 'wu-1');
+    const list = useChannelWorkStore.getState().wus['ch-1']!;
+    expect(list.map(w => w.id)).toEqual(['wu-2']);
+  });
+
+  it('未打底频道 / 未知 id：no-op', async () => {
+    useChannelWorkStore.getState().applyWorkunitRemoved('ch-9', 'wu-1');
     expect(useChannelWorkStore.getState().wus['ch-9']).toBeUndefined();
+
+    await useChannelWorkStore.getState().ensureWus('ch-1');
+    useChannelWorkStore.getState().applyWorkunitRemoved('ch-1', 'wu-404');
+    expect(useChannelWorkStore.getState().wus['ch-1']).toHaveLength(2);
+  });
+
+  it('坏负载（空 id）no-op', async () => {
+    await useChannelWorkStore.getState().ensureWus('ch-1');
+    useChannelWorkStore.getState().applyWorkunitRemoved('ch-1', '');
+    expect(useChannelWorkStore.getState().wus['ch-1']).toHaveLength(2);
   });
 });
 

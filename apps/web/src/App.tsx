@@ -40,6 +40,7 @@ import { WebSocketProvider } from './api/websocket';
 import { channelApi } from './api/channel';
 import { useRosterStore } from './stores/rosterStore';
 import { useRequirementChainStoreSync } from './hooks/useRequirementChainStoreSync';
+import { useWorkUnitStoreSync } from './hooks/useWorkUnitStoreSync';
 import { usePmoDataStoreSync } from './hooks/usePmoDataStoreSync';
 import { useGlobalShortcuts } from './hooks/useGlobalShortcuts';
 import { StudioRoleSetupModal } from './components/setup/StudioRoleSetupModal';
@@ -57,6 +58,13 @@ function RequirementChainSync() {
 // #456：PMO 数据面接线（App 级单点、零渲染；消费方分布在 PMO/阅览室/FileRefChip，不随页面挂卸增减）
 function PmoDataSync() {
   usePmoDataStoreSync();
+  return null;
+}
+
+// #549：WU 数据面 SSE 被动写收口（App 级单点、零渲染；消费方分布在 ListPage/Drawer，
+// 事件路由唯一一份在 useWorkUnitStoreSync，页面退回 store 订阅者）
+function WorkUnitStoreSync() {
+  useWorkUnitStoreSync();
   return null;
 }
 
@@ -176,6 +184,8 @@ export default function App() {
       <RequirementChainSync />
       {/* #456：PMO 数据面接线（App 级单点） */}
       <PmoDataSync />
+      {/* #549：WU 数据面 SSE 接线（App 级单点） */}
+      <WorkUnitStoreSync />
       {/* AC-2.2: studio 角色 provider=null 弹框 */}
       <StudioRoleSetupModal
         open={studioRoleSetupOpen}

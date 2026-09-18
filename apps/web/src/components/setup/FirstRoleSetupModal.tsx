@@ -15,8 +15,7 @@
 import { useState } from 'react';
 import { useDetectedProviders, buildProviderOptions } from '../../hooks/useDetectedProviders';
 import { FIRST_ROLE_SETUP_SESSION_KEY } from './dismissed';
-import { Select } from '../ui';
-import '../../styles/theme.css';
+import { Select, Modal } from '../ui';
 
 /** onCreate 成功时回传的创建结果（AgentProfile 最小子集，供「加入频道」步使用） */
 export interface CreatedRole {
@@ -113,24 +112,14 @@ export function FirstRoleSetupModal({ open, onClose, onCreate, onJoinChannel }: 
   };
 
   if (step === 'join' && createdRole) {
+    // 批次 I-2：收编 ui/Modal（§4.3 正本）
     return (
-      <div className="modal-overlay" onClick={onClose}>
-        <div className="modal" style={{ maxWidth: '400px' }} onClick={(e) => e.stopPropagation()}>
-          <div className="modal-header">
-            <h2 className="modal-title">角色已创建</h2>
-            <button className="modal-close" onClick={onClose} aria-label="关闭">×</button>
-          </div>
-          <div className="modal-body">
-            <p className="u-text-2 text-sm mb-3">
-              @{createdRole.name} 已创建。角色要加入频道才能接收任务和 @ 消息——把它加入 #研发 频道就可以开始派活了。
-            </p>
-            {joinError && (
-              <p className="u-err text-sm mb-3">
-                {joinError}
-              </p>
-            )}
-          </div>
-          <div className="modal-footer">
+      <Modal
+        onClose={onClose}
+        maxWidth="400px"
+        title="角色已创建"
+        footer={
+          <>
             <button className="btn btn-secondary" onClick={onClose} disabled={joining}>跳过</button>
             <button
               className="btn btn-primary"
@@ -140,20 +129,41 @@ export function FirstRoleSetupModal({ open, onClose, onCreate, onJoinChannel }: 
             >
               {joining ? '加入中…' : '加入 #研发频道'}
             </button>
-          </div>
-        </div>
-      </div>
+          </>
+        }
+      >
+        <p className="u-text-2 text-sm mb-3">
+          @{createdRole.name} 已创建。角色要加入频道才能接收任务和 @ 消息——把它加入 #研发 频道就可以开始派活了。
+        </p>
+        {joinError && (
+          <p className="u-err text-sm mb-3">
+            {joinError}
+          </p>
+        )}
+      </Modal>
     );
   }
 
+  // 批次 I-2：收编 ui/Modal（§4.3 正本）；onClose=handleDismiss（关窗即 sessionStorage 标记）
   return (
-    <div className="modal-overlay" onClick={handleDismiss}>
-      <div className="modal" style={{ maxWidth: '400px' }} onClick={(e) => e.stopPropagation()}>
-        <div className="modal-header">
-          <h2 className="modal-title">请创建角色</h2>
-          <button className="modal-close" onClick={handleDismiss} aria-label="关闭">×</button>
-        </div>
-        <div className="modal-body">
+    <Modal
+      onClose={handleDismiss}
+      maxWidth="400px"
+      title="请创建角色"
+      footer={
+        <>
+          <button className="btn btn-secondary" onClick={handleDismiss} disabled={creating}>稍后</button>
+          <button
+            className="btn btn-primary"
+            onClick={handleCreate}
+            disabled={!name.trim() || !provider || creating}
+            data-testid="first-role-create"
+          >
+            {creating ? '创建中…' : '创建'}
+          </button>
+        </>
+      }
+    >
           <p className="u-text-2 text-sm mb-3">
             Agent Network 需要至少一个角色才能接收任务。请创建你的第一个角色。
           </p>
@@ -168,7 +178,6 @@ export function FirstRoleSetupModal({ open, onClose, onCreate, onJoinChannel }: 
               placeholder="如 dev-agent、reviewer"
               style={{ width: '100%' }}
               data-testid="first-role-name"
-              autoFocus
             />
           </div>
           <div className="mb-3">
@@ -200,19 +209,6 @@ export function FirstRoleSetupModal({ open, onClose, onCreate, onJoinChannel }: 
               </p>
             )}
           </div>
-        </div>
-        <div className="modal-footer">
-          <button className="btn btn-secondary" onClick={handleDismiss} disabled={creating}>稍后</button>
-          <button
-            className="btn btn-primary"
-            onClick={handleCreate}
-            disabled={!name.trim() || !provider || creating}
-            data-testid="first-role-create"
-          >
-            {creating ? '创建中…' : '创建'}
-          </button>
-        </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

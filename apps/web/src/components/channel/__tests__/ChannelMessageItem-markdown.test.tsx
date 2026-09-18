@@ -4,6 +4,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import type { ChannelFileVocabulary, ChannelMessage } from '../../../api/channel';
+import { useChannelDataStore } from '../../../stores/channelDataStore';
+import { ChannelMessageEnvProvider } from '../ChannelMessageEnv';
 import { ChannelMessageItem } from '../ChannelMessageItem';
 
 const mockWriteText = vi.hoisted(() => vi.fn());
@@ -17,12 +19,17 @@ const agentMsg = (content: string): ChannelMessage => ({
   createdAt: '2026-08-19T00:00:00.000Z',
 });
 
-const renderItem = (message: ChannelMessage, fileVocabulary?: ChannelFileVocabulary) =>
-  render(
+const renderItem = (message: ChannelMessage, fileVocabulary?: ChannelFileVocabulary) => {
+  // #547：fileVocabulary 改经 channelDataStore 自取——测试按 env channelId 预置词表（无词表置空防串例）
+  useChannelDataStore.setState({ vocabulary: fileVocabulary ? { 'ch-1': fileVocabulary } : {} });
+  return render(
     <MemoryRouter>
-      <ChannelMessageItem message={message} onAction={vi.fn()} fileVocabulary={fileVocabulary} />
+      <ChannelMessageEnvProvider value={{ onAction: vi.fn(), channelId: 'ch-1' }}>
+        <ChannelMessageItem message={message} />
+      </ChannelMessageEnvProvider>
     </MemoryRouter>,
   );
+};
 
 describe('ChannelMessageItem — agent 消息 Markdown 渲染（#271）', () => {
   beforeEach(() => {
@@ -72,6 +79,21 @@ describe('ChannelMessageItem — agent 消息 Markdown 渲染（#271）', () => 
     };
     renderItem(agentMsg('改了 `src/index.ts`'), vocab);
     expect(screen.getByRole('button', { name: 'src/index.ts' })).toBeTruthy();
+  });
+
+  it('#547：fileVocabulary 不经 props——消息项按 env channelId 自 useChannelDataStore 取词表染 chip', () => {
+    const vocab: ChannelFileVocabulary = {
+      repos: [{ repo: '/repo/studio', files: ['src/store.ts'] }],
+    };
+    useChannelDataStore.setState({ vocabulary: { 'ch-1': vocab } });
+    render(
+      <MemoryRouter>
+        <ChannelMessageEnvProvider value={{ onAction: vi.fn(), channelId: 'ch-1' }}>
+          <ChannelMessageItem message={agentMsg('改了 `src/store.ts`')} />
+        </ChannelMessageEnvProvider>
+      </MemoryRouter>,
+    );
+    expect(screen.getByRole('button', { name: 'src/store.ts' })).toBeTruthy();
   });
 });
 

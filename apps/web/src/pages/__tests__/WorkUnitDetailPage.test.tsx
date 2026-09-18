@@ -78,6 +78,15 @@ vi.mock('../../api/websocketHooks', () => ({
   useWebSocketContext: () => ({ onEvent: () => () => {}, onReconnect: () => () => {} }),
 }));
 
+// #545：gateWriter 的 store 双写落点在模块级测试单点覆盖；本文件 stub 掉两个 store，
+// 防真实 markSuggestionsDirty 防抖定时器跨测悬挂（API 透传 + onUpdated 直替仍走真实 gateWriter）
+vi.mock('../../stores/channelWorkStore', () => ({
+  useChannelWorkStore: { getState: () => ({ applyWorkunitSnapshot: vi.fn(), markSuggestionsDirty: vi.fn() }) },
+}));
+vi.mock('../../stores/workunitStore', () => ({
+  useWorkUnitStore: { getState: () => ({ applyWorkunitEvent: vi.fn() }) },
+}));
+
 // #174: TranscriptViewer 桩（组件自身契约在 __tests__/TranscriptViewer.test.tsx 覆盖）
 vi.mock('../../components/workunit/TranscriptViewer', () => ({
   TranscriptViewer: ({ workUnitId }: { workUnitId: string }) =>
@@ -315,9 +324,9 @@ describe('WorkUnitDetailPage', () => {
     expect(screen.getByText('自动验证')).toBeDefined();
     expect(screen.getByText('Agent 评审')).toBeDefined();
     expect(screen.getByText('人工确认')).toBeDefined();
-    expect(screen.getByText(/✓ verify · /)).toBeDefined();
-    expect(screen.getByText(/✓ agent-review · /)).toBeDefined();
-    expect(screen.getByText(/✓ human-confirm · /)).toBeDefined();
+    expect(screen.getByText(/verify · /)).toBeDefined();
+    expect(screen.getByText(/agent-review · /)).toBeDefined();
+    expect(screen.getByText(/human-confirm · /)).toBeDefined();
     expect(screen.getByText('评审结论：LGTM')).toBeDefined();
   });
 
@@ -437,7 +446,7 @@ describe('WorkUnitDetailPage', () => {
   });
 
   // #284（决策 #250 D1/F7-F9）：详情页（「新页面打开」落点）补齐闸门入口，与列表行/抽屉一致
-  it('#284：pending → 闸门动作节出「确认并开放领取」调 transitionStatus(unassigned) 并重拉详情；人闸 chip 上 stepper 下', async () => {
+  it('#284：pending → 闸门动作节出「确认并开放领取」调 transitionStatus(unassigned)，响应体快照直替本地 wu（#545 不再重拉）；人闸 chip 上 stepper 下', async () => {
     mockWuGet.mockResolvedValue({
       data: { ...baseWu, status: 'pending', completedAt: null, metadata: JSON.stringify({ title: '登录功能开发' }) },
     });
@@ -446,10 +455,12 @@ describe('WorkUnitDetailPage', () => {
     expect(screen.getByText(/待确认人闸/)).toBeDefined();
     fireEvent.click(screen.getByText('确认并开放领取'));
     await waitFor(() => expect(mockTransitionStatus).toHaveBeenCalledWith('wu-1', 'unassigned'));
-    await waitFor(() => expect(mockWuGet.mock.calls.length).toBeGreaterThanOrEqual(2));
+    // 快照直替：unassigned 无闸门 → 动作节消失；整页不重拉（get 仍只首屏一次）
+    await waitFor(() => expect(screen.queryByText('闸门动作')).toBeNull());
+    expect(mockWuGet).toHaveBeenCalledTimes(1);
   });
 
-  it('#284：in_review task → 通过直调 reviewPassed；拒绝带原因调 reviewRejected（与列表行一致）', async () => {
+  it('#284：in_review task → 通过直调 reviewPassed，响应体快照直替（done → 闸门节消失，不重拉）', async () => {
     mockWuGet.mockResolvedValue({
       data: { ...baseWu, status: 'in_review', completedAt: null, metadata: JSON.stringify({ title: '登录功能开发' }) },
     });
@@ -457,8 +468,17 @@ describe('WorkUnitDetailPage', () => {
 
     fireEvent.click(await screen.findByText('通过验收'));
     await waitFor(() => expect(mockReviewPassed).toHaveBeenCalledWith('wu-1', undefined, undefined, undefined));
+    await waitFor(() => expect(screen.queryByText('闸门动作')).toBeNull());
+    expect(mockWuGet).toHaveBeenCalledTimes(1);
+  });
 
-    fireEvent.click(screen.getByText('拒绝'));
+  it('#284：in_review task → 拒绝带原因调 reviewRejected（与列表行一致）', async () => {
+    mockWuGet.mockResolvedValue({
+      data: { ...baseWu, status: 'in_review', completedAt: null, metadata: JSON.stringify({ title: '登录功能开发' }) },
+    });
+    render(<WorkUnitDetailPage />);
+
+    fireEvent.click(await screen.findByText('拒绝'));
     fireEvent.change(screen.getByPlaceholderText(/拒绝原因/), { target: { value: '实现不符合预期' } });
     fireEvent.click(screen.getByText('确认拒绝'));
     await waitFor(() => expect(mockReviewRejected).toHaveBeenCalledWith('wu-1', '实现不符合预期'));

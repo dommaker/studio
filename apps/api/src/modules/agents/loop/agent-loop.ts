@@ -5,7 +5,12 @@
 // agent-loop-guards.js。知识搜索分析块（knowledge-search-analysis）零生产调用方，工单 43 已删。
 // 工单 05（2026-08）：prompt/上下文组装（含 buildSkill/Persona/RosterSection）→ prompt-composer.js；
 // DELEGATE 分支（建子单 + collab 元数据 + 降级文案）→ delegate-branch.js。
-// 本文件保留 AgentLoop 类编排逻辑 + re-export（对外导出语义不变）。
+// #541（2026-09）：agentStep 入口四段前置守卫（B2 测试 WU / C3 日预算 / #162 WU 预算 /
+// #471 plan 额度）→ step-guards.js（对称出口侧 completion-gates 的 Ctx/Deps/Outcome 模式）。
+// #543（2026-09）：agentStep 中段两段孪生重试骨架（#94 续用丢失降级 / #96 上下文溢出）
+// → step-retry-policy.js（同 Ctx/Deps/Outcome 模式，fake executor 直测占额/簿记回写）。
+// 本文件保留 AgentLoop 类编排逻辑；导出面 = AgentLoop + StepResult（#544 拆除 re-export 门面，
+// 测试 import 已迁真属主 agent-loop-parsers / agent-loop-events / agent-loop-guards）。
 import { execSync } from 'child_process';
 import { eventBus, logger, FileStore, parseChannels, withAttestation, isStaleClaimSleep, parseStreamEvents, type RuntimeStateData } from '@dommaker/studio-shared';
 import { TokenEstimator } from '@dommaker/harness';
@@ -23,57 +28,35 @@ import { postWuSystemMessage } from '../../workunit/wu-messenger.js';
 import type { MessageMeta } from '../../channels/channel-message.service.js';
 import { withBlockedCta } from '../../workunit/blocked-cta.js';
 import { parseWuMetadata, mergedWuView } from '../../workunit/wu-metadata.js';
-import { PLAN_STEP_LIMIT } from '../../workunit/workunit.types.js';
 import { hasUnfinishedDeps, buildStatusById } from '../../workunit/wu-dependencies.js';
 import { resolvePmoBranchForWU } from '../../requirements/pmo-branch-resolver.js';
 import { resolveStudioLogFile } from '../../../utils/studio-log-path.js';
 import { writeStudioEvent } from '../../../utils/studio-events.js';
 import { getErrorMessage } from '../../../utils/errors.js';
-import {
-  tokenBudgetGuardEnabled, resolveDailyTokenBudget, getDailyTokenUsage,
-  notifyBudgetTripped,
-} from './daily-token-budget.js';
 import { emitExecutionStepEvent, emitExecutionStreamLine, emitExecutionStreamStepStart, emitWorkUnitFailedEvent } from './execution-step-events.js';
 import { loadCurrentWuContexts, type CurrentWuContext } from '../../monitoring/current-wu-context.js';
 import { CODE_WORKTREE_TYPES, runWuVerification } from './wu-verification.js';
 import { runCompletionGuards } from './completion-gates.js';
-import { parseMapOpening } from '../../pmo/map-opening.js';
-import { parseSpecTasks } from '../../pmo/spec-materialization.js';
+import { runStepGuards } from './step-guards.js';
+import { harvestCompletionMetadata } from './completion-harvest.js';
 import type { StepResult, Observations, Target, RuntimeInstanceRow } from './agent-loop.types.js';
 import {
   isProcessAlive, isGitRepoRoot, resolveWorktreesDir,
-  resolveTarget, parseAgentOutput, dynamicInterval, parseReviewReport, parseTaskBreakdown,
-  parseOpportunities, parseDecisionConclusion,
+  resolveTarget, parseAgentOutput, dynamicInterval,
   sleep,
 } from './agent-loop-parsers.js';
 import {
   resolveRealUsage, writeWorkunitTokenEvent,
   resolveToolTraceFile, writeToolCallEvents, type RealUsage,
 } from './agent-loop-events.js';
-import { testWuGuardEnabled, isTestLikeWorkUnit, parseExcludeAssignee } from './agent-loop-guards.js';
+import { parseExcludeAssignee } from './agent-loop-guards.js';
+import { judgeClaimFitness, isRoleUnfit, parseUnfitRoles } from './claim-fitness.js';
 import { composeStepPrompt } from './prompt-composer.js';
 import { handleDelegateBranch } from './delegate-branch.js';
-import { shouldResumeSession, RESUME_FAILURE_RE } from './session-resume.js';
-import { isContextOverflowError, buildRollingSummary, OVERFLOW_SUMMARY_HEADER } from './context-overflow.js';
+import { shouldResumeSession } from './session-resume.js';
+import { runStepRetry, resetUnestablishedSessionBookkeeping, MAX_SESSIONS_PER_WU } from './step-retry-policy.js';
 import { WuLeaseTracker } from './wu-lease.js';
 import { appendTranscriptStep, transcriptPath } from '../../transcripts/transcript-archive.js';
-
-// 输出解析/prompt 构建纯函数已抽到 ./agent-loop-parsers.js（工单 28，行为不变）；
-// re-export 保持对外导出语义不变
-export {
-  isProcessAlive, isGitRepoRoot, resolveWorktreesDir,
-  resolveTarget, parseAgentOutput, dynamicInterval, parseReviewReport, parseTaskBreakdown,
-  parseDecisionConclusion,
-} from './agent-loop-parsers.js';
-
-// workunit:tokens / tool:call 事件落盘已抽到 ./agent-loop-events.js（工单 28，行为不变）；
-// re-export 保持对外导出语义不变
-export { resolveRealUsage, writeWorkunitTokenEvent, resolveToolTraceFile, writeToolCallEvents, WORKUNIT_TOKENS_SSE_TYPE } from './agent-loop-events.js';
-export type { WorkunitTokenEventArgs, RealUsage } from './agent-loop-events.js';
-
-// B2 测试特征 WU 守卫 + F4 excludeAssignee 解析已抽到 ./agent-loop-guards.js（工单 28，行为不变）；
-// re-export 保持对外导出语义不变
-export { testWuGuardEnabled, isTestLikeWorkUnit } from './agent-loop-guards.js';
 
 /** M2: workunit:tokens 事件写入目标（与 knowledge consumption/outcome 事件同一事件流）。
  *  STUDIO_EVENTS_JSONL 环境变量可覆盖（测试隔离用）；缺省走 resolveStudioLogFile ——
@@ -113,12 +96,8 @@ const STEP_WALL_CLOCK_MS = 1_800_000;
 const STEP_SILENCE_WARN_MS = 300_000;
 const STEP_SILENCE_KILL_MS = 600_000;
 
-/** B5（2026-08-03 token-burn issue P1-1）：每 WU 独立会话数上限（#95 由 2 放宽到 5）。
- *  会话反复重建（stuck 重开 / token 截断重开）意味着整段 transcript 全文重放重新烧一遍；
- *  超限说明自动执行已失控，转 need_input 等人工评估（#94 起人工回复不再重置预算——
- *  复活后凭 metadata.sessionId 优先续用旧会话，见 waiting-input.ts）。
- *  #95: 失败/超时的会话建立尝试计入预算（resetUnestablishedSession 不再清 sessionCount）。 */
-const MAX_SESSIONS_PER_WU = 5;
+// B5 每 WU 会话数上限 MAX_SESSIONS_PER_WU：#543 迁到 ./step-retry-policy.js（重试配额判定
+// 真属主，语义注释随迁），本文件新建会话签发（下方 sessionsUsed 检查）经 import 复用同一常量。
 
 /** F6-fix: 空闲分支心跳节流间隔 — agent-timeout-scan 阈值为 5min，45s 一次足够保活 */
 const IDLE_HEARTBEAT_INTERVAL_MS = 45_000;
@@ -130,7 +109,8 @@ const HEARTBEAT_FAIL_LIMIT = 3;
 
 // §10 P0 注入总预算（2K 红线）随 prompt 组装段一并迁到 ./prompt-composer.js（2026-08 工单 05）
 
-// 类型契约已抽到 ./agent-loop.types.js（工单 28，行为不变）；re-export 保持对外导出语义不变
+// 类型契约已抽到 ./agent-loop.types.js（工单 28，行为不变）；
+// StepResult re-export 保留——completion-gates 等生产消费方经本门面取类型（#544）
 export type { StepResult } from './agent-loop.types.js';
 
 export class AgentLoop {
@@ -146,8 +126,6 @@ export class AgentLoop {
   private lastIdleHeartbeatAt = 0;
   /** #330：事件驱动唤醒——空闲 sleep 的中断器（idleSleep 挂起期间非 null） */
   private wakeIdle: (() => void) | null = null;
-  /** #330：最近一轮 observe 的 myActive WU id 集——channel.message_sent 唤醒过滤口径 */
-  private lastActiveWuIds = new Set<string>();
   /** #330：channel.message_sent 订阅句柄（start 挂、stop 退） */
   private messageSentHandler: ((payload: { message?: { authorType?: string; workUnitId?: string | null } }) => void) | null = null;
   /** #493：唤醒闩锁——事件到达时 loop 不在 idleSleep（执行中/步骤间）则置 true，
@@ -285,17 +263,19 @@ export class AgentLoop {
       });
 
       // #330: 事件驱动唤醒——订阅 channel.message_sent（同进程 eventBus，先例 channel-review）。
-      // 人类消息且 workUnitId 命中当前 myActive 时打断空闲 sleep、立即跑一轮 observe；
-      // 窄过滤天然限流，不去抖。事件 fire-and-forget 无持久，15s 空闲兜底轮询保留
+      // 2026-09-16 放宽为「只放行不裁决」：人类消息带 workUnitId 即打断空闲 sleep 跑一轮 observe，
+      // 不再用 myActive 派生缓存否决（缓存在认领后首个 sleep 窗口必 stale，回复唤醒会被滤掉，
+      // 实测白等满 30s dynamicInterval）；归属裁决归 observe（幂等零 token），误醒廉价、漏醒人感。
+      // 事件 fire-and-forget 无持久，15s 空闲兜底轮询保留
       // （防未来跨进程写者与重启间隙——当前生产写消息路径全部经 channel-message.service 发事件；
       //  重启间隙的回复由启动首轮 observe 经 newReplies >= 口径捞回，#493）。
       // #493：过滤+闩锁逻辑收进 onChannelMessageSent（seam 可测）。
       this.messageSentHandler = (payload) => this.onChannelMessageSent(payload);
       eventBus.subscribe('channel.message_sent', this.messageSentHandler);
 
-      // #523（#515 决议 P0-2）：派生可认领路径同口径补唤醒——增订 workunit.status_changed，
-      // 过滤条件不变（claimable === true）：人闸确认（pending→unassigned）、unclaim 释放、
-      // reopen 全覆盖；blocked→active 复活等非认领路径被条件天然滤掉。零新事件类型。
+      // #523（#515 决议 P0-2）+ 2026-09-16 放宽：增订 workunit.status_changed——
+      // claimable===true（人闸确认/unclaim/reopen）或 assigneeId===本实例
+      // （含 NEED_INPUT 复活 blocked→active，旧口径把它滤掉导致回复后白等 30s）。零新事件类型。
       this.workunitChangedHandler = (payload) => this.onWorkUnitClaimable(payload);
       eventBus.subscribe('workunit.status_changed', this.workunitChangedHandler);
 
@@ -420,6 +400,12 @@ export class AgentLoop {
 
         // Claim if unassigned
         if (target.workUnit.status === 'unassigned') {
+          // 决策 14 认领前适任判断（「做不了的不抢」）：一次性 LLM 判 no → 落档
+          // metadata.unfitRoles 后本轮放弃；下一轮 observe 经第 7 道过滤自动看下一候选，
+          // 全部候选不适任则静默等待。成本与认领次数成正比，不进 observe 轮询
+          if (!(await this.ensureClaimFit(target.workUnit))) {
+            continue;
+          }
           const claimed = await this.claimAndAnnounce(target.workUnit);
           if (!claimed) {
             await sleep(1_000);
@@ -638,6 +624,83 @@ export class AgentLoop {
     } catch { /* best-effort：负载构建失败绝不阻断主循环 */ }
   }
 
+  /**
+   * 决策 14 认领前适任判断（agents/loop/claim-fitness.ts）。
+   * 显式指名（assigneeId=profile id，人已点名）不判直接放行；涌现认领才判。
+   * 判 no → recordClaimUnfit 落档 unfitRoles（含全员不适任转 blocked 检查）→ false。
+   * 判断本身从宽（judgeClaimFitness 内部全 catch）；落档失败同口径从宽放行——
+   * 宁可误抢（NEED_INPUT 兜底）也不可因 FileStore 抖动每轮空烧判断调用。
+   */
+  private async ensureClaimFit(wu: WorkUnitData): Promise<boolean> {
+    if (wu.assigneeId) return true;
+    const verdict = await judgeClaimFitness(wu, this.role);
+    if (verdict.fit) return true;
+    try {
+      await this.recordClaimUnfit(wu, verdict.reason);
+    } catch (err) {
+      logger.warn(`[AgentLoop] record unfitRoles failed — 从宽放行认领: ${getErrorMessage(err)}`, { wuId: wu.id });
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * 不适任落档：读-改-写合并最新 metadata 追加 unfitRoles 条目
+   * （读-改-写互覆防护同 completion-extraction 哨兵先例）。WU 已非 unassigned
+   * （他角色抢先认领）→ 不落档。落档后检查全员不适任 → 转 blocked 转人工。
+   */
+  private async recordClaimUnfit(wu: WorkUnitData, reason: string): Promise<void> {
+    const fresh = await this.workUnitService.getById(wu.id);
+    if (!fresh || fresh.status !== 'unassigned') return;
+    const unfitRoles = [
+      ...parseUnfitRoles(fresh.metadata).filter(e => e.roleId !== this.role.id),
+      { roleId: this.role.id, reason, at: new Date().toISOString() },
+    ];
+    await this.workUnitService.update(fresh.id, {
+      metadata: { ...parseWuMetadata(fresh.metadata), unfitRoles },
+    });
+    logger.info(`[AgentLoop] ${this.role.name} 认领前适任判断 = 不适任，已落档 unfitRoles`, {
+      wuId: fresh.id, reason,
+    });
+    await this.blockIfAllMembersUnfit(fresh.id, unfitRoles);
+  }
+
+  /**
+   * 全员不适任转人工：unfitRoles 覆盖该频道全部 active 成员（口径同
+   * review-dispatcher.getChannelActiveMembers：channel.members ∩ active profile，排除 studio）
+   * → WU 置 blocked + blockReason 落档 + 频道消息「无人能接」（仿现有 blocked 转人模式：
+   * withBlockedCta + 里程碑）。成员未知（历史频道未回填）/ 无频道 → 不判，保持涌现等待。
+   * 各步失败只记日志，不抛（调用方本轮已放弃认领，WU 保持 unassigned 等下轮/人工）。
+   */
+  private async blockIfAllMembersUnfit(wuId: string, unfitRoles: { roleId: string }[]): Promise<void> {
+    try {
+      const wu = await this.workUnitService.getById(wuId);
+      if (!wu?.channelId) return;
+      const channel = await this.fileStore.getChannel(wu.channelId);
+      const memberIds = parseChannels(channel?.members);
+      if (memberIds.length === 0) return;
+      const activeMembers = (await this.fileStore.listProfiles({ status: 'active' }))
+        .filter(p => memberIds.includes(p.id) && p.name !== 'studio');
+      if (activeMembers.length === 0) return;
+      const unfitIds = new Set(unfitRoles.map(e => e.roleId));
+      if (!activeMembers.every(p => unfitIds.has(p.id))) return;
+
+      const blockReason = `unfit-all: 频道 ${activeMembers.length} 个 active 角色认领前适任判断均为不适任`;
+      // unassigned → blocked 不在 VALID_TRANSITIONS，走语义方法直写（blockForManualRelease 先例）；
+      // 返回 null = 已非 unassigned（他角色抢先认领/状态迁移），不再转人工
+      const blocked = await this.workUnitService.blockForAllUnfit(wuId, blockReason);
+      if (!blocked) return;
+      logger.warn(`[AgentLoop] 全员不适任，WU 转 blocked 待人工`, { wuId, blockReason });
+      await this.postToDiscussionSpace(
+        wuId,
+        withBlockedCta('频道内无人能接此任务，已转 blocked 等待人工介入', blockReason),
+        blocked,
+      );
+    } catch (err) {
+      logger.warn(`[AgentLoop] blockIfAllMembersUnfit failed (non-blocking): ${getErrorMessage(err)}`, { wuId });
+    }
+  }
+
   /** Stop the agent loop and clean up */
   stop(): void {
     this.alive = false;
@@ -671,30 +734,35 @@ export class AgentLoop {
     }
   }
 
-  /** #330/#493：channel.message_sent 唤醒过滤 + 闩锁（独立方法供测试 seam 直驱） */
+  /** #330/#493 + 2026-09-16 放宽：channel.message_sent 唤醒过滤 + 闩锁（独立方法供测试 seam 直驱）。
+   *  只放行不裁决：人类消息且带 workUnitId 即醒（负载原始字段）；不再用 lastActiveWuIds
+   *  派生缓存否决（认领后首个 sleep 窗口缓存必 stale，回复唤醒 100% 被滤掉，实测白等 30s）。 */
   private onChannelMessageSent(payload: { message?: { authorType?: string; workUnitId?: string | null } }): void {
     const msg = payload?.message;
     if (!msg || msg.authorType !== 'human' || !msg.workUnitId) return;
-    if (!this.lastActiveWuIds.has(msg.workUnitId)) return;
     // #493：闩锁先行——不在 idleSleep（执行中/步骤间 sleep）时 wakeIdle 为 null，
     // 唤醒原样会丢；置闩后下一次 idleSleep 入口消费并立即放行重跑 observe
     this.pendingWake = true;
     this.wakeIdle?.();
   }
 
-  /** #523（#515 决议 P0-1/P0-2）：workunit.created / workunit.status_changed 唤醒过滤 + 闩锁
-   * （独立方法供测试 seam 直驱）。过滤口径 = 负载现成的 claimable === true——
-   * pending 人闸单/有依赖单不空唤醒；status_changed 同条件覆盖人闸确认、unclaim 释放、reopen，
-   * blocked→active 复活等非认领路径被条件天然滤掉。 */
+  /** #523（#515 决议 P0-1/P0-2）+ 2026-09-16 唤醒放宽（只放行不裁决）：
+   *  workunit.created / workunit.status_changed 唤醒过滤（独立方法供测试 seam 直驱）。
+   *  放行口径只用负载原始字段：claimable === true（可认领：pending 人闸单/有依赖单不空唤醒）
+   *  或 assigneeId === 本实例（我的单状态变化——含 NEED_INPUT 复活 blocked→active；
+   *  旧口径只放 claimable，复活被排除，实测回复后白等满 30s dynamicInterval）。
+   *  归属/可见性的最终裁决归 observe（幂等零 token），唤醒宁可误醒不可漏醒。 */
   private onWorkUnitClaimable(payload: unknown): void {
-    const wu = (payload as { workunit?: { claimable?: boolean } } | null)?.workunit;
-    if (wu?.claimable !== true) return;
+    const wu = (payload as { workunit?: { claimable?: boolean; assigneeId?: string | null } } | null)?.workunit;
+    if (!wu) return;
+    const mine = wu.assigneeId != null && wu.assigneeId === this.instance?.id;
+    if (wu.claimable !== true && !mine) return;
     this.pendingWake = true;
     this.wakeIdle?.();
   }
 
-  /** #330: 可中断的空闲/步间 sleep——channel.message_sent 命中 myActive、workunit 认领事件
-   * （#523 claimable === true）或 stop 时提前返回 */
+  /** #330: 可中断的空闲/步间 sleep——channel.message_sent（人类消息带 workUnitId）、
+   *  workunit 事件（claimable===true 或 assigneeId===本实例）或 stop 时提前返回 */
   private idleSleep(ms: number): Promise<void> {
     if (!this.alive) return Promise.resolve(); // stop 与进入 sleep 的竞态：已停则立即返回
     // #493：消费唤醒闩锁——挂起期间有唤醒意图未送达，不睡直接重跑一轮 observe
@@ -781,6 +849,9 @@ export class AgentLoop {
       if (parseExcludeAssignee(s.metadata) === this.role.id) return false;
       // #109（M4 接单过滤）：metadata.blockedBy 中有未 done 的 WU → 对所有 loop 不可见
       if (hasUnfinishedDeps(s.metadata, statusById)) return false;
+      // 决策 14 认领前适任判断：本角色已被判不适任（metadata.unfitRoles 含本 role.id）→ 不可见。
+      // 约束挂 WU 不挂角色身份（合规 ADR D2/决策 10），同 excludeAssignee 口径
+      if (isRoleUnfit(s.metadata, this.role.id)) return false;
       return true;
     }).sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
       .slice(0, 5)
@@ -795,8 +866,6 @@ export class AgentLoop {
       }));
 
     const activeWuIds = myActive.map(wu => wu.id);
-    // #330: 缓存 myActive 口径供 channel.message_sent 事件唤醒过滤
-    this.lastActiveWuIds = new Set(activeWuIds);
     // #330 扫描裁剪：只扫活跃 WU 所在频道（通常 1-2 个，原来是全频道无差别全扫）。
     // 任一活跃 WU 无 channelId 时退全扫（该 WU 回复可能落在任意频道）。
     // 已接受盲区：WU 换频道后旧频道里的新人类回复不再被扫到（换频道罕见，
@@ -825,90 +894,17 @@ export class AgentLoop {
     const wu = target.workUnit;
     const metadata = parseWuMetadata(wu.metadata);
 
-    // B2 守卫（2026-08-03 token-burn issue P0-1c）：测试特征 WU 不起会话、直接关闭。
-    // 历史事故：路由测试经共享数据根把测试 WU 写进生产 FileStore，daemon 当真任务逐个
-    // 起 Claude 会话执行（16 个会话 420 万 token）。关闭留痕 testWorkUnitGuard + blockReason。
-    if (testWuGuardEnabled() && isTestLikeWorkUnit(wu, metadata)) {
-      logger.warn('[AgentLoop] Test-like WorkUnit guarded — closing without execution', {
-        workUnitId: wu.id, scope: wu.scope,
-      });
-      await this.workUnitService.update(wu.id, {
-        metadata: { ...metadata, testWorkUnitGuard: true, blockReason: 'test-wu-guard: 测试特征任务，守卫关闭' },
-      }).catch(err => logger.warn('[AgentLoop] test-wu guard metadata write failed', { workUnitId: wu.id, error: String(err) }));
-      if (wu.status !== 'closed') {
-        await this.workUnitService.transitionStatus(wu.id, 'closed')
-          .catch(err => logger.warn('[AgentLoop] test-wu guard close failed', { workUnitId: wu.id, error: String(err) }));
-      }
-      await this.postToDiscussionSpace(wu.id, '检测到测试特征任务，已跳过执行并关闭（防止测试数据空烧 token）')
-        .catch(() => {});
-      return { action: 'skipped', summary: '' };
-    }
+    // 入口守卫链（#541，对称出口侧 completion-gates）：B2 测试特征 WU / C3 日 token 预算 /
+    // #162 WU 级 tokenBudget / #471 plan 步数额度四段「该不该跑这一步」前置判定抽到
+    // ./step-guards.js（顺序即优先级，首个命中短路）。命中即返回（skipped/need_input），放行继续。
+    const guardOutcome = await runStepGuards({ wu, metadata }, {
+      updateWuMetadata: (wuId, m) => this.workUnitService.update(wuId, { metadata: m }),
+      closeWu: wuId => this.workUnitService.transitionStatus(wuId, 'closed'),
+      postNotice: (wuId, text) => this.postToDiscussionSpace(wuId, text),
+      eventsFilePath: studioEventsJsonlPath,
+    });
+    if (guardOutcome.result) return guardOutcome.result;
 
-    // C3 守卫（2026-08-03 token-burn issue P2-2，决策记录 #4）：每日 token 预算熔断。
-    // 当日 billed 口径消耗 ≥ 预算（默认 2M/日，STUDIO_DAILY_TOKEN_BUDGET 覆盖，<=0 关闭）→
-    // 不起会话，WU 经 need_input 挂起（recordResult 落 waitingForInput + blockReason），
-    // 等次日本地零点预算复位或人工处置；全局当日只告警一次（studio:budget-tripped 事件留痕）。
-    // 用量走进程内计数器（daily-token-budget），仅首次/跨天全量扫一次事件文件，不拖慢热路径。
-    if (tokenBudgetGuardEnabled()) {
-      const dailyBudget = resolveDailyTokenBudget();
-      if (dailyBudget > 0) {
-        const eventsFile = studioEventsJsonlPath();
-        const daily = await getDailyTokenUsage({ eventsFile });
-        if (daily.usedTokens >= dailyBudget) {
-          logger.warn('[AgentLoop] Daily token budget tripped — pausing automatic execution', {
-            workUnitId: wu.id, usedTokens: daily.usedTokens, budget: dailyBudget,
-          });
-          if (!daily.notified) {
-            await notifyBudgetTripped({ eventsFile, usedTokens: daily.usedTokens, budget: dailyBudget });
-          }
-          return {
-            action: 'need_input' as const,
-            summary: `每日 token 预算已熔断（当日已用 ${daily.usedTokens.toLocaleString()} / 上限 ${dailyBudget.toLocaleString()}，billed 口径含 cache_read）：已暂停自动执行、不再起会话。次日（本地零点）预算复位后回复任意内容继续，或直接关闭任务`,
-          };
-        }
-      }
-    }
-    // #162（T8-E1，#130 决策 3）：WU 级 token 预算熔断。metadata.tokenBudget 显式数值
-    // （任何类型 WU 可带，与日预算无关、不吃 STUDIO_TOKEN_BUDGET_GUARD 开关——字段在场即生效），
-    // 对照 metadata._cumulativeTokens（billed 口径簿记，与日预算同口径）。超线复用日预算同款
-    // need_input 挂起路径（recordResult 落 waitingForInput + blockReason），不新造状态；
-    // waitingReason='wu-token-budget' 供 waiting-input 人三选分流（追加预算/收尾/放弃）。
-    // 人读面说人话：提示文案不出现 WU/metadata/闸/熔断等机制黑话。
-    if (typeof metadata.tokenBudget === 'number' && Number.isFinite(metadata.tokenBudget) && metadata.tokenBudget > 0) {
-      const wuBudget = Math.floor(metadata.tokenBudget);
-      const wuUsed = metadata._cumulativeTokens ?? 0;
-      if (wuUsed >= wuBudget) {
-        logger.warn('[AgentLoop] WU token budget reached — suspending for human decision', {
-          workUnitId: wu.id, usedTokens: wuUsed, budget: wuBudget,
-        });
-        return {
-          action: 'need_input' as const,
-          summary: `这项任务已消耗 ${wuUsed.toLocaleString()} token，达到为它设定的上限 ${wuBudget.toLocaleString()}，已暂停等你决定。回复：「追加预算」在上限之上再加 ${wuBudget.toLocaleString()} 继续执行；「追加预算 <数值>」把上限改为指定数值；「收尾」用现有产出提交审查；「放弃」结束任务`,
-          metadataUpdates: { waitingReason: 'wu-token-budget' },
-        };
-      }
-    }
-    // #471（Triage 定稿 1）：plan 步数额度熔断。一脉会话承载全规划链，额度高于
-    // implement（PLAN_STEP_LIMIT=60，常量与语义见 workunit.types.ts）。到线不走
-    // recordResult 的强制收口 in_review（plan 已从中豁免）——前置守卫在此转
-    // need_input 挂 blocked 转人，不静默截断；人回复即续期（waiting-input 给
-    // planStepAllowance 加一份 PLAN_STEP_LIMIT，复活回 active 续跑）。
-    if (wu.type === 'plan') {
-      const allowance = typeof metadata.planStepAllowance === 'number' && Number.isFinite(metadata.planStepAllowance) && metadata.planStepAllowance > 0
-        ? Math.floor(metadata.planStepAllowance)
-        : PLAN_STEP_LIMIT;
-      const planSteps = metadata.stepCount ?? 0;
-      if (planSteps >= allowance) {
-        logger.warn('[AgentLoop] Plan step limit reached — suspending for human decision', {
-          workUnitId: wu.id, stepCount: planSteps, allowance,
-        });
-        return {
-          action: 'need_input' as const,
-          summary: `这次规划已推进 ${planSteps} 步，达到为它设定的步数额度 ${allowance}，已暂停等你决定。回复任意内容（或「继续」）即续期 ${PLAN_STEP_LIMIT} 步接着跑；想收尾可在 Web 端点「通过」进入人工确认`,
-          metadataUpdates: { waitingReason: 'plan-step-limit' },
-        };
-      }
-    }
     // P0 修复 6: traceId 贯穿 — 频道消息 → WU metadata → 执行参数（extraEnv）与日志行
     const traceId = typeof metadata.traceId === 'string' && metadata.traceId ? metadata.traceId : undefined;
 
@@ -1202,112 +1198,36 @@ export class AgentLoop {
             errorAt: new Date().toISOString(),
           },
         });
-        let detail = (result.error ?? '未知错误').slice(0, 500);
+        const detail = (result.error ?? '未知错误').slice(0, 500);
         logger.error(`[AgentLoop] agentStep execution failed for ${wu.id}: ${detail}`, { traceId });
         // B6: 失败执行同样记账（CLI 已跑的轮次照样烧了 token，runner error 路径透出 usage）
         recordTokenEvent(result);
-        // #94 续用降级：仅续用步 + 「会话不存在」错误（档案 sessionId 对应会话已被清理）→
-        // 换发新 sessionId 重试一次（claude 传 --session-id、不带 sessionResume）。
+        // #543: #94 续用丢失降级与 #96 上下文溢出两段孪生重试骨架（配额判定 → 改参 →
+        // 重算 prompt → 再执行 → 成败分叉 → 簿记回写）收编到 ./step-retry-policy.js ——
+        // 本处只保留编排：注入 executor/prompt 重算/记账/失败事件 deps，按 outcome 分流。
         // 非续用类错误（超时/业务失败）与 catch 分支（spawn 异常）不触发；每步至多烧一次重试。
-        if (resumeSessionId && RESUME_FAILURE_RE.test(detail)) {
-          // #96: 收口 #95 降级超限 —— 续用降级重试也遵守 MAX_SESSIONS_PER_WU（删除 #94「绕过 MAX 一次」先例）。
-          if (sessionsUsed >= MAX_SESSIONS_PER_WU) {
-            logger.warn('[AgentLoop] Resume session lost and session limit reached — need human evaluation', {
-              workUnitId: wu.id, sessionsUsed, max: MAX_SESSIONS_PER_WU,
-            });
-            this.recordOutcomeEvent(wu, false, detail, 'execution_failed', injectedKnowledgeIds);
-            emitFailedStep('need_input', detail, result);
-            return {
-              action: 'need_input' as const,
-              summary: `续用会话已丢失且会话重建已达上限（${sessionsUsed}/${MAX_SESSIONS_PER_WU}）：已暂停自动执行。请人工评估后回复任意内容继续，或直接关闭任务`,
-              metadataUpdates,
-            };
-          }
-          const fallbackSessionId = randomUUID();
-          logger.warn(`[AgentLoop] Resume target session lost for ${wu.id} — falling back to a new session`, { traceId });
-          task.parameters!.sessionId = taskProvider === 'claude' ? fallbackSessionId : undefined;
-          delete task.parameters!.sessionResume;
-          // #95: 降级重试 = 一次新建会话尝试，成败均计入会话预算（失败/超时尝试计入）
-          metadataUpdates.sessionCount = sessionsUsed + 1;
-          // #95: 降级换新号 = 执行期续用不命中（断链新会话）——check 时 shouldResumeSession 判命中
-          // 未注入前序进展，执行才发现会话丢失。重算 prompt 以注入「前序进展」段 + 回放
-          // waitingQuestion（复用同一 ctx/deps；knowledge/skill 等段重复组装一次，副作用均 fire-and-forget）。
-          const recomposed = await composeStepPrompt(
-            { wu, metadata, newReplies: target.newReplies?.map(r => r.content), isNewSession: true },
-            composeDeps,
-          );
-          task.prompt = recomposed.prompt;
-          const retryResult: ExecutionResult = await this.executor.execute(task);
-          if (retryResult.success === false) {
-            // 降级重试仍失败 → 既有 failed 返回；新会话未建立，重置 sessionId 但保留 sessionCount（计入）
-            detail = (retryResult.error ?? '未知错误').slice(0, 500);
-            logger.error(`[AgentLoop] agentStep fallback retry failed for ${wu.id}: ${detail}`, { traceId });
-            recordTokenEvent(retryResult);
-            this.resetUnestablishedSession(metadataUpdates);
-            this.recordOutcomeEvent(wu, false, detail, 'execution_failed', injectedKnowledgeIds);
-            emitFailedStep('failed', detail, retryResult);
-            return failResult(detail);
-          }
-          // 降级成功：走正常成功路径；换新号落盘（sessionCount 已在查过 MAX 后计入）
-          result = retryResult;
-          effectiveSessionId = fallbackSessionId;
-          sessionResumed = false;
-          metadataUpdates.sessionId = fallbackSessionId;
-          metadataUpdates.lastSessionResumed = false;
-        } else if (isContextOverflowError(detail)) {
-          // #96: CLI 上下文溢出纯反应式策略 —— 溢出错误 → 会话滚动摘要落盘 → 新会话带摘要
-          // 注入重试一次 → 再败 NEED_INPUT。溢出重试 = 一次新建会话尝试，占会话配额
-          // （与 #95 失败/超时尝试计入语义一致，超限走 need_input，不静默绕过 MAX）。
-          // 摘要来源 = wu.scope + progressLog（会话内逐步 summary），不递归摘要、不建语义搜索。
-          const overflowSummary = buildRollingSummary(wu.scope, metadata);
-          metadataUpdates.sessionSummary = overflowSummary;
-          if (sessionsUsed >= MAX_SESSIONS_PER_WU) {
-            logger.warn('[AgentLoop] Context overflow and session limit reached — need human evaluation', {
-              workUnitId: wu.id, sessionsUsed, max: MAX_SESSIONS_PER_WU,
-            });
-            this.recordOutcomeEvent(wu, false, detail, 'execution_failed', injectedKnowledgeIds);
-            emitFailedStep('need_input', detail, result);
-            return {
-              action: 'need_input' as const,
-              summary: `CLI 上下文溢出且会话重建已达上限（${sessionsUsed}/${MAX_SESSIONS_PER_WU}）：已暂停自动执行。请人工评估后回复任意内容继续，或直接关闭任务`,
-              metadataUpdates,
-            };
-          }
-          const overflowSessionId = randomUUID();
-          logger.warn(`[AgentLoop] Context overflow for ${wu.id} — persisting rolling summary and retrying in a new session`, { traceId });
-          task.parameters!.sessionId = taskProvider === 'claude' ? overflowSessionId : undefined;
-          delete task.parameters!.sessionResume;
-          metadataUpdates.sessionCount = sessionsUsed + 1;
-          metadataUpdates.sessionId = overflowSessionId;
-          metadataUpdates.lastSessionResumed = false;
-          // 重算 prompt 注入摘要（isNewSession:false 避免与 handoff 前序进展段重复；摘要单独注入）
-          const recomposed = await composeStepPrompt(
-            { wu, metadata, newReplies: target.newReplies?.map(r => r.content), isNewSession: false },
-            composeDeps,
-          );
-          task.prompt = `${recomposed.prompt}\n\n${OVERFLOW_SUMMARY_HEADER}\n\n${overflowSummary}`;
-          const retryResult: ExecutionResult = await this.executor.execute(task);
-          if (retryResult.success === false) {
-            // 再败 → NEED_INPUT（合流既有 need_input 路径）；sessionSummary 保留落盘供人工参考，
-            // sessionId 重置、sessionCount 计入（不再三连败静默 blocked）
-            const retryDetail = (retryResult.error ?? '未知错误').slice(0, 500);
-            logger.error(`[AgentLoop] agentStep overflow retry failed for ${wu.id}: ${retryDetail}`, { traceId });
-            recordTokenEvent(retryResult);
-            this.resetUnestablishedSession(metadataUpdates);
-            this.recordOutcomeEvent(wu, false, retryDetail, 'execution_failed', injectedKnowledgeIds);
-            emitFailedStep('need_input', retryDetail, retryResult);
-            return {
-              action: 'need_input' as const,
-              summary: `CLI 上下文溢出：新会话带摘要重试一次仍失败（${retryDetail.slice(0, 200)}），已暂停自动执行。请人工评估后回复任意内容继续，或直接关闭任务`,
-              metadataUpdates,
-            };
-          }
-          // 溢出重试成功：走正常成功路径；换新号落盘
-          result = retryResult;
-          effectiveSessionId = overflowSessionId;
+        const retryOutcome = await runStepRetry(
+          { wu, metadata, provider: taskProvider, task, firstResult: result, detail, sessionsUsed, resumeSessionId, metadataUpdates, traceId },
+          {
+            execute: (t) => this.executor.execute(t),
+            recomposePrompt: async ({ isNewSession }) => (await composeStepPrompt(
+              { wu, metadata, newReplies: target.newReplies?.map(r => r.content), isNewSession },
+              composeDeps,
+            )).prompt,
+            recordTokenEvent,
+            recordFailureOutcome: (d) => this.recordOutcomeEvent(wu, false, d, 'execution_failed', injectedKnowledgeIds),
+            emitFailedStep,
+          },
+        );
+        if (retryOutcome.kind === 'terminal') return retryOutcome.result;
+        if (retryOutcome.kind === 'retried') {
+          // 重试成功：走正常成功路径；换新号（簿记已由策略写入 metadataUpdates）
+          result = retryOutcome.result;
+          effectiveSessionId = retryOutcome.sessionId;
           sessionResumed = false;
         } else {
-          // 首 step 失败：会话未必已建立，重置避免下步 --resume 一个从未建立的会话
+          // 非重试类失败（no-retry）：首 step 失败会话未必已建立，重置避免下步 --resume
+          // 一个从未建立的会话
           if (newSessionId) this.resetUnestablishedSession(metadataUpdates);
           this.recordOutcomeEvent(wu, false, detail, 'execution_failed', injectedKnowledgeIds);
           emitFailedStep('failed', detail, result);
@@ -1404,70 +1324,14 @@ export class AgentLoop {
         } catch { /* non-blocking */ }
       }
 
-      // P0 修复（reviewReport 回传断链）：review 子 WU 报告 COMPLETE 时，把 reviewer
-      // 最终输出解析为结构化结论写入 metadata.reviewReport —— 这是 ReviewDispatcher
-      // 路径 B 判定父 WU 过/拒的唯一数据源。解析失败不写（dispatcher 转人工，不误拒）。
-      if (wu.type === 'review' && stepResult.action === 'complete') {
-        const report = parseReviewReport(result.outputText ?? '');
-        if (report) {
-          metadataUpdates.reviewReport = report;
-        } else {
-          logger.warn(`[AgentLoop] Review WU ${wu.id} completed without parseable REVIEW_RESULT — 由 ReviewDispatcher 转人工`);
-        }
-      }
-
-      // PMO 规划接力（analysis-handoff）：analysis/plan WU COMPLETE 时解析 TASK: 拆分行
-      // 写入 metadata.analysisTasks —— 人工确认（reviewPassed → done）后由
-      // analysis-handoff 据此建未指派 task 子 WU（频道成员涌现认领 = 派工）。
-      // #471：plan（一脉会话）沿用 analysis 字段名——解析契约/确认弹窗预填/派工消费全不变。
-      // 解析失败/无 TASK 行不写（确认后仅提示可手动拆，不阻断完成）。
-      if ((wu.type === 'analysis' || wu.type === 'plan') && stepResult.action === 'complete') {
-        const tasks = parseTaskBreakdown(result.outputText ?? '');
-        if (tasks.length > 0) {
-          metadataUpdates.analysisTasks = tasks;
-        }
-        // #106 M7 对齐：同份输出里的 FOG:/DESTINATION: 行（map-opening 同一解析器，
-        // 契约单一来源）落 metadata——人工确认弹窗据此预填待决问题清单（人审改后随
-        // l3.summary 回传开图）。无 FOG 行 = 非探路型，两字段都不落（destination
-        // 单独落档会预填出一行无人消费的 DESTINATION，误导确认人）。
-        const opening = parseMapOpening(result.outputText ?? '');
-        if (opening.fog.length > 0) {
-          metadataUpdates.analysisFog = opening.fog;
-          if (opening.destination) {
-            metadataUpdates.analysisDestination = opening.destination;
-          }
-        }
-        // #163（T8-E2，#130 决策 2）：巡检单 COMPLETE 时解析 OPPORTUNITY: 协议行
-        // 落 metadata.opportunities（初始全 pending；id=opp-N 单内唯一）——冷却闸判定
-        // 与 web 确认 UI（采纳/忽略）消费。无合法 OPPORTUNITY 行不写，不阻断完成。
-        if (metadata.inspection === true) {
-          const opps = parseOpportunities(result.outputText ?? '');
-          if (opps.length > 0) {
-            metadataUpdates.opportunities = opps.map((o, i) => ({
-              id: `opp-${i + 1}`,
-              ...o,
-              status: 'pending' as const,
-            }));
-          }
-        }
-      }
-
-      // #463：decision/spec 确认表单的结构化预填数据源（照 analysis TASK/FOG 落档先例，
-      // 结构化数据在确认之前落档，确认弹窗只做评审不做录入）：
-      //   decision COMPLETE → `## 结论摘要` 段（prompt 契约已有）落 decisionSuggestion；
-      //   spec COMPLETE → TASK: 物化行（spec-materialization 同一解析器，契约单一来源）
-      //     落 specTasks。解析无获不写，不阻断完成。
-      if (wu.type === 'decision' && stepResult.action === 'complete') {
-        const suggestion = parseDecisionConclusion(result.outputText ?? '');
-        if (suggestion) {
-          metadataUpdates.decisionSuggestion = suggestion;
-        }
-      }
-      if (wu.type === 'spec' && stepResult.action === 'complete') {
-        const specTasks = parseSpecTasks(result.outputText ?? '');
-        if (specTasks.length > 0) {
-          metadataUpdates.specTasks = specTasks;
-        }
+      // #542：per-WU-type COMPLETE 收割改注册表（completion-harvest.ts）——
+      // review→reviewReport / analysis|plan→analysisTasks+analysisFog+opportunities /
+      // decision→decisionSuggestion / spec→specTasks。新 type 收割 = 注册表加一行；
+      // 解析无获不落档、单收割器抛错仅跳过，均不阻断完成（语义同原各分支）。
+      if (stepResult.action === 'complete') {
+        Object.assign(metadataUpdates, harvestCompletionMetadata(result.outputText ?? '', {
+          wuId: wu.id, wuType: wu.type, metadata,
+        }));
       }
 
       return { ...stepResult, metadataUpdates, channelVersion };
@@ -1589,15 +1453,16 @@ export class AgentLoop {
   }
 
   /**
-   * 首 step（新建会话）执行失败 / 续用降级重试仍失败时重置会话簿记：CLI 会话未必已建立
+   * 首 step（新建会话）执行失败 / spawn 异常时重置会话簿记：CLI 会话未必已建立
    * （可能根本没 spawn 到），不重置则下一步按续用发 `--resume <从未建立的 id>`
    * （claude 必报 "No conversation found"）。续用 step 失败不调用 —— 会话已存在，
    * 保留下一步继续 resume。（#94：实例槽位清除已随 per-WU 化一并移除）
    * #95: sessionCount 不再清除 —— 失败/超时的会话建立尝试计入预算（超限转 need_input）。
+   * #543: 实现唯一正本在 ./step-retry-policy.js（resetUnestablishedSessionBookkeeping），
+   * 重试再败路径由策略模块直接调用，本方法委托保持编排侧单一入口。
    */
   private resetUnestablishedSession(metadataUpdates: Partial<WorkUnitMetadata>): void {
-    delete metadataUpdates.sessionId;
-    delete metadataUpdates.lastSessionResumed;
+    resetUnestablishedSessionBookkeeping(metadataUpdates);
   }
 
   /** Record result: monitoring checkpoints + state transitions (zero token) */
@@ -1623,7 +1488,7 @@ export class AgentLoop {
     // P0 修复 6: traceId（与 agentStep 同一来源，供日志行携带）
     const traceId = typeof metadata.traceId === 'string' && metadata.traceId ? metadata.traceId : undefined;
 
-    // 收口守卫链（§10.5 提交守卫 → §6-2 子任务守卫 → B3b-i 自动验证守卫）已抽到
+    // 收口守卫链（§10.5 提交守卫 → §6-2 子任务守卫 → 产出实双闸（空 diff / 契约产物）→ B3b-i 自动验证守卫）已抽到
     // ./completion-gates.js（行为一字不改，含守卫顺序/hint 写法/l1 台账/合并视图口径）——
     // recordResult 只保留编排：构建合并视图（上方）→ 跑守卫 → delegate/新鲜度/强制收口 →
     // 单次原子写 → 状态迁移与频道通知。git/子任务查询经 deps 注入（loop 绑定的两个方法下传）。
@@ -1639,6 +1504,9 @@ export class AgentLoop {
     const noCommitNotice = guards.notices.noCommit;
     const verifyBlocked = guards.notices.verifyBlocked;
     const verifyPassNotice = guards.notices.verifyPassed;
+    // 收口闸（产出实）：空 diff / 契约产物连续打回 ≥3 次 → blocked（模式同 verifyBlocked）
+    const diffEmptyBlocked = guards.notices.diffEmptyBlocked;
+    const contractArtifactBlocked = guards.notices.contractArtifactBlocked;
     // F6-c：本 step COMPLETE 守卫是否已跑过验证 —— 下方步骤超限强制收口路径据此避免重复跑
     const verifyGuardRan = guards.notices.verifyGuardRan;
 
@@ -1686,7 +1554,7 @@ export class AgentLoop {
     }
 
     const stepCount = (metadata.stepCount ?? 0) + 1;
-    let consecutiveStuck = action === 'progress' ? 0 : (metadata.consecutiveStuck ?? 0) + 1;
+    const consecutiveStuck = action === 'progress' ? 0 : (metadata.consecutiveStuck ?? 0) + 1;
 
     // #95: progressLog 环形簿记 —— 只记成功步（progress/complete；delegate 经 handleDelegateBranch
     // 已归化为 progress/need_input，failed/need_input 不进 log），summary 截 200 字符、保留最近 5 条。
@@ -1744,6 +1612,12 @@ export class AgentLoop {
           ...(result.rulings?.length
             ? { planRulings: result.rulings, waitingReason: 'plan-ruling' }
             : {}),
+          // #567：方向锁定——DIRECTION 行落档（方向接力卡预填数据源）+ 挂起原因标记；
+          // 与 rulings 并存时 direction 优先定 waitingReason（方向是裁决轮前置环节）；
+          // 人提交选定（POST /:id/direction → pmo/plan-direction.ts）后清除
+          ...(result.directions
+            ? { planDirections: result.directions, waitingReason: 'plan-direction' }
+            : {}),
         }
       : metadata.waitingForInput
         ? { waitingForInput: false, waitingReminded: false }
@@ -1754,6 +1628,10 @@ export class AgentLoop {
     const blockReasonUpdates: Partial<WorkUnitMetadata> = {};
     if (verifyBlocked) {
       blockReasonUpdates.blockReason = `verify-failed x${guardUpdates.verifyFailCount}: 自动验证连续失败`;
+    } else if (diffEmptyBlocked) {
+      blockReasonUpdates.blockReason = `diff-empty x${guardUpdates.diffEmptyCount}: 报告完成但无提交内容`;
+    } else if (contractArtifactBlocked) {
+      blockReasonUpdates.blockReason = `contract-artifact x${guardUpdates.contractArtifactCount}: 契约产物连续缺失`;
     } else if (consecutiveStuck >= 3) {
       blockReasonUpdates.blockReason = action === 'failed' && result.summary
         ? `stuck: 连续 3 步无进展（${result.summary.slice(0, 200)}）`
@@ -1847,6 +1725,40 @@ export class AgentLoop {
       return;
     }
 
+    // 收口闸（产出实）：空 diff / 契约产物连续打回 ≥3 次 → blocked 并频道说明（模式同 verifyBlocked）
+    const outputGateBlocked = diffEmptyBlocked
+      ? {
+          failureType: 'diff_empty',
+          message: `连续 ${guardUpdates.diffEmptyCount} 次报告完成却没有任何提交内容，任务已转 blocked，等待人类介入`,
+        }
+      : contractArtifactBlocked
+        ? {
+            failureType: 'contract_artifact',
+            message: `契约产物连续缺失 ${guardUpdates.contractArtifactCount} 次，任务已转 blocked，等待人类介入。缺失产物与提示已记录到任务上下文`,
+          }
+        : null;
+    if (outputGateBlocked) {
+      // #178（#63 决议 2）：状态迁移前 fencing，易主即静默退出
+      if (wu.status !== 'blocked' && !(await this.transitionIfHeld(wuId, 'blocked'))) return;
+      // #172（#60 决策 Q1）：WU 级终态失败事件落盘（level=warning，#62 失败趋势探测数据源）
+      void emitWorkUnitFailedEvent({
+        workUnitId: wuId,
+        failureType: outputGateBlocked.failureType,
+        blockReason: String(blockReasonUpdates.blockReason ?? ''),
+        consecutiveStuck,
+        attempts: stepCount,
+        totalDurationMs: Math.max(0, Date.now() - new Date(wu.createdAt).getTime()),
+        traceId,
+      }).catch(() => {});
+      // #176（决策 #57 D3-1）：blocked 里程碑统一携带 CTA 行动召唤块
+      await this.postToDiscussionSpace(
+        wuId,
+        withBlockedCta(outputGateBlocked.message, String(blockReasonUpdates.blockReason ?? '')),
+        wu,
+      );
+      return;
+    }
+
     // B3b-i: 验证全绿 → 频道简报（跑了哪几条；仅当 COMPLETE 未被其他守卫拦截）
     if (verifyPassNotice && action === 'complete') {
       await this.postToDiscussionSpace(wuId, verifyPassNotice);
@@ -1916,10 +1828,13 @@ export class AgentLoop {
         // 2026-07 PMO-flow UX（§6-3）：NEED_INPUT 里程碑 —— meta 带 pmoId（可解析时）+ atHuman
         // #279（决策 #250 D3）：result.options 存在时随 meta 透传，供前端渲染选项卡
         // #467：result.rulings 存在时 meta.cardType='plan_ruling'——前端渲染裁决轮接力卡
+        // #567：result.directions 存在时 meta.cardType='plan_direction'——前端渲染方向接力卡
+        //   （方向是裁决轮前置环节，并存时 direction 优先）
         if (!skipResultPost) {
           const extraMeta: MessageMeta = {};
           if (result.options?.length) extraMeta.options = result.options;
           if (result.rulings?.length) extraMeta.cardType = 'plan_ruling';
+          if (result.directions) extraMeta.cardType = 'plan_direction';
           await this.postToDiscussionSpace(wuId, `需要输入: ${result.summary}`, wu,
             Object.keys(extraMeta).length > 0 ? extraMeta : undefined);
         }

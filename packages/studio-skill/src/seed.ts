@@ -50,6 +50,14 @@ function defaultSourceDir(): string {
   return path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'skills');
 }
 
+/**
+ * 内置 skill 正本目录（#568 install 同名硬拒绝的判定清单来源）。
+ * monorepo = 本包包根 skills/；npm bundle 形态 = <bundle>/../skills（scripts/build-npm.mjs 布局约定）。
+ */
+export function builtinSkillsDir(): string {
+  return defaultSourceDir();
+}
+
 function defaultTargetDir(): string {
   return process.env.SKILLS_DIR || studioPath('skills');
 }

@@ -3,7 +3,7 @@
 // ② 视觉锚点：当前 WU 标题（批次 D-2 项7 起开就地抽屉 onOpenWu，不再整页跳；「↗ 详情页」深链在抽屉内）
 //   + 类型 chip + 已耗时，次行 PMO · #频道（仍 ↗ 跳页，与右栏先例一致）；
 // ③ 最近动态 3 条迷你列表，每条可点（有当前 WU → 开该 WU 抽屉，无 → 角色详情 ↗）；
-// ④ 错误行（⚠ lastError，与卡片状态同色）。
+// ④ 错误行（IconAlertTriangle + lastError，与卡片状态同色；批次 I-6 ⚠ → SVG）。
 // 状态色经 data-status（4 态展示键）+ --st 驱动（§6.5 单义延续）：待处理整卡上色、空闲/离线压扁由 CSS 承担；
 // 内部 7+1 细分态保留——细分=error 时角色名前加红点角标（.agd-dot-err）。
 // 渲染边界（#348 契约不变）：动态订阅卡片自持（useRosterActivities 按 roleId 切片）——stream chunk
@@ -14,6 +14,7 @@ import { Link } from 'react-router-dom';
 import { formatChannelName } from '@dommaker/studio-shared/web';
 import { useRosterActivities } from '../../stores/rosterActivityStore';
 import { AgentAvatar } from '../channel/AgentAvatar';
+import { IconAlertTriangle } from '../ui/icons';
 import type { RosterRole } from '../../hooks/useAgentRoster';
 import type { WorkUnit } from '../../api/workunit';
 import {
@@ -100,7 +101,7 @@ export const RoleCard = memo(function RoleCard({ role, lastDone, channelNames, o
           {runtime?.status === 'idle' && lastDone && (
             <>
               {' · 最近完成 '}
-              <button type="button" className="u-text-2 u-hover-accent" onClick={() => onOpenWu(lastDone.id)}>{lastDone.scope}</button>
+              <button type="button" className="u-btn-reset u-text-2 u-hover-accent" onClick={() => onOpenWu(lastDone.id)}>{lastDone.scope}</button>
             </>
           )}
         </div>
@@ -124,7 +125,7 @@ export const RoleCard = memo(function RoleCard({ role, lastDone, channelNames, o
       )}
 
       {/* ④ 错误行（与卡片同色） */}
-      {lastError && <div className="agd-error" title={lastError}>⚠ {lastError}</div>}
+      {lastError && <div className="agd-error" title={lastError}><IconAlertTriangle size={12} /> {lastError}</div>}
     </article>
   );
 });

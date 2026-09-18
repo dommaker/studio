@@ -14,6 +14,7 @@ import {
   type WorkUnit,
 } from '../../api/workunit';
 import { SkeletonText } from '../ui';
+import { IconX } from '../ui/icons';
 import { deriveDisplayState, WU_STATUS_COLORS, WU_STATUS_LABELS } from '@dommaker/studio-shared/web';
 import { useWebSocketContext } from '../../api/websocketHooks';
 import { formatShortTime } from '../../utils/datetime';
@@ -156,7 +157,7 @@ export function ExecutionFlow({ workUnitId, wu }: { workUnitId: string; wu: Work
       </div>
       {failedStep && (
         <div className="wu-exec-fail">
-          ✗ 第 {failedStep.step} 步失败：{failedStep.errorDetail || failedStep.errorType || '执行失败'}
+          <span className="inline-flex items-center gap-1"><IconX size={12} /> 第 {failedStep.step} 步失败：{failedStep.errorDetail || failedStep.errorType || '执行失败'}</span>
         </div>
       )}
 

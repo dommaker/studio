@@ -31,6 +31,16 @@ function handleChannelWorkEvent(msg: WebSocketMessage) {
     return;
   }
 
+  if (msg.event_type === 'workunit:removed') {
+    // #538：负载 = { id, channelId }（GC/TTL 删除出声）；缺 id 属畸形 fail-closed 跳过
+    const data = msg.data as { id?: string; channelId?: string | null } | null | undefined;
+    if (!data || typeof data.id !== 'string' || !data.id) return;
+    // channelId 缺省（防御）放行按活跃频道处理；带值且不匹配跳过（对齐 status_changed 过滤语义）
+    if (data.channelId && data.channelId !== id) return;
+    store.applyWorkunitRemoved(id, data.id);
+    return;
+  }
+
   if (msg.event_type === 'requirement.created' || msg.event_type === 'requirement.updated') {
     const req = parseRequirementPayload(msg.data);
     if (!req) return;

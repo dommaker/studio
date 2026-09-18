@@ -47,6 +47,8 @@ export const DEFAULT_TIMEOUT_BY_EVENT_SOURCE: Readonly<Record<string, number>> =
   'knowledge-distill': 120_000,
   'constraint-audit': 120_000,
   'knowledge-maintenance': 120_000,
+  // 合并冲突 LLM 解：会话内含解冲突 + typecheck/test 验证命令（对齐 VERIFY_COMMAND_TIMEOUT_MS 单条 10min 量级）
+  'merge-conflict-resolution': 600_000,
 };
 
 export interface SystemExecutorResult {
@@ -133,6 +135,10 @@ export class SystemExecutor {
       },
       timeoutMs: effectiveTimeoutMs,
       maxBuffer: opts.maxBuffer,
+      // #581：恒开 killProcessGroup（#171 机制，同 runner-lightweight 先例）——
+      // 超时杀整进程组，CLI spawn 的孙进程不留孤儿继续写临时目录。
+      // 兼容性：execSh 本身 posix-only（bash -c），kill(-pid) 为 posix 语义，无新增负担。
+      killProcessGroup: true,
     });
 
     // 5. 解析 JSON envelope.usage（claude --verbose 时为事件数组，归一到 result 事件，#364）

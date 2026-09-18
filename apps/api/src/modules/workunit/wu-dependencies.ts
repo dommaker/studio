@@ -8,7 +8,7 @@
  * 本模块是零运行时依赖的叶子（仅 type import），agent-loop 与 workunit 路由共用。
  */
 
-import type { WorkUnitData } from './workunit.types.js';
+import type { WorkUnitData } from './workunit-crud.js';
 
 /**
  * 容错解析 metadata.blockedBy：字符串/对象入参皆可；缺失/坏 JSON/非数组 → []；

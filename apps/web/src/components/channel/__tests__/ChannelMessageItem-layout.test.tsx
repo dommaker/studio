@@ -5,6 +5,8 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import type { ChannelMessage } from '../../../api/channel';
+import { ChannelMessageEnvProvider } from '../ChannelMessageEnv';
+import type { ChannelMessageEnv } from '../ChannelMessageEnv';
 import { ChannelMessageItem } from '../ChannelMessageItem';
 
 const base: ChannelMessage = {
@@ -18,10 +20,16 @@ const base: ChannelMessage = {
   createdAt: '2026-08-19T00:00:00.000Z',
 };
 
-const renderItem = (message: ChannelMessage, extra: Record<string, unknown> = {}) =>
+const renderItem = (
+  message: ChannelMessage,
+  extra: Record<string, unknown> = {},
+  envExtra: Partial<ChannelMessageEnv> = {},
+) =>
   render(
     <MemoryRouter>
-      <ChannelMessageItem message={message} onAction={vi.fn()} {...extra} />
+      <ChannelMessageEnvProvider value={{ onAction: vi.fn(), ...envExtra }}>
+        <ChannelMessageItem message={message} {...extra} />
+      </ChannelMessageEnvProvider>
     </MemoryRouter>,
   );
 
@@ -81,7 +89,7 @@ describe('ChannelMessageItem — 头部规则（#277 D2）', () => {
 
   it('compact（连续合并）省略重复头：无头像/时间，回复动作仍可用', () => {
     const onReply = vi.fn();
-    const { container } = renderItem(base, { compact: true, onReply });
+    const { container } = renderItem(base, { compact: true }, { onReply });
     const root = rootOf(container, 'm-1');
     expect(root.classList.contains('mc-msg-compact')).toBe(true);
     expect(root.querySelector('.mc-msg-head')).toBeNull();
@@ -113,6 +121,7 @@ describe('ChannelMessageItem — 系统播报形态（#277 D3；#437 起左对�
   it('NEED_INPUT 等待回复的 Studio 消息不判系统（保留 agent 头与回复框）', () => {
     const { container } = renderItem(studioMsg({ content: '选哪个工程？' }), {
       waitingForInput: true,
+    }, {
       onInlineReply: vi.fn(),
     });
     const root = rootOf(container, 'm-1');

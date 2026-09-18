@@ -2,11 +2,11 @@
  * Worktree Resolver — git worktree 创建/复用/清理 + harness 配置传播 + 依赖缓存
  *
  * P11-02: Extracted from agent-executor.ts
- * Wave-4: prompt/文件桥内容（buildCachePrefix/writeRequirementsMd/writeContractTests）
- * 移至 runner-briefing.ts；本模块只保留 git/依赖生命周期。
+ * Wave-4 曾把「agent 被告知的内容」文件桥（CACHE_PREFIX.md / REQUIREMENTS.md / 契约测试
+ * 写入）抽为独立模块，#562 删多 session 循环后该文件桥失去消费方、随之删除，
+ * 本模块只保留 git/依赖生命周期。
  * （origin/master 曾将 scaffolding 写入同类抽为 worktree-scaffolding.ts；
- *  合并后该拆分产物随 session-manager 簇一并删除，runner-briefing.ts 为文件桥唯一事实源，
- *  ensureDeps 留在本模块。）
+ *  合并后该拆分产物随 session-manager 簇一并删除，ensureDeps 留在本模块。）
  */
 
 import * as path from 'path';
@@ -86,8 +86,11 @@ export async function createWorktree(worktree: string, baseBranch: string, repoD
 }
 
 /** 工具产物 exclude 规则（写入 .git/info/exclude，git status 不再看到这些产物）。
- *  #154（T5）：`.studio/` 移出清单——业务仓 .studio/ = 纯文档正本，整体进 git。 */
-const GIT_EXCLUDE_PATTERNS = ['.claude/', '.daemon/', '.agent.log', '.harness/', '.codex/', '.kimi-code/'];
+ *  #154（T5）：`.studio/` 移出清单——业务仓 .studio/ = 纯文档正本，整体进 git。
+ *  CLAUDE.md：propagateHarnessConfig 复制的薄身（首行 @AGENTS.md 导入），业务仓侧本就
+ *  gitignored；不排除则 worktree 恒脏（?? CLAUDE.md）→ 提交守卫误伤。exclude 只影响
+ *  未跟踪文件，业务仓若真实跟踪 CLAUDE.md 不受此行影响。 */
+const GIT_EXCLUDE_PATTERNS = ['.claude/', '.daemon/', '.agent.log', '.harness/', '.codex/', '.kimi-code/', 'CLAUDE.md'];
 
 /** 历史 exclude 行（#154 前 .studio/ 曾被排除）：writeGitExclude 时自愈清除，让存量仓 .studio/ 也能进 git */
 const LEGACY_EXCLUDE_PATTERNS = ['.studio/'];
@@ -175,10 +178,12 @@ export async function resolveWorkspace(opts: {
  */
 export async function propagateHarnessConfig(worktree: string, taskId: string, executionId: string, repoDir?: string): Promise<void> {
   try {
-    // FIX #3: 复制 CLAUDE.md 到 worktree，使 buildAgentConstraintPrompt 去重逻辑生效
-    // 新落点模型（docs/adr/2026-08-21-agent-docs-placement-model.md）：去重检测认
-    // AGENTS.md PRESERVE:governance 段（git worktree checkout 自带）；CLAUDE.md 为
-    // gitignored 薄身（首行 @AGENTS.md 导入），仍需复制以便 Claude Code 读到约束。
+    // FIX #3: 复制 CLAUDE.md 到 worktree —— 约束正本落在 AGENTS.md 的 PRESERVE:governance
+    // 段（已跟踪文件，git worktree checkout 自带），CLAUDE.md 是 gitignored 薄身
+    // （首行 @AGENTS.md 导入），仍需复制以便 Claude Code 读到约束。
+    // 落点模型见 docs/adr/2026-08-21-agent-docs-placement-model.md。
+    // （#562 前这条还附带「让 prompt 侧约束去重生效」的目的：那个读取方是已删除的
+    //  hooks 层 prompt 注入，现在只剩 provider 读文件这一条通道。）
     if (repoDir) {
       const claudeMdSrc = path.join(repoDir, 'CLAUDE.md');
       const claudeMdDst = path.join(worktree, 'CLAUDE.md');

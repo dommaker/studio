@@ -105,4 +105,30 @@ describe('TriggerStore', () => {
     } as TriggerConfig;
     expect(() => store.save(invalid)).toThrow(/cron/);
   });
+
+  // #538（ADR 2026-09-15 决策 6）：UPDATE 禁改 status——注册校验拒（第一层双保险）
+  it('rejects UPDATE action whose update payload touches workunit status', () => {
+    const withStatus = {
+      ...sampleTrigger,
+      id: 'update-status',
+      action: {
+        type: 'UPDATE',
+        target: 'workunit',
+        config: { query: { status: 'active' }, update: { status: 'unassigned' } },
+      },
+    } as unknown as TriggerConfig;
+    expect(() => store.save(withStatus)).toThrow(/status/);
+
+    // 白名单字段（非 status）不受影响，照常注册
+    const benign = {
+      ...sampleTrigger,
+      id: 'update-benign',
+      action: {
+        type: 'UPDATE',
+        target: 'workunit',
+        config: { query: { status: 'active' }, update: { assigneeId: null } },
+      },
+    } as unknown as TriggerConfig;
+    expect(() => store.save(benign)).not.toThrow();
+  });
 });

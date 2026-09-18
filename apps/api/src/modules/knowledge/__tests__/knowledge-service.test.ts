@@ -38,6 +38,7 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => {
 
 import { KnowledgeService } from '../knowledge-service.js';
 import type { PatternEntry, IncidentEntry, TrendEntry } from '../knowledge-service.js';
+import { eventBus } from '@dommaker/studio-shared';
 
 // ── Mock factories ──
 
@@ -1077,5 +1078,53 @@ describe('KnowledgeService Phase 0: contract', () => {
         .filter(m => m !== 'constructor');
       expect(methods).toHaveLength(33);
     });
+  });
+});
+
+// ── Step 2（2026-09 web-ux-optional-fixes）：promote/demote 成熟度变更 → SSE 广播 ──
+
+describe('promote/demote SSE 广播（knowledge.entry_changed → KnowledgePage 重拉信号）', () => {
+  it('promote：draft→verified 落库后广播 promoted', async () => {
+    const spy = vi.spyOn(eventBus, 'publish');
+    try {
+      const { ks, store } = createKS({ entries: [{ id: 'e1', maturity: 'draft', type: 'guideline', title: 'T1' }] });
+      await ks.promote('e1');
+      expect(store.update).toHaveBeenCalledWith('e1', { maturity: 'verified' });
+      expect(spy).toHaveBeenCalledWith('events', expect.objectContaining({
+        event_type: 'knowledge.entry_changed',
+        data: { action: 'promoted', entryId: 'e1', entryType: 'guideline', title: 'T1' },
+      }));
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('demote：draft→archived 落库后广播 demoted', async () => {
+    const spy = vi.spyOn(eventBus, 'publish');
+    try {
+      const { ks, store } = createKS({ entries: [{ id: 'e2', maturity: 'draft', type: 'pitfall', title: 'T2' }] });
+      await ks.demote('e2');
+      expect(store.update).toHaveBeenCalledWith('e2', { maturity: 'archived' });
+      expect(spy).toHaveBeenCalledWith('events', expect.objectContaining({
+        event_type: 'knowledge.entry_changed',
+        data: { action: 'demoted', entryId: 'e2', entryType: 'pitfall', title: 'T2' },
+      }));
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('maturity 不在迁移表（archived）→ 不更新也不广播', async () => {
+    const spy = vi.spyOn(eventBus, 'publish');
+    try {
+      const { ks, store } = createKS({ entries: [{ id: 'e3', maturity: 'archived', type: 'guideline', title: 'T3' }] });
+      await ks.promote('e3');
+      expect(store.update).not.toHaveBeenCalled();
+      expect(spy).not.toHaveBeenCalledWith('events', expect.objectContaining({
+        event_type: 'knowledge.entry_changed',
+      }));
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

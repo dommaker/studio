@@ -15,15 +15,15 @@
 
 | 模块 | 路径 | 职责 |
 |------|------|------|
-| `knowledge-singletons` | `knowledge-singletons.ts` | 共享单例唯一所有者（sharedStore 等）+ 向量库同步 + 统一质量门（R4） |
-| `MtimeMemoKnowledgeStore` | `knowledge-store-memo.ts` | sharedStore 的 mtime 校验聚合 memo 包装（#343，缓存 seam ADR 外部包条款）：mtime+size 指纹兜底跨进程外部写 + 本进程写穿透失效；命中深克隆保持「每次读全新对象」契约；readEntriesFromDisk/snapshot 直通不缓存 |
+| `knowledge-singletons` | `knowledge-singletons.ts` | 共享单例唯一所有者（sharedStore 等）+ 向量库同步 + 统一质量门（R4）+ `publishKnowledgeEntryChanged`（条目变更 SSE 广播，见注意事项 Step 2 条） |
+| `MtimeMemoKnowledgeStore` | `knowledge-store-memo.ts` | sharedStore 的 mtime 校验聚合 memo 包装（#343，缓存 seam ADR 外部包条款）：mtime+size 指纹兜底跨进程外部写 + 本进程写穿透失效；命中深克隆保持「每次读全新对象」契约；readEntriesFromDisk/snapshot 直通不缓存；harness 1.8.0 起补齐 KnowledgeStore 15 成员——`applyAll`（写穿透失效，与 saveAll 同口径）+ `getConsumptionStats`（直通不缓存：stats 文件不在 .md/index.json 指纹内，缓存必过期） |
 | `UnifiedQuery` | `engine/unified-query.ts` | 双存储统一查询（Prisma + KnowledgeStore），knowledgeService 的 query 引擎（R4 修复接线） |
 | `knowledgeService.injectContext` | `knowledge-service.ts` | 统一 prompt 注入入口（absorbed from prompt-builder）；E2：有注入时附「何时查知识库」指引（`KNOWLEDGE_QUERY_GUIDANCE`）；#91：maxTokens 由 prompt-composer 按分段定额传入（knowledge 1000 + 池余量），`knowledge:inject-trimmed` 事件补 originalTokens/keptTokens 尺寸字段，返回值带 `usage` 供 `prompt:section_trimmed` 埋点 |
 | `knowledgeService.semanticSearch` | `knowledge-service.ts` | mcp-local-rag 语义检索；E2：可用性探测（进程内缓存 5min）+ 失败降级关键词检索，不再静默返回 [] |
 | `knowledge-types` | `knowledge-types.ts` | KnowledgeService 的 Studio 侧类型 + `KnowledgeServiceDeps` + `ENTRY_TYPE_MAP`（knowledge-service.ts 拆出，门面 re-export） |
 | `knowledge-data-layer` | `knowledge-data-layer.ts` | 数据层：`writeTrendData`（data/trends 趋势写入）+ resolution 影子库 FileStore helpers + 共享 `fileStore`/`STUDIO_EVENTS_JSONL`（knowledge-service.ts 拆出） |
 | `knowledge-forms` | `knowledge-forms.ts` | 知识形态门禁 `validateKnowledgeForm`（knowledge/data/skill/rule，代码层判断不调 LLM）（knowledge-service.ts 拆出，门面 re-export） |
-| `conversation-extractor` | `conversation-extractor.ts` | R3 会话提取：transcript 构建 + 单条入库 proposal 闸门（knowledge-service.ts 拆出；提案卡 #355 起归 review-adapter） |
+| `conversation-extractor` | `conversation-extractor.ts` | R3 会话提取：transcript 构建 + 单条入库 proposal 闸门（knowledge-service.ts 拆出；提案卡 #355 起归 review-adapter）。总开关 `STUDIO_KNOWLEDGE_EXTRACTION=false`（默认开，P7/P8 批次 2026-09-16）：整体跳过 LLM 提取——无凭证/fake-provider 环境豁免真实 CLI 空转 |
 | `review-adapter` | `review-adapter.ts` | #355：knowledge 人审提案 adapter（kind='knowledge'），接线 review-proposal 正本——聚合卡渲染（knowledge_proposal 旧文案，cardData 旧形状 + proposalId）+ onApprove 逐条目 promote / onReject 逐条目 demote；存取物化 <dataDir>/knowledge-proposals.jsonl；knowledge-service.ts 模块加载即注册 |
 | `knowledge-metrics` | `knowledge-metrics.ts` | R1/M1 事件流度量纯函数：computeOutcomeMetrics（hitRate/improvement）+ scanKnowledgeEvents（审计计数）（knowledge-service.ts 拆出） |
 | `knowledge-search-helpers` | `knowledge-search-helpers.ts` | 检索 helpers：关键词抽取（STOP_WORDS）/TYPE_WEIGHT + mcp-local-rag 探测与关键词降级映射（knowledge-service.ts 拆出） |
@@ -53,7 +53,7 @@ knowledge/
 ├── knowledge-service.routes.ts # KnowledgeService HTTP API + SSE
 ├── knowledge-query.service.ts # 5 类缺口查询（query/getStats）
 ├── knowledge-sync.service.ts  # 自动同步 + 新鲜度检测
-├── resolution.service.ts      # 解法库（独立子系统）；#361 起错误匹配核心（regex 回退子串）下沉 studio-shared/resolutions.ts，与 runner-output queryResolutionHints 共用
+├── resolution.service.ts      # 解法库（独立子系统）；#361 起错误匹配核心（regex 回退子串）下沉 studio-shared/resolutions.ts，本模块是该共享核心的唯一生产消费方（#587 后）
 ├── evolution-scheduler.ts     # 周期任务调度（G-005 模式挖掘 + eval spring cleaning）
 ├── improver-scheduler.service.ts # 自文档化调度器（refreshStaleContext + runArchDocs）
 ├── preference-observer.ts     # Producer: 用户偏好
@@ -78,6 +78,8 @@ knowledge/
 - **下游**: `channels/*`（conversation-handler）
 
 ### 注意事项
+
+- **知识条目变更 SSE 事件（2026-09 web-ux-optional-fixes Step 2）**：`publishKnowledgeEntryChanged(action, { entryId?, entryType?, title? })`（knowledge-singletons）经 eventBus `events` 频道广播 `knowledge.entry_changed`（sse.routes 前缀映射进 knowledge topic，载荷只带轻量元信息 = 前端「重拉信号」，信封不带 event_id 同 knowledge bridge 惯例）。三个发射点：`ingestWithQualityGate` 成功入库（agent 产出主路径）、`knowledgeService.promote/demote` 成熟度迁移实际发生（不在迁移表不发）、`POST /knowledge/unified` 人工创建。绕过门面直调 `sharedStore.save` 的机器流（pattern-miner/rule-scanner/decision-chain-extractor/audit-subscriber）**不广播**——audit-subscriber 每条审计事件都写库，store 层 chokepoint 广播会造成事件风暴，是有意排除。消费方：KnowledgePage 订阅后防抖重拉当前 tab。
 
 - **交互模式条目判别口径（2026-09-10 生产 /search 500 根因修复）**：tag `pattern` 是自由命名空间——guideline 条目（session-summary 等）合法携带且正文为 markdown；交互模式条目的唯一可靠判别是结构化字段 `type='pattern'`（off-schema，harness `KnowledgeSubsystem` 词表未收录，upsertPattern 以 `as any` 写入）。消费方（search.routes /search、pattern-miner 5 处）统一走 `pattern-entry.ts` 的 `listInteractionPatterns`（types 口径）+ `parsePatternContent`（正文 JSON 解析失败 = 数据损坏，返回 null 跳过，不抛异常打垮读路径）。同类裸 `JSON.parse(entry.content)` 在 rule-scanner / decision-chain-extractor / unified-query 仍存在，其 tag 词表（rule/decision 等）当前无冲突条目，属同类潜在 hazard。
 

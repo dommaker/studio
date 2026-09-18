@@ -23,7 +23,7 @@ jobs:
         run: pnpm install
 
       - name: Build
-        run: pnpm build
+        run: pnpm build && pnpm build:npm
 
       - name: Test
         run: pnpm test

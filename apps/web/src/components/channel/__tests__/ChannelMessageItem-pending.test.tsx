@@ -16,6 +16,7 @@ vi.mock('../KnowledgeConfirmCard', () => ({ KnowledgeConfirmCard: () => null }))
 vi.mock('../ConvertToTaskDialog', () => ({ ConvertToTaskDialog: () => null }));
 
 import { ChannelMessageItem } from '../ChannelMessageItem';
+import { ChannelMessageEnvProvider } from '../ChannelMessageEnv';
 import type { ChannelMessage } from '../../../api/channel';
 
 const pendingMessage: ChannelMessage = {
@@ -33,7 +34,9 @@ const pendingMessage: ChannelMessage = {
 describe('ChannelMessageItem — pending 乐观回显（#486）', () => {
   it('pending 消息带 mc-msg-pending 类与「发送中」标记', () => {
     const { container } = render(
-      <ChannelMessageItem message={pendingMessage} onAction={vi.fn()} onReply={vi.fn()} />,
+      <ChannelMessageEnvProvider value={{ onAction: vi.fn(), onReply: vi.fn() }}>
+        <ChannelMessageItem message={pendingMessage} />
+      </ChannelMessageEnvProvider>,
     );
     const row = container.querySelector('.mc-msg');
     expect(row?.className).toContain('mc-msg-pending');
@@ -41,14 +44,20 @@ describe('ChannelMessageItem — pending 乐观回显（#486）', () => {
   });
 
   it('pending 消息不出回复动作（本地 id 服务端不存在，回复无的放矢）', () => {
-    render(<ChannelMessageItem message={pendingMessage} onAction={vi.fn()} onReply={vi.fn()} />);
+    render(
+      <ChannelMessageEnvProvider value={{ onAction: vi.fn(), onReply: vi.fn() }}>
+        <ChannelMessageItem message={pendingMessage} />
+      </ChannelMessageEnvProvider>,
+    );
     expect(screen.queryByLabelText('回复消息')).toBeNull();
   });
 
   it('非 pending 消息行为不变：无 pending 类、有回复动作', () => {
     const normal: ChannelMessage = { ...pendingMessage, id: 'm1', pending: undefined };
     const { container } = render(
-      <ChannelMessageItem message={normal} onAction={vi.fn()} onReply={vi.fn()} />,
+      <ChannelMessageEnvProvider value={{ onAction: vi.fn(), onReply: vi.fn() }}>
+        <ChannelMessageItem message={normal} />
+      </ChannelMessageEnvProvider>,
     );
     expect(container.querySelector('.mc-msg')?.className).not.toContain('mc-msg-pending');
     expect(screen.queryByText('发送中…')).toBeNull();

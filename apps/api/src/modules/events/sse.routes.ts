@@ -57,7 +57,7 @@ function ensureEventSubscription() {
   if (eventSubStarted) return;
   eventSubStarted = true;
 
-  // #324：直订 eventBus（对象 payload，全程仅 sendSSE 内 1 次 JSON.stringify）
+  // #324：直订 eventBus（对象 payload；B6 起广播循环每事件仅 1 次 JSON.stringify，复用字符串）
   eventBus.subscribe('events', (event: { event_type: string; event_id?: string }) => {
     // eventBus 精确匹配走 EventEmitter.emit，handler 抛异常会向上抛——内部 try/catch 护住
     try {
@@ -68,10 +68,15 @@ function ensureEventSubscription() {
       const isStreamChunk = event.event_type === EXECUTION_STREAM_SSE_TYPE;
       // #491：先入 replay buffer（分配单调 seq 作为 SSE id 行），再广播
       const seq = isStreamChunk ? sseReplayBuffer.currentSeq : sseReplayBuffer.push(topic, event.event_type, event);
+      // B6（2026-09-16 channel 性能审计）：同一负载每事件只序列化一次，
+      // 循环内复用字符串（原为逐客户端 JSON.stringify，且在发消息热路径上）；
+      // 惰性 memo：零匹配客户端时零成本。
+      let serialized: string | null = null;
       for (const client of clients.values()) {
         if (client.topics.has('all') || client.topics.has(topic)) {
           // 转发完整信封（event_type/event_id/timestamp/data）——客户端按 event_type 分发
-          sendSSE(client, event.event_type, event, String(seq));
+          serialized ??= JSON.stringify(event);
+          sendSSE(client, event.event_type, event, String(seq), serialized);
         }
       }
     } catch (error) {
@@ -81,7 +86,7 @@ function ensureEventSubscription() {
   logger.info('[SSE] Event subscription established');
 }
 
-function sendSSE(client: SSEClient, eventType: string, data: any, eventId: string) {
+function sendSSE(client: SSEClient, eventType: string, data: any, eventId: string, serialized?: string) {
   try {
     // `id:` 行 = 服务端单调 seq（#491，重连 Last-Event-ID 游标）；信封 event_id 留在 data 内。
     // 背压（#324 决策）：任一 write 返回 false（内核缓冲区满）即断开慢客户端，
@@ -89,7 +94,8 @@ function sendSSE(client: SSEClient, eventType: string, data: any, eventId: strin
     if (!client.res.write(`id: ${eventId}\n`)) return disconnectSlowClient(client);
     // 不写 `event:` 行（匿名事件）：EventSource.onmessage 只接收匿名事件，
     // 命名事件必须按类型逐个 addEventListener —— 前端统一从 data.event_type 分发。
-    if (!client.res.write(`data: ${JSON.stringify(data)}\n\n`)) return disconnectSlowClient(client);
+    // B6：广播路径传入预序列化字符串（每事件一次）；缺省（replay/连接帧）现场序列化。
+    if (!client.res.write(`data: ${serialized ?? JSON.stringify(data)}\n\n`)) return disconnectSlowClient(client);
     client.lastEventId = eventId;
   } catch {
     // Client disconnected

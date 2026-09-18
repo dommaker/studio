@@ -79,6 +79,12 @@ describe('writeStudioEvent', () => {
     expect(defaultStudioEventLevel('session:start')).toBe('info');
   });
 
+  test('度量地基票 C：显式 level（含 info）必须落字段——否则轮转分类回退 type 默认分级，提级失效', async () => {
+    await writeStudioEvent('knowledge:skill_used', { skillName: 'x' }, { file: eventsFile, level: 'info' });
+    const [row] = readEnvelope(eventsFile);
+    expect(row).toMatchObject({ type: 'knowledge:skill_used', level: 'info' });
+  });
+
   test.each([
     ['空串', ''],
     ['{} 对象', {}],

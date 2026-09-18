@@ -5,7 +5,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { projectApi } from '../../api';
 import { channelApi, type LocalProject } from '../../api/channel';
 import { toast } from '../../utils/toast';
-import { Select } from '../ui';
+import { Select, Modal } from '../ui';
 
 interface CreateProjectDialogProps {
   open: boolean;
@@ -101,14 +101,23 @@ export function CreateProjectDialog({ open, onClose, onCreated }: CreateProjectD
 
   if (!open) return null;
 
+  // 批次 I-2：收编 ui/Modal（§4.3 正本）
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" style={{ maxWidth: 520 }} onClick={(e) => e.stopPropagation()}>
-        <div className="modal-header">
-          <h2 className="modal-title">新建 PMO</h2>
-          <button className="modal-close" onClick={onClose} aria-label="关闭">×</button>
-        </div>
-        <div className="modal-body">
+    <Modal
+      onClose={onClose}
+      maxWidth="520px"
+      title="新建 PMO"
+      footer={
+        <>
+          <button onClick={onClose} className="btn btn-secondary">
+            取消
+          </button>
+          <button onClick={handleCreateProject} disabled={creating} className="btn btn-primary">
+            {creating ? '创建中...' : '创建'}
+          </button>
+        </>
+      }
+    >
           <div className="flex flex-col gap-3">
             <div>
               <label className="mc-card-label block mb-1">标题 *</label>
@@ -186,16 +195,6 @@ export function CreateProjectDialog({ open, onClose, onCreated }: CreateProjectD
               />
             </div>
           </div>
-        </div>
-        <div className="modal-footer">
-          <button onClick={onClose} className="btn btn-secondary">
-            取消
-          </button>
-          <button onClick={handleCreateProject} disabled={creating} className="btn btn-primary">
-            {creating ? '创建中...' : '创建'}
-          </button>
-        </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

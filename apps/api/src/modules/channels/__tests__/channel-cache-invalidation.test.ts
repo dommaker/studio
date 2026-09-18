@@ -133,6 +133,11 @@ describe('#448: channels 列表缓存写后失效', () => {
 
   it('PATCH members 后立读：缓存失效（MISS）', async () => {
     const id = await seedChannel('members');
+    // updateMembers 校验 add 的 profile 存在性——先确保 agent-x 存在
+    if (!(await fileStore.getProfile('agent-x'))) {
+      const now = new Date().toISOString();
+      await fileStore.createProfile({ id: 'agent-x', name: 'agent-x', description: null, channels: '[]', status: 'active', createdAt: now, updatedAt: now });
+    }
     await getList(); // 写入缓存
     const cached = await getList();
     expect(cached.res.headers.get('x-cache')).toBe('HIT');

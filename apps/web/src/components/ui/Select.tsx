@@ -6,11 +6,14 @@
 import { useEffect, useRef, useState } from 'react';
 import type { CSSProperties, KeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
+import { IconCheck } from './icons';
 
 export interface SelectOption {
   value: string;
   label: string;
   disabled?: boolean;
+  /** 选项行 tooltip（如 #565 未登录徽标的修复 hint） */
+  title?: string;
 }
 
 export interface SelectProps {
@@ -186,10 +189,11 @@ export function Select(props: SelectProps) {
                 o.disabled ? 'is-disabled' : '',
                 i === highlight ? 'is-highlighted' : '',
               ].filter(Boolean).join(' ')}
+              title={o.title}
               onClick={() => { if (!o.disabled) selectOption(o); }}
             >
               <span className="select-option-label">{o.label}</span>
-              {o.value === value && <span className="select-check" aria-hidden="true">✓</span>}
+              {o.value === value && <span className="select-check" aria-hidden="true"><IconCheck size={14} /></span>}
             </div>
           ))}
         </div>,

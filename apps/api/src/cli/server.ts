@@ -4,15 +4,26 @@
 import { execSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
-import { STUDIO_DIR, DATA_DIR, ensureDir } from './shared.js';
+import { fileURLToPath } from 'url';
+import { STUDIO_DIR } from './shared.js';
+import { ensureDataDirs, ensureDaemonSecrets } from './bootstrap.js';
+import { defaultKnowledgeDir } from '../utils/runtime-paths.js';
+import { scanAllProviders, KNOWN_PROVIDERS, type DetectedRuntime } from '../daemon/cli-scanner.js';
+import { resolvePort, explicitPortFromEnv } from './port-probe.js';
+import { resolveListenHost } from '../utils/listen-host.js';
 
-export function checkPrerequisites() {
+// ESM 形态（esbuild bundle / tsc ESNext）无 CJS __dirname，与 app.ts 同法自取
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// #573 漂移修正（摸底 Q5）：agent CLI 检查对齐 provider 注册表扫描（覆盖全部
+// 内置 provider），不再硬编码 claude；缺失不阻断，仅警告（契约 §7 语义）。
+// providers 可注入以便测试。
+export function checkPrerequisites(providers: DetectedRuntime[] = scanAllProviders()) {
   const missing: string[] = [];
   try { execSync('git --version', { stdio: 'pipe' }); } catch { missing.push('git'); }
-  try {
-    const out = execSync('claude --version 2>&1 || echo "NOT_FOUND"', { encoding: 'utf-8', stdio: 'pipe' });
-    if (out.includes('NOT_FOUND')) missing.push('claude CLI');
-  } catch { missing.push('claude CLI'); }
+  if (providers.length === 0) {
+    missing.push(`agent CLI（注册表扫描 ${KNOWN_PROVIDERS.join('/')} 均无命中；至少需要一个 agent CLI 才能跑执行）`);
+  }
   if (missing.length > 0) {
     console.error(`Missing prerequisites: ${missing.join(', ')}`);
     console.error('Install them before running studio up.');
@@ -22,43 +33,14 @@ export function checkPrerequisites() {
 export async function studioUp(configPath?: string) {
   console.log('Studio starting...');
 
-  // 1. 确保数据目录
-  ensureDir(STUDIO_DIR);
-  ensureDir(DATA_DIR);
+  // 1. 确保数据目录（#571：共用 bootstrap；events/ ensureDir 已随契约 §8 收编移除）
+  ensureDataDirs(STUDIO_DIR);
   const ANALYST_DIR = path.join(STUDIO_DIR, '.analyst');
   const DAEMON_DIR = path.join(STUDIO_DIR, '.daemon');
-  const KNOWLEDGE_DIR = path.join(STUDIO_DIR, 'knowledge');
-  const EVENTS_DIR = path.join(STUDIO_DIR, 'events');
   const WORKTREES_DIR = path.join(STUDIO_DIR, 'worktrees');
-  ensureDir(ANALYST_DIR);
-  ensureDir(DAEMON_DIR);
-  ensureDir(KNOWLEDGE_DIR);
-  ensureDir(EVENTS_DIR);
-  ensureDir(WORKTREES_DIR);
 
   // 2. 自动生成密钥（必须在加载 .env 之前，避免 .env 中的占位值覆盖生成的密钥）
-  if (!process.env.JWT_SECRET) {
-    const jwtFile = path.join(DAEMON_DIR, 'jwt-secret');
-    if (fs.existsSync(jwtFile)) {
-      process.env.JWT_SECRET = fs.readFileSync(jwtFile, 'utf-8').trim();
-    } else {
-      const secret = require('crypto').randomBytes(32).toString('hex');
-      fs.writeFileSync(jwtFile, secret, 'utf-8');
-      process.env.JWT_SECRET = secret;
-      console.log(`Generated JWT_SECRET (stored in ${jwtFile})`);
-    }
-  }
-  if (!process.env.ENCRYPTION_KEY) {
-    const encFile = path.join(DAEMON_DIR, 'encryption-key');
-    if (fs.existsSync(encFile)) {
-      process.env.ENCRYPTION_KEY = fs.readFileSync(encFile, 'utf-8').trim();
-    } else {
-      const encKey = require('crypto').randomBytes(32).toString('hex');
-      fs.writeFileSync(encFile, encKey, 'utf-8');
-      process.env.ENCRYPTION_KEY = encKey;
-      console.log(`Generated ENCRYPTION_KEY (stored in ${encFile})`);
-    }
-  }
+  ensureDaemonSecrets(DAEMON_DIR);
 
   // 3. 加载配置（--config 参数 或 STUDIO_CONFIG_DIR 环境变量 或 默认路径）
   // 注：密钥先生成再加载 .env — .env 中的 JWT_SECRET 占位值不会覆盖已生成的密钥
@@ -88,8 +70,9 @@ export async function studioUp(configPath?: string) {
   // DATABASE_URL removed (Spec 4 Phase 4) — FileStore only
   if (!process.env.ANALYST_DIR) process.env.ANALYST_DIR = ANALYST_DIR;
   if (!process.env.DAEMON_DIR) process.env.DAEMON_DIR = DAEMON_DIR;
-  if (!process.env.KNOWLEDGE_DIR) process.env.KNOWLEDGE_DIR = KNOWLEDGE_DIR;
-  if (!process.env.EVENTS_DIR) process.env.EVENTS_DIR = EVENTS_DIR;
+  // KNOWLEDGE_DIR = harness hook 知识目录（非 FileKnowledgeStore 的 data 根 knowledge/），
+  // 缺省归数据根 harness-knowledge（#571 / 契约 §8）；events/ 双口径已收编，不再注入 EVENTS_DIR
+  if (!process.env.KNOWLEDGE_DIR) process.env.KNOWLEDGE_DIR = defaultKnowledgeDir();
   if (!process.env.WORKTREES_DIR) process.env.WORKTREES_DIR = WORKTREES_DIR;
 
   console.log(`Data dir: ${STUDIO_DIR}`);
@@ -116,10 +99,25 @@ export async function studioUp(configPath?: string) {
   }
   console.log(`Project root: ${process.env.REPO_DIR}`);
 
-  const port = parseInt(process.env.PORT || '3001');
+  // 端口（#573 契约 §7 单口径）：PORT 显式指定占用即拒启；缺省 3001 起动态
+  // 顺延（上限 +100），顺延结果在日志标明实际端口。原 ops preflight lsof
+  // abort 语义收编为此处分支。
+  const host = resolveListenHost(process.env);
+  let port: number;
+  try {
+    const resolved = await resolvePort({ host, explicitPort: explicitPortFromEnv(undefined) });
+    port = resolved.port;
+    if (resolved.shiftedFrom !== null) {
+      console.log(`Port ${resolved.shiftedFrom} in use — shifted to ${port}（动态顺延）`);
+    }
+  } catch (e: any) {
+    console.error(`❌ ${e.message}`);
+    process.exit(1);
+  }
+  process.env.PORT = String(port);
 
   // ── Ops Pre-flight Guard ──
-  // Replace old --accept-data-loss db push + port check with full pre-flight
+  // 存储/前端产物/进程/磁盘等启动检查；端口检查已收编 cli/port-probe（#573）
   try {
     const { createOpsService } = await import('../modules/agents/ops/ops.service.js');
     const ops = createOpsService(port);

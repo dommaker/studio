@@ -2,3 +2,5 @@
 
 export { parseStreamEvents, parseStreamLine, extractToolCalls, extractFilePath, extractResult, extractUsage, extractWriteContent } from './stream-json-parser.js';
 export type { StreamEvent, StreamContentBlock, ToolCall } from './stream-json-parser.js';
+export { classifyCliFailure } from './failure-classifier.js';
+export type { CliFailureCategory, CliFailureClass, CliFailureInput } from './failure-classifier.js';

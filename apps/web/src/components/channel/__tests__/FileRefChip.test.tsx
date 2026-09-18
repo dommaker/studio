@@ -26,7 +26,9 @@ vi.mock('../../../api', () => ({
 import type { ChannelFileVocabulary, ChannelMessage } from '../../../api/channel';
 import { FileRefChip } from '../FileRefChip';
 import { ChannelMessageItem } from '../ChannelMessageItem';
+import { ChannelMessageEnvProvider } from '../ChannelMessageEnv';
 import { usePmoDataStore } from '../../../stores/pmoDataStore';
+import { useChannelDataStore } from '../../../stores/channelDataStore';
 
 const vocab: ChannelFileVocabulary = {
   repos: [
@@ -104,19 +106,27 @@ describe('ChannelMessageItem 集成（#285；#271 起正文走 Markdown 渲染�
     content: '完成 `src/index.ts` 的修改', createdAt: '2026-08-19T00:00:00.000Z',
   };
 
+  // #547：fileVocabulary prop 已删——消息项按 env channelId 自 useChannelDataStore 取词表；
+  // 每测渲染前显式 setState（无词表置 {}）防同文件串状态
   it('agent 消息 + 词表 → 正文命中 token 染 chip', () => {
+    useChannelDataStore.setState({ vocabulary: { ch1: vocab } });
     render(
       <MemoryRouter>
-        <ChannelMessageItem message={base} onAction={vi.fn()} fileVocabulary={vocab} />
+        <ChannelMessageEnvProvider value={{ onAction: vi.fn(), channelId: 'ch1' }}>
+          <ChannelMessageItem message={base} />
+        </ChannelMessageEnvProvider>
       </MemoryRouter>,
     );
     expect(screen.getByRole('button', { name: 'src/index.ts' })).toBeTruthy();
   });
 
   it('人类消息 + 词表 → 正文不动，无 chip', () => {
+    useChannelDataStore.setState({ vocabulary: { ch1: vocab } });
     const { container } = render(
       <MemoryRouter>
-        <ChannelMessageItem message={{ ...base, authorType: 'human' }} onAction={vi.fn()} fileVocabulary={vocab} />
+        <ChannelMessageEnvProvider value={{ onAction: vi.fn(), channelId: 'ch1' }}>
+          <ChannelMessageItem message={{ ...base, authorType: 'human' }} />
+        </ChannelMessageEnvProvider>
       </MemoryRouter>,
     );
     expect(container.querySelector('.mc-file-chip')).toBeNull();
@@ -124,9 +134,12 @@ describe('ChannelMessageItem 集成（#285；#271 起正文走 Markdown 渲染�
   });
 
   it('agent 消息不传词表 → inline-code 走默认 chip 样式，无文件 chip', () => {
+    useChannelDataStore.setState({ vocabulary: {} });
     const { container } = render(
       <MemoryRouter>
-        <ChannelMessageItem message={base} onAction={vi.fn()} />
+        <ChannelMessageEnvProvider value={{ onAction: vi.fn(), channelId: 'ch1' }}>
+          <ChannelMessageItem message={base} />
+        </ChannelMessageEnvProvider>
       </MemoryRouter>,
     );
     expect(container.querySelector('.mc-file-chip')).toBeNull();
@@ -135,14 +148,15 @@ describe('ChannelMessageItem 集成（#285；#271 起正文走 Markdown 渲染�
   });
 
   it('AC4：WU 文件集优先——token 不在候选集词表但在 wuChangedFiles → 仍染 chip（绝对路径 tooltip）', () => {
+    useChannelDataStore.setState({ vocabulary: { ch1: vocab } });
     render(
       <MemoryRouter>
-        <ChannelMessageItem
-          message={{ ...base, content: '完成 `docs/wu-only.md` 的修改', workUnitId: 'wu-1' }}
-          onAction={vi.fn()}
-          fileVocabulary={vocab}
-          wuChangedFiles={['/wt/exec-1/docs/wu-only.md']}
-        />
+        <ChannelMessageEnvProvider value={{ onAction: vi.fn(), channelId: 'ch1' }}>
+          <ChannelMessageItem
+            message={{ ...base, content: '完成 `docs/wu-only.md` 的修改', workUnitId: 'wu-1' }}
+            wuChangedFiles={['/wt/exec-1/docs/wu-only.md']}
+          />
+        </ChannelMessageEnvProvider>
       </MemoryRouter>,
     );
     const chip = screen.getByRole('button', { name: 'docs/wu-only.md' });
@@ -150,27 +164,30 @@ describe('ChannelMessageItem 集成（#285；#271 起正文走 Markdown 渲染�
   });
 
   it('AC4：不传候选集词表但 wuChangedFiles 有命中 → 染 chip（WU 层不依赖词表）', () => {
+    useChannelDataStore.setState({ vocabulary: {} });
     render(
       <MemoryRouter>
-        <ChannelMessageItem
-          message={{ ...base, workUnitId: 'wu-1' }}
-          onAction={vi.fn()}
-          wuChangedFiles={['/wt/exec-1/src/index.ts']}
-        />
+        <ChannelMessageEnvProvider value={{ onAction: vi.fn(), channelId: 'ch1' }}>
+          <ChannelMessageItem
+            message={{ ...base, workUnitId: 'wu-1' }}
+            wuChangedFiles={['/wt/exec-1/src/index.ts']}
+          />
+        </ChannelMessageEnvProvider>
       </MemoryRouter>,
     );
     expect(screen.getByRole('button', { name: 'src/index.ts' })).toBeTruthy();
   });
 
   it('AC4：wuChangedFiles 为空数组 → 回退候选集词表行为', () => {
+    useChannelDataStore.setState({ vocabulary: { ch1: vocab } });
     render(
       <MemoryRouter>
-        <ChannelMessageItem
-          message={{ ...base, workUnitId: 'wu-1' }}
-          onAction={vi.fn()}
-          fileVocabulary={vocab}
-          wuChangedFiles={[]}
-        />
+        <ChannelMessageEnvProvider value={{ onAction: vi.fn(), channelId: 'ch1' }}>
+          <ChannelMessageItem
+            message={{ ...base, workUnitId: 'wu-1' }}
+            wuChangedFiles={[]}
+          />
+        </ChannelMessageEnvProvider>
       </MemoryRouter>,
     );
     expect(screen.getByRole('button', { name: 'src/index.ts' })).toBeTruthy();

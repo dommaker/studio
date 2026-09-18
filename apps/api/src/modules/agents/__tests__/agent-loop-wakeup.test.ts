@@ -170,7 +170,7 @@ describe('#330: observe 扫描裁剪 + 事件驱动唤醒', () => {
     }, { timeout: 2000, interval: 20 });
   });
 
-  it('非 human 或 workUnitId 不在 myActive 的事件不唤醒', async () => {
+  it('非 human / 无 workUnitId 的事件不唤醒', async () => {
     const instanceId = await startAndWaitFirstObserve();
     const wu = await createBlockedWu(instanceId, channelId);
     await refreshObserve();
@@ -182,14 +182,29 @@ describe('#330: observe 扫描裁剪 + 事件驱动唤醒', () => {
       channelId, message: { authorType: 'agent', workUnitId: wu.id },
     });
     eventBus.publish('channel.message_sent', {
-      channelId, message: { authorType: 'human', workUnitId: 'wu-stranger' },
-    });
-    eventBus.publish('channel.message_sent', {
       channelId, message: { authorType: 'human', workUnitId: null },
     });
 
     await new Promise(resolve => setTimeout(resolve, 400));
     expect(indexSpy.mock.calls.length).toBe(before);
+  });
+
+  // 2026-09-16 唤醒放宽（只放行不裁决）：归属不再用 lastActiveWuIds 派生缓存否决——
+  // 缓存在认领后首个 sleep 窗口必 stale，回复唤醒 100% 被滤掉（实测白等 30s）。
+  // 人类消息带 workUnitId 即醒，是否归我由 observe 裁决（幂等廉价）。
+  it('陌生 workUnitId 的人类消息同样唤醒（只放行不裁决）', async () => {
+    await startAndWaitFirstObserve(); // 不建任何 WU——myActive 为空
+
+    const indexSpy = vi.spyOn(fileStore, 'getIndex');
+    const before = indexSpy.mock.calls.length;
+
+    eventBus.publish('channel.message_sent', {
+      channelId, message: { authorType: 'human', workUnitId: 'wu-stranger' },
+    });
+
+    await vi.waitFor(() => {
+      expect(indexSpy.mock.calls.length).toBeGreaterThan(before);
+    }, { timeout: 2000, interval: 20 });
   });
 
   it('stop() 退订 channel.message_sent', async () => {
@@ -228,7 +243,6 @@ describe('#493: 新回复同毫秒边界 + 唤醒闩锁', () => {
   /** seam：私有成员访问（TS private 仅编译期） */
   interface Seam493 {
     alive: boolean;
-    lastActiveWuIds: Set<string>;
     pendingWake: boolean;
     onChannelMessageSent(payload: { message?: { authorType?: string; workUnitId?: string | null } }): void;
     idleSleep(ms: number): Promise<void>;
@@ -263,7 +277,6 @@ describe('#493: 新回复同毫秒边界 + 唤醒闩锁', () => {
     const loop = new AgentLoop(mockRole, fileStore);
     const seam = seamOf(loop);
     seam.alive = true;
-    seam.lastActiveWuIds = new Set(['wu-1']);
 
     seam.onChannelMessageSent({ message: { authorType: 'human', workUnitId: 'wu-1' } });
     expect(seam.pendingWake).toBe(true);
@@ -274,17 +287,25 @@ describe('#493: 新回复同毫秒边界 + 唤醒闩锁', () => {
     expect(seam.pendingWake).toBe(false); // 已消费，不残留
   });
 
-  it('闩锁不误置：非 human / 非 myActive / 无 workUnitId 的事件不置闩', () => {
+  it('闩锁不误置：非 human / 无 workUnitId / 空负载不置闩', () => {
     const loop = new AgentLoop(mockRole, fileStore);
     const seam = seamOf(loop);
     seam.alive = true;
-    seam.lastActiveWuIds = new Set(['wu-1']);
 
     seam.onChannelMessageSent({ message: { authorType: 'agent', workUnitId: 'wu-1' } });
-    seam.onChannelMessageSent({ message: { authorType: 'human', workUnitId: 'wu-stranger' } });
     seam.onChannelMessageSent({ message: { authorType: 'human', workUnitId: null } });
     seam.onChannelMessageSent({});
     expect(seam.pendingWake).toBe(false);
+  });
+
+  // 2026-09-16 唤醒放宽：陌生 workUnitId 也置闩（归属裁决归 observe，见 #330 段同名测试）
+  it('陌生 workUnitId 的人类消息置闩（只放行不裁决）', () => {
+    const loop = new AgentLoop(mockRole, fileStore);
+    const seam = seamOf(loop);
+    seam.alive = true;
+
+    seam.onChannelMessageSent({ message: { authorType: 'human', workUnitId: 'wu-stranger' } });
+    expect(seam.pendingWake).toBe(true);
   });
 
   it('无闩时 idleSleep 正常睡足（闩锁不改变无事件时的空闲调度）', async () => {
@@ -327,8 +348,8 @@ describe('#523: workunit 认领真唤醒（created + status_changed）', () => {
     fs.rmSync(testDir, { recursive: true, force: true });
   }, 5000);
 
-  /** 启动 loop 并等首轮 observe 完成 */
-  async function startAndWaitFirstObserve(): Promise<void> {
+  /** 启动 loop 并等首轮 observe 完成；返回本实例 id（assigneeId 口径） */
+  async function startAndWaitFirstObserve(): Promise<string> {
     agentLoop = new AgentLoop(mockRole, fileStore);
     const indexSpy = vi.spyOn(fileStore, 'getIndex');
     await agentLoop.start();
@@ -336,6 +357,9 @@ describe('#523: workunit 认领真唤醒（created + status_changed）', () => {
       expect(indexSpy.mock.calls.length).toBeGreaterThanOrEqual(1);
     }, { timeout: 3000, interval: 20 });
     indexSpy.mockRestore();
+    const seam = agentLoop as unknown as { instance: { id: string } | null };
+    expect(seam.instance).toBeTruthy();
+    return seam.instance!.id;
   }
 
   /** workunit.created 的 EVENT EXECUTE handler（trigger scheduler 会把事件 payload 传进来） */
@@ -387,6 +411,38 @@ describe('#523: workunit 认领真唤醒（created + status_changed）', () => {
     await vi.waitFor(() => {
       expect(indexSpy.mock.calls.length).toBeGreaterThan(before);
     }, { timeout: 2000, interval: 20 });
+  });
+
+  // 2026-09-16 唤醒放宽（只放行不裁决）：复活路径 blocked→active 的 claimable 恒 false，
+  // 旧过滤把它排除 → 人类回复后 loop 白等满 30s dynamicInterval（perf 实测实锤）。
+  // 新口径：claimable===true 或 assigneeId===本实例 即醒，归属裁决归 observe。
+  it('status_changed：claimable=false 但 assigneeId=本实例（NEED_INPUT 复活）→ 唤醒', async () => {
+    const instanceId = await startAndWaitFirstObserve();
+
+    const indexSpy = vi.spyOn(fileStore, 'getIndex');
+    const before = indexSpy.mock.calls.length;
+
+    eventBus.publish('workunit.status_changed', {
+      workunit: { id: 'wu-mine-resumed', status: 'active', claimable: false, assigneeId: instanceId },
+    });
+
+    await vi.waitFor(() => {
+      expect(indexSpy.mock.calls.length).toBeGreaterThan(before);
+    }, { timeout: 2000, interval: 20 });
+  });
+
+  it('status_changed：assigneeId 是别人的 WU → 不唤醒', async () => {
+    await startAndWaitFirstObserve();
+
+    const indexSpy = vi.spyOn(fileStore, 'getIndex');
+    const before = indexSpy.mock.calls.length;
+
+    eventBus.publish('workunit.status_changed', {
+      workunit: { id: 'wu-other', status: 'active', claimable: false, assigneeId: 'inst-someone-else' },
+    });
+
+    await new Promise(resolve => setTimeout(resolve, 400));
+    expect(indexSpy.mock.calls.length).toBe(before);
   });
 
   it('stop() 退订 workunit.status_changed', async () => {

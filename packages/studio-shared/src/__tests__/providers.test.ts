@@ -198,3 +198,67 @@ describe('spawn-args templates', () => {
     expect(promptViaStdin).toBe(true);
   });
 });
+
+describe('capability probe declarations（#565 AC1）', () => {
+  test('codex 声明 capabilityProbe.helpArgs 与 conditionalFlags（0.147.0 实测 codex exec --help 含该 flag）', () => {
+    expect(BUILTIN_PROVIDERS.codex.capabilityProbe).toEqual({ helpArgs: ['exec', '--help'] });
+    expect(BUILTIN_PROVIDERS.codex.spawn.conditionalFlags).toEqual(['--dangerously-bypass-hook-trust']);
+  });
+
+  test('其余内置 provider 第一批不声明 conditionalFlags（核心协议 flag 不做探测剔除）', () => {
+    expect(BUILTIN_PROVIDERS.claude.spawn.conditionalFlags).toBeUndefined();
+    expect(BUILTIN_PROVIDERS.kimi.spawn.conditionalFlags).toBeUndefined();
+    expect(BUILTIN_PROVIDERS.opencode.spawn.conditionalFlags).toBeUndefined();
+  });
+});
+
+describe('auth probe declarations（#565 AC3）', () => {
+  test('claude/codex 声明实测验证过的 auth 探测命令', () => {
+    // 2.1.273 实测 `claude auth status` 输出 JSON loggedIn 字段
+    expect(BUILTIN_PROVIDERS.claude.authProbe?.args).toEqual(['auth', 'status']);
+    // 0.147.0 实测 `codex login status` 未登录 exit 1 + "Not logged in"
+    expect(BUILTIN_PROVIDERS.codex.authProbe?.args).toEqual(['login', 'status']);
+  });
+
+  test('kimi/opencode 不声明 authProbe（实测无可靠探测手段 → 恒 unknown，不猜配置目录）', () => {
+    expect(BUILTIN_PROVIDERS.kimi.authProbe).toBeUndefined();
+    expect(BUILTIN_PROVIDERS.opencode.authProbe).toBeUndefined();
+  });
+});
+
+describe('listModels declarations（#574 动态模型发现）', () => {
+  test('codex/kimi/opencode 声明实测验证过的模型列表探测命令（2026-09-16 本机实测）', () => {
+    // 0.147.0 实测 `codex debug models`：stdout JSON，取 visibility==="list" 的 slug
+    expect(BUILTIN_PROVIDERS.codex.listModels).toEqual({ args: ['debug', 'models'], parser: 'jsonModelSlugs' });
+    // 0.38.0 实测 `kimi provider list --json`：JSON，models 对象的键即模型 alias
+    expect(BUILTIN_PROVIDERS.kimi.listModels).toEqual({ args: ['provider', 'list', '--json'], parser: 'jsonModelKeys' });
+    // 1.18.18 实测 `opencode models`：每行一个 provider/model
+    expect(BUILTIN_PROVIDERS.opencode.listModels).toEqual({ args: ['models'], parser: 'lines' });
+  });
+
+  test('claude 不声明 listModels（2.1.273 实测无模型列表命令），四内置均有静态 fallbackModels', () => {
+    expect(BUILTIN_PROVIDERS.claude.listModels).toBeUndefined();
+    for (const id of ['claude', 'kimi', 'codex', 'opencode'] as const) {
+      expect(BUILTIN_PROVIDERS[id].fallbackModels?.length).toBeGreaterThan(0);
+    }
+  });
+
+  test('providers.json 用户覆盖优先级不变：可覆盖 fallbackModels 与 listModels', () => {
+    const p = writeConfig({
+      claude: { fallbackModels: ['my-claude-model'] },
+      mycli: {
+        displayName: 'My CLI',
+        binaries: ['mycli'],
+        versionArgs: ['--version'],
+        healthProbeArgs: ['--version'],
+        spawn: { baseArgs: [], defaultOutputFormat: 'text', promptViaStdin: true },
+        listModels: { args: ['models', '--json'], parser: 'jsonModelKeys' },
+        fallbackModels: ['mycli/default'],
+      },
+    });
+    expect(getProviderDefinition('claude', p)!.fallbackModels).toEqual(['my-claude-model']);
+    const mycli = getProviderDefinition('mycli', p)!;
+    expect(mycli.listModels).toEqual({ args: ['models', '--json'], parser: 'jsonModelKeys' });
+    expect(mycli.fallbackModels).toEqual(['mycli/default']);
+  });
+});

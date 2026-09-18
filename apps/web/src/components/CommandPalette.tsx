@@ -221,6 +221,10 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
 
   if (!open) return null;
 
+  // §4.3 豁免（批次 I-2 留痕）：⌘K 命令面板为 ui/Modal 承载不了的特殊结构——
+  // 顶部对齐（cmdk-overlay padding-top 12vh）+ 面板自带键盘总线（Esc/↑↓/Enter + IME 守卫）
+  // + role=listbox 结果区，套 .modal/modal-body 居中结构会破坏布局与按键语义。
+  // a11y 基座本组件自覆盖：role="dialog"、Escape 关、点遮罩关、输入框 autoFocus。
   return (
     <div className="modal-overlay cmdk-overlay" onClick={onClose}>
       <div

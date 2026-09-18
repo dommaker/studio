@@ -139,7 +139,7 @@ describe('Skill event emission', () => {
     expect(payload.skillName).toBe('test-skill');
   });
 
-  test('#172（#60 决策）：loadSkill 的 skill_used 携带 workUnitId（传入时）+ envelope level=debug', async () => {
+  test('#172（#60 决策）+ 度量地基票 C：loadSkill 的 skill_used 携带 workUnitId（传入时）+ envelope level=info（signal 提级）', async () => {
     const { SkillLoaderService } = await import('../../skills/skill-loader.js');
     const loader = new SkillLoaderService();
 
@@ -151,7 +151,7 @@ describe('Skill event emission', () => {
     expect(result).not.toBeNull();
 
     const row = await waitForEvent('knowledge:skill_used');
-    expect(row.level).toBe('debug'); // knowledge:* 默认 debug 分级（写口按 type 赋级）
+    expect(row.level).toBe('info'); // 票 C：skill_used 显式提级 signal（归档保留，不 7 天滚）
     const payload = JSON.parse(row!.payload);
     expect(payload.skillName).toBe('test-skill');
     expect(payload.workUnitId).toBe('wu-42');

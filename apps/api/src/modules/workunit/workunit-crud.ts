@@ -4,8 +4,8 @@
  * AS-025 §3.28c-1 Task 2-4
  * 存储迁移: 已从 Prisma 迁移到 FileStore (Event Sourcing)
  *
- * 本文件：create/update/delete + claim/unclaim、workunit.created 与
- * workunit.status_changed 事件发布、父状态聚合（aggregateParentStatus），
+ * 本文件：create/update/delete + claim/unclaim + updateMetadata 增量合并语义口（#554）、
+ * workunit.created 与 workunit.status_changed 事件发布、父状态聚合（aggregateParentStatus），
  * 以及快照转换函数与输入/数据类型。状态机迁移（transitionStatus）、
  * 查询（getById/list）与评审验收收口在 workunit.service.ts 的 WorkUnitService。
  */
@@ -77,6 +77,11 @@ export interface WorkUnitData {
   updatedAt: Date;
   claimedAt: Date | null;
   completedAt: Date | null;
+  /** #327（additive）：关闭时刻——归档计龄锚点。仅 closed 状态有值，reopen 清除 */
+  closedAt?: Date | null;
+  /** #318（additive，ADR D2）：可认领标记——仅事件负载（workunit.created/status_changed）与 GET / 列表项附带；
+      unassigned 且无未了结依赖才 true，其余状态恒 false；snapshotToData 本体不产此字段 */
+  claimable?: boolean;
 }
 
 /**
@@ -417,9 +422,26 @@ export class WorkUnitCrudService {
   }
 
   /**
-   * Delete a WorkUnit.
+   * metadata 增量合并语义口（#554，ADR 2026-09-15 决策 1/6）：patch 浅并入既有
+   * metadata——既有键保留、同名键被 patch 覆盖、undefined 值键序列化时丢弃（清除语义）。
+   * 委托 FileStore.updateMetadata 锁内原语（mutator 基于锁内最新值求值，消读-改-写竞态）；
+   * 业务模块不直摸该原语。不动状态机/业务守卫，updatedAt 沿用原语缺省刷新。
+   * @returns 更新后的 WorkUnitData；WU 不存在返回 null（不抛错，与 FileStore 原语同口径，
+   *          与 update() 的抛错口径不同——批量/标记类调用方按忽略语义处理）
    */
-  async delete(id: string): Promise<void> {
+  async updateMetadata(id: string, patch: WorkUnitMetadata): Promise<WorkUnitData | null> {
+    const updated = await this.fileStore.updateMetadata(id, latest => ({ ...latest, ...patch }));
+    return updated ? snapshotToData(updated) : null;
+  }
+
+  /**
+   * Delete a WorkUnit.
+   * #538（ADR 2026-09-15 决策 3/4/5）：墓碑事件行（closed + deleted:true）由本方法
+   * 单点构造，调用方不自拼；reason 可选落墓碑（GC/TTL 死因留痕）。删除后发
+   * workunit:removed（负载 id + channelId，经 SSE 桥转发前端删行）——只走事件流，
+   * 不进频道出声（数据卫生非对账修复）。
+   */
+  async delete(id: string, opts?: { reason?: string }): Promise<void> {
     const existing = (await this.fileStore.getIndex({ id }))[0];
     if (!existing) throw new Error(`WorkUnit not found: ${id}`);
 
@@ -431,9 +453,19 @@ export class WorkUnitCrudService {
       type: 'closed',
       wuId: id,
       timestamp: now.toISOString(),
-      data: { deleted: true },
+      data: { deleted: true, ...(opts?.reason ? { reason: opts.reason } : {}) },
     };
     await this.fileStore.commitRemoval(event, id);
+
+    // best-effort：删除出声失败只记日志（同 publishStatusChanged 口径）
+    try {
+      eventBus.publish('workunit:removed', { id, channelId: existing.channelId ?? null });
+    } catch (err) {
+      logger.warn('[WorkUnit] Failed to publish workunit:removed (non-blocking)', {
+        workUnitId: id,
+        error: String(err),
+      });
+    }
   }
 
   /**

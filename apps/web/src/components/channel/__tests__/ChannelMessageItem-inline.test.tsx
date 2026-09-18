@@ -4,6 +4,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import type { ChannelMessage } from '../../../api/channel';
+import { ChannelMessageEnvProvider } from '../ChannelMessageEnv';
 import { ChannelMessageItem } from '../ChannelMessageItem';
 
 const message: ChannelMessage = {
@@ -20,12 +21,12 @@ function setup() {
   const onInlineReply = vi.fn();
   render(
     <MemoryRouter>
-      <ChannelMessageItem
-        message={message}
-        onAction={vi.fn()}
-        waitingForInput
-        onInlineReply={onInlineReply}
-      />
+      <ChannelMessageEnvProvider value={{ onAction: vi.fn(), onInlineReply }}>
+        <ChannelMessageItem
+          message={message}
+          waitingForInput
+        />
+      </ChannelMessageEnvProvider>
     </MemoryRouter>,
   );
   const input = screen.getByLabelText('回复 wu-1');

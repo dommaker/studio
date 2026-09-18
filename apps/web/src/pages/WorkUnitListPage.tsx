@@ -6,9 +6,8 @@ import { SelfReviewBadge } from '../components/workunit/SelfReviewBadge';
 import { AssigneeLabel } from '../components/workunit/AssigneeLabel';
 import { StaleSleepBadge } from '../components/workunit/StaleSleepBadge';
 import { WuGateActions } from '../components/workunit/WuGateActions';
-import type { ReviewConfirmPayload, WorkUnit } from '../api/workunit';
+import type { WorkUnit } from '../api/workunit';
 import { parseBlockedBy } from '../components/pmo/mapUtils';
-import { useWebSocketContext } from '../api/websocketHooks';
 import { Select, Button, SkeletonText } from '../components/ui';
 import { IconClipboard } from '../components/ui/icons';
 import { formatShortTime } from '../utils/datetime';
@@ -33,10 +32,10 @@ const STATUS_CHIPS = [
 export function WorkUnitListPage() {
   const {
     workunits, total, allTotal, loading, error,
-    loadWorkUnits, loadMoreWorkUnits, loadAllCount, createWorkUnit, reviewPassed, reviewRejected, confirmPending,
+    loadWorkUnits, loadMoreWorkUnits, loadAllCount, createWorkUnit,
     statusFilter, setStatusFilter,
     unattributedOnly, unattributedTotal, setUnattributedOnly, loadUnattributedCount,
-    searchQuery, setSearchQuery,
+    searchQuery, setSearchQuery, setListOnScreen,
   } = useWorkUnitStore();
 
   const [showCreate, setShowCreate] = useState(false);
@@ -79,6 +78,13 @@ export function WorkUnitListPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // #557：挂载登记在屏信号（卸载清 false）——App 级 useWorkUnitStoreSync 重连兜底
+  // 的真实门槛（空列表代理已废：过滤无结果/首拉失败留空时重连照刷）
+  useEffect(() => {
+    setListOnScreen(true);
+    return () => setListOnScreen(false);
+  }, [setListOnScreen]);
+
   useEffect(() => {
     loadWorkUnits();
     // #405：未归属计数徽标（服务端 total 口径；过滤态下由 loadWorkUnits 顺带同步）
@@ -87,33 +93,10 @@ export function WorkUnitListPage() {
     void loadAllCount();
   }, [loadWorkUnits, loadUnattributedCount, loadAllCount]);
 
-  // #318：WU SSE 负载直更（替代 eventTick 整页重拉）——status_changed 直替/移除行、created 插头部；
-  // SSE 重连经 onReconnect 一次性 refetch 对齐（ADR D3）
-  const applyWorkunitEvent = useWorkUnitStore(s => s.applyWorkunitEvent);
-  const { onEvent, onReconnect } = useWebSocketContext();
-  // 批次 E-3：SSE 新 WU 行渐隐高亮（白名单③状态色切换）——created 事件插头部的新行挂
-  // .wu-row-new（accent-dim 底色），2s 后移类经 .wu-row 既有 background-color 过渡渐隐；
-  // 过滤不符的行 store 不插入，fresh 标记由定时器自清，无副作用
-  const [freshWuIds, setFreshWuIds] = useState<ReadonlySet<string>>(new Set());
-  const freshWuTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
-  useEffect(() => () => { freshWuTimersRef.current.forEach(clearTimeout); }, []);
-  useEffect(() => onEvent((msg) => {
-    if (msg.event_type !== 'workunit.status_changed' && msg.event_type !== 'workunit.created') return;
-    const data = msg.data as { workunit?: WorkUnit } | null;
-    if (!data?.workunit) return;
-    applyWorkunitEvent(data.workunit, { insertIfMissing: msg.event_type === 'workunit.created' });
-    if (msg.event_type === 'workunit.created') {
-      const wuId = data.workunit.id;
-      setFreshWuIds(prev => (prev.has(wuId) ? prev : new Set(prev).add(wuId)));
-      const timers = freshWuTimersRef.current;
-      if (timers.has(wuId)) clearTimeout(timers.get(wuId));
-      timers.set(wuId, setTimeout(() => {
-        timers.delete(wuId);
-        setFreshWuIds(prev => { const next = new Set(prev); next.delete(wuId); return next; });
-      }, 2000));
-    }
-  }), [onEvent, applyWorkunitEvent]);
-  useEffect(() => onReconnect(() => { void loadWorkUnits(); void loadUnattributedCount(); void loadAllCount(); }), [onReconnect, loadWorkUnits, loadUnattributedCount, loadAllCount]);
+  // #549（B5 收口）：SSE 路由（status_changed 直替/移除、created 插头部 + fresh 标记、
+  // workunit:removed 删行）与重连兜底全在 App 级 useWorkUnitStoreSync——本页退回订阅者，
+  // fresh 渐隐高亮集合直接读 store（机制 = utils/freshIds 共享件，per-id 2s 自清）
+  const freshWuIds = useWorkUnitStore(s => s.freshWuIds);
 
   // 批次 E-2 空态分语境：过滤生效（状态/搜索/待人工/未归属）→ 「清除过滤」；全空 → 「新建任务」
   const isFilteredEmpty = humanOnly || statusFilter !== null || searchQuery !== null || unattributedOnly;
@@ -296,9 +279,6 @@ export function WorkUnitListPage() {
                     wu={wu}
                     fresh={freshWuIds.has(wu.id)}
                     onOpen={() => navigate(`/workunits/${wu.id}`)}
-                    onReviewPassed={(summary, assigneeId, confirm) => reviewPassed(wu.id, summary, assigneeId, confirm)}
-                    onReviewRejected={(reason) => reviewRejected(wu.id, reason)}
-                    onConfirmPending={() => confirmPending(wu.id)}
                     formatTime={formatShortTime}
                   />
                 ))}
@@ -326,17 +306,13 @@ export function WorkUnitListPage() {
 }
 
 function WorkUnitRow({
-  wu, fresh, onOpen, onReviewPassed, onReviewRejected, onConfirmPending, formatTime,
+  wu, fresh, onOpen, formatTime,
 }: {
   wu: WorkUnit;
   /** 批次 E-3：SSE 新插入行渐隐高亮标记（.wu-row-new，2s 后页面自清） */
   fresh?: boolean;
   /** 2026-09-10 第二轮：行点击直跳 /workunits/:id 详情页 */
   onOpen: () => void;
-  onReviewPassed: (summary?: string, assigneeId?: string, confirm?: ReviewConfirmPayload) => Promise<unknown>;
-  onReviewRejected: (reason?: string) => Promise<unknown>;
-  /** #284（决策 #250 D1）：pending 人闸确认（行内快速处置入口，与详情页同组件） */
-  onConfirmPending: () => Promise<unknown>;
   formatTime: (ts: string | null) => string;
 }) {
   // F6-b：徽章/按钮的展示判断一律过派生函数（通过/拒绝的调用资格仍看存储状态，
@@ -397,13 +373,9 @@ function WorkUnitRow({
         </div>
 
         <div className="flex items-center gap-2">
-          {/* E2-4：行内闸门按钮 = 共享 WuGateActions（快速处置不进详情页；组件内吞冒泡） */}
-          <WuGateActions
-            wu={wu}
-            onReviewPassed={onReviewPassed}
-            onReviewRejected={onReviewRejected}
-            onConfirmPending={onConfirmPending}
-          />
+          {/* E2-4：行内闸门按钮 = 共享 WuGateActions（快速处置不进详情页；组件内吞冒泡；
+              #545 起写路径内建 gateWriter——store 双写 upsert 存量行，不再全量重拉） */}
+          <WuGateActions wu={wu} />
         </div>
       </div>
     </div>

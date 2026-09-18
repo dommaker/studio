@@ -1,5 +1,5 @@
 // Audit Event Subscriber — EventBus 审计事件持久化到 KnowledgeStore (B0-002)
-// #324：直订 eventBus（发布方 harness/hooks/audit.ts 本就直发对象 payload，无字符串壳）
+// #324：直订 eventBus（发布方 harness/audit.ts 本就直发对象 payload，无字符串壳）
 import { eventBus, logger } from '@dommaker/studio-shared';
 
 let started = false;

@@ -1,15 +1,14 @@
 /**
  * workflow.ts 单元测试（T3 拆分新增，pre-commit TDD 门禁）。
  *
- * 覆盖执行/审批域的离线路径（PORT 指向未占用端口）：
- * - studioRun：空需求 → usage + exit(1)；API 不可达 → 连接失败 + exit(1)；
+ * 覆盖审批域的离线路径（PORT 指向未占用端口）：
  * - studioApprove：无参数 → usage 块（不发请求、不 exit）；
  * - studioReject：无参数 → usage；未知类型 → Unknown reject type + exit(1)（不发请求）；
  *   合法类型但 API 不可达 → Failed + exit(1)。
  * process.exit mock 为抛错以断言退出码；process.argv 按用例替换并恢复。
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { studioApprove, studioReject, studioRun } from '../workflow.js';
+import { studioApprove, studioReject } from '../workflow.js';
 
 let logs: string[];
 let errs: string[];
@@ -34,23 +33,6 @@ afterEach(() => {
   process.argv = prevArgv;
   if (prevPort === undefined) delete process.env.PORT;
   else process.env.PORT = prevPort;
-});
-
-describe('studioRun', () => {
-  it('空需求 → usage + exit(1)', async () => {
-    process.argv = ['node', 'studio', 'run', '   '];
-    await expect(studioRun()).rejects.toThrow('exit:1');
-    expect(errs.join('\n')).toContain('Usage: studio run "requirement description"');
-  });
-
-  it('API 不可达 → 连接失败提示 + exit(1)', async () => {
-    process.env.PORT = '19131';
-    process.argv = ['node', 'studio', 'run', 'add', 'feature'];
-    await expect(studioRun()).rejects.toThrow('exit:1');
-    const out = errs.join('\n');
-    expect(out).toContain('Failed to connect to studio server:');
-    expect(out).toContain('Make sure studio is running: studio up');
-  });
 });
 
 describe('studioApprove', () => {

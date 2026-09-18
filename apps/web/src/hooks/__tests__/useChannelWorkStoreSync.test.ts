@@ -116,6 +116,23 @@ describe('useChannelWorkStoreSync — SSE 路由（只处理活跃频道）', ()
     }
   });
 
+  it('workunit:removed 本频道 → 删行；非本频道 / 坏负载 → no-op（#538）', async () => {
+    await mount('ch-1');
+    expect(useChannelWorkStore.getState().wus['ch-1']).toHaveLength(1);
+
+    // 非本频道：不删本频道行
+    act(() => handler!({ event_type: 'workunit:removed', data: { id: 'wu-1', channelId: 'ch-2' } }));
+    expect(useChannelWorkStore.getState().wus['ch-1']).toHaveLength(1);
+
+    // 坏负载：缺 id → no-op
+    act(() => handler!({ event_type: 'workunit:removed', data: { channelId: 'ch-1' } }));
+    expect(useChannelWorkStore.getState().wus['ch-1']).toHaveLength(1);
+
+    // 本频道：删行
+    act(() => handler!({ event_type: 'workunit:removed', data: { id: 'wu-1', channelId: 'ch-1' } }));
+    expect(useChannelWorkStore.getState().wus['ch-1']).toHaveLength(0);
+  });
+
   it('requirement.created 本频道 → 就地 upsert + 标脏；channelId 不匹配的 REQ 事件跳过', async () => {
     await mount('ch-1');
     const reqPayload = { id: 'REQ-1', seq: 1, title: '需求一', status: 'open', channelId: 'ch-1', createdAt: '2026-09-01T00:00:00Z', createdBy: 'human' };

@@ -1,7 +1,7 @@
 // 2026-07 PMO-flow UX（§4 terminate 语义修正）：WorkUnitService.blockForManualRelease
 // 覆盖：active/unassigned → blocked（assigneeId/claimedAt 清空 + manualRelease 留痕 + 既有 metadata 保留）、
 //       终态（done/closed）不动、WU 不存在抛错。
-// 模式同 workunit.service.test.ts：真实 FileStore（tmpdir）+ 真实 WorkUnitService。
+// 模式同 workunit-api.test.ts：真实 FileStore（tmpdir）+ 真实 WorkUnitService。
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';

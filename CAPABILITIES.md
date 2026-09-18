@@ -1,6 +1,6 @@
 # CAPABILITIES.md
 
-> 最后更新: 2026-09-15
+> 最后更新: 2026-09-17
 
 ---
 
@@ -16,7 +16,7 @@
 
 | src | packages/studio-shared/src/ | Studio Event Bus — 替代 Redis pub/sub（2026-05-08） |
 | auditor-types | packages/studio-shared/src/harness/auditor/auditor-types.ts | Auditor ↔ 其他角色协议定义（BP-013 + BP-014） |
-| hooks | packages/studio-shared/src/harness/hooks/ | Agent Execution Phase Hooks |
+
 | harness | packages/studio-shared/src/harness/ | Constraint Prompt Injection — 将 harness 约束的前置声明注入 Agent prompt |
 | runtime | packages/studio-shared/src/harness/runtime/ | Harness Runtime Bootstrap — Phase 2 迁移 |
 
@@ -275,4 +275,7 @@
 | NotifyChannelsSection | apps/web/src/components/settings/NotifyChannelsSection.tsx | 通知渠道 section（#525 P2-6）：企业微信群机器人 webhook + ClawBot（个人微信）扫码绑定 + 浏览器通知总开关。 |
 | wecom-client | apps/api/src/modules/notify-channels/wecom-client.ts | 企业微信群机器人 markdown 发送唯一出口（#525 review 收口）： |
 | ChannelStreamBody | apps/web/src/components/channel/ChannelStreamBody.tsx | 频道消息流结构组件（#531，架构评审 2026-09-14 候选 3）：消费 useChannelStream 产物， |
+| ChannelMessageEnv | apps/web/src/components/channel/ChannelMessageEnv.tsx | 频道消息环境（#547，架构评审 2026-09-15 候选 B3，grilling 已决）： |
+| ApproveDialogShell | apps/web/src/components/ui/ApproveDialogShell.tsx | ApproveDialogShell — 审批弹窗公共壳（docs/plans/2026-09-web-ux-optional-fixes.md Step 3， |
+| PlanDirectionCard | apps/web/src/components/channel/PlanDirectionCard.tsx | PlanDirectionCard — #567：方向锁定接力卡（plan 一脉会话内方向人闸，裁决轮前置环节） |
 | mockMatchMedia | apps/web/src/test/mockMatchMedia.ts | #395：jsdom 无 window.matchMedia 实现——按给定视口宽度求值 (min|max)-width 媒体查询， |

@@ -1,0 +1,104 @@
+/* ============================================================
+   语义工具类 u-*（批次 I-4 自 mission-control.css 尾部抽出，零改动搬迁）
+   —— 替代写死浅色 Tailwind 类（bg-white/text-gray-* 等），
+   全部消费 theme.css 变量，深色（A 方向）/浅色双主题一致。
+
+   优先级契约（2026-09-16 Step 4 起，替代原级联位置契约）：u-* 与 mc-*
+   同元素叠加且属性冲突时，不得依赖 import 顺序，必须在文件尾部
+   「显式优先级覆盖」区登记 (0,2,0) 复合选择器；已登记的冲突对见该区，
+   本文件与 mission-control.css 的 import 顺序可任意重排。
+   ============================================================ */
+.u-surface { background: var(--bg-elevated); }
+.u-surface-2 { background: var(--bg-tertiary); }
+/* 档位序列：-0 = --bg-secondary（比 elevated 暗一档，#431 补全——PMOPage tab 容器 / CreateOkrDialog KR 行等「父级下一档」分层） */
+.u-surface-0 { background: var(--bg-secondary); }
+.u-hover-bg:hover,
+.u-hover-bg:focus-visible { background: var(--bg-hover); }
+.u-hover-text:hover { color: var(--text-primary); }
+.u-hover-accent:hover { color: var(--accent-primary); }
+.u-text { color: var(--text-primary); }
+.u-text-2 { color: var(--text-secondary); }
+.u-text-3 { color: var(--text-muted); }
+/* 批次 D-4：下间距工具类。Tailwind 工具类在 utilities 层、压不过未分层 mc-* 类自带的 margin
+   （如 mc-quote/mc-drawer-note），需要覆盖组件类默认下间距时用；= --space-3(12)，ConvertToTaskDialog 正本消费 */
+.u-mb-3 { margin-bottom: var(--space-3); }
+/* 整卡置灰弱化（#116：依赖未了结的不可认领任务单卡） */
+.u-dimmed { opacity: 0.55; }
+.u-border { border-color: var(--border-subtle); }
+.u-border-2 { border-color: var(--border-default); }
+.u-accent { color: var(--accent-primary); }
+.u-accent-bg { background: var(--accent-primary); color: var(--bg-primary); }
+.u-accent-dim { background: var(--accent-dim); color: var(--accent-primary); }
+.u-accent-border { border-color: var(--accent-border); }
+.u-ok { color: var(--success); }
+.u-ok-bg { background: var(--success); color: var(--bg-primary); }
+.u-ok-dim { background: var(--success-dim); color: var(--success); }
+.u-ok-border { border-color: var(--success-border); }
+.u-err { color: var(--error); }
+.u-err-bg { background: var(--error); color: var(--bg-primary); }
+.u-err-dim { background: var(--error-dim); color: var(--error); }
+.u-warn { color: var(--warning); }
+.u-warn-bg { background: var(--warning); color: var(--bg-primary); }
+.u-warn-dim { background: var(--warning-dim); color: var(--warning); }
+.u-warn-border { border-color: var(--warning-border); }
+/* 异常橙（#397/redesign §6.5：异常与待评审黄解耦；仅这两档有消费方，YAGNI 不补 -bg/-border） */
+.u-anomaly { color: var(--anomaly); }
+.u-anomaly-dim { background: var(--anomaly-dim); color: var(--anomaly); }
+.u-on-accent { color: var(--bg-primary); }
+
+/* ============================================================
+   显式优先级覆盖：u-* × mc-* 同元素冲突对（2026-09-16 Step 4，
+   docs/plans/2026-09-web-ux-optional-fixes.md）
+   原依赖本文件在 mission-control.css 之后 import（同优先级后定义胜出），
+   现改 (0,2,0) 复合选择器显式胜出，import 顺序不再影响结果。
+   覆盖语义逐对保持原样：
+   - mc-icon-btn:hover 的 color 同为 --accent-primary，hover 胜负无视觉差；
+   - mc-card:hover 的 border-color 原以 (0,2,0) 压过单类 u-accent-border，
+     补 hover 行维持原行为（hover 落 --border-default）。
+   消费点：ConvertToTaskDialog（u-mb-3 ×2）、ChannelMemberManager（u-accent）、
+   KnowledgeConfirmCard（u-accent-border）。
+   ============================================================ */
+.mc-quote.u-mb-3,
+.mc-drawer-note.u-mb-3 { margin-bottom: var(--space-3); }
+.mc-icon-btn.u-accent { color: var(--accent-primary); }
+.mc-card.u-accent-border { border-color: var(--accent-border); }
+.mc-card.u-accent-border:hover { border-color: var(--border-default); }
+
+/* 着色底 + u-hover-bg 组合修正：u-hover-bg 会把背景改写成 --bg-hover（近黑），
+   实心按钮上的 on-accent 黑字随之消失（hover 变黑看不见字）；dim 按钮则丢着色底。
+   这里按语义色各自保住底色，改用 brightness 做 hover 反馈（对齐 .btn-primary:hover）。 */
+.u-accent-bg.u-hover-bg:hover { background: var(--accent-primary); filter: brightness(1.1); }
+.u-ok-bg.u-hover-bg:hover { background: var(--success); filter: brightness(1.1); }
+.u-err-bg.u-hover-bg:hover { background: var(--error); filter: brightness(1.1); }
+.u-warn-bg.u-hover-bg:hover { background: var(--warning); filter: brightness(1.1); }
+.u-accent-dim.u-hover-bg:hover { background: var(--accent-dim); filter: brightness(1.3); }
+.u-ok-dim.u-hover-bg:hover { background: var(--success-dim); filter: brightness(1.3); }
+.u-err-dim.u-hover-bg:hover { background: var(--error-dim); filter: brightness(1.3); }
+.u-warn-dim.u-hover-bg:hover { background: var(--warning-dim); filter: brightness(1.3); }
+
+/* ============================================================
+   共享结构类（#431：逐字内联重复收敛）
+   ============================================================ */
+/* 页面骨架底（§4.7：全站页面根/壳容器，替代逐字 style={{ background: 'var(--bg-primary)' }}） */
+.u-page-bg { background: var(--bg-primary); }
+/* 页头条（§4.7：--space-5/--space-6 padding + 底 hairline，替代逐字 px-8 py-6 + 内联 borderBottom） */
+.u-page-head { padding: var(--space-5) var(--space-6); border-bottom: 1px solid var(--border-subtle); }
+/* 裸按钮重置（§4.5：无 btn 体系外壳的文字/图标钮；font/color 继承由 Tailwind preflight 兜底，故不含——
+   保留类上 mc-block-label/u-accent/text-* 等排类的字体颜色决议权） */
+.u-btn-reset { background: none; border: none; cursor: pointer; padding: 0; }
+/* 页面级水平 padding（批次 F-5：§4.7 内容区 px-8 = --space-6 的类正本，供内容区/tab 条/整页状态复用） */
+.u-page-px { padding-left: var(--space-6); padding-right: var(--space-6); }
+
+/* 批次 F-5 窄屏断点（<640px = Tailwind max-sm 档，对齐 responsive.css）：页头/内容区水平 padding 收缩一档（--space-6 → --space-4）；
+   批次 I-3：639px 字面量归一为 range 语法（width < 40rem），与 Tailwind v4 max-sm 完全等效 */
+@media (width < 40rem) {
+  .u-page-head { padding-left: var(--space-4); padding-right: var(--space-4); }
+  .u-page-px { padding-left: var(--space-4); padding-right: var(--space-4); }
+}
+
+/* Tab 形态正本（批次 D-4 定 Knowledge border-b 为正本；E5 起激活态 accent 底线自内联 style 收进类） */
+.u-tab { border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.u-tab-active { border-bottom-color: var(--accent-primary); }
+/* 焦点态（§2 规则 8，批次 I-3）：accent 描边，与 index.css 全局兜底环同口径；
+   不加过渡（零动效默认；白名单①仅允许、非强制） */
+.u-tab:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }

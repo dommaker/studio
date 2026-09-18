@@ -19,7 +19,16 @@ vi.mock('../channel/KnowledgeConfirmCard', () => ({ KnowledgeConfirmCard: () => 
 vi.mock('../channel/ConvertToTaskDialog', () => ({ ConvertToTaskDialog: () => null }));
 
 import { ChannelMessageItem } from '../channel/ChannelMessageItem';
+import { ChannelMessageEnvProvider } from '../channel/ChannelMessageEnv';
+import type { ChannelMessageEnv } from '../channel/ChannelMessageEnv';
 import type { ChannelMessage } from '../../api/channel';
+import type { ReactElement } from 'react';
+
+// #547：onAction/onInlineReply/onOpenWorkUnit 等横切值改经 Context 下发——包 Provider 渲染；
+// 消息本体与 per-message 派生值（waitingForInput/highlight）仍走 props
+const wrap = (node: ReactElement, env: Partial<ChannelMessageEnv> = {}) => (
+  <ChannelMessageEnvProvider value={{ onAction: vi.fn(), ...env }}>{node}</ChannelMessageEnvProvider>
+);
 
 const baseMessage: ChannelMessage = {
   id: 'msg-1',
@@ -40,13 +49,13 @@ beforeEach(() => {
 describe('ChannelMessageItem — F5 waiting 内嵌回复区', () => {
   // E1：消息头「等待回复」badge 已删——内嵌回复框本身是流内信号与行动点，待办强信号唯一位 = 顶栏 chip
   it('waitingForInput → 渲染内嵌回复框（流内信号本体），无消息头 badge', () => {
-    render(<ChannelMessageItem message={baseMessage} onAction={vi.fn()} waitingForInput onInlineReply={vi.fn()} />);
+    render(wrap(<ChannelMessageItem message={baseMessage} waitingForInput />, { onInlineReply: vi.fn() }));
     expect(screen.getByLabelText('回复 wu-1')).toBeInTheDocument();
     expect(screen.queryByText('等待回复')).not.toBeInTheDocument();
   });
 
   it('非等待态不渲染内嵌回复框', () => {
-    render(<ChannelMessageItem message={baseMessage} onAction={vi.fn()} onInlineReply={vi.fn()} />);
+    render(wrap(<ChannelMessageItem message={baseMessage} />, { onInlineReply: vi.fn() }));
     expect(screen.queryByLabelText('回复 wu-1')).not.toBeInTheDocument();
   });
 
@@ -58,7 +67,7 @@ describe('ChannelMessageItem — F5 waiting 内嵌回复区', () => {
     const onInlineReply = vi.fn().mockImplementation(
       () => new Promise<void>(resolve => { resolveReply = resolve; }),
     );
-    render(<ChannelMessageItem message={baseMessage} onAction={vi.fn()} waitingForInput onInlineReply={onInlineReply} />);
+    render(wrap(<ChannelMessageItem message={baseMessage} waitingForInput />, { onInlineReply }));
     expect(screen.getByLabelText('回复 wu-1')).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('回复 wu-1'), { target: { value: '用 OAuth' } });
     fireEvent.click(screen.getByText('回复'));
@@ -77,7 +86,7 @@ describe('ChannelMessageItem — F5 waiting 内嵌回复区', () => {
     const onInlineReply = vi.fn().mockImplementation(
       () => new Promise<void>((_, reject) => { rejectReply = reject; }),
     );
-    render(<ChannelMessageItem message={baseMessage} onAction={vi.fn()} waitingForInput onInlineReply={onInlineReply} />);
+    render(wrap(<ChannelMessageItem message={baseMessage} waitingForInput />, { onInlineReply }));
     expect(screen.getByLabelText('回复 wu-1')).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('回复 wu-1'), { target: { value: '用 OAuth' } });
     fireEvent.click(screen.getByText('回复'));
@@ -95,7 +104,7 @@ describe('ChannelMessageItem — F5 waiting 内嵌回复区', () => {
 
   // #276 AC1：文案不再含未来时假承诺「WorkUnit 将继续执行」
   it('#276 文案不再含「WorkUnit 将继续执行」假承诺（已回复文本 + placeholder）', () => {
-    render(<ChannelMessageItem message={baseMessage} onAction={vi.fn()} waitingForInput onInlineReply={vi.fn()} />);
+    render(wrap(<ChannelMessageItem message={baseMessage} waitingForInput />, { onInlineReply: vi.fn() }));
     expect(screen.queryByText(/WorkUnit 将继续执行/)).not.toBeInTheDocument();
     const input = screen.getByPlaceholderText(/直接在此回复/) as HTMLInputElement;
     expect(input).toBeTruthy();
@@ -108,7 +117,7 @@ describe('ChannelMessageItem — F5 waiting 内嵌回复区', () => {
     const onInlineReply = vi.fn().mockImplementation(
       () => new Promise<void>(resolve => { resolveReply = resolve; }),
     );
-    render(<ChannelMessageItem message={baseMessage} onAction={vi.fn()} waitingForInput onInlineReply={onInlineReply} />);
+    render(wrap(<ChannelMessageItem message={baseMessage} waitingForInput />, { onInlineReply }));
     fireEvent.change(screen.getByLabelText('回复 wu-1'), { target: { value: '用 OAuth' } });
     fireEvent.keyDown(screen.getByLabelText('回复 wu-1'), { key: 'Enter' });
     await waitFor(() => expect(onInlineReply).toHaveBeenCalledTimes(1));
@@ -126,16 +135,16 @@ describe('ChannelMessageItem — F5 waiting 内嵌回复区', () => {
     const onInlineReply = vi.fn().mockImplementation(
       () => new Promise<void>(resolve => { resolveReply = resolve; }),
     );
-    const { rerender } = render(<ChannelMessageItem message={baseMessage} onAction={vi.fn()} waitingForInput onInlineReply={onInlineReply} />);
+    const { rerender } = render(wrap(<ChannelMessageItem message={baseMessage} waitingForInput />, { onInlineReply }));
     fireEvent.change(screen.getByLabelText('回复 wu-1'), { target: { value: '用 OAuth' } });
     fireEvent.click(screen.getByText('回复'));
     resolveReply();
     expect(await screen.findByText(/已回复/)).toBeInTheDocument();
     // WU 复活 -> 等待区整体收起
-    rerender(<ChannelMessageItem message={baseMessage} onAction={vi.fn()} waitingForInput={false} onInlineReply={onInlineReply} />);
+    rerender(wrap(<ChannelMessageItem message={baseMessage} waitingForInput={false} />, { onInlineReply }));
     expect(screen.queryByText(/已回复/)).not.toBeInTheDocument();
     // WU 再度挂起（无新提问，仍落本条）-> 回到等待回复态，表单可再次使用
-    rerender(<ChannelMessageItem message={baseMessage} onAction={vi.fn()} waitingForInput onInlineReply={onInlineReply} />);
+    rerender(wrap(<ChannelMessageItem message={baseMessage} waitingForInput />, { onInlineReply }));
     expect(screen.getByLabelText('回复 wu-1')).toBeInTheDocument();
     expect(screen.queryByText(/已回复/)).not.toBeInTheDocument();
   });
@@ -146,7 +155,7 @@ describe('ChannelMessageItem — F5 waiting 内嵌回复区', () => {
     const onInlineReply = vi.fn().mockImplementation(
       () => new Promise<void>((_, reject) => { rejectReply = reject; }),
     );
-    render(<ChannelMessageItem message={baseMessage} onAction={vi.fn()} waitingForInput onInlineReply={onInlineReply} />);
+    render(wrap(<ChannelMessageItem message={baseMessage} waitingForInput />, { onInlineReply }));
     fireEvent.change(screen.getByLabelText('回复 wu-1'), { target: { value: '用 OAuth' } });
     fireEvent.click(screen.getByText('回复'));
     await waitFor(() => expect(screen.getByText('发送中…')).toBeInTheDocument());
@@ -157,7 +166,7 @@ describe('ChannelMessageItem — F5 waiting 内嵌回复区', () => {
 
   // #279（决策 #250 D4）：顶栏 chip 定位高亮——highlight prop 挂 mc-msg-highlight class
   it('highlight prop → 消息根元素带 mc-msg-highlight class', () => {
-    const { container } = render(<ChannelMessageItem message={baseMessage} onAction={vi.fn()} highlight />);
+    const { container } = render(wrap(<ChannelMessageItem message={baseMessage} highlight />));
     expect(container.querySelector('.mc-msg.mc-msg-highlight')).toBeTruthy();
     expect(container.querySelector('[data-message-id="msg-1"]')).toBeTruthy();
   });
@@ -167,35 +176,35 @@ describe('ChannelMessageItem — §5.7 WU/PMO chip', () => {
   // 2026-09 视觉批次1 ⑤：WU chip 旁 ↗ 直跳钮已删（同目的地不双入口），chip 自承载开抽屉
   it('有 workUnitId 时渲染 WU chip，点击经 onOpenWorkUnit 开任务抽屉', () => {
     const onOpenWorkUnit = vi.fn();
-    render(<ChannelMessageItem message={baseMessage} onAction={vi.fn()} onOpenWorkUnit={onOpenWorkUnit} />);
+    render(wrap(<ChannelMessageItem message={baseMessage} />, { onOpenWorkUnit }));
     fireEvent.click(screen.getByTitle('打开任务详情：wu-1'));
     expect(onOpenWorkUnit).toHaveBeenCalledWith('wu-1');
   });
 
   it('无 workUnitId 时不渲染 WU chip', () => {
-    render(<ChannelMessageItem message={{ ...baseMessage, workUnitId: null }} onAction={vi.fn()} onOpenWorkUnit={vi.fn()} />);
+    render(wrap(<ChannelMessageItem message={{ ...baseMessage, workUnitId: null }} />, { onOpenWorkUnit: vi.fn() }));
     expect(screen.queryByTitle(/^打开任务详情/)).not.toBeInTheDocument();
   });
 
   it('meta.pmoId 存在时渲染 PMO chip，点击跳 /pmo/project/:id', () => {
     const msg: ChannelMessage = { ...baseMessage, meta: JSON.stringify({ pmoId: 'proj-1' }) };
-    render(<ChannelMessageItem message={msg} onAction={vi.fn()} />);
+    render(wrap(<ChannelMessageItem message={msg} />));
     fireEvent.click(screen.getByTitle('打开项目详情'));
     expect(mockNavigate).toHaveBeenCalledWith('/pmo/project/proj-1');
   });
 
   it('老消息 meta 无 pmoId 时不渲染 PMO chip', () => {
-    render(<ChannelMessageItem message={baseMessage} onAction={vi.fn()} />);
+    render(wrap(<ChannelMessageItem message={baseMessage} />));
     expect(screen.queryByTitle('打开项目详情')).not.toBeInTheDocument();
   });
 
   it('meta 缺失/非法 JSON 时不渲染 PMO chip（防御）', () => {
     const noMeta: ChannelMessage = { ...baseMessage, meta: undefined };
-    render(<ChannelMessageItem message={noMeta} onAction={vi.fn()} />);
+    render(wrap(<ChannelMessageItem message={noMeta} />));
     expect(screen.queryByTitle('打开项目详情')).not.toBeInTheDocument();
 
     const badMeta: ChannelMessage = { ...baseMessage, meta: '{broken' };
-    render(<ChannelMessageItem message={badMeta} onAction={vi.fn()} />);
+    render(wrap(<ChannelMessageItem message={badMeta} />));
     expect(screen.queryByTitle('打开项目详情')).not.toBeInTheDocument();
   });
 });
@@ -211,7 +220,7 @@ describe('ChannelMessageItem — #264 object meta 双型兼容（线上 REST/SSE
         cardData: { entries: [{ id: 'k-1', title: 'session 过期未刷新导致 401', type: 'pitfall' }] },
       },
     };
-    render(<ChannelMessageItem message={msg} onAction={vi.fn()} />);
+    render(wrap(<ChannelMessageItem message={msg} />));
     // 卡片渲染出审批按钮；纯文本回退时只显示 content，无按钮
     expect(screen.getByText('通过')).toBeTruthy();
     expect(screen.getByText('拒绝')).toBeTruthy();
@@ -227,13 +236,13 @@ describe('ChannelMessageItem — #264 object meta 双型兼容（线上 REST/SSE
         cardData: { entries: [{ id: 'k-1', title: 'session 过期未刷新导致 401', type: 'pitfall' }] },
       }),
     };
-    render(<ChannelMessageItem message={msg} onAction={vi.fn()} />);
+    render(wrap(<ChannelMessageItem message={msg} />));
     expect(screen.getByText('通过')).toBeTruthy();
   });
 
   it('meta 为 object 且含 pmoId 时渲染 PMO chip，点击跳 /pmo/project/:id', () => {
     const msg: ChannelMessage = { ...baseMessage, meta: { pmoId: 'proj-9' } };
-    render(<ChannelMessageItem message={msg} onAction={vi.fn()} />);
+    render(wrap(<ChannelMessageItem message={msg} />));
     fireEvent.click(screen.getByTitle('打开项目详情'));
     expect(mockNavigate).toHaveBeenCalledWith('/pmo/project/proj-9');
   });
@@ -252,7 +261,7 @@ describe('ChannelMessageItem — #267 NEED_INPUT 结构化选项卡（meta.optio
   ];
 
   it('waitingForInput + object meta 带 options → 渲染选项卡而非纯文本列表', () => {
-    render(<ChannelMessageItem message={optionsMessage({ options: OPTIONS })} onAction={vi.fn()} waitingForInput onInlineReply={vi.fn()} />);
+    render(wrap(<ChannelMessageItem message={optionsMessage({ options: OPTIONS })} waitingForInput />, { onInlineReply: vi.fn() }));
     expect(screen.getByText('studio')).toBeTruthy();
     expect(screen.getByText('/root/projects/studio-config')).toBeTruthy();
     expect(screen.getByText('自定义…')).toBeTruthy();
@@ -264,7 +273,7 @@ describe('ChannelMessageItem — #267 NEED_INPUT 结构化选项卡（meta.optio
   it('点选选项 → onInlineReply(message, value) 走现有内嵌回复通道', async () => {
     const onInlineReply = vi.fn();
     const msg = optionsMessage({ options: OPTIONS });
-    render(<ChannelMessageItem message={msg} onAction={vi.fn()} waitingForInput onInlineReply={onInlineReply} />);
+    render(wrap(<ChannelMessageItem message={msg} waitingForInput />, { onInlineReply }));
     // #276：点击后经 async 微任务置位状态，act 包裹 flush 微任务
     await act(async () => {
       fireEvent.click(screen.getByText('studio-config'));
@@ -275,7 +284,7 @@ describe('ChannelMessageItem — #267 NEED_INPUT 结构化选项卡（meta.optio
   // #276：选项卡发送成功 -> needSent 置位 -> 收起为已回复提示
   it('#276 选项卡发送成功 -> 收起为已回复提示', async () => {
     const onInlineReply = vi.fn().mockResolvedValue(undefined);
-    render(<ChannelMessageItem message={optionsMessage({ options: OPTIONS })} onAction={vi.fn()} waitingForInput onInlineReply={onInlineReply} />);
+    render(wrap(<ChannelMessageItem message={optionsMessage({ options: OPTIONS })} waitingForInput />, { onInlineReply }));
     fireEvent.click(screen.getByText('studio'));
     // await resolve 后：needSent=true -> 已回复，选项卡收起
     expect(await screen.findByText(/已回复/)).toBeTruthy();
@@ -288,7 +297,7 @@ describe('ChannelMessageItem — #267 NEED_INPUT 结构化选项卡（meta.optio
     const onInlineReply = vi.fn().mockImplementation(
       () => new Promise<void>((_, reject) => { rejectReply = reject; }),
     );
-    render(<ChannelMessageItem message={optionsMessage({ options: OPTIONS })} onAction={vi.fn()} waitingForInput onInlineReply={onInlineReply} />);
+    render(wrap(<ChannelMessageItem message={optionsMessage({ options: OPTIONS })} waitingForInput />, { onInlineReply }));
     fireEvent.click(screen.getByText('studio'));
     // 发送中：选项禁用
     await waitFor(() => expect((screen.getByText('studio-config').closest('button') as HTMLButtonElement).disabled).toBe(true));
@@ -299,19 +308,19 @@ describe('ChannelMessageItem — #267 NEED_INPUT 结构化选项卡（meta.optio
   });
 
   it('string 形态 meta 带 options 同样渲染（存量形态回归）', () => {
-    render(<ChannelMessageItem message={optionsMessage(JSON.stringify({ options: OPTIONS }))} onAction={vi.fn()} waitingForInput onInlineReply={vi.fn()} />);
+    render(wrap(<ChannelMessageItem message={optionsMessage(JSON.stringify({ options: OPTIONS }))} waitingForInput />, { onInlineReply: vi.fn() }));
     expect(screen.getByText('studio')).toBeTruthy();
   });
 
   it('无 options 时保持现有单行回复框 fallback', () => {
-    render(<ChannelMessageItem message={optionsMessage({})} onAction={vi.fn()} waitingForInput onInlineReply={vi.fn()} />);
+    render(wrap(<ChannelMessageItem message={optionsMessage({})} waitingForInput />, { onInlineReply: vi.fn() }));
     expect(screen.getByPlaceholderText(/直接在此回复/)).toBeTruthy();
     expect(screen.queryByText('自定义…')).toBeNull();
   });
 
   it('options 元素非法（缺 label）时防御性过滤，不崩溃', () => {
     const msg = optionsMessage({ options: [{ description: '/x' }, { label: 'studio' }] });
-    render(<ChannelMessageItem message={msg} onAction={vi.fn()} waitingForInput onInlineReply={vi.fn()} />);
+    render(wrap(<ChannelMessageItem message={msg} waitingForInput />, { onInlineReply: vi.fn() }));
     expect(screen.getByText('studio')).toBeTruthy();
     expect(screen.queryByText('/x')).toBeNull();
   });
@@ -319,13 +328,13 @@ describe('ChannelMessageItem — #267 NEED_INPUT 结构化选项卡（meta.optio
 
 describe('ChannelMessageItem — #241 footer WU 链接截短显示', () => {  it('长 UUID 截短为前 8 位 + …，title 保留全量 id', () => {
     const uuid = '160eeee8-aaaa-bbbb-cccc-dddddddddddd';
-    render(<ChannelMessageItem message={{ ...baseMessage, workUnitId: uuid }} onAction={vi.fn()} onOpenWorkUnit={vi.fn()} />);
+    render(wrap(<ChannelMessageItem message={{ ...baseMessage, workUnitId: uuid }} />, { onOpenWorkUnit: vi.fn() }));
     const link = screen.getByTitle(`打开任务详情：${uuid}`);
     expect(link.textContent).toBe('160eeee8… ›');
   });
 
   it('短 id（WU-N 形态）原样显示不截短', () => {
-    render(<ChannelMessageItem message={baseMessage} onAction={vi.fn()} onOpenWorkUnit={vi.fn()} />);
+    render(wrap(<ChannelMessageItem message={baseMessage} />, { onOpenWorkUnit: vi.fn() }));
     expect(screen.getByText('wu-1 ›')).toBeTruthy();
   });
 });
@@ -343,10 +352,11 @@ describe('ChannelMessageItem — #278 D5 机制派生回执 = 系统播报形态
 
   it('Studio 署名无卡消息（带 workUnitId 的派生回执）渲染为 mc-msg-system 且无消息头', () => {
     const { container } = render(
-      <ChannelMessageItem
-        message={receipt('分析结论已确认。未输出 TASK 拆分行，不自动派生；可手动建单')}
-        onAction={vi.fn()}
-      />,
+      wrap(
+        <ChannelMessageItem
+          message={receipt('分析结论已确认。未输出 TASK 拆分行，不自动派生；可手动建单')}
+        />,
+      ),
     );
     expect(container.querySelector('.mc-msg-system')).toBeTruthy();
     expect(container.querySelector('.mc-msg-head')).toBeNull();
@@ -356,13 +366,14 @@ describe('ChannelMessageItem — #278 D5 机制派生回执 = 系统播报形态
 
   it('卡片消息不归系统播报（全宽卡片形态优先）', () => {
     const { container } = render(
-      <ChannelMessageItem
-        message={{
-          ...receipt('审计建议 — 1 条'),
-          meta: JSON.stringify({ cardType: 'auditor_suggestion', status: 'ready', cardData: { suggestions: [] } }),
-        }}
-        onAction={vi.fn()}
-      />,
+      wrap(
+        <ChannelMessageItem
+          message={{
+            ...receipt('审计建议 — 1 条'),
+            meta: JSON.stringify({ cardType: 'auditor_suggestion', status: 'ready', cardData: { suggestions: [] } }),
+          }}
+        />,
+      ),
     );
     expect(container.querySelector('.mc-msg-system')).toBeNull();
     expect(container.querySelector('.mc-msg-card')).toBeTruthy();

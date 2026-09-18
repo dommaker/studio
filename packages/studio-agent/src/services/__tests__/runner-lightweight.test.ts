@@ -2,7 +2,7 @@
  * runner-lightweight 单元测试（轻量单 session 执行）
  *
  * mock execSh（spawn 层）与 output-capture，真实跑 workspace 解析（Priority 1）、
- * prompt 增强、sessionFlags 注入、stream-json 结果解析链路。
+ * prompt 增强、session 续接参数注入、stream-json 结果解析链路。
  */
 
 import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -31,11 +31,6 @@ vi.mock('@dommaker/studio-skill', () => ({
   skillLoader: { load: vi.fn().mockReturnValue([]), formatForPrompt: vi.fn().mockReturnValue('') },
 }));
 
-vi.mock('@dommaker/studio-shared/harness/hooks', () => ({
-  beforeAgentExecute: vi.fn().mockResolvedValue({ prompt: 'enhanced prompt', blocked: false }),
-  buildAgentConstraintPrompt: vi.fn().mockReturnValue('constraint prompt'),
-}));
-
 vi.mock('../output-capture.js', () => ({
   readProgress: vi.fn().mockReturnValue(null),
   collectOutputFiles: vi.fn().mockResolvedValue([]),
@@ -48,7 +43,7 @@ vi.mock('../output-capture.js', () => ({
 }));
 
 import { executeLightweightSession } from '../runner-lightweight.js';
-import type { RunnerExecutionState } from '../runner-execution.js';
+import type { RunnerExecutionState } from '../types.js';
 import { emitSessionStart, emitSessionEnd } from '../output-capture.js';
 import type { AgentTask } from '../types.js';
 
@@ -76,7 +71,7 @@ describe('executeLightweightSession', () => {
     wsRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'lw-ws-root-'));
     worktreesDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lw-worktrees-'));
     state = {
-      config: { worktreesDir, repoDir: wsRoot, taskTimeoutMinutes: 60, sessionTimeoutMinutes: 30, maxSessions: 5 },
+      config: { worktreesDir, repoDir: wsRoot, taskTimeoutMinutes: 60, sessionTimeoutMinutes: 30 },
       runningProcesses: new Map(),
     };
   });
@@ -108,8 +103,8 @@ describe('executeLightweightSession', () => {
     return call as [string, { env?: Record<string, string | undefined>; timeoutMs?: number }];
   }
 
-  test('成功：outputText/usage/sessionIds 透出，sessionFlags 与 WORKUNIT env 注入', async () => {
-    const task = makeTask({ parameters: { workspaceRoot: wsRoot, workUnitId: 'wu-lw-1', sessionFlags: '--resume sess-9' } });
+  test('成功：outputText/usage/sessionIds 透出，会话续接与 WORKUNIT env 注入', async () => {
+    const task = makeTask({ parameters: { workspaceRoot: wsRoot, workUnitId: 'wu-lw-1', sessionId: 'sess-9', sessionResume: true } });
     const result = await executeLightweightSession(state, task);
 
     expect(result.success).toBe(true);
@@ -225,5 +220,35 @@ describe('executeLightweightSession', () => {
     expect(result.failureLog).toBe('partial');
     expect(emitSessionEnd).toHaveBeenCalledTimes(1);
     expect(state.runningProcesses.size).toBe(0);
+    // #565 AC6: 无已知特征 → 无 failureClass（行为与现状一致）
+    expect(result.failureClass).toBeUndefined();
+  });
+
+  test('#565 AC6：catch 路径命中分类 → failureClass + error 指引前缀', async () => {
+    mockExecSh.mockImplementation(async (cmd: string) => {
+      if (String(cmd).startsWith('cd ')) {
+        throw Object.assign(new Error('Command failed'), { code: 1, stdout: Buffer.from('Not logged in'), stderr: Buffer.from('') });
+      }
+      return { stdout: '' };
+    });
+    const result = await executeLightweightSession(state, makeTask({ provider: 'codex' }));
+
+    expect(result.success).toBe(false);
+    expect(result.failureClass).toBeDefined();
+    expect(result.failureClass!.category).toBe('auth');
+    expect(result.failureClass!.guidance).toContain('codex login');
+    expect(result.error).toMatch(/^\[auth\] /);
+    expect(result.error).toContain('codex login');
+  });
+
+  test('#565 AC6：is_error 路径命中分类 → failureClass + error 指引前缀', async () => {
+    // 注：mockResolvedValue 全覆盖（含前置检查的 df -h）→ stdout 需带 usage 数字避免磁盘检查误判
+    mockExecSh.mockResolvedValue({ stdout: buildStreamStdout({ result: 'Error: Invalid API key', is_error: true, usage: { input_tokens: 30, output_tokens: 10 } }) });
+    const result = await executeLightweightSession(state, makeTask());
+
+    expect(result.success).toBe(false);
+    expect(result.failureClass!.category).toBe('auth');
+    expect(result.error).toMatch(/^\[auth\] /);
+    expect(result.error).toContain('claude login');
   });
 });

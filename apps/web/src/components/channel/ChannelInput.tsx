@@ -14,7 +14,7 @@ import { useRosterStore, activeAgentsOf } from '../../stores/rosterStore';
 import { useChannelDataStore } from '../../stores/channelDataStore';
 import { toast } from '../../utils/toast';
 import { emitSendClick } from '../../utils/clientPerf';
-import { IconImage } from '../ui/icons';
+import { IconImage, IconX } from '../ui/icons';
 
 interface Props {
   onSend: (content: string, replyToId?: string, files?: FileRef[]) => void | Promise<unknown>;
@@ -358,7 +358,7 @@ export function ChannelInput({ onSend, sending, replyTo, onCancelReply, channelI
               </>
             )}
             <button onClick={onCancelReply} className="mc-icon-btn" aria-label="取消回复">
-              ✕
+              <IconX />
             </button>
           </div>
         )}
@@ -383,7 +383,7 @@ export function ChannelInput({ onSend, sending, replyTo, onCancelReply, channelI
                     aria-label={`移除引用 ${ref.path}`}
                     onClick={() => removeFileRef(ref)}
                   >
-                    ✕
+                    <IconX />
                   </button>
                 </span>
               );

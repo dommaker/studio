@@ -9,18 +9,28 @@
  *   - 不排除 AGENTS.md（内容文件，agent 可能 legit 修改）
  *   - 已有 worktree 复用 → 不重复写（幂等）
  *   - 主 workspace 路径（resolveWorkspace P1 直给 workspaceRoot）→ 完全不动 exclude
+ *   - propagateHarnessConfig 复制的工具产物（CLAUDE.md 等）落进 worktree 后
+ *     git status 仍为净（P1 回归：复制了却未排除 → 恒脏 → 提交守卫误伤）
  *
  * Strategy: 真实 git 仓库 + 真实 execSh —— exclude 是否被 git status 采纳只能真实验证
  * （git 2.43 实测 exclude 为仓库级共享，无 per-worktree exclude）。
  */
 
-import { describe, test, expect, afterEach } from 'vitest';
+import { describe, test, expect, afterEach, vi } from 'vitest';
 import * as fs from 'fs';
 import * as fsp from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
 import { execSync } from 'child_process';
-import { ensureWuWorktree, createWorktree, resolveWorkspace } from '../worktree-resolver.js';
+
+// propagateHarnessConfig 会读 host ~/.kimi-code 生成 per-worktree home（含凭证软链）——
+// 测试隔离：homedir 指向不存在的假目录，ensureKimiHookHome 直接跳过
+vi.mock('os', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('os')>();
+  return { ...actual, homedir: () => path.join(actual.tmpdir(), 'wt-exclude-no-such-home') };
+});
+
+import { ensureWuWorktree, createWorktree, resolveWorkspace, propagateHarnessConfig } from '../worktree-resolver.js';
 import type { AgentTask } from '../types.js';
 
 const TEST_TIMEOUT = 30_000;
@@ -147,5 +157,19 @@ describe('worktree 工具产物 exclude', () => {
     expect(resolved).toBe(repoDir);
     expect(readExclude(repoDir)).toBe(before);
     for (const p of PATTERNS) expect(before).not.toContain(p);
+  }, TEST_TIMEOUT);
+
+  test('propagateHarnessConfig 复制工具产物（CLAUDE.md 等）后 → worktree git status 为净', async () => {
+    const repoDir = await makeRepo();
+    const worktreesDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'wt-exclude-wts-'));
+    tmpRoots.push(worktreesDir);
+    // 业务仓的 CLAUDE.md 为 gitignored 薄身（不入库）——repoDir 侧存在但被 git 忽略
+    fs.writeFileSync(path.join(repoDir, 'CLAUDE.md'), '# 工程级约束\n', 'utf-8');
+
+    const info = await ensureWuWorktree({ wuId: 'wu-prop', repoDir, worktreesDir, baseBranch: 'master' });
+    await propagateHarnessConfig(info.worktreePath, 'task-1', 'exec-1', repoDir);
+
+    // 复现点：CLAUDE.md 被复制进 worktree 但未被 exclude → ?? CLAUDE.md 恒脏
+    expect(git('status --porcelain', info.worktreePath)).toBe('');
   }, TEST_TIMEOUT);
 });

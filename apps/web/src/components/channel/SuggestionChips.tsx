@@ -6,6 +6,7 @@
 // × dismiss 由调用方记账（会话级），本组件纯展示；#484 起每片独立 ✕，onDismiss 上送被点片（不再一键清全部）。
 // 数据来源：唯一来源 = 端点派生建议（GET /channels/:id/suggestions，经 suggestionCopy 模板渲染）；
 // #440 静态映射（wuSuggestions）已于 #447 删除，组件本身不感知来源。
+import { IconX } from '../ui/icons';
 
 /** 引导片条目：三形态并集（kind 缺省 = prompt） */
 export interface SuggestionChipItem {
@@ -43,7 +44,7 @@ export function SuggestionChips({ suggestions, onPick, onAction, onDismiss }: Pr
             aria-label={`关闭建议：${label}`}
             onClick={() => onDismiss(s)}
           >
-            ✕
+            <IconX />
           </button>
         );
         if (s.kind === 'status') {

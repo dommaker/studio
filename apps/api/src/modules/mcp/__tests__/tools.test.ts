@@ -74,13 +74,20 @@ const EXPECTED_ORDER: Array<[string, 'low' | 'medium']> = [
   ['publishPackage', 'low'],
   // Skill 按需加载 (1)
   ['loadSkill', 'low'],
-  // WorkUnit (1)
+  // WorkUnit (3)
   ['createWorkUnit', 'medium'],
+  ['getWorkUnit', 'low'],
+  ['listWorkUnits', 'low'],
+  // Channel 消息 (1)
+  ['getChannelMessages', 'low'],
+  // Requirement 需求 (2)
+  ['getRequirement', 'low'],
+  ['listRequirements', 'low'],
 ];
 
 describe('tools.ts 注册门面', () => {
-  it('注册 19 个 tool，顺序与拆分前一致', () => {
-    expect(toolRegistry.toolCount).toBe(19);
+  it('注册 24 个 tool，顺序与拆分前一致', () => {
+    expect(toolRegistry.toolCount).toBe(24);
     expect(getToolSchemas().map(s => s.name)).toEqual(EXPECTED_ORDER.map(([name]) => name));
   });
 
@@ -131,8 +138,12 @@ describe('tools.ts 注册门面', () => {
     }));
   });
 
-  it('模块加载时种子默认权限（19 个 tool 名）', async () => {
+  it('模块加载时种子默认权限（24 个 tool 名 + external 子集名单）', async () => {
     await vi.waitFor(() => expect(mockSeed).toHaveBeenCalled());
-    expect(mockSeed).toHaveBeenCalledWith(EXPECTED_ORDER.map(([name]) => name));
+    expect(mockSeed).toHaveBeenCalledWith(
+      EXPECTED_ORDER.map(([name]) => name),
+      ['listProjects', 'getProjectStatus', 'getTaskBoard', 'getTaskStats', 'getSpecStatus', 'listSpecs', 'systemHealth', 'loadSkill',
+        'getWorkUnit', 'listWorkUnits', 'getChannelMessages', 'getRequirement', 'listRequirements'],
+    );
   });
 });

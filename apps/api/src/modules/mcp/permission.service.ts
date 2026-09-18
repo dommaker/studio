@@ -208,7 +208,7 @@ export const mcpPermissionService = new MCPPermissionService();
 const PRIVILEGED_ROLES = new Set(['admin', 'deploy']);
 const DANGEROUS_TOOLS = new Set(['publishPackage']);
 
-export async function seedDefaultPermissions(toolNames: string[]): Promise<void> {
+export async function seedDefaultPermissions(toolNames: string[], externalToolNames: string[] = []): Promise<void> {
   const systemRoles = ['admin', 'analyst', 'executor', 'reviewer', 'auditor', 'monitor', 'deploy', 'triage'];
   let seeded = 0;
   let corrected = 0;
@@ -226,6 +226,21 @@ export async function seedDefaultPermissions(toolNames: string[]): Promise<void>
         existing.allowed = false;
         corrected++;
       }
+    }
+  }
+
+  // D2（#566）：external 角色权限完全由 exposure 标记派生——仅 external 子集 allowed，
+  // 且双向纠正漂移（tool 移出子集后残留的 allowed:true 会经钉死角色的外部入口越权）
+  const externalSet = new Set(externalToolNames);
+  for (const toolName of toolNames) {
+    const derived = externalSet.has(toolName);
+    const existing = perms.find(p => p.roleId === 'external' && p.toolName === toolName);
+    if (!existing) {
+      perms.push({ id: randomUUID(), roleId: 'external', toolName, allowed: derived });
+      seeded++;
+    } else if (existing.allowed !== derived) {
+      existing.allowed = derived;
+      corrected++;
     }
   }
 

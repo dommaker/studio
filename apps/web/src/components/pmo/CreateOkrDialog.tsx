@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import { okrApi } from '../../api/pmo';
 import { toast } from '../../utils/toast';
-import { Select, Button } from '../ui';
+import { Select, Button, Modal } from '../ui';
 import {
   getCurrentQuarter,
   METRIC_TYPE_OPTIONS,
@@ -10,6 +10,7 @@ import {
   validateKRTarget,
   type KR,
 } from './okrMetric';
+import { IconCheck, IconX } from '../ui/icons';
 
 interface CreateOkrDialogProps {
   open: boolean;
@@ -98,13 +99,34 @@ export function CreateOkrDialog({ open, companyId, onClose, onCreated }: CreateO
 
   if (!open) return null;
 
+  // 批次 I-2：收编 ui/Modal（§4.3 正本）。行为变化：原弹窗遮罩不可点关、无 ✕——
+  // 迁移后点遮罩/Escape/✕ 均可关（§4.3 允许点遮罩关闭；关窗不重置 KR 表单，同原语义）
   return (
-    <div className="modal-overlay">
-      <div className="modal" style={{ maxWidth: 672 }} onClick={(e) => e.stopPropagation()}>
-        <div className="modal-header">
-          <h2 className="modal-title">创建 OKR</h2>
-        </div>
-        <div className="modal-body">
+    <Modal
+      onClose={onClose}
+      maxWidth="672px"
+      title="创建 OKR"
+      footer={
+        <>
+          <button
+            onClick={() => {
+              onClose();
+              setKRs(emptyKRs());
+            }}
+            className="btn btn-secondary"
+          >
+            取消
+          </button>
+          <Button
+            onClick={handleCreateOKR}
+            loading={creating}
+            loadingLabel="创建中..."
+          >
+            创建
+          </Button>
+        </>
+      }
+    >
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div>
@@ -156,9 +178,9 @@ export function CreateOkrDialog({ open, companyId, onClose, onCreated }: CreateO
                   {krs.length > 1 && (
                     <button
                       onClick={() => removeKR(kr.id)}
-                      className="text-xs u-err u-hover-text"
+                      className="u-btn-reset text-xs u-err u-hover-text"
                     >
-                      ✕
+                      <IconX size={12} />
                     </button>
                   )}
                 </div>
@@ -214,7 +236,9 @@ export function CreateOkrDialog({ open, companyId, onClose, onCreated }: CreateO
                       {meta?.baseline !== undefined && `基准: ${meta.baseline}${meta.unit}`}
                       {meta?.baseline !== undefined && v.status !== 'pass' && ' · '}
                       {v.status !== 'pass' ? v.reason : ''}
-                      {v.status === 'pass' && meta?.baseline !== undefined && ` ✓ 目标合理`}
+                      {v.status === 'pass' && meta?.baseline !== undefined && (
+                        <span className="inline-flex items-center gap-0.5"> <IconCheck size={12} /> 目标合理</span>
+                      )}
                     </div>
                   );
                 })()}
@@ -222,26 +246,6 @@ export function CreateOkrDialog({ open, companyId, onClose, onCreated }: CreateO
             ))}
           </div>
         </div>
-        </div>
-        <div className="modal-footer">
-          <button
-            onClick={() => {
-              onClose();
-              setKRs(emptyKRs());
-            }}
-            className="btn btn-secondary"
-          >
-            取消
-          </button>
-          <Button
-            onClick={handleCreateOKR}
-            loading={creating}
-            loadingLabel="创建中..."
-          >
-            创建
-          </Button>
-        </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

@@ -7,10 +7,6 @@
  * （InputGuardrail / OutputGuardrail / Sandbox 已随 harness 1.2.0 ADR-0003 删除。）
  */
 
-// Prompt injection — 约束前置声明路由层（role→trigger；渲染走 harness renderConstraintsByTrigger）
-export { formatConstraintsForPrompt } from './prompt-injection';
-export type { AgentRole, FormatConstraintsOptions } from './prompt-injection';
-
 // Session metrics (observability)
 export { parseSessionMetrics } from './session-metrics';
 export type { SessionMetrics } from './session-metrics';
@@ -19,9 +15,12 @@ export type { SessionMetrics } from './session-metrics';
 export { extractProviderUsage } from './provider-usage';
 export type { ProviderUsage } from './provider-usage';
 
-// Harness 运行时 & Hooks（Phase 2: 迁移到新 hooks 管线）
-export { bootstrapHarness, getHarness, getPipeline, isHarnessInitialized } from './runtime/bootstrap';
+// Harness 运行时（#562：hooks 管线层已收缩，只保留 bootstrap 初始化）
+export { bootstrapHarness, getHarness, isHarnessInitialized } from './runtime/bootstrap';
 export type { HarnessBootstrap } from '@dommaker/harness';
-export * from './hooks/index';
+
+// 决策级审计事件发布（原 hooks/audit.ts，#562 随 hooks 层收缩上移一级）
+export { recordDecision, recordDecisions } from './audit';
+export type { AuditEvent } from './audit';
 // Wiki 服务已移除 (B11-002): KnowledgeKeeper/wiki-service/knowledge-query
 // 知识系统统一使用 harness KnowledgeStore + KnowledgeBus

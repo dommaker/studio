@@ -1,52 +1,20 @@
 // Contract test: workunitStore — MVP-3 Review UI
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // Mock the API module before importing store
 vi.mock('../../api/workunit', () => ({
   workunitApi: {
     list: vi.fn().mockResolvedValue({ data: { data: [], pagination: { total: 0, page: 1, limit: 20, totalPages: 0 } } }),
     create: vi.fn().mockResolvedValue({ data: {} }),
-    reviewPassed: vi.fn().mockResolvedValue({ data: {} }),
-    reviewRejected: vi.fn().mockResolvedValue({ data: {} }),
+    get: vi.fn(),
   },
 }));
 
 import { useWorkUnitStore } from '../workunitStore';
 import { workunitApi } from '../../api/workunit';
 
-describe('workunitStore reviewRejected', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    useWorkUnitStore.setState({
-      workunits: [],
-      total: 0,
-      page: 1,
-      limit: 20,
-      statusFilter: null,
-      typeFilter: null,
-      loading: false,
-      error: null,
-    });
-  });
-
-  it('should pass reason to API when rejecting', async () => {
-    const store = useWorkUnitStore.getState();
-    await store.reviewRejected('wu-1', '质量不达标');
-    expect(workunitApi.reviewRejected).toHaveBeenCalledWith('wu-1', '质量不达标');
-  });
-
-  it('should work without reason', async () => {
-    const store = useWorkUnitStore.getState();
-    await store.reviewRejected('wu-1');
-    expect(workunitApi.reviewRejected).toHaveBeenCalledWith('wu-1', undefined);
-  });
-
-  it('should reload workunits after rejection', async () => {
-    const store = useWorkUnitStore.getState();
-    await store.reviewRejected('wu-1', '原因');
-    expect(workunitApi.list).toHaveBeenCalled();
-  });
-});
+// #545：闸门三动作（reviewPassed/reviewRejected/confirmPending）已从 store 删除——
+// 写路径唯一正本为 utils/gateWriter（WuGateActions 直消费），其契约由 gateWriter.test.ts 单点覆盖
 
 // #280：store 从 pagination.total 解析总数（旧版类型把 total 扁平化导致恒 0）
 describe('workunitStore loadWorkUnits - pagination.total 解析（#280）', () => {
@@ -161,6 +129,50 @@ describe('workunitStore applyWorkunitEvent — SSE 负载驱动行更新（#318�
     useWorkUnitStore.setState({ statusFilter: null, typeFilter: 'review' });
     useWorkUnitStore.getState().applyWorkunitEvent(row('wu-2', { status: 'active' }), { insertIfMissing: true });
     expect(useWorkUnitStore.getState().workunits).toHaveLength(0);
+  });
+});
+
+// #538（ADR 2026-09-15 决策 5）：workunit:removed 删行分支——GC/TTL 删除不再悬挂到重连 refetch
+describe('workunitStore removeWorkunit — workunit:removed 删行（#538）', () => {
+  const row = (id: string, overrides: Record<string, unknown> = {}) =>
+    ({ id, scope: `scope-${id}`, type: 'task', status: 'active', metadata: null, ...overrides }) as unknown as import('../../api/workunit').WorkUnit;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useWorkUnitStore.setState({
+      workunits: [row('wu-1'), row('wu-2')],
+      total: 2,
+      allTotal: 10,
+      page: 1,
+      limit: 20,
+      statusFilter: null,
+      typeFilter: null,
+      loading: false,
+      error: null,
+    });
+  });
+
+  it('已知行：移除且 total/allTotal 各 -1', () => {
+    useWorkUnitStore.getState().removeWorkunit('wu-1');
+    const s = useWorkUnitStore.getState();
+    expect(s.workunits.map(w => w.id)).toEqual(['wu-2']);
+    expect(s.total).toBe(1);
+    expect(s.allTotal).toBe(9);
+  });
+
+  it('未知行 / 空 id：no-op（计数不动）', () => {
+    useWorkUnitStore.getState().removeWorkunit('wu-404');
+    useWorkUnitStore.getState().removeWorkunit('');
+    const s = useWorkUnitStore.getState();
+    expect(s.workunits).toHaveLength(2);
+    expect(s.total).toBe(2);
+    expect(s.allTotal).toBe(10);
+  });
+
+  it('allTotal 未拉取（null）时不编造', () => {
+    useWorkUnitStore.setState({ allTotal: null });
+    useWorkUnitStore.getState().removeWorkunit('wu-1');
+    expect(useWorkUnitStore.getState().allTotal).toBeNull();
   });
 });
 
@@ -528,5 +540,116 @@ describe('workunitStore 全量总数徽标 allTotal', () => {
   it('SSE created 时 allTotal 未拉取（null）保持 null（不凭空造数）', () => {
     useWorkUnitStore.getState().applyWorkunitEvent(row('wu-1'), { insertIfMissing: true });
     expect(useWorkUnitStore.getState().allTotal).toBeNull();
+  });
+});
+
+// #549（B5 收口）：detail slice（byId 快照区）——drawer 打开即 REST 打底（不做 TTL 门禁），
+// status_changed 经 applyWorkunitEvent 就地 upsert；未打开过的 WU 事件 no-op（ADR 决策 2 口径）。
+describe('workunitStore detail slice（#549）', () => {
+  const row = (id: string, overrides: Record<string, unknown> = {}) =>
+    ({ id, scope: `scope-${id}`, type: 'task', status: 'active', metadata: null, ...overrides }) as unknown as import('../../api/workunit').WorkUnit;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useWorkUnitStore.getState().__resetForTests();
+  });
+
+  it('loadWorkUnitDetail：REST 打底落 detailById（wu 快照，error/notFound 复位）', async () => {
+    (workunitApi.get as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ data: row('wu-1') });
+
+    await useWorkUnitStore.getState().loadWorkUnitDetail('wu-1');
+
+    expect(workunitApi.get).toHaveBeenCalledWith('wu-1');
+    const d = useWorkUnitStore.getState().detailById['wu-1'];
+    expect(d.wu?.id).toBe('wu-1');
+    expect(d.error).toBeNull();
+    expect(d.notFound).toBe(false);
+  });
+
+  it('loadWorkUnitDetail 404 → notFound 友好态（无 error 文案）', async () => {
+    (workunitApi.get as unknown as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      Object.assign(new Error('Request failed with status code 404'), { isAxiosError: true, response: { status: 404 } }),
+    );
+
+    await useWorkUnitStore.getState().loadWorkUnitDetail('wu-gone');
+
+    const d = useWorkUnitStore.getState().detailById['wu-gone'];
+    expect(d.notFound).toBe(true);
+    expect(d.error).toBeNull();
+    expect(d.wu).toBeNull();
+  });
+
+  it('loadWorkUnitDetail 非 404 → error 文案（服务端 error.message 优先）', async () => {
+    (workunitApi.get as unknown as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      Object.assign(new Error('Request failed with status code 500'), {
+        isAxiosError: true,
+        response: { status: 500, data: { error: { message: '服务端挂了' } } },
+      }),
+    );
+
+    await useWorkUnitStore.getState().loadWorkUnitDetail('wu-1');
+
+    const d = useWorkUnitStore.getState().detailById['wu-1'];
+    expect(d.notFound).toBe(false);
+    expect(d.error).toBe('服务端挂了');
+  });
+
+  it('applyWorkunitEvent：已打开的 detail 就地 upsert（含 status_changed 与 created）；未打开 no-op', async () => {
+    (workunitApi.get as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ data: row('wu-1') });
+    await useWorkUnitStore.getState().loadWorkUnitDetail('wu-1');
+
+    useWorkUnitStore.getState().applyWorkunitEvent(row('wu-1', { status: 'done' }), { insertIfMissing: false });
+    expect(useWorkUnitStore.getState().detailById['wu-1'].wu?.status).toBe('done');
+
+    useWorkUnitStore.getState().applyWorkunitEvent(row('wu-2'), { insertIfMissing: true });
+    expect(useWorkUnitStore.getState().detailById['wu-2']).toBeUndefined();
+
+    // 未知行 status_changed（insertIfMissing: false）不动 detail
+    useWorkUnitStore.getState().applyWorkunitEvent(row('wu-9'), { insertIfMissing: false });
+    expect(useWorkUnitStore.getState().detailById['wu-9']).toBeUndefined();
+  });
+});
+
+// #549：fresh 高亮集合——created 事件路由驱动 markWuFresh，per-id 2s 自清（机制 = utils/freshIds 共享件）
+describe('workunitStore fresh 集合（#549）', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    useWorkUnitStore.getState().__resetForTests();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('markWuFresh → id 进 freshWuIds，2s 后自清', () => {
+    useWorkUnitStore.getState().markWuFresh('wu-1');
+    expect(useWorkUnitStore.getState().freshWuIds.has('wu-1')).toBe(true);
+
+    vi.advanceTimersByTime(2100);
+    expect(useWorkUnitStore.getState().freshWuIds.has('wu-1')).toBe(false);
+  });
+
+  it('per-id 语义：后到的 id 不重计先到 id 的计时', () => {
+    useWorkUnitStore.getState().markWuFresh('wu-1');
+    vi.advanceTimersByTime(1500);
+    useWorkUnitStore.getState().markWuFresh('wu-2');
+    vi.advanceTimersByTime(600); // wu-1 到 2s
+    expect(useWorkUnitStore.getState().freshWuIds.has('wu-1')).toBe(false);
+    expect(useWorkUnitStore.getState().freshWuIds.has('wu-2')).toBe(true);
+  });
+});
+
+
+// #557：listOnScreen —— 列表页在屏信号（useWorkUnitStoreSync 重连兜底的真实门槛，
+// 替代「空列表代理不在屏」：过滤无结果/首拉失败留空时重连照刷）
+describe('workunitStore listOnScreen（#557）', () => {
+  it('默认 false；setListOnScreen 双向切换', () => {
+    useWorkUnitStore.setState({ listOnScreen: false });
+    expect(useWorkUnitStore.getState().listOnScreen).toBe(false);
+
+    useWorkUnitStore.getState().setListOnScreen(true);
+    expect(useWorkUnitStore.getState().listOnScreen).toBe(true);
+
+    useWorkUnitStore.getState().setListOnScreen(false);
+    expect(useWorkUnitStore.getState().listOnScreen).toBe(false);
   });
 });

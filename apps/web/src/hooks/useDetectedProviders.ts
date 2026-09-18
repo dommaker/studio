@@ -8,13 +8,17 @@ import { api } from '../api';
 export interface DetectedProvider {
   provider: string;
   version: string;
+  /** #565: 登录态三态；failed 时下拉标徽标 + 修复 hint，unknown 不标 */
+  auth?: 'ok' | 'failed' | 'unknown';
+  /** auth=failed 时的修复提示（服务端注册表 authProbe.authHint） */
+  authHint?: string;
 }
 
 /** 内置 CLI provider（与 packages/studio-shared/src/providers.ts 的 BUILTIN_PROVIDERS 对齐） */
 export const BUILTIN_PROVIDERS = ['claude', 'kimi', 'codex', 'opencode'] as const;
 
 interface RuntimesResponse {
-  runtimes?: Array<{ provider: string; version: string }>;
+  runtimes?: Array<{ provider: string; version: string; auth?: 'ok' | 'failed' | 'unknown'; authHint?: string }>;
 }
 
 /**
@@ -41,6 +45,8 @@ export function useDetectedProviders(options?: { enabled?: boolean }) {
           byProvider.set(rt.provider, {
             provider: rt.provider,
             version: rt.version ?? '',
+            auth: rt.auth,
+            authHint: rt.authHint,
           });
         }
         const ordered = [
@@ -66,6 +72,10 @@ export interface ProviderOption {
   value: string;
   label: string;
   disabled: boolean;
+  /** #565: 选项行 tooltip（auth=failed 时放修复 hint） */
+  title?: string;
+  /** #565: 该 provider 的登录态（failed 时 label 已带徽标） */
+  auth?: 'ok' | 'failed' | 'unknown';
 }
 
 function shortVersion(v: string): string {
@@ -76,17 +86,26 @@ function shortVersion(v: string): string {
  * 构造 provider 下拉选项：
  * 已检测到的可选（带版本）；未检测到的内置项禁用展示；
  * 一个都没检测到时全部回退可选（由调用方配提示文案）。
+ * #565 AC4：auth=failed 标「未登录」徽标 + title 放修复 hint；unknown 不标。
  */
 export function buildProviderOptions(detected: DetectedProvider[], noneDetected: boolean): ProviderOption[] {
   if (noneDetected) {
     return BUILTIN_PROVIDERS.map((p) => ({ value: p, label: p, disabled: false }));
   }
   const detectedSet = new Set(detected.map((d) => d.provider));
-  const options: ProviderOption[] = detected.map((d) => ({
-    value: d.provider,
-    label: d.version && d.version !== 'unknown' ? `${d.provider}（${shortVersion(d.version)}）` : d.provider,
-    disabled: false,
-  }));
+  const options: ProviderOption[] = detected.map((d) => {
+    const base = d.version && d.version !== 'unknown' ? `${d.provider}（${shortVersion(d.version)}）` : d.provider;
+    if (d.auth === 'failed') {
+      return {
+        value: d.provider,
+        label: `${base} ⚠ 未登录`,
+        disabled: false,
+        title: d.authHint ?? '该 CLI 未登录',
+        auth: 'failed',
+      };
+    }
+    return { value: d.provider, label: base, disabled: false, auth: d.auth };
+  });
   for (const p of BUILTIN_PROVIDERS) {
     if (!detectedSet.has(p)) {
       options.push({ value: p, label: `${p}（未检测到）`, disabled: true });

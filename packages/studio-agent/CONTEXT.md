@@ -1,50 +1,59 @@
 # packages/studio-agent
 
-> 最后更新: 2026-08-15
-> Agent 执行器 — session loop 模型 + git worktree 隔离 + 文件桥上下文传递
+> 最后更新: 2026-09-17
+> Agent 执行器 — 轻量单 session 模型 + git worktree 隔离 + harness 配置传递
 
 ### 职责
 
-Sub-agent 的完整生命周期管理：创建隔离 worktree → spawn Claude Code → session loop 监控 → 完成判定。
+Sub-agent 的完整生命周期管理：创建隔离 worktree → 传播 harness 配置 → spawn provider CLI（单 session）→ stream-json 解析与事件发射。完成判定/状态机不在本包，由 apps/api `modules/agents/loop`（agent-loop + step-guards）承担。
 
 ### 核心导出
 
 | 导出 | 说明 |
 |------|------|
-| `AgentRunner` | 统一执行器：session loop（execute）+ 轻量单 session（executeLightweight）+ stop |
+| `AgentRunner` | 统一执行器：轻量单 session（`executeLightweight`）+ stop/stopProcessGroup/stopAllProcessGroups。**#562 后本类只有一个执行方法**——多 session 循环 `execute()` 无生产调用方，已删除（公共 API 面收窄） |
 | `agentRunner` | 单例实例；stop() 所有权唯一在此（runningProcesses 只在本类注册，Discord /studio stop 与 monitor-probes 都调它） |
 
 > 2026-08：旧 `AgentExecutor`/`agentExecutor`（services/session-manager.ts）为 runner-* 拆分前的死代码双胞胎，无生产调用方，已删除；`AgentTask`/`ExecutionResult` 等类型移至 `src/services/types.ts`。
 > 2026-08：`AgentCompleter`/`agentCompleter`（services/agent-completer.ts，229 行）整模块零引用，已删除；`AgentConfig`/`AgentCapabilities` 等无人消费的类型导出同步移除（apps 各自本地重定义同名 interface，未从包导入）。
+> 2026-09（#562）：死执行路径整簇删除——`services/runner-execution.ts`（`executeSessionLoop`）+ `services/runner-briefing.ts`（REQUIREMENTS.md / CACHE_PREFIX.md / 契约测试文件桥，唯一调用方就是 session loop）+ `runner-params.ts` 的 loop 专属 prompt 构建。生产全部经 `LocalExecutor → executeLightweight`（apps/api loop/executor.ts），session loop 自 runner-* 拆分起再无调用方。判据见 `docs/adr/2026-09-17-hooks-layer-shrink.md`。
+> 2026-09（#587）：#562 删完之后的剩余死面摘除——loop 遗留的 session flag / `--add-dir` 构建 helper、worktree mtime 停滞探测、RKB 解法查询薄包装、Analyst 产出上下文类型、`parameters` 上无人设置的 claude flag 拼接通道，以及 studio-shared 侧无人调用的约束 prompt 路由模块（渲染正本在 harness `renderConstraintsByTrigger`，init/check 路径自己调）。裁定的两处边界见 `docs/plans/2026-09-587-clear-562-orphans.md`。
 
 ### 执行模型
 
-#### Session Loop
+#### 轻量单 session（唯一路径）
 
-不信任 Claude Code exit code。改读 `.progress.json` 判断完成：
+不信任 CLI exit code，但也不 re-spawn：一次 spawn 定胜负，成败判定交给上层 agent-loop。
 
 ```
-execute(task):
-  git worktree add → REQUIREMENTS.md → loop:
-    spawn Claude Code → wait (30 min timeout) → read .progress.json
-    allComplete=true ∧ testsPass → 成功退出
-    allComplete=false → 自动 re-spawn
-    session≥5 → 失败，Level 3 告警
+executeLightweight(task):
+  resolveWorkspace（worktree 复用/新建）→ checkPrerequisites
+  → propagateHarnessConfig（CLAUDE.md/AGENTS.md + provider 执法配置）
+  → buildAugmentedPrompt(task.prompt, knowledgeContext) → 落 .daemon/prompt.md
+  → buildSessionCommand + buildSessionEnv → spawn 一次（stream-json，可杀进程组/静默看门狗）
+  → processSessionOutput（写 .agent.log → 解析 → session:start/end 事件 + usage）
 ```
+
+调用方给全量 prompt，本包不再自行构建（旧 loop 的续接 prompt、卡死重投、strategy hints 随路径一并删除）。
+
+**会话续接只有一个通道**：`task.parameters.sessionId`（+ `sessionResume: true` 表示续用已存在会话），经 cli-adapter 按 provider 换语法（claude `--session-id <id>` 新建 / `--resume <id>` 续用；kimi、opencode `--continue` 走 cwd 维度；codex `exec resume --last`；实证记录见 `src/cli-adapter.ts` 文件头）。本包不接收任何 provider 专属 flag 原文——旧 daemon 链路那种「调用方直接给一串 claude 参数」的通道已随其生产者删除（#587），活路径的停滞判定也不在此（agent-loop 传 `silenceKillMs`，判据 = 距最后一次输出间隔）。
 
 #### Worktree 文件布局
 
 ```
 worktree/
-  REQUIREMENTS.md        ← AC + 约束（session 间不变，文件桥）
-  .progress.json         ← 进度快照（session 间唯一变化）
+  .daemon/prompt.md      ← 本次 spawn 的完整 prompt
+  .agent.log             ← CLI 输出日志
+  .progress.json         ← 进度快照（agent 自写，格式见下）
   .review-report.json    ← 审查报告
-  .prompt.md             ← 当前 session prompt
-  .agent.log             ← Claude Code 输出日志
   src/                   ← 代码变更
 ```
 
+> #562 前此处还列 `REQUIREMENTS.md`（AC + 约束文件桥）与根级 `.prompt.md`：前者由已删除的 runner-briefing 写入、后者是旧 loop 的 prompt 落点，两条路径都不再产生它们。
+
 #### .progress.json 格式
+
+由 skill prompt 指示 agent 自己维护（`apps/api/src/scripts/seed-skills.ts`），读方：`output-capture.ts readProgress()`、discord 进度查询、monitor 停滞判定。executor 侧不再据此判定完成（那是 agent-loop 的 completion-gates 职责）。
 
 ```json
 {
@@ -57,11 +66,6 @@ worktree/
   "notes": "working on null check"
 }
 ```
-
-#### Session Prompt
-
-- Session 1: 全量 prompt（约束注入 + TDD 指令 + 读 REQUIREMENTS.md）
-- Session 2+: 极短续接（"读 REQUIREMENTS.md + .progress.json，继续从 {currentStep}"）
 
 #### Spawn env 约定（2026-07-30）
 
@@ -79,7 +83,7 @@ worktree/
 | codex | 原生 PreToolUse hook | `.codex/hooks.json`（项目级，per-worktree） | CommandGate block 级 exit 2 阻断（`exec --json` 生效，需 trust 门 bypass，见下） |
 | kimi | 原生 PreToolUse hook | `<worktree>/.kimi-code/config.toml`（host 配置复制 + hook 追加；credentials/oauth 软链复用 host）+ spawn env `KIMI_CODE_HOME` | 同上（`-p` 生效） |
 
-hook 统一指向 `@dommaker/harness` 包内出厂 shim `dist/pretool-use-hook.js`（require.resolve 解析，#154 起不再生成 worktree 内脚本；stdin JSON → CommandGate.isAllowed → exit 2）。`.codex/`、`.kimi-code/` 已入 `GIT_EXCLUDE_PATTERNS`；`.studio/` 自 #154 移出 exclude（纯文档正本整体进 git）。黑名单规则本身不在此改（harness 仓另议）。已知限制：agent 运行中可改写自己 worktree 内的执法配置（deny-only 执法面边界，worktree 重建时 propagate 幂等自愈）。
+hook 统一指向 `@dommaker/harness` 包内出厂 shim `dist/pretool-use-hook.js`（require.resolve 解析，#154 起不再生成 worktree 内脚本；stdin JSON → CommandGate.isAllowed → exit 2）。`.codex/`、`.kimi-code/` 已入 `GIT_EXCLUDE_PATTERNS`；`CLAUDE.md`（propagate 复制的薄身）同样在列——不排除会 `?? CLAUDE.md` 恒脏、提交守卫误伤（exclude 只影响未跟踪文件，业务仓真实跟踪 CLAUDE.md 不受影响）；`.studio/` 自 #154 移出 exclude（纯文档正本整体进 git）。黑名单规则本身不在此改（harness 仓另议）。已知限制：agent 运行中可改写自己 worktree 内的执法配置（deny-only 执法面边界，worktree 重建时 propagate 幂等自愈）。
 
 **codex trust 门（0.147.0 实测，D7）**：非 managed command hook 须先 review+trust 才运行，exec 无人值守下未信任一律静默跳过（trust 按 hook hash 持久化，worktree 路径每 WU 不同，无法预信任）→ codex spawn 模板（studio-shared providers.ts）携带 `--dangerously-bypass-hook-trust`（官方定位：已自行审查 hook 来源的自动化）。本机实证：无 flag 时 SessionStart marker 不跑、有 flag 即跑；PreToolUse exit 2 端到端真拦。
 
@@ -101,9 +105,10 @@ hook 统一指向 `@dommaker/harness` 包内出厂 shim `dist/pretool-use-hook.j
 
 ### 关键配置
 
+`ExecutorConfig` 现只被读两项：`worktreesDir` / `repoDir`（`resolveWorkspace` 用）。
+
 | 配置 | 默认值 | 说明 |
 |------|:---:|------|
-| `sessionTimeoutMinutes` | 30 | 单次 session 超时 |
-| `maxSessions` | 5 | 最大 session 循环次数 |
+| `sessionTimeoutMinutes` | 30 | **只写不读**——单次 spawn 的超时实取 `task.timeoutMs ?? 30min`（硬编码扁平默认在 runner-lightweight），改这个字段不影响任何行为。同类：`taskTimeoutMinutes`。#587 核实后暂留：删它要连带改 apps/api 审计 Agent 给人看的建议文案（引用了这个旋钮），另票处理 |
 | `heartbeatIntervalMinutes` | 5 | 心跳间隔 |
 | `dockerImage` | claude-code:fast | Claude Code Docker 镜像 |

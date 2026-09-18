@@ -1967,7 +1967,7 @@ describe('消息读口倒扫（#524 P1-1）', () => {
       expect(fast[0].content).toBe('q2 v2');
     });
 
-    it('带过滤条件不走快径，行为不变', async () => {
+    it('带过滤 + limit 走谓词倒扫快径（B5），结果与全量语义一致', async () => {
       await store.appendMessage(CH, makeMessage('f1', CH, { authorType: 'human' }));
       await store.appendMessage(CH, makeMessage('f2', CH, { authorType: 'agent' }));
       const r = await store.queryMessages(CH, { authorType: 'agent', limit: 1 });

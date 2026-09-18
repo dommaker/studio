@@ -527,6 +527,46 @@ describe('update', () => {
   });
 });
 
+// ── updateMetadata 增量合并（#554，ADR 2026-09-15 决策 1/6 语义口）──
+
+describe('updateMetadata', () => {
+  it('patch 浅并入既有 metadata：既有键保留、同名键被 patch 覆盖，返回更新后 WorkUnitData', async () => {
+    const wu = await service.create({
+      scope: 'metadata 增量', metadata: { priority: 'low', blockReason: 'stuck' },
+    });
+    await new Promise(r => setTimeout(r, 10));
+
+    const updated = await service.updateMetadata(wu.id, { priority: 'high', resumeAfterRetry: true });
+
+    expect(updated).not.toBeNull();
+    expect(JSON.parse(updated!.metadata!)).toEqual({
+      priority: 'high',       // 同名键被 patch 覆盖
+      blockReason: 'stuck',   // 既有键保留（不整写覆盖）
+      resumeAfterRetry: true, // 新键并入
+    });
+    // 索引落盘值一致 + 事件流追加 updated 事件 + updatedAt 前进
+    const snap = (await findSnapshot(wu.id))!;
+    expect(JSON.parse(snap.metadata!)).toEqual({ priority: 'high', blockReason: 'stuck', resumeAfterRetry: true });
+    expect(readEvents().some(e => e.type === 'updated' && e.wuId === wu.id)).toBe(true);
+    expect(updated!.updatedAt.getTime()).toBeGreaterThan(wu.createdAt.getTime());
+  });
+
+  it('metadata 为 null / 损坏 JSON 时按 {} 起评并入（FileStore 原语口径透传）', async () => {
+    const wu = await service.create({ scope: '空 metadata' });
+
+    const updated = await service.updateMetadata(wu.id, { tag: 'x' });
+
+    expect(JSON.parse(updated!.metadata!)).toEqual({ tag: 'x' });
+  });
+
+  it('WorkUnit 不存在 → 返回 null（不抛错、不产生事件）', async () => {
+    const result = await service.updateMetadata('wu-missing', { tag: 'x' });
+
+    expect(result).toBeNull();
+    expect(readEvents().filter(e => e.wuId === 'wu-missing')).toHaveLength(0);
+  });
+});
+
 // ── delete ──
 
 describe('delete', () => {
@@ -543,6 +583,41 @@ describe('delete', () => {
     const events = readEvents();
     const closedEvt = events.find(e => e.type === 'closed' && e.wuId === wu.id);
     expect(closedEvt).toBeDefined();
+  });
+
+  // #538（ADR 2026-09-15 决策 3/4/5）：delete 加 reason + 墓碑单点构造 + 发 workunit:removed
+  it('reason 落墓碑事件行 + 发布 workunit:removed（负载 id + channelId）', async () => {
+    const removed: Array<{ id: string; channelId: string | null }> = [];
+    const removedHandler = (payload: { id: string; channelId: string | null }) => { removed.push(payload); };
+    eventBus.subscribe('workunit:removed', removedHandler);
+    try {
+      const wu = await service.create({ scope: 'TTL 待删', channelId: 'ch-1' });
+
+      await service.delete(wu.id, { reason: 'TTL: WorkUnit older than 90 days' });
+
+      const tombstone = readEvents().find(e => e.type === 'closed' && e.wuId === wu.id);
+      expect(tombstone?.data).toMatchObject({ deleted: true, reason: 'TTL: WorkUnit older than 90 days' });
+      expect(removed).toEqual([{ id: wu.id, channelId: 'ch-1' }]);
+    } finally {
+      eventBus.unsubscribe('workunit:removed', removedHandler);
+    }
+  });
+
+  it('缺省 reason：墓碑仅 deleted:true，workunit:removed 仍发（channelId 缺省 null 透传）', async () => {
+    const removed: Array<{ id: string; channelId: string | null }> = [];
+    const removedHandler = (payload: { id: string; channelId: string | null }) => { removed.push(payload); };
+    eventBus.subscribe('workunit:removed', removedHandler);
+    try {
+      const wu = await service.create({ scope: '无原因删除' });
+
+      await service.delete(wu.id);
+
+      const tombstone = readEvents().find(e => e.type === 'closed' && e.wuId === wu.id);
+      expect(tombstone?.data).toEqual({ deleted: true });
+      expect(removed).toEqual([{ id: wu.id, channelId: null }]);
+    } finally {
+      eventBus.unsubscribe('workunit:removed', removedHandler);
+    }
   });
 });
 

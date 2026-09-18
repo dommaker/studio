@@ -50,3 +50,25 @@ review 架构的这组承重决策此前只活在 plans 过程文档与代码注
 
 - 后来者评估「要不要独立 reviewer」时以本 ADR 为准；推导细节回 plans 文档。
 - 任何弱化 D1 三机制、恢复角色锚点、或取消自评标记的改动 = 治理变更，需先过决策再动手。
+
+## 补充：决策 14 认领前适任判断（2026-09-15）
+
+> 编号说明：决策 10~13 无统一登记处（`docs/adr/decisions.md` 是另一套 D-XXX 旧注册表，
+> 不承载本编号序列；10~13 散见代码注释/CONTEXT.md/本 ADR），本决策沿序列顺延为 14，
+> 登记于此（与本决策合规依据 D2/决策 10 同文，最贴合现有惯例）。
+
+频道角色认领是「代码代抢」：observe（零 LLM）过滤 → resolveTarget（纯代码排序）→ claim
+抢占，agent 第一次看到 scope 全文是认领后的第一步 prompt，错误认领是结构性必然，且协议
+没有退回出口（只有 NEED_INPUT 甩给人）。定稿方案 = **认领前适任判断**（做不了的不抢），
+不做「认领后退回」：
+
+- 插入点：resolveTarget 选中 unassigned 候选之后、claimAndAnnounce 之前；一次性轻量 LLM
+  调用（复用 system-executor，与 distill/wu-completion-extraction 同款机制），只问
+  「能否胜任、是否属于你」。不进 observe 轮询，成本与认领次数成正比。
+- **合规 D2**：适任结果落档 WU 侧 `metadata.unfitRoles` 名单（{roleId, reason, at}，
+  约束挂 WU 不挂角色身份）；observe 过滤链新增第 7 道（含本 role.id 即不可见）。
+  恢复 acceptedTypes 静态类型过滤仍是治理变更，禁止。
+- 从宽哲学：判断调用失败/超时/解析不出 → 视为适任（宁可误抢不可漏抢，错抢有 NEED_INPUT 兜底）。
+- 全员不适任（unfitRoles 覆盖频道全部 active 成员）→ WU 置 blocked + 频道消息转人工
+  （unassigned → blocked 不在状态机表内，走 `WorkUnitService.blockForAllUnfit` 语义方法直写，
+  仿 blockForManualRelease 先例，状态机表不动）。

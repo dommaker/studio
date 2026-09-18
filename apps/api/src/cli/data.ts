@@ -45,9 +45,6 @@ export async function apiCommand(resource: string, args: string[]) {
       case 'queue':
         console.log(JSON.stringify(await apiGet(`/${resource}?companyId=${cid}&status=pending`), null, 2));
         break;
-      case 'run':
-        console.log('Use: studio run <requirement>');
-        break;
       default:
         console.log(`studio ${resource} <list|show|search${resource === 'knowledge' ? '|upsert|sync-status' : ''}>`);
     }
@@ -150,6 +147,11 @@ export async function studioEnv() {
 
 export async function studioMcp(args: string[]) {
   const sub = args[0] || 'tools';
+  // #566 P3：install 是纯本地文件操作 + health 探测，不需要登录 token
+  if (sub === 'install') {
+    const { mcpInstall } = await import('./mcp-install.js');
+    return mcpInstall(args.slice(1));
+  }
   try {
     await getToken();
     switch (sub) {
@@ -160,7 +162,7 @@ export async function studioMcp(args: string[]) {
         console.log(JSON.stringify(await apiGet('/mcp/health'), null, 2));
         break;
       default:
-        console.log('studio mcp <tools|health>');
+        console.log('studio mcp <tools|health|install>');
     }
   } catch (e: any) {
     if (e?.cause?.code === 'ECONNREFUSED') console.error('API server not running. Run: studio up');

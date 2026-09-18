@@ -62,7 +62,7 @@ export function TranscriptViewer({ workUnitId }: { workUnitId: string }) {
             </div>
           ))}
           {hasMore && (
-            <button className="text-xs px-2 py-0.5 rounded u-surface-2 u-text-3 u-hover-bg" disabled={loading} onClick={() => load(entries?.length ?? 0)}>
+            <button className="btn btn-secondary btn-sm" disabled={loading} onClick={() => load(entries?.length ?? 0)}>
               {loading ? '加载中…' : '加载更多'}
             </button>
           )}

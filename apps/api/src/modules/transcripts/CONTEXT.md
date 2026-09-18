@@ -2,7 +2,7 @@
 
 ### 职责
 
-transcript 归档器（#97，#88 子票）：把会话原文落盘到数据区（经 `studioDir()`/`studioPath()`），供三个消费方共用——#99 WU 收尾批量提取（要全文）、handoff 摘要（要对话）、#85 执行质量评估（要执行痕迹）。本模块只建归档器 + 读取接口，不实现消费方提取逻辑。
+transcript 归档器（#97，#88 子票）：把会话原文落盘到数据区（经 `studioDir()`/`studioPath()`），供四个消费方共用——#99 WU 收尾批量提取（要全文）、handoff 摘要（要对话）、#85 执行质量评估（要执行痕迹）、skill 度量地基票 B skill 使用扫描（skills/skill-usage-scan.ts，扫 rawOutput 中 SKILL.md 路径痕迹）。本模块只建归档器 + 读取接口，不实现消费方提取逻辑。
 
 另提供 HTTP 只读查看路由（#174，#60 C5）：`GET /api/v1/transcripts/:workUnitId`（认证，query `offset`/`limit` 分页，上限 100 — #359 起统一 `parsePagination`，原上限 50），经 `readTranscript` 读全文后 slice，文件不存在返回 200 空列表；workUnitId 拒绝含 `/`、`..` 的 id（防路径穿越）。注册见 `route-registry.ts`；前端查看器 `apps/web/src/components/workunit/TranscriptViewer.tsx`。
 
@@ -40,7 +40,7 @@ session:start/end 事件链路（#174）：agent-loop 把 `transcriptPath(wu.id)
 - `apps/api/src/modules/agents/loop/agent-loop.ts`（写入方：每步成功执行后 `appendTranscriptStep`）
 
 **下游**:
-- #99 WU 收尾批量提取（`readTranscript` 读取方，已落地：role-memory/completion-extraction.ts）、handoff 摘要、#85 执行质量评估（后续实现）
+- #99 WU 收尾批量提取（`readTranscript` 读取方，已落地：role-memory/completion-extraction.ts）、handoff 摘要、#85 执行质量评估（后续实现）、skill 使用扫描（已落地：skills/skill-usage-scan.ts，度量地基票 B）
 
 ### 注意事项
 

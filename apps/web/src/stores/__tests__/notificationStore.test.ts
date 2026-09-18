@@ -10,7 +10,7 @@ const { mockApi } = vi.hoisted(() => ({
 
 vi.mock('../../api', () => ({ api: mockApi }));
 
-import { useNotificationStore, parseLinkTargets, type Notification, type StateItem } from '../notificationStore';
+import { useNotificationStore, parseLinkTargets, needInputViewOf, type Notification, type StateItem } from '../notificationStore';
 
 function notification(overrides: Partial<Notification> = {}): Notification {
   return {
@@ -262,5 +262,53 @@ describe('markChannelRead（打开频道即读）', () => {
 
     expect(mockApi.post).not.toHaveBeenCalled();
     expect(useNotificationStore.getState().unreadCount).toBe(1);
+  });
+});
+
+// #546：per-channel need-input 投影收口——needInputViewOf 纯函数（stateItems → 四种消费形状单源），
+// 口径变更只落此处；ChannelDetailPage 退回订阅并渲染（页面内联 filter/map 派生已删）
+describe('needInputViewOf（#546 per-channel need-input 投影单源）', () => {
+  it('只取 kind=reply 且 channelId 匹配的条目；review/confirm 与他频道条目不进投影', () => {
+    const view = needInputViewOf([
+      stateItem({ wuId: 'WU-1', channelId: 'ch-1', messageId: 'm-1' }),
+      stateItem({ wuId: 'WU-2', kind: 'review', channelId: 'ch-1', messageId: 'm-2' }),
+      stateItem({ wuId: 'WU-3', kind: 'confirm', channelId: 'ch-1', messageId: 'm-3' }),
+      stateItem({ wuId: 'WU-4', channelId: 'ch-2', messageId: 'm-4' }),
+    ], 'ch-1');
+
+    expect(view.waitingWus).toEqual([
+      { wuId: 'WU-1', question: '选哪个方案？', messageId: 'm-1' },
+    ]);
+  });
+
+  it('条目 channelId 为 null 不匹配任何频道；channelId 参数缺省 → 空投影（fail-closed）', () => {
+    const items = [stateItem({ channelId: null, messageId: 'm-1' })];
+    expect(needInputViewOf(items, 'ch-1').waitingWus).toEqual([]);
+    expect(needInputViewOf(items, undefined).waitingWus).toEqual([]);
+  });
+
+  it('question = waitingQuestion ?? scope（waitingQuestion 缺省回落 scope 摘要）', () => {
+    const view = needInputViewOf([
+      stateItem({ wuId: 'WU-1', waitingQuestion: undefined, scope: '登录功能' }),
+    ], 'ch-1');
+    expect(view.waitingWus[0].question).toBe('登录功能');
+  });
+
+  it('messageId 缺省的 WU 不进 wu→mid 映射与提升集，isWaitingForInput 恒 false（fail-closed，不反推）', () => {
+    const view = needInputViewOf([
+      stateItem({ wuId: 'WU-1', messageId: undefined }),
+      stateItem({ wuId: 'WU-2', messageId: 'm-2' }),
+    ], 'ch-1');
+
+    // 列表仍含两条（chip/右栏可见），但锚点映射只收有 messageId 的
+    expect(view.waitingWus.map(w => w.wuId)).toEqual(['WU-1', 'WU-2']);
+    expect(view.questionIdByWu.get('WU-1')).toBeUndefined();
+    expect(view.questionIdByWu.get('WU-2')).toBe('m-2');
+    expect([...view.promotedQuestionIds]).toEqual(['m-2']);
+    expect(view.isWaitingForInput({ id: 'm-x', workUnitId: 'WU-1' })).toBe(false);
+    expect(view.isWaitingForInput({ id: 'm-2', workUnitId: 'WU-2' })).toBe(true);
+    // 无 workUnitId / id 不匹配 → false
+    expect(view.isWaitingForInput({ id: 'm-2' })).toBe(false);
+    expect(view.isWaitingForInput({ id: 'm-9', workUnitId: 'WU-2' })).toBe(false);
   });
 });

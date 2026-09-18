@@ -5,18 +5,17 @@
  *   - Uses `--output-format stream-json` (line-by-line JSON events)
  *   - Parses stdout for tool_use blocks, emits tool:call + file:change StudioEvents
  *   - Workspace fallback: task.parameters.workspaceRoot → DB query → createWorktree()
- *   - Stuck detection with strategy hints injection
  *
  * 模块拆分：实现按职责拆到
- *   - runner-params.ts      参数构建（prompt / session flag / cmd / env / 前置检查）
- *   - runner-output.ts      输出解析（mtime 探测 / RKB 已知解法）
- *   - runner-execution.ts   执行（多 session 循环）
- *   - runner-lightweight.ts 执行（轻量单 session）
+ *   - runner-params.ts      参数构建（prompt 增强 / cmd / env / 前置检查）
+ *   - runner-output.ts      输出解析（spawn 尾部管线：落盘 → stream-json → 事件 → 指标）
+ *   - runner-lightweight.ts 执行（轻量单 session，唯一执行路径）
  *   - types.ts              公共类型（ExecutorConfig / AgentTask / ExecutionResult / PrerequisiteCheck）
  * 本文件保留门面类与全部公共 API（含函数 re-export），调用方零改动。
  *
  * 2026-08: 旧 AgentExecutor 双胞胎（session-manager.ts）已删除，本类是唯一执行器，
  * stop() 所有权统一在此（runningProcesses map 只在本类注册）。
+ * 2026-09（#562）：多 session 循环 execute() 无生产调用方，随 hooks 层收缩一并删除。
  */
 
 import type { ChildProcess } from 'child_process';
@@ -25,7 +24,6 @@ import * as fsSync from 'fs';
 import * as os from 'os';
 import { logger, type StreamEvent } from '@dommaker/studio-shared';
 
-import { executeSessionLoop } from './runner-execution.js';
 import { executeLightweightSession } from './runner-lightweight.js';
 
 // ─── 公共类型（原 session-manager.ts，现 types.ts） ───
@@ -42,9 +40,6 @@ export type OutputEvent = StreamEvent;
 // ─── Function re-exports (保持原 agent-runner.js 导入路径兼容) ───
 
 export { buildAugmentedPrompt } from './runner-params.js';
-export { hasRecentActivity } from './runner-output.js';
-
-const DEFAULT_MAX_SESSIONS = 5;
 
 // ─── AgentRunner class ───
 
@@ -65,18 +60,13 @@ export class AgentRunner {
       })(),
       taskTimeoutMinutes: config?.taskTimeoutMinutes || 60,
       sessionTimeoutMinutes: config?.sessionTimeoutMinutes || 30,
-      maxSessions: config?.maxSessions || DEFAULT_MAX_SESSIONS,
       ...config,
     };
   }
 
   // ========================================
-  // Execute (delegates to runner-execution / runner-lightweight)
+  // Execute (delegates to runner-lightweight)
   // ========================================
-
-  async execute(task: AgentTask): Promise<ExecutionResult> {
-    return executeSessionLoop({ config: this.config, runningProcesses: this.runningProcesses }, task);
-  }
 
   async executeLightweight(task: AgentTask): Promise<ExecutionResult> {
     return executeLightweightSession({ config: this.config, runningProcesses: this.runningProcesses }, task);

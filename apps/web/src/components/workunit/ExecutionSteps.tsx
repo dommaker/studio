@@ -15,6 +15,7 @@ import {
 } from '../../api/workunit';
 import { deriveDisplayState, WU_STATUS_LABELS } from '@dommaker/studio-shared/web';
 import { SkeletonText } from '../ui';
+import { IconX } from '../ui/icons';
 import { useWebSocketContext } from '../../api/websocketHooks';
 import { useWorkUnitStreamEvents } from '../../hooks/useWorkUnitStreamEvents';
 import { formatShortTime } from '../../utils/datetime';
@@ -212,7 +213,7 @@ export function ExecutionSteps({ workUnitId, wu }: { workUnitId: string; wu?: Wo
       {steps !== null && steps.length > 0 && steps.map(s => (
         <div key={`${s.executionId}-${s.step}`} style={{ marginBottom: 8 }}>
           <div className="mc-kv">
-            <span className="mc-kv-k">#{s.step}{s.action ? ` · ${s.action}` : ''}{s.status === 'failed' ? ' · ✗ 失败' : ''}</span>
+            <span className="mc-kv-k">#{s.step}{s.action ? ` · ${s.action}` : ''}{s.status === 'failed' && <> · <span className="inline-flex items-center gap-1"><IconX size={12} /> 失败</span></>}</span>
             <span className="mc-kv-v">
               {formatShortTime(s.at)}
               {s.usage ? ` · ${formatStepTokens(s.usage.inputTokens + s.usage.outputTokens)} tok` : ''}

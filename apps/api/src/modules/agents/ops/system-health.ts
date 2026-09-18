@@ -303,18 +303,16 @@ export async function runGC(): Promise<GCResult> {
   // Clean completed WorkUnits older than 30 days
   try {
     const { FileStore } = await import('@dommaker/studio-shared');
+    // #538（ADR 2026-09-15 决策 3）：筛选逻辑留本调用方（done/closed 且 completedAt >30 天照旧），
+    // 删除循环走 service.delete 单口——墓碑单点构造 + workunit:removed 出声
+    const { WorkUnitService } = await import('../../workunit/workunit.service.js');
     const fileStore = new FileStore();
+    const workUnitService = new WorkUnitService(fileStore);
     const snapshots = await fileStore.getIndex();
     const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
     for (const s of snapshots) {
       if ((s.status === 'done' || s.status === 'closed') && s.completedAt && s.completedAt < cutoff) {
-        // #170：墓碑事件 + 索引移除同锁成对（对账/重建不复活已删 WU）
-        await fileStore.commitRemoval({
-          type: 'closed',
-          wuId: s.id,
-          timestamp: new Date().toISOString(),
-          data: { deleted: true },
-        }, s.id);
+        await workUnitService.delete(s.id, { reason: 'ops GC: completed WorkUnit older than 30 days' });
         cleaned++;
         details.push(`Removed completed WorkUnit: ${s.id}`);
       }

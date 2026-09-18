@@ -4,6 +4,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import type { ChannelMessage } from '../../../api/channel';
+import { ChannelMessageEnvProvider } from '../ChannelMessageEnv';
 import { ChannelMessageItem } from '../ChannelMessageItem';
 import { useAuthStore } from '../../../stores/authStore';
 
@@ -20,7 +21,9 @@ const humanMsg = (content: string): ChannelMessage => ({
 const renderItem = (message: ChannelMessage) =>
   render(
     <MemoryRouter>
-      <ChannelMessageItem message={message} onAction={vi.fn()} />
+      <ChannelMessageEnvProvider value={{ onAction: vi.fn() }}>
+        <ChannelMessageItem message={message} />
+      </ChannelMessageEnvProvider>
     </MemoryRouter>,
   );
 

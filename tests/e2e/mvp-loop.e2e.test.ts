@@ -199,6 +199,16 @@ async function bootApi(): Promise<void> {
       REPO_DIR: repoDir,
       VPS_WORKSPACE_ROOT: repoDir,
       CLOUDFLARED_ENABLED: 'false',
+      // P8：本套件契约是「无真实 LLM」——关掉 WU 完成后的会话知识提取
+      // （否则经 studio 角色 provider 起真实 CLI 挂到超时，残留进程还向 tmp HOME
+      // 落尾盘文件，与 teardown 递归删除竞态 ENOTEMPTY）。
+      STUDIO_KNOWLEDGE_EXTRACTION: 'false',
+      // P7：同理关掉自动评审——评审子单是未指派涌现单，认领前适任判断
+      // （claim-fitness，决策 14）会经 system-executor 起真实 CLI。
+      STUDIO_AUTO_REVIEW: 'false',
+      // #579：同理豁免认领前适任判断本身——其他未指派涌现单（如 PMO 派单）
+      // 的 fitness 判断同样会经 system-executor 起真实 CLI 空转。
+      STUDIO_CLAIM_FITNESS: 'false',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -259,7 +269,9 @@ describe('一期验收：MVP 闭环 e2e（fake provider）', () => {
       console.error(`[e2e] api log kept at ${apiLogPath}`);
     }
     if (tmpRoot && !process.env.E2E_KEEP_TMP) {
-      rmSync(tmpRoot, { recursive: true, force: true });
+      // maxRetries：SIGTERM 后 API/agent 子进程仍可能向 home 下落尾盘文件，
+      // 递归删除与之竞态会抛 ENOTEMPTY（套件提速后窗口变宽，实测踩中）。
+      rmSync(tmpRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 300 });
     } else if (tmpRoot) {
       console.log(`[e2e] E2E_KEEP_TMP set — keeping ${tmpRoot}`);
     }
@@ -328,7 +340,12 @@ describe('一期验收：MVP 闭环 e2e（fake provider）', () => {
     // #481：机器指针退役——WU 不再落 workspaceId；频道默认工程经归属链落 metadata.workspaceRoot
     expect(wu.workspaceId ?? null).toBeNull();
     expect(wu.status).not.toBe('blocked'); // 有归属（channel-default-path）→ 不挂起
-    expect(wu.assigneeId).toBe(profiles.kimi.id); // mention 精确匹配 kimi
+    // mention 指名落 assigneeId=profile id；但认领后 claim 会把 assigneeId 改写为
+    // 认领实例 id（by design，见 workunit-crud.claim 注释），roleId 冗余快照到
+    // assigneeRoleId。claimable workunit.created 即时唤醒认领与本轮 GET 存在毫秒级
+    // 竞态（P5：断言曾与认领抢跑）——两态都合法，取 assigneeRoleId ?? assigneeId
+    // 判定「指名 kimi」，仍排除认到他人（认领快照 roleId=认领方 profile）。
+    expect(wu.assigneeRoleId ?? wu.assigneeId).toBe(profiles.kimi.id); // mention 精确匹配 kimi
     const meta = wuMetadata(wu);
     expect(meta.mentionName).toBe('kimi');
     expect(meta.matched).toBe(true);

@@ -15,6 +15,7 @@ import { loadRules, type OpsRules } from './ops-rules.js';
 import { readDiskUsage, readMemoryUsage, readLoadAvgRaw, countProcessesByCmdline, listPidsByCmdline } from './proc-probes.js';
 import { hashPassword } from '../../auth/service.js';
 import { resolveStudioLogFile } from '../../../utils/studio-log-path.js';
+import { ensureFrontendDist } from '../../../utils/frontend-dist.js';
 
 const execAsync = promisify(exec);
 
@@ -79,52 +80,21 @@ export class OpsService {
       });
     }
 
-    // 2. Check frontend dist
-    const indexHtml = path.join(frontendDistPath, 'index.html');
-    if (fs.existsSync(indexHtml)) {
-      add({ name: 'frontend-dist', passed: true, message: 'Frontend dist exists', critical: false });
-    } else {
-      // Try to auto-build
-      try {
-        const webDir = path.join(repoDir, 'apps/web');
-        if (fs.existsSync(webDir)) {
-          logger.info('[Ops] Building frontend...');
-          execSync('npx vite build', { cwd: webDir, stdio: 'pipe', timeout: 120_000 });
-          // Copy to frontend dist
-          const srcDist = path.join(webDir, 'dist');
-          if (fs.existsSync(srcDist)) {
-            fs.mkdirSync(path.dirname(frontendDistPath), { recursive: true });
-            execSync(`cp -r "${srcDist}/"* "${frontendDistPath}/"`, { stdio: 'pipe' });
-            add({
-              name: 'frontend-dist', passed: true, critical: false,
-              message: 'Frontend built and deployed', autoFixed: true,
-            });
-          } else {
-            add({ name: 'frontend-dist', passed: false, critical: false, message: '⚠️ Frontend build produced no dist' });
-          }
-        }
-      } catch (e: any) {
-        add({
-          name: 'frontend-dist', passed: false, critical: false,
-          message: `⚠️ Frontend dist missing and auto-build failed: ${e.message.slice(0, 100)}`,
-        });
-      }
-    }
+    // 2. Check frontend dist（#571 冲突 8 冻结：npm 形态缺 dist = 包损坏 critical abort，
+    //    不现场构建；monorepo dev 形态（apps/web 源码在）保留 auto-build 分支）
+    const frontend = ensureFrontendDist(frontendDistPath, repoDir);
+    if (frontend.autoBuilt) logger.info('[Ops] Building frontend...');
+    add({
+      name: 'frontend-dist',
+      passed: frontend.ok,
+      critical: frontend.corrupt === true,
+      message: frontend.message,
+      autoFixed: frontend.autoBuilt,
+    });
 
-    // 3. Check port
-    try {
-      const output = execSync(`lsof -ti:${this.port} 2>/dev/null || true`, { encoding: 'utf-8', stdio: 'pipe' }).trim();
-      if (output) {
-        add({
-          name: 'port-available', passed: false, critical: true,
-          message: `❌ Port ${this.port} is already in use by PID(s): ${output.replace(/\n/g, ', ')}. Kill old processes first: studio stop`,
-        });
-      } else {
-        add({ name: 'port-available', passed: true, message: `Port ${this.port} available`, critical: true });
-      }
-    } catch (e: any) {
-      add({ name: 'port-available', passed: true, message: `Port ${this.port} available`, critical: true });
-    }
+    // 3. 端口检查已移出（#573 契约 §7 双口径收口）：原 lsof 占用即 abort 语义
+    // 收编为 cli/port-probe 的动态顺延分支——调用方（studioUp / studioRunWeb）
+    // 在 preflight 前完成端口解析（默认顺延上限 +100，显式指定占用即拒启）。
 
     // 4. Clean stale processes
     try {

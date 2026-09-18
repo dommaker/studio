@@ -15,12 +15,17 @@
  * 流程：
  *   0. 数据防丢闸：worktree 有未提交改动（或 git status 失败）→ 不合并不强删，
  *      WU 置 blocked + 频道列清单转人工（worktree/分支保留）
- *   1. git merge --no-ff task/<wuId>（baseRepo）
- *   2. 失败 → merge --abort，重试一次：先在 worktree 把 task 分支 rebase 到
- *      baseBranch，成功则回 baseRepo 再 merge
- *   3. 仍失败 → 清理 rebase/merge 现场，取冲突文件清单（diff-filter=U），
- *      频道发 Studio 系统消息转人工，WU 置 blocked（metadata.mergeConflict/conflictFiles）
- *   4. 成功 → 移除 worktree、删除已合并 task 分支、metadata 记 mergedAt/mergeCommit，
+ *   1. git merge --no-ff task/<wuId>（baseRepo 或 PMO 集成交合）
+ *   2. 失败 → abort 首次 merge 现场，重试一次：先在 worktree 把 task 分支 rebase 到
+ *      baseBranch，成功则回合并目标再 merge
+ *   3. 仍失败 → **保留冲突现场**（不再先 abort），spawn 一次性 LLM 会话解冲突
+ *      （复用 system-executor，skill = resolving-merge-conflicts；prompt 带 mergeContext
+ *      + verify 命令来源说明）；LLM 失败/超时/解完仍有残留冲突 → 回退现有 abort +
+ *      markMergeConflict 转人工（兜底不变）。审计落 metadata.mergeResolution
+ *   4. 合并成功（含 LLM 解完）→ **落 mergedAt 前在合并目标目录重跑 verify**
+ *      （runWuVerification；无 verify 命令可解析时放行，与执行环节同策略）；
+ *      红 → 转人工（markMergeConflict 同款 blocked 路径，blockReason 前缀 merge-verify-failed）
+ *   5. 全绿 → 移除 worktree、删除已合并 task 分支、metadata 记 mergedAt/mergeCommit，
  *      频道发一条简短系统消息
  *
  * 防重：metadata.mergedAt 存在即跳过（人工重复触发 / 事件重放均不再合并）。
@@ -38,7 +43,7 @@ import { execSh } from '@dommaker/studio-shared/node';
 import { ensurePmoIntegrationWorktree } from '@dommaker/studio-agent';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import type { WorkUnitService, WorkUnitData } from './workunit.service.js';
+import type { WorkUnitService, WorkUnitData, WorkUnitMetadata } from './workunit.service.js';
 import { postWuSystemMessage } from './wu-messenger.js';
 import { parseWuMetadata } from './wu-metadata.js';
 import { getErrorMessage } from '../../utils/errors.js';
@@ -56,7 +61,19 @@ const GIT_OP_TIMEOUT_MS = 15_000;
 export type MergeOnReviewPassOutcome =
   | { attempted: false; reason: 'no-worktree' | 'already-merged' | 'analysis-bypass' }
   | { attempted: true; merged: true; mergeCommit: string }
-  | { attempted: true; merged: false; conflictFiles: string[]; reason?: 'conflict' | 'uncommitted-changes' };
+  | { attempted: true; merged: false; conflictFiles: string[]; reason?: 'conflict' | 'uncommitted-changes' | 'merge-verify-failed' };
+
+/** 冲突现场（保留给 LLM 解，不再先 abort）：merge = 合并目标目录；rebase = worktree */
+interface ConflictScene {
+  cwd: string;
+  state: 'merge' | 'rebase';
+}
+
+/** LLM 解冲突审计（落 metadata.mergeResolution；类型正本在 workunit.types.ts） */
+export type MergeResolutionAudit = NonNullable<WorkUnitMetadata['mergeResolution']>;
+
+/** LLM 输出摘要截断（mergeResolution.summary） */
+const MERGE_LLM_SUMMARY_CHARS = 500;
 
 /** shell 单引号转义（branch/路径/提交信息统一过它进 bash -c） */
 function shq(s: string): string {
@@ -237,20 +254,41 @@ export async function mergeWorktreeBranchOnReviewPass(
   const merged = await tryMergeWithRebaseRetry(mergeContext.cmd, mergeContext.cwd, mergeContext.targetBranch, branch, worktreePath);
   // 注：本包 tsconfig 未开 strict，真值判断不收窄可辨识联合，须用 === false 字面量比较
   if (merged.ok === false) {
-    // 转人工：WU 置 blocked + 频道系统消息（冲突文件清单）
-    await wuService.markMergeConflict(wu.id, merged.conflictFiles);
-    const fileList = merged.conflictFiles.length > 0
-      ? `\n冲突文件：\n${merged.conflictFiles.map(f => `- ${f}`).join('\n')}`
-      : '（未能获取冲突文件清单）';
-    await postSystemMessage(
-      fileStore,
+    // 冲突现场已保留（tryMergeWithRebaseRetry 不再先 abort）→ spawn 一次性 LLM 会话解冲突；
+    // LLM 失败/超时/解完仍有残留冲突 → 回退现有 abort + markMergeConflict 转人工（兜底不变）
+    const { audit, resolved } = await resolveConflictSceneWithLlm({
       wu,
-      `任务「${title}」自动合并到 ${mergeContext.targetBranch} 失败（重试后仍冲突），已转人工处理${fileList}`,
-    ).catch(err => logger.warn('[MergeOnReviewPass] post conflict message failed', { wuId: wu.id, error: String(err) }));
-    logger.warn('[MergeOnReviewPass] merge conflict escalated to human', {
-      wuId: wu.id, branch, targetBranch: mergeContext.targetBranch, conflictFiles: merged.conflictFiles,
+      meta,
+      scene: merged.scene,
+      conflictFiles: merged.conflictFiles,
+      mergeCmd: mergeContext.cmd,
+      mergeCwd: mergeContext.cwd,
+      sourceBranch: branch,
+      targetBranch: mergeContext.targetBranch,
+      scopeSummary,
     });
-    return { attempted: true, merged: false, conflictFiles: merged.conflictFiles };
+    await recordMergeResolution(wuService, wu.id, audit);
+    if (!resolved) {
+      await abortMergeAndRebase(mergeContext.cwd, merged.scene.state === 'rebase' ? worktreePath : undefined);
+      // 转人工：WU 置 blocked + 频道系统消息（冲突文件清单）
+      await wuService.markMergeConflict(wu.id, merged.conflictFiles);
+      const fileList = merged.conflictFiles.length > 0
+        ? `\n冲突文件：\n${merged.conflictFiles.map(f => `- ${f}`).join('\n')}`
+        : '（未能获取冲突文件清单）';
+      await postSystemMessage(
+        fileStore,
+        wu,
+        `任务「${title}」自动合并到 ${mergeContext.targetBranch} 失败（重试后仍冲突），已转人工处理${fileList}`,
+      ).catch(err => logger.warn('[MergeOnReviewPass] post conflict message failed', { wuId: wu.id, error: String(err) }));
+      logger.warn('[MergeOnReviewPass] merge conflict escalated to human (LLM resolution failed)', {
+        wuId: wu.id, branch, targetBranch: mergeContext.targetBranch, conflictFiles: merged.conflictFiles,
+        llmError: audit.error,
+      });
+      return { attempted: true, merged: false, conflictFiles: merged.conflictFiles };
+    }
+    logger.info('[MergeOnReviewPass] conflict resolved by LLM', {
+      wuId: wu.id, state: merged.scene.state, durationMs: audit.durationMs,
+    });
   }
 
   // 合并成功：记录 mergeCommit（PMO-b：读集成交合 HEAD）→ 清理 worktree/分支 → 落档 metadata → 频道通知
@@ -262,6 +300,27 @@ export async function mergeWorktreeBranchOnReviewPass(
     mergeCommit = stdout.trim();
   } catch (err) {
     logger.warn('[MergeOnReviewPass] rev-parse HEAD failed (mergeCommit 落空字符串)', { wuId: wu.id, error: String(err) });
+  }
+
+  // 合并后 verify（落 mergedAt 前）：在合并目标目录重跑——原 worktree 下方即被 remove，
+  // 绝不能跑那边。无 verify 命令可解析时放行（与执行环节同策略，ran 为空即无命令）。
+  // 红 → 转人工（markMergeConflict 同款 blocked 路径，blockReason 前缀 merge-verify-failed），
+  // 不删 worktree/分支、不落 mergedAt（合并 commit 已入目标分支，留人工处置）。
+  const verify = await runMergeVerification(wu, meta, mergeContext.cwd);
+  if (verify.failure) {
+    await wuService.markMergeConflict(wu.id, [], {
+      blockReason: `merge-verify-failed: 合并后验证失败（${verify.failure.command}）`.slice(0, 300),
+    });
+    await postSystemMessage(
+      fileStore,
+      wu,
+      `任务「${title}」已合并到 ${mergeContext.targetBranch}，但合并后验证失败（${verify.failure.command}），已转人工处理\n失败输出尾部：\n${verify.failure.tail.slice(0, 1000)}`,
+    ).catch(err => logger.warn('[MergeOnReviewPass] post verify-failed message failed', { wuId: wu.id, error: String(err) }));
+    logger.warn('[MergeOnReviewPass] post-merge verification failed, escalated to human', {
+      wuId: wu.id, branch, targetBranch: mergeContext.targetBranch,
+      failedCommand: verify.failure.command, ran: verify.ran,
+    });
+    return { attempted: true, merged: false, conflictFiles: [], reason: 'merge-verify-failed' };
   }
 
   if (worktreePath) {
@@ -300,47 +359,180 @@ export async function mergeWorktreeBranchOnReviewPass(
   return { attempted: true, merged: true, mergeCommit };
 }
 
-/** merge 一次；失败则 abort 后在 worktree rebase 到 baseBranch，再 merge 一次 */
+/**
+ * merge 一次；失败则 abort 首次现场后在 worktree rebase 到 baseBranch，再 merge 一次。
+ * 终态失败**保留冲突现场**（不 abort）交 LLM 解——scene 指明现场目录与 merge/rebase 状态；
+ * 兜底清理由调用方在 LLM 解失败后做（abortMergeAndRebase）。
+ */
 async function tryMergeWithRebaseRetry(
   mergeCmd: string,
-  baseRepo: string,
+  mergeCwd: string,
   baseBranch: string,
   branch: string,
   worktreePath?: string,
-): Promise<{ ok: true } | { ok: false; conflictFiles: string[] }> {
+): Promise<{ ok: true } | { ok: false; conflictFiles: string[]; scene: ConflictScene }> {
   try {
-    await execSh(mergeCmd, { cwd: baseRepo, timeoutMs: MERGE_TIMEOUT_MS });
+    await execSh(mergeCmd, { cwd: mergeCwd, timeoutMs: MERGE_TIMEOUT_MS });
     return { ok: true };
   } catch { /* 进入重试 */ }
 
-  // 清理首次 merge 现场；无 worktree 无法 rebase → 直接按冲突转人工
-  await abortMergeAndRebase(baseRepo);
+  // 无 worktree 无法 rebase：保留 merge 冲突现场（合并目标目录）交 LLM 解
   if (!worktreePath) {
-    const conflictFiles = await listConflictFiles(baseRepo, baseRepo);
-    return { ok: false, conflictFiles };
+    const conflictFiles = await listConflictFiles(mergeCwd, mergeCwd);
+    return { ok: false, conflictFiles, scene: { cwd: mergeCwd, state: 'merge' } };
   }
 
+  // 清理首次 merge 现场（rebase 重试的前提；终态失败现场在下方保留）
+  await abortMergeAndRebase(mergeCwd);
   try {
     await execSh(`git -C ${shq(worktreePath)} rebase ${shq(baseBranch)}`, {
-      cwd: baseRepo, timeoutMs: REBASE_TIMEOUT_MS,
+      cwd: mergeCwd, timeoutMs: REBASE_TIMEOUT_MS,
     });
   } catch {
-    // rebase 冲突：先取清单（abort 后现场消失），再清理
-    const conflictFiles = await listConflictFiles(worktreePath, baseRepo);
-    await abortMergeAndRebase(baseRepo, worktreePath);
-    logger.warn('[MergeOnReviewPass] rebase onto base failed', { branch, baseBranch, conflictFiles });
-    return { ok: false, conflictFiles };
+    // rebase 冲突：取清单后保留现场（worktree）交 LLM 解，不再 abort
+    const conflictFiles = await listConflictFiles(worktreePath, mergeCwd);
+    logger.warn('[MergeOnReviewPass] rebase onto base failed (scene kept for LLM)', { branch, baseBranch, conflictFiles });
+    return { ok: false, conflictFiles, scene: { cwd: worktreePath, state: 'rebase' } };
   }
 
   try {
-    await execSh(mergeCmd, { cwd: baseRepo, timeoutMs: MERGE_TIMEOUT_MS });
+    await execSh(mergeCmd, { cwd: mergeCwd, timeoutMs: MERGE_TIMEOUT_MS });
     return { ok: true };
   } catch {
-    const conflictFiles = await listConflictFiles(baseRepo, baseRepo);
-    await abortMergeAndRebase(baseRepo);
-    logger.warn('[MergeOnReviewPass] merge after rebase still failed', { branch, baseBranch, conflictFiles });
-    return { ok: false, conflictFiles };
+    // 二次 merge 冲突：取清单后保留现场（合并目标目录）交 LLM 解，不再 abort
+    const conflictFiles = await listConflictFiles(mergeCwd, mergeCwd);
+    logger.warn('[MergeOnReviewPass] merge after rebase still failed (scene kept for LLM)', { branch, baseBranch, conflictFiles });
+    return { ok: false, conflictFiles, scene: { cwd: mergeCwd, state: 'merge' } };
   }
+}
+
+/**
+ * 冲突现场交 LLM 解（对齐 resolving-merge-conflicts skill：保留双方意图、永不 --abort、
+ * 解完跑项目验证命令全绿才算完成）。spawn 复用蒸馏管线同款 system-executor 一次性会话
+ * （skill 全文作 systemPrompt，mergeContext + verify 命令来源作 prompt，cwd = 冲突现场）。
+ * 确定性校验收尾（不信 LLM 自报）：冲突标记清零才算解完；rebase 现场解完后重放 merge。
+ */
+async function resolveConflictSceneWithLlm(args: {
+  wu: WorkUnitData;
+  meta: WorkUnitMetadata;
+  scene: ConflictScene;
+  conflictFiles: string[];
+  mergeCmd: string;
+  mergeCwd: string;
+  sourceBranch: string;
+  targetBranch: string;
+  scopeSummary: string;
+}): Promise<{ audit: MergeResolutionAudit; resolved: boolean }> {
+  const { wu, meta, scene, conflictFiles, mergeCmd, mergeCwd, sourceBranch, targetBranch, scopeSummary } = args;
+  const startMs = Date.now();
+  const base = {
+    attemptedAt: new Date().toISOString(),
+    state: scene.state,
+    cwd: scene.cwd,
+    conflictFiles,
+  };
+  const fail = (error: string): { audit: MergeResolutionAudit; resolved: false } => ({
+    audit: { ...base, ok: false, durationMs: Date.now() - startMs, error },
+    resolved: false,
+  });
+
+  // skill 全文作 systemPrompt（lazy import 同下方循环依赖规避口径）；拿不到不乱来——
+  // 无流程卡约束 LLM 可能 --abort 毁现场，直接回退人工
+  const { skillLoader } = await import('@dommaker/studio-skill');
+  const skill = skillLoader.loadSingle('resolving-merge-conflicts');
+  if (!skill?.prompt) return fail('skill resolving-merge-conflicts 不可用（未 seed？）');
+
+  // verify 命令来源说明（与执行环节同策略：metadata.verifyCommands > 目录 package.json 惯例）。
+  // lazy import：本模块头部依赖说明——不静态引入 agent-loop 侧模块，避免重依赖链
+  const { resolveVerifyCommands } = await import('../agents/loop/wu-verification.js');
+  const { commands: verifyCommands, source: verifySource } = await resolveVerifyCommands(wu, meta, scene.cwd);
+
+  // spawn 一次性解冲突会话（lazy import 同上；超时走 eventSource 注册表 600s）
+  const { getSystemExecutor } = await import('../agents/system-executor.js');
+  let output: string;
+  let durationMs: number;
+  try {
+    const result = await getSystemExecutor().run(
+      buildMergeConflictPrompt({ scene, conflictFiles, sourceBranch, targetBranch, scopeSummary, verifyCommands, verifySource }),
+      { systemPrompt: skill.prompt, cwd: scene.cwd, eventSource: 'merge-conflict-resolution' },
+    );
+    output = result.output;
+    durationMs = result.durationMs;
+  } catch (err) {
+    return fail(`LLM 解冲突失败/超时: ${getErrorMessage(err).slice(0, 200)}`);
+  }
+
+  // 确定性校验：冲突标记清零才算解完（不信 LLM 自报）
+  const remaining = await listConflictFiles(scene.cwd, scene.cwd);
+  if (remaining.length > 0) {
+    return fail(`LLM 解完仍有 ${remaining.length} 个冲突文件: ${remaining.join(', ').slice(0, 200)}`);
+  }
+
+  // rebase 现场：LLM 完成 rebase（--continue 直到落完）后重放 merge（rebase 后应为干净合并）
+  if (scene.state === 'rebase') {
+    try {
+      await execSh(mergeCmd, { cwd: mergeCwd, timeoutMs: MERGE_TIMEOUT_MS });
+    } catch (err) {
+      return fail(`rebase 解完后重放 merge 仍失败: ${getErrorMessage(err).slice(0, 200)}`);
+    }
+  }
+
+  return {
+    audit: { ...base, ok: true, durationMs, summary: output.slice(-MERGE_LLM_SUMMARY_CHARS) },
+    resolved: true,
+  };
+}
+
+/** LLM 解冲突 prompt：mergeContext + verify 命令来源说明（skill 全文走 systemPrompt） */
+function buildMergeConflictPrompt(args: {
+  scene: ConflictScene;
+  conflictFiles: string[];
+  sourceBranch: string;
+  targetBranch: string;
+  scopeSummary: string;
+  verifyCommands: string[];
+  verifySource: 'override' | 'convention';
+}): string {
+  const { scene, conflictFiles, sourceBranch, targetBranch, scopeSummary, verifyCommands, verifySource } = args;
+  return [
+    '自动合并产生冲突，请按系统提示词中的流程在现场解冲突并完成合并。',
+    '',
+    '## mergeContext',
+    `- cwd: ${scene.cwd}（冲突现场目录，在此工作）`,
+    `- 现场状态: ${scene.state === 'merge' ? 'merge 进行中（git merge 冲突）' : 'rebase 进行中（git rebase 冲突，解完后 rebase --continue 直到全部 commit 落完）'}`,
+    `- 目标分支: ${targetBranch}`,
+    `- 来源分支: ${sourceBranch}`,
+    `- 任务: ${scopeSummary}`,
+    '- 冲突文件:',
+    ...(conflictFiles.length > 0 ? conflictFiles.map(f => `  - ${f}`) : ['  （未能获取清单，用 git status 确认）']),
+    '',
+    '## 验证命令（解完后在 cwd 依次跑，全绿才算完成）',
+    ...(verifyCommands.length > 0
+      ? verifyCommands.map(c => `- ${c}`)
+      : ['- （未能解析出验证命令；至少确认 git status 干净、无残留冲突标记）']),
+    `命令来源: ${verifySource === 'override' ? 'WU metadata.verifyCommands 覆盖' : '目录 package.json scripts 惯例'}`,
+  ].join('\n');
+}
+
+/** LLM 解冲突审计落 metadata.mergeResolution（仿 distill runs.jsonl 审计思路，落 WU metadata；best-effort） */
+async function recordMergeResolution(
+  wuService: WorkUnitService,
+  wuId: string,
+  audit: MergeResolutionAudit,
+): Promise<void> {
+  try {
+    const fresh = await wuService.getById(wuId);
+    const freshMeta = parseWuMetadata(fresh?.metadata);
+    await wuService.update(wuId, { metadata: { ...freshMeta, mergeResolution: audit } });
+  } catch (err) {
+    logger.warn('[MergeOnReviewPass] record mergeResolution failed (non-blocking)', { wuId, error: String(err) });
+  }
+}
+
+/** 合并后 verify（lazy import 同 pmo-branch-resolver 的循环依赖规避口径） */
+async function runMergeVerification(wu: WorkUnitData, meta: WorkUnitMetadata, mergeCwd: string) {
+  const { runWuVerification } = await import('../agents/loop/wu-verification.js');
+  return runWuVerification(wu, meta, mergeCwd);
 }
 
 // ── #157（T6）：analysis 原型单 reviewPassed 收尾 ──

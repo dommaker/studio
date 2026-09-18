@@ -430,3 +430,156 @@ describe('#529 listByWorkUnitId channelId 直查', () => {
     expect([...result.data.map(m => m.id)].sort()).toEqual([mA.id, mB.id].sort());
   });
 });
+
+// ── #576：listByWorkUnitId 查询形态改造——对齐「取最新 N 条」语义并下推 limit（B5 快径遗留收口） ──
+describe('#576 listByWorkUnitId limit 下推（命中 B5 谓词倒扫快径）', () => {
+  let fs576: FileStore;
+  let svc576: ChannelMessageService;
+  let ch576: string;
+  let dir576: string;
+
+  beforeAll(async () => {
+    dir576 = path.join(os.tmpdir(), `channel-msg-576-${Date.now()}`);
+    fs576 = new FileStore(dir576);
+    svc576 = new ChannelMessageService(fs576);
+    ch576 = `ch-576-${Date.now()}`;
+    await fs576.createChannel({
+      id: ch576,
+      name: `#${ch576}`,
+      type: 'rnd',
+      defaultWorkspaceId: null,
+      defaultPath: null,
+      discordChannelId: null,
+      discordWebhookUrl: null,
+      members: '[]',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+  });
+
+  afterAll(() => {
+    fs.rmSync(dir576, { recursive: true, force: true });
+  });
+
+  it('limit 下推为 limit+1（取最新 N 条 + 判 hasMore），before 透传为 ISO 字符串', async () => {
+    await svc576.createHumanMessage(ch576, 'shape', undefined, 'wu-576-shape');
+    const spyQuery = vi.spyOn(fs576, 'queryMessages');
+    try {
+      await svc576.listByWorkUnitId('wu-576-shape', {
+        channelId: ch576,
+        limit: 50,
+        before: new Date('2027-01-01T00:00:00Z'),
+      });
+      expect(spyQuery).toHaveBeenCalledTimes(1);
+      expect(spyQuery).toHaveBeenCalledWith(ch576, {
+        workUnitId: 'wu-576-shape',
+        before: '2027-01-01T00:00:00.000Z',
+        limit: 51,
+      });
+    } finally {
+      spyQuery.mockRestore();
+    }
+  });
+
+  it('匹配数超过 limit：返回最新 N 条（升序），total = limit+1 下界口径（路由 hasMore 为真）', async () => {
+    const ids: string[] = [];
+    for (let i = 1; i <= 15; i++) {
+      const m = await svc576.createHumanMessage(ch576, `hot-${i}`, undefined, 'wu-576-hot');
+      ids.push(m.id);
+    }
+
+    const result = await svc576.listByWorkUnitId('wu-576-hot', { channelId: ch576, limit: 10 });
+
+    expect(result.data.map(m => m.id)).toEqual(ids.slice(5));
+    expect(result.total).toBe(11); // 下界：至少 11 条；精确总数需全扫，与有界扫描不可兼得
+  });
+
+  it('匹配数不超过 limit：total 精确（hasMore 为假）', async () => {
+    await svc576.createHumanMessage(ch576, 'a', undefined, 'wu-576-few');
+    await svc576.createHumanMessage(ch576, 'b', undefined, 'wu-576-few');
+
+    const result = await svc576.listByWorkUnitId('wu-576-few', { channelId: ch576, limit: 10 });
+
+    expect(result.data).toHaveLength(2);
+    expect(result.total).toBe(2);
+  });
+
+  it('before + limit：取 before 之前最新 N 条（倒序翻页语义），createdAt 严格 <', async () => {
+    vi.useFakeTimers();
+    try {
+      const ids: string[] = [];
+      for (let i = 1; i <= 5; i++) {
+        vi.setSystemTime(new Date(Date.UTC(2026, 8, 1, 0, 0, i)));
+        const m = await svc576.createHumanMessage(ch576, `p-${i}`, undefined, 'wu-576-page');
+        ids.push(m.id);
+      }
+
+      // before = 第 4 条时刻 → 严格小于 → m1..m3
+      const result = await svc576.listByWorkUnitId('wu-576-page', {
+        channelId: ch576,
+        limit: 10,
+        before: new Date(Date.UTC(2026, 8, 1, 0, 0, 4)),
+      });
+
+      expect(result.data.map(m => m.id)).toEqual(ids.slice(0, 3));
+      expect(result.total).toBe(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('缺 channelId 扇出 fallback：每频道下推 limit+1，归并后仍取全局最新 N 条', async () => {
+    const ids: string[] = [];
+    for (let i = 1; i <= 15; i++) {
+      const m = await svc576.createHumanMessage(ch576, `fan-${i}`, undefined, 'wu-576-fanout');
+      ids.push(m.id);
+    }
+
+    const result = await svc576.listByWorkUnitId('wu-576-fanout', { limit: 10 });
+
+    expect(result.data.map(m => m.id)).toEqual(ids.slice(5));
+    expect(result.total).toBe(11);
+  });
+
+  it('3000 行热文件：直查不走 readJsonl 全量读口（倒扫行数上界由 studio-shared 热扫测试断言）', async () => {
+    const big = `ch-576-big-${Date.now()}`;
+    await fs576.createChannel({
+      id: big,
+      name: `#${big}`,
+      type: 'rnd',
+      defaultWorkspaceId: null,
+      defaultPath: null,
+      discordChannelId: null,
+      discordWebhookUrl: null,
+      members: '[]',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    // 直写热文件：b1..b3000（createdAt 严格递增），wu-576-big = 尾部 30 条
+    const rows: string[] = [];
+    for (let i = 1; i <= 3000; i++) {
+      rows.push(JSON.stringify({
+        id: `b${i}`,
+        channelId: big,
+        workUnitId: i > 2970 ? 'wu-576-big' : null,
+        authorType: 'human',
+        agentName: null,
+        content: `big ${i}`,
+        replyToId: null,
+        meta: '{}',
+        createdAt: new Date(Date.UTC(2026, 0, 1) + i * 1000).toISOString(),
+      }));
+    }
+    fs.writeFileSync(path.join(dir576, 'channels', big, 'messages.jsonl'), rows.join('\n') + '\n');
+
+    const spyRead = vi.spyOn(fs576, 'readJsonl');
+    try {
+      const result = await svc576.listByWorkUnitId('wu-576-big', { channelId: big, limit: 10 });
+      expect(result.data.map(m => m.id)).toEqual(Array.from({ length: 10 }, (_, k) => `b${2991 + k}`));
+      expect(result.total).toBe(11); // 30 条匹配 → 下界 limit+1
+      expect(spyRead).not.toHaveBeenCalled(); // 未走 resolveActiveMessages 全量读口
+    } finally {
+      spyRead.mockRestore();
+    }
+  });
+});

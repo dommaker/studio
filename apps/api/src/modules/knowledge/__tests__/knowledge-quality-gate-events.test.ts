@@ -13,9 +13,10 @@
 
 import { describe, test, expect, vi, beforeEach } from 'vitest';
 
-const { mockAppendJsonl, mockIngestEntry } = vi.hoisted(() => ({
+const { mockAppendJsonl, mockIngestEntry, mockEventBusPublish } = vi.hoisted(() => ({
   mockAppendJsonl: vi.fn().mockResolvedValue(undefined),
   mockIngestEntry: vi.fn().mockReturnValue({ id: 'entry-1', lastReferenced: null, contributors: ['test'] }),
+  mockEventBusPublish: vi.fn(),
 }));
 
 vi.mock('@dommaker/studio-shared', () => ({
@@ -23,6 +24,7 @@ vi.mock('@dommaker/studio-shared', () => ({
   FileStore: class {
     appendJsonl = mockAppendJsonl;
   },
+  eventBus: { publish: mockEventBusPublish, subscribe: vi.fn(), unsubscribe: vi.fn() },
   // #361 薄壳转发后 knowledge-singletons 经 utils/studio-log-path re-export 取用；
   // 模块加载期即调用，partial mock 必须提供
   resolveStudioLogFile: (name: string) => `/tmp/test-studio-logs/${name}`,
@@ -117,5 +119,44 @@ describe('ingestWithQualityGate event emission', () => {
     expect(event!.payload.reason).toContain('root_cause');
     // triage 门在 ingest 之前 — 不应调用 ingestEntry
     expect(mockIngestEntry).not.toHaveBeenCalled();
+  });
+});
+
+describe('ingestWithQualityGate SSE 广播（Step 2：knowledge.entry_changed → KnowledgePage 重拉信号）', () => {
+  test('成功 ingest → eventBus 广播 knowledge.entry_changed（action=created + 元信息）', () => {
+    mockIngestEntry.mockReturnValue({ id: 'new-1', lastReferenced: null, contributors: ['test'] });
+
+    ingestWithQualityGate(
+      { ingest: { ingestEntry: mockIngestEntry } as any },
+      { type: 'guideline', title: 'Good pattern', content: 'valid content', tags: ['pattern'], source: 'monitor', entryType: 'pattern' },
+    );
+
+    expect(mockEventBusPublish).toHaveBeenCalledWith('events', expect.objectContaining({
+      event_type: 'knowledge.entry_changed',
+      data: { action: 'created', entryId: 'new-1', entryType: 'pattern', title: 'Good pattern' },
+    }));
+  });
+
+  test('质量门拒绝 → 不广播', () => {
+    mockIngestEntry.mockReturnValue({ __rejected: true, __rejectReasons: ['Bad content'] });
+
+    ingestWithQualityGate(
+      { ingest: { ingestEntry: mockIngestEntry } as any },
+      { type: 'guideline', title: 'rejected', content: 'bad', tags: ['pattern'], source: 'monitor', entryType: 'pattern' },
+    );
+
+    expect(mockEventBusPublish).not.toHaveBeenCalled();
+  });
+
+  test('eventBus.publish 抛异常 → best-effort，ingest 主流程不受影响', () => {
+    mockIngestEntry.mockReturnValue({ id: 'new-2', lastReferenced: null, contributors: ['test'] });
+    mockEventBusPublish.mockImplementation(() => { throw new Error('subscriber boom'); });
+
+    const saved = ingestWithQualityGate(
+      { ingest: { ingestEntry: mockIngestEntry } as any },
+      { type: 'guideline', title: 'Good pattern', content: 'valid content', tags: ['pattern'], source: 'monitor', entryType: 'pattern' },
+    );
+
+    expect(saved).toMatchObject({ id: 'new-2' });
   });
 });

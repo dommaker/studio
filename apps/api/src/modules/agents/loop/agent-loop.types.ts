@@ -21,6 +21,13 @@ export interface StepResult {
    *  prompt-composer CONTRACT_TEMPLATES.plan）：问题清单 + 每题建议结论 + 默认值；
    *  落 metadata.planRulings 作裁决卡预填数据源；解析失败/缺失时为 undefined */
   rulings?: { question: string; suggestion: string; default?: string }[];
+  /** #567：方向锁定——NEED_INPUT 紧随的 DIRECTION: JSON 行解析结果（plan 契约，
+   *  裁决轮前置可选环节）：方向抉择点 + 候选方向清单（2..4 条，recommended 恰好一个）；
+   *  落 metadata.planDirections 作方向接力卡预填数据源；解析失败/缺失时为 undefined */
+  directions?: {
+    question: string;
+    options: { name: string; summary: string; tradeoffs: string; impact: string; recommended: boolean }[];
+  };
   /** §4.2 发言层新鲜度检查：step 开始时捕获的频道版本（agentStep 写入，recordResult 比对）。
    *  #319：行号口径退役（压实会压缩行数），以最后一行消息 id 为锚 */
   channelVersion?: { lastMessageId: string | null };

@@ -1,6 +1,7 @@
 /**
  * WorkUnit 类型契约 + 状态机表/超时常量（工单 30 自 workunit.service.ts 头部抽出，纯搬运零逻辑变更）。
- * 内容：WorkUnitMetadata / 输入输出 DTO / VALID_TRANSITIONS（+ #108 按 type 覆盖表 DECISION_SPEC_TYPES/TYPE_VALID_TRANSITIONS）/ 租约常量（#178 WU_LEASE_TTL_MS）/ ANALYSIS_TASKS_MAX。
+ * 内容：WorkUnitMetadata / VALID_TRANSITIONS（+ #108 按 type 覆盖表 DECISION_SPEC_TYPES/TYPE_VALID_TRANSITIONS）/ 租约常量（#178 WU_LEASE_TTL_MS）/ ANALYSIS_TASKS_MAX。
+ * 输入输出 DTO（CreateWorkUnitInput / UpdateWorkUnitInput / WorkUnitData）唯一正本在 workunit-crud.ts（#537 删除本文件的漂移副本）。
  * 零服务依赖，供 service 与跨模块类型级消费方直接引用。
  */
 
@@ -65,10 +66,19 @@ export interface WorkUnitMetadata {
   // 两层互相独立；gate-escalation.ts 锁内合并写，不推进 updatedAt 计时锚）
   gateReminderTier1At?: string; // tier1 已发（Web 铃铛 + SSE + 浏览器原生通知）
   gateReminderTier2At?: string; // tier2 已发（notifyAlert 告警通路：企微/告警频道/行动中心）
-  waitingReason?: string;     // 挂起原因：'ownership' = B3a 等待工程归属；'wu-token-budget' = #162 WU 级 token 预算到线（三选分流见 waiting-input.ts）；'plan-step-limit' = #471 plan 步数额度到线（回复即续期）；'plan-ruling' = #467 裁决轮待裁（结构化提交见 pmo/plan-ruling.ts）（缺省 = agent 提问）
+  waitingReason?: string;     // 挂起原因：'ownership' = B3a 等待工程归属；'wu-token-budget' = #162 WU 级 token 预算到线（三选分流见 waiting-input.ts）；'plan-step-limit' = #471 plan 步数额度到线（回复即续期）；'plan-ruling' = #467 裁决轮待裁（结构化提交见 pmo/plan-ruling.ts）；'plan-direction' = #567 方向锁定待人选定（结构化提交见 pmo/plan-direction.ts）（缺省 = agent 提问）
   // #467：裁决轮——plan 会话 NEED_INPUT 携 RULING: 行时落档的问题清单 + 每题建议结论 + 默认值
   // （裁决接力卡/裁决弹窗预填数据源；人提交裁决后由 pmo/plan-ruling.ts 清除）
   planRulings?: { question: string; suggestion: string; default?: string }[];
+  // #567：方向锁定——plan 会话 NEED_INPUT 携 DIRECTION: 行时落档的方向抉择点 + 候选方向清单
+  // （方向接力卡/方向弹窗预填数据源；人提交选定后由 pmo/plan-direction.ts 清除）
+  planDirections?: {
+    question: string;
+    options: { name: string; summary: string; tradeoffs: string; impact: string; recommended: boolean }[];
+  };
+  // #567：方向锁定开关——派单时显式 directionPick:false 关闭 plan 契约的方向锁定段
+  // （prompt-composer buildContractSection 替换为「本单已关闭方向锁定」提示）
+  directionPick?: boolean;
   // #471（Triage 定稿 1）：plan 步数续期授权额度——缺省 = PLAN_STEP_LIMIT；到线挂起后人回复
   // 续期 += PLAN_STEP_LIMIT（waiting-input.ts）。非会话簿记（不随 clearSessionBookkeeping 清除），
   // 语义同 tokenBudget = 人工授权额度
@@ -131,12 +141,30 @@ export interface WorkUnitMetadata {
   mergeCommit?: string;       // 合并后 baseRepo HEAD（merge commit 全哈希）
   mergeConflict?: boolean;    // 自动合并（含 rebase 重试）仍冲突，已转人工（WU 置 blocked）
   conflictFiles?: string[];   // 合并冲突文件清单（diff-filter=U）
+  mergeResolution?: {         // 合并冲突 LLM 解审计（merge/rebase 冲突现场交 LLM 解时落档，仿 distill runs 审计思路）
+    attemptedAt: string;      // 尝试开始时间 ISO 8601
+    ok: boolean;              // 是否解完（确定性校验：冲突标记清零；rebase 现场含重放 merge 成功）
+    state: 'merge' | 'rebase';// 冲突现场类型（merge = 合并目标目录；rebase = worktree）
+    cwd: string;              // 冲突现场目录（LLM 会话 cwd）
+    conflictFiles: string[];  // 交给 LLM 时的冲突文件清单
+    durationMs: number;       // LLM 会话耗时
+    summary?: string;         // LLM 输出摘要（截断，成功时落）
+    error?: string;           // 失败原因（spawn 失败/超时/仍有残留冲突/重放 merge 失败）
+  };
   knowledgeExtractedAt?: string; // R3: 会话知识提取已触达时间戳（去重——同一 WorkUnit 只提取一次）
   memoryExtractedAt?: string;    // #99: WU 收尾角色记忆批量提取已触达时间戳（去重——同一 WorkUnit 只提取一次；区别于 R3 的 knowledgeExtractedAt）
   matchedSkills?: string[];   // 决策 7: step 时域匹配命中并实际注入的 skill 名（agent-loop 落盘，度量用）
   lastCommitHash?: string;    // §10.5: PROGRESS 无提交监视 — 上次观察到的 worktree HEAD
   noCommitSteps?: number;     // §10.5: 连续无新提交步数（满 3 步频道提醒一次并归零）
   commitGuardHint?: string;   // §10.5: COMPLETE 被提交守卫打回时的提示（注入下一轮 prompt 后清除）
+  // 收口闸（产出实）闸 1：代码类 COMPLETE 但 base..HEAD 无任何提交 → 打回（hint 注入下轮 prompt 后清除），
+  // diffEmptyCount ≥3 → blocked 转人工（模式同 verifyFailCount/verifyFailHint）
+  diffEmptyCount?: number;    // 空 diff 连续打回计数
+  diffEmptyHint?: string;     // 空 diff 打回提示
+  // 收口闸（产出实）闸 2：非代码类契约产物锚点缺失（reviewReport/analysisTasks/specTasks/decisionSuggestion/调研报告落盘）
+  // → 打回（hint 注入下轮 prompt 后清除），contractArtifactCount ≥3 → blocked 转人工
+  contractArtifactCount?: number; // 契约产物缺失连续打回计数
+  contractArtifactHint?: string;  // 契约产物缺失打回提示
   // A2A 协作（2026-07-agent-to-agent-collab-design §5）
   collab?: {                  // 协作树追踪（DELEGATE 派生的 WU 携带；根 WU 首次委派后补记）
     rootId: string;           // 协作树根 WU id
@@ -207,6 +235,10 @@ export interface WorkUnitMetadata {
   traceId?: string;           // P0 修复 6: 链路追踪 id（频道消息 req → WU → agent-loop 日志；与 audit requestId 同值）
   // F4 reviewer 解锚（2026-07-28 分析文档，决策 5）：评审 WU 未指派走 claim 涌现时的约束/标记
   excludeAssignee?: string;   // 禁止认领的 profile id（评审排除实现者；agent-loop observe 未指派过滤据此剔除）
+  // 决策 14 认领前适任判断：被判不适任的角色名单（约束挂 WU 不挂角色身份，合规 ADR D2/决策 10）——
+  // 写入方：agent-loop claim 前一次性 LLM 判断（agents/loop/claim-fitness.ts）；消费方：
+  // observe 第 7 道过滤（含本 role.id 即不可见）+ 全员不适任转 blocked 判定
+  unfitRoles?: UnfitRoleEntry[];
   selfReview?: boolean;       // 本评审 WU 未排除实现者（频道内无其他 active 成员）→ 可能是自评，台账/提醒据此标记
   reviewInput?: { mode: string; skill: string };  // R3: 评审输入契约落档（diff-only + code-review），审计用
   reviewRedispatchAttempts?: number; // #183（#66 决议①）：review 对账重跑连续失败次数，≥3 停跑并升 critical
@@ -241,68 +273,29 @@ export interface ReviewAttestationSource {
   summary?: string;
 }
 
-export interface CreateWorkUnitInput {
-  type?: string;
-  scope: string;
-  assigneeId?: string;
-  status?: string;
-  channelId?: string | null;
-  parentId?: string | null;
-  projectPath?: string | null;
-  workspaceId?: string | null;  // F6: 绑定工程（显式指定或频道默认）
-  reqId?: string | null;        // REQ 需求编号（vision §5.3：显式/#REQ-XXXX/自动新建）
-  failureType?: string;
-  retryCount?: number;
-  timeoutAt?: Date | null;
-  completedAt?: Date | null;
-  metadata?: WorkUnitMetadata;
-}
-
-export interface UpdateWorkUnitInput {
-  type?: string;
-  scope?: string;
-  assigneeId?: string | null;
-  channelId?: string | null;
-  parentId?: string | null;
-  projectPath?: string | null;
-  workspaceId?: string | null;
-  reqId?: string | null;        // REQ 需求编号
-  failureType?: string | null;
-  retryCount?: number;
-  timeoutAt?: Date | null;
-  completedAt?: Date | null;
-  metadata?: WorkUnitMetadata;
-}
-
 /**
- * WorkUnitData — 与 Prisma WorkUnit 类型兼容的平面字段（无 relations）。
- * 日期字段使用 Date 对象（与 Prisma 行为一致），来源是 FileStore 的字符串日期。
+ * 决策 14 认领前适任判断的不适任名单条目。
+ * roleId = profile id（与 observe 过滤的 this.role.id 同口径）；reason = 判断器一行理由；
+ * at = 落档时间 ISO 8601。
  */
-export interface WorkUnitData {
-  id: string;
-  parentId: string | null;
-  type: string;
-  scope: string;
-  assigneeId: string | null;
-  status: string;
-  failureType: string | null;
-  retryCount: number;
-  timeoutAt: Date | null;
-  channelId: string | null;
-  projectPath: string | null;
-  workspaceId?: string | null;  // F6: 绑定工程（旧 WorkUnit 无此字段 → null）
-  reqId?: string | null;        // REQ 需求编号（旧 WorkUnit 无此字段 → null）
-  assigneeRoleId?: string | null;  // 认领时冗余的认领方 roleId 快照（旧 WorkUnit 无此字段 → null）
-  metadata: string | null;
-  createdAt: Date;
-  updatedAt: Date;
-  claimedAt: Date | null;
-  completedAt: Date | null;
-  /** #327（additive）：关闭时刻——归档计龄锚点。仅 closed 状态有值，reopen 清除 */
-  closedAt?: Date | null;
-  /** #318（additive，ADR D2）：可认领标记——仅事件负载（workunit.created/status_changed）与 GET / 列表项附带；
-      unassigned 且无未了结依赖才 true，其余状态恒 false；snapshotToData 本体不产此字段 */
-  claimable?: boolean;
+export interface UnfitRoleEntry {
+  roleId: string;
+  reason: string;
+  at: string;
+}
+
+/** #550（自 wu-closure.ts 归置）：结构化关闭事件类型（REST 回放：GET /api/v1/events?type=workunit:closed） */
+export const WORKUNIT_CLOSED_EVENT_TYPE = 'workunit:closed';
+
+/** #550（自 wu-closure.ts 归置）：关闭来源——24h 死信 / 2.5h 总时长强杀 / 人类「关闭」指令 */
+export type WorkUnitClosedBy = 'auto-abandon-stale-blocked' | 'total-time-kill' | 'human-command';
+
+/** #550：WorkUnitService.close 入参（事件 payload 与缺省频道文案共用 reason；message 覆盖频道说明全文） */
+export interface CloseWorkUnitOptions {
+  reason: string;
+  closedBy: WorkUnitClosedBy;
+  /** 频道说明全文（缺省 = reason；死信场景传 buildDeadLetterNotice 产物） */
+  message?: string;
 }
 
 /** Valid status transitions map */

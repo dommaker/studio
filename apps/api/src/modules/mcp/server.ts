@@ -43,6 +43,16 @@ const MCPErrorCode = {
 
 // ─── MCP Server ───
 
+/**
+ * D2（#566）：入口侧请求上下文。
+ * pinnedRoleId — 外部入口钉死角色，忽略 params.roleId 自声明；
+ * audience — tools/list 可见性过滤（external 只出 exposure=external 子集）。
+ */
+export interface MCPRequestContext {
+  pinnedRoleId?: string;
+  audience?: 'internal' | 'external';
+}
+
 export class MCPServer {
   private name: string;
   private version: string;
@@ -55,15 +65,15 @@ export class MCPServer {
   /**
    * 处理 MCP 请求
    */
-  async handleRequest(request: MCPRequest): Promise<MCPResponse> {
+  async handleRequest(request: MCPRequest, ctx?: MCPRequestContext): Promise<MCPResponse> {
     try {
       switch (request.method) {
         case 'initialize':
           return this.handleInitialize(request);
         case 'tools/list':
-          return this.handleToolsList(request);
+          return this.handleToolsList(request, ctx);
         case 'tools/call':
-          return this.handleToolsCall(request);
+          return this.handleToolsCall(request, ctx);
         default:
           return {
             jsonrpc: '2.0',
@@ -107,10 +117,10 @@ export class MCPServer {
   }
 
   /**
-   * tools/list - 返回所有可用 tools
+   * tools/list - 返回所有可用 tools（external audience 只出外放子集）
    */
-  private handleToolsList(request: MCPRequest): MCPResponse {
-    const tools = getToolSchemas();
+  private handleToolsList(request: MCPRequest, ctx?: MCPRequestContext): MCPResponse {
+    const tools = getToolSchemas(ctx?.audience);
     return {
       jsonrpc: '2.0',
       id: request.id,
@@ -121,7 +131,7 @@ export class MCPServer {
   /**
    * tools/call - 执行指定 tool
    */
-  private async handleToolsCall(request: MCPRequest): Promise<MCPResponse> {
+  private async handleToolsCall(request: MCPRequest, ctx?: MCPRequestContext): Promise<MCPResponse> {
     const { name, arguments: args } = request.params as MCPToolCall || {};
 
     if (!name) {
@@ -135,7 +145,8 @@ export class MCPServer {
       };
     }
 
-    const result = await executeTool(name, args || {}, (request.params as any)?.roleId);
+    // D2（#566）：pinnedRoleId 优先于自声明 roleId（外部入口钉死 external）
+    const result = await executeTool(name, args || {}, ctx?.pinnedRoleId ?? (request.params as any)?.roleId);
 
     if (!result.success) {
       return {

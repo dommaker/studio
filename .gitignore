@@ -4,6 +4,7 @@ node_modules/
 # Build output
 dist/
 build/
+dist-npm/
 
 # API 前端构建产物落盘（apps/api/frontend/dist 由 prod/deploy.sh 同步，
 # 历史手工拷贝的 stale 副本以 dist.stale-* 隔离；整个目录不入库）
@@ -62,6 +63,12 @@ docs/*
 !docs/adr/
 # docs/visual-reports/ 豁免——#390 决议：截图 diff 报告入 git 作改版验收凭据（#391）
 !docs/visual-reports/
+# docs/specs/ui/style-guide.md 豁免——样式规范是唯一权威来源，须入 git 评审/回溯（批次 I-1 治理人闸当场过，2026-09-16）；其余 spec 源文件维持忽略
+!docs/specs/
+docs/specs/*
+!docs/specs/ui/
+docs/specs/ui/*
+!docs/specs/ui/style-guide.md
 
 # Scratch workspace (ignored)
 .scratch/
@@ -88,9 +95,9 @@ e2e/.auth.json
 CLAUDE.md
 .claude/
 
-# Runner worktree artifacts (regenerated per worktree at runtime;
-# committing them breaks per-worktree regeneration — runner-execution only
-# writes CACHE_PREFIX.md when absent, and worktrees inherit tracked files)
+# Runner worktree artifacts (regenerated per worktree at runtime; committing them
+# breaks per-worktree regeneration, and worktrees inherit tracked files).
+# 两条写方随 #562 删除，保留规则只为兜住历史 worktree 里的残留产物。
 CACHE_PREFIX.md
 .prompt.md
 

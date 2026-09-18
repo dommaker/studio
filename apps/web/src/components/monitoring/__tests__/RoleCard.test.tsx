@@ -71,7 +71,7 @@ describe('RoleCard（信息全卡）', () => {
     expect(mockOpenWu).toHaveBeenCalledWith('wu-1');
     expect(within(card).getByText('DEV')).toBeDefined();
     expect(within(card).getByText(/已耗时/)).toBeDefined();
-    expect(within(card).queryByText(/^⚠/)).toBeNull();
+    expect(card.querySelector('.agd-error')).toBeNull(); // 批次 I-6：⚠ → IconAlertTriangle SVG，改按错误行类断言
   });
 
   it('空闲空态：等待派活 + 最近完成入口（D-2 项7：点击开抽屉不整页跳）', () => {
@@ -91,14 +91,15 @@ describe('RoleCard（信息全卡）', () => {
     expect(mockOpenWu).toHaveBeenCalledWith('wu-9');
   });
 
-  it('异常空态：实例异常文案 + 红点角标 + 错误行（⚠ lastError；data-status 挂 4 态 attention）', () => {
+  it('异常空态：实例异常文案 + 红点角标 + 错误行（⚠ → IconAlertTriangle SVG + lastError，批次 I-6；data-status 挂 4 态 attention）', () => {
     const role = idleRole('p1', 'ops-agent');
     role.runtime!.status = 'error';
     role.runtime!.lastError = 'spawn ENOENT';
     const { container } = render(<RoleCard role={role} lastDone={null} channelNames={EMPTY_CHANNELS} onOpenWu={mockOpenWu} />);
     expect(screen.getByText(/实例异常/)).toBeDefined();
-    const err = screen.getByText(/⚠ spawn ENOENT/);
+    const err = screen.getByText(/spawn ENOENT/);
     expect(err.className).toContain('agd-error');
+    expect(err.querySelector('svg')).toBeTruthy();
     const card = container.querySelector('[data-testid="agent-card"]')!;
     expect(card.getAttribute('data-status')).toBe('attention');
     // 细分=error → 角色名前红点角标

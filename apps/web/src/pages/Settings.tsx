@@ -2,7 +2,6 @@
 import { ProjectCandidatesSection } from '../components/settings/ProjectCandidatesSection';
 import { NotifyChannelsSection } from '../components/settings/NotifyChannelsSection';
 import { ThemeSettings } from '../components/settings/ThemeSettings';
-import '../styles/theme.css';
 
 export function Settings() {
   return (

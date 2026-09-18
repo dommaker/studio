@@ -12,8 +12,8 @@
 // 阶段语义 = deriveDisplayState 展示列（与 WU 详情页同口径，不发明第二套阶段模型）；
 // useChannelLiveExecutions 由本组件自持有（沿用 #322 重渲边界：step 事件只重渲本组件）。
 // 批次 D-2 项6（频道内闸门 1 击化，docs/plans/2026-09-ui-interaction-polish.md）：currentWu 处于闸门态
-// （pending / in_review / done 缺 l3）且调用方注入 gate 写路径时，工作条右端直挂共享 WuGateActions
-// （btn-sm 紧凑动作，不离开消息流完成闸门）；写路径与锁存/弹窗逻辑全在 WuGateActions 与调用方，本组件只挂载。
+// （pending / in_review / done 缺 l3）时工作条右端直挂共享 WuGateActions（btn-sm 紧凑动作，不离开消息流
+// 完成闸门）；#545 起写路径内建于 WuGateActions（gateWriter 双写落点），本组件只挂载。
 import { useState } from 'react';
 import { deriveDisplayState, parseAttestations } from '@dommaker/studio-shared/web';
 import type { WorkUnit } from '../../api/workunit';
@@ -23,12 +23,9 @@ import { buildLifecycle, type WuStation } from '../../utils/wuLifecycle';
 import { parseWuMeta } from '../../utils/wuMeta';
 import type { LiveExecution } from '../workunit/execution-rows';
 import { StationStepper } from '../workunit/StationStepper';
-import { WuGateActions, type WuGateActionsProps } from '../workunit/WuGateActions';
+import { WuGateActions } from '../workunit/WuGateActions';
 // stepper 样式类（wu-stepper-bar/wu-bstep/wu-st-*）定义在 wu-detail.css，顶层作用域可直接复用
 import '../../styles/wu-detail.css';
-
-/** D-2 项6：工作条闸门动作写路径（调用方注入，口径同 WuGateActions 既有三处挂载） */
-export type WorkBarGateHandlers = Pick<WuGateActionsProps, 'onReviewPassed' | 'onReviewRejected' | 'onConfirmPending'>;
 
 interface Props {
   channelId: string | null;
@@ -39,8 +36,6 @@ interface Props {
   /** #488：空闲信号——调用方保证语义 = 建议端点已成功返回且 currentWuId=null（频道确实无工作）；
    *  缺省 false → 占位保持加载态「状态同步中…」（端点未返回/请求失败/skew 未命中均不误显空闲） */
   wuIdle?: boolean;
-  /** D-2 项6：闸门动作写路径；传入且 currentWu 处于闸门态时工作条右端渲染 WuGateActions */
-  gate?: WorkBarGateHandlers;
 }
 
 /** live 条目文案：WU 短 id + 正在执行 + 步号（缺省不显）+ 动作（缺省不显），沿用 #242 口径 */
@@ -61,7 +56,7 @@ function LiveItem({ exec, onOpenWorkUnit }: { exec: LiveExecution; onOpenWorkUni
   );
 }
 
-export function ChannelWorkBar({ channelId, currentWu, onOpenWorkUnit, gate, wuIdle = false }: Props) {
+export function ChannelWorkBar({ channelId, currentWu, onOpenWorkUnit, wuIdle = false }: Props) {
   const liveExecs = useChannelLiveExecutions(channelId);
   const [overflowOpen, setOverflowOpen] = useState(false);
   // #474：未命中时不再整条静默消失——留占位条；#488：wuIdle 区分加载/空闲文案
@@ -90,6 +85,15 @@ export function ChannelWorkBar({ channelId, currentWu, onOpenWorkUnit, gate, wuI
     <div className="mc-workbar" aria-label="频道工作条">
       {currentWu && stations && (
         <div className="mc-workbar-main">
+          {/* 2026-09 视觉层次批次：stepper 归属标识——进度条属于哪个任务一眼可辨，
+              点击开 WU 抽屉（与站点/live 徽标统一入口） */}
+          <button
+            className="mc-workbar-wu"
+            onClick={() => onOpenWorkUnit(currentWu.id)}
+            title={`打开任务详情：${currentWu.id}`}
+          >
+            {shortWuId(currentWu.id)}
+          </button>
           <div className="mc-workbar-stepper" aria-label="工单阶段">
             {/* E1：workbar 内站点可点（点击开对应 WU 抽屉，与 live 徽标统一入口）；
                 StationStepper 与 WU 详情页共享——可点化仅经 onStationClick 作用域限定在此，详情页不传保持纯展示 */}
@@ -127,10 +131,11 @@ export function ChannelWorkBar({ channelId, currentWu, onOpenWorkUnit, gate, wuI
             </div>
           )}
           {/* D-2 项6：闸门态 currentWu 的 1 击处置位（共享 WuGateActions；pending 锁存/失败内联/结构化
-              确认弹窗均为组件自带；动作成功后调用方写路径更新 channelWus，status_changed SSE 兜底） */}
-          {gate && gateState && currentWu && (
+              确认弹窗均为组件自带；#545 起写路径内建 gateWriter——store 双写更新 channelWus，
+              status_changed SSE 兜底） */}
+          {gateState && currentWu && (
             <div className="mc-workbar-gate">
-              <WuGateActions wu={currentWu} {...gate} />
+              <WuGateActions wu={currentWu} />
             </div>
           )}
         </div>

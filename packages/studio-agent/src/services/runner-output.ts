@@ -3,31 +3,25 @@
  *
  * 从 agent-runner.ts 按职责拆出的执行输出/状态解析逻辑：
  *   - processSessionOutput: spawn 尾部管线（写 .agent.log → stream-json 解析 →
- *     tool/file 事件 → session 指标 → session:end），runner-execution 与
- *     runner-lightweight 共用（Wave-4 抽取，原为两处近乎逐字的副本）
- *   - hasRecentActivity: worktree 文件 mtime 探测（stuck 判定的延期依据）
- *   - queryResolutionHints: RKB 已知解法查询（session 错误输出 → resolutionHint）
+ *     tool/file 事件 → session 指标 → session:end），runner-lightweight 消费
+ *     （Wave-4 抽取时原为两处近乎逐字的副本，#562 删多 session 循环后只剩一处）
  *
- * isError 的告警/分支语义两个调用方不同（execution 继续循环、lightweight 返回失败），
- * 故保留在调用方；跨 session token 累计亦由调用方基于返回的 streamUsage 完成。
+ * isError 的告警/分支语义由调用方决定（lightweight 返回失败），故不收敛进本模块。
+ * 本文件曾另有 worktree mtime 探测与 RKB 解法查询两个 helper，唯一调用方随 #562 的
+ * 多 session 循环删除（#587 摘除）。RKB 匹配核心在 studio-shared/resolutions.ts，
+ * 活消费方是 apps/api knowledge/resolution.service.ts。
  */
 
-import * as path from 'path';
 import * as fsSync from 'fs';
 import {
-  FileStore,
   parseStreamEvents,
   extractToolCalls,
   extractFilePath as extractFilePathShared,
   extractResult,
   extractUsage,
   extractProviderUsage,
-  isActionableMaturity,
-  matchResolutionPatterns,
-  formatRkbHint,
 } from '@dommaker/studio-shared';
 import type { StreamEvent } from '@dommaker/studio-shared';
-import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import {
   recordSessionMetrics,
   emitSessionEnd,
@@ -36,8 +30,6 @@ import {
   getConstraintMeta,
   type SessionEventExtras,
 } from './output-capture.js';
-
-const fileStore = new FileStore();
 
 /** extractUsage 的聚合 token 用量类型（CLI 未回报时各项为 0）。 */
 export type StreamUsage = ReturnType<typeof extractUsage>;
@@ -131,131 +123,4 @@ export async function processSessionOutput(
   await emitSessionEnd(ctx.sessionId, ctx.executionId, ctx.sessionCount, ctx.sessionExtras);
 
   return { text, isError, streamUsage, events };
-}
-
-/** Files excluded from mtime check (agent writes these regardless of real progress) */
-const MTIME_EXCLUDED_FILES = new Set(['.progress.json', '.agent.log']);
-
-/**
- * Check if any file in the worktree was modified within the threshold.
- * Used to defer stuck detection during I/O waits (npm install, tsc, vitest).
- *
- * Scans top-level files + src/ directory (recursive). Excludes node_modules,
- * .progress.json, .agent.log, and all dot-prefixed entries.
- * Caps at 200 stat calls to keep check under 100ms.
- */
-export function hasRecentActivity(worktreePath: string, thresholdMs = 3 * 60 * 1000): boolean {
-  const cutoff = Date.now() - thresholdMs;
-  let statCalls = 0;
-  const MAX_STATS = 200;
-
-  if (!fsSync.existsSync(worktreePath)) {
-    return false;
-  }
-
-  let entries: fsSync.Dirent[];
-  try {
-    entries = fsSync.readdirSync(worktreePath, { withFileTypes: true });
-  } catch {
-    return false;
-  }
-
-  /** Check a single file's mtime. Returns true if recent. */
-  function isRecent(filePath: string): boolean {
-    if (statCalls >= MAX_STATS) return false;
-    statCalls++;
-    try {
-      return fsSync.statSync(filePath).mtimeMs > cutoff;
-    } catch {
-      return false;
-    }
-  }
-
-  /** Recursively check directory entries (skips excluded dirs). */
-  function checkDir(dirPath: string): boolean {
-    if (statCalls >= MAX_STATS) return false;
-    let dirEntries: fsSync.Dirent[];
-    try {
-      dirEntries = fsSync.readdirSync(dirPath, { withFileTypes: true });
-    } catch {
-      return false;
-    }
-    for (const entry of dirEntries) {
-      if (statCalls >= MAX_STATS) return false;
-      const fullPath = path.join(dirPath, entry.name);
-      if (entry.isFile()) {
-        if (isRecent(fullPath)) return true;
-      } else if (entry.isDirectory() && !entry.name.startsWith('.') && entry.name !== 'node_modules') {
-        if (checkDir(fullPath)) return true;
-      }
-    }
-    return false;
-  }
-
-  for (const entry of entries) {
-    if (statCalls >= MAX_STATS) break;
-    const name = entry.name;
-
-    // Skip excluded: dotfiles, node_modules
-    if (name.startsWith('.') || name === 'node_modules') continue;
-
-    const fullPath = path.join(worktreePath, name);
-
-    if (entry.isFile() && !MTIME_EXCLUDED_FILES.has(name)) {
-      if (isRecent(fullPath)) return true;
-    }
-
-    // Recurse into src/
-    if (entry.isDirectory() && name === 'src') {
-      if (checkDir(fullPath)) return true;
-    }
-  }
-
-  return false;
-}
-
-/**
- * RKB: query known resolutions for a session error message.
- * 返回可注入下一轮 prompt 的 resolutionHint；无匹配或查询失败返回 ''（调用方保留旧值）。
- *
- * #361: 匹配核心（regex 失败回退子串、成熟度闸门、hint 格式化）下沉
- * studio-shared/resolutions —— 与 apps/api resolution.service 的逐字重复实现收一。
- */
-
-/** RKB 知识条目（~/.studio/knowledge/resolution-* 文档的 meta 摘要） */
-interface ResolutionEntry {
-  id: string;
-  pattern: string;
-  title: string;
-  fix: string;
-  verifyCount: number;
-  status: unknown;
-}
-
-export async function queryResolutionHints(errMsg: string): Promise<string> {
-  try {
-    const knowledgeDir = studioPath('knowledge');
-    const allKeys = await fileStore.listDocs(knowledgeDir);
-    const resKeys = allKeys.filter((k: string) => k.startsWith('resolution-'));
-    const resolutions: ResolutionEntry[] = [];
-    for (const key of resKeys) {
-      const doc = await fileStore.readDoc(knowledgeDir, key);
-      if (doc && isActionableMaturity(doc.meta.maturity)) {
-        resolutions.push({
-          id: key.replace('resolution-', ''),
-          pattern: (doc.meta.pattern || '') as string,
-          title: (doc.meta.title || '') as string,
-          fix: (doc.body || '').replace(/^#.*\n/, '').replace(/^## Solution\n/, '').trim(),
-          verifyCount: (doc.meta.verifyCount || 0) as number,
-          status: doc.meta.maturity,
-        });
-      }
-    }
-    resolutions.sort((a, b) => (b.verifyCount || 0) - (a.verifyCount || 0));
-    const matched = matchResolutionPatterns(resolutions, errMsg);
-    if (matched.length > 0) {
-      return formatRkbHint(matched);
-    }
-  } catch { /* non-blocking */ }
-  return '';
 }

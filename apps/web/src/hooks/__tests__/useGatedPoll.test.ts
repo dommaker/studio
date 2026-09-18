@@ -124,4 +124,20 @@ describe('useGatedPoll', () => {
     });
     expect(fetch).toHaveBeenCalledTimes(1);
   });
+
+  // #549：intervalMs <= 0 = 完全停用（只接 SSE + 重连的 store 不加轮询兜底）
+  it('intervalMs=0 → 完全停用：无首拉、无轮询、回 visible 不补拉', async () => {
+    const fetch = vi.fn();
+    renderHook(() => useGatedPoll(fetch, 0));
+    await flushFirstFetch();
+    act(() => {
+      vi.advanceTimersByTime(120000);
+    });
+    setHidden(true);
+    setHidden(false);
+    act(() => {
+      vi.advanceTimersByTime(120000);
+    });
+    expect(fetch).not.toHaveBeenCalled();
+  });
 });

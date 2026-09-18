@@ -1,4 +1,5 @@
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useRef, type CSSProperties, type ReactNode } from 'react';
+import { IconX } from './icons';
 
 interface ModalProps {
   open?: boolean;
@@ -10,8 +11,11 @@ interface ModalProps {
   title?: ReactNode;
   /** Optional footer rendered at the bottom */
   footer?: ReactNode;
-  /** z-index override (default 50) */
+  /** z-index override（缺省不出 inline style，走 theme.css .modal-overlay 的 --z-overlay(50)——
+   *  显式传值会压过 .mc-workbar .modal-overlay{z-index:--z-modal-above(400)} 等作用域覆盖，慎用） */
   zIndex?: number;
+  /** modal-body 的内联覆盖（仅组件特有参数，如 AuthModal 整体 padding；样式能走类的走类） */
+  bodyStyle?: CSSProperties;
 }
 
 /** 弹窗内首个可聚焦元素的选择器（打开时焦点落点；无命中则聚焦弹窗本体） */
@@ -30,7 +34,8 @@ export function Modal({
   maxWidth = '600px',
   title,
   footer,
-  zIndex = 50,
+  zIndex,
+  bodyStyle,
 }: ModalProps) {
   const contentRef = useRef<HTMLDivElement>(null);
 
@@ -62,7 +67,7 @@ export function Modal({
   if (!open) return null;
 
   return (
-    <div className="modal-overlay" style={{ zIndex }} onClick={onClose}>
+    <div className="modal-overlay" style={zIndex !== undefined ? { zIndex } : undefined} onClick={onClose}>
       <div
         ref={contentRef}
         className="modal"
@@ -78,14 +83,14 @@ export function Modal({
             <h2 className="modal-title">{title}</h2>
             {onClose && (
               <button onClick={onClose} className="modal-close" aria-label="关闭">
-                ✕
+                <IconX />
               </button>
             )}
           </div>
         )}
 
         {/* Body */}
-        <div className="modal-body" style={{ paddingTop: title ? undefined : 16 }}>
+        <div className="modal-body" style={{ paddingTop: title ? undefined : 16, ...bodyStyle }}>
           {children}
         </div>
 

@@ -40,6 +40,7 @@ vi.mock('react-router-dom', async () => {
 
 import { ChannelRail } from '../ChannelRail';
 import { useRosterStore } from '../../../stores/rosterStore';
+import { useUnreadStore } from '../../../stores/unreadStore';
 import type { ChannelListItem } from '../../../hooks/useChannelList';
 
 const CHANNELS = [
@@ -75,10 +76,11 @@ describe('ChannelRail', () => {
       loadedAt: null, channelsLoadedOnce: false, agentsLoadedOnce: false,
       inflight: null, lastToken: null,
     });
+    // F4：未读徽章由频道行内 per-channel selector 直读 unreadStore（模块级单例），每测重置
+    useUnreadStore.setState({ unreadCounts: { 'ch-2': 3 }, activeChannelId: null });
     mockUseChannelList.mockReturnValue({
       channels: CHANNELS,
       loading: false,
-      unreadCounts: { 'ch-2': 3 },
       clearUnread: vi.fn(),
       createChannel: vi.fn().mockResolvedValue({ id: 'ch-9', name: 'new', type: 'rnd' }),
     });
@@ -103,7 +105,7 @@ describe('ChannelRail', () => {
   it('navigates and clears unread on channel select', () => {
     const clearUnread = vi.fn();
     mockUseChannelList.mockReturnValue({
-      channels: CHANNELS, loading: false, unreadCounts: { 'ch-2': 3 },
+      channels: CHANNELS, loading: false,
       clearUnread, createChannel: vi.fn(),
     });
     renderRail();
@@ -121,7 +123,7 @@ describe('ChannelRail', () => {
   it('creates a new channel via the inline form and navigates to it', async () => {
     const createChannel = vi.fn().mockResolvedValue({ id: 'ch-9', name: 'ops', type: 'system' });
     mockUseChannelList.mockReturnValue({
-      channels: CHANNELS, loading: false, unreadCounts: {},
+      channels: CHANNELS, loading: false,
       clearUnread: vi.fn(), createChannel,
     });
     renderRail();
@@ -142,7 +144,7 @@ describe('ChannelRail', () => {
       () => new Promise(resolve => { resolveCreate = resolve; })
     );
     mockUseChannelList.mockReturnValue({
-      channels: CHANNELS, loading: false, unreadCounts: {},
+      channels: CHANNELS, loading: false,
       clearUnread: vi.fn(), createChannel,
     });
     renderRail();

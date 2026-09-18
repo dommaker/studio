@@ -1,6 +1,8 @@
 // ChannelDetailPage — #277（决策 #248 D2/D6）：5 分钟同作者连续消息合并（省略重复头）。
 // 规则：同作者（authorType + agentName）、≤5min、同线程/主流内、未参与折叠；
 // 系统播报与卡片不参与合并也不被合并；日期分隔线切断合并。折叠三机制语义不动。
+// vc8（2026-09-16 走查反转）：折叠组/回复链内同作者相邻也合并（一个头像 + 多条消息，
+// ChannelStreamBody 渲染层计算，不改 deriveStreamView 折叠语义）。
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
@@ -165,7 +167,9 @@ describe('ChannelDetailPage — 连续消息合并（#277 D2）', () => {
     expect(hasHead(container, 'f3')).toBe(false);
   });
 
-  it('过程消息折叠组内（参与折叠）不合并：展开后各自带头', async () => {
+  // vc8（2026-09-16 走查决策反转）：折叠组内同作者连续消息改合并——一个头像 + 多条消息，
+  // 与主流 #277 D2 口径一致（原「组内不合并各自带头」是每条印一遍头像的噪音源）
+  it('过程消息折叠组内同作者连续合并：展开后一个作者块只留一个头', async () => {
     currentMessages = [
       msg('g1', { workUnitId: 'WU-8', createdAt: iso(0) }),
       ...[2, 3, 4, 5].map(i => msg(`g${i}`, { workUnitId: 'WU-8', replyToId: 'g1', createdAt: iso(i - 1) })),
@@ -173,11 +177,14 @@ describe('ChannelDetailPage — 连续消息合并（#277 D2）', () => {
     ];
     const { container } = renderPage();
     // 线程默认展开：过程组保持一层折叠（默认收拢）
-    await waitFor(() => expect(screen.getByText('▸ 4 条过程消息')).toBeTruthy());
-    fireEvent.click(screen.getByText('▸ 4 条过程消息'));
+    await waitFor(() => expect(screen.getByText('▸ 4 条过程消息 · @pm')).toBeTruthy());
+    fireEvent.click(screen.getByText('▸ 4 条过程消息 · @pm'));
     await waitFor(() => expect(screen.getByText('内容-g3')).toBeTruthy());
-    for (const id of ['g2', 'g3', 'g4', 'g5']) {
-      expect(hasHead(container, id)).toBe(true);
+    expect(hasHead(container, 'g2')).toBe(true); // 组内首条留头
+    for (const id of ['g3', 'g4', 'g5']) {
+      expect(hasHead(container, id)).toBe(false); // 同作者连续 → 省略重复头
     }
+    // 链式合并的紧随结论消息（同作者）：展开时紧跟组内过程消息，同样省略头
+    expect(hasHead(container, 'g6')).toBe(false);
   });
 });

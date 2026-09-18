@@ -11,11 +11,11 @@
 // #177 保留：带 channelId 时可选「默认执行角色」下拉（候选=频道成员，留空=涌现）。
 // 批次A 项7 保留：onConfirm/onReject 可返回 Promise——提交期间禁用 + 失败内联保持打开。
 // 入口：WuGateActions（列表行/抽屉/详情页三处合一，E2-4）/ DeliveryPanel 缺口「人工确认」。
+// 公共骨架（submitting/取消键/关窗屏蔽/错误行）走 ui/ApproveDialogShell（Step 3 收敛）。
 import { useEffect, useState } from 'react';
 import { channelApi, type AgentProfile } from '../../api/channel';
-import { Button, Select } from '../ui';
+import { ApproveDialogShell, Button, Select } from '../ui';
 import { resolveChannelResponders } from './channelResponders';
-import { errorMessage } from '../../utils/errorMessage';
 import type { ReviewConfirmPayload } from '../../api/workunit';
 import type { AnalysisConfirmPrefill } from './mapUtils';
 
@@ -49,9 +49,6 @@ export function AnalysisApproveDialog({ prefill, channelId, confirmKind = 'analy
   // #177：默认执行角色候选（频道成员）；'' = 留空涌现
   const [assigneeId, setAssigneeId] = useState('');
   const [candidates, setCandidates] = useState<AgentProfile[]>([]);
-  // 批次A 项7：提交反馈（loading + 失败内联错误）
-  const [submitting, setSubmitting] = useState(false);
-  const [submitError, setSubmitError] = useState('');
 
   useEffect(() => {
     if (!channelId) return;
@@ -66,119 +63,16 @@ export function AnalysisApproveDialog({ prefill, channelId, confirmKind = 'analy
     return () => { cancelled = true; };
   }, [channelId]);
 
-  const run = async (fn: () => void | Promise<unknown>) => {
-    if (submitting) return;
-    setSubmitting(true);
-    setSubmitError('');
-    try {
-      await fn();
-    } catch (e) {
-      setSubmitError(errorMessage(e));
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
   const cleanFog = fog.map(s => s.trim()).filter(Boolean);
   const includedTasks = tasks.filter(t => t.included && t.text.trim()).map(t => t.text.trim());
 
   return (
-    <div className="modal-overlay" onClick={submitting ? undefined : onCancel}>
-      <div className="modal" style={{ maxWidth: '44rem' }} onClick={e => e.stopPropagation()}>
-        <div className="modal-header">
-          <h3 className="modal-title">{confirmKind === 'plan' ? '确认规划结论' : '确认分析结论'}</h3>
-          <button className="modal-close" onClick={onCancel} disabled={submitting} aria-label="关闭">×</button>
-        </div>
-        <div className="modal-body">
-          <p className="text-xs u-text-2 mb-2">
-            分析结论已拆解为待决问题（左栏，可增删改）与派工任务（右栏，可逐条修改、勾选剔除）。
-            点「确认开图」后系统据此生成探路地图：待决问题在规划会话里逐条裁决，不再单独立决策单；清空待决问题 = 不需要探路，只按任务清单派工。结论有问题请点「打回补充」。
-          </p>
-          <div className="flex gap-4" style={{ alignItems: 'flex-start' }}>
-            {/* 左栏：FOG 待决清单 */}
-            <div className="flex-1 flex flex-col gap-1">
-              <input
-                className="input w-full"
-                placeholder="目标（可选）：一句话目的地"
-                value={destination}
-                onChange={e => setDestination(e.target.value)}
-                aria-label="目标"
-              />
-              {fog.map((q, i) => (
-                <div key={i} className="flex gap-1 items-center">
-                  <input
-                    className="input w-full"
-                    placeholder="待决问题"
-                    value={q}
-                    onChange={e => setFog(prev => prev.map((x, k) => (k === i ? e.target.value : x)))}
-                    aria-label={`待决问题 ${i + 1}`}
-                  />
-                  <button
-                    className="btn btn-secondary btn-sm"
-                    aria-label={`删除待决问题 ${i + 1}`}
-                    onClick={() => setFog(prev => prev.filter((_, k) => k !== i))}
-                  >
-                    删
-                  </button>
-                </div>
-              ))}
-              <button
-                className="btn btn-secondary btn-sm"
-                style={{ alignSelf: 'flex-start' }}
-                onClick={() => setFog(prev => [...prev, ''])}
-              >
-                添加待决
-              </button>
-            </div>
-            {/* 右栏：TASK 拆分预览（勾选剔除 + 行内编辑） */}
-            <div className="flex-1 flex flex-col gap-1">
-              <p className="text-xs u-text-2">派工预览（{includedTasks.length} 条将派工）</p>
-              {tasks.length === 0 && (
-                <p className="text-xs u-text-3">agent 未输出 TASK 拆分——确认后不自动派工，可手动转任务</p>
-              )}
-              {tasks.map((t, i) => (
-                <div key={i} className="flex gap-1 items-center">
-                  <input
-                    type="checkbox"
-                    checked={t.included}
-                    onChange={e => setTasks(prev => prev.map((x, k) => (k === i ? { ...x, included: e.target.checked } : x)))}
-                    aria-label={`纳入派工 ${i + 1}`}
-                  />
-                  <input
-                    className="input w-full"
-                    value={t.text}
-                    onChange={e => setTasks(prev => prev.map((x, k) => (k === i ? { ...x, text: e.target.value } : x)))}
-                    aria-label={`派工任务 ${i + 1}`}
-                  />
-                </div>
-              ))}
-            </div>
-          </div>
-          {channelId && (
-            <div className="mt-2">
-              <p className="text-xs u-text-2 mb-1">
-                默认执行角色（可选，不选则由频道成员自动认领；选中则应用于确认后拆出的全部任务）
-              </p>
-              <Select
-                value={assigneeId}
-                onChange={setAssigneeId}
-                options={[
-                  { value: '', label: '自动认领（不指定）' },
-                  ...candidates.map(a => ({ value: a.id, label: a.name })),
-                ]}
-                placeholder="自动认领（不指定）"
-                aria-label="默认执行角色"
-                className="input w-full"
-              />
-            </div>
-          )}
-          {/* 批次A 项7：提交失败内联错误（弹窗保持打开可重试） */}
-          {submitError && <p className="text-xs u-err" style={{ marginTop: 8 }}>{submitError}</p>}
-        </div>
-        <div className="modal-footer">
-          <button className="btn btn-secondary" onClick={onCancel} disabled={submitting}>
-            取消
-          </button>
+    <ApproveDialogShell
+      maxWidth="44rem"
+      title={confirmKind === 'plan' ? '确认规划结论' : '确认分析结论'}
+      onCancel={onCancel}
+      actions={({ submitting, run }) => (
+        <>
           <button
             className="btn btn-danger"
             disabled={submitting}
@@ -213,8 +107,91 @@ export function AnalysisApproveDialog({ prefill, channelId, confirmKind = 'analy
           >
             确认开图
           </Button>
+        </>
+      )}
+    >
+      <p className="text-xs u-text-2 mb-2">
+        分析结论已拆解为待决问题（左栏，可增删改）与派工任务（右栏，可逐条修改、勾选剔除）。
+        点「确认开图」后系统据此生成探路地图：待决问题在规划会话里逐条裁决，不再单独立决策单；清空待决问题 = 不需要探路，只按任务清单派工。结论有问题请点「打回补充」。
+      </p>
+      <div className="flex gap-4" style={{ alignItems: 'flex-start' }}>
+        {/* 左栏：FOG 待决清单 */}
+        <div className="flex-1 flex flex-col gap-1">
+          <input
+            className="input w-full"
+            placeholder="目标（可选）：一句话目的地"
+            value={destination}
+            onChange={e => setDestination(e.target.value)}
+            aria-label="目标"
+          />
+          {fog.map((q, i) => (
+            <div key={i} className="flex gap-1 items-center">
+              <input
+                className="input w-full"
+                placeholder="待决问题"
+                value={q}
+                onChange={e => setFog(prev => prev.map((x, k) => (k === i ? e.target.value : x)))}
+                aria-label={`待决问题 ${i + 1}`}
+              />
+              <button
+                className="btn btn-secondary btn-sm"
+                aria-label={`删除待决问题 ${i + 1}`}
+                onClick={() => setFog(prev => prev.filter((_, k) => k !== i))}
+              >
+                删
+              </button>
+            </div>
+          ))}
+          <button
+            className="btn btn-secondary btn-sm"
+            style={{ alignSelf: 'flex-start' }}
+            onClick={() => setFog(prev => [...prev, ''])}
+          >
+            添加待决
+          </button>
+        </div>
+        {/* 右栏：TASK 拆分预览（勾选剔除 + 行内编辑） */}
+        <div className="flex-1 flex flex-col gap-1">
+          <p className="text-xs u-text-2">派工预览（{includedTasks.length} 条将派工）</p>
+          {tasks.length === 0 && (
+            <p className="text-xs u-text-3">agent 未输出 TASK 拆分——确认后不自动派工，可手动转任务</p>
+          )}
+          {tasks.map((t, i) => (
+            <div key={i} className="flex gap-1 items-center">
+              <input
+                type="checkbox"
+                checked={t.included}
+                onChange={e => setTasks(prev => prev.map((x, k) => (k === i ? { ...x, included: e.target.checked } : x)))}
+                aria-label={`纳入派工 ${i + 1}`}
+              />
+              <input
+                className="input w-full"
+                value={t.text}
+                onChange={e => setTasks(prev => prev.map((x, k) => (k === i ? { ...x, text: e.target.value } : x)))}
+                aria-label={`派工任务 ${i + 1}`}
+              />
+            </div>
+          ))}
         </div>
       </div>
-    </div>
+      {channelId && (
+        <div className="mt-2">
+          <p className="text-xs u-text-2 mb-1">
+            默认执行角色（可选，不选则由频道成员自动认领；选中则应用于确认后拆出的全部任务）
+          </p>
+          <Select
+            value={assigneeId}
+            onChange={setAssigneeId}
+            options={[
+              { value: '', label: '自动认领（不指定）' },
+              ...candidates.map(a => ({ value: a.id, label: a.name })),
+            ]}
+            placeholder="自动认领（不指定）"
+            aria-label="默认执行角色"
+            className="input w-full"
+          />
+        </div>
+      )}
+    </ApproveDialogShell>
   );
 }

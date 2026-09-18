@@ -14,6 +14,7 @@
 | `.harness/` | harness 配置与运行时状态 |
 | `apps/` | monorepo 应用：api、web |
 | `bin/` | 可执行入口/脚本 |
+| `dist-npm/` | — |
 | `docs/` | 项目文档 |
 | `node-compile-cache/` | — |
 | `packages/` | monorepo 共享包：studio-agent、studio-audit、studio-capability、studio-notification、studio-shared、studio-skill、studio-spec |
@@ -46,9 +47,11 @@ pnpm start  # 启动生产服务
 
 > 本段手写，增删改走段末「治理变更流程」。依据：docs/adr/2026-08-21-agent-docs-three-kinds.md（内容三分）+ 2026-08-21-agent-docs-placement-model.md（落点模型），2026-08-21 自 CLAUDE.md 迁入（#300/#303）。
 
+- 数据目录契约：`docs/architecture/data-directory-contract.md` 是 `~/.studio` 数据区布局/可改纪律/变更纪律/版本迁移的唯一正本；布局变更须先修订契约（出处：#570 / docs/plans/2026-09-npm-local-form.md §7.4，治理人闸 2026-09-16 当场通过）。
+
 ## Governance Rules
 <!-- HARNESS_CONSTRAINTS_START -->
-<!-- version: 1.7.0 -->
+<!-- version: 1.8.0 -->
 ### Iron Laws (违反将阻断)
 - **no_completion_without_verification**: 在声明任务完成前，必须重新运行新鲜的验证命令——受改动影响的测试（vitest run --changed origin/master）+ type check，使用新鲜的输出作为完成证据，不得复用旧结果。全量测试由 CI / 发布流程兜底。
 - **incremental_progress**: 一次只处理一个任务。改动涉及多个模块、超过 100 行、或影响多个文件时，必须拆分为小步骤分步执行，每步有独立 checkpoint 可回滚。不要试图一次性完成所有改动。
@@ -168,6 +171,7 @@ pnpm start  # 启动生产服务
 | `apps/api/src/modules/mcp` | MCP（Model Context Protocol）模块 — 将 Studio 系统能力暴露为 MCP tools，供 Agent 和 UI 共享调用。 |
 | `apps/api/src/modules/monitoring` | 负责聚合 Agent Network 的监控指标，包括 Agent 摘要、统计信息、飞轮指标（M1）和封装开销（M2），通过 HTTP 路由对外暴露。 |
 | `apps/api/src/modules/notifications` | 提供通知相关的 API 路由，包括获取通知列表、查询未读数量、标记单条已读和标记全部已读，作为后台消息通知模块的 HTTP 接口层。 |
+| `apps/api/src/modules/notify-channels` | 通知渠道配置（#525 P2-6，决策 #516 项⑦⑧）：服务端配置存储 + 读写 API + ClawBot（iLink 协议）内嵌轻量直连。/settings「通知渠道」配置区的服务端支撑——#434 死配置的「复活成真功能」版... |
 | `apps/api/src/modules/outbound-notify` | 本模块提供基于 Discord 的通知发送服务，支持多种任务与会议相关通知类型。内部封装了对 discordNotifier 的调用，并通过 eventBus 将通知事件发布到消息总线。还暴露 HTTP 路由供内部模块通过 POST... |
 | `apps/api/src/modules/pmo` | 项目管理办公室（PMO）：OKR 管理 + 项目 CRUD + 交付守卫。PMO 是链条脊椎：id = 分支名、需求文档挂载点、状态 = WU 汇总 + 证据台账、交付策略挂在项目上。统一编号 PMO-<n>。 |
 | `apps/api/src/modules/projects` | Project Discovery（AC-D1 + AC-D3）：发现已注册的工程（repo）信息并对外提供查询 API，供频道默认工程、WorkUnit 工程绑定等流程使用。 |
@@ -176,12 +180,12 @@ pnpm start  # 启动生产服务
 | `apps/api/src/modules/role-memory` | 角色记忆存储服务：per-role 目录落数据区（经 studioPath()），三件套--MEMORY.md 索引 + topics/*.md topic 正文 + draft.jsonl append-only 草稿区。role-... |
 | `apps/api/src/modules/skills` | skills 模块负责技能（Skill）的完整生命周期管理，包括基于文件的技能元数据存储（SkillStore）、技能目录扫描与加载（manifest-loader）、基于描述的技能匹配（skill-selector）、从 WorkU... |
 | `apps/api/src/modules/specs` | 提供 Specs 模块的 HTTP API 路由，包括变更分析、变更历史查询和门禁验证（待实现）。遵循 SP-002 变更分级流程，通过调用外部 SDK 中的服务处理 Spec 变更相关的业务逻辑。 |
-| `apps/api/src/modules/transcripts` | transcript 归档器（#97，#88 子票）：把会话原文落盘到数据区（经 studioDir()/studioPath()），供三个消费方共用——#99 WU 收尾批量提取（要全文）、handoff 摘要（要对话）、#85 执... |
+| `apps/api/src/modules/transcripts` | transcript 归档器（#97，#88 子票）：把会话原文落盘到数据区（经 studioDir()/studioPath()），供四个消费方共用——#99 WU 收尾批量提取（要全文）、handoff 摘要（要对话）、#85 执... |
 | `apps/api/src/modules/triage` | 实现错误的分类（triage）与严重度评估，提供策略路由（auto_retry / manual_fix / escalate / ignore），支持开发者错误和系统级事件的分类。 |
 | `apps/api/src/modules/triggers` | Trigger 子系统（AS-026，3.28c-4）：SCHEDULE（cron）+ EVENT（EventBus）两类条件的触发器调度与持久化，动作包括 CREATE WorkUnit / UPDATE / EXECUTE。系统默... |
 | `apps/api/src/modules/workspaces` | 本机 Workspace 记录的自动注册与查询（只读 list/get + 删除）、CLI 运行时清单扫描。Token 管理已随 #481 退役删除。 |
 | `apps/api/src/modules/workunit` | WorkUnit 核心域: 任务单元 CRUD、认领与状态机; F5 双向沟通的 NEED_INPUT 挂起/恢复与超时提醒。 |
-| `packages/studio-agent` | Sub-agent 的完整生命周期管理：创建隔离 worktree → spawn Claude Code → session loop 监控 → 完成判定。 |
+| `packages/studio-agent` | Sub-agent 的完整生命周期管理：创建隔离 worktree → 传播 harness 配置 → spawn provider CLI（单 session）→ stream-json 解析与事件发射。完成判定/状态机不在本包，由... |
 | `packages/studio-audit` | 提供审计日志的记录、查询、统计与导出功能。通过 AuditService 进行持久化日志操作（JSONL 存储）。 |
 | `packages/studio-capability` | 本目录负责能力管理（CapabilityService）。CapabilityService 提供能力的 CRUD、同步、统计，并基于 FileStore JSON 文件存储实现（替代 Prisma）。 |
 | `packages/studio-notification` | 本目录提供 studio-notification 包的核心代码，包含通知的创建、查询、标记，服务层基于 FileStore 实现持久化通知管理。 |

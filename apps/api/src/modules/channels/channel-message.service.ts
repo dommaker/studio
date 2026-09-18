@@ -266,41 +266,54 @@ export class ChannelMessageService {
    * Returns messages ordered by createdAt ascending (chronological).
    * #524 P1-1 同构（#529 收口）：channelId 指定时按频道直查，免全频道扇出
    * （原实现耗时随频道数 × 各频道热层行数线性变差）。
+   * #576（B5 遗留收口）：对齐「取最新 N 条」语义并下推 limit（实取 limit+1 判是否还有
+   * 更旧消息），带过滤查询命中 file-store 谓词倒扫快径，扫描行数不随热文件全长增长。
+   * 有意识的语义变更（票内 AC 许可并在此记录）：原「取最旧 N 条 + 精确 total」→
+   * 现「取最新 N 条 + total 下界口径」——匹配数 ≤ limit 时 total 精确；超过 limit 时
+   * total = limit+1 表「至少 limit+1 条」（精确总数需全扫，与有界扫描不可兼得；
+   * 路由 hasMore = data.length < total 两种情形下均正确）。before（createdAt 严格 <）
+   * 随 limit 一同下推，组合语义 = before 之前最新 N 条（倒序翻页）。
    */
   async listByWorkUnitId(
     workUnitId: string,
     options?: { channelId?: string; before?: Date; limit?: number },
   ): Promise<{ data: MessageRecord[]; total: number }> {
     const limit = options?.limit ?? 50;
-    const since = options?.before ? options.before.toISOString() : undefined;
+    const before = options?.before ? options.before.toISOString() : undefined;
+    // limit+1：多取一条判「还有更旧消息」；limit<=0 = 全量（旧语义保留，不下推）
+    const pageLimit = limit > 0 ? limit + 1 : undefined;
 
-    let allMessages: ChannelMessageData[];
+    let matched: ChannelMessageData[];
     if (options?.channelId) {
       // #529：归属频道直查。channelId = WU 一等列 wu.channelId（写侧讨论消息
       // 全部锚定它：POST /:id/messages、wu-messenger、派单 linkWorkUnit）。
-      allMessages = await this.fileStore.queryMessages(options.channelId, { workUnitId });
+      matched = await this.fileStore.queryMessages(options.channelId, { workUnitId, before, limit: pageLimit });
     } else {
       // fallback（根因）：无 channelId 的 WU（legacy/手工单）——写侧 POST /:id/messages
       // 对这类 WU 落第一个 #研发 频道，讨论消息可能散在任一频道，只能保留扇出。
-      allMessages = [];
+      // 每频道各取最新 pageLimit 条再归并截断：全局最新 N ⊆ 各频道最新 N 之并，不丢。
+      matched = [];
       const allChannels = await this.fileStore.listChannels();
       for (const ch of allChannels) {
-        const msgs = await this.fileStore.queryMessages(ch.id, { workUnitId });
-        allMessages = allMessages.concat(msgs);
+        const msgs = await this.fileStore.queryMessages(ch.id, { workUnitId, before, limit: pageLimit });
+        matched = matched.concat(msgs);
+      }
+      matched.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+      if (pageLimit !== undefined && matched.length > pageLimit) {
+        matched = matched.slice(-pageLimit);
       }
     }
 
-    if (since) {
-      allMessages = allMessages.filter(m => new Date(m.createdAt).getTime() < new Date(since).getTime());
+    if (pageLimit !== undefined && matched.length > limit) {
+      // 还有更旧消息：data = 最新 limit 条；total = limit+1 下界（精确总数未计算）
+      return {
+        data: matched.slice(-limit).map(m => shapeMessageData(m)),
+        total: pageLimit,
+      };
     }
-
-    allMessages.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-    const total = allMessages.length;
-    const sliced = limit > 0 ? allMessages.slice(0, limit) : allMessages;
-
     return {
-      data: sliced.map(m => shapeMessageData(m)),
-      total,
+      data: matched.map(m => shapeMessageData(m)),
+      total: matched.length,
     };
   }
 

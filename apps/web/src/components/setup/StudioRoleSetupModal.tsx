@@ -10,8 +10,7 @@
 import { useState } from 'react';
 import { useDetectedProviders, buildProviderOptions } from '../../hooks/useDetectedProviders';
 import { STUDIO_ROLE_SETUP_SESSION_KEY } from './dismissed';
-import { Select } from '../ui';
-import '../../styles/theme.css';
+import { Select, Modal } from '../ui';
 
 export interface StudioRoleSetupModalProps {
   open: boolean;
@@ -46,14 +45,26 @@ export function StudioRoleSetupModal({ open, onClose, onSave }: StudioRoleSetupM
     onClose();
   };
 
+  // 批次 I-2：收编 ui/Modal（§4.3 正本）；onClose=handleDismiss（关窗即 sessionStorage 标记）
   return (
-    <div className="modal-overlay" onClick={handleDismiss}>
-      <div className="modal" style={{ maxWidth: '400px' }} onClick={(e) => e.stopPropagation()}>
-        <div className="modal-header">
-          <h2 className="modal-title">系统执行角色未配置</h2>
-          <button className="modal-close" onClick={handleDismiss} aria-label="关闭">×</button>
-        </div>
-        <div className="modal-body">
+    <Modal
+      onClose={handleDismiss}
+      maxWidth="400px"
+      title="系统执行角色未配置"
+      footer={
+        <>
+          <button className="btn btn-secondary" onClick={handleDismiss}>稍后</button>
+          <button
+            className="btn btn-primary"
+            onClick={handleSave}
+            disabled={!selected}
+            data-testid="studio-provider-save"
+          >
+            确认
+          </button>
+        </>
+      }
+    >
           <p className="u-text-2" style={{ margin: '0 0 12px', fontSize: 'var(--fs-sm)' }}>
             系统内部任务（知识维护、诊断、提取等）需要选择一个 CLI 作为执行角色。
           </p>
@@ -74,19 +85,6 @@ export function StudioRoleSetupModal({ open, onClose, onSave }: StudioRoleSetupM
               </p>
             )}
           </div>
-        </div>
-        <div className="modal-footer">
-          <button className="btn btn-secondary" onClick={handleDismiss}>稍后</button>
-          <button
-            className="btn btn-primary"
-            onClick={handleSave}
-            disabled={!selected}
-            data-testid="studio-provider-save"
-          >
-            确认
-          </button>
-        </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

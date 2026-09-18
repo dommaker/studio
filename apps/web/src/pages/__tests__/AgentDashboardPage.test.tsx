@@ -258,12 +258,12 @@ describe('AgentDashboardPage', () => {
     expect(container.querySelector('[data-testid="agent-card"]')?.getAttribute('data-status')).toBe('offline');
   });
 
-  it('§6.1 异常卡：待处理 pill + 角色名前红点角标 + 错误行 ⚠ lastError 上卡', async () => {
+  it('§6.1 异常卡：待处理 pill + 角色名前红点角标 + 错误行（批次 I-6：⚠ → IconAlertTriangle SVG）lastError 上卡', async () => {
     mockApis({
       agents: [instance({ status: 'error', currentWorkUnitId: null, currentWorkUnit: null, pmo: null, channelId: null, lastError: 'spawn ENOENT' })],
     });
     const { container } = render(<AgentDashboardPage />);
-    const err = await screen.findByText(/⚠ spawn ENOENT/);
+    const err = await screen.findByText(/spawn ENOENT/);
     const card = container.querySelector('[data-testid="agent-card"]')!;
     expect(card.getAttribute('data-status')).toBe('attention');
     // 细分=error → 红点角标（4 态合并后保留异常可见性）

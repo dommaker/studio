@@ -933,6 +933,7 @@ describe('#119: 契约段生成器（按 WU type）+ 段序稳定性重排', () 
 
     expect(prompt).toContain('## 产出契约');
     expect(prompt).toContain('REVIEW_RESULT');
+    expect(prompt).toContain('本环节标准打法：code-review');
     expect(knowledgeContext).not.toContain('## 产出契约');
 
     const baseIdx = prompt.indexOf('## 当前工作');
@@ -954,6 +955,7 @@ describe('#119: 契约段生成器（按 WU type）+ 段序稳定性重排', () 
     expect(prompt).toContain('## 产出契约');
     expect(prompt).toContain('测试先行');
     expect(prompt).toContain('Phase commit');
+    expect(prompt).toContain('本环节标准打法：tdd-implement');
   });
 
   it('契约段 decision（决策单）→ 结论摘要格式', async () => {
@@ -1002,6 +1004,7 @@ describe('#119: 契约段生成器（按 WU type）+ 段序稳定性重排', () 
     expect(prompt).toContain('## 产出契约');
     expect(prompt).toContain('复现测试先行');
     expect(prompt).toContain('防回归测试随修复同 commit');
+    expect(prompt).toContain('本环节标准打法：diagnosing-bugs');
   });
 
   it('未知/无契约 type（task/feature）→ 空段不注入（spec 自 #463 起有物化清单契约）', async () => {
@@ -1040,9 +1043,54 @@ describe('#119: 契约段生成器（按 WU type）+ 段序稳定性重排', () 
     expect(prompt).toContain('.studio/specs/');
   });
 
+  it('#567 契约段 plan 含方向锁定段（DIRECTION 协议行，在裁决轮段之前）', async () => {
+    const plan = CONTRACT_TEMPLATES.plan;
+    expect(plan).toContain('DIRECTION:');
+    expect(plan).toContain('方向锁定');
+    const dirIdx = plan.indexOf('方向锁定');
+    const rulingIdx = plan.indexOf('裁决轮（fog 调研齐后出一次');
+    expect(dirIdx).toBeGreaterThanOrEqual(0);
+    expect(rulingIdx).toBeGreaterThan(dirIdx);
+
+    const { prompt } = await composeStepPrompt(
+      { wu: makeWu({ type: 'plan' }), metadata: {} as any },
+      deps(makeRole()),
+    );
+    expect(prompt).toContain('DIRECTION:');
+  });
+
+  it('#567 directionPick:false → 契约段方向锁定段替换为「本单已关闭方向锁定」提示', async () => {
+    const { prompt } = await composeStepPrompt(
+      { wu: makeWu({ type: 'plan' }), metadata: { directionPick: false } as any },
+      deps(makeRole()),
+    );
+
+    expect(prompt).toContain('本单已关闭方向锁定');
+    expect(prompt).not.toContain('DIRECTION:');
+  });
+
+  it('#567 AC6：非 plan 类型契约模板不含方向锁定段（零改动证明）', () => {
+    for (const [type, template] of Object.entries(CONTRACT_TEMPLATES)) {
+      if (type === 'plan') continue;
+      expect(template, `${type} 模板不应含 DIRECTION 段`).not.toContain('DIRECTION:');
+      expect(template, `${type} 模板不应含方向锁定`).not.toContain('方向锁定');
+    }
+  });
+
   it('契约段 200 软定额 + 模板表覆盖 review/implement/decision/analysis/bug/spec/plan（#121/#463/#471）', () => {
     expect(SECTION_QUOTAS.contract).toBe(200);
     expect(Object.keys(CONTRACT_TEMPLATES).sort()).toEqual(['analysis', 'bug', 'decision', 'implement', 'plan', 'review', 'spec']);
+  });
+
+  it('契约段尾标准打法指引行（不受定额截断影响，直接断言模板表）：implement/bug/plan/analysis/review → 对应 skill', () => {
+    expect(CONTRACT_TEMPLATES.implement).toContain('本环节标准打法：tdd-implement（索引见 skills 段，先 loadSkill 读全文再开工）。');
+    expect(CONTRACT_TEMPLATES.bug).toContain('本环节标准打法：diagnosing-bugs（索引见 skills 段，先 loadSkill 读全文再开工）。');
+    expect(CONTRACT_TEMPLATES.plan).toContain('本环节标准打法：requirement-clarify + to-tickets（索引见 skills 段，先 loadSkill 读全文再开工）。');
+    expect(CONTRACT_TEMPLATES.analysis).toContain('本环节标准打法：research（索引见 skills 段，先 loadSkill 读全文再开工）。');
+    expect(CONTRACT_TEMPLATES.review).toContain('本环节标准打法：code-review（索引见 skills 段，先 loadSkill 读全文再开工）。');
+    // decision/spec/巡检变体（INSPECTION_CONTRACT）无对应打法 skill，不加指引行
+    expect(CONTRACT_TEMPLATES.decision).not.toContain('本环节标准打法');
+    expect(CONTRACT_TEMPLATES.spec).not.toContain('本环节标准打法');
   });
 });
 

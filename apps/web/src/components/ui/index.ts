@@ -1,3 +1,5 @@
+export { ApproveDialogShell } from './ApproveDialogShell';
+export type { ApproveDialogActions, ApproveDialogShellProps } from './ApproveDialogShell';
 export { BackButton } from './BackButton';
 export { Button } from './Button';
 export type { ButtonProps } from './Button';

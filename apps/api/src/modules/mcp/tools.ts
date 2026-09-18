@@ -19,6 +19,8 @@ import { systemTools } from './system.tools.js';
 import { devopsTools } from './devops.tools.js';
 import { skillTools } from './skill.tools.js';
 import { workunitTools } from './workunit.tools.js';
+import { channelTools } from './channel.tools.js';
+import { requirementTools } from './requirement.tools.js';
 
 // ─── 类型（向后兼容） ───
 
@@ -45,6 +47,10 @@ const allTools: RegisteredTool[] = [
   ...skillTools,
   // WorkUnit
   ...workunitTools,
+  // Channel 消息（只读）
+  ...channelTools,
+  // Requirement 需求（只读）
+  ...requirementTools,
 ];
 
 // FL-026: Register all tools into the registry on module load
@@ -61,17 +67,20 @@ for (const tool of allTools) {
 toolRegistry.registerAll(allTools);
 
 // BP3: 种子 default-deny 权限 — 系统角色默认允许所有工具
+// D2（#566）：external 角色仅 exposure=external 子集 allowed（由 exposure 标记派生，双向纠正漂移）
 import('./permission.service.js').then(({ seedDefaultPermissions }) => {
-  seedDefaultPermissions(allTools.map(t => t.name)).catch((e) => {
+  const externalNames = allTools.filter(t => t.exposure === 'external').map(t => t.name);
+  seedDefaultPermissions(allTools.map(t => t.name), externalNames).catch((e) => {
     logger.warn('[MCP] seedDefaultPermissions failed — tools may lack default permissions', { error: String(e) });
   });
 });
 
 /**
  * 获取所有 tool 的 schema（不含 handler）— 向后兼容
+ * D1（#566）：audience='external' 只出外放子集；缺省全量（现状不变）
  */
-export function getToolSchemas() {
-  return toolRegistry.getSchemas();
+export function getToolSchemas(audience?: 'internal' | 'external') {
+  return toolRegistry.getSchemas(audience);
 }
 
 /**

@@ -40,7 +40,12 @@ export interface ProviderSpawnTemplate {
   modelFlag?: string;
   /** Flag appended with the max-turns value when maxTurns is set */
   maxTurnsFlag?: string;
-  /** Flag for granting access to extra working directories */
+  /**
+   * Flag for granting access to extra working directories.
+   * 暂无读取方：唯一读它的是 studio-agent 侧按 Analyst 产出限制工具访问的构建 helper
+   * （#562 删多 session 循环后失去调用方，#587 摘除）。字段保留 = 各 CLI 支持该 flag
+   * 的注册表事实；是否连同 3 处赋值一起收编，待「工具访问限制要不要重新接线」另票裁。
+   */
   addDirFlag?: string;
   /** Flag appended with the output format — only when the caller explicitly sets outputFormat */
   outputFormatFlag?: string;
@@ -50,6 +55,12 @@ export interface ProviderSpawnTemplate {
   promptFlag?: string;
   /** Prompt appended as positional argument (e.g. codex exec [PROMPT], opencode run [message..]) */
   promptPositional?: boolean;
+  /**
+   * #565: baseArgs/resumeArgs 中允许被能力探测剔除的 flag。
+   * 探测到目标 CLI 不认识（help 输出无此 flag）时由 cli-adapter 过滤；
+   * 只标非核心协议 flag（缺了只是功能降级，不是直接不可用）。
+   */
+  conditionalFlags?: string[];
 }
 
 export interface ProviderDefinition {
@@ -63,6 +74,45 @@ export interface ProviderDefinition {
   versionArgs: string[];
   /** Args for the AgentLoop health probe (`<binary> <healthProbeArgs>`) */
   healthProbeArgs: string[];
+  /**
+   * #565: 能力探测命令（`<binary> <helpArgs>`），解析输出中的 flag 集合。
+   * 不声明则不探测、不过滤 conditionalFlags。codex 的 flag 在子命令上 → ['exec', '--help']。
+   */
+  capabilityProbe?: {
+    helpArgs: string[];
+  };
+  /**
+   * #565: 登录态探测命令（`<binary> <args>`）。三态判定：
+   * exit 0 且输出不命中 notLoggedInPatterns → ok；命中模式或非零 exit → failed；
+   * 未声明 authProbe / 探测自身出错（spawn 失败、超时）→ unknown（不猜配置目录）。
+   * 只声明实测可靠的命令；没有可靠手段就不声明、恒 unknown。
+   */
+  authProbe?: {
+    args: string[];
+    timeoutMs?: number;
+    /** 输出命中任一模式（正则串）= 未登录 */
+    notLoggedInPatterns?: string[];
+    /** auth=failed 时给用户的修复提示（产品语言，不含内部环境信息） */
+    authHint?: string;
+  };
+  /**
+   * #574: 动态模型发现探测命令（`<binary> <args>`）+ 解析器 id。
+   * 解析器实现见 model-probe.ts parseModelList：
+   *   jsonModelSlugs = codex `debug models`（JSON，取 visibility==="list" 的 slug）
+   *   jsonModelKeys  = kimi `provider list --json`（JSON，取 models 对象的键）
+   *   lines          = opencode `models`（每行一个 provider/model）
+   * 只声明实测可靠的命令；没有就不声明，恒走 fallbackModels（同 #565 authProbe 先例）。
+   */
+  listModels?: {
+    args: string[];
+    timeoutMs?: number;
+    parser: 'jsonModelSlugs' | 'jsonModelKeys' | 'lines';
+  };
+  /**
+   * #574: 静态兜底模型清单。探测失败/超时/解析为空或未声明 listModels 时展示，
+   * 消费面须标注来源（live/fallback）。
+   */
+  fallbackModels?: string[];
   /** Include in the default `studio daemon start` scan list (default true) */
   scanDefault?: boolean;
   /** Non-interactive task execution template */
@@ -103,6 +153,15 @@ export const BUILTIN_PROVIDERS: Record<string, ProviderDefinition> = {
       addDirFlag: '--add-dir',
       promptViaStdin: true,
     },
+    // #565（2.1.273 实测）：`claude auth status` 输出 JSON，loggedIn 字段即登录态
+    authProbe: {
+      args: ['auth', 'status'],
+      notLoggedInPatterns: ['"loggedIn"\\s*:\\s*false'],
+      authHint: '运行 claude login 重新登录',
+    },
+    // #574：不声明 listModels —— 2.1.273 实测 help 无模型列表子命令
+    // （模型经 env/alias 选择）。fallback 用 --help 文档化 alias（2026-09-16 实测）。
+    fallbackModels: ['opus', 'sonnet'],
   },
   kimi: {
     id: 'kimi',
@@ -122,6 +181,17 @@ export const BUILTIN_PROVIDERS: Record<string, ProviderDefinition> = {
       promptViaStdin: false,
       promptFlag: '--prompt',
     },
+    // #565：不声明 authProbe —— 0.38.0 实测 `kimi login` 无 status 子命令，
+    // 无可靠登录态探测手段 → 恒 unknown（不猜配置目录）。
+    // #574（0.38.0 实测）：`kimi provider list --json` 输出 JSON，
+    // models 对象的键即模型 alias（kimi-code/kimi-for-coding 等 4 个）
+    listModels: { args: ['provider', 'list', '--json'], parser: 'jsonModelKeys' },
+    fallbackModels: [
+      'kimi-code/kimi-for-coding',
+      'kimi-code/kimi-for-coding-highspeed',
+      'kimi-code/k3',
+      'kimi-code/k3-256k',
+    ],
   },
   codex: {
     id: 'codex',
@@ -145,7 +215,23 @@ export const BUILTIN_PROVIDERS: Record<string, ProviderDefinition> = {
       addDirFlag: '--add-dir',
       promptViaStdin: true,
       promptPositional: true,
+      // #565: hook-trust flag 是 0.147.0 才引入的能力增强项（非核心协议 flag），
+      // 旧版本 codex 不认识时由能力探测剔除，避免 spawn 后 unknown option 报错。
+      conditionalFlags: ['--dangerously-bypass-hook-trust'],
     },
+    // #565: codex 的 exec flag 在子命令 help 上（0.147.0 实测含 --dangerously-bypass-hook-trust）
+    capabilityProbe: { helpArgs: ['exec', '--help'] },
+    // #565（0.147.0 实测）：`codex login status` 未登录 exit 1 + 输出 "Not logged in"
+    authProbe: {
+      args: ['login', 'status'],
+      notLoggedInPatterns: ['Not logged in'],
+      authHint: '运行 codex login 登录',
+    },
+    // #574（0.147.0 实测）：`codex debug models` stdout 输出模型目录 JSON
+    // （WARNING 走 stderr 不污染 stdout），取 visibility==="list" 的 slug
+    listModels: { args: ['debug', 'models'], parser: 'jsonModelSlugs' },
+    // 兜底 = 0.147.0 实测可见模型（gpt-5.4/5.4-mini/codex-auto-review 为 visibility=hide，不收）
+    fallbackModels: ['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.5', 'gpt-5.2'],
   },
   opencode: {
     id: 'opencode',
@@ -165,6 +251,12 @@ export const BUILTIN_PROVIDERS: Record<string, ProviderDefinition> = {
       promptViaStdin: false,
       promptPositional: true,
     },
+    // #565：不声明 authProbe —— 1.18.18 实测 `opencode auth list` 把 env 凭证
+    // （OPENAI_API_KEY 等）与登录态混在一起，无可靠判定 → 恒 unknown。
+    // #574（1.18.18 实测）：`opencode models` 每行输出一个 provider/model
+    // （全目录，含未登录 provider 的模型，原样展示）
+    listModels: { args: ['models'], parser: 'lines' },
+    fallbackModels: ['opencode/big-pickle'],
   },
   openclaw: {
     id: 'openclaw',

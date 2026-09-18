@@ -1,7 +1,14 @@
 /**
  * AS-007 ReviewGate 集成测试
- * 
+ *
  * 验证 PR 创建后 ReviewGate 验证审查状态
+ *
+ * 注意（#535 追根结论）：AS-007 原始需求文档不在本仓可检索范围（docs/sdd、
+ * GitHub issues、归档均零命中），且 studio 生产代码零引用 ReviewGate/GateContext
+ * ——本文件自初始提交起即是「自调 mock 再断言 mock 被调」的形状，钉的是
+ * harness `ReviewGate.check(ctx: GateContext): Promise<GateResult>` 的公开 API
+ * 契约（harness 侧 check() 保留为报告层，evaluate() 由它推导），作为将来
+ * studio 接线 ReviewGate 时的集成契约草图保留，不声称钉任何 studio 生产接缝。
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -34,9 +41,13 @@ describe('AS-007: ReviewGate Integration', () => {
   });
 
   /**
-   * AC-001：createPullRequest 调用 ReviewGate.check()
+   * AC-001：ReviewGate.check() 接受 GateContext 并返回审查结果
+   *
+   * 原描述「createPullRequest 调用 ReviewGate.check()」钉的是 studio 生产接缝，
+   * 但 studio 生产代码从未接线 ReviewGate（全仓 grep 零命中，见文件头注）；
+   * 本用例实际钉的是 harness check() 的入参/返回形状，故如实改名保留。
    */
-  it('AC-001: should call ReviewGate.check() after PR creation', async () => {
+  it('AC-001: ReviewGate.check() accepts GateContext and returns GateResult', async () => {
     const project = {
       id: 'test-project',
       pmoNumber: 'PM-001',
@@ -57,10 +68,9 @@ describe('AS-007: ReviewGate Integration', () => {
 
     // 验证 ReviewGate.check 被调用
     expect(reviewGate.check).toBeDefined();
-    
+
     const gateContext: GateContext = {
-      projectId: project.id,
-      projectPath: `/root/projects/${project.pmoNumber}`,
+      projectPath: `projects/${project.pmoNumber}`,
       prNumber: 123,
     };
 
@@ -75,8 +85,7 @@ describe('AS-007: ReviewGate Integration', () => {
    */
   it('AC-002: should return reviewStatus in PR result', async () => {
     const gateContext: GateContext = {
-      projectId: 'test-project',
-      projectPath: '/root/projects/PM-001',
+      projectPath: 'projects/PM-001',
       prNumber: 123,
     };
 
@@ -124,14 +133,14 @@ describe('AS-007: ReviewGate Integration', () => {
     });
 
     const workDirs = JSON.parse(process.env.PROJECT_WORKDIRS || '{}');
-    const path = workDirs[projectId] || `/root/projects/${pmoNumber}`;
+    const path = workDirs[projectId] || `projects/${pmoNumber}`;
 
     expect(path).toBe('/custom/path/PM-001');
 
     // 方案 B: 默认规则
     delete process.env.PROJECT_WORKDIRS;
-    const defaultPath = `/root/projects/${pmoNumber}`;
-    expect(defaultPath).toBe('/root/projects/PM-001');
+    const defaultPath = `projects/${pmoNumber}`;
+    expect(defaultPath).toBe('projects/PM-001');
   });
 
   /**
@@ -139,8 +148,7 @@ describe('AS-007: ReviewGate Integration', () => {
    */
   it('AC-005: should not block PR creation when ReviewGate fails', async () => {
     const gateContext: GateContext = {
-      projectId: 'test-project',
-      projectPath: '/root/projects/PM-001',
+      projectPath: 'projects/PM-001',
       prNumber: 123,
     };
 
@@ -160,8 +168,7 @@ describe('AS-007: ReviewGate Integration', () => {
     };
 
     const gateContext: GateContext = {
-      projectId: 'test-project',
-      projectPath: '/root/projects/PM-001',
+      projectPath: 'projects/PM-001',
       prNumber: 123,
     };
 

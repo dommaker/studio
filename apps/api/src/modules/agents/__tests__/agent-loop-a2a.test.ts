@@ -35,7 +35,8 @@ vi.mock('../../knowledge/knowledge-service', () => ({
   },
 }));
 
-import { AgentLoop, parseAgentOutput } from '../loop/agent-loop';
+import { AgentLoop } from '../loop/agent-loop';
+import { parseAgentOutput } from '../loop/agent-loop-parsers';
 
 function makeProfile(id: string, name: string): AgentProfileData {
   return {
