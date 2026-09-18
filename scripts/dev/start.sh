@@ -38,20 +38,29 @@ nohup npm run dev -- --port $WEB_PORT --host 0.0.0.0 > /tmp/studio-web-dev.log 2
 WEB_PID=$!
 echo "   Web PID: $WEB_PID"
 
-# 等待服务启动
-sleep 3
+# 轮询等待端口就绪（tsx 冷启动 ~5s，固定 sleep 会误报失败；#582）
+wait_for_port() {
+  local port=$1 pid=$2 logfile=$3 name=$4
+  local deadline=$((SECONDS + 30))
+  while [ $SECONDS -lt $deadline ]; do
+    if ss -tlnp | grep -q ":$port "; then
+      echo "✅ $name running"
+      return 0
+    fi
+    if ! kill -0 "$pid" 2>/dev/null; then
+      echo "❌ Failed to start $name (process exited)"
+      tail -20 "$logfile"
+      return 1
+    fi
+    sleep 1
+  done
+  echo "❌ Failed to start $name (timeout after 30s)"
+  tail -20 "$logfile"
+  return 1
+}
 
 # 检查服务状态
-if ss -tlnp | grep -q ":$API_PORT"; then
-  echo "✅ API running"
-else
-  echo "❌ Failed to start API"
-  tail -20 /tmp/studio-api-dev.log
-fi
-
-if ss -tlnp | grep -q ":$WEB_PORT"; then
-  echo "✅ Web running"
-else
-  echo "❌ Failed to start Web"
-  tail -20 /tmp/studio-web-dev.log
-fi
+STATUS=0
+wait_for_port "$API_PORT" "$API_PID" /tmp/studio-api-dev.log API || STATUS=1
+wait_for_port "$WEB_PORT" "$WEB_PID" /tmp/studio-web-dev.log Web || STATUS=1
+exit $STATUS
