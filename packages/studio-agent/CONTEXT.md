@@ -109,6 +109,6 @@ hook 统一指向 `@dommaker/harness` 包内出厂 shim `dist/pretool-use-hook.j
 
 | 配置 | 默认值 | 说明 |
 |------|:---:|------|
-| `sessionTimeoutMinutes` | 30 | **只写不读**——单次 spawn 的超时实取 `task.timeoutMs ?? 30min`（硬编码扁平默认在 runner-lightweight），改这个字段不影响任何行为。同类：`taskTimeoutMinutes`。#587 核实后暂留：删它要连带改 apps/api 审计 Agent 给人看的建议文案（引用了这个旋钮），另票处理 |
+| `sessionTimeoutMinutes` | 30 | **只写不读**——单次 spawn 的超时实取 `task.timeoutMs ?? 30min`（硬编码扁平默认在 runner-lightweight），改这个字段不影响任何行为。同类：`taskTimeoutMinutes`。#587 核实后暂留；apps/api 审计建议文案的连带约束已由 #593 解除（文案改指 `task.timeoutMs`/`silenceWarnMs`/`silenceKillMs`），#589 可安全删除这两字段 |
 | `heartbeatIntervalMinutes` | 5 | 心跳间隔 |
 | `dockerImage` | claude-code:fast | Claude Code Docker 镜像 |

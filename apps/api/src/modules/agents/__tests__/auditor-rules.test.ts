@@ -187,7 +187,26 @@ describe('generateSuggestions()', () => {
     const pt = suggestions.filter(s => s.type === 'param_tuning');
     expect(pt.length).toBe(1);
     expect(pt[0].risk).toBe('high');
-    expect(pt[0].detail).toContain('sessionTimeoutMinutes');
+    expect(pt[0].detail).toContain('timeoutMs');
+  });
+
+  // #593：param_tuning 文案里出现的旋钮名必须落在真生效的配置面里——
+  // 生效面 = runner-lightweight spawn 选项（packages/studio-agent services/runner-lightweight.ts
+  // 的 timeoutMs / silenceWarnMs / silenceKillMs）；ExecutorConfig 的两个 *TimeoutMinutes 只写不读。
+  it('param_tuning 文案只引用真生效的超时旋钮（防回归）', async () => {
+    const EFFECTIVE_TIMEOUT_KNOBS = new Set(['timeoutMs', 'silenceWarnMs', 'silenceKillMs']);
+    const agentTypeStats = new Map([['executor', { total: 10, failed: 6 }]]);
+    const errorByAgentType = new Map([['executor', new Map([['timeout', 4], ['other', 2]])]]);
+
+    const suggestions = await generateSuggestions(fileStoreStub, agentTypeStats, errorByAgentType);
+    const pt = suggestions.filter(s => s.type === 'param_tuning');
+    expect(pt.length).toBe(1);
+
+    const knobNames = pt[0].detail.match(/\b[a-zA-Z]+(?:Ms|Minutes)\b/g) ?? [];
+    expect(knobNames.length).toBeGreaterThan(0);
+    for (const knob of knobNames) {
+      expect(EFFECTIVE_TIMEOUT_KNOBS.has(knob)).toBe(true);
+    }
   });
 
   it('detects prompt_optimization: failureRate > 0.3 + llm/model dominant', async () => {
