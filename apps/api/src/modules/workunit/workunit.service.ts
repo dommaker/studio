@@ -22,6 +22,7 @@ import { snapshotToData } from './workunit.mappers.js';
 import { WorkUnitCrudService, type WorkUnitData } from './workunit-crud.js';
 import { postWuSystemMessage } from './wu-messenger.js';
 import { writeStudioEvent } from '../../utils/studio-events.js';
+import { recordAgentDecision, type AuditActor } from '../audit-logs/agent-decision.js';
 // #428：未归属口径的戳解析复用 requirements 的零依赖叶子（无循环依赖风险，见该文件头注释）
 import { parseWuPmoId } from '../requirements/wu-pmo-attribution.js';
 
@@ -49,6 +50,12 @@ export type ManualVerifyResult =
 
 function trackReviewPassEffect(effect: Promise<unknown>): void {
   reviewPassTracker.track(effect);
+}
+
+/** #591：attestation 来源 → 埋点主体（human-confirm=人审；agent-review/缺省=agent 侧） */
+function attestationActor(attestation?: ReviewAttestationSource): AuditActor | undefined {
+  if (!attestation) return undefined;
+  return { id: attestation.by, type: attestation.kind === 'human-confirm' ? 'human' : 'agent' };
 }
 
 /**
@@ -164,9 +171,11 @@ export class WorkUnitService extends WorkUnitCrudService {
 
   /**
    * Transition WorkUnit status with state machine validation.
+   * #591：actor 可选透传给流转埋点（REST 人工流转传 human；缺省在 persistSnapshot
+   * 尾部按 assigneeId 命中 agent 状态库派生）。
    * @throws Error if transition is not allowed
    */
-  async transitionStatus(id: string, newStatus: string): Promise<WorkUnitData> {
+  async transitionStatus(id: string, newStatus: string, actor?: AuditActor): Promise<WorkUnitData> {
     const current = (await this.fileStore.getIndex({ id }))[0];
     if (!current) {
       throw new Error('WorkUnit not found');
@@ -196,6 +205,7 @@ export class WorkUnitService extends WorkUnitCrudService {
       eventType,
       status: newStatus,
       markCompleted: newStatus === 'done' || newStatus === 'closed',
+      auditActor: actor,
     });
 
     // #126（T4）：人工确认（pending → unassigned）解除人闸——feature 单此时补展开
@@ -238,6 +248,8 @@ export class WorkUnitService extends WorkUnitCrudService {
       eventType: 'completed',
       status: 'closed',
       markCompleted: true,
+      // #591：closedBy 映射埋点主体——human-command 是人指令；系统看守（超时强杀/死信等）记 agent 自主
+      auditActor: { id: opts.closedBy, type: opts.closedBy === 'human-command' ? 'human' : 'agent' },
     });
 
     await this.writeWorkUnitClosedEvent(current, opts, updated.closedAt ?? updated.updatedAt);
@@ -328,6 +340,7 @@ export class WorkUnitService extends WorkUnitCrudService {
       eventType: 'completed',
       status: 'done',
       markCompleted: true,
+      auditActor: attestationActor(attestation),
     });
 
     // B3b-ii（决策 D1/D3 后半）：评审通过 → task 分支自动合并回 base 分支。
@@ -586,7 +599,7 @@ export class WorkUnitService extends WorkUnitCrudService {
     // in_review → active/blocked 也是状态变化：status_changed 由 persistSnapshot 尾部补发（列表实时刷新）。
     // 本方法历史口径不做父聚合（aggregateParent: false 保留原行为，勿顺手改）
     const eventType: WorkUnitEvent['type'] = newStatus === 'blocked' ? 'blocked' : 'updated';
-    const updated = await this.persistSnapshot(current, metadata, { eventType, status: newStatus, aggregateParent: false });
+    const updated = await this.persistSnapshot(current, metadata, { eventType, status: newStatus, aggregateParent: false, auditActor: attestationActor(attestation) });
 
     if (newStatus === 'blocked') {
       logger.warn('[WorkUnit] Auto-blocked after 3 consecutive review rejections', { workUnitId: id });
@@ -642,6 +655,8 @@ export class WorkUnitService extends WorkUnitCrudService {
       patch?: Partial<WorkUnitSnapshot>;
       /** 父状态聚合开关；缺省 = status ∈ active/blocked/done/closed 时聚合 */
       aggregateParent?: boolean;
+      /** #591：流转埋点主体透传；缺省按 assigneeId 命中 agent 状态库派生 */
+      auditActor?: AuditActor;
     },
   ): Promise<WorkUnitSnapshot> {
     const isoNow = new Date().toISOString();
@@ -672,6 +687,25 @@ export class WorkUnitService extends WorkUnitCrudService {
     };
     await this.fileStore.commitSnapshot(event, updated);
     await this.publishStatusChanged(updated);
+
+    // #591：状态机流转埋点（决策词表 transition，落 audit-logs 轨）——仅真实状态迁移落账
+    // （台账补写等无 status 变化的路径不落）；actor 缺省按 assigneeId 命中 agent 状态库派生；
+    // traceId 取 WU metadata.traceId（与频道链路/audit requestId 同值口径）；fire-and-forget
+    if (opts.status !== undefined && opts.status !== current.status) {
+      let actor = opts.auditActor;
+      if (!actor && updated.assigneeId) {
+        const state = await this.fileStore.getState(updated.assigneeId).catch(() => null);
+        if (state) actor = { id: updated.assigneeId, type: 'agent' };
+      }
+      recordAgentDecision({
+        action: 'transition',
+        resource: 'workunit',
+        resourceId: current.id,
+        actor,
+        details: { from: current.status, to: opts.status, eventType: opts.eventType },
+        requestId: parseWuMetadata(metadataRaw).traceId,
+      });
+    }
 
     // Cascade: parent status aggregation（fire-and-forget，与原 transitionStatus 先例一致）
     const shouldAggregate = opts.aggregateParent

@@ -65,6 +65,10 @@ vi.mock('../wu-messenger.js', async (importOriginal) => {
   };
 });
 
+// #591：认领决策埋点间谍（recordAgentDecision 落 audit-logs 轨，fire-and-forget）
+const { decisionSpy } = vi.hoisted(() => ({ decisionSpy: vi.fn() }));
+vi.mock('../../audit-logs/agent-decision.js', () => ({ recordAgentDecision: decisionSpy }));
+
 import { postWuSystemMessage } from '../wu-messenger.js';
 import { claimWorkUnitAndAnnounce } from '../claim-announce.js';
 import { AgentLoop } from '../../agents/loop/agent-loop.js';
@@ -138,6 +142,46 @@ describe('claimWorkUnitAndAnnounce（认领即发声原语）', () => {
 
     expect(claimed.status).toBe('active');
     expect((await wuService.getById(wu.id))!.assigneeId).toBe('user-1');
+  });
+
+  // ─── #591：认领决策埋点（词表 claim，落 audit-logs 轨）───
+
+  it('认领埋点：人工认领（无实例状态）→ actorType=human；认领失败不落账', async () => {
+    const wu = await wuService.create({ scope: '实现某个功能', channelId, type: 'task', status: 'unassigned' });
+    const wu2 = await wuService.create({ scope: '另一张单', channelId, type: 'task', status: 'unassigned' });
+    await wuService.claim(wu2.id, 'instance-other');
+
+    await claimWorkUnitAndAnnounce(wu.id, 'user-1', '守夜人', { wuService, fileStore });
+    await expect(
+      claimWorkUnitAndAnnounce(wu2.id, 'user-1', '守夜人', { wuService, fileStore }),
+    ).rejects.toThrow('Claim failed');
+
+    expect(decisionSpy).toHaveBeenCalledTimes(1);
+    expect(decisionSpy).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'claim',
+      resource: 'workunit',
+      resourceId: wu.id,
+      actor: { id: 'user-1', type: 'human' },
+      details: { claimerName: '守夜人' },
+    }));
+  });
+
+  it('认领埋点：agent 实例认领 → actorType=agent；WU metadata.traceId 透传为 requestId', async () => {
+    // 造一个 agent 运行实例状态（agents/<id>/state.json），getState 命中即 agent
+    fs.mkdirSync(path.join(testDir, 'agents', 'instance-a1'), { recursive: true });
+    fs.writeFileSync(path.join(testDir, 'agents', 'instance-a1', 'state.json'), JSON.stringify({ roleId: 'role-a1' }));
+    const wu = await wuService.create({
+      scope: '实现某个功能', channelId, type: 'task', status: 'unassigned',
+      metadata: { traceId: 'trace-claim-1' },
+    });
+
+    await claimWorkUnitAndAnnounce(wu.id, 'instance-a1', '巡检员', { wuService, fileStore });
+
+    expect(decisionSpy).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'claim',
+      actor: { id: 'instance-a1', type: 'agent' },
+      requestId: 'trace-claim-1',
+    }));
   });
 });
 
