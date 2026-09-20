@@ -5,6 +5,10 @@ import { logger } from '../../utils/logger.js';
 import { FileStore } from '@dommaker/studio-shared';
 import { parsePagination, formatPaginatedResponse } from '../../utils/pagination.js';
 import { createLazyService } from '../../utils/services.js';
+import {
+  queryProposalDecisionRows,
+  getProposalDecisionRowById,
+} from './proposal-source.js';
 
 const router = Router();
 
@@ -14,7 +18,7 @@ const getAuditService = createLazyService(() => new AuditService(new FileStore()
 
 /**
  * GET /api/audit-logs - 查询审计日志
- * 
+ *
  * Query params:
  * - userId: 用户 ID
  * - roleId: 角色 ID
@@ -23,6 +27,9 @@ const getAuditService = createLazyService(() => new AuditService(new FileStore()
  * - resource: 资源类型
  * - resourceId: 资源 ID
  * - status: 状态 (success/failure)
+ * - actorType: 决策主体类型（#591：human/agent；human 归一匹配存量无字段行）
+ * - source: 来源维度（#591：operation|proposal|all，缺省 operation 保持既有行为）；
+ *   含 proposal 时合并 review-proposal 聚合行后统一排序分页
  * - startTime: 开始时间 (ISO 8601)
  * - endTime: 结束时间 (ISO 8601)
  * - page: 页码 (default: 1)
@@ -34,7 +41,8 @@ router.get('/', async (req: Request, res: Response) => {
     // #359：统一 parsePagination（clamp 1..100），堵 limit=999999 直通豁口；缺省 50→20
     const { page, limit } = parsePagination(req);
 
-    const query = {
+    const source = typeof req.query.source === 'string' ? req.query.source : 'operation';
+    const baseQuery = {
       userId: req.query.userId as string,
       roleId: req.query.roleId as string,
       companyId: req.query.companyId as string,
@@ -43,13 +51,24 @@ router.get('/', async (req: Request, res: Response) => {
       resourceId: req.query.resourceId as string,
       status: req.query.status as string,
       anonymousId: req.query.anonymousId as string,  // 🆕 SEC-009
+      actorType: req.query.actorType as 'human' | 'agent' | undefined,  // #591
       startTime: req.query.startTime ? new Date(req.query.startTime as string) : undefined,
       endTime: req.query.endTime ? new Date(req.query.endTime as string) : undefined,
-      page,
-      limit,
     };
 
-    const result = await service.query(query);
+    if (source === 'proposal' || source === 'all') {
+      // #591 A 类：聚合 review-proposal 源，与操作轨合并后统一排序分页（全内存，与 query 同口径）
+      const opRows = source === 'all'
+        ? (await service.query({ ...baseQuery, page: 1, limit: 10000 })).data
+        : [];
+      const proposalRows = await queryProposalDecisionRows(baseQuery);
+      const merged = [...opRows, ...proposalRows]
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      res.json(formatPaginatedResponse(merged.slice((page - 1) * limit, page * limit), merged.length, page, limit));
+      return;
+    }
+
+    const result = await service.query({ ...baseQuery, page, limit });
 
     res.json(formatPaginatedResponse(result.data, result.total, result.page, result.limit));
   } catch (error) {
@@ -114,17 +133,27 @@ router.get('/export', async (req: Request, res: Response) => {
   try {
     const service = getAuditService();
 
+    const source = typeof req.query.source === 'string' ? req.query.source : 'operation';
     const query = {
       userId: req.query.userId as string,
       companyId: req.query.companyId as string,
       action: req.query.action as string,
       resource: req.query.resource as string,
       status: req.query.status as string,
+      actorType: req.query.actorType as 'human' | 'agent' | undefined,  // #591
       startTime: req.query.startTime ? new Date(req.query.startTime as string) : undefined,
       endTime: req.query.endTime ? new Date(req.query.endTime as string) : undefined,
     };
 
-    const logs = await service.export(query);
+    // #591：source 含 proposal 时合并提案源（导出上限与操作轨一致 10000）
+    const logs = source === 'operation'
+      ? await service.export(query)
+      : [
+          ...(source === 'all' ? await service.export(query) : []),
+          ...await queryProposalDecisionRows(query),
+        ]
+          .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+          .slice(0, 10000);
 
     // 设置下载头
     res.setHeader('Content-Type', 'application/json');
@@ -145,7 +174,9 @@ router.get('/export', async (req: Request, res: Response) => {
 router.get('/:id', async (req: Request, res: Response) => {
   try {
     const service = getAuditService();
-    const log = await service.getById(req.params.id);
+    // #591：操作轨未命中时回查 review-proposal 聚合源（提案行 id = 提案 id）
+    const log = await service.getById(req.params.id)
+      ?? await getProposalDecisionRowById(req.params.id);
 
     if (!log) {
       return res.status(404).json({

@@ -84,6 +84,12 @@ export function getReviewProposalAdapter<P extends ReviewProposalBase = ReviewPr
   return registry.get(kind) as ReviewProposalAdapter<P> | undefined;
 }
 
+/** 枚举全部已注册 adapter（#591 审计聚合读面遍历用） */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function listReviewProposalAdapters(): ReviewProposalAdapter<any>[] {
+  return [...registry.values()];
+}
+
 /** 清空注册表（测试隔离用） */
 export function clearReviewProposalAdapters(): void {
   registry.clear();
