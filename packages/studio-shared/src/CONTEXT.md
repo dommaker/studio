@@ -13,7 +13,7 @@
 | `loadConfig`, `getConfig`, `StudioConfig` | cli/config | CLI 配置文件 (.studio/config.yaml) 加载与访问 |
 | `registerCommand`, `getCommand`, `runCommand`, `Command` | cli/command | 命令注册与执行框架 |
 | `formatError`, `createCliError`, `CliError`, `ERROR_CODES` | cli/error | 统一错误处理与格式化为字符串 |
-| `loadConfigEnv`, `AgentStudioConfig` | config | 系统级配置加载 (~/.studio/config.env) 及类型定义 |
+| `loadConfigEnv`, `LlmProvider` | config | 系统级配置加载 (~/.studio/config.env) 及 LLM provider 类型 |
 | `LEVEL_CONFIG`, `getLevelConfig`, `getLevelSalary` 等 | constants/levels | 全局统一的职级配置与辅助函数 |
 | `eventBus`, `StudioEventBus` | event-bus | 内存事件总线，支持通配符订阅；监听器上限显式抬到 64（`workunit.status_changed` 模块级订阅方常态 11+ 每个 AgentLoop 实例再 +1，属业务扇出非泄漏，P9） |
 | `AgentProfileData`, `RuntimeStateData`, `ChannelData`, `ChannelMessageData` 等 | file-store | 文件存储基础数据类型。`ChannelData.routing`（#466）= 频道级「阶段→角色」路由表 `{ plan?, implement?, review? }`（profile id，档空 = 回池涌现；`defaultPipeline` 已吞并退役，存量由 api 侧 migrate-routing 迁移），解析/校验语义属主在 api channels/routing.ts |
