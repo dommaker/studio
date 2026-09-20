@@ -70,7 +70,7 @@ pnpm start  # 启动生产服务
 
 - 本文件机器生成部分由 `harness sync-docs --agents` 生成；`AUTO-GENERATED:modules` 段由 `pnpm gen:agents-md`（scripts/gen-agents-md.mjs）维护；统一重建入口 `pnpm agents-md:sync`（先 harness 打底，再组合模块索引段，幂等）。机器生成段禁止手改，过时重新生成。
 - 手写内容住 `PRESERVE:*` 段（本段、Agent skills 等），重新生成原样保留；手写段的增删改走治理变更流程。
-- CI 的 `harness sync-docs --check --agents` 漂移校验对组合文件有效（模块索引段外层套 `PRESERVE:modules`，2026-07-27 治理决策起 CI 开启 `--agents`）。
+- CI 的 `harness sync-docs --check --agents` 漂移校验对组合文件有效（模块索引段外层套 `PRESERVE:modules`，2026-07-27 治理决策起 CI 开启 `--agents`）。校验面只覆盖机器生成段：HARNESS_CONSTRAINTS 注入段的版本戳/漂移校验已随 harness 1.10.0（ADR-0029 文本注入层关停）摘除，治理文本由本段手写自证。
 
 ## 治理变更流程（#166，2026-08-16）
 
