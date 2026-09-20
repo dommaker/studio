@@ -2,6 +2,7 @@
 // 时间范围筛选传后端 / 筛选变化重置 page / userId 300ms 防抖（批次 B-5）/
 // 导出带 status（与列表口径一致）/ 视觉收敛（max-w-5xl + StatCard 配方 + mc-block-label 分区）/ 分页文案「上一页/下一页」
 // 批次 F-4：错误条补重试 / 导出点击反馈（toast）/ 空态双语境（真空 vs 筛选无结果）
+// #591：来源（source）/主体（actorType）筛选 + 用户列 Agent 标识 + 提案终态 status neutral fallback + 导出带新参数
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
@@ -303,5 +304,126 @@ describe('AuditLogsPage（E7 审计日志页改造）', () => {
     // 恢复后操作筛选下拉带 actions 选项
     fireEvent.click(screen.getByLabelText('操作筛选'));
     expect(await screen.findByRole('option', { name: 'create' })).toBeTruthy();
+  });
+
+  it('#591：缺省拉取带 source=all（「全部」语义；后端缺省 operation，需显式传 all），不带 actorType', async () => {
+    render(<AuditLogsPage />);
+    await screen.findByText('user-a');
+
+    expect(mockList).toHaveBeenLastCalledWith(
+      expect.objectContaining({ source: 'all', actorType: undefined }),
+    );
+  });
+
+  it('#591：来源筛选——选「Agent 提案」带 source=proposal 并回第 1 页；「操作日志」= operation', async () => {
+    render(<AuditLogsPage />);
+    await screen.findByText('user-a');
+
+    fireEvent.click(screen.getByLabelText('来源筛选'));
+    fireEvent.click(await screen.findByRole('option', { name: 'Agent 提案' }));
+    await waitFor(() =>
+      expect(mockList).toHaveBeenLastCalledWith(
+        expect.objectContaining({ source: 'proposal', page: 1 }),
+      ),
+    );
+
+    fireEvent.click(screen.getByLabelText('来源筛选'));
+    fireEvent.click(await screen.findByRole('option', { name: '操作日志' }));
+    await waitFor(() =>
+      expect(mockList).toHaveBeenLastCalledWith(
+        expect.objectContaining({ source: 'operation', page: 1 }),
+      ),
+    );
+  });
+
+  it('#591：主体筛选——「人」= human、「Agent」= agent；回「全部」不再带 actorType', async () => {
+    render(<AuditLogsPage />);
+    await screen.findByText('user-a');
+
+    fireEvent.click(screen.getByLabelText('主体筛选'));
+    fireEvent.click(await screen.findByRole('option', { name: '人' }));
+    await waitFor(() =>
+      expect(mockList).toHaveBeenLastCalledWith(
+        expect.objectContaining({ actorType: 'human', page: 1 }),
+      ),
+    );
+
+    fireEvent.click(screen.getByLabelText('主体筛选'));
+    fireEvent.click(await screen.findByRole('option', { name: 'Agent' }));
+    await waitFor(() =>
+      expect(mockList).toHaveBeenLastCalledWith(
+        expect.objectContaining({ actorType: 'agent', page: 1 }),
+      ),
+    );
+
+    fireEvent.click(screen.getByLabelText('主体筛选'));
+    fireEvent.click(await screen.findByRole('option', { name: '全部主体' }));
+    await waitFor(() =>
+      expect(mockList).toHaveBeenLastCalledWith(
+        expect.objectContaining({ actorType: undefined, page: 1 }),
+      ),
+    );
+  });
+
+  it('#591：agent 行用户列带「Agent」标识 badge，人/存量行不带', async () => {
+    mockList.mockResolvedValue({
+      data: {
+        data: [
+          ...LOGS,
+          { id: 'log-2', action: 'propose', resource: 'distill', status: 'pending', actorType: 'agent', createdAt: '2026-09-08T11:00:00Z' },
+        ],
+        pagination: { page: 1, limit: 50, total: 2, totalPages: 1 },
+      },
+    });
+    render(<AuditLogsPage />);
+    const badge = await screen.findByText('Agent');
+    expect(badge.className).toContain('rounded');
+
+    const humanCell = screen.getByText('user-a').closest('td')!;
+    expect(humanCell.textContent).not.toContain('Agent');
+  });
+
+  it('#591：提案行终态 status（pending/executed/rejected/card-failed）走 neutral fallback 不报错', async () => {
+    mockList.mockResolvedValue({
+      data: {
+        data: ['pending', 'executed', 'rejected', 'card-failed'].map((status, i) => ({
+          id: `log-p${i}`,
+          action: 'propose',
+          resource: 'distill',
+          status,
+          actorType: 'agent',
+          createdAt: '2026-09-08T10:00:00Z',
+        })),
+        pagination: { page: 1, limit: 50, total: 4, totalPages: 1 },
+      },
+    });
+    render(<AuditLogsPage />);
+
+    for (const status of ['pending', 'executed', 'rejected', 'card-failed']) {
+      const badge = await screen.findByText(status);
+      // neutral fallback（与未知 status 同款 u-surface-2 u-text），不出错不空白
+      expect(badge.className).toContain('u-surface-2');
+    }
+  });
+
+  it('#591：导出带 source/actorType 参数（与列表口径一致）', async () => {
+    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => ({} as Window));
+    render(<AuditLogsPage />);
+    await screen.findByText('user-a');
+
+    fireEvent.click(screen.getByLabelText('主体筛选'));
+    fireEvent.click(await screen.findByRole('option', { name: 'Agent' }));
+    await waitFor(() =>
+      expect(mockList).toHaveBeenLastCalledWith(expect.objectContaining({ actorType: 'agent' })),
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '导出' }));
+
+    expect(openSpy).toHaveBeenCalledTimes(1);
+    const url = openSpy.mock.calls[0][0] as string;
+    expect(url).toContain('/audit-logs/export');
+    expect(url).toContain('source=all');
+    expect(url).toContain('actorType=agent');
+    openSpy.mockRestore();
   });
 });

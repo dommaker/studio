@@ -38,4 +38,18 @@ describe('auditLogApi', () => {
       .toBe('/api/v1/audit-logs/export?action=login&userId=u1');
     expect(auditLogApi.getExportUrl()).toBe('/api/v1/audit-logs/export');
   });
+
+  // #591：来源/主体两个过滤维度
+  it('list 透传 actorType/source 参数', async () => {
+    const params = { actorType: 'agent' as const, source: 'proposal' as const, page: 1 };
+    await auditLogApi.list(params);
+    expect(api.get).toHaveBeenCalledWith('/audit-logs', { params });
+  });
+
+  it('getExportUrl 带 actorType/source 参数', () => {
+    expect(auditLogApi.getExportUrl({ actorType: 'agent', source: 'proposal' }))
+      .toBe('/api/v1/audit-logs/export?actorType=agent&source=proposal');
+    expect(auditLogApi.getExportUrl({ source: 'all' }))
+      .toBe('/api/v1/audit-logs/export?source=all');
+  });
 });

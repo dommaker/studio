@@ -24,11 +24,14 @@ export const AuditLogsPage: React.FC = () => {
   const toggleExpanded = (id: string) => setExpandedId(cur => (cur === id ? null : id));
 
   // Filters（startDate/endDate 为日期 input 原值 YYYY-MM-DD，请求时转 ISO）
+  // #591：source 缺省 'all'（「全部」；后端缺省 operation，需显式传）；actorType '' = 不传
   const [filters, setFilters] = useState({
     action: '',
     resource: '',
     status: '',
     userId: '',
+    source: 'all',
+    actorType: '',
     startDate: '',
     endDate: '',
   });
@@ -47,6 +50,8 @@ export const AuditLogsPage: React.FC = () => {
       resource: filters.resource || undefined,
       status: filters.status || undefined,
       userId: filters.userId || undefined,
+      source: filters.source as 'operation' | 'proposal' | 'all',
+      actorType: (filters.actorType || undefined) as 'human' | 'agent' | undefined,
       startTime: toStartIso(filters.startDate),
       endTime: toEndIso(filters.endDate),
       page,
@@ -56,7 +61,7 @@ export const AuditLogsPage: React.FC = () => {
       logs: (response.data.data || []) as AuditLog[],
       total: response.data.pagination?.total || 0,
     };
-  }, [filters.action, filters.resource, filters.status, filters.userId, filters.startDate, filters.endDate, page]);
+  }, [filters.action, filters.resource, filters.status, filters.userId, filters.source, filters.actorType, filters.startDate, filters.endDate, page]);
 
   const statsData = useAsyncData(async () => (await auditLogApi.getStats()).data, []);
 
@@ -83,11 +88,13 @@ export const AuditLogsPage: React.FC = () => {
 
   // 批次 F-4：空态双语境——有任一筛选生效时走「筛选无结果」语境 + 清除入口
   const hasActiveFilters = Boolean(
-    filters.action || filters.resource || filters.status || filters.userId || filters.startDate || filters.endDate,
+    filters.action || filters.resource || filters.status || filters.userId ||
+    filters.actorType || filters.source !== 'all' ||
+    filters.startDate || filters.endDate,
   );
   const clearFilters = () => {
     setUserIdInput('');
-    setFilters({ action: '', resource: '', status: '', userId: '', startDate: '', endDate: '' });
+    setFilters({ action: '', resource: '', status: '', userId: '', source: 'all', actorType: '', startDate: '', endDate: '' });
     setPage(1);
   };
 
@@ -117,6 +124,8 @@ export const AuditLogsPage: React.FC = () => {
       resource: filters.resource || undefined,
       status: filters.status || undefined,
       userId: filters.userId || undefined,
+      source: filters.source as 'operation' | 'proposal' | 'all',
+      actorType: (filters.actorType || undefined) as 'human' | 'agent' | undefined,
       startTime: toStartIso(filters.startDate),
       endTime: toEndIso(filters.endDate),
     });
@@ -269,6 +278,30 @@ export const AuditLogsPage: React.FC = () => {
           ]}
         />
 
+        {/* #591：来源筛选（缺省「全部」= all，显式传参覆盖后端缺省 operation） */}
+        <Select
+          aria-label={'来源筛选'}
+          value={filters.source}
+          onChange={(v) => applyFilter({ source: v })}
+          options={[
+            { value: 'all', label: '全部来源' },
+            { value: 'operation', label: '操作日志' },
+            { value: 'proposal', label: 'Agent 提案' },
+          ]}
+        />
+
+        {/* #591：主体筛选（缺省「全部」不传参） */}
+        <Select
+          aria-label={'主体筛选'}
+          value={filters.actorType}
+          onChange={(v) => applyFilter({ actorType: v })}
+          options={[
+            { value: '', label: '全部主体' },
+            { value: 'human', label: '人' },
+            { value: 'agent', label: 'Agent' },
+          ]}
+        />
+
         <input
           type="text"
           placeholder={'用户 ID'}
@@ -380,6 +413,10 @@ export const AuditLogsPage: React.FC = () => {
                   </td>
                   <td className="py-3 px-4 text-sm">
                     {log.userId || log.roleId || '-'}
+                    {/* #591：agent 行主体标识（存量行无 actorType 视为 human，不显示） */}
+                    {log.actorType === 'agent' && (
+                      <span className="ml-1 px-1.5 py-0.5 rounded text-xs font-medium u-accent-dim u-accent">{'Agent'}</span>
+                    )}
                   </td>
                   <td className="py-3 px-4">
                     {getStatusBadge(log.status)}
