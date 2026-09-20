@@ -181,7 +181,8 @@ interface RawDistillProduct {
 
 const CONSTRAINT_ACTIONS = new Set(['add', 'override', 'retire']);
 
-/** 与 harness ConstraintLevel 对齐的四值白名单（prompt 已声明；LLM 乱给 level 丢弃不进草案） */
+/** 约束草案 level 四值白名单（历史口径，原对齐 harness 三层命名；harness 1.10.0/ADR-0029
+ *  起该机制退役，白名单仅作 LLM 输出清洗，乱给值丢弃不进草案；落点去留待裁定） */
 const CONSTRAINT_LEVELS = new Set(['iron_law', 'guideline', 'prompt', 'tip']);
 
 /** LLM 原始 change 字段 → 约束变更草案参数；不合法返回 null（调用方回落 knowledge） */

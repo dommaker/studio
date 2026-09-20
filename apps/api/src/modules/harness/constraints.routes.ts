@@ -16,6 +16,8 @@
  * POST /constraints/:id/degrade、POST /constraints/:id/schedule（deprecationSchedule 删除）。
  * 响应字段说明（harness 1.10.0 / ADR-0029）：原 layer/deprecationStatus/permanent 不存在；
  * 三层 level 命名废弃，条目带显式 severity（error/warning/info）；kind 收窄为单值 'check'。
+ * custom-constraints.yml 装载机制已随 harness 1.10.0 退役（studio#606 起本仓不再携带该文件）；
+ * custom 落点通道保留为可选历史面——文件缺失时 retired 清单/rollback 自动降级为 config.yml 单落点。
  */
 
 import { Router, Request, Response } from 'express';
