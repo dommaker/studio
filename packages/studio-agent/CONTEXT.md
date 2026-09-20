@@ -17,7 +17,7 @@ Sub-agent 的完整生命周期管理：创建隔离 worktree → 传播 harness
 > 2026-08：旧 `AgentExecutor`/`agentExecutor`（services/session-manager.ts）为 runner-* 拆分前的死代码双胞胎，无生产调用方，已删除；`AgentTask`/`ExecutionResult` 等类型移至 `src/services/types.ts`。
 > 2026-08：`AgentCompleter`/`agentCompleter`（services/agent-completer.ts，229 行）整模块零引用，已删除；`AgentConfig`/`AgentCapabilities` 等无人消费的类型导出同步移除（apps 各自本地重定义同名 interface，未从包导入）。
 > 2026-09（#562）：死执行路径整簇删除——`services/runner-execution.ts`（`executeSessionLoop`）+ `services/runner-briefing.ts`（REQUIREMENTS.md / CACHE_PREFIX.md / 契约测试文件桥，唯一调用方就是 session loop）+ `runner-params.ts` 的 loop 专属 prompt 构建。生产全部经 `LocalExecutor → executeLightweight`（apps/api loop/executor.ts），session loop 自 runner-* 拆分起再无调用方。判据见 `docs/adr/2026-09-17-hooks-layer-shrink.md`。
-> 2026-09（#587）：#562 删完之后的剩余死面摘除——loop 遗留的 session flag / `--add-dir` 构建 helper、worktree mtime 停滞探测、RKB 解法查询薄包装、Analyst 产出上下文类型、`parameters` 上无人设置的 claude flag 拼接通道，以及 studio-shared 侧无人调用的约束 prompt 路由模块（渲染正本在 harness `renderConstraintsByTrigger`，init/check 路径自己调）。裁定的两处边界见 `docs/plans/2026-09-587-clear-562-orphans.md`。
+> 2026-09（#587）：#562 删完之后的剩余死面摘除——loop 遗留的 session flag / `--add-dir` 构建 helper、worktree mtime 停滞探测、RKB 解法查询薄包装、Analyst 产出上下文类型、`parameters` 上无人设置的 claude flag 拼接通道，以及 studio-shared 侧无人调用的约束 prompt 路由模块（渲染正本当时在 harness `renderConstraintsByTrigger`，该 API 已随 harness 1.10.0/ADR-0029 删除）。裁定的两处边界见 `docs/plans/2026-09-587-clear-562-orphans.md`。
 
 ### 执行模型
 

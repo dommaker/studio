@@ -13,9 +13,9 @@ Harness 监控与治理 API（FL-029 / T-015）：轨迹采集分析、约束生
 |------|------|
 | `runtime.ts` | @dommaker/harness 懒加载、Collector/Analyzer/KnowledgeStore 单例、TTL 缓存 |
 | `routes.ts` | 挂载门面（默认导出 Router，route-registry 挂 /api/v1/harness，2026-07 起 requireAuth+requireAdmin） |
-| `traces.routes.ts` | 轨迹采集/分析（/traces、/analysis；/diagnose 随 harness 1.2.0 ADR-0003 断链删除）。/analysis* 走 harness#100 报告入口 `analyzeRecentReport()`，响应含 `skippedLines` 坏行计数（>0 打 warn，#451） |
+| `traces.routes.ts` | 轨迹采集/分析（/traces、/analysis；/diagnose 随 harness 1.2.0 ADR-0003 断链删除）。/analysis* 走 harness#100 报告入口 `analyzeRecentReport()`，响应含 `skippedLines` 坏行计数（>0 打 warn，#451）。harness 1.10.0（ADR-0029）起 trace 字段 level→severity：/traces 查询参数与 POST body 均收 `severity`，错误文案同步 |
 | `proposals.routes.ts` | 约束提案（/proposals；/evolve 已随 harness 0.17.0 移除，execute 为 410） |
-| `constraints.routes.ts` | 约束清单 + 质量门（/constraints*、/check-constraints；degrade/schedule 已随 0.17.0 移除；retired/rollback 双落点——config.yml 内置/历史 + custom-constraints.yml #82 D6 统一落点；导出 customConstraintsPath 供 distill #146 审计装配复用） |
+| `constraints.routes.ts` | 约束清单 + 质量门（/constraints*、/check-constraints；degrade/schedule 已随 0.17.0 移除；条目字段随 harness 1.10.0 换 severity 显式面，stats 聚合桶 byLevel→bySeverity；retired/rollback 双落点——config.yml 内置/历史 + custom-constraints.yml #82 D6 落点（该文件已随 studio#606 从本仓退役，通道保留为可选历史面）；导出 customConstraintsPath 供 distill #146 审计装配复用） |
 | `knowledge.routes.ts` | 知识引擎（/knowledge*） |
 | `sessions.routes.ts` | 上下文管理（/estimate-tokens、/sessions*） |
 | `agents.routes.ts` | Agent 生命周期（/agents*） |
