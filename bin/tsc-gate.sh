@@ -59,6 +59,12 @@ else
   fi
 fi
 
-echo "🔍 tsc-gate: checking packages..."
+echo "🔍 tsc-gate: checking packages: $PKGS"
+if ! $CHECK_ALL; then
+  # 范围按暂存文件定，判定却跑在整包活工作区上——同一台机器有并行会话时，别人半写
+  # （函数体先落盘、import 行晚到）的文件会让本门禁拦下与你这次提交无关的 commit。
+  echo "   注：查的是这些包的**活工作区**，不限于已暂存内容。报错文件若不在你这次的改动里，"
+  echo "       先确认它是否属于别人的在写改动（重跑通常即绿），再决定要不要由你修。"
+fi
 node "$REPO_ROOT/bin/tsc-gate.js" --check --baseline "$BASELINE_FILE" --packages "$PKGS"
 exit $?
