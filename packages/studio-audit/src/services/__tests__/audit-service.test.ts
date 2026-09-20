@@ -347,6 +347,89 @@ describe('AuditService', () => {
   });
 
   // ============================================
+  // AC-010: actorType（#591 决策审计归一）
+  // ============================================
+  describe('actorType', () => {
+    it('log 写入 actorType 列', async () => {
+      await service.log({
+        action: 'claim',
+        resource: 'workunit',
+        resourceId: 'wu-1',
+        actorType: 'agent',
+        roleId: 'inst-1',
+      });
+
+      const lines = readLines();
+      expect(lines).toHaveLength(1);
+      expect(lines[0].actorType).toBe('agent');
+      expect(lines[0].roleId).toBe('inst-1');
+    });
+
+    it('不传 actorType 时行不含该字段（存量形状不变）', async () => {
+      await service.log({ action: 'create', resource: 'task' });
+
+      const lines = readLines();
+      expect(lines).toHaveLength(1);
+      expect('actorType' in lines[0]).toBe(false);
+    });
+
+    it('query actorType=agent 只返回 agent 行', async () => {
+      const now = new Date().toISOString();
+      writeFixture([
+        { id: 'a1', action: 'create', resource: 'task', status: 'success', createdAt: now },
+        { id: 'a2', action: 'claim', resource: 'workunit', actorType: 'agent', status: 'success', createdAt: now },
+        { id: 'a3', action: 'login', resource: 'user', actorType: 'human', status: 'success', createdAt: now },
+      ]);
+
+      const result = await service.query({ actorType: 'agent' });
+
+      expect(result.total).toBe(1);
+      expect(result.data[0].id).toBe('a2');
+    });
+
+    it('query actorType=human 匹配存量无字段行与显式 human 行', async () => {
+      const now = new Date().toISOString();
+      writeFixture([
+        { id: 'a1', action: 'create', resource: 'task', status: 'success', createdAt: now },
+        { id: 'a2', action: 'claim', resource: 'workunit', actorType: 'agent', status: 'success', createdAt: now },
+        { id: 'a3', action: 'login', resource: 'user', actorType: 'human', status: 'success', createdAt: now },
+      ]);
+
+      const result = await service.query({ actorType: 'human' });
+
+      expect(result.total).toBe(2);
+      expect(result.data.map(r => r.id).sort()).toEqual(['a1', 'a3']);
+    });
+
+    it('export 透传 actorType 过滤', async () => {
+      const now = new Date().toISOString();
+      writeFixture([
+        { id: 'a1', action: 'create', resource: 'task', status: 'success', createdAt: now },
+        { id: 'a2', action: 'auto_apply', resource: 'skill_status', actorType: 'agent', status: 'success', createdAt: now },
+      ]);
+
+      const result = await service.export({ actorType: 'agent' });
+
+      expect(result).toHaveLength(1);
+      expect(result[0].id).toBe('a2');
+    });
+
+    it('AuditActions 含决策词表动作', () => {
+      expect(AuditActions.CLAIM).toBe('claim');
+      expect(AuditActions.TRANSITION).toBe('transition');
+      expect(AuditActions.DISPATCH).toBe('dispatch');
+      expect(AuditActions.AUTO_APPLY).toBe('auto_apply');
+      expect(AuditActions.PROPOSE).toBe('propose');
+    });
+
+    it('AuditResources 含决策对象类型', () => {
+      expect(AuditResources.WORKUNIT).toBe('workunit');
+      expect(AuditResources.CHANNEL).toBe('channel');
+      expect(AuditResources.TRIGGER).toBe('trigger');
+    });
+  });
+
+  // ============================================
   // 清理临时目录
   // ============================================
   afterAll(() => {

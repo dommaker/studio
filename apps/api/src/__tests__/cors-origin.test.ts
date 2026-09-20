@@ -13,9 +13,10 @@ describe('isAllowedOrigin', () => {
     expect(isAllowedOrigin(undefined)).toBe(true);
   });
 
-  it('默认白名单：dommaker.cn 两域放行', () => {
+  it('默认白名单：dommaker.cn 两域 + studio 子域放行', () => {
     expect(isAllowedOrigin('https://dommaker.cn')).toBe(true);
     expect(isAllowedOrigin('https://www.dommaker.cn')).toBe(true);
+    expect(isAllowedOrigin('https://studio.dommaker.cn')).toBe(true);
   });
 
   it('本地开发源放行（localhost/127.0.0.1 任意端口，http/https）', () => {

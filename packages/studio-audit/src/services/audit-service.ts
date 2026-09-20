@@ -36,6 +36,8 @@ interface AuditLogRow {
   errorMessage?: string;
   sessionId?: string;
   requestId?: string;
+  /** 决策主体类型（#591）：存量行无此字段，读取侧按 'human' 归一 */
+  actorType?: 'human' | 'agent';
   createdAt: string; // ISO 8601
 }
 
@@ -68,6 +70,9 @@ export interface AuditLogInput {
   // 上下文
   sessionId?: string;
   requestId?: string;
+
+  /** 决策主体类型（#591）：agent 自主决策埋点置 'agent'；人的操作缺省不写 */
+  actorType?: 'human' | 'agent';
 }
 
 export interface AuditLogQuery {
@@ -79,6 +84,8 @@ export interface AuditLogQuery {
   resourceId?: string;
   status?: string;
   anonymousId?: string;  // SEC-009
+  /** #591：'agent' 精确匹配；'human' 匹配存量无字段行 + 显式 human 行 */
+  actorType?: 'human' | 'agent';
   startTime?: Date;
   endTime?: Date;
   page?: number;
@@ -111,6 +118,12 @@ export const AuditActions = {
   REJECT: 'reject',
   EXPORT: 'export',
   IMPORT: 'import',
+  // #591 agent 决策词表（增删走治理变更流程，见 audit-logs/CONTEXT.md）
+  CLAIM: 'claim',
+  TRANSITION: 'transition',
+  DISPATCH: 'dispatch',
+  AUTO_APPLY: 'auto_apply',
+  PROPOSE: 'propose',
 } as const;
 
 // ========== 常用资源类型 ==========
@@ -127,6 +140,10 @@ export const AuditResources = {
   ASSESSMENT: 'assessment',
   ISSUE: 'issue',
   AUDIT_LOG: 'audit_log',
+  // #591 决策对象
+  WORKUNIT: 'workunit',
+  CHANNEL: 'channel',
+  TRIGGER: 'trigger',
 } as const;
 
 // ========== 工具函数 ==========
@@ -153,6 +170,7 @@ function buildRow(input: AuditLogInput): AuditLogRow {
     errorMessage: input.errorMessage,
     sessionId: input.sessionId,
     requestId: input.requestId,
+    actorType: input.actorType,
     createdAt: new Date().toISOString(),
   };
 }
@@ -221,6 +239,12 @@ export class AuditService {
     // SEC-009: 按 anonymousId 搜索（details 存储为 JSON string）
     if (query.anonymousId) {
       filtered = filtered.filter(r => JSON.stringify(r.details).includes(query.anonymousId!));
+    }
+
+    // #591: actorType 过滤——'human' 归一匹配存量无字段行
+    if (query.actorType) {
+      filtered = filtered.filter(r =>
+        query.actorType === 'human' ? (r.actorType ?? 'human') === 'human' : r.actorType === 'agent');
     }
 
     if (query.startTime || query.endTime) {
