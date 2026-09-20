@@ -5,6 +5,8 @@ import { TriggerStore } from './trigger-store.js';
 import { getTriggerScheduler } from './trigger-registry.js';
 import { executeCreateAction, executeExecuteAction } from './trigger-action.js';
 import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
+import { recordAgentDecision } from '../audit-logs/agent-decision.js';
+import { randomUUID } from 'node:crypto';
 import type { TriggerConfig } from './trigger.types.js';
 
 const router = Router();
@@ -128,13 +130,32 @@ router.post('/:id/fire', async (req, res) => {
       return;
     }
     const wasDisabled = config.enabled === false;
+    // #591：手动 fire 同落决策埋点（details.manual 区分自动触发；actor=操作人 human）
+    const traceId = randomUUID();
+    const actor = { id: (req as { user?: { id?: string } }).user?.id ?? 'unknown', type: 'human' as const };
     if (config.action.type === 'CREATE') {
-      const workUnit = await executeCreateAction(config.action, config.id);
+      const workUnit = await executeCreateAction(config.action, config.id, { traceId });
+      recordAgentDecision({
+        action: 'create',
+        resource: 'trigger',
+        resourceId: config.id,
+        actor,
+        details: { triggerName: config.name, manual: true, outcome: 'created', workUnitId: workUnit?.id },
+        requestId: traceId,
+      });
       res.json({ fired: true, wasDisabled, workUnit });
       return;
     }
     if (config.action.type === 'EXECUTE') {
       await executeExecuteAction(config.action, { manual: true });
+      recordAgentDecision({
+        action: 'execute',
+        resource: 'trigger',
+        resourceId: config.id,
+        actor,
+        details: { triggerName: config.name, manual: true, outcome: 'executed', target: config.action.target },
+        requestId: traceId,
+      });
       res.json({ fired: true, wasDisabled });
       return;
     }

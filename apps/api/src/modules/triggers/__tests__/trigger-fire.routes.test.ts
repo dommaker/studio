@@ -17,12 +17,15 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-const { mockStoreGet, mockGetStates, mockExecuteCreateAction, mockExecuteExecuteAction } = vi.hoisted(() => ({
+const { mockStoreGet, mockGetStates, mockExecuteCreateAction, mockExecuteExecuteAction, decisionSpy } = vi.hoisted(() => ({
   mockStoreGet: vi.fn(),
   mockGetStates: vi.fn(),
   mockExecuteCreateAction: vi.fn(),
   mockExecuteExecuteAction: vi.fn(),
+  decisionSpy: vi.fn(),
 }));
+
+vi.mock('../../audit-logs/agent-decision.js', () => ({ recordAgentDecision: decisionSpy }));
 
 vi.mock('../trigger-store.js', () => ({
   TriggerStore: class {
@@ -107,9 +110,21 @@ describe('trigger manual fire + costs', () => {
     expect(body.fired).toBe(true);
     expect(body.wasDisabled).toBe(true);
     expect(body.workUnit.id).toBe('wu-1');
-    // 手动触发不做同分钟去重：第三参不传
-    expect(mockExecuteCreateAction).toHaveBeenCalledWith(expect.objectContaining({ type: 'CREATE' }), 'disabled-yaml');
-    expect(mockExecuteCreateAction.mock.calls[0]).toHaveLength(2);
+    // 手动触发不做同分钟去重：第三参不带 dedupeWithinMinute（#591 起带 traceId 贯穿埋点与 WU metadata）
+    expect(mockExecuteCreateAction).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'CREATE' }),
+      'disabled-yaml',
+      expect.objectContaining({ traceId: expect.any(String) }),
+    );
+    expect(mockExecuteCreateAction.mock.calls[0][2]).not.toHaveProperty('dedupeWithinMinute');
+    // #591：手动 fire 落决策埋点（manual 标记区分自动触发）
+    expect(decisionSpy).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'create',
+      resource: 'trigger',
+      resourceId: 'disabled-yaml',
+      details: expect.objectContaining({ manual: true, outcome: 'created', workUnitId: 'wu-1' }),
+      requestId: mockExecuteCreateAction.mock.calls[0][2].traceId,
+    }));
   });
 
   it('fire 系统默认触发器（不在 store，回退 scheduler 内存 config）', async () => {
@@ -185,8 +200,13 @@ describe('trigger manual fire + costs', () => {
     expect(body.fired).toBe(true);
     // 建单落 pending（#162 人闸手动 fire 继承，由 executeCreateAction 统一落地）
     expect(body.workUnit.status).toBe('pending');
-    expect(mockExecuteCreateAction).toHaveBeenCalledWith(expect.objectContaining({ type: 'CREATE' }), 'inspection-scan');
-    expect(mockExecuteCreateAction.mock.calls[0]).toHaveLength(2);
+    expect(mockExecuteCreateAction).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'CREATE' }),
+      'inspection-scan',
+      // #591：第三参带 traceId（埋点/WU metadata 贯穿）；不去做重键 = 不过同分钟去重的口径不变
+      expect.objectContaining({ traceId: expect.any(String) }),
+    );
+    expect(mockExecuteCreateAction.mock.calls[0][2]).not.toHaveProperty('dedupeWithinMinute');
   });
 
   it('GET /costs：按 triggerId/source 聚合并按 days 窗口过滤', async () => {
