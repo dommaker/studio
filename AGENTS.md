@@ -51,20 +51,18 @@ pnpm start  # 启动生产服务
 
 ## Governance Rules
 <!-- HARNESS_CONSTRAINTS_START -->
-<!-- version: 1.8.0 -->
+<!-- version: 1.9.0 -->
 ### Iron Laws (违反将阻断)
 - **no_completion_without_verification**: 在声明任务完成前，必须重新运行新鲜的验证命令——受改动影响的测试（vitest run --changed origin/master）+ type check，使用新鲜的输出作为完成证据，不得复用旧结果。全量测试由 CI / 发布流程兜底。
 - **incremental_progress**: 一次只处理一个任务。改动涉及多个模块、超过 100 行、或影响多个文件时，必须拆分为小步骤分步执行，每步有独立 checkpoint 可回滚。不要试图一次性完成所有改动。
 - **no_implementation_without_requirement**: 开始编写代码前，必须确认：需求来源明确（Spec/Issue/Roadmap/用户指令）、验收标准(AC)已定义、边界情况已明确。不要凭假设或猜测开始实现。实现完成后，必须逐条对比原始需求文档中的验收标准(AC)，确认每条 AC 已实现且边界情况已覆盖，输出验证清单。不得仅凭"功能能跑"就认为完成。
 - **no_test_simplification**: 编写测试时遇到困难（mock、异步、环境），不得删除用例或跳过断言。正确做法：分析问题 → 查阅文档 → 尝试解决 → 仍不行则向用户说明困难请求指示。不得降低覆盖率要求。
-- **no_redis_import**: 禁止引入 Redis/ioredis 依赖。项目使用 MemoryStore（studio-shared）替代。任何新代码不得引入 redis/ioredis 包或 Redis 连接逻辑。
 - **two_stage_review_required**: 代码审查必须分两阶段：① 规范合规审查 — 逐条对照验收标准(AC)验证实现是否满足需求，重新运行测试，审计测试质量并补写边界用例；② 代码质量审查 — 仅在 Stage 1 全部通过后，检查安全性、可读性、类型安全。Stage 1 不通过则不得进入 Stage 2。
 - **public_repo_sanitization**: 本仓为公开仓库，任何写入内容（代码、文档、注释、测试数据、commit message）提交前必须脱敏自查：禁止写入凭证/密钥、内部基础设施信息（主机名、内网域名、IP、部署路径、运维流程细节）、私有仓库内容、个人隐私数据。从私有配置仓复制配置或文档时必须重新逐行审查。规则文本本身也不得列举具体敏感值。
 
 ### Guidelines (应遵循)
 - **no_hardcoded_credentials**: 禁止在代码中硬编码密码、API 密钥、Token 等凭证。使用环境变量或安全的凭证管理方案存储敏感信息。
 - **no_bypass_checkpoint**: 每个关键步骤后有 checkpoint 验证点，必须通过才能继续。通过标准：测试通过、类型检查无错误、lint 无新增警告。未通过时回退修复，不得跳过。
-- **monorepo_app_boundary**: apps/ 之间禁止直接导入。共享逻辑必须提取到 packages/（公共逻辑放 packages/studio-shared 或对应 package）。
 - **agent_topology_agnostic**: Agent 方法（reviewDiff/mergeBranches/pushBranch）必须用参数化 ref，禁止硬编码 branch 名。Agent 接口不假设分支拓扑。
 - **prefer_worktree**: 高风险改动（新功能、跨模块、基础设施）应在 worktree 中进行。配置修改、单文件 fix 可直接编辑。
 
