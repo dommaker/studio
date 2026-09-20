@@ -9,7 +9,7 @@
 | 导出 | 文件 | 说明 |
 | --- | --- | --- |
 | `router` (默认导出) | routes.ts | Express 路由对象，包含 `GET /api/audit-logs`（查询日志）和 `GET /api/audit-logs/stats`（获取统计）两个端点。 |
-| `queryProposalDecisionRows` / `getProposalDecisionRowById` / `collectProposalDecisionRows` / `filterProposalDecisionRows` | proposal-source.ts | #591 A 类：review-proposal 7 种 kind 的聚合读面（零新写入，折叠归各 adapter store 正本），映射 audit 行形状（actorType=agent, action=propose, resource=kind, status=提案终态原值） |
+| `queryProposalDecisionRows` / `getProposalDecisionRowById` / `collectProposalDecisionRows` / `filterProposalDecisionRows` | proposal-source.ts | #591 A 类：review-proposal 7 种 kind 的聚合读面（零新写入，折叠归各 adapter store 正本），映射 audit 行形状（actorType=agent, action=propose, resource=kind, status=提案终态原值）；details 含卡片作者（adapter.author），详情回查（getProposalDecisionRowById）带提案全文；已知 kind 未注册时 warn 留痕不静默缺源 |
 | `recordAgentDecision` / `AuditActor` | agent-decision.ts | #591 B 类：自主决策埋点统一入口（fire-and-forget，失败只记日志不阻断业务链） |
 
 ### 决策词表（治理变更条目，出处 #591 + ADR 2026-09-17 决策 2；增删走治理变更流程）
