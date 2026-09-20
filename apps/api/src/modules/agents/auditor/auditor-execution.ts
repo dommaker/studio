@@ -19,6 +19,8 @@ import { NotificationService } from '@dommaker/studio-notification';
 import { skillStore } from '../../skills/skill-store.js';
 import { classifyError } from './auditor-rules.js';
 import type { Suggestion } from './auditor-rules.js';
+import { recordAgentDecision } from '../../audit-logs/agent-decision.js';
+import { randomUUID } from 'node:crypto';
 
 const SYSTEM_CHANNEL_NAME = '#系统';
 
@@ -26,6 +28,18 @@ const SYSTEM_CHANNEL_NAME = '#系统';
 
 export async function applyLowRiskSuggestions(suggestions: Suggestion[]): Promise<string[]> {
   const applied: string[] = [];
+  // #591：auditor 低风险自动应用决策埋点（词表 auto_apply，落 audit-logs 轨）——
+  // 一次运行共享一个 requestId（runId）；依据 = risk + detail 摘要（不落全 data payload）
+  const runId = randomUUID();
+  const record = (s: Suggestion, status: 'success' | 'failure', error?: string) =>
+    recordAgentDecision({
+      action: 'auto_apply',
+      resource: s.type,
+      resourceId: s.skillId,
+      status,
+      details: { risk: s.risk, basis: s.detail.slice(0, 200), ...(error ? { error } : {}) },
+      requestId: runId,
+    });
 
   for (const s of suggestions) {
     try {
@@ -35,16 +49,20 @@ export async function applyLowRiskSuggestions(suggestions: Suggestion[]): Promis
         });
         applied.push(`Skill "${s.skillName}" successRate updated`);
         logger.info('[AuditorService] Auto-applied skill_weight', { skillId: s.skillId, skillName: s.skillName });
+        record(s, 'success');
       } else if (s.type === 'skill_status' && s.skillId) {
         skillStore.update(s.skillId, { status: 'published' });
         applied.push(`Skill "${s.skillName}" auto-published`);
         logger.info('[AuditorService] Auto-applied skill_status', { skillId: s.skillId, skillName: s.skillName });
+        record(s, 'success');
       } else if (s.type === 'circuit_fix' && s.risk === 'low') {
         // Low-risk circuit fix: just record that we tried
         applied.push(`电路建议已记录: ${s.detail.slice(0, 80)}`);
         logger.info('[AuditorService] Recorded circuit suggestion', { detail: s.detail });
+        record(s, 'success');
       }
     } catch (err) {
+      record(s, 'failure', String(err));
       logger.warn('[AuditorService] Failed to apply low-risk suggestion', {
         type: s.type,
         skillId: s.skillId,
