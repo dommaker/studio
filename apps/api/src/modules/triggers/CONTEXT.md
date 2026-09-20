@@ -11,7 +11,8 @@ Trigger 子系统（AS-026，3.28c-4）：SCHEDULE（cron）+ EVENT（EventBus�
 - `trigger-store.ts` — YAML 持久化
 - `trigger-scheduler.ts` — SCHEDULE tick + EVENT EventBus 订阅
 - `trigger-registry.ts` — 单例 TriggerScheduler（注入 eventBus）
-- `trigger-action.ts` — CREATE 动作执行（从 trigger payload 创建 WorkUnit；#162 T8-E1：建单显式 `status='pending'` 人闸，按来源不按类型，人工确认 pending→unassigned 后才可认领）+ UPDATE 动作执行（#538 ADR 决策 6：禁改 status——TriggerStore 注册校验 + executeUpdateAction 执行守卫双保险；其余字段走 patchSnapshot 白名单经 service.update，metadata 走 WorkUnitService `updateMetadata` 语义口增量合并（#554 起不再直摸 FileStore 原语），白名单外字段丢弃并 warn）
+- `trigger-action.ts` — CREATE 动作执行（从 trigger payload 创建 WorkUnit；#162 T8-E1：建单显式 `status='pending'` 人闸，按来源不按类型，人工确认 pending→unassigned 后才可认领；#591 起 opts.traceId 落 WU metadata.traceId 与触发埋点同值）+ UPDATE 动作执行（#538 ADR 决策 6：禁改 status——TriggerStore 注册校验 + executeUpdateAction 执行守卫双保险；其余字段走 patchSnapshot 白名单经 service.update，metadata 走 WorkUnitService `updateMetadata` 语义口增量合并（#554 起不再直摸 FileStore 原语），白名单外字段丢弃并 warn）
+- **#591 触发决策埋点**：`trigger-scheduler.ts executeTrigger` 单点落 create/execute/update 行（audit-logs 轨，traceId 现场生成贯穿建单，outcome=created/deduped/executed/updated/error，失败 status=failure 原样上抛）；手动 fire（trigger.routes.ts）同落账，details.manual 区分自动路径
 - `trigger-assignee-check.ts` — 指名执行者可运行性自检 `checkTriggerAssignees`（2026-09-10，doc-semantic-review 滞留 143h 事故根治）：CREATE 类 trigger 的 `assigneeRole` 指名 = 独占认领（仅该角色 loop 可见），角色不存在/loop 非 running 即结构性死单；index.ts 启动挂载 loop 后调用，问题逐条 logger.error
 - `trigger.routes.ts` — Trigger 管理 REST API
 
