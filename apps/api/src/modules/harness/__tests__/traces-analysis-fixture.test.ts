@@ -35,7 +35,7 @@ beforeAll(async () => {
 
   // 2 行合法 + 1 行损坏；合法行同 constraintId（pass/fail 各一），时间戳落在默认 24h 窗内
   const valid = (result: 'pass' | 'fail') =>
-    JSON.stringify({ constraintId: 'fx1', level: 'iron_law', timestamp: Date.now(), result });
+    JSON.stringify({ constraintId: 'fx1', severity: 'error', timestamp: Date.now(), result });
   const logDir = path.join(tmpRoot, '.harness', 'logs');
   fs.mkdirSync(logDir, { recursive: true });
   fs.writeFileSync(

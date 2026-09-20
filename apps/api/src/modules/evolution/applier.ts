@@ -23,7 +23,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import yaml from 'js-yaml';
-import { GUIDELINES, IRON_LAWS, PROMPTS } from '@dommaker/harness';
+import { CONSTRAINTS } from '@dommaker/harness';
 import {
   resolvePromptOverridesDir,
   type EvolutionProposalData,
@@ -60,11 +60,8 @@ interface BuiltinConstraintDef {
 }
 
 function findBuiltinConstraint(id: string): BuiltinConstraintDef | null {
-  // 0.17.0 起 tip 层退役，prompt 层定义为 PROMPTS
-  return (IRON_LAWS as Record<string, BuiltinConstraintDef>)[id]
-    ?? (GUIDELINES as Record<string, BuiltinConstraintDef>)[id]
-    ?? (PROMPTS as Record<string, BuiltinConstraintDef>)[id]
-    ?? null;
+  // harness 1.10.0（ADR-0029）：IRON_LAWS/GUIDELINES/PROMPTS 三桶合并为 CONSTRAINTS 单桶
+  return (CONSTRAINTS as Record<string, BuiltinConstraintDef>)[id] ?? null;
 }
 
 function levelOf(proposal: EvolutionProposalData): string {

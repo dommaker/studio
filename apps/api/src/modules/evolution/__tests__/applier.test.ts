@@ -119,18 +119,19 @@ describe('applier: iron-law/guideline → custom-constraints.yml', () => {
   });
 
   it('builtin message amend appends a full shadow entry (loader overrides by id)', async () => {
+    // 目标为 harness 1.10.0 存活内置约束（原用例的 no_bypass_checkpoint 已随 ADR-0029 退役）
     await applyProposal(makeProposal({
-      targetType: 'iron-law', targetId: 'no_bypass_checkpoint', action: 'add',
-      constraintChange: 'message', proposedText: '检查点绝不可跳过——无任何例外',
+      targetType: 'iron-law', targetId: 'no_hardcoded_credentials', action: 'add',
+      constraintChange: 'message', proposedText: '凭证只能来自环境变量注入——字面量一律驳回',
     }), paths);
 
     const entries = loadConstraints();
     expect(entries.no_redis_import).toBeDefined(); // 既有条目不受影响
-    const shadow = entries.no_bypass_checkpoint;
+    const shadow = entries.no_hardcoded_credentials;
     expect(shadow.level).toBe('iron_law');
-    expect(shadow.message).toBe('检查点绝不可跳过——无任何例外');
+    expect(shadow.message).toBe('凭证只能来自环境变量注入——字面量一律驳回');
     expect(typeof shadow.rule).toBe('string');
-    expect(shadow.rule).toBe('NO BYPASSING CHECKPOINTS'); // 拷贝自内置定义
+    expect(shadow.rule).toBe('NO HARDCODED PASSWORDS, TOKENS, SECRETS, OR CREDENTIALS IN ANY SOURCE FILE'); // 拷贝自内置定义
     expect(fs.readFileSync(constraintsFile, 'utf-8')).toContain('# EP-0001:');
   });
 

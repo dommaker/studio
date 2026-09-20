@@ -180,6 +180,8 @@ export async function getConstraintMeta(): Promise<{ hash: string; size: number 
     });
     const meta = JSON.parse(output);
     _constraintHash = meta.hash || 'unknown';
+    // harness 1.10.0（ADR-0029）：constraints 元数据不再含 textSize（文本注入层已关停），
+    // 注入文本度量恒 0 属预期；hash/counts 照旧。
     _constraintSize = meta.textSize?.total || 0;
   } catch {
     _constraintHash = 'unknown';

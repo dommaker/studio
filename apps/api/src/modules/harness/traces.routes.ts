@@ -39,10 +39,10 @@ tracesRoutes.get('/traces', async (req: Request, res: Response) => {
     const c = await getCollector();
     if (!c) return res.status(503).json({ error: 'Harness not available' });
 
-    const { constraintId, level, result, hours, limit } = req.query;
+    const { constraintId, severity, result, hours, limit } = req.query;
     const filter: TraceFilter = {};
     if (constraintId) filter.constraintId = constraintId as string;
-    if (level) filter.level = level as ExecutionTrace['level'];
+    if (severity) filter.severity = severity as ExecutionTrace['severity'];
     if (result) filter.result = result as ExecutionTrace['result'];
     if (hours) {
       const h = Number(hours);
@@ -67,14 +67,14 @@ tracesRoutes.post('/traces', async (req: Request, res: Response) => {
     const c = await getCollector();
     if (!c) return res.status(503).json({ error: 'Harness not available' });
 
-    const { constraintId, level, result, operation, projectPath, sessionId, userAction } = req.body;
-    if (!constraintId || !level || !result) {
-      return res.status(400).json({ error: 'constraintId, level, and result are required' });
+    const { constraintId, severity, result, operation, projectPath, sessionId, userAction } = req.body;
+    if (!constraintId || !severity || !result) {
+      return res.status(400).json({ error: 'constraintId, severity, and result are required' });
     }
 
     const trace = {
       constraintId,
-      level,
+      severity,
       timestamp: Date.now(),
       result,
       operation,
@@ -83,8 +83,8 @@ tracesRoutes.post('/traces', async (req: Request, res: Response) => {
       userAction,
     };
 
-    if (result === 'pass') c.recordPass(constraintId, level, trace);
-    else if (result === 'fail') c.recordFail(constraintId, level, trace);
+    if (result === 'pass') c.recordPass(constraintId, severity, trace);
+    else if (result === 'fail') c.recordFail(constraintId, severity, trace);
     else if (result === 'bypassed') {
       return res.status(400).json({ error: 'bypassed traces are no longer supported (harness 1.2.0 removed recordBypass)' });
     }

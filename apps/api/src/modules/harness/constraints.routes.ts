@@ -14,7 +14,8 @@
  *
  * 0.17.0 移除：ConstraintRegistry（layer/deprecationStatus/permanent 概念随之删除）、
  * POST /constraints/:id/degrade、POST /constraints/:id/schedule（deprecationSchedule 删除）。
- * 响应字段说明：原 layer/deprecationStatus/permanent 不再存在；kind（check/prompt）为新增。
+ * 响应字段说明（harness 1.10.0 / ADR-0029）：原 layer/deprecationStatus/permanent 不存在；
+ * 三层 level 命名废弃，条目带显式 severity（error/warning/info）；kind 收窄为单值 'check'。
  */
 
 import { Router, Request, Response } from 'express';
@@ -56,7 +57,7 @@ export function customConstraintsPath(): string {
 
 /**
  * GET /api/v1/harness/constraints
- * 列出当前生效约束集（内置 → config.yml 合并 → custom 追加，带 kind）
+ * 列出当前生效约束集（内置 → preset → config.yml 禁用，带 kind/severity）
  */
 constraintsRoutes.get('/constraints', async (_req: Request, res: Response) => {
   try {
@@ -66,7 +67,7 @@ constraintsRoutes.get('/constraints', async (_req: Request, res: Response) => {
     const constraints = harnessModule.getEffectiveConstraints(projectRoot()).map(c => ({
       id: c.id,
       kind: c.kind,
-      level: c.level,
+      severity: c.severity,
       trigger: c.trigger,
       rule: c.rule,
       message: c.message,
@@ -81,7 +82,7 @@ constraintsRoutes.get('/constraints', async (_req: Request, res: Response) => {
 
 /**
  * GET /api/v1/harness/constraints/stats
- * 生效集统计。0.17.0 语义变化：原按 layer（safety/quality）聚合 → 现按 kind/level 聚合
+ * 生效集统计。0.17.0 语义变化：原按 layer（safety/quality）聚合 → 现按 kind/severity 聚合
  */
 constraintsRoutes.get('/constraints/stats', async (_req: Request, res: Response) => {
   try {
@@ -90,12 +91,12 @@ constraintsRoutes.get('/constraints/stats', async (_req: Request, res: Response)
 
     const constraints = harnessModule.getEffectiveConstraints(projectRoot());
     const byKind: Record<string, number> = {};
-    const byLevel: Record<string, number> = {};
+    const bySeverity: Record<string, number> = {};
     for (const c of constraints) {
       byKind[c.kind] = (byKind[c.kind] ?? 0) + 1;
-      byLevel[c.level] = (byLevel[c.level] ?? 0) + 1;
+      bySeverity[c.severity] = (bySeverity[c.severity] ?? 0) + 1;
     }
-    return res.json({ data: { total: constraints.length, byKind, byLevel } });
+    return res.json({ data: { total: constraints.length, byKind, bySeverity } });
   } catch (error) {
     logger.error('Failed to get constraint stats', { error: String(error) });
     return res.status(500).json({ error: 'Failed to get constraint stats' });

@@ -2,11 +2,12 @@
 // 注：/harness/deploy/approve|reject 后端无对应路由，其唯一消费方 DeployApprovalCard 已删除（2026-08-06：无生产端建卡消息、无存量数据，整条死链）
 import { api } from './index';
 
-/** POST /harness/check-constraints 的约束检查结果（M2 质量门；只声明 RequirementsDocCard 消费字段） */
+/** POST /harness/check-constraints 的约束检查结果（M2 质量门；只声明 RequirementsDocCard 消费字段；
+ *  harness 1.10.0/ADR-0029：原 ironLaws/guidelines 桶改名 errors/warnings） */
 export interface ConstraintCheckResult {
   passed?: boolean;
-  ironLaws?: Array<{ satisfied: boolean }>;
-  guidelines?: unknown[];
+  errors?: Array<{ satisfied: boolean }>;
+  warnings?: unknown[];
   warningCount?: number;
 }
 

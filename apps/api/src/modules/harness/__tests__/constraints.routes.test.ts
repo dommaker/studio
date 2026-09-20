@@ -19,8 +19,8 @@ import os from 'node:os';
 vi.mock('@dommaker/harness', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@dommaker/harness')>();
   const store = [
-    { id: 'c-safe', kind: 'check', level: 'iron_law', rule: 'R1', message: 'm1', trigger: 'code_implementation', enforcement: 'test' },
-    { id: 'c-quality', kind: 'prompt', level: 'guideline', rule: 'R2', message: 'm2', trigger: 'code_implementation', enforcement: 'custom' },
+    { id: 'c-safe', kind: 'check', severity: 'error', rule: 'R1', message: 'm1', trigger: 'code_implementation', enforcement: 'test' },
+    { id: 'c-quality', kind: 'check', severity: 'warning', rule: 'R2', message: 'm2', trigger: 'code_implementation', enforcement: 'custom' },
   ];
   return {
     ...actual,
@@ -93,13 +93,13 @@ describe('constraints.routes', () => {
     expect(res.json.data[0]).toHaveProperty('kind');
   });
 
-  it('GET /constraints/stats aggregates by kind/level (not shadowed by /:id)', async () => {
+  it('GET /constraints/stats aggregates by kind/severity (not shadowed by /:id)', async () => {
     const res = await api('GET', '/constraints/stats');
     expect(res.status).toBe(200);
     expect(res.json.data).toEqual({
       total: 2,
-      byKind: { check: 1, prompt: 1 },
-      byLevel: { iron_law: 1, guideline: 1 },
+      byKind: { check: 2 },
+      bySeverity: { error: 1, warning: 1 },
     });
   });
 

@@ -41,8 +41,8 @@ router.get('/', async (_req: Request, res: Response) => {
       );
       const relevantIds = ['docs_freshness', 'capability_sync'];
       const relevantResults = [
-        ...harnessResult.guidelines,
-        ...harnessResult.ironLaws,
+        ...harnessResult.warnings,
+        ...harnessResult.errors,
       ].filter(r => relevantIds.includes(r.id));
 
       result.harnessCheck = {
