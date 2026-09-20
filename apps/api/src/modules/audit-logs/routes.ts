@@ -14,6 +14,11 @@ const router = Router();
 
 const getAuditService = createLazyService(() => new AuditService(new FileStore()));
 
+/** #591：合并操作轨 + 提案源行，统一按 createdAt 降序（list 分页与 export 共用） */
+function mergeDecisionRows<T extends { createdAt: string }>(...sources: T[][]): T[] {
+  return sources.flat().sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+}
+
 // ========== API 路由 ==========
 
 /**
@@ -62,8 +67,7 @@ router.get('/', async (req: Request, res: Response) => {
         ? (await service.query({ ...baseQuery, page: 1, limit: 10000 })).data
         : [];
       const proposalRows = await queryProposalDecisionRows(baseQuery);
-      const merged = [...opRows, ...proposalRows]
-        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      const merged = mergeDecisionRows(opRows, proposalRows);
       res.json(formatPaginatedResponse(merged.slice((page - 1) * limit, page * limit), merged.length, page, limit));
       return;
     }
@@ -148,12 +152,10 @@ router.get('/export', async (req: Request, res: Response) => {
     // #591：source 含 proposal 时合并提案源（导出上限与操作轨一致 10000）
     const logs = source === 'operation'
       ? await service.export(query)
-      : [
-          ...(source === 'all' ? await service.export(query) : []),
-          ...await queryProposalDecisionRows(query),
-        ]
-          .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-          .slice(0, 10000);
+      : mergeDecisionRows(
+          source === 'all' ? await service.export(query) : [],
+          await queryProposalDecisionRows(query),
+        ).slice(0, 10000);
 
     // 设置下载头
     res.setHeader('Content-Type', 'application/json');

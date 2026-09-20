@@ -36,8 +36,8 @@ export async function claimWorkUnitAndAnnounce(
   // 运行实例派生（getState 命中 = 实例；REST 人工认领 userId 落空 → human），
   // traceId 取 WU metadata.traceId（频道建单链路，与 audit requestId 同值口径）；
   // fire-and-forget，埋点失败绝不阻断认领
-  const fs = deps.fileStore ?? new FileStore();
-  const instanceState = await fs.getState(claimerId).catch(() => null);
+  const claimFs = deps.fileStore ?? new FileStore();
+  const instanceState = await claimFs.getState(claimerId).catch(() => null);
   recordAgentDecision({
     action: 'claim',
     resource: 'workunit',

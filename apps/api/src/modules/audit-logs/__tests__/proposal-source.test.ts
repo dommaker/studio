@@ -69,8 +69,20 @@ describe('collectProposalDecisionRows', () => {
     expect(p1.createdAt).toBe('2026-09-01T00:00:00.000Z');
     const details = JSON.parse(p1.details!);
     expect(details.summary).toBe('蒸馏提案');
+    expect(details.author).toBe('KK'); // 卡片作者缺省（ADR：正本含提案作者）
     expect(details.statusAt).toBeDefined();
+    expect(details.proposal).toBeUndefined(); // 列表行保持薄行
     expect(rows.find(r => r.id === 'p-2')!.status).toBe('rejected');
+  });
+
+  it('full=true 时 details 带提案全文（详情端点语义）', async () => {
+    const a = register('gc', tmpDir);
+    await a.store.appendProposal({ id: 'p-full', createdAt: '2026-09-01T00:00:00.000Z', title: 'GC 提案' });
+
+    const rows = await collectProposalDecisionRows({ full: true });
+
+    const details = JSON.parse(rows[0].details!);
+    expect(details.proposal).toMatchObject({ id: 'p-full', title: 'GC 提案', status: 'pending' });
   });
 
   it('无终态墓碑时 status=pending（appendProposal 自带 pending 墓碑口径）', async () => {

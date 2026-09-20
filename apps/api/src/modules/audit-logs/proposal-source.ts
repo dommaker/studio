@@ -49,7 +49,12 @@ export interface ProposalDecisionFilter {
   endTime?: Date;
 }
 
-function toRow(kind: string, p: ReviewProposalRecord<ReviewProposalBase>): ProposalDecisionRow {
+function toRow(
+  kind: string,
+  author: string,
+  p: ReviewProposalRecord<ReviewProposalBase>,
+  full = false,
+): ProposalDecisionRow {
   const summary = (p as unknown as Record<string, unknown>).title ?? (p as unknown as Record<string, unknown>).name;
   return {
     id: p.id,
@@ -60,16 +65,22 @@ function toRow(kind: string, p: ReviewProposalRecord<ReviewProposalBase>): Propo
     status: p.status,
     createdAt: p.createdAt,
     details: JSON.stringify({
+      author,
       statusAt: p.statusAt,
       ...(typeof summary === 'string' ? { summary } : {}),
+      // 详情端点（full）带提案全文；列表保持薄行（摘要粒度）
+      ...(full ? { proposal: p } : {}),
     }),
   };
 }
 
 /**
  * 自助注册兜底：skill/knowledge/auditor/memory 四域有自助注册入口；
- * distill/gc/audit 由运行时装配（DistillService 构造）注册，未装配则跳过该 kind。
+ * distill/gc/audit 由运行时装配（DistillService 构造）注册——未装配时按已知 kind 词表
+ * warn 留痕（不静默缺源），读面跳过该 kind。
  */
+const KNOWN_KINDS = ['distill', 'gc', 'audit', 'memory', 'skill', 'knowledge', 'auditor'] as const;
+
 async function ensureAdaptersRegistered(): Promise<void> {
   const [skills, knowledge, auditor, memory] = await Promise.all([
     import('../skills/review-adapter.js'),
@@ -81,15 +92,19 @@ async function ensureAdaptersRegistered(): Promise<void> {
   knowledge.getKnowledgeReviewAdapter();
   auditor.getAuditorReviewAdapter();
   if (!getReviewProposalAdapter('memory')) memory.registerMemoryReviewAdapter();
+  const missing = KNOWN_KINDS.filter(k => !getReviewProposalAdapter(k));
+  if (missing.length > 0) {
+    logger.warn({ missing }, '[audit-logs] proposal source: kinds not registered (skipped)');
+  }
 }
 
-/** 遍历当前注册表聚合全部 kind 的提案行（不触发注册，测试/内部用） */
-export async function collectProposalDecisionRows(): Promise<ProposalDecisionRow[]> {
+/** 遍历当前注册表聚合全部 kind 的提案行（不触发注册，测试/内部用）；full=true 时 details 带提案全文 */
+export async function collectProposalDecisionRows(opts?: { full?: boolean }): Promise<ProposalDecisionRow[]> {
   const rows: ProposalDecisionRow[] = [];
   for (const adapter of listReviewProposalAdapters()) {
     try {
       for (const p of await adapter.store.listProposals()) {
-        rows.push(toRow(adapter.kind, p));
+        rows.push(toRow(adapter.kind, adapter.author ?? 'KK', p, opts?.full));
       }
     } catch (err) {
       logger.warn({ err, kind: adapter.kind }, '[audit-logs] proposal source kind read failed (skipped)');
@@ -132,8 +147,8 @@ export async function queryProposalDecisionRows(
   return filterProposalDecisionRows(await collectProposalDecisionRows(), q);
 }
 
-/** 按 id 回查提案行（GET /:id 兜底用） */
+/** 按 id 回查提案行（GET /:id 兜底用）；details 带提案全文（详情语义） */
 export async function getProposalDecisionRowById(id: string): Promise<ProposalDecisionRow | null> {
   await ensureAdaptersRegistered();
-  return (await collectProposalDecisionRows()).find(r => r.id === id) ?? null;
+  return (await collectProposalDecisionRows({ full: true })).find(r => r.id === id) ?? null;
 }

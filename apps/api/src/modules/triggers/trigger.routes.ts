@@ -130,33 +130,40 @@ router.post('/:id/fire', async (req, res) => {
       return;
     }
     const wasDisabled = config.enabled === false;
-    // #591：手动 fire 同落决策埋点（details.manual 区分自动触发；actor=操作人 human）
+    // #591：手动 fire 同落决策埋点（details.manual 区分自动触发；actor=操作人 human；
+    // 失败也落 failure 行后原样上抛，与自动路径口径一致）
     const traceId = randomUUID();
     const actor = { id: (req as { user?: { id?: string } }).user?.id ?? 'unknown', type: 'human' as const };
-    if (config.action.type === 'CREATE') {
-      const workUnit = await executeCreateAction(config.action, config.id, { traceId });
+    const recordFire = (outcome: Record<string, unknown>, status: 'success' | 'failure' = 'success') =>
       recordAgentDecision({
-        action: 'create',
+        action: config.action.type.toLowerCase(),
         resource: 'trigger',
         resourceId: config.id,
         actor,
-        details: { triggerName: config.name, manual: true, outcome: 'created', workUnitId: workUnit?.id },
+        status,
+        details: { triggerName: config.name, manual: true, ...outcome },
         requestId: traceId,
       });
-      res.json({ fired: true, wasDisabled, workUnit });
+    if (config.action.type === 'CREATE') {
+      try {
+        const workUnit = await executeCreateAction(config.action, config.id, { traceId });
+        recordFire({ outcome: 'created', workUnitId: workUnit?.id });
+        res.json({ fired: true, wasDisabled, workUnit });
+      } catch (err) {
+        recordFire({ outcome: 'error', error: (err as Error).message }, 'failure');
+        throw err;
+      }
       return;
     }
     if (config.action.type === 'EXECUTE') {
-      await executeExecuteAction(config.action, { manual: true });
-      recordAgentDecision({
-        action: 'execute',
-        resource: 'trigger',
-        resourceId: config.id,
-        actor,
-        details: { triggerName: config.name, manual: true, outcome: 'executed', target: config.action.target },
-        requestId: traceId,
-      });
-      res.json({ fired: true, wasDisabled });
+      try {
+        await executeExecuteAction(config.action, { manual: true });
+        recordFire({ outcome: 'executed', target: config.action.target });
+        res.json({ fired: true, wasDisabled });
+      } catch (err) {
+        recordFire({ outcome: 'error', error: (err as Error).message }, 'failure');
+        throw err;
+      }
       return;
     }
     res.status(400).json({ error: { message: `Unsupported action type: ${config.action.type}` } });

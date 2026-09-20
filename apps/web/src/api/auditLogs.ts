@@ -57,9 +57,31 @@ interface AuditLogListResponse {
   pagination: { page: number; limit: number; total: number; totalPages: number };
 }
 
+/**
+ * 后端行 details/changes 存 JSON 字符串（AuditLogRow 落盘形状），前端类型声明为对象——
+ * 此处归一（容错坏串落 null），消费方（详情展开 diff/详情块）拿到的恒为对象。
+ */
+function parseJsonField<T>(raw: unknown): T | undefined {
+  if (raw === null || raw === undefined) return undefined;
+  if (typeof raw === 'string') {
+    try { return JSON.parse(raw) as T; } catch { return undefined; }
+  }
+  return raw as T;
+}
+
+function normalizeRow(log: AuditLog): AuditLog {
+  return {
+    ...log,
+    details: parseJsonField<AuditLog['details']>(log.details),
+    changes: parseJsonField<AuditLog['changes']>(log.changes),
+  };
+}
+
 export const auditLogApi = {
-  list: (params?: AuditLogQuery) =>
-    api.get<AuditLogListResponse>('/audit-logs', { params }),
+  list: async (params?: AuditLogQuery) => {
+    const res = await api.get<AuditLogListResponse>('/audit-logs', { params });
+    return { ...res, data: { ...res.data, data: res.data.data.map(normalizeRow) } };
+  },
   getStats: () => api.get<AuditLogStats>('/audit-logs/stats'),
   listActions: () => api.get<{ data: string[] }>('/audit-logs/actions'),
   listResources: () => api.get<{ data: string[] }>('/audit-logs/resources'),
