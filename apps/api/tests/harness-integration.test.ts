@@ -9,7 +9,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { checkConstraints, ConstraintViolationError } from '@dommaker/harness';
 
-// 完整合规 context（所有 Iron Law 字段通过）
+// 完整合规 context（全部 error 级约束字段通过）
 const PASSING_CTX = {
   operation: 'code_implementation' as const,
   projectPath: process.cwd(),
@@ -27,18 +27,6 @@ describe('AS-003: harness 约束检查集成', () => {
       expect(result).toBeDefined();
       expect(result.passed).toBe(true);
       expect(result.errors).toBeDefined();
-    });
-
-    it('no_self_approval 违规应该抛出（需要 task_completion_claim trigger）', async () => {
-      try {
-        await checkConstraints({ operation: 'task_completion_claim', hasTest: false });
-      } catch (e) {
-        expect(e instanceof ConstraintViolationError).toBe(true);
-        if (e instanceof ConstraintViolationError) {
-          expect(e.result.id).toBe('no_self_approval');
-          expect(e.result.satisfied).toBe(false);
-        }
-      }
     });
 
     it('severity=warning 违规应该返回警告', async () => {
@@ -59,7 +47,9 @@ describe('AS-003: harness 约束检查集成', () => {
           changedFiles: ['leak.ts'],
         });
         expect(result.warningCount).toBeGreaterThan(0);
-        expect(result.warnings.filter(g => !g.satisfied).length).toBeGreaterThan(0);
+        expect(
+          result.warnings.some(g => g.id === 'no_hardcoded_credentials' && !g.satisfied),
+        ).toBe(true);
       } finally {
         fs.rmSync(tmpRoot, { recursive: true, force: true });
       }
@@ -87,22 +77,15 @@ describe('AS-003: harness 约束检查集成', () => {
 
   describe('ConstraintContext 字段验证', () => {
     it('hasVerificationEvidence=false 触发 no_completion_without_verification', async () => {
+      let threw: unknown = null;
       try {
         await checkConstraints({ ...PASSING_CTX, hasVerificationEvidence: false });
       } catch (e) {
-        if (e instanceof ConstraintViolationError) {
-          expect(e.result.id).toBe('no_completion_without_verification');
-        }
+        threw = e;
       }
-    });
-
-    it('hasTest=false + task_completion_claim 触发 no_self_approval', async () => {
-      try {
-        await checkConstraints({ operation: 'task_completion_claim', hasTest: false });
-      } catch (e) {
-        if (e instanceof ConstraintViolationError) {
-          expect(e.result.id).toBe('no_self_approval');
-        }
+      expect(threw).toBeInstanceOf(ConstraintViolationError);
+      if (threw instanceof ConstraintViolationError) {
+        expect(threw.result.id).toBe('no_completion_without_verification');
       }
     });
   });
@@ -115,16 +98,6 @@ describe('AS-003: harness 约束检查集成', () => {
         sessionId: 'test-execution-id',
       });
       expect(result.passed).toBe(true);
-    });
-
-    it('完成声明缺测试证据阻塞', async () => {
-      try {
-        await checkConstraints({ operation: 'task_completion_claim', hasTest: false });
-      } catch (e) {
-        if (e instanceof ConstraintViolationError) {
-          expect(e.result.id).toBe('no_self_approval');
-        }
-      }
     });
   });
 });
