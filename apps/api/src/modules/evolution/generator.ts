@@ -2,12 +2,12 @@
  * E1 约束进化：提案生成器（generator）。
  *
  * 信号 → 提案，三条链路（全范围，vision §6）：
- *   (a) iron-law/guideline：【暂时挂起 —— harness 0.17.0】autoEvolve 已删除
- *       （ADR-0001 决策 8）。替代数据源 buildConstraintsUsageReport /
- *       diagnoseRetireCandidates 存在于 dist/core/constraints/usage-report，
- *       但未从包公开导出（exports map 的 ./core 也不含）。等待改吃
- *       constraints report 候选数据（飞轮修复立项 ①，
- *       docs/plans/2026-08-flywheel-repair-e1.md），当前恒返回空提案。
+ *   (a) iron-law/guideline：harness constraints usage report 的退役候选诊断
+ *       （#602 D1，buildConstraintsUsageReport 公共导出，harness ≥1.10.1）——
+ *       zero_trigger / unevaluable / high_noise / zero_intercept 四类候选映射为
+ *       retire 提案（落点 = .harness/config.yml enabled:false，见 applier）。
+ *       message/new-entry 类在 harness 1.10.0 无生效落点，不生成。
+ *       每轮最多 3 个（保守，候选按 report 排序取前）。
  *   (b) prompt-template：轻量启发式 —— 窗口内任务失败率高（≥50% 且 ≥5 次）且
  *       多个失败任务已注入知识（≥3 个，R1 反馈环数据）→ 说明注入约束未被遵守，
  *       提议强化 knowledge.rules-section 区段文案。每轮最多 1 个。
@@ -16,11 +16,17 @@
  *       persona 末尾追加针对高频失败工具的警示。每轮每角色最多 1 个。
  *
  * 保守原则（默认 ON 但安静）：信号不足时零提案；与 pending/approved 提案同目标
- * 或与既有提案同目标同文案的，跳过（去重防刷屏）。
+ * 或与既有提案（stale 除外）同目标同文案的，跳过（去重防刷屏）。
  */
 import fs from 'node:fs';
 import path from 'node:path';
 import yaml from 'js-yaml';
+import {
+  buildConstraintsUsageReport,
+  CANDIDATE_KIND_LABEL,
+  CONSTRAINTS,
+  type ConstraintsUsageReport,
+} from '@dommaker/harness';
 import {
   FileStore,
   formatEvolutionId,
@@ -61,7 +67,7 @@ interface RawProposal {
   targetType: EvolutionTargetType;
   targetId: string;
   action: 'add' | 'amend';
-  constraintChange?: 'message' | 'new-entry';
+  constraintChange?: 'message' | 'exception' | 'new-entry' | 'retire';
   currentText: string;
   proposedText: string;
   rationale: string;
@@ -75,15 +81,54 @@ export interface GeneratorDeps {
   windowHours: number;
 }
 
+/** (a) 启发式阈值：每轮最多产生的约束类提案数（保守原则） */
+const MAX_CONSTRAINT_PROPOSALS_PER_RUN = 3;
+
 /**
- * (a) harness 约束链路 —— 暂时挂起（harness 0.17.0，ADR-0001 决策 8）。
- * autoEvolve 已删除；report 数据层（buildConstraintsUsageReport /
- * diagnoseRetireCandidates）在 dist/core/constraints/usage-report 存在但未公开导出，
- * 等待改吃 constraints report 候选数据（飞轮修复立项 ①）。
- * 复活时恢复 traces → 退役候选 → modify_message/new_constraint 映射。
+ * (a) harness 约束链路（#602 D1）—— 吃 constraints usage report 的退役候选。
+ * 四类候选（zero_trigger / unevaluable / high_noise / zero_intercept）全部映射为
+ * retire 提案：harness 1.10.0 起 config.yml `constraints.<id>.enabled:false` 是
+ * 唯一真实生效落点，message/new-entry 类无消费端、不生成。
+ * report 为全周期统计（非窗口）；读不到 traces → 零提案（保守安静）。
  */
-async function constraintProposals(): Promise<RawProposal[]> {
-  return [];
+async function constraintProposals(deps: GeneratorDeps): Promise<RawProposal[]> {
+  let report: ConstraintsUsageReport;
+  try {
+    report = buildConstraintsUsageReport(deps.paths.repoRoot);
+  } catch (err) {
+    logger.warn('[Evolution] constraints usage report failed', { error: String(err) });
+    return [];
+  }
+  if (!report.traceFileExists || report.candidates.length === 0) return [];
+
+  const out: RawProposal[] = [];
+  for (const c of report.candidates.slice(0, MAX_CONSTRAINT_PROPOSALS_PER_RUN)) {
+    const builtin = (CONSTRAINTS as Record<string, { message?: string; description?: string } | undefined>)[c.id];
+    if (!builtin) continue; // 非内置 id（config.yml 未知项）不由 E1 动
+    out.push({
+      targetType: c.stats.severity === 'error' ? 'iron-law' : 'guideline',
+      targetId: c.id,
+      action: 'amend',
+      constraintChange: 'retire',
+      currentText: builtin.message ?? builtin.description ?? c.id,
+      proposedText: `退役（${CANDIDATE_KIND_LABEL[c.kind]}）：${c.reason}`,
+      rationale: `harness constraints usage report 诊断候选（${CANDIDATE_KIND_LABEL[c.kind]}）：${c.reason}。` +
+        `落点 = .harness/config.yml（enabled:false + retired 墓碑），恢复 = 删该段。`,
+      source: 'harness:usage-report',
+      evidence: {
+        // report 是全周期统计（非窗口口径），windowHours 字段沿用本轮扫描窗口仅作记录
+        windowHours: deps.windowHours,
+        eventCounts: {
+          total: c.stats.total,
+          evaluated: c.stats.evaluated,
+          fail: c.stats.fail,
+          failRate: Math.round(c.stats.failRate * 1000) / 1000,
+        },
+        samples: [c.kind],
+      },
+    });
+  }
+  return out;
 }
 
 /** (b) prompt-template 启发式：注入了知识仍高失败 → 注入约束区段强调不足 */
@@ -178,7 +223,10 @@ export async function generateEvolutionProposals(deps: GeneratorDeps): Promise<G
   const skipped: Record<string, number> = {};
 
   const raw: RawProposal[] = [
-    ...(await constraintProposals()),
+    ...(await constraintProposals(deps).catch(err => {
+      logger.warn('[Evolution] constraint proposal generation failed', { error: String(err) });
+      return [] as RawProposal[];
+    })),
     ...promptTemplateProposals(signals, deps),
     ...(await rolePresetProposals(signals, deps).catch(err => {
       logger.warn('[Evolution] role preset proposal generation failed', { error: String(err) });

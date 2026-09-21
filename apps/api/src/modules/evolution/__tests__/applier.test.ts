@@ -2,8 +2,8 @@
  * Evolution applier 单元测试（E1 约束进化）。
  *
  * 覆盖四类 targetType 的生效写入 + 备份：
- *   - iron-law/guideline → .harness/custom-constraints.yml（amend 文案手术 / 内置
- *     shadow 追加 / new-entry 追加；注释保留、YAML 可解析）
+ *   - iron-law/guideline → #602 D1 新落点 .harness/config.yml（仅 retire：
+ *     enabled:false + retired 墓碑；message/new-entry 无生效落点仍拒绝）
  *   - prompt-template → ~/.studio/prompt-overrides/<templateId>.md
  *   - role-preset → .agents/roles/<name>.yaml（persona 块标量替换 + 写后校验）
  */
@@ -13,7 +13,7 @@ import path from 'node:path';
 import os from 'node:os';
 import yaml from 'js-yaml';
 import type { EvolutionProposalData } from '@dommaker/studio-shared';
-import { applyProposal, amendConstraintMessage, replacePersonaBlock, retireConstraintEntry } from '../applier';
+import { applyProposal, replacePersonaBlock, retireConstraintEntry } from '../applier';
 import { resolveEvolutionPaths, type EvolutionPaths } from '../signals';
 
 let tmpDir: string;
@@ -81,7 +81,7 @@ beforeEach(() => {
   fs.writeFileSync(path.join(rolesDir, 'developer.yaml'), ROLE_FIXTURE, 'utf-8');
   prevEnv = process.env.STUDIO_PROMPT_OVERRIDES_DIR;
   process.env.STUDIO_PROMPT_OVERRIDES_DIR = overridesDir;
-  paths = resolveEvolutionPaths({ constraintsFile, rolesDir, eventsDir: tmpDir, studioEventsFile: path.join(tmpDir, 'events.jsonl'), traceFile: path.join(tmpDir, 'traces.log') });
+  paths = resolveEvolutionPaths({ repoRoot: tmpDir, constraintsFile, rolesDir, eventsDir: tmpDir, studioEventsFile: path.join(tmpDir, 'events.jsonl'), traceFile: path.join(tmpDir, 'traces.log') });
 });
 
 afterEach(() => {
@@ -90,29 +90,59 @@ afterEach(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
-describe('applier: 约束类提案落点已退役（harness 1.10.0 / ADR-0029）', () => {
-  it('iron-law 提案 apply 抛错，且不凭空重建 custom-constraints.yml', async () => {
-    fs.rmSync(constraintsFile); // 复现生产现状：该文件已随 #606 删除
-    await expect(applyProposal(makeProposal({
-      targetType: 'iron-law', targetId: 'no_redis_import', action: 'amend',
-      constraintChange: 'message', proposedText: '进化版文案',
-    }), paths)).rejects.toThrow('落点已退役');
-    expect(fs.existsSync(constraintsFile)).toBe(false);
+describe('applier: 约束类提案（#602 D1：retire 落点 = .harness/config.yml）', () => {
+  const configFile = () => path.join(tmpDir, '.harness', 'config.yml');
+
+  it('retire 内置约束 → config.yml enabled:false + retired 墓碑，生效集同步缩小', async () => {
+    const result = await applyProposal(makeProposal({
+      targetType: 'guideline', targetId: 'governance_presence', action: 'amend',
+      constraintChange: 'retire', proposedText: '退役（零触发）：traces 全周期无该约束记录',
+      evidence: { windowHours: 24, eventCounts: { total: 0, evaluated: 0, fail: 0, failRate: 0 } },
+    }), paths);
+
+    const cfg = yaml.load(fs.readFileSync(configFile(), 'utf-8')) as any;
+    expect(cfg.constraints.governance_presence.enabled).toBe(false);
+    expect(cfg.constraints.governance_presence.retired.at).toBeTruthy();
+    expect(cfg.constraints.governance_presence.retired.reason).toContain('零触发');
+    expect(cfg.constraints.governance_presence.retired.stats).toMatchObject({ total: 0, fail: 0, failRate: 0 });
+    // 生效集验证：retire 后 getEffectiveConstraints 不再含该约束
+    const { getEffectiveConstraints } = await import('@dommaker/harness');
+    expect(getEffectiveConstraints(tmpDir).some(c => c.id === 'governance_presence')).toBe(false);
+    expect(result.targetPath).toBe(configFile());
   });
 
-  it('guideline 的 new-entry / retire 变更同样被拒（不写文件、不建备份）', async () => {
-    for (const constraintChange of ['new-entry', 'retire'] as const) {
-      const before = fs.readFileSync(constraintsFile, 'utf-8');
+  it('retire 幂等：已退役约束再 apply → detail 报 already retired，文件不变', async () => {
+    const proposal = makeProposal({
+      targetType: 'guideline', targetId: 'governance_presence', action: 'amend',
+      constraintChange: 'retire', proposedText: '退役（零触发）',
+    });
+    await applyProposal(proposal, paths);
+    const before = fs.readFileSync(configFile(), 'utf-8');
+    const second = await applyProposal(proposal, paths);
+    expect(second.detail).toContain('already retired');
+    expect(fs.readFileSync(configFile(), 'utf-8')).toBe(before);
+  });
+
+  it('retire 未知约束 id → 抛错且不写文件', async () => {
+    await expect(applyProposal(makeProposal({
+      targetType: 'guideline', targetId: 'no_such_constraint', action: 'amend',
+      constraintChange: 'retire', proposedText: 'x',
+    }), paths)).rejects.toThrow('unknown constraint');
+    expect(fs.existsSync(configFile())).toBe(false);
+  });
+
+  it('message / new-entry 变更仍被拒（harness 1.10.0 无生效落点），且不写任何文件', async () => {
+    for (const constraintChange of ['message', 'new-entry'] as const) {
       await expect(applyProposal(makeProposal({
-        targetType: 'guideline', targetId: 'no_redis_import', action: 'add',
+        targetType: 'guideline', targetId: 'governance_presence', action: 'amend',
         constraintChange, proposedText: 'x',
       }), paths)).rejects.toThrow('落点已退役');
-      expect(fs.readFileSync(constraintsFile, 'utf-8')).toBe(before);
     }
-    expect(fs.readdirSync(path.dirname(constraintsFile)).filter(f => f.includes('.bak-'))).toEqual([]);
+    expect(fs.existsSync(configFile())).toBe(false);
+    expect(fs.existsSync(constraintsFile) && fs.readFileSync(constraintsFile, 'utf-8') !== CONSTRAINTS_FIXTURE).toBe(false);
   });
 
-  it('prompt-template 落点不受该闸影响', async () => {
+  it('prompt-template 落点不受约束闸影响', async () => {
     const result = await applyProposal(makeProposal({
       targetType: 'prompt-template', targetId: 'tpl-a', action: 'amend',
       constraintChange: 'message', proposedText: 'x',
@@ -120,11 +150,7 @@ describe('applier: 约束类提案落点已退役（harness 1.10.0 / ADR-0029）
     expect(result.targetPath).toContain('tpl-a');
   });
 
-  it('amendConstraintMessage returns null for unknown entry', () => {
-    expect(amendConstraintMessage(CONSTRAINTS_FIXTURE, 'no_such_entry', 'x')).toBeNull();
-  });
-
-  it('retireConstraintEntry null for unknown entry / already-retired entry', () => {
+  it('retireConstraintEntry（distill 草案渲染复用）null for unknown entry / already-retired entry', () => {
     expect(retireConstraintEntry(CONSTRAINTS_FIXTURE, 'no_such_entry', { at: '2026-08-15T00:00:00.000Z', reason: 'r' })).toBeNull();
     const once = retireConstraintEntry(CONSTRAINTS_FIXTURE, 'no_redis_import', { at: '2026-08-15T00:00:00.000Z', reason: 'r' });
     expect(once).not.toBeNull();
