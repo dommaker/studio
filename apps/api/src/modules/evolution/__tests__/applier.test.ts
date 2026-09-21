@@ -133,6 +133,35 @@ describe('applier: 约束类提案（#602 D1：retire 落点 = .harness/config.y
     expect(second.trail).toBeUndefined(); // 未写文件 → 无留痕 commit
   });
 
+  it('disable→retire 升级：仅 disabled 无墓碑不算已退役——走 CLI 补墓碑 + 知识条目', async () => {
+    // 先 disable（裸 enabled:false，无 retired 墓碑、无知识条目）
+    await applyProposal(makeProposal({
+      targetType: 'guideline', targetId: 'governance_presence', action: 'amend',
+      constraintChange: 'disable', proposedText: '高噪音临时停用',
+    }), paths);
+    const afterDisable = fs.readFileSync(configFile(), 'utf-8');
+    expect(fs.existsSync(knowledgeFile('governance_presence'))).toBe(false);
+
+    // approve retire 提案：必须真正走 harness CLI 完成退役（墓碑 + 知识沉淀），
+    // 不得被「enabled:false 即已退役」的幂等短路堵死（harness CLI 的 already_retired
+    // 保护只看 enabled:false，applier 须先摘除裸 disable 条目再 spawn）
+    const result = await applyProposal(makeProposal({
+      targetType: 'guideline', targetId: 'governance_presence', action: 'amend',
+      constraintChange: 'retire', proposedText: '升级退役：观察期满，确认无价值',
+    }), paths);
+
+    expect(result.detail).not.toContain('already retired');
+    const cfg = yaml.load(fs.readFileSync(configFile(), 'utf-8')) as any;
+    expect(cfg.constraints.governance_presence.enabled).toBe(false);
+    expect(cfg.constraints.governance_presence.retired?.at).toBeTruthy();
+    expect(cfg.constraints.governance_presence.retired?.reason).toContain('升级退役');
+    // 飞轮唯一自动入水口：constraint-retired-<id> 知识条目必须落盘
+    expect(fs.existsSync(knowledgeFile('governance_presence'))).toBe(true);
+    expect(fs.readFileSync(configFile(), 'utf-8')).not.toBe(afterDisable);
+    const { getEffectiveConstraints } = await import('@dommaker/harness');
+    expect(getEffectiveConstraints(tmpDir).some(c => c.id === 'governance_presence')).toBe(false);
+  });
+
   it('retire 未知约束 id → 抛错且不写文件', async () => {
     await expect(applyProposal(makeProposal({
       targetType: 'guideline', targetId: 'no_such_constraint', action: 'amend',

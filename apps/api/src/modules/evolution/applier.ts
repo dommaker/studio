@@ -13,7 +13,9 @@
  *         走 CLI 同时天然规避 barrel 冻结闸）。config.yml 墓碑与
  *         `constraint-retired-<id>` 知识条目（飞轮唯一自动入水口）都由 harness 写，
  *         applier 不自写 config.yml 绕开；频道 approve 即执行层人确认，故直达带 --yes。
- *         写后用 getEffectiveConstraints 验证生效集已缩小，失败回滚备份。
+ *         写后双验证（生效集缩小 + retired 墓碑落盘，不依赖 CLI stdout 文案），失败回滚
+ *         备份；幂等短路只认 retired 墓碑——裸 disable（enabled:false 无墓碑）走升级
+ *         路径摘除 enabled 标记后交 CLI 补退役（详见 applyConstraintRetire 注释）。
  *       · disable：enabled:false 无墓碑（harness 无 disable 子命令/函数，且 disable
  *         无知识条目语义——墓碑与沉淀是 retire 专有），同一验证+回滚纪律。
  *       生效后（M3.5）立即 `git -C <repoRoot> add .harness/config.yml && git commit`
@@ -127,8 +129,16 @@ function readConfigConstraints(targetPath: string): Record<string, Record<string
  * 冻结闸；频道 approve 即 ADR-0001 决策 2 的执行层人确认，故直达显式 --yes）。
  * config.yml 墓碑与 constraint-retired-<id> 知识条目（consumptionMode:'signal'，飞轮
  * 唯一自动入水口）由 harness 单侧写入——applier 禁止自写 config.yml 绕开。
- * 写后以 getEffectiveConstraints 验证生效集已缩小，验证失败回滚备份并抛错。
- * 幂等：已 disabled → detail 报 already retired，不起子进程。
+ *
+ * 幂等短路只看 retired 墓碑（`constraints.<id>.retired`），不看 enabled:false：
+ * harness 1.10.0 的 already_retired 保护只认 enabled:false，裸 disable（无墓碑）若
+ * 直接 spawn 会被 CLI 幂等吞掉——无墓碑、无知识条目，恰好绕开飞轮唯一自动入水口。
+ * 故 disable→retire 升级路径先摘除裸 disable 的 enabled 标记（备份已留，失败回滚；
+ * 这不是自写墓碑绕开 CLI，而是清掉会让 CLI 误短路的旧状态），再交 CLI 完成真退役。
+ *
+ * 结果判定不依赖 CLI stdout 文案（harness 改文案即静默误判，且 retired/already_retired/
+ * unknown_id 对外退出码同为 0——bin exitCodeFor 把 skip 也映射 0）：以退出码 + 写后
+ * 双验证为准（生效集已缩小 + config.yml 已出现 retired 墓碑），验证失败回滚备份并抛错。
  */
 async function applyConstraintRetire(
   proposal: EvolutionProposalData,
@@ -139,30 +149,43 @@ async function applyConstraintRetire(
     throw new Error(`cannot retire unknown constraint '${id}': 非内置约束（E1 retire 只处理 harness 内置 check 约束）`);
   }
   const targetPath = path.join(paths.repoRoot, '.harness', 'config.yml');
-  if (readConfigConstraints(targetPath)[id]?.enabled === false) {
-    return { targetPath, backupPath: null, detail: `constraint '${id}' already retired (config.yml enabled:false)`, wrote: false };
+  const prevEntry = readConfigConstraints(targetPath)[id];
+  // 真已退役 = 有 retired 墓碑（retire 落盘形态：enabled:false + retired:{at,reason,stats}）
+  if (prevEntry?.enabled === false && prevEntry?.retired) {
+    return { targetPath, backupPath: null, detail: `constraint '${id}' already retired (config.yml retired 墓碑)`, wrote: false };
   }
 
   const backupPath = await backupFile(targetPath);
+  // disable→retire 升级：摘除裸 disable 的 enabled 标记，否则 CLI 的 already_retired
+  // 保护（只认 enabled:false）会短路，拿不到墓碑与知识条目
+  if (prevEntry?.enabled === false) {
+    const raw = (yaml.load(fs.readFileSync(targetPath, 'utf-8')) as Record<string, unknown> | null) ?? {};
+    const constraints = { ...((raw.constraints ?? {}) as Record<string, Record<string, unknown>>) };
+    const { enabled: _dropped, ...rest } = constraints[id] ?? {};
+    constraints[id] = rest;
+    fs.writeFileSync(targetPath, yaml.dump({ ...raw, constraints }, { lineWidth: 120 }), 'utf-8');
+  }
+
   const reason = proposal.proposedText || proposal.rationale.split('\n')[0];
   const res = await runCmd(process.execPath, [
     resolveHarnessBin(), 'constraints', 'retire', id, '--yes', '--reason', reason, '-p', paths.repoRoot,
   ]);
-  if (res.stdout.includes('已处于退役状态')) {
-    return { targetPath, backupPath: null, detail: `constraint '${id}' already retired (config.yml enabled:false)`, wrote: false };
-  }
-  if (res.stdout.includes('约束不存在')) {
-    throw new Error(`cannot retire unknown constraint '${id}': harness 判定非内置约束`);
-  }
   if (res.code !== 0) {
+    if (backupPath) fs.copyFileSync(backupPath, targetPath);
+    else fs.rmSync(targetPath, { force: true });
     throw new Error(`harness constraints retire ${id} failed (exit ${res.code}): ${(res.stderr || res.stdout).slice(0, 400)}`);
   }
 
-  // 写后验证：生效集必须已不含该约束（防格式写错假「已生效」）；失败回滚 config.yml
-  // （知识条目已沉淀则保留——signal 条目无害，恢复约束 = 删 config.yml 中该段）
+  // 写后双验证（替代 CLI stdout 文案匹配）：生效集必须已不含该约束，且 config.yml
+  // 必须出现 retired 墓碑（墓碑缺失 = CLI 未真正退役，如被其内部保护短路）；
+  // 失败回滚 config.yml（知识条目已沉淀则保留——signal 条目无害，恢复约束 = 删
+  // config.yml 中该段）
   try {
     if (getEffectiveConstraints(paths.repoRoot).some(c => c.id === id)) {
       throw new Error('constraint still present in effective set after retire');
+    }
+    if (!readConfigConstraints(targetPath)[id]?.retired) {
+      throw new Error(`retired tombstone missing in config.yml after retire (CLI exit 0 但未落墓碑): ${res.stdout.slice(0, 200)}`);
     }
   } catch (err) {
     if (backupPath) fs.copyFileSync(backupPath, targetPath);

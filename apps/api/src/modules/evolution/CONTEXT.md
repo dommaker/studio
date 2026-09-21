@@ -24,8 +24,14 @@ E1 约束进化（vision §6 / docs/plans/2026-07-flywheel-repair.md §4）：�
     node_modules 的 bin/harness.js，非 npx）——config.yml 墓碑 +
     `constraint-retired-<id>` 知识条目（飞轮唯一自动入水口）都由 harness 写，
     applier 不自写 config.yml 绕开；频道 approve 即执行层人确认，故直达带 --yes。
+    幂等短路只认 retired 墓碑（`constraints.<id>.retired`，落盘形态 =
+    `enabled:false + retired:{at,reason,stats}`）：裸 disable（enabled:false 无墓碑）
+    不算已退役——harness CLI 的 already_retired 保护只认 enabled:false，直接 spawn
+    会被吞掉拿不到墓碑/知识条目，故升级路径先摘除裸 disable 的 enabled 标记再 spawn。
   · disable：enabled:false 无墓碑（harness 无 disable 子命令，无知识条目语义）。
   两者写后 getEffectiveConstraints 验证生效集缩小，失败回滚备份；幂等短路。
+  retire 另验证 retired 墓碑已落盘（CLI retired/already_retired/unknown_id 退出码
+  同为 0，stdout 文案是脆弱契约，不作判定依据）。
   生效后（M3.5）立即 `git -C <repoRoot> add .harness/config.yml && git commit`
   自动留痕（正文带提案号，trailer `Governance-Approved: EP-XXXX`）；commit 失败
   降级 warn + `ApplyResult.trail.committed=false`（随 evolution.applied 事件暴露），
