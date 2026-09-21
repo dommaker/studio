@@ -40,7 +40,7 @@ pnpm start  # 启动生产服务
 ## 知识入口
 
 - `.harness/knowledge/`：项目知识库，用 `harness knowledge` 查询
-- 各源码目录的 `CONTEXT.md` 是权威模块文档（现有 46 个），改动代码时同步更新
+- 各源码目录的 `CONTEXT.md` 是权威模块文档（现有 45 个），改动代码时同步更新
 
 <!-- PRESERVE:governance -->
 ## 治理契约
@@ -49,41 +49,14 @@ pnpm start  # 启动生产服务
 
 - 数据目录契约：`docs/architecture/data-directory-contract.md` 是 `~/.studio` 数据区布局/可改纪律/变更纪律/版本迁移的唯一正本；布局变更须先修订契约（出处：#570 / docs/plans/2026-09-npm-local-form.md §7.4，治理人闸 2026-09-16 当场通过）。
 
-## Governance Rules
-<!-- HARNESS_CONSTRAINTS_START -->
-<!-- version: 1.8.0 -->
-### Iron Laws (违反将阻断)
-- **no_completion_without_verification**: 在声明任务完成前，必须重新运行新鲜的验证命令——受改动影响的测试（vitest run --changed origin/master）+ type check，使用新鲜的输出作为完成证据，不得复用旧结果。全量测试由 CI / 发布流程兜底。
-- **incremental_progress**: 一次只处理一个任务。改动涉及多个模块、超过 100 行、或影响多个文件时，必须拆分为小步骤分步执行，每步有独立 checkpoint 可回滚。不要试图一次性完成所有改动。
-- **no_implementation_without_requirement**: 开始编写代码前，必须确认：需求来源明确（Spec/Issue/Roadmap/用户指令）、验收标准(AC)已定义、边界情况已明确。不要凭假设或猜测开始实现。实现完成后，必须逐条对比原始需求文档中的验收标准(AC)，确认每条 AC 已实现且边界情况已覆盖，输出验证清单。不得仅凭"功能能跑"就认为完成。
-- **no_test_simplification**: 编写测试时遇到困难（mock、异步、环境），不得删除用例或跳过断言。正确做法：分析问题 → 查阅文档 → 尝试解决 → 仍不行则向用户说明困难请求指示。不得降低覆盖率要求。
-- **no_redis_import**: 禁止引入 Redis/ioredis 依赖。项目使用 MemoryStore（studio-shared）替代。任何新代码不得引入 redis/ioredis 包或 Redis 连接逻辑。
-- **two_stage_review_required**: 代码审查必须分两阶段：① 规范合规审查 — 逐条对照验收标准(AC)验证实现是否满足需求，重新运行测试，审计测试质量并补写边界用例；② 代码质量审查 — 仅在 Stage 1 全部通过后，检查安全性、可读性、类型安全。Stage 1 不通过则不得进入 Stage 2。
-- **public_repo_sanitization**: 本仓为公开仓库，任何写入内容（代码、文档、注释、测试数据、commit message）提交前必须脱敏自查：禁止写入凭证/密钥、内部基础设施信息（主机名、内网域名、IP、部署路径、运维流程细节）、私有仓库内容、个人隐私数据。从私有配置仓复制配置或文档时必须重新逐行审查。规则文本本身也不得列举具体敏感值。
+### 承接约束文本（harness 1.10.0 起手写）
 
-### Guidelines (应遵循)
-- **no_hardcoded_credentials**: 禁止在代码中硬编码密码、API 密钥、Token 等凭证。使用环境变量或安全的凭证管理方案存储敏感信息。
-- **no_bypass_checkpoint**: 每个关键步骤后有 checkpoint 验证点，必须通过才能继续。通过标准：测试通过、类型检查无错误、lint 无新增警告。未通过时回退修复，不得跳过。
-- **monorepo_app_boundary**: apps/ 之间禁止直接导入。共享逻辑必须提取到 packages/（公共逻辑放 packages/studio-shared 或对应 package）。
-- **agent_topology_agnostic**: Agent 方法（reviewDiff/mergeBranches/pushBranch）必须用参数化 ref，禁止硬编码 branch 名。Agent 接口不假设分支拓扑。
-- **prefer_worktree**: 高风险改动（新功能、跨模块、基础设施）应在 worktree 中进行。配置修改、单文件 fix 可直接编辑。
+> harness 1.10.0（ADR-0029）关停文本注入层，HARNESS_CONSTRAINTS 注入段（含版本戳与漂移校验）不再生成；
+> 以下两条文本由原注入段承接迁入本段（studio#606，治理人闸 2026-09-20 当场通过）。
+> `no_completion_without_verification` 的 checker 机制本体仍在 harness 机制面，此处只承接文本。
 
-### Prompts (行为约束)
-- **no_fuzzy_completion_claim**: 声明任务完成时，必须附可复现的验证证据，不得仅凭自己的判断声称完成：测试给出精确通过数量与验证命令输出（如 "142 passed, 0 failed"），声明"已删除"前用 ls 确认文件不存在，文档结论用 grep 确认，Spec 完成前逐条 AC 对照标注 pass/fail。禁用模糊词："应该没问题""大概完成了""基本完成""差不多""我记得""之前说""已修复"（未经 test 验证）。遇困难禁止借口搪塞（"稍后修复""小问题""不影响功能""以后再说""先这样""临时方案"）——必须说明问题的具体影响、修复的时间点或版本；是临时方案的，给出正式方案的计划。
-- **no_fix_without_root_cause**: 修复问题前必须先诊断根因——不止"哪里出错"，而是"为什么设计成这样"：用 Read/Grep 定位后禁止直接 Edit，先对照设计原型（CLAUDE.md、类型定义、commit message）确认原设计意图，呈现确认的根因+方案草案后才能动手。遇到空值/异常/不完整数据，禁止用 fallback/兜底/try-catch 掩盖——先追上游：数据谁产生的？为什么是空的？选择防御性兜底时必须在注释中说明根因；同一位置连续兜底 2+ 次是上游 bug 信号，停止修下游、追踪源头。从数据到结论必须先验证关键假设：数字的含义（累积/单次？量纲？）、正常范围、同类场景对比与反例，禁止"数字异常→直接定根因→直接改"的跳级推理。不绕过问题、不遮掩症状、不用临时方案代替根本修复。
-- **simplest_solution_first**: 最简方案优先：用最少代码解决当前问题，不添加"以防万一"的冗余功能，不为仅用一次的代码强行设计抽象。创建新模块/文件/能力前，先查现有能力索引确认无可复用——优先级：直接复用 > 扩展现有 > 组合现有 > 新建。遵循 YAGNI：不为"未来可能需要"添加抽象层、接口、配置项或插件系统；一个 interface/abstract class 只有一个实现者时，删除这个抽象。自检：资深工程师是否会认为此实现过度复杂？若是，立即简化。
-- **no_code_without_test**: 新代码必须同时编写测试。实现功能前先写测试用例（RED），然后实现让测试通过（GREEN）。不得提交无测试覆盖的实现代码。
-- **no_simplification_without_approval**: 不得擅自简化或删除测试、lint 规则、类型检查或约束。如需降低检查标准，必须先提案并获明确批准。
-- **fix_the_problem_not_the_gate**: 质量门禁阻断时修复代码，不修复门禁。不降阈值、不删测试、不关 lint、不改断言让 CI 通过。
-- **verify_external_capability**: 实现方案依赖外部 API/服务未确认的能力时，必须先查阅官方文档确认能力存在，再发送最小测试验证可行性，记录限制作为设计约束。不要假设外部系统支持某种能力就直接开发。
-- **no_delete_without_context**: 删除任何代码前，先查设计意图（JSDoc/commit/spec），分析被替代的函数是否有丢失的关键模式。零引用≠无价值。分类：未接线→接线，被替代→吸收模式，真正无用→才删。
-- **design_decision_requires_discussion**: 涉及架构变更、新增依赖、API 设计等重大决策时，必须先提出讨论获得确认，再开始实现。不要凭单方面判断做架构决策。
-- **surgical_changes_only**: 外科手术式修改：仅改动绝对必要的部分。不顺手"优化"相邻代码、注释或格式。未出问题的代码不重构。
-- **follow_conventions**: 约定胜于新奇：规范一致性 > 技术偏好。项目用 snake_case 就用 snake_case。有异议显式提出，不暗中另起范式。
-- **first_principles_first**: 第一性优先: 分析设计问题从本质出发，不从当前代码推导。正确设计是什么→当前实现匹配吗→差距决定行动。禁止"代码就是这样"作为理由。
-- **no_conflict_blending**: 暴露冲突不折中：若两种模式冲突→选其一（优先更经测试的版本）+说明理由+标记另一种为待清理。
-- **no_performative_agreement**: 先思后码。明确声明前提假设。遇不确定先提问而非猜测。存在歧义时列出多种理解路径。若存在更简方案应果断提出异议。收到需求时：①复述理解 ②提出疑问 ③说明方案 ④确认一致。
-<!-- HARNESS_CONSTRAINTS_END -->
+- **no_completion_without_verification**（harness 内置 checker，severity=error）：在声明任务完成前，必须重新运行新鲜的验证命令——受改动影响的测试（vitest run --changed origin/master）+ type check，使用新鲜的输出作为完成证据，不得复用旧结果。全量测试由 CI / 发布流程兜底。（文本采用原 .harness/custom-constraints.yml 的 studio 覆写口径，2026-08-14 决策；#606 迁入，2026-09-20）
+- **public_repo_sanitization**（纯文本治理约束，无 checker，**违反即停——非建议**）：本仓为公开仓库，任何写入内容（代码、文档、注释、测试数据、commit message）提交前必须脱敏自查：禁止写入凭证/密钥、内部基础设施信息（主机名、内网域名、IP、部署路径、运维流程细节）、私有仓库内容、个人隐私数据。从私有配置仓复制配置或文档时必须重新逐行审查。规则文本本身也不得列举具体敏感值。（出处：2026-08-26 公开仓安全脱敏决策；#606 自 custom-constraints.yml 迁入，2026-09-20。阻断口径承接自旧注入段的 Iron Laws 分级——机制无 checker 不等于可建议性遵守；2026-09-21 治理人闸当场通过）
 
 ## 探索结论沉淀
 
@@ -97,7 +70,7 @@ pnpm start  # 启动生产服务
 
 - 本文件机器生成部分由 `harness sync-docs --agents` 生成；`AUTO-GENERATED:modules` 段由 `pnpm gen:agents-md`（scripts/gen-agents-md.mjs）维护；统一重建入口 `pnpm agents-md:sync`（先 harness 打底，再组合模块索引段，幂等）。机器生成段禁止手改，过时重新生成。
 - 手写内容住 `PRESERVE:*` 段（本段、Agent skills 等），重新生成原样保留；手写段的增删改走治理变更流程。
-- CI 的 `harness sync-docs --check --agents` 漂移校验对组合文件有效（模块索引段外层套 `PRESERVE:modules`，2026-07-27 治理决策起 CI 开启 `--agents`）。
+- CI 的 `harness sync-docs --check --agents` 漂移校验对组合文件有效（模块索引段外层套 `PRESERVE:modules`，2026-07-27 治理决策起 CI 开启 `--agents`）。校验面只覆盖机器生成段：HARNESS_CONSTRAINTS 注入段的版本戳/漂移校验已随 harness 1.10.0（ADR-0029 文本注入层关停）摘除，治理文本由本段手写自证。
 
 ## 治理变更流程（#166，2026-08-16）
 
@@ -150,7 +123,6 @@ pnpm start  # 启动生产服务
 | `apps/api/src/modules/action-center` | 统一行动中心（#468）：一个端点回答「现在需要我做什么」。GET /api/v1/action-center（requireAuth + requireNotGuest）返回三段：stateItems（状态派生：reply=bloc... |
 | `apps/api/src/modules/admin` | 提供 REST API 端点检查 CLAUDE.md 和 CAPABILITIES.md 的文档新鲜度，包括文件是否存在、最近修改时间、harness 约束检查结果，用于监控文档同步状态。 |
 | `apps/api/src/modules/agents` | Agent 配置（profile）、运行实例（instance）、决策循环（loop）及内部审计 Agent（Auditor/Monitor/Knowledge/Triage/Ops）编排。REST API CRUD + 事件驱动自动... |
-| `apps/api/src/modules/audit` | 将 EventBus 中的审计事件（events:audit）持久化到 KnowledgeStore，提供启动和停止订阅控制，确保每条事件以 guideline 类型存储，并记录错误日志。 |
 | `apps/api/src/modules/audit-logs` | 提供审计日志的查询与统计 API 端点，支持按用户、角色、公司、操作类型、资源、状态、时间范围等条件过滤，并支持分页查询和统计汇总。 |
 | `apps/api/src/modules/auth` | 负责 API 用户认证与会话管理，包括注册、登录、Guest Session 创建、认证状态查询及 JWT 令牌管理。同时集成 OAuth 认证流程（参见 oauth.routes.ts 与 oauth.service.ts）和邮件验... |
 | `apps/api/src/modules/builtin-tools` | 提供一组内置工具（文件操作、搜索、执行、通信）的元数据定义与 RESTful 路由，供上层服务注册和调用。工具列表静态注册在 routes.ts 中，每个工具包含名称、描述、分类、输入 schema 与启用状态。 |

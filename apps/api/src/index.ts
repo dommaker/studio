@@ -12,7 +12,6 @@ import { app, registerRoutes } from './app.js';
 import { logger } from '@dommaker/studio-shared';
 // database.ts removed (Spec 4 Phase 4) — FileStore auto-creates directories
 import { startEvolutionScheduler, stopEvolutionScheduler } from './modules/knowledge/evolution-scheduler.js';
-import { startAuditSubscriber, stopAuditSubscriber } from './modules/audit/audit-subscriber.js';
 import { monitorService } from './modules/agents/monitor/monitor.service.js';
 import { auditorService } from './modules/agents/auditor/auditor.service.js';
 import { spawn, type ChildProcess } from 'child_process';
@@ -239,7 +238,6 @@ async function start() {
       const opsService = createOpsService();
       opsService.start();
     } catch (e) { logger.warn('[OpsService] Failed to start', { error: String(e) }); }
-    startAuditSubscriber();
     try { startEvolutionScheduler(); } catch { logger.warn('Evolution scheduler unavailable'); }
 
     // ── AS-026: AgentLoop per AgentProfile ──
@@ -583,7 +581,6 @@ async function start() {
       stopEvolutionScheduler();
       monitorService.stop();
       auditorService.stop();
-      stopAuditSubscriber();
       server.close(() => process.exit(0));
       // Fallback: force exit if server.close() hangs (lingering connections/handles)
       setTimeout(() => process.exit(0), 5000).unref();

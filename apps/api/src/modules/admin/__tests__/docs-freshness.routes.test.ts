@@ -48,11 +48,11 @@ describe('GET /', () => {
     (checkConstraints as ReturnType<typeof vi.fn>).mockResolvedValue({
       passed: true,
       warningCount: 0,
-      guidelines: [
+      warnings: [
         { id: 'capability_sync', satisfied: true, message: 'CAPABILITIES.md is in sync' },
         { id: 'docs_freshness', satisfied: true, message: 'Docs are fresh' },
       ],
-      ironLaws: [],
+      errors: [],
     });
 
     const { req, res } = mockReqRes();
@@ -77,11 +77,11 @@ describe('GET /', () => {
     mockCheckConstraints.mockResolvedValue({
       passed: true,
       warningCount: 0,
-      guidelines: [
+      warnings: [
         { id: 'capability_sync', satisfied: true, message: 'In sync' },
         { id: 'docs_freshness', satisfied: true, message: 'Fresh' },
       ],
-      ironLaws: [],
+      errors: [],
     });
 
     const { req: req1, res: res1 } = mockReqRes();
@@ -95,11 +95,11 @@ describe('GET /', () => {
     mockCheckConstraints.mockResolvedValue({
       passed: false,
       warningCount: 1,
-      guidelines: [
+      warnings: [
         { id: 'capability_sync', satisfied: false, message: 'Out of sync' },
         { id: 'docs_freshness', satisfied: true, message: 'Fresh' },
       ],
-      ironLaws: [],
+      errors: [],
     });
 
     const { req: req2, res: res2 } = mockReqRes();

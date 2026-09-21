@@ -1,7 +1,7 @@
 /**
  * Auditor Service — 跨任务审计 + 周期洞察
  *
- * 2026-05-09: 初始实现。每日扫描审计事件和执行结果，产出入门级洞察。
+ * 2026-05-09: 初始实现。每日扫描执行数据，产出入门级洞察。
  * 远期 B4-001：系统级 GC + 模型 tier 成功率矩阵 + 约束效果评估。
  *
  * 结构（T3 拆分：审计规则/执行/报告分离，零行为变更；本文件为门面，保留聚合逻辑）：
@@ -81,13 +81,6 @@ export class AuditorService {
         perType.set(errorType, (perType.get(errorType) || 0) + 1);
       }
 
-      // 3. 最近 24h 的审计事件统计 (KnowledgeStore)
-      const { sharedStore: auditStore } = await import('../../knowledge/knowledge-singletons.js');
-      const auditEntries = auditStore.list({ tags: ['audit'] });
-      const auditCount = auditEntries.filter((e: any) =>
-        new Date(e.created).getTime() >= yesterday.getTime()
-      ).length;
-
       // 4. Agent-type 交叉分析
       const agentTypeStats = new Map<string, { total: number; failed: number }>();
 
@@ -116,7 +109,6 @@ export class AuditorService {
         '',
         '### 执行统计',
         `- 总执行: ${total} | 成功: ${total - failed} | 失败: ${failed} | 成功率: ${successRate}%`,
-        `- 审计事件: ${auditCount}`,
         '',
         '### 按 Agent 类型',
         ...[...agentTypeStats.entries()]

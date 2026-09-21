@@ -32,7 +32,7 @@ export * from './types/goal-status';
 export * from './types/resolution';
 
 // 导出 Harness 类型（供下游包使用）
-export type { ConstraintLevel, ConstraintContext, ConstraintResult } from '@dommaker/harness';
+export type { ConstraintSeverity, ConstraintContext, ConstraintResult } from '@dommaker/harness';
 export * from './harness/auditor/auditor-types';
 
 // 导出 EventBus

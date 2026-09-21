@@ -199,7 +199,8 @@ export async function propagateHarnessConfig(worktree: string, taskId: string, e
       const templateDir = path.resolve(process.cwd(), '.harness');
       if (fsSync.existsSync(templateDir)) {
         fsSync.mkdirSync(harnessDir, { recursive: true });
-        for (const f of ['config.yml', 'checkpoints.yml', 'custom-constraints.yml']) {
+        // custom-constraints.yml 已随 harness 1.10.0（ADR-0029 文本注入层关停）整文件退役（studio#606）
+        for (const f of ['config.yml', 'checkpoints.yml']) {
           const src = path.join(templateDir, f);
           if (fsSync.existsSync(src)) {
             fsSync.copyFileSync(src, path.join(harnessDir, f));

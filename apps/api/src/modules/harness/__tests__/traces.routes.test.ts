@@ -27,7 +27,7 @@ vi.mock('@dommaker/harness', async (importOriginal) => {
     ...actual,
     TraceCollector: class {
       read() {
-        return [{ constraintId: 'c1', level: 'L1', result: 'pass', timestamp: 1 }];
+        return [{ constraintId: 'c1', severity: 'error', result: 'pass', timestamp: 1 }];
       }
       recordPass() {}
       recordFail() {}
@@ -96,7 +96,7 @@ describe('traces.routes', () => {
   });
 
   it('GET /traces accepts filter query params', async () => {
-    const res = await api('GET', '/traces?constraintId=c1&level=L1&result=pass&hours=12&limit=10');
+    const res = await api('GET', '/traces?constraintId=c1&severity=error&result=pass&hours=12&limit=10');
     expect(res.status).toBe(200);
     expect(res.json.total).toBe(1);
   });
@@ -104,19 +104,19 @@ describe('traces.routes', () => {
   it('POST /traces 400 without required fields', async () => {
     const res = await api('POST', '/traces', { constraintId: 'c1' });
     expect(res.status).toBe(400);
-    expect(res.json.error).toBe('constraintId, level, and result are required');
+    expect(res.json.error).toBe('constraintId, severity, and result are required');
   });
 
   it('POST /traces records pass/fail', async () => {
     for (const result of ['pass', 'fail']) {
-      const res = await api('POST', '/traces', { constraintId: 'c1', level: 'L1', result });
+      const res = await api('POST', '/traces', { constraintId: 'c1', severity: 'error', result });
       expect(res.status).toBe(200);
       expect(res.json).toEqual({ recorded: true });
     }
   });
 
   it('POST /traces rejects bypassed (harness 1.2.0 removed bypass recording)', async () => {
-    const res = await api('POST', '/traces', { constraintId: 'c1', level: 'L1', result: 'bypassed' });
+    const res = await api('POST', '/traces', { constraintId: 'c1', severity: 'error', result: 'bypassed' });
     expect(res.status).toBe(400);
     expect(res.json.error).toContain('no longer supported');
   });

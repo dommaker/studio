@@ -27,6 +27,7 @@ import {
   type FileRefVocabularyDeps,
 } from './file-ref-vocabulary.js';
 import { writeStudioEvent } from '../../utils/studio-events.js';
+import { recordAgentDecision } from '../audit-logs/agent-decision.js';
 
 const fileStore = new FileStore();
 
@@ -405,6 +406,23 @@ export async function routeMessage(
       reroutedFrom,
       traceId: ctx?.traceId ?? undefined,
     });
+    // #591：@mention 派单决策埋点（词表 dispatch；依据 = 匹配方式摘要，不落消息全文）
+    recordAgentDecision({
+      action: 'dispatch',
+      resource: 'workunit',
+      resourceId: workUnit.id,
+      actor: agent ? { id: agent.id, type: 'agent' } : undefined,
+      details: {
+        via: 'mention',
+        channelId,
+        mentionName: prefixMatchName ?? mentionName,
+        matched: !!agent,
+        ...(prefixMatchName ? { prefixFallback: true } : {}),
+        ...(reroutedFrom ? { reroutedFrom } : {}),
+        ...(parked ? { parked: true } : {}),
+      },
+      requestId: ctx?.traceId,
+    });
     // #494: 回填派发消息 ↔ WU 关联（best-effort：失败仅缺 back-link，线程锚定已由 anchorMessageId 承载）。
     // 返回值替换派发消息记录，保持 routeMessage 返回值的 workUnitId 契约不变。
     const message = await channelMessageService.linkWorkUnit(dispatchMessage.id, workUnit.id, channelId).catch(err => {
@@ -499,6 +517,15 @@ export async function routeMessage(
         channelId,
         workUnitId: mergeTarget.id,
       });
+      // #591：合并窗口并入决策埋点（词表 dispatch，via=merge；对象 = 在途 WU）
+      recordAgentDecision({
+        action: 'dispatch',
+        resource: 'workunit',
+        resourceId: mergeTarget.id,
+        actor: { id: channel.defaultProfileId, type: 'agent' },
+        details: { via: 'merge', channelId },
+        requestId: ctx?.traceId,
+      });
       await reportDroppedRefs(message);
       return message;
     }
@@ -530,6 +557,15 @@ export async function routeMessage(
       channelId,
       workUnitId: workUnit.id,
       defaultProfileId: channel.defaultProfileId,
+    });
+    // #591：决策12 默认角色派单埋点（词表 dispatch，via=default-role）
+    recordAgentDecision({
+      action: 'dispatch',
+      resource: 'workunit',
+      resourceId: workUnit.id,
+      actor: { id: channel.defaultProfileId, type: 'agent' },
+      details: { via: 'default-role', channelId },
+      requestId: ctx?.traceId,
     });
     const message = await channelMessageService.linkWorkUnit(dispatchMessage.id, workUnit.id, channelId).catch(err => {
       logger.warn('[MessageRouting] Link dispatch message to WorkUnit failed (non-blocking)', {

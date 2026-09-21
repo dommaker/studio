@@ -402,7 +402,7 @@ router.post('/:id/status', requireAuth(), requireNotGuest(), requireHuman('Statu
   if (!status || typeof status !== 'string') {
     throw new HttpRouteError(400, 'INVALID_INPUT', 'status is required');
   }
-  res.json(await service.transitionStatus(req.params.id, status));
+  res.json(await service.transitionStatus(req.params.id, status, { id: req.user?.id ?? 'unknown', type: 'human' }));
 }));
 
 // ── 讨论空间 (AS-025 §5.16) ──

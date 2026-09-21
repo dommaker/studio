@@ -34,18 +34,18 @@ describe('RuleScanner.scanHarnessConstraints — 生效集公共 API', () => {
     expect(mockGetEffective.mock.calls[0][0]).toBeTruthy();
   });
 
-  it('生效约束映射为 ScannedRule：name=level:id、source 为公共包名、sourceType 不变', () => {
+  it('生效约束映射为 ScannedRule：name=severity:id、source 为公共包名、sourceType 不变', () => {
     mockGetEffective.mockReturnValue([
-      { id: 'no_redis_import', level: 'iron_law', rule: 'NO REDIS', message: '禁 Redis', description: 'Redis 已迁移' },
-      { id: 'prefer_worktree', level: 'guideline', rule: 'USE WORKTREE', message: '用 worktree', description: '高风险改动隔离' },
-      { id: 'be_terse', level: 'prompt', rule: 'BE TERSE', message: '简洁', description: '电报式输出' },
+      { id: 'no_redis_import', severity: 'error', kind: 'check', rule: 'NO REDIS', message: '禁 Redis', description: 'Redis 已迁移' },
+      { id: 'prefer_worktree', severity: 'warning', kind: 'check', rule: 'USE WORKTREE', message: '用 worktree', description: '高风险改动隔离' },
+      { id: 'be_terse', severity: 'info', kind: 'check', rule: 'BE TERSE', message: '简洁', description: '电报式输出' },
     ]);
 
     const rules = (ruleScanner as any).scanHarnessConstraints() as Array<{
       name: string; source: string; sourceType: string; description: string; affects: string[];
     }>;
 
-    expect(rules.map(r => r.name)).toEqual(['iron_law:no_redis_import', 'guideline:prefer_worktree', 'prompt:be_terse']);
+    expect(rules.map(r => r.name)).toEqual(['error:no_redis_import', 'warning:prefer_worktree', 'info:be_terse']);
     for (const r of rules) {
       expect(r.source).toBe('@dommaker/harness');
       expect(r.sourceType).toBe('harness_constraint');
@@ -56,7 +56,7 @@ describe('RuleScanner.scanHarnessConstraints — 生效集公共 API', () => {
 
   it('description 缺失时按 message → rule 兜底（不产空描述）', () => {
     mockGetEffective.mockReturnValue([
-      { id: 'no_desc', level: 'guideline', rule: 'RULE TEXT', message: '中文消息' },
+      { id: 'no_desc', severity: 'warning', kind: 'check', rule: 'RULE TEXT', message: '中文消息' },
     ]);
 
     const rules = (ruleScanner as any).scanHarnessConstraints();
@@ -65,7 +65,7 @@ describe('RuleScanner.scanHarnessConstraints — 生效集公共 API', () => {
 
   it('description 与 message 均缺失时按 rule 文本兜底（不产空描述）', () => {
     mockGetEffective.mockReturnValue([
-      { id: 'only_rule', level: 'prompt', rule: 'RULE ONLY TEXT' },
+      { id: 'only_rule', severity: 'info', kind: 'check', rule: 'RULE ONLY TEXT' },
     ]);
 
     const rules = (ruleScanner as any).scanHarnessConstraints();

@@ -7,7 +7,7 @@
  *
  * Migrated from Prisma Skill/SkillProposal to file-based stores (D-005).
  */
-import { logger, recordDecision, FileStore, writeStudioEvent } from '@dommaker/studio-shared';
+import { logger, FileStore, writeStudioEvent } from '@dommaker/studio-shared';
 import { randomUUID } from 'crypto';
 import { getSystemExecutor } from '../agents/system-executor.js';
 import { skillStore } from './skill-store.js';
@@ -199,21 +199,6 @@ export class SkillExtractionService {
         ).catch(() => {});
       } catch (e) {
         logger.warn('[SkillExtraction] Discord notification failed (non-blocking)', { error: String(e) });
-      }
-
-      // Audit: Skill auto-publish
-      try {
-        recordDecision({
-          eventType: 'skill.auto_published',
-          entityType: 'skill',
-          entityId: skill.id,
-          companyId: proposal.companyId,
-          summary: `Skill auto-published: ${proposal.name} (confidence: ${confidence.toFixed(2)})`,
-          details: { name: proposal.name, category: proposal.category, confidence, sourceGoalIds: proposal.sourceGoalIds },
-          actorRole: 'knowledge_keeper',
-        });
-      } catch (e) {
-        logger.warn('[SkillExtraction] Audit recording failed (non-blocking)', { error: String(e) });
       }
     } else {
       logger.info('[SkillExtraction] Pending review proposal submitted', { proposalId, name: proposal.name });

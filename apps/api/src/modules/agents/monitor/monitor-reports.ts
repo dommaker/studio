@@ -310,8 +310,9 @@ export async function dailyReflection(fileStore: FileStore, state: ReportState):
     // #134①（harness 1.8.0）：KnowledgeAudit 构造签名改 (store, 阈值)，
     // baseDir 由 store 供给——走 sharedStore 单例（与运行时知识库同一路径
     // UNIFIED_KNOWLEDGE_DIR），不再自拼 {baseDir} 构造。
+    // #559：去掉 as any——新版签名类型完整，编译期可拦签名漂移。
     try {
-      const { KnowledgeAudit } = await import('@dommaker/harness') as any;
+      const { KnowledgeAudit } = await import('@dommaker/harness');
       const { sharedStore } = await import('../../knowledge/knowledge-singletons.js');
       const audit = new KnowledgeAudit(sharedStore);
       const report = audit.run({ autoFix: true });

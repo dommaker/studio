@@ -115,12 +115,12 @@ export async function executeCreateAction(
 export async function executeCreateAction(
   action: TriggerAction,
   triggerId: string,
-  opts: { dedupeWithinMinute?: Date },
+  opts: { dedupeWithinMinute?: Date; traceId?: string },
 ): Promise<{ id: string; type: string; scope: string; status: string; channelId: string | null; metadata: string | null } | null>;
 export async function executeCreateAction(
   action: TriggerAction,
   triggerId: string,
-  opts?: { dedupeWithinMinute?: Date },
+  opts?: { dedupeWithinMinute?: Date; traceId?: string },
 ): Promise<{ id: string; type: string; scope: string; status: string; channelId: string | null; metadata: string | null } | null> {
   if (action.type !== 'CREATE') {
     throw new Error(`Unknown action type: ${action.type}`);
@@ -154,6 +154,8 @@ export async function executeCreateAction(
     triggerId,
     triggerSource: 'trigger-registry',
     triggeredAt: new Date().toISOString(),
+    // #591：触发埋点的 traceId 落 WU metadata（与频道链路的 traceId/requestId 同值口径）
+    ...(opts?.traceId ? { traceId: opts.traceId } : {}),
   };
 
   const workUnit = await workUnitService.create({

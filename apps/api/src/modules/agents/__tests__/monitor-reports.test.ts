@@ -216,4 +216,42 @@ describe('dailyReflection', () => {
     expect(posted[0]).toContain('会话: 1 次');
     expect(posted[0]).toContain('知识消费');
   });
+
+  // #559 / harness#134①：审计段定点测试——绕开文件级 harness mock（其 stub 的
+  // KnowledgeAudit 构造器忽略入参，掩盖构造形状），用真实 KnowledgeAudit +
+  // 真实 FileKnowledgeStore 验证「store 首参」契约：签名漂移回 {baseDir} 旧形态
+  // 时 run() 必抛 → 审计段静默消失 → 本测试转红。
+  it('#559: 知识质量审计段走真实 KnowledgeAudit（store 首参），真出数', async () => {
+    const harness = await vi.importActual<typeof import('@dommaker/harness')>('@dommaker/harness');
+    const kaDir = fs.mkdtempSync(path.join(tmpEvents, 'ka-559-'));
+    const realStore = new harness.FileKnowledgeStore({ baseDir: kaDir });
+    realStore.save({
+      id: 'ka-559-entry', type: 'pattern', title: 'smoke', content: 'x'.repeat(60),
+      tags: ['smoke'], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    } as any);
+
+    vi.doMock('@dommaker/harness', async (importOriginal) => importOriginal());
+    vi.doMock('../../knowledge/knowledge-singletons.js', () => ({ sharedStore: realStore }));
+    const posted: string[] = [];
+    vi.doMock('../../channels/channel-message.service.js', () => ({
+      channelMessageService: {
+        createAgentMessage: vi.fn(async (_ch: string, _sender: string, content: string) => {
+          posted.push(content);
+        }),
+      },
+    }));
+    vi.resetModules();
+    const { dailyReflection: dr } = await import('../monitor/monitor-reports.js');
+
+    const fileStore = makeFileStore({
+      listChannels: vi.fn(async () => [{ id: 'ch-sys', name: '#系统' }]),
+    });
+    await dr(fileStore, { lastDailyReflectionTs: 0 });
+
+    expect(posted.length).toBeGreaterThan(0);
+    expect(posted[0]).toContain('### 知识质量审计');
+    expect(posted[0]).toContain('总条目: 1');
+    expect(posted[0]).toMatch(/健康分: \d+→\d+\/100/);
+    expect(posted[0]).toContain('维度:');
+  });
 });

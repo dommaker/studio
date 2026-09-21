@@ -1,28 +1,23 @@
 # CAPABILITIES.md
 
-> 最后更新: 2026-09-17
+> 最后更新: 2026-09-20
 
 ---
 
 | 模块 | 文件 | 说明 |
 |------|------|------|
-
 | src | packages/studio-agent/src/ | studio-agent 类型定义 |
 | audit-service | packages/studio-audit/src/services/audit-service.ts | Audit Service - 审计日志服务 (AR-012) |
 | capability.service | packages/studio-capability/src/services/capability.service.ts | Capability Service - 能力管理服务 |
 | notification-service | packages/studio-notification/src/services/notification-service.ts | 通知服务 |
 | cli | packages/studio-shared/src/cli/ | 命令注册框架 |
 | levels | packages/studio-shared/src/constants/levels.ts | 级别配置 - 全局统一的职级定义 |
-
 | src | packages/studio-shared/src/ | Studio Event Bus — 替代 Redis pub/sub（2026-05-08） |
 | auditor-types | packages/studio-shared/src/harness/auditor/auditor-types.ts | Auditor ↔ 其他角色协议定义（BP-013 + BP-014） |
-
 | harness | packages/studio-shared/src/harness/ | Constraint Prompt Injection — 将 harness 约束的前置声明注入 Agent prompt |
 | runtime | packages/studio-shared/src/harness/runtime/ | Harness Runtime Bootstrap — Phase 2 迁移 |
-
 | agents | apps/api/src/modules/agents/ | SystemExecutor — 系统级 LLM 调用抽象，替代 modelGateway |
 | types | packages/studio-shared/src/types/ | Goal 状态类型 — SQLite 不支持 enum，用 TypeScript 类型守卫约束 |
-
 | utils | packages/studio-shared/src/utils/ | Shared Logger - 统一日志接口 |
 | src | packages/studio-skill/src/ | SkillLoader — 按 trigger 加载 Skill，注入 Agent prompt |
 | services | packages/studio-spec/src/services/ | ChangeAnalyzerService 单元测试 |
@@ -32,9 +27,7 @@
 | knowledge | apps/api/src/modules/agents/knowledge/ | Knowledge Curator - 知识库冷启动 + F1 每日维护 + 提取 prompt 单一来源 |
 | monitor | apps/api/src/modules/agents/monitor/ | Monitor Service - 健康监控 + 渐进告警 + G31 知识沉淀闸门(precipitate→TTL) |
 | ops | apps/api/src/modules/agents/ops/ | Ops Service — 系统生命周期守护 |
-
 | triage.service | apps/api/src/modules/agents/triage/triage.service.ts | Triage Service — incident response: diagnose → classify → act → resolve/escalate |
-| audit-subscriber | apps/api/src/modules/audit/audit-subscriber.ts | Audit Event Subscriber — EventBus 审计事件持久化到 DB (B0-002) |
 | routes | apps/api/src/modules/audit-logs/routes.ts | GET /api/audit-logs - 查询审计日志 |
 | auth | apps/api/src/modules/auth/ | POST /api/v1/auth/guest-session |
 | routes | apps/api/src/modules/builtin-tools/routes.ts | builtin-tools/routes.ts — Built-in Toolset (HZ-026) |
@@ -47,11 +40,8 @@
 | routes | apps/api/src/modules/executions/routes.ts | Execution API 路由 |
 | harness | apps/api/src/modules/harness/ | Iron Laws API — 从 runtime-proxy 迁移 (2026-05-14) |
 | knowledge | apps/api/src/modules/knowledge/ | DecisionChainExtractor (G-004) — 从 Meeting 辩论 + Goal 执行中提取决策链 |
-
 | routes | apps/api/src/modules/lark/routes.ts | 飞书机器人交互回调 |
-
 | mcp | apps/api/src/modules/mcp/ | MCP Admin Routes — tool management, permissions, audit |
-
 | routes | apps/api/src/modules/notifications/routes.ts | 通知 API 路由 |
 | outbound-notify | apps/api/src/modules/outbound-notify/ | NotifyService - 通知服务 |
 | pmo | apps/api/src/modules/pmo/ | 🆕 AS-016: 获取当前季度 |
@@ -61,78 +51,54 @@
 | library | apps/api/src/modules/library/ | GET /api/v1/library（#155 阅览室：跨项目 .studio/ 聚合只读）|
 | api | apps/web/src/api/ | Channel API — list + publish 发布 |
 | hooks | apps/web/src/hooks/ | Channel SSE hook — B2: EventSource 实时推送替代 3s 轮询 |
-
 | stores | apps/web/src/stores/ | agentStore |
 | setup | apps/web/src/test/setup.ts | setup |
 | types | apps/web/src/types.ts | types.ts - Agent Studio 类型定义 |
-
 | utils | apps/web/src/utils/ | Lightweight toast notification system (zero dependencies) |
-
 | services | packages/studio-agent/src/services/ | Output Capture — 进度读取 + 输出文件收集 + session 指标记录 |
-
 | workspaces | apps/api/src/modules/workspaces/ | Local Workspace Registration — AS-020 P2-04 |
-
 | stream-json-parser | packages/studio-shared/src/llm/stream-json-parser.ts | Stream-JSON Parser — 解析 Claude CLI --output-format stream-json 输出 |
-
 | unified-query | apps/api/src/modules/knowledge/engine/unified-query.ts | UnifiedQuery — dual-store unified query layer. |
-
 | loop | apps/api/src/modules/agents/loop/ | Analyze agent log for knowledge search behavior. |
 | monitoring | apps/api/src/modules/monitoring/ | Monitoring Routes — Agent Network (MVP-2 + MVP-6) |
 | triggers | apps/api/src/modules/triggers/ | Cron Matcher — minimal cron expression evaluator (3.28c-4) |
-
 | workunit | apps/api/src/modules/workunit/ | WorkUnit API 路由 (AS-025 §3.28c-1, §5.16) |
-
 | anomaly-detector | packages/studio-shared/src/stats/anomaly-detector.ts | 计算数组的均值和标准差（总体标准差） |
 | projects | apps/api/src/modules/projects/ | AC-D1+D3: Project Discovery Service |
-
 | requirements | apps/api/src/modules/requirements/ | REQ 绑定解析（vision §5.3）— @mention 派发 / convert-to-task 共用。 |
-
 | evolution | apps/api/src/modules/evolution/ | E1 约束进化：提案生效器（applier）。 |
-
 | webhook.routes | apps/api/src/modules/deploy/webhook.routes.ts | Deploy Webhook — GitHub push 事件触发的部署入口（触发式部署，替代每分钟轮询的主通道） |
-
 | pmo | apps/web/src/components/pmo/ | WU → 泳道。F6 铁律：分列只准看 deriveDisplayState 派生列（done 缺 L3 回「评审中」等人工确认）。 |
 | statusClasses | apps/web/src/components/channel/statusClasses.ts | 频道/agent 状态点样式映射（从 ChannelRail.tsx 拆出，供 ChannelRail 与 ChannelListPage 共用） |
 | dismissed | apps/web/src/components/setup/dismissed.ts | 角色配置引导弹框的会话级 dismiss 标记（sessionStorage key 与检查函数； |
 | useTheme | apps/web/src/contexts/useTheme.ts | 使用主题 Hook |
-
 | completion-extraction | apps/api/src/modules/role-memory/completion-extraction.ts | completion-extraction (#99) — WU 收尾批量提取钩子 |
-
 | role-memory | apps/api/src/modules/role-memory/role-memory.ts | role-memory (#98) — 角色记忆存储服务 |
 | transcript-archive | apps/api/src/modules/transcripts/transcript-archive.ts | transcript-archive — transcript 归档器（#97，#88 子票） |
 | distill | apps/api/src/modules/distill/ | 蒸馏主链路最小闭环（#143）：门槛检测纯函数 + distill_proposal 人审卡 + approve 执行 + runs.jsonl 运行记录 |
-
 | App | apps/web/src/App.tsx | App.tsx - Agent Studio - 路由重构 |
 | AuthModal | apps/web/src/components/AuthModal.tsx | 隐形认证 — 仅通过手势触发（双击 ⚡ 或 Ctrl+Enter） |
-
 | DiscussionPanel | apps/web/src/components/DiscussionPanel.tsx | DiscussionPanel — WorkUnit 讨论空间（MVP-4） |
-
 | LandingPage | apps/web/src/components/LandingPage.tsx | Lurk Wall: 个人网站展示页 — 不提示登录，不显示入口 |
 | MoreDropdown | apps/web/src/components/MoreDropdown.tsx | MoreDropdown.tsx - "更多"下拉菜单组件（L4 高级功能） |
 | NotificationBell | apps/web/src/components/NotificationBell.tsx | Notification Bell — B2-003: 通知中心 |
 | OAuthCallback | apps/web/src/components/OAuthCallback.tsx | OAuth callback handler. |
 | PmoNumberBadge | apps/web/src/components/PmoNumberBadge.tsx | PMO 号显示组件 - GEN-005 |
 | SidebarNew | apps/web/src/components/SidebarNew.tsx | Sidebar.tsx - 侧边栏组件（最新设计） |
-
 | TopNav | apps/web/src/components/TopNav.tsx | TopNav.tsx - 顶部导航栏组件（L1 核心功能） |
 | TriageBanner | apps/web/src/components/TriageBanner.tsx | Triage Global Banner — B2-005: 页面顶部常驻告警横幅 |
-
 | AuthorAvatar | apps/web/src/components/channel/AuthorAvatar.tsx | AuthorAvatar — 频道消息作者头像：人类 = 品牌色 + 用户名首字（用户传了 avatar 图则用图）； |
 | ChannelInput | apps/web/src/components/channel/ChannelInput.tsx | Channel message input — AC-C1: @mention autocomplete + AC-C2: reply mode |
 | ChannelMemberManager | apps/web/src/components/channel/ChannelMemberManager.tsx | Channel Member Manager — AC-B frontend gap |
 | ChannelMessageItem | apps/web/src/components/channel/ChannelMessageItem.tsx | Channel message renderer — AC-C2: reply button + AC-C3: thread + AC-E3: Convert to Task |
 | ChannelRail | apps/web/src/components/channel/ChannelRail.tsx | ChannelRail — Mission Control 左栏：频道列表（未读 badge + agent 在线数）+ Agent 状态 |
-
 | ConvertToTaskDialog | apps/web/src/components/channel/ConvertToTaskDialog.tsx | AC-E3: Convert to Task dialog — LLM suggestion + form |
-
 | KnowledgeConfirmCard | apps/web/src/components/channel/KnowledgeConfirmCard.tsx | Knowledge confirm / retract card — B1-008/B1-010 |
-
 | RequirementsDocCard | apps/web/src/components/channel/RequirementsDocCard.tsx | RequirementsDoc inline card — B1-001/B1-003, M2 quality gate |
 | WorkUnitDrawer | apps/web/src/components/channel/WorkUnitDrawer.tsx | WorkUnitDrawer — Mission Control 右抽屉：WorkUnit 详情 / REQ 全链路 |
 | GapCards | apps/web/src/components/knowledge/GapCards.tsx | 知识库页面六类 Gap 明细卡片（2026-08 工单 34 从 pages/KnowledgePage.tsx 抽出，纯展示无逻辑变更） |
 | MarkdownBody | apps/web/src/components/knowledge/MarkdownBody.tsx | Markdown 正文渲染 — WikiDocPage 正文方案（2026-07-31 §10 任务 4b） |
 | RequirementChainPanel | apps/web/src/components/requirement/RequirementChainPanel.tsx | REQ 全链路面板（vision §5.3）— 展示 GET /requirements/:id/chain |
-
 | ThemeSettings | apps/web/src/components/settings/ThemeSettings.tsx | 主题设置 section（从 pages/Settings.tsx 抽取，工单 35-E3） |
 | FirstRoleSetupModal | apps/web/src/components/setup/FirstRoleSetupModal.tsx | AC-2.3（F2，2026-07-28）: 无已配置 provider 的用户角色时弹框提醒 |
 | StudioRoleSetupModal | apps/web/src/components/setup/StudioRoleSetupModal.tsx | AC-2.2: studio 角色 provider=null 弹框提醒 |
@@ -152,7 +118,6 @@
 | AgentDetailPage | apps/web/src/pages/AgentDetailPage.tsx | AgentDetailPage — /agents/:profileId（2026-07-31 全流程串联 UX 重构 §5.3） |
 | AuditLogsPage | apps/web/src/pages/AuditLogsPage.tsx | 审计日志页面 - AR-012 |
 | ChannelDetailPage | apps/web/src/pages/ChannelDetailPage.tsx | 线程内过程消息折叠/聚合：连续 ≥3 条「过程消息」收成一组（默认折叠，点击展开）。 |
-
 | ForgotPasswordPage | apps/web/src/pages/ForgotPasswordPage.tsx | 忘记密码页面 — 输入邮箱，发送重置链接 |
 | KnowledgePage | apps/web/src/pages/KnowledgePage.tsx | 知识库页面 — 累积知识浏览 |
 | MonitoringPage | apps/web/src/pages/MonitoringPage.tsx | MonitoringPage — Agent Network MVP-6 |
@@ -160,9 +125,7 @@
 | PMOPage | apps/web/src/pages/PMOPage.tsx | PMOPage - PMO 管理主页面（项目 + OKR；三个弹窗已抽至 components/pmo/，工单 33） |
 | ProjectDetailPage | apps/web/src/pages/ProjectDetailPage.tsx | Project 详情页 - GEN-005 + FL-013 |
 | ResetPasswordPage | apps/web/src/pages/ResetPasswordPage.tsx | 重置密码页面 — 使用 token 设置新密码 |
-
 | Settings | apps/web/src/pages/Settings.tsx | 设置页面 - API 配置 + 通知 + 公司 + 主题语言 |
-
 | WorkUnitDetailPage | apps/web/src/pages/WorkUnitDetailPage.tsx | WorkUnitDetailPage — /workunits/:id WU 详情页（全站跳转枢纽，2026-07 agents-pmo-flow-ux §5.4） |
 | WorkUnitListPage | apps/web/src/pages/WorkUnitListPage.tsx | WorkUnitListPage |
 | WorkspacePage | apps/web/src/pages/WorkspacePage.tsx | WorkspacePage — AC Group 5: runtime list + create role dialog |
@@ -183,11 +146,9 @@
 | CreateChannelForm | apps/web/src/components/channel/CreateChannelForm.tsx | #272（决策 #251 Q3/Q7）：创建频道表单单一实现 —— ChannelListPage 与 ChannelRail 共用。 |
 | FileRefChip | apps/web/src/components/channel/FileRefChip.tsx | #285（决策 #249 §5）：agent 消息正文 inline-code 路径 token 染「文件 chip」。 |
 | NeedInputOptions | apps/web/src/components/channel/NeedInputOptions.tsx | #267（决策 #250 D3）: NEED_INPUT 结构化选项卡 — meta.options[] 全仓首发落地。 |
-
 | ProjectCandidatesSection | apps/web/src/components/settings/ProjectCandidatesSection.tsx | 工程候选管理 section（#266，决策 #258）：归属问答候选集排除清单管理。 |
 | notification-service.test | packages/studio-notification/src/services/notification-service.test.ts | NotificationService tests — #274 写路径归属校验 |
 | AssigneeLabel | apps/web/src/components/workunit/AssigneeLabel.tsx | 负责人展示标签（#290 清单 #24）——解析到角色名则渲染 @名字 并链到 /agents/:roleId； |
-
 | service | apps/api/src/modules/auth/service.ts | 认证服务 - Auth Service |
 | card | apps/api/src/modules/review-proposal/card.ts | review-proposal/card (#351) — 人审提案卡投放 #系统 频道（唯一正本） |
 | registry | apps/api/src/modules/review-proposal/registry.ts | review-proposal/registry (#351) — 人审提案卡 adapter 注册表（kind → adapter） |
@@ -213,7 +174,6 @@
 | TreeTokenChart | apps/web/src/components/workunit/TreeTokenChart.tsx | TreeTokenChart — #396 WU 详情页 Token 开销图表化（spec §5.4，零图表库手搓） |
 | ChannelHomeRedirect | apps/web/src/pages/ChannelHomeRedirect.tsx | #393 频道首页重定向 — `/` 与 `/channels` 唯一入口（频道列表页已删除，spec §2） |
 | AgentAvatar | apps/web/src/components/channel/AgentAvatar.tsx | AgentAvatar — #440 Phase 4：per-agent identicon 式确定性头像。 |
-
 | SuggestionChips | apps/web/src/components/channel/SuggestionChips.tsx | SuggestionChips — #440 Phase 1：频道输入框上方的建议片； |
 | UnifiedEntryContent | apps/web/src/components/knowledge/UnifiedEntryContent.tsx | #435 B7：统一视图条目内容消化呈现——JSON 结构化键值列表；文本超 200 字符截断 + 展开/收起， |
 | MetaStrip | apps/web/src/components/ui/MetaStrip.tsx | MetaStrip — #440 Phase 3：详情页标题下密排元信息条。 |
@@ -278,4 +238,6 @@
 | ChannelMessageEnv | apps/web/src/components/channel/ChannelMessageEnv.tsx | 频道消息环境（#547，架构评审 2026-09-15 候选 B3，grilling 已决）： |
 | ApproveDialogShell | apps/web/src/components/ui/ApproveDialogShell.tsx | ApproveDialogShell — 审批弹窗公共壳（docs/plans/2026-09-web-ux-optional-fixes.md Step 3， |
 | PlanDirectionCard | apps/web/src/components/channel/PlanDirectionCard.tsx | PlanDirectionCard — #567：方向锁定接力卡（plan 一脉会话内方向人闸，裁决轮前置环节） |
+| agent-decision | apps/api/src/modules/audit-logs/agent-decision.ts | audit-logs/agent-decision (#591 B 类) — agent 自主决策埋点统一入口 |
+| proposal-source | apps/api/src/modules/audit-logs/proposal-source.ts | audit-logs/proposal-source (#591 A 类) — review-proposal 正本的聚合读面 |
 | mockMatchMedia | apps/web/src/test/mockMatchMedia.ts | #395：jsdom 无 window.matchMedia 实现——按给定视口宽度求值 (min|max)-width 媒体查询， |

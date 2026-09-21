@@ -16,8 +16,7 @@
 | `foldJsonlById()` / `JsonlFoldGroup` | `src/jsonl-fold.ts` | #360 JSONL append-only 共享折叠：按 id 分组、每组取最新一行（Map 插入序 = id 首现序）；作废判据由业务传入，组产物 latest/voided/data/tombstones 四字段，丢弃/取首/取末全留业务侧 adapter。已接线：channels mergeActiveRows、notification、review-proposal、role-memory；**不接线**：triage foldIncidentRows（rank 口径）与 workunit reduceEventsToSnapshots（事件归约 merge），两处源码有注记 |
 | `eventBus` | `src/event-bus*` | 进程内事件总线（agent-profile.created 等触发 AgentLoopRegistry mount）。`publish` 同步 emit，async 订阅 handler 为 fire-and-forget——await 发布方（如 createHumanMessage）不等待订阅链完成，消费方需自己的确定性同步点（等业务事件或轮询） |
 | `extractProviderUsage()` / `ProviderUsage` | `src/harness/provider-usage.ts` | #134 per-provider usage 提取器（harness 子路径导出）：claude modelUsage 优先 / opencode step_finish.part.tokens / codex turn.completed.usage / kimi stdout 无出口 → null；未知 provider 按 claude schema 兜底 |
-| harness 运行时初始化 | `src/harness/runtime/bootstrap.ts` | `bootstrapHarness()`（进程内单例，异步加载 `.harness/config.yml`，失败回落 `bootstrapHarnessSync`）+ `getHarness()` / `isHarnessInitialized()`。原并列的 studio 侧业务 hook 管线层（`src/harness/hooks/`）已整层删除，判据与「为什么不接线而收缩」的第一性论证见 `docs/adr/2026-09-17-hooks-layer-shrink.md`。**要加运行时硬检查，挂 apps/api agent-loop 的 step-guards / completion-gates，不重建 hook 管线**。按 trigger 取约束文本的正本只有一处 = harness `renderConstraintsByTrigger(triggers, {projectRoot})`（init 注入 / check 路径自己调）；studio 侧那层 role→trigger 路由包装在 studio 零生产调用方，已删（#587），要按角色注入约束就直接调 harness，别在 studio 重建路由表 |
-| `recordDecision()` / `recordDecisions()` / `AuditEvent` | `src/harness/audit.ts` | 决策级审计事件发布：统一加盖 id/timestamp 后 `eventBus.publish('events:audit')`，DB 持久化由 apps/api `modules/audit/audit-subscriber` 承担。原住 `harness/hooks/audit.ts`，#562 随该目录收缩上移一级（它是事件发布器，从来不是 hook） |
+| harness 运行时初始化 | `src/harness/runtime/bootstrap.ts` | `bootstrapHarness()`（进程内单例，异步加载 `.harness/config.yml`，失败回落 `bootstrapHarnessSync`）+ `getHarness()` / `isHarnessInitialized()`。原并列的 studio 侧业务 hook 管线层（`src/harness/hooks/`）已整层删除，判据与「为什么不接线而收缩」的第一性论证见 `docs/adr/2026-09-17-hooks-layer-shrink.md`。**要加运行时硬检查，挂 apps/api agent-loop 的 step-guards / completion-gates，不重建 hook 管线**。按 trigger 取约束文本的 harness 正本 `renderConstraintsByTrigger` 已随 harness 1.10.0（ADR-0029）删除——文本注入层整体关停，约束文本治理归消费方仓手写治理段（studio = AGENTS.md PRESERVE:governance）；studio 侧 role→trigger 路由包装更早已在 #587 删除，勿在 studio 重建注入面 |
 | `deriveDisplayState()` / `parseAttestations()` / `withAttestation()` | `src/attestation.ts` | F6 信任证据模型（决策 1）：l1 自动验证 / l2 agent 评审 / l3 人工确认 + 唯一派生口径 |
 | `STAGE_TYPES` / `normalizeToStage()` | `src/domain-vocab.ts` | 决策 8 阶段词表单一事实源（8 词；#337 删除死词 `test`——无任何模块创建 type=test WU，移除对 normalizeToStage 小写输入行为中性）。legacy 归一化 feature/bug→implement、task→general；未知值原样通过。词表增删 = 治理变更 |
 
@@ -25,6 +24,7 @@
 
 - **F6 派生口径铁律**：WU 状态/证据的所有展示与指标只准调 `deriveDisplayState()`（src/attestation.ts），禁止 UI/API/指标各自读 `metadata.attestations` 自行解释——口径分叉 = 可读性崩坏。改派生规则只能改这一个函数。
 - **WorkUnit 写路径铁律（#170，决策 #65）**：events/index 写必须经锁内复合原语——快照写走 `commitSnapshot`（事件+索引同锁成对，禁止锁外分两步），删除走 `commitRemoval`（必须落 closed+deleted 墓碑，否则对账/重建会复活已删 WU），metadata 增量写走 `updateMetadata`（mutator 基于锁内最新值，禁止读时快照全量回写），带前置条件的建单走 `createSnapshotGuarded`。
+- **审计数据落点铁律（#590，ADR 2026-09-17 决策 3）**：一次性决策事件禁止写入 KnowledgeStore——耐久知识库不放事件流。审计数据唯一归宿 = apps/api `audit-logs` 轨（FileStore + 现有审计页/查询/导出/鉴权）；补 agent 自主决策埋点走该轨并加 `actorType: agent` 维度，不在本包重建事件发布器、不新开第三条轨。判据与 A/B 类补齐方案见该 ADR。
 
 ### 依赖关系
 

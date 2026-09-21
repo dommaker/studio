@@ -1,6 +1,6 @@
 # packages/studio-agent
 
-> 最后更新: 2026-09-17
+> 最后更新: 2026-09-18
 > Agent 执行器 — 轻量单 session 模型 + git worktree 隔离 + harness 配置传递
 
 ### 职责
@@ -17,7 +17,7 @@ Sub-agent 的完整生命周期管理：创建隔离 worktree → 传播 harness
 > 2026-08：旧 `AgentExecutor`/`agentExecutor`（services/session-manager.ts）为 runner-* 拆分前的死代码双胞胎，无生产调用方，已删除；`AgentTask`/`ExecutionResult` 等类型移至 `src/services/types.ts`。
 > 2026-08：`AgentCompleter`/`agentCompleter`（services/agent-completer.ts，229 行）整模块零引用，已删除；`AgentConfig`/`AgentCapabilities` 等无人消费的类型导出同步移除（apps 各自本地重定义同名 interface，未从包导入）。
 > 2026-09（#562）：死执行路径整簇删除——`services/runner-execution.ts`（`executeSessionLoop`）+ `services/runner-briefing.ts`（REQUIREMENTS.md / CACHE_PREFIX.md / 契约测试文件桥，唯一调用方就是 session loop）+ `runner-params.ts` 的 loop 专属 prompt 构建。生产全部经 `LocalExecutor → executeLightweight`（apps/api loop/executor.ts），session loop 自 runner-* 拆分起再无调用方。判据见 `docs/adr/2026-09-17-hooks-layer-shrink.md`。
-> 2026-09（#587）：#562 删完之后的剩余死面摘除——loop 遗留的 session flag / `--add-dir` 构建 helper、worktree mtime 停滞探测、RKB 解法查询薄包装、Analyst 产出上下文类型、`parameters` 上无人设置的 claude flag 拼接通道，以及 studio-shared 侧无人调用的约束 prompt 路由模块（渲染正本在 harness `renderConstraintsByTrigger`，init/check 路径自己调）。裁定的两处边界见 `docs/plans/2026-09-587-clear-562-orphans.md`。
+> 2026-09（#587）：#562 删完之后的剩余死面摘除——loop 遗留的 session flag / `--add-dir` 构建 helper、worktree mtime 停滞探测、RKB 解法查询薄包装、Analyst 产出上下文类型、`parameters` 上无人设置的 claude flag 拼接通道，以及 studio-shared 侧无人调用的约束 prompt 路由模块（渲染正本当时在 harness `renderConstraintsByTrigger`，该 API 已随 harness 1.10.0/ADR-0029 删除）。裁定的两处边界见 `docs/plans/2026-09-587-clear-562-orphans.md`。
 
 ### 执行模型
 
@@ -96,19 +96,27 @@ hook 统一指向 `@dommaker/harness` 包内出厂 shim `dist/pretool-use-hook.j
 
 ### 事件
 
-| 事件 | 说明 |
-|------|------|
-| `agent.progress` | 每个 session 开始时发布，含 phase/session/maxSessions |
-| `agent.heartbeat` | 每 5 分钟发布，含 runningDuration/currentStep |
-| `agent.completed` | 全部完成时发布 |
-| `agent.failed` | 会话耗尽时发布 |
+统一经 `@dommaker/studio-shared` 的 `writeStudioEvent` 落盘（StudioEvent envelope，`source: 'agent-executor'`；#361 起单写口，发射点见 `services/output-capture.ts`）。
+
+| 事件 | 发射时机 | payload |
+|------|------|------|
+| `session:start` | spawn 前 | sessionId / agentId(=executionId) / executionId / sessionCount + extras |
+| `session:end` | 成功走 spawn 尾部管线（processSessionOutput）；exec 异常路径由 runner-lightweight 直发 | 同 session:start——#361 起 start/end 携带同一份 extras（workUnitId/transcriptPath，有值才并入），单 payload 形态 |
+| `tool:call` | stream-json 解析到 tool_use | tool / input / sessionId / executionId |
+| `file:change` | tool_use 可提取文件路径时（随 tool:call 发出） | path / sessionId / executionId |
+| `agent_session` | 会话结束记录指标（recordSessionMetrics） | tokens（input/output/cacheRead/cacheWrite）/ costUsd / durationMs / numTurns / modelName / constraintHash / constraintSize 等 |
+
+> 2026-09（#589）：旧表的 `agent.progress`/`agent.heartbeat`/`agent.completed`/`agent.failed` 是 session-loop 时代词表，发射点已随循环消失（#562），全仓零命中，表删除。
 
 ### 关键配置
 
-`ExecutorConfig` 现只被读两项：`worktreesDir` / `repoDir`（`resolveWorkspace` 用）。
+`ExecutorConfig` 只剩两项（`resolveWorkspace` / `checkPrerequisites` 消费）：
 
 | 配置 | 默认值 | 说明 |
-|------|:---:|------|
-| `sessionTimeoutMinutes` | 30 | **只写不读**——单次 spawn 的超时实取 `task.timeoutMs ?? 30min`（硬编码扁平默认在 runner-lightweight），改这个字段不影响任何行为。同类：`taskTimeoutMinutes`。#587 核实后暂留：删它要连带改 apps/api 审计 Agent 给人看的建议文案（引用了这个旋钮），另票处理 |
-| `heartbeatIntervalMinutes` | 5 | 心跳间隔 |
-| `dockerImage` | claude-code:fast | Claude Code Docker 镜像 |
+|------|------|------|
+| `worktreesDir` | `~/worktrees`（env `WORKTREES_DIR` 可覆盖） | worktree 落点 |
+| `repoDir` | 自 cwd 向上找 `package.json`，兜底 `~/projects` | 主仓库路径 |
+
+单次 spawn 超时取 `task.timeoutMs ?? 30min`（runner-lightweight 扁平默认），不经 `ExecutorConfig`。
+
+> 2026-09（#589）：`taskTimeoutMinutes`/`sessionTimeoutMinutes` 只写不读，已删除（#587 核实、#593 解除 auditor 文案连带约束）；旧表混入的 studio-shared AgentConfig 字段 `dockerImage`/`heartbeatIntervalMinutes` 与本包无关且全仓零消费方（Docker 化时代残留 env），已同票从 `packages/studio-shared/src/config/index.ts` 裁掉。

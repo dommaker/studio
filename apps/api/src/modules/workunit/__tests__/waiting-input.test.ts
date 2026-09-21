@@ -1,5 +1,6 @@
 // F5 双向沟通：waiting-input（挂起恢复 + 超时提醒）测试
 // #176（决策 #57 D2/D3）：复活扩全 blocked + 「关闭」指令 + CTA 统一 + 提醒扫描扩面
+// #585：requirement-guard 挂起的放行口令（「确认执行」→ requirementOverride 标记放行）
 // 约定与 message-routing.test.ts 一致：真实 FileStore（tmpdir）+ 真实 WorkUnitService
 import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
 import fs from 'node:fs';
@@ -633,5 +634,66 @@ describe('#471（Triage 定稿 1）: plan 步数额度到线挂起的回复续�
     const after = await findWu(wu.id);
     expect(after.status).toBe('closed');
     expect(metaOf(after).planStepAllowance).toBeUndefined();
+  });
+});
+
+describe('#585（ADR 2026-09-17-hooks-layer-shrink 衍生）: 需求/AC 守卫挂起的放行口令', () => {
+  /** 需求/AC 守卫挂起中的 WU：blocked + waitingForInput + waitingReason='requirement-guard' */
+  const createRequirementParkedWu = () => createParkedWorkUnit({
+    waitingReason: 'requirement-guard',
+    waitingQuestion: '这项任务缺少需求编号（REQ-xxx）和验收标准，已暂停等你处理',
+  });
+
+  it('回复口令「确认执行」→ 落 requirementOverride 放行标记，清挂起回 active', async () => {
+    const { wu } = await createRequirementParkedWu();
+
+    const resumed = await resumeWaitingWorkUnit(wu.id, '确认执行', fileStore);
+
+    expect(resumed).toBe(true);
+    const after = await findWu(wu.id);
+    expect(after.status).toBe('active');
+    const meta = metaOf(after);
+    expect(meta.requirementOverride).toBe(true);
+    expect(meta.waitingForInput).toBe(false);
+    expect(meta.waitingReason).toBeUndefined();
+    expect(meta.pendingReplies).toEqual(['确认执行']);
+  });
+
+  it('口令前后带空白同样命中（trim 判定）', async () => {
+    const { wu } = await createRequirementParkedWu();
+
+    const resumed = await resumeWaitingWorkUnit(wu.id, '  确认执行\n', fileStore);
+
+    expect(resumed).toBe(true);
+    expect(metaOf(await findWu(wu.id)).requirementOverride).toBe(true);
+  });
+
+  it('非口令回复 → 继续等待并重述处理方式（不落放行标记，仍 blocked）', async () => {
+    const { wu } = await createRequirementParkedWu();
+
+    const resumed = await resumeWaitingWorkUnit(wu.id, '我再想想', fileStore);
+
+    expect(resumed).toBe(false);
+    const after = await findWu(wu.id);
+    expect(after.status).toBe('blocked');
+    const meta = metaOf(after);
+    expect(meta.waitingForInput).toBe(true);
+    expect(meta.waitingReason).toBe('requirement-guard');
+    expect(meta.requirementOverride).toBeUndefined();
+    const repost = mockPostWuSystemMessage.mock.calls.find(
+      (c: unknown[]) => typeof c[1] === 'string' && (c[1] as string).includes('确认执行'),
+    );
+    expect(repost).toBeDefined();
+  });
+
+  it('「关闭」指令优先于口令分流（task 有 closed 边 → 正常关闭，不落放行标记）', async () => {
+    const { wu } = await createRequirementParkedWu();
+
+    const resumed = await resumeWaitingWorkUnit(wu.id, '关闭', fileStore);
+
+    expect(resumed).toBe(true);
+    const after = await findWu(wu.id);
+    expect(after.status).toBe('closed');
+    expect(metaOf(after).requirementOverride).toBeUndefined();
   });
 });

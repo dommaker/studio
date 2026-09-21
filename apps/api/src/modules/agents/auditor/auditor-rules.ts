@@ -404,6 +404,9 @@ export async function generateSuggestions(
     }
 
     // Detection rule 3: param_tuning — agent-type timeout errors >= 3
+    // #593：建议文案只指真生效的旋钮——步超时 task.timeoutMs、静默看门狗 task.silenceWarnMs/silenceKillMs
+    // （生效面 = runner-lightweight spawn 选项，配置入口在 agent-loop 侧常量）。
+    // ExecutorConfig 的两个 *TimeoutMinutes 只写不读字段已随 #589 删除，文案禁引同名残留。
     for (const [agentType, errorMap] of errorByAgentType) {
       const timeoutCount = errorMap.get('timeout') || 0;
       const totalErrors = [...errorMap.values()].reduce((a, b) => a + b, 0);
@@ -415,7 +418,7 @@ export async function generateSuggestions(
           type: 'param_tuning',
           risk: 'high',
           agentType,
-          detail: `${agentType} 超时错误 ${timeoutCount}/${totalErrors}，建议调整 sessionTimeoutMinutes`,
+          detail: `${agentType} 超时错误 ${timeoutCount}/${totalErrors}，建议调整 agent-loop 步超时（task.timeoutMs）或静默看门狗阈值（task.silenceWarnMs/silenceKillMs）`,
           data: { agentType, timeoutCount, totalErrors, execTotal },
         });
       }

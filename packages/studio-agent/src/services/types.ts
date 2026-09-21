@@ -15,8 +15,6 @@ import type { ProgressReport } from './output-capture.js';
 export interface ExecutorConfig {
   worktreesDir: string;
   repoDir: string;
-  taskTimeoutMinutes: number;
-  sessionTimeoutMinutes: number;
 }
 
 // ─── 任务类型 ───

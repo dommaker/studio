@@ -15,6 +15,8 @@ import {
   INSPECTION_SCAN_TRIGGER_ID, INSPECTION_SCAN_SCHEDULE_TRIGGER_ID,
 } from './inspection-scan.js';
 import { writeStudioEvent } from '../../utils/studio-events.js';
+import { recordAgentDecision } from '../audit-logs/agent-decision.js';
+import { randomUUID } from 'node:crypto';
 import type { TriggerConfig, TriggerState, TriggerLogEntry } from './trigger.types.js';
 
 const TICK_INTERVAL_MS = 60_000; // 1 minute
@@ -193,21 +195,51 @@ export class TriggerScheduler {
 
   /** Execute a trigger's action */
   private async executeTrigger(config: TriggerConfig, context?: unknown): Promise<void> {
-    switch (config.action.type) {
-      case 'CREATE':
-        // B3 幂等：仅 SCHEDULE（cron）触发做同分钟落盘去重；EVENT 触发按事件语义不去重
-        await executeCreateAction(
-          config.action,
-          config.id,
-          config.condition.type === 'SCHEDULE' ? { dedupeWithinMinute: new Date() } : undefined,
-        );
-        break;
-      case 'EXECUTE':
-        await executeExecuteAction(config.action, context);
-        break;
-      case 'UPDATE':
-        await executeUpdateAction(config.action, context);
-        break;
+    // #591：trigger 触发决策埋点（词表 create/execute/update，落 audit-logs 轨）。
+    // traceId 现场生成，CREATE 路径透传落 WU metadata.traceId（链路同值口径）；
+    // 依据 = 摘要（triggerName + condition + outcome），不落全 payload；埋点失败不阻断
+    const traceId = randomUUID();
+    const condition = config.condition.type === 'SCHEDULE'
+      ? `cron:${config.condition.cron}`
+      : `event:${config.condition.event}`;
+    const record = (outcome: Record<string, unknown>, status: 'success' | 'failure' = 'success') =>
+      recordAgentDecision({
+        action: config.action.type.toLowerCase(),
+        resource: 'trigger',
+        resourceId: config.id,
+        status,
+        details: { triggerName: config.name, condition, ...outcome },
+        requestId: traceId,
+      });
+    try {
+      switch (config.action.type) {
+        case 'CREATE': {
+          // B3 幂等：仅 SCHEDULE（cron）触发做同分钟落盘去重；EVENT 触发按事件语义不去重
+          const created = await executeCreateAction(
+            config.action,
+            config.id,
+            {
+              ...(config.condition.type === 'SCHEDULE' ? { dedupeWithinMinute: new Date() } : {}),
+              traceId,
+            },
+          );
+          record(created
+            ? { outcome: 'created', workUnitId: created.id, assigneeRole: config.action.payload.assigneeRole }
+            : { outcome: 'deduped' });
+          break;
+        }
+        case 'EXECUTE':
+          await executeExecuteAction(config.action, context);
+          record({ outcome: 'executed', target: config.action.target });
+          break;
+        case 'UPDATE':
+          await executeUpdateAction(config.action, context);
+          record({ outcome: 'updated', target: config.action.target });
+          break;
+      }
+    } catch (err) {
+      record({ outcome: 'error', error: (err as Error).message }, 'failure');
+      throw err;
     }
   }
 

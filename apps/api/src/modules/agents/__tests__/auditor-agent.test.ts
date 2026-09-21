@@ -197,7 +197,7 @@ describe('AuditorService B3-005', () => {
       expect(paramTuning.length).toBe(1);
       expect(paramTuning[0].risk).toBe('high');
       expect(paramTuning[0].agentType).toBe('executor');
-      expect(paramTuning[0].detail).toContain('sessionTimeoutMinutes');
+      expect(paramTuning[0].detail).toContain('timeoutMs');
     });
 
     it('does NOT trigger param_tuning when timeout < 3', async () => {
@@ -396,7 +396,7 @@ describe('AuditorService B3-005', () => {
         type: 'param_tuning',
         risk: 'high',
         agentType: 'executor',
-        detail: 'executor timeout errors 3/5, suggest sessionTimeoutMinutes adjustment',
+        detail: 'executor timeout errors 3/5, suggest timeoutMs / silenceKillMs watchdog adjustment',
         data: { agentType: 'executor', timeoutCount: 3, totalErrors: 5, execTotal: 10 },
       }];
 

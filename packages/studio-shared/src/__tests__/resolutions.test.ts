@@ -5,7 +5,7 @@
  * studio-agent/runner-output 与 apps/api/resolution.service 两处逐字重复。
  */
 import { describe, test, expect } from 'vitest';
-import { isActionableMaturity, matchResolutionPatterns, formatRkbHint } from '../resolutions';
+import { isActionableMaturity, matchResolutionPatterns } from '../resolutions';
 
 describe('isActionableMaturity', () => {
   test('verified/canonical 可用，pending/draft/缺省不可', () => {
@@ -42,17 +42,5 @@ describe('matchResolutionPatterns', () => {
 
   test('无匹配 → 空数组', () => {
     expect(matchResolutionPatterns(rows, 'totally different failure')).toEqual([]);
-  });
-});
-
-describe('formatRkbHint', () => {
-  test('markdown 列表口径与旧 runner 输出一致', () => {
-    const hint = formatRkbHint([
-      { title: 'Boom', fix: 'apply the fix' },
-      { title: 'Calm', fix: 'breathe' },
-    ]);
-    expect(hint).toContain('已知解法 (RKB)');
-    expect(hint).toContain('- **Boom**: apply the fix');
-    expect(hint).toContain('- **Calm**: breathe');
   });
 });

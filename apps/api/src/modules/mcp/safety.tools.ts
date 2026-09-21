@@ -32,7 +32,7 @@ const checkConstraint: RegisteredTool = {
       const { checkConstraints } = await import('@dommaker/harness');
       const context = { ...input.context, operation: input.operation };
       const result = await checkConstraints(context);
-      const violations = [...result.ironLaws, ...result.guidelines].filter(r => !r.satisfied);
+      const violations = [...result.errors, ...result.warnings].filter(r => !r.satisfied);
       return {
         operation: input.operation,
         allowed: result.passed,

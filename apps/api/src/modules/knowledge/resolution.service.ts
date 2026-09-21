@@ -2,7 +2,7 @@
  * ResolutionService — RKB 匹配/创建/验证
  *
  * L3~L6 运维配置类知识：错误模式 → 已知解法。
- * 供 agent-executor (重试时注入) 和 Auditor (日审自动创建) 使用。
+ * 供 Triage（错误分类时取解法提示）和 Auditor（日审匹配/自动创建）使用。
  *
  * Storage: ~/.studio/knowledge/resolution-{id}.md (frontmatter + body)
  */
@@ -135,12 +135,6 @@ export class ResolutionService {
       // 还有一份逐字重复的实现，一并收进本模块（那份随 #562/#587 摘除，本处是唯一消费方）。
       const matched: Resolution[] = matchResolutionPatterns(candidates, errorMessage);
 
-      const promptSnippet = matched.length > 0
-        ? matched.map((r, i) =>
-            `## 已知解法 #${i + 1}: ${r.title}\n${r.fix}\n(verified ${r.verifyCount}x)`
-          ).join('\n\n')
-        : '';
-
       if (matched.length > 0) {
         logger.info('[ResolutionService] Resolution matched', {
           count: matched.length,
@@ -162,10 +156,10 @@ export class ResolutionService {
         });
       }
 
-      return { matched: matched.length > 0, resolutions: matched, promptSnippet };
+      return { matched: matched.length > 0, resolutions: matched };
     } catch (err) {
       logger.warn('[ResolutionService] match failed', { error: String(err) });
-      return { matched: false, resolutions: [], promptSnippet: '' };
+      return { matched: false, resolutions: [] };
     }
   }
 
@@ -325,23 +319,6 @@ export class ResolutionService {
     }
   }
 
-  /** 格式化 verified + canonical resolution 为 prompt snippet */
-  async formatForPrompt(): Promise<string> {
-    try {
-      const all = await scanResolutions();
-      const resolutions = all
-        .filter((r: any) => r.maturity === 'canonical' || r.maturity === 'verified')
-        .sort((a: any, b: any) => (b.verifyCount || 0) - (a.verifyCount || 0))
-        .slice(0, 10);
-      if (resolutions.length === 0) return '';
-      return resolutions.map((r: any, i: number) =>
-        `### ${i + 1}. ${r.title}\n${r.fix}`
-      ).join('\n\n');
-    } catch {
-      return '';
-    }
-  }
-
   /** Knowledge density scoring */
   async getDensityScore(): Promise<{
     score: number; total: number; verified: number; canonical: number;
@@ -436,4 +413,3 @@ export class ResolutionService {
 }
 
 export const resolutionService = ResolutionService.getInstance();
-export const resolutionMatcher = resolutionService;

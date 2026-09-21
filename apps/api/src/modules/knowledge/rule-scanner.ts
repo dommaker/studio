@@ -197,17 +197,17 @@ export class RuleScanner {
 
     // #150 B2：不再硬编码 node_modules/@dommaker/harness/src/core/constraints/definitions/
     // 源路径（harness H3 files 去 src 的前置）；改走公共 API getEffectiveConstraints
-    // —— 与 init 注入 / harness check 同一生效集口径（内置 → preset → config.yml 禁用
-    // → custom 追加 → scenes 过滤）。description 缺省按 message → rule 兜底。
+    // —— 与 harness check 同一生效集口径（内置 → preset → config.yml 禁用；
+    // harness 1.10.0/ADR-0029 起 custom/scenes 面退役）。description 缺省按 message → rule 兜底。
     try {
       const effective = getEffectiveConstraints(PROJECT_ROOT);
       for (const c of effective) {
         rules.push({
-          name: `${c.level}:${c.id}`,
+          name: `${c.severity}:${c.id}`,
           category: 'constraint',
           description: c.description || c.message || c.rule,
           condition: 'always',
-          action: `enforce ${c.level}:${c.id}`,
+          action: `enforce ${c.severity}:${c.id}`,
           source: '@dommaker/harness',
           sourceType: 'harness_constraint',
           affects: ['agent', 'reviewer'],

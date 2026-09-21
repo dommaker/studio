@@ -1,7 +1,8 @@
 /**
  * 入口守卫链（#541，2026-09 从 agent-loop.agentStep 头部原样抽出，行为一字不改，
- * 对称补齐出口侧 completion-gates）：agentStep 的四段「该不该跑这一步」前置判定 ——
- * B2 测试特征 WU 守卫 → C3 日 token 预算熔断 → #162 WU 级 token 预算熔断 → #471 plan 步数额度熔断。
+ * 对称补齐出口侧 completion-gates）：agentStep 的「该不该跑这一步」前置判定 ——
+ * B2 测试特征 WU 守卫 → #585 需求/AC 前置守卫 → C3 日 token 预算熔断 → #162 WU 级
+ * token 预算熔断 → #471 plan 步数额度熔断。
  * 顺序即优先级：首个命中的守卫短路返回 StepResult，后续守卫不再执行（与原内联行为一致）。
  *
  * 职责边界：
@@ -45,6 +46,8 @@ export interface StepGuardDeps {
   testWuGuardEnabled?: () => boolean;
   /** B2 测试特征判定（metadata 显式标记或 scope 命中测试名单模式） */
   isTestLikeWorkUnit?: (wu: { scope: string }, metadata: WorkUnitMetadata) => boolean;
+  /** #585 需求/AC 守卫开关（默认读 process.env；STUDIO_REQUIREMENT_GUARD=false 完全旁路，默认开） */
+  requirementGuardEnabled?: () => boolean;
   /** C3 守卫开关（默认读 process.env；STUDIO_TOKEN_BUDGET_GUARD 覆盖） */
   tokenBudgetGuardEnabled?: () => boolean;
   /** C3: 每日预算（STUDIO_DAILY_TOKEN_BUDGET 覆盖；<=0 = 不熔断） */
@@ -61,13 +64,32 @@ export interface StepGuardOutcome {
 }
 
 /**
+ * #585（ADR 2026-09-17-hooks-layer-shrink 衍生）需求/AC 守卫的实现类工单类型集——
+ * 词表映射（根 CONTEXT.md「工单类型」）：需求=feature、任务单=task、spec单=spec；
+ * review/analysis/plan/bug/decision 天然豁免（产出契约不是 AC 形态）。
+ */
+const REQUIREMENT_GUARD_TYPES = new Set(['feature', 'task', 'implement', 'spec']);
+
+/** #585 守卫开关：默认开（生产/开发进程）；STUDIO_REQUIREMENT_GUARD=false 完全从宽旁路
+ *  （claim-fitness STUDIO_CLAIM_FITNESS 先例，同时兼容 on/off 写法对称 B2）。
+ *  测试环境（NODE_ENV=test / VITEST）默认关——仓内 agent-loop 集成测试用无 reqId/ac 的
+ *  task WU 驱动 loop，守卫会误伤（B2 同款理由）；可用 STUDIO_REQUIREMENT_GUARD=on 显式打开。 */
+export function requirementGuardEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  if (env.STUDIO_REQUIREMENT_GUARD === 'on' || env.STUDIO_REQUIREMENT_GUARD === 'true') return true;
+  if (env.STUDIO_REQUIREMENT_GUARD === 'off' || env.STUDIO_REQUIREMENT_GUARD === 'false') return false;
+  return env.NODE_ENV !== 'test' && !env.VITEST;
+}
+
+/**
  * 依次跑入口守卫（顺序即优先级，首个命中即短路）：
  *  1. B2 测试特征 WU 守卫：不起会话、直接关闭（留痕 testWorkUnitGuard + blockReason + 频道通知）。
- *  2. C3 日 token 预算熔断：当日 billed 消耗 ≥ 预算 → need_input 挂起（次日零点复位或人工处置）；
+ *  2. #585 需求/AC 前置守卫：实现类系统派生 WU 缺 reqId 或 metadata.ac[] → need_input 挂起
+ *     + waitingReason='requirement-guard'（放行口令接线见 waiting-input.ts）。
+ *  3. C3 日 token 预算熔断：当日 billed 消耗 ≥ 预算 → need_input 挂起（次日零点复位或人工处置）；
  *     全局当日只告警一次（budget-tripped 事件留痕）。
- *  3. #162 WU 级 tokenBudget 熔断：metadata.tokenBudget 显式数值在场即生效（不吃 C3 开关），
+ *  4. #162 WU 级 tokenBudget 熔断：metadata.tokenBudget 显式数值在场即生效（不吃 C3 开关），
  *     超线 → need_input 挂起 + waitingReason='wu-token-budget'（人三选：追加预算/收尾/放弃）。
- *  4. #471 plan 步数额度熔断：stepCount ≥ planStepAllowance（默认 PLAN_STEP_LIMIT）→
+ *  5. #471 plan 步数额度熔断：stepCount ≥ planStepAllowance（默认 PLAN_STEP_LIMIT）→
  *     need_input 挂 blocked 转人 + waitingReason='plan-step-limit'（人回复即续期）。
  */
 export async function runStepGuards(
@@ -77,6 +99,7 @@ export async function runStepGuards(
   const { wu, metadata } = ctx;
   const testGuardOn = deps.testWuGuardEnabled ?? (() => testWuGuardEnabled());
   const isTestLike = deps.isTestLikeWorkUnit ?? isTestLikeWorkUnit;
+  const requirementGuardOn = deps.requirementGuardEnabled ?? (() => requirementGuardEnabled());
   const budgetGuardOn = deps.tokenBudgetGuardEnabled ?? (() => tokenBudgetGuardEnabled());
   const dailyBudgetOf = deps.resolveDailyTokenBudget ?? (() => resolveDailyTokenBudget());
   const dailyUsage = deps.getDailyTokenUsage ?? getDailyTokenUsage;
@@ -99,6 +122,40 @@ export async function runStepGuards(
     await deps.postNotice(wu.id, '检测到测试特征任务，已跳过执行并关闭（防止测试数据空烧 token）')
       .catch(() => {});
     return { result: { action: 'skipped', summary: '' } };
+  }
+
+  // #585（ADR 2026-09-17-hooks-layer-shrink 衍生）：Iron Law no_implementation_without_requirement
+  // 前置守卫——实现类系统派生 WU 缺需求来源（reqId）或 AC（metadata.ac[]）→ need_input 挂起喊人。
+  // 口径（2026-09-17 票内裁定，只查存在性不读内容）：
+  //   - 豁免：creationMode ∈ {from-message, manual}（用户指令路径，Iron Law 原文认用户指令为合法来源）；
+  //     metadata.triggerSource 在场（trigger 建单已过 #162/#130 人闸，人确认即来源批准）；
+  //     metadata.requirementOverride === true（人工放行标记，见下方放行口）。
+  //   - 命中：need_input 挂起 + waitingReason='requirement-guard'；频道文案说清缺什么/怎么补/放行口令
+  //     （人读面说人话，不出现 WU/metadata/守卫等机制黑话）。
+  //   - 放行口（防死结）：频道回复约定口令「确认执行」→ waiting-input 落 requirementOverride=true
+  //     并复活，守卫下一步认标记放行（事后人闸，标记可审计）。
+  //   - 开关：STUDIO_REQUIREMENT_GUARD=false 完全从宽旁路，默认开（测试环境默认关，见 requirementGuardEnabled）。
+  if (requirementGuardOn()
+    && REQUIREMENT_GUARD_TYPES.has(wu.type)
+    && metadata.creationMode !== 'from-message'
+    && metadata.creationMode !== 'manual'
+    && !metadata.triggerSource
+    && metadata.requirementOverride !== true) {
+    const missing: string[] = [];
+    if (typeof wu.reqId !== 'string' || !wu.reqId.trim()) missing.push('需求编号（REQ-xxx）');
+    if (!Array.isArray(metadata.ac) || metadata.ac.length === 0) missing.push('验收标准');
+    if (missing.length > 0) {
+      logger.warn('[AgentLoop] Requirement guard tripped — suspending for human decision', {
+        workUnitId: wu.id, type: wu.type, missing,
+      });
+      return {
+        result: {
+          action: 'need_input' as const,
+          summary: `这项任务缺少${missing.join('和')}，像是系统派生的实现类任务，已暂停等你处理。补齐方式：挂上需求编号（REQ-xxx）并写明验收标准，或从需求重新派一张工单；确认它就该直接执行的话，回复「确认执行」放行`,
+          metadataUpdates: { waitingReason: 'requirement-guard' },
+        },
+      };
+    }
   }
 
   // C3 守卫（2026-08-03 token-burn issue P2-2，决策记录 #4）：每日 token 预算熔断。

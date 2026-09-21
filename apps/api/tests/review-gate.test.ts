@@ -9,11 +9,23 @@
  * harness `ReviewGate.check(ctx: GateContext): Promise<GateResult>` 的公开 API
  * 契约（harness 侧 check() 保留为报告层，evaluate() 由它推导），作为将来
  * studio 接线 ReviewGate 时的集成契约草图保留，不声称钉任何 studio 生产接缝。
+ *
+ * 清理记录（#584）：AC-004 已删除——它钉的 PROJECT_WORKDIRS 路径解析规则
+ * 自初始提交起就只存在于本测试文件（全仓 grep 零生产命中），无任何真实接缝可指。
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ReviewGate } from '@dommaker/harness';
 import type { GateContext, GateResult } from '@dommaker/harness';
+
+/** GateContext 工厂：全部用例经此构造，不再散落字面量（#584） */
+function makeGateContext(overrides?: Partial<GateContext>): GateContext {
+  return {
+    projectPath: 'projects/PM-001',
+    prNumber: 123,
+    ...overrides,
+  };
+}
 
 // Mock ReviewGate
 vi.mock('@dommaker/harness', () => ({
@@ -69,10 +81,7 @@ describe('AS-007: ReviewGate Integration', () => {
     // 验证 ReviewGate.check 被调用
     expect(reviewGate.check).toBeDefined();
 
-    const gateContext: GateContext = {
-      projectPath: `projects/${project.pmoNumber}`,
-      prNumber: 123,
-    };
+    const gateContext = makeGateContext({ projectPath: `projects/${project.pmoNumber}` });
 
     const result = await reviewGate.check(gateContext);
     
@@ -81,20 +90,35 @@ describe('AS-007: ReviewGate Integration', () => {
   });
 
   /**
-   * AC-002：PR 创建返回审查状态
+   * AC-002/005/006：check() 返回的审查结果形状与下游消费方式（#584 合并）
+   *
+   * 原三用例构造相同、断言的都是同一个 mock 返回值的字段，合并为一条。
+   * 原断言去向（覆盖不降级，逐条核对）：
+   * - AC-002「PR 创建返回审查状态」：result 非空 / gate / passed / message 四断言 → 下方 AC-002 段
+   * - AC-005「ReviewGate 失败不阻断 PR 创建」：passed === false → 下方 AC-005 段
+   * - AC-006「日志记录审查状态」：logger.info 携带 reviewResult 记录 → 下方 AC-006 段
    */
-  it('AC-002: should return reviewStatus in PR result', async () => {
-    const gateContext: GateContext = {
-      projectPath: 'projects/PM-001',
-      prNumber: 123,
-    };
+  it('AC-002/005/006: check() returns review status consumable by PR flow and logging', async () => {
+    const result = await reviewGate.check(makeGateContext());
 
-    const result = await reviewGate.check(gateContext);
-
+    // AC-002
     expect(result).toBeDefined();
     expect(result.gate).toBe('review');
     expect(result.passed).toBeDefined();
     expect(result.message).toBeDefined();
+
+    // AC-005：即使 reviewResult.passed = false，PR 仍创建成功
+    expect(result.passed).toBe(false);  // 新 PR 无审批
+
+    // AC-006
+    const mockLogger = {
+      info: vi.fn(),
+    };
+    mockLogger.info({ prNumber: 123, reviewResult: result }, 'ReviewGate checked');
+    expect(mockLogger.info).toHaveBeenCalledWith(
+      { prNumber: 123, reviewResult: expect.any(Object) },
+      'ReviewGate checked'
+    );
   });
 
   /**
@@ -121,65 +145,6 @@ describe('AS-007: ReviewGate Integration', () => {
   });
 
   /**
-   * AC-004：本地项目路径获取
+   * AC-004 已删除（#584）：钉的 PROJECT_WORKDIRS 规则无生产对应物，见文件头注。
    */
-  it('AC-004: should get project work dir', () => {
-    const projectId = 'test-project';
-    const pmoNumber = 'PM-001';
-
-    // 方案 A: 配置映射
-    process.env.PROJECT_WORKDIRS = JSON.stringify({
-      'test-project': '/custom/path/PM-001',
-    });
-
-    const workDirs = JSON.parse(process.env.PROJECT_WORKDIRS || '{}');
-    const path = workDirs[projectId] || `projects/${pmoNumber}`;
-
-    expect(path).toBe('/custom/path/PM-001');
-
-    // 方案 B: 默认规则
-    delete process.env.PROJECT_WORKDIRS;
-    const defaultPath = `projects/${pmoNumber}`;
-    expect(defaultPath).toBe('projects/PM-001');
-  });
-
-  /**
-   * AC-005：ReviewGate.check() 失败不阻断 PR 创建
-   */
-  it('AC-005: should not block PR creation when ReviewGate fails', async () => {
-    const gateContext: GateContext = {
-      projectPath: 'projects/PM-001',
-      prNumber: 123,
-    };
-
-    const result = await reviewGate.check(gateContext);
-
-    // 即使 reviewResult.passed = false，PR 仍创建成功
-    expect(result.passed).toBe(false);  // 新 PR 无审批
-    // PR 创建不会因为 ReviewGate 失败而中断
-  });
-
-  /**
-   * AC-006：日志记录审查状态
-   */
-  it('AC-006: should log review result', async () => {
-    const mockLogger = {
-      info: vi.fn(),
-    };
-
-    const gateContext: GateContext = {
-      projectPath: 'projects/PM-001',
-      prNumber: 123,
-    };
-
-    const result = await reviewGate.check(gateContext);
-
-    // 模拟 logger.info 调用
-    mockLogger.info({ prNumber: 123, reviewResult: result }, 'ReviewGate checked');
-
-    expect(mockLogger.info).toHaveBeenCalledWith(
-      { prNumber: 123, reviewResult: expect.any(Object) },
-      'ReviewGate checked'
-    );
-  });
 });

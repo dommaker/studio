@@ -144,6 +144,7 @@ describe('review API authorType 校验（A2A §4.4）', () => {
     const fallback = await post('/wu-1/status', { body: { status: 'unassigned' } });
     expect(fallback.status).toBe(200);
     expect(mockTransitionStatus).toHaveBeenCalledTimes(2);
-    expect(mockTransitionStatus).toHaveBeenCalledWith('wu-1', 'unassigned');
+    // #591：REST human-only 端点透传 human actor 给流转埋点
+    expect(mockTransitionStatus).toHaveBeenCalledWith('wu-1', 'unassigned', { id: 'local', type: 'human' });
   });
 });

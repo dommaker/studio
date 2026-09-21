@@ -10,6 +10,8 @@
 import { logger, FileStore } from '@dommaker/studio-shared';
 import type { WorkUnitService, WorkUnitData } from './workunit.service.js';
 import { postWuSystemMessage } from './wu-messenger.js';
+import { parseWuMetadata } from './wu-metadata.js';
+import { recordAgentDecision } from '../audit-logs/agent-decision.js';
 import { getErrorMessage } from '../../utils/errors.js';
 
 export interface ClaimAndAnnounceDeps {
@@ -30,6 +32,20 @@ export async function claimWorkUnitAndAnnounce(
   deps: ClaimAndAnnounceDeps,
 ): Promise<WorkUnitData> {
   const wu = await deps.wuService.claim(wuId, claimerId);
+  // #591：认领决策埋点（词表 claim，落 audit-logs 轨）。actorType 按认领方是否 agent
+  // 运行实例派生（getState 命中 = 实例；REST 人工认领 userId 落空 → human），
+  // traceId 取 WU metadata.traceId（频道建单链路，与 audit requestId 同值口径）；
+  // fire-and-forget，埋点失败绝不阻断认领
+  const claimFs = deps.fileStore ?? new FileStore();
+  const instanceState = await claimFs.getState(claimerId).catch(() => null);
+  recordAgentDecision({
+    action: 'claim',
+    resource: 'workunit',
+    resourceId: wuId,
+    actor: { id: claimerId, type: instanceState ? 'agent' : 'human' },
+    details: { claimerName },
+    requestId: parseWuMetadata(wu.metadata).traceId,
+  });
   await postWuSystemMessage(wu, `『${claimerName}』已认领任务，开始执行`, {
     agentName: claimerName,
     fileStore: deps.fileStore,

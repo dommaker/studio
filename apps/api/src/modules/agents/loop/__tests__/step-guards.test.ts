@@ -1,11 +1,12 @@
 // 入口守卫链单测（step-guards，#541）：纯 ctx 对象 + 注入伪依赖，无 vi.mock 模块工厂、
 // 不整类构造 AgentLoop（对称 completion-gates.test.ts 的可测试性契约）。
-// 覆盖：四段守卫各自命中/放行、短路顺序（B2 → C3 日预算 → #162 WU 预算 → #471 plan 额度）、
+// 覆盖：五段守卫各自命中/放行、短路顺序（B2 → #585 需求/AC → C3 日预算 → #162 WU 预算 → #471 plan 额度）、
 // B2 副作用（留痕/关闭/频道通知）与 dep 失败容错、C3 当日只告警一次、
 // WU 预算/plan 额度的 need_input 形状（waitingReason）。
 import { describe, it, expect, vi } from 'vitest';
 import {
   runStepGuards,
+  requirementGuardEnabled,
   type StepGuardDeps,
 } from '../step-guards';
 import { PLAN_STEP_LIMIT } from '../../../workunit/workunit.types';
@@ -21,7 +22,7 @@ function makeWu(overrides: Partial<WorkUnitData> = {}): WorkUnitData {
   };
 }
 
-/** 默认伪依赖：全部守卫放行（B2 关 / 日预算充足 / 无 WU 预算 / 非 plan） */
+/** 默认伪依赖：全部守卫放行（B2 关 / 需求守卫关 / 日预算充足 / 无 WU 预算 / 非 plan） */
 function makeDeps(overrides: Partial<StepGuardDeps> = {}): StepGuardDeps & {
   updateWuMetadata: ReturnType<typeof vi.fn>;
   closeWu: ReturnType<typeof vi.fn>;
@@ -29,6 +30,7 @@ function makeDeps(overrides: Partial<StepGuardDeps> = {}): StepGuardDeps & {
   eventsFilePath: ReturnType<typeof vi.fn>;
   testWuGuardEnabled: ReturnType<typeof vi.fn>;
   isTestLikeWorkUnit: ReturnType<typeof vi.fn>;
+  requirementGuardEnabled: ReturnType<typeof vi.fn>;
   tokenBudgetGuardEnabled: ReturnType<typeof vi.fn>;
   resolveDailyTokenBudget: ReturnType<typeof vi.fn>;
   getDailyTokenUsage: ReturnType<typeof vi.fn>;
@@ -41,6 +43,7 @@ function makeDeps(overrides: Partial<StepGuardDeps> = {}): StepGuardDeps & {
     eventsFilePath: vi.fn().mockReturnValue('/tmp/studio-events.jsonl'),
     testWuGuardEnabled: vi.fn().mockReturnValue(false),
     isTestLikeWorkUnit: vi.fn().mockReturnValue(false),
+    requirementGuardEnabled: vi.fn().mockReturnValue(false),
     tokenBudgetGuardEnabled: vi.fn().mockReturnValue(false),
     resolveDailyTokenBudget: vi.fn().mockReturnValue(2_000_000),
     getDailyTokenUsage: vi.fn().mockResolvedValue({ dateKey: '2026-09-15', usedTokens: 0, notified: false }),
@@ -201,6 +204,128 @@ describe('step-guards: #162 WU 级 tokenBudget 熔断', () => {
       const out = await runStepGuards({ wu: makeWu(), metadata }, makeDeps());
       expect(out.result).toBeNull();
     }
+  });
+});
+
+describe('step-guards: #585 需求来源/AC 前置守卫', () => {
+  const guardOn = () => makeDeps({ requirementGuardEnabled: vi.fn().mockReturnValue(true) });
+
+  it('实现类系统派生 WU 缺 reqId 且缺 ac：need_input 挂起 + waitingReason=requirement-guard + 可行动文案', async () => {
+    const out = await runStepGuards({ wu: makeWu({ type: 'task' }), metadata: {} }, guardOn());
+
+    expect(out.result?.action).toBe('need_input');
+    expect(out.result?.metadataUpdates?.waitingReason).toBe('requirement-guard');
+    expect(out.result?.summary).toContain('需求编号');
+    expect(out.result?.summary).toContain('验收标准');
+    expect(out.result?.summary).toContain('确认执行'); // 放行口令
+  });
+
+  it('只缺 reqId（有 ac）：文案只点名需求编号', async () => {
+    const out = await runStepGuards({
+      wu: makeWu({ type: 'implement' }),
+      metadata: { ac: ['测试通过'] },
+    }, guardOn());
+
+    expect(out.result?.action).toBe('need_input');
+    expect(out.result?.summary).toContain('需求编号');
+    expect(out.result?.summary).not.toContain('缺少验收标准');
+  });
+
+  it('只缺 ac（有 reqId）：文案只点名验收标准', async () => {
+    const out = await runStepGuards({
+      wu: makeWu({ type: 'feature', reqId: 'REQ-12' }),
+      metadata: {},
+    }, guardOn());
+
+    expect(out.result?.action).toBe('need_input');
+    expect(out.result?.summary).toContain('验收标准');
+    expect(out.result?.summary).not.toContain('缺少需求编号');
+  });
+
+  it('reqId 与 ac 齐备：放行', async () => {
+    const out = await runStepGuards({
+      wu: makeWu({ type: 'task', reqId: 'REQ-12' }),
+      metadata: { ac: ['AC1'] },
+    }, guardOn());
+    expect(out.result).toBeNull();
+  });
+
+  it('ac 为空数组视为缺失；reqId 空白字符串视为缺失', async () => {
+    const out = await runStepGuards({
+      wu: makeWu({ type: 'task', reqId: '  ' }),
+      metadata: { ac: [] },
+    }, guardOn());
+    expect(out.result?.action).toBe('need_input');
+  });
+
+  it('用户指令路径豁免：creationMode from-message / manual 不拦', async () => {
+    for (const creationMode of ['from-message', 'manual']) {
+      const out = await runStepGuards({
+        wu: makeWu({ type: 'task' }),
+        metadata: { creationMode },
+      }, guardOn());
+      expect(out.result).toBeNull();
+    }
+  });
+
+  it('trigger 建单豁免：metadata.triggerSource 在场不拦（已过建单人闸）', async () => {
+    const out = await runStepGuards({
+      wu: makeWu({ type: 'task' }),
+      metadata: { triggerSource: 'trigger-registry' },
+    }, guardOn());
+    expect(out.result).toBeNull();
+  });
+
+  it('人工放行标记豁免：requirementOverride=true 不拦', async () => {
+    const out = await runStepGuards({
+      wu: makeWu({ type: 'task' }),
+      metadata: { requirementOverride: true },
+    }, guardOn());
+    expect(out.result).toBeNull();
+  });
+
+  it('非实现类类型天然豁免：review/analysis/plan/bug/decision 缺 reqId/ac 也放行', async () => {
+    for (const type of ['review', 'analysis', 'plan', 'bug', 'decision']) {
+      const out = await runStepGuards({ wu: makeWu({ type }), metadata: {} }, guardOn());
+      expect(out.result).toBeNull();
+    }
+  });
+
+  it('守卫开关关闭（STUDIO_REQUIREMENT_GUARD=false）：完全旁路', async () => {
+    const out = await runStepGuards({ wu: makeWu({ type: 'task' }), metadata: {} }, makeDeps());
+    expect(out.result).toBeNull();
+  });
+
+  it('守卫命中时后续资源闸不跑（日预算不查询）', async () => {
+    const deps = makeDeps({
+      requirementGuardEnabled: vi.fn().mockReturnValue(true),
+      tokenBudgetGuardEnabled: vi.fn().mockReturnValue(true),
+    });
+    const out = await runStepGuards({ wu: makeWu({ type: 'task' }), metadata: {} }, deps);
+
+    expect(out.result?.metadataUpdates?.waitingReason).toBe('requirement-guard');
+    expect(deps.getDailyTokenUsage).not.toHaveBeenCalled();
+  });
+
+  it('B2 命中时本守卫不跑（B2 优先）', async () => {
+    const deps = makeDeps({
+      testWuGuardEnabled: vi.fn().mockReturnValue(true),
+      isTestLikeWorkUnit: vi.fn().mockReturnValue(true),
+      requirementGuardEnabled: vi.fn().mockReturnValue(true),
+    });
+    const out = await runStepGuards({ wu: makeWu({ type: 'task' }), metadata: {} }, deps);
+    expect(out.result?.action).toBe('skipped');
+  });
+
+  it('requirementGuardEnabled 默认开关：false/off 关、on/true 开、生产默认开、测试环境默认关', () => {
+    expect(requirementGuardEnabled({ STUDIO_REQUIREMENT_GUARD: 'false' } as NodeJS.ProcessEnv)).toBe(false);
+    expect(requirementGuardEnabled({ STUDIO_REQUIREMENT_GUARD: 'off' } as NodeJS.ProcessEnv)).toBe(false);
+    expect(requirementGuardEnabled({ STUDIO_REQUIREMENT_GUARD: 'on' } as NodeJS.ProcessEnv)).toBe(true);
+    expect(requirementGuardEnabled({ STUDIO_REQUIREMENT_GUARD: 'true' } as NodeJS.ProcessEnv)).toBe(true);
+    expect(requirementGuardEnabled({} as NodeJS.ProcessEnv)).toBe(true); // 非测试环境默认开
+    expect(requirementGuardEnabled({ NODE_ENV: 'test' } as NodeJS.ProcessEnv)).toBe(false);
+    expect(requirementGuardEnabled({ VITEST: '1' } as NodeJS.ProcessEnv)).toBe(false);
+    expect(requirementGuardEnabled({ NODE_ENV: 'test', STUDIO_REQUIREMENT_GUARD: 'on' } as NodeJS.ProcessEnv)).toBe(true); // 显式覆盖优先
   });
 });
 

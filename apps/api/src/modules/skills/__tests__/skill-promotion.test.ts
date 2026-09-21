@@ -22,7 +22,6 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => {
     ...actual,
     logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
     FileStore: vi.fn(),
-    recordDecision: vi.fn(),
   };
 });
 

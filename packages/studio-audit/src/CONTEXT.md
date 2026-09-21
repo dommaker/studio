@@ -24,3 +24,4 @@
 ### 注意事项
 
 - 服务层 `AuditService` 默认将日志写入 `~/.studio/logs/audit.jsonl` JSONL 文件，依赖文件系统写入权限。
+- #591：行 schema 加可选列 `actorType?: 'human'|'agent'`（存量行无字段，查询侧 `actorType=human` 归一匹配无字段行，零迁移）；`AuditActions` 增决策词表动作 claim/transition/dispatch/auto_apply/propose，`AuditResources` 增 workunit/channel/trigger（词表正本与增删流程见 apps/api/src/modules/audit-logs/CONTEXT.md 治理条目）。

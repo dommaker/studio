@@ -19,8 +19,5 @@ export type { ProviderUsage } from './provider-usage';
 export { bootstrapHarness, getHarness, isHarnessInitialized } from './runtime/bootstrap';
 export type { HarnessBootstrap } from '@dommaker/harness';
 
-// 决策级审计事件发布（原 hooks/audit.ts，#562 随 hooks 层收缩上移一级）
-export { recordDecision, recordDecisions } from './audit';
-export type { AuditEvent } from './audit';
 // Wiki 服务已移除 (B11-002): KnowledgeKeeper/wiki-service/knowledge-query
 // 知识系统统一使用 harness KnowledgeStore + KnowledgeBus

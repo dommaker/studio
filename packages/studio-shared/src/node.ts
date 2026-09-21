@@ -2,7 +2,7 @@
  * Node.js 专用入口 — 包含 CLI 和 Config 模块
  *
  * 后端消费者需要 CLI 功能时使用：
- *   import { parseArgs, loadAgentStudioConfig } from '@dommaker/studio-shared/node'
+ *   import { parseArgs, loadConfigEnv } from '@dommaker/studio-shared/node'
  *
  * 前端请使用主入口 '@dommaker/studio-shared'（不包含 fs/path/yaml 依赖）
  */
@@ -16,7 +16,7 @@ export * from './utils/index';
 export * from './llm/index';
 export * from './harness/index';
 export * from './constants/levels';
-export type { ConstraintLevel, ConstraintContext, ConstraintResult } from '@dommaker/harness';
+export type { ConstraintSeverity, ConstraintContext, ConstraintResult } from '@dommaker/harness';
 // #361 事件写口唯一入口 + 日志路径隔离 + RKB 匹配核心（自 apps/api 下沉）
 export * from './studio-events';
 export * from './log-path';

@@ -2,7 +2,8 @@
  * Resolution types — RKB (Resolution Knowledge Base)
  *
  * L3~L6 运维配置类知识的类型定义。
- * Resolution 是"错误模式 → 已知解法"的映射，供 agent-executor 在重试时注入 prompt。
+ * Resolution 是"错误模式 → 已知解法"的映射，由 apps/api ResolutionService
+ * 匹配/创建/验证（消费方：Triage、Auditor）。
  */
 
 export interface Resolution {
@@ -39,5 +40,4 @@ export interface MatchResolutionInput {
 export interface MatchResolutionResult {
   matched: boolean;
   resolutions: Resolution[];
-  promptSnippet: string; // 可直接注入 Agent prompt 的文本
 }
