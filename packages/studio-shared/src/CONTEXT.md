@@ -42,7 +42,7 @@
 
 ### 注意事项
 
-- `llm/stream-json-parser.ts`（#564，2026-09-16）：`StreamEvent.parent_tool_use_id` 是子 agent（Task/subagent）子树事件标记——CLI 对子树事件回填 Task tool_use 的 id，父 run 顶层事件为 null/缺省；`extractResult`/`extractUsage` 据此过滤子树（子 error result 不误杀父 run、usage 不父子双计），assistant 文本与 tool_use 提取不做过滤
+- `llm/stream-json-parser.ts`（#564，2026-09-16）：`StreamEvent.parent_tool_use_id` 是子 agent（Task/subagent）子树事件标记——CLI 对子树事件回填 Task tool_use 的 id，父 run 顶层事件为 null/缺省；`extractResult`/`extractUsage` 据此过滤子树（子 error result 不误杀父 run、usage 不父子双计），assistant 文本与 tool_use 提取不做过滤。#602 D4：`extractToolCalls` 配对 tool_use/tool_result（tool_use_id）得出 `ToolCall.success` 真实成败，无配对 → undefined（未知不编造）
 - 本包 `@types/node` 钉在 20.0.0（泛型前的 Buffer 类型），与 TS 5.7+ lib 的 `ArrayBufferView` 泛型不兼容——`handle.read(buffer)` / `Buffer.concat` 传 Buffer 会报类型错，解法 = 传参处 `as Uint8Array`（Buffer 运行时即 Uint8Array 子类，纯类型层适配，参照 jsonl-tail.ts）；根治 = 对齐 apps/api 的 ^20.12.7（未做，另议）
 
 - CLI 命令注册表为全局单例，测试后需调用 `clearCommands()` 清理
