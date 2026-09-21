@@ -34,11 +34,11 @@ describe('AS-003: harness 约束检查集成', () => {
       // 存活 warning 层 check 中 code_implementation 触发的是 no_hardcoded_credentials
       // （扫描变更文件中的凭证赋值模式），此处用假赋值触发（合成值，非真实凭证）。
       const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'creds-trigger-'));
-      // 触发行运行时拼接：字面量写法会被本仓 pre-commit 凭证扫描拦（它扫源码本身，
-      // 不是运行产物）；拼接后源码无形似赋值，落盘 tmp 文件是形似赋值、可被检出。
-      // 值为合成假凭证，非真实密钥。
-      const secretValue = 'Sup3rSecretValue99';
-      const leakLine = 'const password' + ' = ' + JSON.stringify(secretValue) + ';';
+      // 值为合成假凭证，非真实密钥。源码以 ${...} 占位形态直写：本仓 pre-commit
+      // 凭证扫描对该形态豁免（判据与 harness checker 一致，见 studio#608）；
+      // 落盘 tmp 文件是形似赋值、可被 checker 检出。
+      const fakeSecret = 'Sup3rSecretValue99';
+      const leakLine = `const password = "${fakeSecret}";`;
       fs.writeFileSync(path.join(tmpRoot, 'leak.ts'), leakLine + '\n', 'utf-8');
       try {
         const result = await checkConstraints({
