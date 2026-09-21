@@ -3,7 +3,7 @@
  * 轻量直接测试：单例身份、目录常量、消费链验证、质量门入口。
  * 深层行为由 knowledge-service / knowledge-bus-sync 等测试覆盖。
  */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as os from 'os';
 import * as path from 'path';
 import {
@@ -15,9 +15,12 @@ import {
   sharedInjector,
   sharedLinter,
   verifyConsumptionChain,
+  CONSUMPTION_PROBE_ENTRY_ID,
   isVectorDbSyncing,
   ingestWithQualityGate,
 } from '../knowledge-singletons.js';
+import { resolveStudioLogFile } from '../../../utils/studio-log-path.js';
+import { readStudioEventsSince } from '../../../utils/studio-events-tail.js';
 import { setSegmentMetricsSink, type SegmentMetricEvent } from '@dommaker/studio-shared/read-metrics';
 
 describe('knowledge-singletons (R4)', () => {
@@ -39,8 +42,34 @@ describe('knowledge-singletons (R4)', () => {
     expect(isVectorDbSyncing()).toBe(false);
   });
 
-  it('verifyConsumptionChain returns a boolean without throwing', async () => {
-    await expect(verifyConsumptionChain()).resolves.toBeTypeOf('boolean');
+  it('verifyConsumptionChain 真走 recordReference 链：true 且 knowledge:consumption 事件落盘（#611 去假绿）', async () => {
+    await expect(verifyConsumptionChain()).resolves.toBe(true);
+
+    const eventsFile = resolveStudioLogFile('studio-events.jsonl');
+    const events = await readStudioEventsSince({ file: eventsFile, sinceMs: Date.now() - 60_000 });
+    const probeEvents = events.filter(e => {
+      if (e.type !== 'knowledge:consumption') return false;
+      try {
+        const p = typeof e.payload === 'string' ? JSON.parse(e.payload) : e.payload;
+        return p?.entryId === CONSUMPTION_PROBE_ENTRY_ID;
+      } catch { return false; }
+    });
+    expect(probeEvents.length).toBeGreaterThan(0);
+  });
+
+  it('verifyConsumptionChain：recordReference 静默返回 undefined（链断）→ false，不判绿', async () => {
+    const spy = vi.spyOn(sharedLifecycle, 'recordReference').mockReturnValueOnce(undefined as any);
+    try {
+      await expect(verifyConsumptionChain()).resolves.toBe(false);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('哨兵条目 maturity=archived：不进默认 list（不污染注入/查询面），get 可达', async () => {
+    await verifyConsumptionChain();
+    expect(sharedStore.get(CONSUMPTION_PROBE_ENTRY_ID)).toBeDefined();
+    expect(sharedStore.list().some(e => e.id === CONSUMPTION_PROBE_ENTRY_ID)).toBe(false);
   });
 
   it('ingestWithQualityGate is the single quality-gate entry (function)', () => {
