@@ -107,7 +107,10 @@ export function initEvolutionChannelReview(
       } catch (err: unknown) {
         const e = err as { code?: string; message?: string };
         if (e?.code === 'CONFLICT') {
-          await reply(`${parsed.id} 已是 ${existing.status} 状态，本次 ${parsed.decision} 已忽略。`);
+          // decide 可能已改状态（如超期转 stale），回执报最新状态；超期场景附完整说明
+          const latest = await service.get(parsed.id);
+          const extra = e?.message?.includes('超期') ? `（${e.message}）` : '';
+          await reply(`${parsed.id} 已是 ${latest?.status ?? existing.status} 状态${extra}，本次 ${parsed.decision} 已忽略。`);
         } else if (e?.code === 'APPLY_FAILED') {
           await reply(`${parsed.id} 已批准但生效失败：${e?.message ?? 'unknown'}。修复后可再次回复 approve ${parsed.id} 重试。`);
         } else {

@@ -42,7 +42,19 @@ export interface GenerationResult {
   created: EvolutionProposalData[];
   /** 跳过原因 → 计数（unsupported-type / no-op / unknown-constraint / duplicate / open-exists） */
   skipped: Record<string, number>;
+  /** 本轮被 TTL 清扫转 stale 的提案 id（超期未审的 pending/approved，#602 D2） */
+  staled: string[];
   scanned: { constraintTraces: number; toolCalls: number; outcomes: number };
+}
+
+/** 人审 TTL：pending/approved 超期未审自动转 stale，放行同目标新提案（#602 D2，EP-0002 自锁修复） */
+export const EVOLUTION_PROPOSAL_TTL_MS = 14 * 24 * 60 * 60 * 1000;
+
+/** 提案是否超期未审（仅 pending/approved 参与判定；createdAt 不可解析视为未超期） */
+export function isProposalExpired(p: EvolutionProposalData, now = Date.now()): boolean {
+  if (p.status !== 'pending' && p.status !== 'approved') return false;
+  const created = Date.parse(p.createdAt);
+  return Number.isFinite(created) && now - created > EVOLUTION_PROPOSAL_TTL_MS;
 }
 
 interface RawProposal {
@@ -174,12 +186,23 @@ export async function generateEvolutionProposals(deps: GeneratorDeps): Promise<G
     })),
   ];
 
-  // 去重：同目标已有 pending/approved（未闭环）→ 跳过；同目标同文案（历史任意状态）→ 跳过
+  // 去重：同目标已有 pending/approved（未闭环）→ 跳过；同目标同文案（历史任意状态，stale 除外）→ 跳过
   const existing = await fileStore.listEvolutionProposals();
+  // TTL 清扫（#602 D2）：超期未审的 pending/approved 惰性转 stale —— 不开定时器，
+  // 随每轮生成顺手做；stale 不再占 open 位，也未被人审过，允许同文案重提（不占 duplicate 位）。
+  const staled: string[] = [];
+  for (const p of existing) {
+    if (!isProposalExpired(p)) continue;
+    await fileStore.updateEvolutionProposal(p.id, { status: 'stale', staledAt: new Date().toISOString() });
+    p.status = 'stale';
+    staled.push(p.id);
+  }
   const openTargets = new Set(
     existing.filter(p => p.status === 'pending' || p.status === 'approved').map(p => `${p.targetType}:${p.targetId}`),
   );
-  const exactKeys = new Set(existing.map(p => `${p.targetType}:${p.targetId}:${p.proposedText}`));
+  const exactKeys = new Set(
+    existing.filter(p => p.status !== 'stale').map(p => `${p.targetType}:${p.targetId}:${p.proposedText}`),
+  );
 
   const created: EvolutionProposalData[] = [];
   for (const r of raw) {
@@ -210,6 +233,7 @@ export async function generateEvolutionProposals(deps: GeneratorDeps): Promise<G
   return {
     created,
     skipped,
+    staled,
     scanned: {
       constraintTraces: signals.constraintTraces.length,
       toolCalls: signals.toolCalls.length,

@@ -165,4 +165,38 @@ describe('generateEvolutionProposals (E1)', () => {
     expect(second.created).toEqual([]);
     expect(second.skipped['duplicate']).toBe(1);
   });
+
+  it('TTL: expired open proposal is swept to stale and the same target can be re-proposed (#602)', async () => {
+    // EP-0002 自锁场景：pending 超期未审（人为老化到 20 天前，TTL=14d）→ 转 stale 放行
+    writeOutcomeEvents(paths.studioEventsFile);
+    const first = await generateEvolutionProposals({ fileStore, paths, windowHours: 24 });
+    expect(first.created.length).toBe(1);
+    const id = first.created[0].id;
+    await fileStore.updateEvolutionProposal(id, {
+      createdAt: new Date(NOW - 20 * 24 * 3600_000).toISOString(),
+    });
+
+    const second = await generateEvolutionProposals({ fileStore, paths, windowHours: 24 });
+    expect(second.staled).toEqual([id]);
+    const old = await fileStore.getEvolutionProposal(id);
+    expect(old?.status).toBe('stale');
+    expect(old?.staledAt).toBeTruthy();
+    // stale 不算 open（不触发 open-exists），也不算 duplicate（从未人审，允许同文案重提）
+    expect(second.created.length).toBe(1);
+    expect(second.created[0].id).not.toBe(id);
+  });
+
+  it('TTL: expired approved proposal (apply stuck) is also swept to stale', async () => {
+    writeOutcomeEvents(paths.studioEventsFile);
+    const first = await generateEvolutionProposals({ fileStore, paths, windowHours: 24 });
+    const id = first.created[0].id;
+    await fileStore.updateEvolutionProposal(id, {
+      status: 'approved',
+      createdAt: new Date(NOW - 30 * 24 * 3600_000).toISOString(),
+    });
+
+    const second = await generateEvolutionProposals({ fileStore, paths, windowHours: 24 });
+    expect(second.staled).toEqual([id]);
+    expect(second.created.length).toBe(1);
+  });
 });

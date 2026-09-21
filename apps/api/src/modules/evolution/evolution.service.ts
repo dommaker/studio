@@ -19,7 +19,12 @@ import {
 } from '@dommaker/studio-shared';
 import { applyProposal, type ApplyResult } from './applier.js';
 import { postProposalToChannel } from './channel-review.js';
-import { generateEvolutionProposals, type GenerationResult } from './generator.js';
+import {
+  EVOLUTION_PROPOSAL_TTL_MS,
+  generateEvolutionProposals,
+  isProposalExpired,
+  type GenerationResult,
+} from './generator.js';
 import { resolveEvolutionPaths, type EvolutionPaths } from './signals.js';
 import { channelMessageService, type ChannelMessageService } from '../channels/channel-message.service.js';
 import { getErrorMessage } from '../../utils/errors.js';
@@ -105,6 +110,14 @@ export class EvolutionService {
   ): Promise<EvolutionProposalData> {
     const existing = await this.fileStore.getEvolutionProposal(id);
     if (!existing) throw new EvolutionError('NOT_FOUND', `Evolution proposal not found: ${id}`);
+
+    // TTL（#602 D2）：超期未审的 pending/approved 不再接受决策，惰性转 stale，
+    // 等下一轮扫描重新生成带新证据的提案。
+    if (isProposalExpired(existing)) {
+      await this.fileStore.updateEvolutionProposal(id, { status: 'stale', staledAt: new Date().toISOString() });
+      const ttlDays = Math.round(EVOLUTION_PROPOSAL_TTL_MS / 86_400_000);
+      throw new EvolutionError('CONFLICT', `${id} 超期未审（TTL ${ttlDays}d），已转 stale；触发新一轮扫描可重新生成`);
+    }
 
     if (decision === 'reject') {
       if (existing.status !== 'pending') {

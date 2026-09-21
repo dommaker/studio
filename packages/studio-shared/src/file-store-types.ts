@@ -195,7 +195,8 @@ export interface RequirementFilter {
 // 存储复制 Requirement 模式：`~/.studio/data/evolution/EP-0042.json` + flock 序号。
 
 export type EvolutionTargetType = 'iron-law' | 'guideline' | 'prompt-template' | 'role-preset';
-export type EvolutionProposalStatus = 'pending' | 'approved' | 'rejected' | 'applied';
+/** stale：pending/approved 超期未审（TTL，#602 D2）惰性转 stale，不再阻塞同目标新提案 */
+export type EvolutionProposalStatus = 'pending' | 'approved' | 'rejected' | 'applied' | 'stale';
 
 export interface EvolutionProposalData {
   id: string;                 // EP-<zero-padded seq>，如 EP-0042
@@ -222,6 +223,7 @@ export interface EvolutionProposalData {
   decidedAt?: string | null;
   appliedAt?: string | null;
   rejectReason?: string | null;
+  staledAt?: string | null;   // 超期未审转 stale 的时间（#602 D2）
 }
 
 export interface EvolutionProposalFilter {
