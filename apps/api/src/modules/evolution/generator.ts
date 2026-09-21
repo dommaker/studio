@@ -58,17 +58,17 @@ export interface GenerationResult {
 export const EVOLUTION_PROPOSAL_TTL_MS = 14 * 24 * 60 * 60 * 1000;
 
 /** 提案是否超期未审（仅 pending/approved 参与判定；createdAt 不可解析视为未超期） */
-export function isProposalExpired(p: EvolutionProposalData, now = Date.now()): boolean {
+export function isProposalExpired(p: EvolutionProposalData): boolean {
   if (p.status !== 'pending' && p.status !== 'approved') return false;
   const created = Date.parse(p.createdAt);
-  return Number.isFinite(created) && now - created > EVOLUTION_PROPOSAL_TTL_MS;
+  return Number.isFinite(created) && Date.now() - created > EVOLUTION_PROPOSAL_TTL_MS;
 }
 
 interface RawProposal {
   targetType: EvolutionTargetType;
   targetId: string;
   action: 'add' | 'amend';
-  constraintChange?: 'message' | 'exception' | 'new-entry' | 'retire';
+  constraintChange?: EvolutionProposalData['constraintChange'];
   currentText: string;
   proposedText: string;
   rationale: string;
@@ -93,6 +93,12 @@ const MAX_CONSTRAINT_PROPOSALS_PER_RUN = 3;
  * report 为全周期统计（非窗口）；读不到 traces → 零提案（保守安静）。
  */
 async function constraintProposals(deps: GeneratorDeps): Promise<RawProposal[]> {
+  // 依赖钉版守卫：harness <1.10.1（导出未发布）时 named import 为 undefined——
+  // 显式告警而非 TypeError 撞 catch（静默零提案正是本票要修的死法）
+  if (typeof buildConstraintsUsageReport !== 'function') {
+    logger.warn('[Evolution] harness usage report 未导出（需 harness ≥1.10.1，#602 ship 前 bump 依赖），(a) 链路跳过');
+    return [];
+  }
   let report: ConstraintsUsageReport;
   try {
     report = buildConstraintsUsageReport(deps.paths.repoRoot);
