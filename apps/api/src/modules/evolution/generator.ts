@@ -6,7 +6,8 @@
  *       （#602 D1，buildConstraintsUsageReport 公共导出，harness ≥1.10.1）——
  *       zero_trigger / unevaluable / high_noise / zero_intercept 四类候选映射为
  *       retire 提案（落点 = .harness/config.yml enabled:false，见 applier）。
- *       message/new-entry 类在 harness 1.10.0 无生效落点，不生成。
+ *       动作集已收敛（M3.2）：词表只剩 retire/disable（config.yml 装得下的唯二
+ *       动作），message/exception/new-entry 无生效落点已从类型与生成路径删除。
  *       每轮最多 3 个（保守，候选按 report 排序取前）。
  *   (b) prompt-template：轻量启发式 —— 窗口内任务失败率高（≥50% 且 ≥5 次）且
  *       多个失败任务已注入知识（≥3 个，R1 反馈环数据）→ 说明注入约束未被遵守，
@@ -89,7 +90,8 @@ const MAX_CONSTRAINT_PROPOSALS_PER_RUN = 3;
  * (a) harness 约束链路（#602 D1）—— 吃 constraints usage report 的退役候选。
  * 四类候选（zero_trigger / unevaluable / high_noise / zero_intercept）全部映射为
  * retire 提案：harness 1.10.0 起 config.yml `constraints.<id>.enabled:false` 是
- * 唯一真实生效落点，message/new-entry 类无消费端、不生成。
+ * 唯一真实生效落点（M3.2 动作集收敛：disable 保留在词表供人工/API 提案，启发式
+ * 不自动产出），message/exception/new-entry 无消费端、不生成。
  * report 为全周期统计（非窗口）；读不到 traces → 零提案（保守安静）。
  */
 async function constraintProposals(deps: GeneratorDeps): Promise<RawProposal[]> {

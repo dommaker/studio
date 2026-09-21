@@ -7,11 +7,12 @@
  * 各 targetType 的写入目标：
  *   - iron-law / guideline → **#602 D1 新落点：`<repoRoot>/.harness/config.yml`**
  *       （harness 约束唯一真实生效形态，`getEffectiveConstraints` 读它覆盖内置集）。
- *       仅支持 constraintChange='retire'：写 `constraints.<id>.enabled=false` + retired
- *       墓碑（at/reason/stats），格式对齐 `harness constraints retire`；写后用
- *       getEffectiveConstraints 验证生效集已缩小，失败回滚备份。
- *       message/new-entry/exception 在 harness 1.10.0（ADR-0029 文本层关停）无生效
- *       落点，落笔前拒绝（service 层保持 approved 可重试）。
+ *       动作集已收敛（M3.2）：仅支持 constraintChange='retire'（写
+ *       `constraints.<id>.enabled=false` + retired 墓碑（at/reason/stats），格式对齐
+ *       `harness constraints retire`；写后用 getEffectiveConstraints 验证生效集已缩小，
+ *       失败回滚备份）与 'disable'（enabled:false 无墓碑）。
+ *       存量历史词表（message/new-entry/exception）在 harness 1.10.0（ADR-0029 文本层
+ *       关停）无生效落点，落笔前拒绝（service 层保持 approved 可重试）。
  *       · 历史落点：`<repoRoot>/.harness/custom-constraints.yml`（#606 起 harness 不再读取）。
  *         `retireConstraintEntry` 文本手术暂留——distill 草案渲染复用。
  *   - prompt-template → `~/.studio/prompt-overrides/<templateId>.md`（STUDIO_PROMPT_OVERRIDES_DIR
@@ -223,11 +224,12 @@ export async function applyProposal(
       if (proposal.constraintChange === 'retire') {
         return applyConstraintRetire(proposal, paths);
       }
-      // message/new-entry/exception：harness 1.10.0（ADR-0029 决策 4）关停文本注入层后
-      // 无生效落点——落笔前拒绝，service 层保持 status='approved' + APPLY_FAILED 可重试。
+      // M3.2 动作集收敛：词表只剩 retire/disable；存量历史提案（message/new-entry/
+      // exception）在 harness 1.10.0（ADR-0029 决策 4）后无生效落点——落笔前拒绝，
+      // service 层保持 status='approved' + APPLY_FAILED 可重试。
       throw new Error(
-        `约束类提案（${proposal.targetType}/${proposal.constraintChange ?? 'message'}）落点已退役：` +
-        `harness 1.10.0 起仅 retire 有真实落点（config.yml），文案类变更无消费端。`,
+        `约束类提案（${proposal.targetType}/${String(proposal.constraintChange ?? 'message')}）落点已退役：` +
+        `harness 1.10.0 起仅 retire/disable 有真实落点（config.yml），文案/例外类变更无消费端。`,
       );
     }
     case 'prompt-template':

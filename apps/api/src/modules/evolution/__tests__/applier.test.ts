@@ -131,11 +131,12 @@ describe('applier: 约束类提案（#602 D1：retire 落点 = .harness/config.y
     expect(fs.existsSync(configFile())).toBe(false);
   });
 
-  it('message / new-entry 变更仍被拒（harness 1.10.0 无生效落点），且不写任何文件', async () => {
-    for (const constraintChange of ['message', 'new-entry'] as const) {
+  it('存量历史词表（message/new-entry/exception）落笔前拒绝，且不写任何文件', async () => {
+    // M3.2 后词表只剩 retire/disable；构造存量历史提案（类型层绕过）验证运行时闸仍在
+    for (const constraintChange of ['message', 'new-entry', 'exception']) {
       await expect(applyProposal(makeProposal({
         targetType: 'guideline', targetId: 'governance_presence', action: 'amend',
-        constraintChange, proposedText: 'x',
+        constraintChange: constraintChange as unknown as EvolutionProposalData['constraintChange'], proposedText: 'x',
       }), paths)).rejects.toThrow('落点已退役');
     }
     expect(fs.existsSync(configFile())).toBe(false);
@@ -145,7 +146,7 @@ describe('applier: 约束类提案（#602 D1：retire 落点 = .harness/config.y
   it('prompt-template 落点不受约束闸影响', async () => {
     const result = await applyProposal(makeProposal({
       targetType: 'prompt-template', targetId: 'tpl-a', action: 'amend',
-      constraintChange: 'message', proposedText: 'x',
+      proposedText: 'x',
     }), paths);
     expect(result.targetPath).toContain('tpl-a');
   });

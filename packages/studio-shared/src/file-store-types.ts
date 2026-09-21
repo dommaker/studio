@@ -204,8 +204,12 @@ export interface EvolutionProposalData {
   targetType: EvolutionTargetType;
   targetId: string;           // 约束 id | prompt templateId | role 名（.agents/roles/<name>.yaml）
   action: 'add' | 'amend';    // add=新增条目（或 shadow 覆盖内置约束）；amend=修改既有条目
-  /** 仅 iron-law/guideline：变更种类（message=改提示文案；exception=加例外；new-entry=新增约束条目；retire=退役既有 custom 条目，#82 D6 落 retired 元数据段） */
-  constraintChange?: 'message' | 'exception' | 'new-entry' | 'retire';
+  /** 仅 iron-law/guideline：变更种类，收敛到 config.yml 装得下的唯二动作（M3.2，
+   *  docs/plans/2026-09-flywheel-e1-remediation.md）——retire=退役（enabled:false +
+   *  retired 墓碑 + 知识条目，走 harness constraints retire）；disable=临时停用
+   *  （enabled:false 无墓碑）。message/exception/new-entry 无生效落点已删除（harness
+   *  1.10.0 ADR-0029 关停文本注入层、ADR-0005 删例外机制），存量历史提案落笔前拒绝。 */
+  constraintChange?: 'retire' | 'disable';
   currentText: string;        // 当前文本（add 时可为空串）
   proposedText: string;       // 提案文本（message/模板/persona 全量替换内容）
   rationale: string;          // 理由（含预期效果）

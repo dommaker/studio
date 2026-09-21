@@ -73,7 +73,7 @@ async function seedProposal(patch?: Partial<EvolutionProposalData>): Promise<Evo
     targetType: 'iron-law',
     targetId: 'no_redis_import',
     action: 'amend',
-    constraintChange: 'message',
+    constraintChange: 'retire',
     currentText: '禁止引入 Redis/ioredis 依赖',
     proposedText: '禁止 Redis（含间接依赖），违者驳回',
     rationale: '绕过率 60%，文案过宽',
@@ -226,9 +226,10 @@ describe('channel review flow (approve/reject EP-XXXX)', () => {
     expect(confirmation!.content).toContain(p.id);
   });
 
-  it('approve 约束类提案 → 回执报生效失败、状态停 approved、不重建 custom-constraints.yml', { timeout: 15000 }, async () => {
+  it('approve 存量历史词表提案（message）→ 回执报生效失败、状态停 approved、不重建 custom-constraints.yml', { timeout: 15000 }, async () => {
     fs.rmSync(paths.constraintsFile); // 复现 #606 删文件后的生产现状
-    const p = await seedProposal();
+    // M3.2 动作集收敛后 message 已出词表，此处构造存量历史提案（类型层绕过）验证运行时闸
+    const p = await seedProposal({ constraintChange: 'message' as unknown as EvolutionProposalData['constraintChange'] });
     unsubscribe = initEvolutionChannelReview(service, messageService);
 
     const failed = waitForAgentReply(c => c.includes(p.id) && c.includes('生效失败'));

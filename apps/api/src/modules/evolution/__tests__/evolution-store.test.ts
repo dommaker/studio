@@ -22,7 +22,7 @@ function makeProposal(patch?: Partial<EvolutionProposalData>): EvolutionProposal
     targetType: 'guideline',
     targetId: 'monorepo_app_boundary',
     action: 'amend',
-    constraintChange: 'message',
+    constraintChange: 'retire',
     currentText: '旧文案',
     proposedText: '新文案',
     rationale: '测试理由',
