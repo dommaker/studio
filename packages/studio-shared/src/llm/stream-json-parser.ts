@@ -46,6 +46,13 @@ export interface StreamContentBlock {
 export interface ToolCall {
   name: string;
   input: unknown;
+  /** tool_use 块 id（#602 D4：与 tool_result 配对的锚点） */
+  id?: string;
+  /**
+   * 真实成败：与同流内 tool_result（tool_use_id 回指）配对得出（is_error 取反）。
+   * 无配对结果 → undefined（未知，不编造 true——#602 前 writeToolCallEvents 恒 true 是埋点 bug）。
+   */
+  success?: boolean;
 }
 
 /**
@@ -66,26 +73,31 @@ export function parseStreamEvents(stdout: string): StreamEvent[] {
 
 /**
  * Extract tool_use blocks from stream events.
+ * #602 D4：同流内 tool_result 块按 tool_use_id 配对 → ToolCall.success 真实成败
+ * （tool_use/tool_result 两种块的载体都认：event.content 直挂 与 message.content）。
  */
 export function extractToolCalls(events: StreamEvent[]): ToolCall[] {
   const tools: ToolCall[] = [];
+  const results = new Map<string, boolean>(); // tool_use_id → is_error
+  const collect = (block: StreamContentBlock | undefined) => {
+    if (!block) return;
+    if (block.type === 'tool_use' && block.name) {
+      tools.push({ name: block.name, input: block.input, ...(block.id ? { id: block.id } : {}) });
+    }
+    if (block.type === 'tool_result' && typeof block.tool_use_id === 'string') {
+      results.set(block.tool_use_id, block.is_error === true);
+    }
+  };
   for (const event of events) {
-    // Direct content array
     if (event.content && Array.isArray(event.content)) {
-      for (const block of event.content) {
-        if (block.type === 'tool_use' && block.name) {
-          tools.push({ name: block.name, input: block.input });
-        }
-      }
+      for (const block of event.content) collect(block);
     }
-    // message.content format (assistant messages)
     if (event.message?.content && Array.isArray(event.message.content)) {
-      for (const block of event.message.content) {
-        if (block.type === 'tool_use' && block.name) {
-          tools.push({ name: block.name, input: block.input });
-        }
-      }
+      for (const block of event.message.content) collect(block);
     }
+  }
+  for (const tool of tools) {
+    if (tool.id && results.has(tool.id)) tool.success = !results.get(tool.id);
   }
   return tools;
 }

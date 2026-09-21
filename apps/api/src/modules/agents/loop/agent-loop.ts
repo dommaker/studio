@@ -1268,7 +1268,8 @@ export class AgentLoop {
       const stepEvents = toolTraceSource ? parseStreamEvents(toolTraceSource) : [];
       if (toolTraceSource) {
         try {
-          writeToolCallEvents(stepEvents, resolveToolTraceFile());
+          // #602 D4：caller 落真实角色 id（(c) 链路按 caller 匹配 .agents/roles/<id>）
+          writeToolCallEvents(stepEvents, resolveToolTraceFile(), { caller: this.role.id });
         } catch { /* non-blocking */ }
       }
 

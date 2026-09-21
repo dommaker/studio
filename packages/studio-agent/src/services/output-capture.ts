@@ -152,9 +152,24 @@ export async function emitSessionEnd(sessionId: string, executionId: string, ses
 
 /**
  * 发射 tool:call 事件 — 记录 agent 调用的工具及参数
+ * #602 D4：extras.success 为 stream-json tool_result 配对的真实成败（undefined = 未知不编造），
+ * extras.caller 为执行角色 id（E1 (c) 链路按 caller 统计角色失败率的输入）。
  */
-export async function emitToolCall(toolName: string, input: unknown, sessionId: string, executionId: string): Promise<void> {
-  await writeStudioEvent('tool:call', { tool: toolName, input, sessionId, executionId }, { source: 'agent-executor' });
+export async function emitToolCall(
+  toolName: string,
+  input: unknown,
+  sessionId: string,
+  executionId: string,
+  extras?: { success?: boolean; caller?: string },
+): Promise<void> {
+  await writeStudioEvent('tool:call', {
+    tool: toolName,
+    input,
+    sessionId,
+    executionId,
+    ...(extras?.success !== undefined ? { success: extras.success } : {}),
+    ...(extras?.caller ? { caller: extras.caller } : {}),
+  }, { source: 'agent-executor' });
 }
 
 /**

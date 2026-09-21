@@ -800,7 +800,23 @@ describe('AgentLoop', () => {
       expect(second.type).toBe('tool:call');
       const secondPayload = JSON.parse(second.payload);
       expect(secondPayload.tool).toBe('Edit');
-      expect(secondPayload.success).toBe(true);
+      // #602 D4: 无配对 tool_result → success 缺省（未知不编造，旧行为恒 true 是埋点 bug）
+      expect(secondPayload.success).toBeUndefined();
+    });
+
+    it('#602 D4: writes real success (tool_result is_error) and caller role', () => {
+      const eventsFile = path.join(testDir, 'studio-events.jsonl');
+      const streamOutput = [
+        '{"type":"assistant","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"cmd":"pnpm test"}},{"type":"tool_use","id":"t2","name":"Read","input":{"file_path":"/a.ts"}}]}',
+        '{"type":"user","content":[{"type":"tool_result","tool_use_id":"t1","is_error":true,"content":"boom"},{"type":"tool_result","tool_use_id":"t2","is_error":false,"content":"ok"}]}',
+      ].join('\n');
+
+      const count = writeToolCallEvents(parseStreamEvents(streamOutput), eventsFile, { caller: 'developer' });
+      expect(count).toBe(2);
+
+      const rows = fs.readFileSync(eventsFile, 'utf-8').trim().split('\n').map(l => JSON.parse(l).payload).map(JSON.parse);
+      expect(rows[0]).toMatchObject({ tool: 'Bash', success: false, caller: 'developer' });
+      expect(rows[1]).toMatchObject({ tool: 'Read', success: true, caller: 'developer' });
     });
 
     it('returns 0 for empty events', () => {
@@ -911,8 +927,9 @@ describe('AgentLoop', () => {
       expect(first.source).toBe('agent-loop');
       const firstPayload = JSON.parse(first.payload);
       expect(firstPayload.tool).toBe('Read');
-      expect(firstPayload.success).toBe(true);
-      expect(firstPayload.caller).toBe('agent-loop');
+      // #602 D4：无配对 tool_result → success 缺省（旧恒 true 是编造）；caller = 真实角色 id
+      expect(firstPayload.success).toBeUndefined();
+      expect(firstPayload.caller).toBe('role-1');
       expect(typeof firstPayload.timestamp).toBe('number');
       expect(typeof first.createdAt).toBe('string');
 
