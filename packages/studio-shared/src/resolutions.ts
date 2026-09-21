@@ -10,9 +10,10 @@
  * 本模块只收真正的共同逻辑。
  */
 
-/** RKB 成熟度闸门：verified/canonical 才可注入/展示（pending/draft 不参与） */
+/** RKB 成熟度闸门：verified/proven 才可注入/展示（pending/draft 不参与）。
+ *  'canonical' 为 M1 前值域的 legacy 别名——存量清洗完成前保留兼容。 */
 export function isActionableMaturity(maturity: unknown): boolean {
-  return maturity === 'verified' || maturity === 'canonical';
+  return maturity === 'verified' || maturity === 'proven' || maturity === 'canonical';
 }
 
 /**

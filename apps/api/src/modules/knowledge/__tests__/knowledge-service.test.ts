@@ -677,7 +677,7 @@ describe('KnowledgeService Phase 1B: Resolve', () => {
       const { ks } = createKS();
       await ks.createResolution({
         pattern: 'permission error', fix: 'check file perms',
-        errorClass: 'perm', layer: 'L5_error_fix', title: 'Permission fix', tags: ['triage'],
+        errorClass: 'perm', layer: 'project', title: 'Permission fix', tags: ['triage'],
       });
       // triage 调用方签名不变（Promise<void>），写入落到 resolutionService 主存储
       expect(mockResolutionCreate).toHaveBeenCalledTimes(1);
@@ -690,7 +690,7 @@ describe('KnowledgeService Phase 1B: Resolve', () => {
       mockResolutionCreate.mockRejectedValueOnce(new Error('disk down'));
       const { ks } = createKS();
       await expect(ks.createResolution({
-        pattern: 'p', fix: 'f', errorClass: 'e', layer: 'L5_error_fix', title: 't',
+        pattern: 'p', fix: 'f', errorClass: 'e', layer: 'project', title: 't',
       })).resolves.not.toThrow();
     });
   });

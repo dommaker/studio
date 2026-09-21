@@ -177,11 +177,13 @@ export function InteractionPatternCard({ item }: { item: InteractionGap }) {
   );
 }
 
-/** 成熟度/状态徽标词表（E5：KnowledgePage 统一视图成熟度徽标同源复用本表；draft 对齐 pending 待审 warning 语义） */
+/** 成熟度/状态徽标词表（E5：KnowledgePage 统一视图成熟度徽标同源复用本表；draft 对齐 pending 待审 warning 语义）
+ *  M1：proven 为正式解法终态（canonical 为存量清洗期 legacy 别名，保留映射不摘） */
 export const MATURITY_BADGE_CLASSES: Record<string, string> = {
   pending: 'u-warn-bg',
   draft: 'u-warn-bg',
   verified: 'u-accent-bg',
+  proven: 'u-ok-bg',
   canonical: 'u-ok-bg',
   deprecated: 'u-surface-2 u-text-3',
 };

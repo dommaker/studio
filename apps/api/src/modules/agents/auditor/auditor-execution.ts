@@ -130,7 +130,7 @@ export async function pushConfirmationCards(fileStore: FileStore, suggestions: S
 }
 
 /**
- * RKB: 对未见过的错误 pattern 自动创建 pending Resolution
+ * RKB: 对未见过的错误 pattern 自动创建 draft Resolution
  *
  * 只对 L3/L4 层的运维配置类错误（permission/config/docker/git）自动创建，
  * 代码类错误（type/lint/test）留给开发者处理。
@@ -155,14 +155,16 @@ export async function autoCreateResolutions(
       const { matched } = await resolutionService.matchResolutions({ errorMessage: pattern, errorClass });
       if (matched) continue; // Already covered
 
-      // Create pending resolution
+      // Create draft resolution
+      // M1：layer 写 harness StorageLayer 合法值 'project'，原分层值挪进 tags 保信息
+      const legacyLayer = errorClass === 'permission' || errorClass === 'port_conflict' ? 'L4_env_config' : 'L3_tool_behavior';
       await resolutionService.createResolution({
         pattern,
         errorClass,
-        layer: errorClass === 'permission' || errorClass === 'port_conflict' ? 'L4_env_config' : 'L3_tool_behavior',
+        layer: 'project',
         title: `${errorClass}: ${pattern.slice(0, 60)}`,
         fix: '（待人工补充解法）',
-        tags: [errorClass, 'auto-detected'],
+        tags: [errorClass, 'auto-detected', legacyLayer],
       });
     }
   } catch (err) {

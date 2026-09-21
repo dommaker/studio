@@ -60,9 +60,9 @@ async function writeTestResolution(overrides: {
     'type: resolution',
     `pattern: "${overrides.pattern || 'test.*error'}"`,
     `errorClass: "${overrides.errorClass || 'test_error'}"`,
-    `layer: "${overrides.layer || 'L3_tool_behavior'}"`,
+    `layer: "${overrides.layer || 'project'}"`,
     `title: "${overrides.title || 'Test Resolution'}"`,
-    `maturity: "${overrides.status || 'canonical'}"`,
+    `maturity: "${overrides.status || 'proven'}"`,
     `verifyCount: ${overrides.verifyCount ?? 3}`,
     `tags: [${tags.map(t => `"${t}"`).join(', ')}]`,
     '---',
@@ -103,7 +103,7 @@ describe('ResolutionService', () => {
 
   describe('writeCanonicalToDisk', () => {
     it('should complete without throwing', async () => {
-      await writeTestResolution({ status: 'canonical', verifyCount: 3 });
+      await writeTestResolution({ status: 'proven', verifyCount: 3 });
       await expect(resolutionService.writeCanonicalToDisk()).resolves.not.toThrow();
     });
 
@@ -113,7 +113,7 @@ describe('ResolutionService', () => {
   });
 
   describe('verifyResolution triggers scheduleVectorDbSync', () => {
-    it('should call scheduleVectorDbSync when resolution becomes canonical', async () => {
+    it('should call scheduleVectorDbSync when resolution becomes proven', async () => {
       const id = `test-verify-${Date.now()}`;
       await writeTestResolution({ id, status: 'verified', verifyCount: 2 });
       await resolutionService.verifyResolution(id);
@@ -122,34 +122,34 @@ describe('ResolutionService', () => {
 
     it('should NOT call scheduleVectorDbSync when resolution stays verified', async () => {
       const id = `test-no-sync-${Date.now()}`;
-      await writeTestResolution({ id, status: 'pending', verifyCount: 0 });
+      await writeTestResolution({ id, status: 'draft', verifyCount: 0 });
       await resolutionService.verifyResolution(id);
       expect(scheduleVectorDbSync).not.toHaveBeenCalled();
     });
   });
 
   describe('R3: listByMaturity / listPending 口径', () => {
-    it('listByMaturity([pending, canonical]) 返回两档，listPending 仍只回 pending', async () => {
-      await writeTestResolution({ id: `t-pending-${Date.now()}`, status: 'pending', verifyCount: 0, title: 'Pending One' });
-      await writeTestResolution({ id: `t-canonical-${Date.now()}`, status: 'canonical', verifyCount: 3, title: 'Canonical One' });
+    it('listByMaturity([draft, proven]) 返回两档，listPending 仍只回 draft', async () => {
+      await writeTestResolution({ id: `t-draft-${Date.now()}`, status: 'draft', verifyCount: 0, title: 'Draft One' });
+      await writeTestResolution({ id: `t-proven-${Date.now()}`, status: 'proven', verifyCount: 3, title: 'Proven One' });
       await writeTestResolution({ id: `t-verified-${Date.now()}`, status: 'verified', verifyCount: 1, title: 'Verified One' });
 
-      const browse = await resolutionService.listByMaturity(['pending', 'canonical']);
+      const browse = await resolutionService.listByMaturity(['draft', 'proven']);
       const statuses = browse.map(r => r.status).sort();
-      expect(statuses).toEqual(['canonical', 'pending']);
+      expect(statuses).toEqual(['draft', 'proven']);
 
       const pendingOnly = await resolutionService.listPending();
-      expect(pendingOnly.map(r => r.status)).toEqual(['pending']);
+      expect(pendingOnly.map(r => r.status)).toEqual(['draft']);
     });
 
     it('scan 不依赖 _index.md：索引缺失/滞后也能看到存量（生产 UI 显示 0 的根因）', async () => {
-      await writeTestResolution({ id: `t-idx-${Date.now()}`, status: 'canonical', title: 'Indexed Blind' });
+      await writeTestResolution({ id: `t-idx-${Date.now()}`, status: 'proven', title: 'Indexed Blind' });
       // 写一个不含任何 resolution 条目的 stale _index.md（生产形状）
       const knowledgeDir = path.join(os.homedir(), '.studio', 'knowledge');
       const indexPath = path.join(knowledgeDir, '_index.md');
       fs.writeFileSync(indexPath, '# Directory Index\n# Total: 0 entries\n#\n# filename|id|type|title|maturity|tags\n');
       try {
-        const browse = await resolutionService.listByMaturity(['pending', 'canonical']);
+        const browse = await resolutionService.listByMaturity(['draft', 'proven']);
         expect(browse.map(r => r.title)).toContain('Indexed Blind');
       } finally {
         fs.rmSync(indexPath, { force: true });
@@ -162,7 +162,7 @@ describe('ResolutionService', () => {
       const created = await resolutionService.createResolution({
         pattern: 'origin-tagging.*test',
         errorClass: 'test_error',
-        layer: 'L3_tool_behavior',
+        layer: 'project',
         title: 'Origin Tagged Resolution',
         fix: 'Do the right fix',
         tags: ['test'],
@@ -171,6 +171,45 @@ describe('ResolutionService', () => {
       const knowledgeDir = path.join(os.homedir(), '.studio', 'knowledge');
       const raw = fs.readFileSync(path.join(knowledgeDir, `resolution-${created!.id}.md`), 'utf-8');
       expect(raw).toMatch(/^origin: "?system"?\s*$/m);
+    });
+  });
+
+  describe('M1: 写入值域对齐 harness 知识 schema（pending→draft / canonical→proven / layer→project）', () => {
+    const knowledgeDir = () => path.join(os.homedir(), '.studio', 'knowledge');
+
+    it('createResolution 落盘 maturity=draft（非法值 pending 不再写出）', async () => {
+      const created = await resolutionService.createResolution({
+        pattern: 'm1-schema.*create',
+        errorClass: 'test_error',
+        layer: 'project',
+        title: 'M1 Schema Create',
+        fix: 'Do the fix',
+        tags: ['L3_tool_behavior'],
+      });
+      expect(created).not.toBeNull();
+      expect(created!.status).toBe('draft');
+      const raw = fs.readFileSync(path.join(knowledgeDir(), `resolution-${created!.id}.md`), 'utf-8');
+      expect(raw).toMatch(/^maturity: "?draft"?\s*$/m);
+    });
+
+    it('verifyResolution 第 3 次验证落 maturity=proven（非法值 canonical 不再写出）', async () => {
+      const id = `m1-verify-${Date.now()}`;
+      await writeTestResolution({ id, status: 'verified', verifyCount: 2 });
+      await resolutionService.verifyResolution(id);
+      const raw = fs.readFileSync(path.join(knowledgeDir(), `resolution-${id}.md`), 'utf-8');
+      expect(raw).toMatch(/^maturity: "?proven"?\s*$/m);
+    });
+
+    it('ensureSeedResolutions 落盘 maturity=proven、layer=project、tags 保留原分层值 L3_tool_behavior', async () => {
+      await resolutionService.ensureSeedResolutions();
+      const files = fs.readdirSync(knowledgeDir()).filter(f => f.startsWith('resolution-') && f.endsWith('.md'));
+      expect(files).toHaveLength(2);
+      for (const f of files) {
+        const raw = fs.readFileSync(path.join(knowledgeDir(), f), 'utf-8');
+        expect(raw).toMatch(/^maturity: "?proven"?\s*$/m);
+        expect(raw).toMatch(/^layer: "?project"?\s*$/m);
+        expect(raw).toContain('L3_tool_behavior'); // 原分层值挪进 tags 保信息
+      }
     });
   });
 
