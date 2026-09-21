@@ -9,7 +9,7 @@ E1 约束进化（vision §6 / docs/plans/2026-07-flywheel-repair.md §4）：�
 - `signals.ts` — 路径解析 + 信号加载（traces/outcomes）
 - `generator.ts` — 提案生成器（信号 → 约束提案）
 - `channel-review.ts` — 频道审核（提案卡片 → 人确认），卡片交互模式被其他频道确认流复用
-- `applier.ts` — 提案生效器（审核通过后写入约束配置；iron-law/guideline diff 含 amend/shadow/new-entry/retire——retire 在既有 custom 条目内落 retired 元数据段，#82 D6 一处真相，内置退役不走 E1。注意：落点文件 .harness/custom-constraints.yml 已随 studio#606 从本仓退役（harness 1.10.0 起该机制静默失效），approve 生效会重建该死配置文件——E1 约束类提案落点待人类裁定）
+- `applier.ts` — 提案生效器（审核通过后写入生效落点。**约束类提案（iron-law/guideline）自 2026-09-21 起在落笔前直接抛错**：其历史落点 .harness/custom-constraints.yml 已随 studio#606 从本仓退役、harness 1.10.0 起静默不被读取，写它等于凭空重建一个无人消费的文件并向人显示「已生效」。抛出后 service 保持 status='approved' + APPLY_FAILED，频道回执显式说明落点已退役、可待 #602 裁定新落点后重试。文本手术函数暂留：retireConstraintEntry 仍被 distill 复用（distill 的 retire 落点在文件缺失时逐条进 skippedIds，不重建文件））
 - `evolution.service.ts` — 聚合服务（扫描 → 生成 → 审核 → 生效编排）
 - `evolution.routes.ts` — E1 约束进化 API
 
@@ -22,7 +22,8 @@ E1 约束进化（vision §6 / docs/plans/2026-07-flywheel-repair.md §4）：�
 
 - 保守策略：信号不足时零提案；`EVOLUTION_ENABLED=false` 可整体关闭
 - **harness 0.17.1 适配（2026-08-09，ADR-0001）**：E1 完整保留仅拆弹——generator (a) autoEvolve 链路挂起（report 数据层未从包 exports 导出，修复立项见 docs/plans/2026-08-flywheel-repair-e1.md），applier 写入 PROMPTS 桶（TIPS 已退役）；存量 source='harness-autoEvolve' 提案仅为兼容保留。harness 侧 /evolve /degrade /schedule 端点已删除（见本文 `apps/api/src/modules/harness` 锚点）
-- **harness 1.10.0 适配（2026-09-20，ADR-0029 / studio#606）**：applier 的内置定义查表从 IRON_LAWS/GUIDELINES/PROMPTS 三桶改为 CONSTRAINTS 单桶（行为不变）；targetType 'iron-law'/'guideline' 是 studio 提案自有词表，不随 harness 三层命名退役；约束类提案落点（custom-constraints.yml）已随 #606 从本仓退役，applier 生效会重建死配置文件——落点裁定遗留人类
+- **harness 1.10.0 适配（2026-09-20，ADR-0029 / studio#606）**：applier 的内置定义查表从 IRON_LAWS/GUIDELINES/PROMPTS 三桶改为 CONSTRAINTS 单桶（行为不变）；targetType 'iron-law'/'guideline' 是 studio 提案自有词表，不随 harness 三层命名退役；约束类提案落点（custom-constraints.yml）已随 #606 从本仓退役。
+- **约束类提案落点加闸（2026-09-21，治理人闸当场通过）**：#606 删文件后 applier 仍会在 approve 时凭空重建该死配置并回报成功——属假状态，故 applyProposal 的 iron-law/guideline 分支改为落笔前抛错（新落点仍待 #602）。生成器未动：E1 仍会产出约束类提案，但人批准后得到的是明确的「落点已退役」回执而非假的「已生效」。
 - `loadWindowSignals` 对统一事件文件（studioEventsFile）整个窗口扫描只读一次，toolCalls/outcomes 在内存内分两次 filter（#329，2026-08-25）；加信号类型时复用同一 `eventRows`，不要再开新 readJsonl
 - **channel-review 回执是异步的**：`service.decide` 落状态后 handler 才异步发回执帖（channel-review.ts），测试/消费方不能只等状态字段。测试的确定性同步点 = 等事件本身：`evolution.applied`（decide 落 applied 后同步 publish，apply 已完成）/ `channel.message_sent`（回执落库后同步 publish）——模式见 channel-review.test.ts 的 `onceEvent`/`waitForAgentReply`（#331）。坑：固定预算轮询赌 fire-and-forget 事件链墙钟耗时，基线高负载下有超时 flake 窗口（曾跑挂）
 - 提案必须经人确认后才由 applier 生效，不做自动落地

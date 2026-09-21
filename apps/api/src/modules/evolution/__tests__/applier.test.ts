@@ -70,11 +70,6 @@ function makeProposal(patch: Partial<EvolutionProposalData>): EvolutionProposalD
   };
 }
 
-function loadConstraints(): Record<string, Record<string, unknown>> {
-  const doc = yaml.load(fs.readFileSync(constraintsFile, 'utf-8')) as { custom_constraints: Record<string, Record<string, unknown>> };
-  return doc.custom_constraints;
-}
-
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'evolution-applier-test-'));
   constraintsFile = path.join(tmpDir, '.harness', 'custom-constraints.yml');
@@ -95,103 +90,38 @@ afterEach(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
-describe('applier: iron-law/guideline → custom-constraints.yml', () => {
-  it('amend replaces message of existing custom entry, keeps comments and other keys, creates backup', async () => {
-    const result = await applyProposal(makeProposal({
+describe('applier: 约束类提案落点已退役（harness 1.10.0 / ADR-0029）', () => {
+  it('iron-law 提案 apply 抛错，且不凭空重建 custom-constraints.yml', async () => {
+    fs.rmSync(constraintsFile); // 复现生产现状：该文件已随 #606 删除
+    await expect(applyProposal(makeProposal({
       targetType: 'iron-law', targetId: 'no_redis_import', action: 'amend',
-      constraintChange: 'message', proposedText: '禁止 Redis；违者驳回（进化版）',
-    }), paths);
+      constraintChange: 'message', proposedText: '进化版文案',
+    }), paths)).rejects.toThrow('落点已退役');
+    expect(fs.existsSync(constraintsFile)).toBe(false);
+  });
 
-    const entries = loadConstraints();
-    expect(entries.no_redis_import.message).toBe('禁止 Redis；违者驳回（进化版）');
-    expect(entries.no_redis_import.rule).toBe('NO REDIS/IREDIS IMPORTS');
-    expect(entries.no_redis_import.level).toBe('iron_law');
-    // 文件注释保留
-    const raw = fs.readFileSync(constraintsFile, 'utf-8');
-    expect(raw).toContain('# 1. MemoryStore 替代 Redis');
-    // 备份存在且内容为原文
-    expect(result.backupPath).not.toBeNull();
-    expect(fs.readFileSync(result.backupPath as string, 'utf-8')).toBe(CONSTRAINTS_FIXTURE);
+  it('guideline 的 new-entry / retire 变更同样被拒（不写文件、不建备份）', async () => {
+    for (const constraintChange of ['new-entry', 'retire'] as const) {
+      const before = fs.readFileSync(constraintsFile, 'utf-8');
+      await expect(applyProposal(makeProposal({
+        targetType: 'guideline', targetId: 'no_redis_import', action: 'add',
+        constraintChange, proposedText: 'x',
+      }), paths)).rejects.toThrow('落点已退役');
+      expect(fs.readFileSync(constraintsFile, 'utf-8')).toBe(before);
+    }
+    expect(fs.readdirSync(path.dirname(constraintsFile)).filter(f => f.includes('.bak-'))).toEqual([]);
+  });
+
+  it('prompt-template 落点不受该闸影响', async () => {
+    const result = await applyProposal(makeProposal({
+      targetType: 'prompt-template', targetId: 'tpl-a', action: 'amend',
+      constraintChange: 'message', proposedText: 'x',
+    }), paths);
+    expect(result.targetPath).toContain('tpl-a');
   });
 
   it('amendConstraintMessage returns null for unknown entry', () => {
     expect(amendConstraintMessage(CONSTRAINTS_FIXTURE, 'no_such_entry', 'x')).toBeNull();
-  });
-
-  it('builtin message amend appends a full shadow entry (loader overrides by id)', async () => {
-    // 目标为 harness 1.10.0 存活内置约束（原用例的 no_bypass_checkpoint 已随 ADR-0029 退役）
-    await applyProposal(makeProposal({
-      targetType: 'iron-law', targetId: 'no_hardcoded_credentials', action: 'add',
-      constraintChange: 'message', proposedText: '凭证只能来自环境变量注入——字面量一律驳回',
-    }), paths);
-
-    const entries = loadConstraints();
-    expect(entries.no_redis_import).toBeDefined(); // 既有条目不受影响
-    const shadow = entries.no_hardcoded_credentials;
-    expect(shadow.level).toBe('iron_law');
-    expect(shadow.message).toBe('凭证只能来自环境变量注入——字面量一律驳回');
-    expect(typeof shadow.rule).toBe('string');
-    expect(shadow.rule).toBe('NO HARDCODED PASSWORDS, TOKENS, SECRETS, OR CREDENTIALS IN ANY SOURCE FILE'); // 拷贝自内置定义
-    expect(fs.readFileSync(constraintsFile, 'utf-8')).toContain('# EP-0001:');
-  });
-
-  it('new-entry change appends a complete constraint entry', async () => {
-    await applyProposal(makeProposal({
-      targetType: 'guideline', targetId: 'no_direct_prod_deploy', action: 'add',
-      constraintChange: 'new-entry', proposedText: '禁止绕过流水线直接部署生产环境',
-    }), paths);
-
-    const entries = loadConstraints();
-    const entry = entries.no_direct_prod_deploy;
-    expect(entry.level).toBe('guideline');
-    expect(entry.message).toBe('禁止绕过流水线直接部署生产环境');
-    expect(entry.rule).toBe('NO DIRECT PROD DEPLOY');
-    expect(entry.trigger).toEqual(['code_implementation']);
-  });
-
-  it('retire adds retired metadata to existing custom entry, keeps rule, creates backup', async () => {
-    const result = await applyProposal(makeProposal({
-      targetType: 'iron-law', targetId: 'no_redis_import', action: 'amend',
-      constraintChange: 'retire', proposedText: '作用对象已消失',
-      rationale: '目标技术栈已清零，防再引入风险已被依赖审计封死',
-    }), paths);
-
-    const entries = loadConstraints();
-    const entry = entries.no_redis_import;
-    expect(entry.rule).toBe('NO REDIS/IREDIS IMPORTS');
-    expect(entry.retired).toBeDefined();
-    expect((entry.retired as { reason?: string }).reason).toBe('作用对象已消失');
-    expect(typeof (entry.retired as { at?: string }).at).toBe('string');
-    // 文件注释保留
-    const raw = fs.readFileSync(constraintsFile, 'utf-8');
-    expect(raw).toContain('# 1. MemoryStore 替代 Redis');
-    // 备份存在且内容为原文
-    expect(result.backupPath).not.toBeNull();
-    expect(fs.readFileSync(result.backupPath as string, 'utf-8')).toBe(CONSTRAINTS_FIXTURE);
-  });
-
-  it('retire non-custom id throws without writing', async () => {
-    const before = fs.readFileSync(constraintsFile, 'utf-8');
-    await expect(applyProposal(makeProposal({
-      targetType: 'iron-law', targetId: 'no_bypass_checkpoint', action: 'amend',
-      constraintChange: 'retire', proposedText: 'x',
-    }), paths)).rejects.toThrow('cannot retire');
-    expect(fs.readFileSync(constraintsFile, 'utf-8')).toBe(before);
-  });
-
-  it('retire already-retired entry is a no-op', async () => {
-    await applyProposal(makeProposal({
-      targetType: 'iron-law', targetId: 'no_redis_import', action: 'amend',
-      constraintChange: 'retire', proposedText: '第一次',
-    }), paths);
-    const afterFirst = fs.readFileSync(constraintsFile, 'utf-8');
-
-    const result = await applyProposal(makeProposal({
-      targetType: 'iron-law', targetId: 'no_redis_import', action: 'amend',
-      constraintChange: 'retire', proposedText: '第二次',
-    }), paths);
-    expect(result.detail).toContain('already retired');
-    expect(fs.readFileSync(constraintsFile, 'utf-8')).toBe(afterFirst);
   });
 
   it('retireConstraintEntry null for unknown entry / already-retired entry', () => {

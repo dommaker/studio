@@ -5,15 +5,13 @@
  * 所有写入前先备份目标文件（`<target>.bak-<ts>`），写入失败可人工回滚。
  *
  * 各 targetType 的写入目标（设计决策，见 docs/plans/2026-07-flywheel-repair.md §4 E1）：
- *   - iron-law / guideline → `<repoRoot>/.harness/custom-constraints.yml`
- *       · amend 既有自定义条目：文本级手术替换 `message:` 行（保留文件注释）。
- *       · 内置约束的 message 修改：文件尾部追加条目（harness
- *         ProjectConfigLoader 的 mergeConstraints 按 id 覆盖内置定义）。
- *       · new-entry：文件尾部追加完整条目。
- *       · retire：既有 custom 条目内追加 retired 元数据段（#82 D6 统一落点，
- *         保留规则原文；内置约束退役不走 E1——走 harness constraints retire
- *         → config.yml）。已退役条目重放为 no-op。
- *       · 结构性变更（adjust_trigger / change_level）不在 v1 生效范围内（生成期已跳过）。
+ *   - iron-law / guideline → **落点已退役**（harness 1.10.0 / ADR-0029 关停文本注入层，
+ *     custom-constraints.yml 不再被读取）。applyProposal 对该类提案在落笔前直接抛错，
+ *     提案停在 approved 可重试；下方文本手术函数暂留（`retireConstraintEntry` 仍被
+ *     distill 复用），待 #602 裁定新落点后一并处置。
+ *       · 历史落点：`<repoRoot>/.harness/custom-constraints.yml` —— amend 文本级替换
+ *         `message:` 行；内置约束改 message 走尾部追加 shadow 条目；new-entry 追加完整条目；
+ *         retire 条目内追加 retired 元数据段（#82 D6）。
  *   - prompt-template → `~/.studio/prompt-overrides/<templateId>.md`（STUDIO_PROMPT_OVERRIDES_DIR
  *       可覆盖）。prompt 模板是 TS 内联常量，**不改写源码**，构建时经
  *       renderWithOverride/readPromptOverride 读取覆盖文件。
@@ -271,10 +269,13 @@ export async function applyProposal(
   switch (proposal.targetType) {
     case 'iron-law':
     case 'guideline': {
-      const targetPath = paths.constraintsFile;
-      const backupPath = await backupFile(targetPath);
-      const { detail } = applyConstraintChange(proposal, targetPath);
-      return { targetPath, backupPath, detail };
+      // harness 1.10.0（ADR-0029 决策 4）关停文本注入层后，custom-constraints.yml 不再被
+      // 读取——写它只会凭空重建一个无人消费的文件，并让提案显示「已生效」。
+      // 故在落笔前拒绝：service 层保持 status='approved' + APPLY_FAILED，正式落点待 #602 裁。
+      throw new Error(
+        `约束类提案（${proposal.targetType}）落点已退役：harness 1.10.0 起 custom-constraints.yml 不再被读取，` +
+        `批准也不会改变生效集。E1 约束进化的新落点见 #602。`,
+      );
     }
     case 'prompt-template':
       return applyPromptTemplate(proposal);

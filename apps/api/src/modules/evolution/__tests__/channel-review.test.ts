@@ -3,7 +3,8 @@
  *
  * 覆盖：
  *   - 新提案发布到 #系统 频道（含 id/target/diff 摘要/回复指引；无频道时跳过不炸）
- *   - 人类回复 approve EP-XXXX → 生效（目标文件写入 + 备份）+ 确认消息
+ *   - 人类回复 approve EP-XXXX → 生效（目标文件写入）+ 确认消息
+ *   - approve 约束类提案 → 落点已退役（harness 1.10.0/ADR-0029）→ 生效失败回执、状态可重试
  *   - reject EP-XXXX（附理由）→ rejected + ack
  *   - 幂等：已决策提案再次决策 → ack 忽略，状态不变
  *   - 未知 id / 非决策消息
@@ -191,8 +192,13 @@ describe('channel review flow (approve/reject EP-XXXX)', () => {
     expect(msgs[0].content).toContain(result.created[0].id);
   });
 
-  it('human approve applies the proposal (target written + backup) and posts confirmation', { timeout: 15000 }, async () => {
-    const p = await seedProposal();
+  it('human approve applies the proposal (target written) and posts confirmation', { timeout: 15000 }, async () => {
+    // 约束类落点已随 harness 1.10.0（ADR-0029）退役，本条改用仍存活的 prompt-template 落点
+    // 跑通「approve → apply → 状态 applied → 确认回执」端到端；闸的行为由下一条覆盖。
+    const p = await seedProposal({
+      targetType: 'prompt-template', targetId: 'tpl-review', action: 'amend',
+      currentText: '旧模板正文', proposedText: '进化后的模板正文',
+    });
     unsubscribe = initEvolutionChannelReview(service, messageService);
 
     // 确定性同步点（#331）：decide 落 applied 后同步 publish evolution.applied（apply 已完成）；
@@ -203,11 +209,9 @@ describe('channel review flow (approve/reject EP-XXXX)', () => {
     await messageService.createHumanMessage('ch-sys', `approve ${p.id}`);
     await applied;
 
-    // 目标文件已改 + 备份已建（applied 事件发布于 apply 与状态写库之后，无需轮询）
-    const raw = fs.readFileSync(paths.constraintsFile, 'utf-8');
-    expect(raw).toContain('禁止 Redis（含间接依赖），违者驳回');
-    const backups = fs.readdirSync(path.dirname(paths.constraintsFile)).filter(f => f.includes('.bak-'));
-    expect(backups.length).toBe(1);
+    // 目标文件已写入（applied 事件发布于 apply 与状态写库之后，无需轮询）
+    const override = path.join(process.env.STUDIO_PROMPT_OVERRIDES_DIR as string, 'tpl-review.md');
+    expect(fs.readFileSync(override, 'utf-8')).toBe('进化后的模板正文');
 
     const decided = await service.get(p.id);
     expect(decided!.status).toBe('applied');
@@ -220,6 +224,27 @@ describe('channel review flow (approve/reject EP-XXXX)', () => {
     const msgs = await messagesIn('ch-sys');
     const confirmation = msgs.find(m => m.authorType === 'agent' && m.content.includes('已批准并生效'));
     expect(confirmation!.content).toContain(p.id);
+  });
+
+  it('approve 约束类提案 → 回执报生效失败、状态停 approved、不重建 custom-constraints.yml', { timeout: 15000 }, async () => {
+    fs.rmSync(paths.constraintsFile); // 复现 #606 删文件后的生产现状
+    const p = await seedProposal();
+    unsubscribe = initEvolutionChannelReview(service, messageService);
+
+    const failed = waitForAgentReply(c => c.includes(p.id) && c.includes('生效失败'));
+    await messageService.createHumanMessage('ch-sys', `approve ${p.id}`);
+    await failed;
+
+    const decided = await service.get(p.id);
+    expect(decided!.status).toBe('approved'); // 未落 applied，修复后可重试
+    expect(decided!.appliedAt).toBeFalsy();
+    expect(fs.existsSync(paths.constraintsFile)).toBe(false);
+    const leftovers = fs.readdirSync(path.dirname(paths.constraintsFile)).filter(f => f.includes('.bak-'));
+    expect(leftovers).toEqual([]);
+
+    const msgs = await messagesIn('ch-sys');
+    const ack = msgs.find(m => m.authorType === 'agent' && m.content.includes('生效失败'));
+    expect(ack!.content).toContain('落点已退役');
   });
 
   it('human reject with reason marks rejected and posts ack', { timeout: 15000 }, async () => {
