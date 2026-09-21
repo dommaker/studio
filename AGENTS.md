@@ -78,7 +78,7 @@ pnpm start  # 启动生产服务
 
 - **治理内容清单**：本段（`PRESERVE:governance`）+ 其他手写 PRESERVE 段（如 `PRESERVE:agent-skills`）+ CONTEXT.md 中标「治理变更」的条目（如工单类型词表）。机器可再生的内容（AGENTS.md 生成段、模块索引、CAPABILITIES.md）不在此列——不设审批，过时重新生成，禁止手改。
 - **人闸两种情形**：人在会话中 → 改动前摆出「改哪条、为什么」，人确认才动手；无人在场（定时/事件触发） → 禁止直接改，建「待确认」状态的工单等人批准（与工单创建的人闸同一套机制，出处 #126/#130）。
-- **留痕**：commit 必带 trailer `Governance-Approved: session`（当场确认）或 `Governance-Approved: #<单号>`（走单批准）；条文旁注明出处与日期。
+- **留痕**：commit 必带 trailer `Governance-Approved: session`（当场确认）、`Governance-Approved: #<单号>`（走单批准）或 `Governance-Approved: EP-<提案号>`（飞轮提案频道人审——词表扩展，出处：docs/plans/2026-09-flywheel-e1-remediation.md M3.5，2026-09-21 会话当场通过）；条文旁注明出处与日期。
 - **执行**：君子协定不拦截；trailer 即合规数据源，`git log --grep Governance-Approved` 可统计合规率，机器化检查留待数据支撑后再议。
 - docs/vision-2026.md 是架构宪法：修订须逐条当人面过、全票人审，不走本流程（出处 #81）。
 
