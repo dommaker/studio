@@ -82,7 +82,7 @@ describe('generateEvolutionProposals (E1)', () => {
   it('quiet when signals are thin: zero proposals, no files written', async () => {
     const result = await generateEvolutionProposals({ fileStore, paths, windowHours: 24 });
     expect(result.created).toEqual([]);
-    expect(result.scanned).toEqual({ constraintTraces: 0, toolCalls: 0, outcomes: 0 });
+    expect(result.scanned).toEqual({ constraintTraces: 0, toolCalls: 0, outcomes: 0, incidents: 0 });
     expect(await fileStore.listEvolutionProposals()).toEqual([]);
     // 未写任何目标文件（绝不自动生效）
     expect(fs.existsSync(paths.constraintsFile)).toBe(false);

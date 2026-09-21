@@ -35,6 +35,7 @@ import {
   type EvolutionTargetType,
 } from '@dommaker/studio-shared';
 import { loadWindowSignals, type EvolutionPaths, type WindowSignals } from './signals.js';
+import { loadIncidentLedger } from './incident-ledger.js';
 
 /** (b) 启发式阈值 */
 const MIN_OUTCOME_FAILURES = 5;
@@ -48,9 +49,9 @@ export interface GenerationResult {
   created: EvolutionProposalData[];
   /** 跳过原因 → 计数（unsupported-type / no-op / unknown-constraint / duplicate / open-exists） */
   skipped: Record<string, number>;
-  /** 本轮被 TTL 清扫转 stale 的提案 id（超期未审的 pending/approved，#602 D2） */
+  /** staled：本轮 TTL 清扫转 stale 的提案 id（#602 D2）；incidents：事故台账条目数（#602 D5） */
   staled: string[];
-  scanned: { constraintTraces: number; toolCalls: number; outcomes: number };
+  scanned: { constraintTraces: number; toolCalls: number; outcomes: number; incidents: number };
 }
 
 /** 人审 TTL：pending/approved 超期未审自动转 stale，放行同目标新提案（#602 D2，EP-0002 自锁修复） */
@@ -220,6 +221,8 @@ async function rolePresetProposals(signals: WindowSignals, deps: GeneratorDeps):
 export async function generateEvolutionProposals(deps: GeneratorDeps): Promise<GenerationResult> {
   const { fileStore } = deps;
   const signals = await loadWindowSignals(deps.paths, deps.windowHours, fileStore);
+  // #602 D5：事故台账条目计数（只观测进 scanned，不进启发式——纪律事故与注入失败语义不同源）
+  const incidents = (await loadIncidentLedger(fileStore).catch(() => [])).length;
   const skipped: Record<string, number> = {};
 
   const raw: RawProposal[] = [
@@ -286,6 +289,7 @@ export async function generateEvolutionProposals(deps: GeneratorDeps): Promise<G
       constraintTraces: signals.constraintTraces.length,
       toolCalls: signals.toolCalls.length,
       outcomes: signals.outcomes.length,
+      incidents,
     },
   };
 }

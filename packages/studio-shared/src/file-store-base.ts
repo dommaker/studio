@@ -88,6 +88,11 @@ export class FileStoreBase {
     this.baseDir = baseDir ?? process.env.STUDIO_DATA_DIR ?? studioPath('data');
   }
 
+  /** 数据根目录只读访问（台账类模块拼子路径用，#602 D5 incident-ledger 起） */
+  public getDataDir(): string {
+    return this.baseDir;
+  }
+
   // ─── 内部工具方法 ───
 
   /** 确保目录存在 */
