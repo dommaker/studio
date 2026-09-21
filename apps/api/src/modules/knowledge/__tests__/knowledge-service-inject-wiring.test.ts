@@ -161,6 +161,53 @@ describe('R4 regression: production knowledgeService wiring (injectContext)', ()
     expect(result.prompt).not.toContain('R4WIRING-ROLE-MEMORY');
   });
 
+  it('#602 D3: knowledge.rules-section override file re-renders the 系统约束 section', async () => {
+    // E1 prompt-template 提案生效落点：applier 写 ~/.studio/prompt-overrides/knowledge.rules-section.md，
+    // 知识注入构建处必须读它（此前 renderWithOverride 生产调用点为 0，覆盖文件是死数据）。
+    const overridesDir = fs.mkdtempSync(path.join(os.tmpdir(), 'prompt-overrides-'));
+    fs.writeFileSync(
+      path.join(overridesDir, 'knowledge.rules-section.md'),
+      '## 系统约束\nR4WIRING-OVERRIDE-PREFIX 以下约束必须逐条遵守：\n{content}',
+      'utf-8',
+    );
+    process.env.STUDIO_PROMPT_OVERRIDES_DIR = overridesDir;
+    try {
+      const now = new Date().toISOString();
+      sharedStore.save({
+        id: `rule-override-${Math.random().toString(36).slice(2, 8)}`,
+        type: 'guideline',
+        title: 'override_rule',
+        content: JSON.stringify({ name: 'override_rule', category: 'constraint', description: 'R4WIRING-OVERRIDE-RULE 覆盖验证规则', affects: '[]', status: 'active' }),
+        maturity: 'active', layer: 'system', created: now, lastReferenced: now,
+        contributors: [], projects: [], tags: ['rule', 'active'], applicablePhases: [],
+        sourceReferences: [], referencedBy: [], executionResults: [],
+        consumptionMode: 'reference', origin: 'system',
+      } as any);
+
+      const result = await knowledgeService.injectContext('wiring-test-agent');
+
+      // override 前缀文本生效，且 {content} 占位符被动态条目替换
+      expect(result.prompt).toContain('R4WIRING-OVERRIDE-PREFIX');
+      expect(result.prompt).toContain('R4WIRING-OVERRIDE-RULE');
+      expect(result.prompt).not.toContain('{content}');
+    } finally {
+      delete process.env.STUDIO_PROMPT_OVERRIDES_DIR;
+      fs.rmSync(overridesDir, { recursive: true, force: true });
+    }
+  });
+
+  it('#602 D3: without override file the 系统约束 section renders exactly as before', async () => {
+    // 无覆盖文件 → 零行为变化（fallback 即原模板）
+    process.env.STUDIO_PROMPT_OVERRIDES_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'prompt-overrides-empty-'));
+    try {
+      const result = await knowledgeService.injectContext('wiring-test-agent');
+      expect(result.prompt).toContain('## 系统约束\n- ');
+      expect(result.prompt).not.toContain('R4WIRING-OVERRIDE-PREFIX');
+    } finally {
+      delete process.env.STUDIO_PROMPT_OVERRIDES_DIR;
+    }
+  });
+
   it('list() adapts UnifiedQuery paged result to an entry array', async () => {
     seedEntries();
     const entries = await knowledgeService.list({ consumptionModes: ['signal'] } as any);

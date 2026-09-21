@@ -5,13 +5,12 @@
  * 而是写覆盖文件 `~/.studio/prompt-overrides/<templateId>.md`，prompt 构建时
  * 优先读覆盖文件。覆盖目录可用 `STUDIO_PROMPT_OVERRIDES_DIR` 覆盖（测试注入）。
  *
- * 当前支持的 templateId（prompt-builder / knowledge-curator 内的接线处）：
- *   - knowledge.rules-section      注入区段「## 系统约束」（{content} = 动态条目行）
- *   - knowledge.context-section    注入区段「## 上下文」（{content} = 动态条目行）
- *   - knowledge.signals-section    注入区段「## 近期信号」（{content} = 动态信号行）
- *   - knowledge.reference-hint     参考库提示行（{count} = 条目数）
- *   - knowledge.skills-section     已激活 Skills 区段（{content} = skill 索引）
+ * 已接线的 templateId（生产真实读者，2026-09-21 核对）：
+ *   - knowledge.rules-section      注入区段「## 系统约束」——knowledge-service.ts injectContext
+ *                                  渲染落点（#602 D3，E1 prompt-template 提案生效后被消费）
  *   - knowledge.extract-from-text  EXTRACT_FROM_TEXT_SYSTEM_PROMPT 全量替换（无占位符）
+ *                                  ——agents/knowledge/knowledge-extraction.ts
+ * 注释中列出但未接线的 templateId 属规划口径；接线 = 存在生产调用点，接好后补进上面清单。
  *
  * 覆盖文件语义：文本中 `{content}`/`{count}` 占位符被替换为动态内容；
  * 没有占位符时覆盖文本整体替换静态部分（动态内容追加其后，extract-from-text 除外）。
