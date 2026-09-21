@@ -55,6 +55,14 @@
 7. M4 验收加固
 8. 收尾：相关 CONTEXT.md 同步（knowledge / evolution / harness 侧对应目录）、code-review、commit
 
+## 实施结果（2026-09-21，全部落地，两仓均直落本地 master 未 push）
+
+- **M1**：harness `e52e6d2`（写入闸+lint）+ 复审补丁 `13e513f`（lint run() 接存量枚举校验）；studio 写入方修复 `4e665c91` + 复审改名 `f3a042bc`。存量 30 条脏条目已按人闸批准映射清洗（备份 `outputs/knowledge-backup-20260921-pre-m1-cleanup.tar.gz`），lint 实盘复核 invalid_enum=0。
+- **M2**：诊断结论——injectContext 接线完好，断点是 OpsService 看门狗探针假阴性致生产每 5 分钟自杀（`ops.service.ts`），叠加 WU 建单卡 pending 人闸。断点 1 已修（`6c19ec7d`，探针改打免鉴权 `/health` + 任何 HTTP 响应判活）。断点 2/3 与 probe 假绿、静默 catch、告警缺口留作后续票。
+- **M3**：`--json` 修复选了**子命令换名 `--json-output`**（父 `--json` 有活跃消费者，删不得；harness `b66df42`）——上文 M3.4「`--json` 取数路径即通」的字面前提相应改为 `--json-output`。动作集收敛 `b887b2fa`；retire 复用 CLI + EP trailer 留痕 `bceea746`；复审修 disable→retire 升级短路 `05db1833`。M3.4 裁定保留既有导出：冻结清单补齐 + ADR-0030 记名（harness `1166f61`）。
+- **M4**：D6 第 5/6 步加固落 `2026-09-flywheel-e1-phase1.md`（`9888251d` 起）。
+- code-review 两轴四路已跑，发现已全部处置或记名。
+
 ## 风险
 
 - M1 清洗映射判错会改坏历史条目 → 逐条人工核对；harness 写入路径加拒写后，存量脏值的写入方（若有自动化在跑）会开始报错——先查来源再上闸。

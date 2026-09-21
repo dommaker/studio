@@ -16,7 +16,9 @@
 
 ### D1 — (a) 链路：harness 导通 + 新落点 = `.harness/config.yml`
 
-1. harness 仓（/root/projects/harness）`src/core/index.ts` 显式清单加 `buildConstraintsUsageReport` / `diagnoseRetireCandidates` 及类型导出（纯增量，无行为变更）。**发布走 `harness-ship release patch`，由用户触发**（治理：agent 不主动发布）
+> 2026-09-21 复盘修正（见 `2026-09-flywheel-e1-remediation.md` M3）：动作集收敛为 **retire / disable** 两类——config.yml 的 constraints 条目只有 `enabled` 字段，modify_message 无落点（harness ADR-0029）、add_exception 机制已删除（ADR-0005），本节目 2/3 的 modify_message/add_exception 写法作废。
+
+1. harness 仓 `src/core/index.ts` 显式清单加 `buildConstraintsUsageReport` / `diagnoseRetireCandidates` 及类型导出（纯增量，无行为变更）。**发布走 `harness-ship release patch`，由用户触发**（治理：agent 不主动发布）
 2. studio `generator.ts` `constraintProposals()`：吃 `report.candidates`（zero_trigger / zero_intercept / high_noise / unevaluable），映射为 `modify_message` / `add_exception` / `retire` 类提案，evidence 带候选的 stats + reason
 3. applier 约束分支新落点：写 `<repoRoot>/.harness/config.yml`（harness 约束真实生效形态，`getEffectiveConstraints()` 读它覆盖内置集）。retire 语义对齐 `harness constraints retire`；modify_message/add_exception 落 config.yml 对应字段。替换现有抛错闸
 4. channel: gate/workflow/discipline schema 字段**不做**（issue 明确归 Phase 2 配套）
