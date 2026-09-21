@@ -317,40 +317,40 @@ export class ResolutionService {
   }
 
   /** 写 proven resolutions 到磁盘 + 重建索引 */
-  async writeCanonicalToDisk(): Promise<void> {
+  async writeProvenToDisk(): Promise<void> {
     try {
       await fileStore.buildIndex(KNOWLEDGE_DIR, ['id', 'type', 'title', 'maturity', 'tags', 'terms']);
       logger.info('[ResolutionService] Knowledge index rebuilt');
     } catch (err) {
-      logger.warn('[ResolutionService] writeCanonicalToDisk failed', { error: String(err) });
+      logger.warn('[ResolutionService] writeProvenToDisk failed', { error: String(err) });
     }
   }
 
   /** Knowledge density scoring */
   async getDensityScore(): Promise<{
-    score: number; total: number; verified: number; canonical: number;
+    score: number; total: number; verified: number; proven: number;
     errorClasses: number; layers: number;
   }> {
     try {
       const all = await scanResolutions();
       const total = all.length;
       const verified = all.filter((r: any) => r.maturity === 'verified').length;
-      const canonical = all.filter((r: any) => r.maturity === 'proven').length;
+      const proven = all.filter((r: any) => r.maturity === 'proven').length;
       const errorClasses = new Set(all.map((r: any) => r.errorClass).filter(Boolean)).size;
       const layers = new Set(all.map((r: any) => r.layer).filter(Boolean)).size;
 
       const countScore = Math.min(total / 20, 1) * 25;
-      const verifiedRatio = total > 0 ? (verified + canonical) / total : 0;
+      const verifiedRatio = total > 0 ? (verified + proven) / total : 0;
       const verifiedScore = verifiedRatio * 25;
       const breadthScore = Math.min(errorClasses / 8, 1) * 25;
       const layerScore = Math.min(layers / 4, 1) * 25;
 
       return {
         score: Math.round(countScore + verifiedScore + breadthScore + layerScore),
-        total, verified, canonical, errorClasses, layers,
+        total, verified, proven, errorClasses, layers,
       };
     } catch {
-      return { score: 0, total: 0, verified: 0, canonical: 0, errorClasses: 0, layers: 0 };
+      return { score: 0, total: 0, verified: 0, proven: 0, errorClasses: 0, layers: 0 };
     }
   }
 

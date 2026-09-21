@@ -1,5 +1,5 @@
 /**
- * ResolutionService — writeCanonicalToDisk + scheduleVectorDbSync 测试
+ * ResolutionService — writeProvenToDisk + scheduleVectorDbSync 测试
  */
 import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
 import * as fs from 'fs';
@@ -101,14 +101,14 @@ describe('ResolutionService', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  describe('writeCanonicalToDisk', () => {
+  describe('writeProvenToDisk', () => {
     it('should complete without throwing', async () => {
       await writeTestResolution({ status: 'proven', verifyCount: 3 });
-      await expect(resolutionService.writeCanonicalToDisk()).resolves.not.toThrow();
+      await expect(resolutionService.writeProvenToDisk()).resolves.not.toThrow();
     });
 
-    it('should handle empty canonical set gracefully', async () => {
-      await expect(resolutionService.writeCanonicalToDisk()).resolves.not.toThrow();
+    it('should handle empty proven set gracefully', async () => {
+      await expect(resolutionService.writeProvenToDisk()).resolves.not.toThrow();
     });
   });
 
