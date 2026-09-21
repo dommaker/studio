@@ -295,12 +295,19 @@ export class OpsService {
     const fmtMb = (kb: number | null) => kb === null ? '?' : String(Math.round(kb / 1024));
     const fmtPct = (pct: number | null) => pct === null ? '?' : String(pct);
 
+    // 探针语义（ops 探针假阴性事故 2026-09-15）：原实现打需鉴权的
+    // /api/v1/channels 且仅认 statusCode===200，该端点加 requireAuth 后恒 401
+    // → apiResponding 恒 false → healthCheck process.exit(1) → systemd 拉起，
+    // 看门狗自杀循环。防御纵深两层：
+    // 1. 改打免鉴权 /health（app.ts 注册于鉴权中间件之前，不依赖任何业务路由）；
+    // 2. 收到任何 HTTP 响应（含 401/403/5xx）即判「进程在服务」——
+    //    只有连接失败/超时才判死。
     let apiResponding = false;
     try {
       const http = require('http');
       await new Promise<void>((resolve, reject) => {
-        const req = http.get(`http://localhost:${this.port}/api/v1/channels`, (res: any) => {
-          apiResponding = res.statusCode === 200;
+        const req = http.get(`http://localhost:${this.port}/health`, (res: any) => {
+          apiResponding = true;
           res.resume();
           resolve();
         });
