@@ -1,18 +1,16 @@
 /**
- * distill-landings (#145) — 蒸馏产物三分落地分流测试
+ * distill-landings (#145) — 蒸馏产物分类落地分流测试
  *
- * 覆盖（对应 #145 AC）：
- *   - normalize 类型解析：skill/constraint/preference/execution-knowledge 直通；
- *     缺类型 / 未知类型 / 约束缺 change → 回落 knowledge（#143 行为）
+ * 覆盖（对应 #145 AC；constraint 桶 #625 退出后产物按未知类型回落）：
+ *   - normalize 类型解析：skill/preference/execution-knowledge 直通；
+ *     缺类型 / 未知类型（含 constraint）→ 回落 knowledge（#143 行为）
  *   - skill 类 → skills 库提案（skillStore draft + 正本 submitSkillProposal，sourceReferences 指针）
- *   - constraint 类 → 仅 retire 草案落 constraint-drafts.jsonl（config.yml 退役 YAML）；
- *     add/override 草案渲染已随 #617 拆除 → 回落知识条目
  *   - preference/execution-knowledge 类 → 角色记忆草稿（studio 系统角色，sourceRefs 指针）+ memory_proposal 卡
  *   - 落地通道抛错 / 未接线 → 回落知识条目，产物不丢、原料照归档
  *
  * mock 点：getSystemExecutor（LLM seam）+ channelMessageService + submitMemoryProposal（#353 正本发卡接缝）
  * + submitSkillProposal（#354 正本发卡接缝）+ skillStore（路径固定 ~/.studio，不可触真实数据区）；
- * 约束落盘与角色记忆走真实实现（临时 dataDir / tmpdir 重定向）。
+ * 角色记忆走真实实现（tmpdir 重定向）。
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
@@ -72,7 +70,7 @@ import { getReviewProposalAdapter } from '../../review-proposal/registry.js';
 // #351：approve 走 review-proposal 正本生命周期（adapter 由 DistillService 构造注册）
 const approve = (id: string) => approveProposal('distill', id);
 const distillStore = () => getReviewProposalAdapter<DistillProposal>('distill')!.store;
-import { createSkillLanding, createConstraintLanding, createMemoryLanding } from '../distill-landings.js';
+import { createSkillLanding, createMemoryLanding } from '../distill-landings.js';
 import { roleMemoryRoot, roleMemoryStore } from '../../role-memory/role-memory.js';
 
 let tmpDir: string;
@@ -163,20 +161,15 @@ afterEach(() => {
 });
 
 describe('normalizeDistillProducts 类型解析', () => {
-  it('四类合法 type 直通；constraint 带 change', () => {
+  it('三类合法 type 直通', () => {
     const out = normalizeDistillProducts({
       products: [
         { type: 'skill', title: 's', content: 'c', tags: [] },
         { type: 'preference', title: 'p', content: 'c', tags: [] },
         { type: 'execution-knowledge', title: 'e', content: 'c', tags: [] },
-        {
-          type: 'constraint', title: 'k', content: 'c', tags: [],
-          change: { action: 'add', constraintId: 'no-foo', level: 'guideline', message: 'm' },
-        },
       ],
     });
-    expect(out.map(p => p.type)).toEqual(['skill', 'preference', 'execution-knowledge', 'constraint']);
-    expect(out[3].change).toEqual({ action: 'add', constraintId: 'no-foo', level: 'guideline', message: 'm', description: undefined });
+    expect(out.map(p => p.type)).toEqual(['skill', 'preference', 'execution-knowledge']);
   });
 
   it('缺 type / 未知 type → 回落 knowledge', () => {
@@ -189,31 +182,21 @@ describe('normalizeDistillProducts 类型解析', () => {
     expect(out.map(p => p.type)).toEqual(['knowledge', 'knowledge']);
   });
 
-  it('constraint 缺 change / action 非法 / 缺 constraintId → 回落 knowledge', () => {
+  it('constraint 类型（含历史 change 字段）→ 按未知类型回落 knowledge（#625 桶退出）', () => {
     const out = normalizeDistillProducts({
       products: [
         { type: 'constraint', title: 'a', content: 'c', tags: [] },
-        { type: 'constraint', title: 'b', content: 'c', tags: [], change: { action: 'explode', constraintId: 'x' } },
-        { type: 'constraint', title: 'c', content: 'c', tags: [], change: { action: 'add' } },
+        {
+          type: 'constraint', title: 'b', content: 'c', tags: [],
+          change: { action: 'retire', constraintId: 'old-rule' },
+        },
       ],
     });
-    expect(out.map(p => p.type)).toEqual(['knowledge', 'knowledge', 'knowledge']);
-  });
-
-  it('constraint 的 level 走白名单（非法 level 丢弃，不进草案）', () => {
-    const out = normalizeDistillProducts({
-      products: [
-        { type: 'constraint', title: 'a', content: 'c', tags: [], change: { action: 'add', constraintId: 'x', level: 'bogus' } },
-        { type: 'constraint', title: 'b', content: 'c', tags: [], change: { action: 'add', constraintId: 'y', level: 'iron_law' } },
-      ],
-    });
-    expect(out[0].type).toBe('constraint');
-    expect(out[0].change?.level).toBeUndefined();
-    expect(out[1].change?.level).toBe('iron_law');
+    expect(out.map(p => p.type)).toEqual(['knowledge', 'knowledge']);
   });
 });
 
-describe('三分路由（注入 fake landings）', () => {
+describe('分类路由（注入 fake landings）', () => {
   it('skill 产物走 skill 通道：sourceReferences 指针 + 原料归档 + 运行记录分布', async () => {
     const skillLanding = vi.fn().mockResolvedValue('sp-1');
     service = new DistillService({
@@ -267,7 +250,7 @@ describe('三分路由（注入 fake landings）', () => {
     expect(knowledgeProducts()).toHaveLength(1);
 
     const runs = await service.listRuns();
-    expect(runs[0].landings).toEqual({ knowledge: [knowledgeProducts()[0].id], skill: ['sp-1'], constraint: [], memory: ['draft-1'] });
+    expect(runs[0].landings).toEqual({ knowledge: [knowledgeProducts()[0].id], skill: ['sp-1'], memory: ['draft-1'] });
     // productIds 含全部落地产物 id → 消费基线推进（下轮不重复提案本批原料）
     expect(runs[0].productIds).toHaveLength(3);
   });
@@ -293,52 +276,25 @@ describe('三分路由（注入 fake landings）', () => {
   });
 });
 
-describe('constraint 通道（真实落盘）', () => {
-  it('add 类约束产物 → 无生效落点（草案渲染已随 #617 拆除）→ 回落知识条目，不落草案', async () => {
-    service = new DistillService({
-      store, fileStore, dataDir, eventsFile,
-      landings: { constraint: createConstraintLanding({ fileStore, dataDir }) },
-    });
+describe('constraint 桶退出后的回落（#625）', () => {
+  it('constraint 类产物 → 回落知识条目，产物不丢、原料照归档', async () => {
     const proposal = await propose();
 
     mockRunJson.mockResolvedValue({
       products: [{
         type: 'constraint', title: '禁止跳级推理', content: '数字异常先验证含义再定根因', tags: ['debug'],
-        change: { action: 'add', constraintId: 'no-leap-diagnosis', level: 'guideline', message: '禁止跳级推理', description: '先验证再断言' },
+        change: { action: 'retire', constraintId: 'old-rule' },
       }],
     });
     const result = await approve(proposal.id);
     expect(result.kind).toBe('executed');
 
-    // 产物不丢：回落知识条目；constraint-drafts.jsonl 无新增草案
     const products = knowledgeProducts();
     expect(products).toHaveLength(1);
     expect(products[0].title).toBe('禁止跳级推理');
-    const drafts = await fileStore.readJsonl<Record<string, unknown>>(path.join(dataDir, 'constraint-drafts.jsonl'));
-    expect(drafts).toHaveLength(0);
-  });
-
-  it('retire 类约束产物 → config.yml 退役 YAML 草案（harness retire 落点，不动任何约束文件）', async () => {
-    service = new DistillService({
-      store, fileStore, dataDir, eventsFile,
-      landings: { constraint: createConstraintLanding({ fileStore, dataDir }) },
-    });
-    const proposal = await propose();
-
-    mockRunJson.mockResolvedValue({
-      products: [{
-        type: 'constraint', title: '退役过时约束', content: '该约束已无可被违反的未来场景', tags: [],
-        change: { action: 'retire', constraintId: 'old-rule' },
-      }],
-    });
-    await approve(proposal.id);
-
-    const drafts = await fileStore.readJsonl<Record<string, unknown>>(path.join(dataDir, 'constraint-drafts.jsonl'));
-    expect(drafts[0].action).toBe('retire');
-    expect(drafts[0].constraintId).toBe('old-rule');
-    // retire 草案 = config.yml 退役 YAML（harness retire 落点），不改任何约束文件
-    expect(String(drafts[0].ymlSnippet)).toContain('old-rule');
-    expect(String(drafts[0].ymlSnippet)).toContain('enabled: false');
+    for (const id of proposal.materialIds) expect(store.get(id)?.maturity).toBe('archived');
+    const runs = await service.listRuns();
+    expect(runs[0].landings?.knowledge).toEqual([products[0].id]);
   });
 });
 

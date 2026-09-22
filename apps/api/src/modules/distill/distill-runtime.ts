@@ -10,7 +10,7 @@ import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import { sharedStore, scheduleVectorDbSync } from '../knowledge/knowledge-singletons.js';
 import { resolveStudioEventsFile } from '../../utils/studio-events.js';
 import { DistillService } from './distill-service.js';
-import { createSkillLanding, createConstraintLanding, createMemoryLanding } from './distill-landings.js';
+import { createSkillLanding, createMemoryLanding } from './distill-landings.js';
 
 let _service: DistillService | null = null;
 
@@ -25,10 +25,9 @@ export function getDistillService(): DistillService {
       dataDir,
       eventsFile: resolveStudioEventsFile(),
       onProductsSaved: () => scheduleVectorDbSync(),
-      // #145 三分落地通道（skill 提案 / 约束草案 / 角色记忆草稿）
+      // #145 产物落地通道（skill 提案 / 角色记忆草稿）；constraint 通道已随 #625 拆除
       landings: {
         skill: createSkillLanding({ fileStore, companiesDir: studioPath('data', 'companies') }),
-        constraint: createConstraintLanding({ fileStore, dataDir }),
         memory: createMemoryLanding({ fileStore }),
       },
     });

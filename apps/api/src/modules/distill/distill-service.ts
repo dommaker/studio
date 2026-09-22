@@ -27,10 +27,11 @@
  * 不读墙钟）生成候选清单发 gc_proposal 人审卡；executeGc 候选 maturity=archived（可恢复），
  * reject 零副作用且人判保留条目后续不再提案。零候选不发卡。
  *
- * #145 三分落地：蒸馏 LLM 产出自带类型分类——skill（过程性知识）→ skills 库提案；
- * constraint（边界性知识）→ constraint-drafts.jsonl 变更草案（D6 派单通道未就绪的简化落盘形态）；
+ * #145 产物分类落地：蒸馏 LLM 产出自带类型分类——skill（过程性知识）→ skills 库提案；
  * preference/execution-knowledge → 角色记忆草稿（memory_proposal 人审卡）。缺类型/未知类型/
  * 落地失败 → 回落知识库条目（#143 行为）。落地通道经 deps.landings 注入，实现见 distill-landings。
+ * constraint 桶已随 #625 整体退出（#622 裁决：落点为死端，生命周期归 evolution 飞轮）——
+ * constraint 类产物按未知类型走既有回落逻辑，产物不丢。
  *
  * #146 存量约束审计子通道（runConstraintAudit/executeAudit + constraint-audit 纯函数）已随
  * #617 拆除：审计对象 custom 纯文本约束已随 ADR-0029 灭绝，无可审对象。
@@ -67,26 +68,21 @@ export type { DistillProposal, GcProposal } from './review-adapters.js';
 
 /**
  * 蒸馏 prompt（单一来源）：矿石 → 带类型分类的蒸馏产物。结构参考 MEMORY_EXTRACTION_SYSTEM_PROMPT，
- * 但产出目标不同（项目级知识 + 三分落地，非角色记忆草稿）。类型分类驱动 #145 三分落地分流。
+ * 但产出目标不同（项目级知识 + 分类落地，非角色记忆草稿）。类型分类驱动 #145 落地分流。
  */
 export const DISTILL_SYSTEM_PROMPT = `你是知识蒸馏专家。输入是一批「矿石」知识条目（开发会话自动沉淀的原始记录，单条知识含量低）。
 
 你的任务：把它们提炼成可复用的知识产物——找出重复出现的模式 / 有效做法 / 失败教训，合并同类，剔除噪音。
 
 每条产物要求：
-- type：产物类型，四选一——
+- type：产物类型，三选一——
   - "skill"：过程性知识（可复用的操作流程/方法步骤）→ 落 skills 库提案
-  - "constraint"：边界性知识（什么不能做/必须做的规矩）→ 落约束变更草案
   - "preference"：偏好约定（风格/口味/习惯）→ 落角色记忆草稿
   - "execution-knowledge"：执行经验（怎么做成/怎么失败的教训）→ 落角色记忆草稿
   拿不准就不要硬分类，省略 type 字段（回落为普通知识条目）
 - title：一句话概括模式（不要复读原料标题）
 - content：模式正文——描述 + 适用场景 + 为什么有效（或根因 + 预防）
 - tags：1-3 个英文短横线标签
-- 仅 type="constraint" 时附加 change 字段：
-  { "action": "add" | "override" | "retire", "constraintId": "短横线约束id",
-    "level": "iron_law" | "guideline" | "prompt" | "tip", "message": "约束规则一句话", "description": "补充说明（可选）" }
-  action 语义：add=新增约束；override=覆盖既有同 id 约束；retire=退役既有约束（只需 action + constraintId）
 
 输出 JSON（不要 markdown 包裹）：
 { "products": [ { "type": "...", "title": "...", "content": "...", "tags": ["..."] } ] }
@@ -108,21 +104,12 @@ export interface DistillServiceDeps {
   eventsFile: string;
   /** 产物入库后的回调（运行时装配 scheduleVectorDbSync）；可选 */
   onProductsSaved?: (productIds: string[]) => void;
-  /** #145 三分落地通道（运行时装配 distill-landings）；缺省/失败/返回 null → 回落知识条目 */
+  /** #145 产物落地通道（运行时装配 distill-landings）；缺省/失败/返回 null → 回落知识条目 */
   landings?: DistillLandings;
 }
 
-/** #145 产物类型：三通道 + knowledge 回落 */
-export type DistillProductType = 'knowledge' | 'skill' | 'constraint' | 'preference' | 'execution-knowledge';
-
-/** 约束变更草案参数（仅 type=constraint 产物携带） */
-export interface DistillConstraintChange {
-  action: 'add' | 'override' | 'retire';
-  constraintId: string;
-  level?: string;
-  message?: string;
-  description?: string;
-}
+/** #145 产物类型：双通道 + knowledge 回落 */
+export type DistillProductType = 'knowledge' | 'skill' | 'preference' | 'execution-knowledge';
 
 /** normalize 后的产物形态（路由与落地通道的输入） */
 export interface NormalizedDistillProduct {
@@ -130,7 +117,6 @@ export interface NormalizedDistillProduct {
   title: string;
   content: string;
   tags: string[];
-  change?: DistillConstraintChange;
 }
 
 /** 落地通道上下文：sourceReferences 原料指针 + 提案/运行回指 */
@@ -145,7 +131,6 @@ export type DistillLanding = (product: NormalizedDistillProduct, ctx: DistillLan
 
 export interface DistillLandings {
   skill?: DistillLanding;
-  constraint?: DistillLanding;
   /** preference 与 execution-knowledge 共用（角色记忆草稿通道） */
   memory?: DistillLanding;
 }
@@ -156,37 +141,13 @@ interface RawDistillProduct {
   title?: unknown;
   content?: unknown;
   tags?: unknown;
-  change?: unknown;
 }
 
-const CONSTRAINT_ACTIONS = new Set(['add', 'override', 'retire']);
-
-/** 约束草案 level 四值白名单（历史口径，原对齐 harness 三层命名；harness 1.10.0/ADR-0029
- *  起该机制退役，白名单仅作 LLM 输出清洗，乱给值丢弃不进草案） */
-const CONSTRAINT_LEVELS = new Set(['iron_law', 'guideline', 'prompt', 'tip']);
-
-/** LLM 原始 change 字段 → 约束变更草案参数；不合法返回 null（调用方回落 knowledge） */
-function normalizeConstraintChange(raw: unknown): DistillConstraintChange | null {
-  if (!raw || typeof raw !== 'object') return null;
-  const c = raw as Record<string, unknown>;
-  const action = typeof c.action === 'string' ? c.action : '';
-  const constraintId = typeof c.constraintId === 'string' ? c.constraintId.trim() : '';
-  if (!CONSTRAINT_ACTIONS.has(action) || !constraintId) return null;
-  return {
-    action: action as DistillConstraintChange['action'],
-    constraintId,
-    ...(typeof c.level === 'string' && CONSTRAINT_LEVELS.has(c.level.trim()) ? { level: c.level.trim() } : {}),
-    ...(typeof c.message === 'string' && c.message.trim() ? { message: c.message.trim() } : {}),
-    ...(typeof c.description === 'string' && c.description.trim() ? { description: c.description.trim() } : {}),
-  };
-}
-
-// 'constraint' 不在此集合：约束产物必须带合法 change（上方分支已处理），否则回落 knowledge
 const PRODUCT_TYPES = new Set<DistillProductType>(['skill', 'preference', 'execution-knowledge']);
 
 /**
  * LLM 产出 → 类型化产物清单：缺 title/content 丢弃；tags 只收字符串；
- * 缺/未知 type 回落 knowledge（#143 行为）；constraint 缺合法 change 同样回落 knowledge（产物不丢）。
+ * 缺/未知 type 回落 knowledge（#143 行为；constraint 桶 #625 退出后按未知类型走同一回落，产物不丢）。
  */
 export function normalizeDistillProducts(parsed: { products?: unknown }): NormalizedDistillProduct[] {
   const raw = Array.isArray(parsed?.products) ? (parsed.products as RawDistillProduct[]) : [];
@@ -197,14 +158,6 @@ export function normalizeDistillProducts(parsed: { products?: unknown }): Normal
     if (!title || !content) continue;
     const tags = Array.isArray(p.tags) ? p.tags.filter((t): t is string => typeof t === 'string' && t.trim().length > 0) : [];
     const rawType = typeof p.type === 'string' ? p.type : '';
-    if (rawType === 'constraint') {
-      const change = normalizeConstraintChange(p.change);
-      if (change) {
-        out.push({ type: 'constraint', title, content, tags, change });
-        continue;
-      }
-      // 约束产物缺合法 change → 回落知识条目（不丢产物）
-    }
     const type: DistillProductType = PRODUCT_TYPES.has(rawType as DistillProductType)
       ? (rawType as DistillProductType)
       : 'knowledge';
@@ -356,9 +309,9 @@ export class DistillService {
       const now = new Date().toISOString();
       const materialIds = materials.map(m => m.id);
 
-      // #145 三分落地：按产物类型路由到对应通道；通道未接线/返回 null/抛错 → 回落知识条目
+      // #145 产物落地：按产物类型路由到对应通道；通道未接线/返回 null/抛错 → 回落知识条目
       const productIds: string[] = [];
-      const landings: DistillRunLandings = { knowledge: [], skill: [], constraint: [], memory: [] };
+      const landings: DistillRunLandings = { knowledge: [], skill: [], memory: [] };
       for (const p of products) {
         const bucket = this.landingBucket(p.type);
         const landing = bucket === 'knowledge' ? null : this.deps.landings?.[bucket];
@@ -578,7 +531,6 @@ export class DistillService {
   /** 产物类型 → 落地桶（preference/execution-knowledge 共用 memory 通道） */
   private landingBucket(type: DistillProductType): keyof DistillRunLandings {
     if (type === 'skill') return 'skill';
-    if (type === 'constraint') return 'constraint';
     if (type === 'preference' || type === 'execution-knowledge') return 'memory';
     return 'knowledge';
   }

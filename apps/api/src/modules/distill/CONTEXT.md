@@ -6,13 +6,13 @@
 
 GC 候选清单：蒸馏运行后按周期计龄--reference/context 层连续 3 周期 `lastReferenced` 未更新 -> `gc_proposal` 卡；approve -> archived（可恢复）；reject -> 不再提案。manual 过审享 3 周期豁免；主区 >200 强制。不读墙钟。
 
-产物三分落地：蒸馏 LLM 产出自带类型分类--skill -> skills 库提案（#354 起经 review-proposal 正本 submitSkillProposal，kind='skill'）；constraint -> 仅 retire 草案落 `constraint-drafts.jsonl`（status=pending，config.yml 退役 YAML；add/override 草案渲染已随 #617 拆除 -> 回落知识条目）；preference/execution-knowledge -> 角色记忆草稿。缺/未知类型或落地失败 -> 回落知识库条目。产物都带原料指针。
+产物分类落地：蒸馏 LLM 产出自带类型分类--skill -> skills 库提案（#354 起经 review-proposal 正本 submitSkillProposal，kind='skill'）；preference/execution-knowledge -> 角色记忆草稿。缺/未知类型或落地失败 -> 回落知识库条目。产物都带原料指针。constraint 桶已随 #625 整体退出（#622 裁决：add/override 落点恒 null 是死端、retire 草案零读点，constraint 生命周期归 evolution 飞轮一条链）--constraint 类产物按未知类型回落知识条目。
 
 ### 核心导出
 
 - `distill-threshold.ts` -- 门槛检测纯函数 + 阈值常量（3/5/7/20）
 - `distill-service.ts` -- 编排（subscribe/maybePropose/runGcCheck）+ prompt + 产出解析 + 两 adapter 审批后动作（executeDistill/executeGc + reject 留痕）
-- `distill-landings.ts` -- 三通道落地实现：skills 提案 / 约束 retire 草案 / 角色记忆草稿
+- `distill-landings.ts` -- 两通道落地实现：skills 提案 / 角色记忆草稿
 - `distill-runs.ts` -- 蒸馏运行记录持久化（runs.jsonl，双时间戳基线）
 - `review-adapters.ts` -- #351 两个人审提案卡 adapter（kind: distill/gc），接线 review-proposal 正本
 - `gc-candidates.ts` -- GC 周期计龄纯函数 + 常量（3/200）
