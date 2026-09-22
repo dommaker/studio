@@ -36,8 +36,9 @@ E1 约束进化（vision §6 / docs/plans/2026-07-flywheel-repair.md §4）：�
   自动留痕（正文带提案号，trailer `Governance-Approved: EP-XXXX`）；commit 失败
   降级 warn + `ApplyResult.trail.committed=false`（随 evolution.applied 事件暴露），
   不阻断生效；幂等未写文件则无 commit。
-  文本手术 retireConstraintEntry 保留——distill 草案渲染复用（amendConstraintMessage/
-  appendConstraintEntry/loadCustomConstraints/applyConstraintChange 已随死格式删除）
+  文本手术 retireConstraintEntry 已随 #617 拆除（唯一消费方 distill 存量约束审计
+  子通道同票拆除；amendConstraintMessage/appendConstraintEntry/loadCustomConstraints/
+  applyConstraintChange 早前已随死格式删除）
 - `evolution.service.ts` — 聚合服务（扫描 → 生成 → 审核 → 生效编排）。decide 对超期
   pending/approved 拒决策并转 stale（#602 D2）
 - `evolution.routes.ts` — E1 约束进化 API

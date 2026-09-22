@@ -41,11 +41,10 @@ const DEFAULT_TIMEOUT_MS = 30_000;
 /**
  * 按 eventSource 的默认超时（#369）：已知重 prompt 源脱离全局默认，调用点不再逐个硬编码。
  * 显式传 timeoutMs 时优先于本表。实测依据（#365）：蒸馏 prompt 思考型模型 21-27s 撞 30s；
- * constraint-audit / knowledge-maintenance 同为全库批量重 prompt，同量级暴露，同口径放宽。
+ * knowledge-maintenance 同为全库批量重 prompt，同量级暴露，同口径放宽。
  */
 export const DEFAULT_TIMEOUT_BY_EVENT_SOURCE: Readonly<Record<string, number>> = {
   'knowledge-distill': 120_000,
-  'constraint-audit': 120_000,
   'knowledge-maintenance': 120_000,
   // 合并冲突 LLM 解：会话内含解冲突 + typecheck/test 验证命令（对齐 VERIFY_COMMAND_TIMEOUT_MS 单条 10min 量级）
   'merge-conflict-resolution': 600_000,

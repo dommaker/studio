@@ -28,19 +28,6 @@ let paths: EvolutionPaths;
 let unsubscribe: (() => void) | null = null;
 let prevEnv: string | undefined;
 
-const CONSTRAINTS_FIXTURE = `# 自定义约束配置
-
-custom_constraints:
-
-  no_redis_import:
-    id: no_redis_import
-    level: iron_law
-    rule: "NO REDIS/IREDIS IMPORTS"
-    message: "禁止引入 Redis/ioredis 依赖"
-    trigger: ["code_implementation"]
-    description: "B0-002 已完成迁移"
-`;
-
 /**
  * 确定性等待一个 eventBus 事件：predicate 命中即 resolve 并退订（#331）。
  * eventBus.publish 是同步 emit，审核 handler 链是 fire-and-forget——用固定预算轮询
@@ -102,8 +89,6 @@ beforeEach(async () => {
   messageService = new ChannelMessageService(fileStore);
   prevEnv = process.env.STUDIO_PROMPT_OVERRIDES_DIR;
   process.env.STUDIO_PROMPT_OVERRIDES_DIR = path.join(tmpDir, 'prompt-overrides');
-  fs.mkdirSync(path.join(tmpDir, '.harness'), { recursive: true });
-  fs.writeFileSync(path.join(tmpDir, '.harness', 'custom-constraints.yml'), CONSTRAINTS_FIXTURE, 'utf-8');
   paths = resolveEvolutionPaths({
     repoRoot: tmpDir,
     eventsDir: path.join(tmpDir, 'events'),
@@ -226,8 +211,7 @@ describe('channel review flow (approve/reject EP-XXXX)', () => {
     expect(confirmation!.content).toContain(p.id);
   });
 
-  it('approve 存量历史词表提案（message）→ 回执报生效失败、状态停 approved、不重建 custom-constraints.yml', { timeout: 15000 }, async () => {
-    fs.rmSync(paths.constraintsFile); // 复现 #606 删文件后的生产现状
+  it('approve 存量历史词表提案（message）→ 回执报生效失败、状态停 approved', { timeout: 15000 }, async () => {
     // M3.2 动作集收敛后 message 已出词表，此处构造存量历史提案（类型层绕过）验证运行时闸
     const p = await seedProposal({ constraintChange: 'message' as unknown as EvolutionProposalData['constraintChange'] });
     unsubscribe = initEvolutionChannelReview(service, messageService);
@@ -239,9 +223,6 @@ describe('channel review flow (approve/reject EP-XXXX)', () => {
     const decided = await service.get(p.id);
     expect(decided!.status).toBe('approved'); // 未落 applied，修复后可重试
     expect(decided!.appliedAt).toBeFalsy();
-    expect(fs.existsSync(paths.constraintsFile)).toBe(false);
-    const leftovers = fs.readdirSync(path.dirname(paths.constraintsFile)).filter(f => f.includes('.bak-'));
-    expect(leftovers).toEqual([]);
 
     const msgs = await messagesIn('ch-sys');
     const ack = msgs.find(m => m.authorType === 'agent' && m.content.includes('生效失败'));
@@ -261,8 +242,8 @@ describe('channel review flow (approve/reject EP-XXXX)', () => {
     expect(decided!.status).toBe('rejected');
     expect(decided!.rejectReason).toBe('本期不接受');
     expect(decided!.appliedAt).toBeFalsy();
-    // 目标文件未被改动
-    expect(fs.readFileSync(paths.constraintsFile, 'utf-8')).toBe(CONSTRAINTS_FIXTURE);
+    // 目标文件未被改动（reject 零副作用）
+    expect(fs.existsSync(path.join(tmpDir, '.harness', 'config.yml'))).toBe(false);
   });
 
   it('double-decide is rejected with an ack, status unchanged', { timeout: 15000 }, async () => {
@@ -279,7 +260,7 @@ describe('channel review flow (approve/reject EP-XXXX)', () => {
 
     expect((await service.get(p.id))!.status).toBe('rejected');
     // 未生效
-    expect(fs.readFileSync(paths.constraintsFile, 'utf-8')).toBe(CONSTRAINTS_FIXTURE);
+    expect(fs.existsSync(path.join(tmpDir, '.harness', 'config.yml'))).toBe(false);
   });
 
   it('replies "not found" for unknown proposal ids; ignores non-decision chatter', { timeout: 15000 }, async () => {

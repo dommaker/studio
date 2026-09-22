@@ -5,7 +5,8 @@
  *   - normalize 类型解析：skill/constraint/preference/execution-knowledge 直通；
  *     缺类型 / 未知类型 / 约束缺 change → 回落 knowledge（#143 行为）
  *   - skill 类 → skills 库提案（skillStore draft + 正本 submitSkillProposal，sourceReferences 指针）
- *   - constraint 类 → constraint-drafts.jsonl 变更草案（add/override/retire + ymlSnippet），不改约束文件
+ *   - constraint 类 → 仅 retire 草案落 constraint-drafts.jsonl（config.yml 退役 YAML）；
+ *     add/override 草案渲染已随 #617 拆除 → 回落知识条目
  *   - preference/execution-knowledge 类 → 角色记忆草稿（studio 系统角色，sourceRefs 指针）+ memory_proposal 卡
  *   - 落地通道抛错 / 未接线 → 回落知识条目，产物不丢、原料照归档
  *
@@ -293,7 +294,7 @@ describe('三分路由（注入 fake landings）', () => {
 });
 
 describe('constraint 通道（真实落盘）', () => {
-  it('add 类约束产物 → constraint-drafts.jsonl 草案（ymlSnippet + sourceReferences），不改约束文件', async () => {
+  it('add 类约束产物 → 无生效落点（草案渲染已随 #617 拆除）→ 回落知识条目，不落草案', async () => {
     service = new DistillService({
       store, fileStore, dataDir, eventsFile,
       landings: { constraint: createConstraintLanding({ fileStore, dataDir }) },
@@ -308,18 +309,13 @@ describe('constraint 通道（真实落盘）', () => {
     });
     const result = await approve(proposal.id);
     expect(result.kind).toBe('executed');
-    expect(knowledgeProducts()).toHaveLength(0);
 
+    // 产物不丢：回落知识条目；constraint-drafts.jsonl 无新增草案
+    const products = knowledgeProducts();
+    expect(products).toHaveLength(1);
+    expect(products[0].title).toBe('禁止跳级推理');
     const drafts = await fileStore.readJsonl<Record<string, unknown>>(path.join(dataDir, 'constraint-drafts.jsonl'));
-    expect(drafts).toHaveLength(1);
-    const draft = drafts[0];
-    expect(draft.status).toBe('pending');
-    expect(draft.action).toBe('add');
-    expect(draft.constraintId).toBe('no-leap-diagnosis');
-    expect(String(draft.ymlSnippet)).toContain('no-leap-diagnosis');
-    expect(String(draft.ymlSnippet)).toContain('禁止跳级推理');
-    expect(draft.sourceReferences).toEqual(expect.arrayContaining(proposal.materialIds));
-    expect(draft.distillProposalId).toBe(proposal.id);
+    expect(drafts).toHaveLength(0);
   });
 
   it('retire 类约束产物 → config.yml 退役 YAML 草案（harness retire 落点，不动任何约束文件）', async () => {

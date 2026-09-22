@@ -55,8 +55,8 @@ pnpm start  # 启动生产服务
 > 以下两条文本由原注入段承接迁入本段（studio#606，治理人闸 2026-09-20 当场通过）。
 > `no_completion_without_verification` 的 checker 机制本体仍在 harness 机制面，此处只承接文本。
 
-- **no_completion_without_verification**（harness 内置 checker，severity=error）：在声明任务完成前，必须重新运行新鲜的验证命令——受改动影响的测试（vitest run --changed origin/master）+ type check，使用新鲜的输出作为完成证据，不得复用旧结果。全量测试由 CI / 发布流程兜底。（文本采用原 .harness/custom-constraints.yml 的 studio 覆写口径，2026-08-14 决策；#606 迁入，2026-09-20）
-- **public_repo_sanitization**（纯文本治理约束，无 checker，**违反即停——非建议**）：本仓为公开仓库，任何写入内容（代码、文档、注释、测试数据、commit message）提交前必须脱敏自查：禁止写入凭证/密钥、内部基础设施信息（主机名、内网域名、IP、部署路径、运维流程细节）、私有仓库内容、个人隐私数据。从私有配置仓复制配置或文档时必须重新逐行审查。规则文本本身也不得列举具体敏感值。（出处：2026-08-26 公开仓安全脱敏决策；#606 自 custom-constraints.yml 迁入，2026-09-20。阻断口径承接自旧注入段的 Iron Laws 分级——机制无 checker 不等于可建议性遵守；2026-09-21 治理人闸当场通过）
+- **no_completion_without_verification**（harness 内置 checker，severity=error）：在声明任务完成前，必须重新运行新鲜的验证命令——受改动影响的测试（vitest run --changed origin/master）+ type check，使用新鲜的输出作为完成证据，不得复用旧结果。全量测试由 CI / 发布流程兜底。（文本原采用 .harness/custom-constraints.yml 的 studio 覆写口径——该文件已随 ADR-0029/#606 退役、仓内运行时通道随 #617 拆除；2026-08-14 决策；#606 迁入，2026-09-20）
+- **public_repo_sanitization**（纯文本治理约束，无 checker，**违反即停——非建议**）：本仓为公开仓库，任何写入内容（代码、文档、注释、测试数据、commit message）提交前必须脱敏自查：禁止写入凭证/密钥、内部基础设施信息（主机名、内网域名、IP、部署路径、运维流程细节）、私有仓库内容、个人隐私数据。从私有配置仓复制配置或文档时必须重新逐行审查。规则文本本身也不得列举具体敏感值。（出处：2026-08-26 公开仓安全脱敏决策；#606 自 custom-constraints.yml 迁入（该文件已退役、仓内运行时通道随 #617 拆除），2026-09-20。阻断口径承接自旧注入段的 Iron Laws 分级——机制无 checker 不等于可建议性遵守；2026-09-21 治理人闸当场通过）
 
 ## 探索结论沉淀
 

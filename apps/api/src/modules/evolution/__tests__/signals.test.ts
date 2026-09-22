@@ -29,15 +29,13 @@ afterEach(() => fs.rmSync(tmp, { recursive: true, force: true }));
 
 describe('resolveEvolutionPaths', () => {
   it('honours explicit overrides', () => {
-    const p = resolveEvolutionPaths({ repoRoot: '/x', constraintsFile: '/x/c.yml', eventsDir: '/x/events' });
+    const p = resolveEvolutionPaths({ repoRoot: '/x', eventsDir: '/x/events' });
     expect(p.repoRoot).toBe('/x');
-    expect(p.constraintsFile).toBe('/x/c.yml');
     expect(p.eventsDir).toBe('/x/events');
   });
 
   it('derives harness paths from repoRoot by default', () => {
     const p = resolveEvolutionPaths({ repoRoot: tmp });
-    expect(p.constraintsFile).toBe(path.join(tmp, '.harness', 'custom-constraints.yml'));
     expect(p.traceFile).toBe(path.join(tmp, '.harness', 'logs', 'traces.log'));
     expect(p.rolesDir).toBe(path.join(tmp, '.agents', 'roles'));
   });

@@ -16,29 +16,14 @@ import path from 'node:path';
 import os from 'node:os';
 import yaml from 'js-yaml';
 import type { EvolutionProposalData } from '@dommaker/studio-shared';
-import { applyProposal, replacePersonaBlock, retireConstraintEntry } from '../applier';
+import { applyProposal, replacePersonaBlock } from '../applier';
 import { resolveEvolutionPaths, type EvolutionPaths } from '../signals';
 
 let tmpDir: string;
-let constraintsFile: string;
 let rolesDir: string;
 let overridesDir: string;
 let paths: EvolutionPaths;
 let prevEnv: string | undefined;
-
-const CONSTRAINTS_FIXTURE = `# 自定义约束配置 — Studio 项目专属
-
-custom_constraints:
-
-  # 1. MemoryStore 替代 Redis
-  no_redis_import:
-    id: no_redis_import
-    level: iron_law
-    rule: "NO REDIS/IREDIS IMPORTS"
-    message: "禁止引入 Redis/ioredis 依赖"
-    trigger: ["code_implementation"]
-    description: "B0-002 已完成迁移"
-`;
 
 const ROLE_FIXTURE = `id: developer
 name: Developer
@@ -75,16 +60,13 @@ function makeProposal(patch: Partial<EvolutionProposalData>): EvolutionProposalD
 
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'evolution-applier-test-'));
-  constraintsFile = path.join(tmpDir, '.harness', 'custom-constraints.yml');
   rolesDir = path.join(tmpDir, '.agents', 'roles');
   overridesDir = path.join(tmpDir, 'prompt-overrides');
-  fs.mkdirSync(path.dirname(constraintsFile), { recursive: true });
   fs.mkdirSync(rolesDir, { recursive: true });
-  fs.writeFileSync(constraintsFile, CONSTRAINTS_FIXTURE, 'utf-8');
   fs.writeFileSync(path.join(rolesDir, 'developer.yaml'), ROLE_FIXTURE, 'utf-8');
   prevEnv = process.env.STUDIO_PROMPT_OVERRIDES_DIR;
   process.env.STUDIO_PROMPT_OVERRIDES_DIR = overridesDir;
-  paths = resolveEvolutionPaths({ repoRoot: tmpDir, constraintsFile, rolesDir, eventsDir: tmpDir, studioEventsFile: path.join(tmpDir, 'events.jsonl'), traceFile: path.join(tmpDir, 'traces.log') });
+  paths = resolveEvolutionPaths({ repoRoot: tmpDir, rolesDir, eventsDir: tmpDir, studioEventsFile: path.join(tmpDir, 'events.jsonl'), traceFile: path.join(tmpDir, 'traces.log') });
 });
 
 afterEach(() => {
@@ -255,7 +237,6 @@ describe('applier: 约束类提案（#602 D1：retire 落点 = .harness/config.y
       }), paths)).rejects.toThrow('落点已退役');
     }
     expect(fs.existsSync(configFile())).toBe(false);
-    expect(fs.existsSync(constraintsFile) && fs.readFileSync(constraintsFile, 'utf-8') !== CONSTRAINTS_FIXTURE).toBe(false);
   });
 
   it('prompt-template 落点不受约束闸影响', async () => {
@@ -264,13 +245,6 @@ describe('applier: 约束类提案（#602 D1：retire 落点 = .harness/config.y
       proposedText: 'x',
     }), paths);
     expect(result.targetPath).toContain('tpl-a');
-  });
-
-  it('retireConstraintEntry（distill 草案渲染复用）null for unknown entry / already-retired entry', () => {
-    expect(retireConstraintEntry(CONSTRAINTS_FIXTURE, 'no_such_entry', { at: '2026-08-15T00:00:00.000Z', reason: 'r' })).toBeNull();
-    const once = retireConstraintEntry(CONSTRAINTS_FIXTURE, 'no_redis_import', { at: '2026-08-15T00:00:00.000Z', reason: 'r' });
-    expect(once).not.toBeNull();
-    expect(retireConstraintEntry(once!, 'no_redis_import', { at: '2026-08-16T00:00:00.000Z', reason: 'r2' })).toBeNull();
   });
 });
 

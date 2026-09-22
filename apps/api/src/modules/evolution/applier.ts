@@ -23,8 +23,8 @@
  *       降级为 warn 日志 + ApplyResult.trail.committed=false，不阻断生效结果。
  *       存量历史词表（message/new-entry/exception）在 harness 1.10.0（ADR-0029 文本层
  *       关停）无生效落点，落笔前拒绝（service 层保持 approved 可重试）。
- *       · 历史落点：`<repoRoot>/.harness/custom-constraints.yml`（#606 起 harness 不再读取）。
- *         `retireConstraintEntry` 文本手术暂留——distill 草案渲染复用。
+ *       · 历史落点：`<repoRoot>/.harness/custom-constraints.yml`（#606 起 harness 不再读取；
+ *         配套的 `retireConstraintEntry` 文本手术已随 #617 连同 distill 审计子通道拆除）。
  *   - prompt-template → `~/.studio/prompt-overrides/<templateId>.md`（STUDIO_PROMPT_OVERRIDES_DIR
  *       可覆盖）。prompt 模板是 TS 内联常量，**不改写源码**，构建时经
  *       renderWithOverride/readPromptOverride 读取覆盖文件（#602 D3 已接生产读者）。
@@ -66,11 +66,6 @@ async function backupFile(targetPath: string): Promise<string | null> {
   const backupPath = `${targetPath}.bak-${ts}`;
   await fs.promises.copyFile(targetPath, backupPath);
   return backupPath;
-}
-
-/** YAML 安全双引号标量（JSON 字符串是合法 YAML flow scalar）。 */
-function yamlStr(s: string): string {
-  return JSON.stringify(s);
 }
 
 interface BuiltinConstraintDef {
@@ -259,31 +254,6 @@ async function commitConfigTrail(repoRoot: string, proposal: EvolutionProposalDa
     logger.warn('[Evolution] config.yml 生效留痕 commit 失败（不阻断生效结果）', { id: proposal.id, error: String(err) });
     return { committed: false, error: String(err) };
   }
-}
-
-/**
- * 文本级手术：在 custom-constraints.yml 既有条目内追加 retired 元数据段
- * （#82 D6 统一落点，保留规则原文）。条目不存在 / 已含 retired 段 → null。
- *
- * 注：custom-constraints.yml 已随 #606 退役（harness 1.10.0 不再读取），本函数
- * 仅被 distill 草案渲染复用（distill-landings 的 retire 草案 diff 文本）。
- */
-export function retireConstraintEntry(content: string, id: string, retired: { at: string; reason: string }): string | null {
-  const lines = content.split('\n');
-  const start = lines.findIndex(l => l.trimEnd() === `  ${id}:`);
-  if (start === -1) return null;
-  let end = lines.length;
-  for (let i = start + 1; i < end; i++) {
-    if (/^ {2}\S/.test(lines[i])) { end = i; break; }
-  }
-  const block = lines.slice(start + 1, end);
-  if (block.some(l => /^ {4}retired:/.test(l))) return null; // 已退役
-  lines.splice(start + 1, 0,
-    `    retired:`,
-    `      at: ${yamlStr(retired.at)}`,
-    `      reason: ${yamlStr(retired.reason)}`,
-  );
-  return lines.join('\n');
 }
 
 /**

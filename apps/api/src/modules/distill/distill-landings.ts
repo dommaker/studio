@@ -4,9 +4,9 @@
  *   - skill（过程性知识）→ skills 库提案：skillStore draft + review-proposal 正本提案
  *     （#354：submitSkillProposal，kind='skill'；skill_review_request 人审卡由正本投放，
  *     审批走通用端点 /api/v1/review-proposals/skill/:id/*）
- *   - constraint（边界性知识）→ custom-constraints.yml 变更草案落盘（constraint-drafts.jsonl，
- *     add/override/retire 的具体 diff，不直接改约束文件）——#82 D6 派单通道未就绪的简化形态，
- *     派单接线后补（草案 status=pending 等派单）
+ *   - constraint（边界性知识）→ 仅 retire 草案落盘（constraint-drafts.jsonl，config.yml
+ *     退役 YAML diff，等价 harness constraints retire，不直接改约束文件）；
+ *     add/override 草案渲染已随 #617 拆除（无消费方、无生效落点）→ 回落知识条目
  *   - preference / execution-knowledge → 角色记忆草稿（studio 系统角色，review=manual）+
  *     memory_proposal 人审卡（#353：经 review-proposal 正本 submitMemoryProposal）
  *
@@ -83,9 +83,10 @@ export interface ConstraintDraftRecord {
   createdAt: string;
   /** pending = 待派单（#82 D6 通道就绪后由派单流程消费） */
   status: 'pending';
+  /** 历史行含 add/override（草案渲染已随 #617 拆除）；新写入恒为 retire */
   action: 'add' | 'override' | 'retire';
   constraintId: string;
-  /** yml 变更草案片段：add/override 为 custom_constraints 条目 YAML；retire 为退役说明 */
+  /** yml 变更草案片段：config.yml 退役 YAML（harness retire 落点） */
   ymlSnippet: string;
   title: string;
   rationale: string;
@@ -95,39 +96,34 @@ export interface ConstraintDraftRecord {
   distillRunId: string;
 }
 
-/** 变更草案片段渲染：add/override → custom_constraints 条目 YAML；retire → config.yml 退役 YAML（harness retire 落点） */
-function renderConstraintSnippet(product: { change?: { action: string; constraintId: string; level?: string; message?: string; description?: string }; content: string }): string {
+/** retire 草案片段渲染：config.yml 退役 YAML（harness retire 落点） */
+function renderRetireSnippet(product: { change?: { constraintId: string }; content: string }): string {
   const change = product.change!;
-  if (change.action === 'retire') {
-    // retire 的 harness 落点是 .harness/config.yml（constraints.<id>.enabled=false + retired 墓碑），
-    // 非 custom-constraints.yml——草案照实给出 config.yml diff，等价于 harness constraints retire <id>
-    const snippet = yaml.dump(
-      { constraints: { [change.constraintId]: { enabled: false, retired: { reason: product.content } } } },
-      { lineWidth: 120 },
-    );
-    return `# retire 草案：${change.constraintId}（落点 .harness/config.yml；等价 harness constraints retire ${change.constraintId}）\n${snippet}`;
-  }
-  const entry: Record<string, string> = {};
-  if (change.level) entry.level = change.level;
-  if (change.message) entry.message = change.message;
-  if (change.description) entry.description = change.description;
-  return yaml.dump({ custom_constraints: { [change.constraintId]: entry } }, { lineWidth: 120 });
+  // retire 的 harness 落点是 .harness/config.yml（constraints.<id>.enabled=false + retired 墓碑），
+  // 草案照实给出 config.yml diff，等价于 harness constraints retire <id>
+  const snippet = yaml.dump(
+    { constraints: { [change.constraintId]: { enabled: false, retired: { reason: product.content } } } },
+    { lineWidth: 120 },
+  );
+  return `# retire 草案：${change.constraintId}（落点 .harness/config.yml；等价 harness constraints retire ${change.constraintId}）\n${snippet}`;
 }
 
 /**
- * constraint 通道：约束类产物 → 变更草案落盘（不直接改约束文件）。
+ * constraint 通道：retire 类约束产物 → 变更草案落盘（不直接改约束文件）。
  * #82 D6 半自动补丁派单通道未就绪 → 简化落盘形态，草案 status=pending 待派单接线消费。
+ * add/override 无生效落点（草案渲染已随 #617 拆除）→ 返回 null 回落知识条目。
  */
 export function createConstraintLanding(opts: { fileStore: FileStore; dataDir: string }): DistillLanding {
   return async (product, ctx) => {
     const change = product.change!; // normalize 保证 constraint 产物必带合法 change
+    if (change.action !== 'retire') return null;
     const record: ConstraintDraftRecord = {
       id: randomUUID(),
       createdAt: new Date().toISOString(),
       status: 'pending',
       action: change.action,
       constraintId: change.constraintId,
-      ymlSnippet: renderConstraintSnippet(product),
+      ymlSnippet: renderRetireSnippet(product),
       title: product.title,
       rationale: product.content,
       sourceReferences: ctx.materialIds,

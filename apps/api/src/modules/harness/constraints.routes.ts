@@ -4,20 +4,18 @@
  * 从 routes.ts 提取（T3 大文件拆分），harness 0.17.0 适配（ADR-0001 决策 8）：
  * - GET  /constraints                 列出生效约束集（getEffectiveConstraints）
  * - GET  /constraints/stats           生效集统计（注册于 /constraints/:id 之前）
- * - GET  /constraints/retired         已退役约束元数据：config.yml（内置/历史落点）
- *                                     + custom-constraints.yml（#82 D6 统一落点），
- *                                     同 id 双落点时 yml（source: custom）为准
+ * - GET  /constraints/retired         已退役约束元数据：config.yml（唯一落点）
  * - GET  /constraints/:id             约束详情（生效集内查找）
- * - POST /constraints/:id/rollback    撤销 retire：config.yml 删 constraints.<id> 段、
- *                                     custom-constraints.yml 删条目 retired 段（双落点同清）
+ * - POST /constraints/:id/rollback    撤销 retire：config.yml 删 constraints.<id> 段
  * - POST /check-constraints           M2 质量门：非抛出式约束检查（RequirementsDoc UI）
  *
  * 0.17.0 移除：ConstraintRegistry（layer/deprecationStatus/permanent 概念随之删除）、
  * POST /constraints/:id/degrade、POST /constraints/:id/schedule（deprecationSchedule 删除）。
  * 响应字段说明（harness 1.10.0 / ADR-0029）：原 layer/deprecationStatus/permanent 不存在；
  * 三层 level 命名废弃，条目带显式 severity（error/warning/info）；kind 收窄为单值 'check'。
- * custom-constraints.yml 装载机制已随 harness 1.10.0 退役（studio#606 起本仓不再携带该文件）；
- * custom 落点通道保留为可选历史面——文件缺失时 retired 清单/rollback 自动降级为 config.yml 单落点。
+ * custom-constraints.yml 装载机制已随 harness 1.10.0 退役（studio#606），本仓的
+ * custom 落点通道（retired 清单 source:custom / rollback 删 retired 段 / customConstraintsPath）
+ * 已随 #617 拆除——retired/rollback 恒为 config.yml 单落点。
  */
 
 import { Router, Request, Response } from 'express';
@@ -36,23 +34,6 @@ function projectRoot(): string {
 
 function configPath(): string {
   return path.join(projectRoot(), '.harness', 'config.yml');
-}
-
-/** custom-constraints.yml 路径：config.yml `custom_constraints_file` 可覆盖文件名（缺省 custom-constraints.yml）。
- *  导出供 distill-runtime 装配 #146 存量约束审计的 constraintsFile。 */
-export function customConstraintsPath(): string {
-  const cfg = configPath();
-  let name = 'custom-constraints.yml';
-  if (fs.existsSync(cfg)) {
-    try {
-      const raw = (yaml.load(fs.readFileSync(cfg, 'utf-8')) as Record<string, unknown>) ?? {};
-      const customFile = raw.custom_constraints_file;
-      if (typeof customFile === 'string' && customFile.length > 0) name = customFile;
-    } catch {
-      // config.yml 解析失败按默认文件名
-    }
-  }
-  return path.join(projectRoot(), '.harness', name);
 }
 
 // ─── Constraint Lifecycle (T-002) ───
@@ -107,39 +88,23 @@ constraintsRoutes.get('/constraints/stats', async (_req: Request, res: Response)
 
 /**
  * GET /api/v1/harness/constraints/retired
- * 已退役约束元数据：config.yml constraints.<id>.retired（内置/历史落点）
- * + custom-constraints.yml custom_constraints.<id>.retired（#82 D6 统一落点）。
- * 同 id 双落点时以 yml（source: custom）为准。
+ * 已退役约束元数据：config.yml constraints.<id>.retired（唯一落点）。
  */
 constraintsRoutes.get('/constraints/retired', async (_req: Request, res: Response) => {
   try {
-    const byId = new Map<string, { id: string; enabled: boolean; source: 'config' | 'custom'; retired: unknown }>();
+    const retired: Array<{ id: string; enabled: boolean; source: 'config'; retired: unknown }> = [];
 
-    // 1. config.yml（内置退役 + 历史落点）
     const file = configPath();
     if (fs.existsSync(file)) {
       const raw = (yaml.load(fs.readFileSync(file, 'utf-8')) as Record<string, unknown>) ?? {};
       const constraints = (raw.constraints ?? {}) as Record<string, Record<string, unknown>>;
       for (const [id, v] of Object.entries(constraints)) {
         if (v && typeof v === 'object' && v.retired) {
-          byId.set(id, { id, enabled: v.enabled === true, source: 'config', retired: v.retired });
+          retired.push({ id, enabled: v.enabled === true, source: 'config', retired: v.retired });
         }
       }
     }
 
-    // 2. custom-constraints.yml（#82 D6 统一落点；同 id 时覆盖 config 残段）
-    const customFile = customConstraintsPath();
-    if (fs.existsSync(customFile)) {
-      const rawC = (yaml.load(fs.readFileSync(customFile, 'utf-8')) as Record<string, unknown>) ?? {};
-      const customs = (rawC.custom_constraints ?? {}) as Record<string, Record<string, unknown>>;
-      for (const [id, v] of Object.entries(customs)) {
-        if (v && typeof v === 'object' && v.retired) {
-          byId.set(id, { id, enabled: false, source: 'custom', retired: v.retired });
-        }
-      }
-    }
-
-    const retired = [...byId.values()];
     return res.json({ data: retired, total: retired.length });
   } catch (error) {
     logger.error('Failed to list retired constraints', { error: String(error) });
@@ -168,16 +133,13 @@ constraintsRoutes.get('/constraints/:id', async (req: Request, res: Response) =>
 
 /**
  * POST /api/v1/harness/constraints/:id/rollback
- * 撤销 retire/disable：config.yml 删 constraints.<id> 段；
- * custom-constraints.yml 删 custom_constraints.<id>.retired 段（保留规则原文，
- * #82 D6 落点）。双落点同清；两处均无该 id → 404。
+ * 撤销 retire/disable：config.yml 删 constraints.<id> 段；无该 id → 404。
  * js-yaml 重写不保留原文件注释（与 harness CLI 一致）。
  */
 constraintsRoutes.post('/constraints/:id/rollback', async (req: Request, res: Response) => {
   try {
     let removed = false;
 
-    // 1. config.yml（内置退役 + 历史落点）
     const file = configPath();
     if (fs.existsSync(file)) {
       const raw = (yaml.load(fs.readFileSync(file, 'utf-8')) as Record<string, unknown>) ?? {};
@@ -187,21 +149,6 @@ constraintsRoutes.post('/constraints/:id/rollback', async (req: Request, res: Re
         if (Object.keys(constraints).length === 0) delete raw.constraints;
         else raw.constraints = constraints;
         fs.writeFileSync(file, yaml.dump(raw, { lineWidth: 120 }), 'utf-8');
-        removed = true;
-      }
-    }
-
-    // 2. custom-constraints.yml（#82 D6 统一落点：仅删 retired 段，规则原文保留）
-    const customFile = customConstraintsPath();
-    if (fs.existsSync(customFile)) {
-      const rawC = (yaml.load(fs.readFileSync(customFile, 'utf-8')) as Record<string, unknown>) ?? {};
-      const customs = (rawC.custom_constraints ?? {}) as Record<string, Record<string, unknown>>;
-      const entry = customs[req.params.id];
-      if (entry && typeof entry === 'object' && 'retired' in entry) {
-        delete entry.retired;
-        if (Object.keys(entry).length === 0) delete customs[req.params.id];
-        rawC.custom_constraints = customs;
-        fs.writeFileSync(customFile, yaml.dump(rawC, { lineWidth: 120 }), 'utf-8');
         removed = true;
       }
     }

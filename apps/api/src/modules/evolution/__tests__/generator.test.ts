@@ -66,7 +66,6 @@ beforeEach(() => {
   fs.writeFileSync(path.join(tmpDir, '.agents', 'roles', 'developer.yaml'), ROLE_YAML, 'utf-8');
   paths = resolveEvolutionPaths({
     repoRoot: tmpDir,
-    constraintsFile: path.join(tmpDir, '.harness', 'custom-constraints.yml'),
     traceFile: path.join(tmpDir, '.harness', 'logs', 'traces.log'),
     rolesDir: path.join(tmpDir, '.agents', 'roles'),
     eventsDir: path.join(tmpDir, 'events'),
@@ -85,7 +84,7 @@ describe('generateEvolutionProposals (E1)', () => {
     expect(result.scanned).toEqual({ constraintTraces: 0, toolCalls: 0, outcomes: 0, incidents: 0 });
     expect(await fileStore.listEvolutionProposals()).toEqual([]);
     // 未写任何目标文件（绝不自动生效）
-    expect(fs.existsSync(paths.constraintsFile)).toBe(false);
+    expect(fs.existsSync(path.join(tmpDir, '.harness', 'config.yml'))).toBe(false);
   });
 
   it('(a) usage report 退役候选 → retire 提案（#602 D1，每轮上限 3 个）', async () => {
