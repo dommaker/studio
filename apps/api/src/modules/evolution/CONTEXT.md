@@ -56,6 +56,7 @@ E1 约束进化（vision §6 / docs/plans/2026-07-flywheel-repair.md §4）：�
 - **harness 1.10.0 适配（2026-09-20，ADR-0029 / studio#606）**：applier 的内置定义查表从 IRON_LAWS/GUIDELINES/PROMPTS 三桶改为 CONSTRAINTS 单桶（行为不变）；targetType 'iron-law'/'guideline' 是 studio 提案自有词表，不随 harness 三层命名退役；约束类提案落点（custom-constraints.yml）已随 #606 从本仓退役（#602 D1 新落点 config.yml，见核心导出 applier 条）。
 - **约束类提案落点加闸（2026-09-21 上午加闸，同日 #602 D1 裁定新落点后收窄）**：落笔前抛错闸仍对存量历史词表（message/new-entry/exception）生效（无消费端）；M3.2 后词表收敛为 retire/disable，retire 走 harness CLI（M3.3）+ 生效自动 commit 留痕（M3.5，trailer `Governance-Approved: EP-XXXX`）。
 - `loadWindowSignals` 对统一事件文件（studioEventsFile）整个窗口扫描只读一次，toolCalls/outcomes 在内存内分两次 filter（#329，2026-08-25）；加信号类型时复用同一 `eventRows`，不要再开新 readJsonl
+- 信号面无外部输入口：`loadWindowSignals` 只读三个固定文件源（traces.log + studio-events.jsonl 的 tool:call / knowledge:outcome:*），外部语义信号（如 distill 判出的「疑似过时约束」）要进飞轮须新建摄入机制，不是接线（#622 查实，2026-09-22）
 - **channel-review 回执是异步的**：`service.decide` 落状态后 handler 才异步发回执帖（channel-review.ts），测试/消费方不能只等状态字段。测试的确定性同步点 = 等事件本身：`evolution.applied`（decide 落 applied 后同步 publish，apply 已完成）/ `channel.message_sent`（回执落库后同步 publish）——模式见 channel-review.test.ts 的 `onceEvent`/`waitForAgentReply`（#331）。坑：固定预算轮询赌 fire-and-forget 事件链墙钟耗时，基线高负载下有超时 flake 窗口（曾跑挂）
 - 提案必须经人确认后才由 applier 生效，不做自动落地
 - **鉴权（2026-07-24 收紧）**：`/api/v1/evolution` 挂载级 `requireAuth()+requireAdmin()` —— approve/reject/run 直接让约束变更生效，此前仅 requireAuth。
