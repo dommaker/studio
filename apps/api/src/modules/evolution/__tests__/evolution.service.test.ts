@@ -36,7 +36,7 @@ beforeEach(async () => {
   service = new EvolutionService({
     fileStore,
     paths: resolveEvolutionPaths({ repoRoot: hoistedHome.dir, eventsDir: path.join(hoistedHome.dir, 'events') }),
-    postToChannel: false,
+    postCard: false,
   });
   // 造一个待审提案
   await fileStore.createEvolutionProposal({

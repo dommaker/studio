@@ -262,7 +262,7 @@ export class AgentLoop {
         scope: 'agent',
       });
 
-      // #330: 事件驱动唤醒——订阅 channel.message_sent（同进程 eventBus，先例 channel-review）。
+      // #330: 事件驱动唤醒——订阅 channel.message_sent（同进程 eventBus）。
       // 2026-09-16 放宽为「只放行不裁决」：人类消息带 workUnitId 即打断空闲 sleep 跑一轮 observe，
       // 不再用 myActive 派生缓存否决（缓存在认领后首个 sleep 窗口必 stale，回复唤醒会被滤掉，
       // 实测白等满 30s dynamicInterval）；归属裁决归 observe（幂等零 token），误醒廉价、漏醒人感。

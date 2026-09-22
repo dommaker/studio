@@ -433,7 +433,7 @@ async function start() {
       await reconcileDispatchBreaks();
     });
 
-    // ── E1 约束进化（vision §6）：每日扫描 handler + 频道审核 watcher ──
+    // ── E1 约束进化（vision §6）：每日扫描 handler + review-proposal adapter 注册（#623 正本卡片人审）──
     registerExecuteHandler('evolution-scan', async () => {
       const { getEvolutionService } = await import('./modules/evolution/evolution.service.js');
       const result = await getEvolutionService().runScan();
@@ -441,14 +441,12 @@ async function start() {
         logger.info(`[Evolution] Daily scan created ${result.created.length} proposal(s)`);
       }
     });
-    if (process.env.EVOLUTION_ENABLED !== 'false') {
-      try {
-        const { getEvolutionService } = await import('./modules/evolution/evolution.service.js');
-        const { initEvolutionChannelReview } = await import('./modules/evolution/channel-review.js');
-        initEvolutionChannelReview(getEvolutionService());
-        logger.info('[Evolution] Channel review watcher subscribed (approve/reject EP-XXXX)');
-      } catch (e) { logger.warn('[Evolution] Channel review init failed', { error: String(e) }); }
-    }
+    // 构造单例即注册 review-proposal adapter（kind='evolution'）——保证通用审批端点
+    // /review-proposals/evolution/* 在首次扫描前已可分发；频道文本审核 watcher 已随 #623 退役
+    try {
+      const { getEvolutionService } = await import('./modules/evolution/evolution.service.js');
+      getEvolutionService();
+    } catch (e) { logger.warn('[Evolution] review adapter registration failed', { error: String(e) }); }
 
     // ── meeting 路径服务已摘除 ──
 
