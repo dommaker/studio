@@ -91,7 +91,7 @@ hook 统一指向 `@dommaker/harness` 包内出厂 shim `dist/pretool-use-hook.j
 
 | 依赖 | 说明 |
 |------|------|
-| `@dommaker/harness` | buildConstraintPrompt() + checkBeforeExecution() + CommandGate（#147 前置拦截 hook 脚本引用其 dist） |
+| `@dommaker/harness` | buildConstraintPrompt() + checkBeforeExecution() + CommandGate（#147 前置拦截 hook 脚本引用其 dist）。**另有一条子进程 CLI 调用面**：`services/output-capture.ts` 里 `npx harness constraints --json`（取 constraintHash/constraintSize 进 agent_session 指标），走的是 `constraints` **父级** `--json`——harness 1.11.0 把子命令 `constraints report --json` 换名成 `--json-output` 时父级未动。harness 改 CLI flag 时这是本包唯一 grep 落点。 |
 | `@dommaker/studio-shared` | logger |
 
 ### 事件
