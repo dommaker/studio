@@ -9,7 +9,7 @@
 | 导出 | 文件 | 说明 |
 | --- | --- | --- |
 | `router` (默认导出) | routes.ts | Express 路由对象，包含 `GET /api/audit-logs`（查询日志）和 `GET /api/audit-logs/stats`（获取统计）两个端点。 |
-| `queryProposalDecisionRows` / `getProposalDecisionRowById` / `collectProposalDecisionRows` / `filterProposalDecisionRows` | proposal-source.ts | #591 A 类：review-proposal 7 种 kind 的聚合读面（零新写入，折叠归各 adapter store 正本），映射 audit 行形状（actorType=agent, action=propose, resource=kind, status=提案终态原值）；details 含卡片作者（adapter.author），详情回查（getProposalDecisionRowById）带提案全文；已知 kind 未注册时 warn 留痕不静默缺源 |
+| `queryProposalDecisionRows` / `getProposalDecisionRowById` / `collectProposalDecisionRows` / `filterProposalDecisionRows` | proposal-source.ts | #591 A 类：review-proposal 7 种 kind 的聚合读面（零新写入，折叠归各 adapter store 正本），映射 audit 行形状（actorType=agent, action=propose, resource=kind, status=提案终态原值，evolution 含 stale）；details 含卡片作者（adapter.author），详情回查（getProposalDecisionRowById）带提案全文；已知 kind 未注册时 warn 留痕不静默缺源；evolution 随 #623 归位（自定义 store 包 EP-XXXX.json 读写，频道文本审核退役） |
 | `recordAgentDecision` / `AuditActor` | agent-decision.ts | #591 B 类：自主决策埋点统一入口（fire-and-forget，失败只记日志不阻断业务链） |
 
 ### 决策词表（治理变更条目，出处 #591 + ADR 2026-09-17 决策 2；增删走治理变更流程）
@@ -18,7 +18,7 @@ agent 自主决策埋点的 action/resource 词表：
 
 | action | resource | 决策点 | 埋点位置 |
 | --- | --- | --- | --- |
-| `propose` | 提案 kind（distill/gc/audit/memory/skill/knowledge/auditor） | A 类：经人审决策聚合读面（无新写入） | proposal-source.ts |
+| `propose` | 提案 kind（distill/gc/memory/skill/knowledge/auditor/evolution） | A 类：经人审决策聚合读面（无新写入） | proposal-source.ts |
 | `claim` | `workunit` | WU 认领（loop 涌现 + REST 引导片同原语） | workunit/claim-announce.ts |
 | `transition` | `workunit` | WU 状态机流转（仅真实迁移落账） | workunit.service.ts persistSnapshot |
 | `dispatch` | `workunit` | @mention 派单 / 决策12 默认角色 / 合并窗口并入（details.via 区分） | channels/message-routing.ts |

@@ -2,13 +2,15 @@
  * audit-logs/proposal-source (#591 A 类) — review-proposal 正本的聚合读面
  *
  * 依据 docs/adr/2026-09-17-decision-audit-consolidation.md 决策 2：经人审决策
- * （distill/gc/memory/skill/knowledge/auditor 6 种 kind 的 *-proposals.jsonl）
+ * （distill/gc/memory/skill/knowledge/auditor/evolution 7 种 kind 的提案存储）
  * 不加新写入点，聚合读并进 audit-logs 查询轨（source=proposal 维度）。
  * 折叠归各 adapter 的 store 正本（append-only + 墓碑折叠，含 memory per-role
- * draft.jsonl 形态例外）；单 kind 读取失败跳过该 kind，不拖垮整列。
+ * draft.jsonl 与 evolution EP-XXXX.json 单提案文件两个形态例外）；单 kind 读取
+ * 失败跳过该 kind，不拖垮整列。
  *
  * 行形状对齐 audit-logs：actorType='agent'、action='propose'、resource=kind、
- * resourceId=提案 id、status=提案终态原值（pending/executed/rejected/failed/card-failed）。
+ * resourceId=提案 id、status=提案终态原值（pending/executed/rejected/failed/card-failed，
+ * evolution 另有 stale——超期未审惰性终态，读侧归一保留原值）。
  */
 import { logger } from '../../utils/logger.js';
 import {
@@ -75,24 +77,31 @@ function toRow(
 }
 
 /**
- * 自助注册兜底：skill/knowledge/auditor/memory 四域有自助注册入口；
+ * 自助注册兜底：skill/knowledge/auditor/memory/evolution 五域有自助注册入口；
  * distill/gc 由运行时装配（DistillService 构造）注册——未装配时按已知 kind 词表
  * warn 留痕（不静默缺源），读面跳过该 kind。
- * （audit kind 已随 #617/#620 拆除：adapter 删除 + 读取面清除，词表同步移除。）
+ * （audit kind 已随 #617/#620 拆除：adapter 删除 + 读取面清除，词表同步移除。
+ *  evolution 随 #623 归位正本卡片：自定义 store 包 evolution FileStore 读写。）
  */
-const KNOWN_KINDS = ['distill', 'gc', 'memory', 'skill', 'knowledge', 'auditor'] as const;
+const KNOWN_KINDS = ['distill', 'gc', 'memory', 'skill', 'knowledge', 'auditor', 'evolution'] as const;
 
 async function ensureAdaptersRegistered(): Promise<void> {
-  const [skills, knowledge, auditor, memory] = await Promise.all([
+  const [skills, knowledge, auditor, memory, evolution] = await Promise.all([
     import('../skills/review-adapter.js'),
     import('../knowledge/review-adapter.js'),
     import('../agents/auditor/review-adapter.js'),
     import('../role-memory/review-adapter.js'),
+    import('../evolution/review-adapter.js'),
   ]);
   skills.getSkillReviewAdapter();
   knowledge.getKnowledgeReviewAdapter();
   auditor.getAuditorReviewAdapter();
   if (!getReviewProposalAdapter('memory')) memory.registerMemoryReviewAdapter();
+  if (!getReviewProposalAdapter('evolution')) {
+    const { getEvolutionService } = await import('../evolution/evolution.service.js');
+    const svc = getEvolutionService();
+    evolution.registerEvolutionReviewAdapter({ fileStore: svc.store, service: svc });
+  }
   const missing = KNOWN_KINDS.filter(k => !getReviewProposalAdapter(k));
   if (missing.length > 0) {
     logger.warn({ missing }, '[audit-logs] proposal source: kinds not registered (skipped)');
