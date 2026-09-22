@@ -22,9 +22,12 @@ import { resolveEvolutionPaths, type EvolutionPaths } from '../signals';
 // 票 02 断点 2：退休生效后必须触发向量同步——mock 掉 knowledge-singletons
 // （其模块级有 pkill/单例装配副作用，不进单测进程）
 const syncMock = vi.hoisted(() => ({ scheduleVectorDbSync: vi.fn() }));
+// retire 知识条目落点镜像（harness #177 起 KNOWLEDGE_BASE_DIR 真实生效）：
+// 每个用例前后清空，防夹具目录跨用例/跨轮次累积
+const FIXTURE_KB_DIR = vi.hoisted(() => '/tmp/studio-knowledge-test');
 vi.mock('../../knowledge/knowledge-singletons.js', () => ({
   scheduleVectorDbSync: syncMock.scheduleVectorDbSync,
-  UNIFIED_KNOWLEDGE_DIR: '/tmp/studio-knowledge-test',
+  UNIFIED_KNOWLEDGE_DIR: FIXTURE_KB_DIR,
 }));
 
 // 票 02 断点 1：spawn harness retire 必须显式传 KNOWLEDGE_BASE_DIR——包一层 execFile
@@ -77,6 +80,7 @@ function makeProposal(patch: Partial<EvolutionProposalData>): EvolutionProposalD
 beforeEach(() => {
   syncMock.scheduleVectorDbSync.mockClear();
   execFileMock.mockClear();
+  fs.rmSync(FIXTURE_KB_DIR, { recursive: true, force: true });
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'evolution-applier-test-'));
   rolesDir = path.join(tmpDir, '.agents', 'roles');
   overridesDir = path.join(tmpDir, 'prompt-overrides');
@@ -91,11 +95,15 @@ afterEach(() => {
   if (prevEnv === undefined) delete process.env.STUDIO_PROMPT_OVERRIDES_DIR;
   else process.env.STUDIO_PROMPT_OVERRIDES_DIR = prevEnv;
   fs.rmSync(tmpDir, { recursive: true, force: true });
+  fs.rmSync(FIXTURE_KB_DIR, { recursive: true, force: true });
 });
 
 describe('applier: 约束类提案（#602 D1：retire 落点 = .harness/config.yml）', () => {
   const configFile = () => path.join(tmpDir, '.harness', 'config.yml');
-  const knowledgeFile = (id: string) => path.join(tmpDir, '.harness', 'knowledge', `decision-constraint-retired-${id}.md`);
+  // harness 1.12.0（#177）起 retire 知识写口走 openKnowledgeStore 统一解析点，
+  // spawn 传入的 KNOWLEDGE_BASE_DIR 真实生效：条目落唯一正本镜像（本测试 mock 的
+  // /tmp/studio-knowledge-test），不再落 tmpDir/.harness/knowledge（pre-#177 硬编码 repoRoot 的旧形状）。
+  const knowledgeFile = (id: string) => path.join(FIXTURE_KB_DIR, `decision-constraint-retired-${id}.md`);
   const git = (args: string[]) => execFileSync('git', ['-C', tmpDir, ...args], { encoding: 'utf-8' });
 
   it('retire 复用 harness CLI：config.yml enabled:false + retired 墓碑 + 知识条目，生效集同步缩小', async () => {
@@ -122,7 +130,7 @@ describe('applier: 约束类提案（#602 D1：retire 落点 = .harness/config.y
     expect(syncMock.scheduleVectorDbSync).toHaveBeenCalledTimes(1);
     // 票 02 断点 1：spawn harness retire 显式传 KNOWLEDGE_BASE_DIR（唯一正本 ~/.studio/knowledge）
     const retireCall = execFileMock.mock.calls.find(c => Array.isArray(c[1]) && (c[1] as string[]).includes('retire'));
-    expect(retireCall?.[2]).toMatchObject({ env: expect.objectContaining({ KNOWLEDGE_BASE_DIR: '/tmp/studio-knowledge-test' }) });
+    expect(retireCall?.[2]).toMatchObject({ env: expect.objectContaining({ KNOWLEDGE_BASE_DIR: FIXTURE_KB_DIR }) });
   });
 
   it('retire 幂等：已退役约束再 apply → detail 报 already retired，文件不变、不再 commit', async () => {
