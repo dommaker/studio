@@ -9,8 +9,8 @@
  *   - prompt-template → ~/.studio/prompt-overrides/<templateId>.md
  *   - role-preset → .agents/roles/<name>.yaml（persona 块标量替换 + 写后校验）
  */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { execFileSync } from 'node:child_process';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { execFile, execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -18,6 +18,22 @@ import yaml from 'js-yaml';
 import type { EvolutionProposalData } from '@dommaker/studio-shared';
 import { applyProposal, replacePersonaBlock } from '../applier';
 import { resolveEvolutionPaths, type EvolutionPaths } from '../signals';
+
+// 票 02 断点 2：退休生效后必须触发向量同步——mock 掉 knowledge-singletons
+// （其模块级有 pkill/单例装配副作用，不进单测进程）
+const syncMock = vi.hoisted(() => ({ scheduleVectorDbSync: vi.fn() }));
+vi.mock('../../knowledge/knowledge-singletons.js', () => ({
+  scheduleVectorDbSync: syncMock.scheduleVectorDbSync,
+  UNIFIED_KNOWLEDGE_DIR: '/tmp/studio-knowledge-test',
+}));
+
+// 票 02 断点 1：spawn harness retire 必须显式传 KNOWLEDGE_BASE_DIR——包一层 execFile
+// 观测 runCmd 的 env（保留原实现，git/harness 子进程照常真跑）
+vi.mock('node:child_process', async (importOriginal) => {
+  const orig = await importOriginal<typeof import('node:child_process')>();
+  return { ...orig, execFile: vi.fn(orig.execFile) };
+});
+const execFileMock = vi.mocked(execFile);
 
 let tmpDir: string;
 let rolesDir: string;
@@ -59,6 +75,8 @@ function makeProposal(patch: Partial<EvolutionProposalData>): EvolutionProposalD
 }
 
 beforeEach(() => {
+  syncMock.scheduleVectorDbSync.mockClear();
+  execFileMock.mockClear();
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'evolution-applier-test-'));
   rolesDir = path.join(tmpDir, '.agents', 'roles');
   overridesDir = path.join(tmpDir, 'prompt-overrides');
@@ -100,6 +118,11 @@ describe('applier: 约束类提案（#602 D1：retire 落点 = .harness/config.y
     // M3.5：tmpdir 非 git 仓 → 留痕降级（warn + trail.committed=false），不阻断生效
     expect(result.trail?.committed).toBe(false);
     expect(result.trail?.error).toBeTruthy();
+    // 票 02 断点 2：退休生效后触发向量同步，不等顺风车
+    expect(syncMock.scheduleVectorDbSync).toHaveBeenCalledTimes(1);
+    // 票 02 断点 1：spawn harness retire 显式传 KNOWLEDGE_BASE_DIR（唯一正本 ~/.studio/knowledge）
+    const retireCall = execFileMock.mock.calls.find(c => Array.isArray(c[1]) && (c[1] as string[]).includes('retire'));
+    expect(retireCall?.[2]).toMatchObject({ env: expect.objectContaining({ KNOWLEDGE_BASE_DIR: '/tmp/studio-knowledge-test' }) });
   });
 
   it('retire 幂等：已退役约束再 apply → detail 报 already retired，文件不变、不再 commit', async () => {
@@ -113,6 +136,8 @@ describe('applier: 约束类提案（#602 D1：retire 落点 = .harness/config.y
     expect(second.detail).toContain('already retired');
     expect(fs.readFileSync(configFile(), 'utf-8')).toBe(before);
     expect(second.trail).toBeUndefined(); // 未写文件 → 无留痕 commit
+    // 幂等短路（未写盘）不再触发向量同步；整个用例只有第一次 retire 触发过一次
+    expect(syncMock.scheduleVectorDbSync).toHaveBeenCalledTimes(1);
   });
 
   it('disable→retire 升级：仅 disabled 无墓碑不算已退役——走 CLI 补墓碑 + 知识条目', async () => {
@@ -166,6 +191,8 @@ describe('applier: 约束类提案（#602 D1：retire 落点 = .harness/config.y
     const { getEffectiveConstraints } = await import('@dommaker/harness');
     expect(getEffectiveConstraints(tmpDir).some(c => c.id === 'governance_presence')).toBe(false);
     expect(result.detail).toContain('disabled');
+    // disable 无知识沉淀语义 → 不触发向量同步（同步触发是 retire 专有跟进动作）
+    expect(syncMock.scheduleVectorDbSync).not.toHaveBeenCalled();
   });
 
   it('disable 幂等：已停用再 apply → detail 报 already disabled，文件不变', async () => {

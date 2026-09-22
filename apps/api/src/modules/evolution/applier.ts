@@ -21,6 +21,10 @@
  *       生效后（M3.5）立即 `git -C <repoRoot> add .harness/config.yml && git commit`
  *       自动留痕：正文带提案号，trailer `Governance-Approved: EP-XXXX`；commit 失败
  *       降级为 warn 日志 + ApplyResult.trail.committed=false，不阻断生效结果。
+ *       退休生效后追加两个跟进动作（ADR-0032 决策 6.1/6.2，票 02 断点 1/2）：
+ *       · spawn harness CLI 时显式传 `KNOWLEDGE_BASE_DIR=UNIFIED_KNOWLEDGE_DIR`——
+ *         退休沉淀落唯一正本 ~/.studio/knowledge，不靠 harness 侧已退役的目录兼容分叉；
+ *       · 成功后调 `scheduleVectorDbSync()` 触发向量同步，不等入库事件的顺风车。
  *       存量历史词表（message/new-entry/exception）在 harness 1.10.0（ADR-0029 文本层
  *       关停）无生效落点，落笔前拒绝（service 层保持 approved 可重试）。
  *       · 历史落点：`<repoRoot>/.harness/custom-constraints.yml`（#606 起 harness 不再读取；
@@ -43,6 +47,7 @@ import {
   type EvolutionProposalData,
 } from '@dommaker/studio-shared';
 import type { EvolutionPaths } from './signals.js';
+import { scheduleVectorDbSync, UNIFIED_KNOWLEDGE_DIR } from '../knowledge/knowledge-singletons.js';
 
 /** M3.5 生效留痕结果：commit 失败不阻断生效（config 已生效是事实），经 trail 暴露失败状态 */
 export interface CommitTrail {
@@ -84,10 +89,10 @@ function findBuiltinConstraint(id: string): BuiltinConstraintDef | null {
 
 interface CmdResult { code: number; stdout: string; stderr: string }
 
-/** spawn 外部命令，退出码归一化（非零退出不 reject；ENOENT/超时等 spawn 级错误并入 stderr） */
-function runCmd(cmd: string, args: string[]): Promise<CmdResult> {
+/** spawn 外部命令，退出码归一化（非零退出不 reject；ENOENT/超时等 spawn 级错误并入 stderr）；env 增量合并进 process.env */
+function runCmd(cmd: string, args: string[], env?: NodeJS.ProcessEnv): Promise<CmdResult> {
   return new Promise((resolve) => {
-    execFile(cmd, args, { timeout: 60_000, maxBuffer: 8 * 1024 * 1024 }, (err, stdout, stderr) => {
+    execFile(cmd, args, { timeout: 60_000, maxBuffer: 8 * 1024 * 1024, ...(env ? { env: { ...process.env, ...env } } : {}) }, (err, stdout, stderr) => {
       const exitCode = typeof (err as { code?: unknown } | null)?.code === 'number'
         ? (err as unknown as { code: number }).code
         : err ? 1 : 0;
@@ -162,9 +167,12 @@ async function applyConstraintRetire(
   }
 
   const reason = proposal.proposedText || proposal.rationale.split('\n')[0];
+  // KNOWLEDGE_BASE_DIR 显式钉唯一正本（ADR-0034 目录收编，票 02 断点 1）：退休沉淀落
+  // ~/.studio/knowledge，不依赖 harness 侧已退役的 legacy 目录兼容；旧版 harness（pre-#177）
+  // 写口硬编码 repoRoot 会忽略此 env——无害降级，harness 升级后自动生效。
   const res = await runCmd(process.execPath, [
     resolveHarnessBin(), 'constraints', 'retire', id, '--yes', '--reason', reason, '-p', paths.repoRoot,
-  ]);
+  ], { KNOWLEDGE_BASE_DIR: UNIFIED_KNOWLEDGE_DIR });
   if (res.code !== 0) {
     if (backupPath) fs.copyFileSync(backupPath, targetPath);
     else fs.rmSync(targetPath, { force: true });
@@ -187,6 +195,10 @@ async function applyConstraintRetire(
     else fs.rmSync(targetPath, { force: true });
     throw new Error(`constraint retire failed verification, restored backup: ${String(err)}`);
   }
+  // 票 02 断点 2：退休沉淀由 harness CLI 子进程直写磁盘（不经 ingestWithQualityGate），
+  // 现有同步触发点天然漏掉它——退休事件自己触发向量同步，不等顺风车；fire-and-forget，
+  // 防抖/互斥/重试都在 scheduleVectorDbSync 内部，失败不阻断退休结果。
+  scheduleVectorDbSync();
   return { targetPath, backupPath, detail: `retired builtin constraint '${id}' via harness constraints retire CLI（含 constraint-retired-${id} 知识条目）`, wrote: true };
 }
 

@@ -36,6 +36,12 @@ E1 约束进化（vision §6 / docs/plans/2026-07-flywheel-repair.md §4）：�
   自动留痕（正文带提案号，trailer `Governance-Approved: EP-XXXX`）；commit 失败
   降级 warn + `ApplyResult.trail.committed=false`（随 evolution.applied 事件暴露），
   不阻断生效；幂等未写文件则无 commit。
+  退休生效后另有两个跟进动作（ADR-0032 决策 6.1/6.2，票 02 断点 1/2）：spawn CLI
+  显式传 `KNOWLEDGE_BASE_DIR=UNIFIED_KNOWLEDGE_DIR`（退休沉淀落唯一正本
+  ~/.studio/knowledge，harness 侧 legacy 目录兼容已随 ADR-0034 收编退役；旧版
+  harness pre-#177 写口硬编码 repoRoot 会忽略此 env，无害降级）+ 成功后
+  `scheduleVectorDbSync()` 触发向量同步（沉淀由 CLI 子进程直写，不经
+  ingestWithQualityGate，不等入库事件顺风车；fire-and-forget 失败不阻断）。
   文本手术 retireConstraintEntry 已随 #617 拆除（唯一消费方 distill 存量约束审计
   子通道同票拆除；amendConstraintMessage/appendConstraintEntry/loadCustomConstraints/
   applyConstraintChange 早前已随死格式删除）
