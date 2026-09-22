@@ -101,7 +101,11 @@ export class PatternMiner {
       const data = parsePatternContent(entry.content);
       if (data === null) continue; // 正文损坏条目跳过（见 pattern-entry.ts 根因注释）
       if (data.status === 'active' && new Date(data.observedPeriodEnd).getTime() < weekAgo) {
-        sharedStore.save({ ...entry, tags: [...(entry as any).tags.filter((t: string) => t !== 'active'), 'outdated'] } as any);
+        const tags = (entry as any).tags as string[];
+        // #614：data.status 不随 tags 改写，本分支每次运行都命中——
+        // 已标记 outdated 的条目不再重复追加
+        if (tags.includes('outdated') && !tags.includes('active')) continue;
+        sharedStore.save({ ...entry, tags: [...tags.filter((t: string) => t !== 'active' && t !== 'outdated'), 'outdated'] } as any);
       }
     }
 

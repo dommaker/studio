@@ -114,12 +114,15 @@ export class RuleScanner {
 
     // Deprecate rules not found in this scan
     for (const [name, entry] of existingByName) {
-      if (!known.has(name)) {
-        sharedStore.save({
-          ...entry,
-          tags: [...(entry as any).tags.filter((t: string) => t !== 'active'), 'deprecated'],
-        } as any);
-      }
+      if (known.has(name)) continue;
+      const tags = (entry as any).tags as string[];
+      // #614：已弃置条目不再重复写——否则已弃置条目仍带 rule tag 被每次
+      // fullScan 列出，每次冷启动扫描都追加一个 'deprecated'（实盘千余次腐蚀）
+      if (!tags.includes('active') && tags.includes('deprecated')) continue;
+      sharedStore.save({
+        ...entry,
+        tags: [...tags.filter((t: string) => t !== 'active' && t !== 'deprecated'), 'deprecated'],
+      } as any);
     }
 
     logger.info(`[RuleScanner] Scan done: ${created} created, ${updated} updated, ${skipped} unchanged`);
