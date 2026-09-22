@@ -41,13 +41,4 @@ describe('distillApi（通用端点 /review-proposals/:kind/:id/{approve,reject,
     await distillApi.gcProposalStatus(['gc-1']);
     expect(api.get).toHaveBeenCalledWith('/review-proposals/gc/gc-1/status');
   });
-
-  it('auditApprove/auditReject/auditProposalStatus 走 kind=audit', async () => {
-    await distillApi.auditApprove('audit-1');
-    expect(api.post).toHaveBeenCalledWith('/review-proposals/audit/audit-1/approve');
-    await distillApi.auditReject('audit-1');
-    expect(api.post).toHaveBeenCalledWith('/review-proposals/audit/audit-1/reject');
-    await distillApi.auditProposalStatus(['audit-1']);
-    expect(api.get).toHaveBeenCalledWith('/review-proposals/audit/audit-1/status');
-  });
 });

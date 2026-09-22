@@ -2,7 +2,7 @@
  * audit-logs/proposal-source (#591 A 类) — review-proposal 正本的聚合读面
  *
  * 依据 docs/adr/2026-09-17-decision-audit-consolidation.md 决策 2：经人审决策
- * （distill/gc/audit/memory/skill/knowledge/auditor 7 种 kind 的 *-proposals.jsonl）
+ * （distill/gc/memory/skill/knowledge/auditor 6 种 kind 的 *-proposals.jsonl）
  * 不加新写入点，聚合读并进 audit-logs 查询轨（source=proposal 维度）。
  * 折叠归各 adapter 的 store 正本（append-only + 墓碑折叠，含 memory per-role
  * draft.jsonl 形态例外）；单 kind 读取失败跳过该 kind，不拖垮整列。
@@ -25,7 +25,7 @@ export interface ProposalDecisionRow {
   id: string;
   actorType: 'agent';
   action: 'propose';
-  /** 提案 kind（distill/gc/audit/memory/skill/knowledge/auditor） */
+  /** 提案 kind（distill/gc/memory/skill/knowledge/auditor） */
   resource: string;
   resourceId: string;
   /** 提案终态原值（pending/executed/rejected/failed/card-failed） */
@@ -76,10 +76,11 @@ function toRow(
 
 /**
  * 自助注册兜底：skill/knowledge/auditor/memory 四域有自助注册入口；
- * distill/gc/audit 由运行时装配（DistillService 构造）注册——未装配时按已知 kind 词表
+ * distill/gc 由运行时装配（DistillService 构造）注册——未装配时按已知 kind 词表
  * warn 留痕（不静默缺源），读面跳过该 kind。
+ * （audit kind 已随 #617/#620 拆除：adapter 删除 + 读取面清除，词表同步移除。）
  */
-const KNOWN_KINDS = ['distill', 'gc', 'audit', 'memory', 'skill', 'knowledge', 'auditor'] as const;
+const KNOWN_KINDS = ['distill', 'gc', 'memory', 'skill', 'knowledge', 'auditor'] as const;
 
 async function ensureAdaptersRegistered(): Promise<void> {
   const [skills, knowledge, auditor, memory] = await Promise.all([
