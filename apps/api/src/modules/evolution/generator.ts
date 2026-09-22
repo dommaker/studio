@@ -2,12 +2,13 @@
  * E1 约束进化：提案生成器（generator）。
  *
  * 信号 → 提案，三条链路（全范围，vision §6）：
- *   (a) iron-law/guideline：【暂时挂起 —— harness 0.17.0】autoEvolve 已删除
- *       （ADR-0001 决策 8）。替代数据源 buildConstraintsUsageReport /
- *       diagnoseRetireCandidates 存在于 dist/core/constraints/usage-report，
- *       但未从包公开导出（exports map 的 ./core 也不含）。等待改吃
- *       constraints report 候选数据（飞轮修复立项 ①，
- *       docs/plans/2026-08-flywheel-repair-e1.md），当前恒返回空提案。
+ *   (a) iron-law/guideline：harness constraints usage report 的退役候选诊断
+ *       （#602 D1，buildConstraintsUsageReport 公共导出，harness ≥1.10.1）——
+ *       zero_trigger / unevaluable / high_noise / zero_intercept 四类候选映射为
+ *       retire 提案（落点 = .harness/config.yml enabled:false，见 applier）。
+ *       动作集已收敛（M3.2）：词表只剩 retire/disable（config.yml 装得下的唯二
+ *       动作），message/exception/new-entry 无生效落点已从类型与生成路径删除。
+ *       每轮最多 3 个（保守，候选按 report 排序取前）。
  *   (b) prompt-template：轻量启发式 —— 窗口内任务失败率高（≥50% 且 ≥5 次）且
  *       多个失败任务已注入知识（≥3 个，R1 反馈环数据）→ 说明注入约束未被遵守，
  *       提议强化 knowledge.rules-section 区段文案。每轮最多 1 个。
@@ -16,11 +17,17 @@
  *       persona 末尾追加针对高频失败工具的警示。每轮每角色最多 1 个。
  *
  * 保守原则（默认 ON 但安静）：信号不足时零提案；与 pending/approved 提案同目标
- * 或与既有提案同目标同文案的，跳过（去重防刷屏）。
+ * 或与既有提案（stale 除外）同目标同文案的，跳过（去重防刷屏）。
  */
 import fs from 'node:fs';
 import path from 'node:path';
 import yaml from 'js-yaml';
+import {
+  buildConstraintsUsageReport,
+  CANDIDATE_KIND_LABEL,
+  CONSTRAINTS,
+  type ConstraintsUsageReport,
+} from '@dommaker/harness';
 import {
   FileStore,
   formatEvolutionId,
@@ -29,6 +36,7 @@ import {
   type EvolutionTargetType,
 } from '@dommaker/studio-shared';
 import { loadWindowSignals, type EvolutionPaths, type WindowSignals } from './signals.js';
+import { loadIncidentLedger } from './incident-ledger.js';
 
 /** (b) 启发式阈值 */
 const MIN_OUTCOME_FAILURES = 5;
@@ -42,14 +50,26 @@ export interface GenerationResult {
   created: EvolutionProposalData[];
   /** 跳过原因 → 计数（unsupported-type / no-op / unknown-constraint / duplicate / open-exists） */
   skipped: Record<string, number>;
-  scanned: { constraintTraces: number; toolCalls: number; outcomes: number };
+  /** staled：本轮 TTL 清扫转 stale 的提案 id（#602 D2）；incidents：事故台账条目数（#602 D5） */
+  staled: string[];
+  scanned: { constraintTraces: number; toolCalls: number; outcomes: number; incidents: number };
+}
+
+/** 人审 TTL：pending/approved 超期未审自动转 stale，放行同目标新提案（#602 D2，EP-0002 自锁修复） */
+export const EVOLUTION_PROPOSAL_TTL_MS = 14 * 24 * 60 * 60 * 1000;
+
+/** 提案是否超期未审（仅 pending/approved 参与判定；createdAt 不可解析视为未超期） */
+export function isProposalExpired(p: EvolutionProposalData): boolean {
+  if (p.status !== 'pending' && p.status !== 'approved') return false;
+  const created = Date.parse(p.createdAt);
+  return Number.isFinite(created) && Date.now() - created > EVOLUTION_PROPOSAL_TTL_MS;
 }
 
 interface RawProposal {
   targetType: EvolutionTargetType;
   targetId: string;
   action: 'add' | 'amend';
-  constraintChange?: 'message' | 'new-entry';
+  constraintChange?: EvolutionProposalData['constraintChange'];
   currentText: string;
   proposedText: string;
   rationale: string;
@@ -63,15 +83,61 @@ export interface GeneratorDeps {
   windowHours: number;
 }
 
+/** (a) 启发式阈值：每轮最多产生的约束类提案数（保守原则） */
+const MAX_CONSTRAINT_PROPOSALS_PER_RUN = 3;
+
 /**
- * (a) harness 约束链路 —— 暂时挂起（harness 0.17.0，ADR-0001 决策 8）。
- * autoEvolve 已删除；report 数据层（buildConstraintsUsageReport /
- * diagnoseRetireCandidates）在 dist/core/constraints/usage-report 存在但未公开导出，
- * 等待改吃 constraints report 候选数据（飞轮修复立项 ①）。
- * 复活时恢复 traces → 退役候选 → modify_message/new_constraint 映射。
+ * (a) harness 约束链路（#602 D1）—— 吃 constraints usage report 的退役候选。
+ * 四类候选（zero_trigger / unevaluable / high_noise / zero_intercept）全部映射为
+ * retire 提案：harness 1.10.0 起 config.yml `constraints.<id>.enabled:false` 是
+ * 唯一真实生效落点（M3.2 动作集收敛：disable 保留在词表供人工/API 提案，启发式
+ * 不自动产出），message/exception/new-entry 无消费端、不生成。
+ * report 为全周期统计（非窗口）；读不到 traces → 零提案（保守安静）。
  */
-async function constraintProposals(): Promise<RawProposal[]> {
-  return [];
+async function constraintProposals(deps: GeneratorDeps): Promise<RawProposal[]> {
+  // 依赖钉版守卫：harness <1.10.1（导出未发布）时 named import 为 undefined——
+  // 显式告警而非 TypeError 撞 catch（静默零提案正是本票要修的死法）
+  if (typeof buildConstraintsUsageReport !== 'function') {
+    logger.warn('[Evolution] harness usage report 未导出（需 harness ≥1.10.1，#602 ship 前 bump 依赖），(a) 链路跳过');
+    return [];
+  }
+  let report: ConstraintsUsageReport;
+  try {
+    report = buildConstraintsUsageReport(deps.paths.repoRoot);
+  } catch (err) {
+    logger.warn('[Evolution] constraints usage report failed', { error: String(err) });
+    return [];
+  }
+  if (!report.traceFileExists || report.candidates.length === 0) return [];
+
+  const out: RawProposal[] = [];
+  for (const c of report.candidates.slice(0, MAX_CONSTRAINT_PROPOSALS_PER_RUN)) {
+    const builtin = (CONSTRAINTS as Record<string, { message?: string; description?: string } | undefined>)[c.id];
+    if (!builtin) continue; // 非内置 id（config.yml 未知项）不由 E1 动
+    out.push({
+      targetType: c.stats.severity === 'error' ? 'iron-law' : 'guideline',
+      targetId: c.id,
+      action: 'amend',
+      constraintChange: 'retire',
+      currentText: builtin.message ?? builtin.description ?? c.id,
+      proposedText: `退役（${CANDIDATE_KIND_LABEL[c.kind]}）：${c.reason}`,
+      rationale: `harness constraints usage report 诊断候选（${CANDIDATE_KIND_LABEL[c.kind]}）：${c.reason}。` +
+        `落点 = .harness/config.yml（enabled:false + retired 墓碑），恢复 = 删该段。`,
+      source: 'harness:usage-report',
+      evidence: {
+        // report 是全周期统计（非窗口口径），windowHours 字段沿用本轮扫描窗口仅作记录
+        windowHours: deps.windowHours,
+        eventCounts: {
+          total: c.stats.total,
+          evaluated: c.stats.evaluated,
+          fail: c.stats.fail,
+          failRate: Math.round(c.stats.failRate * 1000) / 1000,
+        },
+        samples: [c.kind],
+      },
+    });
+  }
+  return out;
 }
 
 /** (b) prompt-template 启发式：注入了知识仍高失败 → 注入约束区段强调不足 */
@@ -163,10 +229,15 @@ async function rolePresetProposals(signals: WindowSignals, deps: GeneratorDeps):
 export async function generateEvolutionProposals(deps: GeneratorDeps): Promise<GenerationResult> {
   const { fileStore } = deps;
   const signals = await loadWindowSignals(deps.paths, deps.windowHours, fileStore);
+  // #602 D5：事故台账条目计数（只观测进 scanned，不进启发式——纪律事故与注入失败语义不同源）
+  const incidents = (await loadIncidentLedger(fileStore).catch(() => [])).length;
   const skipped: Record<string, number> = {};
 
   const raw: RawProposal[] = [
-    ...(await constraintProposals()),
+    ...(await constraintProposals(deps).catch(err => {
+      logger.warn('[Evolution] constraint proposal generation failed', { error: String(err) });
+      return [] as RawProposal[];
+    })),
     ...promptTemplateProposals(signals, deps),
     ...(await rolePresetProposals(signals, deps).catch(err => {
       logger.warn('[Evolution] role preset proposal generation failed', { error: String(err) });
@@ -174,12 +245,23 @@ export async function generateEvolutionProposals(deps: GeneratorDeps): Promise<G
     })),
   ];
 
-  // 去重：同目标已有 pending/approved（未闭环）→ 跳过；同目标同文案（历史任意状态）→ 跳过
+  // 去重：同目标已有 pending/approved（未闭环）→ 跳过；同目标同文案（历史任意状态，stale 除外）→ 跳过
   const existing = await fileStore.listEvolutionProposals();
+  // TTL 清扫（#602 D2）：超期未审的 pending/approved 惰性转 stale —— 不开定时器，
+  // 随每轮生成顺手做；stale 不再占 open 位，也未被人审过，允许同文案重提（不占 duplicate 位）。
+  const staled: string[] = [];
+  for (const p of existing) {
+    if (!isProposalExpired(p)) continue;
+    await fileStore.updateEvolutionProposal(p.id, { status: 'stale', staledAt: new Date().toISOString() });
+    p.status = 'stale';
+    staled.push(p.id);
+  }
   const openTargets = new Set(
     existing.filter(p => p.status === 'pending' || p.status === 'approved').map(p => `${p.targetType}:${p.targetId}`),
   );
-  const exactKeys = new Set(existing.map(p => `${p.targetType}:${p.targetId}:${p.proposedText}`));
+  const exactKeys = new Set(
+    existing.filter(p => p.status !== 'stale').map(p => `${p.targetType}:${p.targetId}:${p.proposedText}`),
+  );
 
   const created: EvolutionProposalData[] = [];
   for (const r of raw) {
@@ -210,10 +292,12 @@ export async function generateEvolutionProposals(deps: GeneratorDeps): Promise<G
   return {
     created,
     skipped,
+    staled,
     scanned: {
       constraintTraces: signals.constraintTraces.length,
       toolCalls: signals.toolCalls.length,
       outcomes: signals.outcomes.length,
+      incidents,
     },
   };
 }

@@ -1,12 +1,12 @@
 /**
- * review-adapters (#351) — distill 域三 adapter 配置与卡片内容测试
+ * review-adapters (#351) — distill 域两 adapter 配置与卡片内容测试
  *
- * 覆盖自三张旧卡测试（distill-proposal-card/gc-proposal-card/constraint-audit-card）的
+ * 覆盖自旧卡测试（distill-proposal-card/gc-proposal-card）的
  * 内容断言收敛而来（发卡投放本身归 review-proposal/card.test.ts）：
  *   - 注册形态：kind/cardType/storeNamespace（沿用历史文件名）
- *   - renderCardContent：三类卡正文与 cardData 形状（与旧实现逐字段一致）
+ *   - renderCardContent：两类卡正文与 cardData 形状（与旧实现逐字段一致）
  *   - onApprove/onReject 委托 effects（审批后动作归 DistillService）
- *   - rejectedGcEntryIds / rejectedAuditConstraintIds 人判保留集
+ *   - rejectedGcEntryIds 人判保留集
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
@@ -16,9 +16,7 @@ import { FileStore } from '@dommaker/studio-shared';
 import { clearReviewProposalAdapters, getReviewProposalAdapter } from '../../review-proposal/registry.js';
 import {
   registerDistillReviewAdapters,
-  rejectedAuditConstraintIds,
   rejectedGcEntryIds,
-  type ConstraintAuditProposal,
   type DistillProposal,
   type DistillReviewEffects,
   type GcProposal,
@@ -45,24 +43,12 @@ const gcProposal: GcProposal = {
   mainAreaCount: 205,
 };
 
-const auditProposal: ConstraintAuditProposal = {
-  id: 'audit-1',
-  createdAt: new Date().toISOString(),
-  runId: 'run-1',
-  suggestions: [
-    { constraintId: 'prisma_schema_needs_migration', category: 'target-gone', rationale: 'schema.prisma 已删除' },
-  ],
-  auditedCount: 2,
-};
-
 let tmpDir: string;
 let effects: DistillReviewEffects & {
   executeDistill: ReturnType<typeof vi.fn>;
   onDistillRejected: ReturnType<typeof vi.fn>;
   executeGc: ReturnType<typeof vi.fn>;
   onGcRejected: ReturnType<typeof vi.fn>;
-  executeAudit: ReturnType<typeof vi.fn>;
-  onAuditRejected: ReturnType<typeof vi.fn>;
 };
 let adapters: ReturnType<typeof registerDistillReviewAdapters>;
 
@@ -73,8 +59,6 @@ beforeEach(() => {
     onDistillRejected: vi.fn(async () => {}),
     executeGc: vi.fn(async () => ({ status: 'executed' as const })),
     onGcRejected: vi.fn(async () => {}),
-    executeAudit: vi.fn(async () => ({ status: 'executed' as const })),
-    onAuditRejected: vi.fn(async () => {}),
   };
   adapters = registerDistillReviewAdapters({
     fileStore: new FileStore(tmpDir),
@@ -89,20 +73,16 @@ afterEach(() => {
 });
 
 describe('注册形态', () => {
-  it('三个 kind 注册进正本注册表；storeNamespace 沿用历史文件名', async () => {
+  it('两个 kind 注册进正本注册表；storeNamespace 沿用历史文件名', async () => {
     expect(getReviewProposalAdapter('distill')).toBe(adapters.distill);
     expect(getReviewProposalAdapter('gc')).toBe(adapters.gc);
-    expect(getReviewProposalAdapter('audit')).toBe(adapters.audit);
     expect(adapters.distill.cardType).toBe('distill_proposal');
     expect(adapters.gc.cardType).toBe('gc_proposal');
-    expect(adapters.audit.cardType).toBe('constraint_audit_proposal');
     // store 命名空间 → 历史文件名（append-only 历史不动）
     await adapters.distill.store.appendProposal(distillProposal);
     await adapters.gc.store.appendProposal(gcProposal);
-    await adapters.audit.store.appendProposal(auditProposal);
     expect(fs.existsSync(path.join(tmpDir, 'proposals.jsonl'))).toBe(true);
     expect(fs.existsSync(path.join(tmpDir, 'gc-proposals.jsonl'))).toBe(true);
-    expect(fs.existsSync(path.join(tmpDir, 'constraint-audits.jsonl'))).toBe(true);
   });
 });
 
@@ -147,39 +127,20 @@ describe('renderCardContent', () => {
     const { content } = adapters.gc.renderCardContent({ ...gcProposal, forced: false, mainAreaCount: 42 });
     expect(content).toContain('按蒸馏周期计龄（连续 3 周期零引用）；主区 42 条');
   });
-
-  it('audit：正文含审计条数/建议+判据标签；cardData 带 auditProposalId + 建议清单', () => {
-    const { content, cardData } = adapters.audit.renderCardContent(auditProposal);
-    expect(content).toContain('存量约束退役建议');
-    expect(content).toContain('审计存量约束 2 条');
-    expect(content).toContain('prisma_schema_needs_migration');
-    expect(content).toContain('schema.prisma 已删除');
-    expect(cardData).toEqual({
-      auditProposalId: 'audit-1',
-      runId: 'run-1',
-      suggestions: auditProposal.suggestions,
-      auditedCount: 2,
-    });
-  });
 });
 
 describe('审批后动作委托 effects', () => {
   it('onApprove/onReject 按 kind 分发到对应 effects 方法', async () => {
     const d = { ...distillProposal, status: 'pending' as const, statusAt: '' };
     const g = { ...gcProposal, status: 'pending' as const, statusAt: '' };
-    const a = { ...auditProposal, status: 'pending' as const, statusAt: '' };
     await adapters.distill.onApprove(d);
     await adapters.distill.onReject?.(d);
     await adapters.gc.onApprove(g);
     await adapters.gc.onReject?.(g);
-    await adapters.audit.onApprove(a);
-    await adapters.audit.onReject?.(a);
     expect(effects.executeDistill).toHaveBeenCalledWith(d);
     expect(effects.onDistillRejected).toHaveBeenCalledWith(d);
     expect(effects.executeGc).toHaveBeenCalledWith(g);
     expect(effects.onGcRejected).toHaveBeenCalledWith(g);
-    expect(effects.executeAudit).toHaveBeenCalledWith(a);
-    expect(effects.onAuditRejected).toHaveBeenCalledWith(a);
   });
 });
 
@@ -189,11 +150,5 @@ describe('人判保留集', () => {
     await adapters.gc.store.appendStatus('gc-1', 'rejected');
     await adapters.gc.store.appendProposal({ ...gcProposal, id: 'gc-2' }); // pending 不计
     expect([...(await rejectedGcEntryIds(adapters.gc.store))].sort()).toEqual(['e-1', 'e-2']);
-  });
-
-  it('rejectedAuditConstraintIds = 所有 rejected 提案的建议并集', async () => {
-    await adapters.audit.store.appendProposal(auditProposal);
-    await adapters.audit.store.appendStatus('audit-1', 'rejected');
-    expect([...(await rejectedAuditConstraintIds(adapters.audit.store))]).toEqual(['prisma_schema_needs_migration']);
   });
 });

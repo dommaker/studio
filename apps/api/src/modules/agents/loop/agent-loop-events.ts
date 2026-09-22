@@ -178,8 +178,10 @@ export function resolveToolTraceFile(): string {
  * D18: StudioEvent 形态（payload 嵌套），与 daemon/task-executor 的 tool:call 一致。
  * #453: 签名从原始 stdout 深化为已解析 StreamEvent[]——成功路径由 agent-loop 统一解析一次，
  * 本函数与 execution_step 提炼共享同一份解析产物，不再各自全量 split + JSON.parse。
+ * #602 D4: success 取真实 tool_result 配对结果（extractToolCalls 已带），无配对 → 键缺省
+ * （旧行为恒 true / caller 恒 'agent-loop' 是埋点 bug：E1 (c) 按 caller+success 统计恒拿不到真值）。
  */
-export function writeToolCallEvents(events: StreamEvent[], filePath: string): number {
+export function writeToolCallEvents(events: StreamEvent[], filePath: string, opts?: { caller?: string }): number {
   const toolCalls = extractToolCalls(events);
   if (toolCalls.length === 0) return 0;
 
@@ -187,6 +189,7 @@ export function writeToolCallEvents(events: StreamEvent[], filePath: string): nu
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
 
   const now = Date.now();
+  const caller = opts?.caller ?? 'agent-loop';
   for (const call of toolCalls) {
     const event = JSON.stringify({
       type: 'tool:call',
@@ -195,10 +198,10 @@ export function writeToolCallEvents(events: StreamEvent[], filePath: string): nu
       level: 'debug',
       payload: JSON.stringify({
         tool: call.name,
-        success: true,
+        ...(call.success !== undefined ? { success: call.success } : {}),
         durationMs: 0,
         timestamp: now,
-        caller: 'agent-loop',
+        caller,
       }),
       createdAt: new Date(now).toISOString(),
     });

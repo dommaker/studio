@@ -36,9 +36,6 @@ export interface ProposalCardConfig {
   countText: (cardData: Record<string, unknown> | undefined) => string;
   approveLabel: string;
   rejectLabel: string;
-  /** #288 两步确认（高危操作）：首次点击仅进入待确认态，再次点击才执行 */
-  twoStepApprove?: boolean;
-  armedApproveLabel?: string;
   /** 条目清单 + 说明文案（卡间唯一真正的 diff） */
   renderContent: (cardData: Record<string, unknown> | undefined) => ReactNode;
 }
@@ -94,12 +91,6 @@ export const KNOWLEDGE_TYPE_LABELS: Record<string, string> = {
   model: '架构模式',
   process: '流程',
   architecture: '架构',
-};
-
-/** audit 卡 category → 人类可读标签 */
-const AUDIT_CATEGORY_LABELS: Record<string, string> = {
-  'target-gone': '作用对象已消失',
-  'reintroduction-sealed': '再引入路径已封死',
 };
 
 /** meta.status 直读（memory/knowledge 共有行为） */
@@ -350,49 +341,6 @@ export const PROPOSAL_CARD_CONFIGS: Record<string, ProposalCardConfig> = {
           {workUnitId && (
             <div className="mc-time mb-1.5">来源 WorkUnit: {workUnitId}</div>
           )}
-        </>
-      );
-    },
-  },
-
-  // #146 存量约束审计（#288：「确认退役」两步确认）
-  constraint_audit_proposal: {
-    cardType: 'constraint_audit_proposal',
-    kind: 'audit',
-    approveAction: 'constraint_audit_approve',
-    rejectAction: 'constraint_audit_reject',
-    approvedState: 'executed',
-    exec: proposalExec('auditProposalId', distillApi.auditApprove, distillApi.auditReject),
-    fetchReviewed: proposalFetchReviewed('auditProposalId', distillApi.auditProposalStatus, ['executed', 'rejected']),
-    reviewedTitle: '存量约束审计',
-    reviewLabels: {
-      executed: { text: '已确认，建议约束已退役（可回滚）', cls: 'mc-status-done' },
-      rejected: { text: '已拒绝，约束全部保留', cls: 'mc-status-error' },
-    },
-    pendingTitle: '存量约束退役建议 — 待确认',
-    countText: cd => `${(cd?.suggestions as unknown[] | undefined)?.length || 0} 条建议`,
-    approveLabel: '确认退役',
-    rejectLabel: '全部保留',
-    twoStepApprove: true,
-    armedApproveLabel: '再次点击确认退役',
-    renderContent: cd => {
-      const suggestions = cd?.suggestions as Array<{ constraintId: string; category: string; rationale: string }> | undefined;
-      const auditedCount = cd?.auditedCount as number | undefined;
-      return (
-        <>
-          <div className="mc-time mb-1.5">
-            蒸馏产出新约束，顺带审计存量约束 {auditedCount ?? '—'} 条（判据：是否还有可被违反的未来场景）。
-          </div>
-          {suggestions?.map(s => (
-            <div key={s.constraintId} className={entryRowCls}>
-              <span className="mc-card-body font-semibold">{s.constraintId}</span>
-              <span className="mc-time ml-1.5">{AUDIT_CATEGORY_LABELS[s.category] ?? s.category}</span>
-              <div className="mc-time">{s.rationale}</div>
-            </div>
-          ))}
-          <div className="mc-time mb-1.5">
-            确认后走 retire 执行（retired 元数据留痕，可回滚）；拒绝则全部保留且后续不再提案。
-          </div>
         </>
       );
     },

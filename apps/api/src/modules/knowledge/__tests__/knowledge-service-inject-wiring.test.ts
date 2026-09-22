@@ -161,6 +161,83 @@ describe('R4 regression: production knowledgeService wiring (injectContext)', ()
     expect(result.prompt).not.toContain('R4WIRING-ROLE-MEMORY');
   });
 
+  it('#602 D3: knowledge.rules-section override file re-renders the 系统约束 section', async () => {
+    // E1 prompt-template 提案生效落点：applier 写 ~/.studio/prompt-overrides/knowledge.rules-section.md，
+    // 知识注入构建处必须读它（此前 renderWithOverride 生产调用点为 0，覆盖文件是死数据）。
+    const overridesDir = fs.mkdtempSync(path.join(os.tmpdir(), 'prompt-overrides-'));
+    fs.writeFileSync(
+      path.join(overridesDir, 'knowledge.rules-section.md'),
+      '## 系统约束\nR4WIRING-OVERRIDE-PREFIX 以下约束必须逐条遵守：\n{content}',
+      'utf-8',
+    );
+    process.env.STUDIO_PROMPT_OVERRIDES_DIR = overridesDir;
+    try {
+      const now = new Date().toISOString();
+      sharedStore.save({
+        id: `rule-override-${Math.random().toString(36).slice(2, 8)}`,
+        type: 'guideline',
+        title: 'override_rule',
+        content: JSON.stringify({ name: 'override_rule', category: 'constraint', description: 'R4WIRING-OVERRIDE-RULE 覆盖验证规则', affects: '[]', status: 'active' }),
+        maturity: 'active', layer: 'system', created: now, lastReferenced: now,
+        contributors: [], projects: [], tags: ['rule', 'active'], applicablePhases: [],
+        sourceReferences: [], referencedBy: [], executionResults: [],
+        consumptionMode: 'reference', origin: 'system',
+      } as any);
+
+      const result = await knowledgeService.injectContext('wiring-test-agent');
+
+      // override 前缀文本生效，且 {content} 占位符被动态条目替换
+      expect(result.prompt).toContain('R4WIRING-OVERRIDE-PREFIX');
+      expect(result.prompt).toContain('R4WIRING-OVERRIDE-RULE');
+      expect(result.prompt).not.toContain('{content}');
+    } finally {
+      delete process.env.STUDIO_PROMPT_OVERRIDES_DIR;
+      fs.rmSync(overridesDir, { recursive: true, force: true });
+    }
+  });
+
+  it('#602 D3: without override file the 系统约束 section renders exactly as before', async () => {
+    // 无覆盖文件 → 零行为变化（fallback 即原模板）
+    process.env.STUDIO_PROMPT_OVERRIDES_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'prompt-overrides-empty-'));
+    try {
+      const result = await knowledgeService.injectContext('wiring-test-agent');
+      expect(result.prompt).toContain('## 系统约束\n- ');
+      expect(result.prompt).not.toContain('R4WIRING-OVERRIDE-PREFIX');
+    } finally {
+      delete process.env.STUDIO_PROMPT_OVERRIDES_DIR;
+    }
+  });
+
+  it('#612: rule with stage-vocab affects injects for matching WU type (previously zero-intersection, always empty)', async () => {
+    // #612 复现钉住：RuleScanner 的 affects 曾用角色词表（agent/reviewer/executor/monitor），
+    // 与 injectContext 传入的 wu.type（阶段词表 design/plan/implement/review/…）零交集，
+    // 「## 系统约束」对任何真实 WU 恒空。修复后：affects 为阶段词表，
+    // 命中的阶段注入、不命中的不注入、legacy 类型（feature/bug）经 normalizeToStage 归一化后命中。
+    const now = new Date().toISOString();
+    sharedStore.save({
+      id: `rule-stage-${Math.random().toString(36).slice(2, 8)}`,
+      type: 'guideline',
+      title: 'stage_targeted_rule',
+      content: JSON.stringify({ name: 'stage_targeted_rule', category: 'constraint', description: 'R4WIRING-STAGE-RULE 仅 implement 阶段可见', affects: '["implement"]', status: 'active' }),
+      maturity: 'active', layer: 'system', created: now, lastReferenced: now,
+      contributors: [], projects: [], tags: ['rule', 'active'], applicablePhases: [],
+      sourceReferences: [], referencedBy: [], executionResults: [],
+      consumptionMode: 'reference', origin: 'system',
+    });
+
+    // 命中的阶段：注入
+    const hit = await knowledgeService.injectContext('implement');
+    expect(hit.prompt).toContain('R4WIRING-STAGE-RULE');
+
+    // legacy 类型 feature → normalizeToStage → implement：同样注入
+    const legacy = await knowledgeService.injectContext('feature');
+    expect(legacy.prompt).toContain('R4WIRING-STAGE-RULE');
+
+    // 不命中的阶段：不注入（定向真实生效，非全员可见）
+    const miss = await knowledgeService.injectContext('review');
+    expect(miss.prompt).not.toContain('R4WIRING-STAGE-RULE');
+  });
+
   it('list() adapts UnifiedQuery paged result to an entry array', async () => {
     seedEntries();
     const entries = await knowledgeService.list({ consumptionModes: ['signal'] } as any);

@@ -14,7 +14,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { FileStore, formatEvolutionId, type EvolutionProposalData } from '@dommaker/studio-shared';
-import { ChannelMessageService } from '../../channels/channel-message.service';
 import { EvolutionService } from '../evolution.service';
 import { createEvolutionRoutes } from '../evolution.routes';
 import { resolveEvolutionPaths } from '../signals';
@@ -69,8 +68,7 @@ beforeAll(async () => {
       eventsDir: path.join(tmpDir, 'events'),
       studioEventsFile: path.join(tmpDir, 'studio-events.jsonl'),
     }),
-    messageService: new ChannelMessageService(fileStore),
-    postToChannel: false,
+    postCard: false,
   });
 
   const app = express();

@@ -236,11 +236,12 @@ describe('autoCreateResolutions()', () => {
     }]);
 
     expect(mockCreateResolution).toHaveBeenCalledTimes(1);
+    // M1：layer 写 harness StorageLayer 合法值 'project'，原分层值挪进 tags 保信息
     expect(mockCreateResolution).toHaveBeenCalledWith(expect.objectContaining({
       errorClass: 'permission',
-      layer: 'L4_env_config',
+      layer: 'project',
       fix: '（待人工补充解法）',
-      tags: ['permission', 'auto-detected'],
+      tags: ['permission', 'auto-detected', 'L4_env_config'],
     }));
   });
 
@@ -250,7 +251,8 @@ describe('autoCreateResolutions()', () => {
     }]);
     expect(mockCreateResolution).toHaveBeenCalledWith(expect.objectContaining({
       errorClass: 'docker',
-      layer: 'L3_tool_behavior',
+      layer: 'project',
+      tags: ['docker', 'auto-detected', 'L3_tool_behavior'],
     }));
   });
 

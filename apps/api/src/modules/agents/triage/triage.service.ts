@@ -438,14 +438,15 @@ class TriageService {
     }).catch(() => { /* non-blocking */ });
 
     // B13-002: Triage→Resolution 回写 — 将修复方案写入 Resolution KB
+    // M1：layer 写 harness StorageLayer 合法值 'project'，原分层值挪进 tags 保信息
     try {
       await knowledgeService.createResolution({
         pattern: resolution.slice(0, 200),
         errorClass: 'triage_fix',
-        layer: 'L3_tool_behavior',
+        layer: 'project',
         title: `[Triage] ${resolution.slice(0, 60)}`,
         fix: resolution,
-        tags: ['triage', 'auto-resolved'],
+        tags: ['triage', 'auto-resolved', 'L3_tool_behavior'],
       });
     } catch { /* non-blocking */ }
 

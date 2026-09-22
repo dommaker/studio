@@ -8,9 +8,10 @@ import { describe, test, expect } from 'vitest';
 import { isActionableMaturity, matchResolutionPatterns } from '../resolutions';
 
 describe('isActionableMaturity', () => {
-  test('verified/canonical 可用，pending/draft/缺省不可', () => {
+  test('verified/proven 可用（canonical 为存量清洗期兼容），pending/draft/缺省不可', () => {
     expect(isActionableMaturity('verified')).toBe(true);
-    expect(isActionableMaturity('canonical')).toBe(true);
+    expect(isActionableMaturity('proven')).toBe(true);
+    expect(isActionableMaturity('canonical')).toBe(true); // legacy：存量清洗完成前兼容
     expect(isActionableMaturity('pending')).toBe(false);
     expect(isActionableMaturity('draft')).toBe(false);
     expect(isActionableMaturity(undefined)).toBe(false);

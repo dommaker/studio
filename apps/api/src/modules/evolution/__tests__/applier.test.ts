@@ -2,40 +2,47 @@
  * Evolution applier 单元测试（E1 约束进化）。
  *
  * 覆盖四类 targetType 的生效写入 + 备份：
- *   - iron-law/guideline → .harness/custom-constraints.yml（amend 文案手术 / 内置
- *     shadow 追加 / new-entry 追加；注释保留、YAML 可解析）
+ *   - iron-law/guideline → #602 D1 落点 .harness/config.yml（M3.2 词表收敛为
+ *     retire/disable；M3.3 retire 复用 harness `constraints retire` CLI——
+ *     config.yml + constraint-retired-<id> 知识条目都由 harness 写；M3.5 生效后
+ *     自动 git commit 留痕，commit 失败降级 warn 不阻断；存量历史词表仍拒绝）
  *   - prompt-template → ~/.studio/prompt-overrides/<templateId>.md
  *   - role-preset → .agents/roles/<name>.yaml（persona 块标量替换 + 写后校验）
  */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { execFile, execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import yaml from 'js-yaml';
 import type { EvolutionProposalData } from '@dommaker/studio-shared';
-import { applyProposal, amendConstraintMessage, replacePersonaBlock, retireConstraintEntry } from '../applier';
+import { applyProposal, replacePersonaBlock } from '../applier';
 import { resolveEvolutionPaths, type EvolutionPaths } from '../signals';
 
+// 票 02 断点 2：退休生效后必须触发向量同步——mock 掉 knowledge-singletons
+// （其模块级有 pkill/单例装配副作用，不进单测进程）
+const syncMock = vi.hoisted(() => ({ scheduleVectorDbSync: vi.fn() }));
+// retire 知识条目落点镜像（harness #177 起 KNOWLEDGE_BASE_DIR 真实生效）：
+// 每个用例前后清空，防夹具目录跨用例/跨轮次累积
+const FIXTURE_KB_DIR = vi.hoisted(() => '/tmp/studio-knowledge-test');
+vi.mock('../../knowledge/knowledge-singletons.js', () => ({
+  scheduleVectorDbSync: syncMock.scheduleVectorDbSync,
+  UNIFIED_KNOWLEDGE_DIR: FIXTURE_KB_DIR,
+}));
+
+// 票 02 断点 1：spawn harness retire 必须显式传 KNOWLEDGE_BASE_DIR——包一层 execFile
+// 观测 runCmd 的 env（保留原实现，git/harness 子进程照常真跑）
+vi.mock('node:child_process', async (importOriginal) => {
+  const orig = await importOriginal<typeof import('node:child_process')>();
+  return { ...orig, execFile: vi.fn(orig.execFile) };
+});
+const execFileMock = vi.mocked(execFile);
+
 let tmpDir: string;
-let constraintsFile: string;
 let rolesDir: string;
 let overridesDir: string;
 let paths: EvolutionPaths;
 let prevEnv: string | undefined;
-
-const CONSTRAINTS_FIXTURE = `# 自定义约束配置 — Studio 项目专属
-
-custom_constraints:
-
-  # 1. MemoryStore 替代 Redis
-  no_redis_import:
-    id: no_redis_import
-    level: iron_law
-    rule: "NO REDIS/IREDIS IMPORTS"
-    message: "禁止引入 Redis/ioredis 依赖"
-    trigger: ["code_implementation"]
-    description: "B0-002 已完成迁移"
-`;
 
 const ROLE_FIXTURE = `id: developer
 name: Developer
@@ -71,64 +78,208 @@ function makeProposal(patch: Partial<EvolutionProposalData>): EvolutionProposalD
 }
 
 beforeEach(() => {
+  syncMock.scheduleVectorDbSync.mockClear();
+  execFileMock.mockClear();
+  fs.rmSync(FIXTURE_KB_DIR, { recursive: true, force: true });
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'evolution-applier-test-'));
-  constraintsFile = path.join(tmpDir, '.harness', 'custom-constraints.yml');
   rolesDir = path.join(tmpDir, '.agents', 'roles');
   overridesDir = path.join(tmpDir, 'prompt-overrides');
-  fs.mkdirSync(path.dirname(constraintsFile), { recursive: true });
   fs.mkdirSync(rolesDir, { recursive: true });
-  fs.writeFileSync(constraintsFile, CONSTRAINTS_FIXTURE, 'utf-8');
   fs.writeFileSync(path.join(rolesDir, 'developer.yaml'), ROLE_FIXTURE, 'utf-8');
   prevEnv = process.env.STUDIO_PROMPT_OVERRIDES_DIR;
   process.env.STUDIO_PROMPT_OVERRIDES_DIR = overridesDir;
-  paths = resolveEvolutionPaths({ constraintsFile, rolesDir, eventsDir: tmpDir, studioEventsFile: path.join(tmpDir, 'events.jsonl'), traceFile: path.join(tmpDir, 'traces.log') });
+  paths = resolveEvolutionPaths({ repoRoot: tmpDir, rolesDir, eventsDir: tmpDir, studioEventsFile: path.join(tmpDir, 'events.jsonl'), traceFile: path.join(tmpDir, 'traces.log') });
 });
 
 afterEach(() => {
   if (prevEnv === undefined) delete process.env.STUDIO_PROMPT_OVERRIDES_DIR;
   else process.env.STUDIO_PROMPT_OVERRIDES_DIR = prevEnv;
   fs.rmSync(tmpDir, { recursive: true, force: true });
+  fs.rmSync(FIXTURE_KB_DIR, { recursive: true, force: true });
 });
 
-describe('applier: 约束类提案落点已退役（harness 1.10.0 / ADR-0029）', () => {
-  it('iron-law 提案 apply 抛错，且不凭空重建 custom-constraints.yml', async () => {
-    fs.rmSync(constraintsFile); // 复现生产现状：该文件已随 #606 删除
+describe('applier: 约束类提案（#602 D1：retire 落点 = .harness/config.yml）', () => {
+  const configFile = () => path.join(tmpDir, '.harness', 'config.yml');
+  // harness 1.12.0（#177）起 retire 知识写口走 openKnowledgeStore 统一解析点，
+  // spawn 传入的 KNOWLEDGE_BASE_DIR 真实生效：条目落唯一正本镜像（本测试 mock 的
+  // /tmp/studio-knowledge-test），不再落 tmpDir/.harness/knowledge（pre-#177 硬编码 repoRoot 的旧形状）。
+  const knowledgeFile = (id: string) => path.join(FIXTURE_KB_DIR, `decision-constraint-retired-${id}.md`);
+  const git = (args: string[]) => execFileSync('git', ['-C', tmpDir, ...args], { encoding: 'utf-8' });
+
+  it('retire 复用 harness CLI：config.yml enabled:false + retired 墓碑 + 知识条目，生效集同步缩小', async () => {
+    const result = await applyProposal(makeProposal({
+      targetType: 'guideline', targetId: 'governance_presence', action: 'amend',
+      constraintChange: 'retire', proposedText: '退役（零触发）：traces 全周期无该约束记录',
+      evidence: { windowHours: 24, eventCounts: { total: 0, evaluated: 0, fail: 0, failRate: 0 } },
+    }), paths);
+
+    const cfg = yaml.load(fs.readFileSync(configFile(), 'utf-8')) as any;
+    expect(cfg.constraints.governance_presence.enabled).toBe(false);
+    expect(cfg.constraints.governance_presence.retired.at).toBeTruthy();
+    expect(cfg.constraints.governance_presence.retired.reason).toContain('零触发');
+    // M3.3：知识沉淀由 harness retireConstraint 写（飞轮唯一自动入水口），applier 不自写
+    expect(fs.existsSync(knowledgeFile('governance_presence'))).toBe(true);
+    // 生效集验证：retire 后 getEffectiveConstraints 不再含该约束
+    const { getEffectiveConstraints } = await import('@dommaker/harness');
+    expect(getEffectiveConstraints(tmpDir).some(c => c.id === 'governance_presence')).toBe(false);
+    expect(result.targetPath).toBe(configFile());
+    // M3.5：tmpdir 非 git 仓 → 留痕降级（warn + trail.committed=false），不阻断生效
+    expect(result.trail?.committed).toBe(false);
+    expect(result.trail?.error).toBeTruthy();
+    // 票 02 断点 2：退休生效后触发向量同步，不等顺风车
+    expect(syncMock.scheduleVectorDbSync).toHaveBeenCalledTimes(1);
+    // 票 02 断点 1：spawn harness retire 显式传 KNOWLEDGE_BASE_DIR（唯一正本 ~/.studio/knowledge）
+    const retireCall = execFileMock.mock.calls.find(c => Array.isArray(c[1]) && (c[1] as string[]).includes('retire'));
+    expect(retireCall?.[2]).toMatchObject({ env: expect.objectContaining({ KNOWLEDGE_BASE_DIR: FIXTURE_KB_DIR }) });
+  });
+
+  it('retire 幂等：已退役约束再 apply → detail 报 already retired，文件不变、不再 commit', async () => {
+    const proposal = makeProposal({
+      targetType: 'guideline', targetId: 'governance_presence', action: 'amend',
+      constraintChange: 'retire', proposedText: '退役（零触发）',
+    });
+    await applyProposal(proposal, paths);
+    const before = fs.readFileSync(configFile(), 'utf-8');
+    const second = await applyProposal(proposal, paths);
+    expect(second.detail).toContain('already retired');
+    expect(fs.readFileSync(configFile(), 'utf-8')).toBe(before);
+    expect(second.trail).toBeUndefined(); // 未写文件 → 无留痕 commit
+    // 幂等短路（未写盘）不再触发向量同步；整个用例只有第一次 retire 触发过一次
+    expect(syncMock.scheduleVectorDbSync).toHaveBeenCalledTimes(1);
+  });
+
+  it('disable→retire 升级：仅 disabled 无墓碑不算已退役——走 CLI 补墓碑 + 知识条目', async () => {
+    // 先 disable（裸 enabled:false，无 retired 墓碑、无知识条目）
+    await applyProposal(makeProposal({
+      targetType: 'guideline', targetId: 'governance_presence', action: 'amend',
+      constraintChange: 'disable', proposedText: '高噪音临时停用',
+    }), paths);
+    const afterDisable = fs.readFileSync(configFile(), 'utf-8');
+    expect(fs.existsSync(knowledgeFile('governance_presence'))).toBe(false);
+
+    // approve retire 提案：必须真正走 harness CLI 完成退役（墓碑 + 知识沉淀），
+    // 不得被「enabled:false 即已退役」的幂等短路堵死（harness CLI 的 already_retired
+    // 保护只看 enabled:false，applier 须先摘除裸 disable 条目再 spawn）
+    const result = await applyProposal(makeProposal({
+      targetType: 'guideline', targetId: 'governance_presence', action: 'amend',
+      constraintChange: 'retire', proposedText: '升级退役：观察期满，确认无价值',
+    }), paths);
+
+    expect(result.detail).not.toContain('already retired');
+    const cfg = yaml.load(fs.readFileSync(configFile(), 'utf-8')) as any;
+    expect(cfg.constraints.governance_presence.enabled).toBe(false);
+    expect(cfg.constraints.governance_presence.retired?.at).toBeTruthy();
+    expect(cfg.constraints.governance_presence.retired?.reason).toContain('升级退役');
+    // 飞轮唯一自动入水口：constraint-retired-<id> 知识条目必须落盘
+    expect(fs.existsSync(knowledgeFile('governance_presence'))).toBe(true);
+    expect(fs.readFileSync(configFile(), 'utf-8')).not.toBe(afterDisable);
+    const { getEffectiveConstraints } = await import('@dommaker/harness');
+    expect(getEffectiveConstraints(tmpDir).some(c => c.id === 'governance_presence')).toBe(false);
+  });
+
+  it('retire 未知约束 id → 抛错且不写文件', async () => {
     await expect(applyProposal(makeProposal({
-      targetType: 'iron-law', targetId: 'no_redis_import', action: 'amend',
-      constraintChange: 'message', proposedText: '进化版文案',
-    }), paths)).rejects.toThrow('落点已退役');
-    expect(fs.existsSync(constraintsFile)).toBe(false);
+      targetType: 'guideline', targetId: 'no_such_constraint', action: 'amend',
+      constraintChange: 'retire', proposedText: 'x',
+    }), paths)).rejects.toThrow('unknown constraint');
+    expect(fs.existsSync(configFile())).toBe(false);
   });
 
-  it('guideline 的 new-entry / retire 变更同样被拒（不写文件、不建备份）', async () => {
-    for (const constraintChange of ['new-entry', 'retire'] as const) {
-      const before = fs.readFileSync(constraintsFile, 'utf-8');
+  it('disable：config.yml enabled:false 无 retired 墓碑，生效集同步缩小', async () => {
+    const result = await applyProposal(makeProposal({
+      targetType: 'guideline', targetId: 'governance_presence', action: 'amend',
+      constraintChange: 'disable', proposedText: '高噪音临时停用，观察一周',
+    }), paths);
+
+    const cfg = yaml.load(fs.readFileSync(configFile(), 'utf-8')) as any;
+    expect(cfg.constraints.governance_presence.enabled).toBe(false);
+    expect(cfg.constraints.governance_presence.retired).toBeUndefined();
+    // disable 无知识条目语义（harness 无 disable 子命令，墓碑/沉淀是 retire 专有）
+    expect(fs.existsSync(knowledgeFile('governance_presence'))).toBe(false);
+    const { getEffectiveConstraints } = await import('@dommaker/harness');
+    expect(getEffectiveConstraints(tmpDir).some(c => c.id === 'governance_presence')).toBe(false);
+    expect(result.detail).toContain('disabled');
+    // disable 无知识沉淀语义 → 不触发向量同步（同步触发是 retire 专有跟进动作）
+    expect(syncMock.scheduleVectorDbSync).not.toHaveBeenCalled();
+  });
+
+  it('disable 幂等：已停用再 apply → detail 报 already disabled，文件不变', async () => {
+    const proposal = makeProposal({
+      targetType: 'guideline', targetId: 'governance_presence', action: 'amend',
+      constraintChange: 'disable', proposedText: '临时停用',
+    });
+    await applyProposal(proposal, paths);
+    const before = fs.readFileSync(configFile(), 'utf-8');
+    const second = await applyProposal(proposal, paths);
+    expect(second.detail).toContain('already disabled');
+    expect(fs.readFileSync(configFile(), 'utf-8')).toBe(before);
+  });
+
+  it('disable 未知约束 id → 抛错且不写文件', async () => {
+    await expect(applyProposal(makeProposal({
+      targetType: 'guideline', targetId: 'no_such_constraint', action: 'amend',
+      constraintChange: 'disable', proposedText: 'x',
+    }), paths)).rejects.toThrow('unknown constraint');
+    expect(fs.existsSync(configFile())).toBe(false);
+  });
+
+  it('M3.5：git 仓内生效后自动 commit——正文带提案号 + Governance-Approved trailer，只 add config.yml', async () => {
+    git(['init']);
+    git(['config', 'user.email', 'test@example.com']);
+    git(['config', 'user.name', 'Test']);
+    fs.writeFileSync(path.join(tmpDir, 'other.txt'), 'v1\n', 'utf-8');
+    git(['add', 'other.txt']);
+    git(['commit', '-m', 'init']);
+    fs.writeFileSync(path.join(tmpDir, 'other.txt'), 'v2-dirty\n', 'utf-8'); // 无关脏改动不得被带入
+
+    const result = await applyProposal(makeProposal({
+      id: 'EP-0042', targetType: 'guideline', targetId: 'governance_presence', action: 'amend',
+      constraintChange: 'retire', proposedText: '退役（零触发）',
+    }), paths);
+
+    expect(result.trail?.committed).toBe(true);
+    expect(result.trail?.sha).toBeTruthy();
+    const log = git(['log', '-1', '--format=%B']);
+    expect(log).toContain('EP-0042');
+    expect(log).toContain('Governance-Approved: EP-0042');
+    // 只提交 .harness/config.yml 单文件；无关脏文件保持未提交
+    const files = git(['show', '--format=', '--name-only', 'HEAD']).trim().split('\n').filter(Boolean);
+    expect(files).toEqual(['.harness/config.yml']);
+    expect(git(['status', '--porcelain'])).toContain(' M other.txt');
+  });
+
+  it('M3.5：commit 失败降级——config.yml 已生效是事实，不抛错、trail 暴露失败', async () => {
+    git(['init']);
+    // 确定性制造 commit 失败：index.lock 占位使 git add 拒写（不依赖全局 identity 配置有无）
+    fs.writeFileSync(path.join(tmpDir, '.git', 'index.lock'), '', 'utf-8');
+    const result = await applyProposal(makeProposal({
+      targetType: 'guideline', targetId: 'governance_presence', action: 'amend',
+      constraintChange: 'retire', proposedText: '退役（零触发）',
+    }), paths);
+
+    expect(result.trail?.committed).toBe(false);
+    expect(result.trail?.error).toBeTruthy();
+    const cfg = yaml.load(fs.readFileSync(configFile(), 'utf-8')) as any;
+    expect(cfg.constraints.governance_presence.enabled).toBe(false); // 生效未被阻断
+  });
+
+  it('存量历史词表（message/new-entry/exception）落笔前拒绝，且不写任何文件', async () => {
+    // M3.2 后词表只剩 retire/disable；构造存量历史提案（类型层绕过）验证运行时闸仍在
+    for (const constraintChange of ['message', 'new-entry', 'exception']) {
       await expect(applyProposal(makeProposal({
-        targetType: 'guideline', targetId: 'no_redis_import', action: 'add',
-        constraintChange, proposedText: 'x',
+        targetType: 'guideline', targetId: 'governance_presence', action: 'amend',
+        constraintChange: constraintChange as unknown as EvolutionProposalData['constraintChange'], proposedText: 'x',
       }), paths)).rejects.toThrow('落点已退役');
-      expect(fs.readFileSync(constraintsFile, 'utf-8')).toBe(before);
     }
-    expect(fs.readdirSync(path.dirname(constraintsFile)).filter(f => f.includes('.bak-'))).toEqual([]);
+    expect(fs.existsSync(configFile())).toBe(false);
   });
 
-  it('prompt-template 落点不受该闸影响', async () => {
+  it('prompt-template 落点不受约束闸影响', async () => {
     const result = await applyProposal(makeProposal({
       targetType: 'prompt-template', targetId: 'tpl-a', action: 'amend',
-      constraintChange: 'message', proposedText: 'x',
+      proposedText: 'x',
     }), paths);
     expect(result.targetPath).toContain('tpl-a');
-  });
-
-  it('amendConstraintMessage returns null for unknown entry', () => {
-    expect(amendConstraintMessage(CONSTRAINTS_FIXTURE, 'no_such_entry', 'x')).toBeNull();
-  });
-
-  it('retireConstraintEntry null for unknown entry / already-retired entry', () => {
-    expect(retireConstraintEntry(CONSTRAINTS_FIXTURE, 'no_such_entry', { at: '2026-08-15T00:00:00.000Z', reason: 'r' })).toBeNull();
-    const once = retireConstraintEntry(CONSTRAINTS_FIXTURE, 'no_redis_import', { at: '2026-08-15T00:00:00.000Z', reason: 'r' });
-    expect(once).not.toBeNull();
-    expect(retireConstraintEntry(once!, 'no_redis_import', { at: '2026-08-16T00:00:00.000Z', reason: 'r2' })).toBeNull();
   });
 });
 

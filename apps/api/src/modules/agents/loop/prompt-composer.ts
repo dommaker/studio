@@ -312,8 +312,13 @@ export async function composeStepPrompt(
     let built: T | BuiltSection;
     try {
       built = await build(budget);
-    } catch {
-      // Non-blocking: agent continues without this section
+    } catch (e) {
+      // Non-blocking: agent continues without this section — 但必须有声
+      // （#611：原静默 catch 是 R4 bug 潜伏数月无人察觉的土壤）
+      logger.warn('[prompt-composer] section build failed (non-blocking)', {
+        section: name,
+        error: getErrorMessage(e),
+      });
       built = { section: '', tokens: 0, originalTokens: 0 };
     }
     if (built.originalTokens > built.tokens) {

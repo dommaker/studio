@@ -89,17 +89,21 @@ describe('buildSessionCommand', () => {
   });
 
   // #565: 能力探测消费点——codex 的 hook-trust conditional flag 按 supportedFlags 剔除/保留
-  test('codex：探测结果不含 hook-trust flag 时命令剔除之', () => {
+  test('codex：探测结果不含 hook-trust flag 时命令剔除之（安全基线 -c 覆盖不受影响）', () => {
     mockGetSupportedFlags.mockReturnValueOnce(new Set(['--json']));
     const cmd = buildSessionCommand({ ...base, provider: 'codex', spawnParams: { worktreeDir: '/wt' } });
     expect(cmd).toContain('codex exec --json');
     expect(cmd).not.toContain('--dangerously-bypass-hook-trust');
+    expect(cmd).toContain(`-c 'sandbox_mode="workspace-write"'`);
+    expect(cmd).toContain('-c sandbox_workspace_write.network_access=true');
+    expect(cmd).toContain(`-c 'shell_environment_policy.inherit="core"'`);
   });
 
   test('codex：探测失败（undefined）fail-open 全量传参', () => {
     mockGetSupportedFlags.mockReturnValueOnce(undefined);
     const cmd = buildSessionCommand({ ...base, provider: 'codex', spawnParams: { worktreeDir: '/wt' } });
     expect(cmd).toContain('codex exec --json --dangerously-bypass-hook-trust');
+    expect(cmd).toContain(`-c 'sandbox_mode="workspace-write"'`);
   });
 });
 

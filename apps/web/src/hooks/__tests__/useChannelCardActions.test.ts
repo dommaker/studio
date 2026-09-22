@@ -9,7 +9,6 @@ const {
   mockMemApprove, mockMemReject,
   mockDistillApprove, mockDistillReject,
   mockGcApprove, mockGcReject,
-  mockAuditApprove, mockAuditReject,
   mockAudApprove, mockAudReject,
   mockRetractDecide,
 } = vi.hoisted(() => ({
@@ -21,8 +20,6 @@ const {
   mockDistillReject: vi.fn(),
   mockGcApprove: vi.fn(),
   mockGcReject: vi.fn(),
-  mockAuditApprove: vi.fn(),
-  mockAuditReject: vi.fn(),
   mockAudApprove: vi.fn(),
   mockAudReject: vi.fn(),
   mockRetractDecide: vi.fn(),
@@ -34,7 +31,6 @@ vi.mock('../../api/distill', () => ({
   distillApi: {
     approve: mockDistillApprove, reject: mockDistillReject,
     gcApprove: mockGcApprove, gcReject: mockGcReject,
-    auditApprove: mockAuditApprove, auditReject: mockAuditReject,
   },
 }));
 vi.mock('../../api/auditor', () => ({ auditorApi: { approveProposal: mockAudApprove, rejectProposal: mockAudReject } }));
@@ -71,8 +67,6 @@ describe('useChannelCardActions — action → api 映射', () => {
     mockDistillReject.mockResolvedValue({});
     mockGcApprove.mockResolvedValue({ data: { success: true } });
     mockGcReject.mockResolvedValue({});
-    mockAuditApprove.mockResolvedValue({ data: { success: true } });
-    mockAuditReject.mockResolvedValue({});
     mockAudApprove.mockResolvedValue({ data: { success: true } });
     mockAudReject.mockResolvedValue({});
     mockRetractDecide.mockResolvedValue({});
@@ -151,15 +145,6 @@ describe('useChannelCardActions — action → api 映射', () => {
     expect(mockGcApprove).toHaveBeenCalledWith('gc-1');
     await expect(dispatch()('m1', 'gc_proposal_reject')).resolves.toBe(true);
     expect(mockGcReject).toHaveBeenCalledWith('gc-1');
-  });
-
-  it('constraint_audit_approve/reject → distillApi.auditApprove/auditReject', async () => {
-    const messages = [msg('m1', { auditProposalId: 'a-1' })];
-    const { dispatch } = setup(messages);
-    await expect(dispatch()('m1', 'constraint_audit_approve')).resolves.toBe(true);
-    expect(mockAuditApprove).toHaveBeenCalledWith('a-1');
-    await expect(dispatch()('m1', 'constraint_audit_reject')).resolves.toBe(true);
-    expect(mockAuditReject).toHaveBeenCalledWith('a-1');
   });
 
   it('auditor_suggestion_approve/reject → auditorApi.approveProposal/rejectProposal（#356 通用端点整卡一次）', async () => {

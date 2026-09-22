@@ -87,10 +87,29 @@ describe('processSessionOutput', () => {
     await processSessionOutput(stdout, baseCtx());
 
     expect(mockEmitToolCall).toHaveBeenCalledTimes(2);
-    expect(mockEmitToolCall).toHaveBeenCalledWith('Write', { file_path: '/tmp/a.ts', content: 'x' }, 'sess-1', 'exec-1');
-    expect(mockEmitToolCall).toHaveBeenCalledWith('Bash', { command: 'ls' }, 'sess-1', 'exec-1');
+    // #602 D4：第 5 参 extras 带真实 success（无配对 tool_result → undefined 不编造）与 caller=agentRole
+    expect(mockEmitToolCall).toHaveBeenCalledWith('Write', { file_path: '/tmp/a.ts', content: 'x' }, 'sess-1', 'exec-1', { success: undefined, caller: 'executor' });
+    expect(mockEmitToolCall).toHaveBeenCalledWith('Bash', { command: 'ls' }, 'sess-1', 'exec-1', { success: undefined, caller: 'executor' });
     expect(mockEmitFileChange).toHaveBeenCalledTimes(1);
     expect(mockEmitFileChange).toHaveBeenCalledWith('/tmp/a.ts', 'sess-1', 'exec-1');
+  });
+
+  test('#602 D4: tool_result is_error 配对 → emitToolCall 带真实 success', async () => {
+    const stdout = [
+      JSON.stringify({ type: 'assistant', content: [
+        { type: 'tool_use', id: 't1', name: 'Bash', input: { command: 'pnpm test' } },
+        { type: 'tool_use', id: 't2', name: 'Read', input: { file_path: '/a.ts' } },
+      ] }),
+      JSON.stringify({ type: 'user', content: [
+        { type: 'tool_result', tool_use_id: 't1', is_error: true, content: 'boom' },
+        { type: 'tool_result', tool_use_id: 't2', is_error: false, content: 'ok' },
+      ] }),
+    ].join('\n');
+
+    await processSessionOutput(stdout, baseCtx());
+
+    expect(mockEmitToolCall).toHaveBeenCalledWith('Bash', { command: 'pnpm test' }, 'sess-1', 'exec-1', { success: false, caller: 'executor' });
+    expect(mockEmitToolCall).toHaveBeenCalledWith('Read', { file_path: '/a.ts' }, 'sess-1', 'exec-1', { success: true, caller: 'executor' });
   });
 
   test('recordSessionMetrics 收到 ctx 字段 + 约束 meta + streamUsage；emitSessionEnd 带 sessionCount', async () => {

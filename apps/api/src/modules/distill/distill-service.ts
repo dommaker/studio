@@ -8,9 +8,9 @@
  * 全链路事件写 studio-events.jsonl（type=knowledge:distill）。
  *
  * #351：人审提案卡生命周期（提案存取/发卡/approve/reject/状态查询）收敛到
- * review-proposal 正本；本 service 只做业务触发（maybePropose/runGcCheck/runConstraintAudit）
- * 与审批后动作（executeDistill/executeGc/executeAudit + reject 事件留痕），
- * 经 registerDistillReviewAdapters 注册三个 adapter（kind: distill/gc/audit）。
+ * review-proposal 正本；本 service 只做业务触发（maybePropose/runGcCheck）
+ * 与审批后动作（executeDistill/executeGc + reject 事件留痕），
+ * 经 registerDistillReviewAdapters 注册两个 adapter（kind: distill/gc）。
  * 人审端点 = 通用端点 /api/v1/review-proposals/:kind/:id/{approve,reject,status}。
  *
  * 降级口径：
@@ -27,28 +27,23 @@
  * 不读墙钟）生成候选清单发 gc_proposal 人审卡；executeGc 候选 maturity=archived（可恢复），
  * reject 零副作用且人判保留条目后续不再提案。零候选不发卡。
  *
- * #145 三分落地：蒸馏 LLM 产出自带类型分类——skill（过程性知识）→ skills 库提案；
- * constraint（边界性知识）→ constraint-drafts.jsonl 变更草案（D6 派单通道未就绪的简化落盘形态）；
+ * #145 产物分类落地：蒸馏 LLM 产出自带类型分类——skill（过程性知识）→ skills 库提案；
  * preference/execution-knowledge → 角色记忆草稿（memory_proposal 人审卡）。缺类型/未知类型/
  * 落地失败 → 回落知识库条目（#143 行为）。落地通道经 deps.landings 注入，实现见 distill-landings。
+ * constraint 桶已随 #625 整体退出（#622 裁决：落点为死端，生命周期归 evolution 飞轮）——
+ * constraint 类产物按未知类型走既有回落逻辑，产物不丢。
  *
- * #146 存量约束审计：蒸馏运行产出新约束（landings.constraint 非空）→ 顺带审计存量 custom
- * 约束（#139 判据「是否还有可被违反的未来场景」，constraint-audit 纯函数 + 判据白名单闸门）
- * → 退役建议清单发 constraint_audit_proposal 人审卡；executeAudit 走 retire 执行
- * （custom-constraints.yml 条目内 retired 元数据段，#82 D6 落点，可恢复），reject
- * 零副作用且人判保留约束不再进审计输入。零建议不发卡；审计永不阻塞蒸馏主链路。
+ * #146 存量约束审计子通道（runConstraintAudit/executeAudit + constraint-audit 纯函数）已随
+ * #617 拆除：审计对象 custom 纯文本约束已随 ADR-0029 灭绝，无可审对象。
  */
 import { randomUUID } from 'node:crypto';
-import fs from 'node:fs';
 import { eventBus, logger, FileStore } from '@dommaker/studio-shared';
 import type { KnowledgeStore, KnowledgeEntry, SourceRef } from '@dommaker/harness';
 import { evaluateDistillThreshold, EXITED_MATURITY } from './distill-threshold.js';
 import { DistillRunsStore, type DistillRun, type DistillRunLandings } from './distill-runs.js';
 import {
   registerDistillReviewAdapters,
-  rejectedAuditConstraintIds,
   rejectedGcEntryIds,
-  type ConstraintAuditProposal,
   type DistillProposal,
   type DistillReviewAdapters,
   type GcProposal,
@@ -57,15 +52,6 @@ import { submitProposal } from '../review-proposal/service.js';
 import type { ApproveOutcome } from '../review-proposal/registry.js';
 import type { ReviewProposalRecord } from '../review-proposal/store.js';
 import { generateGcCandidates } from './gc-candidates.js';
-import {
-  CONSTRAINT_AUDIT_SYSTEM_PROMPT,
-  buildConstraintAuditPrompt,
-  loadActiveCustomConstraints,
-  normalizeAuditSuggestions,
-  readPackageDeps,
-  type AuditSuggestion,
-} from './constraint-audit.js';
-import { retireConstraintEntry } from '../evolution/applier.js';
 import { getSystemExecutor } from '../agents/system-executor.js';
 import {
   tokenBudgetGuardEnabled,
@@ -78,31 +64,25 @@ import type { WorkUnitData } from '../workunit/workunit.service.js';
 
 export type { DistillRun } from './distill-runs.js';
 export type { GcCandidate } from './gc-candidates.js';
-export type { AuditSuggestion, AuditCategory, CustomConstraintInfo } from './constraint-audit.js';
-export type { ConstraintAuditProposal, DistillProposal, GcProposal } from './review-adapters.js';
+export type { DistillProposal, GcProposal } from './review-adapters.js';
 
 /**
  * 蒸馏 prompt（单一来源）：矿石 → 带类型分类的蒸馏产物。结构参考 MEMORY_EXTRACTION_SYSTEM_PROMPT，
- * 但产出目标不同（项目级知识 + 三分落地，非角色记忆草稿）。类型分类驱动 #145 三分落地分流。
+ * 但产出目标不同（项目级知识 + 分类落地，非角色记忆草稿）。类型分类驱动 #145 落地分流。
  */
 export const DISTILL_SYSTEM_PROMPT = `你是知识蒸馏专家。输入是一批「矿石」知识条目（开发会话自动沉淀的原始记录，单条知识含量低）。
 
 你的任务：把它们提炼成可复用的知识产物——找出重复出现的模式 / 有效做法 / 失败教训，合并同类，剔除噪音。
 
 每条产物要求：
-- type：产物类型，四选一——
+- type：产物类型，三选一——
   - "skill"：过程性知识（可复用的操作流程/方法步骤）→ 落 skills 库提案
-  - "constraint"：边界性知识（什么不能做/必须做的规矩）→ 落约束变更草案
   - "preference"：偏好约定（风格/口味/习惯）→ 落角色记忆草稿
   - "execution-knowledge"：执行经验（怎么做成/怎么失败的教训）→ 落角色记忆草稿
   拿不准就不要硬分类，省略 type 字段（回落为普通知识条目）
 - title：一句话概括模式（不要复读原料标题）
 - content：模式正文——描述 + 适用场景 + 为什么有效（或根因 + 预防）
 - tags：1-3 个英文短横线标签
-- 仅 type="constraint" 时附加 change 字段：
-  { "action": "add" | "override" | "retire", "constraintId": "短横线约束id",
-    "level": "iron_law" | "guideline" | "prompt" | "tip", "message": "约束规则一句话", "description": "补充说明（可选）" }
-  action 语义：add=新增约束；override=覆盖既有同 id 约束；retire=退役既有约束（只需 action + constraintId）
 
 输出 JSON（不要 markdown 包裹）：
 { "products": [ { "type": "...", "title": "...", "content": "...", "tags": ["..."] } ] }
@@ -124,25 +104,12 @@ export interface DistillServiceDeps {
   eventsFile: string;
   /** 产物入库后的回调（运行时装配 scheduleVectorDbSync）；可选 */
   onProductsSaved?: (productIds: string[]) => void;
-  /** #145 三分落地通道（运行时装配 distill-landings）；缺省/失败/返回 null → 回落知识条目 */
+  /** #145 产物落地通道（运行时装配 distill-landings）；缺省/失败/返回 null → 回落知识条目 */
   landings?: DistillLandings;
-  /** #146 存量约束审计：custom-constraints.yml 路径（运行时装配）；缺省 → 审计跳过 */
-  constraintsFile?: string;
-  /** #146 审计判据证据：package.json 路径（技术存量信号）；缺省 → prompt 降级保守判断 */
-  packageJsonFile?: string;
 }
 
-/** #145 产物类型：三通道 + knowledge 回落 */
-export type DistillProductType = 'knowledge' | 'skill' | 'constraint' | 'preference' | 'execution-knowledge';
-
-/** 约束变更草案参数（仅 type=constraint 产物携带） */
-export interface DistillConstraintChange {
-  action: 'add' | 'override' | 'retire';
-  constraintId: string;
-  level?: string;
-  message?: string;
-  description?: string;
-}
+/** #145 产物类型：双通道 + knowledge 回落 */
+export type DistillProductType = 'knowledge' | 'skill' | 'preference' | 'execution-knowledge';
 
 /** normalize 后的产物形态（路由与落地通道的输入） */
 export interface NormalizedDistillProduct {
@@ -150,7 +117,6 @@ export interface NormalizedDistillProduct {
   title: string;
   content: string;
   tags: string[];
-  change?: DistillConstraintChange;
 }
 
 /** 落地通道上下文：sourceReferences 原料指针 + 提案/运行回指 */
@@ -165,7 +131,6 @@ export type DistillLanding = (product: NormalizedDistillProduct, ctx: DistillLan
 
 export interface DistillLandings {
   skill?: DistillLanding;
-  constraint?: DistillLanding;
   /** preference 与 execution-knowledge 共用（角色记忆草稿通道） */
   memory?: DistillLanding;
 }
@@ -176,37 +141,13 @@ interface RawDistillProduct {
   title?: unknown;
   content?: unknown;
   tags?: unknown;
-  change?: unknown;
 }
 
-const CONSTRAINT_ACTIONS = new Set(['add', 'override', 'retire']);
-
-/** 约束草案 level 四值白名单（历史口径，原对齐 harness 三层命名；harness 1.10.0/ADR-0029
- *  起该机制退役，白名单仅作 LLM 输出清洗，乱给值丢弃不进草案；落点去留待裁定） */
-const CONSTRAINT_LEVELS = new Set(['iron_law', 'guideline', 'prompt', 'tip']);
-
-/** LLM 原始 change 字段 → 约束变更草案参数；不合法返回 null（调用方回落 knowledge） */
-function normalizeConstraintChange(raw: unknown): DistillConstraintChange | null {
-  if (!raw || typeof raw !== 'object') return null;
-  const c = raw as Record<string, unknown>;
-  const action = typeof c.action === 'string' ? c.action : '';
-  const constraintId = typeof c.constraintId === 'string' ? c.constraintId.trim() : '';
-  if (!CONSTRAINT_ACTIONS.has(action) || !constraintId) return null;
-  return {
-    action: action as DistillConstraintChange['action'],
-    constraintId,
-    ...(typeof c.level === 'string' && CONSTRAINT_LEVELS.has(c.level.trim()) ? { level: c.level.trim() } : {}),
-    ...(typeof c.message === 'string' && c.message.trim() ? { message: c.message.trim() } : {}),
-    ...(typeof c.description === 'string' && c.description.trim() ? { description: c.description.trim() } : {}),
-  };
-}
-
-// 'constraint' 不在此集合：约束产物必须带合法 change（上方分支已处理），否则回落 knowledge
 const PRODUCT_TYPES = new Set<DistillProductType>(['skill', 'preference', 'execution-knowledge']);
 
 /**
  * LLM 产出 → 类型化产物清单：缺 title/content 丢弃；tags 只收字符串；
- * 缺/未知 type 回落 knowledge（#143 行为）；constraint 缺合法 change 同样回落 knowledge（产物不丢）。
+ * 缺/未知 type 回落 knowledge（#143 行为；constraint 桶 #625 退出后按未知类型走同一回落，产物不丢）。
  */
 export function normalizeDistillProducts(parsed: { products?: unknown }): NormalizedDistillProduct[] {
   const raw = Array.isArray(parsed?.products) ? (parsed.products as RawDistillProduct[]) : [];
@@ -217,14 +158,6 @@ export function normalizeDistillProducts(parsed: { products?: unknown }): Normal
     if (!title || !content) continue;
     const tags = Array.isArray(p.tags) ? p.tags.filter((t): t is string => typeof t === 'string' && t.trim().length > 0) : [];
     const rawType = typeof p.type === 'string' ? p.type : '';
-    if (rawType === 'constraint') {
-      const change = normalizeConstraintChange(p.change);
-      if (change) {
-        out.push({ type: 'constraint', title, content, tags, change });
-        continue;
-      }
-      // 约束产物缺合法 change → 回落知识条目（不丢产物）
-    }
     const type: DistillProductType = PRODUCT_TYPES.has(rawType as DistillProductType)
       ? (rawType as DistillProductType)
       : 'knowledge';
@@ -251,7 +184,7 @@ export class DistillService {
 
   constructor(private deps: DistillServiceDeps) {
     this.runsStore = new DistillRunsStore(deps.fileStore, deps.dataDir);
-    // #351：三个人审提案卡 adapter 注册到 review-proposal 正本（kind: distill/gc/audit）。
+    // #351：两个人审提案卡 adapter 注册到 review-proposal 正本（kind: distill/gc）。
     // 构造即注册：通用端点经注册表分发到本实例的审批后动作；重复构造后者生效（测试多实例幂等）。
     this.reviewAdapters = registerDistillReviewAdapters({
       fileStore: deps.fileStore,
@@ -261,8 +194,6 @@ export class DistillService {
         onDistillRejected: p => this.onDistillRejected(p),
         executeGc: p => this.executeGc(p),
         onGcRejected: p => this.onGcRejected(p),
-        executeAudit: p => this.executeAudit(p),
-        onAuditRejected: p => this.onAuditRejected(p),
       },
     });
   }
@@ -378,9 +309,9 @@ export class DistillService {
       const now = new Date().toISOString();
       const materialIds = materials.map(m => m.id);
 
-      // #145 三分落地：按产物类型路由到对应通道；通道未接线/返回 null/抛错 → 回落知识条目
+      // #145 产物落地：按产物类型路由到对应通道；通道未接线/返回 null/抛错 → 回落知识条目
       const productIds: string[] = [];
-      const landings: DistillRunLandings = { knowledge: [], skill: [], constraint: [], memory: [] };
+      const landings: DistillRunLandings = { knowledge: [], skill: [], memory: [] };
       for (const p of products) {
         const bucket = this.landingBucket(p.type);
         const landing = bucket === 'knowledge' ? null : this.deps.landings?.[bucket];
@@ -432,10 +363,6 @@ export class DistillService {
       });
       // 蒸馏运行 = GC 事件源（#144）：每次执行成功的运行后按周期计龄出候选清单（永不抛）
       await this.runGcCheck(run);
-      // 新约束入库 = 存量约束审计事件源（#146）：本次运行产出约束草案才触发（永不抛）
-      if ((run.landings?.constraint.length ?? 0) > 0) {
-        await this.runConstraintAudit(run);
-      }
       return { status: 'executed', data: { productIds } };
     } catch (err) {
       const message = getErrorMessage(err);
@@ -559,139 +486,6 @@ export class DistillService {
     });
   }
 
-  // ── #146 存量约束审计（挂蒸馏事件：新约束入库才触发） ──
-
-  /**
-   * 蒸馏运行后的存量约束审计（executeDistill 内部在产出新约束时调用 + 测试直驱）：
-   * 读 custom-constraints.yml active 条目 → LLM 按「是否还有可被违反的未来场景」判据
-   * 出退役建议 → 判据白名单闸门过滤（constraint-audit.normalizeAuditSuggestions）→
-   * 非零则建审计提案 + 发 constraint_audit_proposal 人审卡；零建议不发卡（零噪音）。
-   * 永不抛（不阻塞蒸馏主链路）。去重口径：已有 pending 审计提案不重复发卡；
-   * 曾被 reject 的约束（人判保留）剔除出审计输入；预算耗尽跳过（不报错）。
-   */
-  async runConstraintAudit(triggerRun: DistillRun): Promise<void> {
-    try {
-      const file = this.deps.constraintsFile;
-      if (!file) {
-        logger.debug('[Distill] constraint audit skip: no constraintsFile wired', { runId: triggerRun.id });
-        return;
-      }
-      const active = loadActiveCustomConstraints(file);
-      if (active.length === 0) {
-        logger.debug('[Distill] constraint audit skip: no active custom constraints', { runId: triggerRun.id });
-        return;
-      }
-      // 人判保留（reject）的约束剔除出审计输入，不再重复提案打扰
-      const rejected = await rejectedAuditConstraintIds(this.reviewAdapters.audit.store);
-      const auditables = active.filter(c => !rejected.has(c.id));
-      if (auditables.length === 0) {
-        logger.debug('[Distill] constraint audit skip: all constraints human-kept', { runId: triggerRun.id });
-        return;
-      }
-      // 已有 pending 审计提案等人审 → 不重复发卡（不进 LLM，零成本）
-      const pending = await this.reviewAdapters.audit.store.findPending();
-      if (pending) {
-        logger.info('[Distill] constraint audit skip: pending proposal exists', { auditProposalId: pending.id, runId: triggerRun.id });
-        return;
-      }
-      // 预算守卫（与蒸馏 executeDistill 同口径）：耗尽 → 跳过审计，不报错不提案
-      if (await this.isBudgetExhausted()) {
-        logger.warn('[Distill] constraint audit skipped: daily token budget exhausted', { runId: triggerRun.id });
-        return;
-      }
-
-      const parsed = await getSystemExecutor().runJson<{ suggestions?: unknown }>(
-        buildConstraintAuditPrompt(auditables, { packageDeps: this.deps.packageJsonFile ? readPackageDeps(this.deps.packageJsonFile) : [] }),
-        { systemPrompt: CONSTRAINT_AUDIT_SYSTEM_PROMPT, eventSource: 'constraint-audit' },
-      );
-      const suggestions = normalizeAuditSuggestions(parsed, new Set(auditables.map(c => c.id)));
-      if (suggestions.length === 0) {
-        logger.debug('[Distill] constraint audit: no suggestions', { runId: triggerRun.id, auditedCount: auditables.length });
-        return;
-      }
-
-      const proposal: ConstraintAuditProposal = {
-        id: randomUUID(),
-        createdAt: new Date().toISOString(),
-        runId: triggerRun.id,
-        suggestions,
-        auditedCount: auditables.length,
-      };
-
-      // 发卡失败静默跳过（#101 降级口径）：正本落 card-failed 墓碑，不阻塞蒸馏主链路
-      const { posted } = await submitProposal(this.reviewAdapters.audit, proposal);
-      if (!posted) {
-        await this.emitEvent({ stage: 'audit-card-failed', auditProposalId: proposal.id, suggestionCount: suggestions.length });
-        return;
-      }
-
-      logger.info('[Distill] constraint audit proposal posted', {
-        auditProposalId: proposal.id, suggestionCount: suggestions.length, auditedCount: auditables.length, runId: triggerRun.id,
-      });
-      await this.emitEvent({
-        stage: 'audit-proposal-posted',
-        auditProposalId: proposal.id,
-        runId: triggerRun.id,
-        suggestionCount: suggestions.length,
-        auditedCount: auditables.length,
-      });
-    } catch (err) {
-      logger.warn('[Distill] runConstraintAudit failed (non-blocking)', { runId: triggerRun.id, error: String(err) });
-    }
-  }
-
-  /**
-   * adapter.onApprove（kind=audit）：逐条走 retire 执行——custom-constraints.yml 既有条目内
-   * 追加 retired 元数据段（#82 D6 统一落点，复用 E1 applier retireConstraintEntry；
-   * 规则原文保留，可恢复：POST /api/v1/harness/constraints/:id/rollback 删段即恢复）。
-   * 人审期间已被其它路径退役/删除、或文本定位失败的条目跳过（幂等），
-   * 跳过名单随返回值与事件给出（skippedIds），人审可见哪些建议未真正执行。
-   * constraintsFile 未装配 → aborted（不落墓碑，装配修复后可重试）。
-   */
-  async executeAudit(proposal: ReviewProposalRecord<ConstraintAuditProposal>): Promise<ApproveOutcome> {
-    const auditProposalId = proposal.id;
-    const file = this.deps.constraintsFile;
-    if (!file) return { status: 'aborted', error: 'constraints-file-unavailable' };
-
-    let content = fs.existsSync(file) ? fs.readFileSync(file, 'utf-8') : '';
-    const now = new Date().toISOString();
-    const retiredIds: string[] = [];
-    const skippedIds: string[] = [];
-    for (const s of proposal.suggestions) {
-      const next = retireConstraintEntry(content, s.constraintId, {
-        at: now,
-        reason: `[${s.category}] ${s.rationale}`,
-      });
-      if (next === null) {
-        skippedIds.push(s.constraintId); // 条目不存在 / 已退役 / 文本定位失败
-        continue;
-      }
-      content = next;
-      retiredIds.push(s.constraintId);
-    }
-    if (retiredIds.length > 0) {
-      fs.writeFileSync(file, content, 'utf-8');
-    }
-
-    logger.info('[Distill] constraint audit executed', { auditProposalId, retiredCount: retiredIds.length, skippedCount: skippedIds.length });
-    await this.emitEvent({
-      stage: 'audit-executed',
-      auditProposalId,
-      retiredIds,
-      skippedIds,
-      suggestionCount: proposal.suggestions.length,
-    });
-    return { status: 'executed', data: { retiredIds, skippedIds } };
-  }
-
-  /** adapter.onReject（kind=audit）：零副作用——约束全部保留，仅事件留痕；被拒约束后续不再进审计输入 */
-  async onAuditRejected(proposal: ReviewProposalRecord<ConstraintAuditProposal>): Promise<void> {
-    logger.info('[Distill] constraint audit rejected (constraints kept)', { auditProposalId: proposal.id });
-    await this.emitEvent({
-      stage: 'audit-rejected', auditProposalId: proposal.id, suggestionCount: proposal.suggestions.length,
-    });
-  }
-
   /** 每日 token 预算熔断判定（与 WuCompletionExtractor 同口径） */
   private async isBudgetExhausted(): Promise<boolean> {
     if (!tokenBudgetGuardEnabled()) return false;
@@ -737,7 +531,6 @@ export class DistillService {
   /** 产物类型 → 落地桶（preference/execution-knowledge 共用 memory 通道） */
   private landingBucket(type: DistillProductType): keyof DistillRunLandings {
     if (type === 'skill') return 'skill';
-    if (type === 'constraint') return 'constraint';
     if (type === 'preference' || type === 'execution-knowledge') return 'memory';
     return 'knowledge';
   }

@@ -95,9 +95,10 @@ export async function processSessionOutput(
     : extractUsage(events);
 
   // AC1.3: Emit tool:call and file:change events
+  // #602 D4: 透传真实 success（tool_result 配对）与 caller（agentRole）
   const tools = extractToolCalls(events);
   for (const tool of tools) {
-    await emitToolCall(tool.name, tool.input, ctx.sessionId, ctx.executionId);
+    await emitToolCall(tool.name, tool.input, ctx.sessionId, ctx.executionId, { success: tool.success, caller: ctx.agentRole });
     const filePath = extractFilePathShared(tool.name, tool.input);
     if (filePath) {
       await emitFileChange(filePath, ctx.sessionId, ctx.executionId);

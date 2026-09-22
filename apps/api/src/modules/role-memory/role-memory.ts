@@ -100,7 +100,7 @@ export interface MemoryDraftEntry {
   topicSlug?: string;
   /** 人审档位：auto=直接进索引；manual=发卡人审（缺省 manual） */
   review: MemoryReview;
-  /** 来源原料指针（#145 蒸馏产物三分落地：原料知识条目 id 清单；#99 提取链路不传） */
+  /** 来源原料指针（#145 蒸馏产物分类落地：原料知识条目 id 清单；#99 提取链路不传） */
   sourceRefs?: string[];
   createdAt: string;
 }

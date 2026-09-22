@@ -13,12 +13,11 @@ import {
   countBranchCommits,
   hasAnalysisReport,
   parseWuGitLog,
-  loadCompletionCheckersConfig,
   type CompletionCheckerFns,
   type CompletionGuardDeps,
   type SoftCheckEvent,
 } from '../loop/completion-gates';
-import type { CommitInput, CompletionCheckersConfig } from '@dommaker/harness';
+import type { CommitInput } from '@dommaker/harness';
 import type { WorkUnitData, WorkUnitMetadata } from '../../workunit/workunit.service.js';
 
 const COMMIT_HINT = '有未提交改动，请先 git add/commit 再报告完成';
@@ -297,7 +296,7 @@ describe('completion-gates: T7-E2 软观测段', () => {
 
   function makeSoftDeps(
     fnsOverrides: Partial<CompletionCheckerFns> | null,
-    opts: { commits?: CommitInput[] | null; config?: CompletionCheckersConfig } = {},
+    opts: { commits?: CommitInput[] | null } = {},
   ) {
     const fns: CompletionCheckerFns = {
       verifyTddChain: vi.fn().mockReturnValue({
@@ -315,7 +314,6 @@ describe('completion-gates: T7-E2 软观测段', () => {
     const deps = makeDeps({
       loadCompletionCheckers: vi.fn().mockResolvedValue(fnsOverrides === null ? null : fns),
       readWuCommits: vi.fn().mockReturnValue(opts.commits === undefined ? COMMITS : opts.commits),
-      loadCompletionCheckersConfig: vi.fn().mockReturnValue(opts.config ?? {}),
       writeSoftCheckEvent: vi.fn((e: SoftCheckEvent) => { events.push(e); }),
     });
     return { deps, fns, events };
@@ -382,8 +380,8 @@ describe('completion-gates: T7-E2 软观测段', () => {
     expect(out.action).toBe('complete');
   });
 
-  it('缺 yml 段 = 默认全开：config {} 时 commit 两 checker 均被调用', async () => {
-    const { deps, fns } = makeSoftDeps({}, { config: {} });
+  it('默认配置：commit 两 checker 均以 {} 调用（配置载体已拆，恒默认全开）', async () => {
+    const { deps, fns } = makeSoftDeps({});
     await runCompletionGuards(ctxOf(makeWu(), SOFT_META), deps);
 
     expect(fns.verifyTddChain).toHaveBeenCalledWith(COMMITS, {});
@@ -401,21 +399,18 @@ describe('completion-gates: T7-E2 软观测段', () => {
     expect(out.action).toBe('complete');
   });
 
-  it('圈定口径：review 型契约（contracts 含 review）→ reviewReport 透传，violation 事件 + hint', async () => {
+  it('圈定口径：review 型契约 → reviewReport 透传（默认配置 {}），violation 事件 + hint', async () => {
     // reviewReport 备齐以过收口闸 2（缺报告已在闸 2 硬降级，走不到软观测段）；
     // 本用例只验软观测段把 reviewReport 透传给 harness contract-presence
     const report = { approved: false, reason: '缺测试' };
-    const { deps, fns, events } = makeSoftDeps(
-      {
-        verifyContractPresence: vi.fn().mockReturnValue({
-          checker: 'contract-presence', verdict: 'violation', detail: '类型 review 契约标记缺失',
-        }),
-      },
-      { config: { contracts: ['review'] } },
-    );
+    const { deps, fns, events } = makeSoftDeps({
+      verifyContractPresence: vi.fn().mockReturnValue({
+        checker: 'contract-presence', verdict: 'violation', detail: '类型 review 契约标记缺失',
+      }),
+    });
     const out = await runCompletionGuards(ctxOf(makeWu({ type: 'review' }), { reviewReport: report }), deps);
 
-    expect(fns.verifyContractPresence).toHaveBeenCalledWith('review', { reviewReport: report }, { contracts: ['review'] });
+    expect(fns.verifyContractPresence).toHaveBeenCalledWith('review', { reviewReport: report }, {});
     expect(events).toContainEqual(expect.objectContaining({ checker: 'contract-presence', verdict: 'violation' }));
     expect(out.guardUpdates.processCheckHint).toContain('[contract-presence]');
     expect(out.action).toBe('complete');
@@ -656,45 +651,5 @@ describe('completion-gates: T7-E2 parseWuGitLog（git log %(trailers) 输出解�
 
   it('空输出（base..HEAD 零提交）→ 空数组', () => {
     expect(parseWuGitLog('')).toEqual([]);
-  });
-});
-
-describe('completion-gates: T7-E2 loadCompletionCheckersConfig（yml 现读现解）', () => {
-  it('文件缺失 / 缺 completion_checkers 段 / 坏 yml → {}（默认全开）', () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cg-cfg-'));
-    try {
-      expect(loadCompletionCheckersConfig(dir)).toEqual({});
-
-      fs.mkdirSync(path.join(dir, '.harness'));
-      fs.writeFileSync(path.join(dir, '.harness', 'custom-constraints.yml'), 'custom_constraints: {}\n');
-      expect(loadCompletionCheckersConfig(dir)).toEqual({});
-
-      fs.writeFileSync(path.join(dir, '.harness', 'custom-constraints.yml'), ':\n  - [broken');
-      expect(loadCompletionCheckersConfig(dir)).toEqual({});
-    } finally {
-      fs.rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
-  it('completion_checkers 段在场 → 原样取出（开关/glob/contracts 透传 harness）', () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cg-cfg-'));
-    try {
-      fs.mkdirSync(path.join(dir, '.harness'));
-      fs.writeFileSync(path.join(dir, '.harness', 'custom-constraints.yml'), [
-        'completion_checkers:',
-        '  checkers:',
-        '    phaseFormat: false',
-        '  testGlobs: ["**/*.spec.ts"]',
-        '  contracts: ["review"]',
-        '',
-      ].join('\n'));
-      expect(loadCompletionCheckersConfig(dir)).toEqual({
-        checkers: { phaseFormat: false },
-        testGlobs: ['**/*.spec.ts'],
-        contracts: ['review'],
-      });
-    } finally {
-      fs.rmSync(dir, { recursive: true, force: true });
-    }
   });
 });

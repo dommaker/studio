@@ -23,6 +23,10 @@ import { sharedStore, sharedLifecycle } from '../../knowledge/knowledge-singleto
 import { knowledgeSync } from '../../knowledge/knowledge-sync.service.js';
 import { emitMonitorEvent } from './monitor-alerts.js';
 import { readDiskUsage, readMemoryUsage, countZombieProcesses } from '../ops/proc-probes.js';
+import { readStudioEventsSince } from '../../../utils/studio-events-tail.js';
+
+// #611: knowledge:consumption 连续 N 天为 0 → 消费链路疑似断裂（probe 去假绿后此告警才可信）
+const CONSUMPTION_SILENCE_DAYS = 3;
 
 // worktree GC 目录口径：WORKTREES_DIR > ~/worktrees，与 agent-loop.resolveWorktreesDir
 // 创建侧一致。按调用时解析（非模块加载期），保证 env 覆盖/HOME 变更当轮生效。
@@ -202,6 +206,25 @@ export async function checkKnowledgeHealth(state: KnowledgeCycleState): Promise<
           message: `Decay: ${decayChanges.length} entries, Auto-fixed: ${lintReport.fixed} issues`,
           timestamp: Date.now(),
         });
+      }
+
+      // #611: consumption 归零告警——日级门控内检查，连续 N 天无 knowledge:consumption
+      // 事件说明消费链路断裂（recordReference → onReference → 事件落盘任一环）。
+      try {
+        const sinceMs = Date.now() - CONSUMPTION_SILENCE_DAYS * 24 * 60 * 60_000;
+        const recentEvents = await readStudioEventsSince({ sinceMs });
+        const consumptionCount = recentEvents.filter(e => e.type === 'knowledge:consumption').length;
+        if (consumptionCount === 0) {
+          emitMonitorEvent({
+            type: 'monitor:alert',
+            level: 'warning',
+            source: 'knowledge_consumption_silence',
+            message: `knowledge:consumption 连续 ${CONSUMPTION_SILENCE_DAYS} 天为 0 —— 消费链路疑似断裂（见 #611）`,
+            timestamp: Date.now(),
+          });
+        }
+      } catch (e) {
+        logger.warn('[MonitorService] Consumption silence check failed', { error: String(e) });
       }
     }
   } catch (err) {

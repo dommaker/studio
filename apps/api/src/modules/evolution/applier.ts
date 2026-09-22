@@ -4,34 +4,64 @@
  * 仅在人类批准后由 EvolutionService.decide('approve') 调用 —— 绝不自动生效。
  * 所有写入前先备份目标文件（`<target>.bak-<ts>`），写入失败可人工回滚。
  *
- * 各 targetType 的写入目标（设计决策，见 docs/plans/2026-07-flywheel-repair.md §4 E1）：
- *   - iron-law / guideline → **落点已退役**（harness 1.10.0 / ADR-0029 关停文本注入层，
- *     custom-constraints.yml 不再被读取）。applyProposal 对该类提案在落笔前直接抛错，
- *     提案停在 approved 可重试；下方文本手术函数暂留（`retireConstraintEntry` 仍被
- *     distill 复用），待 #602 裁定新落点后一并处置。
- *       · 历史落点：`<repoRoot>/.harness/custom-constraints.yml` —— amend 文本级替换
- *         `message:` 行；内置约束改 message 走尾部追加 shadow 条目；new-entry 追加完整条目；
- *         retire 条目内追加 retired 元数据段（#82 D6）。
+ * 各 targetType 的写入目标：
+ *   - iron-law / guideline → **#602 D1 新落点：`<repoRoot>/.harness/config.yml`**
+ *       （harness 约束唯一真实生效形态，`getEffectiveConstraints` 读它覆盖内置集）。
+ *       动作集已收敛（M3.2），仅两类：
+ *       · retire（M3.3）：**复用 harness `constraints retire <id> --yes` CLI**
+ *         （studio node_modules 的 harness 1.10.0 barrel 未导出 retireConstraint，
+ *         走 CLI 同时天然规避 barrel 冻结闸）。config.yml 墓碑与
+ *         `constraint-retired-<id>` 知识条目（飞轮唯一自动入水口）都由 harness 写，
+ *         applier 不自写 config.yml 绕开；频道 approve 即执行层人确认，故直达带 --yes。
+ *         写后双验证（生效集缩小 + retired 墓碑落盘，不依赖 CLI stdout 文案），失败回滚
+ *         备份；幂等短路只认 retired 墓碑——裸 disable（enabled:false 无墓碑）走升级
+ *         路径摘除 enabled 标记后交 CLI 补退役（详见 applyConstraintRetire 注释）。
+ *       · disable：enabled:false 无墓碑（harness 无 disable 子命令/函数，且 disable
+ *         无知识条目语义——墓碑与沉淀是 retire 专有），同一验证+回滚纪律。
+ *       生效后（M3.5）立即 `git -C <repoRoot> add .harness/config.yml && git commit`
+ *       自动留痕：正文带提案号，trailer `Governance-Approved: EP-XXXX`；commit 失败
+ *       降级为 warn 日志 + ApplyResult.trail.committed=false，不阻断生效结果。
+ *       退休生效后追加两个跟进动作（ADR-0032 决策 6.1/6.2，票 02 断点 1/2）：
+ *       · spawn harness CLI 时显式传 `KNOWLEDGE_BASE_DIR=UNIFIED_KNOWLEDGE_DIR`——
+ *         退休沉淀落唯一正本 ~/.studio/knowledge，不靠 harness 侧已退役的目录兼容分叉；
+ *       · 成功后调 `scheduleVectorDbSync()` 触发向量同步，不等入库事件的顺风车。
+ *       存量历史词表（message/new-entry/exception）在 harness 1.10.0（ADR-0029 文本层
+ *       关停）无生效落点，落笔前拒绝（service 层保持 approved 可重试）。
+ *       · 历史落点：`<repoRoot>/.harness/custom-constraints.yml`（#606 起 harness 不再读取；
+ *         配套的 `retireConstraintEntry` 文本手术已随 #617 连同 distill 审计子通道拆除）。
  *   - prompt-template → `~/.studio/prompt-overrides/<templateId>.md`（STUDIO_PROMPT_OVERRIDES_DIR
  *       可覆盖）。prompt 模板是 TS 内联常量，**不改写源码**，构建时经
- *       renderWithOverride/readPromptOverride 读取覆盖文件。
+ *       renderWithOverride/readPromptOverride 读取覆盖文件（#602 D3 已接生产读者）。
  *   - role-preset → `<repoRoot>/.agents/roles/<name>.yaml`：替换 `persona:` 字段
  *       （文本级块标量替换；写后用 js-yaml 校验，失败则从备份恢复并抛错）。
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import { execFile } from 'node:child_process';
+import { createRequire } from 'node:module';
 import yaml from 'js-yaml';
-import { CONSTRAINTS } from '@dommaker/harness';
+import { CONSTRAINTS, getEffectiveConstraints } from '@dommaker/harness';
 import {
+  logger,
   resolvePromptOverridesDir,
   type EvolutionProposalData,
 } from '@dommaker/studio-shared';
 import type { EvolutionPaths } from './signals.js';
+import { scheduleVectorDbSync, UNIFIED_KNOWLEDGE_DIR } from '../knowledge/knowledge-singletons.js';
+
+/** M3.5 生效留痕结果：commit 失败不阻断生效（config 已生效是事实），经 trail 暴露失败状态 */
+export interface CommitTrail {
+  committed: boolean;
+  sha?: string;
+  error?: string;
+}
 
 export interface ApplyResult {
   targetPath: string;
   backupPath: string | null;
   detail: string;
+  /** M3.5：config.yml 生效后的自动 commit 留痕（仅约束类提案；幂等未写文件时缺省） */
+  trail?: CommitTrail;
 }
 
 /** 写入前备份。目标不存在（新建文件）→ 无需备份，返回 null。 */
@@ -41,11 +71,6 @@ async function backupFile(targetPath: string): Promise<string | null> {
   const backupPath = `${targetPath}.bak-${ts}`;
   await fs.promises.copyFile(targetPath, backupPath);
   return backupPath;
-}
-
-/** YAML 安全双引号标量（JSON 字符串是合法 YAML flow scalar）。 */
-function yamlStr(s: string): string {
-  return JSON.stringify(s);
 }
 
 interface BuiltinConstraintDef {
@@ -62,139 +87,185 @@ function findBuiltinConstraint(id: string): BuiltinConstraintDef | null {
   return (CONSTRAINTS as Record<string, BuiltinConstraintDef>)[id] ?? null;
 }
 
-function levelOf(proposal: EvolutionProposalData): string {
-  return proposal.targetType === 'iron-law' ? 'iron_law' : 'guideline';
+interface CmdResult { code: number; stdout: string; stderr: string }
+
+/** spawn 外部命令，退出码归一化（非零退出不 reject；ENOENT/超时等 spawn 级错误并入 stderr）；env 增量合并进 process.env */
+function runCmd(cmd: string, args: string[], env?: NodeJS.ProcessEnv): Promise<CmdResult> {
+  return new Promise((resolve) => {
+    execFile(cmd, args, { timeout: 60_000, maxBuffer: 8 * 1024 * 1024, ...(env ? { env: { ...process.env, ...env } } : {}) }, (err, stdout, stderr) => {
+      const exitCode = typeof (err as { code?: unknown } | null)?.code === 'number'
+        ? (err as unknown as { code: number }).code
+        : err ? 1 : 0;
+      const spawnErr = err && typeof (err as { code?: unknown }).code !== 'number' ? String(err) : '';
+      resolve({ code: exitCode, stdout: String(stdout), stderr: [String(stderr).trim(), spawnErr].filter(Boolean).join('\n') });
+    });
+  });
 }
 
-/** 读取自定义约束文件（缺失/损坏 → {}）。 */
-export function loadCustomConstraints(constraintsFile: string): Record<string, Record<string, unknown>> {
+let _harnessBin: string | null = null;
+/**
+ * harness CLI bin 路径：从本仓依赖解析（main = dist/index.js → ../bin/harness.js），
+ * 不走 `npx harness`——repoRoot 是目标项目目录，未必装有 harness，npx 有联网拉取风险。
+ * 先例（output-capture 的 npx 用法）是取数场景，生效写路径要求确定性解析。
+ */
+function resolveHarnessBin(): string {
+  if (_harnessBin) return _harnessBin;
+  const req = createRequire(import.meta.url);
+  const entry = req.resolve('@dommaker/harness');
+  _harnessBin = path.join(path.dirname(entry), '..', 'bin', 'harness.js');
+  return _harnessBin;
+}
+
+/** 读 config.yml 的 constraints 段（不存在 → 空）。 */
+function readConfigConstraints(targetPath: string): Record<string, Record<string, unknown>> {
+  if (!fs.existsSync(targetPath)) return {};
+  const raw = (yaml.load(fs.readFileSync(targetPath, 'utf-8')) as Record<string, unknown> | null) ?? {};
+  return { ...((raw.constraints ?? {}) as Record<string, Record<string, unknown>>) };
+}
+
+/**
+ * #602 D1 + M3.3：retire 提案落点 —— 复用 harness `constraints retire <id> --yes` CLI
+ * （harness 1.10.0 barrel 未导出 retireConstraint，CLI 路径零公共面变更、规避 barrel
+ * 冻结闸；频道 approve 即 ADR-0001 决策 2 的执行层人确认，故直达显式 --yes）。
+ * config.yml 墓碑与 constraint-retired-<id> 知识条目（consumptionMode:'signal'，飞轮
+ * 唯一自动入水口）由 harness 单侧写入——applier 禁止自写 config.yml 绕开。
+ *
+ * 幂等短路只看 retired 墓碑（`constraints.<id>.retired`），不看 enabled:false：
+ * harness 1.10.0 的 already_retired 保护只认 enabled:false，裸 disable（无墓碑）若
+ * 直接 spawn 会被 CLI 幂等吞掉——无墓碑、无知识条目，恰好绕开飞轮唯一自动入水口。
+ * 故 disable→retire 升级路径先摘除裸 disable 的 enabled 标记（备份已留，失败回滚；
+ * 这不是自写墓碑绕开 CLI，而是清掉会让 CLI 误短路的旧状态），再交 CLI 完成真退役。
+ *
+ * 结果判定不依赖 CLI stdout 文案（harness 改文案即静默误判，且 retired/already_retired/
+ * unknown_id 对外退出码同为 0——bin exitCodeFor 把 skip 也映射 0）：以退出码 + 写后
+ * 双验证为准（生效集已缩小 + config.yml 已出现 retired 墓碑），验证失败回滚备份并抛错。
+ */
+async function applyConstraintRetire(
+  proposal: EvolutionProposalData,
+  paths: EvolutionPaths,
+): Promise<{ targetPath: string; backupPath: string | null; detail: string; wrote: boolean }> {
+  const id = proposal.targetId;
+  if (!findBuiltinConstraint(id)) {
+    throw new Error(`cannot retire unknown constraint '${id}': 非内置约束（E1 retire 只处理 harness 内置 check 约束）`);
+  }
+  const targetPath = path.join(paths.repoRoot, '.harness', 'config.yml');
+  const prevEntry = readConfigConstraints(targetPath)[id];
+  // 真已退役 = 有 retired 墓碑（retire 落盘形态：enabled:false + retired:{at,reason,stats}）
+  if (prevEntry?.enabled === false && prevEntry?.retired) {
+    return { targetPath, backupPath: null, detail: `constraint '${id}' already retired (config.yml retired 墓碑)`, wrote: false };
+  }
+
+  const backupPath = await backupFile(targetPath);
+  // disable→retire 升级：摘除裸 disable 的 enabled 标记，否则 CLI 的 already_retired
+  // 保护（只认 enabled:false）会短路，拿不到墓碑与知识条目
+  if (prevEntry?.enabled === false) {
+    const raw = (yaml.load(fs.readFileSync(targetPath, 'utf-8')) as Record<string, unknown> | null) ?? {};
+    const constraints = { ...((raw.constraints ?? {}) as Record<string, Record<string, unknown>>) };
+    const { enabled: _dropped, ...rest } = constraints[id] ?? {};
+    constraints[id] = rest;
+    fs.writeFileSync(targetPath, yaml.dump({ ...raw, constraints }, { lineWidth: 120 }), 'utf-8');
+  }
+
+  const reason = proposal.proposedText || proposal.rationale.split('\n')[0];
+  // KNOWLEDGE_BASE_DIR 显式钉唯一正本（ADR-0034 目录收编，票 02 断点 1）：退休沉淀落
+  // ~/.studio/knowledge，不依赖 harness 侧已退役的 legacy 目录兼容；旧版 harness（pre-#177）
+  // 写口硬编码 repoRoot 会忽略此 env——无害降级，harness 升级后自动生效。
+  const res = await runCmd(process.execPath, [
+    resolveHarnessBin(), 'constraints', 'retire', id, '--yes', '--reason', reason, '-p', paths.repoRoot,
+  ], { KNOWLEDGE_BASE_DIR: UNIFIED_KNOWLEDGE_DIR });
+  if (res.code !== 0) {
+    if (backupPath) fs.copyFileSync(backupPath, targetPath);
+    else fs.rmSync(targetPath, { force: true });
+    throw new Error(`harness constraints retire ${id} failed (exit ${res.code}): ${(res.stderr || res.stdout).slice(0, 400)}`);
+  }
+
+  // 写后双验证（替代 CLI stdout 文案匹配）：生效集必须已不含该约束，且 config.yml
+  // 必须出现 retired 墓碑（墓碑缺失 = CLI 未真正退役，如被其内部保护短路）；
+  // 失败回滚 config.yml（知识条目已沉淀则保留——signal 条目无害，恢复约束 = 删
+  // config.yml 中该段）
   try {
-    if (!fs.existsSync(constraintsFile)) return {};
-    const loaded = yaml.load(fs.readFileSync(constraintsFile, 'utf-8')) as { custom_constraints?: Record<string, Record<string, unknown>> } | null;
-    return loaded?.custom_constraints ?? {};
-  } catch {
-    return {};
+    if (getEffectiveConstraints(paths.repoRoot).some(c => c.id === id)) {
+      throw new Error('constraint still present in effective set after retire');
+    }
+    if (!readConfigConstraints(targetPath)[id]?.retired) {
+      throw new Error(`retired tombstone missing in config.yml after retire (CLI exit 0 但未落墓碑): ${res.stdout.slice(0, 200)}`);
+    }
+  } catch (err) {
+    if (backupPath) fs.copyFileSync(backupPath, targetPath);
+    else fs.rmSync(targetPath, { force: true });
+    throw new Error(`constraint retire failed verification, restored backup: ${String(err)}`);
   }
+  // 票 02 断点 2：退休沉淀由 harness CLI 子进程直写磁盘（不经 ingestWithQualityGate），
+  // 现有同步触发点天然漏掉它——退休事件自己触发向量同步，不等顺风车；fire-and-forget，
+  // 防抖/互斥/重试都在 scheduleVectorDbSync 内部，失败不阻断退休结果。
+  scheduleVectorDbSync();
+  return { targetPath, backupPath, detail: `retired builtin constraint '${id}' via harness constraints retire CLI（含 constraint-retired-${id} 知识条目）`, wrote: true };
 }
 
 /**
- * 文本级手术：替换 custom-constraints.yml 中既有条目的 `message:` 行。
- * 条目定位：`custom_constraints:` 下 2 空格缩进的 `<id>:` 键；条目块到下一个
- * 同级键或文件尾。找不到条目 → null（调用方走追加 shadow 路径）。
+ * M3.2：disable 提案落点 —— config.yml `constraints.<id>.enabled=false`，无 retired
+ * 墓碑。harness 无 disable 子命令/函数（墓碑与知识沉淀是 retire 专有语义），此处直写
+ * config.yml 不涉绕开飞轮入水口。同一验证+回滚纪律；幂等 already disabled。
  */
-export function amendConstraintMessage(content: string, id: string, newMessage: string): string | null {
-  const lines = content.split('\n');
-  const start = lines.findIndex(l => l.trimEnd() === `  ${id}:`);
-  if (start === -1) return null;
-  let end = lines.length;
-  for (let i = start + 1; i < lines.length; i++) {
-    if (/^ {2}\S/.test(lines[i])) { end = i; break; }
+async function applyConstraintDisable(
+  proposal: EvolutionProposalData,
+  paths: EvolutionPaths,
+): Promise<{ targetPath: string; backupPath: string | null; detail: string; wrote: boolean }> {
+  const id = proposal.targetId;
+  if (!findBuiltinConstraint(id)) {
+    throw new Error(`cannot disable unknown constraint '${id}': 非内置约束（E1 disable 只处理 harness 内置 check 约束）`);
   }
-  for (let i = start + 1; i < end; i++) {
-    if (/^ {4}message:/.test(lines[i])) {
-      lines[i] = `    message: ${yamlStr(newMessage)}`;
-      return lines.join('\n');
-    }
+  const targetPath = path.join(paths.repoRoot, '.harness', 'config.yml');
+  const constraints = readConfigConstraints(targetPath);
+  const prev = constraints[id] ?? {};
+  if (prev.enabled === false) {
+    return { targetPath, backupPath: null, detail: `constraint '${id}' already disabled (config.yml enabled:false)`, wrote: false };
   }
-  // 条目无 message 行 → 插到条目首行之后
-  lines.splice(start + 1, 0, `    message: ${yamlStr(newMessage)}`);
-  return lines.join('\n');
-}
 
-/** 文件尾追加一个自定义约束条目（保证 `custom_constraints:` 头存在、单换行结尾）。 */
-function appendConstraintEntry(content: string, id: string, entryLines: string[], comment: string): string {
-  let base = content;
-  if (!/custom_constraints:/m.test(base)) {
-    base = `${base.replace(/\s*$/, '')}\n\ncustom_constraints:\n`;
+  const raw = fs.existsSync(targetPath)
+    ? (yaml.load(fs.readFileSync(targetPath, 'utf-8')) as Record<string, unknown> | null) ?? {}
+    : {};
+  constraints[id] = { ...prev, enabled: false };
+  const next = { ...raw, constraints };
+
+  const backupPath = await backupFile(targetPath);
+  fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+  fs.writeFileSync(targetPath, yaml.dump(next, { lineWidth: 120 }), 'utf-8');
+
+  try {
+    if (getEffectiveConstraints(paths.repoRoot).some(c => c.id === id)) {
+      throw new Error('constraint still present in effective set after disable');
+    }
+  } catch (err) {
+    if (backupPath) fs.copyFileSync(backupPath, targetPath);
+    else fs.rmSync(targetPath, { force: true });
+    throw new Error(`constraint disable failed verification, restored backup: ${String(err)}`);
   }
-  base = base.replace(/\s*$/, '') + '\n';
-  return `${base}\n  # ${comment}\n  ${id}:\n${entryLines.map(l => `    ${l}`).join('\n')}\n`;
+  return { targetPath, backupPath, detail: `disabled builtin constraint '${id}' via config.yml (enabled:false，无 retired 墓碑)`, wrote: true };
 }
 
 /**
- * 文本级手术：在 custom-constraints.yml 既有条目内追加 retired 元数据段
- * （#82 D6 统一落点，保留规则原文）。条目定位与 amend 一致。
- * 条目不存在 / 已含 retired 段 → null（调用方分别处理）。
+ * M3.5：config.yml 生效留痕 —— 立即自动 commit 直落当前分支（生产即 master）。
+ * 只 add `.harness/config.yml` 单文件（绝不 `git add -A`）；message 正文带提案号，
+ * trailer `Governance-Approved: EP-XXXX`（词表扩展出处：M3.5 口径，2026-09-21 人闸）。
+ * 降级：无 git 环境 / 工作区冲突 / identity 缺失等失败 → warn 日志 + committed:false，
+ * 不阻断生效结果（config 已生效是事实）；失败状态经 ApplyResult.trail 暴露给事件流。
  */
-export function retireConstraintEntry(content: string, id: string, retired: { at: string; reason: string }): string | null {
-  const lines = content.split('\n');
-  const start = lines.findIndex(l => l.trimEnd() === `  ${id}:`);
-  if (start === -1) return null;
-  let end = lines.length;
-  for (let i = start + 1; i < lines.length; i++) {
-    if (/^ {2}\S/.test(lines[i])) { end = i; break; }
+async function commitConfigTrail(repoRoot: string, proposal: EvolutionProposalData): Promise<CommitTrail> {
+  const relPath = '.harness/config.yml';
+  try {
+    const add = await runCmd('git', ['-C', repoRoot, 'add', '--', relPath]);
+    if (add.code !== 0) throw new Error(`git add ${relPath} failed: ${(add.stderr || add.stdout).slice(0, 300)}`);
+    const subject = `chore(evolution): ${proposal.constraintChange} constraint ${proposal.targetId} (${proposal.id})`;
+    const body = `飞轮提案自动生效留痕：${proposal.id}（${proposal.constraintChange} ${proposal.targetId}）\n\nGovernance-Approved: ${proposal.id}`;
+    const commit = await runCmd('git', ['-C', repoRoot, 'commit', '-m', subject, '-m', body]);
+    if (commit.code !== 0) throw new Error(`git commit failed: ${(commit.stderr || commit.stdout).slice(0, 300)}`);
+    const head = await runCmd('git', ['-C', repoRoot, 'rev-parse', 'HEAD']);
+    return { committed: true, ...(head.code === 0 ? { sha: head.stdout.trim() } : {}) };
+  } catch (err) {
+    logger.warn('[Evolution] config.yml 生效留痕 commit 失败（不阻断生效结果）', { id: proposal.id, error: String(err) });
+    return { committed: false, error: String(err) };
   }
-  const block = lines.slice(start + 1, end);
-  if (block.some(l => /^ {4}retired:/.test(l))) return null; // 已退役
-  lines.splice(start + 1, 0,
-    `    retired:`,
-    `      at: ${yamlStr(retired.at)}`,
-    `      reason: ${yamlStr(retired.reason)}`,
-  );
-  return lines.join('\n');
-}
-
-function applyConstraintChange(proposal: EvolutionProposalData, constraintsFile: string): { detail: string } {
-  const { targetId: id, constraintChange } = proposal;
-  const custom = loadCustomConstraints(constraintsFile);
-  const builtin = findBuiltinConstraint(id);
-  const level = levelOf(proposal);
-  const comment = `${proposal.id}: ${proposal.rationale.split('\n')[0].slice(0, 80)}`;
-
-  // retire：既有 custom 条目内追加 retired 元数据段（#82 D6 统一落点）。
-  // 内置约束退役不走 E1（harness constraints retire → config.yml）。
-  if (constraintChange === 'retire') {
-    if (!custom[id]) {
-      throw new Error(`cannot retire '${id}': no custom-constraints.yml entry（内置约束退役走 harness constraints retire → config.yml）`);
-    }
-    const content = fs.existsSync(constraintsFile) ? fs.readFileSync(constraintsFile, 'utf-8') : '';
-    const reason = proposal.proposedText || proposal.rationale.split('\n')[0];
-    const next = retireConstraintEntry(content, id, { at: new Date().toISOString(), reason });
-    if (next === null) {
-      return { detail: `custom constraint '${id}' already retired` };
-    }
-    fs.writeFileSync(constraintsFile, next, 'utf-8');
-    return { detail: `retired custom constraint '${id}'` };
-  }
-
-  const content = fs.existsSync(constraintsFile) ? fs.readFileSync(constraintsFile, 'utf-8') : '# 自定义约束配置 — Studio 项目专属\n\ncustom_constraints:\n';
-
-  // amend：条目在自定义文件中 → 文本级替换 message 行
-  if (proposal.action === 'amend' && custom[id]) {
-    const amended = amendConstraintMessage(content, id, proposal.proposedText);
-    if (amended !== null) {
-      fs.writeFileSync(constraintsFile, amended, 'utf-8');
-      return { detail: `amended message of custom constraint '${id}'` };
-    }
-    // 文本定位失败（异常格式）→ 退化为追加 shadow 条目（loader 按 id 覆盖）
-  }
-
-  if (constraintChange === 'new-entry') {
-    const next = appendConstraintEntry(content, id, [
-      `id: ${id}`,
-      `level: ${level}`,
-      `rule: ${yamlStr(id.replace(/_/g, ' ').toUpperCase())}`,
-      `message: ${yamlStr(proposal.proposedText)}`,
-      `trigger: ["code_implementation"]`,
-      `description: ${yamlStr(proposal.rationale.slice(0, 200))}`,
-    ], comment);
-    fs.writeFileSync(constraintsFile, next, 'utf-8');
-    return { detail: `appended new constraint entry '${id}'` };
-  }
-
-  // message 修改但条目不在自定义文件 → 追加内置定义的完整 shadow（仅改 message）
-  const rule = builtin?.rule ?? id.replace(/_/g, ' ').toUpperCase();
-  const trigger = Array.isArray(builtin?.trigger) ? builtin.trigger : [builtin?.trigger ?? 'code_implementation'];
-  const next = appendConstraintEntry(content, id, [
-    `id: ${id}`,
-    `level: ${level}`,
-    `rule: ${yamlStr(String(rule))}`,
-    `message: ${yamlStr(proposal.proposedText)}`,
-    `trigger: [${trigger.map(t => yamlStr(String(t))).join(', ')}]`,
-    `description: ${yamlStr(String(builtin?.description ?? proposal.rationale.slice(0, 200)))}`,
-  ], comment);
-  fs.writeFileSync(constraintsFile, next, 'utf-8');
-  return { detail: `appended shadow entry overriding message of builtin '${id}'` };
 }
 
 /**
@@ -269,12 +340,23 @@ export async function applyProposal(
   switch (proposal.targetType) {
     case 'iron-law':
     case 'guideline': {
-      // harness 1.10.0（ADR-0029 决策 4）关停文本注入层后，custom-constraints.yml 不再被
-      // 读取——写它只会凭空重建一个无人消费的文件，并让提案显示「已生效」。
-      // 故在落笔前拒绝：service 层保持 status='approved' + APPLY_FAILED，正式落点待 #602 裁。
+      // #602 D1：retire/disable 落点 = .harness/config.yml；M3.3 retire 复用 harness CLI。
+      const applied = proposal.constraintChange === 'retire'
+        ? await applyConstraintRetire(proposal, paths)
+        : proposal.constraintChange === 'disable'
+          ? await applyConstraintDisable(proposal, paths)
+          : null;
+      if (applied) {
+        // M3.5：生效后立即自动 commit 留痕（幂等未写文件 → 无 commit）；失败降级不阻断
+        const trail = applied.wrote ? await commitConfigTrail(paths.repoRoot, proposal) : undefined;
+        return { targetPath: applied.targetPath, backupPath: applied.backupPath, detail: applied.detail, ...(trail ? { trail } : {}) };
+      }
+      // M3.2 动作集收敛：词表只剩 retire/disable；存量历史提案（message/new-entry/
+      // exception）在 harness 1.10.0（ADR-0029 决策 4）后无生效落点——落笔前拒绝，
+      // service 层保持 status='approved' + APPLY_FAILED 可重试。
       throw new Error(
-        `约束类提案（${proposal.targetType}）落点已退役：harness 1.10.0 起 custom-constraints.yml 不再被读取，` +
-        `批准也不会改变生效集。E1 约束进化的新落点见 #602。`,
+        `约束类提案（${proposal.targetType}/${String(proposal.constraintChange ?? 'message')}）落点已退役：` +
+        `harness 1.10.0 起仅 retire/disable 有真实落点（config.yml），文案/例外类变更无消费端。`,
       );
     }
     case 'prompt-template':

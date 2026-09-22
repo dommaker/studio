@@ -345,7 +345,7 @@ describe('MonitoringPage', () => {
     expect(screen.getByTestId('proposals-stat').textContent).toBe('1');
   });
 
-  // ── #473：审批前可见详情 + 两步确认（对照频道 ReviewProposalCard twoStepApprove）──
+  // ── #473：审批前可见详情 + 两步确认 ──
 
   it('两步确认：首次点「通过」不调 promote，仅转入待确认态；再次点击才执行', async () => {
     render(<MonitoringPage />);

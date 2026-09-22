@@ -7,7 +7,7 @@
  *   POST /api/v1/evolution/proposals/:id/reject            拒绝（body: { reason? }）
  *   POST /api/v1/evolution/run                             手动触发一轮提案生成
  *
- * 决策路径与频道回复（approve/reject EP-XXXX）共用 EvolutionService.decide —— 同一幂等语义。
+ * 决策路径与提案卡审批（/review-proposals/evolution/:id/*）共用 EvolutionService.decide —— 同一幂等语义。
  */
 import { Router, type Request, type Response } from 'express';
 import { EvolutionError, EvolutionService, getEvolutionService } from './evolution.service.js';

@@ -55,8 +55,8 @@ pnpm start  # 启动生产服务
 > 以下两条文本由原注入段承接迁入本段（studio#606，治理人闸 2026-09-20 当场通过）。
 > `no_completion_without_verification` 的 checker 机制本体仍在 harness 机制面，此处只承接文本。
 
-- **no_completion_without_verification**（harness 内置 checker，severity=error）：在声明任务完成前，必须重新运行新鲜的验证命令——受改动影响的测试（vitest run --changed origin/master）+ type check，使用新鲜的输出作为完成证据，不得复用旧结果。全量测试由 CI / 发布流程兜底。（文本采用原 .harness/custom-constraints.yml 的 studio 覆写口径，2026-08-14 决策；#606 迁入，2026-09-20）
-- **public_repo_sanitization**（纯文本治理约束，无 checker，**违反即停——非建议**）：本仓为公开仓库，任何写入内容（代码、文档、注释、测试数据、commit message）提交前必须脱敏自查：禁止写入凭证/密钥、内部基础设施信息（主机名、内网域名、IP、部署路径、运维流程细节）、私有仓库内容、个人隐私数据。从私有配置仓复制配置或文档时必须重新逐行审查。规则文本本身也不得列举具体敏感值。（出处：2026-08-26 公开仓安全脱敏决策；#606 自 custom-constraints.yml 迁入，2026-09-20。阻断口径承接自旧注入段的 Iron Laws 分级——机制无 checker 不等于可建议性遵守；2026-09-21 治理人闸当场通过）
+- **no_completion_without_verification**（harness 内置 checker，severity=error）：在声明任务完成前，必须重新运行新鲜的验证命令——受改动影响的测试（vitest run --changed origin/master）+ type check，使用新鲜的输出作为完成证据，不得复用旧结果。全量测试由 CI / 发布流程兜底。（文本原采用 .harness/custom-constraints.yml 的 studio 覆写口径——该文件已随 ADR-0029/#606 退役、仓内运行时通道随 #617 拆除；2026-08-14 决策；#606 迁入，2026-09-20）
+- **public_repo_sanitization**（纯文本治理约束，无 checker，**违反即停——非建议**）：本仓为公开仓库，任何写入内容（代码、文档、注释、测试数据、commit message）提交前必须脱敏自查：禁止写入凭证/密钥、内部基础设施信息（主机名、内网域名、IP、部署路径、运维流程细节）、私有仓库内容、个人隐私数据。从私有配置仓复制配置或文档时必须重新逐行审查。规则文本本身也不得列举具体敏感值。（出处：2026-08-26 公开仓安全脱敏决策；#606 自 custom-constraints.yml 迁入（该文件已退役、仓内运行时通道随 #617 拆除），2026-09-20。阻断口径承接自旧注入段的 Iron Laws 分级——机制无 checker 不等于可建议性遵守；2026-09-21 治理人闸当场通过）
 
 ## 探索结论沉淀
 
@@ -78,7 +78,7 @@ pnpm start  # 启动生产服务
 
 - **治理内容清单**：本段（`PRESERVE:governance`）+ 其他手写 PRESERVE 段（如 `PRESERVE:agent-skills`）+ CONTEXT.md 中标「治理变更」的条目（如工单类型词表）。机器可再生的内容（AGENTS.md 生成段、模块索引、CAPABILITIES.md）不在此列——不设审批，过时重新生成，禁止手改。
 - **人闸两种情形**：人在会话中 → 改动前摆出「改哪条、为什么」，人确认才动手；无人在场（定时/事件触发） → 禁止直接改，建「待确认」状态的工单等人批准（与工单创建的人闸同一套机制，出处 #126/#130）。
-- **留痕**：commit 必带 trailer `Governance-Approved: session`（当场确认）或 `Governance-Approved: #<单号>`（走单批准）；条文旁注明出处与日期。
+- **留痕**：commit 必带 trailer `Governance-Approved: session`（当场确认）、`Governance-Approved: #<单号>`（走单批准）或 `Governance-Approved: EP-<提案号>`（飞轮提案频道人审——词表扩展，出处：docs/plans/2026-09-flywheel-e1-remediation.md M3.5，2026-09-21 会话当场通过）；条文旁注明出处与日期。
 - **执行**：君子协定不拦截；trailer 即合规数据源，`git log --grep Governance-Approved` 可统计合规率，机器化检查留待数据支撑后再议。
 - docs/vision-2026.md 是架构宪法：修订须逐条当人面过、全票人审，不走本流程（出处 #81）。
 
@@ -134,7 +134,7 @@ pnpm start  # 启动生产服务
 | `apps/api/src/modules/discord` | 处理 Discord 集成，包括命令行 (studio run) 和 Discord 斜杠命令 (/studio run) 共享的命令运行逻辑，以及 Discord 交互端点（按钮点击回调）的路由处理。 |
 | `apps/api/src/modules/distill` | 蒸馏主链路：WU done 钩子跑门槛检测（纯确定性计数，零 LLM）-> 命中发 distill_proposal 卡到 #系统 -> approve 后 system-executor 执行蒸馏 -> 产物入库 + 原料 matu... |
 | `apps/api/src/modules/events` | 提供全局事件系统：StudioEvent CRUD（G30）、AgentEvent 批量写入（B9-014）、SSE 实时流（HZ-028）、Session 摘要生成（B9-015）。 |
-| `apps/api/src/modules/evolution` | E1 约束进化（vision §6 / docs/plans/2026-07-flywheel-repair.md §4）：从执行 traces/outcomes 中加载信号，生成约束进化提案，经频道人工审核后生效到 harness... |
+| `apps/api/src/modules/evolution` | E1 约束进化（vision §6 / docs/plans/2026-07-flywheel-repair.md §4）：从执行 traces/outcomes 中加载信号，生成约束进化提案，经人审提案卡（review-propos... |
 | `apps/api/src/modules/executions` | 提供执行（execution）相关的 REST API 路由，当前仅包含获取执行列表（GET /）。基于本地 JSONL 文件和 tasks 目录的 FileStore 实现，不依赖已删除的数据库。此模块为遗留接口（LEGACY su... |
 | `apps/api/src/modules/harness` | Harness 监控与治理 API（FL-029 / T-015）：轨迹采集分析、约束生命周期、 |
 | `apps/api/src/modules/knowledge` | 知识引擎：让系统越来越聪明。三层分离架构（Producer → Engine → Consumer）。 |

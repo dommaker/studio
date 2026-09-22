@@ -40,8 +40,9 @@ export interface ReviewProposalAdapterConfig<P extends ReviewProposalBase> {
   fileStore: FileStore;
   /**
    * 自定义存取（可选）：缺省由正本物化 <dataDir>/<storeNamespace>.jsonl。
-   * 仅供存储形态例外域（#353 role-memory：ADR 决策 3 保留 per-role draft.jsonl，
-   * 存量历史行不改写）注入自备 store；其余域一律走默认物化。
+   * 仅供存储形态例外域注入自备 store（#353 role-memory：ADR 决策 3 保留 per-role
+   * draft.jsonl，存量历史行不改写；#623 evolution：EP-XXXX.json 单提案文件 +
+   * flock 序号，存量零迁移）；其余域一律走默认物化。
    */
   store?: ReviewProposalStore<P>;
   /** 卡片作者（缺省 'KK'；auditor 卡保持历史作者 'Auditor'，#356） */

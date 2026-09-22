@@ -36,7 +36,7 @@ beforeEach(async () => {
   service = new EvolutionService({
     fileStore,
     paths: resolveEvolutionPaths({ repoRoot: hoistedHome.dir, eventsDir: path.join(hoistedHome.dir, 'events') }),
-    postToChannel: false,
+    postCard: false,
   });
   // 造一个待审提案
   await fileStore.createEvolutionProposal({
@@ -71,6 +71,18 @@ describe('EvolutionService.decide', () => {
 
   it('unknown id throws NOT_FOUND', async () => {
     await expect(service.decide('EP-9999', 'reject')).rejects.toThrow(/not found/);
+  });
+
+  it('decide on an expired pending marks it stale and conflicts (#602 TTL)', async () => {
+    // 超期未审（TTL=14d）的 pending 不再接受决策，惰性转 stale
+    await fileStore.updateEvolutionProposal('EP-0001', {
+      createdAt: new Date(Date.now() - 20 * 24 * 3600_000).toISOString(),
+    });
+    await expect(service.decide('EP-0001', 'approve')).rejects.toThrow(/超期|stale/);
+    const p = await service.get('EP-0001');
+    expect(p?.status).toBe('stale');
+    expect(p?.staledAt).toBeTruthy();
+    await expect(service.decide('EP-0001', 'reject')).rejects.toThrow(/stale/);
   });
 });
 

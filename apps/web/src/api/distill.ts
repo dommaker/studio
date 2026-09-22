@@ -3,8 +3,6 @@
 //                    reject  → POST /review-proposals/distill/:id/reject（零副作用）
 // gc_proposal 卡       approve → POST /review-proposals/gc/:id/approve（候选条目归档，可恢复）
 //                      reject  → POST /review-proposals/gc/:id/reject（零副作用，人判保留不再提案）
-// constraint_audit 卡  approve → POST /review-proposals/audit/:id/approve（retire 执行，可回滚）
-//                      reject  → POST /review-proposals/audit/:id/reject
 // 刷新后已审态派生     → GET  /review-proposals/:kind/:id/status（按提案状态）
 import { api } from './index';
 
@@ -14,7 +12,6 @@ export type ReviewProposalStatus = 'pending' | 'executed' | 'rejected' | 'failed
 // #351 状态词表唯一口径（distill 超集）：三类提案同一词表
 export type DistillProposalStatus = ReviewProposalStatus;
 export type GcProposalStatus = ReviewProposalStatus;
-export type AuditProposalStatus = ReviewProposalStatus;
 
 export interface DistillApproveResponse {
   success: boolean;
@@ -55,13 +52,4 @@ export const distillApi = {
     api.post(`/review-proposals/gc/${encodeURIComponent(gcProposalId)}/reject`),
   gcProposalStatus: (gcProposalIds: string[]) =>
     fetchStatuses('gc', gcProposalIds),
-  // #146 存量约束审计
-  auditApprove: (auditProposalId: string) =>
-    api.post<{ success: boolean; retiredIds?: string[]; error?: string }>(
-      `/review-proposals/audit/${encodeURIComponent(auditProposalId)}/approve`,
-    ),
-  auditReject: (auditProposalId: string) =>
-    api.post(`/review-proposals/audit/${encodeURIComponent(auditProposalId)}/reject`),
-  auditProposalStatus: (auditProposalIds: string[]) =>
-    fetchStatuses('audit', auditProposalIds),
 };

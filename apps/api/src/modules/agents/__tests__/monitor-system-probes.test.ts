@@ -10,6 +10,7 @@ const {
   mockReadDiskUsage, mockReadMemoryUsage, mockCountZombies,
   mockLogger, mockHandleAlert, mockEmitEvent, mockHealthScore,
   mockRunDecayCycle, mockTryPromote, mockStoreList, mockRunSyncCycle, mockRunDailyMaintenance,
+  mockReadStudioEventsSince,
 } = vi.hoisted(() => {
   const fs = require('fs');
   const path = require('path');
@@ -38,6 +39,7 @@ const {
     mockStoreList: vi.fn(() => [] as any[]),
     mockRunSyncCycle: vi.fn(async () => ({ stale: [] as any[], unmonitored: [] as any[], healed: 0 })),
     mockRunDailyMaintenance: vi.fn(async () => ({})),
+    mockReadStudioEventsSince: vi.fn(async () => [] as any[]),
   };
 });
 
@@ -83,6 +85,10 @@ vi.mock('../triage/triage.service.js', () => ({
 
 vi.mock('../monitor/monitor-alerts.js', () => ({
   emitMonitorEvent: mockEmitEvent,
+}));
+
+vi.mock('../../../utils/studio-events-tail.js', () => ({
+  readStudioEventsSince: mockReadStudioEventsSince,
 }));
 
 vi.mock('../knowledge/knowledge-curator.service.js', () => ({
@@ -265,6 +271,40 @@ describe('checkKnowledgeHealth', () => {
     expect(mockHandleAlert).not.toHaveBeenCalled();
     expect(mockEmitEvent).not.toHaveBeenCalled();
     expect(mockRunDecayCycle).not.toHaveBeenCalled();
+  });
+});
+
+describe('consumption 归零告警（#611：probe 去假绿后补观测）', () => {
+  it('日级门控内 knowledge:consumption 连续 3 天为 0 → monitor:alert warning 出声', async () => {
+    mockReadStudioEventsSince.mockResolvedValueOnce([]);
+    const state = { lastDecayRun: 0, lastPromotionRun: Date.now() };
+
+    await checkKnowledgeHealth(state);
+
+    expect(mockEmitEvent).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'monitor:alert',
+      level: 'warning',
+      source: 'knowledge_consumption_silence',
+    }));
+  });
+
+  it('窗口内有 knowledge:consumption 事件 → 不出声', async () => {
+    mockReadStudioEventsSince.mockResolvedValueOnce([
+      { type: 'knowledge:consumption', createdAt: new Date().toISOString() },
+    ]);
+    const state = { lastDecayRun: 0, lastPromotionRun: Date.now() };
+
+    await checkKnowledgeHealth(state);
+
+    expect(mockEmitEvent.mock.calls.filter(c => c[0]?.source === 'knowledge_consumption_silence')).toHaveLength(0);
+  });
+
+  it('日级门控未到期 → 不读事件、不出声', async () => {
+    const state = { lastDecayRun: Date.now(), lastPromotionRun: Date.now() };
+
+    await checkKnowledgeHealth(state);
+
+    expect(mockReadStudioEventsSince).not.toHaveBeenCalled();
   });
 });
 

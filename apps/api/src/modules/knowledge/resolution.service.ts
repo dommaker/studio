@@ -1,8 +1,12 @@
 /**
  * ResolutionService — RKB 匹配/创建/验证
  *
- * L3~L6 运维配置类知识：错误模式 → 已知解法。
+ * 运维配置类知识：错误模式 → 已知解法。
  * 供 Triage（错误分类时取解法提示）和 Auditor（日审匹配/自动创建）使用。
+ *
+ * maturity/layer 值域对齐 harness 知识 schema（M1，2026-09-21）：
+ * maturity ∈ draft/verified/proven（原 pending/canonical 为未声明脏值，已退役）；
+ * layer 写 StorageLayer 合法值 'project'，原 L3/L4 分层值挪进 tags 保信息。
  *
  * Storage: ~/.studio/knowledge/resolution-{id}.md (frontmatter + body)
  */
@@ -36,11 +40,11 @@ function resolutionFromDoc(id: string, meta: Record<string, any>, body: string):
     id,
     pattern: meta.pattern || '',
     errorClass: meta.errorClass || '',
-    layer: meta.layer || 'L3_tool_behavior',
+    layer: meta.layer || 'project',
     title: meta.title || '',
     fix,
-    status: meta.maturity || 'pending',
-    maturity: meta.maturity || 'pending',
+    status: meta.maturity || 'draft',
+    maturity: meta.maturity || 'draft',
     verifyCount: meta.verifyCount || 0,
     verifiedAt: meta.verifiedAt || null,
     sourceGoalId: meta.sourceGoalId ? String(meta.sourceGoalId) : undefined,
@@ -90,7 +94,7 @@ async function writeResolution(data: {
     errorClass: data.errorClass,
     layer: data.layer,
     title: data.title,
-    maturity: data.status || 'pending',
+    maturity: data.status || 'draft',
     verifyCount: data.verifyCount || 0,
     tags: data.tags || [],
     // #371：自动解析落盘非会话沉淀，标 system 不计入蒸馏 topic 信号
@@ -177,18 +181,18 @@ export class ResolutionService {
         layer: input.layer,
         title: input.title,
         fix: input.fix,
-        status: 'pending',
+        status: 'draft',
         verifyCount: 0,
         sourceGoalId: input.sourceGoalId,
         tags: input.tags || [],
       });
 
-      logger.info('[ResolutionService] Created pending resolution', {
+      logger.info('[ResolutionService] Created draft resolution', {
         id, title: input.title, pattern: input.pattern,
       });
 
       return resolutionFromDoc(id, { pattern: input.pattern, errorClass: input.errorClass,
-        layer: input.layer, title: input.title, maturity: 'pending', verifyCount: 0,
+        layer: input.layer, title: input.title, maturity: 'draft', verifyCount: 0,
         sourceGoalId: input.sourceGoalId, tags: input.tags || [],
         createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
         `# ${input.title}\n\n## Solution\n\n${input.fix}`);
@@ -206,7 +210,8 @@ export class ResolutionService {
 
       const meta = { ...doc.meta };
       const newCount = (Number(meta.verifyCount) || 0) + 1;
-      const newMaturity = newCount >= 3 ? 'canonical' : (newCount >= 1 ? 'verified' : 'pending');
+      // M1：值域对齐 harness schema——proven（原 canonical 为未声明脏值，已退役）
+      const newMaturity = newCount >= 3 ? 'proven' : (newCount >= 1 ? 'verified' : 'draft');
 
       meta.verifyCount = newCount;
       meta.maturity = newMaturity;
@@ -217,7 +222,7 @@ export class ResolutionService {
 
       logger.info('[ResolutionService] Verified resolution', { id, verifyCount: newCount, status: newMaturity });
 
-      if (newMaturity === 'canonical') {
+      if (newMaturity === 'proven') {
         scheduleVectorDbSync();
       }
     } catch (err) {
@@ -225,14 +230,15 @@ export class ResolutionService {
     }
   }
 
-  /** 获取所有 pending 的 Resolution */
+  /** 获取所有 draft（待验证）的 Resolution */
   async listPending(): Promise<Resolution[]> {
-    return this.listByMaturity(['pending']);
+    return this.listByMaturity(['draft']);
   }
 
   /**
-   * R3: 按成熟度列出 Resolution（解法库浏览口径 = pending + canonical，
-   * canonical 是审核通过的正式解法，本应展示）。createdAt 倒序。
+   * R3: 按成熟度列出 Resolution（解法库浏览口径 = draft + proven，
+   * proven 是审核通过的正式解法，本应展示）。createdAt 倒序。
+   * M1：口径自 pending/canonical 迁至 draft/proven（harness schema 合法值）。
    */
   async listByMaturity(maturities: Array<Resolution['status']>): Promise<Resolution[]> {
     try {
@@ -257,18 +263,19 @@ export class ResolutionService {
       {
         pattern: 'dangerously-skip-permissions.*root|cannot be used with root',
         errorClass: 'permission_error',
-        layer: 'L3_tool_behavior',
+        // M1：layer 写 harness StorageLayer 合法值 'project'，原分层值挪进 tags 保信息
+        layer: 'project',
         title: 'root 用户不能使用 --dangerously-skip-permissions',
         fix: 'CLI flag `--dangerously-skip-permissions` 在 root 下被禁止。改用 settings.json 配置：在工作目录下创建 `.claude/settings.json`，写入 `{"permissions": {"defaultMode": "bypassPermissions"}}`，然后去掉命令中的 `--dangerously-skip-permissions` flag。',
-        tags: ['cli', 'root', 'permission', 'claude-code'],
+        tags: ['cli', 'root', 'permission', 'claude-code', 'L3_tool_behavior'],
       },
       {
         pattern: 'surgical.*regression|非目标变更|未授权删除|删了不该删|scope.*violation|不该改',
         errorClass: 'scope_violation',
-        layer: 'L3_tool_behavior',
+        layer: 'project',
         title: 'AC 范围外修改 — 改/删了 AC 未要求的代码导致功能回归',
         fix: '检查 AC 中的 files 列表和 gotchas（红线）。不在 AC 范围内的代码绝对不要碰，尤其是：① shell 重定向参数(2>&1, tee)通常有隐蔽的消费者(audit/log)；② 异常处理代码；③ 未在 AC 中提及的文件。每处改动前问自己：这个改动属于哪个 AC？如果找不到对应的 AC → 不要改。',
-        tags: ['executor', 'surgical', 'scope', 'regression'],
+        tags: ['executor', 'surgical', 'scope', 'regression', 'L3_tool_behavior'],
       },
     ];
 
@@ -296,7 +303,7 @@ export class ResolutionService {
           layer: seed.layer,
           title: seed.title,
           fix: seed.fix,
-          status: 'canonical',
+          status: 'proven',
           verifyCount: 3,
           tags: seed.tags || [],
           verifiedAt: new Date().toISOString(),
@@ -309,41 +316,41 @@ export class ResolutionService {
     }
   }
 
-  /** 写 canonical resolutions 到磁盘 + 重建索引 */
-  async writeCanonicalToDisk(): Promise<void> {
+  /** 写 proven resolutions 到磁盘 + 重建索引 */
+  async writeProvenToDisk(): Promise<void> {
     try {
       await fileStore.buildIndex(KNOWLEDGE_DIR, ['id', 'type', 'title', 'maturity', 'tags', 'terms']);
       logger.info('[ResolutionService] Knowledge index rebuilt');
     } catch (err) {
-      logger.warn('[ResolutionService] writeCanonicalToDisk failed', { error: String(err) });
+      logger.warn('[ResolutionService] writeProvenToDisk failed', { error: String(err) });
     }
   }
 
   /** Knowledge density scoring */
   async getDensityScore(): Promise<{
-    score: number; total: number; verified: number; canonical: number;
+    score: number; total: number; verified: number; proven: number;
     errorClasses: number; layers: number;
   }> {
     try {
       const all = await scanResolutions();
       const total = all.length;
       const verified = all.filter((r: any) => r.maturity === 'verified').length;
-      const canonical = all.filter((r: any) => r.maturity === 'canonical').length;
+      const proven = all.filter((r: any) => r.maturity === 'proven').length;
       const errorClasses = new Set(all.map((r: any) => r.errorClass).filter(Boolean)).size;
       const layers = new Set(all.map((r: any) => r.layer).filter(Boolean)).size;
 
       const countScore = Math.min(total / 20, 1) * 25;
-      const verifiedRatio = total > 0 ? (verified + canonical) / total : 0;
+      const verifiedRatio = total > 0 ? (verified + proven) / total : 0;
       const verifiedScore = verifiedRatio * 25;
       const breadthScore = Math.min(errorClasses / 8, 1) * 25;
       const layerScore = Math.min(layers / 4, 1) * 25;
 
       return {
         score: Math.round(countScore + verifiedScore + breadthScore + layerScore),
-        total, verified, canonical, errorClasses, layers,
+        total, verified, proven, errorClasses, layers,
       };
     } catch {
-      return { score: 0, total: 0, verified: 0, canonical: 0, errorClasses: 0, layers: 0 };
+      return { score: 0, total: 0, verified: 0, proven: 0, errorClasses: 0, layers: 0 };
     }
   }
 
@@ -359,7 +366,7 @@ export class ResolutionService {
       const all = await scanResolutions();
       const candidates = all.filter((r: any) =>
         r.errorClass === errorClass &&
-        (r.maturity === 'pending' || r.maturity === 'verified')
+        (r.maturity === 'draft' || r.maturity === 'verified')
       );
 
       let verified = 0;

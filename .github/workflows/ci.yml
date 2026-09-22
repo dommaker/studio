@@ -18,6 +18,10 @@ jobs:
           node-version: '22'
       - run: npm install -g pnpm@latest
       - run: pnpm install --no-frozen-lockfile
+      # 依赖漏洞门（ADR-0031 / wayfinder harness-repositioning 票08 P0-2）：SecurityGate 包 npm audit，
+      # 默认 high 阈值不过即 fail。装完依赖先跑，fail fast。
+      - name: Security (dependency audit)
+        run: npx harness security
       - run: pnpm build
       - run: pnpm test
       # 顺序约束：本步骤必须在 pnpm test 之后串行执行（不可提前或并行）。

@@ -16,9 +16,9 @@ export interface DistillRun {
   outcome: 'executed' | 'failed';
   signals: { topicTags: string[]; manualCount: number };
   materialIds: string[];
-  /** 全部落地产物 id（知识条目 + 三分通道产物），≥1 即推进消费基线 */
+  /** 全部落地产物 id（知识条目 + 分类通道产物），≥1 即推进消费基线 */
   productIds: string[];
-  /** #145 三分落地分布：各通道落地产物 id（knowledge 含回落条目） */
+  /** #145 产物落地分布：各通道落地产物 id（knowledge 含回落条目） */
   landings?: DistillRunLandings;
   error?: string;
 }
@@ -26,7 +26,6 @@ export interface DistillRun {
 export interface DistillRunLandings {
   knowledge: string[];
   skill: string[];
-  constraint: string[];
   memory: string[];
 }
 

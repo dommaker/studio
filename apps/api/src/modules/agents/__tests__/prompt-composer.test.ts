@@ -20,13 +20,19 @@ process.env.SKILLS_DIR = testSkillsDir;
 // 显式清理：本文件 `import * as fs` 走原生命名空间，mkdtemp-cleanup 补丁登记不到（见其头注）
 afterAll(() => { fs.rmSync(testSkillsDir, { recursive: true, force: true }); });
 
-const { mockInjectContext, mockAppendJsonl, mockProjectGet, mockReadIndex, mockPostWuSystemMessage } = vi.hoisted(() => ({
+const { mockInjectContext, mockAppendJsonl, mockProjectGet, mockReadIndex, mockPostWuSystemMessage, mockLogger } = vi.hoisted(() => ({
   mockInjectContext: vi.fn().mockResolvedValue({ prompt: '## 系统约束\n- test rule', injectedIds: ['rule-1'] }),
   mockAppendJsonl: vi.fn().mockResolvedValue(undefined),
   mockProjectGet: vi.fn().mockResolvedValue(null),
   mockReadIndex: vi.fn().mockResolvedValue(''),
   mockPostWuSystemMessage: vi.fn().mockResolvedValue(null),
+  mockLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
+
+vi.mock('@dommaker/studio-shared', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@dommaker/studio-shared')>();
+  return { ...actual, logger: mockLogger };
+});
 
 vi.mock('../../knowledge/knowledge-service', () => ({
   knowledgeService: { injectContext: mockInjectContext },
@@ -151,6 +157,19 @@ describe('#91: composeStepPrompt 分段软定额 + 池内余量共享 + trim 埋
       contract: 200,
       handoff: 800,
     });
+  });
+
+  it('#611: 段构建抛错不再静默——非阻塞兜底 + warn 出声（段名 + 错误）', async () => {
+    mockInjectContext.mockRejectedValueOnce(new Error('inject boom'));
+
+    const { knowledgeContext } = await composeStepPrompt({ wu: makeWu(), metadata: {} as any }, deps(makeRole()));
+
+    expect(mockLogger.warn).toHaveBeenCalledWith(
+      '[prompt-composer] section build failed (non-blocking)',
+      expect.objectContaining({ section: 'knowledge', error: 'inject boom' }),
+    );
+    // 兜底为空段：knowledge 段内容不进 knowledgeContext
+    expect(knowledgeContext).not.toContain('## 系统约束');
   });
 
   it('池内余量共享：前段未用定额流入后段（全空时 knowledge 有效预算 = 3400）', async () => {

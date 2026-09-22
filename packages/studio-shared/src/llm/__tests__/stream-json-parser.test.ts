@@ -61,6 +61,26 @@ describe('extractToolCalls', () => {
     const events = parseStreamEvents('{"type":"result","result":"ok"}');
     expect(extractToolCalls(events)).toHaveLength(0);
   });
+
+  it('#602 D4: pairs tool_result by tool_use_id → real success (is_error 取反)', () => {
+    const events = parseStreamEvents([
+      '{"type":"assistant","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"cmd":"pnpm test"}},{"type":"tool_use","id":"t2","name":"Read","input":{"file_path":"/a.ts"}}]}',
+      '{"type":"user","content":[{"type":"tool_result","tool_use_id":"t1","is_error":true,"content":"boom"},{"type":"tool_result","tool_use_id":"t2","is_error":false,"content":"ok"}]}',
+    ].join('\n'));
+    const tools = extractToolCalls(events);
+    expect(tools).toHaveLength(2);
+    expect(tools[0]).toMatchObject({ id: 't1', name: 'Bash', success: false });
+    expect(tools[1]).toMatchObject({ id: 't2', name: 'Read', success: true });
+  });
+
+  it('#602 D4: tool_use without matching tool_result → success unknown (undefined，不编造)', () => {
+    const events = parseStreamEvents(
+      '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t9","name":"Grep","input":{"pattern":"x"}}]}}',
+    );
+    const tools = extractToolCalls(events);
+    expect(tools[0].id).toBe('t9');
+    expect(tools[0].success).toBeUndefined();
+  });
 });
 
 describe('extractFilePath', () => {

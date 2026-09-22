@@ -73,7 +73,7 @@ describe('postReviewProposalCard', () => {
     await seedSystemChannel();
     mockCreateCardMessage.mockRejectedValue(new Error('disk full'));
     const posted = await postReviewProposalCard(
-      { cardType: 'constraint_audit_proposal', content: 'x', cardData: {} },
+      { cardType: 'gc_proposal', content: 'x', cardData: {} },
       { fileStore },
     );
     expect(posted).toBe(false);

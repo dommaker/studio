@@ -7,13 +7,14 @@
 JSONL + 状态墓碑折叠）、发卡（含 #系统频道解析与 card-failed 降级落墓碑）、approve/reject、
 状态查询全部收在本模块；业务方只做 adapter，注册配置对象
 `{ kind, cardType, storeNamespace, dataDir, fileStore, renderCardContent, onApprove, onReject? }`。
-状态词表唯一口径 = `pending | executed | rejected | failed | card-failed`。
+状态词表唯一口径 = `pending | executed | rejected | failed | card-failed`（+ `stale`：#623 evolution
+读侧归一保留原值，墓碑写路径不产生）。
 
 ### 核心导出
 
-- `store.ts` -- `ReviewProposalStore<P>`：append-only JSONL 提案行 + 墓碑折叠（`ReviewProposalRecord<P>`；#360 起分组折叠走共享 `foldJsonlById`，「末个状态行 = 最新状态」语义留本模块 adapter）
+- `store.ts` -- `ReviewProposalStore<P>`：append-only JSONL 提案行 + 墓碑折叠（`ReviewProposalRecord<P>`；#360 起分组折叠走共享 `foldJsonlById`，「末个状态行 = 最新状态」语义留本模块 adapter）。状态词表 `pending | executed | rejected | failed | card-failed` + `stale`（#623：仅 evolution 自定义 store 读侧归一带出，墓碑写路径不产生）
 - `card.ts` -- `postReviewProposalCard`：#系统 频道解析 + 发卡；失败静默 false 不抛
-- `registry.ts` -- adapter 注册表：`registerReviewProposalAdapter` / `getReviewProposalAdapter` / `listReviewProposalAdapters`（#591 审计聚合读面遍历用）/ `ApproveOutcome`（config.store 可选注入自定义存取——仅供 #353 per-role draft.jsonl 存储形态例外，缺省正本物化单文件）
+- `registry.ts` -- adapter 注册表：`registerReviewProposalAdapter` / `getReviewProposalAdapter` / `listReviewProposalAdapters`（#591 审计聚合读面遍历用）/ `ApproveOutcome`（config.store 可选注入自定义存取——仅供存储形态例外域：#353 memory per-role draft.jsonl、#623 evolution EP-XXXX.json 单提案文件；缺省正本物化单文件）
 - `service.ts` -- 生命周期：`submitProposal`（建卡+card-failed 降级）/ `approveProposal` / `rejectProposal` / `getProposalStatus`
 - `routes.ts` -- 通用端点 `/api/v1/review-proposals/:kind/:id/{approve,reject,status}`，kind 走注册表分发
 
@@ -21,7 +22,7 @@ JSONL + 状态墓碑折叠）、发卡（含 #系统频道解析与 card-failed 
 
 **上游**: `@dommaker/studio-shared`（FileStore/logger）、`channels/channel-message.service.ts`（发卡，动态 import）、`middleware/auth.js`
 
-**下游**: modules/distill（distill/GC/审计三 adapter，kind: distill/gc/audit）；role-memory（#353，kind: memory，自定义 store 落 per-role draft.jsonl，旧 promoted 读侧归一）；skills（#354，kind: skill，默认物化 skill-proposals.jsonl，onApprove 生成 SKILL.md）；knowledge（#355，kind: knowledge，默认物化 knowledge-proposals.jsonl，onApprove 逐条目 promote / onReject 逐条目 demote，knowledge-service 模块加载即注册）；agents/auditor（#356，kind: auditor，默认物化 auditor-proposals.jsonl，onApprove 建未指派 task 工单——自旧 channels/card-decision.service 搬入，卡片作者经 payload.author 透传保持 Auditor，auditor.service 模块加载即注册）
+**下游**: modules/distill（distill/GC 两 adapter，kind: distill/gc；存量约束审计 adapter 已随 #617 拆除）；role-memory（#353，kind: memory，自定义 store 落 per-role draft.jsonl，旧 promoted 读侧归一）；skills（#354，kind: skill，默认物化 skill-proposals.jsonl，onApprove 生成 SKILL.md）；knowledge（#355，kind: knowledge，默认物化 knowledge-proposals.jsonl，onApprove 逐条目 promote / onReject 逐条目 demote，knowledge-service 模块加载即注册）；agents/auditor（#356，kind: auditor，默认物化 auditor-proposals.jsonl，onApprove 建未指派 task 工单——自旧 channels/card-decision.service 搬入，卡片作者经 payload.author 透传保持 Auditor，auditor.service 模块加载即注册）；evolution（#623，kind: evolution，自定义 store 包 evolution FileStore 的 EP-XXXX.json 单提案文件读写——第二个存储形态例外，读侧归一 applied→executed / approved→pending 保 APPLY_FAILED 重试 / stale→stale，onApprove/onReject 调 EvolutionService.decide，EvolutionService 构造即注册，频道文本审核通道同票退役）
 
 ### 运行时约定
 

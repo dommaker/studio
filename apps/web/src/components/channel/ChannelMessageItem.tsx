@@ -80,7 +80,6 @@ function renderCard(
     case 'memory_proposal': // #101 角色记忆人审闸口
     case 'distill_proposal': // #143 蒸馏提案人审闸口
     case 'gc_proposal': // #144 知识库 GC 候选清单人审闸口
-    case 'constraint_audit_proposal': // #146 存量约束退役建议人审闸口
     case 'auditor_suggestion': // B3-005 审计建议（#356 起并入合一壳）
       // #352（ADR 2026-08-25 决策 5）：人审提案卡合一为 ReviewProposalCard 壳 + proposalCardConfigs 配置
       return <ReviewProposalCard message={message} meta={meta} onAction={onAction} />;

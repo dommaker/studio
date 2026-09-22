@@ -35,7 +35,7 @@ export function MonitoringPage() {
   const proposalsQ = useAsyncData(() => knowledgeApi.listPendingReview().then(r => r.data.entries), []);
   // 批次A 项8：通过/拒绝共用 pending 锁存（防连点）+ 失败 toast（原 catch 静默）
   const [actingIds, setActingIds] = useState<Set<string>>(new Set());
-  // #473：审批前可见详情（点击标题展开）+ 通过两步确认（对照频道 GC 卡 twoStepApprove）
+  // #473：审批前可见详情（点击标题展开）+ 通过两步确认
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [armedIds, setArmedIds] = useState<Set<string>>(new Set());
 

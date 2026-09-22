@@ -227,6 +227,8 @@ describe('dailyReflection', () => {
     const realStore = new harness.FileKnowledgeStore({ baseDir: kaDir });
     realStore.save({
       id: 'ka-559-entry', type: 'pattern', title: 'smoke', content: 'x'.repeat(60),
+      // harness 1.11.0 起 save() 有 maturity/layer 枚举写入闸（E1 复盘修正 M1），夹具须给声明值
+      maturity: 'active', layer: 'project',
       tags: ['smoke'], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
     } as any);
 

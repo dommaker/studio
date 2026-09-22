@@ -26,6 +26,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { studioPath } from '@dommaker/studio-shared/studio-dir';
 import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
+import { readStudioEventsSince } from '../../utils/studio-events-tail.js';
 import { MtimeMemoKnowledgeStore } from './knowledge-store-memo.js';
 
 const STUDIO_EVENTS_JSONL = resolveStudioLogFile('studio-events.jsonl');
@@ -128,20 +129,70 @@ if (!_consumptionCallbackRegistered) {
 /**
  * GAP-16: Verify consumption event chain integrity.
  * Call once at startup to confirm recordReference → onReference → StudioEvent works.
+ *
+ * #611 去假绿：旧实现只直写一条 knowledge:probe 事件（不经 recordReference），
+ * 链断数月 probe 仍恒绿。现真走 recordReference（哨兵条目）并验证
+ * knowledge:consumption 事件落盘；任一环断裂 → false + error 出声。
  */
+export const CONSUMPTION_PROBE_ENTRY_ID = '__consumption_chain_probe__';
+const CONSUMPTION_PROBE_CONTRIBUTOR = 'startup-probe';
+const CONSUMPTION_PROBE_TIMEOUT_MS = 5_000;
+const CONSUMPTION_PROBE_POLL_MS = 100;
+
 export async function verifyConsumptionChain(): Promise<boolean> {
   try {
     if (!_consumptionCallbackRegistered) return false;
-    // Write a probe event directly to confirm DB is writable
-    const probeId = `probe_${Date.now()}`;
-    await fileStore.appendJsonl(STUDIO_EVENTS_JSONL, {
-      type: 'knowledge:probe',
-      source: 'startup',
-      payload: JSON.stringify({ ts: Date.now(), purpose: 'chain-integrity-check' }),
-      createdAt: new Date().toISOString(),
+    // 哨兵条目每次重建（删旧存新）：recordReference 同日同 contributor 去重会跳过
+    // onReference 回调，重建保证每次 probe 必触发回调。maturity=archived 使其不进
+    // 默认 list（excludeArchived）/注入面，get 按 id 不受影响。
+    sharedStore.delete(CONSUMPTION_PROBE_ENTRY_ID);
+    const now = new Date().toISOString();
+    sharedStore.save({
+      id: CONSUMPTION_PROBE_ENTRY_ID,
+      type: 'process',
+      title: 'Consumption chain probe sentinel',
+      content: 'Startup probe sentinel for verifyConsumptionChain (#611). Not real knowledge.',
+      maturity: 'archived',
+      layer: 'system',
+      created: now,
+      lastReferenced: now,
+      contributors: [],
+      projects: [],
+      tags: ['probe'],
+      applicablePhases: [],
+      sourceReferences: [],
+      referencedBy: [],
+      executionResults: [],
+      consumptionMode: 'signal',
+      origin: 'system',
     });
-    logger.info('[Knowledge] Consumption chain probe OK', { probeId });
-    return true;
+    const referenced = sharedLifecycle.recordReference(CONSUMPTION_PROBE_ENTRY_ID, CONSUMPTION_PROBE_CONTRIBUTOR);
+    if (!referenced) {
+      logger.error('[Knowledge] Consumption chain probe FAILED — recordReference returned undefined (sentinel store broken?)');
+      return false;
+    }
+    // onReference 回调内 appendJsonl 是 fire-and-forget——轮询事件落盘，超时判失败
+    const deadline = Date.now() + CONSUMPTION_PROBE_TIMEOUT_MS;
+    for (;;) {
+      const events = await readStudioEventsSince({ file: STUDIO_EVENTS_JSONL, sinceMs: Date.now() - 60_000 });
+      const hit = events.some(e => {
+        if (e.type !== 'knowledge:consumption') return false;
+        try {
+          const p = typeof e.payload === 'string' ? JSON.parse(e.payload) : e.payload;
+          return p?.entryId === CONSUMPTION_PROBE_ENTRY_ID;
+        } catch { return false; }
+      });
+      if (hit) {
+        logger.info('[Knowledge] Consumption chain probe OK', { entryId: CONSUMPTION_PROBE_ENTRY_ID });
+        return true;
+      }
+      if (Date.now() >= deadline) break;
+      await new Promise(r => setTimeout(r, CONSUMPTION_PROBE_POLL_MS));
+    }
+    logger.error('[Knowledge] Consumption chain probe FAILED — consumption event not persisted within timeout', {
+      timeoutMs: CONSUMPTION_PROBE_TIMEOUT_MS,
+    });
+    return false;
   } catch (e: any) {
     logger.error('[Knowledge] Consumption chain probe FAILED', { error: String(e) });
     return false;

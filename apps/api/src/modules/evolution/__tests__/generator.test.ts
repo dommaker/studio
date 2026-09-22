@@ -2,8 +2,8 @@
  * Evolution generator 单元测试（E1 约束进化）。
  *
  * 覆盖生成链路：
- *   (a) 【挂起 — harness 0.17.0 删除 autoEvolve】约束 traces 不再产生提案，
- *       等待改吃 constraints report 候选数据（飞轮修复立项 ①）
+ *   (a) constraints usage report 退役候选 → retire 提案（#602 D1，harness 公共导出
+ *       buildConstraintsUsageReport 消费；落点 = .harness/config.yml enabled:false）
  *   (b) 注入知识仍高失败 → prompt-template 提案（保守阈值）
  *   (c) 角色 caller 高频工具失败 → role-preset 提案
  * 以及：信号稀薄时零提案（默认安静）、去重（open-exists / duplicate）、绝不自动生效。
@@ -66,7 +66,6 @@ beforeEach(() => {
   fs.writeFileSync(path.join(tmpDir, '.agents', 'roles', 'developer.yaml'), ROLE_YAML, 'utf-8');
   paths = resolveEvolutionPaths({
     repoRoot: tmpDir,
-    constraintsFile: path.join(tmpDir, '.harness', 'custom-constraints.yml'),
     traceFile: path.join(tmpDir, '.harness', 'logs', 'traces.log'),
     rolesDir: path.join(tmpDir, '.agents', 'roles'),
     eventsDir: path.join(tmpDir, 'events'),
@@ -82,28 +81,41 @@ describe('generateEvolutionProposals (E1)', () => {
   it('quiet when signals are thin: zero proposals, no files written', async () => {
     const result = await generateEvolutionProposals({ fileStore, paths, windowHours: 24 });
     expect(result.created).toEqual([]);
-    expect(result.scanned).toEqual({ constraintTraces: 0, toolCalls: 0, outcomes: 0 });
+    expect(result.scanned).toEqual({ constraintTraces: 0, toolCalls: 0, outcomes: 0, incidents: 0 });
     expect(await fileStore.listEvolutionProposals()).toEqual([]);
     // 未写任何目标文件（绝不自动生效）
-    expect(fs.existsSync(paths.constraintsFile)).toBe(false);
+    expect(fs.existsSync(path.join(tmpDir, '.harness', 'config.yml'))).toBe(false);
   });
 
-  it('(a) suspended since harness 0.17.0: constraint traces alone yield no proposals', async () => {
-    // autoEvolve 已删除，(a) 链路等待改吃 constraints report 候选数据（飞轮修复立项 ①）。
-    // traces 仍被扫描计数，但不产生任何 iron-law/guideline 提案。
-    writeJsonl(paths.traceFile, Array.from({ length: 10 }, (_, i) => ({
-      constraintId: 'c-x',
-      level: 'guideline',
+  it('(a) usage report 退役候选 → retire 提案（#602 D1，每轮上限 3 个）', async () => {
+    // traces 里 no_completion_without_verification 评估 60 次全 pass → zero_intercept 候选；
+    // 其余内置约束零触发 → zero_trigger 候选。report 候选排序 zero_trigger 在前。
+    writeJsonl(paths.traceFile, Array.from({ length: 60 }, (_, i) => ({
+      constraintId: 'no_completion_without_verification',
       timestamp: NOW - 3600_000 + i * 1000,
-      result: 'fail',
+      result: 'pass',
       operation: 'code_implementation',
     })));
 
     const result = await generateEvolutionProposals({ fileStore, paths, windowHours: 24 });
-    expect(result.scanned.constraintTraces).toBe(10);
-    expect(result.created).toEqual([]);
-    expect(await fileStore.listEvolutionProposals()).toEqual([]);
-    expect(fs.existsSync(paths.constraintsFile)).toBe(false);
+    const constraintProps = result.created.filter(p => p.constraintChange === 'retire');
+    expect(constraintProps.length).toBeGreaterThan(0);
+    expect(constraintProps.length).toBeLessThanOrEqual(3);
+    for (const p of constraintProps) {
+      expect(p.source).toBe('harness:usage-report');
+      expect(p.action).toBe('amend');
+      expect(['iron-law', 'guideline']).toContain(p.targetType);
+      expect(p.rationale).toContain('usage report');
+      expect(typeof p.evidence.eventCounts.total).toBe('number');
+    }
+    // 提案目标必须是真实内置约束 id
+    const { CONSTRAINTS } = await import('@dommaker/harness');
+    for (const p of constraintProps) expect(Object.keys(CONSTRAINTS)).toContain(p.targetId);
+  });
+
+  it('(a) 信号稀薄（traces 不存在）时零提案，不报错', async () => {
+    const result = await generateEvolutionProposals({ fileStore, paths, windowHours: 24 });
+    expect(result.created.filter(p => p.constraintChange === 'retire')).toEqual([]);
   });
 
   it('(b) high failure rate despite injected knowledge → one prompt-template proposal', async () => {
@@ -164,5 +176,39 @@ describe('generateEvolutionProposals (E1)', () => {
     const second = await generateEvolutionProposals({ fileStore, paths, windowHours: 24 });
     expect(second.created).toEqual([]);
     expect(second.skipped['duplicate']).toBe(1);
+  });
+
+  it('TTL: expired open proposal is swept to stale and the same target can be re-proposed (#602)', async () => {
+    // EP-0002 自锁场景：pending 超期未审（人为老化到 20 天前，TTL=14d）→ 转 stale 放行
+    writeOutcomeEvents(paths.studioEventsFile);
+    const first = await generateEvolutionProposals({ fileStore, paths, windowHours: 24 });
+    expect(first.created.length).toBe(1);
+    const id = first.created[0].id;
+    await fileStore.updateEvolutionProposal(id, {
+      createdAt: new Date(NOW - 20 * 24 * 3600_000).toISOString(),
+    });
+
+    const second = await generateEvolutionProposals({ fileStore, paths, windowHours: 24 });
+    expect(second.staled).toEqual([id]);
+    const old = await fileStore.getEvolutionProposal(id);
+    expect(old?.status).toBe('stale');
+    expect(old?.staledAt).toBeTruthy();
+    // stale 不算 open（不触发 open-exists），也不算 duplicate（从未人审，允许同文案重提）
+    expect(second.created.length).toBe(1);
+    expect(second.created[0].id).not.toBe(id);
+  });
+
+  it('TTL: expired approved proposal (apply stuck) is also swept to stale', async () => {
+    writeOutcomeEvents(paths.studioEventsFile);
+    const first = await generateEvolutionProposals({ fileStore, paths, windowHours: 24 });
+    const id = first.created[0].id;
+    await fileStore.updateEvolutionProposal(id, {
+      status: 'approved',
+      createdAt: new Date(NOW - 30 * 24 * 3600_000).toISOString(),
+    });
+
+    const second = await generateEvolutionProposals({ fileStore, paths, windowHours: 24 });
+    expect(second.staled).toEqual([id]);
+    expect(second.created.length).toBe(1);
   });
 });

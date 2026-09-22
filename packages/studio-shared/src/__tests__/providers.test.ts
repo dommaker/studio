@@ -14,6 +14,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import {
   BUILTIN_PROVIDERS,
+  CODEX_SAFETY_CONFIG_ARGS,
   loadProviderRegistry,
   listScanProviders,
   getProviderDefinition,
@@ -160,16 +161,32 @@ describe('spawn-args templates', () => {
     expect(promptViaStdin).toBe(false);
   });
 
-  test('codex: exec --json + hook-trust bypass, resume subcommand for sessions, positional prompt', () => {
+  test('codex: exec --json + hook-trust bypass + 安全基线 -c 覆盖, resume subcommand for sessions, positional prompt', () => {
     // #147：exec 非交互下未信任 hook 一律跳过，需 --dangerously-bypass-hook-trust 才能执行
     // project hooks.json（0.147.0 实测）；studio 经 propagateHarnessConfig 自行审查 hook 来源。
     expect(buildArgsFromTemplate(BUILTIN_PROVIDERS.codex, {}).args)
-      .toEqual(['exec', '--json', '--dangerously-bypass-hook-trust']);
+      .toEqual(['exec', '--json', '--dangerously-bypass-hook-trust', ...CODEX_SAFETY_CONFIG_ARGS]);
     expect(buildArgsFromTemplate(BUILTIN_PROVIDERS.codex, {}).promptViaStdin).toBe(true);
 
     const resumed = buildArgsFromTemplate(BUILTIN_PROVIDERS.codex, { sessionId: 'sess-1', prompt: 'continue' });
-    expect(resumed.args).toEqual(['exec', 'resume', 'sess-1', '--json', '--dangerously-bypass-hook-trust', 'continue']);
+    expect(resumed.args).toEqual(['exec', 'resume', 'sess-1', '--json', '--dangerously-bypass-hook-trust', ...CODEX_SAFETY_CONFIG_ARGS, 'continue']);
     expect(resumed.promptViaStdin).toBe(false);
+  });
+
+  test('codex 安全基线（0.154.0 实测）：workspace-write 沙箱 + 显式开网 + shell env core 白名单', () => {
+    // workspace-write 沙箱档位（写隔离到工作目录）
+    expect(CODEX_SAFETY_CONFIG_ARGS).toContain(`'sandbox_mode="workspace-write"'`);
+    // 默认断网必须显式开（agent 装依赖/git 远端操作需要），不许静默断网
+    expect(CODEX_SAFETY_CONFIG_ARGS).toContain('sandbox_workspace_write.network_access=true');
+    // shell 子进程 env 白名单：凭证类不进 agent 内 shell；codex 进程自身 env 不受影响
+    expect(CODEX_SAFETY_CONFIG_ARGS).toContain(`'shell_environment_policy.inherit="core"'`);
+    // base/resume 两条路径都带齐（resume 无 -s flag，只有 -c 覆盖可用）
+    const base = buildArgsFromTemplate(BUILTIN_PROVIDERS.codex, {}).args;
+    const resume = buildArgsFromTemplate(BUILTIN_PROVIDERS.codex, { sessionId: 's' }).args;
+    for (const token of CODEX_SAFETY_CONFIG_ARGS) {
+      expect(base).toContain(token);
+      expect(resume).toContain(token);
+    }
   });
 
   test('opencode: run --format json, --session, positional prompt', () => {

@@ -35,7 +35,7 @@ import type {
   KnowledgeOrigin,
 } from '@dommaker/harness';
 import { TokenEstimator } from '@dommaker/harness';
-import { FileStore, logger } from '@dommaker/studio-shared';
+import { FileStore, logger, normalizeToStage, renderWithOverride } from '@dommaker/studio-shared';
 import { getSystemExecutor, StudioRoleNotConfiguredError } from '../agents/system-executor.js';
 import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
 import type { CreateResolutionInput } from '@dommaker/studio-shared';
@@ -532,7 +532,11 @@ export class KnowledgeService {
     // R3: isInjectableMaturity — proposal(draft)/archived/deprecated 不注入
     // ②（wireups）：来源凭证读生产字段 sourceReferences（复数，length>0），
     // 此前误读单数 sourceReference → 生产恒 false，rule/context 两档恒空。
-    const rules = await this.query.queryEntries({ consumptionModes: ['rule'], agentType, status: 'published' });
+    // #612：agentType（= wu.type，可能带 legacy 值 feature/bug/task）先经 normalizeToStage
+    // 归一化到阶段词表再过滤——applicableAgents 为阶段词表（决策 8 单一词表），
+    // 不归一化则 legacy WU 与阶段定向规则零交集，rule 段再度恒空。
+    const stageAgentType = normalizeToStage(agentType);
+    const rules = await this.query.queryEntries({ consumptionModes: ['rule'], agentType: stageAgentType, status: 'published' });
     const filteredRules = (rules || []).filter((r: any) => hasSourceReferences(r) && !isRoleMemory(r) && r.status !== 'stale' && isInjectableMaturity(r.maturity));
 
     // 2. context — full content injection (preferences + environment)
@@ -552,8 +556,22 @@ export class KnowledgeService {
         .sort((a, b) => injectPriority(b.entry) - injectPriority(a.entry))
         .map(({ line, id }) => ({ line, id }));
 
-    const sectionCandidates: Array<{ header: string; items: Candidate[] }> = [
-      { header: '## 系统约束', items: toCandidates(filteredRules, (r: any) => `- ${stripFormat(r.content)}`) },
+    // #602 D3：E1 prompt-template 提案生效落点 —— 「## 系统约束」段经 renderWithOverride
+    // 渲染（无覆盖文件时 fallback 即原模板，行为零变化）。token 计量按渲染后文本，
+    // 避免 override 前缀使 2K 红线截断口径漂移。
+    const sectionOverhead = (s: { header: string; templateId?: string }): string =>
+      s.templateId
+        ? renderWithOverride(s.templateId, `${s.header}\n{content}`, { content: '' })
+        : `${s.header}\n`;
+    const renderSection = (s: { header: string; templateId?: string }, body: string): string =>
+      s.templateId
+        // fallback 直接给渲染完的原文（override 缺失时零变化）；override 存在时
+        // 其 {content} 占位符被 body 替换（无占位符则 body 追加其后）
+        ? renderWithOverride(s.templateId, `${s.header}\n${body}`, { content: body })
+        : `${s.header}\n${body}`;
+
+    const sectionCandidates: Array<{ header: string; templateId?: string; items: Candidate[] }> = [
+      { header: '## 系统约束', templateId: 'knowledge.rules-section', items: toCandidates(filteredRules, (r: any) => `- ${stripFormat(r.content)}`) },
       { header: '## 上下文', items: toCandidates(filteredContext, (c: any) => `- ${stripFormat(c.content)}`) },
       { header: '## 近期信号', items: toCandidates(filteredSignals, (s: any) => `- [${s.id}] ${s.summary}`) },
     ];
@@ -569,13 +587,13 @@ export class KnowledgeService {
     let originalTokens = 0;
     for (const section of sectionCandidates) {
       if (section.items.length === 0) continue;
-      originalTokens += TokenEstimator.estimateText(section.header + '\n\n');
+      originalTokens += TokenEstimator.estimateText(sectionOverhead(section) + '\n');
       for (const item of section.items) originalTokens += TokenEstimator.estimateText(item.line + '\n');
     }
 
     for (const section of sectionCandidates) {
       if (section.items.length === 0) continue;
-      const headerTokens = TokenEstimator.estimateText(section.header + '\n\n'); // header + 段落分隔
+      const headerTokens = TokenEstimator.estimateText(sectionOverhead(section) + '\n'); // 渲染后 overhead + 段落分隔
       const keptLines: string[] = [];
       for (const item of section.items) {
         const lineTokens = TokenEstimator.estimateText(item.line + '\n');
@@ -588,7 +606,7 @@ export class KnowledgeService {
         keptLines.push(item.line);
         injectedIds.push(item.id);
       }
-      if (keptLines.length > 0) sections.push(`${section.header}\n${keptLines.join('\n')}`);
+      if (keptLines.length > 0) sections.push(renderSection(section, keptLines.join('\n')));
     }
 
     // 4. reference — hint only

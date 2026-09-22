@@ -22,8 +22,6 @@ import { readStudioEventsSince } from '../../utils/studio-events-tail.js';
 export interface EvolutionPaths {
   /** 仓库根（.harness/ 与 .agents/ 所在），默认 process.cwd() */
   repoRoot: string;
-  /** harness 自定义约束文件（iron-law/guideline 提案的写入目标） */
-  constraintsFile: string;
   /** harness 约束 trace 文件（(a) 链路输入；0.17.0 挂起期间仅计数） */
   traceFile: string;
   /** 角色预设目录（role-preset 提案的写入目标：<rolesDir>/<name>.yaml） */
@@ -38,7 +36,6 @@ export function resolveEvolutionPaths(overrides?: Partial<EvolutionPaths>): Evol
   const repoRoot = overrides?.repoRoot ?? process.cwd();
   return {
     repoRoot,
-    constraintsFile: overrides?.constraintsFile ?? path.join(repoRoot, '.harness', 'custom-constraints.yml'),
     traceFile: overrides?.traceFile ?? path.join(repoRoot, '.harness', 'logs', 'traces.log'),
     rolesDir: overrides?.rolesDir ?? path.join(repoRoot, '.agents', 'roles'),
     // events/ 语义迁移（契约 §8）：统一事件流正本在 logs/；本字段 @deprecated 不再被读取，

@@ -16,16 +16,14 @@
  */
 
 import { execFileSync, execSync } from 'child_process';
-import { existsSync, readFileSync, readdirSync, statSync } from 'fs';
+import { readdirSync, statSync } from 'fs';
 import { join } from 'path';
-import yaml from 'js-yaml';
 import { logger, withAttestation } from '@dommaker/studio-shared';
 import {
   verifyTddChain,
   verifyPhaseFormat,
   verifyContractPresence,
   type CommitInput,
-  type CompletionCheckersConfig,
   type ContractPresenceResult,
   type PhaseFormatResult,
   type TddChainResult,
@@ -150,9 +148,6 @@ export interface CompletionGuardDeps {
   loadCompletionCheckers?: () => Promise<CompletionCheckerFns | null>;
   /** T7-E2: 一次 git log 拉 WU 提交集（默认 execFileSync，2s 超时；失败返回 null = fail-open） */
   readWuCommits?: (worktreePath: string, baseBranch: string) => CommitInput[] | null;
-  /** T7-E2: completion_checkers 配置（默认现读现解 <repoRoot>/.harness/custom-constraints.yml，不做缓存；
-   *  文件/段缺失或解析失败 = {} —— 三 checker 全开 + 默认 glob） */
-  loadCompletionCheckersConfig?: (repoRoot: string) => CompletionCheckersConfig;
   /** T7-E2: 台账事件写入（默认 writeStudioEvent('checker:soft_check')，fire-and-forget） */
   writeSoftCheckEvent?: (event: SoftCheckEvent) => void;
 }
@@ -271,22 +266,6 @@ function defaultReadWuCommits(worktreePath: string, baseBranch: string): CommitI
   }
 }
 
-/** 默认：现读现解 <repoRoot>/.harness/custom-constraints.yml 的 `completion_checkers:` 顶层键
- *  （不做缓存；文件名不跟 config.yml 覆盖约定——票面写死 custom-constraints.yml）。
- *  文件/段缺失或解析失败 → {}（三 checker 全开 + harness 默认 glob）。 */
-export function loadCompletionCheckersConfig(repoRoot: string): CompletionCheckersConfig {
-  try {
-    const file = join(repoRoot, '.harness', 'custom-constraints.yml');
-    if (!existsSync(file)) return {};
-    const raw = (yaml.load(readFileSync(file, 'utf-8')) as Record<string, unknown> | null) ?? {};
-    const section = raw['completion_checkers'];
-    if (!section || typeof section !== 'object' || Array.isArray(section)) return {};
-    return section as CompletionCheckersConfig;
-  } catch {
-    return {};
-  }
-}
-
 /** 默认：台账事件落 studio-events.jsonl（writeStudioEvent 永不抛出，.catch 双保险） */
 function defaultWriteSoftCheckEvent(event: SoftCheckEvent): void {
   void writeStudioEvent('checker:soft_check', event, { source: 'completion-gates' }).catch(() => {});
@@ -325,7 +304,6 @@ async function runSoftObservation(
 ): Promise<{ hint: string | null }> {
   const deadline = Date.now() + SOFT_CHECK_TOTAL_BUDGET_MS;
   const loadCheckers = deps.loadCompletionCheckers ?? defaultLoadCompletionCheckers;
-  const loadConfig = deps.loadCompletionCheckersConfig ?? loadCompletionCheckersConfig;
   const emit = deps.writeSoftCheckEvent ?? defaultWriteSoftCheckEvent;
 
   let fns: CompletionCheckerFns | null = null;
@@ -346,7 +324,6 @@ async function runSoftObservation(
   if (CODE_WORKTREE_TYPES.has(wu.type)
     && typeof metadata.worktreePath === 'string' && metadata.worktreePath.length > 0
     && typeof metadata.worktreeBaseBranch === 'string' && metadata.worktreeBaseBranch.length > 0) {
-    const config = loadConfig(metadata.worktreePath);
     const readCommits = deps.readWuCommits ?? defaultReadWuCommits;
     let commits: CommitInput[] | null = null;
     try {
@@ -357,9 +334,10 @@ async function runSoftObservation(
     if (commits === null) {
       logger.info(`[AgentLoop] Soft check: git log failed for ${wuId}, commit checkers skipped`);
     } else {
+      // 配置载体已随 #617 拆除（按 WU 关 checker/自定义 glob 能力从未真实可用）——恒以默认配置跑
       const commitCheckers: Array<() => TddChainResult | PhaseFormatResult> = [
-        () => fns.verifyTddChain(commits, config),
-        () => fns.verifyPhaseFormat(commits, config),
+        () => fns.verifyTddChain(commits, {}),
+        () => fns.verifyPhaseFormat(commits, {}),
       ];
       for (const run of commitCheckers) {
         if (Date.now() >= deadline) {
@@ -368,7 +346,7 @@ async function runSoftObservation(
         }
         try {
           const result = run();
-          if (result.verdict === 'skip') continue; // 配置禁用 = skip，不记事件
+          if (result.verdict === 'skip') continue; // skip = 不记事件（无可判对象）
           const block = emitCommitCheckerEvent(emit, wuId, result);
           if (block) violationBlocks.push(block);
         } catch (e) {
@@ -378,21 +356,11 @@ async function runSoftObservation(
     }
   }
 
-  // contract-presence：通用引擎，类型不在 yml contracts 清单内 = skip（不记事件）。
-  // 配置根：代码类 = 本 WU worktree；review 等无 worktree 类型回退 baseRepo / 执行 cwd 解析
-  // （review 评审的是父 WU worktree 所在的仓，其 .harness 才是契约清单的归属地）。
+  // contract-presence：通用引擎，类型不在默认 contracts 清单内 = skip（不记事件）。
+  // 配置载体已随 #617 拆除——恒以默认配置跑（harness 内置 contracts 表）。
   if (Date.now() < deadline) {
-    let configRoot = metadata.worktreePath ?? metadata.worktreeBaseRepo ?? null;
-    if (!configRoot) {
-      try {
-        configRoot = await deps.resolveExecutionCwd(wu, metadata);
-      } catch {
-        configRoot = null;
-      }
-    }
-    const config = configRoot ? loadConfig(configRoot) : {};
     try {
-      const result = fns.verifyContractPresence(wu.type, { reviewReport: metadata.reviewReport }, config);
+      const result = fns.verifyContractPresence(wu.type, { reviewReport: metadata.reviewReport }, {});
       if (result.verdict !== 'skip') {
         const detail = result.detail ?? '';
         emit({ wuId, checker: 'contract-presence', verdict: result.verdict, detail });

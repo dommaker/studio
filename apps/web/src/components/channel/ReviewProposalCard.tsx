@@ -1,5 +1,5 @@
 // ReviewProposalCard — #352 人审提案卡合一壳（ADR 2026-08-25 决策 5）
-// 6 张卡（distill/gc/memory/knowledge/constraint_audit/auditor_suggestion，#356 并入）坍缩为本壳
+// 5 张卡（distill/gc/memory/knowledge/auditor_suggestion，#356 并入）坍缩为本壳
 // + proposalCardConfigs 纯数据配置；
 // 生命周期单点化在 useProposalReview。卡间 diff 只剩条目清单与文案（配置 renderContent/labels）。
 // 视觉复用 mc-card 族，DOM class/文案/按钮行为逐字保持旧卡。
@@ -24,7 +24,7 @@ export function ReviewProposalCard({ message, meta, onAction }: Props) {
 
 function ConfiguredProposalCard({ config, message, meta, onAction }: Props & { config: ProposalCardConfig }) {
   const cardData = meta.cardData;
-  const { reviewed, pending, armed, setArmed, act, actionError } = useProposalReview({
+  const { reviewed, pending, act, actionError } = useProposalReview({
     config,
     meta,
     messageId: message.id,
@@ -42,19 +42,6 @@ function ConfiguredProposalCard({ config, message, meta, onAction }: Props & { c
     );
   }
 
-  // #288 两步确认：twoStepApprove 卡首次点击仅进入待确认态，再次点击才执行
-  const handleApprove = () => {
-    if (config.twoStepApprove && !armed) {
-      setArmed(true);
-      return;
-    }
-    void act('approve');
-  };
-  const handleReject = () => {
-    if (config.twoStepApprove) setArmed(false);
-    void act('reject');
-  };
-
   return (
     <div className="mc-card" data-card-type={config.cardType} style={{ borderColor: 'var(--accent-border)' }}>
       <div className="mc-card-head">
@@ -64,17 +51,17 @@ function ConfiguredProposalCard({ config, message, meta, onAction }: Props & { c
 
       {config.renderContent(cardData)}
 
-      {/* Action buttons（pending 锁存禁用防连击；twoStepApprove = #288 两步确认） */}
+      {/* Action buttons（pending 锁存禁用防连击） */}
       <div className="mc-card-actions">
         <button
-          onClick={handleApprove}
+          onClick={() => void act('approve')}
           disabled={pending}
           className="mc-btn mc-btn-primary"
         >
-          {config.twoStepApprove && armed ? config.armedApproveLabel : config.approveLabel}
+          {config.approveLabel}
         </button>
         <button
-          onClick={handleReject}
+          onClick={() => void act('reject')}
           disabled={pending}
           className="mc-btn"
         >

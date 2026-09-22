@@ -12,7 +12,7 @@ import { FileStore, logger } from '@dommaker/studio-shared';
 const SYSTEM_CHANNEL_NAME = '#系统';
 
 export interface ReviewProposalCardPayload {
-  /** 前端卡片渲染键（如 distill_proposal / gc_proposal / constraint_audit_proposal） */
+  /** 前端卡片渲染键（如 distill_proposal / gc_proposal） */
   cardType: string;
   /** 卡片正文（markdown） */
   content: string;
