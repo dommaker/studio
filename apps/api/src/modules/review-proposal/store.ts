@@ -5,11 +5,13 @@
  * store（distill-store/gc-store/audit-store）同构实现收敛而来，行为口径不变：
  *   - 行形态 { kind:'proposal', ...P } / { kind:'status', id, status, at }（append-only，历史不改写）
  *   - appendProposal 自带 pending 墓碑；listProposals 折叠墓碑取每提案最新状态
- * 状态词表唯一口径 = pending | executed | rejected | failed | card-failed（distill 超集）。
+ * 状态词表唯一口径 = pending | executed | rejected | failed | card-failed（distill 超集），
+ * + stale（#623 evolution 读侧归一保留原值：pending/approved 超期未审惰性转 stale；
+ *   墓碑写路径不产生 stale，仅 evolution 自定义 store 的 listProposals/getProposal 会带出）。
  */
 import { foldJsonlById, type FileStore } from '@dommaker/studio-shared';
 
-export type ReviewProposalStatus = 'pending' | 'executed' | 'rejected' | 'failed' | 'card-failed';
+export type ReviewProposalStatus = 'pending' | 'executed' | 'rejected' | 'failed' | 'card-failed' | 'stale';
 
 /** 提案载荷基座：id + createdAt 必备，其余字段归业务方（adapter 泛型 P） */
 export interface ReviewProposalBase {
