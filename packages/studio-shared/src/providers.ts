@@ -9,6 +9,8 @@
  *   claude 2.1.80, kimi 0.27.0, codex-cli 0.144.4, opencode 1.18.3 — all verified
  *   against `<bin> --help` / official docs. openclaw flags are UNVERIFIED (not
  *   installed here); they follow the pre-F4 hardcoded adapter.
+ *   codex 安全基线 `-c` 覆盖（CODEX_SAFETY_CONFIG_ARGS）：codex-cli 0.154.0 实测
+ *   （沙箱隔离/默认断网/env core 白名单均本机验证，2026-09-22）。
  *
  * Node-only module (reads fs) — exported via '@dommaker/studio-shared/node'.
  */
@@ -127,6 +129,30 @@ export interface ProviderSpawnParams {
 }
 
 /**
+ * codex 安全基线 `-c` 配置覆盖（0.154.0 实测生效，键名对照官方 config reference）：
+ *   - sandbox_mode=workspace-write：写隔离到工作目录（/etc、$HOME 只读实测），
+ *     `.git`/`.codex` 递归只读保护；exec/resume 均接受 `-c`（resume 无 `-s` flag）。
+ *   - network_access=true：workspace-write 默认断网（09 调研实测），而 agent 任务
+ *     要装依赖/git 远端操作，断网即断活 → 显式开网络，不静默断网。域名级外发管控
+ *     （features.network_proxy）不在本批范围。
+ *   - writable_roots 补包管理器缓存/全局目录：否则沙箱内 pnpm/npm install 写 store
+ *     即 EROFS，开网络装依赖成空话。`$HOME` 由 shell 展开（本模板消费方 buildSessionCommand
+ *     拼 shell 命令串，与 promptArg 的 "$(cat ...)" 同先例）；`\"` 转义保证经 shell 后
+ *     codex 收到合法 TOML。
+ *   - shell_environment_policy.inherit=core：shell 子进程 env 白名单（实测只留
+ *     HOME/PATH/USER 等核心变量），凭证类（*_KEY/*_TOKEN/SSH_AUTH_SOCK 等）不进
+ *     agent 起的 shell。只作用于 agent 内 shell 子进程；codex 进程自身的认证 env
+ *     仍由 spawn env 透传。取舍：HTTP(S)_PROXY 同样被剥（include 过滤器实测不能加回
+ *     core 基线外的变量），需代理出网的部署面须在 codex 进程级配代理。
+ */
+export const CODEX_SAFETY_CONFIG_ARGS: string[] = [
+  '-c', `'sandbox_mode="workspace-write"'`,
+  '-c', 'sandbox_workspace_write.network_access=true',
+  '-c', `"sandbox_workspace_write.writable_roots=[\\"$HOME/.npm\\",\\"$HOME/.cache\\",\\"$HOME/.local/share/pnpm\\",\\"$HOME/.pnpm-store\\"]"`,
+  '-c', `'shell_environment_policy.inherit="core"'`,
+];
+
+/**
  * Built-in provider definitions.
  * claude args MUST stay byte-identical to the pre-F4 hardcoded adapter (regression risk).
  */
@@ -199,9 +225,12 @@ export const BUILTIN_PROVIDERS: Record<string, ProviderDefinition> = {
       // 无人值守下未信任一律跳过 → project hooks.json 不生效；--dangerously-bypass-hook-trust
       // 面向"已自行审查 hook 来源的自动化"（studio 即此：propagateHarnessConfig 生成并校验）
       // 才在非交互下执行 hooks。0.147.0 本机实证：加 flag 后 SessionStart hook 运行。
-      baseArgs: ['exec', '--json', '--dangerously-bypass-hook-trust'],
+      // CODEX_SAFETY_CONFIG_ARGS：workspace-write 沙箱 + 显式开网 + shell env 白名单
+      // （0.154.0 实测，见常量定义注释）。注意 providers.json 用户覆盖 baseArgs/resumeArgs
+      // 是整数组替换——覆盖即同时接管安全基线。
+      baseArgs: ['exec', '--json', '--dangerously-bypass-hook-trust', ...CODEX_SAFETY_CONFIG_ARGS],
       defaultOutputFormat: 'stream-json',
-      resumeArgs: ['exec', 'resume', '{sessionId}', '--json', '--dangerously-bypass-hook-trust'],
+      resumeArgs: ['exec', 'resume', '{sessionId}', '--json', '--dangerously-bypass-hook-trust', ...CODEX_SAFETY_CONFIG_ARGS],
       modelFlag: '--model',
       promptViaStdin: true,
       promptPositional: true,

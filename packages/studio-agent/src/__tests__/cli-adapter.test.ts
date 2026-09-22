@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { CODEX_SAFETY_CONFIG_ARGS } from '@dommaker/studio-shared/node';
 import { buildSpawnArgs } from '../cli-adapter.js';
 
 describe('buildSpawnArgs', () => {
@@ -69,7 +70,7 @@ describe('buildSpawnArgs', () => {
 
     it('codex: resume 改 exec resume --last（cwd 过滤最新会话；仅 --help 实证）', () => {
       const result = buildSpawnArgs('codex', { worktreeDir: '/tmp/test', sessionId: 'sess-123', sessionResume: true });
-      expect(result.args).toEqual(['exec', 'resume', '--last', '--json', '--dangerously-bypass-hook-trust']);
+      expect(result.args).toEqual(['exec', 'resume', '--last', '--json', '--dangerously-bypass-hook-trust', ...CODEX_SAFETY_CONFIG_ARGS]);
     });
 
     it('opencode: resume 改 --continue（cwd 维度续用，1.18.4 实测；Studio UUID 不接）', () => {
@@ -84,14 +85,14 @@ describe('buildSpawnArgs', () => {
       expect(result.command).toBe('codex');
     });
 
-    it('uses exec --json --dangerously-bypass-hook-trust for non-interactive runs（#147 trust 门）', () => {
+    it('uses exec --json --dangerously-bypass-hook-trust for non-interactive runs（#147 trust 门）+ 安全基线 -c 覆盖', () => {
       const result = buildSpawnArgs('codex', { worktreeDir: '/tmp/test' });
-      expect(result.args).toEqual(['exec', '--json', '--dangerously-bypass-hook-trust']);
+      expect(result.args).toEqual(['exec', '--json', '--dangerously-bypass-hook-trust', ...CODEX_SAFETY_CONFIG_ARGS]);
     });
 
     it('新建时丢弃 sessionId（exec resume 是续用语义，未知 id 会报错）', () => {
       const result = buildSpawnArgs('codex', { worktreeDir: '/tmp/test', sessionId: 'sess-123' });
-      expect(result.args).toEqual(['exec', '--json', '--dangerously-bypass-hook-trust']);
+      expect(result.args).toEqual(['exec', '--json', '--dangerously-bypass-hook-trust', ...CODEX_SAFETY_CONFIG_ARGS]);
     });
   });
 
@@ -138,12 +139,12 @@ describe('buildSpawnArgs', () => {
   });
 
   describe('capability probe — conditionalFlags 过滤（#565 AC1/AC2）', () => {
-    it('AC1: supportedFlags 不含 hook-trust 时从 baseArgs 剔除', () => {
+    it('AC1: supportedFlags 不含 hook-trust 时从 baseArgs 剔除（安全基线 -c 覆盖非 conditional，保留）', () => {
       const result = buildSpawnArgs('codex', {
         worktreeDir: '/tmp/test',
         supportedFlags: new Set(['--json', '--model']),
       });
-      expect(result.args).toEqual(['exec', '--json']);
+      expect(result.args).toEqual(['exec', '--json', ...CODEX_SAFETY_CONFIG_ARGS]);
     });
 
     it('AC1: supportedFlags 含 hook-trust 时保留', () => {
@@ -151,7 +152,7 @@ describe('buildSpawnArgs', () => {
         worktreeDir: '/tmp/test',
         supportedFlags: new Set(['--json', '--dangerously-bypass-hook-trust']),
       });
-      expect(result.args).toEqual(['exec', '--json', '--dangerously-bypass-hook-trust']);
+      expect(result.args).toEqual(['exec', '--json', '--dangerously-bypass-hook-trust', ...CODEX_SAFETY_CONFIG_ARGS]);
     });
 
     it('AC1: resume 路径（exec resume --last）同样过滤', () => {
@@ -161,12 +162,12 @@ describe('buildSpawnArgs', () => {
         sessionResume: true,
         supportedFlags: new Set(['--json']),
       });
-      expect(result.args).toEqual(['exec', 'resume', '--last', '--json']);
+      expect(result.args).toEqual(['exec', 'resume', '--last', '--json', ...CODEX_SAFETY_CONFIG_ARGS]);
     });
 
     it('AC2: 不传 supportedFlags（探测失败 fail-open）argv 与现状逐字节一致', () => {
       const result = buildSpawnArgs('codex', { worktreeDir: '/tmp/test' });
-      expect(result.args).toEqual(['exec', '--json', '--dangerously-bypass-hook-trust']);
+      expect(result.args).toEqual(['exec', '--json', '--dangerously-bypass-hook-trust', ...CODEX_SAFETY_CONFIG_ARGS]);
     });
 
     it('无 conditionalFlags 的 provider 传 supportedFlags 不过滤任何 flag', () => {
