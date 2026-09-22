@@ -208,6 +208,36 @@ describe('R4 regression: production knowledgeService wiring (injectContext)', ()
     }
   });
 
+  it('#612: rule with stage-vocab affects injects for matching WU type (previously zero-intersection, always empty)', async () => {
+    // #612 复现钉住：RuleScanner 的 affects 曾用角色词表（agent/reviewer/executor/monitor），
+    // 与 injectContext 传入的 wu.type（阶段词表 design/plan/implement/review/…）零交集，
+    // 「## 系统约束」对任何真实 WU 恒空。修复后：affects 为阶段词表，
+    // 命中的阶段注入、不命中的不注入、legacy 类型（feature/bug）经 normalizeToStage 归一化后命中。
+    const now = new Date().toISOString();
+    sharedStore.save({
+      id: `rule-stage-${Math.random().toString(36).slice(2, 8)}`,
+      type: 'guideline',
+      title: 'stage_targeted_rule',
+      content: JSON.stringify({ name: 'stage_targeted_rule', category: 'constraint', description: 'R4WIRING-STAGE-RULE 仅 implement 阶段可见', affects: '["implement"]', status: 'active' }),
+      maturity: 'active', layer: 'system', created: now, lastReferenced: now,
+      contributors: [], projects: [], tags: ['rule', 'active'], applicablePhases: [],
+      sourceReferences: [], referencedBy: [], executionResults: [],
+      consumptionMode: 'reference', origin: 'system',
+    });
+
+    // 命中的阶段：注入
+    const hit = await knowledgeService.injectContext('implement');
+    expect(hit.prompt).toContain('R4WIRING-STAGE-RULE');
+
+    // legacy 类型 feature → normalizeToStage → implement：同样注入
+    const legacy = await knowledgeService.injectContext('feature');
+    expect(legacy.prompt).toContain('R4WIRING-STAGE-RULE');
+
+    // 不命中的阶段：不注入（定向真实生效，非全员可见）
+    const miss = await knowledgeService.injectContext('review');
+    expect(miss.prompt).not.toContain('R4WIRING-STAGE-RULE');
+  });
+
   it('list() adapts UnifiedQuery paged result to an entry array', async () => {
     seedEntries();
     const entries = await knowledgeService.list({ consumptionModes: ['signal'] } as any);

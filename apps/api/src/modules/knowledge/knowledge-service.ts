@@ -35,7 +35,7 @@ import type {
   KnowledgeOrigin,
 } from '@dommaker/harness';
 import { TokenEstimator } from '@dommaker/harness';
-import { FileStore, logger, renderWithOverride } from '@dommaker/studio-shared';
+import { FileStore, logger, normalizeToStage, renderWithOverride } from '@dommaker/studio-shared';
 import { getSystemExecutor, StudioRoleNotConfiguredError } from '../agents/system-executor.js';
 import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
 import type { CreateResolutionInput } from '@dommaker/studio-shared';
@@ -532,7 +532,11 @@ export class KnowledgeService {
     // R3: isInjectableMaturity — proposal(draft)/archived/deprecated 不注入
     // ②（wireups）：来源凭证读生产字段 sourceReferences（复数，length>0），
     // 此前误读单数 sourceReference → 生产恒 false，rule/context 两档恒空。
-    const rules = await this.query.queryEntries({ consumptionModes: ['rule'], agentType, status: 'published' });
+    // #612：agentType（= wu.type，可能带 legacy 值 feature/bug/task）先经 normalizeToStage
+    // 归一化到阶段词表再过滤——applicableAgents 为阶段词表（决策 8 单一词表），
+    // 不归一化则 legacy WU 与阶段定向规则零交集，rule 段再度恒空。
+    const stageAgentType = normalizeToStage(agentType);
+    const rules = await this.query.queryEntries({ consumptionModes: ['rule'], agentType: stageAgentType, status: 'published' });
     const filteredRules = (rules || []).filter((r: any) => hasSourceReferences(r) && !isRoleMemory(r) && r.status !== 'stale' && isInjectableMaturity(r.maturity));
 
     // 2. context — full content injection (preferences + environment)

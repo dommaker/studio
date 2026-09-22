@@ -2,6 +2,11 @@
  * RuleScanner (G-002) — 从源码/harness 约束/配置中提取业务规则
  *
  * 冷启动全量扫描 + 变更时增量 diff 更新。
+ *
+ * affects 词表（#612）：阶段词表（决策 8 单一词表，见 studio-shared/domain-vocab.ts），
+ * 消费方是 injectContext 以 wu.type 过滤 applicableAgents（unified-query.ts）。
+ * 空数组 = 全局规则，对所有阶段可见。曾经的角色词表（agent/reviewer/executor/monitor）
+ * 与 wu.type 零交集，rule 段对真实 WU 恒空，已废。
  */
 
 import { logger } from '@dommaker/studio-shared';
@@ -66,7 +71,10 @@ export class RuleScanner {
         const changed =
           d.description !== rule.description ||
           d.condition !== rule.condition ||
-          d.defaultValue !== rule.defaultValue;
+          d.defaultValue !== rule.defaultValue ||
+          // #612：affects 词表切换（角色→阶段）后，存量条目须在下一次扫描自愈重写，
+          // 否则旧角色词表条目永远零交集，rule 段依旧恒空
+          JSON.stringify(d.affects ?? []) !== JSON.stringify(rule.affects);
 
         if (changed) {
           sharedStore.save({
@@ -210,7 +218,7 @@ export class RuleScanner {
           action: `enforce ${c.severity}:${c.id}`,
           source: '@dommaker/harness',
           sourceType: 'harness_constraint',
-          affects: ['agent', 'reviewer'],
+          affects: [], // 全局治理规则：对所有阶段可见
         });
       }
     } catch (err) {
@@ -242,7 +250,7 @@ export class RuleScanner {
             action: 'architect constraint check',
             source: '.architect/rules.yml',
             sourceType: 'config_file',
-            affects: ['agent', 'reviewer'],
+            affects: [], // 架构规则全局生效
           });
         }
       }
@@ -337,7 +345,7 @@ export class RuleScanner {
               defaultValue: value,
               source: envPath.replace(PROJECT_ROOT + '/', ''),
               sourceType: 'env_var',
-              affects: ['agent', 'executor', 'monitor'],
+              affects: [], // 环境阈值全局生效
             });
           }
         }
@@ -363,15 +371,15 @@ export class RuleScanner {
     } catch { /* skip */ }
   }
 
+  /**
+   * 按文件路径推断规则适用阶段（#612：阶段词表，决策 8）。
+   * 只在路径明确指向某阶段时定向，否则返回 []（全局可见）——
+   * agent 循环/监控/部署等常量跨阶段生效，强行定向只会重建零交集假绿。
+   */
   private inferAffects(filePath: string): string[] {
-    if (filePath.includes('agent')) return ['agent', 'executor'];
-    if (filePath.includes('review')) return ['reviewer'];
-    if (filePath.includes('analyst')) return ['analyst'];
-    if (filePath.includes('goal') || filePath.includes('executor')) return ['executor', 'agent'];
-    if (filePath.includes('monitor') || filePath.includes('triage')) return ['monitor', 'triage'];
-    if (filePath.includes('deploy')) return ['deploy'];
-    if (filePath.includes('auditor')) return ['auditor'];
-    return ['agent'];
+    if (filePath.includes('review')) return ['review'];
+    if (filePath.includes('analyst') || filePath.includes('analysis')) return ['analysis'];
+    return [];
   }
 }
 
