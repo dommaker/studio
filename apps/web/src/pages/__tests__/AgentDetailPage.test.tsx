@@ -8,7 +8,7 @@ vi.mock('react', async () => {
   return { ...actual, default: actual };
 });
 
-const { mockListAllAgents, mockListChannels, mockGetAgentSummary, mockWuList, mockWuGet, mockListExecSteps, mockTerminateInstance, mockUpdateAgent, mockListManifest, sse } = vi.hoisted(() => ({
+const { mockListAllAgents, mockListChannels, mockGetAgentSummary, mockWuList, mockWuGet, mockListExecSteps, mockTerminateInstance, mockUpdateAgent, mockListManifest, mockApiGet, sse } = vi.hoisted(() => ({
   mockListAllAgents: vi.fn(),
   mockListChannels: vi.fn(),
   mockGetAgentSummary: vi.fn(),
@@ -18,6 +18,8 @@ const { mockListAllAgents, mockListChannels, mockGetAgentSummary, mockWuList, mo
   mockTerminateInstance: vi.fn(),
   mockUpdateAgent: vi.fn(),
   mockListManifest: vi.fn(),
+  // #630：资料卡编辑弹框（RoleFormModal）的 provider 候选走 useDetectedProviders → api.get
+  mockApiGet: vi.fn(),
   // SSE 注册口捕获（#318：页面与内嵌 ExecutionSteps 都经 useWebSocketContext 订阅，广播全体）
   sse: {
     handlers: [] as Array<(msg: { event_type: string; data: unknown }) => void>,
@@ -71,7 +73,7 @@ vi.mock('../../api/websocketHooks', () => ({
 }));
 
 vi.mock('../../api/index', () => ({
-  api: { post: vi.fn().mockResolvedValue({}) },
+  api: { post: vi.fn().mockResolvedValue({}), get: mockApiGet },
 }));
 
 import { AgentDetailPage } from '../../pages/AgentDetailPage';
@@ -244,6 +246,34 @@ describe('AgentDetailPage', () => {
     mockApis({ profiles: [{ ...profile, skills: undefined }] });
     render(<AgentDetailPage />);
     expect(await screen.findByText('未声明')).toBeDefined();
+  });
+
+  it('#630 决策 6：资料卡展示描述 + 「编辑资料」开正本 edit 弹框（预填 initial，改名 PATCH 脏字段后强刷名册）', async () => {
+    mockApiGet.mockResolvedValue({ data: { runtimes: [{ provider: 'claude', version: '1.0.0', auth: 'ok' }] } });
+    mockUpdateAgent.mockResolvedValue({ data: { ...profile, name: 'dev-agent-2' } });
+    render(<AgentDetailPage />);
+
+    // 资料卡（沿用「技能」卡头+按钮模式）
+    expect(await screen.findByText('资料')).toBeDefined();
+    expect(screen.getByText('writes code')).toBeDefined();
+
+    fireEvent.click(screen.getByRole('button', { name: '编辑资料' }));
+    // 正本 edit 模式预填 initial
+    const nameInput = (await screen.findByTestId('role-form-name')) as HTMLInputElement;
+    expect(nameInput.value).toBe('dev-agent');
+    expect((screen.getByPlaceholderText(/描述（可选）/) as HTMLInputElement).value).toBe('writes code');
+
+    // 改名保存 → PATCH 只带 name 脏字段 + 强制刷新名册
+    fireEvent.change(nameInput, { target: { value: 'dev-agent-2' } });
+    fireEvent.click(screen.getByTestId('create-role-submit'));
+    await waitFor(() => expect(mockUpdateAgent).toHaveBeenCalledWith('p1', { name: 'dev-agent-2' }));
+    await waitFor(() => expect(mockListAllAgents.mock.calls.length).toBeGreaterThanOrEqual(2));
+  });
+
+  it('#630：资料卡空描述 → 「未填写描述」空态', async () => {
+    mockApis({ profiles: [{ ...profile, description: null }] });
+    render(<AgentDetailPage />);
+    expect(await screen.findByText('未填写描述')).toBeDefined();
   });
 });
 

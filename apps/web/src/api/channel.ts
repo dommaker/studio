@@ -191,4 +191,8 @@ export const channelApi = {
 
   updateAgent: (id: string, data: Partial<{ name: string; description: string | null; channels: string[]; provider: string | null; status: string; skills: string[] }>) =>
     api.patch<AgentProfile>(`/agent-profiles/${id}`, data),
+
+  /** #630（ADR 2026-09-23 决策 5）：删除角色（204；服务端级联清频道成员与路由指名、卸载 loop，studio 角色服务端拒删） */
+  deleteAgent: (id: string) =>
+    api.delete<void>(`/agent-profiles/${id}`),
 };

@@ -11,6 +11,9 @@ import { lazy, Suspense, useCallback, useMemo, useState } from 'react';
 import { useAgentRoster, type RosterRole } from '../hooks/useAgentRoster';
 import { RoleCard } from '../components/monitoring/RoleCard';
 import { CreateRoleModal } from '../components/monitoring/CreateRoleModal';
+import { RoleFormModal } from '../components/monitoring/RoleFormModal';
+import { RoleSkillsModal } from '../components/monitoring/RoleSkillsModal';
+import { DeleteRoleDialog } from '../components/monitoring/DeleteRoleDialog';
 import { SkeletonCard } from '../components/ui';
 import type { DrawerState } from '../components/channel/WorkUnitDrawer';
 import {
@@ -44,6 +47,14 @@ export function AgentDashboardPage() {
   // D-2 项7：WU 就地抽屉宿主；openWu 必须稳定引用（RoleCard memo + #348 渲染契约）
   const [drawer, setDrawer] = useState<DrawerState>(null);
   const openWu = useCallback((wuId: string) => setDrawer({ kind: 'wu', id: wuId }), []);
+  // #630 决策 5/6：卡头 ⋯ 菜单动作宿主（编辑资料/编辑技能/删除弹框页面级单份；
+  // 三个回调必须稳定引用——RoleCard memo 契约，同 openWu 先例）
+  const [editRole, setEditRole] = useState<RosterRole | null>(null);
+  const [skillsRole, setSkillsRole] = useState<RosterRole | null>(null);
+  const [deleteRole, setDeleteRole] = useState<RosterRole | null>(null);
+  const openEditProfile = useCallback((r: RosterRole) => setEditRole(r), []);
+  const openEditSkills = useCallback((r: RosterRole) => setSkillsRole(r), []);
+  const openDelete = useCallback((r: RosterRole) => setDeleteRole(r), []);
 
   const stats = useMemo(() => ({
     total: roles.length,
@@ -118,6 +129,9 @@ export function AgentDashboardPage() {
                 lastDone={lastDone[r.profile.id] ?? null}
                 channelNames={channelNames}
                 onOpenWu={openWu}
+                onEditProfile={openEditProfile}
+                onEditSkills={openEditSkills}
+                onDelete={openDelete}
               />
             ))}
           </div>
@@ -128,6 +142,31 @@ export function AgentDashboardPage() {
         open={createOpen}
         onClose={() => setCreateOpen(false)}
         onCreated={() => void refresh()}
+      />
+
+      {/* #630 决策 5/6：⋯ 菜单弹框宿主（保存/删除成功 = 关弹框 + 就地刷新名册，同 §6.4 契约） */}
+      {editRole && (
+        <RoleFormModal
+          open
+          mode="edit"
+          initial={editRole.profile}
+          onClose={() => setEditRole(null)}
+          onSaved={() => { setEditRole(null); void refresh(); }}
+        />
+      )}
+      {skillsRole && (
+        <RoleSkillsModal
+          open
+          profile={skillsRole.profile}
+          onClose={() => setSkillsRole(null)}
+          onSaved={() => { setSkillsRole(null); void refresh(); }}
+        />
+      )}
+      <DeleteRoleDialog
+        open={!!deleteRole}
+        profile={deleteRole?.profile ?? null}
+        onClose={() => setDeleteRole(null)}
+        onDeleted={() => { setDeleteRole(null); void refresh(); }}
       />
 
       {/* D-2 项7：WU 就地抽屉（自挂实例 + .ac-drawer-host 全断点 fixed 覆盖宿主，

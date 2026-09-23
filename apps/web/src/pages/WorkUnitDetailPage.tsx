@@ -8,8 +8,6 @@ import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { deriveDisplayState, parseAttestations, WU_STATUS_COLORS, WU_STATUS_LABELS, WU_TYPE_LABELS, formatChannelName } from '@dommaker/studio-shared/web';
 import { workunitApi, type Opportunity, type WorkUnit } from '../api/workunit';
-import { requirementApi } from '../api/requirements';
-import { projectApi } from '../api/index';
 import { useRosterStore } from '../stores/rosterStore';
 import { AssigneeLabel } from '../components/workunit/AssigneeLabel';
 import { ExecutionFlow } from '../components/workunit/ExecutionFlow';
@@ -31,34 +29,12 @@ import { parseBlockedBy } from '../components/pmo/mapUtils';
 import { buildLifecycle } from '../utils/wuLifecycle';
 import { formatShortTime } from '../utils/datetime';
 import { parseWuMeta } from '../utils/wuMeta';
+import { resolveWuPmo, type WuPmoInfo } from '../utils/wuPmo';
 import { errorMessage } from '../utils/errorMessage';
 import '../styles/wu-detail.css';
 
-interface PmoInfo {
-  id: string;
-  pmoNumber: string;
-  title: string;
-}
-
-/** 归属条 PMO 解析（2026-08 归因统一）：① 创建期归因戳 metadata.pmoId（‖ deprecated legacy ownershipProjectId 同级）直查；② 否则 reqId → requirement.projectId（REQ 别名视图 projectId = PMO 自身 id） */
-async function resolvePmo(wu: WorkUnit): Promise<PmoInfo | null> {
-  const meta = parseWuMeta(wu.metadata);
-  const stamp = meta.pmoId ?? meta.ownershipProjectId;
-  let projectId = typeof stamp === 'string' && stamp ? stamp : null;
-  if (!projectId && wu.reqId) {
-    try {
-      const reqRes = await requirementApi.get(wu.reqId);
-      projectId = reqRes.data.data.projectId ?? null;
-    } catch { return null; }
-  }
-  if (!projectId) return null;
-  try {
-    const res = await projectApi.get(projectId);
-    const p = res.data as { id?: unknown; pmoNumber?: unknown; title?: unknown };
-    if (typeof p.id !== 'string' || typeof p.pmoNumber !== 'string') return null;
-    return { id: p.id, pmoNumber: p.pmoNumber, title: typeof p.title === 'string' ? p.title : '' };
-  } catch { return null; }
-}
+// #630：归属条 PMO 解析收敛到共享正本 utils/wuPmo（删除确认框在途清单同路径复用）
+type PmoInfo = WuPmoInfo;
 
 /** 关键事实卡行：label + 值（值超长截断） */
 function FactRow({ k, children }: { k: string; children: React.ReactNode }) {
@@ -99,7 +75,7 @@ export function WorkUnitDetailPage() {
         const unit = r.data;
         setWu(unit);
         // 归属解析全部 best-effort 并行：解析不到就不显示对应行，不阻塞页面
-        resolvePmo(unit).then(p => { if (alive) setPmo(p); });
+        resolveWuPmo(unit).then(p => { if (alive) setPmo(p); });
         // 频道名经 rosterStore 切片解析（ensureFresh 永不 reject，TTL 内零重拉）
         if (unit.channelId) void useRosterStore.getState().ensureFresh();
       })

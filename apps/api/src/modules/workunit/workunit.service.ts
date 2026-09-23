@@ -104,7 +104,10 @@ export class WorkUnitService extends WorkUnitCrudService {
     // In-memory filter
     if (type) snapshots = snapshots.filter(s => s.type === type);
     if (status) snapshots = snapshots.filter(s => s.status === status);
-    if (assigneeId) snapshots = snapshots.filter(s => s.assigneeId === assigneeId);
+    // ADR 2026-09-23-role-form-module 决策 7（#630）：assigneeId 或 assigneeRoleId 任一命中。
+    // claim 会把 assigneeId 改写为实例 id（认领快照留在 assigneeRoleId），只认 assigneeId
+    // 会漏掉正在执行的那批——角色删除确认框的在途清单依赖本口径。
+    if (assigneeId) snapshots = snapshots.filter(s => s.assigneeId === assigneeId || s.assigneeRoleId === assigneeId);
     if (channelId) snapshots = snapshots.filter(s => s.channelId === channelId);
     if (parentId) snapshots = snapshots.filter(s => s.parentId === parentId);
     if (failureType) snapshots = snapshots.filter(s => s.failureType === failureType);

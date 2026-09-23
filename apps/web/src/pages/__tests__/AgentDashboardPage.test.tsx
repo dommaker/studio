@@ -346,7 +346,7 @@ describe('AgentDashboardPage', () => {
     expect(mockNavigate).not.toHaveBeenCalled();
   });
 
-  it('§6.4 创建角色弹框化：勾选 runtime + 命名 → 创建 → 关弹框就地刷新名册，不跳页', async () => {
+  it('§6.4 创建角色弹框化 + #630 决策 2 单角色收窄：命名 + 选 provider → 创建 → 关弹框就地刷新名册，不跳页', async () => {
     mockApis();
     mockApiGet.mockResolvedValue({
       data: { runtimes: [{ provider: 'claude', version: '1.0.0' }] },
@@ -356,17 +356,18 @@ describe('AgentDashboardPage', () => {
     const callsBefore = mockListAllAgents.mock.calls.length;
 
     fireEvent.click(screen.getByRole('button', { name: '创建角色' }));
-    // 弹框就地打开，不 navigate
-    expect(await screen.findByText(/检测到 1 个 runtime/)).toBeDefined();
+    // 弹框就地打开（RoleFormModal 正本），不 navigate；provider 默认首个可用项
+    const submit = await screen.findByTestId('create-role-submit');
     expect(mockNavigate).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.getByTestId('role-form-provider').textContent).toContain('claude'));
+    expect(submit).toBeDisabled(); // 未命名不可创建
 
-    fireEvent.click(screen.getByRole('checkbox'));
-    fireEvent.change(screen.getByPlaceholderText(/角色名称/), { target: { value: 'qa-agent' } });
-    fireEvent.click(screen.getByRole('button', { name: /创建选中角色/ }));
+    fireEvent.change(screen.getByTestId('role-form-name'), { target: { value: 'qa-agent' } });
+    fireEvent.click(submit);
 
     await waitFor(() => expect(mockCreateAgent).toHaveBeenCalledWith({ name: 'qa-agent', description: undefined, provider: 'claude' }));
     // 保存 = 关弹框 + 就地刷新名册（不跳页）
-    await waitFor(() => expect(screen.queryByText(/检测到 1 个 runtime/)).toBeNull());
+    await waitFor(() => expect(screen.queryByTestId('create-role-submit')).toBeNull());
     await waitFor(() => expect(mockListAllAgents.mock.calls.length).toBeGreaterThan(callsBefore));
     expect(mockNavigate).not.toHaveBeenCalled();
   });
