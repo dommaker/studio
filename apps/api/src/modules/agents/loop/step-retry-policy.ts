@@ -157,6 +157,10 @@ export async function runStepRetry(ctx: StepRetryCtx, deps: StepRetryDeps): Prom
   );
   task.parameters!.sessionId = ctx.provider === 'claude' ? fallbackSessionId : undefined;
   delete task.parameters!.sessionResume;
+  // #639: 换新会话 = 旧 CLI 会话号已死/已弃（降级 = 编号失效，溢出 = 会话不再续用）——
+  // 显式 undefined 清除（mergedWuView 序列化丢弃 undefined 键的既有口径），防终态失败后
+  // 下一步又去续死号；重试成功由 agent-loop 成功路径从 rawOutput 重新解析落档
+  metadataUpdates.cliSessionId = undefined;
   // 重试 = 一次新建会话尝试，成败均计入会话预算（#95 失败/超时尝试计入语义）
   metadataUpdates.sessionCount = ctx.sessionsUsed + 1;
 

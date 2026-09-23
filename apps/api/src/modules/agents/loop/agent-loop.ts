@@ -14,7 +14,7 @@
 // 本文件保留 AgentLoop 类编排逻辑；导出面 = AgentLoop + StepResult（#544 拆除 re-export 门面，
 // 测试 import 已迁真属主 agent-loop-parsers / agent-loop-events / agent-loop-guards）。
 import { execSync } from 'child_process';
-import { eventBus, logger, FileStore, parseChannels, withAttestation, isStaleClaimSleep, parseStreamEvents, type RuntimeStateData } from '@dommaker/studio-shared';
+import { eventBus, logger, FileStore, parseChannels, withAttestation, isStaleClaimSleep, parseStreamEvents, extractCliSessionId, type RuntimeStateData } from '@dommaker/studio-shared';
 import { TokenEstimator } from '@dommaker/harness';
 import { resolveProviderDefinition, buildHealthProbeCommand } from '@dommaker/studio-shared/node';
 import { randomUUID } from 'crypto';
@@ -1024,14 +1024,26 @@ export class AgentLoop {
     // apps/api tsc resolves studio-agent types from its (possibly stale) dist/index.d.ts.
     // （取值前移：续用判定需要 provider）
     const taskProvider = (this.role.provider || 'claude') as AgentTask['provider'];
-    // 续用判定（#94 per-WU 化）：只信档案 metadata.sessionId，不再读 instance 槽位。
-    // claude 会话按 (HOME, cwd) 存储（2.1.80 实测：异 cwd --resume 报
-    // "No conversation found with session ID"）——cwd 取本步最终 workspaceRoot（此时已是
-    // 真实执行 cwd），会话文件 ~/.claude/projects/<cwd-slug>/<id>.jsonl 不在 → 直接走新建；
-    // kimi/codex/opencode 为 cwd 维度续用（无 id 文件可查），档案有号即续用（cli-adapter 头部实证）。
-    const resumeSessionId = shouldResumeSession(taskProvider, metadata.sessionId, workspaceRoot)
-      ? metadata.sessionId!
+    // 续用判定（#94 per-WU 化 + #639 按 CLI 真实会话号点名续用）：只信档案，不读 instance 槽位。
+    // 候选号选取：claude = metadata.sessionId（档案 UUID 即 claude CLI 真实会话号，会话按
+    // (HOME, cwd) 存储，2.1.80 实测异 cwd --resume 报 "No conversation found with session ID"
+    // ——cwd 取本步最终 workspaceRoot，会话文件不在 → 直接走新建）；kimi/codex/opencode =
+    // metadata.cliSessionId（CLI 真实会话号，无 id 文件可查 → 只判有无，编号失效由 CLI
+    // 报错 + #94 降级链兜底）。无 CLI 会话号 = 新建——cwd 维度「接最新」已撤除（#637：
+    // 非代码 WU 共享 cwd，交错执行静默接错别家会话）。
+    const resumeCandidateId = taskProvider === 'claude' ? metadata.sessionId : metadata.cliSessionId;
+    const resumeSessionId = shouldResumeSession(taskProvider, resumeCandidateId, workspaceRoot)
+      ? resumeCandidateId!
       : null;
+    // #639：续用决策日志（可 grep：provider / 是否续用 / cwd / CLI 真实会话号）
+    logger.info('[AgentLoop] session resume decision', {
+      workUnitId: wu.id,
+      provider: taskProvider,
+      resumed: resumeSessionId !== null,
+      cwd: workspaceRoot ?? null,
+      cliSessionId: metadata.cliSessionId ?? null,
+      traceId,
+    });
 
     // prompt 组装与上下文注入（hint 读取/注入/消费清除、skill > persona > roster > knowledge
     // 共用分段软定额注入）已抽到 ./prompt-composer.js（2026-08 工单 05）——agentStep 只保留编排。
@@ -1094,9 +1106,9 @@ export class AgentLoop {
       provider: taskProvider,
       prompt,
       parameters: {
-        // 续用：sessionId + sessionResume → cli-adapter 按 provider 换续用形态
-        // （claude --resume <id>；kimi/opencode --continue、codex exec resume --last ——
-        // Studio UUID 对这三家无意义，靠 CLI 自己的 cwd 维度会话记录续用，实证见 cli-adapter 头部）。
+        // 续用：sessionId = CLI 真实会话号（#639：claude 为档案 UUID，kimi/codex/opencode
+        // 为档案 cliSessionId）+ sessionResume → cli-adapter 按 provider 换 id 形态续用
+        // （claude --resume <id>；kimi/opencode --session <id>；codex exec resume <id>）。
         // 新建：仅 claude 把新 sessionId 传给 CLI（--session-id 建会话 —— 不建则后续 --resume
         // 找不到会话，2.1.80 实测报 "No conversation found"）；kimi/codex/opencode 的 session
         // 参数均续用语义（实测未知 id 报 Session not found）→ 新建不传，CLI 自建会话。
@@ -1174,11 +1186,14 @@ export class AgentLoop {
       // #453: 失败路径保持按原文解析（票内决议）——失败步仅此一个消费点，解析一次；
       // 成功路径的解析产物复用不延伸到这里（失败步与成功步互斥，无重复解析可省）。
       const failedRaw = res?.rawOutput;
+      const failedCliSessionId = failedRaw ? extractCliSessionId(taskProvider, failedRaw) : null;
       void emitExecutionStepEvent({
         workUnitId: wu.id,
         channelId: wu.channelId,
         executionId: task.executionId,
         sessionId: effectiveSessionId ?? undefined,
+        // #639: 失败步同样落 CLI 真实会话号（流内有才带，不编造）
+        ...(failedCliSessionId ? { cliSessionId: failedCliSessionId } : {}),
         sessionResumed,
         step: stepNo,
         action,
@@ -1283,6 +1298,11 @@ export class AgentLoop {
       // 外溢不划算，票内 triage 决议）。
       const toolTraceSource = result.rawOutput ?? result.outputText;
       const stepEvents = toolTraceSource ? parseStreamEvents(toolTraceSource) : [];
+      // #639: CLI 真实会话号落档（与档案会话号 UUID 并存，术语见 agents/CONTEXT.md
+      // 「会话术语」）——下一步 kimi/codex/opencode 按它点名续用；claude 仅观测落档
+      // （续用仍走 sessionId，行为零变化）。读不到不编造（extractCliSessionId → null 不动档案）。
+      const stepCliSessionId = toolTraceSource ? extractCliSessionId(taskProvider, toolTraceSource) : null;
+      if (stepCliSessionId) metadataUpdates.cliSessionId = stepCliSessionId;
       if (toolTraceSource) {
         try {
           // #602 D4：caller 落真实角色 id（(c) 链路按 caller 匹配 .agents/roles/<id>）
@@ -1310,6 +1330,8 @@ export class AgentLoop {
         channelId: wu.channelId,
         executionId: task.executionId,
         sessionId: effectiveSessionId ?? undefined,
+        // #639: 本步 CLI 真实会话号（与该步 transcript rawOutput 中的编号一致，可对照）
+        ...(stepCliSessionId ? { cliSessionId: stepCliSessionId } : {}),
         // #94: 本步最终实际的续用形态（续用降级重试后 = false）
         sessionResumed,
         step: stepNo,

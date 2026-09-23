@@ -83,10 +83,16 @@ describe('shouldResumeSession', () => {
     expect(shouldResumeSession('kimi', undefined, cwd)).toBe(false);
   });
 
-  it('非 claude（kimi/codex/opencode 为 cwd 维度续用，无 id 文件可查）→ true', () => {
-    expect(shouldResumeSession('kimi', 'sess-1', cwd)).toBe(true);
-    expect(shouldResumeSession('codex', 'sess-1', cwd)).toBe(true);
-    expect(shouldResumeSession('opencode', 'sess-1', null)).toBe(true);
+  it('非 claude（kimi/codex/opencode 无 id 文件可查）：传入候选号（#639 起 = CLI 真实会话号）即续用', () => {
+    expect(shouldResumeSession('kimi', 'session_6bc14e1d', cwd)).toBe(true);
+    expect(shouldResumeSession('codex', '019ffaa8-a378-79e2-af4f-f618e93d4442', cwd)).toBe(true);
+    expect(shouldResumeSession('opencode', 'ses_0058', null)).toBe(true);
+  });
+
+  it('非 claude 无 CLI 会话号（旧档案只有自建 UUID）→ false（#639：不再 cwd 维度接最新）', () => {
+    expect(shouldResumeSession('kimi', undefined, cwd)).toBe(false);
+    expect(shouldResumeSession('codex', null, cwd)).toBe(false);
+    expect(shouldResumeSession('opencode', '', cwd)).toBe(false);
   });
 
   it('claude + cwd 未知（workspaceRoot 解析不出）→ true（交给 CLI 错误 + 降级兜底）', () => {
@@ -106,6 +112,8 @@ describe('RESUME_FAILURE_RE（降级触发条件）', () => {
   it('匹配「会话不存在」错误（大小写不敏感）', () => {
     expect(RESUME_FAILURE_RE.test('No conversation found with session ID sess-1')).toBe(true);
     expect(RESUME_FAILURE_RE.test('Session not found')).toBe(true);
+    // #639 冒烟实测（codex 0.154.0）：未知 thread id 的 resume 报错形态
+    expect(RESUME_FAILURE_RE.test('thread/resume failed: no rollout found for thread id 00000000 (code -32600)')).toBe(true);
   });
 
   it('非续用类错误不匹配（超时/spawn/业务失败）', () => {

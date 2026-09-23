@@ -141,7 +141,8 @@ export async function resumeWaitingWorkUnit(
   // #471（Triage 定稿 1/会话连续性）：plan 步数额度到线的挂起 — 回复即续期：
   // planStepAllowance 加一份 PLAN_STEP_LIMIT（额度口径=人工授权批次，仿「追加预算」），
   // 随后走通用复活路径（清挂起/重置停滞/回复入 pendingReplies → active）。
-  // 会话预算（sessionCount）不动——复活后凭 metadata.sessionId 优先续用旧会话（#94）。
+  // 会话预算（sessionCount）不动——复活后凭档案会话号续用旧会话（#94；#639 起非 claude
+  // 凭 metadata.cliSessionId 点名续用）。
   if (metadata.waitingReason === 'plan-step-limit') {
     await fileStore.updateMetadata(workUnitId, latest => ({
       ...latest,
@@ -167,7 +168,8 @@ export async function resumeWaitingWorkUnit(
     consecutiveStuck: 0,    // #176（决策 #57 D2）：复活重置停滞计数（仿 B5 重置 sessionCount 先例）
     resumeCount: (typeof latest.resumeCount === 'number' ? latest.resumeCount : 0) + 1, // D5：观测钩子
     // timeoutReleaseCount 不动 —— 终身保留（#63 的 3 次上限不可被复活绕过）
-    // #94: 不再清零 sessionCount —— 复活后下一步凭 metadata.sessionId 优先续用旧会话，
+    // #94: 不再清零 sessionCount —— 复活后下一步凭档案会话号优先续用旧会话（#639 起
+    // 非 claude 凭 metadata.cliSessionId 点名续用），
     // 不靠清零预算放行（清零会让失控 WU 无限重开新会话烧 token）
     pendingReplies: [...(Array.isArray(latest.pendingReplies) ? latest.pendingReplies : []), replyText],
   }));

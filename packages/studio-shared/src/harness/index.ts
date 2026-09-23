@@ -15,6 +15,9 @@ export type { SessionMetrics } from './session-metrics';
 export { extractProviderUsage } from './provider-usage';
 export type { ProviderUsage } from './provider-usage';
 
+// CLI 真实会话号提取（#639：按 CLI 会话号点名续用，读不到 → null 不编造）
+export { extractCliSessionId } from './cli-session-id';
+
 // Harness 运行时（#562：hooks 管线层已收缩，只保留 bootstrap 初始化）
 export { bootstrapHarness, getHarness, isHarnessInitialized } from './runtime/bootstrap';
 export type { HarnessBootstrap } from '@dommaker/harness';

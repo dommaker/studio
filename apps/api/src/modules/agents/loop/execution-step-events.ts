@@ -59,6 +59,8 @@ export interface ExecutionStepEventPayload {
   /** 来源频道（前端按频道过滤 step 的数据源；无频道 WU 缺省） */
   channelId?: string | null;
   sessionId?: string;
+  /** #639: 本步 CLI 真实会话号（provider 侧 session_id；与该步 transcript rawOutput 中的编号一致） */
+  cliSessionId?: string;
   /** #94: 本步会话续用(true)/新建(false) 标记（内部状态，不上频道；缺省 = 调用方未提供） */
   sessionResumed?: boolean;
   /** 1 基步号（调用方按 metadata.stepCount+1 计） */
@@ -87,6 +89,8 @@ export interface BuildExecutionStepEventArgs {
   /** 来源频道（wu.channelId 透传；null/缺省 → payload 无该键） */
   channelId?: string | null;
   sessionId?: string;
+  /** #639: 本步 CLI 真实会话号（undefined 时 payload 无该键） */
+  cliSessionId?: string;
   /** #94: 本步会话续用(true)/新建(false) 标记（undefined 时 payload 不产该键） */
   sessionResumed?: boolean;
   step: number;
@@ -206,6 +210,7 @@ export function buildExecutionStepEvent(args: BuildExecutionStepEventArgs): Exec
     executionId: args.executionId,
     ...(args.channelId ? { channelId: args.channelId } : {}),
     ...(args.sessionId ? { sessionId: args.sessionId } : {}),
+    ...(args.cliSessionId ? { cliSessionId: args.cliSessionId } : {}),
     ...(args.sessionResumed !== undefined ? { sessionResumed: args.sessionResumed } : {}),
     step: args.step,
     ...(args.action ? { action: args.action } : {}),

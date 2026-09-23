@@ -35,7 +35,13 @@ export interface WorkUnitMetadata {
   // （追加预算 / 现有产出收尾 / 放弃，见 waiting-input.ts）；缺省/<=0 = 无上限
   tokenBudget?: number;
   // Agent Loop session 追踪（AS-025 Agent Loop 重写）
-  sessionId?: string;         // 当前关联的 Claude session
+  sessionId?: string;         // 档案会话号（Studio 自建 UUID；仅对 claude 同时是 CLI 真实会话号）
+  // #639（#637 方向 D）：CLI 真实会话号——provider 侧真实 session_id（claude result 行 /
+  // kimi 流内 session.resume_hint meta 行 / codex thread.started thread_id / opencode 事件
+  // sessionID），成功步由 agent-loop 经 extractCliSessionId 从 rawOutput 解析落档。
+  // kimi/codex/opencode 的续用只信本字段（有号才点名续用；无号 = 新建，不再 cwd 维度接最新）；
+  // claude 续用仍走 sessionId（本字段仅观测落档）。读不到不编造。
+  cliSessionId?: string;
   stepCount?: number;         // 已执行步骤数
   startedAt?: string;         // 首次执行时间
   consecutiveStuck?: number;  // 连续无进展步数
