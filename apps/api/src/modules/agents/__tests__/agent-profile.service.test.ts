@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { FileStore, eventBus } from '@dommaker/studio-shared';
-import { AgentProfileService, ensureStudioProfile, STUDIO_ROLE_DESCRIPTION, STUDIO_ROLE_DEFAULT_PROVIDER, STUDIO_ROLE_LEGACY_DESCRIPTION } from '../agent-profile.service.js';
+import { AgentProfileService, ensureStudioProfile, listRolePresets, STUDIO_ROLE_DESCRIPTION, STUDIO_ROLE_DEFAULT_PROVIDER, STUDIO_ROLE_LEGACY_DESCRIPTION } from '../agent-profile.service.js';
 import { isSystemRole } from '../system-role.js';
 
 // F1: provider 缺省打戳的扫描结果 mock 为固定 'claude'（真机扫描结果随机器漂移，测试要确定）
@@ -735,7 +735,134 @@ describe('#462: role.skills create/update 写入', () => {
   });
 });
 
-// ── #298: update 名字唯一性校验（与 create 同口径，排除自身支持幂等） ──
+// ── #633: update 开放 persona/acceptedTypes（创建后不再是死字段；清空语义与 skills [] 同口径） ──
+
+describe('#633: update persona/acceptedTypes', () => {
+  let tmpDir: string;
+  let fileStore: FileStore;
+  let service: AgentProfileService;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'profile-persona-test-'));
+    fileStore = new FileStore(tmpDir);
+    service = new AgentProfileService(fileStore);
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('update 设置 persona/acceptedTypes 落盘可回读（prompt「## 你的角色」段消费源）', async () => {
+    const profile = await service.create({ name: 'pa-1' });
+
+    const updated = await service.update(profile.id, {
+      persona: '你是审查员，守住质量底线。',
+      acceptedTypes: ['review'],
+    });
+
+    expect(updated.persona).toBe('你是审查员，守住质量底线。');
+    expect(updated.acceptedTypes).toEqual(['review']);
+    const onDisk = await service.getById(profile.id);
+    expect(onDisk!.persona).toBe('你是审查员，守住质量底线。');
+    expect(onDisk!.acceptedTypes).toEqual(['review']);
+  });
+
+  it('update persona: null / 空白串 清空既有 persona', async () => {
+    const profile = await service.create({ name: 'pa-2', persona: '旧 persona' });
+
+    const cleared = await service.update(profile.id, { persona: null });
+    expect(cleared.persona).toBeUndefined();
+
+    const again = await service.create({ name: 'pa-3', persona: '旧 persona' });
+    const blank = await service.update(again.id, { persona: '   ' });
+    expect(blank.persona).toBeUndefined();
+  });
+
+  it('update acceptedTypes: [] 清空既有声明', async () => {
+    const profile = await service.create({ name: 'pa-4', acceptedTypes: ['implement'] });
+
+    const updated = await service.update(profile.id, { acceptedTypes: [] });
+    expect(updated.acceptedTypes).toEqual([]);
+  });
+
+  it('update 未传 persona/acceptedTypes 不动既有值', async () => {
+    const profile = await service.create({
+      name: 'pa-5',
+      persona: '保持我',
+      acceptedTypes: ['plan'],
+    });
+
+    const updated = await service.update(profile.id, { description: '改描述' });
+    expect(updated.persona).toBe('保持我');
+    expect(updated.acceptedTypes).toEqual(['plan']);
+  });
+});
+
+// ── #633: 角色 preset 清单（「从模板开始」入口数据源；目录新增 yaml 免改代码即出现） ──
+
+describe('#633: listRolePresets 角色 preset 清单', () => {
+  let tmpDir: string;
+  let rolesDir: string;
+  let savedRolesDir: string | undefined;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'role-presets-test-'));
+    rolesDir = path.join(tmpDir, 'roles');
+    fs.mkdirSync(rolesDir, { recursive: true });
+    savedRolesDir = process.env.STUDIO_ROLES_DIR;
+    process.env.STUDIO_ROLES_DIR = rolesDir;
+  });
+
+  afterEach(() => {
+    if (savedRolesDir === undefined) delete process.env.STUDIO_ROLES_DIR;
+    else process.env.STUDIO_ROLES_DIR = savedRolesDir;
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('返回目录下 yaml 的名称 + description 摘要', () => {
+    fs.writeFileSync(path.join(rolesDir, 'developer.yaml'), 'description: 代码实现\npersona: 你是开发者\n', 'utf-8');
+    fs.writeFileSync(path.join(rolesDir, 'pm.yaml'), 'description: 任务分解\n', 'utf-8');
+
+    const presets = listRolePresets();
+    expect(presets).toEqual([
+      { name: 'developer', description: '代码实现' },
+      { name: 'pm', description: '任务分解' },
+    ]);
+  });
+
+  it('新增 yaml 后无需改代码即出现在清单中', () => {
+    fs.writeFileSync(path.join(rolesDir, 'pm.yaml'), 'description: 任务分解\n', 'utf-8');
+    expect(listRolePresets().map(p => p.name)).toEqual(['pm']);
+
+    fs.writeFileSync(path.join(rolesDir, 'reviewer.yaml'), 'description: 代码审查\n', 'utf-8');
+    expect(listRolePresets().map(p => p.name)).toEqual(['pm', 'reviewer']);
+  });
+
+  it('description 缺失时只返回 name；templates/capabilities 等死字段不随清单返回', () => {
+    fs.writeFileSync(
+      path.join(rolesDir, 'bare.yaml'),
+      ['persona: 无描述角色', 'capabilities: [x]', 'templates: [t.md]', ''].join('\n'),
+      'utf-8',
+    );
+
+    const presets = listRolePresets();
+    expect(presets).toEqual([{ name: 'bare' }]);
+    expect('templates' in presets[0]).toBe(false);
+    expect('capabilities' in presets[0]).toBe(false);
+  });
+
+  it('解析失败的 yaml 跳过（不拖垮整个清单）', () => {
+    fs.writeFileSync(path.join(rolesDir, 'good.yaml'), 'description: 好的\n', 'utf-8');
+    fs.writeFileSync(path.join(rolesDir, 'broken.yaml'), '- not\n- a\n- mapping-of-preset\n- ok: [', 'utf-8');
+
+    expect(listRolePresets().map(p => p.name)).toEqual(['good']);
+  });
+
+  it('目录不存在返回空清单', () => {
+    fs.rmSync(rolesDir, { recursive: true, force: true });
+    expect(listRolePresets()).toEqual([]);
+  });
+});
 
 describe('#298: update name uniqueness (与 create 同口径)', () => {
   let tmpDir: string;

@@ -101,6 +101,35 @@ export function loadRolePreset(preset: string, rolesDir: string = resolveRolesDi
   }
 }
 
+/**
+ * #633（ADR 2026-09-23-role-preset-surface）：`.agents/roles/` 下可用 preset 清单——
+ * RoleFormModal「从模板开始」入口的数据源。只回 name + description 摘要；
+ * templates/capabilities 死字段不浮出（ADR 决策 3）。目录不可读返回 []；
+ * 单个 yaml 解析失败跳过，不拖垮整个清单。
+ */
+export interface RolePresetSummary {
+  name: string;
+  description?: string;
+}
+
+export function listRolePresets(rolesDir: string = resolveRolesDir()): RolePresetSummary[] {
+  let files: string[];
+  try {
+    files = fs.readdirSync(rolesDir).filter(f => /\.ya?ml$/.test(f));
+  } catch {
+    return [];
+  }
+  const presets: RolePresetSummary[] = [];
+  for (const file of files) {
+    const name = file.replace(/\.ya?ml$/, '');
+    // 与 loadRolePreset 同口径：不可装载的 preset 不列（列了也创建不了）
+    const preset = loadRolePreset(name, rolesDir);
+    if (!preset) continue;
+    presets.push({ name, ...(preset.description ? { description: preset.description } : {}) });
+  }
+  return presets.sort((a, b) => a.name.localeCompare(b.name));
+}
+
 export interface UpdateAgentProfileInput {
   name?: string;
   description?: string | null;
@@ -109,6 +138,10 @@ export interface UpdateAgentProfileInput {
   status?: string;
   /** #462: 显式 skill 声明（传 [] 清空）；undefined = 不动既有值 */
   skills?: string[];
+  /** #633: 角色自述（prompt「## 你的角色」段内容）；null/空白串 = 清空，undefined = 不动 */
+  persona?: string | null;
+  /** #633: 职能域（阶段词表）；[] = 清空，undefined = 不动 */
+  acceptedTypes?: string[];
 }
 
 export type AgentProfileWithOnline = AgentProfileData & {
@@ -332,6 +365,13 @@ export class AgentProfileService {
     if (input.status !== undefined) patch.status = input.status;
     // #462: 显式 skill 声明（[] = 清空）
     if (input.skills !== undefined) patch.skills = input.skills;
+    // #633: persona（null/空白串 = 清空——patch 置 undefined，FileStore 写盘 JSON 序列化丢 undefined 键）
+    if (input.persona !== undefined) {
+      const persona = typeof input.persona === 'string' ? input.persona.trim() : '';
+      (patch as Record<string, unknown>).persona = persona ? input.persona : undefined;
+    }
+    // #633: acceptedTypes（[] = 清空，与 skills 同口径）
+    if (input.acceptedTypes !== undefined) patch.acceptedTypes = input.acceptedTypes;
 
     await this.fileStore.updateProfile(id, patch);
     const updated = await this.fileStore.getProfile(id);

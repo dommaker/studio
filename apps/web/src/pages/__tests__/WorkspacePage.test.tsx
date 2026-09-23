@@ -50,6 +50,8 @@ vi.mock('../../api/index', () => ({
 vi.mock('../../api/channel', () => ({
   channelApi: {
     createAgent: mockCreateAgent,
+    // #633：RoleFormModal create 打开时拉 preset 清单，桩为空清单
+    listRolePresets: vi.fn().mockResolvedValue({ data: { data: [] } }),
   },
   AgentProfile: {} as unknown as AgentProfile,
 }));

@@ -201,11 +201,15 @@ export const channelApi = {
   updateMembers: (channelId: string, ops: { add?: string[]; remove?: string[] }) =>
     api.patch<{ success: boolean; data: { members: string[] } }>(`/channels/${channelId}/members`, ops),
 
-  createAgent: (data: { name: string; description?: string; channels?: string[]; provider?: string; skills?: string[] }) =>
+  createAgent: (data: { name: string; description?: string; channels?: string[]; provider?: string; skills?: string[]; preset?: string }) =>
     api.post<AgentProfile>('/agent-profiles', data),
 
-  updateAgent: (id: string, data: Partial<{ name: string; description: string | null; channels: string[]; provider: string | null; status: string; skills: string[] }>) =>
+  updateAgent: (id: string, data: Partial<{ name: string; description: string | null; channels: string[]; provider: string | null; status: string; skills: string[]; persona: string | null; acceptedTypes: string[] }>) =>
     api.patch<AgentProfile>(`/agent-profiles/${id}`, data),
+
+  /** #633（ADR 2026-09-23-role-preset-surface）：角色 preset 清单——RoleFormModal「从模板开始」数据源（服务端扫 .agents/roles/，不硬编码） */
+  listRolePresets: () =>
+    api.get<{ data: { name: string; description?: string }[] }>('/agent-profiles/presets'),
 
   /** #630（ADR 2026-09-23 决策 5）：删除角色（204；服务端级联清频道成员与路由指名、卸载 loop，studio 角色服务端拒删） */
   deleteAgent: (id: string) =>

@@ -21,8 +21,12 @@ vi.mock('../../../hooks/useDetectedProviders', async (importOriginal) => {
 });
 
 // #630：提交收口 RoleFormModal 正本（channelApi.createAgent），壳不再有 onCreate 注入
+// #633：正本 create 模式打开时拉 preset 清单，桩为空清单（模板入口行为由 RoleFormModal.test 承担）
 vi.mock('../../../api/channel', () => ({
-  channelApi: { createAgent: mockCreateAgent },
+  channelApi: {
+    createAgent: mockCreateAgent,
+    listRolePresets: vi.fn().mockResolvedValue({ data: { data: [] } }),
+  },
 }));
 
 describe('FirstRoleSetupModal (AC-2.3)', () => {

@@ -2,14 +2,16 @@
 // 承载表单域全部逻辑——provider 候选（唯一来源 = useDetectedProviders + buildProviderOptions，
 // 未检测到的内置 CLI 列禁用项、auth=failed 带「⚠ 未登录」徽标）、校验、提交、错误行、pending 锁存。
 // create 收窄为单角色（一个 name + 一个 provider Select；多 CLI 批量勾选形态已删，ADR 否决备选）；
-// edit 暴露 name/description/provider 三项（skills 不进表单——RoleSkillsModal 是技能编辑正本），
+// #633（ADR 2026-09-23-role-preset-surface）：create 加「从模板开始」入口（preset 清单来自
+// GET /agent-profiles/presets，服务端扫 .agents/roles/ 不硬编码；不选则手工填空，拉取失败降级仅手工）；
+// edit 暴露 name/description/provider/persona/acceptedTypes（skills 不进表单——RoleSkillsModal 是技能编辑正本），
 // PATCH 只带脏字段（幂等 + 不覆盖并发修改；studio 角色改名被服务端整体拒绝，脏字段diff是正本可提交前提），
 // 409 名称冲突走服务端 message 内联报错留窗（创建/编辑同口径，#298）。
 // 改 provider 的生效条件：AgentLoop 吃构造期 profile 快照、provider 变更不发事件（ADR 背景事实一），
 // 表单内 inline 提示「正在运行的实例将在重启或停用再启用后使用新 CLI」；即刻生效（发事件+registry 重挂）
 // 是独立 follow-up 票，不在本轮。
 // 壳（CreateRoleModal / FirstRoleSetupModal / StudioRoleSetupModal）保留各自语境，表单段全部换本模块。
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { channelApi, type AgentProfile } from '../../api/channel';
 import { useDetectedProviders, buildProviderOptions } from '../../hooks/useDetectedProviders';
 import { Modal, Select } from '../ui';
@@ -21,6 +23,25 @@ export interface RoleFormInitial {
   name: string;
   description?: string | null;
   provider?: string | null;
+  /** #633: 角色自述（prompt「## 你的角色」段内容） */
+  persona?: string;
+  /** #633: 职能域（阶段词表） */
+  acceptedTypes?: string[];
+}
+
+/** #633「从模板开始」候选（GET /agent-profiles/presets 返回项；死字段不随清单返回） */
+interface RolePresetOption {
+  name: string;
+  description?: string;
+}
+
+/** 职能域文本 ↔ 数组：逗号/空白分隔，去空去重（显示用 ', ' 连接） */
+function joinAcceptedTypes(types?: string[]): string {
+  return (types ?? []).join(', ');
+}
+
+function parseAcceptedTypes(text: string): string[] {
+  return [...new Set(text.split(/[,，\s]+/).map((t) => t.trim()).filter(Boolean))];
 }
 
 export interface RoleFormModalProps {
@@ -50,8 +71,24 @@ export function RoleFormModal({
   const [description, setDescription] = useState(initial?.description ?? '');
   // 用户显式选择的 CLI；生效值为渲染期纯派生（显式选择仍有效则用选择，否则回退第一个可用项）
   const [providerOverride, setProviderOverride] = useState(initial?.provider ?? '');
+  // #633: create 模板选择（'' = 手工创建不带 preset）；edit 的 persona/acceptedTypes
+  const [preset, setPreset] = useState('');
+  const [presetOptions, setPresetOptions] = useState<RolePresetOption[]>([]);
+  const [persona, setPersona] = useState(initial?.persona ?? '');
+  const [acceptedTypesText, setAcceptedTypesText] = useState(joinAcceptedTypes(initial?.acceptedTypes));
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // #633: create 打开时拉 preset 清单（服务端扫 .agents/roles/，目录演化免改前端）；
+  // 拉取失败降级为空清单（只剩「手工创建」），不卡死表单
+  useEffect(() => {
+    if (!open || mode !== 'create') return;
+    let cancelled = false;
+    channelApi.listRolePresets()
+      .then((res) => { if (!cancelled) setPresetOptions(res.data.data ?? []); })
+      .catch(() => { if (!cancelled) setPresetOptions([]); });
+    return () => { cancelled = true; };
+  }, [open, mode]);
 
   // lockProvider 时跳过 runtime 扫描（preset 语义：单项固定预选，无需清单）
   const { detected, loading: providersLoading, noneDetected } = useDetectedProviders({ enabled: open && !lockProvider });
@@ -84,6 +121,9 @@ export function RoleFormModal({
       setName(initial?.name ?? '');
       setDescription(initial?.description ?? '');
       setProviderOverride(initial?.provider ?? '');
+      setPreset('');
+      setPersona(initial?.persona ?? '');
+      setAcceptedTypesText(joinAcceptedTypes(initial?.acceptedTypes));
       setError(null);
     }
   }
@@ -94,7 +134,11 @@ export function RoleFormModal({
   const nameDirty = mode === 'edit' && trimmedName !== (initial?.name ?? '');
   const descDirty = mode === 'edit' && trimmedDesc !== (initial?.description ?? '');
   const providerDirty = mode === 'edit' && provider !== (initial?.provider ?? '');
-  const dirty = nameDirty || descDirty || providerDirty;
+  // #633: persona trim 后比较（空白 ≡ 清空）；acceptedTypes 解析后按数组口径比较
+  const personaDirty = mode === 'edit' && persona.trim() !== (initial?.persona ?? '').trim();
+  const acceptedTypesDirty = mode === 'edit'
+    && parseAcceptedTypes(acceptedTypesText).join(',') !== (initial?.acceptedTypes ?? []).join(',');
+  const dirty = nameDirty || descDirty || providerDirty || personaDirty || acceptedTypesDirty;
 
   const nameReadonly = mode === 'edit' && initial?.name === RESERVED_ROLE_NAME;
   const submitDisabled = submitting || !trimmedName || (!lockProvider && !provider) || (mode === 'edit' && !dirty);
@@ -109,14 +153,19 @@ export function RoleFormModal({
           name: trimmedName,
           description: trimmedDesc || undefined,
           provider,
+          // #633: 选中模板才带 preset（预填逻辑在服务端 loadRolePreset，前端只传名）
+          ...(preset ? { preset } : {}),
         });
         onSaved(res.data);
       } else {
         // 只 PATCH 脏字段：幂等、不覆盖并发修改；studio 角色改名被服务端整体拒绝，全量提交会恒败
-        const diff: Partial<{ name: string; description: string | null; provider: string | null }> = {};
+        const diff: Partial<{ name: string; description: string | null; provider: string | null; persona: string | null; acceptedTypes: string[] }> = {};
         if (nameDirty) diff.name = trimmedName;
         if (descDirty) diff.description = trimmedDesc || null;
         if (providerDirty) diff.provider = provider || null;
+        // #633: persona 空白 ≡ 清空（null）；acceptedTypes 清空 = []（与 skills 同口径）
+        if (personaDirty) diff.persona = persona.trim() || null;
+        if (acceptedTypesDirty) diff.acceptedTypes = parseAcceptedTypes(acceptedTypesText);
         const res = await channelApi.updateAgent(initial!.id, diff);
         onSaved(res.data);
       }
@@ -151,6 +200,32 @@ export function RoleFormModal({
       }
     >
       {children}
+      {mode === 'create' && (
+        <div className="mb-3">
+          <label htmlFor="role-form-preset" className="form-label">从模板开始（可选）</label>
+          <Select
+            id="role-form-preset"
+            className="input"
+            value={preset}
+            onChange={setPreset}
+            options={[
+              { value: '', label: '手工创建（不使用模板）', disabled: false },
+              ...presetOptions.map((p) => ({
+                value: p.name,
+                label: p.description ? `${p.name} — ${p.description}` : p.name,
+                disabled: false,
+              })),
+            ]}
+            style={{ width: '100%' }}
+            data-testid="role-form-preset"
+          />
+          {preset && (
+            <p className="u-text-2 text-sm mt-1.5">
+              模板将带入描述、角色自述、职能域与技能声明；表单里显式填写的内容优先。
+            </p>
+          )}
+        </div>
+      )}
       <div className="mb-3">
         <label htmlFor="role-form-name" className="form-label">名称</label>
         <input
@@ -178,6 +253,36 @@ export function RoleFormModal({
           style={{ width: '100%' }}
         />
       </div>
+      {mode === 'edit' && (
+        <>
+          <div className="mb-3">
+            <label htmlFor="role-form-persona" className="form-label">角色自述（persona，可选）</label>
+            <textarea
+              id="role-form-persona"
+              className="input"
+              value={persona}
+              onChange={(e) => setPersona(e.target.value)}
+              placeholder="prompt「## 你的角色」段内容；留空则清空"
+              rows={4}
+              style={{ width: '100%', resize: 'vertical' }}
+              data-testid="role-form-persona"
+            />
+          </div>
+          <div className="mb-3">
+            <label htmlFor="role-form-accepted-types" className="form-label">职能域（acceptedTypes，逗号分隔，可选）</label>
+            <input
+              id="role-form-accepted-types"
+              type="text"
+              className="input"
+              value={acceptedTypesText}
+              onChange={(e) => setAcceptedTypesText(e.target.value)}
+              placeholder="如 implement, review；留空则清空"
+              style={{ width: '100%' }}
+              data-testid="role-form-accepted-types"
+            />
+          </div>
+        </>
+      )}
       <div>
         <label htmlFor="role-form-provider" className="form-label">CLI</label>
         {lockProvider ? (

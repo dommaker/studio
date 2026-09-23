@@ -35,7 +35,13 @@ vi.mock('../../api/monitoring', () => ({
 }));
 
 vi.mock('../../api/channel', () => ({
-  channelApi: { listAllAgents: mockListAllAgents, list: mockListChannels, createAgent: mockCreateAgent },
+  // #633：RoleFormModal create 打开时拉 preset 清单，桩为空清单
+  channelApi: {
+    listAllAgents: mockListAllAgents,
+    list: mockListChannels,
+    createAgent: mockCreateAgent,
+    listRolePresets: vi.fn().mockResolvedValue({ data: { data: [] } }),
+  },
 }));
 
 vi.mock('../../api/workunit', async () => {

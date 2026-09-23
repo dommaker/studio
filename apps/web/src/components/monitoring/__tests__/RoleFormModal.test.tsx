@@ -6,9 +6,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import React from 'react';
 
-const { mockCreateAgent, mockUpdateAgent, mockUseDetectedProviders, hookState } = vi.hoisted(() => ({
+const { mockCreateAgent, mockUpdateAgent, mockListRolePresets, mockUseDetectedProviders, hookState } = vi.hoisted(() => ({
   mockCreateAgent: vi.fn(),
   mockUpdateAgent: vi.fn(),
+  mockListRolePresets: vi.fn(),
   mockUseDetectedProviders: vi.fn(),
   // 用例级可变的 hook 返回值（检测到的 CLI 清单）
   hookState: {
@@ -17,7 +18,7 @@ const { mockCreateAgent, mockUpdateAgent, mockUseDetectedProviders, hookState } 
 }));
 
 vi.mock('../../../api/channel', () => ({
-  channelApi: { createAgent: mockCreateAgent, updateAgent: mockUpdateAgent },
+  channelApi: { createAgent: mockCreateAgent, updateAgent: mockUpdateAgent, listRolePresets: mockListRolePresets },
 }));
 
 vi.mock('../../../hooks/useDetectedProviders', async (importOriginal) => {
@@ -61,6 +62,7 @@ describe('RoleFormModal — create 模式（决策 2：收窄单角色）', () =
     vi.clearAllMocks();
     hookState.current = { detected: [], loading: false, noneDetected: true };
     mockCreateAgent.mockResolvedValue({ data: { id: 'a1', name: 'qa-agent' } });
+    mockListRolePresets.mockResolvedValue({ data: { data: [] } });
   });
 
   it('渲染 name/description 输入 + provider Select；name 空时提交键禁用', () => {
@@ -253,5 +255,120 @@ describe('RoleFormModal — edit 模式（决策 3：name/description/provider �
   it('系统保留角色（studio）→ name 输入禁用（服务端拒绝改名到/自 studio，正本不给入口）', () => {
     renderEdit({ initial: { id: 'p0', name: 'studio', description: '系统执行', provider: null } });
     expect((screen.getByTestId('role-form-name') as HTMLInputElement).disabled).toBe(true);
+  });
+});
+
+// #633（ADR 2026-09-23-role-preset-surface）：preset 模板浮出水面。
+// create 加「从模板开始」入口（清单来自服务端 GET /agent-profiles/presets，不硬编码）；
+// edit 暴露 persona/acceptedTypes（PATCH 脏字段同口径，空值清空）。
+describe('RoleFormModal — #633 模板入口（create 模式「从模板开始」）', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    hookState.current = { ...detectedOk };
+    mockCreateAgent.mockResolvedValue({ data: { id: 'a1', name: 'dev-agent' } });
+    mockListRolePresets.mockResolvedValue({
+      data: { data: [
+        { name: 'developer', description: '代码实现、TDD 流程' },
+        { name: 'pm', description: '任务分解' },
+      ] },
+    });
+  });
+
+  it('打开时拉取 preset 清单并渲染「从模板开始」选择（默认手工创建）', async () => {
+    renderCreate();
+    await waitFor(() => expect(mockListRolePresets).toHaveBeenCalled());
+    fireEvent.click(screen.getByTestId('role-form-preset'));
+    expect(screen.getByRole('option', { name: /手工创建/ })).toBeDefined();
+    expect(screen.getByRole('option', { name: /developer.*代码实现/ })).toBeDefined();
+    expect(screen.getByRole('option', { name: /pm.*任务分解/ })).toBeDefined();
+  });
+
+  it('选中模板后提交 → createAgent 带 preset 字段（预填逻辑在服务端）', async () => {
+    renderCreate();
+    await waitFor(() => expect(mockListRolePresets).toHaveBeenCalled());
+    fireEvent.click(screen.getByTestId('role-form-preset'));
+    fireEvent.click(await screen.findByRole('option', { name: /developer/ }));
+    fireEvent.change(screen.getByTestId('role-form-name'), { target: { value: 'dev-agent' } });
+    fireEvent.click(screen.getByTestId('create-role-submit'));
+
+    await waitFor(() => expect(mockCreateAgent).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'dev-agent', preset: 'developer' }),
+    ));
+  });
+
+  it('不选模板（默认）→ 提交不带 preset 字段，维持手工填空角色现状', async () => {
+    renderCreate();
+    await waitFor(() => expect(mockListRolePresets).toHaveBeenCalled());
+    fireEvent.change(screen.getByTestId('role-form-name'), { target: { value: 'dev-agent' } });
+    fireEvent.click(screen.getByTestId('create-role-submit'));
+
+    await waitFor(() => expect(mockCreateAgent).toHaveBeenCalled());
+    expect(mockCreateAgent.mock.calls[0][0]).not.toHaveProperty('preset');
+  });
+
+  it('preset 清单拉取失败 → 降级为仅手工创建，不卡死表单', async () => {
+    mockListRolePresets.mockRejectedValue(new Error('network'));
+    renderCreate();
+    fireEvent.change(screen.getByTestId('role-form-name'), { target: { value: 'dev-agent' } });
+    fireEvent.click(screen.getByTestId('create-role-submit'));
+    await waitFor(() => expect(mockCreateAgent).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'dev-agent' }),
+    ));
+    expect(mockCreateAgent.mock.calls[0][0]).not.toHaveProperty('preset');
+  });
+
+  it('edit 模式不渲染模板入口', () => {
+    renderEdit();
+    expect(screen.queryByTestId('role-form-preset')).toBeNull();
+  });
+});
+
+describe('RoleFormModal — #633 edit 模式 persona/acceptedTypes', () => {
+  const richInitial = {
+    id: 'p1', name: 'dev-agent', description: 'writes code', provider: 'claude',
+    persona: '你是开发者，遵循 TDD。',
+    acceptedTypes: ['implement', 'review'],
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    hookState.current = { ...detectedOk };
+    mockUpdateAgent.mockResolvedValue({ data: richInitial });
+    mockListRolePresets.mockResolvedValue({ data: { data: [] } });
+  });
+
+  it('预填 persona/acceptedTypes；无改动时提交键禁用', () => {
+    renderEdit({ initial: richInitial });
+    expect((screen.getByTestId('role-form-persona') as HTMLTextAreaElement).value).toBe('你是开发者，遵循 TDD。');
+    expect((screen.getByTestId('role-form-accepted-types') as HTMLInputElement).value).toBe('implement, review');
+    expect(screen.getByTestId('create-role-submit')).toBeDisabled();
+  });
+
+  it('改 persona → PATCH 只带 persona 脏字段', async () => {
+    renderEdit({ initial: richInitial });
+    fireEvent.change(screen.getByTestId('role-form-persona'), { target: { value: '新 persona' } });
+    fireEvent.click(screen.getByTestId('create-role-submit'));
+    await waitFor(() => expect(mockUpdateAgent).toHaveBeenCalledWith('p1', { persona: '新 persona' }));
+  });
+
+  it('清空 persona → PATCH persona: null（清空语义）', async () => {
+    renderEdit({ initial: richInitial });
+    fireEvent.change(screen.getByTestId('role-form-persona'), { target: { value: '  ' } });
+    fireEvent.click(screen.getByTestId('create-role-submit'));
+    await waitFor(() => expect(mockUpdateAgent).toHaveBeenCalledWith('p1', { persona: null }));
+  });
+
+  it('改 acceptedTypes（逗号分隔）→ PATCH 解析为数组', async () => {
+    renderEdit({ initial: richInitial });
+    fireEvent.change(screen.getByTestId('role-form-accepted-types'), { target: { value: 'plan,review' } });
+    fireEvent.click(screen.getByTestId('create-role-submit'));
+    await waitFor(() => expect(mockUpdateAgent).toHaveBeenCalledWith('p1', { acceptedTypes: ['plan', 'review'] }));
+  });
+
+  it('清空 acceptedTypes → PATCH acceptedTypes: []（与 skills 清空同口径）', async () => {
+    renderEdit({ initial: richInitial });
+    fireEvent.change(screen.getByTestId('role-form-accepted-types'), { target: { value: '' } });
+    fireEvent.click(screen.getByTestId('create-role-submit'));
+    await waitFor(() => expect(mockUpdateAgent).toHaveBeenCalledWith('p1', { acceptedTypes: [] }));
   });
 });
