@@ -15,6 +15,14 @@ import type { AddressInfo } from 'node:net';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import yaml from 'js-yaml';
+
+const { mockCreateCardMessage } = vi.hoisted(() => ({ mockCreateCardMessage: vi.fn() }));
+
+// propose-upgrade 端点建卡走 review-proposal 正本发卡（ADR-0033 子项 8）
+vi.mock('../../channels/channel-message.service.js', () => ({
+  channelMessageService: { createCardMessage: mockCreateCardMessage, createAgentMessage: vi.fn() },
+}));
 
 vi.mock('@dommaker/harness', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@dommaker/harness')>();
@@ -63,6 +71,20 @@ beforeAll(async () => {
   process.chdir(tmpHome);
 
   const { constraintsRoutes } = await import('../constraints.routes.js');
+  // 子项 8：propose-upgrade 需要 constraint adapter 已注册（生产 = EvolutionService 构造注册）
+  const { FileStore } = await import('@dommaker/studio-shared');
+  const { registerConstraintReviewAdapter } = await import('../../evolution/constraint-adapter.js');
+  const fileStore = new FileStore(tmpHome);
+  const now = new Date().toISOString();
+  await fileStore.createChannel({
+    id: 'ch-sys', name: '#系统', type: 'system',
+    defaultWorkspaceId: null, defaultPath: null,
+    discordChannelId: null, discordWebhookUrl: null,
+    members: '[]', createdAt: now, updatedAt: now,
+  });
+  registerConstraintReviewAdapter({ fileStore, dataDir: tmpHome });
+  mockCreateCardMessage.mockResolvedValue({ id: 'msg-1' });
+
   const app = express();
   app.use(express.json());
   app.use('/api/v1/harness', constraintsRoutes);
@@ -71,6 +93,8 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  const { clearReviewProposalAdapters } = await import('../../review-proposal/registry.js');
+  clearReviewProposalAdapters();
   process.chdir(prevCwd);
   if (prevHome === undefined) delete process.env.HOME;
   else process.env.HOME = prevHome;
@@ -167,5 +191,58 @@ describe('constraints.routes', () => {
     const ok = await api('POST', '/check-constraints', { operation: 'create-requirement' });
     expect(ok.status).toBe(200);
     expect(ok.json.data).toEqual({ passed: true, operation: 'create-requirement', violations: [] });
+  });
+
+  describe('POST /constraints/propose-upgrade（ADR-0033 子项 8）', () => {
+    it('400：缺 constraintId / 非法字符；400：repoRoot 不存在', async () => {
+      const missing = await api('POST', '/constraints/propose-upgrade', {});
+      expect(missing.status).toBe(400);
+
+      const badId = await api('POST', '/constraints/propose-upgrade', { constraintId: '../etc' });
+      expect(badId.status).toBe(400);
+
+      const badRoot = await api('POST', '/constraints/propose-upgrade', {
+        constraintId: 'app_x', repoRoot: '/no/such/dir',
+      });
+      expect(badRoot.status).toBe(400);
+      expect(badRoot.json.error).toContain('invalid repoRoot');
+    });
+
+    it('404：constraints.yml 无该条目（非应用层约束）', async () => {
+      const res = await api('POST', '/constraints/propose-upgrade', { constraintId: 'app_nope' });
+      expect(res.status).toBe(404);
+      expect(res.json.error).toContain('not-an-app-constraint');
+    });
+
+    it('200：校验通过 → 建 constraint 卡（action=upgrade，带统计白话）并发 #系统', async () => {
+      fs.mkdirSync(path.join(process.cwd(), '.harness'), { recursive: true });
+      fs.writeFileSync(path.join(process.cwd(), '.harness', 'constraints.yml'), yaml.dump({
+        constraints: [{
+          id: 'app_no_internal_url', rule: '前端代码不得出现内网地址', checker: 'regex-scan',
+          params: { pattern: 'https?://10\\.\\d+\\.' }, severity: 'warning', message: '检测到内网地址',
+        }],
+      }), 'utf-8');
+
+      const res = await api('POST', '/constraints/propose-upgrade', { constraintId: 'app_no_internal_url' });
+      expect(res.status).toBe(200);
+      expect(res.json.success).toBe(true);
+      expect(res.json.data.proposalId).toBeTruthy();
+      expect(res.json.data.posted).toBe(true);
+
+      // 发卡：constraint_proposal 卡，cardData 带 proposalId/action
+      const call = mockCreateCardMessage.mock.calls.find(
+        c => (c[4] as { proposalId?: string })?.proposalId === res.json.data.proposalId,
+      );
+      expect(call).toBeTruthy();
+      expect(call![3]).toBe('constraint_proposal');
+      const cardData = call![4] as { action: string; constraintId: string };
+      expect(cardData.action).toBe('upgrade');
+      expect(cardData.constraintId).toBe('app_no_internal_url');
+      // 卡正文：条文 + 统计白话（零记录口径：累计评估 0 次）
+      expect(String(call![2])).toContain('约束升级提案');
+      expect(String(call![2])).toContain('累计评估 0 次，拦到 0 次');
+
+      fs.rmSync(path.join(process.cwd(), '.harness'), { recursive: true, force: true });
+    });
   });
 });

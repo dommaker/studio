@@ -33,7 +33,7 @@ import {
   type ReviewProposalAdapter,
 } from '../review-proposal/registry.js';
 import { submitProposal } from '../review-proposal/service.js';
-import { runCmd } from './applier.js';
+import { resolveHarnessBin, runCmd } from './applier.js';
 
 /** 约束提案载荷（行形态：{ kind:'proposal', ... } 落 constraint-proposals.jsonl） */
 export interface ConstraintProposal {
@@ -54,6 +54,8 @@ export interface ConstraintProposal {
   severity: 'error' | 'warning' | 'info';
   /** 违规提示文案（草稿） */
   message: string;
+  /** 使用统计白话句（action='upgrade' 卡面展示，如「累计评估 60 次，拦到 0 次」） */
+  statsText?: string;
   /** 来源知识条目（action='new' 必有；其 id 兼作防重复提案消耗标记键） */
   sourceEntry?: { id: string; title: string };
 }
@@ -196,6 +198,98 @@ async function applyNewConstraint(p: ConstraintProposal): Promise<{ detail: stri
   }
 }
 
+/**
+ * action='upgrade' 落点（子项 8）：spawn 本仓 node_modules harness CLI
+ * `constraints pack-proposal <id> -p <repoRoot>`（harness ≥1.12.0；与退休 applier 同一
+ * 解析纪律，不走 npx）。材料落 `<repoRoot>/.harness/reports/proposal-<id>-<yyyymmdd>.md`；
+ * 跨零点日期边界兜底取同 id 最新材料文件。不自动开 GitHub issue（人工兜底）。
+ */
+async function applyUpgradeProposal(p: ConstraintProposal): Promise<{ materialPath: string }> {
+  if (!path.isAbsolute(p.repoRoot) || !fs.existsSync(p.repoRoot) || !fs.statSync(p.repoRoot).isDirectory()) {
+    throw new Error(`invalid repoRoot: ${p.repoRoot}（必须是存在的绝对路径目录）`);
+  }
+  const res = await runCmd(process.execPath, [
+    resolveHarnessBin(), 'constraints', 'pack-proposal', p.constraintId, '-p', p.repoRoot,
+  ]);
+  if (res.code !== 0) {
+    throw new Error(`harness constraints pack-proposal ${p.constraintId} failed (exit ${res.code}): ${(res.stderr || res.stdout).slice(0, 400)}`);
+  }
+  const date = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  const dir = path.join(p.repoRoot, '.harness', 'reports');
+  let materialPath = path.join(dir, `proposal-${p.constraintId}-${date}.md`);
+  if (!fs.existsSync(materialPath)) {
+    const candidates = fs.existsSync(dir)
+      ? fs.readdirSync(dir).filter(f => f.startsWith(`proposal-${p.constraintId}-`)).sort()
+      : [];
+    if (candidates.length === 0) {
+      throw new Error(`pack-proposal exit 0 但未找到材料文件（${dir}/proposal-${p.constraintId}-*.md）`);
+    }
+    materialPath = path.join(dir, candidates[candidates.length - 1]);
+  }
+  return { materialPath };
+}
+
+/** 升级材料回帖 #系统（纯文本 agent 消息；频道缺失/发信失败静默，不阻断 executed 结果） */
+async function postUpgradeMaterialNote(
+  fileStore: FileStore,
+  p: ConstraintProposal,
+  materialPath: string,
+): Promise<void> {
+  try {
+    const channel = (await fileStore.listChannels({ name: '#系统' }))[0] ?? null;
+    if (!channel) return;
+    const head = fs.readFileSync(materialPath, 'utf-8').slice(0, 800);
+    const content = [
+      `⬆️ 约束升级材料已生成（提案 ${p.id}）`,
+      '',
+      `约束：${p.constraintId}`,
+      `材料：${materialPath}`,
+      '',
+      '材料摘要：',
+      head,
+      '',
+      '下一步：请人工确认材料无应用内部信息（params 正则/glob 为原文带出），然后拿材料去 harness 仓开 issue——不自动开。',
+    ].join('\n');
+    const { channelMessageService } = await import('../channels/channel-message.service.js');
+    await channelMessageService.createAgentMessage(channel.id, 'Evolution', content);
+  } catch (err) {
+    logger.warn('[Constraint] 升级材料回帖失败（不阻断 executed 结果）', { id: p.id, error: String(err) });
+  }
+}
+
+/** 子项 8 发起侧：建 upgrade 提案 + 发卡（propose-upgrade 端点调用） */
+export async function submitConstraintUpgradeProposal(
+  adapter: ReviewProposalAdapter<ConstraintProposal>,
+  input: {
+    repoRoot: string;
+    entry: {
+      id: string;
+      rule: string;
+      checker?: string;
+      params?: Record<string, unknown>;
+      severity?: string;
+      message?: string;
+    };
+    statsText: string;
+  },
+): Promise<{ proposalId: string; posted: boolean }> {
+  const proposal: ConstraintProposal = {
+    id: randomUUID(),
+    createdAt: new Date().toISOString(),
+    action: 'upgrade',
+    repoRoot: input.repoRoot,
+    constraintId: input.entry.id,
+    rule: input.entry.rule,
+    checker: input.entry.checker === 'regex-scan' || input.entry.checker === 'file-exists' ? input.entry.checker : null,
+    params: input.entry.params ?? {},
+    severity: input.entry.severity === 'error' || input.entry.severity === 'info' ? input.entry.severity : 'warning',
+    message: input.entry.message ?? '',
+    statsText: input.statsText,
+  };
+  const { posted } = await submitProposal(adapter, proposal);
+  return { proposalId: proposal.id, posted };
+}
+
 const CHECKER_LABELS: Record<string, string> = {
   'regex-scan': '正则扫描（regex-scan）',
   'file-exists': '文件存在性（file-exists）',
@@ -241,7 +335,7 @@ export function renderConstraintCard(p: ConstraintProposal): { content: string; 
       lines.push('当前参数：');
       for (const [k, v] of Object.entries(p.params)) lines.push(`- ${k}: ${JSON.stringify(v)}`);
     }
-    if (p.message) lines.push(`使用情况：${p.message}`);
+    if (p.statsText) lines.push(`使用情况：${p.statsText}`);
     lines.push(
       '',
       '批准后由 harness 打包脱敏提案材料（路径 + 摘要回帖本频道）；请人工确认材料无内部信息后，拿材料去 harness 仓开 issue（不自动开）。拒绝则零副作用。',
@@ -290,8 +384,14 @@ export function registerConstraintReviewAdapter(deps: {
           return { status: 'failed', error: String(err instanceof Error ? err.message : err) };
         }
       }
-      // action='upgrade' 由子项 8 装配（proposeUpgrade.ts 注入 onApprove 分支前不应触达）
-      return { status: 'failed', error: `unknown constraint action: ${String(p.action)}` };
+      // action='upgrade'（子项 8）：spawn pack-proposal 打包脱敏材料 → 回帖 #系统
+      try {
+        const { materialPath } = await applyUpgradeProposal(p);
+        await postUpgradeMaterialNote(deps.fileStore, p, materialPath);
+        return { status: 'executed', data: { proposalId: p.id, constraintId: p.constraintId, materialPath } };
+      } catch (err) {
+        return { status: 'failed', error: String(err instanceof Error ? err.message : err) };
+      }
     },
     // onReject 缺省：正本落 rejected 墓碑即够（提案记录即消耗标记，不再重复提案）
   });

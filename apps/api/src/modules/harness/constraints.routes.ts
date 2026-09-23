@@ -7,6 +7,8 @@
  * - GET  /constraints/retired         已退役约束元数据：config.yml（唯一落点）
  * - GET  /constraints/:id             约束详情（生效集内查找）
  * - POST /constraints/:id/rollback    撤销 retire：config.yml 删 constraints.<id> 段
+ * - POST /constraints/propose-upgrade 升级提案发起（ADR-0033 子项 8）：校验应用层约束 →
+ *   建 constraint kind 提案卡（action='upgrade'）；approve 后 pack-proposal 打包脱敏材料
  * - POST /check-constraints           M2 质量门：非抛出式约束检查（RequirementsDoc UI）
  *
  * 0.17.0 移除：ConstraintRegistry（layer/deprecationStatus/permanent 概念随之删除）、
@@ -22,8 +24,13 @@ import { Router, Request, Response } from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
 import yaml from 'js-yaml';
+import { buildConstraintsUsageReport } from '@dommaker/harness';
 import { logger } from '@dommaker/studio-shared';
 import { loadHarness, harnessModule } from './runtime.js';
+import {
+  getConstraintReviewAdapter,
+  submitConstraintUpgradeProposal,
+} from '../evolution/constraint-adapter.js';
 
 export const constraintsRoutes = Router();
 
@@ -128,6 +135,71 @@ constraintsRoutes.get('/constraints/:id', async (req: Request, res: Response) =>
   } catch (error) {
     logger.error('Failed to get constraint', { error: String(error) });
     return res.status(500).json({ error: 'Failed to get constraint' });
+  }
+});
+
+/**
+ * POST /api/v1/harness/constraints/propose-upgrade
+ * 子项 8（ADR-0033 决策 4）：应用层约束 → 通用层升级提案发起。
+ * body: { constraintId, repoRoot? }（repoRoot 缺省 process.cwd()）。
+ * 校验该 id 是应用层约束（<repoRoot>/.harness/constraints.yml 里有定义）→ 建 constraint
+ * kind 提案卡（action='upgrade'，卡面带条文 + checker 配置 + traces 统计白话）发 #系统。
+ * approve 后的 pack-proposal 落点归 constraint-adapter；本端点只发起。不自动开 issue。
+ */
+constraintsRoutes.post('/constraints/propose-upgrade', async (req: Request, res: Response) => {
+  try {
+    const { constraintId, repoRoot: rawRoot } = (req.body ?? {}) as { constraintId?: unknown; repoRoot?: unknown };
+    if (typeof constraintId !== 'string' || !/^[a-z0-9][a-z0-9_-]*$/i.test(constraintId)) {
+      return res.status(400).json({ error: 'constraintId is required (合法约束 id 字符集)' });
+    }
+    const repoRoot = typeof rawRoot === 'string' && rawRoot ? rawRoot : projectRoot();
+    if (!path.isAbsolute(repoRoot) || !fs.existsSync(repoRoot) || !fs.statSync(repoRoot).isDirectory()) {
+      return res.status(400).json({ error: `invalid repoRoot: ${repoRoot}（必须是存在的绝对路径目录）` });
+    }
+
+    // 校验是应用层约束（constraints.yml 定义正本，id 强制 app_ 前缀由 harness 加载期保证）
+    const file = path.join(repoRoot, '.harness', 'constraints.yml');
+    const raw = fs.existsSync(file)
+      ? ((yaml.load(fs.readFileSync(file, 'utf-8')) as { constraints?: Array<Record<string, unknown>> } | null) ?? {})
+      : {};
+    const entry = (raw.constraints ?? []).find(e => e?.id === constraintId);
+    if (!entry || typeof entry.rule !== 'string') {
+      return res.status(404).json({ error: `not-an-app-constraint: ${constraintId}（.harness/constraints.yml 无此条目；内置约束升级请直接联系 harness 仓）` });
+    }
+
+    // traces 统计白话（report 读不到 = 零记录口径，不阻断发起）
+    let statsText = '暂无使用统计（traces 缺失或零记录）';
+    if (typeof buildConstraintsUsageReport === 'function') {
+      try {
+        const s = buildConstraintsUsageReport(repoRoot).stats.find(x => x.id === constraintId);
+        if (s) statsText = `累计评估 ${s.evaluated} 次，拦到 ${s.fail} 次`;
+      } catch (err) {
+        logger.warn('[Harness] propose-upgrade usage report failed', { error: String(err) });
+      }
+    }
+
+    let adapter;
+    try {
+      adapter = getConstraintReviewAdapter();
+    } catch {
+      return res.status(503).json({ error: 'constraint review adapter not registered（EvolutionService 未装配）' });
+    }
+    const { proposalId, posted } = await submitConstraintUpgradeProposal(adapter, {
+      repoRoot,
+      entry: {
+        id: constraintId,
+        rule: entry.rule,
+        ...(typeof entry.checker === 'string' ? { checker: entry.checker } : {}),
+        ...(entry.params && typeof entry.params === 'object' ? { params: entry.params as Record<string, unknown> } : {}),
+        ...(typeof entry.severity === 'string' ? { severity: entry.severity } : {}),
+        ...(typeof entry.message === 'string' ? { message: entry.message } : {}),
+      },
+      statsText,
+    });
+    return res.json({ success: true, data: { proposalId, posted } });
+  } catch (error) {
+    logger.error('Failed to propose constraint upgrade', { error: String(error) });
+    return res.status(500).json({ error: 'Failed to propose constraint upgrade' });
   }
 });
 

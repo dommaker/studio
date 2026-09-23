@@ -28,10 +28,13 @@ import {
   type ConstraintProposal,
 } from '../constraint-adapter.js';
 
-const { mockCreateCardMessage } = vi.hoisted(() => ({ mockCreateCardMessage: vi.fn() }));
+const { mockCreateCardMessage, mockCreateAgentMessage } = vi.hoisted(() => ({
+  mockCreateCardMessage: vi.fn(),
+  mockCreateAgentMessage: vi.fn(),
+}));
 
 vi.mock('../../channels/channel-message.service.js', () => ({
-  channelMessageService: { createCardMessage: mockCreateCardMessage },
+  channelMessageService: { createCardMessage: mockCreateCardMessage, createAgentMessage: mockCreateAgentMessage },
 }));
 
 let tmpDir: string;
@@ -276,5 +279,64 @@ describe('approve（action=new）端到端', () => {
     expect(r.ok).toBe(true);
     expect(fs.existsSync(path.join(repoRoot, '.harness', 'constraints.yml'))).toBe(false);
     expect((await getProposalStatus('constraint', p.id)).status).toBe('rejected');
+  });
+});
+
+describe('approve（action=upgrade，子项 8）', () => {
+  function seedAppConstraint(): void {
+    const file = path.join(repoRoot, '.harness', 'constraints.yml');
+    fs.writeFileSync(file, yaml.dump({
+      constraints: [{
+        id: 'app_no_internal_url', rule: '前端代码不得出现内网地址', checker: 'regex-scan',
+        params: { pattern: 'https?://10\\.\\d+\\.' }, severity: 'warning', message: '检测到内网地址',
+      }],
+    }), 'utf-8');
+  }
+
+  it('approve → spawn pack-proposal 落材料 + 回帖 #系统（路径 + 摘要 + 人工开 issue 提示）', async () => {
+    seedAppConstraint();
+    mockCreateAgentMessage.mockResolvedValue({ id: 'msg-note-1' });
+    const adapter = registerConstraintReviewAdapter({ fileStore, dataDir: tmpDir });
+    const p = makeProposal({ action: 'upgrade', statsText: '累计评估 0 次，拦到 0 次', sourceEntry: undefined });
+    await adapter.store.appendProposal(p);
+
+    const result = await approveProposal('constraint', p.id);
+    expect(result.kind).toBe('executed');
+    const materialPath = (result as { data?: { materialPath?: string } }).data?.materialPath;
+    expect(materialPath).toBeTruthy();
+    expect(fs.existsSync(materialPath as string)).toBe(true);
+    expect(fs.readFileSync(materialPath as string, 'utf-8')).toContain('约束升级提案材料：app_no_internal_url');
+
+    // 回帖：纯文本 agent 消息到 #系统，带材料路径 + 脱敏人工确认提示
+    expect(mockCreateAgentMessage).toHaveBeenCalledTimes(1);
+    const [channelId, author, content] = mockCreateAgentMessage.mock.calls[0];
+    expect(channelId).toBe('ch-sys');
+    expect(author).toBe('Evolution');
+    expect(content).toContain(materialPath);
+    expect(content).toContain('开 issue');
+    expect(content).toContain('不自动开');
+  }, 30_000);
+
+  it('pack-proposal 失败（约束不存在）→ failed 墓碑，无回帖', async () => {
+    // 不 seed constraints.yml → CLI 找不到约束，退出码非零
+    const adapter = registerConstraintReviewAdapter({ fileStore, dataDir: tmpDir });
+    const p = makeProposal({ action: 'upgrade', sourceEntry: undefined });
+    await adapter.store.appendProposal(p);
+
+    const result = await approveProposal('constraint', p.id);
+    expect(result.kind).toBe('failed');
+    expect((result as { error?: string }).error).toContain('pack-proposal');
+    expect(mockCreateAgentMessage).not.toHaveBeenCalled();
+  }, 30_000);
+
+  it('upgrade 卡面：条文 + checker 配置 + 统计白话（statsText）', () => {
+    const { content, cardData } = renderConstraintCard(
+      makeProposal({ action: 'upgrade', statsText: '累计评估 60 次，拦到 0 次', sourceEntry: undefined }),
+    );
+    expect(content).toContain('约束升级提案 cp-test-1');
+    expect(content).toContain('应用层约束：app_no_internal_url');
+    expect(content).toContain('使用情况：累计评估 60 次，拦到 0 次');
+    expect(content).toContain('正则扫描');
+    expect(cardData.action).toBe('upgrade');
   });
 });
