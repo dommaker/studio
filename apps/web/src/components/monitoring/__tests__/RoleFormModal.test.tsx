@@ -212,10 +212,10 @@ describe('RoleFormModal — edit 模式（决策 3：name/description/provider �
 
   it('改 provider → 表单内 inline 生效条件提示；提交 PATCH 只带 provider', async () => {
     renderEdit();
-    expect(screen.queryByText(/重启或停用再启用后使用新 CLI/)).toBeNull();
+    expect(screen.queryByText(/当前步结束后换用新 CLI/)).toBeNull();
     fireEvent.click(screen.getByTestId('role-form-provider'));
     fireEvent.click(screen.getByRole('option', { name: /kimi/ }));
-    expect(await screen.findByText(/正在运行的实例将在重启或停用再启用后使用新 CLI/)).toBeDefined();
+    expect(await screen.findByText(/正在运行的实例将在当前步结束后换用新 CLI（无需重启）/)).toBeDefined();
     fireEvent.click(screen.getByTestId('create-role-submit'));
     await waitFor(() => expect(mockUpdateAgent).toHaveBeenCalledWith('p1', { provider: 'kimi' }));
   });

@@ -124,6 +124,9 @@ export class AgentLoop {
   private myChannels: string[] = [];
   private triggerId: string | null = null;
   private loopPromise: Promise<void> | null = null;
+  /** #634: stop() 的 terminated 落盘写句柄——waitForStop 连带等待，
+   *  registry 重挂（provider 变更）须等旧实例 terminated 落盘后再挂新 loop */
+  private terminateWrite: Promise<unknown> | null = null;
   private lastIdleHeartbeatAt = 0;
   /** #330：事件驱动唤醒——空闲 sleep 的中断器（idleSleep 挂起期间非 null） */
   private wakeIdle: (() => void) | null = null;
@@ -721,17 +724,21 @@ export class AgentLoop {
     }
     this.wakeIdle?.();
     if (this.instance) {
-      this.fileStore.updateState(this.instance.id, {
+      this.terminateWrite = this.fileStore.updateState(this.instance.id, {
         status: 'terminated',
         terminatedAt: new Date().toISOString(),
       }).catch(err => logger.error(`[AgentLoop] Failed to terminate instance: ${err.message}`));
     }
   }
 
-  /** Wait for the runLoop promise to fully settle (for test cleanup) */
+  /** Wait for the runLoop promise to fully settle (for test cleanup).
+   *  #634: 连带等 stop() 的 terminated 落盘写——重挂方据此确认旧实例完全退出 */
   async waitForStop(): Promise<void> {
     if (this.loopPromise) {
       try { await this.loopPromise; } catch { /* loop errors already logged */ }
+    }
+    if (this.terminateWrite) {
+      await this.terminateWrite;
     }
   }
 

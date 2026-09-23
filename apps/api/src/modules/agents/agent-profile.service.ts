@@ -377,9 +377,15 @@ export class AgentProfileService {
     const updated = await this.fileStore.getProfile(id);
     if (!updated) throw new Error(`AgentProfile not found: ${id}`);
 
-    // F1: status transition (activate/deactivate) → AgentLoopRegistry mount/unmount
-    if (existing.status !== updated.status) {
-      eventBus.publish('agent-profile.updated', { profile: updated, previousStatus: existing.status });
+    // F1 + #634: 任何字段实际变更都发 agent-profile.updated（payload 带 changedFields），
+    // 不再只限 status 迁移——provider 变更静默落盘导致已挂载 loop 一直用构造期快照旧 CLI。
+    // registry 消费口径：status 迁移 → mount/unmount（既有行为不变）；
+    // active→active 且 changedFields 含 provider → 重挂（停旧 loop 等退出后以 store 现值重挂）。
+    const tracked = ['name', 'description', 'channels', 'provider', 'status', 'skills', 'persona', 'acceptedTypes'] as const;
+    const changedFields = tracked.filter(f =>
+      JSON.stringify(existing[f as keyof AgentProfileData] ?? null) !== JSON.stringify(updated[f as keyof AgentProfileData] ?? null));
+    if (changedFields.length > 0) {
+      eventBus.publish('agent-profile.updated', { profile: updated, previousStatus: existing.status, changedFields });
     }
     return updated;
   }

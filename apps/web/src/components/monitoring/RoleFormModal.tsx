@@ -7,9 +7,9 @@
 // edit 暴露 name/description/provider/persona/acceptedTypes（skills 不进表单——RoleSkillsModal 是技能编辑正本），
 // PATCH 只带脏字段（幂等 + 不覆盖并发修改；studio 角色改名被服务端整体拒绝，脏字段diff是正本可提交前提），
 // 409 名称冲突走服务端 message 内联报错留窗（创建/编辑同口径，#298）。
-// 改 provider 的生效条件：AgentLoop 吃构造期 profile 快照、provider 变更不发事件（ADR 背景事实一），
-// 表单内 inline 提示「正在运行的实例将在重启或停用再启用后使用新 CLI」；即刻生效（发事件+registry 重挂）
-// 是独立 follow-up 票，不在本轮。
+// 改 provider 即刻生效（#634）：provider 变更发布 agent-profile.updated（changedFields），
+// registry 停旧 loop、等当前步跑完后以最新配置重挂——表单内 inline 提示「正在运行的实例
+// 将在当前步结束后换用新 CLI（无需重启）」。
 // 壳（CreateRoleModal / FirstRoleSetupModal / StudioRoleSetupModal）保留各自语境，表单段全部换本模块。
 import { useEffect, useMemo, useState } from 'react';
 import { channelApi, type AgentProfile } from '../../api/channel';
@@ -306,7 +306,7 @@ export function RoleFormModal({
         )}
         {providerDirty && (
           <p className="u-text-2 text-sm mt-1.5" data-testid="role-form-provider-hint">
-            正在运行的实例将在重启或停用再启用后使用新 CLI
+            正在运行的实例将在当前步结束后换用新 CLI（无需重启）
           </p>
         )}
       </div>

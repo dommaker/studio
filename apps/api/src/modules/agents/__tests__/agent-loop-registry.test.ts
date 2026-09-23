@@ -266,4 +266,130 @@ describe('AgentLoopRegistry', () => {
       expect(registry.list()).toHaveLength(1);
     });
   });
+
+  describe('#634: provider 变更重挂（active→active）', () => {
+    async function mountViaEvent(id: string, provider: string) {
+      const profile = makeProfile(id, { provider });
+      await fileStore.createProfile(profile);
+      registry.subscribeToEvents();
+      eventBus.publish('agent-profile.created', { profile });
+      await vi.waitFor(() => expect(registry.get(id)?.status).toBe('running'));
+      return profile;
+    }
+
+    function publishProviderChange(id: string, snapshotProvider: string) {
+      eventBus.publish('agent-profile.updated', {
+        profile: makeProfile(id, { provider: snapshotProvider }),
+        previousStatus: 'active',
+        changedFields: ['provider'],
+      });
+    }
+
+    it('provider 变更 → 停旧 loop、等其完全退出后以 store 现值重挂（事件 payload 是过期快照也不影响）', async () => {
+      await mountViaEvent('p1', 'claude');
+      const oldLoop = registry.get('p1')!.loop;
+
+      // store 已改新值；payload 故意带旧快照——重挂必须读 store 现值
+      await fileStore.updateProfile('p1', { provider: 'kimi' });
+      publishProviderChange('p1', 'claude');
+
+      await vi.waitFor(() => {
+        const entry = registry.get('p1');
+        expect(entry).toBeDefined();
+        expect(entry!.loop).not.toBe(oldLoop);
+      });
+      const entry = registry.get('p1')!;
+      expect(entry.status).toBe('running');
+      expect((entry.loop as unknown as { role: AgentProfileData }).role.provider).toBe('kimi');
+
+      // 旧实例 terminated 落盘、新实例 idle
+      const states = await fileStore.listStates();
+      const p1States = states.filter(s => s.roleId === 'p1');
+      expect(p1States.some(s => s.status === 'terminated')).toBe(true);
+      expect(p1States.some(s => s.status === 'idle')).toBe(true);
+    });
+
+    it('重挂内部串行等待：旧 loop stop 先于新 loop start（单活守卫不触发，无 standby 报错）', async () => {
+      await mountViaEvent('p1', 'claude');
+      await fileStore.updateProfile('p1', { provider: 'kimi' });
+      publishProviderChange('p1', 'kimi');
+
+      await vi.waitFor(() => {
+        expect(mockTriggerScheduler.registerTrigger).toHaveBeenCalledTimes(2);
+      });
+
+      const unregisterOrder = mockTriggerScheduler.unregisterTrigger.mock.invocationCallOrder[0];
+      const secondRegisterOrder = mockTriggerScheduler.registerTrigger.mock.invocationCallOrder[1];
+      expect(unregisterOrder).toBeLessThan(secondRegisterOrder);
+
+      // 无单活守卫 standby 失败落盘
+      const states = await fileStore.listStates();
+      expect(states.some(s => s.lastError?.includes('standby'))).toBe(false);
+      expect(registry.get('p1')!.status).toBe('running');
+    });
+
+    it('changedFields 不含 provider → 不重挂（既有 loop 保持不动）', async () => {
+      await mountViaEvent('p1', 'claude');
+      const oldLoop = registry.get('p1')!.loop;
+
+      eventBus.publish('agent-profile.updated', {
+        profile: makeProfile('p1', { description: 'new desc' }),
+        previousStatus: 'active',
+        changedFields: ['description'],
+      });
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      expect(registry.get('p1')!.loop).toBe(oldLoop);
+      expect(mockTriggerScheduler.registerTrigger).toHaveBeenCalledTimes(1);
+    });
+
+    it('新 provider 探测失败 → 落 failed 状态可见，不回退旧 provider', async () => {
+      await mountViaEvent('p1', 'claude');
+      mockExecSync.mockImplementationOnce(() => { throw new Error('ENOENT: kimi not found'); });
+
+      await fileStore.updateProfile('p1', { provider: 'kimi' });
+      publishProviderChange('p1', 'kimi');
+
+      await vi.waitFor(() => expect(registry.get('p1')?.status).toBe('failed'));
+      expect(registry.get('p1')!.error).toBeTruthy();
+      // 无回退第三次挂载
+      expect(mockTriggerScheduler.registerTrigger).toHaveBeenCalledTimes(1);
+      // 失败对外可见（F2 error state，含探测失败原因）
+      const states = await fileStore.listStates();
+      const errState = states.find(s => s.roleId === 'p1' && s.status === 'error');
+      expect(errState?.lastError).toContain('not available');
+    });
+
+    it('连续多次 provider 变更 → 每次各自触发完整重挂、串行排队，最终挂载取 store 最新现值', async () => {
+      await mountViaEvent('p1', 'claude');
+      const firstLoop = registry.get('p1')!.loop;
+
+      await fileStore.updateProfile('p1', { provider: 'kimi' });
+      publishProviderChange('p1', 'kimi');
+      await fileStore.updateProfile('p1', { provider: 'codex' });
+      publishProviderChange('p1', 'codex');
+
+      await vi.waitFor(() => {
+        expect(mockTriggerScheduler.registerTrigger).toHaveBeenCalledTimes(3);
+      });
+      const entry = registry.get('p1')!;
+      expect(entry.status).toBe('running');
+      expect(entry.loop).not.toBe(firstLoop);
+      expect((entry.loop as unknown as { role: AgentProfileData }).role.provider).toBe('codex');
+    });
+
+    it('重挂等待期间角色被停用 → 不再重挂', async () => {
+      await mountViaEvent('p1', 'claude');
+      await fileStore.updateProfile('p1', { provider: 'kimi', status: 'inactive' });
+      publishProviderChange('p1', 'kimi');
+
+      // 等重挂流程走完（旧 loop 被停且没有新挂载）
+      await vi.waitFor(() => {
+        expect(mockTriggerScheduler.unregisterTrigger).toHaveBeenCalled();
+      });
+      await new Promise(resolve => setTimeout(resolve, 100));
+      expect(registry.get('p1')).toBeUndefined();
+      expect(mockTriggerScheduler.registerTrigger).toHaveBeenCalledTimes(1);
+    });
+  });
 });

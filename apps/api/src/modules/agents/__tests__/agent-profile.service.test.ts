@@ -1001,3 +1001,77 @@ describe('#631: AgentProfile.kind 系统角色显式化', () => {
     await expect(service.delete('sys-guard-del')).rejects.toThrow(/cannot be deleted/i);
   });
 });
+
+describe('#634: update 发布 agent-profile.updated（changedFields）', () => {
+  let tmpDir: string;
+  let fileStore: FileStore;
+  let service: AgentProfileService;
+
+  beforeEach(() => {
+    tmpDir = createTempDir();
+    fileStore = new FileStore(tmpDir);
+    service = new AgentProfileService(fileStore);
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  function collectUpdated(): Array<{ profile: unknown; previousStatus?: string; changedFields?: string[] }> {
+    const events: Array<{ profile: unknown; previousStatus?: string; changedFields?: string[] }> = [];
+    const handler = (payload: { profile: unknown; previousStatus?: string; changedFields?: string[] }) => events.push(payload);
+    eventBus.subscribe('agent-profile.updated', handler);
+    return events;
+  }
+
+  it('provider 变更 → 发布事件且 changedFields 含 provider（registry 重挂的触发源）', async () => {
+    const profile = await service.create({ name: 'evt-provider', provider: 'claude' });
+    const events = collectUpdated();
+    try {
+      await service.update(profile.id, { provider: 'kimi' });
+      expect(events).toHaveLength(1);
+      expect(events[0].changedFields).toEqual(['provider']);
+      expect(events[0].previousStatus).toBe('active');
+      expect((events[0].profile as { provider: string }).provider).toBe('kimi');
+    } finally {
+      eventBus.clear();
+    }
+  });
+
+  it('status 迁移 → 事件行为不变（previousStatus + changedFields 含 status）', async () => {
+    const profile = await service.create({ name: 'evt-status' });
+    const events = collectUpdated();
+    try {
+      await service.update(profile.id, { status: 'inactive' });
+      expect(events).toHaveLength(1);
+      expect(events[0].previousStatus).toBe('active');
+      expect(events[0].changedFields).toContain('status');
+      expect((events[0].profile as { status: string }).status).toBe('inactive');
+    } finally {
+      eventBus.clear();
+    }
+  });
+
+  it('status 迁移 + provider 同 PATCH 变更 → changedFields 两者皆含', async () => {
+    const profile = await service.create({ name: 'evt-both', provider: 'claude' });
+    const events = collectUpdated();
+    try {
+      await service.update(profile.id, { status: 'inactive', provider: 'kimi' });
+      expect(events).toHaveLength(1);
+      expect(events[0].changedFields).toEqual(expect.arrayContaining(['status', 'provider']));
+    } finally {
+      eventBus.clear();
+    }
+  });
+
+  it('值未实际变化的 update → 不发事件（幂等 PATCH 不触发重挂）', async () => {
+    const profile = await service.create({ name: 'evt-noop', provider: 'claude' });
+    const events = collectUpdated();
+    try {
+      await service.update(profile.id, { provider: 'claude' });
+      expect(events).toHaveLength(0);
+    } finally {
+      eventBus.clear();
+    }
+  });
+});
