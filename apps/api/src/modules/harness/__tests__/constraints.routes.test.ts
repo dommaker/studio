@@ -238,9 +238,9 @@ describe('constraints.routes', () => {
       const cardData = call![4] as { action: string; constraintId: string };
       expect(cardData.action).toBe('upgrade');
       expect(cardData.constraintId).toBe('app_no_internal_url');
-      // 卡正文：条文 + 统计白话（零记录口径：累计评估 0 次）
+      // 卡正文：条文 + 统计白话（零记录口径）
       expect(String(call![2])).toContain('约束升级提案');
-      expect(String(call![2])).toContain('累计评估 0 次，拦到 0 次');
+      expect(String(call![2])).toContain('没有任何触发记录');
 
       fs.rmSync(path.join(process.cwd(), '.harness'), { recursive: true, force: true });
     });

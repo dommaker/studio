@@ -31,6 +31,7 @@ import {
   getConstraintReviewAdapter,
   submitConstraintUpgradeProposal,
 } from '../evolution/constraint-adapter.js';
+import { formatConstraintStats } from '../evolution/format-constraint-stats.js';
 
 export const constraintsRoutes = Router();
 
@@ -167,12 +168,12 @@ constraintsRoutes.post('/constraints/propose-upgrade', async (req: Request, res:
       return res.status(404).json({ error: `not-an-app-constraint: ${constraintId}（.harness/constraints.yml 无此条目；内置约束升级请直接联系 harness 仓）` });
     }
 
-    // traces 统计白话（report 读不到 = 零记录口径，不阻断发起）
+    // traces 统计白话（report 读不到 = 零记录口径，不阻断发起；子项 9：统一过 formatConstraintStats）
     let statsText = '暂无使用统计（traces 缺失或零记录）';
     if (typeof buildConstraintsUsageReport === 'function') {
       try {
         const s = buildConstraintsUsageReport(repoRoot).stats.find(x => x.id === constraintId);
-        if (s) statsText = `累计评估 ${s.evaluated} 次，拦到 ${s.fail} 次`;
+        if (s) statsText = formatConstraintStats(s);
       } catch (err) {
         logger.warn('[Harness] propose-upgrade usage report failed', { error: String(err) });
       }

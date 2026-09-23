@@ -34,6 +34,7 @@ import {
 } from '../review-proposal/store.js';
 import { getErrorMessage } from '../../utils/errors.js';
 import type { EvolutionService } from './evolution.service.js';
+import { CONSTRAINT_CANDIDATE_KIND_LABELS, formatConstraintStats } from './format-constraint-stats.js';
 
 /**
  * evolution 提案状态 → 正本词表读侧归一（同 #353 memory 旧 promoted 归一先例）：
@@ -108,9 +109,25 @@ function truncate(s: string, max: number): string {
   return oneLine.length > max ? `${oneLine.slice(0, max - 1)}…` : oneLine;
 }
 
+/**
+ * 证据行渲染（子项 9 禁黑话）：约束类提案（usage report 候选，eventCounts 带
+ * total/evaluated/fail 三键）走 formatConstraintStats 白话句 + 候选类别整句；
+ * 统计为全周期口径（report 非窗口），不摆「窗口 Xh」误导。其余启发式提案保持原 k=v 清单。
+ */
+function renderEvidenceLine(p: EvolutionReviewProposal): string {
+  const ec = p.evidence.eventCounts as Record<string, unknown>;
+  if (typeof ec.total === 'number' && typeof ec.evaluated === 'number' && typeof ec.fail === 'number') {
+    const kindKey = p.evidence.samples?.[0];
+    const kindLabel = kindKey ? CONSTRAINT_CANDIDATE_KIND_LABELS[kindKey] : undefined;
+    const stats = formatConstraintStats({ total: ec.total, evaluated: ec.evaluated, fail: ec.fail });
+    return `证据：${stats}${kindLabel ? `（${kindLabel}）` : ''}；来源 ${p.source}`;
+  }
+  const counts = Object.entries(p.evidence.eventCounts).map(([k, v]) => `${k}=${v}`).join(', ');
+  return `证据：${counts || '无'}（窗口 ${p.evidence.windowHours}h，来源 ${p.source}）`;
+}
+
 /** 提案卡渲染：当前/提案/理由/证据窗口（自旧频道文本消息格式改卡片形态） */
 function renderEvolutionCard(p: EvolutionReviewProposal): { content: string; cardData: Record<string, unknown> } {
-  const counts = Object.entries(p.evidence.eventCounts).map(([k, v]) => `${k}=${v}`).join(', ');
   const content = [
     `## 🧬 约束进化提案 ${p.id} — 待审核`,
     '',
@@ -119,7 +136,7 @@ function renderEvolutionCard(p: EvolutionReviewProposal): { content: string; car
     `当前：${truncate(p.currentText || '（空）', 160)}`,
     `提案：${truncate(p.proposedText, 160)}`,
     `理由：${truncate(p.rationale, 240)}`,
-    `证据：${counts || '无'}（窗口 ${p.evidence.windowHours}h，来源 ${p.source}）`,
+    renderEvidenceLine(p),
     '',
     '批准后立即生效到约束配置；拒绝则本轮零副作用。',
   ].join('\n');

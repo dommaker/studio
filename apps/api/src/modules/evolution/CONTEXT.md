@@ -35,6 +35,11 @@ E1 约束进化（vision §6 / docs/plans/2026-07-flywheel-repair.md §4）：�
   spawn harness `constraints pack-proposal`（材料回帖 #系统，不自动开 issue）。
   防重复提案消耗标记 = 提案记录本身（同 entryId 任何状态含 rejected 即跳过），
   不回写知识条目。存储走正本默认物化 `<dataDir>/constraint-proposals.jsonl`
+- `format-constraint-stats.ts` — 约束统计白话渲染唯一出口（ADR-0033 子项 9，审卡 UI
+  禁黑话硬要求）：formatConstraintStats 产「累计评估 N 次，拦到 M 次」句式（零触发/
+  全跳过有专用句），CONSTRAINT_CANDIDATE_KIND_LABELS 候选类别整句词表（口径搬 harness
+  CANDIDATE_KIND_LABEL）。消费方：renderEvolutionCard 证据行（约束类提案）、
+  harness/constraints.routes.ts propose-upgrade 统计行、constraint-adapter 卡面 statsText
 - `applier.ts` — 提案生效器（审核通过后写入生效落点）。约束类（iron-law/guideline）
   落点 = `<repoRoot>/.harness/config.yml`；动作集已收敛（M3.2，2026-09-21）为
   **retire / disable 唯二**（message/exception/new-entry 无生效落点已出词表，存量
