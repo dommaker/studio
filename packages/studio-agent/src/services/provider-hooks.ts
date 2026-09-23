@@ -76,19 +76,27 @@ export function buildClaudeDenyRules(opts: { worktree: string; repoDir?: string 
 
 // ─── codex：项目级 .codex/hooks.json（P1） ───
 
+/**
+ * codex PreToolUse matcher 覆盖组（ADR-0031 / wayfinder 票08 P1-5，官方文档核实 2026-09-23）：
+ *   - `Bash`：shell 命令（含 unified exec）。
+ *   - `apply_patch|Edit|Write`：文件编辑。codex 原生只有 apply_patch 工具，hook 输入 tool_name 恒为
+ *     "apply_patch"，`Edit`/`Write` 是官方认可的 matcher 别名（非真实工具名），一并写上防御别名漂移。
+ *   - `mcp__.*`：MCP 工具（命名 `mcp__<server>__<tool>`，正则前缀匹配全覆盖）。
+ * 拦截语义：Bash 组由 shim 黑名单 exit 2 阻断（#147 既有行为）；apply_patch/MCP 组当前只留痕不拦截
+ * （shim 解析扩展在 harness 仓同步进行；文件写拦截归 codex 沙箱 workspace-write，见 P0-3）。
+ */
+const CODEX_PRETOOLUSE_MATCHERS = ['Bash', 'apply_patch|Edit|Write', 'mcp__.*'] as const;
+
 /** codex hooks.json 载体：{description, hooks}（#138 §3.2，ClaudeHooksEngine 兼容格式） */
 export function buildCodexHooksJson(): Record<string, unknown> {
+  const command = `node ${resolvePreToolUseHookPath()}`;
   return {
     description: `${HOOK_MARKER} PreToolUse 前置拦截（#147；shim 由 @dommaker/harness 出厂，#154）`,
     hooks: {
-      PreToolUse: [
-        {
-          matcher: 'Bash',
-          hooks: [
-            { type: 'command', command: `node ${resolvePreToolUseHookPath()}`, timeout: 10 },
-          ],
-        },
-      ],
+      PreToolUse: CODEX_PRETOOLUSE_MATCHERS.map(matcher => ({
+        matcher,
+        hooks: [{ type: 'command', command, timeout: 10 }],
+      })),
     },
   };
 }
