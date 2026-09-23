@@ -81,6 +81,7 @@ function renderCard(
     case 'distill_proposal': // #143 蒸馏提案人审闸口
     case 'gc_proposal': // #144 知识库 GC 候选清单人审闸口
     case 'auditor_suggestion': // B3-005 审计建议（#356 起并入合一壳）
+    case 'constraint_proposal': // ADR-0033 子项 7/8 约束提案（新约束 / 升级）
       // #352（ADR 2026-08-25 决策 5）：人审提案卡合一为 ReviewProposalCard 壳 + proposalCardConfigs 配置
       return <ReviewProposalCard message={message} meta={meta} onAction={onAction} />;
     case 'analysis_confirm': // #284（决策 #250 D6）analysis 接力卡

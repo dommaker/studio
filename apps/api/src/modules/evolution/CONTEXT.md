@@ -21,6 +21,20 @@ E1 约束进化（vision §6 / docs/plans/2026-07-flywheel-repair.md §4）：�
   EvolutionProposalStore 包现有 FileStore 读写（EP-XXXX.json 单提案文件零迁移），
   读侧归一 applied→executed / approved→pending（保重试通道）/ stale→stale，
   appendStatus no-op（状态唯一写入点 = decide）
+- `constraint-adapter.ts` — review-proposal 正本 adapter（kind='constraint'，
+  cardType `constraint_proposal`，ADR-0033 块 3 子项 7/8，harness ≥1.12.0）：约束
+  生命周期提案。action='new'（知识→约束）：runScan 经 scanConstraintCandidates 查
+  知识库 `constraintCandidate` 标签条目（升 proven 时 harness 自动打标）产新约束
+  提案卡；草稿推断 inferCheckerDraft（内容含可编译正则 → 预填 regex-scan pattern，
+  否则 checker=null 卡面标「待确认」，approve 以 aborted 拒落盘——参数残缺条目会让
+  harness 加载期抛错）；approve → append 写 `<repoRoot>/.harness/constraints.yml`
+  （不动既有条目）+ getEffectiveConstraints 写后验证（失败回滚）+ git commit 留痕
+  （trailer `Governance-Approved: <提案号>`，同退休 applier 口径，commit 失败降级
+  warn 不阻断）。action='upgrade'（应用层→通用层）：发起端点在
+  harness/constraints.routes.ts `POST /constraints/propose-upgrade`；approve →
+  spawn harness `constraints pack-proposal`（材料回帖 #系统，不自动开 issue）。
+  防重复提案消耗标记 = 提案记录本身（同 entryId 任何状态含 rejected 即跳过），
+  不回写知识条目。存储走正本默认物化 `<dataDir>/constraint-proposals.jsonl`
 - `applier.ts` — 提案生效器（审核通过后写入生效落点）。约束类（iron-law/guideline）
   落点 = `<repoRoot>/.harness/config.yml`；动作集已收敛（M3.2，2026-09-21）为
   **retire / disable 唯二**（message/exception/new-entry 无生效落点已出词表，存量
@@ -51,9 +65,11 @@ E1 约束进化（vision §6 / docs/plans/2026-07-flywheel-repair.md §4）：�
   子通道同票拆除；amendConstraintMessage/appendConstraintEntry/loadCustomConstraints/
   applyConstraintChange 早前已随死格式删除）
 - `evolution.service.ts` — 聚合服务（扫描 → 生成 → 发卡 → 审核 → 生效编排）。构造即注册
-  review-proposal adapter（kind='evolution'）；runScan 新提案发 evolution_proposal 卡到
-  #系统（正本 postReviewProposalCard，替代旧频道文本消息）；decide 对超期
-  pending/approved 拒决策并转 stale（#602 D2）
+  review-proposal adapter（kind='evolution' 与 kind='constraint' 两个）；runScan 新提案
+  发 evolution_proposal 卡到 #系统（正本 postReviewProposalCard，替代旧频道文本消息）；
+  约束候选扫描（子项 7）显式装配才启用——`constraintCandidates.listEntries` 缺省不扫
+  （测试封闭），生产单例 getEvolutionService 接 knowledge-singletons sharedStore；
+  decide 对超期 pending/approved 拒决策并转 stale（#602 D2）
 - `evolution.routes.ts` — E1 约束进化 API
 
 ### 依赖关系

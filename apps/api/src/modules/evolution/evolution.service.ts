@@ -27,7 +27,15 @@ import {
   type GenerationResult,
 } from './generator.js';
 import { postEvolutionProposalCard, registerEvolutionReviewAdapter, type EvolutionReviewProposal } from './review-adapter.js';
+import {
+  registerConstraintReviewAdapter,
+  scanConstraintCandidates,
+  type ConstraintProposal,
+  type ConstraintScanResult,
+} from './constraint-adapter.js';
 import type { ReviewProposalAdapter } from '../review-proposal/registry.js';
+import { sharedStore } from '../knowledge/knowledge-singletons.js';
+import type { KnowledgeEntry } from '@dommaker/harness';
 import { resolveEvolutionPaths, type EvolutionPaths } from './signals.js';
 import { getErrorMessage } from '../../utils/errors.js';
 
@@ -47,6 +55,13 @@ export interface EvolutionServiceOptions {
   windowHours?: number;
   /** false 时 runScan 只生成提案不发审核卡（测试用） */
   postCard?: boolean;
+  /**
+   * 子项 7 约束候选扫描的知识条目来源（constraintCandidate 标签）。
+   * 缺省 = 不扫（测试保持封闭）；生产单例 getEvolutionService 显式接 sharedStore。
+   */
+  constraintCandidates?: { listEntries: () => KnowledgeEntry[] };
+  /** constraint 提案存取目录（缺省 <studio>/data/evolution；测试注 tmp） */
+  constraintDataDir?: string;
 }
 
 export class EvolutionService {
@@ -54,15 +69,23 @@ export class EvolutionService {
   private paths: EvolutionPaths;
   private windowHours: number;
   private postCard: boolean;
+  private constraintCandidates?: { listEntries: () => KnowledgeEntry[] };
   /** review-proposal 正本 adapter（kind='evolution'，构造即注册，#623） */
   readonly reviewAdapter: ReviewProposalAdapter<EvolutionReviewProposal>;
+  /** review-proposal 正本 adapter（kind='constraint'，构造即注册，ADR-0033 子项 7/8） */
+  readonly constraintAdapter: ReviewProposalAdapter<ConstraintProposal>;
 
   constructor(options?: EvolutionServiceOptions) {
     this.fileStore = options?.fileStore ?? new FileStore();
     this.paths = resolveEvolutionPaths(options?.paths);
     this.windowHours = options?.windowHours ?? (Number(process.env.EVOLUTION_WINDOW_HOURS) > 0 ? Number(process.env.EVOLUTION_WINDOW_HOURS) : 24);
     this.postCard = options?.postCard !== false;
+    this.constraintCandidates = options?.constraintCandidates;
     this.reviewAdapter = registerEvolutionReviewAdapter({ fileStore: this.fileStore, service: this });
+    this.constraintAdapter = registerConstraintReviewAdapter({
+      fileStore: this.fileStore,
+      ...(options?.constraintDataDir ? { dataDir: options.constraintDataDir } : {}),
+    });
   }
 
   get store(): FileStore {
@@ -78,7 +101,7 @@ export class EvolutionService {
   }
 
   /** 跑一轮提案生成并把新提案发审核卡到 #系统（best-effort）。 */
-  async runScan(): Promise<GenerationResult & { posted: number }> {
+  async runScan(): Promise<GenerationResult & { posted: number; constraintScan?: ConstraintScanResult }> {
     const result = await generateEvolutionProposals({
       fileStore: this.fileStore,
       paths: this.paths,
@@ -93,10 +116,28 @@ export class EvolutionService {
     for (const p of result.created) {
       try { eventBus.publish('evolution.proposed', { proposal: p }); } catch { /* non-blocking */ }
     }
-    if (result.created.length > 0) {
-      logger.info('[Evolution] scan completed', { created: result.created.length, posted, skipped: result.skipped });
+    // 子项 7：知识→约束候选扫描（constraintCandidate 标签 → constraint_proposal 卡）。
+    // 显式装配才启用（缺省不扫）；失败告警不拖垮 evolution 主扫描。
+    let constraintScan: ConstraintScanResult | undefined;
+    if (this.constraintCandidates) {
+      try {
+        constraintScan = await scanConstraintCandidates({
+          adapter: this.constraintAdapter,
+          listEntries: this.constraintCandidates.listEntries,
+          repoRoot: this.paths.repoRoot,
+          postCard: this.postCard,
+        });
+      } catch (err) {
+        logger.warn('[Evolution] constraint candidate scan failed', { error: String(err) });
+      }
     }
-    return { ...result, posted };
+    if (result.created.length > 0 || (constraintScan && constraintScan.created.length > 0)) {
+      logger.info('[Evolution] scan completed', {
+        created: result.created.length, posted, skipped: result.skipped,
+        constraintCandidates: constraintScan?.created.length ?? 0,
+      });
+    }
+    return { ...result, posted, ...(constraintScan ? { constraintScan } : {}) };
   }
 
   /**
@@ -170,7 +211,12 @@ export class EvolutionService {
 let _service: EvolutionService | null = null;
 
 export function getEvolutionService(): EvolutionService {
-  if (!_service) _service = new EvolutionService();
+  // 子项 7：生产单例显式接统一知识库（constraintCandidate 标签条目来源）
+  if (!_service) {
+    _service = new EvolutionService({
+      constraintCandidates: { listEntries: () => sharedStore.list() },
+    });
+  }
   return _service;
 }
 
