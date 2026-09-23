@@ -17,6 +17,7 @@ import { ConvertToTaskService } from './convert-to-task.service.js';
 import { ProjectDiscoveryService } from '../projects/project-discovery.service.js';
 import { getChannelFileVocabulary } from './file-ref-vocabulary.js';
 import { deriveChannelCurrentPmo } from './current-pmo.js';
+import { deriveChannelPmoCandidates } from './pmo-candidates.js';
 import { deriveChannelSuggestions } from './suggestions.js';
 import { getErrorMessage } from '../../utils/errors.js';
 import { validateRouting, buildMemberRemovalWarning } from './routing.js';
@@ -82,6 +83,15 @@ router.get('/:id/current-pmo', requireAuth(), apiCache(CACHE_CONFIG.short), hand
   await channelService.getOrThrow(req.params.id);
   const pmo = await deriveChannelCurrentPmo(req.params.id);
   res.json({ success: true, data: pmo });
+}));
+
+// GET /api/v1/channels/:id/pmo-candidates — #638：`#` 触发 PMO 自动补全弹框的候选集。
+// 当前 PMO 置顶 + 挂接 REQ 所属 PMO（seq 降序去重，pmoNumber 为空过滤）；派生不落库，
+// 与 current-pmo 同为 N+1 全量读取挂短 TTL apiCache；派生内部容错绝不抛出（无来源 → []）。
+router.get('/:id/pmo-candidates', requireAuth(), apiCache(CACHE_CONFIG.short), handle(async (req, res) => {
+  await channelService.getOrThrow(req.params.id);
+  const candidates = await deriveChannelPmoCandidates(req.params.id);
+  res.json({ success: true, data: candidates });
 }));
 
 // GET /api/v1/channels/:id/suggestions — #443（spec #441 情境引导 02）：频道建议派生端点。

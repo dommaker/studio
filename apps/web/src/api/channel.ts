@@ -84,6 +84,13 @@ export interface ChannelCurrentPmo {
   gitRepos: string[];
 }
 
+/** #638：`#` 触发 PMO 自动补全弹框的候选项（当前 PMO 置顶 + 挂接 REQ 所属 PMO，seq 降序去重） */
+export interface ChannelPmoCandidate {
+  id: string;
+  pmoNumber: string;
+  title: string;
+}
+
 /**
  * #443（spec #441 情境引导 02）：频道建议派生端点形状。
  * 后端只回结构化数据（id = 文案模板锚 + params = 模板参数），文案由前端
@@ -160,6 +167,10 @@ export const channelApi = {
   /** #272: 顶栏「当前 PMO」chip 派生（最近挂接 REQ 所属 PMO / 杂务 PMO；无 → data=null） */
   getCurrentPmo: (channelId: string) =>
     api.get<{ success: boolean; data: ChannelCurrentPmo | null }>(`/channels/${channelId}/current-pmo`),
+
+  /** #638: `#` 触发 PMO 自动补全候选（当前 PMO 置顶 + 挂接 REQ 所属 PMO；无来源 → data=[]） */
+  getPmoCandidates: (channelId: string) =>
+    api.get<{ success: boolean; data: ChannelPmoCandidate[] }>(`/channels/${channelId}/pmo-candidates`),
 
   /** #443: 频道建议派生（fail-closed，按当前事实现算；无建议 → suggestions=[]） */
   getSuggestions: (channelId: string) =>

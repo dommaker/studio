@@ -39,7 +39,7 @@ const replyTo: ChannelMessage = {
 
 function setup(onSend = vi.fn().mockResolvedValue(undefined)) {
   const { container } = render(<ChannelInput onSend={onSend} sending={false} channelId="ch-1" />);
-  const textarea = screen.getByPlaceholderText('输入消息，@Agent 提及 Agent...') as HTMLTextAreaElement;
+  const textarea = screen.getByPlaceholderText('输入消息，@角色 派单，# 关联 PMO 项目...') as HTMLTextAreaElement;
   return { onSend, textarea, container };
 }
 
@@ -114,7 +114,7 @@ describe('ChannelInput — 归属预览条（#632）', () => {
   it('ambiguous：淡提示多件在途，不显示并入目标；可选新任务/纯消息', async () => {
     mockGetMergeTarget.mockResolvedValue({ data: { data: { status: 'ambiguous' } } });
     const { container } = setup();
-    const textarea = screen.getByPlaceholderText('输入消息，@Agent 提及 Agent...') as HTMLTextAreaElement;
+    const textarea = screen.getByPlaceholderText('输入消息，@角色 派单，# 关联 PMO 项目...') as HTMLTextAreaElement;
 
     typeIn(textarea, '进度怎么样了');
     await waitFor(
@@ -130,7 +130,7 @@ describe('ChannelInput — 归属预览条（#632）', () => {
   it('none：默认归属显示「纯消息」，可选「新任务」', async () => {
     mockGetMergeTarget.mockResolvedValue({ data: { data: { status: 'none' } } });
     const { onSend, container } = setup();
-    const textarea = screen.getByPlaceholderText('输入消息，@Agent 提及 Agent...') as HTMLTextAreaElement;
+    const textarea = screen.getByPlaceholderText('输入消息，@角色 派单，# 关联 PMO 项目...') as HTMLTextAreaElement;
 
     typeIn(textarea, '随便聊聊');
     await waitFor(() => expect(previewBar(container)).toBeTruthy(), { timeout: 2000 });
@@ -146,7 +146,7 @@ describe('ChannelInput — 归属预览条（#632）', () => {
       data: { data: { status: 'unique', workUnit: { id: 'wu-1', title: 'x' } } },
     });
     const { container } = setup();
-    const textarea = screen.getByPlaceholderText('输入消息，@Agent 提及 Agent...') as HTMLTextAreaElement;
+    const textarea = screen.getByPlaceholderText('输入消息，@角色 派单，# 关联 PMO 项目...') as HTMLTextAreaElement;
 
     typeIn(textarea, '@pm-agent 看一下这个');
     await new Promise(r => setTimeout(r, 600));
@@ -161,7 +161,7 @@ describe('ChannelInput — 归属预览条（#632）', () => {
     const { container } = render(
       <ChannelInput onSend={vi.fn()} sending={false} channelId="ch-1" replyTo={replyTo} onCancelReply={vi.fn()} />,
     );
-    const textarea = screen.getByPlaceholderText('输入消息，@Agent 提及 Agent...') as HTMLTextAreaElement;
+    const textarea = screen.getByPlaceholderText('输入消息，@角色 派单，# 关联 PMO 项目...') as HTMLTextAreaElement;
 
     typeIn(textarea, '线程里补充');
     await new Promise(r => setTimeout(r, 600));

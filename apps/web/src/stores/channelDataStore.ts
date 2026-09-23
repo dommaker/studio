@@ -1,15 +1,17 @@
 // Channel Data Store — #403 per-channelId 频道数据面 store（ADR 2026-08-31-channel-data-plane-store）
-// 管三样：文件词表（/channels/:id/file-vocabulary）/ 当前 PMO（/channels/:id/current-pmo）/
-// 频道成员 ID 列表（channel.members，源自 GET /channels/:id）。机制照 rosterStore（#346），
+// 管四样：文件词表（/channels/:id/file-vocabulary）/ 当前 PMO（/channels/:id/current-pmo）/
+// 频道成员 ID 列表（channel.members，源自 GET /channels/:id）/ PMO 补全候选（/channels/:id/pmo-candidates，#638）。
+// 机制照 rosterStore（#346），
 // 取数纪律走 fetchDiscipline 底座——按 (slice, channelId) 粒度各自 TTL 锚点 / single-flight / seq 守卫。
 // 新鲜度 = TTL + 白捡触发器，不新增 SSE 事件（ADR 决策 3）：
-// - current-pmo：requirement.created/updated 时 invalidateCurrentPmo（事件已桥接，零成本）
+// - current-pmo：requirement.created/updated 时 invalidateCurrentPmo（事件已桥接，零成本）；
+//   REQ 变更同样改变 # 补全候选集 → 同钩内一并失效强刷 pmo-candidates（#638）
 // - members：面板内修改成功后 setMembers 本地写穿，不做多端实时（现状亦无）
 // - 词表：无失效事件（后端本有 60s 内存缓存，实时性从来不存在）
 // 注意（ADR 决策 2）：agent 档案不进本 store——rosterStore.listAllAgents 是全量正本，
 // 消费方读 rosterStore 客户端切片，「频道 members 为空 → 全部 active」回退语义在消费方实现。
 import { create } from 'zustand';
-import { channelApi, type ChannelCurrentPmo, type ChannelFileVocabulary } from '../api/channel';
+import { channelApi, type ChannelCurrentPmo, type ChannelFileVocabulary, type ChannelPmoCandidate } from '../api/channel';
 import { createFetchGate, disciplinedFetch, type FetchGate, type FetchGateState } from './fetchDiscipline';
 
 /** 缺省 TTL：与 rosterStore 30s 兜底同频——频道间路由切换 TTL 内零重拉（#403 验收） */
@@ -35,13 +37,17 @@ interface ChannelDataState {
   currentPmo: Record<string, ChannelCurrentPmo | null | undefined>;
   /** channelId → 成员 ID 列表（[] = 空 = 所有 Agent 可见；缺键 = 未拉到） */
   members: Record<string, string[] | undefined>;
+  /** #638：channelId → PMO 补全候选（缺键 = 未拉到/失败 → fail-closed 不出弹框；[] = 确无候选） */
+  pmoCandidates: Record<string, ChannelPmoCandidate[] | undefined>;
 
   ensureVocabulary: (channelId: string, opts?: { maxAgeMs?: number }) => Promise<void>;
   ensureCurrentPmo: (channelId: string, opts?: { maxAgeMs?: number }) => Promise<void>;
   ensureMembers: (channelId: string, opts?: { maxAgeMs?: number }) => Promise<void>;
+  /** #638：`#` 弹框激活时懒加载 PMO 候选（形状护栏非数组按 [] 落库） */
+  ensurePmoCandidates: (channelId: string, opts?: { maxAgeMs?: number }) => Promise<void>;
   /** 面板修改成功 / 页面频道记录到位后的写穿（data + TTL 锚点一并更新） */
   setMembers: (channelId: string, members: string[]) => void;
-  /** 白捡触发器：REQ 变更可能改变 current-pmo 派生 → 失效并立即强刷（订阅方自动跟上） */
+  /** 白捡触发器：REQ 变更可能改变 current-pmo 派生与 # 补全候选集 → 失效并立即强刷（订阅方自动跟上） */
   invalidateCurrentPmo: (channelId: string) => void;
   /** 测试隔离：清空数据面 + 纪律簿记（模块级 loadedAt/inflight/gate 不在 zustand 内） */
   __resetForTests: () => void;
@@ -72,6 +78,7 @@ export const useChannelDataStore = create<ChannelDataState>((set, get) => ({
   vocabulary: {},
   currentPmo: {},
   members: {},
+  pmoCandidates: {},
 
   ensureVocabulary: (channelId, opts) => {
     const s = sliceOf(`vocab:${channelId}`);
@@ -138,6 +145,28 @@ export const useChannelDataStore = create<ChannelDataState>((set, get) => ({
     );
   },
 
+  ensurePmoCandidates: (channelId, opts) => {
+    const s = sliceOf(`pmo-candidates:${channelId}`);
+    return disciplinedFetch(
+      s.gate,
+      { read: () => s.state, setInflight: (p) => { s.state.inflight = p; } },
+      { maxAgeMs: opts?.maxAgeMs ?? CHANNEL_DATA_TTL_MS },
+      async (seq) => {
+        try {
+          const res = await channelApi.getPmoCandidates(channelId);
+          if (!s.gate.isLatest(seq)) return;
+          // 形状护栏：非数组按 [] 落库（消费方 fail-closed，缺键与空数组都不出弹框）
+          const raw = res.data?.data as ChannelPmoCandidate[] | undefined;
+          const data: ChannelPmoCandidate[] = Array.isArray(raw) ? raw : [];
+          set((st) => ({ pmoCandidates: { ...st.pmoCandidates, [channelId]: data } }));
+          s.state.loadedAt = Date.now();
+        } catch {
+          // 静默降级：拿不到则消费方不出弹框（对齐其他切片 catch 行为）；不落锚点 → 下次重试
+        }
+      },
+    );
+  },
+
   setMembers: (channelId, members) => {
     sliceOf(`members:${channelId}`).state.loadedAt = Date.now();
     set((st) => ({ members: { ...st.members, [channelId]: members } }));
@@ -147,10 +176,13 @@ export const useChannelDataStore = create<ChannelDataState>((set, get) => ({
     sliceOf(`pmo:${channelId}`).state.loadedAt = null;
     // 强刷（不并入在途）：事件晚于任何在途 fetch 发起，旧结果必须作废（seq 守卫兜底）
     void get().ensureCurrentPmo(channelId, { maxAgeMs: 0 });
+    // #638：REQ 变更同样改变 # 补全候选集（挂接 PMO 列表/排序）→ 一并失效强刷
+    sliceOf(`pmo-candidates:${channelId}`).state.loadedAt = null;
+    void get().ensurePmoCandidates(channelId, { maxAgeMs: 0 });
   },
 
   __resetForTests: () => {
     book.clear();
-    set({ vocabulary: {}, currentPmo: {}, members: {} });
+    set({ vocabulary: {}, currentPmo: {}, members: {}, pmoCandidates: {} });
   },
 }));

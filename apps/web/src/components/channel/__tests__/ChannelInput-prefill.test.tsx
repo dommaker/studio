@@ -20,7 +20,7 @@ describe('ChannelInput prefill', () => {
   it('prefill nonce 变化 → 内容写入输入框', () => {
     const onSend = vi.fn();
     const { rerender } = render(<ChannelInput onSend={onSend} sending={false} />);
-    const textarea = screen.getByPlaceholderText('输入消息，@Agent 提及 Agent...') as HTMLTextAreaElement;
+    const textarea = screen.getByPlaceholderText('输入消息，@角色 派单，# 关联 PMO 项目...') as HTMLTextAreaElement;
     expect(textarea.value).toBe('');
 
     rerender(<ChannelInput onSend={onSend} sending={false} prefill={{ text: '@reviewer 把 AC 转写成审查清单', nonce: 1 }} />);
@@ -32,7 +32,7 @@ describe('ChannelInput prefill', () => {
     const { rerender } = render(
       <ChannelInput onSend={onSend} sending={false} prefill={{ text: 'A', nonce: 1 }} />,
     );
-    const textarea = screen.getByPlaceholderText('输入消息，@Agent 提及 Agent...') as HTMLTextAreaElement;
+    const textarea = screen.getByPlaceholderText('输入消息，@角色 派单，# 关联 PMO 项目...') as HTMLTextAreaElement;
     expect(textarea.value).toBe('A');
 
     fireEvent.change(textarea, { target: { value: '用户改过' } });
@@ -46,7 +46,7 @@ describe('ChannelInput prefill', () => {
   it('发送后 prefill 填入的内容正常清空（与手写输入同路径）', () => {
     const onSend = vi.fn();
     render(<ChannelInput onSend={onSend} sending={false} prefill={{ text: '发我', nonce: 1 }} />);
-    const textarea = screen.getByPlaceholderText('输入消息，@Agent 提及 Agent...') as HTMLTextAreaElement;
+    const textarea = screen.getByPlaceholderText('输入消息，@角色 派单，# 关联 PMO 项目...') as HTMLTextAreaElement;
     fireEvent.keyDown(textarea, { key: 'Enter' });
     expect(onSend).toHaveBeenCalledWith('发我', undefined);
     expect(textarea.value).toBe('');
