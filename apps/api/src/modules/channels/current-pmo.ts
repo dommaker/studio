@@ -11,7 +11,8 @@
  */
 import { logger, FileStore } from '@dommaker/studio-shared';
 import { projectService } from '../pmo/project.service.js';
-import { reposOfProject, listChannelReqPmoProjects, type ProjectLike } from './file-ref-vocabulary.js';
+import { reposOfProject, type ProjectLike } from './file-ref-vocabulary.js';
+import { deriveChannelReqPmo } from '../requirements/channel-req-pmo.js';
 
 /** 顶栏当前 PMO chip 的呈现形状（多仓 PMO 只显名称，gitRepos 走 tooltip） */
 export interface ChannelCurrentPmo {
@@ -54,16 +55,10 @@ export async function deriveChannelCurrentPmo(
   const getProject = deps.getProject ?? (async (id: string) => projectService.get(id));
   const findChoreProject = deps.findChoreProject ?? (async (id: string) => projectService.findChoreProject(id));
 
-  // 1. 最近挂接 REQ 所属 PMO（seq 大→小；项目缺失/读取失败已在共用查询内顺延跳过）
-  try {
-    const links = await listChannelReqPmoProjects(channelId, { fileStore, getProject });
-    const attached = links.sort((a, b) => b.seq - a.seq);
-    if (attached.length > 0) return toChip(attached[0].project);
-  } catch (err) {
-    logger.warn('[CurrentPmo] Requirement listing failed, falling back to chore PMO', {
-      channelId, error: String(err),
-    });
-  }
+  // 1. 最近挂接 REQ 所属 PMO（#636：第一级派生收口 deriveChannelReqPmo——
+  //    seq 大→小取首个，单条缺失顺延；查询内部容错绝不抛出，null → 回退杂务）
+  const derived = await deriveChannelReqPmo(channelId, { fileStore, getProject });
+  if (derived) return toChip(derived);
 
   // 2. 杂务 PMO 反推（只查不建）
   try {
