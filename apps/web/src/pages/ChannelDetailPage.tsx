@@ -40,7 +40,7 @@ import { useFreshMessageIds } from '../hooks/useFreshMessageIds';
 import { useNeedInputView } from '../hooks/useNeedInputView';
 import { useChannelWorkStoreSync } from '../hooks/useChannelWorkStoreSync';
 import type { Requirement } from '../api/requirements';
-import type { Channel, ChannelMessage, ChannelSuggestion, FileRef } from '../api/channel';
+import type { Channel, ChannelMessage, ChannelSuggestion, FileRef, SendIntent } from '../api/channel';
 import { channelApi } from '../api/channel';
 import { saveLastChannelId } from '../utils/lastChannel';
 import { markPageEntry, emitPageFirstRender, emitReceiptRendered } from '../utils/clientPerf';
@@ -390,15 +390,15 @@ export function ChannelDetailPage() {
     onFocusScroll: scrollToFocusedMessage,
   });
 
-  const handleSend = useCallback(async (content: string, replyToId?: string, files?: FileRef[]) => {
+  const handleSend = useCallback(async (content: string, replyToId?: string, files?: FileRef[], intent?: SendIntent) => {
     setSending(true);
     // 标记「自己发送」窗口：消息落地（本 effect 链或 SSE 先去重）时跟随分支消费并清除
     ownSendPendingRef.current = true;
     try {
-      // #281: files 仅在有文件引用时透传（保旧调用两参形态）
+      // #281: files 仅在有文件引用时透传（保旧调用两参形态）；#632: intent 为归属预览条显式选择
       const sent = files?.length
-        ? await sendMessage(content, replyToId, files)
-        : await sendMessage(content, replyToId);
+        ? await sendMessage(content, replyToId, files, intent)
+        : await sendMessage(content, replyToId, undefined, intent);
       setReplyTo(null);
       // #493：线程回复送达且命中 WU（workUnitId 继承成功 = 会触达 agent）→ 轻量「已送达/等待 agent」状态
       if (replyToId && sent?.workUnitId) setAwaitingAgent({ wuId: sent.workUnitId, since: Date.now() });

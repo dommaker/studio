@@ -66,8 +66,6 @@ export interface ChannelData {
    * defaultPipeline（AC-6.1，name 数组）已吞并迁移进 routing.implement（channels/migrate-routing.ts）。
    */
   routing?: { plan?: string | null; implement?: string | null; review?: string | null };
-  /** 决策 12: 无 @ 消息的默认认领角色（AgentProfile ID）。未配置（null/undefined）= 维持纯存储 */
-  defaultProfileId?: string | null;
   createdAt: string;       // ISO 8601
   updatedAt: string;       // ISO 8601
 }

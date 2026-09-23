@@ -7,7 +7,7 @@
 // #486：发送中 textarea 不再整段禁用（可接着打下一条）；乐观回显在 useChannelMessages，本组件
 // 只保留发送钮/handleSend 的 sending 防重复提交。
 import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
-import type { AgentProfile, ChannelMessage, FileRef } from '../../api/channel';
+import type { AgentProfile, ChannelMessage, FileRef, MergeTargetPreview, SendIntent } from '../../api/channel';
 import { channelApi } from '../../api/channel';
 import { useImeEnterGuard } from '../../hooks/useImeEnterGuard';
 import { useRosterStore, activeAgentsOf } from '../../stores/rosterStore';
@@ -17,7 +17,7 @@ import { emitSendClick } from '../../utils/clientPerf';
 import { IconImage, IconX } from '../ui/icons';
 
 interface Props {
-  onSend: (content: string, replyToId?: string, files?: FileRef[]) => void | Promise<unknown>;
+  onSend: (content: string, replyToId?: string, files?: FileRef[], intent?: SendIntent) => void | Promise<unknown>;
   sending: boolean;
   replyTo?: ChannelMessage | null;
   onCancelReply?: () => void;
@@ -30,6 +30,11 @@ interface Props {
 
 /** 文件候选展示上限（词表可能数千条，弹框只给补全头部） */
 const FILE_CANDIDATE_CAP = 20;
+
+/** #632：归属预览拉取防抖（与后端 detectMention 同正则，见 MERGE_MENTION_RE） */
+const MERGE_PREVIEW_DEBOUNCE_MS = 400;
+/** 与后端 detectMention 同正则——含 @mention 的内容不走 merge 归属预览 */
+const MERGE_MENTION_RE = /@([\p{L}\p{N}_-]+)/u;
 
 /** 2026-09 截图粘贴：图片白名单/上限与后端 attachments.ts 同口径（客户端先拦一道即时反馈，服务端仍兜底） */
 const IMAGE_MIME_WHITELIST = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
@@ -62,6 +67,9 @@ export function ChannelInput({ onSend, sending, replyTo, onCancelReply, channelI
   // #281：频道文件词表（候选集 = 频道相关工程，#403 起读 channelDataStore）+ 已选文件引用台账
   const vocabRepos = useChannelDataStore((s) => (channelId ? s.vocabulary[channelId]?.repos : undefined));
   const [fileRefs, setFileRefs] = useState<FileRef[]>([]);
+  // #632：发送前归属预览——mergePreview = 后端三态预测；mergeChoice = 用户显式选择（auto = 不发 intent）
+  const [mergePreview, setMergePreview] = useState<MergeTargetPreview | null>(null);
+  const [mergeChoice, setMergeChoice] = useState<'auto' | SendIntent>('auto');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const activeMentionItemRef = useRef<HTMLButtonElement>(null);
   // #270：IME 合成守卫（isComposing / keyCode 229 / compositionend 后 10ms 兜底）
@@ -101,6 +109,30 @@ export function ChannelInput({ onSend, sending, replyTo, onCancelReply, channelI
     void store.ensureVocabulary(channelId);
     void store.ensureMembers(channelId);
   }, [channelId]);
+
+  // #632：归属预览触发条件——内容非空 + 无 replyTo + 无 @mention（后端 detectMention 同正则）+ 非发送中
+  const mergePreviewEligible =
+    !!channelId && content.trim().length > 0 && !replyTo && !MERGE_MENTION_RE.test(content) && !sending;
+
+  // 频道切换：预览与选择一并重置
+  useEffect(() => {
+    setMergePreview(null);
+    setMergeChoice('auto');
+  }, [channelId]);
+
+  // 400ms 防抖拉 merge-target；内容变化重新判定，不满足条件即撤条。失败静默降级（不显示预览条）
+  useEffect(() => {
+    if (!mergePreviewEligible || !channelId) {
+      setMergePreview(null);
+      return;
+    }
+    const timer = setTimeout(() => {
+      channelApi.getMergeTarget(channelId)
+        .then(res => setMergePreview(res.data.data))
+        .catch(() => setMergePreview(null));
+    }, MERGE_PREVIEW_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [mergePreviewEligible, channelId, content]);
 
   const agents = useMemo(() => {
     const active = activeAgentsOf(profiles);
@@ -270,16 +302,23 @@ export function ChannelInput({ onSend, sending, replyTo, onCancelReply, channelI
     emitSendClick({ channelId, replyToId: replyTo?.id ?? null });
     // #281: 只上送正文仍含其路径的引用（发送前删掉路径文本 = 撤销引用）
     const refs = fileRefs.filter(f => trimmed.includes(f.path));
+    // #632：仅在归属预览适用（无 replyTo / 无 @mention）且用户显式选择时携带 intent；
+    // 未选时保旧调用形态（不传第四参，对齐 #281 files 的「无引用不传第三参」口径）
+    const intent = mergePreviewEligible && mergeChoice !== 'auto' ? mergeChoice : undefined;
     // 乐观清空（原语义），失败回灌
     setContent('');
     setCursorPos(0);
     setFileRefs([]);
     try {
       if (refs.length > 0) {
-        await onSend(trimmed, replyTo?.id, refs);
+        if (intent) await onSend(trimmed, replyTo?.id, refs, intent);
+        else await onSend(trimmed, replyTo?.id, refs);
       } else {
-        await onSend(trimmed, replyTo?.id);
+        if (intent) await onSend(trimmed, replyTo?.id, undefined, intent);
+        else await onSend(trimmed, replyTo?.id);
       }
+      // 发送成功：归属选择复位 auto（预览条随内容清空自然消失）
+      setMergeChoice('auto');
     } catch {
       setContent(trimmed);
       setCursorPos(trimmed.length);
@@ -360,6 +399,49 @@ export function ChannelInput({ onSend, sending, replyTo, onCancelReply, channelI
             <button onClick={onCancelReply} className="mc-icon-btn" aria-label="取消回复">
               <IconX />
             </button>
+          </div>
+        )}
+
+        {/* #632：发送前归属预览条（复用 reply 预览条容器/边框/淡色视觉）。
+            三态：unique 显示并入目标 + 可切「新任务」/「纯消息」；ambiguous 淡提示多件在途（不显目标）；
+            none 默认纯消息 + 可选「新任务」。chip 点击选中、再点回 auto（不发 intent） */}
+        {mergePreview && mergePreviewEligible && (
+          <div className="mc-input-reply mc-input-merge">
+            {mergePreview.status === 'unique' && (
+              <>
+                <span>⇄</span>
+                <span>将并入：</span>
+                <span className="mc-input-reply-content">{mergePreview.workUnit?.title}</span>
+              </>
+            )}
+            {mergePreview.status === 'ambiguous' && (
+              <span className="mc-input-merge-hint">频道有多件事同时进行，请回复对应消息或 @角色</span>
+            )}
+            {mergePreview.status === 'none' && (
+              <span className={mergeChoice === 'auto' ? 'mc-input-merge-default' : 'mc-input-merge-hint'}>纯消息</span>
+            )}
+            {(mergePreview.status === 'unique' || mergePreview.status === 'ambiguous' || mergePreview.status === 'none') && (
+              <>
+                <button
+                  type="button"
+                  className={mergeChoice === 'new-task' ? 'mc-input-merge-chip mc-input-merge-chip-active' : 'mc-input-merge-chip'}
+                  aria-pressed={mergeChoice === 'new-task'}
+                  onClick={() => setMergeChoice(c => (c === 'new-task' ? 'auto' : 'new-task'))}
+                >
+                  新任务
+                </button>
+                {mergePreview.status !== 'none' && (
+                  <button
+                    type="button"
+                    className={mergeChoice === 'plain' ? 'mc-input-merge-chip mc-input-merge-chip-active' : 'mc-input-merge-chip'}
+                    aria-pressed={mergeChoice === 'plain'}
+                    onClick={() => setMergeChoice(c => (c === 'plain' ? 'auto' : 'plain'))}
+                  >
+                    纯消息
+                  </button>
+                )}
+              </>
+            )}
           </div>
         )}
 

@@ -1,6 +1,8 @@
 /**
- * #591 B 类：@mention 派单 / 决策12 默认角色 / 合并窗口的 dispatch 决策埋点
+ * #591 B 类：@mention 派单 / 合并窗口的 dispatch 决策埋点
  * （落 audit-logs 轨；依据 = 匹配方式摘要；requestId = ctx.traceId 频道链路口径）。
+ * #632：决策12 默认角色（via=default-role）随 defaultProfileId 退役删除；
+ * 新增 intent=new-task 显式建单埋点（via=new-task）。
  */
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vitest';
 import fs from 'node:fs';
@@ -19,11 +21,10 @@ let fileStore: FileStore;
 let workUnitService: WorkUnitService;
 let channelSeq = 0;
 
-async function createChannelWith(defaultProfileId: string | null): Promise<string> {
+async function createChannelWith(): Promise<string> {
   const id = `ch-dispatch-${Date.now()}-${++channelSeq}`;
   await fileStore.createChannel({
     id, name: `#${id}`, type: 'rnd',
-    defaultProfileId,
     defaultWorkspaceId: null, defaultPath: null,
     discordChannelId: null, discordWebhookUrl: null,
     members: '[]',
@@ -56,7 +57,7 @@ describe('dispatch 决策埋点（#591）', () => {
   });
 
   it('@mention 精确命中 → dispatch 行（actor=被指名 profile，via=mention，traceId 透传）', async () => {
-    const channelId = await createChannelWith(null);
+    const channelId = await createChannelWith();
     await createProfile('prof-dev', 'Dev');
 
     const msg = await routeMessage(channelId, '@Dev 看下这个', undefined, { fs: fileStore, traceId: 'trace-d1' });
@@ -72,7 +73,7 @@ describe('dispatch 决策埋点（#591）', () => {
   });
 
   it('@mention 未匹配（转自动认领）→ dispatch 行 matched:false、无 actor', async () => {
-    const channelId = await createChannelWith(null);
+    const channelId = await createChannelWith();
 
     await routeMessage(channelId, '@Nobody 帮忙', undefined, { fs: fileStore });
 
@@ -83,43 +84,53 @@ describe('dispatch 决策埋点（#591）', () => {
     }));
   });
 
-  it('决策12 默认角色建单 → dispatch 行（via=default-role，actor=defaultProfileId）', async () => {
-    const channelId = await createChannelWith('prof-default');
+  it('intent=new-task 显式建单 → dispatch 行（via=new-task，未指派无 actor）', async () => {
+    const channelId = await createChannelWith();
 
-    const msg = await routeMessage(channelId, '帮我看个报错', undefined, { fs: fileStore, traceId: 'trace-d2' });
+    const msg = await routeMessage(channelId, '帮我看个报错', undefined, { fs: fileStore, traceId: 'trace-d2', intent: 'new-task' });
 
     expect(decisionSpy).toHaveBeenCalledWith(expect.objectContaining({
       action: 'dispatch',
       resourceId: msg.workUnitId,
-      actor: { id: 'prof-default', type: 'agent' },
       requestId: 'trace-d2',
-      details: expect.objectContaining({ via: 'default-role', channelId }),
+      details: expect.objectContaining({ via: 'new-task', channelId }),
     }));
   });
 
   it('合并窗口并入在途 WU → dispatch 行（via=merge，对象=在途 WU），不新建第二张单', async () => {
-    const channelId = await createChannelWith('prof-default');
+    const channelId = await createChannelWith();
 
-    const first = await routeMessage(channelId, '第一条', undefined, { fs: fileStore });
+    // #632：合并窗口已解耦——先造在途 WU + 窗口内携带它的人类消息作为合并锚点
+    const wu = await workUnitService.create({
+      scope: '在途任务', channelId, type: 'task', status: 'active', assigneeId: 'instance-1',
+    });
+    await fileStore.appendMessage(channelId, {
+      id: `m-${channelId}`, channelId, authorType: 'human', agentName: null,
+      content: '第一条', replyToId: null, meta: '{}', workUnitId: wu.id,
+      createdAt: new Date().toISOString(),
+    });
     decisionSpy.mockClear();
     await routeMessage(channelId, '第二条（窗口内）', undefined, { fs: fileStore });
 
     expect(decisionSpy).toHaveBeenCalledTimes(1);
     expect(decisionSpy).toHaveBeenCalledWith(expect.objectContaining({
       action: 'dispatch',
-      resourceId: first.workUnitId,
+      resourceId: wu.id,
       details: expect.objectContaining({ via: 'merge' }),
     }));
   });
 
-  it('线程回复 / 无默认角色纯文本 → 不落 dispatch 行', async () => {
-    const channelId = await createChannelWith(null);
+  it('线程回复 / 无地址纯文本（无合并目标）→ 不落 dispatch 行', async () => {
+    const channelId = await createChannelWith();
     const first = await routeMessage(channelId, '@Nobody 建个单', undefined, { fs: fileStore });
     decisionSpy.mockClear();
 
     await routeMessage(channelId, '线程里的回复', first.id, { fs: fileStore });
-    await routeMessage(channelId, '无 @ 纯文本', undefined, { fs: fileStore });
+    expect(decisionSpy).not.toHaveBeenCalled();
 
+    // #632：无地址纯文本在无合并目标的频道 → 纯存储不落埋点
+    const emptyChannel = await createChannelWith();
+    await routeMessage(emptyChannel, '无 @ 纯文本', undefined, { fs: fileStore });
     expect(decisionSpy).not.toHaveBeenCalled();
   });
 });

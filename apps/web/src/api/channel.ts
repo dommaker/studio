@@ -108,6 +108,15 @@ export interface ChannelSuggestions {
   degraded?: boolean;
 }
 
+/** #632：发送 intent——'new-task' 显式建未指派 WU（涌现认领）并关联消息；'plain' 强制纯存储；不传 = 自动合并判定 */
+export type SendIntent = 'new-task' | 'plain';
+
+/** #632：发送前归属预览（GET /channels/:id/merge-target）——预测无 @ 无 replyTo 消息的三态归属 */
+export interface MergeTargetPreview {
+  status: 'unique' | 'ambiguous' | 'none';
+  workUnit?: { id: string; title: string };
+}
+
 export const channelApi = {
   list: () =>
     api.get<{ success: boolean; data: Channel[] }>('/channels'),
@@ -127,11 +136,15 @@ export const channelApi = {
       { params }
     ),
 
-  sendMessage: (channelId: string, content: string, replyToId?: string, files?: FileRef[]) =>
+  sendMessage: (channelId: string, content: string, replyToId?: string, files?: FileRef[], intent?: SendIntent) =>
     api.post<{ success: boolean; data: ChannelMessage }>(
       `/channels/${channelId}/messages`,
-      { content, replyToId, ...(files?.length ? { files } : {}) }
+      { content, replyToId, ...(files?.length ? { files } : {}), ...(intent ? { intent } : {}) }
     ),
+
+  /** #632: 发送前归属预览（无 @ 无 replyTo 消息的 merge 预测；失败由调用方静默降级为不显示预览条） */
+  getMergeTarget: (channelId: string) =>
+    api.get<{ success: boolean; data: MergeTargetPreview }>(`/channels/${channelId}/merge-target`),
 
   /** #281: @文件引用只读词表（候选集 = 频道相关工程；文件候选走词表路径后缀补全） */
   getFileVocabulary: (channelId: string) =>

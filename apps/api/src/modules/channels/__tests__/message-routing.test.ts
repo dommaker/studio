@@ -387,30 +387,28 @@ describe('Message Routing (AC-B1-B4)', () => {
     });
   });
 
-  // ── 决策 12: 无 @ 兜底 —— 频道默认角色 ──
+  // ── #632: 无 @ 兜底退役 —— 决策12 默认角色（defaultProfileId）已删 ──
 
-  describe('决策 12: channel.defaultProfileId 无 @ 兜底', () => {
-    it('配置了默认角色 → 无 @ 消息创建 WU 并关联消息', async () => {
-      await fileStore.updateChannel(channelId, { defaultProfileId: 'default-agent-1' });
-
-      const result = await routeMessage(channelId, '没有点名的消息', undefined, { fs: fileStore });
-
-      expect(result.workUnitId).toBeTruthy();
-      const wu = await findWu(result.workUnitId!);
-      expect(wu).not.toBeNull();
-      expect(wu!.assigneeId).toBe('default-agent-1');
-      expect(wu!.type).toBe('task');
-      expect(wu!.scope).toBe('没有点名的消息');
-      expect(wu!.status).toBe('unassigned');
-      const meta = wu!.metadata ? JSON.parse(wu!.metadata) : {};
-      expect(meta.creationMode).toBe('channel-default');
-    });
-
-    it('未配置默认角色 → 维持纯存储（不建 WU）', async () => {
+  describe('#632: 无 @ 无 replyTo 消息归宿（决策12 退役后）', () => {
+    it('无合并目标 → 纯存储（不建 WU，不再有任何自动建单路径）', async () => {
       const result = await routeMessage(channelId, '纯聊天', undefined, { fs: fileStore });
 
       expect(result.workUnitId).toBeNull();
       expect(await countWu(channelId)).toBe(0);
+    });
+
+    it('intent=new-task → 显式建未指派 WU（creationMode=channel-new-task，走涌现认领）', async () => {
+      const result = await routeMessage(channelId, '没有点名的消息', undefined, { fs: fileStore, intent: 'new-task' });
+
+      expect(result.workUnitId).toBeTruthy();
+      const wu = await findWu(result.workUnitId!);
+      expect(wu).not.toBeNull();
+      expect(wu!.assigneeId).toBeNull();
+      expect(wu!.type).toBe('task');
+      expect(wu!.scope).toBe('没有点名的消息');
+      expect(wu!.status).toBe('unassigned');
+      const meta = wu!.metadata ? JSON.parse(wu!.metadata) : {};
+      expect(meta.creationMode).toBe('channel-new-task');
     });
   });
 
@@ -725,10 +723,8 @@ describe('Message Routing (AC-B1-B4)', () => {
       }
     });
 
-    it('决策 12 频道默认角色派单：同样落 anchorMessageId + 回填 workUnitId', async () => {
-      await fileStore.updateChannel(channelId, { defaultProfileId: 'default-agent-1' });
-
-      const result = await routeMessage(channelId, '没有点名的消息', undefined, { fs: fileStore });
+    it('#632 intent=new-task 显式建单：同样落 anchorMessageId + 回填 workUnitId', async () => {
+      const result = await routeMessage(channelId, '没有点名的消息', undefined, { fs: fileStore, intent: 'new-task' });
 
       const wu = await findWu(result.workUnitId!);
       const meta = wu!.metadata ? JSON.parse(wu!.metadata) : {};

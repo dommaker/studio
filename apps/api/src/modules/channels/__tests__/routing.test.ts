@@ -7,7 +7,7 @@
  *  - 配置了但角色被移出频道/inactive/不存在 → profileId=null + fallback 原因（回池涌现 + 频道出声）
  *  - 成员判定：channel.members 唯一事实源；members 空（历史频道）回退 profile.channels（agent-loop 同口径）
  *  - validateRouting：PATCH 入口校验——值须为 active profile id（'' / null = 清除该档），不强制成员
- *    （成员边界在路由时判定，defaultProfileId 先例）
+ *    （成员边界在路由时判定）
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';

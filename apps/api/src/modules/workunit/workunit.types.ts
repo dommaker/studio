@@ -24,8 +24,8 @@ export interface WorkUnitMetadata {
   title?: string;             // 从 WorkUnit.title 降级（Phase 3 迁移）
   _consecutiveReviewRejections?: number;  // 连续 review reject 计数（3x → auto-block）
   sourceMessageId?: string;   // createFromMessage 涌现路径来源
-  creationMode?: string;      // 创建模式：from-message / manual
-  // #494（方案 c，票内预授权）：频道派发消息 id——mention/频道默认派单建单时落档；
+  creationMode?: string;      // 创建模式：from-message / manual / mention / channel-new-task（#632；历史 channel-default 只读兼容）
+  // #494（方案 c，票内预授权）：频道派发消息 id——mention/显式建单（new-task）派单建单时落档；
   // wu-messenger 系统消息（认领播报等）优先锚它，消除「created 事件先于派发消息落库」的
   // findAnchorMessage 时序竞态；缺失时回退既有「首条根消息」语义
   anchorMessageId?: string;

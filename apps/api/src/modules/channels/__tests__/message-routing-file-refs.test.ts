@@ -251,17 +251,16 @@ describe('WU metadata.fileRefs 落档 + 归属 rung（#285，决策 #249 §4）'
     expect(index.find(w => w.id === message.workUnitId)!.workspaceId).toBeNull();
   });
 
-  it('决策 12 channel-default 建 WU 路径：同样写 metadata.fileRefs（该路径不做归属解析）', async () => {
-    await fileStore.updateChannel(channelId, { defaultProfileId: 'agent-dev' });
-    await createDevProfile();
+  it('#632 intent=new-task 建 WU 路径：同样写 metadata.fileRefs（该路径不做归属解析）', async () => {
     const message = await routeMessage(channelId, '无 at 消息带文件', undefined, { fs: fileStore,
       files: [{ repo: '/repo/default', path: 'README.md' }],
       fileRefDeps: makeDeps(),
+      intent: 'new-task',
     });
 
     expect(message.workUnitId).toBeTruthy();
     const metadata = await getWuMetadata(message.workUnitId!);
-    expect(metadata.creationMode).toBe('channel-default');
+    expect(metadata.creationMode).toBe('channel-new-task');
     expect(metadata.fileRefs).toEqual([{ repo: '/repo/default', path: 'README.md' }]);
   });
 });

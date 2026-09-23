@@ -3,7 +3,7 @@
  *
  * - @mention 建 WU 时 options.traceId 写入 metadata.traceId
  * - 无 traceId 时 metadata 不带该字段（向后兼容）
- * - #519 三路径补齐：线程回复关联的 WU、默认角色派单（新建 + 合并窗口并入的在途 WU）
+ * - #519 三路径补齐：线程回复关联的 WU、显式建单（#632 intent=new-task）+ 合并窗口并入的在途 WU
  *   同样写入/刷新 metadata.traceId；口径统一为「本次消息 traceId」（spec user story 5
  *   二选一，取与 AC「与本次请求一致」对齐的一项）
  */
@@ -102,23 +102,22 @@ describe('message-routing traceId (P0 修复 6)', () => {
     expect(meta.traceId).toBe('trace-reply');
   });
 
-  it('#519 默认角色派单（新建 WU）：options.traceId 写入 metadata.traceId', async () => {
-    await fileStore.updateChannel(channelId, { defaultProfileId: 'default-agent-1' });
-
+  it('#519 显式建单（intent=new-task）：options.traceId 写入 metadata.traceId', async () => {
     const message = await routeMessage(channelId, '无 @ 的普通消息', undefined, { fs: fileStore,
       traceId: 'trace-default-new',
+      intent: 'new-task',
     });
 
     expect(message.workUnitId).toBeTruthy();
     const meta = await findWuMeta(message.workUnitId!);
     expect(meta.traceId).toBe('trace-default-new');
-    expect(meta.creationMode).toBe('channel-default');
+    expect(meta.creationMode).toBe('channel-new-task');
   });
 
-  it('#519 默认角色合并窗口：并入的在途 WU metadata.traceId 刷新为本次消息 traceId', async () => {
-    await fileStore.updateChannel(channelId, { defaultProfileId: 'default-agent-1' });
+  it('#519 合并窗口：并入的在途 WU metadata.traceId 刷新为本次消息 traceId', async () => {
     const first = await routeMessage(channelId, '第一条', undefined, { fs: fileStore,
       traceId: 'trace-merge-first',
+      intent: 'new-task',
     });
 
     const second = await routeMessage(channelId, '窗口内第二条', undefined, { fs: fileStore,

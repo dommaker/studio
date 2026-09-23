@@ -13,7 +13,7 @@
 // - sendMessage 乐观 pending：成功原位替换、失败回滚上抛（#486）
 // - syncPruning 数据层降级（#326）：planPrune 判定 + 200ms 防抖整页水合（不触碰 hasMore）
 import { create } from 'zustand';
-import { channelApi, type ChannelMessage, type FileRef } from '../api/channel';
+import { channelApi, type ChannelMessage, type FileRef, type SendIntent } from '../api/channel';
 import { insertMessage, mergePage } from '../utils/messageList';
 import {
   degradeMessage, planPrune,
@@ -57,8 +57,9 @@ interface ChannelMessageState {
   applyMessageSent: (channelId: string, message: ChannelMessage) => void;
   /** SSE channel.message_updated：全量本体原位替换 / legacy 增量 patch */
   applyMessageUpdated: (channelId: string, data: MessageUpdatedPayload) => void;
-  /** #486 乐观回显：成功返回服务端本体；失败回滚 pending + 上抛；空内容返回 null */
-  sendMessage: (channelId: string, content: string, replyToId?: string, files?: FileRef[]) => Promise<ChannelMessage | null>;
+  /** #486 乐观回显：成功返回服务端本体；失败回滚 pending + 上抛；空内容返回 null。
+      #632：intent 透传归属预览条的显式选择（'new-task' / 'plain'；undefined = 自动合并判定） */
+  sendMessage: (channelId: string, content: string, replyToId?: string, files?: FileRef[], intent?: SendIntent) => Promise<ChannelMessage | null>;
   /** #326：渲染侧在首个可见消息变化时调用（anchorMid = 首个可见消息 id，null = 无可锚行不动作） */
   syncPruning: (channelId: string, anchorMid: string | null, opts?: Partial<PruneOptions>) => void;
   /** 测试隔离：清数据面 + 纪律簿记 + 水合计时器（模块级 gate/timer 不在 zustand 内） */
@@ -252,7 +253,7 @@ export const useChannelMessageStore = create<ChannelMessageState>((set, get) => 
     });
   },
 
-  sendMessage: async (channelId, content, replyToId, files) => {
+  sendMessage: async (channelId, content, replyToId, files, intent) => {
     if (!content.trim()) return null;
     const pendingId = `pending-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const pendingMsg: ChannelMessage = {
@@ -269,7 +270,10 @@ export const useChannelMessageStore = create<ChannelMessageState>((set, get) => 
       return { channels: { ...st.channels, [channelId]: { ...cur, messages: insertMessage(cur.messages, pendingMsg) } } };
     });
     try {
-      const res = await channelApi.sendMessage(channelId, content, replyToId, files);
+      // #632：intent 缺省保旧四参调用形态（对齐 files 的 arity 口径；channelApi 侧 undefined 不序列化）
+      const res = intent
+        ? await channelApi.sendMessage(channelId, content, replyToId, files, intent)
+        : await channelApi.sendMessage(channelId, content, replyToId, files);
       const msg = res.data.data;
       // 服务端本体原位替换（SSE 回声先到则已按 id 插入，替换同样收敛不重复）
       set(st => {

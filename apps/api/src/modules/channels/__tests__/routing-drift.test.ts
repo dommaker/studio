@@ -34,7 +34,6 @@ async function seedProfile(id: string, name: string) {
 async function seedChannel(id: string, opts: {
   members?: string[];
   routing?: Record<string, string | null>;
-  defaultProfileId?: string | null;
 } = {}) {
   await fileStore.createChannel({
     id, name: `#${id}`, type: 'rnd',
@@ -42,7 +41,6 @@ async function seedChannel(id: string, opts: {
     discordChannelId: null, discordWebhookUrl: null,
     members: stringifyChannels(opts.members ?? []),
     ...(opts.routing !== undefined ? { routing: opts.routing } : {}),
-    ...(opts.defaultProfileId !== undefined ? { defaultProfileId: opts.defaultProfileId } : {}),
     createdAt: now, updatedAt: now,
   });
 }
@@ -116,16 +114,8 @@ describe('#497 AC2: members 移出被指名角色 → warning', () => {
     expect(warning).toContain('评审');
   });
 
-  it('移出角色被指名为入口角色 defaultProfileId → warning 含入口角色', async () => {
-    await seedChannel('ch-w2', { defaultProfileId: 'p-1' });
-    const ch = await fileStore.getChannel('ch-w2');
-    const warning = buildMemberRemovalWarning(ch!, ['p-1']);
-    expect(warning).toBeTruthy();
-    expect(warning).toContain('入口角色');
-  });
-
   it('移出角色未被任何指名引用 → 无 warning', async () => {
-    await seedChannel('ch-w3', { routing: { plan: 'p-1' }, defaultProfileId: 'p-2' });
+    await seedChannel('ch-w3', { routing: { plan: 'p-1' } });
     const ch = await fileStore.getChannel('ch-w3');
     expect(buildMemberRemovalWarning(ch!, ['p-other'])).toBeUndefined();
   });

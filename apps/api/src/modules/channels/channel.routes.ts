@@ -8,7 +8,8 @@ import type { Request, Response, NextFunction } from 'express';
 import { logger, FileStore } from '@dommaker/studio-shared';
 import { channelService, ChannelError, validateDefaultWorkspaceId } from './channel.service.js';
 import { saveChannelImage, resolveChannelImage, ATTACHMENT_BODY_LIMIT } from './attachments.js';
-import { routeMessage } from './message-routing.js';
+import { routeMessage, resolveMergeTarget } from './message-routing.js';
+import { WorkUnitService } from '../workunit/workunit.service.js';
 import { projectService } from '../pmo/project.service.js';
 import { apiCache, CACHE_CONFIG } from '../../middleware/api-cache.js';
 import { requireAuth, requireNotGuest } from '../../middleware/auth.js';
@@ -92,6 +93,23 @@ router.get('/:id/suggestions', requireAuth(), handle(async (req, res) => {
   res.json({ success: true, data });
 }));
 
+// GET /api/v1/channels/:id/merge-target — #632：发送前归属预览（只读）。
+// 与 routeMessage 无地址路径共用 resolveMergeTarget 判定，保证「预览所见 = 实际路由」：
+// unique 附 workUnit{id,title}（标题 = WU scope）；ambiguous 不暴露并入目标。
+router.get('/:id/merge-target', requireAuth(), handle(async (req, res) => {
+  await channelService.getOrThrow(req.params.id);
+  const wuService = new WorkUnitService(fileStore);
+  const resolution = await resolveMergeTarget(req.params.id, fileStore, wuService);
+  if (resolution.kind !== 'unique') {
+    return res.json({ success: true, data: { status: resolution.kind } });
+  }
+  const wu = await wuService.getById(resolution.target.id);
+  res.json({
+    success: true,
+    data: { status: 'unique', workUnit: { id: resolution.target.id, title: wu?.scope ?? '' } },
+  });
+}));
+
 // GET /api/v1/channels/:id/messages — paginated messages
 // #319：before = 锚点消息 id 游标（原 timestamp 游标同毫秒撞车会漏/重）；分页半下沉到存储层（queryMessagesPage 切片）
 router.get('/:id/messages', requireAuth(), async (req, res) => {
@@ -134,9 +152,13 @@ router.get('/:id/file-vocabulary', requireAuth(), apiCache(CACHE_CONFIG.short), 
 
 // POST /api/v1/channels/:id/messages — send a message
 router.post('/:id/messages', requireAuth(), requireNotGuest(), handle(async (req, res) => {
-  const { content, replyToId, reqId, files } = req.body;
+  const { content, replyToId, reqId, files, intent } = req.body;
   if (!content || typeof content !== 'string' || !content.trim()) {
     return res.status(400).json({ success: false, error: 'content is required' });
+  }
+  // #632：发送前归属预览的显式意图（仅作用于无 @ 无 replyTo 路径）
+  if (intent !== undefined && intent !== 'new-task' && intent !== 'plain') {
+    return res.status(400).json({ success: false, error: "intent must be 'new-task' or 'plain'" });
   }
   // #281: @文件引用结构化载体（可选）；形状不符整体 400，存在性校验在路由层
   if (files !== undefined && (!Array.isArray(files) || files.some(
@@ -167,6 +189,8 @@ router.post('/:id/messages', requireAuth(), requireNotGuest(), handle(async (req
       traceId,
       // #281: @文件引用（路由层做存在性校验 + 剔除播报）
       files: files as { repo: string; path: string }[] | undefined,
+      // #632: 归属预览的显式意图覆盖（new-task 建未指派 WU / plain 纯存储）
+      intent,
       // #525 P2-2（决策 #517 项 3）：上方 404 判定已读出的 channel 透传，消 routeMessage 重复读
       channel,
     },
@@ -217,7 +241,11 @@ router.put('/:id/restore', requireAuth(), requireNotGuest(), handle(async (req, 
 // PATCH /api/v1/channels/:id — update channel settings
 router.patch('/:id', requireAuth(), requireNotGuest(), handle(async (req, res) => {
   const { id } = req.params;
-  const { name, defaultWorkspaceId, defaultPath, routing, defaultProfileId } = req.body;
+  // #632：defaultProfileId（决策12 频道默认角色）已退役——不再接受该字段
+  if ('defaultProfileId' in (req.body ?? {})) {
+    return res.status(400).json({ success: false, error: 'defaultProfileId 已随 #632 退役：无 @ 消息归宿 = 合并窗口 / 纯存储，频道不再配置默认角色' });
+  }
+  const { name, defaultWorkspaceId, defaultPath, routing } = req.body;
   const data: Record<string, unknown> = {};
   if (name !== undefined) data.name = name;
   if (defaultWorkspaceId !== undefined) {
@@ -238,19 +266,6 @@ router.patch('/:id', requireAuth(), requireNotGuest(), handle(async (req, res) =
     // 与存量合并在 service.update 内部（单档更新不清掉其他档；显式 null = 清除该档）
     if (validated.value) {
       data.routing = validated.value;
-    }
-  }
-  // F5（决策 6）: 入口角色 defaultProfileId 可配置 — '' / null → 清除（@studio 与无 @ 消息回退未指派）；
-  // 非空校验为已存在的 active profile（不强制频道成员，成员边界在路由时按 §9.5 判定）
-  if (defaultProfileId !== undefined) {
-    if (defaultProfileId === '' || defaultProfileId === null) {
-      data.defaultProfileId = null;
-    } else {
-      const all = await fileStore.listProfiles({ status: 'active' });
-      if (!all.some(p => p.id === defaultProfileId)) {
-        return res.status(400).json({ success: false, error: `defaultProfileId ${defaultProfileId} 不是已存在的 active 角色` });
-      }
-      data.defaultProfileId = defaultProfileId;
     }
   }
   const updated = await channelService.update(id, data as Partial<import('@dommaker/studio-shared').ChannelData>);
