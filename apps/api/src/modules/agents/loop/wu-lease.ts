@@ -7,7 +7,8 @@
  *   - handleLost：易主善后（停心跳、杀自身 CLI 进程组、静默放弃）
  *   - transitionIfHeld：状态迁移前 fencing（易主即善后并返回 false）
  *   - releaseIfForfeited：WU 离开 active / 已易主 -> 停心跳
- * 心跳本体在 lease-heartbeat.ts（同族模块）。
+ * 心跳本体在 lease-heartbeat.ts（同族模块）。#635：deps 增 heartbeatIntervalMs 测试 seam
+ * （生产 undefined = 30s 缺省）；AgentLoop.stop() 不再调 stop()——租约收尾移到 runLoop 退出点。
  */
 import { logger, type FileStore } from '@dommaker/studio-shared';
 import type { WorkUnitData } from '../../workunit/workunit.service.js';
@@ -24,6 +25,8 @@ export interface WuLeaseDeps {
   stopProcessGroup: (executionId: string) => Promise<void>;
   /** 真实状态迁移（fencing 通过后由持有方执行） */
   transitionStatus: (wuId: string, status: string) => Promise<unknown>;
+  /** 测试注入：覆盖心跳间隔（生产缺省 30s，见 lease-heartbeat） */
+  heartbeatIntervalMs?: number;
 }
 
 export class WuLeaseTracker {
@@ -55,6 +58,7 @@ export class WuLeaseTracker {
         wuId: wu.id,
         claimedAt,
         assigneeId,
+        intervalMs: this.deps.heartbeatIntervalMs,
         onLost: (reason) => { void this.handleLost(wu.id, reason); },
       }),
     };

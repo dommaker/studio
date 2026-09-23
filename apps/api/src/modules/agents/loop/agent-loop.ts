@@ -9,6 +9,8 @@
 // #471 plan 额度）→ step-guards.js（对称出口侧 completion-gates 的 Ctx/Deps/Outcome 模式）。
 // #543（2026-09）：agentStep 中段两段孪生重试骨架（#94 续用丢失降级 / #96 上下文溢出）
 // → step-retry-policy.js（同 Ctx/Deps/Outcome 模式，fake executor 直测占额/簿记回写）。
+// #635（2026-09）：stop() 语义收窄为「置退出意图」——不停租约心跳、不清租约轨道；
+// 心跳续租与 fencing 活到 runLoop 主循环退出，退出点统一停心跳收尾（在飞 step 全程租约保护）。
 // 本文件保留 AgentLoop 类编排逻辑；导出面 = AgentLoop + StepResult（#544 拆除 re-export 门面，
 // 测试 import 已迁真属主 agent-loop-parsers / agent-loop-events / agent-loop-guards）。
 import { execSync } from 'child_process';
@@ -449,6 +451,11 @@ export class AgentLoop {
         await sleep(15_000);
       }
     }
+    // #635：租约收尾统一到主循环退出点——stop() 只置退出意图，在飞 step 跑完前
+    // 心跳续租与 fencing 保持运行（窗口内易主检出 → handleLost 杀进程组链路可达）；
+    // 退出后心跳停止，WU 租约按既有 5min TTL 到期回收。迭代体有内层 catch-all，
+    // 正常退出（alive=false）必达此点；紧急自裁（心跳连败）路径已先行停跳，此处幂等
+    this.stopLease();
   }
 
   /**
@@ -483,7 +490,8 @@ export class AgentLoop {
     this.wuLease.ensure(wu);
   }
 
-  /** 停止租约心跳（幂等） */
+  /** 停止租约心跳（幂等）。#635：常规路径只在 runLoop 主循环退出点调用；
+   *  紧急自裁（心跳连败）与易主善后（handleLost）各自即时调用 */
   private stopLease(): void {
     this.wuLease.stop();
   }
@@ -705,10 +713,11 @@ export class AgentLoop {
     }
   }
 
-  /** Stop the agent loop and clean up */
+  /** Stop the agent loop and clean up.
+   *  #635：语义收窄为「置退出意图」——不停租约心跳、不清租约轨道；在飞 step 全程处于
+   *  租约保护之下（续租不中断、易主 fencing 可达 handleLost），停心跳收尾在 runLoop 退出点 */
   stop(): void {
     this.alive = false;
-    this.stopLease(); // #178: 停租约心跳（WU 租约到期后由扫描释放，不再续命）
     if (this.triggerId) {
       getTriggerScheduler().unregisterTrigger(this.triggerId);
     }
