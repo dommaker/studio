@@ -30,6 +30,7 @@ vi.mock('@dommaker/studio-shared/node', () => ({
 
 import { SystemExecutor, StudioRoleNotConfiguredError, SystemExecutorJsonParseError } from '../system-executor.js';
 import { ensureStudioProfile } from '../agent-profile.service.js';
+import { isSystemRole } from '../system-role.js';
 
 function createTempDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'system-executor-test-'));
@@ -70,7 +71,7 @@ describe('SystemExecutor', () => {
       await ensureStudioProfile(fileStore);
       // 更新 studio 角色 provider=claude
       const profiles = await fileStore.listProfiles();
-      const studio = profiles.find(p => p.name === 'studio')!;
+      const studio = profiles.find(p => isSystemRole(p))!;
       await fileStore.updateProfile(studio.id, { provider: 'claude' });
 
       mockExecSh.mockResolvedValue({
@@ -87,7 +88,7 @@ describe('SystemExecutor', () => {
     it('CLI 输出非 JSON 时 usage=undefined，output 返回原始 stdout', async () => {
       await ensureStudioProfile(fileStore);
       const profiles = await fileStore.listProfiles();
-      const studio = profiles.find(p => p.name === 'studio')!;
+      const studio = profiles.find(p => isSystemRole(p))!;
       await fileStore.updateProfile(studio.id, { provider: 'claude' });
 
       mockExecSh.mockResolvedValue({ stdout: 'plain text output', stderr: '' });
@@ -100,7 +101,7 @@ describe('SystemExecutor', () => {
     it('stream-json 数组输出时从末位 result 事件提取 usage（#364）', async () => {
       await ensureStudioProfile(fileStore);
       const profiles = await fileStore.listProfiles();
-      const studio = profiles.find(p => p.name === 'studio')!;
+      const studio = profiles.find(p => isSystemRole(p))!;
       await fileStore.updateProfile(studio.id, { provider: 'claude' });
 
       mockExecSh.mockResolvedValue({
@@ -120,7 +121,7 @@ describe('SystemExecutor', () => {
     it('解析 JSON 输出返回 T', async () => {
       await ensureStudioProfile(fileStore);
       const profiles = await fileStore.listProfiles();
-      const studio = profiles.find(p => p.name === 'studio')!;
+      const studio = profiles.find(p => isSystemRole(p))!;
       await fileStore.updateProfile(studio.id, { provider: 'claude' });
 
       const mockResult = { duplicates: [{ keep: 'id1', merge: ['id2'], reason: 'same' }] };
@@ -134,7 +135,7 @@ describe('SystemExecutor', () => {
     it('claude --output-format json --verbose 输出为 stream-json 数组时，取末位 result 事件的 .result 解析', async () => {
       await ensureStudioProfile(fileStore);
       const profiles = await fileStore.listProfiles();
-      const studio = profiles.find(p => p.name === 'studio')!;
+      const studio = profiles.find(p => isSystemRole(p))!;
       await fileStore.updateProfile(studio.id, { provider: 'claude' });
 
       // 真实捕获形态（/tmp/e2e-351/claude-probe.json）：单行 JSON 数组，
@@ -156,7 +157,7 @@ describe('SystemExecutor', () => {
     it('单 result envelope 形态（claude 无 --verbose）同样解包 .result', async () => {
       await ensureStudioProfile(fileStore);
       const profiles = await fileStore.listProfiles();
-      const studio = profiles.find(p => p.name === 'studio')!;
+      const studio = profiles.find(p => isSystemRole(p))!;
       await fileStore.updateProfile(studio.id, { provider: 'claude' });
 
       // 真实捕获形态（/tmp/e2e-351/claude-probe4.json）：{type:"result", result:"<json>", usage:{…}}
@@ -173,7 +174,7 @@ describe('SystemExecutor', () => {
     it('stream-json 数组中无 result 事件时抛 SystemExecutorJsonParseError', async () => {
       await ensureStudioProfile(fileStore);
       const profiles = await fileStore.listProfiles();
-      const studio = profiles.find(p => p.name === 'studio')!;
+      const studio = profiles.find(p => isSystemRole(p))!;
       await fileStore.updateProfile(studio.id, { provider: 'claude' });
 
       mockExecSh.mockResolvedValue({
@@ -187,7 +188,7 @@ describe('SystemExecutor', () => {
     it('JSON parse 失败抛 SystemExecutorJsonParseError（含 rawOutput）', async () => {
       await ensureStudioProfile(fileStore);
       const profiles = await fileStore.listProfiles();
-      const studio = profiles.find(p => p.name === 'studio')!;
+      const studio = profiles.find(p => isSystemRole(p))!;
       await fileStore.updateProfile(studio.id, { provider: 'claude' });
 
       mockExecSh.mockResolvedValue({ stdout: 'not json {', stderr: '' });
@@ -206,7 +207,7 @@ describe('SystemExecutor', () => {
       await ensureStudioProfile(fileStore);
       // L2 后 seed 自带缺省 provider，显式清空以覆盖未配置路径
       const profiles = await fileStore.listProfiles();
-      const studio = profiles.find(p => p.name === 'studio')!;
+      const studio = profiles.find(p => isSystemRole(p))!;
       await fileStore.updateProfile(studio.id, { provider: null });
       await expect(executor.run('test')).rejects.toBeInstanceOf(StudioRoleNotConfiguredError);
       expect(mockExecSh).not.toHaveBeenCalled();
@@ -217,7 +218,7 @@ describe('SystemExecutor', () => {
     it('run 完成后写 system:tokens 事件到 studio-events.jsonl', async () => {
       await ensureStudioProfile(fileStore);
       const profiles = await fileStore.listProfiles();
-      const studio = profiles.find(p => p.name === 'studio')!;
+      const studio = profiles.find(p => isSystemRole(p))!;
       await fileStore.updateProfile(studio.id, { provider: 'claude' });
 
       mockExecSh.mockResolvedValue({
@@ -246,7 +247,7 @@ describe('SystemExecutor', () => {
     it('usage 缺失时 inputTokens/outputTokens 记 null 不编造', async () => {
       await ensureStudioProfile(fileStore);
       const profiles = await fileStore.listProfiles();
-      const studio = profiles.find(p => p.name === 'studio')!;
+      const studio = profiles.find(p => isSystemRole(p))!;
       await fileStore.updateProfile(studio.id, { provider: 'claude' });
 
       mockExecSh.mockResolvedValue({ stdout: 'no json', stderr: '' });
@@ -265,7 +266,7 @@ describe('SystemExecutor', () => {
     async function withStudioClaude(): Promise<void> {
       await ensureStudioProfile(fileStore);
       const profiles = await fileStore.listProfiles();
-      const studio = profiles.find(p => p.name === 'studio')!;
+      const studio = profiles.find(p => isSystemRole(p))!;
       await fileStore.updateProfile(studio.id, { provider: 'claude' });
     }
 
@@ -347,7 +348,7 @@ describe('SystemExecutor', () => {
     it('传 cwd 时作为 execSh 的 cwd', async () => {
       await ensureStudioProfile(fileStore);
       const profiles = await fileStore.listProfiles();
-      const studio = profiles.find(p => p.name === 'studio')!;
+      const studio = profiles.find(p => isSystemRole(p))!;
       await fileStore.updateProfile(studio.id, { provider: 'claude' });
 
       mockExecSh.mockResolvedValue({ stdout: '{}', stderr: '' });
@@ -363,7 +364,7 @@ describe('SystemExecutor', () => {
     it('env 注入 IS_SANDBOX=1（root guard 放行；host 已设则尊重 host）', async () => {
       await ensureStudioProfile(fileStore);
       const profiles = await fileStore.listProfiles();
-      const studio = profiles.find(p => p.name === 'studio')!;
+      const studio = profiles.find(p => isSystemRole(p))!;
       await fileStore.updateProfile(studio.id, { provider: 'claude' });
 
       mockExecSh.mockResolvedValue({ stdout: '{}', stderr: '' });
@@ -386,7 +387,7 @@ describe('SystemExecutor', () => {
     it('传 systemPrompt 时合并到 stdin（systemPrompt + prompt）', async () => {
       await ensureStudioProfile(fileStore);
       const profiles = await fileStore.listProfiles();
-      const studio = profiles.find(p => p.name === 'studio')!;
+      const studio = profiles.find(p => isSystemRole(p))!;
       await fileStore.updateProfile(studio.id, { provider: 'claude' });
 
       mockExecSh.mockResolvedValue({ stdout: '{}', stderr: '' });
@@ -401,7 +402,7 @@ describe('SystemExecutor', () => {
     it('默认 timeoutMs=30000', async () => {
       await ensureStudioProfile(fileStore);
       const profiles = await fileStore.listProfiles();
-      const studio = profiles.find(p => p.name === 'studio')!;
+      const studio = profiles.find(p => isSystemRole(p))!;
       await fileStore.updateProfile(studio.id, { provider: 'claude' });
 
       mockExecSh.mockResolvedValue({ stdout: '{}', stderr: '' });
@@ -418,7 +419,7 @@ describe('SystemExecutor', () => {
     it('eventSource 命中注册表时用表内默认超时（重 prompt 源 120s）', async () => {
       await ensureStudioProfile(fileStore);
       const profiles = await fileStore.listProfiles();
-      const studio = profiles.find(p => p.name === 'studio')!;
+      const studio = profiles.find(p => isSystemRole(p))!;
       await fileStore.updateProfile(studio.id, { provider: 'claude' });
 
       mockExecSh.mockResolvedValue({ stdout: '{}', stderr: '' });
@@ -434,7 +435,7 @@ describe('SystemExecutor', () => {
     it('eventSource 未命中注册表时走 30s 默认', async () => {
       await ensureStudioProfile(fileStore);
       const profiles = await fileStore.listProfiles();
-      const studio = profiles.find(p => p.name === 'studio')!;
+      const studio = profiles.find(p => isSystemRole(p))!;
       await fileStore.updateProfile(studio.id, { provider: 'claude' });
 
       mockExecSh.mockResolvedValue({ stdout: '{}', stderr: '' });
@@ -450,7 +451,7 @@ describe('SystemExecutor', () => {
     it('显式 timeoutMs 优先于注册表', async () => {
       await ensureStudioProfile(fileStore);
       const profiles = await fileStore.listProfiles();
-      const studio = profiles.find(p => p.name === 'studio')!;
+      const studio = profiles.find(p => isSystemRole(p))!;
       await fileStore.updateProfile(studio.id, { provider: 'claude' });
 
       mockExecSh.mockResolvedValue({ stdout: '{}', stderr: '' });
@@ -467,7 +468,7 @@ describe('SystemExecutor', () => {
     it('execSh 恒开 killProcessGroup（超时杀整进程组，不留孙进程孤儿）', async () => {
       await ensureStudioProfile(fileStore);
       const profiles = await fileStore.listProfiles();
-      const studio = profiles.find(p => p.name === 'studio')!;
+      const studio = profiles.find(p => isSystemRole(p))!;
       await fileStore.updateProfile(studio.id, { provider: 'claude' });
 
       mockExecSh.mockResolvedValue({ stdout: '{}', stderr: '' });

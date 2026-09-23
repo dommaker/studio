@@ -26,6 +26,11 @@ export interface AgentProfileData {
   tools?: string[];
   /** #91: 角色 preset 带入的约束声明（键值对），prompt「## 你的角色」段消费 */
   constraints?: Record<string, unknown>;
+  /**
+   * #631: 角色种类——system=系统内置角色（不可停用/删除，list 默认排除），user=用户角色。
+   * additive 字段：新写入必带；历史无字段记录由 isSystemRole 按 name==='studio' 兜底一次。
+   */
+  kind?: 'system' | 'user';
 }
 
 export interface RuntimeStateData {

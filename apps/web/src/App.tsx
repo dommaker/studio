@@ -46,6 +46,7 @@ import { StudioRoleSetupModal } from './components/setup/StudioRoleSetupModal';
 import { FirstRoleSetupModal } from './components/setup/FirstRoleSetupModal';
 import { joinDefaultChannel } from './components/setup/joinChannel';
 import { isStudioRoleSetupDismissed, isFirstRoleSetupDismissed } from './components/setup/dismissed';
+import { isSystemRole } from './utils/systemRole';
 import './styles/theme.css';
 
 // #412：REQ chain 数据面 SSE 接线（App 级单点、零渲染；useWebSocketContext 依赖 Provider，故置于 Provider 内）
@@ -120,14 +121,14 @@ export default function App() {
     // profiles 切片成功落库才评估（对齐旧 listAgents .then 时机：切片失败静默不评，等后续拉取成功）
     if (!profilesLoadedOnce) return;
     bootEvaluatedRef.current = true;
-    const studio = profiles.find(p => p.name === 'studio');
+    const studio = profiles.find(p => isSystemRole(p));
     // AC-2.2: studio provider=null 且未 dismiss -> 弹框
     if (studio && !studio.provider && !isStudioRoleSetupDismissed()) {
       setStudioRoleSetupOpen(true);
     }
     // AC-2.3（F2，2026-07-28）: 无任何 provider 非空的 active 用户角色且未 dismiss -> 弹框
     // （内置三角色 seed 已退役；角色存在但 provider 为空 = 没有可用执行体，同样需要引导）
-    const hasConfiguredRole = profiles.some(p => p.name !== 'studio' && p.status === 'active' && !!p.provider);
+    const hasConfiguredRole = profiles.some(p => !isSystemRole(p) && p.status === 'active' && !!p.provider);
     if (!hasConfiguredRole && !isFirstRoleSetupDismissed()) {
       setFirstRoleSetupOpen(true);
     }
@@ -190,7 +191,7 @@ export default function App() {
       <StudioRoleSetupModal
         open={studioRoleSetupOpen}
         onClose={() => setStudioRoleSetupOpen(false)}
-        profile={profiles.find(p => p.name === 'studio') ?? null}
+        profile={profiles.find(p => isSystemRole(p)) ?? null}
         onSaved={() => {
           void useRosterStore.getState().ensureFresh({ maxAgeMs: 0 }).catch(() => {});
         }}

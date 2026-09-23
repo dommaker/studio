@@ -15,7 +15,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { FileStore, logger } from '@dommaker/studio-shared';
 import { execSh, resolveProviderDefinition, buildArgsFromTemplate } from '@dommaker/studio-shared/node';
-import { STUDIO_ROLE_NAME } from './agent-profile.service.js';
+import { isSystemRole } from './system-role.js';
 import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
 import { getErrorMessage } from '../../utils/errors.js';
 
@@ -100,7 +100,7 @@ export class SystemExecutor {
 
     // 1. 读 studio 角色 provider
     const profiles = await this.fileStore.listProfiles();
-    const studioProfile = profiles.find(p => p.name === STUDIO_ROLE_NAME);
+    const studioProfile = profiles.find(p => isSystemRole(p));
     if (!studioProfile || !studioProfile.provider) {
       throw new StudioRoleNotConfiguredError();
     }

@@ -27,6 +27,7 @@ import { readCollab } from '../../workunit/delegation-gate.js';
 import { postWuSystemMessage } from '../../workunit/wu-messenger.js';
 import { parseWuMetadata, clearSessionBookkeeping } from '../../workunit/wu-metadata.js';
 import { resolveOrNotice } from '../../channels/routing.js';
+import { isSystemRole } from '../system-role.js';
 import type { ParsedReviewReport } from './review-contract.js';
 
 /**
@@ -98,7 +99,7 @@ export class ReviewDispatcher {
     if (memberIds.length === 0) return null;
 
     const allProfiles = await this.fileStore.listProfiles({ status: 'active' });
-    return allProfiles.filter(p => memberIds.includes(p.id) && p.name !== 'studio');
+    return allProfiles.filter(p => memberIds.includes(p.id) && !isSystemRole(p));
   }
 
   /**

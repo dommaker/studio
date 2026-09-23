@@ -43,6 +43,8 @@ export interface AgentProfile {
   status: string;
   provider?: string | null;
   channels?: string | string[] | null; // JSON string of channel ID array（历史数据可能双重编码）
+  /** #631: 角色种类（system=系统内置 / user=用户）；历史无字段记录由 isSystemRole 按 name 兜底 */
+  kind?: 'system' | 'user';
   /** #462: 显式 skill 声明（注入索引候选，与 WU +skill 点名同权） */
   skills?: string[];
   isOnline?: boolean;

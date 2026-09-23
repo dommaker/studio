@@ -40,7 +40,7 @@ export function buildPrepare(extra: { inReviewWorkUnitId?: string }): Record<str
       const token = JSON.parse(raw).state.token;
       const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
       const res = await fetch('/api/v1/agent-profiles?includeSystem=true', { headers });
-      const studio = ((await res.json()).data as Array<{ id: string; name: string }>).find(x => x.name === 'studio');
+      const studio = ((await res.json()).data as Array<{ id: string; name: string; kind?: string }>).find(x => x.kind === 'system');
       if (!studio) return false;
       const patch = await fetch(`/api/v1/agent-profiles/${studio.id}`, { method: 'PATCH', headers, body: JSON.stringify({ provider: p }) });
       return patch.ok;
@@ -182,7 +182,7 @@ export function buildPrepare(extra: { inReviewWorkUnitId?: string }): Record<str
           const token = JSON.parse(localStorage.getItem('auth-storage')!).state.token as string;
           return fetch('/api/v1/agent-profiles?includeSystem=true', { headers: { Authorization: `Bearer ${token}` } })
             .then(r => r.json())
-            .then(d => (d.data as Array<{ name: string; provider: string | null }>).find(x => x.name === 'studio')?.provider ?? null);
+            .then(d => (d.data as Array<{ name: string; provider: string | null; kind?: string }>).find(x => x.kind === 'system')?.provider ?? null);
         });
         if (!raw) return false;
         if (!(await patchStudioProvider(page, null))) return false;

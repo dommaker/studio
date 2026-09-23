@@ -305,3 +305,31 @@ describe('workUnitToCurrentWorkUnit', () => {
     });
   });
 });
+
+describe('activeAgentsOf — #631 kind 口径', () => {
+  it('默认按 kind 排除系统角色（kind=system 即使 name 不叫 studio）', async () => {
+    const { activeAgentsOf } = await import('../rosterStore');
+    const profiles = [
+      profile({ id: 'p1', name: 'dev-agent' }),
+      profile({ id: 'p2', name: 'ops-bot', kind: 'system' }),
+      profile({ id: 'p3', name: 'studio', kind: 'system' }),
+    ] as never[];
+    expect(activeAgentsOf(profiles).map((p) => p.id)).toEqual(['p1']);
+    expect(activeAgentsOf(profiles, true).map((p) => p.id)).toEqual(['p1', 'p2', 'p3']);
+  });
+
+  it('历史无 kind 字段的 studio 记录按 name 兜底排除', async () => {
+    const { activeAgentsOf } = await import('../rosterStore');
+    const profiles = [
+      profile({ id: 'p1', name: 'dev-agent' }),
+      profile({ id: 'p2', name: 'studio' }),
+    ] as never[];
+    expect(activeAgentsOf(profiles).map((p) => p.id)).toEqual(['p1']);
+  });
+
+  it('inactive 角色仍被排除（status 过滤不变）', async () => {
+    const { activeAgentsOf } = await import('../rosterStore');
+    const profiles = [profile({ id: 'p1', status: 'inactive' })] as never[];
+    expect(activeAgentsOf(profiles, true)).toEqual([]);
+  });
+});

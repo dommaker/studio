@@ -19,7 +19,7 @@ import { parseWuMetadata } from '../workunit/wu-metadata.js';
 import { postWuSystemMessage } from '../workunit/wu-messenger.js';
 import { resolveReqIdForDispatch } from '../requirements/req-binding.js';
 import { OWNERSHIP_WAITING_QUESTION, resolveWorkspaceForWU } from '../requirements/ownership-resolver.js';
-import { STUDIO_ROLE_NAME } from '../agents/agent-profile.service.js';
+import { STUDIO_ROLE_NAME, isSystemRole } from '../agents/system-role.js';
 import {
   validateFileRefs,
   type FileRef,
@@ -285,7 +285,7 @@ export async function routeMessage(
     let prefixMatchName: string | null = null;
     if (!agent && mentionName !== STUDIO_ROLE_NAME) {
       const candidates = allProfiles.filter(
-        p => inScope(p) && p.name !== STUDIO_ROLE_NAME && p.name.length > 0 && mentionName.startsWith(p.name),
+        p => inScope(p) && !isSystemRole(p) && p.name.length > 0 && mentionName.startsWith(p.name),
       );
       if (candidates.length > 0) {
         const maxLen = Math.max(...candidates.map(p => p.name.length));

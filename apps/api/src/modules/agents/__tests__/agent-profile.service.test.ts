@@ -8,6 +8,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { FileStore, eventBus } from '@dommaker/studio-shared';
 import { AgentProfileService, ensureStudioProfile, STUDIO_ROLE_DESCRIPTION, STUDIO_ROLE_DEFAULT_PROVIDER, STUDIO_ROLE_LEGACY_DESCRIPTION } from '../agent-profile.service.js';
+import { isSystemRole } from '../system-role.js';
 
 // F1: provider 缺省打戳的扫描结果 mock 为固定 'claude'（真机扫描结果随机器漂移，测试要确定）
 vi.mock('../default-provider.js', () => ({
@@ -458,7 +459,7 @@ describe('AC Group 1: studio role', () => {
     it('ensureStudioProfile 后 list 默认不含 studio（includeSystem=false）', async () => {
       await ensureStudioProfile(fileStore);
       const result = await service.list();
-      expect(result.data.find(p => p.name === 'studio')).toBeUndefined();
+      expect(result.data.find(p => isSystemRole(p))).toBeUndefined();
     });
   });
 
@@ -485,13 +486,13 @@ describe('AC Group 1: studio role', () => {
     it('list({ includeSystem: true }) 包含 studio 角色', async () => {
       await ensureStudioProfile(fileStore);
       const result = await service.list({ includeSystem: true });
-      expect(result.data.find(p => p.name === 'studio')).toBeDefined();
+      expect(result.data.find(p => isSystemRole(p))).toBeDefined();
     });
 
     it('list 默认排除 studio 角色', async () => {
       await ensureStudioProfile(fileStore);
       const result = await service.list();
-      expect(result.data.find(p => p.name === 'studio')).toBeUndefined();
+      expect(result.data.find(p => isSystemRole(p))).toBeUndefined();
     });
   });
 
@@ -791,5 +792,85 @@ describe('#298: update name uniqueness (与 create 同口径)', () => {
     await service.create({ name: 'dup-name' });
     await expect(service.create({ name: 'dup-name' }))
       .rejects.toThrow(/already exists|Unique constraint/i);
+  });
+});
+
+describe('#631: AgentProfile.kind 系统角色显式化', () => {
+  let tmpDir: string;
+  let fileStore: FileStore;
+  let service: AgentProfileService;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'profile-kind-test-'));
+    fileStore = new FileStore(tmpDir);
+    service = new AgentProfileService(fileStore);
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('create 写入 kind=user', async () => {
+    const profile = await service.create({ name: 'kind-user' });
+    expect(profile.kind).toBe('user');
+    const onDisk = await fileStore.getProfile(profile.id);
+    expect(onDisk!.kind).toBe('user');
+  });
+
+  it('ensureStudioProfile 新建写入 kind=system', async () => {
+    const profile = await ensureStudioProfile(fileStore);
+    expect(profile.kind).toBe('system');
+    const onDisk = await fileStore.getProfile(profile.id);
+    expect(onDisk!.kind).toBe('system');
+  });
+
+  it('ensureStudioProfile 回填存量无 kind 记录的 studio 角色', async () => {
+    const now = new Date().toISOString();
+    await fileStore.createProfile({
+      id: 'studio-no-kind', name: 'studio', description: STUDIO_ROLE_DESCRIPTION,
+      channels: '[]', provider: 'claude', status: 'active',
+      createdAt: now, updatedAt: now,
+    });
+
+    const profile = await ensureStudioProfile(fileStore);
+    expect(profile.kind).toBe('system');
+    const onDisk = await fileStore.getProfile('studio-no-kind');
+    expect(onDisk!.kind).toBe('system');
+  });
+
+  it('list 默认按 kind 排除系统角色（kind=system 即使 name 不叫 studio）', async () => {
+    const now = new Date().toISOString();
+    await fileStore.createProfile({
+      id: 'sys-other', name: 'ops-bot', kind: 'system', description: null,
+      channels: '[]', provider: 'claude', status: 'active',
+      createdAt: now, updatedAt: now,
+    });
+    await service.create({ name: 'normal-role' });
+
+    const result = await service.list();
+    expect(result.data.map(p => p.name)).toEqual(['normal-role']);
+
+    const withSystem = await service.list({ includeSystem: true });
+    expect(withSystem.data.map(p => p.name).sort()).toEqual(['normal-role', 'ops-bot']);
+  });
+
+  it('禁停用按 kind 判定：kind=system 的非 studio 名角色同样拒绝停用', async () => {
+    const now = new Date().toISOString();
+    await fileStore.createProfile({
+      id: 'sys-guard', name: 'ops-bot', kind: 'system', description: null,
+      channels: '[]', provider: 'claude', status: 'active',
+      createdAt: now, updatedAt: now,
+    });
+    await expect(service.update('sys-guard', { status: 'inactive' })).rejects.toThrow(/cannot be deactivated/i);
+  });
+
+  it('禁删按 kind 判定：kind=system 的非 studio 名角色同样拒绝删除', async () => {
+    const now = new Date().toISOString();
+    await fileStore.createProfile({
+      id: 'sys-guard-del', name: 'ops-bot', kind: 'system', description: null,
+      channels: '[]', provider: 'claude', status: 'active',
+      createdAt: now, updatedAt: now,
+    });
+    await expect(service.delete('sys-guard-del')).rejects.toThrow(/cannot be deleted/i);
   });
 });

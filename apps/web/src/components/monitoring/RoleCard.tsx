@@ -21,6 +21,7 @@ import { useRosterActivities } from '../../stores/rosterActivityStore';
 import { AgentAvatar } from '../channel/AgentAvatar';
 import { IconAlertTriangle } from '../ui/icons';
 import type { RosterRole } from '../../hooks/useAgentRoster';
+import { isSystemRole } from '../../utils/systemRole';
 import type { WorkUnit } from '../../api/workunit';
 import {
   resolveCardStatusKey,
@@ -44,7 +45,7 @@ export const RoleCard = memo(function RoleCard({ role, lastDone, channelNames, o
 }) {
   const activities = useRosterActivities(role.profile.id);
   const { profile, runtime } = role;
-  const isSystemRole = profile.name === 'studio';
+  const systemRole = isSystemRole(profile);
   // ⋯ 菜单开合（卡内局部 state，不触父级——#348 memo 口径不变）
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -80,7 +81,7 @@ export const RoleCard = memo(function RoleCard({ role, lastDone, channelNames, o
         <Link to={`/agents/${profile.id}`} className="agd-name u-text u-hover-accent agd-ellipsis">
           {profile.name}
         </Link>
-        {isSystemRole && <span className="agd-chip">系统</span>}
+        {systemRole && <span className="agd-chip">系统</span>}
         <span className="agd-chip" title="背后的 CLI">{profile.provider ?? '未配置'}</span>
         {runtime && <span className="agd-num u-text-3" data-visual-ignore>{formatUptime(runtime.startedAt)}</span>}
         {/* #630 决策 6：悬停 ⋯ 菜单（agd-* 族镜像 mc-topbar-menu 类名体系；删除项对系统角色隐藏） */}
@@ -108,7 +109,7 @@ export const RoleCard = memo(function RoleCard({ role, lastDone, channelNames, o
                     编辑技能
                   </button>
                 )}
-                {onDelete && !isSystemRole && (
+                {onDelete && !systemRole && (
                   <button type="button" className="agd-menu-item agd-menu-item-danger" onClick={() => { setMenuOpen(false); onDelete(role); }}>
                     删除
                   </button>

@@ -16,6 +16,7 @@ import { useEffect, useState } from 'react';
 import { channelApi, type AgentProfile } from '../../api/channel';
 import { ApproveDialogShell, Button, Select } from '../ui';
 import { resolveChannelResponders } from './channelResponders';
+import { isSystemRole } from '../../utils/systemRole';
 import type { ReviewConfirmPayload } from '../../api/workunit';
 import type { AnalysisConfirmPrefill } from './mapUtils';
 
@@ -56,7 +57,7 @@ export function AnalysisApproveDialog({ prefill, channelId, confirmKind = 'analy
     Promise.all([channelApi.get(channelId), channelApi.listAllAgents()])
       .then(([chRes, agentsRes]) => {
         if (cancelled) return;
-        const active = (agentsRes.data?.data || []).filter(p => p.status === 'active' && p.name !== 'studio');
+        const active = (agentsRes.data?.data || []).filter(p => p.status === 'active' && !isSystemRole(p));
         setCandidates(resolveChannelResponders(chRes.data?.data, channelId, active));
       })
       .catch(() => { if (!cancelled) setCandidates([]); });

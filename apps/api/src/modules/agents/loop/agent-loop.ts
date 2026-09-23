@@ -22,6 +22,7 @@ import { LocalExecutor, type Executor } from './executor.js';
 import { WorkUnitService, snapshotToData, type WorkUnitMetadata, type WorkUnitData } from '../../workunit/workunit.service.js';
 import { claimWorkUnitAndAnnounce } from '../../workunit/claim-announce.js';
 import type { AgentProfileData } from '@dommaker/studio-shared';
+import { isSystemRole } from '../system-role.js';
 import { getTriggerScheduler } from '../../triggers/trigger-registry.js';
 import { knowledgeService } from '../../knowledge/knowledge-service.js';
 import { postWuSystemMessage } from '../../workunit/wu-messenger.js';
@@ -680,7 +681,7 @@ export class AgentLoop {
       const memberIds = parseChannels(channel?.members);
       if (memberIds.length === 0) return;
       const activeMembers = (await this.fileStore.listProfiles({ status: 'active' }))
-        .filter(p => memberIds.includes(p.id) && p.name !== 'studio');
+        .filter(p => memberIds.includes(p.id) && !isSystemRole(p));
       if (activeMembers.length === 0) return;
       const unfitIds = new Set(unfitRoles.map(e => e.roleId));
       if (!activeMembers.every(p => unfitIds.has(p.id))) return;
